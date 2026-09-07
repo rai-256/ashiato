@@ -15,7 +15,7 @@
 | `~/dev/ashiato2/` | 作業場所。GitHub `rai-256/ashiato2` (private) / branch `main` / 初期コミット `afad85b` | する |
 | `reference/` | 旧 ashiato からの参考資料 | **しない（読むだけ）** |
 | `docs/` | フローの出力先。**いまは空** | する |
-| `.claude/skills` → `~/dev/harness2/skills` | skill 4 本（symlink） | harness2 側で直す |
+| `.claude/skills` → `~/dev/harness2/skills` | skill 5 本（symlink）| harness2 側で直す |
 | `scripts` → `~/dev/harness2/scripts` | 検査スクリプト（symlink） | 同上 |
 
 **旧ハーネス（`.harness/`）も hook も無い。** 何も邪魔しない。
@@ -34,6 +34,12 @@
 ```
 
 skill の本文は `~/dev/harness2/skills/<名前>/SKILL.md`。**必ず読んでから従うこと。**
+skill は `requirements` / `stories` / `ui-direction` / `production-prep` / `grilling` の 5 本。
+`grilling` は mattpocock/skills (MIT) から commit ピン留めで逐語ベンダリングしたもので、
+**問い方の規範の単一情報源**。`/requirements` の Step 2 と OpenSpec の `deep` から呼ぶ。
+
+> harness2 は `~/dev/harness2/` で git 管理されている（remote 未設定）。skill を直したら
+> そちらでコミットする。ashiato2 側は symlink なので即反映される。
 
 ---
 
