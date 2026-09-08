@@ -254,8 +254,8 @@ function pal(){
  const tones={s0:L(0),s1:L(1),s2:L(2),s3:L(3),sub:away(card,Math.max(3,Math.abs(step))),
    chip:away(card,9)};
  const chip=tones.chip;
- const faces=[...Object.values(tones).map(l=>[h,s*0.3,l]),
-   [accHue(h,3,0),s*0.7,chip],[accHue(h,3,1),s*0.7,chip],[accHue(h,3,2),s*0.7,chip]];
+ const chipC=m=>[accHue(h,3,m),s*CHIP_S,tones.chip];   // チップの実色はこの 1 か所だけが作る
+ const faces=[...Object.values(tones).map(l=>[h,s*0.3,l]),chipC(0),chipC(1),chipC(2)];
  const pick=t=>{for(let x=dark?0:100;x>=0&&x<=100;x+=dir)
    if(faces.every(c=>cr(hsl2rgb(h,ts,x),hsl2rgb(c[0],c[1],c[2]))>=t))return x;return dark?100:0;};
  const dim=pick(4.5);
@@ -265,9 +265,10 @@ function pal(){
  const line=Math.min(100,Math.max(0,s0+dir*13));            // 境界線は地から必ず離す
  let min=99;faces.forEach(c=>[fg,dim].forEach(tl=>{
    min=Math.min(min,cr(hsl2rgb(h,ts,tl),hsl2rgb(c[0],c[1],c[2])));}));
- return{h,s,ts,...tones,fg,dim,acc,card,line,ratio:min,soft,tones};
+ return{h,s,ts,...tones,fg,dim,acc,card,line,ratio:min,soft,tones,chipC,nFaces:faces.length};
 }
-const ACC_N=6;                                              // 種類の色数は面の段数から独立させる
+const ACC_N=6, CHIP_S=0.7;
+const css=c=>`hsl(${c[0]} ${c[1]}% ${c[2]}%)`;   // [色相,彩度,明度] を描く唯一の口                                              // 種類の色数は面の段数から独立させる
 const accHue=(h,n,k)=>n<=1?h:(h+((k%n)-(n-1)/2)*((40+n*20)/(n-1))+360)%360;
 const SHAPE=["50%","3px","0 0 50% 50%","50% 0 50% 0","45% 10% 45% 10%","10% 45% 10% 45%"]; // 色だけに頼らない形
 
@@ -285,16 +286,17 @@ function items(){let a=state.unit==="raw"
 
 function rowHTML(it,p,t,i){
  const ac=`hsl(${accHue(p.h,ACC_N,it.k)} ${p.s}% ${p.acc}%)`;
- const mood=it.m===null?"":`<span class="mchip" style="background:hsl(${accHue(p.h,3,it.m)} ${p.s*0.7}% ${p.chip}%)">${it.m>0?"+":""}${it.m}</span>`;
+ const mood=it.m===null?"":`<span class="mchip" style="background:${css(p.chipC(it.m))}">${it.m>0?"+":""}${it.m}</span>`;
  const ph=it.ph?`<div class="ph">${Array.from({length:it.ph},()=>
    `<i style="width:${(t.body*(state.hero==="photo"?3.4:1.9)).toFixed(0)}px;height:${(t.body*(state.hero==="photo"?3.4:1.9)).toFixed(0)}px"></i>`).join("")}</div>`:"";
  const ico=state.icon?`<span class="ic" style="background:${ac};border-radius:${SHAPE[it.k%ACC_N]}"></span>`:"";
  const H={place:["big","mid","sm"],time:["mid","big","sm"],photo:["mid","sm","sm"],mood:["mid","sm","sm"]}[state.hero];
- if(state.layout==="table")
-  return `<div class="tblwrap" style="${i%2?"background:var(--s1)":""}">
+ if(state.layout==="table"){
+  const band=(ctx.width>=900?Math.floor(i/2):i)%2;
+  return `<div class="tblwrap" style="${band?"background:var(--s1)":""}">
     <div class="rw-tbl"><span class="sm num">${it.t}</span><span class="${H[0]}">${ico}${it.n}</span>
     <span class="sm num">${it.d}</span><span>${mood}${state.drill==="push"?' <span class="sm">›</span>':""}</span></div>
-    ${(state.drill==="inline"&&i===3)?`<div class="expand">生の記録 412 件 ・ 写真 3 枚 ・ 主観 1 件（その場で開いた）</div>`:""}</div>`;
+    ${(state.drill==="inline"&&i===3)?`<div class="expand">生の記録 412 件 ・ 写真 3 枚 ・ 主観 1 件（その場で開いた）</div>`:""}</div>`;}
  const body=`<span class="bar3" style="background:${ac}"></span>
    <span class="sm num" style="flex:none;min-width:${(t.body*3.2).toFixed(0)}px">${it.t}</span>
    <span style="flex:1">${ico}<span class="${H[0]}">${it.n}</span>
@@ -373,7 +375,7 @@ function render(){
    ${ctx.screen==="main"?`<div class="danger" tabindex="0">この日の記録を削除（44×44 / NFR-20）</div>`:""}</div>`;
 {const w=f.getBoundingClientRect().width;
   document.getElementById('v-width').textContent=ctx.width+"px"+(w>0&&w<ctx.width-2?"（実効 "+Math.round(w)+"px）":"");}
- document.getElementById('cr').textContent="面とチップの全 7 組で最小 "+p.ratio.toFixed(1)+":1（"+(ctx.theme==="dark"?"ダーク":"ライト")+"）"+(p.soft?" ※運用値 5.5:1 には届かないので要件の 4.5:1 で成立させている":"");
+ document.getElementById('cr').textContent="面とチップの全 "+p.nFaces+" 組で最小 "+p.ratio.toFixed(1)+":1（"+(ctx.theme==="dark"?"ダーク":"ライト")+"）"+(p.soft?" ※運用値 5.5:1 には届かないので要件の 4.5:1 で成立させている":"");
  const h=f.getBoundingClientRect().height;
  document.getElementById('fit').textContent=h<=800?`1 画面に収まる · 約 ${Math.round(h)}px`:`はみ出す · 約 ${Math.round(h)}px`;
  document.getElementById('cnt').textContent={raw:`1 日 ${N_RAW_DAY.toLocaleString()} 件 — 全部は並べられない`,
@@ -386,7 +388,6 @@ function updatePrompt(){
  const d=[];
  const off=inert();
  const q=(k,txt)=>{if(state[k]!==DEFAULTS[k]&&!off.includes(k))d.push(txt);};
- q("hero",`主役は${{place:"場所の名前",time:"時刻と長さ",photo:"写真",mood:"気分の数値"}[state.hero]}`);
  q("ratio",`見出しと本文の差は ${state.ratio<112?"ほぼ無く（比 "+(state.ratio/100).toFixed(2)+"）":state.ratio<132?"ほどよく（比 "+(state.ratio/100).toFixed(2)+"）":"はっきり付けて（比 "+(state.ratio/100).toFixed(2)+"）"}`);
  q("density",`密度は${state.density<25?"詰めて":state.density<50?"やや詰めて":state.density<75?"ゆったり":"かなりゆったり"}（間隔 ${t.sp.toFixed(0)}px）`);
  q("hue",`色相は ${state.hue}°`);q("sat",`彩度は ${state.sat}%（${state.sat<15?"ほぼ無彩色":state.sat<32?"低く抑える":"やや強め"}）`);
@@ -398,7 +399,7 @@ function updatePrompt(){
  document.getElementById('prompt').textContent=
 `あしあと。の全画面は次の方向で作る。
 
-骨格 — ${nm(MAIN,state.main)}を主表現にし、${off.includes("layout")?"":nm(LAYOUT,state.layout)+"で並べ、"}1 行の単位は「${nm(UNIT,state.unit)}」。${off.includes("drill")?"":`
+骨格 — ${nm(MAIN,state.main)}を主表現にし、${off.includes("layout")?"":nm(LAYOUT,state.layout)+"で並べ、"}1 行の単位は「${nm(UNIT,state.unit)}」。${off.includes("hero")?"":`大きく出すのは${{place:"場所の名前",time:"時刻と長さ",photo:"写真",mood:"気分の数値"}[state.hero]}。`}${off.includes("drill")?"":`
 詳細は${state.drill==="inline"?"その場で開く（画面を移らない）":"画面を移って見せる"}。`}${off.length?`
 （${nm(MAIN,state.main)}を選んだので ${off.map(k=>({layout:"並べ方",hero:"主役",drill:"降り方"})[k]).join("・")} は効かない。この主表現では決まらない、という意味）`:""}
 単位を「${nm(UNIT,state.unit)}」にしたので 1 画面に並ぶのは ${{raw:N_RAW_DAY.toLocaleString()+" 件のうち先頭だけ",stay:N_STAY_DAY+" 件",day:N_DAY_MONTH+" 件"}[state.unit]}。
