@@ -64,16 +64,10 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | capability | 何の能力か | 積む Story |
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03, ST05 |
-
-> **訂正（2026-09-08、ST01 の上流工程で判明）**: 当初 ST01 を `record-envelope` にだけ
-> 割り当てていたが、FR-1（C-01 が 60 秒間隔で位置を取る）と FR-10（到達できるとき送る）は
-> **端末側の振る舞い**であって記録の骨格ではない。この表のままだと FR-1 の置き場が
-> ST04（layer 2）まで存在しないことになる。**capability 名は変えず**、
-> `device-collection` の作成を ST01 に前倒した。後続の割り当ては壊れていない。
 | `device-collection` | 携帯端末からの収集 | **ST01**, ST04, ST06, ST09, ST11, ST34, ST35 |
 | `desktop-collection` | PC からの収集 | ST07, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | ST02, ST14, ST15 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, ST14, ST15 |
 | `derived-records` | 派生（滞在） | ST16 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
@@ -82,6 +76,22 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `browsing-views` | 閲覧と検索 | ST25, ST26, ST36 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
+
+> **訂正（2026-09-08、ST01 の上流工程と実装後の検証で判明）**
+>
+> 当初 ST01 を `record-envelope` にだけ割り当てていたが、**2 つの capability を前倒した**。
+>
+> - `device-collection` —— FR-1（60 秒間隔で位置を取る）と FR-10（到達できるとき送る）は
+>   **端末側の振る舞い**であって記録の骨格ではない。表のままだと置き場が ST04（layer 2）まで無い
+> - `collection-coverage` —— ST01 は取り込みと同じ関門で稼働記録を書く（FR-33）ので、
+>   件数の数え方（design D13）の置き場が ST02（layer 1）まで無い
+>
+> **capability 名はどちらも変えていない**（OpenSpec が rename を禁じている）ので、
+> 後続の割り当ては壊れていない。
+>
+> **この型は繰り返し出る** —— 「土台の Story が、後続の capability に属する振る舞いを
+> 先に書いてしまう」。capability の**作成**を前倒し、後続が要件を**足す**形にすれば、
+> 名前を変えずに済む。上流工程でこの照合を 1 回やること。
 
 ## どの Story にも拾われていない要件
 
