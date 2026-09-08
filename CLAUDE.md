@@ -140,6 +140,21 @@ gh issue create（tasks.md を本文に）
                                        ★ push の直前で止めて報告
 ```
 
+### 下流の起動は 1 コマンド
+
+```bash
+scripts/story.sh ST01          # worktree を用意して、その中で claude を起動する
+```
+
+worktree が無ければ `feat/<change名>` で作り、あれば main に追従させてから入る。
+最後に `claude "/story ST01"` を exec するので、**新しいセッションで始まる**
+（プラグインはセッション開始時に読み込まれるため、これが要る）。
+
+すでに worktree の中にいるなら、セッション内で `/story ST01` だけでよい。
+`/story` は **場所の確認 → issue と deep.md と tasks.md を読む → 規律を敷く →
+tasks を順に進める → push の直前で止まる** をやる。工程を発明はしない
+（進め方の実体は Story ごとの成果物が持っている）。
+
 **なぜ specs を待つか**: 実装は spec の穴を開ける（実測: 1 Story あたり 4 件、
 うち 1 件は実装が黙って決めた設計判断）。ST01 は土台なので、ここが動くと
 後続の spec が古くなる。proposal（何を・なぜ）は実装詳細に依存しないので先に書ける。
