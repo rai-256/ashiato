@@ -161,6 +161,31 @@ python3 scripts/story_brief.py ST02 --open   # docs/briefs/ST02.html
 （扉の判断の土台になる文書なので、生成側の解釈が混ざると事実として読まれる）。
 `docs/briefs/` は生成物なので commit しない。
 
+### 深掘りの問いも HTML で渡す
+
+**1 問ずつ会話で聞かない。** 論点が揃ったら 1 枚にまとめる。
+
+```bash
+python3 scripts/ask_wizard.py --example > /tmp/q.json   # 入力の形
+python3 scripts/ask_wizard.py /tmp/q.json -o docs/briefs/ST<NN>-deep.html
+```
+
+`SendUserFile`（`display: "render"`）で渡す → タップで選ぶ → 「回答をコピー」→
+**その文字列をセッションに貼り戻す**。戻りの形は固定で、未回答も分かる。
+
+```
+=== ST02 の深掘り の回答 ===
+Q1 [稼働記録の日付境界] -> 端末のタイムゾーンで区切る
+  補足: 深夜をまたぐ行動が多い
+Q2 [感度の既定] -> (未回答)
+```
+
+- **一覧にする理由**: 1 問ずつだと前の問いの文脈を抱えたまま次を読むことになり、
+  長い深掘りほど答えが雑になる
+- **サーバを立てない理由**: PC のセッションをスマホから見ることが多く、`localhost` は届かない
+- 各問いに `kind`（`irreversible` / `conflict` / `daily` / `open`）を付ける。
+  **分類できない問いは、たいてい人間に聞く必要が無い**
+
 **上流は先行 Story が merge されるまで `deep` と `proposal` で止まる。** 機械的に
 書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
 `MODIFIED` を書けない）うえ、実装が spec の穴を開けるので書いても古くなる。
