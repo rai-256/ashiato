@@ -106,9 +106,51 @@ block_c: in-progress
 
 ## B 作る（工具）
 
+**判定は「設定した」ではなく「走らせた」。** 下記はすべて 2026-09-08 に実際に実行した記録。
+
 | 項目 | 実行したコマンド | 終了コード |
 |---|---|---|
-（未着手）
+| 処理系が動く（Rust） | `cargo build --workspace` | **0** |
+| 処理系が動く（Node / TypeScript） | `npm install` → `npx tsc -b` | **0 / 0** |
+| 処理系が動く（PostgreSQL） | `docker compose up -d --wait db` → `Container ashiato2-db-1 Healthy` | **0** |
+| **処理系が動く（Android / Kotlin）** | **未実行** | **未達**（下記） |
+| workspace の構成 | Cargo workspace（`crates/server`・`crates/collector-windows`）＋ `web/`＋`migrations/` | — |
+| build（Rust） | `cargo build --workspace` | **0** |
+| test（Rust） | `cargo test --workspace` → 2 passed | **0** |
+| lint（Rust） | `cargo clippy --workspace --all-targets -- -D warnings` | **0** |
+| 整形（Rust） | `cargo fmt --all --check` | **0**（初回は 1 で落ち、整形して再検査） |
+| build（Web） | `npm run build` → `dist/` 生成 | **0** |
+| 型検査（Web） | `npx tsc -b` | **0** |
+| lint（Web） | `npm run lint`（`--max-warnings 0`） | **0** |
+| CI の骨格 | `.github/workflows/ci.yml`（rust / web / smoke の 3 job）。**ローカルで同じコマンドが 0 で通ることを確認済み。GitHub 上での実行は push 後** | — |
+| 起動スクリプト | `./tools/dev.sh` → API が `ok` を返し、画面が HTTP 200 | **0** |
+| **最短の縦串** | `./tools/smoke.sh` | **0** |
+
+### 縦串が実際に確かめていること
+
+`tools/smoke.sh` は機能ゼロのまま、**A で決めたもの同士が噛み合うか**を 8 手順で通す。
+
+1. DB を起動 → 2. サーバ起動時にマイグレーションを当てる → 3. **登録簿へ 1 行だけ INSERT**（FR-61）
+→ 4. ダミーを 1 件送る → 5. **同じものをもう一度送り、`duplicate: true` で行が増えないことを確認**（FR-22）
+→ 6. **論理削除を効かせたビュー越しに 1 件取り出す**（FR-50 / A-3）
+→ 7. **登録簿に無いソースが 400 で拒否されることを確認**（FR-61 の関門）
+→ 8. **バックアップを取り、別のデータベースへ戻して同じ 1 件が読めることを確認**（A-3「取れることではなく戻せること」）
+
+### 未達 —— C-01（Android / Kotlin）の処理系
+
+**この環境では検証できていない。** JDK・Gradle・Android SDK がいずれも入っておらず、
+`sudo` がパスワードを要求するため導入もできない。
+一方 `~/.android/adbkey` が存在するので、**Android の道具は Windows 側にある**と見られる。
+
+閉じるには次を Windows 側（または JDK を入れた WSL）で 1 回通す:
+
+```
+./gradlew :collector-android:assembleDebug
+```
+
+**B は「Android を除いて緑」であり、`block_b: done` にはしない。**
+ST01（layer 0）は S-01 と D-01 だけで完結するので着手を妨げないが、
+**C-01 に触る最初の Story（ST04 / ST06 / ST09 / ST11）の前に閉じる必要がある。**
 
 ---
 
