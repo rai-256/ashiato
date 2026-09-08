@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
 export BIND="${BIND:-127.0.0.1:18787}"
+export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 
 echo "== 依存を揃える"
 cargo fetch -q

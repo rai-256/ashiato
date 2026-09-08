@@ -6,7 +6,7 @@
 use anyhow::Context as _;
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -19,6 +19,31 @@ use ingest::{content_hash, IngestRequest};
 #[derive(Clone)]
 struct App {
     pool: sqlx::PgPool,
+    /// 共有の合言葉。**loopback に閉じているだけでは足りない** ——
+    /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
+    /// 素通しで読み書きできてしまう。
+    token: String,
+}
+
+/// 合言葉を確かめる。無ければ 401。
+fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+    let given = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    // 比較にかかる時間で中身が漏れないよう、長さを確かめてから全バイトを畳み込む
+    let ok = given.len() == app.token.len()
+        && given
+            .bytes()
+            .zip(app.token.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
+    if ok {
+        Ok(())
+    } else {
+        Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
+    }
 }
 
 #[derive(Serialize)]
@@ -40,8 +65,10 @@ struct EventRow {
 
 async fn ingest(
     State(app): State<App>,
+    headers: HeaderMap,
     Json(req): Json<IngestRequest>,
 ) -> Result<Json<IngestReply>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
     let hash = content_hash(&req);
     // 登録簿に無いソースは受け付けない。API を変えずにソースを増やすので（FR-61）、
     // 増やす操作は「登録簿へ 1 行 INSERT」だけになる。
@@ -109,7 +136,11 @@ async fn ingest(
     }
 }
 
-async fn events(State(app): State<App>) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
+async fn events(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
     let rows = sqlx::query_as::<
         _,
@@ -146,8 +177,9 @@ async fn events(State(app): State<App>) -> Result<Json<Vec<EventRow>>, (StatusCo
 
 fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     // 私的データはログに出さない（A-2）。出すのはエラーの種別だけ。
-    tracing::error!(kind = "db", "データベース操作に失敗");
-    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    // **応答に元のエラーを載せない** —— スキーマ名・接続先・値が呼び出し側へ漏れる。
+    tracing::error!(kind = "db", detail = %e, "データベース操作に失敗");
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
 #[tokio::main]
@@ -159,6 +191,10 @@ async fn main() -> anyhow::Result<()> {
     }));
 
     let url = std::env::var("DATABASE_URL").context("DATABASE_URL が未設定")?;
+    let token = std::env::var("API_TOKEN").context("API_TOKEN が未設定")?;
+    if token.len() < 16 {
+        anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
+    }
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&url)
@@ -172,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/healthz", get(|| async { "ok" }))
         .route("/ingest", post(ingest))
         .route("/events", get(events))
-        .with_state(App { pool });
+        .with_state(App { pool, token });
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
