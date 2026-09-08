@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ENABLE_STOP_REVIEW": "0"
+  },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
@@ -11,9 +14,7 @@
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "superpowers@superpowers-dev": true
-  },
-  "env": {
-    "ENABLE_STOP_REVIEW": "0"
+    "superpowers@superpowers-dev": true,
+    "commit-commands@claude-plugins-official": true
   }
 }
