@@ -418,6 +418,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-F | 本文のコントラスト比の下限は 4.5:1（大きい文字は 3:1）で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html | "The visual presentation of text and images of text has a contrast ratio of at least 4.5:1" / "Large Text: Large-scale text and images of large-scale text have a contrast ratio of at least 3:1" | 2026-09-08 | 2028-09-08 | NFR-18 |
 | EXT-G | 指で触れる対象の下限は 24×24 CSS px で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | "The size of the target for pointer inputs is at least 24 by 24 CSS pixels, except when:" | 2026-09-08 | 2028-09-08 | NFR-19 |
 | EXT-H | 触れる対象 44×44 CSS px は Level AAA（AA ではない） | https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html | "The size of the target for pointer inputs is at least 44 by 44 CSS pixels" | 2026-09-08 | 2028-09-08 | NFR-20 |
+| EXT-J | PostgREST の許諾条項は MIT 相当（**本文に「MIT License」という文字列は無い**） | https://raw.githubusercontent.com/PostgREST/postgrest/main/LICENSE | "Copyright (c) 2014-2026 The PostgREST contributors" / "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction" | 2026-09-08 | 2027-09-08 | FR-61（読み取り API の実装手段） |
 | EXT-I | キーボードのフォーカス表示は Level AA の要求 | https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html | "Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible." | 2026-09-08 | 2028-09-08 | NFR-22 |
 
 > EXT-E は「表示される範囲」の記述であり、ローカルの履歴データベースからの削除を保証するものではない。
@@ -508,8 +509,10 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
     一度に消える）
     関与要件: FR-68, FR-70, NFR-9, NFR-15
 24. **バックアップ暗号鍵の保管方式** — 決めるもの: 値
-    決着状態: **後回し可（期限: 初回バックアップの実行前）** —— 鍵の紛失は全データの消失と同義。
-    詰問 7 round では触れていない
+    決着状態: 決定済（2026-09-08、`/production-prep` A-3 で本人が決定）—— **Windows の資格情報
+    ストアに置き、復旧用の写しを紙で 1 部物理保管する**。鍵管理サービスを使わないのは NFR-9
+    （運用コスト 月 100 円以内）のため。**紙の写しが本体** —— PC の故障で資格情報ストアごと
+    失うと「バックアップはあるが開けられない」になる
     関与要件: FR-68, FR-69
 25. **画面キャプチャの保持期間と文字抽出エンジン** — 決めるもの: 値
     決着状態: **後回し可（期限: 画面キャプチャの収集を開始する前）** —— 短い側で始めて延ばしても
