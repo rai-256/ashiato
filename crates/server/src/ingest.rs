@@ -2,6 +2,15 @@
 //! 取り込みの契約。**Kotlin(C-01) と Rust(C-02) の 2 実装が同じ形を送る**ので、
 //! 形と冪等キーの作り方はここが単一の情報源になる（製造準備 A-1）。
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization as _;
+
+/// 単位系の既定。収集側が省略したときにサーバが入れる（design D4）。
+pub const DEFAULT_UNIT_SYSTEM: &str = "si";
+/// 座標系の既定。同上。
+pub const DEFAULT_CRS: &str = "EPSG:4326";
+
+/// 由来の分類。**この 3 つ以外は受け取り時に 400 で落とす**（design D5）。
+pub const ORIGINS: [&str; 3] = ["collected", "authored", "derived"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct IngestRequest {
@@ -15,19 +24,72 @@ pub struct IngestRequest {
     pub tz_offset_min: i32,
     pub tz_id: String,
     pub schema_version: i32,
+    /// 単位系。省略時は `si`（FR-28 / design D4）
+    #[serde(default)]
+    pub unit_system: Option<String>,
+    /// 座標系。省略時は `EPSG:4326`（FR-28 / design D4）
+    #[serde(default)]
+    pub crs: Option<String>,
     pub raw: serde_json::Value,
     pub payload: serde_json::Value,
 }
 
+impl IngestRequest {
+    /// 収集側が省略した単位系を既定で埋めた値を返す。
+    pub fn unit_system_or_default(&self) -> &str {
+        self.unit_system.as_deref().unwrap_or(DEFAULT_UNIT_SYSTEM)
+    }
+
+    /// 収集側が省略した座標系を既定で埋めた値を返す。
+    pub fn crs_or_default(&self) -> &str {
+        self.crs.as_deref().unwrap_or(DEFAULT_CRS)
+    }
+
+    /// 由来の分類が列挙のどれかであることを保証する。
+    pub fn origin_is_known(&self) -> bool {
+        ORIGINS.contains(&self.origin.as_str())
+    }
+}
+
 /// 冪等キー。**原文と出来事の時刻とソースだけから作る** ——
 /// 収集側が採番した id を混ぜると、再送のたびに別物になって重複が入る。
+///
+/// SHA-256 を使う（design D1）。`DefaultHasher` は std が版をまたぐ安定性を
+/// 保証しておらず、**コンパイラを上げた日に全件が重複として二重に入る**。
+///
+/// 各項目は長さを前置してから混ぜる。前置しないと
+/// `("ab", "c")` と `("a", "bc")` が同じ鍵になる。
+/// `raw` の直列化は `serde_json` の既定（キーが辞書順）なので、
+/// 送られてきたキーの並びが違っても同じ鍵になる。
 pub fn content_hash(req: &IngestRequest) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    req.logical_source.hash(&mut h);
-    req.event_time.timestamp_micros().hash(&mut h);
-    req.raw.to_string().hash(&mut h);
-    format!("{:016x}", h.finish())
+    use sha2::{Digest as _, Sha256};
+    let mut h = Sha256::new();
+    let mut field = |bytes: &[u8]| {
+        h.update((bytes.len() as u64).to_be_bytes());
+        h.update(bytes);
+    };
+    field(req.logical_source.as_bytes());
+    field(&req.event_time.timestamp_micros().to_be_bytes());
+    field(req.raw.to_string().as_bytes());
+    format!("{:x}", h.finalize())
+}
+
+/// JSON に含まれる文字列を再帰的に Unicode NFC へ揃えた値を返す。
+///
+/// **`payload` にだけ使う。`raw` には決して使わない**（design D2 / FR-18）——
+/// 原文のバイト列は一度変換すると二度と戻らない。
+/// オブジェクトのキーも対象にする。検索・照合はキーにも当たるため。
+pub fn to_nfc(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => serde_json::Value::String(s.nfc().collect()),
+        serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(to_nfc).collect()),
+        serde_json::Value::Object(o) => serde_json::Value::Object(
+            o.iter()
+                .map(|(k, v)| (k.nfc().collect::<String>(), to_nfc(v)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -48,6 +110,8 @@ mod tests {
             tz_offset_min: 540,
             tz_id: "Asia/Tokyo".into(),
             schema_version: 1,
+            unit_system: None,
+            crs: None,
             raw: serde_json::json!({ "v": raw }),
             payload: serde_json::json!({}),
         }
@@ -67,5 +131,99 @@ mod tests {
         let a = content_hash(&req(uuid::Uuid::nil(), "x"));
         let b = content_hash(&req(uuid::Uuid::nil(), "y"));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    /// **鍵が固定値である。** 既知の入力に対する期待値を直書きする ——
+    /// これが無いと、鍵の作り方が変わって保存済みが全部ずれても誰も気付かない（tasks 1.3）。
+    ///
+    /// 期待値はこの実装の出力を写したものではなく、**別実装で独立に算出した**:
+    /// ```text
+    /// python3 -c 'import hashlib,struct
+    /// h=hashlib.sha256()
+    /// f=lambda b:(h.update(struct.pack(">Q",len(b))),h.update(b))
+    /// f(b"test"); f(struct.pack(">q",1757000000*1000000)); f(b"{\"v\":\"x\"}")
+    /// print(h.hexdigest())'
+    /// ```
+    /// 他言語から同じ鍵を再現できることの確認も兼ねる（design D1 のリスク欄）。
+    fn hash_is_pinned() {
+        assert_eq!(
+            content_hash(&req(uuid::Uuid::nil(), "x")),
+            "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1",
+            "冪等キーの作り方が変わっている。保存済みの記録が全部ずれる"
+        );
+    }
+
+    #[test]
+    /// 項目の境目が曖昧でない —— ソース名と原文の切れ目がずれても別の鍵になる
+    fn field_boundaries_are_unambiguous() {
+        let mut a = req(uuid::Uuid::nil(), "x");
+        a.logical_source = "ab".into();
+        let mut b = req(uuid::Uuid::nil(), "x");
+        b.logical_source = "a".into();
+        assert_ne!(content_hash(&a), content_hash(&b));
+    }
+
+    #[test]
+    /// NFD の濁点が NFC になる（tasks 2.1）
+    fn nfc_composes_dakuten() {
+        // "が" を NFD（か + 濁点）で書いたもの
+        let nfd = "\u{304B}\u{3099}";
+        let out = to_nfc(&serde_json::json!({ "k": nfd }));
+        assert_eq!(out["k"], serde_json::json!("\u{304C}"));
+    }
+
+    #[test]
+    /// 入れ子の配列・オブジェクトとキーまで届く
+    fn nfc_reaches_nested_and_keys() {
+        let nfd = "\u{304B}\u{3099}";
+        let out = to_nfc(&serde_json::json!({ nfd: [{ "inner": nfd }] }));
+        assert_eq!(out["\u{304C}"][0]["inner"], serde_json::json!("\u{304C}"));
+    }
+
+    #[test]
+    /// 文字列以外は素通しする
+    fn nfc_leaves_non_strings() {
+        let v = serde_json::json!({ "n": 1.5, "b": true, "z": null });
+        assert_eq!(to_nfc(&v), v);
+    }
+
+    #[test]
+    /// 単位系と座標系は省略できて、既定が入る（tasks 2.3）
+    fn units_default_when_absent() {
+        let r = req(uuid::Uuid::nil(), "x");
+        assert_eq!(r.unit_system_or_default(), "si");
+        assert_eq!(r.crs_or_default(), "EPSG:4326");
+    }
+
+    #[test]
+    /// 指定した座標系はそのまま使われる（tasks 2.4）
+    fn crs_is_taken_as_given() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        r.crs = Some("EPSG:6668".into());
+        assert_eq!(r.crs_or_default(), "EPSG:6668");
+    }
+
+    #[test]
+    /// 単位系と座標系を省いた JSON がそのまま解釈できる（既存の収集側を壊さない）
+    fn units_are_optional_in_json() {
+        let json = serde_json::json!({
+            "id": uuid::Uuid::nil(), "user_id": uuid::Uuid::nil(),
+            "logical_source": "test", "external_id": null, "device_id": null,
+            "origin": "collected", "event_time": "2026-09-08T02:00:00Z",
+            "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
+            "raw": {}, "payload": {}
+        });
+        let r: IngestRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(r.unit_system_or_default(), "si");
+    }
+
+    #[test]
+    /// 列挙にない由来は弾ける（tasks 2.5）
+    fn origin_enum_is_closed() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        assert!(r.origin_is_known());
+        r.origin = "guessed".into();
+        assert!(!r.origin_is_known());
     }
 }

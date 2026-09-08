@@ -38,13 +38,17 @@
     "/ingest": {
       "post": {
         "tags": [],
-        "summary": "記録を 1 件受け取る。同じ内容を再送しても行は増えない（FR-22）。",
+        "summary": "記録をまとめて受け取る。同じ内容を再送しても行は増えない（FR-22）。",
+        "description": "要求は**配列**（まとめ送り。design D9）。1 件だけの裸のオブジェクトも受け取る ——\n既存の収集側と `tools/smoke.sh` を壊さないため（design D12）。\n応答は**送った順に並ぶ 1 件ごとの結果**で、収集側は `accepted` が真の分だけを\n未送信から取り除く。\n\n**400 は「1 件も受け付けなかった」ことを意味する。** 一部だけが不正なときは 200 を返し、\n正しい分は格納される —— 1 件の恒久的な失敗が後続を永久に止めないため。",
         "operationId": "ingest",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IngestRequest"
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IngestRequest"
+                }
               }
             }
           },
@@ -56,13 +60,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IngestReply"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IngestResult"
+                  }
                 }
               }
             }
           },
           "400": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IngestResult"
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": ""
@@ -104,22 +121,14 @@
           }
         }
       },
-      "IngestReply": {
-        "type": "object",
-        "required": [
-          "id",
-          "duplicate"
-        ],
-        "properties": {
-          "duplicate": {
-            "type": "boolean",
-            "description": "既に同じ 1 件があったか。再送しても行が増えないことの確認に使う（FR-22）"
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
+      "IngestError": {
+        "type": "string",
+        "description": "取り込みを断った理由。**受け取った値は載せない**（design D5）——\n値をそのまま返すと、呼び出し元へ内容が反射する。",
+        "enum": [
+          "malformed",
+          "unknown_origin",
+          "unknown_source"
+        ]
       },
       "IngestRequest": {
         "type": "object",
@@ -136,6 +145,13 @@
           "payload"
         ],
         "properties": {
+          "crs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "座標系。省略時は `EPSG:4326`（FR-28 / design D4）"
+          },
           "device_id": {
             "type": [
               "string",
@@ -175,9 +191,53 @@
             "type": "integer",
             "format": "int32"
           },
+          "unit_system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "単位系。省略時は `si`（FR-28 / design D4）"
+          },
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "IngestResult": {
+        "type": "object",
+        "description": "送った 1 件ごとの結果。**送った順に並ぶ**ので、収集側は位置で対応づける\n（design D12）。断られた項目には `id` が無い場合がある。",
+        "required": [
+          "duplicate",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "未送信から取り除いてよいか。収集側はこれだけを見る（design D9）"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "既に同じ 1 件があったか。再送しても行が増えないことの確認に使う（FR-22）"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IngestError",
+                "description": "断った理由の種別。受け付けたときは null"
+              }
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "格納された記録の識別子。断られたときは null"
           }
         }
       }
