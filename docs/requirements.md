@@ -342,6 +342,39 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 > 「旅行・買い物・遊び」だが、**購入履歴やレシートを収集する要件が 1 つも無い**ため、
 > 質問を置いても永久に (a) が満たせない。将来ソースを足すときの候補として §5 に記す。
 
+#### 見え方・触れやすさ
+
+**この 5 件は 2026-09-08 に `/ui-direction` Step 5 で要件へ戻したもの。**
+旧プロジェクトの `reference/traceability.md` は同種の値の出所を「本人」と記録していたが、
+出典の JSON（`20260829_113051_deep.json`）は本人へのインタビューではなく AI の分析で、
+当の項目に「**仮の線を置く**」「**confidence: low**」と書かれていた。
+**下記は本人の発話か規格の条項番号のどちらかに紐づいているものだけを残している。**
+
+- **NFR-17**: OS の明暗設定に追従することを既定とし、OS の設定が取得できない場合はダークにする。
+  出所: 本人の一次発話 RT01（旧要件が記録した本人の希望「OS 側の設定に合わせて明暗を変更
+  できるようにしたい」）。本人の「ダークモード派です」は好みの表明であって、
+  「常時ダーク」を意味しない。
+- **NFR-18**: 本文と背景のコントラスト比は **4.5:1 以上**、大きい文字は **3:1 以上**とする。
+  出所: WCAG 2.2 SC 1.4.3 Contrast (Minimum) / Level AA（§5 の EXT-F）。
+  AA を採る判断は本人が 2026-09-08 に行った。
+- **NFR-19**: 指で触れる対象は **24 × 24 CSS px 以上**とする。
+  出所: WCAG 2.2 SC 2.5.8 Target Size (Minimum) / Level AA（§5 の EXT-G）。
+- **NFR-20**: 取り返しの付かない操作（FR-51 の本文の物理削除、FR-53 の収集の停止）の対象は
+  **44 × 44 CSS px 以上**とする。
+  出所: WCAG 2.2 SC 2.5.5 Target Size (Enhanced) / Level AAA（§5 の EXT-H）を、
+  誤操作の代償が非対称な操作にのみ適用する。本人が 2026-09-08 に選択。
+  全画面に AAA を課さない理由は、1 画面に 20 件前後の行が並ぶ想定（§4 の件数）で
+  全行に 44 px を課すと 1 画面に収まらなくなるため。**主表現が何になるかには依存しない。**
+- **NFR-22**: キーボードで操作できる画面は、フォーカスの位置が見える状態を持つ。
+  出所: WCAG 2.2 SC 2.4.7 Focus Visible / Level AA（§5 の EXT-I）。
+  2026-09-08 の `ui-review` が「要件に無い」と指摘して見つけた抜け。
+  NFR-18（1.4.3）でも NFR-19（2.5.8）でも代替できない別条項である。
+- **NFR-21**: 原色・派手な配色・角張った四角を用いない。
+  出所: 本人の逐語「原色ギラギラなのとか、派手なのとか、ガチガチすぎるのとか
+  （角張った四角とか）」（`reference/discussions/20260724_ライフログソフトウェアの概要説明.md`）。
+  **この要件は数値を持たない**（本人が数値で言っていないため）。運用上の具体値
+  （彩度の上限・角の最小半径）は `docs/ui-direction.md` が方向として持つ。
+
 #### 保全
 
 - **NFR-15**: すべてのデータは自宅内に存在し、拠点外に出るのは暗号化されたバックアップのみとする。
@@ -381,6 +414,11 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-C | Health Connect は既定で権限付与時点の 30 日前までしか読めず、再インストールで起点が戻る | https://developer.android.com/health-and-fitness/health-connect/read-data | "By default, all applications can read data from Health Connect for up to 30 days prior to when any permission was first granted." / "If the user reinstalls your app and grants permission again, the same default restrictions apply" | 2026-08-30 | 2027-02-28 | FR-11, FR-73 |
 | EXT-D | 写真の EXIF 位置が読めるかは、撮影時期ではなく実行時点の権限状態で決まる | https://developer.android.com/training/data-storage/shared/media | "Because you request the `ACCESS_MEDIA_LOCATION` permission at runtime, there is no guarantee that your app has access to unredacted EXIF metadata from photos. Your app requires explicit user consent to gain access to this information." | 2026-09-07 | 2027-09-07 | FR-3, §5 の「扉ではないもの」 |
 | EXT-E | Chrome の履歴として表示されるのは直近 90 日 | https://support.google.com/chrome/answer/95589 | "Your History lists the pages you've visited on Chrome in the last 90 days." | 2026-09-07 | 2027-03-07 | FR-13 |
+
+| EXT-F | 本文のコントラスト比の下限は 4.5:1（大きい文字は 3:1）で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html | "The visual presentation of text and images of text has a contrast ratio of at least 4.5:1" / "Large Text: Large-scale text and images of large-scale text have a contrast ratio of at least 3:1" | 2026-09-08 | 2028-09-08 | NFR-18 |
+| EXT-G | 指で触れる対象の下限は 24×24 CSS px で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | "The size of the target for pointer inputs is at least 24 by 24 CSS pixels, except when:" | 2026-09-08 | 2028-09-08 | NFR-19 |
+| EXT-H | 触れる対象 44×44 CSS px は Level AAA（AA ではない） | https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html | "The size of the target for pointer inputs is at least 44 by 44 CSS pixels" | 2026-09-08 | 2028-09-08 | NFR-20 |
+| EXT-I | キーボードのフォーカス表示は Level AA の要求 | https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html | "Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible." | 2026-09-08 | 2028-09-08 | NFR-22 |
 
 > EXT-E は「表示される範囲」の記述であり、ローカルの履歴データベースからの削除を保証するものではない。
 > FR-13 の 24 時間間隔は、90 日に対する余裕として置いている。
@@ -506,5 +544,8 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 - FR-1 〜 FR-76（欠番なし）。Must = FR-1〜FR-72, FR-76 / Should = FR-73 / Could = FR-74, FR-75
 - FR-76 は 2026-09-07 に追加（FR-37 / FR-47 が滞在を前提にしていたが、滞在を作る要件が無かった）
 - PERM-1 〜 PERM-9（欠番なし）
-- NFR-1 〜 NFR-16（欠番なし）
+- NFR-1 〜 NFR-22（欠番なし）
+- NFR-22 は 2026-09-08 に `/ui-direction` の C-4（独立レビュー）が見つけた抜けとして追加
+- NFR-17 〜 NFR-21 は 2026-09-08 に `/ui-direction` の C-2 で追加（UI の非機能要件が 1 件も
+  無く、playground が根拠のない値を自前で立てていたため）
 - 番号は再利用しない。削除する場合は欠番のまま残し、削除した旨を 1 行書く
