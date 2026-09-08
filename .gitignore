@@ -15,3 +15,6 @@ collector-android/.gradle/
 collector-android/build/
 collector-android/app/build/
 collector-android/local.properties
+
+# 生成物（scripts/story_brief.py で再生成できる）
+docs/briefs/

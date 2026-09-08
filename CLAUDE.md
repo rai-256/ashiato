@@ -147,8 +147,19 @@ scripts/upstream.sh ST02       # 上流: main の作業ツリーで docs/st02-up
 scripts/story.sh ST01          # 下流: worktree を用意して、その中で起動
 ```
 
-`/story-upstream` は **deep → proposal → specs → design → tasks → PR →（merge 後）issue**。
+`/story-upstream` は **ブリーフ → deep → proposal → specs → design → tasks → PR →（merge 後）issue**。
 `/story` は **issue と deep.md を読む → tasks を順に → PR**。どちらも停止点は merge。
+
+深掘りの前に **Story ブリーフ**を出す。人間が「この Story は何か」を知らないまま
+一方通行の判断を求められる状態を避けるため。
+
+```bash
+python3 scripts/story_brief.py ST02 --open   # docs/briefs/ST02.html
+```
+
+`docs/stories/ST<NN>.md` と `INDEX.md` から**機械的に引くだけ**で、要約も推測も足さない
+（扉の判断の土台になる文書なので、生成側の解釈が混ざると事実として読まれる）。
+`docs/briefs/` は生成物なので commit しない。
 
 **上流は先行 Story が merge されるまで `deep` と `proposal` で止まる。** 機械的に
 書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
