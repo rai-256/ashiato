@@ -147,8 +147,15 @@ scripts/story.sh ST01          # worktree を用意して、その中で claude 
 ```
 
 worktree が無ければ `feat/<change名>` で作り、あれば main に追従させてから入る。
-最後に `claude "/story ST01"` を exec するので、**新しいセッションで始まる**
-（プラグインはセッション開始時に読み込まれるため、これが要る）。
+最後に `claude --permission-mode auto "/story ST01"` を exec するので、
+**新しいセッションが auto mode で始まる**。
+
+- **新しいセッション**である必要がある —— プラグインはセッション開始時に読み込まれる
+- **auto mode** を明示する必要がある —— 既定は manual で、放っておくと毎アクション確認になる
+  （`--permission-mode` は `claude --help` に出ないが実在する。2.1.226 で実測。
+  取りうる値は `acceptEdits` / `auto` / `bypassPermissions` / `manual` / `dontAsk` / `plan`）
+
+モードを変えたいときは `STORY_PERMISSION_MODE=manual scripts/story.sh ST01`。
 
 すでに worktree の中にいるなら、セッション内で `/story ST01` だけでよい。
 `/story` は **場所の確認 → issue と deep.md と tasks.md を読む → 規律を敷く →
