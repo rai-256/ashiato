@@ -64,7 +64,13 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | capability | 何の能力か | 積む Story |
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03, ST05 |
-| `device-collection` | 携帯端末からの収集 | ST04, ST06, ST09, ST11, ST34, ST35 |
+
+> **訂正（2026-09-08、ST01 の上流工程で判明）**: 当初 ST01 を `record-envelope` にだけ
+> 割り当てていたが、FR-1（C-01 が 60 秒間隔で位置を取る）と FR-10（到達できるとき送る）は
+> **端末側の振る舞い**であって記録の骨格ではない。この表のままだと FR-1 の置き場が
+> ST04（layer 2）まで存在しないことになる。**capability 名は変えず**、
+> `device-collection` の作成を ST01 に前倒した。後続の割り当ては壊れていない。
+| `device-collection` | 携帯端末からの収集 | **ST01**, ST04, ST06, ST09, ST11, ST34, ST35 |
 | `desktop-collection` | PC からの収集 | ST07, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | ST02, ST14, ST15 |
