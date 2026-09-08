@@ -29,9 +29,20 @@
 /ui-direction    →  docs/ui-direction.md + preview.html
 /production-prep →  docs/production-prep.md + 実物
 【Story ごと】
-  openspec new change st<NN>-<slug>
-  context → deep(grilling) → proposal → specs → tasks → apply → archive
+  openspec/changes/st<NN>-<slug>/ を作る
+  deep → proposal → specs → design → tasks → apply → archive
 ```
+
+**`deep`（深掘り）は人間に問う工程で、AI が代わりに決めてはいけない。**
+`openspec/schemas/ashiato/schema.yaml` で `proposal` の前提にしてあるので、
+深掘りを飛ばして proposal を書くことはできない（`openspec validate` が落ちる）。
+
+> なぜ器を作ったか: **一度飛ばされたから。** OpenSpec 既定の `spec-driven` スキーマには
+> `deep` に対応する artifact が無く、スキーマに沿って書くと**黙って消えた**。
+> 実装者が 8 件の技術判断を独断で決め、うち 4 件は本人が決めるべきものだった
+> （うち 1 件は要件どうしの矛盾を独断で解いたもので、不可逆）。
+> 文書に名前があるだけで機械の側に受け皿が無い工程は消える。`deep` の中身は
+> `openspec/changes/*/deep.md`、問い方の規範は `grilling` skill。
 
 検査: `python3 scripts/check_chain.py`
 
