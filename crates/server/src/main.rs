@@ -175,6 +175,11 @@ async fn events(
     ))
 }
 
+/// 未捕捉の異常がログに出ることを確かめるためだけの経路。既定では生えない。
+async fn selftest_panic() -> &'static str {
+    panic!("selftest: 意図的な異常")
+}
+
 fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     // 私的データはログに出さない（A-2）。出すのはエラーの種別だけ。
     // **応答に元のエラーを載せない** —— スキーマ名・接続先・値が呼び出し側へ漏れる。
@@ -204,11 +209,17 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("マイグレーションの適用に失敗")?;
 
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ingest", post(ingest))
         .route("/events", get(events))
         .with_state(App { pool, token });
+
+    // 未捕捉の異常がログに出ることを確かめるための経路。
+    // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
+    if std::env::var("ASHIATO_SELFTEST_PANIC").as_deref() == Ok("1") {
+        app = app.route("/selftest/panic", get(selftest_panic));
+    }
 
     let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;

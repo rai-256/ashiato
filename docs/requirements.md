@@ -278,7 +278,11 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
 - **PERM-5**: THE SYSTEM SHALL 人物の記録の既定の感度を「AI に出さない」とする。
 - **PERM-6**: THE SYSTEM SHALL 写真・その位置・スクリーンショットの既定の感度を
   「ローカル AI まで」とする。
-- **PERM-7**: THE SYSTEM SHALL 外部からの接続を Tailscale の網内に限定する。
+- **PERM-7**: THE SYSTEM SHALL 外部からの接続を、利用者が明示的に許可した私設網の内側に限定する。
+  ★ 2026-09-08 訂正（従来は「Tailscale の網内に限定する」）。**商用化を決めたので、
+  特定の事業者の名前を要件に書けなくなった** —— 相手の条件が変われば要件が壊れ、
+  配布した全利用者に波及する。既定の手段は引き続き Tailscale とし、
+  実装上の既定として `docs/production-prep.md` に置く（EXT-K / EXT-L）。
 - **PERM-8**: THE SYSTEM SHALL プラグインの既定の感度上限を「公開可」とする。
 - **PERM-9**: WHEN 感度を緩める操作が行われる THE SYSTEM SHALL 利用者の明示的な確認を求める。
 - **PERM-10**: THE SYSTEM SHALL すべての API 要求に、呼び出し元を識別できる資格情報を要求する。
@@ -449,6 +453,8 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-F | 本文のコントラスト比の下限は 4.5:1（大きい文字は 3:1）で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html | "The visual presentation of text and images of text has a contrast ratio of at least 4.5:1" / "Large Text: Large-scale text and images of large-scale text have a contrast ratio of at least 3:1" | 2026-09-08 | 2028-09-08 | NFR-18 |
 | EXT-G | 指で触れる対象の下限は 24×24 CSS px で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | "The size of the target for pointer inputs is at least 24 by 24 CSS pixels, except when:" | 2026-09-08 | 2028-09-08 | NFR-19 |
 | EXT-H | 触れる対象 44×44 CSS px は Level AAA（AA ではない） | https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html | "The size of the target for pointer inputs is at least 44 by 44 CSS pixels" | 2026-09-08 | 2028-09-08 | NFR-20 |
+| EXT-K | Tailscale のクライアントは BSD-3-Clause | https://raw.githubusercontent.com/tailscale/tailscale/main/LICENSE | "BSD 3-Clause License" / "Copyright (c) 2020 Tailscale Inc & contributors." / "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met" | 2026-09-08 | 2027-09-08 | PERM-7 |
+| EXT-L | Tailscale の Personal プランは非商用に限られる | https://tailscale.com/pricing | "Our Personal plan is for individuals who want to use Tailscale at home. This is a free plan and is only suitable for non-commercial use of Tailscale." / "Unlimited user devices" / "Up to 6 users" | 2026-09-08 | 2027-03-08 | PERM-7, NFR-9 |
 | EXT-J | PostgREST の許諾条項は MIT 相当（**本文に「MIT License」という文字列は無い**） | https://raw.githubusercontent.com/PostgREST/postgrest/main/LICENSE | "Copyright (c) 2014-2026 The PostgREST contributors" / "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction" | 2026-09-08 | 2027-09-08 | FR-61（読み取り API の実装手段） |
 | EXT-I | キーボードのフォーカス表示は Level AA の要求 | https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html | "Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible." | 2026-09-08 | 2028-09-08 | NFR-22 |
 

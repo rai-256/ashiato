@@ -14,3 +14,16 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+# 製造準備 C: フレームワーク既定に追加ルールを足す。
+# docstring の方針 —— **公開する項目には「何を保証するか」を 1 行書く**。
+# 「何をするか」はコードが語るので書かない。
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"      # 私的データを扱うので、落ちる経路を明示的にしか作らない
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"     # ログは tracing に一本化する（A-2: 出さないものを決めてある）

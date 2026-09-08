@@ -5,7 +5,13 @@ services:
       POSTGRES_PASSWORD: ashiato
       POSTGRES_USER: ashiato
       POSTGRES_DB: ashiato
-    ports: ["55432:5432"]
+    ports: ["127.0.0.1:55432:5432"]   # 全インタフェースに出さない（製造準備 C: 既定値の棚卸し）
+    # プラットフォーム既定値の棚卸し（製造準備 C）。私的データを扱うので既定のままにしない。
+    command: >
+      postgres
+      -c log_statement=none
+      -c log_min_duration_statement=-1
+      -c log_error_verbosity=terse
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ashiato"]
       interval: 2s

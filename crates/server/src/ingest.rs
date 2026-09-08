@@ -31,6 +31,8 @@ pub fn content_hash(req: &IngestRequest) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     fn req(id: uuid::Uuid, raw: &str) -> IngestRequest {

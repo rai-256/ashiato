@@ -1,7 +1,7 @@
 ---
 block_a: done
 block_b: in-progress
-block_c: in-progress
+block_c: done
 ---
 
 # 製造準備 — あしあと。
@@ -172,9 +172,27 @@ ST01（layer 0）は S-01 と D-01 だけで完結するので着手を妨げな
 
 ## C 仕掛ける（検査）
 
+**B と同じゲートで判定しない。** B は壊れていれば即分かるが、**C は壊れていても分からない**。
+だから「作った」ではなく「**壊したときに落ちるか**」を 1 回ずつ確かめている。
+
 | 項目 | 適用済み（具体化 1 行）/ 該当なし（理由） | 壊して落ちることを確かめたか |
 |---|---|---|
-（未着手）
+| 未捕捉エラーハンドラ ＋ ローカルのエラーログ | `main.rs` に panic hook。既定では生えない自己診断の経路（`ASHIATO_SELFTEST_PANIC=1` のときだけ）を持つ | **確かめた** — `./tools/check-panic-log.sh` がわざと落として `kind="panic"` がログに出ることを確認（rc=0） |
+| lint を既定より一段厳格化 | `[workspace.lints]` に `unsafe_code = forbid` / `unwrap_used = deny` / `todo = deny` / `dbg_macro = deny` / `print_stdout = deny`。Web 側は `eqeqeq` / `no-console` / `no-explicit-any` / `explicit-module-boundary-types` を追加 | 既定に追加ルールを足した状態で `cargo clippy -- -D warnings` と `npm run lint --max-warnings 0` が **rc=0** |
+| docstring の方針 | **公開する項目には「何を保証するか」を 1 行書く。「何をするか」はコードが語るので書かない** | — |
+| プラットフォーム既定値の棚卸し | PostgreSQL を `log_statement=none` / `log_min_duration_statement=-1` / `log_error_verbosity=terse` で起動（**私的データが SQL ごとログに落ちるのを止める**）。**DB の待ち受けを `127.0.0.1` に固定**（既定では全インタフェースに出ていた） | 設定変更後に `./tools/smoke.sh` が **rc=0** |
+| アーキ境界の検査 | `./tools/check-boundaries.sh` —— **本体にコードを読み込む経路（FR-77 違反）** / 収集側がサーバ内部に依存 / 画面がサーバ実装を直接見る、の 3 つを機械で見る | **確かめた** — `libloading` を 1 行足したら `NG 本体にコードを読み込む経路がある（FR-77 違反）` で **rc=1**。戻したら rc=0 |
+| 依存ライセンスの検査 | `./tools/check-licenses.sh` —— Rust 237 件 / Node 170 件の許諾を SPDX 式で評価し、AGPL-3.0 での配布と両立しないものを落とす | **確かめた** — 許可一覧から MIT を外したら **67 件を検出して rc=1**。通常時は不許可 0 件で rc=0 |
+| マイグレーションの安全性検査 | `./tools/check-migrations.sh` —— 前進側の破壊的変更（`DROP TABLE/COLUMN/SCHEMA`）と、戻し手順の欠落を落とす | **確かめた** — `ALTER TABLE ... DROP COLUMN` を入れたら rc=1、戻し手順の無い版を足したら rc=1。どちらも後始末後は rc=0 |
+| CI の構造衛生 | 版を **SHA で固定**（`actions/checkout@fbc6f39…` ほか。タグは動く）/ `concurrency` で二重トリガを畳む / `permissions: contents: read` に最小化 / **CI が走らせるのはローカルと同じ `./tools/*.sh`** | ローカルで同じコマンドがすべて rc=0 |
+| 停止の検知 | **該当なし。** 製造準備の時点で継続的に動き続けるものがまだ無い（収集は ST01 以降）。**仕組みは要件側にある** —— 稼働記録（FR-33）と、想定間隔の 3 倍で通知する条件（FR-35）。実装は ST14 の担当で、そこで「わざと止めて通知が出るか」を確かめる | — |
+
+### C で新しく見つかったもの
+
+- **DB の待ち受けが全インタフェースに出ていた。** `ports: ["55432:5432"]` は既定で `0.0.0.0` に出る。
+  Tailscale 網に参加している端末から、認証なしで PostgreSQL に届く状態だった。`127.0.0.1` に固定した
+- **PostgreSQL のログ設定が既定のままだった。** 遅いクエリのログが有効になると、
+  位置や本文が SQL ごとログに落ちる。明示的に切った（A-2 の「私的データは出さない側が既定」と揃えた）
 
 ### 商用化の決定にともなって C に足す項目（2026-09-08）
 

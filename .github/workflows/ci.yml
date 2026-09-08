@@ -12,18 +12,21 @@ jobs:
   rust:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: { components: rustfmt, clippy }
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: ./tools/check-licenses.sh
+      - run: ./tools/check-migrations.sh
+      - run: ./tools/check-boundaries.sh
   web:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: web } }
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: npm ci
       - run: npx tsc -b
@@ -32,7 +35,8 @@ jobs:
   smoke:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       # 縦串。A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ。
       - run: ./tools/smoke.sh
+      - run: ./tools/check-panic-log.sh
