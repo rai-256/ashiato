@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# main では commit させない。
+#
+# GitHub のブランチ保護は private + 無料プランでは掛けられない（API が 403）。
+# hookify でも代用できない —— hookify のルールはコマンド文字列にしか正規表現を当てられず、
+# 「いまどのブランチにいるか」を見る手段が無い（core/config_loader.py の条件は
+# field: command / file_path / new_text ... だけ）。
+#
+# 有効化: git config core.hooksPath .githooks（clone 後に 1 度）
+# 例外:   HARNESS_ALLOW_PROTECTED_COMMIT=1 git commit ...
+set -euo pipefail
+
+branch="$(git branch --show-current)"
+
+if [[ "$branch" == "main" || "$branch" == "develop" ]]; then
+  if [[ "${HARNESS_ALLOW_PROTECTED_COMMIT:-}" == "1" ]]; then
+    echo "warning: $branch に直接コミットしています（HARNESS_ALLOW_PROTECTED_COMMIT=1）" >&2
+    exit 0
+  fi
+  cat >&2 <<'MSG'
+error: main / develop では commit しません。
+
+  Story の実装:   git switch -c feat/st<NN>-<slug>
+  上流の docs:    git switch -c docs/<内容>
+  そのあと:       /commit-push-pr（ブランチ → commit → push → PR）
+
+CI の pull_request トリガは PR が無いと発火しません。main に直接入れると
+「落ちたときには main がもう汚れている」状態になります。
+
+どうしても必要なら: HARNESS_ALLOW_PROTECTED_COMMIT=1 git commit ...
+MSG
+  exit 1
+fi

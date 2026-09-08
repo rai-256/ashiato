@@ -94,4 +94,46 @@ PR にして初めて CI が門番になる。
 
 **ブランチ保護は掛けられない。** private + 無料プランでは GitHub API が 403 を返す（実測）。
 AGPL-3.0 で公開したら無料で使えるようになるので、そこで機械強制へ切り替える。
-それまでは規約と CI で運用する。
+
+それまでの代わりが **`.githooks/pre-commit`** —— main / develop での commit を拒否する。
+clone 後に 1 度だけ有効化する:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+例外は `HARNESS_ALLOW_PROTECTED_COMMIT=1 git commit ...`。
+
+> hookify では代用できない。hookify の条件はコマンド文字列（`command` / `file_path` /
+> `new_text` …）にしか正規表現を当てられず、**「いまどのブランチにいるか」を見る手段が無い**
+> （`core/config_loader.py`）。git hook なら 5 行で済み、Claude 以外の経路にも効く。
+
+## Story ごとの進め方（上流 → 下流）
+
+**上流と下流を分けて、下流が走っている間に次の Story の上流を進める。**
+分割点は `openspec/changes/<change>/tasks.md` —— これが上流の最後の成果物であり、
+下流の唯一の入力になる。
+
+```
+上流（main の作業ツリー）              下流（別の worktree）
+─────────────────────────            ─────────────────────────
+docs/st<NN>-upstream を切る
+openspec: proposal → specs
+        → design → tasks
+PR → CI 緑 → merge
+gh issue create（tasks.md を本文に）
+                            ────→  git worktree add ../st<NN> feat/st<NN>-<slug>
+次の Story の上流へ                    別セッションで実装
+（proposal まで。specs は                openspec apply
+ 前の Story が merge されるまで待つ）     /commit-push-pr
+                                       ★ push の直前で止めて報告
+```
+
+**なぜ specs を待つか**: 実装は spec の穴を開ける（実測: 1 Story あたり 4 件、
+うち 1 件は実装が黙って決めた設計判断）。ST01 は土台なので、ここが動くと
+後続の spec が古くなる。proposal（何を・なぜ）は実装詳細に依存しないので先に書ける。
+
+**worktree にする理由**: 同じディレクトリで 2 セッションが git を触ると壊れる。
+
+**停止点は 1 つだけ**: `git push` の直前。それ以外は推奨 default を採って進み、
+決めたことを記録する。止まらないのではなく、**1 か所だけで止まる**。
