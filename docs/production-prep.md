@@ -125,6 +125,9 @@ block_c: done
 | CI の骨格 | `.github/workflows/ci.yml`（rust / web / smoke の 3 job）。**ローカルで同じコマンドが 0 で通ることを確認済み。GitHub 上での実行は push 後** | — |
 | 起動スクリプト | `./tools/dev.sh` → API が `ok` を返し、画面が HTTP 200 | **0** |
 | **最短の縦串** | `./tools/smoke.sh`（9 手順） | **0** |
+| 開発用データ（A-4 の決定） | `./tools/seed.sh normal` → 9 件 / `./tools/seed.sh max` → 15 件 | **0 / 0** |
+| API の契約をコードから生成（A-1 の決定） | `cargo run -p ashiato-server --bin openapi > docs/openapi.json` → `./tools/check-openapi.sh` | **0 / 0** |
+| **再現手順を実際に踏む**（A-4 の決定） | 別の場所へ `git clone --no-hardlinks` → `cp .env.example .env` → `./tools/smoke.sh` | **0** |
 
 ### 縦串が実際に確かめていること
 
@@ -164,6 +167,21 @@ PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止
 ./gradlew :collector-android:assembleDebug
 ```
 
+### ST01 の前に片付けたもの（2026-09-08）
+
+A で決めたのに実装されていなかった 2 件を閉じ、周辺も揃えた。
+
+- **偽データ生成器**（A-4）—— `tools/seed.sh`。normal（9 件）/ max（要件上限 15 件）/ empty の 3 状態。
+  **Story ごとに fixture を作らせない**ためのもの
+- **API の契約の自動生成**（A-1）—— サーバを lib + bin に分け、型の定義から `docs/openapi.json` を生成。
+  CI が差分を落とす
+- **SPDX ヘッダ**を全ソースへ。**`docs/CLA.md`** を追加（貢献を受け始める前に置く必要がある）
+- **`collector-android/`** の骨格。5 つの権限を宣言し、**それぞれ何が取り返せないか**を注記した
+  （`READ_HEALTH_DATA_HISTORY` は宣言しない期間の 30 日より前が永久に読めない = EXT-C）
+- **`openspec init`**（言語 ja）。`openspec/{changes,specs,config.yaml}` ができた。
+  ただし Claude Code 向けの連携ファイルの作成だけ失敗している（`.claude/skills` が
+  harness2 への symlink のため）。**CLI を直接使うので支障は無い**
+
 **B は「Android を除いて緑」であり、`block_b: done` にはしない。**
 ST01（layer 0）は S-01 と D-01 だけで完結するので着手を妨げないが、
 **C-01 に触る最初の Story（ST04 / ST06 / ST09 / ST11）の前に閉じる必要がある。**
@@ -184,6 +202,7 @@ ST01（layer 0）は S-01 と D-01 だけで完結するので着手を妨げな
 | アーキ境界の検査 | `./tools/check-boundaries.sh` —— **本体にコードを読み込む経路（FR-77 違反）** / 収集側がサーバ内部に依存 / 画面がサーバ実装を直接見る、の 3 つを機械で見る | **確かめた** — `libloading` を 1 行足したら `NG 本体にコードを読み込む経路がある（FR-77 違反）` で **rc=1**。戻したら rc=0 |
 | 依存ライセンスの検査 | `./tools/check-licenses.sh` —— Rust 237 件 / Node 170 件の許諾を SPDX 式で評価し、AGPL-3.0 での配布と両立しないものを落とす | **確かめた** — 許可一覧から MIT を外したら **67 件を検出して rc=1**。通常時は不許可 0 件で rc=0 |
 | マイグレーションの安全性検査 | `./tools/check-migrations.sh` —— 前進側の破壊的変更（`DROP TABLE/COLUMN/SCHEMA`）と、戻し手順の欠落を落とす | **確かめた** — `ALTER TABLE ... DROP COLUMN` を入れたら rc=1、戻し手順の無い版を足したら rc=1。どちらも後始末後は rc=0 |
+| API の契約とコードのずれ | `./tools/check-openapi.sh` —— `docs/openapi.json` はコードから生成する。**手書きしない**（A-1） | **確かめた** — `info.version` を書き換えたら差分を出して rc=1 |
 | CI の構造衛生 | 版を **SHA で固定**（`actions/checkout@fbc6f39…` ほか。タグは動く）/ `concurrency` で二重トリガを畳む / `permissions: contents: read` に最小化 / **CI が走らせるのはローカルと同じ `./tools/*.sh`** | ローカルで同じコマンドがすべて rc=0 |
 | 停止の検知 | **該当なし。** 製造準備の時点で継続的に動き続けるものがまだ無い（収集は ST01 以降）。**仕組みは要件側にある** —— 稼働記録（FR-33）と、想定間隔の 3 倍で通知する条件（FR-35）。実装は ST14 の担当で、そこで「わざと止めて通知が出るか」を確かめる | — |
 
