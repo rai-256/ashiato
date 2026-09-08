@@ -140,11 +140,19 @@ gh issue create（tasks.md を本文に）
                                        PR まで出す ★ merge が停止点
 ```
 
-### 下流の起動は 1 コマンド
+### 起動はどちらも 1 コマンド
 
 ```bash
-scripts/story.sh ST01          # worktree を用意して、その中で claude を起動する
+scripts/upstream.sh ST02       # 上流: main の作業ツリーで docs/st02-upstream を切って起動
+scripts/story.sh ST01          # 下流: worktree を用意して、その中で起動
 ```
+
+`/story-upstream` は **deep → proposal → specs → design → tasks → PR →（merge 後）issue**。
+`/story` は **issue と deep.md を読む → tasks を順に → PR**。どちらも停止点は merge。
+
+**上流は先行 Story が merge されるまで `deep` と `proposal` で止まる。** 機械的に
+書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
+`MODIFIED` を書けない）うえ、実装が spec の穴を開けるので書いても古くなる。
 
 worktree が無ければ `feat/<change名>` で作り、あれば main に追従させてから入る。
 最後に `claude --permission-mode auto "/story ST01"` を exec するので、
