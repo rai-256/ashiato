@@ -12,5 +12,8 @@
     "claude-code-setup@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "superpowers@superpowers-dev": true
+  },
+  "env": {
+    "ENABLE_STOP_REVIEW": "0"
   }
 }
