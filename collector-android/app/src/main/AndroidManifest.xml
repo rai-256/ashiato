@@ -1,14 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- FR-1 位置。背景での取得は収集の前提（成功条件 1） -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+    <!-- FR-10 自宅 PC へ送る -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 継続的な位置取得は前景サービスなしに許されない。常時通知は本人が受け入れ済み（design D7） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- FR-2 アプリ利用（保持期間は [NEEDS CLARIFICATION]。要件 FR-2 を参照） -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
-        tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
+        tools:ignore="ProtectedPermissions" />
 
     <!-- FR-3 写真の位置。宣言しないと OS が EXIF の位置を落として返す（EXT-D） -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
@@ -17,5 +26,24 @@
     <!-- FR-11 健康データの履歴。**宣言しない期間の 30 日より前は永久に読めない**（EXT-C） -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 
-    <application android:label="あしあと。" android:supportsRtl="true" />
+    <application
+        android:label="あしあと。"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light">
+
+        <!-- 権限を求めて収集を始めるだけの入口。画面は V-01（web）が持つ -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".LocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+    </application>
 </manifest>
