@@ -16,7 +16,12 @@ echo "== 1. DB を起動"
 docker compose up -d --wait db >/dev/null
 
 echo "== 2. サーバを起動（起動時にマイグレーションを当てる）"
-cargo run -q -p ashiato-server --bin ashiato-server & SRV=$!
+# **ビルドを起動待ちの外に出す。** cargo run のままだと待ち時間の中でコンパイルが走り、
+# CI の cold build（2〜4 分）が 60 秒の待ちを超えて「起動しない」と誤判定する
+# （実測: GitHub Actions で curl exit 7 / run 34209473342）。
+# 生成物を直接起動するので、trap の kill が確実にサーバへ届く利点もある。
+cargo build -q -p ashiato-server --bin ashiato-server
+./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
 
