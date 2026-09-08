@@ -1,6 +1,6 @@
 ---
 block_a: done
-block_b: in-progress
+block_b: done
 block_c: done
 ---
 
@@ -113,7 +113,7 @@ block_c: done
 | 処理系が動く（Rust） | `cargo build --workspace` | **0** |
 | 処理系が動く（Node / TypeScript） | `npm install` → `npx tsc -b` | **0 / 0** |
 | 処理系が動く（PostgreSQL） | `docker compose up -d --wait db` → `Container ashiato2-db-1 Healthy` | **0** |
-| **処理系が動く（Android / Kotlin）** | **未実行** | **未達**（下記） |
+| 処理系が動く（Android / Kotlin） | `. ./tools/android-env.sh` → `cd collector-android && ./gradlew :app:assembleDebug` | **0**（2026-09-08） |
 | workspace の構成 | Cargo workspace（`crates/server`・`crates/collector-windows`）＋ `web/`＋`migrations/` | — |
 | build（Rust） | `cargo build --workspace` | **0** |
 | test（Rust） | `cargo test --workspace` → 2 passed | **0** |
@@ -155,38 +155,26 @@ block_c: done
 PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止めるだけで、
 **同じ PC の中から呼ぶものを何も止めていなかった。**
 
-### 未達 —— C-01（Android / Kotlin）の処理系
+### C-01（Android / Kotlin）を閉じた経緯（2026-09-08）
 
-**この環境では検証できていない。** JDK・Gradle・Android SDK がいずれも入っておらず、
-`sudo` がパスワードを要求するため導入もできない。
-一方 `~/.android/adbkey` が存在するので、**Android の道具は Windows 側にある**と見られる。
+当初は JDK も Android SDK も無く `sudo` も使えないため未達だった。
+**ビルドは Claude か CI に回す方針**なので、Android Studio（手作業）ではなく
+**WSL に揃える**ことにした —— CI（ubuntu ランナー）でも同じヘッドレス設定が要るので作業が重複しない。
+「Android Studio を推す」という当初の助言は、この進め方には当てはまらないので撤回した。
 
-閉じるには次を Windows 側（または JDK を入れた WSL）で 1 回通す:
+- Temurin JDK 21.0.12.1 と Android command-line tools を **`sudo` 無しで `~/.local/opt`** へ。
+  環境変数は `tools/android-env.sh`。消すときは `rm -rf ~/.local/opt/{jdk21,android-sdk}` だけ
+- Gradle wrapper をリポジトリに同梱したので `gradle` の別途導入は要らない（jar の出所と sha256 を記録）
+- **ライセンスへの同意は本人が行った。** 代わりに押していない —— Google の条項に同意する行為なので
 
-```
-./gradlew :collector-android:assembleDebug
-```
+**最初のビルドは落ちた。2 件とも骨格側の不備だった。**
 
-### ST01 の前に片付けたもの（2026-09-08）
+1. **`gradle.properties` を置き忘れていた** —— `androidx.*` に依存しているのに
+   `android.useAndroidX=true` が無く、`checkDebugAarMetadata` で落ちた
+2. `kotlinOptions { jvmTarget }` が Kotlin 2.x で非推奨 —— `kotlin { compilerOptions { … } }` へ移した
 
-A で決めたのに実装されていなかった 2 件を閉じ、周辺も揃えた。
-
-- **偽データ生成器**（A-4）—— `tools/seed.sh`。normal（9 件）/ max（要件上限 15 件）/ empty の 3 状態。
-  **Story ごとに fixture を作らせない**ためのもの
-- **API の契約の自動生成**（A-1）—— サーバを lib + bin に分け、型の定義から `docs/openapi.json` を生成。
-  CI が差分を落とす
-- **SPDX ヘッダ**を全ソースへ。**`docs/CLA.md`** を追加（貢献を受け始める前に置く必要がある）
-- **`collector-android/`** の骨格。5 つの権限を宣言し、**それぞれ何が取り返せないか**を注記した
-  （`READ_HEALTH_DATA_HISTORY` は宣言しない期間の 30 日より前が永久に読めない = EXT-C）
-- **`openspec init`**（言語 ja）。`openspec/{changes,specs,config.yaml}` ができた。
-  ただし Claude Code 向けの連携ファイルの作成だけ失敗している（`.claude/skills` が
-  harness2 への symlink のため）。**CLI を直接使うので支障は無い**
-
-**B は「Android を除いて緑」であり、`block_b: done` にはしない。**
-ST01（layer 0）は S-01 と D-01 だけで完結するので着手を妨げないが、
-**C-01 に触る最初の Story（ST04 / ST06 / ST09 / ST11）の前に閉じる必要がある。**
-
----
+修正後 **`BUILD SUCCESSFUL`（35 タスク / rc=0）**。CI にも `android` job を足し、
+**ローカルと同じ wrapper を使う**ようにした。
 
 ## C 仕掛ける（検査）
 

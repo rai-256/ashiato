@@ -9,3 +9,9 @@ web/node_modules
 web/dist
 .env
 web/*.tsbuildinfo
+
+# --- Android ---
+collector-android/.gradle/
+collector-android/build/
+collector-android/app/build/
+collector-android/local.properties

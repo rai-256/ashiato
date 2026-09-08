@@ -14,10 +14,16 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
-    kotlinOptions { jvmTarget = "17" }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+// Kotlin 2.x の DSL。kotlinOptions { jvmTarget } は非推奨。
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
