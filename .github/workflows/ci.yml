@@ -42,6 +42,9 @@ jobs:
         with: { distribution: temurin, java-version: "21" }
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug
+      # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。
+      # **実機なしで確かめられる範囲はここで止める** —— 実機の確認は完了の判定が持つ。
+      - run: ./gradlew :app:testDebugUnitTest
 
   smoke:
     runs-on: ubuntu-24.04
@@ -51,3 +54,5 @@ jobs:
       # 縦串。A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ。
       - run: ./tools/smoke.sh
       - run: ./tools/check-panic-log.sh
+      # 「収集した」記録が書き換えられないことを、わざと UPDATE を投げて確かめる（FR-30）
+      - run: ./tools/check-immutable.sh
