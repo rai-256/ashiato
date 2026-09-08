@@ -16,12 +16,34 @@ cd collector-android
 リポジトリに入れてあり、初回実行時に Gradle 8.13 を自分で取ってくる。
 **apt の `gradle`（4.4.1）は使わないこと** —— Android Gradle Plugin 8.x は Gradle 8 以上が要る。
 
-必要なのは次の 2 つだけ:
+## 道具は WSL に入れてある（2026-09-08）
 
-| 要るもの | なぜ | 入れ方 |
+**`sudo` を使わず `~/.local/opt` に入れた。** 消すときは `rm -rf ~/.local/opt/{jdk21,android-sdk}` だけ。
+
+| 道具 | 版 | 置き場 |
 |---|---|---|
-| **JDK 17 以上** | Gradle が動かない | Android Studio に同梱 / `sudo apt install openjdk-21-jdk` / Temurin を `~/` に展開（sudo 不要） |
-| **Android SDK** | `assembleDebug` が platform と build-tools を要求する。**導入時に Google のライセンスへの同意が要る** | Android Studio（UI で同意）/ `sdkmanager --licenses` |
+| Temurin JDK | 21.0.12.1 LTS | `~/.local/opt/jdk21` |
+| Gradle | 8.13（wrapper が自動取得） | `~/.gradle/wrapper/dists` |
+| Android command-line tools | 13114758 | `~/.local/opt/android-sdk` |
+
+使うときは環境変数を読み込む:
+
+```bash
+. ./tools/android-env.sh
+```
+
+## 残り 1 手 —— ライセンスへの同意
+
+**これは代わりに押さない。** あなた自身が Google のライセンス条項に同意する行為だから。
+
+```bash
+. ./tools/android-env.sh
+sdkmanager --licenses                       # 内容を読んで y/n で答える
+sdkmanager "platforms;android-36" "build-tools;36.0.0"
+cd collector-android && ./gradlew :app:assembleDebug
+```
+
+通ったら `docs/production-prep.md` の B 節にコマンドと終了コードを記録し、`block_b: done` にする。
 
 ## wrapper の出所（供給網の記録）
 
