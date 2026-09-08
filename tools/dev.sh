@@ -16,6 +16,6 @@ docker compose up -d --wait db >/dev/null
 
 echo "== サーバと画面を起動（Ctrl-C で両方止まる）"
 trap 'kill 0' EXIT
-cargo run -q -p ashiato-server &
+cargo run -q -p ashiato-server --bin ashiato-server &
 (cd web && npm run dev -- --host 127.0.0.1) &
 wait

@@ -10,7 +10,7 @@ LOG=$(mktemp)
 cleanup(){ kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker compose up -d --wait db >/dev/null
-cargo run -q -p ashiato-server > "$LOG" 2>&1 & SRV=$!
+cargo run -q -p ashiato-server --bin ashiato-server > "$LOG" 2>&1 & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -s -o /dev/null "http://$BIND/selftest/panic" || true
 sleep 2

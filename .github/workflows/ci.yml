@@ -21,6 +21,7 @@ jobs:
       - run: ./tools/check-licenses.sh
       - run: ./tools/check-migrations.sh
       - run: ./tools/check-boundaries.sh
+      - run: ./tools/check-openapi.sh
   web:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: web } }

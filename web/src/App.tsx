@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState } from "react";
 
 /** 取り込み口が返す 1 件。形は crates/server/src/ingest.rs が正典。 */

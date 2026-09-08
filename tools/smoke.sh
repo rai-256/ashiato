@@ -16,7 +16,7 @@ echo "== 1. DB を起動"
 docker compose up -d --wait db >/dev/null
 
 echo "== 2. サーバを起動（起動時にマイグレーションを当てる）"
-cargo run -q -p ashiato-server & SRV=$!
+cargo run -q -p ashiato-server --bin ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
 

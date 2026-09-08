@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 //! 取り込みの契約。**Kotlin(C-01) と Rust(C-02) の 2 実装が同じ形を送る**ので、
 //! 形と冪等キーの作り方はここが単一の情報源になる（製造準備 A-1）。
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct IngestRequest {
     pub id: uuid::Uuid,
     pub user_id: uuid::Uuid,

@@ -1,0 +1,186 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ashiato S-01",
+    "description": "書き込みは 1 本の取り込み口に集約する。読みは PostgREST が別に自動生成する。",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/events": {
+      "get": {
+        "tags": [],
+        "summary": "削除されていない記録を時刻順に返す（FR-50 のビュー越し）。",
+        "operationId": "events",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventRow"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/ingest": {
+      "post": {
+        "tags": [],
+        "summary": "記録を 1 件受け取る。同じ内容を再送しても行は増えない（FR-22）。",
+        "operationId": "ingest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EventRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "logical_source",
+          "event_time",
+          "tz_id",
+          "origin",
+          "raw"
+        ],
+        "properties": {
+          "event_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "raw": {},
+          "tz_id": {
+            "type": "string"
+          }
+        }
+      },
+      "IngestReply": {
+        "type": "object",
+        "required": [
+          "id",
+          "duplicate"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": "boolean",
+            "description": "既に同じ 1 件があったか。再送しても行が増えないことの確認に使う（FR-22）"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "IngestRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "logical_source",
+          "origin",
+          "event_time",
+          "tz_offset_min",
+          "tz_id",
+          "schema_version",
+          "raw",
+          "payload"
+        ],
+        "properties": {
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "payload": {},
+          "raw": {},
+          "schema_version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tz_id": {
+            "type": "string"
+          },
+          "tz_offset_min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}
