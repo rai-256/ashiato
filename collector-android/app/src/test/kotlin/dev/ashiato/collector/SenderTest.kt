@@ -29,9 +29,11 @@ class SenderTest {
         Outcome.Responded(200, "[$results]")
     }
 
+    // Scenario: 到達できるとき送られる
+    // Scenario: 複数件が 1 回の送信でまとまる
     @Test
     fun `5件たまっていても送信は1回`() {
-        val outbox = Outbox()
+        val outbox = testOutbox()
         repeat(5) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(true, true, true, true, true))
 
@@ -43,9 +45,10 @@ class SenderTest {
         assertEquals(0, outbox.size())
     }
 
+    // Scenario: 一部が失敗しても成功分は残らない
     @Test
     fun `一部が失敗したら失敗分だけ残る`() {
-        val outbox = Outbox()
+        val outbox = testOutbox()
         listOf("a", "b", "c").forEach { outbox.add(req(it)) }
         val transport = FakeTransport(okFor(true, false, true))
 
@@ -57,7 +60,7 @@ class SenderTest {
     @Test
     fun `1件も受け付けられない400でも本文を読んで成功分を取り除く`() {
         // 400 は「1 件も受け付けなかった」。取り除くものが無いことを確かめる
-        val outbox = Outbox()
+        val outbox = testOutbox()
         outbox.add(req("a"))
         val transport = FakeTransport { Outcome.Responded(400, """[{"accepted":false,"error":"unknown_origin"}]""") }
 
@@ -66,9 +69,10 @@ class SenderTest {
         assertEquals(listOf("a"), outbox.snapshot().map { it.id })
     }
 
+    // Scenario: 失敗しても失われない
     @Test
     fun `到達できなければ全部残り次の契機で再び送る`() {
-        val outbox = Outbox()
+        val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { Outcome.Unreachable("timeout") }
 
@@ -83,7 +87,7 @@ class SenderTest {
 
     @Test
     fun `資格情報が無くて401なら何も取り除かない`() {
-        val outbox = Outbox()
+        val outbox = testOutbox()
         outbox.add(req("a"))
         Sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }).flush()
         assertEquals(1, outbox.size())
@@ -92,7 +96,7 @@ class SenderTest {
     @Test
     fun `応答の件数が合わなければ何も取り除かない`() {
         // 取り違えて消すと記録が失われる。**消さない側に倒す**
-        val outbox = Outbox()
+        val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
         Sender(outbox, FakeTransport(okFor(true))).flush()
         assertEquals(2, outbox.size())
@@ -101,7 +105,7 @@ class SenderTest {
     @Test
     fun `空のときは送らない`() {
         val transport = FakeTransport(okFor())
-        assertEquals(Sender.Flushed(0, 0), Sender(Outbox(), transport).flush())
+        assertEquals(Sender.Flushed(0, 0), Sender(testOutbox(), transport).flush())
         assertTrue(transport.bodies.isEmpty())
     }
 }

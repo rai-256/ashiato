@@ -115,7 +115,10 @@
           "origin": {
             "type": "string"
           },
-          "raw": {},
+          "raw": {
+            "type": "string",
+            "description": "原文は**文字列**（design D16）。JSON 型で持つと DB が並びと表記を正規化する"
+          },
           "tz_id": {
             "type": "string"
           }
@@ -179,7 +182,10 @@
             "type": "string"
           },
           "payload": {},
-          "raw": {},
+          "raw": {
+            "type": "string",
+            "description": "取得元から受け取った原文。**文字列で持つ**（深掘り 第 2 回 / design D16）——\nJSON 型に入れると DB がキー順・重複キー・数値表記を正規化し、\n「バイト単位で一致する」が成り立たなくなる。"
+          },
           "schema_version": {
             "type": "integer",
             "format": "int32"

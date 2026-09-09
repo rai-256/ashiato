@@ -56,10 +56,14 @@
 - [x] 6.1 初回起動時に端末識別子（UUID）を 1 つ生成してアプリの保存領域に置く。
       アプリを再起動しても同じ値が返ることを単体テストで確認する
       （**入れ直すと別端末扱いになるのは本人が受け入れ済み** —— design D6）
-- [ ] 6.2 位置情報の権限（前景 + 背景）の要求フローを入れ、拒否されたときに
-      **検証が無いのでチェックを戻した（2026-09-08 の独立検証）。**
-      Robolectric なり Fake なりで、拒否されたときに何も送らないことを実際に確かめる
-      何も送らずに落ちないことを確認する
+- [x] 6.2 位置情報の権限（前景 + 背景）の要求フローを入れ、拒否されたときに
+      何も送らずに落ちないことを確認する。
+      **一度は検証が無いままチェックされ、独立検証で戻された（2026-09-08）。**
+      Robolectric で本番経路（`onRequestPermissionsResult`）を通す 4 本を入れた
+      （`MainActivityTest`。design D18）。拒否の 3 経路 + 「全部許可なら始まる」1 本 ——
+      最後の 1 本が無いと、何もしない実装でも緑になる。
+      検証: `./gradlew :app:testDebugUnitTest` rc=0（52 件）。
+      **わざと拒否時に `start()` を呼ばせると 3 本落ちることを確かめた**
 - [x] 6.3 前景サービス + `FusedLocationProviderClient` で 60 秒間隔の取得を実装する。
       緯度・経度・水平精度・端末時刻・端末識別子を含む記録が 1 件生成されることを
       単体テストで確認する（**常時通知は本人が受け入れ済み** —— design D7）
@@ -92,11 +96,16 @@
 
 ---
 
-## 残したタスク
+## 人間の確認待ち
 
-- **8.4（実機を持って外を歩く）** —— 実機と実データが要る。**人間の確認待ち**。
-  CI は APK のビルドと単体（23 件）までしか見ない（design の Risks 欄どおり）。
-  接続先と資格情報の渡し方は `collector-android/README.md` §接続先と資格情報。
+**8.4（実機を持って外を歩く）** —— 実機と実データが要る。機械で代われない。
+CI は APK のビルドと単体（52 件）までしか見ない（design の Risks 欄どおり）。
+接続先と資格情報の渡し方は `collector-android/README.md` §接続先と資格情報。
+
+`docs/stories/ST01.md` の「完了の判定」のうち、ここに残るのは 1 行目と 2 行目
+（実機で歩いて `/events` を見る / 1 行を開いて欄がすべて埋まっている）。
+3 行目（登録簿に 1 行足すだけで別のソースを受け付ける）と
+4 行目（資格情報の無い要求が 401）は `tools/smoke.sh` の手順 9・10 が毎回見ている。
 
 ## 実装で決めたこと（design.md に追記）
 
@@ -112,32 +121,54 @@
 
 ### 原文を `text` で保存する（deep.md 第 2 回。**先にこれをやる —— 鍵の値が変わる**）
 
-- [ ] 9.1 `migrations/0003_raw_text.sql` を書き、`core.event.raw` を `jsonb` から `text` にする。
+- [x] 9.1 `migrations/0003_raw_text.sql` を書き、`core.event.raw` を `jsonb` から `text` にする。
       `./tools/check-migrations.sh` が rc=0 で通ることを確認する
-- [ ] 9.2 `IngestRequest.raw` を文字列で受け、**`content_hash` の入力を受け取った原文の文字列そのもの**
+- [x] 9.2 `IngestRequest.raw` を文字列で受け、**`content_hash` の入力を受け取った原文の文字列そのもの**
       にする。`hash_is_pinned` の期待値を**独立に再計算して**差し替える
       （実装の出力を写さない。Python 等で別に計算して一致を見る）
-- [ ] 9.3 **並び・重複・表記が保たれることを `tools/smoke.sh` で検査する** ——
+- [x] 9.3 **並び・重複・表記が保たれることを `tools/smoke.sh` で検査する** ——
       キーが辞書順でなく、重複キーを含み、指数表記の数値を含む原文を送り、
       取り出したものが送ったままであることを確認する（`jsonb` だと落ちる検査であること）
-- [ ] 9.4 `docs/collector-contract.md` / `docs/openapi.json` / Kotlin の送信を新しい型に合わせ、
+- [x] 9.4 `docs/collector-contract.md` / `docs/openapi.json` / Kotlin の送信を新しい型に合わせ、
       `./tools/check-openapi.sh` が rc=0 で通ることを確認する
 
 ### 未送信を停止と再開をまたいで残す（deep.md 第 2 回）
 
-- [ ] 9.5 Outbox を端末の保存領域に置く。**プロセスが立て直されても未送信が残る**ことを
+- [x] 9.5 Outbox を端末の保存領域に置く。**プロセスが立て直されても未送信が残る**ことを
       単体テストで確認する（いまはインスタンスフィールドで、最大 5 分ぶんが無言で消える）
 
 ### 本人の決定を回帰から守る
 
-- [ ] 9.6 `FIX_INTERVAL_MS` = 60 秒 / `SEND_INTERVAL_MS` = 5 分 を**テストで固定する**。
+- [x] 9.6 `FIX_INTERVAL_MS` = 60 秒 / `SEND_INTERVAL_MS` = 5 分 を**テストで固定する**。
       いまはどのテストからも参照されておらず、値を書き換えても全部通る
 
 ### 担保の無い spec Scenario を埋める
 
-- [ ] 9.7 「出自の欄がすべて埋まる」「2 つの時刻が両方埋まる」「版と単位が埋まる」を
+- [x] 9.7 「出自の欄がすべて埋まる」「2 つの時刻が両方埋まる」「版と単位が埋まる」を
       `tools/smoke.sh` か結合テストで確認する（いま担保が無い）
-- [ ] 9.8 「契機ごとに 1 件生成される」を単体テストで確認する（本番経路の `LocationCallback` を通す）
-- [ ] 9.9 送信に `Authorization: Bearer` が付くことを `HttpTransport` のテストで確認する。
+- [x] 9.8 「契機ごとに 1 件生成される」を単体テストで確認する（本番経路の `LocationCallback` を通す）
+- [x] 9.9 送信に `Authorization: Bearer` が付くことを `HttpTransport` のテストで確認する。
       `/ingest` に資格情報が無いと 401 になることを `tools/smoke.sh` で確認する
       （いまの 401 検査は `/events` だけ、Bearer の検査は Fake で素通り）
+
+### グループ 9 の検証（すべて rc=0）
+
+| コマンド | 見たもの |
+|---|---|
+| `cargo test --workspace` | 13 件（`raw` が文字列であること・鍵が構造でなく文字列に従うこと） |
+| `./gradlew :app:testDebugUnitTest` | 52 件（23 → 52。Robolectric の 10 件を含む） |
+| `./gradlew :app:assembleDebug` | APK が建つ |
+| `./tools/smoke.sh` | 手順 22 まで。9.3 は手順 19、9.7 は手順 20、9.9 の 401 は手順 9 |
+| `./tools/check-immutable.sh` | 0003 を当てたうえで書き換えが拒まれる |
+| `./tools/check-migrations.sh` / `check-openapi.sh` / `check-licenses.sh` / `check-boundaries.sh` / `check-panic-log.sh` | 変更後も通る |
+| `python3 scripts/check_scenarios.py . st01-location-ingest` | Scenario 30 件すべてに印（担保なし 0） |
+| `python3 scripts/check_chain.py .` | 要件 → Story の鎖 |
+
+**ガードをわざと壊して落ちることも確かめた**（製造準備 C の作法）:
+
+| 壊したもの | 落ちた試験 |
+|---|---|
+| `Outbox.add` の `store.save` を消す | `OutboxStoreTest` 2 本 |
+| `HttpTransport` の `authorization` ヘッダを消す | `HttpTransportTest` 2 本 |
+| 権限拒否で `finish()` の代わりに `start()` を呼ぶ | `MainActivityTest` 3 本 |
+| `raw` を `jsonb` のまま置く（手順 19 が同じ DB で確かめる） | `tools/smoke.sh` 手順 19 |

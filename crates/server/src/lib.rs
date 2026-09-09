@@ -101,7 +101,8 @@ pub struct EventRow {
     event_time: chrono::DateTime<chrono::Utc>,
     tz_id: String,
     origin: String,
-    raw: serde_json::Value,
+    /// 原文は**文字列**（design D16）。JSON 型で持つと DB が並びと表記を正規化する
+    raw: String,
 }
 
 /// 1 件を格納して結果を返す。**呼び出し側の誤りは Err ではなく `IngestResult` で返す** ——
@@ -273,7 +274,7 @@ pub async fn events(
             chrono::DateTime<chrono::Utc>,
             String,
             String,
-            serde_json::Value,
+            String,
         ),
     >(
         "SELECT id, logical_source, event_time, tz_id, origin, raw
@@ -336,6 +337,10 @@ pub async fn run() -> anyhow::Result<()> {
         (
             "0002_immutable_collected",
             include_str!("../../../migrations/0002_immutable_collected.sql"),
+        ),
+        (
+            "0003_raw_text",
+            include_str!("../../../migrations/0003_raw_text.sql"),
         ),
     ] {
         sqlx::raw_sql(sql)

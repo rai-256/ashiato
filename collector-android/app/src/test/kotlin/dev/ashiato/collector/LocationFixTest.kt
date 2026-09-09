@@ -3,6 +3,8 @@ package dev.ashiato.collector
 
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -19,11 +21,34 @@ class LocationFixTest {
     @Test
     fun `緯度・経度・水平精度・端末時刻・端末識別子を含む1件になる`() {
         val r = fix().toIngestRequest("id-1", "user-1", "device-1", tokyo)
-        assertEquals(35.681236, r.raw["lat"]!!.jsonPrimitive.content.toDouble(), 1e-9)
-        assertEquals(139.767125, r.raw["lon"]!!.jsonPrimitive.content.toDouble(), 1e-9)
-        assertEquals(12.5, r.raw["acc_m"]!!.jsonPrimitive.content.toDouble(), 1e-6)
-        assertEquals("2026-09-08T02:00:00Z", r.raw["device_time"]!!.jsonPrimitive.content)
-        assertEquals("device-1", r.raw["device_id"]!!.jsonPrimitive.content)
+        // 原文は**文字列**（design D16）。中身を見るときだけ解釈する
+        val raw = Json.parseToJsonElement(r.raw).jsonObject
+        assertEquals(35.681236, raw["lat"]!!.jsonPrimitive.content.toDouble(), 1e-9)
+        assertEquals(139.767125, raw["lon"]!!.jsonPrimitive.content.toDouble(), 1e-9)
+        assertEquals(12.5, raw["acc_m"]!!.jsonPrimitive.content.toDouble(), 1e-6)
+        assertEquals("2026-09-08T02:00:00Z", raw["device_time"]!!.jsonPrimitive.content)
+        assertEquals("device-1", raw["device_id"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `原文は文字列で、同じ位置なら毎回同じ文字列になる`() {
+        // **冪等キーはこの文字列から作られる**（design D16 / docs/collector-contract.md）。
+        // 再送のたびに形が変われば、同じ 1 件が別の鍵になって重複が入る（FR-22）。
+        val a = fix().toIngestRequest("id-1", "user-1", "device-1", tokyo).raw
+        val b = fix().toIngestRequest("id-2", "user-1", "device-1", tokyo).raw
+        assertEquals(a, b)
+        assertEquals(
+            """{"lat":35.681236,"lon":139.767125,"acc_m":12.5,""" +
+                """"device_time":"2026-09-08T02:00:00Z","device_id":"device-1"}""",
+            a,
+        )
+    }
+
+    @Test
+    fun `契約どおり原文は JSON の値ではなく文字列として送られる`() {
+        // JSON の値で送ると、サーバ側の DB が並び・重複キー・数値表記を正規化する（0003）
+        val json = ingestJson.encodeToString(fix().toIngestRequest("id-1", "user-1", "device-1", tokyo))
+        assert(json.contains("\"raw\":\"{")) { "原文が文字列で送られていない: $json" }
     }
 
     @Test

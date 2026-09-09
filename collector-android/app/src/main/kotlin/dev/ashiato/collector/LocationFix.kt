@@ -30,6 +30,9 @@ data class LocationFix(
 /**
  * 契約どおりの 1 件に変換する。**原文（raw）には取得できたものをそのまま入れる** ——
  * 解釈して減らすのは payload の側の仕事（FR-18）。
+ *
+ * 原文は**文字列**で送る（design D16）。`ingestJson` で直列化するので、
+ * 同じ `LocationFix` は毎回同じ文字列になる —— 冪等キーがこの文字列から作られるため。
  */
 fun LocationFix.toIngestRequest(
     id: String,
@@ -58,7 +61,7 @@ fun LocationFix.toIngestRequest(
         schemaVersion = 1,
         unitSystem = "si",
         crs = "EPSG:4326",
-        raw = JsonObject(fields),
+        raw = ingestJson.encodeToString(JsonObject(fields)),
         payload = JsonObject(fields),
     )
 }

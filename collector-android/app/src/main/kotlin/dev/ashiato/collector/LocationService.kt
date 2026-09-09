@@ -11,12 +11,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import java.time.Instant
+import java.io.File
 import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -31,37 +29,27 @@ import java.util.concurrent.TimeUnit
  * 本人の操作を必要とする収集は途切れる —— 成功条件 1 は「1 年間途切れない」こと。
  */
 class LocationService : Service() {
-    private val outbox = Outbox()
+    private lateinit var outbox: Outbox
     private lateinit var client: FusedLocationProviderClient
     private lateinit var deviceId: String
     private var flusher: ScheduledExecutorService? = null
 
-    private val callback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            for (location in result.locations) {
-                // **水平精度でふるい落とさない**（design D11）。捨てた記録は復元できない
-                val fix = LocationFix(
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    accuracyMeters = location.accuracy,
-                    at = Instant.ofEpochMilli(location.time),
-                )
-                outbox.add(
-                    fix.toIngestRequest(
-                        id = UUID.randomUUID().toString(),
-                        userId = Config.userId,
-                        deviceId = deviceId,
-                        zone = ZoneId.systemDefault(),
-                    ),
-                )
-            }
-            Log.i(TAG, Telemetry.line("fix", count = result.locations.size))
-        }
-    }
+    private lateinit var callback: FixCollector
 
     override fun onCreate() {
         super.onCreate()
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
+        // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
+        // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
+        outbox = Outbox(FileOutboxStore(File(filesDir, "outbox.json")) { Log.w(TAG, it) })
+        callback = FixCollector(
+            outbox = outbox,
+            deviceId = deviceId,
+            userId = Config.userId,
+            zone = ZoneId.systemDefault(),
+            newId = { UUID.randomUUID().toString() },
+            log = { Log.i(TAG, it) },
+        )
         client = LocationServices.getFusedLocationProviderClient(this)
         startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
     }

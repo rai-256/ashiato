@@ -24,6 +24,7 @@ class DeviceIdTest {
         assertEquals("generated-1", store.value)
     }
 
+    // Scenario: 端末識別子が端末をまたいで一意である
     @Test
     fun `アプリを再起動しても同じ値が返る`() {
         val store = FakeStore()

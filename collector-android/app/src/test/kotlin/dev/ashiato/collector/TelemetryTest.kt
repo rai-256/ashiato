@@ -21,7 +21,7 @@ class TelemetryTest {
 
     /** 送信のどの経路を通っても、値がログに出ない */
     private fun linesFor(outcome: Outcome): List<String> {
-        val outbox = Outbox()
+        val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val lines = mutableListOf<String>()
         Sender(outbox, { outcome }, lines::add).flush()
@@ -44,6 +44,7 @@ class TelemetryTest {
         )
     }
 
+    // Scenario: 送信の失敗がログに出ても値は出ない
     @Test
     fun `送信が失敗してもログに値は出ない`() {
         // 失敗のときこそ「詳しく出したい」誘惑が働く。ここで止める

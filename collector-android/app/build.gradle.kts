@@ -25,6 +25,9 @@ android {
             "\"${project.findProperty("ashiato.userId") ?: ""}\"")
     }
     buildFeatures { buildConfig = true }
+    // Robolectric は本物の framework を JVM 上で動かすので資源が要る。
+    // **本番経路（LocationCallback / Activity の権限フロー）を実機なしで通すための唯一の道具**
+    testOptions { unitTests { isIncludeAndroidResources = true } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,4 +46,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.test:core:1.7.0")
 }

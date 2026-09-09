@@ -30,7 +30,10 @@ pub struct IngestRequest {
     /// 座標系。省略時は `EPSG:4326`（FR-28 / design D4）
     #[serde(default)]
     pub crs: Option<String>,
-    pub raw: serde_json::Value,
+    /// 取得元から受け取った原文。**文字列で持つ**（深掘り 第 2 回 / design D16）——
+    /// JSON 型に入れると DB がキー順・重複キー・数値表記を正規化し、
+    /// 「バイト単位で一致する」が成り立たなくなる。
+    pub raw: String,
     pub payload: serde_json::Value,
 }
 
@@ -59,8 +62,10 @@ impl IngestRequest {
 ///
 /// 各項目は長さを前置してから混ぜる。前置しないと
 /// `("ab", "c")` と `("a", "bc")` が同じ鍵になる。
-/// `raw` の直列化は `serde_json` の既定（キーが辞書順）なので、
-/// 送られてきたキーの並びが違っても同じ鍵になる。
+///
+/// **原文は受け取った文字列そのものを混ぜる**（design D16）—— 構造として解釈し直すと、
+/// 保存する値（文字列）と鍵の入力（正規化された構造）がずれる。
+/// 同じ内容でも表記が違えば別の鍵になるが、収集側の直列化は決まった形なので実害は無い。
 pub fn content_hash(req: &IngestRequest) -> String {
     use sha2::{Digest as _, Sha256};
     let mut h = Sha256::new();
@@ -70,7 +75,7 @@ pub fn content_hash(req: &IngestRequest) -> String {
     };
     field(req.logical_source.as_bytes());
     field(&req.event_time.timestamp_micros().to_be_bytes());
-    field(req.raw.to_string().as_bytes());
+    field(req.raw.as_bytes());
     format!("{:x}", h.finalize())
 }
 
@@ -112,7 +117,7 @@ mod tests {
             schema_version: 1,
             unit_system: None,
             crs: None,
-            raw: serde_json::json!({ "v": raw }),
+            raw: format!(r#"{{"v":"{raw}"}}"#),
             payload: serde_json::json!({}),
         }
     }
@@ -212,10 +217,59 @@ mod tests {
             "logical_source": "test", "external_id": null, "device_id": null,
             "origin": "collected", "event_time": "2026-09-08T02:00:00Z",
             "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
-            "raw": {}, "payload": {}
+            "raw": "{}", "payload": {}
         });
         let r: IngestRequest = serde_json::from_value(json).unwrap();
         assert_eq!(r.unit_system_or_default(), "si");
+    }
+
+    #[test]
+    /// **原文は文字列でなければ受け取らない**（design D16 / tasks 9.2）——
+    /// JSON の値として受けると、直列化のたびに並びと表記が正規化されて
+    /// 「受け取ったまま」が成り立たなくなる。
+    fn raw_must_be_a_string() {
+        let mut json = serde_json::json!({
+            "id": uuid::Uuid::nil(), "user_id": uuid::Uuid::nil(),
+            "logical_source": "test", "external_id": null, "device_id": null,
+            "origin": "collected", "event_time": "2026-09-08T02:00:00Z",
+            "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
+            "raw": "{}", "payload": {}
+        });
+        assert!(serde_json::from_value::<IngestRequest>(json.clone()).is_ok());
+        json["raw"] = serde_json::json!({ "lat": 1 });
+        assert!(
+            serde_json::from_value::<IngestRequest>(json).is_err(),
+            "オブジェクトの原文が通ってしまう（受け取った表記が失われる）"
+        );
+    }
+
+    #[test]
+    /// **鍵は原文の「文字列」に従い、構造には従わない**（design D16 / tasks 9.2）。
+    ///
+    /// これが逆向き（構造に従う）だと、保存する値（受け取った文字列）と
+    /// 鍵の入力（正規化された構造）がずれ、**同じ行に別の鍵が立ちうる**。
+    ///
+    /// 期待値は実装の出力を写したものではなく、別実装で独立に算出した:
+    /// ```text
+    /// python3 -c 'import hashlib,struct
+    /// h=hashlib.sha256()
+    /// f=lambda b:(h.update(struct.pack(">Q",len(b))),h.update(b))
+    /// f(b"test"); f(struct.pack(">q",1757000000*1000000)); f(b"{ \"v\" : \"x\" }")
+    /// print(h.hexdigest())'
+    /// ```
+    fn hash_follows_text_not_structure() {
+        let mut spaced = req(uuid::Uuid::nil(), "x");
+        spaced.raw = r#"{ "v" : "x" }"#.into();
+        assert_eq!(
+            content_hash(&spaced),
+            "738cb0caac2d95b8463218c2b3f40f3a857d308a73b03c2ef7421a141315accf",
+            "原文を構造として解釈し直している（保存する値と鍵の入力がずれる）"
+        );
+        assert_ne!(
+            content_hash(&spaced),
+            content_hash(&req(uuid::Uuid::nil(), "x")),
+            "表記の違う原文が同じ鍵になっている"
+        );
     }
 
     #[test]

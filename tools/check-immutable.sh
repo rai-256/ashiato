@@ -15,6 +15,7 @@ echo "== DB を起動してマイグレーションを当てる"
 docker compose up -d --wait db >/dev/null
 psql < migrations/0001_envelope.sql >/dev/null
 psql < migrations/0002_immutable_collected.sql >/dev/null
+psql < migrations/0003_raw_text.sql >/dev/null
 
 echo "== 「収集した」記録を 1 件置く"
 psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
@@ -27,6 +28,7 @@ psql -c "INSERT INTO core.event
                  '2026-09-08T02:00:00Z',540,'Asia/Tokyo',1,'immutable-check-hash',
                  '{\"hello\":\"world\"}','{\"hello\":\"world\"}');" >/dev/null
 
+# Scenario: 収集した記録は書き換えられない
 fail=0
 # 拒まれるべき 3 つ。**それぞれ別に確かめる** —— 1 つだけ効いていて他が素通しでも気付くように
 for col in raw payload event_time; do
@@ -42,9 +44,10 @@ for col in raw payload event_time; do
   fi
 done
 
-# 中身が本当に変わっていないこと（トリガが例外を投げても書けていた、を潰す）
-got=$(psql -c "SELECT raw->>'hello' FROM core.event WHERE logical_source = 'immutable-check';")
-[ "$got" = "world" ] || { echo "  NG 原文が変わっている: $got"; fail=1; }
+# 中身が本当に変わっていないこと（トリガが例外を投げても書けていた、を潰す）。
+# **原文は text なので `raw->>` は引けない**（0003 / design D16）。丸ごと比べる。
+got=$(psql -c "SELECT raw FROM core.event WHERE logical_source = 'immutable-check';")
+[ "$got" = '{"hello":"world"}' ] || { echo "  NG 原文が変わっている: $got"; fail=1; }
 
 # 論理削除は通らないといけない（tasks 3.2 / FR-50）
 if psql -c "UPDATE core.event SET deleted_at = now(), deleted_by = 'check'

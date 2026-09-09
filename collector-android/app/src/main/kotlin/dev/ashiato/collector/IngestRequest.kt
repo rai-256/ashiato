@@ -26,7 +26,15 @@ data class IngestRequest(
     @SerialName("schema_version") val schemaVersion: Int,
     @SerialName("unit_system") val unitSystem: String? = null,
     val crs: String? = null,
-    val raw: JsonObject,
+    /**
+     * 原文。**JSON の値ではなく文字列**（design D16 / docs/collector-contract.md）——
+     * JSON の値で送るとサーバ側の DB がキー順・重複キー・数値表記を正規化し、
+     * 「受け取ったまま」が成り立たなくなる。
+     *
+     * **同じ 1 件は毎回同じ文字列にする。** 冪等キーはこの文字列から作られるので、
+     * 再送のたびに形が変わると重複が入る（FR-22）。
+     */
+    val raw: String,
     val payload: JsonObject,
 )
 
