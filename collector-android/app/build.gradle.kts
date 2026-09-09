@@ -34,6 +34,69 @@ android {
     }
 }
 
+/**
+ * 平文 HTTP を**設定した接続先 1 ホストだけ**に許す設定を生成する。
+ *
+ * **これが無いと 1 件も届かない。** targetSdk 28 以降、Android は平文 HTTP を既定で遮断し、
+ * `UnknownServiceException`（`IOException` の子）を投げる。`HttpTransport` はそれを
+ * `Unreachable` に畳むので、**アプリは動き続け、未送信は積まれ続け、logcat に 1 行出るだけ**になる。
+ * 実機を持って歩いてから気付く型の失敗なので、ここで塞ぐ。
+ *
+ * `usesCleartextTraffic="true"` にはしない —— それだと**どこへでも**平文で出られる。
+ * 接続先は Tailscale 網内の 1 台（PERM-7）なので、そのホストだけを開ける。
+ * 接続先が設定されていない（CI のビルド）ときは**全部拒否**したまま。
+ */
+abstract class GenerateNetworkSecurityConfig : DefaultTask() {
+    @get:Input
+    abstract val host: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val h = host.get()
+        val allow = if (h.isBlank()) {
+            ""
+        } else {
+            "\n    <domain-config cleartextTrafficPermitted=\"true\">" +
+                "\n        <domain includeSubdomains=\"false\">$h</domain>" +
+                "\n    </domain-config>"
+        }
+        val dir = outputDir.get().asFile.resolve("xml")
+        dir.mkdirs()
+        dir.resolve("network_security_config.xml").writeText(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                "<!-- 生成物。app/build.gradle.kts の GenerateNetworkSecurityConfig が作る -->\n" +
+                "<network-security-config>\n" +
+                "    <base-config cleartextTrafficPermitted=\"false\" />$allow\n" +
+                "</network-security-config>\n",
+        )
+    }
+}
+
+// `java.net.URI` は Gradle の `java` 拡張と名前がぶつかるので、素直に切り出す
+val configuredHost: String =
+    Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#]+)")
+        .find(project.findProperty("ashiato.baseUrl")?.toString().orEmpty())
+        ?.groupValues?.get(1)
+        .orEmpty()
+
+val generateNetworkSecurityConfig =
+    tasks.register<GenerateNetworkSecurityConfig>("generateNetworkSecurityConfig") {
+        host.set(configuredHost)
+        outputDir.set(layout.buildDirectory.dir("generated/res/nsconfig"))
+    }
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(
+            generateNetworkSecurityConfig,
+            GenerateNetworkSecurityConfig::outputDir,
+        )
+    }
+}
+
 // Kotlin 2.x の DSL。kotlinOptions { jvmTarget } は非推奨。
 kotlin {
     compilerOptions {

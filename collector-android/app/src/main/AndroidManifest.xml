@@ -26,7 +26,10 @@
     <!-- FR-11 健康データの履歴。**宣言しない期間の 30 日より前は永久に読めない**（EXT-C） -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 
+    <!-- 平文 HTTP は**設定した接続先 1 ホストだけ**に許す（生成物 / build.gradle.kts）。
+         これが無いと targetSdk 28 以降は遮断され、送信が黙って失敗し続ける -->
     <application
+        android:networkSecurityConfig="@xml/network_security_config"
         android:label="あしあと。"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light">

@@ -24,6 +24,9 @@ docker compose exec -T db psql -q -U ashiato -d ashiato -c \
   "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
    VALUES ('seed-location','偽データ（位置）',21600) ON CONFLICT DO NOTHING;"
 
+# **原文は text で送る**（design D16）。JSON の値ではなく文字列にくるむ。
+# 「収集した」記録には device_id が要る（design D19）。
+
 for i in $(seq 1 "$N"); do
   hh=$(printf '%02d' $(( 7 + i )))
   curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" -d "{
@@ -32,7 +35,7 @@ for i in $(seq 1 "$N"); do
     \"logical_source\":\"seed-location\",\"external_id\":null,\"device_id\":\"seed\",
     \"origin\":\"collected\",\"event_time\":\"2026-09-07T${hh}:00:00Z\",
     \"tz_offset_min\":540,\"tz_id\":\"Asia/Tokyo\",\"schema_version\":1,
-    \"raw\":{\"lat\":35.68,\"lon\":139.76,\"acc_m\":$(( 5 + i ))},
-    \"payload\":{\"lat\":35.68,\"lon\":139.76}}" >/dev/null
+    \"raw\":\"{\\\"lat\\\":35.68,\\\"lon\\\":139.76,\\\"acc_m\\\":$(( 5 + i ))}\",
+    \"payload\":{\"lat\":35.68,\"lon\":139.76,\"acc_m\":$(( 5 + i ))}}" >/dev/null
 done
 echo "$MODE: $N 件を入れた"
