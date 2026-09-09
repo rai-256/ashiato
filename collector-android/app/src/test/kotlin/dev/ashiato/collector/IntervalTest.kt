@@ -2,6 +2,7 @@
 package dev.ashiato.collector
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -30,9 +31,22 @@ class IntervalTest {
     @Test
     fun `送信の間隔は取得の間隔より長い`() {
         // 逆転すると「まとめて送る」が成り立たない（1 件ずつ送ることになる）
-        assert(SEND_INTERVAL_MS > FIX_INTERVAL_MS) {
-            "送信 $SEND_INTERVAL_MS ms が取得 $FIX_INTERVAL_MS ms を上回っていない"
-        }
+        assertTrue(
+            "送信 $SEND_INTERVAL_MS ms が取得 $FIX_INTERVAL_MS ms を上回っていない",
+            SEND_INTERVAL_MS > FIX_INTERVAL_MS,
+        )
+    }
+
+    // Scenario: 到達できる間は 1 時間以内に届く
+    @Test
+    fun `送信の間隔は NFR-1 の 1 時間に収まる`() {
+        // **遅延の本体はここ**（review R8）。smoke 手順 18 は台本自身が event_time に
+        // 「いま」を入れて即 POST しているので、サーバ側の即時性しか測っていない。
+        // 生成から格納までの上限を決めているのは、この送信間隔と再送の周期
+        assertTrue(
+            "送信間隔 $SEND_INTERVAL_MS ms が NFR-1 の 1 時間を超えている",
+            SEND_INTERVAL_MS < 3_600_000L,
+        )
     }
 
     @Test

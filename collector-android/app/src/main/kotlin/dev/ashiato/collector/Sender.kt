@@ -29,7 +29,9 @@ class Sender(
     data class Flushed(val sent: Int, val accepted: Int)
 
     fun flush(): Flushed {
-        val batch = outbox.snapshot()
+        // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
+        // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
+        val batch = outbox.snapshot().take(MAX_BATCH)
         if (batch.isEmpty()) return Flushed(0, 0)
 
         val body = ingestJson.encodeToString(batch)
@@ -43,7 +45,10 @@ class Sender(
             is Outcome.Responded -> acceptedIds(batch, outcome)
         }
 
-        outbox.remove(accepted)
+        if (!outbox.remove(accepted)) {
+            // 取り除けたが置き場へ書けなかった。**次の起動で再送になる**（重複は入らない）
+            log(Telemetry.line("outbox_shrink_failed", count = accepted.size))
+        }
         log(Telemetry.line("send", count = batch.size))
         log(Telemetry.line("accepted", count = accepted.size))
         return Flushed(batch.size, accepted.size)
@@ -61,6 +66,12 @@ class Sender(
             log(Telemetry.line("send_failed", count = batch.size, error = "unauthorized"))
             return emptyList()
         }
+        // 5xx は本文が結果の配列でないことがある（サーバ側の失敗）。
+        // **状態符号を落とさない** —— 落とすと 500 も 503 も本文欠落も同じ 1 行に潰れる
+        if (res.status >= 500) {
+            log(Telemetry.line("send_failed", count = batch.size, error = "server_${res.status}"))
+            return emptyList()
+        }
         val results = runCatching {
             ingestJson.decodeFromString<List<IngestResult>>(res.body)
         }.getOrElse {
@@ -72,6 +83,12 @@ class Sender(
             log(Telemetry.line("send_failed", count = batch.size, error = "result_count_mismatch"))
             return emptyList()
         }
+        // **断られた分を黙って積み直さない**（review HIGH-12）。恒久的に断られる記録は
+        // 未送信に居座り、5 分ごとに送られ続ける。理由の種別は私的データではないので出せる
+        results.filter { !it.accepted }
+            .groupingBy { it.error ?: "unknown" }
+            .eachCount()
+            .forEach { (kind, count) -> log(Telemetry.line("rejected", count = count, error = kind)) }
         return batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id }
     }
 }

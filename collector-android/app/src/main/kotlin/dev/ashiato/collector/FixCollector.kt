@@ -24,6 +24,7 @@ class FixCollector(
     private val log: (String) -> Unit = {},
 ) : LocationCallback() {
     override fun onLocationResult(result: LocationResult) {
+        var persisted = 0
         for (location in result.locations) {
             // **水平精度でふるい落とさない**（design D11）。捨てた記録は復元できない
             val fix = LocationFix(
@@ -32,9 +33,14 @@ class FixCollector(
                 accuracyMeters = location.accuracy,
                 at = Instant.ofEpochMilli(location.time),
             )
-            outbox.add(fix.toIngestRequest(newId(), userId, deviceId, zone))
+            if (outbox.add(fix.toIngestRequest(newId(), userId, deviceId, zone))) persisted++
         }
         // 出すのは件数だけ。位置の値はログに出さない（製造準備 A-2）
         log(Telemetry.line("fix", count = result.locations.size))
+        // **「取れた件数」と「置き場に残せた件数」は別**（review MEDIUM-17）。
+        // 揃っているときだけ黙る —— 揃っていないなら、送れないのではなく**残せていない**
+        if (persisted != result.locations.size) {
+            log(Telemetry.line("fix_not_persisted", count = result.locations.size - persisted))
+        }
     }
 }

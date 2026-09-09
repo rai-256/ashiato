@@ -22,7 +22,7 @@ content-type: application/json
 | `user_id` | uuid | FR-29 / PERM-1 |
 | `logical_source` | text（登録簿にある値のみ） | FR-61 |
 | `external_id` | text / null | FR-23 |
-| `device_id` | text / null | FR-24 |
+| `device_id` | text（**`origin` が `collected` なら必須**） | FR-24 |
 | `origin` | `collected` / `authored` / `derived` | FR-25 |
 | `event_time` | RFC3339（UTC） | FR-19 |
 | `tz_offset_min` | integer | FR-20 |
@@ -30,7 +30,7 @@ content-type: application/json
 | `schema_version` | integer | FR-26 |
 | `unit_system` | text / 省略可（既定 `si`） | FR-28 |
 | `crs` | text / 省略可（既定 `EPSG:4326`） | FR-28 |
-| `raw` | **text**（取得元から受け取った文字列そのまま） | FR-18 |
+| `raw` | **text**（取得元から受け取った文字列そのまま。**空にできない**） | FR-18 |
 | `payload` | JSON（解析済み） | FR-27 |
 
 **`raw` は JSON の値ではなく「文字列」で送る**（design D16）。取得元から受け取ったものが
@@ -63,14 +63,28 @@ JSON なら、その JSON を**文字列にくるんで**送る:
 | `id` | 格納された記録の識別子。断られたときは null のことがある |
 | `duplicate` | 既に同じ 1 件があった（再送。行は増えていない） |
 | `accepted` | **未送信から取り除いてよい。収集側はこれだけを見る** |
-| `error` | 断った理由の種別。`malformed` / `unknown_origin` / `unknown_source` |
+| `error` | 断った理由の種別。下の表を見る |
+
+| `error` | 意味 |
+|---|---|
+| `malformed` | 欄の形が解釈できない（必須の欄が無い場合を含む） |
+| `unknown_origin` | 由来の分類が列挙のどれでもない |
+| `unknown_source` | 登録簿に無い論理ソース |
+| `invalid_raw` | **原文が空、または DB に格納できないバイト（U+0000）を含む** |
+| `missing_device_id` | **「収集した」記録なのに端末識別子が無い** |
+
+> `invalid_raw` と `missing_device_id` は独立検証で足した（review R3 / R11 / R18）。
+> どちらも**格納の前に断らないと 500 になる型**で、500 はまとめ送り全体を落とす ——
+> 収集側は本文を読めず 1 件も取り除けないので、**その 1 件が後続を永久に止める**。
+> 空の原文はさらに悪く、冪等キーが `logical_source` + `event_time` + `raw` だけから
+> 作られるため、**別々の記録が 1 行に畳まれて `duplicate: true`（＝受理）として返る**。
 
 ### 状態符号
 
 | | |
 |---|---|
 | `200` | **1 件以上を受け付けた。** 一部が断られていても 200（本文の `accepted` を見る） |
-| `400` | **1 件も受け付けなかった。** 本文は同じ形の配列 |
+| `400` | **1 件も受け付けなかった。** 本文は同じ形の配列（空の配列・非配列を送ったときも空の配列を返す） |
 | `401` | 資格情報が無いか一致しない |
 
 **一部の失敗で全部やり直さない。** 1 件の恒久的な失敗が後続を永久に止めるため、

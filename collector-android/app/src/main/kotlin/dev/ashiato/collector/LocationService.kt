@@ -8,12 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import java.io.File
 import java.time.ZoneId
 import java.util.UUID
@@ -28,20 +23,34 @@ import java.util.concurrent.TimeUnit
  * 常時通知が出るのは本人が受け入れ済み（design D7）。
  * 本人の操作を必要とする収集は途切れる —— 成功条件 1 は「1 年間途切れない」こと。
  */
-class LocationService : Service() {
+open class LocationService : Service() {
     private lateinit var outbox: Outbox
-    private lateinit var client: FusedLocationProviderClient
+    private lateinit var fixSource: FixSource
     private lateinit var deviceId: String
-    private var flusher: ScheduledExecutorService? = null
+    private var flusher: FlushScheduler? = null
 
     private lateinit var callback: FixCollector
+
+    /** 未送信の置き場を試験から覗く口。**本番の経路は変えない**（review R1）。 */
+    internal val outboxForTest: Outbox get() = outbox
+
+    /** 取得元。**試験だけが差し替える**（review R1）。本番は Play Services（design D7）。 */
+    protected open fun newFixSource(): FixSource = FusedFixSource(this)
+
+    /** 送信の刻み。同上。1 本の糸で回す —— 送信が重なると同じ記録を 2 回送る。 */
+    protected open fun newScheduler(): FlushScheduler = ExecutorFlushScheduler()
+
+    /** 未送信の置き場。**端末の保存領域**（深掘り 第 2 回 / design D17 / D22）。 */
+    protected open fun newOutbox(): Outbox =
+        Outbox(FileOutboxStore(File(filesDir, "outbox.jsonl")) { Log.w(TAG, it) })
 
     override fun onCreate() {
         super.onCreate()
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
-        outbox = Outbox(FileOutboxStore(File(filesDir, "outbox.json")) { Log.w(TAG, it) })
+        outbox = newOutbox()
+        fixSource = newFixSource()
         callback = FixCollector(
             outbox = outbox,
             deviceId = deviceId,
@@ -50,14 +59,13 @@ class LocationService : Service() {
             newId = { UUID.randomUUID().toString() },
             log = { Log.i(TAG, it) },
         )
-        client = LocationServices.getFusedLocationProviderClient(this)
         startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, FIX_INTERVAL_MS).build()
         try {
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            // **FR-1 が定めた 60 秒。** 本人が決めた値なので、ここをリテラルに書き換えない
+            fixSource.start(FIX_INTERVAL_MS, callback)
         } catch (e: SecurityException) {
             // 権限が無い。**落とさずに何もしない**（tasks 6.2）——
             // 落ちると次の起動まで収集が止まり、成功条件 1 に直接効く
@@ -79,19 +87,22 @@ class LocationService : Service() {
             return
         }
         val sender = Sender(outbox, HttpTransport(Config.baseUrl, Config.apiToken)) { Log.i(TAG, it) }
-        flusher = Executors.newSingleThreadScheduledExecutor().also {
-            it.scheduleWithFixedDelay(
-                { runCatching { sender.flush() } },   // 1 回の失敗で以後の送信を止めない
-                SEND_INTERVAL_MS,
-                SEND_INTERVAL_MS,
-                TimeUnit.MILLISECONDS,
-            )
+        // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない
+        flusher = newScheduler().also { scheduler ->
+            scheduler.every(SEND_INTERVAL_MS) {
+                // 1 回の失敗で以後の送信を止めない。**ただし黙らない**（review CRITICAL-4）——
+                // 握り潰すと、送信が毎回失敗していても logcat に 1 行も残らない。
+                // 種別だけを出すので、私的データは漏れない（製造準備 A-2）
+                runCatching { sender.flush() }.onFailure {
+                    Log.w(TAG, Telemetry.line("flush_crashed", error = it.javaClass.simpleName))
+                }
+            }
         }
     }
 
     override fun onDestroy() {
-        client.removeLocationUpdates(callback)
-        flusher?.shutdownNow()
+        fixSource.stop(callback)
+        flusher?.cancel()
         flusher = null
         super.onDestroy()
     }
@@ -115,5 +126,21 @@ class LocationService : Service() {
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val NOTIFICATION_ID = 1
+    }
+}
+
+/** 本番の刻み。1 本の糸で回す —— 送信が重なると同じ記録を 2 回送る。 */
+class ExecutorFlushScheduler : FlushScheduler {
+    private var pool: ScheduledExecutorService? = null
+
+    override fun every(periodMs: Long, task: () -> Unit) {
+        pool = Executors.newSingleThreadScheduledExecutor().also {
+            it.scheduleWithFixedDelay({ task() }, periodMs, periodMs, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    override fun cancel() {
+        pool?.shutdownNow()
+        pool = null
     }
 }

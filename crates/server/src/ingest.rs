@@ -37,6 +37,18 @@ pub struct IngestRequest {
     pub payload: serde_json::Value,
 }
 
+/// 受け取り時に断る理由。**アプリ層で閉じる** —— DB の制約に任せると 500 になり、
+/// 呼び出し側から「自分の要求が悪い」と分からない（design D5）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Invalid {
+    /// 由来の分類が列挙のどれでもない
+    Origin,
+    /// 原文が空、または DB に格納できないバイトを含む
+    Raw,
+    /// 「収集した」記録なのに端末識別子が無い
+    DeviceId,
+}
+
 impl IngestRequest {
     /// 収集側が省略した単位系を既定で埋めた値を返す。
     pub fn unit_system_or_default(&self) -> &str {
@@ -51,6 +63,30 @@ impl IngestRequest {
     /// 由来の分類が列挙のどれかであることを保証する。
     pub fn origin_is_known(&self) -> bool {
         ORIGINS.contains(&self.origin.as_str())
+    }
+
+    /// 格納の前に断るものを 1 か所で見る。
+    ///
+    /// **DB へ届かせてはいけない値がある。** PostgreSQL の `text` は U+0000 を格納できず
+    /// （SQLSTATE 22021）、届くと `ingest_one` が `Err` を返してまとめ送り全体が 500 になる。
+    /// 収集側は本文を読めず 1 件も取り除けないので、**その 1 件が後続を永久に止める**。
+    ///
+    /// 空の原文も断る。冪等キーは `logical_source` + `event_time` + `raw` だけから作るので、
+    /// 原文が空だと**同じ時刻の別々の記録が 1 行に畳まれ**、収集側には
+    /// `duplicate: true`（＝受理）として返る —— 記録が正常応答の顔をして消える。
+    pub fn validate(&self) -> Result<(), Invalid> {
+        if !self.origin_is_known() {
+            return Err(Invalid::Origin);
+        }
+        if self.raw.is_empty() || self.raw.contains('\0') {
+            return Err(Invalid::Raw);
+        }
+        // 「収集した」記録は spec が端末識別子を要求する（「どの端末が生成したか」）。
+        // 本人が書いた記録・派生させた記録に端末は無いので、そこは求めない。
+        if self.origin == "collected" && self.device_id.as_deref().unwrap_or_default().is_empty() {
+            return Err(Invalid::DeviceId);
+        }
+        Ok(())
     }
 }
 
@@ -109,7 +145,7 @@ mod tests {
             user_id: uuid::Uuid::nil(),
             logical_source: "test".into(),
             external_id: None,
-            device_id: None,
+            device_id: Some("device-1".into()),
             origin: "collected".into(),
             event_time: chrono::DateTime::from_timestamp(1_757_000_000, 0).unwrap(),
             tz_offset_min: 540,
@@ -273,11 +309,65 @@ mod tests {
     }
 
     #[test]
-    /// 列挙にない由来は弾ける（tasks 2.5）
+    /// 列挙にない由来は弾ける（tasks 2.5）。**3 分類すべてを通す** ——
+    /// `collected` だけ見ていると `ORIGINS` を縮めても気付かない（review R19）
     fn origin_enum_is_closed() {
         let mut r = req(uuid::Uuid::nil(), "x");
-        assert!(r.origin_is_known());
-        r.origin = "guessed".into();
-        assert!(!r.origin_is_known());
+        for known in ["collected", "authored", "derived"] {
+            r.origin = known.into();
+            assert!(r.origin_is_known(), "{known} が弾かれている");
+        }
+        for unknown in ["guessed", "Collected", "", "collected "] {
+            r.origin = unknown.into();
+            assert!(!r.origin_is_known(), "{unknown} が通っている");
+        }
+    }
+
+    #[test]
+    /// **DB へ届かせてはいけない原文を、格納の前に断る**（review R11 / R18）。
+    ///
+    /// PostgreSQL の `text` は U+0000 を格納できない。届くとまとめ送り全体が 500 になり、
+    /// 収集側は本文を読めず 1 件も取り除けない —— **その 1 件が後続を永久に止める**。
+    fn raw_that_cannot_be_stored_is_rejected() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        assert_eq!(r.validate(), Ok(()));
+
+        r.raw = "{\"v\":\"\0\"}".into();
+        assert_eq!(
+            r.validate(),
+            Err(Invalid::Raw),
+            "NUL を含む原文が通っている"
+        );
+
+        r.raw = String::new();
+        assert_eq!(r.validate(), Err(Invalid::Raw), "空の原文が通っている");
+    }
+
+    #[test]
+    /// **空の原文は冪等キーを潰す。** 断らないと、同じ時刻の別々の記録が 1 行に畳まれ、
+    /// 収集側には `duplicate: true`（＝受理）として返る —— 記録が正常応答の顔をして消える
+    fn empty_raw_would_collapse_distinct_records() {
+        let mut a = req(uuid::Uuid::nil(), "x");
+        let mut b = req(uuid::Uuid::nil(), "y");
+        a.raw = String::new();
+        b.raw = String::new();
+        assert_eq!(content_hash(&a), content_hash(&b), "前提が変わっている");
+        assert_eq!(a.validate(), Err(Invalid::Raw), "だから断らねばならない");
+    }
+
+    #[test]
+    /// 「収集した」記録には端末識別子が要る（spec「どの端末が生成したか」/ review R3）。
+    /// **本人が書いた記録・派生させた記録には求めない** —— そこに端末は無い
+    fn collected_records_require_a_device() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        r.device_id = None;
+        assert_eq!(r.validate(), Err(Invalid::DeviceId));
+        r.device_id = Some(String::new());
+        assert_eq!(r.validate(), Err(Invalid::DeviceId), "空文字が通っている");
+
+        for other in ["authored", "derived"] {
+            r.origin = other.into();
+            assert_eq!(r.validate(), Ok(()), "{other} に端末を求めている");
+        }
     }
 }

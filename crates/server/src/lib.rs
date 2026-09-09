@@ -26,6 +26,25 @@ pub struct App {
     token: String,
 }
 
+/// 合言葉を突き合わせる。**一致した長さから内容が推測されない**
+/// （spec「資格情報の比較を、一致した長さから内容が推測されない方法で行う」）。
+///
+/// 長さが同じなら、**最初の 1 バイトが違っても全部違っても同じ回数の比較を行う** ——
+/// 早期 return を書くと、掛かった時間から「どこまで合っていたか」が漏れ、
+/// 合言葉を 1 バイトずつ削り出せる。
+///
+/// **`subtle` に委ねてある**（review R7）。畳み込みを手で書いていたときは
+/// `given == expected` に戻しても `cargo test` も `tools/smoke.sh` も緑のままで、
+/// **この性質は単体テストでは捕まえられない**（時間を測らない限り観測できない）。
+/// 早期打ち切りが書けない型に置き換えて、性質を構造で保証する。
+///
+/// 長さの一致は先に見る。**全体の長さは漏れるが、それは合言葉の中身ではない** ——
+/// spec が禁じているのは「一致した長さ（＝どこまで合っていたか）」からの推測。
+pub fn token_matches(given: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq as _;
+    given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
+}
+
 /// 合言葉を確かめる。無ければ 401。
 fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
     let given = headers
@@ -33,13 +52,7 @@ fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)>
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
-    // 比較にかかる時間で中身が漏れないよう、長さを確かめてから全バイトを畳み込む
-    let ok = given.len() == app.token.len()
-        && given
-            .bytes()
-            .zip(app.token.bytes())
-            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            == 0;
+    let ok = token_matches(given, &app.token);
     if ok {
         Ok(())
     } else {
@@ -58,6 +71,20 @@ pub enum IngestError {
     UnknownOrigin,
     /// 登録簿に無い論理ソース
     UnknownSource,
+    /// 原文が空、または DB に格納できないバイトを含む（`ingest::Invalid::Raw`）
+    InvalidRaw,
+    /// 「収集した」記録なのに端末識別子が無い（`ingest::Invalid::DeviceId`）
+    MissingDeviceId,
+}
+
+impl From<ingest::Invalid> for IngestError {
+    fn from(v: ingest::Invalid) -> Self {
+        match v {
+            ingest::Invalid::Origin => Self::UnknownOrigin,
+            ingest::Invalid::Raw => Self::InvalidRaw,
+            ingest::Invalid::DeviceId => Self::MissingDeviceId,
+        }
+    }
 }
 
 /// 送った 1 件ごとの結果。**送った順に並ぶ**ので、収集側は位置で対応づける
@@ -127,13 +154,11 @@ async fn ingest_one(
         }
     };
 
-    // 由来の分類はアプリ層で閉じる（design D5）。DB の CHECK に任せると 500 になり、
+    // 受け取り時の検査はアプリ層で閉じる（design D5）。DB の制約に任せると 500 になり、
     // 呼び出し側から「自分の要求が悪い」と分からない。
-    if !req.origin_is_known() {
-        return Ok(IngestResult::rejected(
-            Some(req.id),
-            IngestError::UnknownOrigin,
-        ));
+    // **500 はまとめ送り全体を落とす** —— 1 件の恒久的な失敗が後続を永久に止める（design D20）。
+    if let Err(invalid) = req.validate() {
+        return Ok(IngestResult::rejected(Some(req.id), invalid.into()));
     }
 
     // 登録簿に無いソースは受け付けない。API を変えずにソースを増やすので（FR-61）、
@@ -230,10 +255,13 @@ pub async fn ingest(
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
-        _ => return Err((StatusCode::BAD_REQUEST, "配列かオブジェクトを送る".into())),
+        // **本文の形は常に「1 件ごとの結果の配列」**（docs/collector-contract.md §状態符号）。
+        // 平文を返すと収集側がパースに失敗し、`unreadable_response` として
+        // 状態符号の意味を失う（結果として何も取り除けない）。
+        _ => return Ok((StatusCode::BAD_REQUEST, Json(Vec::new()))),
     };
     if items.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "空の配列".into()));
+        return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
 
     let mut results = Vec::with_capacity(items.len());
@@ -304,10 +332,19 @@ async fn selftest_panic() -> &'static str {
     panic!("selftest: 意図的な異常")
 }
 
-fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
-    // 私的データはログに出さない（A-2）。出すのはエラーの種別だけ。
-    // **応答に元のエラーを載せない** —— スキーマ名・接続先・値が呼び出し側へ漏れる。
-    tracing::error!(kind = "db", detail = %e, "データベース操作に失敗");
+/// DB の失敗を畳む。**ログに出すのは SQLSTATE だけ**（A-2 / design D20）。
+///
+/// `sqlx::Error` の Display は `error returned from database: <PostgreSQL の本文>` で、
+/// PostgreSQL は `invalid input syntax for type ...: "<値>"` のように**入力値を本文に含める**。
+/// 原文が `text` になって格納の失敗経路が増えた（design D16）ぶん、ここから私的データが
+/// 漏れる筋が太くなっている。種別＝ SQLSTATE なら値を含まない。
+fn internal(e: sqlx::Error) -> (StatusCode, String) {
+    let code = e
+        .as_database_error()
+        .and_then(|d| d.code())
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|| "unknown".into());
+    tracing::error!(kind = "db", sqlstate = %code, "データベース操作に失敗");
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
@@ -341,6 +378,10 @@ pub async fn run() -> anyhow::Result<()> {
         (
             "0003_raw_text",
             include_str!("../../../migrations/0003_raw_text.sql"),
+        ),
+        (
+            "0004_immutable_origin",
+            include_str!("../../../migrations/0004_immutable_origin.sql"),
         ),
     ] {
         sqlx::raw_sql(sql)
@@ -380,3 +421,43 @@ pub async fn run() -> anyhow::Result<()> {
     )
 )]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    /// 合言葉の突き合わせが**正しい**ことを固定する（spec / review R7）。
+    ///
+    /// **定数時間であることはここでは確かめられない** —— 時間を測らない限り
+    /// `==` と区別が付かない。その性質は `subtle::ConstantTimeEq` が構造で持っている
+    /// （`token_matches` の実装を見よ）。ここが見るのは可否の正しさだけ。
+    #[test]
+    fn token_comparison_is_correct() {
+        let token = "smoke-token-0123456789abcdef";
+        assert!(token_matches(token, token));
+
+        // 同じ長さで、違う位置が 1 バイトだけ
+        let head = format!("X{}", &token[1..]);
+        let tail = format!("{}X", &token[..token.len() - 1]);
+        let all = "X".repeat(token.len());
+        for wrong in [head.as_str(), tail.as_str(), all.as_str()] {
+            assert_eq!(wrong.len(), token.len());
+            assert!(!token_matches(wrong, token), "{wrong} が通っている");
+        }
+
+        // 長さ違いは通らない（前方一致で通す実装への回帰を止める）
+        assert!(!token_matches(&token[..token.len() - 1], token));
+        assert!(!token_matches(&format!("{token}X"), token));
+        assert!(!token_matches("", token));
+    }
+
+    /// 空の合言葉を設定した運用でも、空のヘッダが通ってはいけない…
+    /// わけではない（`run()` が 16 文字未満を拒む）。ここは**長さ 0 同士が一致する**ことだけ確かめ、
+    /// 短い合言葉を止めるのは起動時の検査だと明示する。
+    #[test]
+    fn empty_token_is_rejected_at_startup_not_here() {
+        assert!(token_matches("", ""));
+    }
+}

@@ -71,7 +71,8 @@ class FixCollectorTest {
         }
     }
 
-    // Scenario: 端末識別子が端末をまたいで一意である
+    // 印は置かない —— **渡した定数が消えていないことしか見ていない**（review R4）。
+    // 「端末をまたいで一意」の担保は DeviceIdTest が持つ
     @Test
     fun `同じ端末の記録は同じ端末識別子を持つ`() {
         val outbox = testOutbox()

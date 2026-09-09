@@ -130,7 +130,9 @@
         "enum": [
           "malformed",
           "unknown_origin",
-          "unknown_source"
+          "unknown_source",
+          "invalid_raw",
+          "missing_device_id"
         ]
       },
       "IngestRequest": {

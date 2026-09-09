@@ -11,9 +11,13 @@ import java.net.URL
  * 例外は種別だけに畳む。文言は送った本文を含むことがあり、ログへ流すと私的データが漏れる。
  */
 class HttpTransport(
-    private val baseUrl: String,
+    baseUrl: String,
     private val token: String,
 ) : Transport {
+    /** 末尾のスラッシュを落としてから組み立てる。`https://host/` が渡ると `//ingest` になり、
+     *  404 が返り続けて**収集は動いているのに 1 件も届かない**状態が黙って続く（review R22）。 */
+    private val baseUrl = baseUrl.trimEnd('/')
+
     override fun post(bodyJson: String): Outcome {
         var conn: HttpURLConnection? = null
         return try {

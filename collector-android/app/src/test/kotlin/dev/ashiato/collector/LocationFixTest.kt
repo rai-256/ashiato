@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 1 回の取得が契約どおりの 1 件になる（tasks 6.3 / FR-1）。 */
@@ -48,7 +49,7 @@ class LocationFixTest {
     fun `契約どおり原文は JSON の値ではなく文字列として送られる`() {
         // JSON の値で送ると、サーバ側の DB が並び・重複キー・数値表記を正規化する（0003）
         val json = ingestJson.encodeToString(fix().toIngestRequest("id-1", "user-1", "device-1", tokyo))
-        assert(json.contains("\"raw\":\"{")) { "原文が文字列で送られていない: $json" }
+        assertTrue("原文が文字列で送られていない: $json", json.contains("\"raw\":\"{"))
     }
 
     @Test
@@ -85,7 +86,7 @@ class LocationFixTest {
             "\"event_time\"", "\"tz_offset_min\"", "\"tz_id\"", "\"schema_version\"",
             "\"unit_system\"", "\"crs\"", "\"raw\"", "\"payload\"",
         )) {
-            assert(json.contains(field)) { "欄 $field が送られていない: $json" }
+            assertTrue("欄 $field が送られていない: $json", json.contains(field))
         }
     }
 }

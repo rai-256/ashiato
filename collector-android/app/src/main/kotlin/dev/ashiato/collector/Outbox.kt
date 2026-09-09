@@ -16,9 +16,12 @@ class Outbox(private val store: OutboxStore) {
 
     /** 積む。**精度でも件数でもふるい落とさない**（design D11）。 */
     @Synchronized
-    fun add(request: IngestRequest) {
+    fun add(request: IngestRequest): Boolean {
         pending.addLast(request)
-        store.save(pending.toList())
+        // **追記できる置き場なら追記する**（design D22）—— 全件書き直しは
+        // 圏外が続いて未送信が伸びたとき、60 秒ごとにフラッシュを焼く。
+        // 書けなくてもメモリには積む（次の契機で書き直される）。**失敗は呼び出し側へ返す**
+        return store.append(request) { pending.toList() }
     }
 
     /** いま溜まっているもの。送信はこの全部をまとめて 1 回で送る（design D9）。 */
@@ -33,9 +36,10 @@ class Outbox(private val store: OutboxStore) {
      * 送信中に新しい記録が積まれても取り違えないため。
      */
     @Synchronized
-    fun remove(ids: Collection<String>) {
+    fun remove(ids: Collection<String>): Boolean {
         val gone = ids.toHashSet()
         pending.removeAll { it.id in gone }
-        store.save(pending.toList())
+        // 取り除いたあとは全件を書き直す。**送信の契機（5 分）でしか起きない**ので割に合う
+        return store.save(pending.toList())
     }
 }

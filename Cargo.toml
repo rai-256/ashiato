@@ -15,6 +15,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
+# 合言葉の定数時間比較。**性質を構造で保証する** —— 早期打ち切りの回帰は
+# 単体テストでは捕まえられない（review R7）ので、比較そのものを型に委ねる。
+subtle = "2"
 unicode-normalization = "0.1"
 
 # 製造準備 C: フレームワーク既定に追加ルールを足す。

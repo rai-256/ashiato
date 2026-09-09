@@ -39,7 +39,11 @@ BODY='{"id":"11111111-1111-4111-8111-111111111111","user_id":"00000000-0000-0000
 "raw":"{\"hello\":\"world\"}","payload":{"hello":"world"}}'
 R1=$(curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" -H 'content-type: application/json' -d "$BODY")
 echo "   → $R1"
-echo "$R1" | grep -q '"duplicate":false'
+# **応答の形まで見る**（design D12: 裸のオブジェクトでは返さない）。
+# grep だけだと、互換のために 1 件を裸で返す実装が素通りする
+[ "$(printf '%s' "$R1" | jq -r 'type')" = "array" ] || { echo "応答が配列でない"; exit 1; }
+[ "$(printf '%s' "$R1" | jq 'length')" = "1" ] || { echo "長さ 1 の配列でない"; exit 1; }
+[ "$(printf '%s' "$R1" | jq -r '.[0].duplicate')" = "false" ] || { echo "重複と判定された"; exit 1; }
 
 # Scenario: 再送しても重複しない
 echo "== 5. もう一度同じものを送る（FR-22: 再送しても行が増えない）"
@@ -265,21 +269,82 @@ echo "   → jsonb に通すと \"$canon\" に変わる（だからこの型で�
 # Scenario: 出自の欄がすべて埋まる
 # Scenario: 2 つの時刻が両方埋まる
 # Scenario: 版と単位が埋まる
-echo "== 20. 出自・2 つの時刻・版と単位の欄がすべて埋まる（tasks 9.7 / spec の 3 Scenario）"
-# **NULL が 1 つでもあれば落とす。** 「後から足せないもの」を day one から持つのが
-# この capability の目的なので、欠けたまま入る経路があってはならない。
-missing=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-location' AND (
-    id IS NULL OR user_id IS NULL OR device_id IS NULL OR origin IS NULL   -- 出自（FR-21/24/25/29）
- OR event_time IS NULL OR ingest_time IS NULL                              -- 2 つの時刻（FR-19）
- OR tz_offset_min IS NULL OR tz_id IS NULL                                 -- 地域（FR-20）
- OR schema_version IS NULL OR unit_system IS NULL OR crs IS NULL           -- 版と単位（FR-26/28）
- OR sensitivity IS NULL OR content_hash IS NULL);")
-echo "   → 欄の欠けた行 $missing 件"
-[ "$missing" = "0" ] || { echo "欄の欠けた記録がある"; exit 1; }
+echo "== 20. 出自・2 つの時刻・版と単位が「送ったとおりに」残る（tasks 9.7 / spec の 3 Scenario）"
+# **NULL を数えても意味が無い**（review R3 / R1）—— 0001 で 12 列が NOT NULL なので、
+# 行が在る限り「NULL でない」は必ず真になり、DDL の言い換えにしかならない。
+# 見るべきは「**送った値が記録として残っているか**」。
+want="00000000-0000-0000-0000-000000000000|c01-location|c01-smoke|collected|1|si|EPSG:4326|Asia/Tokyo|540"
+n=$(psql -c "SELECT count(*) FROM core.event
+             WHERE logical_source='c01-location'
+               AND user_id::text||'|'||logical_source||'|'||device_id||'|'||origin||'|'||
+                   schema_version||'|'||unit_system||'|'||crs||'|'||tz_id||'|'||tz_offset_min
+                   = '$want';")
+total=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-location';")
+echo "   → $n / $total 件が送ったとおり"
+# 座標系を変えた 1 件（手順 15）だけが外れる。それ以外は全部一致していなければならない
+[ "$n" = "$(( total - 1 ))" ] || { echo "送った値と違うものが保存されている"; exit 1; }
+[ "$(psql -c "SELECT crs FROM core.event WHERE id='ccccccc1-0000-4000-8000-000000000000';")" = "EPSG:6668" ] \
+  || { echo "指定した座標系が残っていない"; exit 1; }
+
 # 2 つの時刻が**別々の意味**を持っている（同じ値を 2 か所に書いているだけ、を潰す）
 [ "$(psql -c "SELECT count(*) FROM core.event
               WHERE logical_source='c01-location' AND ingest_time = event_time;")" = "0" ] \
   || { echo "格納の時刻が出来事の時刻の写しになっている（FR-19 の意味が消えている）"; exit 1; }
+# 固定の日付で送った分は、格納の時刻が確かに「あとから」入っている
+[ "$(psql -c "SELECT count(*) FROM core.event
+              WHERE id='bbbbbbb1-0000-4000-8000-000000000000' AND ingest_time > event_time;")" = "1" ] \
+  || { echo "格納の時刻が出来事の時刻より後になっていない"; exit 1; }
+
+echo "== 20b. 「収集した」記録に端末識別子が無ければ断る（spec「どの端末が生成したか」/ review R3）"
+# **この検査が無いと手順 20 の印は空振りする** —— device_id は 0001 で nullable なので、
+# 省いた要求が 200 で通り NULL で保存されていた（独立検証で実測）
+no_dev=$(printf '%s' "$mixed" | jq -c '[.[0]|del(.device_id)|.id="f0000001-0000-4000-8000-000000000000"]')
+code=$(post "$no_dev")
+echo "   → $code / $(jq -r '.[0].error' /tmp/smoke.body)"
+[ "$code" = "400" ] || { echo "400 のはずが $code"; exit 1; }
+[ "$(jq -r '.[0].error' /tmp/smoke.body)" = "missing_device_id" ] || { echo "理由の種別が違う"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE id='f0000001-0000-4000-8000-000000000000';")" = "0" ] \
+  || { echo "端末識別子の無い記録が格納されている"; exit 1; }
+# 「本人が書いた」記録には端末を求めない（禁止の範囲が広がっていないこと）。
+# **原文を変える** —— 同じにすると冪等キーが一致して重複になり、
+# 「格納された」ことを確かめられない（＝この検査が空振りする）
+authored=$(printf '%s' "$no_dev" | jq -c '[.[0]
+  | .origin="authored" | .id="f0000002-0000-4000-8000-000000000000"
+  | .raw="{\"seq\":\"authored\"}" | .payload={"seq":"authored"}]')
+[ "$(post "$authored")" = "200" ] || { echo "本人が書いた記録にまで端末を求めている"; exit 1; }
+[ "$(jq -r '.[0].duplicate' /tmp/smoke.body)" = "false" ] || { echo "重複になっている（検査が空振り）"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event
+              WHERE id='f0000002-0000-4000-8000-000000000000' AND device_id IS NULL;")" = "1" ] \
+  || { echo "端末識別子の無い authored が格納されていない"; exit 1; }
+
+echo "== 20c. DB に格納できない原文を、格納の前に断る（review R11 / R18）"
+# **1 件の恒久的な失敗が後続を永久に止めるのを防ぐ。** PostgreSQL の text は U+0000 を
+# 格納できず、届くとまとめ送り全体が 500 になって収集側は 1 件も取り除けない
+for bad_raw in '""' '"{\u0000}"'; do
+  body=$(printf '%s' "$mixed" | jq -c "[.[0]|.raw=$bad_raw|.id=\"f0000003-0000-4000-8000-000000000000\"]")
+  code=$(post "$body")
+  [ "$code" = "400" ] || { echo "原文 $bad_raw が $code で通った"; exit 1; }
+  [ "$(jq -r '.[0].error' /tmp/smoke.body)" = "invalid_raw" ] || { echo "理由の種別が違う"; exit 1; }
+done
+echo "   → 空の原文と NUL を含む原文の 2 通りとも 400（invalid_raw）"
+# **正しい分は道連れにならない。** 不正 1 件を挟んでも他が格納される
+mixed_bad=$(printf '%s' "$mixed" | jq -c '[.[0]|.raw=""|.id="f0000004-0000-4000-8000-000000000000"]
+  + [.[0]|.id="f0000005-0000-4000-8000-000000000000"|.payload={"seq":"after-poison"}|.raw="{\"seq\":\"after-poison\"}"]')
+code=$(post "$mixed_bad")
+[ "$code" = "200" ] || { echo "不正 1 件でまとめ送り全体が落ちた（$code）"; exit 1; }
+[ "$(jq -c '[.[].accepted]' /tmp/smoke.body)" = "[false,true]" ] || { echo "受理の並びが違う"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE payload->>'seq'='after-poison';")" = "1" ] \
+  || { echo "不正な 1 件の後ろが格納されていない"; exit 1; }
+echo "   → 不正を挟んでも後続は格納される"
+
+echo "== 20d. 契約から外れた本文でも、応答の形は結果の配列（review R15）"
+# 平文を返すと収集側がパースに失敗し、状態符号の意味を失う
+for body in '[]' '5'; do
+  code=$(post "$body")
+  [ "$code" = "400" ] || { echo "本文 $body が $code"; exit 1; }
+  [ "$(jq -r 'type' /tmp/smoke.body)" = "array" ] || { echo "本文 $body の応答が配列でない"; exit 1; }
+done
+echo "   → 空配列と非配列の 2 通りとも 400 で、本文は配列"
 
 # Scenario: 重複は件数に加えない
 #   （13 で 3 件を再送しても、ここの件数は増えていない）
@@ -291,11 +356,42 @@ echo "== 21. 稼働記録が取り込みと同じ関門で立つ（FR-33）"
 cov=$(psql -c "SELECT state||' '||sum(event_count) FROM core.coverage
                WHERE logical_source='c01-location' GROUP BY state;")
 echo "   → $cov"
-# 3 + NFC 1 + 既定 1 + 混在の 2 + 表記 1 = 8。**再送分は数えない**（design D13）
-[ "$cov" = "alive 8" ] || { echo "稼働記録の件数が合わない（再送を数えていないか）"; exit 1; }
+# 3 + NFC 1 + 既定 1 + 混在の 2 + 表記 1 + 端末検査 1 + 原文検査 1 = 10。
+# **再送分は数えない**（design D13）
+[ "$cov" = "alive 10" ] || { echo "稼働記録の件数が合わない（再送を数えていないか）"; exit 1; }
+
+echo "== 21b. 重複だけが届いた日も、稼働していたことは記録される（spec の Scenario 後半）"
+# **別の日を 1 つ作る。** 手順 13 の再送は手順 11 と同じ日なので、
+# 重複時に稼働記録を立てないようにしても手順 21 は緑のまま通る（review R17）
+lone='[{"id":"f0000006-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location",
+  "external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-01-15T03:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo",
+  "schema_version":1,"raw":"{\"seq\":\"lone\"}","payload":{"seq":"lone"}}]'
+[ "$(post "$lone")" = "200" ] || { echo "1 件目が入らない"; exit 1; }
+day=$(psql -c "SELECT state||' '||event_count FROM core.coverage
+               WHERE logical_source='c01-location' AND day='2026-01-15';")
+[ "$day" = "alive 1" ] || { echo "その日の稼働記録が alive 1 でない: $day"; exit 1; }
+# 同じ日に**重複だけ**が届く
+[ "$(post "$lone")" = "200" ] || { echo "再送が通らない"; exit 1; }
+[ "$(jq -r '.[0].duplicate' /tmp/smoke.body)" = "true" ] || { echo "重複と判定されていない"; exit 1; }
+day=$(psql -c "SELECT state||' '||event_count FROM core.coverage
+               WHERE logical_source='c01-location' AND day='2026-01-15';")
+echo "   → $day"
+# 件数は増えない。**行は残る**（「欠損」と「重複だけ届いた」が区別できなくなる）
+[ "$day" = "alive 1" ] || { echo "重複で件数が増えたか、行が消えた: $day"; exit 1; }
 
 echo "== 22. 実データ経路が読み出し口から見える（完了の判定 1 行目）"
-[ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | jq '[.[]|select(.logical_source=="c01-location")]|length')" = "8" ] \
-  || { echo "読み出し口に 8 件見えない"; exit 1; }
+[ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | jq '[.[]|select(.logical_source=="c01-location")]|length')" = "11" ] \
+  || { echo "読み出し口に 11 件見えない"; exit 1; }
+
+# **読み出し口越しでも原文がそのまま返る**（review R11）。
+# DB を直に引く手順 19 とは別の経路 —— JSON へ載せ直すときに二重にエスケープされうる
+got=$(curl -sf "${AUTH[@]}" "http://$BIND/events" \
+  | jq -r '.[]|select(.id=="eeeeeee1-0000-4000-8000-000000000000")|.raw')
+[ "$got" = "$weird_raw" ] || {
+  echo "読み出し口で原文が変わっている"
+  echo "  送った: $weird_raw"; echo "  戻った: $got"; exit 1; }
+echo "   → 読み出し口越しでも原文はそのまま"
 
 echo "縦串 OK（実データ経路まで）"

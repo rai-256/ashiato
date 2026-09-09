@@ -103,6 +103,36 @@ class SenderTest {
     }
 
     @Test
+    fun `1回に載せる件数には上限がある`() {
+        // **未送信が永続化されて日をまたぐようになった**（design D17）。上限が無いと、
+        // 長い圏外のあと 1 回の POST が読み取り上限を超え、1 件も取り除けないまま
+        // 5 分ごとに同じ全件を送り続けて**二度と復帰しない**（design D23 / review R4）
+        val outbox = testOutbox()
+        repeat(MAX_BATCH + 50) { outbox.add(req("id-$it")) }
+        val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
+
+        val flushed = Sender(outbox, transport).flush()
+
+        assertEquals(MAX_BATCH, flushed.sent)
+        assertEquals(MAX_BATCH, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
+        // 残りは消えていない。次の契機で送られる（60 秒に 1 件しか増えないので追いつく）
+        assertEquals(50, outbox.size())
+    }
+
+    @Test
+    fun `古いものから先に送る`() {
+        // 上限で切るときに新しい側から送ると、**古い記録が永久に後回しになる**
+        val outbox = testOutbox()
+        repeat(MAX_BATCH + 3) { outbox.add(req("id-$it")) }
+        val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
+
+        Sender(outbox, transport).flush()
+
+        assertEquals(listOf("id-$MAX_BATCH", "id-${MAX_BATCH + 1}", "id-${MAX_BATCH + 2}"),
+            outbox.snapshot().map { it.id })
+    }
+
+    @Test
     fun `空のときは送らない`() {
         val transport = FakeTransport(okFor())
         assertEquals(Sender.Flushed(0, 0), Sender(testOutbox(), transport).flush())

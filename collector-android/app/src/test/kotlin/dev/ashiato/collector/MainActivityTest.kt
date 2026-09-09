@@ -5,7 +5,6 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -45,8 +44,9 @@ class MainActivityTest {
         )
 
         assertNull("断られたのに収集を始めている", shadowOf(app).peekNextStartedService())
+        // 「落ちない」は、例外が飛べばこの試験自体が落ちることで担保される。
+        // `isDestroyed` は destroy() を呼んでいない以上つねに false なので見ない（review R8）
         assertTrue("画面が閉じていない", activity.isFinishing)
-        assertFalse("落ちている", controller.get().isDestroyed)
     }
 
     @Test

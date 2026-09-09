@@ -12,4 +12,4 @@ import java.nio.file.Files
  * （深掘り 第 2 回で実際に起きていた欠陥）。
  */
 fun testOutbox(): Outbox =
-    Outbox(FileOutboxStore(File(Files.createTempDirectory("outbox").toFile(), "outbox.json")))
+    Outbox(FileOutboxStore(File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl")) {})

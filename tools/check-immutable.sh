@@ -16,6 +16,16 @@ docker compose up -d --wait db >/dev/null
 psql < migrations/0001_envelope.sql >/dev/null
 psql < migrations/0002_immutable_collected.sql >/dev/null
 psql < migrations/0003_raw_text.sql >/dev/null
+psql < migrations/0004_immutable_origin.sql >/dev/null
+
+# **2 回当てても壊れないことを、ここで確かめる**（review R12）。
+# run() は起動のたびに全版を当てるので、当て直しが安全でないと 2 回目の起動で落ちる。
+# 0003 は「型が text なら何もしない」分岐を持っているが、その分岐を通る検査がどこにも無かった。
+echo "== もう一度当てる（run() は起動のたびに全版を当てる）"
+for m in 0001_envelope 0002_immutable_collected 0003_raw_text 0004_immutable_origin; do
+  psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m の 2 回目が落ちた"; exit 1; }
+done
+echo "  OK 4 版とも当て直せる"
 
 echo "== 「収集した」記録を 1 件置く"
 psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
@@ -48,6 +58,48 @@ done
 # **原文は text なので `raw->>` は引けない**（0003 / design D16）。丸ごと比べる。
 got=$(psql -c "SELECT raw FROM core.event WHERE logical_source = 'immutable-check';")
 [ "$got" = '{"hello":"world"}' ] || { echo "  NG 原文が変わっている: $got"; fail=1; }
+
+# **表記だけ違う原文への書き換えも拒む。** 0003 で原文が text になって初めて手に入った保証で、
+# jsonb の頃は `{"hello": "world"}`（空白違い）が「同値」と見なされて素通りしていた（review R20）。
+if psql -c "UPDATE core.event SET raw = '{\"hello\": \"world\"}'
+            WHERE logical_source = 'immutable-check';" >/dev/null 2>&1; then
+  echo "  NG 表記だけ違う原文への書き換えが通った（0003 の効き目が消えている）"; fail=1
+else
+  echo "  OK 表記だけ違う原文への書き換えも拒まれた"
+fi
+
+# **由来を経由した迂回を塞げているか**（review R2 / design D21 / 0004）。
+# 1 手ずつ投げているだけでは見えない経路 —— 'authored' へ移してから書き換え、'collected' へ戻す。
+if psql -c "UPDATE core.event SET origin = 'authored'
+            WHERE logical_source = 'immutable-check' AND origin = 'collected';" >/dev/null 2>&1; then
+  echo "  NG 収集した記録の由来を動かせた（原文の不変が 3 手で迂回できる）"; fail=1
+else
+  echo "  OK 収集した記録の由来は動かせない"
+fi
+# 来歴（冪等キー・格納の時刻）も凍結されている
+for col in content_hash ingest_time; do
+  case "$col" in
+    ingest_time) val="'2000-01-01T00:00:00Z'" ;;
+    *)           val="'rewritten'" ;;
+  esac
+  if psql -c "UPDATE core.event SET $col = $val WHERE logical_source = 'immutable-check';" \
+       >/dev/null 2>&1; then
+    echo "  NG $col が書き換えられた（来歴が動く）"; fail=1
+  else
+    echo "  OK $col の書き換えは拒まれた"
+  fi
+done
+# 最後に、3 手を通しで打っても原文が変わっていないことを見る
+psql -c "UPDATE core.event SET origin='authored' WHERE logical_source='immutable-check';" \
+  >/dev/null 2>&1 || true
+psql -c "UPDATE core.event SET raw='{\"tampered\":1}' WHERE logical_source='immutable-check';" \
+  >/dev/null 2>&1 || true
+psql -c "UPDATE core.event SET origin='collected' WHERE logical_source='immutable-check';" \
+  >/dev/null 2>&1 || true
+got=$(psql -c "SELECT origin||' | '||raw FROM core.event WHERE logical_source='immutable-check';")
+[ "$got" = 'collected | {"hello":"world"}' ] \
+  || { echo "  NG 3 手の迂回で原文が変わった: $got"; fail=1; }
+echo "  OK 3 手を通しても原文は変わらない"
 
 # 論理削除は通らないといけない（tasks 3.2 / FR-50）
 if psql -c "UPDATE core.event SET deleted_at = now(), deleted_by = 'check'

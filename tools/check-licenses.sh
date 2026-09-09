@@ -122,4 +122,13 @@ print(f"  {n} 件を確認 / 不許可 {len(bad)} 件")
 sys.exit(1 if bad else 0)
 PY
 fail=$(( fail + $? ))
+
+# --- Android（gradle / maven）は**この検査の対象外**（review R5）
+# 黙っていると、緑が「Android の依存も確認済み」に読まれる。実際には 1 件も見ていない。
+# `com.google.android.gms:play-services-location` はプロプライエタリ（Android SDK Terms）で、
+# **AGPL-3.0 での公開と噛み合うかは未決**（design D15 / Open Questions）。
+echo "== Android の依存"
+echo "  対象外。gradle / maven は見ていない（design D15 で公開前に決める）"
+echo "  試験だけの依存（robolectric: Apache-2.0 / androidx.test: Apache-2.0）は配布物に入らない"
+
 [ "$fail" -eq 0 ] && echo "ライセンス OK" || { echo "ライセンス NG"; exit 1; }

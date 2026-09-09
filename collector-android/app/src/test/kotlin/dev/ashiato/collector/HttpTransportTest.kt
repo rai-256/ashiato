@@ -126,8 +126,9 @@ class HttpTransportTest {
 
         val outcome = HttpTransport(dead, "t").post("""[{"lat":35.681236}]""")
 
-        val kind = (outcome as Outcome.Unreachable).kind
-        assertTrue("例外の文言に本文が混ざっている: $kind", !kind.contains("35.68"))
+        // **種別そのものを固定する**（review R7）。`!contains("35.68")` だけだと
+        // `e.message` に書き換えても "Connection refused" は緯度を含まないので落ちない
+        assertEquals("ConnectException", (outcome as Outcome.Unreachable).kind)
     }
 
     @Test
