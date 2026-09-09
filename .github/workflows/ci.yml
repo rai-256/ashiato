@@ -56,3 +56,23 @@ jobs:
       - run: ./tools/check-panic-log.sh
       # 「収集した」記録が書き換えられないことを、わざと UPDATE を投げて確かめる（FR-30）
       - run: ./tools/check-immutable.sh
+
+  # 要件 → Story の鎖と、stories.json からの再生成との一致（scripts/check_chain.py）。
+  # scripts/ は harness2 への symlink で、runner には無い。private なので token が要る:
+  # fine-grained PAT（harness2 の Contents: read）を secrets.HARNESS2_TOKEN に置く。
+  # **無ければ warning で素通りする** —— ローカルの scripts/merge_gate.sh が同じ検査を必ず走らせる。
+  chain:
+    runs-on: ubuntu-24.04
+    env:
+      HARNESS2_TOKEN: ${{ secrets.HARNESS2_TOKEN }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - if: env.HARNESS2_TOKEN == ''
+        run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_chain を飛ばす（merge_gate がローカルで見る）"
+      - if: env.HARNESS2_TOKEN != ''
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2 }
+      - if: env.HARNESS2_TOKEN != ''
+        run: |
+          rm -f scripts && ln -s "$PWD/harness2/scripts" scripts
+          python3 scripts/check_chain.py .

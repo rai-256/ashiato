@@ -44,7 +44,12 @@
 > 文書に名前があるだけで機械の側に受け皿が無い工程は消える。`deep` の中身は
 > `openspec/changes/*/deep.md`、問い方の規範は `grilling` skill。
 
-検査: `python3 scripts/check_chain.py`
+検査: `python3 scripts/check_chain.py`（要件 → Story の鎖と、`stories.json` からの再生成との一致）
+
+**レビューと関門は `docs/flow-gates.md`。** 成果物ごとに独立レビュー（`deep-review` / `spec-review` /
+`code-verify` + `pr-review-toolkit`）→ 指摘 1 件ごとに `処置:`（`review_triage.py` が処置の無い指摘を止める）
+→ `scripts/merge_gate.sh`（その head の CI・tasks・検査・未回答。落ちれば draft に戻す）→ 人間が merge
+→ `scripts/archive.sh`。**人間は draft でない PR だけを merge する。**
 
 ## skill の起動
 
@@ -214,7 +219,8 @@ tasks を順に進める → PR まで出す** をやる。工程を発明はし
 
 **停止点は 1 つだけ**: **merge**。そこまでは人間を待たずに走り切り、PR を出す。
 CI が落ちたら自分で直す。それ以外は推奨 default を採って進み、決めたことを記録する。
-止まらないのではなく、**1 か所だけで止まる**。
+止まらないのではなく、**1 か所だけで止まる**。止まる印は **draft**（`merge_gate.sh` が付け外しする）。
+`closes #N` は残タスク 0 のときだけ。それ以外は `refs #N`（issue が残タスクの入口）。
 
 例外が 1 つ。**`deep.md` に人間へ返す項目が積まれたときは `--draft` で PR を出す**
 （本文の冒頭に未決を列挙する）。未決でも**作業は捨てない** —— 手元に抱えたまま止まると、

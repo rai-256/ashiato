@@ -3,6 +3,8 @@
 - 要件 `docs/requirements.md` から分解。**Story 36 本 / capability 13 本**
 - `layer` は `requires` の DAG の深さ。**layer 0 は依存なし＝すぐ着手できる**
 - `doors` と逐語引用は `scripts/make_story.py` が要件本文から機械的に埋めている（手で写していない）
+- **判断（表題・価値・壊してはいけないもの・完了の判定）の単一情報源は `stories.json`。** `ST<NN>.md` は生成物で、
+  要件か判断を変えたら `python3 scripts/make_story.py . docs/stories/stories.json` で貼り直す（`check_chain.py` が一致を検査する）
 
 ## 着手できる順（layer）
 
@@ -106,3 +108,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | #26 成功条件 2 の質問セット 10 問 | `/stories` 着手前（**現在未了**） | ST27 |
 | #24 バックアップ暗号鍵の保管方式 | 初回バックアップの実行前 | ST31 |
 | #25 画面キャプチャの保持期間と文字抽出エンジン | 画面キャプチャの収集開始前 | ST35 |
+
+## Story の対象外
+
+実装で満たすものではなく、開発そのものの制約。どの Story にも属さないが、要件としては残す
+（`check_chain.py` はここに挙がった id を「拾われていない要件」から外し、外したことを表示する）。
+
+- NFR-8: 開発費は月 2,000 円以内
+- NFR-11: 開発に充てられる時間は週 15 時間
