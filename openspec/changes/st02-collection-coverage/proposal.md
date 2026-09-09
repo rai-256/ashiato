@@ -59,12 +59,19 @@ ST01 が merge されて `specs` を再開するときの**最初の作業**に�
 
 ### New Capabilities
 
-- `collection-coverage`: ソース × 日 の稼働状況（6 状態）、生存信号の受け口、
-  意図的な停止と破棄された期間の保持、NFR-13 の達成日の集計、稼働状況の画面（S-1）
+（なし）
 
-> **capability 表との照合（`docs/stories/INDEX.md`）**: 表は `collection-coverage` を
-> 「収集の稼働状況・通知・停止」として **ST02, ST14, ST15** に割り当てており、
-> **ST02 が作る側**にあたる。ずれは無く、ST01 のような前倒しは要らない。
+> **訂正（2026-09-09、ST01 の merge 後）**: 当初この proposal は `collection-coverage` を
+> **新設**するものとして書いていた。しかし **ST01 の下流が同じ capability を前倒しで作成した**
+> （main の `327fe1f`「稼働記録の要件を collection-coverage へ移す」）。
+> ST01 は取り込みと同じ関門で稼働記録を書くので、件数の数え方（design D13）の置き場が
+> ST02 まで無かったという理由で、`device-collection` と同じ判断が下されている。
+> `docs/stories/INDEX.md` の表も更新済み（`collection-coverage` の積む Story が
+> **ST01**, ST02, ST14, ST15 になった）。
+>
+> **したがって ST02 は `collection-coverage` を `MODIFIED` する側になる。** 名前は変わっていないので
+> ST02 が書く振る舞い（6 状態・生存信号・停止と破棄の期間・達成日の集計・画面 S-1）は
+> そのまま同じ置き場に乗る。**決めたことは 1 つも変わらない。**
 >
 > ただし **`collection-coverage` に属さない振る舞いが 1 つある** —— 生存信号を
 > **端末が送る**振る舞いは `device-collection`（ST01 が作成済み）に属し、
@@ -74,13 +81,23 @@ ST01 が merge されて `specs` を再開するときの**最初の作業**に�
 
 ### Modified Capabilities
 
+- `collection-coverage`: ST01 が置いた「稼働記録は新しく入った記録だけを数える」の上に、
+  6 状態・生存信号の受け口・停止と破棄の時刻範囲・ソースごとの達成日判定・画面 S-1 を積む。
+  **日境界を UTC から `Asia/Tokyo` へ変える（BREAKING）**
 - `device-collection`: 端末（C-01）が生存信号を定期的に送る振る舞いを追加する
   （位置・写真の両ソースについて、取得できる状態かを併せて送る）
 
-> **この delta はまだ書けない。** `device-collection` は ST01 が作る capability で、
-> ST01 が `archive` されるまで `openspec/specs/` に存在せず、存在しない capability に
-> `MODIFIED` は書けない。**この change は `deep` と `proposal` で止める。**
-> `specs` / `design` / `tasks` は ST01 の merge 後に続きを書く（`story-upstream` Step 1）。
+> **この delta はまだ書けない。** 止まっている条件は **merge ではなく `archive`** だった。
+> ST01 は 2026-09-08 に merge 済みだが、**`openspec/specs/` はまだ `.gitkeep` だけ**で、
+> `collection-coverage` も `device-collection` も正典に入っていない。
+> 存在しない capability に `MODIFIED` は書けない。
+>
+> ST01 は **33/44 tasks** で、未完了 11 件には
+> group 9（`core.event.raw` を `jsonb` から `text` にする **BREAKING** な migration、
+> Outbox の永続化、間隔のテスト固定）と 6.2（位置情報の権限フロー）、
+> 8.4（実機を持って外を歩く検証）が含まれる。
+> **この状態で `openspec archive` すると、実装されていない振る舞いが正典に入る。**
+> ST02 の specs はその正典を前提に書くので、穴がそのまま伝播する。
 
 ## Impact
 
@@ -99,9 +116,11 @@ ST01 が merge されて `specs` を再開するときの**最初の作業**に�
 
 `deep` の手順 5 で 3 件。1 と 3 は上の決定で直る。2 は独立した誤り。
 
-1. **日境界が UTC 固定** —— `crates/server/src/lib.rs:121`
-2. **重複再送で `event_count` が水増しされる** —— `crates/server/src/lib.rs:92-129`。
-   記録の INSERT は `ON CONFLICT ... DO NOTHING RETURNING id` で重複時に `None` を返すが、
-   稼働記録の INSERT は**その判定の外で無条件に走る**。ST01 の deep が送信を
-   「5 分ぶんをまとめて送る」に変えたので、**部分失敗後の再送は通常運用で起きる**
+1. **日境界が UTC 固定** —— `crates/server/src/lib.rs:193`（`AT TIME ZONE 'UTC'`。
+   ST01 merge 後も残っている。Q2 の決定で ST02 が直す）
+2. ~~**重複再送で `event_count` が水増しされる**~~ —— **ST01 の下流が独立に見つけて直した**
+   （`crates/server/src/lib.rs:199` の `.bind(i32::from(row.is_some()))` で重複時は 0 加算、
+   行そのものは立てる）。振る舞いは ST01 の
+   `specs/collection-coverage/spec.md`「稼働記録は新しく入った記録だけを数える」に固定済み。
+   **ST02 でやることは無い**
 3. **停止・破棄の期間を持てない** —— `migrations/0001_envelope.sql:47` は `note` の自由文のみ
