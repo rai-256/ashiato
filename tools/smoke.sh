@@ -200,7 +200,12 @@ echo "   → 最大 ${lag} 秒"
 [ "$lag" -lt 3600 ] || { echo "1 時間を超えている"; exit 1; }
 
 echo "== 19. 稼働記録が取り込みと同じ関門で立つ（FR-33）"
-cov=$(psql -c "SELECT state||' '||event_count FROM core.coverage WHERE logical_source='c01-location';")
+# **日をまたいで合計する。** 稼働記録は日ごとに 1 行なので、送った記録が 2 つの日に
+# またがると行が 2 本になる。テスト 11 は NFR-1（生成から格納まで 1 時間以内）を測るために
+# event_time に「いま」を使い、テスト 14〜16 は固定の 2026-09-08 を使うので、
+# **実行する日によって行数が変わる**。行を 1 本と決め打つと、書いた当日しか通らない。
+cov=$(psql -c "SELECT state||' '||sum(event_count) FROM core.coverage
+               WHERE logical_source='c01-location' GROUP BY state;")
 echo "   → $cov"
 # 3 + NFC 1 + 既定 1 + 混在の 2 = 7。**再送分は数えない**（design D13）
 [ "$cov" = "alive 7" ] || { echo "稼働記録の件数が合わない（再送を数えていないか）"; exit 1; }
