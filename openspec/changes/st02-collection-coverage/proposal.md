@@ -16,7 +16,7 @@
 - **生存信号（heartbeat）を導入する。** 収集側が定期的に「動いている」ことと
   「取得できる状態か（権限・センサ・接続）」を送る。**記録が 0 件でも稼働が残る**
 - **日境界を `Asia/Tokyo` に固定する（BREAKING）。** 現在は UTC 固定
-  （`crates/server/src/lib.rs:121`）。ST01 が ST02 の担当として申し送っていた
+  （`crates/server/src/lib.rs` の `($2 AT TIME ZONE 'UTC')::date`）。ST01 が ST02 の担当として申し送っていた
 - **停止と破棄を時刻の範囲で持つ（BREAKING）。** 現在の `core.coverage` は
   日単位 + 自由文の `note` しか無く、FR-34 / FR-9 の「期間」を満たしていない
 - **NFR-13 の達成日判定をソースごとに分ける。** 毎日届く 4 つ（位置・アプリ利用・ウィンドウ・
@@ -150,11 +150,16 @@ ui-direction 宿題 1 の逐語（「形かラベル」→ 明度の段差。挙
 
 `deep` の手順 5 で 3 件。1 と 3 は上の決定で直る。2 は独立した誤り。
 
-1. **日境界が UTC 固定** —— `crates/server/src/lib.rs:193`（`AT TIME ZONE 'UTC'`。
+1. **日境界が UTC 固定** —— `crates/server/src/lib.rs` の `($2 AT TIME ZONE 'UTC')::date`
+   （2026-09-10 時点で 219 行目。
    ST01 merge 後も残っている。Q2 の決定で ST02 が直す）
 2. ~~**重複再送で `event_count` が水増しされる**~~ —— **ST01 の下流が独立に見つけて直した**
-   （`crates/server/src/lib.rs:199` の `.bind(i32::from(row.is_some()))` で重複時は 0 加算、
+   （`crates/server/src/lib.rs` の `.bind(i32::from(row.is_some()))` で重複時は 0 加算、
    行そのものは立てる）。振る舞いは ST01 の
    `specs/collection-coverage/spec.md`「稼働記録は新しく入った記録だけを数える」に固定済み。
    **ST02 でやることは無い**
-3. **停止・破棄の期間を持てない** —— `migrations/0001_envelope.sql:47` は `note` の自由文のみ
+3. **停止・破棄の期間を持てない** —— `migrations/0001_envelope.sql` の `core.coverage` は
+   `note` の自由文のみ
+4. **`core.coverage` と `core.source` に `user_id` が無い**（★ 2026-09-10 追加。`review/deep.md` の R9）
+   —— FR-29「すべてのテーブルに」と扉 #9（決定済）に反している。
+   ST02 が `core.coverage` を作り直すここが、列を足す最後の安い機会
