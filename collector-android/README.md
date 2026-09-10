@@ -22,7 +22,7 @@ ST04 / ST06 / ST09 / ST11 で足す。
 条件分岐を置くと、CI では一度も通らない経路ができる。
 
 ```bash
-./gradlew :app:testDebugUnitTest      # 23 件。CI でも走る
+./gradlew :app:testDebugUnitTest      # 71 件。CI でも走る
 ```
 
 ## 接続先と資格情報
@@ -84,3 +84,23 @@ Google のライセンス条項への同意（`sdkmanager --licenses`）は**本
 
 - `READ_HEALTH_DATA_HISTORY` —— 宣言しない期間の 30 日より前は永久に読めない（要件 EXT-C / 扉 #21）
 - `ACCESS_MEDIA_LOCATION` —— 宣言しないと OS が写真の位置を落として返す（要件 EXT-D）
+
+### 求め方（design D27）
+
+**`onRequestPermissionsResult` の結果コードは見ない。** Android 11 以降、
+`ACCESS_BACKGROUND_LOCATION` は許可ダイアログを出せず設定画面へ送られるので、
+**結果は必ず拒否で返る**（そのあと設定画面で許可しても拒否のまま）。
+結果を信じて終わると、前景を許可した直後に必ず終了してサービスが一度も起動しない
+（**実機で実際に起きた**）。
+
+見るのは**そのつどの実際の権限状態**だけ。`onResume` からも見直すので、
+設定画面から戻ってきた許可も拾える。
+
+| 権限 | 無いとどうなるか |
+|---|---|
+| `ACCESS_FINE_LOCATION` | **必須。** 取るものが無いので収集を始めない |
+| `ACCESS_BACKGROUND_LOCATION` | 始めるが degraded —— `START_STICKY` の立て直しで位置を取れず、次にアプリを開くまで収集が止まる。`kind=degraded error=no_background_location` を残す |
+| `POST_NOTIFICATIONS` | 始める。常時通知が出ないだけ |
+
+初回起動では **位置=「常に許可」** まで進めてほしい。設定画面へ送られたら、
+許可して戻ってくればそのまま収集が始まる。

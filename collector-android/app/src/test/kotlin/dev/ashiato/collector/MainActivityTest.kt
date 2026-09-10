@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -13,89 +14,113 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ActivityController
 
 /**
- * 権限を断られたときに**何も送らずに落ちない**（tasks 6.2）。
+ * 権限のフロー（tasks 6.2 / design D27）。
  *
- * この項目は一度「実装した」として `[x]` が入ったが、**検証が 1 本も無かった**ので
- * 独立検証で戻された（2026-09-08）。落ちると次の起動まで収集が止まり、
- * 成功条件 1（1 年間途切れない）に直接効く。
+ * この項目は一度「実装した」として `[x]` が入ったが**検証が 1 本も無く**、
+ * 独立検証で戻された（2026-09-08）。テストを入れた後も、**実機で初回起動が
+ * まったく通らない**ことが分かった（2026-09-10）——
+ * 背景の位置は Android 11 以降ダイアログで取れず、結果が必ず「拒否」で返るのに、
+ * それを信じて `finish()` していた。テストが**結果コードを直接渡していた**ので、
+ * 実機で何が返るかを写していなかった。
  *
- * 本番経路を通す —— OS が呼ぶのと同じ `onRequestPermissionsResult` を叩く。
+ * いまは**結果コードを見ない**。テストも権限の実状態だけを動かす。
  */
 @RunWith(RobolectricTestRunner::class)
 class MainActivityTest {
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
-    private fun grant(vararg permissions: String) {
-        shadowOf(app).grantPermissions(*permissions)
-    }
+    private fun grant(vararg permissions: String) = shadowOf(app).grantPermissions(*permissions)
+    private fun deny(vararg permissions: String) = shadowOf(app).denyPermissions(*permissions)
 
-    @Test
-    fun `位置の権限を断られても落ちず、何も送らない`() {
-        val controller = Robolectric.buildActivity(MainActivity::class.java).create()
-        val activity = controller.get()
+    private fun launch(): ActivityController<MainActivity> =
+        Robolectric.buildActivity(MainActivity::class.java).create().resume()
 
-        // OS が「拒否」を返してくる
-        activity.onRequestPermissionsResult(
+    /** OS が結果を返す（**中身は問わない** —— 実装は実状態しか見ない）。 */
+    private fun systemAnswers(controller: ActivityController<MainActivity>, permission: String) {
+        controller.get().onRequestPermissionsResult(
             1,
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+            arrayOf(permission),
             intArrayOf(PackageManager.PERMISSION_DENIED),
         )
-
-        assertNull("断られたのに収集を始めている", shadowOf(app).peekNextStartedService())
-        // 「落ちない」は、例外が飛べばこの試験自体が落ちることで担保される。
-        // `isDestroyed` は destroy() を呼んでいない以上つねに false なので見ない（review R8）
-        assertTrue("画面が閉じていない", activity.isFinishing)
     }
 
+    private fun startedService() = shadowOf(app).peekNextStartedService()
+
     @Test
-    fun `背景の権限だけ断られても落ちず、何も送らない`() {
-        // 前景だけ許可された状態。**2 段目で断られる経路**が別にある
+    fun `背景の位置が設定画面送りで拒否として返っても、収集は始まる`() {
+        // **実機で起きた不具合そのもの**（design D27）。Android 11 以降、
+        // ACCESS_BACKGROUND_LOCATION は許可ダイアログを出せず、結果は必ず拒否で返る。
+        // それを信じて終わると、前景を許可した直後に必ず終了してサービスが一度も起動しない
         grant(Manifest.permission.ACCESS_FINE_LOCATION)
-        val controller = Robolectric.buildActivity(MainActivity::class.java).create()
-        val activity = controller.get()
+        deny(Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
+        val controller = launch()
 
-        activity.onRequestPermissionsResult(
-            1,
-            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
-            intArrayOf(PackageManager.PERMISSION_DENIED),
-        )
+        // 背景 → 通知 の順に求められ、どちらも「拒否」で返る
+        systemAnswers(controller, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
 
-        assertNull("断られたのに収集を始めている", shadowOf(app).peekNextStartedService())
-        assertTrue(activity.isFinishing)
-    }
-
-    @Test
-    fun `結果が空でも落ちず、何も送らない`() {
-        // 要求が途中で取り消されると grantResults が空で返る（Android の仕様）
-        val controller = Robolectric.buildActivity(MainActivity::class.java).create()
-        val activity = controller.get()
-
-        activity.onRequestPermissionsResult(1, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), IntArray(0))
-
-        assertNull(shadowOf(app).peekNextStartedService())
-        assertTrue(activity.isFinishing)
+        val started = startedService()
+        assertNotNull("背景を断られただけで収集が始まっていない", started)
+        assertEquals(LocationService::class.java.name, started.component?.className)
     }
 
     @Test
     fun `全部許可されたら収集を始める`() {
-        // **この 1 本が無いと上の 3 本は空振りしうる** ——
-        // どう転んでもサービスを起動しない実装でも緑になる
         grant(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_BACKGROUND_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS,
         )
 
-        val activity = Robolectric.buildActivity(MainActivity::class.java).create().get()
+        val controller = launch()
 
-        val started = shadowOf(app).peekNextStartedService()
-        assertNotNull("全部許可されたのに収集が始まらない", started)
-        assertTrue(
-            "起動したのが LocationService でない: ${started.component}",
-            started.component?.className == LocationService::class.java.name,
+        assertNotNull("全部許可されたのに収集が始まらない", startedService())
+        assertTrue(controller.get().isFinishing)
+    }
+
+    @Test
+    fun `前景の位置を断られたら、落とさずに終わり何も送らない`() {
+        // 取るものが無いので始めない。**落ちない**（tasks 6.2）
+        deny(Manifest.permission.ACCESS_FINE_LOCATION)
+        val controller = launch()
+
+        systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+
+        assertNull("前景を断られたのに収集を始めている", startedService())
+        assertTrue("画面が閉じていない", controller.get().isFinishing)
+    }
+
+    @Test
+    fun `同じ権限を無限に求め直さない`() {
+        // 実状態を見る作りなので、記録が無いと「まだ許可されていない」を理由に永久に求め続ける
+        deny(Manifest.permission.ACCESS_FINE_LOCATION)
+        val controller = launch()
+
+        repeat(3) { systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION) }
+
+        assertNull(startedService())
+        assertTrue(controller.get().isFinishing)
+    }
+
+    @Test
+    fun `設定画面から戻って許可されていれば、そのまま収集を始める`() {
+        // 背景の位置は設定画面でしか許可できない。**戻りを拾えないと先へ進めない**
+        grant(Manifest.permission.ACCESS_FINE_LOCATION)
+        deny(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        val controller = launch()
+        systemAnswers(controller, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        shadowOf(app).clearStartedServices()
+
+        // 設定画面で「常に許可」にして戻ってきた
+        grant(
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
         )
-        assertTrue(activity.isFinishing)
+        controller.pause().resume()
+
+        assertNotNull("設定画面から戻った許可を拾えていない", startedService())
     }
 }
