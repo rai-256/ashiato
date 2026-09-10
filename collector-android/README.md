@@ -42,8 +42,14 @@ ashiato.userId=<.env の ASHIATO_USER_ID と同じ値>
 
 ```sql
 INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-VALUES ('c01-location','携帯端末の位置',300);
+VALUES ('c01-location','携帯端末の位置',21600);
 ```
+
+> **`expected_gap_sec` は 21600（6 時間）。** FR-35 が「想定間隔の初期値は 位置 = 6 時間」と
+> 定めており、その **3 倍**を超えると「ソースが止まっている」と通知される。
+> **送信間隔（5 分）を入れてはいけない** —— Doze の空きは実測で最長 14.2 分あり、
+> 300 秒だと閾値 15 分の 95 % まで届いて**誤報が出る**（2026-09-10 実測）。
+> ここが表すのは「送信の周期」ではなく「**これを超えたら異常とみなす無通信の長さ**」。
 
 ## ビルド
 
