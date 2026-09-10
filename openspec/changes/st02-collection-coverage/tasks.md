@@ -1,0 +1,217 @@
+## 1. 表の作り直し（他より先。ここが動くと全部が動く）
+
+- [ ] 1.1 `migrations/0005_coverage_rebuild.sql` を書く。`core.coverage` を
+      `(user_id, logical_source, day, event_count)` に作り直し、`state` 列を落とす（design D2）。
+      戻し手順を `0005_coverage_rebuild.down.sql` に置き、**列の削除を含むので `不可逆` と明記する**。
+      検証: `./tools/check-migrations.sh` が rc=0（明記が無いと落ちる）
+- [ ] 1.2 同じ版で `core.heartbeat` を作る（design D3）。`raw` は **`text`**、
+      `received_at` は `timestamptz`、`(logical_source, content_hash)` に一意索引。
+      検証: `docker compose up -d --wait db && cargo test -p ashiato-server` が rc=0
+- [ ] 1.3 同じ版で `core.coverage_span` を作る（design D8）。`kind IN ('stopped','dropped')`、
+      `ended_at` は `NULL` 可、`started_at < ended_at` の CHECK を入れる。
+      検証: 逆順の範囲を INSERT すると失敗することを `#[test] span_rejects_reversed_range` で確認し、
+      `cargo test -p ashiato-server span_rejects_reversed_range` が rc=0
+- [ ] 1.4 `core.source` に `user_id uuid` と `collection_started_on date` を足す（design D5）。
+      **主キーは `logical_source` のまま変えない**（`core.event` の FK が壊れる）。
+      **既存行への当て方は 11.6（本人の答え待ち）で決まる。** 決まるまでこのタスクは
+      列の追加までで止める。検証: `./tools/smoke.sh` が rc=0
+- [ ] 1.5 **稼働記録系の全表に `user_id` があることを検査で固定する**（FR-29 / 扉 #9）。
+      `information_schema.columns` を引いて `core.coverage` / `core.heartbeat` /
+      `core.coverage_span` / `core.source` の 4 表すべてに列があることを確認するテストを書く。
+      検証: `cargo test -p ashiato-server user_id_on_all_coverage_tables` が rc=0
+- [ ] 1.6 **写真・ウィンドウ・ブラウザ履歴の想定間隔を登録簿に入れる**（FR-35 の改訂 = 深掘り 第 4 回 Q12。
+      写真 6 時間 / ウィンドウ 6 時間 / ブラウザ履歴 24 時間）。
+      **これが無いと途絶の判定も NFR-13 の利用主語 3 ソースも成立しない**（`review/spec.md` の R4）。
+      検証: `./tools/seed.sh` の後に `cargo test -p ashiato-server expected_gap_seeded` が rc=0
+
+## 2. 日境界を `Asia/Tokyo` へ（既存の欠陥 1 を直す）
+
+- [ ] 2.1 `crates/server/src/lib.rs` の `($2 AT TIME ZONE 'UTC')::date` を
+      `'Asia/Tokyo'` に替える。定数 `DAY_TZ` を 1 か所に置く（design D1）。
+      検証: `cargo build -p ashiato-server` と `cargo clippy -p ashiato-server -- -D warnings` が rc=0
+- [ ] 2.2 **境界のテストを固定する** —— `2026-03-01T14:59:59Z` の記録が `2026-03-01` に、
+      `2026-03-01T15:00:01Z` の記録が `2026-03-02` の稼働記録に入ることを結合テストで確認する。
+      検証: `cargo test -p ashiato-server day_boundary_jst` が rc=0
+- [ ] 2.3 **記録のタイムゾーンが日境界に効かないことをテストで固定する** ——
+      `tz_id = 'America/New_York'` で `2026-03-01T15:00:01Z` を送り、`2026-03-02` に入ることを確認する
+      （これが無いと後から「記録のタイムゾーンで切るほうが自然」と戻される。NFR-13 の分母が壊れる）。
+      検証: `cargo test -p ashiato-server day_boundary_ignores_record_tz` が rc=0
+
+## 3. 生存信号の受け口
+
+- [ ] 3.1 `POST /heartbeat` を足す（design D9）。`/ingest` と同じ認証、**複数件をまとめて受け、
+      1 件ごとの結果を返す**。1 件だけの裸の要求も受ける。
+      検証: `cargo test -p ashiato-server heartbeat_batch` が rc=0
+- [ ] 3.2 登録簿に無い論理ソースの生存信号を拒否する。**一部が不正でも正しい分は受け付ける。**
+      検証: `cargo test -p ashiato-server heartbeat_partial_reject` が rc=0
+- [ ] 3.3 **1 件も受け付けなかったときだけ 400** を返し、**拒否の応答に受け取った値を含めない**
+      （ST01 の 2.5 と同じ向き）。
+      検証: `cargo test -p ashiato-server heartbeat_400_only_when_none heartbeat_no_echo` が rc=0
+- [ ] 3.4 `capturable` と `blockers` を受け取って保存する。
+      **取得できない状態で `blockers` が空なら受け付けない** —— 理由の無い「取れない」は
+      状態③の証拠にならない（FR-78）。
+      検証: `cargo test -p ashiato-server heartbeat_rejects_blockerless` が rc=0
+- [ ] 3.5 同じ `content_hash` の生存信号を 2 回送ると行が 1 つのままであることを確認する
+      （Q13。ST01 の Outbox は部分失敗の後で再送するので、重複の到着は常態）。
+      検証: `cargo test -p ashiato-server heartbeat_idempotent` が rc=0
+- [ ] 3.6 **`raw` が素通しであることをテストで固定する** —— 重複キーとキー順を含む原文を送り、
+      保存された原文がバイト単位で一致することを確認する（0003 と同じ理由。`jsonb` にすると壊れる）。
+      検証: `cargo test -p ashiato-server heartbeat_raw_passthrough` が rc=0
+- [ ] 3.7 `received_at` が日に丸められず `timestamptz` のまま残ることを確認する（Q14）。
+      検証: `cargo test -p ashiato-server heartbeat_received_at_is_timestamptz` が rc=0
+
+## 4. 生存信号の保護（DB 側で強制する）
+
+- [ ] 4.1 `migrations/0006_immutable_heartbeat.sql` で
+      `core.reject_heartbeat_rewrite()` を書き、`BEFORE UPDATE ON core.heartbeat` に置く。
+      **全列の更新を拒む**（design D4。論理削除の例外を作らない）。
+      検証: `./tools/check-migrations.sh` が rc=0
+- [ ] 4.2 `./tools/check-immutable.sh` に生存信号の項を足す。**わざと `UPDATE` を投げて
+      拒否されることを確認する**（0004 が 3 手の迂回を実測で見つけている。
+      アプリ層のテストだけでは `psql` を直に叩く経路が素通りする）。
+      検証: `./tools/check-immutable.sh` が rc=0
+- [ ] 4.3 **迂回路が無いことを確かめる** —— `core.heartbeat` に分類列を持たせていないこと、
+      および `raw` / `content_hash` / `received_at` / `capturable` / `blockers` の
+      どれを更新しようとしても拒否されることを、列ごとに確認する。
+      検証: `./tools/check-immutable.sh` が rc=0（列ごとの `UPDATE` を全部投げる）
+
+## 5. 7 状態の導出
+
+- [ ] 5.1 `GET /coverage?from=&to=` を足す。**状態の決定順序は 11.2（本人の答え待ち）で確定する。**
+      決まるまでは順序をテーブル駆動の 1 か所に閉じ込め、差し替えられる形にしておく。
+      検証: `cargo test -p ashiato-server coverage_states` が rc=0（7 状態それぞれが出る入力）
+- [ ] 5.2 **同じ日に複数の条件が重なる入力**（停止 + 記録 / 破棄 + 停止 / 生存信号 + 記録）で、
+      返る状態が 1 つに決まり、2 回評価しても同じであることを確認する。
+      検証: `cargo test -p ashiato-server coverage_state_is_deterministic` が rc=0
+- [ ] 5.3 途絶を**行に焼かず導出する**（design D6）。**想定間隔を条件に持たせる** ——
+      想定間隔 60 日のソースの 1 日の空白は途絶にならない（`review/spec.md` の R4）。
+      検証: `cargo test -p ashiato-server outage_respects_expected_gap` が rc=0
+- [ ] 5.4 **`expected_gap_sec` を変えると過去の判定も変わる**ことを確認する
+      （バッチで書いていたら変わらない。導出であることの検査になる）。
+      検証: `cargo test -p ashiato-server outage_reevaluates_on_gap_change` が rc=0
+- [ ] 5.5 収集開始日より前が⑦になり、停止中の日は⑥にならないことを確認する。
+      検証: `cargo test -p ashiato-server coverage_before_start coverage_stopped_not_outage` が rc=0
+- [ ] 5.6 **丸ごと覆わない停止は状態を決めない**ことを確認する ——
+      半日だけ止めた日に記録があれば①になる（design D7 / Q3 と同じ粒度）。
+      検証: `cargo test -p ashiato-server partial_stop_does_not_decide_state` が rc=0
+
+## 6. 達成日数と合否
+
+- [ ] 6.1 `GET /coverage/achievement?from=&to=` を足す。主語の割り当てを
+      サーバ側の定数に置く（design D11。DB の列にしない）。
+      **分母と閾値の関係は 11.1（本人の答え待ち）で確定する。**
+      検証: `cargo test -p ashiato-server achievement_endpoint` が rc=0
+- [ ] 6.2 端末が主語の 2 ソースが「記録が 1 件以上ある日」で数えられることを確認する。
+      検証: `cargo test -p ashiato-server achievement_device_subject` が rc=0
+- [ ] 6.3 利用が主語の 3 ソースが「**取得できる状態の**生存信号があった日」で数えられ、
+      `capturable = false` しか無い日が達成に**入らない**ことを確認する
+      （第 4 回 Q7。ここが抜けると権限が剥がれたまま 1 年で 365/365 になる）。
+      検証: `cargo test -p ashiato-server achievement_usage_subject achievement_excludes_uncapturable` が rc=0
+- [ ] 6.4 **1 日を丸ごと覆う停止だけが分母から抜ける**ことを確認する ——
+      半日の停止の日は分母に残る（Q3）。
+      検証: `cargo test -p ashiato-server achievement_denominator_full_day_stop_only` が rc=0
+- [ ] 6.5 合否が「**5 本すべてが 350 以上**」で返り、落ちたソースが分かることを
+      **固定値**で確認する（360, 355, 352, 351, 349 → 未達 + 349 のソース名）。
+      検証: `cargo test -p ashiato-server achievement_verdict_all_five` が rc=0
+- [ ] 6.6 導入前の日が分母に入らないことを確認する（FR-79）。
+      検証: `cargo test -p ashiato-server achievement_excludes_before_start` が rc=0
+
+## 7. 端末からの生存信号（C-01）
+
+- [ ] 7.1 `collector-android` に生存信号の送出を足す。間隔は登録簿の想定間隔
+      （位置・写真とも 6 時間）に合わせる。
+      **送出方式は ST01 の R46（Doze の除外を要求しない）に従い、ここで決め直さない**。
+      検証: `./gradlew :app:assembleDebug` が rc=0
+- [ ] 7.2 権限・センサ・接続の状態を読み、`capturable` と `blockers` に載せる。
+      **権限が無い状態で `capturable = false` と `blockers` が埋まる**ことを確認する。
+      検証: `./gradlew :app:testDebugUnitTest --tests '*Heartbeat*'` が rc=0
+- [ ] 7.3 生存信号を**記録と同じ未送信の仕組みに乗せる**（ST01 の Outbox）。
+      送信失敗後に再送されること、停止と再開をまたいで残ること、
+      **再送が同じ冪等キーを持つ**ことを確認する。
+      検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatOutbox*'` が rc=0
+- [ ] 7.4 **記録が 1 件も生成されない期間でも生存信号が出る**ことを確認する
+      （これが FR-78 の主目的。記録の生成に相乗りさせると意味が消える）。
+      検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatWithoutRecords*'` が rc=0
+- [ ] 7.5 `collector-android/README.md` に、生存信号が Doze の維持時間帯に乗ること
+      （実測の最長空き 14.2 分 << 想定間隔 6 時間）を書く。
+      検証: `./gradlew :app:assembleDebug` が rc=0（文書のみなので影響が無いことの確認）
+
+## 8. 稼働状況の画面（S-1）
+
+- [ ] 8.0 **web にテストの走らせ方を用意する**（現状 `package.json` に `test` が無い）。
+      `vitest` を入れ、`npm run test` を足す。
+      検証: `cd web && npm run test` が rc=0（テスト 0 件でも走ること）
+- [ ] 8.1 `ui-direction.md` の確定値（色相 132° / 彩度 30% / 明るさ 12 / 3 段）を
+      `web/src` のトークンとして 1 か所に置く（design D12）。**S-1 のためだけの色を足さない**。
+      検証: `cd web && npx tsc -b && npm run lint` がいずれも rc=0
+- [ ] 8.2 1 年を週に畳んだ格子を出す。**ソースごとに行を分け、行頭にソース名の文字を置く**（Q15）。
+      検証: `cd web && npx tsc -b && npm run lint && npm run build` がいずれも rc=0
+- [ ] 8.3 7 状態を明度の段差で描く（design D10）。
+      **段差の下限と、明度以外の担い手を置くかは 11.3（本人の答え待ち）で確定する** ——
+      隣接 3:1 を 6 区間積むと 729:1 が要るのに sRGB の最大は 21:1 で、
+      **明度だけでは WCAG SC 1.4.11 を満たせない**（`review/spec.md` の R9）。
+      検証: 7 状態の相対輝度を計算し、確定した下限を全ペアが満たすことを
+      `cd web && npm run test -- state-contrast` で確認し rc=0
+- [ ] 8.4 **行を選ぶと状態が文字で出る**。セルにイベントハンドラを付けない（Q16）。
+      **「行」が何を指すか（ソース / 週 / 曜日）は 11.4（本人の答え待ち）**。
+      検証: `cd web && npm run test -- row-select` が rc=0
+- [ ] 8.5 **幅 360 px で操作対象が 24 × 24 CSS px を割らないことを検査する**（NFR-19）。
+      セルが操作対象になっていないことも同じ検査で確認する。
+      検証: `cd web && npm run test -- target-size` が rc=0
+- [ ] 8.6 5 ソースの達成日数と、5 本すべてが 350 以上かの合否を数値で出す（NFR-13 / Q9）。
+      検証: `cd web && npm run test -- achievement-panel` が rc=0
+- [ ] 8.7 行頭のソース名と状態名の文字が **4.5:1 以上**であることを確認する（NFR-18）。
+      検証: `cd web && npm run test -- text-contrast` が rc=0
+
+## 9. 契約文書
+
+- [ ] 9.1 `docs/openapi.json` に `POST /heartbeat` と `GET /coverage` と
+      `GET /coverage/achievement` を足す。
+      検証: `./tools/check-openapi.sh` が rc=0
+- [ ] 9.2 `docs/collector-contract.md` に生存信号の契約を書く ——
+      間隔・`capturable` と `blockers` の値域・冪等キーの作り方・再送の扱い。
+      検証: `./tools/check-openapi.sh` が rc=0（契約と openapi のずれを見る）
+
+## 10. 通し
+
+- [ ] 10.1 `./tools/smoke.sh` に生存信号の縦串を足す ——
+      **記録を 1 件も入れずに生存信号だけを送り、`GET /coverage` がその日を②で返す**ことを確認する
+      （これが FR-78 の目的そのもの。記録経由でしか確かめないと穴が残る）。
+      検証: `./tools/smoke.sh` が rc=0
+- [ ] 10.2 検証: `cargo fmt --all --check` /
+      `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
+      `./tools/check-boundaries.sh` / `./tools/check-licenses.sh` がいずれも rc=0
+- [ ] 10.3 全 Scenario に test の印があることを確認する。
+      検証: `python3 scripts/check_scenarios.py .` が rc=0
+      （「人間の確認待ち」の節に挙げた Scenario だけが除外される）
+
+## 人間の確認待ち
+
+**実機・実目でしか判定できない Scenario。** ここに挙げたものだけが `check_scenarios.py` の
+除外対象になる（見出しが `人間の確認待ち` であることに意味がある。箇条書きでは機械に届かない）。
+
+- Scenario: グレースケールでも 7 状態が区別できる
+- Scenario: 1 年ぶんの格子がソースごとの行で出る
+
+`docs/stories/ST02.md` の完了の判定「1 か月放置した後に開くと、欠けた日が一目で分かる」は、
+**1 か月放置した実データが要る**ので、ST02 の PR では判定できない。
+`docs/stories/ST02.md` に判定の期日を残す。
+
+## 11. 未決（**人間の答えを待つ。他は先に進める**）
+
+独立レビュー（`review/spec.md`）が、AI が独断で決めていた一方通行の判断を 6 件見つけた。
+問いは `deep-questions-r5.json`、渡す HTML は `docs/briefs/ST02-deep-r5.html`。
+
+- [ ] 11.1 **NFR-13 の分母と閾値の関係**（R3）。分母から日を除くのに閾値が絶対値 350 のままで、
+      除外は達成を遠ざけるだけ。導入 1 年未満では原理的に到達不能。
+      「95 %」と「350 日」のどちらが判定かも、どの 365 日を数えるかも決まっていない
+- [ ] 11.2 **7 状態の決定順序**（R5 / R6）。記録がある日に「丸ごと覆う停止・破棄」が重なったとき
+      どちらを出すか。「破棄を停止より先に見る」は deep のどの問いにも対応が無い
+- [ ] 11.3 **7 状態を明度だけで区別できない**（R9 / R11）。WCAG SC 1.4.11 の 3:1 を
+      6 区間積むと 729:1 が要る（sRGB の最大は 21:1）。段差の下限・明度以外の担い手・
+      セルの実寸（360 px 幅で約 6 px）
+- [ ] 11.4 **格子の「行」が何を指すか**（R10）。第 4 回 Q16 の答えが「週 **or** ソース」の
+      2 択のまま残っている。何をタップすると何日ぶんが出るかが決まらない
+- [ ] 11.5 **R46 の B が渡した「日内の空きとその理由」**（R18 / design の「人間へ返すもの」）
+- [ ] 11.6 **収集開始日の決め方**（R12）。バックフィル規則を AI が独断で決めていた。
+      これは⑦導入前の境界であり **NFR-13 の分母の起点**でもある
