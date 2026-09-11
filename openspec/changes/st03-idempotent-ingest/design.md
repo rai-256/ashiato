@@ -121,9 +121,15 @@ CREATE CONSTRAINT TRIGGER version_requires_ledger
 
 | 列 | 型 | 既定 | 誰が読むか |
 |---|---|---|---|
-| `external_id_kind` | `text` | `'record'` | ST03（400 の判定） |
-| `retired_on` | `date` | `NULL` | **ST02**（状態・途絶・通知・分母） |
-| `succeeds` | `text` | `NULL` | **ST02**（収集開始日を引き継ぐ） |
+| `external_id_kind` | `text` | `'record'` | ST03（受け付けるかの判定） |
+| `retired_on` | `date` | `NULL` | **ST02 が作り、ST02 が読む**（状態・途絶・通知・分母） |
+| `succeeds` | `text` | `NULL` | **ST02 が作り、ST02 が読む**（収集開始日を引き継ぐ） |
+
+> **2026-09-11 の判断。** 当初は 3 列とも ST03 が作る設計だったが、**`retired_on` と `succeeds` は
+> ST02 が作る**ことにした。理由は 2 つ —— (a) 読む側が稼働記録（`collection-coverage`）で、
+> ST03 は 1 度も読まない。**列の意味は退役と引き継ぎで、記録の骨格ではない** (b) ST02 は
+> 実装が済んでおり、この 2 列が無いと 8 状態と引き継ぎを実装もテストもできない。
+> **ST03 は `external_id_kind` だけを作る。**
 
 `external_id_kind` の既定を `'record'` にするのは Q16 / Q18 —— 書き忘れると全件 400 になって気付く。
 **既存の登録は 5 か所に手書きで散っている**（`tools/seed.sh` / `tools/smoke.sh` ×2 /
