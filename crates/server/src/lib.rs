@@ -560,7 +560,7 @@ pub struct CoverageQuery {
     user_id: Option<uuid::Uuid>,
 }
 
-/// ソース × 日 の 7 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
+/// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
 pub async fn coverage_get(
@@ -570,6 +570,12 @@ pub async fn coverage_get(
 ) -> Result<Json<Vec<coverage::SourceCoverage>>, (StatusCode, String)> {
     authorize(&app, &headers)?;
     // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
+    //
+    // **`of_sources` が名前ごとに引き継ぎの鎖を解決する**（第 8 回 Q31 /
+    // review/code-r2.md の R3）。ここで定数名のまま引いていたときは、達成の側だけが
+    // 鎖の先端を数え、**格子と達成パネルが別の 5 本を見ていた** ——
+    // 後継のソースの格子が画面のどこにも出ず、いま実際に収集しているソースの途絶が
+    // 稼働状況の画面から消えていた。
     let names: Vec<String> = coverage::must_sources()
         .into_iter()
         .map(|(n, _)| n)

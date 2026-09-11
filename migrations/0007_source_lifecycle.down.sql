@@ -9,6 +9,8 @@
 --    収集開始日が鎖の根に届かなくなり、**成功条件 1 の窓が新しい名前の登録日まで縮む**。
 -- 3. 引き直した `collection_started_on` は戻らない（前進側は値を書き換えるだけで、
 --    書き換える前の値をどこにも残していない）。
+DROP INDEX IF EXISTS core.event_by_source_time;
+DROP INDEX IF EXISTS core.source_succeeds_unique;
 ALTER TABLE core.source DROP CONSTRAINT IF EXISTS source_succeeds_not_self;
 ALTER TABLE core.source DROP CONSTRAINT IF EXISTS source_succeeds_fkey;
 ALTER TABLE core.source DROP COLUMN IF EXISTS succeeds;

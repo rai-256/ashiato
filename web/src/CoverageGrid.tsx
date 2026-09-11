@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   bandOf,
   foldIntoWeeks,
+  isRetired,
   STATE_NAME,
   visibleWeeks,
   type SourceCoverage,
@@ -16,7 +17,7 @@ import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, ton
  * - **縦長**（1 行 = 1 週、上から下へ、新しい週が上）
  * - **ソースごとに格子を分け、ソース名の文字を添える**（色は意味の担い手にしない）
  * - **セルは表示専用。選ぶ単位は週**（NFR-19 の 24 × 24 px を割らないため）
- * - 格子のセルが担うのは **3 段**。7 状態の区別は**週を選んだときの文字**
+ * - 格子のセルが担うのは **3 段**。8 状態の区別は**週を選んだときの文字**
  */
 export function CoverageGrid({ source }: { source: SourceCoverage }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
@@ -24,7 +25,7 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
   // **退役したソースは既定で畳む**（ST03 の R63 / 第 8 回 Q30）—— 退役は 1 本きりではなく
   // 増えるので、行を出したままだと **Must の 5 本が 1 画面から押し出される**。
   // 消しはしない（退役したことも稼働状況の一部）。開けば同じ格子が出る。
-  const retired = source.retired_on !== null;
+  const retired = isRetired(source);
   const weeks = foldIntoWeeks(source.days);
   const shown = retired && !expanded ? [] : visibleWeeks(weeks, expanded);
   // **見えている週から選ぶ**（review/code.md の R37 / I11）。`weeks` から探していたときは、
@@ -49,6 +50,14 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
       {/* **ソース名の文字**。色を意味の担い手にしない（ui-direction の宿題 1 / 第 4 回 Q15） */}
       <h2 style={{ color: tone(TEXT.normal), font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
         {source.display_name}
+        {/* **乗り換えが起きたことを文字で出す**（review/code-r2.md の I3）。
+            名指しした名前と先端が違うのに黙っていると、本人には
+            「c02-window が消えて知らない名前が増えた」ようにしか見えない */}
+        {source.named_source !== source.logical_source && (
+          <span data-testid={`succeeded-${source.named_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
+            {` — ${source.named_source} を引き継ぎ`}
+          </span>
+        )}
         {retired && (
           <span data-testid={`retired-${source.logical_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
             {` — ${source.retired_on} に退役`}
@@ -160,7 +169,7 @@ function WeekRow({
 }
 
 /**
- * 選んだ週の 7 日ぶんを、**7 状態それぞれの名前で文字で**出す（第 5 回 Q20 / Q21）。
+ * 選んだ週の 7 日ぶんを、**8 状態それぞれの名前で文字で**出す（第 5 回 Q20 / Q21）。
  *
  * **格子で「それ以外」に畳まれた日も、ここでどの状態だったかが分かる** ——
  * 明度だけでは 7 段を分けられない（3^6 = 729:1 > sRGB の 21:1）ので、

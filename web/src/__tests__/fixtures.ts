@@ -24,9 +24,11 @@ export function source(
   display_name: string,
   cells: DayCell[],
   retired_on: string | null = null,
+  named_source: string = logical_source,
 ): SourceCoverage {
   return {
     logical_source,
+    named_source,
     display_name,
     expected_gap_sec: 21600,
     collection_started_on: cells[0]?.day ?? null,

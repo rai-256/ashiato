@@ -115,23 +115,6 @@ pub async fn put_coverage(
     day: &str,
     count: i32,
 ) {
-    sqlx::query(
-        "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
-         VALUES ($1,$2,$3::date,$4)
-         ON CONFLICT (user_id, logical_source, day)
-         DO UPDATE SET event_count = core.coverage.event_count + $4",
-    )
-    .bind(user)
-    .bind(source)
-    .bind(day)
-    .bind(count)
-    .execute(pool)
-    .await
-    .unwrap();
-    // **記録そのものも置く**（tasks 15.5 / ST03 の R57）。状態と件数は `core.event` から
-    // 引くようになったので、稼働記録の行だけを置いても「記録あり」にはならない。
-    // 稼働記録の行を残すのは、正典の「稼働記録は新しく入った記録だけを数える」を
-    // 満たしたままにするため（**どちらも置いて初めて本番と同じ形**）。
     for _ in 0..count {
         put_event(pool, user, source, &format!("{day}T12:00:00+09:00")).await;
     }
@@ -139,6 +122,12 @@ pub async fn put_coverage(
 
 /// 記録を直に置く（取り込み口を通さずに状態の導出だけを見たいとき）。
 /// `at` は RFC3339。**その時刻が属する日**（`Asia/Tokyo`）に記録があることになる。
+///
+/// **稼働記録（`core.coverage`）の行は置かない**（review/code-r2.md の H-7）。
+/// 両方を常に同値で書いていたときは、状態の出どころを `core.event` から
+/// `core.coverage.event_count` へ**戻しても検査が全部緑のまま通った** ——
+/// R57 の回帰を止める役に立っていなかった。稼働記録の行が要る検査は
+/// `put_coverage_row` で明示的に置く（本番では 2 つが食い違いうる）。
 pub async fn put_event(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str, at: &str) {
     sqlx::query(
         "INSERT INTO core.event
@@ -151,6 +140,47 @@ pub async fn put_event(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str, at: 
     .bind(source)
     .bind(at)
     .bind(uuid::Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 論理削除された記録を置く（FR-50）。**稼働記録はこれを書き換えない**
+/// （design D34。丸ごと消した期間は⑤「破棄された期間」が担う）。
+pub async fn put_deleted_event(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str, at: &str) {
+    put_event(pool, user, source, at).await;
+    sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'test'
+          WHERE user_id = $1 AND logical_source = $2
+            AND event_time = $3::timestamptz AND deleted_at IS NULL",
+    )
+    .bind(user)
+    .bind(source)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 稼働記録の行だけを置く（**記録は置かない**）。
+/// 正典の「稼働記録は新しく入った記録だけを数える」側を見る検査のため。
+pub async fn put_coverage_row(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    source: &str,
+    day: &str,
+    count: i32,
+) {
+    sqlx::query(
+        "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
+         VALUES ($1,$2,$3::date,$4)
+         ON CONFLICT (user_id, logical_source, day)
+         DO UPDATE SET event_count = core.coverage.event_count + $4",
+    )
+    .bind(user)
+    .bind(source)
+    .bind(day)
+    .bind(count)
     .execute(pool)
     .await
     .unwrap();

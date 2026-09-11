@@ -34,7 +34,7 @@ describe("格子の 3 段", () => {
     expect(srgbMax).toBeCloseTo(21, 0);
   });
 
-  it("7 状態がこの 3 段に畳まれる", () => {
+  it("8 状態がこの 3 段に畳まれる", () => {
     const all: DayState[] = [
       "recorded",
       "alive_no_record",

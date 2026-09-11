@@ -53,7 +53,10 @@ export type DayCell = {
 };
 
 export type SourceCoverage = {
+  /** **引き継ぎの鎖の先端**（第 8 回 Q31） */
   logical_source: string;
+  /** 定数が名指ししている名前。乗り換えが起きたことが読めるように返る */
+  named_source: string;
   display_name: string;
   expected_gap_sec: number;
   /** **引き継ぎの鎖の根の日**（第 8 回 Q31） */
@@ -143,8 +146,15 @@ export function visibleWeeks(weeks: Week[], expanded: boolean): Week[] {
  * **並びは安定**（同じ側どうしはサーバが返した順のまま）—— 定数の順が画面の順（design D19）。
  */
 export function retiredLast(sources: SourceCoverage[]): SourceCoverage[] {
-  return [
-    ...sources.filter((s) => s.retired_on === null),
-    ...sources.filter((s) => s.retired_on !== null),
-  ];
+  return [...sources.filter((s) => !isRetired(s)), ...sources.filter((s) => isRetired(s))];
+}
+
+/**
+ * 退役しているか。**`!== null` で書かない**（review/code-r2.md の M-1）——
+ * 欄を返さないサーバ（古い版・巻き戻し）だと値は `undefined` になり、
+ * `undefined !== null` は真なので**5 本すべてが退役と判定されて格子が全部消える**。
+ * 画面は `at === "ok"` のままなので、エラーも空の知らせも出ない。
+ */
+export function isRetired(s: SourceCoverage): boolean {
+  return (s.retired_on ?? null) !== null;
 }

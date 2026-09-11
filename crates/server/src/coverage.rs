@@ -90,7 +90,7 @@ impl DayState {
     }
 }
 
-/// 格子の 3 段。**7 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。
+/// 格子の 3 段。**8 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Band {
@@ -129,7 +129,10 @@ pub struct Interval {
 /// ソース 1 本ぶんの稼働状況。
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct SourceCoverage {
+    /// **鎖の先端**（第 8 回 Q31）
     pub logical_source: String,
+    /// 定数が名指ししている名前。乗り換えが起きたことが画面から読めるように返す
+    pub named_source: String,
     pub display_name: String,
     pub expected_gap_sec: i32,
     /// **引き継ぎの鎖の根の日**（第 8 回 Q31）。自分の行の値ではない
@@ -142,12 +145,19 @@ pub struct SourceCoverage {
 /// 登録簿の 1 行（導出に要る分だけ）。
 #[derive(Debug, Clone)]
 pub struct SourceRow {
+    /// **鎖の先端**（いま生きている名前）。定数が指す名前が退役していれば後継が入る
     pub logical_source: String,
+    /// 呼び出し側が名指しした名前（Must の定数）。鎖をたどっていなければ `logical_source` と同じ
+    pub named_source: String,
     pub display_name: String,
     pub expected_gap_sec: i32,
-    /// **引き継ぎの鎖の根の日**（第 8 回 Q31）。`sources()` が鎖をたどって入れる
+    /// **鎖全体でいちばん古い収集開始日**（第 8 回 Q31）。自分の行の値ではない
     pub collection_started_on: Option<chrono::NaiveDate>,
+    /// 先端が退役していればその日
     pub retired_on: Option<chrono::NaiveDate>,
+    /// **数えるときに見る名前の全部**（根 → 先端）。先端だけで数えると、分母は鎖の根から
+    /// 数えるのに分子は切り替え後しか拾わない（review/code-r2.md の R1）
+    pub chain: Vec<String>,
 }
 
 /// `facts` が SQL から受け取る 1 行。
@@ -204,64 +214,80 @@ pub async fn touch_started_on<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
+    // **弾いたことを残す**（review/code-r2.md の H-1）。閾値に当たらなかったときの
+    // 空振りには 2 種類あって、「すでに開始日がもっと前」（正常）と
+    // 「登録より前なので外した」（異常）は呼び出し側から区別できない。
+    // 黙ると、時計の狂った端末が 1 台あることに誰も気付けない ——
+    // **1 往復のまま**判定できるので、更新と同じ文で聞く。
     let sql = format!(
-        "UPDATE core.source
-            SET collection_started_on = ($2 AT TIME ZONE '{tz}')::date
-          WHERE logical_source = $1
-            AND (collection_started_on IS NULL
-                 OR collection_started_on > ($2 AT TIME ZONE '{tz}')::date)
-            AND ($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date",
+        "WITH u AS (
+           UPDATE core.source
+              SET collection_started_on = ($2 AT TIME ZONE '{tz}')::date
+            WHERE logical_source = $1
+              AND (collection_started_on IS NULL
+                   OR collection_started_on > ($2 AT TIME ZONE '{tz}')::date)
+              AND ($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date
+            RETURNING 1
+         )
+         SELECT (SELECT count(*) FROM u) > 0 AS moved,
+                ($2 AT TIME ZONE '{tz}')::date < (registered_at AT TIME ZONE '{tz}')::date AS below
+           FROM core.source WHERE logical_source = $1",
         tz = DAY_TZ
     );
-    sqlx::query(&sql)
+    let got: Option<(bool, bool)> = sqlx::query_as(&sql)
         .bind(logical_source)
         .bind(at)
-        .execute(executor)
+        .fetch_optional(executor)
         .await?;
+    if let Some((moved, below)) = got {
+        if below && !moved {
+            tracing::warn!(
+                kind = "started_on_before_registration",
+                logical_source = %logical_source,
+                at = %at,
+                "登録簿に行ができた日より前の時刻。収集開始日の計算から外した（記録・信号は残している）"
+            );
+        }
+    }
     Ok(())
 }
 
-/// `sources` が SQL から受け取る 1 行。
-/// （論理ソース名, 表示名, 想定間隔, 鎖の根の収集開始日, 退役した日）
-type SourceRowSql = (
-    String,
-    String,
-    i32,
-    Option<chrono::NaiveDate>,
-    Option<chrono::NaiveDate>,
-);
+/// 登録簿の生の 1 行。**鎖をたどる前の姿**。
+#[derive(Debug, Clone)]
+struct RawSource {
+    logical_source: String,
+    display_name: String,
+    expected_gap_sec: i32,
+    /// **その行自身**の収集開始日。鎖をまたいだ値ではない
+    own_started_on: Option<chrono::NaiveDate>,
+    retired_on: Option<chrono::NaiveDate>,
+    succeeds: Option<String>,
+}
 
-/// 引き継ぎの鎖をたどる深さの上限。**循環したときに回り続けないため**。
-/// 自分自身を指す 1 周の循環は登録簿の CHECK 制約が塞いでいるが、2 本以上で
-/// 輪になる形は塞げない（どちらの行を入れた時点でも輪はまだ閉じていない）。
-const CHAIN_MAX_DEPTH: i32 = 32;
-
-/// 登録簿を引く。`only` が空でなければその論理ソースだけ。
+/// 引き継ぎの鎖をたどる深さの上限。**輪になったときに回り続けないため**。
 ///
-/// **収集開始日は引き継ぎの鎖の根から引く**（第 8 回 Q31）—— ソースを分けて
-/// 古い名前を退役させたとき、新しい名前の収集開始日は引き継ぎ元の収集開始日にする。
-/// これが無いと、名前を分けた日に**成功条件 1 の窓が振り出しに戻る**（1 年の連続性が切れる）。
-/// `min()` は NULL を飛ばすので、まだ 1 件も届いていない新しい名前も根の日を継ぐ。
-pub async fn sources(pool: &sqlx::PgPool, only: &[String]) -> Result<Vec<SourceRow>, sqlx::Error> {
-    let rows: Vec<SourceRowSql> = sqlx::query_as(
-        "WITH RECURSIVE chain AS (
-           SELECT s.logical_source AS head, s.succeeds AS next,
-                  s.collection_started_on AS started, 0 AS depth
-             FROM core.source s
-           UNION ALL
-           SELECT c.head, p.succeeds, p.collection_started_on, c.depth + 1
-             FROM chain c JOIN core.source p ON p.logical_source = c.next
-            WHERE c.depth < $2
-         ),
-         root AS (SELECT head, min(started) AS started FROM chain GROUP BY head)
-         SELECT s.logical_source, s.display_name, s.expected_gap_sec,
-                r.started, s.retired_on
-           FROM core.source s JOIN root r ON r.head = s.logical_source
-          WHERE cardinality($1::text[]) = 0 OR s.logical_source = ANY($1)
-          ORDER BY s.logical_source",
+/// 自分自身を指す 1 周は登録簿の CHECK が、枝分かれと合流は `succeeds` の一意索引が
+/// 塞いでいるが、`A → B → A` の形は**どちらの行を入れた時点でも輪がまだ閉じていない**ので
+/// 入口では塞げない。たどる側が**通った名前を覚えて**輪を検出し、警告を出して止める
+/// （上限に当たることそのものが異常なので、黙って打ち切らない。review/code-r2.md の R12）。
+const CHAIN_MAX_DEPTH: usize = 32;
+
+/// 登録簿を丸ごと引く。**鎖をたどるので、要る行だけを引くことができない**
+/// （引き継ぎ元も後継も別の行にある）。登録簿はソースの本数ぶんしかないので安い。
+async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
+    type Row = (
+        String,
+        String,
+        i32,
+        Option<chrono::NaiveDate>,
+        Option<chrono::NaiveDate>,
+        Option<String>,
+    );
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT logical_source, display_name, expected_gap_sec,
+                collection_started_on, retired_on, succeeds
+           FROM core.source ORDER BY logical_source",
     )
-    .bind(only)
-    .bind(CHAIN_MAX_DEPTH)
     .fetch_all(pool)
     .await?;
     Ok(rows
@@ -271,49 +297,207 @@ pub async fn sources(pool: &sqlx::PgPool, only: &[String]) -> Result<Vec<SourceR
                 logical_source,
                 display_name,
                 expected_gap_sec,
-                collection_started_on,
+                own_started_on,
                 retired_on,
-            )| SourceRow {
-                logical_source,
-                display_name,
-                expected_gap_sec,
-                collection_started_on,
-                retired_on,
+                succeeds,
+            )| {
+                RawSource {
+                    logical_source,
+                    display_name,
+                    expected_gap_sec,
+                    own_started_on,
+                    retired_on,
+                    succeeds,
+                }
             },
         )
         .collect())
 }
 
-/// Must の 5 本を**引き継ぎの鎖の先端**に解決する（第 8 回 Q31
-/// 「古い名前を分母から外し、新しい名前が窓を引き継ぐ」）。
+/// 1 本の論理ソースを**引き継ぎの鎖ごと**解決する（第 8 回 Q31）。
 ///
-/// 定数が指す名前が退役していれば、その名前を引き継いだ**退役していないソース**を返す。
-/// 引き継ぎ先が無い（まだ作られていない・そちらも退役した）ときは**定数の名前のまま返す**
-/// —— 黙って 5 本から消すと、達成が 4 本の合否になって成功条件 1 が緩む。
-async fn resolve_tips(
-    pool: &sqlx::PgPool,
-    names: &[String],
-) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "WITH RECURSIVE tip AS (
-           SELECT s.logical_source AS base, s.logical_source AS node,
-                  s.retired_on, 0 AS depth
-             FROM core.source s WHERE s.logical_source = ANY($1)
-           UNION ALL
-           SELECT t.base, s.logical_source, s.retired_on, t.depth + 1
-             FROM tip t JOIN core.source s ON s.succeeds = t.node
-            WHERE t.depth < $2
-         )
-         SELECT DISTINCT ON (base) base, node
-           FROM tip
-          WHERE retired_on IS NULL
-          ORDER BY base, depth DESC, node",
-    )
-    .bind(names)
-    .bind(CHAIN_MAX_DEPTH)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().collect())
+/// 鎖は 3 つの部分でできている:
+///
+/// 1. **引き継ぎ元**（`succeeds` を遡る）—— 収集開始日も達成日もここから続いている。
+///    「引き継ぎ元のあるソースは、引き継ぎ元の収集開始日を自分の収集開始日とする」（FR-61）
+/// 2. **自分**
+/// 3. **後継**（`succeeds` で指されている側へ進む）。ただし
+///    **いま見ているソースが退役しているあいだだけ**進む ——
+///    まだ動いているソースから勝手に乗り換えない（review/code-r2.md の R2）。
+///    spec の逐語も「Must の 5 ソースの**うち退役したものについて**」
+///
+/// **鎖の全部の名前で数える**（同 R1）。先端の名前だけで数えると、
+/// 分母は鎖の根から数えるのに分子は切り替え後の記録しか拾わず、
+/// **名前を分けた翌日に成功条件 1 が 0 % に落ちる** —— spec が防ぐと書いている当のもの。
+fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str) -> Chain {
+    // 後継を引くための逆引き。登録簿の一意索引が枝分かれを塞いでいるが、
+    // **その索引は作れないことがある**（既に枝分かれのある DB では作成に失敗し、
+    // 起動を止めないよう WARNING にしてある）。たどる側でも受ける ——
+    // **名前順で決定的に 1 本選び、分岐は警告に残す**（review/code-r2.md の H-4）。
+    let mut successor: std::collections::HashMap<&str, Vec<&str>> =
+        std::collections::HashMap::new();
+    for r in reg.values() {
+        if let Some(prev) = r.succeeds.as_deref() {
+            successor
+                .entry(prev)
+                .or_default()
+                .push(r.logical_source.as_str());
+        }
+    }
+    for v in successor.values_mut() {
+        v.sort_unstable();
+    }
+
+    let mut names: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // (1) 引き継ぎ元を遡って、根から順に積む
+    let mut back: Vec<String> = Vec::new();
+    let mut cur = base.to_string();
+    while let Some(row) = reg.get(&cur) {
+        if !seen.insert(cur.clone()) {
+            tracing::warn!(
+                kind = "source_chain_cycle",
+                logical_source = %base, at = %cur,
+                "引き継ぎの鎖が輪になっている。そこで止める"
+            );
+            break;
+        }
+        back.push(cur.clone());
+        match &row.succeeds {
+            Some(p) if back.len() < CHAIN_MAX_DEPTH => cur = p.clone(),
+            Some(_) => {
+                tracing::warn!(
+                    kind = "source_chain_too_deep",
+                    logical_source = %base, depth = CHAIN_MAX_DEPTH,
+                    "引き継ぎ元をたどる深さが上限に達した。収集開始日が本来より後ろになる"
+                );
+                break;
+            }
+            None => break,
+        }
+    }
+    back.reverse();
+    names.extend(back);
+
+    // (3) 退役しているあいだだけ後継へ進む
+    let mut tip = base.to_string();
+    while let Some(row) = reg.get(&tip) {
+        if row.retired_on.is_none() {
+            break;
+        }
+        let Some(next) = successor.get(tip.as_str()).and_then(|v| {
+            if v.len() > 1 {
+                tracing::warn!(
+                    kind = "source_chain_forked",
+                    logical_source = %tip, successors = ?v,
+                    "引き継ぎ元が枝分かれしている。名前順で先頭を採る（登録簿を直すこと）"
+                );
+            }
+            v.first().copied()
+        }) else {
+            // 退役しているのに後継が無い。**5 本から黙って消さない**（合否が緩む）ので
+            // そのまま数え続けるが、人間が知るべき状態なので残す
+            tracing::warn!(
+                kind = "source_retired_without_successor",
+                logical_source = %tip,
+                "退役しているのに引き継ぎ先が無い。このソースは達成日が伸びない"
+            );
+            break;
+        };
+        let next = next.to_string();
+        if !seen.insert(next.clone()) {
+            tracing::warn!(
+                kind = "source_chain_cycle",
+                logical_source = %base, at = %next,
+                "引き継ぎの鎖が輪になっている。そこで止める"
+            );
+            break;
+        }
+        if names.len() >= CHAIN_MAX_DEPTH {
+            tracing::warn!(
+                kind = "source_chain_too_deep",
+                logical_source = %base, depth = CHAIN_MAX_DEPTH,
+                "後継をたどる深さが上限に達した。先端が本当の先端でない"
+            );
+            break;
+        }
+        names.push(next.clone());
+        tip = next;
+    }
+
+    let started_on = names
+        .iter()
+        .filter_map(|n| reg.get(n).and_then(|r| r.own_started_on))
+        .min();
+    let head = reg.get(&tip);
+    Chain {
+        names,
+        started_on,
+        retired_on: head.and_then(|r| r.retired_on),
+        display_name: head.map_or_else(|| tip.clone(), |r| r.display_name.clone()),
+        expected_gap_sec: head.map_or(0, |r| r.expected_gap_sec),
+        tip,
+    }
+}
+
+/// 解決済みの鎖。
+struct Chain {
+    /// 鎖の全部の名前（根 → 先端）。**数えるときはこの全部を見る**
+    names: Vec<String>,
+    /// 鎖の先端（いま生きている名前）
+    tip: String,
+    display_name: String,
+    expected_gap_sec: i32,
+    /// 鎖全体でいちばん古い収集開始日
+    started_on: Option<chrono::NaiveDate>,
+    /// 先端が退役していればその日
+    retired_on: Option<chrono::NaiveDate>,
+}
+
+/// 登録簿を引き、名前ごとに鎖を解決して返す。
+///
+/// **登録簿に無い名前も落とさない**（review/code.md の R20）—— 画面に 4 本しか並ばず
+/// 5 本目が「無い」ことすら出ないのを防ぐ。
+pub async fn sources(pool: &sqlx::PgPool, only: &[String]) -> Result<Vec<SourceRow>, sqlx::Error> {
+    let reg: std::collections::HashMap<String, RawSource> = registry(pool)
+        .await?
+        .into_iter()
+        .map(|r| (r.logical_source.clone(), r))
+        .collect();
+    let wanted: Vec<String> = if only.is_empty() {
+        let mut all: Vec<String> = reg.keys().cloned().collect();
+        all.sort();
+        all
+    } else {
+        only.to_vec()
+    };
+    Ok(wanted
+        .iter()
+        .map(|name| {
+            if !reg.contains_key(name) {
+                tracing::warn!(
+                    kind = "source_missing",
+                    logical_source = %name,
+                    "登録簿に無いソース。まだ開始していないものとして返す"
+                );
+            }
+            let c = resolve_chain(&reg, name);
+            SourceRow {
+                logical_source: c.tip.clone(),
+                named_source: name.clone(),
+                display_name: c.display_name,
+                expected_gap_sec: c.expected_gap_sec,
+                collection_started_on: c.started_on,
+                retired_on: c.retired_on,
+                chain: if c.names.is_empty() {
+                    vec![name.clone()]
+                } else {
+                    c.names
+                },
+            }
+        })
+        .collect())
 }
 
 /// 名前の並びどおりに稼働状況を集める。**登録簿に無い名前も落とさない**
@@ -331,26 +515,9 @@ pub async fn of_sources(
     to: chrono::NaiveDate,
 ) -> Result<Vec<SourceCoverage>, sqlx::Error> {
     let rows = sources(pool, names).await?;
-    let mut out = Vec::with_capacity(names.len());
-    for name in names {
-        let src = match rows.iter().find(|r| &r.logical_source == name) {
-            Some(src) => src.clone(),
-            None => {
-                tracing::warn!(
-                    kind = "source_missing",
-                    logical_source = %name,
-                    "登録簿に無いソース。まだ開始していないものとして返す"
-                );
-                SourceRow {
-                    logical_source: name.clone(),
-                    display_name: name.clone(),
-                    expected_gap_sec: 0,
-                    collection_started_on: None,
-                    retired_on: None,
-                }
-            }
-        };
-        out.push(of_source(pool, user, &src, from, to).await?);
+    let mut out = Vec::with_capacity(rows.len());
+    for src in &rows {
+        out.push(of_source(pool, user, src, from, to).await?);
     }
     Ok(out)
 }
@@ -362,7 +529,7 @@ pub async fn of_sources(
 async fn facts(
     pool: &sqlx::PgPool,
     user: Option<uuid::Uuid>,
-    source: &str,
+    sources: &[String],
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
 ) -> Result<Vec<DayFacts>, sqlx::Error> {
@@ -385,7 +552,9 @@ async fn facts(
               c AS (SELECT (event_time AT TIME ZONE '{tz}')::date AS day,
                            count(*)::int AS event_count
                       FROM core.event
-                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
+                       AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
                      GROUP BY 1),
               -- **`bool_or`**: その日に取得できる状態の信号が 1 件でもあれば②（design D7 の (5)）。
               -- 全部が取れない状態のときだけ③（同 (6)）。混在する日は現実にいちばん起きる形
@@ -395,7 +564,9 @@ async fn facts(
                            sum(attempts)::bigint  AS attempts,
                            sum(successes)::bigint AS successes
                       FROM core.heartbeat
-                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
+                       AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
                      GROUP BY 1),
               -- **満たされていないものを日ごとに畳む**（review/code.md の R39）。
               -- spec の Scenario「取得できない状態が理由とともに残る …
@@ -404,20 +575,22 @@ async fn facts(
               b AS (SELECT (emitted_at AT TIME ZONE '{tz}')::date AS day,
                            array_agg(DISTINCT x ORDER BY x) AS blockers
                       FROM core.heartbeat, unnest(blockers) AS x
-                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
+                       AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
                      GROUP BY 1)
          SELECT d.day,
                 coalesce(c.event_count, 0) AS event_count,
                 h.capturable, h.attempts, h.successes,
                 coalesce(b.blockers, '{{}}') AS blockers,
                 EXISTS (SELECT 1 FROM core.coverage_span s
-                         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = $2 AND s.kind = 'dropped'
+                         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = ANY($2) AND s.kind = 'dropped'
                            AND s.started_at <= (d.day::timestamp AT TIME ZONE '{tz}')
                            AND (s.ended_at IS NULL
                                 OR s.ended_at >= ((d.day + 1)::timestamp AT TIME ZONE '{tz}')))
                   AS dropped_full,
                 EXISTS (SELECT 1 FROM core.coverage_span s
-                         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = $2 AND s.kind = 'stopped'
+                         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = ANY($2) AND s.kind = 'stopped'
                            AND s.started_at <= (d.day::timestamp AT TIME ZONE '{tz}')
                            AND (s.ended_at IS NULL
                                 OR s.ended_at >= ((d.day + 1)::timestamp AT TIME ZONE '{tz}')))
@@ -431,7 +604,7 @@ async fn facts(
     );
     let rows: Vec<FactRow> = sqlx::query_as(&sql)
         .bind(user)
-        .bind(source)
+        .bind(sources)
         .bind(from)
         .bind(to)
         .fetch_all(pool)
@@ -473,7 +646,7 @@ async fn facts(
 async fn intervals(
     pool: &sqlx::PgPool,
     user: Option<uuid::Uuid>,
-    source: &str,
+    sources: &[String],
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
 ) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<Interval>>, sqlx::Error> {
@@ -481,7 +654,7 @@ async fn intervals(
         "SELECT (emitted_at AT TIME ZONE '{tz}')::date AS day,
                 emitted_at, capturable, attempts, successes
            FROM core.heartbeat
-          WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+          WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
             AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
             AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
           ORDER BY emitted_at",
@@ -495,7 +668,7 @@ async fn intervals(
         i32,
     )> = sqlx::query_as(&sql)
         .bind(user)
-        .bind(source)
+        .bind(sources)
         .bind(from)
         .bind(to)
         .fetch_all(pool)
@@ -514,27 +687,45 @@ async fn intervals(
 }
 
 /// 記録か生存信号があった日を古い順に。**途絶の判定に要る**（前後の活動を測る）。
+///
+/// **期間で絞る**（review/code-r2.md の R9 / I4）。絞りが無かったときは
+/// `core.event` を毎リクエスト全走査していた —— 位置は 60 秒間隔で年 50 万行を超え、
+/// `achievement` はこれをソースごとに呼ぶ。`core.coverage`（1 日 1 行）から
+/// `core.event`（記録ごとに 1 行）へ出どころを移したときに、絞りを足していなかった。
+///
+/// 窓の外も要るので、**想定間隔ぶん前後に広げる** —— 途絶は「その日をまたぐ前後の
+/// 記録・生存信号が想定間隔以内にあるか」で決まるので、窓の端の日は外側を見る。
 async fn active_days(
     pool: &sqlx::PgPool,
     user: Option<uuid::Uuid>,
-    source: &str,
+    sources: &[String],
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    gap_days: f64,
 ) -> Result<Vec<chrono::NaiveDate>, sqlx::Error> {
+    // 想定間隔を日に切り上げて広げる（60 日のソースもあるので固定値にしない）
+    let pad = chrono::Duration::days(gap_days.ceil().max(0.0) as i64 + 1);
+    let lo = from - pad;
+    let hi = to + pad;
     let sql = format!(
         "SELECT day FROM (
-           -- **記録そのものから引く**（tasks 15.5 / ST03 の R57）。`facts` と同じ出どころ ——
-           -- 片方だけ `core.coverage` に残すと、更新で時刻が動いた日が
-           -- 「記録あり」にはならないのに「前後の活動」には数えられる。
            SELECT (event_time AT TIME ZONE '{tz}')::date AS day FROM core.event
-            WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+            WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+              AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
+              AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
            UNION
            SELECT (emitted_at AT TIME ZONE '{tz}')::date FROM core.heartbeat
-            WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+            WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+              AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
+              AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
          ) t ORDER BY day",
         tz = DAY_TZ
     );
     let rows: Vec<(chrono::NaiveDate,)> = sqlx::query_as(&sql)
         .bind(user)
-        .bind(source)
+        .bind(sources)
+        .bind(lo)
+        .bind(hi)
         .fetch_all(pool)
         .await?;
     Ok(rows.into_iter().map(|(d,)| d).collect())
@@ -547,9 +738,14 @@ async fn active_days(
 /// 1 日を丸ごと止めた日に記録が一部残っていても、その日は④として見える。
 ///
 /// ⑧「退役」は⑦「導入前」の**直後**に見る（design D33）—— どちらも
-/// 「その日はこのソースの収集期間の外side」という同じ型で、`retired_on` は
-/// `collection_started_on` の対。判定は **`day > retired_on`**（退役した日そのものは
-/// まだ収集していたので、その日は本来の状態のまま出る）。
+/// 「その日はこのソースの収集期間の外」という同じ型で、`retired_on` は
+/// `collection_started_on` の対。
+///
+/// 判定は **`day >= retired_on`（退役した日を含む）**。当初は「退役した日そのものは
+/// まだ収集していた」を理由に `>` にしていたが、**正典の逐語は「以降」**
+/// （`docs/requirements.md` の FR-54「登録簿の退役した日以降」/ FR-80
+/// 「退役した日以降は途絶の判定の対象外」）。実装が要件の逐語を独断で変えていたので戻した
+/// （review/code-r2.md の I1）。
 fn decide(
     facts: &DayFacts,
     started_on: Option<chrono::NaiveDate>,
@@ -562,7 +758,7 @@ fn decide(
         Some(s) if facts.day < s => return DayState::BeforeStart,
         _ => {}
     }
-    if retired_on.is_some_and(|r| facts.day > r) {
+    if retired_on.is_some_and(|r| facts.day >= r) {
         return DayState::Retired;
     }
     if facts.dropped_full {
@@ -601,10 +797,12 @@ pub async fn of_source(
     from: chrono::NaiveDate,
     to: chrono::NaiveDate,
 ) -> Result<SourceCoverage, sqlx::Error> {
-    let facts = facts(pool, user, &src.logical_source, from, to).await?;
-    let active = active_days(pool, user, &src.logical_source).await?;
-    let mut by_day = intervals(pool, user, &src.logical_source, from, to).await?;
     let gap_days = f64::from(src.expected_gap_sec) / 86_400.0;
+    // **鎖の全部の名前で引く**（第 8 回 Q31 / review/code-r2.md の R1）——
+    // 引き継ぎ元の時代の記録もこのソースの稼働状況の一部。
+    let facts = facts(pool, user, &src.chain, from, to).await?;
+    let active = active_days(pool, user, &src.chain, from, to, gap_days).await?;
+    let mut by_day = intervals(pool, user, &src.chain, from, to).await?;
     let days = facts
         .iter()
         .map(|f| DayCell {
@@ -625,6 +823,7 @@ pub async fn of_source(
         .collect();
     Ok(SourceCoverage {
         logical_source: src.logical_source.clone(),
+        named_source: src.named_source.clone(),
         display_name: src.display_name.clone(),
         expected_gap_sec: src.expected_gap_sec,
         collection_started_on: src.collection_started_on,
@@ -691,25 +890,16 @@ pub async fn achievement(
     targets: &[(String, Subject)],
 ) -> Result<Achievement, sqlx::Error> {
     let named: Vec<String> = targets.iter().map(|(n, _)| n.clone()).collect();
-    // **鎖の先端を数える**（第 8 回 Q31）。古い名前は分母から外れ、後継が窓を引き継ぐ。
-    let tips = resolve_tips(pool, &named).await?;
-    let names: Vec<String> = named
-        .iter()
-        .map(|n| tips.get(n).cloned().unwrap_or_else(|| n.clone()))
-        .collect();
-    let rows = sources(pool, &names).await?;
+    // **鎖ごと解決する**（第 8 回 Q31）。古い名前は分母から外れ、後継が窓を引き継ぐ ——
+    // ただし数える材料は鎖の全部（review/code-r2.md の R1）。
+    let rows = sources(pool, &named).await?;
 
     let mut out = Vec::with_capacity(targets.len());
-    for ((named_source, subject), name) in targets.iter().zip(names.iter()) {
-        let src = rows.iter().find(|r| &r.logical_source == name);
-        let (display_name, started_on, retired_on) = match src {
-            Some(r) => (
-                r.display_name.clone(),
-                r.collection_started_on,
-                r.retired_on,
-            ),
-            None => (name.clone(), None, None),
-        };
+    for ((named_source, subject), src) in targets.iter().zip(rows.iter()) {
+        let name = &src.logical_source;
+        let display_name = src.display_name.clone();
+        let started_on = src.collection_started_on;
+        let retired_on = src.retired_on;
         let window_closes_on = started_on.map(|s| s + chrono::Duration::days(WINDOW_DAYS));
         let window_closed = window_closes_on.is_some_and(|c| today >= c);
 
@@ -723,7 +913,7 @@ pub async fn achievement(
                 if last_counted < start {
                     (0, 0)
                 } else {
-                    let f = facts(pool, user, name, start, last_counted).await?;
+                    let f = facts(pool, user, &src.chain, start, last_counted).await?;
                     // **分母から抜けた日は達成日にも数えない**（2 巡目 R4）——
                     // 達成日数が分母を超えるのを防ぐ。
                     //
@@ -733,7 +923,7 @@ pub async fn achievement(
                     let live = f
                         .iter()
                         .filter(|d| !d.stopped_full)
-                        .filter(|d| !retired_on.is_some_and(|r| d.day > r));
+                        .filter(|d| !retired_on.is_some_and(|r| d.day >= r));
                     let denom = live.clone().count() as i64;
                     let hit = live
                         .filter(|d| match subject {

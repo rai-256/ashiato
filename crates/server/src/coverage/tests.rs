@@ -21,10 +21,12 @@ async fn src(
     (
         SourceRow {
             logical_source: name.clone(),
-            display_name: name,
+            named_source: name.clone(),
+            display_name: name.clone(),
             expected_gap_sec: gap,
             collection_started_on: started.map(testdb::date),
             retired_on: None,
+            chain: vec![name],
         },
         testdb::user(),
     )
@@ -1291,10 +1293,12 @@ async fn coverage_is_separated_by_user() {
 
     let s = SourceRow {
         logical_source: name.clone(),
+        named_source: name.clone(),
         display_name: name.clone(),
         expected_gap_sec: SIX_HOURS,
         collection_started_on: Some(testdb::date("2026-05-01")),
         retired_on: None,
+        chain: vec![name.clone()],
     };
     let d = testdb::date("2026-05-01");
     let for_a = of_source(&pool, Some(a), &s, d, d).await.unwrap();
@@ -1419,6 +1423,36 @@ fn decide_follows_the_order_of_d7() {
         );
     }
 
+    // **⑧「退役」の位置**（design D33 / review/code-r2.md の G3）。⑦の直後なので、
+    // 丸ごと覆う破棄・停止・記録・生存信号のどれが重なっていても⑧が勝つ。
+    // この行が無かったときは、⑧の判定を破棄・停止の**下**へ動かしても全部緑だった。
+    let retired = Some(testdb::date("2026-05-10"));
+    let retired_table = [
+        ("⑧>⑤", facts("2026-05-11", 0, None, true, false)),
+        ("⑧>④", facts("2026-05-11", 0, None, false, true)),
+        ("⑧>①", facts("2026-05-11", 3, None, false, false)),
+        ("⑧>②", facts("2026-05-11", 0, Some(true), false, false)),
+    ];
+    for (label, f) in retired_table {
+        assert_eq!(
+            decide(&f, start, retired, gap, &active),
+            DayState::Retired,
+            "順序 {label} が崩れている（⑧は⑦の直後）"
+        );
+    }
+    // **⑦は⑧より先**（収集開始日より前なら、退役していても「導入前」）
+    assert_eq!(
+        decide(
+            &facts("2026-04-30", 0, None, false, false),
+            start,
+            retired,
+            gap,
+            &active
+        ),
+        DayState::BeforeStart,
+        "⑦より⑧が先に当たっている"
+    );
+
     // (8) 想定間隔以内に活動があれば②
     let near = vec![testdb::date("2026-05-03")];
     assert_eq!(
@@ -1482,6 +1516,18 @@ async fn clock_skew_does_not_move_started_on() {
     );
 }
 
+/// 移行 0007 の**引き直しの節だけ**を抜き出す。
+///
+/// ファイル全体を当てると `ALTER TABLE core.source` と `CREATE INDEX ... ON core.event` が
+/// 2 つの表に強い錠を掛け、並んで走っている記録の挿入と deadlock する（実測 40P01）。
+/// **逐語は本物のまま**なので、閾値をファイルから消せばこの検査が落ちる。
+fn repair_sql() -> &'static str {
+    const SRC: &str = include_str!("../../../../migrations/0007_source_lifecycle.sql");
+    let from = SRC.find("-- REPAIR-BEGIN").expect("印 REPAIR-BEGIN が無い");
+    let to = SRC.find("-- REPAIR-END").expect("印 REPAIR-END が無い");
+    &SRC[from..to]
+}
+
 /// 既に汚れている収集開始日を、移行 0007 が引き直す（tasks 12.1）。
 ///
 /// **受け口に条件を足すだけでは足りない。** 収集開始日は前にしか動かないので、
@@ -1510,12 +1556,7 @@ async fn migration_repairs_polluted_started_on() {
     // （実測: 達成日数の検査が分母 0 で落ちた）。1 つの DB を共有する足場なので、
     // 「全行に効く移行」を試すテストだけは自分の外へ出さない。
     let mut tx = pool.begin().await.unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/0007_source_lifecycle.sql"
-    ))
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::raw_sql(repair_sql()).execute(&mut *tx).await.unwrap();
     let got: Vec<(String, Option<chrono::NaiveDate>)> = sqlx::query_as(
         "SELECT logical_source, collection_started_on FROM core.source
           WHERE logical_source = ANY($1)",
@@ -1594,13 +1635,21 @@ async fn retired_days() {
         .remove(0);
     assert_eq!(s.retired_on, Some(testdb::date("2026-05-10")));
 
-    // **退役した日そのものはまだ収集していた**
+    // **退役した日そのものから⑧**（正典の逐語は「退役した日**以降**」——
+    // `docs/requirements.md` の FR-54 / FR-80。当初 `>` で実装していたのを戻した）
     assert_eq!(
         state_on(&pool, u, &s, "2026-05-10").await,
-        DayState::Recorded,
-        "退役した日そのものが本来の状態で出ていない"
+        DayState::Retired,
+        "退役した日そのものが⑧になっていない（正典は「以降」）"
     );
-    // **その後は⑧。想定間隔を超えて何も来ていなくても⑥にならない**
+    // **前日はまだ本来の状態**（境界が 1 日ずれていないこと）
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-09", 1).await;
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-09").await,
+        DayState::Recorded,
+        "退役の前日まで⑧が食い込んでいる"
+    );
+    // **想定間隔を超えて何も来ていなくても⑥にならない**
     assert_eq!(
         state_on(&pool, u, &s, "2026-05-11").await,
         DayState::Retired
@@ -1635,11 +1684,12 @@ async fn retired_days_out_of_denominator() {
     )
     .await
     .unwrap();
+    // **退役した日「以降」を外す**（正典の FR-80）ので、分母は 05-01・05-02 の 2 日
     assert_eq!(
-        ach.sources[0].denominator, 3,
-        "退役した日より後が分母に残っている（名前を分けただけで未達が積まれる）"
+        ach.sources[0].denominator, 2,
+        "退役した日以降が分母に残っている（名前を分けただけで未達が積まれる）"
     );
-    assert_eq!(ach.sources[0].achieved_days, 3);
+    assert_eq!(ach.sources[0].achieved_days, 2);
     assert!(
         ach.sources[0].met,
         "退役までは全日達成なのに未達になっている"
@@ -1726,9 +1776,11 @@ async fn recorded_follows_event_time() {
     // 記録そのものは別の日にある
     testdb::put_event(&pool, u, &s.logical_source, "2026-05-04T12:00:00+09:00").await;
 
-    assert_ne!(
+    // **⑥ まで言い切る**（`assert_ne!` だと②〜⑧のどれでも通ってしまう）——
+    // この日は記録も生存信号も無く、前後の活動も想定間隔（6 時間）の外
+    assert_eq!(
         state_on(&pool, u, &s, "2026-05-02").await,
-        DayState::Recorded,
+        DayState::Outage,
         "記録の無い日が「記録あり」になっている（稼働記録の件数で決めている）"
     );
     assert_eq!(
@@ -1736,4 +1788,261 @@ async fn recorded_follows_event_time() {
         DayState::Recorded,
         "記録のある日が「記録あり」になっていない"
     );
+
+    // **件数も記録そのものから引く**（稼働記録の側には 5 を入れてある）
+    let d = testdb::date("2026-05-02");
+    let got = of_source(&pool, Some(u), &s, d, d).await.unwrap();
+    assert_eq!(
+        got.days[0].event_count, 0,
+        "件数が稼働記録の行から来ている（記録は 1 件も無い日）"
+    );
+    let d = testdb::date("2026-05-04");
+    let got = of_source(&pool, Some(u), &s, d, d).await.unwrap();
+    assert_eq!(got.days[0].event_count, 1);
+}
+
+/// **論理削除された記録は稼働記録を書き換えない**（design D34 / FR-50）。
+///
+/// `core.event_live`（削除を除くビュー）から引くと、**過去の稼働状況が遡って⑥へ変わり**、
+/// 成功条件 1 の達成日数が落ちる。稼働記録が答えるのは「その日に収集が動いていたか」で、
+/// 後からの削除はその事実を書き換えない（丸ごと消した期間は⑤が担う）。
+///
+/// Scenario: 丸ごと覆う停止も破棄も無い日に記録があれば記録あり
+#[tokio::test]
+async fn deleted_events_still_count_as_recorded() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "deleted", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_deleted_event(&pool, u, &s.logical_source, "2026-05-02T12:00:00+09:00").await;
+
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-02").await,
+        DayState::Recorded,
+        "論理削除した記録の日が「記録あり」でなくなっている（core.event_live から引いている）"
+    );
+}
+
+// ------------------------------- 第 2 巡レビュー（review/code-r2.md）で塞いだ穴
+
+/// **引き継ぎ元の時代の達成日も数える**（review/code-r2.md の R1）。
+///
+/// 先端の名前だけで数えていたときは、**分母は鎖の根から数えるのに分子は切り替え後の
+/// 記録しか拾わず**、名前を分けた翌日に成功条件 1 が 0 % へ落ちた ——
+/// spec が「名前を分けただけで落ちる」のを防ぐと書いている当のもの。
+///
+/// Scenario: 退役した名前の代わりに後継を数える
+#[tokio::test]
+async fn chain_counts_the_predecessor_days() {
+    let pool = testdb::pool().await;
+    let old = testdb::source(&pool, "chain-old", SIX_HOURS).await;
+    let new = testdb::source(&pool, "chain-new", SIX_HOURS).await;
+    let u = testdb::user();
+    testdb::set_started_on(&pool, &old, "2026-05-01").await;
+    testdb::set_succeeds(&pool, &new, &old).await;
+
+    // 旧名で 05-01〜05-03 の 3 日、切り替え後に新名で 05-05・05-06 の 2 日
+    for d in ["2026-05-01", "2026-05-02", "2026-05-03"] {
+        testdb::put_coverage(&pool, u, &old, d, 1).await;
+    }
+    testdb::retire(&pool, &old, "2026-05-04").await;
+    for d in ["2026-05-05", "2026-05-06"] {
+        testdb::put_coverage(&pool, u, &new, d, 1).await;
+    }
+
+    // 今日は 05-07。分母は 05-01〜05-06 の 6 日、達成は 5 日（05-04 だけ記録が無い）
+    let ach = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-05-07"),
+        &[(old.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ach.sources[0].denominator, 6,
+        "分母が鎖の全期間になっていない"
+    );
+    assert_eq!(
+        ach.sources[0].achieved_days, 5,
+        "引き継ぎ元の時代の達成日が消えている（先端の名前だけで数えている）"
+    );
+
+    // **格子の側も鎖で引く**（読み出し口が達成と別のものを見ていないこと）
+    let rows = sources(&pool, std::slice::from_ref(&old)).await.unwrap();
+    let cov = of_source(
+        &pool,
+        Some(u),
+        &rows[0],
+        testdb::date("2026-05-01"),
+        testdb::date("2026-05-06"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(cov.logical_source, new, "格子が先端を指していない");
+    assert_eq!(cov.named_source, old, "名指しされた名前が返っていない");
+    assert_eq!(
+        cov.days[0].state,
+        DayState::Recorded,
+        "引き継ぎ元の時代の記録が格子から消えている"
+    );
+}
+
+/// **退役していない名前からは乗り換えない**（同 R2）。
+///
+/// 後継の行を先に作ってから退役させる運用（登録簿としてごく自然な順）で、
+/// まだ動いているソースの達成日が 0 になっていた。
+#[tokio::test]
+async fn a_live_source_is_not_swapped_for_its_successor() {
+    let pool = testdb::pool().await;
+    let old = testdb::source(&pool, "live-old", SIX_HOURS).await;
+    let new = testdb::source(&pool, "live-new", SIX_HOURS).await;
+    let u = testdb::user();
+    testdb::set_started_on(&pool, &old, "2026-05-01").await;
+    // 後継の行だけ先に作る。**退役はまだしていない**
+    testdb::set_succeeds(&pool, &new, &old).await;
+    testdb::put_coverage(&pool, u, &old, "2026-05-01", 1).await;
+
+    let ach = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-05-02"),
+        &[(old.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ach.sources[0].logical_source, old,
+        "まだ退役していないソースから後継へ乗り換えている"
+    );
+    assert_eq!(ach.sources[0].achieved_days, 1);
+    assert!(ach.sources[0].met);
+}
+
+/// 収集開始日は**鎖全体でいちばん古い日**（同 G8）。後継が先に始まっていても継ぐ。
+#[tokio::test]
+async fn chain_started_on_is_the_oldest_in_the_chain() {
+    let pool = testdb::pool().await;
+    let root = testdb::source(&pool, "old-root", SIX_HOURS).await;
+    let mid = testdb::source(&pool, "old-mid", SIX_HOURS).await;
+    let tip = testdb::source(&pool, "old-tip", SIX_HOURS).await;
+    testdb::set_started_on(&pool, &root, "2026-09-01").await;
+    // **後継のほうが古い**（重なって走っていた運用）
+    testdb::set_started_on(&pool, &mid, "2026-04-01").await;
+    testdb::set_succeeds(&pool, &mid, &root).await;
+    testdb::set_succeeds(&pool, &tip, &mid).await;
+    testdb::retire(&pool, &root, "2026-09-02").await;
+    testdb::retire(&pool, &mid, "2026-09-03").await;
+
+    // 3 本の鎖をたどり切って、いちばん古い日を継ぐ（`tip` 自身は NULL のまま）
+    let rows = sources(&pool, std::slice::from_ref(&root)).await.unwrap();
+    assert_eq!(
+        rows[0].logical_source, tip,
+        "3 本の鎖の先端まで届いていない"
+    );
+    assert_eq!(
+        rows[0].collection_started_on,
+        Some(testdb::date("2026-04-01")),
+        "鎖全体でいちばん古い日を継いでいない"
+    );
+    assert_eq!(rows[0].chain.len(), 3, "鎖の名前が 3 本そろっていない");
+}
+
+/// 引き継ぎの鎖が**輪**になっても止まる（同 R12 / G10）。
+///
+/// `A → B → A` は FK も CHECK も素通りする（どちらの行を入れた時点でも輪は閉じていない）。
+#[tokio::test]
+async fn a_cycle_in_the_chain_terminates() {
+    let pool = testdb::pool().await;
+    let a = testdb::source(&pool, "cyc-a", SIX_HOURS).await;
+    let b = testdb::source(&pool, "cyc-b", SIX_HOURS).await;
+    testdb::set_started_on(&pool, &a, "2026-05-01").await;
+    testdb::set_succeeds(&pool, &b, &a).await;
+    testdb::set_succeeds(&pool, &a, &b).await;
+    testdb::retire(&pool, &a, "2026-05-02").await;
+    testdb::retire(&pool, &b, "2026-05-03").await;
+
+    // 回り続けない。名前は重複せず、深さの上限も超えない
+    let rows = sources(&pool, std::slice::from_ref(&a)).await.unwrap();
+    assert!(rows[0].chain.len() <= 2, "輪を回って鎖が伸びている");
+    let mut uniq = rows[0].chain.clone();
+    uniq.sort();
+    uniq.dedup();
+    assert_eq!(
+        uniq.len(),
+        rows[0].chain.len(),
+        "鎖に同じ名前が 2 度入っている"
+    );
+}
+
+/// **登録日ちょうど**の記録は収集開始日を作る（同 R7 / G2）。
+///
+/// 閾値が `>=` から `>` に倒れると、**登録したその日に初回の記録が来るソース
+/// （＝通常の導入手順そのもの）が永久に「未開始」で固まる** —— Q29 が直そうとした型と同じ。
+///
+/// Scenario: 登録より前の時刻の信号は開始日を動かさない
+#[tokio::test]
+async fn a_record_on_the_registration_day_starts_collection() {
+    let pool = testdb::pool().await;
+    let name = testdb::source_registered_on(&pool, "edge", SIX_HOURS, "2026-04-01").await;
+
+    // 登録日の JST 0 時ちょうど（その日でいちばん早い時刻）
+    touch_started_on(&pool, &name, "2026-03-31T15:00:00Z".parse().unwrap())
+        .await
+        .unwrap();
+    let got = sources(&pool, std::slice::from_ref(&name)).await.unwrap();
+    assert_eq!(
+        got[0].collection_started_on,
+        Some(testdb::date("2026-04-01")),
+        "登録日ちょうどの記録が弾かれている（閾値が > に倒れている）"
+    );
+
+    // その 1 秒前（前日の 23:59:59 JST）は弾かれる
+    let other = testdb::source_registered_on(&pool, "edge2", SIX_HOURS, "2026-04-01").await;
+    touch_started_on(&pool, &other, "2026-03-31T14:59:59Z".parse().unwrap())
+        .await
+        .unwrap();
+    let got = sources(&pool, std::slice::from_ref(&other)).await.unwrap();
+    assert_eq!(
+        got[0].collection_started_on, None,
+        "登録日の前日が通っている"
+    );
+}
+
+/// 引き直しは**何度当てても同じ**で、**正規の収集開始日を後ろへ動かさない**（同 C-3 / G4 / M-3）。
+///
+/// `migrate()` は版管理表を持たず**起動のたびに当て直す**ので、条件を付けないと
+/// 「記録を破棄した後に再起動する」だけで⑤「破棄された期間」が⑦「導入前」に化ける。
+///
+/// Scenario: 汚れた収集開始日は引き直せる
+#[tokio::test]
+async fn repair_is_idempotent_and_never_moves_a_clean_date_forward() {
+    let pool = testdb::pool().await;
+    let name = testdb::source_registered_on(&pool, "idem", SIX_HOURS, "2026-04-01").await;
+    let u = testdb::user();
+    // 正規の収集開始日。**記録はもう残っていない**（破棄・保持期間の刈り取りの後の形）
+    testdb::set_started_on(&pool, &name, "2026-04-05").await;
+    testdb::put_event(&pool, u, &name, "2026-04-20T12:00:00+09:00").await;
+
+    const READ: &str = "SELECT collection_started_on FROM core.source WHERE logical_source = $1";
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(repair_sql()).execute(&mut *tx).await.unwrap();
+    let once: (Option<chrono::NaiveDate>,) = sqlx::query_as(READ)
+        .bind(&name)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::raw_sql(repair_sql()).execute(&mut *tx).await.unwrap();
+    let twice: (Option<chrono::NaiveDate>,) = sqlx::query_as(READ)
+        .bind(&name)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
+    let (once, twice) = (once.0, twice.0);
+
+    assert_eq!(
+        once,
+        Some(testdb::date("2026-04-05")),
+        "汚れていない収集開始日が後ろへ動いた（窓が縮み、破棄した期間が⑦に化ける）"
+    );
+    assert_eq!(twice, once, "2 度当てると結果が変わる");
 }

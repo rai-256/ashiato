@@ -20,16 +20,44 @@ import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { ONE_SCROLL_PX, VIEWPORT_H_PX } from "../tokens";
-import { achievement, fiveSources } from "./fixtures";
+import { retiredLast, type SourceCoverage } from "../coverage";
+import { achievement, days, fiveSources, source } from "./fixtures";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * CSS の長さを px で読む。**読めなかったら落とす**（review/code-r2.md の M-2）。
+ *
+ * 黙って 0 にしていたときは、**勘定が要素を数えられていないだけ**でも
+ * 「予算に収まっている」という緑が出た。指定が無い（空文字）ときだけ 0 を返す。
+ */
 const px = (v: string): number => {
+  if (v === "") return 0;
   const n = Number.parseFloat(v);
-  return Number.isFinite(n) ? n : 0;
+  if (!Number.isFinite(n) || !v.trim().endsWith("px")) {
+    throw new Error(`px で読めない長さ: ${JSON.stringify(v)}`);
+  }
+  return n;
 };
+
+/**
+ * 枠線の太さ。**`border: none` は `borderTopWidth` に `"medium"` を返す**
+ * （CSS の初期値のキーワード。長さではない）。太さのキーワードは
+ * `thin` / `medium` / `thick` = 1 / 3 / 5 px にあたるが、**線種が無ければ 0**。
+ *
+ * 前は `px()` が読めない値を黙って 0 にしていたので、この区別ごと消えていた
+ * （review/code-r2.md の M-2）。
+ */
+function borderWidth(el: HTMLElement, side: "Top" | "Bottom"): number {
+  const style = el.style.getPropertyValue(`border-${side.toLowerCase()}-style`) || el.style.borderStyle;
+  if (style === "none" || style === "hidden") return 0;
+  const w = side === "Top" ? el.style.borderTopWidth : el.style.borderBottomWidth;
+  const keyword: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+  if (w in keyword) return style === "" ? 0 : keyword[w];
+  return px(w);
+}
 
 /**
  * その要素に効いている行の高さ。`font` の短縮記法（`600 15px/1.3 ...`）から引き、
@@ -40,7 +68,8 @@ function lineHeight(el: HTMLElement): number {
     const m = /(\d+(?:\.\d+)?)px\s*\/\s*(\d+(?:\.\d+)?)/.exec(e.style.font);
     if (m !== null) return Number(m[1]) * Number(m[2]);
   }
-  return 0;
+  // **黙って 0 にしない**（同 M-2）。先祖まで `font` が無い要素は勘定に穴を開ける
+  throw new Error(`行の高さが引けない: <${el.tagName.toLowerCase()}>`);
 }
 
 /** 直接の子（要素ではないもの）に文字があるか。あれば少なくとも 1 行ぶんの高さを取る。 */
@@ -61,8 +90,8 @@ function declaredHeight(el: HTMLElement): number {
   const chrome =
     px(s.paddingTop) +
     px(s.paddingBottom) +
-    px(s.borderTopWidth) +
-    px(s.borderBottomWidth) +
+    borderWidth(el, "Top") +
+    borderWidth(el, "Bottom") +
     px(s.marginTop) +
     px(s.marginBottom);
   const kids = [...el.children].filter((c): c is HTMLElement => c instanceof HTMLElement);
@@ -90,14 +119,17 @@ function bottomWithin(root: HTMLElement, target: HTMLElement): number {
       return (
         y +
         px(child.style.marginTop) +
-        px(child.style.borderTopWidth) +
+        borderWidth(child, "Top") +
         px(child.style.paddingTop) +
         bottomWithin(child, target)
       );
     }
     y += declaredHeight(child);
   }
-  throw new Error("その要素が見つからない");
+  throw new Error(
+    `その要素が <${root.tagName.toLowerCase()}> の下に見つからない: ` +
+      `<${target.tagName.toLowerCase()} data-source="${target.getAttribute("data-source") ?? ""}">`,
+  );
 }
 
 /** 画面の上端から、その要素の下端までの高さ。 */
@@ -105,11 +137,13 @@ function bottomOf(main: HTMLElement, target: HTMLElement): number {
   return px(main.style.paddingTop) + bottomWithin(main, target);
 }
 
-async function renderPage(): Promise<HTMLElement> {
+async function renderPage(extra: SourceCoverage[] = []): Promise<HTMLElement> {
   // **いちばん高くなる形で測る** —— 合否が暫定のときは「確定まであと N 日」の 1 行が増える。
   // 収集開始から 365 日が経つまではこちらが常態なので、確定した形で測ると勘定が甘くなる。
   const body = {
-    "/api/coverage": fiveSources("2026-01-04", 371),
+    // **退役を先頭で返す**（サーバは並び順を約束しない）。画面が末尾へ回さなければ
+    // Must の 5 本が押し出されて予算を超える —— そこが R63 の眼目
+    "/api/coverage": [...extra, ...fiveSources("2026-01-04", 371)],
     "/api/coverage/achievement": achievement({ confirmed: false, days_until_confirmed: 200 }),
   };
   vi.stubGlobal("fetch", (path: string) =>
@@ -120,16 +154,23 @@ async function renderPage(): Promise<HTMLElement> {
   );
   render(<App />);
   await waitFor(() => {
-    expect(document.querySelectorAll("section[data-source]")).toHaveLength(5);
+    expect(document.querySelectorAll("section[data-source]")).toHaveLength(5 + extra.length);
   });
   return document.querySelector("main") as HTMLElement;
+}
+
+/** Must の 5 本の節（退役したものは末尾に回るので、勘定の対象から外す）。 */
+function mustSections(): HTMLElement[] {
+  return [...document.querySelectorAll("section[data-source]")].filter(
+    (s) => (s.getAttribute("data-retired") ?? "") === "",
+  ) as HTMLElement[];
 }
 
 describe("ひとスクロールの勘定", () => {
   // Scenario: ひとスクロールで 5 ソースすべてが見える
   it("5 ソースすべてが 2 画面ぶん以内に収まる", async () => {
     const main = await renderPage();
-    const last = [...document.querySelectorAll("section[data-source]")].at(-1) as HTMLElement;
+    const last = mustSections().at(-1) as HTMLElement;
     const bottom = bottomOf(main, last);
     expect(
       bottom,
@@ -162,5 +203,22 @@ describe("ひとスクロールの勘定", () => {
       "余白を 200 px 増やしても勘定が動いていない（宣言を読んでいない）",
     ).toBe(before + 200);
     expect(bottomOf(main, first)).toBeGreaterThan(before);
+  });
+
+  // Scenario: ひとスクロールで 5 ソースすべてが見える
+  it("退役したソースが増えても、Must の 5 本はひとスクロール以内に残る", async () => {
+    // **R63 が想定したのはこの形**（退役は 1 本きりではなく増える）。
+    // 退役が上に並ぶと Must の 5 本が押し出されるので、末尾へ回して畳んである。
+    const retired = [1, 2, 3].map((i) =>
+      source(`c02-window-old${i}`, `PC のウィンドウ（旧${i}）`, days("2026-01-04", 371, ["recorded"]), "2026-05-10"),
+    );
+    const main = await renderPage(retired);
+    expect(retiredLast(retired).length, "退役の並べ替えが効いていない").toBe(3);
+    const last = mustSections().at(-1) as HTMLElement;
+    const bottom = bottomOf(main, last);
+    expect(
+      bottom,
+      `退役 3 本を足すと Must の 5 本目が ${Math.round(bottom)} px まで下がった`,
+    ).toBeLessThanOrEqual(ONE_SCROLL_PX);
   });
 });

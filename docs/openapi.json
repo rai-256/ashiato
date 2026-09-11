@@ -13,7 +13,7 @@
     "/coverage": {
       "get": {
         "tags": [],
-        "summary": "ソース × 日 の 7 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。",
+        "summary": "ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。",
         "operationId": "coverage_get",
         "parameters": [
           {
@@ -295,7 +295,7 @@
       },
       "Band": {
         "type": "string",
-        "description": "格子の 3 段。**7 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。",
+        "description": "格子の 3 段。**8 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。",
         "enum": [
           "recorded",
           "alive_no_record",
@@ -738,6 +738,7 @@
         "description": "ソース 1 本ぶんの稼働状況。",
         "required": [
           "logical_source",
+          "named_source",
           "display_name",
           "expected_gap_sec",
           "days"
@@ -765,7 +766,12 @@
             "format": "int32"
           },
           "logical_source": {
-            "type": "string"
+            "type": "string",
+            "description": "**鎖の先端**（第 8 回 Q31）"
+          },
+          "named_source": {
+            "type": "string",
+            "description": "定数が名指ししている名前。乗り換えが起きたことが画面から読めるように返す"
           },
           "retired_on": {
             "type": [

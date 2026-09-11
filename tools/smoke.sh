@@ -41,8 +41,13 @@ docker compose exec -T db psql -q -U ashiato -d ashiato -c \
 # 登録簿の行は `now()`（当日）で作られるので、**そのままだと全部が「登録より前」になる**。
 # 本番では登録簿の行が先にあって収集が後から始まる（FK がそれを強制している）ので、
 # ここで揃えるのが本番と同じ形。
+# **`WHERE` を付ける**（review/code-r2.md の H-6 / I6）。付けずに全行を書き換えていたので、
+# `DATABASE_URL` の向き先を間違えると**登録簿にしか無い事実を黙って消す**形になっていた
+# （`registered_at` は第 8 回 Q29 以降、収集開始日の算出根拠になった列）。
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
-  "UPDATE core.source SET registered_at = '2026-01-01T00:00:00+09:00';"
+  "UPDATE core.source SET registered_at = '2026-01-01T00:00:00+09:00'
+    WHERE logical_source IN ('smoke','c01-location','c01-app-usage','c01-photo',
+                             'c02-window','c02-browser-history');"
 
 # Scenario: 1 件だけの裸の要求も受け取る
 #   （配列に包まずに 1 件だけ送る）

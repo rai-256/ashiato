@@ -30,6 +30,24 @@ BEGIN
   END IF;
 END $$;
 
+-- **1 つの引き継ぎ元を 2 本が引き継げない**（review/code-r2.md の H-4）。
+-- 一意索引が無いと、鎖をたどる側が辞書順で片方を**黙って捨て**（枝分かれ）、
+-- 2 つの Must が同じ後継に解決すると**同じソースが 5 本中 2 本として二重に数えられる**（合流）。
+-- どちらも「どの名前を数えたか」からは読み取れない。入口で塞ぐほうが安い。
+--
+-- **当てられなくても起動を止めない。** `migrate()` は起動のたびに全版を当てるので、
+-- 既に枝分かれのある登録簿では索引が作れず、**サーバが起動しなくなる** ——
+-- 収集が止まって記録が落ちるのは、このプロジェクトでいちばん高い代償。
+-- 作れなかったことは WARNING で残し、**たどる側も分岐を決定的に畳んで警告を出す**
+-- （`coverage::resolve_chain`）。入口と出口の両方で受ける。
+DO $$
+BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS source_succeeds_unique
+    ON core.source (succeeds) WHERE succeeds IS NOT NULL;
+EXCEPTION WHEN unique_violation THEN
+  RAISE WARNING '引き継ぎ元が枝分かれしている行があるので source_succeeds_unique を作れない。登録簿を直すこと';
+END $$;
+
 -- **自分自身を引き継ぎ元にできない。** 鎖をたどる側が無限に回る
 -- （たどる側にも深さの上限を置いてあるが、入口で塞ぐほうが安い）。
 DO $$
@@ -43,7 +61,24 @@ BEGIN
   END IF;
 END $$;
 
+-- ------------------------------------------------------------------ 記録を日で引く索引
+--
+-- **稼働状況の出どころが `core.coverage` から `core.event` へ移った**（tasks 15.5 / R57）。
+-- 行数が「日数 × ソース数」で頭打ちだった表から、**記録の数で伸びる表**へ移ったのに
+-- 索引が無く、`EXPLAIN ANALYZE` は `Seq Scan on event` を出していた
+-- （review/code-r2.md の R9 / I4）。位置は 60 秒間隔で年 50 万行を超え、
+-- 画面 1 回で 10 回以上の全走査になる。**壊れて見えないまま遅くなる型。**
+CREATE INDEX IF NOT EXISTS event_by_source_time
+  ON core.event (logical_source, event_time);
+
+-- REPAIR-BEGIN
 -- ------------------------------------------------------------------ 収集開始日の引き直し
+--
+-- **この印の間だけを検査が抜き出して当てる**（`migration_repairs_polluted_started_on`）。
+-- ファイル全体を当てると `ALTER TABLE core.source` と `CREATE INDEX ... ON core.event` が
+-- 2 つの表に強い錠を掛け、**並んで走っている記録の挿入と deadlock する**（実測 40P01）。
+-- 印で切り出せば、検査は本物の SQL の逐語を当てたまま、錠は登録簿だけで済む ——
+-- 閾値をこのファイルから消せば検査が落ちる、という性質は保たれる。
 --
 -- **第 8 回 Q29 の本体はここ。** 本人の答えは「受けるが、収集開始日の計算から外す」で、
 -- 閾値は**登録簿に行ができた日（`registered_at`）より前**。
@@ -74,13 +109,27 @@ UPDATE core.source s
      GROUP BY src.logical_source
   ) f
  WHERE s.logical_source = f.logical_source
-   AND s.collection_started_on IS DISTINCT FROM f.first_day;
+   AND (
+     -- (a) まだ埋まっていない
+     s.collection_started_on IS NULL
+     -- (b) **前へ動かす**（第 7 回 Q26。後から古い記録が届いたとき）
+     OR s.collection_started_on > f.first_day
+     -- (c) **汚れているときだけ後ろへ動かす**（第 8 回 Q29 の修復）
+     OR s.collection_started_on < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
+   );
 
--- **1 件も残らないソースは NULL に戻す**（第 5 回 Q22「1 件も届いていないソースは開始していない」）。
--- 閾値より前の信号しか無いソースは、ここで「まだ開始していない」へ戻る。
+-- **汚れた値しか無いソースは NULL に戻す**（第 5 回 Q22「1 件も届いていないソースは開始していない」）。
+--
+-- **`collection_started_on` が汚れている行だけを対象にする**（review/code-r2.md の C-3）。
+-- この移行は版管理表を持たない `migrate()` が**起動のたびに当て直す**ので、
+-- 条件を付けないと「記録を破棄した後に再起動する」だけで正規の収集開始日が消える ——
+-- ⑤「破棄された期間」が⑦「導入前」に化け、`coverage_span` の行だけが残る。
+-- 書き込み経路（`touch_started_on`）も 0005 も「前にしか動かさない」ので、
+-- **後ろへ動かしてよいのは汚れを直すときだけ**。
 UPDATE core.source s
    SET collection_started_on = NULL
  WHERE s.collection_started_on IS NOT NULL
+   AND s.collection_started_on < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
    AND NOT EXISTS (
      SELECT 1 FROM core.event e
       WHERE e.logical_source = s.logical_source
@@ -93,3 +142,4 @@ UPDATE core.source s
         AND (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date
             >= (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
    );
+-- REPAIR-END
