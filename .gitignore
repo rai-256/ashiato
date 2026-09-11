@@ -18,3 +18,6 @@ collector-android/local.properties
 
 # 生成物（scripts/story_brief.py で再生成できる）
 docs/briefs/
+
+# 確認バッチの成果物（tools/verify-prep.sh）
+dist/

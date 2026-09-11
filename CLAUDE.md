@@ -157,7 +157,35 @@ scripts/story.sh ST01          # 下流: worktree を用意して、その中で
 **issue は PR と同時に作る**（`scripts/issue_body.py` が本文を機械的に出し、`merge_gate.sh` が貼り直す）。
 merge の後に作る規則だと、上流のセッションは PR で止まるので作る係がいなくなる
 （実測: ST02 は merge から issue まで 10 時間空いた）。**merge_gate が OK のとき「次の 1 手」を印字する**
-（上流なら `scripts/story.sh` と次の `scripts/upstream.sh`、下流なら `scripts/archive.sh`）。
+（上流なら `scripts/story.sh` と盤面が出す次の `scripts/upstream.sh`、下流なら確認バッチと `scripts/archive.sh`）。
+
+### 何を並列で始めてよいかは盤面が決める
+
+```bash
+python3 scripts/board.py                          # 状態ごとの一覧と「いま同時に始められる上流」
+python3 scripts/board.py --html docs/briefs/board.html   # スマホで見るなら
+```
+
+並列にしてよいのは **2 つとも**満たすもの同士: (1) `requires` が全部 archive 済み（specs を最後まで書ける）、
+(2) capability（`docs/stories/INDEX.md` の表）が走っている Story と重ならない。番号順ではない。
+同じ capability を 2 本が同時に触ると差し戻しが起きる（実測: ST02 と ST03 が登録簿を共有し、12 時間で 5 往復）。
+`衝突待ち` と出た Story は始めない。
+
+### 確認は Story ごとにしない。バッチで 1 回
+
+Story の下流が終わっても**人間に動作確認を求めない**。gate を通った PR をまとめて `/verify`（確認バッチ）にかける:
+
+```bash
+scripts/verify_batch.sh          # verify/<tag> を切り、ready な feat/st* の PR を全部 merge
+                                 # → tools/verify-prep.sh（server の release / web の build / APK / run.sh / manifest）
+                                 # → 手順書 docs/briefs/verify-<tag>.html（完了の判定と「人間の確認待ち」から機械的に）
+                                 # → draft の PR
+./dist/verify-<tag>/run.sh       # 人間: DB → サーバ → 画面 → 偽データ を 1 コマンドで起動して、手順書のとおりに見る
+python3 scripts/verify_record.py <tag> answers.txt   # 貼り戻しを tasks.md と docs/verify/<tag>.md に記録 → gh pr ready
+```
+
+停止点は verify の PR の merge。merge 後に Story ごとに `scripts/archive.sh ST<NN>`（Story の PR を閉じ、worktree を片付ける）。
+**準備（ビルド・起動・手順書・実機への APK）は AI が済ませる。** 人間がやるのは run.sh を叩いて見ることだけ。
 
 深掘りの前に **Story ブリーフ**を出す。人間が「この Story は何か」を知らないまま
 一方通行の判断を求められる状態を避けるため。

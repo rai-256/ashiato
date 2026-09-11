@@ -72,7 +72,11 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 | `review_triage.py` | 上の処置 | ローカル、`merge_gate`、`archive` |
 | `merge_gate.sh` | head を main に追従 → その head の CI → tasks の残り → 検査 3 本 → deep の未回答。落ちれば draft に戻す。**通れば次の 1 手を印字し PR にコメント**、上流なら issue を作る・貼り直す | PR の最後 |
 | `issue_body.py` | 下流へ渡す issue の本文を deep / tasks / design / Story から機械的に出す。**上流の PR と同時に作る**（merge を待たない） | 上流の Step 5、`merge_gate` |
-| `archive.sh` | 人間の確認待ち以外が全部 `[x]`、Scenario の担保、指摘の処置 → `openspec archive` → PR → 下流の worktree を片付ける | 下流の merge 後 |
+| `archive.sh` | main に入っていること（Story の PR か、それを含む verify の PR が merge 済み）、人間の確認待ち以外が全部 `[x]`、Scenario の担保、指摘の処置 → `openspec archive` → PR → Story の PR を閉じ、下流の worktree を片付ける | 下流の merge 後 |
+| `board.py` | 盤面。requires が全部 archive 済みで、capability が走っている Story と重ならないものを「いま同時に始められる」と出す | 上流の Step 1、`merge_gate` |
+| `verify_batch.sh` | 確認バッチ。ready な `feat/st*` の PR を `verify/<tag>` に merge → `tools/verify-prep.sh`（成果物）→ `verify_checklist.py`（手順書）→ draft の PR | 下流の gate の後、人間が確認する前 |
+| `verify_record.py` | 手順書の貼り戻しを tasks.md（`[x]` と印）と `docs/verify/<tag>.md` に記録する。通らなかったものを列挙して rc=1 | 確認の後 |
+| `tools/verify-prep.sh`（ashiato2） | server の release / web の build / APK（実機があれば adb で入れる）/ `run.sh` / `manifest.md` を `dist/verify-<tag>/` に | `verify_batch` |
 | `check-migrations.sh`（ashiato2） | 前進側の破壊的変更・戻し手順の欠落・**名前が作成時刻 `YYYYMMDDHHMM_<slug>.sql` でない**もの | ローカル、CI |
 
 `scripts/` は harness2 への symlink で CI の runner には無い。CI の `chain` job は
@@ -94,6 +98,8 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 - **画面の構造は `kind: visual` + `proto`**（playground）で触って決める。文字の選択肢で問わない
 - 移行の名前は作成時刻。連番にしない（並走する Story が番号を取り合う）
 - merge の順序を design に書かない。gate が main に rebase するので、後から merge する側が追従する
+- **並列は盤面で決める**（`python3 scripts/board.py`）。requires が全部 archive 済み ∧ capability が走っている Story と重ならない
+- **Story ごとに動作確認を求めない。** gate を通った PR は `scripts/verify_batch.sh` でまとめ、成果物と手順書を AI が用意してから人間が 1 回で確かめる。停止点は verify の PR の merge
 
 ## 現在地（2026-09-09）
 
