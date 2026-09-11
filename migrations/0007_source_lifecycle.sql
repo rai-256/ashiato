@@ -80,8 +80,14 @@ CREATE INDEX IF NOT EXISTS event_by_source_time
 -- 印で切り出せば、検査は本物の SQL の逐語を当てたまま、錠は登録簿だけで済む ——
 -- 閾値をこのファイルから消せば検査が落ちる、という性質は保たれる。
 --
--- **第 8 回 Q29 の本体はここ。** 本人の答えは「受けるが、収集開始日の計算から外す」で、
--- 閾値は**登録簿に行ができた日（`registered_at`）より前**。
+-- **第 8 回 Q29 と第 9 回 Q32 の本体はここ。** 本人の答えは「受けるが、収集開始日の
+-- 計算から外す」（Q29）で、閾値は**登録簿に行ができた日（`registered_at`）より前**。
+-- そして **閾値が掛かるのは生存信号だけ**（Q32）——
+-- 生存信号の `emitted_at` は端末の時計そのものだが、記録の `event_time` は
+-- **出来事が起きた時刻**で、古いことに正当な理由がある（端末にある写真は撮影時刻が
+-- 何年も前、ブラウザ履歴は導入時点で過去ぶんが取れる、Takeout 系は過去 1 年ぶんを
+-- まとめて流し込む）。記録にも掛けていたときは、**登録簿に行を足してから過去ぶんを
+-- 流し込む運用で、記録が何万件あっても全日が⑦「導入前」**になった（実測）。
 --
 -- 外す条件を受け口に足すだけでは足りない —— 収集開始日は `least()` でしか動かない
 -- （前にしか動かない）ので、**一度 1999 年に落ちた行は正しい日を送り直しても戻らない**。
@@ -94,11 +100,10 @@ UPDATE core.source s
            min(d.day) AS first_day
       FROM core.source src
       JOIN LATERAL (
+        -- **記録に閾値は掛からない**（第 9 回 Q32）
         SELECT (e.event_time AT TIME ZONE 'Asia/Tokyo')::date AS day
           FROM core.event e
          WHERE e.logical_source = src.logical_source
-           AND (e.event_time AT TIME ZONE 'Asia/Tokyo')::date
-               >= (src.registered_at AT TIME ZONE 'Asia/Tokyo')::date
         UNION ALL
         SELECT (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date
           FROM core.heartbeat h
@@ -114,8 +119,32 @@ UPDATE core.source s
      s.collection_started_on IS NULL
      -- (b) **前へ動かす**（第 7 回 Q26。後から古い記録が届いたとき）
      OR s.collection_started_on > f.first_day
-     -- (c) **汚れているときだけ後ろへ動かす**（第 8 回 Q29 の修復）
-     OR s.collection_started_on < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
+     -- (c) **汚れているときだけ後ろへ動かす**（第 8 回 Q29 の修復）。
+     --
+     -- 「汚れている」を**狭く定める** —— いまの開始日が
+     --   1. 閾値より前に発信された生存信号の日**ちょうど**にあり、かつ
+     --   2. その日に記録が 1 件も無い
+     -- とき。**その 2 つが揃うのは、その信号が開始日を書いたときだけ。**
+     --
+     -- 「登録より前」だけでは判定にならない（第 9 回 Q32）—— 過去ぶんを流し込んだ
+     -- ソースの開始日は**正しく**登録より前になる。
+     -- 「支える記録が無い」だけでも足りない —— **記録を破棄した後**の再起動でそれが真になり、
+     -- 開始日が前へ動いて⑤「破棄された期間」が⑦「導入前」に化ける（C-3）。
+     -- 信号の日ちょうどであることまで見れば、破棄では当たらない。
+     OR (
+       EXISTS (
+         SELECT 1 FROM core.heartbeat h
+          WHERE h.logical_source = s.logical_source
+            AND (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date = s.collection_started_on
+            AND (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date
+                < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM core.event e
+          WHERE e.logical_source = s.logical_source
+            AND (e.event_time AT TIME ZONE 'Asia/Tokyo')::date = s.collection_started_on
+       )
+     )
    );
 
 -- **汚れた値しか無いソースは NULL に戻す**（第 5 回 Q22「1 件も届いていないソースは開始していない」）。
@@ -129,12 +158,18 @@ UPDATE core.source s
 UPDATE core.source s
    SET collection_started_on = NULL
  WHERE s.collection_started_on IS NOT NULL
-   AND s.collection_started_on < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
+   -- 上と同じ「汚れている」の定め方（信号の日ちょうど・その日に記録が無い）
+   AND EXISTS (
+     SELECT 1 FROM core.heartbeat h
+      WHERE h.logical_source = s.logical_source
+        AND (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date = s.collection_started_on
+        AND (h.emitted_at AT TIME ZONE 'Asia/Tokyo')::date
+            < (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
+   )
+   -- **記録は 1 件でもあれば開始日を作る**（第 9 回 Q32。閾値は掛からない）
    AND NOT EXISTS (
      SELECT 1 FROM core.event e
       WHERE e.logical_source = s.logical_source
-        AND (e.event_time AT TIME ZONE 'Asia/Tokyo')::date
-            >= (s.registered_at AT TIME ZONE 'Asia/Tokyo')::date
    )
    AND NOT EXISTS (
      SELECT 1 FROM core.heartbeat h

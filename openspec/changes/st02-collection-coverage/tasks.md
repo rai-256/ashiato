@@ -417,6 +417,26 @@ ST03 の深掘り（5 巡 26 問）が ST02 に返したもの。根拠は
 - [x] 17.10 **主張の訂正**（R5 / G6）—— 「4 つとも必要で 1 つ戻すだけで落ちる」は false だった。
       落ちるのは 3 つで、余地は 44 px。design D35 に ★ で訂正を入れる。検証: 実測して書いた
 
+## 18. 第 9 回 Q32 —— 閾値は生存信号だけに掛ける
+
+**本人の答え**: 閾値（登録簿に行ができた日より前）を掛けるのは**生存信号だけ**。
+記録は時刻がいくら古くても収集開始日を作れる。第 8 回 Q29 の決定は変えない ——
+崩れたのは「記録にも同じ閾値を掛けてよい」という**暗黙の前提**だけ。
+
+- [x] 18.1 `coverage::touch_started_on` が**記録か生存信号か**（`Arrival`）を受け取り、
+      閾値を生存信号にだけ掛ける。検証: `cargo test --workspace` が rc=0
+      （`an_old_record_starts_collection_even_before_registration` —— 登録の 2 年前に
+      撮られた写真が開始日を作り、同じ日の生存信号は外れたまま）
+- [x] 18.2 移行 0007 の引き直しも同じ規則に。**「汚れている」の印を狭める** ——
+      「閾値より前の生存信号の日ちょうどにあり、その日に記録が 1 件も無い」。
+      「登録より前」だけだと過去ぶんの取り込みを毎起動で消し、「支える記録が無い」だけだと
+      破棄した次の再起動で⑤が⑦に化ける。
+      検証: `repair_keeps_a_backfilled_start_date` /
+      `repair_does_not_move_forward_after_records_are_dropped`（どちらも壊すと落ちる）
+- [x] 18.3 `specs/collection-coverage/spec.md` の収集開始日の Requirement と Scenario、
+      `design.md` の D31 に ★ 訂正。検証: `openspec validate --strict` /
+      `scripts/check_scenarios.py` が rc=0
+
 ## 他 Story が書き手を持つ Scenario（`review/code.md` の R11）
 
 **ST02 は表がその形で持てることまでを満たす。** 契機（WHEN / IF）は他 Story にある ——

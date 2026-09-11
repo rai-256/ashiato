@@ -307,9 +307,14 @@ async fn ingest_one(
 
     // 収集開始日は**いちばん古い記録が作られた日**（FR-79 / 第 6 回 Q24 / 第 7 回 Q26）。
     // 重複でも当てる —— 同じ記録の再送でも「その日に取られた」ことは変わらない。
-    coverage::touch_started_on(&mut *tx, &req.logical_source, req.event_time)
-        .await
-        .map_err(|e| internal_at("ingest.started_on", e))?;
+    coverage::touch_started_on(
+        &mut *tx,
+        &req.logical_source,
+        req.event_time,
+        coverage::Arrival::Record,
+    )
+    .await
+    .map_err(|e| internal_at("ingest.started_on", e))?;
 
     tx.commit()
         .await
@@ -491,9 +496,15 @@ async fn heartbeat_one(
     .map_err(|e| internal_at("heartbeat.insert", e))?;
 
     // 収集開始日は記録と同じ規則で動く（FR-79）—— **信号なら発信時刻の日**。
-    coverage::touch_started_on(&mut *tx, &req.logical_source, req.emitted_at)
-        .await
-        .map_err(|e| internal_at("heartbeat.started_on", e))?;
+    // ただし**閾値が掛かるのは信号だけ**（第 9 回 Q32）—— 端末の時計がそのまま入ってくる側。
+    coverage::touch_started_on(
+        &mut *tx,
+        &req.logical_source,
+        req.emitted_at,
+        coverage::Arrival::Heartbeat,
+    )
+    .await
+    .map_err(|e| internal_at("heartbeat.started_on", e))?;
 
     tx.commit()
         .await

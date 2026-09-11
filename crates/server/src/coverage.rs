@@ -191,7 +191,22 @@ struct DayFacts {
     stopped_full: bool,
 }
 
-/// 収集開始日を**受け口の側で**埋める（design D5 / 第 6 回 Q24 / 第 7 回 Q26）。
+/// 収集開始日を動かしにきたものが、記録か生存信号か（第 9 回 Q32）。
+///
+/// **閾値が掛かるのは生存信号だけ** —— 本人の答え。
+/// 生存信号の `emitted_at` は**端末の時計そのもの**なので、狂えばそのまま入ってくる。
+/// 記録の `event_time` は**出来事が起きた時刻**で、古いことに正当な理由がある
+/// （端末にある写真は撮影時刻が何年も前、ブラウザ履歴は導入時点で過去ぶんが取れる、
+/// Takeout 系は過去 1 年ぶんをまとめて流し込む）。**この 2 つを同じ閾値で測らない。**
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arrival {
+    /// 記録（`core.event`）。**閾値を掛けない**
+    Record,
+    /// 生存信号（`core.heartbeat`）。**登録簿に行ができた日より前は外す**
+    Heartbeat,
+}
+
+/// 収集開始日を**受け口の側で**埋める（design D5 / 第 6 回 Q24 / 第 7 回 Q26 / 第 9 回 Q32）。
 ///
 /// **記録が作られた時刻の日**を当てる。受信時刻ではない —— 圏外で 3 日ぶん溜めて送ると、
 /// 記録のある日が⑦「導入前」になり NFR-13 の分母からも落ちる。
@@ -201,15 +216,16 @@ struct DayFacts {
 /// **動くのは入力であって判定式ではない** —— 状態も達成も行に焼いていないので、
 /// 同じ入力からは必ず同じ答えが出る。
 ///
-/// **登録簿に行ができた日より前の時刻は、この計算から外す**（第 8 回 Q29）。
+/// **生存信号だけ、登録簿に行ができた日より前を計算から外す**（第 9 回 Q32。
+/// 第 8 回 Q29 は記録にも掛けていたが、**過去ぶんを流し込む運用で全日が⑦になった**）。
 /// 記録も信号も捨てない —— 外すのは収集開始日への寄与だけ。
 /// 端末の時計が 27 年戻った生存信号が 1 件届くと、開始日が 1999 年に落ち、
-/// **前にしか動かないので正しい日を送り直しても戻らない**（実測。成功条件 1 が
-/// 「確定・未達」で固まる）。閾値は本人が選択肢から選んだもの。
+/// **前にしか動かないので正しい日を送り直しても戻らない**（実測）。
 pub async fn touch_started_on<'e, E>(
     executor: E,
     logical_source: &str,
     at: chrono::DateTime<chrono::Utc>,
+    arrival: Arrival,
 ) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -219,6 +235,14 @@ where
     // 「登録より前なので外した」（異常）は呼び出し側から区別できない。
     // 黙ると、時計の狂った端末が 1 台あることに誰も気付けない ——
     // **1 往復のまま**判定できるので、更新と同じ文で聞く。
+    let gate = match arrival {
+        // 記録に閾値は掛からない（第 9 回 Q32）
+        Arrival::Record => "true".to_string(),
+        Arrival::Heartbeat => format!(
+            "($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date",
+            tz = DAY_TZ
+        ),
+    };
     let sql = format!(
         "WITH u AS (
            UPDATE core.source
@@ -226,13 +250,14 @@ where
             WHERE logical_source = $1
               AND (collection_started_on IS NULL
                    OR collection_started_on > ($2 AT TIME ZONE '{tz}')::date)
-              AND ($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date
+              AND {gate}
             RETURNING 1
          )
          SELECT (SELECT count(*) FROM u) > 0 AS moved,
-                ($2 AT TIME ZONE '{tz}')::date < (registered_at AT TIME ZONE '{tz}')::date AS below
+                NOT ({gate}) AS below
            FROM core.source WHERE logical_source = $1",
-        tz = DAY_TZ
+        tz = DAY_TZ,
+        gate = gate
     );
     let got: Option<(bool, bool)> = sqlx::query_as(&sql)
         .bind(logical_source)
@@ -245,7 +270,7 @@ where
                 kind = "started_on_before_registration",
                 logical_source = %logical_source,
                 at = %at,
-                "登録簿に行ができた日より前の時刻。収集開始日の計算から外した（記録・信号は残している）"
+                "登録簿に行ができた日より前に発信された生存信号。収集開始日の計算から外した（信号は残している）"
             );
         }
     }
