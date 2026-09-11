@@ -58,19 +58,40 @@ Q15 で「利用者識別子は索引にだけ」と決まったので、`hash_i
 
 Q10 / Q23 の門は**制約トリガ**で実装する（D4）。制約トリガは **COMMIT 時に落ちる**ので、
 まとめ送りを 1 トランザクションにすると **1 件の失敗が全件を巻き戻す** ——
-design D9 / D20 の「1 件の恒久的な失敗が後続を永久に止めない」に正面から反する。
+**ST01 の `design.md` の D9 / D19**（まとめ送りの部分失敗で成功分だけを取り除く / 500 は
+まとめ送り全体を落とすので 1 件の恒久的な失敗が後続を永久に止める）に正面から反する。
 
 **1 件ごとにトランザクションを張る。** 取り込みと稼働記録の書き込みは**同じ**トランザクションに
 束ねる（R13。いまは別々に撃っており、更新経路ができると「履歴だけ残って本表が古い」が起きる）。
 
 ### D4. 門は遅延制約トリガ ＋ トランザクション識別子
 
+**門の最終形**: 「同じトランザクションに**履歴行**がある書き換え、または同じトランザクションに
+**台帳行**がある消去だけを通す」。本表と履歴の**両方**に置く —— 片方だけだと、
+本表は消せるのに履歴が消せない「消せない DB」が残る（R41 / R52）。
+
 ```sql
-ALTER TABLE core.event_version ADD COLUMN txid xid8 NOT NULL DEFAULT pg_current_xact_id();
+-- 0010 で 2 表とも txid を持って作る（この列は後付けではない）
+CREATE TABLE core.event_version (
+  …, raw text NOT NULL, txid xid8 NOT NULL DEFAULT pg_current_xact_id()
+);
+CREATE TABLE core.erasure_ledger (
+  …, txid xid8 NOT NULL DEFAULT pg_current_xact_id()
+);
+-- 0011 で門を 2 本
 CREATE CONSTRAINT TRIGGER event_requires_version
   AFTER UPDATE ON core.event DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION core.require_version_or_ledger();
+CREATE CONSTRAINT TRIGGER version_requires_ledger
+  AFTER UPDATE ON core.event_version DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION core.require_ledger_for_erasure();
 ```
+
+**履歴の `UPDATE` は「台帳のある消去」だけが通る**（Q17 の答え。Q21 で感度と削除の列が消えたので、
+残る正当な操作は本文の消去 1 つだけ）。台帳は無条件で追記のみ。
+
+**消去は親とその記録のすべての履歴を同じトランザクションで消す。** 分けると、
+2 段目（履歴だけを消す操作）が R40 の開口部そのものになる。
 
 「この書き換えと同じトランザクションで履歴行（または台帳行）が書かれたか」を COMMIT の瞬間に見る。
 実測: 履歴を書かない UPDATE は COMMIT で落ち、**順序に依存しない**（更新の後に履歴を書いてもよい）。
@@ -150,6 +171,19 @@ Q6 の部分索引の下では識別子を 1 文書き換えるだけで同じ�
 いまは `raw` / `payload` / `event_time` / `content_hash` の UPDATE が**拒まれること**を CI で検査している。
 ST03 がこの 4 列を開けるので、**「履歴を書かない書き換えは拒まれる / 書けば通る」の 2 本**にする。
 D5 の `DELETE` / `TRUNCATE`、D10 の 2 列、台帳の追記のみも同じ台本に入れる。
+
+### D12. 分割は取り込む前に行う。後から分けたら過去分は古い名前のまま
+
+`content_hash` の入力に `logical_source` が入っている（ST01 の `ingest.rs`。
+`field_boundaries_are_unambiguous` がソース名の違いで鍵が変わることを固定している）ので、
+**ソース名を動かすと鍵が変わる**。分けたあとに同じ書庫を入れ直すと**過去分が全件二重に入る**（実測）。
+
+**原則は「取り込む前に分ける」。** やむを得ず後から分けたときは、
+**過去分を古い名前のまま残す**（Q22）—— 移し替えると鍵が古い名前で計算されたまま残り、
+その行は以後どの再送とも一致しない（重複判定が黙って当たらない行ができる）。
+
+分かれた名前をどう見せるかは `collection-coverage`（ST02）の担当。
+古い名前には `retired_on` が立ち、`succeeds` で新しい名前へ繋がる（D7）。
 
 ## Risks / Trade-offs
 
