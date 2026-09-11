@@ -24,7 +24,7 @@ class TelemetryTest {
         val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val lines = mutableListOf<String>()
-        Sender(outbox, { outcome }, lines::add).flush()
+        Sender(outbox, { outcome }, IngestRequest.serializer(), lines::add).flush()
         return lines
     }
 

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
+
 /** 取り込み口を叩いた結果。網の失敗と、サーバが返した応答を区別する。 */
 sealed interface Outcome {
     /** 到達できなかった。**種別だけを持つ** —— 例外の文言は本文を含むことがある */
@@ -20,9 +23,10 @@ fun interface Transport {
  * **成功した分だけを未送信から取り除く。** 全部やり直すと、1 件の恒久的な失敗が
  * 後続を永久に止める。取り込み口は冪等なので、成功したものを再送しても行は増えない（FR-22）。
  */
-class Sender(
-    private val outbox: Outbox,
+class Sender<T : Outboxable>(
+    private val outbox: Outbox<T>,
     private val transport: Transport,
+    private val serializer: KSerializer<T>,
     private val log: (String) -> Unit = {},
 ) {
     /** 送った件数と受け付けられた件数。 */
@@ -34,7 +38,7 @@ class Sender(
         val batch = outbox.snapshot().take(MAX_BATCH)
         if (batch.isEmpty()) return Flushed(0, 0)
 
-        val body = ingestJson.encodeToString(batch)
+        val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
         val accepted = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
                 // 未送信はそのまま残す。次の契機で再び送る（FR-10）
@@ -61,7 +65,7 @@ class Sender(
      * **400 でも本文を読む。** 一部だけが不正なときに成功分を取り除けないと、
      * その 1 件が後続を永久に止める。
      */
-    private fun acceptedIds(batch: List<IngestRequest>, res: Outcome.Responded): List<String> {
+    private fun acceptedIds(batch: List<T>, res: Outcome.Responded): List<String> {
         if (res.status == 401) {
             log(Telemetry.line("send_failed", count = batch.size, error = "unauthorized"))
             return emptyList()

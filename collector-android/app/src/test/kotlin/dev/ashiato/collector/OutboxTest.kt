@@ -12,7 +12,12 @@ import org.junit.Test
 class OutboxTest {
     /** 置き場はこの試験の関心ではないので、毎回まっさらなファイルを使う。 */
     private fun outbox() =
-        Outbox(FileOutboxStore(File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl")) {})
+        Outbox(
+            FileOutboxStore(
+                File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl"),
+                IngestRequest.serializer(),
+            ) {},
+        )
 
     private fun req(id: String, accuracy: Float = 10f) =
         LocationFix(35.68, 139.76, accuracy, Instant.parse("2026-09-08T02:00:00Z"))

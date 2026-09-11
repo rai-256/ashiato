@@ -37,7 +37,7 @@ class SenderTest {
         repeat(5) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(true, true, true, true, true))
 
-        val flushed = Sender(outbox, transport).flush()
+        val flushed = Sender(outbox, transport, IngestRequest.serializer()).flush()
 
         assertEquals(1, transport.bodies.size)                       // **1 回にまとまる**
         assertEquals(5, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
@@ -52,7 +52,7 @@ class SenderTest {
         listOf("a", "b", "c").forEach { outbox.add(req(it)) }
         val transport = FakeTransport(okFor(true, false, true))
 
-        Sender(outbox, transport).flush()
+        Sender(outbox, transport, IngestRequest.serializer()).flush()
 
         assertEquals(listOf("b"), outbox.snapshot().map { it.id })
     }
@@ -64,7 +64,7 @@ class SenderTest {
         outbox.add(req("a"))
         val transport = FakeTransport { Outcome.Responded(400, """[{"accepted":false,"error":"unknown_origin"}]""") }
 
-        Sender(outbox, transport).flush()
+        Sender(outbox, transport, IngestRequest.serializer()).flush()
 
         assertEquals(listOf("a"), outbox.snapshot().map { it.id })
     }
@@ -76,12 +76,12 @@ class SenderTest {
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { Outcome.Unreachable("timeout") }
 
-        assertEquals(Sender.Flushed(sent = 2, accepted = 0), Sender(outbox, transport).flush())
+        assertEquals(Sender.Flushed(sent = 2, accepted = 0), Sender(outbox, transport, IngestRequest.serializer()).flush())
         assertEquals(2, outbox.size())
 
         // 次の契機では同じ 2 件が送られる
         val ok = FakeTransport(okFor(true, true))
-        Sender(outbox, ok).flush()
+        Sender(outbox, ok, IngestRequest.serializer()).flush()
         assertEquals(0, outbox.size())
     }
 
@@ -89,7 +89,7 @@ class SenderTest {
     fun `資格情報が無くて401なら何も取り除かない`() {
         val outbox = testOutbox()
         outbox.add(req("a"))
-        Sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }).flush()
+        Sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }, IngestRequest.serializer()).flush()
         assertEquals(1, outbox.size())
     }
 
@@ -98,7 +98,7 @@ class SenderTest {
         // 取り違えて消すと記録が失われる。**消さない側に倒す**
         val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
-        Sender(outbox, FakeTransport(okFor(true))).flush()
+        Sender(outbox, FakeTransport(okFor(true)), IngestRequest.serializer()).flush()
         assertEquals(2, outbox.size())
     }
 
@@ -111,7 +111,7 @@ class SenderTest {
         repeat(MAX_BATCH + 50) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
-        val flushed = Sender(outbox, transport).flush()
+        val flushed = Sender(outbox, transport, IngestRequest.serializer()).flush()
 
         assertEquals(MAX_BATCH, flushed.sent)
         assertEquals(MAX_BATCH, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
@@ -126,7 +126,7 @@ class SenderTest {
         repeat(MAX_BATCH + 3) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
-        Sender(outbox, transport).flush()
+        Sender(outbox, transport, IngestRequest.serializer()).flush()
 
         assertEquals(listOf("id-$MAX_BATCH", "id-${MAX_BATCH + 1}", "id-${MAX_BATCH + 2}"),
             outbox.snapshot().map { it.id })
@@ -135,7 +135,7 @@ class SenderTest {
     @Test
     fun `空のときは送らない`() {
         val transport = FakeTransport(okFor())
-        assertEquals(Sender.Flushed(0, 0), Sender(testOutbox(), transport).flush())
+        assertEquals(Sender.Flushed(0, 0), Sender(testOutbox(), transport, IngestRequest.serializer()).flush())
         assertTrue(transport.bodies.isEmpty())
     }
 }

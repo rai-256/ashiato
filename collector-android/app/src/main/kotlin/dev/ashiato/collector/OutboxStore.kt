@@ -3,6 +3,7 @@ package dev.ashiato.collector
 
 import java.io.File
 import java.io.IOException
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 
 /**
@@ -11,11 +12,11 @@ import kotlinx.serialization.SerializationException
  * **既定を持たせない。** 持たせるとインスタンスの中だけに積む実装が黙って選ばれ、
  * プロセスが立て直されたときに未送信が消える —— それがこの型を足した理由そのもの。
  */
-interface OutboxStore {
-    fun load(): List<IngestRequest>
+interface OutboxStore<T : Outboxable> {
+    fun load(): List<T>
 
     /** 書けたか。**呼び出し側が知れる形にする**（design D22）—— Unit だと失敗が上に届かない。 */
-    fun save(requests: List<IngestRequest>): Boolean
+    fun save(requests: List<T>): Boolean
 
     /**
      * 1 件を足す。**既定は全件の書き直し**で、追記できる置き場だけが上書きする。
@@ -23,7 +24,7 @@ interface OutboxStore {
      * `after` を関数で受けるのは、追記できる置き場が全件を組み立てずに済ませるため ——
      * 未送信が伸びたときに、書かないリストを毎分作るのが無駄になる。
      */
-    fun append(request: IngestRequest, after: () -> List<IngestRequest>): Boolean = save(after())
+    fun append(request: T, after: () -> List<T>): Boolean = save(after())
 }
 
 /**
@@ -37,14 +38,19 @@ interface OutboxStore {
  * 伸びたときに 60 秒ごとの全書き直しがフラッシュ寿命と電池に効く（実測見積り: 1 日圏外で約 0.6 GB）。
  * 追記なら `add` は 1 件ぶんで済む。まとめて書き直すのは送信後の `remove` のときだけ。
  */
-class FileOutboxStore(
+class FileOutboxStore<T : Outboxable>(
     private val file: File,
+    /**
+     * 何を直列化するか。**型ごとに 1 つの置き場**にするために明示で受ける ——
+     * 記録と生存信号が同じファイルに混ざると、読み戻しで片方が壊れた行に見える。
+     */
+    private val serializer: KSerializer<T>,
     /** **既定を持たせない。** 既定があると失敗の報告が黙って捨てられる（review R7 / HIGH-7）。 */
     private val log: (String) -> Unit,
-) : OutboxStore {
+) : OutboxStore<T> {
     private val tmp = File(file.parentFile, "${file.name}.tmp")
 
-    override fun load(): List<IngestRequest> {
+    override fun load(): List<T> {
         // **書き換えの途中で落ちた跡を先に拾う。** `.tmp` には最新の全件が入っている
         // 可能性があり、見ないまま次の save で上書きすると、そのぶんが無言で消える（review CRITICAL-2）。
         recoverInterrupted()
@@ -56,7 +62,7 @@ class FileOutboxStore(
             log(Telemetry.line("outbox_read_failed", error = e.javaClass.simpleName))
             return emptyList()
         }
-        return parse(text) ?: emptyList<IngestRequest>().also { salvage("unparseable") }
+        return parse(text) ?: emptyList<T>().also { salvage("unparseable") }
     }
 
     /**
@@ -64,13 +70,13 @@ class FileOutboxStore(
      * 追記の途中で電源が落ちると最後の 1 行だけが半端になる。
      * 全部読めなければ null（呼び出し側が退避する）。
      */
-    private fun parse(text: String): List<IngestRequest>? {
+    private fun parse(text: String): List<T>? {
         val lines = text.lineSequence().filter { it.isNotBlank() }.toList()
-        val out = ArrayList<IngestRequest>(lines.size)
+        val out = ArrayList<T>(lines.size)
         var broken = 0
         for (line in lines) {
             try {
-                out += ingestJson.decodeFromString<IngestRequest>(line)
+                out += ingestJson.decodeFromString(serializer, line)
             } catch (e: SerializationException) {
                 broken++
                 log(Telemetry.line("outbox_line_broken", count = broken, error = e.javaClass.simpleName))
@@ -119,20 +125,20 @@ class FileOutboxStore(
     }
 
     /** 1 件を追記する。**全件を書き直さない**（design D22）。 */
-    override fun append(request: IngestRequest, after: () -> List<IngestRequest>): Boolean = try {
-        file.appendText(ingestJson.encodeToString(request) + "\n")
+    override fun append(request: T, after: () -> List<T>): Boolean = try {
+        file.appendText(ingestJson.encodeToString(serializer, request) + "\n")
         true
     } catch (e: IOException) {
         log(Telemetry.line("outbox_append_failed", error = e.javaClass.simpleName))
         false
     }
 
-    override fun save(requests: List<IngestRequest>): Boolean {
+    override fun save(requests: List<T>): Boolean {
         // 一時ファイルへ書いてから差し替える。途中で落ちても半端なファイルが残らない。
         // **電源断には対して原子的ではない**（fsync していない）—— rename 後もデータが
         // ページキャッシュにある窓が残る。プロセス死には効く。
         return try {
-            tmp.writeText(requests.joinToString("") { ingestJson.encodeToString(it) + "\n" })
+            tmp.writeText(requests.joinToString("") { ingestJson.encodeToString(serializer, it) + "\n" })
             if (tmp.renameTo(file)) {
                 true
             } else {

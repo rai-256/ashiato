@@ -31,7 +31,7 @@ class OutboxStoreTest {
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 「プロセスが立て直された」＝ 同じ置き場から新しい Outbox を作り直す。 */
-    private fun reopen() = Outbox(FileOutboxStore(file) { lines += it })
+    private fun reopen() = Outbox(FileOutboxStore(file, IngestRequest.serializer()) { lines += it })
 
     private fun asideFiles() = dir.listFiles()!!.filter { it.name.contains(".unreadable") }
 
@@ -155,7 +155,7 @@ class OutboxStoreTest {
         // 置き場をディレクトリにして書き込みを失敗させる
         val blocked = File(dir, "blocked.jsonl")
         blocked.mkdir()
-        val outbox = Outbox(FileOutboxStore(blocked) { lines += it })
+        val outbox = Outbox(FileOutboxStore(blocked, IngestRequest.serializer()) { lines += it })
 
         assertFalse("書けていないのに true が返っている", outbox.add(req("a")))
         assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") })
@@ -167,7 +167,7 @@ class OutboxStoreTest {
     fun `取り除きに失敗したことも呼び出し側に返る`() {
         val blocked = File(dir, "blocked2.jsonl")
         blocked.mkdir()
-        val outbox = Outbox(FileOutboxStore(blocked) { lines += it })
+        val outbox = Outbox(FileOutboxStore(blocked, IngestRequest.serializer()) { lines += it })
         outbox.add(req("a"))
 
         assertFalse(outbox.remove(listOf("a")))

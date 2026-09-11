@@ -165,25 +165,25 @@
 
 ## 7. 端末からの生存信号（C-01）
 
-- [ ] 7.1 `collector-android` に生存信号の送出を足す。間隔は登録簿の想定間隔
+- [x] 7.1 `collector-android` に生存信号の送出を足す。間隔は登録簿の想定間隔
       （位置・写真とも 6 時間）に合わせる。
       **送出方式は ST01 の R46（Doze の除外を要求しない）に従い、ここで決め直さない**。
       検証: `./gradlew :app:assembleDebug` が rc=0
-- [ ] 7.2 権限・センサ・接続の状態を読み、`capturable` と `blockers` に載せる。
+- [x] 7.2 権限・センサ・接続の状態を読み、`capturable` と `blockers` に載せる。
       **権限が無い状態で `capturable = false` と `blockers` が埋まる**ことを確認する。
       検証: `./gradlew :app:testDebugUnitTest --tests '*Heartbeat*'` が rc=0
-- [ ] 7.2b **前回の信号からの取得の試行回数と成功回数を数えて載せる**（第 5 回 Q17）。
+- [x] 7.2b **前回の信号からの取得の試行回数と成功回数を数えて載せる**（第 5 回 Q17）。
       信号を送るたびに数えを戻す。**これが ST01 の R46（Doze）が渡した宿題の答え** ——
       信号が来ている＝生きていた / 取得率が低い＝眠っていた / 信号が来ない＝死んでいた。
       検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatCounters*'` が rc=0
-- [ ] 7.3 生存信号を**記録と同じ未送信の仕組みに乗せる**（ST01 の Outbox）。
+- [x] 7.3 生存信号を**記録と同じ未送信の仕組みに乗せる**（ST01 の Outbox）。
       送信失敗後に再送されること、停止と再開をまたいで残ること、
       **再送が同じ冪等キーを持つ**ことを確認する。
       検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatOutbox*'` が rc=0
-- [ ] 7.4 **記録が 1 件も生成されない期間でも生存信号が出る**ことを確認する
+- [x] 7.4 **記録が 1 件も生成されない期間でも生存信号が出る**ことを確認する
       （これが FR-78 の主目的。記録の生成に相乗りさせると意味が消える）。
       検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatWithoutRecords*'` が rc=0
-- [ ] 7.5 `collector-android/README.md` に、生存信号が Doze の維持時間帯に乗ること
+- [x] 7.5 `collector-android/README.md` に、生存信号が Doze の維持時間帯に乗ること
       （実測の最長空き 14.2 分 << 想定間隔 6 時間）を書く。
       検証: `./gradlew :app:assembleDebug` が rc=0（文書のみなので影響が無いことの確認）
 

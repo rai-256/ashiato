@@ -11,5 +11,19 @@ import java.nio.file.Files
  * 既定があると、本番でうっかりそれが選ばれて未送信が無言で消える
  * （深掘り 第 2 回で実際に起きていた欠陥）。
  */
-fun testOutbox(): Outbox =
-    Outbox(FileOutboxStore(File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl")) {})
+fun testOutbox(): Outbox<IngestRequest> =
+    Outbox(
+        FileOutboxStore(
+            File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl"),
+            IngestRequest.serializer(),
+        ) {},
+    )
+
+/** 生存信号ぶん。**記録と同じ仕組み**（型が違うだけ）。 */
+fun testHeartbeatOutbox(): Outbox<HeartbeatRequest> =
+    Outbox(
+        FileOutboxStore(
+            File(Files.createTempDirectory("heartbeat").toFile(), "heartbeat.jsonl"),
+            HeartbeatRequest.serializer(),
+        ) {},
+    )

@@ -11,12 +11,12 @@ package dev.ashiato.collector
  * インスタンスの中だけに積むと、`START_STICKY` でプロセスが立て直されたとき
  * 最大 5 分ぶんが無言で消える。
  */
-class Outbox(private val store: OutboxStore) {
+class Outbox<T : Outboxable>(private val store: OutboxStore<T>) {
     private val pending = ArrayDeque(store.load())
 
     /** 積む。**精度でも件数でもふるい落とさない**（design D11）。 */
     @Synchronized
-    fun add(request: IngestRequest): Boolean {
+    fun add(request: T): Boolean {
         pending.addLast(request)
         // **追記できる置き場なら追記する**（design D22）—— 全件書き直しは
         // 圏外が続いて未送信が伸びたとき、60 秒ごとにフラッシュを焼く。
@@ -26,7 +26,7 @@ class Outbox(private val store: OutboxStore) {
 
     /** いま溜まっているもの。送信はこの全部をまとめて 1 回で送る（design D9）。 */
     @Synchronized
-    fun snapshot(): List<IngestRequest> = pending.toList()
+    fun snapshot(): List<T> = pending.toList()
 
     @Synchronized
     fun size(): Int = pending.size

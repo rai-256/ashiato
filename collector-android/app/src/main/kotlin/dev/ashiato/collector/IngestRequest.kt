@@ -7,6 +7,18 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /**
+ * 未送信に積めるもの。**識別子で取り除く**ので、それだけを要求する（`Outbox.remove`）。
+ *
+ * 記録（`IngestRequest`）と生存信号（`HeartbeatRequest`）が同じ仕組みに乗る
+ * —— ST02 の specs が「生存信号を、記録と同じ未送信の仕組みに乗せて再送する」と定めている。
+ * 別の置き場を作ると、`FileOutboxStore` が実測で積み上げた復旧（書きかけの回収・
+ * 壊れた行の退避・追記）を生存信号だけが持たないことになる。
+ */
+interface Outboxable {
+    val id: String
+}
+
+/**
  * 取り込み口へ送る 1 件。**Rust 側（crates/server/src/ingest.rs）と同じ形**でなければならない。
  * 契約の正典は docs/collector-contract.md。片方だけ直すと、同じ 1 件が別物として入る。
  *
@@ -14,7 +26,7 @@ import kotlinx.serialization.json.JsonObject
  */
 @Serializable
 data class IngestRequest(
-    val id: String,
+    override val id: String,
     @SerialName("user_id") val userId: String,
     @SerialName("logical_source") val logicalSource: String,
     @SerialName("external_id") val externalId: String? = null,
@@ -36,7 +48,7 @@ data class IngestRequest(
      */
     val raw: String,
     val payload: JsonObject,
-)
+) : Outboxable
 
 /** 送った 1 件ごとの結果。**位置で対応づける**（docs/collector-contract.md §返る形）。 */
 @Serializable

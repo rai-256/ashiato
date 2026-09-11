@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.util.Log
 import java.io.File
+import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -24,15 +25,27 @@ import java.util.concurrent.TimeUnit
  * 本人の操作を必要とする収集は途切れる —— 成功条件 1 は「1 年間途切れない」こと。
  */
 open class LocationService : Service() {
-    private lateinit var outbox: Outbox
+    private lateinit var outbox: Outbox<IngestRequest>
+    private lateinit var heartbeatOutbox: Outbox<HeartbeatRequest>
     private lateinit var fixSource: FixSource
     private lateinit var deviceId: String
     private var flusher: FlushScheduler? = null
+    private var beater: FlushScheduler? = null
+
+    /**
+     * 前回の生存信号からの取得の試行と成功（第 5 回 Q17）。
+     * **サービスと同じ寿命**にする —— 立て直されたら数えも 0 から始まる
+     * （その区間はそもそも収集が途切れているので、累計を持ち越すと取得率が嘘になる）。
+     */
+    private val counters = AttemptCounters(now = { Instant.now() })
 
     private lateinit var callback: FixCollector
 
     /** 未送信の置き場を試験から覗く口。**本番の経路は変えない**（review R1）。 */
-    internal val outboxForTest: Outbox get() = outbox
+    internal val outboxForTest: Outbox<IngestRequest> get() = outbox
+
+    /** 生存信号の未送信を試験から覗く口。同上。 */
+    internal val heartbeatOutboxForTest: Outbox<HeartbeatRequest> get() = heartbeatOutbox
 
     /** 取得元。**試験だけが差し替える**（review R1）。本番は Play Services（design D7）。 */
     protected open fun newFixSource(): FixSource = FusedFixSource(this)
@@ -41,8 +54,28 @@ open class LocationService : Service() {
     protected open fun newScheduler(): FlushScheduler = ExecutorFlushScheduler()
 
     /** 未送信の置き場。**端末の保存領域**（深掘り 第 2 回 / design D17 / D22）。 */
-    protected open fun newOutbox(): Outbox =
-        Outbox(FileOutboxStore(File(filesDir, "outbox.jsonl")) { Log.w(TAG, it) })
+    protected open fun newOutbox(): Outbox<IngestRequest> =
+        Outbox(FileOutboxStore(File(filesDir, "outbox.jsonl"), IngestRequest.serializer()) { Log.w(TAG, it) })
+
+    /**
+     * 生存信号の未送信。**記録とは別のファイル**にする —— 同じ JSONL に混ぜると、
+     * 読み戻しで片方が「壊れた行」に見えて退避に回る（`FileOutboxStore.parse`）。
+     * 仕組み（追記・書きかけの回収・壊れた行の退避）は記録とまったく同じものを使う。
+     */
+    protected open fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> =
+        Outbox(FileOutboxStore(File(filesDir, "heartbeat.jsonl"), HeartbeatRequest.serializer()) { Log.w(TAG, it) })
+
+    /** 生存信号の刻み。試験だけが差し替える。 */
+    protected open fun newHeartbeatScheduler(): FlushScheduler = ExecutorFlushScheduler()
+
+    /**
+     * いま取得できる状態か（深掘り Q5）。**試験だけが差し替える。**
+     *
+     * 権限が剥がれると**プロセスは生きたまま位置が 0 件**になる ——
+     * Android は長期間使っていないアプリの権限を自動で剥がす。
+     * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
+     */
+    protected open fun readCapability(): Capability = androidCapability(this)
 
     override fun onCreate() {
         super.onCreate()
@@ -50,6 +83,7 @@ open class LocationService : Service() {
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
         outbox = newOutbox()
+        heartbeatOutbox = newHeartbeatOutbox()
         fixSource = newFixSource()
         callback = FixCollector(
             outbox = outbox,
@@ -58,6 +92,7 @@ open class LocationService : Service() {
             zone = ZoneId.systemDefault(),
             newId = { UUID.randomUUID().toString() },
             log = { Log.i(TAG, it) },
+            onFix = { counters.recordSuccess() },
         )
         startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
     }
@@ -74,6 +109,7 @@ open class LocationService : Service() {
             return START_NOT_STICKY
         }
         startFlushing()
+        startBeating()
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
     }
@@ -86,7 +122,18 @@ open class LocationService : Service() {
             Log.w(TAG, Telemetry.line("not_configured"))
             return
         }
-        val sender = Sender(outbox, HttpTransport(Config.baseUrl, Config.apiToken)) { Log.i(TAG, it) }
+        val sender = Sender(
+            outbox,
+            HttpTransport(Config.baseUrl, Config.apiToken, "/ingest"),
+            IngestRequest.serializer(),
+        ) { Log.i(TAG, it) }
+        // **生存信号も同じ契機で送る**（specs「記録と同じ未送信の仕組みに乗せて再送する」）。
+        // 別の刻みを立てると、送信の契機が 2 つになって電池と網の使い方が読めなくなる。
+        val beatSender = Sender(
+            heartbeatOutbox,
+            HttpTransport(Config.baseUrl, Config.apiToken, "/heartbeat"),
+            HeartbeatRequest.serializer(),
+        ) { Log.i(TAG, it) }
         // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない
         flusher = newScheduler().also { scheduler ->
             scheduler.every(SEND_INTERVAL_MS) {
@@ -96,6 +143,43 @@ open class LocationService : Service() {
                 runCatching { sender.flush() }.onFailure {
                     Log.w(TAG, Telemetry.line("flush_crashed", error = it.javaClass.simpleName))
                 }
+                // **記録の送信が落ちても生存信号は送る。** ここを同じ runCatching に入れると、
+                // 記録が送れない期間の稼働がまるごと残らなくなる
+                runCatching { beatSender.flush() }.onFailure {
+                    Log.w(TAG, Telemetry.line("beat_flush_crashed", error = it.javaClass.simpleName))
+                }
+            }
+        }
+    }
+
+    /**
+     * 想定間隔ごとに生存信号を積む（FR-78 / specs/device-collection）。
+     *
+     * **記録の生成に相乗りさせない**（tasks 7.4）—— 記録が 1 件も生成されない期間に
+     * 稼働を残すことが FR-78 の目的そのもの。取得の契機から呼ぶと意味が消える。
+     *
+     * **起動のたびに 1 件積む。** 6 時間の刻みだけに任せると、OS が 5 時間ごとに
+     * 立て直す端末では**生存信号が 1 件も出ない**まま「途絶」に見える。
+     */
+    private fun startBeating() {
+        if (beater != null) return
+        val emitter = HeartbeatEmitter(
+            outbox = heartbeatOutbox,
+            counters = counters,
+            userId = Config.userId,
+            deviceId = deviceId,
+            capability = ::readCapability,
+            now = { Instant.now() },
+            newId = { UUID.randomUUID().toString() },
+            log = { Log.i(TAG, it) },
+        )
+        emitter.emit()
+        // **登録簿の想定間隔に合わせる**（tasks 7.1）。ずらすと正常な運用が途絶に見える
+        beater = newHeartbeatScheduler().also { scheduler ->
+            scheduler.every(HEARTBEAT_INTERVAL_MS) {
+                runCatching { emitter.emit() }.onFailure {
+                    Log.w(TAG, Telemetry.line("heartbeat_crashed", error = it.javaClass.simpleName))
+                }
             }
         }
     }
@@ -104,6 +188,8 @@ open class LocationService : Service() {
         fixSource.stop(callback)
         flusher?.cancel()
         flusher = null
+        beater?.cancel()
+        beater = null
         super.onDestroy()
     }
 

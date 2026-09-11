@@ -49,8 +49,15 @@ class FakeScheduler : FlushScheduler {
 open class TestableLocationService(permissionDenied: Boolean = false) : LocationService() {
     val source = FakeFixSource(permissionDenied)
     val scheduler = FakeScheduler()
+    val beatScheduler = FakeScheduler()
+
+    /** 端末を読まずに固定する。**本番は `androidCapability` を呼ぶ**（そこは実機の確認）。 */
+    var capability: Capability = Capability.of(permission = true, sensor = true, network = true)
+
     override fun newFixSource(): FixSource = source
     override fun newScheduler(): FlushScheduler = scheduler
+    override fun newHeartbeatScheduler(): FlushScheduler = beatScheduler
+    override fun readCapability(): Capability = capability
 }
 
 /** 権限を断られる端末。 */
@@ -161,4 +168,61 @@ class LocationServiceTest {
     private fun fix(id: String) =
         LocationFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "u", "d", ZoneId.of("Asia/Tokyo"))
+
+    /**
+     * **生存信号の刻みが登録簿の想定間隔と同じであること**（tasks 7.1）。
+     *
+     * ここがずれると、受け手が「想定間隔を超えて何も来ない」と判定する窓とずれ、
+     * **正常な運用が⑥「途絶」に見える**（FR-80）。定数を固定するだけでは、
+     * その定数が本番の配線に届いているかを誰も見ていない（このクラスの存在理由）。
+     */
+    @Test
+    fun `生存信号の刻みは HEARTBEAT_INTERVAL_MS がそのまま渡る`() {
+        val service = start()
+        assertEquals(HEARTBEAT_INTERVAL_MS, service.beatScheduler.periodMs)
+    }
+
+    /**
+     * **起動のたびに 1 件積む。** 6 時間の刻みだけに任せると、OS が 5 時間ごとに
+     * 立て直す端末では生存信号が 1 件も出ないまま「途絶」に見える。
+     */
+    @Test
+    fun `起動した時点で生存信号が 1 件積まれる`() {
+        val service = start()
+        val beats = service.heartbeatOutboxForTest.snapshot()
+        assertEquals(1, beats.size)
+        assertEquals(LOGICAL_SOURCE, beats.single().logicalSource)
+        assertTrue(beats.single().capturable)
+    }
+
+    /**
+     * 権限が剥がれた端末では、**生きたまま「取れない」と報告する**（深掘り Q5）。
+     * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
+     */
+    @Test
+    fun `権限が剥がれていると取れない状態が理由つきで積まれる`() {
+        val service = Robolectric.buildService(TestableLocationService::class.java, Intent()).create().get()
+        service.capability = Capability.of(permission = false, sensor = true, network = true)
+        service.onStartCommand(Intent(), 0, 1)
+        val beat = service.heartbeatOutboxForTest.snapshot().single()
+        assertFalse(beat.capturable)
+        assertEquals(listOf(Capability.PERMISSION), beat.blockers)
+    }
+
+    /** 生存信号の未送信は**記録とは別のファイル**（読み戻しで取り違えないため）。 */
+    @Test
+    fun `生存信号は記録とは別のファイルに積まれる`() {
+        start()
+        assertTrue(File(app.filesDir, "heartbeat.jsonl").exists())
+    }
+
+    /** 止めたら生存信号の刻みも止まる（残すと立て直しのたびに刻みが増える）。 */
+    @Test
+    fun `破棄すると生存信号の刻みも止まる`() {
+        val controller = Robolectric.buildService(TestableLocationService::class.java, Intent())
+            .create().startCommand(0, 1)
+        val service = controller.get()
+        controller.destroy()
+        assertTrue(service.beatScheduler.cancelled)
+    }
 }

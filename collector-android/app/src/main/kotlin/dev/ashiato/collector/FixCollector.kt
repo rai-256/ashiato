@@ -16,16 +16,24 @@ import java.time.ZoneId
  * **この型が端末の状態に依存しないようにする**ため。
  */
 class FixCollector(
-    private val outbox: Outbox,
+    private val outbox: Outbox<IngestRequest>,
     private val deviceId: String,
     private val userId: String,
     private val zone: ZoneId,
     private val newId: () -> String,
     private val log: (String) -> Unit = {},
+    /**
+     * 取得できた契機を数える口（第 5 回 Q17）。**既定は何もしない** ——
+     * 数えは生存信号のためだけのもので、記録の生成はこれに依存しない。
+     */
+    private val onFix: () -> Unit = {},
 ) : LocationCallback() {
     override fun onLocationResult(result: LocationResult) {
         var persisted = 0
         for (location in result.locations) {
+            // **取得できた契機を数える。** 送れたかでも残せたかでもなく「取れたか」——
+            // 生存信号の取得率は、Doze で眠っていた区間を見分けるためのもの（ST01 の R46）
+            onFix()
             // **水平精度でふるい落とさない**（design D11）。捨てた記録は復元できない
             val fix = LocationFix(
                 latitude = location.latitude,

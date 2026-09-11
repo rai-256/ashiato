@@ -13,6 +13,11 @@ import java.net.URL
 class HttpTransport(
     baseUrl: String,
     private val token: String,
+    /**
+     * 送り先の道。**受け口ごとに違う**（design D9）—— `/ingest` は記録のエンベロープを
+     * 必須にしており、生存信号はそのどれも持たない。混ぜると片方のために必須の欄が緩む。
+     */
+    private val path: String = "/ingest",
 ) : Transport {
     /** 末尾のスラッシュを落としてから組み立てる。`https://host/` が渡ると `//ingest` になり、
      *  404 が返り続けて**収集は動いているのに 1 件も届かない**状態が黙って続く（review R22）。 */
@@ -21,7 +26,7 @@ class HttpTransport(
     override fun post(bodyJson: String): Outcome {
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL("$baseUrl/ingest").openConnection() as HttpURLConnection).apply {
+            conn = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15_000
                 readTimeout = 15_000

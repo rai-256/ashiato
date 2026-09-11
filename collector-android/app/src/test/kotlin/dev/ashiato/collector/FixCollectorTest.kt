@@ -32,7 +32,11 @@ class FixCollectorTest {
             time = at.toEpochMilli()
         }
 
-    private fun collector(outbox: Outbox, log: (String) -> Unit = {}): FixCollector {
+    private fun collector(
+        outbox: Outbox<IngestRequest>,
+        log: (String) -> Unit = {},
+        onFix: () -> Unit = {},
+    ): FixCollector {
         var n = 0
         return FixCollector(
             outbox = outbox,
@@ -41,6 +45,7 @@ class FixCollectorTest {
             zone = ZoneId.of("Asia/Tokyo"),
             newId = { "id-${n++}" },
             log = log,
+            onFix = onFix,
         )
     }
 
@@ -118,5 +123,20 @@ class FixCollectorTest {
             }
         }
         assertTrue("件数は出てよい", lines.any { it.contains("count=1") })
+    }
+
+    /**
+     * 取得できた契機が生存信号の数えに届く（第 5 回 Q17。tasks 7.2b）。
+     *
+     * **配線が切れていても記録は入り続ける**ので、記録の側のテストでは気付けない ——
+     * 気付くのは 1 年後に取得率がずっと 0 だったと分かるとき。
+     */
+    @Test
+    fun `取得できた契機が生存信号の数えに届く`() {
+        var counted = 0
+        collector(testOutbox(), onFix = { counted++ }).onLocationResult(
+            LocationResult.create(listOf(location(35.68, 139.76, 10f), location(35.69, 139.77, 12f))),
+        )
+        assertEquals(2, counted)
     }
 }
