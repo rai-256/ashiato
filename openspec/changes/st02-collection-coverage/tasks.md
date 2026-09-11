@@ -373,9 +373,9 @@ ST03 の深掘り（5 巡 26 問）が ST02 に返したもの。根拠は
 
 ## 16. 通し（第 8 回の後）
 
-- [ ] 16.1 検証コマンド一式を通す（`cargo fmt` / `clippy` / `test` / gradle / web / `tools/*.sh` /
+- [x] 16.1 検証コマンド一式を通す（`cargo fmt` / `clippy` / `test` / gradle / web / `tools/*.sh` /
       `scripts/check_scenarios.py` / `check_chain.py` / `review_triage.py` / `openspec validate --strict`）
-- [ ] 16.2 **独立レビューを掛け直す**（`code-verify` と `pr-review-toolkit`）。
+- [x] 16.2 **独立レビューを掛け直す**（`code-verify` と `pr-review-toolkit`）。
       指摘 1 件ごとに `review/code.md` へ `処置:` を書く。検証: `scripts/review_triage.py . st02-collection-coverage` が rc=0
 
 ## 17. 第 2 巡の独立レビューの処置（`review/code-r2.md` ほか 3 系統）
