@@ -49,10 +49,10 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 4.5 **`content_hash` の作り方が ST01 のままであること**を固定する（Q15 —— 利用者識別子は索引にだけ）。検証: 既存の `cargo test hash_is_pinned` が**期待値を変えずに** rc=0
 - [ ] 4.6 収集側の識別子が同じで内容が違えば 400。**同じ要求の他の記録は格納される**。検証: `cargo test id_reused_is_rejected_without_stopping_the_batch` が rc=0
 
-## 4b. 取り込みのトランザクション（**5 章より先**）
+- [ ] 4.7 **1 件 1 トランザクション**にし、取り込みと稼働記録の書き込みを同じトランザクションに束ねる。検証: `cargo test one_bad_item_does_not_roll_back_others` が rc=0（門は COMMIT 時に落ちるので、束ねると 1 件の失敗が全件を巻き戻す。**7 章の門を置く前に成り立たせる**）
 
-- [ ] 4b.1 **1 件 1 トランザクション**にし、取り込みと稼働記録の書き込みを同じトランザクションに束ねる。検証: `cargo test one_bad_item_does_not_roll_back_others` が rc=0（門は COMMIT 時に落ちるので、束ねると 1 件の失敗が全件を巻き戻す。**7 章の門を置く前に成り立たせる**）
-- [ ] 4b.2 重複のとき、**格納されている行の識別子**を返す（`Scenario: 重複のとき返る識別子でその記録を読み出せる`）。検証: `cargo test duplicate_returns_stored_id` が rc=0
+> 4.7 / 4.8 は「取り込みのトランザクション」。**5 章より先に置く**のは、門が COMMIT 時に落ちるため。
+- [ ] 4.8 重複のとき、**格納されている行の識別子**を返す（`Scenario: 重複のとき返る識別子でその記録を読み出せる`）。検証: `cargo test duplicate_returns_stored_id` が rc=0
 
 ## 5. 更新と履歴
 
@@ -88,16 +88,14 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 8.3 取り込まなかった記録を**受理**として返す（収集側が再送を諦められる）。検証: `cargo test deleted_duplicate_is_accepted` が rc=0
 - [ ] 8.4 外部識別子を持たない記録では判定を撃たない（`event_dedup_hash` が削除済みを含めて弾く）。検証: `cargo test no_extra_query_without_external_id` が rc=0
 
-## 8b. 断りと登録簿の Scenario
-
-- [ ] 8b.1 「記録ごと」と宣言したソースで識別子を欠けば受理されない（`Scenario: 記録ごとと宣言したソースで識別子を欠けば断られる`）。検証: `cargo test record_kind_requires_external_id` が rc=0
-- [ ] 8b.2 宣言の無いソースが断る側に倒れる（`Scenario: 宣言の無いソースは断る側に倒れる`）。検証: `cargo test undeclared_source_defaults_to_record` が rc=0
-- [ ] 8b.3 対象ごとの識別子が判定に使われない（`Scenario: 対象ごとの識別子は重複の判定に使われない`）。検証: `cargo test subject_ref_is_not_used_for_dedup` が rc=0
-- [ ] 8b.4 **対象ごとのソースでは更新が行を増やす**（`Scenario: 対象ごとのソースでは更新が行を増やす`。**Q25 の除外そのもの**）。検証: `cargo test subject_scoped_update_adds_a_row` が rc=0
-- [ ] 8b.5 **派生の作り直しはこの capability が畳まない**（`Scenario: 派生の作り直しはこの capability が畳まない`。Q7）。検証: `cargo test derived_rebuild_is_not_folded` が rc=0
-- [ ] 8b.6 未登録のソース・登録するだけで受け付けられる・退役は日付で残る（`Scenario: 未登録のソースは拒否される` / `登録するだけで受け付けられる` / `退役は日付で残る`）。検証: `cargo test registry_scenarios` が rc=0
-- [ ] 8b.7 まとめ受けの 4 本（`Scenario: 複数件を 1 回で受け取る` / `1 件だけの裸の要求も受け取る` / `一部が不正でも正しい分は格納される` / `1 件も受け付けなかったときだけ 400`）に印を置く。**既存のテストがあるなら印を足すだけ**。検証: `python3 scripts/check_scenarios.py . st03-idempotent-ingest` がこの 4 本を FAIL にしない
-- [ ] 8b.8 原文の 4 本（`Scenario: 原文がそのまま残る` / `並び・重複・表記が保たれる` / `収集した記録は書き換えられない` / `履歴の原文も並び・重複・表記を保つ`）。検証: 同上
+- [ ] 8.5 「記録ごと」と宣言したソースで識別子を欠けば受理されない（`Scenario: 記録ごとと宣言したソースで識別子を欠けば断られる`）。検証: `cargo test record_kind_requires_external_id` が rc=0
+- [ ] 8.6 宣言の無いソースが断る側に倒れる（`Scenario: 宣言の無いソースは断る側に倒れる`）。検証: `cargo test undeclared_source_defaults_to_record` が rc=0
+- [ ] 8.7 対象ごとの識別子が判定に使われない（`Scenario: 対象ごとの識別子は重複の判定に使われない`）。検証: `cargo test subject_ref_is_not_used_for_dedup` が rc=0
+- [ ] 8.8 **対象ごとのソースでは更新が行を増やす**（`Scenario: 対象ごとのソースでは更新が行を増やす`。**Q25 の除外そのもの**）。検証: `cargo test subject_scoped_update_adds_a_row` が rc=0
+- [ ] 8.9 **派生の作り直しはこの capability が畳まない**（`Scenario: 派生の作り直しはこの capability が畳まない`。Q7）。検証: `cargo test derived_rebuild_is_not_folded` が rc=0
+- [ ] 8.10 未登録のソース・登録するだけで受け付けられる・退役は日付で残る（`Scenario: 未登録のソースは拒否される` / `登録するだけで受け付けられる` / `退役は日付で残る`）。検証: `cargo test registry_scenarios` が rc=0
+- [ ] 8.11 まとめ受けの 4 本（`Scenario: 複数件を 1 回で受け取る` / `1 件だけの裸の要求も受け取る` / `一部が不正でも正しい分は格納される` / `1 件も受け付けなかったときだけ 400`）に印を置く。**既存のテストがあるなら印を足すだけ**。検証: `python3 scripts/check_scenarios.py . st03-idempotent-ingest` がこの 4 本を FAIL にしない
+- [ ] 8.12 原文の 4 本（`Scenario: 原文がそのまま残る` / `並び・重複・表記が保たれる` / `収集した記録は書き換えられない` / `履歴の原文も並び・重複・表記を保つ`）。検証: 同上
 
 ## 9. 畳んで読む置き場
 
