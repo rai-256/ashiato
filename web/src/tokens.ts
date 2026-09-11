@@ -65,8 +65,30 @@ export const MIN_TARGET_PX = 24;
  */
 export const DAY_TZ = "Asia/Tokyo";
 
-/** 開いた直後に見せる週数（深掘り 第 7 回 Q28）。**5 ソース × これ**が 1 画面に収まる。 */
-export const INITIAL_WEEKS = 5;
+/**
+ * 開いた直後に見せる週数（深掘り 第 7 回 Q28 は「直近 4〜5 週」）。
+ *
+ * **5 ではなく 4**（第 8 回 Q30）。Q28 の根拠にした 600 px は
+ * `5 ソース × 5 行 × 24 px` で**セルだけを積んだ勘定**で、見出し・余白・ボタン・
+ * 達成の表を数えていなかった。実際に宣言されている箱を積むと約 1,491 px あり、
+ * **ひとスクロール（2 画面 = 1,280 px）に収まらない**。
+ * 5 → 4 で 5 ソースぶん 130 px を返す。`one-scroll.test.tsx` が勘定を固定する。
+ */
+export const INITIAL_WEEKS = 4;
+
+/**
+ * 基準の画面の高さ（CSS px）。**NFR-19 が幅に使っている 360 px の端末**に、
+ * その端末の高さを合わせたもの（360 × 640）。
+ */
+export const VIEWPORT_H_PX = 640;
+
+/** ひとスクロール = **2 画面ぶん**（第 8 回 Q30）。開いて 1 画面、1 回スクロールで残り。 */
+export const ONE_SCROLL_PX = VIEWPORT_H_PX * 2;
+
+/** ソースの節どうしの間隔。**勘定に効くので `one-scroll.test.tsx` が見ている。** */
+export const SECTION_GAP_PX = 12;
+/** ソースの節の内側の余白。同上。 */
+export const SECTION_PAD_PX = 8;
 
 /** 伸ばしたときの週数（1 年）。 */
 export const YEAR_WEEKS = 53;

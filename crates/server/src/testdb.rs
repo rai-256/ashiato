@@ -51,17 +51,55 @@ pub async fn pool() -> sqlx::PgPool {
 /// 稼働記録・生存信号・停止/破棄はすべて `logical_source` で分かれる。
 /// 表を作り直したり schema を掘ったりしない（本物と同じ表を叩くことに意味がある）。
 pub async fn source(pool: &sqlx::PgPool, prefix: &str, expected_gap_sec: i32) -> String {
+    source_registered_on(pool, prefix, expected_gap_sec, FAR_PAST).await
+}
+
+/// テストの記録は**過去の日**に置く（2025〜2026 年）。登録簿の既定の `registered_at` は
+/// `now()` なので、そのままだと**第 8 回 Q29 の閾値がテストの記録を全部外す**。
+///
+/// 「そのソースはずっと前から登録されていた」を既定に取る。閾値そのものを見るテストは
+/// `source_registered_on` で登録日を明示する。
+const FAR_PAST: &str = "2000-01-01";
+
+/// 登録日を明示して登録簿へ置く（第 8 回 Q29 の閾値を見るテスト用）。
+pub async fn source_registered_on(
+    pool: &sqlx::PgPool,
+    prefix: &str,
+    expected_gap_sec: i32,
+    registered_on: &str,
+) -> String {
     let name = format!("t-{prefix}-{}", uuid::Uuid::new_v4());
     sqlx::query(
-        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-         VALUES ($1, $1, $2)",
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, registered_at)
+         VALUES ($1, $1, $2, ($3::date::timestamp AT TIME ZONE 'Asia/Tokyo'))",
     )
     .bind(&name)
     .bind(expected_gap_sec)
+    .bind(registered_on)
     .execute(pool)
     .await
     .unwrap();
     name
+}
+
+/// 退役した日を置く（FR-54 / FR-61。ST03 の R56 —— **真偽値ではなく日付**）。
+pub async fn retire(pool: &sqlx::PgPool, source: &str, day: &str) {
+    sqlx::query("UPDATE core.source SET retired_on = $2::date WHERE logical_source = $1")
+        .bind(source)
+        .bind(day)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// 引き継ぎ元を置く（第 8 回 Q31）。`source` が `predecessor` を引き継ぐ。
+pub async fn set_succeeds(pool: &sqlx::PgPool, source: &str, predecessor: &str) {
+    sqlx::query("UPDATE core.source SET succeeds = $2 WHERE logical_source = $1")
+        .bind(source)
+        .bind(predecessor)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 /// テストごとに固有の利用者。稼働記録・生存信号は利用者でも分かれる（FR-29）。
@@ -87,6 +125,32 @@ pub async fn put_coverage(
     .bind(source)
     .bind(day)
     .bind(count)
+    .execute(pool)
+    .await
+    .unwrap();
+    // **記録そのものも置く**（tasks 15.5 / ST03 の R57）。状態と件数は `core.event` から
+    // 引くようになったので、稼働記録の行だけを置いても「記録あり」にはならない。
+    // 稼働記録の行を残すのは、正典の「稼働記録は新しく入った記録だけを数える」を
+    // 満たしたままにするため（**どちらも置いて初めて本番と同じ形**）。
+    for _ in 0..count {
+        put_event(pool, user, source, &format!("{day}T12:00:00+09:00")).await;
+    }
+}
+
+/// 記録を直に置く（取り込み口を通さずに状態の導出だけを見たいとき）。
+/// `at` は RFC3339。**その時刻が属する日**（`Asia/Tokyo`）に記録があることになる。
+pub async fn put_event(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str, at: &str) {
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,$3,'test','collected',$4::timestamptz,540,'Asia/Tokyo',1,$5,'{}','{}')",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(user)
+    .bind(source)
+    .bind(at)
+    .bind(uuid::Uuid::new_v4().to_string())
     .execute(pool)
     .await
     .unwrap();

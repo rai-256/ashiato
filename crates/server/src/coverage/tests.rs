@@ -24,6 +24,7 @@ async fn src(
             display_name: name,
             expected_gap_sec: gap,
             collection_started_on: started.map(testdb::date),
+            retired_on: None,
         },
         testdb::user(),
     )
@@ -1293,6 +1294,7 @@ async fn coverage_is_separated_by_user() {
         display_name: name.clone(),
         expected_gap_sec: SIX_HOURS,
         collection_started_on: Some(testdb::date("2026-05-01")),
+        retired_on: None,
     };
     let d = testdb::date("2026-05-01");
     let for_a = of_source(&pool, Some(a), &s, d, d).await.unwrap();
@@ -1411,7 +1413,7 @@ fn decide_follows_the_order_of_d7() {
     ];
     for (label, f, want) in table {
         assert_eq!(
-            decide(&f, start, gap, &active),
+            decide(&f, start, None, gap, &active),
             want,
             "順序 {label} が崩れている"
         );
@@ -1423,9 +1425,315 @@ fn decide_follows_the_order_of_d7() {
         decide(
             &facts("2026-05-02", 0, None, false, false),
             start,
+            None,
             60.0,
             &near
         ),
         DayState::AliveNoRecord
+    );
+}
+
+// ------------------------------------------------------------------ 第 8 回 Q29
+//                                              端末の時計が狂った信号と収集開始日
+
+/// 登録簿に行ができた日より前の時刻は、収集開始日の計算から外れる（tasks 12.2）。
+///
+/// **記録も信号も捨てない。** 外すのは収集開始日への寄与だけ —— 本人の答えは
+/// 「受けるが、収集開始日の計算から外す」（第 8 回 Q29）。
+///
+/// Scenario: 登録より前の時刻の信号は開始日を動かさない
+#[tokio::test]
+async fn clock_skew_does_not_move_started_on() {
+    let pool = testdb::pool().await;
+    let name = testdb::source_registered_on(&pool, "skew", SIX_HOURS, "2026-04-01").await;
+    let u = testdb::user();
+
+    // 端末の時計が 27 年戻った信号。**受け取って保存する**
+    testdb::put_heartbeat(&pool, u, &name, "1999-01-01T03:00:00Z", true).await;
+    touch_started_on(&pool, &name, "1999-01-01T03:00:00Z".parse().unwrap())
+        .await
+        .unwrap();
+
+    let got = sources(&pool, std::slice::from_ref(&name)).await.unwrap();
+    assert_eq!(
+        got[0].collection_started_on, None,
+        "登録より前の信号が収集開始日を動かした（1999 年に落ちると前にしか動かないので戻せない）"
+    );
+
+    // **信号そのものは残っている**（捨てていないことを、読み出し口から確かめる）
+    let d = testdb::date("1999-01-01");
+    let cov = of_source(&pool, Some(u), &got[0], d, d).await.unwrap();
+    assert_eq!(
+        cov.days[0].intervals.len(),
+        1,
+        "保存したはずの生存信号が読み出せない（外すのは開始日の計算だけ）"
+    );
+
+    // 登録より後の信号は、これまでどおり開始日を動かす
+    testdb::put_heartbeat(&pool, u, &name, "2026-04-05T03:00:00Z", true).await;
+    touch_started_on(&pool, &name, "2026-04-05T03:00:00Z".parse().unwrap())
+        .await
+        .unwrap();
+    let got = sources(&pool, std::slice::from_ref(&name)).await.unwrap();
+    assert_eq!(
+        got[0].collection_started_on,
+        Some(testdb::date("2026-04-05")),
+        "登録より後の信号まで外れている"
+    );
+}
+
+/// 既に汚れている収集開始日を、移行 0007 が引き直す（tasks 12.1）。
+///
+/// **受け口に条件を足すだけでは足りない。** 収集開始日は前にしか動かないので、
+/// 一度 1999 年に落ちた行は正しい日を送り直しても戻らない（第 8 回 Q29 の論点そのもの）。
+///
+/// Scenario: 汚れた収集開始日は引き直せる
+#[tokio::test]
+async fn migration_repairs_polluted_started_on() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+
+    // (a) 登録より後の記録があるソース —— 引き直すとその日に戻る
+    let good = testdb::source_registered_on(&pool, "repair-a", SIX_HOURS, "2026-04-01").await;
+    testdb::put_event(&pool, u, &good, "2026-04-07T12:00:00+09:00").await;
+    testdb::set_started_on(&pool, &good, "1999-01-01").await;
+
+    // (b) 登録より前の信号しか無いソース —— 引き直すと「まだ開始していない」に戻る
+    let bad = testdb::source_registered_on(&pool, "repair-b", SIX_HOURS, "2026-04-01").await;
+    testdb::put_heartbeat(&pool, u, &bad, "1999-01-01T03:00:00Z", true).await;
+    testdb::set_started_on(&pool, &bad, "1999-01-01").await;
+
+    // 移行を当て直す（`run()` は起動のたびに全部の版を当てる）。
+    //
+    // **トランザクションの中で当てて、読んでから巻き戻す。** 0007 は登録簿の全行を
+    // 引き直すので、そのまま流すと**並んで走っている他のテストの収集開始日まで書き換える**
+    // （実測: 達成日数の検査が分母 0 で落ちた）。1 つの DB を共有する足場なので、
+    // 「全行に効く移行」を試すテストだけは自分の外へ出さない。
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/0007_source_lifecycle.sql"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let got: Vec<(String, Option<chrono::NaiveDate>)> = sqlx::query_as(
+        "SELECT logical_source, collection_started_on FROM core.source
+          WHERE logical_source = ANY($1)",
+    )
+    .bind(vec![good.clone(), bad.clone()])
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+
+    let by = |n: &str| got.iter().find(|r| r.0 == n).unwrap().1;
+    assert_eq!(
+        by(&good),
+        Some(testdb::date("2026-04-07")),
+        "登録以降のいちばん古い記録の日に引き直されていない"
+    );
+    assert_eq!(
+        by(&bad),
+        None,
+        "登録より前の信号しか無いソースが「開始済み」のまま残っている"
+    );
+}
+
+// ------------------------------------------------------------------ 第 8 回 Q31
+//                                                        引き継ぎと退役
+
+/// 引き継いだソースは、引き継ぎ元の収集開始日を継ぐ（tasks 15.3）。
+///
+/// Scenario: 引き継いだソースは引き継ぎ元の開始日を継ぐ
+#[tokio::test]
+async fn succession_inherits_started_on() {
+    let pool = testdb::pool().await;
+    let old = testdb::source(&pool, "succ-old", SIX_HOURS).await;
+    let new = testdb::source(&pool, "succ-new", SIX_HOURS).await;
+    testdb::set_started_on(&pool, &old, "2026-04-01").await;
+    testdb::set_started_on(&pool, &new, "2026-09-01").await;
+    testdb::set_succeeds(&pool, &new, &old).await;
+
+    let got = sources(&pool, std::slice::from_ref(&new)).await.unwrap();
+    assert_eq!(
+        got[0].collection_started_on,
+        Some(testdb::date("2026-04-01")),
+        "引き継ぎ元の開始日を継いでいない（名前を分けた日に窓が振り出しに戻る）"
+    );
+
+    // **窓の起点も一緒に動く** —— 窓は収集開始日から 365 日
+    let ach = achievement(
+        &pool,
+        None,
+        testdb::date("2026-09-10"),
+        &[(new.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ach.sources[0].window_closes_on,
+        Some(testdb::date("2026-04-01") + chrono::Duration::days(WINDOW_DAYS)),
+        "窓の起点が鎖の根になっていない"
+    );
+}
+
+/// 退役した日より後は⑧、退役した日そのものは本来の状態（tasks 15.1 / 15.2）。
+///
+/// Scenario: 退役した日より後は退役になる
+/// Scenario: 退役した日そのものは本来の状態のまま
+#[tokio::test]
+async fn retired_days() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "retired", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-10", 2).await;
+    testdb::retire(&pool, &s.logical_source, "2026-05-10").await;
+
+    let s = sources(&pool, std::slice::from_ref(&s.logical_source))
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(s.retired_on, Some(testdb::date("2026-05-10")));
+
+    // **退役した日そのものはまだ収集していた**
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-10").await,
+        DayState::Recorded,
+        "退役した日そのものが本来の状態で出ていない"
+    );
+    // **その後は⑧。想定間隔を超えて何も来ていなくても⑥にならない**
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-11").await,
+        DayState::Retired
+    );
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-06-20").await,
+        DayState::Retired,
+        "退役した後の空白日が「途絶」になっている（毎日壊れて見える）"
+    );
+}
+
+/// 退役した日より後は分母にも達成日にも入らない（tasks 15.2）。
+///
+/// Scenario: 退役した日より後は分母に入らない
+#[tokio::test]
+async fn retired_days_out_of_denominator() {
+    let pool = testdb::pool().await;
+    let name = testdb::source(&pool, "retired-denom", SIX_HOURS).await;
+    let u = testdb::user();
+    testdb::set_started_on(&pool, &name, "2026-05-01").await;
+    for d in ["2026-05-01", "2026-05-02", "2026-05-03"] {
+        testdb::put_coverage(&pool, u, &name, d, 1).await;
+    }
+    testdb::retire(&pool, &name, "2026-05-03").await;
+
+    // 今日は 2026-06-01。退役していなければ分母は 31 日（05-01〜05-31）
+    let ach = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-06-01"),
+        &[(name.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ach.sources[0].denominator, 3,
+        "退役した日より後が分母に残っている（名前を分けただけで未達が積まれる）"
+    );
+    assert_eq!(ach.sources[0].achieved_days, 3);
+    assert!(
+        ach.sources[0].met,
+        "退役までは全日達成なのに未達になっている"
+    );
+}
+
+/// Must の 5 本のうち退役したものは、引き継いだ後継で数える（tasks 15.4）。
+///
+/// Scenario: 退役した名前の代わりに後継を数える
+#[tokio::test]
+async fn must_source_resolves_to_successor() {
+    let pool = testdb::pool().await;
+    let old = testdb::source(&pool, "tip-old", SIX_HOURS).await;
+    let new = testdb::source(&pool, "tip-new", SIX_HOURS).await;
+    let u = testdb::user();
+    testdb::set_started_on(&pool, &old, "2026-05-01").await;
+    testdb::set_succeeds(&pool, &new, &old).await;
+    testdb::retire(&pool, &old, "2026-05-02").await;
+    testdb::put_coverage(&pool, u, &new, "2026-05-03", 1).await;
+
+    // **定数が指しているのは古い名前**。達成は後継について数えられる
+    let ach = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-05-04"),
+        &[(old.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ach.sources[0].logical_source, new,
+        "退役した名前をそのまま数えている（永久に未達で固まる）"
+    );
+    assert_eq!(
+        ach.sources[0].named_source, old,
+        "定数が名指しした名前が残っていない"
+    );
+    assert!(
+        !ach.failing.contains(&old) && !ach.not_started.contains(&old),
+        "退役した名前が落ちたソース／未開始のソースとして出ている"
+    );
+    // 引き継ぎ元の収集開始日を継ぐので、分母は 05-01 から数える
+    assert_eq!(
+        ach.sources[0].collection_started_on,
+        Some(testdb::date("2026-05-01"))
+    );
+
+    // **引き継ぎ先が無ければ、退役した名前のまま 1 本として残る**（黙って 4 本にしない）
+    let alone = testdb::source(&pool, "tip-alone", SIX_HOURS).await;
+    testdb::retire(&pool, &alone, "2026-05-02").await;
+    let ach = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-05-04"),
+        &[(alone.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(ach.sources.len(), 1);
+    assert_eq!(ach.sources[0].logical_source, alone);
+}
+
+/// 「記録あり」は稼働記録の件数ではなく**記録そのもの**から引く（tasks 15.5 / ST03 の R57）。
+///
+/// ST03 が外部サービスからの更新経路を開けると、出来事の時刻が別の日へ動く。
+/// 稼働記録の件数で決めていると、**記録の無い日が「記録あり」・記録のある日が「途絶」**になる。
+///
+/// Scenario: 記録の時刻が別の日へ動くと状態も動く
+#[tokio::test]
+async fn recorded_follows_event_time() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "from-event", SIX_HOURS, Some("2026-05-01")).await;
+
+    // 稼働記録の行だけがある日（更新で記録が別の日へ移った後の形）
+    sqlx::query(
+        "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
+         VALUES ($1,$2,'2026-05-02'::date,5)",
+    )
+    .bind(u)
+    .bind(&s.logical_source)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // 記録そのものは別の日にある
+    testdb::put_event(&pool, u, &s.logical_source, "2026-05-04T12:00:00+09:00").await;
+
+    assert_ne!(
+        state_on(&pool, u, &s, "2026-05-02").await,
+        DayState::Recorded,
+        "記録の無い日が「記録あり」になっている（稼働記録の件数で決めている）"
+    );
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-04").await,
+        DayState::Recorded,
+        "記録のある日が「記録あり」になっていない"
     );
 }

@@ -5,7 +5,7 @@
  */
 import { BAND, INITIAL_WEEKS, YEAR_WEEKS } from "./tokens";
 
-/** ソース × 日 の 7 状態（FR-54）。 */
+/** ソース × 日 の 8 状態（FR-54）。⑧「退役」は ST03 の差し戻し（R55 / R56）。 */
 export type DayState =
   | "recorded"
   | "alive_no_record"
@@ -13,10 +13,11 @@ export type DayState =
   | "stopped"
   | "dropped"
   | "outage"
-  | "before_start";
+  | "before_start"
+  | "retired";
 
 /**
- * 7 状態の名前。**週を選んだときにこの文字が出る**（深掘り 第 5 回 Q20 / Q21）——
+ * 8 状態の名前。**週を選んだときにこの文字が出る**（深掘り 第 5 回 Q20 / Q21）——
  * 格子は 3 段しか担わないので、**区別の担い手はここ**。
  */
 export const STATE_NAME: Record<DayState, string> = {
@@ -27,13 +28,14 @@ export const STATE_NAME: Record<DayState, string> = {
   dropped: "破棄された期間",
   outage: "途絶",
   before_start: "導入前",
+  retired: "退役",
 };
 
 /** 格子のセルが担う 3 段。 */
 export type Band = keyof typeof BAND;
 
 /**
- * 7 状態を 3 段へ畳む（design D10）。
+ * 8 状態を 3 段へ畳む（design D10）。
  * **サーバ側の `DayState::band` と同じ畳み方**でなければならない。
  */
 export function bandOf(state: DayState): Band {
@@ -54,12 +56,18 @@ export type SourceCoverage = {
   logical_source: string;
   display_name: string;
   expected_gap_sec: number;
+  /** **引き継ぎの鎖の根の日**（第 8 回 Q31） */
   collection_started_on: string | null;
+  /** 退役した日（FR-61）。**この日より後が⑧**。退役していなければ `null` */
+  retired_on: string | null;
   days: DayCell[];
 };
 
 export type SourceAchievement = {
+  /** **実際に数えた名前**（引き継ぎの鎖の先端。第 8 回 Q31） */
   logical_source: string;
+  /** 定数が名指ししている名前。鎖をたどっていなければ同じ */
+  named_source: string;
   display_name: string;
   subject: "device" | "usage";
   collection_started_on: string | null;
@@ -123,4 +131,20 @@ export function foldIntoWeeks(days: DayCell[]): Week[] {
  */
 export function visibleWeeks(weeks: Week[], expanded: boolean): Week[] {
   return weeks.slice(0, expanded ? YEAR_WEEKS : INITIAL_WEEKS);
+}
+
+/**
+ * 退役したソースを**後ろへ回す**（ST03 の R63 / 第 8 回 Q30）。
+ *
+ * ST03 の運用では退役は 1 本きりではなく増える。退役した格子が上に並ぶと
+ * **Must の 5 本が 1 画面から押し出される** —— 完了の判定
+ * 「開いた直後に 2〜3 ソース、ひとスクロールで 5 ソースすべて」が成り立たなくなる。
+ *
+ * **並びは安定**（同じ側どうしはサーバが返した順のまま）—— 定数の順が画面の順（design D19）。
+ */
+export function retiredLast(sources: SourceCoverage[]): SourceCoverage[] {
+  return [
+    ...sources.filter((s) => s.retired_on === null),
+    ...sources.filter((s) => s.retired_on !== null),
+  ];
 }

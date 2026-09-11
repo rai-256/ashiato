@@ -23,12 +23,14 @@ export function source(
   logical_source: string,
   display_name: string,
   cells: DayCell[],
+  retired_on: string | null = null,
 ): SourceCoverage {
   return {
     logical_source,
     display_name,
     expected_gap_sec: 21600,
     collection_started_on: cells[0]?.day ?? null,
+    retired_on,
     days: cells,
   };
 }
@@ -52,6 +54,7 @@ export function achievement(over: Partial<Achievement> = {}): Achievement {
   return {
     sources: FIVE.map(([id, name], i) => ({
       logical_source: id,
+      named_source: id,
       display_name: name,
       subject: i < 2 ? "device" : "usage",
       collection_started_on: "2026-01-01",

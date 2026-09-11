@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
-import type { Achievement, SourceCoverage } from "./coverage";
+import { retiredLast, type Achievement, type SourceCoverage } from "./coverage";
 import { DAY_TZ, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
 
 /**
@@ -99,8 +99,9 @@ export function App(): React.ReactElement {
       {sources.at === "ok" && sources.value.length === 0 && (
         <p data-testid="coverage-empty">ソースが 1 本も返りませんでした（登録簿を確認してください）。</p>
       )}
+      {/* **退役したソースは後ろ**（ST03 の R63）—— Must の 5 本を 1 画面から押し出さない */}
       {sources.at === "ok" &&
-        sources.value.map((s) => <CoverageGrid key={s.logical_source} source={s} />)}
+        retiredLast(sources.value).map((s) => <CoverageGrid key={s.logical_source} source={s} />)}
     </main>
   );
 }

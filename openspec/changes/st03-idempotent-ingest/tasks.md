@@ -22,7 +22,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 1. 登録簿の 3 列
 
-- [ ] 1.1 `migrations/0007_source_columns.sql` で `core.source` に `external_id_kind text NOT NULL DEFAULT 'record' CHECK (external_id_kind IN ('record','subject','none'))` を足す。**`retired_on` と `succeeds` は ST02 が作る**（読む側が稼働記録で、ST02 のほうが先に出るため。2026-09-11 の判断）。検証: `psql -c "\d core.source"` に 3 列が出て、`cargo test --test migrations` が rc=0（移行を当て直しても表が壊れない）
+- [ ] 1.1 `migrations/0008_source_columns.sql` で `core.source` に `external_id_kind text NOT NULL DEFAULT 'record' CHECK (external_id_kind IN ('record','subject','none'))` を足す。**`retired_on` と `succeeds` は ST02 が作る**（読む側が稼働記録で、ST02 のほうが先に出るため。2026-09-11 の判断）。**版番号は 0008**（ST02 が `0007_source_lifecycle.sql` を取った。ST02 のほうが先に merge される）。検証: `psql -c "\d core.source"` に 3 列が出て、`cargo test --test migrations` が rc=0（移行を当て直しても表が壊れない）
 - [ ] 1.2 同じ移行で、既存の端末ソースに `external_id_kind='none'` を当てる（`UPDATE core.source SET external_id_kind='none' WHERE external_id_kind='record' AND logical_source NOT IN (…外部ソース…)`）。検証: `tools/smoke.sh` が rc=0（当てないと端末の記録が全件 400 になる）
 - [ ] 1.3 手書きの登録が散っている 5 か所（`tools/seed.sh` / `tools/smoke.sh` の 2 か所 / `tools/check-immutable.sh` / `collector-android/README.md`）に `external_id_kind` を明示する。検証: `grep -rn "INSERT INTO core.source" tools/ collector-android/README.md | grep -cv external_id_kind` が 0
 - [ ] 1.4 `external_id_kind` の既定が `'record'` であることをテストで固定する（緩い側に倒すと、付け忘れたソースの記録が識別子なしで入り、後から足す手段が無い）。検証: `cargo test external_id_kind_defaults_to_record` が rc=0

@@ -8,7 +8,7 @@ import {
   type SourceCoverage,
   type Week,
 } from "./coverage";
-import { BAND, MIN_TARGET_PX, SURFACE, TEXT, tone } from "./tokens";
+import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
 
 /**
  * ソース 1 本ぶんの格子（FR-54 / 深掘り Q6, 第 4 回 Q15, 第 5 回 Q20/Q21, 第 6 回 Q25, 第 7 回 Q28）。
@@ -21,8 +21,12 @@ import { BAND, MIN_TARGET_PX, SURFACE, TEXT, tone } from "./tokens";
 export function CoverageGrid({ source }: { source: SourceCoverage }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // **退役したソースは既定で畳む**（ST03 の R63 / 第 8 回 Q30）—— 退役は 1 本きりではなく
+  // 増えるので、行を出したままだと **Must の 5 本が 1 画面から押し出される**。
+  // 消しはしない（退役したことも稼働状況の一部）。開けば同じ格子が出る。
+  const retired = source.retired_on !== null;
   const weeks = foldIntoWeeks(source.days);
-  const shown = visibleWeeks(weeks, expanded);
+  const shown = retired && !expanded ? [] : visibleWeeks(weeks, expanded);
   // **見えている週から選ぶ**（review/code.md の R37 / I11）。`weeks` から探していたときは、
   // 1 年ぶんに伸ばして 30 週目を選んでから畳み戻すと、**行は消えるのに日付リストだけ残り**、
   // どの行にも選択の印が立っていない状態で閉じる手段が無くなった。
@@ -32,16 +36,24 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
     <section
       aria-label={source.display_name}
       data-source={source.logical_source}
+      data-retired={source.retired_on ?? ""}
       style={{
         background: tone(SURFACE.surface2),
         borderRadius: 15,
-        padding: 12,
-        marginBottom: 24,
+        // **ひとスクロールの勘定に効く**（第 8 回 Q30）。`one-scroll.test.tsx` が
+        // ここに宣言されている値を DOM から積んで、固定の予算と突き合わせる
+        padding: SECTION_PAD_PX,
+        marginBottom: SECTION_GAP_PX,
       }}
     >
       {/* **ソース名の文字**。色を意味の担い手にしない（ui-direction の宿題 1 / 第 4 回 Q15） */}
       <h2 style={{ color: tone(TEXT.normal), font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
         {source.display_name}
+        {retired && (
+          <span data-testid={`retired-${source.logical_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
+            {` — ${source.retired_on} に退役`}
+          </span>
+        )}
       </h2>
 
       <div data-testid={`grid-${source.logical_source}`} data-weeks={shown.length} data-role="grid">
@@ -70,7 +82,7 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
           padding: "4px 12px",
         }}
       >
-        {expanded ? "直近だけにする" : "1 年ぶんを見る"}
+        {expanded ? "直近だけにする" : retired ? "退役したソースを見る" : "1 年ぶんを見る"}
       </button>
 
       {selectedWeek !== null && <WeekDetail week={selectedWeek} />}
@@ -111,7 +123,9 @@ function WeekRow({
         // **NFR-19**: 週の帯が 24 × 24 CSS px 以上
         minHeight: MIN_TARGET_PX,
         minWidth: MIN_TARGET_PX,
-        padding: 1,
+        // **余白はここに置かない**（第 8 回 Q30 の勘定）。セルどうしの間は `gap` が担い、
+        // 行どうしの間は取らない —— 行 1 本あたり 2 px でも 5 ソース × 4 行で 40 px になる
+        padding: 0,
         // **選択を面の明るさで表さない**（review/code.md の R34 / I5 / F12）。
         // `surface1`(18%) の上だと、いちばん暗い段（9%）との比が **1.422:1** に落ちて
         // **いちばん見たい週で格子がいちばん読めなくなる**。輪郭なら段の色に触らない
@@ -135,7 +149,7 @@ function WeekRow({
           style={{
             flex: 1,
             // **セルは表示専用**（Q16）。高さは帯に従い、幅は 7 等分
-            minHeight: MIN_TARGET_PX - 2,
+            minHeight: MIN_TARGET_PX,
             borderRadius: 2,
             background: cell === null ? "transparent" : tone(BAND[bandOf(cell.state)]),
           }}

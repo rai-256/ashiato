@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Achievement } from "./coverage";
-import { SURFACE, TEXT, tone } from "./tokens";
+import { SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
 
 /**
  * 成功条件 1 の達成（NFR-13 / 深掘り 第 4 回 Q9, 第 5 回 Q18, 第 7 回 Q27）。
@@ -18,10 +18,11 @@ export function AchievementPanel({ data }: { data: Achievement }): React.ReactEl
       style={{
         background: tone(SURFACE.surface2),
         borderRadius: 15,
-        padding: 12,
-        marginBottom: 24,
+        // **ひとスクロールの勘定に効く**（第 8 回 Q30）
+        padding: SECTION_PAD_PX,
+        marginBottom: SECTION_GAP_PX,
         color: tone(TEXT.normal),
-        font: "400 13px/1.6 system-ui, sans-serif",
+        font: "400 13px/1.4 system-ui, sans-serif",
       }}
     >
       <h2 style={{ font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>

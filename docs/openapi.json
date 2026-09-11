@@ -357,7 +357,7 @@
       },
       "DayState": {
         "type": "string",
-        "description": "ソース × 日 の状態（FR-54）。**7 つのいずれか 1 つに決まる。**",
+        "description": "ソース × 日 の状態（FR-54）。**8 つのいずれか 1 つに決まる。**\n\n⑧「退役」は ST03 の深掘りが差し戻したもの（R55 / R56）—— ソースを分けて\n古い名前を退役させる運用が通常になったため、**退役した後の空白日**を\n⑥「途絶」と区別できないと、退役したソースが毎日「壊れている」ように見える。",
         "enum": [
           "recorded",
           "alive_no_record",
@@ -365,7 +365,8 @@
           "stopped",
           "dropped",
           "outage",
-          "before_start"
+          "before_start",
+          "retired"
         ]
       },
       "EventRow": {
@@ -668,6 +669,7 @@
         "description": "ソース 1 本ぶんの達成（NFR-13）。",
         "required": [
           "logical_source",
+          "named_source",
           "display_name",
           "subject",
           "achieved_days",
@@ -698,11 +700,16 @@
             "type": "string"
           },
           "logical_source": {
-            "type": "string"
+            "type": "string",
+            "description": "**実際に数えた名前**（引き継ぎの鎖の先端）。定数の名前が退役していれば後継が入る"
           },
           "met": {
             "type": "boolean",
             "description": "このソースが線に届いているか。**まだ開始していないソースは届いていない扱い**"
+          },
+          "named_source": {
+            "type": "string",
+            "description": "定数が名指ししている名前（`must_sources()` の側）。鎖をたどっていなければ同じ"
           },
           "subject": {
             "$ref": "#/components/schemas/Subject"
@@ -741,7 +748,8 @@
               "string",
               "null"
             ],
-            "format": "date"
+            "format": "date",
+            "description": "**引き継ぎの鎖の根の日**（第 8 回 Q31）。自分の行の値ではない"
           },
           "days": {
             "type": "array",
@@ -758,6 +766,14 @@
           },
           "logical_source": {
             "type": "string"
+          },
+          "retired_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "退役した日（FR-61）。**この日より後が⑧**。まだ退役していなければ `None`"
           }
         }
       },

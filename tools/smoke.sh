@@ -34,6 +34,16 @@ docker compose exec -T db psql -q -U ashiato -d ashiato -c \
   "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
    VALUES ('smoke','縦串の確認用',21600) ON CONFLICT DO NOTHING;"
 
+# **登録簿の行を、これから送る記録より前の日付にする**（深掘り 第 8 回 Q29）。
+# 収集開始日は「登録簿に行ができた日**以降**」の記録・生存信号からしか引かない ——
+# 端末の時計が狂った 1 件で開始日が 1999 年に落ち、二度と戻らないのを防ぐため。
+# この縦串は日境界を決め打ちで見るために 2026-03 の日付を送るが、
+# 登録簿の行は `now()`（当日）で作られるので、**そのままだと全部が「登録より前」になる**。
+# 本番では登録簿の行が先にあって収集が後から始まる（FK がそれを強制している）ので、
+# ここで揃えるのが本番と同じ形。
+docker compose exec -T db psql -q -U ashiato -d ashiato -c \
+  "UPDATE core.source SET registered_at = '2026-01-01T00:00:00+09:00';"
+
 # Scenario: 1 件だけの裸の要求も受け取る
 #   （配列に包まずに 1 件だけ送る）
 echo "== 4. ダミーを 1 件送る"
