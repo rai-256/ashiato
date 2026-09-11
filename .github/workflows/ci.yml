@@ -49,6 +49,9 @@ jobs:
       - run: npm ci
       - run: npx tsc -b
       - run: npm run lint
+      # 画面の振る舞い（3 段の対比・週の選択・操作対象の大きさ・確定と暫定）。
+      # **足さないと ST02 の web のテストが CI で 1 本も走らない。**
+      - run: npm run test
       - run: npm run build
   android:
     runs-on: ubuntu-24.04

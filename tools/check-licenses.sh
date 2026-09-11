@@ -4,7 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # 許可する許諾。いずれも AGPL-3.0 での配布と両立する（表示義務は満たす）。
-ALLOW="${ALLOW_LICENSES:-MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,AGPL-3.0-only,Apache-2.0 WITH LLVM-exception,Unicode-3.0,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0}"
+# **MIT-0 は ST02 で足した**（`@csstools/*`。vitest の jsdom が引く）。
+# MIT から**表示義務すら外した**もので、MIT を許している以上これを断る理由が無い。
+ALLOW="${ALLOW_LICENSES:-MIT,MIT-0,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Unicode-3.0,Unicode-DFS-2016,Zlib,CC0-1.0,MPL-2.0,0BSD,AGPL-3.0-only,Apache-2.0 WITH LLVM-exception,Unicode-3.0,CDLA-Permissive-2.0,BlueOak-1.0.0,CC-BY-4.0,Python-2.0}"
 fail=0
 
 echo "== Rust の依存"

@@ -10,6 +10,100 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/coverage": {
+      "get": {
+        "tags": [],
+        "summary": "ソース × 日 の 7 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。",
+        "operationId": "coverage_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者。**省略すると絞らない**（単一利用者でも列は day one から持つ。FR-29 / 扉 #9）",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceCoverage"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/coverage/achievement": {
+      "get": {
+        "tags": [],
+        "summary": "5 ソースの達成日数と分母、合否、確定か暫定か（NFR-13）。",
+        "operationId": "achievement_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Achievement"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/events": {
       "get": {
         "tags": [],
@@ -24,6 +118,58 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/EventRow"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/heartbeat": {
+      "post": {
+        "tags": [],
+        "summary": "生存信号をまとめて受け取る（FR-78）。",
+        "description": "**`/ingest` と統合しない**（design D9）—— `/ingest` は記録のエンベロープ\n（`event_time` / `tz_id` / `schema_version` / `crs` …）を必須にしており、\n生存信号はそのどれも持たない。混ぜると片方のために必須の欄が緩む。\n\n400 は「1 件も受け付けなかった」ことを意味する（`/ingest` と同じ約束）。",
+        "operationId": "heartbeat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/HeartbeatRequest"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HeartbeatResult"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HeartbeatResult"
                   }
                 }
               }
@@ -90,6 +236,122 @@
   },
   "components": {
     "schemas": {
+      "Achievement": {
+        "type": "object",
+        "description": "5 ソースの達成と、成功条件 1 の合否（NFR-13）。",
+        "required": [
+          "sources",
+          "verdict",
+          "failing",
+          "confirmed",
+          "not_started"
+        ],
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "description": "**5 本すべての窓が閉じた日にのみ確定**（第 7 回 Q27）"
+          },
+          "confirms_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "確定する日。**1 本でも開始していなければ返らない**"
+          },
+          "days_until_confirmed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "確定までの残り日数。同上"
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "落ちたソース。どれが落ちたかがそのまま分かる"
+          },
+          "not_started": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "まだ収集を開始していないソース。確定日が定まらない理由"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceAchievement"
+            }
+          },
+          "verdict": {
+            "type": "boolean",
+            "description": "**5 本すべてが分母の 95 % 以上**か（第 4 回 Q9 / 第 5 回 Q18）"
+          }
+        }
+      },
+      "Band": {
+        "type": "string",
+        "description": "格子の 3 段。**7 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。",
+        "enum": [
+          "recorded",
+          "alive_no_record",
+          "other"
+        ]
+      },
+      "DayCell": {
+        "type": "object",
+        "description": "1 日ぶんの状態と、その日の材料。",
+        "required": [
+          "day",
+          "state",
+          "event_count"
+        ],
+        "properties": {
+          "attempts": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "その日の生存信号が報告した取得の試行回数。**信号が無い日は返らない**\n—— 来ていない区間の取得率は埋まらない（specs）"
+          },
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "event_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DayState"
+          },
+          "successes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "DayState": {
+        "type": "string",
+        "description": "ソース × 日 の状態（FR-54）。**7 つのいずれか 1 つに決まる。**",
+        "enum": [
+          "recorded",
+          "alive_no_record",
+          "alive_not_capturable",
+          "stopped",
+          "dropped",
+          "outage",
+          "before_start"
+        ]
+      },
       "EventRow": {
         "type": "object",
         "required": [
@@ -121,6 +383,115 @@
           },
           "tz_id": {
             "type": "string"
+          }
+        }
+      },
+      "HeartbeatError": {
+        "type": "string",
+        "description": "生存信号を断った理由。**受け取った値は載せない**（`IngestError` と同じ向き）。",
+        "enum": [
+          "malformed",
+          "unknown_source",
+          "invalid_raw",
+          "missing_blockers",
+          "invalid_counts"
+        ]
+      },
+      "HeartbeatRequest": {
+        "type": "object",
+        "description": "収集側が送る 1 件。**`/ingest` と混ぜない**（design D9）——\n記録のエンベロープ（`tz_id` / `schema_version` / `crs` …）を生存信号は 1 つも持たない。",
+        "required": [
+          "id",
+          "user_id",
+          "logical_source",
+          "emitted_at",
+          "capturable",
+          "attempts",
+          "successes",
+          "raw"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "前回の生存信号からの取得の試行回数（第 5 回 Q17）"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "取得できないとき、何が満たされていないか。`capturable = false` なら空にできない"
+          },
+          "capturable": {
+            "type": "boolean",
+            "description": "そのソースを取得できる状態か（権限・センサ・接続。深掘り Q5）"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "emitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "収集側が信号を作った時刻。**受信時刻ではない** ——\n圏外で溜めて送ると受信は数日後になる（第 6 回 Q24 と同じ理由）。"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "raw": {
+            "type": "string",
+            "description": "収集側から受け取った原文。**素通しで残す**（0003 と同じ理由で `text`）"
+          },
+          "successes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "そのうち成功した回数（同上）"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "HeartbeatResult": {
+        "type": "object",
+        "description": "送った 1 件ごとの結果。**送った順に並ぶ**（`IngestResult` と同じ約束）。",
+        "required": [
+          "duplicate",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "未送信から取り除いてよいか。収集側はこれだけを見る"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "既に同じ 1 件があったか。再送しても行が増えないことの確認に使う"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HeartbeatError"
+              }
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -248,6 +619,112 @@
             "description": "格納された記録の識別子。断られたときは null"
           }
         }
+      },
+      "SourceAchievement": {
+        "type": "object",
+        "description": "ソース 1 本ぶんの達成（NFR-13）。",
+        "required": [
+          "logical_source",
+          "display_name",
+          "subject",
+          "achieved_days",
+          "denominator",
+          "threshold",
+          "met",
+          "window_closed"
+        ],
+        "properties": {
+          "achieved_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "達成日数（分子）"
+          },
+          "collection_started_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "denominator": {
+            "type": "integer",
+            "format": "int64",
+            "description": "分母。**1 日を丸ごと覆う停止は抜く**（深掘り Q3）"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "met": {
+            "type": "boolean",
+            "description": "このソースが線に届いているか。**まだ開始していないソースは届いていない扱い**"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/Subject"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double",
+            "description": "線 = 分母 × 95 %"
+          },
+          "window_closed": {
+            "type": "boolean",
+            "description": "窓（収集開始日から 365 日）が閉じたか"
+          },
+          "window_closes_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "窓が閉じる日。開始していなければ返らない"
+          }
+        }
+      },
+      "SourceCoverage": {
+        "type": "object",
+        "description": "ソース 1 本ぶんの稼働状況。",
+        "required": [
+          "logical_source",
+          "display_name",
+          "expected_gap_sec",
+          "days"
+        ],
+        "properties": {
+          "collection_started_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayCell"
+            }
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "expected_gap_sec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "Subject": {
+        "type": "string",
+        "description": "達成日の数え方。ソースの**主語**で分かれる（第 4 回 Q8）。",
+        "enum": [
+          "device",
+          "usage"
+        ]
       }
     }
   }

@@ -21,6 +21,22 @@ done
 for field in $(jq -r '.components.schemas.IngestRequest.properties | keys[]' docs/openapi.json); do
   grep -q "\b$field\b" "$kt" || { echo "  NG 要求の欄 $field を収集側が送っていない（$kt）"; bad=1; }
 done
+# --- 生存信号（ST02 / FR-78）
+# **grep では守れない。** 同じ語が docstring や別の行にも出るので空振りする
+# （実測: `capturable` を `capturableX` に改名しても緑のままだった）。
+# 欄名の一致は Kotlin 側の `HeartbeatContractTest` が**実際の直列化**で確かめ、
+# ここはその試験が持つ一覧と `docs/openapi.json` を突き合わせる（両方を同時に書き換えないと通らない）。
+hbtest=collector-android/app/src/test/kotlin/dev/ashiato/collector/HeartbeatContractTest.kt
+kt_fields=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$hbtest" \
+  | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
+api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' docs/openapi.json | sort)
+if [ "$kt_fields" != "$api_fields" ]; then
+  echo "  NG 生存信号の欄が契約とずれている"
+  diff <(echo "$api_fields") <(echo "$kt_fields") | sed 's/^/     /'
+  bad=1
+else
+  echo "生存信号の欄名 OK（$(echo "$api_fields" | wc -l) 欄。実際の直列化は HeartbeatContractTest が見る）"
+fi
 [ "$bad" -eq 0 ] || { echo "NG: 契約とKotlin側の欄名がずれている"; exit 1; }
 echo "収集側の欄名 OK（要求 $(jq -r '.components.schemas.IngestRequest.properties|keys|length' docs/openapi.json) / 応答 $(jq -r '.components.schemas.IngestResult.properties|keys|length' docs/openapi.json)）"
 
