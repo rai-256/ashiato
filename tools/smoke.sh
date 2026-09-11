@@ -353,12 +353,13 @@ echo "== 21. 稼働記録が取り込みと同じ関門で立つ（FR-33）"
 # またがると行が 2 本になる。テスト 11 は NFR-1（生成から格納まで 1 時間以内）を測るために
 # event_time に「いま」を使い、テスト 14〜16 は固定の 2026-09-08 を使うので、
 # **実行する日によって行数が変わる**。行を 1 本と決め打つと、書いた当日しか通らない。
-cov=$(psql -c "SELECT state||' '||sum(event_count) FROM core.coverage
-               WHERE logical_source='c01-location' GROUP BY state;")
+# **ST02 で `state` 列が消えた**（design D2）—— 7 状態は行に焼かず導出する。
+# 稼働記録が持つのは「その日に何件入ったか」だけになった。
+cov=$(psql -c "SELECT sum(event_count) FROM core.coverage WHERE logical_source='c01-location';")
 echo "   → $cov"
 # 3 + NFC 1 + 既定 1 + 混在の 2 + 表記 1 + 端末検査 1 + 原文検査 1 = 10。
 # **再送分は数えない**（design D13）
-[ "$cov" = "alive 10" ] || { echo "稼働記録の件数が合わない（再送を数えていないか）"; exit 1; }
+[ "$cov" = "10" ] || { echo "稼働記録の件数が合わない（再送を数えていないか）"; exit 1; }
 
 echo "== 21b. 重複だけが届いた日も、稼働していたことは記録される（spec の Scenario 後半）"
 # **別の日を 1 つ作る。** 手順 13 の再送は手順 11 と同じ日なので、
@@ -369,17 +370,17 @@ lone='[{"id":"f0000006-0000-4000-8000-000000000000",
   "event_time":"2026-01-15T03:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo",
   "schema_version":1,"raw":"{\"seq\":\"lone\"}","payload":{"seq":"lone"}}]'
 [ "$(post "$lone")" = "200" ] || { echo "1 件目が入らない"; exit 1; }
-day=$(psql -c "SELECT state||' '||event_count FROM core.coverage
+day=$(psql -c "SELECT event_count FROM core.coverage
                WHERE logical_source='c01-location' AND day='2026-01-15';")
-[ "$day" = "alive 1" ] || { echo "その日の稼働記録が alive 1 でない: $day"; exit 1; }
+[ "$day" = "1" ] || { echo "その日の稼働記録が 1 件でない: $day"; exit 1; }
 # 同じ日に**重複だけ**が届く
 [ "$(post "$lone")" = "200" ] || { echo "再送が通らない"; exit 1; }
 [ "$(jq -r '.[0].duplicate' /tmp/smoke.body)" = "true" ] || { echo "重複と判定されていない"; exit 1; }
-day=$(psql -c "SELECT state||' '||event_count FROM core.coverage
+day=$(psql -c "SELECT event_count FROM core.coverage
                WHERE logical_source='c01-location' AND day='2026-01-15';")
 echo "   → $day"
 # 件数は増えない。**行は残る**（「欠損」と「重複だけ届いた」が区別できなくなる）
-[ "$day" = "alive 1" ] || { echo "重複で件数が増えたか、行が消えた: $day"; exit 1; }
+[ "$day" = "1" ] || { echo "重複で件数が増えたか、行が消えた: $day"; exit 1; }
 
 echo "== 22. 実データ経路が読み出し口から見える（完了の判定 1 行目）"
 [ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | jq '[.[]|select(.logical_source=="c01-location")]|length')" = "11" ] \
@@ -394,4 +395,90 @@ got=$(curl -sf "${AUTH[@]}" "http://$BIND/events" \
   echo "  送った: $weird_raw"; echo "  戻った: $got"; exit 1; }
 echo "   → 読み出し口越しでも原文はそのまま"
 
-echo "縦串 OK（実データ経路まで）"
+# ================================================================ ST02 の縦串
+#
+# **記録を 1 件も入れずに生存信号だけを送り、稼働状況がその日を②で返す**（tasks 10.1）。
+# これが FR-78 の目的そのもの —— 記録経由でしか確かめないと、
+# 「記録が 0 件の日の意味が残る」という当の振る舞いに穴が残る。
+
+hbpost() { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
+             -w '%{http_code}' -X POST "http://$BIND/heartbeat" -d "$1"; }
+
+echo "== 23. 日境界が Asia/Tokyo（深掘り Q2 / 既存の欠陥 1）"
+# 日本時間の 0 時をまたぐ 2 件。**UTC で切ると両方 03-01 に入る**
+jst='[{"id":"d0000001-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location",
+  "external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-03-01T14:59:59Z","tz_offset_min":540,"tz_id":"Asia/Tokyo",
+  "schema_version":1,"raw":"{\"seq\":\"jst-a\"}","payload":{"seq":"jst-a"}},
+ {"id":"d0000002-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location",
+  "external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-03-01T15:00:01Z","tz_offset_min":540,"tz_id":"Asia/Tokyo",
+  "schema_version":1,"raw":"{\"seq\":\"jst-b\"}","payload":{"seq":"jst-b"}}]'
+[ "$(post "$jst")" = "200" ] || { echo "日境界の 2 件が入らない"; exit 1; }
+got=$(psql -c "SELECT string_agg(day::text, ',' ORDER BY day) FROM core.coverage
+               WHERE logical_source='c01-location' AND day IN ('2026-03-01','2026-03-02');")
+echo "   → $got"
+[ "$got" = "2026-03-01,2026-03-02" ] || { echo "日が Asia/Tokyo で切れていない: $got"; exit 1; }
+
+# Scenario: 記録が 0 件でも生存信号があれば稼働が残る
+echo "== 24. 記録を 1 件も入れずに生存信号だけを送る（FR-78 / tasks 10.1）"
+# c01-photo は 0005 が登録簿に置いた Must ソース。**記録は 1 件も送らない**
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-photo';")" = "0" ] \
+  || { echo "写真に記録が入っている（この検査が空振りする）"; exit 1; }
+beat='[{"id":"e1000001-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-photo",
+  "device_id":"c01-smoke","emitted_at":"2026-03-01T03:00:00Z",
+  "capturable":true,"blockers":[],"attempts":4,"successes":4,
+  "raw":"{\"alive\":true}"}]'
+code=$(hbpost "$beat"); echo "   → $code / $(jq -c '[.[].accepted]' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "生存信号が 200 で通らない ($code)"; exit 1; }
+[ "$(jq -r '.[0].accepted' /tmp/smoke.body)" = "true" ] || { echo "受け付けられていない"; exit 1; }
+
+# Scenario: 同じ生存信号を 2 回送っても 1 行
+echo "== 25. 同じ生存信号を再送しても行は 1 つ（第 4 回 Q13）"
+[ "$(hbpost "$beat")" = "200" ] || { echo "再送が通らない"; exit 1; }
+[ "$(jq -r '.[0].duplicate' /tmp/smoke.body)" = "true" ] || { echo "重複と判定されていない"; exit 1; }
+n=$(psql -c "SELECT count(*) FROM core.heartbeat WHERE logical_source='c01-photo';")
+[ "$n" = "1" ] || { echo "生存信号が $n 行ある"; exit 1; }
+
+echo "== 26. 稼働状況がその日を「動いていた・記録なし」で返す（FR-54 / design D6）"
+cov=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-03-01&to=2026-03-01")
+state=$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-photo")|.days[0].state')
+echo "   → c01-photo 2026-03-01 = $state"
+[ "$state" = "alive_no_record" ] || { echo "②のはずが $state"; exit 1; }
+# **記録の件数は 0**（稼働が残っているのは生存信号のおかげ）
+[ "$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-photo")|.days[0].event_count')" = "0" ] \
+  || { echo "記録が 0 件でない"; exit 1; }
+# 位置は同じ日に記録があるので①
+[ "$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-location")|.days[0].state')" = "recorded" ] \
+  || { echo "位置が①でない"; exit 1; }
+# **5 ソースすべてが返る**（画面は 5 本の格子を並べる）
+[ "$(printf '%s' "$cov" | jq 'length')" = "5" ] || { echo "5 ソースが返っていない"; exit 1; }
+
+echo "== 27. 達成日数と分母、確定か暫定かが返る（NFR-13 / 第 7 回 Q27）"
+ach=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage/achievement")
+echo "   → $(printf '%s' "$ach" | jq -c '{verdict, confirmed, not_started: (.not_started|length)}')"
+[ "$(printf '%s' "$ach" | jq '.sources|length')" = "5" ] || { echo "5 本ぶん返っていない"; exit 1; }
+# 達成日数と分母の両方が返る
+printf '%s' "$ach" | jq -e '.sources|all(has("achieved_days") and has("denominator"))' >/dev/null \
+  || { echo "達成日数か分母が返っていない"; exit 1; }
+# **まだ始まっていないソースがあるので確定日は返らない**（第 7 回 Q27）
+[ "$(printf '%s' "$ach" | jq -r '.confirmed')" = "false" ] || { echo "確定になっている"; exit 1; }
+[ "$(printf '%s' "$ach" | jq -r '.confirms_on')" = "null" ] || { echo "確定日が返っている"; exit 1; }
+printf '%s' "$ach" | jq -e '.not_started|length > 0' >/dev/null \
+  || { echo "まだ開始していないソースが示されていない"; exit 1; }
+
+echo "== 28. 生存信号も合言葉を要求する（PERM-10: すべての API 要求）"
+for path in "/heartbeat" "/coverage?from=2026-03-01&to=2026-03-01" "/coverage/achievement"; do
+  case "$path" in
+    /heartbeat) code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$BIND$path" \
+                  -H 'content-type: application/json' -d "$beat") ;;
+    *)          code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND$path") ;;
+  esac
+  [ "$code" = "401" ] || { echo "$path が 401 のはずが $code"; exit 1; }
+done
+echo "   → 3 経路とも 401"
+
+echo "縦串 OK（実データ経路と稼働状況まで）"

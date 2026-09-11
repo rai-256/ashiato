@@ -6,7 +6,7 @@
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -14,8 +14,57 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 
+#[cfg(test)]
+mod api_tests;
+pub mod coverage;
+pub mod heartbeat;
 pub mod ingest;
+#[cfg(test)]
+pub mod testdb;
+
+use coverage::DAY_TZ;
 use ingest::{content_hash, IngestRequest};
+
+/// 当てる版と、その中身。**足したらここへ 1 行足す** ——
+/// 当て忘れると、不変条件が本番だけ効いていない状態になる。
+/// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
+pub const MIGRATIONS: [(&str, &str); 6] = [
+    (
+        "0001_envelope",
+        include_str!("../../../migrations/0001_envelope.sql"),
+    ),
+    (
+        "0002_immutable_collected",
+        include_str!("../../../migrations/0002_immutable_collected.sql"),
+    ),
+    (
+        "0003_raw_text",
+        include_str!("../../../migrations/0003_raw_text.sql"),
+    ),
+    (
+        "0004_immutable_origin",
+        include_str!("../../../migrations/0004_immutable_origin.sql"),
+    ),
+    (
+        "0005_coverage_rebuild",
+        include_str!("../../../migrations/0005_coverage_rebuild.sql"),
+    ),
+    (
+        "0006_immutable_heartbeat",
+        include_str!("../../../migrations/0006_immutable_heartbeat.sql"),
+    ),
+];
+
+/// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
+pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    for (name, sql) in MIGRATIONS {
+        sqlx::raw_sql(sql)
+            .execute(pool)
+            .await
+            .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub struct App {
@@ -214,18 +263,29 @@ async fn ingest_one(
     // **件数は新しく入った行だけ数える**（design D13）—— まとめ送りの部分失敗で
     // 成功分が再送されるので、重複まで数えると件数が実態から離れる。
     // 行そのものは重複でも立てる。「その日は収集が動いていた」は重複の到着でも真だから。
-    sqlx::query(
-        "INSERT INTO core.coverage (logical_source, day, state, event_count)
-         VALUES ($1, ($2 AT TIME ZONE 'UTC')::date, 'alive', $3)
-         ON CONFLICT (logical_source, day, state)
-         DO UPDATE SET event_count = core.coverage.event_count + $3",
-    )
+    //
+    // **日は `Asia/Tokyo` で切る**（ST02 の深掘り Q2 / design D1）。記録に付いた
+    // タイムゾーンでは切らない —— 東西の移動で 1 年が 364 日にも 366 日にもなり、
+    // NFR-13 の分母がぶれる。当初の実装は UTC 固定だった。
+    sqlx::query(&format!(
+        "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
+         VALUES ($1, $2, ($3 AT TIME ZONE '{DAY_TZ}')::date, $4)
+         ON CONFLICT (user_id, logical_source, day)
+         DO UPDATE SET event_count = core.coverage.event_count + $4"
+    ))
+    .bind(req.user_id)
     .bind(&req.logical_source)
     .bind(req.event_time)
     .bind(i32::from(row.is_some()))
     .execute(&app.pool)
     .await
     .map_err(internal)?;
+
+    // 収集開始日は**いちばん古い記録が作られた日**（FR-79 / 第 6 回 Q24 / 第 7 回 Q26）。
+    // 重複でも当てる —— 同じ記録の再送でも「その日に取られた」ことは変わらない。
+    coverage::touch_started_on(&app.pool, &req.logical_source, req.event_time)
+        .await
+        .map_err(internal)?;
 
     Ok(match row {
         Some((id,)) => IngestResult::stored(id, false),
@@ -283,6 +343,245 @@ pub async fn ingest(
         "取り込み"
     );
     Ok((code, Json(results)))
+}
+
+// ------------------------------------------------------------------ 生存信号
+
+/// 生存信号を断った理由。**受け取った値は載せない**（`IngestError` と同じ向き）。
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HeartbeatError {
+    /// 項目が形として解釈できない（取得の試行回数・成功回数が無い場合を含む）
+    Malformed,
+    /// 登録簿に無い論理ソース
+    UnknownSource,
+    /// 原文が空、または DB に格納できないバイトを含む
+    InvalidRaw,
+    /// 取得できない状態を報告しながら、何が満たされていないかを持たない
+    MissingBlockers,
+    /// 取得の回数が負、または成功が試行を超える
+    InvalidCounts,
+}
+
+impl From<heartbeat::Invalid> for HeartbeatError {
+    fn from(v: heartbeat::Invalid) -> Self {
+        match v {
+            heartbeat::Invalid::Raw => Self::InvalidRaw,
+            heartbeat::Invalid::Blockerless => Self::MissingBlockers,
+            heartbeat::Invalid::Counts => Self::InvalidCounts,
+        }
+    }
+}
+
+/// 送った 1 件ごとの結果。**送った順に並ぶ**（`IngestResult` と同じ約束）。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct HeartbeatResult {
+    id: Option<uuid::Uuid>,
+    /// 既に同じ 1 件があったか。再送しても行が増えないことの確認に使う
+    duplicate: bool,
+    /// 未送信から取り除いてよいか。収集側はこれだけを見る
+    accepted: bool,
+    error: Option<HeartbeatError>,
+}
+
+async fn heartbeat_one(
+    app: &App,
+    item: &serde_json::Value,
+) -> Result<HeartbeatResult, (StatusCode, String)> {
+    let sent_id = item
+        .get("id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| uuid::Uuid::parse_str(v).ok());
+
+    let req: heartbeat::HeartbeatRequest = match serde_json::from_value(item.clone()) {
+        Ok(r) => r,
+        Err(_) => {
+            // **元のエラーを載せない。** serde の文言は受け取った値を含むことがある
+            tracing::warn!(kind = "hb_malformed", "解釈できない生存信号を断った");
+            return Ok(HeartbeatResult {
+                id: sent_id,
+                duplicate: false,
+                accepted: false,
+                error: Some(HeartbeatError::Malformed),
+            });
+        }
+    };
+    if let Err(invalid) = req.validate() {
+        return Ok(HeartbeatResult {
+            id: Some(req.id),
+            duplicate: false,
+            accepted: false,
+            error: Some(invalid.into()),
+        });
+    }
+
+    let known: Option<(String,)> =
+        sqlx::query_as("SELECT logical_source FROM core.source WHERE logical_source = $1")
+            .bind(&req.logical_source)
+            .fetch_optional(&app.pool)
+            .await
+            .map_err(internal)?;
+    if known.is_none() {
+        return Ok(HeartbeatResult {
+            id: Some(req.id),
+            duplicate: false,
+            accepted: false,
+            error: Some(HeartbeatError::UnknownSource),
+        });
+    }
+
+    let hash = heartbeat::content_hash(&req);
+    // **原文は素通し**（0003 と同じ理由。`jsonb` はキー順を変え、重複キーを落とす）。
+    let row: Option<(uuid::Uuid,)> = sqlx::query_as(
+        "INSERT INTO core.heartbeat
+           (id, user_id, logical_source, device_id, emitted_at,
+            capturable, blockers, attempts, successes, content_hash, raw)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (logical_source, content_hash) DO NOTHING
+         RETURNING id",
+    )
+    .bind(req.id)
+    .bind(req.user_id)
+    .bind(&req.logical_source)
+    .bind(&req.device_id)
+    .bind(req.emitted_at)
+    .bind(req.capturable)
+    .bind(&req.blockers)
+    .bind(req.attempts)
+    .bind(req.successes)
+    .bind(&hash)
+    .bind(&req.raw)
+    .fetch_optional(&app.pool)
+    .await
+    .map_err(internal)?;
+
+    // 収集開始日は記録と同じ規則で動く（FR-79）—— **信号なら発信時刻の日**。
+    coverage::touch_started_on(&app.pool, &req.logical_source, req.emitted_at)
+        .await
+        .map_err(internal)?;
+
+    Ok(HeartbeatResult {
+        id: Some(row.map_or(req.id, |(id,)| id)),
+        duplicate: row.is_none(),
+        accepted: true,
+        error: None,
+    })
+}
+
+/// 生存信号をまとめて受け取る（FR-78）。
+///
+/// **`/ingest` と統合しない**（design D9）—— `/ingest` は記録のエンベロープ
+/// （`event_time` / `tz_id` / `schema_version` / `crs` …）を必須にしており、
+/// 生存信号はそのどれも持たない。混ぜると片方のために必須の欄が緩む。
+///
+/// 400 は「1 件も受け付けなかった」ことを意味する（`/ingest` と同じ約束）。
+#[utoipa::path(post, path = "/heartbeat", request_body = Vec<heartbeat::HeartbeatRequest>,
+    responses((status = 200, body = Vec<HeartbeatResult>), (status = 400, body = Vec<HeartbeatResult>),
+              (status = 401)))]
+pub async fn heartbeat_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let items: Vec<serde_json::Value> = match body {
+        serde_json::Value::Array(a) => a,
+        obj @ serde_json::Value::Object(_) => vec![obj],
+        _ => return Ok((StatusCode::BAD_REQUEST, Json(Vec::new()))),
+    };
+    if items.is_empty() {
+        return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
+    }
+    let mut results = Vec::with_capacity(items.len());
+    for item in &items {
+        results.push(heartbeat_one(&app, item).await?);
+    }
+    let code = if results.iter().any(|r| r.accepted) {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+    tracing::info!(
+        kind = "heartbeat",
+        sent = items.len(),
+        accepted = results.iter().filter(|r| r.accepted).count(),
+        "生存信号"
+    );
+    Ok((code, Json(results)))
+}
+
+// ------------------------------------------------------------------ 稼働状況
+
+/// `GET /coverage` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct CoverageQuery {
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+    /// 利用者。**省略すると絞らない**（単一利用者でも列は day one から持つ。FR-29 / 扉 #9）
+    user_id: Option<uuid::Uuid>,
+}
+
+/// ソース × 日 の 7 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
+#[utoipa::path(get, path = "/coverage", params(CoverageQuery),
+    responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
+pub async fn coverage_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<CoverageQuery>,
+) -> Result<Json<Vec<coverage::SourceCoverage>>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let names: Vec<String> = coverage::must_sources()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let rows = coverage::sources(&app.pool, &names)
+        .await
+        .map_err(internal)?;
+    // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
+    let mut out = Vec::with_capacity(names.len());
+    for name in &names {
+        let Some(src) = rows.iter().find(|r| &r.logical_source == name) else {
+            continue;
+        };
+        out.push(
+            coverage::of_source(&app.pool, q.user_id, src, q.from, q.to)
+                .await
+                .map_err(internal)?,
+        );
+    }
+    Ok(Json(out))
+}
+
+/// `GET /coverage/achievement` の絞り込み。**期間は取らない**（第 6 回 Q23）——
+/// 窓が仕様で決まったので、呼び出し側に委ねると合否が動く。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct AchievementQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 5 ソースの達成日数と分母、合否、確定か暫定か（NFR-13）。
+#[utoipa::path(get, path = "/coverage/achievement", params(AchievementQuery),
+    responses((status = 200, body = coverage::Achievement), (status = 401)))]
+pub async fn achievement_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<AchievementQuery>,
+) -> Result<Json<coverage::Achievement>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let today = today_jst();
+    let got = coverage::achievement(&app.pool, q.user_id, today, &coverage::must_sources())
+        .await
+        .map_err(internal)?;
+    Ok(Json(got))
+}
+
+/// いまの `Asia/Tokyo` の日付。**日境界の決定はここにも効く**（深掘り Q2）。
+fn today_jst() -> chrono::NaiveDate {
+    // JST は 1951 年以降 夏時間を持たない固定の +09:00 なので、ずらしてから日を取れば
+    // PostgreSQL の `AT TIME ZONE 'Asia/Tokyo'` と同じ日になる。
+    // **失敗しうる経路を作らない** —— 落ちる代わりに UTC の日を返す実装にすると、
+    // 日境界が黙って 9 時間ずれる（NFR-13 の分母がぶれる）。
+    (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive()
 }
 
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
@@ -364,36 +663,15 @@ pub async fn run() -> anyhow::Result<()> {
         .max_connections(5)
         .connect(&url)
         .await?;
-    // 版の順に当てる。**足したら必ずここへ 1 行足す** ——
-    // 当て忘れると、不変条件が本番だけ効いていない状態になる。
-    for (name, sql) in [
-        (
-            "0001_envelope",
-            include_str!("../../../migrations/0001_envelope.sql"),
-        ),
-        (
-            "0002_immutable_collected",
-            include_str!("../../../migrations/0002_immutable_collected.sql"),
-        ),
-        (
-            "0003_raw_text",
-            include_str!("../../../migrations/0003_raw_text.sql"),
-        ),
-        (
-            "0004_immutable_origin",
-            include_str!("../../../migrations/0004_immutable_origin.sql"),
-        ),
-    ] {
-        sqlx::raw_sql(sql)
-            .execute(&pool)
-            .await
-            .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
-    }
+    migrate(&pool).await?;
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ingest", post(ingest))
+        .route("/heartbeat", post(heartbeat_post))
         .route("/events", get(events))
+        .route("/coverage", get(coverage_get))
+        .route("/coverage/achievement", get(achievement_get))
         .with_state(App { pool, token });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
@@ -412,8 +690,23 @@ pub async fn run() -> anyhow::Result<()> {
 /// この API の契約。**コードから生成する**（製造準備 A-1: 手書きしない）。
 #[derive(Debug, utoipa::OpenApi)]
 #[openapi(
-    paths(ingest, events),
-    components(schemas(IngestResult, IngestError, EventRow, ingest::IngestRequest)),
+    paths(ingest, heartbeat_post, events, coverage_get, achievement_get),
+    components(schemas(
+        IngestResult,
+        IngestError,
+        EventRow,
+        ingest::IngestRequest,
+        HeartbeatResult,
+        HeartbeatError,
+        heartbeat::HeartbeatRequest,
+        coverage::SourceCoverage,
+        coverage::DayCell,
+        coverage::DayState,
+        coverage::Band,
+        coverage::Subject,
+        coverage::Achievement,
+        coverage::SourceAchievement,
+    )),
     info(
         title = "ashiato S-01",
         version = "0.1.0",

@@ -11,6 +11,23 @@ permissions:
 jobs:
   rust:
     runs-on: ubuntu-24.04
+    # 稼働記録の振る舞いは日境界（AT TIME ZONE）・一意索引・書き換え禁止のトリガと、
+    # **どれも DB の側にある**（ST02 design D14）。模擬した DB で確かめると
+    # 0004 が実測で見つけた「3 手の迂回」の型の穴がそのまま残るので、本物を立てる。
+    # **飛ばさない** —— テストは接続できなければ落ちる（crates/server/src/testdb.rs）。
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ashiato
+          POSTGRES_PASSWORD: ashiato
+          POSTGRES_DB: ashiato
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ashiato"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://ashiato:ashiato@127.0.0.1:55432/ashiato
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable

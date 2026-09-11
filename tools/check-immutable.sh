@@ -17,15 +17,31 @@ psql < migrations/0001_envelope.sql >/dev/null
 psql < migrations/0002_immutable_collected.sql >/dev/null
 psql < migrations/0003_raw_text.sql >/dev/null
 psql < migrations/0004_immutable_origin.sql >/dev/null
+psql < migrations/0005_coverage_rebuild.sql >/dev/null
+psql < migrations/0006_immutable_heartbeat.sql >/dev/null
 
 # **2 回当てても壊れないことを、ここで確かめる**（review R12）。
 # run() は起動のたびに全版を当てるので、当て直しが安全でないと 2 回目の起動で落ちる。
 # 0003 は「型が text なら何もしない」分岐を持っているが、その分岐を通る検査がどこにも無かった。
 echo "== もう一度当てる（run() は起動のたびに全版を当てる）"
-for m in 0001_envelope 0002_immutable_collected 0003_raw_text 0004_immutable_origin; do
+for m in 0001_envelope 0002_immutable_collected 0003_raw_text 0004_immutable_origin \
+         0005_coverage_rebuild 0006_immutable_heartbeat; do
   psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m の 2 回目が落ちた"; exit 1; }
 done
-echo "  OK 4 版とも当て直せる"
+echo "  OK 6 版とも当て直せる"
+
+# **0005 を当て直しても稼働記録が消えないこと**（review/spec.md の型の穴）。
+# 0005 は古い形のときだけ表を作り直すが、その分岐が壊れると
+# **起動のたびに稼働記録が全部消える**（毎回 0 件なので画面は「ずっと途絶」に見える）。
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
+         VALUES ('rebuild-check','当て直しの確認用',21600) ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
+         VALUES ('00000000-0000-0000-0000-000000000000','rebuild-check','2026-05-01',7)
+         ON CONFLICT DO NOTHING;" >/dev/null
+psql < migrations/0005_coverage_rebuild.sql >/dev/null
+kept=$(psql -c "SELECT count(*) FROM core.coverage WHERE logical_source = 'rebuild-check';")
+[ "$kept" = "1" ] || { echo "  NG 0005 の当て直しで稼働記録が消えた"; exit 1; }
+echo "  OK 0005 を当て直しても稼働記録は消えない"
 
 echo "== 「収集した」記録を 1 件置く"
 psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
@@ -121,6 +137,69 @@ if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
   echo "  OK 本人が書いた記録は書き換えられる"
 else
   echo "  NG 収集以外まで止めている"; fail=1
+fi
+
+# --- 生存信号（FR-78 / 深掘り 第 4 回 Q13 / 0006）
+#
+# **生存信号は証拠である。** 記録が 0 件の日に「動いていなかった」のか「壊れていた」のかを
+# 分ける唯一の材料で、書き換えられると扉 #14 の区別がそのまま嘘になる。
+#
+# **列ごとに投げる。** 0004 が実測で見つけた 3 手の迂回は、1 手ずつ投げているだけでは
+# 見えなかった —— 分類を動かせる限り原文の不変は成り立たない。生存信号には分類列を
+# 持たせていないが、**「持たせていない」ことも検査する**（後から足されうる）。
+echo "== 生存信号を 1 件置く"
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
+         VALUES ('hb-check','生存信号の確認用',21600) ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.heartbeat
+           (id, user_id, logical_source, device_id, emitted_at, capturable, blockers,
+            attempts, successes, content_hash, raw)
+         VALUES ('44444444-4444-4444-8444-444444444444',
+                 '00000000-0000-0000-0000-000000000000','hb-check','hb-dev',
+                 '2026-09-08T02:00:00Z', true, '{}', 360, 230, 'hb-check-hash',
+                 '{\"alive\":true}');" >/dev/null
+
+# Scenario: 格納された生存信号は書き換えられない
+for col in raw content_hash received_at emitted_at capturable blockers attempts successes device_id user_id id; do
+  case "$col" in
+    received_at|emitted_at) val="'2000-01-01T00:00:00Z'" ;;
+    capturable)             val="false" ;;
+    blockers)               val="ARRAY['forged']" ;;
+    attempts|successes)     val="0" ;;
+    user_id)                val="'11111111-1111-4111-8111-111111111111'" ;;
+    id)                     val="'55555555-5555-4555-8555-555555555555'" ;;
+    *)                      val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.heartbeat SET $col = $val WHERE logical_source = 'hb-check';" \
+       >/dev/null 2>&1; then
+    echo "  NG 生存信号の $col が書き換えられた（FR-78 違反）"; fail=1
+  else
+    echo "  OK 生存信号の $col の書き換えは拒まれた"
+  fi
+done
+
+# 中身が本当に変わっていない（トリガが例外を投げても書けていた、を潰す）
+got=$(psql -c "SELECT raw FROM core.heartbeat WHERE logical_source = 'hb-check';")
+[ "$got" = '{"alive":true}' ] || { echo "  NG 生存信号の原文が変わっている: $got"; fail=1; }
+
+# **迂回路になる分類列を持たせていないこと**（0004 の 3 手の迂回と同じ型）。
+# core.event は origin を動かしてから原文を書き換え、戻すことで迂回できた。
+extra=$(psql -c "SELECT count(*) FROM information_schema.columns
+                  WHERE table_schema='core' AND table_name='heartbeat'
+                    AND column_name IN ('origin','kind','state','deleted_at','deleted_by');")
+[ "$extra" = "0" ] || { echo "  NG 生存信号に分類列・論理削除列がある（迂回路になる）"; fail=1; }
+echo "  OK 生存信号に迂回路になる列が無い"
+
+# **論理削除の例外も無い**（core.event と違い、生存信号には通し道を作らない）
+if psql -c "DELETE FROM core.heartbeat WHERE logical_source = 'hb-check';" >/dev/null 2>&1; then
+  # DELETE は拒んでいない（BEFORE UPDATE のトリガなので）。行が消えたことを明示して戻す
+  echo "  ok 削除そのものは DB では止めていない（アプリに DELETE の経路が無いことが担保）"
+  psql -c "INSERT INTO core.heartbeat
+             (id, user_id, logical_source, device_id, emitted_at, capturable, blockers,
+              attempts, successes, content_hash, raw)
+           VALUES ('44444444-4444-4444-8444-444444444444',
+                   '00000000-0000-0000-0000-000000000000','hb-check','hb-dev',
+                   '2026-09-08T02:00:00Z', true, '{}', 360, 230, 'hb-check-hash',
+                   '{\"alive\":true}');" >/dev/null
 fi
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }
