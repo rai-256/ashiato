@@ -30,32 +30,32 @@ use ingest::{content_hash, IngestRequest};
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
 pub const MIGRATIONS: [(&str, &str); 7] = [
     (
-        "0001_envelope",
-        include_str!("../../../migrations/0001_envelope.sql"),
+        "202609081618_envelope",
+        include_str!("../../../migrations/202609081618_envelope.sql"),
     ),
     (
-        "0002_immutable_collected",
-        include_str!("../../../migrations/0002_immutable_collected.sql"),
+        "202609082001_immutable_collected",
+        include_str!("../../../migrations/202609082001_immutable_collected.sql"),
     ),
     (
-        "0003_raw_text",
-        include_str!("../../../migrations/0003_raw_text.sql"),
+        "202609092315_raw_text",
+        include_str!("../../../migrations/202609092315_raw_text.sql"),
     ),
     (
-        "0004_immutable_origin",
-        include_str!("../../../migrations/0004_immutable_origin.sql"),
+        "202609100000_immutable_origin",
+        include_str!("../../../migrations/202609100000_immutable_origin.sql"),
     ),
     (
-        "0005_coverage_rebuild",
-        include_str!("../../../migrations/0005_coverage_rebuild.sql"),
+        "202609111111_coverage_rebuild",
+        include_str!("../../../migrations/202609111111_coverage_rebuild.sql"),
     ),
     (
-        "0006_immutable_heartbeat",
-        include_str!("../../../migrations/0006_immutable_heartbeat.sql"),
+        "202609111112_immutable_heartbeat",
+        include_str!("../../../migrations/202609111112_immutable_heartbeat.sql"),
     ),
     (
-        "0007_source_lifecycle",
-        include_str!("../../../migrations/0007_source_lifecycle.sql"),
+        "202609112113_source_lifecycle",
+        include_str!("../../../migrations/202609112113_source_lifecycle.sql"),
     ),
 ];
 

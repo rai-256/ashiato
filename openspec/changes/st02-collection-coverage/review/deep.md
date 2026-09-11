@@ -39,7 +39,7 @@ Q3 の答え（時刻範囲で持つ）で ST04 側が判断できる形にな�
 ST02 が新設するのは「生存信号の表」、作り直すのは `core.coverage`。
 一覧は「別表にする」「1 件の記録として残す」を**技術判断として問わなかった**と書いているが
 （`deep.md:155-160`）、**その 2 つの決定に列の型と保護の有無がぶら下がっている** → D7 / D8。
-ST01 の `raw` = `jsonb` と同型（`migrations/0003_raw_text.sql:1-13` が事後の始末を書いている）。
+ST01 の `raw` = `jsonb` と同型（`migrations/202609092315_raw_text.sql:1-13` が事後の始末を書いている）。
 
 ## 手順 4 — 日常に影響する選択
 
@@ -58,7 +58,7 @@ deep.md の計算どおりで、問う大きさではない（該当なし）。
 | FR-54 | `web/src/App.tsx:19` が `fetch("/api/events")` のみ。`crates/server/src/lib.rs:393-402` に `/healthz` `/ingest` `/events` しか route が無い | **稼働状況の読み出し口も画面も存在しない。** ST02 の本体なので新規の指摘にはしない |
 | FR-78 | `collector-android` 側で権限状態を読むのは `MainActivity.kt:61` の `checkSelfPermission` だけ。`LocationService` / `FixCollector` には無い | 未実装。ST02 の本体 |
 | NFR-13 | 集計コードは存在しない（`grep -rn "coverage" crates/ tools/` は seed と smoke の `core.source` INSERT のみ） | 未実装。ST02 の本体 |
-| FR-29 / 扉 #9 | `migrations/0001_envelope.sql:6-11`（`core.source`）と `:47-54`（`core.coverage`）に `user_id` が無い。`grep -n user_id migrations/*.sql` は `core.event` の 1 件だけ | **「動いているが要件を満たしていない」。deep.md の欠陥 3 件に入っていない** → D9 |
+| FR-29 / 扉 #9 | `migrations/202609081618_envelope.sql:6-11`（`core.source`）と `:47-54`（`core.coverage`）に `user_id` が無い。`grep -n user_id migrations/*.sql` は `core.event` の 1 件だけ | **「動いているが要件を満たしていない」。deep.md の欠陥 3 件に入っていない** → D9 |
 
 `core.event` の INSERT と `core.coverage` の INSERT は別クエリで、`grep -n "begin()\|transaction" crates/server/src/lib.rs` は 0 件 ——
 トランザクションで括られていない。ただし `alive` は `core.event` から再計算できるので指摘にはしない
@@ -149,7 +149,7 @@ deep.md の計算どおりで、問う大きさではない（該当なし）。
 - 根拠:
   - `docs/requirements.md:169-171`（FR-78）— 「そのソースに登録された**想定間隔（FR-35）ごとに**」
   - `docs/requirements.md:165-168`（FR-35）— 想定間隔の初期値は「位置 = 6 時間 / アプリ利用 = 6 時間 / ブラウザ履歴 = 24 時間 / Takeout 系 = 60 日」。**写真とウィンドウが無い**。NFR-13 の写真判定（`docs/requirements.md:345`）は写真の生存信号に依存するのに、その間隔が要件に無い
-  - `migrations/0001_envelope.sql:9` — `expected_gap_sec integer NOT NULL`。NOT NULL なので写真ソースを登録した時点で何かの値を入れざるを得ない
+  - `migrations/202609081618_envelope.sql:9` — `expected_gap_sec integer NOT NULL`。NOT NULL なので写真ソースを登録した時点で何かの値を入れざるを得ない
   - `docs/requirements.md:165-166` — FR-35 は「あるソースの最後の**記録**からの経過時間」が閾値。写真に 6 時間を入れると、**写真を撮らずに 18 時間経つたびに通知が鳴る**。生存信号を FR-35 の言う「記録」に数えるかは、どこにも書かれていない
   - `deep.md:150-152` — 「同じ値を生存信号の間隔に使う以外の選択は ST14 と辻褄が合わなくなるので、**技術判断として決めた**」。実際には辻褄が合っていない
 - kind: daily / conflict
@@ -164,10 +164,10 @@ deep.md の計算どおりで、問う大きさではない（該当なし）。
 - 種別: **抜け** + **分類違い**（不可逆を技術判断に落としている。ST01 の `raw`=`jsonb` と同型）
 - 根拠:
   - `deep.md:159-160` — 「生存信号を `core.event` に入れるか別表にするか —— 別表。`core.event` の `origin` は 3 値で、生存信号はどれでもない。**技術判断**」
-  - `migrations/0002_immutable_collected.sql:22-25` — 書き換え禁止のトリガは `BEFORE UPDATE **ON core.event**` にしか付いていない。`grep -n "CREATE TRIGGER" migrations/*.sql` は 0002 の 1 件だけ。**`core.coverage` には現状も保護が無く**、`crates/server/src/lib.rs:220-221` が `DO UPDATE SET event_count = ... + $3` で普通に書き換えている
-  - `migrations/0001_envelope.sql:37-40` — 冪等のユニーク索引も `core.event` にしか無い。ST01 の Outbox は部分失敗時に再送する（`openspec/changes/st01-location-ingest/specs/collection-coverage/spec.md`「重複の到着は常態」）ので、**生存信号は再送で重複行が増える**
+  - `migrations/202609082001_immutable_collected.sql:22-25` — 書き換え禁止のトリガは `BEFORE UPDATE **ON core.event**` にしか付いていない。`grep -n "CREATE TRIGGER" migrations/*.sql` は 0002 の 1 件だけ。**`core.coverage` には現状も保護が無く**、`crates/server/src/lib.rs:220-221` が `DO UPDATE SET event_count = ... + $3` で普通に書き換えている
+  - `migrations/202609081618_envelope.sql:37-40` — 冪等のユニーク索引も `core.event` にしか無い。ST01 の Outbox は部分失敗時に再送する（`openspec/changes/st01-location-ingest/specs/collection-coverage/spec.md`「重複の到着は常態」）ので、**生存信号は再送で重複行が増える**
   - `docs/requirements.md:517-519`（扉 #7「原文をそのまま残す」）— 生存信号にこれが掛かるかが決まっていない。掛からないなら、収集側が送ったバイト列は残らない
-  - `migrations/0003_raw_text.sql:1-13` — ST01 が同じ型を踏んだ記録（「`jsonb` は原文を保たない」）。列の型と保存形式は製造準備で決まって誰も論点に挙げなかった、が繰り返されている
+  - `migrations/202609092315_raw_text.sql:1-13` — ST01 が同じ型を踏んだ記録（「`jsonb` は原文を保たない」）。列の型と保存形式は製造準備で決まって誰も論点に挙げなかった、が繰り返されている
   - 生存信号は状態②③の**唯一の証拠**で、扉 #14 が「後から区別する唯一の手段」と言っている当のもの。書き換え自由・重複自由でよいかは可逆な判断ではない
 - kind: irreversible / technical
 - 処置: escalated — 第 4 回 Q13。生存信号に core.event と同じ保護を掛けるか
@@ -179,7 +179,7 @@ deep.md の計算どおりで、問う大きさではない（該当なし）。
 - 成果物: `openspec/changes/st02-collection-coverage/deep.md`（Q2 / Q3）
 - 種別: **抜け**
 - 根拠:
-  - `migrations/0001_envelope.sql:47-54` — `core.coverage` の主キーは `(logical_source, day, state)` で `day` は `date`。日境界の計算は書き込み時（`crates/server/src/lib.rs:219`）に済んでしまう
+  - `migrations/202609081618_envelope.sql:47-54` — `core.coverage` の主キーは `(logical_source, day, state)` で `day` は `date`。日境界の計算は書き込み時（`crates/server/src/lib.rs:219`）に済んでしまう
   - `docs/briefs/ST02-deep-r1.html` の Q2 の 3 択は、**どの選択肢の「戻せないもの」にも**「『記録あり』の行は記録から再計算できるが、**停止・破棄の行は再計算できない**」と書いてある。つまり問いの側が「再計算できない行がある」と認識していた
   - Q3（`deep.md:50`）はその再計算できない行のうち**停止と破棄だけ**を時刻範囲に上げた。**生存信号は Q3 より後（Q5）に決まったので、この網から漏れている**
   - 生存信号を `(source, day)` で持つと、Asia/Tokyo という決定がそのまま行になる。`timestamptz` の受信時刻を残せば日境界は後から引き直せる
@@ -195,7 +195,7 @@ deep.md の計算どおりで、問う大きさではない（該当なし）。
 - 根拠:
   - `docs/requirements.md:141`（FR-29）— 「THE SYSTEM SHALL **すべてのテーブル**に利用者識別子の列を持たせる」
   - `docs/requirements.md:524-526`（扉 #9）— 「利用者識別子を全テーブルに持つか / 決定済（**単一利用者でも day one から持つ**）/ 関与要件 FR-29, PERM-1」。決めるものは「記録の有無」＝不可逆
-  - `grep -n user_id migrations/*.sql` → `migrations/0001_envelope.sql:15` の 1 件のみ（`core.event`）。`core.source`（`:6-11`）と `core.coverage`（`:47-54`）には無い
+  - `grep -n user_id migrations/*.sql` → `migrations/202609081618_envelope.sql:15` の 1 件のみ（`core.event`）。`core.source`（`:6-11`）と `core.coverage`（`:47-54`）には無い
   - ST02 は `core.coverage` を BREAKING で作り直し、生存信号の表を新設する（`proposal.md:138`）。**列を足す最後の安い機会**がここ
 - kind: technical
   （扉 #9 が既に決めているので人間に問う幅は無い）

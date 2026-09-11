@@ -58,7 +58,7 @@
 
 ## R2. 「収集した記録は書き換えられない」は 3 本の UPDATE で素通りする。原文を書き換えて `collected` に戻せる
 
-- 成果物: migrations/0002_immutable_collected.sql / openspec/changes/st01-location-ingest/specs/record-envelope/spec.md
+- 成果物: migrations/202609082001_immutable_collected.sql / openspec/changes/st01-location-ingest/specs/record-envelope/spec.md
 - 根拠: 複製の DB に 0001〜0003 を当てて psql から直接実行（`check-immutable.sh` と同じ経路）。
 
   ```
@@ -71,7 +71,7 @@
 
   さらに `UPDATE … SET content_hash='rewritten', tz_id='UTC', ingest_time='2000-01-01'` も
   `origin='collected'` のまま通り、実測で `rewritten | UTC | 2000-01-01 00:00:00+00` になった。
-  トリガ関数が見ているのは `raw` / `payload` / `event_time` の 3 つだけ（0002_immutable_collected.sql:9-13）。
+  トリガ関数が見ているのは `raw` / `payload` / `event_time` の 3 つだけ（202609082001_immutable_collected.sql:9-13）。
 - 想定脅威との関係: 0002 のコメントが自ら「同じ PC で動く第三者製プラグイン（PERM-8）や psql を直に叩く運用が
   素通りする」を根拠に DB 側へ置いたと書いている。その素通りする主体がまさに 3 本の UPDATE を打てる。
 - kind: technical
@@ -83,7 +83,7 @@
 
 ## R3. Scenario「出自の欄がすべて埋まる」の印は主張を観測していない。`device_id` を省いた要求が 200 で通り NULL で保存される
 
-- 成果物: tools/smoke.sh:265（手順 20）/ crates/server/src/ingest.rs:24 / migrations/0001_envelope.sql
+- 成果物: tools/smoke.sh:265（手順 20）/ crates/server/src/ingest.rs:24 / migrations/202609081618_envelope.sql
 - 根拠: 複製でサーバを起動し、`device_id` と `external_id` を省いた要求を投げた。
 
   ```
@@ -146,7 +146,7 @@
 ## R6. tasks.md グループ 9 の「わざと壊して落ちる」表の 4 行目が実態と違う。`raw` を `jsonb` に戻すと smoke は手順 4 で落ち、手順 19 は実行されない
 
 - 成果物: openspec/changes/st01-location-ingest/tasks.md（末尾の破壊試験の表）
-- 根拠: 複製で `migrations/0003_raw_text.sql` を no-op（`SELECT 1;`）に置き換えて `./tools/smoke.sh` を実行。
+- 根拠: 複製で `migrations/202609092315_raw_text.sql` を no-op（`SELECT 1;`）に置き換えて `./tools/smoke.sh` を実行。
 
   ```
   RC=22

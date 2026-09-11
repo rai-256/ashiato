@@ -1,5 +1,5 @@
 -- 0004 「収集した」からの離脱と、記録の来歴の書き換えも拒む（FR-30 / design D21）
--- 前進のみ。戻し手順は migrations/0004_immutable_origin.down.sql に置く。
+-- 前進のみ。戻し手順は migrations/202609100000_immutable_origin.down.sql に置く。
 --
 -- **0002 は 3 手で迂回できた。** 独立検証で実測（review R2）:
 --   UPDATE core.event SET raw='{"tampered":1}' …;  → 拒否

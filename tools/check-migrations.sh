@@ -16,6 +16,13 @@ bad=0
 for f in migrations/*.sql; do
   case "$f" in *.down.sql) continue;; esac
   d="${f%.sql}.down.sql"
+  # 名前は作成時刻（YYYYMMDDHHMM_<slug>.sql）。連番にしない ——
+  # 並走する Story が番号を取り合う（実測 2026-09-11: ST02 が 0007 を取り、ST03 が 0008 へずらす PR を出した）。
+  # 適用の順は crates/server/src/lib.rs の MIGRATIONS 配列が持つので、名前は衝突しないことだけが要る。
+  case "$(basename "$f")" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
+    *) echo "  NG $f: 名前が YYYYMMDDHHMM_<slug>.sql でない（連番は並走する Story が取り合う）"; bad=1;;
+  esac
   if grep -Eiq "$DESTRUCTIVE" "$f"; then
     if [ -f "$d" ] && grep -q "$ACKNOWLEDGED" "$d"; then
       echo "  ok $f: 破壊的だが $d に「$ACKNOWLEDGED」と明記されている"

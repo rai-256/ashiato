@@ -76,9 +76,9 @@ Q10 の実現手段については、**存在することを実測で確認し�
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r3.json（新規）
 - 根拠: 実験 J（実測）—— `① {"t":"v1"}` → `BEGIN; UPDATE core.event SET raw='{"t":"tampered"}'; INSERT INTO core.event_version …; COMMIT;` → `DELETE FROM core.event_version WHERE event_id=…;` → **`② {"t":"tampered"}` / 残った原文の版 0**。
   同 txn 内の削除は Q10 のトリガが止める（実験 I）が、**次の txn の `UPDATE` / `DELETE` は素通り**する。
-  migrations/0002_immutable_collected.sql:5-8 が DB 側に置いた理由として挙げているのは
+  migrations/202609082001_immutable_collected.sql:5-8 が DB 側に置いた理由として挙げているのは
   「同じ PC で動く第三者製プラグイン（PERM-8）や psql を直に叩く運用」で、
-  migrations/0004_immutable_origin.sql:5-13 は**その相手が 3 手を打てた**ことを実測で記録している。
+  migrations/202609100000_immutable_origin.sql:5-13 は**その相手が 3 手を打てた**ことを実測で記録している。
   Q10 の答えは本表の書き換えを履歴に縛ったが、**原文の最後の 1 本が履歴表に移った**ことで、
   同じ相手が 2 手で同じ結果（原文の消失）に到達する。deep.md にも 16 の答えにも履歴表の保護は無い
 - kind: irreversible
@@ -98,7 +98,7 @@ Q10 の実現手段については、**存在することを実測で確認し�
   一様に「対象ごと」のソース（Q13 が挙げた動画）には当たらない。
   さらに **Q16 は 1 列目の既定だけを決めており、2 列目（`external_id_kind`）の既定は誰も決めていない** ——
   `'record'` を既定にすれば付け忘れは全件 400、`'none'` を既定にすれば強制が黙って消える。
-  既存コードには印に当たる列が無いので（migrations/0001_envelope.sql:6-11）、どちらも新設時の判断
+  既存コードには印に当たる列が無いので（migrations/202609081618_envelope.sql:6-11）、どちらも新設時の判断
 - kind: conflict
 - 処置: escalated — Q18。400 の条件をどちらの列に載せるかを 1 問にし、**2 列を 1 列に畳む**選択肢を推奨に置いた。畳むなら FR-61 へ戻す列は 1 本になる（R35 と連動）
 - 提案: 「400 を出す条件を、印（外部由来か）と識別子の種類のどちらに載せるか。2 列目の既定はどちらへ倒すか」
@@ -130,7 +130,7 @@ Q10 の実現手段については、**存在することを実測で確認し�
   **`v1` に戻り**、行数は 1 のまま、履歴は 2 件。`v2`・`v1` を交互に送ると履歴が 4 件へ増え続ける。
   Q1 の答え（既存行を書き換え、前の版を履歴へ）には**どちらが新しいかの判定が無い**。
   判定する材料も無い —— Q1 の context 自身が「いまの記録には『更新された時刻』を持つ欄がありません」と
-  書いており、外部サービス側の版・更新時刻を持つ列は `core.event` に無い（migrations/0001_envelope.sql:14-37）。
+  書いており、外部サービス側の版・更新時刻を持つ列は `core.event` に無い（migrations/202609081618_envelope.sql:14-37）。
   この経路は仮定ではなく docs/stories/ST12.md:38（書庫の取り込み。2 か月ごとの予約エクスポート）と
   FR-17（docs/requirements.md:117-118「過去のエクスポートを置いたときの重複検出」）そのもの。
   ST12 の「同じ書庫を 2 回置いても増えない」は**行数としては守られる**が、内容は過去へ巻き戻る
@@ -218,7 +218,7 @@ Q10 の実現手段については、**存在することを実測で確認し�
 - 根拠: deep.md:57-59 は「ST02 の `core.heartbeat` の索引にも同じ変更が要る（ST02 は未 merge なので、
   いま直せば片方だけ直る状態を避けられる）」と書いている。実際には
   `git merge-base --is-ancestor ac97574 main` が真（ST02 の上流は main に入っている）で、
-  実装ブランチ `feat/st02-collection-coverage` の `migrations/0005_coverage_rebuild.sql:83-84` は
+  実装ブランチ `feat/st02-collection-coverage` の `migrations/202609111111_coverage_rebuild.sql:83-84` は
   既に `CREATE UNIQUE INDEX heartbeat_dedup ON core.heartbeat (user_id, logical_source, content_hash)` になっている
   （ST02 自身の code review R13 が独立に見つけた）。
   残っているのは `openspec/changes/st02-collection-coverage/design.md:85` の文面だけ（`user_id` が無い）。
@@ -251,13 +251,13 @@ Q10 の実現手段については、**存在することを実測で確認し�
 ## R39. 履歴表の `raw` の列の型が、どの成果物にも書かれていない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/design.md（未作成）
-- 根拠: 手順 3 の「列の型・保存形式」の観点。migrations/0003_raw_text.sql:4-14 は
+- 根拠: 手順 3 の「列の型・保存形式」の観点。migrations/202609092315_raw_text.sql:4-14 は
   **`jsonb` が原文を保たない**ことを実測で記録している（キー順が変わり、重複キーが消え、
   数値の表記が展開される）。Q1 の答えで前の版の原文が履歴表へ移るのに、
   16 の答え・deep.md・第 1 回/第 2 回のレビューのいずれも履歴表の列の型に触れていない。
   `jsonb` で作ると 0003 でやり直したのと同じ失敗が履歴側で再発し、
   **今度は前の版しか原文が無いので取り返せない**。ST02 は同じ轍を踏まない形にしてある
-  （`feat/st02-collection-coverage` の `0005_coverage_rebuild.sql:64` に
+  （`feat/st02-collection-coverage` の `202609111111_coverage_rebuild.sql:64` に
   `raw text NOT NULL -- 原文の素通し。**text**（0003 と同じ理由）`）
 - kind: technical
 - 処置: fixed deep.md — 同上。履歴表の raw は text（理由は 0003 と同じ。jsonb はキー順・重複キー・数値表記を保たない）。design に明記し、tasks に information_schema での型の検査を入れる

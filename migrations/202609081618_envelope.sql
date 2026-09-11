@@ -1,5 +1,5 @@
 -- 0001 記録のエンベロープ（要件 FR-18〜FR-29 / 扉 #6〜#13, #16）
--- 前進のみ。戻し手順は migrations/0001_envelope.down.sql に置く。
+-- 前進のみ。戻し手順は migrations/202609081618_envelope.down.sql に置く。
 CREATE SCHEMA IF NOT EXISTS core;
 
 -- ソースの登録簿。ここに 1 行足すだけで新しいソースを受け付ける（FR-61）

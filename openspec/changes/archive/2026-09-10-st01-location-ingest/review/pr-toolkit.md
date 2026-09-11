@@ -126,9 +126,9 @@
 - kind: technical
 - 処置: fixed 10.5
 
-## R21. `0003_raw_text.down.sql` の「戻す前の確認」は動かないクエリ
+## R21. `202609092315_raw_text.down.sql` の「戻す前の確認」は動かないクエリ
 
-- 成果物: migrations/0003_raw_text.down.sql
+- 成果物: migrations/202609092315_raw_text.down.sql
 - 根拠: `raw::jsonb` は JSON でない値に NULL を返さず**例外を投げる**（実測: `invalid input syntax
   for type json`）。件数が出ないうえ、**エラー本文に入力の断片が載って原文がオペレータの端末と
   シェル履歴に出る**（A-2 違反）。さらに 3 文にトランザクションが無く、`ALTER` が落ちると
@@ -156,7 +156,7 @@
 
 ## R24. 0003 以降、既に正規化された原文と本物の原文が区別できない
 
-- 成果物: migrations/0003_raw_text.sql
+- 成果物: migrations/202609092315_raw_text.sql
 - 根拠: 既存行は `jsonb` の正規化済み表現（キー辞書順・重複キー消滅・`1e2` → `100`）で text に落ちる。
   **移行後にその行を見分ける印が何も残らない。** 将来「署名の検証・外部との照合」をやると、
   0003 以前の行だけが理由不明で不一致になり、照合コードのバグと区別が付かない。
@@ -282,7 +282,7 @@
 
 ## R38. `0003` の「既に text ならスキップ」分岐が 0 カバレッジ
 
-- 成果物: migrations/0003_raw_text.sql / tools/check-immutable.sh
+- 成果物: migrations/202609092315_raw_text.sql / tools/check-immutable.sh
 - 根拠: smoke は毎回 `docker compose down -v` でまっさらな DB から始め、
   `check-immutable.sh` も各版を 1 回ずつしか当てない。`run()` は起動のたびに全版を当てるので、
   **2 回目の適用**を通る検査が 1 本も無かった

@@ -1,5 +1,5 @@
 -- 0002 「収集した」記録の書き換えを DB で拒む（FR-30 / design D3）
--- 前進のみ。戻し手順は migrations/0002_immutable_collected.down.sql に置く。
+-- 前進のみ。戻し手順は migrations/202609082001_immutable_collected.down.sql に置く。
 --
 -- **アプリ層のチェックでは足りない。** 同じ PC で動く第三者製プラグイン（PERM-8）や、
 -- psql を直に叩く運用が素通りする。原文を書き換えられると、解析の誤りに後から

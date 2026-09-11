@@ -115,7 +115,7 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
 - 成果物: openspec/changes/st03-idempotent-ingest/design.md（未作成）/ tasks.md（未作成）
 - 根拠: 実験 AD4（実測）—— `DELETE FROM core.erasure_ledger;` が **3 行を消した**。
   ① 台帳を書いて消去を通す ② 次のまとまりで台帳を消す、の **2 手で Q23 の保証が消える**
-  （R29 が履歴表について、`migrations/0004_immutable_origin.sql:5-13` が本表について
+  （R29 が履歴表について、`migrations/202609100000_immutable_origin.sql:5-13` が本表について
   記録したのと同じ形）。Q23 の選択肢 1 の `irreversible` 欄は
   「台帳を持たずに消した分は…復元できない」までで、**台帳が消せることは書いていない**。
   実験 AG3（実測）—— 台帳に追記のみのトリガと `BEFORE TRUNCATE` の文トリガを張ると
@@ -172,8 +172,8 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
 
 - 成果物: openspec/changes/st03-idempotent-ingest/design.md（未作成）/ tools/check-immutable.sh
 - 根拠: 実験 AE1（実測）—— `DELETE FROM core.event WHERE logical_source='gtakeout-video';` が
-  **3 行を消した**。`migrations/0002_immutable_collected.sql:26-28` と
-  `0004_immutable_origin.sql:44-46` はどちらも `BEFORE UPDATE` のトリガしか張っていない。
+  **3 行を消した**。`migrations/202609082001_immutable_collected.sql:26-28` と
+  `202609100000_immutable_origin.sql:44-46` はどちらも `BEFORE UPDATE` のトリガしか張っていない。
   Q17 が履歴の行の `DELETE` を拒む一方で、**本表の記録は原文ごと 1 文で消える**（守りが逆向きに強い）。
   実験 AE3（実測）—— `TRUNCATE core.event_version;` は**行トリガを 1 度も撃たずに履歴を空にした**
   （Q17 の追記のみが 1 文で無効化される）。台帳も同じ。
@@ -191,7 +191,7 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
 
 - 成果物: openspec/changes/st03-idempotent-ingest/design.md（未作成）/ tools/check-immutable.sh
 - 根拠: 実験 AH1（実測）—— `UPDATE core.event SET external_id='k-stolen' WHERE external_id='k1';` が
-  **通る**。`migrations/0004_immutable_origin.sql:31-41` が凍結するのは
+  **通る**。`migrations/202609100000_immutable_origin.sql:31-41` が凍結するのは
   `raw` / `payload` / `event_time` / `content_hash` / `ingest_time` / `origin` の 6 つで、
   **`external_id` は入っていない**（`tools/check-immutable.sh:44-80` も見ていない）。
   実験 AH2（実測）—— 識別子の無い行に `external_id` を足すと、Q6 の答えで
@@ -246,7 +246,7 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
   docs/requirements.md:669-673（扉 #14）が区別したい「収集が壊れていた」がその期間について失われる。
   状態は導出なので、**日付さえ持てば後から引き直せる**（ST02 design:176 / spec:309-327 は導出と決めている）。
   同型の判断は FR-79 の収集開始日（docs/requirements.md:202-221。「day one から持たないと後から作れない」）で
-  既に済んでおり、`migrations/0005_coverage_rebuild.sql:110` は `collection_started_on date` を置いている。
+  既に済んでおり、`migrations/202609111111_coverage_rebuild.sql:110` は `collection_started_on date` を置いている。
   2 点目: 実験 AF2 では退役の判定を (6) と (7) の間に置いたため **(8) の日まで飲み込んだ**。
   **評価の順序（(7) だけを外すのか、(8) も外すのか）で過去の日の状態が変わる**が、
   26 の答えのどれも順序を決めていない
@@ -265,7 +265,7 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
   `core.event.event_time` が `2026-08-01` → `2026-08-05` に動いたが、
   ST01 の経路が積んだ `coverage` は **08-01 に 1 件のまま、08-05 は 0 件**。
   ST02 は `design.md:176` で「① 記録あり」を **`coverage.event_count > 0`** で決めると定めており
-  （`migrations/0005_coverage_rebuild.sql:35` も「新しく入った記録だけを数える」）、
+  （`migrations/202609111111_coverage_rebuild.sql:35` も「新しく入った記録だけを数える」）、
   この形だと**記録の無い日が「記録あり」・記録のある日が「途絶」**になる。
   これは Q1 / Q10 の答えで **FR-30 の凍結（`event_time` は動かない）が外れた**ことの帰結で、
   `deep.md` の申し送りは「更新で入った再取得は 0 件として数えられる」（件数）までしか書いていない ——
@@ -333,7 +333,7 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
 - 根拠: Q24 の選択肢 1 の `irreversible` 欄は
   「列を持たずに入れた記録に、後から対象の識別子を足すことはできない
   （外部サービスが同じ内容を返さない限り）」と書いているが、
-  docs/requirements.md:123（FR-18）と `migrations/0003_raw_text.sql` の決定により
+  docs/requirements.md:123（FR-18）と `migrations/202609092315_raw_text.sql` の決定により
   **原文は `text` で丸ごと残る**。対象の識別子が原文に含まれていれば、
   後から原文を読み直して列を埋められる（外部サービスへの再問い合わせは要らない）。
   本人の答え（別の列に持つ）は変わらない —— 保守的な側が選ばれているため。
@@ -407,12 +407,12 @@ Q17 の追記のみトリガ・**Q23 の消去の台帳（`core.erasure_ledger`�
 | # | 戻す先 | 何を |
 |---|---|---|
 | 1 | `specs/collection-coverage/spec.md:309-327` / `design.md:168-186` / `tasks.md:97` | 状態を **7 → 8**（「退役」）にし、(1)〜(8) のどこで見るかを決める（R55 / R56） |
-| 2 | `migrations/0005_coverage_rebuild.sql:109-110` の並び | 登録簿に **`retired_on date`**（真偽値ではない。`collection_started_on` と対）（R56） |
+| 2 | `migrations/202609111111_coverage_rebuild.sql:109-110` の並び | 登録簿に **`retired_on date`**（真偽値ではない。`collection_started_on` と対）（R56） |
 | 3 | `specs/collection-coverage/spec.md:238-245`（途絶）/ FR-35 の通知 | 退役した日以降は**途絶の判定と通知の対象外**（R55） |
 | 4 | `design.md:176`（「① 記録あり = `coverage.event_count > 0`」） | ST03 の更新で `event_time` が別の日へ動く。`core.event` から引くか、旧い日の件数を減らす（R57） |
 | 5 | `specs/collection-coverage/spec.md:376-400`（達成日） | **退役した日以降は NFR-13 の分母に入れない**（R64） |
 | 6 | `specs/collection-coverage/spec.md:495-530`（画面） | 退役したソースの格子を既定で畳む / 末尾へ（R63） |
-| 7 | `design.md:85` | `heartbeat_dedup` の文面が `(logical_source, content_hash)` のまま（`0005_coverage_rebuild.sql:83-84` は既に `(user_id, logical_source, content_hash)`。Q2 / R37 の積み残し） |
+| 7 | `design.md:85` | `heartbeat_dedup` の文面が `(logical_source, content_hash)` のまま（`202609111111_coverage_rebuild.sql:83-84` は既に `(user_id, logical_source, content_hash)`。Q2 / R37 の積み残し） |
 
 `core.coverage` の件数の数え方（Q3 / Q11 / Q19 で「受理だが格納しない」到着が増えること）は
 **ST02 の形では問題にならない** —— 0005 で `state` 列が落ちて

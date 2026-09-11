@@ -411,7 +411,7 @@ ST02 が塞ぐが、**塞いだことを記録しないと「ST01 が満たし�
    行そのものは立てる）。振る舞いは ST01 の
    `specs/collection-coverage/spec.md`「稼働記録は新しく入った記録だけを数える」に固定済み。
    **ST02 でやることは無い**
-3. **停止・破棄の期間を持てない** —— `migrations/0001_envelope.sql` の `core.coverage` は
+3. **停止・破棄の期間を持てない** —— `migrations/202609081618_envelope.sql` の `core.coverage` は
    `note` の自由文のみ
 4. **`core.coverage` と `core.source` に `user_id` が無い**（★ 2026-09-10 追加。`review/deep.md` の R9）
    —— FR-29「すべてのテーブルに」と扉 #9（決定済）に反している。

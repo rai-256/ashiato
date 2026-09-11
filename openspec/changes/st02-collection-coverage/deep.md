@@ -43,7 +43,7 @@
 ### Q3. 停止と破棄の粒度
 
 - **なぜ人間の判断か**: **不可逆**。粗く記録した過去は後から細かくできない。
-  現在の表 `core.coverage`（`migrations/0001_envelope.sql` の `create table core.coverage`）は (ソース, 日, 状態) が主キーで、
+  現在の表 `core.coverage`（`migrations/202609081618_envelope.sql` の `create table core.coverage`）は (ソース, 日, 状態) が主キーで、
   期間は `note` の自由文しか持てず、FR-34「停止したソースと**期間**」/ FR-9「破棄した**期間**と件数」
   を満たしていない
 - **当初の案**: なし（現状は自由文）
@@ -157,7 +157,7 @@ proposal に書き、`docs/requirements.md` の改訂として扱う。
    `.bind(i32::from(row.is_some()))` で重複時は 0 加算、行そのものは立てる。2026-09-10 時点で 225 行目）。
    振る舞いは ST01 の `specs/collection-coverage/spec.md`
    「稼働記録は新しく入った記録だけを数える」に固定済み。**ST02 でやることは無い**
-3. **停止・破棄の期間を持てない** —— `migrations/0001_envelope.sql` の `core.coverage`。`note` の自由文しか無く
+3. **停止・破棄の期間を持てない** —— `migrations/202609081618_envelope.sql` の `core.coverage`。`note` の自由文しか無く
    FR-34 / FR-9 の「期間」を満たさない。Q3 で決着
 4. **`core.coverage` と `core.source` に `user_id` が無い**（★ 2026-09-10 追加。`review/deep.md` の R9）
    —— `grep -n user_id migrations/*.sql` は `core.event` の 1 件だけ。
@@ -170,7 +170,7 @@ proposal に書き、`docs/requirements.md` の改訂として扱う。
 ## 確かめたが問わなかったこと
 
 - **生存信号の間隔** —— ソース登録簿 `core.source.expected_gap_sec` が既にあり
-  （`migrations/0001_envelope.sql:9`）、FR-35 がその 3 倍を通知の閾値にしている。
+  （`migrations/202609081618_envelope.sql:9`）、FR-35 がその 3 倍を通知の閾値にしている。
   **同じ値を生存信号の間隔に使う以外の選択は ST14 と辻褄が合わなくなる**ので、技術判断として決めた。
   電池への影響も問わなかった —— 位置は FR-1 が 60 秒間隔で取っており、
   6 時間に 1 回の生存信号はその 360 分の 1 未満で、日常の判断になる大きさではない
@@ -861,7 +861,7 @@ GET /coverage/achievement の c01-location:
 - **効く先**: **登録簿に「引き継ぎ元」の列**が増える（FR-61）。
   ★ **2026-09-11 訂正（R13）**: この行は当初「列そのものは ST03 が `record-envelope` 側で作る」と
   書いていたが、**同日の ST03 design D7 で `retired_on` と `succeeds` は ST02 が作ると決まった**
-  （読む側が稼働記録で、ST03 は 1 度も読まない）。実装は ST02 の `migrations/0007_source_lifecycle.sql`。ST02 は**収集開始日を引き継ぎの鎖から引く** ——
+  （読む側が稼働記録で、ST03 は 1 度も読まない）。実装は ST02 の `migrations/202609112113_source_lifecycle.sql`。ST02 は**収集開始日を引き継ぎの鎖から引く** ——
   新しい名前の収集開始日は、引き継ぎ元の収集開始日にする。
   **1 年の連続性（成功条件 1 そのもの）が保たれる。**
   `specs/collection-coverage` の収集開始日と達成日の Requirement、`NFR-13` の分母に効く
@@ -943,7 +943,7 @@ GET /coverage/achievement の c01-location:
   記録は時刻がいくら古くても収集開始日を作れる。生存信号は第 8 回 Q29 のまま
   「登録簿に行ができた日より前は外す」。
   `specs/collection-coverage` の収集開始日の Requirement と Scenario、
-  `migrations/0007_source_lifecycle.sql` の引き直しに効く。
+  `migrations/202609112113_source_lifecycle.sql` の引き直しに効く。
   **第 8 回 Q29 の決定は変えない** —— 崩れたのは「記録にも同じ閾値を掛けてよい」という
   暗黙の前提だけ。
 

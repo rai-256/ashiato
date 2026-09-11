@@ -299,7 +299,7 @@
 
 ## R13. 生存信号の冪等索引が `(logical_source, content_hash)` で、利用者識別子を含まない
 
-- 成果物: `migrations/0005_coverage_rebuild.sql`（`CREATE UNIQUE INDEX heartbeat_dedup`） / `crates/server/src/lib.rs`（`ON CONFLICT (logical_source, content_hash) DO NOTHING`） / `crates/server/src/heartbeat.rs:70`
+- 成果物: `migrations/202609111111_coverage_rebuild.sql`（`CREATE UNIQUE INDEX heartbeat_dedup`） / `crates/server/src/lib.rs`（`ON CONFLICT (logical_source, content_hash) DO NOTHING`） / `crates/server/src/heartbeat.rs:70`
 - 根拠: 索引の列に `user_id` が無く、`content_hash` も `logical_source` + `emitted_at` + `raw` の
   3 つからしか作られない（`user_id` も `device_id` も混ぜていない）。
   別の利用者が同じソース・同じ発信時刻・同じ原文を送ると、後の 1 件は
@@ -537,7 +537,7 @@
 
 ## R22. 生存信号は `DELETE` で差し替えられる（0004 の 3 手の迂回と同じ型）
 
-- 成果物: `migrations/0006_immutable_heartbeat.sql` / `tools/check-immutable.sh`
+- 成果物: `migrations/202609111112_immutable_heartbeat.sql` / `tools/check-immutable.sh`
 - 根拠: `silent-failure-hunter` の H-5 / `code-reviewer` の I10。
   トリガが `BEFORE UPDATE` のみで、`DELETE` は素通りした。`content_hash` は
   `logical_source` + `emitted_at` + `raw` から決まるので、**2 手で証拠を差し替えられる**:
@@ -553,7 +553,7 @@
 
 ## R23. 起動のたびに当たる 0005 の分岐が、戻りうる条件を見ている
 
-- 成果物: `migrations/0005_coverage_rebuild.sql`
+- 成果物: `migrations/202609111111_coverage_rebuild.sql`
 - 根拠: `silent-failure-hunter` の H-6。条件が「`state` 列がある」だけで、
   **`state` はこの Story が外した当の列**（design D6 が「状態は行に焼かず導出する」と決めた結果）。
   将来この判断が覆って `coverage` に `state` を materialize した瞬間、
@@ -616,7 +616,7 @@
 
 ## R28. 記録の論理削除が稼働記録に届かない
 
-- 成果物: `crates/server/src/lib.rs` / `migrations/0005_coverage_rebuild.sql`
+- 成果物: `crates/server/src/lib.rs` / `migrations/202609111111_coverage_rebuild.sql`
 - 根拠: `silent-failure-hunter` の M-5。ある日の記録を全件論理削除しても
   `core.coverage.event_count` は減らないので、画面はその日を①「記録あり」のまま出し、
   `/events` には 1 件も出ない。

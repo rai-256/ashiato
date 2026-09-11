@@ -26,7 +26,7 @@
 
 ## 3. 書き換え禁止を DB で強制する
 
-- [x] 3.1 `migrations/0002_immutable_collected.sql` を書く。`core.event` の `BEFORE UPDATE` トリガで
+- [x] 3.1 `migrations/202609082001_immutable_collected.sql` を書く。`core.event` の `BEFORE UPDATE` トリガで
       `origin = 'collected'` の行の `raw` / `payload` / `event_time` の変更を拒否する
 - [x] 3.2 `deleted_at` / `deleted_by` の更新は通ることをテストで確認する（論理削除を壊さない）
 - [x] 3.3 **わざと UPDATE を投げて落ちることを確認する** ——
@@ -145,7 +145,7 @@ CI は APK のビルドと単体（52 件）までしか見ない（design の R
 
 ### 原文を `text` で保存する（deep.md 第 2 回。**先にこれをやる —— 鍵の値が変わる**）
 
-- [x] 9.1 `migrations/0003_raw_text.sql` を書き、`core.event.raw` を `jsonb` から `text` にする。
+- [x] 9.1 `migrations/202609092315_raw_text.sql` を書き、`core.event.raw` を `jsonb` から `text` にする。
       `./tools/check-migrations.sh` が rc=0 で通ることを確認する
 - [x] 9.2 `IngestRequest.raw` を文字列で受け、**`content_hash` の入力を受け取った原文の文字列そのもの**
       にする。`hash_is_pinned` の期待値を**独立に再計算して**差し替える
@@ -212,7 +212,7 @@ CI は APK のビルドと単体（52 件）までしか見ない（design の R
 - [x] 10.2 格納の前に断るものを `IngestRequest::validate()` に集約する（design D19）。
       空の原文・U+0000・「収集した」記録の端末識別子。
       検証: `cargo test --workspace` rc=0（18 件）/ smoke 手順 20b・20c
-- [x] 10.3 由来を経由した迂回を塞ぐ（design D21 / `migrations/0004_immutable_origin.sql`）。
+- [x] 10.3 由来を経由した迂回を塞ぐ（design D21 / `migrations/202609100000_immutable_origin.sql`）。
       検証: `./tools/check-immutable.sh` rc=0。**0004 を no-op にすると 4 行が NG になる**
 - [x] 10.4 未送信の置き場を JSONL 追記にし、退避先に時刻を付け、成否を返す（design D22）。
       検証: `OutboxStoreTest` 13 件 rc=0

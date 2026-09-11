@@ -1,5 +1,5 @@
 -- 0003 原文を text で保存する（深掘り 第 2 回 / FR-18 / specs record-envelope）
--- 前進のみ。戻し手順は migrations/0003_raw_text.down.sql に置く。
+-- 前進のみ。戻し手順は migrations/202609092315_raw_text.down.sql に置く。
 --
 -- **`jsonb` は原文を保たない。** 0001 で原文を `jsonb` にしたが、この型は
 -- 「受け取ったもの」ではなく「**構造として同じもの**」を保存する。実測:

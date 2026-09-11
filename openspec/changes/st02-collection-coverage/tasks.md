@@ -1,8 +1,8 @@
 ## 1. 表の作り直し（他より先。ここが動くと全部が動く）
 
-- [x] 1.1 `migrations/0005_coverage_rebuild.sql` を書く。`core.coverage` を
+- [x] 1.1 `migrations/202609111111_coverage_rebuild.sql` を書く。`core.coverage` を
       `(user_id, logical_source, day, event_count)` に作り直し、`state` 列を落とす（design D2）。
-      戻し手順を `0005_coverage_rebuild.down.sql` に置き、**列の削除を含むので `不可逆` と明記する**。
+      戻し手順を `202609111111_coverage_rebuild.down.sql` に置き、**列の削除を含むので `不可逆` と明記する**。
       検証: `./tools/check-migrations.sh` が rc=0（明記が無いと落ちる）
 - [x] 1.2 同じ版で `core.heartbeat` を作る（design D3）。`raw` は **`text`**、
       `received_at` は `timestamptz`、`(logical_source, content_hash)` に一意索引。
@@ -76,7 +76,7 @@
 
 ## 4. 生存信号の保護（DB 側で強制する）
 
-- [x] 4.1 `migrations/0006_immutable_heartbeat.sql` で
+- [x] 4.1 `migrations/202609111112_immutable_heartbeat.sql` で
       `core.reject_heartbeat_rewrite()` を書き、`BEFORE UPDATE ON core.heartbeat` に置く。
       **全列の更新を拒む**（design D4。論理削除の例外を作らない）。
       検証: `./tools/check-migrations.sh` が rc=0
@@ -298,7 +298,7 @@
 > （前にしか動かない）ので、**一度 1999 年に落ちると正しい日を送り直しても戻らない**。
 > 外す条件を足すだけでは、既に汚れた行が残る。**引き直す移行が要る。**
 
-- [x] 12.1 `migrations/0007_source_lifecycle.sql` で `collection_started_on` を**引き直す** ——
+- [x] 12.1 `migrations/202609112113_source_lifecycle.sql` で `collection_started_on` を**引き直す** ——
       `core.event` と `core.heartbeat` のうち `registered_at` の日以降のものだけから
       `min()` を取る。1 件も無いソースは `NULL` に戻す。
       検証: 1999 年の信号を入れてから移行を当て直し、`collection_started_on` が
@@ -336,11 +336,11 @@
 （`openspec/changes/st03-idempotent-ingest/design.md` D7 の表）。
 ST03 は `external_id_kind` だけを作る。
 
-- [x] 14.1 `migrations/0007_source_lifecycle.sql` に `retired_on date` と
+- [x] 14.1 `migrations/202609112113_source_lifecycle.sql` に `retired_on date` と
       `succeeds text REFERENCES core.source(logical_source)` を足す。
       **`retired_on` は真偽値にしない**（ST03 R56。真偽値だと退役より前の本物の途絶が遡って消える）。
       検証: `\d core.source` に 2 列が出て、移行を当て直しても壊れない（`cargo test --workspace`）
-- [x] 14.2 `migrations/0007_source_lifecycle.down.sql`（**不可逆**と明記）。
+- [x] 14.2 `migrations/202609112113_source_lifecycle.down.sql`（**不可逆**と明記）。
       検証: `./tools/check-migrations.sh` が rc=0
 
 ## 15. ST03 から差し戻された 5 件 と 第 8 回 Q31

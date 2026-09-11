@@ -1532,7 +1532,7 @@ async fn clock_skew_does_not_move_started_on() {
 /// 2 つの表に強い錠を掛け、並んで走っている記録の挿入と deadlock する（実測 40P01）。
 /// **逐語は本物のまま**なので、閾値をファイルから消せばこの検査が落ちる。
 fn repair_sql() -> &'static str {
-    const SRC: &str = include_str!("../../../../migrations/0007_source_lifecycle.sql");
+    const SRC: &str = include_str!("../../../../migrations/202609112113_source_lifecycle.sql");
     let from = SRC.find("-- REPAIR-BEGIN").expect("印 REPAIR-BEGIN が無い");
     let to = SRC.find("-- REPAIR-END").expect("印 REPAIR-END が無い");
     &SRC[from..to]

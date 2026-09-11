@@ -210,7 +210,7 @@
 - 処置: fixed 17.10
 ## R6. 移行 0007 の閾値（第 8 回 Q29 の本体）を消しても検査は通る
 
-- 成果物: `migrations/0007_source_lifecycle.sql:62-75` / `crates/server/src/coverage/tests.rs` の `migration_repairs_polluted_started_on` / `specs/collection-coverage/spec.md:261`
+- 成果物: `migrations/202609112113_source_lifecycle.sql:62-75` / `crates/server/src/coverage/tests.rs` の `migration_repairs_polluted_started_on` / `specs/collection-coverage/spec.md:261`
 - 根拠: HEAD の複製で、引き直しの UPDATE から
   `AND (e.event_time AT TIME ZONE 'Asia/Tokyo')::date >= (src.registered_at …)::date` と
   生存信号側の同じ 2 行を削って `cargo test --lib migration_repairs_polluted_started_on`
@@ -255,7 +255,7 @@
 - 処置: escalated
 ## R9. 状態の出どころを `core.coverage` から `core.event` に移したが、索引が無い（Seq Scan）
 
-- 成果物: `crates/server/src/coverage.rs:385,527` / `migrations/0001_envelope.sql:37-40`
+- 成果物: `crates/server/src/coverage.rs:385,527` / `migrations/202609081618_envelope.sql:37-40`
 - 根拠: 共有 DB（`ashiato2-db-1`）で新しい問い合わせを `EXPLAIN (ANALYZE, BUFFERS)`:
 
   ```
@@ -305,7 +305,7 @@
 - 根拠: `docker stop ashiato2-db-1` のうえで 2 回走らせた。
 
   ```
-  1 回目 rc=7  Error: マイグレーション 0002_immutable_collected の適用に失敗
+  1 回目 rc=7  Error: マイグレーション 202609082001_immutable_collected の適用に失敗
                duplicate key value violates unique constraint "pg_proc_proname_args_nsp_index"
   2 回目 rc=1  == 6. 取り出す → 842 件 / 「1 件のはずが 842 件」
   ```
@@ -328,7 +328,7 @@
 - 処置: escalated
 ## R12. 引き継ぎの鎖は輪にできる。回り続けはしないが、32 段を超えると黙って根に届かない
 
-- 成果物: `migrations/0007_source_lifecycle.sql:36-46` / `crates/server/src/coverage.rs:237,248-258,293-312`
+- 成果物: `migrations/202609112113_source_lifecycle.sql:36-46` / `crates/server/src/coverage.rs:237,248-258,293-312`
 - 根拠: 複製で実測。`A.succeeds = NULL` → `B.succeeds = A` → `UPDATE A SET succeeds = B` が
   **エラーにならず通る**（`PROBE-H3 輪を作れたか: Ok(1)`）。CHECK は
   `succeeds IS DISTINCT FROM logical_source` だけなので 2 本以上の輪は塞げない（移行のコメントも
@@ -342,9 +342,9 @@
 ## R13. `deep.md` の Q31「列そのものは ST03 が作る」が実装と食い違ったまま残っている
 
 - 成果物: `openspec/changes/st02-collection-coverage/deep.md`（第 8 回 Q31 の「効く先」）/
-  `openspec/changes/st02-collection-coverage/design.md` の D32 / `migrations/0007_source_lifecycle.sql`
+  `openspec/changes/st02-collection-coverage/design.md` の D32 / `migrations/202609112113_source_lifecycle.sql`
 - 根拠: `deep.md` の Q31 は「**列そのものは ST03 が `record-envelope` 側で作る**（FR-61）」と書いている。
-  実装は `migrations/0007_source_lifecycle.sql` で **ST02 が** `retired_on` / `succeeds` を作り、
+  実装は `migrations/202609112113_source_lifecycle.sql` で **ST02 が** `retired_on` / `succeeds` を作り、
   design D32 と tasks 14 で「2026-09-11 の判断」として覆している（ST03 design D7 が根拠）。
   この commit は `deep.md` のその行を触っていない（`git show 351fb98 -- …/deep.md` の変更は
   第 8 回の見出しと未回答の印だけ）。

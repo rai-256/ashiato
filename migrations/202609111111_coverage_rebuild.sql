@@ -1,5 +1,5 @@
 -- 0005 稼働記録の作り直しと、生存信号・停止/破棄の範囲・収集開始日（ST02 / design D2, D3, D5, D8）
--- 前進のみ。戻し手順は migrations/0005_coverage_rebuild.down.sql に置く（**不可逆**）。
+-- 前進のみ。戻し手順は migrations/202609111111_coverage_rebuild.down.sql に置く（**不可逆**）。
 --
 -- **作り直す理由**: 0001 の core.coverage は (logical_source, day, state) が主キーで、
 -- state が ('alive','stopped','dropped') の 3 値。ST02 が要る 7 状態も、

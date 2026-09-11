@@ -13,19 +13,19 @@ psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d as
 
 echo "== DB を起動してマイグレーションを当てる"
 docker compose up -d --wait db >/dev/null
-psql < migrations/0001_envelope.sql >/dev/null
-psql < migrations/0002_immutable_collected.sql >/dev/null
-psql < migrations/0003_raw_text.sql >/dev/null
-psql < migrations/0004_immutable_origin.sql >/dev/null
-psql < migrations/0005_coverage_rebuild.sql >/dev/null
-psql < migrations/0006_immutable_heartbeat.sql >/dev/null
+psql < migrations/202609081618_envelope.sql >/dev/null
+psql < migrations/202609082001_immutable_collected.sql >/dev/null
+psql < migrations/202609092315_raw_text.sql >/dev/null
+psql < migrations/202609100000_immutable_origin.sql >/dev/null
+psql < migrations/202609111111_coverage_rebuild.sql >/dev/null
+psql < migrations/202609111112_immutable_heartbeat.sql >/dev/null
 
 # **2 回当てても壊れないことを、ここで確かめる**（review R12）。
 # run() は起動のたびに全版を当てるので、当て直しが安全でないと 2 回目の起動で落ちる。
 # 0003 は「型が text なら何もしない」分岐を持っているが、その分岐を通る検査がどこにも無かった。
 echo "== もう一度当てる（run() は起動のたびに全版を当てる）"
-for m in 0001_envelope 0002_immutable_collected 0003_raw_text 0004_immutable_origin \
-         0005_coverage_rebuild 0006_immutable_heartbeat; do
+for m in 202609081618_envelope 202609082001_immutable_collected 202609092315_raw_text 202609100000_immutable_origin \
+         202609111111_coverage_rebuild 202609111112_immutable_heartbeat; do
   psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m の 2 回目が落ちた"; exit 1; }
 done
 echo "  OK 6 版とも当て直せる"
@@ -38,7 +38,7 @@ psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec
 psql -c "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
          VALUES ('00000000-0000-0000-0000-000000000000','rebuild-check','2026-05-01',7)
          ON CONFLICT DO NOTHING;" >/dev/null
-psql < migrations/0005_coverage_rebuild.sql >/dev/null
+psql < migrations/202609111111_coverage_rebuild.sql >/dev/null
 kept=$(psql -c "SELECT count(*) FROM core.coverage WHERE logical_source = 'rebuild-check';")
 [ "$kept" = "1" ] || { echo "  NG 0005 の当て直しで稼働記録が消えた"; exit 1; }
 echo "  OK 0005 を当て直しても稼働記録は消えない"

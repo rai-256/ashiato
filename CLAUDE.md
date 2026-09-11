@@ -136,8 +136,8 @@ git config core.hooksPath .githooks
 docs/st<NN>-upstream を切る
 openspec: proposal → specs
         → design → tasks
-PR → CI 緑 → merge
-gh issue create（tasks.md を本文に）
+PR + issue（issue_body.py。merge を待たない）
+merge_gate → CI 緑 → merge
                             ────→  git worktree add ../st<NN> feat/st<NN>-<slug>
 次の Story の上流へ                    別セッションで実装
 （proposal まで。specs は                openspec apply
@@ -152,8 +152,12 @@ scripts/upstream.sh ST02       # 上流: main の作業ツリーで docs/st02-up
 scripts/story.sh ST01          # 下流: worktree を用意して、その中で起動
 ```
 
-`/story-upstream` は **ブリーフ → deep → proposal → specs → design → tasks → PR →（merge 後）issue**。
-`/story` は **issue と deep.md を読む → tasks を順に → PR**。どちらも停止点は merge。
+`/story-upstream` は **ブリーフ →（画面があれば proto）→ deep → proposal → specs → design → tasks → PR + issue**。
+`/story` は **issue と deep.md と handoff を読む → tasks を順に → PR**。どちらも停止点は merge。
+**issue は PR と同時に作る**（`scripts/issue_body.py` が本文を機械的に出し、`merge_gate.sh` が貼り直す）。
+merge の後に作る規則だと、上流のセッションは PR で止まるので作る係がいなくなる
+（実測: ST02 は merge から issue まで 10 時間空いた）。**merge_gate が OK のとき「次の 1 手」を印字する**
+（上流なら `scripts/story.sh` と次の `scripts/upstream.sh`、下流なら `scripts/archive.sh`）。
 
 深掘りの前に **Story ブリーフ**を出す。人間が「この Story は何か」を知らないまま
 一方通行の判断を求められる状態を避けるため。
@@ -188,12 +192,23 @@ Q2 [感度の既定] -> (未回答)
 - **一覧にする理由**: 1 問ずつだと前の問いの文脈を抱えたまま次を読むことになり、
   長い深掘りほど答えが雑になる
 - **サーバを立てない理由**: PC のセッションをスマホから見ることが多く、`localhost` は届かない
-- 各問いに `kind`（`irreversible` / `conflict` / `daily` / `open` / `premise`）を付ける。
+- 各問いに `kind`（`irreversible` / `conflict` / `daily` / `premise` / `visual` / `open`）を付ける。
   **分類できない問いは、たいてい人間に聞く必要が無い**。
-  `premise` は「**既に決めたことの根拠が事実と違っていた**」—— `review_triage.py` が
-  人間に返すものとして扱う 4 つの 1 つで、実際に問いとしても立つ
-  （実測: ST02 第 8 回 Q30、ST03 第 2 回の 7 件）。**2026-09-11 に追加。**
-  それまで `ask_wizard.py` の KIND に無く、**黙って「未決」として描かれていた**
+  `premise` は「**既に決めたことの根拠が事実と違っていた**」（実測: ST02 第 8 回 Q30、ST03 第 2 回の 7 件）
+- **問いは 2 段。判定の言葉は「後から答えを変えたら何が失われるか」**（2026-09-12。ST02 / ST03 の振り返り）
+  - **A 止める** —— `loss` を持つ問い（`uncaptured` 取っていないデータ / `discarded` 捨てた・拒んだ /
+    `exported` 外に出た / `rewrite-all` 凍結した全行の書き直し）と `premise` / `visual`。未回答なら merge_gate が止める
+  - **B 仮でよい** —— 計算し直せば戻る（判定式・閾値・順序・表示・導出の規則）。推奨を既定にし、
+    未回答なら推奨を採ったと読む。下流では AI が仮で決め、`design.md` に `D<n>（仮）` と反転条件を書き、
+    PR 本文に列挙する。人間は merge のときに 1 回で見る
+  - **C 聞かない** —— 片方の選択肢が扉を開けたままにし、費用が小さいもの。「扉を開けたままにする既定」
+    （細かい粒度で持つ / 列を持つ / 鍵でなく索引 / 台帳は追記のみ / 捨てるより印を付けて入れる /
+    既定は厳しい側）を当てて D 番号に残すだけ
+  - `kind: irreversible` は **`loss` が必須**。名付けられない不可逆は不可逆ではない
+    （実測: ST02 の「不可逆」14 問のうち、失われるものがあったのは 4 問）
+- **画面の構造は文字で問わない。** 画面を持つ Story（ブリーフの「面」）は問いより先に
+  `docs/briefs/ST<NN>-proto.html` を `playground` skill で作り、問いは `kind: visual` + `proto` で
+  その HTML を埋め込む（実測: ST02 は格子だけで 8 問・6 回を使い、2 問は絵があれば要らなかった）
 
 **上流は先行 Story が merge されるまで `deep` と `proposal` で止まる。** 機械的に
 書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
@@ -229,3 +244,13 @@ CI が落ちたら自分で直す。それ以外は推奨 default を採って�
 例外が 1 つ。**`deep.md` に人間へ返す項目が積まれたときは `--draft` で PR を出す**
 （本文の冒頭に未決を列挙する）。未決でも**作業は捨てない** —— 手元に抱えたまま止まると、
 次のセッションが状況を復元できない。
+
+**走っている Story へは差し戻さない**（2026-09-12）。issue ができた時点でその Story の `tasks.md` は凍結。
+他の Story が見つけた事は、見つけた側の change で直すか、先行の merge 後に `fix/` で拾う
+（`docs/handoff/ST<NN>.md` に書き、`処置: followup ST<NN>`）。例外は失われるもの（A）だけで、
+それは tasks ではなく先行 Story の deep の問いとして立てる。下流が handoff を読むのは開始時と PR 前の 2 回。
+`review_triage.py` は凍結された Story への `deferred` を FAIL にする。
+実測: ST03 の上流が ST02 の下流に 5 件を差し戻し、12 時間で 5 往復した。
+
+**移行の名前は作成時刻**（`YYYYMMDDHHMM_<slug>.sql`。連番にしない —— 並走する Story が番号を取り合う）。
+`tools/check-migrations.sh` が形を見る。適用の順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列。

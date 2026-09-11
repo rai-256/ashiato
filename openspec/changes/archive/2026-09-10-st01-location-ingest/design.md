@@ -4,7 +4,7 @@
 
 | 在るもの | 場所 |
 |---|---|
-| エンベロープの表と登録簿・稼働記録 | `migrations/0001_envelope.sql` |
+| エンベロープの表と登録簿・稼働記録 | `migrations/202609081618_envelope.sql` |
 | 取り込み口・読み出し口・資格情報の検査 | `crates/server/src/lib.rs` |
 | 送信の形と冪等キー | `crates/server/src/ingest.rs` / `docs/collector-contract.md` |
 | Android のビルド（**位置取得は無い**） | `collector-android/` |

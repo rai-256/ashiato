@@ -31,7 +31,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
   **FR-22 × FR-31 が一覧に無い** → R2。FR-17（過去のエクスポートの重複検出）は
   同じ出来事が別の原文で届く経路だが、ST03 の `satisfies` に無いので問わないと判断した。
 - **手順 2（扉の幅）**: 扉 #12 は「持つ」としか決めていないのに、実装は
-  `event_dedup_ext` で「ソース内で一意」まで踏み込んでいる（`migrations/0001_envelope.sql:37-38`）。
+  `event_dedup_ext` で「ソース内で一意」まで踏み込んでいる（`migrations/202609081618_envelope.sql:37-38`）。
   幅は 2 方向あり、片方（同じ識別子・違う内容）は Q1、**もう片方（同じ内容・違う識別子）が
   一覧に無い** → R1。扉 #7 / #9 の幅は Q1 / Q2 が拾っている。
 - **手順 3（新たに立つ一方通行）**: 鍵の入力（Q2）、更新で失われる前の版（Q1）、
@@ -59,7 +59,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
 ## R1. 「同じ内容・違う外部識別子」で 2 件目が黙って消える —— 鍵が 2 本あるときの優先順位が問われていない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions.json
-- 根拠: 実験 4（`INSERT 0 0`。残った行の `external_id` は先着の `ext-1` のまま）/ migrations/0001_envelope.sql:37-40（索引が 2 本ある）/ crates/server/src/lib.rs:190（仲裁は `content_hash` の索引だけ）/ docs/requirements.md:663-666（扉 #12「これが無いと同一物の更新を追えない」）
+- 根拠: 実験 4（`INSERT 0 0`。残った行の `external_id` は先着の `ext-1` のまま）/ migrations/202609081618_envelope.sql:37-40（索引が 2 本ある）/ crates/server/src/lib.rs:190（仲裁は `content_hash` の索引だけ）/ docs/requirements.md:663-666（扉 #12「これが無いと同一物の更新を追えない」）
 - kind: irreversible
 - 処置: escalated — Q6。「同じ内容・違う外部識別子」を新しい問いとして立てた（どちらの鍵を正とするか。3 択）。Q1 の逆向きであることを両方の context に書いた
 - 提案: Q1 は「外部識別子が同じ・内容が違う」向きだけを問うている。逆向き（内容が同じ・外部識別子が違う。外部サービスが識別子を振り直す / 同じ内容を 2 件出す）を 1 問足すか、Q1 の question を両方向にして選択肢に「どちらの鍵を正とするか」を入れる。いまの振る舞いは 2 件目が受理として捨てられ、生き残った行は古い外部識別子を持つので、扉 #12 の目的（同一物の更新を追う）がその行だけ失われる。
@@ -75,7 +75,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
 ## R3. 「更新する」を選んでも、更新した事実と時刻がどこにも残らない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions.json
-- 根拠: docs/requirements.md:125-126（FR-19 は「起きた時刻」と「入った時刻」の 2 本だけ）/ migrations/0001_envelope.sql:14-35（`updated_at` に相当する列は無い）/ migrations/0004_immutable_origin.sql（`ingest_time` も凍結対象）/ 実験 5
+- 根拠: docs/requirements.md:125-126（FR-19 は「起きた時刻」と「入った時刻」の 2 本だけ）/ migrations/202609081618_envelope.sql:14-35（`updated_at` に相当する列は無い）/ migrations/202609100000_immutable_origin.sql（`ingest_time` も凍結対象）/ 実験 5
 - kind: irreversible
 - 処置: escalated — Q1。context に「更新された時刻を持つ欄が無く、入った時刻は 0004 が凍結している」を足し、選択肢 1 に「履歴が時刻を持つので自動的に満たす」、選択肢 2 の irreversible に「更新した事実と時刻も残らない」を書いた
 - 提案: Q1 の選択肢 1・2 の `irreversible` に「更新した事実と時刻を残す列はいま無い」を足す。列は後から足せるが、**足す前に起きた更新の時刻は復元できない**（型・列は製造準備で決まっていて、論点に挙がらないまま固まる筋 —— `raw` を `jsonb` にしていたのと同じ形）。選択肢 1（履歴を別に残す）だけはこれを自動的に満たす、という違いが本人に見えていない。
@@ -91,7 +91,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
 ## R5. Q2 の why「変えられるのは今だけ」は言い過ぎ —— 原文が残っているので鍵は当て直せる
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions.json
-- 根拠: migrations/0001_envelope.sql:31 + 0003_raw_text.sql（`raw` は `text` で全行に残る）→ 保存済みの全行について新しい鍵を再計算できる / ただし migrations/0004_immutable_origin.sql が `content_hash` を凍結しており、実験 5 のとおり UPDATE は `RAISE` で落ちる（＝再計算にはトリガを外す移行が要る）
+- 根拠: migrations/202609081618_envelope.sql:31 + 202609092315_raw_text.sql（`raw` は `text` で全行に残る）→ 保存済みの全行について新しい鍵を再計算できる / ただし migrations/202609100000_immutable_origin.sql が `content_hash` を凍結しており、実験 5 のとおり UPDATE は `RAISE` で落ちる（＝再計算にはトリガを外す移行が要る）
 - kind: premise
 - 処置: fixed deep-questions.json — Q2 の why から「変えられるのは今だけ」を外し、「原文が残っているので計算し直せるが、凍結を外す移行が要る」に直した
 - 提案: 「1 年動かしてから変えると過去分と新規分が別物になる」は正しいが、「変えられるのは実装が始まる前の今だけ」は誤り。正確には**移行でトリガを外して全行を再計算する手順が要る**（原文があるので値は作れる）。不可逆の度合いが違うと、本人が選択肢 2（いまのまま）を選ぶ動機が変わる。context を直すか、選択肢に「後から当て直す移行を書く」を足す。
@@ -99,7 +99,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
 ## R6. Q2 の context が索引を 1 本しか挙げていない。別利用者の同一内容は今日すでに黙って消える
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions.json
-- 根拠: migrations/0001_envelope.sql:37-40（索引は `event_dedup_hash` と `event_dedup_ext` の 2 本。**どちらも `user_id` を含まない**）/ 実験 3（別 `user_id`・同じ内容 → `INSERT 0 0`）/ crates/server/src/lib.rs:230-233（その場合の応答は `accepted: true` / `duplicate: true`）
+- 根拠: migrations/202609081618_envelope.sql:37-40（索引は `event_dedup_hash` と `event_dedup_ext` の 2 本。**どちらも `user_id` を含まない**）/ 実験 3（別 `user_id`・同じ内容 → `INSERT 0 0`）/ crates/server/src/lib.rs:230-233（その場合の応答は `accepted: true` / `duplicate: true`）
 - kind: premise
 - 処置: fixed deep-questions.json — Q2 の context を索引 2 本ぶんに直し、「別の利用者が同じ内容を送ると 1 行に畳まれ、受理として返る」を実測として足した
 - 提案: context の「索引も (論理ソース, 冪等キー) で、利用者を含みません」を 2 本ぶんに直し、「いまは別利用者の同じ内容が黙って畳まれ、受理として返る」を足す。選択肢 1（利用者識別子を足す）を選んだとき `event_dedup_ext` も直すのかがこのままでは決まらず、穴が半分残る。
@@ -123,7 +123,7 @@ DB には触っていない）に当て、`ingest_one` が撃つのと同じ SQL
 ## R9. Q3 選択肢 3・Q4 選択肢 2 の「稼働記録に残す」は、置き場が無くなる
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions.json
-- 根拠: openspec/changes/st02-collection-coverage/design.md D2（`core.coverage` を `(user_id, logical_source, day, event_count)` に作り直し、**`state` を落とす**。`note` 列も残らない）/ migrations/0001_envelope.sql:44-51（いまの `note` 列）/ ST02 tasks 1.1（`0005_coverage_rebuild.sql`）
+- 根拠: openspec/changes/st02-collection-coverage/design.md D2（`core.coverage` を `(user_id, logical_source, day, event_count)` に作り直し、**`state` を落とす**。`note` 列も残らない）/ migrations/202609081618_envelope.sql:44-51（いまの `note` 列）/ ST02 tasks 1.1（`202609111111_coverage_rebuild.sql`）
 - kind: premise
 - 処置: fixed deep-questions.json — Q3 選択肢 3 と Q4 選択肢 2 を「跡を書く場所はいま決まっていない（ST02 が稼働記録を件数だけの表に作り直す）。別の表かログを新しく用意することになる」に書き直した
 - 提案: 両方の選択肢の context に「ST02 が稼働記録を件数だけの表に作り直すので、跡を書く欄はいま無い」と書くか、選択肢を「別の跡（ログ、または別表）に残す」と言い換える。いまの文面だと、本人は「1 行足すだけ」に見える選択肢を選ぶことになる。

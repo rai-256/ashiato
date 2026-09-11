@@ -51,7 +51,7 @@
 ## R14. Q1 の「既存行を書き換える」は、0004 の凍結を開けないと 1 行も動かない —— 何をどこまで開けるかが問われていない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r2.json
-- 根拠: 実験 A（`UPDATE core.event SET raw=…, content_hash=…` が `RAISE` で落ちる）/ migrations/0004_immutable_origin.sql:30-40（`raw` `payload` `event_time` `content_hash` `ingest_time` と `origin` を凍結）/ migrations/0002_immutable_collected.sql:4-7（DB 側に置いた理由は「第三者製プラグイン（PERM-8）や psql を直に叩く運用が素通りする」）/ docs/requirements.md:142（FR-30）/ 同 :646-649（扉 #7）
+- 根拠: 実験 A（`UPDATE core.event SET raw=…, content_hash=…` が `RAISE` で落ちる）/ migrations/202609100000_immutable_origin.sql:30-40（`raw` `payload` `event_time` `content_hash` `ingest_time` と `origin` を凍結）/ migrations/202609082001_immutable_collected.sql:4-7（DB 側に置いた理由は「第三者製プラグイン（PERM-8）や psql を直に叩く運用が素通りする」）/ docs/requirements.md:142（FR-30）/ 同 :646-649（扉 #7）
 - kind: conflict
 - 処置: escalated — Q10。凍結をどの幅で開けるかを 1 問にした（履歴を書いたときだけ許す / 取り込み口だけ許す / やめる）。0002 が塞いだ 3 手の迂回を why に書いた
 - 提案: 1 問足す。「収集した記録の書き換えを DB が拒む仕掛け（0002 / 0004）を、どの幅で開けるか」——(a) 取り込み経路だけに許す（`SECURITY DEFINER` の関数など、psql からの直接 UPDATE は拒んだまま）/ (b) 同じトランザクションで履歴行が書かれたときだけ許す / (c) 凍結をやめる。Q1 の `why` は「いまのコードで更新しようとすると例外で落ちます」と**現象**は書いたが、**その例外を何のために置いたか**（3 手の迂回を塞ぐため）と、どこまで開けるかは問うていない。(c) を選ぶと 0004 の前の状態に戻り、原文の不変が再び 3 手で迂回できる。
@@ -67,7 +67,7 @@
 ## R16. Q1 の履歴は本文の複製を 2 か所目に作る —— 物理削除（FR-51 / ST23）と感度が履歴に及ぶかが問われていない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r2.json
-- 根拠: docs/requirements.md:266-267（FR-51「対象の本文を消去し」）/ docs/stories/ST23.md:4,35（ST23 が FR-51 を持ち、壊してはいけないものに ST03 を挙げている）/ migrations/0001_envelope.sql:29-31（`sensitivity` は `core.event` の列。履歴表を作れば同じ列が要る）/ 同 :14（FR-29 は全テーブルに `user_id`）/ Q1 選択肢 1 の detail は代償として**容量しか挙げていない**
+- 根拠: docs/requirements.md:266-267（FR-51「対象の本文を消去し」）/ docs/stories/ST23.md:4,35（ST23 が FR-51 を持ち、壊してはいけないものに ST03 を挙げている）/ migrations/202609081618_envelope.sql:29-31（`sensitivity` は `core.event` の列。履歴表を作れば同じ列が要る）/ 同 :14（FR-29 は全テーブルに `user_id`）/ Q1 選択肢 1 の detail は代償として**容量しか挙げていない**
 - kind: irreversible
 - 処置: escalated — Q12。履歴の本文を物理削除（FR-51）・論理削除（FR-50）・感度（PERM-2）の対象に含めるかを 1 問にした。Q1 の代償が容量だけではないことを why に書いた
 - 提案: Q1 の答えの帰結として 1 問足すか、少なくとも ST03 の specs に書く。「履歴表に残した前の版の本文は、物理削除（FR-51）・論理削除（FR-50）・感度（PERM-2）の対象に含めるか」。含めないまま積むと、**本人が「本文ごと消した」記録の原文が履歴に残り続ける**。ST23 は ST03 より後なので、ここで決めておかないと ST23 は履歴表の存在を知らないまま作られる。
@@ -75,7 +75,7 @@
 ## R17. 外部識別子が「記録ごと」か「対象ごと」かを誰も保証していない —— Q9 の `why` は危険な例を安全な例として挙げている
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r2.json
-- 根拠: 実験 B（同じ `external_id` の 2 件目は `event_dedup_ext` で落ちる。Q1 の答えの下では**落ちずに 1 件目を上書きする**）/ migrations/0001_envelope.sql:37-38（一意索引は `(logical_source, external_id)`。粒度の検査はどこにも無い）/ crates/server/src/ingest.rs:71-87（`validate` は `external_id` を一切見ない）/ Q9 の `why`:「YouTube の視聴履歴には**動画の識別子**があります」
+- 根拠: 実験 B（同じ `external_id` の 2 件目は `event_dedup_ext` で落ちる。Q1 の答えの下では**落ちずに 1 件目を上書きする**）/ migrations/202609081618_envelope.sql:37-38（一意索引は `(logical_source, external_id)`。粒度の検査はどこにも無い）/ crates/server/src/ingest.rs:71-87（`validate` は `external_id` を一切見ない）/ Q9 の `why`:「YouTube の視聴履歴には**動画の識別子**があります」
 - kind: irreversible
 - 処置: escalated — Q13。外部識別子の粒度を誰が保証するかを 1 問にした。Q9 の why から動画 id の例を外し、Q13 の why で「対象の識別子であって記録の識別子ではない」危険な例として使い直した
 - 提案: Q9 の `why` が「識別子がある側」の例に挙げた動画 id は、**記録（視聴 1 回）ではなく対象（動画）の識別子**で、同じ動画を 2 回見た記録は 1 行に畳まれる（Q1 の答えでは古い版が上書きされる）。逆に、取り込みのたびに振り直される識別子（書庫内の行番号など）だと ST12 の「同じ書庫を 2 回置いても増えない」が崩れる。**どちらも黙って起きる。** 問いを 1 つ足すか、Q9 の例を差し替えたうえで「ソースを登録するとき、その識別子が記録ごとに一意であることを誰が保証するか」を論点に立てる。
@@ -99,7 +99,7 @@
 ## R20. 登録簿の「印」は列も既定値も無い。付け忘れたときにどちらへ倒れるかが決まっていない
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r2.json
-- 根拠: migrations/0001_envelope.sql:6-11（`core.source` は 4 列。印に当たる列は無い）/ openspec/changes/st02-collection-coverage/design.md:111-112（ST02 が `user_id` と `collection_started_on` を足す。印は無い）/ ソースの登録は**手書きの INSERT が 5 か所**（tools/seed.sh:24 / tools/smoke.sh:30,108 / tools/check-immutable.sh:31 / collector-android/README.md:44）/ docs/requirements.md:313-314（FR-61）/ 同 :677-680（扉 #15「既定は厳しい側に寄せる。緩く始めて締めると、締める前に外へ出た分が戻らない」）
+- 根拠: migrations/202609081618_envelope.sql:6-11（`core.source` は 4 列。印に当たる列は無い）/ openspec/changes/st02-collection-coverage/design.md:111-112（ST02 が `user_id` と `collection_started_on` を足す。印は無い）/ ソースの登録は**手書きの INSERT が 5 か所**（tools/seed.sh:24 / tools/smoke.sh:30,108 / tools/check-immutable.sh:31 / collector-android/README.md:44）/ docs/requirements.md:313-314（FR-61）/ 同 :677-680（扉 #15「既定は厳しい側に寄せる。緩く始めて締めると、締める前に外へ出た分が戻らない」）
 - kind: irreversible
 - 処置: escalated — Q16。印の既定値を 1 問にした。あわせて Q9 の why から「印そのものは確実です」を外し、登録が手書きの 1 行で 5 か所に散っていることを Q16 の why に書いた
 - 提案: Q9 の `why` は「印そのものは確実です。付け忘れ以外で外れることはありません」と本人の懸念を退けているが、**その付け忘れが唯一の失敗経路で、登録は手書きの 1 行が 5 か所にある**。既定を「印なし（通す）」に倒すと、付け忘れたソースの記録は識別子なしで入り、**後から足す手段が無い**（Q4 選択肢 2 の irreversible と同じ）。既定を「印あり（拒む）」に倒すと、忘れた瞬間に全部断られて気付く。この向きを 1 問にするか、少なくとも Q9 の `why` から「確実です」を外す。
@@ -115,7 +115,7 @@
 ## R22. Q9 選択肢 2 の代償「何件あるか判らない・跡が残らない」は誤り。1 文で数えられる
 
 - 成果物: openspec/changes/st03-idempotent-ingest/deep-questions-r2.json
-- 根拠: 実測 —— `SELECT logical_source, count(*) FILTER (WHERE external_id IS NULL), count(*) FROM core.event GROUP BY 1;` が動く（出力: `geo.android | 1 | 1`）/ migrations/0001_envelope.sql:17（`external_id` は nullable な列で、無いこと自体が跡）/ 同 :15（`logical_source` が行に載っているのでソース別に数えられる）
+- 根拠: 実測 —— `SELECT logical_source, count(*) FILTER (WHERE external_id IS NULL), count(*) FROM core.event GROUP BY 1;` が動く（出力: `geo.android | 1 | 1`）/ migrations/202609081618_envelope.sql:17（`external_id` は nullable な列で、無いこと自体が跡）/ 同 :15（`logical_source` が行に載っているのでソース別に数えられる）
 - kind: premise
 - 処置: escalated — Q9 選択肢 2 の「何件あるか判らない・跡が残らない」を削り、「件数はどちらを選んでも数えられる（前のターンの記述は誤り）」と本人へ訂正を書いた
 - 提案: 選択肢 2 の detail「**「任意」にしたソースの中では、識別子の無い記録が何件あるのか判らない**」と irreversible「後から数え直せない（跡が残らないため）」を削るか、正しく書き直す。**選択肢 1 の利点として挙げた「画面で数えられます」は、選択肢 2 でも同じように成り立つ**。いまの文面は、実際には無い差を代償として並べて推奨側に寄せている。

@@ -54,7 +54,7 @@
 - **当初の案**: 利用者識別子を足す
 - **本人の答え**: **利用者識別子を足す（索引 2 本と、ST02 の生存信号にも同じく足す）**
 - **効く先**: 索引 2 本に `user_id` を足す。**ST02 側は既に済んでいる**（レビュー R37 の訂正）——
-  実装ブランチの `0005_coverage_rebuild.sql:83` が既に `(user_id, logical_source, content_hash)` に
+  実装ブランチの `202609111111_coverage_rebuild.sql:83` が既に `(user_id, logical_source, content_hash)` に
   なっており、残るのは `st02/design.md:85` の文面だけ。**ST02 が 0005 と 0006 を使うので、
   ST03 の移行は 0007 から。**
   足す先が「鍵の中身」か「索引」かで可逆性が変わることがレビュー R19 で判明し、→ Q15 で確定
@@ -540,7 +540,7 @@ design / tasks への固定・要件と Story の文面・ST02 への差し戻�
 | 戻す先 | 何を | 指摘 |
 |---|---|---|
 | `specs/collection-coverage/spec.md` / `design.md` / `tasks.md` | 状態を **7 → 8**（「退役」）にし、(1)〜(8) のどこで見るかを決める | R55 / R56 |
-| `migrations/0005_coverage_rebuild.sql` の登録簿 | **`retired_on date`**（真偽値ではない） | R56 |
+| `migrations/202609111111_coverage_rebuild.sql` の登録簿 | **`retired_on date`**（真偽値ではない） | R56 |
 | `specs/collection-coverage/spec.md` の途絶と通知 | 退役したソースを対象から外す | R55 |
 | `design.md`（記録ありの判定） | 「① 記録あり」を `coverage.event_count > 0` ではなく `core.event` から引く —— **Q1 の更新で出来事の時刻が別の日へ動くと、記録の無い日が「記録あり」になる**（実測） | R57 |
 | `specs/collection-coverage/spec.md` の達成日 | 退役した日以降は NFR-13 の分母に入れない。**本人に問い直す価値あり**（R64 の申し送り） | R64 |

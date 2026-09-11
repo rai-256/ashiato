@@ -2,12 +2,12 @@
 
 ## Context
 
-現物は ST01 が作った取り込み経路（`crates/server/src/{lib.rs,ingest.rs}` と移行 0001〜0004）。
+現物は ST01 が作った取り込み経路（`crates/server/src/{lib.rs,ingest.rs}` と ST01 の 4 本の移行 `202609081618_envelope` 〜 `202609100000_immutable_origin`）。
 動機は `proposal.md`（Why）、本人が決めたことは `deep.md`、振る舞いは `specs/` を見ること。
 
 ここで押さえる前提は 3 つ。
 
-1. **移行は 0008 から。** ST02（merge 済み）が 0005 / 0006 / **0007**（`0007_source_lifecycle`。退役と引き継ぎの列）を使う
+1. **移行の名前は作成時刻 `YYYYMMDDHHMM_<slug>.sql`。連番ではない**（2026-09-12 に変えた —— ST02 と並走して 0007 を取り合い、番号をずらす PR が要った）。ST02（merge 済み）は `202609111111_coverage_rebuild` / `202609111112_immutable_heartbeat` / `202609112113_source_lifecycle`（退役と引き継ぎの列）まで使っている。適用の順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列が持つ
 2. **`collection-coverage` には触らない。** 退役の状態と途絶・通知の除外は ST02 の担当で、
    PR #20 にコメントで渡してある。ST03 が作るのは**登録簿の列だけ**（登録簿は `record-envelope`）
 3. **CI が「拒まれること」を検査している 4 列を、この change が開ける。**
@@ -71,14 +71,14 @@ Q10 / Q23 の門は**制約トリガ**で実装する（D4）。制約トリガ�
 本表は消せるのに履歴が消せない「消せない DB」が残る（R41 / R52）。
 
 ```sql
--- 0010 で 2 表とも txid を持って作る（この列は後付けではない）
+-- *_version_and_ledger の移行で 2 表とも txid を持って作る（この列は後付けではない）
 CREATE TABLE core.event_version (
   …, raw text NOT NULL, txid xid8 NOT NULL DEFAULT pg_current_xact_id()
 );
 CREATE TABLE core.erasure_ledger (
   …, txid xid8 NOT NULL DEFAULT pg_current_xact_id()
 );
--- 0011 で門を 2 本
+-- *_gates の移行で門を 2 本
 CREATE CONSTRAINT TRIGGER event_requires_version
   AFTER UPDATE ON core.event DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION core.require_version_or_ledger();
@@ -200,20 +200,21 @@ D5 の `DELETE` / `TRUNCATE`、D10 の 2 列、台帳の追記のみも同じ台
 - **台帳の件数を DB が検算しない**（実測: 台帳 1 行で 4 行消せた）→ 台帳の行と実際の消去の
   突き合わせは tasks の検査でやる。DB でやるには消去の対象を台帳に列挙させることになり、重い
 - **ST02 との衝突** → `docs/stories/stories.json` は両方が触る（別の Story の項目）。
-  ST03 が先に merge され、ST02 が rebase する順序で合意済み
+  merge の順序は約束しない —— `merge_gate.sh` が main に rebase するので、後から merge する側が追従する
+  （★ 2026-09-12 訂正。当初「ST03 が先に merge」と書いたが、実際は ST02 が先だった）
 
 ## Migration Plan
 
-**`0008` から**順に、**前進のみ**（戻し手順は `.down.sql`）。
-**ST02 が `0005` / `0006` / `0007`（`0007_source_lifecycle`。退役と引き継ぎの列）を使う。**
+5 本を順に、**前進のみ**（戻し手順は `.down.sql`）。名前は作成時刻 `YYYYMMDDHHMM_<slug>.sql`
+（連番ではない。ST02 が `202609112113_source_lifecycle` まで使っている）。順は `lib.rs` の `MIGRATIONS` 配列に足す順で決まる。
 
-1. `0008` 登録簿の **1 列**（`external_id_kind`。既定 `'record'`）＋ 既存 5 か所の端末ソースに `'none'`
-2. `0009` 記録の 2 列（`source_updated_at` / `external_ref`）
-3. `0010` 索引の作り替え（D1）
-4. `0011` 履歴表と消去の台帳（`raw` は `text`。追記のみのトリガ）
-5. `0012` 門のトリガ（D4）と、凍結列の追加・`DELETE` / `TRUNCATE` の錠（D5 / D10）
+1. `*_source_columns` 登録簿の **1 列**（`external_id_kind`。既定 `'record'`）＋ 既存 5 か所の端末ソースに `'none'`
+2. `*_event_columns` 記録の 2 列（`source_updated_at` / `external_ref`）
+3. `*_dedup_indexes` 索引の作り替え（D1）
+4. `*_version_and_ledger` 履歴表と消去の台帳（`raw` は `text`。追記のみのトリガ）
+5. `*_gates` 門のトリガ（D4）と、凍結列の追加・`DELETE` / `TRUNCATE` の錠（D5 / D10）
 
-**`0010` より前に `ON CONFLICT` を直す**（D2）—— 索引を作り替えた瞬間に取り込みが落ちる。
+**`*_dedup_indexes` より前に `ON CONFLICT` を直す**（D2）—— 索引を作り替えた瞬間に取り込みが落ちる。
 移行とコードの順序が逆だと、その間の取り込みが全件 500 になる。
 
 ## Open Questions
