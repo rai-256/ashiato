@@ -3,7 +3,7 @@
 読む順: `deep.md`（**最優先。本人が決めた 26 件**）→ このファイル → `specs/` → `design.md` →
 `docs/stories/ST03.md` → `CLAUDE.md`。
 
-**移行は 0007 から**（ST02 が 0005 / 0006 を使う）。`collection-coverage` には触らない。
+**移行は 0008 から**（ST02 が 0005 / 0006 / **0007** を使う）。`collection-coverage` には触らない。
 
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
 DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
@@ -22,14 +22,14 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 1. 登録簿の 3 列
 
-- [ ] 1.1 `migrations/0008_source_columns.sql` で `core.source` に `external_id_kind text NOT NULL DEFAULT 'record' CHECK (external_id_kind IN ('record','subject','none'))` を足す。**`retired_on` と `succeeds` は ST02 が作る**（読む側が稼働記録で、ST02 のほうが先に出るため。2026-09-11 の判断）。**版番号は 0008**（ST02 が `0007_source_lifecycle.sql` を取った。ST02 のほうが先に merge される）。検証: `psql -c "\d core.source"` に 3 列が出て、`cargo test --test migrations` が rc=0（移行を当て直しても表が壊れない）
+- [ ] 1.1 `migrations/0008_source_columns.sql` で `core.source` に `external_id_kind text NOT NULL DEFAULT 'record' CHECK (external_id_kind IN ('record','subject','none'))` を足す。**`retired_on` と `succeeds` は ST02 が作る**（読む側が稼働記録で、ST02 のほうが先に出るため。2026-09-11 の判断）。**版番号は 0008**（ST02 が `0007_source_lifecycle.sql` を取った。ST02 のほうが先に merge される）。検証: `psql -c "\d core.source"` に `external_id_kind` が増えていて、`cargo test --test migrations` が rc=0（移行を当て直しても表が壊れない）
 - [ ] 1.2 同じ移行で、既存の端末ソースに `external_id_kind='none'` を当てる（`UPDATE core.source SET external_id_kind='none' WHERE external_id_kind='record' AND logical_source NOT IN (…外部ソース…)`）。検証: `tools/smoke.sh` が rc=0（当てないと端末の記録が全件 400 になる）
 - [ ] 1.3 手書きの登録が散っている 5 か所（`tools/seed.sh` / `tools/smoke.sh` の 2 か所 / `tools/check-immutable.sh` / `collector-android/README.md`）に `external_id_kind` を明示する。検証: `grep -rn "INSERT INTO core.source" tools/ collector-android/README.md | grep -cv external_id_kind` が 0
 - [ ] 1.4 `external_id_kind` の既定が `'record'` であることをテストで固定する（緩い側に倒すと、付け忘れたソースの記録が識別子なしで入り、後から足す手段が無い）。検証: `cargo test external_id_kind_defaults_to_record` が rc=0
 
 ## 2. 記録の 2 列と取り込みの契約
 
-- [ ] 2.1 `migrations/0008_event_columns.sql` で `core.event` に `source_updated_at timestamptz` と `external_ref text` を足す（`external_ref` に索引は張らない）。検証: `psql -c "\d core.event"` に 2 列、`\di core.event*` に `external_ref` の索引が**無い**
+- [ ] 2.1 `migrations/0009_event_columns.sql` で `core.event` に `source_updated_at timestamptz` と `external_ref text` を足す（`external_ref` に索引は張らない）。検証: `psql -c "\d core.event"` に 2 列、`\di core.event*` に `external_ref` の索引が**無い**
 - [ ] 2.2 `IngestRequest`（`crates/server/src/ingest.rs`）に `source_updated_at` と `external_ref` を `Option` で足す。**既存の収集側を壊さない**（省略できる）。検証: `cargo test units_are_optional_in_json` と新規 `optional_new_fields_parse` が rc=0
 - [ ] 2.3 `docs/collector-contract.md` の要求の表に 2 項目、`error` の表に断りの種別（`missing_external_id` / `empty_external_id` / `id_reused`）を足す。検証: `cargo run --bin openapi > /tmp/o.json && diff <(jq -S . /tmp/o.json) <(jq -S . docs/openapi.json)` が rc=0
 - [ ] 2.4 `validate` に外部識別子の検査を足す —— `external_id` が `Some` なら**非空**であること。検証: `cargo test empty_external_id_is_rejected` が rc=0（**ST01 が `device_id` の空文字で踏んだのと同型。格納の前に断らないと 2 件目で 500 になりまとめ送り全体が止まる**）
@@ -37,8 +37,8 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 ## 3. 索引を 2 段にする（BREAKING）
 
 - [ ] 3.1 **先にコードを直す** —— `lib.rs` の `ON CONFLICT (logical_source, content_hash)` を、外部識別子の有無で経路を分け、**部分索引の述語を文に書く**形にする。検証: `cargo test` が rc=0（索引を変える前でも既存の振る舞いが壊れていないこと）
-- [ ] 3.2 `migrations/0009_dedup_indexes.sql` で索引を作り替える（`design.md` D1 の 3 本）。検証: `psql -c "\di core.event*"` に 3 本が出て、`tools/smoke.sh` が rc=0
-- [ ] 3.3 順序の注意を**移行ファイルの冒頭**に書く（3.1 より先に 3.2 を当てると取り込みが全件 500 になる）。検証: `grep -n "コードを先に" migrations/0009_dedup_indexes.sql` が当たる
+- [ ] 3.2 `migrations/0010_dedup_indexes.sql` で索引を作り替える（`design.md` D1 の 3 本）。検証: `psql -c "\di core.event*"` に 3 本が出て、`tools/smoke.sh` が rc=0
+- [ ] 3.3 順序の注意を**移行ファイルの冒頭**に書く（3.1 より先に 3.2 を当てると取り込みが全件 500 になる）。検証: `grep -n "コードを先に" migrations/0010_dedup_indexes.sql` が当たる
 
 ## 4. 冪等の判定（2 段・利用者ごと）
 
@@ -56,7 +56,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 5. 更新と履歴
 
-- [ ] 5.1 `migrations/0010_version_and_ledger.sql` で `core.event_version`（**`raw` は `text`**）と `core.erasure_ledger` を作る。どちらも `txid xid8 NOT NULL DEFAULT pg_current_xact_id()` を持つ。検証: `psql -c "SELECT data_type FROM information_schema.columns WHERE table_name='event_version' AND column_name='raw'"` が `text`
+- [ ] 5.1 `migrations/0011_version_and_ledger.sql` で `core.event_version`（**`raw` は `text`**）と `core.erasure_ledger` を作る。どちらも `txid xid8 NOT NULL DEFAULT pg_current_xact_id()` を持つ。検証: `psql -c "SELECT data_type FROM information_schema.columns WHERE table_name='event_version' AND column_name='raw'"` が `text`
 - [ ] 5.2 履歴は感度も削除の印も持たない（Q21）。検証: `psql` で `event_version` に `sensitivity` / `deleted_at` の列が**無い**ことを確かめる検査を `tools/check-immutable.sh` に足し、rc=0
 - [ ] 5.3 読み出し用のビュー `core.event_version_live`（親と束ね、親の感度と削除を引き継ぐ）を作る。検証: `cargo test history_follows_parent_sensitivity_and_deletion` が rc=0（親を締める / 消すと履歴の版も同じ扱いになる）
 - [ ] 5.4 外部識別子が一致し内容が違う到着で、既存行を更新し前の版を履歴へ。検証: `cargo test external_update_keeps_one_row_and_one_version` が rc=0（**Story の完了の判定 2**）
@@ -70,7 +70,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 7. 書き換えと消去の門（BREAKING）
 
-- [ ] 7.1 `migrations/0011_gates.sql` で `AFTER UPDATE … DEFERRABLE INITIALLY DEFERRED` の制約トリガを置く。**消去の形（原文が空）のときは台帳を、それ以外は履歴を見る**。検証: `tools/check-immutable.sh` の新しい台本が rc=0
+- [ ] 7.1 `migrations/0012_gates.sql` で `AFTER UPDATE … DEFERRABLE INITIALLY DEFERRED` の制約トリガを置く。**消去の形（原文が空）のときは台帳を、それ以外は履歴を見る**。検証: `tools/check-immutable.sh` の新しい台本が rc=0
 - [ ] 7.2 履歴を書かない書き換えが拒まれ、**書けば通る**。検証: 同上の台本に 2 本とも入っていて rc=0
 - [ ] 7.3 **台帳の行があっても、消去でない書き換えは通らない**。検証: 同上（絞りが無いと台帳 1 行で改竄が通る）
 - [ ] 7.4 **履歴の本文は台帳があれば消せる**（`Scenario: 履歴の本文は台帳があれば消せる`）。**台帳が無ければ消せない**（`Scenario: 履歴の本文は台帳が無ければ消せない`）。検証: 同上（**閉じ切ると FR-51「消去は履歴に残した前の版にも及ぶ」が満たせない**）
