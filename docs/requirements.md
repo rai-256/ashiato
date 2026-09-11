@@ -436,7 +436,7 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
   原理的に到達不能**でもあった（ウィンドウとブラウザ履歴は C-02 がまだ無く、
   収集開始日が先になる）。「95 %」と「350 日」のどちらが判定かも定まっていなかった。
   **判定は割合の側に一本化した。** 除外が意図どおり「助ける」向きに働き、
-  導入 1 年未満でも判定できる。**判定式は 1 年の計測が始まったら変えられない。**
+  導入 1 年未満でも判定できる。
   **判定式は 1 年の計測が始まったら変えられない**（過去の実測値と比較できなくなる）。
 - **NFR-14**: 成功条件 2 の判定 —— 本人の目的に対応する質問を **10 問**固定し、
   **6 か月ごと**に (a) 各問が必要とするデータ種が揃っているかを機械的に判定し、
@@ -493,6 +493,16 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
   誤操作の代償が非対称な操作にのみ適用する。本人が 2026-09-08 に選択。
   全画面に AAA を課さない理由は、1 画面に 20 件前後の行が並ぶ想定（§4 の件数）で
   全行に 44 px を課すと 1 画面に収まらなくなるため。**主表現が何になるかには依存しない。**
+- **NFR-23**: **意味を担う非テキスト**（状態を表す面の色・明度など）は、
+  隣り合うものとのコントラスト比を **3:1 以上**とする。
+  出所: WCAG 2.2 SC 1.4.11 Non-text Contrast / Level AA（§5 の EXT-J）。
+  ★ 2026-09-11 追加。ST02 の深掘り 第 5 回 Q21 の決定が**この基準を根拠に選ばれた**のに、
+  要件の側に対応する行が無かった（独立レビュー 2 巡目の R10）。
+  NFR-18（4.5:1）は**文字**に掛かる条項（SC 1.4.3）で、**面には掛からない** ——
+  稼働状況の格子のセルは文字でも文字画像でもないので、NFR-18 では守れない。
+  この要件が「格子が担える段数」を決める ——
+  7 段を隣接 3:1 で並べると 3^6 = 729:1 が要るが、sRGB の理論最大は 21:1 で成り立たない。
+  3 段なら 3:1 × 3:1 = 9:1 で収まる（FR-54 の補強を参照）。
 - **NFR-22**: キーボードで操作できる画面は、フォーカスの位置が見える状態を持つ。
   出所: WCAG 2.2 SC 2.4.7 Focus Visible / Level AA（§5 の EXT-I）。
   2026-09-08 の `ui-review` が「要件に無い」と指摘して見つけた抜け。
@@ -564,6 +574,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-F | 本文のコントラスト比の下限は 4.5:1（大きい文字は 3:1）で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html | "The visual presentation of text and images of text has a contrast ratio of at least 4.5:1" / "Large Text: Large-scale text and images of large-scale text have a contrast ratio of at least 3:1" | 2026-09-08 | 2028-09-08 | NFR-18 |
 | EXT-G | 指で触れる対象の下限は 24×24 CSS px で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html | "The size of the target for pointer inputs is at least 24 by 24 CSS pixels, except when:" | 2026-09-08 | 2028-09-08 | NFR-19 |
 | EXT-H | 触れる対象 44×44 CSS px は Level AAA（AA ではない） | https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced.html | "The size of the target for pointer inputs is at least 44 by 44 CSS pixels" | 2026-09-08 | 2028-09-08 | NFR-20 |
+| EXT-J | 意味を担う非テキストのコントラスト比の下限は 3:1 で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html | "The visual presentation of the following have a contrast ratio of at least 3:1 against adjacent color(s): ... Graphical Objects: Parts of graphics required to understand the content" | 2026-09-11 | 2028-09-11 | NFR-23 |
 | EXT-K | Tailscale のクライアントは BSD-3-Clause | https://raw.githubusercontent.com/tailscale/tailscale/main/LICENSE | "BSD 3-Clause License" / "Copyright (c) 2020 Tailscale Inc & contributors." / "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met" | 2026-09-08 | 2027-09-08 | PERM-7 |
 | EXT-L | Tailscale の Personal プランは非商用に限られる | https://tailscale.com/pricing | "Our Personal plan is for individuals who want to use Tailscale at home. This is a free plan and is only suitable for non-commercial use of Tailscale." / "Unlimited user devices" / "Up to 6 users" | 2026-09-08 | 2027-03-08 | PERM-7, NFR-9 |
 | EXT-J | PostgREST の許諾条項は MIT 相当（**本文に「MIT License」という文字列は無い**） | https://raw.githubusercontent.com/PostgREST/postgrest/main/LICENSE | "Copyright (c) 2014-2026 The PostgREST contributors" / "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction" | 2026-09-08 | 2027-09-08 | FR-61（読み取り API の実装手段） |

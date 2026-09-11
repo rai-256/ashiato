@@ -526,7 +526,8 @@
       "NFR-19",
       "NFR-20",
       "NFR-21",
-      "NFR-22"
+      "NFR-22",
+      "NFR-23"
     ],
     "requires": [
       "ST01"
