@@ -105,14 +105,27 @@ class AttemptCounters(
     private val now: () -> Instant,
     /** 満点の刻み。位置は FR-1 の 60 秒。 */
     private val intervalMs: Long = FIX_INTERVAL_MS,
+    /**
+     * 数えの置き場。**プロセスの立て直しをまたいで残す**（review/code.md の R16 / C-2 / I8）。
+     *
+     * `Outbox` は「インスタンスの中だけに積むと立て直しで無言で消える」を理由に
+     * `FileOutboxStore` に落としたのに、**同じ理由が当てはまる数えは落とされていなかった**。
+     * `since` も一緒に新品になるので、**死んでいた区間そのものが観測から落ちる** ——
+     * 6 時間のうち 5 時間 50 分死んで 10 分前に立て直されると、
+     * 次の信号は `10 / 10` で「取得率 100 %」になり、画面には「健全」と出る。
+     * それは第 5 回 Q17（ST01 の R46 の宿題の答え）が見分けようとした当の区間。
+     */
+    private val store: CounterStore = MemoryCounterStore(),
 ) {
-    private var since: Instant = now()
-    private var successes = 0
+    private val restored = store.load()
+    private var since: Instant = restored?.first ?: now()
+    private var successes: Int = restored?.second ?: 0
 
     /** 取得できた。**契機ごとに 1 回**呼ぶ。 */
     @Synchronized
     fun recordSuccess() {
         successes++
+        store.save(since, successes)
     }
 
     /** いまの数え。**読むだけでは戻さない**（信号を組み立てられなかったときに数えが消える）。 */
@@ -125,11 +138,31 @@ class AttemptCounters(
      * 戻さないと区間の取得率ではなく「導入以来の累計」になり、
      * 眠っていた区間が薄まって見えなくなる。
      */
+    /**
+     * 数えを取り出して**戻す**（specs「数えは信号を送るたびに戻る」）。
+     *
+     * **`commit` が返るまで戻さない**（review/code.md の R24 / H-7 / F9 / I9）。
+     * 積めなかった信号のぶんまで数えが消えると、その区間の取得率が丸ごと失われる ——
+     * `peek()` の docstring が書いていた問題そのものが、`emit()` 側で起きていた。
+     */
+    @Synchronized
+    fun <T> takeAfter(commit: (Pair<Int, Int>) -> Pair<Boolean, T>): Pair<Boolean, T> {
+        val got = attemptsNow() to successes
+        val (stored, value) = commit(got)
+        if (stored) {
+            since = now()
+            successes = 0
+            store.save(since, successes)
+        }
+        return stored to value
+    }
+
     @Synchronized
     fun take(): Pair<Int, Int> {
         val got = attemptsNow() to successes
         since = now()
         successes = 0
+        store.save(since, successes)
         return got
     }
 
@@ -141,6 +174,65 @@ class AttemptCounters(
         val elapsedMs = java.time.Duration.between(since, now()).toMillis()
         val expected = if (elapsedMs <= 0) 0 else (elapsedMs / intervalMs).toInt()
         return maxOf(expected, successes)
+    }
+}
+
+/**
+ * 数えの置き場。**既定はメモリだけ**にせず、本番は必ずファイルを渡す
+ * （`Outbox` が `OutboxStore` に既定を持たせなかったのと同じ理由）。
+ */
+interface CounterStore {
+    fun load(): Pair<Instant, Int>?
+
+    fun save(since: Instant, successes: Int)
+}
+
+/**
+ * 置き場を持たない入れ物。**`object` にしない** —— 単一のインスタンスを既定にすると、
+ * 同じプロセスの別の数えが同じ値を共有する（試験どうしが混ざり、本番でも
+ * ソースが 2 つになった日に混ざる）。
+ */
+class MemoryCounterStore : CounterStore {
+    private var value: Pair<Instant, Int>? = null
+
+    override fun load(): Pair<Instant, Int>? = value
+
+    override fun save(since: Instant, successes: Int) {
+        value = since to successes
+    }
+}
+
+/**
+ * 数えを端末の保存領域に置く。形は 1 行 `<ISO8601> <successes>`。
+ *
+ * **読めなくても落とさない** —— 数えは証拠ではなく目安で、失っても記録は消えない。
+ * ただし**失ったことは残す**（黙って 0 から始めない）。
+ */
+class FileCounterStore(
+    private val file: java.io.File,
+    private val log: (String) -> Unit,
+) : CounterStore {
+    override fun load(): Pair<Instant, Int>? = try {
+        if (!file.exists()) {
+            null
+        } else {
+            val parts = file.readText().trim().split(" ")
+            Instant.parse(parts[0]) to parts[1].toInt()
+        }
+    } catch (e: RuntimeException) {
+        log(Telemetry.line("counters_unreadable", error = e.javaClass.simpleName))
+        null
+    } catch (e: java.io.IOException) {
+        log(Telemetry.line("counters_unreadable", error = e.javaClass.simpleName))
+        null
+    }
+
+    override fun save(since: Instant, successes: Int) {
+        try {
+            file.writeText("$since $successes")
+        } catch (e: java.io.IOException) {
+            log(Telemetry.line("counters_save_failed", error = e.javaClass.simpleName))
+        }
     }
 }
 
@@ -164,8 +256,16 @@ class HeartbeatEmitter(
     /** 1 件を積む。積めたかを返す。 */
     fun emit(): Boolean {
         val cap = capability()
-        val (attempts, successes) = counters.take()
         val at = now()
+        // **積めてから数えを戻す**（review/code.md の R24）。先に `take()` していたときは、
+        // 置き場へ書けなかった区間の取得率が丸ごと消えていた。
+        val (stored, _) = counters.takeAfter { (attempts, successes) ->
+            buildAndStore(cap, at, attempts, successes) to Unit
+        }
+        return stored
+    }
+
+    private fun buildAndStore(cap: Capability, at: Instant, attempts: Int, successes: Int): Boolean {
         // **原文は組み立てた値そのもの。** 素通しで残るので、同じ 1 件は毎回同じ文字列になる
         // （冪等キーがこの文字列から作られる）。
         val fields = mapOf(
@@ -192,6 +292,7 @@ class HeartbeatEmitter(
         val stored = outbox.add(request)
         // 出すのは種別と件数だけ。**取得できない理由は私的データではない**ので出せる
         log(Telemetry.line("heartbeat", count = attempts, error = cap.blockers.firstOrNull()))
+        // 積めなかったら**数えは戻らない**（`takeAfter`）。次の契機でまとめて載る
         if (!stored) log(Telemetry.line("heartbeat_not_persisted", count = 1))
         return stored
     }

@@ -659,13 +659,53 @@ async fn achievement_endpoint() {
     )
     .await
     .expect("達成の読み出し口");
-    assert_eq!(got.sources.len(), 5, "NFR-13 の 5 本が返る");
-    assert!(
+    // **並びは定数の順**（design D19）。リテラルで止める —— `must_sources()` と
+    // 比べていたときは両辺が同じ定数から来るので、順を入れ替えても通った（R6 / I3）。
+    assert_eq!(
         got.sources
             .iter()
-            .all(|s| s.denominator >= 0 && s.achieved_days <= s.denominator),
-        "達成日数が分母を超えている"
+            .map(|s| s.logical_source.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "c01-location",
+            "c01-app-usage",
+            "c01-photo",
+            "c02-window",
+            "c02-browser-history",
+        ]
     );
+    // 主語も一緒に返る（画面が「なぜこの数え方か」を出せる）
+    assert_eq!(
+        got.sources.iter().map(|s| s.subject).collect::<Vec<_>>(),
+        vec![
+            coverage::Subject::Device,
+            coverage::Subject::Device,
+            coverage::Subject::Usage,
+            coverage::Subject::Usage,
+            coverage::Subject::Usage,
+        ]
+    );
+    // **暫定と確定が状態と噛み合う**（review/code.md の R48 / F17）。
+    // `achieved_days <= denominator` は同じイテレータから数えているので構造上落ちない ——
+    // 「原理的に落ちない assert」を数えても検査にならない
+    assert_eq!(
+        got.confirmed,
+        got.sources.iter().all(|s| s.window_closed),
+        "確定は 5 本すべての窓が閉じた日にのみ立つ（第 7 回 Q27）"
+    );
+    assert_eq!(
+        got.not_started,
+        got.sources
+            .iter()
+            .filter(|s| s.collection_started_on.is_none())
+            .map(|s| s.logical_source.clone())
+            .collect::<Vec<_>>()
+    );
+    // 開始していないソースがあるあいだは確定日を返さない
+    if !got.not_started.is_empty() {
+        assert_eq!(got.confirms_on, None);
+        assert_eq!(got.days_until_confirmed, None);
+    }
     // 合言葉が無ければ 401（PERM-10: すべての API 要求）
     let denied = achievement_get(
         State(app.clone()),
@@ -693,15 +733,260 @@ async fn coverage_endpoint_returns_five_sources() {
     )
     .await
     .expect("稼働状況の読み出し口");
-    let names: Vec<String> = got.iter().map(|s| s.logical_source.clone()).collect();
+    // **リテラルで止める**（review/code.md の R6 / I3）。`must_sources()` と比べていたときは
+    // 両辺が同じ定数から来るので、`DEVICE_SUBJECT` を逆順にしても通った。
+    let names: Vec<&str> = got.iter().map(|s| s.logical_source.as_str()).collect();
     assert_eq!(
         names,
-        coverage::must_sources()
-            .into_iter()
-            .map(|(n, _)| n)
-            .collect::<Vec<_>>()
+        vec![
+            "c01-location",
+            "c01-app-usage",
+            "c01-photo",
+            "c02-window",
+            "c02-browser-history",
+        ]
     );
     assert!(got.iter().all(|s| s.days.len() == 7), "7 日ぶん返る");
     // 各格子にソース名の文字を添えられるだけの材料が返っている（第 4 回 Q15）
     assert!(got.iter().all(|s| !s.display_name.is_empty()));
+}
+
+// ------------------------------------------------------- 独立レビューで足したもの
+
+/// 生存信号の冪等キーを**固定値で**止める（review/code.md の R12）。
+///
+/// 記録側（`ingest::hash_is_pinned`）と同じ理由 —— 作り方が変わると
+/// **保存済みの信号の再送が全部新しい行になる**（specs「同じ生存信号が複数回届いたとき、
+/// 行を 1 つだけ残す」が壊れる）。不変性（id を変えても同じ鍵）だけでは作り方の変化を止められない。
+///
+/// 期待値の出どころ:
+/// ```text
+/// python3 - <<'PY'
+/// import hashlib, struct
+/// h = hashlib.sha256()
+/// def f(b): h.update(struct.pack('>Q', len(b))); h.update(b)
+/// f(b'pinned-source')
+/// f(struct.pack('>q', 1_757_000_000_000_000))
+/// f(b'{"alive":true}')
+/// print(h.hexdigest())
+/// PY
+/// ```
+#[test]
+fn heartbeat_hash_is_pinned() {
+    let req = heartbeat::HeartbeatRequest {
+        id: uuid::Uuid::nil(),
+        user_id: uuid::Uuid::nil(),
+        logical_source: "pinned-source".into(),
+        device_id: Some("whatever".into()),
+        emitted_at: chrono::DateTime::from_timestamp(1_757_000_000, 0).expect("時刻"),
+        capturable: true,
+        blockers: vec![],
+        attempts: 360,
+        successes: 230,
+        raw: r#"{"alive":true}"#.into(),
+    };
+    assert_eq!(
+        heartbeat::content_hash(&req),
+        "86330ea52a87d040a1db94ae259aeda9bce72ec3b8eb0f488e0ed31c879061df"
+    );
+}
+
+/// 行が無い日に**重複だけ**が届いても、稼働していたことは記録される。
+///
+/// 前の検査は「1 回目（新規）→ 2 回目（重複）」で、**行は 1 回目で立っていた**ので
+/// 「重複のときに UPSERT ごと飛ばす」実装でも通った（review/code.md の R47 / F16）。
+/// ここは**別の利用者で先に記録を入れて**、その利用者には行が無い状態で重複を届かせる。
+///
+/// Scenario: 重複は件数に加えない
+#[tokio::test]
+async fn duplicate_only_day_still_gets_a_row() {
+    let app = app().await;
+    let s = testdb::source(&app.pool, "duponly", 21_600).await;
+    let first = testdb::user();
+    let second = testdb::user();
+    let raw = r#"{"seq":"dup-only"}"#;
+
+    // 1 人目が入れる（冪等キーは logical_source + event_time + raw なので利用者を含まない）
+    post_ingest(
+        &app,
+        serde_json::json!([ev(&s, first, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
+    )
+    .await;
+    // 2 人目には稼働記録の行がまだ無い
+    let before: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(second)
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(before.0, 0);
+
+    // 2 人目に**重複だけ**が届く
+    let (_, res) = post_ingest(
+        &app,
+        serde_json::json!([ev(&s, second, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
+    )
+    .await;
+    assert!(res[0].duplicate, "重複と判定されていない（検査が空振り）");
+
+    let after: (i32,) = sqlx::query_as(
+        "SELECT event_count FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(second)
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(after.0, 0, "件数は増えない");
+}
+
+/// 原文が空・NUL 入りの生存信号を**受け口越しに**断る（review/code.md の R52）。
+/// `validate()` の単体検査はあったが、API を通した経路が未検査だった。
+#[tokio::test]
+async fn heartbeat_rejects_invalid_raw() {
+    let app = app().await;
+    let s = testdb::source(&app.pool, "hb-rawbad", 21_600).await;
+    let u = testdb::user();
+    for bad in ["", "{\u{0}}"] {
+        let mut item = hb(&s, u, "2026-05-01T00:00:00Z");
+        item["raw"] = serde_json::json!(bad);
+        let (code, res) = post_hb(&app, serde_json::json!([item])).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert!(matches!(res[0].error, Some(HeartbeatError::InvalidRaw)));
+    }
+    let n: (i64,) = sqlx::query_as("SELECT count(*) FROM core.heartbeat WHERE logical_source = $1")
+        .bind(&s)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(n.0, 0);
+}
+
+/// 契約から外れた本文でも、応答の形は**結果の配列**（review/code.md の R53）。
+/// 平文を返すと収集側がパースに失敗し、状態符号の意味を失う（`/ingest` と同じ約束）。
+#[tokio::test]
+async fn heartbeat_body_shape_is_always_an_array() {
+    let app = app().await;
+    for body in [serde_json::json!([]), serde_json::json!(5)] {
+        let (code, res) = post_hb(&app, body).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert!(res.is_empty());
+    }
+}
+
+/// 記録の格納と稼働記録の加算が**同じトランザクション**にある（review/code.md の R2）。
+///
+/// 別々の文だと、記録だけ入って加算が落ちた状態が作れる。そのあと再送しても
+/// 記録は `duplicate` で弾かれ、加算は 0 のまま —— **その日の稼働記録は二度と戻らない**。
+/// ここでは加算を必ず落とす（`core.coverage` に外部から壊せる制約を一時的に掛ける）ことで、
+/// **記録の側も一緒に巻き戻ること**を確かめる。
+#[tokio::test]
+async fn ingest_is_atomic_across_event_and_coverage() {
+    let app = app().await;
+    let s = testdb::source(&app.pool, "atomic", 21_600).await;
+    let u = testdb::user();
+
+    // 稼働記録の加算だけを必ず落とす。
+    // **このテストのソースだけに効く制約にする** —— `core.coverage` 全体に掛けると、
+    // 並んで走る他の検査を巻き添えにする（1 度やって実測した）。
+    let probe = format!("atomic_probe_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!(
+        "ALTER TABLE core.coverage ADD CONSTRAINT {probe}
+         CHECK (logical_source <> '{s}' OR event_count < 0) NOT VALID"
+    ))
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let item = ev(
+        &s,
+        u,
+        "2026-05-01T01:00:00Z",
+        "Asia/Tokyo",
+        r#"{"seq":"atomic"}"#,
+    );
+    let failed = ingest(
+        State(app.clone()),
+        auth(),
+        Json(serde_json::json!([item.clone()])),
+    )
+    .await;
+    assert!(failed.is_err(), "加算が落ちているのに 200 が返った");
+
+    sqlx::query(&format!(
+        "ALTER TABLE core.coverage DROP CONSTRAINT {probe}"
+    ))
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    // **記録も残っていない**（巻き戻っている）。残っていると、再送が duplicate になって
+    // 稼働記録が 0 のまま固定される
+    let events: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.event WHERE logical_source = $1")
+            .bind(&s)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        events.0, 0,
+        "記録だけが残っている（トランザクションになっていない）"
+    );
+
+    // 再送すれば、記録も稼働記録もそろって入る
+    let (code, res) = post_ingest(&app, serde_json::json!([item])).await;
+    assert_eq!(code, StatusCode::OK);
+    assert!(!res[0].duplicate);
+    let count: (i32,) = sqlx::query_as(
+        "SELECT event_count FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(u)
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(count.0, 1);
+}
+
+/// 登録簿に無いソースを**黙って落とさない**（review/code.md の R20 / H-3）。
+///
+/// `continue` で飛ばしていたときは、画面に 4 本の格子が並び、**5 本目が「無い」ことすら
+/// 表示されなかった**。達成の側は同じ状況を `not_started` として返しているので、
+/// 黙るとその 2 つが食い違う。
+///
+/// **共有の登録簿を消して試さない** —— 並んで走る他の検査を壊す。
+/// 読み出し口が通るのと同じ関数に、存在しない名前を渡す。
+#[tokio::test]
+async fn coverage_keeps_a_source_missing_from_the_registry() {
+    let pool = testdb::pool().await;
+    let present = testdb::source(&pool, "present", 21_600).await;
+    testdb::set_started_on(&pool, &present, "2026-03-01").await;
+    let absent = format!("t-absent-{}", uuid::Uuid::new_v4());
+    let names = vec![present.clone(), absent.clone()];
+
+    let got = coverage::of_sources(
+        &pool,
+        Some(testdb::user()),
+        &names,
+        testdb::date("2026-03-01"),
+        testdb::date("2026-03-02"),
+    )
+    .await
+    .expect("稼働状況");
+
+    assert_eq!(got.len(), 2, "登録簿に無いソースが消えている");
+    assert_eq!(got[1].logical_source, absent, "並びも保たれる");
+    assert_eq!(
+        got[1].collection_started_on, None,
+        "開始していない扱いになる"
+    );
+    assert!(
+        got[1]
+            .days
+            .iter()
+            .all(|d| d.state == coverage::DayState::BeforeStart),
+        "導入前として返る"
+    );
 }

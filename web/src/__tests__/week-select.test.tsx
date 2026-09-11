@@ -29,7 +29,7 @@ describe("週を選ぶ", () => {
     render(<CoverageGrid source={s} />);
 
     expect(screen.queryByTestId("week-detail")).toBeNull();
-    fireEvent.click(screen.getByRole("row", { name: "2026-05-03 の週" }));
+    fireEvent.click(screen.getByRole("button", { name: "2026-05-03 の週" }));
 
     const detail = screen.getByTestId("week-detail");
     for (const state of ALL) {
@@ -58,7 +58,7 @@ describe("週を選ぶ", () => {
     expect(cells).toHaveLength(5);
 
     // 文字の側では 5 つが別々の名前で出る
-    fireEvent.click(screen.getByRole("row", { name: "2026-05-03 の週" }));
+    fireEvent.click(screen.getByRole("button", { name: "2026-05-03 の週" }));
     const detail = screen.getByTestId("week-detail");
     const names = [...detail.querySelectorAll("[data-state]")].map((e) => e.textContent);
     expect(new Set(names).size).toBe(7);
@@ -67,10 +67,50 @@ describe("週を選ぶ", () => {
   it("もう一度押すと閉じる", () => {
     const s = source("c01-location", "携帯端末の位置", days("2026-05-03", 7, ALL));
     render(<CoverageGrid source={s} />);
-    const row = screen.getByRole("row", { name: "2026-05-03 の週" });
+    const row = screen.getByRole("button", { name: "2026-05-03 の週" });
     fireEvent.click(row);
     expect(screen.getByTestId("week-detail")).toBeTruthy();
     fireEvent.click(row);
     expect(screen.queryByTestId("week-detail")).toBeNull();
+  });
+
+  /**
+   * **選択で面の明るさを変えない**（review/code.md の R34 / I5 / F12）。
+   *
+   * 選択中の背景を `surface1`(18%) にしていたときは、いちばん暗い段（9%）との比が
+   * **1.422:1** に落ちて、**いちばん見たい週で格子がいちばん読めなくなっていた**。
+   * 検査は `surface2` しか測っていなかったので緑のまま ——
+   * `ui-direction` の UIR-13（測る色と描く色がずれる）と同じ型。
+   */
+  it("選択しても、セルが乗る面の明るさが変わらない", () => {
+    const s = source("c01-location", "携帯端末の位置", days("2026-05-03", 7, ALL));
+    render(<CoverageGrid source={s} />);
+    const row = screen.getByRole("button", { name: "2026-05-03 の週" }) as HTMLElement;
+    const before = row.style.background;
+    fireEvent.click(row);
+    expect(row.style.background, "選択で面の明るさが変わっている").toBe(before);
+    // 選択の印は輪郭で表す（段の色に触らない）
+    expect(row.style.outline, "選択の印が無い").not.toBe("");
+    expect(row.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  /**
+   * **畳み戻したら詳細も閉じる**（review/code.md の R37 / I11）。
+   * `weeks` から選んだ週を探していたときは、伸ばして選んでから畳み戻すと
+   * **行は消えるのに日付リストだけ残り**、閉じる手段が無くなった。
+   */
+  it("伸ばして選んだ週を畳み戻すと、詳細も閉じる", () => {
+    const s = source("c01-location", "携帯端末の位置", days("2026-01-04", 53 * 7, ["recorded"]));
+    render(<CoverageGrid source={s} />);
+    fireEvent.click(screen.getByRole("button", { name: "1 年ぶんを見る" }));
+    const rows = screen.getByTestId("grid-c01-location").querySelectorAll("[data-week]");
+    fireEvent.click(rows[30] as HTMLElement);
+    expect(screen.getByTestId("week-detail")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "直近だけにする" }));
+    expect(
+      screen.queryByTestId("week-detail"),
+      "見えていない週の詳細が残っている",
+    ).toBeNull();
   });
 });

@@ -18,7 +18,18 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql;
 
+-- **削除も拒む**（review/code.md の R22 / H-5）。
+-- `UPDATE` だけを止めても **2 手で差し替えられる**:
+--   DELETE FROM core.heartbeat WHERE id = '…';
+--   INSERT INTO core.heartbeat (… capturable=false, blockers='{permission}' …);
+-- `content_hash` は `logical_source` + `emitted_at` + `raw` から決まるので、
+-- 同じ鍵のまま中身だけ入れ替えられる。**0004 が実測で見つけた「3 手の迂回」と同じ型**で、
+-- 0002 と 0006 が自分で書いた脅威（psql を直に叩く運用・第三者製プラグイン）が
+-- まさにこの 2 手を打てる。
+--
+-- 生存信号には**論理削除も物理削除も正当な理由が無い**（`core.event` の FR-50 に当たるものが無い）。
+-- 保持の上限で消す日が来たら、そのときに例外を明示的に開ける。
 DROP TRIGGER IF EXISTS heartbeat_immutable ON core.heartbeat;
 CREATE TRIGGER heartbeat_immutable
-  BEFORE UPDATE ON core.heartbeat
+  BEFORE UPDATE OR DELETE ON core.heartbeat
   FOR EACH ROW EXECUTE FUNCTION core.reject_heartbeat_rewrite();

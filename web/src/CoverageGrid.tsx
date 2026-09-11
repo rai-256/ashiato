@@ -23,7 +23,10 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
   const [selected, setSelected] = useState<string | null>(null);
   const weeks = foldIntoWeeks(source.days);
   const shown = visibleWeeks(weeks, expanded);
-  const selectedWeek = weeks.find((w) => w.start === selected) ?? null;
+  // **見えている週から選ぶ**（review/code.md の R37 / I11）。`weeks` から探していたときは、
+  // 1 年ぶんに伸ばして 30 週目を選んでから畳み戻すと、**行は消えるのに日付リストだけ残り**、
+  // どの行にも選択の印が立っていない状態で閉じる手段が無くなった。
+  const selectedWeek = shown.find((w) => w.start === selected) ?? null;
 
   return (
     <section
@@ -41,7 +44,7 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
         {source.display_name}
       </h2>
 
-      <div role="grid" data-testid={`grid-${source.logical_source}`} data-weeks={shown.length}>
+      <div data-testid={`grid-${source.logical_source}`} data-weeks={shown.length} data-role="grid">
         {shown.map((week) => (
           <WeekRow
             key={week.start}
@@ -91,9 +94,12 @@ function WeekRow({
   onSelect: () => void;
 }): React.ReactElement {
   return (
+    // **`role="row"` を付けない**（review/code.md の R35 / I6）。`<button>` に付けると
+    // 暗黙の button ロールを上書きし、**この画面で唯一の操作対象が支援技術から消える**。
+    // `aria-pressed` も ARIA 1.2 では button ロールにしかサポートされる状態が無いので、
+    // 選択中であることが伝わらなくなっていた。行であることは `data-week` で足りる。
     <button
       type="button"
-      role="row"
       aria-label={`${week.start} の週`}
       aria-pressed={selected}
       data-week={week.start}
@@ -106,8 +112,14 @@ function WeekRow({
         minHeight: MIN_TARGET_PX,
         minWidth: MIN_TARGET_PX,
         padding: 1,
-        background: selected ? tone(SURFACE.surface1) : "transparent",
+        // **選択を面の明るさで表さない**（review/code.md の R34 / I5 / F12）。
+        // `surface1`(18%) の上だと、いちばん暗い段（9%）との比が **1.422:1** に落ちて
+        // **いちばん見たい週で格子がいちばん読めなくなる**。輪郭なら段の色に触らない
+        // （`muted` は surface2 の上で 5.195:1）。
+        background: "transparent",
         border: "none",
+        outline: selected ? `2px solid ${tone(TEXT.muted)}` : "none",
+        outlineOffset: -2,
         borderRadius: 4,
         cursor: "pointer",
       }}
@@ -116,7 +128,7 @@ function WeekRow({
         <span
           // 週の中の位置は固定（日曜〜土曜）なので、位置そのものが鍵になる
           key={`${week.start}-${i}`}
-          role="gridcell"
+          data-cell="day"
           data-band={cell === null ? "empty" : bandOf(cell.state)}
           data-day={cell?.day ?? ""}
           aria-hidden="true"

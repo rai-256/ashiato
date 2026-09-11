@@ -32,11 +32,29 @@ class Sender<T : Outboxable>(
     /** 送った件数と受け付けられた件数。 */
     data class Flushed(val sent: Int, val accepted: Int)
 
+    /**
+     * 恒久的に断られた項目。**先頭に居座らせない**（review/code.md の R18 / H-1）。
+     *
+     * `accepted = false` の項目は未送信に残り続ける。先頭 `MAX_BATCH` 件が
+     * 恒久的な拒否（`unknown_source` / `malformed` / `invalid_counts`）で埋まると、
+     * `take(MAX_BATCH)` は毎回その同じ 200 件を取り、**新しい記録には永久に順番が回らない**。
+     * サーバ側は 1 件ごとの結果を返すことで「1 件の恒久的な失敗が後続を永久に止める」のを
+     * 避けているのに、**収集側には抜け道が無かった**。
+     *
+     * ここは「断られた分を飛ばして次を載せる」だけで、**捨てはしない** ——
+     * 捨てる判断は ST04（保持と破棄）の担当で、捨てたものは復元できない。
+     */
+    private val rejected = LinkedHashSet<String>()
+
     fun flush(): Flushed {
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
-        val batch = outbox.snapshot().take(MAX_BATCH)
+        val pending = outbox.snapshot()
+        val fresh = pending.filter { it.id !in rejected }
+        // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
+        val batch = (if (fresh.isEmpty()) pending else fresh).take(MAX_BATCH)
         if (batch.isEmpty()) return Flushed(0, 0)
+        if (fresh.isEmpty() && pending.isNotEmpty()) rejected.clear()
 
         val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
         val accepted = when (val outcome = transport.post(body)) {
@@ -93,6 +111,9 @@ class Sender<T : Outboxable>(
             .groupingBy { it.error ?: "unknown" }
             .eachCount()
             .forEach { (kind, count) -> log(Telemetry.line("rejected", count = count, error = kind)) }
+        // **断られた分を覚えておき、次の契機では先に飛ばす**（R18）。
+        // 覚えないと先頭が詰まり、後ろの記録が永久に送られない
+        batch.forEachIndexed { i, item -> if (!results[i].accepted) rejected += item.id }
         return batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id }
     }
 }

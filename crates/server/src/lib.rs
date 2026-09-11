@@ -105,6 +105,15 @@ fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)>
     if ok {
         Ok(())
     } else {
+        // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
+        // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
+        // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
+        // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
+        tracing::warn!(
+            kind = "unauthorized",
+            credential_present = !given.is_empty(),
+            "資格情報が一致しない"
+        );
         Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
     }
 }
@@ -217,7 +226,7 @@ async fn ingest_one(
             .bind(&req.logical_source)
             .fetch_optional(&app.pool)
             .await
-            .map_err(internal)?;
+            .map_err(|e| internal_at("ingest.source_lookup", e))?;
     if known.is_none() {
         return Ok(IngestResult::rejected(
             Some(req.id),
@@ -229,6 +238,17 @@ async fn ingest_one(
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
     let payload = ingest::to_nfc(&req.payload);
+
+    // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
+    // 別々の文にしていると、記録だけ入って稼働記録の加算が落ちた状態が作れる ——
+    // そのあと収集側が再送しても記録は `duplicate` で弾かれ、加算は 0 のまま。
+    // **その日の稼働記録は二度と戻らない**（引き直す経路が無い）。
+    // 独立検証が実測で作って確かめている。
+    let mut tx = app
+        .pool
+        .begin()
+        .await
+        .map_err(|e| internal_at("ingest.begin", e))?;
 
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.event
@@ -254,9 +274,9 @@ async fn ingest_one(
     .bind(&hash)
     .bind(&req.raw)
     .bind(&payload)
-    .fetch_optional(&app.pool)
+    .fetch_optional(&mut *tx)
     .await
-    .map_err(internal)?;
+    .map_err(|e| internal_at("ingest.event_insert", e))?;
 
     // 稼働記録は取り込みと同じ関門で更新する。別経路にすると
     // 「データが無いのは収集が止まっていたのか」が後から区別できなくなる（FR-33）。
@@ -277,15 +297,19 @@ async fn ingest_one(
     .bind(&req.logical_source)
     .bind(req.event_time)
     .bind(i32::from(row.is_some()))
-    .execute(&app.pool)
+    .execute(&mut *tx)
     .await
-    .map_err(internal)?;
+    .map_err(|e| internal_at("ingest.coverage_upsert", e))?;
 
     // 収集開始日は**いちばん古い記録が作られた日**（FR-79 / 第 6 回 Q24 / 第 7 回 Q26）。
     // 重複でも当てる —— 同じ記録の再送でも「その日に取られた」ことは変わらない。
-    coverage::touch_started_on(&app.pool, &req.logical_source, req.event_time)
+    coverage::touch_started_on(&mut *tx, &req.logical_source, req.event_time)
         .await
-        .map_err(internal)?;
+        .map_err(|e| internal_at("ingest.started_on", e))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| internal_at("ingest.commit", e))?;
 
     Ok(match row {
         Some((id,)) => IngestResult::stored(id, false),
@@ -420,7 +444,7 @@ async fn heartbeat_one(
             .bind(&req.logical_source)
             .fetch_optional(&app.pool)
             .await
-            .map_err(internal)?;
+            .map_err(|e| internal_at("heartbeat.source_lookup", e))?;
     if known.is_none() {
         return Ok(HeartbeatResult {
             id: Some(req.id),
@@ -431,13 +455,20 @@ async fn heartbeat_one(
     }
 
     let hash = heartbeat::content_hash(&req);
+    // 記録側と同じく**1 トランザクション**（R2）。信号だけ入って収集開始日が動かないと、
+    // その日が⑦「導入前」のまま残り、NFR-13 の分母からも落ちる。
+    let mut tx = app
+        .pool
+        .begin()
+        .await
+        .map_err(|e| internal_at("heartbeat.begin", e))?;
     // **原文は素通し**（0003 と同じ理由。`jsonb` はキー順を変え、重複キーを落とす）。
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.heartbeat
            (id, user_id, logical_source, device_id, emitted_at,
             capturable, blockers, attempts, successes, content_hash, raw)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (logical_source, content_hash) DO NOTHING
+         ON CONFLICT (user_id, logical_source, content_hash) DO NOTHING
          RETURNING id",
     )
     .bind(req.id)
@@ -451,14 +482,18 @@ async fn heartbeat_one(
     .bind(req.successes)
     .bind(&hash)
     .bind(&req.raw)
-    .fetch_optional(&app.pool)
+    .fetch_optional(&mut *tx)
     .await
-    .map_err(internal)?;
+    .map_err(|e| internal_at("heartbeat.insert", e))?;
 
     // 収集開始日は記録と同じ規則で動く（FR-79）—— **信号なら発信時刻の日**。
-    coverage::touch_started_on(&app.pool, &req.logical_source, req.emitted_at)
+    coverage::touch_started_on(&mut *tx, &req.logical_source, req.emitted_at)
         .await
-        .map_err(internal)?;
+        .map_err(|e| internal_at("heartbeat.started_on", e))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| internal_at("heartbeat.commit", e))?;
 
     Ok(HeartbeatResult {
         id: Some(row.map_or(req.id, |(id,)| id)),
@@ -530,25 +565,14 @@ pub async fn coverage_get(
     Query(q): Query<CoverageQuery>,
 ) -> Result<Json<Vec<coverage::SourceCoverage>>, (StatusCode, String)> {
     authorize(&app, &headers)?;
+    // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
     let names: Vec<String> = coverage::must_sources()
         .into_iter()
         .map(|(n, _)| n)
         .collect();
-    let rows = coverage::sources(&app.pool, &names)
+    let out = coverage::of_sources(&app.pool, q.user_id, &names, q.from, q.to)
         .await
-        .map_err(internal)?;
-    // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
-    let mut out = Vec::with_capacity(names.len());
-    for name in &names {
-        let Some(src) = rows.iter().find(|r| &r.logical_source == name) else {
-            continue;
-        };
-        out.push(
-            coverage::of_source(&app.pool, q.user_id, src, q.from, q.to)
-                .await
-                .map_err(internal)?,
-        );
-    }
+        .map_err(|e| internal_at("coverage.of_sources", e))?;
     Ok(Json(out))
 }
 
@@ -571,7 +595,7 @@ pub async fn achievement_get(
     let today = today_jst();
     let got = coverage::achievement(&app.pool, q.user_id, today, &coverage::must_sources())
         .await
-        .map_err(internal)?;
+        .map_err(|e| internal_at("coverage.achievement", e))?;
     Ok(Json(got))
 }
 
@@ -609,7 +633,7 @@ pub async fn events(
     )
     .fetch_all(&app.pool)
     .await
-    .map_err(internal)?;
+    .map_err(|e| internal_at("events.select", e))?;
     Ok(Json(
         rows.into_iter()
             .map(
@@ -631,19 +655,24 @@ async fn selftest_panic() -> &'static str {
     panic!("selftest: 意図的な異常")
 }
 
-/// DB の失敗を畳む。**ログに出すのは SQLSTATE だけ**（A-2 / design D20）。
+/// DB の失敗を畳む。**ログに出すのは SQLSTATE と操作名だけ**（A-2 / design D20）。
 ///
 /// `sqlx::Error` の Display は `error returned from database: <PostgreSQL の本文>` で、
 /// PostgreSQL は `invalid input syntax for type ...: "<値>"` のように**入力値を本文に含める**。
-/// 原文が `text` になって格納の失敗経路が増えた（design D16）ぶん、ここから私的データが
-/// 漏れる筋が太くなっている。種別＝ SQLSTATE なら値を含まない。
-fn internal(e: sqlx::Error) -> (StatusCode, String) {
+/// 種別＝ SQLSTATE なら値を含まない。
+///
+/// **どの操作で落ちたかを添える**（review/code.md の R26）。
+/// `ingest_one` だけで 3 本、`heartbeat_one` で 3 本、読み出しでさらに数本の SQL が
+/// 同じ 1 行に畳まれていた。SQLSTATE `08006` が出たとき、それが
+/// 「記録は入ったが稼働記録が落ちた」（R2）なのか登録簿の照会が落ちただけなのかを
+/// ログから区別できない。**操作名は値ではない**ので、A-2 は出さない理由にならない。
+fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
     let code = e
         .as_database_error()
         .and_then(|d| d.code())
         .map(|c| c.into_owned())
         .unwrap_or_else(|| "unknown".into());
-    tracing::error!(kind = "db", sqlstate = %code, "データベース操作に失敗");
+    tracing::error!(kind = "db", op = op, sqlstate = %code, "データベース操作に失敗");
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
@@ -701,6 +730,7 @@ pub async fn run() -> anyhow::Result<()> {
         heartbeat::HeartbeatRequest,
         coverage::SourceCoverage,
         coverage::DayCell,
+        coverage::Interval,
         coverage::DayState,
         coverage::Band,
         coverage::Subject,

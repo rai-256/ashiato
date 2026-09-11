@@ -34,9 +34,22 @@ class FakeFixSource(private val fail: Boolean) : FixSource {
 class FakeScheduler : FlushScheduler {
     var periodMs: Long? = null
     var cancelled = false
+
+    /**
+     * **task を捨てない**（ST02 の review/code.md の R40 / F5）。
+     * 捨てていたときは `scheduler.every(HEARTBEAT_INTERVAL_MS) { emitter.emit() }` の
+     * **中身を空のラムダに書き換えても全部緑**だった —— 周期側の emit を誰も確かめていない。
+     */
+    private var task: (() -> Unit)? = null
+
     override fun every(periodMs: Long, task: () -> Unit) {
         this.periodMs = periodMs
+        this.task = task
     }
+
+    /** 刻みが 1 回来たことにする。 */
+    fun fire() = task?.invoke() ?: error("刻みに task が渡っていない")
+
     override fun cancel() {
         cancelled = true
     }
@@ -224,5 +237,50 @@ class LocationServiceTest {
         val service = controller.get()
         controller.destroy()
         assertTrue(service.beatScheduler.cancelled)
+    }
+
+    /**
+     * **刻みが来るたびに生存信号が 1 件積まれる**（ST02 の review/code.md の R40 / F5）。
+     *
+     * 起動時の 1 発は `startBeating()` が直に呼んでいるので、そこだけを見ていると
+     * **周期側の emit が空でも緑**になる。spec の「想定間隔**ごとに**送られる生存信号」の要。
+     */
+    @Test
+    fun `刻みが来るたびに生存信号が積まれる`() {
+        val service = start()
+        assertEquals("起動時の 1 件", 1, service.heartbeatOutboxForTest.size())
+        service.beatScheduler.fire()
+        service.beatScheduler.fire()
+        assertEquals("周期側の emit が走っていない", 3, service.heartbeatOutboxForTest.size())
+    }
+
+    /**
+     * 生存信号の刻みが**登録簿の想定間隔（6 時間）そのもの**であること
+     * （ST02 の review/code.md の R42 / F8）。
+     *
+     * `assertEquals(HEARTBEAT_INTERVAL_MS, periodMs)` だけだと、**定数を 1 分にしても緑**。
+     * サーバ側は `expected_gap_seeded` が `21_600` を固定しているので、
+     * ここにリテラルを置けば 2 か所が縫い合わされる。ずらすと正常な運用が⑥「途絶」に見える。
+     */
+    @Test
+    fun `生存信号の刻みは登録簿の想定間隔 6 時間と同じ`() {
+        assertEquals(21_600_000L, HEARTBEAT_INTERVAL_MS)
+        assertEquals(HEARTBEAT_INTERVAL_MS, start().beatScheduler.periodMs)
+    }
+
+    /**
+     * 数えの置き場が**端末の保存領域**に配線されている（ST02 の review/code.md の R16）。
+     *
+     * インスタンスの中だけに持っていたときは `START_STICKY` の立て直しで `since` ごと
+     * 新品になり、**死んでいた区間が観測から落ちた**。またいで残ることそのものは
+     * `HeartbeatCountersTest` が確かめる。ここは**本番の配線**だけを見る。
+     */
+    @Test
+    fun `数えの置き場が端末の保存領域にある`() {
+        start()
+        assertTrue(
+            "数えがメモリだけに置かれている",
+            File(app.filesDir, "heartbeat-counters.txt").exists(),
+        )
     }
 }

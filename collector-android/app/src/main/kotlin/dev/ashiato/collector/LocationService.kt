@@ -34,10 +34,13 @@ open class LocationService : Service() {
 
     /**
      * 前回の生存信号からの取得の試行と成功（第 5 回 Q17）。
-     * **サービスと同じ寿命**にする —— 立て直されたら数えも 0 から始まる
-     * （その区間はそもそも収集が途切れているので、累計を持ち越すと取得率が嘘になる）。
+     *
+     * **端末の保存領域に置く**（review/code.md の R16）。インスタンスの中だけに持つと、
+     * `START_STICKY` の立て直しで `since` ごと新品になり、**死んでいた区間が観測から落ちる**
+     * —— 6 時間のうち 5 時間 50 分死んで 10 分前に立て直されると、次の信号は
+     * `10 / 10` で「取得率 100 %」になる。それは見分けたかった当の区間。
      */
-    private val counters = AttemptCounters(now = { Instant.now() })
+    private lateinit var counters: AttemptCounters
 
     private lateinit var callback: FixCollector
 
@@ -68,6 +71,10 @@ open class LocationService : Service() {
     /** 生存信号の刻み。試験だけが差し替える。 */
     protected open fun newHeartbeatScheduler(): FlushScheduler = ExecutorFlushScheduler()
 
+    /** 数えの置き場。**端末の保存領域**（review/code.md の R16）。試験だけが差し替える。 */
+    protected open fun newCounterStore(): CounterStore =
+        FileCounterStore(File(filesDir, "heartbeat-counters.txt")) { Log.w(TAG, it) }
+
     /**
      * いま取得できる状態か（深掘り Q5）。**試験だけが差し替える。**
      *
@@ -82,6 +89,7 @@ open class LocationService : Service() {
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
+        counters = AttemptCounters(now = { Instant.now() }, store = newCounterStore())
         outbox = newOutbox()
         heartbeatOutbox = newHeartbeatOutbox()
         fixSource = newFixSource()
@@ -137,17 +145,13 @@ open class LocationService : Service() {
         // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない
         flusher = newScheduler().also { scheduler ->
             scheduler.every(SEND_INTERVAL_MS) {
-                // 1 回の失敗で以後の送信を止めない。**ただし黙らない**（review CRITICAL-4）——
-                // 握り潰すと、送信が毎回失敗していても logcat に 1 行も残らない。
-                // 種別だけを出すので、私的データは漏れない（製造準備 A-2）
+                // **記録の送信が落ちても生存信号は送る。** 1 つの `runCatching` にまとめると、
+                // 記録が送れない期間の稼働がまるごと残らなくなる。
+                // 例外の握りつぶし自体は `ExecutorFlushScheduler` が構造で持つ（design D26）
                 runCatching { sender.flush() }.onFailure {
                     Log.w(TAG, Telemetry.line("flush_crashed", error = it.javaClass.simpleName))
                 }
-                // **記録の送信が落ちても生存信号は送る。** ここを同じ runCatching に入れると、
-                // 記録が送れない期間の稼働がまるごと残らなくなる
-                runCatching { beatSender.flush() }.onFailure {
-                    Log.w(TAG, Telemetry.line("beat_flush_crashed", error = it.javaClass.simpleName))
-                }
+                beatSender.flush()
             }
         }
     }
@@ -173,14 +177,17 @@ open class LocationService : Service() {
             newId = { UUID.randomUUID().toString() },
             log = { Log.i(TAG, it) },
         )
-        emitter.emit()
+        // **起動時の 1 発も守る**（review/code.md の R36 / I7）。
+        // `readCapability()`（端末を読む）も `outbox.add()`（filesDir への追記）も投げうる。
+        // ここが裸だと `onStartCommand` を貫通してプロセスごと落ち、
+        // START_STICKY と合わさってクラッシュループになる ——
+        // このファイル自身が権限拒否のところで立てた規律（**落とさずに何もしない**）と食い違う。
+        runCatching { emitter.emit() }.onFailure {
+            Log.w(TAG, Telemetry.line("heartbeat_crashed", error = it.javaClass.simpleName))
+        }
         // **登録簿の想定間隔に合わせる**（tasks 7.1）。ずらすと正常な運用が途絶に見える
         beater = newHeartbeatScheduler().also { scheduler ->
-            scheduler.every(HEARTBEAT_INTERVAL_MS) {
-                runCatching { emitter.emit() }.onFailure {
-                    Log.w(TAG, Telemetry.line("heartbeat_crashed", error = it.javaClass.simpleName))
-                }
-            }
+            scheduler.every(HEARTBEAT_INTERVAL_MS) { emitter.emit() }
         }
     }
 
@@ -219,9 +226,26 @@ open class LocationService : Service() {
 class ExecutorFlushScheduler : FlushScheduler {
     private var pool: ScheduledExecutorService? = null
 
+    /**
+     * **例外をここで受け止める**（review/code.md の R30 / M-7）。
+     *
+     * `scheduleWithFixedDelay` は task が投げると**以後の実行を静かに打ち切る**
+     * （ログも例外も出ない）。呼び出し側が毎回 `runCatching` を書くことに安全性を
+     * 委ねると、1 度忘れた日に**収集は前景通知を出したまま送信も生存信号も永久に止まり、
+     * logcat に 1 行も残らない**。性質は構造で持たせる。
+     */
     override fun every(periodMs: Long, task: () -> Unit) {
         pool = Executors.newSingleThreadScheduledExecutor().also {
-            it.scheduleWithFixedDelay({ task() }, periodMs, periodMs, TimeUnit.MILLISECONDS)
+            it.scheduleWithFixedDelay(
+                {
+                    runCatching { task() }.onFailure { e ->
+                        Log.w("ashiato", Telemetry.line("tick_crashed", error = e.javaClass.simpleName))
+                    }
+                },
+                periodMs,
+                periodMs,
+                TimeUnit.MILLISECONDS,
+            )
         }
     }
 

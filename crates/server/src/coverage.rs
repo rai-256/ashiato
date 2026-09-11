@@ -99,10 +99,25 @@ pub struct DayCell {
     pub day: chrono::NaiveDate,
     pub state: DayState,
     pub event_count: i32,
-    /// その日の生存信号が報告した取得の試行回数。**信号が無い日は返らない**
+    /// その日の生存信号が報告した取得の試行回数の合計。**信号が無い日は返らない**
     /// —— 来ていない区間の取得率は埋まらない（specs）
     pub attempts: Option<i64>,
     pub successes: Option<i64>,
+    /// その日に報告された、満たされていないもの（FR-78 / specs「何が満たされていないかが返る」）。
+    /// **取れる状態しか無い日は空**
+    pub blockers: Vec<String>,
+    /// **区間ごと**の取得率（第 5 回 Q17）。日に畳んだ合計だけだと
+    /// 「眠っていた区間」が薄まる —— 想定間隔 6 時間なら 1 日 4 区間になる（review/code.md の R9）
+    pub intervals: Vec<Interval>,
+}
+
+/// 生存信号 1 件ぶんの区間。**これが「前回の信号から今回まで」にあたる。**
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct Interval {
+    pub emitted_at: chrono::DateTime<chrono::Utc>,
+    pub capturable: bool,
+    pub attempts: i32,
+    pub successes: i32,
 }
 
 /// ソース 1 本ぶんの稼働状況。
@@ -132,6 +147,7 @@ type FactRow = (
     Option<bool>,
     Option<i64>,
     Option<i64>,
+    Vec<String>,
     bool,
     bool,
 );
@@ -145,6 +161,9 @@ struct DayFacts {
     capturable: Option<bool>,
     attempts: Option<i64>,
     successes: Option<i64>,
+    /// その日の信号が報告した、満たされていないもの（`permission` / `sensor` / `network`）。
+    /// **重複は畳んである。** 取れる状態しか無い日は空
+    blockers: Vec<String>,
     /// その日を**丸ごと覆う**破棄 / 停止があるか。
     /// **丸ごと覆わない範囲は状態を決めない**（design D7 / 深掘り Q3 と同じ粒度）
     dropped_full: bool,
@@ -160,11 +179,14 @@ struct DayFacts {
 /// 圏外の保持がこれを起こす）。遡ると NFR-13 の窓の起点も動くが、
 /// **動くのは入力であって判定式ではない** —— 状態も達成も行に焼いていないので、
 /// 同じ入力からは必ず同じ答えが出る。
-pub async fn touch_started_on(
-    pool: &sqlx::PgPool,
+pub async fn touch_started_on<'e, E>(
+    executor: E,
     logical_source: &str,
     at: chrono::DateTime<chrono::Utc>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = format!(
         "UPDATE core.source
             SET collection_started_on = ($2 AT TIME ZONE '{tz}')::date
@@ -176,7 +198,7 @@ pub async fn touch_started_on(
     sqlx::query(&sql)
         .bind(logical_source)
         .bind(at)
-        .execute(pool)
+        .execute(executor)
         .await?;
     Ok(())
 }
@@ -205,6 +227,44 @@ pub async fn sources(pool: &sqlx::PgPool, only: &[String]) -> Result<Vec<SourceR
         .collect())
 }
 
+/// 名前の並びどおりに稼働状況を集める。**登録簿に無い名前も落とさない**
+/// （review/code.md の R20 / H-3）。
+///
+/// `continue` で飛ばすと、画面に 4 本の格子が並び**5 本目が「無い」ことすら表示されない**。
+/// 達成の側は同じ状況を `not_started` として返しているので、黙るとその 2 つが食い違う。
+/// 定数と登録簿のずれ自体は `expected_gap_seeded` が CI で止めるが、
+/// 実行時にずれたとき（登録簿から行を消した運用）はここが唯一の出口になる。
+pub async fn of_sources(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    names: &[String],
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<Vec<SourceCoverage>, sqlx::Error> {
+    let rows = sources(pool, names).await?;
+    let mut out = Vec::with_capacity(names.len());
+    for name in names {
+        let src = match rows.iter().find(|r| &r.logical_source == name) {
+            Some(src) => src.clone(),
+            None => {
+                tracing::warn!(
+                    kind = "source_missing",
+                    logical_source = %name,
+                    "登録簿に無いソース。まだ開始していないものとして返す"
+                );
+                SourceRow {
+                    logical_source: name.clone(),
+                    display_name: name.clone(),
+                    expected_gap_sec: 0,
+                    collection_started_on: None,
+                }
+            }
+        };
+        out.push(of_source(pool, user, &src, from, to).await?);
+    }
+    Ok(out)
+}
+
 /// 日ごとの材料を SQL で 1 度に集める。
 ///
 /// **日の区切りは PostgreSQL の `AT TIME ZONE` に任せる**（design D1）——
@@ -218,18 +278,36 @@ async fn facts(
 ) -> Result<Vec<DayFacts>, sqlx::Error> {
     let sql = format!(
         "WITH d AS (SELECT generate_series($3::date, $4::date, '1 day')::date AS day),
-              c AS (SELECT day, event_count FROM core.coverage
-                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2),
+              -- **集約する**（review/code.md の R21）。主キーは (user_id, logical_source, day) なので、
+              -- 利用者が 2 人いれば同じ日が 2 行返り、LEFT JOIN で 1 日が 2 行に膨らむ。
+              -- 達成の分母は「日数」ではなく「行数」になって二重に数えられる。
+              -- 生存信号の側（h）は最初から GROUP BY があり、**片方だけ集約が無かった**。
+              c AS (SELECT day, sum(event_count)::int AS event_count FROM core.coverage
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+                     GROUP BY day),
+              -- **`bool_or`**: その日に取得できる状態の信号が 1 件でもあれば②（design D7 の (5)）。
+              -- 全部が取れない状態のときだけ③（同 (6)）。混在する日は現実にいちばん起きる形
+              -- （日の途中で権限が剥がれる）なので、`bool_and` との違いが観測できる検査を置いてある。
               h AS (SELECT (emitted_at AT TIME ZONE '{tz}')::date AS day,
                            bool_or(capturable) AS capturable,
                            sum(attempts)::bigint  AS attempts,
                            sum(successes)::bigint AS successes
                       FROM core.heartbeat
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+                     GROUP BY 1),
+              -- **満たされていないものを日ごとに畳む**（review/code.md の R39）。
+              -- spec の Scenario「取得できない状態が理由とともに残る …
+              -- AND 何が満たされていないか（権限）が返る」の後半が未実装だった。
+              -- 配列を展開してから集約する（`array_agg` を入れ子にすると型が合わない）。
+              b AS (SELECT (emitted_at AT TIME ZONE '{tz}')::date AS day,
+                           array_agg(DISTINCT x ORDER BY x) AS blockers
+                      FROM core.heartbeat, unnest(blockers) AS x
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
                      GROUP BY 1)
          SELECT d.day,
                 coalesce(c.event_count, 0) AS event_count,
                 h.capturable, h.attempts, h.successes,
+                coalesce(b.blockers, '{{}}') AS blockers,
                 EXISTS (SELECT 1 FROM core.coverage_span s
                          WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = $2 AND s.kind = 'dropped'
                            AND s.started_at <= (d.day::timestamp AT TIME ZONE '{tz}')
@@ -245,6 +323,7 @@ async fn facts(
            FROM d
            LEFT JOIN c ON c.day = d.day
            LEFT JOIN h ON h.day = d.day
+           LEFT JOIN b ON b.day = d.day
           ORDER BY d.day",
         tz = DAY_TZ
     );
@@ -258,19 +337,78 @@ async fn facts(
     Ok(rows
         .into_iter()
         .map(
-            |(day, event_count, capturable, attempts, successes, dropped_full, stopped_full)| {
+            |(
+                day,
+                event_count,
+                capturable,
+                attempts,
+                successes,
+                blockers,
+                dropped_full,
+                stopped_full,
+            )| {
                 DayFacts {
                     day,
                     event_count,
                     capturable,
                     attempts,
                     successes,
+                    blockers,
                     dropped_full,
                     stopped_full,
                 }
             },
         )
         .collect())
+}
+
+/// 生存信号を**1 件ずつ**日に割り当てて返す（review/code.md の R9）。
+///
+/// spec の Scenario は「**前回の信号からの間に**取得を 360 回試みて 230 回成功したことを示す
+/// 生存信号が届く → **その区間の**試行回数と成功回数が返る」。日に畳んだ合計だけを返すと、
+/// 想定間隔 6 時間のソースでは 1 日 4 区間が 1 つに混ざり、
+/// **眠っていた区間が薄まって見えなくなる** —— 第 5 回 Q17 が Q17 を入れた理由そのものが消える。
+async fn intervals(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    source: &str,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<Interval>>, sqlx::Error> {
+    let sql = format!(
+        "SELECT (emitted_at AT TIME ZONE '{tz}')::date AS day,
+                emitted_at, capturable, attempts, successes
+           FROM core.heartbeat
+          WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = $2
+            AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
+            AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
+          ORDER BY emitted_at",
+        tz = DAY_TZ
+    );
+    let rows: Vec<(
+        chrono::NaiveDate,
+        chrono::DateTime<chrono::Utc>,
+        bool,
+        i32,
+        i32,
+    )> = sqlx::query_as(&sql)
+        .bind(user)
+        .bind(source)
+        .bind(from)
+        .bind(to)
+        .fetch_all(pool)
+        .await?;
+    let mut out: std::collections::HashMap<chrono::NaiveDate, Vec<Interval>> =
+        std::collections::HashMap::new();
+    for (day, emitted_at, capturable, attempts, successes) in rows {
+        out.entry(day).or_default().push(Interval {
+            emitted_at,
+            capturable,
+            attempts,
+            successes,
+        });
+    }
+    Ok(out)
 }
 
 /// 記録か生存信号があった日を古い順に。**途絶の判定に要る**（前後の活動を測る）。
@@ -351,6 +489,7 @@ pub async fn of_source(
 ) -> Result<SourceCoverage, sqlx::Error> {
     let facts = facts(pool, user, &src.logical_source, from, to).await?;
     let active = active_days(pool, user, &src.logical_source).await?;
+    let mut by_day = intervals(pool, user, &src.logical_source, from, to).await?;
     let gap_days = f64::from(src.expected_gap_sec) / 86_400.0;
     let days = facts
         .iter()
@@ -360,6 +499,8 @@ pub async fn of_source(
             event_count: f.event_count,
             attempts: f.attempts,
             successes: f.successes,
+            blockers: f.blockers.clone(),
+            intervals: by_day.remove(&f.day).unwrap_or_default(),
         })
         .collect();
     Ok(SourceCoverage {

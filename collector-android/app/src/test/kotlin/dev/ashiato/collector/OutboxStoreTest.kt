@@ -171,7 +171,49 @@ class OutboxStoreTest {
         outbox.add(req("a"))
 
         assertFalse(outbox.remove(listOf("a")))
-        assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_save_failed") })
+        // **置き場がディレクトリなので、読み出しの時点で既に失敗している。**
+        // その状態での書き直しは「失敗した」ではなく「**断った**」——
+        // 読めなかった分を上書きで消さないため（ST02 の review/code.md の R17）。
+        assertTrue(
+            "黙って失敗している",
+            lines.any { it.contains("kind=outbox_save_refused") || it.contains("kind=outbox_save_failed") },
+        )
+    }
+
+    /**
+     * **1 度読めなかっただけで、溜まっていた未送信が消えない**（ST02 の review/code.md の R17）。
+     *
+     * `load()` が `emptyList()` を返すと、それが `pending` の初期値になる。
+     * そのあと送信が 1 件成功すると `remove` → `save` が**ファイルを丸ごと書き直す**ので、
+     * 読めなかった分が痕跡なく消えていた。一過性の失敗（EMFILE・direct boot 中のアクセス）で
+     * 起きるので、中身は無事なまま失われる。
+     */
+    @Test
+    fun `読めなかった未送信が、次の書き直しで消えない`() {
+        val store = FileOutboxStore(file, IngestRequest.serializer()) { lines += it }
+        Outbox(store).apply {
+            add(req("keep-1"))
+            add(req("keep-2"))
+        }
+        val before = file.readText()
+
+        // 読めない状態にする（一過性の IO 失敗を模す）
+        assertTrue("読み取り権限を落とせない環境", file.setReadable(false))
+        val blind = Outbox(FileOutboxStore(file, IngestRequest.serializer()) { lines += it })
+        assertEquals("読めていないのに中身が見えている", 0, blind.size())
+
+        // 送信が成功したことにして取り除く → **ここで上書きされてはいけない**
+        assertFalse("読めていないのに書き直しが通った", blind.remove(listOf("keep-1")))
+        assertTrue(
+            "断ったことが残っていない",
+            lines.any { it.contains("kind=outbox_save_refused") },
+        )
+
+        // 読めるようになれば元の 2 件が戻る
+        assertTrue(file.setReadable(true))
+        assertEquals(before, file.readText())
+        val reopened = Outbox(FileOutboxStore(file, IngestRequest.serializer()) {})
+        assertEquals(listOf("keep-1", "keep-2"), reopened.snapshot().map { it.id })
     }
 
     @Test

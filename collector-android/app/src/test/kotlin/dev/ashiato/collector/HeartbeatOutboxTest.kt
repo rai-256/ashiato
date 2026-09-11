@@ -120,4 +120,53 @@ class HeartbeatOutboxTest {
             Outbox(FileOutboxStore(beats, HeartbeatRequest.serializer()) {}).snapshot().map { it.id },
         )
     }
+
+    /**
+     * **恒久的に断られた 1 件が未送信の先頭を塞がない**（ST02 の review/code.md の R18 / H-1）。
+     *
+     * `accepted = false` の項目は未送信に残り続ける。先頭 `MAX_BATCH` 件が
+     * 恒久的な拒否で埋まると、毎回その同じ 200 件が載り、**新しい記録には永久に順番が回らない**。
+     * サーバ側は 1 件ごとの結果を返すことでこれを避けているのに、収集側に抜け道が無かった。
+     */
+    @Test
+    fun `恒久的に断られた信号が、後ろの信号を永久に止めない`() {
+        val outbox = testHeartbeatOutbox()
+        outbox.add(beat("bad", "2026-05-01T00:00:00Z"))
+
+        // 送信の契機ごとに答えを変える偽物（同じ `Sender` を使い続ける ——
+        // 断られた分を覚えているのは `Sender` なので、作り直すと検査にならない）
+        val transport = FakeTransport {
+            // 断られるのは "bad" だけ。載っている件数ぶんの結果を返す
+            val count = it.split("\"id\"").size - 1
+            val results = (0 until count).joinToString(",", "[", "]") { i ->
+                if (it.contains("2026-05-01T00:00:00Z") && i == 0) {
+                    """{"accepted":false,"error":"unknown_source"}"""
+                } else {
+                    """{"accepted":true}"""
+                }
+            }
+            Outcome.Responded(200, results)
+        }
+        val sender = Sender(outbox, transport, HeartbeatRequest.serializer())
+
+        sender.flush()
+        assertEquals("断られた 1 件が残る", listOf("bad"), outbox.snapshot().map { it.id })
+
+        // 新しい 1 件が積まれる。**断られた分に押し出されない**
+        outbox.add(beat("next", "2026-05-01T12:00:00Z"))
+        sender.flush()
+        assertEquals(
+            "断られた 1 件が先頭を塞いでいる（新しい分が送られていない）",
+            listOf("bad"),
+            outbox.snapshot().map { it.id },
+        )
+        assertTrue(
+            "2 回目に新しい 1 件が載っていない",
+            transport.bodies[1].contains("2026-05-01T12:00:00Z"),
+        )
+        assertTrue(
+            "2 回目にも断られた 1 件が載っている（飛ばせていない）",
+            !transport.bodies[1].contains("2026-05-01T00:00:00Z"),
+        )
+    }
 }

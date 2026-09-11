@@ -189,17 +189,26 @@ extra=$(psql -c "SELECT count(*) FROM information_schema.columns
 [ "$extra" = "0" ] || { echo "  NG 生存信号に分類列・論理削除列がある（迂回路になる）"; fail=1; }
 echo "  OK 生存信号に迂回路になる列が無い"
 
-# **論理削除の例外も無い**（core.event と違い、生存信号には通し道を作らない）
+# **削除も拒む**（ST02 の review/code.md の R22 / I10 / H-5）。
+#
+# 以前ここは `DELETE` が通ったら `ok …` と出し、拒まれたら何も出さず、
+# **どちらの分岐でも `fail` を触っていなかった** —— 検査ではなく「検査に見える出力」だった。
+# しかも印字していた主張（「アプリに DELETE の経路が無いことが担保」）を
+# 裏付けるものがスクリプト内外に無かった。
+#
+# `UPDATE` だけを止めても **2 手で差し替えられる**:
+#   DELETE FROM core.heartbeat WHERE id = '…';
+#   INSERT INTO core.heartbeat (… capturable=false …);
+# `content_hash` は `logical_source` + `emitted_at` + `raw` から決まるので、
+# **同じ鍵のまま中身だけ入れ替えられる**。0004 が実測で見つけた 3 手の迂回と同じ型で、
+# 0002 と 0006 が自分で書いた脅威（psql を直に叩く運用）がまさにこの 2 手を打てる。
 if psql -c "DELETE FROM core.heartbeat WHERE logical_source = 'hb-check';" >/dev/null 2>&1; then
-  # DELETE は拒んでいない（BEFORE UPDATE のトリガなので）。行が消えたことを明示して戻す
-  echo "  ok 削除そのものは DB では止めていない（アプリに DELETE の経路が無いことが担保）"
-  psql -c "INSERT INTO core.heartbeat
-             (id, user_id, logical_source, device_id, emitted_at, capturable, blockers,
-              attempts, successes, content_hash, raw)
-           VALUES ('44444444-4444-4444-8444-444444444444',
-                   '00000000-0000-0000-0000-000000000000','hb-check','hb-dev',
-                   '2026-09-08T02:00:00Z', true, '{}', 360, 230, 'hb-check-hash',
-                   '{\"alive\":true}');" >/dev/null
+  echo "  NG 生存信号を削除できた（2 手で証拠を差し替えられる）"; fail=1
+else
+  echo "  OK 生存信号は削除できない"
 fi
+# 行が本当に残っていること（例外を投げても消えていた、を潰す）
+left=$(psql -c "SELECT count(*) FROM core.heartbeat WHERE logical_source = 'hb-check';")
+[ "$left" = "1" ] || { echo "  NG 生存信号が消えている（$left 行）"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }

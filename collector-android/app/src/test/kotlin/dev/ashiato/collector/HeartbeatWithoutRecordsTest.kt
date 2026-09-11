@@ -35,14 +35,17 @@ class HeartbeatWithoutRecordsTest {
         )
 
         // **記録の契機を 1 度も起こさない。**
+        // （`events` は空のまま。これは `emitter` が記録の側に触らないことの確認で、
+        //   「記録の契機から呼んでいないか」の配線は `LocationServiceTest` が見る ——
+        //   ここだけだと常に真の assert になる。ST02 の review/code.md の R51）
         assertEquals(0, events.size())
         clock.at = Instant.parse("2026-05-01T06:00:00Z")
         emitter.emit()
         clock.at = Instant.parse("2026-05-01T12:00:00Z")
         emitter.emit()
 
-        assertEquals(0, events.size())
-        assertEquals("記録の生成に相乗りしている", 2, beats.size())
+        assertEquals("生存信号が記録の側に積まれている", 0, events.size())
+        assertEquals("記録が無いと信号が出ない", 2, beats.size())
         assertTrue(beats.snapshot().all { it.capturable })
         // 区間ごとに 1 件で、発信時刻が違う（＝別の 1 件としてサーバに入る）
         assertEquals(

@@ -99,6 +99,14 @@ def ok(expr, allow):
     return bool(toks) and parse_or()
 
 root = "web/node_modules"
+# **対象が無いことと、不許可が無いことを混ぜない**（ST02 の review/code.md の R8 / C2）。
+# CI の rust job には `npm ci` が無く、`web/node_modules` が存在しないので
+# `os.walk` が黙って 0 件を返し、**ローカルの緑と CI の緑が別物**になっていた。
+# スクリプト冒頭が「ここが赤くなったら入れてはいけない」と書いているのに、その門が無かった。
+if not os.path.isdir(root):
+    print("  NG web/node_modules が無い（この検査は空振りしている）")
+    print("     `cd web && npm ci` の後に走らせる。CI では web job に置く")
+    sys.exit(1)
 bad, n = [], 0
 for dirpath, dirnames, filenames in os.walk(root):
     if "package.json" not in filenames or os.path.basename(os.path.dirname(dirpath)) == "node_modules" and False:

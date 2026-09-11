@@ -197,20 +197,26 @@ async fn outage_respects_expected_gap() {
 
 /// 前後を想定間隔以内に挟まれた空白の日は②（2 巡目 R6。tasks 5.3）。
 ///
-/// Scenario: 途絶は収集側の報告なしに立つ
+/// **名前と中身を揃え直した**（review/code.md の R50）。以前ここは
+/// 「6 時間間隔なら 1 日の空白は⑥」を確かめており、**名前と逆のことを主張していた**。
+/// 挟まれて②になる側は名前どおりここが持ち、⑥の側は `outage_respects_expected_gap` が持つ。
+///
+/// Scenario: 想定間隔を超えない空白の日は途絶にならない
 #[tokio::test]
 async fn sandwiched_gap_is_alive() {
     let pool = testdb::pool().await;
-    // 想定間隔 6 時間なら、1 日の空白でも途絶になる
-    let (s, u) = src(&pool, "sandwich", SIX_HOURS, Some("2026-05-01")).await;
+    // 想定間隔 60 日。前後に記録があるので、間の空白は「収集は生きていた」と読める
+    let (s, u) = src(&pool, "sandwich", SIXTY_DAYS, Some("2026-05-01")).await;
     testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-01", 1).await;
     testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-03", 1).await;
-    assert_eq!(
-        state_on(&pool, u, &s, "2026-05-02").await,
-        DayState::Outage,
-        "6 時間間隔なら 1 日の空白は想定間隔を超えている"
-    );
-    // **収集側からは何も送られていない**（途絶は受け手の側だけで立つ）
+    for day in ["2026-05-02"] {
+        assert_eq!(
+            state_on(&pool, u, &s, day).await,
+            DayState::AliveNoRecord,
+            "{day} が②でない"
+        );
+    }
+    // **生存信号は 1 件も無い。** ②の根拠は前後の記録だけ
     let hb: (i64,) =
         sqlx::query_as("SELECT count(*) FROM core.heartbeat WHERE logical_source = $1")
             .bind(&s.logical_source)
@@ -218,6 +224,25 @@ async fn sandwiched_gap_is_alive() {
             .await
             .unwrap();
     assert_eq!(hb.0, 0);
+}
+
+/// 途絶は**受け手の側だけ**で立つ（FR-80）。収集側は何も送っていない。
+///
+/// Scenario: 途絶は収集側の報告なしに立つ
+#[tokio::test]
+async fn outage_stands_without_any_report() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "noreport", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-01", 1).await;
+    // 想定間隔 6 時間なら、翌日以降は何も来ていない時点で⑥
+    assert_eq!(state_on(&pool, u, &s, "2026-05-02").await, DayState::Outage);
+    let hb: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.heartbeat WHERE logical_source = $1")
+            .bind(&s.logical_source)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(hb.0, 0, "収集側から何も送られていないのに立つのが FR-80");
 }
 
 /// 想定間隔を変えると過去の判定も変わる（design D6。tasks 5.4）。
@@ -649,6 +674,19 @@ async fn achievement_denominator_full_day_stop_only() {
         Some("2026-01-04T03:00:00Z"),
     )
     .await;
+    // **丸ごと覆う「破棄」は分母に残る**（review/code.md の R7）。
+    // specs は「FR-34 で記録された意図的な停止のうち 1 日を丸ごと覆うもの**だけ**を除く」。
+    // ここを `!stopped_full && !dropped_full` に変えても 71 件緑だった（独立検証の実測）——
+    // 破棄まで除くと分母が縮んで達成が近づき、第 5 回 Q18 が割合にした理由に直接触る。
+    testdb::put_span(
+        &pool,
+        u,
+        &name,
+        "dropped",
+        "2026-01-05T15:00:00Z",
+        Some("2026-01-06T15:00:00Z"),
+    )
+    .await;
     let got = achievement(
         &pool,
         Some(u),
@@ -657,7 +695,10 @@ async fn achievement_denominator_full_day_stop_only() {
     )
     .await
     .unwrap();
-    assert_eq!(got.sources[0].denominator, 9, "丸ごとの 1 日だけが抜ける");
+    assert_eq!(
+        got.sources[0].denominator, 9,
+        "丸ごとの停止 1 日だけが抜ける（破棄と半日の停止は残る）"
+    );
     assert_eq!(got.sources[0].achieved_days, 9);
 }
 
@@ -950,17 +991,23 @@ async fn achievement_reevaluates_when_start_moves_back() {
 /// 行を 1 つ更新するだけで判定式が動いてしまう。
 #[test]
 fn must_sources_are_the_five_of_nfr13() {
-    let got = must_sources();
-    assert_eq!(got.len(), 5);
+    // **(名前, 主語) の組を丸ごとリテラルで固定する**（review/code.md の R6）。
+    // 個数（Device 2 本 / Usage 3 本）だけを見ていたときは、
+    // **位置と写真を入れ替えても 71 件すべて緑**だった（独立検証の実測）。
+    // 入れ替えは第 4 回 Q8（本人が `conflict / irreversible` として答えた問い）を裏返し、
+    // specs が「写真を記録の有無で数えると**正常動作時から未達で固定される**」と
+    // 書いた当の状態を作る。
+    //
+    // **並びもここで固定する**（design D19）—— 画面の縦の並びがこの順になる。
     assert_eq!(
-        got.iter().filter(|(_, s)| *s == Subject::Device).count(),
-        2,
-        "端末が主語は位置とアプリ利用の 2 本"
-    );
-    assert_eq!(
-        got.iter().filter(|(_, s)| *s == Subject::Usage).count(),
-        3,
-        "利用が主語は写真・ウィンドウ・ブラウザ履歴の 3 本"
+        must_sources(),
+        vec![
+            ("c01-location".to_string(), Subject::Device),
+            ("c01-app-usage".to_string(), Subject::Device),
+            ("c01-photo".to_string(), Subject::Usage),
+            ("c02-window".to_string(), Subject::Usage),
+            ("c02-browser-history".to_string(), Subject::Usage),
+        ]
     );
 }
 
@@ -983,4 +1030,402 @@ fn seven_states_fold_into_three_bands() {
             "{s:?} が「それ以外」に畳まれていない"
         );
     }
+}
+
+// ------------------------------------------------------- 独立レビューで足したもの
+
+/// 何が満たされていないかが**読み出し口から返る**（review/code.md の R39 / F1）。
+///
+/// spec の Scenario は 2 行あり、後半「**何が満たされていないか（権限）が返る**」が
+/// 未実装だった。前の検査は `testdb` が入れた行を読み直していただけで、
+/// **`blockers` を返さない実装のまま緑**だった。
+///
+/// Scenario: 取得できない状態が理由とともに残る
+#[tokio::test]
+async fn blockers_are_returned_from_coverage() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "blockers-out", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_heartbeat(&pool, u, &s.logical_source, "2026-05-01T03:00:00Z", false).await;
+
+    let got = of_source(
+        &pool,
+        Some(u),
+        &s,
+        testdb::date("2026-05-01"),
+        testdb::date("2026-05-02"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(got.days[0].state, DayState::AliveNotCapturable);
+    assert_eq!(
+        got.days[0].blockers,
+        vec!["permission".to_string()],
+        "何が満たされていないかが返っていない"
+    );
+    // 取れている日・信号の無い日には理由が付かない
+    assert!(got.days[1].blockers.is_empty());
+}
+
+/// **区間ごと**の取得率が返る（review/code.md の R9）。
+///
+/// spec は「**前回の信号からの間に** 360 回試みて 230 回成功 → **その区間の**回数が返る」。
+/// 日の合計だけを返すと、想定間隔 6 時間のソースでは 1 日 4 区間が 1 つに混ざり、
+/// **眠っていた区間が薄まって見えなくなる** —— 第 5 回 Q17 を入れた理由そのものが消える。
+///
+/// Scenario: 想定間隔より細かい空きが取得率として残る
+#[tokio::test]
+async fn intervals_are_returned_per_signal() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "intervals", SIX_HOURS, Some("2026-05-01")).await;
+    // 同じ日に 2 区間。前半は眠っていて（10 / 3）、後半は健全（360 / 355）
+    testdb::put_heartbeat_counts(
+        &pool,
+        u,
+        &s.logical_source,
+        "2026-05-01T03:00:00Z",
+        true,
+        10,
+        3,
+    )
+    .await;
+    testdb::put_heartbeat_counts(
+        &pool,
+        u,
+        &s.logical_source,
+        "2026-05-01T09:00:00Z",
+        true,
+        360,
+        355,
+    )
+    .await;
+
+    let d = testdb::date("2026-05-01");
+    let got = of_source(&pool, Some(u), &s, d, d).await.unwrap();
+    // 日の合計も返る（画面の「その日どれくらい取れたか」に使う）
+    assert_eq!(got.days[0].attempts, Some(370));
+    assert_eq!(got.days[0].successes, Some(358));
+    // **区間が畳まれずに残る** —— 前半の 3/10 が後半に薄められていない
+    let got_intervals: Vec<(i32, i32)> = got.days[0]
+        .intervals
+        .iter()
+        .map(|i| (i.attempts, i.successes))
+        .collect();
+    assert_eq!(
+        got_intervals,
+        vec![(10, 3), (360, 355)],
+        "区間が日に畳まれている（眠っていた区間が見分けられない）"
+    );
+}
+
+/// 1 日に取得可否が**混在**したら②（design D7 の (5)）。
+/// **`bool_and` に変えても緑だった**（独立レビューの実測。review/code.md の R32）。
+///
+/// Scenario: 生存信号だけなら動いていた・記録なし
+#[tokio::test]
+async fn mixed_capturable_day_is_alive() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "mixed", SIX_HOURS, Some("2026-05-01")).await;
+    // 日の途中で権限が剥がれた（現実にいちばん起きる形）
+    testdb::put_heartbeat(&pool, u, &s.logical_source, "2026-05-01T03:00:00Z", true).await;
+    testdb::put_heartbeat(&pool, u, &s.logical_source, "2026-05-01T09:00:00Z", false).await;
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-01").await,
+        DayState::AliveNoRecord,
+        "1 件でも取得できる状態の信号があれば②（すべて取れないときだけ③）"
+    );
+
+    // 達成日にも数えられる（利用が主語のソース）
+    let got = achievement(
+        &pool,
+        Some(u),
+        testdb::date("2026-05-02"),
+        &[(s.logical_source.clone(), Subject::Usage)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(got.sources[0].achieved_days, 1);
+}
+
+/// 丸ごと覆わない**破棄**も状態を決めない（review/code.md の R33 / I2）。
+/// 停止しか試していなかったので、`dropped_full` を「一部でも重なれば真」に緩めても緑だった。
+#[tokio::test]
+async fn partial_drop_does_not_decide_state() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "partialdrop", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-02", 1).await;
+    testdb::put_span(
+        &pool,
+        u,
+        &s.logical_source,
+        "dropped",
+        "2026-05-02T00:00:00Z",
+        Some("2026-05-02T09:00:00Z"),
+    )
+    .await;
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-02").await,
+        DayState::Recorded,
+        "半日の破棄は状態を決めない"
+    );
+}
+
+/// **まだ終わっていない停止**（`ended_at IS NULL`）が、その日以降を④にする。
+/// FR-34 の最も普通の状態（いま止めていて、まだ再開していない）が一度も試されていなかった
+/// （review/code.md の R43 / F10）。
+#[tokio::test]
+async fn open_ended_stop_covers_every_later_day() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "openstop", SIX_HOURS, Some("2026-05-01")).await;
+    // 2026-05-02 00:00 JST から、終わりを入れずに止める
+    testdb::put_span(
+        &pool,
+        u,
+        &s.logical_source,
+        "stopped",
+        "2026-05-01T15:00:00Z",
+        None,
+    )
+    .await;
+    for day in ["2026-05-02", "2026-05-03", "2026-06-01"] {
+        assert_eq!(
+            state_on(&pool, u, &s, day).await,
+            DayState::Stopped,
+            "{day} が④でない"
+        );
+    }
+    // 始まる前の日は掛からない
+    assert_ne!(
+        state_on(&pool, u, &s, "2026-05-01").await,
+        DayState::Stopped
+    );
+}
+
+/// 「丸ごと覆う」の**端**（review/code.md の R43 / F10）。
+/// `<=` / `>=` を `<` / `>` に変えても落ちない入力しか無かった。
+#[tokio::test]
+async fn span_edges_decide_whether_a_day_is_covered() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "spanedge", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-02", 1).await;
+
+    // ちょうど 05-02 00:00 JST 〜 05-03 00:00 JST（丸ごと覆う）
+    testdb::put_span(
+        &pool,
+        u,
+        &s.logical_source,
+        "stopped",
+        "2026-05-01T15:00:00Z",
+        Some("2026-05-02T15:00:00Z"),
+    )
+    .await;
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-02").await,
+        DayState::Stopped
+    );
+
+    // 1 秒足りない範囲は「丸ごと」ではない
+    let (s2, u2) = src(&pool, "spanedge2", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u2, &s2.logical_source, "2026-05-02", 1).await;
+    testdb::put_span(
+        &pool,
+        u2,
+        &s2.logical_source,
+        "stopped",
+        "2026-05-01T15:00:00Z",
+        Some("2026-05-02T14:59:59Z"),
+    )
+    .await;
+    assert_eq!(
+        state_on(&pool, u2, &s2, "2026-05-02").await,
+        DayState::Recorded,
+        "1 秒足りない範囲が「丸ごと」と判定されている"
+    );
+}
+
+/// 想定間隔の**ちょうど**の境界（review/code.md の R45 / F13）。
+/// `diff <= gap_days` の等号がどちらに倒れるかは、ここでしか決まらない。
+#[tokio::test]
+async fn outage_boundary_is_inclusive() {
+    let pool = testdb::pool().await;
+    // 想定間隔 24 時間（ブラウザ履歴）。1 日ちょうどの空白は②、2 日は⑥
+    const ONE_DAY: i32 = 86_400;
+    let (s, u) = src(&pool, "gapedge", ONE_DAY, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u, &s.logical_source, "2026-05-01", 1).await;
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-02").await,
+        DayState::AliveNoRecord,
+        "1 日ちょうどは「想定間隔を超えて」いない"
+    );
+    assert_eq!(
+        state_on(&pool, u, &s, "2026-05-03").await,
+        DayState::Outage,
+        "2 日は超えている"
+    );
+
+    // **想定間隔が 1 日未満のソースでは②の分岐に届かない**（design D17 の帰結）。
+    // 6 時間 = 0.25 日なので、日の粒度で測る限り隣の日でも「超えて」いる。
+    // 設定を 6 時間から 12 時間へ変えても判定が動かないのはこのため。
+    let (s6, u6) = src(&pool, "gapsub", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_coverage(&pool, u6, &s6.logical_source, "2026-05-01", 1).await;
+    assert_eq!(
+        state_on(&pool, u6, &s6, "2026-05-02").await,
+        DayState::Outage
+    );
+}
+
+/// 利用者で**実際に分かれる**（review/code.md の R46 / F15）。
+/// `information_schema` を引くだけの検査は、列が使われているかを見ていない ——
+/// `user_id = $1` の条件を全部消しても緑だった。
+///
+/// Scenario: すべての稼働記録系の表に利用者識別子がある
+#[tokio::test]
+async fn coverage_is_separated_by_user() {
+    let pool = testdb::pool().await;
+    let name = testdb::source(&pool, "twousers", SIX_HOURS).await;
+    testdb::set_started_on(&pool, &name, "2026-05-01").await;
+    let a = testdb::user();
+    let b = testdb::user();
+    testdb::put_coverage(&pool, a, &name, "2026-05-01", 3).await;
+    testdb::put_heartbeat(&pool, b, &name, "2026-05-01T03:00:00Z", true).await;
+
+    let s = SourceRow {
+        logical_source: name.clone(),
+        display_name: name.clone(),
+        expected_gap_sec: SIX_HOURS,
+        collection_started_on: Some(testdb::date("2026-05-01")),
+    };
+    let d = testdb::date("2026-05-01");
+    let for_a = of_source(&pool, Some(a), &s, d, d).await.unwrap();
+    let for_b = of_source(&pool, Some(b), &s, d, d).await.unwrap();
+    assert_eq!(
+        for_a.days[0].state,
+        DayState::Recorded,
+        "a の記録が見えない"
+    );
+    assert_eq!(for_a.days[0].event_count, 3);
+    assert_eq!(
+        for_b.days[0].state,
+        DayState::AliveNoRecord,
+        "b に a の記録が見えている"
+    );
+    assert_eq!(for_b.days[0].event_count, 0);
+
+    // **同じ日が 2 行に膨らまない**（review/code.md の R21）。絞らずに引いても 1 日 1 行
+    let both = of_source(&pool, None, &s, d, d).await.unwrap();
+    assert_eq!(both.days.len(), 1, "利用者ごとに日が複製されている");
+    assert_eq!(both.days[0].event_count, 3);
+
+    // 分母も日数で数えられる（行数ではない）
+    let got = achievement(
+        &pool,
+        None,
+        testdb::date("2026-05-02"),
+        &[(name.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(got.sources[0].denominator, 1);
+}
+
+/// `decide()` の優先順位を**表で全部**固定する（review/code.md の R49 / F18）。
+/// DB 越しの検査は 3 対しか組み合わせておらず、(1)>(2)・(3)>(5)・(4)>(5) が未観測だった。
+#[test]
+fn decide_follows_the_order_of_d7() {
+    fn facts(
+        day: &str,
+        event_count: i32,
+        capturable: Option<bool>,
+        dropped_full: bool,
+        stopped_full: bool,
+    ) -> DayFacts {
+        DayFacts {
+            day: testdb::date(day),
+            event_count,
+            capturable,
+            attempts: None,
+            successes: None,
+            blockers: vec![],
+            dropped_full,
+            stopped_full,
+        }
+    }
+    let start = Some(testdb::date("2026-05-01"));
+    let gap = 0.25; // 6 時間
+    let active: Vec<chrono::NaiveDate> = vec![];
+
+    // (順, 入力, 期待する状態)
+    let table: Vec<(&str, DayFacts, DayState)> = vec![
+        // (1) 導入前は破棄より先
+        (
+            "1>2",
+            facts("2026-04-30", 9, Some(true), true, true),
+            DayState::BeforeStart,
+        ),
+        // (2) 破棄は停止より先
+        (
+            "2>3",
+            facts("2026-05-02", 9, Some(true), true, true),
+            DayState::Dropped,
+        ),
+        // (3) 停止は記録より先
+        (
+            "3>4",
+            facts("2026-05-02", 9, Some(true), false, true),
+            DayState::Stopped,
+        ),
+        // (3) 停止は取得可の信号より先
+        (
+            "3>5",
+            facts("2026-05-02", 0, Some(true), false, true),
+            DayState::Stopped,
+        ),
+        // (4) 記録は信号より先
+        (
+            "4>5",
+            facts("2026-05-02", 1, Some(true), false, false),
+            DayState::Recorded,
+        ),
+        (
+            "4>6",
+            facts("2026-05-02", 1, Some(false), false, false),
+            DayState::Recorded,
+        ),
+        // (5) 取得可の信号は取得不可より先
+        (
+            "5>6",
+            facts("2026-05-02", 0, Some(true), false, false),
+            DayState::AliveNoRecord,
+        ),
+        // (6) 取得不可だけなら③
+        (
+            "6",
+            facts("2026-05-02", 0, Some(false), false, false),
+            DayState::AliveNotCapturable,
+        ),
+        // (7) 何も無ければ⑥（前後の活動が無い）
+        (
+            "7",
+            facts("2026-05-02", 0, None, false, false),
+            DayState::Outage,
+        ),
+    ];
+    for (label, f, want) in table {
+        assert_eq!(
+            decide(&f, start, gap, &active),
+            want,
+            "順序 {label} が崩れている"
+        );
+    }
+
+    // (8) 想定間隔以内に活動があれば②
+    let near = vec![testdb::date("2026-05-03")];
+    assert_eq!(
+        decide(
+            &facts("2026-05-02", 0, None, false, false),
+            start,
+            60.0,
+            &near
+        ),
+        DayState::AliveNoRecord
+    );
 }

@@ -54,6 +54,17 @@ export function tone(lightness: number): string {
  */
 export const MIN_TARGET_PX = 24;
 
+/**
+ * 日の区切り。**サーバの `DAY_TZ`（`crates/server/src/coverage.rs`）と同じでなければならない**
+ * （深掘り Q2 / design D1）。
+ *
+ * 画面が UTC で日を切っていたときは、**JST の 00:00〜09:00 のあいだ今日が格子に出ず**、
+ * 格子の窓と達成の窓が 1 日ずれた（review/code.md の R10）。
+ * 「日を引く場所がアプリと SQL に割れると、片方だけずれても誰も気付かない」——
+ * サーバ側の `facts()` が書いているのと同じ割れ方が、画面側に残っていた。
+ */
+export const DAY_TZ = "Asia/Tokyo";
+
 /** 開いた直後に見せる週数（深掘り 第 7 回 Q28）。**5 ソース × これ**が 1 画面に収まる。 */
 export const INITIAL_WEEKS = 5;
 

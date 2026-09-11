@@ -21,10 +21,17 @@ import android.net.NetworkCapabilities
  * ここは「いまどうなっているか」を報告する責務だけを持つ。
  */
 fun androidCapability(context: Context): Capability = Capability.of(
-    permission = hasLocationPermission(context),
-    sensor = hasLocationProvider(context),
-    network = hasNetwork(context),
+    permission = runCatching { hasLocationPermission(context) }.getOrDefault(false),
+    sensor = runCatching { hasLocationProvider(context) }.getOrDefault(false),
+    network = runCatching { hasNetwork(context) }.getOrDefault(false),
 )
+
+// **読めなかったら「取れない」に倒す**（review/code.md の R31）。
+// 端末の状態を読む口はどれも SecurityException を投げうる（宣言漏れ・端末の方言）。
+// 投げると起動時の生存信号がそれを貫通し、START_STICKY と合わさって**クラッシュループ**になる。
+// 倒す向きは「取れない」側 —— 読めていないのに「取れている」と報告するのは、
+// 壊れているのに「動いていた」と残すのと同じ（深掘り Q5 が塞いだ当の型）。
+// 理由は `Capability.of` が必ず埋めるので、「理由の無い取れない」にはならない。
 
 /**
  * 位置の権限。**粗い位置だけでは足りない** —— FR-1 は 60 秒ごとの位置を求めており、

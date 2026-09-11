@@ -11,11 +11,18 @@
 
 -- 版を当て直しても表を消さないよう、**古い形のときだけ**作り直す。
 -- run() は起動のたびに全部の版を当てるので、無条件に DROP すると毎回の起動で稼働記録が消える。
+-- **条件は「0001 の形ちょうど」に絞る**（review/code.md の R23）。
+-- 「`state` 列がある」だけを条件にすると、将来この判断が覆って（導出が重い等）
+-- 作り直した後の `core.coverage` に `state` を足した瞬間、**次の起動で表が丸ごと消える**。
+-- `user_id` が**無い**ことを併せて見れば、0001 の形のときにしか当たらない。
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
      WHERE table_schema = 'core' AND table_name = 'coverage' AND column_name = 'state'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'core' AND table_name = 'coverage' AND column_name = 'user_id'
   ) THEN
     DROP TABLE core.coverage;
   END IF;
@@ -57,8 +64,24 @@ CREATE TABLE IF NOT EXISTS core.heartbeat (
   raw            text NOT NULL                         -- 原文の素通し。**text**（0003 と同じ理由）
 );
 -- 再送は常態（ST01 の Outbox は部分失敗の後で送り直す）。鍵が無いと行が増える。
+--
+-- **利用者識別子を鍵に入れる**（review/code.md の R13）。`content_hash` は
+-- `logical_source` + `emitted_at` + `raw` からしか作られないので、入れないと
+-- **別の利用者の同じ内容の信号が「重複」として黙って落ちる**（呼び出し側には成功に見える）。
+-- 列は FR-29 で day one から持っているのに、一意性が利用者をまたいでいた。
+-- 単一利用者のうちは挙動が変わらないので、**いま直すのがいちばん安い**（0005 と同じ理屈）。
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = 'core' AND indexname = 'heartbeat_dedup'
+       AND indexdef NOT LIKE '%user_id%'
+  ) THEN
+    DROP INDEX core.heartbeat_dedup;
+  END IF;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS heartbeat_dedup
-  ON core.heartbeat (logical_source, content_hash);
+  ON core.heartbeat (user_id, logical_source, content_hash);
 -- 日の集計はソース × 期間で引く。
 CREATE INDEX IF NOT EXISTS heartbeat_by_source_time
   ON core.heartbeat (logical_source, emitted_at);

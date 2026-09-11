@@ -12,7 +12,11 @@ AUTH=(-H "authorization: Bearer $API_TOKEN")
 cleanup() { kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-echo "== 1. DB を起動"
+echo "== 1. DB を起動（**まっさらにしてから**）"
+# **前提を書かないと再現しない**（ST02 の review/code.md の R14）。
+# `cargo test` は本物の DB を使うので、その直後に走らせると手順 6 の件数が合わない。
+# 末尾の trap と対にして、先頭でも落とす。
+docker compose down -v >/dev/null 2>&1 || true
 docker compose up -d --wait db >/dev/null
 
 echo "== 2. サーバを起動（起動時にマイグレーションを当てる）"

@@ -37,6 +37,21 @@ if [ "$kt_fields" != "$api_fields" ]; then
 else
   echo "生存信号の欄名 OK（$(echo "$api_fields" | wc -l) 欄。実際の直列化は HeartbeatContractTest が見る）"
 fi
+# 生存信号の応答は `IngestResult` として復号される（Sender は 1 つの型しか持たない）。
+# **`HeartbeatResult` は一度も見られていなかった**（ST02 の review/code.md の R25 / M-1）。
+# サーバが `accepted` を改名すると、`ignoreUnknownKeys = true` + 既定値 false により
+# 収集側は**例外も出さずに全件 false と読み**、生存信号の未送信が永久に減らない。
+for field in $(jq -r '.components.schemas.HeartbeatResult.properties | keys[]' docs/openapi.json); do
+  grep -q "\b$field\b" "$kt" || { echo "  NG 生存信号の応答の欄 $field を収集側が読んでいない（$kt）"; bad=1; }
+done
+# 2 つの応答が同じ形であること（片方だけ欄が増えると収集側が静かに取りこぼす）
+ing=$(jq -S '.components.schemas.IngestResult.properties | keys' docs/openapi.json)
+hbr=$(jq -S '.components.schemas.HeartbeatResult.properties | keys' docs/openapi.json)
+[ "$ing" = "$hbr" ] || {
+  echo "  NG 記録と生存信号の応答の形が違う（収集側は同じ型で読む）"
+  diff <(echo "$ing") <(echo "$hbr") | sed 's/^/     /'
+  bad=1
+}
 [ "$bad" -eq 0 ] || { echo "NG: 契約とKotlin側の欄名がずれている"; exit 1; }
 echo "収集側の欄名 OK（要求 $(jq -r '.components.schemas.IngestRequest.properties|keys|length' docs/openapi.json) / 応答 $(jq -r '.components.schemas.IngestResult.properties|keys|length' docs/openapi.json)）"
 

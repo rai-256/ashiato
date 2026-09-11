@@ -50,6 +50,12 @@ class FileOutboxStore<T : Outboxable>(
 ) : OutboxStore<T> {
     private val tmp = File(file.parentFile, "${file.name}.tmp")
 
+    /**
+     * 読み出しが失敗したか（review/code.md の R17）。
+     * **立っているあいだは全件の書き直しを断る** —— 読めなかった分を上書きで消さないため。
+     */
+    private var readFailed = false
+
     override fun load(): List<T> {
         // **書き換えの途中で落ちた跡を先に拾う。** `.tmp` には最新の全件が入っている
         // 可能性があり、見ないまま次の save で上書きすると、そのぶんが無言で消える（review CRITICAL-2）。
@@ -58,8 +64,21 @@ class FileOutboxStore<T : Outboxable>(
         val text = try {
             file.readText()
         } catch (e: IOException) {
-            // **読めなかっただけで捨てない。** 一過性の失敗でも退けると、正常な未送信が消える
+            // **読めなかっただけで捨てない。** 一過性の失敗でも退けると、正常な未送信が消える。
+            //
+            // ただし `emptyList()` を返すだけでは足りなかった（review/code.md の R17）——
+            // 返り値は `pending` の初期値になり、次の送信成功で `save` が
+            // **ファイルを丸ごと書き直す**ので、読めなかった分が痕跡なく消える。
+            // `salvage` は形式違い（`parse` が null）の経路でしか呼ばれておらず、
+            // **退避が要る度合いが高い IO 失敗のほうが素通り**していた。
+            // 返り値は `pending` の初期値になり、次の送信成功で `save` が
+            // **ファイルを丸ごと書き直す**ので、読めなかった分が痕跡なく消えていた
+            // （review/code.md の R17）。**退避はしない** —— 一過性の失敗（EMFILE・
+            // direct boot 中のアクセス）で正常なファイルを脇へ退けると、そちらが損になる。
+            // **上書きを拒む**（`save` を参照）。送った分が残るので次の起動で再送になるが、
+            // 取り込み口は冪等なので行は増えない（FR-22）。消えるより再送のほうがまし。
             log(Telemetry.line("outbox_read_failed", error = e.javaClass.simpleName))
+            readFailed = true
             return emptyList()
         }
         return parse(text) ?: emptyList<T>().also { salvage("unparseable") }
@@ -134,6 +153,11 @@ class FileOutboxStore<T : Outboxable>(
     }
 
     override fun save(requests: List<T>): Boolean {
+        if (readFailed) {
+            // **読めなかった分がファイルに残っている。** 書き直すと痕跡なく消える（R17）
+            log(Telemetry.line("outbox_save_refused", count = requests.size, error = "read_failed"))
+            return false
+        }
         // 一時ファイルへ書いてから差し替える。途中で落ちても半端なファイルが残らない。
         // **電源断には対して原子的ではない**（fsync していない）—— rename 後もデータが
         // ページキャッシュにある窓が残る。プロセス死には効く。

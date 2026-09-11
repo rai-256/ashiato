@@ -35,7 +35,6 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - run: ./tools/check-licenses.sh
       - run: ./tools/check-migrations.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
@@ -47,6 +46,10 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: npm ci
+      # **ライセンス検査はここ**（ST02 の review/code.md の R8 / C2）。
+      # rust job に置いていたときは `npm ci` が無く、`web/node_modules` が存在しないので
+      # Node の節が「0 件を確認」で緑になり、**ローカルの緑と CI の緑が別物**だった。
+      - run: ../tools/check-licenses.sh
       - run: npx tsc -b
       - run: npm run lint
       # 画面の振る舞い（3 段の対比・週の選択・操作対象の大きさ・確定と暫定）。

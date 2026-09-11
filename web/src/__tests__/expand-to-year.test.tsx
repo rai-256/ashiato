@@ -6,6 +6,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CoverageGrid } from "../CoverageGrid";
 import { INITIAL_WEEKS, YEAR_WEEKS } from "../tokens";
+
+/**
+ * **spec の「1 年ぶん（53 週）」をリテラルで持つ**（review/code.md の R5 / I4）。
+ * `YEAR_WEEKS` と比べていたときは、**20 週に変えても 26/26 緑**だった。
+ */
+const WEEKS_IN_A_YEAR = 53;
 import { days, source } from "./fixtures";
 
 describe("伸ばして見る", () => {
@@ -17,8 +23,9 @@ describe("伸ばして見る", () => {
     expect(Number(grid.getAttribute("data-weeks"))).toBe(INITIAL_WEEKS);
 
     fireEvent.click(screen.getByRole("button", { name: "1 年ぶんを見る" }));
-    expect(Number(grid.getAttribute("data-weeks"))).toBe(YEAR_WEEKS);
-    expect(grid.querySelectorAll("[role='row']")).toHaveLength(YEAR_WEEKS);
+    expect(Number(grid.getAttribute("data-weeks"))).toBe(WEEKS_IN_A_YEAR);
+    expect(grid.querySelectorAll("[data-week]")).toHaveLength(WEEKS_IN_A_YEAR);
+    expect(YEAR_WEEKS, "トークンが 53 週から離れている").toBe(WEEKS_IN_A_YEAR);
   });
 
   it("戻すと直近だけになる", () => {
@@ -26,8 +33,10 @@ describe("伸ばして見る", () => {
     render(<CoverageGrid source={s} />);
     fireEvent.click(screen.getByRole("button", { name: "1 年ぶんを見る" }));
     fireEvent.click(screen.getByRole("button", { name: "直近だけにする" }));
-    expect(Number(screen.getByTestId("grid-c01-location").getAttribute("data-weeks"))).toBe(
-      INITIAL_WEEKS,
-    );
+    expect(
+      Number(screen.getByTestId("grid-c01-location").getAttribute("data-weeks")),
+      "畳み戻せていない",
+    ).toBeLessThanOrEqual(6);
+    expect(INITIAL_WEEKS).toBeLessThanOrEqual(6);
   });
 });

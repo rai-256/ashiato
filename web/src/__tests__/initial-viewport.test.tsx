@@ -47,7 +47,7 @@ describe("開いた直後", () => {
       // **色ではなく文字**がソースの区別を担う（ui-direction の宿題 1 / 第 4 回 Q15）
       expect(screen.getByRole("heading", { name }), `${name} の文字が無い`).toBeTruthy();
     }
-    expect(screen.getAllByRole("grid")).toHaveLength(5);
+    expect(screen.getAllByRole("heading")).toHaveLength(5);
   });
 
   it("直近 1 か月ぶんの高さが 1 画面に収まる勘定になっている", () => {

@@ -80,4 +80,55 @@ class HeartbeatCountersTest {
         assertTrue("成功 $successes が試行 $attempts を超えている", successes <= attempts)
         assertEquals(5, attempts)
     }
+
+    /**
+     * 数えが**プロセスの立て直しをまたいで残る**（ST02 の review/code.md の R16 / C-2 / I8）。
+     *
+     * `Outbox` は「インスタンスの中だけに積むと立て直しで無言で消える」を理由に
+     * ファイルへ落としたのに、**同じ理由が当てはまる数えは落とされていなかった**。
+     * `since` も一緒に新品になるので、**死んでいた区間そのものが観測から落ちる** ——
+     * 6 時間のうち 5 時間 50 分死んで 10 分前に立て直されると、次の信号は
+     * `10 / 10` で「取得率 100 %」になり、画面には「健全」と出る。
+     */
+    @Test
+    fun `数えは立て直しをまたいで残る`() {
+        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val file = java.io.File(dir, "heartbeat-counters.txt")
+        val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
+
+        val first = AttemptCounters(now = clock, store = FileCounterStore(file) {})
+        repeat(3) { first.recordSuccess() }
+        clock.advanceMinutes(350)
+
+        // プロセスが立て直された（新しいインスタンスで同じ置き場を開く）
+        val second = AttemptCounters(now = clock, store = FileCounterStore(file) {})
+        clock.advanceMinutes(10)
+        val (attempts, successes) = second.take()
+        assertEquals("区間の起点が立て直しで新品になっている", 360, attempts)
+        assertEquals("成功の数えが消えている", 3, successes)
+    }
+
+    /**
+     * **積めなかったら数えは戻らない**（ST02 の review/code.md の R24 / H-7 / F9 / I9）。
+     *
+     * `peek()` の docstring が「読むだけでは戻さない —— 信号を組み立てられなかったときに
+     * 数えが消える」と書いていた当の問題が、`emit()` 側で起きていた。
+     */
+    @Test
+    fun `積めなかった区間の数えは残る`() {
+        val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
+        val counters = AttemptCounters(now = clock)
+        repeat(5) { counters.recordSuccess() }
+        clock.advanceMinutes(10)
+
+        // 積めなかった
+        val (stored, _) = counters.takeAfter { false to Unit }
+        assertEquals(false, stored)
+        assertEquals("積めていないのに数えが戻った", 10 to 5, counters.peek())
+
+        // 積めた
+        val (ok, _) = counters.takeAfter { true to Unit }
+        assertEquals(true, ok)
+        assertEquals(0 to 0, counters.peek())
+    }
 }

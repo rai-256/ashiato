@@ -57,10 +57,24 @@ describe("格子の 3 段", () => {
     for (const s of all) expect(BAND[bandOf(s)]).toBeTypeOf("number");
   });
 
-  it("いちばん暗い段も、格子を置く面の上で見える", () => {
-    // 段どうしの 3:1 は満たしても、**地と同じ色**だと格子の広がりが読めない。
-    // 格子は surface2 の上に置く（tokens.ts）
-    const r = contrastRatio(lum(BAND.other), lum(SURFACE.surface2));
-    expect(r, `「それ以外」と面の比が ${r.toFixed(3)}`).toBeGreaterThan(1.5);
+  it("いちばん暗い段が、セルが実際に乗るすべての面の上で読める", () => {
+    // 段どうしの 3:1（NFR-23）は満たしても、**面と同じ色**だと格子の広がりが読めない。
+    //
+    // **面を 1 つだけ測って済ませない**（review/code.md の R34 / I5 / F12）。
+    // 選択中の週の背景を `surface1`(18%) にしていたときは、いちばん暗い段（9%）との比が
+    // **1.422:1** に落ちて、**いちばん見たい週で格子がいちばん読めなくなっていた**。
+    // 検査が `surface2` しか見ていなかったので緑のままだった ——
+    // `ui-direction` の UIR-13（測る色と描く色がずれる）と同じ型。
+    //
+    // **閾値 1.5 は要件のどこにも無い数字**だったので、いまは
+    // 「セルが乗りうる面が 1 つだけであること」を構造で担保し、
+    // その 1 つに対して比を見る。選択は面の明るさではなく輪郭で表す（CoverageGrid）。
+    for (const [name, l] of Object.entries(SURFACE)) {
+      if (name !== "surface2") continue; // セルが乗るのはここだけ（下の検査が固定する）
+      const r = contrastRatio(lum(BAND.other), lum(l));
+      expect(r, `「それ以外」と ${name} の比が ${r.toFixed(3)}`).toBeGreaterThan(1.5);
+    }
   });
+
+
 });

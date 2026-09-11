@@ -308,7 +308,9 @@
         "required": [
           "day",
           "state",
-          "event_count"
+          "event_count",
+          "blockers",
+          "intervals"
         ],
         "properties": {
           "attempts": {
@@ -317,7 +319,14 @@
               "null"
             ],
             "format": "int64",
-            "description": "その日の生存信号が報告した取得の試行回数。**信号が無い日は返らない**\n—— 来ていない区間の取得率は埋まらない（specs）"
+            "description": "その日の生存信号が報告した取得の試行回数の合計。**信号が無い日は返らない**\n—— 来ていない区間の取得率は埋まらない（specs）"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "その日に報告された、満たされていないもの（FR-78 / specs「何が満たされていないかが返る」）。\n**取れる状態しか無い日は空**"
           },
           "day": {
             "type": "string",
@@ -326,6 +335,13 @@
           "event_count": {
             "type": "integer",
             "format": "int32"
+          },
+          "intervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Interval"
+            },
+            "description": "**区間ごと**の取得率（第 5 回 Q17）。日に畳んだ合計だけだと\n「眠っていた区間」が薄まる —— 想定間隔 6 時間なら 1 日 4 区間になる（review/code.md の R9）"
           },
           "state": {
             "$ref": "#/components/schemas/DayState"
@@ -617,6 +633,33 @@
             ],
             "format": "uuid",
             "description": "格納された記録の識別子。断られたときは null"
+          }
+        }
+      },
+      "Interval": {
+        "type": "object",
+        "description": "生存信号 1 件ぶんの区間。**これが「前回の信号から今回まで」にあたる。**",
+        "required": [
+          "emitted_at",
+          "capturable",
+          "attempts",
+          "successes"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "capturable": {
+            "type": "boolean"
+          },
+          "emitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "successes": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

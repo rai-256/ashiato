@@ -9,6 +9,11 @@
 
     <!-- FR-10 自宅 PC へ送る -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 生存信号が「接続できる状態か」を読むのに要る（ST02 / FR-78 / 深掘り Q5）。
+         **無いと ConnectivityManager.getNetworkCapabilities が SecurityException を投げ**、
+         起動時の生存信号がそれを貫通して落ち、START_STICKY と合わさってクラッシュループになる
+         （review/code.md の R31。実機でしか出ない型の失敗）。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- 継続的な位置取得は前景サービスなしに許されない。常時通知は本人が受け入れ済み（design D7） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

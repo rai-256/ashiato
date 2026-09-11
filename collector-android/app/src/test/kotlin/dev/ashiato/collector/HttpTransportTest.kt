@@ -138,4 +138,24 @@ class HttpTransportTest {
 
         assertEquals("Bearer", sent().headers["authorization"])
     }
+
+    /**
+     * **生存信号の送り先が `/heartbeat`** であること（ST02 の review/code.md の R41 / F7）。
+     *
+     * `"/ingest"` に書き換えても全部緑だった —— 現実に起きるのは
+     * 「サーバが `malformed` で全件断り、未送信が永久に溜まり、logcat に 1 行出るだけ」。
+     * `HttpTransport` のコメントが自ら警告している失敗の型そのもの。
+     */
+    @Test
+    fun `生存信号は heartbeat へ送られる`() {
+        HttpTransport(baseUrl, "t", "/heartbeat").post("[]")
+        assertTrue("送り先が /heartbeat でない: ${sent().line}", sent().line.startsWith("POST /heartbeat "))
+    }
+
+    /** 既定は記録の受け口（呼び分けを間違えたときに気付けるよう、既定も固定する）。 */
+    @Test
+    fun `既定の送り先は ingest`() {
+        HttpTransport(baseUrl, "t").post("[]")
+        assertTrue("既定が /ingest でない: ${sent().line}", sent().line.startsWith("POST /ingest "))
+    }
 }
