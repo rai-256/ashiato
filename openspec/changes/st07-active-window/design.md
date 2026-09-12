@@ -52,8 +52,18 @@ FR-23 は「『記録ごと』と宣言されたソースが識別子を欠け�
 『記録ごと』に倒す**」と定めており、ST03 が足す `external_id_kind` の既定は `'record'`。
 ウィンドウの記録に外部サービス上の識別子は存在しないので、**そのままだと ST07 の記録が全件 400**。
 
-ST07 の移行で `UPDATE core.source SET external_id_kind='none' WHERE logical_source='c02-window'`
-を当てる。**ST03 の移行の当たる順に依存しない形**にする（列がまだ無ければ何もしない分岐を置く）。
+ST07 の移行は **ST03 と同じ DDL（`ALTER TABLE core.source ADD COLUMN IF NOT EXISTS
+external_id_kind …`）から始めて、必ず `UPDATE core.source SET external_id_kind='none'
+WHERE logical_source='c02-window'` まで走らせる。**
+
+> **当初は「列がまだ無ければ何もしない分岐」を置くつもりだったが、それでは順に依存する**
+> （spec-review R7）。適用順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列の並びで、
+> ST03 も ST07 も末尾に足す。**ST07 が先に merge されると、何もしない分岐が走って終わり、
+> その後に当たる ST03 の移行が `DEFAULT 'record'` で列を作る** —— `c02-window` は `'record'` で
+> 確定し、記録が全件 400 になる。列の有無で分岐させず、どちらの順でも同じ結果になる形にする。
+
+さらに、**全移行を当てた後に**「`c02-window` の `external_id_kind` が `'record'` ではない」ことを
+見るテストを 1 本置く（列の有無を合格条件に混ぜない）。
 
 > **ST03 へは差し戻さない。** ST03 は下流が走行中で `tasks.md` が凍結されている
 > （`docs/handoff/README.md` の規則 2(i)：見つけた Story 自身の change で直す）。
@@ -141,6 +151,24 @@ D10 と同じ理由・同じ解き方。本文（アプリ名・題名・URL）�
 補正すると、補正の規則を変えた前後で同じページが別の文字列になり、
 `payload` から引く側が両方を知らないと引けなくなる。
 
+### D13.（仮）ST07 の完了の判定は「記録が 1 件残る」まで
+
+深掘り Q1 の答えは「PC が止まっていた期間を**記録として**残す」で、
+**1 年の格子がその記録をどう読むか**（②「稼働・記録なし」にするか新しい状態を足すか）は
+`collection-coverage`（ST02 の capability）の判断（Non-Goals）。
+
+当初 Story の完了の判定を「**途絶にならない**」と書いていたが、**ST07 の範囲では達成できない**
+（spec-review R5）。`crates/server/src/coverage.rs` の `active_days` は行のある日しか拾わず、
+`gap_days = 21600/86400 = 0.25` なので**閉じていた中日は⑥途絶のまま**。
+`verify_checklist.py` がこの判定を確認バッチの問いに機械的に変換するので、
+**実装に落ち度が無くても必ず「通らなかった」と返ってくる**。
+
+完了の判定を「その期間が『PC が止まっていた』として **1 件残る**」に直した。
+
+**反転条件**: ST02 の archive 後、格子が FR-82 の記録をどう読むかが決まったら、
+「途絶にならない」を ST14 / ST15 の完了の判定として立て直す。
+`docs/handoff/ST02.md` の申し送りに含めた。
+
 ## Risks / Trade-offs
 
 - **[URL にトークンが入る]** → 深掘り Q4 の決定（アドレスバーの文字列をそのまま全部）と
@@ -168,4 +196,6 @@ D10 と同じ理由・同じ解き方。本文（アプリ名・題名・URL）�
 
 ## Open Questions
 
-無し。深掘りで本人が決めた 8 件と、C（聞かない）に落とした 7 件（D1〜D7）で閉じている。
+**1 件ある。** spec-review の R11（除外した本文を取り込み口へ送らないこと）に
+`loss: exported` が付いたので、**人間へ返している**（`deep.md` の R11 / 第 2 回の問い）。
+それ以外は、深掘りで本人が決めた 8 件と C（聞かない）に落とした D1〜D13 で閉じている。

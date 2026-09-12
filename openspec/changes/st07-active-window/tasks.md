@@ -25,11 +25,16 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 1. 登録簿と移行
 
-- [ ] 1.1 `migrations/<作成時刻>_c02_window_source.sql` を作り、`core.source` の `c02-window` を
-  `external_id_kind='none'` にする（design D2）。**`external_id_kind` 列がまだ無い場合は何もしない
-  分岐**を置く（ST03 の移行の当たる順に依存しないため）。検証: `psql -c "SELECT external_id_kind
-  FROM core.source WHERE logical_source='c02-window'"` が `none` を返すか、列が無ければ
-  移行が rc=0 で通る。`cargo test --test migrations` rc=0
+- [ ] 1.1 `migrations/<作成時刻>_c02_window_source.sql` を作る（design D2）。
+  **ST03 と同じ DDL（`ALTER TABLE core.source ADD COLUMN IF NOT EXISTS external_id_kind text
+  NOT NULL DEFAULT 'record' CHECK (…)`）から始めて、必ず
+  `UPDATE core.source SET external_id_kind='none' WHERE logical_source='c02-window'` まで走らせる。**
+  **列の有無で分岐させない** —— 分岐すると merge の順に依存する（spec-review R7）。
+  検証: `psql -c "SELECT external_id_kind FROM core.source WHERE logical_source='c02-window'"` が
+  `none` を返す（**列が無ければ FAIL**）。`cargo test --test migrations` rc=0
+- [ ] 1.1b **全移行を当てた後**に `c02-window` の `external_id_kind` が `'record'` でないことを見る
+  テストを 1 本置く（ST03 と ST07 のどちらが先に merge されても同じ結果になることの担保）。
+  検証: `cargo test c02_window_external_id_kind_is_not_record` rc=0
 - [ ] 1.2 戻し手順 `.down.sql` を書く。**`'record'` に戻すとウィンドウの記録が全件 400 になる**ので、
   列があるときだけ・`RAISE WARNING` つきにする。検証: `psql < migrations/<作成時刻>_c02_window_source.down.sql`
   が rc=0 で、警告が出力に含まれる
@@ -41,12 +46,11 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 - [ ] 2.1 `docs/collector-contract.md` に **C-02 が送る `payload` の形**を追記する（design D1）——
   アプリ名（表示名）・実行ファイルのパス・プロセス名・ウィンドウ題名・URL・記録の種類
-  （`foreground` / `idle` / `powered-off` / `excluded`）・範囲の終わり（`idle` と `powered-off` のみ）。
+  （`foreground` / `idle` / `powered-off` / `excluded`）・範囲の終わり（`idle` と `powered-off` のみ）・
+  **最後の入力からの経過時間**（`idle` のみ。design D9）・**除外した件数**（`excluded` のみ。design D11）。
   **`raw` は収集側が組んだ JSON を文字列のまま送る**ことを明記する。
   検証: `grep -c "c02-window" docs/collector-contract.md` が 1 以上、
   `python3 scripts/check_chain.py .` rc=0
-- [ ] 2.2 直列化の形を Rust 側のテストで固定する（**形が変わると同じ 1 件が別の鍵になる**。design D1）。
-  検証: `cargo test payload_shape_is_pinned` rc=0
 
 ## 3. 前景の変化を拾う
 
@@ -90,14 +94,22 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 6.2 除外の判定を**送る前**に行い、本文を持たない記録を 1 件書く（design D11）。
   Scenario: `除外に登録した対象の本文は残らない` / `除外した件数が残る` / `除外の登録が空なら何も除外されない`。
   検証: `cargo test exclusion` rc=0
-- [ ] 6.3 **除外リストの初期登録の手順**を `crates/collector-windows/README.md` に書く
+- [ ] 6.3 直列化の形を Rust 側のテストで固定する（**形が変わると同じ 1 件が別の鍵になる**。design D1）。
+  **4 章・6 章で項目が出そろってから凍結する** —— 先に凍結すると 2 回書き換えることになり、
+  形が変わるたびに同じ 1 件が別の鍵になる（spec-review R6）。
+  検証: `cargo test payload_shape_is_pinned` rc=0
+- [ ] 6.4 **除外リストの初期登録の手順**を `crates/collector-windows/README.md` に書く
   （design Risks の「URL にトークンが入る」の守りがこれと PERM-9 の 2 つしかないため）。
   検証: `grep -c "除外" crates/collector-windows/README.md` が 1 以上
 
 ## 7. 生存信号（FR-78）
 
 - [ ] 7.1 想定間隔（登録簿の `c02-window` = 21600 秒）ごとに生存信号を送る。
-  Scenario: `想定間隔ごとに生存信号が届く`。検証: `tools/smoke.sh` に手順を足して rc=0
+  **注入した時計で間隔を進める単体テストで判定する** —— smoke は数十秒で終わるので、
+  間隔を守らない実装でも必ず緑になる（spec-review R8）。
+  Scenario: `想定間隔ごとに生存信号が届く`。
+  検証: `cargo test heartbeat_interval_is_expected_gap` rc=0。
+  併せて `tools/smoke.sh` に「生存信号が 1 件届く」手順を足して rc=0
 - [ ] 7.2 取得可否を**前景ウィンドウが取れること**と **UI Automation が応答すること**で判定し、
   満たされていない側を `blockers` に載せる（design D4）。
   Scenario: `前景を読めない状態は取得できないとして報告される`。検証: `cargo test capturable_blockers` rc=0
@@ -112,7 +124,18 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   検証: `cargo test outbox_uses_accepted_only` rc=0
 - [ ] 8.3 外部サービス上の識別子を付けずに送り、断られないことを確かめる。
   Scenario: `識別子を持たない記録が受け付けられる`。検証: `tools/smoke.sh` rc=0
-- [ ] 8.4 1 時間ごとに時計のずれの測定記録を出す（design D6）。検証: `cargo test clock_skew_is_measured` rc=0
+
+## 8b. 感度と時計
+
+- [ ] 8b.1 **記録に感度を明示せず、既定（`sensitivity=1` = 外部 AI に出してよい）に委ねる**
+  （深掘り Q3。**本人が推奨と違う側を選んだ唯一の決定**）。
+  **「題名と URL は私的だから」と厳しい側に倒さない。**
+  Scenario: `既定の感度で格納される` / `収集側が厳しい側の感度を付けて送らない`。
+  検証: `cargo test sensitivity_uses_collection_default` rc=0。
+  併せて `tools/smoke.sh` で `psql -c "SELECT sensitivity FROM core.event WHERE
+  logical_source='c02-window' LIMIT 1"` が `1` を返す
+- [ ] 8b.2 1 時間ごとに時計のずれの測定記録を出す（design D6）。
+  Scenario: `1 時間ごとにずれの測定記録が残る`。検証: `cargo test clock_skew_is_measured` rc=0
 
 ## 9. ログと常駐
 
@@ -120,7 +143,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   エラーの種別だけ。Scenario: `送信の失敗がログに出ても題名と URL は出ない`。
   検証: `cargo test log_has_no_private_content` rc=0
 - [ ] 9.2 ログオン時に自動起動し、トレイに常駐する（design D7・**仮**）。
-  検証: `crates/collector-windows/README.md` に手順があり、`grep -c "自動起動" ...` が 1 以上
+  検証: `grep -c "自動起動" crates/collector-windows/README.md` が 1 以上
 
 ## 10. 仕上げ
 
@@ -135,11 +158,19 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 ## 人間の確認待ち
 
 **Windows の実環境でしか確かめられないもの。** 確認バッチ（`/verify`）でまとめて見る。
+**書式は `- Scenario: <名前>` の裸の形**（チェックボックスも番号も注釈も付けない）——
+`check_scenarios.py` / `verify_checklist.py` / `verify_record.py` の 3 本ともこの形しか読まない
+（spec-review R3）。やり方は次の行の引用に置く。
 
-- [ ] V1 Scenario: `アプリを切り替えると 1 件増える`（実機で切り替えて件数を見る）
-- [ ] V2 Scenario: `題名が最小滞留より短く変わり続けても記録は増えない`
-  （動画を 2 分再生して、件数が再生秒数ぶん増えていないこと）
-- [ ] V3 Scenario: `起動時に止まっていた期間が 1 件残る`（PC を落として翌日起動する）
-- [ ] V4 Scenario: `離席の始まりと終わりが残る`（5 分以上席を離れて戻る）
-- [ ] V5 Scenario: `除外に登録した対象の本文は残らない`（パスワード管理ソフトを登録して開く）
-- [ ] V6 Scenario: `表示されている文字列を補正しない`（`https://` が隠れた表示のページを開く）
+- Scenario: アプリを切り替えると 1 件増える
+  > 実機でアプリを切り替え、`c02-window` の件数が 1 増えることを見る
+- Scenario: 題名が最小滞留より短く変わり続けても記録は増えない
+  > 動画を 2 分再生し、件数が再生秒数ぶん増えていないことを見る
+- Scenario: 起動時に止まっていた期間が 1 件残る
+  > PC を落として翌日起動し、その期間の記録が 1 件あることを見る
+- Scenario: 離席の始まりと終わりが残る
+  > 5 分以上席を離れて戻り、出入りが 2 件残ることを見る
+- Scenario: 除外に登録した対象の本文は残らない
+  > パスワード管理ソフトを除外に登録して開き、題名も URL も残っていないことを見る
+- Scenario: 表示されている文字列を補正しない
+  > `https://` が隠れた表示のページを開き、記録の URL に `https://` が補われていないことを見る
