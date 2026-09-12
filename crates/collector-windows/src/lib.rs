@@ -24,6 +24,7 @@ pub mod config;
 pub mod contract;
 pub mod engine;
 pub mod exclusion;
+pub mod fsutil;
 pub mod heartbeat;
 pub mod marker;
 pub mod outbox;
@@ -32,6 +33,7 @@ pub mod platform;
 pub mod runtime;
 pub mod sender;
 pub mod telemetry;
+pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**
 pub const LOGICAL_SOURCE: &str = "c02-window";

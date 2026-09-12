@@ -73,6 +73,21 @@ pub enum AwayReason {
     Suspended,
 }
 
+/// 入力が無い区間が**入力の再開以外で**閉じられた理由（design D14 / D21）。
+///
+/// 入力が戻って閉じた普通の区間は持たない（欄を省く）。**閉じ方が違う区間を
+/// 同じ形で残すと、「いつ戻ったか」として読まれてしまう。**
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EndedBy {
+    /// 別の理由の区間に入れ替わった（離席のまま画面がロックされた、など）
+    Superseded,
+    /// 収集が止まった（`range_end` は最後に動いていた時刻）
+    Restart,
+    /// 入力の経過時間が読めなくなった（`range_end` は最後に読めた時刻）
+    Unreadable,
+}
+
 /// 記録 1 件の中身。**`raw` と `payload` の両方がこの形**（design D1）。
 ///
 /// `raw` は取り込み口が素通しで残し、`payload` は文字列が NFC に揃えられる。
@@ -104,6 +119,11 @@ pub struct WindowPayload {
     /// 補正しない —— `https://` を補わず、省略を展開しない
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// 前景はブラウザだが**アドレスバーが読めなかった**（design D4 / R25）。
+    /// `url` が無い理由を「ブラウザではない」と区別するために残す。
+    /// 読めた記録では省く
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url_unavailable: Option<bool>,
     /// 範囲の終わり。`idle`（`leave` 側）と `powered-off` だけが持つ
     #[serde(skip_serializing_if = "Option::is_none")]
     pub range_end: Option<String>,
@@ -117,12 +137,32 @@ pub struct WindowPayload {
     /// 入力が無かった理由（`idle` のみ）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<AwayReason>,
+    /// 入力の再開**以外で**閉じた区間の、閉じ方（`idle` の出た側のみ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_by: Option<EndedBy>,
+    /// 見回りが飛んだ間に**単調時計**が進んだ長さ（`suspended` のみ。design D19）。
+    /// 壁時計の飛びと比べれば、「止まっていた」と「時計だけが進んだ」を後から分けられる
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mono_gap_ms: Option<i64>,
     /// 除外した変化の件数（`excluded` のみ。FR-83 / design D11 / D18）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub excluded_count: Option<u32>,
+    /// OS が最後に起動した時刻（`powered-off` のみ。design D23）。
+    /// **区間の始まりより後なら PC は本当に止まっていた。前なら PC は動いていて
+    /// 収集だけが止まっていた**（深掘り Q8 の「効く先」を成り立たせる材料）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_at: Option<String>,
+    /// 前回の収集が**自分で止まった**か（`powered-off` のみ。design D23）。
+    /// 止まる前に書く印があれば `true`、無ければ省く（電源断・強制終了・異常終了）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clean_stop: Option<bool>,
     /// 基準時刻との差（`clock-skew` のみ。正なら PC の時計が進んでいる。design D17）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skew_ms: Option<i64>,
+    /// ずれを測った基準の出どころ（`clock-skew` のみ。design D17 / R15）。
+    /// **取り込み口の `host:port`** —— ループバックなら「自分の時計と比べた 0」だと後から分かる
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skew_reference: Option<String>,
 }
 
 impl WindowPayload {
@@ -139,12 +179,18 @@ impl WindowPayload {
             process_name: None,
             title: None,
             url: None,
+            url_unavailable: None,
             range_end: None,
             idle_ms: None,
             transition: None,
             reason: None,
+            ended_by: None,
+            mono_gap_ms: None,
             excluded_count: None,
+            boot_at: None,
+            clean_stop: None,
             skew_ms: None,
+            skew_reference: None,
         }
     }
 }
@@ -303,6 +349,32 @@ mod tests {
             serde_json::to_string(&off).expect("直列化"),
             r#"{"kind":"powered-off","at":"2026-09-13T01:02:03.456Z","range_end":"2026-09-13T13:02:03.456Z"}"#
         );
+        off.boot_at = Some(rfc3339(at() + chrono::Duration::hours(11)));
+        off.clean_stop = Some(true);
+        assert_eq!(
+            serde_json::to_string(&off).expect("直列化"),
+            r#"{"kind":"powered-off","at":"2026-09-13T01:02:03.456Z","range_end":"2026-09-13T13:02:03.456Z","boot_at":"2026-09-13T12:02:03.456Z","clean_stop":true}"#
+        );
+
+        let mut slept = WindowPayload::new(RecordKind::Idle, at());
+        slept.range_end = Some(rfc3339(at() + chrono::Duration::hours(1)));
+        slept.idle_ms = Some(3_600_000);
+        slept.transition = Some(Transition::Leave);
+        slept.reason = Some(AwayReason::Suspended);
+        slept.ended_by = Some(EndedBy::Superseded);
+        slept.mono_gap_ms = Some(1_200);
+        assert_eq!(
+            serde_json::to_string(&slept).expect("直列化"),
+            r#"{"kind":"idle","at":"2026-09-13T01:02:03.456Z","range_end":"2026-09-13T02:02:03.456Z","idle_ms":3600000,"transition":"leave","reason":"suspended","ended_by":"superseded","mono_gap_ms":1200}"#
+        );
+
+        let mut blind = WindowPayload::new(RecordKind::Foreground, at());
+        blind.app_name = Some("ブラウザ".into());
+        blind.url_unavailable = Some(true);
+        assert_eq!(
+            serde_json::to_string(&blind).expect("直列化"),
+            r#"{"kind":"foreground","at":"2026-09-13T01:02:03.456Z","app_name":"ブラウザ","url_unavailable":true}"#
+        );
 
         let mut ex = WindowPayload::new(RecordKind::Excluded, at());
         ex.excluded_count = Some(3);
@@ -314,9 +386,10 @@ mod tests {
 
         let mut skew = WindowPayload::new(RecordKind::ClockSkew, at());
         skew.skew_ms = Some(-1200);
+        skew.skew_reference = Some("127.0.0.1:8787".into());
         assert_eq!(
             serde_json::to_string(&skew).expect("直列化"),
-            r#"{"kind":"clock-skew","at":"2026-09-13T01:02:03.456Z","skew_ms":-1200}"#
+            r#"{"kind":"clock-skew","at":"2026-09-13T01:02:03.456Z","skew_ms":-1200,"skew_reference":"127.0.0.1:8787"}"#
         );
     }
 

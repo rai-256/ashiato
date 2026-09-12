@@ -17,7 +17,7 @@ use crate::engine::Foreground;
 /// **3 通りとも要る** —— 同じソフトが版で別のパスに入り（`ProcessName`）、
 /// 同じプロセスの中に残したい窓と残したくない窓がある（`TitleContains`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "match", rename_all = "kebab-case")]
+#[serde(tag = "match", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Rule {
     /// 実行ファイルのパスの完全一致。**大文字小文字を無視する**（Windows の規則）
     ExePath { value: String },
@@ -29,22 +29,43 @@ pub enum Rule {
 }
 
 impl Rule {
+    fn value(&self) -> &str {
+        match self {
+            Self::ExePath { value }
+            | Self::ProcessName { value }
+            | Self::TitleContains { value } => value,
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::ExePath { .. } => "exe-path",
+            Self::ProcessName { .. } => "process-name",
+            Self::TitleContains { .. } => "title-contains",
+        }
+    }
+
     fn hits(&self, fg: &Foreground) -> bool {
         match self {
             Self::ExePath { value } => fg.exe_path.eq_ignore_ascii_case(value),
             Self::ProcessName { value } => fg.process_name.eq_ignore_ascii_case(value),
+            // **空の部分一致は当てない**（読み込みで断るが、組み立てた規則にも効かせる）
             Self::TitleContains { value } => {
-                !value.is_empty() && fg.title.to_lowercase().contains(&value.to_lowercase())
+                !value.trim().is_empty() && fg.title.to_lowercase().contains(&value.to_lowercase())
             }
         }
     }
 }
 
 /// 除外の登録。**既定は空**（tasks 6.1）。
+///
+/// **書き間違いを「除外なし」に化けさせない**（review/code.md R28）——
+/// 知らない欄（`rule` の打ち間違いなど）・`rules` の欠落・空の `value` は読み込みで断る。
+/// 化けると、残したくなかった題名と URL が外部 AI 可のまま入る（深掘り Q3 の代償を広げる）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Exclusions {
     /// 登録された規則。1 つでも当たれば除外
-    #[serde(default)]
     pub rules: Vec<Rule>,
 }
 
@@ -56,7 +77,14 @@ impl Exclusions {
     /// （深掘り Q3 の代償を広げる）。
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
         match std::fs::read_to_string(path) {
-            Ok(text) => Ok(serde_json::from_str(&text)?),
+            Ok(text) => {
+                let e: Self = serde_json::from_str(&text)?;
+                if let Some(bad) = e.rules.iter().find(|r| r.value().trim().is_empty()) {
+                    // 空の部分一致は**すべての窓に当たる**。黙って通すと記録が 1 件も残らない
+                    anyhow::bail!("除外の規則の value が空: {:?}", bad.kind());
+                }
+                Ok(e)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e.into()),
         }
@@ -120,14 +148,32 @@ mod tests {
         assert!(e.hits(&fg(r"C:\other\v.exe", "VAULT.exe", "金庫")));
         assert!(e.hits(&fg(r"C:\b\b.exe", "b.exe", "シークレット ウィンドウ")));
         assert!(!e.hits(&fg(r"C:\b\b.exe", "b.exe", "通常のウィンドウ")));
+
+        // 空の部分一致は**すべての窓に当たらない**（当たると記録が 1 件も残らない。G4）
+        let empty = Exclusions {
+            rules: vec![Rule::TitleContains { value: " ".into() }],
+        };
+        assert!(!empty.hits(&fg(r"C:\b\b.exe", "b.exe", "何か")));
     }
 
-    /// 壊れた登録は**空に倒さない**（除外が黙って外れるのを防ぐ）。
+    /// 壊れた登録・書き間違い・空の value は**空に倒さない**（R28）。
     #[test]
     fn broken_registration_is_an_error_not_empty() {
         let path = std::env::temp_dir().join(format!("ashiato-ex-{}.json", uuid::Uuid::new_v4()));
-        std::fs::write(&path, "{ これは JSON ではない").unwrap();
-        assert!(Exclusions::load(&path).is_err());
+        for bad in [
+            "{ これは JSON ではない",
+            r#"{"rule": [{"match":"process-name","value":"a.exe"}]}"#,
+            "{}",
+            r#"{"rules": [{"match":"title-contains","value":""}]}"#,
+            r#"{"rules": [{"match":"title-contains","value":"  "}]}"#,
+            r#"{"rules": [{"match":"process-name","valu":"a.exe"}]}"#,
+            r#"{"rules": [{"match":"proces-name","value":"a.exe"}]}"#,
+        ] {
+            std::fs::write(&path, bad).unwrap();
+            assert!(Exclusions::load(&path).is_err(), "通ってしまった: {bad}");
+        }
+        std::fs::write(&path, r#"{"rules": []}"#).unwrap();
+        assert_eq!(Exclusions::load(&path).unwrap(), Exclusions::default());
         std::fs::remove_file(&path).ok();
     }
 }

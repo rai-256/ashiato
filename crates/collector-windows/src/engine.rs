@@ -11,9 +11,12 @@
 //!
 //! **間引くのは題名だけ。** 短時間しか前景に無かったアプリを落とすと
 //! 「使っていない」と読めてしまう（spec）。
+//!
+//! **プロセスをまたぐ状態（離席の区間・除外の数え）は `EngineState` として外へ出す**
+//! （design D21）。メモリだけに持つと、落ちた瞬間に「入った」だけが残って永久に閉じない。
 use chrono::{DateTime, Duration, Utc};
 
-use crate::contract::{AwayReason, RecordKind, Transition, WindowPayload};
+use crate::contract::{rfc3339, AwayReason, EndedBy, RecordKind, Transition, WindowPayload};
 use crate::exclusion::Exclusions;
 
 /// 題名だけの変化の最小滞留（design D8・**仮**）。
@@ -29,7 +32,7 @@ pub const MIN_DWELL_SEC: i64 = 5;
 pub const IDLE_THRESHOLD_SEC: i64 = 300;
 
 /// 前景の 1 つの状態。**OS から取れたものをそのまま持つ**（補正しない。design D12）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Foreground {
     /// アプリの表示名
     pub app_name: String,
@@ -43,26 +46,34 @@ pub struct Foreground {
     pub url: UrlRead,
 }
 
+/// **本文を出さない**（review/code.md R35）。`{:?}` 1 つで題名と URL がログに落ちる。
+impl std::fmt::Debug for Foreground {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Foreground { .. }")
+    }
+}
+
 /// アドレスバーを読めたか（design D4）。
 ///
 /// **「読めなかった」と「ブラウザではない」を区別する。** 混ぜると、
 /// UI Automation が死んでいても生存信号が「取得できる状態」と報告する。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum UrlRead {
     /// 前景がブラウザではない（読む必要が無い）
     NotBrowser,
     /// 読めた。**見えている文字列そのまま**（深掘り Q4）
     Read(String),
-    /// 前景はブラウザだが、UI Automation が応答しない
+    /// 前景はブラウザだが、UI Automation が応答しない（または空を返した）
     Unavailable,
 }
 
-impl UrlRead {
-    fn value(&self) -> Option<&str> {
-        match self {
-            Self::Read(u) => Some(u),
-            Self::NotBrowser | Self::Unavailable => None,
-        }
+impl std::fmt::Debug for UrlRead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotBrowser => "NotBrowser",
+            Self::Read(_) => "Read(..)",
+            Self::Unavailable => "Unavailable",
+        })
     }
 }
 
@@ -71,8 +82,7 @@ impl UrlRead {
 pub enum IdleRead {
     /// 読めた
     Elapsed(Duration),
-    /// 読めない。**離席の判定を動かさない**（読めないことを「入力があった」と読むと、
-    /// 離席が黙って消える）
+    /// 読めない。**入力があったとも無かったとも読まない**
     Unavailable,
 }
 
@@ -81,8 +91,7 @@ pub enum IdleRead {
 pub struct Observation {
     /// 見た時刻
     pub at: DateTime<Utc>,
-    /// 前景。**`None` は「読めなかった」**（前景の無い瞬間ではなく、権限や
-    /// 別の卓面で読めない状態。生存信号がこれを `blockers` に載せる）
+    /// 前景。**`None` は「読めなかった」**（ロック中は `locked` が立つ）
     pub foreground: Option<Foreground>,
     /// 最後の入力からの経過時間
     pub idle: IdleRead,
@@ -90,53 +99,87 @@ pub struct Observation {
     pub locked: bool,
 }
 
-/// 記録の元になる状態。**前景の「いま」と、まだ記録していない題名**を持つ。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// いま前景として記録してある状態。
+#[derive(Clone, PartialEq, Eq)]
 struct Shown {
     app_name: String,
     exe_path: String,
     process_name: String,
     title: String,
     url: Option<String>,
+    /// **比較に使わない**（読めたり読めなかったりの揺れを「変化」にしないため。R25）
+    url_unavailable: bool,
 }
 
 impl Shown {
-    fn of(fg: &Foreground) -> Self {
+    /// 観測から作る。**URL が読めなかったときは、同じアプリの間だけ前の URL を持ち越す**
+    /// —— 持ち越さないと、同じページを見ているだけで「URL が変わった」記録が出る（R25）。
+    fn of(fg: &Foreground, prev: Option<&Shown>) -> Self {
+        let same_app = prev.is_some_and(|p| {
+            p.app_name == fg.app_name
+                && p.exe_path == fg.exe_path
+                && p.process_name == fg.process_name
+        });
+        let (url, url_unavailable) = match &fg.url {
+            UrlRead::Read(u) => (Some(u.clone()), false),
+            UrlRead::NotBrowser => (None, false),
+            UrlRead::Unavailable => (prev.filter(|_| same_app).and_then(|p| p.url.clone()), true),
+        };
         Self {
             app_name: fg.app_name.clone(),
             exe_path: fg.exe_path.clone(),
             process_name: fg.process_name.clone(),
             title: fg.title.clone(),
-            url: fg.url.value().map(str::to_string),
+            url,
+            url_unavailable,
         }
+    }
+
+    fn key(&self) -> (&str, &str, &str, &str, Option<&str>) {
+        (
+            &self.app_name,
+            &self.exe_path,
+            &self.process_name,
+            &self.title,
+            self.url.as_deref(),
+        )
     }
 
     /// 題名以外が同じか。**ここが「題名だけの変化」の定義**（design D8）。
     fn same_except_title(&self, other: &Self) -> bool {
-        self.app_name == other.app_name
-            && self.exe_path == other.exe_path
-            && self.process_name == other.process_name
-            && self.url == other.url
+        let (a, b) = (self.key(), other.key());
+        a.0 == b.0 && a.1 == b.1 && a.2 == b.2 && a.4 == b.4
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Away {
-    since: DateTime<Utc>,
-    reason: AwayReason,
+/// 離席の区間。**プロセスをまたいで残す**（design D21）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Away {
+    /// 入った時刻
+    pub since: DateTime<Utc>,
+    /// 理由
+    pub reason: AwayReason,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExcludedSpan {
-    since: DateTime<Utc>,
-    count: u32,
-    /// いま除外している対象の見分け（**本文は記録に出さないが、
-    /// 変化の回数を数えるために手元では持つ**）
-    key: (String, String, Option<String>),
+/// 除外の数え。**本文（題名・URL）は持たない**ので、そのまま置き場に落としてよい。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ExcludedCount {
+    /// 数え始めた時刻
+    pub since: DateTime<Utc>,
+    /// まだ記録にしていない変化の回数
+    pub count: u32,
+}
+
+/// プロセスをまたいで残す状態（design D21）。**本文を 1 文字も含まない。**
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EngineState {
+    /// 開いている離席の区間
+    pub away: Option<Away>,
+    /// 数え途中の除外
+    pub excluded: Option<ExcludedCount>,
 }
 
 /// 観測を記録に変える。**状態を持つ**（前の観測との差が記録になるため）。
-#[derive(Debug)]
 pub struct Engine {
     exclusions: Exclusions,
     min_dwell: Duration,
@@ -145,7 +188,26 @@ pub struct Engine {
     /// 滞留を待っている題名だけの変化と、それが前景に現れた時刻
     pending: Option<(Shown, DateTime<Utc>)>,
     away: Option<Away>,
-    excluded: Option<ExcludedSpan>,
+    excluded: Option<ExcludedCount>,
+    /// いま除外している対象の見分け。**手元でだけ持ち、置き場にも記録にも出さない**
+    excluded_key: Option<(String, String, Option<String>)>,
+    /// 最後に経過時間が読めた時刻と、そのときの経過時間
+    last_idle: Option<(DateTime<Utc>, Duration)>,
+    /// 経過時間が読めなくなった時刻
+    idle_unreadable_since: Option<DateTime<Utc>>,
+}
+
+/// **本文を出さない**（R35）。状態の有無だけを出す。
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine")
+            .field("rules", &self.exclusions.rules.len())
+            .field("shown", &self.shown.is_some())
+            .field("pending", &self.pending.is_some())
+            .field("away", &self.away)
+            .field("excluded", &self.excluded)
+            .finish()
+    }
 }
 
 impl Engine {
@@ -172,7 +234,47 @@ impl Engine {
             pending: None,
             away: None,
             excluded: None,
+            excluded_key: None,
+            last_idle: None,
+            idle_unreadable_since: None,
         }
+    }
+
+    /// 置き場に落とす状態。
+    pub fn state(&self) -> EngineState {
+        EngineState {
+            away: self.away,
+            excluded: self.excluded,
+        }
+    }
+
+    /// 前回のプロセスが残した状態を**閉じる**（design D21 / review/code.md R1 / R4）。
+    ///
+    /// `last_seen` は「ここまで動いていた」の印。**開いていた離席はそこで閉じ、
+    /// 数え途中の除外はそこまでの件数として残す** —— 閉じ方が違うことは
+    /// `ended_by: restart` で読める（「いつ戻ったか」として読ませない）。
+    pub fn close_previous(
+        &self,
+        previous: EngineState,
+        last_seen: Option<DateTime<Utc>>,
+    ) -> Vec<WindowPayload> {
+        let mut out = Vec::new();
+        let Some(end) = last_seen else {
+            return out;
+        };
+        if let Some(away) = previous.away {
+            let end = end.max(away.since);
+            let mut p = leave_record(away.since, end, away.reason);
+            p.ended_by = Some(EndedBy::Restart);
+            out.push(p);
+        }
+        if let Some(ex) = previous.excluded.filter(|e| e.count > 0) {
+            let mut p = WindowPayload::new(RecordKind::Excluded, ex.since);
+            p.excluded_count = Some(ex.count);
+            p.range_end = Some(rfc3339(end.max(ex.since)));
+            out.push(p);
+        }
+        out
     }
 
     /// 1 回の観測を食わせ、生まれた記録を返す。
@@ -189,42 +291,66 @@ impl Engine {
     fn observe_away(&mut self, obs: &Observation) -> Vec<WindowPayload> {
         let mut out = Vec::new();
         let elapsed = match obs.idle {
-            IdleRead::Elapsed(d) => Some(d),
-            // **読めないときは判定を動かさない。** 入力があったと読むと離席が消え、
-            // 無かったと読むと動いている最中に離席が立つ
-            IdleRead::Unavailable => None,
-        };
-        let now_away = if obs.locked {
-            Some(AwayReason::Locked)
-        } else {
-            match elapsed {
-                Some(d) if d >= self.idle_threshold => Some(AwayReason::Idle),
-                Some(_) => None,
-                None => return out,
+            IdleRead::Elapsed(d) => {
+                self.last_idle = Some((obs.at, d));
+                self.idle_unreadable_since = None;
+                Some(d)
+            }
+            IdleRead::Unavailable => {
+                self.idle_unreadable_since.get_or_insert(obs.at);
+                None
             }
         };
 
-        match (&self.away, now_away) {
+        let now_away = if obs.locked {
+            Some(AwayReason::Locked)
+        } else {
+            match (elapsed, self.away) {
+                (Some(d), _) if d >= self.idle_threshold => Some(AwayReason::Idle),
+                (Some(_), _) => None,
+                // ロックは読めている（`locked == false`）ので、ロックの区間は閉じてよい
+                (None, Some(a)) if a.reason == AwayReason::Locked => None,
+                (None, Some(a)) => {
+                    // **読めない状態が閾値ぶん続いたら、最後に読めた時刻で閉じる**（R24）。
+                    // 開いたままにすると、読めないまま落ちた区間が永久に閉じない
+                    let since = self.idle_unreadable_since.unwrap_or(obs.at);
+                    if obs.at - since >= self.idle_threshold {
+                        let end = self.last_idle.map_or(since, |(t, _)| t).max(a.since);
+                        let mut p = leave_record(a.since, end, a.reason);
+                        p.ended_by = Some(EndedBy::Unreadable);
+                        out.push(p);
+                        self.away = None;
+                    }
+                    return out;
+                }
+                (None, None) => return out,
+            }
+        };
+
+        match (self.away, now_away) {
             (None, Some(reason)) => {
-                // 入った。**入力が止まった時刻まで戻す** —— 見つけた時刻にすると
-                // 閾値のぶん（5 分）だけ遅れ、離席の長さが後から引けない
-                let since = match (reason, elapsed) {
-                    (AwayReason::Idle, Some(d)) => obs.at - d,
-                    // ロックは見つけた時刻が入った時刻（ロックした瞬間に入力は止まる）
-                    _ => obs.at,
-                };
-                let mut p = WindowPayload::new(RecordKind::Idle, since);
-                p.transition = Some(Transition::Enter);
-                p.reason = Some(reason);
-                p.idle_ms = elapsed.map(|d| d.num_milliseconds());
-                out.push(p);
+                let since = enter_time(reason, elapsed, obs.at);
+                out.push(enter_record(since, reason, elapsed));
                 self.away = Some(Away { since, reason });
             }
             (Some(away), None) => {
                 // 出た。**入力が戻った時刻まで戻す**
-                let resumed = elapsed.map_or(obs.at, |d| obs.at - d);
+                let resumed = elapsed.map_or(obs.at, |d| obs.at - d).max(away.since);
                 out.push(leave_record(away.since, resumed, away.reason));
                 self.away = None;
+            }
+            (Some(away), Some(reason)) if away.reason != reason => {
+                // **理由が入れ替わった**（離席のまま画面が自動でロックされた、など。R23）。
+                // 前の区間をここで閉じて、新しい理由で入り直す —— 黙って続けると
+                // ロックした時刻がどこにも残らない
+                let mut p = leave_record(away.since, obs.at.max(away.since), away.reason);
+                p.ended_by = Some(EndedBy::Superseded);
+                out.push(p);
+                out.push(enter_record(obs.at, reason, elapsed));
+                self.away = Some(Away {
+                    since: obs.at,
+                    reason,
+                });
             }
             _ => {}
         }
@@ -240,64 +366,69 @@ impl Engine {
         };
 
         if self.exclusions.hits(fg) {
-            // 除外。**本文はここから先へ 1 文字も出さない**（FR-83 / design D11）
+            // 除外。**本文はここから先へ 1 文字も出さない**（FR-83 / design D11）。
+            // 滞留を満たしていた題名は、除外に入る前に記録する（取りこぼさない側。R40）
+            out.extend(self.take_dwelled_pending(obs.at));
             self.pending = None;
             self.shown = None;
             let key = (
                 fg.exe_path.clone(),
                 fg.title.clone(),
-                fg.url.value().map(str::to_string),
+                match &fg.url {
+                    UrlRead::Read(u) => Some(u.clone()),
+                    _ => None,
+                },
             );
-            match &mut self.excluded {
-                Some(span) if span.key == key => {}
-                Some(span) => {
-                    span.count += 1;
-                    span.key = key;
-                }
-                None => {
-                    self.excluded = Some(ExcludedSpan {
-                        since: obs.at,
-                        count: 1,
-                        key,
-                    })
-                }
+            // **除外の対象を前景にしたこと自体を 1 回と数える**（design D18 / R37）
+            if self.excluded_key.as_ref() != Some(&key) {
+                let span = self.excluded.get_or_insert(ExcludedCount {
+                    since: obs.at,
+                    count: 0,
+                });
+                span.count += 1;
+                self.excluded_key = Some(key);
             }
             return out;
         }
 
         // 除外の対象から出た。**数えを記録にする**（除外された時間帯と
         // 触っていなかった時間帯を区別できるようにするため）
-        out.extend(self.close_excluded(obs.at));
+        out.extend(self.close_excluded(obs.at, false));
 
-        let next = Shown::of(fg);
-        match &self.shown {
+        let next = Shown::of(fg, self.shown.as_ref());
+        match self.shown.clone() {
             None => {
                 out.push(foreground_record(&next, obs.at));
                 self.shown = Some(next);
                 self.pending = None;
             }
-            Some(cur) if *cur == next => {
+            Some(cur) if cur.key() == next.key() => {
                 // 何も変わっていない。**待っていた題名が元に戻ったら捨てる**
                 self.pending = None;
             }
             Some(cur) if cur.same_except_title(&next) => {
                 // 題名だけの変化。滞留を待つ（design D8）
-                match &self.pending {
-                    Some((p, since)) if *p == next => {
-                        if obs.at - *since >= self.min_dwell {
+                match self.pending.clone() {
+                    Some((p, since)) if p.key() == next.key() => {
+                        if obs.at - since >= self.min_dwell {
                             // **現れた時刻で記録する** —— 見つけた時刻にすると
                             // 滞留のぶん記録が後ろへずれる
-                            out.push(foreground_record(&next, *since));
+                            out.push(foreground_record(&next, since));
                             self.shown = Some(next);
                             self.pending = None;
                         }
                     }
-                    // 別の題名に変わった。**前の題名は間引かれる**（Q6 の決定）
-                    _ => self.pending = Some((next, obs.at)),
+                    // 別の題名に変わった。**滞留を満たしていた題名は残し**、
+                    // 満たしていなかった題名は間引く（Q6 の決定）
+                    _ => {
+                        out.extend(self.take_dwelled_pending(obs.at));
+                        self.pending = Some((next, obs.at));
+                    }
                 }
             }
             Some(_) => {
                 // アプリか URL の変化。**滞留に関わらず必ず 1 件**（Q6 の決定）
+                out.extend(self.take_dwelled_pending(obs.at));
                 out.push(foreground_record(&next, obs.at));
                 self.shown = Some(next);
                 self.pending = None;
@@ -306,34 +437,57 @@ impl Engine {
         out
     }
 
+    /// 滞留を満たしていた題名があれば記録にする（R40）。
+    fn take_dwelled_pending(&mut self, now: DateTime<Utc>) -> Vec<WindowPayload> {
+        match self.pending.take() {
+            Some((p, since)) if now - since >= self.min_dwell => {
+                let r = foreground_record(&p, since);
+                self.shown = Some(p);
+                vec![r]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// 見回りの時刻が飛んだ（PC が眠っていた。design D19）。
     ///
-    /// **`from` は最後に見回れた時刻**で、`to` は目覚めた時刻。
-    /// 眠っている間の入力は無いので、区間そのものを離席と同じ形で残す。
-    pub fn report_suspend(&mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<WindowPayload> {
+    /// **`from` は最後に見回れた時刻**で、`to` は目覚めた時刻。`mono_gap` はその間に
+    /// 単調時計が進んだ長さ —— 壁時計の飛びと比べれば「止まっていた」と
+    /// 「時計だけが進んだ」を後から分けられる（review/code.md R17）。
+    pub fn report_suspend(
+        &mut self,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        mono_gap: Option<Duration>,
+    ) -> Vec<WindowPayload> {
         let mut out = Vec::new();
         if let Some(away) = self.away.take() {
             // 既に離席していた区間は、眠りに入った時刻で閉じる
-            out.push(leave_record(away.since, from, away.reason));
+            let mut p = leave_record(away.since, from.max(away.since), away.reason);
+            p.ended_by = Some(EndedBy::Superseded);
+            out.push(p);
         }
-        let mut enter = WindowPayload::new(RecordKind::Idle, from);
-        enter.transition = Some(Transition::Enter);
-        enter.reason = Some(AwayReason::Suspended);
+        // **眠っていた間を滞留に数えない**（R40）
+        self.pending = None;
+        // 入った側にも最後に読めた経過時間を載せる（spec の SHALL。R13）
+        let elapsed = self
+            .last_idle
+            .map(|(t, d)| d + (from - t).max(Duration::zero()));
+        let mut enter = enter_record(from, AwayReason::Suspended, elapsed);
+        enter.mono_gap_ms = mono_gap.map(|g| g.num_milliseconds());
         out.push(enter);
-        out.push(leave_record(from, to, AwayReason::Suspended));
+        let mut leave = leave_record(from, to.max(from), AwayReason::Suspended);
+        leave.mono_gap_ms = mono_gap.map(|g| g.num_milliseconds());
+        out.push(leave);
         out
     }
 
     /// 手元に抱えているものを記録にする（送信の契機ごと・終了時）。
     ///
     /// **除外の数えを抱えたまま落ちると、その件数は後から作れない。**
+    /// 除外の対象を見続けている間は、**区間を閉じずに数えだけを 0 から数え直す**（R2）。
     pub fn flush(&mut self, now: DateTime<Utc>) -> Vec<WindowPayload> {
-        let mut out = self.close_excluded(now);
-        // 除外の対象を見続けている間も数えは続く（次の区間として数え直す）
-        if let Some(span) = &mut self.excluded {
-            span.since = now;
-            span.count = 0;
-        }
+        let mut out = self.close_excluded(now, true);
         if let Some((p, since)) = self.pending.clone() {
             if now - since >= self.min_dwell {
                 out.push(foreground_record(&p, since));
@@ -344,18 +498,62 @@ impl Engine {
         out
     }
 
-    fn close_excluded(&mut self, at: DateTime<Utc>) -> Vec<WindowPayload> {
-        let Some(span) = self.excluded.take() else {
+    /// 除外の数えを記録にする。`keep_open` なら区間を続ける（見続けている間の吐き出し）。
+    fn close_excluded(&mut self, at: DateTime<Utc>, keep_open: bool) -> Vec<WindowPayload> {
+        let Some(span) = self.excluded else {
             return Vec::new();
         };
-        if span.count == 0 {
-            return Vec::new();
+        let emit = span.count > 0 && at > span.since;
+        let mut out = Vec::new();
+        if emit {
+            let mut p = WindowPayload::new(RecordKind::Excluded, span.since);
+            p.excluded_count = Some(span.count);
+            p.range_end = Some(rfc3339(at));
+            out.push(p);
         }
-        let mut p = WindowPayload::new(RecordKind::Excluded, span.since);
-        p.excluded_count = Some(span.count);
-        p.range_end = Some(crate::contract::rfc3339(at));
-        vec![p]
+        if keep_open {
+            if emit {
+                self.excluded = Some(ExcludedCount {
+                    since: at,
+                    count: 0,
+                });
+            }
+            // 長さ 0 の区間は作らない —— 数えは次の契機まで持ち越す
+        } else if emit || span.count == 0 {
+            self.excluded = None;
+            self.excluded_key = None;
+        } else {
+            // 入った瞬間に出た（長さ 0）。**数えは捨てず**、出た時刻を 1 ミリ秒後ろにして残す
+            let mut p = WindowPayload::new(RecordKind::Excluded, span.since);
+            p.excluded_count = Some(span.count);
+            p.range_end = Some(rfc3339(span.since + Duration::milliseconds(1)));
+            out.push(p);
+            self.excluded = None;
+            self.excluded_key = None;
+        }
+        out
     }
+}
+
+fn enter_time(reason: AwayReason, elapsed: Option<Duration>, at: DateTime<Utc>) -> DateTime<Utc> {
+    match (reason, elapsed) {
+        // **入力が止まった時刻まで戻す** —— 見つけた時刻にすると閾値のぶん遅れる
+        (AwayReason::Idle, Some(d)) => at - d,
+        // ロックは見つけた時刻が入った時刻（ロックした瞬間に入力は止まる）
+        _ => at,
+    }
+}
+
+fn enter_record(
+    since: DateTime<Utc>,
+    reason: AwayReason,
+    elapsed: Option<Duration>,
+) -> WindowPayload {
+    let mut p = WindowPayload::new(RecordKind::Idle, since);
+    p.transition = Some(Transition::Enter);
+    p.reason = Some(reason);
+    p.idle_ms = elapsed.map(|d| d.num_milliseconds());
+    p
 }
 
 fn foreground_record(s: &Shown, at: DateTime<Utc>) -> WindowPayload {
@@ -365,6 +563,7 @@ fn foreground_record(s: &Shown, at: DateTime<Utc>) -> WindowPayload {
     p.process_name = Some(s.process_name.clone());
     p.title = Some(s.title.clone());
     p.url = s.url.clone();
+    p.url_unavailable = s.url_unavailable.then_some(true);
     p
 }
 
@@ -374,7 +573,7 @@ fn leave_record(since: DateTime<Utc>, resumed: DateTime<Utc>, reason: AwayReason
     let mut p = WindowPayload::new(RecordKind::Idle, since);
     p.transition = Some(Transition::Leave);
     p.reason = Some(reason);
-    p.range_end = Some(crate::contract::rfc3339(resumed));
+    p.range_end = Some(rfc3339(resumed));
     p.idle_ms = Some((resumed - since).num_milliseconds());
     p
 }
@@ -416,6 +615,17 @@ mod tests {
         }
     }
 
+    fn idle_obs(sec: i64, idle_sec: Option<i64>, locked: bool) -> Observation {
+        Observation {
+            at: at(sec),
+            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
+            idle: idle_sec.map_or(IdleRead::Unavailable, |s| {
+                IdleRead::Elapsed(Duration::seconds(s))
+            }),
+            locked,
+        }
+    }
+
     fn engine() -> Engine {
         Engine::new(Exclusions::default())
     }
@@ -439,7 +649,7 @@ mod tests {
         assert_eq!(out.len(), 1, "切り替えで 1 件にならない");
         assert_eq!(out[0].app_name.as_deref(), Some("mail"));
         assert_eq!(out[0].kind, RecordKind::Foreground);
-        assert_eq!(out[0].at, crate::contract::rfc3339(at(10)));
+        assert_eq!(out[0].at, rfc3339(at(10)));
     }
 
     /// 題名だけの変化は**滞留を超えてから** 1 件になる（design D8）。
@@ -456,9 +666,23 @@ mod tests {
         assert_eq!(out[0].title.as_deref(), Some("文書 B"));
         assert_eq!(
             out[0].at,
-            crate::contract::rfc3339(at(1)),
+            rfc3339(at(1)),
             "題名が現れた時刻ではなく、見つけた時刻で記録している"
         );
+    }
+
+    /// **本人が決めた「5 秒」を下からも縛る**（review/code.md R7）。
+    /// 4 秒とどまった題名は落ち、5 秒とどまった題名は残る。
+    #[test]
+    fn min_dwell_is_five_seconds_from_both_sides() {
+        assert_eq!(MIN_DWELL_SEC, 5, "深掘り Q6 / design D8 の値が変わっている");
+        for (stay, kept) in [(4, false), (5, true)] {
+            let mut e = engine();
+            e.observe(obs(0, Some(fg("editor", "A", UrlRead::NotBrowser))));
+            e.observe(obs(10, Some(fg("editor", "B", UrlRead::NotBrowser))));
+            let out = e.observe(obs(10 + stay, Some(fg("editor", "B", UrlRead::NotBrowser))));
+            assert_eq!(!out.is_empty(), kept, "{stay} 秒とどまった題名の扱いが違う");
+        }
     }
 
     /// Scenario: URL だけが変われば 1 件増える
@@ -492,7 +716,6 @@ mod tests {
     #[test]
     fn url_is_not_normalized() {
         let mut e = engine();
-        // アドレスバーが `https://` と末尾のスラッシュを隠した表示
         let shown = "example.com";
         let out = e.observe(obs(
             0,
@@ -503,13 +726,37 @@ mod tests {
             Some(shown),
             "見えていない文字を補っている"
         );
-        // 省略された表示もそのまま
         let elided = "example.com/very/long/…/tail";
         let out = e.observe(obs(
             1,
             Some(fg("browser", "頁", UrlRead::Read(elided.into()))),
         ));
         assert_eq!(out[0].url.as_deref(), Some(elided));
+    }
+
+    /// **URL の読み取りが揺れても「変化」にしない**。読めなかった記録にはその印が残る（R25）。
+    #[test]
+    fn url_flapping_is_not_a_change() {
+        let mut e = engine();
+        let page = |u: UrlRead| Some(fg("browser", "同じ題名", u));
+        e.observe(obs(0, page(UrlRead::Read("example.com/a".into()))));
+        assert!(
+            e.observe(obs(1, page(UrlRead::Unavailable))).is_empty(),
+            "読めなかっただけで記録が増えた"
+        );
+        assert!(e
+            .observe(obs(2, page(UrlRead::Read("example.com/a".into()))))
+            .is_empty());
+
+        // 最初から読めないブラウザは「URL が無い理由」を印で残す
+        let mut e = engine();
+        let out = e.observe(obs(0, page(UrlRead::Unavailable)));
+        assert_eq!(out[0].url, None);
+        assert_eq!(out[0].url_unavailable, Some(true));
+        // 読めたら URL の変化として記録する
+        let out = e.observe(obs(1, page(UrlRead::Read("example.com/b".into()))));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].url_unavailable, None);
     }
 
     /// **題名が流れ続けても記録は増えない**（design D8。動画プレイヤー・端末の進捗表示）。
@@ -529,7 +776,6 @@ mod tests {
                 .len();
         }
         assert_eq!(made, 0, "題名の流れが記録になっている");
-        // 最後の題名だけが滞留を超えてとどまる
         let out = e.observe(obs(
             20,
             Some(fg("player", "再生 0:10", UrlRead::NotBrowser)),
@@ -543,7 +789,6 @@ mod tests {
     fn app_switch_ignores_min_dwell() {
         let mut e = engine();
         e.observe(obs(0, Some(fg("editor", "文書", UrlRead::NotBrowser))));
-        // 1 秒だけ別のアプリを前景にして、すぐ戻す（どちらも滞留 5 秒に届かない）
         let a = e.observe(obs(1, Some(fg("chat", "通知", UrlRead::NotBrowser))));
         let b = e.observe(obs(2, Some(fg("editor", "文書", UrlRead::NotBrowser))));
         assert_eq!((a.len(), b.len()), (1, 1), "短い切り替えが落ちている");
@@ -565,6 +810,18 @@ mod tests {
         assert_eq!(made, 3, "滞留より短い間隔の URL の変化が落ちている");
     }
 
+    /// **滞留を満たした題名は、見回りの前にアプリが変わっても残る**（R40）。
+    #[test]
+    fn dwelled_title_survives_app_switch() {
+        let mut e = engine();
+        e.observe(obs(0, Some(fg("editor", "A", UrlRead::NotBrowser))));
+        e.observe(obs(1, Some(fg("editor", "B", UrlRead::NotBrowser))));
+        // 題名 B は 6 秒前景にあったが、同じ題名のままの見回りが来る前にアプリが変わった
+        let out = e.observe(obs(7, Some(fg("mail", "受信箱", UrlRead::NotBrowser))));
+        let titles: Vec<_> = out.iter().map(|r| r.title.as_deref()).collect();
+        assert_eq!(titles, [Some("B"), Some("受信箱")]);
+    }
+
     /// 前景が読めない観測は**記録を作らない**（生存信号がこれを報告する。design D4）。
     #[test]
     fn unreadable_foreground_makes_no_record() {
@@ -580,39 +837,39 @@ mod tests {
     fn idle_transitions() {
         let mut e = engine();
         e.observe(obs(0, Some(fg("editor", "文書", UrlRead::NotBrowser))));
-        // 閾値（5 分）を超えて入力が無い
-        let enter = e.observe(Observation {
-            at: at(400),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::seconds(340)),
-            locked: false,
-        });
+        let enter = e.observe(idle_obs(400, Some(340), false));
         assert_eq!(kinds(&enter), ["idle"]);
         assert_eq!(enter[0].transition, Some(Transition::Enter));
         assert_eq!(
             enter[0].at,
-            crate::contract::rfc3339(at(60)),
+            rfc3339(at(60)),
             "入った時刻が「入力が止まった時刻」に戻っていない"
         );
         assert_eq!(enter[0].reason, Some(AwayReason::Idle));
 
-        // 入力が戻る（見回りの 1 秒前に触った）
-        let leave = e.observe(Observation {
-            at: at(500),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::seconds(1)),
-            locked: false,
-        });
+        let leave = e.observe(idle_obs(500, Some(1), false));
         assert_eq!(kinds(&leave), ["idle"]);
         assert_eq!(leave[0].transition, Some(Transition::Leave));
-        assert_eq!(leave[0].at, crate::contract::rfc3339(at(60)));
+        assert_eq!(leave[0].at, rfc3339(at(60)));
         assert_eq!(
             leave[0].range_end.as_deref(),
-            Some(crate::contract::rfc3339(at(499)).as_str()),
+            Some(rfc3339(at(499)).as_str()),
             "戻った時刻が残っていない"
         );
-        // 出入りで 2 件（人間の確認: 5 分離れて戻ると 2 件）
+        assert_eq!(
+            leave[0].ended_by, None,
+            "入力で戻った区間に閉じ方が付いている"
+        );
         assert_eq!(enter.len() + leave.len(), 2);
+    }
+
+    /// **閾値ちょうどで入る**（review/code.md I6）。299 秒では入らない。
+    #[test]
+    fn idle_threshold_boundary() {
+        assert_eq!(IDLE_THRESHOLD_SEC, 300);
+        let mut e = engine();
+        assert!(e.observe_away(&idle_obs(1000, Some(299), false)).is_empty());
+        assert_eq!(e.observe_away(&idle_obs(1001, Some(300), false)).len(), 1);
     }
 
     /// Scenario: 画面ロックとスリープも残る
@@ -620,7 +877,6 @@ mod tests {
     fn lock_and_suspend_are_recorded() {
         let mut e = engine();
         e.observe(obs(0, Some(fg("editor", "文書", UrlRead::NotBrowser))));
-        // ロックは閾値を待たずに入る（ロックした瞬間に入力は止まる）
         let lock = e.observe(Observation {
             at: at(10),
             foreground: None,
@@ -629,49 +885,82 @@ mod tests {
         });
         assert_eq!(lock[0].reason, Some(AwayReason::Locked));
         assert_eq!(lock[0].transition, Some(Transition::Enter));
-        let unlock = e.observe(Observation {
-            at: at(70),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::zero()),
-            locked: false,
-        });
+        let unlock = e.observe(idle_obs(70, Some(0), false));
         assert_eq!(unlock[0].transition, Some(Transition::Leave));
         assert_eq!(unlock[0].reason, Some(AwayReason::Locked));
 
-        // スリープは見回りの時刻の飛びで拾う（design D19）
-        let slept = e.report_suspend(at(100), at(4000));
+        let slept = e.report_suspend(at(100), at(4000), Some(Duration::seconds(3900)));
         assert_eq!(kinds(&slept), ["idle", "idle"]);
         assert_eq!(slept[0].reason, Some(AwayReason::Suspended));
         assert_eq!(
             slept[1].range_end.as_deref(),
-            Some(crate::contract::rfc3339(at(4000)).as_str())
+            Some(rfc3339(at(4000)).as_str())
         );
+        assert_eq!(slept[1].mono_gap_ms, Some(3_900_000));
+    }
+
+    /// **離席のまま自動でロックされても、ロックした時刻が残る**（R23）。
+    #[test]
+    fn idle_then_lock_records_the_lock() {
+        let mut e = engine();
+        e.observe(idle_obs(400, Some(340), false)); // 離席に入る
+        let out = e.observe(idle_obs(900, Some(840), true)); // 画面オフ → ロック
+        assert_eq!(out.len(), 2, "ロックへの入れ替わりが記録になっていない");
+        assert_eq!(out[0].transition, Some(Transition::Leave));
+        assert_eq!(out[0].reason, Some(AwayReason::Idle));
+        assert_eq!(out[0].ended_by, Some(EndedBy::Superseded));
+        assert_eq!(out[1].transition, Some(Transition::Enter));
+        assert_eq!(out[1].reason, Some(AwayReason::Locked));
+        assert_eq!(out[1].at, rfc3339(at(900)));
+    }
+
+    /// **経過時間が読めないまま閾値ぶん経ったら、最後に読めた時刻で閉じる**（R24）。
+    #[test]
+    fn unreadable_idle_closes_the_span_eventually() {
+        let mut e = engine();
+        e.observe(idle_obs(400, Some(340), false)); // 入る
+        assert!(
+            e.observe(idle_obs(410, None, false)).is_empty(),
+            "すぐ閉じている"
+        );
+        let out = e.observe(idle_obs(710, None, false));
+        assert_eq!(out.len(), 1, "読めないまま離席が閉じない");
+        assert_eq!(out[0].ended_by, Some(EndedBy::Unreadable));
+        assert_eq!(out[0].range_end.as_deref(), Some(rfc3339(at(400)).as_str()));
+
+        // ロックの区間は、ロックが解けたと読めた時点で閉じる（経過時間が読めなくても）
+        let mut e = engine();
+        e.observe(idle_obs(0, Some(0), true));
+        let out = e.observe(idle_obs(60, None, false));
+        assert_eq!(out[0].transition, Some(Transition::Leave));
+        assert_eq!(out[0].reason, Some(AwayReason::Locked));
     }
 
     /// **閾値を変えたときに引き直せる**（design D9 の仮決めが可逆であることの根拠）。
+    /// 3 種類の理由すべてで「入った」側が経過時間を持つ（R13）。
     ///
     /// Scenario: 閾値を後から引き直せる形で残る
     #[test]
     fn idle_records_carry_elapsed_for_rethreshold() {
         let mut e = engine();
-        let enter = e.observe(Observation {
-            at: at(400),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::seconds(340)),
-            locked: false,
-        });
+        let enter = e.observe(idle_obs(400, Some(340), false));
         assert_eq!(enter[0].idle_ms, Some(340_000));
-        let leave = e.observe(Observation {
-            at: at(500),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::zero()),
-            locked: false,
-        });
-        // 区間の長さが載るので、**閾値を変えたときの判定を後から引ける** ——
-        // 10 分で切るなら「この区間は離席に数えない」と、記録だけから決まる
-        let span_ms = leave[0].idle_ms.expect("区間の長さ");
-        assert_eq!(span_ms, 440_000);
-        assert!(span_ms < 600_000, "区間の長さから閾値の判定を引けない");
+        let leave = e.observe(idle_obs(500, Some(0), false));
+        // 区間の長さから、閾値を 10 分にした場合の判定を記録だけで引ける
+        assert_eq!(leave[0].idle_ms, Some(440_000));
+
+        let mut e = engine();
+        let lock = e.observe(idle_obs(10, Some(3), true));
+        assert_eq!(lock[0].idle_ms, Some(3_000));
+
+        let mut e = engine();
+        e.observe(idle_obs(100, Some(20), false));
+        let slept = e.report_suspend(at(110), at(5000), None);
+        assert_eq!(
+            slept[0].idle_ms,
+            Some(30_000),
+            "眠りに入った側に経過時間が無い"
+        );
     }
 
     /// Scenario: 離席の記録は前景の記録と区別できる
@@ -679,28 +968,31 @@ mod tests {
     fn record_kind_is_distinguishable() {
         let mut e = engine();
         let fgr = e.observe(obs(0, Some(fg("editor", "文書", UrlRead::NotBrowser))));
-        let idle = e.observe(Observation {
-            at: at(400),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Elapsed(Duration::seconds(340)),
-            locked: false,
-        });
+        let idle = e.observe(idle_obs(400, Some(340), false));
         assert_eq!(fgr[0].kind, RecordKind::Foreground);
         assert_eq!(idle[0].kind, RecordKind::Idle);
-        assert_ne!(fgr[0].kind.as_str(), idle[0].kind.as_str());
     }
 
-    /// 経過時間が読めないときは**離席の判定を動かさない**。
+    /// 経過時間が読めないときは**離席を勝手に立てない**。
     #[test]
     fn unreadable_idle_does_not_move_the_state() {
         let mut e = engine();
-        let out = e.observe(Observation {
-            at: at(0),
-            foreground: Some(fg("editor", "文書", UrlRead::NotBrowser)),
-            idle: IdleRead::Unavailable,
-            locked: false,
-        });
+        let out = e.observe(idle_obs(0, None, false));
         assert_eq!(kinds(&out), ["foreground"], "離席が勝手に立っている");
+    }
+
+    /// **眠っていた間を題名の滞留に数えない**（R40）。
+    #[test]
+    fn suspend_does_not_count_as_dwell() {
+        let mut e = engine();
+        e.observe(obs(0, Some(fg("editor", "A", UrlRead::NotBrowser))));
+        e.observe(obs(1, Some(fg("editor", "B", UrlRead::NotBrowser))));
+        e.report_suspend(at(2), at(3600), None);
+        let out = e.observe(obs(3600, Some(fg("editor", "B", UrlRead::NotBrowser))));
+        assert!(
+            out.iter().all(|r| r.kind != RecordKind::Foreground),
+            "眠っていた時間で題名の滞留を満たした"
+        );
     }
 
     // ----------------------------------------------------------------- 除外
@@ -713,6 +1005,16 @@ mod tests {
         })
     }
 
+    fn secret(title: &str, url: UrlRead) -> Foreground {
+        Foreground {
+            app_name: "金庫".into(),
+            exe_path: r"C:\apps\vault.exe".into(),
+            process_name: "vault.exe".into(),
+            title: title.into(),
+            url,
+        }
+    }
+
     /// **本文が 1 文字も残らない**（FR-83 / design D11）。
     ///
     /// Scenario: 除外に登録した対象の本文は残らない
@@ -720,61 +1022,52 @@ mod tests {
     #[test]
     fn exclusion() {
         let mut e = with_exclusion();
-        let secret = Foreground {
-            app_name: "金庫".into(),
-            exe_path: r"C:\apps\vault.exe".into(),
-            process_name: "vault.exe".into(),
-            title: "銀行 / 本人の口座".into(),
-            url: UrlRead::Read("https://vault.example/item/42?key=abcdef".into()),
-        };
-        let out = e.observe(obs(0, Some(secret.clone())));
-        assert!(out.is_empty(), "除外の対象が記録になっている");
-
-        // 除外の中で 3 回変化する（題名と URL が変わる）
+        let url = UrlRead::Read("https://vault.example/item/42?key=abcdef".into());
+        assert!(
+            e.observe(obs(0, Some(secret("銀行 / 本人の口座", url.clone()))))
+                .is_empty(),
+            "除外の対象が記録になっている"
+        );
         for i in 1..=2 {
-            let mut s = secret.clone();
-            s.title = format!("銀行 / 口座 {i}");
-            assert!(e.observe(obs(i, Some(s))).is_empty());
+            assert!(e
+                .observe(obs(
+                    i,
+                    Some(secret(&format!("銀行 / 口座 {i}"), url.clone()))
+                ))
+                .is_empty());
         }
-        let mut s = secret.clone();
-        s.url = UrlRead::Read("https://vault.example/item/43".into());
-        assert!(e.observe(obs(3, Some(s))).is_empty());
+        assert!(e
+            .observe(obs(
+                3,
+                Some(secret(
+                    "銀行 / 口座 2",
+                    UrlRead::Read("https://vault.example/item/43".into())
+                ))
+            ))
+            .is_empty());
 
-        // 除外の対象から出ると、件数だけが記録になる
         let out = e.observe(obs(10, Some(fg("editor", "文書", UrlRead::NotBrowser))));
         assert_eq!(kinds(&out), ["excluded", "foreground"]);
+        // **入ったこと 1 回 + 題名 2 回 + URL 1 回 = 4 回**（design D18 の数え方）
+        assert_eq!(out[0].excluded_count, Some(4));
         let sent = serde_json::to_string(&out).expect("直列化");
-        for leaked in [
-            "金庫",
-            "vault.exe",
-            "銀行",
-            "vault.example",
-            "abcdef",
-            r"C:\apps\vault.exe",
-        ] {
+        for leaked in ["金庫", "vault.exe", "銀行", "vault.example", "abcdef"] {
             assert!(
                 !sent.contains(leaked),
                 "除外した本文が送る形に残っている: {leaked}"
             );
         }
+        // 置き場に落とす状態にも本文が無い
+        let state = serde_json::to_string(&e.state()).unwrap();
+        assert!(!state.contains("銀行") && !state.contains("vault"));
     }
 
     /// Scenario: 除外した件数が残る
     #[test]
     fn excluded_count_is_kept() {
         let mut e = with_exclusion();
-        let secret = |title: &str| {
-            Some(Foreground {
-                app_name: "金庫".into(),
-                exe_path: r"C:\apps\vault.exe".into(),
-                process_name: "vault.exe".into(),
-                title: title.into(),
-                url: UrlRead::NotBrowser,
-            })
-        };
-        // 除外の中で前景の変化が 3 回起きる
         for (i, t) in ["項目 1", "項目 2", "項目 3"].iter().enumerate() {
-            e.observe(obs(i as i64, secret(t)));
+            e.observe(obs(i as i64, Some(secret(t, UrlRead::NotBrowser))));
         }
         let out = e.observe(obs(9, Some(fg("editor", "文書", UrlRead::NotBrowser))));
         let excluded = out
@@ -786,44 +1079,88 @@ mod tests {
             Some(3),
             "件数から 3 回を読み取れない"
         );
-        assert_eq!(excluded.at, crate::contract::rfc3339(at(0)));
+        assert_eq!(excluded.at, rfc3339(at(0)));
         assert!(excluded.title.is_none() && excluded.app_name.is_none());
     }
 
-    /// 除外の対象を見続けている間も**数えを抱えたままにしない**（落ちると作れない）。
+    /// **見続けている間の吐き出しで、変化していないのに数えが増えない**（R2）。
     #[test]
-    fn excluded_count_is_flushed_while_still_foreground() {
+    fn excluded_count_is_not_inflated_by_flush() {
         let mut e = with_exclusion();
-        let secret = Foreground {
-            app_name: "金庫".into(),
-            exe_path: r"C:\apps\vault.exe".into(),
-            process_name: "vault.exe".into(),
-            title: "項目".into(),
-            url: UrlRead::NotBrowser,
-        };
-        e.observe(obs(0, Some(secret.clone())));
-        let out = e.flush(at(300));
-        assert_eq!(kinds(&out), ["excluded"]);
-        assert_eq!(out[0].excluded_count, Some(1));
-        // 2 度目の契機では、新しい変化が無ければ何も出ない
-        assert!(e.flush(at(600)).is_empty());
+        let mut total = 0;
+        // 30 分ずっと同じ除外の窓。5 分ごとに吐き出す
+        for sec in 0..=1800 {
+            e.observe(obs(sec, Some(secret("項目", UrlRead::NotBrowser))));
+            if sec % 300 == 0 {
+                for r in e.flush(at(sec)) {
+                    total += r.excluded_count.unwrap_or(0);
+                    assert_ne!(Some(r.at.clone()), r.range_end, "長さ 0 の区間を作った");
+                }
+            }
+        }
+        for r in e.observe(obs(1801, Some(fg("editor", "文書", UrlRead::NotBrowser)))) {
+            total += r.excluded_count.unwrap_or(0);
+        }
+        assert_eq!(total, 1, "変化は入った 1 回だけなのに数えが水増しされた");
     }
 
     /// Scenario: 除外の登録が空なら何も除外されない
     #[test]
     fn nothing_is_excluded_when_empty() {
         let mut e = engine();
-        let out = e.observe(obs(
-            0,
-            Some(Foreground {
-                app_name: "金庫".into(),
-                exe_path: r"C:\apps\vault.exe".into(),
-                process_name: "vault.exe".into(),
-                title: "項目".into(),
-                url: UrlRead::NotBrowser,
-            }),
-        ));
+        let out = e.observe(obs(0, Some(secret("項目", UrlRead::NotBrowser))));
         assert_eq!(kinds(&out), ["foreground"]);
         assert_eq!(out[0].title.as_deref(), Some("項目"));
+    }
+
+    // ------------------------------------------------------ プロセスをまたぐ状態
+
+    /// **落ちる前に開いていた離席と除外の数えを、次の起動で閉じる**（R1 / R4）。
+    #[test]
+    fn previous_state_is_closed_on_restart() {
+        let mut e = with_exclusion();
+        e.observe(idle_obs(400, Some(340), false));
+        // 離席のまま、除外の窓が前景に出る（通知で前面に来た、など）
+        e.observe(Observation {
+            idle: IdleRead::Elapsed(Duration::seconds(341)),
+            ..obs(401, Some(secret("項目", UrlRead::NotBrowser)))
+        });
+        let state = e.state();
+        assert!(state.away.is_some() && state.excluded.is_some());
+
+        let fresh = with_exclusion();
+        let out = fresh.close_previous(state, Some(at(900)));
+        assert_eq!(kinds(&out), ["idle", "excluded"]);
+        assert_eq!(out[0].transition, Some(Transition::Leave));
+        assert_eq!(out[0].ended_by, Some(EndedBy::Restart));
+        assert_eq!(out[0].range_end.as_deref(), Some(rfc3339(at(900)).as_str()));
+        assert_eq!(out[1].excluded_count, Some(1));
+        // 印が無ければ閉じる時刻が無いので作らない
+        assert!(fresh.close_previous(state, None).is_empty());
+    }
+
+    /// `Debug` に題名も URL も出ない（R35）。
+    #[test]
+    fn debug_does_not_leak_private_content() {
+        let mut e = with_exclusion();
+        e.observe(obs(
+            0,
+            Some(fg(
+                "editor",
+                "秘密の文書",
+                UrlRead::Read("x.example".into()),
+            )),
+        ));
+        e.observe(obs(1, Some(secret("銀行", UrlRead::NotBrowser))));
+        let dbg = format!(
+            "{e:?} {:?}",
+            fg("editor", "秘密の文書", UrlRead::Read("x.example".into()))
+        );
+        for leaked in ["秘密", "x.example", "銀行", "editor"] {
+            assert!(
+                !dbg.contains(leaked),
+                "Debug に本文が出た: {leaked} / {dbg}"
+            );
+        }
     }
 }

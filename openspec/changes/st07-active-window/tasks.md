@@ -18,7 +18,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   **印の無い Scenario を FAIL にする**。`scripts/merge_gate.sh` がこの検査を見るので、
   **印を置かないと tasks を全部チェックしても PR は止まる**
 - 印の名前は spec の `#### Scenario:` と**一字一句合わせる**（空白は無視される）
-- **この change が足す Scenario は 23 本**（すべて `desktop-collection`）
+- **この change が足す Scenario は 30 本**（すべて `desktop-collection`。spec-review が 7 本を足した後の数。review/code.md R12）
 - 実機（Windows の実環境）でしか確かめられないものは、下の「人間の確認待ち」節に挙げる。
   **挙げたものだけが検査を通る**
 - **D5 / D7 / D8 / D9 は（仮）決め。** 反転条件は `design.md` にある。
@@ -138,23 +138,87 @@ ST03 の移行（`202609120940_source_columns.sql`）が既に `'none'` にし�
   エラーの種別だけ。Scenario: `送信の失敗がログに出ても題名と URL は出ない`。
   検証: `cargo test log_has_no_private_content` rc=0
 - [x] 9.2 ログオン時に自動起動する（design D7・**仮**）。スタートアップフォルダへ
-  `ashiato-collector.cmd` を 1 つ置く（`--install-autostart`。レジストリは別の crate か
-  `unsafe` を要するので採らない。design D15）。
-  検証: `grep -c "自動起動" crates/collector-windows/README.md` が 1 以上 / `cargo test startup_script` rc=0
-- [ ] 9.3 **トレイに常駐して「動いている」ことを見せる**（design D7 の後半。**残した**）。
-  理由: 窓とメッセージの輪を持つことになり、見回りの作り（`runtime::tick`）が変わる。
-  止まっていることに気づく手段は当面 生存信号と稼働状況の画面（FR-78 / FR-80）。
-  検証: 実機でトレイに出ることを見る（確認バッチ）
+  `ashiato-collector.cmd` を 1 つ置く（`--install-autostart`。**読む 5 つの変数を全部書く**。
+  レジストリは別の crate か `unsafe` を要するので採らない。design D15）。
+  **トレイの常駐表示は ST07 では入れない**（design D7 の（仮）と反転条件。review/code.md R10）。
+  検証: `grep -c "自動起動" crates/collector-windows/README.md` が 1 以上 / `cargo test startup_script_is_enough_to_start` rc=0
 
 ## 10. 仕上げ
 
 - [x] 10.1 `openspec validate st07-active-window --strict` rc=0
-- [x] 10.2 `python3 scripts/check_scenarios.py .` rc=0（**23 本すべてに印**）
+- [x] 10.2 `python3 scripts/check_scenarios.py .` rc=0（**30 本すべてに印**）
 - [x] 10.3 `python3 scripts/check_chain.py .` rc=0
 - [x] 10.4 `python3 scripts/review_triage.py . st07-active-window` rc=0
 - [x] 10.5 `tools/smoke.sh` rc=0 / `tools/check-immutable.sh` rc=0 / `tools/check-migrations.sh` rc=0
 - [x] 10.6 `cargo test --workspace` rc=0 / `cargo clippy --workspace -- -D warnings` rc=0
 - [x] 10.7 `docs/handoff/` を読み直す（PR 前の 2 回目）
+
+## 11. 独立レビューの処置（`review/code.md`）
+
+**レビューは指摘を出すだけで直さない。直したものをここに挙げる。** 1 件ずつ `review/code.md` の
+`処置: fixed 11.<n>` から指される。検証は全部コマンドと終了コード。
+
+- [x] 11.1 離席の区間と除外の数えを置き場（`engine.json`）に落とし、次の起動で閉じる。
+  終了の合図（Ctrl-C・窓を閉じる）で `Runtime::stop` を呼ぶ（R1 / R4 / R33。design D21）。
+  検証: `cargo test previous_state_is_closed_on_restart` rc=0 / `cargo test restart_closes_previous_away_and_excluded` rc=0
+- [x] 11.2 除外の吐き出しで区間を閉じず、数えを 0 から数え直す（R2。design D18）。
+  検証: `cargo test excluded_count_is_not_inflated_by_flush` rc=0
+- [x] 11.3 自動起動の `.cmd` に読む変数を全部書き、その中身だけで設定が組めることを固定する（R3）。
+  検証: `cargo test startup_script_is_enough_to_start` rc=0
+- [x] 11.4 本物の HTTP で合言葉を送り 400 の本文を読むことを固定する。smoke は収集側の crate が
+  組んだ本文を送る（R5 / R22）。検証: `cargo test http_transport_sends_bearer_and_reads_400_body` rc=0 /
+  `tools/smoke.sh` rc=0（手順 37 / 39 が `examples/sample_body` を使う）
+- [x] 11.5 ロック中の見回りを試行に数えない（R6）。検証: `cargo test locked_hours_are_not_failures` rc=0
+- [x] 11.6 題名の最小滞留 5 秒を下からも縛る（R7）。検証: `cargo test min_dwell_is_five_seconds_from_both_sides` rc=0
+- [x] 11.7 動作中に 1 分ごとに印が進むことを Runtime の層で固定する（R8）。
+  検証: `cargo test marker_advances_every_minute_while_running` rc=0
+- [x] 11.8 読んだ値の解釈を `winrules.rs` に出して Linux で確かめ、実機でしか決まらない 5 本を
+  「人間の確認待ち」に足す（R9）。検証: `cargo test --package ashiato-collector-windows winrules` rc=0
+- [x] 11.9 `Config` / `HttpTransport` / `Engine` / `Foreground` / `Runtime` の `Debug` に合言葉と本文を出さない（R11 / R35）。
+  検証: `cargo test debug_hides_the_token` rc=0 / `cargo test debug_does_not_leak_private_content` rc=0
+- [x] 11.10 Scenario の本数を 30 本に直す（R12）。検証: `grep -c "30 本" openspec/changes/st07-active-window/tasks.md` が 2 以上
+- [x] 11.11 眠りに入った側にも経過時間を載せ、3 つの理由すべてで固定する。同義反復の assert を消す（R13 / R44）。
+  検証: `cargo test idle_records_carry_elapsed_for_rethreshold` rc=0
+- [x] 11.12 空文字の URL を「読めなかった」に倒す（R14）。検証: `cargo test empty_url_is_unavailable` rc=0
+- [x] 11.13 印と数えを一時ファイル + 置き換えで書き、壊れていたら退避して起動を続ける（R18）。
+  検証: `cargo test broken_counters_are_quarantined` rc=0 / `cargo test broken_marker_is_an_error` rc=0 /
+  `cargo test atomic_write_replaces_and_leaves_no_tmp` rc=0
+- [x] 11.14 生存信号 4 件・ずれの測定 24 件を Runtime を 1 日回して固定する（R19）。
+  検証: `cargo test ticks_keep_heartbeat_and_skew_intervals_for_a_day` rc=0
+- [x] 11.15 書き込みの失敗で見回りを止めない。`powered-off` に `boot_at` / `clean_stop` を載せる（R16。design D22 / D23）。
+  検証: `cargo test write_failures_do_not_stop_collection` rc=0 / `cargo test clean_stop_is_carried_to_next_start` rc=0 /
+  `cargo test start_records_powered_off_span` rc=0
+- [x] 11.16 契機を単調時計で測り、飛びに `mono_gap_ms` を載せ、時計が飛んだらその場でずれを測る（R17。design D19）。
+  検証: `cargo test clock_jumps_do_not_stop_the_intervals` rc=0
+- [x] 11.17 読めない未送信の置き場を空として開かない（R20）。検証: `cargo test unreadable_outbox_is_an_error_not_empty` rc=0
+- [x] 11.18 件数の合わない応答では何も取り除かない（R21）。検証: `cargo test mismatched_reply_length_removes_nothing` rc=0
+- [x] 11.19 離席のまま自動でロックされたとき、入れ替わりを記録する（R23。design D14）。
+  検証: `cargo test idle_then_lock_records_the_lock` rc=0
+- [x] 11.20 経過時間が読めない状態を `blockers` に挙げ、読めないまま閾値ぶん経ったら区間を閉じる。
+  変換できない値を 0 秒にしない（R24）。検証: `cargo test unreadable_idle` rc=0
+- [x] 11.21 URL の読み取りの揺れを変化にせず、読めなかった記録に `url_unavailable` を付ける（R25）。
+  検証: `cargo test url_flapping_is_not_a_change` rc=0
+- [x] 11.22 区間の間に一度でも欠けたものを生存信号に残す（R26）。検証: `cargo test blockers_are_sticky_within_the_interval` rc=0
+- [x] 11.23 置き場に既定を持たせず、絶対パスを要求する（R27）。検証: `cargo test config_requires_every_var_including_state_dir` rc=0
+- [x] 11.24 除外の登録の書き間違い（知らない欄・`rules` の欠落・空の `value`）を断る（R28）。
+  検証: `cargo test broken_registration_is_an_error_not_empty` rc=0 / `cargo test rules_hit_by_path_name_and_title` rc=0
+- [x] 11.25 プロセス名が解決できない前景を「読めなかった」に倒す（R29）。
+  検証: `cargo test process_name_is_none_not_empty` rc=0 /
+  `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
+- [x] 11.26 壊れた行の退避を追記にし、件数をログに出す。断られた分の覚えを掃除する（R30）。
+  検証: `cargo test broken_line_is_quarantined_not_dropped` rc=0
+- [x] 11.27 未送信の追記と書き直しを同期する（R31）。検証: `cargo test atomic_write_replaces_and_leaves_no_tmp` rc=0
+- [x] 11.28 二重に起動しない（R32。design D24）。
+  検証: `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
+- [x] 11.29 CI の windows job で clippy を当てる（R34。design D20）。
+  検証: `grep -c "cargo clippy -p ashiato-collector-windows" .github/workflows/ci.yml` が 1 以上
+- [x] 11.30 環境変数を触る試験をやめる（R36）。検証: `cargo test env_adds_to_the_defaults` rc=0
+- [x] 11.31 断られた分だけの当たり直し・1 回の件数の切り・閾値ちょうどの境界を固定する（R39）。
+  検証: `cargo test rejected_only_backlog_is_retried` rc=0 / `cargo test batch_is_capped` rc=0 /
+  `cargo test idle_threshold_boundary` rc=0
+- [x] 11.32 滞留を満たした題名を切り替えで捨てない。眠っていた間を滞留に数えない（R40）。
+  検証: `cargo test dwelled_title_survives_app_switch` rc=0 / `cargo test suspend_does_not_count_as_dwell` rc=0
+- [x] 11.33 基準時刻の口に `date` ヘッダがあることを smoke で見る（R42）。検証: `tools/smoke.sh` rc=0（手順 40）
 
 ## 人間の確認待ち
 
@@ -163,15 +227,29 @@ ST03 の移行（`202609120940_source_columns.sql`）が既に `'none'` にし�
 `check_scenarios.py` / `verify_checklist.py` / `verify_record.py` の 3 本ともこの形しか読まない
 （spec-review R3）。やり方は次の行の引用に置く。
 
+**実機のビルドは Windows の上で行う**（`cargo build --release -p ashiato-collector-windows`）。
+この作業机には mingw が無く、windows 向けは型検査と lint までしか通していない。
+
 - Scenario: アプリを切り替えると 1 件増える
   > 実機でアプリを切り替え、`c02-window` の件数が 1 増えることを見る
 - Scenario: 題名が最小滞留より短く変わり続けても記録は増えない
   > 動画を 2 分再生し、件数が再生秒数ぶん増えていないことを見る
 - Scenario: 起動時に止まっていた期間が 1 件残る
-  > PC を落として翌日起動し、その期間の記録が 1 件あることを見る
+  > PC を落として翌日起動し、その期間の記録が 1 件あり、`boot_at` が区間の始まりより後であることを見る
 - Scenario: 離席の始まりと終わりが残る
   > 5 分以上席を離れて戻り、出入りが 2 件残ることを見る
 - Scenario: 除外に登録した対象の本文は残らない
   > パスワード管理ソフトを除外に登録して開き、題名も URL も残っていないことを見る
 - Scenario: 表示されている文字列を補正しない
   > `https://` が隠れた表示のページを開き、記録の URL に `https://` が補われていないことを見る
+- Scenario: クエリとフラグメントが残る
+  > `?q=…#…` を持つページを開き、UI Automation が拾った文字列がアドレスバーの全体であることを見る（R9）
+- Scenario: URL だけが変われば 1 件増える
+  > 同じ窓でタブを移り、題名が同じでも URL の違う記録が増えることを見る（R9）
+- Scenario: 画面ロックとスリープも残る
+  > Win+L でロックして解除し、`reason: locked` の出入りが残ること（ロック中の前景が `LockApp.exe` に見えること）を見る。
+  > 5 分放置して自動でロックされたときは `ended_by: superseded` の離席と `locked` の入りが残ることを見る（R9 / R23）
+- Scenario: 前景を読めない状態は取得できないとして報告される
+  > 管理者権限の窓を前景にして 6 時間待つか起動し直し、生存信号の `blockers` を見る（R9）
+- Scenario: URL を読めない状態も取得できないとして報告される
+  > ブラウザのアクセシビリティを切った状態で使い、生存信号の `blockers` に `uiautomation` が挙がることを見る（R9）

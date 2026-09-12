@@ -181,12 +181,18 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 | `process_name` | text | `foreground` |
 | `title` | text（ウィンドウ題名） | `foreground` |
 | `url` | text（**アドレスバーに見えている文字列そのまま**） | `foreground`（前景がブラウザのときだけ） |
+| `url_unavailable` | `true`（**ブラウザだがアドレスバーが読めなかった**。読めた記録では省く） | `foreground` |
 | `range_end` | RFC3339（範囲の終わり） | `idle`（出た側）/ `powered-off` / `excluded` |
 | `idle_ms` | integer（**最後の入力からの経過時間**。出た側は区間の長さ） | `idle` |
 | `transition` | `enter` / `leave` | `idle` |
 | `reason` | `idle` / `locked` / `suspended` | `idle` |
-| `excluded_count` | integer（**除外した変化の件数**） | `excluded` |
-| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる） | `clock-skew` |
+| `ended_by` | `superseded` / `restart` / `unreadable`（**入力の再開以外で閉じた区間**。普通は省く） | `idle`（出た側） |
+| `mono_gap_ms` | integer（見回りが飛んだ間に**単調時計**が進んだ長さ） | `idle`（`suspended`） |
+| `excluded_count` | integer（**除外した変化の件数**。対象を前景にしたこと自体を 1 回と数える） | `excluded` |
+| `boot_at` | RFC3339（**OS が最後に起動した時刻**。区間の始まりより後なら PC は本当に止まっていた） | `powered-off` |
+| `clean_stop` | `true`（前回の収集が自分で止まった。電源断・強制終了では省かれる） | `powered-off` |
+| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる。HTTP の日付は秒で切り捨てなので 0〜+999 ms に偏る） | `clock-skew` |
+| `skew_reference` | text（基準の出どころ = 取り込み口の `host:port`。ループバックなら自分の時計と比べている） | `clock-skew` |
 
 > **`at` を原文にも入れる理由**: 冪等キーは `logical_source` + `event_time` + `raw` から
 > 作られる。本文を持たない記録（`excluded`）の原文が全部同じ文字列だと、
@@ -202,7 +208,12 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 > 外部 AI に出してよい）に委ねる。**収集側が厳しい側を付けない。**
 
 PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomation`（URL の経路が
-応答しない）** の 2 つ（design D4）。端末側の `permission` / `sensor` / `network` とは別の語彙。
+応答しない）/ `idle`（最後の入力からの経過時間が読めない）** の 3 つ（design D4）。
+**信号を出す瞬間ではなく、前回の信号からの区間に一度でも欠けたもの**を挙げる。
+端末側の `permission` / `sensor` / `network` とは別の語彙。
+
+> **C-02 は 400 の本文も読む**（`ureq` の既定は 400 で本文を捨てる）。
+> 1 件ごとの結果の件数が送った件数と合わない応答では、**何も取り除かない**。
 
 ---
 

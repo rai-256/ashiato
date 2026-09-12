@@ -32,3 +32,9 @@ active-win-pos-rs = "0.9"
 user-idle-time = "0.7"
 # アドレスバーの読み取りと、前景が変わったことの OS からの通知（design D4 / D5）
 uiautomation = { version = "0.25", features = ["event"] }
+# OS が最後に起動した時刻（design D23）。「PC を閉じていた」と「収集だけが止まっていた」を
+# 記録から分けるため。**機能を `system` だけに絞る**（既定の全機能は windows crate の
+# 巨大な機能集合を引き、手元でコンパイルが OOM した）
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+# 窓を閉じられた・Ctrl-C で止められたときに、手元の数えを吐き出してから終わる（R13 / B-4）
+ctrlc = { version = "3", features = ["termination"] }

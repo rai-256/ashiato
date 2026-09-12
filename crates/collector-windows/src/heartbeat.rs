@@ -13,12 +13,14 @@ use chrono::{DateTime, Duration, Utc};
 use crate::contract::{rfc3339, HeartbeatRequest};
 use crate::{EXPECTED_GAP_SEC, LOGICAL_SOURCE};
 
-/// 満たされていないものの名前（design D4）。**PC 側は 2 つ。**
+/// 満たされていないものの名前（design D4）。**PC 側は 3 つ。**
 pub mod blocker {
     /// 前景のウィンドウが読めない
     pub const FOREGROUND: &str = "foreground";
     /// URL を読み取る経路（UI Automation）が応答しない
     pub const UIAUTOMATION: &str = "uiautomation";
+    /// 最後の入力からの経過時間が読めない（**離席・ロック・スリープが残らない**。R24）
+    pub const IDLE: &str = "idle";
 }
 
 /// 取得できる状態かと、その理由。
@@ -50,6 +52,20 @@ impl Capability {
         Self {
             capturable: blockers.is_empty(),
             blockers,
+        }
+    }
+}
+
+impl Capability {
+    /// 区間の間に一度でも満たされなかったものの**和**から組み立てる（R26）。
+    ///
+    /// 信号を出す瞬間の 1 観測で決めると、6 時間ずっと UI Automation が死んでいても
+    /// その 1 秒だけ読めれば「取得できる状態」と報告される —— NFR-13 の訂正 (2) が
+    /// 名指しした「壊れているのに動いていたと残る」と同じ型。
+    pub fn from_blockers(blockers: &std::collections::BTreeSet<String>) -> Self {
+        Self {
+            capturable: blockers.is_empty(),
+            blockers: blockers.iter().cloned().collect(),
         }
     }
 }
@@ -121,12 +137,24 @@ impl CounterStore {
         }
     }
 
-    /// 書く。
-    pub fn save(&self, c: &Counters) -> anyhow::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)?;
+    /// 読む。**壊れていたら退避して `None` から始める**（R18 / I7）。
+    ///
+    /// 印（`Marker`）と違って空に倒してよい —— 失うのは 1 区間の取得率だけで、
+    /// 起動を止めると**以後の全部**を失う。退避したかどうかを返す（ログに出す）。
+    pub fn load_or_quarantine(&self) -> (Option<Counters>, bool) {
+        match self.load() {
+            Ok(c) => (c, false),
+            Err(_) => {
+                let _ = std::fs::rename(&self.path, self.path.with_extension("broken.json"));
+                (None, true)
+            }
         }
-        std::fs::write(&self.path, serde_json::to_string(c)?).context("数えを書けない")
+    }
+
+    /// 書く。**一時ファイル + 置き換え**（書きかけで電源が落ちても空にならない。R18）。
+    pub fn save(&self, c: &Counters) -> anyhow::Result<()> {
+        crate::fsutil::atomic_write(&self.path, serde_json::to_string(c)?.as_bytes())
+            .context("数えを書けない")
     }
 }
 
@@ -308,6 +336,35 @@ mod tests {
         assert_eq!(taken, (10, 6));
         assert_eq!((c.attempts, c.successes), (0, 0));
         assert_eq!(c.since, t(EXPECTED_GAP_SEC));
+    }
+
+    /// 壊れた数えは**退避して起動を続ける**（R18）。
+    #[test]
+    fn broken_counters_are_quarantined() {
+        let dir = std::env::temp_dir().join(format!("ashiato-cnt-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("counters.json"), "").unwrap();
+        let store = CounterStore::new(&dir);
+        assert_eq!(store.load_or_quarantine(), (None, true));
+        assert!(dir.join("counters.broken.json").exists());
+        assert_eq!(
+            store.load_or_quarantine(),
+            (None, false),
+            "退避したのにまだ読んでいる"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 区間の間に一度でも欠けたものが残る（R26）。
+    #[test]
+    fn capability_from_interval_blockers() {
+        let mut set = std::collections::BTreeSet::new();
+        assert!(Capability::from_blockers(&set).capturable);
+        set.insert(blocker::UIAUTOMATION.to_string());
+        set.insert(blocker::IDLE.to_string());
+        let c = Capability::from_blockers(&set);
+        assert!(!c.capturable);
+        assert_eq!(c.blockers, [blocker::IDLE, blocker::UIAUTOMATION]);
     }
 
     /// 数えは**起動をまたいで残る**（ST01 の review R16 と同じ理由）。

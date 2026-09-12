@@ -12,13 +12,16 @@ $env:ASHIATO_BASE_URL  = "http://127.0.0.1:8787"
 $env:ASHIATO_API_TOKEN = "<合言葉>"
 $env:ASHIATO_USER_ID   = "<uuid>"
 $env:ASHIATO_DEVICE_ID = "pc-01"
-$env:ASHIATO_STATE_DIR = "$env:APPDATA\ashiato"
+$env:ASHIATO_STATE_DIR = "$env:APPDATA\ashiato"      # **絶対パス。既定は無い**
 .\ashiato-collector-windows.exe
 ```
 
+**5 つとも必須**（置き場も含む）。1 つでも欠けると起動しない —— 既定で埋めると
+送り先や置き場を間違えたまま動き、前の置き場の未送信・印・除外の登録が置き去りになる。
+
 **Windows の上でだけ動く**（前景・最後の入力・UI Automation を読む）。
-他の OS では起動時に落ちる —— 動いているつもりで 1 件も入らない状態が
-いちばん見つかりにくいため。
+他の OS では起動時に落ちる。ビルドも Windows の上で行う
+（`cargo build --release -p ashiato-collector-windows`）。
 
 置き場（`ASHIATO_STATE_DIR`）に作られるもの:
 
@@ -26,9 +29,15 @@ $env:ASHIATO_STATE_DIR = "$env:APPDATA\ashiato"
 |---|---|
 | `outbox.jsonl` | まだ送れていない記録。**上限なし**（捨てない。design D3） |
 | `heartbeat.jsonl` | まだ送れていない生存信号 |
+| `*.broken.*` | 読めなかった行・印・数えの退避先（**消さずに残す**） |
 | `last-seen.txt` | 「ここまで動いていた」の印（FR-82 の材料。1 分ごとに更新） |
+| `clean-stop.txt` | 自分で止まったときだけ書く印（次の起動で読んで消す。design D23） |
+| `engine.json` | 開いている離席の区間と除外の数え（**本文は含まない**。design D21） |
 | `counters.json` | 取得の試行と成功の数え（起動をまたいで残す） |
 | `exclusions.json` | **除外の登録**（下記） |
+| `collector.log` | ログ。**件数・種別だけで、題名も URL も出ない** |
+
+**二重に起動しない。** 印が 2 分半より新しければ「もう動いている」として終わる（design D24）。
 
 ## 自動起動（design D7）
 
@@ -37,11 +46,15 @@ $env:ASHIATO_STATE_DIR = "$env:APPDATA\ashiato"
 ```
 
 スタートアップフォルダへ `ashiato-collector.cmd` を 1 つ置く（**消せば止まる**）。
+**いまの 5 つの変数を全部書き込む**ので、上の「動かす」の変数を設定したシェルで実行する。
+**合言葉が平文で入る** —— このファイルを他人に渡さない。
 NFR-12 が「収集に手作業を要さない」と定めているので既定でこれを仕込む ——
 **起動を忘れた期間の記録は後から作れない。**
 
-> **トレイの常駐表示はまだ無い**（design D7 の後半）。止まっていることに気づく手段は
-> いまは稼働状況の画面（生存信号が 6 時間ごとに届く。FR-78 / FR-80）だけ。
+> **トレイの常駐表示は無い**（design D7・仮）。止まっていることに気づく手段は
+> 稼働状況の画面（生存信号が 6 時間ごとに届く。FR-78 / FR-80）と `collector.log`。
+> 落ちても次の起動の `powered-off` に `boot_at` / `clean_stop` が載るので、
+> 「PC を閉じていた」か「収集だけが止まっていた」かは後から分かる（design D23）。
 
 ## 除外の登録（FR-83 / 深掘り Q5）
 
@@ -79,17 +92,20 @@ NFR-12 が「収集に手作業を要さない」と定めているので既定�
 - 銀行・医療・保険の窓（`title-contains` で題名の一部を指す）
 - シークレット / プライベートウィンドウ（`title-contains`: `シークレット` / `プライベート` / `InPrivate`）
 
-書き間違えた JSON は**空に倒さずエラーで止まる** —— 空に倒すと、
-除外が黙って外れて残したくなかった題名と URL が入る。
+書き間違えた登録は**空に倒さずエラーで止まる**（理由は `collector.log`）——
+壊れた JSON だけでなく、**知らない欄（`rule` の打ち間違い）・`rules` の欠落・空の `value`** も断る。
+空に倒すと、除外が黙って外れて残したくなかった題名と URL が入る。
+何も除外しないときは `{"rules": []}` と書く。
 
 ## 開発
 
 ```bash
 cargo test -p ashiato-collector-windows          # 規則の部分（OS を触らない）
-cargo check -p ashiato-collector-windows --target x86_64-pc-windows-gnu   # 実機の部分
+cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings   # 実機の部分
 ```
 
 **OS を触る部分（`platform.rs`）と規則の部分（`engine.rs` ほか）を分けてある。**
 規則の部分は Linux でも走るので、実機を待たずに確かめられる。実機の部分は
-Linux からは**コンパイルだけ**確かめる（CI の `collector-windows` job が同じことをする）。
+Linux からは**型検査と lint だけ**確かめる（CI の `collector-windows` job が同じことをする）。
+読んだ値の解釈（ロック画面の名前・空の URL など）は `winrules.rs` に出して Linux で確かめる。
 `unsafe` は 1 行も書かない（作業場の lint が `forbid`。design D15）。

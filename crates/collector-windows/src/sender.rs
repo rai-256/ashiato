@@ -122,12 +122,18 @@ impl Sender {
             }
         };
 
-        let results: Vec<ItemResult> = match serde_json::from_str(&reply.body) {
-            Ok(r) => r,
-            Err(_) => {
+        let results: Vec<ItemResult> = match serde_json::from_str::<Vec<ItemResult>>(&reply.body) {
+            // **件数が合わない応答は読まない**（R21）。位置で対応づけるので、
+            // ずれたまま読むと断られた 1 件を「受理」として取り除いてしまう
+            Ok(r) if r.len() == batch.len() => r,
+            _ => {
                 // 契約から外れた応答。**何も取り除かない**（取り除くと消える）
+                let kind = match reply.status {
+                    401 | 403 => "send_unauthorized",
+                    _ => "send_reply_unreadable",
+                };
                 log(telemetry::line(
-                    "send_reply_unreadable",
+                    kind,
                     Some(batch.len()),
                     None,
                     Some(&reply.status.to_string()),
@@ -157,6 +163,10 @@ impl Sender {
         }
         let accepted = remove.len();
         outbox.remove(&remove)?;
+        // 取り除いた分は覚えておく必要が無い（覚えたままにすると単調に増える。R30）
+        let still: std::collections::HashSet<uuid::Uuid> =
+            outbox.snapshot().iter().map(|i| i.id()).collect();
+        self.skipped.retain(|id| still.contains(id));
         log(telemetry::line("sent", Some(accepted), None, None));
         Ok(Flushed {
             sent: batch.len(),
@@ -165,20 +175,48 @@ impl Sender {
     }
 }
 
+/// 接続を張るまでの上限（R22）。
+pub const CONNECT_TIMEOUT_SEC: u64 = 10;
+/// 1 回の要求全体の上限（R22）。**見回りの輪の中で呼ぶので、無期限に待たない** ——
+/// 待っている間は前景を 1 度も観測できず、2 分を超えると眠っていたことにされる。
+pub const REQUEST_TIMEOUT_SEC: u64 = 30;
+
+/// 状態符号を「失敗」にしない `ureq` の係。**400 の本文を読むため**（R22）——
+/// 既定のままだと 400 で本文ごと捨てられ、1 件ごとの理由が読めず、
+/// 断られた同じ 200 件を永久に送り直す。
+pub fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_connect(Some(std::time::Duration::from_secs(CONNECT_TIMEOUT_SEC)))
+        .timeout_global(Some(std::time::Duration::from_secs(REQUEST_TIMEOUT_SEC)))
+        .build()
+        .new_agent()
+}
+
 /// 実際に HTTP を叩く係。**TLS を持たない**（design D16。オンプレ前提）。
-#[derive(Debug)]
 pub struct HttpTransport {
     base_url: String,
     token: String,
+    agent: ureq::Agent,
+}
+
+/// **合言葉を出さない**（R11）。`{:?}` 1 つで PERM-8 の合言葉がログに落ちる。
+impl std::fmt::Debug for HttpTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpTransport")
+            .field("base_url", &self.base_url)
+            .field("token", &"***")
+            .finish()
+    }
 }
 
 impl HttpTransport {
-    /// 接続先と合言葉。**合言葉はログに出さない**（`Debug` にも出ないよう
-    /// `telemetry` 以外へ渡さない）。
+    /// 接続先と合言葉。
     pub fn new(base_url: &str, token: &str) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
+            agent: agent(),
         }
     }
 }
@@ -186,23 +224,17 @@ impl HttpTransport {
 impl Transport for HttpTransport {
     fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
         let url = format!("{}{path}", self.base_url);
-        let res = ureq::post(&url)
+        let mut res = self
+            .agent
+            .post(&url)
             .header("authorization", &format!("Bearer {}", self.token))
             .header("content-type", "application/json")
-            .send(body);
-        // **400 は応答であって網の失敗ではない**（1 件ごとの結果が本文にある）
-        let mut res = match res {
-            Ok(r) => r,
-            Err(ureq::Error::StatusCode(code)) => {
-                return Ok(Reply {
-                    status: code,
-                    body: String::new(),
-                })
-            }
-            Err(e) => return Err(anyhow::anyhow!("post failed: {}", e)),
-        };
+            .send(body)
+            // 網の失敗。**例外の文言は外へ出さない**（本文が混ざることがある）
+            .map_err(|e| anyhow::anyhow!("post failed: {}", e))?;
         let status = res.status().as_u16();
-        let body = res.body_mut().read_to_string()?;
+        // **400 も本文を読む**（1 件ごとの結果がそこにある）
+        let body = res.body_mut().read_to_string().unwrap_or_default();
         Ok(Reply { status, body })
     }
 }
@@ -373,5 +405,130 @@ mod tests {
         let f = s.flush(&mut o, &t, &mut log).unwrap();
         assert_eq!(f.accepted, 0);
         assert_eq!(o.len(), 1);
+    }
+
+    /// **件数の合わない応答では何も取り除かない**（R21）。
+    #[test]
+    fn mismatched_reply_length_removes_nothing() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        o.add(req(1)).unwrap();
+        o.add(req(2)).unwrap();
+        let t = FakeTransport::with(vec![ok_reply(&[true])]);
+        let mut s = Sender::ingest();
+        let mut log = |_: String| {};
+        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        assert_eq!(f.accepted, 0);
+        assert_eq!(o.len(), 2, "ずれた応答で取り除いた");
+    }
+
+    /// 断られた分**だけ**が残ったら、次の契機で当たり直す（I5）。
+    #[test]
+    fn rejected_only_backlog_is_retried() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        o.add(req(1)).unwrap();
+        let t = FakeTransport::with(vec![ok_reply(&[false]), ok_reply(&[true])]);
+        let mut s = Sender::ingest();
+        let mut log = |_: String| {};
+        s.flush(&mut o, &t, &mut log).unwrap();
+        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        assert_eq!(f.sent, 1, "断られた分しか無いのに当たり直さない");
+        assert!(o.is_empty());
+    }
+
+    /// **1 回に載せる件数を切る**（I9）。
+    #[test]
+    fn batch_is_capped() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        for n in 0..(MAX_BATCH as u32 + 50) {
+            o.add(req(n)).unwrap();
+        }
+        let accepted = vec![true; MAX_BATCH];
+        let t = FakeTransport::with(vec![ok_reply(&accepted)]);
+        let mut s = Sender::ingest();
+        let mut log = |_: String| {};
+        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        assert_eq!(f.sent, MAX_BATCH);
+        assert_eq!(o.len(), 50);
+    }
+
+    /// 1 回だけ応答する本物の HTTP の相手。受け取った要求の頭と本文を返す。
+    fn one_shot_server(
+        status: &'static str,
+        body: String,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = format!("http://{}", listener.local_addr().unwrap());
+        let h = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            // 頭と Content-Length ぶんの本文を読む
+            loop {
+                let n = sock.read(&mut chunk).unwrap();
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let len = text
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= end + 4 + len || n == 0 {
+                        break;
+                    }
+                }
+            }
+            let reply = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            sock.write_all(reply.as_bytes()).unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        });
+        (addr, h)
+    }
+
+    /// **本物の HTTP で合言葉を送り、400 の本文を読む**（R5 / R22）。
+    /// 400 は「1 件も受け付けなかった」で、理由は本文の 1 件ごとの結果にある。
+    #[test]
+    fn http_transport_sends_bearer_and_reads_400_body() {
+        let body = serde_json::json!([{"id": null, "duplicate": false,
+                                        "accepted": false, "error": "unknown_source"}])
+        .to_string();
+        let (base, server) = one_shot_server("400 Bad Request", body);
+        let t = HttpTransport::new(&base, "secret-token-0123456789");
+        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        o.add(req(1)).unwrap();
+        let mut s = Sender::ingest();
+        let mut lines = Vec::new();
+        let mut log = |l: String| lines.push(l);
+        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        let seen = server.join().unwrap();
+
+        assert!(
+            seen.to_ascii_lowercase()
+                .contains("authorization: bearer secret-token-0123456789"),
+            "合言葉が送られていない: {seen}"
+        );
+        assert!(seen.starts_with("POST /ingest "), "{seen}");
+        assert_eq!(f.accepted, 0);
+        assert_eq!(o.len(), 1, "断られた記録を捨てた");
+        assert!(
+            lines.iter().any(|l| l.contains("error=unknown_source")),
+            "400 の本文の理由が読めていない: {lines:?}"
+        );
+        // 合言葉は Debug にも出ない（R11）
+        assert!(!format!("{t:?}").contains("secret-token"));
+    }
+
+    /// 応答しない相手を**無期限に待たない**（R22）。
+    #[test]
+    fn http_transport_has_timeouts() {
+        const { assert!(REQUEST_TIMEOUT_SEC < crate::runtime::SUSPEND_GAP_SEC as u64) };
+        const { assert!(CONNECT_TIMEOUT_SEC <= REQUEST_TIMEOUT_SEC) };
     }
 }

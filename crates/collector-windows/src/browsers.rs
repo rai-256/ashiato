@@ -39,11 +39,19 @@ impl Browsers {
     /// 置き換えではなく足すのは、書いた瞬間に既定のブラウザの URL が
     /// 黙って取れなくなるのを防ぐため。
     pub fn from_env() -> Self {
+        Self::with_extra(std::env::var("ASHIATO_BROWSERS").ok().as_deref())
+    }
+
+    /// コンマ区切りの追加分を既定に足す（**環境変数を触らずに確かめられる形**。I-env）。
+    pub fn with_extra(extra: Option<&str>) -> Self {
         let mut b = Self::new();
-        if let Ok(extra) = std::env::var("ASHIATO_BROWSERS") {
-            for name in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                b.names.push(name.to_lowercase());
-            }
+        for name in extra
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            b.names.push(name.to_lowercase());
         }
         b
     }
@@ -78,12 +86,10 @@ mod tests {
     /// 環境変数は**既定に足す**（置き換えない）。
     #[test]
     fn env_adds_to_the_defaults() {
-        // 環境変数はプロセス全体で共有なので、この試験だけの名前を使う
-        std::env::set_var("ASHIATO_BROWSERS", "waterfox.exe, my-browser.exe");
-        let b = Browsers::from_env();
+        // **環境変数そのものは触らない**（試験は並列に走り、共有の変数を奪い合う）
+        let b = Browsers::with_extra(Some("waterfox.exe, my-browser.exe"));
         assert!(b.contains("waterfox.exe"));
         assert!(b.contains("my-browser.exe"));
         assert!(b.contains("chrome.exe"), "既定が置き換えられている");
-        std::env::remove_var("ASHIATO_BROWSERS");
     }
 }
