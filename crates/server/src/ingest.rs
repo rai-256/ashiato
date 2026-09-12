@@ -30,11 +30,62 @@ pub struct IngestRequest {
     /// 座標系。省略時は `EPSG:4326`（FR-28 / design D4）
     #[serde(default)]
     pub crs: Option<String>,
+    /// 外部サービス側の更新時刻（または版）。省略できる（ST03 / 深掘り Q20）——
+    /// **既存の収集側を壊さない**。届かない到着は「届いた順」で適用され、
+    /// 保存済みの値を消さない。
+    #[serde(default)]
+    pub source_updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 「対象ごと」の外部識別子（動画 ID など。ST03 / 深掘り Q24）。
+    /// **重複の判定には使わない** —— 使うと同じ対象の 2 件目が一意違反で落ちる。
+    #[serde(default)]
+    pub external_ref: Option<String>,
     /// 取得元から受け取った原文。**文字列で持つ**（深掘り 第 2 回 / design D16）——
     /// JSON 型に入れると DB がキー順・重複キー・数値表記を正規化し、
     /// 「バイト単位で一致する」が成り立たなくなる。
     pub raw: String,
     pub payload: serde_json::Value,
+}
+
+/// 登録簿が宣言する「外部識別子の粒度」（深掘り Q13 / Q18。`core.source.external_id_kind`）。
+///
+/// **宣言を欠いたソースは `Record` に倒れる**（Q16）—— 緩い側に倒すと、
+/// 識別子なしで入った記録に後から識別子を足す手段が無い。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalIdKind {
+    /// 記録 1 件ごとに一意な識別子を持つ。**識別子を欠く記録は受け付けない**
+    Record,
+    /// 「対象」ごとの識別子しか無い（動画 ID など）。重複の判定には使わない
+    Subject,
+    /// 外部サービス上の識別子を持たない（端末・PC からの収集）
+    None,
+}
+
+impl ExternalIdKind {
+    /// 登録簿の値から読む。**知らない値は `Record`（＝断る側）へ倒す**（Q16）。
+    /// 列には `CHECK` が掛かっているので通常は起きないが、倒す向きをここでも固定する。
+    pub fn from_registry(value: &str) -> Self {
+        match value {
+            "subject" => Self::Subject,
+            "none" => Self::None,
+            _ => Self::Record,
+        }
+    }
+
+    /// この粒度のソースで、外部識別子を重複の判定に使うか。
+    ///
+    /// **`Subject` と `None` では使わない**（Q13 / Q24）—— 対象ごとの識別子を
+    /// 判定に使うと、同じ対象についての 2 件目が一意違反で落ちる（実測 R42）。
+    pub fn deduplicates_by_external_id(self) -> bool {
+        self == Self::Record
+    }
+}
+
+/// 削除済みの内容が別の外部識別子で戻るのを塞ぐ判定を撃つか（深掘り Q19 / design D9）。
+///
+/// **外部識別子で畳む記録のときだけ撃つ。** 畳まない記録は `event_dedup_hash` が
+/// 削除済みの行も含めて弾くので、追加の問い合わせは要らない（実測）。
+pub fn needs_deleted_check(kind: ExternalIdKind, external_id: Option<&str>) -> bool {
+    kind.deduplicates_by_external_id() && external_id.is_some()
 }
 
 /// 受け取り時に断る理由。**アプリ層で閉じる** —— DB の制約に任せると 500 になり、
@@ -47,6 +98,8 @@ pub enum Invalid {
     Raw,
     /// 「収集した」記録なのに端末識別子が無い
     DeviceId,
+    /// 外部サービス上の識別子が空文字（ST03 / R12）
+    ExternalId,
 }
 
 impl IngestRequest {
@@ -85,6 +138,18 @@ impl IngestRequest {
         // 本人が書いた記録・派生させた記録に端末は無いので、そこは求めない。
         if self.origin == "collected" && self.device_id.as_deref().unwrap_or_default().is_empty() {
             return Err(Invalid::DeviceId);
+        }
+        // **空文字の外部識別子を格納の前に断る**（ST03 / R12）。
+        // ST01 が `device_id` の空文字で踏んだのと同型 —— 空文字は NULL ではないので
+        // `event_dedup_ext`（`WHERE external_id IS NOT NULL`）に載り、
+        // **2 件目で一意違反になってまとめ送り全体が 500 になる**。
+        // 収集側は本文を読めず 1 件も取り除けないので、その 1 件が後続を永久に止める。
+        if self.external_id.as_deref().is_some_and(str::is_empty) {
+            return Err(Invalid::ExternalId);
+        }
+        // 対象の識別子も同じ（空文字は「無い」であって「空という値」ではない）
+        if self.external_ref.as_deref().is_some_and(str::is_empty) {
+            return Err(Invalid::ExternalId);
         }
         Ok(())
     }
@@ -153,6 +218,8 @@ mod tests {
             schema_version: 1,
             unit_system: None,
             crs: None,
+            source_updated_at: None,
+            external_ref: None,
             raw: format!(r#"{{"v":"{raw}"}}"#),
             payload: serde_json::json!({}),
         }
@@ -257,6 +324,63 @@ mod tests {
         });
         let r: IngestRequest = serde_json::from_value(json).unwrap();
         assert_eq!(r.unit_system_or_default(), "si");
+    }
+
+    #[test]
+    /// **ST03 が足した 2 欄は省略できる**（tasks 2.2）—— 既存の収集側を壊さない。
+    /// 送れば解釈される。
+    fn optional_new_fields_parse() {
+        let base = serde_json::json!({
+            "id": uuid::Uuid::nil(), "user_id": uuid::Uuid::nil(),
+            "logical_source": "test", "external_id": null, "device_id": "d",
+            "origin": "collected", "event_time": "2026-09-08T02:00:00Z",
+            "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
+            "raw": "{}", "payload": {}
+        });
+        let absent: IngestRequest = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(absent.source_updated_at, None);
+        assert_eq!(absent.external_ref, None);
+
+        let mut given = base;
+        given["source_updated_at"] = serde_json::json!("2026-05-02T00:00:00Z");
+        given["external_ref"] = serde_json::json!("video-42");
+        let parsed: IngestRequest = serde_json::from_value(given).unwrap();
+        assert!(parsed.source_updated_at.is_some());
+        assert_eq!(parsed.external_ref.as_deref(), Some("video-42"));
+    }
+
+    #[test]
+    /// **空文字の識別子を格納の前に断る**（ST03 / R12）。空文字は NULL ではないので
+    /// 部分索引 `event_dedup_ext` に載り、**2 件目で一意違反になって
+    /// まとめ送り全体が 500 になる** —— ST01 が `device_id` で踏んだのと同型。
+    fn empty_external_id_is_rejected() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        r.external_id = Some(String::new());
+        assert_eq!(r.validate(), Err(Invalid::ExternalId), "空文字が通っている");
+        r.external_id = Some("ext-1".into());
+        assert_eq!(r.validate(), Ok(()));
+
+        r.external_ref = Some(String::new());
+        assert_eq!(r.validate(), Err(Invalid::ExternalId), "対象の識別子の空文字が通っている");
+    }
+
+    #[test]
+    /// **宣言を欠いたソースは断る側へ倒れる**（深掘り Q16 / Q18）。
+    /// 列の `CHECK` が通常は守るが、倒す向きをコード側でも固定する。
+    fn unknown_registry_value_falls_back_to_record() {
+        assert_eq!(ExternalIdKind::from_registry("record"), ExternalIdKind::Record);
+        assert_eq!(ExternalIdKind::from_registry("subject"), ExternalIdKind::Subject);
+        assert_eq!(ExternalIdKind::from_registry("none"), ExternalIdKind::None);
+        for odd in ["", "RECORD", "unknown"] {
+            assert_eq!(
+                ExternalIdKind::from_registry(odd),
+                ExternalIdKind::Record,
+                "{odd} が緩い側へ倒れている"
+            );
+        }
+        assert!(ExternalIdKind::Record.deduplicates_by_external_id());
+        assert!(!ExternalIdKind::Subject.deduplicates_by_external_id());
+        assert!(!ExternalIdKind::None.deduplicates_by_external_id());
     }
 
     #[test]

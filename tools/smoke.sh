@@ -31,8 +31,8 @@ curl -sf "http://$BIND/healthz" >/dev/null
 
 echo "== 3. ソースを登録簿へ 1 行（FR-61: API を変えずにソースを増やす）"
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
-  "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-   VALUES ('smoke','縦串の確認用',21600) ON CONFLICT DO NOTHING;"
+  "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+   VALUES ('smoke','縦串の確認用',21600,'none') ON CONFLICT DO NOTHING;"
 
 # **登録簿の行を、これから送る記録より前の日付にする**（深掘り 第 8 回 Q29）。
 # 収集開始日は「登録簿に行ができた日**以降**」の記録・生存信号からしか引かない ——
@@ -124,8 +124,10 @@ rawstr() { printf '%s' "$1" | jq -Rs .; }
 # Scenario: 登録するだけで受け付けられる
 #   （10 で登録簿に 1 行足し、11 が API を変えずに通る）
 echo "== 10. 登録簿に c01-location を 1 行（API を変えずにソースを増やす）"
-psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-         VALUES ('c01-location','携帯端末の位置',300) ON CONFLICT DO NOTHING;" >/dev/null
+# **`external_id_kind` を明示する**（ST03 / 深掘り Q16）。既定は `'record'`（＝断る側）なので、
+# 書き忘れると端末からの記録が全件 400 になる。端末は外部サービス上の識別子を持たない。
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('c01-location','携帯端末の位置',300,'none') ON CONFLICT DO NOTHING;" >/dev/null
 
 # Scenario: 複数件を 1 回で受け取る
 echo "== 11. 位置を 3 件まとめて送る（design D9: まとめ送り）"
@@ -500,4 +502,140 @@ for path in "/heartbeat" "/coverage?from=2026-03-01&to=2026-03-01" "/coverage/ac
 done
 echo "   → 3 経路とも 401"
 
-echo "縦串 OK（実データ経路と稼働状況まで）"
+
+# ================================================================ ST03 の縦串
+#
+# **3 クラスの再送を通しで見る**（tasks 12.1）——
+# 端末（外部識別子なし）/ 記録ごとの外部識別子 / 対象ごとの外部識別子。
+# 端末のクラスは手順 13 が既に見ているので、ここは外部サービスの 2 クラス。
+#
+# 併せて `docs/stories/ST03.md` の**完了の判定 4 項目**を通しで確かめる（tasks 12.2）。
+
+echo "== 29. 外部サービスの 2 クラスを登録簿へ（記録ごと / 対象ごと）"
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind,
+                                  registered_at)
+         VALUES ('smoke-ext','外部サービス（記録ごと）',21600,'record','2026-01-01T00:00:00+09:00'),
+                ('smoke-subj','外部サービス（対象ごと）',21600,'subject','2026-01-01T00:00:00+09:00')
+         ON CONFLICT DO NOTHING;" >/dev/null
+
+extbody() {  # $1=収集側 id / $2=外部識別子 / $3=原文 / $4=更新時刻（空なら省く）
+  local upd=""
+  [ -n "${4:-}" ] && upd="\"source_updated_at\":\"$4\","
+  printf '[{"id":"%s","user_id":"00000000-0000-0000-0000-000000000000",
+    "logical_source":"smoke-ext","external_id":"%s","device_id":"smoke-dev",
+    "origin":"collected","event_time":"2026-09-08T08:00:00Z",
+    "tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,%s
+    "raw":%s,"payload":{"seq":"ext"}}]' "$1" "$2" "$upd" "$(rawstr "$3")"
+}
+
+# **完了の判定 1**（記録ごとのクラス）: 3 回送っても行が増えない
+echo "== 30. 記録ごとの外部識別子を 3 回送る（完了の判定 1）"
+for i in 1 2 3; do
+  code=$(post "$(extbody "$(printf '10000%03d-0000-4000-8000-000000000000' "$i")" "ext-1" '{"v":1}')")
+  [ "$code" = "200" ] || { echo "$i 回目が $code"; exit 1; }
+done
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='smoke-ext';")
+echo "   → $n 行"
+[ "$n" = "1" ] || { echo "3 回送って $n 行（記録ごとの再送で増えた）"; exit 1; }
+# **収集側の識別子は毎回新しいのに畳まれている**＝判定に使われていない（深掘り Q14 / Q5）
+stored=$(jq -r '.[0].id' /tmp/smoke.body)
+[ "$stored" = "10000001-0000-4000-8000-000000000000" ] \
+  || { echo "返った識別子が格納されている行のものでない: $stored"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE id='$stored';")" = "1" ] \
+  || { echo "返った識別子で記録を読み出せない"; exit 1; }
+
+# **完了の判定 2**: 更新すると行が増えず、既存行が更新され、前の版が履歴に残る
+echo "== 31. 外部サービス側の更新（完了の判定 2）"
+code=$(post "$(extbody "10000004-0000-4000-8000-000000000000" "ext-1" '{"v":2}')")
+[ "$code" = "200" ] || { echo "更新が $code"; exit 1; }
+row=$(psql -c "SELECT count(*)||' '||max(raw) FROM core.event WHERE logical_source='smoke-ext';")
+echo "   → $row"
+[ "$row" = '1 {"v":2}' ] || { echo "行が増えたか内容が新しくなっていない: $row"; exit 1; }
+ver=$(psql -c "SELECT count(*)||' '||max(raw) FROM core.event_version
+               WHERE event_id='$stored';")
+echo "   → 履歴 $ver"
+[ "$ver" = '1 {"v":1}' ] || { echo "前の版が履歴に残っていない: $ver"; exit 1; }
+# **古い版はあとから届いても書き換えない**（深掘り Q20）
+post "$(extbody "10000005-0000-4000-8000-000000000000" "ext-1" '{"v":3}' "2026-01-01T00:00:00Z")" >/dev/null
+post "$(extbody "10000006-0000-4000-8000-000000000000" "ext-1" '{"v":4}' "2025-01-01T00:00:00Z")" >/dev/null
+got=$(psql -c "SELECT raw FROM core.event WHERE id='$stored';")
+[ "$got" = '{"v":3}' ] || { echo "古い到着で内容が巻き戻った: $got"; exit 1; }
+
+# **完了の判定 2 の除外**（深掘り Q25）: 対象ごとのクラスでは更新が行を増やす
+echo "== 32. 対象ごとの外部識別子（完了の判定 1 の 3 クラス目 / Q25 の除外）"
+subjbody() {  # $1=id / $2=原文
+  printf '[{"id":"%s","user_id":"00000000-0000-0000-0000-000000000000",
+    "logical_source":"smoke-subj","external_id":null,"external_ref":"video-42",
+    "device_id":"smoke-dev","origin":"collected","event_time":"2026-09-08T09:00:00Z",
+    "tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+    "raw":%s,"payload":{"seq":"subj"}}]' "$1" "$(rawstr "$2")"
+}
+for i in 1 2 3; do
+  code=$(post "$(subjbody "$(printf '20000%03d-0000-4000-8000-000000000000' "$i")" '{"watch":1}')")
+  [ "$code" = "200" ] || { echo "$i 回目が $code"; exit 1; }
+done
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='smoke-subj';")
+[ "$n" = "1" ] || { echo "対象ごとの再送で $n 行（増えている）"; exit 1; }
+# 内容が変わると**行が増える**（そのクラスでは更新を追わない。Q25）
+post "$(subjbody "20000004-0000-4000-8000-000000000000" '{"watch":2}')" >/dev/null
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='smoke-subj';")
+echo "   → 再送 3 回で 1 行 / 内容が変わると $n 行"
+[ "$n" = "2" ] || { echo "対象ごとのソースで更新が畳まれている（Q25 の除外が消えた）: $n"; exit 1; }
+# **対象の識別子は保持され、判定には使われていない**
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='smoke-subj' AND external_ref='video-42';")" = "2" ] \
+  || { echo "対象の識別子が保持されていない"; exit 1; }
+
+echo "== 33. 「記録ごと」と宣言したソースで識別子を欠けば断られる（深掘り Q4 / Q18）"
+noext=$(printf '%s' "$(extbody "30000001-0000-4000-8000-000000000000" "x" '{"v":9}')" \
+        | jq -c '[.[0]|.external_id=null]')
+code=$(post "$noext")
+echo "   → $code / $(jq -r '.[0].error' /tmp/smoke.body)"
+[ "$code" = "400" ] || { echo "400 のはずが $code"; exit 1; }
+[ "$(jq -r '.[0].error' /tmp/smoke.body)" = "missing_external_id" ] || { echo "理由の種別が違う"; exit 1; }
+# 空文字も断る（ST01 が device_id で踏んだのと同型）
+empty=$(printf '%s' "$noext" | jq -c '[.[0]|.external_id=""]')
+code=$(post "$empty")
+[ "$code" = "400" ] || { echo "空文字が $code で通った"; exit 1; }
+[ "$(jq -r '.[0].error' /tmp/smoke.body)" = "empty_external_id" ] || { echo "理由の種別が違う"; exit 1; }
+echo "   → 識別子なしと空文字の 2 通りとも 400"
+
+# **完了の判定 3**: 本人が消した記録は、同じ内容が別の外部識別子で届いても入らない
+echo "== 34. 消した記録は別の識別子でも戻らない（完了の判定 3 / 深掘り Q19）"
+psql -c "UPDATE core.event SET deleted_at = now(), deleted_by = 'smoke'
+          WHERE logical_source='smoke-ext';" >/dev/null
+code=$(post "$(extbody "40000001-0000-4000-8000-000000000000" "ext-99" '{"v":3}')")
+echo "   → $code / accepted=$(jq -r '.[0].accepted' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "受理として返らない（同じ 1 件が永久に送られ続ける）: $code"; exit 1; }
+[ "$(jq -r '.[0].accepted' /tmp/smoke.body)" = "true" ] || { echo "受理として返っていない"; exit 1; }
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='smoke-ext';")
+[ "$n" = "1" ] || { echo "消した本文が別の識別子で戻った（$n 行）"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event_live WHERE logical_source='smoke-ext';")" = "0" ] \
+  || { echo "削除済みの記録が復活している"; exit 1; }
+
+# **完了の判定 4**: 履歴を残さない書き換えと、台帳を残さない消去を DB が拒む
+echo "== 35. 履歴の無い書き換えと台帳の無い消去を DB が拒む（完了の判定 4 / Q10 / Q23）"
+# **取り込み口を通さず psql から直に撃つ** —— アプリ層の実装では素通りする経路
+if psql -c "UPDATE core.event SET raw='{\"tampered\":1}' WHERE logical_source='smoke-ext';" \
+     >/dev/null 2>&1; then
+  echo "履歴を書かない書き換えが通った（深掘り Q10 の門が効いていない）"; exit 1
+fi
+if psql -c "UPDATE core.event SET raw='', payload='{}' WHERE logical_source='smoke-ext';" \
+     >/dev/null 2>&1; then
+  echo "台帳を書かない消去が通った（深掘り Q23 の門が効いていない）"; exit 1
+fi
+got=$(psql -c "SELECT raw FROM core.event WHERE logical_source='smoke-ext';")
+[ "$got" = '{"v":3}' ] || { echo "拒まれたのに原文が変わっている: $got"; exit 1; }
+echo "   → 2 通りとも拒まれ、原文は変わらない（細かい台本は tools/check-immutable.sh）"
+
+echo "== 36. 畳んで読む置き場が引ける（深掘り Q8。適用は後続 Story）"
+[ "$(psql -c "SELECT count(*) FROM core.event_folded WHERE logical_source='smoke-subj';")" = "2" ] \
+  || { echo "畳んだ形が引けない"; exit 1; }
+# 履歴は**親と束ねた形でのみ**読める（親が消えれば履歴も消える。Q21 / R49）
+# 手順 31 で 2 回更新した（v1→v2 と v2→v3）。**古い到着の 1 回は積まない**（Q20）
+[ "$(psql -c "SELECT count(*) FROM core.event_version WHERE logical_source='smoke-ext';")" = "2" ] \
+  || { echo "履歴が 2 行でない（古い到着まで積んでいるか、この検査が空振りしている）"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event_version_live WHERE logical_source='smoke-ext';")" = "0" ] \
+  || { echo "親を消しても履歴の版が読める（前の版の本文がそのまま出る）"; exit 1; }
+echo "   → 畳んだ形が引け、履歴は親の削除に従う"
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門まで）"

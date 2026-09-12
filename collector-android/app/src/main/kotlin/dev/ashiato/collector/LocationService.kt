@@ -130,10 +130,13 @@ open class LocationService : Service() {
             Log.w(TAG, Telemetry.line("not_configured"))
             return
         }
+        // **記録は恒久的に断られたら捨てる**（ST03 / FR-10 の改訂。深掘り Q4 / Q5）——
+        // 残すと 5 分ごとに送られ続け、200 件たまると新しい記録が送られなくなる。
         val sender = Sender(
             outbox,
             HttpTransport(Config.baseUrl, Config.apiToken, "/ingest"),
             IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
         ) { Log.i(TAG, it) }
         // **生存信号も同じ契機で送る**（specs「記録と同じ未送信の仕組みに乗せて再送する」）。
         // 別の刻みを立てると、送信の契機が 2 つになって電池と網の使い方が読めなくなる。

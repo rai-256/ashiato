@@ -17,6 +17,9 @@ use sqlx::postgres::PgPoolOptions;
 #[cfg(test)]
 mod api_tests;
 pub mod coverage;
+/// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
+#[cfg(test)]
+mod dedup_tests;
 pub mod heartbeat;
 pub mod ingest;
 #[cfg(test)]
@@ -28,7 +31,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 7] = [
+pub const MIGRATIONS: [(&str, &str); 12] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -56,6 +59,29 @@ pub const MIGRATIONS: [(&str, &str); 7] = [
     (
         "202609112113_source_lifecycle",
         include_str!("../../../migrations/202609112113_source_lifecycle.sql"),
+    ),
+    (
+        "202609120940_source_columns",
+        include_str!("../../../migrations/202609120940_source_columns.sql"),
+    ),
+    (
+        "202609120941_event_columns",
+        include_str!("../../../migrations/202609120941_event_columns.sql"),
+    ),
+    // **索引の作り替えより先に、この配列より前で `ON CONFLICT` が直っていること**
+    // （design D2）。部分索引には述語を文に書かないと当たらず、順序が逆だと
+    // その間の取り込みが全件 500 になる。
+    (
+        "202609120942_dedup_indexes",
+        include_str!("../../../migrations/202609120942_dedup_indexes.sql"),
+    ),
+    (
+        "202609120943_version_and_ledger",
+        include_str!("../../../migrations/202609120943_version_and_ledger.sql"),
+    ),
+    (
+        "202609120944_gates",
+        include_str!("../../../migrations/202609120944_gates.sql"),
     ),
 ];
 
@@ -137,6 +163,15 @@ pub enum IngestError {
     InvalidRaw,
     /// 「収集した」記録なのに端末識別子が無い（`ingest::Invalid::DeviceId`）
     MissingDeviceId,
+    /// 登録簿が「記録ごと」と宣言したソースなのに外部識別子が無い（ST03 / 深掘り Q4 / Q18）
+    MissingExternalId,
+    /// 外部識別子（または対象の識別子）が空文字（ST03 / R12）
+    EmptyExternalId,
+    /// 既に格納された記録と同じ収集側の識別子で、別の記録が届いた（ST03 / 深掘り Q5）。
+    ///
+    /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
+    /// この応答は**収集側の採番が壊れていることの印**として働く。
+    IdReused,
 }
 
 impl From<ingest::Invalid> for IngestError {
@@ -145,6 +180,7 @@ impl From<ingest::Invalid> for IngestError {
             ingest::Invalid::Origin => Self::UnknownOrigin,
             ingest::Invalid::Raw => Self::InvalidRaw,
             ingest::Invalid::DeviceId => Self::MissingDeviceId,
+            ingest::Invalid::ExternalId => Self::EmptyExternalId,
         }
     }
 }
@@ -194,9 +230,65 @@ pub struct EventRow {
     raw: String,
 }
 
+/// 内容の鍵が同じ複数行を **1 件として読む形**（深掘り Q8 / 移行 `*_version_and_ledger`）。
+///
+/// 外部識別子を優先すると同じ内容の行が複数立ちうるので（Q6）、読む側が畳めないと
+/// 画面と分析が二重になる。
+///
+/// **適用は後続 Story。** ST03 が作るのは置き場だけで、実際に使うのは
+/// 閲覧・検索・AI・書き出しの各 Story（Q8 / レビュー R26）。期間指定の上書きは ST12。
+/// ここで 4 か所へ当てにいくと、それぞれの Story が持つ判断を先取りすることになる。
+pub const FOLDED_VIEW: &str = "core.event_folded";
+
+/// 履歴に残した前の版を、**親と束ねた形でのみ**読む（深掘り Q21 / R49 / design D6）。
+///
+/// 履歴表を直に引くと、親の感度と削除が効かないまま前の版の本文が出る（実測）。
+/// 本表が `core.event_live` で同じ危険を塞いでいるのと同じ手当て（製造準備 A-3）。
+pub const VERSION_VIEW: &str = "core.event_version_live";
+
+/// 既に格納されている 1 行のうち、取り込みの判断に要るもの。
+///
+/// **列名で受ける**（`FromRow`）。位置で受ける組にしていたときは 8 要素の型注釈になり、
+/// 並びを 1 つ入れ替えても型が合ってしまう（`content_hash` と `raw` はどちらも `String`）。
+#[derive(sqlx::FromRow)]
+struct Stored {
+    id: uuid::Uuid,
+    content_hash: String,
+    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    source_updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    event_time: chrono::DateTime<chrono::Utc>,
+    raw: String,
+    payload: serde_json::Value,
+    external_ref: Option<String>,
+}
+
+/// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
+///
+/// **「記録ごと」と宣言したソースだけが `external_id` を使う。**
+/// 「対象ごと」「無し」のソースから識別子が届いたときは `external_ref` へ回す ——
+/// `external_id` に入れると `event_dedup_ext` に載り、**同じ対象の 2 件目が
+/// 一意違反で落ちる**（実測 R42）。捨てずに回すのは、捨てたものは復元できないから。
+fn place_identifiers(
+    kind: ingest::ExternalIdKind,
+    req: &IngestRequest,
+) -> (Option<String>, Option<String>) {
+    if kind.deduplicates_by_external_id() {
+        (req.external_id.clone(), req.external_ref.clone())
+    } else {
+        (
+            None,
+            req.external_ref.clone().or_else(|| req.external_id.clone()),
+        )
+    }
+}
+
 /// 1 件を格納して結果を返す。**呼び出し側の誤りは Err ではなく `IngestResult` で返す** ——
 /// まとめ送りの一部が不正でも、他の件は格納しなければならない（design D9）。
 /// Err になるのはサーバ側の失敗（DB）だけ。
+///
+/// **1 件 1 トランザクション**（design D3）。Q10 / Q23 の門は制約トリガで
+/// **COMMIT の瞬間に落ちる**ので、まとめ送りを 1 トランザクションにすると
+/// 1 件の失敗が全件を巻き戻す —— ST01 の D9 / D19 に正面から反する。
 async fn ingest_one(
     app: &App,
     item: &serde_json::Value,
@@ -225,19 +317,33 @@ async fn ingest_one(
 
     // 登録簿に無いソースは受け付けない。API を変えずにソースを増やすので（FR-61）、
     // 増やす操作は「登録簿へ 1 行 INSERT」だけになる。
-    let known: Option<(String,)> =
-        sqlx::query_as("SELECT logical_source FROM core.source WHERE logical_source = $1")
-            .bind(&req.logical_source)
-            .fetch_optional(&app.pool)
-            .await
-            .map_err(|e| internal_at("ingest.source_lookup", e))?;
-    if known.is_none() {
+    // **併せて外部識別子の粒度を読む**（深掘り Q13 / Q18）。
+    let known: Option<(String, String)> = sqlx::query_as(
+        "SELECT logical_source, external_id_kind FROM core.source WHERE logical_source = $1",
+    )
+    .bind(&req.logical_source)
+    .fetch_optional(&app.pool)
+    .await
+    .map_err(|e| internal_at("ingest.source_lookup", e))?;
+    let Some((_, kind_text)) = known else {
         return Ok(IngestResult::rejected(
             Some(req.id),
             IngestError::UnknownSource,
         ));
+    };
+    let kind = ingest::ExternalIdKind::from_registry(&kind_text);
+
+    // **「記録ごと」と宣言したソースで識別子を欠けば受け付けない**（深掘り Q4 / Q18）。
+    // 宣言を欠いたソースは `Record` に倒れるので、**書き忘れも同じくここで断られる**（Q16）——
+    // 緩い側に倒すと、識別子なしで入った記録に後から識別子を足す手段が無い。
+    if kind.deduplicates_by_external_id() && req.external_id.is_none() {
+        return Ok(IngestResult::rejected(
+            Some(req.id),
+            IngestError::MissingExternalId,
+        ));
     }
 
+    let (external_id, external_ref) = place_identifiers(kind, &req);
     let hash = content_hash(&req);
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
@@ -247,50 +353,128 @@ async fn ingest_one(
     // 別々の文にしていると、記録だけ入って稼働記録の加算が落ちた状態が作れる ——
     // そのあと収集側が再送しても記録は `duplicate` で弾かれ、加算は 0 のまま。
     // **その日の稼働記録は二度と戻らない**（引き直す経路が無い）。
-    // 独立検証が実測で作って確かめている。
     let mut tx = app
         .pool
         .begin()
         .await
         .map_err(|e| internal_at("ingest.begin", e))?;
 
-    let row: Option<(uuid::Uuid,)> = sqlx::query_as(
-        "INSERT INTO core.event
-           (id, user_id, logical_source, external_id, device_id, origin,
-            event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-         ON CONFLICT (logical_source, content_hash) DO NOTHING
-         RETURNING id",
+    // **収集側の識別子の使い回しを格納の前に断る**（深掘り Q5）。
+    // `id` は主キーなので、放っておくと重複違反で 500 になり**まとめ送り全体が落ちる**。
+    let by_id: Option<(String, Option<String>, uuid::Uuid, String)> = sqlx::query_as(
+        "SELECT content_hash, external_id, user_id, logical_source FROM core.event WHERE id = $1",
     )
     .bind(req.id)
-    .bind(req.user_id)
-    .bind(&req.logical_source)
-    .bind(&req.external_id)
-    .bind(&req.device_id)
-    .bind(&req.origin)
-    .bind(req.event_time)
-    .bind(req.tz_offset_min)
-    .bind(&req.tz_id)
-    .bind(req.schema_version)
-    .bind(req.unit_system_or_default())
-    .bind(req.crs_or_default())
-    .bind(&hash)
-    .bind(&req.raw)
-    .bind(&payload)
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| internal_at("ingest.event_insert", e))?;
+    .map_err(|e| internal_at("ingest.id_lookup", e))?;
+    if let Some((stored_hash, stored_ext, stored_user, stored_source)) = by_id {
+        // 同じ 1 件の再送だけを通す。**それ以外は「同じ識別子で別の記録」**
+        let same_record = stored_hash == hash
+            && stored_user == req.user_id
+            && stored_source == req.logical_source
+            && stored_ext.as_deref() == external_id.as_deref();
+        if !same_record {
+            tracing::warn!(kind = "id_reused", "収集側の識別子が使い回されている");
+            return Ok(IngestResult::rejected(Some(req.id), IngestError::IdReused));
+        }
+    }
+
+    // **削除済みの内容は、どの外部識別子で届いても入れない**（深掘り Q3 / Q11 / Q19）。
+    // 撃つのは外部識別子で畳む記録のときだけ（design D9）—— 畳まない記録は
+    // `event_dedup_hash` が削除済みの行も含めて弾くので、この問い合わせは要らない。
+    //
+    // **ここで早く返さない。** 取り込まなかった 1 件でも「その日は収集が動いていた」は
+    // 真なので、稼働記録の行と収集開始日は下で当てる（FR-33 / 扉 #14）。
+    let mut blocked_by_deleted: Option<uuid::Uuid> = None;
+    if ingest::needs_deleted_check(kind, external_id.as_deref()) {
+        let erased: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT id FROM core.event
+              WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
+                AND deleted_at IS NOT NULL
+              LIMIT 1",
+        )
+        .bind(req.user_id)
+        .bind(&req.logical_source)
+        .bind(&hash)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| internal_at("ingest.deleted_lookup", e))?;
+        blocked_by_deleted = erased.map(|(id,)| id);
+    }
+
+    // **索引が 2 段なので、撃つ文も 2 通り**（design D1 / D2）。
+    // `ON CONFLICT` は部分索引に対して**述語を文に書かないと当たらない** ——
+    // 述語なしの `ON CONFLICT (logical_source, content_hash)` は
+    // `there is no unique or exclusion constraint matching …` で文として落ちる（実測）。
+    let insert_sql = if external_id.is_some() {
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, external_ref, device_id, origin,
+            event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
+            content_hash, raw, payload, source_updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
+           DO NOTHING
+         RETURNING id"
+    } else {
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, external_ref, device_id, origin,
+            event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
+            content_hash, raw, payload, source_updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
+           DO NOTHING
+         RETURNING id"
+    };
+    let row: Option<(uuid::Uuid,)> = if blocked_by_deleted.is_some() {
+        None
+    } else {
+        sqlx::query_as(insert_sql)
+        .bind(req.id)
+        .bind(req.user_id)
+        .bind(&req.logical_source)
+        .bind(&external_id)
+        .bind(&external_ref)
+        .bind(&req.device_id)
+        .bind(&req.origin)
+        .bind(req.event_time)
+        .bind(req.tz_offset_min)
+        .bind(&req.tz_id)
+        .bind(req.schema_version)
+        .bind(req.unit_system_or_default())
+        .bind(req.crs_or_default())
+        .bind(&hash)
+        .bind(&req.raw)
+        .bind(&payload)
+        .bind(req.source_updated_at)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| internal_at("ingest.event_insert", e))?
+    };
+
+    // 畳まれたときは、**格納されている行**を引き直す（spec「結果に載せる識別子を、
+    // 格納されている記録の識別子とする」/ R11）。送り主が名乗った識別子をそのまま返すと、
+    // **DB に無い識別子が受理として返り**、後から突き合わせる手段が無い。
+    let folded = match (row, blocked_by_deleted) {
+        (Some(_), _) | (None, Some(_)) => None,
+        (None, None) => Some(load_stored(&mut tx, &req, &hash, external_id.as_deref()).await?),
+    };
+
+    // 外部サービス由来の更新かどうか（深掘り Q1）。**内容の鍵が違えば更新**
+    let mut updated = false;
+    if let Some(stored) = &folded {
+        if stored.content_hash != hash && external_id.is_some() {
+            updated = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
+        }
+    }
 
     // 稼働記録は取り込みと同じ関門で更新する。別経路にすると
     // 「データが無いのは収集が止まっていたのか」が後から区別できなくなる（FR-33）。
-    // **件数は新しく入った行だけ数える**（design D13）—— まとめ送りの部分失敗で
-    // 成功分が再送されるので、重複まで数えると件数が実態から離れる。
+    // **件数は新しく入った行だけ数える**（design D13 / 正典「新しく入った記録の数」）——
+    // **更新は「新しく入った」ではない**ので 0 件。
     // 行そのものは重複でも立てる。「その日は収集が動いていた」は重複の到着でも真だから。
     //
-    // **日は `Asia/Tokyo` で切る**（ST02 の深掘り Q2 / design D1）。記録に付いた
-    // タイムゾーンでは切らない —— 東西の移動で 1 年が 364 日にも 366 日にもなり、
-    // NFR-13 の分母がぶれる。当初の実装は UTC 固定だった。
+    // **日は `Asia/Tokyo` で切る**（ST02 の深掘り Q2 / design D1）。
     sqlx::query(&format!(
         "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
          VALUES ($1, $2, ($3 AT TIME ZONE '{DAY_TZ}')::date, $4)
@@ -316,14 +500,127 @@ async fn ingest_one(
     .await
     .map_err(|e| internal_at("ingest.started_on", e))?;
 
+    // **門はここで落ちる**（design D4）。制約トリガは `DEFERRABLE INITIALLY DEFERRED` で、
+    // 履歴を書かない書き換えは COMMIT の瞬間に拒まれる。
     tx.commit()
         .await
         .map_err(|e| internal_at("ingest.commit", e))?;
 
-    Ok(match row {
-        Some((id,)) => IngestResult::stored(id, false),
-        None => IngestResult::stored(req.id, true),
+    if updated {
+        tracing::info!(kind = "ingest_update", "外部サービス由来の更新で前の版を履歴へ移した");
+    }
+    Ok(match (row, folded, blocked_by_deleted) {
+        (Some((id,)), _, _) => IngestResult::stored(id, false),
+        (None, Some(stored), _) => IngestResult::stored(stored.id, true),
+        // 削除済みの本文だったので取り込まなかった。**受理として返す**（Q3）——
+        // 返さないと同じ 1 件が永久に送られ続ける。載せる識別子は削除済みの行のもの
+        (None, None, Some(id)) => IngestResult::stored(id, true),
+        // 索引で畳まれたのに引き直せない —— 同時に論理削除が走ったときだけ起きる
+        (None, None, None) => IngestResult::stored(req.id, true),
     })
+}
+
+/// 索引で畳まれた先の行を引き直す。
+///
+/// 外部識別子で畳んだときはその識別子で、内容の鍵で畳んだときは鍵で引く ——
+/// **畳んだ索引と同じ条件で引かないと、別の行を指しうる**。
+async fn load_stored(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    req: &IngestRequest,
+    hash: &str,
+    external_id: Option<&str>,
+) -> Result<Stored, (StatusCode, String)> {
+    let sql = if external_id.is_some() {
+        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload, external_ref
+           FROM core.event
+          WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
+    } else {
+        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload, external_ref
+           FROM core.event
+          WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
+            AND external_id IS NULL"
+    };
+    let key = external_id.map_or(hash, |e| e);
+    sqlx::query_as::<_, Stored>(sql)
+        .bind(req.user_id)
+        .bind(&req.logical_source)
+        .bind(key)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| internal_at("ingest.stored_lookup", e))
+}
+
+/// 外部サービス由来の更新を当てる（深掘り Q1 / Q11 / Q20）。当てたら真を返す。
+///
+/// **前の版を履歴へ書いてから本表を書き換える。** 門（design D4）は
+/// 同じトランザクションに履歴行があることを COMMIT の瞬間に見るので、
+/// 履歴を書き忘れた書き換えは DB の側で落ちる。
+async fn apply_external_update(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    stored: &Stored,
+    req: &IngestRequest,
+    hash: &str,
+    payload: &serde_json::Value,
+) -> Result<bool, (StatusCode, String)> {
+    // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
+    // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
+    if stored.deleted_at.is_some() {
+        return Ok(false);
+    }
+    // **古い到着では書き換えない**（Q20）。往復のたびに履歴が無限に積むのを止める。
+    // **同じ更新時刻で内容だけ違う到着は「新しい」として扱う**（`>=`。design D8）——
+    // `>` にすると `accepted` を返しながら内容が変わらず、応答から見えない。
+    if let (Some(incoming), Some(known)) = (req.source_updated_at, stored.source_updated_at) {
+        if incoming < known {
+            return Ok(false);
+        }
+    }
+
+    // 前の版を履歴へ。**原文はそのまま**（FR-18。`raw` は `text` なのでバイト単位で残る）
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash,
+            raw, payload, source_updated_at, external_ref)
+         SELECT $1, $2, $3,
+                coalesce(max(v.version_no), 0) + 1,
+                $4, $5, $6, $7, $8, $9
+           FROM core.event_version v WHERE v.event_id = $1",
+    )
+    .bind(stored.id)
+    .bind(req.user_id)
+    .bind(&req.logical_source)
+    .bind(stored.event_time)
+    .bind(&stored.content_hash)
+    .bind(&stored.raw)
+    .bind(&stored.payload)
+    .bind(stored.source_updated_at)
+    .bind(&stored.external_ref)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| internal_at("ingest.version_insert", e))?;
+
+    // **更新時刻を持たない到着は、保存済みの値を消さない**（Q20 / R45）。
+    // 消すと以後、古い版が来ても止められない。
+    //
+    // **`external_id` と `external_ref` は触らない**（design D10）。どちらも来歴として
+    // 凍結してあり、動かすと同じ本文が 2 行に増える（実測）。届いた値が保存済みと違えば
+    // 門の手前の錠が落とす —— それが正しい（識別子が変わったなら別の記録）。
+    sqlx::query(
+        "UPDATE core.event
+            SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
+                source_updated_at = coalesce($6, source_updated_at)
+          WHERE id = $1",
+    )
+    .bind(stored.id)
+    .bind(&req.raw)
+    .bind(payload)
+    .bind(hash)
+    .bind(req.event_time)
+    .bind(req.source_updated_at)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| internal_at("ingest.event_update", e))?;
+    Ok(true)
 }
 
 /// 記録をまとめて受け取る。同じ内容を再送しても行は増えない（FR-22）。

@@ -797,36 +797,41 @@ fn heartbeat_hash_is_pinned() {
 /// 「重複のときに UPSERT ごと飛ばす」実装でも通った（review/code.md の R47 / F16）。
 /// ここは**別の利用者で先に記録を入れて**、その利用者には行が無い状態で重複を届かせる。
 ///
+/// 重複**だけ**が届いた日にも稼働記録の行が立つ（「その日は収集が動いていた」は
+/// 重複の到着でも真。扉 #14）。件数は増えない。
+///
+/// > **2026-09-12（ST03）に組み替えた。** 以前は「2 人目の利用者に同じ内容を送ると
+/// > 重複になる」ことを使って、稼働記録の行が無い状態から重複だけを届かせていた。
+/// > **深掘り Q2 / Q15 で冪等の判定が利用者ごとになった**ので、その前提は成り立たない
+/// > （別の利用者の同じ内容は畳まれない —— `different_user_not_deduped` が固定している）。
+/// > いまは稼働記録の行だけを消してから再送し、**重複の到着が行を立て直す**ことを見る。
+///
 /// Scenario: 重複は件数に加えない
 #[tokio::test]
 async fn duplicate_only_day_still_gets_a_row() {
     let app = app().await;
     let s = testdb::source(&app.pool, "duponly", 21_600).await;
-    let first = testdb::user();
-    let second = testdb::user();
+    let u = testdb::user();
     let raw = r#"{"seq":"dup-only"}"#;
 
-    // 1 人目が入れる（冪等キーは logical_source + event_time + raw なので利用者を含まない）
     post_ingest(
         &app,
-        serde_json::json!([ev(&s, first, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
+        serde_json::json!([ev(&s, u, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
     )
     .await;
-    // 2 人目には稼働記録の行がまだ無い
-    let before: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
-    )
-    .bind(second)
-    .bind(&s)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
-    assert_eq!(before.0, 0);
 
-    // 2 人目に**重複だけ**が届く
+    // 稼働記録の行だけを消す（`core.coverage` は導出の帳簿で、門の対象ではない）
+    sqlx::query("DELETE FROM core.coverage WHERE user_id = $1 AND logical_source = $2")
+        .bind(u)
+        .bind(&s)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    // **重複だけ**が届く
     let (_, res) = post_ingest(
         &app,
-        serde_json::json!([ev(&s, second, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
+        serde_json::json!([ev(&s, u, "2026-05-01T01:00:00Z", "Asia/Tokyo", raw)]),
     )
     .await;
     assert!(res[0].duplicate, "重複と判定されていない（検査が空振り）");
@@ -834,12 +839,12 @@ async fn duplicate_only_day_still_gets_a_row() {
     let after: (i32,) = sqlx::query_as(
         "SELECT event_count FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
     )
-    .bind(second)
+    .bind(u)
     .bind(&s)
     .fetch_one(&app.pool)
     .await
     .unwrap();
-    assert_eq!(after.0, 0, "件数は増えない");
+    assert_eq!(after.0, 0, "重複の到着で件数が増えている");
 }
 
 /// 原文が空・NUL 入りの生存信号を**受け口越しに**断る（review/code.md の R52）。

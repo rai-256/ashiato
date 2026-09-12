@@ -24,7 +24,14 @@ class TelemetryTest {
         val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val lines = mutableListOf<String>()
-        Sender(outbox, { outcome }, IngestRequest.serializer(), lines::add).flush()
+        // **記録の送信器**（捨てる側。ST03 / FR-10 の改訂）—— 本番と同じ形で見る
+        Sender(
+            outbox,
+            { outcome },
+            IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
+            log = lines::add,
+        ).flush()
         return lines
     }
 

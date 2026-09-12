@@ -12,29 +12,44 @@ trap cleanup EXIT
 psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
 
 echo "== DB を起動してマイグレーションを当てる"
+# **当てる版と順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列から引く**
+# （2026-09-12 / ST03）。手で並べていたときは ST02 の `202609112113_source_lifecycle` が
+# **この検査にだけ入っておらず**、本番と違う schema を検査していた。
+# 版を足してここへ足し忘れる、が構造として起きない形にする。
+mapfile -t MIGS < <(grep -oE 'migrations/[0-9]{12}_[a-z_]+\.sql' crates/server/src/lib.rs \
+                    | sed 's|migrations/||; s|\.sql$||')
+[ "${#MIGS[@]}" -ge 12 ] || { echo "  NG lib.rs から版を引けない（${#MIGS[@]} 件）"; exit 1; }
 docker compose up -d --wait db >/dev/null
-psql < migrations/202609081618_envelope.sql >/dev/null
-psql < migrations/202609082001_immutable_collected.sql >/dev/null
-psql < migrations/202609092315_raw_text.sql >/dev/null
-psql < migrations/202609100000_immutable_origin.sql >/dev/null
-psql < migrations/202609111111_coverage_rebuild.sql >/dev/null
-psql < migrations/202609111112_immutable_heartbeat.sql >/dev/null
+for m in "${MIGS[@]}"; do
+  psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m が当たらない"; exit 1; }
+done
+echo "  OK ${#MIGS[@]} 版を当てた"
 
 # **2 回当てても壊れないことを、ここで確かめる**（review R12）。
 # run() は起動のたびに全版を当てるので、当て直しが安全でないと 2 回目の起動で落ちる。
 # 0003 は「型が text なら何もしない」分岐を持っているが、その分岐を通る検査がどこにも無かった。
 echo "== もう一度当てる（run() は起動のたびに全版を当てる）"
-for m in 202609081618_envelope 202609082001_immutable_collected 202609092315_raw_text 202609100000_immutable_origin \
-         202609111111_coverage_rebuild 202609111112_immutable_heartbeat; do
+for m in "${MIGS[@]}"; do
   psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m の 2 回目が落ちた"; exit 1; }
 done
-echo "  OK 6 版とも当て直せる"
+echo "  OK ${#MIGS[@]} 版とも当て直せる"
+
+# **当て直しで `external_id_kind` が緩い側へ落ちないこと**（ST03 / 深掘り Q16）。
+# 移行が「列を足した回だけ」で絞らず毎回 `'none'` を撃つ形だと、
+# **後から登録した外部ソースが再起動のたびに識別子を要求しなくなる**（黙って守りが消える）。
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('ext-kind-check','当て直しの確認用',21600,'record') ON CONFLICT DO NOTHING;" >/dev/null
+psql < migrations/202609120940_source_columns.sql >/dev/null
+kind=$(psql -c "SELECT external_id_kind FROM core.source WHERE logical_source='ext-kind-check';")
+[ "$kind" = "record" ] \
+  || { echo "  NG 当て直しで external_id_kind が $kind へ落ちた（識別子の要求が黙って消える）"; exit 1; }
+echo "  OK 当て直しても external_id_kind は落ちない"
 
 # **0005 を当て直しても稼働記録が消えないこと**（review/spec.md の型の穴）。
 # 0005 は古い形のときだけ表を作り直すが、その分岐が壊れると
 # **起動のたびに稼働記録が全部消える**（毎回 0 件なので画面は「ずっと途絶」に見える）。
-psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-         VALUES ('rebuild-check','当て直しの確認用',21600) ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('rebuild-check','当て直しの確認用',21600,'none') ON CONFLICT DO NOTHING;" >/dev/null
 psql -c "INSERT INTO core.coverage (user_id, logical_source, day, event_count)
          VALUES ('00000000-0000-0000-0000-000000000000','rebuild-check','2026-05-01',7)
          ON CONFLICT DO NOTHING;" >/dev/null
@@ -44,8 +59,8 @@ kept=$(psql -c "SELECT count(*) FROM core.coverage WHERE logical_source = 'rebui
 echo "  OK 0005 を当て直しても稼働記録は消えない"
 
 echo "== 「収集した」記録を 1 件置く"
-psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-         VALUES ('immutable-check','書き換え禁止の確認用',21600) ON CONFLICT DO NOTHING;"  >/dev/null
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('immutable-check','書き換え禁止の確認用',21600,'none') ON CONFLICT DO NOTHING;"  >/dev/null
 psql -c "INSERT INTO core.event
            (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
             schema_version, content_hash, raw, payload)
@@ -55,6 +70,10 @@ psql -c "INSERT INTO core.event
                  '{\"hello\":\"world\"}','{\"hello\":\"world\"}');" >/dev/null
 
 # Scenario: 収集した記録は書き換えられない
+# Scenario: 履歴を書かない書き換えは拒まれる
+#   （**ST03 で落ちる場所が変わった。** 0002 / 0004 は BEFORE UPDATE で即座に拒んでいたが、
+#    いまは遅延制約トリガが COMMIT の瞬間に「同じまとまりに履歴があるか」を見る。
+#    psql -c の 1 文はそれ自体が 1 トランザクションなので、履歴なしの書き換えはここで落ちる）
 fail=0
 # 拒まれるべき 3 つ。**それぞれ別に確かめる** —— 1 つだけ効いていて他が素通しでも気付くように
 for col in raw payload event_time; do
@@ -148,8 +167,8 @@ fi
 # 見えなかった —— 分類を動かせる限り原文の不変は成り立たない。生存信号には分類列を
 # 持たせていないが、**「持たせていない」ことも検査する**（後から足されうる）。
 echo "== 生存信号を 1 件置く"
-psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-         VALUES ('hb-check','生存信号の確認用',21600) ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('hb-check','生存信号の確認用',21600,'none') ON CONFLICT DO NOTHING;" >/dev/null
 psql -c "INSERT INTO core.heartbeat
            (id, user_id, logical_source, device_id, emitted_at, capturable, blockers,
             attempts, successes, content_hash, raw)
@@ -210,5 +229,193 @@ fi
 # 行が本当に残っていること（例外を投げても消えていた、を潰す）
 left=$(psql -c "SELECT count(*) FROM core.heartbeat WHERE logical_source = 'hb-check';")
 [ "$left" = "1" ] || { echo "  NG 生存信号が消えている（$left 行）"; fail=1; }
+
+
+# ================================================================ ST03 の門
+#
+# **書き換えと消去の門を、取り込み口を通さずに確かめる**（深掘り Q10 / Q17 / Q23 / design D4）。
+#
+# Scenario: 取り込み口を通さない操作にも同じ制限が掛かる
+#   （`cargo test` は取り込み口越しなので、**アプリ層だけの実装でも全部緑になる**。
+#    DB の側を観測するのはこのスクリプトだけ —— Q10 の核心はここにある）
+#
+# **ST03 は 0002 / 0004 が凍結した 4 列を開ける。** 「拒まれること」だけを検査していた
+# 台本をそのまま残すと CI が落ち、**消すと守りが黙って消える**（R38）。
+# 「履歴を書かない書き換えは拒まれる / 書けば通る」の 2 本に作り替えてある。
+echo "== ST03: 書き換えと消去の門"
+GID='66666666-6666-4666-8666-666666666666'
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('gate-check','門の確認用',21600,'record') ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, external_ref, device_id, origin,
+            event_time, tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ('$GID','00000000-0000-0000-0000-000000000000','gate-check','gate-ext','gate-ref',
+                 'gate-dev','collected','2026-09-08T02:00:00Z',540,'Asia/Tokyo',1,
+                 'gate-hash-1','{\"v\":1}','{\"v\":1}');" >/dev/null
+
+# 履歴を 1 行書く SQL（前の版を写す）。**同じ文字列の中に書くと 1 トランザクションになる**
+version_row="INSERT INTO core.event_version
+   (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+ SELECT id, user_id, logical_source,
+        (SELECT coalesce(max(version_no),0)+1 FROM core.event_version WHERE event_id='$GID'),
+        event_time, content_hash, raw, payload
+   FROM core.event WHERE id='$GID';"
+ledger_row="INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+            VALUES ('$GID','00000000-0000-0000-0000-000000000000','gate-check','SCOPE','check');"
+
+# Scenario: 履歴を書かない書き換えは拒まれる
+if psql -c "UPDATE core.event SET raw='{\"tampered\":1}', content_hash='gate-hash-x'
+            WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  NG 履歴を書かない書き換えが通った（深掘り Q10 の門が効いていない）"; fail=1
+else
+  echo "  OK 履歴を書かない書き換えは拒まれた"
+fi
+got=$(psql -c "SELECT raw FROM core.event WHERE id='$GID';")
+[ "$got" = '{"v":1}' ] || { echo "  NG 拒まれたのに原文が変わっている: $got"; fail=1; }
+
+# Scenario: 履歴を書けば書き換えが通る
+if psql -c "$version_row
+            UPDATE core.event SET raw='{\"v\":2}', payload='{\"v\":2}', content_hash='gate-hash-2'
+             WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  OK 履歴を書けば書き換えが通る"
+else
+  echo "  NG 履歴を書いても書き換えが通らない（Q1 の更新が 1 行も動かない）"; fail=1
+fi
+got=$(psql -c "SELECT raw FROM core.event WHERE id='$GID';")
+[ "$got" = '{"v":2}' ] || { echo "  NG 通ったのに内容が新しくなっていない: $got"; fail=1; }
+kept=$(psql -c "SELECT raw FROM core.event_version WHERE event_id='$GID' AND version_no=1;")
+[ "$kept" = '{"v":1}' ] || { echo "  NG 前の版の原文が履歴に残っていない: $kept"; fail=1; }
+
+# **順序に依存しない**（更新の後に履歴を書いても通る）。制約トリガは COMMIT 時に見る
+if psql -c "UPDATE core.event SET raw='{\"v\":3}', payload='{\"v\":3}', content_hash='gate-hash-3'
+             WHERE id='$GID';
+            $version_row" >/dev/null 2>&1; then
+  echo "  OK 履歴を後から書いても通る（門は COMMIT の瞬間に見る）"
+else
+  echo "  NG 順序に依存している（1 件 1 トランザクションの前提が崩れる）"; fail=1
+fi
+
+# **同じまとまりの中で履歴を消しても落ちる**（履歴は削除できないので、行の削除として落ちる）
+# Scenario: 履歴は消去以外の書き換えも行の削除もできない
+for stmt in "UPDATE core.event_version SET version_no=99 WHERE event_id='$GID';" \
+            "UPDATE core.event_version SET raw='{\"forged\":1}' WHERE event_id='$GID';" \
+            "UPDATE core.event_version SET superseded_at='2000-01-01' WHERE event_id='$GID';" \
+            "DELETE FROM core.event_version WHERE event_id='$GID';" \
+            "TRUNCATE core.event_version;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 履歴が変えられた: $stmt"; fail=1
+  fi
+done
+echo "  OK 履歴は消去以外の書き換えも行の削除も表の切り詰めもできない"
+left=$(psql -c "SELECT count(*) FROM core.event_version WHERE event_id='$GID';")
+[ "$left" = "2" ] || { echo "  NG 履歴が $left 行になっている（2 行のはず）"; fail=1; }
+
+# Scenario: 台帳を書かない消去は拒まれる
+if psql -c "UPDATE core.event SET raw='', payload='{}' WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  NG 台帳を書かない消去が通った（唯一の開口部から原文が全部消える）"; fail=1
+else
+  echo "  OK 台帳を書かない消去は拒まれた"
+fi
+got=$(psql -c "SELECT raw FROM core.event WHERE id='$GID';")
+[ "$got" = '{"v":3}' ] || { echo "  NG 拒まれたのに本文が消えている: $got"; fail=1; }
+
+# Scenario: 台帳の行があっても、消去でない書き換えは通らない
+#   （絞りが無いと、台帳を 1 行書くだけで改竄が通る —— 実測で確かめた経路）
+if psql -c "${ledger_row/SCOPE/event}
+            UPDATE core.event SET raw='{\"tampered\":2}', content_hash='gate-hash-x'
+             WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  NG 台帳を 1 行書くだけで改竄が通った（門が消去の形で絞れていない）"; fail=1
+else
+  echo "  OK 台帳の行があっても、消去でない書き換えは通らない"
+fi
+
+# Scenario: 履歴の本文は台帳が無ければ消せない
+if psql -c "UPDATE core.event_version SET raw='', payload='{}' WHERE event_id='$GID';" \
+     >/dev/null 2>&1; then
+  echo "  NG 台帳なしで履歴の本文が消せた"; fail=1
+else
+  echo "  OK 履歴の本文は台帳が無ければ消せない"
+fi
+
+# Scenario: 履歴の本文は台帳があれば消せる
+#   （**閉じ切ると FR-51「消去は履歴に残した前の版にも及ぶ」が満たせない** —— R65）
+if psql -c "${ledger_row/SCOPE/version}
+            UPDATE core.event_version SET raw='', payload='{}' WHERE event_id='$GID';" \
+     >/dev/null 2>&1; then
+  echo "  OK 履歴の本文は台帳があれば消せる"
+else
+  echo "  NG 履歴の本文が消せない（FR-51 が満たせない）"; fail=1
+fi
+got=$(psql -c "SELECT count(*) FROM core.event_version WHERE event_id='$GID' AND raw <> '';")
+[ "$got" = "0" ] || { echo "  NG 通ったのに履歴の本文が残っている（$got 行）"; fail=1; }
+
+# Scenario: 台帳は何をしても変えられない
+#   （**開ける必要のある操作が 1 つも無い** —— ここで Q10 → Q17 → Q23 の連鎖が止まる）
+for stmt in "UPDATE core.erasure_ledger SET reason='forged' WHERE event_id='$GID';" \
+            "UPDATE core.erasure_ledger SET scope='version' WHERE event_id='$GID';" \
+            "DELETE FROM core.erasure_ledger WHERE event_id='$GID';" \
+            "TRUNCATE core.erasure_ledger;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 台帳が変えられた: $stmt"; fail=1
+  fi
+done
+echo "  OK 台帳は書き換えも削除も切り詰めもできない"
+led=$(psql -c "SELECT count(*) FROM core.erasure_ledger WHERE event_id='$GID';")
+[ "$led" = "1" ] || { echo "  NG 台帳が $led 行になっている（1 行のはず）"; fail=1; }
+
+# **凍結する列が増えている**（design D10 / R54）。
+# `external_id` が開いていると、Q6 の部分索引の下では**識別子を 1 文書き換えるだけで
+# 同じ本文が 2 行入る**（履歴も台帳も残らない）。
+for col in external_id external_ref; do
+  if psql -c "UPDATE core.event SET $col = 'forged' WHERE id='$GID';" >/dev/null 2>&1; then
+    echo "  NG $col が書き換えられた（同じ本文が 2 行入る）"; fail=1
+  else
+    echo "  OK $col の書き換えは拒まれた"
+  fi
+done
+# **`source_updated_at` は凍結しない**（更新のたびに動く列）。止めると Q20 が成り立たない
+if psql -c "UPDATE core.event SET source_updated_at = now() WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  OK source_updated_at は動かせる（凍結の範囲が広がっていない）"
+else
+  echo "  NG source_updated_at まで凍結している（Q20 の更新が当たらない）"; fail=1
+fi
+
+# **履歴は感度も削除の印も持たない**（深掘り Q21 / tasks 5.2）。
+# 持たせると、親を締めても前の版が緩いまま残る —— 伝播の処理が無ければ書き忘れようがない
+extra=$(psql -c "SELECT count(*) FROM information_schema.columns
+                  WHERE table_schema='core' AND table_name='event_version'
+                    AND column_name IN ('sensitivity','deleted_at','deleted_by');")
+[ "$extra" = "0" ] || { echo "  NG 履歴が自分の感度・削除の印を持っている"; fail=1; }
+# **履歴の原文は text**（R39。`jsonb` はキー順を変え、重複キーを落とす）
+vtype=$(psql -c "SELECT data_type FROM information_schema.columns
+                  WHERE table_schema='core' AND table_name='event_version' AND column_name='raw';")
+[ "$vtype" = "text" ] || { echo "  NG 履歴の原文が $vtype（前の版はここにしか無い）"; fail=1; }
+echo "  OK 履歴は感度も削除の印も持たず、原文は text"
+
+# Scenario: 収集した記録は行ごと消せない
+#   （**いまの 0002 / 0004 は UPDATE しか見ていなかった** —— 実測で DELETE が 3 行消した）
+for stmt in "DELETE FROM core.event WHERE id='$GID';" \
+            "TRUNCATE core.event CASCADE;" \
+            "TRUNCATE core.heartbeat;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 記録が行ごと消せた: $stmt"; fail=1
+  fi
+done
+echo "  OK 収集した記録は行ごとも表ごとも消せない"
+left=$(psql -c "SELECT count(*) FROM core.event WHERE id='$GID';")
+[ "$left" = "1" ] || { echo "  NG 記録が消えている"; fail=1; }
+
+# **台帳の行と実際の消去を突き合わせる**（tasks 12.3）。
+# **DB は件数を検算しない** —— 実測で台帳 1 行のまま 4 行消せた。
+# ここで「本文が空なのに自分を名指しする台帳の行が無い」ものを数える。
+orphan=$(psql -c "SELECT
+   (SELECT count(*) FROM core.event e
+     WHERE e.raw = '' AND NOT EXISTS (SELECT 1 FROM core.erasure_ledger l
+                                       WHERE l.event_id = e.id AND l.scope = 'event'))
+ + (SELECT count(*) FROM core.event_version v
+     WHERE v.raw = '' AND NOT EXISTS (SELECT 1 FROM core.erasure_ledger l
+                                       WHERE l.event_id = v.event_id));")
+[ "$orphan" = "0" ] || { echo "  NG 台帳に載らない消去が $orphan 件ある"; fail=1; }
+echo "  OK 消えた本文はすべて台帳に載っている"
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }

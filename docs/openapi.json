@@ -520,7 +520,10 @@
           "unknown_origin",
           "unknown_source",
           "invalid_raw",
-          "missing_device_id"
+          "missing_device_id",
+          "missing_external_id",
+          "empty_external_id",
+          "id_reused"
         ]
       },
       "IngestRequest": {
@@ -561,6 +564,13 @@
               "null"
             ]
           },
+          "external_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "「対象ごと」の外部識別子（動画 ID など。ST03 / 深掘り Q24）。\n**重複の判定には使わない** —— 使うと同じ対象の 2 件目が一意違反で落ちる。"
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -579,6 +589,14 @@
           "schema_version": {
             "type": "integer",
             "format": "int32"
+          },
+          "source_updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "外部サービス側の更新時刻（または版）。省略できる（ST03 / 深掘り Q20）——\n**既存の収集側を壊さない**。届かない到着は「届いた順」で適用され、\n保存済みの値を消さない。"
           },
           "tz_id": {
             "type": "string"

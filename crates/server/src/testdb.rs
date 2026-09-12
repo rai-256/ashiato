@@ -50,8 +50,40 @@ pub async fn pool() -> sqlx::PgPool {
 /// **テストどうしの隔離をこれで取る**（design D14）—— 1 つの DB を共有したまま、
 /// 稼働記録・生存信号・停止/破棄はすべて `logical_source` で分かれる。
 /// 表を作り直したり schema を掘ったりしない（本物と同じ表を叩くことに意味がある）。
+///
+/// **外部識別子の粒度は `none`**（ST03 / 深掘り Q4 / Q16）。登録簿の既定は
+/// `'record'`（＝識別子が無ければ断る側）なので、**明示しないと端末からの
+/// 記録が全件 400 になる**。粒度そのものを見るテストは `source_of_kind` を使う。
 pub async fn source(pool: &sqlx::PgPool, prefix: &str, expected_gap_sec: i32) -> String {
     source_registered_on(pool, prefix, expected_gap_sec, FAR_PAST).await
+}
+
+/// 外部識別子の粒度を明示して登録簿へ置く（ST03 / 深掘り Q13 / Q18）。
+/// `kind` は `record` / `subject` / `none`。
+pub async fn source_of_kind(pool: &sqlx::PgPool, prefix: &str, kind: &str) -> String {
+    let name = source(pool, prefix, 21_600).await;
+    sqlx::query("UPDATE core.source SET external_id_kind = $2 WHERE logical_source = $1")
+        .bind(&name)
+        .bind(kind)
+        .execute(pool)
+        .await
+        .unwrap();
+    name
+}
+
+/// 粒度を**宣言しないまま**登録簿へ置く（既定に倒れることを見るテスト用）。
+pub async fn source_undeclared(pool: &sqlx::PgPool, prefix: &str) -> String {
+    let name = format!("t-{prefix}-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, registered_at)
+         VALUES ($1, $1, 21600, ($2::date::timestamp AT TIME ZONE 'Asia/Tokyo'))",
+    )
+    .bind(&name)
+    .bind(FAR_PAST)
+    .execute(pool)
+    .await
+    .unwrap();
+    name
 }
 
 /// テストの記録は**過去の日**に置く（2025〜2026 年）。登録簿の既定の `registered_at` は
@@ -70,8 +102,9 @@ pub async fn source_registered_on(
 ) -> String {
     let name = format!("t-{prefix}-{}", uuid::Uuid::new_v4());
     sqlx::query(
-        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, registered_at)
-         VALUES ($1, $1, $2, ($3::date::timestamp AT TIME ZONE 'Asia/Tokyo'))",
+        "INSERT INTO core.source
+           (logical_source, display_name, expected_gap_sec, registered_at, external_id_kind)
+         VALUES ($1, $1, $2, ($3::date::timestamp AT TIME ZONE 'Asia/Tokyo'), 'none')",
     )
     .bind(&name)
     .bind(expected_gap_sec)

@@ -27,93 +27,132 @@ class Sender<T : Outboxable>(
     private val outbox: Outbox<T>,
     private val transport: Transport,
     private val serializer: KSerializer<T>,
+    /**
+     * 恒久的に断られた項目を**未送信から取り除く**か（ST03 / FR-10 の改訂。深掘り Q4 / Q5）。
+     *
+     * **記録は取り除く（`true`）。** 断られた記録を残すと 5 分ごとに送られ続け、
+     * 1 回に載る上限（200 件）までたまると**新しい記録が送られなくなる**。
+     * 要求そのものが不正だとサーバが 1 件ごとの結果で告げている以上、結果は変わらない。
+     *
+     * **生存信号は取り除かない（既定の `false`）。** 信号は「記録が 0 件の日に
+     * 動いていなかったのか壊れていたのか」を分ける**証拠**で、捨てるとその区別が
+     * 遡って作れない（ST02 / 扉 #14）。先頭を塞ぐ問題は「断られた分を飛ばして次を載せる」
+     * で解いてある（ST02 の review R18 / H-1）—— こちらは捨てない解き方。
+     */
+    private val dropPermanentlyRejected: Boolean = false,
     private val log: (String) -> Unit = {},
 ) {
     /** 送った件数と受け付けられた件数。 */
     data class Flushed(val sent: Int, val accepted: Int)
 
     /**
-     * 恒久的に断られた項目。**先頭に居座らせない**（review/code.md の R18 / H-1）。
+     * 1 回の送信で未送信から取り除いてよいもの。
      *
-     * `accepted = false` の項目は未送信に残り続ける。先頭 `MAX_BATCH` 件が
-     * 恒久的な拒否（`unknown_source` / `malformed` / `invalid_counts`）で埋まると、
-     * `take(MAX_BATCH)` は毎回その同じ 200 件を取り、**新しい記録には永久に順番が回らない**。
-     * サーバ側は 1 件ごとの結果を返すことで「1 件の恒久的な失敗が後続を永久に止める」のを
-     * 避けているのに、**収集側には抜け道が無かった**。
-     *
-     * ここは「断られた分を飛ばして次を載せる」だけで、**捨てはしない** ——
-     * 捨てる判断は ST04（保持と破棄）の担当で、捨てたものは復元できない。
+     * **受理された分と、恒久的に断られた分の両方**（ST03 / FR-10 の改訂）。
+     * 断られた分を残すと **5 分ごとに送られ続け、1 回に載る上限までたまると
+     * 新しい記録が送られなくなる**（実測: 上限 200 件）—— 1 件の恒久的な失敗が
+     * 後続を永久に止める。サーバ側は 1 件ごとの結果を返してそれを避けているのに、
+     * **収集側には抜け道が無かった**。
      */
-    private val rejected = LinkedHashSet<String>()
+    private data class Verdict(val remove: List<String>, val accepted: Int)
+
+    /**
+     * 恒久的に断られた項目。**捨てないときに先頭へ居座らせない**（ST02 の review R18 / H-1）。
+     *
+     * `dropPermanentlyRejected` が `false` のとき（＝生存信号）だけ使う。先頭 `MAX_BATCH` 件が
+     * 恒久的な拒否で埋まると、`take(MAX_BATCH)` は毎回その同じ 200 件を取り、
+     * **新しい信号には永久に順番が回らない**。
+     */
+    private val skipped = LinkedHashSet<String>()
 
     fun flush(): Flushed {
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         val pending = outbox.snapshot()
-        val fresh = pending.filter { it.id !in rejected }
+        val fresh = if (dropPermanentlyRejected) pending else pending.filter { it.id !in skipped }
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
         val batch = (if (fresh.isEmpty()) pending else fresh).take(MAX_BATCH)
         if (batch.isEmpty()) return Flushed(0, 0)
-        if (fresh.isEmpty() && pending.isNotEmpty()) rejected.clear()
+        if (fresh.isEmpty() && pending.isNotEmpty()) skipped.clear()
 
         val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
-        val accepted = when (val outcome = transport.post(body)) {
+        val verdict = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
-                // 未送信はそのまま残す。次の契機で再び送る（FR-10）
+                // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
                 log(Telemetry.line("send_failed", count = batch.size, error = outcome.kind))
                 return Flushed(batch.size, 0)
             }
 
-            is Outcome.Responded -> acceptedIds(batch, outcome)
+            is Outcome.Responded -> verdictOf(batch, outcome)
         }
 
-        if (!outbox.remove(accepted)) {
+        if (verdict.remove.isNotEmpty() && !outbox.remove(verdict.remove)) {
             // 取り除けたが置き場へ書けなかった。**次の起動で再送になる**（重複は入らない）
-            log(Telemetry.line("outbox_shrink_failed", count = accepted.size))
+            log(Telemetry.line("outbox_shrink_failed", count = verdict.remove.size))
         }
         log(Telemetry.line("send", count = batch.size))
-        log(Telemetry.line("accepted", count = accepted.size))
-        return Flushed(batch.size, accepted.size)
+        log(Telemetry.line("accepted", count = verdict.accepted))
+        return Flushed(batch.size, verdict.accepted)
     }
 
     /**
-     * 受け付けられた分の識別子。**結果は送った順に並ぶ**ので位置で対応づける
+     * 未送信から取り除いてよい識別子。**結果は送った順に並ぶ**ので位置で対応づける
      * （docs/collector-contract.md §返る形）。
      *
      * **400 でも本文を読む。** 一部だけが不正なときに成功分を取り除けないと、
      * その 1 件が後続を永久に止める。
+     *
+     * **一時的な失敗（到達できない・サーバ側の失敗・資格情報の不一致）では 1 件も取り除かない。**
+     * 恒久的な拒否と違い、**再び送れば結果が変わる**。
      */
-    private fun acceptedIds(batch: List<T>, res: Outcome.Responded): List<String> {
+    private fun verdictOf(batch: List<T>, res: Outcome.Responded): Verdict {
         if (res.status == 401) {
+            // 資格情報の不一致は**一時的**（合言葉を直せば通る）。捨てると記録が失われる
             log(Telemetry.line("send_failed", count = batch.size, error = "unauthorized"))
-            return emptyList()
+            return Verdict(emptyList(), 0)
         }
         // 5xx は本文が結果の配列でないことがある（サーバ側の失敗）。
         // **状態符号を落とさない** —— 落とすと 500 も 503 も本文欠落も同じ 1 行に潰れる
         if (res.status >= 500) {
             log(Telemetry.line("send_failed", count = batch.size, error = "server_${res.status}"))
-            return emptyList()
+            return Verdict(emptyList(), 0)
         }
         val results = runCatching {
             ingestJson.decodeFromString<List<IngestResult>>(res.body)
         }.getOrElse {
             // 応答の形が読めないときは**何も取り除かない**。取り除くと記録が消える
             log(Telemetry.line("send_failed", count = batch.size, error = "unreadable_response"))
-            return emptyList()
+            return Verdict(emptyList(), 0)
         }
         if (results.size != batch.size) {
             log(Telemetry.line("send_failed", count = batch.size, error = "result_count_mismatch"))
-            return emptyList()
+            return Verdict(emptyList(), 0)
         }
-        // **断られた分を黙って積み直さない**（review HIGH-12）。恒久的に断られる記録は
-        // 未送信に居座り、5 分ごとに送られ続ける。理由の種別は私的データではないので出せる
+        // **捨てた（または断られた）件数と理由の種別を残す**（ST03 / spec「端末のログに残す」）。
+        // 理由の種別は私的データではないので出せる（製造準備 A-2）——
+        // **これが唯一、断られていることに気付ける経路**（画面に出る経路が無い。
+        // 自動で気付くのは ST02 の途絶通知で、位置なら想定間隔の 3 倍＝18 時間後）。
+        // **捨てたのか残したのかで種別を分ける** —— 同じ語にすると、
+        // ログからは「未送信が減ったのか居座っているのか」が読み取れない。
+        val dropKind = if (dropPermanentlyRejected) "dropped" else "rejected"
         results.filter { !it.accepted }
             .groupingBy { it.error ?: "unknown" }
             .eachCount()
-            .forEach { (kind, count) -> log(Telemetry.line("rejected", count = count, error = kind)) }
-        // **断られた分を覚えておき、次の契機では先に飛ばす**（R18）。
-        // 覚えないと先頭が詰まり、後ろの記録が永久に送られない
-        batch.forEachIndexed { i, item -> if (!results[i].accepted) rejected += item.id }
-        return batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id }
+            .forEach { (kind, count) -> log(Telemetry.line(dropKind, count = count, error = kind)) }
+        if (!dropPermanentlyRejected) {
+            // **捨てない側**（生存信号）。断られた分を覚えて、次の契機では先に飛ばす
+            batch.forEachIndexed { i, item -> if (!results[i].accepted) skipped += item.id }
+            return Verdict(
+                remove = batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id },
+                accepted = results.count { it.accepted },
+            )
+        }
+        // **受理された分と、恒久的に断られた分の両方**を取り除く（ST03 / FR-10 の改訂）。
+        // 断られた 1 件は再び送っても結果が変わらない —— 要求そのものが不正だと
+        // サーバが 1 件ごとの結果で告げている。
+        return Verdict(
+            remove = batch.map { it.id },
+            accepted = results.count { it.accepted },
+        )
     }
 }

@@ -39,6 +39,17 @@ data class IngestRequest(
     @SerialName("unit_system") val unitSystem: String? = null,
     val crs: String? = null,
     /**
+     * 外部サービス側の更新時刻（ST03 / 深掘り Q20）。**端末の収集では常に null** ——
+     * 外部サービスから取り込む ST12 / ST13 が使う。届かない到着は「届いた順」で
+     * 適用され、保存済みの値を消さない。
+     */
+    @SerialName("source_updated_at") val sourceUpdatedAt: String? = null,
+    /**
+     * 「対象ごと」の外部識別子（動画 ID など。ST03 / 深掘り Q24）。
+     * **重複の判定には使われない** —— 同じ対象の記録を後から集めるために持つ。
+     */
+    @SerialName("external_ref") val externalRef: String? = null,
+    /**
      * 原文。**JSON の値ではなく文字列**（design D16 / docs/collector-contract.md）——
      * JSON の値で送るとサーバ側の DB がキー順・重複キー・数値表記を正規化し、
      * 「受け取ったまま」が成り立たなくなる。

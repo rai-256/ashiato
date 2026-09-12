@@ -29,6 +29,14 @@ class SenderTest {
         Outcome.Responded(200, "[$results]")
     }
 
+    /**
+     * 記録の送信器。**恒久的に断られたら捨てる側**（ST03 / FR-10 の改訂）——
+     * `LocationService` が本番で組み立てるのと同じ形。
+     * 生存信号は捨てない側（既定）で、そちらは `HeartbeatOutboxTest` が見る。
+     */
+    private fun sender(outbox: Outbox<IngestRequest>, transport: Transport, log: (String) -> Unit = {}) =
+        Sender(outbox, transport, IngestRequest.serializer(), dropPermanentlyRejected = true, log = log)
+
     // Scenario: 到達できるとき送られる
     // Scenario: 複数件が 1 回の送信でまとまる
     @Test
@@ -37,7 +45,7 @@ class SenderTest {
         repeat(5) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(true, true, true, true, true))
 
-        val flushed = Sender(outbox, transport, IngestRequest.serializer()).flush()
+        val flushed = sender(outbox, transport).flush()
 
         assertEquals(1, transport.bodies.size)                       // **1 回にまとまる**
         assertEquals(5, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
@@ -46,27 +54,77 @@ class SenderTest {
     }
 
     // Scenario: 一部が失敗しても成功分は残らない
+    // Scenario: 恒久的に断られた記録は未送信から消える
     @Test
-    fun `一部が失敗したら失敗分だけ残る`() {
+    fun `成功分も恒久的に断られた分も未送信から消える`() {
+        // > **2026-09-12（ST03）に向きが変わった。** 以前は断られた 1 件を未送信に残していたが、
+        // > **5 分ごとに送られ続け、1 回に載る上限（200 件）までたまると新しい記録が
+        // > 送られなくなる**（FR-10 の改訂 / 深掘り Q4 / Q5）。要求そのものが不正だと
+        // > サーバが 1 件ごとの結果で告げている以上、再び送っても結果は変わらない。
         val outbox = testOutbox()
         listOf("a", "b", "c").forEach { outbox.add(req(it)) }
         val transport = FakeTransport(okFor(true, false, true))
 
-        Sender(outbox, transport, IngestRequest.serializer()).flush()
+        val flushed = sender(outbox, transport).flush()
 
-        assertEquals(listOf("b"), outbox.snapshot().map { it.id })
+        assertEquals(0, outbox.size())
+        assertEquals(Sender.Flushed(sent = 3, accepted = 2), flushed)
+    }
+
+    // Scenario: 捨てた件数と理由が端末のログに残る
+    @Test
+    fun `捨てた件数と理由の種別がログに残る`() {
+        // **これが唯一、断られていることに気付ける経路。** 画面に出る経路は無く、
+        // 自動で気付くのは ST02 の途絶通知（位置なら 18 時間後）だけ
+        val outbox = testOutbox()
+        listOf("a", "b", "c").forEach { outbox.add(req(it)) }
+        val transport = FakeTransport { _ ->
+            Outcome.Responded(
+                200,
+                """[{"accepted":true},{"accepted":false,"error":"missing_external_id"},
+                    {"accepted":false,"error":"missing_external_id"}]""",
+            )
+        }
+        val lines = mutableListOf<String>()
+
+        sender(outbox, transport) { lines += it }.flush()
+
+        val dropped = lines.single { it.startsWith("kind=dropped ") }
+        assertTrue("件数が出ていない: $dropped", dropped.contains("count=2"))
+        assertTrue("理由の種別が出ていない: $dropped", dropped.contains("error=missing_external_id"))
+        // **値は出さない**（製造準備 A-2）。緯度経度がログに載っていないこと
+        assertTrue("私的データが出ている: $dropped", !dropped.contains("35.68"))
+    }
+
+    // Scenario: 一時的な失敗では捨てない
+    @Test
+    fun `一時的な失敗では1件も取り除かない`() {
+        // 到達できない / サーバ側の失敗 / 資格情報の不一致は、**再び送れば結果が変わる**
+        val temporary = listOf(
+            Outcome.Unreachable("timeout"),
+            Outcome.Responded(500, "internal error"),
+            Outcome.Responded(503, ""),
+            Outcome.Responded(401, "unauthorized"),
+        )
+        for (outcome in temporary) {
+            val outbox = testOutbox()
+            listOf("a", "b").forEach { outbox.add(req(it)) }
+            sender(outbox, FakeTransport { outcome }).flush()
+            assertEquals("$outcome で捨てている", 2, outbox.size())
+        }
     }
 
     @Test
-    fun `1件も受け付けられない400でも本文を読んで成功分を取り除く`() {
-        // 400 は「1 件も受け付けなかった」。取り除くものが無いことを確かめる
+    fun `1件も受け付けられない400でも本文を読んで断られた分を取り除く`() {
+        // 400 は「1 件も受け付けなかった」。**恒久的な拒否なので未送信から消える** ——
+        // 残すと同じ 1 件が 5 分ごとに永久に送られ続ける
         val outbox = testOutbox()
         outbox.add(req("a"))
         val transport = FakeTransport { Outcome.Responded(400, """[{"accepted":false,"error":"unknown_origin"}]""") }
 
-        Sender(outbox, transport, IngestRequest.serializer()).flush()
+        sender(outbox, transport).flush()
 
-        assertEquals(listOf("a"), outbox.snapshot().map { it.id })
+        assertEquals(0, outbox.size())
     }
 
     // Scenario: 失敗しても失われない
@@ -76,12 +134,12 @@ class SenderTest {
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { Outcome.Unreachable("timeout") }
 
-        assertEquals(Sender.Flushed(sent = 2, accepted = 0), Sender(outbox, transport, IngestRequest.serializer()).flush())
+        assertEquals(Sender.Flushed(sent = 2, accepted = 0), sender(outbox, transport).flush())
         assertEquals(2, outbox.size())
 
         // 次の契機では同じ 2 件が送られる
         val ok = FakeTransport(okFor(true, true))
-        Sender(outbox, ok, IngestRequest.serializer()).flush()
+        sender(outbox, ok).flush()
         assertEquals(0, outbox.size())
     }
 
@@ -89,7 +147,7 @@ class SenderTest {
     fun `資格情報が無くて401なら何も取り除かない`() {
         val outbox = testOutbox()
         outbox.add(req("a"))
-        Sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }, IngestRequest.serializer()).flush()
+        sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }).flush()
         assertEquals(1, outbox.size())
     }
 
@@ -98,7 +156,7 @@ class SenderTest {
         // 取り違えて消すと記録が失われる。**消さない側に倒す**
         val outbox = testOutbox()
         listOf("a", "b").forEach { outbox.add(req(it)) }
-        Sender(outbox, FakeTransport(okFor(true)), IngestRequest.serializer()).flush()
+        sender(outbox, FakeTransport(okFor(true))).flush()
         assertEquals(2, outbox.size())
     }
 
@@ -111,7 +169,7 @@ class SenderTest {
         repeat(MAX_BATCH + 50) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
-        val flushed = Sender(outbox, transport, IngestRequest.serializer()).flush()
+        val flushed = sender(outbox, transport).flush()
 
         assertEquals(MAX_BATCH, flushed.sent)
         assertEquals(MAX_BATCH, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
@@ -126,7 +184,7 @@ class SenderTest {
         repeat(MAX_BATCH + 3) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
-        Sender(outbox, transport, IngestRequest.serializer()).flush()
+        sender(outbox, transport).flush()
 
         assertEquals(listOf("id-$MAX_BATCH", "id-${MAX_BATCH + 1}", "id-${MAX_BATCH + 2}"),
             outbox.snapshot().map { it.id })
@@ -135,7 +193,7 @@ class SenderTest {
     @Test
     fun `空のときは送らない`() {
         val transport = FakeTransport(okFor())
-        assertEquals(Sender.Flushed(0, 0), Sender(testOutbox(), transport, IngestRequest.serializer()).flush())
+        assertEquals(Sender.Flushed(0, 0), sender(testOutbox(), transport).flush())
         assertTrue(transport.bodies.isEmpty())
     }
 }

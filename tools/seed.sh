@@ -21,8 +21,8 @@ case "$MODE" in
 esac
 
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
-  "INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-   VALUES ('seed-location','偽データ（位置）',21600) ON CONFLICT DO NOTHING;"
+  "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+   VALUES ('seed-location','偽データ（位置）',21600,'none') ON CONFLICT DO NOTHING;"
 
 # **原文は text で送る**（design D16）。JSON の値ではなく文字列にくるむ。
 # 「収集した」記録には device_id が要る（design D19）。

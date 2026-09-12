@@ -41,9 +41,14 @@ ashiato.userId=<.env の ASHIATO_USER_ID と同じ値>
 送る前に、登録簿へ 1 行入れておく（FR-61。API のコードは変えない）:
 
 ```sql
-INSERT INTO core.source (logical_source, display_name, expected_gap_sec)
-VALUES ('c01-location','携帯端末の位置',21600);
+INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+VALUES ('c01-location','携帯端末の位置',21600,'none');
 ```
+
+> **`external_id_kind` は `'none'`。** 端末は外部サービス上の識別子を持たない。
+> 既定は `'record'`（＝識別子が無ければ 400 で断る）なので、**書き忘れると記録が全件断られる**
+> （ST03 / 深掘り Q16 —— 緩い側に倒すと、識別子なしで入った記録に後から足す手段が無い）。
+> 断りは端末では `Sender.kt` のログ 1 行にしかならないので、気付くのは稼働状況の画面。
 
 > **`expected_gap_sec` は 21600（6 時間）。** FR-35 が「想定間隔の初期値は 位置 = 6 時間」と
 > 定めており、その **3 倍**を超えると「ソースが止まっている」と通知される。
