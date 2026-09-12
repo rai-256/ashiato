@@ -46,27 +46,38 @@
 
 **D4（生存信号）・D9（離席の閾値）・D11（除外）で載る項目が変わる**ので、この 3 つを先に決める。
 
-### D2. 登録簿の `c02-window` を `external_id_kind='none'` にする
+### D2. `c02-window` の `external_id_kind` は、ST03 の移行が既に `'none'` にしている
+
+**ST07 は移行を 1 本も足さない。** 確認のテストだけを置く。
 
 FR-23 は「『記録ごと』と宣言されたソースが識別子を欠けば 400 で断る。**書き忘れたときは
 『記録ごと』に倒す**」と定めており、ST03 が足す `external_id_kind` の既定は `'record'`。
-ウィンドウの記録に外部サービス上の識別子は存在しないので、**そのままだと ST07 の記録が全件 400**。
+上流の時点では ST03 の `tasks.md` が `UPDATE … WHERE logical_source NOT IN (…外部ソース…)` と
+**省略記号のまま**で、`c02-window` が含まれるか決まっていなかった（`review/deep.md` R3）。
 
-ST07 の移行は **ST03 と同じ DDL（`ALTER TABLE core.source ADD COLUMN IF NOT EXISTS
-external_id_kind …`）から始めて、必ず `UPDATE core.source SET external_id_kind='none'
-WHERE logical_source='c02-window'` まで走らせる。**
+**main に入った実装は違った。** `migrations/202609120940_source_columns.sql` は
+「**列が生まれた回に登録簿に居た行だけ**を `'none'` へ倒す」形で、
+`c02-window` はそれより前（`202609111111_coverage_rebuild.sql`）に登録済みなので含まれる。
 
-> **当初は「列がまだ無ければ何もしない分岐」を置くつもりだったが、それでは順に依存する**
-> （spec-review R7）。適用順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列の並びで、
-> ST03 も ST07 も末尾に足す。**ST07 が先に merge されると、何もしない分岐が走って終わり、
-> その後に当たる ST03 の移行が `DEFAULT 'record'` で列を作る** —— `c02-window` は `'record'` で
-> 確定し、記録が全件 400 になる。列の有無で分岐させず、どちらの順でも同じ結果になる形にする。
+> **実測**（2026-09-13、使い捨ての PostgreSQL に全移行を当てた）:
+> ```
+>  logical_source      | external_id_kind
+> ---------------------+------------------
+>  c01-app-usage       | none
+>  c01-location        | none
+>  c01-photo           | none
+>  c02-browser-history | none
+>  c02-window          | none
+> ```
 
-さらに、**全移行を当てた後に**「`c02-window` の `external_id_kind` が `'record'` ではない」ことを
-見るテストを 1 本置く（列の有無を合格条件に混ぜない）。
+**当初は ST07 の移行で当て直すつもりだったが、要らなくなった。** 足すと、
+起動のたびに撃たれる `UPDATE` が 1 本増えるだけで何も守らない
+（ST03 の移行自身が「毎回撃つと後から登録した外部ソースが再起動のたびに `'none'` へ落ちる」と
+警告している型に、わざわざ近づくことになる）。
 
-> **ST03 へは差し戻さない。** ST03 は下流が走行中で `tasks.md` が凍結されている
-> （`docs/handoff/README.md` の規則 2(i)：見つけた Story 自身の change で直す）。
+**残すのは担保のテスト 1 本だけ** —— 全移行を当てた後に
+`c02-window` の `external_id_kind` が `'record'` ではないことを見る。
+これは**誰が倒したかに依存しない**ので、ST03 側の条件が将来変わっても落ちる。
 
 ### D3. 到達できない間の記録は、追記のみの JSONL で保持する
 
@@ -188,12 +199,8 @@ D10 と同じ理由・同じ解き方。本文（アプリ名・題名・URL）�
 
 ## Migration Plan
 
-移行は 1 本。`migrations/<作成時刻>_c02_window_source.sql` で
-登録簿の `c02-window` を整える（D2）。**名前は作成時刻**（連番にしない —— ST02 と ST03 が
-0007 を取り合った実測がある）。適用の順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列の末尾。
-
-戻し手順は `.down.sql` に置くが、**`external_id_kind` を `'record'` に戻すと
-ウィンドウの記録が全件 400 になる**ので、戻しは列が存在するときだけ・警告つきにする。
+**移行は 1 本も足さない**（D2）。登録簿の `c02-window` は既に登録済みで、
+`external_id_kind` も ST03 の移行が `'none'` にしている（実測）。
 
 **merge の順序は書かない** —— gate が main に rebase するので、後から merge する側が追従する。
 

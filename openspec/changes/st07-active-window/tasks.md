@@ -3,8 +3,9 @@
 読む順: `deep.md`（**最優先。本人が決めた 8 件**）→ このファイル → `specs/desktop-collection/spec.md`
 → `design.md` → `docs/stories/ST07.md` → `docs/handoff/`（開始時と PR 前の 2 回）→ `CLAUDE.md`。
 
-**移行の名前は作成時刻 `YYYYMMDDHHMM_<slug>.sql`**（連番にしない。作った時刻を付け、
-`crates/server/src/lib.rs` の `MIGRATIONS` 配列の末尾に足す）。
+**この change は移行を 1 本も足さない**（design D2）。足す必要が出たら
+**名前は作成時刻 `YYYYMMDDHHMM_<slug>.sql`**（連番にしない）で、
+`crates/server/src/lib.rs` の `MIGRATIONS` 配列の末尾に足す。
 **`collection-coverage` と `record-envelope` には触らない**（ST02 / ST03 の capability）。
 
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
@@ -23,24 +24,15 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - **D5 / D7 / D8 / D9 は（仮）決め。** 反転条件は `design.md` にある。
   実測で値を変えたら、その D 番号の（仮）を外すか反転条件を書き直す
 
-## 1. 登録簿と移行
+## 1. 登録簿の担保
 
-- [ ] 1.1 `migrations/<作成時刻>_c02_window_source.sql` を作る（design D2）。
-  **ST03 と同じ DDL（`ALTER TABLE core.source ADD COLUMN IF NOT EXISTS external_id_kind text
-  NOT NULL DEFAULT 'record' CHECK (…)`）から始めて、必ず
-  `UPDATE core.source SET external_id_kind='none' WHERE logical_source='c02-window'` まで走らせる。**
-  **列の有無で分岐させない** —— 分岐すると merge の順に依存する（spec-review R7）。
-  検証: `psql -c "SELECT external_id_kind FROM core.source WHERE logical_source='c02-window'"` が
-  `none` を返す（**列が無ければ FAIL**）。`cargo test --test migrations` rc=0
-- [ ] 1.1b **全移行を当てた後**に `c02-window` の `external_id_kind` が `'record'` でないことを見る
-  テストを 1 本置く（ST03 と ST07 のどちらが先に merge されても同じ結果になることの担保）。
-  検証: `cargo test c02_window_external_id_kind_is_not_record` rc=0
-- [ ] 1.2 戻し手順 `.down.sql` を書く。**`'record'` に戻すとウィンドウの記録が全件 400 になる**ので、
-  列があるときだけ・`RAISE WARNING` つきにする。検証: `psql < migrations/<作成時刻>_c02_window_source.down.sql`
-  が rc=0 で、警告が出力に含まれる
-- [ ] 1.3 `tools/check-migrations.sh` を通す。検証: `tools/check-migrations.sh` rc=0
-- [ ] 1.4 `crates/server/src/lib.rs` の `MIGRATIONS` 配列の末尾に足す。検証:
-  `cargo test --test migrations` rc=0（当て直しても表が壊れない）
+**移行は 1 本も足さない**（design D2）。`c02-window` は登録済みで、`external_id_kind` も
+ST03 の移行（`202609120940_source_columns.sql`）が既に `'none'` にしている（2026-09-13 に実測）。
+残すのは、**誰が倒したかに依存しない**担保 1 本だけ。
+
+- [ ] 1.1 全移行を当てた後に `c02-window` の `external_id_kind` が `'record'` ではないことを見る
+  テストを 1 本置く（design D2）。**列の有無で分岐させない** —— 分岐すると「まだ列が無いから合格」で
+  素通りする。検証: `cargo test c02_window_external_id_kind_is_not_record` rc=0
 
 ## 2. 送る形（契約）
 
@@ -123,6 +115,9 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 8.2 1 件ごとの結果の `accepted` だけを見て未送信から取り除く（`docs/collector-contract.md` §返る形）。
   検証: `cargo test outbox_uses_accepted_only` rc=0
 - [ ] 8.3 外部サービス上の識別子を付けずに送り、断られないことを確かめる。
+  **`external_id` は null で送る（空文字は不可）** —— ST03 が `empty_external_id` を足しており、
+  空文字は 400 で断られる（`docs/collector-contract.md` §返る形）。
+  `source_updated_at` と `external_ref` はどちらも省略可なので送らない。
   Scenario: `識別子を持たない記録が受け付けられる`。検証: `tools/smoke.sh` rc=0
 
 ## 8b. 感度と時計

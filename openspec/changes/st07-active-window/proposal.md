@@ -17,9 +17,9 @@ PC のアクティブウィンドウは、その空白を埋める唯一の Must
 
 ## What Changes
 
-深掘りは **1 巡・8 問**（本人が 8 問すべてを選択肢から明示的に選び、`(未回答)` も
-`(推奨のまま: …)` も 0 件）。独立レビュー（`deep-review`）の指摘は **10 件**で、
-問いは 9 → 8 問になった（1 問を新設、2 問を C へ、1 問の前提の数値を訂正）。
+深掘りは **2 巡・9 問**（本人が 9 問すべてを選択肢から明示的に選び、未回答 0 件・推奨のまま 0 件）。
+独立レビューは 2 段で **22 件** —— `deep-review` が 10 件（問いを 9 → 8 問にした。1 問を新設、
+2 問を C へ、1 問の前提の数値を訂正）、`spec-review` が 12 件（うち 1 件が第 2 回の問いになった）。
 
 - **`desktop-collection` を新しい capability として作る。** ST08（ブラウザ履歴）が同じ場所に積む
 - **前景が変わったら記録を 1 件生成する**（FR-12）。アプリ名・ウィンドウ題名・URL のいずれか
@@ -35,7 +35,7 @@ PC のアクティブウィンドウは、その空白を埋める唯一の Must
 
 **BREAKING は無い。** 既存の取り込み口・エンベロープ・登録簿の形は変えない。
 
-## 深掘りで本人が決めたこと（2026-09-12。8 問）
+## 深掘りで本人が決めたこと（2026-09-12。2 巡・9 問）
 
 全文は `deep.md`。**下流はこれを勝手に変えない。**
 
@@ -49,6 +49,7 @@ PC のアクティブウィンドウは、その空白を埋める唯一の Must
 | Q6 | アプリと URL は必ず取り、**題名だけの変化に最小滞留 5 秒** | A |
 | Q7 | **入力が無い状態への出入り**を 1 件として残す | A |
 | Q8 | PC を開かない日に鳴る通知を**許容する**（想定間隔 6 時間のまま） | B |
+| Q9 | 除外した本文は **PC 側で落とし、そもそも送らない**（第 2 回。`spec-review` が見つけた） | A |
 
 ## Capabilities
 
@@ -72,7 +73,7 @@ PC のアクティブウィンドウは、その空白を埋める唯一の Must
 ### 触るもの
 
 - `crates/collector-windows/`（6 行のスタブ → 実装）
-- `migrations/<作成時刻>_c02_window_source.sql`（登録簿の `c02-window` の 1 行を整える）
+- **移行は足さない**（design D2）
 - `docs/collector-contract.md`（C-02 が送る `payload` の形を追記）
 - `openspec/specs/desktop-collection/`（archive 時に新設される）
 
@@ -81,7 +82,7 @@ PC のアクティブウィンドウは、その空白を埋める唯一の Must
 | Story | 状態 | capability | 重なり |
 |---|---|---|---|
 | **ST02** | merge 済み・archive 前 | `collection-coverage` | **NFR-13 の数え方**。`docs/handoff/ST02.md` へ送った。ST07 では書かない |
-| **ST03** | 下流が走行中 | `record-envelope`, `device-collection` | `core.source.external_id_kind`（既定 `'record'`）。**`c02-window` が `'none'` でないと ST07 の記録が全件 400。** 差し戻さず、ST07 の移行で当てる（design D2） |
+| **ST03** | **main に merge 済み**（2026-09-13 に追従） | `record-envelope`, `device-collection` | `external_id_kind` を足したが、**`c02-window` は既に `'none'`**（実測）。**ST07 は移行を 1 本も足さない** —— 担保のテスト 1 本だけ（design D2）。契約に増えた `source_updated_at` / `external_ref` はどちらも省略可なので送らない |
 | **ST08** | 衝突待ち（この Story が `desktop-collection` を掴んでいる） | `desktop-collection` | ST07 が capability を作り、ST08 が FR-13 を足す。**ST07 の merge まで ST08 は始めない** |
 
 ### 要件の穴（この change では埋めない）

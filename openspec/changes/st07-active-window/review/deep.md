@@ -93,7 +93,13 @@
   `external_id_kind='none'` にするか、`docs/handoff/ST03.md` に 1 件書く
   （`docs/handoff/README.md` の規則 2(ii)。**ST03 は走行中なので差し戻さない**）。
   問いにはしない —— FR-23 が既に決めていて幅が無い。
-- 処置: fixed D2 — ST07 の移行で `c02-window` を `external_id_kind='none'` にする。**ST03 は走行中なので差し戻さない**（`docs/handoff/README.md` の規則 2(i)：見つけた Story 自身の change で直す）。ST03 の移行が先に main に入る前提で、当てる順に依存しない形（`UPDATE … WHERE logical_source='c02-window'`）にする
+- 処置: fixed D2 — **指摘は正しかったが、main に入った ST03 の実装が tasks の下書きと違った。**
+  `migrations/202609120940_source_columns.sql` は「列が生まれた回に登録簿に居た行だけを `'none'` へ倒す」形で、
+  `c02-window` はそれより前に登録済みなので含まれる。**2026-09-13 に使い捨ての PostgreSQL へ全移行を当てて
+  `c02-window | none` を実測した。** そこで **ST07 は移行を 1 本も足さず**、
+  「全移行を当てた後に `c02-window` の `external_id_kind` が `'record'` ではない」ことを見る
+  テスト 1 本だけを残した（tasks 1.1）—— **誰が倒したかに依存しないので、ST03 側の条件が将来変わっても落ちる**。
+  **ST03 へは差し戻していない**（走行中だったため。その後 main に merge された）
 
 ## R4. C-02 の未送信（S-01 が止まっている間の記録）を扱う問いも既定も無い
 
