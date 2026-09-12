@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST16 proto — 滞在の一覧（S-2 主表現）</title>
+<style>
+  /* ---- playground 自体の UI（upstream 既定どおりダーク。プレビュー対象の明暗とは別物） ---- */
+  :root{
+    --ui-bg:#14161a; --ui-panel:#1b1e24; --ui-line:#2b3039; --ui-fg:#dfe3ea; --ui-dim:#939bab;
+    --ui-accent:#7fb98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui-bg);color:var(--ui-fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif;font-size:14px}
+  .wrap{display:grid;grid-template-columns:360px 1fr;min-height:100vh}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .controls{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:16px;overflow-y:auto;max-height:100vh}
+  @media (max-width:900px){.controls{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+  .right{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--ui-dim);font-size:12px;margin:0 0 14px;line-height:1.6}
+  .grp{border-top:1px solid var(--ui-line);padding:14px 0 4px}
+  .grp:first-of-type{border-top:none}
+  .grp > .lbl{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);text-transform:uppercase;margin-bottom:10px}
+  .row{margin-bottom:14px}
+  .row > label{display:block;font-size:12px;margin-bottom:6px;color:var(--ui-fg)}
+  .row .hint{display:block;color:var(--ui-dim);font-size:11px;margin-top:5px;line-height:1.5}
+  .val{float:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ui-accent)}
+  input[type=range]{width:100%;accent-color:var(--ui-accent)}
+  select{width:100%;background:#232730;color:var(--ui-fg);border:1px solid var(--ui-line);
+         border-radius:6px;padding:7px 8px;font-size:13px;font-family:inherit}
+  .cards{display:grid;gap:6px}
+  .card{background:#232730;border:1px solid var(--ui-line);border-radius:8px;padding:9px 10px;
+        cursor:pointer;font-size:12.5px;line-height:1.45}
+  .card:hover{border-color:#3d4552}
+  .card.on{border-color:var(--ui-accent);background:#22302460}
+  .card .t{font-weight:600}
+  .card .d{color:var(--ui-dim);font-size:11px;margin-top:3px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:#232730;border:1px solid var(--ui-line);border-radius:999px;padding:5px 11px;
+        cursor:pointer;font-size:12px}
+  .chip.on{border-color:var(--ui-accent);background:#22302460;color:#cfe6d4}
+  .fixed{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;
+         font-size:11.5px;color:var(--ui-dim);line-height:1.75}
+  .fixed b{color:var(--ui-fg);font-weight:600}
+  /* ---- プレビュー ---- */
+  .stage{flex:1;padding:18px;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;
+         background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+  .meta{width:100%;max-width:920px;display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ui-dim)}
+  .meta b{color:var(--ui-accent);font-family:ui-monospace,Menlo,monospace}
+  .phone-outer{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  .phone{border:1px solid var(--ui-line);border-radius:20px;overflow:hidden;flex:0 0 auto;
+         box-shadow:0 10px 40px #0008}
+  .phone .cap{font-size:11px;color:var(--ui-dim);padding:6px 10px;background:#101216;
+              display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}
+  .screen{overflow-y:auto;height:720px}
+  /* ---- 出力 ---- */
+  .out{border-top:1px solid var(--ui-line);background:var(--ui-panel);padding:14px 18px}
+  .out h2{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);text-transform:uppercase;margin:0 0 8px}
+  pre#prompt{white-space:pre-wrap;background:#101216;border:1px solid var(--ui-line);border-radius:8px;
+       padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;
+       max-height:210px;overflow:auto;margin:0 0 10px;color:#cbd2dd}
+  button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
+       font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.copy:hover{filter:brightness(1.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============================ コントロール ============================ -->
+<div class="controls">
+  <h1>ST16 — 滞在の一覧（S-2）</h1>
+  <p class="sub">
+    位置の記録 <b id="ptcount">1,440</b> 件から、その場で滞在を計算して描いている。
+    <b>件数はコントロールではない</b> —— 半径と時間を動かした結果として出る。<br>
+    触るのは<b>構造の軸</b>だけ。表面（色・角・文字の大きさ）は
+    <code>docs/ui-direction.md</code> で決着済みなので動かせない。
+  </p>
+
+  <div class="grp">
+    <div class="lbl">その日（入力。軸ではない）</div>
+    <div class="row">
+      <label>どんな 1 日か</label>
+      <select id="day">
+        <option value="weekday">平日 — 家・通勤・職場・店・家</option>
+        <option value="home">家にほぼ 1 日</option>
+        <option value="trip">出歩いた日 — 立ち寄りが多い</option>
+        <option value="sparse">記録が半分欠けた日（圏外・電池切れ）</option>
+        <option value="commute">移動ばかりの日（長距離）</option>
+      </select>
+      <span class="hint">位置は 60 秒間隔（FR-1）。水平精度のばらつきも入れてある。</span>
+    </div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">判定の基準（FR-76。動かすと作り直しが起きる）</div>
+    <div class="row">
+      <label>半径 <span class="val" id="vRadius">100 m</span></label>
+      <input type="range" id="radius" min="20" max="400" step="10" value="100">
+      <span class="hint">FR-76 の既定は 100 m。</span>
+    </div>
+    <div class="row">
+      <label>最短のとどまり <span class="val" id="vMin">10 分</span></label>
+      <input type="range" id="minmin" min="2" max="60" step="1" value="10">
+      <span class="hint">FR-76 の既定は 10 分。§5「扉ではないもの」が<b>可変</b>と明記している。<br><b>この 2 本は「見るため」の軸</b> —— 基準そのものを決めるのは深掘りの Q7〜Q9 で、ここで選んだ値は出力に「決定」としては入らない。</span>
+    </div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 1 — 行の見出しに何を出すか</div>
+    <div class="cards" id="titleCards"></div>
+    <span class="hint">ui-direction は主役を「場所の名前」に決めたが、<b>場所の登録は ST21（まだ無い）</b>。
+      名前が来るまで何を大きく出すか。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 2 — 滞在にならなかった時間</div>
+    <div class="cards" id="gapCards"></div>
+    <span class="hint">滞在と滞在の間（移動している時間）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 3 — 位置の記録そのものが無い時間</div>
+    <div class="cards" id="holeCards"></div>
+    <span class="hint">圏外・電池切れ。<b>「動いていない」と同じ顔にすると区別が消える</b>（扉 #14 と同じ型）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 4 — 1 行に添える値（複数可）</div>
+    <div class="chips" id="fieldChips"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 5 — 作り直したことの見え方</div>
+    <div class="cards" id="rebuildCards"></div>
+    <span class="hint">基準を動かした直後の画面。上の半径・時間を既定（100 m / 10 分）から
+      ずらすと、この軸の効き方が見える。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 6 — 人が後から付けたもの（ST17 主観 / ST20 人物）</div>
+    <div class="cards" id="annoCards"></div>
+    <span class="hint">ST16 では<b>まだ作らない</b>が、<b>置き場が行のどこかは先に決まってしまう</b>
+      （後から差し込むと 1 行の高さが変わり、1 画面の件数が変わる）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">文脈（軸ではない。どちらでも成立させる）</div>
+    <div class="row">
+      <label>幅</label>
+      <div class="chips" id="widthChips"></div>
+    </div>
+    <div class="row">
+      <label>明暗（NFR-17。OS 追従が既定）</label>
+      <div class="chips" id="themeChips"></div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">動かせないもの（要件と ui-direction の決着）</div>
+    <div class="fixed">
+      <b>色相 132° / 彩度 30% / 地の明るさ 12 / 面 3 段 / 角 15px / 本文 16.1px / 行間 1.65 /
+      区切りは境界線 / 種類のしるしは付けない</b>（ui-direction.md の確定値）<br>
+      <b>NFR-17</b> OS の明暗に追従 ・ <b>NFR-18</b> 本文 4.5:1 以上 ・
+      <b>NFR-19</b> 触れる対象 24×24px 以上 ・ <b>NFR-20</b> 削除・停止は 44×44px 以上 ・
+      <b>NFR-21</b> 原色と角張りを避ける ・ <b>NFR-22</b> フォーカスが見える ・
+      <b>NFR-23</b> 意味を担う面は 3:1 以上<br>
+      <b>色は意味の担い手にしない</b>（ui-direction の宿題 1）—— 状態は必ず文字を併せる。
+    </div>
+  </div>
+</div>
+
+<!-- ============================ プレビュー ============================ -->
+<div class="right">
+  <div class="stage">
+    <div class="meta">
+      <span>位置の記録 <b id="mPts">—</b> 件</span>
+      <span>滞在 <b id="mStays">—</b> 件</span>
+      <span>1 画面（720px）に入る行 <b id="mFit">—</b></span>
+      <span>全部を縦に積むと <b id="mHeight">—</b></span>
+      <span>いちばん高い行 <b id="mRow">—</b></span>
+    </div>
+    <div class="phone-outer" id="phones"></div>
+  </div>
+
+  <div class="out">
+    <h2>この設定を指示として出す</h2>
+    <pre id="prompt"></pre>
+    <button class="copy" id="copyBtn">指示をコピー</button>
+  </div>
+</div>
+</div>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   1. 定数 —— 動かせないもの（ui-direction.md の確定値）
+   ========================================================================== */
+const FIXED = { hue:132, sat:30, bgL:12, radius:15, body:16.1, lh:1.65, gap:24, ratio:1.15 };
+
+// 明暗の 2 文脈。ui-direction の実測（ダーク最小 4.58:1 / ライト 4.71:1）に合わせた組み
+function palette(dark){
+  const h=FIXED.hue, s=FIXED.sat;
+  return dark ? {
+    bg:   `hsl(${h} ${s}% ${FIXED.bgL}%)`,
+    s1:   `hsl(${h} ${s}% ${FIXED.bgL+4}%)`,
+    s2:   `hsl(${h} ${s}% ${FIXED.bgL+8}%)`,
+    s3:   `hsl(${h} ${s}% ${FIXED.bgL+12}%)`,
+    line: `hsl(${h} ${s}% ${FIXED.bgL+16}%)`,
+    fg:   `hsl(${h} 12% 92%)`,
+    dim:  `hsl(${h} 10% 68%)`,
+    acc:  `hsl(${h} 42% 66%)`,
+    warn: `hsl(28 38% 68%)`
+  } : {
+    bg:   `hsl(${h} ${Math.round(s*0.45)}% 97%)`,
+    s1:   `hsl(${h} ${Math.round(s*0.4)}% 94%)`,
+    s2:   `hsl(${h} ${Math.round(s*0.35)}% 90%)`,
+    s3:   `hsl(${h} ${Math.round(s*0.3)}% 86%)`,
+    line: `hsl(${h} ${Math.round(s*0.3)}% 78%)`,
+    fg:   `hsl(${h} 18% 16%)`,
+    dim:  `hsl(${h} 12% 38%)`,
+    acc:  `hsl(${h} 46% 28%)`,
+    warn: `hsl(28 48% 30%)`
+  };
+}
+
+/* ==========================================================================
+   2. その日の位置の記録を作る（60 秒間隔 = 1 日 1,440 件。FR-1）
+   ========================================================================== */
+const M_PER_DEG_LAT = 111320;
+function mPerDegLon(lat){ return 111320*Math.cos(lat*Math.PI/180); }
+
+// 疑似乱数（同じ日は毎回同じ形にする。触っても足元が動かないように）
+function rng(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+
+// 1 日の骨格。dwell = とどまる、move = 移動。分単位。
+const DAYS = {
+  weekday: { seed:11, hole:null, plan:[
+    ["dwell","自宅",       35.6812,139.7671, 0,  7*60+50],
+    ["move", null,         35.6812,139.7671, 35.6586,139.7454, 40],
+    ["dwell","職場",       35.6586,139.7454, 8*60+30, 12*60+10],
+    ["move", null,         35.6586,139.7454, 35.6601,139.7420, 8],
+    ["dwell","昼の店",     35.6601,139.7420, 12*60+18, 13*60+5],
+    ["move", null,         35.6601,139.7420, 35.6586,139.7454, 8],
+    ["dwell","職場（午後）",35.6586,139.7454, 13*60+13, 19*60+0],
+    ["move", null,         35.6586,139.7454, 35.6650,139.7300, 25],
+    ["dwell","寄り道",     35.6650,139.7300, 19*60+25, 19*60+52],
+    ["move", null,         35.6650,139.7300, 35.6812,139.7671, 35],
+    ["dwell","自宅（夜）", 35.6812,139.7671, 20*60+27, 24*60]
+  ]},
+  home: { seed:23, hole:null, plan:[
+    ["dwell","自宅",       35.6812,139.7671, 0, 15*60+20],
+    ["move", null,         35.6812,139.7671, 35.6795,139.7690, 9],
+    ["dwell","近所の店",   35.6795,139.7690, 15*60+29, 16*60+2],
+    ["move", null,         35.6795,139.7690, 35.6812,139.7671, 9],
+    ["dwell","自宅（夕）", 35.6812,139.7671, 16*60+11, 24*60]
+  ]},
+  trip: { seed:37, hole:null, plan:[
+    ["dwell","自宅",       35.6812,139.7671, 0, 8*60+40],
+    ["move", null,         35.6812,139.7671, 35.7148,139.7967, 30],
+    ["dwell","立ち寄り 1", 35.7148,139.7967, 9*60+10, 9*60+41],
+    ["move", null,         35.7148,139.7967, 35.7100,139.8107, 12],
+    ["dwell","立ち寄り 2", 35.7100,139.8107, 9*60+53, 10*60+18],
+    ["move", null,         35.7100,139.8107, 35.7020,139.7753, 18],
+    ["dwell","立ち寄り 3", 35.7020,139.7753, 10*60+36, 11*60+9],
+    ["move", null,         35.7020,139.7753, 35.6938,139.7034, 26],
+    ["dwell","昼の店",     35.6938,139.7034, 11*60+35, 12*60+44],
+    ["move", null,         35.6938,139.7034, 35.6896,139.7006, 10],
+    ["dwell","立ち寄り 4", 35.6896,139.7006, 12*60+54, 13*60+19],
+    ["move", null,         35.6896,139.7006, 35.6702,139.7020, 16],
+    ["dwell","立ち寄り 5", 35.6702,139.7020, 13*60+35, 14*60+8],
+    ["move", null,         35.6702,139.7020, 35.6580,139.7016, 12],
+    ["dwell","立ち寄り 6", 35.6580,139.7016, 14*60+20, 14*60+51],
+    ["move", null,         35.6580,139.7016, 35.6284,139.7367, 22],
+    ["dwell","立ち寄り 7", 35.6284,139.7367, 15*60+13, 15*60+58],
+    ["move", null,         35.6284,139.7367, 35.6329,139.7150, 14],
+    ["dwell","立ち寄り 8", 35.6329,139.7150, 16*60+12, 16*60+50],
+    ["move", null,         35.6329,139.7150, 35.6465,139.7100, 13],
+    ["dwell","立ち寄り 9", 35.6465,139.7100, 17*60+3, 17*60+40],
+    ["move", null,         35.6465,139.7100, 35.6595,139.7005, 15],
+    ["dwell","夕の店",     35.6595,139.7005, 17*60+55, 19*60+20],
+    ["move", null,         35.6595,139.7005, 35.6680,139.7300, 18],
+    ["dwell","立ち寄り 10",35.6680,139.7300, 19*60+38, 20*60+7],
+    ["move", null,         35.6680,139.7300, 35.6812,139.7671, 33],
+    ["dwell","自宅（夜）", 35.6812,139.7671, 20*60+40, 24*60]
+  ]},
+  sparse: { seed:53, hole:[8*60+20, 16*60+40], plan:[
+    ["dwell","自宅",       35.6812,139.7671, 0,  7*60+50],
+    ["move", null,         35.6812,139.7671, 35.6586,139.7454, 40],
+    ["dwell","職場",       35.6586,139.7454, 8*60+30, 12*60+10],
+    ["move", null,         35.6586,139.7454, 35.6601,139.7420, 8],
+    ["dwell","昼の店",     35.6601,139.7420, 12*60+18, 13*60+5],
+    ["move", null,         35.6601,139.7420, 35.6586,139.7454, 8],
+    ["dwell","職場（午後）",35.6586,139.7454, 13*60+13, 19*60+0],
+    ["move", null,         35.6586,139.7454, 35.6812,139.7671, 40],
+    ["dwell","自宅（夜）", 35.6812,139.7671, 19*60+40, 24*60]
+  ]},
+  commute: { seed:71, hole:null, plan:[
+    ["dwell","自宅",       35.6812,139.7671, 0, 5*60+30],
+    ["move", null,         35.6812,139.7671, 35.4437,139.6380, 95],
+    ["dwell","打合せ 1",   35.4437,139.6380, 7*60+5, 7*60+52],
+    ["move", null,         35.4437,139.6380, 35.1815,136.9066, 150],
+    ["dwell","打合せ 2",   35.1815,136.9066, 10*60+22, 11*60+18],
+    ["move", null,         35.1815,136.9066, 34.7025,135.4959, 110],
+    ["dwell","打合せ 3",   34.7025,135.4959, 13*60+8, 14*60+15],
+    ["move", null,         34.7025,135.4959, 35.6812,139.7671, 205],
+    ["dwell","自宅（夜）", 35.6812,139.7671, 17*60+40, 24*60]
+  ]}
+};
+
+function buildPoints(dayKey){
+  const day = DAYS[dayKey];
+  const r = rng(day.seed);
+  const pts = new Array(1440).fill(null);   // 添字 = その日の分
+  for(const seg of day.plan){
+    if(seg[0]==="dwell"){
+      const [,name,lat,lon,from,to] = seg;
+      for(let m=Math.max(0,Math.round(from)); m<Math.min(1440,Math.round(to)); m++){
+        // 静止していても GPS は揺れる。水平精度 8〜45 m の範囲
+        const acc = 8 + r()*37;
+        const jl = (r()-0.5)*2*acc/M_PER_DEG_LAT;
+        const jo = (r()-0.5)*2*acc/mPerDegLon(lat);
+        pts[m] = {m, lat:lat+jl, lon:lon+jo, acc:Math.round(acc), truth:name};
+      }
+    }else{
+      const [,,lat1,lon1,lat2,lon2,dur] = seg;
+      // 直前の dwell の終わりから移動が始まる
+      let start = null;
+      for(let m=0;m<1440;m++) if(pts[m]===null){ start=m; break; }
+      // 実際には「まだ埋まっていない最初の枠」を順に使う
+      let s = pts.findIndex(p=>p===null);
+      for(let k=0;k<dur;k++){
+        const m = s+k; if(m<0||m>=1440||pts[m]!==null) continue;
+        const t=(k+1)/(dur+1);
+        const acc = 12 + r()*55;   // 移動中は精度が落ちる
+        pts[m] = {m, lat:lat1+(lat2-lat1)*t + (r()-0.5)*2*acc/M_PER_DEG_LAT,
+                     lon:lon1+(lon2-lon1)*t + (r()-0.5)*2*acc/mPerDegLon(lat1),
+                     acc:Math.round(acc), truth:null};
+      }
+    }
+  }
+  // 記録の欠け（圏外・電池切れ）
+  if(day.hole){ for(let m=day.hole[0];m<day.hole[1];m++) pts[m]=null; }
+  return pts;
+}
+
+/* ==========================================================================
+   3. 滞在を作る（FR-76。半径と最短のとどまりから素直に）
+   ========================================================================== */
+function distM(a,b){
+  const dy=(a.lat-b.lat)*M_PER_DEG_LAT;
+  const dx=(a.lon-b.lon)*mPerDegLon(a.lat);
+  return Math.hypot(dx,dy);
+}
+function buildStays(pts, radiusM, minMin){
+  const stays=[]; const holes=[];
+  let cur=null;              // {pts:[], cx, cy}
+  let holeStart=null;
+
+  const close=()=>{
+    if(!cur) return;
+    const first=cur.pts[0], last=cur.pts[cur.pts.length-1];
+    const dur = last.m - first.m + 1;
+    if(dur >= minMin){
+      const lat = cur.pts.reduce((s,p)=>s+p.lat,0)/cur.pts.length;
+      const lon = cur.pts.reduce((s,p)=>s+p.lon,0)/cur.pts.length;
+      const spread = Math.max(...cur.pts.map(p=>distM({lat,lon},p)));
+      // 真値の多数決（proto の見出し表示にだけ使う。実装の話ではない）
+      const names={}; cur.pts.forEach(p=>{ if(p.truth) names[p.truth]=(names[p.truth]||0)+1; });
+      const truth=Object.keys(names).sort((a,b)=>names[b]-names[a])[0]||null;
+      stays.push({from:first.m, to:last.m+1, n:cur.pts.length, lat, lon, spread:Math.round(spread), truth});
+    }
+    cur=null;
+  };
+
+  for(let m=0;m<1440;m++){
+    const p=pts[m];
+    if(p===null){
+      if(holeStart===null) holeStart=m;
+      close();
+      continue;
+    }
+    if(holeStart!==null){ holes.push([holeStart,m]); holeStart=null; }
+    if(!cur){ cur={pts:[p], lat:p.lat, lon:p.lon}; continue; }
+    if(distM(cur,p) <= radiusM){
+      cur.pts.push(p);
+      cur.lat = cur.pts.reduce((s,q)=>s+q.lat,0)/cur.pts.length;
+      cur.lon = cur.pts.reduce((s,q)=>s+q.lon,0)/cur.pts.length;
+    }else{
+      close();
+      cur={pts:[p], lat:p.lat, lon:p.lon};
+    }
+  }
+  close();
+  if(holeStart!==null) holes.push([holeStart,1440]);
+  return {stays, holes};
+}
+
+/* ==========================================================================
+   4. 状態
+   ========================================================================== */
+const AXES = {
+  title: [
+    {v:"coords", t:"代表の座標",       d:"35.6812, 139.7671 — 事実そのもの。読んでも場所は分からない"},
+    {v:"unnamed",t:"「名前のない滞在」+ 通し番号", d:"滞在 #3。ST21 で名前を付けると入れ替わる"},
+    {v:"time",   t:"時刻の範囲を主役に", d:"9:10 – 12:44 — 名前が無い間も意味が読める"},
+    {v:"guess",  t:"近くの滞在をまとめた仮の呼び名", d:"「よく居る場所 A」— 座標の近さだけで束ねる。ST21 前の暫定"}
+  ],
+  gap: [
+    {v:"none",   t:"何も出さない",        d:"滞在だけが並ぶ。移動していた時間は行間に消える"},
+    {v:"line",   t:"細い線でつなぐだけ",  d:"間があったことは分かるが、長さは読めない"},
+    {v:"row",    t:"「移動 42 分」の行を出す", d:"1 日の行数が約 2 倍になる（1 画面の件数が半分）"}
+  ],
+  hole: [
+    {v:"same",   t:"移動と同じ顔にする",  d:"区別が消える。扉 #14 が守ったものが画面で潰れる"},
+    {v:"mark",   t:"「記録なし 8:20–16:40」の行", d:"圏外・電池切れが、居なかったのと違うと読める"},
+    {v:"hidden", t:"何も出さない",        d:"滞在がぽっかり空くだけ。理由は画面に出ない"}
+  ],
+  rebuild: [
+    {v:"silent", t:"黙って入れ替わる",    d:"いちばん静か。前がどうだったかは画面に残らない"},
+    {v:"badge",  t:"行に「作り直した基準」を出す", d:"150 m / 10 分。どの基準で出来た区切りか常に読める"},
+    {v:"diff",   t:"前後を並べて出す",    d:"変更前 9 件 → 変更後 6 件。統合された行に印が付く"}
+  ],
+  anno: [
+    {v:"none",   t:"置き場を作らない",    d:"ST17 / ST20 が来たとき行の形が変わる"},
+    {v:"badge",  t:"小さい印だけ置く",    d:"気分 +1 ・ 人 2 名。行の高さは変えない"},
+    {v:"body",   t:"行の中に本文を出す",  d:"「よかった」まで読める。行が 2 倍近くなる"}
+  ]
+};
+const FIELDS = [
+  {v:"dur",   t:"長さ（3 時間 34 分）",  on:true},
+  {v:"range", t:"開始 – 終了",          on:true},
+  {v:"count", t:"元になった位置の件数",   on:false},
+  {v:"spread",t:"ばらつき（実測の半径）", on:false},
+  {v:"acc",   t:"水平精度の中央値",       on:false}
+];
+
+const state = {
+  day:"weekday", radius:100, minmin:10,
+  title:"time", gap:"row", hole:"mark", rebuild:"badge", anno:"badge",
+  fields:new Set(FIELDS.filter(f=>f.on).map(f=>f.v)),
+  width:360, themes:new Set(["dark","light"])
+};
+const DEFAULTS = JSON.parse(JSON.stringify({
+  day:"weekday", radius:100, minmin:10,
+  title:"time", gap:"row", hole:"mark", rebuild:"badge", anno:"badge",
+  fields:["dur","range"], width:360
+}));
+
+/* ==========================================================================
+   5. コントロールを作る
+   ========================================================================== */
+function cardGroup(elId, key){
+  const box=document.getElementById(elId);
+  box.innerHTML="";
+  AXES[key].forEach(o=>{
+    const d=document.createElement("div");
+    d.className="card"+(state[key]===o.v?" on":"");
+    d.innerHTML=`<div class="t">${o.t}</div><div class="d">${o.d}</div>`;
+    d.onclick=()=>{ state[key]=o.v; cardGroup(elId,key); updateAll(); };
+    box.appendChild(d);
+  });
+}
+function chipGroup(elId, items, isOn, onClick){
+  const box=document.getElementById(elId);
+  box.innerHTML="";
+  items.forEach(o=>{
+    const d=document.createElement("div");
+    d.className="chip"+(isOn(o)?" on":"");
+    d.textContent=o.t;
+    d.onclick=()=>{ onClick(o); chipGroup(elId,items,isOn,onClick); updateAll(); };
+    box.appendChild(d);
+  });
+}
+["title","gap","hole","rebuild","anno"].forEach(k=>cardGroup(k+"Cards",k));
+chipGroup("fieldChips", FIELDS, o=>state.fields.has(o.v),
+  o=>{ state.fields.has(o.v)?state.fields.delete(o.v):state.fields.add(o.v); });
+const WIDTHS=[{v:360,t:"360px"},{v:412,t:"412px"},{v:900,t:"900px"}];
+chipGroup("widthChips", WIDTHS, o=>state.width===o.v, o=>{ state.width=o.v; });
+const THEMES=[{v:"dark",t:"ダーク"},{v:"light",t:"ライト"}];
+chipGroup("themeChips", THEMES, o=>state.themes.has(o.v),
+  o=>{ if(state.themes.has(o.v)){ if(state.themes.size>1) state.themes.delete(o.v); } else state.themes.add(o.v); });
+
+document.getElementById("day").onchange = e=>{ state.day=e.target.value; updateAll(); };
+document.getElementById("radius").oninput = e=>{ state.radius=+e.target.value; updateAll(); };
+document.getElementById("minmin").oninput = e=>{ state.minmin=+e.target.value; updateAll(); };
+
+/* ==========================================================================
+   6. 描く
+   ========================================================================== */
+const hhmm = m => String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+const durTxt = m => m>=60 ? `${Math.floor(m/60)} 時間 ${m%60} 分` : `${m} 分`;
+
+function rowsOf(res){
+  // 滞在 / 移動 / 記録なし を時刻順に 1 本の並びへ
+  const rows=[];
+  const holes = res.holes.filter(h=>h[1]-h[0]>=2);
+  const marks = [];
+  res.stays.forEach(s=>marks.push({kind:"stay", from:s.from, to:s.to, s}));
+  holes.forEach(h=>marks.push({kind:"hole", from:h[0], to:h[1]}));
+  marks.sort((a,b)=>a.from-b.from);
+  let prev=null;
+  for(const mk of marks){
+    if(prev!==null && mk.from-prev>=2 && mk.kind!=="hole"){
+      rows.push({kind:"gap", from:prev, to:mk.from});
+    }
+    rows.push(mk);
+    prev=mk.to;
+  }
+  return rows;
+}
+
+function titleOf(s, idx, allStays){
+  if(state.title==="coords") return `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`;
+  if(state.title==="unnamed") return `名前のない滞在 #${idx+1}`;
+  if(state.title==="time")   return `${hhmm(s.from)} – ${hhmm(s.to)}`;
+  // guess: 近い滞在を束ねて A / B / C …
+  let g=0; const seen=[];
+  for(const t of allStays){
+    let hit=seen.findIndex(q=>distM(q,t)<=150);
+    if(hit<0){ seen.push(t); hit=seen.length-1; }
+    if(t===s) g=hit;
+  }
+  return `よく居る場所 ${String.fromCharCode(65+g)}`;
+}
+
+function renderScreen(dark, res, pts){
+  const P = palette(dark);
+  const el = document.createElement("div");
+  el.className="screen";
+  el.style.cssText = `width:${state.width}px;background:${P.bg};color:${P.fg};
+    font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;
+    font-size:${FIXED.body}px;line-height:${FIXED.lh};`;
+
+  const head = document.createElement("div");
+  head.style.cssText=`padding:${FIXED.gap*0.7}px ${FIXED.gap*0.75}px ${FIXED.gap*0.5}px;
+    position:sticky;top:0;background:${P.bg};border-bottom:1px solid ${P.line};z-index:2`;
+  head.innerHTML =
+    `<div style="font-size:${(FIXED.body*FIXED.ratio*FIXED.ratio).toFixed(1)}px;font-weight:650">2026年9月13日（日）</div>`+
+    `<div style="font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;color:${P.dim};margin-top:2px">`+
+      `滞在 ${res.stays.length} 件 ・ 位置の記録 ${pts.filter(Boolean).length} 件</div>`+
+    (state.rebuild==="badge"
+      ? `<div style="margin-top:8px;display:inline-block;border:1px solid ${P.line};border-radius:${FIXED.radius}px;
+           padding:4px 10px;font-size:${(FIXED.body/FIXED.ratio/FIXED.ratio).toFixed(1)}px;color:${P.dim};
+           background:${P.s1}">この一覧は 半径 ${state.radius} m / ${state.minmin} 分 で作った</div>` : "")+
+    (state.rebuild==="diff"
+      ? (()=>{ const base=buildStays(pts,100,10);
+          return `<div style="margin-top:8px;border:1px solid ${P.line};border-radius:${FIXED.radius}px;
+            padding:8px 10px;font-size:${(FIXED.body/FIXED.ratio/FIXED.ratio).toFixed(1)}px;color:${P.fg};
+            background:${P.s1};line-height:1.6">作り直した —— 100 m / 10 分 で ${base.stays.length} 件 →
+            ${state.radius} m / ${state.minmin} 分 で ${res.stays.length} 件`+
+            `<div style="color:${P.dim};margin-top:2px">区切りが変わった行に ● を付けている。元の位置の記録は 1 行も変わっていない。</div></div>`; })() : "");
+  el.appendChild(head);
+
+  const base = state.rebuild==="diff" ? buildStays(pts,100,10).stays : null;
+  const list = document.createElement("div");
+  const rows = rowsOf(res);
+  let stayIdx=0;
+  let maxRow=0;
+
+  rows.forEach(r=>{
+    const d=document.createElement("div");
+
+    if(r.kind==="stay"){
+      const s=r.s, idx=stayIdx++;
+      const changed = base && !base.some(b=>b.from===s.from && b.to===s.to);
+      const bits=[];
+      if(state.fields.has("dur"))   bits.push(durTxt(s.to-s.from));
+      if(state.fields.has("range")) bits.push(`${hhmm(s.from)} – ${hhmm(s.to)}`);
+      if(state.fields.has("count")) bits.push(`位置 ${s.n} 件`);
+      if(state.fields.has("spread"))bits.push(`ばらつき ${s.spread} m`);
+      if(state.fields.has("acc"))   bits.push(`精度 中央 ${Math.round(20+ (s.spread%25))} m`);
+      d.style.cssText=`padding:${FIXED.gap*0.5}px ${FIXED.gap*0.75}px;border-bottom:1px solid ${P.line};
+        background:${P.s1};min-height:24px`;
+      let inner =
+        `<div style="font-size:${(FIXED.body*FIXED.ratio).toFixed(1)}px;font-weight:600">`+
+          titleOf(s, idx, res.stays)+
+          (changed?` <span style="color:${P.acc};font-size:${FIXED.body}px" title="この区切りは作り直しで変わった">●</span>`:"")+
+        `</div>`+
+        (state.title!=="time" && !state.fields.has("range")
+          ? `<div style="font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;color:${P.dim}">${hhmm(s.from)} – ${hhmm(s.to)}</div>`:"")+
+        (bits.length?`<div style="font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;color:${P.dim};margin-top:2px">${bits.join(" ・ ")}</div>`:"")+
+        (state.title!=="coords"
+          ? `<div style="font-size:${(FIXED.body/FIXED.ratio/FIXED.ratio).toFixed(1)}px;color:${P.dim};margin-top:2px">${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}</div>`:"");
+      if(state.anno==="badge" && idx%3===0){
+        inner += `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">`+
+          `<span style="border:1px solid ${P.line};border-radius:${FIXED.radius}px;padding:2px 9px;
+             font-size:${(FIXED.body/FIXED.ratio/FIXED.ratio).toFixed(1)}px;color:${P.dim};background:${P.s2}">気分 +1</span>`+
+          `<span style="border:1px solid ${P.line};border-radius:${FIXED.radius}px;padding:2px 9px;
+             font-size:${(FIXED.body/FIXED.ratio/FIXED.ratio).toFixed(1)}px;color:${P.dim};background:${P.s2}">人 2 名</span></div>`;
+      }
+      if(state.anno==="body" && idx%3===0){
+        inner += `<div style="margin-top:8px;padding:8px 10px;background:${P.s2};border-radius:${FIXED.radius}px;
+            font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;line-height:1.6">気分 +1 ・ 人 2 名<br>
+            <span style="color:${P.dim}">「思ったより長く居た。悪くない」</span></div>`;
+      }
+      d.innerHTML=inner;
+
+    }else if(r.kind==="gap"){
+      if(state.gap==="none") return;
+      if(state.gap==="line"){
+        d.style.cssText=`height:20px;display:flex;align-items:center;padding:0 ${FIXED.gap*0.75}px`;
+        d.innerHTML=`<div style="width:2px;height:100%;background:${P.line};margin-left:6px"></div>`;
+      }else{
+        d.style.cssText=`padding:${FIXED.gap*0.34}px ${FIXED.gap*0.75}px;border-bottom:1px solid ${P.line};
+          background:${P.bg};min-height:24px;display:flex;align-items:center;gap:8px`;
+        d.innerHTML=`<span style="color:${P.dim};font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px">`+
+          `移動 ${durTxt(r.to-r.from)}　${hhmm(r.from)} – ${hhmm(r.to)}</span>`;
+      }
+
+    }else{ // hole
+      if(state.hole==="hidden") return;
+      if(state.hole==="same"){
+        d.style.cssText=`padding:${FIXED.gap*0.34}px ${FIXED.gap*0.75}px;border-bottom:1px solid ${P.line};
+          background:${P.bg};min-height:24px;display:flex;align-items:center`;
+        d.innerHTML=`<span style="color:${P.dim};font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px">`+
+          `移動 ${durTxt(r.to-r.from)}　${hhmm(r.from)} – ${hhmm(r.to)}</span>`;
+      }else{
+        d.style.cssText=`padding:${FIXED.gap*0.42}px ${FIXED.gap*0.75}px;border-bottom:1px solid ${P.line};
+          background:${P.s1};min-height:24px;border-left:3px solid ${P.warn}`;
+        d.innerHTML=`<div style="font-size:${FIXED.body}px;color:${P.fg}">記録なし ${durTxt(r.to-r.from)}</div>`+
+          `<div style="font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;color:${P.dim}">`+
+          `${hhmm(r.from)} – ${hhmm(r.to)}　位置の記録が 1 件も無い（居なかったのとは違う）</div>`;
+      }
+    }
+    list.appendChild(d);
+  });
+  el.appendChild(list);
+
+  const foot=document.createElement("div");
+  foot.style.cssText=`padding:${FIXED.gap*0.75}px;color:${P.dim};font-size:${(FIXED.body/FIXED.ratio).toFixed(1)}px;text-align:center`;
+  foot.textContent="— その日はここまで —";
+  el.appendChild(foot);
+  return el;
+}
+
+/* ==========================================================================
+   7. 出力
+   ========================================================================== */
+function label(key,v){ return AXES[key].find(o=>o.v===v).t; }
+
+function updatePrompt(res, pts, metrics){
+  const L=[];
+  L.push("ST16 の滞在の一覧（S-2 主表現）は次の構造で作る。");
+  L.push("");
+  // 基準は **見るために** 動かす軸。決めるのは深掘りの Q7〜Q9 なので、
+  // 構造の答えとして貼り戻す文字列に決定として混ぜない（deep-review R10）。
+  L.push(`（このとき画面に出ていた基準: 半径 ${state.radius} m / 最短 ${state.minmin} 分`+
+         (state.radius===100 && state.minmin===10 ? " — FR-76 の既定" : " — 見るために既定 100 m / 10 分から動かした値。基準そのものは Q7〜Q9 で決める")+`）`);
+  L.push(`行の見出し — ${label("title",state.title)}`);
+  L.push(`滞在にならなかった時間 — ${label("gap",state.gap)}`);
+  L.push(`位置の記録が無い時間 — ${label("hole",state.hole)}`);
+  L.push(`1 行に添える値 — ${FIELDS.filter(f=>state.fields.has(f.v)).map(f=>f.t).join(" ・ ")||"添えない"}`);
+  L.push(`作り直したことの見え方 — ${label("rebuild",state.rebuild)}`);
+  L.push(`人が後から付けたもの（ST17 主観 / ST20 人物）の置き場 — ${label("anno",state.anno)}`);
+  L.push("");
+  L.push("この設定で実際に積んだ量（proto の実測。勘定ではない）:");
+  L.push(`  ${({weekday:"平日",home:"家にほぼ 1 日",trip:"出歩いた日",sparse:"記録が半分欠けた日",commute:"移動ばかりの日"})[state.day]} / 位置の記録 ${metrics.pts} 件 → 滞在 ${res.stays.length} 件`);
+  L.push(`  幅 ${state.width}px で 1 画面（720px）に入る行は ${metrics.fit} 行、全部を縦に積むと ${metrics.height}px`);
+  L.push(`  いちばん高い行は ${metrics.row}px`);
+  L.push("");
+  L.push("動かさないもの（ui-direction.md の確定値と NFR-17〜23）はそのまま。");
+  L.push("色は意味の担い手にしない —— 状態は必ず文字を併せる。");
+  document.getElementById("prompt").textContent = L.join("\n");
+}
+
+/* ==========================================================================
+   8. まとめ
+   ========================================================================== */
+function updateAll(){
+  document.getElementById("vRadius").textContent = state.radius+" m";
+  document.getElementById("vMin").textContent    = state.minmin+" 分";
+
+  const pts = buildPoints(state.day);
+  const res = buildStays(pts, state.radius, state.minmin);
+  const nPts = pts.filter(Boolean).length;
+  document.getElementById("ptcount").textContent = nPts.toLocaleString();
+
+  const phones=document.getElementById("phones");
+  phones.innerHTML="";
+  const order=["dark","light"].filter(t=>state.themes.has(t));
+  const screens=[];
+  order.forEach(t=>{
+    const box=document.createElement("div"); box.className="phone";
+    const cap=document.createElement("div"); cap.className="cap";
+    cap.innerHTML=`<span>${t==="dark"?"ダーク":"ライト"}</span><span>${state.width}px</span>`;
+    box.appendChild(cap);
+    const sc=renderScreen(t==="dark", res, pts);
+    box.appendChild(sc); phones.appendChild(box); screens.push(sc);
+  });
+
+  // 実測（勘定しない）
+  requestAnimationFrame(()=>{
+    const sc=screens[0];
+    const rows=[...sc.querySelectorAll(":scope > div:nth-child(2) > div")];
+    const heights=rows.map(r=>r.getBoundingClientRect().height);
+    const total=Math.round(sc.scrollHeight);
+    const maxRow=Math.round(Math.max(0,...heights));
+    // 見出しの下から 720px に入る行数
+    const headH = sc.firstChild.getBoundingClientRect().height;
+    let acc=headH, fit=0;
+    for(const h of heights){ if(acc+h>720) break; acc+=h; fit++; }
+    document.getElementById("mPts").textContent=nPts.toLocaleString();
+    document.getElementById("mStays").textContent=res.stays.length;
+    document.getElementById("mFit").textContent=`${fit} / ${rows.length}`;
+    document.getElementById("mHeight").textContent=`${total}px`;
+    document.getElementById("mRow").textContent=`${maxRow}px`;
+    updatePrompt(res, pts, {pts:nPts, fit, height:total, row:maxRow});
+  });
+  updatePrompt(res, pts, {pts:nPts, fit:"—", height:"—", row:"—"});
+}
+
+document.getElementById("copyBtn").onclick=()=>{
+  navigator.clipboard.writeText(document.getElementById("prompt").textContent).then(()=>{
+    const b=document.getElementById("copyBtn"); const o=b.textContent;
+    b.textContent="コピーしました"; setTimeout(()=>b.textContent=o,1400);
+  });
+};
+
+updateAll();
+</script>
+</body>
+</html>
