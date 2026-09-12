@@ -38,6 +38,17 @@ jobs:
       - run: ./tools/check-migrations.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
+  # C-02（Windows 収集）の**実機側**。ubuntu の runner には Windows が無いので、
+  # `cargo test` は cfg(windows) の中身を 1 行もコンパイルしない ——
+  # **書いたまま腐る**ので、windows 向けにクロスで型検査だけ通す（ST07 / design D20）。
+  collector-windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with: { targets: x86_64-pc-windows-gnu }
+      - run: cargo check -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu
+
   web:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: web } }

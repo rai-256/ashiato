@@ -166,6 +166,44 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
   残さないと「データが無い」の意味が後から区別できなくなる
 - **私的データをログに出さない**（製造準備 A-2）。出すのは件数・ソース名・所要時間・エラーの種別だけ
 
+## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
+
+**PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**
+`raw` は**収集側が組んだ JSON をそのまま文字列で**送り、`payload` は同じ中身の解析済み
+（`crates/collector-windows/src/contract.rs` の `WindowPayload` が唯一の情報源）。
+
+| 欄 | 型 | どの種類が持つか |
+|---|---|---|
+| `kind` | `foreground` / `idle` / `powered-off` / `excluded` / `clock-skew` | 全部 |
+| `at` | RFC3339（**ミリ秒・UTC**）。`event_time` と同じ値 | 全部 |
+| `app_name` | text（アプリの表示名） | `foreground` |
+| `exe_path` | text（実行ファイルのパス） | `foreground` |
+| `process_name` | text | `foreground` |
+| `title` | text（ウィンドウ題名） | `foreground` |
+| `url` | text（**アドレスバーに見えている文字列そのまま**） | `foreground`（前景がブラウザのときだけ） |
+| `range_end` | RFC3339（範囲の終わり） | `idle`（出た側）/ `powered-off` / `excluded` |
+| `idle_ms` | integer（**最後の入力からの経過時間**。出た側は区間の長さ） | `idle` |
+| `transition` | `enter` / `leave` | `idle` |
+| `reason` | `idle` / `locked` / `suspended` | `idle` |
+| `excluded_count` | integer（**除外した変化の件数**） | `excluded` |
+| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる） | `clock-skew` |
+
+> **`at` を原文にも入れる理由**: 冪等キーは `logical_source` + `event_time` + `raw` から
+> 作られる。本文を持たない記録（`excluded`）の原文が全部同じ文字列だと、
+> **同じ秒の 2 件が 1 件に畳まれて除外の件数が黙って減る**。
+>
+> **項目の並びと省略の規則まで契約**（`payload_shape_is_pinned` が 1 文字単位で固定）。
+> 形を後から変えると、**同じ 1 件が別の鍵になって二重に入る**。
+>
+> **`excluded` は本文を 1 つも持たない**（FR-83 / 深掘り Q5）。除外の判定は
+> **送る前**に行う —— 送ってから消すと、消す前にバックアップ（FR-66 / FR-68）へ入る。
+>
+> **感度の欄は無い**（深掘り Q3）。収集した記録の既定（`sensitivity = 1` =
+> 外部 AI に出してよい）に委ねる。**収集側が厳しい側を付けない。**
+
+PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomation`（URL の経路が
+応答しない）** の 2 つ（design D4）。端末側の `permission` / `sensor` / `network` とは別の語彙。
+
 ---
 
 # 生存信号の送信契約（ST02 / FR-78）

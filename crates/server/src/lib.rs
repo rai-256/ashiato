@@ -22,6 +22,9 @@ pub mod coverage;
 mod dedup_tests;
 pub mod heartbeat;
 pub mod ingest;
+/// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
+#[cfg(test)]
+mod registry_tests;
 #[cfg(test)]
 pub mod testdb;
 

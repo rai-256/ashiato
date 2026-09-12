@@ -651,4 +651,52 @@ echo "   → 畳んだ形 $folded"
   || { echo "親を消しても履歴の版が読める（前の版の本文がそのまま出る）"; exit 1; }
 echo "   → 畳んだ形が引け、履歴は親の削除に従う"
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門まで）"
+
+# ------------------------------------------------------------------ ST07（C-02）
+
+# Scenario: 識別子を持たない記録が受け付けられる
+echo "== 37. PC のウィンドウの記録が識別子なしで通る（ST07 / FR-23 / tasks 8.3）"
+# **`external_id` は null で送る**（空文字は `empty_external_id` で断られる。ST03 / R12）。
+# `source_updated_at` と `external_ref` は端末からの収集では持たないので送らない。
+win_raw='{"kind":"foreground","at":"2026-03-02T01:00:00.000Z","app_name":"ブラウザ","exe_path":"C:\\apps\\b.exe","process_name":"b.exe","title":"題名","url":"https://example.com/a?q=1#f"}'
+winbody() {
+  jq -nc --arg raw "$win_raw" --argjson payload "$win_raw" --arg id "$1" \
+    '[{id:$id,user_id:"00000000-0000-0000-0000-000000000000",logical_source:"c02-window",
+       external_id:null,device_id:"pc-01",origin:"collected",
+       event_time:"2026-03-02T01:00:00.000Z",tz_offset_min:540,tz_id:"Asia/Tokyo",
+       schema_version:1,raw:$raw,payload:$payload}]'
+}
+code=$(post "$(winbody "70000001-0000-4000-8000-000000000000")")
+echo "   → $code / accepted=$(jq -r '.[0].accepted' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "ウィンドウの記録が $code で断られた"; exit 1; }
+[ "$(jq -r '.[0].accepted' /tmp/smoke.body)" = "true" ] || { echo "受け付けられていない"; exit 1; }
+# **クエリもフラグメントも落ちない**（深掘り Q4。解析済みから引く側の担保）
+got=$(psql -c "SELECT payload->>'url' FROM core.event WHERE logical_source='c02-window';")
+[ "$got" = "https://example.com/a?q=1#f" ] || { echo "URL が切り詰められた: $got"; exit 1; }
+
+# Scenario: 既定の感度で格納される
+echo "== 38. ウィンドウの記録の感度は既定（1 = 外部 AI 可。深掘り Q3 / tasks 8b.1）"
+s=$(psql -c "SELECT sensitivity FROM core.event WHERE logical_source='c02-window' LIMIT 1;")
+echo "   → sensitivity=$s"
+# **本人が推奨と違う側を選んだ唯一の決定。** 厳しい側に倒れていたら、
+# 成功条件 2 の QS-7 / QS-10（いちばん時間を使ったアプリ・サイト）が day one で答えられない
+[ "$s" = "1" ] || { echo "既定より厳しい感度で入っている（深掘り Q3 が壊れている）"; exit 1; }
+
+# Scenario: 想定間隔ごとに生存信号が届く
+echo "== 39. PC 側の生存信号が 1 件届く（FR-78 / tasks 7.1）"
+# **理由の無い「取れない」は断られる**ので、満たされていない側の名前を載せる（design D4）
+wbeat='[{"id":"71000001-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c02-window",
+  "device_id":"pc-01","emitted_at":"2026-03-02T02:00:00Z",
+  "capturable":false,"blockers":["uiautomation"],"attempts":300,"successes":120,
+  "raw":"{\"alive\":true,\"attempts\":300,\"successes\":120}"}]'
+code=$(hbpost "$wbeat"); echo "   → $code / accepted=$(jq -r '.[0].accepted' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "PC 側の生存信号が $code で通らない"; exit 1; }
+n=$(psql -c "SELECT count(*) FROM core.heartbeat WHERE logical_source='c02-window';")
+[ "$n" = "1" ] || { echo "生存信号が $n 行"; exit 1; }
+# 取得できない理由が残っている（状態③の証拠になる形で）
+b=$(psql -c "SELECT blockers::text FROM core.heartbeat WHERE logical_source='c02-window';")
+case "$b" in *uiautomation*) ;; *) echo "満たされていないものが残っていない: $b"; exit 1;; esac
+echo "   → 記録・感度・生存信号（ST07）まで通った"
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側まで）"

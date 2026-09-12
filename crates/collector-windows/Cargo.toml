@@ -13,3 +13,22 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 取り込み口へ送るだけ。**TLS の機能を入れない**（design D16）——
+# S-01 / C-02 はどちらもオンプレ（要件 §5 技術的制約 ★2026-09-12）で、
+# 依存を増やすほど許諾の検査（tools/check-licenses.sh）の面が広がる。
+ureq = { version = "3", default-features = false }
+# 記録に載せる IANA のタイムゾーン識別子（FR-20）。chrono は名前を持たない。
+iana-time-zone = "0.1"
+
+# Windows の実機でしか動かない部分。**unsafe を書かずに安全な wrapper に委ねる**
+# （design D15）—— 作業場の lint は `unsafe_code = "forbid"` で、これは
+# ワークスペース全体の保証なので崩さない。
+[target.'cfg(windows)'.dependencies]
+# 前景ウィンドウの題名・アプリ名・実行ファイルのパス・プロセス識別子
+active-win-pos-rs = "0.9"
+# 最後の入力からの経過時間（FR-81 / design D9）
+user-idle-time = "0.7"
+# アドレスバーの読み取りと、前景が変わったことの OS からの通知（design D4 / D5）
+uiautomation = { version = "0.25", features = ["event"] }
