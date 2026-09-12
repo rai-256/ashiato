@@ -75,7 +75,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
 | `record-deletion` | 削除 | ST22, ST23 |
 | `data-sensitivity` | 感度・アクセス制御・プラグイン権限 | ST24, ST28, ST29 |
-| `browsing-views` | 閲覧と検索 | ST25, ST26, ST36 |
+| `browsing-views` | 閲覧と検索 | **ST16**, ST25, ST26, ST36 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
 
@@ -110,6 +110,16 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > | FR-61（登録簿） | ST01 | 列を 3 本足すだけ。**読む側は ST02** |
 > | FR-54 / FR-80 / FR-35（退役） | ST02 / ST14 | **作らない**（登録簿の列だけ。要件の改訂は ST03 が行った） |
 > | FR-10（送信） | ST01 / ST04 | 恒久的に断られた記録を諦める |
+
+> **訂正（2026-09-13、ST16 の上流工程）**
+>
+> ST16 を `derived-records` だけでなく **`browsing-views` にも割り当てた（作成の前倒し）**。
+> ST16 の完了の判定「その日の滞在が**一覧で出る**」は画面を前提にしているのに、表は画面を ST25 に
+> 割り当てていた。`docs/ui-direction.md` の面の表は S-2 の出所に ST16 を含めており、**2 つの決着が食い違っていた**。
+> 本人が深掘り Q5 で「ST16 が最小の一覧画面まで作る」を選んだ（`openspec/changes/st16-stay-derivation/deep.md`）。
+>
+> - ST16 が作るのは **1 日の滞在の一覧だけ**。ソースをまたいだ時刻順の表示（FR-56）は ST25 が同じ capability に**足す**
+> - **代償: ST16 が走っている間、ST25 は `衝突待ち`**（同じ capability を 2 本が同時に触らない）。本人は代償を読んで選んでいる
 
 > **この型は繰り返し出る** —— 「土台の Story が、後続の capability に属する振る舞いを
 > 先に書いてしまう」。capability の**作成**を前倒し、後続が要件を**足す**形にすれば、
