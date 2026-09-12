@@ -253,13 +253,24 @@ psql -c "INSERT INTO core.event
                  'gate-dev','collected','2026-09-08T02:00:00Z',540,'Asia/Tokyo',1,
                  'gate-hash-1','{\"v\":1}','{\"v\":1}');" >/dev/null
 
-# 履歴を 1 行書く SQL（前の版を写す）。**同じ文字列の中に書くと 1 トランザクションになる**
-version_row="INSERT INTO core.event_version
-   (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
- SELECT id, user_id, logical_source,
-        (SELECT coalesce(max(version_no),0)+1 FROM core.event_version WHERE event_id='$GID'),
-        event_time, content_hash, raw, payload
-   FROM core.event WHERE id='$GID';"
+# 履歴を 1 行書く SQL。**同じ文字列の中に書くと 1 トランザクションになる**。
+#
+# **更新前の版を明示して書く**（2026-09-12 / R94）。以前は
+# `SELECT … FROM core.event` で写していたが、門が「履歴行が OLD と一致すること」まで
+# 見るようになったので、**更新の後に撃つと NEW を写してしまい正しく拒まれる**。
+# 順序に依らず通ることを見たいので、写す元をテーブルから外す。
+# 引数: $1=version_no / $2=更新前の content_hash / $3=更新前の raw（＝payload にも使う）
+#
+# **`psql -c "…$(…)…"` の中で呼ばない。** 入れ子の引用で原文に `\` が混ざり、
+# OLD と一致しなくなって門が正しく拒む（最初そう書いて 1 度踏んだ）。先に変数へ組む。
+version_row_of() {
+  printf "INSERT INTO core.event_version
+     (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+   VALUES ('%s','00000000-0000-0000-0000-000000000000','gate-check',%s,
+           '2026-09-08T02:00:00Z','%s','%s','%s');" "$GID" "$1" "$2" "$3" "$3"
+}
+VER1="$(version_row_of 1 gate-hash-1 '{"v":1}')"
+VER2="$(version_row_of 2 gate-hash-2 '{"v":2}')"
 ledger_row="INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
             VALUES ('$GID','00000000-0000-0000-0000-000000000000','gate-check','SCOPE','check');"
 
@@ -274,7 +285,7 @@ got=$(psql -c "SELECT raw FROM core.event WHERE id='$GID';")
 [ "$got" = '{"v":1}' ] || { echo "  NG 拒まれたのに原文が変わっている: $got"; fail=1; }
 
 # Scenario: 履歴を書けば書き換えが通る
-if psql -c "$version_row
+if psql -c "$VER1
             UPDATE core.event SET raw='{\"v\":2}', payload='{\"v\":2}', content_hash='gate-hash-2'
              WHERE id='$GID';" >/dev/null 2>&1; then
   echo "  OK 履歴を書けば書き換えが通る"
@@ -289,7 +300,7 @@ kept=$(psql -c "SELECT raw FROM core.event_version WHERE event_id='$GID' AND ver
 # **順序に依存しない**（更新の後に履歴を書いても通る）。制約トリガは COMMIT 時に見る
 if psql -c "UPDATE core.event SET raw='{\"v\":3}', payload='{\"v\":3}', content_hash='gate-hash-3'
              WHERE id='$GID';
-            $version_row" >/dev/null 2>&1; then
+            $VER2" >/dev/null 2>&1; then
   echo "  OK 履歴を後から書いても通る（門は COMMIT の瞬間に見る）"
 else
   echo "  NG 順序に依存している（1 件 1 トランザクションの前提が崩れる）"; fail=1
@@ -306,7 +317,7 @@ for stmt in "UPDATE core.event_version SET version_no=99 WHERE event_id='$GID';"
     echo "  NG 履歴が変えられた: $stmt"; fail=1
   fi
 done
-echo "  OK 履歴は消去以外の書き換えも行の削除も表の切り詰めもできない"
+[ "$fail" -eq 0 ] && echo "  OK 履歴は消去以外の書き換えも行の削除も表の切り詰めもできない"
 left=$(psql -c "SELECT count(*) FROM core.event_version WHERE event_id='$GID';")
 [ "$left" = "2" ] || { echo "  NG 履歴が $left 行になっている（2 行のはず）"; fail=1; }
 
@@ -405,6 +416,91 @@ echo "  OK 収集した記録は行ごとも表ごとも消せない"
 left=$(psql -c "SELECT count(*) FROM core.event WHERE id='$GID';")
 [ "$left" = "1" ] || { echo "  NG 記録が消えている"; fail=1; }
 
+# --- 2026-09-12（実装レビュー R94 / R95 / R97）に足した 4 本。
+# **どれも「門があること」ではなく「門が何を見ているか」を観測する** ——
+# 足す前は、下の 4 つの改変がどれも緑のまま通った（実測）。
+echo "== ST03: 門が「何を見ているか」（R94 / R95 / R97）"
+
+# R94: **でっち上げの履歴では通らない。** 件数だけを見ていたときは、前の版と無関係な
+# 履歴を 1 行書けば原文が消えた（本表 {"t":2} / 履歴 {"junk":1} で元の本文はどこにも無い）
+if psql -c "INSERT INTO core.event_version
+              (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+            VALUES ('$GID','00000000-0000-0000-0000-000000000000','gate-check',99,
+                    '2000-01-01','junk','{\"junk\":1}','{}');
+            UPDATE core.event SET raw='{\"tampered\":3}', content_hash='gate-hash-x'
+             WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  NG でっち上げの履歴で原文が書き換えられた（門が中身を見ていない）"; fail=1
+else
+  echo "  OK 更新前の版と中身の違う履歴では書き換えが通らない"
+fi
+
+# R95: **消去の顔で payload だけを差し替えられない。**
+# `is_erasure` が payload を見ていなかったときは、台帳 1 行でこれが通った
+if psql -c "${ledger_row/SCOPE/event}
+            UPDATE core.event SET raw='', payload='{\"forged\":true}' WHERE id='$GID';" \
+     >/dev/null 2>&1; then
+  echo "  NG 消去の顔で解析済みを差し替えられた（原文は消えているので引き直せない）"; fail=1
+else
+  echo "  OK 消去は原文と解析済みの両方を空にする形だけが通る"
+fi
+
+# R97: **台帳を書いたうえでも、履歴の原文を空以外へは書き換えられない。**
+# 台帳の無いまとまりで撃っていたときは、履歴の錠を丸ごと消しても緑のまま通った（空振り）
+if psql -c "${ledger_row/SCOPE/version}
+            UPDATE core.event_version SET raw='{\"forged\":1}' WHERE event_id='$GID';" \
+     >/dev/null 2>&1; then
+  echo "  NG 台帳があれば履歴の原文を偽の内容へ書き換えられた"; fail=1
+else
+  echo "  OK 台帳があっても、履歴の書き換えは本文の消去だけが通る"
+fi
+# 既に消去された版には、もう通す操作が無い（payload の差し替えも拒む）
+if psql -c "${ledger_row/SCOPE/version}
+            UPDATE core.event_version SET payload='{\"forged\":2}'
+             WHERE event_id='$GID' AND raw='';" >/dev/null 2>&1; then
+  echo "  NG 消去済みの履歴の解析済みを差し替えられた"; fail=1
+else
+  echo "  OK 消去済みの履歴の版は書き換えられない"
+fi
+
+# R114: **「収集した」へ由来を付け替えられない**（0004 が閉じたのは*出る*向きだけだった）。
+# authored の行を collected にしつつ原文を書き換える 1 文は、履歴も台帳も残さずに通っていた
+psql -c "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
+            schema_version, content_hash, raw, payload)
+         VALUES ('77777777-7777-4777-8777-777777777777',
+                 '00000000-0000-0000-0000-000000000000','gate-check','gate-dev','authored',
+                 '2026-09-08T04:00:00Z',540,'Asia/Tokyo',1,'authored-gate','{\"a\":1}','{\"a\":1}');" \
+  >/dev/null
+if psql -c "UPDATE core.event SET origin='collected', raw='{\"forged\":1}'
+             WHERE id='77777777-7777-4777-8777-777777777777';" >/dev/null 2>&1; then
+  echo "  NG 「収集した」へ付け替えながら原文を書き換えられた（捏造が固定される）"; fail=1
+else
+  echo "  OK 「収集した」へ由来を付け替えることはできない"
+fi
+
+# R96: **logical_source は冪等キーの入力なので凍結する**（動かすと以後どの再送とも一致しない）
+for col in logical_source id; do
+  case "$col" in
+    id) val="'88888888-8888-4888-8888-888888888888'" ;;
+    *)  val="'gate-check'" ;;
+  esac
+  # 値を確実に変える
+  [ "$col" = "logical_source" ] && val="'immutable-check'"
+  if psql -c "UPDATE core.event SET $col = $val WHERE id='$GID';" >/dev/null 2>&1; then
+    echo "  NG $col が書き換えられた（重複判定が黙って当たらない行ができる）"; fail=1
+  else
+    echo "  OK $col の書き換えは拒まれた"
+  fi
+done
+# **user_id は開いたまま**（Q15 が「誤った値を後から 1 文で直せる」と決めている）
+if psql -c "UPDATE core.event SET user_id='11111111-1111-4111-8111-111111111111'
+             WHERE id='$GID';" >/dev/null 2>&1; then
+  echo "  OK user_id は直せる（Q15 が鍵の中身に混ぜなかった理由そのもの）"
+  psql -c "UPDATE core.event SET user_id='00000000-0000-0000-0000-000000000000' WHERE id='$GID';" >/dev/null
+else
+  echo "  NG user_id まで凍結している（Q15 の「後から直せる」が成り立たない）"; fail=1
+fi
+
 # **台帳の行と実際の消去を突き合わせる**（tasks 12.3）。
 # **DB は件数を検算しない** —— 実測で台帳 1 行のまま 4 行消せた。
 # ここで「本文が空なのに自分を名指しする台帳の行が無い」ものを数える。
@@ -417,5 +513,48 @@ orphan=$(psql -c "SELECT
                                        WHERE l.event_id = v.event_id));")
 [ "$orphan" = "0" ] || { echo "  NG 台帳に載らない消去が $orphan 件ある"; fail=1; }
 echo "  OK 消えた本文はすべて台帳に載っている"
+
+
+# --- 戻し手順が当たること（R117）。
+# `tools/check-migrations.sh` は **down.sql の存在と「不可逆」の記載だけ**を静的に見ており、
+# **1 度も当てていない**。この change で 5 本増えるので、ここで逆順に当てて構文と依存を見る。
+# **いちばん最後に置く** —— 表とビューが消えるので、上の検査はもう走れない。
+echo "== 戻し手順を逆順に当てる（ST03 の 5 本。R117）"
+ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_dedup_indexes
+         202609120943_version_and_ledger 202609120944_gates)
+# **まっさらな schema で当てる。** ここまでの検査が Q6 の「同じ本文・違う外部識別子」の行を
+# 作っているので、`dedup_indexes` の戻しは**正しく**一意違反で落ちる（`.down.sql` が
+# 「不可逆」と書いているのはまさにそれ）。ここで見たいのは**構文と依存の順**なので行を空にする。
+psql -c "DROP SCHEMA core CASCADE;" >/dev/null
+for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
+down_fail=0
+for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
+  m="${ST03_UP[$i]}"
+  psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
+    || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
+done
+[ "$down_fail" -eq 0 ] && echo "  OK 5 本とも当たる"
+# 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
+for m in "${ST03_UP[@]}"; do
+  psql < "migrations/$m.sql" >/dev/null 2>&1 \
+    || { echo "  NG $m.sql を当て直せない"; fail=1; }
+done
+# 門を確かめるための行を置く（schema を作り直したので登録簿も空）
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('gate-check','門の確認用',21600,'record') ON CONFLICT DO NOTHING;" >/dev/null
+# 戻して進めた後も門が効いていること（**ここを見ないと「当たった」だけの検査になる**）
+psql -c "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
+            schema_version, content_hash, raw, payload)
+         VALUES ('99999999-9999-4999-8999-999999999999',
+                 '00000000-0000-0000-0000-000000000000','gate-check','gate-dev','collected',
+                 '2026-09-08T06:00:00Z',540,'Asia/Tokyo',1,'after-down','{\"x\":1}','{\"x\":1}');" \
+  >/dev/null 2>&1
+if psql -c "UPDATE core.event SET raw='{\"tampered\":9}'
+             WHERE id='99999999-9999-4999-8999-999999999999';" >/dev/null 2>&1; then
+  echo "  NG 戻して進めた後に門が消えている"; fail=1
+else
+  echo "  OK 戻して進めても門は効いている"
+fi
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }

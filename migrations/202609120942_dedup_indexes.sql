@@ -18,15 +18,35 @@
 -- 利用者識別子を足す理由（Q2 / Q15）: 判定は利用者ごと。**鍵の中身には混ぜない**ので
 -- `content_hash` の作り方は ST01 のまま（`hash_is_pinned` の期待値は変わらない）。
 
--- 外部識別子があればそれで畳む（利用者ごと・ソースごと）
-DROP INDEX IF EXISTS core.event_dedup_ext;
-CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_ext
-  ON core.event (user_id, logical_source, external_id) WHERE external_id IS NOT NULL;
+-- **古い定義のときだけ作り替える**（R105）。`DROP INDEX IF EXISTS` を無条件に置くと
+-- **`migrate()` が起動のたびに成功し、`IF NOT EXISTS` は死んだ条件になる** ——
+-- 一意索引 3 本が毎起動でフルビルドされ、その間 `core.event` は ACCESS EXCLUSIVE で塞がる。
+-- 1 年ぶんの記録（位置だけで年 50 万行）が入った後の再起動がそのぶん止まる。
+-- 0003 が `information_schema` を見る `DO $$` で避けているのと同じ形にする。
+DO $$
+BEGIN
+  -- 外部識別子があればそれで畳む（利用者ごと・ソースごと）
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = 'core' AND indexname = 'event_dedup_ext'
+       AND indexdef LIKE '%user_id%'
+  ) THEN
+    DROP INDEX IF EXISTS core.event_dedup_ext;
+    CREATE UNIQUE INDEX event_dedup_ext
+      ON core.event (user_id, logical_source, external_id) WHERE external_id IS NOT NULL;
+  END IF;
 
--- 外部識別子が無ければ内容の鍵で畳む。**部分索引**（Q6）
-DROP INDEX IF EXISTS core.event_dedup_hash;
-CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_hash
-  ON core.event (user_id, logical_source, content_hash) WHERE external_id IS NULL;
+  -- 外部識別子が無ければ内容の鍵で畳む。**部分索引**（Q6）
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE schemaname = 'core' AND indexname = 'event_dedup_hash'
+       AND indexdef LIKE '%user_id%' AND indexdef LIKE '%external_id IS NULL%'
+  ) THEN
+    DROP INDEX IF EXISTS core.event_dedup_hash;
+    CREATE UNIQUE INDEX event_dedup_hash
+      ON core.event (user_id, logical_source, content_hash) WHERE external_id IS NULL;
+  END IF;
+END $$;
 
 -- **一意ではない 3 本目。** Q8 の畳み込み（内容の鍵が同じ複数行を 1 件として読む）と
 -- Q19 の削除済みの判定（削除済みと内容の鍵が一致する記録を入れない）が両方これに乗る。

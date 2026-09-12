@@ -61,13 +61,22 @@ data class IngestRequest(
     val payload: JsonObject,
 ) : Outboxable
 
-/** 送った 1 件ごとの結果。**位置で対応づける**（docs/collector-contract.md §返る形）。 */
+/**
+ * 送った 1 件ごとの結果。**位置で対応づける**（docs/collector-contract.md §返る形）。
+ *
+ * **`accepted` に既定値を置かない**（ST03 / R108）。既定 `false` ＋ `ignoreUnknownKeys` だと、
+ * **「オブジェクトが要求と同じ数だけ並んだ JSON 配列」なら何でも復号に成功し、
+ * 全件『受理されなかった』と読まれる** —— API ゲートウェイや captive portal が 200 で
+ * 別の配列を返しただけで、それが起きる。ST02 まではその先が「何も取り除かない」だったので
+ * 誤解釈が安全側に落ちていたが、**ST03 で同じ復号結果が「全件捨てる」に変わった**。
+ * 必須欄にすれば、欄を欠く応答は復号に失敗し `unreadable_response`（＝1 件も取り除かない）になる。
+ */
 @Serializable
 data class IngestResult(
     val id: String? = null,
     val duplicate: Boolean = false,
-    /** 未送信から取り除いてよいか。**収集側はこれだけを見る** */
-    val accepted: Boolean = false,
+    /** 未送信から取り除いてよいか。**収集側はこれだけを見る**。**既定値を置かない** */
+    val accepted: Boolean,
     val error: String? = null,
 )
 

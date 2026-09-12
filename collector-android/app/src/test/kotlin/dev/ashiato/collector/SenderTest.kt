@@ -24,8 +24,21 @@ class SenderTest {
         }
     }
 
+    /** 受理と、**恒久的な**断り（`malformed`）を並べた応答。 */
     private fun okFor(vararg accepted: Boolean) = { _: String ->
-        val results = accepted.joinToString(",") { """{"id":null,"duplicate":false,"accepted":$it,"error":null}""" }
+        val results = accepted.joinToString(",") {
+            if (it) """{"id":null,"duplicate":false,"accepted":true,"error":null}"""
+            else """{"id":null,"duplicate":false,"accepted":false,"error":"malformed"}"""
+        }
+        Outcome.Responded(200, "[$results]")
+    }
+
+    /** 理由の種別を 1 件ずつ指定した応答。 */
+    private fun resultsFor(vararg errors: String?) = { _: String ->
+        val results = errors.joinToString(",") { e ->
+            if (e == null) """{"accepted":true}"""
+            else """{"accepted":false,"error":"$e"}"""
+        }
         Outcome.Responded(200, "[$results]")
     }
 
@@ -81,8 +94,8 @@ class SenderTest {
         val transport = FakeTransport { _ ->
             Outcome.Responded(
                 200,
-                """[{"accepted":true},{"accepted":false,"error":"missing_external_id"},
-                    {"accepted":false,"error":"missing_external_id"}]""",
+                """[{"accepted":true},{"accepted":false,"error":"malformed"},
+                    {"accepted":false,"error":"malformed"}]""",
             )
         }
         val lines = mutableListOf<String>()
@@ -90,21 +103,88 @@ class SenderTest {
         sender(outbox, transport) { lines += it }.flush()
 
         val dropped = lines.single { it.startsWith("kind=dropped ") }
+        // **何を失ったかを後から数えられる**（R118）。`id` は私的データではない
+        assertEquals(
+            "捨てた記録の識別子が残っていない: $lines",
+            2,
+            lines.count { it.startsWith("kind=dropped_item ") },
+        )
         assertTrue("件数が出ていない: $dropped", dropped.contains("count=2"))
-        assertTrue("理由の種別が出ていない: $dropped", dropped.contains("error=missing_external_id"))
+        assertTrue("理由の種別が出ていない: $dropped", dropped.contains("error=malformed"))
         // **値は出さない**（製造準備 A-2）。緯度経度がログに載っていないこと
         assertTrue("私的データが出ている: $dropped", !dropped.contains("35.68"))
+    }
+
+    /**
+     * **登録簿を直せば通る断りは捨てない**（R107）。理由の種別を見ずに全件捨てていたときは、
+     * `external_id_kind` の書き忘れ（既定は断る側）や登録簿の 1 行不足で、
+     * **気付く前にその期間の記録が消えていた** —— 気付くのは稼働状況の画面で、
+     * 位置なら想定間隔の 3 倍＝18 時間後。
+     */
+    @Test
+    fun `登録簿を直せば通る断りは捨てずに未送信へ残す`() {
+        for (recoverable in listOf("unknown_source", "missing_external_id", "brand_new_error_kind")) {
+            val outbox = testOutbox()
+            outbox.add(req("a"))
+            val lines = mutableListOf<String>()
+            sender(outbox, FakeTransport(resultsFor(recoverable))) { lines += it }.flush()
+            assertEquals("$recoverable を捨てている", 1, outbox.size())
+            // **「捨てた」ではなく「断られた」として残る**（ログから区別できる）
+            assertTrue(
+                "$recoverable が dropped として出ている: $lines",
+                lines.none { it.startsWith("kind=dropped") },
+            )
+            assertTrue(
+                "$recoverable が rejected として出ていない: $lines",
+                lines.any { it.startsWith("kind=rejected ") && it.contains("error=$recoverable") },
+            )
+        }
+    }
+
+    /** 恒久的な 6 種は捨てる（許可リストの中身を固定する）。 */
+    @Test
+    fun `要求そのものが不正な種別だけを捨てる`() {
+        for (permanent in Sender.PERMANENT_ERRORS) {
+            val outbox = testOutbox()
+            outbox.add(req("a"))
+            sender(outbox, FakeTransport(resultsFor(permanent))).flush()
+            assertEquals("$permanent を捨てていない", 0, outbox.size())
+        }
+    }
+
+    /**
+     * **`accepted` を欠く応答では 1 件も取り除かない**（R108）。
+     * 既定値を置いていたときは、要求と同じ数のオブジェクトが並んだ配列なら何でも
+     * 復号に成功し、**全件「受理されなかった」と読んで捨てていた**。
+     */
+    @Test
+    fun `受理の欄を欠く応答では1件も取り除かない`() {
+        val outbox = testOutbox()
+        listOf("a", "b").forEach { outbox.add(req(it)) }
+        val transport = FakeTransport { Outcome.Responded(200, """[{"ok":1},{"ok":2}]""") }
+        val lines = mutableListOf<String>()
+        sender(outbox, transport) { lines += it }.flush()
+        assertEquals(2, outbox.size())
+        assertTrue(
+            "読めない応答として扱われていない: $lines",
+            lines.any { it.contains("error=unreadable_response") },
+        )
     }
 
     // Scenario: 一時的な失敗では捨てない
     @Test
     fun `一時的な失敗では1件も取り除かない`() {
         // 到達できない / サーバ側の失敗 / 資格情報の不一致は、**再び送れば結果が変わる**
+        // **サーバが約束しているのは 200 と 400 だけ**（R119）。それ以外は一時的に倒す ——
+        // 403（トークン失効・WAF）と 429 は、`>= 500` だけを見ていたときに
+        // 本文の復号へ進み、中身が配列に見えれば全件捨てていた
         val temporary = listOf(
             Outcome.Unreachable("timeout"),
             Outcome.Responded(500, "internal error"),
             Outcome.Responded(503, ""),
             Outcome.Responded(401, "unauthorized"),
+            Outcome.Responded(403, """[{"accepted":false,"error":"malformed"}]"""),
+            Outcome.Responded(429, """[{"accepted":false,"error":"malformed"}]"""),
         )
         for (outcome in temporary) {
             val outbox = testOutbox()

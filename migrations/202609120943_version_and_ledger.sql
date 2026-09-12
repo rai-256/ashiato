@@ -26,10 +26,26 @@ CREATE TABLE IF NOT EXISTS core.event_version (
   payload           jsonb NOT NULL,
   source_updated_at timestamptz,
   external_ref      text,
+  -- **出来事の時刻を読むための欄**（R111）。更新は `event_time` と一緒にこれらも動かすので、
+  -- 持たせないと**前の版の現地時刻と単位の宣言が失われる**（原文は残るが、
+  -- 「その原文をどの地域・どの版として読んだか」は原文の中に無い）。
+  tz_offset_min     integer NOT NULL DEFAULT 0,
+  tz_id             text    NOT NULL DEFAULT 'UTC',
+  schema_version    integer NOT NULL DEFAULT 1,
+  unit_system       text    NOT NULL DEFAULT 'si',
+  crs               text    NOT NULL DEFAULT 'EPSG:4326',
   superseded_at     timestamptz NOT NULL DEFAULT now(),
   txid              xid8 NOT NULL DEFAULT pg_current_xact_id(),
   UNIQUE (event_id, version_no)
 );
+
+-- **当て直しでも列が揃う。** `CREATE TABLE IF NOT EXISTS` は既存の表に列を足さないので、
+-- 先に作った DB（R111 より前の形）にも当たるようにしておく。
+ALTER TABLE core.event_version ADD COLUMN IF NOT EXISTS tz_offset_min  integer NOT NULL DEFAULT 0;
+ALTER TABLE core.event_version ADD COLUMN IF NOT EXISTS tz_id          text    NOT NULL DEFAULT 'UTC';
+ALTER TABLE core.event_version ADD COLUMN IF NOT EXISTS schema_version integer NOT NULL DEFAULT 1;
+ALTER TABLE core.event_version ADD COLUMN IF NOT EXISTS unit_system    text    NOT NULL DEFAULT 'si';
+ALTER TABLE core.event_version ADD COLUMN IF NOT EXISTS crs            text    NOT NULL DEFAULT 'EPSG:4326';
 
 CREATE INDEX IF NOT EXISTS event_version_by_event ON core.event_version (event_id);
 
@@ -63,6 +79,7 @@ CREATE OR REPLACE VIEW core.event_version_live AS
   SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
          v.event_time, v.content_hash, v.raw, v.payload,
          v.source_updated_at, v.external_ref, v.superseded_at,
+         v.tz_offset_min, v.tz_id, v.schema_version, v.unit_system, v.crs,
          e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
          e.origin,
          e.external_id

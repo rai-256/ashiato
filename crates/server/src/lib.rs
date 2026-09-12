@@ -260,6 +260,13 @@ struct Stored {
     raw: String,
     payload: serde_json::Value,
     external_ref: Option<String>,
+    /// 出来事の時刻を読むための欄（R111）。更新で `event_time` と一緒に動くので、
+    /// **前の値を履歴へ残すためにここで受ける**
+    tz_offset_min: i32,
+    tz_id: String,
+    schema_version: i32,
+    unit_system: String,
+    crs: String,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -370,12 +377,23 @@ async fn ingest_one(
     .map_err(|e| internal_at("ingest.id_lookup", e))?;
     if let Some((stored_hash, stored_ext, stored_user, stored_source)) = by_id {
         // 同じ 1 件の再送だけを通す。**それ以外は「同じ識別子で別の記録」**
-        let same_record = stored_hash == hash
-            && stored_user == req.user_id
+        //
+        // **外部識別子で畳むソースでは、内容の一致を求めない**（R112）。
+        // 求めていたときは、更新で `content_hash` が動いた行に**元の到着が再送される**と
+        // `id_reused` が誤爆した（応答を取り落とした端末が再送する正常な経路）——
+        // 運用者は存在しない「端末の採番破損」を追い、収集側はその 1 件を恒久的な拒否として捨てる。
+        // Q5 の 400 が印すべきものは「同じ `id` で**別の記録**」なので、
+        // 外部識別子が一致するなら同じ記録の再送として通すのが正しい。
+        let same_key = stored_user == req.user_id
             && stored_source == req.logical_source
             && stored_ext.as_deref() == external_id.as_deref();
+        let same_record = same_key && (external_id.is_some() || stored_hash == hash);
         if !same_record {
-            tracing::warn!(kind = "id_reused", "収集側の識別子が使い回されている");
+            tracing::warn!(
+                kind = "id_reused",
+                logical_source = %req.logical_source,
+                "同じ収集側の識別子で別の記録が届いた"
+            );
             return Ok(IngestResult::rejected(Some(req.id), IngestError::IdReused));
         }
     }
@@ -401,6 +419,17 @@ async fn ingest_one(
         .await
         .map_err(|e| internal_at("ingest.deleted_lookup", e))?;
         blocked_by_deleted = erased.map(|(id,)| id);
+        if blocked_by_deleted.is_some() {
+            // **黙って落とさない**（R109 / HIGH-5）。取り込まなかったことが応答からは
+            // 「重複」と区別できないので、サーバ側のログが唯一の観測点になる。
+            // **値は載せない**（製造準備 A-2）—— 出すのはソース名と種別だけ。
+            tracing::warn!(
+                kind = "ingest_blocked_deleted",
+                logical_source = %req.logical_source,
+                has_external_id = external_id.is_some(),
+                "削除済みの本文と一致したので取り込まなかった"
+            );
+        }
     }
 
     // **索引が 2 段なので、撃つ文も 2 通り**（design D1 / D2）。
@@ -430,42 +459,66 @@ async fn ingest_one(
         None
     } else {
         sqlx::query_as(insert_sql)
-        .bind(req.id)
-        .bind(req.user_id)
-        .bind(&req.logical_source)
-        .bind(&external_id)
-        .bind(&external_ref)
-        .bind(&req.device_id)
-        .bind(&req.origin)
-        .bind(req.event_time)
-        .bind(req.tz_offset_min)
-        .bind(&req.tz_id)
-        .bind(req.schema_version)
-        .bind(req.unit_system_or_default())
-        .bind(req.crs_or_default())
-        .bind(&hash)
-        .bind(&req.raw)
-        .bind(&payload)
-        .bind(req.source_updated_at)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| internal_at("ingest.event_insert", e))?
+            .bind(req.id)
+            .bind(req.user_id)
+            .bind(&req.logical_source)
+            .bind(&external_id)
+            .bind(&external_ref)
+            .bind(&req.device_id)
+            .bind(&req.origin)
+            .bind(req.event_time)
+            .bind(req.tz_offset_min)
+            .bind(&req.tz_id)
+            .bind(req.schema_version)
+            .bind(req.unit_system_or_default())
+            .bind(req.crs_or_default())
+            .bind(&hash)
+            .bind(&req.raw)
+            .bind(&payload)
+            .bind(req.source_updated_at)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| internal_at("ingest.event_insert", e))?
     };
 
     // 畳まれたときは、**格納されている行**を引き直す（spec「結果に載せる識別子を、
     // 格納されている記録の識別子とする」/ R11）。送り主が名乗った識別子をそのまま返すと、
     // **DB に無い識別子が受理として返り**、後から突き合わせる手段が無い。
-    let folded = match (row, blocked_by_deleted) {
-        (Some(_), _) | (None, Some(_)) => None,
-        (None, None) => Some(load_stored(&mut tx, &req, &hash, external_id.as_deref()).await?),
+    // **止めたときも、その鍵で格納されている行を引き直す**（R106）。
+    // 引かずに削除済みの行の識別子を返していたときは、**生きている行への更新を
+    // 止めた場合に「利用者が消した別の行」の識別子が受理として返っていた** ——
+    // spec の「結果に載せる識別子を、格納されている記録の識別子とする」に反し、
+    // `core.event_live` からはその識別子が引けない。
+    let folded = match row {
+        Some(_) => None,
+        None => load_stored(&mut tx, &req, &hash, external_id.as_deref()).await?,
     };
 
     // 外部サービス由来の更新かどうか（深掘り Q1）。**内容の鍵が違えば更新**
-    let mut updated = false;
+    let mut outcome = Update::NotApplicable;
     if let Some(stored) = &folded {
-        if stored.content_hash != hash && external_id.is_some() {
-            updated = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
+        if blocked_by_deleted.is_some() {
+            outcome = Update::SkippedDeletedContent;
+        } else if stored.content_hash != hash && external_id.is_some() {
+            outcome = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
+        } else if external_id.is_some() {
+            // **内容は同じでも更新時刻だけ新しい到着で、水位を進める**（R113）。
+            // 進めないと、その後に届く**中間の時刻**の版が「新しい」と判定されて
+            // 内容が過去へ動く（より新しい版を一度見ているのに戻る）。
+            // 内容が変わらないので門は素通しし、履歴も要らない。
+            outcome = advance_watermark(&mut tx, stored, &req).await?;
         }
+    }
+    if outcome.was_skipped() {
+        // **捨てた側もログに残す**（R110）。当たった側だけを出していたときは、
+        // 「本当の重複」「更新を当てた」「削除済みなので捨てた」「古いので捨てた」の
+        // 4 つが応答から区別できないうえ、**捨てた側だけログにも残らなかった。**
+        tracing::warn!(
+            kind = "ingest_update_skipped",
+            logical_source = %req.logical_source,
+            reason = outcome.reason(),
+            "外部サービス由来の更新を当てなかった"
+        );
     }
 
     // 稼働記録は取り込みと同じ関門で更新する。別経路にすると
@@ -506,36 +559,56 @@ async fn ingest_one(
         .await
         .map_err(|e| internal_at("ingest.commit", e))?;
 
-    if updated {
-        tracing::info!(kind = "ingest_update", "外部サービス由来の更新で前の版を履歴へ移した");
+    if matches!(outcome, Update::Applied) {
+        tracing::info!(
+            kind = "ingest_update",
+            logical_source = %req.logical_source,
+            "外部サービス由来の更新で前の版を履歴へ移した"
+        );
     }
+    // **`accepted: true` に載せる識別子は、必ず DB から引いたもの**（R101 / spec の MODIFIED）。
+    // 送り主が名乗った識別子を返す分岐を 1 つも残さない —— 残すと、
+    // spec 自身が名指しした事故（「DB に無い識別子が受理として返っていた」）が
+    // 到達可能になった瞬間に復活する。
     Ok(match (row, folded, blocked_by_deleted) {
         (Some((id,)), _, _) => IngestResult::stored(id, false),
         (None, Some(stored), _) => IngestResult::stored(stored.id, true),
-        // 削除済みの本文だったので取り込まなかった。**受理として返す**（Q3）——
-        // 返さないと同じ 1 件が永久に送られ続ける。載せる識別子は削除済みの行のもの
+        // その鍵の行は無いが、削除済みの本文と一致したので取り込まなかった。
+        // **受理として返す**（Q3）—— 返さないと同じ 1 件が永久に送られ続ける
         (None, None, Some(id)) => IngestResult::stored(id, true),
-        // 索引で畳まれたのに引き直せない —— 同時に論理削除が走ったときだけ起きる
-        (None, None, None) => IngestResult::stored(req.id, true),
+        // 畳まれたのに引き直せず、削除済みでもない。**構造上ここには来ない**
+        // （`load_stored` が `None` を返すのは行が無いときだけで、そのときは挿入が通る）。
+        // 来たら 500 にする —— 黙って送り主の識別子を返すより、うるさく落ちるほうがよい
+        (None, None, None) => {
+            return Err(internal_at(
+                "ingest.folded_row_vanished",
+                sqlx::Error::RowNotFound,
+            ))
+        }
     })
 }
 
-/// 索引で畳まれた先の行を引き直す。
+/// その鍵で既に格納されている行を引き直す。**無ければ `None`。**
 ///
 /// 外部識別子で畳んだときはその識別子で、内容の鍵で畳んだときは鍵で引く ——
 /// **畳んだ索引と同じ条件で引かないと、別の行を指しうる**。
+///
+/// 挿入が畳まれたときは必ず在る。**削除済みの本文で止めたときは無いことがある**
+/// （その外部識別子の行がまだ無い場合）—— そこで `fetch_one` にしていると 500 になる。
 async fn load_stored(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     req: &IngestRequest,
     hash: &str,
     external_id: Option<&str>,
-) -> Result<Stored, (StatusCode, String)> {
+) -> Result<Option<Stored>, (StatusCode, String)> {
     let sql = if external_id.is_some() {
-        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload, external_ref
+        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
-        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload, external_ref
+        "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -545,15 +618,80 @@ async fn load_stored(
         .bind(req.user_id)
         .bind(&req.logical_source)
         .bind(key)
-        .fetch_one(&mut **tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|e| internal_at("ingest.stored_lookup", e))
 }
 
-/// 外部サービス由来の更新を当てる（深掘り Q1 / Q11 / Q20）。当てたら真を返す。
+/// 外部サービス由来の更新を当てたか、当てなかったならなぜか（R110）。
+///
+/// **当てなかったことが応答から見えない**ので、理由を持ち帰ってログに出す ——
+/// 「本当の重複」「更新を当てた」「削除済みなので捨てた」「古いので捨てた」が
+/// どれも `accepted: true` / `duplicate: true` で返る。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Update {
+    /// 更新の経路ではない（新規の挿入、または内容が同じ再送）
+    NotApplicable,
+    /// 当てた。前の版は履歴にある
+    Applied,
+    /// 内容は同じで、外部サービス側の更新時刻だけを進めた
+    WatermarkAdvanced,
+    /// 削除済みの行だった（Q11。削除が勝つ）
+    SkippedDeleted,
+    /// 新しい内容が、別の削除済みの本文と一致した（Q19）
+    SkippedDeletedContent,
+    /// 届いた更新時刻が保存済みより古い（Q20）
+    SkippedStale,
+}
+
+impl Update {
+    fn was_skipped(self) -> bool {
+        matches!(
+            self,
+            Self::SkippedDeleted | Self::SkippedDeletedContent | Self::SkippedStale
+        )
+    }
+
+    fn reason(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not_applicable",
+            Self::Applied => "applied",
+            Self::WatermarkAdvanced => "watermark_advanced",
+            Self::SkippedDeleted => "deleted_row",
+            Self::SkippedDeletedContent => "deleted_content",
+            Self::SkippedStale => "stale",
+        }
+    }
+}
+
+/// 内容は同じで、外部サービス側の更新時刻だけが新しい到着で**水位を進める**（R113）。
+///
+/// 進めないと、その後に届く**中間の時刻**の版が「新しい」と判定されて内容が過去へ動く。
+/// 内容が変わらないので門（design D4）は素通しし、履歴も要らない。
+async fn advance_watermark(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    stored: &Stored,
+    req: &IngestRequest,
+) -> Result<Update, (StatusCode, String)> {
+    let Some(incoming) = req.source_updated_at else {
+        return Ok(Update::NotApplicable);
+    };
+    if stored.deleted_at.is_some() || stored.source_updated_at.is_some_and(|k| incoming <= k) {
+        return Ok(Update::NotApplicable);
+    }
+    sqlx::query("UPDATE core.event SET source_updated_at = $2 WHERE id = $1")
+        .bind(stored.id)
+        .bind(incoming)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| internal_at("ingest.watermark_update", e))?;
+    Ok(Update::WatermarkAdvanced)
+}
+
+/// 外部サービス由来の更新を当てる（深掘り Q1 / Q11 / Q20）。
 ///
 /// **前の版を履歴へ書いてから本表を書き換える。** 門（design D4）は
-/// 同じトランザクションに履歴行があることを COMMIT の瞬間に見るので、
+/// 同じトランザクションに**更新前の版**の履歴行があることを COMMIT の瞬間に見るので、
 /// 履歴を書き忘れた書き換えは DB の側で落ちる。
 async fn apply_external_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -561,18 +699,18 @@ async fn apply_external_update(
     req: &IngestRequest,
     hash: &str,
     payload: &serde_json::Value,
-) -> Result<bool, (StatusCode, String)> {
+) -> Result<Update, (StatusCode, String)> {
     // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
     // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
     if stored.deleted_at.is_some() {
-        return Ok(false);
+        return Ok(Update::SkippedDeleted);
     }
     // **古い到着では書き換えない**（Q20）。往復のたびに履歴が無限に積むのを止める。
     // **同じ更新時刻で内容だけ違う到着は「新しい」として扱う**（`>=`。design D8）——
     // `>` にすると `accepted` を返しながら内容が変わらず、応答から見えない。
     if let (Some(incoming), Some(known)) = (req.source_updated_at, stored.source_updated_at) {
         if incoming < known {
-            return Ok(false);
+            return Ok(Update::SkippedStale);
         }
     }
 
@@ -580,10 +718,11 @@ async fn apply_external_update(
     sqlx::query(
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
-            raw, payload, source_updated_at, external_ref)
+            raw, payload, source_updated_at, external_ref,
+            tz_offset_min, tz_id, schema_version, unit_system, crs)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
-                $4, $5, $6, $7, $8, $9
+                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -595,6 +734,11 @@ async fn apply_external_update(
     .bind(&stored.payload)
     .bind(stored.source_updated_at)
     .bind(&stored.external_ref)
+    .bind(stored.tz_offset_min)
+    .bind(&stored.tz_id)
+    .bind(stored.schema_version)
+    .bind(&stored.unit_system)
+    .bind(&stored.crs)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -605,10 +749,19 @@ async fn apply_external_update(
     // **`external_id` と `external_ref` は触らない**（design D10）。どちらも来歴として
     // 凍結してあり、動かすと同じ本文が 2 行に増える（実測）。届いた値が保存済みと違えば
     // 門の手前の錠が落とす —— それが正しい（識別子が変わったなら別の記録）。
+    //
+    // **出来事の時刻と一緒に、その時刻を読むための欄も動かす**（R111）。
+    // `event_time` だけを更新して `tz_offset_min` / `tz_id` を据え置いていたときは、
+    // **更新で日をまたいだ記録の現地時刻が狂った**（出来事の時刻と地域がずれた組になる）。
+    // `schema_version` / `unit_system` / `crs` も新しい内容を読むための欄なので同じ ——
+    // 据え置くと、古い版の宣言で新しい `payload` を読むことになる。
+    // **前の値は履歴に残る**ので、失われるものは無い。
     sqlx::query(
         "UPDATE core.event
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
-                source_updated_at = coalesce($6, source_updated_at)
+                source_updated_at = coalesce($6, source_updated_at),
+                tz_offset_min = $7, tz_id = $8, schema_version = $9,
+                unit_system = $10, crs = $11
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -617,10 +770,15 @@ async fn apply_external_update(
     .bind(hash)
     .bind(req.event_time)
     .bind(req.source_updated_at)
+    .bind(req.tz_offset_min)
+    .bind(&req.tz_id)
+    .bind(req.schema_version)
+    .bind(req.unit_system_or_default())
+    .bind(req.crs_or_default())
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
-    Ok(true)
+    Ok(Update::Applied)
 }
 
 /// 記録をまとめて受け取る。同じ内容を再送しても行は増えない（FR-22）。

@@ -85,3 +85,50 @@
 - いつ・どこで: ST12 / ST13 の上流（deep の前提として渡す）。どちらもまだ `tasks.md` が無いので
   `deferred` でよい
 - 根拠: `deep.md` 第 2 回 Q14 / `docs/collector-contract.md` の `id_reused` の節
+
+## ST02 R-g — `core.coverage` に削除・切り詰めの門が無い
+
+- 何を: `core.coverage` と `core.coverage_span` に、`UPDATE` / `DELETE` / `TRUNCATE` の門を置く
+  （`core.reject_truncate()` は既にあるので `TRUNCATE` は 2 行で足せる）
+- なぜ: `lib.rs` のコメント自身が「**その日の稼働記録は二度と戻らない**（引き直す経路が無い）」と
+  書いている帳簿に、門が 1 つも無い。実測で `TRUNCATE core.coverage` が rc=0 で通る
+- **ST03 で入れない理由**: `core.coverage` は `collection-coverage`（ST02）の表で、
+  門を置くと **ST02 のコードとテストが何をしてよいかが変わる**。
+  他の capability の表に錠を掛けるのは、その capability の spec が決めること
+- いつ・どこで: ST02 の merge 後に `fix/coverage-gates` で。担当は見つけた側（ST03）
+- 根拠: 実装レビュー R100 / MEDIUM-17（`review/code.md`）
+
+## ST23（本文を本当に消す）R-h — 消去は `deleted_at` も立てる
+
+- 何を: 消去（`raw=''`）した記録に、**論理削除の印も同じまとまりで立てる**
+- なぜ: いまの門は「内容が変わる書き換え」に履歴を要求するので、
+  **消去済み（`raw=''`・`deleted_at IS NULL`）の行に外部サービスからの更新が届くと、
+  履歴を書けば `raw` が埋め戻る**。消したはずの本文がその経路で戻る
+- **ST03 で入れない理由**: 消す操作そのものは ST23 の担当で、ST03 が作るのは台帳と門だけ
+  （design の Non-Goals）。いまは消す経路が実装されていないので到達しない
+- いつ・どこで: ST23 の上流（deep の前提として渡す）。まだ `tasks.md` が無いので `deferred`
+- 根拠: 実装レビュー（`review/code.md` の閾値未満の欄）
+
+## ST12 / ST13 R-i — 外部から取り込むときは更新時刻を必ず送る
+
+- 何を: `source_updated_at` を毎回載せる（外部サービスが返さないなら、取得の時刻でよい）
+- なぜ: **更新時刻を持たない到着は「届いた順」で当たる**（Q20 の答え）。載せないと、
+  応答を取り落として古い本文を再送しただけで**内容が過去へ戻る**
+  （実測: `resend_after_update_is_not_id_reuse`。前の版は履歴に残るので**失われはしない**が、
+  最新の 1 行が古い内容になる）
+- いつ・どこで: ST12 / ST13 の上流。まだ `tasks.md` が無いので `deferred`
+- 根拠: `deep.md` Q20 / `crates/server/src/dedup_tests.rs` の `resend_after_update_is_not_id_reuse`
+
+## ST28 / ST29（守り）R-j — アプリ用の非所有者ロールを作る
+
+- 何を: DB の役割を分ける（アプリは superuser でも表の所有者でもない）
+- なぜ: **門は同じ役割から 1 文で外せる**（実測）——
+  `SET session_replication_role='replica'` / `ALTER TABLE … DISABLE TRIGGER ALL`。
+  spec は「これらの制限を、取り込み口の外から加えられた操作にも適用する」と書き、
+  0002 / 0004 / gates.sql のコメントは脅威として「同じ PC の第三者製プラグイン（PERM-8）や
+  psql を直に叩く運用」を名指ししている —— **その主体がこの 1 文を打てる**
+- **ST03 で入れない理由**: 塞ぐには移行 1 本に加えて `tools/*.sh` と CI の接続文字列が全部動く。
+  ST29（FR-77）がプラグインを別プロセスの HTTP に閉じているので実務上の露出は小さい
+- **どの Story の担当でもない**（`docs/stories/INDEX.md` に DB の役割分離を持つ Story が無い。
+  ST28 は網、ST29 はプラグインの宣言と承認）。**入口を作るところから要る**
+- 根拠: 実装レビュー R103（`review/code.md`）

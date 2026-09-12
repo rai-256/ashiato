@@ -29,6 +29,14 @@
 --   `source_updated_at` は凍結しない —— 更新のたびに動く列。
 CREATE OR REPLACE FUNCTION core.reject_collected_rewrite() RETURNS trigger AS $fn$
 BEGIN
+  -- **「収集した」へ入る向きも塞ぐ**（R114）。0004 が閉じたのは*出る*向きだけで、
+  -- `authored` の行を `collected` にしつつ原文を書き換える 1 文は、即時の錠
+  -- （`OLD.origin <> 'collected'` なので何も見ない）と門（同じ理由で素通し）の
+  -- **両方を通り、履歴も台帳も残さずに捏造を固定できた**（実測）。
+  IF NEW.origin = 'collected' AND OLD.origin IS DISTINCT FROM 'collected' THEN
+    RAISE EXCEPTION '「収集した」へ由来を付け替えることはできない（FR-25 / FR-30）';
+  END IF;
+
   IF OLD.origin = 'collected' THEN
     -- 分類そのものを動かせないようにする（0004 の 3 手の迂回）
     IF NEW.origin IS DISTINCT FROM OLD.origin THEN
@@ -44,6 +52,22 @@ BEGIN
     IF NEW.external_ref IS DISTINCT FROM OLD.external_ref THEN
       RAISE EXCEPTION '収集した記録の対象の識別子は書き換えられない（FR-23 / FR-30）';
     END IF;
+    -- **`logical_source` は冪等キーの入力**（R96 / design D12）。動かすと
+    -- `content_hash` が古い名前で計算されたまま残り、**その行は以後どの再送とも
+    -- 一致しない**（重複判定が黙って当たらない行ができる）。実測で 1 文で通っていた。
+    IF NEW.logical_source IS DISTINCT FROM OLD.logical_source THEN
+      RAISE EXCEPTION '収集した記録の論理ソースは書き換えられない（FR-22 / design D12）';
+    END IF;
+    -- **`id` は収集側へ返す識別子**（spec の MODIFIED / R11）。動かせると
+    -- 「返した識別子でその記録を指せる」が後から崩れる。
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION '収集した記録の識別子は書き換えられない（FR-21 / FR-30）';
+    END IF;
+    -- **`user_id` と `device_id` と `tz_*` は凍結しない。**
+    -- `user_id` は Q15 が「ビルド時の設定から送られてくる申告値なので、誤った値を
+    -- 後から 1 文で直せるようにする」と決めている（鍵の中身に混ぜなかった理由そのもの）。
+    -- `device_id` / `tz_id` / `tz_offset_min` は 0004 と同じ理由 —— 収集側の設定ミスで
+    -- 誤った値が入ったとき、直せる余地を残す（どれも冪等キーの入力ではない）。
   END IF;
   RETURN NEW;
 END;
@@ -74,8 +98,13 @@ BEGIN
   -- 原文が空であることを印にできるのは、`ingest.rs` が空の原文を受け口で断っているため
   -- （`raw_that_cannot_be_stored_is_rejected` が固定している）。
   -- **出来事の時刻と冪等キーは消去でも動かない** —— 動かせるなら消去の顔で改竄できる。
+  -- **`payload` も空でなければ消去ではない**（R95）。入れる前は、台帳 1 行と
+  -- `SET raw='', payload='{"forged":true}'` が通った（実測 rc=0）——
+  -- **原文（唯一の復元元）を消しながら、もっともらしい解析済みを植えられる。**
+  -- 閲覧・検索・AI が読むのは `payload` 側なので、効き方はいちばん重い。
   is_erasure :=
         NEW.raw = '' AND OLD.raw <> ''
+    AND NEW.payload = '{}'::jsonb
     AND NEW.event_time   = OLD.event_time
     AND NEW.content_hash = OLD.content_hash;
 
@@ -97,11 +126,21 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- **履歴行の中身が「更新前の版」であることまで見る**（R94）。
+  -- 件数だけを見ていたときは、**前の版と無関係な履歴を 1 行でっち上げれば原文が消えた**
+  -- （実測: 本表 `{"t":2}` / 履歴 `{"junk":1}`、元の `{"v":1}` はどこにも無い）。
+  -- spec は「**更新前の版の**履歴行が同じトランザクションで書かれたときにのみ許す」と書いている。
+  -- design が台帳側で自分で塞いだ穴（「台帳を 1 行書いて改竄が通った」→ 消去の形で絞る）と
+  -- **同型のものが履歴側に残っていた。**
   IF NOT EXISTS (
     SELECT 1 FROM core.event_version v
      WHERE v.event_id = NEW.id AND v.txid = pg_current_xact_id()
+       AND v.raw          = OLD.raw
+       AND v.payload      = OLD.payload
+       AND v.event_time   = OLD.event_time
+       AND v.content_hash = OLD.content_hash
   ) THEN
-    RAISE EXCEPTION '収集した記録の書き換えは、同じまとまりに前の版の履歴があるときだけ通る（FR-30 / 深掘り Q10）';
+    RAISE EXCEPTION '収集した記録の書き換えは、同じまとまりに**更新前の版**の履歴があるときだけ通る（FR-30 / 深掘り Q10）';
   END IF;
   RETURN NULL;
 END;
@@ -129,14 +168,25 @@ BEGIN
    OR NEW.content_hash      IS DISTINCT FROM OLD.content_hash
    OR NEW.source_updated_at IS DISTINCT FROM OLD.source_updated_at
    OR NEW.external_ref      IS DISTINCT FROM OLD.external_ref
+   OR NEW.tz_offset_min     IS DISTINCT FROM OLD.tz_offset_min
+   OR NEW.tz_id             IS DISTINCT FROM OLD.tz_id
+   OR NEW.schema_version    IS DISTINCT FROM OLD.schema_version
+   OR NEW.unit_system       IS DISTINCT FROM OLD.unit_system
+   OR NEW.crs               IS DISTINCT FROM OLD.crs
    OR NEW.superseded_at     IS DISTINCT FROM OLD.superseded_at
    OR NEW.txid              IS DISTINCT FROM OLD.txid
   THEN
     RAISE EXCEPTION '履歴は追記のみ。本文の消去以外の書き換えはできない（深掘り Q17）';
   END IF;
-  -- 残るのは raw / payload。**空へ落とす向きだけ**を通す
-  IF NEW.raw <> '' THEN
-    RAISE EXCEPTION '履歴の原文は本文の消去以外で書き換えられない（深掘り Q17 / FR-18）';
+  -- **既に消去された版には、もう通す操作が無い**（R95 の履歴側）。
+  -- `NEW.raw <> ''` だけを見ていたときは、`raw` が既に `''` の版に対して
+  -- `payload` を好きな内容へ差し替えられた（実測 rc=0。台帳の行は「消去した」と残る）。
+  IF OLD.raw = '' THEN
+    RAISE EXCEPTION '既に消去された履歴の版は書き換えられない（深掘り Q17 / FR-51）';
+  END IF;
+  -- 残るのは raw / payload。**両方を空へ落とす向きだけ**を通す
+  IF NEW.raw <> '' OR NEW.payload <> '{}'::jsonb THEN
+    RAISE EXCEPTION '履歴の書き換えは本文の消去（原文と解析済みを空にする）だけが通る（深掘り Q17 / FR-18）';
   END IF;
   RETURN NEW;
 END;

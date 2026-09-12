@@ -628,8 +628,21 @@ got=$(psql -c "SELECT raw FROM core.event WHERE logical_source='smoke-ext';")
 echo "   → 2 通りとも拒まれ、原文は変わらない（細かい台本は tools/check-immutable.sh）"
 
 echo "== 36. 畳んで読む置き場が引ける（深掘り Q8。適用は後続 Story）"
+# **畳み込みそのものを見る。** `smoke-subj` の 2 行は内容が違うので 2 グループになるだけで、
+# それを数えても「ビューが引ける」ことしか確かめられない（2026-09-12 に直した）。
+# 同じ本文を違う外部識別子で 2 件入れて、**1 件に畳まれる**ことを見る。
+for n in 1 2; do
+  code=$(post "$(extbody "$(printf '50000%03d-0000-4000-8000-000000000000' "$n")" "fold-$n" '{"same":"body"}')")
+  [ "$code" = "200" ] || { echo "畳み込みの $n 件目が $code"; exit 1; }
+done
+folded=$(psql -c "SELECT count(*)||' '||max(folded_rows) FROM core.event_folded
+                  WHERE logical_source='smoke-ext' AND content_hash IN
+                    (SELECT content_hash FROM core.event WHERE external_id LIKE 'fold-%');")
+echo "   → 畳んだ形 $folded"
+[ "$folded" = "1 2" ] || { echo "同じ本文の 2 行が 1 件に畳まれていない: $folded"; exit 1; }
+# 対象ごとのソースは内容が違うので 2 グループのまま（畳み込みが効きすぎていない）
 [ "$(psql -c "SELECT count(*) FROM core.event_folded WHERE logical_source='smoke-subj';")" = "2" ] \
-  || { echo "畳んだ形が引けない"; exit 1; }
+  || { echo "内容の違う 2 行まで畳まれている"; exit 1; }
 # 履歴は**親と束ねた形でのみ**読める（親が消えれば履歴も消える。Q21 / R49）
 # 手順 31 で 2 回更新した（v1→v2 と v2→v3）。**古い到着の 1 回は積まない**（Q20）
 [ "$(psql -c "SELECT count(*) FROM core.event_version WHERE logical_source='smoke-ext';")" = "2" ] \

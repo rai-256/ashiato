@@ -56,12 +56,42 @@ class Sender<T : Outboxable>(
      */
     private data class Verdict(val remove: List<String>, val accepted: Int)
 
+    companion object {
+        /**
+         * **再び送っても結果が変わらない**断りの種別（ST03 / R107）。
+         *
+         * この許可リストに載っているものだけを「恒久的」として扱う。種別を見ずに
+         * `accepted == false` を全部恒久としていたときは、**登録簿を直せば通る 2 つ**まで
+         * 永久に捨てていた:
+         *
+         * - `unknown_source` —— 登録簿に 1 行 INSERT すれば通る（FR-61 が「1 行足すだけ」と決めている）
+         * - `missing_external_id` —— 登録簿の `external_id_kind` を直せば通る。
+         *   **既定は `'record'`（＝断る側）**なので、書き忘れた新しいソースの記録が全部これになる
+         *
+         * どちらも「気付くのは稼働状況の画面（想定間隔の 3 倍後）」なので、捨てる側に倒すと
+         * **気付く前にその期間の記録が消える**。FR-10 の改訂が言う「要求そのものが不正で、
+         * 再び送っても結果が変わらない」に当たるのはここに挙げた 6 つだけ。
+         *
+         * **知らない種別は恒久として扱わない。** サーバが種別を足した日に、
+         * 収集側が黙って記録を捨てるようになるのを防ぐ（`error` は文字列なので、
+         * 端末は知らない値を受け取りうる）。
+         */
+        val PERMANENT_ERRORS = setOf(
+            "malformed",
+            "unknown_origin",
+            "invalid_raw",
+            "missing_device_id",
+            "empty_external_id",
+            "id_reused",
+        )
+    }
+
     /**
      * 恒久的に断られた項目。**捨てないときに先頭へ居座らせない**（ST02 の review R18 / H-1）。
      *
-     * `dropPermanentlyRejected` が `false` のとき（＝生存信号）だけ使う。先頭 `MAX_BATCH` 件が
-     * 恒久的な拒否で埋まると、`take(MAX_BATCH)` は毎回その同じ 200 件を取り、
-     * **新しい信号には永久に順番が回らない**。
+     * 生存信号のすべての拒否と、**記録のうち恒久的でない拒否**（`unknown_source` など。R107）で使う。
+     * 先頭 `MAX_BATCH` 件がそれで埋まると、`take(MAX_BATCH)` は毎回その同じ 200 件を取り、
+     * **新しい分には永久に順番が回らない**。
      */
     private val skipped = LinkedHashSet<String>()
 
@@ -69,7 +99,7 @@ class Sender<T : Outboxable>(
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         val pending = outbox.snapshot()
-        val fresh = if (dropPermanentlyRejected) pending else pending.filter { it.id !in skipped }
+        val fresh = pending.filter { it.id !in skipped }
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
         val batch = (if (fresh.isEmpty()) pending else fresh).take(MAX_BATCH)
         if (batch.isEmpty()) return Flushed(0, 0)
@@ -111,9 +141,11 @@ class Sender<T : Outboxable>(
             log(Telemetry.line("send_failed", count = batch.size, error = "unauthorized"))
             return Verdict(emptyList(), 0)
         }
-        // 5xx は本文が結果の配列でないことがある（サーバ側の失敗）。
-        // **状態符号を落とさない** —— 落とすと 500 も 503 も本文欠落も同じ 1 行に潰れる
-        if (res.status >= 500) {
+        // **サーバが約束している状態符号は 200 と 400 だけ**（docs/collector-contract.md）。
+        // それ以外（403 のトークン失効・WAF、408、413、429、5xx）は**一時的な失敗**として扱い、
+        // 1 件も取り除かない（R119）。`>= 500` だけを見ていたときは、403 や 429 が
+        // 本文の復号へ進み、**中身が配列に見えれば全件捨てていた**。
+        if (res.status != 200 && res.status != 400) {
             log(Telemetry.line("send_failed", count = batch.size, error = "server_${res.status}"))
             return Verdict(emptyList(), 0)
         }
@@ -128,30 +160,39 @@ class Sender<T : Outboxable>(
             log(Telemetry.line("send_failed", count = batch.size, error = "result_count_mismatch"))
             return Verdict(emptyList(), 0)
         }
-        // **捨てた（または断られた）件数と理由の種別を残す**（ST03 / spec「端末のログに残す」）。
+        // **捨てるのは、許可リストに載った種別だけ**（R107）。
+        // 残りは「捨てない側」と同じ扱い（未送信に残し、次の契機では先に飛ばす）。
+        fun isPermanent(i: Int) =
+            dropPermanentlyRejected && results[i].error in PERMANENT_ERRORS
+
+        // **件数と理由の種別を残す**（ST03 / spec「端末のログに残す」）。
         // 理由の種別は私的データではないので出せる（製造準備 A-2）——
         // **これが唯一、断られていることに気付ける経路**（画面に出る経路が無い。
         // 自動で気付くのは ST02 の途絶通知で、位置なら想定間隔の 3 倍＝18 時間後）。
         // **捨てたのか残したのかで種別を分ける** —— 同じ語にすると、
         // ログからは「未送信が減ったのか居座っているのか」が読み取れない。
-        val dropKind = if (dropPermanentlyRejected) "dropped" else "rejected"
-        results.filter { !it.accepted }
-            .groupingBy { it.error ?: "unknown" }
-            .eachCount()
-            .forEach { (kind, count) -> log(Telemetry.line(dropKind, count = count, error = kind)) }
-        if (!dropPermanentlyRejected) {
-            // **捨てない側**（生存信号）。断られた分を覚えて、次の契機では先に飛ばす
-            batch.forEachIndexed { i, item -> if (!results[i].accepted) skipped += item.id }
-            return Verdict(
-                remove = batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id },
-                accepted = results.count { it.accepted },
-            )
-        }
-        // **受理された分と、恒久的に断られた分の両方**を取り除く（ST03 / FR-10 の改訂）。
-        // 断られた 1 件は再び送っても結果が変わらない —— 要求そのものが不正だと
-        // サーバが 1 件ごとの結果で告げている。
+        results.indices.filter { !results[it].accepted }
+            .groupBy { isPermanent(it) }
+            .forEach { (permanent, idx) ->
+                val kindName = if (permanent) "dropped" else "rejected"
+                idx.groupingBy { results[it].error ?: "unknown" }
+                    .eachCount()
+                    .forEach { (why, count) ->
+                        log(Telemetry.line(kindName, count = count, error = why))
+                    }
+                if (permanent) {
+                    // **何を失ったかを後から数えられるようにする**（R118）。
+                    // `id` と `event_time` は私的データではなく、捨てた記録を突き合わせる
+                    // 唯一の材料 —— 種別と件数だけでは「どれが消えたか」が残らない。
+                    idx.forEach { log(Telemetry.line("dropped_item", error = batch[it].id)) }
+                }
+            }
+
+        // 恒久的でない拒否は覚えて、次の契機では先に飛ばす（ST02 の R18 / H-1 と同じ解き方）——
+        // **捨てずに先頭を塞がない。**
+        batch.forEachIndexed { i, item -> if (!results[i].accepted && !isPermanent(i)) skipped += item.id }
         return Verdict(
-            remove = batch.map { it.id },
+            remove = batch.filterIndexed { i, _ -> results[i].accepted || isPermanent(i) }.map { it.id },
             accepted = results.count { it.accepted },
         )
     }

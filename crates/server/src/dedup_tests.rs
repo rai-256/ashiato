@@ -152,7 +152,10 @@ async fn different_user_not_deduped() {
     let s = testdb::source_of_kind(&app.pool, "per-user", "none").await;
     for u in [testdb::user(), testdb::user()] {
         let (_, res) = post(&app, serde_json::json!([ev(&s, u, r#"{"seq":"mine"}"#)])).await;
-        assert!(res[0].accepted && !res[0].duplicate, "利用者をまたいで畳まれた");
+        assert!(
+            res[0].accepted && !res[0].duplicate,
+            "利用者をまたいで畳まれた"
+        );
     }
     assert_eq!(count_rows(&app, &s).await, 2);
 }
@@ -192,6 +195,89 @@ async fn id_reused_is_rejected_without_stopping_the_batch() {
         raw_of(&app, stored_id).await,
         r#"{"seq":"first"}"#,
         "既存の記録が書き換わっている"
+    );
+
+    // **判定の残り 3 条件も見る**（利用者 / ソース / 外部識別子）。
+    // どれかを落としても「同じ 1 件の再送」と誤判定され、**主キー違反で 500 になって
+    // まとめ送り全体が落ちる**（Q5 が避けたかった形そのもの）。
+    let other_user = testdb::user();
+    let other_source = testdb::source_of_kind(&app.pool, "id-reuse-2", "none").await;
+    let ext_source = testdb::source_of_kind(&app.pool, "id-reuse-3", "record").await;
+    let cases: Vec<serde_json::Value> = vec![
+        // 利用者だけが違う
+        with(
+            ev(&s, other_user, r#"{"seq":"first"}"#),
+            "id",
+            serde_json::json!(stored_id),
+        ),
+        // ソースだけが違う
+        with(
+            ev(&other_source, u, r#"{"seq":"first"}"#),
+            "id",
+            serde_json::json!(stored_id),
+        ),
+        // 外部識別子だけが違う（片方は無し）
+        with(
+            with(
+                ev(&ext_source, u, r#"{"seq":"first"}"#),
+                "external_id",
+                serde_json::json!("e1"),
+            ),
+            "id",
+            serde_json::json!(stored_id),
+        ),
+    ];
+    for (i, case) in cases.into_iter().enumerate() {
+        let (code, res) = post(&app, serde_json::json!([case])).await;
+        assert_eq!(code, StatusCode::BAD_REQUEST, "{i} 件目が通った");
+        assert!(
+            matches!(res[0].error, Some(IngestError::IdReused)),
+            "{i} 件目の理由の種別が違う: {:?}",
+            res[0].error
+        );
+    }
+}
+
+/// **更新で内容の鍵が動いた行へ元の到着が再送されても、`id_reused` にしない**（R112）。
+///
+/// 応答を取り落とした端末が再送する正常な経路。内容の一致を求めていたときは
+/// ここが 400 になり、**運用者は存在しない「端末の採番破損」を追い、収集側はその 1 件を
+/// 恒久的な拒否として捨てていた**。
+#[tokio::test]
+async fn resend_after_update_is_not_id_reuse() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "resend-upd", "record").await;
+    let u = testdb::user();
+
+    let first = with(
+        ev(&s, u, r#"{"v":1}"#),
+        "external_id",
+        serde_json::json!("e1"),
+    );
+    let original_id = first["id"].clone();
+    let (_, res) = post(&app, serde_json::json!([first.clone()])).await;
+    let stored_id = res[0].id.unwrap();
+
+    // 外部サービス側の更新で `content_hash` が動く
+    ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
+
+    // 端末が元の 1 件を再送する（同じ `id`・同じ外部識別子・古い内容）
+    let (code, res) = post(&app, serde_json::json!([first])).await;
+    assert_eq!(code, StatusCode::OK, "正常な再送が断られている");
+    assert!(res[0].accepted, "{:?}", res[0].error);
+    assert_eq!(res[0].id, Some(stored_id), "別の行を指している");
+    assert_eq!(original_id, serde_json::json!(stored_id));
+    assert_eq!(count_rows(&app, &s).await, 1, "再送で行が増えた");
+
+    // **内容は「届いた順」で当たる**（Q20。更新時刻を持たない到着の規則）——
+    // だから古い本文の再送は内容を戻す。**それでも失われるものは無い**（前の版は履歴にある）。
+    // 止めるには外部サービス側の更新時刻を送る必要があり、それは取り込む側
+    // （ST12 / ST13）の責務 —— `docs/handoff/ST02.md` の隣に申し送ってある。
+    assert_eq!(raw_of(&app, stored_id).await, r#"{"v":1}"#);
+    assert_eq!(
+        versions_of(&app, stored_id).await.len(),
+        2,
+        "戻した版が履歴に残っていない（原文が失われる）"
     );
 }
 
@@ -270,11 +356,7 @@ async fn ingest_ext(
     raw: &str,
     updated_at: Option<&str>,
 ) -> IngestResult {
-    let mut item = with(
-        ev(source, user, raw),
-        "external_id",
-        serde_json::json!(ext),
-    );
+    let mut item = with(ev(source, user, raw), "external_id", serde_json::json!(ext));
     if let Some(t) = updated_at {
         item = with(item, "source_updated_at", serde_json::json!(t));
     }
@@ -308,7 +390,11 @@ async fn external_update_keeps_one_row_and_one_version() {
     assert!(second.accepted);
     assert_eq!(second.id, Some(id), "更新なのに別の行を指している");
     assert_eq!(count_rows(&app, &s).await, 1, "更新で行が増えた");
-    assert_eq!(raw_of(&app, id).await, r#"{"v":2}"#, "新しい内容になっていない");
+    assert_eq!(
+        raw_of(&app, id).await,
+        r#"{"v":2}"#,
+        "新しい内容になっていない"
+    );
     assert_eq!(
         versions_of(&app, id).await,
         vec![(1, r#"{"v":1}"#.to_string())],
@@ -346,6 +432,70 @@ async fn version_raw_is_byte_identical() {
     assert_ne!(canon, weird, "jsonb でも同じ値になる（検査が空振り）");
 }
 
+/// **出来事の時刻を読むための欄が、更新で一緒に動き、前の値は履歴に残る**（R111）。
+///
+/// `event_time` だけを更新して `tz_*` を据え置いていたときは、**更新で日をまたいだ記録の
+/// 現地時刻が狂った**（出来事の時刻と地域がずれた組になる）。`schema_version` を据え置くと、
+/// 古い版の宣言で新しい `payload` を読むことになる。
+#[tokio::test]
+async fn update_moves_the_envelope_and_history_keeps_the_old_one() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "envelope", "record").await;
+    let u = testdb::user();
+    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None)
+        .await
+        .id
+        .unwrap();
+
+    // 新しい版は別の地域・別の版・別の座標系を宣言している
+    let item = with(
+        with(
+            with(
+                with(
+                    ev(&s, u, r#"{"v":2}"#),
+                    "external_id",
+                    serde_json::json!("e1"),
+                ),
+                "tz_id",
+                serde_json::json!("America/New_York"),
+            ),
+            "tz_offset_min",
+            serde_json::json!(-300),
+        ),
+        "schema_version",
+        serde_json::json!(2),
+    );
+    let item = with(item, "crs", serde_json::json!("EPSG:6668"));
+    post(&app, serde_json::json!([item])).await;
+
+    let now: (String, i32, i32, String) = sqlx::query_as(
+        "SELECT tz_id, tz_offset_min, schema_version, crs FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        now,
+        ("America/New_York".into(), -300, 2, "EPSG:6668".into()),
+        "出来事の時刻だけ動いて、それを読むための欄が据え置かれている"
+    );
+
+    let before: (String, i32, i32, String) = sqlx::query_as(
+        "SELECT tz_id, tz_offset_min, schema_version, crs
+           FROM core.event_version WHERE event_id = $1 AND version_no = 1",
+    )
+    .bind(id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        before,
+        ("Asia/Tokyo".into(), 540, 1, "EPSG:4326".into()),
+        "前の版の地域と版の宣言が履歴に残っていない"
+    );
+}
+
 /// 履歴は自分の感度も削除の印も持たず、**常に親に従う**（深掘り Q21 / design D6）。
 /// 読み出しは `core.event_version_live` 越しにだけ行う（R49）。
 ///
@@ -379,22 +529,24 @@ async fn history_follows_parent_sensitivity_and_deletion() {
         .execute(&app.pool)
         .await
         .unwrap();
-    let (sens,): (i16,) =
-        sqlx::query_as(&format!("SELECT sensitivity FROM {VERSION_VIEW} WHERE event_id = $1"))
-            .bind(id)
-            .fetch_one(&app.pool)
-            .await
-            .unwrap();
+    let (sens,): (i16,) = sqlx::query_as(&format!(
+        "SELECT sensitivity FROM {VERSION_VIEW} WHERE event_id = $1"
+    ))
+    .bind(id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
     assert_eq!(sens, 3, "履歴が親の感度に従っていない");
 
     // 親を消すと、束ねた形からも消える
     soft_delete(&app, id).await;
-    let (left,): (i64,) =
-        sqlx::query_as(&format!("SELECT count(*) FROM {VERSION_VIEW} WHERE event_id = $1"))
-            .bind(id)
-            .fetch_one(&app.pool)
-            .await
-            .unwrap();
+    let (left,): (i64,) = sqlx::query_as(&format!(
+        "SELECT count(*) FROM {VERSION_VIEW} WHERE event_id = $1"
+    ))
+    .bind(id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
     assert_eq!(left, 0, "親を消しても履歴の版が読める");
 }
 
@@ -406,12 +558,27 @@ async fn stale_update_is_ignored() {
     let app = app().await;
     let s = testdb::source_of_kind(&app.pool, "stale", "record").await;
     let u = testdb::user();
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, Some("2026-05-02T00:00:00Z"))
-        .await
-        .id
-        .unwrap();
+    let id = ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":2}"#,
+        Some("2026-05-02T00:00:00Z"),
+    )
+    .await
+    .id
+    .unwrap();
 
-    let old = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, Some("2026-05-01T00:00:00Z")).await;
+    let old = ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":1}"#,
+        Some("2026-05-01T00:00:00Z"),
+    )
+    .await;
     assert!(old.accepted, "古い到着は受理として返す（再送を諦められる）");
     assert_eq!(raw_of(&app, id).await, r#"{"v":2}"#, "内容が巻き戻った");
     assert!(versions_of(&app, id).await.is_empty(), "履歴が増えた");
@@ -423,10 +590,17 @@ async fn missing_updated_at_does_not_clear_stored_value() {
     let app = app().await;
     let s = testdb::source_of_kind(&app.pool, "keep-ts", "record").await;
     let u = testdb::user();
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, Some("2026-05-02T00:00:00Z"))
-        .await
-        .id
-        .unwrap();
+    let id = ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":1}"#,
+        Some("2026-05-02T00:00:00Z"),
+    )
+    .await
+    .id
+    .unwrap();
 
     ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
 
@@ -436,9 +610,28 @@ async fn missing_updated_at_does_not_clear_stored_value() {
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert!(kept.is_some(), "保存済みの更新時刻が消えた（以後、古い版を止められない）");
+    // **「消えていない」ではなく「元の値のまま」を見る**（R116）。`is_some()` だけだと
+    // `coalesce($6, now())` というバグを通す —— その行は以後、外部サービスからの
+    // **正当な過去時刻の更新を全部 stale として黙って落とす**（応答は `accepted` のまま）。
+    assert_eq!(
+        kept,
+        Some(
+            "2026-05-02T00:00:00Z"
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap()
+        ),
+        "保存済みの更新時刻が書き換わった（以後、正当な更新が stale で落ちる）"
+    );
     // 消えていないので、古い到着はまだ止まる
-    ingest_ext(&app, &s, u, "e1", r#"{"v":0}"#, Some("2026-05-01T00:00:00Z")).await;
+    ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":0}"#,
+        Some("2026-05-01T00:00:00Z"),
+    )
+    .await;
     assert_eq!(raw_of(&app, id).await, r#"{"v":2}"#);
 }
 
@@ -448,11 +641,83 @@ async fn updates_without_timestamp_apply_in_arrival_order() {
     let app = app().await;
     let s = testdb::source_of_kind(&app.pool, "arrival", "record").await;
     let u = testdb::user();
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None).await.id.unwrap();
+    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None)
+        .await
+        .id
+        .unwrap();
     ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
     ingest_ext(&app, &s, u, "e1", r#"{"v":3}"#, None).await;
-    assert_eq!(raw_of(&app, id).await, r#"{"v":3}"#, "届いた順で適用されていない");
+    assert_eq!(
+        raw_of(&app, id).await,
+        r#"{"v":3}"#,
+        "届いた順で適用されていない"
+    );
     assert_eq!(versions_of(&app, id).await.len(), 2);
+}
+
+/// **内容が同じで更新時刻だけ新しい到着で、水位が進む**（R113）。
+///
+/// 進めないと、その後に届く**中間の時刻**の版が「新しい」と判定されて内容が過去へ動く ——
+/// より新しい版を一度見ているのに戻る。応答は `accepted` なので誰も気付けない。
+#[tokio::test]
+async fn watermark_advances_on_identical_content() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "watermark", "record").await;
+    let u = testdb::user();
+    let id = ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":1}"#,
+        Some("2026-05-01T00:00:00Z"),
+    )
+    .await
+    .id
+    .unwrap();
+    // 内容は同じで、更新時刻だけ新しい
+    ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":1}"#,
+        Some("2026-05-03T00:00:00Z"),
+    )
+    .await;
+
+    let (known,): (Option<chrono::DateTime<chrono::Utc>>,) =
+        sqlx::query_as("SELECT source_updated_at FROM core.event WHERE id = $1")
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        known,
+        Some(
+            "2026-05-03T00:00:00Z"
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap()
+        ),
+        "内容が同じ到着で水位が進んでいない"
+    );
+
+    // **中間の時刻の版は、もう当たらない**
+    ingest_ext(
+        &app,
+        &s,
+        u,
+        "e1",
+        r#"{"v":2}"#,
+        Some("2026-05-02T00:00:00Z"),
+    )
+    .await;
+    assert_eq!(
+        raw_of(&app, id).await,
+        r#"{"v":1}"#,
+        "水位が進んでいないので内容が過去へ動いた"
+    );
+    assert!(versions_of(&app, id).await.is_empty());
 }
 
 /// **`>=` で当てる**（design D8）。`>` にすると `accepted` を返しながら内容が変わらず、
@@ -465,9 +730,16 @@ async fn same_updated_at_still_applies() {
     let s = testdb::source_of_kind(&app.pool, "same-ts", "record").await;
     let u = testdb::user();
     let t = "2026-05-02T00:00:00Z";
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, Some(t)).await.id.unwrap();
+    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, Some(t))
+        .await
+        .id
+        .unwrap();
     ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, Some(t)).await;
-    assert_eq!(raw_of(&app, id).await, r#"{"v":2}"#, "同じ更新時刻で落ちている");
+    assert_eq!(
+        raw_of(&app, id).await,
+        r#"{"v":2}"#,
+        "同じ更新時刻で落ちている"
+    );
 }
 
 // ------------------------------------------------------------------ 削除済みの保護
@@ -497,6 +769,74 @@ async fn deleted_duplicate_is_accepted() {
     assert_eq!(alive, 0, "削除済みの記録が復活した");
 }
 
+/// **取り込まなかった 1 件でも稼働記録の行が立つ**（design の Risks。R100）。
+///
+/// 立てないと、そういう到着だけの日が⑥「途絶」に見える（扉 #14 が区別したかったものが壊れる）。
+/// **引き直せない** —— 取り込まなかった到着は `core.event` に行を残さないので、
+/// ST02 の `coverage_rebuild` でもその日は復元できない。
+/// 立てない改変を入れても既存のテストは 1 本も落ちなかった（実測）。
+#[tokio::test]
+async fn blocked_arrival_still_marks_the_day() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "blocked-cov", "record").await;
+    let u = testdb::user();
+    let raw = r#"{"seq":"blocked"}"#;
+    let id = ingest_ext(&app, &s, u, "e1", raw, None).await.id.unwrap();
+    soft_delete(&app, id).await;
+
+    // 稼働記録の行だけを消す（`core.coverage` は導出の帳簿）
+    sqlx::query("DELETE FROM core.coverage WHERE user_id = $1 AND logical_source = $2")
+        .bind(u)
+        .bind(&s)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    // 削除済みの本文が別の識別子で届く（取り込まれない）
+    let res = ingest_ext(&app, &s, u, "e2", raw, None).await;
+    assert!(res.accepted);
+    assert_eq!(count_rows(&app, &s).await, 1, "取り込まれてしまった");
+
+    let (count,): (i32,) = sqlx::query_as(
+        "SELECT event_count FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(u)
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "取り込まなかった到着を件数に数えている");
+}
+
+/// **更新だけが届いた日も稼働記録の行が立ち、件数は増えない**（正典「新しく入った記録だけを数える」）。
+/// `docs/handoff/ST02.md` が ST02 へ申し送っている当の振る舞いなので、いまの答えを固定する。
+#[tokio::test]
+async fn update_only_day_gets_a_row_without_counting() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "upd-cov", "record").await;
+    let u = testdb::user();
+    ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None).await;
+
+    sqlx::query("DELETE FROM core.coverage WHERE user_id = $1 AND logical_source = $2")
+        .bind(u)
+        .bind(&s)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
+
+    let (count,): (i32,) = sqlx::query_as(
+        "SELECT event_count FROM core.coverage WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(u)
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "更新を「新しく入った記録」として数えている");
+}
+
 /// **Q3 で本人に「二度と入りません」と伝えた文面**が、Q6 の答えの下でも成り立つこと。
 /// 内容の鍵を狭めたので、削除済みの行に対してだけは内容の鍵も当て続ける（Q19）。
 ///
@@ -512,7 +852,11 @@ async fn deleted_content_does_not_return_via_other_external_id() {
 
     let again = ingest_ext(&app, &s, u, "e2", raw, None).await;
     assert!(again.accepted, "受理として返らないと永久に送られ続ける");
-    assert_eq!(count_rows(&app, &s).await, 1, "違う識別子で消した本文が戻った");
+    assert_eq!(
+        count_rows(&app, &s).await,
+        1,
+        "違う識別子で消した本文が戻った"
+    );
 }
 
 /// Scenario: 削除済みへの外部の更新は取り込まない
@@ -521,12 +865,19 @@ async fn deleted_row_is_not_updated_by_external_change() {
     let app = app().await;
     let s = testdb::source_of_kind(&app.pool, "del-update", "record").await;
     let u = testdb::user();
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None).await.id.unwrap();
+    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None)
+        .await
+        .id
+        .unwrap();
     soft_delete(&app, id).await;
 
     let res = ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
     assert!(res.accepted);
-    assert_eq!(raw_of(&app, id).await, r#"{"v":1}"#, "削除済みが書き換わった");
+    assert_eq!(
+        raw_of(&app, id).await,
+        r#"{"v":1}"#,
+        "削除済みが書き換わった"
+    );
     assert!(versions_of(&app, id).await.is_empty(), "履歴が積まれた");
     let (deleted,): (Option<chrono::DateTime<chrono::Utc>>,) =
         sqlx::query_as("SELECT deleted_at FROM core.event WHERE id = $1")
@@ -548,7 +899,10 @@ async fn update_cannot_resurrect_deleted_content() {
     let u = testdb::user();
     let erased_raw = r#"{"seq":"secret"}"#;
 
-    let gone = ingest_ext(&app, &s, u, "e1", erased_raw, None).await.id.unwrap();
+    let gone = ingest_ext(&app, &s, u, "e1", erased_raw, None)
+        .await
+        .id
+        .unwrap();
     soft_delete(&app, gone).await;
     let alive = ingest_ext(&app, &s, u, "e2", r#"{"seq":"innocent"}"#, None)
         .await
@@ -564,6 +918,15 @@ async fn update_cannot_resurrect_deleted_content() {
         "生きている行が消した本文に化けた"
     );
     assert!(versions_of(&app, alive).await.is_empty());
+    // **返る識別子は「その外部識別子で格納されている行」のもの**（R106）。
+    // 引き直さずに削除済みの行の識別子を返していたときは、**利用者が消した別の行**の
+    // 識別子が受理として返っていた —— `core.event_live` からは引けない識別子。
+    assert_eq!(
+        res.id,
+        Some(alive),
+        "止めたときに、消した別の行の識別子を返している"
+    );
+    assert_ne!(res.id, Some(gone));
 }
 
 /// **外部識別子を持たない記録では削除済みの判定を撃たない**（design D9）——
@@ -586,7 +949,11 @@ async fn no_extra_query_without_external_id() {
         .unwrap();
     soft_delete(&app, id).await;
     post(&app, serde_json::json!([ev(&s, u, raw)])).await;
-    assert_eq!(count_rows(&app, &s).await, 1, "索引が削除済みを弾いていない");
+    assert_eq!(
+        count_rows(&app, &s).await,
+        1,
+        "索引が削除済みを弾いていない"
+    );
 }
 
 // ------------------------------------------------------------------ 登録簿の宣言
@@ -673,6 +1040,57 @@ async fn subject_ref_is_not_used_for_dedup() {
     assert_eq!(with_ref, 2, "対象の識別子が保持されていない");
 }
 
+/// **「記録ごと」でないソースへ届いた `external_id` を捨てない**（D13。R99）。
+///
+/// 捨てる側へ倒しても既存のテストは 1 本も落ちなかった（実測）—— D13 は
+/// 「捨てると、捨てたものは復元できない」を理由に**（仮）**で決めた判断なので、
+/// 回帰が無いと次の実装が黙って捨てる側へ倒せる（反転条件は
+/// 「ST12 / ST13 が断るべきと判断したとき」で、無言の反転は含まれていない）。
+#[tokio::test]
+async fn subject_source_keeps_a_misplaced_external_id() {
+    let app = app().await;
+    let s = testdb::source_of_kind(&app.pool, "misplaced", "subject").await;
+    let u = testdb::user();
+
+    // 「対象ごと」と宣言したソースへ `external_id` を載せて送る（欄を間違えた到着）
+    let item = with(
+        ev(&s, u, r#"{"watch":"once"}"#),
+        "external_id",
+        serde_json::json!("video-99"),
+    );
+    let (code, res) = post(&app, serde_json::json!([item])).await;
+    assert_eq!(code, StatusCode::OK, "欄を間違えた到着で断られている");
+    assert!(res[0].accepted);
+
+    let (ext, refs): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT external_id, external_ref FROM core.event WHERE logical_source = $1",
+    )
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        ext, None,
+        "対象ごとの識別子が external_id 列に入った（2 件目で一意違反になる）"
+    );
+    assert_eq!(
+        refs.as_deref(),
+        Some("video-99"),
+        "届いた識別子が捨てられた（捨てたものは復元できない）"
+    );
+
+    // 同じ対象の 2 件目が一意違反で落ちない（R42 の実測そのもの）
+    let second = with(
+        ev(&s, u, r#"{"watch":"twice"}"#),
+        "external_id",
+        serde_json::json!("video-99"),
+    );
+    let (code, res) = post(&app, serde_json::json!([second])).await;
+    assert_eq!(code, StatusCode::OK, "同じ対象の 2 件目が落ちた");
+    assert!(res[0].accepted && !res[0].duplicate);
+    assert_eq!(count_rows(&app, &s).await, 2);
+}
+
 /// **Q25 の除外そのもの。** 対象ごとの識別子しか無いソースでは、
 /// 外部サービス側の更新が行を増やす（完了の判定 2 はこのクラスを対象外にしている）。
 ///
@@ -690,6 +1108,27 @@ async fn subject_scoped_update_adds_a_row() {
         count_rows(&app, &s).await,
         2,
         "対象ごとのソースで更新が畳まれている（Q25 の除外が消えている）"
+    );
+    // **2 行とも対象の識別子を保持している**（行が増えるだけで、追う材料は残る）——
+    // これが無いと「内容が違うから 2 行」しか見ておらず、実装が 1 行も無くても緑になる
+    let (kept,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.event WHERE logical_source = $1 AND external_ref = 'video-7'",
+    )
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, 2, "対象の識別子が残っていない（後から集められない）");
+    // **外部識別子で畳む側へ倒れていない**（倒れると識別子を欠く記録が 400 になる）
+    let (kind,): (String,) =
+        sqlx::query_as("SELECT external_id_kind FROM core.source WHERE logical_source = $1")
+            .bind(&s)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        kind, "subject",
+        "宣言が変わっている（この検査が空振りする）"
     );
 }
 
@@ -715,6 +1154,24 @@ async fn derived_rebuild_is_not_folded() {
         2,
         "作り直した派生が畳まれている（ST16 の判断をこの capability が先取りしている）"
     );
+    // **2 行とも「派生させた」のまま**。この capability は由来を動かさない（FR-25）——
+    // これが無いと「内容が違うから 2 行」しか見ておらず、派生に固有の検証が無い
+    let (derived,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.event WHERE logical_source = $1 AND origin = 'derived'",
+    )
+    .bind(&s)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(derived, 2, "由来が動いている");
+    // 履歴も積まない（更新の経路に乗せていない）
+    let (versions,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.event_version WHERE logical_source = $1")
+            .bind(&s)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, 0, "派生の作り直しを更新として扱っている");
 }
 
 /// 登録簿まわりの 3 本（tasks 8.10）。
@@ -820,7 +1277,10 @@ async fn erasure_removes_parent_and_all_versions() {
     let app = app().await;
     let s = testdb::source_of_kind(&app.pool, "erase", "record").await;
     let u = testdb::user();
-    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None).await.id.unwrap();
+    let id = ingest_ext(&app, &s, u, "e1", r#"{"v":1}"#, None)
+        .await
+        .id
+        .unwrap();
     ingest_ext(&app, &s, u, "e1", r#"{"v":2}"#, None).await;
     assert_eq!(versions_of(&app, id).await.len(), 1);
 
@@ -859,11 +1319,13 @@ async fn erasure_removes_parent_and_all_versions() {
     .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::query("UPDATE core.event_version SET raw = '', payload = '{}'::jsonb WHERE event_id = $1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE core.event_version SET raw = '', payload = '{}'::jsonb WHERE event_id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = $1")
         .bind(id)
         .execute(&mut *tx)

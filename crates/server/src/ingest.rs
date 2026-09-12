@@ -361,15 +361,25 @@ mod tests {
         assert_eq!(r.validate(), Ok(()));
 
         r.external_ref = Some(String::new());
-        assert_eq!(r.validate(), Err(Invalid::ExternalId), "対象の識別子の空文字が通っている");
+        assert_eq!(
+            r.validate(),
+            Err(Invalid::ExternalId),
+            "対象の識別子の空文字が通っている"
+        );
     }
 
     #[test]
     /// **宣言を欠いたソースは断る側へ倒れる**（深掘り Q16 / Q18）。
     /// 列の `CHECK` が通常は守るが、倒す向きをコード側でも固定する。
     fn unknown_registry_value_falls_back_to_record() {
-        assert_eq!(ExternalIdKind::from_registry("record"), ExternalIdKind::Record);
-        assert_eq!(ExternalIdKind::from_registry("subject"), ExternalIdKind::Subject);
+        assert_eq!(
+            ExternalIdKind::from_registry("record"),
+            ExternalIdKind::Record
+        );
+        assert_eq!(
+            ExternalIdKind::from_registry("subject"),
+            ExternalIdKind::Subject
+        );
         assert_eq!(ExternalIdKind::from_registry("none"), ExternalIdKind::None);
         for odd in ["", "RECORD", "unknown"] {
             assert_eq!(
