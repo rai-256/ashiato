@@ -6,7 +6,8 @@
     "起動: `./dist/verify-20260913-2255/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
     "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。スマホから見るなら BIND を LAN か Tailscale の IP にして run.sh を叩き直す。",
     "Android: `dist/verify-20260913-2255/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20260913-2255/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
-    "成果物: `dist/verify-20260913-2255/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。"
+    "成果物: `dist/verify-20260913-2255/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "Windows 収集（ST07）: ビルド済み `C:\\dev\\ashiato2-verify\\target\\release\\ashiato-collector-windows.exe`（verify ブランチを Windows 側に clone して cargo build --release 済み）。起動は PowerShell で `powershell -ExecutionPolicy Bypass -File C:\\dev\\ashiato2-verify\\run-verify.ps1`（接続先 127.0.0.1:18787・合言葉・利用者識別子・pc-01・置き場 %APPDATA%\\ashiato-verify を設定して exe を起動する）。先に WSL の run.sh を上げておく。除外の確認は `%APPDATA%\\ashiato-verify\\exclusions.json` に rules を書いて起動し直す。ログは同じ置き場の `collector.log`。"
   ],
   "questions": [
     {
