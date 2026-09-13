@@ -16,7 +16,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 区切りが伸びても識別子は変わらない`）、
   bash は `echo`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**
 - 印の名前は spec の `#### Scenario:` と**一字一句合わせる**（空白は無視される）
-- **この change が足す Scenario は 64 本**（`derived-records` 44 本 / `browsing-views` 20 本）
+- **この change が足す Scenario は 65 本**（`derived-records` 45 本 / `browsing-views` 20 本）
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる（spec-review R26）。このファイルで
   **`CT <絞り込み>`** と書いたものは、次のコマンドが rc=0 になることを指す:
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
@@ -24,8 +24,8 @@ DB を使う検査は `docker compose up -d db` が前提。
 - **滞在のテストは利用者で隔離する**（design D10 / R13）。テストの接続先は開発 DB そのもので、基準の台帳は追記のみなので消せない。
   **`testdb::user()` で利用者を毎回新しく作り、その利用者の基準だけを変える。** 既定の利用者（`00000000-…`）の基準には触らない
 - **作り直しを失敗させるテストは、作り直しの関数を差し替えて起こす**（design D5）。表の権限を剥がす・名前を変えるやり方は使わない
-- **D2 / D3 / D4 / D5 / D6 / D8 は（仮）決め。** 反転条件は `design.md` にある。変えたらその D 番号の（仮）を外すか反転条件を書き直す
-- **D3 と D4 は深掘り第 2 回（Q10〜Q12）の答えで形が変わりうる。** 答えが `deep.md` に入る前に 3.2 / 3.4 を始めない
+- **D2 / D4 / D5 / D6 / D8 は（仮）決め。** 反転条件は `design.md` にある。変えたらその D 番号の（仮）を外すか反転条件を書き直す
+- **D3（識別子の引き継ぎ）は本人の決定**（第 1 回 Q1 / 第 2 回 Q10 / Q11）。割れたら重なり最大の 1 件だけが継ぎ、代表点が半径の 2 倍より離れていたら継がない。**下流は変えない**
 - 滞在の値（座標・時刻）を**ログに出さない**（製造準備 A-2）。出すのは件数・日付・かかった時間だけ
 
 ## 1. 移行（design D10 / D2）
@@ -62,21 +62,21 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `作った滞在は派生させたに分類される` / `滞在に作った基準と使った件数が載る` / `作った滞在の感度は外部 AI に出してよい` /
   `基準は利用者ごとに分かれる` / `判定に使わなかった位置の記録は残る`。
   検証: `CT stay_row_shape`
-- [ ] 3.2 識別子の引き継ぎ（**第 2 回 Q10 / Q11 の答えを deep.md で確かめてから**）。重なりの大きい順・1 対 1・
+- [ ] 3.2 識別子の引き継ぎ（design D3。代表点が半径の 2 倍より離れた組を捨ててから）。重なりの大きい順・1 対 1・
   同じなら読み出しに出ている方 → 始まりの早い方。内容が変わるときだけ前の版を積む（終わりだけ伸びても積む）。
   割り当てのない既存の滞在に `deleted_by = 'rebuild:absorbed'` と吸収の台帳。候補は `origin='derived'` の `s01-stay` だけ。
   Scenario: `区切りが伸びても識別子は変わらない` / `区切りが伸びると前の版が残る` /
-  `割れた滞在は重なりのいちばん大きい 1 件が識別子を継ぐ`（**Q10 の答えで Scenario ごと変わりうる**）/
+  `割れた滞在は重なりのいちばん大きい 1 件が識別子を継ぐ` / `離れた滞在には識別子を継がない` /
   `重なりが同じなら始まりの早い既存の滞在から割り当てる` / `吸収された滞在は読み出しから外れる` / `吸収された滞在の行と吸収先が残る` /
   `基準を戻すと吸収された滞在が同じ識別子で戻る` / `取り込みの口から送った滞在は作り直しで置き換わる`。
   検証: `CT stay_identity`
 - [ ] 3.3 冪等。**内容が同じ作り直しで滞在が黙って消えないこと**を確かめる（deep-review R1 の型）。
   Scenario: `基準を添えずに作り直しても滞在は増えも消えもしない` / `基準を添えずに作り直しても前の版は増えない`。
   検証: `CT stay_rebuild_is_idempotent`
-- [ ] 3.4 本人が消した時間帯（design D4。**第 2 回 Q12 の答えを deep.md で確かめてから**）。本人の削除はテストの中で
+- [ ] 3.4 本人が消した時間帯（design D4。一部だけ重なる滞在は丸ごと隠す）。本人の削除はテストの中で
   `UPDATE core.event SET deleted_at = now(), deleted_by = 'user'`（と `deleted_by = NULL`）で作る（消す操作は ST22）。
   Scenario: `同じ基準で作り直しても消した滞在は戻らない` / `本人が消した滞在の行は作り直しで変わらない` /
-  `基準を変えて割れても、消した時間帯の断片は戻らない` / `消した範囲より長い滞在に統合されると丸ごと隠れる`（**Q12 の答えで変わりうる**）/
+  `基準を変えて割れても、消した時間帯の断片は戻らない` / `消した範囲より長い滞在に統合されると丸ごと隠れる` /
   `基準を戻して重ならなくなった断片は戻る` / `削除した者の欄が空の削除も本人が消したものとして扱う` /
   `作り直しで無くなった滞在は本人が消した時間帯にならない`。
   検証: `CT stay_erased_range`
@@ -148,10 +148,10 @@ DB を使う検査は `docker compose up -d db` が前提。
 ## 8. まとめの検査
 
 - [ ] 8.1 検証: `cargo test --workspace` rc=0、`cd web && npm run test && npm run lint && npm run build` rc=0
-- [ ] 8.2 検証: `python3 scripts/check_scenarios.py . st16-stay-derivation` rc=0（64 本すべてに印か、人間の確認待ち）
+- [ ] 8.2 検証: `python3 scripts/check_scenarios.py . st16-stay-derivation` rc=0（65 本すべてに印か、人間の確認待ち）
 - [ ] 8.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st16-stay-derivation --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` がすべて rc=0
-- [ ] 8.4 PR 本文に **仮決め（D2 / D3 / D4 / D5 / D6 / D8）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -c "D[234568]（仮）"` が 6 以上
+- [ ] 8.4 PR 本文に **仮決め（D2 / D4 / D5 / D6 / D8）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -c "D[24568]（仮）"` が 5 以上
 - [ ] 8.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST16.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
 ## 人間の確認待ち
