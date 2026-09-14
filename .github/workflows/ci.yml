@@ -51,6 +51,19 @@ jobs:
       # cfg(windows) の中身をコンパイルしないので、作業場の lint が platform.rs に届かない
       - run: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
+  # C-02 の**実行時テスト**（ST07 design D25 / 2026-09-14）。windows-latest は対話セッションで動くので、
+  # テストが自分で窓（WinForms / Edge）を出し、本物の前景・入力・アドレスバーを読ませて記録を数える。
+  # ubuntu の `cargo test` は cfg(windows) の中身を 1 行も走らせないので、**ここだけが platform.rs を実行する**。
+  # windows の runner は無料枠を 2 倍で消費する（design D25 の反転条件）。
+  collector-windows-runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
+      - run: cargo test -p ashiato-collector-windows --lib
+      - run: cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1
+
   web:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: web } }

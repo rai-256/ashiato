@@ -399,3 +399,19 @@ Q8 は「FR-82 が停止期間を残すので、通知が鳴った理由が後�
 ## Open Questions
 
 無し。深掘り 2 巡・9 問で本人が決めたことと、C（聞かない）に落とした D1〜D13 で閉じている。
+
+### D25. Windows の実行時テストを持ち、人間の確認は物理的な操作だけにする（2026-09-14）
+
+D20 は「runner に Windows が無い」を前提に cross の型検査で止めていた。しかし GitHub の `windows-latest` は
+対話セッションで動き、Win32 と UI Automation が使える。**テストが自分で窓を作って本物の `WindowsSource` に
+読ませる**（`crates/collector-windows/tests/runtime_windows.rs`）ことで、11 の「人間の確認待ち」のうち 10 が機械に移る。
+
+- 閾値は `Engine::with_thresholds` で短くする（滞留 1 秒・離席 2 秒）。**本人の値（5 秒・5 分）は単体が固定したまま**
+- 相手役は WinForms（`helper_window.ps1`。題名を stdin で変えられる）と Edge（アドレスバー）。
+  mshta / cmd は使えなかった（tasks §12 の実測）
+- 前景にするのはテスト側の UI Automation `SetFocus`（`SetForegroundWindow` の制約を受けない）
+- 人間に残すのは、ロック・スリープ・本物の再起動のような**物理的な操作**と、「触って違和感がないか」の問いだけ。
+  **実機の確認は正しさのテストではない**（本人の決定 2026-09-14）
+- 反転条件: windows runner の分（無料枠で 2 倍）が月の上限に近づいたら、実行時テストを `workflow_dispatch` か
+  `feat/st*` の PR だけに絞る
+

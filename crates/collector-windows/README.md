@@ -97,6 +97,20 @@ NFR-12 が「収集に手作業を要さない」と定めているので既定�
 空に倒すと、除外が黙って外れて残したくなかった題名と URL が入る。
 何も除外しないときは `{"rules": []}` と書く。
 
+## 実行時テスト（Windows の上でだけ）
+
+`tests/runtime_windows.rs` は**テストが自分で窓を作り**、本物の前景・入力・アドレスバーを読ませて
+記録を数える（design D25）。単体（`cargo test` が ubuntu で走らせる 86 本）が見ない `platform.rs` を
+ここで確かめる。CI は `windows-latest` の job が同じものを走らせる。
+
+```powershell
+cargo test -p ashiato-collector-windows            # 単体 + 実行時テスト（Windows の上で）
+cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1
+```
+
+**走らせている間はマウスとキーボードに触らない**（前景と最後の入力を本物から読む）。
+相手役の窓は `tests/support/helper_window.ps1`（WinForms）と Edge で、どちらも自動で閉じる。
+
 ## 開発
 
 ```bash

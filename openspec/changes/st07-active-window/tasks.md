@@ -220,36 +220,39 @@ ST03 の移行（`202609120940_source_columns.sql`）が既に `'none'` にし�
   検証: `cargo test dwelled_title_survives_app_switch` rc=0 / `cargo test suspend_does_not_count_as_dwell` rc=0
 - [x] 11.33 基準時刻の口に `date` ヘッダがあることを smoke で見る（R42）。検証: `tools/smoke.sh` rc=0（手順 40）
 
+## 12. Windows の実行時テスト（2026-09-14。本人の決定: 実機の確認は最小にし、機械で確かめる）
+
+**`platform.rs` は 0 テストで、11 の Scenario が「人間の確認待ち」だった。** テストが自分で窓を作り、
+本物の `WindowsSource` に読ませて `Engine` に通す実行時テストを `crates/collector-windows/tests/runtime_windows.rs` に置く。
+相手役は `tests/support/helper_window.ps1`（WinForms）と Edge。閾値は短くし（滞留 1 秒・離席 2 秒）、
+本人の決めた 5 秒・5 分は `engine.rs` の単体が固定したまま。**Windows の上でだけ走る**（`#![cfg(windows)]`）。
+
+- [x] 12.1 足場: 自分で出した窓が本物の `WindowsSource` から題名つきで読める。検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows helper_window_is_observed` が rc=0
+- [x] 12.2 アプリの切り替え（WinForms → Edge）で記録が 1 件増え、切り替えた後のアプリを持つ。検証: `... --test runtime_windows switching_app` が rc=0
+- [x] 12.3 題名を最小の滞留より短い間隔で 10 回変えても記録は 1 件で、最後の題名を持つ。検証: `... --test runtime_windows rapid_title` が rc=0
+- [x] 12.4 除外に登録したアプリ（Edge をプロセス名で）の題名・URL・アプリ名がどの記録にも無く、件数だけが残る。検証: `... --test runtime_windows excluded_app` が rc=0
+- [x] 12.5 入力を止めて閾値を超え、再開すると、入った側と出た側が 1 件ずつ残り、本文を持たない。検証: `... --test runtime_windows idle_enter_and_leave` が rc=0
+- [x] 12.6 前回の印を 1 時間前にして起動すると `powered-off` が 1 件、本物の `boot_at` つきで送られる。検証: `... --test runtime_windows powered_off_span` が rc=0
+- [x] 12.7 Edge のアドレスバーを UI Automation で読み、クエリとフラグメントが残り、表示どおり（`http://` 無し）で記録され、同じタブで URL だけが変わると 1 件増える。検証: `... --test runtime_windows browser_url` が rc=0
+- [x] 12.8 CI に `windows-latest` の job を足し、単体 86 本と実行時テストを Windows の上で走らせる。検証: `.github/workflows/ci.yml` の `collector-windows-runtime` job が緑
+- [x] 12.9 `cargo fmt --all --check` と `cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings` が Windows の上で rc=0（テストも lint の対象）
+
+**実測（2026-09-14、この PC）**: 7 本が 2 回連続で緑（32〜42 秒）。分かったこと —— (1) 相手役が標準入力を同期で待つと
+メッセージポンプが止まり UI Automation が固まる、(2) `mshta.exe` は `about:` で即座に終了する、(3) `cmd.exe` の窓は
+Windows Terminal が持つので題名で探せない、(4) Edge をもう 1 度起動すると新しいタブが開いて題名に「および他 1 ページ」が付く
+（頁の script で `location.href` を変えると同じタブで URL だけ変わる）。
+
 ## 人間の確認待ち
 
-**Windows の実環境でしか確かめられないもの。** 確認バッチ（`/verify`）でまとめて見る。
 **書式は `- Scenario: <名前>` の裸の形**（チェックボックスも番号も注釈も付けない）——
 `check_scenarios.py` / `verify_checklist.py` / `verify_record.py` の 3 本ともこの形しか読まない
 （spec-review R3）。やり方は次の行の引用に置く。
 
-**実機のビルドは Windows の上で行う**（`cargo build --release -p ashiato-collector-windows`）。
-この作業机には mingw が無く、windows 向けは型検査と lint までしか通していない。
+**2026-09-14 に 11 件から 1 件へ減らした。** 10 件は §12 の実行時テストが Windows の上で機械的に確かめる
+（「前景を読めない」「URL を読めない」の 2 件は `heartbeat.rs` の単体が生存信号の導出を固定している）。
+人間に残すのは、runner でも手元でも機械が再現できない**物理的な操作**だけ。本物の再起動をまたいだ
+`powered-off`（12.6 は印を細工して確かめている）は、次の確認バッチで「触って違和感がないか」の問いとして見る。
 
-- Scenario: アプリを切り替えると 1 件増える
-  > 実機でアプリを切り替え、`c02-window` の件数が 1 増えることを見る
-- Scenario: 題名が最小滞留より短く変わり続けても記録は増えない
-  > 動画を 2 分再生し、件数が再生秒数ぶん増えていないことを見る
-- Scenario: 起動時に止まっていた期間が 1 件残る
-  > PC を落として翌日起動し、その期間の記録が 1 件あり、`boot_at` が区間の始まりより後であることを見る
-- Scenario: 離席の始まりと終わりが残る
-  > 5 分以上席を離れて戻り、出入りが 2 件残ることを見る
-- Scenario: 除外に登録した対象の本文は残らない
-  > パスワード管理ソフトを除外に登録して開き、題名も URL も残っていないことを見る
-- Scenario: 表示されている文字列を補正しない
-  > `https://` が隠れた表示のページを開き、記録の URL に `https://` が補われていないことを見る
-- Scenario: クエリとフラグメントが残る
-  > `?q=…#…` を持つページを開き、UI Automation が拾った文字列がアドレスバーの全体であることを見る（R9）
-- Scenario: URL だけが変われば 1 件増える
-  > 同じ窓でタブを移り、題名が同じでも URL の違う記録が増えることを見る（R9）
 - Scenario: 画面ロックとスリープも残る
   > Win+L でロックして解除し、`reason: locked` の出入りが残ること（ロック中の前景が `LockApp.exe` に見えること）を見る。
   > 5 分放置して自動でロックされたときは `ended_by: superseded` の離席と `locked` の入りが残ることを見る（R9 / R23）
-- Scenario: 前景を読めない状態は取得できないとして報告される
-  > 管理者権限の窓を前景にして 6 時間待つか起動し直し、生存信号の `blockers` を見る（R9）
-- Scenario: URL を読めない状態も取得できないとして報告される
-  > ブラウザのアクセシビリティを切った状態で使い、生存信号の `blockers` に `uiautomation` が挙がることを見る（R9）
