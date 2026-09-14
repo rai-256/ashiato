@@ -131,7 +131,7 @@ git config core.hooksPath .githooks
 下流の唯一の入力になる。
 
 ```
-上流（main の作業ツリー）              下流（別の worktree）
+上流（worktree ../ashiato2-up-st<NN>）   下流（worktree ../ashiato2-st<NN>）
 ─────────────────────────            ─────────────────────────
 docs/st<NN>-upstream を切る
 openspec: proposal → specs
@@ -148,7 +148,7 @@ merge_gate → CI 緑 → merge
 ### 起動はどちらも 1 コマンド
 
 ```bash
-scripts/upstream.sh ST02       # 上流: main の作業ツリーで docs/st02-upstream を切って起動
+scripts/upstream.sh ST02       # 上流: worktree（../ashiato2-up-st02）に docs/st02-upstream を用意して起動
 scripts/story.sh ST01          # 下流: worktree を用意して、その中で起動
 ```
 
@@ -268,7 +268,9 @@ tasks を順に進める → PR まで出す** をやる。工程を発明はし
 うち 1 件は実装が黙って決めた設計判断）。ST01 は土台なので、ここが動くと
 後続の spec が古くなる。proposal（何を・なぜ）は実装詳細に依存しないので先に書ける。
 
-**worktree にする理由**: 同じディレクトリで 2 セッションが git を触ると壊れる。
+**worktree にする理由**: 同じディレクトリで 2 セッションが git を触ると壊れる。上流も Story ごとの worktree に分けるので、
+盤面が「同時に始められる」と出した上流どうしを実際に並べられ、main の作業ツリーは main のまま残る
+（2026-09-15。以前は上流が main の作業ツリーでブランチを切り替えていて、コンソールが 2 本目の上流を拒んだ）。
 
 **停止点は 1 つだけ**: **merge**。そこまでは人間を待たずに走り切り、PR を出す。
 CI が落ちたら自分で直す。それ以外は推奨 default を採って進み、決めたことを記録する。
