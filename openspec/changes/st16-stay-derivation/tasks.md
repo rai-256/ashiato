@@ -151,7 +151,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 8.2 検証: `python3 scripts/check_scenarios.py . st16-stay-derivation` rc=0（65 本すべてに印か、人間の確認待ち）
 - [x] 8.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st16-stay-derivation --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` がすべて rc=0
-- [ ] 8.4 PR 本文に **仮決め（D2 / D4 / D5 / D6 / D8）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -c "D[24568]（仮）"` が 5 以上
+- [x] 8.4 PR 本文に **仮決め（D2 / D4 / D5 / D6 / D8）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -c "D[24568]（仮）"` が 5 以上
 - [x] 8.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST16.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
 ## 人間の確認待ち
