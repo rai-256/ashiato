@@ -58,8 +58,7 @@ FR-8 / FR-9 / NFR-7 は「90 日かつ 2 GB を上限に持ち、超えたら古
 ### Modified Capabilities
 
 - **`device-collection`** —— 端末の未送信の上限と破棄、破棄の報告、知らせ方、溜まった分の送り方、置き場の読み戻し。
-  **ST03 が改訂した「到達できるとき未送信の記録をまとめて送る」を、ST03 の archive 後の正典に対して MODIFIED で書く**
-  （いまは `openspec/specs/` にまだ入っていない。下の「上流を proposal で止める理由」）
+  **ST03 が改訂した「到達できるとき未送信の記録をまとめて送る」と「記録は 1 時間以内に格納される」を、ST03 の archive 後の正典に対して MODIFIED で書く**
 - **`collection-coverage`** —— 破棄の報告の受け口と保護、破棄の範囲の合わせ方、稼働状況の画面での破棄の見え方。
   **`docs/stories/INDEX.md` の表では ST04 の capability ではなかった**（`device-collection` だけ）。
   完了の判定 2 と FR-9 の「稼働記録に残す」が端末の外を前提にしているので、割り当てを足した（`INDEX.md` の訂正の節）
@@ -79,21 +78,21 @@ FR-8 / FR-9 / NFR-7 は「90 日かつ 2 GB を上限に持ち、超えたら古
 - `collector-windows`: **変わらない**（C11）
 - `docs/collector-contract.md`: 破棄の報告の形を足す
 - 要件: FR-8 / FR-9 / FR-10 / FR-54 / NFR-7 に ★（`deep.md` の「要件へ戻すもの」）。Story: ST04 の完了の判定に 1 行を足した
+  satisfies に無い FR-10 / FR-54 / NFR-1 の条項を満たすことは、`docs/stories/INDEX.md` の訂正の節の表に書いた
 - 後続へ: **ST09** —— 圏外の日の生存信号が「接続が無い＝取れない状態」になる件（R10。利用が主語のソースの達成日に効く）
 
 ### 走っている Story・並ぶ Story との重なり
 
 | Story | 状態 | 重なり | 扱い |
 |---|---|---|---|
-| ST03（`record-envelope`, `device-collection`） | merge 済み・archive 待ち（PR #41） | `device-collection` の「到達できるとき未送信の記録をまとめて送る」を ST03 が改訂した。`Sender` の恒久的な拒否の扱い | **ST03 の archive を待って specs を書く。** ST03 の「送信の結果を理由に捨てない」は変えず、上限による破棄をそれと独立の要件として書く。ST03 の design D14（生存信号は捨てない）の反転条件は成立させない（C1） |
-| ST16（`derived-records`, `browsing-views`） | 下流待ち | capability は重ならない。`crates/server/src/lib.rs` の `MIGRATIONS` 配列を両方が足す | 移行の名前が作成時刻なので番号は取り合わない。配列は後から merge する側が追従する |
+| ST03（`record-envelope`, `device-collection`） | **archive 済み**（PR #41。深掘りの途中で入った） | `device-collection` の「到達できるとき未送信の記録をまとめて送る」を ST03 が改訂した。`Sender` の恒久的な拒否の扱い | archive 後の正典に対して書いた。ST03 の「送信の結果を理由に捨てない」は変えず、上限による破棄をそれと独立の要件として書く。ST03 の design D14（生存信号は捨てない）の反転条件は成立させない（C1） |
+| ST16（`derived-records`, `browsing-views`） | 下流が走っている（PR #42 draft） | capability は重ならない。**同じファイルを両方が足す**: `crates/server/src/lib.rs`（`MIGRATIONS` 配列と route）/ `docs/openapi.json` / `tools/seed.sh` / `tools/smoke.sh`（PR #42 の差分で確認） | 移行の名前が作成時刻なので番号は取り合わない。どれも追記どうしなので、後から merge する側が追従する（merge の順序は決めない） |
 | ST14 / ST15（`collection-coverage`） | **衝突待ち（ST04 が割り当てを足したため）** | 同じ capability | ST04 の archive 後に通知（FR-35）・停止（FR-34）を足す。ST15 の停止も `coverage_span` に載るので、範囲の合わせ方（C13）を引き継ぐ |
 | ST06 / ST09 / ST34 | 待ち（requires: ST04） | この置き場に乗る | 2 GB の数え方（C4）の反転条件は ST09 / ST35 が重いソースを足すとき |
 | ST08（`desktop-collection`） | 着手可 | ST04 は触らない | 正典の注記の書き換え（C11）を ST08 の上流で行う |
 
-## 上流を proposal で止める理由
+## 上流の進み方
 
-**ST03 が archive されていない**（merge 済み、archive の PR #41 が open）。
-ST03 が改訂した `device-collection` の要件はまだ `openspec/specs/` に無く、この Story はその要件を MODIFIED で書き直すので、
-いま specs を書くと存在しない本文に対する差分になる。specs / design / tasks は ST03 の archive の後に書く。
-**下流へ渡す issue は tasks.md ができてから作る**（`merge_gate.sh` も proposal で止めている上流では作らない）。
+深掘りの間は ST03 が archive 前（PR #41 open）で、proposal で止める予定だった。
+**答えを受け取った時点で ST03 の archive が main に入った**（2026-09-14 21:55）ので、`origin/main` を取り込んで specs / design / tasks まで書いた。
+`device-collection` の MODIFIED は ST03 の archive 後の正典に対して書いてある。
