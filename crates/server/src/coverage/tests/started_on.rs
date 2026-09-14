@@ -2,7 +2,6 @@
 //! 収集開始日（第 8 回 Q29）と、その修復。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 
-use super::super::*;
 use super::*;
 use crate::testdb;
 

@@ -2,7 +2,6 @@
 //! 稼働状況の 7 状態と、日ごとの判定。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 
-use super::super::*;
 use super::*;
 use crate::testdb;
 

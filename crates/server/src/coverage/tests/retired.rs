@@ -2,7 +2,6 @@
 //! 退役と後継の鎖（第 8 回 Q31）。**本物の PostgreSQL に対して**確かめる。
 #![allow(clippy::unwrap_used)]
 
-use super::super::*;
 use super::*;
 use crate::testdb;
 
