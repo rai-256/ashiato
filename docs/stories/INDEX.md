@@ -69,7 +69,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, ST06, ST09, ST11, ST34, ST35 |
 | `desktop-collection` | PC からの収集 | ST07, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, ST14, ST15 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15 |
 | `derived-records` | 派生（滞在） | ST16 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
@@ -127,6 +127,21 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > |---|---|---|
 > | FR-50（削除） | ST22 | 派生の作り直しは削除済みの派生を戻さない（★ 2026-09-13）。消す操作は ST22。`docs/handoff/ST22.md` |
 > | PERM-3（収集した記録の既定の感度） | ST24 | 派生させた記録（滞在）もこの既定に従う（★ 2026-09-13）。感度の操作は ST24 |
+
+> **訂正（2026-09-14、ST04 の上流工程）**
+>
+> ST04 を `device-collection` だけでなく **`collection-coverage` にも割り当てた**。
+> ST04 の完了の判定「破棄された期間と件数が **ST02 の画面に出る**」と FR-9「破棄した期間と件数を**稼働記録に残す**」は、
+> 端末の外（受け口・丸ごと覆うかの判定・稼働状況の画面）を前提にしているのに、表は端末の側しか割り当てていなかった。
+> いまの画面は件数を出さず、1 日を丸ごと覆わない破棄は画面から消え、端末から破棄を送る口も無い
+> （`openspec/changes/st04-offline-retention/deep.md` の Q3 / C8 / C13）。
+>
+> - ST04 が `collection-coverage` に足すのは **破棄の報告の受け口・範囲の合わせ方・画面での破棄の見え方**だけ。通知（FR-35）は ST14、停止の入力（FR-34）は ST15 のまま
+> - **代償: ST04 が走っている間、ST14 と ST15 は `衝突待ち`**（同じ capability を 2 本が同時に触らない）
+>
+> **`desktop-collection` には割り当てない。** 正典の「PC 側の収集は到達できない間の記録を保持する」の注記
+> 「保持の上限は ST04 が決める」は、ST04 の深掘り C11 で「C-02 には上限を置かない」と決まった（NFR-7 ★ 2026-09-14）。
+> 注記の書き換えは **ST08 の上流が同じ capability に足すときに行う** —— ST04 が触ると、いま着手可の ST08 が `衝突待ち` になる
 
 > **この型は繰り返し出る** —— 「土台の Story が、後続の capability に属する振る舞いを
 > 先に書いてしまう」。capability の**作成**を前倒し、後続が要件を**足す**形にすれば、
