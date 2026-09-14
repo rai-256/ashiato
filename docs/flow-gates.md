@@ -77,6 +77,7 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 | `verify_batch.sh` | 確認バッチ。ready な `feat/st*` の PR を `verify/<tag>` に merge → `tools/verify-prep.sh`（成果物）→ `verify_checklist.py`（手順書）→ draft の PR | 下流の gate の後、人間が確認する前 |
 | `verify_record.py` | 手順書の貼り戻しを tasks.md（`[x]` と印）と `docs/verify/<tag>.md` に記録する。通らなかったものを列挙して rc=1 | 確認の後 |
 | `tools/verify-prep.sh`（ashiato2） | server の release / web の build / APK（実機があれば adb で入れる）/ `run.sh` / `manifest.md` を `dist/verify-<tag>/` に | `verify_batch` |
+| `cargo test -p ashiato-collector-windows --test runtime_windows`（ashiato2、Windows の上で） | 前景・入力・アドレスバーを本物の OS から読ませて記録を数える実行時テスト。テストが自分で窓を作る | CI の `collector-windows-runtime`（windows-latest）、手元の Windows |
 | `check-migrations.sh`（ashiato2） | 前進側の破壊的変更・戻し手順の欠落・**名前が作成時刻 `YYYYMMDDHHMM_<slug>.sql` でない**もの | ローカル、CI |
 
 `scripts/` は harness2 への symlink で CI の runner には無い。CI の `chain` job は
@@ -90,7 +91,11 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 - `ST<NN>.md` は生成物。判断は `docs/stories/stories.json`、逐語は `requirements.md`。直接編集しない
 - deep の答えで要件が変わるなら `requirements.md` に `★ 日付` の印を入れて改訂し、Story を再生成する
 - deep の問い JSON は `openspec/changes/<change>/deep-questions*.json` に commit する（問いが残らないとレビューできない）
-- test には `// Scenario: <名前>` の印。実機でしか確かめられないものは `tasks.md` の「人間の確認待ち」に `Scenario: <名前>` で挙げる
+- test には `// Scenario: <名前>` の印。**実機の OS を触る部分も機械で確かめる**（2026-09-14。ST07 の 11 件を 1 件にした）——
+  Windows は `windows-latest` の実行時テスト（`crates/collector-windows/tests/runtime_windows.rs`）、Android はエミュレータの計測テスト
+  （実機を繋いでも同じものが走る）。「人間の確認待ち」に置けるのは機械が再現できない物理的な操作（ロック・スリープ・電池・本物の GPS・時間そのもの）だけ
+- **人間の確認は正しさのテストではない。** 確認バッチの手順書は、完了の判定と物理的な操作に加えて、Story ごとに 1 問「触ってみて違和感は無かったか」を聞く
+  （`verify_checklist.py`）。答えは他と同じ形（通った = 違和感なし）
 - main が赤になったら `fix/ci-<slug>` を切って同じ gate を通す
 - issue は**上流の PR と同時に**作る（`scripts/issue_body.py`）。merge を待たない —— 待つと作る係がいなくなる（実測: ST02 で 10 時間の空き）
 - **走っている Story（`tasks.md` がある）へは差し戻さない。** `followup ST<NN>` にして `docs/handoff/ST<NN>.md` へ。下流が読むのは開始時と PR 前の 2 回
