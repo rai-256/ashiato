@@ -1,7 +1,19 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const proxy = { "/api": { target: "http://127.0.0.1:18787", rewrite: (p: string) => p.replace(/^\/api/, "") } };
+// 画面は合言葉を持たない（ブラウザに置かない）。**API の合言葉は proxy が付ける**（PERM-10）。
+// 起動側（tools/dev.sh / dist/verify-<tag>/run.sh）が API_TOKEN を環境に持っているので、それを読む。
+// 無ければ header を付けず、サーバの 401 がそのまま画面に出る（黙って通さない）。
+// 実測 2026-09-14（確認バッチ 20260913-2255）: 付けていなかったので、画面は稼働状況も達成も 401 で読めなかった。
+// 画面がどう資格情報を持つかは Story に無い（ST28 は網の話）。ここは確認用の最小で、本決めは deep へ。
+const token = process.env.API_TOKEN;
+const proxy = {
+  "/api": {
+    target: "http://127.0.0.1:18787",
+    rewrite: (p: string) => p.replace(/^\/api/, ""),
+    ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+  },
+};
 
 export default defineConfig({
   plugins: [react()],
