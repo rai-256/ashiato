@@ -57,12 +57,21 @@ jobs:
   # windows の runner は無料枠を 2 倍で消費する（design D25 の反転条件）。
   collector-windows-runtime:
     runs-on: windows-latest
+    # 相手役の窓が固まると既定の 360 分を 2 倍で数える（review/code-r2.md R7）
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
-      - run: cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1
+      # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
+      - shell: pwsh
+        run: |
+          $out = cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1 2>&1 | Tee-Object -Variable log | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($out -notmatch 'test result: ok\. (\d+) passed') { Write-Error "結果の行が無い"; exit 1 }
+          if ([int]$Matches[1] -lt 7) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（7 本のはず）"; exit 1 }
 
   web:
     runs-on: ubuntu-24.04

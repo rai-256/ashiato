@@ -88,8 +88,9 @@ impl HelperWindow {
             .expect("powershell.exe が起動しない");
         let stdin = child.stdin.take().unwrap();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
+        // 返事が来なければ読み取りが永久に待つ（review/code-r2.md R7）。**時間で打ち切る**
+        let line = read_line_within(&mut stdout, Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("相手役の窓が 30 秒以内に ready を返さない"));
         assert!(
             line.starts_with("ready "),
             "相手役の窓が ready を返さない: {line:?}"
@@ -108,8 +109,8 @@ impl HelperWindow {
     fn command(&mut self, cmd: &str) {
         writeln!(self.stdin, "{cmd}").unwrap();
         self.stdin.flush().unwrap();
-        let mut line = String::new();
-        self.stdout.read_line(&mut line).unwrap();
+        let line = read_line_within(&mut self.stdout, Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("相手役の窓が 30 秒以内に返事しない（{cmd}）"));
         assert_eq!(
             line.trim(),
             "ok",
@@ -139,6 +140,43 @@ impl Drop for HelperWindow {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// 1 行を `timeout` 以内に読む。読めなければ `None`（相手役が固まっても cargo test が永久に待たない）。
+///
+/// 標準出力のパイプには待ち時間の設定が無いので、別の糸で読んで channel で待つ。
+/// 打ち切ったときは読み手の糸ごと捨てる（相手役は Drop で kill される）。
+fn read_line_within(stdout: &mut BufReader<ChildStdout>, timeout: Duration) -> Option<String> {
+    use std::sync::mpsc;
+    let (tx, rx) = mpsc::channel();
+    // BufReader を糸へ渡すので、いったん取り出して読み終わったら戻す
+    let mut reader = std::mem::replace(stdout, BufReader::new(dummy_stdout()));
+    let handle = std::thread::spawn(move || {
+        let mut line = String::new();
+        let ok = reader.read_line(&mut line).is_ok();
+        let _ = tx.send((ok.then_some(line), reader));
+    });
+    match rx.recv_timeout(timeout) {
+        Ok((line, reader)) => {
+            *stdout = reader;
+            let _ = handle.join();
+            line
+        }
+        Err(_) => None,
+    }
+}
+
+/// `read_line_within` が糸へ渡している間の空の置き場。読まれることは無い。
+fn dummy_stdout() -> ChildStdout {
+    Command::new("cmd.exe")
+        .args(["/c", "exit"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("cmd.exe が起動しない")
+        .stdout
+        .take()
+        .unwrap()
 }
 
 /// UI Automation でその窓を前景にする。**テスト側から呼ぶ**（`SetForegroundWindow` の
@@ -322,6 +360,7 @@ fn switching_app_adds_one_record_with_the_new_app() {
     // 別のアプリ = Edge（窓を持つプロセスが起動したプロセスと一致するので、前景にできる）
     let pages = Pages::serve();
     let edge = Edge::open(&format!("http://127.0.0.1:{}/b", pages.port));
+    pages.wait_loaded(0);
     edge.focus();
     // 滞留を待たない —— 前景になった観測で即座に読む
     let after = run_until(&mut src, &mut eng, Duration::from_secs(20), |f| {
@@ -342,14 +381,7 @@ fn switching_app_adds_one_record_with_the_new_app() {
         "切り替えた後のアプリを持つ:\n  {}",
         summarize(&after)
     );
-    assert!(
-        fg[0]
-            .title
-            .as_deref()
-            .is_some_and(|t| t.contains("ashiato-rt page")),
-        "切り替えた後の題名を持つ:\n  {}",
-        summarize(&after)
-    );
+    // spec が言うのは「切り替えた後のアプリ名を持つ」まで。題名は見ない（review/code-r2.md R2）
 }
 
 // Scenario: 題名が最小滞留より短く変わり続けても記録は増えない
@@ -409,6 +441,7 @@ fn excluded_app_leaves_no_text_in_any_record() {
     });
 
     let edge = Edge::open(&secret_url);
+    pages.wait_loaded(0);
     edge.focus();
     all.extend(run_until(
         &mut src,
@@ -512,7 +545,15 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         }
     }
 
-    let dir = std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4()));
+    /// 落ちても消す（review/code-r2.md R6）
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let tmp = TempDir(std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4())));
+    let dir = tmp.0.clone();
     std::fs::create_dir_all(&dir).unwrap();
     let last_seen = Utc::now() - chrono::Duration::hours(1);
     Marker::new(&dir).touch(last_seen).unwrap();
@@ -564,7 +605,6 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         p["boot_at"].is_string(),
         "本物の OS の起動時刻が載る（design D23）: {p}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +618,9 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
 struct Pages {
     port: u16,
     next: std::sync::Arc<Mutex<Option<String>>>,
+    /// 頁の script が `/next` を読んだ回数。**頁が描かれて題名が付いた**ことの印
+    /// （runner では読み込みが遅く、題名が「Untitled」のうちに前景を読んでしまった。実測 2026-09-14）
+    hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Pages {
@@ -586,12 +629,17 @@ impl Pages {
         let port = listener.local_addr().unwrap().port();
         let next = std::sync::Arc::new(Mutex::new(None::<String>));
         let shared = std::sync::Arc::clone(&next);
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_in = std::sync::Arc::clone(&hits);
         std::thread::spawn(move || {
             for mut stream in listener.incoming().flatten() {
                 let mut buf = [0u8; 2048];
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let head = String::from_utf8_lossy(&buf[..n]);
                 let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
+                if path.starts_with("/next") {
+                    hits_in.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 let (ctype, body) = if path.starts_with("/next") {
                     (
                         "text/plain",
@@ -616,13 +664,59 @@ impl Pages {
                 );
             }
         });
-        Self { port, next }
+        Self { port, next, hits }
     }
 
     /// 次にどの頁も `url` へ移る。
     fn go(&self, url: &str) {
         *self.next.lock().unwrap() = Some(url.to_string());
     }
+
+    fn hits(&self) -> usize {
+        self.hits.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// 頁の script が `/next` を `after` 回より多く読むまで待つ（= 新しい頁が描かれ、題名が付いた）。
+    fn wait_loaded(&self, after: usize) {
+        let start = Instant::now();
+        while self.hits() <= after {
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "頁が読み込まれない（/next の読み取り {} 回のまま）",
+                self.hits()
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// そのプロセスの窓のアドレスバー（`Edit`）の値を、**テスト自身が** UI Automation で読む。
+/// 収集側の `read_url` とは別の経路（`browsers.rs` / `winrules.rs` を通らない）。
+fn address_bar_text(pid: u32) -> String {
+    let a = UIAutomation::new().expect("UI Automation が開けない");
+    let walker = a.get_control_view_walker().unwrap();
+    let root = a.get_root_element().unwrap();
+    let mut cur = walker.get_first_child(&root).ok();
+    while let Some(w) = cur {
+        if w.get_process_id().ok() == Some(pid)
+            && w.get_control_type().ok() == Some(ControlType::Window)
+        {
+            let bar = a
+                .create_matcher()
+                .from(w)
+                .control_type(ControlType::Edit)
+                .timeout(5000)
+                .depth(12)
+                .find_first()
+                .expect("アドレスバーが見つからない");
+            return bar
+                .get_pattern::<uiautomation::patterns::UIValuePattern>()
+                .and_then(|p| p.get_value())
+                .expect("アドレスバーの値が読めない");
+        }
+        cur = walker.get_next_sibling(&w).ok();
+    }
+    panic!("pid {pid} の窓が見つからない");
 }
 
 struct Edge {
@@ -691,6 +785,7 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
     let edge = Edge::open(&first);
     let mut src = WindowsSource::open();
     let mut eng = engine(Vec::new());
+    pages.wait_loaded(0);
     edge.focus();
     let all = run_until(&mut src, &mut eng, Duration::from_secs(20), |f| {
         f.process_name.eq_ignore_ascii_case("msedge.exe")
@@ -705,7 +800,14 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
         url.contains("?x=1&y=") && url.ends_with("#frag-1"),
         "クエリとフラグメントが残る: {url}"
     );
-    // Edge は `http://` を隠して表示する。**補正しない**ので、記録も隠したまま
+    // **表示されている文字列と一致する** —— テストが UI Automation で別に読んだアドレスバーの値と
+    // 一字一句同じであること（review/code-r2.md R3: 「`http://` が無い」だけでは、収集側が scheme を
+    // 剥いでいても緑になる）。Edge は `http://` を隠して表示するので、記録にも無い
+    let shown = address_bar_text(edge.child.id());
+    assert_eq!(
+        url, shown,
+        "記録の URL はアドレスバーに見えている文字列そのまま"
+    );
     assert!(
         !url.starts_with("http://") && url.starts_with("127.0.0.1:"),
         "表示されている文字列（`http://` 無し）のまま: {url}"
@@ -713,7 +815,10 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
 
     // 題名を変えずに URL だけ変える（両方の頁の `<title>` は同じ）
     let n_before = fg.len();
+    let seen = pages.hits();
     pages.go(&second);
+    // 新しい頁が描かれて題名が付くまで Engine に見せない —— 途中の「Untitled」を題名の変化として数えない
+    pages.wait_loaded(seen + 1);
     let more = run_until(
         &mut src,
         &mut eng,

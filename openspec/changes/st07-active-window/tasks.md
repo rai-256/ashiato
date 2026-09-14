@@ -234,7 +234,7 @@ ST03 の移行（`202609120940_source_columns.sql`）が既に `'none'` にし�
 - [x] 12.5 入力を止めて閾値を超え、再開すると、入った側と出た側が 1 件ずつ残り、本文を持たない。検証: `... --test runtime_windows idle_enter_and_leave` が rc=0
 - [x] 12.6 前回の印を 1 時間前にして起動すると `powered-off` が 1 件、本物の `boot_at` つきで送られる。検証: `... --test runtime_windows powered_off_span` が rc=0
 - [x] 12.7 Edge のアドレスバーを UI Automation で読み、クエリとフラグメントが残り、表示どおり（`http://` 無し）で記録され、同じタブで URL だけが変わると 1 件増える。検証: `... --test runtime_windows browser_url` が rc=0
-- [x] 12.8 CI に `windows-latest` の job を足し、単体 86 本と実行時テストを Windows の上で走らせる。検証: `.github/workflows/ci.yml` の `collector-windows-runtime` job が緑
+- [x] 12.8 CI に `windows-latest` の job を足し、単体 86 本と実行時テストを Windows の上で走らせる。job は 25 分で打ち切り、走った本数が 7 未満なら落とす（R7 / R8）。検証: `.github/workflows/ci.yml` の `collector-windows-runtime` job が緑（**初回は 2 本落ちた** —— runner では Edge の題名が付く前に前景を読んでいた。頁の読み込みを待ってから読む形に直した）
 - [x] 12.9 `cargo fmt --all --check` と `cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings` が Windows の上で rc=0（テストも lint の対象）
 
 **実測（2026-09-14、この PC）**: 7 本が 2 回連続で緑（32〜42 秒）。分かったこと —— (1) 相手役が標準入力を同期で待つと
@@ -248,11 +248,14 @@ Windows Terminal が持つので題名で探せない、(4) Edge をもう 1 度
 `check_scenarios.py` / `verify_checklist.py` / `verify_record.py` の 3 本ともこの形しか読まない
 （spec-review R3）。やり方は次の行の引用に置く。
 
-**2026-09-14 に 11 件から 1 件へ減らした。** 10 件は §12 の実行時テストが Windows の上で機械的に確かめる
+**2026-09-14 に 11 件から 2 件へ減らした。** 9 件は §12 の実行時テストが Windows の上で機械的に確かめる
 （「前景を読めない」「URL を読めない」の 2 件は `heartbeat.rs` の単体が生存信号の導出を固定している）。
 人間に残すのは、runner でも手元でも機械が再現できない**物理的な操作**だけ。本物の再起動をまたいだ
 `powered-off`（12.6 は印を細工して確かめている）は、次の確認バッチで「触って違和感がないか」の問いとして見る。
 
+- Scenario: 起動時に止まっていた期間が 1 件残る
+  > 本物の再起動をまたぐ（12.6 は印を細工して確かめている。review/code-r2.md R5）。PC を落として翌日起動し、
+  > その期間の記録が 1 件あり、`boot_at` が区間の始まりより後であることを見る
 - Scenario: 画面ロックとスリープも残る
   > Win+L でロックして解除し、`reason: locked` の出入りが残ること（ロック中の前景が `LockApp.exe` に見えること）を見る。
   > 5 分放置して自動でロックされたときは `ended_by: superseded` の離席と `locked` の入りが残ることを見る（R9 / R23）
