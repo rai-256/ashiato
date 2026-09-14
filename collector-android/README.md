@@ -14,16 +14,22 @@ ST04 / ST06 / ST09 / ST11 で足す。
 | `Outbox.kt` | 未送信の置き場（上限と破棄は ST04） | できる |
 | `Sender.kt` | まとめ送りと**部分失敗の扱い**（design D9） | できる |
 | `Telemetry.kt` | ログに出してよいものだけを組み立てる（A-2） | できる |
-| `LocationService.kt` | 前景サービス + 位置取得（design D7） | **実機が要る** |
-| `MainActivity.kt` | 権限の要求（前景 → 背景 → 通知の 3 段） | **実機が要る** |
-| `HttpTransport.kt` | 取り込み口への POST | **実機が要る** |
+| `LocationService.kt` | 前景サービス + 位置取得（design D7） | 端末の上で（`src/androidTest`。エミュレータでも実機でも） |
+| `MainActivity.kt` | 権限の要求（前景 → 背景 → 通知の 3 段） | 同上（権限が揃った側の入口。ダイアログの操作は持ち越し） |
+| `HttpTransport.kt` | 取り込み口への POST | 同上（端末の中の 127.0.0.1 に本物の HTTP で届く） |
 
 **判断のあるところは Android の API から切り離してある。** 実機でしか動かない部分に
 条件分岐を置くと、CI では一度も通らない経路ができる。
 
 ```bash
-./gradlew :app:testDebugUnitTest      # 71 件。CI でも走る
+./gradlew :app:testDebugUnitTest      # JVM の単体（Robolectric）。CI でも走る
+../tools/android-emulator.sh          # エミュレータを立てて計測テスト（src/androidTest）を走らせる。CI でも走る
+./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787   # 実機を adb で繋いだときも同じ
 ```
+
+**実機の確認は最小にする**（2026-09-14）。正しさは単体と計測テストが持ち、人間は「触って違和感がないか」を見る。
+計測テストの `-Pashiato.baseUrl=http://127.0.0.1:18787` は、平文 HTTP を端末の中の 127.0.0.1（テスト用サーバ）へ
+許すためだけの値で、送信先としては使われない（`Config` が空なら送信を始めない）。
 
 ## 接続先と資格情報
 

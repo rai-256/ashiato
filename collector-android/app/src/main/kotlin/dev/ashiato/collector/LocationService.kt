@@ -218,7 +218,7 @@ open class LocationService : Service() {
             .build()
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val NOTIFICATION_ID = 1

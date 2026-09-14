@@ -23,6 +23,8 @@ android {
             "\"${project.findProperty("ashiato.apiToken") ?: ""}\"")
         buildConfigField("String", "USER_ID",
             "\"${project.findProperty("ashiato.userId") ?: ""}\"")
+        // 計測テスト（src/androidTest）。エミュレータでも実機でも同じものが走る（2026-09-14）
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { buildConfig = true }
     // Robolectric は本物の framework を JVM 上で動かすので資源が要る。
@@ -111,4 +113,10 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16")
     testImplementation("androidx.test:core:1.7.0")
+    // 計測テスト（端末の上で走る。`tools/android-emulator.sh` / CI の android-instrumented）。
+    // 「実機が要る」と README に書いた 3 クラス（前景サービス・権限の入口・HTTP）を本物の framework で通す
+    androidTestImplementation("androidx.test:core:1.7.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
