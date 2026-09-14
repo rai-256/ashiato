@@ -6,6 +6,10 @@
 #     normal  滞在 9 件ぶんに相当する 1 日（UI の方向が前提にしている通常の量）
 #     max     要件上限の 15 件（FR-76 は 1 日 5〜15 件。1 画面に収まらない側の確認用）
 #     empty   ソースは登録するがデータを入れない（欠損の意味を確かめる）
+#
+# normal / max は、2026-09-07（Asia/Tokyo）の端末の位置（`c01-location`）を 60 秒ごとに入れる（ST16 / tasks 7.1）。
+# 既定の基準（100 m / 10 分）で滞在が 9 件 / 15 件になり、最後の滞在の後に 30 分の記録の欠けが 1 つある。
+# 送るたびにサーバが滞在を作り直す（design D5）ので、入れ終われば `GET /stays?date=2026-09-07` に並ぶ。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-normal}"
@@ -39,3 +43,72 @@ for i in $(seq 1 "$N"); do
     \"payload\":{\"lat\":35.68,\"lon\":139.76,\"acc_m\":$(( 5 + i ))}}" >/dev/null
 done
 echo "$MODE: $N 件を入れた"
+
+# ------------------------------------------------------------------ 位置の 1 日（ST16）
+[ "$N" -eq 0 ] && exit 0
+
+# **組み立ては python に任せる**（1,440 点の揺れと移動の補間を bash で書くと読めない）。
+# 揺れは種を固定した乱数なので、**何度入れても同じ本文**になり、再送として畳まれる（FR-22）。
+python3 - "$N" > /tmp/ashiato-seed-location.jsonl <<'PY'
+import json, math, random, sys, uuid
+from datetime import datetime, timedelta, timezone
+
+stays = int(sys.argv[1])
+rnd = random.Random(20260907)
+JST = timezone(timedelta(hours=9))
+day0 = datetime(2026, 9, 7, tzinfo=JST)
+LAT0, LON0 = 35.6812, 139.7671
+M_PER_DEG = 111_320.0
+
+def place(k):
+    # 地点どうしは 2 km ずつ離す（互いに 500 m 以上。移動の 1 分ごとの点も半径 100 m に入らない）
+    return (2000.0 * k, 0.0)
+
+def at(north, east):
+    return (LAT0 + north / M_PER_DEG, LON0 + east / (M_PER_DEG * math.cos(math.radians(LAT0))))
+
+MOVE, GAP = 8, 30
+last_end = 23 * 60                    # 最後の滞在は 23:00 に終わり、23:00〜23:30 が記録の欠け
+span = last_end - MOVE * (stays - 1)
+length = span // stays
+points = []                           # (分, 北, 東, 揺らすか)
+t = 0
+for k in range(stays):
+    end = last_end if k == stays - 1 else t + length
+    n, e = place(k)
+    points += [(m, n, e, True) for m in range(t, end + 1)]
+    if k < stays - 1:
+        (n1, e1), (n2, e2) = place(k), place(k + 1)
+        for i in range(1, MOVE + 1):
+            f = i / (MOVE + 1)
+            points.append((end + i, n1 + (n2 - n1) * f, e1 + (e2 - e1) * f, False))
+        t = end + MOVE + 1
+# 欠けの後は、どこにもとどまらずに歩き続ける（滞在の件数を変えない）
+n, e = place(stays)
+for m in range(last_end + GAP + 1, 24 * 60):
+    points.append((m, n + 300.0 * (m - last_end - GAP), e, False))
+
+for m, n, e, jitter in points:
+    dn, de = (rnd.uniform(-15, 15), rnd.uniform(-15, 15)) if jitter else (0.0, 0.0)
+    lat, lon = at(n + dn, e + de)
+    acc = rnd.randint(8, 45)
+    when = (day0 + timedelta(minutes=m)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = {"lat": round(lat, 7), "lon": round(lon, 7), "acc_m": acc}
+    raw = json.dumps(body, separators=(",", ":"))
+    print(json.dumps({
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ashiato-seed-location/{when}")),
+        "user_id": "00000000-0000-0000-0000-000000000000",
+        "logical_source": "c01-location", "external_id": None, "device_id": "seed",
+        "origin": "collected", "event_time": when, "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
+        "schema_version": 1, "raw": raw, "payload": body,
+    }, ensure_ascii=False))
+PY
+
+# 端末と同じく 200 件ずつ送る（`collector-android` の MAX_BATCH）
+total=$(wc -l < /tmp/ashiato-seed-location.jsonl)
+split -l 200 /tmp/ashiato-seed-location.jsonl /tmp/ashiato-seed-location.part.
+for part in /tmp/ashiato-seed-location.part.*; do
+  jq -s -c . "$part" | curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- >/dev/null
+done
+rm -f /tmp/ashiato-seed-location.part.*
+echo "$MODE: 2026-09-07 の位置を $total 件入れた（滞在 $N 件になる並び）"

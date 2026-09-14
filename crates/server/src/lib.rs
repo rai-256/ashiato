@@ -25,6 +25,13 @@ pub mod ingest;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
+pub mod stay;
+/// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
+pub mod stay_store;
+/// 滞在の移行・作り直し・読み出し（ST16）。
+#[cfg(test)]
+mod stay_tests;
 #[cfg(test)]
 pub mod testdb;
 
@@ -34,7 +41,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 12] = [
+pub const MIGRATIONS: [(&str, &str); 13] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -86,6 +93,11 @@ pub const MIGRATIONS: [(&str, &str); 12] = [
         "202609120944_gates",
         include_str!("../../../migrations/202609120944_gates.sql"),
     ),
+    // 滞在の基準と吸収の台帳（ST16 / design D10）。滞在そのものは `core.event` に入る
+    (
+        "202609142125_stays",
+        include_str!("../../../migrations/202609142125_stays.sql"),
+    ),
 ];
 
 /// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
@@ -106,6 +118,57 @@ pub struct App {
     /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
     /// 素通しで読み書きできてしまう。
     token: String,
+    /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
+    stays: StayRebuilder,
+}
+
+impl App {
+    /// テスト用。作り直しの口は本物を使う。
+    #[cfg(test)]
+    pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
+        Self {
+            pool,
+            token: token.into(),
+            stays: StayRebuilder::real(),
+        }
+    }
+}
+
+/// 作り直しの口が返す future。
+pub type RebuildFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>;
+
+/// 1 日ぶんの滞在を作り直す口（design D5）。
+///
+/// **差し替えられる形にしてある** —— 作り直しが失敗しても取り込みの応答が変わらないことを、
+/// 表の権限を剥がさずに確かめるため（テストは開発 DB を共有するので、剥がすと他のテストの作り直しも落ちる。R21）。
+#[derive(Clone)]
+pub struct StayRebuilder(
+    std::sync::Arc<
+        dyn Fn(sqlx::PgPool, uuid::Uuid, chrono::NaiveDate) -> RebuildFuture + Send + Sync,
+    >,
+);
+
+impl StayRebuilder {
+    /// 本物（`stay_store::rebuild_day`）。
+    pub fn real() -> Self {
+        Self::from_fn(|pool, user, day| {
+            Box::pin(async move { stay_store::rebuild_day(&pool, user, day).await.map(|_| ()) })
+        })
+    }
+
+    /// 任意の関数から作る（テストで失敗を起こすため）。
+    pub fn from_fn(
+        f: impl Fn(sqlx::PgPool, uuid::Uuid, chrono::NaiveDate) -> RebuildFuture + Send + Sync + 'static,
+    ) -> Self {
+        Self(std::sync::Arc::new(f))
+    }
+}
+
+impl std::fmt::Debug for StayRebuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StayRebuilder")
+    }
 }
 
 /// 合言葉を突き合わせる。**一致した長さから内容が推測されない**
@@ -820,6 +883,10 @@ pub async fn ingest(
         results.push(ingest_one(&app, item).await?);
     }
 
+    // **位置を受け入れた日の滞在を作り直す**（ST16 / Q6 / design D5）。まとめ送り 1 回につき、日ごと・利用者ごとに 1 回。
+    // 位置の記録は 1 件 1 トランザクションで既に確定しているので、**ここが失敗しても応答は変えない**。
+    rebuild_stays_after_ingest(&app, &items, &results).await;
+
     // 1 件も受け付けなかったときだけ 400。**本文は同じ形のまま返す** ——
     // 収集側は状態符号ではなく 1 件ごとの結果を見て未送信を減らす。
     let code = if results.iter().any(|r| r.accepted) {
@@ -834,6 +901,225 @@ pub async fn ingest(
         "取り込み"
     );
     Ok((code, Json(results)))
+}
+
+/// 受け入れた記録のうち、利用者の基準の `sources` に入るものの日を作り直す（design D5）。
+///
+/// **失敗を応答に混ぜない。** ログに残すのは種別・日付・SQLSTATE・かかった時間だけで、
+/// **エラーの本文は出さない** —— PostgreSQL の本文は入力値（緯度経度・時刻）を含むことがある（製造準備 A-2）。
+async fn rebuild_stays_after_ingest(
+    app: &App,
+    items: &[serde_json::Value],
+    results: &[IngestResult],
+) {
+    let mut sources_of: std::collections::HashMap<uuid::Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut days = std::collections::BTreeSet::new();
+    for (item, result) in items.iter().zip(results) {
+        if !result.accepted {
+            continue;
+        }
+        let Ok(req) = serde_json::from_value::<IngestRequest>(item.clone()) else {
+            continue;
+        };
+        let sources = match sources_of.entry(req.user_id) {
+            std::collections::hash_map::Entry::Occupied(o) => o.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                match stay_store::criteria_or_default(&app.pool, req.user_id).await {
+                    Ok(c) => v.insert(c.sources),
+                    Err(e) => {
+                        tracing::error!(
+                            kind = "stay.rebuild",
+                            op = "criteria_lookup",
+                            sqlstate = %sqlstate_of(&e),
+                            "滞在の基準を読めなかったので作り直さなかった（記録は受け入れ済み）"
+                        );
+                        v.insert(Vec::new())
+                    }
+                }
+            }
+        };
+        if sources.contains(&req.logical_source) {
+            days.insert((req.user_id, stay_store::jst_date(req.event_time)));
+        }
+    }
+    for (user, day) in days {
+        let started = std::time::Instant::now();
+        let took_ms = || started.elapsed().as_millis() as u64;
+        match (app.stays.0)(app.pool.clone(), user, day).await {
+            Ok(()) => {
+                tracing::info!(kind = "stay.rebuild", %day, took_ms = took_ms(), "滞在を作り直した")
+            }
+            Err(e) => {
+                let code = e
+                    .downcast_ref::<sqlx::Error>()
+                    .map_or_else(|| "none".into(), sqlstate_of);
+                tracing::error!(
+                    kind = "stay.rebuild",
+                    %day,
+                    sqlstate = %code,
+                    took_ms = took_ms(),
+                    "滞在の作り直しに失敗（位置の記録は受け入れ済み。次のまとめ送りか手の作り直しで戻る）"
+                );
+            }
+        }
+    }
+}
+
+/// SQLSTATE だけを取り出す（値を含まない）。
+fn sqlstate_of(e: &sqlx::Error) -> String {
+    e.as_database_error()
+        .and_then(|d| d.code())
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+// ------------------------------------------------------------------ 滞在（ST16）
+
+/// `POST /stays/rebuild` の本文。**すべて省ける**（省いた基準はいまの値のまま）。
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RebuildRequest {
+    /// 利用者。省くと既定の利用者（FR-29。単一利用者でも列は day one から持つ）
+    user_id: Option<uuid::Uuid>,
+    /// 判定の半径（m）。1〜10,000
+    radius_m: Option<i32>,
+    /// 最短のとどまり（分）。1〜1,440
+    min_minutes: Option<i32>,
+    /// 記録が無いとみなす間隔（分）。1〜1,440
+    gap_minutes: Option<i32>,
+}
+
+/// `POST /stays/rebuild` の応答。**値（座標・時刻）を含まない。**
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RebuildResponse {
+    /// 作り直しに使った基準の版
+    criteria_id: i64,
+    /// 作り直した日数
+    days: i64,
+    /// 作り直す前に読み出しに出ていた滞在の件数
+    stays_before: i64,
+    /// 作り直した後に読み出しに出ている滞在の件数
+    stays_after: i64,
+    took_ms: i64,
+}
+
+/// 基準を範囲の中に収めているか（spec「範囲外の基準は断られる」）。
+fn criteria_in_range(r: &RebuildRequest) -> bool {
+    let within = |v: Option<i32>, hi: i32| v.is_none_or(|x| (1..=hi).contains(&x));
+    within(r.radius_m, 10_000) && within(r.min_minutes, 1_440) && within(r.gap_minutes, 1_440)
+}
+
+/// 全期間の滞在を作り直す（FR-31 / Q6 / C10）。基準が添えられ、いまと違えば新しい版を足してから作り直す。
+///
+/// **範囲外の基準は 400 で、基準も滞在も変えない**（DB の `CHECK` に当てると 500 になる）。
+#[utoipa::path(post, path = "/stays/rebuild", request_body = RebuildRequest,
+    responses((status = 200, body = RebuildResponse), (status = 400), (status = 401)))]
+pub async fn stays_rebuild(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<RebuildResponse>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let req: RebuildRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        RebuildRequest::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "malformed".to_string()))?
+    };
+    if !criteria_in_range(&req) {
+        tracing::warn!(kind = "stays.rebuild_rejected", "範囲外の基準を断った");
+        return Err((StatusCode::BAD_REQUEST, "criteria_out_of_range".into()));
+    }
+    let user = req.user_id.unwrap_or_default();
+    let started = std::time::Instant::now();
+    if req.radius_m.is_some() || req.min_minutes.is_some() || req.gap_minutes.is_some() {
+        stay_store::set_criteria(
+            &app.pool,
+            user,
+            req.radius_m,
+            req.min_minutes,
+            req.gap_minutes,
+        )
+        .await
+        .map_err(|e| internal_at("stays.set_criteria", e))?;
+    }
+    let out = stay_store::rebuild_all(&app.pool, user)
+        .await
+        .map_err(|e| match e.downcast::<sqlx::Error>() {
+            Ok(db) => internal_at("stays.rebuild_all", db),
+            Err(_) => {
+                tracing::error!(kind = "db", op = "stays.rebuild_all", "作り直しに失敗");
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+            }
+        })?;
+    let took_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    tracing::info!(
+        kind = "stays.rebuild",
+        days = out.days,
+        stays_before = out.stays_before,
+        stays_after = out.stays_after,
+        took_ms,
+        "全期間の滞在を作り直した"
+    );
+    Ok(Json(RebuildResponse {
+        criteria_id: out.criteria_id,
+        days: out.days,
+        stays_before: out.stays_before,
+        stays_after: out.stays_after,
+        took_ms,
+    }))
+}
+
+/// `GET /stays/criteria` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct StaysCriteriaQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 利用者の判定の基準の版を古い順に返す（spec「判定の基準は利用者ごとに版として残る」）。
+#[utoipa::path(get, path = "/stays/criteria", params(StaysCriteriaQuery),
+    responses((status = 200, body = Vec<stay_store::CriteriaVersion>), (status = 401)))]
+pub async fn stays_criteria_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<StaysCriteriaQuery>,
+) -> Result<Json<Vec<stay_store::CriteriaVersion>>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    stay_store::criteria_versions(&app.pool, q.user_id.unwrap_or_default())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("stays.criteria", e))
+}
+
+/// `GET /stays` の絞り込み。**日付は文字列で受けて自分で読む** —— 読めない日付を 400 で断る経路をここに持つ。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct StaysQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 1 日の並び（滞在・移動・記録なし）を時刻順に返す（design D8）。
+#[utoipa::path(get, path = "/stays", params(StaysQuery),
+    responses((status = 200, body = stay_store::DayView), (status = 400), (status = 401)))]
+pub async fn stays_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<StaysQuery>,
+) -> Result<Json<stay_store::DayView>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    stay_store::day_view(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        date,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("stays.day", e))
 }
 
 // ------------------------------------------------------------------ 生存信号
@@ -1180,7 +1466,14 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
-        .with_state(App { pool, token });
+        .route("/stays", get(stays_get))
+        .route("/stays/rebuild", post(stays_rebuild))
+        .route("/stays/criteria", get(stays_criteria_get))
+        .with_state(App {
+            pool,
+            token,
+            stays: StayRebuilder::real(),
+        });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -1198,7 +1491,16 @@ pub async fn run() -> anyhow::Result<()> {
 /// この API の契約。**コードから生成する**（製造準備 A-1: 手書きしない）。
 #[derive(Debug, utoipa::OpenApi)]
 #[openapi(
-    paths(ingest, heartbeat_post, events, coverage_get, achievement_get),
+    paths(
+        ingest,
+        heartbeat_post,
+        events,
+        coverage_get,
+        achievement_get,
+        stays_get,
+        stays_rebuild,
+        stays_criteria_get
+    ),
     components(schemas(
         IngestResult,
         IngestError,
@@ -1215,6 +1517,13 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Subject,
         coverage::Achievement,
         coverage::SourceAchievement,
+        RebuildRequest,
+        RebuildResponse,
+        stay_store::CriteriaVersion,
+        stay_store::DayView,
+        stay_store::DayEntry,
+        stay_store::EntryKind,
+        stay_store::CriteriaTag,
     )),
     info(
         title = "ashiato S-01",

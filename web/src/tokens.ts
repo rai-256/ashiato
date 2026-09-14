@@ -40,6 +40,20 @@ export const BAND = {
 /** 文字の明るさ。NFR-18（4.5:1）は `text-contrast.test.ts` が確かめる。 */
 export const TEXT = { normal: 92, muted: 72 } as const;
 
+/**
+ * 明暗の 2 つの面と文字（NFR-17 / ST16 の 1 日の一覧）。**OS の明暗に追従し、取得できないときはダーク。**
+ *
+ * ダークは S-1 と同じ値。ライトは `docs/ui-direction-playground.html` がライトの面を置く帯
+ * （地が明るい側。明度 66 以上）に、同じ 3 段の間隔で置いた。
+ * 4.5:1（NFR-18）とフォーカスの輪郭の 3:1（NFR-22 / NFR-23）は `day-view-limits.test.tsx` が値から計算して確かめる。
+ */
+export const SCHEMES = {
+  dark: { ground: SURFACE.ground, surface1: SURFACE.surface1, surface2: SURFACE.surface2, text: TEXT.normal, muted: TEXT.muted },
+  light: { ground: 96, surface1: 91, surface2: 86, text: 14, muted: 30 },
+} as const;
+
+export type Scheme = keyof typeof SCHEMES;
+
 /** HSL の文字列。**色相と彩度をここでしか触らせない。** */
 export function tone(lightness: number): string {
   return `hsl(${HUE} ${SAT}% ${lightness}%)`;

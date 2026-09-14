@@ -695,4 +695,36 @@ echo "== 40. 基準時刻の口に date ヘッダがある（design D17 / review
 curl -sfI "http://$BIND/healthz" | grep -qi '^date:' || { echo "/healthz に date ヘッダが無い"; exit 1; }
 echo "   → 記録・感度・生存信号・基準時刻（ST07）まで通った"
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側まで）"
+# ------------------------------------------------------------------ ST16（滞在）
+
+# Scenario: 位置を送るとその日の滞在が出る
+echo "== 41. 位置を送るとその日の滞在が一覧に出る（ST16 / FR-76 / tasks 7.2）"
+# **別の利用者で送る**（この縦串の上の段が数えている既定の利用者の記録を増やさない）。
+# 20 分ぶん（21 件）同じ地点。作り直しの指示はしない —— 取り込みの後にサーバが作る（design D5）
+STAY_USER="16161616-0000-4000-8000-000000000016"
+stay_items=$(for i in $(seq 0 20); do
+  printf '{"id":"%s","user_id":"%s","logical_source":"c01-location","external_id":null,
+    "device_id":"smoke-dev","origin":"collected","event_time":"2026-08-20T%02d:%02d:00Z",
+    "tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+    "raw":"{\\"lat\\":35.6812,\\"lon\\":139.7671,\\"acc_m\\":12}",
+    "payload":{"lat":35.6812,"lon":139.7671,"acc_m":12}}\n' \
+    "$(printf '16000%03d-0000-4000-8000-000000000000' "$i")" "$STAY_USER" 0 "$i"
+done | jq -s -c .)
+code=$(post "$stay_items")
+[ "$code" = "200" ] || { echo "位置の記録が $code で断られた"; exit 1; }
+day=$(curl -sf "${AUTH[@]}" "http://$BIND/stays?date=2026-08-20&user_id=$STAY_USER")
+echo "   → $(printf '%s' "$day" | jq -c '[.entries[] | .kind]')"
+printf '%s' "$day" | jq -e '[.entries[] | select(.kind == "stay")] | length == 1' >/dev/null \
+  || { echo "滞在が 1 件出ていない: $day"; exit 1; }
+printf '%s' "$day" | jq -e '.criteria[0].radius_m == 100 and .criteria[0].min_minutes == 10' >/dev/null \
+  || { echo "一覧に既定の基準が出ていない: $day"; exit 1; }
+# 滞在は「派生させた」で、位置の記録（21 件）は変わっていない
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='s01-stay' AND origin='derived'
+                AND user_id='$STAY_USER';")" = "1" ] || { echo "滞在の行が 1 行でない"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-location'
+                AND user_id='$STAY_USER';")" = "21" ] || { echo "位置の記録の件数が変わった"; exit 1; }
+# 資格情報の無い求めは断られる（PERM-10）
+code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/stays?date=2026-08-20")
+[ "$code" = "401" ] || { echo "/stays が 401 のはずが $code"; exit 1; }
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在まで）"

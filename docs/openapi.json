@@ -232,6 +232,129 @@
           }
         }
       }
+    },
+    "/stays": {
+      "get": {
+        "tags": [],
+        "summary": "1 日の並び（滞在・移動・記録なし）を時刻順に返す（design D8）。",
+        "operationId": "stays_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/stays/criteria": {
+      "get": {
+        "tags": [],
+        "summary": "利用者の判定の基準の版を古い順に返す（spec「判定の基準は利用者ごとに版として残る」）。",
+        "operationId": "stays_criteria_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CriteriaVersion"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/stays/rebuild": {
+      "post": {
+        "tags": [],
+        "summary": "全期間の滞在を作り直す（FR-31 / Q6 / C10）。基準が添えられ、いまと違えば新しい版を足してから作り直す。",
+        "description": "**範囲外の基準は 400 で、基準も滞在も変えない**（DB の `CHECK` に当てると 500 になる）。",
+        "operationId": "stays_rebuild",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
     }
   },
   "components": {
@@ -302,6 +425,69 @@
           "other"
         ]
       },
+      "CriteriaTag": {
+        "type": "object",
+        "description": "並んだ滞在を作った基準（一覧の上に出す）。",
+        "required": [
+          "criteria_id",
+          "radius_m",
+          "min_minutes"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "min_minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CriteriaVersion": {
+        "type": "object",
+        "description": "基準の版 1 つ（`GET /stays/criteria` の 1 行）。",
+        "required": [
+          "id",
+          "radius_m",
+          "min_minutes",
+          "gap_minutes",
+          "sources",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "gap_minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "min_minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "DayCell": {
         "type": "object",
         "description": "1 日ぶんの状態と、その日の材料。",
@@ -355,6 +541,44 @@
           }
         }
       },
+      "DayEntry": {
+        "type": "object",
+        "description": "並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、移動と記録なしはその日の中に切る。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "滞在を作った基準の版（滞在の行だけ。取り込みの口から入った滞在には無いことがある）"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "滞在の識別子（滞在の行だけ）"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EntryKind"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "DayState": {
         "type": "string",
         "description": "ソース × 日 の状態（FR-54）。**8 つのいずれか 1 つに決まる。**\n\n⑧「退役」は ST03 の深掘りが差し戻したもの（R55 / R56）—— ソースを分けて\n古い名前を退役させる運用が通常になったため、**退役した後の空白日**を\n⑥「途絶」と区別できないと、退役したソースが毎日「壊れている」ように見える。",
@@ -367,6 +591,44 @@
           "outage",
           "before_start",
           "retired"
+        ]
+      },
+      "DayView": {
+        "type": "object",
+        "description": "`GET /stays` の応答。",
+        "required": [
+          "date",
+          "criteria",
+          "entries"
+        ],
+        "properties": {
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriteriaTag"
+            },
+            "description": "その日に並んだ滞在を作った基準。**新しい版から順に**、重複なし（design D8。先頭が一覧の上の基準）"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayEntry"
+            },
+            "description": "始まりの時刻順"
+          }
+        }
+      },
+      "EntryKind": {
+        "type": "string",
+        "description": "並びの 1 行の種類。",
+        "enum": [
+          "stay",
+          "move",
+          "no-record"
         ]
       },
       "EventRow": {
@@ -679,6 +941,82 @@
           "successes": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "RebuildRequest": {
+        "type": "object",
+        "description": "`POST /stays/rebuild` の本文。**すべて省ける**（省いた基準はいまの値のまま）。",
+        "properties": {
+          "gap_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "記録が無いとみなす間隔（分）。1〜1,440"
+          },
+          "min_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "最短のとどまり（分）。1〜1,440"
+          },
+          "radius_m": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "判定の半径（m）。1〜10,000"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "利用者。省くと既定の利用者（FR-29。単一利用者でも列は day one から持つ）"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RebuildResponse": {
+        "type": "object",
+        "description": "`POST /stays/rebuild` の応答。**値（座標・時刻）を含まない。**",
+        "required": [
+          "criteria_id",
+          "days",
+          "stays_before",
+          "stays_after",
+          "took_ms"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "作り直しに使った基準の版"
+          },
+          "days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "作り直した日数"
+          },
+          "stays_after": {
+            "type": "integer",
+            "format": "int64",
+            "description": "作り直した後に読み出しに出ている滞在の件数"
+          },
+          "stays_before": {
+            "type": "integer",
+            "format": "int64",
+            "description": "作り直す前に読み出しに出ていた滞在の件数"
+          },
+          "took_ms": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

@@ -30,39 +30,39 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 1. 移行（design D10 / D2）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_stays.sql` と `.down.sql` を足す —— `core.stay_criteria`（`user_id` あり。行は入れない）、
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_stays.sql` と `.down.sql` を足す —— `core.stay_criteria`（`user_id` あり。行は入れない）、
   `core.stay_absorbed`（`user_id` あり）、両方の UPDATE / DELETE / TRUNCATE を拒むトリガ、`core.source` に `s01-stay`（`external_id_kind = 'record'`）。
   **当て直せる形**（`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`）。`MIGRATIONS` 配列の末尾に足す。
   検証: `tools/check-migrations.sh` rc=0、`CT stays_migration_applies_twice`（全版を 2 回当てて落ちないテストを足す）
-- [ ] 1.2 台帳 2 つが追記のみであることのテスト。検証: `CT stay_ledgers_are_append_only`
-- [ ] 1.3 `s01-stay` が登録され、`external_id_kind` が `'record'` であることのテスト。検証: `CT stay_source_is_registered`
+- [x] 1.2 台帳 2 つが追記のみであることのテスト。検証: `CT stay_ledgers_are_append_only`
+- [x] 1.3 `s01-stay` が登録され、`external_id_kind` が `'record'` であることのテスト。検証: `CT stay_source_is_registered`
 
 ## 2. 判定（design D7。DB に触らない純粋な関数）
 
 `crates/server/src/stay.rs` に、位置の列と基準から滞在の列を返す関数を置く。
 
-- [ ] 2.1 半径・最短のとどまり・重心の更新・消去された記録の読み飛ばし。
+- [x] 2.1 半径・最短のとどまり・重心の更新・消去された記録の読み飛ばし。
   Scenario: `半径の中に最短のとどまり以上いると滞在が 1 件できる` / `最短のとどまりより短い立ち寄りは滞在にならない` /
   `半径を出ると滞在が閉じる` / `長い滞在は区切られない` / `日付をまたぐ滞在は 1 件のまま` / `本文を消去した位置の記録は判定に数えない`。
   検証: `CT stay::detect`
-- [ ] 2.2 記録が無い区間で切る（`gap_minutes`。精度を問わず緯度経度を持つすべての記録で数える）。
+- [x] 2.2 記録が無い区間で切る（`gap_minutes`。精度を問わず緯度経度を持つすべての記録で数える）。
   Scenario: `記録が欠けた区間の前後は別々の滞在になる` / `精度の悪い点しか無い区間は記録なしにならない`。
   検証: `CT stay::gap`
-- [ ] 2.3 精度が半径より悪い記録を判定に使わない。精度の欄が無い記録は使う。
+- [x] 2.3 精度が半径より悪い記録を判定に使わない。精度の欄が無い記録は使う。
   Scenario: `精度の悪い 1 点が混ざっても滞在は割れない` / `精度を持たない位置の記録は判定に使われる`。
   検証: `CT stay::accuracy`
-- [ ] 2.4 `raw` の直列化を固定する（キーの順・緯度経度 6 桁）。同じ入力から 2 回作った `raw` がバイト単位で同じことと、
+- [x] 2.4 `raw` の直列化を固定する（キーの順・緯度経度 6 桁）。同じ入力から 2 回作った `raw` がバイト単位で同じことと、
   期待する文字列そのものをテストで固定する（design D1）。検証: `CT stay_raw_is_pinned`
 
 ## 3. 作り直し（design D3 / D4 / D5 の錠 / D9 / D10。DB を使う）
 
 `crates/server/src/stay_tests.rs` に置く。
 
-- [ ] 3.1 滞在を `core.event` に書く（design D1 の列の表のとおり）。感度には何も書かない。基準は利用者ごと（無ければ既定を最初の版として書く）。
+- [x] 3.1 滞在を `core.event` に書く（design D1 の列の表のとおり）。感度には何も書かない。基準は利用者ごと（無ければ既定を最初の版として書く）。
   Scenario: `作った滞在は派生させたに分類される` / `滞在に作った基準と使った件数が載る` / `作った滞在の感度は外部 AI に出してよい` /
   `基準は利用者ごとに分かれる` / `判定に使わなかった位置の記録は残る`。
   検証: `CT stay_row_shape`
-- [ ] 3.2 識別子の引き継ぎ（design D3。代表点が半径の 2 倍より離れた組を捨ててから）。重なりの大きい順・1 対 1・
+- [x] 3.2 識別子の引き継ぎ（design D3。代表点が半径の 2 倍より離れた組を捨ててから）。重なりの大きい順・1 対 1・
   同じなら読み出しに出ている方 → 始まりの早い方。内容が変わるときだけ前の版を積む（終わりだけ伸びても積む）。
   割り当てのない既存の滞在に `deleted_by = 'rebuild:absorbed'` と吸収の台帳。候補は `origin='derived'` の `s01-stay` だけ。
   Scenario: `区切りが伸びても識別子は変わらない` / `区切りが伸びると前の版が残る` /
@@ -70,44 +70,44 @@ DB を使う検査は `docker compose up -d db` が前提。
   `重なりが同じなら始まりの早い既存の滞在から割り当てる` / `吸収された滞在は読み出しから外れる` / `吸収された滞在の行と吸収先が残る` /
   `基準を戻すと吸収された滞在が同じ識別子で戻る` / `取り込みの口から送った滞在は作り直しで置き換わる`。
   検証: `CT stay_identity`
-- [ ] 3.3 冪等。**内容が同じ作り直しで滞在が黙って消えないこと**を確かめる（deep-review R1 の型）。
+- [x] 3.3 冪等。**内容が同じ作り直しで滞在が黙って消えないこと**を確かめる（deep-review R1 の型）。
   Scenario: `基準を添えずに作り直しても滞在は増えも消えもしない` / `基準を添えずに作り直しても前の版は増えない`。
   検証: `CT stay_rebuild_is_idempotent`
-- [ ] 3.4 本人が消した時間帯（design D4。一部だけ重なる滞在は丸ごと隠す）。本人の削除はテストの中で
+- [x] 3.4 本人が消した時間帯（design D4。一部だけ重なる滞在は丸ごと隠す）。本人の削除はテストの中で
   `UPDATE core.event SET deleted_at = now(), deleted_by = 'user'`（と `deleted_by = NULL`）で作る（消す操作は ST22）。
   Scenario: `同じ基準で作り直しても消した滞在は戻らない` / `本人が消した滞在の行は作り直しで変わらない` /
   `基準を変えて割れても、消した時間帯の断片は戻らない` / `消した範囲より長い滞在に統合されると丸ごと隠れる` /
   `基準を戻して重ならなくなった断片は戻る` / `削除した者の欄が空の削除も本人が消したものとして扱う` /
   `作り直しで無くなった滞在は本人が消した時間帯にならない`。
   検証: `CT stay_erased_range`
-- [ ] 3.5 作り直しで位置の記録が変わらないこと。前後で `c01-location` の行の件数・`raw`・`event_time`・`content_hash` をすべて比べる。
+- [x] 3.5 作り直しで位置の記録が変わらないこと。前後で `c01-location` の行の件数・`raw`・`event_time`・`content_hash` をすべて比べる。
   Scenario: `半径を変えて作り直すと区切りが変わる`（地点 A と 70 m 離れた地点 B。spec の入力のとおり）/ `作り直しで位置の記録は変わらない`。
   検証: `CT stay_rebuild_keeps_locations`
-- [ ] 3.6 錠と範囲（design D5）。同じ利用者の同じ日の作り直しを `tokio::join!` で 2 本同時に走らせる。
+- [x] 3.6 錠と範囲（design D5）。同じ利用者の同じ日の作り直しを `tokio::join!` で 2 本同時に走らせる。
   Scenario: `同じ日の作り直しが同時に 2 回走っても滞在は二重にならない`。検証: `CT stay_rebuild_is_serialized`
-- [ ] 3.7 `c01-location` の 1 日ぶんを引く文を `EXPLAIN` するテストを置き、計画に `event_by_source_time` を含み
+- [x] 3.7 `c01-location` の 1 日ぶんを引く文を `EXPLAIN` するテストを置き、計画に `event_by_source_time` を含み
   `Seq Scan on event` を含まないことを確かめる（design Risks）。含むなら 1.1 の移行に索引を足す。
   検証: `CT stay_day_query_uses_index`
 
 ## 4. 契機と API（design D5 / D2）
 
-- [ ] 4.1 `/ingest` のまとめ送り 1 回の後、基準の `sources` の記録を受け入れた日ごと・利用者ごとに作り直す（範囲の広げ方は D5）。
+- [x] 4.1 `/ingest` のまとめ送り 1 回の後、基準の `sources` の記録を受け入れた日ごと・利用者ごとに作り直す（範囲の広げ方は D5）。
   失敗は `kind = "stay.rebuild"` でログに残し、応答を変えない。**`/ingest` の受け入れの判定には触らない**（`s01-stay` を断らない）。
   Scenario: `位置を送るとその日の滞在が出る` / `位置が届かなかった日の滞在は変わらない` /
   `0 時の前後で別々に届いても日付をまたぐ滞在は 1 件のまま`（**`/ingest` を 2 回叩く DB のテスト**。純粋な関数では確かめない）/
   `作り直しが失敗しても位置の記録は受け入れられる` / `作り直しの失敗は位置の値を含まずに記録される`（ログを捕まえて緯度・経度・時刻の文字列が無いことを見る）。
   検証: `CT stay_auto_rebuild`
-- [ ] 4.2 `POST /stays/rebuild`（本文の基準がいまと違えば版を足す。同じか省けば足さない。範囲外は 400）と `GET /stays/criteria`。資格情報が要る。
+- [x] 4.2 `POST /stays/rebuild`（本文の基準がいまと違えば版を足す。同じか省けば足さない。範囲外は 400）と `GET /stays/criteria`。資格情報が要る。
   Scenario: `基準を変えても前の基準は一覧に残る` / `いまと同じ基準を添えても基準の版は増えない` / `範囲外の基準は断られる` /
   `資格情報の無い作り直しの指示は断られる`。
   検証: `CT stays_rebuild_api`
-- [ ] 4.3 既存の `derived_rebuild_is_not_folded`（ST03）が緑のままであること（取り込みの受け入れの判定を変えていないことの担保）。
+- [x] 4.3 既存の `derived_rebuild_is_not_folded`（ST03）が緑のままであること（取り込みの受け入れの判定を変えていないことの担保）。
   検証: `CT derived_rebuild_is_not_folded`
-- [ ] 4.4 `POST /stays/rebuild` / `GET /stays/criteria` / `GET /stays` を OpenAPI に載せる。検証: `tools/check-openapi.sh` rc=0
+- [x] 4.4 `POST /stays/rebuild` / `GET /stays/criteria` / `GET /stays` を OpenAPI に載せる。検証: `tools/check-openapi.sh` rc=0
 
 ## 5. 1 日の並びの読み出し（design D8 のサーバ側）
 
-- [ ] 5.1 `GET /stays?date=YYYY-MM-DD` —— その日と重なる、読み出しに出ている `origin='derived'` の滞在と、その間の移動・記録なしを時刻順に返す。
+- [x] 5.1 `GET /stays?date=YYYY-MM-DD` —— その日と重なる、読み出しに出ている `origin='derived'` の滞在と、その間の移動・記録なしを時刻順に返す。
   記録なしは前後の日の位置も含めて間隔で測り、今日はいまより後を返さない。`criteria` はその日の滞在を作った基準の重複なしの並び。
   Scenario: `1 日の並びは種類と時刻を持つ` / `解釈できない日付は断られる` / `資格情報の無い 1 日の並びの求めは断られる` /
   `日付をまたぐ滞在は両方の日に出る` / `消した滞在と吸収された滞在は一覧に出ない` / `滞在の間に移動の行が出る` /
@@ -115,13 +115,13 @@ DB を使う検査は `docker compose up -d db` が前提。
   `前の日から途切れず続く記録は日の頭を記録なしにしない` / `今日の一覧はいまより後を記録なしにしない`（「いま」を差し替えられる形にする）/
   `基準を変えて作り直すと一覧の基準の表示が変わる`（API の `criteria` で確かめる）。
   検証: `CT stays_day_api`
-- [ ] 5.2 1 日歩き回った日の件数（自宅・職場・昼の店・職場・自宅 → 滞在 5 件・移動 4 件）をサーバの応答で確かめる
+- [x] 5.2 1 日歩き回った日の件数（自宅・職場・昼の店・職場・自宅 → 滞在 5 件・移動 4 件）をサーバの応答で確かめる
   （画面のテストは応答を固定するので、サーバが何件返すかはここで見る。R21）。
   Scenario: `1 日歩き回った後、その日の滞在が一覧で出る`。検証: `CT stays_day_api_walked_day`
 
 ## 6. 画面（design D8。`web`）
 
-- [ ] 6.1 `#/day/YYYY-MM-DD` で 1 日の一覧を出す（省けば今日。Asia/Tokyo）。S-1 はルート `/` のまま、互いへの行き先を上端に置く。
+- [x] 6.1 `#/day/YYYY-MM-DD` で 1 日の一覧を出す（省けば今日。Asia/Tokyo）。S-1 はルート `/` のまま、互いへの行き先を上端に置く。
   行の形は deep.md Q4 の proto の出力と読み方 3 のとおり（見出し＝時刻の範囲 / 長さ・始まり – 終わり /
   「移動 42 分」/「記録なし 8:20–16:40」を**文字で**区別 / 一覧の上に「この一覧は 半径 100 m / 10 分 で作った」/ 基準が混ざる日は行に添える）。
   読み込み中・失敗・0 件を分ける。
@@ -129,27 +129,27 @@ DB を使う検査は `docker compose up -d db` が前提。
   `基準の違う滞在が混ざると行に基準が添えられる` / `読み出しに失敗すると失敗と出る` /
   `日付を含むアドレスでその日の一覧が開く` / `前の日へ移ると前の日の滞在が出る` / `稼働状況の画面の入口は変わらない`。
   検証: `cd web && npm run test` rc=0 かつ出力に `Tests` の行があり `failed` を含まない
-- [ ] 6.2 下限の検査を足す（既存の `text-contrast.test.ts` / `target-size.test.tsx` と同じ形）。
+- [x] 6.2 下限の検査を足す（既存の `text-contrast.test.ts` / `target-size.test.tsx` と同じ形）。
   Scenario: `一覧の文字はライトでもダークでも 4.5:1 を下回らない` / `日を移る操作は 24 px を下回らない` /
   `キーボードで移るとフォーカスの位置が見える`。
   検証: `cd web && npm run test` rc=0
-- [ ] 6.3 検証: `cd web && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
+- [x] 6.3 検証: `cd web && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
 
 ## 7. 偽データと起動の確認
 
-- [ ] 7.1 `tools/seed.sh` の `normal` / `max` が、**2026-09-07（Asia/Tokyo）の 1 日 1,440 件の `c01-location` の位置**（60 秒ごと、水平精度 8〜45 m の揺れ）を
+- [x] 7.1 `tools/seed.sh` の `normal` / `max` が、**2026-09-07（Asia/Tokyo）の 1 日 1,440 件の `c01-location` の位置**（60 秒ごと、水平精度 8〜45 m の揺れ）を
   まとめ送り（200 件ずつ）で入れる。既定の基準で滞在が **9 件 / 15 件**できるように、互いに 500 m 以上離れた地点に 20 分以上ずつとどまらせる。
   **最後の滞在の後に 30 分の記録の欠けを 1 つ**入れる（滞在の件数を変えない位置）。`empty` は変えない。既存の `seed-location` の 9 件は残す。
   検証: `tools/seed.sh normal` rc=0 の後、
   `curl -sf -H "authorization: Bearer $API_TOKEN" "http://127.0.0.1:18787/stays?date=2026-09-07" | jq -e '([.entries[]|select(.kind=="stay")]|length)==9 and ([.entries[]|select(.kind=="no-record")]|length)>=1'` rc=0
   （`max` なら `==15`）
-- [ ] 7.2 `tools/smoke.sh` に、位置を送って `GET /stays` に滞在が出ることの確認を 1 段足す（`jq -e` で件数を見る）。検証: `tools/smoke.sh` rc=0
+- [x] 7.2 `tools/smoke.sh` に、位置を送って `GET /stays` に滞在が出ることの確認を 1 段足す（`jq -e` で件数を見る）。検証: `tools/smoke.sh` rc=0
 
 ## 8. まとめの検査
 
-- [ ] 8.1 検証: `cargo test --workspace` rc=0、`cd web && npm run test && npm run lint && npm run build` rc=0
-- [ ] 8.2 検証: `python3 scripts/check_scenarios.py . st16-stay-derivation` rc=0（65 本すべてに印か、人間の確認待ち）
-- [ ] 8.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st16-stay-derivation --strict` rc=0、
+- [x] 8.1 検証: `cargo test --workspace` rc=0、`cd web && npm run test && npm run lint && npm run build` rc=0
+- [x] 8.2 検証: `python3 scripts/check_scenarios.py . st16-stay-derivation` rc=0（65 本すべてに印か、人間の確認待ち）
+- [x] 8.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st16-stay-derivation --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` がすべて rc=0
 - [ ] 8.4 PR 本文に **仮決め（D2 / D4 / D5 / D6 / D8）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -c "D[24568]（仮）"` が 5 以上
 - [ ] 8.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST16.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている

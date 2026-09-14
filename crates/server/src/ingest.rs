@@ -168,15 +168,27 @@ impl IngestRequest {
 /// 保存する値（文字列）と鍵の入力（正規化された構造）がずれる。
 /// 同じ内容でも表記が違えば別の鍵になるが、収集側の直列化は決まった形なので実害は無い。
 pub fn content_hash(req: &IngestRequest) -> String {
+    content_hash_of(&req.logical_source, req.event_time, &req.raw)
+}
+
+/// `content_hash` と同じ鍵を、要求の形を経ずに作る。
+///
+/// **サーバが自分で作る記録（滞在。ST16 / design D1）も同じ作り方で鍵を持つ** ——
+/// 作り方が 2 つに割れると、同じ内容の行に別の鍵が立つ。
+pub fn content_hash_of(
+    logical_source: &str,
+    event_time: chrono::DateTime<chrono::Utc>,
+    raw: &str,
+) -> String {
     use sha2::{Digest as _, Sha256};
     let mut h = Sha256::new();
     let mut field = |bytes: &[u8]| {
         h.update((bytes.len() as u64).to_be_bytes());
         h.update(bytes);
     };
-    field(req.logical_source.as_bytes());
-    field(&req.event_time.timestamp_micros().to_be_bytes());
-    field(req.raw.as_bytes());
+    field(logical_source.as_bytes());
+    field(&event_time.timestamp_micros().to_be_bytes());
+    field(raw.as_bytes());
     format!("{:x}", h.finalize())
 }
 

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
 import { retiredLast, type Achievement, type SourceCoverage } from "./coverage";
-import { DAY_TZ, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
+import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
 
 /**
  * `Asia/Tokyo` の「今日」（`YYYY-MM-DD`）。**`toISOString()` は UTC の日**なので使わない。
@@ -79,9 +79,27 @@ export function App(): React.ReactElement {
         padding: 12,
       }}
     >
-      <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 16px" }}>
-        収集が動いていたか
-      </h1>
+      {/* **1 日の一覧への行き先は見出しと同じ行に置く**（ST16 / design D8）。行を増やすと、
+          ひとスクロールの勘定（one-scroll.test.tsx）に効く */}
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 16px" }}>
+          収集が動いていたか
+        </h1>
+        <a
+          href="#/day/"
+          data-testid="to-day"
+          style={{
+            color: tone(TEXT.normal),
+            font: "400 14px/1.6 system-ui, sans-serif",
+            minHeight: MIN_TARGET_PX,
+            minWidth: MIN_TARGET_PX,
+            display: "inline-flex",
+            alignItems: "center",
+          }}
+        >
+          1 日の滞在へ
+        </a>
+      </header>
       {achievement.at === "loading" && <p data-testid="achievement-loading">読み込み中…</p>}
       {achievement.at === "failed" && (
         <p role="alert" data-testid="achievement-error">

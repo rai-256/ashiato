@@ -13,10 +13,7 @@ use crate::{ingest, App, IngestResult};
 const TOKEN: &str = "test-token-0123456789abcdef";
 
 async fn app() -> App {
-    App {
-        pool: testdb::pool().await,
-        token: TOKEN.into(),
-    }
+    App::for_test(testdb::pool().await, TOKEN)
 }
 
 fn auth() -> HeaderMap {
