@@ -35,9 +35,14 @@ DCO（`Signed-off-by`）だけでは足りません。DCO は「自分が書い�
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-(cd web && npx tsc -b && npm run lint && npm run build)
-./tools/smoke.sh
+docker compose up -d --wait db && cargo test --workspace          # テストは本物の PostgreSQL を使う
+./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
+(cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
+(cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest)
+cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh
 ```
 
-CI が走らせるのと同じコマンドです（`.github/workflows/ci.yml`）。
+CI が走らせるのと同じコマンドです（`.github/workflows/ci.yml`）。OS を触る部分は Windows の上で
+`cargo test -p ashiato-collector-windows`、Android は `./tools/android-emulator.sh` で（CI でも走ります）。
+テスト全体の書き方は `docs/testing.md`。

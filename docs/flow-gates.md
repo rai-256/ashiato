@@ -14,6 +14,8 @@
 | ST02 の deep が FR-33 / NFR-13 の改訂を挙げたが要件も Story も変わらず | deep から要件・Story への戻し |
 | PERM-7 を改訂したのに ST28 の逐語が古いまま。`make_story.py` の入力が commit されていなかった | 判断の単一情報源（`stories.json`）と再生成の一致検査 |
 
+テストの書き方そのものは `docs/testing.md`（1 枚）。
+
 **原則は 1 つ。** 成果物を作った文脈を持たない者が固定の観点で見て、根拠つきの指摘だけを出す。
 直すのは作った側で、指摘 1 件ごとに処置を必ず記録する。処置の無い指摘があれば機械が止める。
 `deep` を schema の artifact にしたのと同じ理由 —— **文書に名前があるだけで機械の受け皿が無い工程は消える。**
@@ -78,6 +80,7 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 | `verify_record.py` | 手順書の貼り戻しを tasks.md（`[x]` と印）と `docs/verify/<tag>.md` に記録する。通らなかったものを列挙して rc=1 | 確認の後 |
 | `tools/verify-prep.sh`（ashiato2） | server の release / web の build / APK（実機があれば adb で入れる）/ `run.sh` / `manifest.md` を `dist/verify-<tag>/` に | `verify_batch` |
 | `cargo test -p ashiato-collector-windows --test runtime_windows`（ashiato2、Windows の上で） | 前景・入力・アドレスバーを本物の OS から読ませて記録を数える実行時テスト。テストが自分で窓を作る | CI の `collector-windows-runtime`（windows-latest）、手元の Windows |
+| `tools/android-emulator.sh`（ashiato2） | エミュレータを立てて `src/androidTest` の計測テスト（前景サービス・権限の入口・HTTP を本物の framework で）。実機を繋いでも同じ gradle タスク | CI の `android-instrumented`（ubuntu + KVM）、手元 |
 | `check-migrations.sh`（ashiato2） | 前進側の破壊的変更・戻し手順の欠落・**名前が作成時刻 `YYYYMMDDHHMM_<slug>.sql` でない**もの | ローカル、CI |
 
 `scripts/` は harness2 への symlink で CI の runner には無い。CI の `chain` job は
