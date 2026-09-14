@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState } from "react";
+import { todayInTz } from "./App";
 import {
   clock,
   criteriaLabel,
   dateLabel,
   duration,
+  isDayView,
   shiftDay,
   type CriteriaTag,
   type DayEntry,
@@ -55,7 +57,9 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     fetch(`/api/stays?date=${date}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`status_${res.status}`);
-        return (await res.json()) as DayData;
+        const body: unknown = await res.json();
+        if (!isDayView(body)) throw new Error("unexpected_shape");
+        return body;
       })
       .then((value) => live && setData({ at: "ok", value }))
       .catch((e: unknown) => live && setData({ at: "failed", why: e instanceof Error ? e.message : "unknown" }));
@@ -128,12 +132,12 @@ export function DayView({ date }: { date: string }): React.ReactElement {
           1 日の並びの読み出しに失敗しました（{data.why}）。滞在や記録が無いのではありません。
         </p>
       )}
-      {data.at === "ok" && <Entries view={data.value} scheme={scheme} />}
+      {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} />}
     </main>
   );
 }
 
-function Entries({ view, scheme }: { view: DayData; scheme: Scheme }): React.ReactElement {
+function Entries({ view, scheme, future }: { view: DayData; scheme: Scheme; future: boolean }): React.ReactElement {
   const c = SCHEMES[scheme];
   const main = view.criteria[0];
   const byId = new Map<number, CriteriaTag>(view.criteria.map((t) => [t.criteria_id, t]));
@@ -146,7 +150,13 @@ function Entries({ view, scheme }: { view: DayData; scheme: Scheme }): React.Rea
           {view.criteria.length > 1 && `（一部の滞在は ${view.criteria.slice(1).map(criteriaLabel).join("、")} で作った）`}
         </p>
       )}
-      {stays === 0 && (
+      {/* **まだ来ていない日に「滞在はありません」と言わない**（R45）—— 事実として読まれる */}
+      {stays === 0 && future && (
+        <p data-testid="day-future" style={{ margin: "0 0 8px" }}>
+          まだ来ていない日です。
+        </p>
+      )}
+      {stays === 0 && !future && (
         <p data-testid="day-empty" style={{ margin: "0 0 8px" }}>
           この日の滞在はありません。
         </p>

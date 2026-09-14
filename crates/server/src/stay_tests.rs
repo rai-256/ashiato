@@ -573,10 +573,24 @@ async fn stay_identity_near_inherits() {
 
 /// 既存の滞在を直に置く（取り込み口や前の作り直しで入った状態を作る）。
 async fn put_stay_row(pool: &sqlx::PgPool, user: uuid::Uuid, start: &str, end: &str) -> uuid::Uuid {
-    let id = uuid::Uuid::new_v4();
+    put_stay_row_with(pool, user, uuid::Uuid::new_v4(), start, end, None).await
+}
+
+/// 識別子と基準（`(id, 半径, 最短の分)`）を指定して既存の滞在を置く。
+async fn put_stay_row_with(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    id: uuid::Uuid,
+    start: &str,
+    end: &str,
+    criteria: Option<(i64, i32, i32)>,
+) -> uuid::Uuid {
     let (lat, lon) = offset(0.0, 0.0);
+    let tag = criteria.map_or(String::new(), |(cid, r, m)| {
+        format!(r#","criteria":{{"id":{cid},"radius_m":{r},"min_minutes":{m},"gap_minutes":10,"sources":["c01-location"]}}"#)
+    });
     let raw = format!(
-        r#"{{"start":"{}","end":"{}","lat":{lat},"lon":{lon}}}"#,
+        r#"{{"start":"{}","end":"{}","lat":{lat},"lon":{lon}{tag}}}"#,
         t(start).to_rfc3339(),
         t(end).to_rfc3339()
     );
@@ -602,21 +616,26 @@ async fn put_stay_row(pool: &sqlx::PgPool, user: uuid::Uuid, start: &str, end: &
 async fn stay_identity_tie_goes_to_earlier() {
     let pool = testdb::pool().await;
     let u = testdb::user();
-    // 後に置いた方が識別子の順で先に来ることもあるように、遅い方から置く
-    let late = put_stay_row(
+    // **識別子を固定する**（R27）。遅い方の識別子を辞書順で先に置き、始まりで同点を解く処理を消すと必ず落ちるようにする
+    let late = put_stay_row_with(
         &pool,
         u,
+        uuid::Uuid::from_u128(u.as_u128() & 0x0000_0000_0000_0000_0000_ffff_ffff_ffff),
         "2026-08-09T09:30:00+09:00",
         "2026-08-09T10:00:00+09:00",
+        None,
     )
     .await;
-    let early = put_stay_row(
+    let early = put_stay_row_with(
         &pool,
         u,
+        uuid::Uuid::from_u128(u128::MAX - (u.as_u128() & 0xffff_ffff_ffff)),
         "2026-08-09T09:00:00+09:00",
         "2026-08-09T09:30:00+09:00",
+        None,
     )
     .await;
+    assert!(late < early, "識別子の順が前提と違う");
     put_dwell(&pool, u, "2026-08-09T09:15:00+09:00", 30, 0.0, Some(10.0)).await;
     rebuild(&pool, u, "2026-08-09").await;
     let now = live(&pool, u).await;
@@ -1342,6 +1361,13 @@ async fn stay_auto_rebuild_failure_is_contained() {
         failure.iter().any(|l| l.contains("ERROR")),
         "失敗が ERROR で残っていない:\n{log}"
     );
+    // 運用者が作り直しを叩ける手がかり（利用者・日・種別）が残る（R41）。どれも位置の値ではない
+    assert!(
+        failure.iter().any(|l| l.contains(&u.to_string())
+            && l.contains("day=2026-09-02")
+            && l.contains("failure=other")),
+        "失敗のログに利用者・日・種別が無い:\n{log}"
+    );
     for value in ["35.689", "139.701", "12:17", "03:17", "T03", "T12"] {
         assert!(
             !log.contains(value),
@@ -1477,6 +1503,8 @@ async fn stays_rebuild_api_rejects_out_of_range() {
         serde_json::json!({"user_id": u, "radius_m": 10_001}),
         serde_json::json!({"user_id": u, "min_minutes": 0}),
         serde_json::json!({"user_id": u, "gap_minutes": 1_441}),
+        serde_json::json!({"user_id": u, "min_minutes": 1_441}),
+        serde_json::json!({"user_id": u, "gap_minutes": 0}),
         serde_json::json!({"user_id": u, "radius_m": "wide"}),
     ] {
         let got = post_rebuild(&app, auth(), bad.clone()).await;
@@ -1486,12 +1514,22 @@ async fn stays_rebuild_api_rejects_out_of_range() {
             "{bad} が断られていない"
         );
     }
+    // **断った直後に、基準の版も滞在も変わっていないことを見る**（R34）
+    assert_eq!(
+        criteria_list(&app, u).await.len(),
+        before.0,
+        "範囲外の指示で基準の版が増えた"
+    );
+    assert_eq!(
+        stays(&app.pool, u).await,
+        before.1,
+        "範囲外の指示で滞在が変わった"
+    );
     // 境目は通る
     post_rebuild(&app, auth(), serde_json::json!({"user_id": u, "radius_m": 10_000, "min_minutes": 1, "gap_minutes": 1_440}))
         .await
         .unwrap();
     assert_eq!(criteria_list(&app, u).await.len(), before.0 + 1);
-    let _ = before.1;
 }
 
 // Scenario: 資格情報の無い作り直しの指示は断られる
@@ -1969,4 +2007,607 @@ async fn stays_day_api_walked_day() {
     let mut sorted = stays.clone();
     sorted.sort();
     assert_eq!(stays, sorted, "始まりの時刻順でない");
+}
+
+// ------------------------------------------------------------------ 独立レビューで足したもの（review/code.md）
+
+/// R40: 短い移動でつながった滞在が何日も続いても、作り直しの範囲が定まる。
+///
+/// 範囲の端の**近く**にある滞在まで広げていたときは、隣の滞在を 1 件ずつたどり、3 日目で
+/// 「64 回で定まらない」になった（code-reviewer の実測）。
+#[tokio::test]
+async fn stay_rebuild_chain_of_short_moves_settles() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    // 同じ地点に 20 分とどまる → 3 分空けて 500 m 先へ、を 3 日ぶん
+    let mut at = t("2026-05-01T00:00:00+09:00");
+    let mut k = 0;
+    while at < t("2026-05-04T00:00:00+09:00") {
+        put_dwell(
+            &pool,
+            u,
+            &at.to_rfc3339(),
+            20,
+            500.0 * f64::from(k % 2),
+            Some(10.0),
+        )
+        .await;
+        at += Duration::minutes(23);
+        k += 1;
+    }
+    for day in ["2026-05-01", "2026-05-02", "2026-05-03"] {
+        let started = std::time::Instant::now();
+        stay_store::rebuild_day(&pool, u, testdb::date(day))
+            .await
+            .unwrap_or_else(|e| panic!("{day} の作り直しが失敗した: {e}"));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "{day} の作り直しが隣の滞在をたどっている"
+        );
+    }
+    let once = live(&pool, u).await;
+    assert!(once.len() > 180, "{}", once.len());
+    for day in ["2026-05-02", "2026-05-03", "2026-05-01"] {
+        rebuild(&pool, u, day).await;
+    }
+    assert_eq!(live(&pool, u).await, once, "2 周目で滞在が変わった");
+}
+
+/// R30: 範囲の端でとどまりが続けば、閉じるところまで広げる（0 時前の分が最短のとどまりに満たないとき）。
+// Scenario: 0 時の前後で別々に届いても日付をまたぐ滞在は 1 件のまま
+#[tokio::test]
+async fn stay_auto_rebuild_short_tail_before_midnight() {
+    let app = app().await;
+    let u = testdb::user();
+    post_locations(&app, loc_dwell(u, "2026-05-10T23:52:00+09:00", 7, 0.0)).await;
+    post_locations(&app, loc_dwell(u, "2026-05-11T00:00:00+09:00", 20, 0.0)).await;
+    assert_eq!(
+        live(&app.pool, u)
+            .await
+            .iter()
+            .map(|(_, s, e)| (*s, *e))
+            .collect::<Vec<_>>(),
+        vec![(
+            t("2026-05-10T23:52:00+09:00"),
+            t("2026-05-11T00:20:00+09:00")
+        )],
+        "0 時前の 7 分ぶんが滞在に入っていない（範囲を端のとどまりで広げていない）"
+    );
+    // 1 回で送った 23:55〜00:05（どちらの日も 10 分に満たない）も 1 件になる
+    let v = testdb::user();
+    post_locations(&app, loc_dwell(v, "2026-05-12T23:55:00+09:00", 10, 0.0)).await;
+    assert_eq!(
+        live(&app.pool, v)
+            .await
+            .iter()
+            .map(|(_, s, e)| (*s, *e))
+            .collect::<Vec<_>>(),
+        vec![(
+            t("2026-05-12T23:55:00+09:00"),
+            t("2026-05-13T00:05:00+09:00")
+        )]
+    );
+}
+
+/// R54: Asia/Tokyo の 0:00〜8:59 に届いた位置でも、その日の滞在ができる（UTC の日付で作り直さない）。
+// Scenario: 位置を送るとその日の滞在が出る
+#[tokio::test]
+async fn stay_auto_rebuild_early_morning_jst() {
+    let app = app().await;
+    let u = testdb::user();
+    post_locations(&app, loc_dwell(u, "2026-05-14T02:00:00+09:00", 20, 0.0)).await;
+    assert_eq!(
+        live(&app.pool, u).await.len(),
+        1,
+        "早朝の位置で滞在ができない"
+    );
+}
+
+/// R31 / R69: 重複だけのまとめ送りでも作り直す。受け入れなかった記録の日は作り直さない。
+#[tokio::test]
+async fn stay_auto_rebuild_counts_duplicates_not_rejections() {
+    let pool = testdb::pool().await;
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(move |_, user, day| {
+            seen.lock().unwrap().push((user, day));
+            Box::pin(async { Ok(()) })
+        }),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let u = testdb::user();
+    let batch = loc_dwell(u, "2026-05-15T09:00:00+09:00", 3, 0.0);
+    post_locations(&app, batch.clone()).await;
+    let again = post_locations(&app, batch).await;
+    assert!(again
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["duplicate"] == true));
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        2,
+        "重複だけのまとめ送りで作り直していない（D5）"
+    );
+
+    // 断られた記録（登録簿に無いソース）の日は作り直さない
+    let mut bad = loc_item(u, t("2026-05-20T09:00:00+09:00"), 0.0);
+    bad["logical_source"] = serde_json::json!("t-not-registered-at-all");
+    let ok = loc_item(u, t("2026-05-15T09:10:00+09:00"), 0.0);
+    post_locations(&app, vec![bad, ok]).await;
+    let days: Vec<_> = calls.lock().unwrap().iter().map(|(_, d)| *d).collect();
+    assert_eq!(days.len(), 3);
+    assert!(
+        !days.contains(&testdb::date("2026-05-20")),
+        "断った記録の日を作り直した"
+    );
+}
+
+/// R53: 作り直しは利用者の錠を待つ（同時に走らせたときのたまたまの交差に頼らない）。
+// Scenario: 同じ日の作り直しが同時に 2 回走っても滞在は二重にならない
+#[tokio::test]
+async fn stay_rebuild_is_serialized_waits_for_lock() {
+    let pool = testdb::pool().await;
+    let holder = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-05-16T09:00:00+09:00", 30, 0.0, Some(10.0)).await;
+
+    let mut tx = holder.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(stay_store::LOCK_KEY)
+        .bind(u)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let task = tokio::spawn({
+        let pool = pool.clone();
+        async move { stay_store::rebuild_day(&pool, u, testdb::date("2026-05-16")).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !task.is_finished(),
+        "錠を握られているのに作り直しが終わった（錠を取っていない）"
+    );
+    assert!(stays(&pool, u).await.is_empty());
+    tx.rollback().await.unwrap();
+    task.await.unwrap().unwrap();
+    assert_eq!(live(&pool, u).await.len(), 1);
+}
+
+/// R55: 吸収先は時間の重なりがいちばん大きい新しい滞在（ST17 / ST20 が紐づけを移すかを決める列）。
+// Scenario: 吸収された滞在の行と吸収先が残る
+#[tokio::test]
+async fn stay_identity_absorbed_into_largest_overlap() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let x = put_stay_row(
+        &pool,
+        u,
+        "2026-05-17T09:00:00+09:00",
+        "2026-05-17T11:00:00+09:00",
+    )
+    .await;
+    let y = put_stay_row(
+        &pool,
+        u,
+        "2026-05-17T09:10:00+09:00",
+        "2026-05-17T11:00:00+09:00",
+    )
+    .await;
+    let z = put_stay_row(
+        &pool,
+        u,
+        "2026-05-17T09:20:00+09:00",
+        "2026-05-17T10:50:00+09:00",
+    )
+    .await;
+    put_dwell(&pool, u, "2026-05-17T09:00:00+09:00", 40, 0.0, Some(10.0)).await;
+    put_dwell(&pool, u, "2026-05-17T09:50:00+09:00", 70, 0.0, Some(10.0)).await;
+    rebuild(&pool, u, "2026-05-17").await;
+    let now = live(&pool, u).await;
+    assert_eq!(
+        now.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
+        vec![y, x]
+    );
+    let (into,): (Option<uuid::Uuid>,) =
+        sqlx::query_as("SELECT into_event_id FROM core.stay_absorbed WHERE event_id = $1")
+            .bind(z)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(into, Some(x), "吸収先が重なりの最大（09:50〜11:00）でない");
+}
+
+/// R56: 位置の記録が無くなった日の滞在は、全期間の作り直しで吸収される（吸収先は無い）。
+#[tokio::test]
+async fn stay_rebuild_all_absorbs_stays_without_points() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-05-18T09:00:00+09:00", 30, 0.0, Some(10.0)).await;
+    stay_store::rebuild_all(&pool, u).await.unwrap();
+    let id = live(&pool, u).await[0].0;
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE user_id = $1 AND logical_source = 'c01-location'")
+        .bind(u)
+        .execute(&pool)
+        .await
+        .unwrap();
+    stay_store::rebuild_all(&pool, u).await.unwrap();
+    assert!(
+        live(&pool, u).await.is_empty(),
+        "位置の無い滞在が残っている"
+    );
+    let (into,): (Option<uuid::Uuid>,) =
+        sqlx::query_as("SELECT into_event_id FROM core.stay_absorbed WHERE event_id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(into, None);
+}
+
+/// R28: 重なりが同じなら、読み出しに出ている既存の滞在を先に割り当てる（spec の要件本文）。
+#[tokio::test]
+async fn stay_identity_tie_prefers_live() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    // 吸収済みの方を識別子の順で先に置く（「読み出しに出ている方を先に」を消すと必ず落ちる）
+    let absorbed = put_stay_row_with(
+        &pool,
+        u,
+        uuid::Uuid::from_u128(u.as_u128() & 0xffff_ffff),
+        "2026-05-19T09:00:00+09:00",
+        "2026-05-19T09:30:00+09:00",
+        None,
+    )
+    .await;
+    let live_row = put_stay_row_with(
+        &pool,
+        u,
+        uuid::Uuid::from_u128(u128::MAX - (u.as_u128() & 0xffff_ffff)),
+        "2026-05-19T09:00:00+09:00",
+        "2026-05-19T09:30:00+09:00",
+        None,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'rebuild:absorbed' WHERE id = $1",
+    )
+    .bind(absorbed)
+    .execute(&pool)
+    .await
+    .unwrap();
+    put_dwell(&pool, u, "2026-05-19T09:00:00+09:00", 30, 0.0, Some(10.0)).await;
+    rebuild(&pool, u, "2026-05-19").await;
+    assert_eq!(
+        live(&pool, u).await[0].0,
+        live_row,
+        "吸収済みの滞在が識別子を継いだ"
+    );
+}
+
+/// R29 / D12: 端が触れるだけの重なり —— 引き継ぎでは数えず、本人が消した時間帯では数える。
+#[tokio::test]
+async fn stay_identity_touching_edges() {
+    let pool = testdb::pool().await;
+    // 引き継ぎ: 09:00〜09:30 の滞在は、09:30 に始まる滞在の識別子にならない
+    let u = testdb::user();
+    let old = put_stay_row(
+        &pool,
+        u,
+        "2026-05-21T09:00:00+09:00",
+        "2026-05-21T09:30:00+09:00",
+    )
+    .await;
+    put_dwell(&pool, u, "2026-05-21T09:30:00+09:00", 30, 0.0, Some(10.0)).await;
+    rebuild(&pool, u, "2026-05-21").await;
+    let now = live(&pool, u).await;
+    assert_eq!(now.len(), 1);
+    assert_ne!(now[0].0, old, "端が触れるだけの滞在が識別子を継いだ（D12）");
+
+    // 本人が消した時間帯: 09:00〜09:30 を消した後、09:30 に始まる滞在は隠れる
+    let v = testdb::user();
+    let erased = put_stay_row(
+        &pool,
+        v,
+        "2026-05-21T09:00:00+09:00",
+        "2026-05-21T09:30:00+09:00",
+    )
+    .await;
+    user_deletes(&pool, erased, Some("user")).await;
+    put_dwell(&pool, v, "2026-05-21T09:30:00+09:00", 30, 500.0, Some(10.0)).await;
+    rebuild(&pool, v, "2026-05-21").await;
+    assert!(
+        live(&pool, v).await.is_empty(),
+        "消した時間帯に端で触れる滞在が隠れていない（D12 / Q12）"
+    );
+}
+
+/// R58: 内容（`raw`）は同じで、削除の印だけが変わる経路。
+#[tokio::test]
+async fn stay_erased_range_mark_only_changes() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-05-22T09:00:00+09:00", 60, 0.0, Some(10.0)).await;
+    rebuild(&pool, u, "2026-05-22").await;
+    let id = live(&pool, u).await[0].0;
+    // 重なる短い行を本人が消す（作り直しの内容は変わらない）
+    let erased = put_stay_row(
+        &pool,
+        u,
+        "2026-05-22T09:10:00+09:00",
+        "2026-05-22T09:20:00+09:00",
+    )
+    .await;
+    user_deletes(&pool, erased, Some("user")).await;
+    rebuild(&pool, u, "2026-05-22").await;
+    assert!(
+        live(&pool, u).await.is_empty(),
+        "内容が同じだと隠す印を付けていない"
+    );
+    let versions_hidden = versions(&pool, id).await.len();
+
+    // 本人が消したのを戻す（ST22 の「戻す」と同じ形）と、印も外れる
+    sqlx::query("UPDATE core.event SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+        .bind(erased)
+        .execute(&pool)
+        .await
+        .unwrap();
+    rebuild(&pool, u, "2026-05-22").await;
+    let back = live(&pool, u).await;
+    assert_eq!(
+        back.iter().map(|(i, _, _)| *i).collect::<Vec<_>>(),
+        vec![id],
+        "印が外れていない"
+    );
+    assert_eq!(
+        versions(&pool, id).await.len(),
+        versions_hidden,
+        "印だけの変化で前の版を積んだ"
+    );
+}
+
+/// R44: 読んだ後に削除の印が変わった行は書き換えない（錠を取らない書き手が本人の削除を付けた場合）。
+#[tokio::test]
+async fn stay_rebuild_does_not_overwrite_changed_marks() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let id = put_stay_row(
+        &pool,
+        u,
+        "2026-05-23T09:00:00+09:00",
+        "2026-05-23T10:00:00+09:00",
+    )
+    .await;
+    // 作り直しが「読み出しに出ている」と読んだ後に、本人が消した
+    user_deletes(&pool, id, Some("user")).await;
+    let mut tx = pool.begin().await.unwrap();
+    let got = stay_store::absorb_for_test(&mut tx, u, id, None).await;
+    tx.rollback().await.unwrap();
+    assert!(got.is_err(), "読んだ時点と印が違う行を吸収で書き換えた");
+    let row = stays(&pool, u)
+        .await
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap();
+    assert_eq!(row.deleted_by.as_deref(), Some("user"));
+}
+
+// ------------------------------------------------------------------ 独立レビュー: API の本文
+
+/// R60: 本文なしで作り直せる / 省いた基準はいまの値のまま / 知らない欄は断る。
+#[tokio::test]
+async fn stays_rebuild_api_body() {
+    let app = app().await;
+    let u = testdb::user();
+    // 本文なしは既定の利用者を作り直す。**既定の利用者の基準は変えない**（テストの規律）ので、ここは空の本文が 200 で通ることだけを見る
+    use axum::extract::State;
+    let empty = crate::stays_rebuild(State(app.clone()), auth(), axum::body::Bytes::new()).await;
+    assert!(empty.is_ok(), "本文なしの作り直しが断られた");
+
+    post_rebuild(
+        &app,
+        auth(),
+        serde_json::json!({"user_id": u, "min_minutes": 20, "gap_minutes": 30}),
+    )
+    .await
+    .unwrap();
+    post_rebuild(
+        &app,
+        auth(),
+        serde_json::json!({"user_id": u, "radius_m": 60}),
+    )
+    .await
+    .unwrap();
+    let now = stay_store::current_criteria(&app.pool, u)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (now.radius_m, now.min_minutes, now.gap_minutes),
+        (60, 20, 30),
+        "省いた基準が既定に戻った"
+    );
+
+    assert_eq!(
+        post_rebuild(
+            &app,
+            auth(),
+            serde_json::json!({"user_id": u, "radius": 50})
+        )
+        .await,
+        Err(axum::http::StatusCode::BAD_REQUEST),
+        "綴り違いの欄が黙って無視された"
+    );
+    assert_eq!(criteria_list(&app, u).await.len(), 3);
+}
+
+// ------------------------------------------------------------------ 独立レビュー: 1 日の並び
+
+/// R57: 2 日を超える滞在は、真ん中の日と最後の日の一覧にも出る。
+#[tokio::test]
+async fn stays_day_api_long_stay_on_every_day() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_stay_row(
+        &pool,
+        u,
+        "2026-06-01T12:00:00+09:00",
+        "2026-06-04T12:00:00+09:00",
+    )
+    .await;
+    for date in ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04"] {
+        let v = day(&pool, u, date, "2026-09-01T00:00:00Z").await;
+        assert_eq!(
+            kinds(&v, EntryKind::Stay).len(),
+            1,
+            "{date} に 72 時間の滞在が出ていない"
+        );
+    }
+    assert!(kinds(
+        &day(&pool, u, "2026-06-05", "2026-09-01T00:00:00Z").await,
+        EntryKind::Stay
+    )
+    .is_empty());
+}
+
+/// R33: 0:00 ちょうどに終わる滞在は翌日に出さない / 基準は新しい版から並べ、重複しない。
+#[tokio::test]
+async fn stays_day_api_boundary_and_criteria_order() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_stay_row(
+        &pool,
+        u,
+        "2026-06-10T22:00:00+09:00",
+        "2026-06-11T00:00:00+09:00",
+    )
+    .await;
+    assert!(
+        kinds(
+            &day(&pool, u, "2026-06-11", "2026-09-01T00:00:00Z").await,
+            EntryKind::Stay
+        )
+        .is_empty(),
+        "前の日の 24:00 ちょうどに終わる滞在が翌日に出た"
+    );
+    assert_eq!(
+        kinds(
+            &day(&pool, u, "2026-06-10", "2026-09-01T00:00:00Z").await,
+            EntryKind::Stay
+        )
+        .len(),
+        1
+    );
+
+    let v = testdb::user();
+    put_stay_row_with(
+        &pool,
+        v,
+        uuid::Uuid::new_v4(),
+        "2026-06-12T08:00:00+09:00",
+        "2026-06-12T09:00:00+09:00",
+        Some((5, 100, 10)),
+    )
+    .await;
+    put_stay_row_with(
+        &pool,
+        v,
+        uuid::Uuid::new_v4(),
+        "2026-06-12T10:00:00+09:00",
+        "2026-06-12T11:00:00+09:00",
+        Some((9, 50, 10)),
+    )
+    .await;
+    put_stay_row_with(
+        &pool,
+        v,
+        uuid::Uuid::new_v4(),
+        "2026-06-12T12:00:00+09:00",
+        "2026-06-12T13:00:00+09:00",
+        Some((5, 100, 10)),
+    )
+    .await;
+    let got = day(&pool, v, "2026-06-12", "2026-09-01T00:00:00Z").await;
+    assert_eq!(
+        got.criteria
+            .iter()
+            .map(|c| c.criteria_id)
+            .collect::<Vec<_>>(),
+        vec![9, 5],
+        "基準が新しい版から並んでいない"
+    );
+}
+
+/// R32: 今日は、最後の位置からいままでが間隔に満たなければ記録なしにせず、移動も最後の位置までしか並べない。
+// Scenario: 今日の一覧はいまより後を記録なしにしない
+#[tokio::test]
+async fn stays_day_api_today_short_tail() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-06-13T08:00:00+09:00", 30, 0.0, Some(10.0)).await;
+    put_walk(&pool, u, "2026-06-13T08:31:00+09:00", 3, 0.0, 20_000.0).await; // 〜08:33
+    let v = day(&pool, u, "2026-06-13", "2026-06-13T08:38:00+09:00").await;
+    assert!(
+        kinds(&v, EntryKind::NoRecord)
+            .iter()
+            .all(|(_, e)| *e <= t("2026-06-13T08:00:00+09:00")),
+        "最後の位置から 5 分で記録なしが出た: {v:#?}"
+    );
+    assert!(
+        v.entries
+            .iter()
+            .all(|e| e.kind == EntryKind::Stay || e.end <= t("2026-06-13T08:33:00+09:00")),
+        "移動が最後の位置より先まで伸びた: {v:#?}"
+    );
+}
+
+/// R65: 過ぎた日の尻は、次の日の最初の記録までの間隔で測る。
+#[tokio::test]
+async fn stays_day_api_tail_measured_into_next_day() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-06-14T23:00:00+09:00", 53, 0.0, Some(10.0)).await; // 〜23:53
+    put_dwell(&pool, u, "2026-06-15T00:03:00+09:00", 20, 0.0, Some(10.0)).await;
+    let v = day(&pool, u, "2026-06-14", "2026-09-01T00:00:00Z").await;
+    assert!(
+        kinds(&v, EntryKind::NoRecord).contains(&(
+            t("2026-06-14T23:53:00+09:00"),
+            t("2026-06-15T00:00:00+09:00")
+        )),
+        "{v:#?}"
+    );
+}
+
+/// R35: 本人が消した滞在の時間を「移動」として出さない。
+// Scenario: 消した滞在と吸収された滞在は一覧に出ない
+#[tokio::test]
+async fn stays_day_api_deleted_stay_is_not_a_move() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-06-16T10:00:00+09:00", 60, 0.0, Some(10.0)).await;
+    put_dwell(
+        &pool,
+        u,
+        "2026-06-16T11:01:00+09:00",
+        30,
+        5_000.0,
+        Some(10.0),
+    )
+    .await;
+    rebuild(&pool, u, "2026-06-16").await;
+    let first = live(&pool, u).await[0].0;
+    user_deletes(&pool, first, Some("user")).await;
+    let v = day(&pool, u, "2026-06-16", "2026-09-01T00:00:00Z").await;
+    let hole = (
+        t("2026-06-16T10:00:00+09:00"),
+        t("2026-06-16T11:00:00+09:00"),
+    );
+    assert!(
+        !v.entries
+            .iter()
+            .any(|e| e.kind == EntryKind::Move && e.start < hole.1 && e.end > hole.0),
+        "本人が消した滞在の時間が移動として出ている: {v:#?}"
+    );
+    assert!(!v.entries.iter().any(|e| e.id == Some(first)));
 }

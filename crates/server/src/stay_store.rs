@@ -12,7 +12,7 @@ use crate::stay::{self, Criteria, Point, Stay};
 
 /// 作り直しの錠の名前空間（`pg_advisory_xact_lock(key, hashtext(user))` の 1 つ目）。
 /// `testdb` のマイグレーションの錠（4820251。1 引数の形）とは別の空間。
-const LOCK_KEY: i32 = 4_816_016;
+pub(crate) const LOCK_KEY: i32 = 4_816_016;
 
 /// 作り直しが付ける削除の印。**これ以外（`NULL` を含む）はすべて本人が消したもの**（design D4 / R14）。
 pub const REBUILD_PREFIX: &str = "rebuild:";
@@ -208,6 +208,23 @@ where
         .bind(user)
         .fetch_all(ex)
         .await?;
+    // **数値でない緯度経度を数えて残す**（R43）。本文を消去した記録（`'{}'`）と、形の壊れた記録を
+    // 同じ「無い」に畳むと、壊れた記録の日が黙って「記録なし」になる。出すのは件数だけ（値は出さない）
+    let malformed = rows
+        .iter()
+        .filter(|r| {
+            [&r.lat, &r.lon, &r.acc_m]
+                .into_iter()
+                .any(|v| v.as_ref().is_some_and(|v| !v.is_number()))
+        })
+        .count();
+    if malformed > 0 {
+        tracing::warn!(
+            kind = "stay.points_malformed",
+            count = malformed,
+            "緯度・経度・精度が数値でない位置の記録を判定に使わなかった"
+        );
+    }
     Ok(rows
         .into_iter()
         .map(|r| Point {
@@ -257,6 +274,8 @@ pub(crate) struct Existing {
     pub lon: Option<f64>,
     pub raw: String,
     pub mark: Mark,
+    /// 読んだときの `deleted_by`（書き換えるときに、読んだ後に変わっていないことを確かめる。R44）
+    pub deleted_by: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -323,6 +342,7 @@ async fn load_existing(
                 lon: r.payload.get("lon").and_then(serde_json::Value::as_f64),
                 raw: r.raw,
                 mark: Mark::of(r.deleted_at, r.deleted_by.as_deref()),
+                deleted_by: r.deleted_by,
             })
         })
         .collect())
@@ -332,8 +352,13 @@ async fn load_existing(
 
 /// 求められた日から作り直しの範囲を広げる（design D5 / R15）。**変わらなくなるまで繰り返す。**
 ///
-/// 1. 範囲の端から `gap_minutes` 以内にかかる、読み出しに出ている（または消した時間帯で隠れている）既存の滞在を含むまで広げる
+/// 1. 範囲の端を**またぐ**、読み出しに出ている（または消した時間帯で隠れている）既存の滞在を含むまで広げる
 /// 2. 範囲の端をまたいで続いている集まり（最短のとどまりに満たないものも含む）を含むまで広げる
+///
+/// **1 は端の「近く」の滞在では広げない**（R40）。近くで広げていたときは、短い移動でつながった滞在を
+/// 1 件ずつたどり、数日で 64 回の上限に当たって、その利用者の作り直しが毎回落ちた（code-reviewer の実測）。
+/// 範囲と重ならない既存の滞在には範囲の中の新しい滞在が重ならないので、引き継ぎにも消した時間帯にも効かない。
+/// 0 時の前後で別々に届いた位置は 2 が拾う。
 ///
 /// 2 で見る集まりは、範囲の前後を広めに読んで判定する。**広げた端では集まりが切れている**ので、
 /// 最後に `[lo, hi)` だけで判定しても、全期間で判定したときと同じ滞在になる。
@@ -343,15 +368,18 @@ async fn settle_range(
     c: &Criteria,
     (mut lo, mut hi): (DateTime<Utc>, DateTime<Utc>),
 ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
-    let gap = Duration::minutes(i64::from(c.gap_minutes));
     let tick = Duration::microseconds(1);
     // 読む幅は範囲の長さに合わせて伸ばす —— 1 日ずつだと、何日も続くとどまりで回数が日数に比例する
     for _ in 0..64 {
         let (mut nlo, mut nhi) = (lo, hi);
-        for e in load_existing(tx, user, lo - gap, hi + gap).await? {
+        for e in load_existing(tx, user, lo, hi).await? {
             if matches!(e.mark, Mark::Live | Mark::ErasedRange) {
-                nlo = nlo.min(e.start);
-                nhi = nhi.max(e.end + tick);
+                if e.start < lo && e.end >= lo {
+                    nlo = nlo.min(e.start);
+                }
+                if e.start < hi && e.end >= hi {
+                    nhi = nhi.max(e.end + tick);
+                }
             }
         }
         let look = (nhi - nlo).max(Duration::days(1));
@@ -369,7 +397,61 @@ async fn settle_range(
         }
         (lo, hi) = (nlo, nhi);
     }
-    anyhow::bail!("作り直しの範囲が 64 回で定まらない")
+    Err(RangeUnsettled.into())
+}
+
+/// 作り直しの範囲が定まらなかった（`settle_range` の上限）。**値を含まない**のでログの種別に使う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeUnsettled;
+
+impl std::fmt::Display for RangeUnsettled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("作り直しの範囲が 64 回で定まらない")
+    }
+}
+
+impl std::error::Error for RangeUnsettled {}
+
+/// 読んだ後に削除の印が変わっていた（R44）。**書き換えずに作り直しを巻き戻す**（次の作り直しで読み直す）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MarkChanged;
+
+impl std::fmt::Display for MarkChanged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("読んだ後に滞在の削除の印が変わっていた")
+    }
+}
+
+impl std::error::Error for MarkChanged {}
+
+/// 作り直しの失敗の種別（ログ用。**値を含まない**）。
+pub fn failure_kind(e: &anyhow::Error) -> String {
+    if e.downcast_ref::<RangeUnsettled>().is_some() {
+        "range_unsettled".into()
+    } else if e.downcast_ref::<MarkChanged>().is_some() {
+        "mark_changed".into()
+    } else if let Some(db) = e.downcast_ref::<sqlx::Error>() {
+        match db.as_database_error().and_then(|d| d.code()) {
+            Some(code) => format!("sqlstate:{code}"),
+            // 変種の名前は値を含まない（`PoolTimedOut` / `Io` / `Decode` …）
+            None => format!("sqlx:{}", sqlx_variant(db)),
+        }
+    } else {
+        "other".into()
+    }
+}
+
+fn sqlx_variant(e: &sqlx::Error) -> &'static str {
+    match e {
+        sqlx::Error::PoolTimedOut => "pool_timed_out",
+        sqlx::Error::PoolClosed => "pool_closed",
+        sqlx::Error::Io(_) => "io",
+        sqlx::Error::Tls(_) => "tls",
+        sqlx::Error::Protocol(_) => "protocol",
+        sqlx::Error::RowNotFound => "row_not_found",
+        sqlx::Error::ColumnDecode { .. } | sqlx::Error::Decode(_) => "decode",
+        _ => "other",
+    }
 }
 
 // ------------------------------------------------------------------ 割り当て（design D3）
@@ -512,7 +594,7 @@ pub async fn rebuild_day(
                 if e.raw != raw {
                     push_version(&mut tx, e.id).await?;
                 }
-                update_stay(&mut tx, e.id, f, &raw, hide).await?;
+                update_stay(&mut tx, e, f, &raw, hide).await?;
                 out.updated += 1;
             }
             None => {
@@ -524,7 +606,7 @@ pub async fn rebuild_day(
         }
     }
     for (j, into) in &plan.absorbed {
-        absorb(&mut tx, user, existing[*j].id, into.map(|i| ids[i]), c.id).await?;
+        absorb(&mut tx, user, &existing[*j], into.map(|i| ids[i]), c.id).await?;
         out.absorbed += 1;
     }
     tx.commit().await?;
@@ -554,22 +636,36 @@ fn payload_of(raw: &str) -> sqlx::Result<serde_json::Value> {
     serde_json::from_str(raw).map_err(|e| sqlx::Error::Decode(Box::new(e)))
 }
 
+/// **読んだときと削除の印が同じ行だけを書き換える**（R44）。
+///
+/// 作り直しの錠を取らない書き手（ST22 の「消す」）が、読んだ後に本人の削除を付けていたら、
+/// そのまま書くと本人の削除が黙って取り消される。1 行も当たらなければ作り直しごと巻き戻す。
+const SAME_MARK: &str = "(deleted_at IS NULL) = $10 AND deleted_by IS NOT DISTINCT FROM $11";
+
+fn ensure_one(done: sqlx::postgres::PgQueryResult) -> anyhow::Result<()> {
+    if done.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(MarkChanged.into())
+    }
+}
+
 async fn update_stay(
     tx: &mut Transaction<'_, Postgres>,
-    id: uuid::Uuid,
+    e: &Existing,
     f: &Stay,
     raw: &str,
     hide: bool,
-) -> sqlx::Result<()> {
-    sqlx::query(
+) -> anyhow::Result<()> {
+    let done = sqlx::query(&format!(
         "UPDATE core.event
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
                 tz_offset_min = $6, tz_id = $7,
                 deleted_at = CASE WHEN $8 THEN coalesce(deleted_at, now()) END,
                 deleted_by = CASE WHEN $8 THEN $9 END
-          WHERE id = $1",
-    )
-    .bind(id)
+          WHERE id = $1 AND {SAME_MARK}"
+    ))
+    .bind(e.id)
     .bind(raw)
     .bind(payload_of(raw)?)
     .bind(ingest::content_hash_of(stay::SOURCE, f.start, raw))
@@ -578,9 +674,11 @@ async fn update_stay(
     .bind(&f.tz_id)
     .bind(hide)
     .bind(ERASED_RANGE)
+    .bind(e.mark == Mark::Live)
+    .bind(&e.deleted_by)
     .execute(&mut **tx)
     .await?;
-    Ok(())
+    ensure_one(done)
 }
 
 /// 新しい滞在を足す（design D1 の列の表）。**感度には何も書かない**（D9。列の既定に乗る）。
@@ -623,15 +721,23 @@ async fn insert_stay(
 async fn absorb(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
-    id: uuid::Uuid,
+    e: &Existing,
     into: Option<uuid::Uuid>,
     criteria_id: i64,
-) -> sqlx::Result<()> {
-    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
-        .bind(id)
-        .bind(ABSORBED)
-        .execute(&mut **tx)
-        .await?;
+) -> anyhow::Result<()> {
+    let id = e.id;
+    let done = sqlx::query(&format!(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = $2
+          WHERE id = $1 AND {}",
+        SAME_MARK.replace("$10", "$3").replace("$11", "$4")
+    ))
+    .bind(id)
+    .bind(ABSORBED)
+    .bind(e.mark == Mark::Live)
+    .bind(&e.deleted_by)
+    .execute(&mut **tx)
+    .await?;
+    ensure_one(done)?;
     sqlx::query(
         "INSERT INTO core.stay_absorbed (event_id, user_id, into_event_id, criteria_id)
          VALUES ($1, $2, $3, $4)",
@@ -690,7 +796,18 @@ pub async fn rebuild_all(pool: &PgPool, user: uuid::Uuid) -> anyhow::Result<AllO
     if let (Some(first), Some(last)) = (first, last) {
         let mut day = jst_date(first);
         while day <= jst_date(last) {
-            rebuild_day(pool, user, day).await?;
+            if let Err(e) = rebuild_day(pool, user, day).await {
+                // **どこまで済んだかを残す**（R42）。前の日は新しい基準、この日から後は古い基準のまま
+                tracing::error!(
+                    kind = "stays.rebuild_all",
+                    %user,
+                    %day,
+                    days_done = days,
+                    failure = %failure_kind(&e),
+                    "全期間の作り直しが途中の日で止まった"
+                );
+                return Err(e);
+            }
             days += 1;
             day += Duration::days(1);
         }
@@ -813,6 +930,32 @@ pub async fn day_view(
     }
     tags.sort_by_key(|t| std::cmp::Reverse(t.criteria_id));
 
+    // **本人が消した滞在と、消した時間帯で隠した滞在の時間は、移動として埋めない**（R35 / design D8（仮））。
+    // 埋めると、とどまっていた時間を「移動」と書くことになる（記録なしを移動と同じ顔にしないのと同じ型）。
+    // 行は出さない（消したものを一覧に出さない）。吸収された滞在は吸収先が同じ時間を持つので数えない
+    let hidden_rows: Vec<(DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
+        "SELECT event_time, payload FROM core.event
+          WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
+            AND deleted_at IS NOT NULL AND deleted_by IS DISTINCT FROM $6
+            AND event_time < $3
+            AND (event_time >= $4 OR payload->>'end' >= $5)",
+    )
+    .bind(stay::SOURCE)
+    .bind(user)
+    .bind(d1)
+    .bind(d0 - Duration::days(2))
+    .bind((d0 - Duration::days(2)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    .bind(ABSORBED)
+    .fetch_all(pool)
+    .await?;
+    let hidden: Vec<(DateTime<Utc>, DateTime<Utc>)> = hidden_rows
+        .iter()
+        .map(|(t, p)| span_of(*t, p))
+        .filter(|(s, e)| *s < d1 && *e > d0)
+        .map(|(s, e)| (s.max(d0), e.min(upper)))
+        .filter(|(s, e)| s < e)
+        .collect();
+
     // 記録なし。読む窓の端を「その外側に記録がある」とみなさない仮の点にして、頭と尻も同じ規則で測る
     let observed: Vec<DateTime<Utc>> = load_points(pool, user, &c.sources, d0 - gap, d1 + gap)
         .await?
@@ -861,6 +1004,7 @@ pub async fn day_view(
     } else {
         upper
     };
+    covered.extend(hidden);
     covered.sort();
     let mut cursor = d0;
     for (s, e) in covered {
@@ -891,4 +1035,26 @@ pub async fn day_view(
         criteria: tags,
         entries,
     })
+}
+
+/// テスト用: 「読み出しに出ている」と読んだ滞在を吸収する（R44）。
+#[cfg(test)]
+pub(crate) async fn absorb_for_test(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    id: uuid::Uuid,
+    into: Option<uuid::Uuid>,
+) -> anyhow::Result<()> {
+    let c = ensure_criteria(tx, user).await?;
+    let read_as_live = Existing {
+        id,
+        start: Utc::now(),
+        end: Utc::now(),
+        lat: None,
+        lon: None,
+        raw: String::new(),
+        mark: Mark::Live,
+        deleted_by: None,
+    };
+    absorb(tx, user, &read_as_live, into, c.id).await
 }

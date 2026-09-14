@@ -37,6 +37,30 @@ export function dayFromHash(hash: string): string | null | undefined {
   return m[1] ?? null;
 }
 
+/** 暦にある日付か（`2026-13-45` を弾く）。 */
+export function isRealDate(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const d = new Date(`${date}T12:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === date;
+}
+
+/** 応答が 1 日の並びの形をしているか（R46）。**形が違えば失敗として出す** —— 型の宣言だけで通すと描画で落ちて画面が白くなる。 */
+export function isDayView(v: unknown): v is DayView {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  const kinds = ["stay", "move", "no-record"];
+  return (
+    typeof o.date === "string" &&
+    Array.isArray(o.criteria) &&
+    o.criteria.every((c) => typeof c === "object" && c !== null && typeof (c as CriteriaTag).criteria_id === "number") &&
+    Array.isArray(o.entries) &&
+    o.entries.every((e) => {
+      const x = e as DayEntry;
+      return typeof e === "object" && e !== null && kinds.includes(x.kind) && typeof x.start === "string" && typeof x.end === "string";
+    })
+  );
+}
+
 /** 日付を `days` 日ずらす（UTC 正午を足場にする。夏時間もうるう秒も跨がない）。 */
 export function shiftDay(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00Z`);

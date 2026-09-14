@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { App, todayInTz } from "./App";
 import { DayView } from "./DayView";
-import { dayFromHash } from "./stays";
+import { dayFromHash, isRealDate } from "./stays";
+import { SCHEMES, tone } from "./tokens";
 
 /**
  * 画面の行き先を決める（ST16 / design D8）。**S-1（稼働状況）はルートのまま** ——
@@ -17,5 +18,19 @@ export function Root(): React.ReactElement {
   }, []);
   const day = dayFromHash(hash);
   if (day === undefined) return <App />;
+  // **暦に無い日付は、そう出す**（R47）。そのまま一覧を開くと見出しが「13 月 45 日」になり、前後の日へ移るボタンが黙って効かない
+  if (day !== null && !isRealDate(day)) {
+    return (
+      <main
+        data-testid="day-invalid"
+        style={{ background: tone(SCHEMES.dark.ground), color: tone(SCHEMES.dark.text), minHeight: "100vh", padding: 12 }}
+      >
+        <p role="alert">アドレスの日付（{day}）を日付として読めません。</p>
+        <a href="#/day/" style={{ color: tone(SCHEMES.dark.text), minHeight: 24, minWidth: 24, display: "inline-flex", alignItems: "center" }}>
+          今日の一覧へ
+        </a>
+      </main>
+    );
+  }
   return <DayView date={day ?? todayInTz(new Date())} />;
 }

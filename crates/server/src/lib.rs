@@ -931,6 +931,7 @@ async fn rebuild_stays_after_ingest(
                         tracing::error!(
                             kind = "stay.rebuild",
                             op = "criteria_lookup",
+                            user = %req.user_id,
                             sqlstate = %sqlstate_of(&e),
                             "滞在の基準を読めなかったので作り直さなかった（記録は受け入れ済み）"
                         );
@@ -947,24 +948,34 @@ async fn rebuild_stays_after_ingest(
         let started = std::time::Instant::now();
         let took_ms = || started.elapsed().as_millis() as u64;
         match (app.stays.0)(app.pool.clone(), user, day).await {
+            Ok(()) if took_ms() >= SLOW_REBUILD_MS => tracing::warn!(
+                kind = "stay.rebuild_slow",
+                %user,
+                %day,
+                took_ms = took_ms(),
+                "滞在の作り直しが遅い（取り込みの応答を待たせている。design D5 の反転条件）"
+            ),
             Ok(()) => {
                 tracing::info!(kind = "stay.rebuild", %day, took_ms = took_ms(), "滞在を作り直した")
             }
             Err(e) => {
-                let code = e
-                    .downcast_ref::<sqlx::Error>()
-                    .map_or_else(|| "none".into(), sqlstate_of);
+                // **失敗した利用者と日と種別を残す**（R41）。失敗した日を覚えておく場所は無いので、
+                // 運用者が `POST /stays/rebuild` を叩く手がかりはこの 1 行だけ。種別も利用者も値（座標・時刻）ではない
                 tracing::error!(
                     kind = "stay.rebuild",
+                    %user,
                     %day,
-                    sqlstate = %code,
+                    failure = %stay_store::failure_kind(&e),
                     took_ms = took_ms(),
-                    "滞在の作り直しに失敗（位置の記録は受け入れ済み。次のまとめ送りか手の作り直しで戻る）"
+                    "滞在の作り直しに失敗（位置の記録は受け入れ済み。その日の位置が次に届くか、手の作り直しで戻る）"
                 );
             }
         }
     }
 }
+
+/// 取り込みの応答を待たせていると見なす作り直しの長さ（`collector-android` の読み取り上限 15 秒の 1/3）。
+const SLOW_REBUILD_MS: u64 = 5_000;
 
 /// SQLSTATE だけを取り出す（値を含まない）。
 fn sqlstate_of(e: &sqlx::Error) -> String {
@@ -1004,10 +1015,16 @@ pub struct RebuildResponse {
     took_ms: i64,
 }
 
-/// 基準を範囲の中に収めているか（spec「範囲外の基準は断られる」）。
-fn criteria_in_range(r: &RebuildRequest) -> bool {
+/// 範囲の外にある基準の欄の名前（spec「範囲外の基準は断られる」）。**欄の名前だけを返し、値は返さない。**
+fn criteria_out_of_range(r: &RebuildRequest) -> Option<&'static str> {
     let within = |v: Option<i32>, hi: i32| v.is_none_or(|x| (1..=hi).contains(&x));
-    within(r.radius_m, 10_000) && within(r.min_minutes, 1_440) && within(r.gap_minutes, 1_440)
+    [
+        ("radius_m", within(r.radius_m, 10_000)),
+        ("min_minutes", within(r.min_minutes, 1_440)),
+        ("gap_minutes", within(r.gap_minutes, 1_440)),
+    ]
+    .into_iter()
+    .find_map(|(name, ok)| (!ok).then_some(name))
 }
 
 /// 全期間の滞在を作り直す（FR-31 / Q6 / C10）。基準が添えられ、いまと違えば新しい版を足してから作り直す。
@@ -1027,9 +1044,16 @@ pub async fn stays_rebuild(
         serde_json::from_slice(&body)
             .map_err(|_| (StatusCode::BAD_REQUEST, "malformed".to_string()))?
     };
-    if !criteria_in_range(&req) {
-        tracing::warn!(kind = "stays.rebuild_rejected", "範囲外の基準を断った");
-        return Err((StatusCode::BAD_REQUEST, "criteria_out_of_range".into()));
+    if let Some(field) = criteria_out_of_range(&req) {
+        tracing::warn!(
+            kind = "stays.rebuild_rejected",
+            field,
+            "範囲外の基準を断った"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("criteria_out_of_range:{field}"),
+        ));
     }
     let user = req.user_id.unwrap_or_default();
     let started = std::time::Instant::now();
@@ -1048,9 +1072,17 @@ pub async fn stays_rebuild(
         .await
         .map_err(|e| match e.downcast::<sqlx::Error>() {
             Ok(db) => internal_at("stays.rebuild_all", db),
-            Err(_) => {
-                tracing::error!(kind = "db", op = "stays.rebuild_all", "作り直しに失敗");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+            // 落ちた日と種別は `rebuild_all` がログに残している（R42）
+            Err(e) => {
+                tracing::error!(
+                    kind = "stays.rebuild",
+                    failure = %stay_store::failure_kind(&e),
+                    "全期間の作り直しに失敗（基準を添えていれば、基準の版は既に足してある）"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "rebuild_incomplete".into(),
+                )
             }
         })?;
     let took_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);

@@ -335,6 +335,38 @@ mod detect {
         assert_eq!(got[0].points_used, 30, "消去された 1 件を数えている");
     }
 
+    /// 10 分ちょうどのとどまり（11 件）は滞在になる（「以上」。R62）。
+    #[test]
+    fn exactly_min_minutes_is_a_stay() {
+        let pts = dwell("2026-09-01T00:00:00Z", 10, 0.0, 0.0);
+        assert_eq!(super::detect(&pts, &Criteria::default_values()).len(), 1);
+        let pts = dwell("2026-09-01T00:00:00Z", 9, 0.0, 0.0);
+        assert!(super::detect(&pts, &Criteria::default_values()).is_empty());
+    }
+
+    /// 経度の方向の距離も緯度を見て測る（R59）。東へ 90 m は半径 100 m の中。
+    #[test]
+    fn east_west_distance_uses_latitude() {
+        let mut pts = dwell("2026-09-01T00:00:00Z", 30, 0.0, 0.0);
+        pts.extend(dwell("2026-09-01T00:31:00Z", 30, 0.0, 90.0));
+        assert_eq!(
+            super::detect(&pts, &Criteria::default_values()).len(),
+            1,
+            "東西の距離を長く測っている"
+        );
+        let d = distance_m(LAT, LON, LAT, offset(0.0, 90.0).1);
+        assert!((d - 90.0).abs() < 0.5, "{d}");
+    }
+
+    /// 中心は重心で、集まりとともに動く（最初の点を中心にすると 130 m 先で割れる。R67）。
+    #[test]
+    fn centroid_moves_with_the_cluster() {
+        let mut pts = dwell("2026-09-01T00:00:00Z", 29, 0.0, 0.0);
+        pts.extend(dwell("2026-09-01T00:30:00Z", 29, 90.0, 0.0));
+        pts.extend(dwell("2026-09-01T01:00:00Z", 29, 130.0, 0.0));
+        assert_eq!(super::detect(&pts, &Criteria::default_values()).len(), 1);
+    }
+
     /// 重心が動くことの確認（半径 50 m では 70 m 先が別の滞在になる。spec の入力）。
     #[test]
     fn radius_changes_the_split() {

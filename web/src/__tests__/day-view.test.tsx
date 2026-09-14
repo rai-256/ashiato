@@ -214,3 +214,90 @@ describe("日を移る", () => {
     expect(screen.getByRole("link", { name: "稼働状況へ" }).getAttribute("href")).toBe("#/");
   });
 });
+
+describe("独立レビューで足したもの（review/code.md）", () => {
+  // R61: 移動の行は長さと時刻の範囲を持つ（Scenario「滞在の間に移動の行が出る」の THEN）
+  it("移動の行に「移動 42 分」と 8:40 – 9:22 が出る", async () => {
+    const j = (hm: string): string => new Date(`2026-07-05T${hm}:00+09:00`).toISOString();
+    serve({
+      "2026-07-05": {
+        date: "2026-07-05",
+        criteria: [{ criteria_id: 1, radius_m: 100, min_minutes: 10 }],
+        entries: [
+          { kind: "stay", start: j("08:00"), end: j("08:40"), id: "a", criteria_id: 1 },
+          { kind: "move", start: j("08:40"), end: j("09:22") },
+          { kind: "stay", start: j("09:22"), end: j("10:00"), id: "b", criteria_id: 1 },
+        ],
+      },
+    });
+    window.location.hash = "#/day/2026-07-05";
+    render(<Root />);
+    await waitFor(() => expect(screen.getByTestId("row-move")).toBeTruthy());
+    const text = screen.getByTestId("row-move").textContent ?? "";
+    expect(text).toContain("移動 42 分");
+    expect(text).toContain("8:40 – 9:22");
+  });
+
+  // R64: 次の日・日付の指定でも移る
+  it("次の日と日付の入力で、その日の一覧へ移る", async () => {
+    serve({});
+    window.location.hash = "#/day/2026-09-12";
+    render(<Root />);
+    fireEvent.click(screen.getByRole("button", { name: "次の日" }));
+    await waitFor(() => expect(screen.getByTestId("day-title").textContent).toContain("9 月 13 日"));
+    fireEvent.change(screen.getByLabelText("日付を指定"), { target: { value: "2026-01-02" } });
+    await waitFor(() => expect(screen.getByTestId("day-title").textContent).toContain("1 月 2 日"));
+    await waitFor(() => expect(calls.at(-1)).toBe("/api/stays?date=2026-01-02"));
+  });
+
+  // R63: 前の日へ素早く 2 回移ると、遅れて返った古い日の応答を描かない
+  it("遅れて返った前の日の応答を、新しい日の見出しの下に描かない", async () => {
+    let releaseOld: (r: Response) => void = () => {};
+    const old: DayView = {
+      date: "2026-09-12",
+      criteria: [{ criteria_id: 1, radius_m: 100, min_minutes: 10 }],
+      entries: [{ kind: "stay", start: "2026-09-12T00:00:00Z", end: "2026-09-12T01:00:00Z", id: "old", criteria_id: 1 }],
+    };
+    vi.stubGlobal("fetch", (path: string) =>
+      path.includes("2026-09-12")
+        ? new Promise<Response>((r) => (releaseOld = r))
+        : Promise.resolve(ok({ date: "2026-09-11", criteria: [], entries: [] })),
+    );
+    window.location.hash = "#/day/2026-09-12";
+    render(<Root />);
+    fireEvent.click(screen.getByRole("button", { name: "前の日" }));
+    await waitFor(() => expect(screen.getByTestId("day-empty")).toBeTruthy());
+    releaseOld(ok(old));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("day-title").textContent).toContain("9 月 11 日");
+    expect(screen.queryByTestId("row-stay")).toBeNull();
+  });
+
+  // R45: まだ来ていない日は「滞在はありません」と言わない
+  it("未来の日は、まだ来ていない日だと出る", async () => {
+    serve({});
+    window.location.hash = "#/day/2999-01-01";
+    render(<Root />);
+    await waitFor(() => expect(screen.getByTestId("day-future")).toBeTruthy());
+    expect(screen.queryByTestId("day-empty")).toBeNull();
+  });
+
+  // R46: 形の違う応答は失敗として出す（画面を白くしない）
+  it("形の違う応答は読み出しの失敗として出る", async () => {
+    vi.stubGlobal("fetch", () => Promise.resolve(ok({ unexpected: true })));
+    window.location.hash = "#/day/2026-07-01";
+    render(<Root />);
+    await waitFor(() => expect(screen.getByTestId("day-error")).toBeTruthy());
+    expect(screen.getByTestId("day-error").textContent).toContain("unexpected_shape");
+  });
+
+  // R47: 暦に無い日付のアドレスは、そう出す（前後の日へ移るボタンを出さない）
+  it("#/day/2026-13-45 は日付として読めないと出る", () => {
+    vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
+    window.location.hash = "#/day/2026-13-45";
+    render(<Root />);
+    expect(screen.getByTestId("day-invalid")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "前の日" })).toBeNull();
+    expect(screen.getByRole("link", { name: "今日の一覧へ" }).getAttribute("href")).toBe("#/day/");
+  });
+});

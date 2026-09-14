@@ -528,12 +528,22 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
+# **ST16 の滞在の版を先に戻す**（ST16 の review/code.md R39）。滞在の台帳は `core.event` を指すので、
+# ST03 の戻しより前に当てる。戻して進め直せることまで見る（前進のみの版を戻す運用が成り立つ）
+psql < "migrations/202609142125_stays.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609142125_stays.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.stay_criteria') IS NULL AND to_regclass('core.stay_absorbed') IS NULL;")" = "t" ] \
+  || { echo "  NG 滞在の戻しで台帳が消えていない"; fail=1; down_fail=1; }
+psql < "migrations/202609142125_stays.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609142125_stays.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609142125_stays.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609142125_stays.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   m="${ST03_UP[$i]}"
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST16 の 1 本と ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \

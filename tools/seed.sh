@@ -45,16 +45,29 @@ done
 echo "$MODE: $N 件を入れた"
 
 # ------------------------------------------------------------------ 位置の 1 日（ST16）
+#
+# **前に入れた別の並びの位置を読み出しから外し、この並びの位置を戻す**（R36）。
+# 位置の記録は書き換えられない（FR-30）ので、削除の印だけを付け外しする。並びは端末識別子（`seed-<並び>`）で分ける。
+# 外さないと、normal の後に max を入れた DB で 2 つの並びが重なり、滞在が崩れる。
+docker compose exec -T db psql -q -U ashiato -d ashiato -c \
+  "UPDATE core.event
+      SET deleted_at = CASE WHEN device_id = 'seed-$MODE' THEN NULL ELSE coalesce(deleted_at, now()) END,
+          deleted_by = CASE WHEN device_id = 'seed-$MODE' THEN NULL ELSE 'seed' END
+    WHERE logical_source = 'c01-location' AND device_id LIKE 'seed-%'
+      AND user_id = '00000000-0000-0000-0000-000000000000';" >/dev/null
 [ "$N" -eq 0 ] && exit 0
 
 # **組み立ては python に任せる**（1,440 点の揺れと移動の補間を bash で書くと読めない）。
 # 揺れは種を固定した乱数なので、**何度入れても同じ本文**になり、再送として畳まれる（FR-22）。
-python3 - "$N" > /tmp/ashiato-seed-location.jsonl <<'PY'
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+python3 - "$N" "$MODE" > "$work/location.jsonl" <<'PY'
 import json, math, random, sys, uuid
 from datetime import datetime, timedelta, timezone
 
 stays = int(sys.argv[1])
-rnd = random.Random(20260907)
+mode = sys.argv[2]
+rnd = random.Random(f"20260907/{mode}")   # 並びごとに違う揺れ（別の並びと同じ本文にならない）
 JST = timezone(timedelta(hours=9))
 day0 = datetime(2026, 9, 7, tzinfo=JST)
 LAT0, LON0 = 35.6812, 139.7671
@@ -96,19 +109,25 @@ for m, n, e, jitter in points:
     body = {"lat": round(lat, 7), "lon": round(lon, 7), "acc_m": acc}
     raw = json.dumps(body, separators=(",", ":"))
     print(json.dumps({
-        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ashiato-seed-location/{when}")),
+        # **識別子に並びの名前を混ぜる**（R36）。時刻だけから作ると、normal の後に max を同じ DB へ入れたとき
+        # 同じ識別子に別の本文が乗り、`id_reused` で全件断られる
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ashiato-seed-location/{mode}/{when}")),
         "user_id": "00000000-0000-0000-0000-000000000000",
-        "logical_source": "c01-location", "external_id": None, "device_id": "seed",
+        "logical_source": "c01-location", "external_id": None, "device_id": f"seed-{mode}",
         "origin": "collected", "event_time": when, "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
         "schema_version": 1, "raw": raw, "payload": body,
     }, ensure_ascii=False))
 PY
 
 # 端末と同じく 200 件ずつ送る（`collector-android` の MAX_BATCH）
-total=$(wc -l < /tmp/ashiato-seed-location.jsonl)
-split -l 200 /tmp/ashiato-seed-location.jsonl /tmp/ashiato-seed-location.part.
-for part in /tmp/ashiato-seed-location.part.*; do
-  jq -s -c . "$part" | curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- >/dev/null
+total=$(wc -l < "$work/location.jsonl")
+split -l 200 "$work/location.jsonl" "$work/part."
+accepted=0
+for part in "$work"/part.*; do
+  # **受け入れた件数を数える**（R51）。1 件でも受け入れれば 200 が返るので、状態符号だけでは部分的な失敗が見えない
+  got=$(jq -s -c . "$part" | curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- \
+        | jq '[.[] | select(.accepted)] | length')
+  accepted=$((accepted + got))
 done
-rm -f /tmp/ashiato-seed-location.part.*
+[ "$accepted" -eq "$total" ] || { echo "$MODE: 位置 $total 件のうち $accepted 件しか受け入れられなかった"; exit 1; }
 echo "$MODE: 2026-09-07 の位置を $total 件入れた（滞在 $N 件になる並び）"
