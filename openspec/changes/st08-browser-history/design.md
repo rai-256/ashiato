@@ -135,8 +135,7 @@ spec の「過去の履歴をすべて取り込む」「古い時刻の訪問も
 
 ### D6. 識別子の作り方
 
-**第 2 回 Q5 の答え待ち。** 下は推奨（組全体を 1 つのハッシュ）で書いてある。答えが「いまの形のまま」なら、
-visit の形を `v1:<family>:<browser>:<profile_dir>:<visit_id>:<visit_time_raw>:<sha256(url) の先頭 32 桁>` に戻す。
+**第 2 回 Q5 で本人が「組全体を 1 つのハッシュにする」を選んだ**（2026-09-15）。初版の `v1:<family>:<browser>:<profile_dir>:<visit_id>:<visit_time_raw>:<sha256(url) の先頭 32 桁>` は採らない。
 
 ```
 visit    : v1:visit:<sha256(family \x1f browser \x1f profile_dir \x1f visit_id \x1f visit_time_raw \x1f url) の 16 進 64 桁>
@@ -182,8 +181,7 @@ UPDATE core.source SET external_id_kind = 'record'
 
 ### D9. 同期で入った他端末の訪問
 
-**第 2 回 Q4 の答え待ち**（spec-review R1: 第 1 回 Q3 の context は「発生元の番号で見分ける」と見せたが、下の理由で逆にした）。
-下は推奨（PC 側の番号）で書いてある。
+**第 2 回 Q4 で本人が「PC 側の番号で作る」を選んだ**（2026-09-15。spec-review R1: 第 1 回 Q3 の context は「発生元の番号で見分ける」と見せていたので、逆の形を本人に返した）。
 
 `originator_cache_guid` が空でない訪問は `originator_cache_guid` / `originator_visit_id` を載せる。**識別子は D6 と同じ形**
 （PC の DB の番号で作る）—— 発生元の番号で作ると、同期している PC が 2 台あるとき 2 台が同じ識別子で交互に「更新」を送り、
