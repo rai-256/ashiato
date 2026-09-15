@@ -169,7 +169,9 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > 深掘り 第 2 回 Q9 で本人が「直近に置いた書庫」の箱を **Must の 5 ソースの格子の前**に置き、ST02 第 8 回 Q30 の高さの予算（ひとスクロール 1,280 px・開いた直後の 2 ソース 640 px）を
 > **箱の高さを除いて数える**形に変えた（FR-55 ★ 第 2 回）。予算の文は `collection-coverage` の「稼働状況は 1 年を週に畳んだ格子で見える」にあり、**ST04 の下流（PR #49）が同じ Requirement を MODIFIED で書き換えている**。
 >
-> - ST12 の `collection-coverage` の delta は **ST04 の delta の文を写し、予算の 2 文だけを変える**。**ST12 の下流は ST04 の archive を待つ**（`requires` がそれを機械に持たせる）。ST04 の archive 後、下流の開始時に正典と delta を突き合わせ直す（tasks 0）
+> - ST12 の `collection-coverage` の delta は **ST04 の下流の PR #49（head 8abafb5）の delta の文を写し、予算の文だけを変える**。**ST12 の下流は ST04 の archive を待つ**。
+>   **`requires` は盤面の表示に効くだけで、下流の起動は機械では止まらない**（`board.py` は tasks.md があると requires を見ず、上流の gate は merge 後に `story.sh` を出し、`story.sh` は requires を見ない）。
+>   止めるのは ST12 の tasks 0.1 の終了条件（ST04 の change が残っていれば rc=1、正典と delta に許した差のほかがあれば rc=1）と、PR 本文・issue の冒頭の文
 > - 書庫のソースの格子の並び・見出しの最終日・箱の中身は `external-ingestion` に置いたまま（第 1 回の判断）。**`collection-coverage` の画面の Requirement を後から書き換える Story（ST14 / ST15 など）は、`external-ingestion` の並びの条項も見る**
 > - **ST04 へは差し戻さない**（ST04 の予算の試験は ST04 のまま通る。書き換えるのは ST12 の下流）
 > - 第 1 回の上流では「`external-ingestion` だけに置く」（design D13（仮））としていた。その反転条件（予算の要件を書き換えるとき）が本人の答えで成り立った

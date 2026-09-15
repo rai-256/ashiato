@@ -28,7 +28,7 @@ Takeout の書庫は約 7 日で失効してダウンロードは 5 回まで（
 - **稼働状況の画面に書庫のソースの格子を出す。** Must の 5 本の後ろ・退役したソースの前に、見出しの横に「`YYYY-MM-DD` まで（N 日前）」、まだ無いソースは「まだ無い」（FR-55 ★）
 - **「直近に置いた書庫」の箱を Must の 5 本の前（達成の下）に置く。** 結果・読んでいる途中の件数・形の確認待ち・置き場や取り込み器の異常を文字で出す（高さ 160 px 以下）。
   **ST02 で決めたひとスクロールと開いた直後の 2 ソースの高さは、箱の高さを除いて数える**（`collection-coverage` の MODIFIED。第 2 回 Q9 ★）
-- **Takeout の書庫の中身は、形の確認の印を置くまで格納しない**（`tools/archive-shape.sh` で値を出さずに形を見て印を置く。第 2 回 Q10。FR-14 ★）
+- **Takeout の書庫の中身は、形の確認の印を置くまで格納しない**（`tools/archive-shape.sh` で値を出さずに形を見て印を置く。第 2 回 Q10。FR-14 ★）。印の後に知らない製品が出たときの扱いは**第 3 回 Q12（答え待ち）**
 
 **BREAKING は無い。** `/ingest` と `/heartbeat` の契約の形は変えない。稼働状況の応答に書庫のソースと最終日と直近の書庫が増える。
 
@@ -63,7 +63,7 @@ Chrome の履歴は PC の分なら ST08 が取るが、同期された携帯端
 ### Modified Capabilities
 
 - **`collection-coverage`** —— 「稼働状況は 1 年を週に畳んだ格子で見える」の高さの予算（開いた直後の 2 ソース / ひとスクロール）を、**Must の前に置く箱の高さを除いて数える**形に変える（第 2 回 Q9）。
-  **この Requirement は ST04 の下流（PR #49）も MODIFIED で書き換えている**ので、delta は ST04 の delta の文を写して予算の文だけを変えた。**`requires` に ST04 を足し、ST12 の下流は ST04 の archive を待つ**（design D13 / tasks 0.1）。
+  **この Requirement は ST04 の下流（PR #49）も MODIFIED で書き換えている**ので、delta は ST04 の下流の PR #49（head 8abafb5）の delta の文を写して予算の文だけを変えた。**`requires` に ST04 を足し、ST12 の下流は ST04 の archive を待つ**（design D13）。`requires` は盤面の表示だけで下流の起動を止めないので、**tasks 0.1 の終了条件が止める**。
   判定順・3 段・格子の形・達成の数え方は変えない
 
 `record-envelope` の要件は変えない。書庫の記録はその格納の関門をそのまま通る。
@@ -97,4 +97,5 @@ Chrome の履歴は PC の分なら ST08 が取るが、同期された携帯端
 
 先行の ST03 は archive 済み（PR #41）なので、深掘りの答えを受けて specs / design / tasks まで書いた。
 specs の独立レビュー（16 件）が人間に返すものを 3 つ見つけたので第 2 回の深掘り（Q9 / Q10 / Q11）を立て、その問いも独立レビュー（11 件）にかけてから渡した。**第 2 回の答えも揃った。**
-**第 2 回 Q9 の答えで `collection-coverage` に触ることになり、`requires` に ST04 が加わった** —— 上流の PR は merge してよいが、**下流（`scripts/story.sh ST12`）は ST04 の archive まで始まらない**（盤面が `proposal迄` / `requires` 待ちとして出す）。
+第 2 回の答えを書いた後の独立レビュー（16 件）が、Q10 の読み取りが本人の選んだ文を越えている箇所を 1 つ見つけたので、**第 3 回 Q12 を 1 問だけ渡している（答え待ち。PR は draft）**。答えで変わるのは tasks 7b.1 の後半と対応する specs の 2 文・design D16 だけ。
+**第 2 回 Q9 の答えで `collection-coverage` に触ることになり、`requires` に ST04 が加わった** —— 上流の PR は merge してよいが、**下流は ST04 の archive まで始めない**。merge_gate は merge 後に `scripts/story.sh ST12` を出すが、tasks 0.1 が ST04 の change が残っている間は rc=1 で止まる（盤面も `requires` を見ないので、止まる印は tasks 0.1 と PR・issue の冒頭の文）。

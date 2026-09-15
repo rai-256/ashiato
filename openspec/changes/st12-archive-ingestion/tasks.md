@@ -16,7 +16,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 同じ書庫をもう一度置いても行が増えない`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は `external-ingestion` 101 本 + `collection-coverage` の MODIFIED で増えた 2 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を 2 本だけ変えずに WHEN を足した: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
+- **この change が足す Scenario は `external-ingestion` 109 本 + `collection-coverage` の MODIFIED で増えた 3 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えずに THEN を直した 2 本: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで **`CT <絞り込み>`** と書いたものは、
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log` が rc=0 になることを指す。
   **`VT <ファイル>`** は `bash -o pipefail -c 'cd web && npx vitest run src/__tests__/<ファイル> 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log` が rc=0
@@ -29,13 +29,14 @@ DB を使う検査は `docker compose up -d db` が前提。
 - **ログに出すのは件数・論理ソースの名前・書庫の中のファイルの種類・所要時間・失敗の種別だけ**（製造準備 A-2。spec の最後の Requirement）。題名・URL・検索語・座標は出さない
 - **本人の書庫を commit しない。** 試験の書庫は `crates/server/tests/fixtures/archive/` に公開されている形から手で作る（design D15）
 - **`id` は記録ごとに毎回新しい uuid**（FR-21）。外部サービスの値から導かない
+- **Takeout の書庫の中身を格納する試験（5.7 / 6.x / 7.x / 9.x / 11.3）の準備では、`core.archive_shape_confirmation` に合成の書庫の形を入れておく**（第 2 回 Q10 の印。入れないと 0 件になる。spec-r2 R8）
 
 ## 0. 着手の前に（design D13）
 
-- [ ] 0.1 ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、この change の `specs/collection-coverage/spec.md` を突き合わせる。
-  **予算の 1 文と追加の Scenario 2 本と「2026-09-15 の変更」の注記のほかに差があれば、正典の側に合わせて写し直す**（ST04 の下流が文を変えている場合）。
-  検証: `test -z "$(ls -d openspec/changes/st04-offline-retention 2>/dev/null)"`（ST04 が archive 済み）rc=0、
-  `python3 - <<'PY'` で 2 つの Requirement の本文を行の集合で比べ、差が「予算の 1 文・Scenario 2 本・WHEN を足した 2 本・注記」だけであることを出力で確かめ、`openspec validate st12-archive-ingestion --strict` rc=0
+- [ ] 0.1 **ST04 が archive されるまで着手しない。** ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、
+  この change の `specs/collection-coverage/spec.md` を突き合わせ、**許した差（予算の 1 文・導出元の `FR-55`・「2026-09-15 の変更」の注記・WHEN/THEN を直した 2 本・足した Scenario 3 本）のほかに差があれば、正典に合わせて写し直す**。
+  検証: 次が rc=0 —— `test ! -d openspec/changes/st04-offline-retention`（ST04 が archive 済み。まだなら rc=1 で止まる）、
+  `python3 scripts/st12_delta_diff.py`（この tasks で足す小さな比較。2 つの Requirement の本文を行の集合で比べ、許した差のほかの行が 1 行でもあれば exit 1）、`openspec validate st12-archive-ingestion --strict`
 
 ## 1. 移行（design D14 / D7 / D8 / D2 / D16）
 
@@ -108,17 +109,6 @@ DB を使う検査は `docker compose up -d db` が前提。
   `6 つの中身がそれぞれ読まれる` / `記録から運んだ書庫が分かる` / `書庫の位置は携帯端末の位置に入らない` / `書庫の位置は携帯端末の位置の収集開始日を動かさない` / `書庫の論理ソースは成功条件 1 の達成に数えられない`。
   検証: `CT archive_end_to_end`（合成の書庫と `Timeline.json` と `Records.json` を置き場に置き、走査 1 回で 6 つの中身から 1 件以上 / `c01-location` の件数と収集開始日が変わらない / `/coverage/achievement` の対象が 5 本のまま）
 
-## 5b. 形の確認の印（design D16 / 第 2 回 Q10）
-
-- [ ] 5b.1 読み手に形の取り出し（見分けた種類・パスの型・最上位の鍵・欄の名前・`products` の値の集合。値は含めない）と、印の無い形のファイルを格納せず `core.archive_pending_shape` に積み、台帳に `pending_shape` を書く経路を足す。
-  確認待ちの書庫は写しの設定に関わらず写す。Timeline.json と移行前のロケーション履歴は待たない。
-  Scenario: `印を置く前の Takeout の書庫は格納されない` / `印を置く前の書庫は確認待ちとして台帳に残る` / `確認待ちの書庫は写しを残さない設定でも写される` /
-  `知らない製品のファイルだけがまた確認待ちになる` / `タイムラインは確認を待たない`。
-  検証: `CT archive_shape_pending`（印の無い DB で合成の Takeout の書庫を置き、`core.event` の `c03-youtube-*` が 0 件・台帳に `pending_shape` / 写しを残さない設定でも写しがある / 印を置いた後に `products` の値を 1 つ増やした書庫で、そのファイルだけ確認待ち）
-- [ ] 5b.2 `tools/archive-shape.sh`（引数なしで確認待ちの形の一覧、`--confirm <形のハッシュ>…` で印を置く）と、印を置いた後の次の走査で写しから読み直す経路。
-  Scenario: `形の確認の出力に記録の値が出ない` / `印を置くと確認待ちの書庫が格納される`。
-  検証: `CT archive_shape_confirm`（印を置くと次の走査で視聴履歴が格納される）、合成の書庫で `tools/archive-shape.sh | grep -c '京都'` が 0 かつ rc=0 で `watch-history` の欄の名前の行が出る
-
 ## 6. 重複・削除済み・読めない項目（design D4 / D7）
 
 - [ ] 6.1 Scenario: `同じ書庫をもう一度置いても行が増えない` / `同じ出来事を含む別の書庫を置いても行が増えない` / `題名が変わった同じ視聴は別の記録として残る` /
@@ -136,12 +126,26 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `CT archive_ledger`（本文が載らないことは台帳の 3 表を `row_to_json` で文字列にして検索語を含まないことで見る）
 - [ ] 7.2 写し（中身の名前・同じ中身は 1 つ・読んだ製品のファイルだけ・設定が `false` なら作らない。ただし確認待ちの書庫は作る）と `core.archive_file` の目録。
   Scenario: `読んだ製品のファイルの写しが残る` / `読まなかった製品のファイルは写されない` / `残さない設定では写しを作らない` / `残さない設定でも記録は格納される` /
-  `残さない設定に切り替えても既にある写しは残る` / `同じファイルの写しは 1 つ`。検証: `CT archive_copy`
+  `残さない設定に切り替えても既にある写しは残る` / `同じファイルの写しは 1 つ`。検証: `CT archive_copy`（写しの Scenario は形の印を入れた DB で。確認待ちの写しは 7b）
 - [ ] 7.3 専用のフォルダの書庫を台帳の後で `取り込み済み` へ移す（同じ名前は ` (2)`）。ダウンロードのフォルダは読むだけ。
   Scenario: `専用のフォルダの書庫は取り込み済みへ移る` / `取り込み済みに同じ名前があっても上書きしない` / `ダウンロードのフォルダの書庫は動かない`。
   検証: `CT archive_move`（移した後のハッシュが一致 / ダウンロードのフォルダのファイルの大きさ・更新時刻・ハッシュが読む前と同じ）
 - [ ] 7.4 解析器の版が上がったら、覚えている書庫を写しから（無ければ置き場から）読み直す。
   Scenario: `解析器の版が上がると読み直される`。検証: `CT archive_reparse`（版を 1 つ上げた試験用の定数で起こす）
+
+## 7b. 形の確認の印（design D16 / 第 2 回 Q10。写し（7.2）の後）
+
+- [ ] 7b.1 読み手に形の取り出し（見分けた種類・パスの型・最上位の鍵・欄の名前・`products` の値の集合。値は含めない）と、印の無い形のファイルを格納せず `core.archive_pending_shape` に積み、台帳に `pending_shape` を書く経路を足す。
+  確認待ちの書庫は写しの設定に関わらず写す。Timeline.json と移行前のロケーション履歴は待たない。
+  形は振り分けを決めるもの（見分けた種類・マイアクティビティの `products` の値）だけで比べる。確認待ちの書庫は 1 回の読みに台帳の行 1 つ。**知らない製品の扱い（7b.1 の後半）は第 3 回 Q12 の答えが `deep.md` に入ってから着手**。
+  Scenario: `印を置く前の Takeout の書庫は格納されない` / `確認待ちの書庫は走査を重ねても台帳の行が増えない` / `印を置く前の書庫は確認待ちとして台帳に残る` / `確認待ちの書庫は写しを残さない設定でも写される` /
+  `知らない製品のマイアクティビティはまた確認待ちになる` / `知らない製品があっても同じ書庫の他のファイルは格納される` / `欄の名前が増えただけでは確認待ちにならない` / `タイムラインは確認を待たない`。
+  検証: `CT archive_shape_pending`（印の無い DB で 4 つの製品を含む合成の Takeout の書庫を置き、`SELECT count(*) FROM core.event WHERE logical_source LIKE 'c03-%' AND logical_source NOT LIKE 'c03-timeline-%' AND logical_source NOT LIKE 'c03-legacy-%'` が 0・台帳に `pending_shape` が 1 行で走査 3 回後も 1 行 / 写しを残さない設定でも写しがある / 印を置いた後に `products` の値を 1 つ増やした書庫で、そのファイルだけ確認待ち / 欄を 1 つ足した視聴履歴は格納される）
+- [ ] 7b.2 `tools/archive-shape.sh`（引数なしで確認待ちの形の一覧、`--confirm <形のハッシュ>…` で印を置く）と、印を置いた後の次の走査で写しから読み直す経路。
+  残さない設定のとき、読み直し終えたら確認待ちのために作った写しを消す（design D9 仮）。
+  Scenario: `形の確認の出力に記録の値が出ない` / `形の確認の出力に見分けた中身と製品の名前と件数が出る` / `印を置くと確認待ちの書庫が格納される` /
+  `印を置いた後の読み直しは台帳に 1 行足す` / `確認待ちのために作った写しは読み直した後に消える`。
+  検証: `CT archive_shape_confirm`（印を置くと次の走査で視聴履歴が格納され、台帳に `read` が 1 行増える / 残さない設定では読み直しの後に写しが 0）、合成の書庫で `tools/archive-shape.sh | grep -c '京都'` が 0 かつ rc=0 で `watch-history` の欄の名前の行が出る
 
 ## 8. 取り込み器の生存信号（design D10）
 
@@ -170,20 +174,21 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 10.1 `web/src/archives.ts`（`/archives/status` の型と「`YYYY-MM-DD` まで（N 日前）」の文字列）と、`App.tsx` の並び（Must → 書庫のソース → 退役）と別々の読み出し。
   Scenario: `書庫のソースは Must の後ろで退役の前に並ぶ`。検証: `VT archive-order.test.tsx`
 - [ ] 10.2 `CoverageGrid.tsx` に見出しの任意の注記を足す。書庫のソースに最終日と何日前、まだ無いソースに「まだ無い」。
-  Scenario: `書庫のソースの見出しに最終日と何日前が出る` / `何日前は日本時間の今日から数える` / `まだ無いソースはまだ無いと出る` / `記録の無い日も同じ判定で出る`（画面側: 週を選ぶと「動いていた・記録なし」の文字）。
+  Scenario: `書庫のソースの見出しに最終日と何日前が出る` / `何日前は日本時間の今日から数える` / `まだ無いソースはまだ無いと出る` / `書庫のソースの格子は開いた直後から直近 4 週を出す` / `記録の無い日も同じ判定で出る`（画面側: 週を選ぶと「動いていた・記録なし」の文字）。
   検証: `VT archive-heading.test.tsx`（今日を 2026-09-15 に固定して「2026-09-12 まで（3 日前）」 / いまを `2026-09-14T16:00:00Z` にしても「3 日前」）
 - [ ] 10.3 「直近に置いた書庫」の箱を **Must の 5 本の前（`AchievementPanel` の直後）**に置く（読めた / 読めなかった / 既に読んだ / 格納に失敗した / 台帳が空 / 置き場が読めない / 読んでいる途中 / 形の確認待ち）。
-  高さは 160 px 以下（優先順に積み、溢れた行は「ほか N 件」。design D12）。
-  Scenario: `直近に置いた書庫の箱は Must の前にある` / `直近に置いた書庫の結果が箱に出る` / `読んでいる間は件数が箱に出る` / `形の確認を待っている書庫が箱に出る` / `箱は 160 px を超えない` / `既に読んだ書庫を置き直すとそれが箱に出る` / `読めなかった書庫は文字で出る` / `書庫が 1 つも置かれていないことが出る` /
+  高さは 160 px 以下（読めなかった・格納に失敗した行は省かず、残りを優先順に積み、溢れた行は「ほか N 件」。design D12）。高さは `declaredHeight` を共有の helper（`web/src/__tests__/layout.ts`）に出して測る。
+  Scenario: `直近に置いた書庫の箱は Must の前にある` / `直近に置いた書庫の結果が箱に出る` / `読んでいる間は件数が箱に出る` / `形の確認を待っている書庫が箱に出る` / `箱は 160 px を超えない` / `箱が溢れても読めなかった書庫は省かれない` / `既に読んだ書庫を置き直すとそれが箱に出る` / `読めなかった書庫は文字で出る` / `書庫が 1 つも置かれていないことが出る` /
   `格納に続けて失敗した書庫は台帳と画面に出る`（画面側）/ `置き場が読めないことが画面に出る` / `取り込み器が止まっていることが画面に出る`。
   検証: `VT latest-archive.test.tsx`
 - [ ] 10.4 ひとスクロールと 360 px（`collection-coverage` の予算の文の MODIFIED。第 2 回 Q9）。
-  **既存の `web/src/__tests__/one-scroll.test.tsx` の勘定から「直近に置いた書庫」の箱の高さを引く**（Must の 5 本の予算 1,280 px / 640 px そのものは変えない。既存の印は残す）。
+  **既存の `web/src/__tests__/one-scroll.test.tsx` の勘定から `min(箱の宣言の高さ, 160)` を引く**（予算の定数は変えない。既存の印は残す）。
   Scenario: `書庫のソースを足しても Must の 5 本はひとスクロール以内` / `書庫のソースの格子は 360 px に収まる` / `書庫のソースの週の帯は 24 px 以上` /
   `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える` /
-  `箱があるときは箱の高さを除いて 2 ソースが 1 画面に収まる` / `箱があるときは箱の高さを除いて 5 ソースがひとスクロールに収まる`。
-  検証: `VT archive-one-scroll.test.tsx`（書庫のソース 12 本（固定の 10 本 + マイアクティビティ 2 本）と高さ 160 px の箱を足した応答で、Must の最後の格子の下端 ≤ 1,280 + 箱の高さ、2 本目の直近 4 週の下端 ≤ 640 + 箱の高さ、横スクロール無し、週の帯 ≥ 24 px）、
-  `VT one-scroll.test.tsx`、既存の `VT target-size.test.tsx` が書き換えずに通る（`git diff --exit-code origin/main -- web/src/__tests__/target-size.test.tsx` rc=0）
+  `箱が上限の高さのとき 2 ソースが 800 px に収まる` / `箱が上限の高さのとき 5 ソースが 1,440 px に収まる` / `箱の高さを除く量は 160 px を超えない`。
+  検証: `VT one-scroll.test.tsx`、`VT archive-one-scroll.test.tsx`（書庫のソース 12 本（固定の 10 本 + マイアクティビティ 2 本）と高さ 160 px の箱で Must の最後の格子の下端 ≤ 1,440 px・2 本目の直近 4 週 ≤ 800 px・横スクロール無し・週の帯 ≥ 24 px / 箱を 200 px にしても除く量は 160 px）、
+  予算の定数が変わっていないこと `grep -q 'export const VIEWPORT_H_PX = 640;' web/src/tokens.ts && grep -q 'export const ONE_SCROLL_PX = VIEWPORT_H_PX \* 2;' web/src/tokens.ts` rc=0、
+  `git diff --exit-code origin/main -- web/src/__tests__/target-size.test.tsx` rc=0
 - [ ] 10.5 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
 
 ## 11. ログ・道具・手順書（design D15）
@@ -204,8 +209,8 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 12.2 検証: `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0（この change の全 Scenario に印）
 - [ ] 12.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
-- [ ] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D12 / D16）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
-  検証: `body=$(gh pr view --json body -q .body); for d in 1 2 3 5 6 7 9 10 12 16; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q ST30 <<<"$body"` rc=0
+- [ ] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D12）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
+  検証: `body=$(gh pr view --json body -q .body); for d in 1 2 3 5 6 7 9 10 12; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q ST30 <<<"$body"` rc=0
 - [ ] 12.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
   検証: `test ! -f docs/handoff/ST12.md || { body=$(gh pr view --json body -q .body); grep -oE 'R[0-9]+' docs/handoff/ST12.md | sort -u | while read r; do grep -q "$r" <<<"$body" || exit 1; done; }` rc=0
 
