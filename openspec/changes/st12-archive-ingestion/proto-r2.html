@@ -51,14 +51,17 @@
   <p class="sub">
     第 1 回で選んだ形（<b>書庫のソースにも格子・見出しに「まで（N 日前）」・直近に置いた書庫を 1 件・まだ無いは「まだ無い」</b>）は動かさない。<br>
     第 1 回の proto には不具合があった: この組み合わせでは、<b>読めた書庫の箱を描いておらず</b>、読めなかった書庫の箱だけを <b>Must の 5 本の前</b>に差し込んでいた。
-    格子のセルも「記録の無い日は全部『それ以外』」と描いていたが、実際は <b>ST02 の判定順</b>（記録の間が 60 日以内なら「動いていた・記録なし」、超えれば「途絶」）で決まる。<br>
-    この proto は、<b>その 2 つを直した絵</b>で、第 1 回で見せていなかった 3 つを選ぶためのもの。
+    格子のセルも「記録の無い日は全部『それ以外』」と描いていたが、実際は <b>ST02 の判定順</b>（<b>直前の記録から 60 日を超えた日は「途絶」</b>、それまでは「動いていた・記録なし」）で決まる。
+    達成の表も実物より低く描いていた。<br>
+    この proto は、<b>それらを直し、書庫のソースを登録どおりの本数（12 本）で積んだ絵</b>で、第 1 回で見せていなかったことを選ぶためのもの。
   </p>
 
   <div class="grp">
     <div class="lbl">起きたこと（入力。軸ではない）</div>
     <div class="cards" id="scCards"></div>
-    <span class="hint">「今日」は 2026-09-15。視聴履歴は 1 日 25〜30 本（ほぼ毎日）、タイムラインは毎日、Chrome の履歴はまだ無い。</span>
+    <span class="hint">「今日」は 2026-09-15。視聴履歴は 1 日 25〜30 本（ほぼ毎日）、タイムラインは毎日、Chrome の履歴はまだ無い。
+      <b>書庫の中の最新の出来事は書き出した日まで</b>なので、2 か月ごとの運用では、書き出してから日が経つほど格子の上の週は「動いていた・記録なし」で埋まる。
+      移行前のロケーション履歴（3 本）は二度と記録が来ないので、取り込んだ後に<b>退役</b>させて後ろに畳む（聞かないで決めた C21）。</span>
   </div>
 
   <div class="grp">
@@ -72,6 +75,12 @@
     <div class="cards" id="runCards"></div>
     <span class="hint">移行前のロケーション履歴（百万件級）は読み終えるまで数十分〜1 時間かかる見込み。
       台帳は読み終えてから 1 行を書くので、「出さない」だと読み終えるまで箱は前の書庫のまま。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 3 — 書庫のソースの格子を開いた直後に見せるか</div>
+    <div class="cards" id="foldCards"></div>
+    <span class="hint">書庫のソースは固定の 10 本（うち移行前の 3 本は退役）とマイアクティビティの製品ごとに増える。退役したソースは ST02 の決着で既定が畳まれている。</span>
   </div>
 
   <div class="grp">
@@ -90,7 +99,10 @@
     <div class="meta">
       <span>Must 5 本の最後の格子の下端 <b id="mMust">—</b>（予算 1,280 px）</span>
       <span>箱の上端 <b id="mBox">—</b></span>
+      <span>2 本目の Must の格子の下端 <b id="mSecond">—</b>（開いた直後に 2 ソース: 640 px）</span>
+      <span>書庫のソースの最後の格子の下端 <b id="mArch">—</b></span>
       <span>画面全体の高さ <b id="mHeight">—</b></span>
+      <span>（この proto のフォントで測った近似。Must の 5 本の予算そのものは ST02 の試験 <code>one-scroll.test.tsx</code> が持つ）</span>
     </div>
     <div class="phone">
       <div class="cap"><span>360 × 640</span><span>S-1 稼働状況</span></div>
@@ -116,7 +128,7 @@ const tone=l=>`hsl(${HUE} ${SAT}% ${l}%)`;
 const STATE_NAME={recorded:"記録あり",alive_no_record:"動いていた・記録なし",outage:"途絶",before_start:"導入前"};
 const bandOf=s=>s==="recorded"?"recorded":s==="alive_no_record"?"alive_no_record":"other";
 
-const DEFAULTS={sc:"first", box:"after", run:"hide"};
+const DEFAULTS={sc:"first", box:"after", run:"hide", fold:"open"};
 const state={...DEFAULTS, expanded:{}, selected:{}};
 
 const SCENARIOS=[
@@ -125,11 +137,17 @@ const SCENARIOS=[
   {id:"broken", t:"読めない形の書庫を置いた", d:"takeout-…-002.tgz（.tgz は読まない）"},
   {id:"running", t:"移行前のロケーション履歴を読んでいる", d:"Records.json 117 万件のうち 41 万件まで"},
   {id:"nodir", t:"専用のフォルダが無い", d:"取り込み器の生存信号が「専用のフォルダが読めない」"},
-  {id:"stale", t:"書き出しを 100 日忘れた", d:"最後の視聴の記録が 100 日前。60 日を超えた日から「途絶」"},
+  {id:"mid", t:"前の書き出しから 40 日", d:"最後の視聴の記録が 40 日前。既定の 4 週は全部「動いていた・記録なし」"},
+  {id:"stale", t:"書き出しを 100 日忘れた", d:"最後の視聴の記録が 100 日前。直前の記録から 60 日を超えた日から「途絶」"},
+  {id:"down", t:"取り込み器が止まっている", d:"最後の取り込み器の確認が 4 日前（設定の漏れ・異常終了）"},
 ];
 const BOXES=[
-  {id:"before", t:"Must の 5 本の前（達成の下）", d:"開いてすぐ見える。Must の 5 本は箱の高さぶん下へ押される"},
+  {id:"before", t:"Must の 5 本の前（達成の下）", d:"開いてすぐ見える。Must の 5 本は箱の高さぶん下へ押され、ST02 第 8 回 Q30 のひとスクロール（1,280 px）と開いた直後の 2 ソース（640 px）を超える —— 選ぶと、その予算を変える判断になる（要件 FR-55 の「格子の群の頭に」も直す）"},
   {id:"after", t:"Must の 5 本の後ろ（書庫のソースの格子の群の頭）", d:"書庫のソースの格子と一緒に見る。スクロールしないと見えない"},
+];
+const FOLDS=[
+  {id:"open", t:"開いておく（直近 4 週を出す）", d:"Must と同じ。書庫のソースが 9 本ぶん縦に積まれる"},
+  {id:"closed", t:"見出しの行だけ（押すと開く）", d:"「YouTube の視聴履歴　2026-09-12 まで（3 日前）」の 1 行ずつ。格子は押したときだけ"},
 ];
 const RUNS=[
   {id:"hide", t:"出さない", d:"読み終えるまで箱は前の書庫のまま"},
@@ -141,40 +159,40 @@ const iso=d=>d.toISOString().slice(0,10);
 const addDays=(d,n)=>new Date(d.getTime()+n*DAY);
 const fmt=n=>n.toLocaleString("ja-JP");
 
-function recordDaysFor(src, sc){
-  // 出来事のある日の集合（日数 = 今日から何日前か）
-  const set=new Set();
-  if(src==="yt-watch"){
-    const lastAgo = sc==="stale"?100:3;
-    for(let a=lastAgo; a<lastAgo+800; a++){ if((a*7)%11!==0) set.add(a); }
-  } else if(src==="tl-visit"){
-    const lastAgo = sc==="stale"?100:1;
-    for(let a=lastAgo; a<lastAgo+700; a++) set.add(a);
-  }
+function lastAgoFor(sc){ return sc==="stale"?100 : sc==="mid"?40 : 3; }
+function recordDaysFor(kind, sc){
+  const set=new Set(); const last=lastAgoFor(sc);
+  if(kind==="daily"){ for(let a=last; a<last+800; a++){ if((a*7)%11!==0) set.add(a); } }
+  else if(kind==="every"){ for(let a=Math.max(1,last-2); a<last+700; a++) set.add(a); }
+  else if(kind==="sparse"){ for(let a=last; a<last+700; a+=3) set.add(a); }
   return set;
 }
+// ST02 の判定順（正典の (5)(8)(9)）: 記録あり → 直前の記録から想定間隔を超えていれば途絶 → それ以外は動いていた・記録なし
 function dayState(set, ago){
   if(set.size===0) return "before_start";
-  const maxAgo=Math.max(...set), minAgo=Math.min(...set);
+  const maxAgo=Math.max(...set);
   if(ago>maxAgo) return "before_start";
   if(set.has(ago)) return "recorded";
-  // 直前（より古い）記録と直後（より新しい）記録
   let prev=null; for(let a=ago+1;a<=maxAgo;a++){ if(set.has(a)){prev=a;break;} }
-  let next=null; for(let a=ago-1;a>=minAgo;a--){ if(set.has(a)){next=a;break;} }
-  if(next===null){ return (prev-ago)>GAP_DAYS ? "outage" : "alive_no_record"; }
-  return (prev-next)>GAP_DAYS ? "outage" : "alive_no_record";
+  return (prev-ago)>GAP_DAYS ? "outage" : "alive_no_record";
 }
 
 const el=(tag,style,text)=>{const e=document.createElement(tag); if(style) Object.assign(e.style,style); if(text!=null) e.textContent=text; return e;};
 const small={color:tone(TEXT.muted),font:"400 13px/1.6 system-ui, sans-serif"};
 const body={color:tone(TEXT.normal),font:"400 14px/1.6 system-ui, sans-serif"};
 
-function grid(id, name, note, set){
+function grid(id, name, note, set, folded){
   const sec=el("section",{background:tone(SURFACE.surface2),borderRadius:"15px",padding:SECTION_PAD_PX+"px",marginBottom:SECTION_GAP_PX+"px"});
   const h=el("div",{display:"flex",justifyContent:"space-between",gap:"8px",alignItems:"baseline",flexWrap:"wrap",margin:"0 0 8px"});
   h.appendChild(el("h2",{color:tone(TEXT.normal),font:"600 15px/1.3 system-ui, sans-serif",margin:"0"},name));
   if(note) h.appendChild(el("span",small,note));
   sec.appendChild(h);
+  if(folded && !state.expanded[id]){
+    const t=el("button",{minHeight:MIN_TARGET_PX+"px",background:"transparent",border:`1px solid ${tone(TEXT.muted)}`,borderRadius:"8px",
+      color:tone(TEXT.normal),font:"400 13px/1.4 system-ui, sans-serif",padding:"4px 12px",cursor:"pointer"},"格子を開く");
+    t.onclick=()=>{state.expanded[id]=true; updateAll();};
+    sec.appendChild(t); return sec;
+  }
   const dow=TODAY.getUTCDay(), thisSun=addDays(TODAY,-dow);
   const expanded=!!state.expanded[id];
   const n=expanded?YEAR_WEEKS:INITIAL_WEEKS;
@@ -226,6 +244,11 @@ function box(sc){
   } else {
     b.appendChild(el("div",null,"09-15 10:02 takeout-20260913T0412Z-001.zip — 入った 51,204 · 既にあった 0 · 読めなかった 0"));
   }
+  if(sc==="down"){
+    b.appendChild(el("div",{fontWeight:"600",marginTop:"4px"},"取り込み器の最後の確認: 4 日前"));
+    b.appendChild(el("div",small,"取り込み器が動いていない可能性があります。置いた書庫は読まれていません"));
+  }
+  if(sc==="mid"){ b.firstChild.nextSibling.textContent="08-06 21:40 takeout-20260805T0300Z-001.zip — 入った 1,203 · 既にあった 50,001 · 読めなかった 0"; }
   if(sc==="nodir"){
     b.appendChild(el("div",{fontWeight:"600",marginTop:"4px"},"専用のフォルダが読めません"));
     b.appendChild(el("div",small,"ドキュメント\\ashiato\\取り込み待ち が見つかりません（09-15 から）。ダウンロードのフォルダの Takeout の書庫は読んでいます"));
@@ -245,51 +268,80 @@ function renderCards(id,list,key){
 }
 
 function updateAll(){
-  renderCards("scCards",SCENARIOS,"sc"); renderCards("boxCards",BOXES,"box"); renderCards("runCards",RUNS,"run");
+  renderCards("scCards",SCENARIOS,"sc"); renderCards("boxCards",BOXES,"box"); renderCards("runCards",RUNS,"run"); renderCards("foldCards",FOLDS,"fold");
   const sc=state.sc;
   const scr=document.getElementById("screen"); scr.innerHTML="";
   const page=el("div",{background:tone(SURFACE.ground),padding:"12px",minHeight:"100%"});
   page.appendChild(el("h1",{color:tone(TEXT.normal),font:"600 18px/1.3 system-ui, sans-serif",margin:"0 0 16px"},"収集が動いていたか"));
-  const ach=el("section",{background:tone(SURFACE.surface1),borderRadius:"15px",padding:"8px",marginBottom:SECTION_GAP_PX+"px",...body});
-  ach.appendChild(el("div",{fontWeight:"600"},"成功条件 1（暫定）"));
-  for(const t of ["携帯端末の位置 252 / 253 日","携帯端末のアプリ利用 まだ始まっていない","PC のウィンドウ 3 / 3 日"]) ach.appendChild(el("div",small,t));
+  // 達成の表は web/src/AchievementPanel.tsx と同じ構成（見出し・判定・確定までの行・表の見出し + 5 行）
+  const ach=el("section",{background:tone(SURFACE.surface2),borderRadius:"15px",padding:SECTION_PAD_PX+"px",marginBottom:SECTION_GAP_PX+"px",
+    color:tone(TEXT.normal),font:"400 13px/1.4 system-ui, sans-serif"});
+  ach.appendChild(el("h2",{font:"600 15px/1.3 system-ui, sans-serif",margin:"0 0 8px"},"収集が動いていた日数"));
+  ach.appendChild(el("p",{margin:"0 0 8px"},"分母の 95 % に届かないソースがある — 暫定"));
+  ach.appendChild(el("p",{color:tone(TEXT.muted),margin:"0 0 8px"},"確定まであと 112 日"));
+  const tb=el("table",{borderCollapse:"collapse",width:"100%"});
+  const trh=el("tr",{color:tone(TEXT.muted),textAlign:"left"}); for(const c of ["ソース","達成日数","分母","線"]) trh.appendChild(el("th",null,c)); tb.appendChild(trh);
+  for(const [n,a,d,t] of [["携帯端末の位置","252","253","240.35"],["携帯端末のアプリ利用","0","0","未開始"],["端末に保存された写真","0","0","未開始"],["PC のウィンドウ","3","3","2.85"],["PC のブラウザ履歴","0","0","未開始"]]){
+    const tr=el("tr"); tr.appendChild(el("th",{fontWeight:"400",textAlign:"left"},n)); tr.appendChild(el("td",null,a)); tr.appendChild(el("td",null,d)); tr.appendChild(el("td",{color:tone(TEXT.muted)},t)); tb.appendChild(tr);
+  }
+  ach.appendChild(tb);
   page.appendChild(ach);
   scr.appendChild(page);
 
   let boxEl=null;
   if(state.box==="before"){ boxEl=box(sc); page.appendChild(boxEl); }
-  let lastMust=null;
+  const musts=[];
   for(const [i,m] of ["携帯端末の位置","携帯端末のアプリ利用","端末に保存された写真","PC のウィンドウ","PC のブラウザ履歴"].entries()){
-    lastMust=grid("must"+i,m,null,null); page.appendChild(lastMust);
+    const g=grid("must"+i,m,null,null,false); musts.push(g); page.appendChild(g);
   }
   if(state.box==="after"){ boxEl=box(sc); page.appendChild(boxEl); }
-  const ytSet=recordDaysFor("yt-watch",sc), tlSet=recordDaysFor("tl-visit",sc);
-  const ytAgo = sc==="stale"?100:3, tlAgo= sc==="stale"?100:1;
+  const last=lastAgoFor(sc);
   const lastOn=a=>`${iso(addDays(TODAY,-a))} まで（${a} 日前）`;
-  page.appendChild(grid("yt","YouTube の視聴履歴",lastOn(ytAgo),ytSet));
-  page.appendChild(grid("tl","マップのタイムライン（訪問）",lastOn(tlAgo),tlSet));
-  page.appendChild(grid("ch","Chrome の履歴","まだ無い",new Set()));
+  const folded=state.fold==="closed";
+  const ARCH=[
+    ["yt","YouTube の視聴履歴","daily"],["ys","YouTube の検索履歴","sparse"],
+    ["tv","マップのタイムライン（訪問）","every"],["ta","マップのタイムライン（移動）","every"],["tp","マップのタイムライン（経路の点）","every"],["tsg","マップのタイムライン（生の信号）","every"],
+    ["ms","マイアクティビティ（検索）","daily"],["md","マイアクティビティ（Discover）","sparse"],
+    ["ch","Chrome の履歴",null],
+  ];
+  let lastArch=null;
+  for(const [id,name,kind] of ARCH){
+    const set = kind? recordDaysFor(kind,sc) : new Set();
+    const note = kind? lastOn(kind==="every"?Math.max(1,last-2):last) : "まだ無い";
+    lastArch=grid(id,name,note,set,folded); page.appendChild(lastArch);
+  }
+  // 移行前のロケーション履歴 3 本は退役（ST02 の決着で後ろに畳む）
+  for(const [id,name] of [["ll","移行前のロケーション履歴（点）"],["lv","移行前のロケーション履歴（訪問）"],["la","移行前のロケーション履歴（移動）"]]){
+    const set=new Set(); for(let a=620; a<3500; a++) set.add(a);
+    page.appendChild(grid(id,name,"退役（2024-09-01 まで）",set,true));
+  }
 
   for(const y of [640,1280]){const f=el("div",{top:y+"px"}); f.className="fold"; f.appendChild(el("span",null,`${y}px`)); scr.appendChild(f);}
+  const lastMust=musts[musts.length-1];
   const mustEnd=Math.round(lastMust.offsetTop+lastMust.offsetHeight);
+  const secondEnd=Math.round(musts[1].offsetTop+musts[1].offsetHeight-8-24-8);  // 2 本目の 4 週目の下端（ボタンを除く）
+  const archEnd=Math.round(lastArch.offsetTop+lastArch.offsetHeight);
   const boxTop=Math.round(boxEl.offsetTop);
   const H=Math.round(page.scrollHeight);
   const mm=document.getElementById("mMust"); mm.textContent=`${mustEnd}px`; mm.className=mustEnd>1280?"bad":"";
   document.getElementById("mBox").textContent=`${boxTop}px`;
+  const ms=document.getElementById("mSecond"); ms.textContent=`${secondEnd}px`; ms.className=secondEnd>640?"bad":"";
+  document.getElementById("mArch").textContent=`${archEnd}px`;
   document.getElementById("mHeight").textContent=`${H}px`;
-  updatePrompt({mustEnd,boxTop,H});
+  updatePrompt({mustEnd,boxTop,H,secondEnd,archEnd});
 }
 
 function updatePrompt(m){
   const f=(list,key)=>list.find(o=>o.id===state[key]);
-  const sc=f(SCENARIOS,"sc"), bx=f(BOXES,"box"), rn=f(RUNS,"run");
+  const sc=f(SCENARIOS,"sc"), bx=f(BOXES,"box"), rn=f(RUNS,"run"), fd=f(FOLDS,"fold");
   const L=[];
   L.push("ST12 の稼働状況（S-1）の「直近に置いた書庫」の箱と、書庫のソースの格子を次の形にする（第 2 回）。");
   L.push(`- 箱の位置: ${bx.t} —— ${bx.d}。`);
   L.push(`- 読んでいる間: ${rn.t} —— ${rn.d}。`);
-  L.push("- 書庫のソースの格子のセルは ST02 の判定順のまま（記録の間が 60 日以内は「動いていた・記録なし」、超えたら「途絶」）。");
+  L.push(`- 書庫のソースの格子（開いた直後）: ${fd.t} —— ${fd.d}。`);
+  L.push("- 書庫のソースの格子のセルは ST02 の判定順のまま（直前の記録から 60 日を超えた日は「途絶」、それまでは「動いていた・記録なし」）。移行前のロケーション履歴は退役して後ろに畳む。");
   L.push(`見たときの入力: 「${sc.t}」。`);
-  L.push(`実測: Must 5 本の最後の格子の下端 ${m.mustEnd}px（予算 1,280px に対して${m.mustEnd>1280?"超える":"収まる"}）、箱の上端 ${m.boxTop}px、画面全体 ${m.H}px。`);
+  L.push(`実測: Must 5 本の最後の格子の下端 ${m.mustEnd}px（予算 1,280px に対して${m.mustEnd>1280?"超える":"収まる"}）、2 本目の Must の直近 4 週の下端 ${m.secondEnd}px（640px に対して${m.secondEnd>640?"超える":"収まる"}）、箱の上端 ${m.boxTop}px、書庫のソースの最後の格子の下端 ${m.archEnd}px、画面全体 ${m.H}px。`);
   document.getElementById("prompt").textContent=L.join("\n");
 }
 

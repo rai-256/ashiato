@@ -14,7 +14,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 同じ書庫をもう一度置いても行が増えない`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は 87 本**（すべて `external-ingestion`）
+- **この change が足す Scenario は 90 本**（すべて `external-ingestion`）
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで **`CT <絞り込み>`** と書いたものは、
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log` が rc=0 になることを指す。
   **`VT <ファイル>`** は `bash -o pipefail -c 'cd web && npx vitest run src/__tests__/<ファイル> 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log` が rc=0
@@ -31,7 +31,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 ## 1. 移行（design D14 / D7 / D8 / D2）
 
 - [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_archive_ingestion.sql` と `.down.sql` を足す —— `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（`user_id` あり。
-  UPDATE / DELETE / TRUNCATE を拒むトリガ）、`core.archive_sighting`（書き換えてよい）、索引 3 本（design D14）、
+  UPDATE / DELETE / TRUNCATE を拒むトリガ）、`core.archive_sighting` と `core.archive_scan_counter`（書き換えてよい）、索引 3 本（design D14）、
   登録簿の 11 本（書庫のソース 10 本は `expected_gap_sec = 5184000`、`s01-archive-inbox` は `86400`。どれも `external_id_kind = 'none'`・`ON CONFLICT DO NOTHING`）。**当て直せる形**。`MIGRATIONS` 配列の末尾に足す。
   **既存の `stay_tests.rs` の `stays_migration_applies_twice` は「`MIGRATIONS` の末尾が `_stays`」を assert している**ので、主張を「`_stays` の移行が配列にあり、当て直しても `s01-stay` が 1 行」に直す（試験の意図は変えない。design Risks）。
   Scenario: `書庫のソースは 60 日で登録されている` / `取り込み器のソースは 1 日で登録されている` / `本人が変えた想定間隔は移行を当て直しても戻らない`。
@@ -87,7 +87,9 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 5.2 `Timeline.json`（訪問 / 移動 / 経路の点 / 生の信号 → 4 本の論理ソース）。
   Scenario: `タイムラインの訪問と経路の点は別の論理ソースに入る` / `書庫の記録は収集したに分類される`。検証: `CT archive_parse_timeline`
 - [ ] 5.3 移行前のロケーション履歴（`Records.json` の `locations`、Semantic Location History の `placeVisit` / `activitySegment`。`E7` を度に、`timestamp` と `timestampMs` の両方）。
-  検証: `CT archive_parse_legacy`
+  読み終えたら 3 本の `retired_on` を最後の出来事の日の翌日に置く（延ばすだけ。design D2 / C21）。
+  Scenario: `移行前のロケーション履歴は読み終えると退役する`。
+  検証: `CT archive_parse_legacy`（最後の点 2024-08-31 → `retired_on = 2024-09-01` / より古いファイルを後から置いても動かない / より新しいファイルで延びる）
 - [ ] 5.4 YouTube の視聴履歴と検索履歴（`titleUrl` で見分ける。検索語は `search_query` を復号）。検証: `CT archive_parse_youtube`
 - [ ] 5.5 マイアクティビティ（**第 2 回 Q10 の答えが `deep.md` に入ってから着手**。いまの design D2 は `products[0]` から論理ソースの名前を作り、登録簿に無ければ 1 行足してから格納する）。
   検証: `CT archive_parse_myactivity`（ASCII の名前 / 日本語の名前 → `u` + 12 桁 / 同じ名前の 2 回目で登録簿の行が増えない）
@@ -125,8 +127,9 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - [ ] 8.1 走査の回数と、2 つの置き場をどちらも読めた走査の回数を数え、`Asia/Tokyo` の日の最初の走査で `s01-archive-inbox` に 1 件残す（その日の信号が既にあれば送らない。`store_heartbeat` を呼ぶ）。**書庫の論理ソースには送らない。**
   Scenario: `取り込み器が動いている日に生存信号が 1 件残る` / `起動し直しても同じ日の生存信号は 1 件` / `生存信号は走査の回数と読めた走査の回数を持つ` /
-  `置き場が読めない日は取れない状態で残る` / `書庫のソースには生存信号が残らない`。
-  検証: `CT archive_heartbeat`（時計を差し替えて日をまたがせる / 同じ日に取り込み器を 2 回起こして 1 件 / 専用のフォルダを 2 回だけ消して回数 5・3 / 専用のフォルダを消して `dedicated_inbox_unreadable` / 3 日動かして `c03-*` の信号が 0 件）
+  `起動し直しても走査の回数は失われない` / `置き場が読めない日は取れない状態で残る` / `書庫のソースには生存信号が残らない`。
+  回数は `core.archive_scan_counter` に走査ごとに足す（design D10 / C20）。
+  検証: `CT archive_heartbeat`（時計を差し替えて日をまたがせる / 同じ日に取り込み器を 2 回起こして 1 件 / 専用のフォルダを 2 回だけ消して回数 5・3 / 4 回走査して起こし直し、次の信号の回数が 5 / 専用のフォルダを消して `dedicated_inbox_unreadable` / 3 日動かして `c03-*` の信号が 0 件）
 - [ ] 8.2 書庫のソースの稼働状況が記録だけから決まることを確かめる。
   Scenario: `書き出しを忘れると書庫のソースは途絶になる`。
   検証: `CT archive_source_outage`（視聴履歴の最後の記録から 61 日後の日の状態が `outage`。`coverage.rs` の判定は変えない）
@@ -151,7 +154,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `VT archive-heading.test.tsx`（今日を 2026-09-15 に固定して「2026-09-12 まで（3 日前）」 / いまを `2026-09-14T16:00:00Z` にしても「3 日前」）
 - [ ] 10.3 「直近に置いた書庫」の箱（読めた / 読めなかった / 既に読んだ / 格納に失敗した / 台帳が空 / 置き場が読めない）。**位置と読んでいる間の表示は第 2 回 Q9 の答えが `deep.md` に入ってから着手**（いまの specs は群の頭・出さない）。
   Scenario: `直近に置いた書庫の結果が群の頭に出る` / `既に読んだ書庫を置き直すとそれが箱に出る` / `読めなかった書庫は文字で出る` / `書庫が 1 つも置かれていないことが出る` /
-  `格納に続けて失敗した書庫は台帳と画面に出る`（画面側）/ `置き場が読めないことが画面に出る`。
+  `格納に続けて失敗した書庫は台帳と画面に出る`（画面側）/ `置き場が読めないことが画面に出る` / `取り込み器が止まっていることが画面に出る`。
   検証: `VT latest-archive.test.tsx`
 - [ ] 10.4 ひとスクロールと 360 px。
   Scenario: `書庫のソースを足しても Must の 5 本はひとスクロール以内` / `書庫のソースの格子は 360 px に収まる` / `書庫のソースの週の帯は 24 px 以上`。
@@ -176,7 +179,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 ## 12. まとめの検査
 
 - [ ] 12.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、`cd web && npm run test && npm run lint && npm run build` rc=0
-- [ ] 12.2 検証: `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0（87 本すべてに印）
+- [ ] 12.2 検証: `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0（90 本すべてに印）
 - [ ] 12.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
 - [ ] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D13）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
