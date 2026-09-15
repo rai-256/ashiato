@@ -32,7 +32,7 @@
 - **ブラウザで消した訪問を ashiato でも消したことにする**（FR-50 / ST22。`docs/handoff/ST22.md`）
 - **同期している複数の PC から届いた同じ訪問を 1 件に畳んで読む形**（読む側の Story。材料は D9 で残す）
 - **NFR-13 の C-02 の分母の数え方**（`collection-coverage`。`docs/handoff/ST02.md` の st07-active-window R10）
-- **未送信の上限**（ST04）
+- **未送信の上限** —— 置かない（NFR-7 ★ 2026-09-14 / ST04 の深掘り C11）
 - ダウンロード履歴・検索語の表（deep.md C-7）
 
 ## Decisions

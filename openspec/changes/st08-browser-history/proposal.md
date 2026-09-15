@@ -73,7 +73,8 @@ C-02 が送る本文に `external_id` と `source_updated_at` が載るのは**�
 
 | Story | 状態 | capability | 重なり |
 |---|---|---|---|
-| ST16 | 下流（`openspec/changes/st16-stay-derivation`） | `derived-records`, `browsing-views` | **無し** |
+| ST16 | 下流の実装が完了（`openspec/changes/st16-stay-derivation`） | `derived-records`, `browsing-views` | **無し** |
+| ST04 | 上流 merge 済み・下流前（`openspec/changes/st04-offline-retention`） | `device-collection`, `collection-coverage` | **`desktop-collection` は触らない**（ST04 の proposal）。ST04 が求めた正典の注記の書き換え（C11）を ST08 の保持の MODIFIED で行った |
 
 - `collection-coverage`（生存信号の受け口・NFR-13 の数え方）は**触らない**。受け口は既存の契約のまま送る。
   C-02 の 2 ソースの分母の数え方は `docs/handoff/ST02.md`（st07-active-window R10）で既に申し送られている
@@ -87,5 +88,6 @@ C-02 が送る本文に `external_id` と `source_updated_at` が載るのは**�
 
 ### 要件の穴（この change では埋めない）
 
-- **C-02 の未送信に上限が無い**（ST07 から引き継ぐ。FR-8 を C-02 に及ぼすかは ST04）。
-  初回の取得で Firefox が何年分も持っていると、未送信が一時的に大きくなる
+- **無し。** ST07 から引き継いだ「C-02 の未送信に上限が無い」は、ST04 の深掘り C11 で**上限を置かない**と決まった（NFR-7 ★ 2026-09-14）。
+  正典の注記「保持の上限は ST04 が決める」の書き換えを ST08 が引き受けた（spec の保持の MODIFIED）。
+  初回の取得で Firefox が何年分も持っていると、未送信が一時的に大きくなる（捨てない）
