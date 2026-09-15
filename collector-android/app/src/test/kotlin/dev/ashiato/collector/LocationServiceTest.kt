@@ -132,9 +132,9 @@ class LocationServiceTest {
     fun `置き場はアプリの保存領域に実在する`() {
         start().outboxForTest.add(fix("a"))
 
-        val f = File(app.filesDir, "outbox.jsonl")
-        assertTrue("置き場がファイルとして残っていない", f.exists())
-        assertTrue("中身が空", f.readText().isNotBlank())
+        val segs = File(app.filesDir, "outbox/records").listFiles { f -> f.name.endsWith(".jsonl") }.orEmpty()
+        assertTrue("置き場がファイルとして残っていない", segs.isNotEmpty())
+        assertTrue("中身が空", segs.any { it.readText().isNotBlank() })
     }
 
     @Test
@@ -226,7 +226,9 @@ class LocationServiceTest {
     @Test
     fun `生存信号は記録とは別のファイルに積まれる`() {
         start()
-        assertTrue(File(app.filesDir, "heartbeat.jsonl").exists())
+        val beats = File(app.filesDir, "outbox/heartbeats").listFiles { f -> f.name.endsWith(".jsonl") }.orEmpty()
+        assertTrue("生存信号の置き場が無い", beats.isNotEmpty())
+        assertTrue("記録と同じ置き場に積まれている", File(app.filesDir, "outbox/records") != beats.first().parentFile)
     }
 
     /** 止めたら生存信号の刻みも止まる（残すと立て直しのたびに刻みが増える）。 */

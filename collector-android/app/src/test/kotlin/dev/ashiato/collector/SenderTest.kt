@@ -62,7 +62,7 @@ class SenderTest {
 
         assertEquals(1, transport.bodies.size)                       // **1 回にまとまる**
         assertEquals(5, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
-        assertEquals(Sender.Flushed(sent = 5, accepted = 5), flushed)
+        assertEquals(Sender.Flushed(sent = 5, accepted = 5, removed = 5, responded = true), flushed)
         assertEquals(0, outbox.size())
     }
 
@@ -81,7 +81,7 @@ class SenderTest {
         val flushed = sender(outbox, transport).flush()
 
         assertEquals(0, outbox.size())
-        assertEquals(Sender.Flushed(sent = 3, accepted = 2), flushed)
+        assertEquals(Sender.Flushed(sent = 3, accepted = 2, removed = 3, responded = true), flushed)
     }
 
     // Scenario: 捨てた件数と理由が端末のログに残る

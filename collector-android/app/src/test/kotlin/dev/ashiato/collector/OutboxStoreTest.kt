@@ -11,19 +11,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 未送信が**収集の停止と再開をまたいで残る**（tasks 9.5 / 深掘り 第 2 回 /
+ * 未送信が**収集の停止と再開をまたいで残る**（ST01 tasks 9.5 / 深掘り 第 2 回 /
  * specs/device-collection の「未送信を、収集の停止と再開をまたいで保持する」）。
  *
  * これが無いと `START_STICKY` の立て直しで最大 5 分ぶんが無言で消える。
- * この Story は「捨てたものは復元できない」を根拠に精度フィルタを外している（design D11）——
- * 同じ理由で失われる経路を残せない。
- *
- * **失敗したときの経路も全部見る**（review HIGH-8）—— 独立検証の時点では、
- * 読めたときの 1 本しか通っていなかった。
+ * ST04 で置き場を 1 本の JSONL から区切りファイル（`SegmentStore`）に替えた（design D1）ので、
+ * ST01 / ST02 がこの置き場に求めた性質を新しい置き場で確かめ直す。
  */
 class OutboxStoreTest {
     private val dir: File = Files.createTempDirectory("outbox").toFile()
-    private val file = File(dir, "outbox.jsonl")
     private val lines = mutableListOf<String>()
 
     private fun req(id: String) =
@@ -31,9 +27,9 @@ class OutboxStoreTest {
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 「プロセスが立て直された」＝ 同じ置き場から新しい Outbox を作り直す。 */
-    private fun reopen() = Outbox(FileOutboxStore(file, IngestRequest.serializer()) { lines += it })
+    private fun reopen() = Outbox.inDir(dir, IngestRequest.serializer()) { lines += it }
 
-    private fun asideFiles() = dir.listFiles()!!.filter { it.name.contains(".unreadable") }
+    private fun segments() = File(dir, "segments").listFiles { f -> f.name.endsWith(".jsonl") }.orEmpty().sortedBy { it.name }
 
     // Scenario: 未送信は収集の停止と再開をまたいで残る
     @Test
@@ -69,158 +65,64 @@ class OutboxStoreTest {
 
     @Test
     fun `置き場が無ければ空から始まる`() {
-        assertFalse(file.exists())
         assertEquals(0, reopen().size())
     }
 
     @Test
     fun `1件足すごとに全件を書き直さない`() {
-        // **圏外が続くと未送信は伸びる**（上限と破棄は ST04）。全件書き直しだと
-        // 60 秒ごとの書き込み量が件数に比例して膨らみ、フラッシュ寿命と電池に効く（design D22）
+        // 追記なら先に書いた行のバイトは動かない（全件書き直しは圏外が伸びるほどフラッシュと電池に効く。ST01 design D22）
         val outbox = reopen()
-        repeat(3) { outbox.add(req("id-$it")) }
+        outbox.add(req("id-0"))
+        val first = segments().single().readBytes()
+        outbox.add(req("id-1"))
+        outbox.add(req("id-2"))
 
-        // JSONL: 1 行 1 件。行数が件数と一致していれば追記されている
-        assertEquals(3, file.readLines().count { it.isNotBlank() })
+        val now = segments().single().readBytes()
+        assertTrue("先に書いた行が書き直されている", now.copyOfRange(0, first.size).contentEquals(first))
+        assertEquals(3, segments().single().readLines().count { it.isNotBlank() })
         assertEquals(listOf("id-0", "id-1", "id-2"), reopen().snapshot().map { it.id })
     }
 
     @Test
     fun `末尾の1行が壊れていても、読めた分は捨てない`() {
-        // 追記の途中で電源が落ちると最後の 1 行だけが半端になる。
-        // **そこで全部捨てると、消えないようにした意味が無い**
+        // 追記の途中で電源が落ちると最後の 1 行だけが半端になる。**そこで全部捨てると、消えないようにした意味が無い**
         reopen().add(req("a"))
         reopen().add(req("b"))
-        file.appendText("""{"id":"c","raw":""" + "\n")   // 途中で切れた 1 行
+        segments().single().appendText("""{"enq":1,"item":{"id":"c","raw":""")   // 途中で切れた 1 行（改行なし）
 
         val restored = reopen()
-
         assertEquals(listOf("a", "b"), restored.snapshot().map { it.id })
         assertTrue("壊れた行を黙って捨てている", lines.any { it.contains("kind=outbox_line_broken") })
+
+        // **書きかけの行に次の 1 件を繋げない**（繋がると 2 行とも読めなくなる）
+        restored.add(req("d"))
+        assertEquals(listOf("a", "b", "d"), reopen().snapshot().map { it.id })
     }
 
     @Test
-    fun `読めない置き場は捨てずに脇へ退ける`() {
-        // **上書きして消さない。** 何が失われたのか後から分からなくなる
-        file.writeText("これは JSON ではない")
-
-        val outbox = reopen()
-
-        assertEquals(0, outbox.size())
-        assertEquals("退けた跡が 1 つでない", 1, asideFiles().size)
-        assertEquals("これは JSON ではない", asideFiles().single().readText())
-        assertTrue("黙って捨てている", lines.any { it.contains("kind=outbox_unreadable") })
-    }
-
-    @Test
-    fun `2回目の退避が1回目を上書きしない`() {
-        // **独立検証で見つかった欠陥**（review R4）。退避先が固定名だと
-        // `File.renameTo` が Unix で置き換えるので、2 回目の破損で 1 回目の退避が消える
-        file.writeText("壊れ1")
-        reopen()
-        Thread.sleep(2)          // 退避先の名前に時刻を使うので、確実にずらす
-        file.writeText("壊れ2")
-        reopen()
-
-        val kept = asideFiles().map { it.readText() }.sorted()
-        assertEquals("退避が 1 つに潰れている", listOf("壊れ1", "壊れ2"), kept)
-    }
-
-    @Test
-    fun `書き換えの途中で落ちた跡から復元する`() {
-        // rename に失敗すると最新の全件が `.tmp` に残る。**次の save で上書きすると消える**
-        // （review CRITICAL-2）。本体が無いなら `.tmp` を採る
-        val tmp = File(dir, "outbox.jsonl.tmp")
-        tmp.writeText(ingestJson.encodeToString(req("rescued")) + "\n")
-        assertFalse(file.exists())
-
-        val outbox = reopen()
-
-        assertEquals(listOf("rescued"), outbox.snapshot().map { it.id })
-        assertTrue("復元したことが記録されていない", lines.any { it.contains("kind=outbox_recovered") })
-    }
-
-    @Test
-    fun `本体があるときの書きかけは捨ててよい`() {
-        // 本体のほうが確定している。`.tmp` を優先すると、取り除いたはずの記録が戻る
-        reopen().add(req("real"))
-        File(dir, "outbox.jsonl.tmp").writeText(ingestJson.encodeToString(req("stale")) + "\n")
-
-        assertEquals(listOf("real"), reopen().snapshot().map { it.id })
-    }
-
-    @Test
-    fun `書けなかったことが呼び出し側に返る`() {
-        // **Unit だと失敗が上に届かない**（review CRITICAL-3）。
-        // 置き場をディレクトリにして書き込みを失敗させる
-        val blocked = File(dir, "blocked.jsonl")
-        blocked.mkdir()
-        val outbox = Outbox(FileOutboxStore(blocked, IngestRequest.serializer()) { lines += it })
+    fun `書けなかったことが呼び出し側に返り、メモリには積まれる`() {
+        // **Unit だと失敗が上に届かない**（ST01 review CRITICAL-3）。置き場をファイルにして書き込みを失敗させる
+        val blocked = File(dir, "blocked")
+        blocked.writeText("ディレクトリではない")
+        val outbox = Outbox(
+            SegmentStore(File(blocked, "segments"), IngestRequest.serializer(), File(dir, "u.jsonl"), { lines += it }),
+            age = { 0L },
+        )
 
         assertFalse("書けていないのに true が返っている", outbox.add(req("a")))
         assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") })
-        // メモリには積まれている（次の契機で書き直される）
-        assertEquals(1, outbox.size())
-    }
-
-    @Test
-    fun `取り除きに失敗したことも呼び出し側に返る`() {
-        val blocked = File(dir, "blocked2.jsonl")
-        blocked.mkdir()
-        val outbox = Outbox(FileOutboxStore(blocked, IngestRequest.serializer()) { lines += it })
-        outbox.add(req("a"))
-
-        assertFalse(outbox.remove(listOf("a")))
-        // **置き場がディレクトリなので、読み出しの時点で既に失敗している。**
-        // その状態での書き直しは「失敗した」ではなく「**断った**」——
-        // 読めなかった分を上書きで消さないため（ST02 の review/code.md の R17）。
-        assertTrue(
-            "黙って失敗している",
-            lines.any { it.contains("kind=outbox_save_refused") || it.contains("kind=outbox_save_failed") },
-        )
-    }
-
-    /**
-     * **1 度読めなかっただけで、溜まっていた未送信が消えない**（ST02 の review/code.md の R17）。
-     *
-     * `load()` が `emptyList()` を返すと、それが `pending` の初期値になる。
-     * そのあと送信が 1 件成功すると `remove` → `save` が**ファイルを丸ごと書き直す**ので、
-     * 読めなかった分が痕跡なく消えていた。一過性の失敗（EMFILE・direct boot 中のアクセス）で
-     * 起きるので、中身は無事なまま失われる。
-     */
-    @Test
-    fun `読めなかった未送信が、次の書き直しで消えない`() {
-        val store = FileOutboxStore(file, IngestRequest.serializer()) { lines += it }
-        Outbox(store).apply {
-            add(req("keep-1"))
-            add(req("keep-2"))
-        }
-        val before = file.readText()
-
-        // 読めない状態にする（一過性の IO 失敗を模す）
-        assertTrue("読み取り権限を落とせない環境", file.setReadable(false))
-        val blind = Outbox(FileOutboxStore(file, IngestRequest.serializer()) { lines += it })
-        assertEquals("読めていないのに中身が見えている", 0, blind.size())
-
-        // 送信が成功したことにして取り除く → **ここで上書きされてはいけない**
-        assertFalse("読めていないのに書き直しが通った", blind.remove(listOf("keep-1")))
-        assertTrue(
-            "断ったことが残っていない",
-            lines.any { it.contains("kind=outbox_save_refused") },
-        )
-
-        // 読めるようになれば元の 2 件が戻る
-        assertTrue(file.setReadable(true))
-        assertEquals(before, file.readText())
-        val reopened = Outbox(FileOutboxStore(file, IngestRequest.serializer()) {})
-        assertEquals(listOf("keep-1", "keep-2"), reopened.snapshot().map { it.id })
+        // メモリには積まれている（次の契機で送られる）
+        assertEquals(listOf("a"), outbox.head(10).map { it.id })
+        assertTrue(outbox.remove(listOf("a")))
+        assertEquals(0, outbox.size())
     }
 
     @Test
     fun `置き場が壊れていてもログには位置の値が出ない`() {
         // 置き場そのものは記録なので値を持つ。**ログは別**（製造準備 A-2）
-        file.writeText("壊れている")
         reopen().add(req("a"))
+        segments().single().appendText("壊れている 35.681236 139.767125\n")
+        reopen().snapshot()
 
         assertTrue("ログが 1 行も出ていない（試験が空振りしている）", lines.isNotEmpty())
         for (line in lines) {
