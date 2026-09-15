@@ -185,11 +185,29 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
 
 - **FR-14**: WHEN 取り込み待ち置き場にエクスポートの書庫が置かれる THE SYSTEM SHALL
   その内容を解析して記録を生成する。
+  **書庫には、Takeout の書庫（zip）と、端末から書き出したマップのタイムライン（1 本の JSON）の両方を含む。**
+  **読み終えた書庫のうち、読んだ製品のファイルは写しを残す**（既定。設定で残さない側にできる）。
+  **置き場にある本人のファイルは消さない。**
+  ★ 2026-09-15 追加。ST12 の深掘り Q1 / Q2 / Q3 の決定。マップのタイムラインはいまは Takeout に入らず、
+  端末の設定から書き出す（§5 の EXT-M）ので、「書庫」を zip に限ると位置の履歴の経路が無くなる。
+  Takeout の書庫は約 7 日で失効しダウンロードは 5 回まで（EXT-B）なので、**手元の書庫を消すと、
+  記録にならなかった部分（読み飛ばした項目・解析器の不具合で落とした項目）は二度と取れない** ——
+  写しがあれば解析器を直して読み直せる。写しを残すかは本人が設定で変えられる（本人の補足）。
 - **FR-15**: WHEN C-03 が各ソースに登録された取得契機に達する THE SYSTEM SHALL
   そのソースの新着を取得して記録を生成する。取得間隔はソースごとに登録簿が持つ。
 - **FR-16**: THE SYSTEM SHALL 各ソースについて取り込み済みの最終日を保持する。
+  **最終日は、入った記録のうちいちばん新しい出来事の日とする。** それを運んだ書庫の作られた時刻も併せて保持する。
+  ★ 2026-09-15 訂正。ST12 の深掘り Q4 の決定。「最終日」には「書庫が作られた日」の読みもあるが、
+  期間を絞って書き出した書庫では「その日まで全部入っている」が言い過ぎになる。
+  両方を持つので、表示の規則は後から変えられる。
 - **FR-17**: WHEN 利用者が過去のエクスポートを取り込み待ち置き場に置く THE SYSTEM SHALL
   既存の記録との重複を検出したうえで取り込む。
+  **重複は同じソースの中で、内容の鍵（FR-22 の 2 段目）で判定する。** 次の書庫で同じ出来事が違う内容で
+  出てきたとき（動画の題名が変わった・書き出しの表記が変わった）は、**別の記録として残す**。
+  ★ 2026-09-15 補強。ST12 の深掘り Q6 の決定。書庫の項目には記録ごとの識別子が無い。
+  時刻と対象から鍵を作れば行は増えないが、**鍵は格納した時点で凍結される**ので作り方を後から変えられず、
+  書庫の作られた時刻で古い到着を止めると古い書庫の内容の違う版が捨てられる。
+  内容の鍵だけなら何も捨てず、増えた行は内容が残るので読む側で畳める（ST03 の深掘り Q25 と同じ判断）。
 
 #### 蓄積（D-01 / D-02）
 
@@ -466,6 +484,11 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
   **格子のその日のセルに形の印**（右下を三角に欠く）を付け、**週を選んだときの文字に「うち N 件を破棄（時刻〜時刻）」**を添える。
   丸ごと覆う破棄の日にも件数を添える。付けないと、長い圏外の両端の日と、上限を小さくして溢れさせた日の破棄が画面から消える。
 - **FR-55**: THE SYSTEM SHALL 各ソースの取り込み済み最終日（FR-16）を表示する。
+  **書庫のソースも稼働状況の格子として出し、見出しの横に最終日と何日前かを添える。**
+  **格子の群の頭に、直近に置いた書庫 1 件の結果（名前・置いた時刻・入った / 既にあった / 読めなかった）を出す。**
+  まだ 1 件も入っていないソースは「まだ無い」と出す。
+  ★ 2026-09-15 補強。ST12 の深掘り Q5 の決定（proto で選んだ）。**読めなかった書庫が画面に無いと、
+  置いたのに入っていないことに気づけない**（書庫は約 7 日で失効する）。
 - **FR-56**: WHEN 利用者が日付を指定する THE SYSTEM SHALL その日の記録を時刻順に表示する。
 - **FR-57**: THE SYSTEM SHALL 主観の記録が無い日を、他の日と区別して表示する。
 - **FR-58**: WHEN 利用者が語を入力する THE SYSTEM SHALL
@@ -611,6 +634,10 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
 - **NFR-11**: 開発に充てられる時間は **週 15 時間**。
 - **NFR-12**: 収集に要する手作業は、**Google 系のみ 2 か月に 1 回**まで許容する。
   他のすべてのソースは手作業を要さない。根拠は §5 の EXT-A / EXT-B。
+  ★ 2026-09-15 補足。ST12 の深掘り Q7 / Q8 の決定。**Google 系の手作業には、端末でマップのタイムラインを書き出し、
+  網の外に出ない手段（Tailscale のファイル送信・USB など）で自宅 PC の置き場へ運ぶことを含む**（2 か月ごと。EXT-M）。
+  Google の推定した訪問と移動手段は C-01 の位置からは作れないので、書き出さなかった期間は端末から消えれば戻らない。
+  クラウドのドライブを経由しないのは、位置の全履歴の写しが外へ出るため。運ぶ仕組みはシステムが作らない。
 
 #### 成功の判定
 
@@ -839,6 +866,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-B | Google Takeout の予約エクスポートは 2 か月ごと・1 年で停止・書庫は約 7 日で失効 | https://support.google.com/accounts/answer/3024190 | "Automatically create an archive of your selected data every 2 months for one year." / "Your archive expires in about 7 days." / "We only allow each archive to be downloaded 5 times" | 2026-08-30 | 2027-02-28 | NFR-3, NFR-12, FR-14 |
 | EXT-C | Health Connect は既定で権限付与時点の 30 日前までしか読めず、再インストールで起点が戻る | https://developer.android.com/health-and-fitness/health-connect/read-data | "By default, all applications can read data from Health Connect for up to 30 days prior to when any permission was first granted." / "If the user reinstalls your app and grants permission again, the same default restrictions apply" | 2026-08-30 | 2027-02-28 | FR-11, FR-73 |
 | EXT-D | 写真の EXIF 位置が読めるかは、撮影時期ではなく実行時点の権限状態で決まる | https://developer.android.com/training/data-storage/shared/media | "Because you request the `ACCESS_MEDIA_LOCATION` permission at runtime, there is no guarantee that your app has access to unredacted EXIF metadata from photos. Your app requires explicit user consent to gain access to this information." | 2026-09-07 | 2027-09-07 | FR-3, §5 の「扉ではないもの」 |
+| EXT-M | マップのタイムラインは Takeout ではなく、Android の設定から端末で書き出す | https://support.google.com/maps/answer/6258979 | "Under "Timeline," tap Export Timeline data. Tap Continue. Select your preferred storage location. Tap Save." | 2026-09-15 | 2027-03-15 | FR-14, NFR-12 |
 | EXT-E | Chrome の履歴として表示されるのは直近 90 日 | https://support.google.com/chrome/answer/95589 | "Your History lists the pages you've visited on Chrome in the last 90 days." | 2026-09-07 | 2027-03-07 | FR-13 |
 
 | EXT-F | 本文のコントラスト比の下限は 4.5:1（大きい文字は 3:1）で、これは Level AA | https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html | "The visual presentation of text and images of text has a contrast ratio of at least 4.5:1" / "Large Text: Large-scale text and images of large-scale text have a contrast ratio of at least 3:1" | 2026-09-08 | 2028-09-08 | NFR-18 |
