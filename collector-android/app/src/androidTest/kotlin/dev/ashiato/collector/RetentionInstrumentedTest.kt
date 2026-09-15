@@ -210,8 +210,15 @@ class RetentionInstrumentedTest {
         return last.readText().contains(needle)
     }
 
-    private fun shell(cmd: String) =
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd).close()
+    /**
+     * シェルの命令を投げて**終わるまで待つ**。`executeShellCommand` は非同期で、出力を閉じるだけでは待たない ——
+     * `appops set … allow` の直後に偽装位置を有効にすると、前の試験の `deny` と行き違って
+     * `SecurityException: Caller must be selected as the mock location app` になった（CI の実測）。
+     */
+    private fun shell(cmd: String) {
+        val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+    }
 
     private inner class MockClient {
         val client = LocationServices.getFusedLocationProviderClient(context)
@@ -231,8 +238,15 @@ class RetentionInstrumentedTest {
     private fun mockLocations(): MockClient {
         shell("appops set ${context.packageName} android:mock_location allow")
         val c = MockClient()
-        Tasks.await(c.client.setMockMode(true), 10, TimeUnit.SECONDS)
-        return c
+        // 許可が反映されるまで少し掛かることがあるので、断られたら数回だけ当たり直す
+        var lastError: Throwable? = null
+        for (attempt in 1..5) {
+            val ok = runCatching { Tasks.await(c.client.setMockMode(true), 10, TimeUnit.SECONDS) }
+                .onFailure { lastError = it }.isSuccess
+            if (ok) return c
+            Thread.sleep(1_000)
+        }
+        throw AssertionError("偽装位置を有効にできない", lastError)
     }
 
     private fun waitUntil(timeoutMs: Long, check: () -> Boolean): Boolean {
