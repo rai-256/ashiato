@@ -9,8 +9,8 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST22, ST25, ST28, ST33
-- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST23
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST25, ST28, ST33
+- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST22, ST23
 - **layer 3**: ST06, ST09, ST12, ST18, ST26, ST34
 - **layer 4**: ST10, ST13, ST24, ST30, ST35, ST36
 - **layer 5**: ST27, ST29, ST31
@@ -41,7 +41,7 @@
 | [ST19](ST19.md) | 個人属性を上書きせず履歴で残す | 1 | FR-44, FR-45 | ST01 | 3 |
 | [ST20](ST20.md) | 人物を登録して滞在に紐づける | 2 | FR-46, FR-47, PERM-5 | ST16 | 4 |
 | [ST21](ST21.md) | 場所を登録し、識別子を変えない | 1 | FR-48, FR-49 | ST01 | 17 |
-| [ST22](ST22.md) | 記録を消したことにできる | 1 | FR-50 | ST01 | — |
+| [ST22](ST22.md) | 記録を消したことにできる | 2 | FR-50 | ST01, ST16 | — |
 | [ST23](ST23.md) | 本文を本当に消せる | 2 | FR-51, FR-52 | ST22 | — |
 | [ST24](ST24.md) | 記録に感度を持たせ、既定で守る | 4 | PERM-2, PERM-3, PERM-4, PERM-6, PERM-9 | ST09, ST17 | 15 |
 | [ST25](ST25.md) | 1 日を時刻順に見る | 1 | FR-56 | ST01 | — |
@@ -75,7 +75,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
 | `record-deletion` | 削除 | ST22, ST23 |
 | `data-sensitivity` | 感度・アクセス制御・プラグイン権限 | ST24, ST28, ST29 |
-| `browsing-views` | 閲覧と検索 | **ST16**, ST25, ST26, ST36 |
+| `browsing-views` | 閲覧と検索 | **ST16**, **ST22**, ST25, ST26, ST36 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
 
@@ -190,6 +190,18 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > | 要件 | 本体の Story | 別の Story が満たす条項 |
 > |---|---|---|
 > | NFR-13（主語の仕分け） | ST02 | **ST14** が `collection-coverage` の正典と `coverage.rs` の定数に、アプリ利用を「利用が主語」へ移した訂正を反映する（★ 2026-09-18。st06-app-usage の deep Q2）。ST12 が同じ capability を走らせている間は触れないので `docs/handoff/ST14.md` に置いた |
+
+> **訂正（2026-09-15、ST22 の上流工程）**
+>
+> ST22 を `record-deletion` だけでなく **`browsing-views` にも割り当て、`requires` に ST16 を足した**（layer 1 → 2）。
+> 完了の判定「記録を削除すると**画面から消え**」の画面は ST16 の 1 日の滞在の一覧で、深掘り Q4 で本人が
+> 「消した時間を『記録なし』ではなく『消した』の行で出し、その行から戻せる」を選んだ。これは ST16 の要件
+> 「位置の記録が無い時間は記録なしの行として出る」の **MODIFIED** になり、ST16 が archive されるまで書けない
+> （`openspec/changes/st22-record-deletion/deep.md`）。
+>
+> - **代償: ST16 の archive まで ST22 は `proposal迄`**。ST16 の archive 後は、ST22 と ST25 が同じ capability を触るので同時に走らせない
+> - `derived-records` には割り当てない。滞在を消す操作と、位置を消したときの作り直しは `record-deletion` に ADDED で置く
+>   （ST16 の「作り直しは本人が消した時間帯に滞在を戻さない」はそのまま成り立つ）
 
 > **この型は繰り返し出る** —— 「土台の Story が、後続の capability に属する振る舞いを
 > 先に書いてしまう」。capability の**作成**を前倒し、後続が要件を**足す**形にすれば、
