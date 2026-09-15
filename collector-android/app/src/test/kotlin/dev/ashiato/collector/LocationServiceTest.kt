@@ -71,6 +71,18 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
     override fun newScheduler(): FlushScheduler = scheduler
     override fun newHeartbeatScheduler(): FlushScheduler = beatScheduler
     override fun readCapability(): Capability = capability
+
+    /** 受け口ごとに送った本文を覚える偽物（ST04）。既定はすべて受け付ける。 */
+    val posted = mutableListOf<Pair<String, String>>()
+    override fun newTransport(path: String): Transport = Transport { body ->
+        posted += path to body
+        val n = body.split("\"id\":").size - 1
+        Outcome.Responded(200, (1..n).joinToString(",", "[", "]") { """{"accepted":true}""" })
+    }
+
+    /** 時計を試験から進める（ST04）。 */
+    val clock = FakeDeviceClock()
+    override fun newDeviceClock(): DeviceClock = clock
 }
 
 /** 権限を断られる端末。 */
@@ -176,6 +188,54 @@ class LocationServiceTest {
         controller.destroy()
 
         assertTrue("取得が止まっていない", service.source.stopped)
+    }
+
+    /**
+     * ST01 / ST02 の 1 本の JSONL は、起動の時点で区切りの置き場へ取り込まれる（ST04 / tasks 5.2 の本番の配線）。
+     */
+    @Test
+    fun `起動すると既存の outbox jsonl を取り込んで元を消す`() {
+        File(app.filesDir, "outbox.jsonl").writeText(ingestJson.encodeToString(IngestRequest.serializer(), fix("legacy")) + "\n")
+        val service = start()
+        assertEquals(listOf("legacy"), service.outboxForTest.snapshot().map { it.id })
+        assertFalse(File(app.filesDir, "outbox.jsonl").exists())
+    }
+
+    /**
+     * 送信の契機 1 回で、記録・生存信号・破棄の報告がそれぞれの受け口へ送られる（ST04 / design D12 の本番の配線）。
+     * 破棄の報告は `/drops`、上限の見回りは送る前に走る。
+     */
+    @Test
+    fun `送信の契機で 90 日を超えた記録を捨て、破棄の報告を drops へ送る`() {
+        Config.overrideForTest(baseUrl = "http://127.0.0.1:1", apiToken = "t", userId = "u")
+        try {
+            val service = start()
+            service.outboxForTest.add(fix("old"))
+            service.clock.advance(90 * AgeClock.DAY_MS + 60_000)
+            service.scheduler.fire()
+
+            assertEquals(0, service.outboxForTest.size())
+            val drops = service.posted.filter { it.first == "/drops" }
+            assertEquals("破棄の報告が /drops へ送られていない", 1, drops.size)
+            assertTrue(drops.single().second.contains("\"reason\":\"age\""))
+            assertFalse("90 日を超えた記録を送っている", service.posted.any { it.first == "/ingest" && it.second.contains("\"old\"") })
+            assertTrue(service.posted.any { it.first == "/heartbeat" })
+            assertEquals(0, service.dropsOutboxForTest.size())
+        } finally {
+            Config.clearOverrideForTest()
+        }
+    }
+
+    @Test
+    fun `設定が揃っていなくても積む契機で上限をかける`() {
+        // 送れない理由を問わず上限はかかる（本人の決定 Q1）
+        assertFalse(Config.isComplete)
+        val service = start()
+        service.outboxForTest.add(fix("old"))
+        service.clock.advance(91 * AgeClock.DAY_MS)
+        service.maintainForTest()
+        assertEquals(0, service.outboxForTest.size())
+        assertEquals(1, service.ledgerForTest.drafts().single().count)
     }
 
     private fun fix(id: String) =
