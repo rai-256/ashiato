@@ -23,7 +23,7 @@ class SegmentMigrationTest {
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private fun migrate(legacy: File) = migrateLegacyOutbox(
-        legacy, st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), st.log,
+        legacy, st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log,
     )
 
     @Test
@@ -45,7 +45,7 @@ class SegmentMigrationTest {
         val legacy = File(files, "heartbeat.jsonl")
         val beat = HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-05-01T00:00:00Z", true, emptyList(), 360, 230, "{}")
         legacy.writeText(ingestJson.encodeToString(HeartbeatRequest.serializer(), beat) + "\n")
-        val got = migrateLegacyOutbox(legacy, st.beats, HeartbeatRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), st.log)
+        val got = migrateLegacyOutbox(legacy, st.beats, HeartbeatRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)
         assertTrue(got.complete)
         assertEquals(listOf("h1"), st.beats.snapshot().map { it.id })
         assertFalse(legacy.exists())
@@ -69,7 +69,7 @@ class SegmentMigrationTest {
             SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log),
             age = { 0L },
         )
-        val got = migrateLegacyOutbox(legacy, broken, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), st.log)
+        val got = migrateLegacyOutbox(legacy, broken, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)
         assertFalse(got.complete)
         assertTrue("書けなかったのに元を消した", legacy.exists())
     }
@@ -81,5 +81,47 @@ class SegmentMigrationTest {
         migrate(legacy)
         migrate(legacy)
         assertEquals(listOf("once"), st.records.snapshot().map { it.id })
+    }
+
+    /**
+     * 取り込みで書けなかった記録は「書けなかった」と数えない（review R7）。
+     * 元のファイルが残るので、次の起動で取り込み直して届く —— 数えると、届く記録を破棄とも報告する。
+     */
+    @Test
+    fun `取り込みで書けなかった記録は書けなかった数えに入らず、次の起動で取り込み直す`() {
+        val legacy = File(files, "outbox.jsonl")
+        legacy.writeText(listOf("a", "b", "c").joinToString("") { ingestJson.encodeToString(IngestRequest.serializer(), req(it)) + "\n" })
+        val counter = WriteFailedLedger(File(st.dir, "write-failed.bin"), st.log)
+        val blocked = File(files, "blocked").apply { writeText("x") }
+        val failing = Outbox(
+            SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log),
+            st.age::now,
+            writeFailures = object : WriteFailures<IngestRequest> {
+                override fun failed(item: IngestRequest) = counter.failed(Instant.parse(item.eventTime))
+                override fun recovered(item: IngestRequest) = counter.recovered(Instant.parse(item.eventTime))
+                override fun lost(item: IngestRequest) = Unit
+            },
+        )
+        val first = migrateLegacyOutbox(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)
+        assertFalse(first.complete)
+        assertTrue("書けなかった取り込みを失ったと数えている", counter.peek().first.isEmpty() && counter.peek().second == 0)
+        assertTrue(legacy.exists())
+
+        val second = migrate(legacy)
+        assertEquals(3, second.imported)
+        assertEquals(listOf("a", "b", "c"), st.records.snapshot().map { it.id })
+    }
+
+    /** 途中で止まった取り込みでは、読めない行を退避先へ移さない（次の起動で同じ行を 2 度数えない。review R36）。 */
+    @Test
+    fun `途中で止まった取り込みは読めない行を退避しない`() {
+        val legacy = File(files, "outbox.jsonl")
+        legacy.writeText("壊れ\n" + ingestJson.encodeToString(IngestRequest.serializer(), req("a")) + "\n")
+        val blocked = File(files, "blocked2").apply { writeText("x") }
+        val failing = Outbox(SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log), st.age::now)
+        migrateLegacyOutbox(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)
+        assertFalse("止まった取り込みで退避している", st.unreadable.exists())
+        migrate(legacy)
+        assertEquals("壊れ\n", st.unreadable.readText())
     }
 }

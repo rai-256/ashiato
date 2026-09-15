@@ -110,7 +110,7 @@ class OutboxStoreTest {
         )
 
         assertFalse("書けていないのに true が返っている", outbox.add(req("a")))
-        assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") })
+        assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") || it.contains("kind=outbox_list_failed") })
         // メモリには積まれている（次の契機で送られる）
         assertEquals(listOf("a"), outbox.head(10).map { it.id })
         assertTrue(outbox.remove(listOf("a")))

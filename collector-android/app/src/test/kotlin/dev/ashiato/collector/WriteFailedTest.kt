@@ -37,8 +37,11 @@ class WriteFailedTest {
 
     /** 立て直し: 同じ置き場から数えを読み、0 でなければ報告にする（`LocationService.openStores` と同じ手順）。 */
     private fun restart(): Pair<List<WriteFailedLedger.Slot>, Int> {
-        val (slots, overflow) = WriteFailedLedger(ledgerFile, st.log).take()
-        st.ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)
+        val counter = WriteFailedLedger(ledgerFile, st.log)
+        val (slots, overflow) = counter.peek()
+        if (st.ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)) counter.clear()
+        // 送信の前に凍結される（`Drainer`）
+        st.ledger.freeze()
         return slots to overflow
     }
 
@@ -134,5 +137,54 @@ class WriteFailedTest {
         assertEquals(listOf("first", "second"), SegmentStore(dir, IngestRequest.serializer(), st.unreadable, st.log).readAll().map { it.id })
         val (slots, overflow) = counter.take()
         assertTrue("書き直せたのに数えが残っている", slots.isEmpty() && overflow == 0)
+    }
+
+    /**
+     * **報告を保存できなければ数えを 0 に戻さない**（review R15）。先に戻すと、空きが尽きたまま立て直したときに痕跡が消える。
+     */
+    @Test
+    fun `報告の下書きを保存できなければ、固定長の数えは残る`() {
+        val counter = WriteFailedLedger(ledgerFile, st.log)
+        counter.failed(Instant.parse("2026-06-01T10:10:00Z"))
+        val blockedDir = File(st.dir, "no-space").apply { writeText("x") }
+        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log)
+
+        val reborn = WriteFailedLedger(ledgerFile, st.log)
+        val (slots, overflow) = reborn.peek()
+        if (ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)) reborn.clear()
+
+        assertEquals("保存できないのに数えを 0 に戻した", 1, WriteFailedLedger(ledgerFile, st.log).peek().first.single().count)
+        assertTrue("保存できない下書きがメモリに残っている（次の起動で二重に報告する）", ledger.drafts().isEmpty())
+    }
+
+    /**
+     * メモリに持ちきれず手放した記録（`lost`）: **下書きを保存できたときだけ固定長の数えから引く**（review R1）。
+     * 本番の `LocationService` の `lost` と同じ手順を、書けない下書きのファイルで確かめる。
+     */
+    @Test
+    fun `手放した記録は下書きを保存できなければ数えに残る`() {
+        val counter = WriteFailedLedger(ledgerFile, st.log)
+        val t = Instant.parse("2026-06-01T10:10:00Z")
+        counter.failed(t)
+        val blockedDir = File(st.dir, "no-space-2").apply { writeText("x") }
+        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log)
+
+        if (ledger.record(DropReason.WRITE_FAILED, listOf(LOGICAL_SOURCE to t)) != null) counter.recovered(t)
+
+        assertEquals("保存できないのに数えから引いた（痕跡が消える）", 1, counter.peek().first.single().count)
+        assertTrue(ledger.drafts().isEmpty())
+        // 保存できる下書きなら引く
+        if (st.ledger.record(DropReason.WRITE_FAILED, listOf(LOGICAL_SOURCE to t)) != null) counter.recovered(t)
+        assertTrue(counter.peek().first.isEmpty())
+        assertEquals(1, st.ledger.drafts().single().count)
+    }
+
+    @Test
+    fun `枠は 204 個で、205 時間目は件数だけのあふれになる`() {
+        assertEquals(204, WriteFailedLedger.SLOTS)
+        val counter = WriteFailedLedger(ledgerFile, st.log)
+        repeat(205) { counter.failed(Instant.parse("2026-06-01T00:00:00Z").plusSeconds(3600L * it)) }
+        assertEquals(204, counter.peek().first.size)
+        assertEquals(1, counter.peek().second)
     }
 }

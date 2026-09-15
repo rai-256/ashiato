@@ -42,21 +42,35 @@ class Outbox<T : Outboxable>(
      * 積む。**精度でも件数でもふるい落とさない**（ST01 design D11）。書けたかを返す。
      * 書けなくてもメモリには持つ（次に積むときに書き直す）。
      */
-    @Synchronized
     fun add(request: T): Boolean {
-        val enq = age()
-        val ok = flushUnwritten() && store.append(request, enq)
-        if (!ok) {
-            unwritten.addLast(Stored(request, enq))
-            writeFailures?.failed(request)
-            // **メモリに持ちきれない分は手放す**（端末の空きが尽きたまま続くと、メモリで落ちて収集が止まる）
-            while (unwritten.size > MAX_UNWRITTEN) {
-                writeFailures?.lost(unwritten.removeFirst().item)
+        val ok = synchronized(this) {
+            val enq = age()
+            val written = flushUnwritten() && store.append(request, enq)
+            if (!written) {
+                unwritten.addLast(Stored(request, enq))
+                writeFailures?.failed(request)
+                // **メモリに持ちきれない分は手放す**（端末の空きが尽きたまま続くと、メモリで落ちて収集が止まる）。
+                // 手放すのは**失ったことを報告できる置き場だけ**（記録）。生存信号と破棄の報告は数えを持たないので、
+                // 手放すと痕跡なく消える（review R32。量は 1 日数件で、メモリに持ちきれないほど溜まらない）
+                val failures = writeFailures
+                if (failures != null) {
+                    while (unwritten.size > MAX_UNWRITTEN) failures.lost(unwritten.removeFirst().item)
+                }
             }
+            written
         }
+        // **錠の外で呼ぶ**（review R14）。錠を持ったまま上限の見回りへ入ると、見回りの錠 → 置き場の錠の順で
+        // 入ってくる送信の糸と行き違い、位置の取得も送信も止まる
         afterAdd()
         return ok
     }
+
+    /**
+     * ST01 / ST02 の JSONL から取り込む（`migrateLegacyOutbox`）。**書けなかった記録を数えない・メモリに持たない** ——
+     * 元のファイルが残ることがその記録の置き場になる（数えると、取り込み直した記録を「失った」とも報告する。review R7）。
+     */
+    @Synchronized
+    fun importLegacy(items: List<T>, enqAgeMs: Long): Boolean = flushUnwritten() && store.appendAll(items, enqAgeMs)
 
     private fun flushUnwritten(): Boolean {
         while (unwritten.isNotEmpty()) {
@@ -112,18 +126,27 @@ class Outbox<T : Outboxable>(
             // メモリにだけあったものが送れた —— 失われていないので数えを戻す
             sentFromMemory.forEach { writeFailures?.recovered(it.item) }
         }
-        return store.remove(gone)
+        return store.remove(gone - sentFromMemory.mapTo(HashSet()) { it.item.id })
     }
 
-    /** 先頭から `shouldDrop` が真の間取り除く（90 日。design D2）。 */
+    /**
+     * 先頭から `shouldDrop` が真の間取り除く（90 日。design D2）。
+     * **`commit` が証拠を書けたときだけ消す**。印を書けなければ `rollback`（`SegmentStore.dropHead`）。
+     */
     @Synchronized
-    fun dropHead(shouldDrop: (Stored<T>) -> Boolean, onDrop: (Stored<T>) -> Unit): Int =
-        store.dropHead(shouldDrop, onDrop)
+    fun dropHead(
+        shouldDrop: (Stored<T>) -> Boolean,
+        commit: (List<Stored<T>>) -> Boolean,
+        rollback: (List<Stored<T>>) -> Unit,
+    ): Int = store.dropHead(shouldDrop, commit, rollback)
 
-    /** 置き場のバイトが `maxBytes` 以下になるまで先頭から取り除く（2 GB。design D3）。 */
+    /** 置き場のバイトが `maxBytes` 以下になるまで先頭から取り除く（2 GB。design D3）。証拠の書き方は `dropHead` と同じ。 */
     @Synchronized
-    fun dropUntilBytes(maxBytes: Long, onDrop: (Stored<T>) -> Unit): Int =
-        store.dropUntilBytes(maxBytes, onDrop)
+    fun dropUntilBytes(
+        maxBytes: Long,
+        commit: (List<Stored<T>>) -> Boolean,
+        rollback: (List<Stored<T>>) -> Unit,
+    ): Int = store.dropUntilBytes(maxBytes, commit, rollback)
 
     /** 置き場のバイト（2 GB の勘定）。 */
     @Synchronized

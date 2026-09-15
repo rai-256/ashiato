@@ -85,7 +85,7 @@ class UnreadableLineTest {
         val files = Files.createTempDirectory("legacy").toFile()
         val aside = File(files, "outbox.jsonl.unreadable.1757000000000").apply { writeText("壊れ1\n壊れ2\n\n壊れ3\n") }
         val got = migrateLegacyOutbox(
-            File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), st.log,
+            File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { st.ledger.unreadable(LOGICAL_SOURCE, it) }, 0L, st.log,
         )
         assertEquals(3, got.unreadable)
         val moved = File(st.dir, "salvaged/${aside.name}")
@@ -93,7 +93,7 @@ class UnreadableLineTest {
         assertEquals("壊れ1\n壊れ2\n\n壊れ3\n", moved.readText())
         // 2 回目の起動では数えない
         val again = migrateLegacyOutbox(
-            File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), st.log,
+            File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { st.ledger.unreadable(LOGICAL_SOURCE, it) }, 0L, st.log,
         )
         assertEquals(0, again.unreadable)
     }

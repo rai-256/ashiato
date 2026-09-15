@@ -21,8 +21,6 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 60 秒ごとに位置を取り、5 分ごとにまとめて送る（FR-1 / design D7 / design D9）。
@@ -41,12 +39,9 @@ open class LocationService : Service() {
     private lateinit var retention: Retention<IngestRequest>
     private lateinit var notifier: RetentionNotifier
 
-    /**
-     * 置き場の読めない行の件数。**その場で報告に足さず、見回りで拾う** ——
-     * 読んでいる置き場の錠を持ったまま報告の錠を取ると、逆の順で錠を取る糸と行き違って止まる。
-     */
-    private val unreadableSeen = AtomicInteger(0)
-    private val lastMaintenanceMs = AtomicLong(Long.MIN_VALUE)
+    /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
+    private val maintenanceLock = Any()
+    private var lastMaintenanceMs = Long.MIN_VALUE
     private lateinit var fixSource: FixSource
     private lateinit var deviceId: String
     private var flusher: FlushScheduler? = null
@@ -106,7 +101,6 @@ open class LocationService : Service() {
     private fun newOutbox(): Outbox<IngestRequest> = Outbox(
         SegmentStore(
             store("records"), IngestRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
-            onUnreadable = { unreadableSeen.addAndGet(it) },
         ),
         age = ageClock::now,
         writeFailures = object : WriteFailures<IngestRequest> {
@@ -119,11 +113,14 @@ open class LocationService : Service() {
             }
 
             override fun lost(item: IngestRequest) {
-                // メモリにも持ちきれず手放した —— その場で「書けなかった」破棄として報告する
-                val t = eventInstant(item) ?: return
-                writeFailed.recovered(t)
-                ledger.dropped(item.logicalSource, DropReason.WRITE_FAILED, t)
-                ledger.endBatch(item.logicalSource, DropReason.WRITE_FAILED, null)
+                // メモリにも持ちきれず手放した —— その場で「書けなかった」破棄として報告する。
+                // **下書きを保存できたときだけ固定長の数えから引く**（review R1）。保存できなければ数えに残し、
+                // 次の起動の「書けなかった」報告に任せる（固定長の数えは空きが尽きても上書きが通る側の置き場）
+                val t = eventInstant(item)
+                if (ledger.record(DropReason.WRITE_FAILED, listOf(item.logicalSource to t)) != null) {
+                    ledger.endBatch(item.logicalSource, DropReason.WRITE_FAILED, null)
+                    t?.let(writeFailed::recovered)
+                }
             }
         },
         afterAdd = { maintain(force = false) },
@@ -136,7 +133,6 @@ open class LocationService : Service() {
     private fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> = Outbox(
         SegmentStore(
             store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
-            onUnreadable = { unreadableSeen.addAndGet(it) },
         ),
         age = ageClock::now,
     )
@@ -145,7 +141,6 @@ open class LocationService : Service() {
     private fun newDropsOutbox(): Outbox<DropReport> = Outbox(
         SegmentStore(
             store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
-            onUnreadable = { unreadableSeen.addAndGet(it) },
         ),
         age = ageClock::now,
     )
@@ -172,6 +167,8 @@ open class LocationService : Service() {
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
         counters = AttemptCounters(now = { Instant.now() }, store = newCounterStore())
+        // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
+        startForeground(NOTIFICATION_ID, notification(RetentionNotifier.BASE_TEXT), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         openStores()
         fixSource = newFixSource()
         callback = FixCollector(
@@ -183,7 +180,6 @@ open class LocationService : Service() {
             log = { Log.i(TAG, it) },
             onFix = { counters.recordSuccess() },
         )
-        startForeground(NOTIFICATION_ID, notification(RetentionNotifier.BASE_TEXT), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         // 起動の時点で 1 度見回る（設定が揃っていなくても上限はかかる。深掘り Q1）
         maintain(force = true)
     }
@@ -204,20 +200,24 @@ open class LocationService : Service() {
         )
         // **前のプロセスで書けないまま失われた記録**（固定長の数えが 0 でない。design D5）
         writeFailed = WriteFailedLedger(store("write-failed.bin"), logW)
-        val (slots, overflow) = writeFailed.take()
-        if (slots.isNotEmpty() || overflow > 0) ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)
+        val (slots, overflow) = writeFailed.peek()
+        // **報告を保存できてから数えを 0 に戻す**（review R15）。先に戻すと、空きが尽きたまま立て直したときに痕跡が消える
+        if ((slots.isNotEmpty() || overflow > 0) && ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)) {
+            writeFailed.clear()
+        }
 
         outbox = newOutbox()
         heartbeatOutbox = newHeartbeatOutbox()
-        val records = migrateLegacyOutbox(
+        // 読めない行は退避先に書かれ、見回りが退避先の行数から報告に数える。ST01 が脇へ退けたファイルだけはここで数える
+        val recordSalvaged: (Int) -> Boolean = { ledger.unreadable(LOGICAL_SOURCE, it) }
+        migrateLegacyOutbox(
             File(filesDir, "outbox.jsonl"), outbox, IngestRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), logW,
+            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
         )
-        val beats = migrateLegacyOutbox(
+        migrateLegacyOutbox(
             File(filesDir, "heartbeat.jsonl"), heartbeatOutbox, HeartbeatRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), logW,
+            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
         )
-        unreadableSeen.addAndGet(records.unreadable + beats.unreadable)
 
         retention = Retention(outbox, ledger, ageClock::now, log = logI)
         notifier = RetentionNotifier(outbox, ageClock::now, newRetentionAlerts(), store("retention-alerted"), log = logI)
@@ -229,17 +229,48 @@ open class LocationService : Service() {
      */
     private fun maintain(force: Boolean) {
         if (!::notifier.isInitialized) return
-        val now = SystemClock.elapsedRealtime()
-        val last = lastMaintenanceMs.get()
-        if (!force && last != Long.MIN_VALUE && now - last < MAINTENANCE_MIN_GAP_MS) return
-        lastMaintenanceMs.set(now)
-        val broken = unreadableSeen.getAndSet(0)
-        if (broken > 0) ledger.unreadable(LOGICAL_SOURCE, broken)
-        runCatching { retention.enforce() }.onFailure {
-            Log.w(TAG, Telemetry.line("retention_crashed", error = it.javaClass.simpleName))
+        synchronized(maintenanceLock) {
+            val now = SystemClock.elapsedRealtime()
+            val last = lastMaintenanceMs
+            if (!force && last != Long.MIN_VALUE && now - last < MAINTENANCE_MIN_GAP_MS) return
+            lastMaintenanceMs = now
+            runCatching { reportUnreadable() }.onFailure {
+                Log.w(TAG, Telemetry.line("unreadable_report_crashed", error = it.javaClass.simpleName))
+            }
+            runCatching { retention.enforce() }.onFailure {
+                Log.w(TAG, Telemetry.line("retention_crashed", error = it.javaClass.simpleName))
+            }
+            runCatching { notifier.update() }.onFailure {
+                Log.w(TAG, Telemetry.line("notifier_crashed", error = it.javaClass.simpleName))
+            }
         }
-        runCatching { notifier.update() }.onFailure {
-            Log.w(TAG, Telemetry.line("notifier_crashed", error = it.javaClass.simpleName))
+    }
+
+    /**
+     * 読めない行の件数を報告に足す（design D6）。**数えは退避先の行数から取る**（review R21）——
+     * 件数をメモリにだけ持つと、見回りの前に立て直されたとき、行は退避先にあるのに報告が作られない。
+     * 報告に足せた行数を小さなファイルに書き、次はその先だけを数える。
+     */
+    private fun reportUnreadable() {
+        val aside = store(UNREADABLE)
+        if (!aside.exists()) return
+        val total = aside.inputStream().buffered().use { input ->
+            var n = 0L
+            var c = input.read()
+            while (c != -1) {
+                if (c == '\n'.code) n++
+                c = input.read()
+            }
+            n
+        }
+        val mark = store("unreadable-reported.txt")
+        val reported = runCatching { mark.readText().trim().toLong() }.getOrDefault(0L)
+        val fresh = total - reported
+        if (fresh <= 0) return
+        if (ledger.unreadable(LOGICAL_SOURCE, fresh.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())) {
+            runCatching { mark.writeText(total.toString()) }.onFailure {
+                Log.w(TAG, Telemetry.line("unreadable_mark_failed", error = it.javaClass.simpleName))
+            }
         }
     }
 

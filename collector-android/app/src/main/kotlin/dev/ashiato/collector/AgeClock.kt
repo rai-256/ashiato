@@ -96,7 +96,10 @@ class AgeClock(
     private fun save(s: Seen) {
         try {
             file.parentFile?.mkdirs()
-            file.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"}")
+            // **書いてから差し替える**（review R37）。途中で落ちて壊れると経過が 0 に戻り、90 日の上限と知らせが止まる
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"}")
+            if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
             log(Telemetry.line("age_clock_save_failed", error = e.javaClass.simpleName))
         }

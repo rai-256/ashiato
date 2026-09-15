@@ -75,6 +75,11 @@ data class DropDraft(
     val count: Int = 0,
     /** UTC の正時（エポックミリ秒）→ 件数 */
     val hourly: Map<Long, Int> = emptyMap(),
+    /**
+     * もう伸ばさない（凍結を待っている）。**立てたら書き換えない** —— 凍結の途中で落ちて下書きが戻ってきても、
+     * 伸ばされずに同じ原文で積み直されるので、受け手の冪等で 1 件になる（review R19）
+     */
+    val closed: Boolean = false,
 ) {
     /**
      * 報告へ組む。**原文は欄を決まった順に組んだ JSON の文字列そのもの** ——
@@ -116,14 +121,17 @@ data class DropDraft(
 /**
  * 捨てたことを破棄の報告にする（ST04 / FR-9 / 深掘り C2 / C3 / C8 / C12 / design D4）。
  *
- * - 送る前の下書きは `openFile` に置く（小さい。書き直してよい）。書けなければメモリに持つ
+ * - 送る前の下書きは `openFile` に置く（小さい。書き直してよい）
  * - `freeze()` で下書きを `frozen`（区切りの置き場）へ積み、以後は書き換えない。**送信に載せる前に必ず呼ぶ**
  * - 範囲の終わり: 同じソースで残った最も古い記録の出来事の時刻が、最後に捨てた記録から 1 時間以内ならその時刻、
  *   なければ最後に捨てた記録の直後（+1 ms）。**1 件だけ捨てても終わりは始まりより後**（R4）
  * - 次に捨てる記録の出来事の時刻が、下書きの範囲の終わりから 1 時間を超えて離れる、または始まりより前に戻るなら、
- *   下書きを凍結して新しい下書きにする（過去の写真をまとめて積んだソースで、何年もの範囲が 1 本にならないように）
+ *   下書きを閉じて新しい下書きにする（過去の写真をまとめて積んだソースで、何年もの範囲が 1 本にならないように）
  *
- * 「残った最も古い記録」は**積んだ順で先頭の記録**で読む（全件の出来事の時刻を読まない。位置では同じ）。
+ * **証拠は消す前に書く**（review R26）。捨てる側（`Retention`）は `record` で下書きに足して保存し、
+ * 保存できたときだけ置き場から消す。保存できなければ下書きを元に戻す。
+ *
+ * 「残った最も古い記録」は**積んだ順で先頭の記録**で読む（全件の出来事の時刻を読まない。位置では同じ。design D17）。
  */
 class DropLedger(
     private val openFile: File,
@@ -134,27 +142,34 @@ class DropLedger(
     private val newId: () -> String,
     private val log: (String) -> Unit,
 ) {
-    private val drafts = LinkedHashMap<Pair<String, String>, DropDraft>()
+    /** 下書き。閉じていないものは**ソース × 理由ごとに 1 本だけ** */
+    private val drafts = ArrayList<DropDraft>()
+    private var blankUserLogged = false
 
     init {
         load()
     }
 
-    /** 捨てた記録 1 件を下書きに足す。**保存はしない**（`endBatch` がまとめて書く）。 */
+    private fun openIndex(source: String, reason: String) =
+        drafts.indexOfFirst { !it.closed && it.source == source && it.reason == reason }
+
+    /** 捨てた記録 1 件を下書きに足す。**保存はしない**（`record` / `endBatch` がまとめて書く）。 */
     @Synchronized
     fun dropped(source: String, reason: DropReason, eventTime: Instant) {
         val t = eventTime.toEpochMilli()
-        val key = source to reason.wire
-        var d = drafts[key]
-        if (d != null && d.startMs != null && d.endMs != null && (t < d.startMs || t - d.endMs > HOUR_MS)) {
-            // 離れた・戻った —— 伸ばさずに凍結し、新しい下書きにする
-            freezeOne(key, d)
-            d = null
+        var i = openIndex(source, reason.wire)
+        if (i >= 0) {
+            val d = drafts[i]
+            if (d.startMs != null && d.endMs != null && (t < d.startMs || t - d.endMs > HOUR_MS)) {
+                // 離れた・戻った —— 伸ばさずに閉じ、新しい下書きにする
+                drafts[i] = d.copy(closed = true)
+                i = -1
+            }
         }
-        val base = d ?: DropDraft(newId(), source, reason.wire, now().toString())
+        val base = if (i >= 0) drafts[i] else DropDraft(newId(), source, reason.wire, now().toString())
         val hour = Math.floorDiv(t, HOUR_MS) * HOUR_MS
         val last = maxOf(base.lastMs ?: t, t)
-        drafts[key] = base.copy(
+        val next = base.copy(
             startMs = minOf(base.startMs ?: t, t),
             lastMs = last,
             // ひとまず「最後に捨てた記録の直後」。残った記録が近ければ `endBatch` が伸ばす
@@ -162,47 +177,92 @@ class DropLedger(
             count = base.count + 1,
             hourly = base.hourly + (hour to ((base.hourly[hour] ?: 0) + 1)),
         )
+        if (i >= 0) drafts[i] = next else drafts += next
+    }
+
+    /**
+     * 捨てた記録をまとめて足し、**保存できたときだけ真**（保存できなければ足す前に戻す）。
+     * 置き場から消すのはこれが真を返した後（`SegmentStore.dropHead`）。戻すための控えを返す。
+     */
+    @Synchronized
+    fun record(reason: DropReason, dropped: List<Pair<String, Instant?>>): List<DropDraft>? {
+        val before = drafts.toList()
+        for ((source, t) in dropped) {
+            if (t != null) {
+                dropped(source, reason, t)
+            } else {
+                // 出来事の時刻が読めない記録は範囲に置けない。範囲を持たない報告に数える
+                val i = openIndex(source, DropReason.UNREADABLE.wire)
+                if (i >= 0) {
+                    drafts[i] = drafts[i].copy(count = drafts[i].count + 1)
+                } else {
+                    drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = 1)
+                }
+            }
+        }
+        if (save()) return before
+        drafts.clear()
+        drafts += before
+        return null
+    }
+
+    /** `record` の後で置き場から消せなかったとき、足した分を戻す（二重に数えない）。 */
+    @Synchronized
+    fun restore(before: List<DropDraft>) {
+        drafts.clear()
+        drafts += before
+        save()
     }
 
     /**
      * ひと続きの破棄の終わり。`remainingOldest` は同じソースで残った最も古い記録の出来事の時刻。
-     * 範囲の終わりを決めて下書きを保存する。
+     * 範囲の終わりを決めて下書きを保存する。保存できたか。
      */
     @Synchronized
-    fun endBatch(source: String, reason: DropReason, remainingOldest: Instant?) {
-        val key = source to reason.wire
-        val d = drafts[key] ?: return
-        val last = d.lastMs ?: return
+    fun endBatch(source: String, reason: DropReason, remainingOldest: Instant?): Boolean {
+        val i = openIndex(source, reason.wire)
+        if (i < 0) return true
+        val d = drafts[i]
+        val last = d.lastMs ?: return true
         val r = remainingOldest?.toEpochMilli()
         if (r != null && r > last && r - last <= HOUR_MS && r > (d.endMs ?: 0)) {
-            drafts[key] = d.copy(endMs = r)
+            drafts[i] = d.copy(endMs = r)
         }
-        save()
+        return save()
     }
 
-    /** 置き場の行が読めなかった件数（出来事の時刻が分からないので範囲を持たない。design D6）。 */
+    /** 置き場の行が読めなかった件数（出来事の時刻が分からないので範囲を持たない。design D6）。保存できたか。 */
     @Synchronized
-    fun unreadable(source: String, count: Int) {
-        if (count <= 0) return
-        val key = source to DropReason.UNREADABLE.wire
-        val d = drafts[key] ?: DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString())
-        drafts[key] = d.copy(count = d.count + count)
-        save()
+    fun unreadable(source: String, count: Int): Boolean {
+        if (count <= 0) return true
+        val before = drafts.toList()
+        val i = openIndex(source, DropReason.UNREADABLE.wire)
+        if (i >= 0) {
+            drafts[i] = drafts[i].copy(count = drafts[i].count + count)
+        } else {
+            drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+        }
+        if (save()) return true
+        drafts.clear()
+        drafts += before
+        return false
     }
 
     /**
      * 立て直しで失われた、書けなかった記録（design D5）。**時間の枠ごとに範囲と時間ごとの件数を持つ報告**にし、
-     * 数えきれなかった分は範囲を持たない報告にする。どれも失われた事実なので、その場で凍結する。
+     * 数えきれなかった分は範囲を持たない報告にする。どれも失われた事実なので、閉じた下書きにする。
+     * **保存できたときだけ真**（呼び出し側はそのときだけ数えを 0 に戻す。review R15）。
      */
     @Synchronized
-    fun writeFailed(source: String, slots: List<WriteFailedLedger.Slot>, overflow: Int) {
+    fun writeFailed(source: String, slots: List<WriteFailedLedger.Slot>, overflow: Int): Boolean {
+        val before = drafts.toList()
         val sorted = slots.filter { it.count > 0 }.sortedBy { it.hourMs }
         var group = ArrayList<WriteFailedLedger.Slot>()
         fun emit() {
             if (group.isEmpty()) return
             val start = group.minOf { it.firstMs }
             val last = group.maxOf { it.lastMs }
-            val draft = DropDraft(
+            drafts += DropDraft(
                 id = newId(),
                 source = source,
                 reason = DropReason.WRITE_FAILED.wire,
@@ -212,8 +272,8 @@ class DropLedger(
                 lastMs = last,
                 count = group.sumOf { it.count },
                 hourly = group.associate { it.hourMs to it.count },
+                closed = true,
             )
-            freezeDraft(draft)
             group = ArrayList()
         }
         for (s in sorted) {
@@ -222,60 +282,91 @@ class DropLedger(
         }
         emit()
         if (overflow > 0) {
-            freezeDraft(DropDraft(newId(), source, DropReason.WRITE_FAILED.wire, now().toString(), count = overflow))
+            drafts += DropDraft(newId(), source, DropReason.WRITE_FAILED.wire, now().toString(), count = overflow, closed = true)
         }
+        if (save()) return true
+        drafts.clear()
+        drafts += before
+        return false
     }
 
-    /** 送る前の下書きを全部凍結する（**送信に載せる前に呼ぶ**。spec「送ろうとした報告は書き換えられない」）。 */
+    /**
+     * 下書きを全部凍結する（**送信に載せる前に呼ぶ**。spec「送ろうとした報告は書き換えられない」）。
+     *
+     * - **利用者識別子が決まっていなければ凍結しない**（review R20）。空のまま凍結した報告は受け手に断られ続け、書き換えられない
+     * - 先に全部を閉じて保存してから積む。**積めなかった下書きは消さない**（メモリの報告は捨て、次の凍結でもう一度積む。review R16）
+     */
     @Synchronized
     fun freeze(): Boolean {
         if (drafts.isEmpty()) return true
-        for ((key, d) in drafts.entries.toList()) freezeOne(key, d)
-        return save()
-    }
-
-    /** 送る前の下書き（試験のため）。 */
-    @Synchronized
-    fun drafts(): List<DropDraft> = drafts.values.toList()
-
-    private fun freezeOne(key: Pair<String, String>, d: DropDraft) {
-        drafts.remove(key)
-        freezeDraft(d)
-    }
-
-    private fun freezeDraft(d: DropDraft) {
-        // 書けなくても `Outbox` がメモリに持ち、次の送信で送る（spec「報告を置き場に書けない」）
-        if (!frozen.add(d.toReport(userId(), deviceId))) {
-            log(Telemetry.line("drop_report_not_persisted", count = d.count))
+        val user = userId()
+        if (user.isBlank()) {
+            if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", count = drafts.size, error = "no_user_id"))
+            blankUserLogged = true
+            return false
         }
-        log(Telemetry.line("drop_report", count = d.count, error = d.reason))
+        for (i in drafts.indices) if (!drafts[i].closed) drafts[i] = drafts[i].copy(closed = true)
+        save()
+        var all = true
+        val it = drafts.iterator()
+        while (it.hasNext()) {
+            val d = it.next()
+            val report = d.toReport(user, deviceId)
+            if (frozen.add(report)) {
+                log(Telemetry.line("drop_report", count = d.count, error = d.reason))
+                it.remove()
+            } else {
+                // 積めなかった。メモリにだけある報告は捨て、閉じた下書きのまま次の凍結で積み直す（同じ原文になる）
+                frozen.remove(listOf(report.id))
+                log(Telemetry.line("drop_report_not_persisted", count = d.count))
+                all = false
+            }
+        }
+        return save() && all
     }
+
+    /** 下書き（試験のため）。 */
+    @Synchronized
+    fun drafts(): List<DropDraft> = drafts.toList()
 
     private fun load() {
         if (!openFile.exists()) return
         val list = try {
             ingestJson.decodeFromString(ListSerializer(DropDraft.serializer()), openFile.readText())
         } catch (e: IOException) {
-            log(Telemetry.line("drop_drafts_unreadable", error = e.javaClass.simpleName))
+            // 一時的に読めないだけかもしれない。**上書きしないよう、脇へ退けてから新しく始める**
+            aside(e)
             return
         } catch (e: SerializationException) {
-            log(Telemetry.line("drop_drafts_unreadable", error = e.javaClass.simpleName))
+            aside(e)
             return
         }
         // 凍結して積んだ後、下書きを消す前に落ちた跡は、同じ識別子の報告が既に積まれている。二重に積まない
         val already = frozen.snapshot().mapTo(HashSet()) { it.id }
-        for (d in list) if (d.id !in already) drafts[d.source to d.reason] = d
+        for (d in list) if (d.id !in already) drafts += d
     }
 
-    private fun save(): Boolean = try {
+    /**
+     * 読めない下書きのファイルを退避する（review R10。C9 / D6 の「捨てずに退避」をこのファイルにも）。
+     * 中の件数は読めないので、**読めなかったこと 1 件**を範囲を持たない報告に数える。
+     */
+    private fun aside(e: Exception) {
+        val moved = File(openFile.parentFile, "${openFile.name}.unreadable.${System.currentTimeMillis()}")
+        val ok = openFile.renameTo(moved)
+        log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", error = e.javaClass.simpleName))
+        if (ok) drafts += DropDraft(newId(), LOGICAL_SOURCE, DropReason.UNREADABLE.wire, now().toString(), count = 1)
+    }
+
+    /** 下書きを書く。書けたか。**書けなければメモリに持つ**（呼び出し側が戻すかを決める）。 */
+    @Synchronized
+    fun save(): Boolean = try {
         openFile.parentFile?.mkdirs()
         val tmp = File(openFile.parentFile, "${openFile.name}.tmp")
-        tmp.writeText(ingestJson.encodeToString(ListSerializer(DropDraft.serializer()), drafts.values.toList()))
+        tmp.writeText(ingestJson.encodeToString(ListSerializer(DropDraft.serializer()), drafts.toList()))
         if (!tmp.renameTo(openFile)) throw IOException("rename")
         true
     } catch (e: IOException) {
-        // 書けなければメモリに持つ（次の送信で凍結して送る）
-        log(Telemetry.line("drop_drafts_save_failed", error = e.message ?: e.javaClass.simpleName))
+        log(Telemetry.line("drop_drafts_save_failed", error = e.javaClass.simpleName))
         false
     }
 
@@ -346,15 +437,24 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         write()
     }
 
-    /** 数えを取り出して 0 に戻す（起動時に呼ぶ。0 でなければ失われた分）。 */
+    /** いまの数え（起動時に読む。0 でなければ前のプロセスで失われた分）。**0 に戻さない。** */
     @Synchronized
-    fun take(): Pair<List<Slot>, Int> {
-        val got = slots.filterNotNull() to overflow.toInt()
+    fun peek(): Pair<List<Slot>, Int> = slots.filterNotNull() to overflow.toInt()
+
+    /**
+     * 0 に戻す。**報告を保存できた後にだけ呼ぶ**（review R15）。先に戻すと、報告を書けないまま立て直したときに痕跡が消える。
+     * ファイルに書けたか。
+     */
+    @Synchronized
+    fun clear(): Boolean {
         slots.fill(null)
         overflow = 0
-        write()
-        return got
+        return write()
     }
+
+    /** 取り出して 0 に戻す（試験のため）。 */
+    @Synchronized
+    fun take(): Pair<List<Slot>, Int> = peek().also { clear() }
 
     /** ファイルの大きさ（試験のため。**伸びない**こと）。 */
     fun fileBytes(): Long = file.length()
@@ -378,9 +478,15 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         }
     }
 
-    private fun write() {
-        if (!usable) return
-        try {
+    private fun write(): Boolean {
+        if (!usable) {
+            // **ずっと諦めない**（review R34）。起動時に空きが無くて作れなかっただけなら、空きが戻れば作れる
+            usable = runCatching {
+                RandomAccessFile(file, "rw").use { if (it.length() != SIZE.toLong()) it.setLength(SIZE.toLong()) }
+            }.isSuccess
+            if (!usable) return false
+        }
+        return try {
             RandomAccessFile(file, "rw").use { raf ->
                 val buf = java.nio.ByteBuffer.allocate(SIZE)
                 buf.put(MAGIC)
@@ -399,9 +505,11 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
                 // **上書きだけ。** `setLength` を呼ばない（伸ばしも縮めもしない）
                 raf.write(buf.array())
             }
+            true
         } catch (e: IOException) {
-            // ファイルにも書けない。メモリにだけ数える（立て直されたら消える。spec）
+            // ファイルにも書けない。メモリにだけ数える（立て直されたら消える。design D5）
             log(Telemetry.line("write_failed_ledger_save_failed", error = e.javaClass.simpleName))
+            false
         }
     }
 

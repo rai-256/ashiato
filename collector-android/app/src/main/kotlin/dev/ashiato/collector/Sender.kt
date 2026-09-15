@@ -121,13 +121,17 @@ class Sender<T : Outboxable>(
         }
         val responded = verdict.responded
 
+        var removed = verdict.remove.size
         if (verdict.remove.isNotEmpty() && !outbox.remove(verdict.remove)) {
-            // 取り除けたが置き場へ書けなかった。**次の起動で再送になる**（重複は入らない）
+            // 受け付けられたが置き場へ書けなかった。**次の契機で再送になる**（重複は入らない）。
+            // **取り除けたと数えない**（review R5）—— 数えると、溜まっている間は続けて送る判定が真のままになり、
+            // 同じ 200 件を 1 回の契機の中で送り続ける
             log(Telemetry.line("outbox_shrink_failed", count = verdict.remove.size))
+            removed = 0
         }
         log(Telemetry.line("send", count = batch.size))
         log(Telemetry.line("accepted", count = verdict.accepted))
-        return Flushed(batch.size, verdict.accepted, verdict.remove.size, responded)
+        return Flushed(batch.size, verdict.accepted, removed, responded)
     }
 
     /**

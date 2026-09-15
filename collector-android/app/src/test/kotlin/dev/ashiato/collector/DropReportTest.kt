@@ -134,14 +134,17 @@ class DropReportTest {
         st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T12:00:00.001Z"))
         st.ledger.endBatch(LOGICAL_SOURCE, DropReason.AGE, null)
 
-        val old = st.drops.snapshot().single()
-        assertEquals("元の報告の範囲が伸びている", Instant.ofEpochMilli(before.endMs!!).toString(), old.rangeEnd)
+        // 元の報告は閉じて（もう伸ばさない）、新しい下書きが開く
+        val (old, fresh) = st.ledger.drafts().partition { it.closed }.let { it.first.single() to it.second.single() }
+        assertEquals("元の報告の範囲が伸びている", before.endMs, old.endMs)
         assertEquals(1, old.count)
-        val fresh = st.ledger.drafts().single()
         assertEquals(at("2026-06-01T12:00:00.001Z").toEpochMilli(), fresh.startMs)
         // 範囲の始まりより前に戻っても新しい報告
         st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T11:59:00Z"))
-        assertEquals(2, st.drops.snapshot().size)
+        assertEquals(2, st.ledger.drafts().count { it.closed })
+        st.ledger.freeze()
+        assertEquals(3, st.drops.snapshot().size)
+        assertEquals(Instant.ofEpochMilli(before.endMs!!).toString(), st.drops.snapshot().first().rangeEnd)
     }
 
     // Scenario: 残った記録が離れていれば範囲の終わりは最後に捨てた記録の直後
@@ -189,5 +192,81 @@ class DropReportTest {
         assertEquals(a.raw, b.raw)
         val raw = Json.parseToJsonElement(a.raw).jsonObject
         assertEquals(setOf("id", "user_id", "logical_source", "device_id", "reason", "created_at", "range_start", "range_end", "count", "hourly"), raw.keys)
+    }
+
+    /** 「1 時間以内」の境界（review R9）: ちょうど 1 時間ならその時刻、1 時間 + 1 ms なら最後の直後。 */
+    @Test
+    fun `残った記録がちょうど 1 時間後ならその時刻、1 ミリ秒でも越えれば最後の直後`() {
+        st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
+        st.ledger.endBatch(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T11:00:00Z"))
+        assertEquals("2026-06-01T11:00:00Z", report().rangeEnd)
+        st.ledger.dropped(LOGICAL_SOURCE, DropReason.BYTES, at("2026-06-01T10:00:00Z"))
+        st.ledger.endBatch(LOGICAL_SOURCE, DropReason.BYTES, at("2026-06-01T11:00:00.001Z"))
+        assertEquals("2026-06-01T10:00:00.001Z", report().rangeEnd)
+    }
+
+    /** 「1 時間を超えて離れたら別の報告」の境界（review R9）: ちょうど 1 時間なら伸ばし、1 ms 越えれば分ける。 */
+    @Test
+    fun `範囲の終わりからちょうど 1 時間なら伸ばし、1 ミリ秒越えれば別の報告`() {
+        st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
+        // 範囲の終わりは 10:00:00.001。ちょうど 1 時間後
+        st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T11:00:00.001Z"))
+        assertEquals(1, st.ledger.drafts().size)
+        assertEquals(2, st.ledger.drafts().single().count)
+        // 範囲の終わりは 11:00:00.002。1 時間 + 1 ms 後
+        st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T12:00:00.003Z"))
+        assertEquals(2, st.ledger.drafts().size)
+    }
+
+    /** 利用者識別子が決まっていなければ凍結しない（review R20。空のまま凍結した報告は受け手に断られ続け、書き換えられない）。 */
+    @Test
+    fun `利用者識別子が空のうちは凍結せず、決まってから凍結する`() {
+        var user = ""
+        val ledger = DropLedger(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log)
+        ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
+        ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T13:00:00Z")) // 離れて閉じた 1 本も含む
+        assertFalse(ledger.freeze())
+        assertEquals(0, st.drops.size())
+        assertEquals(2, ledger.drafts().size)
+        user = "user-1"
+        assertTrue(ledger.freeze())
+        assertTrue(st.drops.snapshot().all { it.userId == "user-1" })
+        assertEquals(2, st.drops.size())
+    }
+
+    /** 積めなかった下書きは消さない（review R16）。メモリの報告は捨て、次の凍結で同じ原文を積み直す。 */
+    @Test
+    fun `凍結で積めなかった下書きは残り、次の凍結で同じ原文を積む`() {
+        val blocked = java.io.File(st.dir, "blocked-drops").apply { writeText("x") }
+        val failing = Outbox(SegmentStore(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log), st.age::now)
+        val openFile = java.io.File(st.dir, "retry.json")
+        val ledger = DropLedger(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log)
+        ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
+        ledger.endBatch(LOGICAL_SOURCE, DropReason.AGE, null)
+        assertFalse(ledger.freeze())
+        assertEquals("積めなかった報告がメモリに残っている（下書きと二重になる）", 0, failing.size())
+        val kept = ledger.drafts().single()
+        assertTrue(kept.closed)
+        // 閉じた下書きは伸ばさない
+        ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:01:00Z"))
+        assertEquals(kept, ledger.drafts().first())
+        // 立て直しても同じ下書きが戻り、積める置き場へ凍結すると同じ原文になる
+        val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log)
+        assertTrue(reborn.drafts().contains(kept))
+        reborn.freeze()
+        assertTrue(st.drops.snapshot().any { it.raw == kept.toReport("user-1", "device-1").raw })
+    }
+
+    /** 読めない下書きのファイルは退避して、読めなかったこと 1 件を数える（review R10）。 */
+    @Test
+    fun `読めない下書きのファイルは上書きせずに退避する`() {
+        val openFile = java.io.File(st.dir, "broken-open.json").apply { writeText("[{\"id\":\"x\",\"count\":180") }
+        val ledger = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log)
+        val aside = st.dir.listFiles { f -> f.name.startsWith("broken-open.json.unreadable.") }.orEmpty()
+        assertEquals(1, aside.size)
+        assertEquals("[{\"id\":\"x\",\"count\":180", aside.single().readText())
+        val d = ledger.drafts().single()
+        assertEquals("unreadable", d.reason)
+        assertEquals(1, d.count)
     }
 }

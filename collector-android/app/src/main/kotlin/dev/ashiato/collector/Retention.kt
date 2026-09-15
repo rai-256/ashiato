@@ -59,23 +59,30 @@ class Retention<T : Retainable>(
         val p = policy()
         val now = age()
         // 90 日を先に見る（理由が違う破棄は別の報告になる。spec）
-        val byAge = dropBy(DropReason.AGE) { onDrop -> records.dropHead({ now - it.enqAgeMs > p.maxAgeMs }, onDrop) }
-        val byBytes = dropBy(DropReason.BYTES) { onDrop -> records.dropUntilBytes(p.maxBytes, onDrop) }
+        val byAge = dropBy(DropReason.AGE) { commit, rollback ->
+            records.dropHead({ now - it.enqAgeMs > p.maxAgeMs }, commit, rollback)
+        }
+        val byBytes = dropBy(DropReason.BYTES) { commit, rollback ->
+            records.dropUntilBytes(p.maxBytes, commit, rollback)
+        }
         return byAge + byBytes
     }
 
-    private fun dropBy(reason: DropReason, run: ((Stored<T>) -> Unit) -> Int): Int {
+    private fun dropBy(
+        reason: DropReason,
+        run: (commit: (List<Stored<T>>) -> Boolean, rollback: (List<Stored<T>>) -> Unit) -> Int,
+    ): Int {
         val touched = LinkedHashSet<String>()
-        val n = run { entry ->
-            val t = instantOf(entry.item.eventTime)
-            if (t != null) {
-                ledger.dropped(entry.item.logicalSource, reason, t)
-            } else {
-                // 出来事の時刻が読めない記録は範囲に置けない。範囲を持たない報告に数える
-                ledger.unreadable(entry.item.logicalSource, 1)
-            }
-            touched += entry.item.logicalSource
-        }
+        var before: List<DropDraft>? = null
+        val n = run(
+            { gone ->
+                // **証拠を先に書く**（review R26）。下書きに足して保存できたときだけ、置き場から消させる
+                before = ledger.record(reason, gone.map { it.item.logicalSource to instantOf(it.item.eventTime) })
+                if (before != null) gone.forEach { touched += it.item.logicalSource }
+                before != null
+            },
+            { _ -> before?.let(ledger::restore) },
+        )
         if (n > 0) {
             val remaining = records.oldest()?.item?.eventTime?.let(::instantOf)
             for (source in touched) ledger.endBatch(source, reason, remaining)
@@ -117,6 +124,7 @@ class RetentionNotifier(
     private val log: (String) -> Unit = {},
 ) {
     private var lastText: String? = null
+    private var blockedLogged = false
 
     @Synchronized
     fun update() {
@@ -131,18 +139,24 @@ class RetentionNotifier(
         }
         if (elapsed != null && elapsed >= p.alertAgeMs) {
             if (!mark.exists()) {
-                if (!alerts.alert(days)) log(Telemetry.line("retention_alert_blocked", count = days))
-                // 出せなくても印は付ける —— 5 分ごとにログを積み上げない（出せないことは 1 行残した）
-                try {
-                    mark.parentFile?.mkdirs()
-                    mark.writeText(days.toString())
-                } catch (e: IOException) {
-                    log(Telemetry.line("retention_mark_failed", error = e.javaClass.simpleName))
+                if (alerts.alert(days)) {
+                    try {
+                        mark.parentFile?.mkdirs()
+                        mark.writeText(days.toString())
+                    } catch (e: IOException) {
+                        log(Telemetry.line("retention_mark_failed", error = e.javaClass.simpleName))
+                    }
+                } else if (!blockedLogged) {
+                    // **出せなかったら印を付けない**（review R39）。付けると、権限を戻しても 83 日を下回るまで鳴らない。
+                    // ログは 1 度だけ（5 分ごとに積み上げない）
+                    log(Telemetry.line("retention_alert_blocked", count = days))
+                    blockedLogged = true
                 }
             }
         } else if (mark.exists()) {
             // 送れて古い分が無くなった。次の長い圏外ではまた鳴る
-            mark.delete()
+            if (!mark.delete()) log(Telemetry.line("retention_mark_delete_failed"))
+            blockedLogged = false
         }
     }
 
