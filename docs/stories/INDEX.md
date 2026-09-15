@@ -67,7 +67,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03, ST05 |
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35 |
-| `desktop-collection` | PC からの収集 | ST07, ST08 |
+| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, ST14, ST15 |
 | `derived-records` | 派生（滞在） | ST16 |
@@ -137,7 +137,9 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >
 > - **代償: ST04 の上流が `device-collection` を触っているので、ST05 は盤面上 `衝突待ち` になる。**
 >   ST05 は深掘りと proposal までを進め、specs 以降は ST04 の archive を待つ（`openspec/changes/st05-clock-skew/deep.md`）
-> - 深掘り Q3（PC 側の測り方を揃えるか）で揃える側が選ばれたら `desktop-collection` にも足す。そのときは ST08 と同時に走れない
+> - **`desktop-collection` にも足した**（深掘り Q3 で本人が「PC 側の測り方を揃える」を選んだ）。
+>   PC 側の測定（ST07）を取れなかった契機の印・前後の単調時計・Windows の時刻同期の状態まで揃える。
+>   **代償: ST05 が走っている間、ST08 は `衝突待ち`**
 
 > **この型は繰り返し出る** —— 「土台の Story が、後続の capability に属する振る舞いを
 > 先に書いてしまう」。capability の**作成**を前倒し、後続が要件を**足す**形にすれば、
