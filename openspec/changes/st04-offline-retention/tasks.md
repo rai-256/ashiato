@@ -155,13 +155,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 11. まとめの検査
 
-- [ ] 11.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+- [x] 11.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
   `cd web && npm run test && npm run lint && npm run build` rc=0、`cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest` rc=0
-- [ ] 11.2 検証: `python3 scripts/check_scenarios.py . st04-offline-retention` rc=0（81 本すべてに印か、人間の確認待ち）
-- [ ] 11.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st04-offline-retention --strict` rc=0、
+- [x] 11.2 検証: `python3 scripts/check_scenarios.py . st04-offline-retention` rc=0（81 本すべてに印か、人間の確認待ち）
+- [x] 11.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st04-offline-retention --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` がすべて rc=0
 - [ ] 11.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D8 / D10 / D11 / D12）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(1|2|3|5|8|10|11|12)（仮）"` が 8 以上
-- [ ] 11.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST04.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
+- [x] 11.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST04.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
 ## 人間の確認待ち
 
