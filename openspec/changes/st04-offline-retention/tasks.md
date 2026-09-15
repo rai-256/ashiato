@@ -31,22 +31,22 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 1. 移行（design D7 / D16）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_drop_reports.sql` と `.down.sql` を足す —— `core.drop_report`（`user_id` あり）、`core.drop_report_hour`、
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_drop_reports.sql` と `.down.sql` を足す —— `core.drop_report`（`user_id` あり）、`core.drop_report_hour`、
   `(user_id, logical_source, content_hash)` の一意索引、`drop_report (logical_source, range_start)` の索引、
   `CHECK (range_end IS NULL OR range_start < range_end)` / `CHECK (count > 0)`、2 表の UPDATE / DELETE / TRUNCATE を拒むトリガ。
   **当て直せる形**（`IF NOT EXISTS`）。`MIGRATIONS` 配列の末尾に足す。
   検証: `tools/check-migrations.sh` rc=0、`CT drop_reports_migration_applies_twice`
-- [ ] 1.2 `tools/check-immutable.sh` に 2 表を足す（全列の UPDATE と DELETE が拒まれる）。
+- [x] 1.2 `tools/check-immutable.sh` に 2 表を足す（全列の UPDATE と DELETE が拒まれる）。
   Scenario: `格納された破棄の報告は書き換えられない`。検証: `tools/check-immutable.sh` rc=0
 
 ## 2. 破棄の報告の受け口（design D7）
 
-- [ ] 2.1 `crates/server/src/drops.rs` に `DropReport` の形と検査（`heartbeat.rs` に揃える）。
+- [x] 2.1 `crates/server/src/drops.rs` に `DropReport` の形と検査（`heartbeat.rs` に揃える）。
   Scenario: `時間ごとの件数が合わない報告は受け付けられない` / `範囲が空の報告は受け付けられない` / `読めなかった行の報告は範囲なしで受け付けられる` /
   `端末識別子の無い報告は受け付けられない` / `知らない理由の報告は受け付けられない` / `件数が 0 の報告は受け付けられない` /
   `範囲を欠く 90 日の報告は受け付けられない` / `範囲の外の時間に件数を置いた報告は受け付けられない`。
   検証: `CT drop_report_validate`
-- [ ] 2.2 `POST /drops` を足す（配列でも 1 件でも / 1 件ごとの結果 / 1 件も受け付けなければ 400 / 応答に値を含めない / 冪等キーは `logical_source` + `raw`）。
+- [x] 2.2 `POST /drops` を足す（配列でも 1 件でも / 1 件ごとの結果 / 1 件も受け付けなければ 400 / 応答に値を含めない / 冪等キーは `logical_source` + `raw`）。
   Scenario: `破棄の報告を複数件まとめて受け取る` / `一部が不正でも正しい破棄の報告は受け付けられる` /
   `破棄の報告がすべて拒否されたときだけ要求が拒否される` / `破棄の報告の拒否の応答に受け取った値が含まれない` /
   `同じ破棄の報告を 2 回送っても 1 つ` / `破棄の報告の原文が 1 バイトも変わらずに残る` / `破棄の報告の受信時刻が時刻のまま残る` /
@@ -54,15 +54,15 @@ DB を使う検査は `docker compose up -d db` が前提。
   **既存の `crates/server/src/coverage/tests/spans.rs` の `drop_is_stored_with_count`（Scenario: `破棄が期間と件数で残る`）は、`core.coverage_span` へ直接 INSERT している。**
   ST04 の後は書き手のいない表なので、**同じ印を `/drops` 経由で入れて読み戻す結合テストにも置く**（直接 INSERT のテストは `coverage_span` の読み手の試験として残す）。
   検証: `CT drops_api`、`grep -rn 'Scenario: 破棄が期間と件数で残る' crates/server/src | grep -v spans.rs` が 1 件以上
-- [ ] 2.3 `docs/openapi.json` と `docs/collector-contract.md` に `/drops` の形を足す。検証: `tools/check-openapi.sh` rc=0、
+- [x] 2.3 `docs/openapi.json` と `docs/collector-contract.md` に `/drops` の形を足す。検証: `tools/check-openapi.sh` rc=0、
   `grep -c '"/drops"' docs/openapi.json` が 1 以上
 
 ## 3. 稼働状況（design D8 / D9）
 
-- [ ] 3.1 `coverage.rs` の `dropped_full` を、同じソースの破棄の範囲（`drop_report` ＋ `coverage_span` の `dropped`）を**端が接するもの・重なるものでつないだ範囲**で判定する形にする。
+- [x] 3.1 `coverage.rs` の `dropped_full` を、同じソースの破棄の範囲（`drop_report` ＋ `coverage_span` の `dropped`）を**端が接するもの・重なるものでつないだ範囲**で判定する形にする。
   Scenario: `端が接する 2 本の破棄は合わせて丸ごと判定される` / `離れた 2 本の破棄は合わせない`。
   検証: `CT dropped_ranges_merge`、既存の `CT coverage` がすべて通る
-- [ ] 3.2 `DayCell` に `dropped_count` と `dropped_ranges`（`from` / `to` は `Asia/Tokyo` の `HH:MM`、日の終わりは `24:00`）を足す。`unreadable` の報告は日に入れない。
+- [x] 3.2 `DayCell` に `dropped_count` と `dropped_ranges`（`from` / `to` は `Asia/Tokyo` の `HH:MM`、日の終わりは `24:00`）を足す。`unreadable` の報告は日に入れない。
   Scenario: `日をまたぐ破棄は日ごとに切られる` / `範囲を持たない破棄は日の件数に入らない` / `同じ報告を 2 回受けても日の件数は 1 回ぶん`。
   検証: `CT day_cell_dropped`（10:00〜13:00 の 180 件 → `dropped_count = 180`・`dropped_ranges = [{from:"10:00",to:"13:00",count:180}]`、
   丸ごとの日 → 状態 `dropped` と件数）、`tools/check-openapi.sh` rc=0

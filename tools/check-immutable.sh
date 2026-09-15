@@ -515,6 +515,80 @@ orphan=$(psql -c "SELECT
 echo "  OK 消えた本文はすべて台帳に載っている"
 
 
+# ================================================================ ST04 の破棄の報告
+#
+# **破棄の報告は「バッファから破棄されたのか」の唯一の証拠**（扉 #14 / FR-9）。
+# 端末は送れた報告を持たないので、書き換えられると取り直す手段が無い。
+# 生存信号と同じく**列ごとに**投げ、削除と表の切り詰めも拒まれることを見る。
+echo "== ST04: 破棄の報告を 1 件置く"
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('drop-check','破棄の報告の確認用',21600,'none') ON CONFLICT DO NOTHING;" >/dev/null
+DID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+psql -c "INSERT INTO core.drop_report
+           (id, user_id, logical_source, device_id, reason, range_start, range_end, count,
+            created_at, content_hash, raw)
+         VALUES ('$DID','00000000-0000-0000-0000-000000000000','drop-check','drop-dev','age',
+                 '2026-09-01T01:00:00Z','2026-09-01T04:00:00Z',180,'2026-09-14T00:00:00Z',
+                 'drop-check-hash','{\"reason\":\"age\"}');
+         INSERT INTO core.drop_report_hour (report_id, hour, count)
+         VALUES ('$DID','2026-09-01T01:00:00Z',60),('$DID','2026-09-01T02:00:00Z',60),
+                ('$DID','2026-09-01T03:00:00Z',60);" >/dev/null
+
+# Scenario: 格納された破棄の報告は書き換えられない
+for col in id user_id logical_source device_id reason range_start range_end count created_at received_at content_hash raw; do
+  case "$col" in
+    id)                                  val="'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'" ;;
+    user_id)                             val="'11111111-1111-4111-8111-111111111111'" ;;
+    logical_source)                      val="'immutable-check'" ;;
+    reason)                              val="'bytes'" ;;
+    range_start)                         val="'2026-09-01T00:00:00Z'" ;;
+    range_end|created_at|received_at)    val="'2026-09-02T00:00:00Z'" ;;
+    count)                               val="1" ;;
+    *)                                   val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.drop_report SET $col = $val WHERE id = '$DID';" >/dev/null 2>&1; then
+    echo "  NG 破棄の報告の $col が書き換えられた（FR-9 違反）"; fail=1
+  else
+    echo "  OK 破棄の報告の $col の書き換えは拒まれた"
+  fi
+done
+for col in report_id hour count; do
+  case "$col" in
+    report_id) val="'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'" ;;
+    hour)      val="'2026-09-01T09:00:00Z'" ;;
+    count)     val="1" ;;
+  esac
+  if psql -c "UPDATE core.drop_report_hour SET $col = $val WHERE report_id = '$DID';" >/dev/null 2>&1; then
+    echo "  NG 時間ごとの件数の $col が書き換えられた（日の件数が嘘になる）"; fail=1
+  else
+    echo "  OK 時間ごとの件数の $col の書き換えは拒まれた"
+  fi
+done
+# **削除と切り詰めも拒む**（UPDATE だけを止めると、消して入れ直す 2 手で差し替えられる。ST02 の R22）
+for stmt in "DELETE FROM core.drop_report_hour WHERE report_id = '$DID';" \
+            "DELETE FROM core.drop_report WHERE id = '$DID';" \
+            "TRUNCATE core.drop_report_hour;" \
+            "TRUNCATE core.drop_report CASCADE;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 破棄の報告が消せた: $stmt"; fail=1
+  fi
+done
+left=$(psql -c "SELECT (SELECT count(*) FROM core.drop_report WHERE id = '$DID')
+                    || '/' || (SELECT coalesce(sum(count), 0) FROM core.drop_report_hour WHERE report_id = '$DID');")
+[ "$left" = "1/180" ] || { echo "  NG 破棄の報告が変わっている（$left。1/180 のはず）"; fail=1; }
+echo "  OK 破棄の報告は行ごとも表ごとも消せない"
+# 1 件の破棄が空の範囲で入らないこと（R4。`coverage_span` はここで 500 を返していた）
+if psql -c "INSERT INTO core.drop_report
+              (id, user_id, logical_source, device_id, reason, range_start, range_end, count,
+               created_at, content_hash, raw)
+            VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','00000000-0000-0000-0000-000000000000',
+                    'drop-check','drop-dev','age','2026-09-01T01:00:00Z','2026-09-01T01:00:00Z',1,
+                    now(),'drop-empty','{}');" >/dev/null 2>&1; then
+  echo "  NG 空の範囲の破棄の報告が入った"; fail=1
+else
+  echo "  OK 空の範囲の破棄の報告は DB が拒む"
+fi
+
 # --- 戻し手順が当たること（R117）。
 # `tools/check-migrations.sh` は **down.sql の存在と「不可逆」の記載だけ**を静的に見ており、
 # **1 度も当てていない**。この change で 5 本増えるので、ここで逆順に当てて構文と依存を見る。
@@ -528,6 +602,15 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
+# **ST04 の破棄の報告の版をいちばん先に戻す**（最後に足した版）。戻して進め直せることまで見る
+psql < "migrations/202609151546_drop_reports.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.drop_report') IS NULL AND to_regclass('core.drop_report_hour') IS NULL;")" = "t" ] \
+  || { echo "  NG 破棄の報告の戻しで表が消えていない"; fail=1; down_fail=1; }
+psql < "migrations/202609151546_drop_reports.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609151546_drop_reports.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 # **ST16 の滞在の版を先に戻す**（ST16 の review/code.md R39）。滞在の台帳は `core.event` を指すので、
 # ST03 の戻しより前に当てる。戻して進め直せることまで見る（前進のみの版を戻す運用が成り立つ）
 psql < "migrations/202609142125_stays.down.sql" >/dev/null 2>&1 \
@@ -543,7 +626,7 @@ for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK ST16 の 1 本と ST03 の 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \
