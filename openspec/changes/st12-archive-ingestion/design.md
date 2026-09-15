@@ -33,12 +33,13 @@
 | D6 | 各解析器が作る記録 | Q1 | 解析済みの欄は仮 |
 | D7 | 書庫の台帳と書庫の中のファイルの表（追記のみ） | C16 / C4 / C5 / spec R7 / R13 | 場所の上限と失敗の回数だけ仮 |
 | D8 | 読んだ書庫の覚え方と「置き場で見たファイル」 | C5 / R9 | —— |
-| D9 | 写しと本人のファイル | Q2（本人。補足の設定）/ C14 | 写しの置き場の既定だけ仮 |
+| D9 | 写しと本人のファイル | Q2（本人。補足の設定）/ 第 2 回 Q11（本人）/ C14 | 写しの置き場の既定だけ仮 |
 | D10 | 取り込み器の生存信号は取り込み器の論理ソース 1 本に | C17 → C19 / C20 / deep R4 / spec R8 / R9 / deep-r2 R1 / R3 | 仮 |
 | D11 | 取り込み済みの最終日は台帳の列から導く | Q4（本人）/ C12 / spec R13 | —— |
-| D12 | 稼働状況の API と画面 | Q5（本人）/ C22 | 取り込み器の止まりを出す閾値だけ仮 |
-| D13（仮） | 変えないもの（画面の要件を `external-ingestion` に置く） | Step 3 / spec R2 | 仮 |
+| D12 | 稼働状況の API と画面 | Q5（本人）/ 第 2 回 Q9（本人）/ C22 | 箱の高さの上限と取り込み器の止まりを出す閾値だけ仮 |
+| D13 | 変えないもの・`collection-coverage` に触るもの | Step 3 / spec R2 / 第 2 回 Q9（本人） | —— |
 | D14 | 移行は 1 本 | —— | —— |
+| D16 | 形の確認の印（Takeout の書庫の中身） | 第 2 回 Q10（本人） | 「確かめた形」の範囲だけ仮 |
 | D15 | 完了の判定を機械で確かめる | 完了の判定 1〜5 | —— |
 
 ---
@@ -54,7 +55,7 @@
 | `ASHIATO_INBOX_DIR` | 専用のフォルダ | `%USERPROFILE%\Documents\ashiato\取り込み待ち`（本人の例。Q3） |
 | `ASHIATO_DOWNLOADS_DIR` | ブラウザのダウンロードのフォルダ | `%USERPROFILE%\Downloads` |
 | `ASHIATO_ARCHIVE_COPY_DIR` | 写しの置き場（D9） | `%LOCALAPPDATA%\ashiato\archive-copies` |
-| `ASHIATO_ARCHIVE_KEEP_COPIES` | 写しを残すか（本人の補足。第 2 回 Q11 で読みを確かめる） | `true`（`false` だけを「残さない」と読む） |
+| `ASHIATO_ARCHIVE_KEEP_COPIES` | 写しを残すか（本人の補足。第 2 回 Q11 で「写しを作らない・既存は残す」と決まった） | `true`（`false` だけを「残さない」と読む） |
 | `ASHIATO_ARCHIVE_USER_ID` | 書庫の記録の利用者識別子（FR-29） | 無し |
 | `ASHIATO_ARCHIVE_SCAN_SEC` | 走査の間隔 | `120`（試験だけが縮める） |
 
@@ -88,10 +89,10 @@
   反転条件: 本人が移行前のファイルを分けて何度も置き、退役した格子が一時的に「途絶」で見えるのが紛らわしいと分かったとき
 - `rawSignals` を捨てずに `c03-timeline-signal` に入れるのは、端末の中の短期の生の信号で、書き出しの後に端末から消えるため（捨てるより入れる）
 
-**マイアクティビティの名前（仮。第 2 回 Q10 で本人に問うている —— 答えで変わる）**: 中の製品は書庫によって増える（検索・Discover・Play・マップ・アシスタント…）ので、固定の表にしない。
+**マイアクティビティの名前（仮。第 2 回 Q10 で本人が「形の確認の印を置くまで格納しない」を選んだので、この規則は印の前に `archive-shape` の出力で確かめられる。D16）**: 中の製品は書庫によって増える（検索・Discover・Play・マップ・アシスタント…）ので、固定の表にしない。
 項目の `products[0]` を小文字の ASCII に畳んだもの（英数字以外は `-`）を `<製品>` にする。ASCII に畳めない名前は `u` + その名前の SHA-256 の先頭 12 桁。
 **登録簿に無い `<製品>` が出てきたら、取り込み器が登録簿に 1 行足してから格納する**（FR-61 の「1 行足すだけ」を取り込み器が行う。想定間隔 60 日・粒度 `none`・`display_name` は元の名前）。
-反転条件: 実物の書庫で `products` が無い・言語で変わると分かったとき（名前は凍結されるので、**最初の本物の書庫を入れる前に** `tools/archive-shape.sh`（D15）で確かめる）。
+反転条件: 印を置く前の `archive-shape` の出力で `products` が無い・言語で変わると分かったとき（**印を置く前なので、何も凍結されていない**。規則を直して解析器の版を上げてから印を置く）。
 
 ## D3（仮）. 中身の見分け方
 
@@ -175,7 +176,7 @@ core.archive_ledger        1 行 = 1 回の読み（読めた / 読めなかっ�
   id uuid, user_id, sha256, file_name, size_bytes,
   created_at timestamptz, created_at_from ('name' | 'first_seen'),
   inbox ('dedicated' | 'downloads'), first_seen_at, started_at, finished_at,
-  parser_version int, outcome ('read' | 'unreadable' | 'already_read' | 'store_failed'), unreadable_kind text NULL,
+  parser_version int, outcome ('read' | 'unreadable' | 'already_read' | 'store_failed' | 'pending_shape'), unreadable_kind text NULL,
   already_read_ledger_id uuid NULL   … already_read のとき、前に読んだ行（画面の「前に読んだ時刻」）
   skipped_files int
 core.archive_ledger_source 1 行 = 1 回の読み × 1 論理ソース
@@ -208,8 +209,8 @@ core.archive_file          1 行 = 読んだ製品のファイル 1 つ（写し
 ## D9. 写しと本人のファイル
 
 **本人の決定（Q2）**: 読んだ製品のファイルだけ写しを残し、専用のフォルダの書庫は「取り込み済み」へ移す。**写しを残すかは設定で変えられ、既定は残す**（補足）。
-**補足の読み取り（仮。第 2 回 Q11 で本人に問うている）**（`deep.md` Q2）: 設定が効くのは**システムの写し**で、「残さない」は写しを作らないこと（既に作った写しは残す）。本人のファイルは設定に関わらず消さない。
-反転条件: Q11 で 2 つ目（切り替えたら既存の写しも消す）か 3 つ目（取り込み済みの書庫をシステムが消す）が選ばれたとき。
+**補足の読み（第 2 回 Q11 で本人が決めた）**: 設定が効くのは**システムの写し**で、「残さない」は写しを作らないこと（既に作った写しは残す）。本人のファイルは設定に関わらず消さない。
+**例外: 形の確認を待っている書庫（D16）は、設定に関わらず写しを作る**（第 2 回 Q10 の選択肢の文。写しが無いと印を置いた後に読み直せない）。
 
 - 写しは**中身のハッシュで名前を付ける**（`<ASHIATO_ARCHIVE_COPY_DIR>/<sha256 の先頭 2 桁>/<sha256>`）。同じ中身は 1 つ（spec）。目録は `core.archive_file`
 - 「読んだ製品のファイル」= D3 の表で見分けたファイル（読めなかった項目を含むファイルも写す —— 解析器を直して読み直すため）。**写真などは写さない**
@@ -245,7 +246,7 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 
 ## D12. 稼働状況の API と画面
 
-**本人の決定（Q5）**: 書庫のソースにも格子、見出しの横に「`YYYY-MM-DD` まで（N 日前）」、格子の群の頭に「直近に置いた書庫」1 件、まだ無いソースは「まだ無い」。
+**本人の決定（Q5 / 第 2 回 Q9）**: 書庫のソースにも格子（開いた直後は直近 4 週）、見出しの横に「`YYYY-MM-DD` まで（N 日前）」、**「直近に置いた書庫」1 件の箱を Must の 5 本の前（達成の下）**、読んでいる間は箱に件数、まだ無いソースは「まだ無い」。
 
 **API**:
 - `GET /coverage` —— 名前の並びを **`must_sources()` の後ろに登録簿の `c03-*`（`display_name` 順）**を足して `of_sources` に渡す。**応答の形は変えない**（`SourceCoverage` の配列）。
@@ -253,43 +254,49 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - `GET /archives/status`（新設。OpenAPI に載せる）:
   `{ "sources": [{ "logical_source", "last_event_on": "YYYY-MM-DD" | null, "last_archive_created_at": … | null }],
      "latest_archive": { "file_name", "first_seen_at", "outcome", "unreadable_kind", "inserted", "duplicate", "unreadable", "previously_read_at" } | null,
+     "reading": { "file_name", "inner_path", "items_read", "started_at" } | null,
+     "pending_shape": { "archives": n, "files": n } | null,
      "inbox": { "capturable": bool, "blockers": [...], "emitted_at" } | null }`。
+  `reading` は読み手のメモリの状態（台帳は読み終えてから書くので、台帳からは出ない）。1,000 件ごとに更新する
   `latest_archive` は台帳の `finished_at` がいちばん新しい行（`already_read` / `store_failed` を含む）で、件数は論理ソースを足し合わせた値。
   `already_read` のときは件数を持たず、`previously_read_at` に前に読んだ行の `finished_at` を入れる（spec R3 の (2)）
 
 **画面**（`web/src`）:
 - `App.tsx`: `/archives/status` を**別々に**受ける（読み出しの失敗で格子を消さない。ST02 の R19 と同じ）。
   格子の並びは **Must の 5 本 → 書庫のソース（`c03-` で始まり退役していない）→ 退役**（`retiredLast` の前に書庫のソースを分ける）
-- 書庫のソースの格子の群の頭（Must の 5 本の直後）に「直近に置いた書庫」の箱: `<file_name>`・`<見つけた時刻>`・「入った N · 既にあった N · 読めなかった N」。
+- **Must の 5 本の前（`AchievementPanel` の直後）**に「直近に置いた書庫」の箱: `<file_name>`・`<見つけた時刻>`・「入った N · 既にあった N · 読めなかった N」。
   `outcome = unreadable` なら「読めなかった書庫です（<種別の日本語>）」、`store_failed` なら「格納に失敗しています（1 時間ごとに読み直します）」、
   `already_read` なら「既に読んだ書庫です（<前に読んだ時刻> に読んだものと同じ中身）」を**文字で**。台帳が空なら「まだ書庫が置かれていません」。
   `inbox.capturable = false` なら「<置き場> が読めません」を足す。**取り込み器の最後の信号が 3 日（想定間隔 1 日の 3 倍）より前か一度も無ければ**「取り込み器の最後の確認: N 日前」（一度も無ければ「取り込み器はまだ一度も動いていません」）を足す（C22。deep-r2 R4。3 日は仮。反転条件: PC を数日切る運用で本人が紛らわしいと感じたとき）
-- **箱の位置と読んでいる間の表示は第 2 回 Q9 で本人に問うている**（第 1 回の proto が箱を描いていなかった。spec R11）。いまの specs は「Must の 5 本の後ろ・読んでいる間は出さない」で書いてあり、答えで変わる
+- `reading` があれば箱の先頭に「読んでいます: <file_name> <items_read> 件まで（<started_at> から）」（第 2 回 Q9）。`pending_shape` があれば「形の確認を待っている書庫が N 冊あります（`tools/archive-shape.sh` で形を見て印を置く）」（D16）
+- **箱の高さは 160 CSS px 以下（仮）**: 行を優先順（読んでいる途中 → 読めない置き場・取り込み器の止まり → 形の確認待ち → 直近の書庫の結果）に積み、溢れる行は省いて「ほか N 件」を 1 行出す。
+  反転条件: 優先の低い行が常に省かれ、本人が見落としたと分かったとき（上限を上げ、`collection-coverage` の予算の文も合わせて直す）
 - `CoverageGrid.tsx`: 見出しの横に**任意の注記**を受け取る（Must の 5 本には渡さない）。書庫のソースには「`YYYY-MM-DD` まで（N 日前）」か「まだ無い」。
   N は `todayInTz`（`Asia/Tokyo`）との差。**格子の形・3 段・週の選択・既定の 4 週は変えない**
 - 表面は `tokens.ts` のまま。箱の境界線は `TEXT.muted`（proto と同じ）
 
-**ひとスクロール**: 書庫のソースは Must の 5 本より下なので、Must の最後の格子の下端は変わらない（proto の実測 1,128 px。ST04 の印を足した後も ST04 の試験が見る）。
-書庫のソースの格子を足した応答（固定の 10 本 + マイアクティビティ 2 本 = 12 本）の場合の試験を足す（tasks 10.4）。
+**ひとスクロール（第 2 回 Q9 で本人が変えた）**: 箱が Must の 5 本の前に入るので、Must の最後の格子の下端は箱の高さぶん下がる（第 2 回の proto の実測: 箱あり 1,379 px / 2 本目の直近 4 週 754 px）。
+`collection-coverage` の予算の文を「箱の高さを除いて数える」に MODIFIED で直し（D13）、**既存の `one-scroll.test.tsx` の勘定から箱の高さを引く**（試験の意図 = Must の 5 本の予算は変えない）。
+書庫のソースの格子を足した応答（固定の 10 本 + マイアクティビティ 2 本 = 12 本）と高さ 160 px の箱の場合の試験を足す（tasks 10.4）。
 
-## D13（仮）. 変えないもの（画面の要件を `external-ingestion` に置く）
+## D13. 変えないもの・`collection-coverage` に触るもの
 
 - **`record-envelope` の要件と判定**: `store_one` への切り出しは形だけ（D4）。`/ingest` の応答と拒否の理由は変わらない
-- **`collection-coverage` の要件**: 8 状態の判定順・3 段・格子の形・達成の数え方。`/coverage` の応答の形。書庫のソースは同じ判定で出る（spec）
-- **Step 3（capability の照合）**: FR-14 / FR-16 / FR-17 / FR-55 は INDEX の表どおり `external-ingestion`。
-  画面に書庫のソースを出す振る舞い（FR-55）は稼働状況の画面に乗るが、**要件としては `external-ingestion` に置いた**（仮）。
-  **INDEX の ST04 の前例（「画面に出る」を理由に `collection-coverage` に割り当てた）とは扱いが違う**（spec R2）。違えた理由: ST04 は `collection-coverage` の既存の要件（判定順・破棄の範囲）そのものを書き換えたが、
-  ST12 は既存の要件の文を 1 つも書き換えず、並びに書庫のソースを足すだけ。`collection-coverage` に割り当てると、下流が走っている ST04 と同じ capability になり、ST12 が `衝突待ち` になる。
-  **代償**: 正典の `collection-coverage` の画面の Requirement は書庫のソースを知らない。**`docs/stories/INDEX.md` の訂正の節に「この画面の Requirement を書き換える Story は `external-ingestion` の並びの条項も見る」を書いた**。
-  **反転条件**: ST14 / ST15 が `collection-coverage` の画面の Requirement を MODIFIED で書き換えるとき、書庫のソースの並び（Must → 書庫 → 退役）とひとスクロールの条項を `collection-coverage` に移す
-- **同じファイルは触る**: `lib.rs`（`MIGRATIONS`・route・`coverage_get` の名前の並び）・`App.tsx`・`CoverageGrid.tsx`・`docs/openapi.json` と既存の試験 2 本（tasks 1.1 / 9.2）。移行の名前は作成時刻。後から merge する側が追従する
+- **`collection-coverage` の判定は変えない**: 8 状態の判定順・3 段・格子の形・達成の数え方・`/coverage` の応答の形。書庫のソースは同じ判定で出る
+- **`collection-coverage` の「稼働状況は 1 年を週に畳んだ格子で見える」を MODIFIED で 1 か所だけ変える** —— 開いた直後の 2 ソースとひとスクロールの高さを、**Must の前に置く箱の高さを除いて数える**（第 2 回 Q9。本人が「予算を変える判断になる」を読んで選んだ）。
+  **この Requirement は ST04 の下流（PR #49）も MODIFIED で書き換えている**ので、ST12 の delta は **ST04 の delta の文を写して予算の文だけを変えた**。
+  **ST12 の `requires` に ST04 を足した**（layer 3）—— ST12 の下流は ST04 の archive を待ち、**開始時に正典（ST04 の archive 後）と ST12 の delta を突き合わせ直す**（tasks 0.1。ST04 の下流が同じ Requirement の文を変えていれば写し直す）。ST04 へは差し戻さない
+- **第 1 回の D13（仮）の反転条件が成り立った** —— 第 1 回は画面の要件を `external-ingestion` だけに置き、`collection-coverage` に割り当てなかった。予算の文を書き換える本人の決定で、割り当てた（`docs/stories/INDEX.md` の 2026-09-15 の訂正）。
+  書庫のソースの並び（Must → 書庫 → 退役）・見出しの注記・箱の中身は `external-ingestion` に置いたまま
+- **同じファイルは触る**: `lib.rs`（`MIGRATIONS`・route・`coverage_get` の名前の並び）・`App.tsx`・`CoverageGrid.tsx`・`docs/openapi.json` と既存の試験 3 本（tasks 1.1 / 9.2 / 10.4）
 - `collector-android` / `collector-windows` は触らない（Q8）
 
 ## D14. 移行は 1 本
 
 `migrations/YYYYMMDDHHMM_archive_ingestion.sql`（名前は作成時刻）と `.down.sql`:
 - `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（D7。`user_id` あり。追記のみのトリガ）
-- `core.archive_sighting`（D8。書き換えてよい。`user_id` あり）/ `core.archive_scan_counter`（D10。書き換えてよい 1 行。`user_id` あり）
+- `core.archive_sighting`（D8。書き換えてよい。`user_id` あり）/ `core.archive_scan_counter`（D10。書き換えてよい 1 行。`user_id` あり）/ `core.archive_pending_shape`（D16。書き換えてよい）
+- `core.archive_shape_confirmation`（D16。**追記のみ**のトリガ。`user_id` あり）
 - 索引: `archive_ledger (user_id, sha256, parser_version)` / `archive_ledger (user_id, finished_at DESC)` / `archive_ledger_source (logical_source, max_event_at DESC)`
 - 登録簿の行: D2 の固定の 10 本と `s01-archive-inbox`（計 11 本。`c03-myactivity-*` は取り込み器が足す）
 - **当て直せる形**（`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`）。`MIGRATIONS` 配列の末尾に足す
@@ -305,15 +312,30 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 | 5 読めなかった書庫が画面に出る | vitest: `outcome = unreadable` の固定値で箱の文字を見る。結合テスト: `.tgz` を置いて台帳に `unreadable` |
 
 - **合成の書庫**（`crates/server/tests/fixtures/archive/`）は公開されている形から手で作る。**本人の書庫を commit しない**
-- **`tools/archive-shape.sh <書庫>`**: 本物の書庫の**形だけ**（書庫の中のパス・最上位の鍵・項目の欄の名前・件数・`products` の値の種類）を出す。値（題名・URL・座標・検索語）は出さない。
-  D2 のマイアクティビティの名前と D3 の見分け方を、最初の本物の書庫を入れる前に確かめるためのもの
+- **`tools/archive-shape.sh`**: 形の確認を待っている書庫の**形だけ**を写しから出し、`--confirm` で印を置く（D16）
 - **人間の確認待ち**（機械が再現できないもの）: 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置き、画面の「直近に置いた書庫」で読めなかった 0 と出るか
   （本物の Google の書き出しは合成で置き換えられない）
+
+## D16（仮の範囲あり）. 形の確認の印（Takeout の書庫の中身）
+
+**本人の決定（第 2 回 Q10）**: 形の確認の印を置くまで、Takeout の書庫の中身は格納しない（台帳と写しには残す。印を置いたら写しから読み直す）。
+
+- **形**（shape）: Takeout の書庫の中の、読む対象のファイルごとに `(見分けた種類, 書庫の中のパスの型（数字と日付を伏せたもの）, 最上位の鍵の集合, 項目の欄の名前の集合, products の値の集合)`。
+  **値（題名・URL・検索語・座標・時刻）は含めない**。`products` の値は製品の名前（「検索」「YouTube」など）で、記録の値ではない
+- **確認待ち**: 読み手は Takeout の書庫を開いて見分け、写しを作り（設定に関わらず）、形を取り、**印を置いた形の集合に無い形のファイル**を格納せずに `core.archive_pending_shape`（書き換えてよい）に積み、
+  台帳に `outcome = 'pending_shape'` の行（ファイルの数だけ。件数は 0）を書く。**印を置いた形のファイルは同じ書庫の中でも格納する**（spec）
+- **印**: `core.archive_shape_confirmation`（追記のみ。`user_id`・形のハッシュ・形の JSON・印を置いた時刻）。**置く手段は `tools/archive-shape.sh`**:
+  引数なしで確認待ちの形を一覧（値を出さない。spec）、`--confirm <形のハッシュ>…` で印を置く。印を置くと読み手が次の走査で `archive_pending_shape` の書庫を写しから読み直す
+- **確かめた形の範囲（仮）**: 印は形の全体に対して置き、**知らない `products` の値が 1 つ増えただけでもそのファイルは確認待ち**にする（既定は厳しい側）。
+  反転条件: 確認待ちが 2 か月に 1 回より多く起き、手作業が NFR-12 を超えると分かったとき（`products` の値だけの差は、ASCII に畳める名前なら確認なしで通す、に緩める）
+- **Timeline.json と移行前のロケーション履歴は確認を待たない**（最上位の形が一意で、名前が固定。第 2 回 Q10 の選択肢の文）
+- 画面: `/archives/status` の `pending_shape` から箱に「形の確認を待っている書庫が N 冊あります」（D12）
+- 本人の手順書（`docs/archive-inbox.md`）: 最初の Takeout の書庫を置く → 箱に確認待ちが出る → `tools/archive-shape.sh` の出力を見る（値は出ない）→ `--confirm`
 
 ## Risks / Trade-offs
 
 - **[実物の形が公開の形と違う]** → 形で見分け（D3）、読めないものは台帳と画面に出す。`tools/archive-shape.sh` で入れる前に確かめる。解析器の版を上げれば写しから読み直せる（D8）
-- **[マイアクティビティの名前が凍結される]** → `products[0]` から作る規則（D2）を、最初の本物の書庫の前に `archive-shape.sh` で確かめる。人間の確認待ちに入れた
+- **[マイアクティビティの名前・見分け方が凍結される]** → 形の確認の印を置くまで Takeout の書庫の中身は格納しない（D16。本人の決定）。人間の確認待ち H.1 で本物の書庫の形を見て印を置く
 - **[Google が表記を変えた回に全期間ぶんの行が増える]** → 本人が代償を読んで Q6 で受け入れた。増えた行は内容が残るので読む側で畳める
 - **[百万件級の書庫が遅い]** → 読み手は 1 冊ずつ、HTTP の取り込みと DB の接続を取り合わない（接続の上限 5 のうち 1 本だけ使う）。読んでいる間も走査は続く。反転条件は D1
 - **[ST04 の下流と同じファイルを触る]** → `coverage.rs` は触らず `lib.rs` の `coverage_get` の名前の並びだけ、`CoverageGrid.tsx` は任意の注記を足すだけ。移行の名前は作成時刻。後から merge する側が追従する

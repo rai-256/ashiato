@@ -10,9 +10,9 @@
 
 - **layer 0**: ST01
 - **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST22, ST25, ST28, ST33
-- **layer 2**: ST04, ST12, ST14, ST15, ST17, ST20, ST23
-- **layer 3**: ST06, ST09, ST13, ST18, ST26, ST34
-- **layer 4**: ST10, ST24, ST30, ST35, ST36
+- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST23
+- **layer 3**: ST06, ST09, ST12, ST18, ST26, ST34
+- **layer 4**: ST10, ST13, ST24, ST30, ST35, ST36
 - **layer 5**: ST27, ST29, ST31
 - **layer 6**: ST32
 
@@ -31,8 +31,8 @@
 | [ST09](ST09.md) | 写真と動画をメタごと取り込み、写真は原本も置く | 3 | FR-3, FR-4, FR-5, FR-6, FR-32, NFR-6 | ST04 | 18, 19, 20, 22, 25 |
 | [ST10](ST10.md) | 原本と記録の食い違いを毎週見つける | 4 | FR-72 | ST09 | 18, 20 |
 | [ST11](ST11.md) | 健康データの履歴権限を初回起動で要求する | 1 | FR-11 | ST01 | 21 |
-| [ST12](ST12.md) | 書庫を置くだけで過去のデータが入る | 2 | FR-14, FR-16, FR-17, FR-55 | ST03 | — |
-| [ST13](ST13.md) | アカウント系のソースを定期取得する | 3 | FR-15, NFR-3, NFR-12 | ST12 | — |
+| [ST12](ST12.md) | 書庫を置くだけで過去のデータが入る | 3 | FR-14, FR-16, FR-17, FR-55 | ST03, ST04 | — |
+| [ST13](ST13.md) | アカウント系のソースを定期取得する | 4 | FR-15, NFR-3, NFR-12 | ST12 | — |
 | [ST14](ST14.md) | 収集が途切れたら気づける | 2 | FR-35 | ST02 | — |
 | [ST15](ST15.md) | 収集をソース単位・期間指定で止められる | 2 | FR-34, FR-53 | ST02 | 14 |
 | [ST16](ST16.md) | 位置から滞在を作り、派生を作り直せる | 1 | FR-31, FR-76 | ST01 | 7 |
@@ -69,7 +69,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, ST06, ST09, ST11, ST34, ST35 |
 | `desktop-collection` | PC からの収集 | ST07, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15, **ST12** |
 | `derived-records` | 派生（滞在） | ST16 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
@@ -165,16 +165,15 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 > **訂正（2026-09-15、ST12 の上流工程）**
 >
-> **ST12 は `external-ingestion` だけに割り当てたまま、稼働状況の画面（S-1）に書庫のソースの格子・最終日・直近に置いた書庫を足す**（FR-55。深掘り Q5）。
-> ST04 は「画面に出る」を理由に `collection-coverage` にも割り当てたが、ST12 は**扱いを変えた**（`openspec/changes/st12-archive-ingestion/design.md` の D13（仮）。独立レビュー spec R2）——
-> ST04 は `collection-coverage` の既存の要件（判定順・破棄の範囲）を書き換えたが、ST12 は既存の要件の文を 1 つも書き換えず、並びに書庫のソースを足すだけ。
-> 割り当てると、下流が走っている ST04 と同じ capability になり ST12 が `衝突待ち` になる。
+> **ST12 を `external-ingestion` だけでなく `collection-coverage` にも割り当て、`requires` に ST04 を足した**（layer 2 → 3。ST13 も 3 → 4）。
+> 深掘り 第 2 回 Q9 で本人が「直近に置いた書庫」の箱を **Must の 5 ソースの格子の前**に置き、ST02 第 8 回 Q30 の高さの予算（ひとスクロール 1,280 px・開いた直後の 2 ソース 640 px）を
+> **箱の高さを除いて数える**形に変えた（FR-55 ★ 第 2 回）。予算の文は `collection-coverage` の「稼働状況は 1 年を週に畳んだ格子で見える」にあり、**ST04 の下流（PR #49）が同じ Requirement を MODIFIED で書き換えている**。
 >
-> - **申し送り: `collection-coverage` の画面の Requirement（「稼働状況は 1 年を週に畳んだ格子で見える」）を書き換える Story（ST14 / ST15 など）は、
->   `external-ingestion` の「稼働状況の画面に書庫のソースの格子と最終日と直近に置いた書庫が出る」の並び（Must → 書庫のソース → 退役）とひとスクロールの条項も見る。**
->   そのときに、並びとひとスクロールの条項を `collection-coverage` へ移す（D13 の反転条件）
-> - **同じファイルは ST04 と両方が触る**（`lib.rs`・`App.tsx`・`CoverageGrid.tsx`・`docs/openapi.json`）。盤面は capability しか見ないので、この重なりは PR の差分で追従する
->
+> - ST12 の `collection-coverage` の delta は **ST04 の delta の文を写し、予算の 2 文だけを変える**。**ST12 の下流は ST04 の archive を待つ**（`requires` がそれを機械に持たせる）。ST04 の archive 後、下流の開始時に正典と delta を突き合わせ直す（tasks 0）
+> - 書庫のソースの格子の並び・見出しの最終日・箱の中身は `external-ingestion` に置いたまま（第 1 回の判断）。**`collection-coverage` の画面の Requirement を後から書き換える Story（ST14 / ST15 など）は、`external-ingestion` の並びの条項も見る**
+> - **ST04 へは差し戻さない**（ST04 の予算の試験は ST04 のまま通る。書き換えるのは ST12 の下流）
+> - 第 1 回の上流では「`external-ingestion` だけに置く」（design D13（仮））としていた。その反転条件（予算の要件を書き換えるとき）が本人の答えで成り立った
+
 > **要件の側でも、satisfies に無い条項を ST12 が満たす**（ST12 の深掘りが要件に ★ を足したもの・spec の導出元に挙げたもの）。本体の Story は変えない:
 >
 > | 要件 | 本体の Story | ST12 が満たす条項 |
