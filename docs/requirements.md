@@ -140,6 +140,17 @@ AI（A-01 経由）と衛星アプリである、というのが本人の位置�
   「使っていない」と読めてしまう**ため。滞留時間の値は、間引く対象を題名だけに限る限り可逆。
 - **FR-13**: WHEN C-02 がブラウザ履歴の取得契機（24 時間間隔）に達する THE SYSTEM SHALL
   前回取得以降の履歴を取得して記録を生成する。
+  **対象は PC で見つかったブラウザの全プロファイル**とし、**訪問 1 件ごとに 1 件**を、
+  **訪問ごとの識別子**を持たせて生成する。同じ訪問の題名や滞在時間が後から書き換わっていれば、
+  **新しい行を作らず更新し、前の版を残す**（FR-22）。
+  **一度取った訪問がブラウザの履歴から消えていたら、「消えた」事実を記録として残す**（消えた訪問の記録は消さない）。
+  ★ 2026-09-15 訂正（対象の範囲・訪問ごとの識別子・消えた事実を追加）。ST08 の深掘り Q1 / Q2 / Q3 の決定。
+  **Chrome 系は 90 日を過ぎた履歴を手元の DB から削除する**（EXT-E の注記）ので、取らなかったブラウザ・
+  プロファイルの履歴は後から作れない。題名（`urls.title`）と滞在時間は履歴 DB の中で後から書き換わるので、
+  原文の文字列で同一を判定すると読み直すたびに行が増える —— 見分け方は 1 行でも入った後に変えると
+  既存の行と対応が切れる。訪問の番号は全期間の削除で振り直されるので、**番号だけを識別子にしない**。
+  「消えた」事実は次の取得で比べた時にしか分からず、比べなかった期間の削除は後から特定できない。
+  ブラウザで消した訪問を D-01 でも消したことにするか（FR-50）は、残した事実を材料に後から決める。
 - **FR-81**: WHILE C-02 が動作している THE SYSTEM SHALL 入力が無い状態への出入り
   （離席・画面ロック・スリープと、そこからの復帰）を、その時刻とともに記録する。
   ★ 2026-09-12 追加。ST07 の深掘り Q7 の決定。
@@ -837,7 +848,10 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-J | PostgREST の許諾条項は MIT 相当（**本文に「MIT License」という文字列は無い**） | https://raw.githubusercontent.com/PostgREST/postgrest/main/LICENSE | "Copyright (c) 2014-2026 The PostgREST contributors" / "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction" | 2026-09-08 | 2027-09-08 | FR-61（読み取り API の実装手段） |
 | EXT-I | キーボードのフォーカス表示は Level AA の要求 | https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html | "Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible." | 2026-09-08 | 2028-09-08 | NFR-22 |
 
-> EXT-E は「表示される範囲」の記述であり、ローカルの履歴データベースからの削除を保証するものではない。
+> EXT-E は「表示される範囲」の記述だが、**Chromium はローカルの履歴データベースからも 90 日で削除する** ——
+> `components/history/core/browser/history_backend.h`: "The number of days old a history entry can be before it is considered \"old\" and is deleted." `kExpireDaysThreshold = 90`
+> （https://chromium.googlesource.com/chromium/src/+/main/components/history/core/browser/history_backend.h 、2026-09-15 確認）。
+> ★ 2026-09-15 訂正（従来は「削除を保証するものではない」）。ST08 の深掘り 手順 5。
 > FR-13 の 24 時間間隔は、90 日に対する余裕として置いている。
 
 ### 一方通行の扉（後から変更できない決定）
