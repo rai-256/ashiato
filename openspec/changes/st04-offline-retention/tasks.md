@@ -145,13 +145,13 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `AT RetentionInstrumentedTest`
 - [ ] 10.2b 同じテストに、未送信の記録を 1.9 GB 置いてから `LocationService` を起こす段を足す（エミュレータの空きが足りなければ `-partition-size` を上げる）。
   Scenario: `2 GB に近い量でも収集は起動する`。検証: `AT RetentionInstrumentedTest`
-- [ ] 10.3 `tools/smoke.sh` に 1 段足す: `/drops` に 180 件（10:00〜13:00）の報告を送り、同じものをもう 1 回送り、`GET /coverage` のその日が `dropped_count = 180` で状態が変わらないことを `jq -e` で見る。
+- [x] 10.3 `tools/smoke.sh` に 1 段足す: `/drops` に 180 件（10:00〜13:00）の報告を送り、同じものをもう 1 回送り、`GET /coverage` のその日が `dropped_count = 180` で状態が変わらないことを `jq -e` で見る。
   検証: `tools/smoke.sh` rc=0
-- [ ] 10.4 `tools/seed.sh normal` に、一部を破棄した日（`c01-location`、`2026-09-07` の 10:00〜13:00・180 件）と、2 本に割れて丸ごと覆う日（`2026-09-05`）の破棄の報告を `/drops` で足す
+- [x] 10.4 `tools/seed.sh normal` に、一部を破棄した日（`c01-location`、`2026-09-07` の 10:00〜13:00・180 件）と、2 本に割れて丸ごと覆う日（`2026-09-05`）の破棄の報告を `/drops` で足す
   （確認バッチの画面で印と文字が見える材料）。`c01-location` は移行 `202609111111_coverage_rebuild.sql` が登録簿に入れてある。
   検証: `tools/seed.sh normal` rc=0 の後、
-  `curl -sf -H "authorization: Bearer $API_TOKEN" "http://127.0.0.1:18787/coverage?from=2026-09-01&to=2026-09-08" | jq -e '[.sources[]|select(.logical_source=="c01-location").days[]|select(.day=="2026-09-07")][0].dropped_count==180'` rc=0
-  （応答の形が違えば、3.2 で決めた `DayCell` の置き場に合わせて式を直し、ここを書き換える）
+  `curl -sf -H "authorization: Bearer $API_TOKEN" "http://127.0.0.1:18787/coverage?from=2026-09-01&to=2026-09-08" | jq -e '[.[]|select(.logical_source=="c01-location").days[]|select(.day=="2026-09-07")][0].dropped_count==180'` rc=0
+  （**式を直した**（下流）: `GET /coverage` の応答はソースの配列そのもので `.sources` を持たない。`DayCell` の欄は 3.2 のとおり）
 
 ## 11. まとめの検査
 

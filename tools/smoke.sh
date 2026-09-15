@@ -727,4 +727,44 @@ printf '%s' "$day" | jq -e '.criteria[0].radius_m == 100 and .criteria[0].min_mi
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/stays?date=2026-08-20")
 [ "$code" = "401" ] || { echo "/stays が 401 のはずが $code"; exit 1; }
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在まで）"
+# ================================================================ ST04 の破棄の報告
+#
+# **端末が上限で捨てた 180 件を報告し、同じ報告をもう 1 回送っても、稼働状況のその日は 180 件のまま状態を変えない**（tasks 10.3）。
+# 丸ごと覆わない破棄は状態を決めない（ST02 の判定順）ので、その日は記録ありのまま、件数と区間だけが載る。
+# Scenario: 同じ報告を 2 回受けても日の件数は 1 回ぶん
+echo "== 42. 破棄の報告を 2 回送っても、その日の破棄は 180 件で状態は変わらない（ST04 / tasks 10.3）"
+droppost() { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
+               -w '%{http_code}' -X POST "http://$BIND/drops" -d "$1"; }
+# その日に残った記録を 1 件（06:00 JST）。これが無いと「導入前」になり、破棄の件数を見る日にならない
+keep='[{"id":"04040404-0000-4000-8000-000000000001","user_id":"00000000-0000-0000-0000-000000000000",
+  "logical_source":"c01-location","external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-08-24T21:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+  "raw":"{\"seq\":\"st04-keep\"}","payload":{"seq":"st04-keep"}}]'
+[ "$(post "$keep")" = "200" ] || { echo "その日の記録が入らない"; exit 1; }
+# 10:00〜13:00 JST = 01:00〜04:00 UTC に 60 件ずつ。原文は端末と同じく欄を組んだ文字列
+drop_fields='"id":"04040404-0000-4000-8000-00000000d001","user_id":"00000000-0000-0000-0000-000000000000",
+  "logical_source":"c01-location","device_id":"c01-smoke","reason":"age","created_at":"2026-11-23T00:00:00Z",
+  "range_start":"2026-08-25T01:00:00Z","range_end":"2026-08-25T04:00:00Z","count":180,
+  "hourly":[{"hour":"2026-08-25T01:00:00Z","count":60},{"hour":"2026-08-25T02:00:00Z","count":60},
+            {"hour":"2026-08-25T03:00:00Z","count":60}]'
+drop_raw=$(printf '{%s}' "$drop_fields" | jq -c .)
+drop=$(printf '{%s}' "$drop_fields" | jq -c --arg raw "$drop_raw" '. + {raw: $raw}')
+code=$(droppost "$drop"); echo "   → $code / $(jq -c '[.[] | {accepted, duplicate}]' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "破棄の報告が 200 で通らない ($code)"; exit 1; }
+[ "$(droppost "$drop")" = "200" ] || { echo "破棄の報告の再送が通らない"; exit 1; }
+jq -e '.[0].duplicate == true and .[0].accepted == true' /tmp/smoke.body >/dev/null \
+  || { echo "再送が重複と判定されていない: $(cat /tmp/smoke.body)"; exit 1; }
+cov=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-08-25&to=2026-08-25")
+cell=$(printf '%s' "$cov" | jq -c '.[] | select(.logical_source=="c01-location") | .days[0]
+                                   | {state, dropped_count, dropped_ranges}')
+echo "   → c01-location 2026-08-25 = $cell"
+printf '%s' "$cell" | jq -e '.dropped_count == 180 and .state == "recorded"
+  and .dropped_ranges == [{"from":"10:00","to":"13:00","count":180}]' >/dev/null \
+  || { echo "稼働状況の破棄が 180 件・記録ありになっていない: $cell"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.drop_report WHERE logical_source='c01-location';")" = "1" ] \
+  || { echo "破棄の報告が 1 行でない"; exit 1; }
+# 資格情報の無い求めは断られる（PERM-10）
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$BIND/drops" -H 'content-type: application/json' -d "$drop")
+[ "$code" = "401" ] || { echo "/drops が 401 のはずが $code"; exit 1; }
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告まで）"
