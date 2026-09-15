@@ -752,16 +752,20 @@ async fn dropped_by_day(
                       FROM (SELECT generate_series($3::date, $4::date, '1 day')::date AS day) g),
               {islands},
               cut AS (SELECT d.day, d.de, greatest(i.s, d.ds) AS cs, least(i.e, d.de) AS ce
-                        FROM d JOIN islands i ON i.s < d.de AND i.e > d.ds)
+                        FROM d JOIN islands i ON i.s < d.de AND i.e > d.ds),
+              -- 終わりを分に切り上げてから日の終わりと比べる（review R11）。切り上げる前に比べると、
+              -- 23:59:00.001〜23:59:59.999 に終わる区間が翌日の 0 時に丸まって `00:00` と出る
+              up AS (SELECT day, de, cs, ce,
+                            date_trunc('minute', ce)
+                              + CASE WHEN ce > date_trunc('minute', ce)
+                                     THEN interval '1 minute' ELSE interval '0' END AS cr
+                       FROM cut)
          SELECT day, cs, ce,
                 to_char(cs AT TIME ZONE '{tz}', 'HH24:MI') AS from_hm,
-                CASE WHEN ce >= de THEN '24:00'
-                     ELSE to_char((date_trunc('minute', ce)
-                                   + CASE WHEN ce > date_trunc('minute', ce)
-                                          THEN interval '1 minute' ELSE interval '0' END)
-                                  AT TIME ZONE '{tz}', 'HH24:MI')
+                CASE WHEN cr >= de THEN '24:00'
+                     ELSE to_char(cr AT TIME ZONE '{tz}', 'HH24:MI')
                 END AS to_hm
-           FROM cut
+           FROM up
           ORDER BY day, cs",
         tz = DAY_TZ,
         islands = drop_islands_cte(DAY_TZ)

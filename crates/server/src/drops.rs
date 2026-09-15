@@ -192,6 +192,8 @@ pub enum DropError {
     InvalidRange,
     /// 時間ごとの件数が合わない・範囲の外にある
     InvalidHourly,
+    /// 同じ識別子で原文の違う報告が既にある（端末が識別子を使い回した）
+    IdReused,
 }
 
 impl From<Invalid> for DropError {
@@ -252,6 +254,11 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
             .await
             .map_err(|e| internal_at("drops.source_lookup", e))?;
     if known.is_none() {
+        // 端末は断られた報告を残して送り直す（C2）ので、**届いていない理由をサーバ側にも残す**（review R24）
+        tracing::warn!(
+            kind = "drop_unknown_source",
+            "登録簿に無いソースの破棄の報告を断った"
+        );
         return Ok(rejected(Some(req.id), DropError::UnknownSource));
     }
 
@@ -268,7 +275,7 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
            (id, user_id, logical_source, device_id, reason, range_start, range_end,
             count, created_at, content_hash, raw)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (user_id, logical_source, content_hash) DO NOTHING
+         ON CONFLICT DO NOTHING
          RETURNING id",
     )
     .bind(req.id)
@@ -285,6 +292,33 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| internal_at("drops.insert", e))?;
+
+    // **何とぶつかったかを見分ける**（review R19）。冪等キー（原文）が同じなら再送で、受け付けてよい。
+    // そうでなければ**端末の識別子が別の報告に使い回された**（主キーの衝突）—— 1 件ごとに断る。
+    // 対象を冪等キーに絞った `ON CONFLICT` だと主キーの衝突が 500 になり、端末は一括ごと一時的な失敗と読んで、
+    // その報告が先頭に居座る間、後ろの破棄の報告が 1 件も届かなくなる
+    if row.is_none() {
+        let same: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM core.drop_report
+              WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3",
+        )
+        .bind(req.user_id)
+        .bind(&req.logical_source)
+        .bind(&hash)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| internal_at("drops.duplicate_lookup", e))?;
+        if same.is_none() {
+            tx.rollback()
+                .await
+                .map_err(|e| internal_at("drops.rollback", e))?;
+            tracing::warn!(
+                kind = "drop_id_reused",
+                "別の報告に使われた識別子の破棄の報告を断った"
+            );
+            return Ok(rejected(Some(req.id), DropError::IdReused));
+        }
+    }
 
     if let Some((id,)) = row {
         for h in &req.hourly {
@@ -460,6 +494,9 @@ mod tests {
         r.count = 0;
         assert_eq!(r.validate(), Err(Invalid::Count));
         r.count = -1;
+        assert_eq!(r.validate(), Err(Invalid::Count));
+        // 格納の手前で断る（`as i32` で切り詰めて別の件数として入れない）
+        r.count = i64::from(i32::MAX) + 1;
         assert_eq!(r.validate(), Err(Invalid::Count));
     }
 

@@ -577,6 +577,27 @@ left=$(psql -c "SELECT (SELECT count(*) FROM core.drop_report WHERE id = '$DID')
                     || '/' || (SELECT coalesce(sum(count), 0) FROM core.drop_report_hour WHERE report_id = '$DID');")
 [ "$left" = "1/180" ] || { echo "  NG 破棄の報告が変わっている（$left。1/180 のはず）"; fail=1; }
 echo "  OK 破棄の報告は行ごとも表ごとも消せない"
+# **範囲も時間ごとの件数も持たない報告**も消せない（ST04 の review/code.md R4）。
+# 時間ごとの件数を持つ行は外部キーと `drop_report_hour` の錠が先に止めるので、`drop_report` 自身の錠はこの形でしか観測できない
+psql -c "INSERT INTO core.drop_report
+           (id, user_id, logical_source, device_id, reason, count, created_at, content_hash, raw)
+         VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','00000000-0000-0000-0000-000000000000',
+                 'drop-check','drop-dev','unreadable',2,'2026-09-14T00:00:00Z','drop-rangeless','{}');" >/dev/null
+if psql -c "DELETE FROM core.drop_report WHERE id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';" >/dev/null 2>&1; then
+  echo "  NG 範囲を持たない破棄の報告を削除できた"; fail=1
+else
+  echo "  OK 範囲を持たない破棄の報告も削除できない"
+fi
+# 切り詰めの錠は、`CASCADE` だと `drop_report_hour` 側の錠でも止まって見分けられないので、錠そのものが在ることを見る
+trg=$(psql -c "SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger
+                WHERE NOT tgisinternal AND tgrelid IN ('core.drop_report'::regclass, 'core.drop_report_hour'::regclass);")
+[ "$trg" = "drop_report_hour_immutable,drop_report_hour_no_truncate,drop_report_immutable,drop_report_no_truncate" ] \
+  || { echo "  NG 破棄の報告の錠が揃っていない: $trg"; fail=1; }
+for t in drop_report_immutable drop_report_hour_immutable; do
+  ev=$(psql -c "SELECT (tgtype & 8 > 0) AND (tgtype & 16 > 0) FROM pg_trigger WHERE tgname = '$t';")
+  [ "$ev" = "t" ] || { echo "  NG $t が削除と更新の両方を拒んでいない"; fail=1; }
+done
+echo "  OK 破棄の報告の 4 つの錠（更新・削除 / 切り詰め × 2 表）が在る"
 # 1 件の破棄が空の範囲で入らないこと（R4。`coverage_span` はここで 500 を返していた）
 if psql -c "INSERT INTO core.drop_report
               (id, user_id, logical_source, device_id, reason, range_start, range_end, count,

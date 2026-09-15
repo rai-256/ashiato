@@ -435,3 +435,55 @@ async fn drops_api_rows_are_immutable() {
             .unwrap();
     assert_eq!(row.0, 60);
 }
+
+/// 端末が同じ識別子を別の報告に使い回したら、その 1 件だけを断る（review R19）。
+/// **500 にしない** —— 500 だと端末は一括ごと一時的な失敗と読み、後ろの報告が 1 件も届かなくなる。
+#[tokio::test]
+async fn drops_api_rejects_reused_id_per_item() {
+    let app = app().await;
+    let s = testdb::source(&app.pool, "drop-reuse", 21_600).await;
+    let u = testdb::user();
+    let first = report(&s, u, "2026-05-01", &[(1, 60)]);
+    assert_eq!(post(&app, first.clone()).await.0, StatusCode::OK);
+    // 同じ id で原文の違う報告（下書きが復活して伸ばされた形）と、正しい 1 件を一緒に送る
+    let mut reused = report(&s, u, "2026-05-01", &[(1, 60), (2, 60)]);
+    reused["id"] = first["id"].clone();
+    let other = report(&s, u, "2026-05-02", &[(1, 60)]);
+    let (code, res) = post(&app, serde_json::json!([reused, other])).await;
+    assert_eq!(code, StatusCode::OK, "一括が 500 になっている");
+    assert!(!res[0].accepted);
+    assert_eq!(res[0].error, Some(DropError::IdReused));
+    assert!(res[1].accepted, "後ろの正しい報告まで止まっている");
+    assert_eq!(count_reports(&app, &s).await, 2);
+}
+
+/// 範囲も時間ごとの件数も持たない報告も、DB の側で削除と切り詰めを拒む（review R4）。
+/// 時間ごとの件数を持つ行は外部キーが先に止めるので、**`drop_report` 自身の錠はこの形でしか観測できない**。
+///
+/// Scenario: 格納された破棄の報告は書き換えられない
+#[tokio::test]
+async fn drops_api_rangeless_rows_cannot_be_deleted() {
+    let app = app().await;
+    let s = testdb::source(&app.pool, "drop-lock-rangeless", 21_600).await;
+    let u = testdb::user();
+    let body = serde_json::json!({
+        "id": uuid::Uuid::new_v4(), "user_id": u, "logical_source": s, "device_id": "d1",
+        "reason": "unreadable", "created_at": "2026-05-01T05:00:00Z", "count": 2,
+        "raw": "{\"unreadable\":2,\"lock\":true}",
+    });
+    let (code, _) = post(&app, body).await;
+    assert_eq!(code, StatusCode::OK);
+    let del = sqlx::query("DELETE FROM core.drop_report WHERE logical_source = $1")
+        .bind(&s)
+        .execute(&app.pool)
+        .await;
+    assert!(del.is_err(), "範囲を持たない報告が削除できた");
+    // 切り詰めは表ぜんぶに効くので、トランザクションの中で撃って必ず戻す
+    let mut tx = app.pool.begin().await.unwrap();
+    let trunc = sqlx::query("TRUNCATE core.drop_report CASCADE")
+        .execute(&mut *tx)
+        .await;
+    assert!(trunc.is_err(), "破棄の報告の表を切り詰められた");
+    tx.rollback().await.unwrap();
+    assert_eq!(count_reports(&app, &s).await, 1);
+}

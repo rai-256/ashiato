@@ -280,3 +280,69 @@ async fn day_cell_dropped_rounds_the_end_up_and_counts_hours_once() {
         vec![range("10:00", "10:01", 2), range("10:30", "10:31", 0)]
     );
 }
+
+/// 23:59 台に終わる区間は、分に切り上げると日の終わりに届くので `24:00`（review R11 / design D19）。
+#[tokio::test]
+async fn day_cell_dropped_ending_in_the_last_minute_is_24_00() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "celllastmin", SIX_HOURS, Some("2026-05-01")).await;
+    // 2026-05-01 22:00 JST 〜 23:59:10.001 JST（翌日に続かない）
+    testdb::put_drop(
+        &pool,
+        u,
+        &s.logical_source,
+        Some(("2026-05-01T13:00:00Z", "2026-05-01T14:59:10.001Z")),
+        &[("2026-05-01T13:00:00Z", 60), ("2026-05-01T14:00:00Z", 60)],
+    )
+    .await;
+    let c = cell_on(&pool, u, &s, "2026-05-01").await;
+    assert_eq!(c.dropped_ranges, vec![range("22:00", "24:00", 120)]);
+    // 翌日には何も出ない
+    assert!(cell_on(&pool, u, &s, "2026-05-02")
+        .await
+        .dropped_ranges
+        .is_empty());
+}
+
+/// 破棄は利用者ごとに分かれる（FR-29）。別の利用者の破棄はその日の件数にも区間にも入らない。
+#[tokio::test]
+async fn day_cell_dropped_is_per_user() {
+    let pool = testdb::pool().await;
+    let (s, u) = src(&pool, "celluser", SIX_HOURS, Some("2026-05-01")).await;
+    let other = testdb::user();
+    testdb::put_drop(
+        &pool,
+        other,
+        &s.logical_source,
+        Some(("2026-05-01T01:00:00Z", "2026-05-01T02:00:00Z")),
+        &[("2026-05-01T01:00:00Z", 60)],
+    )
+    .await;
+    let c = cell_on(&pool, u, &s, "2026-05-01").await;
+    assert_eq!(c.dropped_count, 0);
+    assert!(c.dropped_ranges.is_empty());
+    assert_eq!(
+        cell_on(&pool, other, &s, "2026-05-01").await.dropped_count,
+        60
+    );
+}
+
+/// 引き継ぎの鎖（第 8 回 Q31）の古い名前で届いた破棄も、先端のソースの稼働状況に入る。
+#[tokio::test]
+async fn day_cell_dropped_follows_the_chain() {
+    let pool = testdb::pool().await;
+    let (mut s, u) = src(&pool, "cellchain", SIX_HOURS, Some("2026-05-01")).await;
+    let old = testdb::source(&pool, "cellchain-old", SIX_HOURS).await;
+    s.chain = vec![old.clone(), s.logical_source.clone()];
+    testdb::put_drop(
+        &pool,
+        u,
+        &old,
+        Some(("2026-05-01T01:00:00Z", "2026-05-01T02:00:00Z")),
+        &[("2026-05-01T01:00:00Z", 60)],
+    )
+    .await;
+    let c = cell_on(&pool, u, &s, "2026-05-01").await;
+    assert_eq!(c.dropped_count, 60);
+    assert_eq!(c.dropped_ranges, vec![range("10:00", "11:00", 60)]);
+}
