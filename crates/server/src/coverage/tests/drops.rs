@@ -250,6 +250,8 @@ async fn day_cell_dropped_ignores_rangeless_reports() {
         .all(|d| d.dropped_count == 0 && d.dropped_ranges.is_empty()));
 }
 
+/// Scenario: 同じ時間に重なる 2 つの区間では前の区間にだけ数える
+///
 /// 範囲の終わりが分の途中（1 件だけの破棄は出来事の時刻 + 1 ms）なら、`to` は分に切り上げる ——
 /// `10:00〜10:00` のような空に見える区間を出さない。時間が 2 つの区間にまたがったら前の区間にだけ数える。
 #[tokio::test]

@@ -64,6 +64,27 @@ describe("週の詳細の破棄", () => {
     expect(text).toContain("うち 2 件を破棄（22:00〜24:00）");
   });
 
+  // Scenario: 件数を持たない区間は件数を添えずに時刻だけが出る
+  it("件数 0 の区間は「うち 0 件」と出さず、時刻だけを出す", () => {
+    render(
+      <CoverageGrid
+        source={sourceWith(2, {
+          state: "recorded",
+          dropped_count: 2,
+          dropped_ranges: [
+            { from: "10:00", to: "10:01", count: 2 },
+            { from: "10:30", to: "10:31", count: 0 },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "2026-05-03 の週" }));
+    const text = rowOf("2026-05-05").textContent ?? "";
+    expect(text).toContain("うち 2 件を破棄（10:00〜10:01）");
+    expect(text).toContain("破棄（10:30〜10:31）");
+    expect(text).not.toContain("うち 0 件");
+  });
+
   // Scenario: 丸ごと覆う破棄の日は件数が添えられる
   it("丸ごと覆う破棄の日は「破棄された期間」と件数 1,440 が出る", () => {
     render(

@@ -89,8 +89,11 @@ export function dropNotes(cell: DayCell): string[] {
   if (cell.state === "dropped") {
     return count > 0 ? [`— ${count.toLocaleString("ja-JP")} 件`] : [];
   }
-  return (cell.dropped_ranges ?? []).map(
-    (r) => `うち ${r.count.toLocaleString("ja-JP")} 件を破棄（${r.from}〜${r.to}）`,
+  // 件数を持たない区間（時間ごとの件数が無い範囲・前の区間に数えた時間）は件数を添えない（design D19）
+  return (cell.dropped_ranges ?? []).map((r) =>
+    r.count > 0
+      ? `うち ${r.count.toLocaleString("ja-JP")} 件を破棄（${r.from}〜${r.to}）`
+      : `破棄（${r.from}〜${r.to}）`,
   );
 }
 

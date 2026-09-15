@@ -701,7 +701,8 @@
           "missing_device",
           "invalid_count",
           "invalid_range",
-          "invalid_hourly"
+          "invalid_hourly",
+          "id_reused"
         ]
       },
       "DropHour": {
