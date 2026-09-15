@@ -2,7 +2,10 @@
 import { useState } from "react";
 import {
   bandOf,
+  dropMarkLightness,
+  dropNotes,
   foldIntoWeeks,
+  hasDropMark,
   isRetired,
   STATE_NAME,
   visibleWeeks,
@@ -99,6 +102,9 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
   );
 }
 
+/** 破棄の印（右下の三角）の辺の長さ（design D10）。セルは最小 24 px なので半分に収まる。 */
+const DROP_MARK_PX = 12;
+
 /**
  * 1 週ぶんの帯。**これが操作対象**（深掘り 第 4 回 Q16 / 第 5 回 Q20）。
  *
@@ -160,9 +166,31 @@ function WeekRow({
             // **セルは表示専用**（Q16）。高さは帯に従い、幅は 7 等分
             minHeight: MIN_TARGET_PX,
             borderRadius: 2,
+            // 印を右下に置くための基準（セルの大きさは変えない）
+            position: "relative",
+            overflow: "hidden",
             background: cell === null ? "transparent" : tone(BAND[bandOf(cell.state)]),
           }}
-        />
+        >
+          {cell !== null && hasDropMark(cell) && (
+            // **一部を破棄した日の印**（ST04 / 深掘り Q3）。色ではなく**形**で持たせる ——
+            // 右下を三角に欠く。意味は週の詳細の文字が担うので、支援技術には出さない
+            <span
+              data-drop-mark="true"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                right: 0,
+                bottom: 0,
+                width: 0,
+                height: 0,
+                borderStyle: "solid",
+                borderWidth: `0 0 ${DROP_MARK_PX}px ${DROP_MARK_PX}px`,
+                borderColor: `transparent transparent ${tone(dropMarkLightness(bandOf(cell.state)))} transparent`,
+              }}
+            />
+          )}
+        </span>
       ))}
     </button>
   );
@@ -193,6 +221,10 @@ function WeekDetail({ week }: { week: Week }): React.ReactElement {
             <dt style={{ color: tone(TEXT.muted), minWidth: "6.5em" }}>{cell.day}</dt>
             <dd style={{ margin: 0 }} data-state={cell.state}>
               {STATE_NAME[cell.state]}
+              {/* **期間と件数はここだけに書く**（ST04 / 深掘り Q3）。一覧は作らない */}
+              {dropNotes(cell).map((note, i) => (
+                <span key={`${i}-${note}`} data-drop-note="true">{` ${note}`}</span>
+              ))}
             </dd>
           </div>
         ))}

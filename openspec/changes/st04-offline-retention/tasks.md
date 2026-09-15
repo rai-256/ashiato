@@ -69,14 +69,14 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 4. 画面（design D10）
 
-- [ ] 4.1 `web/src/coverage.ts` の `DayCell` に 2 欄を足し、`CoverageGrid.tsx` の `WeekRow` に印（右下の三角。`dropped_count > 0` かつ状態が `dropped` でない日だけ）を付ける。
+- [x] 4.1 `web/src/coverage.ts` の `DayCell` に 2 欄を足し、`CoverageGrid.tsx` の `WeekRow` に印（右下の三角。`dropped_count > 0` かつ状態が `dropped` でない日だけ）を付ける。
   印の色は段ごと（92 / 40 の上は 9、9 の上は `TEXT.muted`）。
   Scenario: `一部を破棄した日のセルに形の印が付く` / `丸ごと覆う破棄の日には印が付かない` / `破棄の無い日には印が付かない` / `印はどの段の上でも 3:1 以上`。
   検証: `VT drop-mark.test.tsx`（`contrast.ts` で比を数える試験を含む）
-- [ ] 4.2 `WeekDetail` に「うち N 件を破棄（from〜to）」と、丸ごとの日の件数を足す。一覧は作らない。
+- [x] 4.2 `WeekDetail` に「うち N 件を破棄（from〜to）」と、丸ごとの日の件数を足す。一覧は作らない。
   Scenario: `週を選ぶと破棄の件数と時刻が文字で出る` / `丸ごと覆う破棄の日は件数が添えられる` / `破棄の一覧は出ない`。
   検証: `VT drop-detail.test.tsx`、`VT one-scroll.test.tsx`、`git diff --exit-code origin/main -- web/src/__tests__/one-scroll.test.tsx` rc=0（予算の試験を書き換えずに通す）
-- [ ] 4.3 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
+- [x] 4.3 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
 
 ## 5. 端末の置き場（design D1 / D6）
 
