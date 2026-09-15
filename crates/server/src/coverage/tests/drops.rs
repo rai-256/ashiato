@@ -129,7 +129,7 @@ async fn dropped_ranges_merge_overlapping_and_span_rows() {
 
 /// 一部を破棄した日: 状態は記録ありのまま、件数と区間が載る。
 ///
-/// Scenario: 一部を破棄した日のセルに形の印が付く（応答の側。印そのものは web の試験）
+/// 応答の側（印そのものは web の `drop-mark.test.tsx`）: Scenario「一部を破棄した日のセルに形の印が付く」の材料
 #[tokio::test]
 async fn day_cell_dropped_partial_day_has_count_and_range() {
     let pool = testdb::pool().await;
@@ -166,7 +166,7 @@ async fn day_cell_dropped_partial_day_has_count_and_range() {
 
 /// 丸ごと覆う日は⑤で、件数と 00:00〜24:00 が載る。
 ///
-/// Scenario: 丸ごと覆う破棄の日は件数が添えられる（応答の側）
+/// 応答の側（文字は web の `drop-detail.test.tsx`）: Scenario「丸ごと覆う破棄の日は件数が添えられる」の材料
 #[tokio::test]
 async fn day_cell_dropped_full_day_has_state_and_count() {
     let pool = testdb::pool().await;
