@@ -15,10 +15,15 @@ const proxy = {
   },
 };
 
+// Tailscale 経由（yoshi.tail4360f4.ts.net）で PC / スマホから開くため。先頭 . でサブドメイン全体を許可する。
+// proxy と同じく server / preview の双方に要る。無いと Vite が 403 Blocked request を返す
+// （実測 2026-09-14: tailscale serve 越しに :5180 / :5199 が 403）。
+const allowedHosts = [".tail4360f4.ts.net"];
+
 export default defineConfig({
   plugins: [react()],
-  server: { proxy },
+  server: { proxy, allowedHosts },
   // preview（build 済みを配る側）は server.proxy を継がない。確認バッチの run.sh が build 済みの画面を
   // vite preview で出すので、同じ proxy を明示する（実測 2026-09-12: 無いと /api が 404）。
-  preview: { proxy },
+  preview: { proxy, allowedHosts },
 });
