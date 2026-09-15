@@ -12,8 +12,11 @@ services:
       -c log_statement=none
       -c log_min_duration_statement=-1
       -c log_error_verbosity=terse
+    # **TCP で問う。** 初回起動の entrypoint は初期化用の仮サーバを unix ソケットだけで立てて止める。
+    # ソケットで問うとその仮サーバに healthy と答え、`up --wait` の直後の psql が
+    # 「shutting down」で落ちる（実測: PR #43 の smoke）。仮サーバは TCP を開けないので TCP なら待てる。
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ashiato"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ashiato"]
       interval: 2s
       timeout: 3s
       retries: 30
