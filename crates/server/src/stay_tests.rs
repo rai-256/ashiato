@@ -38,11 +38,10 @@ async fn stays_migration_applies_twice() {
     drop.await;
 
     assert_eq!(applied.unwrap(), 1, "2 回当てると s01-stay が二重になる");
+    // 末尾ではなく「含まれている」を見る —— 後続の Story（ST04 の `_drop_reports`）が末尾に足す
     assert!(
-        crate::MIGRATIONS
-            .last()
-            .is_some_and(|(n, _)| n.ends_with("_stays")),
-        "滞在の移行が MIGRATIONS の末尾に無い"
+        crate::MIGRATIONS.iter().any(|(n, _)| n.ends_with("_stays")),
+        "滞在の移行が MIGRATIONS に無い"
     );
 }
 

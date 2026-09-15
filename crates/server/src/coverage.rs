@@ -115,6 +115,22 @@ pub struct DayCell {
     /// **区間ごと**の取得率（第 5 回 Q17）。日に畳んだ合計だけだと
     /// 「眠っていた区間」が薄まる —— 想定間隔 6 時間なら 1 日 4 区間になる（review/code.md の R9）
     pub intervals: Vec<Interval>,
+    /// その日（`Asia/Tokyo`）に属する破棄の件数（ST04 / design D9）。
+    /// **時間ごとの件数から数える** —— 範囲を持たない破棄（読めなかった行など）は入らない
+    pub dropped_count: i64,
+    /// その日に重なる破棄の範囲を、**端が接するもの・重なるものでつないでから**その日で切った区間（design D8 / D9）
+    pub dropped_ranges: Vec<DroppedRange>,
+}
+
+/// その日の中で切った破棄の区間（design D9）。画面の「うち N 件を破棄（from〜to）」の材料。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct DroppedRange {
+    /// `Asia/Tokyo` の `HH:MM`（分に切り捨て）
+    pub from: String,
+    /// `Asia/Tokyo` の `HH:MM`（分に切り上げ）。日の終わりまで続くなら `24:00`
+    pub to: String,
+    /// この区間と重なる時間の件数の合計。時間が 2 つの区間にまたがるときは前の区間に数える
+    pub count: i64,
 }
 
 /// 生存信号 1 件ぶんの区間。**これが「前回の信号から今回まで」にあたる。**
@@ -547,6 +563,41 @@ pub async fn of_sources(
     Ok(out)
 }
 
+/// 同じソースの破棄の範囲を**つないだ島**を作る CTE（design D8（仮） / spec「端が接する 2 本の破棄は合わせて丸ごと判定される」）。
+///
+/// 端末は 1 度送ろうとした報告を書き換えずに次の報告を作る（C3 / R2）ので、2 本に割れた破棄は
+/// 1 本ずつ見るとどちらもその日を丸ごと覆わない。**`次の始まり <= これまでの終わり` ならつなぐ**（gaps-and-islands）。
+/// 隙間の許容は置かない —— 近さで合わせると、間に届いた記録がある日まで⑤に塗る。
+///
+/// 材料は `core.drop_report`（範囲を持つ行）と、ST02 の `core.coverage_span` の `dropped`（終わりの無い範囲は無限）。
+/// 引数は `$1` 利用者 / `$2` ソースの配列 / `$3` 最初の日 / `$4` 最後の日。窓の端に接する範囲まで拾う。
+fn drop_islands_cte(tz: &str) -> String {
+    format!(
+        "dr AS (SELECT range_start AS s, range_end AS e
+                  FROM core.drop_report
+                 WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                   AND range_start IS NOT NULL
+                   AND range_start <= (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
+                   AND range_end   >= ($3::date::timestamp AT TIME ZONE '{tz}')
+                UNION ALL
+                SELECT started_at, coalesce(ended_at, 'infinity'::timestamptz)
+                  FROM core.coverage_span
+                 WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                   AND kind = 'dropped'
+                   AND started_at <= (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
+                   AND (ended_at IS NULL OR ended_at >= ($3::date::timestamp AT TIME ZONE '{tz}'))),
+              dr_prev AS (SELECT s, e,
+                                 max(e) OVER (ORDER BY s, e ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+                                   AS prev_end
+                            FROM dr),
+              dr_grp AS (SELECT s, e,
+                                sum(CASE WHEN prev_end IS NULL OR s > prev_end THEN 1 ELSE 0 END)
+                                  OVER (ORDER BY s, e ROWS UNBOUNDED PRECEDING) AS grp
+                           FROM dr_prev),
+              islands AS (SELECT min(s) AS s, max(e) AS e FROM dr_grp GROUP BY grp)"
+    )
+}
+
 /// 日ごとの材料を SQL で 1 度に集める。
 ///
 /// **日の区切りは PostgreSQL の `AT TIME ZONE` に任せる**（design D1）——
@@ -603,16 +654,16 @@ async fn facts(
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
                        AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
                        AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
-                     GROUP BY 1)
+                     GROUP BY 1),
+              {islands}
          SELECT d.day,
                 coalesce(c.event_count, 0) AS event_count,
                 h.capturable, h.attempts, h.successes,
                 coalesce(b.blockers, '{{}}') AS blockers,
-                EXISTS (SELECT 1 FROM core.coverage_span s
-                         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = ANY($2) AND s.kind = 'dropped'
-                           AND s.started_at <= (d.day::timestamp AT TIME ZONE '{tz}')
-                           AND (s.ended_at IS NULL
-                                OR s.ended_at >= ((d.day + 1)::timestamp AT TIME ZONE '{tz}')))
+                -- **つないだ島で**丸ごと覆うかを見る（design D8）。1 本ずつ見ると、割れた報告で⑤が立たない
+                EXISTS (SELECT 1 FROM islands i
+                         WHERE i.s <= (d.day::timestamp AT TIME ZONE '{tz}')
+                           AND i.e >= ((d.day + 1)::timestamp AT TIME ZONE '{tz}'))
                   AS dropped_full,
                 EXISTS (SELECT 1 FROM core.coverage_span s
                          WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.logical_source = ANY($2) AND s.kind = 'stopped'
@@ -625,7 +676,8 @@ async fn facts(
            LEFT JOIN h ON h.day = d.day
            LEFT JOIN b ON b.day = d.day
           ORDER BY d.day",
-        tz = DAY_TZ
+        tz = DAY_TZ,
+        islands = drop_islands_cte(DAY_TZ)
     );
     let rows: Vec<FactRow> = sqlx::query_as(&sql)
         .bind(user)
@@ -660,6 +712,115 @@ async fn facts(
             },
         )
         .collect())
+}
+
+/// 日ごとの破棄の件数と区間（design D9 / spec「稼働状況の応答は日ごとの破棄の件数と時刻の範囲を持つ」）。
+#[derive(Debug, Clone, Default)]
+struct DayDrops {
+    count: i64,
+    ranges: Vec<DroppedRange>,
+}
+
+/// 時刻の区間 `[始まり, 終わり)`。
+type Span = (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>);
+
+/// `dropped_by_day` が SQL から受け取る区間の 1 行。（日, 切った始まり, 切った終わり, `HH:MM`, `HH:MM`）
+type SectionRow = (
+    chrono::NaiveDate,
+    chrono::DateTime<chrono::Utc>,
+    chrono::DateTime<chrono::Utc>,
+    String,
+    String,
+);
+
+/// 破棄の件数と区間を日ごとに引く。
+///
+/// **日の区切りと時と分の表記は SQL の `AT TIME ZONE` に任せる**（design D1。日を引く場所を割らない）。
+/// 件数は `core.drop_report_hour` から数える —— 範囲と総件数からは日ごとの件数を割り戻せない（C12）。
+async fn dropped_by_day(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    sources: &[String],
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<std::collections::HashMap<chrono::NaiveDate, DayDrops>, sqlx::Error> {
+    // 区間: 島をその日で切る。`to` は分に切り上げ、日の終わりに届けば 24:00
+    let sections_sql = format!(
+        "WITH d AS (SELECT day,
+                           (day::timestamp AT TIME ZONE '{tz}') AS ds,
+                           ((day + 1)::timestamp AT TIME ZONE '{tz}') AS de
+                      FROM (SELECT generate_series($3::date, $4::date, '1 day')::date AS day) g),
+              {islands},
+              cut AS (SELECT d.day, d.de, greatest(i.s, d.ds) AS cs, least(i.e, d.de) AS ce
+                        FROM d JOIN islands i ON i.s < d.de AND i.e > d.ds)
+         SELECT day, cs, ce,
+                to_char(cs AT TIME ZONE '{tz}', 'HH24:MI') AS from_hm,
+                CASE WHEN ce >= de THEN '24:00'
+                     ELSE to_char((date_trunc('minute', ce)
+                                   + CASE WHEN ce > date_trunc('minute', ce)
+                                          THEN interval '1 minute' ELSE interval '0' END)
+                                  AT TIME ZONE '{tz}', 'HH24:MI')
+                END AS to_hm
+           FROM cut
+          ORDER BY day, cs",
+        tz = DAY_TZ,
+        islands = drop_islands_cte(DAY_TZ)
+    );
+    let sections: Vec<SectionRow> = sqlx::query_as(&sections_sql)
+        .bind(user)
+        .bind(sources)
+        .bind(from)
+        .bind(to)
+        .fetch_all(pool)
+        .await?;
+
+    // 時間ごとの件数: 時間の始まりが属する日に入れる（`Asia/Tokyo` は整数時間のずれなので時間は日をまたがない）
+    let hours_sql = format!(
+        "SELECT (h.hour AT TIME ZONE '{tz}')::date AS day, h.hour, sum(h.count)::bigint
+           FROM core.drop_report_hour h
+           JOIN core.drop_report r ON r.id = h.report_id
+          WHERE ($1::uuid IS NULL OR r.user_id = $1) AND r.logical_source = ANY($2)
+            AND h.hour >= ($3::date::timestamp AT TIME ZONE '{tz}')
+            AND h.hour <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
+          GROUP BY 1, 2
+          ORDER BY 2",
+        tz = DAY_TZ
+    );
+    let hours: Vec<(chrono::NaiveDate, chrono::DateTime<chrono::Utc>, i64)> =
+        sqlx::query_as(&hours_sql)
+            .bind(user)
+            .bind(sources)
+            .bind(from)
+            .bind(to)
+            .fetch_all(pool)
+            .await?;
+
+    let mut out: std::collections::HashMap<chrono::NaiveDate, DayDrops> =
+        std::collections::HashMap::new();
+    let mut bounds: std::collections::HashMap<chrono::NaiveDate, Vec<Span>> =
+        std::collections::HashMap::new();
+    for (day, cs, ce, from_hm, to_hm) in sections {
+        let e = out.entry(day).or_default();
+        e.ranges.push(DroppedRange {
+            from: from_hm,
+            to: to_hm,
+            count: 0,
+        });
+        bounds.entry(day).or_default().push((cs, ce));
+    }
+    for (day, hour, count) in hours {
+        let e = out.entry(day).or_default();
+        e.count += count;
+        let hour_end = hour + chrono::Duration::hours(1);
+        // 前の区間から当てる（1 つの時間を 2 つの区間に二重に数えない）
+        if let Some(k) = bounds
+            .get(&day)
+            .and_then(|b| b.iter().position(|(cs, ce)| hour < *ce && hour_end > *cs))
+        {
+            e.ranges[k].count += count;
+        }
+    }
+    Ok(out)
 }
 
 /// 生存信号を**1 件ずつ**日に割り当てて返す（review/code.md の R9）。
@@ -828,6 +989,7 @@ pub async fn of_source(
     let facts = facts(pool, user, &src.chain, from, to).await?;
     let active = active_days(pool, user, &src.chain, from, to, gap_days).await?;
     let mut by_day = intervals(pool, user, &src.chain, from, to).await?;
+    let mut drops = dropped_by_day(pool, user, &src.chain, from, to).await?;
     let days = facts
         .iter()
         .map(|f| DayCell {
@@ -844,6 +1006,8 @@ pub async fn of_source(
             successes: f.successes,
             blockers: f.blockers.clone(),
             intervals: by_day.remove(&f.day).unwrap_or_default(),
+            dropped_count: drops.get(&f.day).map_or(0, |d| d.count),
+            dropped_ranges: drops.remove(&f.day).map(|d| d.ranges).unwrap_or_default(),
         })
         .collect();
     Ok(SourceCoverage {

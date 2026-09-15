@@ -20,6 +20,9 @@ pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
+pub mod drops;
+#[cfg(test)]
+mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
@@ -41,7 +44,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 13] = [
+pub const MIGRATIONS: [(&str, &str); 14] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -97,6 +100,11 @@ pub const MIGRATIONS: [(&str, &str); 13] = [
     (
         "202609142125_stays",
         include_str!("../../../migrations/202609142125_stays.sql"),
+    ),
+    // 端末からの破棄の報告（ST04 / design D7 / D16）
+    (
+        "202609151546_drop_reports",
+        include_str!("../../../migrations/202609151546_drop_reports.sql"),
     ),
 ];
 
@@ -1495,6 +1503,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/healthz", get(|| async { "ok" }))
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
+        .route("/drops", post(drops::drops_post))
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
@@ -1526,6 +1535,7 @@ pub async fn run() -> anyhow::Result<()> {
     paths(
         ingest,
         heartbeat_post,
+        drops::drops_post,
         events,
         coverage_get,
         achievement_get,
@@ -1541,9 +1551,14 @@ pub async fn run() -> anyhow::Result<()> {
         HeartbeatResult,
         HeartbeatError,
         heartbeat::HeartbeatRequest,
+        drops::DropReportRequest,
+        drops::DropHour,
+        drops::DropResult,
+        drops::DropError,
         coverage::SourceCoverage,
         coverage::DayCell,
         coverage::Interval,
+        coverage::DroppedRange,
         coverage::DayState,
         coverage::Band,
         coverage::Subject,
