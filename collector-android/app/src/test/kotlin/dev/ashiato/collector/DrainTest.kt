@@ -127,4 +127,22 @@ class DrainTest {
         ).tick()
         assertEquals(listOf("maintenance", "ingest"), order)
     }
+
+    /**
+     * 受け付けられても置き場から取り除けなかったら（`.acked` を書けない）、**続けて送らない**（review R5）。
+     * 取り除けたと数えていたときは、同じ 200 件を 1 回の契機の中で送り続けた。
+     */
+    @Test
+    fun `取り除きを書けなかったら続けて送らない`() {
+        fill(3 * MAX_BATCH)
+        // 取り除きの印（`.acked`）を作れなくする。読むほうは通る
+        assertTrue(st.recordsDir.setWritable(false))
+        try {
+            drainer().tick()
+        } finally {
+            st.recordsDir.setWritable(true)
+        }
+        assertEquals("取り除けていないのに続けて送った", 1, calls.count { it == "ingest" })
+        assertEquals(3 * MAX_BATCH, st.records.size())
+    }
 }

@@ -74,10 +74,14 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
 
     /** 受け口ごとに送った本文を覚える偽物（ST04）。既定はすべて受け付ける。 */
     val posted = mutableListOf<Pair<String, String>>()
+
+    /** 受け口ごとの答え（既定は全部受け付ける）。`(道, 件数) -> 答え` */
+    var reply: (String, Int) -> Outcome = { _, n ->
+        Outcome.Responded(200, (1..n).joinToString(",", "[", "]") { """{"accepted":true}""" })
+    }
     override fun newTransport(path: String): Transport = Transport { body ->
         posted += path to body
-        val n = body.split("\"id\":").size - 1
-        Outcome.Responded(200, (1..n).joinToString(",", "[", "]") { """{"accepted":true}""" })
+        reply(path, body.split("\"id\":").size - 1)
     }
 
     /** 時計を試験から進める（ST04）。 */
@@ -344,5 +348,121 @@ class LocationServiceTest {
             "数えがメモリだけに置かれている",
             File(app.filesDir, "heartbeat-counters.txt").exists(),
         )
+    }
+
+    // ------------------------------------------------------------------ ST04 の本番の配線（review R3）
+
+    private fun withConfig(block: () -> Unit) {
+        Config.overrideForTest(baseUrl = "http://127.0.0.1:1", apiToken = "t", userId = "u")
+        try {
+            block()
+        } finally {
+            Config.clearOverrideForTest()
+        }
+    }
+
+    /**
+     * `/drops` の送り手は**恒久的に断られても報告を取り除かない**（C2 / design D13）。
+     * 本番の配線を `dropPermanentlyRejected = true` に変えると、断られた報告が端末から消える。
+     *
+     * Scenario: 断られた破棄の報告も未送信から取り除かれない
+     */
+    @Test
+    fun `本番の配線で断られた破棄の報告も未送信に残る`() = withConfig {
+        val service = start()
+        service.reply = { path, n ->
+            if (path == "/drops") {
+                Outcome.Responded(400, (1..n).joinToString(",", "[", "]") { """{"accepted":false,"error":"malformed"}""" })
+            } else {
+                Outcome.Responded(200, (1..n).joinToString(",", "[", "]") { """{"accepted":true}""" })
+            }
+        }
+        service.outboxForTest.add(fix("old"))
+        service.clock.advance(90 * AgeClock.DAY_MS + 60_000)
+        service.scheduler.fire()
+        assertTrue("/drops に送っていない", service.posted.any { it.first == "/drops" })
+        assertEquals("断られた破棄の報告が取り除かれた", 1, service.dropsOutboxForTest.size())
+        service.scheduler.fire()
+        assertEquals(2, service.posted.count { it.first == "/drops" })
+        assertEquals(1, service.dropsOutboxForTest.size())
+    }
+
+    /**
+     * 前のプロセスで書けないまま失われた記録（固定長の数えが 0 でない）は、起動すると「書けなかった」報告になり、数えは 0 に戻る。
+     *
+     * Scenario: 置き場に書けなかった記録も報告される
+     */
+    @Test
+    fun `起動すると前のプロセスで書けなかった記録が報告になる`() {
+        val counter = WriteFailedLedger(File(app.filesDir, "outbox/write-failed.bin")) {}
+        counter.failed(Instant.parse("2026-09-08T02:10:00Z"))
+        counter.failed(Instant.parse("2026-09-08T02:20:00Z"))
+        val service = start()
+        val d = service.ledgerForTest.drafts().single()
+        assertEquals("write_failed", d.reason)
+        assertEquals(2, d.count)
+        assertTrue(WriteFailedLedger(File(app.filesDir, "outbox/write-failed.bin")) {}.peek().first.isEmpty())
+    }
+
+    /**
+     * 置き場の読めない行は、見回りで「読めなかった」報告に数えられる。**数えは退避先の行数から取る**ので、
+     * 見回りの前に立て直しても件数は消えない（review R21）。
+     *
+     * Scenario: 読めない行の件数が報告される
+     */
+    @Test
+    fun `読めない行は見回りで報告に数えられ、立て直しても二重に数えない`() {
+        val first = start()
+        first.outboxForTest.add(fix("a"))
+        val seg = File(app.filesDir, "outbox/records").listFiles { f -> f.name.endsWith(".jsonl") }!!.single()
+        seg.appendText("壊れ1\n壊れ2\n")
+        first.outboxForTest.snapshot()   // 読み戻しで退避される（この時点では報告に足していない）
+        // 見回りの前に立て直された
+        val reborn = start()
+        reborn.maintainForTest()
+        val d = reborn.ledgerForTest.drafts().single { it.reason == "unreadable" }
+        assertEquals(2, d.count)
+        reborn.maintainForTest()
+        assertEquals("同じ行を二重に数えた", 2, start().ledgerForTest.drafts().single { it.reason == "unreadable" }.count)
+    }
+
+    /**
+     * 本番の配線で、常駐の通知に未送信の日数が出る（本人の決定 Q5）。
+     *
+     * Scenario: 常駐の通知に未送信の日数が出る
+     */
+    @Test
+    fun `本番の配線で常駐の通知に未送信の日数が出る`() {
+        val service = start()
+        service.outboxForTest.add(fix("a"))
+        service.clock.advance(12 * AgeClock.DAY_MS + 1_000)
+        service.maintainForTest()
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        val text = org.robolectric.Shadows.shadowOf(nm).getNotification(LocationService.NOTIFICATION_ID)
+            ?.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+        assertEquals("位置を記録しています · 未送信 12 日", text)
+    }
+
+    /**
+     * **設定が揃っていない端末でも、積む契機から上限がかかる**（本人の決定 Q1 / review 試験 C2）。
+     * 送信の刻みが立たないので、見回りは積む契機（1 分に 1 度まで）だけが持つ。間引かない口は使わない。
+     *
+     * Scenario: 到達できても断られ続ける未送信にも上限がかかる
+     */
+    @Test
+    fun `設定が無い端末でも積む契機の見回りで 90 日を超えた記録を捨て、生存信号は捨てない`() {
+        assertFalse(Config.isComplete)
+        val service = start()
+        service.outboxForTest.add(fix("old"))
+        val beatsBefore = service.heartbeatOutboxForTest.size()
+        service.clock.advance(91 * AgeClock.DAY_MS)
+        // 間引きの内側（前の見回りから 1 分未満）では捨てない
+        service.outboxForTest.add(fix("new-1"))
+        assertTrue("間引かずに毎回見回っている", service.outboxForTest.snapshot().any { it.id == "old" })
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(61))
+        service.outboxForTest.add(fix("new-2"))
+        assertEquals(listOf("new-1", "new-2"), service.outboxForTest.snapshot().map { it.id })
+        assertEquals(1, service.ledgerForTest.drafts().single().count)
+        assertEquals("生存信号を捨てた", beatsBefore, service.heartbeatOutboxForTest.size())
     }
 }

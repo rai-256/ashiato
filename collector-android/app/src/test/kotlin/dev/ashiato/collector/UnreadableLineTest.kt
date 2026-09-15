@@ -97,4 +97,19 @@ class UnreadableLineTest {
         )
         assertEquals(0, again.unreadable)
     }
+
+    /**
+     * 電源断で多バイト文字の途中が切れた行（UTF-8 として不正なバイト列）も、**1 バイトも変えずに**退避する。
+     * 文字列として読んで書き戻すと、不正なバイトが U+FFFD に置き換わる。
+     */
+    @Test
+    fun `UTF-8 として不正なバイト列の行も 1 バイトも変えずに退避する`() {
+        st.records.add(req(0))
+        val seg = File(st.recordsDir, "000000000000.jsonl")
+        val broken = byteArrayOf(0x7b, 0x22, 0xe3.toByte(), 0x81.toByte(), 0x0d)   // `{"` + 途中で切れた「あ」 + CR
+        seg.appendBytes(broken + byteArrayOf(0x0a))
+        st.records.add(req(1))
+        Outbox(SegmentStore(st.recordsDir, IngestRequest.serializer(), st.unreadable, st.log), st.age::now).head(10)
+        assertTrue("バイトが変わった", (broken + byteArrayOf(0x0a)).contentEquals(st.unreadable.readBytes()))
+    }
 }

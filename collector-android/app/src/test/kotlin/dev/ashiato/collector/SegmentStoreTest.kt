@@ -129,4 +129,83 @@ class SegmentStoreTest {
         s.append(req(1), 456L)
         assertEquals(listOf(123L, 456L), store().head(10).map { it.enqAgeMs })
     }
+
+    /**
+     * 追記が途中まで書けて失敗した後、**同じプロセスのうちに**次の 1 件を書いても、半端な行に繋げない（review R8 / R13）。
+     * 空きが尽きた端末で `FileOutputStream.write` は書けた分を残して例外を投げる。
+     */
+    @Test
+    fun `途中で失敗した追記の後の 1 件は半端な行に繋がらない`() {
+        val s = store()
+        assertTrue(s.append(req(0), 0))
+        val seg = segmentFiles().single()
+        // 次の行の先頭 40 バイトだけが書けて失敗した跡
+        seg.appendBytes("{\"enq\":0,\"item\":{\"id\":\"id-000001\",\"u".toByteArray())
+        // ファイルを書けなくして 1 回失敗させる（途中で失敗した追記と同じく、例外の経路を通す）
+        assertTrue(seg.setWritable(false))
+        assertFalse(s.append(req(1), 0))
+        assertTrue(seg.setWritable(true))
+        assertTrue(s.append(req(2), 0))
+        assertEquals(listOf("id-000000", "id-000002"), store().readAll().map { it.id })
+    }
+
+    /**
+     * 先頭の区切りが一時的に読めないと、上限は**捨てるのをやめる**（新しい記録から捨てない。review R2）。
+     * ST02 の R17（一時的に読めない置き場で失わない）を、新しい置き場で置き直したもの。
+     */
+    @Test
+    fun `先頭の区切りが読めないと 90 日も 2 GB も捨てずに止まる`() {
+        val s = store(segmentBytes = 3_000)
+        repeat(20) { s.append(req(it), 0) }
+        assertTrue(segmentFiles().size > 2)
+        val head = segmentFiles().first()
+        assertTrue(head.setReadable(false))
+        var committed = 0
+        val byBytes = s.dropUntilBytes(s.liveBytes() - 2_000, { committed += it.size; true }, {})
+        val byAge = s.dropHead({ true }, { committed += it.size; true }, {})
+        assertTrue(head.setReadable(true))
+        assertEquals("新しい区切りから捨てている", 0, byBytes)
+        assertEquals(0, byAge)
+        assertEquals(0, committed)
+        assertEquals(20, store(segmentBytes = 3_000).count())
+    }
+
+    /** 証拠を書けなければ消さない（review R26）。`commit` が偽なら印を付けず、行は残る。 */
+    @Test
+    fun `証拠を書けなければ行を消さない`() {
+        val s = store()
+        repeat(3) { s.append(req(it), 0) }
+        assertEquals(0, s.dropHead({ true }, { false }, {}))
+        assertEquals(3, store().count())
+    }
+
+    /**
+     * 同じ識別子の行が 2 本ある区切り（取り込みをやり直した跡）でも、両方を取り除いて区切りを消す（review R27）。
+     * 識別子を鍵にしていたときは、片方が隠れて区切りが永久に残り、2 GB の勘定に数えられ続けた。
+     */
+    @Test
+    fun `同じ識別子の行が 2 本あっても両方取り除いて区切りを消す`() {
+        val s = store()
+        s.append(req(0), 0)
+        s.append(req(0), 0)
+        s.append(req(1), 0)
+        assertEquals(3, store().count())
+        assertTrue(s.remove(listOf("id-000000", "id-000001")))
+        assertEquals(0, store().count())
+        assertEquals("区切りが残っている", 0, segmentFiles().size)
+        assertEquals(0L, s.liveBytes())
+    }
+
+    /** `.acked` の書きかけの行に次の印を繋げない（繋がると両方の印が消え、取り除いた行が戻る。review R35）。 */
+    @Test
+    fun `acked の書きかけの行があっても次の印は読める`() {
+        val s = store()
+        repeat(3) { s.append(req(it), 0) }
+        assertTrue(s.remove(listOf("id-000000")))
+        val acked = File(dir, "records").listFiles { f -> f.name.endsWith(".acked") }!!.single()
+        acked.appendText("L1\t")   // 書きかけ（バイト数の途中で切れて改行なし）。このままでは印として読めない
+        val reopened = store()
+        assertTrue(reopened.remove(listOf("id-000002")))
+        assertEquals(listOf("id-000001"), store().readAll().map { it.id })
+    }
 }

@@ -143,4 +143,19 @@ class RetentionTest {
         outbox.add(req("a"))
         assertEquals(1, ran)
     }
+
+    /**
+     * **下書きを保存できなければ、記録を置き場から消さない**（review R26）。
+     * 消してから保存していたときは、保存に失敗して立て直すと、捨てた記録について何も残らなかった。
+     */
+    @Test
+    fun `破棄の報告の下書きを保存できなければ記録を捨てない`() {
+        val blocked = File(st.dir, "no-space").apply { writeText("x") }
+        val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log)
+        repeat(3) { st.records.add(req("r$it")) }
+        st.clock.advance(91 * day)
+        assertEquals(0, Retention(st.records, ledger, st.age::now).enforce())
+        assertEquals("証拠を書けないのに捨てた", 3, st.records.size())
+        assertTrue(ledger.drafts().isEmpty())
+    }
 }

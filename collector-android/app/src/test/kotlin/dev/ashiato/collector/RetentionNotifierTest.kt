@@ -153,4 +153,38 @@ class RetentionNotifierTest {
         assertFalse(lines.any { it.contains("35.68") })
         n.hashCode()
     }
+
+    /**
+     * 権限が無くて出せなかったときは印を付けない。**権限を戻したら鳴る**（review R39）。
+     */
+    @Test
+    fun `出せなかった知らせは権限を戻した後に鳴る`() {
+        val n = notifier()
+        shadowOf(app).denyPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        st.records.add(req("a"))
+        st.clock.advance(83 * day)
+        n.update(); countAlert()
+        assertEquals(0, alertsPosted)
+        shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        n.update(); countAlert()
+        assertEquals("権限を戻しても鳴らない", 1, alertsPosted)
+    }
+
+    /**
+     * 鳴らした印は**立て直しをまたいで残る**（START_STICKY で新しいインスタンスになっても鳴り直さない）。
+     *
+     * Scenario: 83 日を過ぎても同じ通知は鳴り直さない
+     */
+    @Test
+    fun `鳴らした印は立て直しをまたいで残る`() {
+        notifier().also {
+            st.records.add(req("a"))
+            st.clock.advance(83 * day)
+            it.update(); countAlert()
+        }
+        assertEquals(1, alertsPosted)
+        st.clock.advance(1 * day)
+        notifier().update(); countAlert()
+        assertEquals("立て直しで鳴り直した", 1, alertsPosted)
+    }
 }

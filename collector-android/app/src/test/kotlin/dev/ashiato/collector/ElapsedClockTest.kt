@@ -86,4 +86,18 @@ class ElapsedClockTest {
         // 同じ起動でプロセスだけ立て直された
         assertEquals(3 * day, clock().now() - enq)
     }
+
+    /** 単調時計が戻らなくても、起動回数が変われば再起動として扱う（起動回数の比較を消すと落ちる）。 */
+    @Test
+    fun `起動回数が変わったら単調時計が進んでいても再起動として扱う`() {
+        val c = clock()
+        val enq = c.now()
+        device.advance(5 * day)
+        c.now()
+        // 起動回数だけが変わり、単調時計はたまたま前より大きい
+        device.boot = device.boot!! + 1
+        device.mono += 1_000
+        device.wall += 100 * day
+        assertEquals(5 * day + 30 * day, clock().now() - enq)
+    }
 }
