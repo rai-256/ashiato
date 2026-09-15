@@ -137,13 +137,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 10. 完了の判定を機械で確かめる（design D15）
 
-- [ ] 10.1 エミュレータの計測テスト `RetentionInstrumentedTest`: 偽の `Transport` を 1 時間ぶん失敗させてから戻す → 60 件が届き報告が無い。
+- [x] 10.1 エミュレータの計測テスト `RetentionInstrumentedTest`: 偽の `Transport` を 1 時間ぶん失敗させてから戻す → 60 件が届き報告が無い。
   Scenario: `1 時間の圏外の記録は全部が届く` / `1 時間の圏外では破棄の報告が作られない`。
   検証: `AT RetentionInstrumentedTest`
-- [ ] 10.2 同じテストに、129,600 件の区切りを置いてから `LocationService` を起こす段を足す → 落ちずに起動し、偽のサーバに全件が届き、取得も続く。送り切るまでに生まれた記録が 1 時間以内に送られる。
+- [x] 10.2 同じテストに、129,600 件の区切りを置いてから `LocationService` を起こす段を足す → 落ちずに起動し、偽のサーバに全件が届き、取得も続く。送り切るまでに生まれた記録が 1 時間以内に送られる。
   Scenario: `90 日ぶんを溜めた端末が起動して送り切る` / `溜まった状態でも取得は続く` / `溜まった分を送っている間に生まれた記録も 1 時間以内に届く`。
   検証: `AT RetentionInstrumentedTest`
-- [ ] 10.2b 同じテストに、未送信の記録を 1.9 GB 置いてから `LocationService` を起こす段を足す（エミュレータの空きが足りなければ `-partition-size` を上げる）。
+- [x] 10.2b 同じテストに、未送信の記録を 1.9 GB 置いてから `LocationService` を起こす段を足す（エミュレータの空きが足りなければ `-partition-size` を上げる）。
   Scenario: `2 GB に近い量でも収集は起動する`。検証: `AT RetentionInstrumentedTest`
 - [x] 10.3 `tools/smoke.sh` に 1 段足す: `/drops` に 180 件（10:00〜13:00）の報告を送り、同じものをもう 1 回送り、`GET /coverage` のその日が `dropped_count = 180` で状態が変わらないことを `jq -e` で見る。
   検証: `tools/smoke.sh` rc=0
@@ -153,6 +153,10 @@ DB を使う検査は `docker compose up -d db` が前提。
   `curl -sf -H "authorization: Bearer $API_TOKEN" "http://127.0.0.1:18787/coverage?from=2026-09-01&to=2026-09-08" | jq -e '[.[]|select(.logical_source=="c01-location").days[]|select(.day=="2026-09-07")][0].dropped_count==180'` rc=0
   （**式を直した**（下流）: `GET /coverage` の応答はソースの配列そのもので `.sources` を持たない。`DayCell` の欄は 3.2 のとおり）
 
+**10.1 / 10.2 / 10.2b の確かめ方（下流、2026-09-15）**: ローカルは `/dev/kvm` の権限が無く `AT` を走らせられないので、CI の `android-instrumented` で見た。
+head `af9aa7b`（run 34958586147）で「Finished 8 tests / 0 failed / BUILD SUCCESSFUL」。8 本 = 既存 5 本（`HttpTransportInstrumentedTest` 3・`LocationServiceInstrumentedTest` 1・`MainActivityInstrumentedTest` 1）＋ `RetentionInstrumentedTest` 3 本。
+**CI は XML を成果物に上げていない**ので、`AT` の本文の「同じ XML を成果物で見る」はジョブのログの件数で代えた。1 回目の run（34943737586）では 1.9 GB の段が偽装位置の許可の競合で落ち、試験の足場を直した（`5d133d4`）。
+
 ## 11. まとめの検査
 
 - [x] 11.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
@@ -160,7 +164,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 11.2 検証: `python3 scripts/check_scenarios.py . st04-offline-retention` rc=0（81 本すべてに印か、人間の確認待ち）
 - [x] 11.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st04-offline-retention --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` がすべて rc=0
-- [ ] 11.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D8 / D10 / D11 / D12）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(1|2|3|5|8|10|11|12)（仮）"` が 8 以上
+- [x] 11.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D8 / D10 / D11 / D12）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(1|2|3|5|8|10|11|12)（仮）"` が 8 以上
 - [x] 11.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST04.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
 ## 人間の確認待ち
