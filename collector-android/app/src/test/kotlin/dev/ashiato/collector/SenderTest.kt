@@ -187,10 +187,16 @@ class SenderTest {
             Outcome.Responded(429, """[{"accepted":false,"error":"malformed"}]"""),
         )
         for (outcome in temporary) {
-            val outbox = testOutbox()
-            listOf("a", "b").forEach { outbox.add(req(it)) }
-            sender(outbox, FakeTransport { outcome }).flush()
-            assertEquals("$outcome で捨てている", 2, outbox.size())
+            // **保持の上限を超えていない状態で**（ST04 で WHEN が変わった）。上限による破棄は送信の結果と独立に働くので、
+            // 上限の見回りも同じ契機で走らせ、それでも 1 件も取り除かれないことを見る
+            val st = TestStores()
+            val retention = Retention(st.records, st.ledger, st.age::now)
+            listOf("a", "b").forEach { st.records.add(req(it)) }
+            st.clock.advance(89 * AgeClock.DAY_MS)
+            sender(st.records, FakeTransport { outcome }).flush()
+            assertEquals("上限を超えていないのに捨てている", 0, retention.enforce())
+            assertEquals("$outcome で捨てている", 2, st.records.size())
+            assertTrue("破棄の報告が作られている", st.ledger.drafts().isEmpty())
         }
     }
 
