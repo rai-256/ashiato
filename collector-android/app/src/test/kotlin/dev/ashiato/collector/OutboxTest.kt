@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -11,13 +9,7 @@ import org.junit.Test
 /** 未送信の置き場（tasks 7.1）と、ふるい落とさないこと（tasks 6.4 / design D11）。 */
 class OutboxTest {
     /** 置き場はこの試験の関心ではないので、毎回まっさらなファイルを使う。 */
-    private fun outbox() =
-        Outbox(
-            FileOutboxStore(
-                File(Files.createTempDirectory("outbox").toFile(), "outbox.jsonl"),
-                IngestRequest.serializer(),
-            ) {},
-        )
+    private fun outbox() = testOutbox()
 
     private fun req(id: String, accuracy: Float = 10f) =
         LocationFix(35.68, 139.76, accuracy, Instant.parse("2026-09-08T02:00:00Z"))

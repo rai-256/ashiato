@@ -13,6 +13,8 @@ export function days(from: string, n: number, states: DayState[]): DayCell[] {
       event_count: states[i % states.length] === "recorded" ? 3 : 0,
       attempts: null,
       successes: null,
+      dropped_count: 0,
+      dropped_ranges: [],
     });
     d.setUTCDate(d.getUTCDate() + 1);
   }

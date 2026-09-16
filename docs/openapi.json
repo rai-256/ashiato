@@ -104,6 +104,60 @@
         }
       }
     },
+    "/drops": {
+      "post": {
+        "tags": [
+          "drops"
+        ],
+        "summary": "破棄の報告をまとめて受け取る（FR-9 / design D7）。",
+        "description": "400 は「1 件も受け付けなかった」ことを意味する（`/ingest` / `/heartbeat` と同じ約束）。\n**端末は断られた報告も捨てずに送り直す**（C2）ので、断るのは形の不正と登録簿に無いソースに限る。",
+        "operationId": "drops_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DropReportRequest"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DropResult"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DropResult"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/events": {
       "get": {
         "tags": [],
@@ -496,7 +550,9 @@
           "state",
           "event_count",
           "blockers",
-          "intervals"
+          "intervals",
+          "dropped_count",
+          "dropped_ranges"
         ],
         "properties": {
           "attempts": {
@@ -517,6 +573,18 @@
           "day": {
             "type": "string",
             "format": "date"
+          },
+          "dropped_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "その日（`Asia/Tokyo`）に属する破棄の件数（ST04 / design D9）。\n**時間ごとの件数から数える** —— 範囲を持たない破棄（読めなかった行など）は入らない"
+          },
+          "dropped_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DroppedRange"
+            },
+            "description": "その日に重なる破棄の範囲を、**端が接するもの・重なるものでつないでから**その日で切った区間（design D8 / D9）"
           },
           "event_count": {
             "type": "integer",
@@ -619,6 +687,174 @@
               "$ref": "#/components/schemas/DayEntry"
             },
             "description": "始まりの時刻順"
+          }
+        }
+      },
+      "DropError": {
+        "type": "string",
+        "description": "破棄の報告を断った理由。**受け取った値は載せない**（`HeartbeatError` と同じ向き）。",
+        "enum": [
+          "malformed",
+          "unknown_source",
+          "invalid_raw",
+          "invalid_reason",
+          "missing_device",
+          "invalid_count",
+          "invalid_range",
+          "invalid_hourly",
+          "id_reused"
+        ]
+      },
+      "DropHour": {
+        "type": "object",
+        "description": "出来事の時刻の 1 時間（UTC）ごとの件数（C12）。",
+        "required": [
+          "hour",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hour": {
+            "type": "string",
+            "format": "date-time",
+            "description": "時間の始まり（UTC の正時）"
+          }
+        }
+      },
+      "DropReportRequest": {
+        "type": "object",
+        "description": "端末が送る破棄の報告 1 件（design D4）。**位置の値も原文の中身も持たない。**",
+        "required": [
+          "id",
+          "user_id",
+          "logical_source",
+          "created_at",
+          "count",
+          "raw"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "端末が報告を作った時刻"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "どの端末が捨てたか。空なら断る"
+          },
+          "hourly": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DropHour"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "端末が振った識別子。**冪等キーには混ぜない**"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "range_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "範囲の終わり（含まない）"
+          },
+          "range_start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "最初に捨てた記録の出来事の時刻（含む）"
+          },
+          "raw": {
+            "type": "string",
+            "description": "端末が組んだ原文。**素通しで残す**（`text`。0003 と同じ理由）"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`age` / `bytes` / `write_failed` / `unreadable`"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "DropResult": {
+        "type": "object",
+        "description": "送った 1 件ごとの結果。**送った順に並ぶ。** 欄は `IngestResult` / `HeartbeatResult` と同じ ——\n端末は 3 つの応答を同じ型で読む（`tools/check-openapi.sh` が形の一致を見る）。",
+        "required": [
+          "duplicate",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "未送信から取り除いてよいか"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "既に同じ 1 件があったか"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DropError"
+              }
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "DroppedRange": {
+        "type": "object",
+        "description": "その日の中で切った破棄の区間（design D9）。画面の「うち N 件を破棄（from〜to）」の材料。",
+        "required": [
+          "from",
+          "to",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "この区間と重なる時間の件数の合計。時間が 2 つの区間にまたがるときは前の区間に数える"
+          },
+          "from": {
+            "type": "string",
+            "description": "`Asia/Tokyo` の `HH:MM`（分に切り捨て）"
+          },
+          "to": {
+            "type": "string",
+            "description": "`Asia/Tokyo` の `HH:MM`（分に切り上げ）。日の終わりまで続くなら `24:00`"
           }
         }
       },

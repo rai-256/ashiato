@@ -131,3 +131,47 @@ for part in "$work"/part.*; do
 done
 [ "$accepted" -eq "$total" ] || { echo "$MODE: 位置 $total 件のうち $accepted 件しか受け入れられなかった"; exit 1; }
 echo "$MODE: 2026-09-07 の位置を $total 件入れた（滞在 $N 件になる並び）"
+
+# ------------------------------------------------------------------ 破棄の報告（ST04 / tasks 10.4）
+#
+# 確認バッチの画面で**印と文字が見える材料**。端末が上限で捨てたときに送るのと同じ形で `/drops` へ送る。
+# - 2026-09-07: 10:00〜13:00（JST）の 180 件だけを捨てた日 —— 記録は残っているので「記録あり」に**右下の三角の印**、
+#   週を選ぶと「うち 180 件を破棄（10:00〜13:00）」
+# - 2026-09-05: **2 本に割れた報告**（00:00〜12:00 と 12:00〜24:00）で丸ごと覆う日 —— つないで判定するので「破棄された期間」、件数 1,440
+# 原文は欄を組んだ文字列そのもので、何度入れても同じ本文 → 再送として畳まれる（冪等）。
+python3 - > "$work/drops.json" <<'PY'
+import json
+from datetime import datetime, timedelta, timezone
+
+def report(rid, start, hours, per_hour=60):
+    end = start + timedelta(hours=hours)
+    z = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
+    fields = {
+        "id": rid, "user_id": "00000000-0000-0000-0000-000000000000",
+        "logical_source": "c01-location", "device_id": "seed", "reason": "age",
+        "created_at": "2026-12-01T00:00:00Z", "range_start": z(start), "range_end": z(end),
+        "count": per_hour * hours,
+        "hourly": [{"hour": z(start + timedelta(hours=h)), "count": per_hour} for h in range(hours)],
+    }
+    return dict(fields, raw=json.dumps(fields, separators=(",", ":")))
+
+utc = timezone.utc
+print(json.dumps([
+    # 2026-09-07 10:00〜13:00 JST = 01:00〜04:00 UTC
+    report("04040404-5eed-4000-8000-000000000907", datetime(2026, 9, 7, 1, tzinfo=utc), 3),
+    # 2026-09-05 00:00〜12:00 JST と 12:00〜24:00 JST（端が接する 2 本）
+    report("04040404-5eed-4000-8000-00000905a000", datetime(2026, 9, 4, 15, tzinfo=utc), 12),
+    report("04040404-5eed-4000-8000-00000905b000", datetime(2026, 9, 5, 3, tzinfo=utc), 12),
+]))
+PY
+# **収集開始日を破棄の日より前にする。** 本番では破棄より前に届いた記録か生存信号で開始日が前にあるが、
+# 偽データの位置は 09-07 からしか無い。そのままだと 09-05 は ST02 の判定順で「導入前」（破棄より先に見る）になる。
+# **生存信号ではなく記録を 1 件**置く —— 生存信号は登録簿に行ができた日より前だと開始日に効かない（第 9 回 Q32）
+curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/ingest" -d '{"id":"04040404-5eed-4000-8000-0000000e0901",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-location","external_id":null,
+  "device_id":"seed","origin":"collected","event_time":"2026-09-01T03:00:00Z","tz_offset_min":540,
+  "tz_id":"Asia/Tokyo","schema_version":1,"raw":"{\"lat\":35.6812,\"lon\":139.7671,\"acc_m\":20}",
+  "payload":{"lat":35.6812,"lon":139.7671,"acc_m":20}}' >/dev/null
+got=$(curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/drops" --data-binary @"$work/drops.json" | jq '[.[] | select(.accepted)] | length')
+[ "$got" -eq 3 ] || { echo "$MODE: 破棄の報告 3 件のうち $got 件しか受け入れられなかった"; exit 1; }
+echo "$MODE: 破棄の報告を 3 件入れた（2026-09-07 の一部 180 件 / 2026-09-05 を 2 本で丸ごと 1,440 件）"

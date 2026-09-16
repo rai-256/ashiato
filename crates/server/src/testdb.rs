@@ -306,3 +306,44 @@ pub async fn set_started_on(pool: &sqlx::PgPool, source: &str, day: &str) {
 pub fn date(s: &str) -> chrono::NaiveDate {
     s.parse().unwrap()
 }
+
+/// 破棄の報告を直に置く（ST04）。`range` は RFC3339 の (始まり, 終わり)、`hours` は (UTC の正時, 件数)。
+/// **口を通す試験は `drops_tests` にある。** ここは稼働状況の読み手の試験の材料。
+pub async fn put_drop(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    source: &str,
+    range: Option<(&str, &str)>,
+    hours: &[(&str, i32)],
+) {
+    let id = uuid::Uuid::new_v4();
+    let count: i32 = hours.iter().map(|h| h.1).sum::<i32>().max(1);
+    sqlx::query(
+        "INSERT INTO core.drop_report
+           (id, user_id, logical_source, device_id, reason, range_start, range_end,
+            count, created_at, content_hash, raw)
+         VALUES ($1,$2,$3,'test',$4,$5::timestamptz,$6::timestamptz,$7,now(),$8,'{}')",
+    )
+    .bind(id)
+    .bind(user)
+    .bind(source)
+    .bind(if range.is_some() { "age" } else { "unreadable" })
+    .bind(range.map(|r| r.0))
+    .bind(range.map(|r| r.1))
+    .bind(count)
+    .bind(id.to_string())
+    .execute(pool)
+    .await
+    .unwrap();
+    for (hour, n) in hours {
+        sqlx::query(
+            "INSERT INTO core.drop_report_hour (report_id, hour, count) VALUES ($1,$2::timestamptz,$3)",
+        )
+        .bind(id)
+        .bind(hour)
+        .bind(n)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}

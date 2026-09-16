@@ -62,7 +62,7 @@ class SenderTest {
 
         assertEquals(1, transport.bodies.size)                       // **1 回にまとまる**
         assertEquals(5, Json.parseToJsonElement(transport.bodies[0]).let { (it as JsonArray).size })
-        assertEquals(Sender.Flushed(sent = 5, accepted = 5), flushed)
+        assertEquals(Sender.Flushed(sent = 5, accepted = 5, removed = 5, responded = true), flushed)
         assertEquals(0, outbox.size())
     }
 
@@ -81,7 +81,7 @@ class SenderTest {
         val flushed = sender(outbox, transport).flush()
 
         assertEquals(0, outbox.size())
-        assertEquals(Sender.Flushed(sent = 3, accepted = 2), flushed)
+        assertEquals(Sender.Flushed(sent = 3, accepted = 2, removed = 3, responded = true), flushed)
     }
 
     // Scenario: 捨てた件数と理由が端末のログに残る
@@ -187,10 +187,16 @@ class SenderTest {
             Outcome.Responded(429, """[{"accepted":false,"error":"malformed"}]"""),
         )
         for (outcome in temporary) {
-            val outbox = testOutbox()
-            listOf("a", "b").forEach { outbox.add(req(it)) }
-            sender(outbox, FakeTransport { outcome }).flush()
-            assertEquals("$outcome で捨てている", 2, outbox.size())
+            // **保持の上限を超えていない状態で**（ST04 で WHEN が変わった）。上限による破棄は送信の結果と独立に働くので、
+            // 上限の見回りも同じ契機で走らせ、それでも 1 件も取り除かれないことを見る
+            val st = TestStores()
+            val retention = Retention(st.records, st.ledger, st.age::now)
+            listOf("a", "b").forEach { st.records.add(req(it)) }
+            st.clock.advance(89 * AgeClock.DAY_MS)
+            sender(st.records, FakeTransport { outcome }).flush()
+            assertEquals("上限を超えていないのに捨てている", 0, retention.enforce())
+            assertEquals("$outcome で捨てている", 2, st.records.size())
+            assertTrue("破棄の報告が作られている", st.ledger.drafts().isEmpty())
         }
     }
 

@@ -89,8 +89,7 @@ class HeartbeatOutboxTest {
     @Test
     fun `停止と再開をまたいで残る`() {
         val dir = Files.createTempDirectory("hb").toFile()
-        val file = File(dir, "heartbeat.jsonl")
-        fun open() = Outbox(FileOutboxStore(file, HeartbeatRequest.serializer()) {})
+        fun open() = Outbox.inDir(dir, HeartbeatRequest.serializer()) {}
 
         open().add(beat("a"))
         // プロセスが立て直された（新しいインスタンスで開き直す）
@@ -103,21 +102,23 @@ class HeartbeatOutboxTest {
     @Test
     fun `記録と生存信号は別のファイルに積まれる`() {
         val dir = Files.createTempDirectory("both").toFile()
-        val events = File(dir, "outbox.jsonl")
-        val beats = File(dir, "heartbeat.jsonl")
-        Outbox(FileOutboxStore(events, IngestRequest.serializer()) {}).add(
+        val events = File(dir, "records")
+        val beats = File(dir, "heartbeats")
+        Outbox.inDir(events, IngestRequest.serializer()) {}.add(
             LocationFix(35.68, 139.76, 10f, Instant.parse("2026-05-01T00:00:00Z"))
                 .toIngestRequest("e1", "user-1", "device-1", java.time.ZoneId.of("Asia/Tokyo")),
         )
-        Outbox(FileOutboxStore(beats, HeartbeatRequest.serializer()) {}).add(beat("h1"))
+        Outbox.inDir(beats, HeartbeatRequest.serializer()) {}.add(beat("h1"))
 
-        assertNotEquals(events.readText(), beats.readText())
-        assertTrue(events.readText().contains("\"lat\""))
-        assertTrue(beats.readText().contains("\"attempts\""))
+        fun text(d: File) = d.walk().filter { it.name.endsWith(".jsonl") && it.parentFile.name == "segments" }
+            .joinToString("") { it.readText() }
+        assertNotEquals(text(events), text(beats))
+        assertTrue(text(events).contains("\"lat\""))
+        assertTrue(text(beats).contains("\"attempts\""))
         // 読み戻しても取り違えない
         assertEquals(
             listOf("h1"),
-            Outbox(FileOutboxStore(beats, HeartbeatRequest.serializer()) {}).snapshot().map { it.id },
+            Outbox.inDir(beats, HeartbeatRequest.serializer()) {}.snapshot().map { it.id },
         )
     }
 

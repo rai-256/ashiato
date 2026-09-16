@@ -126,6 +126,8 @@ jobs:
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
+          # ST04 の `RetentionInstrumentedTest` が未送信を 1.9 GB 置く（2 GB に近い量でも収集が起動する）
+          disk-size: 6000M
           working-directory: collector-android
           script: ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787
 

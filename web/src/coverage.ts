@@ -3,7 +3,7 @@
  * 稼働状況の型と、状態の読み方。**形は `crates/server/src/coverage.rs` が正典**
  * （契約は `docs/openapi.json`）。
  */
-import { BAND, INITIAL_WEEKS, YEAR_WEEKS } from "./tokens";
+import { BAND, INITIAL_WEEKS, TEXT, YEAR_WEEKS } from "./tokens";
 
 /** ソース × 日 の 8 状態（FR-54）。⑧「退役」は ST03 の差し戻し（R55 / R56）。 */
 export type DayState =
@@ -44,13 +44,58 @@ export function bandOf(state: DayState): Band {
   return "other";
 }
 
+/** その日の中で切った破棄の区間（ST04 / design D9）。時刻は `Asia/Tokyo` の `HH:MM`、日の終わりは `24:00`。 */
+export type DroppedRange = {
+  from: string;
+  to: string;
+  count: number;
+};
+
 export type DayCell = {
   day: string;
   state: DayState;
   event_count: number;
   attempts: number | null;
   successes: number | null;
+  /** その日に属する破棄の件数（ST04）。範囲を持たない破棄は入らない */
+  dropped_count: number;
+  /** その日に重なる破棄の区間（つないでからその日で切ったもの） */
+  dropped_ranges: DroppedRange[];
 };
+
+/**
+ * 格子に破棄の印を付ける日か（ST04 / 深掘り Q3 / design D10）。
+ *
+ * **丸ごと覆う破棄の日（破棄された期間）には付けない** —— 段がすでに「それ以外」で、状態の名前が破棄を言っている。
+ * **欄を返さないサーバでも落ちない**（`isRetired` と同じ理由。`undefined > 0` は偽）。
+ */
+export function hasDropMark(cell: DayCell): boolean {
+  return (cell.dropped_count ?? 0) > 0 && cell.state !== "dropped";
+}
+
+/**
+ * 印を描く明るさ（design D10（仮））。**段ごとに変える** —— 1 色だと「それ以外」の段の上で見えない。
+ *
+ * 「記録あり」と「動いていた・記録なし」の上は最も暗い段、「それ以外」の上は控えめな文字の明るさ。
+ * **新しい色は足さない**（`tokens.ts` の既存の値だけを使う）。比は `drop-mark.test.tsx` が値から数える。
+ */
+export function dropMarkLightness(band: Band): number {
+  return band === "other" ? TEXT.muted : BAND.other;
+}
+
+/** 週の詳細に添える破棄の文字（design D10）。丸ごとの日は件数だけ、それ以外は区間ごとに「うち N 件を破棄（from〜to）」。 */
+export function dropNotes(cell: DayCell): string[] {
+  const count = cell.dropped_count ?? 0;
+  if (cell.state === "dropped") {
+    return count > 0 ? [`— ${count.toLocaleString("ja-JP")} 件`] : [];
+  }
+  // 件数を持たない区間（時間ごとの件数が無い範囲・前の区間に数えた時間）は件数を添えない（design D19）
+  return (cell.dropped_ranges ?? []).map((r) =>
+    r.count > 0
+      ? `うち ${r.count.toLocaleString("ja-JP")} 件を破棄（${r.from}〜${r.to}）`
+      : `破棄（${r.from}〜${r.to}）`,
+  );
+}
 
 export type SourceCoverage = {
   /** **引き継ぎの鎖の先端**（第 8 回 Q31） */
