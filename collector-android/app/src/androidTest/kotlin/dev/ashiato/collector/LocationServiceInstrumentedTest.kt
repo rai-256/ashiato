@@ -44,7 +44,7 @@ class LocationServiceInstrumentedTest {
     )
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
-    private val outboxFile get() = File(context.filesDir, "outbox.jsonl")
+    private val outboxDir get() = File(context.filesDir, "outbox")
 
     @Before
     fun allowMockLocation() {
@@ -53,8 +53,7 @@ class LocationServiceInstrumentedTest {
             .executeShellCommand("appops set ${context.packageName} android:mock_location allow")
             .close()
         context.stopService(Intent(context, LocationService::class.java))
-        outboxFile.delete()
-        File(context.filesDir, "heartbeat.jsonl").delete()
+        outboxDir.deleteRecursively()
     }
 
     @After
@@ -89,10 +88,10 @@ class LocationServiceInstrumentedTest {
         while (System.currentTimeMillis() < deadline) {
             Tasks.await(client.setMockLocation(fix), 10, TimeUnit.SECONDS)
             Thread.sleep(1_000)
-            stored = FileOutboxStore(outboxFile, IngestRequest.serializer()) {}.load()
+            stored = SegmentStore(File(outboxDir, "records"), IngestRequest.serializer(), File(outboxDir, "u.jsonl"), {}).readAll()
             if (stored.isNotEmpty()) break
         }
-        assertTrue("偽装した位置が未送信に 1 件以上書かれる（${outboxFile.exists()}）", stored.isNotEmpty())
+        assertTrue("偽装した位置が未送信に 1 件以上書かれる（${outboxDir.exists()}）", stored.isNotEmpty())
         val first = stored.first()
         assertEquals("c01-location", first.logicalSource)
         assertEquals("collected", first.origin)

@@ -223,7 +223,9 @@ Claim = {"id","value":string|null,"valid_from":{"precision","date"},"asserted_at
 
 `migrations/YYYYMMDDHHMM_personal_attributes.sql`（作成時刻）と `.down.sql`。中身は D2 の 3 関数とトリガ、D7 の 2 表と錠、登録簿の 1 行。
 **当て直せる形**（`IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP TRIGGER IF EXISTS` / `ON CONFLICT DO NOTHING`）。`MIGRATIONS` 配列の末尾に足す。
-`.down.sql` は、**主張の行が 1 件でも残っていれば、登録簿の行も種類の 2 表も残す**（`DELETE FROM core.source WHERE logical_source = 's01-attribute' AND NOT EXISTS (SELECT 1 FROM core.event WHERE logical_source = 's01-attribute')` と、
+`.down.sql` は、**主張の行か種類の行が 1 つでも残っていれば、登録簿の行も種類の 2 表も残す**
+（当初は「主張の行」だけを見ていたが、**まだ主張を書いていない種類が戻しで消えた** —— 本人が名前を
+決めたという事実そのものが成果物で、台帳は追記のみなので作り直せない。review/code.md R7）（`DELETE FROM core.source WHERE logical_source = 's01-attribute' AND NOT EXISTS (SELECT 1 FROM core.event WHERE logical_source = 's01-attribute')` と、
 同じ条件の `DO` ブロックで 2 表を落とす）。錠の関数とトリガは落とす。主張が原文の中で指す種類の識別子の名前を、戻しで失わないため（spec-review R20。当初は「外部キーで当たる」を前提にしていたが、当たると戻しが途中で止まる）。
 
 ### D13（仮）. 補足は行に常に出す
@@ -232,6 +234,22 @@ Claim = {"id","value":string|null,"valid_from":{"precision","date"},"asserted_at
 当初の spec と D9 は補足も押したときだけにしていたが、本人が選んでいない軸を足していた（spec-review R1）。
 
 - **反転条件**: 補足が長く、カードが読みにくいと本人が言ったとき（押したときだけにする / 1 行で切る）。どれも表示だけで、保存と読み出しは変わらない
+
+### D14. 種類の並びは単調増加の列で決める（`created_at` では決まらない）
+
+**下流で分かった。** D8 は「種類の『作った順』は `core.attribute_kind.created_at`、同時刻は `id`」と書いていたが、
+PostgreSQL の `now()` は**トランザクションの開始時刻**なので、**同じまとまりで作った種類は全部同時刻**になる。
+住所と職業は `ensure_initial_kinds` の 1 つのまとまりで置かれ、`POST /attributes/kinds` も
+**同じまとまりで初期化してから足す**ので、実際には 3 つとも同時刻に並ぶ。
+tie を割る `id` は v5 / v4 の UUID なので、**並びがでたらめになる**（実測: 住所・職業・副業 →「副業・職業・住所」）。
+
+`core.attribute_kind` に `seq bigint GENERATED ALWAYS AS IDENTITY` を持たせ、読み出しは `ORDER BY k.seq` で引く。
+`created_at` は「いつ作ったか」の事実として残す（並びには使わない）。
+
+- **代わりに考えたもの**: `clock_timestamp()`（文ごとの実時刻）。同じマイクロ秒に入れば tie が残り、
+  そのとき何が起きるかが「たまたま」になる。spec は「作った順に返る」と言い切っているので、順序は正確に決まるほうがよい
+- **代わりに考えたもの**: 名前の台帳の `MIN(id)`（既にある単調増加の列）で並べる。種類の並びが名前の台帳の
+  書き方に依存し、名前を変える実装を触ると並びが動きうる
 
 ## Risks / Trade-offs
 

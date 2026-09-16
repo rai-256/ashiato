@@ -52,6 +52,25 @@ hbr=$(jq -S '.components.schemas.HeartbeatResult.properties | keys' docs/openapi
   diff <(echo "$ing") <(echo "$hbr") | sed 's/^/     /'
   bad=1
 }
+# --- 破棄の報告（ST04 / FR-9）。生存信号と同じ作り: 欄名は `DropReportContractTest` が実際の直列化で確かめ、
+# ここはその試験が持つ一覧と `docs/openapi.json` を突き合わせる
+droptest=collector-android/app/src/test/kotlin/dev/ashiato/collector/DropReportContractTest.kt
+kt_drop=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$droptest" | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
+api_drop=$(jq -r '.components.schemas.DropReportRequest.properties | keys[]' docs/openapi.json | sort)
+if [ "$kt_drop" != "$api_drop" ]; then
+  echo "  NG 破棄の報告の欄が契約とずれている"
+  diff <(echo "$api_drop") <(echo "$kt_drop") | sed 's/^/     /'
+  bad=1
+else
+  echo "破棄の報告の欄名 OK（$(echo "$api_drop" | wc -l) 欄。実際の直列化は DropReportContractTest が見る）"
+fi
+# 破棄の報告の応答も `IngestResult` として復号される（Sender は 1 つの型しか持たない）
+drr=$(jq -S '.components.schemas.DropResult.properties | keys' docs/openapi.json)
+[ "$ing" = "$drr" ] || {
+  echo "  NG 記録と破棄の報告の応答の形が違う（収集側は同じ型で読む）"
+  diff <(echo "$ing") <(echo "$drr") | sed 's/^/     /'
+  bad=1
+}
 [ "$bad" -eq 0 ] || { echo "NG: 契約とKotlin側の欄名がずれている"; exit 1; }
 echo "収集側の欄名 OK（要求 $(jq -r '.components.schemas.IngestRequest.properties|keys|length' docs/openapi.json) / 応答 $(jq -r '.components.schemas.IngestResult.properties|keys|length' docs/openapi.json)）"
 

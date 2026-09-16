@@ -99,6 +99,21 @@ export function App(): React.ReactElement {
         >
           1 日の滞在へ
         </a>
+        {/* **マスタ管理への入口**（ST19 / design D9。仮 —— 入口の置き場を決め直すのは ST25） */}
+        <a
+          href="#/master"
+          data-testid="to-master"
+          style={{
+            color: tone(TEXT.normal),
+            font: "400 14px/1.6 system-ui, sans-serif",
+            minHeight: MIN_TARGET_PX,
+            minWidth: MIN_TARGET_PX,
+            display: "inline-flex",
+            alignItems: "center",
+          }}
+        >
+          マスタ管理へ
+        </a>
       </header>
       {achievement.at === "loading" && <p data-testid="achievement-loading">読み込み中…</p>}
       {achievement.at === "failed" && (

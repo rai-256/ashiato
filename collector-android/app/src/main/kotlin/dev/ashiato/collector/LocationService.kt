@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeParseException
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -27,6 +32,16 @@ import java.util.concurrent.TimeUnit
 open class LocationService : Service() {
     private lateinit var outbox: Outbox<IngestRequest>
     private lateinit var heartbeatOutbox: Outbox<HeartbeatRequest>
+    private lateinit var dropsOutbox: Outbox<DropReport>
+    private lateinit var ageClock: AgeClock
+    private lateinit var ledger: DropLedger
+    private lateinit var writeFailed: WriteFailedLedger
+    private lateinit var retention: Retention<IngestRequest>
+    private lateinit var notifier: RetentionNotifier
+
+    /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
+    private val maintenanceLock = Any()
+    private var lastMaintenanceMs = Long.MIN_VALUE
     private lateinit var fixSource: FixSource
     private lateinit var deviceId: String
     private var flusher: FlushScheduler? = null
@@ -50,23 +65,85 @@ open class LocationService : Service() {
     /** 生存信号の未送信を試験から覗く口。同上。 */
     internal val heartbeatOutboxForTest: Outbox<HeartbeatRequest> get() = heartbeatOutbox
 
+    /** 破棄の報告の未送信を試験から覗く口。同上。 */
+    internal val dropsOutboxForTest: Outbox<DropReport> get() = dropsOutbox
+
+    /** 破棄の報告の下書きを試験から覗く口。同上。 */
+    internal val ledgerForTest: DropLedger get() = ledger
+
+    /** 上限の見回りを試験から呼ぶ口（間引かない）。 */
+    internal fun maintainForTest() = maintain(force = true)
+
     /** 取得元。**試験だけが差し替える**（review R1）。本番は Play Services（design D7）。 */
     protected open fun newFixSource(): FixSource = FusedFixSource(this)
+
+    /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
+    protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
 
     /** 送信の刻み。同上。1 本の糸で回す —— 送信が重なると同じ記録を 2 回送る。 */
     protected open fun newScheduler(): FlushScheduler = ExecutorFlushScheduler()
 
-    /** 未送信の置き場。**端末の保存領域**（深掘り 第 2 回 / design D17 / D22）。 */
-    protected open fun newOutbox(): Outbox<IngestRequest> =
-        Outbox(FileOutboxStore(File(filesDir, "outbox.jsonl"), IngestRequest.serializer()) { Log.w(TAG, it) })
+    /** 未送信の置き場の根。**端末の保存領域**（深掘り 第 2 回 / ST04 design D1）。 */
+    protected open fun outboxDir(): File = File(filesDir, OUTBOX_DIR)
+
+    /** 端末の時計。**試験だけが差し替える**（90 日の数え。design D2）。 */
+    protected open fun newDeviceClock(): DeviceClock = AndroidDeviceClock(this)
+
+    /** 知らせの出し先。**試験では Robolectric の本物の NotificationManager** を通す。 */
+    protected open fun newRetentionAlerts(): RetentionAlerts = AndroidRetentionAlerts(this) { notification(it) }
+
+    private fun store(name: String) = File(outboxDir(), name)
 
     /**
-     * 生存信号の未送信。**記録とは別のファイル**にする —— 同じ JSONL に混ぜると、
-     * 読み戻しで片方が「壊れた行」に見えて退避に回る（`FileOutboxStore.parse`）。
-     * 仕組み（追記・書きかけの回収・壊れた行の退避）は記録とまったく同じものを使う。
+     * 記録の未送信。**区切りファイル**（ST04 / C7 / design D1）。書けなかった記録は固定長の数えに残し（D5）、
+     * 積むたびに保持の上限を見回る（新しい契機を起こさない）。
      */
-    protected open fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> =
-        Outbox(FileOutboxStore(File(filesDir, "heartbeat.jsonl"), HeartbeatRequest.serializer()) { Log.w(TAG, it) })
+    private fun newOutbox(): Outbox<IngestRequest> = Outbox(
+        SegmentStore(
+            store("records"), IngestRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+        ),
+        age = ageClock::now,
+        writeFailures = object : WriteFailures<IngestRequest> {
+            override fun failed(item: IngestRequest) {
+                eventInstant(item)?.let(writeFailed::failed)
+            }
+
+            override fun recovered(item: IngestRequest) {
+                eventInstant(item)?.let(writeFailed::recovered)
+            }
+
+            override fun lost(item: IngestRequest) {
+                // メモリにも持ちきれず手放した —— その場で「書けなかった」破棄として報告する。
+                // **下書きを保存できたときだけ固定長の数えから引く**（review R1）。保存できなければ数えに残し、
+                // 次の起動の「書けなかった」報告に任せる（固定長の数えは空きが尽きても上書きが通る側の置き場）
+                val t = eventInstant(item)
+                if (ledger.record(DropReason.WRITE_FAILED, listOf(item.logicalSource to t)) != null) {
+                    ledger.endBatch(item.logicalSource, DropReason.WRITE_FAILED, null)
+                    t?.let(writeFailed::recovered)
+                }
+            }
+        },
+        afterAdd = { maintain(force = false) },
+    )
+
+    /**
+     * 生存信号の未送信。**記録とは別の置き場**にする —— 上限の対象にしない（捨てない。C1 / design D13）。
+     * 仕組み（追記・読めない行の退避）は記録とまったく同じものを使う。
+     */
+    private fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> = Outbox(
+        SegmentStore(
+            store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+        ),
+        age = ageClock::now,
+    )
+
+    /** 破棄の報告の未送信。上限の対象にしない（C2 / design D13）。 */
+    private fun newDropsOutbox(): Outbox<DropReport> = Outbox(
+        SegmentStore(
+            store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+        ),
+        age = ageClock::now,
+    )
 
     /** 生存信号の刻み。試験だけが差し替える。 */
     protected open fun newHeartbeatScheduler(): FlushScheduler = ExecutorFlushScheduler()
@@ -90,8 +167,9 @@ open class LocationService : Service() {
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
         counters = AttemptCounters(now = { Instant.now() }, store = newCounterStore())
-        outbox = newOutbox()
-        heartbeatOutbox = newHeartbeatOutbox()
+        // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
+        startForeground(NOTIFICATION_ID, notification(RetentionNotifier.BASE_TEXT), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        openStores()
         fixSource = newFixSource()
         callback = FixCollector(
             outbox = outbox,
@@ -102,7 +180,104 @@ open class LocationService : Service() {
             log = { Log.i(TAG, it) },
             onFix = { counters.recordSuccess() },
         )
-        startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        // 起動の時点で 1 度見回る（設定が揃っていなくても上限はかかる。深掘り Q1）
+        maintain(force = true)
+    }
+
+    /**
+     * 置き場を開く（ST04）。**上限・報告・知らせは記録の置き場の上に載る。**
+     * ST01 / ST02 の 1 本の JSONL が残っていれば、ここで区切りへ取り込む（design D1 / D6）。
+     */
+    private fun openStores() {
+        val logW: (String) -> Unit = { Log.w(TAG, it) }
+        val logI: (String) -> Unit = { Log.i(TAG, it) }
+        outboxDir().mkdirs()
+        ageClock = AgeClock(newDeviceClock(), store("age-clock.txt"), logW)
+        dropsOutbox = newDropsOutbox()
+        ledger = DropLedger(
+            store("drops-open.json"), dropsOutbox, { Config.userId }, deviceId,
+            now = { Instant.now() }, newId = { UUID.randomUUID().toString() }, log = logI,
+        )
+        // **前のプロセスで書けないまま失われた記録**（固定長の数えが 0 でない。design D5）
+        writeFailed = WriteFailedLedger(store("write-failed.bin"), logW)
+        val (slots, overflow) = writeFailed.peek()
+        // **報告を保存できてから数えを 0 に戻す**（review R15）。先に戻すと、空きが尽きたまま立て直したときに痕跡が消える
+        if ((slots.isNotEmpty() || overflow > 0) && ledger.writeFailed(LOGICAL_SOURCE, slots, overflow)) {
+            writeFailed.clear()
+        }
+
+        outbox = newOutbox()
+        heartbeatOutbox = newHeartbeatOutbox()
+        // 読めない行は退避先に書かれ、見回りが退避先の行数から報告に数える。ST01 が脇へ退けたファイルだけはここで数える
+        val recordSalvaged: (Int) -> Boolean = { ledger.unreadable(LOGICAL_SOURCE, it) }
+        migrateLegacyOutbox(
+            File(filesDir, "outbox.jsonl"), outbox, IngestRequest.serializer(),
+            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+        )
+        migrateLegacyOutbox(
+            File(filesDir, "heartbeat.jsonl"), heartbeatOutbox, HeartbeatRequest.serializer(),
+            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+        )
+
+        retention = Retention(outbox, ledger, ageClock::now, log = logI)
+        notifier = RetentionNotifier(outbox, ageClock::now, newRetentionAlerts(), store("retention-alerted"), log = logI)
+    }
+
+    /**
+     * 保持の上限の見回りと、知らせの更新（ST04 / design D2 / D3 / D11）。
+     * **積む契機（60 秒）と送信の契機に相乗りする**。積む契機からは 1 分に 1 度まで。
+     */
+    private fun maintain(force: Boolean) {
+        if (!::notifier.isInitialized) return
+        synchronized(maintenanceLock) {
+            val now = SystemClock.elapsedRealtime()
+            val last = lastMaintenanceMs
+            if (!force && last != Long.MIN_VALUE && now - last < MAINTENANCE_MIN_GAP_MS) return
+            lastMaintenanceMs = now
+            runCatching { reportUnreadable() }.onFailure {
+                Log.w(TAG, Telemetry.line("unreadable_report_crashed", error = it.javaClass.simpleName))
+            }
+            runCatching { retention.enforce() }.onFailure {
+                Log.w(TAG, Telemetry.line("retention_crashed", error = it.javaClass.simpleName))
+            }
+            runCatching { notifier.update() }.onFailure {
+                Log.w(TAG, Telemetry.line("notifier_crashed", error = it.javaClass.simpleName))
+            }
+        }
+    }
+
+    /**
+     * 読めない行の件数を報告に足す（design D6）。**数えは退避先の行数から取る**（review R21）——
+     * 件数をメモリにだけ持つと、見回りの前に立て直されたとき、行は退避先にあるのに報告が作られない。
+     * 報告に足せた行数を小さなファイルに書き、次はその先だけを数える。
+     */
+    private fun reportUnreadable() {
+        val aside = store(UNREADABLE)
+        if (!aside.exists()) return
+        val total = aside.inputStream().buffered().use { input ->
+            var n = 0L
+            var c = input.read()
+            while (c != -1) {
+                if (c == '\n'.code) n++
+                c = input.read()
+            }
+            n
+        }
+        val mark = store("unreadable-reported.txt")
+        val reported = runCatching { mark.readText().trim().toLong() }.getOrDefault(0L)
+        val fresh = total - reported
+        if (fresh <= 0) return
+        if (ledger.unreadable(LOGICAL_SOURCE, fresh.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())) {
+            runCatching { mark.writeText(total.toString()) }.onFailure {
+                Log.w(TAG, Telemetry.line("unreadable_mark_failed", error = it.javaClass.simpleName))
+            }
+        }
+    }
+
+    private fun eventInstant(item: IngestRequest): Instant? = try {
+        Instant.parse(item.eventTime)
+    } catch (e: DateTimeParseException) {
+        null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -134,7 +309,7 @@ open class LocationService : Service() {
         // 残すと 5 分ごとに送られ続け、200 件たまると新しい記録が送られなくなる。
         val sender = Sender(
             outbox,
-            HttpTransport(Config.baseUrl, Config.apiToken, "/ingest"),
+            newTransport("/ingest"),
             IngestRequest.serializer(),
             dropPermanentlyRejected = true,
         ) { Log.i(TAG, it) }
@@ -142,20 +317,30 @@ open class LocationService : Service() {
         // 別の刻みを立てると、送信の契機が 2 つになって電池と網の使い方が読めなくなる。
         val beatSender = Sender(
             heartbeatOutbox,
-            HttpTransport(Config.baseUrl, Config.apiToken, "/heartbeat"),
+            newTransport("/heartbeat"),
             HeartbeatRequest.serializer(),
         ) { Log.i(TAG, it) }
-        // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない
+        // **破棄の報告は断られても取り除かない**（ST04 / C2 / design D13）—— 扉 #14 の唯一の証拠
+        val dropSender = Sender(
+            dropsOutbox,
+            newTransport("/drops"),
+            DropReport.serializer(),
+            dropPermanentlyRejected = false,
+        ) { Log.i(TAG, it) }
+        val drainer = Drainer(
+            records = sender,
+            recordsOutbox = outbox,
+            beats = beatSender,
+            drops = dropSender,
+            ledger = ledger,
+            maintenance = { maintain(force = true) },
+            log = { Log.i(TAG, it) },
+        )
+        // **design D9 が決めた 5 分。** 本人が決めた値なので、ここをリテラルに書き換えない。
+        // 溜まっている間だけ、1 回の契機の中で続けて送る（ST04 / 深掘り Q6 / design D12）。
+        // 例外の握りつぶしは `Drainer` と `ExecutorFlushScheduler` が構造で持つ（design D26）
         flusher = newScheduler().also { scheduler ->
-            scheduler.every(SEND_INTERVAL_MS) {
-                // **記録の送信が落ちても生存信号は送る。** 1 つの `runCatching` にまとめると、
-                // 記録が送れない期間の稼働がまるごと残らなくなる。
-                // 例外の握りつぶし自体は `ExecutorFlushScheduler` が構造で持つ（design D26）
-                runCatching { sender.flush() }.onFailure {
-                    Log.w(TAG, Telemetry.line("flush_crashed", error = it.javaClass.simpleName))
-                }
-                beatSender.flush()
-            }
+            scheduler.every(SEND_INTERVAL_MS) { drainer.tick() }
         }
     }
 
@@ -205,16 +390,18 @@ open class LocationService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun notification(): Notification {
+    /** 常駐の通知。**本文だけを差し替える**（未送信の日数。ST04 / 深掘り Q5）。常時出ている通知は増やさない */
+    private fun notification(text: String): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "位置の記録", NotificationManager.IMPORTANCE_LOW),
         )
         return Notification.Builder(this, CHANNEL)
             .setContentTitle("あしあと。")
-            .setContentText("位置を記録しています")
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
@@ -222,6 +409,57 @@ open class LocationService : Service() {
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val NOTIFICATION_ID = 1
+
+        /** 上限の 7 日前の知らせのチャネル（音が鳴る。design D11） */
+        const val RETENTION_CHANNEL = "retention"
+        const val RETENTION_NOTIFICATION_ID = 2
+
+        /** 未送信の置き場の根（`filesDir` の下） */
+        const val OUTBOX_DIR = "outbox"
+        const val UNREADABLE = "unreadable.jsonl"
+
+        /** 積む契機からの見回りの間引き */
+        const val MAINTENANCE_MIN_GAP_MS: Long = 60_000
+    }
+}
+
+/**
+ * 知らせを端末の通知に出す（ST04 / 深掘り Q5 / design D11（仮））。
+ *
+ * 常駐の通知は本文を差し替えるだけ。上限の 7 日前の知らせは**別のチャネル（音が鳴る）**で 1 回。
+ * 通知の権限（`POST_NOTIFICATIONS`）が無い端末では出せないので false を返す（呼び出し側がログに 1 行残す）。
+ */
+class AndroidRetentionAlerts(
+    private val service: Service,
+    private val ongoingNotification: (String) -> Notification,
+) : RetentionAlerts {
+    private val manager: NotificationManager get() = service.getSystemService(NotificationManager::class.java)
+
+    override fun ongoing(text: String) {
+        manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text))
+    }
+
+    override fun alert(days: Int): Boolean {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            service.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        if (!manager.areNotificationsEnabled()) return false
+        manager.createNotificationChannel(
+            NotificationChannel(LocationService.RETENTION_CHANNEL, "未送信の保持", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        val left = ((RetentionPolicy.current.maxAgeMs / AgeClock.DAY_MS) - days).coerceAtLeast(0)
+        manager.notify(
+            LocationService.RETENTION_NOTIFICATION_ID,
+            Notification.Builder(service, LocationService.RETENTION_CHANNEL)
+                .setContentTitle("あしあと。未送信が $days 日たまっています")
+                .setContentText("自宅 PC に届いていません。あと $left 日で古いものから捨てます")
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setAutoCancel(true)
+                .build(),
+        )
+        return true
     }
 }
 

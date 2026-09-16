@@ -28,11 +28,11 @@ interface Outboxable {
 data class IngestRequest(
     override val id: String,
     @SerialName("user_id") val userId: String,
-    @SerialName("logical_source") val logicalSource: String,
+    @SerialName("logical_source") override val logicalSource: String,
     @SerialName("external_id") val externalId: String? = null,
     @SerialName("device_id") val deviceId: String? = null,
     val origin: String,
-    @SerialName("event_time") val eventTime: String,
+    @SerialName("event_time") override val eventTime: String,
     @SerialName("tz_offset_min") val tzOffsetMin: Int,
     @SerialName("tz_id") val tzId: String,
     @SerialName("schema_version") val schemaVersion: Int,
@@ -59,7 +59,7 @@ data class IngestRequest(
      */
     val raw: String,
     val payload: JsonObject,
-) : Outboxable
+) : Retainable
 
 /**
  * 送った 1 件ごとの結果。**位置で対応づける**（docs/collector-contract.md §返る形）。

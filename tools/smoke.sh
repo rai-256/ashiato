@@ -727,4 +727,113 @@ printf '%s' "$day" | jq -e '.criteria[0].radius_m == 100 and .criteria[0].min_mi
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/stays?date=2026-08-20")
 [ "$code" = "401" ] || { echo "/stays が 401 のはずが $code"; exit 1; }
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在まで）"
+# ================================================================ ST04 の破棄の報告
+#
+# **端末が上限で捨てた 180 件を報告し、同じ報告をもう 1 回送っても、稼働状況のその日は 180 件のまま状態を変えない**（tasks 10.3）。
+# 丸ごと覆わない破棄は状態を決めない（ST02 の判定順）ので、その日は記録ありのまま、件数と区間だけが載る。
+# Scenario: 同じ報告を 2 回受けても日の件数は 1 回ぶん
+echo "== 42. 破棄の報告を 2 回送っても、その日の破棄は 180 件で状態は変わらない（ST04 / tasks 10.3）"
+droppost() { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
+               -w '%{http_code}' -X POST "http://$BIND/drops" -d "$1"; }
+# その日に残った記録を 1 件（06:00 JST）。これが無いと「導入前」になり、破棄の件数を見る日にならない
+keep='[{"id":"04040404-0000-4000-8000-000000000001","user_id":"00000000-0000-0000-0000-000000000000",
+  "logical_source":"c01-location","external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-08-24T21:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+  "raw":"{\"seq\":\"st04-keep\"}","payload":{"seq":"st04-keep"}}]'
+[ "$(post "$keep")" = "200" ] || { echo "その日の記録が入らない"; exit 1; }
+# 10:00〜13:00 JST = 01:00〜04:00 UTC に 60 件ずつ。原文は端末と同じく欄を組んだ文字列
+drop_fields='"id":"04040404-0000-4000-8000-00000000d001","user_id":"00000000-0000-0000-0000-000000000000",
+  "logical_source":"c01-location","device_id":"c01-smoke","reason":"age","created_at":"2026-11-23T00:00:00Z",
+  "range_start":"2026-08-25T01:00:00Z","range_end":"2026-08-25T04:00:00Z","count":180,
+  "hourly":[{"hour":"2026-08-25T01:00:00Z","count":60},{"hour":"2026-08-25T02:00:00Z","count":60},
+            {"hour":"2026-08-25T03:00:00Z","count":60}]'
+drop_raw=$(printf '{%s}' "$drop_fields" | jq -c .)
+drop=$(printf '{%s}' "$drop_fields" | jq -c --arg raw "$drop_raw" '. + {raw: $raw}')
+code=$(droppost "$drop"); echo "   → $code / $(jq -c '[.[] | {accepted, duplicate}]' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "破棄の報告が 200 で通らない ($code)"; exit 1; }
+[ "$(droppost "$drop")" = "200" ] || { echo "破棄の報告の再送が通らない"; exit 1; }
+jq -e '.[0].duplicate == true and .[0].accepted == true' /tmp/smoke.body >/dev/null \
+  || { echo "再送が重複と判定されていない: $(cat /tmp/smoke.body)"; exit 1; }
+cov=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-08-25&to=2026-08-25")
+cell=$(printf '%s' "$cov" | jq -c '.[] | select(.logical_source=="c01-location") | .days[0]
+                                   | {state, dropped_count, dropped_ranges}')
+echo "   → c01-location 2026-08-25 = $cell"
+printf '%s' "$cell" | jq -e '.dropped_count == 180 and .state == "recorded"
+  and .dropped_ranges == [{"from":"10:00","to":"13:00","count":180}]' >/dev/null \
+  || { echo "稼働状況の破棄が 180 件・記録ありになっていない: $cell"; exit 1; }
+[ "$(psql -c "SELECT count(*) FROM core.drop_report WHERE logical_source='c01-location';")" = "1" ] \
+  || { echo "破棄の報告が 1 行でない"; exit 1; }
+# 資格情報の無い求めは断られる（PERM-10）
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$BIND/drops" -H 'content-type: application/json' -d "$drop")
+[ "$code" = "401" ] || { echo "/drops が 401 のはずが $code"; exit 1; }
+
+
+# ------------------------------------------------------------------ ST19（個人属性）
+
+# Scenario: 住所を 2 回変えると 3 つの主張が残る
+echo "== 42. 住所を 2 回変えると 3 つの主張が残る（ST19 / FR-44 / tasks 5.1）"
+# **別の利用者で送る**（上の段が数えている既定の利用者の記録を増やさない）
+ATTR_USER="19191919-0000-4000-8000-000000000019"
+# 読み出しの先頭で住所と職業が置かれる（design D7）。その識別子を引く
+attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+ADDRESS=$(printf '%s' "$attrs" | jq -r '.kinds[] | select(.name == "住所") | .id')
+[ -n "$ADDRESS" ] && [ "$ADDRESS" != "null" ] \
+  || { echo "最初の読み出しで「住所」が置かれていない: $attrs"; exit 1; }
+
+# A → B → A と書く。**同じ値へ戻しても畳まれない**（原文に主張ごとの識別子と乱数が入る。深掘り C2）。
+# 原文は画面（`web/src/attributes.ts`）と同じ形で組む
+claim_item() {   # $1=識別子 / $2=値 / $3=いつから（年月）/ $4=乱数
+  printf '{"id":"%s","user_id":"%s","logical_source":"s01-attribute","external_id":null,
+    "device_id":null,"origin":"authored","event_time":"2026-09-15T0%s:00:00Z",
+    "tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+    "raw":"{\\"claim\\":\\"%s\\",\\"nonce\\":\\"%s\\",\\"kind\\":\\"%s\\",\\"value\\":\\"%s\\",\\"valid_from\\":{\\"precision\\":\\"month\\",\\"date\\":\\"%s\\"},\\"supersedes\\":null,\\"note\\":null}",
+    "payload":{}}' "$1" "$ATTR_USER" "$5" "$1" "$4" "$ADDRESS" "$2" "$3"
+}
+attr_items=$(
+  { claim_item "19000001-0000-4000-8000-000000000000" "東京都 目黒区" "2019-10" "Zm9vYmFyYmF6cXV4MTIzNDU2" 1
+    claim_item "19000002-0000-4000-8000-000000000000" "東京都 世田谷区" "2023-03" "YmFyYmF6cXV4Zm9vNjU0MzIx" 2
+    claim_item "19000003-0000-4000-8000-000000000000" "東京都 目黒区" "2026-04" "cXV4Zm9vYmFyYmF6OTg3NjU0" 3
+  } | jq -s -c .)
+code=$(post "$attr_items")
+[ "$code" = "200" ] || { echo "主張が $code で断られた: $(cat /tmp/smoke.body)"; exit 1; }
+[ "$(jq -r '[.[] | select(.accepted)] | length' /tmp/smoke.body)" = "3" ] \
+  || { echo "3 件とも受理されていない: $(cat /tmp/smoke.body)"; exit 1; }
+
+# **同じものをもう 1 回送る**（通信が切れて画面が送り直した場合）。**増えない**（冪等）
+code=$(post "$attr_items")
+[ "$code" = "200" ] || { echo "再送が $code で断られた"; exit 1; }
+[ "$(jq -r '[.[] | select(.duplicate)] | length' /tmp/smoke.body)" = "3" ] \
+  || { echo "再送が重複として返っていない: $(cat /tmp/smoke.body)"; exit 1; }
+
+attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+echo "   → $(printf '%s' "$attrs" | jq -c '[.kinds[] | {name, n: (.claims | length)}]')"
+printf '%s' "$attrs" | jq -e --arg k "$ADDRESS" \
+  '.kinds[] | select(.id == $k) | (.claims | length) == 3 and .current.value == "東京都 目黒区"' >/dev/null \
+  || { echo "住所の主張が 3 件・いまの値が「東京都 目黒区」になっていない: $attrs"; exit 1; }
+# **2 つの時刻を別々に返す**（FR-45）。「いつから」は精度のまま
+printf '%s' "$attrs" | jq -e --arg k "$ADDRESS" \
+  '.kinds[] | select(.id == $k) | .current | .asserted_at != .ingested_at
+     and .valid_from.precision == "month" and .valid_from.date == "2026-04"' >/dev/null \
+  || { echo "2 つの時刻か「いつから」の精度が失われている: $attrs"; exit 1; }
+# **種類の口も縦串に通す**（review/code.md R21）。合言葉と、足して名前を変えて読み直すまで
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+       -d '{"name":"副業"}' "http://$BIND/attributes/kinds")
+[ "$code" = "401" ] || { echo "/attributes/kinds が合言葉なしで $code"; exit 1; }
+kid=$(curl -sf "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+      -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副業\"}" \
+      "http://$BIND/attributes/kinds" | jq -r .id)
+[ -n "$kid" ] && [ "$kid" != "null" ] || { echo "種類を足せない"; exit 1; }
+code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+       -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副収入\"}" \
+       "http://$BIND/attributes/kinds/$kid/names")
+[ "$code" = "204" ] || { echo "名前を変えられない（$code）"; exit 1; }
+attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+printf '%s' "$attrs" | jq -e --arg k "$kid" \
+  '[.kinds[] | select(.id == $k) | .name] == ["副収入"]' >/dev/null \
+  || { echo "名前を変えた種類が読み出しに出ていない: $attrs"; exit 1; }
+
+# 資格情報の無い求めは断られる（PERM-10）
+code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/attributes")
+[ "$code" = "401" ] || { echo "/attributes が 401 のはずが $code"; exit 1; }
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"

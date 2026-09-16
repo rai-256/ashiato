@@ -144,19 +144,14 @@ else
   echo "  NG 論理削除まで止めている（FR-50 を壊している）"; fail=1
 fi
 
-# 「本人が書いた」記録は書き換えてよい（禁止の範囲が広がっていないこと）
+# 「本人が書いた」記録は書き換えてよい（禁止の範囲が広がっていないこと）。
+# **確かめるのは ST19 の節**（主張の行がある DB で通ることまで見る。spec-review R14）。ここでは行を置くだけ。
 psql -c "INSERT INTO core.event
            (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
             schema_version, content_hash, raw, payload)
          VALUES ('33333333-3333-4333-8333-333333333333',
                  '00000000-0000-0000-0000-000000000000','immutable-check','authored',
                  '2026-09-08T03:00:00Z',540,'Asia/Tokyo',1,'authored-hash','{}','{}');" >/dev/null
-if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
-            WHERE origin = 'authored';" >/dev/null 2>&1; then
-  echo "  OK 本人が書いた記録は書き換えられる"
-else
-  echo "  NG 収集以外まで止めている"; fail=1
-fi
 
 # --- 生存信号（FR-78 / 深掘り 第 4 回 Q13 / 0006）
 #
@@ -515,6 +510,401 @@ orphan=$(psql -c "SELECT
 echo "  OK 消えた本文はすべて台帳に載っている"
 
 
+# ================================================================ ST04 の破棄の報告
+#
+# **破棄の報告は「バッファから破棄されたのか」の唯一の証拠**（扉 #14 / FR-9）。
+# 端末は送れた報告を持たないので、書き換えられると取り直す手段が無い。
+# 生存信号と同じく**列ごとに**投げ、削除と表の切り詰めも拒まれることを見る。
+echo "== ST04: 破棄の報告を 1 件置く"
+psql -c "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('drop-check','破棄の報告の確認用',21600,'none') ON CONFLICT DO NOTHING;" >/dev/null
+DID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+psql -c "INSERT INTO core.drop_report
+           (id, user_id, logical_source, device_id, reason, range_start, range_end, count,
+            created_at, content_hash, raw)
+         VALUES ('$DID','00000000-0000-0000-0000-000000000000','drop-check','drop-dev','age',
+                 '2026-09-01T01:00:00Z','2026-09-01T04:00:00Z',180,'2026-09-14T00:00:00Z',
+                 'drop-check-hash','{\"reason\":\"age\"}');
+         INSERT INTO core.drop_report_hour (report_id, hour, count)
+         VALUES ('$DID','2026-09-01T01:00:00Z',60),('$DID','2026-09-01T02:00:00Z',60),
+                ('$DID','2026-09-01T03:00:00Z',60);" >/dev/null
+
+# Scenario: 格納された破棄の報告は書き換えられない
+for col in id user_id logical_source device_id reason range_start range_end count created_at received_at content_hash raw; do
+  case "$col" in
+    id)                                  val="'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'" ;;
+    user_id)                             val="'11111111-1111-4111-8111-111111111111'" ;;
+    logical_source)                      val="'immutable-check'" ;;
+    reason)                              val="'bytes'" ;;
+    range_start)                         val="'2026-09-01T00:00:00Z'" ;;
+    range_end|created_at|received_at)    val="'2026-09-02T00:00:00Z'" ;;
+    count)                               val="1" ;;
+    *)                                   val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.drop_report SET $col = $val WHERE id = '$DID';" >/dev/null 2>&1; then
+    echo "  NG 破棄の報告の $col が書き換えられた（FR-9 違反）"; fail=1
+  else
+    echo "  OK 破棄の報告の $col の書き換えは拒まれた"
+  fi
+done
+for col in report_id hour count; do
+  case "$col" in
+    report_id) val="'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'" ;;
+    hour)      val="'2026-09-01T09:00:00Z'" ;;
+    count)     val="1" ;;
+  esac
+  if psql -c "UPDATE core.drop_report_hour SET $col = $val WHERE report_id = '$DID';" >/dev/null 2>&1; then
+    echo "  NG 時間ごとの件数の $col が書き換えられた（日の件数が嘘になる）"; fail=1
+  else
+    echo "  OK 時間ごとの件数の $col の書き換えは拒まれた"
+  fi
+done
+# **削除と切り詰めも拒む**（UPDATE だけを止めると、消して入れ直す 2 手で差し替えられる。ST02 の R22）
+for stmt in "DELETE FROM core.drop_report_hour WHERE report_id = '$DID';" \
+            "DELETE FROM core.drop_report WHERE id = '$DID';" \
+            "TRUNCATE core.drop_report_hour;" \
+            "TRUNCATE core.drop_report CASCADE;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 破棄の報告が消せた: $stmt"; fail=1
+  fi
+done
+left=$(psql -c "SELECT (SELECT count(*) FROM core.drop_report WHERE id = '$DID')
+                    || '/' || (SELECT coalesce(sum(count), 0) FROM core.drop_report_hour WHERE report_id = '$DID');")
+[ "$left" = "1/180" ] || { echo "  NG 破棄の報告が変わっている（$left。1/180 のはず）"; fail=1; }
+echo "  OK 破棄の報告は行ごとも表ごとも消せない"
+# **範囲も時間ごとの件数も持たない報告**も消せない（ST04 の review/code.md R4）。
+# 時間ごとの件数を持つ行は外部キーと `drop_report_hour` の錠が先に止めるので、`drop_report` 自身の錠はこの形でしか観測できない
+psql -c "INSERT INTO core.drop_report
+           (id, user_id, logical_source, device_id, reason, count, created_at, content_hash, raw)
+         VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','00000000-0000-0000-0000-000000000000',
+                 'drop-check','drop-dev','unreadable',2,'2026-09-14T00:00:00Z','drop-rangeless','{}');" >/dev/null
+if psql -c "DELETE FROM core.drop_report WHERE id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';" >/dev/null 2>&1; then
+  echo "  NG 範囲を持たない破棄の報告を削除できた"; fail=1
+else
+  echo "  OK 範囲を持たない破棄の報告も削除できない"
+fi
+# 切り詰めの錠は、`CASCADE` だと `drop_report_hour` 側の錠でも止まって見分けられないので、錠そのものが在ることを見る
+trg=$(psql -c "SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger
+                WHERE NOT tgisinternal AND tgrelid IN ('core.drop_report'::regclass, 'core.drop_report_hour'::regclass);")
+[ "$trg" = "drop_report_hour_immutable,drop_report_hour_no_truncate,drop_report_immutable,drop_report_no_truncate" ] \
+  || { echo "  NG 破棄の報告の錠が揃っていない: $trg"; fail=1; }
+for t in drop_report_immutable drop_report_hour_immutable; do
+  ev=$(psql -c "SELECT (tgtype & 8 > 0) AND (tgtype & 16 > 0) FROM pg_trigger WHERE tgname = '$t';")
+  [ "$ev" = "t" ] || { echo "  NG $t が削除と更新の両方を拒んでいない"; fail=1; }
+done
+echo "  OK 破棄の報告の 4 つの錠（更新・削除 / 切り詰め × 2 表）が在る"
+# 1 件の破棄が空の範囲で入らないこと（R4。`coverage_span` はここで 500 を返していた）
+if psql -c "INSERT INTO core.drop_report
+              (id, user_id, logical_source, device_id, reason, range_start, range_end, count,
+               created_at, content_hash, raw)
+            VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','00000000-0000-0000-0000-000000000000',
+                    'drop-check','drop-dev','age','2026-09-01T01:00:00Z','2026-09-01T01:00:00Z',1,
+                    now(),'drop-empty','{}');" >/dev/null 2>&1; then
+  echo "  NG 空の範囲の破棄の報告が入った"; fail=1
+else
+  echo "  OK 空の範囲の破棄の報告は DB が拒む"
+fi
+
+# ================================================================ ST19: 個人属性の主張の錠
+#
+# **FR-44「書き換えず追記する」を DB の側で確かめる**（深掘り Q1 / C1。design D2）。
+#
+# Scenario: 取り込み口を通さない操作にも同じ制限が掛かる
+#   （`cargo test` は取り込み口越しなので、**アプリ層だけの実装でも全部緑になる**。
+#    主張を psql から直に殴れるのはここだけ —— 同じ PC の第三者製プラグインが打てるのもこの経路）
+#
+# 通すのは **削除の印・感度・その主張の台帳つきの消去**だけ（Q1 —— 主張も記録なので
+# FR-50 / FR-51 が及ぶ）。`s01-attribute` の登録簿の行は移行が入れている。
+echo "== ST19: 個人属性の主張の錠"
+AU='00000000-0000-0000-0000-000000000000'
+KIND='a0000000-0000-4000-8000-000000000001'
+CLAIM_A='a1111111-1111-4111-8111-000000000001'   # 書き換えの拒否と、消去の偽物を全部ここへ当てる
+CLAIM_B='a2222222-2222-4222-8222-000000000001'   # A を取り消す主張。削除の印・感度・取り消し先を見る
+CLAIM_C='a3333333-3333-4333-8333-000000000001'   # 台帳つきの消去が**通る**ことだけを見る（唯一の開口部）
+
+psql -c "INSERT INTO core.attribute_kind (id, user_id) VALUES ('$KIND','$AU')
+         ON CONFLICT DO NOTHING;" >/dev/null
+psql -c "INSERT INTO core.attribute_kind_name (kind_id, user_id, name)
+         VALUES ('$KIND','$AU','住所');" >/dev/null
+
+# 主張の原文。**`nonce` は原文にだけ入る**（design D4）—— `payload` へ写さない。
+# ここは DB の錠を見る検査なので、原文と解析済みの組は取り込み口を通さず手で置く。
+claim_row_of() {   # $1=id / $2=値 / $3=いつから / $4=取り消す主張（null 可）/ $5=乱数
+  printf "INSERT INTO core.event
+     (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
+      schema_version, sensitivity, content_hash, raw, payload)
+   VALUES ('%s','%s','s01-attribute','authored','2026-09-15T02:00:00Z',540,'Asia/Tokyo',1,2,
+           'claim-hash-%s',
+           '{\"claim\":\"%s\",\"nonce\":\"%s\",\"kind\":\"%s\",\"value\":\"%s\",\"valid_from\":{\"precision\":\"month\",\"date\":\"%s\"},\"supersedes\":%s,\"note\":null}',
+           '{\"claim\":\"%s\",\"kind\":\"%s\",\"value\":\"%s\",\"valid_from\":{\"precision\":\"month\",\"date\":\"%s\"},\"supersedes\":%s,\"note\":null}');" \
+    "$1" "$AU" "$1" "$1" "$5" "$KIND" "$2" "$3" "$4" "$1" "$KIND" "$2" "$3" "$4"
+}
+psql -c "$(claim_row_of "$CLAIM_A" '東京都 目黒区' '2019-10' 'null' 'Zm9vYmFyYmF6cXV4MTIzNDU2')" >/dev/null
+psql -c "$(claim_row_of "$CLAIM_B" '東京都 世田谷区' '2023-03' "\"$CLAIM_A\"" 'YmFyYmF6cXV4Zm9vNjU0MzIx')" >/dev/null
+psql -c "$(claim_row_of "$CLAIM_C" '大阪府 北区' '2013-04' 'null' 'cXV4Zm9vYmFyYmF6OTg3NjU0')" >/dev/null
+echo "  OK 主張を 3 件置いた"
+
+# --- 書き換えを拒む（値・「いつから」・取り消し先・主張した日時）
+#
+# **値・「いつから」・取り消し先はどれも原文と解析済みの中にある**ので、
+# 当たる門は同じ。**それぞれ別に投げる** —— 1 つだけ効いていて他が素通しでも気付くように。
+#
+# Scenario: 主張の値を書き換える文は拒まれる
+if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{value}','\"京都府\"')
+             WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 主張の値が書き換えられた（FR-44 違反）"; fail=1
+else
+  echo "  OK 主張の値の書き換えは拒まれた"
+fi
+got=$(psql -c "SELECT payload->>'value' FROM core.event WHERE id='$CLAIM_A';")
+[ "$got" = '東京都 目黒区' ] || { echo "  NG 拒まれたのに値が変わっている: $got"; fail=1; }
+
+# **原文そのものの書き換えも拒む**（review/code.md R22）。
+# 値を見るときに `payload` だけを試していたが、**`raw` は値の正典で、消去の唯一の復元元**。
+# Scenario の WHEN「格納された主張の値を別の値にする更新」の最も直接的な読みはこちら。
+if psql -c "UPDATE core.event SET raw = '{\"value\":\"京都府\"}' WHERE id='$CLAIM_A';" \
+     >/dev/null 2>&1; then
+  echo "  NG 主張の原文が書き換えられた（値の正典が動く）"; fail=1
+else
+  echo "  OK 主張の原文の書き換えは拒まれた"
+fi
+if psql -c "UPDATE core.event SET content_hash = 'forged' WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 主張の内容の鍵が書き換えられた"; fail=1
+else
+  echo "  OK 主張の内容の鍵の書き換えは拒まれた"
+fi
+
+# Scenario: 主張のいつからは書き換えられない
+if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{valid_from,date}','\"2021-01\"')
+             WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 主張の「いつから」が書き換えられた（FR-45 違反）"; fail=1
+else
+  echo "  OK 主張の「いつから」の書き換えは拒まれた"
+fi
+
+# Scenario: 主張の取り消し先は書き換えられない
+#   （動かせると、どの主張を訂正したかが後から変えられ「いまの値」が黙って動く）
+if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{supersedes}','\"$CLAIM_C\"')
+             WHERE id='$CLAIM_B';" >/dev/null 2>&1; then
+  echo "  NG 主張の取り消し先が書き換えられた（深掘り C5 違反）"; fail=1
+else
+  echo "  OK 主張の取り消し先の書き換えは拒まれた"
+fi
+
+# Scenario: 主張した日時は書き換えられない
+#   （**FR-45 の 2 軸を分けた意味がここで消える** —— 後から直したことが分からなくなる）
+if psql -c "UPDATE core.event SET event_time='2000-01-01T00:00:00Z' WHERE id='$CLAIM_A';" \
+     >/dev/null 2>&1; then
+  echo "  NG 主張した日時が書き換えられた（FR-45 / 深掘り C4 違反）"; fail=1
+else
+  echo "  OK 主張した日時の書き換えは拒まれた"
+fi
+
+# 原文が 1 バイトも動いていないこと（トリガが例外を投げても書けていた、を潰す）
+got=$(psql -c "SELECT raw FROM core.event WHERE id='$CLAIM_A';")
+case "$got" in
+  *'"value":"東京都 目黒区"'*) ;;
+  *) echo "  NG 主張の原文が変わっている: $got"; fail=1;;
+esac
+
+# Scenario: 主張の行は削除できない
+if psql -c "DELETE FROM core.event WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 主張を行ごと消せた（FR-44 / 深掘り C1 違反）"; fail=1
+else
+  echo "  OK 主張は行ごと消せない"
+fi
+left=$(psql -c "SELECT count(*) FROM core.event WHERE id='$CLAIM_A';")
+[ "$left" = "1" ] || { echo "  NG 主張が消えている"; fail=1; }
+
+# Scenario: 他の記録を主張へ付け替えられない
+#   （ST03 の R114 と同じ型。錠の外で作った行を主張として固定できると、主張を捏造できる）
+if psql -c "UPDATE core.event SET logical_source='s01-attribute'
+             WHERE id='33333333-3333-4333-8333-333333333333';" >/dev/null 2>&1; then
+  echo "  NG 他の「本人が書いた」記録を主張へ付け替えられた（主張を捏造できる）"; fail=1
+else
+  echo "  OK 他の記録を主張へ付け替えられない"
+fi
+
+# --- 通さなければならない開口部（Q1。**閉じ切ると FR-50 / FR-51 が満たせない**）
+#
+# Scenario: 主張に削除の印を付けられる
+if psql -c "UPDATE core.event SET deleted_at=now(), deleted_by='check' WHERE id='$CLAIM_B';" \
+     >/dev/null 2>&1; then
+  echo "  OK 主張に削除の印を付けられる"
+else
+  echo "  NG 主張の削除の印まで止めている（FR-50 / Q1 を壊している）"; fail=1
+fi
+psql -c "UPDATE core.event SET deleted_at=NULL, deleted_by=NULL WHERE id='$CLAIM_B';" >/dev/null
+
+# Scenario: 主張の感度を変えられる
+if psql -c "UPDATE core.event SET sensitivity=3 WHERE id='$CLAIM_B';" >/dev/null 2>&1; then
+  echo "  OK 主張の感度を変えられる"
+else
+  echo "  NG 主張の感度まで止めている（PERM-2 / ST24 が当たらない）"; fail=1
+fi
+
+# --- 消去（FR-51）。**通るのは「その主張の台帳がある、消去の形」だけ**
+claim_ledger() {   # $1=台帳に書く記録の id
+  printf "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+          VALUES ('%s','%s','s01-attribute','event','check');" "$1" "$AU"
+}
+
+# Scenario: 台帳の無い主張の消去は拒まれる
+if psql -c "UPDATE core.event SET raw='', payload='{}' WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 台帳を書かない消去が通った（唯一の開口部から本文が全部消える）"; fail=1
+else
+  echo "  OK 台帳の無い主張の消去は拒まれた"
+fi
+got=$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$CLAIM_A';")
+[ "$got" = "t" ] || { echo "  NG 拒まれたのに本文が消えている"; fail=1; }
+
+# Scenario: 別の記録の台帳の行では主張の消去は通らない
+#   （**`event_id = NEW.id` まで照合しないと、台帳 1 行で何件でも消去できる**。spec-review R7）
+if psql -c "$(claim_ledger '77777777-7777-4777-8777-777777777777')
+            UPDATE core.event SET raw='', payload='{}' WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 別の記録の台帳 1 行で主張が消去できた（門が「その主張の」を見ていない）"; fail=1
+else
+  echo "  OK 別の記録の台帳の行では主張の消去は通らない"
+fi
+got=$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$CLAIM_A';")
+[ "$got" = "t" ] || { echo "  NG 別の記録の台帳で本文が消えた"; fail=1; }
+
+# Scenario: 台帳の行があっても消去の形でない書き換えは拒まれる
+#   （ST03 の R95 と同じ穴。**原文（唯一の復元元）を消しながら、もっともらしい解析済みを植えられる**）
+if psql -c "$(claim_ledger "$CLAIM_A")
+            UPDATE core.event SET raw='', payload='{\"forged\":true}' WHERE id='$CLAIM_A';" \
+     >/dev/null 2>&1; then
+  echo "  NG 消去の顔で解析済みを差し替えられた（原文は消えているので引き直せない）"; fail=1
+else
+  echo "  OK 台帳の行があっても、消去の形でない書き換えは拒まれた"
+fi
+
+# Scenario: 台帳のある主張の消去は通る
+#   （**閉じ切ると Q1 の「本文を消す」が満たせない** —— 本人が選んだのは消せる側）
+if psql -c "$(claim_ledger "$CLAIM_C")
+            UPDATE core.event SET raw='', payload='{}' WHERE id='$CLAIM_C';" >/dev/null 2>&1; then
+  echo "  OK 台帳のある主張の消去は通る"
+else
+  echo "  NG 主張の本文が消せない（FR-51 / Q1 が満たせない）"; fail=1
+fi
+got=$(psql -c "SELECT raw = '' AND payload = '{}'::jsonb FROM core.event WHERE id='$CLAIM_C';")
+[ "$got" = "t" ] || { echo "  NG 通ったのに本文が残っている"; fail=1; }
+# **消去しても識別子と出来事の時刻と鍵は残る**（だから原文に乱数が要る。design D4 / C12）
+got=$(psql -c "SELECT content_hash FROM core.event WHERE id='$CLAIM_C';")
+[ "$got" = "claim-hash-$CLAIM_C" ] || { echo "  NG 消去で内容の鍵が動いた: $got"; fail=1; }
+
+# Scenario: 主張以外の本人が書いた記録は従来どおり書き換えられる
+#   （**禁止の範囲が主張の外へ広がっていないこと**。主張の行がある DB で見る —— spec-review R14。
+#    段の `WHERE` を自分の行に絞る。絞らないと ST03 の `gate-check` の authored 行に当たって落ちる）
+if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
+            WHERE logical_source = 'immutable-check' AND origin = 'authored';" >/dev/null 2>&1; then
+  echo "  OK 主張以外の本人が書いた記録は従来どおり書き換えられる"
+else
+  echo "  NG 主張以外まで止めている（ST17 の主観などが書き換えられなくなる）"; fail=1
+fi
+
+# --- 種類の 2 表（D7。**台帳は追記のみ** —— 名前を変えるのは行を足すこと）
+#
+# Scenario: 種類の名前の台帳は書き換えられない
+if psql -c "UPDATE core.attribute_kind_name SET name='偽の名前' WHERE kind_id='$KIND';" \
+     >/dev/null 2>&1; then
+  echo "  NG 種類の名前が書き換えられた（前の名前が黙って消える）"; fail=1
+else
+  echo "  OK 種類の名前の台帳は書き換えられない"
+fi
+got=$(psql -c "SELECT name FROM core.attribute_kind_name WHERE kind_id='$KIND';")
+[ "$got" = '住所' ] || { echo "  NG 拒まれたのに名前が変わっている: $got"; fail=1; }
+
+# Scenario: 種類の台帳は削除も切り詰めもできない
+for stmt in "DELETE FROM core.attribute_kind_name WHERE kind_id='$KIND';" \
+            "TRUNCATE core.attribute_kind_name;" \
+            "UPDATE core.attribute_kind SET user_id='11111111-1111-4111-8111-111111111111' WHERE id='$KIND';" \
+            "DELETE FROM core.attribute_kind WHERE id='$KIND';" \
+            "TRUNCATE core.attribute_kind CASCADE;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 種類の台帳が変えられた: $stmt"; fail=1
+  fi
+done
+kinds=$(psql -c "SELECT count(*) FROM core.attribute_kind WHERE id='$KIND';")
+names=$(psql -c "SELECT count(*) FROM core.attribute_kind_name WHERE kind_id='$KIND';")
+[ "$kinds" = "1" ] && [ "$names" = "1" ] \
+  && echo "  OK 種類の台帳は書き換えも削除も切り詰めもできない" \
+  || { echo "  NG 種類 $kinds 行 / 名前 $names 行（どちらも 1 行のはず）"; fail=1; }
+
+
+# --- **後から足した列が、黙って書き換えられる側に入らないこと**
+#
+# 即時の錠は列を 1 つずつ名指しで凍結する（design D2）。**名指しなので、`core.event` に
+# 列が 1 本増えると、その列は何も言わずに書き換えられる側へ入る。**
+# ここで「意図して開けている列」と「凍結している列」の合計が実際の列と一致することを見る ——
+# 一致しなくなったら、増やした人が**どちら側かを決めるまで落ちる**（既定は厳しい側。扉 #15）。
+open_cols="sensitivity deleted_at deleted_by"          # FR-50 / PERM-2 で開ける
+gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
+frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
+             tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref"
+known=$(printf '%s\n' $open_cols $gated_cols $frozen_cols | sort)
+actual=$(psql -c "SELECT column_name FROM information_schema.columns
+                   WHERE table_schema='core' AND table_name='event';" | sort)
+if [ "$known" != "$actual" ]; then
+  echo "  NG core.event の列と、錠が知っている列がずれている（増えた列が黙って書き換えられる）"
+  diff <(echo "$known") <(echo "$actual") | sed 's/^/     /'
+  fail=1
+else
+  echo "  OK core.event の全 $(echo "$actual" | wc -l) 列が、開ける / 門で見る / 凍結する のどれかに入っている"
+fi
+# 凍結すると宣言した列が、本当に 1 つずつ拒まれること（宣言と実装のずれを見る）
+for col in $frozen_cols; do
+  case "$col" in
+    event_time|ingest_time|source_updated_at) val="'2000-01-01T00:00:00Z'" ;;
+    tz_offset_min|schema_version)             val="0" ;;
+    id|user_id)                               val="'12121212-1212-4212-8212-121212121212'" ;;
+    *)                                        val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.event SET $col = $val WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+    echo "  NG 主張の $col が書き換えられた（凍結すると宣言しているのに通る）"; fail=1
+  fi
+done
+echo "  OK 凍結すると宣言した列はどれも書き換えられない"
+# **門で見ると宣言した 3 列も、素の書き換えは拒まれること**（review/code.md R22）。
+# 点呼が「知っている列」として通すだけだと、**門が将来その列を見なくなっても気付かない**
+for col in $gated_cols; do
+  case "$col" in
+    payload) val="'{\"forged\":true}'" ;;
+    *)       val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.event SET $col = $val WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+    echo "  NG 主張の $col が台帳なしで書き換えられた（門が見ていない）"; fail=1
+  fi
+done
+echo "  OK 門で見ると宣言した列は、台帳なしの素の書き換えを拒む"
+
+# --- 戻し手順（D12）。**主張が残っていれば、種類の 2 表も登録簿の行も残す**
+#
+# 主張の原文は種類を**識別子で**指すので、表を落とすと「その識別子が何という名前だったか」が
+# 戻しで永久に失われる（spec-review R20）。**錠が落ちるので、この節の最後に置く。**
+before=$(psql -c "SELECT count(*) FROM core.attribute_kind_name;")
+psql < migrations/202609160220_personal_attributes.down.sql >/dev/null 2>&1 \
+  || { echo "  NG 202609160220_personal_attributes.down.sql が当たらない"; fail=1; }
+after=$(psql -c "SELECT count(*) FROM core.attribute_kind_name;")
+[ "$before" = "$after" ] \
+  || { echo "  NG 主張が残っているのに名前の台帳が $before → $after 行になった"; fail=1; }
+kept=$(psql -c "SELECT count(*) FROM core.source WHERE logical_source='s01-attribute';")
+[ "$kept" = "1" ] || { echo "  NG 主張が残っているのに登録簿の行が消えた"; fail=1; }
+# **この節が置いた 3 件だけを数える**（開発用 DB に偽データが残っていても効く検査にする）
+claims=$(psql -c "SELECT count(*) FROM core.event
+                   WHERE id IN ('$CLAIM_A','$CLAIM_B','$CLAIM_C');")
+[ "$claims" = "3" ] || { echo "  NG 戻しでこの節の主張が $claims 件になった（3 件のはず）"; fail=1; }
+echo "  OK 主張が残っていれば、戻しても種類の 2 表と登録簿の行と主張が残る"
+# 当て直せる（前進のみの版を戻してから進める運用が成り立つ）
+psql < migrations/202609160220_personal_attributes.sql >/dev/null 2>&1 \
+  || { echo "  NG 戻した後に当て直せない"; fail=1; }
+if psql -c "UPDATE core.event SET payload='{\"forged\":1}' WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 戻して進めた後に主張の錠が消えている"; fail=1
+else
+  echo "  OK 戻して進めても主張の錠は効いている"
+fi
+
+
 # --- 戻し手順が当たること（R117）。
 # `tools/check-migrations.sh` は **down.sql の存在と「不可逆」の記載だけ**を静的に見ており、
 # **1 度も当てていない**。この change で 5 本増えるので、ここで逆順に当てて構文と依存を見る。
@@ -528,6 +918,26 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
+# **新しい版から戻す。** ST19 の主張の版がいちばん新しい（ここは schema を作り直した直後なので
+# 主張は 0 件 —— D12 の「主張が残っていなければ 2 表と登録簿の行も落とす」側を通る）
+psql < "migrations/202609160220_personal_attributes.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609160220_personal_attributes.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.attribute_kind') IS NULL AND to_regclass('core.attribute_kind_name') IS NULL;")" = "t" ] \
+  || { echo "  NG 主張が 0 件なのに種類の 2 表が残っている"; fail=1; down_fail=1; }
+psql < "migrations/202609160220_personal_attributes.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609160220_personal_attributes.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609160220_personal_attributes.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609160220_personal_attributes.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
+
+# **ST04 の破棄の報告の版をいちばん先に戻す**（最後に足した版）。戻して進め直せることまで見る
+psql < "migrations/202609151546_drop_reports.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.drop_report') IS NULL AND to_regclass('core.drop_report_hour') IS NULL;")" = "t" ] \
+  || { echo "  NG 破棄の報告の戻しで表が消えていない"; fail=1; down_fail=1; }
+psql < "migrations/202609151546_drop_reports.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609151546_drop_reports.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609151546_drop_reports.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 # **ST16 の滞在の版を先に戻す**（ST16 の review/code.md R39）。滞在の台帳は `core.event` を指すので、
 # ST03 の戻しより前に当てる。戻して進め直せることまで見る（前進のみの版を戻す運用が成り立つ）
 psql < "migrations/202609142125_stays.down.sql" >/dev/null 2>&1 \
@@ -543,7 +953,7 @@ for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK ST16 の 1 本と ST03 の 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \

@@ -1,0 +1,179 @@
+{
+  "title": "確認バッチ 20260916-1442",
+  "subtitle": "ST04 圏外でも記録が失われない / ST19 個人属性を上書きせず履歴で残す / ST16 位置から滞在を作り、派生を作り直せる",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20260916-1442/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。どの画面がどの URL かは `docs/screens.md`。",
+    "スマホ・端末から届かせるなら `http://yoshi.tail4360f4.ts.net:<port>` —— **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、`100.85.27.45` 宛は tailscale 自身が 404 を返す。実測 2026-09-16）。",
+    "確認に使う 1 行（問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer dev-token-0123456789abcdef\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20260916-1442/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20260916-1442/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "成果物: `dist/verify-20260916-1442/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。"
+  ],
+  "questions": [
+    {
+      "id": "ST04-F",
+      "topic": "ST04 違和感",
+      "kind": "check",
+      "question": "ST04「圏外でも記録が失われない」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
+      "context": "画面: S-1 稼働状況: `/`（画面を開いた最初の状態。まだ入口の付け替え（ST25）をしていないので、ここがルート）\n`SEED=normal` の稼働状況で、一部を破棄した日の印と、その週を選んだときの「うち 180 件を破棄（10:00〜13:00）」",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ]
+    },
+    {
+      "id": "ST19-F",
+      "topic": "ST19 違和感",
+      "kind": "check",
+      "question": "ST19「個人属性を上書きせず履歴で残す」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
+      "context": "画面: S-6 マスタ管理: `/#/master`（アドレスに `#/master` を足す）\n`SEED=normal` のマスタ管理の画面で、住所のカードに積んだ主張が全部並び、主張を押すと書いた日時が出ること。「書く」で主張を 1 件積めること",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ]
+    },
+    {
+      "id": "ST16-S0",
+      "topic": "ST16 Scenario: 1 日歩き回った後、その日の滞在が一覧で出る",
+      "kind": "check",
+      "question": "Scenario「1 日歩き回った後、その日の滞在が一覧で出る」が実機で成り立つか",
+      "why": "ST16 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）\n端末を持って 1 日過ごした翌日、`run.sh` の画面で `#/day/<その日>` を開き、居た場所の数だけ時刻の範囲の行が並ぶことを見る",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST16-S1",
+      "topic": "ST16 Scenario: 半径を変えて作り直すと区切りが変わる",
+      "kind": "check",
+      "question": "Scenario「半径を変えて作り直すと区切りが変わる」が実機で成り立つか",
+      "why": "ST16 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）\n偽データ（`SEED=normal`）の 2026-09-07 を開いた後、手順書の `POST /stays/rebuild`（半径 30 m）を叩き、同じ日の一覧の行が増え、 上端の基準が「半径 30 m / 10 分」になることを見る\n確認に使う 1 行（問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer dev-token-0123456789abcdef\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST16-S2",
+      "topic": "ST16 Scenario: 作り直しで位置の記録は変わらない",
+      "kind": "check",
+      "question": "Scenario「作り直しで位置の記録は変わらない」が実機で成り立つか",
+      "why": "ST16 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）\n上の作り直しの前後で、手順書の `psql` の 1 行（`c01-location` の件数と内容の鍵の集計）が同じ値を返すことを見る\n確認に使う 1 行（問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer dev-token-0123456789abcdef\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST16-S3",
+      "topic": "ST16 Scenario: 記録が欠けた時間は記録なしとして出る",
+      "kind": "check",
+      "question": "Scenario「記録が欠けた時間は記録なしとして出る」が実機で成り立つか",
+      "why": "ST16 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）\n偽データ（`SEED=normal`）の 2026-09-07 を開き、「記録なし」の行が「移動」と文字で違って見えることを見る",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST16-S4",
+      "topic": "ST16 Scenario: キーボードで移るとフォーカスの位置が見える",
+      "kind": "check",
+      "question": "Scenario「キーボードで移るとフォーカスの位置が見える」が実機で成り立つか",
+      "why": "ST16 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）\nPC のブラウザで Tab を押して前の日・次の日・日付の入力を順に移り、どこにいるか分かることを見る",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST16-F",
+      "topic": "ST16 違和感",
+      "kind": "check",
+      "question": "ST16「位置から滞在を作り、派生を作り直せる」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
+      "context": "画面: S-2 主表現（1 日を見る）: `/#/day/2026-09-07`（アドレスの `#/day/<YYYY-MM-DD>` を書き換える。日付を省く（`#/day/`）と今日）",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ]
+    }
+  ]
+}
