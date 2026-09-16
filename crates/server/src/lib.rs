@@ -6,7 +6,7 @@
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -16,6 +16,13 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+/// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
+pub mod attributes;
+/// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
+pub mod attributes_store;
+/// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
+#[cfg(test)]
+mod attributes_tests;
 pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
@@ -44,7 +51,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 14] = [
+pub const MIGRATIONS: [(&str, &str); 15] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -106,6 +113,12 @@ pub const MIGRATIONS: [(&str, &str); 14] = [
         "202609151546_drop_reports",
         include_str!("../../../migrations/202609151546_drop_reports.sql"),
     ),
+    // 個人属性の主張の錠と、種類の 2 表（ST19 / design D2 / D7 / D12）。
+    // 主張そのものは `core.event` に入る
+    (
+        "202609160220_personal_attributes",
+        include_str!("../../../migrations/202609160220_personal_attributes.sql"),
+    ),
 ];
 
 /// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
@@ -122,6 +135,13 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
 #[derive(Clone, Debug)]
 pub struct App {
     pool: sqlx::PgPool,
+    /// **試験が時刻を差し込む口**（tasks 2.4「試験は時刻を差し込めるようにする」）。
+    ///
+    /// `None` なら本物の時計。これが無いと、`Asia/Tokyo` で日を切っていることを
+    /// **ハンドラの高さで確かめられない** —— UTC に変えても、両者の日付が違う
+    /// 00:00〜09:00 JST の 9 時間以外はテストが通ってしまう（review/code.md R4）。
+    #[cfg(test)]
+    now: Option<chrono::DateTime<chrono::Utc>>,
     /// 共有の合言葉。**loopback に閉じているだけでは足りない** ——
     /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
     /// 素通しで読み書きできてしまう。
@@ -138,7 +158,26 @@ impl App {
             pool,
             token: token.into(),
             stays: StayRebuilder::real(),
+            now: None,
         }
+    }
+
+    /// 時刻を差し込んだ複製（tasks 2.4）。
+    #[cfg(test)]
+    pub(crate) fn at(self, now: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            now: Some(now),
+            ..self
+        }
+    }
+
+    /// いまの `Asia/Tokyo` の日付。**日を引く式は `stay_store::jst_date` の 1 本だけ**。
+    fn today(&self) -> chrono::NaiveDate {
+        #[cfg(test)]
+        if let Some(now) = self.now {
+            return stay_store::jst_date(now);
+        }
+        today_jst()
     }
 }
 
@@ -246,6 +285,35 @@ pub enum IngestError {
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
     /// この応答は**収集側の採番が壊れていることの印**として働く。
     IdReused,
+
+    // --- 個人属性の主張だけに当たる 7 種別（ST19 / design D5。spec「形の合わない主張は受け付けない」）
+    //
+    // **置き場は spec の表**（spec-review R5 / R12）。ここは写しで、当たる条件は spec が持つ。
+    /// 原文が JSON でない / 必須の欄が欠ける / 原文の主張の識別子が記録の識別子と違う /
+    /// 原文の乱数が 128 bit に満たない
+    MalformedClaim,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    ClaimNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    ClaimHasExternalId,
+    /// その利用者に無い種類
+    UnknownAttributeKind,
+    /// 値が、前後の空白を除いて空で、「なし」でもない
+    InvalidClaimValue,
+    /// 精度と日付の形が合わない / 暦に無い日付
+    InvalidValidFrom,
+    /// 取り消す主張が無い / 個人属性の主張でない / 別の利用者 / 別の種類 / 自分自身
+    InvalidSupersedes,
+}
+
+impl From<attributes::ClaimInvalid> for IngestError {
+    fn from(v: attributes::ClaimInvalid) -> Self {
+        match v {
+            attributes::ClaimInvalid::Malformed => Self::MalformedClaim,
+            attributes::ClaimInvalid::Value => Self::InvalidClaimValue,
+            attributes::ClaimInvalid::ValidFrom => Self::InvalidValidFrom,
+        }
+    }
 }
 
 impl From<ingest::Invalid> for IngestError {
@@ -256,6 +324,29 @@ impl From<ingest::Invalid> for IngestError {
             ingest::Invalid::DeviceId => Self::MissingDeviceId,
             ingest::Invalid::ExternalId => Self::EmptyExternalId,
         }
+    }
+}
+
+/// 収集した記録の既定の感度（PERM-3「外部 AI に出してよい」）。
+///
+/// **`core.event.sensitivity` の DB 既定と同じ値でなければならない** ——
+/// `default_sensitivity_matches_the_column` が DB 側の既定と突き合わせる
+/// （片方だけ動くと、既定が黙って緩む側にも締まる側にも転びうる）。
+pub const DEFAULT_SENSITIVITY: i32 = 1;
+
+/// そのソースの既定の感度（design D3（仮））。
+///
+/// **取り込みの契約に感度の欄は足さない**（ST16 の Q3 と同じ向き）——
+/// 足すと `record-envelope` と収集側の契約が動く。
+///
+/// **反転条件**: ST24 が登録簿に「ソースごとの既定の感度」を持たせたとき、
+/// この分岐を登録簿の値へ移す（個人属性の値は 2 のまま）。
+fn default_sensitivity(logical_source: &str) -> i32 {
+    if logical_source == attributes::SOURCE {
+        // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
+        attributes::DEFAULT_SENSITIVITY
+    } else {
+        DEFAULT_SENSITIVITY
     }
 }
 
@@ -389,6 +480,58 @@ async fn ingest_one(
         }
     };
 
+    // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
+    // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
+    // 記録を入れるのと同じまとまりの中**（下）。
+    //
+    // **一般の受け取り検査（`validate`）より先に見る** —— 由来が `collected` の主張は
+    // `missing_device_id` ではなく `claim_not_authored`（spec の表）。一般の検査が先に当たると、
+    // **主張でないものを主張として送った誤りが、端末識別子の欠落として返る**。
+    // 原文が DB に格納できない（NUL・空）ことは `validate` が下で見る —— そこまでに行は入らない。
+    //
+    // 形（`malformed_claim`）だけ先に判定して、値と「いつから」の種別は
+    // **由来と外部識別子を見た後**に返す —— 由来が違う主張は、値が何であれ主張ではない。
+    let claim = if req.logical_source == attributes::SOURCE {
+        let parsed = attributes::parse_claim(&req.raw, req.id);
+        if matches!(parsed, Err(attributes::ClaimInvalid::Malformed)) {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::MalformedClaim,
+            ));
+        }
+        // **主張は「本人が書いた」記録で、端末は持たない**（design D1 / spec）——
+        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる
+        if req.origin != "authored" || req.device_id.is_some() {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::ClaimNotAuthored,
+            ));
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::ClaimHasExternalId,
+            ));
+        }
+        // **地域のずれの範囲をここで断る**（review/code.md R3）。
+        // `core.event.tz_offset_min` に CHECK は無く、`validate` も見ていないので、
+        // 範囲外の値は**受理された顔をして格納され、読み出しから永久に消える**
+        // （`FixedOffset` の上限は ±86,399 秒 = ±1,439 分）。
+        // **主張の行は DB が削除を拒む**ので、一度入ると取り除くことも直すこともできない。
+        if !(-1439..=1439).contains(&req.tz_offset_min) {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::MalformedClaim,
+            ));
+        }
+        match parsed {
+            Ok(c) => Some(c),
+            Err(why) => return Ok(IngestResult::rejected(Some(req.id), why.into())),
+        }
+    } else {
+        None
+    };
+
     // 受け取り時の検査はアプリ層で閉じる（design D5）。DB の制約に任せると 500 になり、
     // 呼び出し側から「自分の要求が悪い」と分からない。
     // **500 はまとめ送り全体を落とす** —— 1 件の恒久的な失敗が後続を永久に止める（design D20）。
@@ -428,7 +571,13 @@ async fn ingest_one(
     let hash = content_hash(&req);
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
-    let payload = ingest::to_nfc(&req.payload);
+    //
+    // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
+    // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
+    let payload = match &claim {
+        Some(c) => c.payload.clone(),
+        None => ingest::to_nfc(&req.payload),
+    };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
     // 別々の文にしていると、記録だけ入って稼働記録の加算が落ちた状態が作れる ——
@@ -439,6 +588,32 @@ async fn ingest_one(
         .begin()
         .await
         .map_err(|e| internal_at("ingest.begin", e))?;
+
+    // **主張の DB を見る検査は、記録を入れるのと同じまとまりの中**（design D5）。
+    if let Some(c) = &claim {
+        if !attributes_store::kind_exists(&mut tx, req.user_id, c.kind)
+            .await
+            .map_err(|e| internal_at("ingest.claim_kind", e))?
+        {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::UnknownAttributeKind,
+            ));
+        }
+        if let Some(target) = c.supersedes {
+            // **自分自身は取り消せない**（取り消しの輪が 1 件で閉じる）
+            let ok = target != c.id
+                && attributes_store::supersedes_is_valid(&mut tx, req.user_id, c.kind, target)
+                    .await
+                    .map_err(|e| internal_at("ingest.claim_supersedes", e))?;
+            if !ok {
+                return Ok(IngestResult::rejected(
+                    Some(req.id),
+                    IngestError::InvalidSupersedes,
+                ));
+            }
+        }
+    }
 
     // **収集側の識別子の使い回しを格納の前に断る**（深掘り Q5）。
     // `id` は主キーなので、放っておくと重複違反で 500 になり**まとめ送り全体が落ちる**。
@@ -514,8 +689,8 @@ async fn ingest_one(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            content_hash, raw, payload, source_updated_at, sensitivity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -523,8 +698,8 @@ async fn ingest_one(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            content_hash, raw, payload, source_updated_at, sensitivity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -550,6 +725,8 @@ async fn ingest_one(
             .bind(&req.raw)
             .bind(&payload)
             .bind(req.source_updated_at)
+            // **ソースごとの既定の感度**（design D3（仮））。主張は「ローカル AI まで」
+            .bind(default_sensitivity(&req.logical_source))
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
@@ -1410,7 +1587,112 @@ fn today_jst() -> chrono::NaiveDate {
     // PostgreSQL の `AT TIME ZONE 'Asia/Tokyo'` と同じ日になる。
     // **失敗しうる経路を作らない** —— 落ちる代わりに UTC の日を返す実装にすると、
     // 日境界が黙って 9 時間ずれる（NFR-13 の分母がぶれる）。
-    (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive()
+    //
+    // **日を引く式は `stay_store::jst_date` の 1 本だけ**（ST19）。ここに同じ式を
+    // 書き写していたときは、片方だけ直しても誰も気付かない形になっていた
+    // （画面とサーバで割れた ST02 の R10 と同じ型）。
+    stay_store::jst_date(chrono::Utc::now())
+}
+
+// ------------------------------------------------------------------ 個人属性（ST19）
+
+/// `GET /attributes` の絞り込み。**利用者は名乗り**（ST29 まで。ほかの読み出しと同じ）。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct AttributesQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 種類ごとのいまの値・予定・積んだ主張・取り消された主張を返す（design D8）。
+///
+/// **先頭で住所と職業を置く**（design D7（仮））—— 種類を 1 つも持たない利用者が
+/// 最初に見る画面が空にならないため。反転条件は design D7。
+#[utoipa::path(get, path = "/attributes", params(AttributesQuery),
+    responses((status = 200, body = attributes::AttributesView), (status = 401)))]
+pub async fn attributes_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<AttributesQuery>,
+) -> Result<Json<attributes::AttributesView>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let today = app.today();
+    attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today)
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("attributes.view", e))
+}
+
+/// 種類を足す（design D7）。空・いまある名前と重なるものは 400。
+#[utoipa::path(post, path = "/attributes/kinds",
+    request_body = attributes_store::KindRequest,
+    responses((status = 200, body = attributes_store::KindCreated),
+              (status = 400, body = attributes_store::KindErrorBody), (status = 401)))]
+pub async fn attributes_kind_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<attributes_store::KindRequest>,
+) -> Result<Json<attributes_store::KindCreated>, (StatusCode, Json<attributes_store::KindErrorBody>)>
+{
+    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    let user_id = req.user_id.unwrap_or_default();
+    match attributes_store::add_kind(&app.pool, user_id, &req.name)
+        .await
+        .map_err(|e| unauthorized_kind(internal_at("attributes.add_kind", e)))?
+    {
+        Ok(created) => Ok(Json(created)),
+        // **受け取った名前は載せない**（`IngestError` と同じ向き。design D5 / 製造準備 A-2）
+        Err(why) => Err(kind_error_body(why)),
+    }
+}
+
+/// 合言葉と DB の失敗を、種類の口の応答の形へ落とす。
+///
+/// **状態符号はそのまま**（401 / 500）で、本文だけ種類の口の形にする ——
+/// 画面は 400 のときだけ本文の種別を読む（`web/src/attributes.ts` の `readKindResponse`）。
+fn unauthorized_kind(
+    e: (StatusCode, String),
+) -> (StatusCode, Json<attributes_store::KindErrorBody>) {
+    (
+        e.0,
+        Json(attributes_store::KindErrorBody {
+            error: attributes_store::KindError::UnknownKind,
+        }),
+    )
+}
+
+/// 種類の名前を変える（design D7）。**前の名前は台帳に残る**（追記のみ）。
+#[utoipa::path(post, path = "/attributes/kinds/{id}/names",
+    params(("id" = uuid::Uuid, Path, description = "種類の識別子")),
+    request_body = attributes_store::KindRequest,
+    responses((status = 204), (status = 400, body = attributes_store::KindErrorBody), (status = 401)))]
+pub async fn attributes_kind_name_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+    Json(req): Json<attributes_store::KindRequest>,
+) -> Result<StatusCode, (StatusCode, Json<attributes_store::KindErrorBody>)> {
+    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    let user_id = req.user_id.unwrap_or_default();
+    match attributes_store::rename_kind(&app.pool, user_id, id, &req.name)
+        .await
+        .map_err(|e| unauthorized_kind(internal_at("attributes.rename_kind", e)))?
+    {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(why) => Err(kind_error_body(why)),
+    }
+}
+
+/// 断った理由を本文にする。**種別の名前だけ**（受け取った値は載せない）。
+///
+/// **`Json` で返す**（review/code.md R8）。`String` で返すと axum が
+/// `text/plain` を付け、`application/json` と宣言した OpenAPI と食い違う。
+/// `tools/check-openapi.sh` は欄の名前しか見ないので、ずれても通ってしまう。
+fn kind_error_body(
+    why: attributes_store::KindError,
+) -> (StatusCode, Json<attributes_store::KindErrorBody>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(attributes_store::KindErrorBody { error: why }),
+    )
 }
 
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
@@ -1510,10 +1792,18 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/stays", get(stays_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
+        .route("/attributes", get(attributes_get))
+        .route("/attributes/kinds", post(attributes_kind_post))
+        .route(
+            "/attributes/kinds/{id}/names",
+            post(attributes_kind_name_post),
+        )
         .with_state(App {
             pool,
             token,
             stays: StayRebuilder::real(),
+            #[cfg(test)]
+            now: None,
         });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
@@ -1541,7 +1831,10 @@ pub async fn run() -> anyhow::Result<()> {
         achievement_get,
         stays_get,
         stays_rebuild,
-        stays_criteria_get
+        stays_criteria_get,
+        attributes_get,
+        attributes_kind_post,
+        attributes_kind_name_post
     ),
     components(schemas(
         IngestResult,
@@ -1571,6 +1864,15 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::DayEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
+        attributes::AttributesView,
+        attributes::KindView,
+        attributes::ClaimOut,
+        attributes::ValidFrom,
+        attributes::Precision,
+        attributes_store::KindRequest,
+        attributes_store::KindCreated,
+        attributes_store::KindError,
+        attributes_store::KindErrorBody,
     )),
     info(
         title = "ashiato S-01",
