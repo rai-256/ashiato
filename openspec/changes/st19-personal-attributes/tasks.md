@@ -61,12 +61,12 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
   `積んだ主張はいまの値と予定を含む` / `いつからを直す訂正で古い開始が残らない` / `年だけの主張はその年の初めから有効とみなす` / `いつからが分からない主張は最も古い側に置く` /
   `なしの主張がいまの値になる` / `取り消された主張がした取り消しも効く`。
   検証: `CT attributes::tests::view`
-- [ ] 2.3 種類の口 `POST /attributes/kinds` と `POST /attributes/kinds/{id}/names`、初期化 `ensure_initial_kinds`（利用者ごとの錠 → 0 件なら v5 の 2 つ。名前の行は種類の `INSERT … RETURNING` が返したときだけ）。
+- [x] 2.3 種類の口 `POST /attributes/kinds` と `POST /attributes/kinds/{id}/names`、初期化 `ensure_initial_kinds`（利用者ごとの錠 → 0 件なら v5 の 2 つ。名前の行は種類の `INSERT … RETURNING` が返したときだけ）。
   名前は NFC、同じ錠の中でいまの名前との重なりと種類の利用者を見る。`Cargo.toml` の `uuid` に `v5` を足す。OpenAPI に載せる。
   Scenario: `種類を足せる` / `名前を変えても識別子と主張が変わらない`（主張は DB に直接入れる）/ `名前を変えても前の名前が台帳に残る` / `初めて種類を足す前に住所と職業が置かれる` /
   `空の名前の種類は足せない` / `いまある名前と同じ種類は足せない`（NFD の名前を含む）/ `いまある名前へは変えられない` / `別の利用者の種類の名前は変えられない`。
   検証: `CT attributes_tests::kinds`、`tools/check-openapi.sh` rc=0、`grep -c '"/attributes/kinds"' docs/openapi.json` が 1 以上
-- [ ] 2.4 `GET /attributes`（design D8）。先頭で `ensure_initial_kinds`。`core.event_live` から主張のソースの行を読み、`raw = ''` の行を除いて `view` に渡す。今日は `Asia/Tokyo`（試験は時刻を差し込めるようにする）。
+- [x] 2.4 `GET /attributes`（design D8）。先頭で `ensure_initial_kinds`。`core.event_live` から主張のソースの行を読み、`raw = ''` の行を除いて `view` に渡す。今日は `Asia/Tokyo`（試験は時刻を差し込めるようにする）。
   OpenAPI に載せる。**この章のテストは主張を DB に直接入れる**（取り込みの分岐は 3 章）。
   Scenario: `最初に住所と職業がある` / `同時に初めて読み出しても住所と職業は 1 つずつ`（2 本を `tokio::join!` で走らせ、種類 2・名前の台帳 2 を数える）/
   `今日は Asia/Tokyo の日付で決まる` / `消したことにした主張は出ない` / `消したことにした主張の次がいまの値になる` / `消した主張が取り消していた主張は戻る` /

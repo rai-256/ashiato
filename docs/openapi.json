@@ -10,6 +10,132 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/attributes": {
+      "get": {
+        "tags": [],
+        "summary": "種類ごとのいまの値・予定・積んだ主張・取り消された主張を返す（design D8）。",
+        "description": "**先頭で住所と職業を置く**（design D7（仮））—— 種類を 1 つも持たない利用者が\n最初に見る画面が空にならないため。反転条件は design D7。",
+        "operationId": "attributes_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/attributes/kinds": {
+      "post": {
+        "tags": [],
+        "summary": "種類を足す（design D7）。空・いまある名前と重なるものは 400。",
+        "operationId": "attributes_kind_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/attributes/kinds/{id}/names": {
+      "post": {
+        "tags": [],
+        "summary": "種類の名前を変える（design D7）。**前の名前は台帳に残る**（追記のみ）。",
+        "operationId": "attributes_kind_name_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "種類の識別子",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/coverage": {
       "get": {
         "tags": [],
@@ -416,6 +542,26 @@
           }
         }
       },
+      "AttributesView": {
+        "type": "object",
+        "description": "個人属性の読み出し全体（design D8）。",
+        "required": [
+          "today",
+          "kinds"
+        ],
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KindView"
+            }
+          },
+          "today": {
+            "type": "string",
+            "description": "`Asia/Tokyo` の今日"
+          }
+        }
+      },
       "Band": {
         "type": "string",
         "description": "格子の 3 段。**8 状態の区別は週を選んだときの文字が担う**（第 5 回 Q20 / Q21）。",
@@ -424,6 +570,61 @@
           "alive_no_record",
           "other"
         ]
+      },
+      "ClaimOut": {
+        "type": "object",
+        "description": "読み出しが返す 1 件（design D8）。",
+        "required": [
+          "id",
+          "valid_from",
+          "asserted_at",
+          "ingested_at"
+        ],
+        "properties": {
+          "asserted_at": {
+            "type": "string",
+            "description": "RFC 3339（地域のずれつき）"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingested_at": {
+            "type": "string",
+            "description": "RFC 3339"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "superseded_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "どの主張に取り消されたか（取り消された主張にだけ入る）"
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "valid_from": {
+            "$ref": "#/components/schemas/ValidFrom"
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` が「なし」"
+          }
+        }
       },
       "CriteriaTag": {
         "type": "object",
@@ -944,6 +1145,110 @@
           }
         }
       },
+      "KindCreated": {
+        "type": "object",
+        "description": "種類を足した結果。",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "KindError": {
+        "type": "string",
+        "description": "種類の操作を断る理由（design D7）。どれも 400。",
+        "enum": [
+          "empty_name",
+          "duplicate_name",
+          "unknown_kind"
+        ]
+      },
+      "KindRequest": {
+        "type": "object",
+        "description": "種類を足す・名前を変える要求の本文。",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "省けば nil UUID（ほかの読み出しと同じ。ST29 まで利用者は名乗り）"
+          }
+        }
+      },
+      "KindView": {
+        "type": "object",
+        "description": "種類 1 つぶんの読み出し（design D8）。",
+        "required": [
+          "id",
+          "name",
+          "upcoming",
+          "claims",
+          "superseded"
+        ],
+        "properties": {
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimOut"
+            },
+            "description": "取り消されていない主張の全部。「いつから」の新しい順"
+          },
+          "current": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ClaimOut",
+                "description": "「いつから」が今日以前で最も新しい主張。無ければ `null`"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "superseded": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimOut"
+            },
+            "description": "訂正で取り消された主張"
+          },
+          "upcoming": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimOut"
+            },
+            "description": "「いつから」が今日より後（予定）。古い順"
+          }
+        }
+      },
+      "Precision": {
+        "type": "string",
+        "description": "「いつから」の精度（深掘り C3）。**丸めない** ——\n2019 年とだけ分かっている値を 2019-01-01 にすると、丸めたことが後から分からない。",
+        "enum": [
+          "year",
+          "month",
+          "day",
+          "unknown"
+        ]
+      },
       "RebuildRequest": {
         "type": "object",
         "description": "`POST /stays/rebuild` の本文。**すべて省ける**（省いた基準はいまの値のまま）。",
@@ -1146,6 +1451,25 @@
           "device",
           "usage"
         ]
+      },
+      "ValidFrom": {
+        "type": "object",
+        "description": "「いつから」。精度と、その精度の日付の組（design D1 の原文の形）。",
+        "required": [
+          "precision"
+        ],
+        "properties": {
+          "date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`2019` / `2019-10` / `2019-10-01`。精度が「分からない」なら `null`"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/Precision"
+          }
+        }
       }
     }
   }

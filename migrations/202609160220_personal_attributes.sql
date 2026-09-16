@@ -20,8 +20,14 @@
 -- （扉 #17 と同じ型）—— 名前で種類を指すと、名前を直した日に過去の主張が別の種類に割れる。
 --
 -- **いまの名前は `kind_id` ごとに `id` が最大の行**。台帳は追記のみなので、前の名前は残り続ける。
+-- **並びは `seq`（単調増加）で決める。`created_at` では決められない**（design D14）——
+-- `now()` はトランザクションの開始時刻なので、**同じまとまりで作った種類は全部同時刻**になる。
+-- 住所と職業は 1 つのまとまりで置かれ、`POST /attributes/kinds` も同じまとまりで初期化してから
+-- 足すので、`created_at` で並べると同時刻の塊になり、tie を割るのが UUID（＝でたらめな順）になる。
+-- `created_at` は「いつ作ったか」の事実として残す。
 CREATE TABLE IF NOT EXISTS core.attribute_kind (
   id         uuid PRIMARY KEY,
+  seq        bigint GENERATED ALWAYS AS IDENTITY,
   user_id    uuid NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -29,7 +35,7 @@ CREATE TABLE IF NOT EXISTS core.attribute_kind (
 -- **`(id, user_id)` に一意を張る**（spec-review R16）。下の名前の台帳から複合の外部キーで指し、
 -- **種類と名前の利用者が食い違う行を DB が作らせない**ようにするため。
 CREATE UNIQUE INDEX IF NOT EXISTS attribute_kind_id_user ON core.attribute_kind (id, user_id);
-CREATE INDEX IF NOT EXISTS attribute_kind_by_user ON core.attribute_kind (user_id, created_at, id);
+CREATE INDEX IF NOT EXISTS attribute_kind_by_user ON core.attribute_kind (user_id, seq);
 
 CREATE TABLE IF NOT EXISTS core.attribute_kind_name (
   id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -6,7 +6,7 @@
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -18,6 +18,11 @@ use sqlx::postgres::PgPoolOptions;
 mod api_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
+/// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
+pub mod attributes_store;
+/// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
+#[cfg(test)]
+mod attributes_tests;
 pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
@@ -1410,7 +1415,86 @@ fn today_jst() -> chrono::NaiveDate {
     // PostgreSQL の `AT TIME ZONE 'Asia/Tokyo'` と同じ日になる。
     // **失敗しうる経路を作らない** —— 落ちる代わりに UTC の日を返す実装にすると、
     // 日境界が黙って 9 時間ずれる（NFR-13 の分母がぶれる）。
-    (chrono::Utc::now() + chrono::Duration::hours(9)).date_naive()
+    //
+    // **日を引く式は `stay_store::jst_date` の 1 本だけ**（ST19）。ここに同じ式を
+    // 書き写していたときは、片方だけ直しても誰も気付かない形になっていた
+    // （画面とサーバで割れた ST02 の R10 と同じ型）。
+    stay_store::jst_date(chrono::Utc::now())
+}
+
+// ------------------------------------------------------------------ 個人属性（ST19）
+
+/// `GET /attributes` の絞り込み。**利用者は名乗り**（ST29 まで。ほかの読み出しと同じ）。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct AttributesQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 種類ごとのいまの値・予定・積んだ主張・取り消された主張を返す（design D8）。
+///
+/// **先頭で住所と職業を置く**（design D7（仮））—— 種類を 1 つも持たない利用者が
+/// 最初に見る画面が空にならないため。反転条件は design D7。
+#[utoipa::path(get, path = "/attributes", params(AttributesQuery),
+    responses((status = 200, body = attributes::AttributesView), (status = 401)))]
+pub async fn attributes_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<AttributesQuery>,
+) -> Result<Json<attributes::AttributesView>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today_jst())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("attributes.view", e))
+}
+
+/// 種類を足す（design D7）。空・いまある名前と重なるものは 400。
+#[utoipa::path(post, path = "/attributes/kinds",
+    request_body = attributes_store::KindRequest,
+    responses((status = 200, body = attributes_store::KindCreated),
+              (status = 400, body = attributes_store::KindError), (status = 401)))]
+pub async fn attributes_kind_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<attributes_store::KindRequest>,
+) -> Result<Json<attributes_store::KindCreated>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let user_id = req.user_id.unwrap_or_default();
+    match attributes_store::add_kind(&app.pool, user_id, &req.name)
+        .await
+        .map_err(|e| internal_at("attributes.add_kind", e))?
+    {
+        Ok(created) => Ok(Json(created)),
+        // **受け取った名前は載せない**（`IngestError` と同じ向き。design D5 / 製造準備 A-2）
+        Err(why) => Err((StatusCode::BAD_REQUEST, kind_error_body(why))),
+    }
+}
+
+/// 種類の名前を変える（design D7）。**前の名前は台帳に残る**（追記のみ）。
+#[utoipa::path(post, path = "/attributes/kinds/{id}/names",
+    params(("id" = uuid::Uuid, Path, description = "種類の識別子")),
+    request_body = attributes_store::KindRequest,
+    responses((status = 204), (status = 400, body = attributes_store::KindError), (status = 401)))]
+pub async fn attributes_kind_name_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+    Json(req): Json<attributes_store::KindRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let user_id = req.user_id.unwrap_or_default();
+    match attributes_store::rename_kind(&app.pool, user_id, id, &req.name)
+        .await
+        .map_err(|e| internal_at("attributes.rename_kind", e))?
+    {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(why) => Err((StatusCode::BAD_REQUEST, kind_error_body(why))),
+    }
+}
+
+/// 断った理由を本文にする。**種別の名前だけ**（受け取った値は載せない）。
+fn kind_error_body(why: attributes_store::KindError) -> String {
+    serde_json::json!({ "error": why }).to_string()
 }
 
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
@@ -1509,6 +1593,9 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/stays", get(stays_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
+        .route("/attributes", get(attributes_get))
+        .route("/attributes/kinds", post(attributes_kind_post))
+        .route("/attributes/kinds/{id}/names", post(attributes_kind_name_post))
         .with_state(App {
             pool,
             token,
@@ -1539,7 +1626,10 @@ pub async fn run() -> anyhow::Result<()> {
         achievement_get,
         stays_get,
         stays_rebuild,
-        stays_criteria_get
+        stays_criteria_get,
+        attributes_get,
+        attributes_kind_post,
+        attributes_kind_name_post
     ),
     components(schemas(
         IngestResult,
@@ -1564,6 +1654,14 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::DayEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
+        attributes::AttributesView,
+        attributes::KindView,
+        attributes::ClaimOut,
+        attributes::ValidFrom,
+        attributes::Precision,
+        attributes_store::KindRequest,
+        attributes_store::KindCreated,
+        attributes_store::KindError,
     )),
     info(
         title = "ashiato S-01",
