@@ -149,8 +149,8 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 - [x] 7.2 検証: `python3 scripts/check_scenarios.py . st19-personal-attributes` rc=0（106 本すべてに印）
 - [x] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st19-personal-attributes --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
-- [ ] 7.4 PR 本文に **仮決め（D3 / D6 / D7 / D13）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(3|6|7|13)（仮）"` が 4 以上
-- [ ] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST19.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
+- [x] 7.4 PR 本文に **仮決め（D3 / D6 / D7 / D13）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(3|6|7|13)（仮）"` が 4 以上
+- [x] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST19.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
 ## 8. 独立レビューの処置（`review/code.md` R1〜R31）
 
