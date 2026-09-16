@@ -16,6 +16,8 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+/// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
+pub mod attributes;
 pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
@@ -41,7 +43,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 13] = [
+pub const MIGRATIONS: [(&str, &str); 14] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -97,6 +99,12 @@ pub const MIGRATIONS: [(&str, &str); 13] = [
     (
         "202609142125_stays",
         include_str!("../../../migrations/202609142125_stays.sql"),
+    ),
+    // 個人属性の主張の錠と、種類の 2 表（ST19 / design D2 / D7 / D12）。
+    // 主張そのものは `core.event` に入る
+    (
+        "202609160220_personal_attributes",
+        include_str!("../../../migrations/202609160220_personal_attributes.sql"),
     ),
 ];
 

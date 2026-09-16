@@ -29,7 +29,7 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 1. 移行（design D2 / D7 / D12）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_personal_attributes.sql` と `.down.sql` を足す ——
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_personal_attributes.sql` と `.down.sql` を足す ——
   `core.attribute_kind`（`UNIQUE (id, user_id)`）/ `core.attribute_kind_name`（`(kind_id, user_id)` → `attribute_kind (id, user_id)` の外部キー）と 2 表の UPDATE / DELETE / TRUNCATE を拒むトリガ、
   `core.reject_claim_rewrite()`（`BEFORE UPDATE`）/ `core.require_claim_erasure_ledger()`（`CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED`。台帳は `event_id = NEW.id` まで照合）/
   `core.reject_claim_delete()`（`BEFORE DELETE`）と各トリガ、登録簿に `('s01-attribute', '個人属性', 86400, 'none')`。
@@ -38,7 +38,7 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
   検証: `tools/check-migrations.sh` rc=0、`CT attributes_tests::migration_applies_twice`、
   `git diff --stat origin/main -- migrations/202609120944_gates.sql` が空、
   主張を 1 件入れた DB で `.down.sql` を `psql -v ON_ERROR_STOP=1` で当てて rc=0 かつ `SELECT count(*) FROM core.attribute_kind_name` が当てる前と同じ
-- [ ] 1.2 `tools/check-immutable.sh` に主張の段を足す。**既存の「本人が書いた記録は書き換えられる」の段の `WHERE` を `logical_source = 'immutable-check'` に絞り、主張の行を入れた後に置く**（design D2 の最後の段落）。
+- [x] 1.2 `tools/check-immutable.sh` に主張の段を足す。**既存の「本人が書いた記録は書き換えられる」の段の `WHERE` を `logical_source = 'immutable-check'` に絞り、主張の行を入れた後に置く**（design D2 の最後の段落）。
   主張の段は `psql` で主張の行を 1 件入れてから、次を 1 つずつ確かめる:
   値の書き換えは失敗 / 「いつから」の書き換えは失敗 / 取り消し先の書き換えは失敗 / `event_time` の書き換えは失敗 / 行の削除は失敗 / 別の本人が書いた記録を `s01-attribute` へ付け替えるのは失敗 /
   削除の印は成功 / 感度は成功 / 同じまとまりで**その主張の** `core.erasure_ledger` の行を書いてからの消去は成功 / 台帳なしの消去は失敗 /
@@ -52,11 +52,11 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 2. 主張の解釈・導き方・種類・読み出し（design D5 / D6 / D7 / D8）
 
-- [ ] 2.1 `crates/server/src/attributes.rs` に原文の解釈と形の検査（`parse_claim(raw, id) -> Result<Claim, ClaimInvalid>`）。精度と日付の組・暦に無い日付・値の空（前後の空白を除く）・
+- [x] 2.1 `crates/server/src/attributes.rs` に原文の解釈と形の検査（`parse_claim(raw, id) -> Result<Claim, ClaimInvalid>`）。精度と日付の組・暦に無い日付・値の空（前後の空白を除く）・
   `nonce` の長さ（22 文字以上の base64url）・`claim` と `id` の一致。`payload` は原文から `nonce` を除いて組み直す（NFC）。単体テスト。
   Scenario: `値が空の主張は受け付けない` / `精度と日付が合わないいつからは受け付けない` / `暦に無いいつからは受け付けない` / `乱数が短い主張は受け付けない`（ここでは種別の写像まで。応答は 3.1 でも確かめる）。
   検証: `CT attributes::tests::parse`
-- [ ] 2.2 `attributes.rs` に `view(kinds, claims, today)` を置き、単体テストで導き方を固定する（削除の印と消去の行は呼び出し側が除いて渡す。消去の行を渡されても落とす）。
+- [x] 2.2 `attributes.rs` に `view(kinds, claims, today)` を置き、単体テストで導き方を固定する（削除の印と消去の行は呼び出し側が除いて渡す。消去の行を渡されても落とす）。
   Scenario: `いつからが最も新しい主張がいまの値になる` / `同じいつからなら主張した日時が後の主張がいまの値になる` / `未来のいつからは予定に出ていまの値にならない` /
   `積んだ主張はいまの値と予定を含む` / `いつからを直す訂正で古い開始が残らない` / `年だけの主張はその年の初めから有効とみなす` / `いつからが分からない主張は最も古い側に置く` /
   `なしの主張がいまの値になる` / `取り消された主張がした取り消しも効く`。
