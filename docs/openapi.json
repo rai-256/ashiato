@@ -986,7 +986,14 @@
           "missing_device_id",
           "missing_external_id",
           "empty_external_id",
-          "id_reused"
+          "id_reused",
+          "malformed_claim",
+          "claim_not_authored",
+          "claim_has_external_id",
+          "unknown_attribute_kind",
+          "invalid_claim_value",
+          "invalid_valid_from",
+          "invalid_supersedes"
         ]
       },
       "IngestRequest": {

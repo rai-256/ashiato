@@ -76,7 +76,7 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 3. 取り込み口の分岐（design D1 / D3 / D4 / D5）
 
-- [ ] 3.1 `ingest_one` に `logical_source = 's01-attribute'` の分岐を足す —— 2.1 の検査、由来が `authored` でない・端末識別子を持てば `claim_not_authored`、外部識別子を持てば `claim_has_external_id`、
+- [x] 3.1 `ingest_one` に `logical_source = 's01-attribute'` の分岐を足す —— 2.1 の検査、由来が `authored` でない・端末識別子を持てば `claim_not_authored`、外部識別子を持てば `claim_has_external_id`、
   同じトランザクションで種類がその利用者にあるか・取り消す主張が主張のソース・同じ利用者・同じ種類・自分以外か、`payload` を組み直した値に差し替え、`sensitivity = 2`。
   `IngestError` に spec の表の 7 種別を足す（`docs/openapi.json` を再生成）。
   Scenario: `無い種類の主張は受け付けない` / `別の種類の主張は取り消せない` / `無い主張は取り消せない` / `別の利用者の主張は取り消せない` / `自分自身は取り消せない` /
@@ -85,13 +85,13 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
   `主張の拒否の応答に値が含まれない`（応答の本文に値と補足の文字列が無いことを `contains` で見る）/ `主張はローカル AI までで格納される` / `主張以外の既定は変わらない`。
   各 Scenario のテストは**期待する種別の値**を `assert_eq!` で見る（種別を取り違えたら落ちる）。
   検証: `CT attributes_tests::ingest`、`tools/check-openapi.sh` rc=0
-- [ ] 3.2 格納の結合テスト（`/ingest` 経由で入れ、DB と `GET /attributes` で読み戻す）。
+- [x] 3.2 格納の結合テスト（`/ingest` 経由で入れ、DB と `GET /attributes` で読み戻す）。
   Scenario: `住所を 2 回変えると 3 つの主張が残る`（A → B → A と書いて 3 件）/ `主張した日時といつからが別々に入る` / `D-01 に入った時刻も別に残る` / `年だけ分かるいつからは年のまま残る` /
   `いつからが分からない主張を受け付ける` / `未来のいつからを受け付ける` / `なしの主張を受け付ける` / `同じ値といつからを書き直しても 1 件増える` /
   `同じ主張の再送は増えない` / `補足が残る` / `主張の原文が 1 バイトも変わらずに残る`（バイト単位で比べる）/ `合成済みでない値は合成済みで読み出される` /
   `原文と食い違う解析済みを送っても原文の値で格納される`。
   検証: `CT attributes_tests::store`
-- [ ] 3.3 乱数の結合テスト —— (a) 主張を入れ、`core.event.payload` と `GET /attributes` の応答に原文の `nonce` の文字列が無いこと。
+- [x] 3.3 乱数の結合テスト —— (a) 主張を入れ、`core.event.payload` と `GET /attributes` の応答に原文の `nonce` の文字列が無いこと。
   (b) 主張を入れ、その主張の `core.erasure_ledger` の行と同じまとまりで消去し、残った `id` / `event_time` と正しい種類・値・「いつから」から `nonce` を持たない原文を組んで
   `ingest::content_hash_of` を計算し、残った `content_hash` と一致しないこと。
   Scenario: `乱数は解析済みに写らない` / `消去後に残る列と正しい値から鍵を作り直せない`。

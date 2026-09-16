@@ -251,6 +251,35 @@ pub enum IngestError {
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
     /// この応答は**収集側の採番が壊れていることの印**として働く。
     IdReused,
+
+    // --- 個人属性の主張だけに当たる 7 種別（ST19 / design D5。spec「形の合わない主張は受け付けない」）
+    //
+    // **置き場は spec の表**（spec-review R5 / R12）。ここは写しで、当たる条件は spec が持つ。
+    /// 原文が JSON でない / 必須の欄が欠ける / 原文の主張の識別子が記録の識別子と違う /
+    /// 原文の乱数が 128 bit に満たない
+    MalformedClaim,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    ClaimNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    ClaimHasExternalId,
+    /// その利用者に無い種類
+    UnknownAttributeKind,
+    /// 値が、前後の空白を除いて空で、「なし」でもない
+    InvalidClaimValue,
+    /// 精度と日付の形が合わない / 暦に無い日付
+    InvalidValidFrom,
+    /// 取り消す主張が無い / 個人属性の主張でない / 別の利用者 / 別の種類 / 自分自身
+    InvalidSupersedes,
+}
+
+impl From<attributes::ClaimInvalid> for IngestError {
+    fn from(v: attributes::ClaimInvalid) -> Self {
+        match v {
+            attributes::ClaimInvalid::Malformed => Self::MalformedClaim,
+            attributes::ClaimInvalid::Value => Self::InvalidClaimValue,
+            attributes::ClaimInvalid::ValidFrom => Self::InvalidValidFrom,
+        }
+    }
 }
 
 impl From<ingest::Invalid> for IngestError {
@@ -261,6 +290,29 @@ impl From<ingest::Invalid> for IngestError {
             ingest::Invalid::DeviceId => Self::MissingDeviceId,
             ingest::Invalid::ExternalId => Self::EmptyExternalId,
         }
+    }
+}
+
+/// 収集した記録の既定の感度（PERM-3「外部 AI に出してよい」）。
+///
+/// **`core.event.sensitivity` の DB 既定と同じ値でなければならない** ——
+/// `default_sensitivity_matches_the_column` が DB 側の既定と突き合わせる
+/// （片方だけ動くと、既定が黙って緩む側にも締まる側にも転びうる）。
+pub const DEFAULT_SENSITIVITY: i32 = 1;
+
+/// そのソースの既定の感度（design D3（仮））。
+///
+/// **取り込みの契約に感度の欄は足さない**（ST16 の Q3 と同じ向き）——
+/// 足すと `record-envelope` と収集側の契約が動く。
+///
+/// **反転条件**: ST24 が登録簿に「ソースごとの既定の感度」を持たせたとき、
+/// この分岐を登録簿の値へ移す（個人属性の値は 2 のまま）。
+fn default_sensitivity(logical_source: &str) -> i32 {
+    if logical_source == attributes::SOURCE {
+        // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
+        attributes::DEFAULT_SENSITIVITY
+    } else {
+        DEFAULT_SENSITIVITY
     }
 }
 
@@ -394,6 +446,47 @@ async fn ingest_one(
         }
     };
 
+    // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
+    // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
+    // 記録を入れるのと同じまとまりの中**（下）。
+    //
+    // **一般の受け取り検査（`validate`）より先に見る** —— 由来が `collected` の主張は
+    // `missing_device_id` ではなく `claim_not_authored`（spec の表）。一般の検査が先に当たると、
+    // **主張でないものを主張として送った誤りが、端末識別子の欠落として返る**。
+    // 原文が DB に格納できない（NUL・空）ことは `validate` が下で見る —— そこまでに行は入らない。
+    //
+    // 形（`malformed_claim`）だけ先に判定して、値と「いつから」の種別は
+    // **由来と外部識別子を見た後**に返す —— 由来が違う主張は、値が何であれ主張ではない。
+    let claim = if req.logical_source == attributes::SOURCE {
+        let parsed = attributes::parse_claim(&req.raw, req.id);
+        if matches!(parsed, Err(attributes::ClaimInvalid::Malformed)) {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::MalformedClaim,
+            ));
+        }
+        // **主張は「本人が書いた」記録で、端末は持たない**（design D1 / spec）——
+        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる
+        if req.origin != "authored" || req.device_id.is_some() {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::ClaimNotAuthored,
+            ));
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::ClaimHasExternalId,
+            ));
+        }
+        match parsed {
+            Ok(c) => Some(c),
+            Err(why) => return Ok(IngestResult::rejected(Some(req.id), why.into())),
+        }
+    } else {
+        None
+    };
+
     // 受け取り時の検査はアプリ層で閉じる（design D5）。DB の制約に任せると 500 になり、
     // 呼び出し側から「自分の要求が悪い」と分からない。
     // **500 はまとめ送り全体を落とす** —— 1 件の恒久的な失敗が後続を永久に止める（design D20）。
@@ -433,7 +526,13 @@ async fn ingest_one(
     let hash = content_hash(&req);
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
-    let payload = ingest::to_nfc(&req.payload);
+    //
+    // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
+    // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
+    let payload = match &claim {
+        Some(c) => c.payload.clone(),
+        None => ingest::to_nfc(&req.payload),
+    };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
     // 別々の文にしていると、記録だけ入って稼働記録の加算が落ちた状態が作れる ——
@@ -444,6 +543,32 @@ async fn ingest_one(
         .begin()
         .await
         .map_err(|e| internal_at("ingest.begin", e))?;
+
+    // **主張の DB を見る検査は、記録を入れるのと同じまとまりの中**（design D5）。
+    if let Some(c) = &claim {
+        if !attributes_store::kind_exists(&mut tx, req.user_id, c.kind)
+            .await
+            .map_err(|e| internal_at("ingest.claim_kind", e))?
+        {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::UnknownAttributeKind,
+            ));
+        }
+        if let Some(target) = c.supersedes {
+            // **自分自身は取り消せない**（取り消しの輪が 1 件で閉じる）
+            let ok = target != c.id
+                && attributes_store::supersedes_is_valid(&mut tx, req.user_id, c.kind, target)
+                    .await
+                    .map_err(|e| internal_at("ingest.claim_supersedes", e))?;
+            if !ok {
+                return Ok(IngestResult::rejected(
+                    Some(req.id),
+                    IngestError::InvalidSupersedes,
+                ));
+            }
+        }
+    }
 
     // **収集側の識別子の使い回しを格納の前に断る**（深掘り Q5）。
     // `id` は主キーなので、放っておくと重複違反で 500 になり**まとめ送り全体が落ちる**。
@@ -519,8 +644,8 @@ async fn ingest_one(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            content_hash, raw, payload, source_updated_at, sensitivity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -528,8 +653,8 @@ async fn ingest_one(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            content_hash, raw, payload, source_updated_at, sensitivity)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -555,6 +680,8 @@ async fn ingest_one(
             .bind(&req.raw)
             .bind(&payload)
             .bind(req.source_updated_at)
+            // **ソースごとの既定の感度**（design D3（仮））。主張は「ローカル AI まで」
+            .bind(default_sensitivity(&req.logical_source))
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
