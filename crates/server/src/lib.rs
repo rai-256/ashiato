@@ -1722,7 +1722,10 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
-        .route("/attributes/kinds/{id}/names", post(attributes_kind_name_post))
+        .route(
+            "/attributes/kinds/{id}/names",
+            post(attributes_kind_name_post),
+        )
         .with_state(App {
             pool,
             token,

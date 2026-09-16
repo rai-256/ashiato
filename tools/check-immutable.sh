@@ -723,6 +723,40 @@ names=$(psql -c "SELECT count(*) FROM core.attribute_kind_name WHERE kind_id='$K
   || { echo "  NG 種類 $kinds 行 / 名前 $names 行（どちらも 1 行のはず）"; fail=1; }
 
 
+# --- **後から足した列が、黙って書き換えられる側に入らないこと**
+#
+# 即時の錠は列を 1 つずつ名指しで凍結する（design D2）。**名指しなので、`core.event` に
+# 列が 1 本増えると、その列は何も言わずに書き換えられる側へ入る。**
+# ここで「意図して開けている列」と「凍結している列」の合計が実際の列と一致することを見る ——
+# 一致しなくなったら、増やした人が**どちら側かを決めるまで落ちる**（既定は厳しい側。扉 #15）。
+open_cols="sensitivity deleted_at deleted_by"          # FR-50 / PERM-2 で開ける
+gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
+frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
+             tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref"
+known=$(printf '%s\n' $open_cols $gated_cols $frozen_cols | sort)
+actual=$(psql -c "SELECT column_name FROM information_schema.columns
+                   WHERE table_schema='core' AND table_name='event';" | sort)
+if [ "$known" != "$actual" ]; then
+  echo "  NG core.event の列と、錠が知っている列がずれている（増えた列が黙って書き換えられる）"
+  diff <(echo "$known") <(echo "$actual") | sed 's/^/     /'
+  fail=1
+else
+  echo "  OK core.event の全 $(echo "$actual" | wc -l) 列が、開ける / 門で見る / 凍結する のどれかに入っている"
+fi
+# 凍結すると宣言した列が、本当に 1 つずつ拒まれること（宣言と実装のずれを見る）
+for col in $frozen_cols; do
+  case "$col" in
+    event_time|ingest_time|source_updated_at) val="'2000-01-01T00:00:00Z'" ;;
+    tz_offset_min|schema_version)             val="0" ;;
+    id|user_id)                               val="'12121212-1212-4212-8212-121212121212'" ;;
+    *)                                        val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.event SET $col = $val WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+    echo "  NG 主張の $col が書き換えられた（凍結すると宣言しているのに通る）"; fail=1
+  fi
+done
+echo "  OK 凍結すると宣言した列はどれも書き換えられない"
+
 # --- 戻し手順（D12）。**主張が残っていれば、種類の 2 表も登録簿の行も残す**
 #
 # 主張の原文は種類を**識別子で**指すので、表を落とすと「その識別子が何という名前だったか」が
@@ -735,8 +769,10 @@ after=$(psql -c "SELECT count(*) FROM core.attribute_kind_name;")
   || { echo "  NG 主張が残っているのに名前の台帳が $before → $after 行になった"; fail=1; }
 kept=$(psql -c "SELECT count(*) FROM core.source WHERE logical_source='s01-attribute';")
 [ "$kept" = "1" ] || { echo "  NG 主張が残っているのに登録簿の行が消えた"; fail=1; }
-claims=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='s01-attribute';")
-[ "$claims" = "3" ] || { echo "  NG 戻しで主張の行が $claims 件になった（3 件のはず）"; fail=1; }
+# **この節が置いた 3 件だけを数える**（開発用 DB に偽データが残っていても効く検査にする）
+claims=$(psql -c "SELECT count(*) FROM core.event
+                   WHERE id IN ('$CLAIM_A','$CLAIM_B','$CLAIM_C');")
+[ "$claims" = "3" ] || { echo "  NG 戻しでこの節の主張が $claims 件になった（3 件のはず）"; fail=1; }
 echo "  OK 主張が残っていれば、戻しても種類の 2 表と登録簿の行と主張が残る"
 # 当て直せる（前進のみの版を戻してから進める運用が成り立つ）
 psql < migrations/202609160220_personal_attributes.sql >/dev/null 2>&1 \

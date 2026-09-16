@@ -131,3 +131,114 @@ for part in "$work"/part.*; do
 done
 [ "$accepted" -eq "$total" ] || { echo "$MODE: 位置 $total 件のうち $accepted 件しか受け入れられなかった"; exit 1; }
 echo "$MODE: 2026-09-07 の位置を $total 件入れた（滞在 $N 件になる並び）"
+
+# ------------------------------------------------------------------ 個人属性の主張（ST19）
+#
+# 確認バッチの画面（S-6 マスタ管理）の材料。proto の「導入直後」と同じ量 ——
+# **種類 5・主張 21 件**（訂正で取り消した 1・予定 1・「いつから」が分からない 1 を含む）。
+#
+# **normal だけに入れる**（max / empty は位置の件数を変える並びで、属性には効かない）。
+#
+# **何度当てても同じ結果にする**:
+#   - 種類は、いまの名前で既にあれば足さない（台帳は追記のみなので、足すと名前が増え続ける）
+#   - 主張は固定の識別子・固定の乱数・固定の主張した日時で送る。原文が 1 バイトも変わらないので、
+#     2 回目は内容の鍵で畳まれて `duplicate` になる（FR-22 / 深掘り C2）
+[ "$MODE" = "normal" ] || exit 0
+
+attrs_get() { curl -sf "${AUTH[@]}" "http://$BIND/attributes"; }
+
+# **まず読み出して住所と職業を置く**（design D7 の初期化）。
+# 先に「住所」を足そうとすると、初期化が先に置いた住所と名前が重なって 400 になる
+attrs=$(attrs_get) || { echo "normal: 個人属性を読み出せない"; exit 1; }
+for name in 副業 同居 生年月日; do
+  if ! printf '%s' "$attrs" | jq -e --arg n "$name" '[.kinds[].name] | index($n)' >/dev/null; then
+    curl -sf "${AUTH[@]}" -X POST "http://$BIND/attributes/kinds" -d "{\"name\":\"$name\"}" >/dev/null \
+      || { echo "normal: 種類「$name」を足せない"; exit 1; }
+  fi
+done
+attrs=$(attrs_get)
+kinds=$(printf '%s' "$attrs" | jq -c '[.kinds[] | {(.name): .id}] | add')
+
+# **種類の識別子は足したときに決まる**（住所と職業は利用者から導いた v5、他は v4）ので、
+# 原文は毎回いまの識別子で組む。識別子は一度できれば変わらないので、2 回目も同じ原文になる。
+python3 - "$kinds" > "$work/claims.jsonl" <<'PY'
+import json, sys, uuid
+
+kinds = json.loads(sys.argv[1])
+USER = "00000000-0000-0000-0000-000000000000"
+NS = uuid.UUID("19191919-0000-4000-8000-000000000019")
+
+def nonce(seed):
+    # **固定の乱数**（種から決める）。本物の画面は crypto.getRandomValues で毎回引くが、
+    # 偽データは「何度当てても同じ結果」が要るので種から決める。長さは 22 文字以上（design D4）
+    return uuid.uuid5(NS, f"nonce/{seed}").hex[:24]
+
+out = []
+def claim(kind, seed, value, precision, date, asserted, note=None, supersedes=None):
+    cid = str(uuid.uuid5(NS, f"claim/{seed}"))
+    raw = json.dumps({
+        "claim": cid, "nonce": nonce(seed), "kind": kinds[kind], "value": value,
+        "valid_from": {"precision": precision, "date": date},
+        "supersedes": supersedes, "note": note,
+    }, ensure_ascii=False, separators=(",", ":"))
+    out.append({
+        "id": cid, "user_id": USER, "logical_source": "s01-attribute",
+        "external_id": None, "device_id": None, "origin": "authored",
+        "event_time": asserted, "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
+        "schema_version": 1, "raw": raw, "payload": {},
+    })
+    return cid
+
+# --- 住所 7 件（「いつから」が分からない 1 / 訂正 1 組 / 予定 1）
+claim("住所", "addr-1", "北海道 札幌市", "unknown", None, "2026-01-10T01:00:00Z",
+      note="子どものころ。何年からかは思い出せない")
+claim("住所", "addr-2", "東京都 中野区", "year", "2013", "2026-01-10T01:05:00Z", note="上京した年")
+wrong = claim("住所", "addr-3", "東京都 目黒区", "month", "2019-04", "2026-01-10T01:10:00Z")
+claim("住所", "addr-4", "東京都 目黒区", "month", "2019-10", "2026-02-02T02:00:00Z",
+      note="4 月ではなく 10 月だった", supersedes=wrong)
+claim("住所", "addr-5", "東京都 世田谷区", "day", "2023-03-18", "2026-03-18T03:00:00Z",
+      note="転職に合わせて引っ越した")
+claim("住所", "addr-6", "神奈川県 川崎市", "month", "2026-06", "2026-06-05T04:00:00Z")
+# **予定**（今日より後の「いつから」。深掘り C6）。日付は固定 ——
+# 毎回変えると原文が変わり、当て直しで畳まれずに主張が増える。
+# **2027-04-01 を過ぎると「予定」ではなくなる**ので、そのときはここを先へ動かす
+claim("住所", "addr-7", "千葉県 船橋市", "day", "2027-04-01", "2026-09-10T05:00:00Z",
+      note="契約済み。引っ越しはこれから")
+
+# --- 職業 6 件
+claim("職業", "job-1", "学生", "year", "2009", "2026-01-10T01:20:00Z")
+claim("職業", "job-2", "会社員（受託開発）", "month", "2013-04", "2026-01-10T01:25:00Z")
+claim("職業", "job-3", "会社員（自社開発）", "month", "2017-04", "2026-01-10T01:30:00Z")
+claim("職業", "job-4", "会社員（基盤）", "day", "2023-03-01", "2026-03-18T03:05:00Z")
+claim("職業", "job-5", "会社員（基盤・主任）", "month", "2025-04", "2026-04-01T01:00:00Z")
+claim("職業", "job-6", "会社員（基盤・主任）", "month", "2025-04", "2026-09-01T01:00:00Z",
+      note="変わっていないことを確かめた")   # **同じ値をもう一度書く**（畳まれない。深掘り C2）
+
+# --- 副業 4 件（終わり方に「なし」を使う。深掘り C10）
+claim("副業", "side-1", "受託のフロントエンド", "year", "2015", "2026-01-10T01:35:00Z")
+claim("副業", "side-2", "技術記事の執筆", "month", "2018-07", "2026-01-10T01:40:00Z")
+claim("副業", "side-3", "技術書の共著", "month", "2021-09", "2026-01-10T01:45:00Z")
+claim("副業", "side-4", None, "month", "2024-03", "2026-03-20T01:00:00Z",
+      note="本業が忙しくなったのでやめた")
+
+# --- 同居 3 件
+claim("同居", "live-1", "ひとり", "year", "2013", "2026-01-10T01:50:00Z")
+claim("同居", "live-2", "配偶者", "day", "2020-11-22", "2026-01-10T01:55:00Z")
+claim("同居", "live-3", "配偶者・子 1 人", "day", "2024-08-09", "2026-08-09T01:00:00Z")
+
+# --- 生年月日 1 件
+claim("生年月日", "birth-1", "1991-02-14", "day", "1991-02-14", "2026-01-10T02:00:00Z")
+
+assert len(out) == 21, f"主張が {len(out)} 件（21 件のはず）"
+for item in out:
+    print(json.dumps(item, ensure_ascii=False))
+PY
+
+# **訂正は取り消し先より後に送る**（取り消し先がその時点で DB に無いと `invalid_supersedes`）。
+# `/ingest` は 1 件ずつ別のまとまりで確定するので、同じまとまり送りの中で順に効く
+claims_total=$(wc -l < "$work/claims.jsonl")
+got=$(jq -s -c . "$work/claims.jsonl" | curl -sS "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- \
+      | jq '[.[] | select(.accepted)] | length')
+[ "$got" -eq "$claims_total" ] \
+  || { echo "normal: 主張 $claims_total 件のうち $got 件しか受け入れられなかった"; exit 1; }
+echo "normal: 個人属性の主張を $claims_total 件入れた（種類 $(printf '%s' "$attrs" | jq '.kinds | length') 件）"

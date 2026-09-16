@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 use unicode_normalization::UnicodeNormalization as _;
 
-use crate::attributes::{
-    self, AttributesView, Claim, Kind, Precision, StoredClaim, ValidFrom,
-};
+use crate::attributes::{self, AttributesView, Claim, Kind, Precision, StoredClaim, ValidFrom};
 
 /// 種類の錠の名前空間（`pg_advisory_xact_lock(key, hashtext(user))` の 1 つ目）。
 /// 滞在の作り直し（4_816_016）とマイグレーション（4_820_251）とは別の空間。
@@ -173,12 +171,14 @@ pub async fn add_kind(
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)")
-        .bind(id)
-        .bind(user_id)
-        .bind(&name)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(&name)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Ok(KindCreated { id }))
 }
@@ -213,12 +213,14 @@ pub async fn rename_kind(
     if name_is_taken(&mut tx, user_id, &name, Some(kind_id)).await? {
         return Ok(Err(KindError::DuplicateName));
     }
-    sqlx::query("INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)")
-        .bind(kind_id)
-        .bind(user_id)
-        .bind(&name)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)",
+    )
+    .bind(kind_id)
+    .bind(user_id)
+    .bind(&name)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Ok(()))
 }

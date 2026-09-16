@@ -125,10 +125,10 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 5. 道具
 
-- [ ] 5.1 `tools/smoke.sh` に 1 段足す: `GET /attributes` で「住所」の識別子を引き、`/ingest` に住所 A → B → A の主張を送り（原文は `nonce` つき）、同じものをもう 1 回送り、
+- [x] 5.1 `tools/smoke.sh` に 1 段足す: `GET /attributes` で「住所」の識別子を引き、`/ingest` に住所 A → B → A の主張を送り（原文は `nonce` つき）、同じものをもう 1 回送り、
   `GET /attributes` の「住所」の `claims` が 3 件・`current.value` が A であることを `jq -e` で見る。
   検証: `tools/smoke.sh` rc=0
-- [ ] 5.2 `tools/seed.sh normal` に、proto の導入直後のデータ（種類 5・主張 21 件。訂正 1・予定 1・いつからか分からない 1 を含む）を足す（確認バッチの画面の材料）。
+- [x] 5.2 `tools/seed.sh normal` に、proto の導入直後のデータ（種類 5・主張 21 件。訂正 1・予定 1・いつからか分からない 1 を含む）を足す（確認バッチの画面の材料）。
   **まず `GET /attributes` で住所と職業を置き、その後に「副業」「同居」「生年月日」を足す**（先に足すと住所と職業が初期化で先に置かれて、同じ名前が 400 になる）。
   **何度当てても同じ結果にする** —— 種類は、いまの名前で既にあれば足さない。主張は固定の識別子・固定の `nonce`・固定の主張した日時で送る（同じ原文の再送は冪等で増えない）。
   検証: `tools/seed.sh normal` を **2 回続けて** rc=0 の後、
@@ -136,7 +136,7 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 6. 申し送りと INDEX
 
-- [ ] 6.1 `docs/handoff/ST22.md` と `docs/handoff/ST23.md` の ST19 の項を、実装した錠と読み出しに 1 つずつ突き合わせる。ずれていたら申し送りを直す（ST22 / ST23 はまだ上流が始まっていないので差し戻しではない）。
+- [x] 6.1 `docs/handoff/ST22.md` と `docs/handoff/ST23.md` の ST19 の項を、実装した錠と読み出しに 1 つずつ突き合わせる。ずれていたら申し送りを直す（ST22 / ST23 はまだ上流が始まっていないので差し戻しではない）。
   検証（すべて rc=0）:
   `grep -q "deleted_at" docs/handoff/ST22.md && grep -q "deleted_at" migrations/*_personal_attributes.sql`（錠が通す列の名前が一致）/
   `grep -q "event_id = NEW.id" docs/handoff/ST23.md && grep -q "event_id = NEW.id" migrations/*_personal_attributes.sql`（台帳の照合が一致）/
@@ -144,10 +144,10 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 
 ## 7. まとめの検査
 
-- [ ] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+- [x] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
   `cd web && npm run test && npm run lint && npm run build` rc=0
-- [ ] 7.2 検証: `python3 scripts/check_scenarios.py . st19-personal-attributes` rc=0（106 本すべてに印）
-- [ ] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st19-personal-attributes --strict` rc=0、
+- [x] 7.2 検証: `python3 scripts/check_scenarios.py . st19-personal-attributes` rc=0（106 本すべてに印）
+- [x] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st19-personal-attributes --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
 - [ ] 7.4 PR 本文に **仮決め（D3 / D6 / D7 / D13）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(3|6|7|13)（仮）"` が 4 以上
 - [ ] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST19.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている

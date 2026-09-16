@@ -36,6 +36,7 @@ fn today() -> chrono::NaiveDate {
 }
 
 /// 主張の原文を組む（design D1 の形）。画面の `attributes.ts` と同じ形にする。
+#[allow(clippy::too_many_arguments)]
 fn claim_raw(
     id: uuid::Uuid,
     kind: uuid::Uuid,
@@ -59,12 +60,7 @@ fn claim_raw(
 }
 
 /// 取り込み口へ送る 1 件（主張）。**由来は「本人が書いた」・端末識別子なし**。
-fn claim_item(
-    id: uuid::Uuid,
-    user: uuid::Uuid,
-    asserted_at: &str,
-    raw: &str,
-) -> serde_json::Value {
+fn claim_item(id: uuid::Uuid, user: uuid::Uuid, asserted_at: &str, raw: &str) -> serde_json::Value {
     serde_json::json!({
         "id": id,
         "user_id": user,
@@ -149,14 +145,13 @@ async fn read_view(app: &App, user: uuid::Uuid) -> attributes::AttributesView {
 }
 
 /// 名前でカードを引く。
-fn kind_named<'a>(
-    v: &'a attributes::AttributesView,
-    name: &str,
-) -> &'a attributes::KindView {
-    v.kinds
-        .iter()
-        .find(|k| k.name == name)
-        .unwrap_or_else(|| panic!("種類「{name}」が無い: {:?}", v.kinds.iter().map(|k| &k.name).collect::<Vec<_>>()))
+fn kind_named<'a>(v: &'a attributes::AttributesView, name: &str) -> &'a attributes::KindView {
+    v.kinds.iter().find(|k| k.name == name).unwrap_or_else(|| {
+        panic!(
+            "種類「{name}」が無い: {:?}",
+            v.kinds.iter().map(|k| &k.name).collect::<Vec<_>>()
+        )
+    })
 }
 
 // ================================================================ 1. 移行
@@ -188,13 +183,24 @@ async fn migration_applies_twice() {
     .await;
     drop.await;
 
-    assert_eq!(applied.unwrap(), 1, "2 回当てると s01-attribute が二重になる");
-    assert!(
-        crate::MIGRATIONS
-            .last()
-            .is_some_and(|(n, _)| n.ends_with("_personal_attributes")),
-        "主張の移行が MIGRATIONS の末尾に無い"
+    assert_eq!(
+        applied.unwrap(),
+        1,
+        "2 回当てると s01-attribute が二重になる"
     );
+    // **「末尾にある」とは書かない**（ST16 がそう書いて、この change が末尾を取った瞬間に落ちた）。
+    // 見たいのは登録し忘れていないことと、**依存する版より後にあること** ——
+    // 主張の錠は `core.event` と `core.erasure_ledger` を前提にする。
+    let names: Vec<&str> = crate::MIGRATIONS.iter().map(|(n, _)| *n).collect();
+    let mine = names
+        .iter()
+        .position(|n| n.ends_with("_personal_attributes"))
+        .expect("主張の移行が MIGRATIONS に無い（当て忘れると錠が本番だけ効かない）");
+    let gates = names
+        .iter()
+        .position(|n| n.ends_with("_gates"))
+        .expect("ST03 の門の版が MIGRATIONS に無い");
+    assert!(mine > gates, "主張の移行が、前提にしている門の版より前にある");
 }
 
 async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
@@ -244,8 +250,26 @@ async fn kinds_rename_keeps_id_and_claims() {
     let before = read_view(&app, u).await;
     let job = kind_named(&before, "職業").id;
     // 主張は DB に直接入れる（取り込みの分岐は 3 章）
-    put_claim(&app.pool, u, job, Some("会社員"), "year", Some("2020"), "2026-09-01T01:00:00Z").await;
-    put_claim(&app.pool, u, job, Some("自営業"), "year", Some("2024"), "2026-09-02T01:00:00Z").await;
+    put_claim(
+        &app.pool,
+        u,
+        job,
+        Some("会社員"),
+        "year",
+        Some("2020"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+    put_claim(
+        &app.pool,
+        u,
+        job,
+        Some("自営業"),
+        "year",
+        Some("2024"),
+        "2026-09-02T01:00:00Z",
+    )
+    .await;
 
     attributes_store::rename_kind(&app.pool, u, job, "仕事")
         .await
@@ -256,7 +280,10 @@ async fn kinds_rename_keeps_id_and_claims() {
     let renamed = kind_named(&after, "仕事");
     assert_eq!(renamed.id, job, "名前を変えたら識別子が変わった");
     assert_eq!(renamed.claims.len(), 2, "名前を変えたら主張が失われた");
-    assert_eq!(renamed.current.as_ref().unwrap().value.as_deref(), Some("自営業"));
+    assert_eq!(
+        renamed.current.as_ref().unwrap().value.as_deref(),
+        Some("自営業")
+    );
     assert!(
         after.kinds.iter().all(|k| k.name != "職業"),
         "前の名前のカードが残っている"
@@ -285,7 +312,11 @@ async fn kinds_initial_are_placed_before_the_first_add() {
         .expect("副業を足せる");
     let v = read_view(&app, u).await;
     let names: Vec<&str> = v.kinds.iter().map(|k| k.name.as_str()).collect();
-    assert_eq!(names, ["住所", "職業", "副業"], "住所と職業が先に置かれていない");
+    assert_eq!(
+        names,
+        ["住所", "職業", "副業"],
+        "住所と職業が先に置かれていない"
+    );
 }
 
 #[tokio::test]
@@ -295,7 +326,9 @@ async fn kinds_reject_empty_name() {
     let u = testdb::user();
     for blank in ["", "   ", "\u{3000}"] {
         assert_eq!(
-            attributes_store::add_kind(&app.pool, u, blank).await.unwrap(),
+            attributes_store::add_kind(&app.pool, u, blank)
+                .await
+                .unwrap(),
             Err(attributes_store::KindError::EmptyName),
             "空白だけの名前 {blank:?} が通っている"
         );
@@ -312,12 +345,16 @@ async fn kinds_reject_duplicate_name() {
     let app = app().await;
     let u = testdb::user();
     assert_eq!(
-        attributes_store::add_kind(&app.pool, u, "住所").await.unwrap(),
+        attributes_store::add_kind(&app.pool, u, "住所")
+            .await
+            .unwrap(),
         Err(attributes_store::KindError::DuplicateName),
     );
     // 前後の空白を除いてから比べる
     assert_eq!(
-        attributes_store::add_kind(&app.pool, u, " 住所 ").await.unwrap(),
+        attributes_store::add_kind(&app.pool, u, " 住所 ")
+            .await
+            .unwrap(),
         Err(attributes_store::KindError::DuplicateName),
     );
     // NFD（「シ」+ 濁点）で書いた「住所」…ではなく、濁点を持つ名前で確かめる
@@ -352,7 +389,11 @@ async fn kinds_rename_rejects_taken_name() {
         Err(attributes_store::KindError::DuplicateName),
     );
     let v = read_view(&app, u).await;
-    assert_eq!(kind_named(&v, "副業").id, side.id, "断ったのに名前が変わっている");
+    assert_eq!(
+        kind_named(&v, "副業").id,
+        side.id,
+        "断ったのに名前が変わっている"
+    );
 
     // **自分のいまの名前へは変えられる**（重なりでない。断ると名前を戻せなくなる）
     assert!(
@@ -407,7 +448,10 @@ async fn read_starts_with_address_and_job() {
     let names: Vec<&str> = v.kinds.iter().map(|k| k.name.as_str()).collect();
     assert_eq!(names, ["住所", "職業"]);
     // **まだ書いていない**（画面がそう出す。いまの値が無いことと読み出しの失敗は別）
-    assert!(v.kinds.iter().all(|k| k.current.is_none() && k.claims.is_empty()));
+    assert!(v
+        .kinds
+        .iter()
+        .all(|k| k.current.is_none() && k.claims.is_empty()));
 }
 
 #[tokio::test]
@@ -440,7 +484,10 @@ async fn read_concurrent_first_read_places_one_each() {
             .await
             .unwrap();
     assert_eq!(kinds, 2, "同時の初期化で種類が {kinds} 行になった");
-    assert_eq!(names, 2, "同時の初期化で名前の台帳が {names} 行になった（消せない）");
+    assert_eq!(
+        names, 2,
+        "同時の初期化で名前の台帳が {names} 行になった（消せない）"
+    );
 }
 
 #[tokio::test]
@@ -452,13 +499,24 @@ async fn read_today_is_asia_tokyo() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    put_claim(&app.pool, u, address, Some("新居"), "day", Some("2026-10-01"), "2026-09-20T01:00:00Z").await;
+    put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("新居"),
+        "day",
+        Some("2026-10-01"),
+        "2026-09-20T01:00:00Z",
+    )
+    .await;
 
     let at: chrono::DateTime<chrono::Utc> = "2026-09-30T16:00:00Z".parse().unwrap();
     let today = stay_store::jst_date(at);
     assert_eq!(today, chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
 
-    let v = attributes_store::attributes_view(&app.pool, u, today).await.unwrap();
+    let v = attributes_store::attributes_view(&app.pool, u, today)
+        .await
+        .unwrap();
     let got = kind_named(&v, "住所");
     assert_eq!(
         got.current.as_ref().map(|c| c.value.as_deref()),
@@ -476,8 +534,26 @@ async fn read_soft_deleted_claims_are_hidden() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    put_claim(&app.pool, u, address, Some("旧居"), "month", Some("2019-10"), "2026-09-01T01:00:00Z").await;
-    let newest = put_claim(&app.pool, u, address, Some("新居"), "month", Some("2023-03"), "2026-09-02T01:00:00Z").await;
+    put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("旧居"),
+        "month",
+        Some("2019-10"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+    let newest = put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("新居"),
+        "month",
+        Some("2023-03"),
+        "2026-09-02T01:00:00Z",
+    )
+    .await;
 
     sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = $1")
         .bind(newest)
@@ -509,9 +585,25 @@ async fn read_deleted_supersession_restores_the_target() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    let a = put_claim(&app.pool, u, address, Some("A"), "month", Some("2019-04"), "2026-09-01T01:00:00Z").await;
+    let a = put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("A"),
+        "month",
+        Some("2019-04"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
     let b = put_claim_superseding(
-        &app.pool, u, address, Some("A"), "month", Some("2019-10"), "2026-09-02T01:00:00Z", Some(a),
+        &app.pool,
+        u,
+        address,
+        Some("A"),
+        "month",
+        Some("2019-10"),
+        "2026-09-02T01:00:00Z",
+        Some(a),
     )
     .await;
     // B が A を取り消している状態を確かめてから、B を消す
@@ -526,8 +618,15 @@ async fn read_deleted_supersession_restores_the_target() {
 
     let after = read_view(&app, u).await;
     let got = kind_named(&after, "住所");
-    assert_eq!(got.claims.iter().map(|c| c.id).collect::<Vec<_>>(), vec![a], "A が積んだ主張に戻っていない");
-    assert!(got.superseded.is_empty(), "消した主張の取り消しがまだ効いている");
+    assert_eq!(
+        got.claims.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![a],
+        "A が積んだ主張に戻っていない"
+    );
+    assert!(
+        got.superseded.is_empty(),
+        "消した主張の取り消しがまだ効いている"
+    );
 }
 
 #[tokio::test]
@@ -538,9 +637,25 @@ async fn read_erased_claims_vanish_and_their_supersession_lifts() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    let a = put_claim(&app.pool, u, address, Some("A"), "month", Some("2019-04"), "2026-09-01T01:00:00Z").await;
+    let a = put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("A"),
+        "month",
+        Some("2019-04"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
     let b = put_claim_superseding(
-        &app.pool, u, address, Some("A"), "month", Some("2019-10"), "2026-09-02T01:00:00Z", Some(a),
+        &app.pool,
+        u,
+        address,
+        Some("A"),
+        "month",
+        Some("2019-10"),
+        "2026-09-02T01:00:00Z",
+        Some(a),
     )
     .await;
 
@@ -565,7 +680,12 @@ async fn read_erased_claims_vanish_and_their_supersession_lifts() {
 
     let v = read_view(&app, u).await;
     let got = kind_named(&v, "住所");
-    let seen: Vec<uuid::Uuid> = got.claims.iter().chain(&got.superseded).map(|c| c.id).collect();
+    let seen: Vec<uuid::Uuid> = got
+        .claims
+        .iter()
+        .chain(&got.superseded)
+        .map(|c| c.id)
+        .collect();
     assert!(!seen.contains(&b), "消去した主張が出ている");
     assert_eq!(seen, vec![a], "消去した主張の取り消しがまだ効いている");
 }
@@ -578,18 +698,34 @@ async fn read_returns_both_times_separately() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    put_claim(&app.pool, u, address, Some("A"), "month", Some("2019-10"), "2026-09-15T02:30:00Z").await;
+    put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("A"),
+        "month",
+        Some("2019-10"),
+        "2026-09-15T02:30:00Z",
+    )
+    .await;
 
     let v = read_view(&app, u).await;
     let c = kind_named(&v, "住所").claims.first().unwrap();
-    assert!(c.asserted_at.starts_with("2026-09-15"), "主張した日時が入っていない: {}", c.asserted_at);
+    assert!(
+        c.asserted_at.starts_with("2026-09-15"),
+        "主張した日時が入っていない: {}",
+        c.asserted_at
+    );
     assert!(
         c.asserted_at.ends_with("+09:00"),
         "主張した日時に地域のずれが無い: {}",
         c.asserted_at
     );
     assert!(!c.ingested_at.is_empty(), "D-01 に入った時刻が無い");
-    assert_ne!(c.asserted_at, c.ingested_at, "2 つの時刻が同じ欄から来ている");
+    assert_ne!(
+        c.asserted_at, c.ingested_at,
+        "2 つの時刻が同じ欄から来ている"
+    );
     assert_eq!(c.valid_from.precision, Precision::Month);
     assert_eq!(c.valid_from.date.as_deref(), Some("2019-10"));
 }
@@ -618,7 +754,16 @@ async fn read_does_not_filter_by_sensitivity() {
     let u = testdb::user();
     let v0 = read_view(&app, u).await;
     let address = kind_named(&v0, "住所").id;
-    let id = put_claim(&app.pool, u, address, Some("秘密の住所"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let id = put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("秘密の住所"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
     // 「AI に出さない」（PERM-2 の 4 段階のいちばん厳しい側）へ締める
     sqlx::query("UPDATE core.event SET sensitivity = 3 WHERE id = $1")
         .bind(id)
@@ -628,8 +773,14 @@ async fn read_does_not_filter_by_sensitivity() {
 
     let v = read_view(&app, u).await;
     let got = kind_named(&v, "住所");
-    assert_eq!(got.claims.iter().map(|c| c.id).collect::<Vec<_>>(), vec![id]);
-    assert_eq!(got.current.as_ref().unwrap().value.as_deref(), Some("秘密の住所"));
+    assert_eq!(
+        got.claims.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![id]
+    );
+    assert_eq!(
+        got.current.as_ref().unwrap().value.as_deref(),
+        Some("秘密の住所")
+    );
 }
 
 #[tokio::test]
@@ -642,11 +793,33 @@ async fn read_does_not_cross_users() {
     let vb = read_view(&app, b).await;
     let a_address = kind_named(&va, "住所").id;
     let b_address = kind_named(&vb, "住所").id;
-    let a_claim = put_claim(&app.pool, a, a_address, Some("A の住所"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
-    let b_claim = put_claim(&app.pool, b, b_address, Some("B の住所"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let a_claim = put_claim(
+        &app.pool,
+        a,
+        a_address,
+        Some("A の住所"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+    let b_claim = put_claim(
+        &app.pool,
+        b,
+        b_address,
+        Some("B の住所"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     let v = read_view(&app, a).await;
-    let ids: Vec<uuid::Uuid> = v.kinds.iter().flat_map(|k| k.claims.iter().map(|c| c.id)).collect();
+    let ids: Vec<uuid::Uuid> = v
+        .kinds
+        .iter()
+        .flat_map(|k| k.claims.iter().map(|c| c.id))
+        .collect();
     assert!(ids.contains(&a_claim), "自分の主張が読めない");
     assert!(!ids.contains(&b_claim), "別の利用者の主張が読めた");
     let kind_ids: Vec<uuid::Uuid> = v.kinds.iter().map(|k| k.id).collect();
@@ -697,7 +870,16 @@ async fn ingest_rejects_unknown_kind() {
     let u = testdb::user();
     address_kind(&app, u).await; // 初期化だけ済ませる
     let id = uuid::Uuid::new_v4();
-    let raw = claim_raw(id, uuid::Uuid::new_v4(), Some("A"), "year", Some("2019"), None, None, NONCE);
+    let raw = claim_raw(
+        id,
+        uuid::Uuid::new_v4(),
+        Some("A"),
+        "year",
+        Some("2019"),
+        None,
+        None,
+        NONCE,
+    );
     let res = send_claim(&app, claim_item(id, u, "2026-09-15T02:00:00Z", &raw)).await;
     assert!(!res.accepted);
     assert_eq!(
@@ -715,11 +897,29 @@ async fn ingest_rejects_supersedes_from_another_kind() {
     let v = read_view(&app, u).await;
     let address = kind_named(&v, "住所").id;
     let job = kind_named(&v, "職業").id;
-    let job_claim = store_claim(&app, u, job, Some("会社員"), "year", Some("2020"), "2026-09-01T01:00:00Z").await;
+    let job_claim = store_claim(
+        &app,
+        u,
+        job,
+        Some("会社員"),
+        "year",
+        Some("2020"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     // 「職業」の主張を、「住所」の主張として取り消す
     let id = uuid::Uuid::new_v4();
-    let raw = claim_raw(id, address, Some("東京"), "year", Some("2021"), Some(job_claim), None, NONCE);
+    let raw = claim_raw(
+        id,
+        address,
+        Some("東京"),
+        "year",
+        Some("2021"),
+        Some(job_claim),
+        None,
+        NONCE,
+    );
     let res = send_claim(&app, claim_item(id, u, "2026-09-02T01:00:00Z", &raw)).await;
     assert!(!res.accepted);
     assert_eq!(
@@ -760,7 +960,16 @@ async fn ingest_rejects_bad_supersedes_targets() {
         ("自分自身", self_id, self_id),
         ("主張でない記録", other, uuid::Uuid::new_v4()),
     ] {
-        let raw = claim_raw(id, address, Some("A"), "year", Some("2019"), Some(target), None, NONCE);
+        let raw = claim_raw(
+            id,
+            address,
+            Some("A"),
+            "year",
+            Some("2019"),
+            Some(target),
+            None,
+            NONCE,
+        );
         let res = send_claim(&app, claim_item(id, u, "2026-09-02T01:00:00Z", &raw)).await;
         assert!(!res.accepted, "{why} を取り消せた");
         assert_eq!(
@@ -779,10 +988,28 @@ async fn ingest_rejects_supersedes_from_another_user() {
     let b = testdb::user();
     let a_address = address_kind(&app, a).await;
     let b_address = address_kind(&app, b).await;
-    let b_claim = store_claim(&app, b, b_address, Some("B の住所"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let b_claim = store_claim(
+        &app,
+        b,
+        b_address,
+        Some("B の住所"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     let id = uuid::Uuid::new_v4();
-    let raw = claim_raw(id, a_address, Some("A の住所"), "year", Some("2020"), Some(b_claim), None, NONCE);
+    let raw = claim_raw(
+        id,
+        a_address,
+        Some("A の住所"),
+        "year",
+        Some("2020"),
+        Some(b_claim),
+        None,
+        NONCE,
+    );
     let res = send_claim(&app, claim_item(id, a, "2026-09-02T01:00:00Z", &raw)).await;
     assert!(!res.accepted);
     assert_eq!(
@@ -799,7 +1026,16 @@ async fn ingest_allows_superseding_a_deleted_claim() {
     let app = app().await;
     let u = testdb::user();
     let address = address_kind(&app, u).await;
-    let gone = store_claim(&app, u, address, Some("旧居"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let gone = store_claim(
+        &app,
+        u,
+        address,
+        Some("旧居"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
     sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = $1")
         .bind(gone)
         .execute(&app.pool)
@@ -807,9 +1043,22 @@ async fn ingest_allows_superseding_a_deleted_claim() {
         .unwrap();
 
     let id = uuid::Uuid::new_v4();
-    let raw = claim_raw(id, address, Some("新居"), "year", Some("2020"), Some(gone), None, NONCE);
+    let raw = claim_raw(
+        id,
+        address,
+        Some("新居"),
+        "year",
+        Some("2020"),
+        Some(gone),
+        None,
+        NONCE,
+    );
     let res = send_claim(&app, claim_item(id, u, "2026-09-02T01:00:00Z", &raw)).await;
-    assert!(res.accepted, "消した主張を取り消し先に指せない: {:?}", res.error);
+    assert!(
+        res.accepted,
+        "消した主張を取り消し先に指せない: {:?}",
+        res.error
+    );
 }
 
 #[tokio::test]
@@ -818,12 +1067,34 @@ async fn ingest_allows_two_claims_to_supersede_one() {
     let app = app().await;
     let u = testdb::user();
     let address = address_kind(&app, u).await;
-    let target = store_claim(&app, u, address, Some("A"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let target = store_claim(
+        &app,
+        u,
+        address,
+        Some("A"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     for (n, value) in [(1, "B"), (2, "C")] {
         let id = uuid::Uuid::new_v4();
-        let raw = claim_raw(id, address, Some(value), "year", Some("2020"), Some(target), None, NONCE);
-        let res = send_claim(&app, claim_item(id, u, &format!("2026-09-0{}T01:00:00Z", n + 1), &raw)).await;
+        let raw = claim_raw(
+            id,
+            address,
+            Some(value),
+            "year",
+            Some("2020"),
+            Some(target),
+            None,
+            NONCE,
+        );
+        let res = send_claim(
+            &app,
+            claim_item(id, u, &format!("2026-09-0{}T01:00:00Z", n + 1), &raw),
+        )
+        .await;
         assert!(res.accepted, "{n} 件目が受け付けられない: {:?}", res.error);
     }
 }
@@ -842,7 +1113,16 @@ async fn ingest_rejects_claims_that_are_not_authored() {
         ("端末識別子を持つ", "device_id", "dev-1"),
     ] {
         let id = uuid::Uuid::new_v4();
-        let raw = claim_raw(id, address, Some("A"), "year", Some("2019"), None, None, NONCE);
+        let raw = claim_raw(
+            id,
+            address,
+            Some("A"),
+            "year",
+            Some("2019"),
+            None,
+            None,
+            NONCE,
+        );
         let mut item = claim_item(id, u, "2026-09-15T02:00:00Z", &raw);
         item[field] = serde_json::json!(value);
         let res = send_claim(&app, item).await;
@@ -865,7 +1145,16 @@ async fn ingest_rejects_claims_with_external_ids() {
 
     for field in ["external_id", "external_ref"] {
         let id = uuid::Uuid::new_v4();
-        let raw = claim_raw(id, address, Some("A"), "year", Some("2019"), None, None, NONCE);
+        let raw = claim_raw(
+            id,
+            address,
+            Some("A"),
+            "year",
+            Some("2019"),
+            None,
+            None,
+            NONCE,
+        );
         let mut item = claim_item(id, u, "2026-09-15T02:00:00Z", &raw);
         item[field] = serde_json::json!("ext-1");
         let res = send_claim(&app, item).await;
@@ -886,7 +1175,16 @@ async fn ingest_rejects_short_nonce() {
     let address = address_kind(&app, u).await;
     let id = uuid::Uuid::new_v4();
     // 64 bit を base64url で書くと 11 文字
-    let raw = claim_raw(id, address, Some("A"), "year", Some("2019"), None, None, "MTIzNDU2Nzg");
+    let raw = claim_raw(
+        id,
+        address,
+        Some("A"),
+        "year",
+        Some("2019"),
+        None,
+        None,
+        "MTIzNDU2Nzg",
+    );
     let res = send_claim(&app, claim_item(id, u, "2026-09-15T02:00:00Z", &raw)).await;
     assert!(!res.accepted);
     assert_eq!(
@@ -903,9 +1201,27 @@ async fn ingest_maps_value_and_valid_from_errors() {
     let address = address_kind(&app, u).await;
 
     for (why, value, precision, date, want) in [
-        ("空の値", Some("   "), "year", Some("2019"), "invalid_claim_value"),
-        ("精度と日付が合わない", Some("A"), "year", Some("2019-10-01"), "invalid_valid_from"),
-        ("暦に無い日付", Some("A"), "day", Some("2019-02-30"), "invalid_valid_from"),
+        (
+            "空の値",
+            Some("   "),
+            "year",
+            Some("2019"),
+            "invalid_claim_value",
+        ),
+        (
+            "精度と日付が合わない",
+            Some("A"),
+            "year",
+            Some("2019-10-01"),
+            "invalid_valid_from",
+        ),
+        (
+            "暦に無い日付",
+            Some("A"),
+            "day",
+            Some("2019-02-30"),
+            "invalid_valid_from",
+        ),
     ] {
         let id = uuid::Uuid::new_v4();
         let raw = claim_raw(id, address, value, precision, date, None, None, NONCE);
@@ -931,12 +1247,28 @@ async fn ingest_rejection_does_not_echo_the_value() {
 
     let id = uuid::Uuid::new_v4();
     // 暦に無い日付で断らせる（値と補足は形として通る）
-    let raw = claim_raw(id, address, Some(secret), "day", Some("2019-02-30"), None, Some(secret_note), NONCE);
-    let (_, res) = post_ingest(&app, serde_json::json!([claim_item(id, u, "2026-09-15T02:00:00Z", &raw)])).await;
+    let raw = claim_raw(
+        id,
+        address,
+        Some(secret),
+        "day",
+        Some("2019-02-30"),
+        None,
+        Some(secret_note),
+        NONCE,
+    );
+    let (_, res) = post_ingest(
+        &app,
+        serde_json::json!([claim_item(id, u, "2026-09-15T02:00:00Z", &raw)]),
+    )
+    .await;
     let body = serde_json::to_string(&res).unwrap();
     assert!(!res[0].accepted);
     assert!(!body.contains(secret), "応答に値が含まれている: {body}");
-    assert!(!body.contains(secret_note), "応答に補足が含まれている: {body}");
+    assert!(
+        !body.contains(secret_note),
+        "応答に補足が含まれている: {body}"
+    );
 }
 
 #[tokio::test]
@@ -947,14 +1279,27 @@ async fn ingest_default_sensitivity() {
     let app = app().await;
     let u = testdb::user();
     let address = address_kind(&app, u).await;
-    let claim = store_claim(&app, u, address, Some("A"), "year", Some("2019"), "2026-09-15T02:00:00Z").await;
+    let claim = store_claim(
+        &app,
+        u,
+        address,
+        Some("A"),
+        "year",
+        Some("2019"),
+        "2026-09-15T02:00:00Z",
+    )
+    .await;
 
     let (s,): (i16,) = sqlx::query_as("SELECT sensitivity FROM core.event WHERE id = $1")
         .bind(claim)
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(i32::from(s), attributes::DEFAULT_SENSITIVITY, "主張の感度が「ローカル AI まで」でない");
+    assert_eq!(
+        i32::from(s),
+        attributes::DEFAULT_SENSITIVITY,
+        "主張の感度が「ローカル AI まで」でない"
+    );
 
     // 端末からの位置の記録は既定のまま
     let source = testdb::source(&app.pool, "st19-sens", 21_600).await;
@@ -969,13 +1314,21 @@ async fn ingest_default_sensitivity() {
         }]),
     )
     .await;
-    assert!(res[0].accepted, "位置の記録が受け付けられない: {:?}", res[0].error);
+    assert!(
+        res[0].accepted,
+        "位置の記録が受け付けられない: {:?}",
+        res[0].error
+    );
     let (s,): (i16,) = sqlx::query_as("SELECT sensitivity FROM core.event WHERE id = $1")
         .bind(other)
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(i32::from(s), DEFAULT_SENSITIVITY, "主張以外の既定の感度が動いている");
+    assert_eq!(
+        i32::from(s),
+        DEFAULT_SENSITIVITY,
+        "主張以外の既定の感度が動いている"
+    );
 }
 
 #[tokio::test]
@@ -1007,12 +1360,29 @@ async fn store_three_claims_after_two_moves() {
     let app = app().await;
     let u = testdb::user();
     let address = address_kind(&app, u).await;
-    for (n, value) in [(1, "東京都 目黒区"), (2, "東京都 世田谷区"), (3, "東京都 目黒区")] {
-        store_claim(&app, u, address, Some(value), "year", Some("2019"), &format!("2026-09-0{n}T01:00:00Z")).await;
+    for (n, value) in [
+        (1, "東京都 目黒区"),
+        (2, "東京都 世田谷区"),
+        (3, "東京都 目黒区"),
+    ] {
+        store_claim(
+            &app,
+            u,
+            address,
+            Some(value),
+            "year",
+            Some("2019"),
+            &format!("2026-09-0{n}T01:00:00Z"),
+        )
+        .await;
     }
     let v = read_view(&app, u).await;
     let got = kind_named(&v, "住所");
-    assert_eq!(got.claims.len(), 3, "住所を 2 回変えたのに主張が 3 件残っていない");
+    assert_eq!(
+        got.claims.len(),
+        3,
+        "住所を 2 回変えたのに主張が 3 件残っていない"
+    );
     assert_eq!(
         got.current.as_ref().unwrap().value.as_deref(),
         Some("東京都 目黒区"),
@@ -1029,7 +1399,16 @@ async fn store_keeps_both_times_in_separate_columns() {
     let u = testdb::user();
     let address = address_kind(&app, u).await;
     // 2026-09-15 に「いつから」を 2019 年 10 月とする主張を書く
-    let id = store_claim(&app, u, address, Some("東京都"), "month", Some("2019-10"), "2026-09-15T02:00:00Z").await;
+    let id = store_claim(
+        &app,
+        u,
+        address,
+        Some("東京都"),
+        "month",
+        Some("2019-10"),
+        "2026-09-15T02:00:00Z",
+    )
+    .await;
 
     let (event_time, ingest_time, payload): (
         chrono::DateTime<chrono::Utc>,
@@ -1044,10 +1423,16 @@ async fn store_keeps_both_times_in_separate_columns() {
     // 主張した日時は**出来事の時刻**に入る（深掘り C4 / C13）
     assert_eq!(event_time.to_rfc3339(), "2026-09-15T02:00:00+00:00");
     // 「いつから」は**精度つきの別の欄**（出来事の時刻に入れると「分からない」を置く値が要る）
-    assert_eq!(payload["valid_from"]["precision"], serde_json::json!("month"));
+    assert_eq!(
+        payload["valid_from"]["precision"],
+        serde_json::json!("month")
+    );
     assert_eq!(payload["valid_from"]["date"], serde_json::json!("2019-10"));
     // D-01 に入った時刻は**さらに別**（FR-19。サーバの時計）
-    assert_ne!(ingest_time, event_time, "D-01 に入った時刻が出来事の時刻と同じ欄から来ている");
+    assert_ne!(
+        ingest_time, event_time,
+        "D-01 に入った時刻が出来事の時刻と同じ欄から来ている"
+    );
 
     let v = read_view(&app, u).await;
     let c = kind_named(&v, "住所").claims.first().unwrap();
@@ -1070,13 +1455,49 @@ async fn store_keeps_precision_and_accepts_the_edges() {
     let job = kind_named(&v0, "職業").id;
 
     // 年だけ
-    let year = store_claim(&app, u, address, Some("東京都"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
+    let year = store_claim(
+        &app,
+        u,
+        address,
+        Some("東京都"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
     // 分からない
-    let unknown = store_claim(&app, u, address, Some("実家"), "unknown", None, "2026-09-02T01:00:00Z").await;
+    let unknown = store_claim(
+        &app,
+        u,
+        address,
+        Some("実家"),
+        "unknown",
+        None,
+        "2026-09-02T01:00:00Z",
+    )
+    .await;
     // 未来（来月から新しい住所。深掘り C6）
-    let future = store_claim(&app, u, address, Some("新居"), "day", Some("2026-12-01"), "2026-09-03T01:00:00Z").await;
+    let future = store_claim(
+        &app,
+        u,
+        address,
+        Some("新居"),
+        "day",
+        Some("2026-12-01"),
+        "2026-09-03T01:00:00Z",
+    )
+    .await;
     // 「なし」（副業をやめた。深掘り C10）
-    let none = store_claim(&app, u, job, None, "year", Some("2025"), "2026-09-04T01:00:00Z").await;
+    let none = store_claim(
+        &app,
+        u,
+        job,
+        None,
+        "year",
+        Some("2025"),
+        "2026-09-04T01:00:00Z",
+    )
+    .await;
 
     let v = read_view(&app, u).await;
     let addr = kind_named(&v, "住所");
@@ -1089,17 +1510,32 @@ async fn store_keeps_precision_and_accepts_the_edges() {
     };
     let y = find(year);
     assert_eq!(y.valid_from.precision, Precision::Year);
-    assert_eq!(y.valid_from.date.as_deref(), Some("2019"), "年が月日まで丸められている");
+    assert_eq!(
+        y.valid_from.date.as_deref(),
+        Some("2019"),
+        "年が月日まで丸められている"
+    );
     let un = find(unknown);
     assert_eq!(un.valid_from.precision, Precision::Unknown);
     assert_eq!(un.valid_from.date, None, "「分からない」に日付が入っている");
     // 未来は予定に出て、いまの値にならない
-    assert_eq!(addr.upcoming.iter().map(|c| c.id).collect::<Vec<_>>(), vec![future]);
-    assert_ne!(addr.current.as_ref().unwrap().id, future, "未来の主張がいまの値になっている");
+    assert_eq!(
+        addr.upcoming.iter().map(|c| c.id).collect::<Vec<_>>(),
+        vec![future]
+    );
+    assert_ne!(
+        addr.current.as_ref().unwrap().id,
+        future,
+        "未来の主張がいまの値になっている"
+    );
 
     let j = kind_named(&v, "職業");
     assert_eq!(j.current.as_ref().unwrap().id, none);
-    assert_eq!(j.current.as_ref().unwrap().value, None, "「なし」が値として読めない");
+    assert_eq!(
+        j.current.as_ref().unwrap().value,
+        None,
+        "「なし」が値として読めない"
+    );
 }
 
 #[tokio::test]
@@ -1112,8 +1548,26 @@ async fn store_same_value_stacks_but_resend_does_not() {
     let address = address_kind(&app, u).await;
 
     // 同じ値・同じ「いつから」を 2 回**書く**（識別子と主張した日時が違う）
-    store_claim(&app, u, address, Some("東京都"), "year", Some("2019"), "2026-09-01T01:00:00Z").await;
-    store_claim(&app, u, address, Some("東京都"), "year", Some("2019"), "2026-09-02T01:00:00Z").await;
+    store_claim(
+        &app,
+        u,
+        address,
+        Some("東京都"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+    store_claim(
+        &app,
+        u,
+        address,
+        Some("東京都"),
+        "year",
+        Some("2019"),
+        "2026-09-02T01:00:00Z",
+    )
+    .await;
     assert_eq!(
         kind_named(&read_view(&app, u).await, "住所").claims.len(),
         2,
@@ -1122,7 +1576,16 @@ async fn store_same_value_stacks_but_resend_does_not() {
 
     // **同じ原文を再送**（通信が切れて画面が送り直す）。1 件のまま
     let id = uuid::Uuid::new_v4();
-    let raw = claim_raw(id, address, Some("大阪府"), "year", Some("2020"), None, None, NONCE);
+    let raw = claim_raw(
+        id,
+        address,
+        Some("大阪府"),
+        "year",
+        Some("2020"),
+        None,
+        None,
+        NONCE,
+    );
     let item = claim_item(id, u, "2026-09-03T01:00:00Z", &raw);
     let first = send_claim(&app, item.clone()).await;
     let second = send_claim(&app, item).await;
@@ -1144,8 +1607,21 @@ async fn store_keeps_the_note() {
     let address = address_kind(&app, u).await;
     let id = uuid::Uuid::new_v4();
     let note = "転職に合わせて引っ越した";
-    let raw = claim_raw(id, address, Some("東京都"), "year", Some("2019"), None, Some(note), NONCE);
-    assert!(send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw)).await.accepted);
+    let raw = claim_raw(
+        id,
+        address,
+        Some("東京都"),
+        "year",
+        Some("2019"),
+        None,
+        Some(note),
+        NONCE,
+    );
+    assert!(
+        send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw))
+            .await
+            .accepted
+    );
 
     let v = read_view(&app, u).await;
     assert_eq!(
@@ -1167,14 +1643,22 @@ async fn store_keeps_the_raw_byte_for_byte() {
     let raw = format!(
         r#"{{ "nonce" : "{NONCE}", "claim":"{id}", "kind":"{address}", "note":null, "value":"東京都 目黒区", "supersedes":null, "valid_from":{{"date":"2019-10","precision":"month"}} }}"#
     );
-    assert!(send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw)).await.accepted);
+    assert!(
+        send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw))
+            .await
+            .accepted
+    );
 
     let (stored,): (String,) = sqlx::query_as("SELECT raw FROM core.event WHERE id = $1")
         .bind(id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(stored.as_bytes(), raw.as_bytes(), "原文がバイト単位で一致しない");
+    assert_eq!(
+        stored.as_bytes(),
+        raw.as_bytes(),
+        "原文がバイト単位で一致しない"
+    );
 }
 
 #[tokio::test]
@@ -1190,12 +1674,34 @@ async fn store_builds_payload_from_the_raw() {
     // (a) NFD（「か」+ 濁点）で書いた値は NFC で読み出される
     let id = uuid::Uuid::new_v4();
     let nfd = "\u{304B}\u{3099}";
-    let raw = claim_raw(id, address, Some(nfd), "year", Some("2019"), None, None, NONCE);
-    assert!(send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw)).await.accepted);
+    let raw = claim_raw(
+        id,
+        address,
+        Some(nfd),
+        "year",
+        Some("2019"),
+        None,
+        None,
+        NONCE,
+    );
+    assert!(
+        send_claim(&app, claim_item(id, u, "2026-09-01T01:00:00Z", &raw))
+            .await
+            .accepted
+    );
 
     // (b) 原文が「東京都」で、送り主の解析済みが「大阪府」の主張
     let forged = uuid::Uuid::new_v4();
-    let raw2 = claim_raw(forged, address, Some("東京都"), "year", Some("2020"), None, None, NONCE);
+    let raw2 = claim_raw(
+        forged,
+        address,
+        Some("東京都"),
+        "year",
+        Some("2020"),
+        None,
+        None,
+        NONCE,
+    );
     let mut item = claim_item(forged, u, "2026-09-02T01:00:00Z", &raw2);
     item["payload"] = serde_json::json!({ "value": "大阪府", "kind": address });
     assert!(send_claim(&app, item).await.accepted);
@@ -1203,7 +1709,11 @@ async fn store_builds_payload_from_the_raw() {
     let v = read_view(&app, u).await;
     let got = kind_named(&v, "住所");
     let by = |id: uuid::Uuid| got.claims.iter().find(|c| c.id == id).unwrap();
-    assert_eq!(by(id).value.as_deref(), Some("\u{304C}"), "値が NFC で読み出されていない");
+    assert_eq!(
+        by(id).value.as_deref(),
+        Some("\u{304C}"),
+        "値が NFC で読み出されていない"
+    );
     assert_eq!(
         by(forged).value.as_deref(),
         Some("東京都"),
@@ -1215,7 +1725,10 @@ async fn store_builds_payload_from_the_raw() {
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert!(stored.contains(nfd), "原文まで NFC にされている（受け取ったままでない）");
+    assert!(
+        stored.contains(nfd),
+        "原文まで NFC にされている（受け取ったままでない）"
+    );
 }
 
 // ================================================================ 3.3 乱数（design D4 / 深掘り C12）
@@ -1227,7 +1740,16 @@ async fn erasure_nonce_is_not_copied_to_the_payload() {
     let app = app().await;
     let u = testdb::user();
     let address = address_kind(&app, u).await;
-    let id = store_claim(&app, u, address, Some("東京都 目黒区"), "month", Some("2019-10"), "2026-09-01T01:00:00Z").await;
+    let id = store_claim(
+        &app,
+        u,
+        address,
+        Some("東京都 目黒区"),
+        "month",
+        Some("2019-10"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     let (payload,): (serde_json::Value,) =
         sqlx::query_as("SELECT payload FROM core.event WHERE id = $1")
@@ -1256,7 +1778,16 @@ async fn erasure_hash_cannot_be_rebuilt_from_what_remains() {
     let u = testdb::user();
     let address = address_kind(&app, u).await;
     let value = "東京都 目黒区";
-    let id = store_claim(&app, u, address, Some(value), "month", Some("2019-10"), "2026-09-01T01:00:00Z").await;
+    let id = store_claim(
+        &app,
+        u,
+        address,
+        Some(value),
+        "month",
+        Some("2019-10"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
 
     // 台帳つきで消去する（門が通す唯一の形）
     let mut tx = app.pool.begin().await.unwrap();
@@ -1285,7 +1816,10 @@ async fn erasure_hash_cannot_be_rebuilt_from_what_remains() {
             .await
             .unwrap();
     assert!(raw.is_empty(), "消去したのに原文が残っている");
-    assert!(!content_hash.is_empty(), "消去で鍵まで消えている（前提が変わっている）");
+    assert!(
+        !content_hash.is_empty(),
+        "消去で鍵まで消えている（前提が変わっている）"
+    );
 
     // **正しい種類・値・「いつから」を知っていても**、乱数を知らなければ鍵は作れない
     let guess = serde_json::json!({

@@ -68,7 +68,10 @@ impl ValidFrom {
         let date = self.date.as_deref()?;
         match self.precision {
             Precision::Unknown => None,
-            Precision::Year => date.parse::<i32>().ok().and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1)),
+            Precision::Year => date
+                .parse::<i32>()
+                .ok()
+                .and_then(|y| NaiveDate::from_ymd_opt(y, 1, 1)),
             Precision::Month => {
                 let (y, m) = date.split_once('-')?;
                 NaiveDate::from_ymd_opt(y.parse().ok()?, m.parse().ok()?, 1)
@@ -94,7 +97,9 @@ impl ValidFrom {
                 date.len() == 7
                     && date.as_bytes()[4] == b'-'
                     && self.key().is_some_and(|_| {
-                        date[5..].parse::<u32>().is_ok_and(|m| (1..=12).contains(&m))
+                        date[5..]
+                            .parse::<u32>()
+                            .is_ok_and(|m| (1..=12).contains(&m))
                     })
             }
             // `parse_from_str` は暦に無い日付（2019-02-30）を読めないので、ここで落ちる
@@ -159,7 +164,9 @@ pub fn parse_claim(raw: &str, id: uuid::Uuid) -> Result<Claim, ClaimInvalid> {
         .and_then(|x| x.as_str())
         .ok_or(ClaimInvalid::Malformed)?;
     if nonce.chars().count() < NONCE_MIN_CHARS
-        || !nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        || !nonce
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
         return Err(ClaimInvalid::Malformed);
     }
@@ -214,7 +221,14 @@ pub fn parse_claim(raw: &str, id: uuid::Uuid) -> Result<Claim, ClaimInvalid> {
     }
 
     Ok(Claim {
-        payload: payload_of(&valid_from, claim_id, kind, value.as_deref(), supersedes, note.as_deref()),
+        payload: payload_of(
+            &valid_from,
+            claim_id,
+            kind,
+            value.as_deref(),
+            supersedes,
+            note.as_deref(),
+        ),
         id: claim_id,
         kind,
         value,
@@ -359,10 +373,13 @@ pub fn view(kinds: &[Kind], claims: &[StoredClaim], today: NaiveDate) -> Attribu
     let kind_views = kinds
         .iter()
         .map(|k| {
-            let mut mine: Vec<&StoredClaim> =
-                live.iter().copied().filter(|c| c.claim.kind == k.id).collect();
+            let mut mine: Vec<&StoredClaim> = live
+                .iter()
+                .copied()
+                .filter(|c| c.claim.kind == k.id)
+                .collect();
             // 3. 鍵の昇順。**同じ鍵なら主張した日時が後、それも同じなら D-01 に入った時刻が後**
-            mine.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+            mine.sort_by_key(|c| sort_key(c));
 
             let (active, gone): (Vec<&StoredClaim>, Vec<&StoredClaim>) = mine
                 .iter()
@@ -504,7 +521,11 @@ mod tests {
             );
         }
         // 合う組は通る
-        for (precision, date) in [("year", "2019"), ("month", "2019-10"), ("day", "2019-10-01")] {
+        for (precision, date) in [
+            ("year", "2019"),
+            ("month", "2019-10"),
+            ("day", "2019-10-01"),
+        ] {
             let raw = raw_of(
                 id,
                 kind,
@@ -512,7 +533,10 @@ mod tests {
                     r#""value":"x","valid_from":{{"precision":"{precision}","date":"{date}"}},"supersedes":null,"note":null"#
                 ),
             );
-            assert!(parse_claim(&raw, id).is_ok(), "{precision} / {date} が落ちている");
+            assert!(
+                parse_claim(&raw, id).is_ok(),
+                "{precision} / {date} が落ちている"
+            );
         }
         // 「分からない」は日付なしで通る
         let unknown = raw_of(
@@ -583,7 +607,7 @@ mod tests {
         }
         // **22 文字ちょうどは通る**（境目を両側から押さえる）
         for enough in ["Zm9vYmFyYmF6cXV4MTIzND", NONCE] {
-            assert_eq!(enough.chars().count() >= NONCE_MIN_CHARS, true);
+            assert!(enough.chars().count() >= NONCE_MIN_CHARS);
             let ok = format!(
                 r#"{{"claim":"{id}","nonce":"{enough}","kind":"{kind}","value":"x","valid_from":{{"precision":"year","date":"2019"}},"supersedes":null,"note":null}}"#
             );
@@ -633,13 +657,24 @@ mod tests {
             r#""value":"\u304B\u3099","valid_from":{"precision":"year","date":"2019"},"supersedes":null,"note":"\u304B\u3099""#,
         );
         let c = parse_claim(&raw, id).unwrap();
-        assert_eq!(c.value.as_deref(), Some("\u{304C}"), "値が NFC になっていない");
-        assert_eq!(c.note.as_deref(), Some("\u{304C}"), "補足が NFC になっていない");
+        assert_eq!(
+            c.value.as_deref(),
+            Some("\u{304C}"),
+            "値が NFC になっていない"
+        );
+        assert_eq!(
+            c.note.as_deref(),
+            Some("\u{304C}"),
+            "補足が NFC になっていない"
+        );
         let text = c.payload.to_string();
         assert!(!text.contains(NONCE), "解析済みに乱数が写っている: {text}");
         assert!(!text.contains("nonce"), "解析済みに乱数の欄がある: {text}");
         assert_eq!(c.payload["value"], serde_json::json!("\u{304C}"));
-        assert_eq!(c.payload["valid_from"]["precision"], serde_json::json!("year"));
+        assert_eq!(
+            c.payload["valid_from"]["precision"],
+            serde_json::json!("year")
+        );
     }
 
     // ------------------------------------------------------------------ いまの値の導き方
@@ -676,7 +711,10 @@ mod tests {
     }
 
     fn one_kind(id: uuid::Uuid) -> Vec<Kind> {
-        vec![Kind { id, name: "住所".into() }]
+        vec![Kind {
+            id,
+            name: "住所".into(),
+        }]
     }
 
     fn today() -> NaiveDate {
@@ -687,12 +725,30 @@ mod tests {
     // Scenario: いつからが最も新しい主張がいまの値になる
     fn view_current_is_newest_valid_from() {
         let k = uuid::Uuid::new_v4();
-        let old = stored(k, Some("A"), Precision::Month, Some("2017-04"), "2026-09-01T10:00:00+09:00");
-        let new = stored(k, Some("B"), Precision::Day, Some("2023-03-18"), "2026-09-02T10:00:00+09:00");
+        let old = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2017-04"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let new = stored(
+            k,
+            Some("B"),
+            Precision::Day,
+            Some("2023-03-18"),
+            "2026-09-02T10:00:00+09:00",
+        );
         // **並びに依らない**（入力の順を変えても同じ結論になる）
-        for input in [vec![old.clone(), new.clone()], vec![new.clone(), old.clone()]] {
+        for input in [
+            vec![old.clone(), new.clone()],
+            vec![new.clone(), old.clone()],
+        ] {
             let v = view(&one_kind(k), &input, today());
-            assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("B"));
+            assert_eq!(
+                v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+                Some("B")
+            );
         }
     }
 
@@ -700,20 +756,50 @@ mod tests {
     // Scenario: 同じいつからなら主張した日時が後の主張がいまの値になる
     fn view_ties_break_on_asserted_at() {
         let k = uuid::Uuid::new_v4();
-        let first = stored(k, Some("A"), Precision::Month, Some("2019-10"), "2026-09-01T10:00:00+09:00");
-        let later = stored(k, Some("B"), Precision::Month, Some("2019-10"), "2026-09-05T10:00:00+09:00");
+        let first = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let later = stored(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-05T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[first, later], today());
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("B"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+            Some("B")
+        );
     }
 
     #[test]
     // Scenario: 未来のいつからは予定に出ていまの値にならない
     fn view_future_goes_to_upcoming() {
         let k = uuid::Uuid::new_v4();
-        let now = stored(k, Some("A"), Precision::Month, Some("2019-10"), "2026-09-01T10:00:00+09:00");
-        let soon = stored(k, Some("B"), Precision::Day, Some("2026-10-01"), "2026-09-02T10:00:00+09:00");
+        let now = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let soon = stored(
+            k,
+            Some("B"),
+            Precision::Day,
+            Some("2026-10-01"),
+            "2026-09-02T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[now, soon], today());
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("A"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+            Some("A")
+        );
         assert_eq!(v.kinds[0].upcoming.len(), 1);
         assert_eq!(v.kinds[0].upcoming[0].value.as_deref(), Some("B"));
     }
@@ -722,11 +808,33 @@ mod tests {
     // Scenario: 積んだ主張はいまの値と予定を含む
     fn view_stacked_includes_current_and_upcoming() {
         let k = uuid::Uuid::new_v4();
-        let old = stored(k, Some("A"), Precision::Month, Some("2013-04"), "2026-09-01T10:00:00+09:00");
-        let now = stored(k, Some("B"), Precision::Month, Some("2019-10"), "2026-09-02T10:00:00+09:00");
-        let soon = stored(k, Some("C"), Precision::Day, Some("2026-10-01"), "2026-09-03T10:00:00+09:00");
+        let old = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2013-04"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let now = stored(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-02T10:00:00+09:00",
+        );
+        let soon = stored(
+            k,
+            Some("C"),
+            Precision::Day,
+            Some("2026-10-01"),
+            "2026-09-03T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[old, now, soon], today());
-        let got: Vec<_> = v.kinds[0].claims.iter().map(|c| c.value.clone().unwrap()).collect();
+        let got: Vec<_> = v.kinds[0]
+            .claims
+            .iter()
+            .map(|c| c.value.clone().unwrap())
+            .collect();
         assert_eq!(got, ["C", "B", "A"], "「いつから」の新しい順になっていない");
     }
 
@@ -734,12 +842,27 @@ mod tests {
     // Scenario: いつからを直す訂正で古い開始が残らない
     fn view_correcting_valid_from_drops_the_old_start() {
         let k = uuid::Uuid::new_v4();
-        let wrong = stored(k, Some("A"), Precision::Month, Some("2019-04"), "2026-09-01T10:00:00+09:00");
-        let mut right = stored(k, Some("A"), Precision::Month, Some("2019-10"), "2026-09-02T10:00:00+09:00");
+        let wrong = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-04"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let mut right = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-02T10:00:00+09:00",
+        );
         right.claim.supersedes = Some(wrong.claim.id);
         let v = view(&one_kind(k), &[wrong.clone(), right.clone()], today());
         assert!(
-            v.kinds[0].claims.iter().all(|c| c.valid_from.date.as_deref() != Some("2019-04")),
+            v.kinds[0]
+                .claims
+                .iter()
+                .all(|c| c.valid_from.date.as_deref() != Some("2019-04")),
             "取り消した 2019 年 4 月の開始が積んだ主張に残っている"
         );
         assert_eq!(v.kinds[0].superseded.len(), 1);
@@ -755,25 +878,71 @@ mod tests {
     // Scenario: 年だけの主張はその年の初めから有効とみなす
     fn view_year_precision_starts_in_january() {
         let k = uuid::Uuid::new_v4();
-        let day = stored(k, Some("A"), Precision::Day, Some("2023-03-18"), "2026-09-01T10:00:00+09:00");
-        let year = stored(k, Some("B"), Precision::Year, Some("2026"), "2026-09-02T10:00:00+09:00");
+        let day = stored(
+            k,
+            Some("A"),
+            Precision::Day,
+            Some("2023-03-18"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let year = stored(
+            k,
+            Some("B"),
+            Precision::Year,
+            Some("2026"),
+            "2026-09-02T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[day, year], today());
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("B"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+            Some("B")
+        );
         // **比較で丸めても、返す「いつから」は精度のまま**（深掘り C3）
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().valid_from.precision, Precision::Year);
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().valid_from.date.as_deref(), Some("2026"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().valid_from.precision,
+            Precision::Year
+        );
+        assert_eq!(
+            v.kinds[0]
+                .current
+                .as_ref()
+                .unwrap()
+                .valid_from
+                .date
+                .as_deref(),
+            Some("2026")
+        );
     }
 
     #[test]
     // Scenario: いつからが分からない主張は最も古い側に置く
     fn view_unknown_valid_from_sorts_oldest() {
         let k = uuid::Uuid::new_v4();
-        let unknown = stored(k, Some("A"), Precision::Unknown, None, "2026-09-01T10:00:00+09:00");
-        let known = stored(k, Some("B"), Precision::Month, Some("2013-04"), "2026-09-02T10:00:00+09:00");
+        let unknown = stored(
+            k,
+            Some("A"),
+            Precision::Unknown,
+            None,
+            "2026-09-01T10:00:00+09:00",
+        );
+        let known = stored(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2013-04"),
+            "2026-09-02T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[unknown, known], today());
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("B"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+            Some("B")
+        );
         let last = v.kinds[0].claims.last().unwrap();
-        assert_eq!(last.valid_from.precision, Precision::Unknown, "並びの最後が「分からない」でない");
+        assert_eq!(
+            last.valid_from.precision,
+            Precision::Unknown,
+            "並びの最後が「分からない」でない"
+        );
     }
 
     #[test]
@@ -781,11 +950,26 @@ mod tests {
     /// **「なし」は値が無いことではない**（深掘り C10）—— 置き換える値が無い終わり方
     fn view_none_claim_can_be_current() {
         let k = uuid::Uuid::new_v4();
-        let had = stored(k, Some("A"), Precision::Month, Some("2019-10"), "2026-09-01T10:00:00+09:00");
-        let ended = stored(k, None, Precision::Month, Some("2024-03"), "2026-09-02T10:00:00+09:00");
+        let had = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let ended = stored(
+            k,
+            None,
+            Precision::Month,
+            Some("2024-03"),
+            "2026-09-02T10:00:00+09:00",
+        );
         let v = view(&one_kind(k), &[had, ended.clone()], today());
         let current = v.kinds[0].current.as_ref().unwrap();
-        assert_eq!(current.id, ended.claim.id, "「なし」がいまの値になっていない");
+        assert_eq!(
+            current.id, ended.claim.id,
+            "「なし」がいまの値になっていない"
+        );
         assert_eq!(current.value, None);
     }
 
@@ -795,10 +979,28 @@ mod tests {
     /// 効かなくすると、訂正を訂正した瞬間に古い値が黙って復活する
     fn view_supersession_by_a_superseded_claim_still_counts() {
         let k = uuid::Uuid::new_v4();
-        let a = stored(k, Some("A"), Precision::Month, Some("2013-04"), "2026-09-01T10:00:00+09:00");
-        let mut b = stored(k, Some("B"), Precision::Month, Some("2019-10"), "2026-09-02T10:00:00+09:00");
+        let a = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2013-04"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let mut b = stored(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-02T10:00:00+09:00",
+        );
         b.claim.supersedes = Some(a.claim.id);
-        let mut c = stored(k, Some("C"), Precision::Month, Some("2023-03"), "2026-09-03T10:00:00+09:00");
+        let mut c = stored(
+            k,
+            Some("C"),
+            Precision::Month,
+            Some("2023-03"),
+            "2026-09-03T10:00:00+09:00",
+        );
         c.claim.supersedes = Some(b.claim.id);
         let v = view(&one_kind(k), &[a.clone(), b.clone(), c.clone()], today());
         let gone: Vec<_> = v.kinds[0].superseded.iter().map(|x| x.id).collect();
@@ -813,8 +1015,20 @@ mod tests {
     /// 種類も値も読めない行を並べる置き場は無い
     fn view_drops_erased_claims_and_their_supersession() {
         let k = uuid::Uuid::new_v4();
-        let a = stored(k, Some("A"), Precision::Month, Some("2013-04"), "2026-09-01T10:00:00+09:00");
-        let mut b = stored(k, Some("B"), Precision::Month, Some("2019-10"), "2026-09-02T10:00:00+09:00");
+        let a = stored(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2013-04"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let mut b = stored(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-02T10:00:00+09:00",
+        );
         b.claim.supersedes = Some(a.claim.id);
         b.erased = true;
         let v = view(&one_kind(k), &[a.clone(), b.clone()], today());
@@ -835,16 +1049,43 @@ mod tests {
         let a = uuid::Uuid::new_v4();
         let b = uuid::Uuid::new_v4();
         let kinds = vec![
-            Kind { id: a, name: "住所".into() },
-            Kind { id: b, name: "職業".into() },
+            Kind {
+                id: a,
+                name: "住所".into(),
+            },
+            Kind {
+                id: b,
+                name: "職業".into(),
+            },
         ];
-        let ca = stored(a, Some("東京"), Precision::Year, Some("2019"), "2026-09-01T10:00:00+09:00");
-        let cb = stored(b, Some("会社員"), Precision::Year, Some("2020"), "2026-09-02T10:00:00+09:00");
+        let ca = stored(
+            a,
+            Some("東京"),
+            Precision::Year,
+            Some("2019"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let cb = stored(
+            b,
+            Some("会社員"),
+            Precision::Year,
+            Some("2020"),
+            "2026-09-02T10:00:00+09:00",
+        );
         let v = view(&kinds, &[cb, ca], today());
-        assert_eq!(v.kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), ["住所", "職業"]);
+        assert_eq!(
+            v.kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+            ["住所", "職業"]
+        );
         assert_eq!(v.kinds[0].claims.len(), 1);
-        assert_eq!(v.kinds[0].current.as_ref().unwrap().value.as_deref(), Some("東京"));
-        assert_eq!(v.kinds[1].current.as_ref().unwrap().value.as_deref(), Some("会社員"));
+        assert_eq!(
+            v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+            Some("東京")
+        );
+        assert_eq!(
+            v.kinds[1].current.as_ref().unwrap().value.as_deref(),
+            Some("会社員")
+        );
     }
 
     #[test]

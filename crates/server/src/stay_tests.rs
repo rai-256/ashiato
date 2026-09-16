@@ -38,11 +38,15 @@ async fn stays_migration_applies_twice() {
     drop.await;
 
     assert_eq!(applied.unwrap(), 1, "2 回当てると s01-stay が二重になる");
+    // **見たいのは「登録し忘れていないこと」**（当て忘れると不変条件が本番だけ効かない）。
+    // 「末尾にある」と書いていたが、それは**その版がいちばん新しい間しか成り立たない** ——
+    // 後から版を足す Story（ST19 の個人属性）が末尾を取った時点で、
+    // 滞在とは無関係にこの検査が落ちた。順序の要件は「依存する版より後」であって「末尾」ではない。
     assert!(
         crate::MIGRATIONS
-            .last()
-            .is_some_and(|(n, _)| n.ends_with("_stays")),
-        "滞在の移行が MIGRATIONS の末尾に無い"
+            .iter()
+            .any(|(n, _)| n.ends_with("_stays")),
+        "滞在の移行が MIGRATIONS に無い（当て忘れると錠が本番だけ効かない）"
     );
 }
 
