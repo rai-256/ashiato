@@ -88,7 +88,13 @@ chmod +x "$out/run.sh"
 cat > "$out/manifest.md" <<EOF
 起動: \`./dist/verify-$tag/run.sh\` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。
 
-画面 \`http://127.0.0.1:5180\`（\`WEB_PORT\` で変えられる）/ API は \`.env\` の BIND（既定 \`127.0.0.1:18787\`）。port が使用中なら run.sh がその場で止まる。スマホから見るなら BIND を LAN か Tailscale の IP にして run.sh を叩き直す。
+画面 \`http://127.0.0.1:5180\`（\`WEB_PORT\` で変えられる）/ API は \`.env\` の BIND（既定 \`127.0.0.1:18787\`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは \`docs/screens.md\`。
+
+スマホ・端末から届かせるなら \`http://yoshi.tail4360f4.ts.net:<port>\` ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、\`100.85.27.45\` 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
+
+確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）——
+作り直し: \`curl -sS -H "authorization: Bearer \$API_TOKEN" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{"radius_m":30}'\`（戻すときは \`100\`。範囲外の値は 400 で、基準も滞在も変わらない）。
+位置が変わっていないこと: \`docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc "select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'"\`（作り直しの前後で同じ値）。
 
 Android: $android_note。接続先は \`~/.gradle/gradle.properties\` の \`ashiato.baseUrl\`（\`collector-android/README.md\`）。
 
