@@ -7,8 +7,10 @@ import {
   emptyInput,
   ingestItem,
   isAttributesView,
+  kindRejectionMessage,
   newNonce,
   readIngestResponse,
+  readKindResponse,
   rejectionMessage,
   UNREACHABLE_MESSAGE,
   validFromLabel,
@@ -19,6 +21,7 @@ import {
   type ClaimInput,
   type KindView,
   type Precision,
+  type SendOutcome,
 } from "./attributes";
 import { MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
 
@@ -48,6 +51,13 @@ export function MasterView(): React.ReactElement {
   const c = SCHEMES[scheme];
   const [data, setData] = useState<Load<AttributesView>>({ at: "loading" });
   const [adding, setAdding] = useState(false);
+  /**
+   * 「積めた」の知らせ（review/code.md R18）。**読み直しの結果で上書きしない** ——
+   * 主張はサーバに確かに入っているのに、直後の `GET /attributes` が落ちると
+   * 画面は「読み出せませんでした」だけになり、**本人から見て積めたのかがどこにも書いていない**。
+   * 分からないまま打ち直すと、乱数も識別子も別なので**2 件目が入る**（畳まれない。深掘り C2）。
+   */
+  const [stored, setStored] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -104,6 +114,11 @@ export function MasterView(): React.ReactElement {
         </button>
       </div>
 
+      {stored !== null && (
+        <p role="status" data-testid="master-stored" style={{ fontSize: 14 }}>
+          {stored}
+        </p>
+      )}
       {data.at === "loading" && <p data-testid="master-loading">読み込み中…</p>}
       {/*
         **読み出しの失敗と「まだ書いていない」を混ぜない**（spec）——
@@ -117,7 +132,7 @@ export function MasterView(): React.ReactElement {
       {data.at === "ok" && (
         <>
           {data.value.kinds.map((k) => (
-            <KindCard key={k.id} kind={k} scheme={scheme} today={data.value.today} onChanged={load} />
+            <KindCard key={k.id} kind={k} scheme={scheme} onChanged={load} onStored={setStored} />
           ))}
           <div style={{ marginTop: 12 }}>
             {adding ? (
@@ -131,10 +146,11 @@ export function MasterView(): React.ReactElement {
                     headers: { "content-type": "application/json" },
                     body: JSON.stringify({ name }),
                   });
-                  if (!res.ok) return false;
+                  const outcome = await readKindResponse(res);
+                  if (outcome.at !== "accepted") return outcome;
                   setAdding(false);
                   await load();
-                  return true;
+                  return outcome;
                 }}
               />
             ) : (
@@ -153,18 +169,25 @@ export function MasterView(): React.ReactElement {
 function KindCard({
   kind,
   scheme,
-  today,
   onChanged,
+  onStored,
 }: {
   kind: KindView;
   scheme: Scheme;
-  today: string;
   onChanged: () => Promise<void>;
+  /** 「積めた」を画面の上に出す（読み直しが落ちても消えない。review/code.md R18） */
+  onStored: (message: string | null) => void;
 }): React.ReactElement {
   const c = SCHEMES[scheme];
   const [writing, setWriting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [supOpen, setSupOpen] = useState(false);
+  // **「予定かどうか」はサーバが決める**（review/code.md R10）。
+  // 画面で `valid_from.date > today` を文字列比較で組み直していたときは、**導出の規則が
+  // 2 か所に割れていた** —— D6（仮）の反転条件（年をその年の初めから有効とみなすのをやめる、など）が
+  // 満たされたとき、サーバだけ直すと画面の「（予定）」が黙ってずれる。
+  // 並べ替えと同じく「画面は受け取ったものを描くだけ」に揃える。
+  const upcomingIds = useMemo(() => new Set(kind.upcoming.map((u) => u.id)), [kind.upcoming]);
 
   return (
     <section
@@ -191,10 +214,11 @@ function KindCard({
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ name }),
             });
-            if (!res.ok) return false;
+            const outcome = await readKindResponse(res);
+            if (outcome.at !== "accepted") return outcome;
             setRenaming(false);
             await onChanged();
-            return true;
+            return outcome;
           }}
         />
       ) : (
@@ -231,6 +255,8 @@ function KindCard({
             scheme={scheme}
             onDone={async () => {
               setWriting(false);
+              // **受理の事実を先に立てる。** この後の読み直しが落ちても消さない
+              onStored(`「${kind.name}」に主張を積みました。`);
               await onChanged();
             }}
             onCancel={() => setWriting(false)}
@@ -248,7 +274,7 @@ function KindCard({
       */}
       <div data-testid="claims" style={{ marginTop: 8 }}>
         {kind.claims.map((claim) => (
-          <ClaimRow key={claim.id} claim={claim} scheme={scheme} today={today} />
+          <ClaimRow key={claim.id} claim={claim} scheme={scheme} upcoming={upcomingIds} />
         ))}
       </div>
 
@@ -267,7 +293,7 @@ function KindCard({
           {supOpen && (
             <div data-testid="superseded">
               {kind.superseded.map((claim) => (
-                <ClaimRow key={claim.id} claim={claim} scheme={scheme} today={today} superseded />
+                <ClaimRow key={claim.id} claim={claim} scheme={scheme} upcoming={upcomingIds} superseded />
               ))}
             </div>
           )}
@@ -286,17 +312,18 @@ function KindCard({
 function ClaimRow({
   claim,
   scheme,
-  today,
+  upcoming,
   superseded = false,
 }: {
   claim: Claim;
   scheme: Scheme;
-  today: string;
+  /** サーバが「予定」とした主張の識別子（`kind.upcoming`）。**画面では判定し直さない** */
+  upcoming: ReadonlySet<string>;
   superseded?: boolean;
 }): React.ReactElement {
   const c = SCHEMES[scheme];
   const [open, setOpen] = useState(false);
-  const future = claim.valid_from.date !== null && claim.valid_from.precision !== "unknown" && claim.valid_from.date > today;
+  const future = upcoming.has(claim.id);
   return (
     <button
       type="button"
@@ -358,10 +385,16 @@ function WriteForm({
   const c = SCHEMES[scheme];
   // **取り消す主張の既定は「主張した日時が最も新しい」**（spec）。
   // 「いつから」の新しい順で並ぶ `claims` の先頭とは限らない
+  // **絶対時刻で比べる**（review/code.md R11）。`asserted_at` は地域のずれつきの
+  // RFC 3339（`…+09:00`）で、C4 のとおり地域は端末のものなので、本人が移動すれば
+  // 主張ごとに違うオフセットが混ざる。**文字列の辞書順は絶対時刻の順と食い違う** ——
+  // `2026-09-15T01:00:00+09:00`（= 14 日 16:00Z）と `2026-09-14T20:00:00-05:00`（= 15 日 01:00Z）で
+  // 逆になり、**後に書いた主張でないものが「取り消す主張」の既定に選ばれる**。
   const newest = useMemo(
     () =>
       kind.claims.reduce<Claim | null>(
-        (best, x) => (best === null || x.asserted_at > best.asserted_at ? x : best),
+        (best, x) =>
+          best === null || Date.parse(x.asserted_at) > Date.parse(best.asserted_at) ? x : best,
         null,
       ),
     [kind.claims],
@@ -374,6 +407,9 @@ function WriteForm({
   const [problem, setProblem] = useState<string | null>(null);
   /** 組んだ原文を抱えておく。**入力が同じなら同じものを送る** */
   const built = useRef<{ key: string; claim: BuiltClaim } | null>(null);
+
+  /** 「間違っていた」なのに取り消す主張が決まっていない（選択肢が 0 個のときに起きる）。 */
+  const cannotSupersede = mode === "fix" && target === null;
 
   const current: ClaimInput = {
     ...input,
@@ -520,14 +556,30 @@ function WriteForm({
         <input aria-label="補足" value={input.note} {...{ [FOCUS_ATTR]: "" }} style={field} onChange={(e) => setInput({ ...input, note: e.target.value })} />
       </label>
 
+      {cannotSupersede && (
+        <p role="alert" data-testid="write-problem" style={{ fontSize: 14, margin: "0 0 8px" }}>
+          取り消す主張を選んでください（この種類にはまだ主張がありません）
+        </p>
+      )}
       {problem !== null && (
         <p role="alert" data-testid="write-problem" style={{ fontSize: 14, margin: "0 0 8px" }}>
           {problem}
         </p>
       )}
       <div style={{ display: "flex", gap: 8 }}>
-        {/* **送っている間は押せなくする**（spec）—— 押せると同じ主張が 2 件になる */}
-        <button type="button" disabled={sending} {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => void submit()}>
+        {/*
+          **送っている間は押せなくする**（spec）—— 押せると同じ主張が 2 件になる。
+          **取り消す主張を選べていないまま「間違っていた」で積ませない**（review/code.md R15）——
+          `supersedes: null` の普通の主張として受理され、**本人は訂正したつもりで、
+          記録には訂正でないものが残る**（主張を持たない種類では選択肢が 0 個になる）。
+        */}
+        <button
+          type="button"
+          disabled={sending || cannotSupersede}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={control(scheme)}
+          onClick={() => void submit()}
+        >
           積む
         </button>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={onCancel}>
@@ -549,7 +601,7 @@ function NameForm({
   label: string;
   scheme: Scheme;
   initial?: string;
-  onSubmit: (name: string) => Promise<boolean>;
+  onSubmit: (name: string) => Promise<SendOutcome>;
   onCancel: () => void;
 }): React.ReactElement {
   const [name, setName] = useState(initial);
@@ -569,9 +621,12 @@ function NameForm({
         onClick={() => {
           setSending(true);
           setProblem(null);
+          // **断られたことと届かなかったことを分ける**（review/code.md R9）。
+          // 一律の文にしていたときは、401 も 500 も「その名前は重なっています」に化けた
           void onSubmit(name)
-            .then((ok) => {
-              if (!ok) setProblem("その名前は使えません（空か、いまある名前と重なっています）");
+            .then((outcome) => {
+              if (outcome.at === "rejected") setProblem(kindRejectionMessage(outcome.kind));
+              else if (outcome.at === "unreachable") setProblem(UNREACHABLE_MESSAGE);
             })
             .catch(() => setProblem(UNREACHABLE_MESSAGE))
             .finally(() => setSending(false));

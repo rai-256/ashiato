@@ -33,6 +33,13 @@ function input(over: Partial<ClaimInput> = {}): ClaimInput {
 
 describe("主張の原文", () => {
   // Scenario: 同じ内容の 2 つの主張は別々の乱数を持つ
+  /**
+   * **この 1 本が Rust 側の前提を支えている**（review/code.md R30）。
+   * Rust の `erasure_hash_cannot_be_rebuilt_from_what_remains` は、原文と `nonce` の有無だけが
+   * 違う推測で鍵が作れないことを見るが、**乱数が `id` から決定的に導かれていても通る**
+   * （Rust 側の `NONCE` は全テスト共通の固定値なので気付けない）。
+   * 「乱数が識別子から導かれない」を守っているのはここだけ。
+   */
   it("識別子と主張した日時と値といつからが同じでも、乱数は毎回違い、識別子とも一致しない", () => {
     const now = new Date("2026-09-15T02:00:00Z");
     const a = JSON.parse(buildClaim(input(), now, ID, newNonce()).raw) as { nonce: string };
@@ -68,6 +75,32 @@ describe("主張の原文", () => {
     expect(buildClaim(input(), now, ID, nonce).raw).toBe(buildClaim(input(), now, ID, nonce).raw);
     expect(buildClaim(input({ value: "大阪府" }), now, ID, nonce).raw).not.toBe(
       buildClaim(input(), now, ID, nonce).raw,
+    );
+  });
+
+  /**
+   * **R27**: 原文の形は 4 か所に手写しされている（ここ / Rust の結合テスト /
+   * `tools/check-immutable.sh` / `tools/smoke.sh`）。各側は自分の写しに対して緑になるので、
+   * **片側を直すと相手側が気付けない**。
+   *
+   * ここで固定した**まさにこの文字列**を、Rust の
+   * `attributes::tests::parse_claim_accepts_the_shape_the_web_builds` が読んで通す ——
+   * どちらかが形を変えたら、もう片方が落ちる。
+   */
+  it("画面が組む原文の形（Rust の解釈器と突き合わせる黄金値）", () => {
+    const built = buildClaim(
+      { ...input({ note: "転職に合わせて" }), kind: "22222222-2222-4222-8222-222222222222" },
+      new Date("2026-09-15T02:00:00Z"),
+      "11111111-1111-4111-8111-111111111111",
+      "Zm9vYmFyYmF6cXV4MTIzNDU2",
+    );
+    expect(built.raw).toBe(
+      '{"claim":"11111111-1111-4111-8111-111111111111",' +
+        '"nonce":"Zm9vYmFyYmF6cXV4MTIzNDU2",' +
+        '"kind":"22222222-2222-4222-8222-222222222222",' +
+        '"value":"東京都 目黒区",' +
+        '"valid_from":{"precision":"month","date":"2019-10"},' +
+        '"supersedes":null,"note":"転職に合わせて"}',
     );
   });
 

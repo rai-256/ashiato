@@ -216,6 +216,22 @@ pub fn parse_claim(raw: &str, id: uuid::Uuid) -> Result<Claim, ClaimInvalid> {
     if value.as_deref().is_some_and(|s| s.trim().is_empty()) {
         return Err(ClaimInvalid::Value);
     }
+    // **制御文字を断る**（review/code.md R14）。原文は JSON の**テキスト**なので、
+    // `{"value":"a\u0000b"}` には NUL バイトが 1 つも無く、`IngestRequest::validate` の
+    // `raw.contains('\0')` を**すり抜ける**。解釈すると Rust の `String` に本物の U+0000 が入り、
+    // `payload`（`jsonb`）への INSERT が SQLSTATE 22P05 で落ちて**まとめ送り全体が 500 になる**
+    // （`ingest.rs` の `validate` が原文について名指しで防いでいる事故の、主張だけの抜け道）。
+    // 画面から見ると「届かなかった」になり、本人は同じ入力で押し直し続ける。
+    if [value.as_deref(), note.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|s| {
+            s.chars()
+                .any(|c| c == '\0' || (c.is_control() && c != '\n' && c != '\t'))
+        })
+    {
+        return Err(ClaimInvalid::Value);
+    }
     if !valid_from.is_well_formed() {
         return Err(ClaimInvalid::ValidFrom);
     }
@@ -364,11 +380,21 @@ pub fn view(kinds: &[Kind], claims: &[StoredClaim], today: NaiveDate) -> Attribu
     // 1. **消去した主張はどこにも出さない**（spec-review R18）。種類も値も読めない
     let live: Vec<&StoredClaim> = claims.iter().filter(|c| !c.erased).collect();
 
-    // 2. 取り消しの関係。**消えた主張がした取り消しは効かない**（live からだけ集める）
-    let superseded_by: std::collections::HashMap<uuid::Uuid, uuid::Uuid> = live
-        .iter()
-        .filter_map(|c| c.claim.supersedes.map(|target| (target, c.claim.id)))
-        .collect();
+    // 2. 取り消しの関係。**消えた主張がした取り消しは効かない**（live からだけ集める）。
+    //
+    // **同じ主張を 2 件が取り消せる**ことは spec が認めている（「1 つの主張を 2 つの主張が取り消せる」）。
+    // `collect()` の後勝ちに任せると、**どちらが `superseded_by` に入るかが行の順で決まり、
+    // 読み出しのたびに答えが変わる**（review/code.md R5）。並べてから**最初の 1 件を勝たせる**。
+    // 入力の順は `claims_of` の `ORDER BY` が固定する。
+    let mut ordered: Vec<&StoredClaim> = live.clone();
+    ordered.sort_by_key(|c| sort_key(c));
+    let mut superseded_by: std::collections::HashMap<uuid::Uuid, uuid::Uuid> =
+        std::collections::HashMap::new();
+    for c in &ordered {
+        if let Some(target) = c.claim.supersedes {
+            superseded_by.entry(target).or_insert(c.claim.id);
+        }
+    }
 
     let kind_views = kinds
         .iter()
@@ -806,6 +832,9 @@ mod tests {
 
     #[test]
     // Scenario: 積んだ主張はいまの値と予定を含む
+    // Scenario: 積んだ主張はいつからの新しい順に出る
+    /// **並べ替えを持つ階層で担保する**（review/code.md R6）。画面側の印は
+    /// 「サーバが返した順にそのまま描く」を見るもので、**並べ替えそのものは見ていない**。
     fn view_stacked_includes_current_and_upcoming() {
         let k = uuid::Uuid::new_v4();
         let old = stored(
@@ -1096,5 +1125,135 @@ mod tests {
         assert!(v.kinds[0].current.is_none());
         assert!(v.kinds[0].claims.is_empty());
         assert_eq!(v.today, "2026-09-15");
+    }
+
+    /// 主張 1 件を組み、**D-01 に入った時刻を別に渡す**（review/code.md R24）。
+    ///
+    /// `stored()` は `ingested_at` を `asserted_at` から導くので、
+    /// **2 つが同じで D-01 に入った時刻だけ違う入力が作れなかった** ——
+    /// 3 段目の tie-break を固定式に変えても全件緑になる状態だった。
+    fn stored_at(
+        kind: uuid::Uuid,
+        value: Option<&str>,
+        precision: Precision,
+        date: Option<&str>,
+        asserted: &str,
+        ingested: &str,
+    ) -> StoredClaim {
+        StoredClaim {
+            ingested_at: at(ingested).with_timezone(&Utc),
+            ..stored(kind, value, precision, date, asserted)
+        }
+    }
+
+    #[test]
+    /// **R24**: 「いつから」も主張した日時も同じなら、**D-01 に入った時刻が後**の主張が勝つ
+    /// （spec「…それも同じなら D-01 に入った時刻が後の主張とする」）。
+    fn view_third_tie_break_is_ingested_at() {
+        let k = uuid::Uuid::new_v4();
+        let early = stored_at(
+            k,
+            Some("A"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-01T10:00:00+09:00",
+            "2026-09-01T10:00:00+09:00",
+        );
+        let late = stored_at(
+            k,
+            Some("B"),
+            Precision::Month,
+            Some("2019-10"),
+            "2026-09-01T10:00:00+09:00",
+            "2026-09-03T10:00:00+09:00",
+        );
+        // 並びに依らない（入力の順を入れ替えても同じ結論）
+        for input in [
+            vec![early.clone(), late.clone()],
+            vec![late.clone(), early.clone()],
+        ] {
+            let v = view(&one_kind(k), &input, today());
+            assert_eq!(
+                v.kinds[0].current.as_ref().unwrap().value.as_deref(),
+                Some("B"),
+                "D-01 に入った時刻の tie-break が効いていない"
+            );
+        }
+    }
+
+    #[test]
+    /// **R25**: 予定は「いつから」の**古い順**（spec）。
+    /// 予定が 2 件以上ある入力がどのテストにも無く、`reverse()` を足しても全件緑だった。
+    fn view_upcoming_is_oldest_first() {
+        let k = uuid::Uuid::new_v4();
+        let soon = stored(
+            k,
+            Some("A"),
+            Precision::Day,
+            Some("2026-10-01"),
+            "2026-09-01T10:00:00+09:00",
+        );
+        let later = stored(
+            k,
+            Some("B"),
+            Precision::Day,
+            Some("2026-11-01"),
+            "2026-09-02T10:00:00+09:00",
+        );
+        let latest = stored(
+            k,
+            Some("C"),
+            Precision::Year,
+            Some("2028"),
+            "2026-09-03T10:00:00+09:00",
+        );
+        // **わざと逆順で渡す**（入力の順に引きずられていないこと）
+        let v = view(
+            &one_kind(k),
+            &[latest.clone(), soon.clone(), later.clone()],
+            today(),
+        );
+        let got: Vec<_> = v.kinds[0]
+            .upcoming
+            .iter()
+            .map(|c| c.value.clone().unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            ["A", "B", "C"],
+            "予定が「いつから」の古い順になっていない"
+        );
+        assert!(v.kinds[0].current.is_none(), "予定だけなのにいまの値がある");
+    }
+
+    #[test]
+    /// **R27**: **画面が組む原文の形**を、サーバの解釈器がそのまま読めること。
+    ///
+    /// 原文の形は 4 か所に手写しされている（`web/src/attributes.ts` の `buildClaim` /
+    /// この結合テストの `claim_raw` / `tools/check-immutable.sh` / `tools/smoke.sh`）。
+    /// 各側は自分の写しに対して緑になるので、**片側を直すと相手側が気付けない**。
+    /// ここでは `web/src/__tests__/attributes.test.ts` の
+    /// `画面が組む原文の形` が固定している**まさにその文字列**を読む ——
+    /// どちらかの側が形を変えたら、もう片方が落ちる。
+    fn parse_claim_accepts_the_shape_the_web_builds() {
+        // `buildClaim({kind, value:"東京都 目黒区", precision:"month", year:"2019", month:"10",
+        //   note:"転職に合わせて", supersedes:null}, …)` の出力（欄の順まで含めて逐語）
+        let id: uuid::Uuid = "11111111-1111-4111-8111-111111111111".parse().unwrap();
+        let web_raw = concat!(
+            r#"{"claim":"11111111-1111-4111-8111-111111111111","#,
+            r#""nonce":"Zm9vYmFyYmF6cXV4MTIzNDU2","#,
+            r#""kind":"22222222-2222-4222-8222-222222222222","#,
+            r#""value":"東京都 目黒区","#,
+            r#""valid_from":{"precision":"month","date":"2019-10"},"#,
+            r#""supersedes":null,"note":"転職に合わせて"}"#
+        );
+        let c = parse_claim(web_raw, id).expect("画面が組む原文をサーバが読めない");
+        assert_eq!(c.id, id);
+        assert_eq!(c.kind.to_string(), "22222222-2222-4222-8222-222222222222");
+        assert_eq!(c.value.as_deref(), Some("東京都 目黒区"));
+        assert_eq!(c.valid_from.precision, Precision::Month);
+        assert_eq!(c.valid_from.date.as_deref(), Some("2019-10"));
+        assert_eq!(c.supersedes, None);
+        assert_eq!(c.note.as_deref(), Some("転職に合わせて"));
     }
 }

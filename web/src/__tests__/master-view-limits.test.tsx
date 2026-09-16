@@ -153,8 +153,17 @@ describe("個人属性の画面の下限", () => {
    * 画面ごとに色を直書きすると、ST20 / ST21 が別のトークン系を持つ。
    */
   it("`MasterView.tsx` に色の直書きが無い", () => {
-    const literals = masterSource.match(/#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(/g) ?? [];
+    // **新しい色関数も網に入れる**（review/code.md R31）。`#hex` / `rgb(` / `hsl(` だけだと
+    // `oklch(` / `lab(` / `color(` が素通りする
+    const literals =
+      masterSource.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/g) ?? [];
     expect(literals, `色が直書きされている: ${literals.join(" / ")}`).toHaveLength(0);
+    // **名前付き色も禁じる**（`transparent` だけは「色を置かない」の意味で使う）。
+    // `white` / `black` が素通りすると、`ui-direction.md` の確定値の外の色が 1 つ入る。
+    // **属性の名前の直後の `:` だけを見る** —— `[^:]*` を挟むと `boxSizing: "border-box"` に当たる
+    const named =
+      masterSource.match(/\b(?:background|color|outline|fill|stroke)\s*:\s*"(?!transparent")[a-zA-Z]+"/g) ?? [];
+    expect(named, `名前付き色が直書きされている: ${named.join(" / ")}`).toHaveLength(0);
     // 色は `tone` と `SCHEMES` からだけ引いている
     expect(masterSource).toContain('from "./tokens"');
     expect(masterSource).toContain("tone(");

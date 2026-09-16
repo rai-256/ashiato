@@ -404,3 +404,196 @@ describe("種類を足す・名前を変える", () => {
     expect(screen.getByTestId("name-form")).toBeTruthy();
   });
 });
+
+describe("独立レビューで足したもの（review/code.md）", () => {
+  // Scenario: 変わったを選んで主張を積める
+  /**
+   * **R26**: spec の THEN は「**画面を読み直した後、カードの主張が 1 件増え、
+   * その値と「いつから」が出ている**」。送った本文しか見ていないと、
+   * 「主張が画面に増えて見える」を通しで確かめたテストが 1 本も無いことになる。
+   */
+  it("積んだ後、読み直した画面に主張が 1 件増えて見える", async () => {
+    const added = claim({ id: "c-new", value: "東京都 世田谷区", valid_from: { precision: "month", date: "2026-09" } });
+    const states: AttributesView[] = [
+      empty(),
+      { today: "2026-09-15", kinds: [kind({ id: ADDRESS, name: "住所", current: added, claims: [added] })] },
+    ];
+    let read = 0;
+    posts = [];
+    vi.stubGlobal("fetch", (path: string, init?: RequestInit) => {
+      if (path === "/api/attributes") {
+        const body = states[Math.min(read, states.length - 1)];
+        read += 1;
+        return Promise.resolve(ok(body));
+      }
+      posts.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
+      return Promise.resolve(accepted());
+    });
+
+    render(<MasterView />);
+    await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+    expect(screen.queryAllByTestId("claim-row")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "書く" }));
+    fill("東京都 世田谷区", "2026", "9");
+    fireEvent.click(screen.getByRole("button", { name: "積む" }));
+
+    await waitFor(() => expect(screen.getAllByTestId("claim-row")).toHaveLength(1));
+    const row = screen.getByTestId("claim-row");
+    expect(row.textContent).toContain("東京都 世田谷区");
+    expect(row.textContent).toContain("2026 年 9 月から");
+  });
+
+  // Scenario: なしを選んで積める
+  /**
+   * **R29**: 以前は精度「年月」のまま月を入れずに押していたので、送る原文の「いつから」は
+   * `date: null` ——**本物のサーバなら `invalid_valid_from` で断られる**。
+   * スタブが受理を返すから通っていただけで、Scenario の「積める」は成立していなかった。
+   */
+  it("「なし」を、サーバが受け付ける形の「いつから」とともに積める", async () => {
+    serve(empty(), accepted);
+    await openForm();
+    fireEvent.click(screen.getByLabelText("なし（その属性が終わった）"));
+    fill("", "2025", "3");
+    fireEvent.click(screen.getByRole("button", { name: "積む" }));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    const raw = sentRaw();
+    expect(raw.value).toBeNull();
+    // **「いつから」が欠けていない**（欠けたまま送ると本物のサーバは断る）
+    expect(raw.valid_from).toEqual({ precision: "month", date: "2025-03" });
+  });
+
+  /** **R23**: 送っている間は「積む」を押せない（spec の SHALL）。 */
+  it("送っている間は「積む」が押せない", async () => {
+    // `let release: (() => void) | null` だと、代入が閉包の中だけなので TS が `never` に狭める
+    const gate: { release?: () => void } = {};
+    posts = [];
+    vi.stubGlobal("fetch", (path: string, init?: RequestInit) => {
+      if (path === "/api/attributes") return Promise.resolve(ok(empty()));
+      posts.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
+      return new Promise<Response>((resolve) => {
+        gate.release = () => resolve(accepted());
+      });
+    });
+
+    render(<MasterView />);
+    await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "書く" }));
+    fill("東京都", "2026", "9");
+
+    const submit = screen.getByRole("button", { name: "積む" });
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect((submit as HTMLButtonElement).disabled, "送っている間も押せる").toBe(true);
+
+    gate.release?.();
+    await waitFor(() => expect(screen.queryByTestId("write-form")).toBeNull());
+  });
+
+  /**
+   * **R15**: 主張を持たない種類で「前の書き込みが間違っていた」を選ぶと、取り消す主張の
+   * 選択肢が 0 個になる。そのまま積めると **`supersedes: null` の普通の主張として受理され、
+   * 本人は訂正したつもりで、記録には訂正でないものが残る**。
+   */
+  it("取り消す主張が選べないときは積ませない", async () => {
+    serve(empty(), accepted);
+    await openForm();
+    fireEvent.click(screen.getByLabelText("前の書き込みが間違っていた"));
+    fill("東京都", "2026", "9");
+
+    const submit = screen.getByRole("button", { name: "積む" });
+    expect((submit as HTMLButtonElement).disabled, "訂正先が無いのに積める").toBe(true);
+    expect(screen.getByTestId("write-problem").textContent).toContain("取り消す主張を選んでください");
+    fireEvent.click(submit);
+    expect(posts, "訂正先が無いまま送っている").toHaveLength(0);
+  });
+
+  /**
+   * **R18**: 受理された直後の読み直しが落ちても、「積めた」が消えないこと。
+   * 消えると本人から見て積めたのかがどこにも書いておらず、打ち直すと **2 件目が入る**
+   * （乱数も識別子も別なので畳まれない。深掘り C2）。
+   */
+  it("積めた後に読み直しが落ちても、「積めた」ことが画面に残る", async () => {
+    let read = 0;
+    posts = [];
+    vi.stubGlobal("fetch", (path: string, init?: RequestInit) => {
+      if (path === "/api/attributes") {
+        read += 1;
+        // 1 回目は成功、2 回目（積んだ後の読み直し）は落ちる
+        if (read === 1) return Promise.resolve(ok(empty()));
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve([]) } as Response);
+      }
+      posts.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
+      return Promise.resolve(accepted());
+    });
+
+    render(<MasterView />);
+    await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "書く" }));
+    fill("東京都", "2026", "9");
+    fireEvent.click(screen.getByRole("button", { name: "積む" }));
+
+    await waitFor(() => expect(screen.getByTestId("master-failed")).toBeTruthy());
+    expect(
+      screen.getByTestId("master-stored").textContent,
+      "読み直しの失敗が「積めた」を上書きしている",
+    ).toContain("積みました");
+  });
+});
+
+describe("種類の口の断りと、届かなかったとき（review/code.md R9）", () => {
+  /**
+   * **R9**: `if (!res.ok) return false` にしていたときは、**401 も 500 も 502 も
+   * 「その名前は使えません（空か、いまある名前と重なっています）」に化けた**。
+   * 本人は名前を打ち直し続ける。主張の口（`readIngestResponse`）が潰した事故と同じ型。
+   */
+  it("500 と 401 は「届かなかった」と出し、名前のせいにしない", async () => {
+    for (const status of [500, 401, 502]) {
+      vi.stubGlobal("fetch", (path: string) => {
+        if (path === "/api/attributes") return Promise.resolve(ok(empty()));
+        return Promise.resolve({ ok: false, status, json: () => Promise.resolve({}) } as Response);
+      });
+      const { unmount } = render(<MasterView />);
+      await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: "種類を足す" }));
+      fireEvent.change(screen.getByLabelText("種類を足す"), { target: { value: "副業" } });
+      fireEvent.click(screen.getByRole("button", { name: "決める" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      const why = screen.getByRole("alert").textContent ?? "";
+      expect(why, `${status} が名前のせいにされている`).not.toContain("重なっています");
+      expect(why, `${status} で「届かなかった」と出ていない`).toContain("届きませんでした");
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /** **R9**: 400 は種別ごとに違う文を出す。`unknown_kind` を「重なっています」と言わない。 */
+  it("400 の種別ごとに違う文が出る", async () => {
+    for (const [kindError, expected] of [
+      ["duplicate_name", "重なっています"],
+      ["empty_name", "名前を入れてください"],
+      ["unknown_kind", "画面を読み直してください"],
+    ] as const) {
+      vi.stubGlobal("fetch", (path: string) => {
+        if (path === "/api/attributes") return Promise.resolve(ok(empty()));
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ error: kindError }),
+        } as Response);
+      });
+      const { unmount } = render(<MasterView />);
+      await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: "種類を足す" }));
+      fireEvent.change(screen.getByLabelText("種類を足す"), { target: { value: "住所" } });
+      fireEvent.click(screen.getByRole("button", { name: "決める" }));
+
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(screen.getByRole("alert").textContent, `${kindError} の文が違う`).toContain(expected);
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+});

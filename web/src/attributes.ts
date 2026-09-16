@@ -228,7 +228,11 @@ export async function readIngestResponse(res: Response): Promise<SendOutcome> {
   } catch {
     return { at: "unreachable" };
   }
-  if (!Array.isArray(body) || body.length === 0) return { at: "unreachable" };
+  // **本文が配列でなければ読めない** → 届かなかった扱い。
+  // **空の配列は「サーバが断った」**（`/ingest` は本文の形が悪いと `(400, [])` を返す）——
+  // 「届かなかった」にすると本人は再送し続け、毎回同じ結果になって出口が無い（review/code.md R19）。
+  if (!Array.isArray(body)) return { at: "unreachable" };
+  if (body.length === 0) return { at: "rejected", kind: "unknown" };
   const first = body[0] as { accepted?: unknown; error?: unknown };
   if (first.accepted === true) return { at: "accepted" };
   return { at: "rejected", kind: typeof first.error === "string" ? first.error : "unknown" };
@@ -245,6 +249,42 @@ export function rejectionMessage(kind: string): string {
       return "この種類が見つかりません。画面を読み直してください";
     case "invalid_supersedes":
       return "取り消す主張が見つかりません。画面を読み直してください";
+    default:
+      return `受け付けられませんでした（${kind}）`;
+  }
+}
+
+/**
+ * 種類の口（`POST /attributes/kinds` / `…/names`）の応答を読む（review/code.md R9）。
+ *
+ * **`if (!res.ok) return false` にしない。** それだと 401（合言葉切れ）も 500 も 502 も
+ * 「その名前は使えません」に化け、**本人は名前を打ち直し続ける**。
+ * `readIngestResponse` が主張の口で潰した事故（design D9 / spec-review R19）と同じ型で、
+ * 同じ道具をここでも使う。
+ */
+export async function readKindResponse(res: Response): Promise<SendOutcome> {
+  if (res.ok) return { at: "accepted" };
+  if (res.status !== 400) return { at: "unreachable" };
+  try {
+    const body: unknown = await res.json();
+    const kind = (body as { error?: unknown } | null)?.error;
+    return { at: "rejected", kind: typeof kind === "string" ? kind : "unknown" };
+  } catch {
+    return { at: "unreachable" };
+  }
+}
+
+/** 種類の口が断った理由を、本人に読める文にする（review/code.md R9）。 */
+export function kindRejectionMessage(kind: string): string {
+  switch (kind) {
+    case "empty_name":
+      return "名前を入れてください";
+    case "duplicate_name":
+      return "その名前は、いまある種類と重なっています";
+    case "unknown_kind":
+      // **「重なっています」と出さない** —— 本当の理由は種類が無いことなので、
+      // 名前を変え続けても一生通らない
+      return "この種類が見つかりません。画面を読み直してください";
     default:
       return `受け付けられませんでした（${kind}）`;
   }

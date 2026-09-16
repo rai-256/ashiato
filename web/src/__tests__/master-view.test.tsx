@@ -233,3 +233,37 @@ describe("個人属性の画面", () => {
     expect(calls.map((c) => c.path)).toContain("/api/attributes");
   });
 });
+
+describe("独立レビューで足したもの（review/code.md）", () => {
+  // Scenario: 予定の主張は予定の文字とともに出る
+  /**
+   * **R10**: 積んだ主張の行の「（予定）」は、**サーバが返した `upcoming`** で決まること。
+   * 画面が `valid_from.date > today` を文字列比較で組み直していたときは、この assertion が
+   * 無かったので `const future = false` に変えても web 114 件が全部緑だった。
+   */
+  it("行の「（予定）」はサーバの `upcoming` に従う（画面で判定し直さない）", async () => {
+    const now = claim({ id: "c1", value: "いまの住所" });
+    // **「いつから」は今日より前なのに、サーバは予定だと言っている**（規則が画面にあれば食い違う）
+    const odd = claim({
+      id: "c2",
+      value: "サーバが予定と言う主張",
+      valid_from: { precision: "year", date: "2000" },
+    });
+    await open(view([kind({ id: "k", name: "住所", current: now, upcoming: [odd], claims: [odd, now] })]));
+
+    const rows = within(card("住所")).getAllByTestId("claim-row");
+    const marked = rows.filter((r) => r.textContent?.includes("（予定）"));
+    expect(marked, "サーバが予定と言った主張に印が付いていない").toHaveLength(1);
+    expect(marked[0].textContent).toContain("サーバが予定と言う主張");
+  });
+
+  // Scenario: 読み出しの失敗と主張が無いことを区別する
+  /** **R28**: 200 でも**形が違えば失敗として出す**（描画で落ちて画面が白くなるのを防ぐ）。 */
+  it("200 で形の違う応答も、失敗として出す", async () => {
+    serve({ today: "2026-09-15" } as unknown as AttributesView);
+    render(<Root />);
+    await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
+    expect(screen.getByTestId("master-failed").textContent).toContain("unexpected_shape");
+    expect(screen.queryByText("まだ書いていない")).toBeNull();
+  });
+});

@@ -241,4 +241,21 @@ got=$(jq -s -c . "$work/claims.jsonl" | curl -sS "${AUTH[@]}" -X POST "http://$B
       | jq '[.[] | select(.accepted)] | length')
 [ "$got" -eq "$claims_total" ] \
   || { echo "normal: 主張 $claims_total 件のうち $got 件しか受け入れられなかった"; exit 1; }
-echo "normal: 個人属性の主張を $claims_total 件入れた（種類 $(printf '%s' "$attrs" | jq '.kinds | length') 件）"
+# **入れた数と読めた数が一致することを断言する**（review/code.md R13）。
+# 取り込みの受理数しか数えていなかったときは、**21 件が全部読み出しから消えても
+# 「21 件入れた」と印字して exit 0 した** —— そのあと確認バッチの手順書を持った人間が、
+# 空のカードが並ぶ画面を見ることになる。**この事故の型に対する門はここ 1 行だけ。**
+after=$(attrs_get) || { echo "normal: 入れた後に読み出せない"; exit 1; }
+printf '%s' "$after" | jq -e '
+  ([.kinds[].claims[]] | length) + ([.kinds[].superseded[]] | length) == 21
+  and (.kinds | length) == 5' >/dev/null \
+  || { echo "normal: 入れた 21 件と読めた件数が合わない: $(printf '%s' "$after" \
+        | jq -c '[.kinds[] | {name, claims:(.claims|length), sup:(.superseded|length)}]')"; exit 1; }
+# **導出の分岐が実際に通っていること**（訂正・予定・「なし」・「分からない」）——
+# 縦串は精度 `month`・訂正なしの 3 件しか流さないので、ここが唯一それらを読む場所
+printf '%s' "$after" | jq -e '
+  (.kinds[] | select(.name == "住所") | (.superseded | length) == 1 and (.upcoming | length) == 1
+     and ([.claims[] | select(.valid_from.precision == "unknown")] | length) == 1)
+  and (.kinds[] | select(.name == "副業") | .current.value == null)' >/dev/null \
+  || { echo "normal: 訂正・予定・分からない・「なし」のどれかが読み出しに出ていない"; exit 1; }
+echo "normal: 個人属性の主張を $claims_total 件入れ、同じ数を読み戻した（種類 $(printf '%s' "$after" | jq '.kinds | length') 件）"

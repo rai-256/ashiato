@@ -774,6 +774,23 @@ printf '%s' "$attrs" | jq -e --arg k "$ADDRESS" \
   '.kinds[] | select(.id == $k) | .current | .asserted_at != .ingested_at
      and .valid_from.precision == "month" and .valid_from.date == "2026-04"' >/dev/null \
   || { echo "2 つの時刻か「いつから」の精度が失われている: $attrs"; exit 1; }
+# **種類の口も縦串に通す**（review/code.md R21）。合言葉と、足して名前を変えて読み直すまで
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+       -d '{"name":"副業"}' "http://$BIND/attributes/kinds")
+[ "$code" = "401" ] || { echo "/attributes/kinds が合言葉なしで $code"; exit 1; }
+kid=$(curl -sf "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+      -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副業\"}" \
+      "http://$BIND/attributes/kinds" | jq -r .id)
+[ -n "$kid" ] && [ "$kid" != "null" ] || { echo "種類を足せない"; exit 1; }
+code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" -H 'content-type: application/json' -X POST \
+       -d "{\"user_id\":\"$ATTR_USER\",\"name\":\"副収入\"}" \
+       "http://$BIND/attributes/kinds/$kid/names")
+[ "$code" = "204" ] || { echo "名前を変えられない（$code）"; exit 1; }
+attrs=$(curl -sf "${AUTH[@]}" "http://$BIND/attributes?user_id=$ATTR_USER")
+printf '%s' "$attrs" | jq -e --arg k "$kid" \
+  '[.kinds[] | select(.id == $k) | .name] == ["副収入"]' >/dev/null \
+  || { echo "名前を変えた種類が読み出しに出ていない: $attrs"; exit 1; }
+
 # 資格情報の無い求めは断られる（PERM-10）
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/attributes")
 [ "$code" = "401" ] || { echo "/attributes が 401 のはずが $code"; exit 1; }

@@ -152,6 +152,48 @@ DB を使う検査は `docker compose up -d db` が前提。**章は依存の順
 - [ ] 7.4 PR 本文に **仮決め（D3 / D6 / D7 / D13）と反転条件**を列挙する。検証: `gh pr view --json body -q .body | grep -cE "D(3|6|7|13)（仮）"` が 4 以上
 - [ ] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。検証: `ls docs/handoff/ST19.md 2>/dev/null` が空か、あればその各項目に PR 本文で触れている
 
+## 8. 独立レビューの処置（`review/code.md` R1〜R31）
+
+`code-verify` と `pr-review-toolkit`（`code-reviewer` / `silent-failure-hunter` / `pr-test-analyzer`）の
+4 本を PR の前に走らせ、**31 件**の指摘を受けた。1 件ごとの根拠と処置は `review/code.md`。
+**28 件を直し、2 件を却下、1 件を ST29 へ送った**（`review_triage.py` が処置の無い指摘を止める）。
+
+- [x] 8.1 **主張が黙って消える経路を塞ぐ**（R3 / R12 / R16 / R17）——
+  取り込み口で `tz_offset_min` を `-1439..=1439` に絞る（外れると受理された顔をして読み出しから永久に消え、
+  錠のせいで消すことも直すこともできない）/ `stored_claim_of` の掛け算を `checked_mul` に（debug で panic した）/
+  読んだ数と組めた数の差を `tracing::error!` で叫ぶ / `kinds_of` を `LEFT JOIN` にして名前の無い種類を落とさない /
+  `claim_from_payload` を `parse_claim` と同じ厳しさに（緩いと欠けた欄が「本人が書いた値」に化ける）/
+  `supersedes_is_valid` の doc を実装に合わせる。
+  検証: `CT attributes_tests::ingest_rejects_out_of_range_tz_offset`、`CT attributes_tests::read_kind_without_a_name`、
+  `CT attributes_tests::ingest_supersedes_rejects_an_erased_claim`
+- [x] 8.2 **まとめ送り全体を止める制御文字を断る**（R14）—— 値と補足の U+0000 を `invalid_claim_value` で断る。
+  原文は JSON のテキストなので `raw.contains('\0')` をすり抜け、`jsonb` への INSERT が 22P05 で落ちて
+  **1 件の不正が後続を永久に止めた**。検証: `CT attributes_tests::ingest_rejects_control_characters`
+- [x] 8.3 **取り消しの読み出しを決定的にする**（R5）—— `claims_of` に `ORDER BY ingest_time, id`、
+  `view` は並べてから最初の取り消しを勝たせる。spec が認めている「2 件が 1 件を取り消す」で、
+  答えが読み出しのたびに変わっていた。検証: `CT attributes_tests::read_two_supersessions_are_deterministic`
+- [x] 8.4 **種類の口の契約と、合言葉の検査**（R8 / R9 / R21）—— 400 の本文を `KindErrorBody` にして
+  OpenAPI の宣言と揃える / 画面は `readKindResponse` で「断られた」と「届かなかった」を分ける /
+  **ハンドラを通るテストを足す**（`authorize` を外しても全件緑だった）。
+  検証: `CT attributes_tests::kinds_post`、`tools/check-openapi.sh` rc=0
+- [x] 8.5 **画面が持っていた規則の二重持ちと既定**（R10 / R11 / R15 / R18 / R19）——
+  「予定」の判定をサーバの `upcoming` に寄せる / 「最も新しく書いた主張」を絶対時刻で比べる /
+  取り消す主張が選べないときは積ませない / 受理の事実を読み直しの失敗で上書きしない /
+  空の本文を「断られた」に倒す。検証: `VT master-form.test.tsx`、`VT master-view.test.tsx`
+- [x] 8.6 **戻し手順が本人の種類を消さない**（R7）—— `.down.sql` の条件を「主張が残っている
+  **または** 種類が残っている」に広げる（まだ主張を書いていない種類が戻しで消えた）。
+  検証: `tools/check-immutable.sh` rc=0
+- [x] 8.7 **検査の穴**（R2 / R4 / R6 / R22〜R31）—— 既定の感度をリテラルで固定 /
+  日境界をハンドラの高さで見る（`App::at` で時刻を差し込む）/ 並べ替えの印を `view` の階層にも置く /
+  `raw` と `content_hash` の素の書き換えと、門で見る 3 列を 1 列ずつ確かめる /
+  「積む」が送信中に押せないこと・3 段目の tie-break・予定の並び・読み直し後に主張が増えて見えること・
+  形の違う応答・「なし」の原文・色の網を足す / **画面が組む原文の形を Rust の解釈器と突き合わせる黄金値**。
+  検証: `CT attributes::tests`、`CT attributes_tests::`、`VT` 4 ファイル、`tools/check-immutable.sh` rc=0
+- [x] 8.8 **縦串と偽データが「読み出せた件数」を数える**（R13）—— `seed.sh` は入れた 21 件と読めた件数の
+  一致と、訂正・予定・「分からない」・「なし」が読み出しに出ることを見る / `smoke.sh` に種類の口の段を足す。
+  **入れた数しか数えていないと、全部消えても緑のまま確認バッチの手順書が人間に渡る。**
+  検証: `tools/seed.sh normal` を 2 回続けて rc=0、`tools/smoke.sh` rc=0
+
 ## 人間の確認待ち
 
 **機械で確かめられないのは「違和感」だけ**（2026-09-14 の決定）。正しさは 6 章までのテストが持つ。

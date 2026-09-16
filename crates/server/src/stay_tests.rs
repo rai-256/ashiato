@@ -43,9 +43,7 @@ async fn stays_migration_applies_twice() {
     // 後から版を足す Story（ST19 の個人属性）が末尾を取った時点で、
     // 滞在とは無関係にこの検査が落ちた。順序の要件は「依存する版より後」であって「末尾」ではない。
     assert!(
-        crate::MIGRATIONS
-            .iter()
-            .any(|(n, _)| n.ends_with("_stays")),
+        crate::MIGRATIONS.iter().any(|(n, _)| n.ends_with("_stays")),
         "滞在の移行が MIGRATIONS に無い（当て忘れると錠が本番だけ効かない）"
     );
 }

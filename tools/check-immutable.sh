@@ -565,6 +565,21 @@ fi
 got=$(psql -c "SELECT payload->>'value' FROM core.event WHERE id='$CLAIM_A';")
 [ "$got" = '東京都 目黒区' ] || { echo "  NG 拒まれたのに値が変わっている: $got"; fail=1; }
 
+# **原文そのものの書き換えも拒む**（review/code.md R22）。
+# 値を見るときに `payload` だけを試していたが、**`raw` は値の正典で、消去の唯一の復元元**。
+# Scenario の WHEN「格納された主張の値を別の値にする更新」の最も直接的な読みはこちら。
+if psql -c "UPDATE core.event SET raw = '{\"value\":\"京都府\"}' WHERE id='$CLAIM_A';" \
+     >/dev/null 2>&1; then
+  echo "  NG 主張の原文が書き換えられた（値の正典が動く）"; fail=1
+else
+  echo "  OK 主張の原文の書き換えは拒まれた"
+fi
+if psql -c "UPDATE core.event SET content_hash = 'forged' WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 主張の内容の鍵が書き換えられた"; fail=1
+else
+  echo "  OK 主張の内容の鍵の書き換えは拒まれた"
+fi
+
 # Scenario: 主張のいつからは書き換えられない
 if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{valid_from,date}','\"2021-01\"')
              WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
@@ -756,6 +771,18 @@ for col in $frozen_cols; do
   fi
 done
 echo "  OK 凍結すると宣言した列はどれも書き換えられない"
+# **門で見ると宣言した 3 列も、素の書き換えは拒まれること**（review/code.md R22）。
+# 点呼が「知っている列」として通すだけだと、**門が将来その列を見なくなっても気付かない**
+for col in $gated_cols; do
+  case "$col" in
+    payload) val="'{\"forged\":true}'" ;;
+    *)       val="'forged'" ;;
+  esac
+  if psql -c "UPDATE core.event SET $col = $val WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+    echo "  NG 主張の $col が台帳なしで書き換えられた（門が見ていない）"; fail=1
+  fi
+done
+echo "  OK 門で見ると宣言した列は、台帳なしの素の書き換えを拒む"
 
 # --- 戻し手順（D12）。**主張が残っていれば、種類の 2 表も登録簿の行も残す**
 #

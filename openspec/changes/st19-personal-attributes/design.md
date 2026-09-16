@@ -223,7 +223,9 @@ Claim = {"id","value":string|null,"valid_from":{"precision","date"},"asserted_at
 
 `migrations/YYYYMMDDHHMM_personal_attributes.sql`（作成時刻）と `.down.sql`。中身は D2 の 3 関数とトリガ、D7 の 2 表と錠、登録簿の 1 行。
 **当て直せる形**（`IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP TRIGGER IF EXISTS` / `ON CONFLICT DO NOTHING`）。`MIGRATIONS` 配列の末尾に足す。
-`.down.sql` は、**主張の行が 1 件でも残っていれば、登録簿の行も種類の 2 表も残す**（`DELETE FROM core.source WHERE logical_source = 's01-attribute' AND NOT EXISTS (SELECT 1 FROM core.event WHERE logical_source = 's01-attribute')` と、
+`.down.sql` は、**主張の行か種類の行が 1 つでも残っていれば、登録簿の行も種類の 2 表も残す**
+（当初は「主張の行」だけを見ていたが、**まだ主張を書いていない種類が戻しで消えた** —— 本人が名前を
+決めたという事実そのものが成果物で、台帳は追記のみなので作り直せない。review/code.md R7）（`DELETE FROM core.source WHERE logical_source = 's01-attribute' AND NOT EXISTS (SELECT 1 FROM core.event WHERE logical_source = 's01-attribute')` と、
 同じ条件の `DO` ブロックで 2 表を落とす）。錠の関数とトリガは落とす。主張が原文の中で指す種類の識別子の名前を、戻しで失わないため（spec-review R20。当初は「外部キーで当たる」を前提にしていたが、当たると戻しが途中で止まる）。
 
 ### D13（仮）. 補足は行に常に出す

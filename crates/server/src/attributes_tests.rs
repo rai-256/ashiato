@@ -200,7 +200,10 @@ async fn migration_applies_twice() {
         .iter()
         .position(|n| n.ends_with("_gates"))
         .expect("ST03 の門の版が MIGRATIONS に無い");
-    assert!(mine > gates, "主張の移行が、前提にしている門の版より前にある");
+    assert!(
+        mine > gates,
+        "主張の移行が、前提にしている門の版より前にある"
+    );
 }
 
 async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
@@ -1832,5 +1835,464 @@ async fn erasure_hash_cannot_be_rebuilt_from_what_remains() {
         ingest::content_hash_of(attributes::SOURCE, event_time, &guess),
         content_hash,
         "乱数を知らないまま鍵を作り直せた（消した値が総当たりで確かめられる）"
+    );
+}
+
+// ================================================================ 独立レビューで足したもの（review/code.md）
+
+#[tokio::test]
+// Scenario: 主張はローカル AI までで格納される
+/// **R2**: 既定の感度を、実装の定数ではなく**リテラル**と突き合わせる。
+/// 定数自身と比べていたときは、2 を 1 に変えても 280 件全部緑だった（本人の決定が回帰から守られていない）。
+async fn ingest_default_sensitivity_is_pinned_to_two() {
+    // PERM-2 の 4 段階: 0 公開可 / 1 外部 AI に出してよい / **2 ローカル AI まで** / 3 AI に出さない
+    const PERM4_LOCAL_AI: i16 = 2;
+    assert_eq!(
+        attributes::DEFAULT_SENSITIVITY,
+        i32::from(PERM4_LOCAL_AI),
+        "本人が Q3 で選んだ既定（ローカル AI まで）が動いている"
+    );
+
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+    let id = store_claim(
+        &app,
+        u,
+        address,
+        Some("A"),
+        "year",
+        Some("2019"),
+        "2026-09-15T02:00:00Z",
+    )
+    .await;
+    let (s,): (i16,) = sqlx::query_as("SELECT sensitivity FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(s, PERM4_LOCAL_AI, "主張の感度が「ローカル AI まで」でない");
+}
+
+#[tokio::test]
+// Scenario: 今日は Asia/Tokyo の日付で決まる
+/// **R4**: **ハンドラの高さで**日境界を確かめる。store を直に呼んで `today` を自分で渡す形だと、
+/// ハンドラが UTC で日を切っていても誰も気付かない（実測: `today_jst()` を UTC にしても全件緑）。
+async fn read_handler_cuts_the_day_in_asia_tokyo() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+    put_claim(
+        &app.pool,
+        u,
+        address,
+        Some("新居"),
+        "day",
+        Some("2026-10-01"),
+        "2026-09-20T01:00:00Z",
+    )
+    .await;
+
+    // UTC の 2026-09-30T16:00 は `Asia/Tokyo` では 2026-10-01
+    let at: chrono::DateTime<chrono::Utc> = "2026-09-30T16:00:00Z".parse().unwrap();
+    let Json(view) = attributes_get(
+        State(app.at(at)),
+        auth(),
+        Query(AttributesQuery { user_id: Some(u) }),
+    )
+    .await
+    .expect("読み出し");
+
+    assert_eq!(view.today, "2026-10-01", "ハンドラが UTC で日を切っている");
+    let got = kind_named(&view, "住所");
+    assert_eq!(
+        got.current.as_ref().map(|c| c.value.as_deref()),
+        Some(Some("新居")),
+        "JST の 10/1 に 10/1 からの主張がまだ予定のまま"
+    );
+    assert!(got.upcoming.is_empty());
+}
+
+#[tokio::test]
+// Scenario: 1 つの主張を 2 つの主張が取り消せる
+/// **R5**: 取り消しが 2 件あるときの**読み出しが決定的**であること。
+/// `HashMap` の後勝ちに任せていたときは、`superseded_by` に入るのが行の順で決まり、
+/// **読み出しのたびに答えが変わった**（`ORDER BY` も無かった）。
+async fn read_two_supersessions_are_deterministic() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+    let target = store_claim(
+        &app,
+        u,
+        address,
+        Some("A"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+
+    let mut ids = Vec::new();
+    for (n, value) in [(2, "B"), (3, "C")] {
+        let id = uuid::Uuid::new_v4();
+        let raw = claim_raw(
+            id,
+            address,
+            Some(value),
+            "year",
+            Some("2020"),
+            Some(target),
+            None,
+            NONCE,
+        );
+        let res = send_claim(
+            &app,
+            claim_item(id, u, &format!("2026-09-0{n}T01:00:00Z"), &raw),
+        )
+        .await;
+        assert!(res.accepted, "{value} が受け付けられない: {:?}", res.error);
+        ids.push(res.id.unwrap());
+    }
+
+    // **10 回読んで毎回同じ答え**（行の順に依らない）
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..10 {
+        let v = read_view(&app, u).await;
+        let got = kind_named(&v, "住所");
+        assert_eq!(got.superseded.len(), 1, "取り消された主張が 1 件でない");
+        assert_eq!(got.superseded[0].id, target);
+        seen.insert(got.superseded[0].superseded_by);
+    }
+    assert_eq!(
+        seen.len(),
+        1,
+        "「どの主張で取り消されたか」が読み出しのたびに変わる: {seen:?}"
+    );
+    // 先に書いた側（B）が勝つ。**どちらでもよいが、決まっていること**が要る
+    assert_eq!(seen.into_iter().next().unwrap(), Some(ids[0]));
+}
+
+#[tokio::test]
+/// **R3**: 地域のずれが範囲外の主張を**格納の前に断る**。
+///
+/// 断らないと `accepted: true` で入り、`GET /attributes` から**無言で消える**。
+/// 主張の行は DB が削除を拒むので、一度入ると取り除くことも直すこともできない。
+async fn ingest_rejects_out_of_range_tz_offset() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+
+    // `FixedOffset` の上限は ±86,399 秒 = ±1,439 分。`i32` をあふれさせる値も含める
+    for bad in [1440, -1440, 100_000, 40_000_000, i32::MIN] {
+        let id = uuid::Uuid::new_v4();
+        let raw = claim_raw(
+            id,
+            address,
+            Some("A"),
+            "year",
+            Some("2019"),
+            None,
+            None,
+            NONCE,
+        );
+        let mut item = claim_item(id, u, "2026-09-15T02:00:00Z", &raw);
+        item["tz_offset_min"] = serde_json::json!(bad);
+        let res = send_claim(&app, item).await;
+        assert!(!res.accepted, "tz_offset_min = {bad} が通っている");
+        assert_eq!(
+            serde_json::to_value(res.error).unwrap(),
+            serde_json::json!("malformed_claim"),
+            "tz_offset_min = {bad} の種別が違う"
+        );
+    }
+    // 端は通る（範囲を狭めすぎていないこと）
+    for ok in [1439, -1439, 0, 540] {
+        let id = uuid::Uuid::new_v4();
+        let raw = claim_raw(
+            id,
+            address,
+            Some("A"),
+            "year",
+            Some("2019"),
+            None,
+            None,
+            NONCE,
+        );
+        let mut item = claim_item(id, u, "2026-09-15T02:00:00Z", &raw);
+        item["tz_offset_min"] = serde_json::json!(ok);
+        assert!(
+            send_claim(&app, item).await.accepted,
+            "tz_offset_min = {ok} が断られている"
+        );
+    }
+    // **どれも読み出しから消えていない**（受理した数と読める数が一致する）
+    let v = read_view(&app, u).await;
+    assert_eq!(kind_named(&v, "住所").claims.len(), 4);
+}
+
+#[tokio::test]
+/// **R14**: 値や補足に制御文字を持つ主張を断る。
+///
+/// 原文は JSON の**テキスト**なので、エスケープされた NUL は原文のバイト列に現れず、
+/// `IngestRequest::validate` の原文の検査をすり抜ける。解釈すると Rust の `String` に
+/// 本物の制御文字が入り、`payload`（`jsonb`）への INSERT が 22P05 で落ちて
+/// **まとめ送り全体が 500 になる**（画面からは「届かなかった」に見え、本人は押し直し続ける）。
+async fn ingest_rejects_control_characters() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+    // JSON の原文に書くエスケープ（この文字列自体には制御文字を含めない）
+    let nul = "\\u0000";
+
+    for (why, value, note) in [
+        ("値に NUL", format!("\"a{nul}b\""), "null".to_string()),
+        ("補足に NUL", "\"ok\"".to_string(), format!("\"a{nul}b\"")),
+    ] {
+        let id = uuid::Uuid::new_v4();
+        let raw = format!(
+            r#"{{"claim":"{id}","nonce":"{NONCE}","kind":"{address}","value":{value},"valid_from":{{"precision":"year","date":"2019"}},"supersedes":null,"note":{note}}}"#
+        );
+        let res = send_claim(&app, claim_item(id, u, "2026-09-15T02:00:00Z", &raw)).await;
+        assert!(!res.accepted, "{why} の主張が通っている");
+        assert_eq!(
+            serde_json::to_value(res.error).unwrap(),
+            serde_json::json!("invalid_claim_value"),
+            "{why} の種別が違う"
+        );
+    }
+
+    // **まとめ送りの後続が止まらない**（1 件の恒久的な失敗が後続を永久に止めない）
+    let bad = uuid::Uuid::new_v4();
+    let good = uuid::Uuid::new_v4();
+    let bad_raw = format!(
+        r#"{{"claim":"{bad}","nonce":"{NONCE}","kind":"{address}","value":"a{nul}b","valid_from":{{"precision":"year","date":"2019"}},"supersedes":null,"note":null}}"#
+    );
+    let good_raw = claim_raw(
+        good,
+        address,
+        Some("通る値"),
+        "year",
+        Some("2020"),
+        None,
+        None,
+        NONCE,
+    );
+    let (code, res) = post_ingest(
+        &app,
+        serde_json::json!([
+            claim_item(bad, u, "2026-09-15T02:00:00Z", &bad_raw),
+            claim_item(good, u, "2026-09-15T03:00:00Z", &good_raw),
+        ]),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "1 件の不正でまとめ送り全体が落ちた");
+    assert!(!res[0].accepted);
+    assert!(
+        res[1].accepted,
+        "後続が巻き添えで落ちた: {:?}",
+        res[1].error
+    );
+}
+
+#[tokio::test]
+/// **R17**: 本文を消去した主張は取り消し先に指せない（`payload` が空で種類が引けない）。
+/// **削除の印の付いた主張は指せる**（spec が認めている）—— 2 つを分けて固定する。
+async fn ingest_supersedes_rejects_an_erased_claim() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+    let erased = store_claim(
+        &app,
+        u,
+        address,
+        Some("消される"),
+        "year",
+        Some("2019"),
+        "2026-09-01T01:00:00Z",
+    )
+    .await;
+
+    let mut tx = app.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+         VALUES ($1, $2, $3, 'event', 'test')",
+    )
+    .bind(erased)
+    .bind(u)
+    .bind(attributes::SOURCE)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = $1")
+        .bind(erased)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let id = uuid::Uuid::new_v4();
+    let raw = claim_raw(
+        id,
+        address,
+        Some("A"),
+        "year",
+        Some("2020"),
+        Some(erased),
+        None,
+        NONCE,
+    );
+    let res = send_claim(&app, claim_item(id, u, "2026-09-02T01:00:00Z", &raw)).await;
+    assert!(!res.accepted, "消去した主張を取り消し先に指せた");
+    assert_eq!(
+        serde_json::to_value(res.error).unwrap(),
+        serde_json::json!("invalid_supersedes")
+    );
+}
+
+#[tokio::test]
+/// **R12**: 名前の台帳に行の無い種類を、黙って落とさない（その種類の主張ごと消える）。
+/// 取り込み口を通れば起きないが、`core.attribute_kind` へ直に INSERT する経路は実在する。
+async fn read_kind_without_a_name_is_not_dropped() {
+    let app = app().await;
+    let u = testdb::user();
+    let address = address_kind(&app, u).await;
+
+    // 名前の行を書かずに種類だけ置く（錠の外の経路）
+    let orphan = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO core.attribute_kind (id, user_id) VALUES ($1, $2)")
+        .bind(orphan)
+        .bind(u)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    let v = read_view(&app, u).await;
+    let ids: Vec<uuid::Uuid> = v.kinds.iter().map(|k| k.id).collect();
+    assert!(ids.contains(&orphan), "名前の無い種類が読み出しから消えた");
+    assert!(ids.contains(&address));
+    let got = v.kinds.iter().find(|k| k.id == orphan).unwrap();
+    assert_eq!(got.name, attributes_store::NAMELESS_KIND);
+}
+
+// ---------------------------------------------------------------- 種類の口（ハンドラの高さ）
+
+/// **R21**: 種類の 2 つの書き込み口には、**ハンドラのテストが 1 本も無かった** ——
+/// `authorize` を外しても 280 件全部緑になる（＝合言葉なしで誰でも種類を足せる状態が緑）。
+/// 経路（合言葉・400 の本文の形・成功したものが読み出しに出る）をここで固定する。
+#[tokio::test]
+async fn kinds_post_requires_the_token() {
+    let app = app().await;
+    let (code, _) = attributes_kind_post(
+        State(app.clone()),
+        HeaderMap::new(),
+        Json(attributes_store::KindRequest {
+            user_id: Some(testdb::user()),
+            name: "副業".into(),
+        }),
+    )
+    .await
+    .expect_err("合言葉なしで種類が足せた");
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+
+    let (code, _) = attributes_kind_name_post(
+        State(app),
+        HeaderMap::new(),
+        Path(uuid::Uuid::new_v4()),
+        Json(attributes_store::KindRequest {
+            user_id: Some(testdb::user()),
+            name: "仕事".into(),
+        }),
+    )
+    .await
+    .expect_err("合言葉なしで名前が変えられた");
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+// Scenario: 種類を足せる
+// Scenario: 名前を変えても識別子と主張が変わらない
+/// **R21**: 口を通して足し、口を通して名前を変え、読み出しに出ることまで見る。
+/// 併せて `POST /attributes/kinds/{id}/names` の**経路の形**（axum 0.8 の `{id}`）を固定する。
+async fn kinds_post_round_trip_through_the_handlers() {
+    let app = app().await;
+    let u = testdb::user();
+
+    let Json(created) = attributes_kind_post(
+        State(app.clone()),
+        auth(),
+        Json(attributes_store::KindRequest {
+            user_id: Some(u),
+            name: "副業".into(),
+        }),
+    )
+    .await
+    .expect("種類を足せる");
+
+    let v = read_view(&app, u).await;
+    assert_eq!(kind_named(&v, "副業").id, created.id);
+
+    let code = attributes_kind_name_post(
+        State(app.clone()),
+        auth(),
+        Path(created.id),
+        Json(attributes_store::KindRequest {
+            user_id: Some(u),
+            name: "副収入".into(),
+        }),
+    )
+    .await
+    .expect("名前を変えられる");
+    assert_eq!(code, StatusCode::NO_CONTENT);
+
+    let after = read_view(&app, u).await;
+    assert_eq!(
+        kind_named(&after, "副収入").id,
+        created.id,
+        "名前を変えたら識別子が変わった"
+    );
+    assert!(after.kinds.iter().all(|k| k.name != "副業"));
+}
+
+#[tokio::test]
+/// **R8 / R21**: 断った 400 の**本文の形**を固定する（`{"error":"duplicate_name"}`）。
+/// 画面はこの形を読んで文を選ぶので、裸の文字列に変わると「届かなかった」に化ける。
+async fn kinds_post_rejection_body_shape() {
+    let app = app().await;
+    let u = testdb::user();
+    read_view(&app, u).await; // 住所と職業を置く
+
+    let (code, Json(body)) = attributes_kind_post(
+        State(app.clone()),
+        auth(),
+        Json(attributes_store::KindRequest {
+            user_id: Some(u),
+            name: "住所".into(),
+        }),
+    )
+    .await
+    .expect_err("重なる名前が通った");
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::to_value(body).unwrap(),
+        serde_json::json!({ "error": "duplicate_name" })
+    );
+
+    // その利用者の種類でない種類は `unknown_kind`（別の利用者を名指しできたと分からせない）
+    let (code, Json(body)) = attributes_kind_name_post(
+        State(app),
+        auth(),
+        Path(uuid::Uuid::new_v4()),
+        Json(attributes_store::KindRequest {
+            user_id: Some(u),
+            name: "仕事".into(),
+        }),
+    )
+    .await
+    .expect_err("無い種類の名前が変えられた");
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::to_value(body).unwrap(),
+        serde_json::json!({ "error": "unknown_kind" })
     );
 }

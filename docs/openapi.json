@@ -78,7 +78,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KindError"
+                  "$ref": "#/components/schemas/KindErrorBody"
                 }
               }
             }
@@ -125,7 +125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KindError"
+                  "$ref": "#/components/schemas/KindErrorBody"
                 }
               }
             }
@@ -1173,6 +1173,18 @@
           "duplicate_name",
           "unknown_kind"
         ]
+      },
+      "KindErrorBody": {
+        "type": "object",
+        "description": "断った理由の本文（design D5 と同じ向き —— 受け取った値は載せない）。\n\n**裸の種別ではなく包む**（review/code.md R8）。OpenAPI の宣言と実物を揃え、\n画面が 1 か所で読めるようにする。",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/KindError"
+          }
+        }
       },
       "KindRequest": {
         "type": "object",

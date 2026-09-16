@@ -15,6 +15,10 @@ use crate::attributes::{self, AttributesView, Claim, Kind, Precision, StoredClai
 /// 滞在の作り直し（4_816_016）とマイグレーション（4_820_251）とは別の空間。
 pub(crate) const LOCK_KEY: i32 = 4_819_019;
 
+/// 名前の台帳に行が無い種類の見出し（review/code.md R12）。**取り込み口を通れば起きない** ——
+/// 種類と名前は同じまとまりで書く。直に INSERT された種類のためだけの印。
+pub const NAMELESS_KIND: &str = "（名前の無い種類）";
+
 /// 最初に置く種類（深掘り C7）。**識別子は利用者の UUID を名前空間にした v5**（design D7）——
 /// 同じ利用者なら何度導いても同じ識別子になるので、初期化が競合しても増えない。
 pub const INITIAL_KINDS: [(&str, &str); 2] = [("address", "住所"), ("job", "職業")];
@@ -29,6 +33,15 @@ pub enum KindError {
     DuplicateName,
     /// その利用者の種類ではない（無い種類と同じに扱う。design D7）
     UnknownKind,
+}
+
+/// 断った理由の本文（design D5 と同じ向き —— 受け取った値は載せない）。
+///
+/// **裸の種別ではなく包む**（review/code.md R8）。OpenAPI の宣言と実物を揃え、
+/// 画面が 1 か所で読めるようにする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct KindErrorBody {
+    pub error: KindError,
 }
 
 /// 種類を足す・名前を変える要求の本文。
@@ -233,10 +246,14 @@ async fn kinds_of(
     tx: &mut Transaction<'_, Postgres>,
     user_id: uuid::Uuid,
 ) -> Result<Vec<Kind>, sqlx::Error> {
-    let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+    // **`LEFT JOIN` にする**（review/code.md R12）。内部結合だと、名前の行が無い種類が
+    // **結果から消え、その種類の主張も全部消える**（`view` は種類に紐づかない主張を出さない）。
+    // `core.attribute_kind` は削除を拒むので、そうなった種類は
+    // **永久に「主張だけがある見えない種類」**として残る。捨てるより印を付けて入れる（扉の既定）。
+    let rows: Vec<(uuid::Uuid, Option<String>)> = sqlx::query_as(
         "SELECT k.id, n.name
            FROM core.attribute_kind k
-           JOIN LATERAL (
+           LEFT JOIN LATERAL (
              SELECT name FROM core.attribute_kind_name
               WHERE kind_id = k.id ORDER BY id DESC LIMIT 1
            ) n ON true
@@ -248,7 +265,20 @@ async fn kinds_of(
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, name)| Kind { id, name })
+        .map(|(id, name)| {
+            let Some(name) = name else {
+                tracing::error!(
+                    kind = "attribute_kind_without_name",
+                    id = %id,
+                    "名前の台帳に行の無い種類がある"
+                );
+                return Kind {
+                    id,
+                    name: NAMELESS_KIND.into(),
+                };
+            };
+            Kind { id, name }
+        })
         .collect())
 }
 
@@ -271,22 +301,56 @@ async fn claims_of(
     tx: &mut Transaction<'_, Postgres>,
     user_id: uuid::Uuid,
 ) -> Result<Vec<StoredClaim>, sqlx::Error> {
+    // **並びを固定する**（review/code.md R5）。`ORDER BY` が無いと行の順は PostgreSQL 任せ
+    // （プラン・物理順・VACUUM で変わる）で、**同じ主張を 2 件が取り消したときに
+    // 「どの主張で取り消されたか」が読み出しのたびに変わる**。
     let rows: Vec<ClaimRow> = sqlx::query_as(
         "SELECT id, event_time, tz_offset_min, ingest_time, raw, payload
            FROM core.event_live
-          WHERE user_id = $1 AND logical_source = $2",
+          WHERE user_id = $1 AND logical_source = $2
+          ORDER BY ingest_time, id",
     )
     .bind(user_id)
     .bind(attributes::SOURCE)
     .fetch_all(&mut **tx)
     .await?;
 
-    Ok(rows.into_iter().filter_map(stored_claim_of).collect())
+    // **落とした行は数えて叫ぶ**（review/code.md R12 / R3）。この Story の主題は
+    // 「上書きせず履歴で残す」なので、**主張が黙って消えること自体が最悪の失敗形**。
+    // 主張の行は DB が削除を拒むので、一度こうなると取り除くことも直すこともできない ——
+    // ログが唯一の観測点になる。**値は載せない**（製造準備 A-2）。
+    let read = rows.len();
+    let claims: Vec<StoredClaim> = rows.into_iter().filter_map(stored_claim_of).collect();
+    if claims.len() != read {
+        tracing::error!(
+            kind = "attributes_claims_dropped",
+            read = read,
+            dropped = read - claims.len(),
+            "読めない主張を読み出しから落とした（行は DB に残っている）"
+        );
+    }
+    Ok(claims)
 }
 
 /// 1 行を主張にする。**読めない行は落とす**（消去した行はここで `erased` になる）。
 fn stored_claim_of(row: ClaimRow) -> Option<StoredClaim> {
-    let offset = chrono::FixedOffset::east_opt(row.tz_offset_min * 60)?;
+    // **掛け算で `i32` をあふれさせない**（review/code.md R3）。debug ビルドでは算術
+    // オーバーフローで panic し、その利用者の `GET /attributes` が恒久的に 500 になる。
+    // 範囲外は取り込み口が断る（`lib.rs` の主張の分岐）が、**錠の外から直に入った行**は
+    // ここへ届く —— そのときは落とすが、黙って落とさない。
+    let offset = row
+        .tz_offset_min
+        .checked_mul(60)
+        .and_then(chrono::FixedOffset::east_opt);
+    let Some(offset) = offset else {
+        tracing::error!(
+            kind = "attributes_claim_unreadable",
+            id = %row.id,
+            why = "tz_offset_min",
+            "主張の地域のずれが読めない"
+        );
+        return None;
+    };
     let asserted_at = row.event_time.with_timezone(&offset);
     if row.raw.is_empty() {
         // **消去された主張**。種類も値も読めないので、器だけ作って `view` に落とさせる
@@ -320,6 +384,11 @@ fn stored_claim_of(row: ClaimRow) -> Option<StoredClaim> {
 }
 
 /// 解析済み（`payload`）から主張を組む。`nonce` は入っていない（design D4）。
+///
+/// **書き込み側（`parse_claim`）と同じ厳しさで読む**（review/code.md R16）。緩く読むと、
+/// 欠けた欄が「本人が書いた値」に化ける —— `value` の欄が無い行を `None`（＝「なし」）として
+/// 読むと、**本人が一度も書いていない「なし」を本人の主張として画面に出す**（落とすより悪い）。
+/// 壊れた `supersedes` を黙って `None` にすると、**訂正が普通の追記に落ちて古い値がいまの値に戻る**。
 fn claim_from_payload(payload: &serde_json::Value, id: uuid::Uuid) -> Option<Claim> {
     let kind = payload
         .get("kind")
@@ -333,25 +402,32 @@ fn claim_from_payload(payload: &serde_json::Value, id: uuid::Uuid) -> Option<Cla
         "unknown" => Precision::Unknown,
         _ => return None,
     };
+    // `value` は**欄そのものが要る**（`null` が「なし」なので、欠落と区別する）
+    let value = match payload.get("value")? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => Some(s.clone()),
+        _ => return None,
+    };
+    let supersedes = match payload.get("supersedes") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(uuid::Uuid::parse_str(s).ok()?),
+        Some(_) => return None,
+    };
+    let note = match payload.get("note") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(_) => return None,
+    };
     Some(Claim {
         id,
         kind,
-        value: payload
-            .get("value")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        value,
         valid_from: ValidFrom {
             precision,
             date: vf.get("date").and_then(|v| v.as_str()).map(str::to_string),
         },
-        supersedes: payload
-            .get("supersedes")
-            .and_then(|v| v.as_str())
-            .and_then(|s| uuid::Uuid::parse_str(s).ok()),
-        note: payload
-            .get("note")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        supersedes,
+        note,
         payload: payload.clone(),
     })
 }
@@ -394,8 +470,14 @@ pub async fn kind_exists(
 /// 取り消し先として使える主張か（design D5 / spec「形の合わない主張は受け付けない」）。
 ///
 /// **同じ利用者・同じ種類の、主張のソースの記録**でなければならない。
-/// **削除の印や消去は見ない** —— 消した主張を取り消し先に指せることは spec が認めている
-/// （読み出しがその取り消しを効かせる相手を持たないだけで害が無い）。
+///
+/// **削除の印（`deleted_at`）は見ない** —— 消した主張を取り消し先に指せることは spec が
+/// 認めている（読み出しがその取り消しを効かせる相手を持たないだけで害が無い）。
+///
+/// **本文を消去した主張は指せない**（review/code.md R17）。`payload` が空なので種類が引けず、
+/// ここが `false` を返して `invalid_supersedes` になる。以前このコメントは「消去も見ない」と
+/// 書いていたが事実と違った —— 次に読む人がこれを根拠に判断するので、実装に合わせてある
+/// （`supersedes_rejects_an_erased_claim` が固定する）。
 ///
 /// **行錠を取らずに読む**（spec-review R17）。読んだ直後に別のまとまりが取り消し先を
 /// 消しても、読み出しは消した主張を出さないので、その取り消しは効く相手がいないだけ。

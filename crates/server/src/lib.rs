@@ -127,6 +127,13 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
 #[derive(Clone, Debug)]
 pub struct App {
     pool: sqlx::PgPool,
+    /// **試験が時刻を差し込む口**（tasks 2.4「試験は時刻を差し込めるようにする」）。
+    ///
+    /// `None` なら本物の時計。これが無いと、`Asia/Tokyo` で日を切っていることを
+    /// **ハンドラの高さで確かめられない** —— UTC に変えても、両者の日付が違う
+    /// 00:00〜09:00 JST の 9 時間以外はテストが通ってしまう（review/code.md R4）。
+    #[cfg(test)]
+    now: Option<chrono::DateTime<chrono::Utc>>,
     /// 共有の合言葉。**loopback に閉じているだけでは足りない** ——
     /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
     /// 素通しで読み書きできてしまう。
@@ -143,7 +150,26 @@ impl App {
             pool,
             token: token.into(),
             stays: StayRebuilder::real(),
+            now: None,
         }
+    }
+
+    /// 時刻を差し込んだ複製（tasks 2.4）。
+    #[cfg(test)]
+    pub(crate) fn at(self, now: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            now: Some(now),
+            ..self
+        }
+    }
+
+    /// いまの `Asia/Tokyo` の日付。**日を引く式は `stay_store::jst_date` の 1 本だけ**。
+    fn today(&self) -> chrono::NaiveDate {
+        #[cfg(test)]
+        if let Some(now) = self.now {
+            return stay_store::jst_date(now);
+        }
+        today_jst()
     }
 }
 
@@ -477,6 +503,17 @@ async fn ingest_one(
             return Ok(IngestResult::rejected(
                 Some(req.id),
                 IngestError::ClaimHasExternalId,
+            ));
+        }
+        // **地域のずれの範囲をここで断る**（review/code.md R3）。
+        // `core.event.tz_offset_min` に CHECK は無く、`validate` も見ていないので、
+        // 範囲外の値は**受理された顔をして格納され、読み出しから永久に消える**
+        // （`FixedOffset` の上限は ±86,399 秒 = ±1,439 分）。
+        // **主張の行は DB が削除を拒む**ので、一度入ると取り除くことも直すこともできない。
+        if !(-1439..=1439).contains(&req.tz_offset_min) {
+            return Ok(IngestResult::rejected(
+                Some(req.id),
+                IngestError::MalformedClaim,
             ));
         }
         match parsed {
@@ -1569,7 +1606,8 @@ pub async fn attributes_get(
     Query(q): Query<AttributesQuery>,
 ) -> Result<Json<attributes::AttributesView>, (StatusCode, String)> {
     authorize(&app, &headers)?;
-    attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today_jst())
+    let today = app.today();
+    attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today)
         .await
         .map(Json)
         .map_err(|e| internal_at("attributes.view", e))
@@ -1579,49 +1617,74 @@ pub async fn attributes_get(
 #[utoipa::path(post, path = "/attributes/kinds",
     request_body = attributes_store::KindRequest,
     responses((status = 200, body = attributes_store::KindCreated),
-              (status = 400, body = attributes_store::KindError), (status = 401)))]
+              (status = 400, body = attributes_store::KindErrorBody), (status = 401)))]
 pub async fn attributes_kind_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(req): Json<attributes_store::KindRequest>,
-) -> Result<Json<attributes_store::KindCreated>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+) -> Result<Json<attributes_store::KindCreated>, (StatusCode, Json<attributes_store::KindErrorBody>)>
+{
+    authorize(&app, &headers).map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::add_kind(&app.pool, user_id, &req.name)
         .await
-        .map_err(|e| internal_at("attributes.add_kind", e))?
+        .map_err(|e| unauthorized_kind(internal_at("attributes.add_kind", e)))?
     {
         Ok(created) => Ok(Json(created)),
         // **受け取った名前は載せない**（`IngestError` と同じ向き。design D5 / 製造準備 A-2）
-        Err(why) => Err((StatusCode::BAD_REQUEST, kind_error_body(why))),
+        Err(why) => Err(kind_error_body(why)),
     }
+}
+
+/// 合言葉と DB の失敗を、種類の口の応答の形へ落とす。
+///
+/// **状態符号はそのまま**（401 / 500）で、本文だけ種類の口の形にする ——
+/// 画面は 400 のときだけ本文の種別を読む（`web/src/attributes.ts` の `readKindResponse`）。
+fn unauthorized_kind(
+    e: (StatusCode, String),
+) -> (StatusCode, Json<attributes_store::KindErrorBody>) {
+    (
+        e.0,
+        Json(attributes_store::KindErrorBody {
+            error: attributes_store::KindError::UnknownKind,
+        }),
+    )
 }
 
 /// 種類の名前を変える（design D7）。**前の名前は台帳に残る**（追記のみ）。
 #[utoipa::path(post, path = "/attributes/kinds/{id}/names",
     params(("id" = uuid::Uuid, Path, description = "種類の識別子")),
     request_body = attributes_store::KindRequest,
-    responses((status = 204), (status = 400, body = attributes_store::KindError), (status = 401)))]
+    responses((status = 204), (status = 400, body = attributes_store::KindErrorBody), (status = 401)))]
 pub async fn attributes_kind_name_post(
     State(app): State<App>,
     headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
     Json(req): Json<attributes_store::KindRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+) -> Result<StatusCode, (StatusCode, Json<attributes_store::KindErrorBody>)> {
+    authorize(&app, &headers).map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::rename_kind(&app.pool, user_id, id, &req.name)
         .await
-        .map_err(|e| internal_at("attributes.rename_kind", e))?
+        .map_err(|e| unauthorized_kind(internal_at("attributes.rename_kind", e)))?
     {
         Ok(()) => Ok(StatusCode::NO_CONTENT),
-        Err(why) => Err((StatusCode::BAD_REQUEST, kind_error_body(why))),
+        Err(why) => Err(kind_error_body(why)),
     }
 }
 
 /// 断った理由を本文にする。**種別の名前だけ**（受け取った値は載せない）。
-fn kind_error_body(why: attributes_store::KindError) -> String {
-    serde_json::json!({ "error": why }).to_string()
+///
+/// **`Json` で返す**（review/code.md R8）。`String` で返すと axum が
+/// `text/plain` を付け、`application/json` と宣言した OpenAPI と食い違う。
+/// `tools/check-openapi.sh` は欄の名前しか見ないので、ずれても通ってしまう。
+fn kind_error_body(
+    why: attributes_store::KindError,
+) -> (StatusCode, Json<attributes_store::KindErrorBody>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(attributes_store::KindErrorBody { error: why }),
+    )
 }
 
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
@@ -1730,6 +1793,8 @@ pub async fn run() -> anyhow::Result<()> {
             pool,
             token,
             stays: StayRebuilder::real(),
+            #[cfg(test)]
+            now: None,
         });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
@@ -1792,6 +1857,7 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindRequest,
         attributes_store::KindCreated,
         attributes_store::KindError,
+        attributes_store::KindErrorBody,
     )),
     info(
         title = "ashiato S-01",
