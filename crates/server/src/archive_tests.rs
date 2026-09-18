@@ -527,6 +527,19 @@ fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: ダウンロードのフォルダの書庫は動かない
+#[test]
+fn archive_move_does_not_apply_to_downloads_without_an_explicit_move() {
+    let root = std::env::temp_dir().join(format!("ashiato-archive-downloads-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let downloaded = root.join("takeout-1.zip");
+    std::fs::write(&downloaded, b"download").unwrap();
+    // 読み手は `from_downloads` の候補には `move_to_processed` を呼ばない。
+    assert!(downloaded.exists());
+    assert_eq!(std::fs::read(&downloaded).unwrap(), b"download");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: 読んだ製品のファイルの写しが残る
 /// Scenario: 同じファイルの写しは 1 つ
 #[test]
