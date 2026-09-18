@@ -119,4 +119,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // 権限ダイアログは**システム UI**（permissioncontroller）。自分のプロセスの外なので
+    // Espresso では触れない。拒否したときの振る舞いを機械で確かめるために UI Automator を入れる（2026-09-18）
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
