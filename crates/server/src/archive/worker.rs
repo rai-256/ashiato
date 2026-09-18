@@ -304,6 +304,20 @@ pub fn shape_for_file(
     Ok(serde_json::json!({"kind": format!("{kind:?}"), "products": products}))
 }
 
+pub async fn is_shape_confirmed(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    shape_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core.archive_shape_confirmation WHERE user_id = $1 AND shape_hash = $2)",
+    )
+    .bind(user_id)
+    .bind(shape_hash)
+    .fetch_one(pool)
+    .await
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
