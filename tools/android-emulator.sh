@@ -47,7 +47,8 @@ echo "== 計測テスト"
 # **2 段に分ける。** 権限を拒否したときのテスト（@NeedsPristinePermissions）は「未許可・未要求」から
 # 始める必要があるが、自分の権限を自分で外すと計測テストのプロセスが死ぬ
 # （実測 2026-09-18: `pm revoke` / `am force-stop` で `Process crashed`。9 本中 6 本しか走らなかった）。
-# 状態を作るのはテストの外（`pm clear`）の仕事にする。
+# 状態を作るのはテストの外の仕事にする。`pm clear` は前のテストが残した前景サービスがあると
+# `Failed` で rc=1 になる（実測）ので、権限だけを戻す `pm reset-permissions` を使う。
 A=dev.ashiato.collector.NeedsPristinePermissions
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A")
