@@ -22,7 +22,7 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Vec<TimelineRecord>> {
         }
         if segment.get("activity").is_some() {
             records.push(TimelineRecord {
-                logical_source: "c03-timeline-activity",
+                logical_source: "c03-timeline-move",
             });
         }
         for _ in segment
@@ -32,7 +32,7 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Vec<TimelineRecord>> {
             .flatten()
         {
             records.push(TimelineRecord {
-                logical_source: "c03-timeline-path",
+                logical_source: "c03-timeline-route",
             });
         }
     }
