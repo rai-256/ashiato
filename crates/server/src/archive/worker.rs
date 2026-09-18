@@ -330,6 +330,21 @@ pub fn spawn_inspecting(
                             Err(_) => continue,
                         };
                         for request in requests {
+                            if request.logical_source.starts_with("c03-myactivity-")
+                                && ensure_myactivity_source(
+                                    &pool,
+                                    &request.logical_source,
+                                    &request.logical_source,
+                                )
+                                .await
+                                .is_err()
+                            {
+                                tracing::warn!(
+                                    kind = "archive_register_source",
+                                    "製品ソースを登録できない"
+                                );
+                                return;
+                            }
                             if let Err(_) = crate::store_one(&pool, request).await {
                                 tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
                                 return;
