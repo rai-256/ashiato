@@ -230,6 +230,20 @@ fn archive_timezone_uses_source_offset_or_marks_utc_as_unknown() {
     );
 }
 
+/// Scenario: タイムラインの訪問と経路の点は別の論理ソースに入る
+#[test]
+fn timeline_parser_separates_visits_from_path_points() {
+    let input = br#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"},"timelinePath":[{"time":"2026-01-01T00:01:00Z"}]}]}"#;
+    let records = crate::archive::timeline::parse(input).unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.logical_source)
+            .collect::<Vec<_>>(),
+        ["c03-timeline-visit", "c03-timeline-path"]
+    );
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
