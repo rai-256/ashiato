@@ -1652,6 +1652,77 @@ pub struct CoverageQuery {
     user_id: Option<uuid::Uuid>,
 }
 
+/// 書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ArchiveSourceStatus {
+    pub logical_source: String,
+    pub last_event_on: Option<String>,
+    pub last_archive_created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// `GET /archives/status` の、書庫の稼働状況の最小の安定した部分。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ArchivesStatus {
+    pub sources: Vec<ArchiveSourceStatus>,
+}
+
+/// 台帳から導くので、後で記録を消しても最終日は戻らない。
+pub async fn archives_status_for(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> Result<ArchivesStatus, sqlx::Error> {
+    let rows: Vec<(String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT s.logical_source, MAX(ls.max_event_at) AS max_event_at,
+                (array_agg(l.created_at ORDER BY ls.max_event_at DESC NULLS LAST, l.created_at DESC))[1] AS archive_created_at
+           FROM core.source s
+           LEFT JOIN core.archive_ledger l ON l.user_id = $1 AND l.outcome = 'read'
+           LEFT JOIN core.archive_ledger_source ls ON ls.ledger_id = l.id AND ls.logical_source = s.logical_source
+          WHERE s.logical_source LIKE 'c03-%'
+          GROUP BY s.logical_source
+          ORDER BY s.logical_source",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(ArchivesStatus {
+        sources: rows
+            .into_iter()
+            .map(
+                |(logical_source, event_at, created_at)| ArchiveSourceStatus {
+                    logical_source,
+                    last_event_on: event_at.map(|time| {
+                        (time + chrono::Duration::hours(9))
+                            .date_naive()
+                            .format("%F")
+                            .to_string()
+                    }),
+                    last_archive_created_at: created_at,
+                },
+            )
+            .collect(),
+    })
+}
+
+/// 書庫の台帳と論理ソースごとの最終日を返す。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ArchivesStatusQuery {
+    pub user_id: uuid::Uuid,
+}
+
+#[utoipa::path(get, path = "/archives/status", params(ArchivesStatusQuery),
+    responses((status = 200, body = ArchivesStatus), (status = 401)))]
+pub async fn archives_status_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<ArchivesStatusQuery>,
+) -> Result<Json<ArchivesStatus>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    archives_status_for(&app.pool, q.user_id)
+        .await
+        .map(Json)
+        .map_err(|error| internal_at("archives.status", error))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -1918,6 +1989,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
+        .route("/archives/status", get(archives_status_get))
         .route("/stays", get(stays_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
@@ -1958,6 +2030,7 @@ pub async fn run() -> anyhow::Result<()> {
         events,
         coverage_get,
         achievement_get,
+        archives_status_get,
         stays_get,
         stays_rebuild,
         stays_criteria_get,
@@ -1985,6 +2058,8 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Band,
         coverage::Subject,
         coverage::Achievement,
+        ArchivesStatus,
+        ArchiveSourceStatus,
         coverage::SourceAchievement,
         RebuildRequest,
         RebuildResponse,
