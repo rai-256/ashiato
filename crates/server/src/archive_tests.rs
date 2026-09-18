@@ -876,6 +876,23 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     assert_eq!(events, 1, "書庫項目を既存の格納関門へ通す");
 }
 
+/// Scenario: 6 つの中身がそれぞれ読まれる
+#[test]
+fn archive_end_to_end_builds_requests_for_every_supported_content() {
+    let user = uuid::Uuid::nil();
+    let fixtures = [
+        (crate::archive::classify::KnownKind::Timeline, r#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"}}]}"#),
+        (crate::archive::classify::KnownKind::Records, r#"{"locations":[{"timestamp":"2026-01-01T00:00:00Z"}]}"#),
+        (crate::archive::classify::KnownKind::YouTubeWatch, r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#),
+        (crate::archive::classify::KnownKind::YouTubeSearch, r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/results?search_query=x"}]"#),
+        (crate::archive::classify::KnownKind::MyActivity, r#"[{"time":"2026-01-01T00:00:00Z","products":["Search"]}]"#),
+        (crate::archive::classify::KnownKind::ChromeHistory, r#"{"Browser History":[{"time_usec":13222310400000000}]}"#),
+    ];
+    for (kind, bytes) in fixtures {
+        assert!(!crate::archive::worker::requests_for_file(kind, "fixture.json", bytes.as_bytes(), user, "x".repeat(64)).unwrap().is_empty(), "{kind:?}");
+    }
+}
+
 /// Scenario: 書庫のソースは 60 日で登録されている
 /// Scenario: 取り込み器のソースは 1 日で登録されている
 /// Scenario: 本人が変えた想定間隔は移行を当て直しても戻らない
