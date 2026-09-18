@@ -244,6 +244,14 @@ fn timeline_parser_separates_visits_from_path_points() {
     );
 }
 
+#[test]
+fn youtube_parser_separates_watch_and_decodes_search_query() {
+    let rows = crate::archive::youtube::parse(br#"[{"titleUrl":"https://youtube.com/watch?v=x"},{"titleUrl":"https://youtube.com/results?search_query=%E4%BA%AC%E9%83%BD"}]"#).unwrap();
+    assert_eq!(rows[0].logical_source, "c03-youtube-watch");
+    assert_eq!(rows[1].logical_source, "c03-youtube-search");
+    assert_eq!(rows[1].search_query.as_deref(), Some("京都"));
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる

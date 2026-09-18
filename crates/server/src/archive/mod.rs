@@ -9,6 +9,7 @@ pub mod slice;
 pub mod timeline;
 pub mod timezone;
 pub mod worker;
+pub mod youtube;
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
 pub const PARSER_VERSION: &str = "1";
