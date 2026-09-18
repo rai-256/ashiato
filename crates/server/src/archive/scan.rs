@@ -40,6 +40,16 @@ pub async fn scan_once(
     config: &ArchiveConfig,
     user_id: uuid::Uuid,
 ) -> anyhow::Result<Vec<ScanCandidate>> {
+    scan_once_with_hasher(pool, config, user_id, &hash_file).await
+}
+
+/// `hash_file` を差し替えられる走査。ハッシュを毎回取り直さない性質を実測で守る。
+pub async fn scan_once_with_hasher(
+    pool: &sqlx::PgPool,
+    config: &ArchiveConfig,
+    user_id: uuid::Uuid,
+    hash: &impl Fn(&Path) -> anyhow::Result<String>,
+) -> anyhow::Result<Vec<ScanCandidate>> {
     let mut found = list_dir(&config.inbox_dir, false)?;
     found.extend(list_dir(&config.downloads_dir, true)?);
     let paths: BTreeSet<String> = found
@@ -64,10 +74,10 @@ pub async fn scan_once(
         let hash = if stable {
             match previous.and_then(|(_, _, hash)| hash) {
                 Some(hash) => hash,
-                None => hash_file(&file.path)?,
+                None => hash(&file.path)?,
             }
         } else {
-            hash_file(&file.path)?
+            hash(&file.path)?
         };
         sqlx::query(
             "INSERT INTO core.archive_sighting (user_id, path, size_bytes, modified_at, sha256)

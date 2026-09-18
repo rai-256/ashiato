@@ -65,7 +65,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 3.1 `crates/server/src/archive/config.rs` —— 環境変数（D1 の表）を読む。`ASHIATO_ARCHIVE_KEEP_COPIES` の綴り違いは起動を止め、`ASHIATO_ARCHIVE_USER_ID` が無ければ取り込み器を起こさない。
   Scenario: `設定を指定しなければ写しが残る`。
   検証: `CT archive_config`（未設定 → 既定の値 / `KEEP_COPIES=flase` → Err / 利用者識別子が無い → 取り込み器なし）
-- [ ] 3.2 `crates/server/src/archive/scan.rs` —— 2 つの置き場の一覧（専用: `.zip` / `.json`、ダウンロード: `takeout-*.zip`、`取り込み済み` は見ない、一時ファイルの名前は見ない）、
+- [x] 3.2 `crates/server/src/archive/scan.rs` —— 2 つの置き場の一覧（専用: `.zip` / `.json`、ダウンロード: `takeout-*.zip`、`取り込み済み` は見ない、一時ファイルの名前は見ない）、
   `core.archive_sighting` による安定の確認とハッシュの省略、読み終えた書庫の判定（`sha256` + `PARSER_VERSION`）、置き直しの `already_read`。
   一覧から消えたファイルの sighting の行を消す（design D8）。
   Scenario: `ダウンロードのフォルダの他のファイルは読まれない` / `書き込み途中のファイルは読まれない` / `名前が書き込み途中でなくなったファイルは読まれる` /
