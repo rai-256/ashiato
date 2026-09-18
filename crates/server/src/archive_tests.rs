@@ -397,7 +397,26 @@ fn archive_requests_keep_archive_hash_and_inner_path_in_payload() {
     assert_eq!(requests[0].logical_source, "c03-youtube-watch");
     assert_eq!(requests[0].device_id.as_deref(), Some("s01-c03"));
     assert_eq!(requests[0].payload["archive_sha256"], "a".repeat(64));
-    assert_eq!(requests[0].payload["inner_path"], "Takeout/YouTube/watch-history.json");
+    assert_eq!(
+        requests[0].payload["inner_path"],
+        "Takeout/YouTube/watch-history.json"
+    );
+}
+
+/// Scenario: 端末から書き出したタイムラインを専用のフォルダに置くと読まれる
+#[test]
+fn archive_requests_accept_timeline_segments() {
+    let requests = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::Timeline,
+        "Timeline.json",
+        br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z"},"activity":{"startTime":"2026-09-12T04:00:00Z"},"timelinePath":[{"time":"2026-09-12T05:00:00Z"}]}],"rawSignals":[{"time":"2026-09-12T06:00:00Z"}]}"#,
+        uuid::Uuid::nil(),
+        "b".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(requests.len(), 4);
+    assert_eq!(requests[0].logical_source, "c03-timeline-visit");
+    assert_eq!(requests[3].logical_source, "c03-timeline-signal");
 }
 
 #[test]
