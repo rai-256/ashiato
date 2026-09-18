@@ -213,6 +213,23 @@ fn archive_slice_returns_each_array_element_as_original_bytes() {
     );
 }
 
+/// Scenario: ずれを持つ時刻はそのずれで残る
+/// Scenario: UTC しか持たない時刻は UTC で残る
+/// Scenario: UTC しか持たない時刻には取得元が地域を持たなかった印が付く
+#[test]
+fn archive_timezone_uses_source_offset_or_marks_utc_as_unknown() {
+    let offset = crate::archive::timezone::from_rfc3339("2026-01-02T03:04:05+09:00").unwrap();
+    assert_eq!(
+        (offset.offset_min, offset.id.as_str(), offset.from_source),
+        (540, "Etc/GMT-9", true)
+    );
+    let utc = crate::archive::timezone::from_rfc3339("2026-01-02T03:04:05Z").unwrap();
+    assert_eq!(
+        (utc.offset_min, utc.id.as_str(), utc.from_source),
+        (0, "UTC", false)
+    );
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
