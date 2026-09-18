@@ -209,6 +209,49 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 読んだ書庫は次の走査で読み直されない
+/// Scenario: 同じ書庫を置き直すと台帳に 1 行残る
+/// Scenario: ダウンロードのフォルダに残り続ける書庫は台帳を増やさない
+#[tokio::test]
+async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
+    let pool = testdb::pool().await;
+    let root = std::env::temp_dir().join(format!("ashiato-archive-known-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&inbox).unwrap();
+    std::fs::create_dir_all(&downloads).unwrap();
+    write_file(&downloads, "takeout-known.zip", b"already read");
+    let user = testdb::user();
+    let config = crate::archive::config::ArchiveConfig {
+        inbox_dir: inbox.clone(),
+        downloads_dir: downloads.clone(),
+        copy_dir: root.join("copies"),
+        keep_copies: true,
+        user_id: Some(user),
+        scan_sec: 120,
+    };
+
+    assert!(crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap()
+        .is_empty());
+    let first = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap();
+    let sha256 = first[0].sha256.clone();
+    sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, $3, 'read')")
+        .bind(user).bind(&sha256).bind(crate::archive::PARSER_VERSION).execute(&pool).await.unwrap();
+
+    let later = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap();
+    assert!(matches!(
+        later[0].disposition,
+        crate::archive::scan::ScanDisposition::AlreadyRead
+    ));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: 書庫のソースは 60 日で登録されている
 /// Scenario: 取り込み器のソースは 1 日で登録されている
 /// Scenario: 本人が変えた想定間隔は移行を当て直しても戻らない
