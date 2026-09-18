@@ -11,10 +11,11 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | server（Rust） | `ingest.rs` / `heartbeat.rs` の `#[cfg(test)]` | `api_tests.rs` / `dedup_tests.rs` / `coverage/tests.rs` / `registry_tests.rs`（**本物の PostgreSQL**。`testdb.rs`） | — | `tools/smoke.sh`（curl で外から）/ `tools/check-*.sh` |
 | collector-windows（Rust） | 各モジュールの `#[cfg(test)]`（ubuntu で走る 86 本） | — | `tests/runtime_windows.rs`（**Windows の上でだけ**。テストが自分で窓を作る） | — |
 | collector-android（Kotlin） | `src/test`（JUnit4 + Robolectric） | — | `src/androidTest`（エミュレータでも実機でも同じ） | — |
-| web（React） | `src/__tests__`（vitest + jsdom） | — | — | 実寸は人間の確認待ち |
+| web（React） | `src/__tests__`（vitest + jsdom） | — | **`web/e2e`（playwright + 本物の Chromium）**。実寸・スクロール・フォーカスはここ | `tools/stack.sh up`（DB → サーバ → 偽データ → 画面。確認バッチの `run.sh` と**同じもの**） |
 
 **CI が走らせる job**: `rust`（fmt / clippy / test + 検査 4 本）/ `collector-windows`（cross の clippy）/
-`collector-windows-runtime`（windows-latest）/ `web` / `android`（単体）/ `android-instrumented`（エミュレータ）/
+`collector-windows-runtime`（windows-latest）/ `web` / **`e2e`（playwright + 本物の Chromium）** /
+`android`（単体）/ `android-instrumented`（エミュレータ）/
 `smoke`（縦串 + panic-log + immutable）/ `chain`（token があるとき）。
 
 ## 2. テストは spec の Scenario から生まれる
@@ -28,8 +29,17 @@ specs/**/spec.md の #### Scenario:   → test に // Scenario: <名前> の印�
 - 1 つのテストに印を複数置いてよい。1 つの Scenario に印が複数あってもよい
 - **印の先のテストが Scenario の主張の階層を本当に観測しているか**を、code-verify の手 3 が 1 件ずつ見る。
   spec が「バイト列」なら `->>` で取り出した文字列を見てはいけない（実測 ST01。`raw` が jsonb で全緑）
-- 「人間の確認待ち」に置けるのは**機械が再現できない物理的な操作**（ロック・スリープ・電池・本物の GPS・
-  時間そのもの）だけ。実機の OS を触る部分は実行時テストで確かめる（§5）
+- 「人間の確認待ち」に置けるのは**機械が再現できない物理**だけで、**理由を次の行に引用で名付ける**。
+  名付けられないものは `check_scenarios.py` が落とす（2026-09-18。`review_triage.py` の `loss` と同じ型）
+
+  ```markdown
+  - Scenario: 実際に歩くと滞在が区切られる
+    > 物理: gps —— 実際に移動しないと区間が生まれない
+  ```
+
+  使える名前は `lock`（ロック / スリープ）/ `battery` / `gps`（本物の GPS・実際の移動）/
+  `time`（時間そのもの）/ `realdata`（本人の実データ）/ `device`（実機の物理・別 OS の実環境）。
+  実機の OS を触る部分は実行時テスト（§5）、**画面は e2e（§4.5）**で確かめる
 
 ## 3. 本人の決定はテストが固定する
 
@@ -47,8 +57,29 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   模擬すると「3 手の迂回」の型の穴が残る。接続できなければ**落ちる**（飛ばすと DB の無い環境で全部緑になる）
 - テストどうしの隔離は `logical_source` の接頭辞で取る（`testdb::source`）。表を作り直さない
 - **`cargo test` と `tools/smoke.sh` を並列に走らせない。** smoke は先頭で `docker compose down -v` する
-- 画面（jsdom）は実寸を測れない。「指定と勘定」を固定し（D23 / D35）、実寸は人間の確認待ち
+- **画面（jsdom）は実寸を測れない。が、機械が測れないのではない**（2026-09-18）。
+  「指定と勘定」は jsdom（`web/src/__tests__`）で固定し、**実寸・スクロール量・フォーカスの位置・
+  横溢れは `web/e2e` の本物のブラウザ**が測る。「画面が見えるか」を人間へ回さない ——
+  「人間の確認待ち」に置けるのは機械が再現できない物理だけで、`check_scenarios.py` が
+  `> 物理: <lock|battery|gps|time|realdata|device>` と名付けられないものを落とす。
+  実測: 確認バッチ 2 回ぶん 15 問のうち 6 問が画面の Scenario だった
+  （「キーボードで移るとフォーカスの位置が見える」「1 年ぶんが一目で読める」）
 - Fake は判断の無い境界（送信・置き場）にだけ置く。DB・サーバ・OS は本物
+
+## 4.5 画面の e2e（`web/e2e`）
+
+- **起動は `tools/stack.sh up`。確認バッチの `run.sh` が呼ぶのと同じもの。** 分けると
+  「e2e は緑なのに人間が見る画面は違う」が起きる
+- 走らせ方: `cd web && npm run test:e2e`（手元で `run.sh` を立てたままでも `reuseExistingServer` で走る）。
+  別の番号で立てるなら `BIND=127.0.0.1:18799 WEB_PORT=5199 npm run test:e2e`
+- **CI は `STACK_RESET=1`** で DB を作り直してから始める。**seed が落ちたらそこで止まる** ——
+  溜まった DB でごまかすと、何が入っているか分からない画面をテストすることになる
+- **アサートするのは数値と経路**（`boundingBox` / `scrollWidth` / `document.activeElement` / 可視 / URL 遷移）。
+  **視覚回帰（`toHaveScreenshot`）は使わない** —— 差分の是非を毎回人間が判断することになり、
+  機械に移したはずの判断が人間へ戻る。失敗時の trace とスクショは残すが、比較には使わない
+- **器は製造準備が作り、テストは Story ごとの change が足す。** 画面を持つ Story は
+  `tasks.md` に e2e の task を置く（`web/e2e/*.spec.ts` に `// Scenario: <名前>` の印）
+- 並列にしない（`workers: 1`）。1 つの DB を共有するので、並列にすると偽データが互いを踏む
 
 ## 5. 実行時テスト（OS を触る部分）
 
@@ -76,7 +107,11 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 ## 7. 人間の確認
 
 - Story ごとに求めない。確認バッチ（`scripts/verify_batch.sh` → `/verify`）で 1 回
-- **正しさのテストではない。** 手順書が聞くのは、完了の判定を目で見ること、物理的な操作、Story ごとに 1 問の「触ってみて違和感は無かったか」
+- **正しさのテストではない。** 手順書が聞くのは、`> 物理:` と名付けられた項目と、
+  Story ごとに 1 問の「触ってみて違和感は無かったか」だけ
+  （完了の判定からは問いを作らない —— `verify_checklist.py` の注記）
+- **手順書に画面の Scenario が並んでいたら、それは上流の取りこぼし。** 実寸・スクロール・
+  フォーカスは `web/e2e` が測る（§4.5）
 - 実機は「同じテストを走らせられる」形だけ用意し、手順には組み込まない（常に繋げるわけではない）
 
 ## 8. 送る前に走らせるもの（CI と同じ）
@@ -87,6 +122,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 docker compose up -d --wait db && cargo test --workspace          # 本物の DB
 ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
+(cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
 (cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest)
 cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh

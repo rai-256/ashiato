@@ -21,3 +21,9 @@ docs/briefs/
 
 # 確認バッチの成果物（tools/verify-prep.sh）
 dist/
+
+# 画面の e2e（playwright）
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.playwright/

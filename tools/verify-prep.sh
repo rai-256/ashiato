@@ -51,36 +51,17 @@ fi
 note "$android_note"
 
 # ---- run.sh（ビルド済みのものを起動する。ソースからは何も作らない）
+# 起動の実体は tools/stack.sh。**人間が見るものと e2e が見るものを同じ起動にする**ため、
+# ここでは「どのビルド済みを使うか」だけを渡す（2026-09-18）。
 cat > "$out/run.sh" <<EOF
 #!/usr/bin/env bash
-# 確認バッチ $tag の起動。DB → サーバ（release）→ 画面（build 済み）→ 偽データ。Ctrl-C で全部止まる。
+# 確認バッチ $tag の起動。DB → サーバ（release）→ 偽データ → 画面（build 済み）。Ctrl-C で全部止まる。
 #   SEED=max ./dist/verify-$tag/run.sh     # 偽データの量: normal（既定）/ max / empty
 set -euo pipefail
 cd "\$(dirname "\$0")/../.."
-if [ -f .env ]; then set -a; . ./.env; set +a; fi
-export DATABASE_URL="\${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
-export BIND="\${BIND:-127.0.0.1:18787}"
-export API_TOKEN="\${API_TOKEN:-dev-token-0123456789abcdef}"
-export WEB_PORT="\${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない
-# port が使用中なら 30 秒待たずにここで止める（実測: 5173 を別プロジェクトの vite が使っていて、
-# preview が隣の番号に逃げ、確認者は別の画面を見ていた）
-# 同じ host:port か、全インタフェース（0.0.0.0 / [::] / *）で塞がれているときだけ「使用中」。
-# 番号だけで見ない —— 本番のサーバが Tailscale の IP:18787 で動いている横で 127.0.0.1:18787 は使える（実測）
-busy() { local l port="\${1##*:}"; l="\$(ss -ltn 2>/dev/null | awk '{print \$4}')"
-  printf '%s\\n' "\$l" | grep -qxF "\$1" || printf '%s\\n' "\$l" | grep -qE "^(0\\.0\\.0\\.0|\\[::\\]|\\*):\$port\$"; }
-busy "\$BIND" && { echo "error: \$BIND は使用中（\$(ss -ltnp 2>/dev/null | grep -F "\$BIND " | grep -oE 'users:\\(.*' | head -1)）。BIND を変えるか、そのサーバを止める"; exit 1; }
-busy "127.0.0.1:\$WEB_PORT" && { echo "error: port \$WEB_PORT は使用中。WEB_PORT=<別の番号> で叩き直す"; exit 1; }
-echo "== DB"; docker compose up -d --wait db >/dev/null
-trap 'kill 0' EXIT
-echo "== サーバ \$BIND"; ./dist/verify-$tag/ashiato-server &
-for _ in \$(seq 1 30); do curl -sf "http://\$BIND/healthz" >/dev/null && break; sleep 1; done
-curl -sf "http://\$BIND/healthz" >/dev/null || { echo "サーバが起動しない（BIND=\$BIND）"; exit 1; }
-echo "== 偽データ（\${SEED:-normal}）"; ./tools/seed.sh "\${SEED:-normal}" >/dev/null || echo "warn: seed が落ちた（続ける）"
-echo "== 画面 http://127.0.0.1:\$WEB_PORT"
-(cd web && npx vite preview --host 127.0.0.1 --port "\$WEB_PORT" --strictPort --outDir ../dist/verify-$tag/web >/dev/null 2>&1) &
-echo
-echo "画面: http://127.0.0.1:\$WEB_PORT    API: http://\$BIND    （端末から届くには BIND を LAN / Tailscale の IP にする）"
-wait
+export SERVER_BIN="dist/verify-$tag/ashiato-server"
+export WEB_DIST="dist/verify-$tag/web"
+exec ./tools/stack.sh up
 EOF
 chmod +x "$out/run.sh"
 

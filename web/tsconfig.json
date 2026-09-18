@@ -6,5 +6,5 @@
     "noUnusedParameters": true, "noFallthroughCasesInSwitch": true,
     "noEmit": true, "skipLibCheck": true, "isolatedModules": true
   },
-  "include": ["src"]
+  "include": ["src", "e2e", "playwright.config.ts"]
 }
