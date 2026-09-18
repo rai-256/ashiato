@@ -14,6 +14,14 @@ pub struct ScanCandidate {
     pub path: PathBuf,
     pub from_downloads: bool,
     pub sha256: String,
+    pub disposition: ScanDisposition,
+}
+
+/// 読み手が中身を開くか、台帳へ既読として残すだけかを分ける。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDisposition {
+    Read,
+    AlreadyRead,
 }
 
 #[derive(Debug)]
@@ -76,10 +84,27 @@ pub async fn scan_once(
         .execute(pool)
         .await?;
         if stable {
+            let already_read: bool = sqlx::query_scalar(
+                "SELECT EXISTS(
+                   SELECT 1 FROM core.archive_ledger
+                    WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
+                      AND outcome IN ('read', 'unreadable')
+                 )",
+            )
+            .bind(user_id)
+            .bind(&hash)
+            .bind(super::PARSER_VERSION)
+            .fetch_one(pool)
+            .await?;
             candidates.push(ScanCandidate {
                 path: file.path,
                 from_downloads: file.from_downloads,
                 sha256: hash,
+                disposition: if already_read {
+                    ScanDisposition::AlreadyRead
+                } else {
+                    ScanDisposition::Read
+                },
             });
         }
     }
