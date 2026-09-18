@@ -13,6 +13,17 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | collector-android（Kotlin） | `src/test`（JUnit4 + Robolectric） | — | `src/androidTest`（エミュレータでも実機でも同じ） | — |
 | web（React） | `src/__tests__`（vitest + jsdom） | — | **`web/e2e`（playwright + 本物の Chromium）**。実寸・スクロール・フォーカスはここ | `tools/stack.sh up`（DB → サーバ → 偽データ → 画面。確認バッチの `run.sh` と**同じもの**） |
 
+**CI は何が変わったかで出し分ける**（2026-09-19）。`changes` job が差分を見て、
+`code`（`docs/` `openspec/` `*.md` 以外）/ `android` / `windows` の 3 つの旗を立てる。
+飛ばした job は `skipped` になり、run 全体は success のままなので `merge_gate.sh` はそのまま通る。
+**base が引けないときは全部走らせる**（黙って飛ばさない）。
+
+> 実測 2026-09-19: Actions の 2,000 分/月を使い切った。**1 PR = 約 52 分**
+> （課金は Linux 1x / **Windows 2x** / macOS 10x）。内訳は android-instrumented 22 /
+> collector-windows-runtime 12 / e2e 4.5 / rust 4 / android 4 / smoke 3 / web・collector-windows 2 / chain 0.2。
+> ST06 の PR #65 は `docs/` と `openspec/` だけでコードを 1 行も触っていないのに **9 job 全部が走った**。
+> 上流の PR は毎回これになる。**docs だけの PR は 52 分 → 0.5 分。**
+
 **CI が走らせる job**: `rust`（fmt / clippy / test + 検査 4 本）/ `collector-windows`（cross の clippy）/
 `collector-windows-runtime`（windows-latest）/ `web` / **`e2e`（playwright + 本物の Chromium）** /
 `android`（単体）/ `android-instrumented`（エミュレータ）/
