@@ -51,18 +51,18 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 2. 格納の関門の切り出し（design D4 / D10）
 
-- [ ] 2.1 `ingest_one` を「JSON の解釈」と `store_one(pool, IngestRequest) -> StoreOutcome` に分ける。`DuplicateOfDeleted` を分ける。
+- [x] 2.1 `ingest_one` を「JSON の解釈」と `store_one(pool, IngestRequest) -> StoreOutcome` に分ける。`DuplicateOfDeleted` を分ける。
   **HTTP の応答と拒否の理由は変えない。**
   格納は `RecordSink` の trait 越しに呼べるようにし（design D4）、試験用に N 件目で `Err` を返す `FailingSink` を置く。
   検証: 既存の `CT dedup_tests` と `CT registry_tests` がすべて通る、`git diff --exit-code origin/main -- crates/server/src/dedup_tests.rs crates/server/src/registry_tests.rs` rc=0（既存の試験を書き換えずに通す。
   `api_tests.rs` は 9.2 で 1 本だけ直すので、ここでは `CT api_tests` が通ることだけを見る）、
   `CT store_one_outcome`（新規・重複・削除済みの内容の重複・拒否の 4 つを見分ける）
-- [ ] 2.2 `heartbeat_one` の本体を同じ形で `store_heartbeat(pool, HeartbeatRequest)` に切り出す。
+- [x] 2.2 `heartbeat_one` の本体を同じ形で `store_heartbeat(pool, HeartbeatRequest)` に切り出す。
   検証: 既存の `CT heartbeat` がすべて通る、`tools/check-openapi.sh` rc=0（`/heartbeat` の形が変わらない）
 
 ## 3. 置き場の走査（design D1 / D8）
 
-- [ ] 3.1 `crates/server/src/archive/config.rs` —— 環境変数（D1 の表）を読む。`ASHIATO_ARCHIVE_KEEP_COPIES` の綴り違いは起動を止め、`ASHIATO_ARCHIVE_USER_ID` が無ければ取り込み器を起こさない。
+- [x] 3.1 `crates/server/src/archive/config.rs` —— 環境変数（D1 の表）を読む。`ASHIATO_ARCHIVE_KEEP_COPIES` の綴り違いは起動を止め、`ASHIATO_ARCHIVE_USER_ID` が無ければ取り込み器を起こさない。
   Scenario: `設定を指定しなければ写しが残る`。
   検証: `CT archive_config`（未設定 → 既定の値 / `KEEP_COPIES=flase` → Err / 利用者識別子が無い → 取り込み器なし）
 - [ ] 3.2 `crates/server/src/archive/scan.rs` —— 2 つの置き場の一覧（専用: `.zip` / `.json`、ダウンロード: `takeout-*.zip`、`取り込み済み` は見ない、一時ファイルの名前は見ない）、

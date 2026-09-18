@@ -3,6 +3,106 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::testdb;
+use crate::{heartbeat, store_heartbeat, store_one, IngestRequest, StoreOutcome};
+
+fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
+    IngestRequest {
+        id: uuid::Uuid::new_v4(),
+        user_id,
+        logical_source: "c03-youtube-watch".into(),
+        external_id: None,
+        device_id: Some("s01-c03".into()),
+        origin: "collected".into(),
+        event_time: chrono::DateTime::parse_from_rfc3339("2026-09-12T03:00:00Z")
+            .unwrap()
+            .to_utc(),
+        tz_offset_min: 0,
+        tz_id: "UTC".into(),
+        schema_version: 1,
+        unit_system: None,
+        crs: None,
+        source_updated_at: None,
+        external_ref: None,
+        raw: raw.into(),
+        payload: serde_json::json!({}),
+    }
+}
+
+/// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。
+#[tokio::test]
+async fn store_one_outcome_distinguishes_archive_results() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let first = archive_request(user, r#"{"watch":"first"}"#);
+
+    // Scenario: 同じ書庫をもう一度置いても行が増えない
+    assert!(matches!(
+        store_one(&pool, first.clone()).await.unwrap(),
+        StoreOutcome::Inserted(_)
+    ));
+    assert!(matches!(
+        store_one(&pool, first.clone()).await.unwrap(),
+        StoreOutcome::Duplicate(_)
+    ));
+
+    // Scenario: 消した記録は書庫を置き直しても戻らない
+    sqlx::query("UPDATE core.event SET deleted_at = now() WHERE id = $1")
+        .bind(first.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store_one(&pool, first).await.unwrap(),
+        StoreOutcome::DuplicateOfDeleted(_)
+    ));
+
+    let mut invalid = archive_request(user, r#"{"watch":"invalid"}"#);
+    invalid.origin = "unknown".into();
+    assert!(matches!(
+        store_one(&pool, invalid).await.unwrap(),
+        StoreOutcome::Rejected(_)
+    ));
+}
+
+/// 取り込み器は HTTP を経ずに生存信号を 1 件だけ格納でき、再起動後も重複しない。
+#[tokio::test]
+async fn store_heartbeat_keeps_the_http_idempotency_rule() {
+    let pool = testdb::pool().await;
+    let request = heartbeat::HeartbeatRequest {
+        id: uuid::Uuid::new_v4(),
+        user_id: testdb::user(),
+        logical_source: "s01-archive-inbox".into(),
+        device_id: Some("s01-c03".into()),
+        emitted_at: chrono::DateTime::parse_from_rfc3339("2026-09-12T03:00:00Z")
+            .unwrap()
+            .to_utc(),
+        capturable: true,
+        blockers: vec![],
+        attempts: 2,
+        successes: 2,
+        raw: r#"{"archive_inbox":true}"#.into(),
+    };
+    assert!(
+        !store_heartbeat(&pool, request.clone())
+            .await
+            .unwrap()
+            .duplicate
+    );
+    assert!(store_heartbeat(&pool, request).await.unwrap().duplicate);
+}
+
+/// Scenario: 設定を指定しなければ写しが残る
+#[test]
+fn archive_config_defaults_and_rejects_a_misspelling() {
+    let env = std::collections::BTreeMap::new();
+    let config = crate::archive::config::from_values(&env).unwrap();
+    assert!(config.keep_copies);
+    assert!(config.user_id.is_none());
+
+    let mut invalid = std::collections::BTreeMap::new();
+    invalid.insert("ASHIATO_ARCHIVE_KEEP_COPIES".into(), "flase".into());
+    assert!(crate::archive::config::from_values(&invalid).is_err());
+}
 
 /// Scenario: 書庫のソースは 60 日で登録されている
 /// Scenario: 取り込み器のソースは 1 日で登録されている
@@ -10,12 +110,11 @@ use crate::testdb;
 #[tokio::test]
 async fn archive_migration_registers_sources_and_preserves_interval() {
     let pool = testdb::pool().await;
-    let (archive_sources,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM core.source WHERE logical_source LIKE 'c03-%'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (archive_sources,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.source WHERE logical_source LIKE 'c03-%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(archive_sources, 10, "書庫の固定ソースは 10 本");
 
     let (gap, kind): (i32, String) = sqlx::query_as(
@@ -59,6 +158,9 @@ async fn archive_ledgers_are_append_only() {
         "UPDATE core.archive_ledger SET outcome = 'unreadable' WHERE id = $1",
         "DELETE FROM core.archive_ledger WHERE id = $1",
     ] {
-        assert!(sqlx::query(sql).bind(id).execute(&pool).await.is_err(), "{sql} が通っている");
+        assert!(
+            sqlx::query(sql).bind(id).execute(&pool).await.is_err(),
+            "{sql} が通っている"
+        );
     }
 }
