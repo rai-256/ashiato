@@ -213,6 +213,14 @@ fn archive_slice_returns_each_array_element_as_original_bytes() {
     );
 }
 
+/// 非 UTF-8 の項目をそのまま `raw` に渡すと、原文を文字列として保持する
+/// 格納口との契約を破る。壊れた項目として数え、格納しない。
+#[test]
+fn archive_slice_rejects_a_non_utf8_item() {
+    let input = b"[{\"title\":\"\xFF\"}]";
+    assert!(crate::archive::slice::array_items(input).is_err());
+}
+
 /// Scenario: ずれを持つ時刻はそのずれで残る
 /// Scenario: UTC しか持たない時刻は UTC で残る
 /// Scenario: UTC しか持たない時刻には取得元が地域を持たなかった印が付く

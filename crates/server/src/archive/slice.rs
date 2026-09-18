@@ -35,7 +35,10 @@ pub fn array_items(input: &[u8]) -> anyhow::Result<Vec<&[u8]>> {
                 depth -= 1;
                 if depth == 0 {
                     if let Some(begin) = start.take() {
-                        out.push(&input[begin..=i]);
+                        let item = &input[begin..=i];
+                        std::str::from_utf8(item)
+                            .map_err(|_| anyhow::anyhow!("UTF-8 ではない配列項目"))?;
+                        out.push(item);
                     }
                 }
             }
