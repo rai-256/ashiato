@@ -27,6 +27,8 @@ mod api_tests;
 /// アプリの役割の権限（ST28 / design D4）。
 #[cfg(test)]
 mod app_role_tests;
+#[cfg(test)]
+mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
 /// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
@@ -73,7 +75,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 19] = [
+pub const MIGRATIONS: [(&str, &str); 20] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -161,6 +163,10 @@ pub const MIGRATIONS: [(&str, &str); 19] = [
     (
         "202609291230_clock_source",
         include_str!("../../../migrations/202609291230_clock_source.sql"),
+    ),
+    (
+        "202609181600_archive_ingestion",
+        include_str!("../../../migrations/202609181600_archive_ingestion.sql"),
     ),
 ];
 
