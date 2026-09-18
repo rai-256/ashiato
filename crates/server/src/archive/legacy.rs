@@ -9,14 +9,17 @@ pub struct Record {
 
 pub fn parse_records(bytes: &[u8]) -> anyhow::Result<Vec<Record>> {
     let root: serde_json::Value = serde_json::from_slice(bytes)?;
-    Ok(root.get("locations")
+    Ok(root
+        .get("locations")
         .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|row| timestamp(row).map(|event_time| Record {
-            logical_source: "c03-legacy-location",
-            event_time,
-        }))
+        .filter_map(|row| {
+            timestamp(row).map(|event_time| Record {
+                logical_source: "c03-legacy-location",
+                event_time,
+            })
+        })
         .collect::<Vec<_>>())
 }
 
@@ -34,7 +37,10 @@ pub fn parse_semantic(bytes: &[u8]) -> anyhow::Result<Vec<Record>> {
             ("activitySegment", "c03-legacy-activity"),
         ] {
             if let Some(value) = row.get(field).and_then(timestamp) {
-                out.push(Record { logical_source: source, event_time: value });
+                out.push(Record {
+                    logical_source: source,
+                    event_time: value,
+                });
             }
         }
     }
