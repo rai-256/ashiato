@@ -96,7 +96,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `ずれを持つ時刻はそのずれで残る` / `UTC しか持たない時刻は UTC で残る` / `UTC しか持たない時刻には取得元が地域を持たなかった印が付く` / `地域は位置から推定されない`。検証: `CT archive_tz`
 - [x] 5.2 `Timeline.json`（訪問 / 移動 / 経路の点 / 生の信号 → 4 本の論理ソース）。
   Scenario: `タイムラインの訪問と経路の点は別の論理ソースに入る` / `書庫の記録は収集したに分類される`。検証: `CT archive_parse_timeline`
-- [ ] 5.3 移行前のロケーション履歴（`Records.json` の `locations`、Semantic Location History の `placeVisit` / `activitySegment`。`E7` を度に、`timestamp` と `timestampMs` の両方）。
+- [x] 5.3 移行前のロケーション履歴（`Records.json` の `locations`、Semantic Location History の `placeVisit` / `activitySegment`。`E7` を度に、`timestamp` と `timestampMs` の両方）。
   読み終えたら 3 本の `retired_on` を最後の出来事の日の翌日に置く（延ばすだけ。design D2 / C21）。
   Scenario: `移行前のロケーション履歴は読み終えると退役する`。
   検証: `CT archive_parse_legacy`（最後の点 2024-08-31 → `retired_on = 2024-09-01` / より古いファイルを後から置いても動かない / より新しいファイルで延びる）
