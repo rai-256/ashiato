@@ -1666,12 +1666,18 @@ pub struct ArchivesStatus {
     pub sources: Vec<ArchiveSourceStatus>,
 }
 
+type ArchiveStatusRow = (
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
+
 /// 台帳から導くので、後で記録を消しても最終日は戻らない。
 pub async fn archives_status_for(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
 ) -> Result<ArchivesStatus, sqlx::Error> {
-    let rows: Vec<(String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+    let rows: Vec<ArchiveStatusRow> = sqlx::query_as(
         "SELECT s.logical_source, MAX(ls.max_event_at) AS max_event_at,
                 (array_agg(l.created_at ORDER BY ls.max_event_at DESC NULLS LAST, l.created_at DESC))[1] AS archive_created_at
            FROM core.source s
