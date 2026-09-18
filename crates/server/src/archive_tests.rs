@@ -92,6 +92,38 @@ async fn store_heartbeat_keeps_the_http_idempotency_rule() {
     assert!(store_heartbeat(&pool, request).await.unwrap().duplicate);
 }
 
+/// Scenario: 最終日はいちばん新しい出来事の日
+/// Scenario: 日本時間で日をまたぐ出来事は日本時間の日になる
+#[tokio::test]
+async fn archives_status_uses_ledger_max_event_time_in_japan() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let ledger: i64 = sqlx::query_scalar(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, created_at)
+         VALUES ($1, repeat('b', 64), 'test', 'read', '2026-09-12T00:00:00Z') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.archive_ledger_source (ledger_id, logical_source, max_event_at)
+         VALUES ($1, 'c03-youtube-watch', '2026-09-11T15:30:00Z')",
+    )
+    .bind(ledger)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let status = crate::archives_status_for(&pool, user).await.unwrap();
+    let source = status
+        .sources
+        .into_iter()
+        .find(|source| source.logical_source == "c03-youtube-watch")
+        .unwrap();
+    assert_eq!(source.last_event_on.as_deref(), Some("2026-09-12"));
+}
+
 /// Scenario: 設定を指定しなければ写しが残る
 #[test]
 fn archive_config_defaults_and_rejects_a_misspelling() {
@@ -324,14 +356,20 @@ fn archive_parse_legacy_accepts_records_and_semantic_history_timestamps() {
     .unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].logical_source, "c03-legacy-location");
-    assert_eq!(records[0].event_time.to_rfc3339(), "2024-08-31T23:00:00+00:00");
+    assert_eq!(
+        records[0].event_time.to_rfc3339(),
+        "2024-08-31T23:00:00+00:00"
+    );
 
     let semantic = crate::archive::legacy::parse_semantic(
         br#"{"timelineObjects":[{"placeVisit":{"duration":{"startTimestampMs":"1725148800000"}}},{"activitySegment":{"duration":{"startTimestamp":"2024-09-01T01:00:00Z"}}}]}"#,
     )
     .unwrap();
     assert_eq!(
-        semantic.iter().map(|record| record.logical_source).collect::<Vec<_>>(),
+        semantic
+            .iter()
+            .map(|record| record.logical_source)
+            .collect::<Vec<_>>(),
         ["c03-legacy-visit", "c03-legacy-activity"]
     );
 }
