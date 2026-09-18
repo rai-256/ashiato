@@ -200,7 +200,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `tools/smoke.sh` rc=0
 - [ ] 11.4 `tools/seed.sh normal` に、書庫のソースの記録（視聴履歴の最終日を今日の 3 日前）と台帳の 1 行（読めた書庫）を足す（確認バッチの画面で見出しと箱が見える材料）。
   検証: `tools/seed.sh normal` rc=0 の後、`curl -sf -H "authorization: Bearer $API_TOKEN" http://127.0.0.1:18787/archives/status | jq -e '.latest_archive.outcome=="read"'` rc=0
-- [ ] 11.5 `docs/archive-inbox.md` —— 置き場の設定（D1 の環境変数）、Takeout の予約エクスポートで **JSON の形を選ぶ**こと、端末でタイムラインを書き出して**網の外に出ない手段**（Tailscale のファイル送信・USB）で専用のフォルダへ運ぶ手順（本人の決定 Q8）、
+- [x] 11.5 `docs/archive-inbox.md` —— 置き場の設定（D1 の環境変数）、Takeout の予約エクスポートで **JSON の形を選ぶ**こと、端末でタイムラインを書き出して**網の外に出ない手段**（Tailscale のファイル送信・USB）で専用のフォルダへ運ぶ手順（本人の決定 Q8）、
   最初の Takeout の書庫を置くと箱に「形の確認待ち」が出るので `tools/archive-shape.sh` の出力を見て `--confirm` で印を置くこと、**新しい製品・初めての中身・書き出しの言語を変えたときはまた確認待ちが出ること**（design D16 の 4 つの型）。検証: `grep -c 'ASHIATO_INBOX_DIR' docs/archive-inbox.md` と `grep -c 'archive-shape' docs/archive-inbox.md` がどちらも 1 以上
 
 ## 12. まとめの検査
