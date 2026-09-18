@@ -16,6 +16,8 @@
 | `openspec/` | Story ごとの設計と正典 | する（`openspec` CLI が管理） |
 | `src/` `tests/` | 実装 | する |
 | `.claude/skills` → `~/dev/harness2/skills` | skill（symlink） | harness2 側で直す |
+| `AGENTS.md` → `~/dev/harness2/codex/AGENTS.md` | Codex 下流の project 指示（symlink） | 同上 |
+| `.agents/skills` → `~/dev/harness2/codex/skills` | Codex の skill（symlink） | 同上 |
 | `scripts` → `~/dev/harness2/scripts` | 検査スクリプト（symlink） | 同上 |
 
 **旧ハーネス（`.harness/`）は持ち込んでいない。** hook もレビューキューも無い。
@@ -43,6 +45,13 @@
 > （うち 1 件は要件どうしの矛盾を独断で解いたもので、不可逆）。
 > 文書に名前があるだけで機械の側に受け皿が無い工程は消える。`deep` の中身は
 > `openspec/changes/*/deep.md`、問い方の規範は `grilling` skill。
+
+**裏返しの規則: 機械が判定できることは、機械に決めさせる**（2026-09-18）。
+同じ判定材料で結論まで出せるなら、「検査で止める」「規約に書く」「人間に確認してもらう」で代替しない。
+実測: `story-codex.sh --here` が main から起動できる問題に「拒否する」を当てようとしたが、
+`git branch --show-current` 1 本で**正しい場所へ回せた**（拒否は正しい手順を人間に覚え直させる）。
+同じ型が確認バッチにも残っている —— 直近 2 回の 15 問のうち 6 問は画面の Scenario で、
+本物のブラウザなら機械が判定できる（`docs/testing.md` §4 の「実寸は人間の確認待ち」）。
 
 検査: `python3 scripts/check_chain.py`（要件 → Story の鎖と、`stories.json` からの再生成との一致）
 

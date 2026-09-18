@@ -142,6 +142,22 @@ block_c: done
 | 開発用データ（A-4 の決定） | `./tools/seed.sh normal` → 9 件 / `./tools/seed.sh max` → 15 件 | **0 / 0** |
 | API の契約をコードから生成（A-1 の決定） | `cargo run -p ashiato-server --bin openapi > docs/openapi.json` → `./tools/check-openapi.sh` | **0 / 0** |
 | **再現手順を実際に踏む**（A-4 の決定） | 別の場所へ `git clone --no-hardlinks` → `cp .env.example .env` → `./tools/smoke.sh` | **0** |
+| **画面の e2e の器**（2026-09-18 に追加） | `cd web && npm run test:e2e`（`tools/stack.sh up` が DB → サーバ → 偽データ → 画面を立て、本物の Chromium が S-1 を開く）→ `1 passed` | **0** |
+| 縦串の起動を 1 つにする（同上） | `tools/stack.sh` を切り出し、確認バッチの `dist/verify-<tag>/run.sh` と playwright の `webServer` が**同じものを呼ぶ** | — |
+
+### 画面の e2e（2026-09-18 に足した）
+
+**器だけを作り、テストは Story ごとの change が足す。** 1 本のダミー
+（`web/e2e/stack.spec.ts`）が「縦串が立って S-1 が本物のブラウザで開く」まで通る。
+
+- **起動を分けない。** `tools/stack.sh up` を人間（`run.sh`）と e2e（playwright の `webServer`）の
+  両方が呼ぶ。分けると「e2e は緑なのに人間が見る画面は違う」が起きる
+- **アサートするのは数値と経路**（`boundingBox` / `scrollWidth` / `activeElement` / 可視 / URL 遷移）。
+  **視覚回帰（`toHaveScreenshot`）は入れない** —— 差分の是非を毎回人間が判断することになり、
+  機械に移したはずの判断が人間へ戻る
+- CI は `STACK_RESET=1` で DB を作り直す。**そこで `seed.sh` が落ちたら止める**
+  （実測 2026-09-18: 溜まった DB では ST19 の主張の読み直しが合わず `seed.sh` が rc=1 を返していて、
+  `run.sh` はそれを `warn` で流していた。人間も e2e も**何が入っているか分からない画面**を見ることになる）
 
 ### 縦串が実際に確かめていること
 
@@ -206,6 +222,7 @@ PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止
 | マイグレーションの安全性検査 | `./tools/check-migrations.sh` —— 前進側の破壊的変更（`DROP TABLE/COLUMN/SCHEMA`）と、戻し手順の欠落を落とす | **確かめた** — `ALTER TABLE ... DROP COLUMN` を入れたら rc=1、戻し手順の無い版を足したら rc=1。どちらも後始末後は rc=0 |
 | API の契約とコードのずれ | `./tools/check-openapi.sh` —— `docs/openapi.json` はコードから生成する。**手書きしない**（A-1） | **確かめた** — `info.version` を書き換えたら差分を出して rc=1 |
 | CI の構造衛生 | 版を **SHA で固定**（`actions/checkout@fbc6f39…` ほか。タグは動く）/ `concurrency` で二重トリガを畳む / `permissions: contents: read` に最小化 / **CI が走らせるのはローカルと同じ `./tools/*.sh`** | ローカルで同じコマンドがすべて rc=0 |
+| **人間へ落とすものに名前を要求**（2026-09-18 に追加） | `scripts/check_scenarios.py` —— `tasks.md`「人間の確認待ち」の `- Scenario:` に `> 物理: <lock\|battery\|gps\|time\|realdata\|device>` を要求する。名付けられないものは落とす（`review_triage.py` の `loss` と同じ型）。**画面の実寸・フォーカスは `web/e2e` が測る** | **確かめた** — 名前の無い `- Scenario: 履歴が一覧で読める` を st08 の tasks に置いたら `人間の確認待ちの理由が名付けられていない` で **rc=1**。戻したら名無し 0 件 |
 | 停止の検知 | **該当なし。** 製造準備の時点で継続的に動き続けるものがまだ無い（収集は ST01 以降）。**仕組みは要件側にある** —— 稼働記録（FR-33）と、想定間隔の 3 倍で通知する条件（FR-35）。実装は ST14 の担当で、そこで「わざと止めて通知が出るか」を確かめる | — |
 
 ### C で新しく見つかったもの
@@ -222,3 +239,16 @@ PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止
   本体を配布すると、自分が見たことのない他人のデータに当たる
 - **プラグイン境界の検査** —— 本体のプロセスにプラグインのコードを読み込む経路が生えたら落ちる（FR-77）。
   アーキ境界の検査と同じ仕掛けに乗せる
+
+### C に足した項目（2026-09-18）
+
+**機械が判定できることが、静かに人間の手順へ流れていた。**
+
+実測: 確認バッチ 2 回ぶん（`docs/verify/20260913-2255.md` / `20260916-1442.md`）の **15 問のうち 6 問が
+画面の Scenario**。「キーボードで移るとフォーカスの位置が見える」「1 年ぶんが一目で読める」は、
+本物のブラウザなら機械が判定できる。**jsdom が測れないことは、機械が測れないことではない。**
+
+- B に **画面の e2e の器**（`web/e2e` + `tools/stack.sh`）
+- C に **人間へ落とすものに名前を要求する検査**（`> 物理:`）。名付けられない確認待ちは落ちる
+- `docs/testing.md` §1 の表と §4 / §4.5 / §7 を同時に直した ——
+  **規範を直さないと実装側は jsdom のままになる**
