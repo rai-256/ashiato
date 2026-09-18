@@ -2,6 +2,7 @@
 //! 本人が置いた書庫を読む背景の仕事（ST12）。
 
 pub mod config;
+pub mod open;
 pub mod scan;
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
