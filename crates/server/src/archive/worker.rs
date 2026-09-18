@@ -235,6 +235,10 @@ pub fn move_to_processed(path: &std::path::Path) -> std::io::Result<std::path::P
         .ok_or_else(|| std::io::Error::other("書庫の親が無い"))?;
     let processed = parent.join("取り込み済み");
     std::fs::create_dir_all(&processed)?;
+    let original_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("書庫名が無い"))?
+        .to_owned();
     let stem = path
         .file_stem()
         .and_then(|name| name.to_str())
@@ -246,7 +250,7 @@ pub fn move_to_processed(path: &std::path::Path) -> std::io::Result<std::path::P
     let mut index = 1;
     loop {
         let name = if index == 1 {
-            path.file_name().unwrap().to_owned()
+            original_name.clone()
         } else if extension.is_empty() {
             format!("{stem} ({index})").into()
         } else {
@@ -394,7 +398,7 @@ pub fn spawn_inspecting(
                                 );
                                 return;
                             }
-                            if let Err(_) = crate::store_one(&pool, request).await {
+                            if crate::store_one(&pool, request).await.is_err() {
                                 tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
                                 return;
                             }
