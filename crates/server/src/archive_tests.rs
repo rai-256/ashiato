@@ -550,6 +550,25 @@ fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     assert!(!shape.to_string().contains("京都 旅館"));
 }
 
+#[tokio::test]
+async fn archive_shape_confirmation_allows_only_confirmed_shape() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let hash = "shape-test";
+    assert!(
+        !crate::archive::worker::is_shape_confirmed(&pool, user, hash)
+            .await
+            .unwrap()
+    );
+    sqlx::query("INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape) VALUES ($1, $2, '{}'::jsonb)")
+        .bind(user).bind(hash).execute(&pool).await.unwrap();
+    assert!(
+        crate::archive::worker::is_shape_confirmed(&pool, user, hash)
+            .await
+            .unwrap()
+    );
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
