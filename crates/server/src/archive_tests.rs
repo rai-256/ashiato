@@ -252,6 +252,58 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 大きさが変わり続けているファイルは読まれない
+#[tokio::test]
+async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
+    let pool = testdb::pool().await;
+    let root =
+        std::env::temp_dir().join(format!("ashiato-archive-changing-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&inbox).unwrap();
+    std::fs::create_dir_all(&downloads).unwrap();
+    write_file(&inbox, "growing.json", b"one");
+    let user = testdb::user();
+    let config = crate::archive::config::ArchiveConfig {
+        inbox_dir: inbox.clone(),
+        downloads_dir: downloads,
+        copy_dir: root.join("copies"),
+        keep_copies: true,
+        user_id: Some(user),
+        scan_sec: 120,
+    };
+    let hashes = std::sync::atomic::AtomicUsize::new(0);
+    let hash = |path: &Path| {
+        hashes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(format!("test-{}", std::fs::metadata(path).unwrap().len()))
+    };
+
+    assert!(
+        crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    write_file(&inbox, "growing.json", b"two-more");
+    assert!(
+        crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(hashes.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let ready = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+        .await
+        .unwrap();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(
+        hashes.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "安定した2回目でハッシュを取り直さない"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: 書庫のソースは 60 日で登録されている
 /// Scenario: 取り込み器のソースは 1 日で登録されている
 /// Scenario: 本人が変えた想定間隔は移行を当て直しても戻らない
