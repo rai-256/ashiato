@@ -45,6 +45,7 @@ fn timestamp(value: &serde_json::Value) -> Option<chrono::DateTime<chrono::Utc>>
     let value = value.get("duration").unwrap_or(value);
     value
         .get("timestamp")
+        .or_else(|| value.get("startTimestamp"))
         .and_then(serde_json::Value::as_str)
         .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
         .map(|time| time.to_utc())
