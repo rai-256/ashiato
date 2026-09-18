@@ -34,3 +34,41 @@ pub async fn read_in_order<F, Fut>(
         read(candidate).await;
     }
 }
+
+/// 走査と直列読み手を背景で起こす。利用者が未設定なら呼び出し側は起こさない。
+pub fn spawn_inspecting(
+    pool: sqlx::PgPool,
+    config: super::config::ArchiveConfig,
+    user_id: uuid::Uuid,
+) {
+    let (sender, receiver) = tokio::sync::mpsc::channel(32);
+    tokio::spawn(async move {
+        loop {
+            match super::scan::scan_once(&pool, &config, user_id).await {
+                Ok(candidates) => {
+                    for candidate in candidates {
+                        if sender.send(candidate).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない")
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(config.scan_sec)).await;
+        }
+    });
+    tokio::spawn(read_in_order(receiver, |candidate| async move {
+        match inspect(candidate) {
+            Ok(result) => tracing::info!(
+                kind = "archive_inspect",
+                known = result.known,
+                skipped = result.skipped,
+                unreadable = result.unreadable,
+                "書庫を検査した"
+            ),
+            Err(error) => tracing::warn!(kind = error.kind(), "書庫を開けない"),
+        }
+    }));
+}

@@ -2426,6 +2426,15 @@ pub async fn run() -> anyhow::Result<()> {
         );
         eprintln!("error: kind=db_role reason={}", refusal.reason());
         std::process::exit(2);
+    migrate(&pool).await?;
+    let archive_config = archive::config::from_env()?;
+    if let Some(user_id) = archive_config.user_id {
+        archive::worker::spawn_inspecting(pool.clone(), archive_config, user_id);
+    } else {
+        tracing::info!(
+            kind = "archive_disabled",
+            "書庫の利用者が未設定のため取り込み器を起こさない"
+        );
     }
 
     let mut app = router(App::new(pool, token, &web_password, session_max_age_days));
