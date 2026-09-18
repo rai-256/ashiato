@@ -540,6 +540,17 @@ fn archive_copy_uses_content_hash_as_the_single_copy_name() {
 }
 
 #[test]
+fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::MyActivity,
+        r#"[{"time":"2026-01-01T00:00:00Z","products":["マップ"],"title":"京都 旅館"}]"#.as_bytes(),
+    )
+    .unwrap();
+    assert!(shape["products"].to_string().contains("マップ"));
+    assert!(!shape.to_string().contains("京都 旅館"));
+}
+
+#[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
         crate::archive::myactivity::source_name("Google Search"),

@@ -281,6 +281,29 @@ pub fn copy_known_file(
     Ok(target)
 }
 
+/// 確認に必要な構造だけを取り出す。記録値・題名・検索語は形に含めない。
+pub fn shape_for_file(
+    kind: super::classify::KnownKind,
+    bytes: &[u8],
+) -> anyhow::Result<serde_json::Value> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    let products: Vec<String> = if kind == super::classify::KnownKind::MyActivity {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row.get("products"))
+            .filter_map(serde_json::Value::as_array)
+            .filter_map(|products| products.first())
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(serde_json::json!({"kind": format!("{kind:?}"), "products": products}))
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
