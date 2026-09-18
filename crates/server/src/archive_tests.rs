@@ -375,7 +375,7 @@ fn archive_parse_legacy_accepts_records_and_semantic_history_timestamps() {
 }
 
 #[test]
-fn youtube_parser_separates_watch_and_decodes_search_query() {
+fn archive_parse_youtube_separates_watch_and_decodes_search_query() {
     let rows = crate::archive::youtube::parse(br#"[{"titleUrl":"https://youtube.com/watch?v=x"},{"titleUrl":"https://youtube.com/results?search_query=%E4%BA%AC%E9%83%BD"}]"#).unwrap();
     assert_eq!(rows[0].logical_source, "c03-youtube-watch");
     assert_eq!(rows[1].logical_source, "c03-youtube-search");
@@ -447,7 +447,7 @@ fn archive_requests_accept_legacy_records_and_semantic_history() {
 }
 
 #[test]
-fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
+fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
         crate::archive::myactivity::source_name("Google Search"),
         "c03-myactivity-google-search"
@@ -458,7 +458,7 @@ fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
 }
 
 #[test]
-fn chrome_time_usec_is_converted_from_windows_epoch_to_utc() {
+fn archive_parse_chrome_time_usec_is_converted_from_windows_epoch_to_utc() {
     assert_eq!(
         crate::archive::chrome::time_usec_to_utc(11644473600000000)
             .unwrap()
