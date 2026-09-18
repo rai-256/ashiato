@@ -71,7 +71,7 @@ cat > "$out/manifest.md" <<EOF
 
 画面 \`http://127.0.0.1:5180\`（\`WEB_PORT\` で変えられる）/ API は \`.env\` の BIND（既定 \`127.0.0.1:18787\`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは \`docs/screens.md\`。
 
-スマホ・端末から届かせるなら \`http://yoshi.tail4360f4.ts.net:<port>\` ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、\`100.85.27.45\` 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
+スマホ・端末から届かせるなら \`http://<手元の網のホスト名>:<port>\`（\`.env\` の \`ALLOWED_HOSTS\`） ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
 
 確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）——
 作り直し: \`curl -sS -H "authorization: Bearer \$API_TOKEN" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{"radius_m":30}'\`（戻すときは \`100\`。範囲外の値は 400 で、基準も滞在も変わらない）。
