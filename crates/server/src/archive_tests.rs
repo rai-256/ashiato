@@ -154,6 +154,28 @@ fn archive_open_lists_each_zip_and_classifies_unreadable_formats() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 対象でないファイルからは記録が作られない
+/// Scenario: HTML のマイアクティビティは読めなかったものとして残る
+/// Scenario: JSON と同居する HTML は読まなかったに数える
+#[test]
+fn archive_classifier_prefers_json_shapes_and_accounts_for_html() {
+    let files = vec![
+        crate::archive::open::ArchiveFile { path: "日本語/視聴.json".into(), bytes: br#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","titleUrl":"https://www.youtube.com/watch?v=x"}]"#.to_vec() },
+        crate::archive::open::ArchiveFile { path: "YouTube/watch-history.html".into(), bytes: b"<html/>".to_vec() },
+        crate::archive::open::ArchiveFile { path: "Photos/a.jpg".into(), bytes: b"photo".to_vec() },
+    ];
+    let result = crate::archive::classify::classify_files(&files);
+    assert_eq!(result.known.len(), 1);
+    assert_eq!(result.skipped, 2, "JSONと同居するHTMLと写真は読まない");
+    assert_eq!(result.unreadable, 0);
+    let html_only =
+        crate::archive::classify::classify_files(&[crate::archive::open::ArchiveFile {
+            path: "My Activity.html".into(),
+            bytes: b"<html/>".to_vec(),
+        }]);
+    assert_eq!(html_only.unreadable, 1);
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
