@@ -404,6 +404,7 @@ fn archive_requests_keep_archive_hash_and_inner_path_in_payload() {
 }
 
 /// Scenario: 端末から書き出したタイムラインを専用のフォルダに置くと読まれる
+/// Scenario: 書庫の記録は収集したに分類される
 #[test]
 fn archive_requests_accept_timeline_segments() {
     let requests = crate::archive::worker::requests_for_file(
@@ -417,6 +418,7 @@ fn archive_requests_accept_timeline_segments() {
     assert_eq!(requests.len(), 4);
     assert_eq!(requests[0].logical_source, "c03-timeline-visit");
     assert_eq!(requests[3].logical_source, "c03-timeline-signal");
+    assert!(requests.iter().all(|request| request.origin == "collected"));
 }
 
 /// Scenario: 移行前のロケーション履歴は読み終えると退役する
