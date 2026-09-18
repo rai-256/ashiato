@@ -7,9 +7,13 @@ import react from "@vitejs/plugin-react";
 // 実測 2026-09-14（確認バッチ 20260913-2255）: 付けていなかったので、画面は稼働状況も達成も 401 で読めなかった。
 // 画面がどう資格情報を持つかは Story に無い（ST28 は網の話）。ここは確認用の最小で、本決めは deep へ。
 const token = process.env.API_TOKEN;
+// **行き先も起動側から読む**（2026-09-18）。`BIND` を変えられるのにここが 18787 固定だったので、
+// 別の番号で立てた縦串の画面が**隣で動いている別のサーバ**を読んでいた（e2e が偶然緑になっていた）。
+// 既定は run.sh / tools/stack.sh と同じ。
+const target = `http://${process.env.BIND ?? "127.0.0.1:18787"}`;
 const proxy = {
   "/api": {
-    target: "http://127.0.0.1:18787",
+    target,
     rewrite: (p: string) => p.replace(/^\/api/, ""),
     ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
   },
