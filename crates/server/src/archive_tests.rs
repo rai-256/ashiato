@@ -263,6 +263,16 @@ fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(japanese.len(), "c03-myactivity-u".len() + 12);
 }
 
+#[test]
+fn chrome_time_usec_is_converted_from_windows_epoch_to_utc() {
+    assert_eq!(
+        crate::archive::chrome::time_usec_to_utc(11644473600000000)
+            .unwrap()
+            .to_rfc3339(),
+        "1970-01-01T00:00:00+00:00"
+    );
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
