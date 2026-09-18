@@ -158,7 +158,7 @@ fn archive_open_lists_each_zip_and_classifies_unreadable_formats() {
 /// Scenario: HTML のマイアクティビティは読めなかったものとして残る
 /// Scenario: JSON と同居する HTML は読まなかったに数える
 #[test]
-fn archive_classifier_prefers_json_shapes_and_accounts_for_html() {
+fn archive_classify_prefers_json_shapes_and_accounts_for_html() {
     let files = vec![
         crate::archive::open::ArchiveFile { path: "日本語/視聴.json".into(), bytes: br#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","titleUrl":"https://www.youtube.com/watch?v=x"}]"#.to_vec() },
         crate::archive::open::ArchiveFile { path: "YouTube/watch-history.html".into(), bytes: b"<html/>".to_vec() },
@@ -219,6 +219,18 @@ fn archive_slice_returns_each_array_element_as_original_bytes() {
 fn archive_slice_rejects_a_non_utf8_item() {
     let input = b"[{\"title\":\"\xFF\"}]";
     assert!(crate::archive::slice::array_items(input).is_err());
+}
+
+/// 1 MiB の読み取り境界の前後にある項目でも、原文を欠かさず切り出す。
+#[test]
+fn archive_slice_keeps_an_item_across_a_mebibyte_boundary() {
+    let padding = "x".repeat(1024 * 1024);
+    let input = format!("[{{\"title\":\"{padding}\"}},{{\"title\":\"second\"}}]");
+    let items = crate::archive::slice::array_items(input.as_bytes()).unwrap();
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].len(), 1024 * 1024 + 12);
+    assert_eq!(items[1], br#"{"title":"second"}"#);
 }
 
 /// Scenario: ずれを持つ時刻はそのずれで残る
@@ -483,6 +495,56 @@ async fn archive_reader_processes_candidates_one_at_a_time_in_discovery_order() 
         *seen.lock().unwrap(),
         ["first.zip", "second.zip"].map(std::path::PathBuf::from)
     );
+}
+
+/// Scenario: 読んでいる間に置いた書庫は読み終えた後に読まれる
+#[tokio::test]
+async fn archive_worker_starts_and_records_a_stable_archive() {
+    let pool = testdb::pool().await;
+    let root =
+        std::env::temp_dir().join(format!("ashiato-archive-worker-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&inbox).unwrap();
+    std::fs::create_dir_all(&downloads).unwrap();
+    write_zip(
+        &inbox.join("takeout-20260912.zip"),
+        &[(
+            "Takeout/YouTube/watch-history.json",
+            br#"[{"titleUrl":"https://youtube.com/watch?v=x"}]"#,
+        )],
+    );
+    let user = testdb::user();
+    crate::archive::worker::spawn_inspecting(
+        pool.clone(),
+        crate::archive::config::ArchiveConfig {
+            inbox_dir: inbox.clone(),
+            downloads_dir: downloads,
+            copy_dir: root.join("copies"),
+            keep_copies: true,
+            user_id: Some(user),
+            scan_sec: 1,
+        },
+        user,
+    );
+
+    let recorded = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let count: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM core.archive_ledger WHERE user_id = $1")
+                    .bind(user)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            if count == 1 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(recorded.is_ok(), "取り込み器が5秒以内に台帳へ記録しない");
 }
 
 /// Scenario: 書庫のソースは 60 日で登録されている
