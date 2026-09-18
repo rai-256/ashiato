@@ -88,11 +88,11 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 4.3 字句の走査で配列の項目の境目を 1 MiB ずつ探し、`raw` をバイト列の範囲そのままで切り出す（64 MiB の上限。UTF-8 でない範囲は読めなかった項目）。
   Scenario: `原文は書庫のバイト列の一部と一致する`。
   検証: `CT archive_slice`（字下げ・改行・エスケープされた `"` と `]` を含む配列で、各 `raw` がファイルの部分列と一致し、境目が 1 MiB の読みの切れ目をまたいでも同じ）
-- [ ] 4.4 検証: 大きなファイルでメモリに載せないこと —— `CT archive_slice_large`（200 MiB の合成の `Records.json` を読み、1 件ずつ受け取る側で同時に持った件数の最大が 1 であることを数える）
+- [x] 4.4 検証: 大きなファイルでメモリに載せないこと —— `CT archive_slice_large`（200 MiB の合成の `Records.json` を読み、1 件ずつ受け取る側で同時に持った件数の最大が 1 であることを数える）
 
 ## 5. 解析器（design D2 / D5 / D6）
 
-- [ ] 5.1 地域の決め方（ずれを持てばそのずれと `Etc/GMT±N`、持たなければ 0 と `UTC`、`startTimeTimezoneUtcOffsetMinutes` を優先、`tz_from_source`）。
+- [x] 5.1 地域の決め方（ずれを持てばそのずれと `Etc/GMT±N`、持たなければ 0 と `UTC`、`startTimeTimezoneUtcOffsetMinutes` を優先、`tz_from_source`）。
   Scenario: `ずれを持つ時刻はそのずれで残る` / `UTC しか持たない時刻は UTC で残る` / `UTC しか持たない時刻には取得元が地域を持たなかった印が付く` / `地域は位置から推定されない`。検証: `CT archive_tz`
 - [ ] 5.2 `Timeline.json`（訪問 / 移動 / 経路の点 / 生の信号 → 4 本の論理ソース）。
   Scenario: `タイムラインの訪問と経路の点は別の論理ソースに入る` / `書庫の記録は収集したに分類される`。検証: `CT archive_parse_timeline`

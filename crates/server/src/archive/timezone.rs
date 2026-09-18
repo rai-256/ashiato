@@ -12,7 +12,26 @@ pub fn from_rfc3339(value: &str) -> anyhow::Result<SourceTimezone> {
     let parsed = chrono::DateTime::parse_from_rfc3339(value)?;
     let offset = parsed.offset().local_minus_utc() / 60;
     let from_source = !value.ends_with('Z');
-    Ok(SourceTimezone {
+    Ok(from_offset(offset, from_source))
+}
+
+/// Timeline の `startTimeTimezoneUtcOffsetMinutes` があれば、時刻文字列の
+/// 表記より優先する。取得元が示した明示的な地域情報だからである。
+pub fn from_timestamp(
+    value: &str,
+    start_time_timezone_utc_offset_minutes: Option<i32>,
+) -> anyhow::Result<SourceTimezone> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)?;
+    let offset = start_time_timezone_utc_offset_minutes
+        .unwrap_or_else(|| parsed.offset().local_minus_utc() / 60);
+    Ok(from_offset(
+        offset,
+        start_time_timezone_utc_offset_minutes.is_some() || !value.ends_with('Z'),
+    ))
+}
+
+fn from_offset(offset: i32, from_source: bool) -> SourceTimezone {
+    SourceTimezone {
         offset_min: offset,
         id: if offset == 0 {
             "UTC".into()
@@ -24,5 +43,5 @@ pub fn from_rfc3339(value: &str) -> anyhow::Result<SourceTimezone> {
             )
         },
         from_source,
-    })
+    }
 }

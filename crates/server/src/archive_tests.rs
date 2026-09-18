@@ -233,11 +233,46 @@ fn archive_slice_keeps_an_item_across_a_mebibyte_boundary() {
     assert_eq!(items[1], br#"{"title":"second"}"#);
 }
 
+/// 200 MiB の Records.json でも、読み手へは常に 1 項目ずつ渡す。
+#[test]
+fn archive_slice_large_streams_one_item_at_a_time() {
+    use std::io::Write as _;
+
+    let path = std::env::temp_dir().join(format!("ashiato-Records-{}.json", uuid::Uuid::new_v4()));
+    let mut file = std::fs::File::create(&path).unwrap();
+    file.write_all(b"[").unwrap();
+    for item in 0..200 {
+        if item != 0 {
+            file.write_all(b",").unwrap();
+        }
+        write!(file, "{{\"location\":\"{}\"}}", "x".repeat(1024 * 1024)).unwrap();
+    }
+    file.write_all(b"]").unwrap();
+    drop(file);
+
+    let mut received = 0usize;
+    let mut in_flight = 0usize;
+    let mut max_in_flight = 0usize;
+    crate::archive::slice::stream_array_items(std::fs::File::open(&path).unwrap(), |item| {
+        in_flight += 1;
+        max_in_flight = max_in_flight.max(in_flight);
+        assert!(item.starts_with(br#"{"location":"#));
+        received += 1;
+        in_flight -= 1;
+        Ok(())
+    })
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+
+    assert_eq!(received, 200);
+    assert_eq!(max_in_flight, 1);
+}
+
 /// Scenario: ずれを持つ時刻はそのずれで残る
 /// Scenario: UTC しか持たない時刻は UTC で残る
 /// Scenario: UTC しか持たない時刻には取得元が地域を持たなかった印が付く
 #[test]
-fn archive_timezone_uses_source_offset_or_marks_utc_as_unknown() {
+fn archive_tz_uses_source_offset_or_marks_utc_as_unknown() {
     let offset = crate::archive::timezone::from_rfc3339("2026-01-02T03:04:05+09:00").unwrap();
     assert_eq!(
         (offset.offset_min, offset.id.as_str(), offset.from_source),
@@ -248,19 +283,35 @@ fn archive_timezone_uses_source_offset_or_marks_utc_as_unknown() {
         (utc.offset_min, utc.id.as_str(), utc.from_source),
         (0, "UTC", false)
     );
+
+    let explicit =
+        crate::archive::timezone::from_timestamp("2026-01-02T03:04:05Z", Some(540)).unwrap();
+    assert_eq!(
+        (
+            explicit.offset_min,
+            explicit.id.as_str(),
+            explicit.from_source
+        ),
+        (540, "Etc/GMT-9", true)
+    );
 }
 
 /// Scenario: タイムラインの訪問と経路の点は別の論理ソースに入る
 #[test]
-fn timeline_parser_separates_visits_from_path_points() {
-    let input = br#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"},"timelinePath":[{"time":"2026-01-01T00:01:00Z"}]}]}"#;
+fn archive_parse_timeline_separates_all_record_kinds() {
+    let input = br#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"},"activity":{"startTime":"2026-01-01T00:00:01Z"},"timelinePath":[{"time":"2026-01-01T00:01:00Z"}]}],"rawSignals":[{"time":"2026-01-01T00:02:00Z"}]}"#;
     let records = crate::archive::timeline::parse(input).unwrap();
     assert_eq!(
         records
             .iter()
             .map(|record| record.logical_source)
             .collect::<Vec<_>>(),
-        ["c03-timeline-visit", "c03-timeline-path"]
+        [
+            "c03-timeline-visit",
+            "c03-timeline-move",
+            "c03-timeline-route",
+            "c03-timeline-signal"
+        ]
     );
 }
 
