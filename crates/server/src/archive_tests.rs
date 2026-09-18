@@ -176,6 +176,29 @@ fn archive_classifier_prefers_json_shapes_and_accounts_for_html() {
     assert_eq!(html_only.unreadable, 1);
 }
 
+#[test]
+fn archive_worker_inspects_a_candidate_before_parsing_it() {
+    let root = std::env::temp_dir().join(format!("ashiato-inspect-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("one.zip");
+    write_zip(
+        &path,
+        &[(
+            "watch.json",
+            br#"[{"header":"YouTube","time":"x","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+        )],
+    );
+    let candidate = crate::archive::scan::ScanCandidate {
+        path,
+        from_downloads: false,
+        sha256: "x".into(),
+        disposition: crate::archive::scan::ScanDisposition::Read,
+    };
+    let inspected = crate::archive::worker::inspect(candidate).unwrap();
+    assert_eq!(inspected.known, 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
