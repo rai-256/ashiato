@@ -318,6 +318,34 @@ pub async fn is_shape_confirmed(
     .await
 }
 
+/// 未確認の形を1回だけ待ち行列へ積む。台帳の追記は読み手側がまとめて行う。
+pub async fn record_pending_shape(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    inner_path: &str,
+    shape: &serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    let shape_hash = hash_shape(shape);
+    sqlx::query(
+        "INSERT INTO core.archive_pending_shape (user_id, sha256, inner_path, shape_hash)
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(archive_sha256)
+    .bind(inner_path)
+    .bind(shape_hash)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub fn hash_shape(shape: &serde_json::Value) -> String {
+    use sha2::Digest as _;
+    let encoded = serde_json::to_vec(shape).expect("形はJSON");
+    format!("{:x}", sha2::Sha256::digest(encoded))
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
@@ -404,6 +432,24 @@ pub fn spawn_inspecting(
                     let classified = super::classify::classify_files(&files);
                     for known in classified.known {
                         let file = &files[known.index];
+                        if known.kind == super::classify::KnownKind::MyActivity {
+                            let shape = match shape_for_file(known.kind, &file.bytes) {
+                                Ok(shape) => shape,
+                                Err(_) => continue,
+                            };
+                            let shape_hash = hash_shape(&shape);
+                            match is_shape_confirmed(&pool, user_id, &shape_hash).await {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    let _ = record_pending_shape(
+                                        &pool, user_id, &sha256, &file.path, &shape,
+                                    )
+                                    .await;
+                                    continue;
+                                }
+                                Err(_) => return,
+                            }
+                        }
                         let legacy = matches!(
                             known.kind,
                             super::classify::KnownKind::Records

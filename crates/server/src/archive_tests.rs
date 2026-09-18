@@ -569,6 +569,28 @@ async fn archive_shape_confirmation_allows_only_confirmed_shape() {
     );
 }
 
+/// Scenario: 印を置く前の Takeout の書庫は格納されない
+#[tokio::test]
+async fn archive_pending_shape_records_unconfirmed_file_once() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let shape = serde_json::json!({"kind":"MyActivity","products":["マップ"]});
+    crate::archive::worker::record_pending_shape(&pool, user, "archive", "activity.json", &shape)
+        .await
+        .unwrap();
+    crate::archive::worker::record_pending_shape(&pool, user, "archive", "activity.json", &shape)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1 AND sha256 = 'archive'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
