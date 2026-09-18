@@ -1900,6 +1900,15 @@ pub async fn run() -> anyhow::Result<()> {
         .connect(&url)
         .await?;
     migrate(&pool).await?;
+    let archive_config = archive::config::from_env()?;
+    if let Some(user_id) = archive_config.user_id {
+        archive::worker::spawn_inspecting(pool.clone(), archive_config, user_id);
+    } else {
+        tracing::info!(
+            kind = "archive_disabled",
+            "書庫の利用者が未設定のため取り込み器を起こさない"
+        );
+    }
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
