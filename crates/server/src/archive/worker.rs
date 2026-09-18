@@ -194,6 +194,23 @@ fn event_time(value: &serde_json::Value) -> anyhow::Result<chrono::DateTime<chro
     Ok(chrono::DateTime::parse_from_rfc3339(text)?.to_utc())
 }
 
+/// 移行前の書き出しが運んだ最終日の翌日に、3 本の旧ソースを退役させる。
+/// より古い書庫を後から読んでも退役日は戻さない。
+pub async fn retire_legacy_sources(
+    pool: &sqlx::PgPool,
+    last_event_at: chrono::DateTime<chrono::Utc>,
+) -> Result<(), sqlx::Error> {
+    let day = (last_event_at + chrono::Duration::hours(9)).date_naive() + chrono::Duration::days(1);
+    sqlx::query(
+        "UPDATE core.source SET retired_on = GREATEST(COALESCE(retired_on, $1), $1)
+          WHERE logical_source IN ('c03-legacy-location', 'c03-legacy-visit', 'c03-legacy-activity')",
+    )
+    .bind(day)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
