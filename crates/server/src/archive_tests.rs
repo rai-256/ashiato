@@ -31,7 +31,7 @@ fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
 
 /// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。
 #[tokio::test]
-async fn store_one_outcome_distinguishes_archive_results() {
+async fn archive_dedup_distinguishes_archive_results() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     let first = archive_request(user, r#"{"watch":"first"}"#);
