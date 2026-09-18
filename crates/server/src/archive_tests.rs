@@ -304,6 +304,60 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 読んでいる間に置いた書庫は読み終えた後に読まれる
+#[tokio::test]
+async fn archive_reader_processes_candidates_one_at_a_time_in_discovery_order() {
+    let (sender, receiver) = tokio::sync::mpsc::channel(2);
+    let first_started = std::sync::Arc::new(tokio::sync::Notify::new());
+    let release_first = std::sync::Arc::new(tokio::sync::Notify::new());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let started = first_started.clone();
+    let release = release_first.clone();
+    let recorded = seen.clone();
+    let reader = tokio::spawn(crate::archive::worker::read_in_order(
+        receiver,
+        move |candidate| {
+            let started = started.clone();
+            let release = release.clone();
+            let recorded = recorded.clone();
+            async move {
+                if candidate.path == std::path::Path::new("first.zip") {
+                    started.notify_one();
+                    release.notified().await;
+                }
+                recorded.lock().unwrap().push(candidate.path);
+            }
+        },
+    ));
+    sender
+        .send(crate::archive::scan::ScanCandidate {
+            path: "first.zip".into(),
+            from_downloads: false,
+            sha256: "first".into(),
+            disposition: crate::archive::scan::ScanDisposition::Read,
+        })
+        .await
+        .unwrap();
+    first_started.notified().await;
+    sender
+        .send(crate::archive::scan::ScanCandidate {
+            path: "second.zip".into(),
+            from_downloads: false,
+            sha256: "second".into(),
+            disposition: crate::archive::scan::ScanDisposition::Read,
+        })
+        .await
+        .unwrap();
+    assert!(seen.lock().unwrap().is_empty());
+    release_first.notify_one();
+    drop(sender);
+    reader.await.unwrap();
+    assert_eq!(
+        *seen.lock().unwrap(),
+        ["first.zip", "second.zip"].map(std::path::PathBuf::from)
+    );
+}
+
 /// Scenario: 書庫のソースは 60 日で登録されている
 /// Scenario: 取り込み器のソースは 1 日で登録されている
 /// Scenario: 本人が変えた想定間隔は移行を当て直しても戻らない
