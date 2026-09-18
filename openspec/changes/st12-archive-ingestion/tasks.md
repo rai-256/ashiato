@@ -100,7 +100,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   読み終えたら 3 本の `retired_on` を最後の出来事の日の翌日に置く（延ばすだけ。design D2 / C21）。
   Scenario: `移行前のロケーション履歴は読み終えると退役する`。
   検証: `CT archive_parse_legacy`（最後の点 2024-08-31 → `retired_on = 2024-09-01` / より古いファイルを後から置いても動かない / より新しいファイルで延びる）
-- [ ] 5.4 YouTube の視聴履歴と検索履歴（`titleUrl` で見分ける。検索語は `search_query` を復号）。検証: `CT archive_parse_youtube`
+- [x] 5.4 YouTube の視聴履歴と検索履歴（`titleUrl` で見分ける。検索語は `search_query` を復号）。検証: `CT archive_parse_youtube`
 - [ ] 5.5 マイアクティビティ（design D2: `products[0]` から論理ソースの名前を作り、登録簿に無ければ 1 行足してから格納する。**印の前は格納しない**ので、名前を作るのは印を置いた形のファイルだけ。D16）。
   検証: `CT archive_parse_myactivity`（ASCII の名前 / 日本語の名前 → `u` + 12 桁 / 同じ名前の 2 回目で登録簿の行が増えない）
 - [ ] 5.6 Chrome の履歴（`time_usec` を UTC に）。検証: `CT archive_parse_chrome`
