@@ -4,6 +4,7 @@
 
 use crate::testdb;
 use crate::{heartbeat, store_heartbeat, store_one, IngestRequest, StoreOutcome};
+use std::path::Path;
 
 fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
     IngestRequest {
@@ -102,6 +103,65 @@ fn archive_config_defaults_and_rejects_a_misspelling() {
     let mut invalid = std::collections::BTreeMap::new();
     invalid.insert("ASHIATO_ARCHIVE_KEEP_COPIES".into(), "flase".into());
     assert!(crate::archive::config::from_values(&invalid).is_err());
+}
+
+fn write_file(path: &Path, name: &str, content: &[u8]) {
+    std::fs::write(path.join(name), content).unwrap();
+}
+
+/// Scenario: ダウンロードのフォルダの他のファイルは読まれない
+/// Scenario: 書き込み途中のファイルは読まれない
+/// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
+#[tokio::test]
+async fn archive_scan_only_queues_stable_supported_inbox_files() {
+    let pool = testdb::pool().await;
+    let root = std::env::temp_dir().join(format!("ashiato-archive-scan-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&inbox).unwrap();
+    std::fs::create_dir_all(&downloads).unwrap();
+    write_file(&inbox, "timeline.json", b"[]");
+    write_file(&inbox, "writing.zip.part", b"unfinished");
+    write_file(&downloads, "takeout-20260912.zip", b"zip");
+    write_file(&downloads, "photo.zip", b"not an archive inbox file");
+
+    let config = crate::archive::config::ArchiveConfig {
+        inbox_dir: inbox.clone(),
+        downloads_dir: downloads.clone(),
+        copy_dir: root.join("copies"),
+        keep_copies: true,
+        user_id: Some(testdb::user()),
+        scan_sec: 120,
+    };
+    let user = config.user_id.unwrap();
+
+    assert!(crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap()
+        .is_empty());
+    let queued = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap();
+    let paths: Vec<_> = queued
+        .iter()
+        .map(|candidate| candidate.path.file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(paths, ["timeline.json", "takeout-20260912.zip"]);
+
+    std::fs::rename(inbox.join("writing.zip.part"), inbox.join("writing.zip")).unwrap();
+    let queued = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap();
+    assert_eq!(queued.len(), 2, "既に安定したファイルだけが残る");
+    let queued = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap();
+    assert_eq!(queued.len(), 3);
+    assert!(queued
+        .iter()
+        .any(|candidate| candidate.path.file_name().unwrap() == "writing.zip"));
+
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 書庫のソースは 60 日で登録されている
