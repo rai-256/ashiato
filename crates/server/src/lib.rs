@@ -1739,10 +1739,18 @@ pub async fn coverage_get(
     // 鎖の先端を数え、**格子と達成パネルが別の 5 本を見ていた** ——
     // 後継のソースの格子が画面のどこにも出ず、いま実際に収集しているソースの途絶が
     // 稼働状況の画面から消えていた。
-    let names: Vec<String> = coverage::must_sources()
+    let mut names: Vec<String> = coverage::must_sources()
         .into_iter()
         .map(|(n, _)| n)
         .collect();
+    let archive_names: Vec<String> = sqlx::query_scalar(
+        "SELECT logical_source FROM core.source
+          WHERE logical_source LIKE 'c03-%' ORDER BY display_name, logical_source",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .map_err(|e| internal_at("coverage.archive_sources", e))?;
+    names.extend(archive_names);
     let out = coverage::of_sources(&app.pool, q.user_id, &names, q.from, q.to)
         .await
         .map_err(|e| internal_at("coverage.of_sources", e))?;
