@@ -6,6 +6,7 @@ pub mod config;
 pub mod open;
 pub mod scan;
 pub mod slice;
+pub mod timeline;
 pub mod timezone;
 pub mod worker;
 
