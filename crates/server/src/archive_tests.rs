@@ -109,6 +109,51 @@ fn write_file(path: &Path, name: &str, content: &[u8]) {
     std::fs::write(path.join(name), content).unwrap();
 }
 
+fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
+    use std::io::Write as _;
+    let file = std::fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    for (name, contents) in entries {
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(contents).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+/// Scenario: 分割書庫は 1 本ずつ読まれる
+/// Scenario: 読めない形の書庫は台帳に残る
+#[test]
+fn archive_open_lists_each_zip_and_classifies_unreadable_formats() {
+    let root = std::env::temp_dir().join(format!("ashiato-archive-open-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let zip_path = root.join("takeout-20260912-001.zip");
+    write_zip(&zip_path, &[("Takeout/YouTube/watch-history.json", b"[]")]);
+
+    let files = crate::archive::open::open_archive(&zip_path).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "Takeout/YouTube/watch-history.json");
+    assert_eq!(files[0].bytes, b"[]");
+
+    let invalid = root.join("takeout-20260912.tgz");
+    std::fs::write(&invalid, b"not a tar file").unwrap();
+    assert_eq!(
+        crate::archive::open::open_archive(&invalid)
+            .unwrap_err()
+            .kind(),
+        "unsupported_format"
+    );
+
+    std::fs::write(&zip_path, b"not a zip").unwrap();
+    assert_eq!(
+        crate::archive::open::open_archive(&zip_path)
+            .unwrap_err()
+            .kind(),
+        "broken_zip"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
