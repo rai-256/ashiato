@@ -57,6 +57,29 @@ pub fn requests_for_file(
             })
             .collect();
     }
+    if kind == super::classify::KnownKind::Records
+        || kind == super::classify::KnownKind::SemanticHistory
+    {
+        let records = if kind == super::classify::KnownKind::Records {
+            super::legacy::parse_records(bytes)?
+        } else {
+            super::legacy::parse_semantic(bytes)?
+        };
+        return records
+            .into_iter()
+            .map(|record| {
+                let raw = serde_json::json!({"event_time": record.event_time.to_rfc3339()});
+                request_at(
+                    record.logical_source.to_owned(),
+                    &raw,
+                    record.event_time,
+                    inner_path,
+                    user_id,
+                    archive_sha256.clone(),
+                )
+            })
+            .collect();
+    }
     let values: Vec<serde_json::Value> = match kind {
         super::classify::KnownKind::ChromeHistory => {
             serde_json::from_slice::<serde_json::Value>(bytes)?

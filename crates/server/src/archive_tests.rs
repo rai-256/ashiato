@@ -419,6 +419,33 @@ fn archive_requests_accept_timeline_segments() {
     assert_eq!(requests[3].logical_source, "c03-timeline-signal");
 }
 
+/// Scenario: 移行前のロケーション履歴は読み終えると退役する
+#[test]
+fn archive_requests_accept_legacy_records_and_semantic_history() {
+    let records = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::Records,
+        "Records.json",
+        br#"{"locations":[{"timestamp":"2024-08-31T23:00:00Z"}]}"#,
+        uuid::Uuid::nil(),
+        "c".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(records[0].logical_source, "c03-legacy-location");
+    let semantic = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::SemanticHistory,
+        "Semantic Location History.json",
+        br#"{"timelineObjects":[{"placeVisit":{"duration":{"startTimestamp":"2024-08-31T23:00:00Z"}}},{"activitySegment":{"duration":{"startTimestampMs":"1725148800000"}}}]}"#,
+        uuid::Uuid::nil(), "d".repeat(64),
+    ).unwrap();
+    assert_eq!(
+        semantic
+            .iter()
+            .map(|item| item.logical_source.as_str())
+            .collect::<Vec<_>>(),
+        ["c03-legacy-visit", "c03-legacy-activity"]
+    );
+}
+
 #[test]
 fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
