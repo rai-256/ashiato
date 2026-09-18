@@ -228,6 +228,39 @@ pub async fn ensure_myactivity_source(
     Ok(())
 }
 
+/// 専用置き場の書庫だけを、台帳の追記後に本人の「取り込み済み」へ移す。
+pub fn move_to_processed(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("書庫の親が無い"))?;
+    let processed = parent.join("取り込み済み");
+    std::fs::create_dir_all(&processed)?;
+    let stem = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| std::io::Error::other("書庫名が読めない"))?;
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    let mut index = 1;
+    loop {
+        let name = if index == 1 {
+            path.file_name().unwrap().to_owned()
+        } else if extension.is_empty() {
+            format!("{stem} ({index})").into()
+        } else {
+            format!("{stem} ({index}).{extension}").into()
+        };
+        let target = processed.join(name);
+        if !target.exists() {
+            std::fs::rename(path, &target)?;
+            return Ok(target);
+        }
+        index += 1;
+    }
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
@@ -389,6 +422,9 @@ pub fn spawn_inspecting(
                 {
                     tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない");
                 } else {
+                    if !candidate.from_downloads && move_to_processed(&candidate.path).is_err() {
+                        tracing::warn!(kind = "archive_move", "書庫を取り込み済みへ移せない");
+                    }
                     tracing::info!(
                         kind = "archive_inspect",
                         known = result.known,

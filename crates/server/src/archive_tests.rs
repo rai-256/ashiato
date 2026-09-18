@@ -507,6 +507,24 @@ async fn archive_parse_myactivity_registers_a_source_once() {
     assert_eq!(count, 1);
 }
 
+/// Scenario: 専用のフォルダの書庫は取り込み済みへ移る
+/// Scenario: 取り込み済みに同じ名前があっても上書きしない
+#[test]
+fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
+    let root = std::env::temp_dir().join(format!("ashiato-archive-move-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let processed = inbox.join("取り込み済み");
+    std::fs::create_dir_all(&processed).unwrap();
+    std::fs::write(processed.join("one.zip"), b"old").unwrap();
+    let source = inbox.join("one.zip");
+    std::fs::write(&source, b"new").unwrap();
+    let moved = crate::archive::worker::move_to_processed(&source).unwrap();
+    assert_eq!(moved.file_name().unwrap(), "one (2).zip");
+    assert_eq!(std::fs::read(processed.join("one.zip")).unwrap(), b"old");
+    assert_eq!(std::fs::read(moved).unwrap(), b"new");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
