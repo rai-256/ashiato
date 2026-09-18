@@ -5,6 +5,7 @@ pub mod classify;
 pub mod config;
 pub mod open;
 pub mod scan;
+pub mod slice;
 pub mod worker;
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
