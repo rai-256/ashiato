@@ -103,7 +103,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 5.4 YouTube の視聴履歴と検索履歴（`titleUrl` で見分ける。検索語は `search_query` を復号）。検証: `CT archive_parse_youtube`
 - [ ] 5.5 マイアクティビティ（design D2: `products[0]` から論理ソースの名前を作り、登録簿に無ければ 1 行足してから格納する。**印の前は格納しない**ので、名前を作るのは印を置いた形のファイルだけ。D16）。
   検証: `CT archive_parse_myactivity`（ASCII の名前 / 日本語の名前 → `u` + 12 桁 / 同じ名前の 2 回目で登録簿の行が増えない）
-- [ ] 5.6 Chrome の履歴（`time_usec` を UTC に）。検証: `CT archive_parse_chrome`
+- [x] 5.6 Chrome の履歴（`time_usec` を UTC に）。検証: `CT archive_parse_chrome`
 - [ ] 5.7 6 つの中身を 1 冊ずつ格納する経路を通す（`store_one` を呼ぶ。`device_id = s01-c03`・`origin = collected`・外部識別子なし・`archive_sha256` と `inner_path` を payload に）。
   Scenario: `専用のフォルダに置いた書庫が読まれる` / `ダウンロードのフォルダの Takeout の書庫が読まれる` / `端末から書き出したタイムラインを専用のフォルダに置くと読まれる` /
   `6 つの中身がそれぞれ読まれる` / `記録から運んだ書庫が分かる` / `書庫の位置は携帯端末の位置に入らない` / `書庫の位置は携帯端末の位置の収集開始日を動かさない` / `書庫の論理ソースは成功条件 1 の達成に数えられない`。
