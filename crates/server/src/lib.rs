@@ -16,6 +16,7 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+pub mod archive;
 #[cfg(test)]
 mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
@@ -387,6 +388,95 @@ impl IngestResult {
             accepted: false,
             error: Some(error),
         }
+    }
+}
+
+/// HTTP の結果表現に依存せず、書庫の読み手が台帳へ数える格納結果。
+///
+/// `DuplicateOfDeleted` は通常の重複と分ける。削除済みの内容を戻さなかった事実は、
+/// 台帳の `deleted_count` にしか残せず、後から記録本体からは導けないため。
+#[derive(Debug, Clone)]
+pub enum StoreOutcome {
+    Inserted(uuid::Uuid),
+    Duplicate(uuid::Uuid),
+    DuplicateOfDeleted(uuid::Uuid),
+    Rejected(IngestError),
+}
+
+/// 書庫の読み手が差し替えられる格納口。
+///
+/// 失敗を注入する読み手は archive 側に置く。HTTP ハンドラを経由しないため、
+/// 書庫の一部失敗をその冊子だけの失敗として扱える。
+pub trait RecordSink: Send + Sync {
+    fn store<'a>(
+        &'a self,
+        request: IngestRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
+    >;
+}
+
+/// PostgreSQL へ本物の格納関門を通す `RecordSink`。
+#[derive(Debug, Clone)]
+pub struct PgSink {
+    pool: sqlx::PgPool,
+}
+
+impl PgSink {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl RecordSink for PgSink {
+    fn store<'a>(
+        &'a self,
+        request: IngestRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
+    > {
+        Box::pin(store_one(&self.pool, request))
+    }
+}
+
+/// JSON の解釈を終えた 1 件を既存の格納関門へ渡し、書庫用の結果へ写す。
+///
+/// HTTP の応答と拒否理由を変えずに、読み手が 1 件ごとの結果を数えられるようにする。
+pub async fn store_one(
+    pool: &sqlx::PgPool,
+    request: IngestRequest,
+) -> anyhow::Result<StoreOutcome> {
+    #[cfg(test)]
+    let app = App::for_test(pool.clone(), "archive-store");
+    #[cfg(not(test))]
+    let app = App {
+        pool: pool.clone(),
+        token: "archive-store".into(),
+        stays: StayRebuilder::real(),
+    };
+    let result = ingest_one(
+        &app,
+        &serde_json::to_value(&request).expect("IngestRequest は常に JSON 化できる"),
+    )
+    .await
+    .map_err(|(_, message)| anyhow::anyhow!(message))?;
+    match (result.id, result.duplicate, result.error) {
+        (Some(id), false, None) => Ok(StoreOutcome::Inserted(id)),
+        (Some(id), true, None) => {
+            let deleted: Option<(uuid::Uuid,)> = sqlx::query_as(
+                "SELECT id FROM core.event WHERE id = $1 AND deleted_at IS NOT NULL",
+            )
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+            Ok(if deleted.is_some() {
+                StoreOutcome::DuplicateOfDeleted(id)
+            } else {
+                StoreOutcome::Duplicate(id)
+            })
+        }
+        (_, _, Some(error)) => Ok(StoreOutcome::Rejected(error)),
+        _ => anyhow::bail!("格納結果が不完全"),
     }
 }
 
@@ -1483,6 +1573,30 @@ async fn heartbeat_one(
         accepted: true,
         error: None,
     })
+}
+
+/// JSON の解釈を終えた生存信号を、HTTP と同じ格納規則で 1 件保存する。
+///
+/// 取り込み器は loopback HTTP の可用性に依存せず、`/heartbeat` と同じ冪等キー・
+/// 収集開始日の更新・拒否規則を使う。
+pub async fn store_heartbeat(
+    pool: &sqlx::PgPool,
+    request: heartbeat::HeartbeatRequest,
+) -> anyhow::Result<HeartbeatResult> {
+    #[cfg(test)]
+    let app = App::for_test(pool.clone(), "archive-heartbeat");
+    #[cfg(not(test))]
+    let app = App {
+        pool: pool.clone(),
+        token: "archive-heartbeat".into(),
+        stays: StayRebuilder::real(),
+    };
+    heartbeat_one(
+        &app,
+        &serde_json::to_value(request).expect("HeartbeatRequest は常に JSON 化できる"),
+    )
+    .await
+    .map_err(|(_, message)| anyhow::anyhow!(message))
 }
 
 /// 生存信号をまとめて受け取る（FR-78）。
