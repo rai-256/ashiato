@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { DAY_TZ } from "./tokens";
+import { isRetired, type SourceCoverage } from "./coverage";
 
 export type ArchiveSourceStatus = {
   logical_source: string;
@@ -21,4 +22,14 @@ export function archiveLastEventLabel(lastEventOn: string, now: Date): string {
     (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastEventOn}T00:00:00Z`)) / 86_400_000,
   );
   return `${lastEventOn} まで（${days} 日前）`;
+}
+
+/** Must の順序を崩さず、書庫のソースを退役済みの前に置く。 */
+export function orderCoverageWithArchives(sources: SourceCoverage[]): SourceCoverage[] {
+  const active = sources.filter((source) => !isRetired(source));
+  return [
+    ...active.filter((source) => !source.logical_source.startsWith("c03-")),
+    ...active.filter((source) => source.logical_source.startsWith("c03-")),
+    ...sources.filter(isRetired),
+  ];
 }
