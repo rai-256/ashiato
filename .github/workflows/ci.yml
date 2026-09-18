@@ -160,13 +160,11 @@ jobs:
           # **2 段に分ける。** 権限を拒否したときのテストは「未許可・未要求」から始める必要があるが、
           # 自分の権限を自分で外すと計測テストのプロセスが死ぬ（実測 2026-09-18: `Process crashed`）。
           # 状態を作るのはテストの外（`pm clear`）の仕事にする。印は @NeedsPristinePermissions。
+          # 行継続（`\`）は使わない —— この action に渡すと `Task '\' not found` になる（実測 2026-09-18）
           script: |
-            A=dev.ashiato.collector.NeedsPristinePermissions
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
-              -Pandroid.testInstrumentationRunnerArguments.notAnnotation=$A
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions
             adb shell pm clear dev.ashiato.collector
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
-              -Pandroid.testInstrumentationRunnerArguments.annotation=$A
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions
             adb shell pm clear dev.ashiato.collector
 
   smoke:
