@@ -14,7 +14,6 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import java.io.FileInputStream
 import java.util.regex.Pattern
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,41 +36,32 @@ import org.junit.runner.RunWith
  *   - **落とさない**（tasks 6.2）。収集は始めない
  */
 @RunWith(AndroidJUnit4::class)
+@NeedsPristinePermissions
 class PermissionDeniedInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val device: UiDevice get() = UiDevice.getInstance(instrumentation)
     private val pkg: String get() = context.packageName
 
-    /** 位置に関わる権限。`start()` に届く前に止まることを見たいので、前景の位置を確実に外す。 */
-    private val located = listOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-    )
-
     private fun shell(cmd: String): String =
         FileInputStream(instrumentation.uiAutomation.executeShellCommand(cmd).fileDescriptor)
             .use { it.readBytes().toString(Charsets.UTF_8) }
 
+    /**
+     * 前提は**テストの外**が作る（`@NeedsPristinePermissions` の説明）。
+     * ここで `pm revoke` すると自分のプロセスが死ぬので、**確かめるだけ**で作りに行かない。
+     */
     @Before
-    fun revokeLocation() {
-        shell("am force-stop $pkg")
-        located.forEach { shell("pm revoke $pkg $it") }
-        shell("logcat -c")
+    fun requirePristinePermissions() {
         assertEquals(
-            "前提が作れていない（位置の権限が残っている）",
+            "前提が作れていない。位置の権限が残っている。" +
+                "`adb shell pm clear $pkg` の後に、" +
+                "annotation=dev.ashiato.collector.NeedsPristinePermissions で単独に走らせる " +
+                "（tools/android-emulator.sh と CI がその順で走らせる）",
             PackageManager.PERMISSION_DENIED,
             context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION),
         )
-    }
-
-    /** 端末を見つけたときの状態へ戻す（同じ実行の他のテストは `GrantPermissionRule` で取り直す）。 */
-    @After
-    fun restore() {
-        shell("am force-stop $pkg")
-        located.forEach { shell("pm grant $pkg $it") }
-        context.stopService(Intent(context, LocationService::class.java))
+        shell("logcat -c")
     }
 
     // **spec の Scenario には対応しない。** 正典に「拒否したときの振る舞い」の Scenario が無く、

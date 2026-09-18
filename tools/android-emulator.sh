@@ -10,6 +10,7 @@
 #
 # 実機を adb で繋いでいるときはエミュレータを立てず、そのまま同じテストを実機で走らせる:
 #   (cd collector-android && ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787)
+# 権限を拒否したときのテストだけは「未許可・未要求」から始めるので、下と同じ 2 段で走らせる。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
@@ -43,5 +44,15 @@ adb shell settings put global animator_duration_scale 0 >/dev/null
 
 echo "== 計測テスト"
 # -Pashiato.baseUrl は平文 HTTP を 127.0.0.1（端末の中のテスト用サーバ）へ許すためだけ。送信先には使われない
-(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787)
+# **2 段に分ける。** 権限を拒否したときのテスト（@NeedsPristinePermissions）は「未許可・未要求」から
+# 始める必要があるが、自分の権限を自分で外すと計測テストのプロセスが死ぬ
+# （実測 2026-09-18: `pm revoke` / `am force-stop` で `Process crashed`。9 本中 6 本しか走らなかった）。
+# 状態を作るのはテストの外（`pm clear`）の仕事にする。
+A=dev.ashiato.collector.NeedsPristinePermissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A")
+adb shell pm clear dev.ashiato.collector
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.annotation="$A")
+adb shell pm clear dev.ashiato.collector   # 見つけたときの状態（未許可・未要求）へ戻す
 echo "== 結果: collector-android/app/build/reports/androidTests/connected/"
