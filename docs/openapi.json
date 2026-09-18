@@ -10,6 +10,38 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/archives/status": {
+      "get": {
+        "tags": [],
+        "operationId": "archives_status_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivesStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/attributes": {
       "get": {
         "tags": [],
@@ -593,6 +625,46 @@
           "verdict": {
             "type": "boolean",
             "description": "**5 本すべてが分母の 95 % 以上**か（第 4 回 Q9 / 第 5 回 Q18）"
+          }
+        }
+      },
+      "ArchiveSourceStatus": {
+        "type": "object",
+        "description": "書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。",
+        "required": [
+          "logical_source"
+        ],
+        "properties": {
+          "last_archive_created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_event_on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "ArchivesStatus": {
+        "type": "object",
+        "description": "`GET /archives/status` の、書庫の稼働状況の最小の安定した部分。",
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSourceStatus"
+            }
           }
         }
       },
