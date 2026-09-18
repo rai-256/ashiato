@@ -46,6 +46,17 @@ async fn archive_dedup_distinguishes_archive_results() {
         StoreOutcome::Duplicate(_)
     ));
 
+    // Scenario: 同じ出来事を含む別の書庫を置いても行が増えない
+    let mut same_content = first.clone();
+    same_content.id = uuid::Uuid::new_v4();
+    same_content.payload = serde_json::json!({"archive_sha256":"different"});
+    assert!(matches!(store_one(&pool, same_content).await.unwrap(), StoreOutcome::Duplicate(_)));
+
+    // Scenario: 題名が変わった同じ視聴は別の記録として残る
+    let mut changed_title = archive_request(user, r#"{"watch":"changed title"}"#);
+    changed_title.event_time = first.event_time;
+    assert!(matches!(store_one(&pool, changed_title).await.unwrap(), StoreOutcome::Inserted(_)));
+
     // Scenario: 消した記録は書庫を置き直しても戻らない
     sqlx::query("UPDATE core.event SET deleted_at = now() WHERE id = $1")
         .bind(first.id)
