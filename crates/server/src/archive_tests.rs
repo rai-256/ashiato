@@ -817,8 +817,10 @@ async fn archive_reader_processes_candidates_one_at_a_time_in_discovery_order() 
 }
 
 /// Scenario: 読んでいる間に置いた書庫は読み終えた後に読まれる
+/// Scenario: 専用のフォルダに置いた書庫が読まれる
+/// Scenario: 6 つの中身がそれぞれ読まれる
 #[tokio::test]
-async fn archive_worker_starts_and_records_a_stable_archive() {
+async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     let pool = testdb::pool().await;
     let root =
         std::env::temp_dir().join(format!("ashiato-archive-worker-{}", uuid::Uuid::new_v4()));
@@ -830,7 +832,7 @@ async fn archive_worker_starts_and_records_a_stable_archive() {
         &inbox.join("takeout-20260912.zip"),
         &[(
             "Takeout/YouTube/watch-history.json",
-            br#"[{"titleUrl":"https://youtube.com/watch?v=x"}]"#,
+            br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
         )],
     );
     let user = testdb::user();
@@ -862,8 +864,16 @@ async fn archive_worker_starts_and_records_a_stable_archive() {
         }
     })
     .await;
+    let events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = 'c03-youtube-watch'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     std::fs::remove_dir_all(root).unwrap();
     assert!(recorded.is_ok(), "取り込み器が5秒以内に台帳へ記録しない");
+    assert_eq!(events, 1, "書庫項目を既存の格納関門へ通す");
 }
 
 /// Scenario: 書庫のソースは 60 日で登録されている
