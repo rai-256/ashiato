@@ -261,6 +261,22 @@ pub fn move_to_processed(path: &std::path::Path) -> std::io::Result<std::path::P
     }
 }
 
+/// 読んだ中身を内容ハッシュ名で 1 度だけ写す。書庫そのものはここへ渡さない。
+pub fn copy_known_file(
+    copy_dir: &std::path::Path,
+    bytes: &[u8],
+) -> std::io::Result<std::path::PathBuf> {
+    use sha2::Digest as _;
+    let hash = format!("{:x}", sha2::Sha256::digest(bytes));
+    let target = copy_dir.join(&hash[..2]).join(&hash);
+    if !target.exists() {
+        let parent = target.parent().expect("写しの親");
+        std::fs::create_dir_all(parent)?;
+        std::fs::write(&target, bytes)?;
+    }
+    Ok(target)
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
