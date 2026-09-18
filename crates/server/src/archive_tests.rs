@@ -525,6 +525,18 @@ fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 読んだ製品のファイルの写しが残る
+/// Scenario: 同じファイルの写しは 1 つ
+#[test]
+fn archive_copy_uses_content_hash_as_the_single_copy_name() {
+    let root = std::env::temp_dir().join(format!("ashiato-archive-copy-{}", uuid::Uuid::new_v4()));
+    let first = crate::archive::worker::copy_known_file(&root, b"known file").unwrap();
+    let second = crate::archive::worker::copy_known_file(&root, b"known file").unwrap();
+    assert_eq!(first, second);
+    assert_eq!(std::fs::read(first).unwrap(), b"known file");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
