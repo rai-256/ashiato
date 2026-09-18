@@ -297,6 +297,11 @@ pub fn spawn_inspecting(
                     let classified = super::classify::classify_files(&files);
                     for known in classified.known {
                         let file = &files[known.index];
+                        let legacy = matches!(
+                            known.kind,
+                            super::classify::KnownKind::Records
+                                | super::classify::KnownKind::SemanticHistory
+                        );
                         let requests = match requests_for_file(
                             known.kind,
                             &file.path,
@@ -311,6 +316,27 @@ pub fn spawn_inspecting(
                             if let Err(_) = crate::store_one(&pool, request).await {
                                 tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
                                 return;
+                            }
+                        }
+                        if legacy {
+                            // このファイルが実際に格納できた後だけ、旧経路を退役させる。
+                            // `requests` は消費済みなので、元ファイルの解析結果から最終日を導く。
+                            let last = if known.kind == super::classify::KnownKind::Records {
+                                super::legacy::parse_records(&file.bytes)
+                            } else {
+                                super::legacy::parse_semantic(&file.bytes)
+                            }
+                            .ok()
+                            .and_then(|records| {
+                                records.into_iter().map(|record| record.event_time).max()
+                            });
+                            if let Some(last) = last {
+                                if retire_legacy_sources(&pool, last).await.is_err() {
+                                    tracing::warn!(
+                                        kind = "archive_retire_legacy",
+                                        "移行前ソースを退役できない"
+                                    );
+                                }
                             }
                         }
                     }
