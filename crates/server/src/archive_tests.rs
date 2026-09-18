@@ -315,6 +315,27 @@ fn archive_parse_timeline_separates_all_record_kinds() {
     );
 }
 
+/// Scenario: 移行前のロケーション履歴は読み終えると退役する
+#[test]
+fn archive_parse_legacy_accepts_records_and_semantic_history_timestamps() {
+    let records = crate::archive::legacy::parse_records(
+        br#"{"locations":[{"timestamp":"2024-08-31T23:00:00Z"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].logical_source, "c03-legacy-location");
+    assert_eq!(records[0].event_time.to_rfc3339(), "2024-08-31T23:00:00+00:00");
+
+    let semantic = crate::archive::legacy::parse_semantic(
+        br#"{"timelineObjects":[{"placeVisit":{"duration":{"startTimestampMs":"1725148800000"}}},{"activitySegment":{"duration":{"startTimestamp":"2024-09-01T01:00:00Z"}}}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        semantic.iter().map(|record| record.logical_source).collect::<Vec<_>>(),
+        ["c03-legacy-visit", "c03-legacy-activity"]
+    );
+}
+
 #[test]
 fn youtube_parser_separates_watch_and_decodes_search_query() {
     let rows = crate::archive::youtube::parse(br#"[{"titleUrl":"https://youtube.com/watch?v=x"},{"titleUrl":"https://youtube.com/results?search_query=%E4%BA%AC%E9%83%BD"}]"#).unwrap();

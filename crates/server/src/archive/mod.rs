@@ -4,6 +4,7 @@
 pub mod chrome;
 pub mod classify;
 pub mod config;
+pub mod legacy;
 pub mod myactivity;
 pub mod open;
 pub mod scan;
