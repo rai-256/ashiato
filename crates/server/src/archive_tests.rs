@@ -199,6 +199,20 @@ fn archive_worker_inspects_a_candidate_before_parsing_it() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 原文は書庫のバイト列の一部と一致する
+#[test]
+fn archive_slice_returns_each_array_element_as_original_bytes() {
+    let input = br#"[ {"title":"a]","nested":{"x":1}}, {"title":"b\"q"} ]"#;
+    let items = crate::archive::slice::array_items(input).unwrap();
+    assert_eq!(
+        items,
+        [
+            br#"{"title":"a]","nested":{"x":1}}"#.as_slice(),
+            br#"{"title":"b\"q"}"#.as_slice()
+        ]
+    );
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
