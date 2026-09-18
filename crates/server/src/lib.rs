@@ -16,6 +16,8 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+#[cfg(test)]
+mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
 /// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
@@ -51,7 +53,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 15] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -118,6 +120,10 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
     (
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
+    ),
+    (
+        "202609181600_archive_ingestion",
+        include_str!("../../../migrations/202609181600_archive_ingestion.sql"),
     ),
 ];
 

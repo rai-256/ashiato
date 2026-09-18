@@ -33,20 +33,20 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 0. 着手の前に（design D13）
 
-- [ ] 0.1 **ST04 が archive されるまで着手しない。** ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、
+- [x] 0.1 **ST04 が archive されるまで着手しない。** ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、
   この change の `specs/collection-coverage/spec.md` を突き合わせ、**許した差（予算の 1 文・導出元の `FR-55`・「2026-09-15 の変更」の注記・WHEN/THEN を直した 2 本・足した Scenario 3 本）のほかに差があれば、正典に合わせて写し直す**。
   検証: 次が rc=0 —— `test ! -d openspec/changes/st04-offline-retention`（ST04 が archive 済み。まだなら rc=1 で止まる）、
   `python3 scripts/st12_delta_diff.py`（この tasks で足す小さな比較。2 つの Requirement の本文を行の集合で比べ、許した差のほかの行が 1 行でもあれば exit 1）、`openspec validate st12-archive-ingestion --strict`
 
 ## 1. 移行（design D14 / D7 / D8 / D2 / D16）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_archive_ingestion.sql` と `.down.sql` を足す —— `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（`user_id` あり。
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_archive_ingestion.sql` と `.down.sql` を足す —— `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（`user_id` あり。
   UPDATE / DELETE / TRUNCATE を拒むトリガ）、`core.archive_shape_confirmation`（追記のみ）、`core.archive_sighting` と `core.archive_scan_counter` と `core.archive_pending_shape`（書き換えてよい）、索引 3 本（design D14）、
   登録簿の 11 本（書庫のソース 10 本は `expected_gap_sec = 5184000`、`s01-archive-inbox` は `86400`。どれも `external_id_kind = 'none'`・`ON CONFLICT DO NOTHING`）。**当て直せる形**。`MIGRATIONS` 配列の末尾に足す。
   **既存の `stay_tests.rs` の `stays_migration_applies_twice` は「`MIGRATIONS` の末尾が `_stays`」を assert している**ので、主張を「`_stays` の移行が配列にあり、当て直しても `s01-stay` が 1 行」に直す（試験の意図は変えない。design Risks）。
   Scenario: `書庫のソースは 60 日で登録されている` / `取り込み器のソースは 1 日で登録されている` / `本人が変えた想定間隔は移行を当て直しても戻らない`。
   検証: `tools/check-migrations.sh` rc=0、`CT archive_migration`（2 回当てて rc=0 / 11 本の行 / 30 日に変えて当て直しても 30 日）、`CT stays_migration_applies_twice`
-- [ ] 1.2 `tools/check-immutable.sh` に台帳の 3 表と `core.archive_shape_confirmation` を足す（全列の UPDATE と DELETE と TRUNCATE が拒まれる）。
+- [x] 1.2 `tools/check-immutable.sh` に台帳の 3 表と `core.archive_shape_confirmation` を足す（全列の UPDATE と DELETE と TRUNCATE が拒まれる）。
   Scenario: `台帳の行は書き換えられない`。検証: `tools/check-immutable.sh` rc=0
 
 ## 2. 格納の関門の切り出し（design D4 / D10）

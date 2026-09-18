@@ -878,6 +878,38 @@ for col in $gated_cols; do
 done
 echo "  OK 門で見ると宣言した列は、台帳なしの素の書き換えを拒む"
 
+# ================================================================ ST12: 書庫の台帳
+echo "== ST12: 書庫台帳は追記のみ"
+psql -c "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
+         VALUES ('00000000-0000-0000-0000-000000000000', repeat('e',64), 'immutable-check', 'read');
+         INSERT INTO core.archive_ledger_source (ledger_id, logical_source)
+         SELECT id, 'c03-youtube-watch' FROM core.archive_ledger WHERE sha256=repeat('e',64);
+         INSERT INTO core.archive_file (sha256,user_id,inner_path,stored_path)
+         VALUES (repeat('f',64),'00000000-0000-0000-0000-000000000000','watch.json','/tmp/watch.json');
+         INSERT INTO core.archive_shape_confirmation (user_id,shape_hash,shape)
+         VALUES ('00000000-0000-0000-0000-000000000000','shape-check','{}');" >/dev/null
+
+archive_lock_check() {
+  local table="$1" where="$2"
+  local cols
+  cols=$(psql -c "SELECT string_agg(format('%I = %I', column_name, column_name), ', ' ORDER BY ordinal_position)
+                    FROM information_schema.columns WHERE table_schema='core' AND table_name='$table';")
+  if psql -c "UPDATE core.$table SET $cols WHERE $where;" >/dev/null 2>&1; then
+    echo "  NG $table の全列を書き換えられた"; fail=1
+  fi
+  if psql -c "DELETE FROM core.$table WHERE $where;" >/dev/null 2>&1; then
+    echo "  NG $table の行を削除できた"; fail=1
+  fi
+  if psql -c "TRUNCATE core.$table CASCADE;" >/dev/null 2>&1; then
+    echo "  NG $table を切り詰められた"; fail=1
+  fi
+}
+archive_lock_check archive_ledger "sha256=repeat('e',64)"
+archive_lock_check archive_ledger_source "logical_source='c03-youtube-watch'"
+archive_lock_check archive_file "sha256=repeat('f',64)"
+archive_lock_check archive_shape_confirmation "shape_hash='shape-check'"
+[ "$fail" -eq 0 ] && echo "  OK 書庫台帳 4 表は全列の更新・削除・切り詰めを拒む"
+
 # --- 戻し手順（D12）。**主張が残っていれば、種類の 2 表も登録簿の行も残す**
 #
 # 主張の原文は種類を**識別子で**指すので、表を落とすと「その識別子が何という名前だったか」が
@@ -928,6 +960,16 @@ psql < "migrations/202609160220_personal_attributes.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609160220_personal_attributes.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
 psql < "migrations/202609160220_personal_attributes.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609160220_personal_attributes.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
+
+# **ST12 の書庫台帳の版をいちばん先に戻す**。戻して進め直せることまで見る
+psql < "migrations/202609181600_archive_ingestion.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609181600_archive_ingestion.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.archive_ledger') IS NULL;")" = "t" ] \
+  || { echo "  NG 書庫台帳の戻しで表が消えていない"; fail=1; down_fail=1; }
+psql < "migrations/202609181600_archive_ingestion.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609181600_archive_ingestion.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609181600_archive_ingestion.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609181600_archive_ingestion.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 
 # **ST04 の破棄の報告の版をいちばん先に戻す**（最後に足した版）。戻して進め直せることまで見る
 psql < "migrations/202609151546_drop_reports.down.sql" >/dev/null 2>&1 \
