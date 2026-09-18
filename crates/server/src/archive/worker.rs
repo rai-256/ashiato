@@ -211,6 +211,23 @@ pub async fn retire_legacy_sources(
     Ok(())
 }
 
+/// マイアクティビティの製品名は書庫ごとに増えるため、印を通った製品だけ登録簿へ足す。
+pub async fn ensure_myactivity_source(
+    pool: &sqlx::PgPool,
+    logical_source: &str,
+    product: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ($1, $2, 5184000, 'none') ON CONFLICT (logical_source) DO NOTHING",
+    )
+    .bind(logical_source)
+    .bind(format!("マイアクティビティ: {product}"))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {

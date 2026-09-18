@@ -450,10 +450,12 @@ fn archive_requests_accept_legacy_records_and_semantic_history() {
 #[tokio::test]
 async fn archive_parse_legacy_extends_source_retirement_only_forward() {
     let pool = testdb::pool().await;
-    sqlx::query("UPDATE core.source SET retired_on = NULL WHERE logical_source LIKE 'c03-legacy-%'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE core.source SET retired_on = NULL WHERE logical_source LIKE 'c03-legacy-%'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     crate::archive::worker::retire_legacy_sources(
         &pool,
         chrono::DateTime::parse_from_rfc3339("2024-08-31T03:00:00Z")
@@ -484,6 +486,25 @@ async fn archive_parse_legacy_extends_source_retirement_only_forward() {
     .await
     .unwrap();
     assert_eq!(kept, first);
+}
+
+#[tokio::test]
+async fn archive_parse_myactivity_registers_a_source_once() {
+    let pool = testdb::pool().await;
+    let source = crate::archive::myactivity::source_name("マップ");
+    crate::archive::worker::ensure_myactivity_source(&pool, &source, "マップ")
+        .await
+        .unwrap();
+    crate::archive::worker::ensure_myactivity_source(&pool, &source, "マップ")
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.source WHERE logical_source = $1")
+            .bind(source)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[test]
