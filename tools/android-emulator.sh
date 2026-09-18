@@ -51,8 +51,9 @@ echo "== 計測テスト"
 A=dev.ashiato.collector.NeedsPristinePermissions
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A")
-adb shell pm clear dev.ashiato.collector
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.annotation="$A")
-adb shell pm clear dev.ashiato.collector   # 見つけたときの状態（未許可・未要求）へ戻す
+adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
 echo "== 結果: collector-android/app/build/reports/androidTests/connected/"

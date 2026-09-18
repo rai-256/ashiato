@@ -55,7 +55,7 @@ class PermissionDeniedInstrumentedTest {
     fun requirePristinePermissions() {
         assertEquals(
             "前提が作れていない。位置の権限が残っている。" +
-                "`adb shell pm clear $pkg` の後に、" +
+                "`adb shell am force-stop $pkg && adb shell pm reset-permissions` の後に、" +
                 "annotation=dev.ashiato.collector.NeedsPristinePermissions で単独に走らせる " +
                 "（tools/android-emulator.sh と CI がその順で走らせる）",
             PackageManager.PERMISSION_DENIED,

@@ -11,7 +11,8 @@ package dev.ashiato.collector
  * ```bash
  * ./gradlew :app:connectedDebugAndroidTest \
  *   -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions
- * adb shell pm clear dev.ashiato.collector          # 権限を未許可・未要求へ戻す
+ * adb shell am force-stop dev.ashiato.collector
+ * adb shell pm reset-permissions                   # 権限を既定（未許可・フラグ無し）へ戻す
  * ./gradlew :app:connectedDebugAndroidTest \
  *   -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions
  * ```
