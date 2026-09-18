@@ -54,9 +54,16 @@ CREATE TABLE IF NOT EXISTS core.archive_sighting (
   user_id uuid NOT NULL,
   path text NOT NULL,
   size_bytes bigint NOT NULL,
+  modified_at timestamptz NOT NULL DEFAULT now(),
+  sha256 text,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
   seen_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, path)
 );
+-- この change が merge 前に当てた開発 DB にも、D8 が要求する比較値を足す。
+ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS modified_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS sha256 text;
+ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS first_seen_at timestamptz NOT NULL DEFAULT now();
 CREATE TABLE IF NOT EXISTS core.archive_scan_counter (
   user_id uuid PRIMARY KEY,
   scanned_at timestamptz NOT NULL DEFAULT now()
