@@ -3,6 +3,59 @@
 
 use super::scan::ScanCandidate;
 
+/// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
+/// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
+pub fn requests_for_file(
+    kind: super::classify::KnownKind,
+    inner_path: &str,
+    bytes: &[u8],
+    user_id: uuid::Uuid,
+    archive_sha256: String,
+) -> anyhow::Result<Vec<crate::IngestRequest>> {
+    let values: Vec<serde_json::Value> = match kind {
+        super::classify::KnownKind::ChromeHistory => serde_json::from_slice::<serde_json::Value>(bytes)?
+            .get("Browser History")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        _ => serde_json::from_slice(bytes)?,
+    };
+    let mut requests = Vec::new();
+    for value in values {
+        let (logical_source, event_time) = match kind {
+            super::classify::KnownKind::YouTubeWatch | super::classify::KnownKind::YouTubeSearch => {
+                let url = value.get("titleUrl").and_then(serde_json::Value::as_str).unwrap_or_default();
+                let source = if url.contains("watch?v=") { "c03-youtube-watch" } else { "c03-youtube-search" };
+                (source.to_owned(), event_time(&value)?)
+            }
+            super::classify::KnownKind::MyActivity => {
+                let product = value.get("products").and_then(serde_json::Value::as_array).and_then(|v| v.first()).and_then(serde_json::Value::as_str).unwrap_or("unknown");
+                (super::myactivity::source_name(product), event_time(&value)?)
+            }
+            super::classify::KnownKind::ChromeHistory => {
+                let time = value.get("time_usec").and_then(serde_json::Value::as_i64).ok_or_else(|| anyhow::anyhow!("Chrome時刻が無い"))?;
+                ("c03-chrome-history".to_owned(), super::chrome::time_usec_to_utc(time)?)
+            }
+            _ => continue,
+        };
+        let raw = serde_json::to_string(&value)?;
+        requests.push(crate::IngestRequest {
+            id: uuid::Uuid::new_v4(), user_id, logical_source, external_id: None,
+            device_id: Some("s01-c03".into()), origin: "collected".into(), event_time,
+            tz_offset_min: 0, tz_id: "UTC".into(), schema_version: 1, unit_system: None, crs: None,
+            source_updated_at: None, external_ref: None, raw,
+            payload: serde_json::json!({"archive_sha256": archive_sha256, "inner_path": inner_path}),
+        });
+    }
+    Ok(requests)
+}
+
+fn event_time(value: &serde_json::Value) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+    let text = value.get("time").or_else(|| value.get("timestamp")).and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("書庫項目の時刻が無い"))?;
+    Ok(chrono::DateTime::parse_from_rfc3339(text)?.to_utc())
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
@@ -69,8 +122,37 @@ pub fn spawn_inspecting(
             } else {
                 "inbox"
             };
-            match inspect(candidate) {
+            match inspect(candidate.clone()) {
             Ok(result) => {
+                // 台帳を書く前に、読める項目を既存の格納関門へ通す。途中で DB が落ちた
+                // 場合は台帳を成功として残さず、次の走査で読み直せるようにする。
+                let candidate_for_read = ScanCandidate {
+                    path: candidate.path.clone(),
+                    from_downloads: candidate.from_downloads,
+                    sha256: sha256.clone(),
+                    disposition: candidate.disposition,
+                };
+                let files = match super::open::open_archive(&candidate_for_read.path) {
+                    Ok(files) => files,
+                    Err(error) => {
+                        tracing::warn!(kind = error.kind(), "書庫を開けない");
+                        return;
+                    }
+                };
+                let classified = super::classify::classify_files(&files);
+                for known in classified.known {
+                    let file = &files[known.index];
+                    let requests = match requests_for_file(known.kind, &file.path, &file.bytes, user_id, sha256.clone()) {
+                        Ok(requests) => requests,
+                        Err(_) => continue,
+                    };
+                    for request in requests {
+                        if let Err(_) = crate::store_one(&pool, request).await {
+                            tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
+                            return;
+                        }
+                    }
+                }
                 if let Err(error) = sqlx::query(
                     "INSERT INTO core.archive_ledger
                        (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, skipped_file_count)

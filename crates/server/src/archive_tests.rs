@@ -382,6 +382,24 @@ fn youtube_parser_separates_watch_and_decodes_search_query() {
     assert_eq!(rows[1].search_query.as_deref(), Some("京都"));
 }
 
+/// Scenario: 記録から運んだ書庫が分かる
+#[test]
+fn archive_requests_keep_archive_hash_and_inner_path_in_payload() {
+    let requests = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/YouTube/watch-history.json",
+        br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+        uuid::Uuid::nil(),
+        "a".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].logical_source, "c03-youtube-watch");
+    assert_eq!(requests[0].device_id.as_deref(), Some("s01-c03"));
+    assert_eq!(requests[0].payload["archive_sha256"], "a".repeat(64));
+    assert_eq!(requests[0].payload["inner_path"], "Takeout/YouTube/watch-history.json");
+}
+
 #[test]
 fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
