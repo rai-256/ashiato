@@ -446,6 +446,46 @@ fn archive_requests_accept_legacy_records_and_semantic_history() {
     );
 }
 
+/// Scenario: 移行前のロケーション履歴は読み終えると退役する
+#[tokio::test]
+async fn archive_parse_legacy_extends_source_retirement_only_forward() {
+    let pool = testdb::pool().await;
+    sqlx::query("UPDATE core.source SET retired_on = NULL WHERE logical_source LIKE 'c03-legacy-%'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    crate::archive::worker::retire_legacy_sources(
+        &pool,
+        chrono::DateTime::parse_from_rfc3339("2024-08-31T03:00:00Z")
+            .unwrap()
+            .to_utc(),
+    )
+    .await
+    .unwrap();
+    let first: chrono::NaiveDate = sqlx::query_scalar(
+        "SELECT retired_on FROM core.source WHERE logical_source = 'c03-legacy-location'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(first.to_string(), "2024-09-01");
+    crate::archive::worker::retire_legacy_sources(
+        &pool,
+        chrono::DateTime::parse_from_rfc3339("2024-08-01T23:00:00Z")
+            .unwrap()
+            .to_utc(),
+    )
+    .await
+    .unwrap();
+    let kept: chrono::NaiveDate = sqlx::query_scalar(
+        "SELECT retired_on FROM core.source WHERE logical_source = 'c03-legacy-location'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, first);
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
