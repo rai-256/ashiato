@@ -3,6 +3,7 @@
 
 pub mod classify;
 pub mod config;
+pub mod myactivity;
 pub mod open;
 pub mod scan;
 pub mod slice;

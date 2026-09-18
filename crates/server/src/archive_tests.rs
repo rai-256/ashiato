@@ -252,6 +252,17 @@ fn youtube_parser_separates_watch_and_decodes_search_query() {
     assert_eq!(rows[1].search_query.as_deref(), Some("京都"));
 }
 
+#[test]
+fn myactivity_source_name_uses_ascii_or_a_stable_hash() {
+    assert_eq!(
+        crate::archive::myactivity::source_name("Google Search"),
+        "c03-myactivity-google-search"
+    );
+    let japanese = crate::archive::myactivity::source_name("マップ");
+    assert!(japanese.starts_with("c03-myactivity-u"));
+    assert_eq!(japanese.len(), "c03-myactivity-u".len() + 12);
+}
+
 /// Scenario: ダウンロードのフォルダの他のファイルは読まれない
 /// Scenario: 書き込み途中のファイルは読まれない
 /// Scenario: 名前が書き込み途中でなくなったファイルは読まれる
