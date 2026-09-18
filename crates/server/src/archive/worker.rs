@@ -42,9 +42,10 @@ pub fn spawn_inspecting(
     user_id: uuid::Uuid,
 ) {
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
+    let scan_pool = pool.clone();
     tokio::spawn(async move {
         loop {
-            match super::scan::scan_once(&pool, &config, user_id).await {
+            match super::scan::scan_once(&scan_pool, &config, user_id).await {
                 Ok(candidates) => {
                     for candidate in candidates {
                         if sender.send(candidate).await.is_err() {
@@ -59,16 +60,45 @@ pub fn spawn_inspecting(
             tokio::time::sleep(std::time::Duration::from_secs(config.scan_sec)).await;
         }
     });
-    tokio::spawn(read_in_order(receiver, |candidate| async move {
-        match inspect(candidate) {
-            Ok(result) => tracing::info!(
-                kind = "archive_inspect",
-                known = result.known,
-                skipped = result.skipped,
-                unreadable = result.unreadable,
-                "書庫を検査した"
-            ),
+    tokio::spawn(read_in_order(receiver, move |candidate| {
+        let pool = pool.clone();
+        async move {
+            let sha256 = candidate.sha256.clone();
+            let inbox_kind = if candidate.from_downloads {
+                "downloads"
+            } else {
+                "inbox"
+            };
+            match inspect(candidate) {
+            Ok(result) => {
+                if let Err(error) = sqlx::query(
+                    "INSERT INTO core.archive_ledger
+                       (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, skipped_file_count)
+                     VALUES ($1, $2, $3, 'read', $4, $5, $6)
+                     ON CONFLICT DO NOTHING",
+                )
+                .bind(user_id)
+                .bind(sha256)
+                .bind(super::PARSER_VERSION)
+                .bind(inbox_kind)
+                .bind(i32::try_from(result.unreadable).unwrap_or(i32::MAX))
+                .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
+                .execute(&pool)
+                .await
+                {
+                    tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない");
+                } else {
+                    tracing::info!(
+                        kind = "archive_inspect",
+                        known = result.known,
+                        skipped = result.skipped,
+                        unreadable = result.unreadable,
+                        "書庫を検査した"
+                    );
+                }
+            }
             Err(error) => tracing::warn!(kind = error.kind(), "書庫を開けない"),
+        }
         }
     }));
 }
