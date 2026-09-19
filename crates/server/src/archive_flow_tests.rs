@@ -591,6 +591,19 @@ async fn archive_flow_an_older_archive_never_rewinds_records_or_the_last_day() {
         Some("2026-09-10"),
         "最終日がいちばん新しい出来事の日になっていない"
     );
+    // 1 件も運ばれていないソースには、書庫の作られた時刻も付かない（D11）。
+    let untouched = inbox
+        .status()
+        .await
+        .sources
+        .into_iter()
+        .find(|s| s.logical_source == "c03-chrome-history")
+        .expect("Chrome の履歴のソースが無い");
+    assert_eq!(untouched.last_event_on, None);
+    assert_eq!(
+        untouched.last_archive_created_at, None,
+        "記録を 1 件も運んでいないソースに、書庫の作られた時刻が付いている"
+    );
 
     // 同じ視聴を違う内容で運ぶ、より古く作られた書庫を後から置く。
     inbox.put(
@@ -1077,22 +1090,37 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
     }
 }
 
+/// 試験バイナリ全体のログを集める口。
+///
+/// **スレッド局所の `set_default` では足りない**（実測: 並列で走らせると、背景の
+/// 取り込み器が出すログを 1 行も拾えなかった）。取り込み器は別の task で動くので、
+/// 「この試験のスレッドだけ」に仕掛けると、見ていないのに緑になる。
+static CAPTURED: std::sync::OnceLock<CapturedLog> = std::sync::OnceLock::new();
+
+fn captured_log() -> &'static CapturedLog {
+    CAPTURED.get_or_init(|| {
+        use tracing_subscriber::layer::SubscriberExt as _;
+        let captured = CapturedLog::default();
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(captured.clone())
+                .with_ansi(false),
+        );
+        // 他の試験も同じ口へ流れる。**この試験にとっては厳しくなる側**なので通す
+        // —— どの試験が出したログでも、記録の値が出ていれば落ちる。
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        captured
+    })
+}
+
 /// Scenario: 取り込みのログに検索語が出ない
 #[tokio::test]
 async fn archive_flow_the_log_never_carries_a_search_query() {
-    use tracing_subscriber::layer::SubscriberExt as _;
-
-    let captured = CapturedLog::default();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .with_writer(captured.clone())
-            .with_ansi(false),
-    );
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let captured = captured_log().clone();
 
     let inbox = Inbox::new("archive-private-log").await;
     // 検索語・題名・URL・座標を全部含む書庫を、読める中身と読めない中身の両方で置く。
-    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"京都 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD+%E6%97%85%E9%A4%A8"}]"#;
+    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"祇園 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E7%A5%87%E5%9C%92+%E6%97%85%E9%A4%A8"}]"#;
     let timeline = r#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#;
     inbox
         .confirm(
@@ -1106,7 +1134,7 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
             ("Takeout/YouTube/search-history.json", search.as_bytes()),
             ("Takeout/Timeline.json", timeline.as_bytes()),
             // 読めない中身も混ぜる（失敗の経路のログも見る）。
-            ("Takeout/こわれた.json", b"{ this is not json"),
+            ("Takeout/broken.json", b"{ this is not json"),
         ],
     );
     inbox.spawn(true);
@@ -1115,20 +1143,24 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
             inbox.ledger_rows("read").await == 1
         })
         .await;
-
-    // **ログが出るまで待つ** —— 台帳の行ができた時点では、読み終えたことを書く
-    // `info!` はまだ出ていない。集まる前に見ると、何も見ずに緑になる。
+    // **この書庫を読み終えたログが出るまで待つ** —— 台帳の行ができた時点では
+    // まだ出ていない。集まる前に見ると、何も見ずに緑になる。
     inbox
         .until(
             "取り込みのログが 1 行も出ない（この試験が何も見ていない）",
-            || async { !captured.0.lock().unwrap().is_empty() },
+            || async {
+                let text =
+                    String::from_utf8_lossy(&captured.0.lock().unwrap().clone()).into_owned();
+                text.contains("archive_inspect")
+            },
         )
         .await;
+
     let text = String::from_utf8_lossy(&captured.0.lock().unwrap().clone()).into_owned();
     for value in [
-        "京都 旅館",
-        "%E4%BA%AC%E9%83%BD",
-        "京都 旅館 を検索",
+        "祇園 旅館",
+        "%E7%A5%87%E5%9C%92",
+        "祇園 旅館 を検索",
         "35.0116",
         "youtube.com",
     ] {

@@ -1779,7 +1779,11 @@ pub async fn archives_status_for(
 ) -> Result<ArchivesStatus, sqlx::Error> {
     let rows: Vec<ArchiveStatusRow> = sqlx::query_as(
         "SELECT s.logical_source, MAX(ls.max_event_at) AS max_event_at,
-                (array_agg(l.created_at ORDER BY ls.max_event_at DESC NULLS LAST, l.created_at DESC))[1] AS archive_created_at
+                -- **最終日を運んだ書庫だけを見る**（D11）。絞らないと、そのソースの
+                -- 記録を 1 件も運んでいない書庫の作られた時刻が、1 件も入っていない
+                -- ソースに付く（最終日は無いのに「いつまでの書庫か」だけ出る）。
+                (array_agg(l.created_at ORDER BY ls.max_event_at DESC, l.created_at DESC)
+                   FILTER (WHERE ls.max_event_at IS NOT NULL))[1] AS archive_created_at
            FROM core.source s
            LEFT JOIN core.archive_ledger l ON l.user_id = $1 AND l.outcome = 'read'
            LEFT JOIN core.archive_ledger_source ls ON ls.ledger_id = l.id AND ls.logical_source = s.logical_source
