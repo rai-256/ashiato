@@ -864,6 +864,27 @@ async fn archive_pending_shape_records_unconfirmed_file_once() {
     assert_eq!(count, 1);
 }
 
+/// Scenario: 印を置く前の書庫は確認待ちとして台帳に残る
+/// Scenario: 確認待ちの書庫は走査を重ねても台帳の行が増えない
+#[tokio::test]
+async fn archive_pending_shape_has_one_ledger_row() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    for _ in 0..3 {
+        crate::archive::worker::record_pending_ledger(&pool, user, "p".repeat(64))
+            .await
+            .unwrap();
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_ledger WHERE user_id = $1 AND outcome = 'pending_shape'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
 #[test]
 fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     assert_eq!(
