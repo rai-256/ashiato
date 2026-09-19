@@ -710,6 +710,28 @@ fn archive_copy_uses_content_hash_as_the_single_copy_name() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 読んだ製品のファイルの写しが残る
+#[tokio::test]
+async fn archive_copy_catalog_keeps_the_inner_file_name() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    crate::archive::worker::record_copy(
+        &pool,
+        user,
+        "a".repeat(64),
+        "Takeout/YouTube/watch-history.json",
+        std::path::Path::new("/copies/aa/archive"),
+    )
+    .await
+    .unwrap();
+    let path: String = sqlx::query_scalar("SELECT inner_path FROM core.archive_file WHERE sha256 = $1")
+        .bind("a".repeat(64))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(path, "Takeout/YouTube/watch-history.json");
+}
+
 #[test]
 fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     let shape = crate::archive::worker::shape_for_file(
