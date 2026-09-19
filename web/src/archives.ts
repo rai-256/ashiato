@@ -8,7 +8,7 @@ export type ArchiveSourceStatus = {
   last_archive_created_at: string | null;
 };
 
-export type ArchivesStatus = { sources: ArchiveSourceStatus[] };
+export type ArchivesStatus = { sources: ArchiveSourceStatus[]; latest_archive?: { file_name: string; inserted: number; duplicate: number; unreadable: number } | null; pending_shape?: { archives: number; files: number } | null };
 
 /** 最終日は API と同じ Asia/Tokyo の暦日で数える。 */
 export function archiveLastEventLabel(lastEventOn: string, now: Date): string {

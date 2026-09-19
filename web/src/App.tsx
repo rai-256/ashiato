@@ -4,6 +4,8 @@ import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
 import { type Achievement, type SourceCoverage } from "./coverage";
 import { orderCoverageWithArchives } from "./archives";
+import { type ArchivesStatus } from "./archives";
+import { LatestArchive } from "./LatestArchive";
 import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
 
 /**
@@ -46,6 +48,7 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
 export function App(): React.ReactElement {
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
+  const [archives, setArchives] = useState<Load<ArchivesStatus>>({ at: "loading" });
 
   useEffect(() => {
     const { from, to } = yearRange(new Date());
@@ -65,6 +68,9 @@ export function App(): React.ReactElement {
     get("/api/coverage/achievement")
       .then((v) => setAchievement({ at: "ok", value: v as Achievement }))
       .catch((e: unknown) => setAchievement({ at: "failed", why: why(e) }));
+    get("/api/archives/status")
+      .then((v) => setArchives({ at: "ok", value: v as ArchivesStatus }))
+      .catch((e: unknown) => setArchives({ at: "failed", why: why(e) }));
   }, []);
 
   return (
@@ -123,6 +129,8 @@ export function App(): React.ReactElement {
         </p>
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
+      {archives.at === "ok" && <LatestArchive status={archives.value} />}
+      {archives.at !== "ok" && <LatestArchive status={null} />}
 
       {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
       {sources.at === "failed" && (
