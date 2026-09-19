@@ -180,12 +180,14 @@ fn is_candidate(path: &Path, from_downloads: bool) -> bool {
         return false;
     };
     if from_downloads {
+        // **ダウンロードのフォルダは本人の他のファイルが混ざる**ので、Takeout の
+        // 名前の zip だけを拾う（spec「ダウンロードのフォルダの他のファイルは読まれない」）。
         return name.starts_with("takeout-") && name.ends_with(".zip");
     }
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("zip" | "json")
-    )
+    // **専用のフォルダは本人が書庫だけを置く場所**なので、読める形でなくても拾う
+    // —— 拾わないと `.tgz` が走査の対象にすらならず、「読めなかった書庫」として
+    // 台帳にも画面にも出ないまま消える（R4）。読めるかどうかは読み手が決める。
+    true
 }
 
 fn is_temporary(path: &Path) -> bool {
