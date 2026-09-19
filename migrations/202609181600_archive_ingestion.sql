@@ -68,8 +68,12 @@ ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS consecutive_failures 
 ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS retry_after timestamptz;
 CREATE TABLE IF NOT EXISTS core.archive_scan_counter (
   user_id uuid PRIMARY KEY,
-  scanned_at timestamptz NOT NULL DEFAULT now()
+  scanned_at timestamptz NOT NULL DEFAULT now(),
+  attempts integer NOT NULL DEFAULT 0,
+  successes integer NOT NULL DEFAULT 0
 );
+ALTER TABLE core.archive_scan_counter ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE core.archive_scan_counter ADD COLUMN IF NOT EXISTS successes integer NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS core.archive_pending_shape (
   user_id uuid NOT NULL,
   sha256 text NOT NULL,

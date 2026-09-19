@@ -310,6 +310,29 @@ async fn store_heartbeat_keeps_the_http_idempotency_rule() {
     assert!(store_heartbeat(&pool, request).await.unwrap().duplicate);
 }
 
+/// Scenario: 取り込み器が動いている日に生存信号が 1 件残る
+/// Scenario: 起動し直しても同じ日の生存信号は 1 件
+/// Scenario: 生存信号は走査の回数と読めた走査の回数を持つ
+#[tokio::test]
+async fn archive_heartbeat_is_once_per_japan_day_and_counts_scans() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-12T03:00:00Z").unwrap().to_utc();
+    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![]).await.unwrap();
+    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![]).await.unwrap();
+    let tomorrow = now + chrono::Duration::days(1);
+    crate::archive::worker::record_archive_heartbeat(&pool, user, tomorrow, true, vec![]).await.unwrap();
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.heartbeat WHERE user_id = $1 AND logical_source = 's01-archive-inbox'",
+    ).bind(user).fetch_one(&pool).await.unwrap();
+    assert_eq!(rows, 2);
+    let raw: String = sqlx::query_scalar(
+        "SELECT raw FROM core.heartbeat WHERE user_id = $1 AND logical_source = 's01-archive-inbox' ORDER BY emitted_at DESC LIMIT 1",
+    ).bind(user).fetch_one(&pool).await.unwrap();
+    assert!(raw.contains("\"attempts\":2"));
+    assert!(raw.contains("\"successes\":2"));
+}
+
 /// Scenario: 最終日はいちばん新しい出来事の日
 /// Scenario: 日本時間で日をまたぐ出来事は日本時間の日になる
 #[tokio::test]
