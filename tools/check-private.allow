@@ -1,0 +1,16 @@
+# `tools/check-private.sh` が**見ないファイル**。1 行 1 パス。`#` はコメント。
+#
+# ここは**判断の置き場**です。いま採っているのは「記録であっても伏せる」側で、
+# リストは空（＝全部を見る）。
+#
+# もう一方の判断 —— 「確認バッチと独立レビューの記録は、当時そう書いたという事実
+# そのものなので後から書き換えない」（PR #68 の当初の立場）を採るなら、
+# 下の 2 行のコメントを外して、同じ commit で本文を元に戻す:
+#
+#   git checkout <351a68c> -- docs/verify/20260916-1442.json \
+#     openspec/changes/archive/2026-09-14-st02-collection-coverage/review/code-r2.md
+#
+# どちらでも検査は通る。**どちらを採ったかがこのファイルに残る**ことが要点。
+#
+# docs/verify/20260916-1442.json
+# openspec/changes/archive/2026-09-14-st02-collection-coverage/review/code-r2.md

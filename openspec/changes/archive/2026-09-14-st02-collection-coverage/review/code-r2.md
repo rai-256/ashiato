@@ -316,9 +316,9 @@
   2026-09-11 12:19:35+00 | core のテーブル数 6   ← 誰も触っていないのに増える
   ```
 
-  `pg_stat_activity` に `172.24.0.1` から 24 本の接続、`core.event` に `t-*`（テスト用の
+  `pg_stat_activity` に `<docker のブリッジ>` から 24 本の接続、`core.event` に `t-*`（テスト用の
   `logical_source`）が 3,163 行。`ps` で `/home/yosis/dev/ashiato2` を cwd に持つ
-  `target/debug/ashiato-server`（9/10 起動・`BIND=100.85.27.45:18787`・
+  `target/debug/ashiato-server`（9/10 起動・`BIND=<手元の網の IP>:18787`・
   `DATABASE_URL=…:55432/ashiato`）が生きており、別 worktree の `cargo test` も同じ port を使っている。
   **したがって rc≠0 はこの commit の欠陥ではなく環境由来**で、申告の rc=0 を否定する材料にはならない。
   ただし `smoke.sh` が「port 55432 と compose project を独占している」ことを前提に

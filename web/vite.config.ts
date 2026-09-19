@@ -19,10 +19,12 @@ const proxy = {
   },
 };
 
-// Tailscale 経由（yoshi.tail4360f4.ts.net）で PC / スマホから開くため。先頭 . でサブドメイン全体を許可する。
+// 手元の網（Tailscale など）越しに PC / スマホから開くため。先頭 . でサブドメイン全体を許可する。
 // proxy と同じく server / preview の双方に要る。無いと Vite が 403 Blocked request を返す
 // （実測 2026-09-14: tailscale serve 越しに :5180 / :5199 が 403）。
-const allowedHosts = [".tail4360f4.ts.net"];
+// **網の名前はリポジトリに置かない**（公開するので）。`.env` の ALLOWED_HOSTS から読む
+// （`tools/stack.sh` が `.env` を export するので preview にも届く）。例: `.tailXXXXXX.ts.net`
+const allowedHosts = (process.env.ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean);
 
 export default defineConfig({
   plugins: [react()],
