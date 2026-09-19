@@ -32,6 +32,8 @@ struct FoundFile {
     modified_at: DateTime<Utc>,
 }
 
+type PreviousSighting = (i64, DateTime<Utc>, Option<String>, Option<DateTime<Utc>>);
+
 /// 置き場を 1 回見て、前回から大きさと更新時刻が変わらないファイルだけ返す。
 ///
 /// sighting は書き換えてよいキャッシュなので、一覧から消えたファイルの行もここで消す。
@@ -60,7 +62,7 @@ pub async fn scan_once_with_hasher(
     let mut candidates = Vec::new();
     for file in found {
         let path = file.path.to_string_lossy().into_owned();
-        let previous: Option<(i64, DateTime<Utc>, Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        let previous: Option<PreviousSighting> = sqlx::query_as(
             "SELECT size_bytes, modified_at, sha256, retry_after
                FROM core.archive_sighting WHERE user_id = $1 AND path = $2",
         )

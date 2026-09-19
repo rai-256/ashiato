@@ -193,7 +193,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 11. ログ・道具・手順書（design D15）
 
-- [ ] 11.1 取り込み器のログを件数・論理ソースの名前・ファイルの種類・所要時間・失敗の種別だけにする。
+- [x] 11.1 取り込み器のログを件数・論理ソースの名前・ファイルの種類・所要時間・失敗の種別だけにする。
   Scenario: `取り込みのログに検索語が出ない`。
   検証: `CT archive_log_is_private`（`tracing` の出力を集める試験用の層で、検索語「京都 旅館」・題名・URL・座標の文字列が 0 件）
 - [ ] 11.3 `tools/smoke.sh` に 1 段足す: 一時ディレクトリを置き場にしてサーバを起こし、合成の Takeout の書庫を置き、`tools/archive-shape.sh --confirm` で印を置き、`/archives/status` の `last_event_on` が合成の最後の日になり、同じ書庫を別名で置いて `/coverage` の件数が変わらないことを `jq -e` で見る。
