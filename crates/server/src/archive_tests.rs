@@ -1062,8 +1062,8 @@ async fn archive_shape_pending_has_one_ledger_row() {
             "p".repeat(64),
             Some("takeout-pending.zip".into()),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core.archive_ledger WHERE user_id = $1 AND outcome = 'pending_shape'",
@@ -1494,7 +1494,10 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     })
     .await;
     std::fs::remove_dir_all(root).unwrap();
-    assert!(recorded.is_ok(), "取り込み器が待ち時間のうちに台帳へ記録しない");
+    assert!(
+        recorded.is_ok(),
+        "取り込み器が待ち時間のうちに台帳へ記録しない"
+    );
     assert_eq!(events, 1, "書庫項目を既存の格納関門へ通す");
     assert!(
         moved_again.is_ok(),

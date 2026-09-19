@@ -361,39 +361,39 @@ pub fn requests_for_file_reporting(
     for (position, value) in values.into_iter().enumerate() {
         let parsed = (|| -> anyhow::Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
             Ok(Some(match kind {
-            super::classify::KnownKind::YouTubeWatch
-            | super::classify::KnownKind::YouTubeSearch => {
-                let url = value
-                    .get("titleUrl")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                let source = if url.contains("watch?v=") {
-                    "c03-youtube-watch"
-                } else {
-                    "c03-youtube-search"
-                };
-                (source.to_owned(), event_time(&value)?)
-            }
-            super::classify::KnownKind::MyActivity => {
-                let product = value
-                    .get("products")
-                    .and_then(serde_json::Value::as_array)
-                    .and_then(|v| v.first())
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("unknown");
-                (super::myactivity::source_name(product), event_time(&value)?)
-            }
-            super::classify::KnownKind::ChromeHistory => {
-                let time = value
-                    .get("time_usec")
-                    .and_then(serde_json::Value::as_i64)
-                    .ok_or_else(|| anyhow::anyhow!("Chrome時刻が無い"))?;
-                (
-                    "c03-chrome-history".to_owned(),
-                    super::chrome::time_usec_to_utc(time)?,
-                )
-            }
-            _ => return Ok(None),
+                super::classify::KnownKind::YouTubeWatch
+                | super::classify::KnownKind::YouTubeSearch => {
+                    let url = value
+                        .get("titleUrl")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    let source = if url.contains("watch?v=") {
+                        "c03-youtube-watch"
+                    } else {
+                        "c03-youtube-search"
+                    };
+                    (source.to_owned(), event_time(&value)?)
+                }
+                super::classify::KnownKind::MyActivity => {
+                    let product = value
+                        .get("products")
+                        .and_then(serde_json::Value::as_array)
+                        .and_then(|v| v.first())
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown");
+                    (super::myactivity::source_name(product), event_time(&value)?)
+                }
+                super::classify::KnownKind::ChromeHistory => {
+                    let time = value
+                        .get("time_usec")
+                        .and_then(serde_json::Value::as_i64)
+                        .ok_or_else(|| anyhow::anyhow!("Chrome時刻が無い"))?;
+                    (
+                        "c03-chrome-history".to_owned(),
+                        super::chrome::time_usec_to_utc(time)?,
+                    )
+                }
+                _ => return Ok(None),
             }))
         })();
         let Some((logical_source, event_time)) = (match parsed {
@@ -1116,26 +1116,23 @@ pub fn spawn_inspecting(
                             }
                         };
                         note(0);
-                        let outcomes = match store_requests_with_progress(
-                            &sink,
-                            requests.clone(),
-                            &mut note,
-                        )
-                        .await
-                        {
-                            Ok(outcomes) => outcomes,
-                            Err(_) => {
-                                let _ = record_store_failure(
-                                    &pool,
-                                    user_id,
-                                    &candidate.path,
-                                    sha256.clone(),
-                                )
-                                .await;
-                                tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
-                                return;
-                            }
-                        };
+                        let outcomes =
+                            match store_requests_with_progress(&sink, requests.clone(), &mut note)
+                                .await
+                            {
+                                Ok(outcomes) => outcomes,
+                                Err(_) => {
+                                    let _ = record_store_failure(
+                                        &pool,
+                                        user_id,
+                                        &candidate.path,
+                                        sha256.clone(),
+                                    )
+                                    .await;
+                                    tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
+                                    return;
+                                }
+                            };
                         stored_requests.extend(requests);
                         stored_outcomes.extend(outcomes);
                         if legacy {
