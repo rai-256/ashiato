@@ -432,6 +432,26 @@ pub async fn record_copy(
     Ok(())
 }
 
+/// 解析器版の更新時は、残っている写しを本人の置き場より優先して読み直す。
+pub async fn reparse_path(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: String,
+    inbox_path: &std::path::Path,
+) -> Result<std::path::PathBuf, sqlx::Error> {
+    let copied: Option<String> = sqlx::query_scalar(
+        "SELECT stored_path FROM core.archive_file WHERE user_id = $1 AND sha256 = $2",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .fetch_optional(pool)
+    .await?;
+    Ok(copied
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| inbox_path.to_owned()))
+}
+
 /// 確認に必要な構造だけを取り出す。記録値・題名・検索語は形に含めない。
 pub fn shape_for_file(
     kind: super::classify::KnownKind,

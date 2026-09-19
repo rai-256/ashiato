@@ -972,6 +972,55 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Scenario: 解析器の版が上がると読み直される
+#[tokio::test]
+async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
+    let pool = testdb::pool().await;
+    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-{}", uuid::Uuid::new_v4()));
+    let inbox = root.join("inbox");
+    let downloads = root.join("downloads");
+    std::fs::create_dir_all(&inbox).unwrap();
+    std::fs::create_dir_all(&downloads).unwrap();
+    write_file(&downloads, "takeout-old.zip", b"older parser");
+    let user = testdb::user();
+    let config = crate::archive::config::ArchiveConfig {
+        inbox_dir: inbox,
+        downloads_dir: downloads,
+        copy_dir: root.join("copies"),
+        keep_copies: true,
+        user_id: Some(user),
+        scan_sec: 120,
+    };
+    assert!(crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().is_empty());
+    let candidate = crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().remove(0);
+    sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, 'older', 'read')")
+        .bind(user)
+        .bind(&candidate.sha256)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let reparsed = crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().remove(0);
+    assert!(matches!(reparsed.disposition, crate::archive::scan::ScanDisposition::Read));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Scenario: 解析器の版が上がると読み直される
+#[tokio::test]
+async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-copy-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let copied = root.join("copy.json");
+    std::fs::write(&copied, b"copy").unwrap();
+    crate::archive::worker::record_copy(&pool, user, "b".repeat(64), "history.json", &copied).await.unwrap();
+    let selected = crate::archive::worker::reparse_path(&pool, user, "b".repeat(64), std::path::Path::new("/missing/archive.zip"))
+        .await
+        .unwrap();
+    assert_eq!(selected, copied);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Scenario: 大きさが変わり続けているファイルは読まれない
 #[tokio::test]
 async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
