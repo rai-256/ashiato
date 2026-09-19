@@ -60,19 +60,19 @@ pub async fn scan_once_with_hasher(
     let mut candidates = Vec::new();
     for file in found {
         let path = file.path.to_string_lossy().into_owned();
-        let previous: Option<(i64, DateTime<Utc>, Option<String>)> = sqlx::query_as(
-            "SELECT size_bytes, modified_at, sha256
+        let previous: Option<(i64, DateTime<Utc>, Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT size_bytes, modified_at, sha256, retry_after
                FROM core.archive_sighting WHERE user_id = $1 AND path = $2",
         )
         .bind(user_id)
         .bind(&path)
         .fetch_optional(pool)
         .await?;
-        let stable = previous.as_ref().is_some_and(|(size, modified, _)| {
+        let stable = previous.as_ref().is_some_and(|(size, modified, _, _)| {
             *size == file.size_bytes && *modified == file.modified_at
         });
         let hash = if stable {
-            match previous.and_then(|(_, _, hash)| hash) {
+            match previous.as_ref().and_then(|(_, _, hash, _)| hash.clone()) {
                 Some(hash) => hash,
                 None => hash(&file.path)?,
             }
@@ -93,6 +93,13 @@ pub async fn scan_once_with_hasher(
         .bind(&hash)
         .execute(pool)
         .await?;
+        if previous
+            .as_ref()
+            .and_then(|(_, _, _, retry_after)| *retry_after)
+            .is_some_and(|retry_after| retry_after > Utc::now())
+        {
+            continue;
+        }
         if stable {
             let already_read: bool = sqlx::query_scalar(
                 "SELECT EXISTS(

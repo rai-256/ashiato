@@ -76,6 +76,42 @@ async fn archive_partial_store_failure_is_not_a_completed_read() {
     );
 }
 
+/// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+#[tokio::test]
+async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    sqlx::query(
+        "INSERT INTO core.archive_sighting (user_id, path, size_bytes, sha256)
+         VALUES ($1, '/tmp/failing.zip', 1, $2)",
+    )
+    .bind(user)
+    .bind("f".repeat(64))
+    .execute(&pool)
+    .await
+    .unwrap();
+    for attempt in 1..=3 {
+        let throttled = crate::archive::worker::record_store_failure(
+            &pool,
+            user,
+            std::path::Path::new("/tmp/failing.zip"),
+            "f".repeat(64),
+        )
+            .await
+            .unwrap();
+        assert_eq!(throttled, attempt == 3);
+    }
+
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_ledger WHERE user_id = $1 AND outcome = 'store_failed'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "3回目だけを失敗済みとして台帳に残す");
+}
+
 /// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。
 #[tokio::test]
 async fn archive_dedup_distinguishes_archive_results() {
@@ -971,7 +1007,10 @@ fn archive_end_to_end_builds_requests_for_every_supported_content() {
 async fn archive_migration_registers_sources_and_preserves_interval() {
     let pool = testdb::pool().await;
     let (archive_sources,): (i64,) =
-        sqlx::query_as("SELECT count(*) FROM core.source WHERE logical_source LIKE 'c03-%'")
+        sqlx::query_as(
+            "SELECT count(*) FROM core.source
+              WHERE logical_source LIKE 'c03-%' AND logical_source NOT LIKE 'c03-myactivity-%'",
+        )
             .fetch_one(&pool)
             .await
             .unwrap();

@@ -18,6 +18,42 @@ pub async fn store_requests(
     Ok(outcomes)
 }
 
+/// 格納失敗を走査の可変な観測値へ記録する。3 回目でのみ追記台帳へ失敗を残し、
+/// 以後 1 時間は同じファイルを再投入しないよう `retry_after` を置く。
+pub async fn record_store_failure(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    path: &std::path::Path,
+    sha256: String,
+) -> Result<bool, sqlx::Error> {
+    let path = path.to_string_lossy();
+    let failures: i32 = sqlx::query_scalar(
+        "UPDATE core.archive_sighting
+            SET consecutive_failures = consecutive_failures + 1,
+                retry_after = CASE WHEN consecutive_failures + 1 >= 3
+                                   THEN now() + interval '1 hour' ELSE NULL END
+          WHERE user_id = $1 AND path = $2
+          RETURNING consecutive_failures",
+    )
+    .bind(user_id)
+    .bind(path.as_ref())
+    .fetch_one(pool)
+    .await?;
+    if failures < 3 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
+         VALUES ($1, $2, $3, 'store_failed') ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .execute(pool)
+    .await?;
+    Ok(true)
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
 /// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
 pub fn requests_for_file(
@@ -480,7 +516,7 @@ pub fn spawn_inspecting(
                             Ok(requests) => requests,
                             Err(_) => continue,
                         };
-                        for request in requests {
+                        for request in &requests {
                             if request.logical_source.starts_with("c03-myactivity-")
                                 && ensure_myactivity_source(
                                     &pool,
@@ -496,10 +532,18 @@ pub fn spawn_inspecting(
                                 );
                                 return;
                             }
-                            if crate::store_one(&pool, request).await.is_err() {
-                                tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
-                                return;
-                            }
+                        }
+                        let sink = crate::PgSink::new(pool.clone());
+                        if store_requests(&sink, requests).await.is_err() {
+                            let _ = record_store_failure(
+                                &pool,
+                                user_id,
+                                &candidate.path,
+                                sha256.clone(),
+                            )
+                            .await;
+                            tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
+                            return;
                         }
                         if legacy {
                             // このファイルが実際に格納できた後だけ、旧経路を退役させる。
