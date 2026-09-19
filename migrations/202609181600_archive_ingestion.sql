@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS core.archive_sighting (
 ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS modified_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS sha256 text;
 ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS first_seen_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS consecutive_failures integer NOT NULL DEFAULT 0;
+ALTER TABLE core.archive_sighting ADD COLUMN IF NOT EXISTS retry_after timestamptz;
 CREATE TABLE IF NOT EXISTS core.archive_scan_counter (
   user_id uuid PRIMARY KEY,
   scanned_at timestamptz NOT NULL DEFAULT now()
