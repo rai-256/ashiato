@@ -740,6 +740,7 @@ pub async fn copied_files_for_reparse(
 /// 確認に必要な構造だけを取り出す。記録値・題名・検索語は形に含めない。
 pub fn shape_for_file(
     kind: super::classify::KnownKind,
+    inner_path: &str,
     bytes: &[u8],
 ) -> anyhow::Result<serde_json::Value> {
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
@@ -779,12 +780,39 @@ pub fn shape_for_file(
         }
         _ => (Vec::new(), Vec::new()),
     };
+    // **判断の材料**（D16）: 見分けた種類・パスの型・最上位の鍵・欄の名前・件数・
+    // 製品の値。**値（題名・URL・検索語・座標・時刻）は出さない。**
+    // 件数とパスの型が無いと、本人は `tools/archive-shape.sh` の出力だけでは
+    // 「何をどれだけ入れようとしているのか」を判断できない（review R15）。
+    let items = match &value {
+        serde_json::Value::Array(rows) => rows.len(),
+        serde_json::Value::Object(object) => object
+            .values()
+            .filter_map(serde_json::Value::as_array)
+            .map(Vec::len)
+            .max()
+            .unwrap_or(0),
+        _ => 0,
+    };
     Ok(serde_json::json!({
         "kind": format!("{kind:?}"),
         "products": products,
         "top_level_keys": top_level_keys,
         "field_names": field_names,
+        "items": items,
+        "path_shape": path_shape(inner_path),
     }))
+}
+
+/// 書庫の中のパスを**型**にする。名前そのものは訳で変わるので形に入れない
+/// （D16。ここは確認の材料として出すだけで、`hash_shape` は見ない）。
+fn path_shape(inner_path: &str) -> String {
+    let depth = inner_path.matches('/').count();
+    let extension = std::path::Path::new(inner_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("");
+    format!("depth={depth};ext={extension}")
 }
 
 pub async fn is_shape_confirmed(
@@ -1124,7 +1152,7 @@ pub fn spawn_inspecting(
                     for known in classified.known {
                         let file = &files[known.index];
                         if requires_shape_confirmation(known.kind) {
-                            let shape = match shape_for_file(known.kind, &file.bytes) {
+                            let shape = match shape_for_file(known.kind, &file.path, &file.bytes) {
                                 Ok(shape) => shape,
                                 Err(_) => {
                                     unreadable_locations.push(file.path.clone());

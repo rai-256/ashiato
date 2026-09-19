@@ -80,7 +80,8 @@ impl Inbox {
 
     /// その中身の形に印を置く（`tools/archive-shape.sh --confirm` と同じことを直に行う）。
     async fn confirm(&self, kind: crate::archive::classify::KnownKind, bytes: &[u8]) {
-        let shape = crate::archive::worker::shape_for_file(kind, bytes).unwrap();
+        let shape =
+            crate::archive::worker::shape_for_file(kind, "Takeout/fixture.json", bytes).unwrap();
         sqlx::query(
             "INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape)
              VALUES ($1, $2, $3)",
@@ -216,14 +217,36 @@ fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
 #[tokio::test]
 async fn archive_flow_locations_stay_out_of_the_phone_source() {
     let inbox = Inbox::new("archive-legacy-location").await;
-    // 端末の位置に、書庫と同じ時刻・同じ座標の記録を先に置く。
-    testdb::put_event(
+    // **同じ時刻・同じ座標の記録を、本物の格納関門を通して端末の位置へ入れる。**
+    // 直に INSERT すると原文も内容の鍵も別物になり、spec の WHEN（同じ時刻・
+    // 同じ座標でも取りやめない）を作れないまま緑になる（review R16）。
+    let same_point =
+        r#"{"timestampMs":"1622505600000","latitudeE7":356580000,"longitudeE7":1397450000}"#;
+    crate::store_one(
         &inbox.pool,
-        inbox.user,
-        "c01-location",
-        "2021-06-01T12:00:00+09:00",
+        crate::IngestRequest {
+            id: uuid::Uuid::new_v4(),
+            user_id: inbox.user,
+            logical_source: "c01-location".into(),
+            external_id: None,
+            device_id: Some("test".into()),
+            origin: "collected".into(),
+            event_time: chrono::DateTime::parse_from_rfc3339("2021-06-01T00:00:00Z")
+                .unwrap()
+                .to_utc(),
+            tz_offset_min: 0,
+            tz_id: "UTC".into(),
+            schema_version: 1,
+            unit_system: None,
+            crs: None,
+            source_updated_at: None,
+            external_ref: None,
+            raw: same_point.into(),
+            payload: serde_json::json!({}),
+        },
     )
-    .await;
+    .await
+    .unwrap();
     let before: Option<chrono::NaiveDate> = sqlx::query_scalar(
         "SELECT collection_started_on FROM core.source WHERE logical_source = 'c01-location'",
     )
@@ -232,8 +255,11 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
     .unwrap();
     let phone_events = inbox.events("c01-location").await;
 
-    let records = br#"{"locations":[{"timestampMs":"1622505600000","latitudeE7":356580000,"longitudeE7":1397450000}]}"#;
-    inbox.put("Records.json.zip", &[("Takeout/Records.json", records)]);
+    let records = format!(r#"{{"locations":[{same_point}]}}"#);
+    inbox.put(
+        "Records.json.zip",
+        &[("Takeout/Records.json", records.as_bytes())],
+    );
     inbox.spawn(true);
 
     inbox
@@ -424,6 +450,7 @@ fn archive_flow_shape_never_carries_a_search_query() {
     let body = r#"[{"time":"2026-09-12T03:00:00Z","title":"京都 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD+%E6%97%85%E9%A4%A8"}]"#;
     let shape = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTubeSearch,
+        "Takeout/YouTube/search-history.json",
         body.as_bytes(),
     )
     .unwrap();
@@ -1294,7 +1321,8 @@ fn archive_flow_shape_ignores_item_count_and_order() {
     let ab = format!("[{},{}]", item("検索"), item("マップ"));
     let ba = format!("[{},{}]", item("マップ"), item("検索"));
 
-    let hash = |body: &str| hash_shape(&shape_for_file(MyActivity, body.as_bytes()).unwrap());
+    let hash =
+        |body: &str| hash_shape(&shape_for_file(MyActivity, "a/b.json", body.as_bytes()).unwrap());
     assert_eq!(
         hash(&one),
         hash(&many),
@@ -1574,5 +1602,55 @@ async fn archive_flow_no_ledger_column_carries_a_record_body() {
                 "{table} に記録の本文「{value}」が載っている: {dumped}"
             );
         }
+    }
+}
+
+/// Scenario: 形の確認の出力に見分けた中身と製品の名前と件数が出る
+#[test]
+fn archive_flow_shape_shows_what_the_human_needs_to_judge() {
+    use crate::archive::classify::KnownKind::MyActivity;
+    use crate::archive::worker::shape_for_file;
+    // **合成のファイルから作る。** 自分で書いた JSON を往復させても、
+    // `shape_for_file` が何を出すかは 1 度も見ていない（review R15）。
+    let item = |product: &str| {
+        format!(
+            r#"{{"header":"{product}","title":"京都 旅館 を検索","titleUrl":"https://www.google.com/search?q=kyoto","time":"2026-09-12T03:00:00Z","products":["{product}"]}}"#
+        )
+    };
+    let body = format!("[{},{},{}]", item("検索"), item("マップ"), item("検索"));
+
+    let shape = shape_for_file(
+        MyActivity,
+        "Takeout/My Activity/検索/活動.json",
+        body.as_bytes(),
+    )
+    .unwrap();
+
+    // 判断の材料が出る。
+    assert_eq!(shape["kind"], "MyActivity");
+    assert_eq!(shape["items"], 3, "件数が出ていない");
+    assert_eq!(
+        shape["path_shape"], "depth=3;ext=json",
+        "書庫の中のパスの型が出ていない"
+    );
+    let products = shape["products"]
+        .as_array()
+        .expect("製品の名前が出ていない");
+    assert_eq!(
+        products.len(),
+        2,
+        "製品の名前が集合になっていない: {products:?}"
+    );
+    assert!(shape["field_names"]
+        .as_array()
+        .is_some_and(|names| names.iter().any(|name| name == "products")));
+
+    // **値は出ない。**
+    let printed = serde_json::to_string(&shape).unwrap();
+    for value in ["京都 旅館", "google.com", "2026-09-12T03:00:00Z"] {
+        assert!(
+            !printed.contains(value),
+            "形の出力に記録の値「{value}」が出ている: {printed}"
+        );
     }
 }
