@@ -397,3 +397,181 @@
 - **手 5（tasks の `[x]` と実体）**: `CT` 36 種のうち 4 種が 0 本一致（R18）。`VT` の 5 ファイルはすべて実在し、緑。
 - **手 6（隙間）**: R1 / R4 / R5 が「捨てたものは復元できない」型。ほかに ST23（写しの物理削除）と ST30（写しのバックアップ）への
   申し送りは design / tasks 12.4 に残っており、こちらは `kind: defer` として扱える（12.4 は未了のまま）。
+
+---
+
+# 第 2 系統（`pr-review-toolkit:code-reviewer`）
+
+`git diff origin/main` に対する独立レビュー。R1〜R21（`code-verify`）と重複するものは省いてある。
+**R22 以降として写す。**
+
+## R22. 形の印を置いても、混在した書庫の確認待ちファイルは二度と取り込まれない
+
+- 成果物: `crates/server/src/archive/worker.rs` の読み手 / `crates/server/src/archive/scan.rs` の既読判定
+- 根拠: 本物の Takeout の形（Timeline + マイアクティビティ）を置き、確認待ちを作ってから印を置いて
+  6 走査ぶん待っても `記録=0 件 / 確認待ちの残り=1 行`。**自分でも `archive_flow_confirming_a_shape_ingests_a_mixed_archive`
+  を書いて同じ結果を再現した**（印を置いた後に `c03-myactivity-*` の記録が永久に 0）。
+  spec `:151`「印を置いたら**写しから読み直して格納する**」に対して、読み直す経路がコードに無かった。
+  1 回目の読みで書庫は「取り込み済み」へ移るか既読として覚えられるので、走査をもう一度回しても読めない。
+- 影響: **この Story の中心の約束がそのまま成立しない。** 本物の Takeout は必ず混在するので、通常経路がこれ。
+- kind: technical
+- 処置: fixed D18 — `ingest_confirmed_pending` を足し、走査の周ごとに「印が置かれて読めるようになった確認待ち」を
+  写しから読み直す。写しを辿れるよう `archive_file` に `archive_sha256` を足した。
+  `archive_flow_confirming_a_shape_ingests_a_takeout_archive`（確認待ちだけの書庫）と
+  `..._a_mixed_archive`（混在）の 2 本で固定。台帳の行を増やさない判断は design D18（仮）に書いた。
+
+## R23. 写しを消すコードがどこにも存在しない
+
+- 成果物: `crates/server/src/archive/worker.rs`（全体）
+- 根拠: `grep -rn "remove_file\|fs::remove" crates/server/src` が試験の後始末しか出さない。
+  spec `:352`「残さない設定では、印を置いて読み直し終えたら写しを消す」。担保に付いている
+  `archive_tests.rs` の試験は DB の待ち行列の行数だけを見ており、ディスク上の写しを 1 度も見ていない。
+- kind: technical
+- 処置: followup ST23 — `docs/handoff/ST23.md` に書いた。**この change では直さない** ——
+  写しの削除は ST23（物理削除が写しに届かない）と同じ場所を触り、そちらは `deep.md` の申し送りで
+  既に ST23 の担当と決まっている。2 つの Story が同じ削除経路を別々に作ると食い違う。
+
+## R24. 読み終えるまでに次の走査が同じ書庫を 2 度目に積み、成功した書庫に「読めなかった」が付く
+
+- 成果物: `crates/server/src/archive/worker.rs` の走査ループと読み手
+- 根拠: 走査は `scan_sec`（既定 120 秒）ごとに回り読み手を待たない。既読判定は**台帳**を見るので、
+  読んでいる最中（台帳はまだ無い）の 2 周目は同じ候補を積む。1 周目が終わってファイルが移動した後に
+  2 周目が開くと `broken_zip` になり、一意索引が `outcome` を含むので `read` と `unreadable` が同居する。
+  `latest_archive_for` は `finished_at DESC` なので、**画面は正常に読めた書庫を「読めませんでした」と出す。**
+- kind: technical
+- 処置: fixed D18 — 読み手が 1 冊を処理する前に台帳を引き、既に `read` / `unreadable` があれば捨てる。
+
+## R25. 記録 → 台帳 → ソース別台帳 がトランザクションで括られていない
+
+- 成果物: `crates/server/src/archive/worker.rs` の台帳 INSERT と `record_ledger_sources`
+- 根拠: どちらも `&pool` 直叩きの自動コミットで、`begin()` / `commit()` が `worker.rs` に 1 つも無い。
+  `record_ledger_sources` が落ちると `read` の行だけがコミット済みで残り、追記のみトリガのため直せない。
+  D11 は最終日を台帳からのみ導くので、**記録は入っているのに画面が永久に「まだ無い」**。
+  既読判定に当たるので読み直しもされない。
+- kind: technical
+- 処置: deferred ST13 — **直していない。** 直すには読み手の格納の単位（記録 n 件 + 台帳 + ソース別台帳）を
+  1 つのトランザクションに括り直す必要があり、`PgSink` が持つ格納関門の境界（ST03 の本人の決定）に触る。
+  R24 の重複処理を止めたので**発生の条件は狭まった**が、DB が落ちる瞬間に当たれば残る。
+  `docs/handoff/ST13.md` に書いた。
+
+## R26. 追記のみの検査が `archive_ledger` と `archive_shape_confirmation` で空振りしている
+
+- 成果物: `tools/check-immutable.sh` の `archive_lock_check`
+- 根拠: 全列を `col = col` で並べる `UPDATE` に `id`（`GENERATED ALWAYS AS IDENTITY`）が入るので、
+  **トリガが無くても** `column "id" can only be updated to DEFAULT` で落ちる。同じ無トリガ状態で
+  `DELETE` は rc=0 で成功し行が消えた。
+- kind: technical
+- 処置: fixed D7 — 列の一覧から identity / generated 列を外した。実測で `archive_ledger` の列一覧から
+  `id` が消えている（`user_id,sha256,parser_version,outcome,…`）。
+
+## R27. マイアクティビティの表示名に、論理ソース名がそのまま入る
+
+- 成果物: `crates/server/src/archive/worker.rs` の `ensure_myactivity_source` の呼び出し
+- 根拠: 第 2 引数（`display_name` の材料）に `request.logical_source` を渡していた。非 ASCII の製品名は
+  `c03-myactivity-u<hash12>` になるので、画面の見出しと `aria-label` が
+  「マイアクティビティ: c03-myactivity-u097022418c48」になる。`ON CONFLICT DO NOTHING` なので後から直らない。
+- kind: technical
+- 処置: fixed D2 — 製品の名前を要求の `payload.myactivity_product` に残し、登録のときに使う。
+  `archive_flow_myactivity_display_name_uses_the_product` が固定する（`core.source` が利用者で分かれていないので、
+  製品名を走りごとに変えて他の走りの行に当たらないようにした）。
+
+## R28. MyActivity の見分けが「先頭 1 件の `titleUrl`」だけに依存している
+
+- 成果物: `crates/server/src/archive/classify.rs`
+- 根拠: `let url = item.get("titleUrl")?...` の `?` で即 `None` を返すので、先頭項目が `titleUrl` を
+  持たない MyActivity ファイルは `skipped`（読まなかったファイル）として黙って落ちる。
+  実測で、同じ 2 件を並べ替えただけで `known=[]` と `known=[MyActivity]` に分かれた。
+- kind: technical
+- 処置: deferred ST13 — **直していない。** 見分けの規則は design D3（仮）そのもので、直すと
+  「形で見分ける」の判定順が変わる。D3 の反転条件（実物の書庫で形が表と違うとき）に当たる型なので、
+  **H.1 で本物の `MyActivity.json` を見てから**直すのが安い（合成の想像で規則を広げると、
+  別の誤判定を作る）。`docs/handoff/ST13.md` に書いた。
+
+## R29. 原文の切り出しが添字で対応付けられ、配列にオブジェクト以外が混ざると別の記録の原文が付く
+
+- 成果物: `crates/server/src/archive/worker.rs` の `sliced` と `values` の突き合わせ
+- 根拠: `array_items` はトップレベルの `{…}` しか拾わないので、配列に `null` が 1 つ混ざると以降が全部ずれる。
+  実測で `values[1]`（AAA）に BBB の原文が付いた。R2 で直した「原文はバイト列の一部」が**間違ったバイト列**になる。
+- kind: technical
+- 処置: fixed D5 — 切り出しの件数と解いた項目の件数が一致するときだけ使い、合わなければ書き戻しに落として
+  警告を出す（原文の厳密さは失うが、**取り違えはしない**）。`.unwrap_or_default()` の無言の握り潰しも直した。
+
+## R30. 格納関門に弾かれた記録が最終日を進め、かつ画面のどの数にも出ない
+
+- 成果物: `crates/server/src/archive/worker.rs` の `record_ledger_sources`
+- 根拠: `max_event_at` の更新が `match outcome` の前にあり、`Rejected` でも進む。
+  spec `:557` は最終日を「**入った記録のうち**いちばん新しい出来事の日」と定めている。
+- kind: technical
+- 処置: fixed D11 — `Rejected` は最終日を進めず、ソース別台帳の読めなかった件数に数える。
+
+## R31. `record_unreadable` が失敗しても、書庫を「取り込み済み」へ移してしまう
+
+- 成果物: `crates/server/src/archive/worker.rs` の読めなかった経路 2 か所
+- 根拠: `let _ = record_unreadable(...)` で失敗を捨てた後に `move_to_processed`。
+  台帳に残せなかったときにファイルだけ移動するので、置き場からも台帳からも画面からも消える。
+- kind: technical
+- 処置: fixed D7 — 台帳に残せたときだけ移す。
+
+## R32. 移行前ロケーション履歴の「時刻を読めない項目」が、数にも場所にも残らず消える
+
+- 成果物: `crates/server/src/archive/legacy.rs` の `filter_map` / `if let Some`
+- 根拠: `worker.rs` は `parse_records` が**返した**件数を数えるので、落とされた項目は読めなかった数に入らない。
+  実測で `locations` 2 件のうち 1 件が黙って消えた。YouTube 側は正しく数えている。
+- kind: technical
+- 処置: deferred ST13 — **直していない。** `legacy` の解析器が「落とした件数」を返す形に変える必要があり、
+  R28 と同じく実物の形を見てからのほうが安い（どの欄が欠けるのが正常かが分からないと、
+  正常な項目まで「読めなかった」に数える）。`docs/handoff/ST13.md` に書いた。
+
+## R33. 30 分刻みの地域で、壊れた `tz_id` を作る
+
+- 成果物: `crates/server/src/archive/timezone.rs` の `from_offset`
+- 根拠: `offset.unsigned_abs() / 60` の整数除算で分を捨てる。実測で `+05:30 -> Etc/GMT-5`。
+  `offset_min` と `tz_id` が食い違ったまま記録に凍結される（記録は書き換えられないので後から直せない）。
+- kind: technical
+- 処置: fixed D5 — 正時のずれだけ `Etc/GMT±h` にし、それ以外は `UTC±HH:MM` にする。
+  `archive_flow_half_hour_offsets_keep_their_minutes` が固定する。
+
+## R34. 置き場の片方が読めないと、もう片方も走査されない
+
+- 成果物: `crates/server/src/archive/scan.rs` の `list_dir` 2 本の `?`
+- 根拠: 専用フォルダの `list_dir` が `Err` なら、ダウンロードのフォルダは走らない。
+  既定は相対パスで、作る処理も無い。
+- kind: technical
+- 処置: deferred ST13 — **直していない。** 片方ずつ走らせる形にすると、
+  「2 つの置き場をどちらも読めた走査の回数」（spec の生存信号の成功回数）の定義に触る。
+  いまは `blockers` に読めない置き場が出るので**気づける**（R11 で直した）。`docs/handoff/ST13.md` に書いた。
+
+## R35. `retire_legacy_sources` / `c03-myactivity-*` が利用者で絞られていない
+
+- 成果物: `crates/server/src/archive/worker.rs` の `retire_legacy_sources` と `ensure_myactivity_source`、
+  `crates/server/src/lib.rs` の `archives_status_for` の sources クエリ
+- 根拠: `core.source` は `user_id` 列を持つが ST12 が入れる 11 行は全部 NULL。
+  実測で、別の利用者が作った `c03-myactivity-*` が、まったく別の `user_id` の `/archives/status` に返った。
+  表示名が `マイアクティビティ: <製品>` なので、他人がどの製品の履歴を置いたかが名前で漏れる。
+- kind: technical
+- 処置: deferred ST13 — **直していない。** 登録簿を利用者で分けるのは `core.source` を共有している
+  **全 Story の前提**（`coverage.rs` の `must_sources()` も `testdb::source` も利用者を持たない）で、
+  ST12 だけで変えると他の Story の判定が割れる。**いまの運用は単独の利用者**（`ASHIATO_ARCHIVE_USER_ID`
+  が 1 つ）なので実害は出ていない。`docs/handoff/ST13.md` に書いた。
+
+## R36. 移行の途中 `RAISE` が、psql 経路で半適用を残す
+
+- 成果物: `migrations/202609181600_archive_ingestion.sql` の guard の位置
+- 根拠: guard がトリガを作る文より**前**にあり、`tools/check-immutable.sh` の psql は
+  `--single-transaction` を付けていない。実測で「台帳はできたが追記のみトリガ 0 本」が残った。
+- kind: technical
+- 処置: fixed D14 — guard を移行の**先頭**（表を作る前）へ移した。
+
+## R37〜R46（中程度）
+
+- 成果物 / 根拠は上記レビューの M1〜M10 のとおり
+- kind: technical
+- 処置: deferred ST13 — **直していない。** 内訳と理由:
+  M1（`reparse_path` の鍵が一致しない・解析器の版上げの読み直しに実体が無い）/ M2（同じ JSON を 4〜5 回解く）/
+  M3（`hash_file` が書庫全体をメモリに載せる）/ M4（sources クエリの直積と使われない索引）は、
+  いずれも **D17（仮）と同じ「実データの規模が分かってから」の領域**。
+  M5（`unreadable_at` / `skipped_file_count` / `first_seen_at` を読む経路が無い）/ M6（`already_read_ledger_id` に
+  参照制約と利用者条件が無い）/ M7（`consecutive_failures` を戻す経路が無い）/ M8（`.json` の I/O 失敗を
+  `unsupported_format` と呼ぶ）/ M9（guard のスキーマ条件）/ M10（新旧 DB で `shape` の DEFAULT が食い違う）は
+  小さいが、**この PR で触った範囲の外**か、H.1 の後に形が変わる見込みのもの。
+  まとめて `docs/handoff/ST13.md` に書いた。

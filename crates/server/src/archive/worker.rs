@@ -204,6 +204,7 @@ pub async fn record_ledger_sources(
         inserted: i32,
         duplicate: i32,
         deleted: i32,
+        rejected: i32,
         max_event_at: Option<chrono::DateTime<chrono::Utc>>,
     }
     let mut per_source: std::collections::BTreeMap<String, Counts> =
@@ -212,29 +213,36 @@ pub async fn record_ledger_sources(
         let counts = per_source
             .entry(request.logical_source.clone())
             .or_default();
+        match outcome {
+            crate::StoreOutcome::Inserted(_) => counts.inserted += 1,
+            crate::StoreOutcome::Duplicate(_) => counts.duplicate += 1,
+            crate::StoreOutcome::DuplicateOfDeleted(_) => counts.deleted += 1,
+            // **弾かれた記録は最終日を進めない**（review I4）。spec は最終日を
+            // 「**入った記録のうち**いちばん新しい出来事の日」と定めている。
+            // 入らなかった件数は台帳の読めなかった件数として数える。
+            crate::StoreOutcome::Rejected(_) => {
+                counts.rejected += 1;
+                continue;
+            }
+        }
         counts.max_event_at = Some(
             counts
                 .max_event_at
                 .map_or(request.event_time, |old| old.max(request.event_time)),
         );
-        match outcome {
-            crate::StoreOutcome::Inserted(_) => counts.inserted += 1,
-            crate::StoreOutcome::Duplicate(_) => counts.duplicate += 1,
-            crate::StoreOutcome::DuplicateOfDeleted(_) => counts.deleted += 1,
-            crate::StoreOutcome::Rejected(_) => {}
-        }
     }
     for (logical_source, counts) in per_source {
         sqlx::query(
             "INSERT INTO core.archive_ledger_source
-               (ledger_id, logical_source, inserted_count, duplicate_count, deleted_count, max_event_at)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+               (ledger_id, logical_source, inserted_count, duplicate_count, deleted_count, unreadable_count, max_event_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(ledger_id)
         .bind(logical_source)
         .bind(counts.inserted)
         .bind(counts.duplicate)
         .bind(counts.deleted)
+        .bind(counts.rejected)
         .bind(counts.max_event_at)
         .execute(pool)
         .await?;
@@ -394,12 +402,32 @@ pub fn requests_for_file_reporting(
     // **原文は書庫のバイト列の切り出し**（spec「原文は書庫のバイト列の一部と一致する」）。
     // 解釈して書き戻すと、欄の並び・空白・数値の表記が変わり、**書庫を消した後に
     // 元の 1 件を復元できない**（review R2）。切り出せない形のときだけ書き戻す。
+    // **件数が合うときだけ使う。** `array_items` はトップレベルの `{…}` しか拾わないので、
+    // 配列に `null` や数値が混ざると添字がずれ、**別の記録の原文が付く**（review I3）。
+    // 合わないときは書き戻しに落とす（原文の厳密さは失うが、取り違えはしない）。
     let sliced = match kind {
         super::classify::KnownKind::ChromeHistory => Vec::new(),
-        _ => super::slice::array_items(bytes).unwrap_or_default(),
+        _ => match super::slice::array_items(bytes) {
+            Ok(items) if items.len() == values.len() => items,
+            Ok(_) => {
+                tracing::warn!(
+                    kind = "archive_raw_slice",
+                    "原文の切り出しと項目の数が合わない"
+                );
+                Vec::new()
+            }
+            Err(_) => {
+                tracing::warn!(kind = "archive_raw_slice", "原文を切り出せない");
+                Vec::new()
+            }
+        },
     };
     let mut out = FileRequests::default();
     for (position, value) in values.into_iter().enumerate() {
+        // 製品の名前は**画面の見出し**になる（`マイアクティビティ: <製品>`）。
+        // 論理ソース名を渡していたときは、非 ASCII の製品で
+        // 「マイアクティビティ: c03-myactivity-u097022418c48」と出ていた（review I1）。
+        let mut product_name: Option<String> = None;
         let parsed = (|| -> anyhow::Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
             Ok(Some(match kind {
                 super::classify::KnownKind::YouTubeWatch
@@ -422,6 +450,7 @@ pub fn requests_for_file_reporting(
                         .and_then(|v| v.first())
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or("unknown");
+                    product_name = Some(product.to_owned());
                     (super::myactivity::source_name(product), event_time(&value)?)
                 }
                 super::classify::KnownKind::ChromeHistory => {
@@ -460,7 +489,12 @@ pub fn requests_for_file_reporting(
             user_id,
             archive_sha256.clone(),
         ) {
-            Ok(request) => out.requests.push(request),
+            Ok(mut request) => {
+                if let Some(product) = product_name {
+                    request.payload["myactivity_product"] = serde_json::Value::String(product);
+                }
+                out.requests.push(request);
+            }
             Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
         }
     }
@@ -682,18 +716,46 @@ pub async fn record_copy(
     sha256: String,
     inner_path: &str,
     stored_path: &std::path::Path,
+    archive_sha256: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO core.archive_file (sha256, user_id, inner_path, stored_path)
-         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_file
+           (sha256, user_id, inner_path, stored_path, archive_sha256)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
     )
     .bind(sha256)
     .bind(user_id)
     .bind(inner_path)
     .bind(stored_path.to_string_lossy().as_ref())
+    .bind(archive_sha256)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// 印が置かれて読めるようになった、確認待ちのファイルの写し。
+///
+/// **写しから読む**（D16）—— 置き場の書庫は「取り込み済み」へ移っているか、
+/// 既読として覚えられているので、置き場をもう一度見ても読み直せない。
+pub async fn confirmed_pending_copies(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT p.sha256, p.inner_path, f.stored_path
+           FROM core.archive_pending_shape p
+           JOIN core.archive_file f
+             ON f.user_id = p.user_id
+            AND f.archive_sha256 = p.sha256
+            AND f.inner_path = p.inner_path
+          WHERE p.user_id = $1
+            AND EXISTS (SELECT 1 FROM core.archive_shape_confirmation c
+                         WHERE c.user_id = p.user_id AND c.shape_hash = p.shape_hash)
+          ORDER BY p.sha256, p.inner_path",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
 }
 
 /// 解析器版の更新時は、残っている写しを本人の置き場より優先して読み直す。
@@ -971,6 +1033,91 @@ pub fn hash_shape(shape: &serde_json::Value) -> String {
     format!("{:x}", sha2::Sha256::digest(encoded))
 }
 
+/// 印が置かれた後に、確認待ちだったファイルを**写しから**読み直して格納する（D16）。
+///
+/// 置き場の書庫はもう「取り込み済み」へ移っているか既読として覚えられているので、
+/// 走査をもう一度回しても読み直せない。**ここが無いと、本人が `--confirm` を叩いても
+/// 何も起きない**（実測: 混在した書庫＝本物の Takeout の形で必ず起きる）。
+pub async fn ingest_confirmed_pending(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> anyhow::Result<usize> {
+    let rows = confirmed_pending_copies(pool, user_id).await?;
+    let mut ingested = 0;
+    for (archive_sha256, inner_path, stored_path) in rows {
+        let Ok(bytes) = std::fs::read(&stored_path) else {
+            tracing::warn!(kind = "archive_reparse_copy", "確認待ちの写しを読めない");
+            continue;
+        };
+        let file = super::open::ArchiveFile {
+            path: inner_path.clone(),
+            bytes,
+        };
+        let classified = super::classify::classify_files(std::slice::from_ref(&file));
+        let Some(known) = classified.known.first() else {
+            tracing::warn!(
+                kind = "archive_reparse_classify",
+                "確認待ちの写しを見分けられない"
+            );
+            continue;
+        };
+        let read = requests_for_file_reporting(
+            known.kind,
+            &inner_path,
+            &file.bytes,
+            user_id,
+            archive_sha256.clone(),
+        )?;
+        for request in &read.requests {
+            if request.logical_source.starts_with("c03-myactivity-") {
+                ensure_myactivity_source(
+                    pool,
+                    &request.logical_source,
+                    request.payload["myactivity_product"]
+                        .as_str()
+                        .unwrap_or(&request.logical_source),
+                )
+                .await?;
+            }
+        }
+        let sink = crate::PgSink::new(pool.clone());
+        let outcomes = store_requests(&sink, read.requests.clone()).await?;
+        // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`）。一意索引が
+        // `(user_id, sha256, parser_version, outcome)` なので、混在した書庫は 1 回目の
+        // 読みで既に `read` の行を持っている。読み直しでもう 1 行足すと
+        // 「同じ書庫をもう一度置いても行が増えない」と衝突する（design D18）。
+        let ledger: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO core.archive_ledger
+               (user_id, sha256, parser_version, outcome, file_name)
+             VALUES ($1, $2, $3, 'read', NULL) ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(user_id)
+        .bind(&archive_sha256)
+        .bind(super::PARSER_VERSION)
+        .fetch_optional(pool)
+        .await?;
+        let ledger_id = match ledger {
+            Some(id) => id,
+            None => {
+                sqlx::query_scalar(
+                    "SELECT id FROM core.archive_ledger
+                      WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
+                        AND outcome = 'read'",
+                )
+                .bind(user_id)
+                .bind(&archive_sha256)
+                .bind(super::PARSER_VERSION)
+                .fetch_one(pool)
+                .await?
+            }
+        };
+        record_ledger_sources(pool, ledger_id, &read.requests, &outcomes).await?;
+        remove_pending_shape(pool, user_id, &archive_sha256, &inner_path).await?;
+        ingested += 1;
+    }
+    Ok(ingested)
+}
+
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inspection {
@@ -1034,6 +1181,11 @@ pub fn spawn_inspecting(
     let read_config = config.clone();
     let scanning = tokio::spawn(async move {
         loop {
+            // **印が置かれていないか、走査のたびに見る**（D16）。本人が
+            // `tools/archive-shape.sh --confirm` を叩いた後に効く唯一の経路。
+            if let Err(error) = ingest_confirmed_pending(&scan_pool, user_id).await {
+                tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの書庫を読み直せない");
+            }
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
                 Ok(candidates) => {
                     if let Err(error) = record_archive_heartbeat(
@@ -1110,6 +1262,26 @@ pub fn spawn_inspecting(
                 return;
             }
             let sha256 = candidate.sha256.clone();
+            // **列に並んでいる間に読み終えた書庫は捨てる。**
+            // 走査は読み手を待たないので（`scan_sec` ごとに回る）、1 冊に数分かかると
+            // 同じ書庫が 2 度積まれる。2 度目はファイルが「取り込み済み」へ移った後に
+            // 開かれ、**読めた書庫に `unreadable` の行が付いて画面が嘘をつく**。
+            match sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM core.archive_ledger
+                   WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
+                     AND outcome IN ('read', 'unreadable'))",
+            )
+            .bind(user_id)
+            .bind(&sha256)
+            .bind(super::PARSER_VERSION)
+            .fetch_one(&pool)
+            .await
+            {
+                Ok(true) => return,
+                Ok(false) => {}
+                // 台帳を引けないときは読みに進まない（次の走査でやり直す）。
+                Err(_) => return,
+            }
             let inbox_kind = if candidate.from_downloads {
                 "downloads"
             } else {
@@ -1129,7 +1301,9 @@ pub fn spawn_inspecting(
                         Ok(files) => files,
                         Err(error) => {
                             tracing::warn!(kind = error.kind(), "書庫を開けない");
-                            let _ = record_unreadable(
+                            // **台帳に残せなければファイルを動かさない**（review I5）。
+                            // 動かすと、置き場からも台帳からも画面からも消える。
+                            if record_unreadable(
                                 &pool,
                                 user_id,
                                 &sha256,
@@ -1137,8 +1311,10 @@ pub fn spawn_inspecting(
                                 error.kind(),
                                 candidate.from_downloads,
                             )
-                            .await;
-                            if !candidate.from_downloads {
+                            .await
+                            .is_ok()
+                                && !candidate.from_downloads
+                            {
                                 let _ = move_to_processed(&candidate.path);
                             }
                             return;
@@ -1182,6 +1358,7 @@ pub fn spawn_inspecting(
                                                 file_sha256.to_owned(),
                                                 &file.path,
                                                 &stored_path,
+                                                &sha256,
                                             )
                                             .await;
                                         }
@@ -1225,6 +1402,7 @@ pub fn spawn_inspecting(
                                         file_sha256.to_owned(),
                                         &file.path,
                                         &stored_path,
+                                        &sha256,
                                     )
                                     .await
                                     .is_err()
@@ -1264,7 +1442,9 @@ pub fn spawn_inspecting(
                                 && ensure_myactivity_source(
                                     &pool,
                                     &request.logical_source,
-                                    &request.logical_source,
+                                    request.payload["myactivity_product"]
+                                        .as_str()
+                                        .unwrap_or(&request.logical_source),
                                 )
                                 .await
                                 .is_err()
@@ -1393,7 +1573,7 @@ pub fn spawn_inspecting(
                 }
                 Err(error) => {
                     tracing::warn!(kind = error.kind(), "書庫を開けない");
-                    let _ = record_unreadable(
+                    if record_unreadable(
                         &pool,
                         user_id,
                         &sha256,
@@ -1401,8 +1581,10 @@ pub fn spawn_inspecting(
                         error.kind(),
                         candidate.from_downloads,
                     )
-                    .await;
-                    if !candidate.from_downloads {
+                    .await
+                    .is_ok()
+                        && !candidate.from_downloads
+                    {
                         let _ = move_to_processed(&candidate.path);
                     }
                 }

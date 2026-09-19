@@ -1277,7 +1277,11 @@ async fn archive_flow_a_bare_timeline_json_is_read() {
             inbox.events("c03-timeline-visit").await == 1
         })
         .await;
-    assert_eq!(inbox.ledger_rows("read").await, 1);
+    inbox
+        .until("読めた書庫の台帳が残らない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
 }
 
 /// Scenario: 名前の時刻を持たない書庫は見つけた時刻を持つ
@@ -1653,4 +1657,199 @@ fn archive_flow_shape_shows_what_the_human_needs_to_judge() {
             "形の出力に記録の値「{value}」が出ている: {printed}"
         );
     }
+}
+
+/// Scenario: 印を置くと確認待ちの書庫が格納される
+/// Scenario: 印を置いた後の読み直しは台帳に 1 行足す
+#[tokio::test]
+async fn archive_flow_confirming_a_shape_ingests_a_takeout_archive() {
+    let inbox = Inbox::new("archive-confirm-only-pending").await;
+    // **確認待ちの中身だけ**の書庫。1 回目の読みは `read` の行を残さない。
+    let activity = myactivity("Discover");
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/Discover/活動.json",
+            activity.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちの台帳が残らない", || async {
+            inbox.ledger_rows("pending_shape").await == 1
+        })
+        .await;
+    assert_eq!(inbox.ledger_rows("read").await, 0, "印の前に格納されている");
+
+    // **ここで印を置く**（本人が `tools/archive-shape.sh --confirm` を叩いた状態）。
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+
+    inbox
+        .until(
+            "印を置いても確認待ちの中身が格納されない",
+            || async { inbox.events("c03-myactivity-discover").await == 1 },
+        )
+        .await;
+    assert_eq!(
+        inbox.ledger_rows("read").await,
+        1,
+        "印を置いた後の読み直しが台帳に 1 行足していない"
+    );
+    inbox
+        .until(
+            "格納した後も確認待ちの待ち行列に残っている",
+            || async {
+                let left: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+                )
+                .bind(inbox.user)
+                .fetch_one(&inbox.pool)
+                .await
+                .unwrap();
+                left == 0
+            },
+        )
+        .await;
+}
+
+/// Scenario: 知らない製品があっても同じ書庫の他のファイルは格納される
+#[tokio::test]
+async fn archive_flow_confirming_a_shape_ingests_a_mixed_archive() {
+    let inbox = Inbox::new("archive-confirm-mixed").await;
+    // **混在した書庫**（印の要らない Timeline + 印の要るマイアクティビティ）。
+    // 本物の Takeout はこの形なので、ここが通らないと通常経路が入らない。
+    let timeline = br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#;
+    let activity = myactivity("Discover");
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[
+            ("Takeout/Timeline.json", timeline),
+            (
+                "Takeout/My Activity/Discover/活動.json",
+                activity.as_bytes(),
+            ),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("混在した書庫が読まれない", || async {
+            inbox.events("c03-timeline-visit").await == 1
+        })
+        .await;
+    inbox
+        .until("確認待ちが積まれない", || async {
+            let n: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+            )
+            .bind(inbox.user)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
+            n == 1
+        })
+        .await;
+
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+
+    inbox
+        .until(
+            "印を置いても確認待ちの中身が格納されない",
+            || async { inbox.events("c03-myactivity-discover").await == 1 },
+        )
+        .await;
+    // **台帳の行は増えない**（design D18）—— 1 回目の読みで既に `read` の行がある。
+    // 増やすと「同じ書庫をもう一度置いても行が増えない」と衝突する。
+    let ledger_sources = || async {
+        let got: Vec<String> = sqlx::query_scalar(
+            "SELECT ls.logical_source FROM core.archive_ledger_source ls
+               JOIN core.archive_ledger l ON l.id = ls.ledger_id
+              WHERE l.user_id = $1 ORDER BY ls.logical_source",
+        )
+        .bind(inbox.user)
+        .fetch_all(&inbox.pool)
+        .await
+        .unwrap();
+        got
+    };
+    // 記録が入ってからソース別の台帳が書かれるまでに間がある。
+    inbox
+        .until(
+            "読み直したぶんがソース別の台帳に残らない",
+            || async {
+                ledger_sources()
+                    .await
+                    .iter()
+                    .any(|s| s.starts_with("c03-myactivity-"))
+            },
+        )
+        .await;
+    assert_eq!(inbox.ledger_rows("read").await, 1);
+}
+
+/// Scenario: マイアクティビティの製品ごとに論理ソースが分かれる
+#[tokio::test]
+async fn archive_flow_myactivity_display_name_uses_the_product() {
+    let inbox = Inbox::new("archive-myactivity-name").await;
+    // **非 ASCII の製品名。** 論理ソース名は安定したハッシュになるので、
+    // 表示名にそれを入れると見出しが `マイアクティビティ: c03-myactivity-u…` になる。
+    //
+    // **製品名は走りごとに変える。** `core.source` は利用者で分かれていない
+    // （review I10）ので、固定名だと他の走りが先に登録した行に当たって、
+    // 直っていなくても緑になる。
+    let product = format!("マップ{}", uuid::Uuid::new_v4().simple());
+    let activity = myactivity(&product);
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[("Takeout/My Activity/マップ/活動.json", activity.as_bytes())],
+    );
+    inbox.spawn(true);
+
+    let expected = crate::archive::myactivity::source_name(&product);
+    inbox
+        .until("マイアクティビティが格納されない", || async {
+            inbox.events(&expected).await == 1
+        })
+        .await;
+    let display: String =
+        sqlx::query_scalar("SELECT display_name FROM core.source WHERE logical_source = $1")
+            .bind(&expected)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        display,
+        format!("マイアクティビティ: {product}"),
+        "画面の見出しに論理ソース名が出ている（本人には読めない）"
+    );
+}
+
+/// Scenario: ずれを持つ時刻はそのずれで残る（30 分刻みの地域）
+#[test]
+fn archive_flow_half_hour_offsets_keep_their_minutes() {
+    let half = crate::archive::timezone::from_rfc3339("2026-09-12T12:00:00+05:30").unwrap();
+    assert_eq!(half.offset_min, 330);
+    assert!(
+        !half.id.contains("GMT-5"),
+        "30 分を切り捨てた地域が入っている: {}",
+        half.id
+    );
+    // 正時のずれはこれまでどおり。
+    let whole = crate::archive::timezone::from_rfc3339("2026-09-12T12:00:00+09:00").unwrap();
+    assert_eq!((whole.offset_min, whole.id.as_str()), (540, "Etc/GMT-9"));
 }

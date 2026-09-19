@@ -839,6 +839,7 @@ async fn archive_copy_catalog_keeps_the_inner_file_name() {
         "a".repeat(64),
         "Takeout/YouTube/watch-history.json",
         std::path::Path::new("/copies/aa/archive"),
+        &"a".repeat(64),
     )
     .await
     .unwrap();
@@ -1256,9 +1257,16 @@ async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
     let copied = root.join("copy.json");
     std::fs::write(&copied, b"copy").unwrap();
     let sha256 = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
-    crate::archive::worker::record_copy(&pool, user, sha256.clone(), "history.json", &copied)
-        .await
-        .unwrap();
+    crate::archive::worker::record_copy(
+        &pool,
+        user,
+        sha256.clone(),
+        "history.json",
+        &copied,
+        &sha256,
+    )
+    .await
+    .unwrap();
     let selected = crate::archive::worker::reparse_path(
         &pool,
         user,
@@ -1292,6 +1300,7 @@ async fn archive_reparse_reads_saved_inner_files() {
         format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
         "Takeout/watch-history.json",
         &copy,
+        &"a".repeat(64),
     )
     .await
     .unwrap();

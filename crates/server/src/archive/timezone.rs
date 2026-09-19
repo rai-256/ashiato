@@ -33,13 +33,23 @@ pub fn from_timestamp(
 fn from_offset(offset: i32, from_source: bool) -> SourceTimezone {
     SourceTimezone {
         offset_min: offset,
+        // `Etc/GMT±h` は**正時のずれしか表せない**。+05:30（インド）や +09:30（豪州中部）を
+        // 入れると分が切り捨てられ、`tz_offset_min` と `tz_id` が食い違ったまま
+        // 記録に凍結される（記録は書き換えられないので後から直せない。review I7）。
         id: if offset == 0 {
             "UTC".into()
-        } else {
+        } else if offset % 60 == 0 {
             format!(
                 "Etc/GMT{}{}",
                 if offset > 0 { "-" } else { "+" },
                 offset.unsigned_abs() / 60
+            )
+        } else {
+            format!(
+                "UTC{}{:02}:{:02}",
+                if offset > 0 { "+" } else { "-" },
+                offset.unsigned_abs() / 60,
+                offset.unsigned_abs() % 60
             )
         },
         from_source,
