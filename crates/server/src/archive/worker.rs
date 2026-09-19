@@ -452,6 +452,23 @@ pub async fn reparse_path(
         .unwrap_or_else(|| inbox_path.to_owned()))
 }
 
+/// 保存した内部ファイルをそのまま解析器へ戻すため、目録から書庫内パスとバイト列を復元する。
+pub async fn copied_files_for_reparse(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> Result<Vec<super::open::ArchiveFile>, sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT inner_path, stored_path FROM core.archive_file WHERE user_id = $1 ORDER BY created_at",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(path, stored)| std::fs::read(stored).ok().map(|bytes| super::open::ArchiveFile { path, bytes }))
+        .collect())
+}
+
 /// 確認に必要な構造だけを取り出す。記録値・題名・検索語は形に含めない。
 pub fn shape_for_file(
     kind: super::classify::KnownKind,
