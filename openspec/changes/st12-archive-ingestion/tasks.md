@@ -209,9 +209,9 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 12.2 検証: `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0（この change の全 Scenario に印）
 - [x] 12.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
-- [ ] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D12）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
+- [x] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D12）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
   検証: `body=$(gh pr view --json body -q .body); for d in 1 2 3 5 6 7 9 10 12; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q ST30 <<<"$body"` rc=0
-- [ ] 12.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
+- [x] 12.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
   検証: `test ! -f docs/handoff/ST12.md || { body=$(gh pr view --json body -q .body); grep -oE 'R[0-9]+' docs/handoff/ST12.md | sort -u | while read r; do grep -q "$r" <<<"$body" || exit 1; done; }` rc=0
 
 ## 人間の確認待ち
