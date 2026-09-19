@@ -54,6 +54,51 @@ pub async fn record_store_failure(
     Ok(true)
 }
 
+/// 読み終えた台帳行へ、論理ソースごとの格納結果を追記する。
+/// 台帳は更新できないため、格納の全結果を先に畳んでから 1 行ずつ INSERT する。
+pub async fn record_ledger_sources(
+    pool: &sqlx::PgPool,
+    ledger_id: i64,
+    requests: &[crate::IngestRequest],
+    outcomes: &[crate::StoreOutcome],
+) -> Result<(), sqlx::Error> {
+    #[derive(Default)]
+    struct Counts {
+        inserted: i32,
+        duplicate: i32,
+        deleted: i32,
+        max_event_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+    let mut per_source: std::collections::BTreeMap<String, Counts> =
+        std::collections::BTreeMap::new();
+    for (request, outcome) in requests.iter().zip(outcomes) {
+        let counts = per_source.entry(request.logical_source.clone()).or_default();
+        counts.max_event_at = Some(counts.max_event_at.map_or(request.event_time, |old| old.max(request.event_time)));
+        match outcome {
+            crate::StoreOutcome::Inserted(_) => counts.inserted += 1,
+            crate::StoreOutcome::Duplicate(_) => counts.duplicate += 1,
+            crate::StoreOutcome::DuplicateOfDeleted(_) => counts.deleted += 1,
+            crate::StoreOutcome::Rejected(_) => {}
+        }
+    }
+    for (logical_source, counts) in per_source {
+        sqlx::query(
+            "INSERT INTO core.archive_ledger_source
+               (ledger_id, logical_source, inserted_count, duplicate_count, deleted_count, max_event_at)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(ledger_id)
+        .bind(logical_source)
+        .bind(counts.inserted)
+        .bind(counts.duplicate)
+        .bind(counts.deleted)
+        .bind(counts.max_event_at)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
 /// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
 pub fn requests_for_file(
@@ -481,6 +526,8 @@ pub fn spawn_inspecting(
                         }
                     };
                     let classified = super::classify::classify_files(&files);
+                    let mut stored_requests = Vec::new();
+                    let mut stored_outcomes = Vec::new();
                     for known in classified.known {
                         let file = &files[known.index];
                         if known.kind == super::classify::KnownKind::MyActivity {
@@ -534,7 +581,9 @@ pub fn spawn_inspecting(
                             }
                         }
                         let sink = crate::PgSink::new(pool.clone());
-                        if store_requests(&sink, requests).await.is_err() {
+                        let outcomes = match store_requests(&sink, requests.clone()).await {
+                            Ok(outcomes) => outcomes,
+                            Err(_) => {
                             let _ = record_store_failure(
                                 &pool,
                                 user_id,
@@ -544,7 +593,10 @@ pub fn spawn_inspecting(
                             .await;
                             tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
                             return;
-                        }
+                            }
+                        };
+                        stored_requests.extend(requests);
+                        stored_outcomes.extend(outcomes);
                         if legacy {
                             // このファイルが実際に格納できた後だけ、旧経路を退役させる。
                             // `requests` は消費済みなので、元ファイルの解析結果から最終日を導く。
@@ -567,11 +619,11 @@ pub fn spawn_inspecting(
                             }
                         }
                     }
-                    if let Err(error) = sqlx::query(
+                    let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
                        (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, skipped_file_count)
                      VALUES ($1, $2, $3, 'read', $4, $5, $6)
-                     ON CONFLICT DO NOTHING",
+                     RETURNING id",
                 )
                 .bind(user_id)
                 .bind(sha256)
@@ -579,11 +631,18 @@ pub fn spawn_inspecting(
                 .bind(inbox_kind)
                 .bind(i32::try_from(result.unreadable).unwrap_or(i32::MAX))
                 .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
-                .execute(&pool)
+                .fetch_one(&pool)
                 .await
-                {
-                    tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない");
-                } else {
+                ;
+                match ledger {
+                    Ok(ledger_id) => {
+                    if record_ledger_sources(&pool, ledger_id, &stored_requests, &stored_outcomes)
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!(kind = "archive_ledger_source", "書庫のソース別台帳を残せない");
+                        return;
+                    }
                     if !candidate.from_downloads && move_to_processed(&candidate.path).is_err() {
                         tracing::warn!(kind = "archive_move", "書庫を取り込み済みへ移せない");
                     }
@@ -594,6 +653,8 @@ pub fn spawn_inspecting(
                         unreadable = result.unreadable,
                         "書庫を検査した"
                     );
+                    }
+                    Err(error) => tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない"),
                 }
                 }
                 Err(error) => tracing::warn!(kind = error.kind(), "書庫を開けない"),

@@ -112,6 +112,46 @@ async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
     assert_eq!(rows, 1, "3回目だけを失敗済みとして台帳に残す");
 }
 
+/// Scenario: 読んだ書庫の件数が台帳に残る
+/// Scenario: 削除済みで入れなかった件数が台帳に残る
+#[tokio::test]
+async fn archive_ledger_sources_keep_per_source_store_outcomes() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let ledger: i64 = sqlx::query_scalar(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
+         VALUES ($1, repeat('c', 64), 'test', 'read') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut duplicate = archive_request(user, r#"{"watch":"duplicate"}"#);
+    duplicate.event_time = chrono::DateTime::parse_from_rfc3339("2026-09-13T03:00:00Z")
+        .unwrap()
+        .to_utc();
+    let requests = vec![archive_request(user, r#"{"watch":"inserted"}"#), duplicate];
+    crate::archive::worker::record_ledger_sources(
+        &pool,
+        ledger,
+        &requests,
+        &[StoreOutcome::Inserted(uuid::Uuid::new_v4()), StoreOutcome::DuplicateOfDeleted(uuid::Uuid::new_v4())],
+    )
+    .await
+    .unwrap();
+    let (inserted, deleted, max_event_at): (i32, i32, chrono::DateTime<chrono::Utc>) =
+        sqlx::query_as(
+            "SELECT inserted_count, deleted_count, max_event_at
+               FROM core.archive_ledger_source WHERE ledger_id = $1 AND logical_source = 'c03-youtube-watch'",
+        )
+        .bind(ledger)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!((inserted, deleted), (1, 1));
+    assert_eq!(max_event_at, requests[1].event_time);
+}
+
 /// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。
 #[tokio::test]
 async fn archive_dedup_distinguishes_archive_results() {
