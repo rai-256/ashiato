@@ -191,6 +191,10 @@ jobs:
       HARNESS2_TOKEN: ${{ secrets.HARNESS2_TOKEN }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # 網の名前・私設 IP が入っていないこと。**何が変わっても必ず見る** ——
+      # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
+      # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
+      - run: ./tools/check-private.sh
       - if: env.HARNESS2_TOKEN == ''
         run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_chain を飛ばす（merge_gate がローカルで見る）"
       - if: env.HARNESS2_TOKEN != ''

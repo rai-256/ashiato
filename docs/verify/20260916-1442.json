@@ -5,7 +5,7 @@
     "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
     "起動: `./dist/verify-20260916-1442/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
     "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。どの画面がどの URL かは `docs/screens.md`。",
-    "スマホ・端末から届かせるなら `http://yoshi.tail4360f4.ts.net:<port>` —— **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、`100.85.27.45` 宛は tailscale 自身が 404 を返す。実測 2026-09-16）。",
+    "スマホ・端末から届かせるなら `http://<手元の網のホスト名>:<port>` —— **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16）。",
     "確認に使う 1 行（問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer dev-token-0123456789abcdef\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
     "Android: `dist/verify-20260916-1442/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20260916-1442/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
     "成果物: `dist/verify-20260916-1442/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。"
