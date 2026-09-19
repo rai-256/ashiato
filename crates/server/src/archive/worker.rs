@@ -83,8 +83,14 @@ pub async fn record_ledger_sources(
     let mut per_source: std::collections::BTreeMap<String, Counts> =
         std::collections::BTreeMap::new();
     for (request, outcome) in requests.iter().zip(outcomes) {
-        let counts = per_source.entry(request.logical_source.clone()).or_default();
-        counts.max_event_at = Some(counts.max_event_at.map_or(request.event_time, |old| old.max(request.event_time)));
+        let counts = per_source
+            .entry(request.logical_source.clone())
+            .or_default();
+        counts.max_event_at = Some(
+            counts
+                .max_event_at
+                .map_or(request.event_time, |old| old.max(request.event_time)),
+        );
         match outcome {
             crate::StoreOutcome::Inserted(_) => counts.inserted += 1,
             crate::StoreOutcome::Duplicate(_) => counts.duplicate += 1,
@@ -113,7 +119,14 @@ pub async fn record_ledger_sources(
 /// 読めなかった項目の場所を、台帳へ安全に残すための要約。
 /// 本文・題名・URLは含めず、障害調査に必要なパスと項目位置だけを先頭100件に限る。
 pub fn unreadable_summary(locations: &[String]) -> Option<String> {
-    (!locations.is_empty()).then(|| locations.iter().take(100).cloned().collect::<Vec<_>>().join("\n"))
+    (!locations.is_empty()).then(|| {
+        locations
+            .iter()
+            .take(100)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
 }
 
 /// 書庫名に `takeout-YYYYMMDD-HHMMSS` があればその UTC 時刻を台帳へ残す。
@@ -418,7 +431,9 @@ pub fn copy_if_enabled(
     copy_dir: &std::path::Path,
     bytes: &[u8],
 ) -> std::io::Result<Option<std::path::PathBuf>> {
-    keep_copies.then(|| copy_known_file(copy_dir, bytes)).transpose()
+    keep_copies
+        .then(|| copy_known_file(copy_dir, bytes))
+        .transpose()
 }
 
 /// 写しの実体と台帳を同じ内容ハッシュで結ぶ。`archive_file` は追記のみなので、
@@ -476,7 +491,11 @@ pub async fn copied_files_for_reparse(
     .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|(path, stored)| std::fs::read(stored).ok().map(|bytes| super::open::ArchiveFile { path, bytes }))
+        .filter_map(|(path, stored)| {
+            std::fs::read(stored)
+                .ok()
+                .map(|bytes| super::open::ArchiveFile { path, bytes })
+        })
         .collect())
 }
 
@@ -501,10 +520,9 @@ pub fn shape_for_file(
         Vec::new()
     };
     let (top_level_keys, field_names) = match &value {
-        serde_json::Value::Object(object) => (
-            object.keys().cloned().collect::<Vec<_>>(),
-            Vec::new(),
-        ),
+        serde_json::Value::Object(object) => {
+            (object.keys().cloned().collect::<Vec<_>>(), Vec::new())
+        }
         serde_json::Value::Array(rows) => {
             let mut fields = rows
                 .iter()
@@ -627,13 +645,25 @@ pub async fn record_archive_heartbeat(
     crate::store_heartbeat(
         pool,
         crate::heartbeat::HeartbeatRequest {
-            id: uuid::Uuid::new_v4(), user_id, logical_source: "s01-archive-inbox".into(),
-            device_id: Some("s01-c03".into()), emitted_at, capturable,
-            blockers, attempts, successes, raw,
+            id: uuid::Uuid::new_v4(),
+            user_id,
+            logical_source: "s01-archive-inbox".into(),
+            device_id: Some("s01-c03".into()),
+            emitted_at,
+            capturable,
+            blockers,
+            attempts,
+            successes,
+            raw,
         },
-    ).await?;
-    sqlx::query("UPDATE core.archive_scan_counter SET attempts = 0, successes = 0 WHERE user_id = $1")
-        .bind(user_id).execute(pool).await?;
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE core.archive_scan_counter SET attempts = 0, successes = 0 WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -731,7 +761,10 @@ pub fn spawn_inspecting(
                 }
                 Err(error) => {
                     tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない");
-                    let blockers = vec!["dedicated_inbox_unreadable".into(), "downloads_unreadable".into()];
+                    let blockers = vec![
+                        "dedicated_inbox_unreadable".into(),
+                        "downloads_unreadable".into(),
+                    ];
                     if let Err(heartbeat_error) = record_archive_heartbeat(
                         &scan_pool,
                         user_id,
@@ -801,9 +834,20 @@ pub fn spawn_inspecting(
                                     }
                                 }
                                 Ok(false) => {
-                                    if let Ok(stored_path) = copy_known_file(&read_config.copy_dir, &file.bytes) {
-                                        if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {
-                                            let _ = record_copy(&pool, user_id, file_sha256.to_owned(), &file.path, &stored_path).await;
+                                    if let Ok(stored_path) =
+                                        copy_known_file(&read_config.copy_dir, &file.bytes)
+                                    {
+                                        if let Some(file_sha256) =
+                                            stored_path.file_name().and_then(|name| name.to_str())
+                                        {
+                                            let _ = record_copy(
+                                                &pool,
+                                                user_id,
+                                                file_sha256.to_owned(),
+                                                &file.path,
+                                                &stored_path,
+                                            )
+                                            .await;
                                         }
                                     }
                                     let _ = record_pending_shape(
@@ -828,8 +872,12 @@ pub fn spawn_inspecting(
                                 | super::classify::KnownKind::SemanticHistory
                         );
                         if read_config.keep_copies {
-                            if let Ok(Some(stored_path)) = copy_if_enabled(true, &read_config.copy_dir, &file.bytes) {
-                                if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {
+                            if let Ok(Some(stored_path)) =
+                                copy_if_enabled(true, &read_config.copy_dir, &file.bytes)
+                            {
+                                if let Some(file_sha256) =
+                                    stored_path.file_name().and_then(|name| name.to_str())
+                                {
                                     if record_copy(
                                         &pool,
                                         user_id,
@@ -840,7 +888,10 @@ pub fn spawn_inspecting(
                                     .await
                                     .is_err()
                                     {
-                                        tracing::warn!(kind = "archive_copy_catalog", "書庫写しの目録を残せない");
+                                        tracing::warn!(
+                                            kind = "archive_copy_catalog",
+                                            "書庫写しの目録を残せない"
+                                        );
                                         return;
                                     }
                                 }
@@ -883,15 +934,15 @@ pub fn spawn_inspecting(
                         let outcomes = match store_requests(&sink, requests.clone()).await {
                             Ok(outcomes) => outcomes,
                             Err(_) => {
-                            let _ = record_store_failure(
-                                &pool,
-                                user_id,
-                                &candidate.path,
-                                sha256.clone(),
-                            )
-                            .await;
-                            tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
-                            return;
+                                let _ = record_store_failure(
+                                    &pool,
+                                    user_id,
+                                    &candidate.path,
+                                    sha256.clone(),
+                                )
+                                .await;
+                                tracing::warn!(kind = "archive_store", "書庫の格納に失敗した");
+                                return;
                             }
                         };
                         stored_requests.extend(requests);
@@ -938,28 +989,43 @@ pub fn spawn_inspecting(
                 .fetch_one(&pool)
                 .await
                 ;
-                match ledger {
-                    Ok(ledger_id) => {
-                    if record_ledger_sources(&pool, ledger_id, &stored_requests, &stored_outcomes)
-                        .await
-                        .is_err()
-                    {
-                        tracing::warn!(kind = "archive_ledger_source", "書庫のソース別台帳を残せない");
-                        return;
+                    match ledger {
+                        Ok(ledger_id) => {
+                            if record_ledger_sources(
+                                &pool,
+                                ledger_id,
+                                &stored_requests,
+                                &stored_outcomes,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                tracing::warn!(
+                                    kind = "archive_ledger_source",
+                                    "書庫のソース別台帳を残せない"
+                                );
+                                return;
+                            }
+                            if !candidate.from_downloads
+                                && move_to_processed(&candidate.path).is_err()
+                            {
+                                tracing::warn!(
+                                    kind = "archive_move",
+                                    "書庫を取り込み済みへ移せない"
+                                );
+                            }
+                            tracing::info!(
+                                kind = "archive_inspect",
+                                known = result.known,
+                                skipped = result.skipped,
+                                unreadable = result.unreadable,
+                                "書庫を検査した"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない")
+                        }
                     }
-                    if !candidate.from_downloads && move_to_processed(&candidate.path).is_err() {
-                        tracing::warn!(kind = "archive_move", "書庫を取り込み済みへ移せない");
-                    }
-                    tracing::info!(
-                        kind = "archive_inspect",
-                        known = result.known,
-                        skipped = result.skipped,
-                        unreadable = result.unreadable,
-                        "書庫を検査した"
-                    );
-                    }
-                    Err(error) => tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない"),
-                }
                 }
                 Err(error) => tracing::warn!(kind = error.kind(), "書庫を開けない"),
             }

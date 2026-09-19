@@ -75,12 +75,9 @@ async fn archive_partial_store_failure_is_not_a_completed_read() {
         5,
         "失敗した5件目までを順に格納する"
     );
-    let completed = crate::archive::worker::store_requests(
-        &crate::PgSink::new(pool),
-        requests,
-    )
-    .await
-    .expect("次の走査では書庫全体を最初から読み直せる");
+    let completed = crate::archive::worker::store_requests(&crate::PgSink::new(pool), requests)
+        .await
+        .expect("次の走査では書庫全体を最初から読み直せる");
     assert_eq!(completed.len(), 5, "再試行で全件を格納関門へ渡す");
 }
 
@@ -117,8 +114,8 @@ async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
             std::path::Path::new("/tmp/failing.zip"),
             "f".repeat(64),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         assert_eq!(throttled, attempt >= 3);
     }
 
@@ -155,7 +152,10 @@ async fn archive_ledger_sources_keep_per_source_store_outcomes() {
         &pool,
         ledger,
         &requests,
-        &[StoreOutcome::Inserted(uuid::Uuid::new_v4()), StoreOutcome::DuplicateOfDeleted(uuid::Uuid::new_v4())],
+        &[
+            StoreOutcome::Inserted(uuid::Uuid::new_v4()),
+            StoreOutcome::DuplicateOfDeleted(uuid::Uuid::new_v4()),
+        ],
     )
     .await
     .unwrap();
@@ -188,7 +188,10 @@ fn archive_created_at_uses_filename_or_discovery_time() {
             .to_utc(),
     );
     assert_eq!(
-        crate::archive::worker::archive_created_at(std::path::Path::new("Timeline.json"), discovered),
+        crate::archive::worker::archive_created_at(
+            std::path::Path::new("Timeline.json"),
+            discovered
+        ),
         discovered,
     );
 }
@@ -208,11 +211,12 @@ async fn archive_ledger_is_private_and_scoped_to_its_user() {
             .await
             .unwrap();
     }
-    let own: i64 = sqlx::query_scalar("SELECT count(*) FROM core.archive_ledger WHERE user_id = $1")
-        .bind(first)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let own: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.archive_ledger WHERE user_id = $1")
+            .bind(first)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let rendered: String = sqlx::query_scalar(
         "SELECT string_agg(row_to_json(l)::text, '') FROM core.archive_ledger l WHERE l.user_id = $1",
     )
@@ -257,12 +261,18 @@ async fn archive_dedup_distinguishes_archive_results() {
     let mut same_content = first.clone();
     same_content.id = uuid::Uuid::new_v4();
     same_content.payload = serde_json::json!({"archive_sha256":"different"});
-    assert!(matches!(store_one(&pool, same_content).await.unwrap(), StoreOutcome::Duplicate(_)));
+    assert!(matches!(
+        store_one(&pool, same_content).await.unwrap(),
+        StoreOutcome::Duplicate(_)
+    ));
 
     // Scenario: 題名が変わった同じ視聴は別の記録として残る
     let mut changed_title = archive_request(user, r#"{"watch":"changed title"}"#);
     changed_title.event_time = first.event_time;
-    assert!(matches!(store_one(&pool, changed_title).await.unwrap(), StoreOutcome::Inserted(_)));
+    assert!(matches!(
+        store_one(&pool, changed_title).await.unwrap(),
+        StoreOutcome::Inserted(_)
+    ));
 
     // Scenario: 消した記録は書庫を置き直しても戻らない
     sqlx::query("UPDATE core.event SET deleted_at = now() WHERE id = $1")
@@ -317,11 +327,19 @@ async fn store_heartbeat_keeps_the_http_idempotency_rule() {
 async fn archive_heartbeat_is_once_per_japan_day_and_counts_scans() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let now = chrono::DateTime::parse_from_rfc3339("2026-09-12T03:00:00Z").unwrap().to_utc();
-    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![]).await.unwrap();
-    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![]).await.unwrap();
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-12T03:00:00Z")
+        .unwrap()
+        .to_utc();
+    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![])
+        .await
+        .unwrap();
+    crate::archive::worker::record_archive_heartbeat(&pool, user, now, true, vec![])
+        .await
+        .unwrap();
     let tomorrow = now + chrono::Duration::days(1);
-    crate::archive::worker::record_archive_heartbeat(&pool, user, tomorrow, true, vec![]).await.unwrap();
+    crate::archive::worker::record_archive_heartbeat(&pool, user, tomorrow, true, vec![])
+        .await
+        .unwrap();
     let rows: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core.heartbeat WHERE user_id = $1 AND logical_source = 's01-archive-inbox'",
     ).bind(user).fetch_one(&pool).await.unwrap();
@@ -771,7 +789,10 @@ fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
 /// Scenario: ダウンロードのフォルダの書庫は動かない
 #[test]
 fn archive_move_does_not_apply_to_downloads_without_an_explicit_move() {
-    let root = std::env::temp_dir().join(format!("ashiato-archive-downloads-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "ashiato-archive-downloads-{}",
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&root).unwrap();
     let downloaded = root.join("takeout-1.zip");
     std::fs::write(&downloaded, b"download").unwrap();
@@ -807,18 +828,20 @@ async fn archive_copy_catalog_keeps_the_inner_file_name() {
     )
     .await
     .unwrap();
-    let path: String = sqlx::query_scalar("SELECT inner_path FROM core.archive_file WHERE sha256 = $1")
-        .bind("a".repeat(64))
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let path: String =
+        sqlx::query_scalar("SELECT inner_path FROM core.archive_file WHERE sha256 = $1")
+            .bind("a".repeat(64))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(path, "Takeout/YouTube/watch-history.json");
 }
 
 /// Scenario: 残さない設定では写しを作らない
 #[test]
 fn archive_copy_setting_does_not_create_a_file_when_disabled() {
-    let root = std::env::temp_dir().join(format!("ashiato-archive-no-copy-{}", uuid::Uuid::new_v4()));
+    let root =
+        std::env::temp_dir().join(format!("ashiato-archive-no-copy-{}", uuid::Uuid::new_v4()));
     let copied = crate::archive::worker::copy_if_enabled(false, &root, b"history").unwrap();
     assert!(copied.is_none());
     assert!(!root.exists());
@@ -861,10 +884,18 @@ fn archive_shape_identity_ignores_observational_field_names() {
 #[test]
 fn archive_shape_confirmation_is_required_only_for_takeout_contents() {
     use crate::archive::classify::KnownKind;
-    assert!(crate::archive::worker::requires_shape_confirmation(KnownKind::YouTubeWatch));
-    assert!(crate::archive::worker::requires_shape_confirmation(KnownKind::MyActivity));
-    assert!(!crate::archive::worker::requires_shape_confirmation(KnownKind::Timeline));
-    assert!(!crate::archive::worker::requires_shape_confirmation(KnownKind::Records));
+    assert!(crate::archive::worker::requires_shape_confirmation(
+        KnownKind::YouTubeWatch
+    ));
+    assert!(crate::archive::worker::requires_shape_confirmation(
+        KnownKind::MyActivity
+    ));
+    assert!(!crate::archive::worker::requires_shape_confirmation(
+        KnownKind::Timeline
+    ));
+    assert!(!crate::archive::worker::requires_shape_confirmation(
+        KnownKind::Records
+    ));
 }
 
 #[tokio::test]
@@ -898,10 +929,20 @@ async fn archive_shape_confirm_makes_a_pending_shape_readable() {
     )
     .unwrap();
     let hash = crate::archive::worker::hash_shape(&shape);
-    crate::archive::worker::record_pending_shape(&pool, user, "a".repeat(64).as_str(), "watch.json", &shape)
-        .await
-        .unwrap();
-    assert!(!crate::archive::worker::is_shape_confirmed(&pool, user, &hash).await.unwrap());
+    crate::archive::worker::record_pending_shape(
+        &pool,
+        user,
+        "a".repeat(64).as_str(),
+        "watch.json",
+        &shape,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !crate::archive::worker::is_shape_confirmed(&pool, user, &hash)
+            .await
+            .unwrap()
+    );
     sqlx::query(
         "INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape) VALUES ($1, $2, $3)",
     )
@@ -911,7 +952,11 @@ async fn archive_shape_confirm_makes_a_pending_shape_readable() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(crate::archive::worker::is_shape_confirmed(&pool, user, &hash).await.unwrap());
+    assert!(
+        crate::archive::worker::is_shape_confirmed(&pool, user, &hash)
+            .await
+            .unwrap()
+    );
 }
 
 /// Scenario: 確認待ちのために作った写しは読み直した後に消える
@@ -920,9 +965,15 @@ async fn archive_shape_confirm_removes_consumed_pending_file() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     let shape = serde_json::json!({"kind":"YouTubeWatch", "products": []});
-    crate::archive::worker::record_pending_shape(&pool, user, &"b".repeat(64), "watch.json", &shape)
-        .await
-        .unwrap();
+    crate::archive::worker::record_pending_shape(
+        &pool,
+        user,
+        &"b".repeat(64),
+        "watch.json",
+        &shape,
+    )
+    .await
+    .unwrap();
     crate::archive::worker::remove_pending_shape(&pool, user, &"b".repeat(64), "watch.json")
         .await
         .unwrap();
@@ -965,9 +1016,15 @@ async fn archive_shape_pending_keeps_the_safe_shape_for_confirmation() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     let shape = serde_json::json!({"kind":"MyActivity","products":["マップ"]});
-    crate::archive::worker::record_pending_shape(&pool, user, "shape-archive", "activity.json", &shape)
-        .await
-        .unwrap();
+    crate::archive::worker::record_pending_shape(
+        &pool,
+        user,
+        "shape-archive",
+        "activity.json",
+        &shape,
+    )
+    .await
+    .unwrap();
     let stored: serde_json::Value = sqlx::query_scalar(
         "SELECT shape FROM core.archive_pending_shape WHERE user_id = $1 AND sha256 = 'shape-archive'",
     )
@@ -1122,7 +1179,8 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
 #[tokio::test]
 async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
     let pool = testdb::pool().await;
-    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-{}", uuid::Uuid::new_v4()));
+    let root =
+        std::env::temp_dir().join(format!("ashiato-archive-reparse-{}", uuid::Uuid::new_v4()));
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1137,16 +1195,28 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
         user_id: Some(user),
         scan_sec: 120,
     };
-    assert!(crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().is_empty());
-    let candidate = crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().remove(0);
+    assert!(crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap()
+        .is_empty());
+    let candidate = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap()
+        .remove(0);
     sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, 'older', 'read')")
         .bind(user)
         .bind(&candidate.sha256)
         .execute(&pool)
         .await
         .unwrap();
-    let reparsed = crate::archive::scan::scan_once(&pool, &config, user).await.unwrap().remove(0);
-    assert!(matches!(reparsed.disposition, crate::archive::scan::ScanDisposition::Read));
+    let reparsed = crate::archive::scan::scan_once(&pool, &config, user)
+        .await
+        .unwrap()
+        .remove(0);
+    assert!(matches!(
+        reparsed.disposition,
+        crate::archive::scan::ScanDisposition::Read
+    ));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1155,15 +1225,25 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
 async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-copy-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "ashiato-archive-reparse-copy-{}",
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&root).unwrap();
     let copied = root.join("copy.json");
     std::fs::write(&copied, b"copy").unwrap();
     let sha256 = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
-    crate::archive::worker::record_copy(&pool, user, sha256.clone(), "history.json", &copied).await.unwrap();
-    let selected = crate::archive::worker::reparse_path(&pool, user, sha256, std::path::Path::new("/missing/archive.zip"))
+    crate::archive::worker::record_copy(&pool, user, sha256.clone(), "history.json", &copied)
         .await
         .unwrap();
+    let selected = crate::archive::worker::reparse_path(
+        &pool,
+        user,
+        sha256,
+        std::path::Path::new("/missing/archive.zip"),
+    )
+    .await
+    .unwrap();
     assert_eq!(selected, copied);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -1172,10 +1252,17 @@ async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
 async fn archive_reparse_reads_saved_inner_files() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-files-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "ashiato-archive-reparse-files-{}",
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&root).unwrap();
     let copy = root.join("history.json");
-    std::fs::write(&copy, br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#).unwrap();
+    std::fs::write(
+        &copy,
+        br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+    )
+    .unwrap();
     crate::archive::worker::record_copy(
         &pool,
         user,
@@ -1185,10 +1272,15 @@ async fn archive_reparse_reads_saved_inner_files() {
     )
     .await
     .unwrap();
-    let files = crate::archive::worker::copied_files_for_reparse(&pool, user).await.unwrap();
+    let files = crate::archive::worker::copied_files_for_reparse(&pool, user)
+        .await
+        .unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].path, "Takeout/watch-history.json");
-    assert_eq!(crate::archive::classify::classify_files(&files).known.len(), 1);
+    assert_eq!(
+        crate::archive::classify::classify_files(&files).known.len(),
+        1
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1363,15 +1455,44 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
 fn archive_end_to_end_builds_requests_for_every_supported_content() {
     let user = uuid::Uuid::nil();
     let fixtures = [
-        (crate::archive::classify::KnownKind::Timeline, r#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"}}]}"#),
-        (crate::archive::classify::KnownKind::Records, r#"{"locations":[{"timestamp":"2026-01-01T00:00:00Z"}]}"#),
-        (crate::archive::classify::KnownKind::YouTubeWatch, r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#),
-        (crate::archive::classify::KnownKind::YouTubeSearch, r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/results?search_query=x"}]"#),
-        (crate::archive::classify::KnownKind::MyActivity, r#"[{"time":"2026-01-01T00:00:00Z","products":["Search"]}]"#),
-        (crate::archive::classify::KnownKind::ChromeHistory, r#"{"Browser History":[{"time_usec":13222310400000000}]}"#),
+        (
+            crate::archive::classify::KnownKind::Timeline,
+            r#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"}}]}"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::Records,
+            r#"{"locations":[{"timestamp":"2026-01-01T00:00:00Z"}]}"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::YouTubeSearch,
+            r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/results?search_query=x"}]"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::MyActivity,
+            r#"[{"time":"2026-01-01T00:00:00Z","products":["Search"]}]"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::ChromeHistory,
+            r#"{"Browser History":[{"time_usec":13222310400000000}]}"#,
+        ),
     ];
     for (kind, bytes) in fixtures {
-        assert!(!crate::archive::worker::requests_for_file(kind, "fixture.json", bytes.as_bytes(), user, "x".repeat(64)).unwrap().is_empty(), "{kind:?}");
+        assert!(
+            !crate::archive::worker::requests_for_file(
+                kind,
+                "fixture.json",
+                bytes.as_bytes(),
+                user,
+                "x".repeat(64)
+            )
+            .unwrap()
+            .is_empty(),
+            "{kind:?}"
+        );
     }
 }
 
@@ -1381,14 +1502,13 @@ fn archive_end_to_end_builds_requests_for_every_supported_content() {
 #[tokio::test]
 async fn archive_migration_registers_sources_and_preserves_interval() {
     let pool = testdb::pool().await;
-    let (archive_sources,): (i64,) =
-        sqlx::query_as(
-            "SELECT count(*) FROM core.source
+    let (archive_sources,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.source
               WHERE logical_source LIKE 'c03-%' AND logical_source NOT LIKE 'c03-myactivity-%'",
-        )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(archive_sources, 10, "書庫の固定ソースは 10 本");
 
     let (gap, kind): (i32, String) = sqlx::query_as(
