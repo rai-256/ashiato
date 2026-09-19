@@ -1441,7 +1441,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         .execute(&pool)
         .await
         .unwrap();
-    crate::archive::worker::spawn_inspecting(
+    let _worker = crate::archive::worker::spawn_inspecting(
         pool.clone(),
         crate::archive::config::ArchiveConfig {
             inbox_dir: inbox.clone(),

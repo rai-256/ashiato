@@ -22,6 +22,8 @@ fn watch(time: &str, title: &str) -> String {
 
 /// 置き場・写し・DB をひとまとめにした足場。落ちても片付くよう `Drop` で消す。
 struct Inbox {
+    /// 起こした取り込み器。**落ちると止まる**ので、足場が生きている間だけ握る。
+    workers: std::sync::Mutex<Vec<crate::archive::worker::WorkerHandle>>,
     root: PathBuf,
     inbox: PathBuf,
     downloads: PathBuf,
@@ -45,6 +47,7 @@ impl Inbox {
         std::fs::create_dir_all(&inbox).unwrap();
         std::fs::create_dir_all(&downloads).unwrap();
         Self {
+            workers: std::sync::Mutex::new(Vec::new()),
             copies: root.join("copies"),
             root,
             inbox,
@@ -66,12 +69,13 @@ impl Inbox {
     }
 
     fn spawn(&self, keep_copies: bool) {
-        crate::archive::worker::spawn_inspecting(
+        let handle = crate::archive::worker::spawn_inspecting(
             self.pool.clone(),
             self.config(keep_copies),
             self.user,
             crate::archive::worker::ReadingState::default(),
         );
+        self.workers.lock().unwrap().push(handle);
     }
 
     /// その中身の形に印を置く（`tools/archive-shape.sh --confirm` と同じことを直に行う）。
@@ -1446,4 +1450,129 @@ async fn archive_flow_raw_is_a_slice_of_the_archive_bytes() {
         raw.contains("1.0e2"),
         "数値の表記が書き戻しで変わっている: {raw}"
     );
+}
+
+/// Scenario: 書庫のソースは 60 日で登録されている
+/// Scenario: 取り込み器のソースは 1 日で登録されている
+#[tokio::test]
+async fn archive_flow_every_archive_source_is_registered_with_sixty_days() {
+    let pool = testdb::pool().await;
+    // **本人の決定 Q6（粒度は内容の鍵だけ = `none`）と Q7（60 日）の唯一の受け皿。**
+    // 本数だけを見ていたときは、10 本すべてを 1 日に書き換えても落ちる試験が無かった。
+    const SIXTY_DAYS_SEC: i32 = 5_184_000;
+    let rows: Vec<(String, i32, String)> = sqlx::query_as(
+        "SELECT logical_source, expected_gap_sec, external_id_kind FROM core.source
+          WHERE logical_source LIKE 'c03-%' AND logical_source NOT LIKE 'c03-myactivity-%'
+            AND logical_source NOT LIKE 't-%'
+          ORDER BY logical_source",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 10, "書庫の固定ソースは 10 本");
+    for (name, gap, kind) in rows {
+        assert_eq!(gap, SIXTY_DAYS_SEC, "{name} の想定間隔が 60 日でない");
+        assert_eq!(
+            kind, "none",
+            "{name} の外部識別子の粒度が内容の鍵だけでない"
+        );
+    }
+}
+
+/// Scenario: 書き出しを忘れると書庫のソースは途絶になる
+#[tokio::test]
+async fn archive_flow_a_forgotten_export_turns_the_archive_source_into_an_outage() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    // **書庫の想定間隔（60 日）を持つソース**で見る。汎用の試験ソースでは、
+    // 60 日という値そのものが固定されない。
+    let source = testdb::source(&pool, "c03-outage", 5_184_000).await;
+    testdb::set_started_on(&pool, &source, "2026-01-01").await;
+    testdb::put_event(&pool, user, &source, "2026-07-01T12:00:00+09:00").await;
+
+    let days = crate::coverage::of_sources(
+        &pool,
+        Some(user),
+        &[source],
+        testdb::date("2026-08-31"), // 最後の記録から 61 日後
+        testdb::date("2026-08-31"),
+    )
+    .await
+    .unwrap();
+    let cell = days
+        .first()
+        .and_then(|source| source.days.first())
+        .expect("その日のセルが無い");
+    assert_eq!(
+        cell.state,
+        crate::coverage::DayState::Outage,
+        "書き出しを 61 日忘れても途絶にならない（ST14 の通知が鳴らない）"
+    );
+}
+
+/// Scenario: 台帳に記録の本文は載らない
+#[tokio::test]
+async fn archive_flow_no_ledger_column_carries_a_record_body() {
+    let inbox = Inbox::new("archive-ledger-private").await;
+    // **実際に読ませる。** 台帳へ空の行を入れて検索語を探しても、検索語がどこにも
+    // 無いので落ちようがない（review R13）。読めない項目も混ぜて、場所の列も見る。
+    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"白川郷 民宿 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E7%99%BD%E5%B7%9D%E9%83%B7"},{"time":"こわれた","titleUrl":"https://www.youtube.com/results?search_query=x"}]"#;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeSearch,
+            search.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/search-history.json", search.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+
+    // Scenario: 壊れた 1 件の場所が台帳に残る
+    let (count, at): (i32, Option<String>) = sqlx::query_as(
+        "SELECT unreadable_count, unreadable_at FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'read'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1, "読めなかった項目の件数が台帳に残っていない");
+    let at = at.expect("読めなかった項目の場所が台帳に残っていない");
+    assert!(
+        at.contains("search-history.json") && at.contains('#'),
+        "場所がファイル名とファイルの中の位置になっていない: {at}"
+    );
+
+    // **台帳の 3 表を丸ごと文字列にして見る**（列を足しても漏れない形）。
+    // `archive_ledger_source` は利用者の列を持たないので、台帳の行から辿る。
+    for (table, scope) in [
+        ("core.archive_ledger", "t.user_id = $1"),
+        (
+            "core.archive_ledger_source",
+            "EXISTS (SELECT 1 FROM core.archive_ledger l WHERE l.id = t.ledger_id AND l.user_id = $1)",
+        ),
+        ("core.archive_file", "t.user_id = $1"),
+    ] {
+        let dumped: Option<String> = sqlx::query_scalar(&format!(
+            "SELECT string_agg(row_to_json(t)::text, ' ') FROM {table} t WHERE {scope}"
+        ))
+        .bind(inbox.user)
+        .fetch_one(&inbox.pool)
+        .await
+        .unwrap();
+        let dumped = dumped.unwrap_or_default();
+        for value in ["白川郷", "民宿", "%E7%99%BD%E5%B7%9D%E9%83%B7"] {
+            assert!(
+                !dumped.contains(value),
+                "{table} に記録の本文「{value}」が載っている: {dumped}"
+            );
+        }
+    }
 }
