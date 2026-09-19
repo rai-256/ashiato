@@ -171,7 +171,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 10. 画面（design D12）
 
-- [ ] 10.1 `web/src/archives.ts`（`/archives/status` の型と「`YYYY-MM-DD` まで（N 日前）」の文字列）と、`App.tsx` の並び（Must → 書庫のソース → 退役）と別々の読み出し。
+- [x] 10.1 `web/src/archives.ts`（`/archives/status` の型と「`YYYY-MM-DD` まで（N 日前）」の文字列）と、`App.tsx` の並び（Must → 書庫のソース → 退役）と別々の読み出し。
   Scenario: `書庫のソースは Must の後ろで退役の前に並ぶ`。検証: `VT archive-order.test.tsx`
 - [ ] 10.2 `CoverageGrid.tsx` に見出しの任意の注記を足す。書庫のソースに最終日と何日前、まだ無いソースに「まだ無い」。
   Scenario: `書庫のソースの見出しに最終日と何日前が出る` / `何日前は日本時間の今日から数える` / `まだ無いソースはまだ無いと出る` / `書庫のソースの格子は開いた直後から直近 4 週を出す` / `記録の無い日も同じ判定で出る`（画面側: 週を選ぶと「動いていた・記録なし」の文字）。
