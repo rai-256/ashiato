@@ -3,6 +3,21 @@
 
 use super::scan::ScanCandidate;
 
+/// 1 冊のファイルから得た要求を、順番を変えずに既存の格納関門へ渡す。
+///
+/// 途中の失敗は成功として畳まない。呼び出し側が台帳を追記しないことで、次の
+/// 走査で同じ書庫を最初から読み直せる。
+pub async fn store_requests(
+    sink: &dyn crate::RecordSink,
+    requests: Vec<crate::IngestRequest>,
+) -> anyhow::Result<Vec<crate::StoreOutcome>> {
+    let mut outcomes = Vec::with_capacity(requests.len());
+    for request in requests {
+        outcomes.push(sink.store(request).await?);
+    }
+    Ok(outcomes)
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
 /// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
 pub fn requests_for_file(
