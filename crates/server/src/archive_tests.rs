@@ -76,6 +76,18 @@ async fn archive_partial_store_failure_is_not_a_completed_read() {
     );
 }
 
+#[tokio::test]
+async fn archive_pg_sink_uses_the_same_store_gate() {
+    let pool = testdb::pool().await;
+    let sink = crate::PgSink::new(pool);
+    let outcomes = crate::archive::worker::store_requests(
+        &sink,
+        vec![archive_request(testdb::user(), r#"{"watch":"worker"}"#)],
+    )
+    .await;
+    assert!(outcomes.is_ok(), "読み手の PgSink も既存の格納関門を通る");
+}
+
 /// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
 #[tokio::test]
 async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
@@ -150,6 +162,18 @@ async fn archive_ledger_sources_keep_per_source_store_outcomes() {
         .unwrap();
     assert_eq!((inserted, deleted), (1, 1));
     assert_eq!(max_event_at, requests[1].event_time);
+}
+
+/// Scenario: 壊れた 1 件の場所が台帳に残る
+#[test]
+fn archive_unreadable_locations_keep_only_the_first_hundred() {
+    let locations = (0..101)
+        .map(|n| format!("Takeout/YouTube/watch-history.json#{n}"))
+        .collect::<Vec<_>>();
+    let summary = crate::archive::worker::unreadable_summary(&locations).expect("場所がある");
+    assert!(summary.contains("#0"));
+    assert!(summary.contains("#99"));
+    assert!(!summary.contains("#100"), "台帳には先頭100件だけを残す");
 }
 
 /// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。

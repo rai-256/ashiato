@@ -99,6 +99,12 @@ pub async fn record_ledger_sources(
     Ok(())
 }
 
+/// 読めなかった項目の場所を、台帳へ安全に残すための要約。
+/// 本文・題名・URLは含めず、障害調査に必要なパスと項目位置だけを先頭100件に限る。
+pub fn unreadable_summary(locations: &[String]) -> Option<String> {
+    (!locations.is_empty()).then(|| locations.iter().take(100).cloned().collect::<Vec<_>>().join("\n"))
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
 /// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
 pub fn requests_for_file(
@@ -528,12 +534,16 @@ pub fn spawn_inspecting(
                     let classified = super::classify::classify_files(&files);
                     let mut stored_requests = Vec::new();
                     let mut stored_outcomes = Vec::new();
+                    let mut unreadable_locations = Vec::new();
                     for known in classified.known {
                         let file = &files[known.index];
                         if known.kind == super::classify::KnownKind::MyActivity {
                             let shape = match shape_for_file(known.kind, &file.bytes) {
                                 Ok(shape) => shape,
-                                Err(_) => continue,
+                                Err(_) => {
+                                    unreadable_locations.push(file.path.clone());
+                                    continue;
+                                }
                             };
                             let shape_hash = hash_shape(&shape);
                             match is_shape_confirmed(&pool, user_id, &shape_hash).await {
@@ -561,7 +571,10 @@ pub fn spawn_inspecting(
                             sha256.clone(),
                         ) {
                             Ok(requests) => requests,
-                            Err(_) => continue,
+                            Err(_) => {
+                                unreadable_locations.push(file.path.clone());
+                                continue;
+                            }
                         };
                         for request in &requests {
                             if request.logical_source.starts_with("c03-myactivity-")
@@ -621,15 +634,16 @@ pub fn spawn_inspecting(
                     }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
-                       (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, skipped_file_count)
-                     VALUES ($1, $2, $3, 'read', $4, $5, $6)
+                       (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count)
+                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7)
                      RETURNING id",
                 )
                 .bind(user_id)
                 .bind(sha256)
                 .bind(super::PARSER_VERSION)
                 .bind(inbox_kind)
-                .bind(i32::try_from(result.unreadable).unwrap_or(i32::MAX))
+                .bind(i32::try_from(result.unreadable + unreadable_locations.len()).unwrap_or(i32::MAX))
+                .bind(unreadable_summary(&unreadable_locations))
                 .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
                 .fetch_one(&pool)
                 .await
