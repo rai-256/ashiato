@@ -1664,6 +1664,13 @@ pub struct ArchiveSourceStatus {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ArchivesStatus {
     pub sources: Vec<ArchiveSourceStatus>,
+    pub latest_archive: Option<LatestArchiveStatus>,
+}
+
+/// 直近に置いた書庫の結果。台帳の追記行からのみ導く。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct LatestArchiveStatus {
+    pub outcome: String,
 }
 
 type ArchiveStatusRow = (
@@ -1690,6 +1697,12 @@ pub async fn archives_status_for(
     .bind(user_id)
     .fetch_all(pool)
     .await?;
+    let latest_archive: Option<(String,)> = sqlx::query_as(
+        "SELECT outcome FROM core.archive_ledger WHERE user_id = $1 ORDER BY finished_at DESC, id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
     Ok(ArchivesStatus {
         sources: rows
             .into_iter()
@@ -1706,6 +1719,7 @@ pub async fn archives_status_for(
                 },
             )
             .collect(),
+        latest_archive: latest_archive.map(|(outcome,)| LatestArchiveStatus { outcome }),
     })
 }
 
@@ -2074,6 +2088,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Achievement,
         ArchivesStatus,
         ArchiveSourceStatus,
+        LatestArchiveStatus,
         coverage::SourceAchievement,
         RebuildRequest,
         RebuildResponse,

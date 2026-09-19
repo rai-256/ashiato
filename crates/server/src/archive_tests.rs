@@ -375,6 +375,7 @@ async fn archives_status_uses_ledger_max_event_time_in_japan() {
     .unwrap();
 
     let status = crate::archives_status_for(&pool, user).await.unwrap();
+    assert_eq!(status.latest_archive.as_ref().map(|latest| latest.outcome.as_str()), Some("read"));
     let source = status
         .sources
         .into_iter()

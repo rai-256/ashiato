@@ -189,6 +189,19 @@ echo "$MODE: 破棄の報告を 3 件入れた（2026-09-07 の一部 180 件 / 
 #     2 回目は内容の鍵で畳まれて `duplicate` になる（FR-22 / 深掘り C2）
 [ "$MODE" = "normal" ] || exit 0
 
+# ------------------------------------------------------------------ 書庫（ST12）
+# 確認バッチで書庫の見出しと直近結果を表示する最小の材料。
+curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" -d '{"id":"12121212-0000-4000-8000-000000000001","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c03-youtube-watch","external_id":null,"device_id":"s01-c03","origin":"collected","event_time":"2026-09-16T03:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{\"watch\":\"seed\"}","payload":{"archive_sha256":"seed-archive"}}' >/dev/null
+docker compose exec -T db psql -q -U ashiato -d ashiato -c "
+WITH ledger AS (
+  INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, created_at)
+  VALUES ('00000000-0000-0000-0000-000000000000', repeat('1', 64), 'seed', 'read', '2026-09-19T00:00:00Z')
+  ON CONFLICT DO NOTHING RETURNING id
+)
+INSERT INTO core.archive_ledger_source (ledger_id, logical_source, inserted_count, max_event_at)
+SELECT id, 'c03-youtube-watch', 1, '2026-09-16T03:00:00Z' FROM ledger ON CONFLICT DO NOTHING;"
+echo "normal: 書庫の視聴履歴と読めた台帳を入れた"
+
 attrs_get() { curl -sf "${AUTH[@]}" "http://$BIND/attributes"; }
 
 # **まず読み出して住所と職業を置く**（design D7 の初期化）。
