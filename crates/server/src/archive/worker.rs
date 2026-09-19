@@ -383,6 +383,28 @@ pub fn copy_known_file(
     Ok(target)
 }
 
+/// 写しの実体と台帳を同じ内容ハッシュで結ぶ。`archive_file` は追記のみなので、
+/// 同じファイルを読み直しても目録を増やさない。
+pub async fn record_copy(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: String,
+    inner_path: &str,
+    stored_path: &std::path::Path,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO core.archive_file (sha256, user_id, inner_path, stored_path)
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+    )
+    .bind(sha256)
+    .bind(user_id)
+    .bind(inner_path)
+    .bind(stored_path.to_string_lossy().as_ref())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 確認に必要な構造だけを取り出す。記録値・題名・検索語は形に含めない。
 pub fn shape_for_file(
     kind: super::classify::KnownKind,
@@ -488,6 +510,7 @@ pub fn spawn_inspecting(
 ) {
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
     let scan_pool = pool.clone();
+    let read_config = config.clone();
     tokio::spawn(async move {
         loop {
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
@@ -507,6 +530,7 @@ pub fn spawn_inspecting(
     });
     tokio::spawn(read_in_order(receiver, move |candidate| {
         let pool = pool.clone();
+        let read_config = read_config.clone();
         async move {
             let sha256 = candidate.sha256.clone();
             let inbox_kind = if candidate.from_downloads {
@@ -563,6 +587,28 @@ pub fn spawn_inspecting(
                             super::classify::KnownKind::Records
                                 | super::classify::KnownKind::SemanticHistory
                         );
+                        if read_config.keep_copies {
+                            if let Ok(stored_path) = copy_known_file(&read_config.copy_dir, &file.bytes) {
+                                if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {
+                                    if record_copy(
+                                        &pool,
+                                        user_id,
+                                        file_sha256.to_owned(),
+                                        &file.path,
+                                        &stored_path,
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        tracing::warn!(kind = "archive_copy_catalog", "書庫写しの目録を残せない");
+                                        return;
+                                    }
+                                }
+                            } else {
+                                tracing::warn!(kind = "archive_copy", "書庫の写しを残せない");
+                                return;
+                            }
+                        }
                         let requests = match requests_for_file(
                             known.kind,
                             &file.path,
