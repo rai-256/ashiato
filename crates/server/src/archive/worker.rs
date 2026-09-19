@@ -3,6 +3,17 @@
 
 use super::scan::ScanCandidate;
 
+/// Takeout の中身は本人が形を確認するまで格納しない。端末 Timeline と移行前位置は待たない。
+pub fn requires_shape_confirmation(kind: super::classify::KnownKind) -> bool {
+    matches!(
+        kind,
+        super::classify::KnownKind::YouTubeWatch
+            | super::classify::KnownKind::YouTubeSearch
+            | super::classify::KnownKind::MyActivity
+            | super::classify::KnownKind::ChromeHistory
+    )
+}
+
 /// 1 冊のファイルから得た要求を、順番を変えずに既存の格納関門へ渡す。
 ///
 /// 途中の失敗は成功として畳まない。呼び出し側が台帳を追記しないことで、次の
@@ -625,7 +636,7 @@ pub fn spawn_inspecting(
                     let mut unreadable_locations = Vec::new();
                     for known in classified.known {
                         let file = &files[known.index];
-                        if known.kind == super::classify::KnownKind::MyActivity {
+                        if requires_shape_confirmation(known.kind) {
                             let shape = match shape_for_file(known.kind, &file.bytes) {
                                 Ok(shape) => shape,
                                 Err(_) => {

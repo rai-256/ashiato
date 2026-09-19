@@ -812,6 +812,17 @@ fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     assert!(!shape.to_string().contains("京都 旅館"));
 }
 
+/// Scenario: 印を置く前の Takeout の書庫は格納されない
+/// Scenario: タイムラインは確認を待たない
+#[test]
+fn archive_shape_confirmation_is_required_only_for_takeout_contents() {
+    use crate::archive::classify::KnownKind;
+    assert!(crate::archive::worker::requires_shape_confirmation(KnownKind::YouTubeWatch));
+    assert!(crate::archive::worker::requires_shape_confirmation(KnownKind::MyActivity));
+    assert!(!crate::archive::worker::requires_shape_confirmation(KnownKind::Timeline));
+    assert!(!crate::archive::worker::requires_shape_confirmation(KnownKind::Records));
+}
+
 #[tokio::test]
 async fn archive_shape_confirmation_allows_only_confirmed_shape() {
     let pool = testdb::pool().await;
