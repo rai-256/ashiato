@@ -7,9 +7,25 @@ cd "$(dirname "$0")/.."
 export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
 export BIND="${BIND:-127.0.0.1:18787}"
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
+ARCHIVE_USER="00000000-0000-0000-0000-000000000000"
+ARCHIVE_ROOT=$(mktemp -d)
+export ASHIATO_ARCHIVE_USER_ID="$ARCHIVE_USER"
+export ASHIATO_INBOX_DIR="$ARCHIVE_ROOT/inbox"
+export ASHIATO_DOWNLOADS_DIR="$ARCHIVE_ROOT/downloads"
+export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_ROOT/copies"
+export ASHIATO_ARCHIVE_SCAN_SEC=1
+mkdir -p "$ASHIATO_INBOX_DIR" "$ASHIATO_DOWNLOADS_DIR" "$ASHIATO_ARCHIVE_COPY_DIR"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
-cleanup() { kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
+# `archive-shape.sh` は `psql` を直接使う。開発用コンテナと同じ DB へつなぐため、
+# 接続文字列だけを捨てて compose 内の psql へ渡す。
+psql() {
+  [ "${1:-}" = "$DATABASE_URL" ] && shift
+  docker compose exec -T db psql -q -U ashiato -d ashiato "$@"
+}
+export -f psql
+
+cleanup() { kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; rm -rf "$ARCHIVE_ROOT"; }
 trap cleanup EXIT
 
 echo "== 1. DB を起動（**まっさらにしてから**）"
@@ -108,6 +124,38 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 [ "$code" = "401" ] || { echo "違う合言葉で $code"; exit 1; }
 [ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)" -eq 1 ] \
   || { echo "断ったはずの要求で行が増えている"; exit 1; }
+
+# ------------------------------------------------------------------ ST12（書庫の実経路）
+
+# Scenario: 形を確認した書庫は最終日を稼働状況に出す
+# Scenario: 同じ書庫を別名で置いても稼働状況の件数は増えない
+echo "== 9b. 合成の Takeout を形の確認後に読み、別名の再配置では増やさない（ST12）"
+ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
+mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
+printf '%s' '[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke"}]' \
+  > "$ARCHIVE_FIXTURE/Takeout/YouTube/watch-history.json"
+(cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
+for _ in $(seq 1 15); do
+  SHAPE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
+    -c "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$ARCHIVE_USER'::uuid LIMIT 1")
+  [ -n "$SHAPE" ] && break
+  sleep 1
+done
+[ -n "${SHAPE:-}" ] || { echo "書庫の形が確認待ちにならない"; exit 1; }
+tools/archive-shape.sh --confirm "$SHAPE"
+for _ in $(seq 1 15); do
+  status=$(curl -sf "${AUTH[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
+  if printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null; then break; fi
+  sleep 1
+done
+printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null \
+  || { echo "書庫の最終日が /archives/status に出ない: $status"; exit 1; }
+before=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+cp "$ASHIATO_INBOX_DIR/取り込み済み/takeout-smoke.zip" "$ASHIATO_INBOX_DIR/takeout-smoke-again.zip"
+sleep 3
+after=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+[ "$before" = "$after" ] || { echo "別名の同じ書庫で稼働状況の件数が増えた: $before -> $after"; exit 1; }
+echo "   → 最終日 2026-09-12 / 件数 $after（別名でも不変）"
 
 
 
@@ -475,8 +523,9 @@ echo "   → c01-photo 2026-03-01 = $state"
 # 位置は同じ日に記録があるので①
 [ "$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-location")|.days[0].state')" = "recorded" ] \
   || { echo "位置が①でない"; exit 1; }
-# **5 ソースすべてが返る**（画面は 5 本の格子を並べる）
-[ "$(printf '%s' "$cov" | jq 'length')" = "5" ] || { echo "5 ソースが返っていない"; exit 1; }
+# **Must の 5 ソースすべてが返る**（書庫のソースが追加されてもこの約束は変わらない）
+[ "$(printf '%s' "$cov" | jq '[.[] | select(.logical_source == "c01-location" or .logical_source == "c01-app-usage" or .logical_source == "c01-photo" or .logical_source == "c02-window" or .logical_source == "c02-browser-history")] | length')" = "5" ] \
+  || { echo "Must の 5 ソースが返っていない"; exit 1; }
 
 echo "== 27. 達成日数と分母、確定か暫定かが返る（NFR-13 / 第 7 回 Q27）"
 ach=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage/achievement")

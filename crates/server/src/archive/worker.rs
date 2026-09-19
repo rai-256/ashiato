@@ -785,6 +785,14 @@ pub fn spawn_inspecting(
         let pool = pool.clone();
         let read_config = read_config.clone();
         async move {
+            // 同じ内容を別名で置き直した候補は、走査側で既読と判定済み。
+            // 再び格納・台帳追記へ進むと一意制約に当たり、専用置き場にも残り続ける。
+            if candidate.disposition == super::scan::ScanDisposition::AlreadyRead {
+                if !candidate.from_downloads {
+                    let _ = move_to_processed(&candidate.path);
+                }
+                return;
+            }
             let sha256 = candidate.sha256.clone();
             let inbox_kind = if candidate.from_downloads {
                 "downloads"
