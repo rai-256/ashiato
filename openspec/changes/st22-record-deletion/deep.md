@@ -2,7 +2,8 @@
 
 > 状態: **第 1 回の答えが揃った（2026-09-15）。未回答 0 件・推奨のまま 0 件。** A の 2 問（Q1 / Q4）も B の 2 問（Q2 / Q3）も本人が選択肢から選んだ（推奨と違う側は 0 件）。
 > 聞かないで決めるもの（C1〜C10）に、本人の異論は無かった（回答に番号の記載なし）。
-> **proposal で止める。** Q4 の答えは ST16 の `browsing-views`「位置の記録が無い時間は記録なしの行として出る」の MODIFIED になり、ST16 は archive 待ち（`openspec/specs/browsing-views` がまだ無い）。
+> **2026-09-15 は proposal で止めた**（Q4 の答えが ST16 の `browsing-views` への MODIFIED で、ST16 が archive 待ちだった）。
+> **ST16 が archive された（2026-09-15）ので、2026-09-19 に specs → design → tasks まで書いた。** specs の独立レビューは `review/spec.md`（17 件）。
 > 問いは `deep-questions.json`（4 件。A 2 件 / B 2 件）、渡した形は `docs/briefs/ST22-deep.html`。
 > 画面の問い（Q4）が埋め込む playground は `proto.html`（この change に置く ——
 > `docs/briefs/` は `.gitignore` で消えるが、この proto は script で再生成できない）。
@@ -85,8 +86,8 @@
   消した滞在は一覧から消え、その時間に**「消した 始まり – 終わり」の行と「戻す」**が出る。**位置も消した時間を「記録なし」にしない**
 - **playground が描かなかったもの（specs で決める）**: 「戻す」の確認の有無（proto は確認なしで戻した）/ 戻した後に作り直すこと（戻した時間帯の `rebuild:erased-range` も外れる —— 申し送り R19 の後段）/
   消した行と前後の移動・記録なしの境目（proto は近似）。いずれも計算し直せば戻る（B）ので、design の D 番号に（仮）で置く
-- **効く先**: `docs/requirements.md` FR-50（★ 2026-09-15 追加）/ specs `browsing-views`（**MODIFIED**「位置の記録が無い時間は記録なしの行として出る」と「削除済みの滞在は一覧に出ない」に「消した」行を足す。
-  ST16 の archive 待ち）/ specs `record-deletion`（消す・戻す操作、確認、台帳）/ `docs/stories/INDEX.md`（ST22 に `browsing-views` と `requires: ST16` を足した）/
+- **効く先**: `docs/requirements.md` FR-50（★ 2026-09-15 追加）/ specs `browsing-views`（**MODIFIED** 4 本 —— 1 日の並びの読み出し・一覧・記録なし・移動・UI の下限に「消した」行を足した。
+  spec-review R3 / R5 / R11）/ specs `record-deletion`（消す・戻す操作、確認、台帳）/ `docs/stories/INDEX.md`（ST22 に `browsing-views` と `requires: ST16` を足した）/
   1 日の並びの読み出しが消した滞在の識別子と時刻の範囲を返す（R8 の A-3 —— 素のテーブルを直接引かせない形を design で決める）
 
 ## 確かめたが問わなかったこと
@@ -116,6 +117,16 @@ ST22 が消せるのは滞在と Q1 の連鎖だけ（C3）なので、**ST22 �
 |---|---|---|---|
 | R3 | discarded | 削除済みの判定は、消した行の**現在の**内容だけを見る。前の版と同じ内容が別の外部識別子で届くと、生きた記録として入る（実測）。前の版にも当てると、今度は届いた記録（と新しい外部識別子）を捨てる範囲が広がる | レビューの探針 B |
 | R4 | discarded | 消していた間に届いた外部の更新は、本表にも履歴にも残らず捨てられる（`lib.rs` の `SkippedDeleted`）。消した記録を戻すと、その更新が無い | レビューの探針 B / 正典 `record-envelope` の「取り消しは残る」 |
+
+## specs の独立レビューが人間へ返したもの（2026-09-19。`review/spec.md`）
+
+問い直しは**していない**（どちらも本人の決定を変えない）。本人に見せる形で残し、宛先の Story へ渡した。
+PR 本文の「人間へ返すもの」にも同じ 2 件を出す。
+
+| # | 何が | どう扱ったか |
+|---|---|---|
+| **spec R2**（`irreversible` / `loss: exported`） | Q1 で本人が選んだ「滞在を消すと位置も消す」を**本当に閉じる**のは、書き出し（ST33）が削除済みを出さないこと。ST22 だけでは半分しか閉じない。ST33 はいま着手可で、申し送りが無かった | `docs/handoff/ST33.md` を作って根拠ごと置いた（ST33 の上流はブリーフの「この Story に宛てられたもの」で読む）。**ST22 の側で決められることは無い**（書き出しの経路がまだ 1 本も無い）。ST33 の深掘りで本人に問われる |
+| **spec R10**（`premise`） | 44 px の**出所**として NFR-20 を引いていた。NFR-20 は「取り返しの付かない操作」の話で、ST22 の削除は戻せる（同じ change が戻す口を作る）。deep の独立レビュー R13 が一度直した前提が、specs を書くときに戻っていた | 出所を NFR-19 ＋ `docs/ui-direction.md` の確定値（削除・停止だけ 44×44 px）に直した。**44 px そのものは動かさない** —— 本人が proto の実寸を見て選んだ値で、決定は変わっていない |
 
 ## 答えが触る capability（R9）
 

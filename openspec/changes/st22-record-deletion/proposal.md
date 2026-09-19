@@ -62,11 +62,12 @@ ST03 の「削除済みの内容は取り込みのどの経路からも戻らな
 **capability の前倒し**: ST22 を `browsing-views` にも割り当て、`requires` に ST16 を足した（`docs/stories/INDEX.md` の訂正 2026-09-15）。
 完了の判定「削除すると**画面から消え**」の画面は ST16 の一覧で、Q4 の答えが ST16 の要件を書き換えるため。
 
-## 止めた理由（proposal で止める）
+## 止めていた理由と、解けた時点
 
-**ST16 は merge 済みだが archive 待ち。** Q4 の答えは ST16 の `browsing-views` の要件への MODIFIED で、
-その capability は ST16 の archive まで `openspec/specs/` に無い。書いても、ST16 の archive で正典の文面が確定するまで古くなりうる。
-ST16 の archive 後に specs → design → tasks → PR と issue へ進む。
+**2026-09-15 の時点では proposal で止めた** —— Q4 の答えは ST16 の `browsing-views` の要件への MODIFIED で、
+その capability は ST16 の archive まで `openspec/specs/` に無かった。
+**ST16 は 2026-09-15 に archive された**（`openspec/changes/archive/2026-09-15-st16-stay-derivation`。PR #52）ので、
+2026-09-19 に specs → design → tasks まで書いた。MODIFIED は archive された正典の本文を写している。
 
 ## Impact
 
@@ -75,10 +76,14 @@ ST16 の archive 後に specs → design → tasks → PR と issue へ進む。
   1 日の並び（`stay_store.rs` の `day_view`）に「消した」の種類、位置を消した / 戻した日の作り直し（作り直しと同じ錠。R44）
 - **画面**（`web/src/DayView.tsx` / `stays.ts`）: 行の中に開く詳細、件数、消す操作と確認、「消した」行と戻す操作
 - **並走している Story との重なり**
-  - **ST16**（archive 待ち）: `browsing-views` を書き換える。ST16 の design D8（仮）の「空白」を Q4 の形に置き換える
+  - **ST16**（archive 済み 2026-09-15）: `browsing-views` を書き換える。ST16 の design D8（仮）の「空白」を Q4 の形に置き換える
   - **ST25**（衝突待ち）: ST16 の archive 後も、ST22 が `browsing-views` を触る間は同時に走らせない（盤面に反映済み）
-  - **ST04**（下流）: `collection-coverage` は触らない（Q3 は数えたまま）。取り込みの口のコード（`lib.rs`）は両方が触りうるので、後から merge する側が追従する
+  - **ST04**（archive 済み 2026-09-17）/ **ST12**（下流。`collection-coverage` を触っている）: `collection-coverage` は触らない（Q3 は数えたまま）。
+    取り込みの口のコード（`lib.rs`）は複数の Story が触りうるので、後から merge する側が追従する
   - **ST05**（上流）: `record-envelope` は触らない
-  - **ST12**（上流）: 書庫から別のソースで入る同じ場面は ST22 の削除に当たらない（R6）。外部識別子のソースで起きる失われ方 2 件（R3 / R4）と合わせて `docs/handoff/ST12.md`
-  - **ST33**（着手可）: 書き出しが削除済みを出さないことは ST33 が決める。ST22 は「滞在を消すと位置も削除済み」にしたので、削除済みを除けば場面は外に出ない
-- **ST23**: 物理削除は、この Story の台帳と「消した」状態を前提にする
+  - **ST12**（下流）: 書庫から別のソースで入る同じ場面は ST22 の削除に当たらない（R6）。外部識別子のソースで起きる失われ方 2 件（R3 / R4）と合わせて `docs/handoff/ST12.md`
+  - **ST33**（着手可）: 書き出しが削除済みを出さないことは ST33 が決める。ST22 は「滞在を消すと位置も削除済み」にしたので、削除済みを除けば場面は外に出ない。
+    **Q1 の `loss: exported` を閉じる残り半分がここなので、`docs/handoff/ST33.md` に置いた**（spec-review R2）
+- **ST23**: 物理削除は、この Story の台帳と「消した」状態を前提にする。
+  **個人属性の主張を消す操作（FR-44 ★ 2026-09-15 の本人の決定。INDEX が ST22 に割り当てていた条項）も ST23 へ渡した**
+  （spec-review R1。`docs/handoff/ST23.md`。ST22 の口は C3 で滞在だけに狭めた）
