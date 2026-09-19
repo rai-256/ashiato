@@ -582,6 +582,61 @@ pub async fn remove_pending_shape(
     Ok(())
 }
 
+/// 走査のたびに回数を永続化し、その日の最初だけ取り込み器自身へ生存信号を残す。
+/// 書庫の各ソースには信号を送らず、途絶は書庫記録だけから導かせる。
+pub async fn record_archive_heartbeat(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    emitted_at: chrono::DateTime<chrono::Utc>,
+    capturable: bool,
+    blockers: Vec<String>,
+) -> anyhow::Result<()> {
+    let (attempts, successes): (i32, i32) = sqlx::query_as(
+        "INSERT INTO core.archive_scan_counter (user_id, scanned_at, attempts, successes)
+         VALUES ($1, $2, 1, CASE WHEN $3 THEN 1 ELSE 0 END)
+         ON CONFLICT (user_id) DO UPDATE SET scanned_at = EXCLUDED.scanned_at,
+           attempts = core.archive_scan_counter.attempts + 1,
+           successes = core.archive_scan_counter.successes + CASE WHEN $3 THEN 1 ELSE 0 END
+         RETURNING attempts, successes",
+    )
+    .bind(user_id)
+    .bind(emitted_at)
+    .bind(capturable)
+    .fetch_one(pool)
+    .await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+            AND (emitted_at AT TIME ZONE 'Asia/Tokyo')::date = ($2 AT TIME ZONE 'Asia/Tokyo')::date)",
+    )
+    .bind(user_id)
+    .bind(emitted_at)
+    .fetch_one(pool)
+    .await?;
+    if exists {
+        return Ok(());
+    }
+    let raw = serde_json::json!({
+        "archive_inbox": true,
+        "attempts": attempts,
+        "successes": successes,
+        "capturable": capturable,
+        "blockers": blockers,
+    })
+    .to_string();
+    crate::store_heartbeat(
+        pool,
+        crate::heartbeat::HeartbeatRequest {
+            id: uuid::Uuid::new_v4(), user_id, logical_source: "s01-archive-inbox".into(),
+            device_id: Some("s01-c03".into()), emitted_at, capturable,
+            blockers, attempts, successes, raw,
+        },
+    ).await?;
+    sqlx::query("UPDATE core.archive_scan_counter SET attempts = 0, successes = 0 WHERE user_id = $1")
+        .bind(user_id).execute(pool).await?;
+    Ok(())
+}
+
 /// 同じ未確認書庫は、走査回数に関わらず確認待ち台帳を 1 行だけ残す。
 pub async fn record_pending_ledger(
     pool: &sqlx::PgPool,
@@ -657,6 +712,17 @@ pub fn spawn_inspecting(
         loop {
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
                 Ok(candidates) => {
+                    if let Err(error) = record_archive_heartbeat(
+                        &scan_pool,
+                        user_id,
+                        chrono::Utc::now(),
+                        true,
+                        Vec::new(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(kind = "archive_heartbeat", error = %error, "取り込み器の生存信号を残せない");
+                    }
                     for candidate in candidates {
                         if sender.send(candidate).await.is_err() {
                             return;
@@ -664,7 +730,19 @@ pub fn spawn_inspecting(
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない")
+                    tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない");
+                    let blockers = vec!["dedicated_inbox_unreadable".into(), "downloads_unreadable".into()];
+                    if let Err(heartbeat_error) = record_archive_heartbeat(
+                        &scan_pool,
+                        user_id,
+                        chrono::Utc::now(),
+                        false,
+                        blockers,
+                    )
+                    .await
+                    {
+                        tracing::warn!(kind = "archive_heartbeat", error = %heartbeat_error, "取り込み器の生存信号を残せない");
+                    }
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(config.scan_sec)).await;
