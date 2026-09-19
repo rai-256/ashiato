@@ -1013,11 +1013,36 @@ async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
     std::fs::create_dir_all(&root).unwrap();
     let copied = root.join("copy.json");
     std::fs::write(&copied, b"copy").unwrap();
-    crate::archive::worker::record_copy(&pool, user, "b".repeat(64), "history.json", &copied).await.unwrap();
-    let selected = crate::archive::worker::reparse_path(&pool, user, "b".repeat(64), std::path::Path::new("/missing/archive.zip"))
+    let sha256 = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+    crate::archive::worker::record_copy(&pool, user, sha256.clone(), "history.json", &copied).await.unwrap();
+    let selected = crate::archive::worker::reparse_path(&pool, user, sha256, std::path::Path::new("/missing/archive.zip"))
         .await
         .unwrap();
     assert_eq!(selected, copied);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn archive_reparse_reads_saved_inner_files() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let root = std::env::temp_dir().join(format!("ashiato-archive-reparse-files-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let copy = root.join("history.json");
+    std::fs::write(&copy, br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#).unwrap();
+    crate::archive::worker::record_copy(
+        &pool,
+        user,
+        format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+        "Takeout/watch-history.json",
+        &copy,
+    )
+    .await
+    .unwrap();
+    let files = crate::archive::worker::copied_files_for_reparse(&pool, user).await.unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "Takeout/watch-history.json");
+    assert_eq!(crate::archive::classify::classify_files(&files).known.len(), 1);
     std::fs::remove_dir_all(root).unwrap();
 }
 
