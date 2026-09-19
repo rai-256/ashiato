@@ -31,6 +31,13 @@ impl crate::RecordSink for FailingSink {
     }
 }
 
+/// 背景の取り込み器が仕事を終えるのを待つ上限。
+///
+/// 待ちは 50 ms ごとの問い合わせなので、**緑のときの所要時間は上限に依らない**。
+/// 短く取ると、遅い CI ランナーで「まだ終わっていない」だけの落ち方をする
+/// （実測: 5 秒だと `cargo test --workspace` の高い並列度でまれに落ちた）。
+const WORKER_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
     IngestRequest {
         id: uuid::Uuid::new_v4(),
@@ -375,7 +382,13 @@ async fn archives_status_uses_ledger_max_event_time_in_japan() {
     .unwrap();
 
     let status = crate::archives_status_for(&pool, user).await.unwrap();
-    assert_eq!(status.latest_archive.as_ref().map(|latest| latest.outcome.as_str()), Some("read"));
+    assert_eq!(
+        status
+            .latest_archive
+            .as_ref()
+            .map(|latest| latest.outcome.as_str()),
+        Some("read")
+    );
     let source = status
         .sources
         .into_iter()
@@ -1436,7 +1449,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         user,
     );
 
-    let recorded = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let recorded = tokio::time::timeout(WORKER_WAIT, async {
         loop {
             let count: i64 =
                 sqlx::query_scalar("SELECT count(*) FROM core.archive_ledger WHERE user_id = $1")
@@ -1465,7 +1478,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         inbox.join("takeout-20260912-again.zip"),
     )
     .unwrap();
-    let moved_again = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let moved_again = tokio::time::timeout(WORKER_WAIT, async {
         loop {
             if processed.join("takeout-20260912-again.zip").exists() {
                 return;
@@ -1475,9 +1488,12 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     })
     .await;
     std::fs::remove_dir_all(root).unwrap();
-    assert!(recorded.is_ok(), "取り込み器が5秒以内に台帳へ記録しない");
+    assert!(recorded.is_ok(), "取り込み器が待ち時間のうちに台帳へ記録しない");
     assert_eq!(events, 1, "書庫項目を既存の格納関門へ通す");
-    assert!(moved_again.is_ok(), "別名の既読書庫を取り込み済みに移せない");
+    assert!(
+        moved_again.is_ok(),
+        "別名の既読書庫を取り込み済みに移せない"
+    );
 }
 
 /// Scenario: 6 つの中身がそれぞれ読まれる
@@ -1555,14 +1571,41 @@ async fn archive_migration_registers_sources_and_preserves_interval() {
         .execute(&pool)
         .await
         .unwrap();
-    crate::migrate(&pool).await.unwrap();
+    sqlx::raw_sql(&source_registration_sql())
+        .execute(&pool)
+        .await
+        .unwrap();
     let (kept,): (i32,) = sqlx::query_as(
         "SELECT expected_gap_sec FROM core.source WHERE logical_source = 'c03-youtube-watch'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
+    sqlx::query("UPDATE core.source SET expected_gap_sec = 5_184_000 WHERE logical_source = 'c03-youtube-watch'")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(kept, 2_592_000, "本人が変えた想定間隔を戻さない");
+}
+
+/// ST12 の移行のうち、**登録簿へ書き込む文だけ**を本物の移行ファイルから切り出す。
+///
+/// `crate::migrate` を丸ごと当て直すと `core.event` のトリガを張り直す DDL が走り、
+/// 並んで動く取り込みの試験と **ACCESS EXCLUSIVE で競合して deadlock する**（実測: 同じ
+/// `cargo test --workspace` で落ちる試験が毎回変わった）。当て直しの冪等性を見たいのは
+/// 登録簿の `ON CONFLICT` の側なので、そこだけを取る。**文は移行の本文から取る**ので、
+/// `DO NOTHING` を `DO UPDATE` に変えればこの試験が落ちる。
+fn source_registration_sql() -> String {
+    let (_, sql) = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| *name == "202609181600_archive_ingestion")
+        .expect("ST12 の移行が MIGRATIONS に無い");
+    let start = sql
+        .rfind("INSERT INTO core.source")
+        .expect("登録簿へ書き込む文が移行に無い");
+    let rest = &sql[start..];
+    let end = rest.find(';').expect("登録簿へ書き込む文が閉じていない");
+    rest[..=end].to_string()
 }
 
 /// Scenario: 台帳の行は書き換えられない
