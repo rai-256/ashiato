@@ -174,7 +174,10 @@ async fn archive_flow_reads_takeout_from_the_downloads_folder() {
     let inbox = Inbox::new("archive-downloads").await;
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
         .await;
     inbox.put_downloads(
         "takeout-20260913T041200Z-001.zip",
@@ -230,9 +233,10 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
     inbox.spawn(true);
 
     inbox
-        .until("移行前のロケーション履歴が書庫のソースへ入らない", || async {
-            inbox.events("c03-legacy-location").await >= 1
-        })
+        .until(
+            "移行前のロケーション履歴が書庫のソースへ入らない",
+            || async { inbox.events("c03-legacy-location").await >= 1 },
+        )
         .await;
     assert_eq!(
         inbox.events("c01-location").await,
@@ -245,7 +249,10 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
     .fetch_one(&inbox.pool)
     .await
     .unwrap();
-    assert_eq!(after, before, "書庫の位置が携帯端末の位置の収集開始日を動かした");
+    assert_eq!(
+        after, before,
+        "書庫の位置が携帯端末の位置の収集開始日を動かした"
+    );
 }
 
 /// Scenario: 書庫の論理ソースは成功条件 1 の達成に数えられない
@@ -253,7 +260,13 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
 async fn archive_flow_archive_sources_are_not_counted_in_achievement() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    testdb::put_event(&pool, user, "c03-youtube-watch", "2026-09-12T12:00:00+09:00").await;
+    testdb::put_event(
+        &pool,
+        user,
+        "c03-youtube-watch",
+        "2026-09-12T12:00:00+09:00",
+    )
+    .await;
 
     let got = crate::coverage::achievement(
         &pool,
@@ -264,7 +277,11 @@ async fn archive_flow_archive_sources_are_not_counted_in_achievement() {
     .await
     .unwrap();
 
-    let named: Vec<&str> = got.sources.iter().map(|s| s.named_source.as_str()).collect();
+    let named: Vec<&str> = got
+        .sources
+        .iter()
+        .map(|s| s.named_source.as_str())
+        .collect();
     assert_eq!(
         named,
         vec![
@@ -284,14 +301,23 @@ async fn archive_flow_skipped_files_are_counted_in_the_ledger() {
     let inbox = Inbox::new("archive-skipped").await;
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
         .await;
     inbox.put(
         "takeout-20260912-000000.zip",
         &[
             ("Takeout/YouTube/watch-history.json", body.as_bytes()),
-            ("Takeout/Google フォト/IMG_0001.jpg", b"\xff\xd8\xff\xe0jpeg"),
-            ("Takeout/Google フォト/IMG_0002.jpg", b"\xff\xd8\xff\xe0jpeg"),
+            (
+                "Takeout/Google フォト/IMG_0001.jpg",
+                b"\xff\xd8\xff\xe0jpeg",
+            ),
+            (
+                "Takeout/Google フォト/IMG_0002.jpg",
+                b"\xff\xd8\xff\xe0jpeg",
+            ),
         ],
     );
     inbox.spawn(true);
@@ -309,7 +335,10 @@ async fn archive_flow_skipped_files_are_counted_in_the_ledger() {
     .fetch_one(&inbox.pool)
     .await
     .unwrap();
-    assert_eq!(skipped, 2, "写真 2 枚が読まなかったファイルとして数えられていない");
+    assert_eq!(
+        skipped, 2,
+        "写真 2 枚が読まなかったファイルとして数えられていない"
+    );
 }
 
 /// 合成のマイアクティビティ 1 件。製品の名前だけを変えられるようにする。
@@ -354,29 +383,31 @@ async fn archive_flow_an_unknown_product_waits_while_the_rest_is_stored() {
     // **確認待ちの側を待つ** —— 書庫の中のファイルは順に読まれるので、視聴履歴が
     // 入った時点ではまだ 2 つ目のファイルを読んでいない。
     inbox
-        .until("印に無い製品のファイルが確認待ちにならない", || async {
-            let pending: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1",
-            )
-            .bind(inbox.user)
-            .fetch_one(&inbox.pool)
-            .await
-            .unwrap();
-            pending == 1
-        })
+        .until(
+            "印に無い製品のファイルが確認待ちにならない",
+            || async {
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+                )
+                .bind(inbox.user)
+                .fetch_one(&inbox.pool)
+                .await
+                .unwrap();
+                pending == 1
+            },
+        )
         .await;
     assert_eq!(
         inbox.events("c03-youtube-watch").await,
         1,
         "知らない製品があると同じ書庫の視聴履歴まで止まっている"
     );
-    let waiting_path: String = sqlx::query_scalar(
-        "SELECT inner_path FROM core.archive_pending_shape WHERE user_id = $1",
-    )
-    .bind(inbox.user)
-    .fetch_one(&inbox.pool)
-    .await
-    .unwrap();
+    let waiting_path: String =
+        sqlx::query_scalar("SELECT inner_path FROM core.archive_pending_shape WHERE user_id = $1")
+            .bind(inbox.user)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
     assert!(
         waiting_path.contains("Discover"),
         "確認待ちになったのが知らない製品のファイルではない: {waiting_path}"
@@ -425,7 +456,10 @@ async fn archive_flow_pending_shape_is_copied_even_when_copies_are_off() {
             .fetch_one(&inbox.pool)
             .await
             .unwrap();
-    assert_eq!(copies, 1, "写しを残さない設定で確認待ちの写しが作られていない");
+    assert_eq!(
+        copies, 1,
+        "写しを残さない設定で確認待ちの写しが作られていない"
+    );
 }
 
 /// Scenario: 読まなかった製品のファイルは写されない
@@ -434,13 +468,19 @@ async fn archive_flow_unread_products_are_never_copied() {
     let inbox = Inbox::new("archive-copy-scope").await;
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
         .await;
     inbox.put(
         "takeout-20260912-000000.zip",
         &[
             ("Takeout/YouTube/watch-history.json", body.as_bytes()),
-            ("Takeout/Google フォト/IMG_0001.jpg", b"\xff\xd8\xff\xe0jpeg"),
+            (
+                "Takeout/Google フォト/IMG_0001.jpg",
+                b"\xff\xd8\xff\xe0jpeg",
+            ),
         ],
     );
     inbox.spawn(true);
@@ -456,7 +496,11 @@ async fn archive_flow_unread_products_are_never_copied() {
             .fetch_all(&inbox.pool)
             .await
             .unwrap();
-    assert_eq!(paths.len(), 1, "写しの目録が読んだ製品のファイルだけになっていない");
+    assert_eq!(
+        paths.len(),
+        1,
+        "写しの目録が読んだ製品のファイルだけになっていない"
+    );
     assert!(
         !paths[0].contains("IMG_0001"),
         "読まなかった写真の写しが残っている: {paths:?}"
@@ -471,7 +515,10 @@ async fn archive_flow_turning_copies_off_keeps_records_and_old_copies() {
     let first = watch("2026-09-12T03:00:00Z", "ある動画");
     let second = watch("2026-09-13T03:00:00Z", "別の動画");
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, first.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            first.as_bytes(),
+        )
         .await;
 
     // 1 本目は写しを残す設定で読ませる。
@@ -523,7 +570,10 @@ async fn archive_flow_an_older_archive_never_rewinds_records_or_the_last_day() {
     let ancient = watch("2024-06-30T03:00:00Z", "もっと古い視聴");
     for body in [&newest, &older, &ancient] {
         inbox
-            .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+            .confirm(
+                crate::archive::classify::KnownKind::YouTubeWatch,
+                body.as_bytes(),
+            )
             .await;
     }
     inbox.put(
@@ -604,7 +654,10 @@ async fn archive_flow_deleting_the_record_never_rewinds_the_last_day() {
     let inbox = Inbox::new("archive-last-day-delete").await;
     let body = watch("2026-09-10T03:00:00Z", "ある動画");
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
         .await;
     inbox.put(
         "takeout-20260913-041200.zip",
@@ -626,7 +679,11 @@ async fn archive_flow_deleting_the_record_never_rewinds_the_last_day() {
     .await
     .unwrap();
 
-    assert_eq!(inbox.events("c03-youtube-watch").await, 0, "記録が消えていない");
+    assert_eq!(
+        inbox.events("c03-youtube-watch").await,
+        0,
+        "記録が消えていない"
+    );
     assert_eq!(
         inbox.last_event_on("c03-youtube-watch").await.as_deref(),
         Some("2026-09-10"),
@@ -668,7 +725,11 @@ async fn archive_flow_a_deleted_record_never_returns_from_another_archive() {
     .unwrap();
 
     // 消した記録と同じ内容を含む、中身の違う別の書庫。
-    let mixed = format!("[{},{}]", body.trim_matches(['[', ']']), other.trim_matches(['[', ']']));
+    let mixed = format!(
+        "[{},{}]",
+        body.trim_matches(['[', ']']),
+        other.trim_matches(['[', ']'])
+    );
     inbox
         .confirm(
             crate::archive::classify::KnownKind::YouTubeWatch,
@@ -710,7 +771,10 @@ async fn archive_flow_one_broken_item_does_not_stop_the_rest() {
     );
     let body = format!("[{}]", items.join(","));
     inbox
-        .confirm(crate::archive::classify::KnownKind::YouTubeWatch, body.as_bytes())
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
         .await;
     inbox.put(
         "takeout-20260913-041200.zip",
@@ -728,4 +792,349 @@ async fn archive_flow_one_broken_item_does_not_stop_the_rest() {
         9,
         "壊れた 1 件のせいで残りの 9 件が入っていない"
     );
+}
+
+/// Scenario: 地域は位置から推定されない
+#[tokio::test]
+async fn archive_flow_region_is_never_inferred_from_a_location() {
+    let inbox = Inbox::new("archive-no-region-guess").await;
+    // 同じ時刻にニューヨークにいたことを示すタイムラインを先に入れておく。
+    let timeline = br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"40.7128, -74.0060"}}}}]}"#;
+    inbox.put("Timeline.json.zip", &[("Timeline.json", timeline)]);
+    inbox.spawn(true);
+    inbox
+        .until("タイムラインが読まれない", || async {
+            inbox.events("c03-timeline-visit").await >= 1
+        })
+        .await;
+
+    // 時刻が Z で終わる（＝地域を示さない）視聴履歴を置く。
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260913-041200.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    inbox
+        .until("視聴履歴が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+
+    let tz_id: String = sqlx::query_scalar(
+        "SELECT tz_id FROM core.event WHERE user_id = $1 AND logical_source = 'c03-youtube-watch'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        tz_id, "UTC",
+        "地域を示さない時刻に、位置から推定した地域が入っている"
+    );
+}
+
+/// Scenario: 同じ名前で置き直しても台帳に 1 行残り取り込み済みへ移る
+#[tokio::test]
+async fn archive_flow_replacing_the_same_name_adds_one_row_and_moves_the_file() {
+    let inbox = Inbox::new("archive-replace-same-name").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
+        .await;
+    let entries: [(&str, &[u8]); 1] = [("Takeout/YouTube/watch-history.json", body.as_bytes())];
+    inbox.put("takeout-20260912-000000.zip", &entries);
+    inbox.spawn(true);
+
+    let processed = inbox.inbox.join("取り込み済み");
+    inbox
+        .until("書庫が取り込み済みへ移らない", || async {
+            processed.join("takeout-20260912-000000.zip").exists()
+        })
+        .await;
+
+    // 同じ名前・同じ中身をもう一度置く。**zip を作り直さない** —— zip は項目の
+    // 更新時刻を埋めるので、作り直すとバイト列が変わり「同じ中身」でなくなる。
+    std::fs::copy(
+        processed.join("takeout-20260912-000000.zip"),
+        inbox.inbox.join("takeout-20260912-000000.zip"),
+    )
+    .unwrap();
+    inbox
+        .until("既に読んだ書庫の台帳が残らない", || async {
+            inbox.ledger_rows("already_read").await == 1
+        })
+        .await;
+    inbox
+        .until(
+            "置き直した書庫が取り込み済みへ移らない",
+            || async {
+                // 取り込み済みに同じ名前があるので 2 つ目は「(2)」が付く。
+                processed.join("takeout-20260912-000000 (2).zip").exists()
+            },
+        )
+        .await;
+    assert_eq!(
+        inbox.ledger_rows("read").await,
+        1,
+        "置き直しで読めた書庫の行まで増えている"
+    );
+}
+
+/// 画面の「既に読んだ書庫を置き直すとそれが箱に出る」が読む材料を、サーバ側で固定する。
+/// （画面の Scenario そのものは `web/src/__tests__` が担保する）
+#[tokio::test]
+async fn archive_flow_already_read_status_carries_the_previous_read_time() {
+    let inbox = Inbox::new("archive-already-read-status").await;
+    let sha = "e".repeat(64);
+    let previous: i64 = sqlx::query_scalar(
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name, finished_at)
+         VALUES ($1, $2, $3, 'read', 'takeout-20260912.zip', '2026-09-12T10:00:00Z')
+         RETURNING id",
+    )
+    .bind(inbox.user)
+    .bind(&sha)
+    .bind(crate::archive::PARSER_VERSION)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+
+    crate::archive::worker::record_already_read(
+        &inbox.pool,
+        inbox.user,
+        &sha,
+        Some("takeout-20260912.zip".into()),
+    )
+    .await
+    .unwrap();
+
+    let latest = inbox
+        .status()
+        .await
+        .latest_archive
+        .expect("直近の書庫が無い");
+    assert_eq!(latest.outcome, "already_read");
+    assert_eq!(
+        latest.previously_read_at.map(|at| at.to_rfc3339()),
+        Some("2026-09-12T10:00:00+00:00".to_owned()),
+        "前に読んだ時刻が返っていない（台帳の行 {previous} を指すはず）"
+    );
+
+    // 走査を重ねても「既に読んだ」の行は 1 つのまま。
+    for _ in 0..3 {
+        crate::archive::worker::record_already_read(&inbox.pool, inbox.user, &sha, None)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        inbox.ledger_rows("already_read").await,
+        1,
+        "走査のたびに「既に読んだ」の行が増えている"
+    );
+}
+
+/// Scenario: 起動し直しても走査の回数は失われない
+/// Scenario: 置き場が読めない日は取れない状態で残る
+/// Scenario: 書庫のソースには生存信号が残らない
+#[tokio::test]
+async fn archive_flow_scan_counts_survive_a_restart() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let day = |day: u32, hour: u32| {
+        chrono::DateTime::parse_from_rfc3339(&format!("2026-09-{day:02}T{hour:02}:00:00Z"))
+            .unwrap()
+            .to_utc()
+    };
+
+    // 1 日目: 最初の走査で信号が 1 件残る（この時点で回数は 0 に戻る）。
+    crate::archive::worker::record_archive_heartbeat(&pool, user, day(12, 1), true, Vec::new())
+        .await
+        .unwrap();
+    // 同じ日に 4 回走査する。取り込み器を起こし直しても回数は DB にある。
+    for hour in 2..6 {
+        crate::archive::worker::record_archive_heartbeat(
+            &pool,
+            user,
+            day(12, hour),
+            true,
+            Vec::new(),
+        )
+        .await
+        .unwrap();
+    }
+    // 次の日の最初の走査。専用のフォルダが読めない状態で来る。
+    crate::archive::worker::record_archive_heartbeat(
+        &pool,
+        user,
+        day(13, 1),
+        false,
+        vec!["dedicated_inbox_unreadable".into()],
+    )
+    .await
+    .unwrap();
+
+    let (attempts, capturable, blockers): (i32, bool, Vec<String>) = sqlx::query_as(
+        "SELECT attempts, capturable, blockers FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+          ORDER BY emitted_at DESC LIMIT 1",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 5, "起動し直す前の 4 回を含めた 5 になっていない");
+    assert!(
+        !capturable,
+        "専用のフォルダが読めない日が取れる状態になっている"
+    );
+    assert!(
+        blockers.contains(&"dedicated_inbox_unreadable".to_owned()),
+        "満たされていないものに専用のフォルダが挙がっていない: {blockers:?}"
+    );
+
+    let archive_source_beats: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source LIKE 'c03-%'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        archive_source_beats, 0,
+        "書庫の論理ソースに生存信号が残っている"
+    );
+}
+
+/// Scenario: 記録の無い日も同じ判定で出る
+#[tokio::test]
+async fn archive_flow_a_day_without_records_uses_the_same_judgement() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    // 前後の記録が 60 日以内にあり、その日には記録が無い。
+    testdb::put_event(
+        &pool,
+        user,
+        "c03-youtube-watch",
+        "2026-08-20T12:00:00+09:00",
+    )
+    .await;
+    testdb::put_event(
+        &pool,
+        user,
+        "c03-youtube-watch",
+        "2026-09-12T12:00:00+09:00",
+    )
+    .await;
+
+    let days = crate::coverage::of_sources(
+        &pool,
+        Some(user),
+        &["c03-youtube-watch".to_owned()],
+        testdb::date("2026-09-01"),
+        testdb::date("2026-09-01"),
+    )
+    .await
+    .unwrap();
+
+    let cell = days
+        .first()
+        .and_then(|source| source.days.first())
+        .expect("その日のセルが無い");
+    assert_eq!(
+        cell.state,
+        crate::coverage::DayState::AliveNoRecord,
+        "書庫のソースの、記録が無い日が Must の 5 本と違う判定になっている"
+    );
+}
+
+/// `tracing` の出力をそのまま集める試験用の層。**書き出しの文字列を丸ごと持つ**ので、
+/// 欄の名前でも本文でも、検索語が 1 度でも出れば捕まる。
+#[derive(Clone, Default)]
+struct CapturedLog(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedLog {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(mut sink) = self.0.lock() {
+            sink.extend_from_slice(buf);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Scenario: 取り込みのログに検索語が出ない
+#[tokio::test]
+async fn archive_flow_the_log_never_carries_a_search_query() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let captured = CapturedLog::default();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(captured.clone())
+            .with_ansi(false),
+    );
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let inbox = Inbox::new("archive-private-log").await;
+    // 検索語・題名・URL・座標を全部含む書庫を、読める中身と読めない中身の両方で置く。
+    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"京都 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD+%E6%97%85%E9%A4%A8"}]"#;
+    let timeline = r#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeSearch,
+            search.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260913-041200.zip",
+        &[
+            ("Takeout/YouTube/search-history.json", search.as_bytes()),
+            ("Takeout/Timeline.json", timeline.as_bytes()),
+            // 読めない中身も混ぜる（失敗の経路のログも見る）。
+            ("Takeout/こわれた.json", b"{ this is not json"),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+
+    let text = String::from_utf8_lossy(&captured.0.lock().unwrap().clone()).into_owned();
+    assert!(
+        !text.is_empty(),
+        "ログを 1 行も集められていない（この試験が何も見ていない）"
+    );
+    for value in [
+        "京都 旅館",
+        "%E4%BA%AC%E9%83%BD",
+        "京都 旅館 を検索",
+        "35.0116",
+        "youtube.com",
+    ] {
+        assert!(
+            !text.contains(value),
+            "取り込みのログに記録の値「{value}」が出ている:\n{text}"
+        );
+    }
 }
