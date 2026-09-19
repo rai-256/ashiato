@@ -181,7 +181,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `直近に置いた書庫の箱は Must の前にある` / `直近に置いた書庫の結果が箱に出る` / `読んでいる間は件数が箱に出る` / `形の確認を待っている書庫が箱に出る` / `箱は 160 px を超えない` / `箱が溢れても読めなかった書庫は省かれない` / `既に読んだ書庫を置き直すとそれが箱に出る` / `読めなかった書庫は文字で出る` / `書庫が 1 つも置かれていないことが出る` /
   `格納に続けて失敗した書庫は台帳と画面に出る`（画面側）/ `置き場が読めないことが画面に出る` / `取り込み器が止まっていることが画面に出る`。
   検証: `VT latest-archive.test.tsx`
-- [ ] 10.4 ひとスクロールと 360 px（`collection-coverage` の予算の文の MODIFIED。第 2 回 Q9）。
+- [x] 10.4 ひとスクロールと 360 px（`collection-coverage` の予算の文の MODIFIED。第 2 回 Q9）。
   **既存の `web/src/__tests__/one-scroll.test.tsx` の勘定から `min(箱の宣言の高さ, 160)` を引く**（予算の定数は変えない。既存の印は残す）。
   Scenario: `書庫のソースを足しても Must の 5 本はひとスクロール以内` / `書庫のソースの格子は 360 px に収まる` / `書庫のソースの週の帯は 24 px 以上` /
   `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える` /
@@ -189,7 +189,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `VT one-scroll.test.tsx`、`VT archive-one-scroll.test.tsx`（書庫のソース 12 本（固定の 10 本 + マイアクティビティ 2 本）と高さ 160 px の箱で Must の最後の格子の下端 ≤ 1,440 px・2 本目の直近 4 週 ≤ 800 px・横スクロール無し・週の帯 ≥ 24 px / 箱を 200 px にしても除く量は 160 px）、
   予算の定数が変わっていないこと `grep -q 'export const VIEWPORT_H_PX = 640;' web/src/tokens.ts && grep -q 'export const ONE_SCROLL_PX = VIEWPORT_H_PX \* 2;' web/src/tokens.ts` rc=0、
   `git diff --exit-code origin/main -- web/src/__tests__/target-size.test.tsx` rc=0
-- [ ] 10.5 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
+- [x] 10.5 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
 
 ## 11. ログ・道具・手順書（design D15）
 
