@@ -57,6 +57,7 @@ fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
 /// Scenario: 格納が落ちた書庫は次の走査で読み直される
 #[tokio::test]
 async fn archive_partial_store_failure_is_not_a_completed_read() {
+    let pool = testdb::pool().await;
     let user = testdb::user();
     let requests = (0..5)
         .map(|n| archive_request(user, &format!(r#"{{"watch":"{n}"}}"#)))
@@ -66,7 +67,7 @@ async fn archive_partial_store_failure_is_not_a_completed_read() {
         calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
 
-    let result = crate::archive::worker::store_requests(&sink, requests).await;
+    let result = crate::archive::worker::store_requests(&sink, requests.clone()).await;
 
     assert!(result.is_err(), "途中のDB失敗を読了としてはいけない");
     assert_eq!(
@@ -74,6 +75,13 @@ async fn archive_partial_store_failure_is_not_a_completed_read() {
         5,
         "失敗した5件目までを順に格納する"
     );
+    let completed = crate::archive::worker::store_requests(
+        &crate::PgSink::new(pool),
+        requests,
+    )
+    .await
+    .expect("次の走査では書庫全体を最初から読み直せる");
+    assert_eq!(completed.len(), 5, "再試行で全件を格納関門へ渡す");
 }
 
 #[tokio::test]
@@ -102,7 +110,7 @@ async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
     .execute(&pool)
     .await
     .unwrap();
-    for attempt in 1..=3 {
+    for attempt in 1..=4 {
         let throttled = crate::archive::worker::record_store_failure(
             &pool,
             user,
@@ -111,7 +119,7 @@ async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
         )
             .await
             .unwrap();
-        assert_eq!(throttled, attempt == 3);
+        assert_eq!(throttled, attempt >= 3);
     }
 
     let rows: i64 = sqlx::query_scalar(
