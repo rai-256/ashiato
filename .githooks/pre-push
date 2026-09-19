@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Claude の独立レビューが済む前に Story ブランチを push させない。
+#
+# 以前はこれを **sandbox（network を切る）** で効かせていたが、2026-09-19 の実測で
+# 高いうえに漏れていると分かった:
+#   - 高い: DB を使う結合テスト（127.0.0.1）が毎回 escalation になり、そのたびに
+#     guardian が transcript 全文を読む。1 run で 5 回・185,141 トークン（その run の 37%）。
+#   - 漏れ: 承認された escalation は**サンドボックス外**で走る。1 run あたり 5 回
+#     フルアクセスを渡していたので、loopback を許すより緩かった。
+# git hook なら 5 行で済み、**Codex 以外の経路にも効く**（pre-commit と同じ型）。
+#
+# 有効化: git config core.hooksPath .githooks（clone 後に 1 度）
+# 例外:   HARNESS_ALLOW_UNREVIEWED_PUSH=1 git push ...
+set -euo pipefail
+
+[ "${HARNESS_ALLOW_UNREVIEWED_PUSH:-}" = "1" ] && exit 0
+
+root="$(git rev-parse --show-toplevel)"
+
+# stdin は 1 行ずつ `<local ref> <local sha> <remote ref> <remote sha>`
+while read -r local_ref _ _ _; do
+  [ -n "$local_ref" ] || continue
+  case "$local_ref" in
+    refs/heads/feat/st*) ;;
+    *) continue;;
+  esac
+
+  branch="${local_ref#refs/heads/}"
+  nn="$(printf '%s' "$branch" | sed -n 's|^feat/st\([0-9]\{2\}\)-.*|\1|p')"
+  [ -n "$nn" ] || continue
+
+  # review/code.md があれば「Claude のレビューが入った」= push してよい工程
+  shopt -s nullglob
+  reviewed=("$root"/openspec/changes/st"$nn"-*/review/code.md)
+  [ ${#reviewed[@]} -gt 0 ] && continue
+
+  cat >&2 <<MSG
+error: $branch は Claude のレビュー前なので push しません。
+
+  実装フェーズはローカル commit まで。push / PR / CI / merge_gate は
+  レビューの指摘を処置してから scripts/codex-resume.sh が一度だけ行います。
+
+  いまやること:
+    1. scripts/claude-review.sh ST$nn      # 独立レビュー → openspec/changes/st$nn-*/review/code.md
+    2. scripts/codex-resume.sh ST$nn       # 指摘を処置 → push → PR → gate
+
+  どうしても必要なら: HARNESS_ALLOW_UNREVIEWED_PUSH=1 git push ...
+MSG
+  exit 1
+done
+
+exit 0
