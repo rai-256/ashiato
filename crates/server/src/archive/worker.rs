@@ -244,8 +244,19 @@ pub fn archive_created_at(
         .unwrap_or(discovered_at)
 }
 
+/// 1 冊のファイルを読んだ結果。**読めなかった項目は落とさず数える**。
+#[derive(Debug, Default)]
+pub struct FileRequests {
+    pub requests: Vec<crate::IngestRequest>,
+    /// 読めなかった項目の場所（`<書庫の中のパス>#<項目の位置>`）。台帳に残す。
+    pub unreadable: Vec<String>,
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
-/// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
+///
+/// **読めない項目 1 件でファイル全体を落とさない**（spec「1 件が読めなくても書庫の残りを読む」）。
+/// 落としていたときは、Google が 1 件だけ壊れた時刻を書き出すと、その製品の
+/// 全期間ぶんが黙って入らなかった。
 pub fn requests_for_file(
     kind: super::classify::KnownKind,
     inner_path: &str,
@@ -253,6 +264,17 @@ pub fn requests_for_file(
     user_id: uuid::Uuid,
     archive_sha256: String,
 ) -> anyhow::Result<Vec<crate::IngestRequest>> {
+    Ok(requests_for_file_reporting(kind, inner_path, bytes, user_id, archive_sha256)?.requests)
+}
+
+/// `requests_for_file` の、読めなかった項目の場所も返す版。読み手はこちらを使う。
+pub fn requests_for_file_reporting(
+    kind: super::classify::KnownKind,
+    inner_path: &str,
+    bytes: &[u8],
+    user_id: uuid::Uuid,
+    archive_sha256: String,
+) -> anyhow::Result<FileRequests> {
     if kind == super::classify::KnownKind::Timeline {
         let root: serde_json::Value = serde_json::from_slice(bytes)?;
         let mut rows: Vec<(&str, &serde_json::Value)> = Vec::new();
@@ -285,18 +307,20 @@ pub fn requests_for_file(
         {
             rows.push(("c03-timeline-signal", value));
         }
-        return rows
-            .into_iter()
-            .map(|(source, value)| {
-                request(
-                    source.to_owned(),
-                    value,
-                    inner_path,
-                    user_id,
-                    archive_sha256.clone(),
-                )
-            })
-            .collect();
+        let mut out = FileRequests::default();
+        for (position, (source, value)) in rows.into_iter().enumerate() {
+            match request(
+                source.to_owned(),
+                value,
+                inner_path,
+                user_id,
+                archive_sha256.clone(),
+            ) {
+                Ok(request) => out.requests.push(request),
+                Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
+            }
+        }
+        return Ok(out);
     }
     if kind == super::classify::KnownKind::Records
         || kind == super::classify::KnownKind::SemanticHistory
@@ -306,20 +330,22 @@ pub fn requests_for_file(
         } else {
             super::legacy::parse_semantic(bytes)?
         };
-        return records
-            .into_iter()
-            .map(|record| {
-                let raw = serde_json::json!({"event_time": record.event_time.to_rfc3339()});
-                request_at(
-                    record.logical_source.to_owned(),
-                    &raw,
-                    record.event_time,
-                    inner_path,
-                    user_id,
-                    archive_sha256.clone(),
-                )
-            })
-            .collect();
+        let mut out = FileRequests::default();
+        for (position, record) in records.into_iter().enumerate() {
+            let raw = serde_json::json!({"event_time": record.event_time.to_rfc3339()});
+            match request_at(
+                record.logical_source.to_owned(),
+                &raw,
+                record.event_time,
+                inner_path,
+                user_id,
+                archive_sha256.clone(),
+            ) {
+                Ok(request) => out.requests.push(request),
+                Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
+            }
+        }
+        return Ok(out);
     }
     let values: Vec<serde_json::Value> = match kind {
         super::classify::KnownKind::ChromeHistory => {
@@ -331,9 +357,10 @@ pub fn requests_for_file(
         }
         _ => serde_json::from_slice(bytes)?,
     };
-    let mut requests = Vec::new();
-    for value in values {
-        let (logical_source, event_time) = match kind {
+    let mut out = FileRequests::default();
+    for (position, value) in values.into_iter().enumerate() {
+        let parsed = (|| -> anyhow::Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
+            Ok(Some(match kind {
             super::classify::KnownKind::YouTubeWatch
             | super::classify::KnownKind::YouTubeSearch => {
                 let url = value
@@ -366,18 +393,32 @@ pub fn requests_for_file(
                     super::chrome::time_usec_to_utc(time)?,
                 )
             }
-            _ => continue,
+            _ => return Ok(None),
+            }))
+        })();
+        let Some((logical_source, event_time)) = (match parsed {
+            Ok(parsed) => parsed,
+            // **この項目だけ飛ばす。** 場所を残すので、入らなかったことは台帳に出る。
+            Err(_) => {
+                out.unreadable.push(format!("{inner_path}#{position}"));
+                continue;
+            }
+        }) else {
+            continue;
         };
-        requests.push(request_at(
+        match request_at(
             logical_source,
             &value,
             event_time,
             inner_path,
             user_id,
             archive_sha256.clone(),
-        )?);
+        ) {
+            Ok(request) => out.requests.push(request),
+            Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
+        }
     }
-    Ok(requests)
+    Ok(out)
 }
 
 fn request(
@@ -1025,14 +1066,19 @@ pub fn spawn_inspecting(
                                 return;
                             }
                         }
-                        let requests = match requests_for_file(
+                        let requests = match requests_for_file_reporting(
                             known.kind,
                             &file.path,
                             &file.bytes,
                             user_id,
                             sha256.clone(),
                         ) {
-                            Ok(requests) => requests,
+                            Ok(read) => {
+                                // 項目ごとに読めなかった場所も台帳へ運ぶ（spec R4）。
+                                unreadable_locations.extend(read.unreadable);
+                                read.requests
+                            }
+                            // ここまで来るのはファイルそのものが読めないとき。
                             Err(_) => {
                                 unreadable_locations.push(file.path.clone());
                                 continue;
