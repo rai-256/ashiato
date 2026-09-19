@@ -1020,26 +1020,22 @@ async fn archive_flow_scan_counts_survive_a_restart() {
 async fn archive_flow_a_day_without_records_uses_the_same_judgement() {
     let pool = testdb::pool().await;
     let user = testdb::user();
+    // **自分のソースを持つ。** `c03-youtube-watch` を直に使うと、並んで走る
+    // 取り込みの試験が同じ行の `collection_started_on` を書き換え、その日が
+    // 「導入前」に落ちる（実測: 新しい DB での最初の走りだけ落ちた）。
+    // 書庫のソースが登録簿に 60 日で入ること自体は
+    // `archive_migration_registers_sources_and_preserves_interval` が固定する。
+    const ARCHIVE_GAP_SEC: i32 = 5_184_000;
+    let source = testdb::source(&pool, "c03-archive", ARCHIVE_GAP_SEC).await;
+    testdb::set_started_on(&pool, &source, "2026-01-01").await;
     // 前後の記録が 60 日以内にあり、その日には記録が無い。
-    testdb::put_event(
-        &pool,
-        user,
-        "c03-youtube-watch",
-        "2026-08-20T12:00:00+09:00",
-    )
-    .await;
-    testdb::put_event(
-        &pool,
-        user,
-        "c03-youtube-watch",
-        "2026-09-12T12:00:00+09:00",
-    )
-    .await;
+    testdb::put_event(&pool, user, &source, "2026-08-20T12:00:00+09:00").await;
+    testdb::put_event(&pool, user, &source, "2026-09-12T12:00:00+09:00").await;
 
     let days = crate::coverage::of_sources(
         &pool,
         Some(user),
-        &["c03-youtube-watch".to_owned()],
+        &[source],
         testdb::date("2026-09-01"),
         testdb::date("2026-09-01"),
     )
@@ -1123,9 +1119,10 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
     // **ログが出るまで待つ** —— 台帳の行ができた時点では、読み終えたことを書く
     // `info!` はまだ出ていない。集まる前に見ると、何も見ずに緑になる。
     inbox
-        .until("取り込みのログが 1 行も出ない（この試験が何も見ていない）", || async {
-            !captured.0.lock().unwrap().is_empty()
-        })
+        .until(
+            "取り込みのログが 1 行も出ない（この試験が何も見ていない）",
+            || async { !captured.0.lock().unwrap().is_empty() },
+        )
         .await;
     let text = String::from_utf8_lossy(&captured.0.lock().unwrap().clone()).into_owned();
     for value in [

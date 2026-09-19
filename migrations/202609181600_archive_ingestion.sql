@@ -52,7 +52,11 @@ CREATE TABLE IF NOT EXISTS core.archive_file (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, sha256)
 );
--- merge 前にこの移行を当てた開発 DB の、中身だけの鍵を利用者ごとの鍵へ移す。
+-- merge 前にこの移行を当てた開発 DB は、中身だけの鍵のまま残っている。
+-- **黙って通さない** —— 通すと 2 人目の目録が ON CONFLICT で落ち、写しから
+-- 読み直せないことに誰も気づけない。ここで鍵を張り替えないのは、前進側の移行に
+-- 破壊的な文を単独で入れないため（tools/check-migrations.sh）。作り直しは
+-- 202609181600_archive_ingestion.down.sql を当ててから当て直す。
 DO $$
 BEGIN
   IF EXISTS (
@@ -60,8 +64,7 @@ BEGIN
       JOIN pg_class c ON c.oid = i.indrelid
      WHERE c.relname = 'archive_file' AND i.indisprimary AND i.indnatts = 1
   ) THEN
-    ALTER TABLE core.archive_file DROP CONSTRAINT archive_file_pkey;
-    ALTER TABLE core.archive_file ADD PRIMARY KEY (user_id, sha256);
+    RAISE EXCEPTION '開発 DB の core.archive_file が中身だけの鍵のままです。202609181600_archive_ingestion.down.sql を当ててから当て直してください';
   END IF;
 END $$;
 
