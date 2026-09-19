@@ -401,6 +401,15 @@ pub fn copy_known_file(
     Ok(target)
 }
 
+/// 写しを残す設定のときだけ内容ハッシュの写しを作る。
+pub fn copy_if_enabled(
+    keep_copies: bool,
+    copy_dir: &std::path::Path,
+    bytes: &[u8],
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    keep_copies.then(|| copy_known_file(copy_dir, bytes)).transpose()
+}
+
 /// 写しの実体と台帳を同じ内容ハッシュで結ぶ。`archive_file` は追記のみなので、
 /// 同じファイルを読み直しても目録を増やさない。
 pub async fn record_copy(
@@ -606,7 +615,7 @@ pub fn spawn_inspecting(
                                 | super::classify::KnownKind::SemanticHistory
                         );
                         if read_config.keep_copies {
-                            if let Ok(stored_path) = copy_known_file(&read_config.copy_dir, &file.bytes) {
+                            if let Ok(Some(stored_path)) = copy_if_enabled(true, &read_config.copy_dir, &file.bytes) {
                                 if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {
                                     if record_copy(
                                         &pool,
