@@ -18,6 +18,8 @@ use sqlx::postgres::PgPoolOptions;
 mod api_tests;
 pub mod archive;
 #[cfg(test)]
+mod archive_flow_tests;
+#[cfg(test)]
 mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;

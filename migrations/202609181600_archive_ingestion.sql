@@ -41,13 +41,29 @@ CREATE TABLE IF NOT EXISTS core.archive_ledger_source (
 CREATE INDEX IF NOT EXISTS archive_ledger_source_latest
   ON core.archive_ledger_source (logical_source, max_event_at DESC);
 
+-- 鍵は **利用者と中身の組**（FR-29）。中身だけを鍵にすると、同じファイルを持つ
+-- 2 人目の目録が ON CONFLICT で黙って落ち、解析器の版が上がったときに
+-- その人の写しから読み直せなくなる（D8 が約束している戻り道）。
 CREATE TABLE IF NOT EXISTS core.archive_file (
-  sha256 text PRIMARY KEY,
+  sha256 text NOT NULL,
   user_id uuid NOT NULL,
   inner_path text NOT NULL,
   stored_path text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, sha256)
 );
+-- merge 前にこの移行を当てた開発 DB の、中身だけの鍵を利用者ごとの鍵へ移す。
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+     WHERE c.relname = 'archive_file' AND i.indisprimary AND i.indnatts = 1
+  ) THEN
+    ALTER TABLE core.archive_file DROP CONSTRAINT archive_file_pkey;
+    ALTER TABLE core.archive_file ADD PRIMARY KEY (user_id, sha256);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS core.archive_shape_confirmation (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
