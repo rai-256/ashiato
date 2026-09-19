@@ -162,6 +162,35 @@ pub async fn record_store_failure(
     Ok(true)
 }
 
+/// 読めなかった書庫を台帳へ 1 行残す（spec「読めない形の書庫は台帳に残す」）。
+///
+/// **黙って `return` しない。** Takeout の書き出しは約 7 日で失効するので、
+/// 置いたのに何も起きないまま気づけないと**取り直せない**（R4 / R6）。
+pub async fn record_unreadable(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: &str,
+    path: &std::path::Path,
+    unreadable_kind: &str,
+    from_downloads: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name, unreadable_kind, inbox_kind, created_at)
+         VALUES ($1, $2, $3, 'unreadable', $4, $5, $6, $7) ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .bind(file_name_of(path))
+    .bind(unreadable_kind)
+    .bind(if from_downloads { "downloads" } else { "inbox" })
+    .bind(archive_created_at(path, chrono::Utc::now()))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 読み終えた台帳行へ、論理ソースごとの格納結果を追記する。
 /// 台帳は更新できないため、格納の全結果を先に畳んでから 1 行ずつ INSERT する。
 pub async fn record_ledger_sources(
@@ -235,11 +264,17 @@ pub fn archive_created_at(
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return discovered_at;
     };
+    // **本物の名前は `takeout-YYYYMMDDTHHMMSSZ-NNN`**（区切りは `T`、末尾に `Z`）。
+    // `-` 区切りだけを読んでいたときは、実物がどれも見つけた時刻へ落ちていた（R8）。
     let stamp = name
         .strip_prefix("takeout-")
         .and_then(|rest| rest.get(..15));
     stamp
-        .and_then(|stamp| chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok())
+        .and_then(|stamp| {
+            chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%dT%H%M%S")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S"))
+                .ok()
+        })
         .map(|time| time.and_utc())
         .unwrap_or(discovered_at)
 }
@@ -332,10 +367,9 @@ pub fn requests_for_file_reporting(
         };
         let mut out = FileRequests::default();
         for (position, record) in records.into_iter().enumerate() {
-            let raw = serde_json::json!({"event_time": record.event_time.to_rfc3339()});
             match request_at(
                 record.logical_source.to_owned(),
-                &raw,
+                &record.item,
                 record.event_time,
                 inner_path,
                 user_id,
@@ -356,6 +390,13 @@ pub fn requests_for_file_reporting(
                 .unwrap_or_default()
         }
         _ => serde_json::from_slice(bytes)?,
+    };
+    // **原文は書庫のバイト列の切り出し**（spec「原文は書庫のバイト列の一部と一致する」）。
+    // 解釈して書き戻すと、欄の並び・空白・数値の表記が変わり、**書庫を消した後に
+    // 元の 1 件を復元できない**（review R2）。切り出せない形のときだけ書き戻す。
+    let sliced = match kind {
+        super::classify::KnownKind::ChromeHistory => Vec::new(),
+        _ => super::slice::array_items(bytes).unwrap_or_default(),
     };
     let mut out = FileRequests::default();
     for (position, value) in values.into_iter().enumerate() {
@@ -406,9 +447,14 @@ pub fn requests_for_file_reporting(
         }) else {
             continue;
         };
-        match request_at(
+        let raw = sliced
+            .get(position)
+            .and_then(|item| std::str::from_utf8(item).ok())
+            .map(str::to_owned);
+        match request_at_raw(
             logical_source,
             &value,
+            raw,
             event_time,
             inner_path,
             user_id,
@@ -438,6 +484,32 @@ fn request(
     )
 }
 
+/// 項目が持つ時刻の表記から、取得元が示した時差を引く（`archive::timezone`）。
+///
+/// Timeline は `startTimeTimezoneUtcOffsetMinutes` を明示するので、あればそれを優先する。
+/// **示していなければ UTC のまま**（位置から推定しない。本人の決定 C2）。
+fn source_timezone(value: &serde_json::Value) -> super::timezone::SourceTimezone {
+    let offset = value
+        .get("startTimeTimezoneUtcOffsetMinutes")
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|minutes| i32::try_from(minutes).ok());
+    let text = ["time", "startTime", "timestamp", "endTime"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+        .or_else(|| {
+            value
+                .get("duration")
+                .and_then(|duration| duration.get("startTimestamp"))
+                .and_then(serde_json::Value::as_str)
+        });
+    text.and_then(|text| super::timezone::from_timestamp(text, offset).ok())
+        .unwrap_or(super::timezone::SourceTimezone {
+            offset_min: 0,
+            id: "UTC".into(),
+            from_source: false,
+        })
+}
+
 fn request_at(
     source: String,
     value: &serde_json::Value,
@@ -446,6 +518,28 @@ fn request_at(
     user_id: uuid::Uuid,
     archive_sha256: String,
 ) -> anyhow::Result<crate::IngestRequest> {
+    request_at_raw(
+        source,
+        value,
+        None,
+        event_time,
+        inner_path,
+        user_id,
+        archive_sha256,
+    )
+}
+
+/// `raw` に**書庫のバイト列の切り出し**を渡せる版。`None` なら書き戻す。
+fn request_at_raw(
+    source: String,
+    value: &serde_json::Value,
+    raw: Option<String>,
+    event_time: chrono::DateTime<chrono::Utc>,
+    inner_path: &str,
+    user_id: uuid::Uuid,
+    archive_sha256: String,
+) -> anyhow::Result<crate::IngestRequest> {
+    let zone = source_timezone(value);
     Ok(crate::IngestRequest {
         id: uuid::Uuid::new_v4(),
         user_id,
@@ -454,14 +548,20 @@ fn request_at(
         device_id: Some("s01-c03".into()),
         origin: "collected".into(),
         event_time,
-        tz_offset_min: 0,
-        tz_id: "UTC".into(),
+        // **取得元が示した時差をそのまま残す**（C2）。0 / UTC に畳んでいたときは、
+        // `+09:00` で書き出された記録がどれも「地域を持たなかった」ことになり、
+        // 後から取り直せなかった（review R3）。位置からの推定はしない。
+        tz_offset_min: zone.offset_min,
+        tz_id: zone.id,
         schema_version: 1,
         unit_system: None,
         crs: None,
         source_updated_at: None,
         external_ref: None,
-        raw: serde_json::to_string(value)?,
+        raw: match raw {
+            Some(raw) => raw,
+            None => serde_json::to_string(value)?,
+        },
         payload: serde_json::json!({"archive_sha256": archive_sha256, "inner_path": inner_path}),
     })
 }
@@ -643,8 +743,11 @@ pub fn shape_for_file(
     bytes: &[u8],
 ) -> anyhow::Result<serde_json::Value> {
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    // **製品の名前は集合**（design D16）。項目ごとに積むと、同じ製品でも件数が
+    // 変われば形が変わり、**2 か月ごとの書き出しのたびに確認待ちになる**
+    // （本人が第 3 回 Q12 で「ならない」と決めた型。R7）。並びにも依存させない。
     let products: Vec<String> = if kind == super::classify::KnownKind::MyActivity {
-        value
+        let mut names: Vec<String> = value
             .as_array()
             .into_iter()
             .flatten()
@@ -653,7 +756,10 @@ pub fn shape_for_file(
             .filter_map(|products| products.first())
             .filter_map(serde_json::Value::as_str)
             .map(str::to_owned)
-            .collect()
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     } else {
         Vec::new()
     };
@@ -902,10 +1008,20 @@ pub fn spawn_inspecting(
                 }
                 Err(error) => {
                     tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない");
-                    let blockers = vec![
-                        "dedicated_inbox_unreadable".into(),
-                        "downloads_unreadable".into(),
-                    ];
+                    // **読めない置き場だけを挙げる**（spec「読めない置き場の種類を
+                    // 満たされていないものとして残す」）。両方を決め打ちで並べていたときは、
+                    // 専用のフォルダだけが読めない日にも画面が「ダウンロードのフォルダも
+                    // 読めません」と出し、本人が直す場所を誤る（review R11）。
+                    let mut blockers = Vec::new();
+                    if std::fs::read_dir(&config.inbox_dir).is_err() {
+                        blockers.push("dedicated_inbox_unreadable".to_owned());
+                    }
+                    if std::fs::read_dir(&config.downloads_dir).is_err() {
+                        blockers.push("downloads_unreadable".to_owned());
+                    }
+                    if blockers.is_empty() {
+                        blockers.push("inbox_scan_failed".to_owned());
+                    }
                     if let Err(heartbeat_error) = record_archive_heartbeat(
                         &scan_pool,
                         user_id,
@@ -966,6 +1082,18 @@ pub fn spawn_inspecting(
                         Ok(files) => files,
                         Err(error) => {
                             tracing::warn!(kind = error.kind(), "書庫を開けない");
+                            let _ = record_unreadable(
+                                &pool,
+                                user_id,
+                                &sha256,
+                                &candidate.path,
+                                error.kind(),
+                                candidate.from_downloads,
+                            )
+                            .await;
+                            if !candidate.from_downloads {
+                                let _ = move_to_processed(&candidate.path);
+                            }
                             return;
                         }
                     };
@@ -1162,7 +1290,7 @@ pub fn spawn_inspecting(
                     }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
-                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count, file_name)
+                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_at, skipped_file_count, file_name)
                      VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8, $9)
                      RETURNING id",
                 )
@@ -1216,7 +1344,21 @@ pub fn spawn_inspecting(
                         }
                     }
                 }
-                Err(error) => tracing::warn!(kind = error.kind(), "書庫を開けない"),
+                Err(error) => {
+                    tracing::warn!(kind = error.kind(), "書庫を開けない");
+                    let _ = record_unreadable(
+                        &pool,
+                        user_id,
+                        &sha256,
+                        &candidate.path,
+                        error.kind(),
+                        candidate.from_downloads,
+                    )
+                    .await;
+                    if !candidate.from_downloads {
+                        let _ = move_to_processed(&candidate.path);
+                    }
+                }
             }
         }
     }));

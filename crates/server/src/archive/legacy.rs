@@ -5,6 +5,9 @@
 pub struct Record {
     pub logical_source: &'static str,
     pub event_time: chrono::DateTime<chrono::Utc>,
+    /// **項目そのもの**（座標・精度・活動の種類…）。時刻だけを取り出して捨てると、
+    /// 書庫を消した後に座標が戻らない —— 移行前のロケーション履歴を読む目的が消える。
+    pub item: serde_json::Value,
 }
 
 pub fn parse_records(bytes: &[u8]) -> anyhow::Result<Vec<Record>> {
@@ -18,6 +21,7 @@ pub fn parse_records(bytes: &[u8]) -> anyhow::Result<Vec<Record>> {
             timestamp(row).map(|event_time| Record {
                 logical_source: "c03-legacy-location",
                 event_time,
+                item: row.clone(),
             })
         })
         .collect::<Vec<_>>())
@@ -36,11 +40,14 @@ pub fn parse_semantic(bytes: &[u8]) -> anyhow::Result<Vec<Record>> {
             ("placeVisit", "c03-legacy-visit"),
             ("activitySegment", "c03-legacy-activity"),
         ] {
-            if let Some(value) = row.get(field).and_then(timestamp) {
-                out.push(Record {
-                    logical_source: source,
-                    event_time: value,
-                });
+            if let Some(item) = row.get(field) {
+                if let Some(value) = timestamp(item) {
+                    out.push(Record {
+                        logical_source: source,
+                        event_time: value,
+                        item: item.clone(),
+                    });
+                }
             }
         }
     }

@@ -12,7 +12,12 @@ CREATE TABLE IF NOT EXISTS core.archive_ledger (
   discovered_at timestamptz NOT NULL DEFAULT now(),
   started_at timestamptz,
   finished_at timestamptz NOT NULL DEFAULT now(),
+  -- 読めなかった理由の種別（unsupported_format / broken_zip / html_only / no_known_content）。
   unreadable_kind text,
+  -- 読めなかった項目の場所（<書庫の中のパス>#<項目の位置>、先頭 100 件）。
+  -- **種別と同じ列に詰めない** —— 詰めると、書庫ごと読めなかったのか
+  -- 中の 1 件が読めなかったのかを後から区別できない（D7 / review R9）。
+  unreadable_at text,
   -- 置き場の中の名前だけ。フォルダのパスも記録の本文も持たない（D7）。
   file_name text,
   -- already_read のとき、前に読んだ行（画面の「前に読んだ時刻」）。
@@ -22,6 +27,7 @@ CREATE TABLE IF NOT EXISTS core.archive_ledger (
 );
 -- D7 が要求する、画面の箱が使う 2 列。merge 前にこの移行を当てた開発 DB にも足す。
 ALTER TABLE core.archive_ledger ADD COLUMN IF NOT EXISTS file_name text;
+ALTER TABLE core.archive_ledger ADD COLUMN IF NOT EXISTS unreadable_at text;
 ALTER TABLE core.archive_ledger ADD COLUMN IF NOT EXISTS already_read_ledger_id bigint;
 CREATE UNIQUE INDEX IF NOT EXISTS archive_ledger_once
   ON core.archive_ledger (user_id, sha256, parser_version, outcome);

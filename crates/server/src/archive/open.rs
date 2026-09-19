@@ -37,8 +37,26 @@ impl std::error::Error for OpenError {
 }
 
 /// zip を 1 本だけ開く。分割書庫は結合せず呼び出し側が 1 本ずつ渡す。
+///
+/// **裸の `.json` も 1 ファイルの書庫として開く** —— 端末から書き出した
+/// `Timeline.json` は zip に包まれずに専用のフォルダへ置かれる（spec「専用の
+/// フォルダでは、`.zip` の書庫と `.json` のファイルを読む」）。包んだものしか
+/// 開けなかったときは、本人の決定 Q8 で唯一残した経路が塞がっていた（R5）。
 pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
-    if path.extension().and_then(|extension| extension.to_str()) != Some("zip") {
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    if extension == Some("json") {
+        let bytes = std::fs::read(path).map_err(|_| OpenError {
+            kind: "unsupported_format",
+            source: None,
+        })?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("archive.json")
+            .to_owned();
+        return Ok(vec![ArchiveFile { path: name, bytes }]);
+    }
+    if extension != Some("zip") {
         return Err(OpenError {
             kind: "unsupported_format",
             source: None,

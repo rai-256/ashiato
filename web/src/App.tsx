@@ -147,7 +147,10 @@ export function App(): React.ReactElement {
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
       {/* **格子と別々に受ける**（D12）—— 書庫の読み出しが落ちても格子は消さない */}
-      <LatestArchive status={archives.at === "ok" ? archives.value : null} />
+      <LatestArchive
+        status={archives.at === "ok" ? archives.value : null}
+        failed={archives.at === "failed"}
+      />
 
       {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
       {sources.at === "failed" && (

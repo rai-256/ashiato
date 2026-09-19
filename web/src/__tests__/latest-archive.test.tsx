@@ -13,9 +13,17 @@
 // Scenario: 箱が溢れても読めなかった書庫は省かれない
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ARCHIVE_BOX_MAX_PX, BOX_MAX_ROWS, LatestArchive } from "../LatestArchive";
+import { BOX_MAX_ROWS, LatestArchive } from "../LatestArchive";
 import type { ArchivesStatus, LatestArchiveStatus } from "../archives";
 import { declaredHeight } from "./layout";
+
+/**
+ * **spec が書いている固定の予算**（`external-ingestion` の「箱の高さは 160 CSS px 以下」）。
+ *
+ * `ARCHIVE_BOX_MAX_PX` を import して突き合わせていたときは、**両側が一緒に動く**ので
+ * 定数を 120 に下げても全部緑のままだった（design D27 / review R10）。
+ */
+const BOX_BUDGET_PX = 160;
 
 const NOW = new Date("2026-09-15T03:00:00Z");
 
@@ -48,8 +56,21 @@ describe("直近に置いた書庫の箱", () => {
 
   it("1 つも置かれていないことを文字で出す", () => {
     expect(box()).toContain("まだ書庫が置かれていません");
+  });
+
+  // **読み出せていないことと、置かれていないことを混ぜない**（review R12）。
+  it("読み込み中は「置かれていない」と断言しない", () => {
     render(<LatestArchive status={null} now={NOW} />);
-    expect(screen.getAllByText("まだ書庫が置かれていません").length).toBeGreaterThan(0);
+    const text = screen.getByTestId("latest-archive").textContent ?? "";
+    expect(text).toContain("読み込み中");
+    expect(text).not.toContain("まだ書庫が置かれていません");
+  });
+
+  it("読み出しに失敗したら、そのことを出す", () => {
+    render(<LatestArchive status={null} now={NOW} failed />);
+    const text = screen.getByTestId("latest-archive").textContent ?? "";
+    expect(text).toContain("読み出せませんでした");
+    expect(text).not.toContain("まだ書庫が置かれていません");
   });
 
   it("読めなかった書庫を、理由の種別つきで文字で出す", () => {
@@ -150,7 +171,29 @@ describe("箱の高さ", () => {
   it("溢れる材料があっても宣言の高さが 160 px を超えない", () => {
     render(<LatestArchive status={crowded()} now={NOW} />);
     const el = screen.getByTestId("latest-archive");
-    expect(declaredHeight(el)).toBeLessThanOrEqual(ARCHIVE_BOX_MAX_PX);
+    expect(el.style.maxHeight, "箱が宣言している上限が spec の 160 px と違う").toBe(
+      `${BOX_BUDGET_PX}px`,
+    );
+    expect(declaredHeight(el)).toBeLessThanOrEqual(BOX_BUDGET_PX);
+  });
+
+  /**
+   * **予算を使い切っていることも見る**（review R10）。上限しか見ていなかったときは、
+   * `ARCHIVE_BOX_MAX_PX` を 120 に下げても「行が減るだけ」で全部緑だった ——
+   * 本人から見れば出るはずの行が黙って消えているのに、検査が何も言わない。
+   */
+  it("溢れているとき、あと 1 行足すと 160 px を超えるところまで使っている", () => {
+    render(<LatestArchive status={crowded()} now={NOW} />);
+    const el = screen.getByTestId("latest-archive");
+    // 行の高さは**描かれた行から測る**（定数を読み直さない）。
+    const row = screen.getByTestId("archive-row-more");
+    const line = declaredHeight(row);
+    expect(line).toBeGreaterThan(0);
+    const height = declaredHeight(el);
+    expect(
+      height + line,
+      `箱が ${Math.round(height)} px しか使っておらず、あと 1 行（${line} px）入る余地がある`,
+    ).toBeGreaterThan(BOX_BUDGET_PX);
   });
 
   it("出しきれない行があれば、省いたことを出す", () => {
@@ -169,7 +212,7 @@ describe("箱の高さ", () => {
     );
     const el = screen.getByTestId("latest-archive");
     expect(el.textContent).toContain("読めなかった書庫です");
-    expect(declaredHeight(el)).toBeLessThanOrEqual(ARCHIVE_BOX_MAX_PX);
+    expect(declaredHeight(el)).toBeLessThanOrEqual(BOX_BUDGET_PX);
   });
 
   it("勘定が空振りしていない（行を 1 本増やせば入る行が減る）", () => {

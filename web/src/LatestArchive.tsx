@@ -45,9 +45,18 @@ type Row = { key: string; text: string; pinned?: boolean };
  * **直近に置いた書庫を読めなかった・格納に失敗したことは省かない** —— 置いたのに
  * 入っていないことに気づけないまま、書庫が約 7 日で失効する。
  */
-export function archiveBoxRows(status: ArchivesStatus | null, now: Date): Row[] {
+export function archiveBoxRows(
+  status: ArchivesStatus | null,
+  now: Date,
+  failed = false,
+): Row[] {
   const rows: Row[] = [];
-  if (status === null) return [{ key: "empty", text: "まだ書庫が置かれていません" }];
+  // **「読み出せていない」と「置かれていない」を混ぜない**（ST02 の R19 と同じ型。R12）。
+  // 混ぜると、API が落ちているだけのときに「置いた書庫が無い」と断言してしまう。
+  if (failed) {
+    return [{ key: "failed", text: "書庫の状態を読み出せませんでした（置いた書庫が無いのではありません）" }];
+  }
+  if (status === null) return [{ key: "loading", text: "書庫の状態を読み込み中…" }];
 
   const reading = status.reading;
   if (reading !== undefined && reading !== null) {
@@ -145,11 +154,13 @@ export function fitRows(rows: Row[]): { shown: Row[]; hidden: number } {
 export function LatestArchive({
   status,
   now = new Date(),
+  failed = false,
 }: {
   status: ArchivesStatus | null;
   now?: Date;
+  failed?: boolean;
 }): React.ReactElement {
-  const { shown, hidden } = fitRows(archiveBoxRows(status, now));
+  const { shown, hidden } = fitRows(archiveBoxRows(status, now, failed));
   return (
     <section
       data-testid="latest-archive"
