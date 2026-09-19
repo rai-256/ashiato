@@ -221,6 +221,7 @@ PERM-7（外部からの到達を Tailscale 網内に限る）は網の外を止
 | 依存ライセンスの検査 | `./tools/check-licenses.sh` —— Rust 237 件 / Node 170 件の許諾を SPDX 式で評価し、AGPL-3.0 での配布と両立しないものを落とす | **確かめた** — 許可一覧から MIT を外したら **67 件を検出して rc=1**。通常時は不許可 0 件で rc=0 |
 | マイグレーションの安全性検査 | `./tools/check-migrations.sh` —— 前進側の破壊的変更（`DROP TABLE/COLUMN/SCHEMA`）と、戻し手順の欠落を落とす | **確かめた** — `ALTER TABLE ... DROP COLUMN` を入れたら rc=1、戻し手順の無い版を足したら rc=1。どちらも後始末後は rc=0 |
 | API の契約とコードのずれ | `./tools/check-openapi.sh` —— `docs/openapi.json` はコードから生成する。**手書きしない**（A-1） | **確かめた** — `info.version` を書き換えたら差分を出して rc=1 |
+| CI の費用（2026-09-19 に追加） | `changes` job が差分を見て重い job を出し分ける。**1 PR 約 52 分**（Windows は 2 倍課金）で、月 2,000 分では 38 回しか回せない。docs だけの PR で 9 job 全部を走らせていた | **実測で使い切った**。上流 PR は 52 分 → 0.5 分になる |
 | CI の構造衛生 | 版を **SHA で固定**（`actions/checkout@fbc6f39…` ほか。タグは動く）/ `concurrency` で二重トリガを畳む / `permissions: contents: read` に最小化 / **CI が走らせるのはローカルと同じ `./tools/*.sh`** | ローカルで同じコマンドがすべて rc=0 |
 | **人間へ落とすものに名前を要求**（2026-09-18 に追加） | `scripts/check_scenarios.py` —— `tasks.md`「人間の確認待ち」の `- Scenario:` に `> 物理: <lock\|battery\|gps\|time\|realdata\|device>` を要求する。名付けられないものは落とす（`review_triage.py` の `loss` と同じ型）。**画面の実寸・フォーカスは `web/e2e` が測る** | **確かめた** — 名前の無い `- Scenario: 履歴が一覧で読める` を st08 の tasks に置いたら `人間の確認待ちの理由が名付けられていない` で **rc=1**。戻したら名無し 0 件 |
 | 停止の検知 | **該当なし。** 製造準備の時点で継続的に動き続けるものがまだ無い（収集は ST01 以降）。**仕組みは要件側にある** —— 稼働記録（FR-33）と、想定間隔の 3 倍で通知する条件（FR-35）。実装は ST14 の担当で、そこで「わざと止めて通知が出るか」を確かめる | — |

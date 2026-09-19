@@ -9,7 +9,51 @@ concurrency:
 permissions:
   contents: read          # 権限は最小に固定する
 jobs:
+  # **何が変わったかで、重い job を出し分ける。**
+  # 実測 2026-09-19: Actions の 2,000 分/月を使い切った。1 PR = 約 52 分（課金は
+  # Linux 1x / Windows 2x）で、内訳は android-instrumented 22 / collector-windows-runtime 12 /
+  # e2e 4.5 / rust 4 / android 4 / smoke 3 / web・collector-windows 2 / chain 0.2。
+  # ST06 の PR #65 は `docs/` 7 件と `openspec/` 9 件だけでコードを 1 行も触っていないのに、
+  # **9 job 全部が走った**。上流の PR は毎回これになる。
+  #
+  # 飛ばした job は `skipped` になり、run 全体の conclusion は success のままなので
+  # `merge_gate.sh` の `gh run watch --exit-status` はそのまま通る。
+  # **比較できないときは全部走らせる**（黙って飛ばさない）。
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+      android: ${{ steps.f.outputs.android }}
+      windows: ${{ steps.f.outputs.windows }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { fetch-depth: 0 }
+      - id: f
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          all() { for k in code android windows; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; }
+          if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "base が引けないので全部走らせる（BASE='${BASE:-}'）"; all; exit 0
+          fi
+          files="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "--- 変わったもの ---"; printf '%s\n' "$files"
+          has() { printf '%s\n' "$files" | grep -qE "$1"; }
+          # docs / openspec / *.md 以外が 1 つでもあれば「コード」
+          if printf '%s\n' "$files" | grep -vE '^(docs/|openspec/)|\.md$' | grep -q .; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          has '^(collector-android/|tools/android)|^\.github/' && echo "android=true" >> "$GITHUB_OUTPUT" || echo "android=false" >> "$GITHUB_OUTPUT"
+          has '^(crates/|Cargo\.)|^\.github/' && echo "windows=true" >> "$GITHUB_OUTPUT" || echo "windows=false" >> "$GITHUB_OUTPUT"
+          echo "--- 判定 ---"; cat "$GITHUB_OUTPUT"
+
   rust:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     # 稼働記録の振る舞いは日境界（AT TIME ZONE）・一意索引・書き換え禁止のトリガと、
     # **どれも DB の側にある**（ST02 design D14）。模擬した DB で確かめると
@@ -42,6 +86,8 @@ jobs:
   # `cargo test` は cfg(windows) の中身を 1 行もコンパイルしない ——
   # **書いたまま腐る**ので、windows 向けにクロスで型検査だけ通す（ST07 / design D20）。
   collector-windows:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -56,6 +102,8 @@ jobs:
   # ubuntu の `cargo test` は cfg(windows) の中身を 1 行も走らせないので、**ここだけが platform.rs を実行する**。
   # windows の runner は無料枠を 2 倍で消費する（design D25 の反転条件）。
   collector-windows-runtime:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     # 相手役の窓が固まると既定の 360 分を 2 倍で数える（review/code-r2.md R7）
     timeout-minutes: 25
@@ -74,6 +122,8 @@ jobs:
           if ([int]$Matches[1] -lt 7) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（7 本のはず）"; exit 1 }
 
   web:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: web } }
     steps:
@@ -96,6 +146,8 @@ jobs:
   # STACK_RESET=1 で DB を作り直してから始めるので、seed が落ちたらここで止まる
   # （溜まった DB でごまかさない）。**視覚回帰は使わない**（playwright.config.ts の注記）。
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -120,6 +172,8 @@ jobs:
         if: failure()
         with: { name: playwright-report, path: web/playwright-report/, retention-days: 7 }
   android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: collector-android } }
     steps:
@@ -137,6 +191,8 @@ jobs:
   # 実機を繋いだときも `./gradlew :app:connectedDebugAndroidTest` で同じものが走る。
   # `-Pashiato.baseUrl` は平文 HTTP を 127.0.0.1（端末の中のテスト用サーバ）へ許すためだけ。
   android-instrumented:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -171,6 +227,8 @@ jobs:
             adb shell pm reset-permissions
 
   smoke:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
