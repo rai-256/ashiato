@@ -13,9 +13,16 @@ CREATE TABLE IF NOT EXISTS core.archive_ledger (
   started_at timestamptz,
   finished_at timestamptz NOT NULL DEFAULT now(),
   unreadable_kind text,
+  -- 置き場の中の名前だけ。フォルダのパスも記録の本文も持たない（D7）。
+  file_name text,
+  -- already_read のとき、前に読んだ行（画面の「前に読んだ時刻」）。
+  already_read_ledger_id bigint,
   unreadable_count integer NOT NULL DEFAULT 0 CHECK (unreadable_count >= 0),
   skipped_file_count integer NOT NULL DEFAULT 0 CHECK (skipped_file_count >= 0)
 );
+-- D7 が要求する、画面の箱が使う 2 列。merge 前にこの移行を当てた開発 DB にも足す。
+ALTER TABLE core.archive_ledger ADD COLUMN IF NOT EXISTS file_name text;
+ALTER TABLE core.archive_ledger ADD COLUMN IF NOT EXISTS already_read_ledger_id bigint;
 CREATE UNIQUE INDEX IF NOT EXISTS archive_ledger_once
   ON core.archive_ledger (user_id, sha256, parser_version, outcome);
 CREATE INDEX IF NOT EXISTS archive_ledger_finished

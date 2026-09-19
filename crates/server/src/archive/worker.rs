@@ -14,6 +14,42 @@ pub fn requires_shape_confirmation(kind: super::classify::KnownKind) -> bool {
     )
 }
 
+/// 読み手が「いま読んでいる書庫」を置く場所（D12）。
+///
+/// **台帳は読み終えてから 1 回で書く**（D7）ので、読んでいる途中の状態は台帳から出ない。
+/// 百万件級の書庫は読み終わるまで数分かかり、その間に画面を開いた本人には
+/// 「置いたのに何も起きていない」ようにしか見えない。
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct Reading {
+    pub file_name: String,
+    pub inner_path: String,
+    pub items_read: i64,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 読み手と `/archives/status` が共有する、読んでいる途中の状態。
+///
+/// **プロセスの大域に置かない** —— 大域にすると、並んで走る試験どうしが
+/// 同じ状態を上書きし合う。起こす側が 1 つ作って読み手と App の両方へ渡す。
+pub type ReadingState = std::sync::Arc<std::sync::RwLock<Option<Reading>>>;
+
+/// 読んでいる途中の状態を更新する間隔（D12 の「1,000 件ごとに更新する」）。
+pub const READING_STEP: usize = 1_000;
+
+/// 読み手がその書庫から抜けたら、**どの経路でも**読んでいる途中の状態を畳む。
+///
+/// 読み手は失敗のたびに `return` するので、畳むのを手で書くと必ずどれか 1 本を落とす
+/// —— 落ちた経路では、終わった書庫を画面が永久に「読んでいます」と出し続ける。
+struct ReadingGuard(ReadingState);
+
+impl Drop for ReadingGuard {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.0.write() {
+            *slot = None;
+        }
+    }
+}
+
 /// 1 冊のファイルから得た要求を、順番を変えずに既存の格納関門へ渡す。
 ///
 /// 途中の失敗は成功として畳まない。呼び出し側が台帳を追記しないことで、次の
@@ -22,11 +58,69 @@ pub async fn store_requests(
     sink: &dyn crate::RecordSink,
     requests: Vec<crate::IngestRequest>,
 ) -> anyhow::Result<Vec<crate::StoreOutcome>> {
+    store_requests_with_progress(sink, requests, &mut |_| {}).await
+}
+
+/// 格納の進みを呼び出し側へ知らせながら渡す。`progress` は **`READING_STEP` 件ごと**と
+/// 最後に 1 回呼ばれる（毎件呼ぶと、読んでいる途中の状態を書く鍵の取り合いで遅くなる）。
+pub async fn store_requests_with_progress(
+    sink: &dyn crate::RecordSink,
+    requests: Vec<crate::IngestRequest>,
+    progress: &mut (dyn FnMut(usize) + Send),
+) -> anyhow::Result<Vec<crate::StoreOutcome>> {
     let mut outcomes = Vec::with_capacity(requests.len());
     for request in requests {
         outcomes.push(sink.store(request).await?);
+        if outcomes.len() % READING_STEP == 0 {
+            progress(outcomes.len());
+        }
     }
+    progress(outcomes.len());
     Ok(outcomes)
+}
+
+/// 置き場の中の名前だけを取る。**フォルダのパスは台帳へ持ち込まない**（D7）。
+pub fn file_name_of(path: &std::path::Path) -> Option<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+}
+
+/// 既に読んだ書庫を置き直されたとき、台帳へ 1 行だけ足す。
+///
+/// **走査のたびには足さない** —— 一意索引 `(user_id, sha256, parser_version, outcome)` と
+/// `ON CONFLICT DO NOTHING` の組で、同じ書庫の「既に読んだ」は生涯 1 行に固定される
+/// （spec「ダウンロードのフォルダに残り続ける書庫は台帳を増やさない」）。
+pub async fn record_already_read(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: &str,
+    file_name: Option<String>,
+) -> Result<(), sqlx::Error> {
+    let previous: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM core.archive_ledger
+          WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
+            AND outcome IN ('read', 'unreadable')
+          ORDER BY finished_at DESC, id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .fetch_optional(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name, already_read_ledger_id)
+         VALUES ($1, $2, $3, 'already_read', $4, $5) ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .bind(file_name)
+    .bind(previous)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// 格納失敗を走査の可変な観測値へ記録する。3 回目でのみ追記台帳へ失敗を残し、
@@ -37,6 +131,7 @@ pub async fn record_store_failure(
     path: &std::path::Path,
     sha256: String,
 ) -> Result<bool, sqlx::Error> {
+    let file_name = file_name_of(path);
     let path = path.to_string_lossy();
     let failures: i32 = sqlx::query_scalar(
         "UPDATE core.archive_sighting
@@ -54,12 +149,14 @@ pub async fn record_store_failure(
         return Ok(false);
     }
     sqlx::query(
-        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
-         VALUES ($1, $2, $3, 'store_failed') ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name)
+         VALUES ($1, $2, $3, 'store_failed', $4) ON CONFLICT DO NOTHING",
     )
     .bind(user_id)
     .bind(sha256)
     .bind(super::PARSER_VERSION)
+    .bind(file_name)
     .execute(pool)
     .await?;
     Ok(true)
@@ -672,14 +769,16 @@ pub async fn record_pending_ledger(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
     sha256: String,
+    file_name: Option<String>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
-         VALUES ($1, $2, $3, 'pending_shape') ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
+         VALUES ($1, $2, $3, 'pending_shape', $4) ON CONFLICT DO NOTHING",
     )
     .bind(user_id)
     .bind(sha256)
     .bind(super::PARSER_VERSION)
+    .bind(file_name)
     .execute(pool)
     .await?;
     Ok(())
@@ -734,6 +833,7 @@ pub fn spawn_inspecting(
     pool: sqlx::PgPool,
     config: super::config::ArchiveConfig,
     user_id: uuid::Uuid,
+    reading: ReadingState,
 ) {
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
     let scan_pool = pool.clone();
@@ -784,11 +884,23 @@ pub fn spawn_inspecting(
     tokio::spawn(read_in_order(receiver, move |candidate| {
         let pool = pool.clone();
         let read_config = read_config.clone();
+        let reading = reading.clone();
         async move {
+            let _reading_guard = ReadingGuard(reading.clone());
             // 同じ内容を別名で置き直した候補は、走査側で既読と判定済み。
             // 再び格納・台帳追記へ進むと一意制約に当たり、専用置き場にも残り続ける。
             if candidate.disposition == super::scan::ScanDisposition::AlreadyRead {
+                // **ダウンロードのフォルダのファイルは動かさない**ので、走査のたびに
+                // ここへ来る。台帳へ足すのは本人が置き直した専用のフォルダの側だけ
+                // （spec「ダウンロードのフォルダに残り続ける書庫は台帳を増やさない」）。
                 if !candidate.from_downloads {
+                    let _ = record_already_read(
+                        &pool,
+                        user_id,
+                        &candidate.sha256,
+                        file_name_of(&candidate.path),
+                    )
+                    .await;
                     let _ = move_to_processed(&candidate.path);
                 }
                 return;
@@ -862,9 +974,14 @@ pub fn spawn_inspecting(
                                         &pool, user_id, &sha256, &file.path, &shape,
                                     )
                                     .await;
-                                    if record_pending_ledger(&pool, user_id, sha256.clone())
-                                        .await
-                                        .is_err()
+                                    if record_pending_ledger(
+                                        &pool,
+                                        user_id,
+                                        sha256.clone(),
+                                        file_name_of(&candidate.path),
+                                    )
+                                    .await
+                                    .is_err()
                                     {
                                         return;
                                     }
@@ -939,7 +1056,27 @@ pub fn spawn_inspecting(
                             }
                         }
                         let sink = crate::PgSink::new(pool.clone());
-                        let outcomes = match store_requests(&sink, requests.clone()).await {
+                        let started_at = chrono::Utc::now();
+                        let reading_file = file_name_of(&candidate.path).unwrap_or_default();
+                        let inner_path = file.path.clone();
+                        let mut note = |items_read: usize| {
+                            if let Ok(mut slot) = reading.write() {
+                                *slot = Some(Reading {
+                                    file_name: reading_file.clone(),
+                                    inner_path: inner_path.clone(),
+                                    items_read: i64::try_from(items_read).unwrap_or(i64::MAX),
+                                    started_at,
+                                });
+                            }
+                        };
+                        note(0);
+                        let outcomes = match store_requests_with_progress(
+                            &sink,
+                            requests.clone(),
+                            &mut note,
+                        )
+                        .await
+                        {
                             Ok(outcomes) => outcomes,
                             Err(_) => {
                                 let _ = record_store_failure(
@@ -982,8 +1119,8 @@ pub fn spawn_inspecting(
                     }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
-                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count)
-                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8)
+                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count, file_name)
+                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8, $9)
                      RETURNING id",
                 )
                 .bind(user_id)
@@ -994,6 +1131,7 @@ pub fn spawn_inspecting(
                 .bind(i32::try_from(result.unreadable + unreadable_locations.len()).unwrap_or(i32::MAX))
                 .bind(unreadable_summary(&unreadable_locations))
                 .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
+                .bind(file_name_of(&candidate.path))
                 .fetch_one(&pool)
                 .await
                 ;
