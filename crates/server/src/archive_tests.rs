@@ -1477,7 +1477,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    // Scenario: 同じ書庫を別名で置いても行が増えない
+    // Scenario: 同じ書庫を置き直すと台帳に 1 行残る
     let processed = inbox.join("取り込み済み");
     std::fs::copy(
         processed.join("takeout-20260912.zip"),

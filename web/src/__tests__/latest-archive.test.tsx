@@ -1,12 +1,181 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // Scenario: 直近に置いた書庫の箱は Must の前にある
 // Scenario: 直近に置いた書庫の結果が箱に出る
 // Scenario: 書庫が 1 つも置かれていないことが出る
+// Scenario: 読んでいる間は件数が箱に出る
+// Scenario: 形の確認を待っている書庫が箱に出る
+// Scenario: 読めなかった書庫は文字で出る
+// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+// Scenario: 既に読んだ書庫を置き直すとそれが箱に出る
+// Scenario: 置き場が読めないことが画面に出る
+// Scenario: 取り込み器が止まっていることが画面に出る
+// Scenario: 箱は 160 px を超えない
+// Scenario: 箱が溢れても読めなかった書庫は省かれない
 import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
-import { LatestArchive } from "../LatestArchive";
-it("書庫の結果と空状態を文字で出す", () => {
-  const { rerender } = render(<LatestArchive status={{ sources: [], latest_archive: { file_name: "takeout.zip", inserted: 2, duplicate: 1, unreadable: 0 } }} />);
-  expect(screen.getByTestId("latest-archive").textContent).toContain("takeout.zip");
-  rerender(<LatestArchive status={null} />);
-  expect(screen.getByText("まだ書庫が置かれていません")).toBeTruthy();
+import { describe, expect, it } from "vitest";
+import { ARCHIVE_BOX_MAX_PX, BOX_MAX_ROWS, LatestArchive } from "../LatestArchive";
+import type { ArchivesStatus, LatestArchiveStatus } from "../archives";
+import { declaredHeight } from "./layout";
+
+const NOW = new Date("2026-09-15T03:00:00Z");
+
+function latest(over: Partial<LatestArchiveStatus> = {}): LatestArchiveStatus {
+  return {
+    file_name: "takeout-20260913T041200Z-001.zip",
+    first_seen_at: "2026-09-13T04:12:00Z",
+    outcome: "read",
+    unreadable_kind: null,
+    inserted: 2,
+    duplicate: 1,
+    unreadable: 0,
+    previously_read_at: null,
+    ...over,
+  };
+}
+
+function box(over: Partial<ArchivesStatus> = {}): string {
+  render(<LatestArchive status={{ sources: [], ...over }} now={NOW} />);
+  return screen.getByTestId("latest-archive").textContent ?? "";
+}
+
+describe("直近に置いた書庫の箱", () => {
+  it("読めた書庫の名前・見つけた時刻・件数を文字で出す", () => {
+    const text = box({ latest_archive: latest() });
+    expect(text).toContain("takeout-20260913T041200Z-001.zip");
+    expect(text).toContain("2026-09-13 13:12");
+    expect(text).toContain("入った 2 · 既にあった 1 · 読めなかった 0");
+  });
+
+  it("1 つも置かれていないことを文字で出す", () => {
+    expect(box()).toContain("まだ書庫が置かれていません");
+    render(<LatestArchive status={null} now={NOW} />);
+    expect(screen.getAllByText("まだ書庫が置かれていません").length).toBeGreaterThan(0);
+  });
+
+  it("読めなかった書庫を、理由の種別つきで文字で出す", () => {
+    const text = box({
+      latest_archive: latest({ outcome: "unreadable", unreadable_kind: "broken_zip" }),
+    });
+    expect(text).toContain("読めなかった書庫です");
+    expect(text).toContain("書庫が壊れている");
+  });
+
+  it("格納に失敗していることを文字で出す", () => {
+    const text = box({ latest_archive: latest({ outcome: "store_failed" }) });
+    expect(text).toContain("格納に失敗しています");
+  });
+
+  it("既に読んだ書庫と、前に読んだ時刻を文字で出す", () => {
+    const text = box({
+      latest_archive: latest({
+        outcome: "already_read",
+        previously_read_at: "2026-09-12T01:00:00Z",
+      }),
+    });
+    expect(text).toContain("既に読んだ書庫です");
+    expect(text).toContain("2026-09-12 10:00");
+  });
+
+  it("読んでいる途中のファイルと件数と読み始めた時刻を出す", () => {
+    const text = box({
+      reading: {
+        file_name: "takeout-20260913T041200Z-001.zip",
+        inner_path: "Records.json",
+        items_read: 410_000,
+        started_at: "2026-09-15T02:30:00Z",
+      },
+    });
+    expect(text).toContain("読んでいます");
+    expect(text).toContain("Records.json");
+    expect(text).toContain("410,000 件まで");
+    expect(text).toContain("2026-09-15 11:30");
+  });
+
+  it("形の確認を待っている書庫の数を出す", () => {
+    expect(box({ pending_shape: { archives: 2, files: 3 } })).toContain(
+      "形の確認を待っている書庫が 2 冊あります",
+    );
+  });
+
+  it("置き場が読めないことを、どの置き場かまで出す", () => {
+    const text = box({
+      inbox: {
+        capturable: false,
+        blockers: ["dedicated_inbox_unreadable"],
+        emitted_at: "2026-09-15T01:00:00Z",
+      },
+    });
+    expect(text).toContain("専用のフォルダ が読めません");
+  });
+
+  it("取り込み器の最後の確認が 3 日より前なら、何日前かを出す", () => {
+    const text = box({
+      inbox: { capturable: true, blockers: [], emitted_at: "2026-09-11T01:00:00Z" },
+    });
+    expect(text).toContain("取り込み器の最後の確認: 4 日前");
+  });
+
+  it("取り込み器が一度も動いていないことを出す", () => {
+    expect(box({ latest_archive: latest() })).toContain("取り込み器はまだ一度も動いていません");
+  });
+
+  it("最後の確認が 3 日以内なら、止まっているとは出さない", () => {
+    const text = box({
+      inbox: { capturable: true, blockers: [], emitted_at: "2026-09-13T01:00:00Z" },
+    });
+    expect(text).not.toContain("取り込み器の最後の確認");
+  });
+});
+
+describe("箱の高さ", () => {
+  /** 箱が溢れる状態（読んでいる途中・置き場が読めない・止まっている・確認待ち）。 */
+  const crowded = (over: Partial<ArchivesStatus> = {}): ArchivesStatus => ({
+    sources: [],
+    reading: {
+      file_name: "takeout-20260913T041200Z-001.zip",
+      inner_path: "Records.json",
+      items_read: 410_000,
+      started_at: "2026-09-15T02:30:00Z",
+    },
+    inbox: {
+      capturable: false,
+      blockers: ["dedicated_inbox_unreadable", "downloads_unreadable"],
+      emitted_at: "2026-09-11T01:00:00Z",
+    },
+    pending_shape: { archives: 2, files: 3 },
+    latest_archive: latest(),
+    ...over,
+  });
+
+  it("溢れる材料があっても宣言の高さが 160 px を超えない", () => {
+    render(<LatestArchive status={crowded()} now={NOW} />);
+    const el = screen.getByTestId("latest-archive");
+    expect(declaredHeight(el)).toBeLessThanOrEqual(ARCHIVE_BOX_MAX_PX);
+  });
+
+  it("出しきれない行があれば、省いたことを出す", () => {
+    render(<LatestArchive status={crowded()} now={NOW} />);
+    expect(screen.getByTestId("archive-row-more").textContent).toMatch(/ほか \d+ 件/);
+  });
+
+  it("箱が溢れても、読めなかった書庫の行は省かれない", () => {
+    render(
+      <LatestArchive
+        status={crowded({
+          latest_archive: latest({ outcome: "unreadable", unreadable_kind: "broken_zip" }),
+        })}
+        now={NOW}
+      />,
+    );
+    const el = screen.getByTestId("latest-archive");
+    expect(el.textContent).toContain("読めなかった書庫です");
+    expect(declaredHeight(el)).toBeLessThanOrEqual(ARCHIVE_BOX_MAX_PX);
+  });
+
+  it("勘定が空振りしていない（行を 1 本増やせば入る行が減る）", () => {
+    // BOX_MAX_ROWS の 1 つ手前までは「ほか N 件」が出ない。
+    expect(BOX_MAX_ROWS).toBeGreaterThan(1);
+    render(<LatestArchive status={{ sources: [], latest_archive: latest() }} now={NOW} />);
+    expect(screen.queryByTestId("archive-row-more")).toBeNull();
+  });
 });

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
 import { type Achievement, type SourceCoverage } from "./coverage";
-import { orderCoverageWithArchives } from "./archives";
+import { archiveLastEventLabel, orderCoverageWithArchives } from "./archives";
 import { type ArchivesStatus } from "./archives";
 import { LatestArchive } from "./LatestArchive";
 import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
@@ -35,6 +35,23 @@ export function yearRange(now: Date): { from: string; to: string } {
   const anchor = new Date(`${to}T12:00:00Z`);
   anchor.setUTCDate(anchor.getUTCDate() - (YEAR_WEEKS * 7 - 1));
   return { from: anchor.toISOString().slice(0, 10), to };
+}
+
+/**
+ * 書庫のソースの見出しに添える注記（design D12）。
+ *
+ * **Must の 5 本には渡さない** —— 注記は「取り込み済みの最終日」の話で、
+ * 毎日入る収集側には意味が無い。1 件も入っていない書庫のソースは「まだ無い」。
+ */
+export function archiveAnnotation(
+  logicalSource: string,
+  archives: Load<ArchivesStatus>,
+  now: Date,
+): string | undefined {
+  if (!logicalSource.startsWith("c03-") || archives.at !== "ok") return undefined;
+  const found = archives.value.sources.find((s) => s.logical_source === logicalSource);
+  if (found === undefined || found.last_event_on === null) return "まだ無い";
+  return archiveLastEventLabel(found.last_event_on, now);
 }
 
 /** 読み出しの状態。**「読み込み中」と「データが無い」を分ける**（review/code.md の R19）。 */
@@ -129,8 +146,8 @@ export function App(): React.ReactElement {
         </p>
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
-      {archives.at === "ok" && <LatestArchive status={archives.value} />}
-      {archives.at !== "ok" && <LatestArchive status={null} />}
+      {/* **格子と別々に受ける**（D12）—— 書庫の読み出しが落ちても格子は消さない */}
+      <LatestArchive status={archives.at === "ok" ? archives.value : null} />
 
       {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
       {sources.at === "failed" && (
@@ -143,7 +160,13 @@ export function App(): React.ReactElement {
       )}
       {/* **退役したソースは後ろ**（ST03 の R63）—— Must の 5 本を 1 画面から押し出さない */}
       {sources.at === "ok" &&
-        orderCoverageWithArchives(sources.value).map((s) => <CoverageGrid key={s.logical_source} source={s} />)}
+        orderCoverageWithArchives(sources.value).map((s) => (
+          <CoverageGrid
+            key={s.logical_source}
+            source={s}
+            annotation={archiveAnnotation(s.logical_source, archives, new Date())}
+          />
+        ))}
     </main>
   );
 }
