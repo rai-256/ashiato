@@ -1410,6 +1410,18 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         )],
     );
     let user = testdb::user();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+    )
+    .unwrap();
+    sqlx::query("INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape) VALUES ($1, $2, $3)")
+        .bind(user)
+        .bind(crate::archive::worker::hash_shape(&shape))
+        .bind(shape)
+        .execute(&pool)
+        .await
+        .unwrap();
     crate::archive::worker::spawn_inspecting(
         pool.clone(),
         crate::archive::config::ArchiveConfig {
