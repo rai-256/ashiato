@@ -792,6 +792,15 @@ async fn archive_copy_catalog_keeps_the_inner_file_name() {
     assert_eq!(path, "Takeout/YouTube/watch-history.json");
 }
 
+/// Scenario: 残さない設定では写しを作らない
+#[test]
+fn archive_copy_setting_does_not_create_a_file_when_disabled() {
+    let root = std::env::temp_dir().join(format!("ashiato-archive-no-copy-{}", uuid::Uuid::new_v4()));
+    let copied = crate::archive::worker::copy_if_enabled(false, &root, b"history").unwrap();
+    assert!(copied.is_none());
+    assert!(!root.exists());
+}
+
 #[test]
 fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     let shape = crate::archive::worker::shape_for_file(
