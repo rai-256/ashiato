@@ -1120,11 +1120,14 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
         })
         .await;
 
+    // **ログが出るまで待つ** —— 台帳の行ができた時点では、読み終えたことを書く
+    // `info!` はまだ出ていない。集まる前に見ると、何も見ずに緑になる。
+    inbox
+        .until("取り込みのログが 1 行も出ない（この試験が何も見ていない）", || async {
+            !captured.0.lock().unwrap().is_empty()
+        })
+        .await;
     let text = String::from_utf8_lossy(&captured.0.lock().unwrap().clone()).into_owned();
-    assert!(
-        !text.is_empty(),
-        "ログを 1 行も集められていない（この試験が何も見ていない）"
-    );
     for value in [
         "京都 旅館",
         "%E4%BA%AC%E9%83%BD",
