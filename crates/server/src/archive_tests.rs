@@ -6,6 +6,31 @@ use crate::testdb;
 use crate::{heartbeat, store_heartbeat, store_one, IngestRequest, StoreOutcome};
 use std::path::Path;
 
+#[derive(Clone)]
+struct FailingSink {
+    fail_at: usize,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl crate::RecordSink for FailingSink {
+    fn store<'a>(
+        &'a self,
+        _request: IngestRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
+    > {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls: &AtomicUsize = &self.calls;
+        Box::pin(async move {
+            let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call == self.fail_at {
+                anyhow::bail!("D-01 が切れた")
+            }
+            Ok(StoreOutcome::Inserted(uuid::Uuid::new_v4()))
+        })
+    }
+}
+
 fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
     IngestRequest {
         id: uuid::Uuid::new_v4(),
@@ -27,6 +52,28 @@ fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
         raw: raw.into(),
         payload: serde_json::json!({}),
     }
+}
+
+/// Scenario: 格納が落ちた書庫は次の走査で読み直される
+#[tokio::test]
+async fn archive_partial_store_failure_is_not_a_completed_read() {
+    let user = testdb::user();
+    let requests = (0..5)
+        .map(|n| archive_request(user, &format!(r#"{{"watch":"{n}"}}"#)))
+        .collect::<Vec<_>>();
+    let sink = FailingSink {
+        fail_at: 5,
+        calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    let result = crate::archive::worker::store_requests(&sink, requests).await;
+
+    assert!(result.is_err(), "途中のDB失敗を読了としてはいけない");
+    assert_eq!(
+        sink.calls.load(std::sync::atomic::Ordering::SeqCst),
+        5,
+        "失敗した5件目までを順に格納する"
+    );
 }
 
 /// 格納関門は HTTP の JSON 解釈を通さなくても、新規・重複・削除済み・拒否を区別する。
