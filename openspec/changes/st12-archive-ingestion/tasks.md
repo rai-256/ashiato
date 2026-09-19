@@ -160,7 +160,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## 9. 最終日と API（design D11 / D12）
 
-- [ ] 9.1 `GET /archives/status`（`sources[].last_event_on` と `last_archive_created_at`、`latest_archive`（`previously_read_at` を含む）、`reading`（読み手のメモリの状態。1,000 件ごと）、`pending_shape`、`inbox`）を足し、OpenAPI に載せる。最終日は台帳の `max_event_at` から導く（design D11）。
+- [x] 9.1 `GET /archives/status`（`sources[].last_event_on` と `last_archive_created_at`、`latest_archive`（`previously_read_at` を含む）、`reading`（読み手のメモリの状態。1,000 件ごと）、`pending_shape`、`inbox`）を足し、OpenAPI に載せる。最終日は台帳の `max_event_at` から導く（design D11）。
   Scenario: `最終日はいちばん新しい出来事の日` / `最終日と一緒に運んだ書庫の作られた時刻が残る` / `最終日の記録を消しても最終日は戻らない` /
   `古い書庫を後から置いても最終日は戻らない` / `日本時間で日をまたぐ出来事は日本時間の日になる`。
   検証: `CT archives_status`、`cargo run -p ashiato-server --bin openapi > docs/openapi.json && tools/check-openapi.sh` rc=0、`grep -c '"/archives/status"' docs/openapi.json` が 1 以上
