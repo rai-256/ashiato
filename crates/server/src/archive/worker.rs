@@ -500,7 +500,29 @@ pub fn shape_for_file(
     } else {
         Vec::new()
     };
-    Ok(serde_json::json!({"kind": format!("{kind:?}"), "products": products}))
+    let (top_level_keys, field_names) = match &value {
+        serde_json::Value::Object(object) => (
+            object.keys().cloned().collect::<Vec<_>>(),
+            Vec::new(),
+        ),
+        serde_json::Value::Array(rows) => {
+            let mut fields = rows
+                .iter()
+                .filter_map(serde_json::Value::as_object)
+                .flat_map(|object| object.keys().cloned())
+                .collect::<Vec<_>>();
+            fields.sort();
+            fields.dedup();
+            (Vec::new(), fields)
+        }
+        _ => (Vec::new(), Vec::new()),
+    };
+    Ok(serde_json::json!({
+        "kind": format!("{kind:?}"),
+        "products": products,
+        "top_level_keys": top_level_keys,
+        "field_names": field_names,
+    }))
 }
 
 pub async fn is_shape_confirmed(
@@ -527,13 +549,14 @@ pub async fn record_pending_shape(
 ) -> Result<(), sqlx::Error> {
     let shape_hash = hash_shape(shape);
     sqlx::query(
-        "INSERT INTO core.archive_pending_shape (user_id, sha256, inner_path, shape_hash)
-         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_pending_shape (user_id, sha256, inner_path, shape_hash, shape)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
     )
     .bind(user_id)
     .bind(archive_sha256)
     .bind(inner_path)
     .bind(shape_hash)
+    .bind(shape)
     .execute(pool)
     .await?;
     Ok(())
@@ -559,7 +582,13 @@ pub async fn record_pending_ledger(
 
 pub fn hash_shape(shape: &serde_json::Value) -> String {
     use sha2::Digest as _;
-    let encoded = serde_json::to_vec(shape).expect("形はJSON");
+    // 確認を要するのは論理ソース名を決める種類と製品名だけ。欄の追加や
+    // パスの翻訳で、既に確認した書庫まで止めない。
+    let identity = serde_json::json!({
+        "kind": shape.get("kind"),
+        "products": shape.get("products"),
+    });
+    let encoded = serde_json::to_vec(&identity).expect("形はJSON");
     format!("{:x}", sha2::Sha256::digest(encoded))
 }
 

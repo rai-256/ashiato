@@ -75,8 +75,11 @@ CREATE TABLE IF NOT EXISTS core.archive_pending_shape (
   sha256 text NOT NULL,
   inner_path text NOT NULL,
   shape_hash text NOT NULL,
+  shape jsonb NOT NULL,
   PRIMARY KEY (user_id, sha256, inner_path)
 );
+-- 同じ開発 DB に早い版を当てた場合にも、安全な確認用の形を保存できるようにする。
+ALTER TABLE core.archive_pending_shape ADD COLUMN IF NOT EXISTS shape jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE OR REPLACE FUNCTION core.reject_archive_ledger_change() RETURNS trigger AS $fn$
 BEGIN
