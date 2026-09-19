@@ -32,6 +32,15 @@ allow='example\.ts\.net|tailXXXXXX\.ts\.net|<[^>]*>\.ts\.net|\.ts\.net` *$'
 # この検査自身はパターンを持っているので見ない
 self='tools/check-private.sh'
 
+# **意図して残すファイル**は `tools/check-private.allow` に 1 行 1 パス（`#` はコメント）。
+# 当時そう書いたという事実そのものである記録（確認バッチ・独立レビュー）を後から
+# 書き換えない、という判断を採るならここに置く。**空なら全部を見る。**
+allowfile='tools/check-private.allow'
+skip_path() {
+  [ -f "$allowfile" ] || return 1
+  grep -vE '^\s*(#|$)' "$allowfile" 2>/dev/null | grep -qxF "$1"
+}
+
 if [ "$staged" -eq 1 ]; then
   mapfile -d '' -t files < <(git diff --cached --name-only -z --diff-filter=ACMR)
 else
@@ -42,6 +51,7 @@ ng=0
 for f in "${files[@]}"; do
   [ -n "$f" ] || continue
   [ "$f" = "$self" ] && continue
+  skip_path "$f" && continue
   [ -f "$f" ] || continue
   grep -Iq . "$f" 2>/dev/null || continue     # バイナリは見ない
   for p in "${patterns[@]}"; do
