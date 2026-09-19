@@ -539,6 +539,24 @@ pub async fn record_pending_shape(
     Ok(())
 }
 
+/// 同じ未確認書庫は、走査回数に関わらず確認待ち台帳を 1 行だけ残す。
+pub async fn record_pending_ledger(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: String,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome)
+         VALUES ($1, $2, $3, 'pending_shape') ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub fn hash_shape(shape: &serde_json::Value) -> String {
     use sha2::Digest as _;
     let encoded = serde_json::to_vec(shape).expect("形はJSON");
@@ -634,6 +652,7 @@ pub fn spawn_inspecting(
                     let mut stored_requests = Vec::new();
                     let mut stored_outcomes = Vec::new();
                     let mut unreadable_locations = Vec::new();
+                    let mut has_pending_shape = false;
                     for known in classified.known {
                         let file = &files[known.index];
                         if requires_shape_confirmation(known.kind) {
@@ -648,10 +667,22 @@ pub fn spawn_inspecting(
                             match is_shape_confirmed(&pool, user_id, &shape_hash).await {
                                 Ok(true) => {}
                                 Ok(false) => {
+                                    if let Ok(stored_path) = copy_known_file(&read_config.copy_dir, &file.bytes) {
+                                        if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {
+                                            let _ = record_copy(&pool, user_id, file_sha256.to_owned(), &file.path, &stored_path).await;
+                                        }
+                                    }
                                     let _ = record_pending_shape(
                                         &pool, user_id, &sha256, &file.path, &shape,
                                     )
                                     .await;
+                                    if record_pending_ledger(&pool, user_id, sha256.clone())
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
+                                    has_pending_shape = true;
                                     continue;
                                 }
                                 Err(_) => return,
@@ -752,6 +783,9 @@ pub fn spawn_inspecting(
                                 }
                             }
                         }
+                    }
+                    if has_pending_shape && stored_requests.is_empty() {
+                        return;
                     }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
