@@ -22,4 +22,4 @@ SQL
 fi
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v user="$ASHIATO_ARCHIVE_USER_ID" -c \
-  "SELECT shape_hash, count(*) AS files FROM core.archive_pending_shape WHERE user_id = :'user'::uuid GROUP BY shape_hash ORDER BY shape_hash"
+  "SELECT shape_hash, shape, count(*) AS files FROM core.archive_pending_shape WHERE user_id = :'user'::uuid GROUP BY shape_hash, shape ORDER BY shape_hash"

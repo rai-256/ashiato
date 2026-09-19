@@ -812,6 +812,27 @@ fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     assert!(!shape.to_string().contains("京都 旅館"));
 }
 
+/// Scenario: 欄の名前が増えただけでは確認待ちにならない
+#[test]
+fn archive_shape_identity_ignores_observational_field_names() {
+    let first = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+    )
+    .unwrap();
+    let later = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x","new_field":"京都"}]"#.as_bytes(),
+    )
+    .unwrap();
+    assert_ne!(first, later, "確認画面には欄の追加を出せる");
+    assert_eq!(
+        crate::archive::worker::hash_shape(&first),
+        crate::archive::worker::hash_shape(&later),
+        "格納を止める形は論理ソース名を決める値だけ"
+    );
+}
+
 /// Scenario: 印を置く前の Takeout の書庫は格納されない
 /// Scenario: タイムラインは確認を待たない
 #[test]
@@ -844,7 +865,7 @@ async fn archive_shape_confirmation_allows_only_confirmed_shape() {
 
 /// Scenario: 印を置く前の Takeout の書庫は格納されない
 #[tokio::test]
-async fn archive_pending_shape_records_unconfirmed_file_once() {
+async fn archive_shape_pending_records_unconfirmed_file_once() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     let shape = serde_json::json!({"kind":"MyActivity","products":["マップ"]});
@@ -864,10 +885,29 @@ async fn archive_pending_shape_records_unconfirmed_file_once() {
     assert_eq!(count, 1);
 }
 
+/// Scenario: 形の確認の出力に見分けた中身と製品の名前と件数が出る
+#[tokio::test]
+async fn archive_shape_pending_keeps_the_safe_shape_for_confirmation() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let shape = serde_json::json!({"kind":"MyActivity","products":["マップ"]});
+    crate::archive::worker::record_pending_shape(&pool, user, "shape-archive", "activity.json", &shape)
+        .await
+        .unwrap();
+    let stored: serde_json::Value = sqlx::query_scalar(
+        "SELECT shape FROM core.archive_pending_shape WHERE user_id = $1 AND sha256 = 'shape-archive'",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, shape);
+}
+
 /// Scenario: 印を置く前の書庫は確認待ちとして台帳に残る
 /// Scenario: 確認待ちの書庫は走査を重ねても台帳の行が増えない
 #[tokio::test]
-async fn archive_pending_shape_has_one_ledger_row() {
+async fn archive_shape_pending_has_one_ledger_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     for _ in 0..3 {
