@@ -155,6 +155,9 @@ pub struct App {
     token: String,
     /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
     stays: StayRebuilder,
+    /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
+    /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
+    reading: archive::worker::ReadingState,
 }
 
 impl App {
@@ -166,6 +169,7 @@ impl App {
             token: token.into(),
             stays: StayRebuilder::real(),
             now: None,
+            reading: archive::worker::ReadingState::default(),
         }
     }
 
@@ -453,6 +457,7 @@ pub async fn store_one(
         pool: pool.clone(),
         token: "archive-store".into(),
         stays: StayRebuilder::real(),
+        reading: archive::worker::ReadingState::default(),
     };
     let result = ingest_one(
         &app,
@@ -1590,6 +1595,7 @@ pub async fn store_heartbeat(
         pool: pool.clone(),
         token: "archive-heartbeat".into(),
         stays: StayRebuilder::real(),
+        reading: archive::worker::ReadingState::default(),
     };
     heartbeat_one(
         &app,
@@ -1660,17 +1666,47 @@ pub struct ArchiveSourceStatus {
     pub last_archive_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// `GET /archives/status` の、書庫の稼働状況の最小の安定した部分。
+/// `GET /archives/status`（design D12）。画面の「直近に置いた書庫」の箱はここだけを読む。
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ArchivesStatus {
     pub sources: Vec<ArchiveSourceStatus>,
     pub latest_archive: Option<LatestArchiveStatus>,
+    /// 読み手のメモリの状態。**台帳は読み終えてから書く**ので、ここにしか無い。
+    pub reading: Option<archive::worker::Reading>,
+    pub pending_shape: Option<PendingShapeStatus>,
+    /// 取り込み器そのものの直近の生存信号。置き場が読めるか・いつ動いたかを画面へ渡す。
+    pub inbox: Option<InboxStatus>,
 }
 
 /// 直近に置いた書庫の結果。台帳の追記行からのみ導く。
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct LatestArchiveStatus {
+    pub file_name: Option<String>,
+    pub first_seen_at: chrono::DateTime<chrono::Utc>,
     pub outcome: String,
+    pub unreadable_kind: Option<String>,
+    pub inserted: i64,
+    pub duplicate: i64,
+    /// **読めなかった件数は台帳の行そのものが持つ**（論理ソース別の行は、格納まで
+    /// 進めた項目しか持たない —— 読めなかった項目はどの論理ソースにも属さない）。
+    pub unreadable: i64,
+    /// `already_read` のときだけ入る、前に読んだ時刻。
+    pub previously_read_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 形の確認を待っている書庫とファイルの数（D16）。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PendingShapeStatus {
+    pub archives: i64,
+    pub files: i64,
+}
+
+/// 取り込み器の直近の生存信号（D12 / C22）。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct InboxStatus {
+    pub capturable: bool,
+    pub blockers: Vec<String>,
+    pub emitted_at: chrono::DateTime<chrono::Utc>,
 }
 
 type ArchiveStatusRow = (
@@ -1679,10 +1715,65 @@ type ArchiveStatusRow = (
     Option<chrono::DateTime<chrono::Utc>>,
 );
 
+/// 直近に置いた書庫 1 件（`already_read` / `store_failed` を含む。D12）。
+///
+/// **件数は論理ソースごとの行を足し合わせる** —— 台帳の行そのものは論理ソースを持たない。
+/// 読めなかった件数だけは台帳の行の側にある（どの論理ソースにも属さないため）。
+async fn latest_archive_for(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> Result<Option<LatestArchiveStatus>, sqlx::Error> {
+    type Row = (
+        Option<String>,
+        chrono::DateTime<chrono::Utc>,
+        String,
+        Option<String>,
+        i32,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<i64>,
+        Option<i64>,
+    );
+    let row: Option<Row> = sqlx::query_as(
+        "SELECT l.file_name, l.discovered_at, l.outcome, l.unreadable_kind, l.unreadable_count,
+                previous.finished_at,
+                (SELECT sum(inserted_count) FROM core.archive_ledger_source WHERE ledger_id = l.id),
+                (SELECT sum(duplicate_count) FROM core.archive_ledger_source WHERE ledger_id = l.id)
+           FROM core.archive_ledger l
+           LEFT JOIN core.archive_ledger previous ON previous.id = l.already_read_ledger_id
+          WHERE l.user_id = $1
+          ORDER BY l.finished_at DESC, l.id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(
+        |(
+            file_name,
+            first_seen_at,
+            outcome,
+            unreadable_kind,
+            unreadable,
+            previously_read_at,
+            inserted,
+            duplicate,
+        )| LatestArchiveStatus {
+            file_name,
+            first_seen_at,
+            outcome,
+            unreadable_kind,
+            inserted: inserted.unwrap_or(0),
+            duplicate: duplicate.unwrap_or(0),
+            unreadable: i64::from(unreadable),
+            previously_read_at,
+        },
+    ))
+}
+
 /// 台帳から導くので、後で記録を消しても最終日は戻らない。
 pub async fn archives_status_for(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
+    reading: Option<archive::worker::Reading>,
 ) -> Result<ArchivesStatus, sqlx::Error> {
     let rows: Vec<ArchiveStatusRow> = sqlx::query_as(
         "SELECT s.logical_source, MAX(ls.max_event_at) AS max_event_at,
@@ -1697,13 +1788,32 @@ pub async fn archives_status_for(
     .bind(user_id)
     .fetch_all(pool)
     .await?;
-    let latest_archive: Option<(String,)> = sqlx::query_as(
-        "SELECT outcome FROM core.archive_ledger WHERE user_id = $1 ORDER BY finished_at DESC, id DESC LIMIT 1",
+    let latest_archive = latest_archive_for(pool, user_id).await?;
+    let (pending_archives, pending_files): (i64, i64) = sqlx::query_as(
+        "SELECT count(DISTINCT sha256), count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    let inbox: Option<(bool, Vec<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT capturable, blockers, emitted_at FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+          ORDER BY emitted_at DESC LIMIT 1",
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await?;
     Ok(ArchivesStatus {
+        reading,
+        pending_shape: (pending_files > 0).then_some(PendingShapeStatus {
+            archives: pending_archives,
+            files: pending_files,
+        }),
+        inbox: inbox.map(|(capturable, blockers, emitted_at)| InboxStatus {
+            capturable,
+            blockers,
+            emitted_at,
+        }),
         sources: rows
             .into_iter()
             .map(
@@ -1719,7 +1829,7 @@ pub async fn archives_status_for(
                 },
             )
             .collect(),
-        latest_archive: latest_archive.map(|(outcome,)| LatestArchiveStatus { outcome }),
+        latest_archive,
     })
 }
 
@@ -1737,7 +1847,8 @@ pub async fn archives_status_get(
     Query(q): Query<ArchivesStatusQuery>,
 ) -> Result<Json<ArchivesStatus>, (StatusCode, String)> {
     authorize(&app, &headers)?;
-    archives_status_for(&app.pool, q.user_id)
+    let reading = app.reading.read().ok().and_then(|slot| slot.clone());
+    archives_status_for(&app.pool, q.user_id, reading)
         .await
         .map(Json)
         .map_err(|error| internal_at("archives.status", error))
@@ -2000,8 +2111,10 @@ pub async fn run() -> anyhow::Result<()> {
         .await?;
     migrate(&pool).await?;
     let archive_config = archive::config::from_env()?;
+    // 読み手と `/archives/status` が同じ実体を見る（D12）。
+    let reading = archive::worker::ReadingState::default();
     if let Some(user_id) = archive_config.user_id {
-        archive::worker::spawn_inspecting(pool.clone(), archive_config, user_id);
+        archive::worker::spawn_inspecting(pool.clone(), archive_config, user_id, reading.clone());
     } else {
         tracing::info!(
             kind = "archive_disabled",
@@ -2033,6 +2146,7 @@ pub async fn run() -> anyhow::Result<()> {
             stays: StayRebuilder::real(),
             #[cfg(test)]
             now: None,
+            reading,
         });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。

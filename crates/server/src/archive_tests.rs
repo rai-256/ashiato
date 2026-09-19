@@ -381,7 +381,7 @@ async fn archives_status_uses_ledger_max_event_time_in_japan() {
     .await
     .unwrap();
 
-    let status = crate::archives_status_for(&pool, user).await.unwrap();
+    let status = crate::archives_status_for(&pool, user, None).await.unwrap();
     assert_eq!(
         status
             .latest_archive
@@ -1056,7 +1056,12 @@ async fn archive_shape_pending_has_one_ledger_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     for _ in 0..3 {
-        crate::archive::worker::record_pending_ledger(&pool, user, "p".repeat(64))
+        crate::archive::worker::record_pending_ledger(
+            &pool,
+            user,
+            "p".repeat(64),
+            Some("takeout-pending.zip".into()),
+        )
             .await
             .unwrap();
     }
@@ -1447,6 +1452,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
             scan_sec: 1,
         },
         user,
+        crate::archive::worker::ReadingState::default(),
     );
 
     let recorded = tokio::time::timeout(WORKER_WAIT, async {
