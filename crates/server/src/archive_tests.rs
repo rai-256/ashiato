@@ -172,6 +172,58 @@ async fn archive_ledger_sources_keep_per_source_store_outcomes() {
     assert_eq!(max_event_at, requests[1].event_time);
 }
 
+/// Scenario: 名前の時刻を持たない書庫は見つけた時刻を持つ
+#[test]
+fn archive_created_at_uses_filename_or_discovery_time() {
+    let discovered = chrono::DateTime::parse_from_rfc3339("2026-09-15T01:02:03Z")
+        .unwrap()
+        .to_utc();
+    assert_eq!(
+        crate::archive::worker::archive_created_at(
+            std::path::Path::new("takeout-20260912-010203.zip"),
+            discovered,
+        ),
+        chrono::DateTime::parse_from_rfc3339("2026-09-12T01:02:03Z")
+            .unwrap()
+            .to_utc(),
+    );
+    assert_eq!(
+        crate::archive::worker::archive_created_at(std::path::Path::new("Timeline.json"), discovered),
+        discovered,
+    );
+}
+
+/// Scenario: 台帳の行は利用者ごとに分かれる
+/// Scenario: 台帳に記録の本文は載らない
+#[tokio::test]
+async fn archive_ledger_is_private_and_scoped_to_its_user() {
+    let pool = testdb::pool().await;
+    let first = testdb::user();
+    let second = testdb::user();
+    for (user, sha) in [(first, "d".repeat(64)), (second, "e".repeat(64))] {
+        sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, 'test', 'read')")
+            .bind(user)
+            .bind(sha)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let own: i64 = sqlx::query_scalar("SELECT count(*) FROM core.archive_ledger WHERE user_id = $1")
+        .bind(first)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let rendered: String = sqlx::query_scalar(
+        "SELECT string_agg(row_to_json(l)::text, '') FROM core.archive_ledger l WHERE l.user_id = $1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(own, 1);
+    assert!(!rendered.contains("京都 旅館"));
+}
+
 /// Scenario: 壊れた 1 件の場所が台帳に残る
 #[test]
 fn archive_unreadable_locations_keep_only_the_first_hundred() {

@@ -105,6 +105,24 @@ pub fn unreadable_summary(locations: &[String]) -> Option<String> {
     (!locations.is_empty()).then(|| locations.iter().take(100).cloned().collect::<Vec<_>>().join("\n"))
 }
 
+/// 書庫名に `takeout-YYYYMMDD-HHMMSS` があればその UTC 時刻を台帳へ残す。
+/// 書き出し時刻を持たない端末ファイルなどは、走査で見つけた時刻を使う。
+pub fn archive_created_at(
+    path: &std::path::Path,
+    discovered_at: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return discovered_at;
+    };
+    let stamp = name
+        .strip_prefix("takeout-")
+        .and_then(|rest| rest.get(..15));
+    stamp
+        .and_then(|stamp| chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok())
+        .map(|time| time.and_utc())
+        .unwrap_or(discovered_at)
+}
+
 /// 分類済みの書庫ファイルを、既存の格納関門へ渡せる要求へ変える。
 /// ここでだけ書庫の由来を payload に足し、原文は項目そのものを保つ。
 pub fn requests_for_file(
@@ -680,13 +698,14 @@ pub fn spawn_inspecting(
                     }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
-                       (user_id, sha256, parser_version, outcome, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count)
-                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7)
+                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_kind, skipped_file_count)
+                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8)
                      RETURNING id",
                 )
                 .bind(user_id)
                 .bind(sha256)
                 .bind(super::PARSER_VERSION)
+                .bind(archive_created_at(&candidate.path, chrono::Utc::now()))
                 .bind(inbox_kind)
                 .bind(i32::try_from(result.unreadable + unreadable_locations.len()).unwrap_or(i32::MAX))
                 .bind(unreadable_summary(&unreadable_locations))
