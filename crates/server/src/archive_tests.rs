@@ -1457,9 +1457,26 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    // Scenario: 同じ書庫を別名で置いても行が増えない
+    let processed = inbox.join("取り込み済み");
+    std::fs::copy(
+        processed.join("takeout-20260912.zip"),
+        inbox.join("takeout-20260912-again.zip"),
+    )
+    .unwrap();
+    let moved_again = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if processed.join("takeout-20260912-again.zip").exists() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
     std::fs::remove_dir_all(root).unwrap();
     assert!(recorded.is_ok(), "取り込み器が5秒以内に台帳へ記録しない");
     assert_eq!(events, 1, "書庫項目を既存の格納関門へ通す");
+    assert!(moved_again.is_ok(), "別名の既読書庫を取り込み済みに移せない");
 }
 
 /// Scenario: 6 つの中身がそれぞれ読まれる
