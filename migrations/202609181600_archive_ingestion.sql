@@ -1,6 +1,22 @@
 -- 書庫の台帳と置き場の状態（ST12 / design D7, D8, D14, D16）。
 -- 前進のみ。戻し手順は 202609181600_archive_ingestion.down.sql に置く。
 
+-- merge 前にこの移行を当てた開発 DB は、中身だけの鍵のまま残っている。
+-- **黙って通さない** —— 通すと 2 人目の目録が ON CONFLICT で落ち、写しから
+-- 読み直せないことに誰も気づけない。ここで鍵を張り替えないのは、前進側の移行に
+-- 破壊的な文を単独で入れないため（tools/check-migrations.sh）。作り直しは
+-- 202609181600_archive_ingestion.down.sql を当ててから当て直す。
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indrelid
+     WHERE c.relname = 'archive_file' AND i.indisprimary AND i.indnatts = 1
+  ) THEN
+    RAISE EXCEPTION '開発 DB の core.archive_file が中身だけの鍵のままです。202609181600_archive_ingestion.down.sql を当ててから当て直してください';
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS core.archive_ledger (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL,
@@ -55,24 +71,16 @@ CREATE TABLE IF NOT EXISTS core.archive_file (
   user_id uuid NOT NULL,
   inner_path text NOT NULL,
   stored_path text NOT NULL,
+  -- **どの書庫から出た写しか**。印を置いた後に「その書庫の確認待ちのファイル」を
+  -- 写しから読み直すには、中のファイルの鍵だけでは辿れない（D16）。
+  archive_sha256 text,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, sha256)
 );
--- merge 前にこの移行を当てた開発 DB は、中身だけの鍵のまま残っている。
--- **黙って通さない** —— 通すと 2 人目の目録が ON CONFLICT で落ち、写しから
--- 読み直せないことに誰も気づけない。ここで鍵を張り替えないのは、前進側の移行に
--- 破壊的な文を単独で入れないため（tools/check-migrations.sh）。作り直しは
--- 202609181600_archive_ingestion.down.sql を当ててから当て直す。
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_index i
-      JOIN pg_class c ON c.oid = i.indrelid
-     WHERE c.relname = 'archive_file' AND i.indisprimary AND i.indnatts = 1
-  ) THEN
-    RAISE EXCEPTION '開発 DB の core.archive_file が中身だけの鍵のままです。202609181600_archive_ingestion.down.sql を当ててから当て直してください';
-  END IF;
-END $$;
+ALTER TABLE core.archive_file ADD COLUMN IF NOT EXISTS archive_sha256 text;
+CREATE INDEX IF NOT EXISTS archive_file_by_archive
+  ON core.archive_file (user_id, archive_sha256, inner_path);
+
 
 CREATE TABLE IF NOT EXISTS core.archive_shape_confirmation (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

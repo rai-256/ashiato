@@ -892,8 +892,13 @@ psql -c "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outco
 archive_lock_check() {
   local table="$1" where="$2"
   local cols
+  # **identity 列を外す。** `GENERATED ALWAYS AS IDENTITY` の列は `SET id = id` 自体が
+  # 「can only be updated to DEFAULT」で落ちるので、**トリガが無くても同じエラーになる**
+  # —— 入れたままだと、この検査は追記のみを 1 度も確かめずに OK を出す（実測）。
   cols=$(psql -c "SELECT string_agg(format('%I = %I', column_name, column_name), ', ' ORDER BY ordinal_position)
-                    FROM information_schema.columns WHERE table_schema='core' AND table_name='$table';")
+                    FROM information_schema.columns
+                   WHERE table_schema='core' AND table_name='$table'
+                     AND is_identity = 'NO' AND is_generated = 'NEVER';")
   if psql -c "UPDATE core.$table SET $cols WHERE $where;" >/dev/null 2>&1; then
     echo "  NG $table の全列を書き換えられた"; fail=1
   fi
