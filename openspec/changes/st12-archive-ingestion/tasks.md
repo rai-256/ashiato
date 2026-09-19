@@ -164,7 +164,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `最終日はいちばん新しい出来事の日` / `最終日と一緒に運んだ書庫の作られた時刻が残る` / `最終日の記録を消しても最終日は戻らない` /
   `古い書庫を後から置いても最終日は戻らない` / `日本時間で日をまたぐ出来事は日本時間の日になる`。
   検証: `CT archives_status`、`cargo run -p ashiato-server --bin openapi > docs/openapi.json && tools/check-openapi.sh` rc=0、`grep -c '"/archives/status"' docs/openapi.json` が 1 以上
-- [ ] 9.2 `coverage_get` の名前の並びに登録簿の `c03-*`（`display_name` 順）を Must の 5 本の後ろに足す。`achievement_get` は変えない。
+- [x] 9.2 `coverage_get` の名前の並びに登録簿の `c03-*`（`display_name` 順）を Must の 5 本の後ろに足す。`achievement_get` は変えない。
   **既存の `api_tests.rs` の `coverage_endpoint_returns_five_sources` は `/coverage` の名前をリテラルの 5 本と `assert_eq!` で比べている**ので、主張を「先頭の 5 本が Must の順、その後ろは `c03-` で始まるものだけ」に直す（印 `Scenario: ソースごとに格子が分かれる` は残す）。
   Scenario: `記録の無い日も同じ判定で出る`（サーバ側: 前後の記録が 60 日以内で記録が無い日が `alive_no_record`）。
   検証: `CT coverage_includes_archive_sources`、`CT coverage_endpoint_returns_five_sources`、既存の `CT coverage` がすべて通る
