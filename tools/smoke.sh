@@ -127,8 +127,9 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 
 # ------------------------------------------------------------------ ST12（書庫の実経路）
 
-# Scenario: 形を確認した書庫は最終日を稼働状況に出す
-# Scenario: 同じ書庫を別名で置いても稼働状況の件数は増えない
+# Scenario: 最終日はいちばん新しい出来事の日
+# Scenario: 印を置くと確認待ちの書庫が格納される
+# Scenario: 同じ書庫をもう一度置いても行が増えない
 echo "== 9b. 合成の Takeout を形の確認後に読み、別名の再配置では増やさない（ST12）"
 ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
