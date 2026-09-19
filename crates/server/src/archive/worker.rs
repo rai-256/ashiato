@@ -562,6 +562,26 @@ pub async fn record_pending_shape(
     Ok(())
 }
 
+/// 印を通って格納まで終えた内部ファイルは待ち行列から外す。待ち行列は
+/// 書き換え可能な観測値なので、追記台帳とは分けて消せる。
+pub async fn remove_pending_shape(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    inner_path: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM core.archive_pending_shape
+          WHERE user_id = $1 AND sha256 = $2 AND inner_path = $3",
+    )
+    .bind(user_id)
+    .bind(archive_sha256)
+    .bind(inner_path)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 同じ未確認書庫は、走査回数に関わらず確認待ち台帳を 1 行だけ残す。
 pub async fn record_pending_ledger(
     pool: &sqlx::PgPool,
@@ -694,7 +714,14 @@ pub fn spawn_inspecting(
                             };
                             let shape_hash = hash_shape(&shape);
                             match is_shape_confirmed(&pool, user_id, &shape_hash).await {
-                                Ok(true) => {}
+                                Ok(true) => {
+                                    if remove_pending_shape(&pool, user_id, &sha256, &file.path)
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
+                                }
                                 Ok(false) => {
                                     if let Ok(stored_path) = copy_known_file(&read_config.copy_dir, &file.bytes) {
                                         if let Some(file_sha256) = stored_path.file_name().and_then(|name| name.to_str()) {

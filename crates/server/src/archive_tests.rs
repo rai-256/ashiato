@@ -863,6 +863,57 @@ async fn archive_shape_confirmation_allows_only_confirmed_shape() {
     );
 }
 
+/// Scenario: 印を置くと確認待ちの書庫が格納される
+/// Scenario: 印を置いた後の読み直しは台帳に 1 行足す
+#[tokio::test]
+async fn archive_shape_confirm_makes_a_pending_shape_readable() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+    )
+    .unwrap();
+    let hash = crate::archive::worker::hash_shape(&shape);
+    crate::archive::worker::record_pending_shape(&pool, user, "a".repeat(64).as_str(), "watch.json", &shape)
+        .await
+        .unwrap();
+    assert!(!crate::archive::worker::is_shape_confirmed(&pool, user, &hash).await.unwrap());
+    sqlx::query(
+        "INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape) VALUES ($1, $2, $3)",
+    )
+    .bind(user)
+    .bind(&hash)
+    .bind(&shape)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(crate::archive::worker::is_shape_confirmed(&pool, user, &hash).await.unwrap());
+}
+
+/// Scenario: 確認待ちのために作った写しは読み直した後に消える
+#[tokio::test]
+async fn archive_shape_confirm_removes_consumed_pending_file() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let shape = serde_json::json!({"kind":"YouTubeWatch", "products": []});
+    crate::archive::worker::record_pending_shape(&pool, user, &"b".repeat(64), "watch.json", &shape)
+        .await
+        .unwrap();
+    crate::archive::worker::remove_pending_shape(&pool, user, &"b".repeat(64), "watch.json")
+        .await
+        .unwrap();
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1 AND sha256 = $2",
+    )
+    .bind(user)
+    .bind("b".repeat(64))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 0);
+}
+
 /// Scenario: 印を置く前の Takeout の書庫は格納されない
 #[tokio::test]
 async fn archive_shape_pending_records_unconfirmed_file_once() {
