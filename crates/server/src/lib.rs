@@ -2120,7 +2120,13 @@ pub async fn run() -> anyhow::Result<()> {
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
     if let Some(user_id) = archive_config.user_id {
-        archive::worker::spawn_inspecting(pool.clone(), archive_config, user_id, reading.clone());
+        // **握ったまま持つ**（落とすと取り込み器が止まる）。
+        std::mem::forget(archive::worker::spawn_inspecting(
+            pool.clone(),
+            archive_config,
+            user_id,
+            reading.clone(),
+        ));
     } else {
         tracing::info!(
             kind = "archive_disabled",

@@ -12,6 +12,11 @@ services:
       -c log_statement=none
       -c log_min_duration_statement=-1
       -c log_error_verbosity=terse
+      -c max_connections=300
+    # `max_connections` は既定の 100 では足りない。**試験は 1 本ごとにプールを持つ**
+    # ので（`crates/server/src/testdb.rs`）、結合試験が増えたところで上限に当たり、
+    # 落ちる試験が毎回変わる形で崩れた（実測）。**折りたたみブロックに `#` は書けない**
+    # （そのまま postgres の引数になる）ので、注記はここに置く。
     # **TCP で問う。** 初回起動の entrypoint は初期化用の仮サーバを unix ソケットだけで立てて止める。
     # ソケットで問うとその仮サーバに healthy と答え、`up --wait` の直後の psql が
     # 「shutting down」で落ちる（実測: PR #43 の smoke）。仮サーバは TCP を開けないので TCP なら待てる。

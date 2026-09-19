@@ -975,17 +975,36 @@ pub async fn read_in_order<F, Fut>(
     }
 }
 
+/// 起こした取り込み器を止める手。**落とすと走査も読み手も止まる。**
+///
+/// 止める手が無かったときは、試験が終わっても走査が 1 秒ごとに DB を叩き続け、
+/// 試験が増えるほど接続を食い合って全体が止まった（review の追試）。
+/// 本番は起動から終了まで動かすので、握ったまま持つ。
+#[derive(Debug)]
+pub struct WorkerHandle {
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for WorkerHandle {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
 /// 走査と直列読み手を背景で起こす。利用者が未設定なら呼び出し側は起こさない。
+#[must_use = "落とすと取り込み器が止まる。本番は握ったまま持つ"]
 pub fn spawn_inspecting(
     pool: sqlx::PgPool,
     config: super::config::ArchiveConfig,
     user_id: uuid::Uuid,
     reading: ReadingState,
-) {
+) -> WorkerHandle {
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
     let scan_pool = pool.clone();
     let read_config = config.clone();
-    tokio::spawn(async move {
+    let scanning = tokio::spawn(async move {
         loop {
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
                 Ok(candidates) => {
@@ -1038,7 +1057,7 @@ pub fn spawn_inspecting(
             tokio::time::sleep(std::time::Duration::from_secs(config.scan_sec)).await;
         }
     });
-    tokio::spawn(read_in_order(receiver, move |candidate| {
+    let reading_task = tokio::spawn(read_in_order(receiver, move |candidate| {
         let pool = pool.clone();
         let read_config = read_config.clone();
         let reading = reading.clone();
@@ -1362,4 +1381,8 @@ pub fn spawn_inspecting(
             }
         }
     }));
+
+    WorkerHandle {
+        tasks: vec![scanning, reading_task],
+    }
 }
