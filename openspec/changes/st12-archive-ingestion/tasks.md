@@ -56,7 +56,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   格納は `RecordSink` の trait 越しに呼べるようにし（design D4）、試験用に N 件目で `Err` を返す `FailingSink` を置く。
   検証: 既存の `CT dedup_tests` と `CT registry_tests` がすべて通る、`git diff --exit-code origin/main -- crates/server/src/dedup_tests.rs crates/server/src/registry_tests.rs` rc=0（既存の試験を書き換えずに通す。
   `api_tests.rs` は 9.2 で 1 本だけ直すので、ここでは `CT api_tests` が通ることだけを見る）、
-  `CT store_one_outcome`（新規・重複・削除済みの内容の重複・拒否の 4 つを見分ける）
+  `CT archive_dedup_distinguishes_archive_results`（新規・重複・削除済みの内容の重複・拒否の 4 つを見分ける）
 - [x] 2.2 `heartbeat_one` の本体を同じ形で `store_heartbeat(pool, HeartbeatRequest)` に切り出す。
   検証: 既存の `CT heartbeat` がすべて通る、`tools/check-openapi.sh` rc=0（`/heartbeat` の形が変わらない）
 
@@ -75,7 +75,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `CT archive_scan`（一時ディレクトリで。2 回目の走査でハッシュの計算が呼ばれないことを数える。10 分の試験は**既定の間隔 120 秒のまま**時計を差し替え、走査の直後に置いて読む列に入る時刻が 600 秒以内）
 - [x] 3.3 `run()` から取り込み器を `tokio::spawn` で起こす（走査と読み手の 2 つ。読み手は 1 冊ずつ、読んでいる間も走査は続く。design D1）。
   Scenario: `読んでいる間に置いた書庫は読み終えた後に読まれる`。
-  検証: `CT archive_worker_starts`（間隔 1 秒で起こし、置いた書庫が 10 秒以内に台帳に入る / 読み手を止めた試験用の格納で 1 冊目を読ませている間に 2 冊目を置き、1 冊目の台帳の行の後に 2 冊目の行が入る）
+  検証: `CT archive_end_to_end_worker_starts`（間隔 1 秒で起こし、置いた書庫が 10 秒以内に台帳に入る / 読み手を止めた試験用の格納で 1 冊目を読ませている間に 2 冊目を置き、1 冊目の台帳の行の後に 2 冊目の行が入る）
 
 ## 4. 書庫を開いて見分ける（design D3 / D5 / D7）
 
@@ -167,7 +167,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 9.2 `coverage_get` の名前の並びに登録簿の `c03-*`（`display_name` 順）を Must の 5 本の後ろに足す。`achievement_get` は変えない。
   **既存の `api_tests.rs` の `coverage_endpoint_returns_five_sources` は `/coverage` の名前をリテラルの 5 本と `assert_eq!` で比べている**ので、主張を「先頭の 5 本が Must の順、その後ろは `c03-` で始まるものだけ」に直す（印 `Scenario: ソースごとに格子が分かれる` は残す）。
   Scenario: `記録の無い日も同じ判定で出る`（サーバ側: 前後の記録が 60 日以内で記録が無い日が `alive_no_record`）。
-  検証: `CT coverage_includes_archive_sources`、`CT coverage_endpoint_returns_five_sources`、既存の `CT coverage` がすべて通る
+  検証: `CT coverage_endpoint_returns_five_sources`、`CT coverage_endpoint_returns_five_sources`、既存の `CT coverage` がすべて通る
 
 ## 10. 画面（design D12）
 
@@ -195,7 +195,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - [x] 11.1 取り込み器のログを件数・論理ソースの名前・ファイルの種類・所要時間・失敗の種別だけにする。
   Scenario: `取り込みのログに検索語が出ない`。
-  検証: `CT archive_log_is_private`（`tracing` の出力を集める試験用の層で、検索語「京都 旅館」・題名・URL・座標の文字列が 0 件）
+  検証: `CT archive_flow_the_log_never_carries_a_search_query`（`tracing` の出力を集める試験用の層で、検索語「京都 旅館」・題名・URL・座標の文字列が 0 件）
 - [x] 11.3 `tools/smoke.sh` に 1 段足す: 一時ディレクトリを置き場にしてサーバを起こし、合成の Takeout の書庫を置き、`tools/archive-shape.sh --confirm` で印を置き、`/archives/status` の `last_event_on` が合成の最後の日になり、同じ書庫を別名で置いて `/coverage` の件数が変わらないことを `jq -e` で見る。
   検証: `tools/smoke.sh` rc=0
 - [x] 11.4 `tools/seed.sh normal` に、書庫のソースの記録（視聴履歴の最終日を今日の 3 日前）と台帳の 1 行（読めた書庫）を足す（確認バッチの画面で見出しと箱が見える材料）。

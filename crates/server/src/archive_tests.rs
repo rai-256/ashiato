@@ -865,6 +865,7 @@ fn archive_copy_setting_does_not_create_a_file_when_disabled() {
 fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
     let shape = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::MyActivity,
+        "Takeout/fixture.json",
         r#"[{"time":"2026-01-01T00:00:00Z","products":["マップ"],"title":"京都 旅館"}]"#.as_bytes(),
     )
     .unwrap();
@@ -877,11 +878,13 @@ fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
 fn archive_shape_identity_ignores_observational_field_names() {
     let first = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/fixture.json",
         br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
     .unwrap();
     let later = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/fixture.json",
         r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x","new_field":"京都"}]"#.as_bytes(),
     )
     .unwrap();
@@ -939,6 +942,7 @@ async fn archive_shape_confirm_makes_a_pending_shape_readable() {
     let user = testdb::user();
     let shape = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/fixture.json",
         br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
     .unwrap();
@@ -1431,6 +1435,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     let user = testdb::user();
     let shape = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/fixture.json",
         br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
     .unwrap();

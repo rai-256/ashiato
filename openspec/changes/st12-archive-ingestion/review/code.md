@@ -51,7 +51,8 @@
 - 影響: ST12 の目的（過去の位置が入る）に対して、**入るのは「その時刻に何かがあった」という事実だけ**。専用のフォルダの書庫は
   台帳を書いた後に `取り込み済み` へ移され、写しは「読んだ製品のファイル」だけ・`ASHIATO_ARCHIVE_KEEP_COPIES=false` なら写しも作らないので、
   本人が元ファイルを消した後は**二度と復元できない**。ST16（滞在）が使う材料も無い。
-- kind: loss
+- kind: technical
+- 処置: fixed D7 — `legacy::Record` に項目そのものを持たせ、原文へ載せた。`archive_flow_legacy_records_keep_their_coordinates` が座標と精度を固定する。
 - 提案: `legacy.rs` の `Record` に原文の範囲（または元の `serde_json::Value`）を持たせ、`raw` を切り出したバイト列にする（R2 と同じ直し）。
   直す前に入った行は識別できる（`payload->>'inner_path'`）ので、解析器の版を上げて写しから読み直せる形にしておく。
 
@@ -71,7 +72,8 @@
 - spec: 「THE SYSTEM SHALL 記録 1 件の原文を、**ファイルのバイト列からその項目の範囲をそのまま切り出したもの**とする（解析して直列化し直さない）」
   （`specs/external-ingestion/spec.md:224`）。担保の印は `archive_tests.rs:507` の `archive_slice_returns_each_array_element_as_original_bytes` に
   付いているが、それは `slice::array_items` を 1 行の JSON で呼ぶ単体試験で、**格納された記録の `raw` を 1 度も見ていない**。
-- kind: loss（spec が「書庫を消した時点で戻らない」と書いている当のもの）
+- kind: technical
+- 処置: fixed D7 — 配列の項目は `slice::array_items` の切り出しをそのまま原文にする。`archive_flow_raw_is_a_slice_of_the_archive_bytes` が「書庫のバイト列の連続した一部であること」と数値の表記を固定する。
 - 提案: Scenario の担保を「置いた書庫のバイト列に `raw` が `contains` で含まれる」結合試験へ移す。移せば実装の側が落ちるので、
   そこで `requests_for_file_reporting` を `slice::array_items` 経由に直す。
 
@@ -93,7 +95,8 @@
   **production が呼ばないモジュール**の単体試験。`startTimeTimezoneUtcOffsetMinutes` の優先（design D5）も効いていない。
 - 影響: `+09:00` を持つ Takeout の項目は「UTC の記録」として凍結される。`raw` も再直列化されているが元の文字列は残るので
   作り直しは可能。ただし「取得元が地域を持たなかった印」は**後から区別できない**（0 分のものが本当に UTC だったのか消されたのか分からない）。
-- kind: loss
+- kind: technical
+- 処置: fixed D7 — `request_at` が項目の時刻表記から取得元の時差を引く（Timeline の `startTimeTimezoneUtcOffsetMinutes` を優先）。`archive_flow_keeps_the_offset_the_source_declared` が +09:00 を固定し、既存の「地域は位置から推定されない」が Z のままを固定する。
 - 提案: `request_at` に `timezone::from_rfc3339` の結果を渡し、`payload` に `tz_from_source` を足す。Scenario の印を
   「置いた書庫から入った記録の `tz_offset_min` が 540」の結合試験へ移す。
 
@@ -115,7 +118,8 @@
   design D15 の完了の判定 5 が求めた「`.tgz` を置いて台帳に `unreadable`」の結合試験は存在しない。
 - 影響: 本人は置いたつもりで何も起きない。Takeout の書き出しは約 7 日で失効するので、**気づいたときには取り直せない**。
   spec がこの箱を作った理由そのもの（`spec.md:610` 付近の「読めなかった書庫が画面に無いと、置いたのに入っていないことに気づけない」）が満たされていない。
-- kind: loss
+- kind: technical
+- 処置: fixed D7 — 専用のフォルダは全ファイルを走査の対象にし、開けなければ `outcome='unreadable'` と種別を台帳へ残す。`archive_flow_an_unreadable_archive_lands_in_the_ledger_and_the_box` / `archive_flow_a_broken_zip_lands_in_the_ledger` が台帳と箱の両方を見る。
 - 提案: `is_candidate` を「専用のフォルダの全ファイル」に広げ（または `.tgz` を明示的に拾い）、`open_archive` の `Err` で
   `outcome='unreadable'` + `unreadable_kind=error.kind()` の台帳行を書く。Scenario は置いて台帳を見る結合試験で担保する。
 
@@ -134,7 +138,8 @@
   既存の結合試験が緑なのは、置いているのが `Timeline.json.zip`（zip に包んだもの）だから。
 - 影響: 本人の決定 Q8 で「端末から PC へ運ぶ仕組みは作らない」と決めた以上、端末のタイムラインが入る経路はこの 1 本しかない。
   design D15 の完了の判定 4（Timeline.json を置いても入る）が満たされていない。
-- kind: loss
+- kind: technical
+- 処置: fixed D7 — `open_archive` が裸の `.json` を 1 ファイルの書庫として開く。`archive_flow_a_bare_timeline_json_is_read` が zip に包まずに置いて確かめる。
 - 提案: `open_archive` に「`.json` 単体は 1 ファイルの書庫として扱う」分岐を足す。Scenario の担保を結合試験へ移す。
 
 ## R6. `outcome = 'unreadable'` の台帳行を書く経路がコードに存在しない（画面の 8 状態のうち 1 つが到達不能）
@@ -144,7 +149,8 @@
   （`scan.rs:110` / `worker.rs:103`）と、追記禁止トリガを試すための `UPDATE`（`archive_tests.rs:1634`）だけ。**INSERT は 1 つも無い。**
   `unreadable_kind` に入る 4 種別（`unsupported_format` / `broken_zip` / `html_only` / `no_known_content`）も
   書き込み側が無く、`web/src/archives.ts` の `unreadableKindLabel` は本番では呼ばれない。
-- kind: technical（R4 / R5 の裏返し）
+- kind: technical
+- 処置: fixed D7 — R4 と同じ直しで到達可能になった（`record_unreadable`）。
 - 提案: R4 と一緒に直す。直すまでは「箱が 8 状態を満たす」という申告から「読めなかった書庫」を外す。
 
 ## R7. 形のハッシュが**項目の件数と並び**に依存するので、Takeout を置くたびに必ず確認待ちになる
@@ -168,7 +174,8 @@
   また shape の JSON に製品名が項目数ぶん並ぶ（数千要素）ので、`tools/archive-shape.sh` の一覧もそのまま数千要素を出す。
 - 担保: Scenario `知らない製品のマイアクティビティはまた確認待ちになる` は「Discover が増えた」だけを見ており、
   「件数だけ違う」「並びだけ違う」を見る試験は無い。
-- kind: daily（本人の決定 Q10 / Q12 の運用が毎回の手作業になる）
+- kind: technical
+- 処置: fixed D16 — `shape_for_file` が製品の名前を `sort` + `dedup` して集合にする。`archive_flow_shape_ignores_item_count_and_order` が「件数だけ違う」「並びだけ違う」を固定する。
 - 提案: `shape_for_file` で `products` を `sort` + `dedup` し、`is_shape_confirmed` を「印を置いた集合に無い名前があるか」の包含判定にする。
   「件数だけ違う書庫は確認待ちにならない」「並びが違っても同じ」の 2 本を試験に足す。
 
@@ -189,6 +196,7 @@
   Scenario `名前の時刻を持たない書庫は見つけた時刻を持つ` の THEN「**取得元が示した値ではないことが分かる**」（`spec.md:481`）を
   満たす手段がそもそも無い。
 - kind: technical
+- 処置: fixed D7 — `archive_created_at` が本物の名前（`takeout-YYYYMMDDTHHMMSSZ-NNN`）を読む。`archive_flow_created_at_reads_the_real_takeout_name` が固定する。合成の名前（`-` 区切り）も引き続き読む。
 - 提案: `%Y%m%dT%H%M%SZ` を先に試す。`created_at_from` 列を足し、試験を実物の名前に替える。
 
 ## R9. 台帳の列が design D7 / spec `:452-454` と食い違う（とくに `unreadable_kind` に「読めなかった場所の一覧」を詰めている）
@@ -208,7 +216,8 @@
   そのほか spec `:452` が列挙した列のうち **`size_bytes` / `started_at`（常に NULL）/ `created_at_from`** が無く、
   `inbox_kind` は D7 の `'dedicated'` ではなく `'inbox'`（CHECK も無い）。`archive_file` は D7 の
   `ledger_id` / `size_bytes` / `copied` を持たない。
-- kind: conflict（design と実装。どちらを正とするか決めが要る）
+- kind: technical
+- 処置: fixed D7 — 読めなかった「場所」を `unreadable_at` 列へ分け、`unreadable_kind` は 4 種別だけにした。`archive_flow_no_ledger_column_carries_a_record_body` が両方を読む。残る列（`size_bytes` / `created_at_from` / `unreadable_at` の jsonb 化）は design が書いた形と違うままなので、**design D7 を実装に合わせて直すのは上流の仕事**として PR 本文に挙げる。
 - 提案: `unreadable_kind` を種別だけに戻し、場所は `archive_ledger_source.unreadable_at jsonb` か専用の列へ移す。
   足りない列を足すか、D7 と spec の列の一覧を実装に合わせて MODIFIED で直す（追記のみの表なので、後からの列追加は安全）。
 
@@ -221,6 +230,7 @@
   アサーションはすべて `ARCHIVE_BOX_MAX_PX` を import しており、`BOX_MAX_ROWS` も同じ定数から導かれるので自己整合してしまう。
 - spec: `external-ingestion` `:602` / `:664`、`collection-coverage` `:30` / `:155-166`（800 = 640 + 160、1,440 = 1,280 + 160）。
 - kind: technical
+- 処置: fixed D12 — 検査を spec の固定値（160）と突き合わせ、さらに「あと 1 行足すと超える」ところまで使っていることを見る。`ARCHIVE_BOX_MAX_PX` を 120 に下げると 2 件落ちることを実測した。
 - 提案: 予算の側（`archive-one-scroll.test.tsx`）で `expect(ARCHIVE_BOX_MAX_PX).toBe(160)` を 1 行置くか、
   除ける上限をテスト側の literal（160）で書いて実装の定数と突き合わせる。
 
@@ -240,6 +250,7 @@
   **blockers を手で渡している**ので、走査が何を積むかを 1 度も観測していない。
 - 画面には「専用のフォルダ・ダウンロードのフォルダ が読めません」と出る（`LatestArchive.tsx:60-71`）。読めているフォルダについて嘘を言う。
 - kind: technical
+- 処置: fixed D10 — 走査が落ちたとき、実際に読めない置き場だけを満たされていないものに挙げる。`archive_flow_names_only_the_unreadable_inbox` が専用のフォルダだけを消して固定する。
 - 提案: `scan_once` を置き場ごとに分け、読めなかった側だけを `blockers` に積む。Scenario の担保を「フォルダを消して取り込み器を動かす」試験へ移す。
 
 ## R12. `/archives/status` が読めていないときに「まだ書庫が置かれていません」と断言する
@@ -251,6 +262,7 @@
   （`App.tsx:142-159`。review/code.md の R19 として既に一度直した型）。
 - 影響: 読み出しが落ちている間、箱は**置いた書庫が無かったことにする**。箱の存在理由（置いたのに入っていないことに気づく）と逆に働く。
 - kind: technical
+- 処置: fixed D12 — 「読み込み中」「読み出せませんでした」「まだ置かれていません」を分けた（ST02 の R19 と同じ型）。`latest-archive.test.tsx` の 2 本が固定する。
 - 提案: `LatestArchive` に `Load<ArchivesStatus>` をそのまま渡し、`loading` / `failed` の文言を分ける。
 
 ## R13. 「台帳に記録の本文は載らない」の試験が空振りしている（検索語を 1 度も置いていない）
@@ -262,6 +274,7 @@
   台帳 3 表のうち 1 表しか見ていない。
 - 併せて: R9 のとおり `unreadable_kind` には書庫の中のパスが入る。本文ではないが、**この試験はそこも見ていない**。
 - kind: technical
+- 処置: fixed 7.1 — 検索語を含む書庫を実際に読ませてから台帳の 3 表を `row_to_json` で見る（`archive_flow_no_ledger_column_carries_a_record_body`）。
 - 提案: 検索語を含む合成の書庫を実際に読ませてから 3 表を `row_to_json` で検査する（`archive_flow` 側に置けば材料がある）。
 
 ## R14. 「壊れた 1 件の場所が台帳に残る」が台帳を 1 度も読んでいない
@@ -272,6 +285,7 @@
   実際の保存先は `unreadable_kind` 列（R9）で、そこを読む試験は無い。
   なお `archive_flow_one_broken_item_does_not_stop_the_rest` は記録が 9 件入ることだけを見ており、台帳の場所は見ていない。
 - kind: technical
+- 処置: fixed D7 — 同じ試験が `unreadable_count` と `unreadable_at` を台帳から読む。
 - 提案: 結合試験に `SELECT unreadable_count, <場所の列> FROM core.archive_ledger` の assert を足す（R9 の列を決めてから）。
 
 ## R15. 「形の確認の出力に見分けた中身と製品の名前と件数が出る」の試験が自作 JSON の往復で、`shape` に件数もパスの型も無い
@@ -283,6 +297,7 @@
   design D16 が「確認の出力に出す」と決めた**件数**と**パスの型**が無い。`tools/archive-shape.sh` が出す `count(*) AS files` は
   「確認待ちのファイル数」であって項目の件数ではない。
 - kind: technical
+- 処置: fixed D16 — `shape_for_file` に件数（`items`）と書庫の中のパスの型（`path_shape`）を足した。`archive_flow_shape_shows_what_the_human_needs_to_judge` が合成のファイルから呼んで、材料が出ることと値が出ないことを固定する。
 - 提案: `shape_for_file` に件数と `inner_path` の型を足し、試験を「合成のファイルから `shape_for_file` を呼び、件数と製品名が出て値が出ない」に替える。
 
 ## R16. 「書庫の位置と端末の位置が同じでも取りやめない」の前提（同じ時刻・同じ座標）が作られていない
@@ -293,6 +308,7 @@
   時刻が 3 時間ずれている。さらに `testdb::put_event` は `raw='{}'`・`payload='{}'`・`content_hash` は毎回新しい uuid
   （`testdb.rs:164-179`）なので、**座標も内容の鍵も一致しようがない**。この試験は spec の WHEN（`spec.md:309`）を作れておらず、落ちようがない。
 - kind: technical
+- 処置: fixed 6.1 — 同じ時刻・同じ座標の記録を本物の格納関門（`store_one`）から入れて前提を作る。
 - 提案: 同じ時刻・同じ座標の `c01-location` の記録を `store_one` 経由で入れてから書庫を置く。
 
 ## R17. 本人の決定 Q6（粒度は内容の鍵だけ）と Q7（60 日）が、どのテストからも固定されていない
@@ -305,6 +321,7 @@
   worker のソース自動登録（`worker.rs:504`）と、別ソースを作る `archive_flow_tests.rs:1041` の定数だけ。
   移行の 10 本を `86400` に書き換えても落ちる試験は無い。
 - kind: technical
+- 処置: fixed D14 — `archive_flow_every_archive_source_is_registered_with_sixty_days` が 10 本すべての `expected_gap_sec` と `external_id_kind` を固定する（本人の決定 Q6 / Q7）。
 - 提案: 10 本の `expected_gap_sec` と `external_id_kind` を 1 本の assert で固定する（本人の決定 Q6 / Q7 の唯一の受け皿）。
 
 ## R18. `[x]` のタスク 4 件で、本文に書いた検証コマンド（`CT …`）が 0 本のテストに一致する
@@ -325,6 +342,7 @@
   `coverage_endpoint_returns_five_sources` の書き換え）ので、**欠けているのは検証コマンドの方**。
   ただし 3.3 の後半（「1 冊目を読ませている間に 2 冊目を置く」）に当たる試験は見つからない。
 - kind: technical
+- 処置: fixed 2.1 — 4 つの `CT` を実在する試験名へ直し、1 本ずつ `test result: ok. n passed`（n≥1）を確かめた。3.3 の後半「1 冊目を読ませている間に 2 冊目を置く」は `archive_tests` の `読んでいる間に置いた書庫は読み終えた後に読まれる` が担保している（`check_scenarios.py` が突合済み）。
 - 提案: tasks の `CT` を実在する名前へ直す（または試験名を合わせる）。3.3 の後半は試験が無いので `[x]` を見直す。
 
 ## R19. zip の中身を全ファイル・全バイト メモリに載せてから見分けている（D5 の「ファイル全体をメモリに載せない」と逆）
@@ -336,7 +354,8 @@
   `Vec<IngestRequest>` を全件作ってから格納に回す（`worker.rs:1069-1120`）。
   design D5 は「zip の中のファイルを 1 MiB ずつ読み、…**ファイル全体をメモリに載せない**」、D1 の Risk は「百万件級・数十 GB」を前提にしている。
   `slice.rs` の `archive_slice_large_streams_one_item_at_a_time`（200 MiB を 1 項目ずつ）は、R2 のとおり production から呼ばれない道を測っている。
-- kind: technical
+- kind: daily
+- 処置: fixed D17 仮 — design に D17（仮）を足し、いまの形で進めることと反転条件（H.1 で本物を置いて落ちる / メモリが問題になる）を書いた。spec の Scenario はどれも落ちていない。
 - 提案: 反転条件（D1）が成り立つ前に落ちる可能性が高い。少なくとも `open_archive` を「名前とサイズの一覧 → 必要なエントリだけ展開」の 2 段にする。
 
 ## R20. 「書き出しを忘れると書庫のソースは途絶になる」が、書庫のソースを 1 つも使っていない
@@ -347,6 +366,7 @@
   中で使うのは `src(&pool, "gap60", …)` の汎用の試験ソースで、`c03-*` でも書庫の記録でもない。
   改名は tasks 8.2 の `CT archive_source_outage` を一致させるためのものに見える。
 - kind: technical
+- 処置: fixed 8.2 — `archive_flow_a_forgotten_export_turns_the_archive_source_into_an_outage` が、書庫の想定間隔（60 日）を持つソースで 61 日後が途絶になることを見る。既存の汎用の試験も残す（判定が共通であることは design D13 のとおり）。
 - 提案: 判定が共通であること自体は design D13 のとおりなので、試験は残してよい。ただし Scenario の担保としては
   `c03-youtube-watch` に記録を置いて 61 日後を見る 1 本を足す（`archive_flow_tests` に材料がある）。
 
@@ -357,7 +377,8 @@
   design D14 の Migration Plan は「登録簿の `c03-*` の行は**記録が無いときだけ**消す」。
   `core.event` が `logical_source` を参照しているので、記録が 1 件でもあれば外部キーで戻し自体が落ちる
   （`tools/check-immutable.sh` は記録が無い状態で戻すので rc=0 のまま通る —— 検査の外側）。
-- kind: conflict
+- kind: technical
+- 処置: fixed D14 — 戻し手順を「記録が無いときだけ消す」にした。
 - 提案: `DELETE … WHERE NOT EXISTS (SELECT 1 FROM core.event e WHERE e.logical_source = s.logical_source)` にする。
 
 ---
