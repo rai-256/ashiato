@@ -78,7 +78,7 @@ graph LR
 2026-09-08、`docs/requirements.md` に **NFR-17〜21** と外部世界の主張 **EXT-F / EXT-G / EXT-H** を追加した。
 
 **戻す前に出所を検算したところ、旧プロジェクトの記録が誤っていた。**
-`reference/traceability.md` は旧 NFR-15/16/17 の出所を「本人 / `data/interviews/20260829_113051_deep.json`」と
+旧 ashiato の `traceability.md` は旧 NFR-15/16/17 の出所を「本人 / `data/interviews/20260829_113051_deep.json`」と
 記録しているが、**この JSON は本人へのインタビューではない**。`exchanges` の構造は
 `{area, question, answer, confidence}` で `answer` は AI の散文であり、当の項目に
 

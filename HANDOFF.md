@@ -1,5 +1,12 @@
 # 引き継ぎ: ashiato2 で要件定義を起こす
 
+> **これは 2026-09-07 の引き継ぎの記録で、指示書としては終わっている。**
+> ここが頼んでいる「要件定義を起こす」は済んでいて、成果は `docs/requirements.md`。
+> いまの進め方は `CLAUDE.md` を見る。
+>
+> **この文書が名指す `reference/` はこのリポジトリに無い**（公開にあたって全履歴から消した）。
+> 中の `reference/…` は手元の `~/dev/ashiato/` を指す**当時の**パスとして読む。
+
 `~/dev/ashiato2/` で作業する。**旧 `~/dev/ashiato/` は別物なので触らない**（旧ハーネス付き・別の実験）。
 
 ## これは何か
@@ -12,7 +19,7 @@
 
 | パス | 何か | 書き込み |
 |---|---|---|
-| `~/dev/ashiato2/` | 作業場所。GitHub `rai-256/ashiato2` (private) / branch `main` / 初期コミット `afad85b` | する |
+| `~/dev/ashiato2/` | 作業場所。GitHub `rai-256/ashiato` / branch `main` / 初期コミット `afad85b` | する |
 | `reference/` | 旧 ashiato からの参考資料 | **しない（読むだけ）** |
 | `docs/` | フローの出力先。**いまは空** | する |
 | `.claude/skills` → `~/dev/harness2/skills` | skill 5 本（symlink）| harness2 側で直す |
