@@ -44,3 +44,5 @@
 202610020030_places
 # ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
 202610121040_event_by_user_source_ingest
+# ST08: c02-browser-history を訪問ごとの識別子で受ける
+202609211400_browser_history_record_id

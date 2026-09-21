@@ -49,6 +49,43 @@ async fn c02_window_external_id_kind_is_not_record() {
     );
 }
 
+/// c02-browser-history は訪問ごとの外部識別子で更新・版管理する（ST08 design D7）。
+#[tokio::test]
+async fn browser_history_record_id_is_required() {
+    let pool = testdb::pool().await;
+    let (kind,): (String,) =
+        sqlx::query_as("SELECT external_id_kind FROM core.source WHERE logical_source = $1")
+            .bind("c02-browser-history")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "record", "履歴は訪問ごとの識別子を要求する");
+}
+
+/// 識別子のない履歴は、同じ訪問の更新先を決められないため断る。
+///
+/// Scenario: 識別子を欠いた履歴の記録は断られる
+#[tokio::test]
+async fn browser_history_without_external_id_is_rejected() {
+    let app = app().await;
+    let raw = r#"{"kind":"visit","at":"2026-03-01T12:00:00.000001Z","browser":"chrome"}"#;
+    let body = serde_json::json!([{
+        "id": uuid::Uuid::new_v4(), "user_id": testdb::user(),
+        "logical_source": "c02-browser-history", "external_id": null,
+        "device_id": "pc-01", "origin": "collected",
+        "event_time": "2026-03-01T12:00:00.000001Z", "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": raw,
+        "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
+    }]);
+    let (_, Json(results)): (_, Json<Vec<IngestResult>>) =
+        ingest(State(app), auth(), Json(body)).await.expect("取り込み口");
+    assert!(!results[0].accepted, "識別子なしの履歴を受け付けた");
+    assert!(
+        matches!(results[0].error, Some(crate::IngestError::MissingExternalId)),
+        "異なる理由で断られた: {:?}", results[0].error
+    );
+}
+
 /// **識別子を持たない記録が受け付けられる**（spec / FR-23 / FR-61）。
 ///
 /// Scenario: 識別子を持たない記録が受け付けられる
