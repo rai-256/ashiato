@@ -73,7 +73,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 19] = [
+pub const MIGRATIONS: [(&str, &str); 20] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -161,6 +161,11 @@ pub const MIGRATIONS: [(&str, &str); 19] = [
     (
         "202609291230_clock_source",
         include_str!("../../../migrations/202609291230_clock_source.sql"),
+    ),
+    // ST08: c02-browser-history を訪問ごとの識別子で受ける。
+    (
+        "202609211400_browser_history_record_id",
+        include_str!("../../../migrations/202609211400_browser_history_record_id.sql"),
     ),
 ];
 
