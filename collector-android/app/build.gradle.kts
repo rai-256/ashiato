@@ -29,7 +29,25 @@ android {
     buildFeatures { buildConfig = true }
     // Robolectric は本物の framework を JVM 上で動かすので資源が要る。
     // **本番経路（LocationCallback / Activity の権限フロー）を実機なしで通すための唯一の道具**
-    testOptions { unitTests { isIncludeAndroidResources = true } }
+    testOptions {
+        unitTests { isIncludeAndroidResources = true }
+        // **Robolectric を offline にできる口。** 既定では `$HOME` 直下に
+        // `.robolectric-download-lock` を作ろうとする（`MavenDependencyResolver`）。
+        // Codex の sandbox（`-s workspace-write`）は cwd / /tmp しか書けないので、
+        // 2026-09-21 の実測では単体テスト 160 本のうち 4 本がここで落ちた。
+        // `$HOME` を丸ごと書けるようにすると `~/.ssh` と `~/.config/gh` の token まで
+        // 開くことになるので採らない。offline なら resolver を通らない。
+        //
+        // 環境変数が無いときは**何も変えない** —— CI は立てないので今までどおり動く。
+        // 立てるのは harness（`scripts/codex_env.sh`）で、値は android-all の jar を
+        // 集めた場所。読むだけなので、その場所は書けなくてよい。
+        unitTests.all { test ->
+            System.getenv("ASHIATO_ROBOLECTRIC_JARS")?.let { jars ->
+                test.systemProperty("robolectric.offline", "true")
+                test.systemProperty("robolectric.dependency.dir", jars)
+            }
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
