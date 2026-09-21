@@ -93,6 +93,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: { targets: x86_64-pc-windows-gnu, components: clippy }
+      # rusqlite の `bundled` は SQLite を C から組み立てる。クロス lint でも
+      # Windows 向け C コンパイラが無ければビルドスクリプトで止まる（ST08 design D2）。
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
       # **型だけでなく lint も当てる**（review/code.md B-5 / R34）。ubuntu の clippy は
       # cfg(windows) の中身をコンパイルしないので、作業場の lint が platform.rs に届かない
       - run: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
