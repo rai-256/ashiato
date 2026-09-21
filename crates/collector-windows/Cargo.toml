@@ -21,6 +21,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = { version = "3", default-features = false }
 # 記録に載せる IANA のタイムゾーン識別子（FR-20）。chrono は名前を持たない。
 iana-time-zone = "0.1"
+# 履歴 DB の写しを Linux の単体テストでも本物の SQLite で読む（ST08 design D2）。
+# `bundled` は Windows 向けだけに閉じない。読み手の規則を全開発環境で検証するため。
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Windows の実機でしか動かない部分。**unsafe を書かずに安全な wrapper に委ねる**
 # （design D15）—— 作業場の lint は `unsafe_code = "forbid"` で、これは
