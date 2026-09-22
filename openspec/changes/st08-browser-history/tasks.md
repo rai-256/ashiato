@@ -166,7 +166,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `ブラウザ履歴の記録も既定の感度で格納される`。
   検証: `tools/smoke.sh` で `psql -c "SELECT DISTINCT sensitivity FROM core.event WHERE logical_source='c02-browser-history'"` が `1` だけを返して rc=0 /
   `cargo test history_sensitivity_uses_collection_default` rc=0
-- [ ] 9.2 履歴の取得のログに URL・ページの題名・プロファイルの表示名・原文を出さない（件数・ソース名・所要時間・エラーの種別だけ）。
+- [x] 9.2 履歴の取得のログに URL・ページの題名・プロファイルの表示名・原文を出さない（件数・ソース名・所要時間・エラーの種別だけ）。
   Scenario: `履歴の読み取りの失敗がログに出ても URL と題名は出ない`。
   検証: `cargo test history_log_has_no_private_content` rc=0
 
