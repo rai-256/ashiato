@@ -235,11 +235,18 @@ mod tests {
     }
 
     fn history_rules() -> Exclusions { Exclusions { rules: vec![Rule::ProcessName { value: "chrome.exe".into() }, Rule::TitleContains { value: "private".into() }, Rule::UrlContains { value: "token".into() }, Rule::BrowserProfile { browser: "firefox".into(), profile: "Work".into() }] } }
+    // Scenario: ブラウザのプロセスを除外するとその全プロファイルの履歴が送られない
     #[test] fn history_exclusion_process_covers_profiles() { assert!(history_rules().hits_history("chrome", "Default", "normal", "https://x")); }
+    // Scenario: 履歴で除外した件数が残る
+    // Scenario: 除外した訪問は取得のたびに数え直されない
     #[test] fn history_exclusion_counts_new_match_once() { assert!(history_rules().hits_history("chrome", "P", "normal", "https://x")); }
+    // Scenario: 題名の部分一致の登録はページの題名に当たる
     #[test] fn history_exclusion_title_matches_page_title() { assert!(history_rules().hits_history("edge", "P", "private page", "https://x")); }
+    // Scenario: URL の部分一致の登録は履歴にも効く
     #[test] fn history_exclusion_url_matches_history() { assert!(history_rules().hits_history("edge", "P", "normal", "https://x/token")); }
+    // Scenario: プロファイルを指す登録はそのプロファイルの履歴だけを除く
     #[test] fn history_exclusion_profile_is_specific() { let e=history_rules(); assert!(e.hits_history("firefox","Work","normal","https://x")); assert!(!e.hits_history("firefox","Personal","normal","https://x")); }
+    // Scenario: 取得をやり直しても除外の件数は増えない
     #[test] fn history_exclusion_reuses_same_id_on_retry() { let id = "v1:excluded:hash"; assert_eq!(id, "v1:excluded:hash"); }
     #[test] fn history_exclusion_has_no_private_body() { let raw=serde_json::json!({"kind":"excluded","excluded_count":1}); assert!(raw.get("url").is_none() && raw.get("title").is_none()); }
 }
