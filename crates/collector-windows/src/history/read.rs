@@ -43,6 +43,17 @@ pub fn with_copy<T>(source: &std::path::Path, read: impl FnOnce(&std::path::Path
     result
 }
 
+/// 履歴を読む区間が無いときでも、写しを開いて最小の問い合わせまで通す。
+///
+/// 生存信号を「読める」と報告する前の確認専用で、訪問行は読み取らない。
+pub fn probe_readable(source: &std::path::Path) -> anyhow::Result<()> {
+    with_copy(source, |copy| {
+        let conn = rusqlite::Connection::open_with_flags(copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.query_row("SELECT 1", [], |_| Ok(()))?;
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +107,13 @@ mod tests {
         let db = temp_db(); rusqlite::Connection::open(&db).unwrap();
         let copy = with_copy(&db, |p| { assert!(p.exists()); Ok(p.to_owned()) }).unwrap();
         assert!(!copy.exists()); std::fs::remove_file(db).ok();
+    }
+    #[test]
+    fn history_heartbeat_probes_when_not_read() {
+        // Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
+        let db = temp_db(); rusqlite::Connection::open(&db).unwrap();
+        assert!(probe_readable(&db).is_ok());
+        std::fs::remove_file(db).ok();
     }
     fn temp_db() -> std::path::PathBuf { std::env::temp_dir().join(format!("ashiato-read-{}.sqlite", uuid::Uuid::new_v4())) }
 }

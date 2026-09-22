@@ -306,6 +306,13 @@ mod tests {
     }
 
     #[test]
+    fn history_heartbeat_on_start() {
+        // Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
+        let schedule = Schedule::with_interval(Duration::seconds(HISTORY_EXPECTED_GAP_SEC));
+        assert!(schedule.due(t(0)), "起動直後の履歴生存信号が出ない");
+    }
+
+    #[test]
     fn history_heartbeat_reports_unreadable_and_missing() {
         // Scenario: 読めないプロファイルが 1 つでもあれば取得できないとして報告される
         // Scenario: 読めなかったブラウザとプロファイルが満たされていないものに挙がる
