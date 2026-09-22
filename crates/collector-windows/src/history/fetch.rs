@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! 読取り結果を未送信と帳面へ反映する取得。
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::cloned_ref_to_slice_refs))]
 use sha2::{Digest as _, Sha256};
 
 use crate::history::contract::Visit;
@@ -23,7 +24,9 @@ pub struct HistoryWorker<T> {
 
 impl<T: Send + 'static> HistoryWorker<T> {
     pub fn spawn(read: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Self {
-        Self { handle: std::thread::spawn(read) }
+        Self {
+            handle: std::thread::spawn(read),
+        }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -31,7 +34,9 @@ impl<T: Send + 'static> HistoryWorker<T> {
     }
 
     pub fn join(self) -> anyhow::Result<T> {
-        self.handle.join().map_err(|_| anyhow::anyhow!("履歴読取りworkerがpanicした"))?
+        self.handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("履歴読取りworkerがpanicした"))?
     }
 }
 
@@ -54,16 +59,22 @@ pub fn detect_vanished(
     profile_gone: bool,
 ) -> Vec<VanishedVisit> {
     let seen: std::collections::BTreeSet<_> = seen.iter().collect();
-    let table_recreated = ledger.max_visit_id.zip(max_visit_id).is_some_and(|(before, now)| now < before);
-    ledger.visits.iter().filter_map(|(external_id, visit)| {
-        (!visit.excluded && !seen.contains(external_id)).then(|| VanishedVisit {
+    let table_recreated = ledger
+        .max_visit_id
+        .zip(max_visit_id)
+        .is_some_and(|(before, now)| now < before);
+    ledger
+        .visits
+        .iter()
+        .filter(|(external_id, visit)| !visit.excluded && !seen.contains(external_id))
+        .map(|(external_id, visit)| VanishedVisit {
             external_id: external_id.clone(),
             age_days: (now - visit.at).num_days().max(0),
             foreign: visit.foreign,
             table_recreated,
             profile_gone,
         })
-    }).collect()
+        .collect()
 }
 
 /// 読めなかったプロファイルは、空の履歴と区別して消失判定しない。
@@ -75,7 +86,11 @@ pub fn detect_vanished_if_readable(
     profile_gone: bool,
     readable: bool,
 ) -> Vec<VanishedVisit> {
-    readable.then(|| detect_vanished(ledger, seen, now, max_visit_id, profile_gone)).unwrap_or_default()
+    if readable {
+        detect_vanished(ledger, seen, now, max_visit_id, profile_gone)
+    } else {
+        Vec::new()
+    }
 }
 
 /// 送信対象へ積んだ消失を帳面から外す。同じ取得の再試行で二重に積まないため。
@@ -94,12 +109,30 @@ pub fn apply_history_exclusions(
     let mut kept = Vec::new();
     let mut newly_excluded = 0;
     for visit in visits {
-        let excluded = exclusions.hits_history(&visit.payload.browser, &visit.payload.profile, &visit.payload.title, &visit.payload.url);
+        let excluded = exclusions.hits_history(
+            &visit.payload.browser,
+            &visit.payload.profile,
+            &visit.payload.title,
+            &visit.payload.url,
+        );
         if excluded {
-            let was_excluded = ledger.visits.get(&visit.external_id).is_some_and(|saved| saved.excluded);
-            if !was_excluded { newly_excluded += 1; }
-            let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at).expect("Visit は RFC3339").with_timezone(&chrono::Utc);
-            ledger.record_visit(&visit.external_id, &content_hash(visit), at, visit.payload.originator_cache_guid.is_some(), true);
+            let was_excluded = ledger
+                .visits
+                .get(&visit.external_id)
+                .is_some_and(|saved| saved.excluded);
+            if !was_excluded {
+                newly_excluded += 1;
+            }
+            let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at)
+                .expect("Visit は RFC3339")
+                .with_timezone(&chrono::Utc);
+            ledger.record_visit(
+                &visit.external_id,
+                &content_hash(visit),
+                at,
+                visit.payload.originator_cache_guid.is_some(),
+                true,
+            );
         } else {
             kept.push(visit.clone());
         }
@@ -116,14 +149,18 @@ pub fn vanished_chunks(items: &[VanishedVisit]) -> Vec<Vec<VanishedVisit>> {
 
 impl HistorySchedule {
     pub fn with_last_success(last_success: Option<chrono::DateTime<chrono::Utc>>) -> Self {
-        Self { last_success, retry_after: None }
+        Self {
+            last_success,
+            retry_after: None,
+        }
     }
 
     pub fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
         if let Some(retry) = self.retry_after {
             return now >= retry;
         }
-        self.last_success.is_none_or(|last| now - last >= HISTORY_INTERVAL)
+        self.last_success
+            .is_none_or(|last| now - last >= HISTORY_INTERVAL)
     }
 
     pub fn succeeded(&mut self, now: chrono::DateTime<chrono::Utc>) {
@@ -244,13 +281,29 @@ mod outbox_tests {
     /// Scenario: 取り込み口が止まっている間に取得した履歴が後から届く
     #[test]
     fn history_success_only_after_outbox() {
-        let dir = std::env::temp_dir().join(format!("ashiato-history-fetch-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("ashiato-history-fetch-{}", uuid::Uuid::new_v4()));
         let path = dir.join("ledger");
         let mut store = LedgerStore::open(path.clone()).unwrap();
-        let visit = Visit::new("chrome", "Default", 1, chrono::Utc::now(), "https://example.test", "題名");
+        let visit = Visit::new(
+            "chrome",
+            "Default",
+            1,
+            chrono::Utc::now(),
+            "https://example.test",
+            "題名",
+        );
 
-        assert!(queue_then_save(&mut store, &[visit.clone()], |_| anyhow::bail!("取り込み口が止まっている")).is_err());
-        assert!(store.ledger().visits.is_empty(), "未送信へ積めないのに成功扱いにしている");
+        assert!(
+            queue_then_save(&mut store, &[visit.clone()], |_| anyhow::bail!(
+                "取り込み口が止まっている"
+            ))
+            .is_err()
+        );
+        assert!(
+            store.ledger().visits.is_empty(),
+            "未送信へ積めないのに成功扱いにしている"
+        );
 
         queue_then_save(&mut store, &[visit.clone()], |_| Ok(())).unwrap();
         let reopened = LedgerStore::open(path).unwrap();
@@ -291,8 +344,8 @@ mod worker_tests {
 #[cfg(test)]
 mod vanished_tests {
     use super::*;
-    use chrono::{Duration, Utc};
     use crate::history::ledger::Ledger;
+    use chrono::{Duration, Utc};
 
     fn ledger() -> Ledger {
         let mut ledger = Ledger::default();
@@ -302,23 +355,74 @@ mod vanished_tests {
     }
 
     // Scenario: 履歴から 1 件消すと次の取得で「消えた」記録が残る
-    #[test] fn history_vanished_is_detected() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].external_id, "v1:a"); }
+    #[test]
+    fn history_vanished_is_detected() {
+        assert_eq!(
+            detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].external_id,
+            "v1:a"
+        );
+    }
     // Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
-    #[test] fn history_vanished_has_age_days() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].age_days, 3); }
+    #[test]
+    fn history_vanished_has_age_days() {
+        assert_eq!(
+            detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].age_days,
+            3
+        );
+    }
     // Scenario: 同期で入った訪問が消えたことが本文にある
-    #[test] fn history_vanished_marks_foreign() { let mut l=ledger(); l.visits.get_mut("v1:a").unwrap().foreign=true; assert!(detect_vanished(&l,&[],Utc::now(),Some(10),false)[0].foreign); }
+    #[test]
+    fn history_vanished_marks_foreign() {
+        let mut l = ledger();
+        l.visits.get_mut("v1:a").unwrap().foreign = true;
+        assert!(detect_vanished(&l, &[], Utc::now(), Some(10), false)[0].foreign);
+    }
     // Scenario: 表が作り直されたことが本文にある
-    #[test] fn history_vanished_marks_recreated_table() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(1),false)[0].table_recreated); }
+    #[test]
+    fn history_vanished_marks_recreated_table() {
+        assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(1), false)[0].table_recreated);
+    }
     // Scenario: プロファイルが無くなったことが本文にある
-    #[test] fn history_vanished_marks_gone_profile() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(10),true)[0].profile_gone); }
+    #[test]
+    fn history_vanished_marks_gone_profile() {
+        assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), true)[0].profile_gone);
+    }
     // Scenario: 消えた経路を名指しする値を持たない
     // Scenario: 消えた記録に URL と題名が載らない
-    #[test] fn history_vanished_has_no_named_cause_or_private_text() { let item=&detect_vanished(&ledger(),&[],Utc::now(),Some(10),false)[0]; let json=serde_json::to_string(item).unwrap(); assert!(!json.contains("deleted") && !json.contains("url") && !json.contains("title")); }
-    #[test] fn history_vanished_is_chunked_at_1000() { let mut l=Ledger::default(); for i in 0..1001 { l.record_visit(&format!("v1:{i:04}"),"h",Utc::now(),false,false); } let chunks=vanished_chunks(&detect_vanished(&l,&[],Utc::now(),None,false)); assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(),vec![1000,1]); }
+    #[test]
+    fn history_vanished_has_no_named_cause_or_private_text() {
+        let item = &detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0];
+        let json = serde_json::to_string(item).unwrap();
+        assert!(!json.contains("deleted") && !json.contains("url") && !json.contains("title"));
+    }
+    #[test]
+    fn history_vanished_is_chunked_at_1000() {
+        let mut l = Ledger::default();
+        for i in 0..1001 {
+            l.record_visit(&format!("v1:{i:04}"), "h", Utc::now(), false, false);
+        }
+        let chunks = vanished_chunks(&detect_vanished(&l, &[], Utc::now(), None, false));
+        assert_eq!(
+            chunks.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![1000, 1]
+        );
+    }
     // Scenario: 読めなかったプロファイルでは消えた記録を出さない
-    #[test] fn history_vanished_skips_unreadable_profile() { let l=ledger(); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,false).is_empty()); }
+    #[test]
+    fn history_vanished_skips_unreadable_profile() {
+        let l = ledger();
+        assert!(
+            detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, false).is_empty()
+        );
+    }
     // Scenario: 取得をやり直しても「消えた」記録は増えない
-    #[test] fn history_vanished_is_idempotent_on_retry() { let mut l=ledger(); let vanished=detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true); apply_vanished(&mut l,&vanished); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true).is_empty()); }
+    #[test]
+    fn history_vanished_is_idempotent_on_retry() {
+        let mut l = ledger();
+        let vanished = detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, true);
+        apply_vanished(&mut l, &vanished);
+        assert!(detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, true).is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -326,21 +430,43 @@ mod exclusion_change_tests {
     use super::*;
     use crate::exclusion::{Exclusions, Rule};
 
-    fn visit() -> Visit { Visit::new("chrome", "Default", 1, chrono::Utc::now(), "https://example.test", "private") }
+    fn visit() -> Visit {
+        Visit::new(
+            "chrome",
+            "Default",
+            1,
+            chrono::Utc::now(),
+            "https://example.test",
+            "private",
+        )
+    }
     #[test]
     fn history_exclusion_added_later() {
         // Scenario: 登録を後から足すと、既に送った訪問の変わった内容は送られない
-        let v=visit(); let mut ledger=Ledger::default(); mark_queued(&mut ledger, std::slice::from_ref(&v));
-        let rules=Exclusions { rules: vec![Rule::TitleContains { value: "private".into() }] };
-        let (kept, excluded)=apply_history_exclusions(&mut ledger,&rules,&[v]);
-        assert!(kept.is_empty() && excluded==1);
+        let v = visit();
+        let mut ledger = Ledger::default();
+        mark_queued(&mut ledger, std::slice::from_ref(&v));
+        let rules = Exclusions {
+            rules: vec![Rule::TitleContains {
+                value: "private".into(),
+            }],
+        };
+        let (kept, excluded) = apply_history_exclusions(&mut ledger, &rules, &[v]);
+        assert!(kept.is_empty() && excluded == 1);
     }
     #[test]
     fn history_exclusion_removed_later() {
         // Scenario: 登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる
-        let v=visit(); let mut ledger=Ledger::default(); ledger.record_visit(&v.external_id,"h",chrono::Utc::now(),false,true);
-        let (kept, excluded)=apply_history_exclusions(&mut ledger,&Exclusions::default(),std::slice::from_ref(&v));
-        assert_eq!(kept,vec![v]); assert_eq!(excluded,0);
+        let v = visit();
+        let mut ledger = Ledger::default();
+        ledger.record_visit(&v.external_id, "h", chrono::Utc::now(), false, true);
+        let (kept, excluded) = apply_history_exclusions(
+            &mut ledger,
+            &Exclusions::default(),
+            std::slice::from_ref(&v),
+        );
+        assert_eq!(kept, vec![v]);
+        assert_eq!(excluded, 0);
     }
 }
 
@@ -357,7 +483,9 @@ mod tests {
             "chrome",
             "Default",
             id,
-            chrono::DateTime::parse_from_rfc3339(at).unwrap().with_timezone(&chrono::Utc),
+            chrono::DateTime::parse_from_rfc3339(at)
+                .unwrap()
+                .with_timezone(&chrono::Utc),
             "https://example.test/page",
             title,
         )
@@ -369,15 +497,24 @@ mod tests {
     fn history_fetch_sends_only_new_or_changed() {
         let mut ledger = Ledger::default();
         let old = visit(1, "2026-09-01T00:00:00Z", "古い訪問");
-        assert_eq!(select_new_or_changed(&ledger, &[old.clone()]), vec![old.clone()]);
+        assert_eq!(
+            select_new_or_changed(&ledger, &[old.clone()]),
+            vec![old.clone()]
+        );
         mark_queued(&mut ledger, &[old.clone()]);
         assert!(select_new_or_changed(&ledger, &[old.clone()]).is_empty());
 
         // 取得時刻ではなく、全履歴と帳面を比べる。同期で古い訪問が後から来ても落とさない。
         let late_old = visit(2, "2025-01-01T00:00:00Z", "後から同期された訪問");
-        assert_eq!(select_new_or_changed(&ledger, &[old.clone(), late_old.clone()]), vec![late_old]);
+        assert_eq!(
+            select_new_or_changed(&ledger, &[old.clone(), late_old.clone()]),
+            vec![late_old]
+        );
 
         let changed = visit(1, "2026-09-01T00:00:00Z", "後から変わった題名");
-        assert_eq!(select_new_or_changed(&ledger, &[changed.clone()]), vec![changed]);
+        assert_eq!(
+            select_new_or_changed(&ledger, &[changed.clone()]),
+            vec![changed]
+        );
     }
 }
