@@ -43,7 +43,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `識別子を欠いた履歴の記録は断られる`（(d) に印）。
   検証: `cargo test -p ashiato-server browser_history_record_id` rc=0 / `tools/check-migrations.sh` rc=0 /
   `cargo test c02_window_external_id_kind_is_not_record` rc=0
-- [ ] 2.2 サーバの結合テストで、`c02-browser-history` に同じ識別子の到着を送り分けて固定する（design D6 / D8 / D15）:
+- [x] 2.2 サーバの結合テストで、`c02-browser-history` に同じ識別子の到着を送り分けて固定する（design D6 / D8 / D15）:
   (a) 題名だけ違う到着で行が 1 のまま新しい題名を持つ / (b) 前の題名の版が 1 つ積む / (c) 滞在時間だけ違う到着で同じく版が積む /
   (d) `source_updated_at` の古い到着が後から届いても題名が書き戻らない / (e) 番号だけ同じで訪問時刻の違う識別子は別の行になる。
   Scenario: `題名が変わった訪問は 1 行のまま新しい題名を持つ` / `題名が変わった訪問の前の版が残る` /
