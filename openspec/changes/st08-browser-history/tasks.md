@@ -36,7 +36,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 2. 登録簿と取り込み（サーバ側。取り込みのコードは変えない）
 
-- [ ] 2.1 移行 `YYYYMMDDHHMM_browser_history_record_id.sql`（と `.down.sql`）を作り、`c02-browser-history` の
+- [x] 2.1 移行 `YYYYMMDDHHMM_browser_history_record_id.sql`（と `.down.sql`）を作り、`c02-browser-history` の
   `external_id_kind` を**このソースの記録が 0 件のときだけ** `'record'` にする（design D7）。`MIGRATIONS` の末尾に足す。
   テスト: (a) 全移行を当てると `'record'` / (b) 記録が 1 件ある状態で値を `'none'` に戻して移行を当て直しても `'none'` のまま /
   (c) `c02-window` は `'record'` にならない / **(d) 識別子なしの `c02-browser-history` の要求が `missing_external_id` で断られる**（R16）。
