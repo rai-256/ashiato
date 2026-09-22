@@ -186,7 +186,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   履歴 DB を読んで取得契機を 1 日進める形にする）。
   Scenario: `前日に見たページが翌日の取得で入っている`。
   検証: `tools/smoke.sh` rc=0（手順に「取得契機を 1 日進めて psql で行を見る」がある）
-- [ ] 10.4 CI の `collector-windows-runtime` job の走った本数の下限を **既存 + 3**（10.1 / 10.2 の 3 本）に上げる。飛ばしを下限に数えない。
+- [x] 10.4 CI の `collector-windows-runtime` job の走った本数の下限を **既存 + 3**（10.1 / 10.2 の 3 本）に上げる。飛ばしを下限に数えない。
   検証: `.github/workflows/ci.yml` の下限の数が既存より 3 大きい（`git diff` で見る）/ `collector-windows-runtime` job が緑
 
 ## 11. 仕上げ
