@@ -35,6 +35,63 @@ impl<T: Send + 'static> HistoryWorker<T> {
     }
 }
 
+/// 消えた訪問に付ける、原因を断定しない手がかり。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct VanishedVisit {
+    pub external_id: String,
+    pub age_days: i64,
+    pub foreign: bool,
+    pub table_recreated: bool,
+    pub profile_gone: bool,
+}
+
+/// 今回読めた識別子に無い、送信済み（除外以外）の訪問を消失として返す。
+pub fn detect_vanished(
+    ledger: &Ledger,
+    seen: &[String],
+    now: chrono::DateTime<chrono::Utc>,
+    max_visit_id: Option<i64>,
+    profile_gone: bool,
+) -> Vec<VanishedVisit> {
+    let seen: std::collections::BTreeSet<_> = seen.iter().collect();
+    let table_recreated = ledger.max_visit_id.zip(max_visit_id).is_some_and(|(before, now)| now < before);
+    ledger.visits.iter().filter_map(|(external_id, visit)| {
+        (!visit.excluded && !seen.contains(external_id)).then(|| VanishedVisit {
+            external_id: external_id.clone(),
+            age_days: (now - visit.at).num_days().max(0),
+            foreign: visit.foreign,
+            table_recreated,
+            profile_gone,
+        })
+    }).collect()
+}
+
+/// 読めなかったプロファイルは、空の履歴と区別して消失判定しない。
+pub fn detect_vanished_if_readable(
+    ledger: &Ledger,
+    seen: &[String],
+    now: chrono::DateTime<chrono::Utc>,
+    max_visit_id: Option<i64>,
+    profile_gone: bool,
+    readable: bool,
+) -> Vec<VanishedVisit> {
+    readable.then(|| detect_vanished(ledger, seen, now, max_visit_id, profile_gone)).unwrap_or_default()
+}
+
+/// 送信対象へ積んだ消失を帳面から外す。同じ取得の再試行で二重に積まないため。
+pub fn apply_vanished(ledger: &mut Ledger, vanished: &[VanishedVisit]) {
+    for item in vanished {
+        ledger.visits.remove(&item.external_id);
+    }
+}
+
+/// 取り込み本文の上限を越えないよう、安定順の最大1000件で区切る。
+pub fn vanished_chunks(items: &[VanishedVisit]) -> Vec<Vec<VanishedVisit>> {
+    let mut sorted = items.to_vec();
+    sorted.sort_by(|a, b| a.external_id.cmp(&b.external_id));
+    sorted.chunks(1000).map(<[_]>::to_vec).collect()
+}
+
 impl HistorySchedule {
     pub fn with_last_success(last_success: Option<chrono::DateTime<chrono::Utc>>) -> Self {
         Self { last_success, retry_after: None }
@@ -207,6 +264,30 @@ mod worker_tests {
         release_tx.send(()).unwrap();
         assert_eq!(worker.join().unwrap(), 42);
     }
+}
+
+#[cfg(test)]
+mod vanished_tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use crate::history::ledger::Ledger;
+
+    fn ledger() -> Ledger {
+        let mut ledger = Ledger::default();
+        ledger.record_visit("v1:a", "hash", Utc::now() - Duration::days(3), false, false);
+        ledger.max_visit_id = Some(10);
+        ledger
+    }
+
+    #[test] fn history_vanished_is_detected() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].external_id, "v1:a"); }
+    #[test] fn history_vanished_has_age_days() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].age_days, 3); }
+    #[test] fn history_vanished_marks_foreign() { let mut l=ledger(); l.visits.get_mut("v1:a").unwrap().foreign=true; assert!(detect_vanished(&l,&[],Utc::now(),Some(10),false)[0].foreign); }
+    #[test] fn history_vanished_marks_recreated_table() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(1),false)[0].table_recreated); }
+    #[test] fn history_vanished_marks_gone_profile() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(10),true)[0].profile_gone); }
+    #[test] fn history_vanished_has_no_named_cause_or_private_text() { let item=&detect_vanished(&ledger(),&[],Utc::now(),Some(10),false)[0]; let json=serde_json::to_string(item).unwrap(); assert!(!json.contains("deleted") && !json.contains("url") && !json.contains("title")); }
+    #[test] fn history_vanished_is_chunked_at_1000() { let mut l=Ledger::default(); for i in 0..1001 { l.record_visit(&format!("v1:{i:04}"),"h",Utc::now(),false,false); } let chunks=vanished_chunks(&detect_vanished(&l,&[],Utc::now(),None,false)); assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(),vec![1000,1]); }
+    #[test] fn history_vanished_skips_unreadable_profile() { let l=ledger(); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,false).is_empty()); }
+    #[test] fn history_vanished_is_idempotent_on_retry() { let mut l=ledger(); let vanished=detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true); apply_vanished(&mut l,&vanished); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true).is_empty()); }
 }
 
 #[cfg(test)]
