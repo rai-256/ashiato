@@ -81,7 +81,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `同じページを 2 回訪問すると 2 件になる` / `ページの題名と滞在時間が載る` / `遷移の種類とどこから来たかが残る` /
   `URL のクエリとフラグメントが残る` / `履歴 DB の URL の文字列を補正しない`。
   検証: `cargo test history_read_chromium` rc=0 / `cargo test history_read_firefox` rc=0 / `cargo test history_copy_is_removed` rc=0
-- [ ] 4.4 同期で入った他端末の訪問に `originator_cache_guid` / `originator_visit_id` を載せ、端末は読んだ PC、識別子は PC 側の番号
+- [x] 4.4 同期で入った他端末の訪問に `originator_cache_guid` / `originator_visit_id` を載せ、端末は読んだ PC、識別子は PC 側の番号
   （**第 2 回 Q4 の答えに従う**。design D9）。
   Scenario: `他の端末の訪問は発生元の印を持つ` / `他の端末の訪問の記録の端末は、読んだ PC である` / `PC 自身の訪問は発生元の印を持たない`。
   検証: `cargo test history_foreign_visits` rc=0
