@@ -849,6 +849,19 @@ before=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-brow
 code=$(post "$history_body"); [ "$code" = "200" ] || { echo "履歴の再送が $code"; exit 1; }
 after=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history';")
 [ "$before" = "$after" ] || { echo "同じ履歴の再送で行が増えた: $before -> $after"; exit 1; }
+
+# Scenario: 消えた訪問の記録は残っている
+echo "== ST08. 消えた記録を送っても元の訪問を変えない"
+history_before_raw=$(psql -c "SELECT raw FROM core.event
+  WHERE logical_source='c02-browser-history'
+    AND external_id='v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';")
+vanished_raw='{"kind":"vanished","at":"2026-09-10T02:00:00.000000Z","tz_basis":"collected-at","browser":"chrome","profile":"Default","vanished":[{"external_id":"v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","age_days":2,"foreign":false,"table_recreated":false,"profile_gone":false}]}'
+vanished_body="[{\"id\":\"f2222222-2222-4222-8222-222222222222\",\"user_id\":\"00000000-0000-0000-0000-000000000000\",\"logical_source\":\"c02-browser-history\",\"external_id\":\"v1:vanished:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"device_id\":\"history-smoke\",\"origin\":\"collected\",\"event_time\":\"2026-09-10T02:00:00.000000Z\",\"tz_offset_min\":540,\"tz_id\":\"Asia/Tokyo\",\"schema_version\":1,\"source_updated_at\":\"2026-09-10T02:00:00.000Z\",\"raw\":$(rawstr "$vanished_raw"),\"payload\":$vanished_raw}]"
+code=$(post "$vanished_body"); [ "$code" = "200" ] || { echo "消えた記録の送信が $code"; exit 1; }
+history_after_raw=$(psql -c "SELECT raw FROM core.event
+  WHERE logical_source='c02-browser-history'
+    AND external_id='v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';")
+[ "$history_before_raw" = "$history_after_raw" ] || { echo "消えた記録で元の訪問の原文が変わった"; exit 1; }
 rm -f "$HISTORY_DB"
 
 echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"
