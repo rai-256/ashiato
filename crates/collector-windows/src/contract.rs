@@ -224,6 +224,9 @@ pub struct IngestRequest {
     pub tz_offset_min: i32,
     pub tz_id: String,
     pub schema_version: i32,
+    /// 取得元の内容を読んだ時刻。履歴の再送で新しい版を書き戻さないために使う。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_updated_at: Option<String>,
     /// 原文。**収集側が組んだ JSON を文字列のまま**送る（design D1）
     pub raw: String,
     /// 解析済み。SQL から引けるのはこちら
@@ -254,8 +257,35 @@ impl IngestRequest {
             tz_offset_min: zone.offset_min,
             tz_id: zone.id.clone(),
             schema_version: SCHEMA_VERSION,
+            source_updated_at: None,
             raw,
             payload: serde_json::to_value(payload)?,
+        })
+    }
+
+    /// ブラウザ履歴の訪問を、訪問ごとの識別子を持つ要求へ変換する。
+    pub fn of_visit(
+        visit: &crate::history::contract::Visit,
+        user_id: uuid::Uuid,
+        device_id: &str,
+        collected_at: chrono::DateTime<chrono::Utc>,
+        zone: &crate::config::Zone,
+    ) -> anyhow::Result<Self> {
+        let raw = serde_json::to_string(&visit.payload)?;
+        Ok(Self {
+            id: uuid::Uuid::new_v4(),
+            user_id,
+            logical_source: "c02-browser-history".to_string(),
+            external_id: Some(visit.external_id.clone()),
+            device_id: device_id.to_string(),
+            origin: "collected".to_string(),
+            event_time: visit.payload.at.clone(),
+            tz_offset_min: zone.offset_min,
+            tz_id: zone.id.clone(),
+            schema_version: SCHEMA_VERSION,
+            source_updated_at: Some(rfc3339(collected_at)),
+            raw,
+            payload: serde_json::to_value(&visit.payload)?,
         })
     }
 }
