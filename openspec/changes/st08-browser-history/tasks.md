@@ -143,7 +143,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   `プロファイルを指す登録はそのプロファイルの履歴だけを除く` / `除外した訪問は取得のたびに数え直されない` /
   `取得をやり直しても除外の件数は増えない`。
   検証: `cargo test history_exclusion` rc=0（`-- --list` で 7 本以上）
-- [ ] 7.3 登録を後から足した / 外したときの振る舞いを固定する（design D11 / R8）。
+- [x] 7.3 登録を後から足した / 外したときの振る舞いを固定する（design D11 / R8）。
   Scenario: `登録を後から足すと、既に送った訪問の変わった内容は送られない` / `登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる`。
   検証: `cargo test history_exclusion_added_later` rc=0 / `cargo test history_exclusion_removed_later` rc=0
 
