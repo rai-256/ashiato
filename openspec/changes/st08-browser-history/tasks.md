@@ -162,7 +162,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 9. 感度とログ
 
-- [ ] 9.1 履歴の記録に感度を明示せず、既定に委ねる（ST07 Q3 / ST08 Q1）。
+- [x] 9.1 履歴の記録に感度を明示せず、既定に委ねる（ST07 Q3 / ST08 Q1）。
   Scenario: `ブラウザ履歴の記録も既定の感度で格納される`。
   検証: `tools/smoke.sh` で `psql -c "SELECT DISTINCT sensitivity FROM core.event WHERE logical_source='c02-browser-history'"` が `1` だけを返して rc=0 /
   `cargo test history_sensitivity_uses_collection_default` rc=0
