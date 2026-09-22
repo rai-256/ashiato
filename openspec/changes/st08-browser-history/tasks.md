@@ -129,7 +129,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 7. 除外（FR-83 を履歴にも）
 
-- [ ] 7.1 `Rule` に `url-contains` と `browser-profile` を足す（`deny_unknown_fields` のまま）。`url-contains` がウィンドウに当たったら
+- [x] 7.1 `Rule` に `url-contains` と `browser-profile` を足す（`deny_unknown_fields` のまま）。`url-contains` がウィンドウに当たったら
   **その前景の変化を丸ごと除外して件数に数える**。`browser-profile` はウィンドウに当てない（design D11）。
   README の除外の登録の手順に 2 つを書き足す。
   Scenario: `URL の部分一致に当たった前景は本文を残さない` / `URL の部分一致に当たった前景は除外の件数に数えられる`。
