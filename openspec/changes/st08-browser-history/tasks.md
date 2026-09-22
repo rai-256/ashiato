@@ -120,7 +120,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   `同期で入った訪問が消えたことが本文にある` / `表が作り直されたことが本文にある` / `プロファイルが無くなったことが本文にある` /
   `消えた経路を名指しする値を持たない` / `消えた記録に URL と題名が載らない`。
   検証: `cargo test history_vanished` rc=0（`-- --list` で 7 本以上）
-- [ ] 6.2 **読めなかったプロファイルでは判定しない**。やり直しで同じ「消えた」が 2 件目にならない（識別子が中身から決まる。design D6 / D10）。
+- [x] 6.2 **読めなかったプロファイルでは判定しない**。やり直しで同じ「消えた」が 2 件目にならない（識別子が中身から決まる。design D6 / D10）。
   Scenario: `読めなかったプロファイルでは消えた記録を出さない` / `取得をやり直しても「消えた」記録は増えない`。
   検証: `cargo test history_vanished_skips_unreadable_profile` rc=0 / `cargo test history_vanished_is_idempotent_on_retry` rc=0
 - [ ] 6.3 「消えた」記録を送った後も元の訪問の行が変わらないことを、取り込み口まで通して見る。
