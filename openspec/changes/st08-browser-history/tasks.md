@@ -91,7 +91,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [x] 5.1 帳面（プロファイルごと。識別子 → 送った内容のハッシュ・訪問時刻・他端末か・除外したか、前回の最大番号、前回の表示名の対応）を作る。
   **URL と題名を書かない。** 一時ファイル + 置き換えで書き、壊れていたら退避して空から始める（design D10）。
   検証: `cargo test history_ledger_has_no_url_or_title` rc=0 / `cargo test history_ledger_broken_is_quarantined` rc=0
-- [ ] 5.2 取得のたびに全部読み、**まだ送っていない訪問と内容が変わった訪問だけ**を積む（design D3）。
+- [x] 5.2 取得のたびに全部読み、**まだ送っていない訪問と内容が変わった訪問だけ**を積む（design D3）。
   Scenario: `初回の取得で過去の履歴が入る` / `前回の取得の後に古い時刻で入った訪問も取り込まれる`。
   検証: `cargo test history_fetch_sends_only_new_or_changed` rc=0
 - [ ] 5.3 同じ履歴 DB で 2 回取得して行の件数が変わらないことを、取り込み口まで通して見る。
