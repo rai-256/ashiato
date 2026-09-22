@@ -100,7 +100,13 @@ mod tests {
     #[test]
     fn history_ledger_has_no_url_or_title() {
         let mut ledger = Ledger::default();
-        ledger.record_visit("v1:visit:abc", "content-hash", chrono::Utc::now(), false, false);
+        ledger.record_visit(
+            "v1:visit:abc",
+            "content-hash",
+            chrono::Utc::now(),
+            false,
+            false,
+        );
         ledger.set_profile_name("Default", Some("個人".into()));
         let text = serde_json::to_string(&ledger).unwrap();
         assert!(!text.contains("url"));
@@ -118,12 +124,16 @@ mod tests {
         let ledger = LedgerStore::open(path.clone()).unwrap();
         assert!(ledger.ledger().visits.is_empty());
         assert!(!path.exists());
-        assert_eq!(std::fs::read(path.with_extension("broken.ledger")).unwrap(), b"{broken");
+        assert_eq!(
+            std::fs::read(path.with_extension("broken.ledger")).unwrap(),
+            b"{broken"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
     fn temp_dir() -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("ashiato-history-ledger-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("ashiato-history-ledger-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         path
     }

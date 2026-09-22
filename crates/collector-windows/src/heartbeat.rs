@@ -35,7 +35,14 @@ pub const HISTORY_LOGICAL_SOURCE: &str = "c02-browser-history";
 pub const HISTORY_EXPECTED_GAP_SEC: i64 = 86_400;
 
 /// 履歴用の一日ごとの生存信号を別ソースとして組む。
-pub fn history_signal(user_id: uuid::Uuid, device_id: &str, at: DateTime<Utc>, cap: &Capability, attempts: i32, successes: i32) -> anyhow::Result<HeartbeatRequest> {
+pub fn history_signal(
+    user_id: uuid::Uuid,
+    device_id: &str,
+    at: DateTime<Utc>,
+    cap: &Capability,
+    attempts: i32,
+    successes: i32,
+) -> anyhow::Result<HeartbeatRequest> {
     let mut signal = signal(user_id, device_id, at, cap, attempts, successes)?;
     signal.logical_source = HISTORY_LOGICAL_SOURCE.into();
     Ok(signal)
@@ -302,7 +309,12 @@ mod tests {
         // Scenario: ブラウザ履歴の生存信号はウィンドウの生存信号と別の件である
         assert_eq!(HISTORY_EXPECTED_GAP_SEC, 86_400);
         let cap = Capability::from_blockers(&std::collections::BTreeSet::new());
-        assert_eq!(history_signal(uuid::Uuid::nil(), "pc", t(0), &cap, 1, 1).unwrap().logical_source, HISTORY_LOGICAL_SOURCE);
+        assert_eq!(
+            history_signal(uuid::Uuid::nil(), "pc", t(0), &cap, 1, 1)
+                .unwrap()
+                .logical_source,
+            HISTORY_LOGICAL_SOURCE
+        );
     }
 
     #[test]
@@ -317,8 +329,13 @@ mod tests {
         // Scenario: 読めないプロファイルが 1 つでもあれば取得できないとして報告される
         // Scenario: 読めなかったブラウザとプロファイルが満たされていないものに挙がる
         // Scenario: 履歴が 1 つも見つからなければ取得できないとして報告される
-        let blockers=std::collections::BTreeSet::from([history_blocker::unreadable("chrome","Default"),history_blocker::NONE_FOUND.into()]);
-        let cap=Capability::from_blockers(&blockers); assert!(!cap.capturable); assert_eq!(cap.blockers.len(),2);
+        let blockers = std::collections::BTreeSet::from([
+            history_blocker::unreadable("chrome", "Default"),
+            history_blocker::NONE_FOUND.into(),
+        ]);
+        let cap = Capability::from_blockers(&blockers);
+        assert!(!cap.capturable);
+        assert_eq!(cap.blockers.len(), 2);
     }
 
     /// **取得できない理由を名前で載せる**（design D4）。
