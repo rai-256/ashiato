@@ -32,4 +32,14 @@ echo "== ST08. 履歴の記録は既定の感度で格納する"
 history_sensitivities=$(psql -c "SELECT DISTINCT sensitivity FROM core.event
   WHERE logical_source='c02-browser-history' ORDER BY sensitivity;")
 [ "$history_sensitivities" = "1" ] || { echo "履歴の感度が既定ではない: $history_sensitivities"; exit 1; }
+
+# Scenario: 前日に見たページが翌日の取得で入っている
+echo "== ST08. 前日の履歴を翌日の取得で格納する"
+history_yesterday=$(psql -c "SELECT payload->>'url'||' '||event_time::text FROM core.event
+  WHERE logical_source='c02-browser-history'
+    AND payload->>'url'='https://example.test/yesterday';")
+case "$history_yesterday" in
+  'https://example.test/yesterday 2026-09-08 02:00:00+00') : ;;
+  *) echo "前日の URL と訪問時刻が格納されていない: $history_yesterday"; exit 1 ;;
+esac
 rm -f "$HISTORY_DB"
