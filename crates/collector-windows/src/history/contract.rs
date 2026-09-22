@@ -35,6 +35,13 @@ impl Visit {
         }
         Self { external_id: format!("v1:{:x}", hasher.finalize()), payload }
     }
+
+    /// 同期で届いた訪問には発生元だけを印として添える。収集端末は変えない。
+    pub fn with_originator(mut self, cache_guid: Option<String>, visit_id: Option<i64>) -> Self {
+        self.payload.originator_cache_guid = cache_guid;
+        self.payload.originator_visit_id = visit_id;
+        self
+    }
 }
 
 /// 訪問本文。URL と題名は visit のときだけ送り、消失・除外には含めない。
@@ -100,5 +107,18 @@ mod tests {
             .with_timezone(&chrono::Utc);
         let visit = Visit::new("chrome", "Default", 7, at, "https://example.test/a", "題名");
         assert_eq!(serde_json::to_string(&visit.payload).expect("JSON"), r#"{"kind":"visit","at":"2026-09-13T01:02:03.456789Z","tz_basis":"collected-at","browser":"chrome","profile":"Default","url":"https://example.test/a","title":"題名"}"#);
+    }
+
+    #[test]
+    fn history_foreign_visits() {
+        // Scenario: 他の端末の訪問は発生元の印を持つ
+        // Scenario: 他の端末の訪問の記録の端末は、読んだ PC である
+        // Scenario: PC 自身の訪問は発生元の印を持たない
+        let at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
+        let local = Visit::new("chrome", "Default", 1, at, "https://a", "a");
+        assert!(local.payload.originator_cache_guid.is_none());
+        let foreign = local.clone().with_originator(Some("other-pc".into()), Some(99));
+        assert_eq!(foreign.payload.originator_visit_id, Some(99));
+        assert_eq!(foreign.external_id, local.external_id, "識別子は読んだ PC 側の番号で決まる");
     }
 }
