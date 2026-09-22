@@ -448,6 +448,47 @@ mod tests {
     ///
     /// Scenario: 収集側が厳しい側の感度を付けて送らない
     #[test]
+    fn window_sensitivity_uses_collection_default() {
+        // Scenario: ウィンドウの記録も既定の感度で格納される
+        let payload = WindowPayload::new(RecordKind::Foreground, at());
+        let req = IngestRequest::of(&payload, uuid::Uuid::nil(), "dev-1", at(), &zone())
+            .expect("ウィンドウの契約の形");
+        let json = serde_json::to_string(&req).expect("直列化");
+        assert!(
+            !json.contains("sensitivity"),
+            "収集側が感度を指定している: {json}"
+        );
+    }
+
+    /// ウィンドウ側の既存の要求本文を固定する（ST08 tasks 3.1 / design D13）。
+    #[test]
+    fn window_request_body_is_unchanged() {
+        // Scenario: ブラウザ履歴の追加で既存のウィンドウ要求本文は変わらない
+        let payload = WindowPayload::new(RecordKind::Foreground, at());
+        let mut req = IngestRequest::of(&payload, uuid::Uuid::nil(), "dev-1", at(), &zone())
+            .expect("ウィンドウの契約の形");
+        req.id = uuid::Uuid::nil();
+        assert_eq!(
+            serde_json::to_value(&req).expect("直列化"),
+            serde_json::json!({
+                "id": "00000000-0000-0000-0000-000000000000",
+                "user_id": "00000000-0000-0000-0000-000000000000",
+                "logical_source": "c02-window",
+                "external_id": null,
+                "device_id": "dev-1",
+                "origin": "collected",
+                "event_time": "2026-09-13T01:02:03.456Z",
+                "tz_offset_min": 540,
+                "tz_id": "Asia/Tokyo",
+                "schema_version": 1,
+                "raw": "{\"kind\":\"foreground\",\"at\":\"2026-09-13T01:02:03.456Z\"}",
+                "payload": {"kind": "foreground", "at": "2026-09-13T01:02:03.456Z"}
+            })
+        );
+    }
+
+    /// **収集側は感度を付けない**（深掘り Q3。`sensitivity` の欄そのものを持たない）。
+    #[test]
     fn history_sensitivity_uses_collection_default() {
         // Scenario: ブラウザ履歴の記録も既定の感度で格納される
         let visit = crate::history::contract::Visit::new(
@@ -465,6 +506,24 @@ mod tests {
             !json.contains("sensitivity"),
             "収集側が感度を指定している: {json}"
         );
+    }
+
+    #[test]
+    fn history_foreign_visit_request_keeps_the_collecting_device() {
+        // Scenario: 他の端末の訪問の記録の端末は、読んだ PC である
+        let visit = crate::history::contract::Visit::new(
+            "chrome",
+            "Default",
+            1,
+            at(),
+            "https://example.test/a",
+            "題名",
+        )
+        .with_originator(Some("other-pc".into()), Some(99));
+        let req = IngestRequest::of_visit(&visit, uuid::Uuid::nil(), "reader-pc", at(), &zone())
+            .expect("履歴の契約の形");
+        assert_eq!(req.device_id, "reader-pc");
+        assert_eq!(req.payload["originator_cache_guid"], "other-pc");
     }
 
     /// **`external_id` は `null` で送る。** 空文字は 400（`empty_external_id`）で
