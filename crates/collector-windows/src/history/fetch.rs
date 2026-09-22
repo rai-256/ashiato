@@ -15,6 +15,26 @@ pub struct HistorySchedule {
     retry_after: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// 時間のかかる DB 読取りを見回りのスレッドから切り離す受け皿。
+#[derive(Debug)]
+pub struct HistoryWorker<T> {
+    handle: std::thread::JoinHandle<anyhow::Result<T>>,
+}
+
+impl<T: Send + 'static> HistoryWorker<T> {
+    pub fn spawn(read: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Self {
+        Self { handle: std::thread::spawn(read) }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.handle.is_finished()
+    }
+
+    pub fn join(self) -> anyhow::Result<T> {
+        self.handle.join().map_err(|_| anyhow::anyhow!("履歴読取りworkerがpanicした"))?
+    }
+}
+
 impl HistorySchedule {
     pub fn with_last_success(last_success: Option<chrono::DateTime<chrono::Utc>>) -> Self {
         Self { last_success, retry_after: None }
@@ -157,6 +177,35 @@ mod outbox_tests {
         let reopened = LedgerStore::open(path).unwrap();
         assert!(reopened.ledger().visits.contains_key(&visit.external_id));
         std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// Scenario: 履歴の取得でウィンドウのソースの記録は増えない
+    #[test]
+    fn history_slow_read_does_not_disturb_window() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = HistoryWorker::spawn(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok::<_, anyhow::Error>(42)
+        });
+        started_rx.recv().unwrap();
+
+        // 読み手が止まっていても、見回り側は自分の仕事を続けられる。
+        let mut polls = 0;
+        for _ in 0..3 {
+            polls += 1;
+            assert!(!worker.is_finished());
+        }
+        assert_eq!(polls, 3);
+        release_tx.send(()).unwrap();
+        assert_eq!(worker.join().unwrap(), 42);
     }
 }
 

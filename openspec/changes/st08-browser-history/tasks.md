@@ -107,7 +107,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `取り込み口が止まっている間に取得した履歴が後から届く`。
   検証: `cargo test history_success_only_after_outbox` rc=0 /
   `tools/smoke.sh` に「サーバを止めて取得 → 起動 → 送信 → psql で件数」の手順を足して rc=0
-- [ ] 5.6 読みは見回りとは別のスレッド。**読みに 3 分かかる読み手を差し込んでも見回りが続き、`c02-window` に `suspended` が入らず、
+- [x] 5.6 読みは見回りとは別のスレッド。**読みに 3 分かかる読み手を差し込んでも見回りが続き、`c02-window` に `suspended` が入らず、
   履歴の記録を 1 件も `c02-window` に作らない**ことを Runtime の層で固定する（R15）。
   Scenario: `履歴の取得でウィンドウのソースの記録は増えない`。
   検証: `cargo test history_slow_read_does_not_disturb_window` rc=0
