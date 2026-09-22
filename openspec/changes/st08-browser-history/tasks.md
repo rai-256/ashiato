@@ -191,7 +191,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 11. 仕上げ
 
-- [ ] 11.1 `openspec validate st08-browser-history --strict` rc=0
+- [x] 11.1 `openspec validate st08-browser-history --strict` rc=0
 - [ ] 11.2 `python3 scripts/check_scenarios.py .` rc=0（**75 本すべてに印**）
 - [ ] 11.3 `python3 scripts/check_chain.py .` rc=0
 - [ ] 11.4 `python3 scripts/review_triage.py . st08-browser-history` rc=0
