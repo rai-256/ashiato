@@ -181,7 +181,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running` が rc=0
 - [ ] 10.2 Chrome と Firefox でも同じことを確かめる。
   検証: Windows で `... --test runtime_windows browser_history_chrome` rc=0 / `... --test runtime_windows browser_history_firefox` rc=0
-- [ ] 10.3 「前日に見たページが翌日の取得で入っている」を取り込み口まで通して見る: 10.1 の記録を smoke と同じ手順でサーバへ送り、
+- [x] 10.3 「前日に見たページが翌日の取得で入っている」を取り込み口まで通して見る: 10.1 の記録を smoke と同じ手順でサーバへ送り、
   psql で URL と訪問時刻の行があることを見る（Windows の job ではサーバを立てないので、`tools/smoke.sh` の側で
   履歴 DB を読んで取得契機を 1 日進める形にする）。
   Scenario: `前日に見たページが翌日の取得で入っている`。
