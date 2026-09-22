@@ -114,7 +114,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 6. 消えた事実（Q2）
 
-- [ ] 6.1 帳面にあって今回の読みに無い識別子を `vanished` に載せ、手がかり（`age_days` / `foreign` / `table_recreated` / `profile_gone`）を付け、
+- [x] 6.1 帳面にあって今回の読みに無い識別子を `vanished` に載せ、手がかり（`age_days` / `foreign` / `table_recreated` / `profile_gone`）を付け、
   帳面から外す。1 件に 1,000 件まで（design D10・**仮**）。**URL と題名を載せない。経路を名指しする値を置かない。**
   Scenario: `履歴から 1 件消すと次の取得で「消えた」記録が残る` / `消えた訪問の、訪問から取得までの日数が本文にある` /
   `同期で入った訪問が消えたことが本文にある` / `表が作り直されたことが本文にある` / `プロファイルが無くなったことが本文にある` /
