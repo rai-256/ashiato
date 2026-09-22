@@ -156,7 +156,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   `読めないプロファイルが 1 つでもあれば取得できないとして報告される` / `読めなかったブラウザとプロファイルが満たされていないものに挙がる` /
   `履歴が 1 つも見つからなければ取得できないとして報告される`。
   検証: `cargo test history_heartbeat` rc=0（`-- --list` で 5 本以上）/ `cargo test ticks_keep_heartbeat_and_skew_intervals_for_a_day` rc=0
-- [ ] 8.2 **区間に読みが 1 回も無いときは、信号を出す前に写しを取って開けるかを確かめる**（`SELECT 1` まで。design D12 / R4）。起動直後に 1 回出す。
+- [x] 8.2 **区間に読みが 1 回も無いときは、信号を出す前に写しを取って開けるかを確かめる**（`SELECT 1` まで。design D12 / R4）。起動直後に 1 回出す。
   Scenario: `区間に読みが無くても、開けるかを確かめてから報告する`。
   検証: `cargo test history_heartbeat_probes_when_not_read` rc=0 / `cargo test history_heartbeat_on_start` rc=0
 
