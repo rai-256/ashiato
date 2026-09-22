@@ -62,7 +62,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   `cargo test visit_payload_shape_is_pinned` rc=0 / `cargo test window_request_body_is_unchanged` rc=0 / `cargo test payload_shape_is_pinned` rc=0
 - [x] 3.2 起点の換算（Chromium の 1601 年起点・Firefox の 1970 年起点）を純粋な関数にし、境界（0・負）を単体で固定する。
   検証: `cargo test history_epoch_conversion` rc=0
-- [ ] 3.3 `docs/collector-contract.md` に **C-02 の履歴の `payload` の形・識別子の作り方・`source_updated_at` に読んだ時刻を載せる理由**を追記する（design D4 / D6 / D15）。
+- [x] 3.3 `docs/collector-contract.md` に **C-02 の履歴の `payload` の形・識別子の作り方・`source_updated_at` に読んだ時刻を載せる理由**を追記する（design D4 / D6 / D15）。
   検証: `grep -c "c02-browser-history" docs/collector-contract.md` が 1 以上 / `grep -c "v1:" docs/collector-contract.md` が 1 以上 /
   `grep -c "source_updated_at" docs/collector-contract.md` が 3 以上（既存 2 + 追記）/ `python3 scripts/check_chain.py .` rc=0
 
