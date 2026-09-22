@@ -94,7 +94,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [x] 5.2 取得のたびに全部読み、**まだ送っていない訪問と内容が変わった訪問だけ**を積む（design D3）。
   Scenario: `初回の取得で過去の履歴が入る` / `前回の取得の後に古い時刻で入った訪問も取り込まれる`。
   検証: `cargo test history_fetch_sends_only_new_or_changed` rc=0
-- [ ] 5.3 同じ履歴 DB で 2 回取得して行の件数が変わらないことを、取り込み口まで通して見る。
+- [x] 5.3 同じ履歴 DB で 2 回取得して行の件数が変わらないことを、取り込み口まで通して見る。
   Scenario: `2 回続けて取得しても行が増えない`。
   検証: `tools/smoke.sh` に手順を足し（`examples/` に Chromium の形の小さな履歴 DB を作る台本を置く）、
   `SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history'` が 2 回目の前後で同じで rc=0

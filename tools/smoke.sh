@@ -836,4 +836,19 @@ printf '%s' "$attrs" | jq -e --arg k "$kid" \
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/attributes")
 [ "$code" = "401" ] || { echo "/attributes が 401 のはずが $code"; exit 1; }
 
+# Scenario: 2 回続けて取得しても行が増えない
+echo "== ST08. 同じ履歴を2回取り込んでも行を増やさない"
+HISTORY_DB=$(mktemp)
+rm -f "$HISTORY_DB"
+cargo run -q -p ashiato-collector-windows --example browser_history_smoke -- "$HISTORY_DB"
+[ -s "$HISTORY_DB" ] || { echo "履歴 DB の台本が作れなかった"; exit 1; }
+history_raw='{"kind":"visit","at":"2026-09-08T02:00:00.000000Z","tz_basis":"collected-at","browser":"chrome","profile":"Default","url":"https://example.test/yesterday","title":"前日のページ"}'
+history_body="[{\"id\":\"f1111111-1111-4111-8111-111111111111\",\"user_id\":\"00000000-0000-0000-0000-000000000000\",\"logical_source\":\"c02-browser-history\",\"external_id\":\"v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"device_id\":\"history-smoke\",\"origin\":\"collected\",\"event_time\":\"2026-09-08T02:00:00.000000Z\",\"tz_offset_min\":540,\"tz_id\":\"Asia/Tokyo\",\"schema_version\":1,\"source_updated_at\":\"2026-09-09T02:00:00.000Z\",\"raw\":$(rawstr "$history_raw"),\"payload\":$history_raw}]"
+code=$(post "$history_body"); [ "$code" = "200" ] || { echo "履歴の初回送信が $code"; exit 1; }
+before=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history';")
+code=$(post "$history_body"); [ "$code" = "200" ] || { echo "履歴の再送が $code"; exit 1; }
+after=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history';")
+[ "$before" = "$after" ] || { echo "同じ履歴の再送で行が増えた: $before -> $after"; exit 1; }
+rm -f "$HISTORY_DB"
+
 echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"
