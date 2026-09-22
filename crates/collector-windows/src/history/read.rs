@@ -48,7 +48,7 @@ pub fn read_chromium(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
                 at: chromium_micros(r.get(3)?).ok_or(rusqlite::Error::InvalidQuery)?,
                 transition: r.get(4)?,
                 from_visit: nonzero(r.get(5)?),
-                duration_us: Some(r.get(6)?),
+                duration_us: r.get(6)?,
                 originator_cache_guid: r.get(7)?,
                 originator_visit_id: r.get(8)?,
             })
@@ -107,7 +107,7 @@ pub fn probe_readable(source: &std::path::Path) -> anyhow::Result<()> {
             copy,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
-        conn.query_row("SELECT 1", [], |_| Ok(()))?;
+        conn.query_row("PRAGMA schema_version", [], |_| Ok(()))?;
         Ok(())
     })
 }
@@ -152,7 +152,21 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].url, "example.test/a?q=x#f");
         assert_eq!(v[0].title.as_deref(), Some("題名"));
+        assert_eq!(v[0].duration_us, Some(7));
+        assert_eq!(v[0].transition, 3);
         assert_eq!(v[1].from_visit, Some(1));
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_read_chromium_allows_null_duration() {
+        // Scenario: 滞在時間が未記録の訪問も取り込める
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, transition INTEGER, from_visit INTEGER, visit_duration INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER); INSERT INTO urls VALUES(1, 'https://example.test/a', NULL); INSERT INTO visits VALUES(1,1,1,3,0,NULL,NULL,NULL);").unwrap();
+        drop(conn);
+        let visits = read_chromium(&db).unwrap();
+        assert_eq!(visits[0].duration_us, None);
         std::fs::remove_file(db).ok();
     }
 
@@ -203,6 +217,15 @@ mod tests {
         let db = temp_db();
         rusqlite::Connection::open(&db).unwrap();
         assert!(probe_readable(&db).is_ok());
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_heartbeat_rejects_an_unreadable_database() {
+        // Scenario: 履歴 DB が開けなければ取得できない状態として扱える
+        let db = temp_db();
+        std::fs::write(&db, "not a sqlite database").unwrap();
+        assert!(probe_readable(&db).is_err());
         std::fs::remove_file(db).ok();
     }
     fn temp_db() -> std::path::PathBuf {

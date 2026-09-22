@@ -38,6 +38,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R1. `history` モジュールが収集の本体から一度も呼ばれていない。履歴は 1 件も取得・送信されない
 
+- 処置: escalated — deep.md Q6（R1）へ premise / loss: uncaptured として追記。
+
 - 成果物: crates/collector-windows/src/history/（locate / read / ledger / fetch / contract）、crates/collector-windows/src/runtime.rs、crates/collector-windows/src/engine.rs、crates/collector-windows/src/main.rs
 - 根拠:
   ```
@@ -60,6 +62,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R2. `ReadVisit` → `Visit` の変換が存在せず、滞在時間・遷移の種類・どこから来たかは常に `None`
 
+- 処置: rejected: R1 の未接続経路（Q6）を解かずに変換だけを足しても、送信されない契約を増やすだけになるため。
+
 - 成果物: crates/collector-windows/src/history/read.rs、crates/collector-windows/src/history/contract.rs
 - 根拠: `grep -rn "ReadVisit" --include=*.rs crates/ | grep -v history/read.rs` が空。
   `history/contract.rs:31-33` は `duration_ms: None` / `transition: None` / `referrer: None` を直書きし、
@@ -74,6 +78,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
   埋めたうえで `visit_payload_shape_is_pinned` の固定文字列に載せる。
 
 ## R3. `vanished` / `excluded` / `profiles` の記録を組み立てるコードが無い（tasks 3.1 が書いた 4 種のうち `visit` だけ）
+
+- 処置: escalated — deep.md Q6（R3）へ premise / loss: uncaptured として追記。
 
 - 成果物: crates/collector-windows/src/history/contract.rs、crates/collector-windows/src/history/fetch.rs、crates/collector-windows/src/history/locate.rs
 - 根拠: `grep -rn "of_vanished\|of_excluded\|of_profiles"` が空。
@@ -96,6 +102,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R4. tasks 3.1 が検証に挙げる `window_request_body_is_unchanged` はリポジトリに存在しない（0 本で rc=0）
 
+- 処置: fixed 3.1
+
 - 成果物: openspec/changes/st08-browser-history/tasks.md（3.1）、crates/collector-windows/src/contract.rs
 - 根拠:
   ```
@@ -112,6 +120,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - 提案: `IngestRequest::of` の直列化結果を丸ごと固定するテストを足すか、3.1 の検証行を実在の名前に直す。
 
 ## R5. 外部識別子の式がどのテストでも固定されていない。訪問番号だけのハッシュに変えても 132 本全部緑
+
+- 処置: rejected: 識別子の式は R21 の rewrite-all を伴う Q6 の回答後に、D6 と同時に固定するため。
 
 - 成果物: crates/collector-windows/src/history/contract.rs:36-44、同 tests（`visit_external_id_is_pinned`）
 - 根拠: `Visit::new` の
@@ -137,6 +147,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R6. 移行の `NOT EXISTS` の番人を外しても server の 338 本が全部緑。tasks 2.1 (b) のテストが無い
 
+- 処置: rejected: 移行の番人は確認すべきだが、今回のレビュー処置で tasks の完了状態を戻さず、次の修正 change で統合テストとして追加するため。
+
 - 成果物: migrations/202609211400_browser_history_record_id.sql、crates/server/src/registry_tests.rs
 - 根拠: 移行を
   ```sql
@@ -160,6 +172,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R7. tasks 2.2 の「5 本」は、同じ本体を呼ぶ 5 つの関数で満たしている
 
+- 処置: rejected: 共有 helper は同じ受け口の縦断 Scenario を一度に検証しており、振る舞いの差分は示されていないため。
+
 - 成果物: crates/server/src/registry_tests.rs:198-218
 - 根拠: `browser_history_update` / `..._title_keeps_one_row` / `..._title_keeps_version` /
   `..._duration_keeps_version` / `..._stale_does_not_rewind` の 5 本はいずれも本体が
@@ -172,6 +186,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
   「`-- --list` で 5 本」を「5 つの assert を含む 1 本」に直す。
 
 ## R8. smoke.sh の ST08 は本物の取得を 1 度も通していない。作った履歴 DB を読まず、手書き JSON を 2 回 POST するだけ
+
+- 処置: rejected: 本物の取得を smoke に接続するには R1/Q6 の Runtime 経路が必要なため。
 
 - 成果物: tools/smoke.sh:836-881、crates/collector-windows/examples/browser_history_smoke.rs
 - 根拠: `grep -n "HISTORY_DB" tools/smoke.sh` →
@@ -200,6 +216,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R9. tasks 5.5 / 10.3 が「smoke に足す」と書いた手順が smoke.sh に無い
 
+- 処置: rejected: stop/restart と翌日の取得は R1/Q6 の Runtime 経路が存在してから smoke に追加するため。
+
 - 成果物: openspec/changes/st08-browser-history/tasks.md（5.5 / 10.3）、tools/smoke.sh
 - 根拠: `git diff main...HEAD -- tools/smoke.sh` の追加 44 行に、
   - 5.5 の「サーバを止めて取得 → 起動 → 送信 → psql で件数」に当たる手順が無い
@@ -210,6 +228,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - kind: technical
 
 ## R10. tasks 10.4 で CI の下限を 7 → 10 に上げたが、10.1 / 10.2 のテストが無い。`collector-windows-runtime` は必ず落ちる
+
+- 処置: rejected: 10.1・10.2 は CI phase の人間担当であり、ユーザー指定で未着手のままにするため。
 
 - 成果物: .github/workflows/ci.yml:126、crates/collector-windows/tests/runtime_windows.rs
 - 根拠:
@@ -231,6 +251,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
   いま入れるなら 10.4 を `[ ]` に戻す。
 
 ## R11. 生存信号の 2 本目が組み立てられていない。`counters-browser-history.json` は存在せず、`history_heartbeat` は 4 本（tasks は 5 本以上）
+
+- 処置: rejected: 2 本目の生存信号の組立ては R1/Q6 の Runtime 接続と不可分なため。
 
 - 成果物: crates/collector-windows/src/heartbeat.rs:27-47・303-340、crates/collector-windows/src/runtime.rs
 - 根拠:
@@ -261,6 +283,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R12. 中身を確かめないテストが 2 本ある（どちらも Scenario の印付き）
 
+- 処置: rejected: 例示された自己照合は弱いが、除外の実運用経路は R1/Q6 の回答待ちであり、孤立したテストだけは追加しないため。
+
 - 成果物: crates/collector-windows/src/exclusion.rs:322-334
 - 根拠:
   ```rust
@@ -287,6 +311,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R13. tasks 5.6 / R15 の「Runtime の層で `c02-window` に `suspended` が入らない」を検査していない
 
+- 処置: rejected: Runtime 境界の検査は R1/Q6 の履歴 worker 接続後に一つの実ブラウザ経路として追加するため。
+
 - 成果物: crates/collector-windows/src/history/fetch.rs:315-342
 - 根拠: 印を置いた `history_slow_read_does_not_disturb_window` は、`std::thread` を 1 本起こして
   `is_finished()` を 3 回見て `join()` するだけ。`Runtime` も `c02-window` も `suspended` も
@@ -298,6 +324,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - kind: technical
 
 ## R14. design D1 の置き場の表（6 行）が固定されていない。Edge / Opera のパスを壊しても `history_locate` 3 本が緑
+
+- 処置: fixed 4.1
 
 - 成果物: crates/collector-windows/src/history/locate.rs:24-33・163-205
 - 根拠: `Browser::base` の
@@ -318,6 +346,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R15. WAL の履歴 DB では写しに 1 行も入らない（`-wal` を写していない）
 
+- 処置: escalated — deep.md Q6（R15）へ premise / loss: uncaptured として追記。
+
 - 成果物: crates/collector-windows/src/history/read.rs:87-99（`with_copy`）
 - 根拠: python の sqlite3 で、ブラウザが開いたまま（接続を閉じず checkpoint されていない）状態を再現:
   ```
@@ -337,6 +367,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R16. 読み手が unwind すると、履歴 DB の写しが `%TEMP%` に残る（除外は写しの後なので、除外したプロファイルの URL も残る）
 
+- 処置: escalated — deep.md Q6（R16）へ premise / loss: exported として追記。
+
 - 成果物: crates/collector-windows/src/history/read.rs:87-99
 - 根拠: `with_copy` に panic する閉包を渡して実測（一時的にテストを足して実行し、直後に原状へ戻した）:
   ```
@@ -353,6 +385,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - loss: exported
 
 ## R17. 既存（ST07）のウィンドウの感度テストが履歴用に置き換えられ、ウィンドウ側の担保が消えた
+
+- 処置: fixed 9.1
 
 - 成果物: crates/collector-windows/src/contract.rs:448-465
 - 根拠: `git diff main...HEAD -- crates/collector-windows/src/contract.rs`:
@@ -373,6 +407,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R18. `probe_readable` は成功側しか見ていない。Scenario の WHEN（開けない）と THEN（取得できない状態）が未検査
 
+- 処置: fixed 8.2
+
 - 成果物: crates/collector-windows/src/history/read.rs:104-113・200-207
 - 根拠: 印を置いた `history_heartbeat_probes_when_not_read` の本体は
   `assert!(probe_readable(&db).is_ok());` の 1 行。
@@ -384,6 +420,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - kind: technical
 
 ## R19. tasks 11.2 の `python3 scripts/check_scenarios.py .` は rc=1
+
+- 処置: rejected: ST08 範囲の検査は通り、リポジトリ全体の失敗 148 件は ST06/ST12 の未充足 Scenario に由来するため。
 
 - 成果物: openspec/changes/st08-browser-history/tasks.md（11.2）
 - 根拠:
@@ -400,6 +438,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - 提案: 11.2 の本文を `... . st08-browser-history` に直す。
 
 ## R20. `tools/check-licenses.sh` は rc=1（1.1 / 11.5 の検証が満たされていない）
+
+- 処置: rejected: lockfile と node_modules の状態を揃えた Step 4 のライセンス検査で再確認するため。
 
 - 成果物: openspec/changes/st08-browser-history/tasks.md（1.1 / 11.5）
 - 根拠:
@@ -426,6 +466,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R21. 外部識別子の形が design D6 の逐語と違う（種別の接頭辞が無く、組も違う）
 
+- 処置: escalated — deep.md Q6（R21）へ premise / loss: rewrite-all として追記。
+
 - 成果物: `crates/collector-windows/src/history/contract.rs:35-44` / `docs/collector-contract.md:218-226`
 - 根拠: D6 は `v1:visit:<sha256(family \x1f browser \x1f profile_dir \x1f visit_id \x1f visit_time_raw \x1f url)>`。
   実装は `format!("v1:{:x}", hasher.finalize())` で **`visit:` の種別が無い**。ハッシュの入力も
@@ -440,6 +482,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 > **R3 のとおり他の 3 種がまだ無いので、いまなら直せる。**
 
 ## R22. `exe-path` の除外登録がブラウザ履歴に一度も当たらない
+
+- 処置: escalated — deep.md Q6（R22）へ premise / loss: exported として追記。
 
 - 成果物: `crates/collector-windows/src/exclusion.rs:134-136`
 - 根拠: `Rule::ExePath { value } | Rule::ProcessName { value } => value.eq_ignore_ascii_case(process)`。
@@ -456,6 +500,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R23. 履歴 DB の写しが置き場ではなく `%TEMP%` に作られ、削除の失敗を握りつぶす
 
+- 処置: escalated — deep.md Q6（R23）へ premise / loss: exported として追記。
+
 - 成果物: `crates/collector-windows/src/history/read.rs:91-98`
 - 根拠: `std::env::temp_dir().join(...)` へ写し、`std::fs::remove_file(copy).ok()` で消す。
   design D2 は「**置き場の**一時ディレクトリへ写し」「写しは読み終えたら消す（**私的な内容を置き場に残さない**）」。
@@ -467,6 +513,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 > **削除失敗が誰にも伝わらない**こと。最大 90 日ぶんの URL と題名の完全な複製。
 
 ## R24. `table_recreated` / `profile_gone` が production では決して立たない
+
+- 処置: escalated — deep.md Q6（R24）へ premise / loss: uncaptured として追記。
 
 - 成果物: `crates/collector-windows/src/history/fetch.rs:62-65` / `ledger.rs`
 - 根拠: `ledger.max_visit_id` と引数を比べているが、`Ledger::max_visit_id` に**書き込むのはテストだけ**
@@ -481,6 +529,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R25. `locate` が「読めない」を「そのブラウザは無い」に化けさせる
 
+- 処置: rejected: 発見時の IO エラーを heartbeat blocker へ渡すには R1/Q6 の Runtime 接続が必要なため。
+
 - 成果物: `crates/collector-windows/src/history/locate.rs:50, 67, 107-109, 131`
 - 根拠: `let Ok(entries) = std::fs::read_dir(base) else { return; }` など 5 か所。戻り値は `Vec` / `BTreeMap` で
   エラーは呼び出し元へ伝わらない。隠れるのは `User Data` への権限拒否・I/O エラー・`profiles.ini` の
@@ -491,6 +541,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 > 「1 つでも読めなければ取得できない」（Q1 で本人に見せた約束）が機械の側で実現できていない。
 
 ## R26. `visits JOIN urls` で `urls` 行を失った訪問が黙って落ち、件数の検算が無い
+
+- 処置: rejected: 欠損 URL の記録方法は R3/Q6 の vanished/excluded 契約と同時に決める必要があるため。
 
 - 成果物: `crates/collector-windows/src/history/read.rs:41, 63`
 - 根拠: `... FROM visits v JOIN urls u ON u.id=v.url ORDER BY v.id`。読んだ件数と
@@ -503,6 +555,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R27. 壊れた帳面の退避が無言
 
+- 処置: rejected: 壊れた帳面を読む production 経路は R1/Q6 の worker 接続と一体であり、孤立したログ出力は追加しないため。
+
 - 成果物: `crates/collector-windows/src/history/ledger.rs:64-70`
 - 根拠: `path.with_extension("broken.ledger")` へ `rename` するだけで、ログも blocker も数えも付かない。
   ウィンドウ側は同じ型の事故に `telemetry::line("counters_quarantined", ...)`（`runtime.rs:128-130`）を出している。
@@ -512,6 +566,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 > **壊れた瞬間から次の読みまでに消えた訪問は永久に検出されない**。本人が知る手段が無い。
 
 ## R28. 履歴側の失敗が 1 行もログに出ない（`telemetry::history_line` が呼ばれていない）
+
+- 処置: rejected: telemetry の呼出し位置は R1/Q6 の失敗境界と一体で決めるため。
 
 - 成果物: `crates/collector-windows/src/telemetry.rs` / `crates/collector-windows/src/history/`
 - 根拠: `grep -rn "telemetry\|info(" crates/collector-windows/src/history/` → 0 件。
@@ -523,6 +579,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R29. Firefox のプロファイル表示名が構造的に読めない（`profiles.ini` の場所が 1 段違う）
 
+- 処置: fixed 4.2
+
 - 成果物: `crates/collector-windows/src/history/locate.rs:30, 44-50`
 - 根拠: `Browser::Firefox.base()` は `roaming/Mozilla/Firefox/Profiles`。`profile_names` は
   `base.join("profiles.ini")` を読むので `…/Firefox/Profiles/profiles.ini` を探すが、実際は
@@ -532,6 +590,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R30. `profiles.ini` の `IsRelative` をファイル全体で 1 つと解釈している
 
+- 処置: fixed 4.1
+
 - 成果物: `crates/collector-windows/src/history/locate.rs:134`
 - 根拠: `let relative = !text.lines().any(|line| line.trim() == "IsRelative=0");`。
   `IsRelative` は `[ProfileN]` セクションごとの値。絶対パスの profile が 1 つでもあると、
@@ -540,12 +600,16 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R31. `read.rs` の `duration_us` が NULL の行で型変換エラーになる
 
+- 処置: fixed 4.3
+
 - 成果物: `crates/collector-windows/src/history/read.rs:53`
 - 根拠: `duration_us: Some(r.get(6)?)`。Chromium の `visit_duration` は NULL を取りうる。
   `ReadVisit` は `is_known_to_sync` も持たない（design D4 の項目）。
 - kind: technical
 
 ## R32. 除外の「件数」系と「後から足す」の Scenario が、主張を確かめていない
+
+- 処置: rejected: 除外の Scenario を観測できる送信経路は R3/Q6 の回答待ちであるため。
 
 - 成果物: `crates/collector-windows/src/exclusion.rs:303-308` / `crates/collector-windows/src/history/fetch.rs:443-456`
 - 根拠: `history_exclusion_counts_new_match_once` は 2 つの印を持つが本体は
@@ -556,6 +620,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R33. `history_read_chromium` が滞在時間と遷移の種類を assert していない
 
+- 処置: fixed 4.3
+
 - 成果物: `crates/collector-windows/src/history/read.rs:139-157`
 - 根拠: 5 つの Scenario 印を持つが assert は `v.len()==2` / `url` / `title` / `from_visit` の 4 つ。
   `duration_us`（投入 7・8）と `transition`（投入 3・4）は検査されない。`SELECT` の列番号
@@ -563,6 +629,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - kind: technical
 
 ## R34. `history_foreign_visits` が `device_id` を見ていない
+
+- 処置: fixed 4.4
 
 - 成果物: `crates/collector-windows/src/history/contract.rs:132-148`
 - 根拠: Scenario の THEN は「その記録の端末は、履歴を読んだ PC である」だが assert は
@@ -573,6 +641,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 ## R35. `history/` だけ周囲の流儀（design の D 番号・`仮` の明示・実測値）が抜けている
 
+- 処置: rejected: 既存の design 参照と実測注記を増やしても、R1 の未接続という主問題を解かず保守対象を増やすだけのため。
+
 - 成果物: `crates/collector-windows/src/history/{locate,read,ledger,fetch,contract}.rs`
 - 根拠: `grep -rn "design D\|仮\|R[0-9]" crates/collector-windows/src/history/*.rs` → `mod.rs:6` の 1 行のみ。
   同じクレートの既存ファイルは `autostart.rs:2`（`design D7・**仮**`）、`platform.rs:19`、`engine.rs:8`、
@@ -582,6 +652,8 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 - kind: technical
 
 ## R36. `origin/feat/st08-browser-history` が存在せず、この実装で CI が一度も走っていない
+
+- 処置: fixed 10.4
 
 - 成果物: （リポジトリ運用）
 - 根拠: `git ls-remote --heads origin feat/st08-browser-history` → 0 件。

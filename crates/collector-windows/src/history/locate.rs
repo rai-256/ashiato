@@ -44,7 +44,9 @@ pub struct Profile {
 pub fn profile_names(browser: Browser, base: &Path) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
     let text = match browser {
-        Browser::Firefox => std::fs::read_to_string(base.join("profiles.ini")),
+        Browser::Firefox => {
+            std::fs::read_to_string(base.parent().unwrap_or(base).join("profiles.ini"))
+        }
         _ => std::fs::read_to_string(base.join("Local State")),
     };
     let Ok(text) = text else {
@@ -132,24 +134,36 @@ fn scan_ini(browser: Browser, ini: &Path, out: &mut Vec<Profile>) {
         return;
     };
     let parent = ini.parent().unwrap_or_else(|| Path::new(""));
-    let relative = !text.lines().any(|line| line.trim() == "IsRelative=0");
-    for line in text.lines().filter_map(|line| line.strip_prefix("Path=")) {
-        let dir = if relative {
-            parent.join(line)
-        } else {
-            PathBuf::from(line)
-        };
-        let db = dir.join("places.sqlite");
-        if db.is_file() {
-            out.push(Profile {
-                browser,
-                directory: dir
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
-                path: db,
-            });
+    let mut path = None;
+    let mut relative = true;
+    for line in text.lines().chain(std::iter::once("")) {
+        if let Some(value) = line.strip_prefix("Path=") {
+            path = Some(value);
+        } else if let Some(value) = line.strip_prefix("IsRelative=") {
+            relative = value != "0";
+        } else if line.is_empty() || line.starts_with('[') {
+            let Some(path) = path.take() else {
+                relative = true;
+                continue;
+            };
+            let dir = if relative {
+                parent.join(path)
+            } else {
+                PathBuf::from(path)
+            };
+            let db = dir.join("places.sqlite");
+            if db.is_file() {
+                out.push(Profile {
+                    browser,
+                    directory: dir
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                    path: db,
+                });
+            }
+            relative = true;
         }
     }
 }
@@ -170,6 +184,37 @@ mod tests {
         let found = locate(&root.join("local"), &root.join("roaming"));
         assert_eq!(found.len(), 6);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn browser_bases_match_the_documented_locations() {
+        // Scenario: 6 つのブラウザの既知の置き場が設計表どおりである
+        let local = Path::new("C:/Local");
+        let roaming = Path::new("C:/Roaming");
+        assert_eq!(
+            Browser::Chrome.base(local, roaming),
+            local.join("Google/Chrome/User Data")
+        );
+        assert_eq!(
+            Browser::Edge.base(local, roaming),
+            local.join("Microsoft/Edge/User Data")
+        );
+        assert_eq!(
+            Browser::Brave.base(local, roaming),
+            local.join("BraveSoftware/Brave-Browser/User Data")
+        );
+        assert_eq!(
+            Browser::Vivaldi.base(local, roaming),
+            local.join("Vivaldi/User Data")
+        );
+        assert_eq!(
+            Browser::Opera.base(local, roaming),
+            roaming.join("Opera Software/Opera Stable")
+        );
+        assert_eq!(
+            Browser::Firefox.base(local, roaming),
+            roaming.join("Mozilla/Firefox/Profiles")
+        );
     }
 
     #[test]
@@ -219,6 +264,55 @@ mod tests {
             profile_names(Browser::Chrome, &base).get("Default"),
             Some(&"個人".to_string())
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn firefox_profile_names_read_profiles_ini_beside_profiles_directory() {
+        // Scenario: Firefox の表示名は Profiles の親にある profiles.ini から読む
+        let root = temp();
+        let base = root.join("roaming/Mozilla/Firefox/Profiles");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(
+            base.parent().unwrap().join("profiles.ini"),
+            "[Profile0]\nName=個人\nPath=abc.default\nIsRelative=1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            profile_names(Browser::Firefox, &base).get("abc.default"),
+            Some(&"個人".to_string())
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn history_locate_firefox_reads_relative_flag_per_profile() {
+        // Scenario: Firefox の相対パスと絶対パスが同じ profiles.ini に混在できる
+        let root = temp();
+        let local = root.join("local");
+        let roaming = root.join("roaming");
+        let relative = roaming.join("Mozilla/Firefox/rel.default");
+        let absolute = root.join("outside");
+        std::fs::create_dir_all(&relative).unwrap();
+        std::fs::create_dir_all(&absolute).unwrap();
+        std::fs::write(relative.join("places.sqlite"), []).unwrap();
+        std::fs::write(absolute.join("places.sqlite"), []).unwrap();
+        std::fs::create_dir_all(roaming.join("Mozilla/Firefox")).unwrap();
+        std::fs::write(
+            roaming.join("Mozilla/Firefox/profiles.ini"),
+            format!(
+                "[Profile0]\nPath=rel.default\nIsRelative=1\n[Profile1]\nPath={}\nIsRelative=0\n",
+                absolute.display()
+            ),
+        )
+        .unwrap();
+        let found = locate(&local, &roaming);
+        assert!(found
+            .iter()
+            .any(|p| p.path == relative.join("places.sqlite")));
+        assert!(found
+            .iter()
+            .any(|p| p.path == absolute.join("places.sqlite")));
         std::fs::remove_dir_all(root).ok();
     }
 
