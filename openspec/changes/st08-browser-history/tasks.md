@@ -149,7 +149,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 8. 生存信号（2 本目）
 
-- [ ] 8.1 `c02-browser-history` 用の `Schedule`（86400 秒）と数え（`counters-browser-history.json`）を持ち、ウィンドウとは別の件として送る。
+- [x] 8.1 `c02-browser-history` 用の `Schedule`（86400 秒）と数え（`counters-browser-history.json`）を持ち、ウィンドウとは別の件として送る。
   `blockers` は `history-unreadable:<browser>:<profile_dir>` / `history-none-found`、区間の間の和（design D12）。
   注入した時計で Runtime を 2 日回して確かめる。
   Scenario: `ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く` / `ブラウザ履歴の生存信号はウィンドウの生存信号と別の件である` /
