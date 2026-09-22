@@ -215,6 +215,17 @@ PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomatio
 > **C-02 は 400 の本文も読む**（`ureq` の既定は 400 で本文を捨てる）。
 > 1 件ごとの結果の件数が送った件数と合わない応答では、**何も取り除かない**。
 
+## C-02（`c02-browser-history`）が送る `payload` の形（ST08 / design D4）
+
+履歴は訪問ごとに `kind: "visit"` を送り、本文には `at`（UTC・**マイクロ秒**）、
+`tz_basis: "collected-at"`、`browser`、`profile`、`url`、`title` と、あるときだけ
+`duration_ms`、`transition`、`referrer`、`originator_cache_guid`、`originator_visit_id` を置く。
+`external_id` は `v1:` と、ブラウザ・プロファイル・PC 側の訪問番号・訪問時刻・URL の組を
+SHA-256 した値である。組の全体をハッシュするので、識別子から URL・時刻・プロファイルを読めない。
+
+履歴は読んだ時刻を `source_updated_at` に置く。閉じたタブなどの後から読めた値を更新でき、
+未送信の再送が新しい版を古い本文へ書き戻すことを防ぐためである。
+
 ---
 
 # 生存信号の送信契約（ST02 / FR-78）
