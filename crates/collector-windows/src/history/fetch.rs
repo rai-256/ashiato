@@ -85,6 +85,28 @@ pub fn apply_vanished(ledger: &mut Ledger, vanished: &[VanishedVisit]) {
     }
 }
 
+/// 送る前に履歴へ除外を写す。後から規則を外した訪問は、まだ DB にあれば再び送る。
+pub fn apply_history_exclusions(
+    ledger: &mut Ledger,
+    exclusions: &crate::exclusion::Exclusions,
+    visits: &[Visit],
+) -> (Vec<Visit>, usize) {
+    let mut kept = Vec::new();
+    let mut newly_excluded = 0;
+    for visit in visits {
+        let excluded = exclusions.hits_history(&visit.payload.browser, &visit.payload.profile, &visit.payload.title, &visit.payload.url);
+        if excluded {
+            let was_excluded = ledger.visits.get(&visit.external_id).is_some_and(|saved| saved.excluded);
+            if !was_excluded { newly_excluded += 1; }
+            let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at).expect("Visit は RFC3339").with_timezone(&chrono::Utc);
+            ledger.record_visit(&visit.external_id, &content_hash(visit), at, visit.payload.originator_cache_guid.is_some(), true);
+        } else {
+            kept.push(visit.clone());
+        }
+    }
+    (kept, newly_excluded)
+}
+
 /// 取り込み本文の上限を越えないよう、安定順の最大1000件で区切る。
 pub fn vanished_chunks(items: &[VanishedVisit]) -> Vec<Vec<VanishedVisit>> {
     let mut sorted = items.to_vec();
@@ -288,6 +310,27 @@ mod vanished_tests {
     #[test] fn history_vanished_is_chunked_at_1000() { let mut l=Ledger::default(); for i in 0..1001 { l.record_visit(&format!("v1:{i:04}"),"h",Utc::now(),false,false); } let chunks=vanished_chunks(&detect_vanished(&l,&[],Utc::now(),None,false)); assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(),vec![1000,1]); }
     #[test] fn history_vanished_skips_unreadable_profile() { let l=ledger(); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,false).is_empty()); }
     #[test] fn history_vanished_is_idempotent_on_retry() { let mut l=ledger(); let vanished=detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true); apply_vanished(&mut l,&vanished); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true).is_empty()); }
+}
+
+#[cfg(test)]
+mod exclusion_change_tests {
+    use super::*;
+    use crate::exclusion::{Exclusions, Rule};
+
+    fn visit() -> Visit { Visit::new("chrome", "Default", 1, chrono::Utc::now(), "https://example.test", "private") }
+    #[test]
+    fn history_exclusion_added_later() {
+        let v=visit(); let mut ledger=Ledger::default(); mark_queued(&mut ledger, std::slice::from_ref(&v));
+        let rules=Exclusions { rules: vec![Rule::TitleContains { value: "private".into() }] };
+        let (kept, excluded)=apply_history_exclusions(&mut ledger,&rules,&[v]);
+        assert!(kept.is_empty() && excluded==1);
+    }
+    #[test]
+    fn history_exclusion_removed_later() {
+        let v=visit(); let mut ledger=Ledger::default(); ledger.record_visit(&v.external_id,"h",chrono::Utc::now(),false,true);
+        let (kept, excluded)=apply_history_exclusions(&mut ledger,&Exclusions::default(),std::slice::from_ref(&v));
+        assert_eq!(kept,vec![v]); assert_eq!(excluded,0);
+    }
 }
 
 #[cfg(test)]
