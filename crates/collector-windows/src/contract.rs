@@ -448,10 +448,13 @@ mod tests {
     ///
     /// Scenario: 収集側が厳しい側の感度を付けて送らない
     #[test]
-    fn sensitivity_uses_collection_default() {
-        let p = WindowPayload::new(RecordKind::Foreground, at());
-        let req =
-            IngestRequest::of(&p, uuid::Uuid::nil(), "dev-1", at(), &zone()).expect("契約の形");
+    fn history_sensitivity_uses_collection_default() {
+        // Scenario: ブラウザ履歴の記録も既定の感度で格納される
+        let visit = crate::history::contract::Visit::new(
+            "chrome", "Default", 1, at(), "https://example.test/private", "題名",
+        );
+        let req = IngestRequest::of_visit(&visit, uuid::Uuid::nil(), "dev-1", at(), &zone())
+            .expect("履歴の契約の形");
         let json = serde_json::to_string(&req).expect("直列化");
         assert!(
             !json.contains("sensitivity"),

@@ -862,6 +862,12 @@ history_after_raw=$(psql -c "SELECT raw FROM core.event
   WHERE logical_source='c02-browser-history'
     AND external_id='v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';")
 [ "$history_before_raw" = "$history_after_raw" ] || { echo "消えた記録で元の訪問の原文が変わった"; exit 1; }
+
+# Scenario: ブラウザ履歴の記録も既定の感度で格納される
+echo "== ST08. 履歴の記録は既定の感度で格納する"
+history_sensitivities=$(psql -c "SELECT DISTINCT sensitivity FROM core.event
+  WHERE logical_source='c02-browser-history' ORDER BY sensitivity;")
+[ "$history_sensitivities" = "1" ] || { echo "履歴の感度が既定ではない: $history_sensitivities"; exit 1; }
 rm -f "$HISTORY_DB"
 
 echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"
