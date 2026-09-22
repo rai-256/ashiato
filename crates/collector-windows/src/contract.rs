@@ -451,7 +451,12 @@ mod tests {
     fn history_sensitivity_uses_collection_default() {
         // Scenario: ブラウザ履歴の記録も既定の感度で格納される
         let visit = crate::history::contract::Visit::new(
-            "chrome", "Default", 1, at(), "https://example.test/private", "題名",
+            "chrome",
+            "Default",
+            1,
+            at(),
+            "https://example.test/private",
+            "題名",
         );
         let req = IngestRequest::of_visit(&visit, uuid::Uuid::nil(), "dev-1", at(), &zone())
             .expect("履歴の契約の形");

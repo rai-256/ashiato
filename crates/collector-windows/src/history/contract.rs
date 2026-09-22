@@ -12,7 +12,14 @@ pub struct Visit {
 }
 
 impl Visit {
-    pub fn new(browser: &str, profile: &str, visit_id: i64, at: DateTime<Utc>, url: &str, title: &str) -> Self {
+    pub fn new(
+        browser: &str,
+        profile: &str,
+        visit_id: i64,
+        at: DateTime<Utc>,
+        url: &str,
+        title: &str,
+    ) -> Self {
         let payload = VisitPayload {
             kind: "visit",
             at: micros(at),
@@ -33,7 +40,10 @@ impl Visit {
             hasher.update((part.len() as u64).to_be_bytes());
             hasher.update(part.as_bytes());
         }
-        Self { external_id: format!("v1:{:x}", hasher.finalize()), payload }
+        Self {
+            external_id: format!("v1:{:x}", hasher.finalize()),
+            payload,
+        }
     }
 
     /// 同期で届いた訪問には発生元だけを印として添える。収集端末は変えない。
@@ -91,7 +101,14 @@ mod tests {
         let at = chrono::DateTime::parse_from_rfc3339("2026-09-13T01:02:03.456789Z")
             .expect("時刻")
             .with_timezone(&chrono::Utc);
-        let visit = Visit::new("chrome", "Default", 7, at, "https://example.test/a?q=x", "題名");
+        let visit = Visit::new(
+            "chrome",
+            "Default",
+            7,
+            at,
+            "https://example.test/a?q=x",
+            "題名",
+        );
         assert!(visit.external_id.starts_with("v1:"));
         assert!(!visit.external_id.contains("example"));
         assert!(!visit.external_id.contains("Default"));
@@ -106,7 +123,10 @@ mod tests {
             .expect("時刻")
             .with_timezone(&chrono::Utc);
         let visit = Visit::new("chrome", "Default", 7, at, "https://example.test/a", "題名");
-        assert_eq!(serde_json::to_string(&visit.payload).expect("JSON"), r#"{"kind":"visit","at":"2026-09-13T01:02:03.456789Z","tz_basis":"collected-at","browser":"chrome","profile":"Default","url":"https://example.test/a","title":"題名"}"#);
+        assert_eq!(
+            serde_json::to_string(&visit.payload).expect("JSON"),
+            r#"{"kind":"visit","at":"2026-09-13T01:02:03.456789Z","tz_basis":"collected-at","browser":"chrome","profile":"Default","url":"https://example.test/a","title":"題名"}"#
+        );
     }
 
     #[test]
@@ -117,8 +137,13 @@ mod tests {
         let at = chrono::DateTime::<chrono::Utc>::UNIX_EPOCH;
         let local = Visit::new("chrome", "Default", 1, at, "https://a", "a");
         assert!(local.payload.originator_cache_guid.is_none());
-        let foreign = local.clone().with_originator(Some("other-pc".into()), Some(99));
+        let foreign = local
+            .clone()
+            .with_originator(Some("other-pc".into()), Some(99));
         assert_eq!(foreign.payload.originator_visit_id, Some(99));
-        assert_eq!(foreign.external_id, local.external_id, "識別子は読んだ PC 側の番号で決まる");
+        assert_eq!(
+            foreign.external_id, local.external_id,
+            "識別子は読んだ PC 側の番号で決まる"
+        );
     }
 }

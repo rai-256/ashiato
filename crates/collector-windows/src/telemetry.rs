@@ -37,9 +37,15 @@ pub fn history_line(
     error: Option<&str>,
 ) -> String {
     let mut s = format!("kind={kind} source=c02-browser-history");
-    if let Some(c) = count { s.push_str(&format!(" count={c}")); }
-    if let Some(ms) = elapsed_ms { s.push_str(&format!(" elapsed_ms={ms}")); }
-    if let Some(e) = error { s.push_str(&format!(" error={e}")); }
+    if let Some(c) = count {
+        s.push_str(&format!(" count={c}"));
+    }
+    if let Some(ms) = elapsed_ms {
+        s.push_str(&format!(" elapsed_ms={ms}"));
+    }
+    if let Some(e) = error {
+        s.push_str(&format!(" error={e}"));
+    }
     s
 }
 
@@ -80,10 +86,18 @@ mod tests {
     #[test]
     fn history_log_has_no_private_content() {
         // Scenario: 履歴の読み取りの失敗がログに出ても URL と題名は出ない
-        let l = history_line("history_read_failed", Some(1), Some(83), Some("unreachable"));
+        let l = history_line(
+            "history_read_failed",
+            Some(1),
+            Some(83),
+            Some("unreachable"),
+        );
         assert_eq!(l, "kind=history_read_failed source=c02-browser-history count=1 elapsed_ms=83 error=unreachable");
         for private in ["題名", "http", "example.com", "raw", "個人"] {
-            assert!(!l.contains(private), "履歴ログに私的な内容が出ている: {private}");
+            assert!(
+                !l.contains(private),
+                "履歴ログに私的な内容が出ている: {private}"
+            );
         }
     }
 
