@@ -30,7 +30,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [x] 1.1 `crates/collector-windows/Cargo.toml` に `rusqlite`（`bundled`）を**`cfg(windows)` の外に**足し、
   `history/` モジュール（`locate` / `read` / `contract` / `ledger` / `fetch`）の空の骨組みを置く（design D2）。
   検証: `cargo build -p ashiato-collector-windows` rc=0 / `tools/check-licenses.sh` rc=0
-- [ ] 1.2 CI の windows 向け型検査（`collector-windows` job）が `bundled` の C をコンパイルできるようにする
+- [x] 1.2 CI の windows 向け型検査（`collector-windows` job）が `bundled` の C をコンパイルできるようにする
   （mingw の C コンパイラを入れる。design D2）。
   検証: `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` が手元と CI で rc=0
 
