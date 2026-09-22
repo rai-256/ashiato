@@ -68,7 +68,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 4. 置き場を探して読む
 
-- [ ] 4.1 置き場の組み立て（design D1 の表を**全 6 行**。`User Data` の直下 1 段で `History` を持つディレクトリ、
+- [x] 4.1 置き場の組み立て（design D1 の表を**全 6 行**。`User Data` の直下 1 段で `History` を持つディレクトリ、
   Firefox は `profiles.ini` の `Path=` と `Profiles\` の走査の和）を純粋な関数にし、一時ディレクトリに作った木で確かめる。
   Scenario: `6 つのブラウザの既知の置き場にあるプロファイルが全部見つかる` / `Firefox の一覧にある既定の外の置き場も見つかる` /
   `複数のブラウザと複数のプロファイルの履歴が全部入る`。
