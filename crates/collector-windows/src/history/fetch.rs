@@ -3,7 +3,7 @@
 use sha2::{Digest as _, Sha256};
 
 use crate::history::contract::Visit;
-use crate::history::ledger::Ledger;
+use crate::history::ledger::{Ledger, LedgerStore};
 
 pub const HISTORY_INTERVAL: chrono::Duration = chrono::Duration::hours(24);
 pub const HISTORY_RETRY_INTERVAL: chrono::Duration = chrono::Duration::minutes(1);
@@ -77,6 +77,22 @@ pub fn mark_queued(ledger: &mut Ledger, visits: &[Visit]) {
     }
 }
 
+/// 未送信への追記を完了してから帳面を更新する。
+///
+/// 取り込み口が止まっていても outbox はローカルに積める。ここで失敗した場合は
+/// 帳面を進めず、次の取得で同じ訪問を再び差分として扱う。
+pub fn queue_then_save(
+    store: &mut LedgerStore,
+    visits: &[Visit],
+    mut queue: impl FnMut(&Visit) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    for visit in visits {
+        queue(visit)?;
+    }
+    mark_queued(store.ledger_mut(), visits);
+    store.save()
+}
+
 fn content_hash(visit: &Visit) -> String {
     let bytes = serde_json::to_vec(&visit.payload).expect("VisitPayload は直列化できる");
     format!("{:x}", Sha256::digest(bytes))
@@ -116,6 +132,31 @@ mod schedule_tests {
         assert!(!schedule.due(at(86_459)));
         assert!(schedule.due(at(86_460)));
         assert_eq!(schedule.last_success(), Some(at(0)));
+    }
+}
+
+#[cfg(test)]
+mod outbox_tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use crate::history::ledger::LedgerStore;
+
+    /// Scenario: 取り込み口が止まっている間に取得した履歴が後から届く
+    #[test]
+    fn history_success_only_after_outbox() {
+        let dir = std::env::temp_dir().join(format!("ashiato-history-fetch-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("ledger");
+        let mut store = LedgerStore::open(path.clone()).unwrap();
+        let visit = Visit::new("chrome", "Default", 1, chrono::Utc::now(), "https://example.test", "題名");
+
+        assert!(queue_then_save(&mut store, &[visit.clone()], |_| anyhow::bail!("取り込み口が止まっている")).is_err());
+        assert!(store.ledger().visits.is_empty(), "未送信へ積めないのに成功扱いにしている");
+
+        queue_then_save(&mut store, &[visit.clone()], |_| Ok(())).unwrap();
+        let reopened = LedgerStore::open(path).unwrap();
+        assert!(reopened.ledger().visits.contains_key(&visit.external_id));
+        std::fs::remove_dir_all(dir).ok();
     }
 }
 
