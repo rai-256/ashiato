@@ -53,7 +53,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## 3. 送る形（契約）
 
-- [ ] 3.1 `VisitPayload`（`visit` / `vanished` / `excluded` / `profiles`）と `IngestRequest::of_visit` を作る（design D4 / D5 / D6 / D15）。
+- [x] 3.1 `VisitPayload`（`visit` / `vanished` / `excluded` / `profiles`）と `IngestRequest::of_visit` を作る（design D4 / D5 / D6 / D15）。
   `event_time` はマイクロ秒、`tz_basis = "collected-at"`、`source_updated_at` は読んだ時刻、`external_id` は D6 の形
   （**第 2 回 Q5 の答えに従う**）。`IngestRequest` の `source_updated_at` は `skip_serializing_if` で足す（design D13）。
   Scenario: `訪問時刻がマイクロ秒で残る` / `タイムゾーンが取得時のものだと本文から分かる` / `識別子から URL と訪問時刻とプロファイルが読み取れない` /
