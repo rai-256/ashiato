@@ -104,7 +104,8 @@ mod tests {
     }
     #[test]
     fn history_copy_is_removed() {
-        let db = temp_db(); rusqlite::Connection::open(&db).unwrap();
+        // Scenario: ブラウザが動いている間も取得できる
+        let db = temp_db(); let _open_browser_db = rusqlite::Connection::open(&db).unwrap();
         let copy = with_copy(&db, |p| { assert!(p.exists()); Ok(p.to_owned()) }).unwrap();
         assert!(!copy.exists()); std::fs::remove_file(db).ok();
     }

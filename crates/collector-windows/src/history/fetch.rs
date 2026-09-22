@@ -301,14 +301,23 @@ mod vanished_tests {
         ledger
     }
 
+    // Scenario: 履歴から 1 件消すと次の取得で「消えた」記録が残る
     #[test] fn history_vanished_is_detected() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].external_id, "v1:a"); }
+    // Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
     #[test] fn history_vanished_has_age_days() { assert_eq!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].age_days, 3); }
+    // Scenario: 同期で入った訪問が消えたことが本文にある
     #[test] fn history_vanished_marks_foreign() { let mut l=ledger(); l.visits.get_mut("v1:a").unwrap().foreign=true; assert!(detect_vanished(&l,&[],Utc::now(),Some(10),false)[0].foreign); }
+    // Scenario: 表が作り直されたことが本文にある
     #[test] fn history_vanished_marks_recreated_table() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(1),false)[0].table_recreated); }
+    // Scenario: プロファイルが無くなったことが本文にある
     #[test] fn history_vanished_marks_gone_profile() { assert!(detect_vanished(&ledger(),&[],Utc::now(),Some(10),true)[0].profile_gone); }
+    // Scenario: 消えた経路を名指しする値を持たない
+    // Scenario: 消えた記録に URL と題名が載らない
     #[test] fn history_vanished_has_no_named_cause_or_private_text() { let item=&detect_vanished(&ledger(),&[],Utc::now(),Some(10),false)[0]; let json=serde_json::to_string(item).unwrap(); assert!(!json.contains("deleted") && !json.contains("url") && !json.contains("title")); }
     #[test] fn history_vanished_is_chunked_at_1000() { let mut l=Ledger::default(); for i in 0..1001 { l.record_visit(&format!("v1:{i:04}"),"h",Utc::now(),false,false); } let chunks=vanished_chunks(&detect_vanished(&l,&[],Utc::now(),None,false)); assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(),vec![1000,1]); }
+    // Scenario: 読めなかったプロファイルでは消えた記録を出さない
     #[test] fn history_vanished_skips_unreadable_profile() { let l=ledger(); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,false).is_empty()); }
+    // Scenario: 取得をやり直しても「消えた」記録は増えない
     #[test] fn history_vanished_is_idempotent_on_retry() { let mut l=ledger(); let vanished=detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true); apply_vanished(&mut l,&vanished); assert!(detect_vanished_if_readable(&l,&[],Utc::now(),Some(10),false,true).is_empty()); }
 }
 
@@ -320,6 +329,7 @@ mod exclusion_change_tests {
     fn visit() -> Visit { Visit::new("chrome", "Default", 1, chrono::Utc::now(), "https://example.test", "private") }
     #[test]
     fn history_exclusion_added_later() {
+        // Scenario: 登録を後から足すと、既に送った訪問の変わった内容は送られない
         let v=visit(); let mut ledger=Ledger::default(); mark_queued(&mut ledger, std::slice::from_ref(&v));
         let rules=Exclusions { rules: vec![Rule::TitleContains { value: "private".into() }] };
         let (kept, excluded)=apply_history_exclusions(&mut ledger,&rules,&[v]);
@@ -327,6 +337,7 @@ mod exclusion_change_tests {
     }
     #[test]
     fn history_exclusion_removed_later() {
+        // Scenario: 登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる
         let v=visit(); let mut ledger=Ledger::default(); ledger.record_visit(&v.external_id,"h",chrono::Utc::now(),false,true);
         let (kept, excluded)=apply_history_exclusions(&mut ledger,&Exclusions::default(),std::slice::from_ref(&v));
         assert_eq!(kept,vec![v]); assert_eq!(excluded,0);
