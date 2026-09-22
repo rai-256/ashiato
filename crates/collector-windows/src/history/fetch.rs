@@ -5,6 +5,42 @@ use sha2::{Digest as _, Sha256};
 use crate::history::contract::Visit;
 use crate::history::ledger::Ledger;
 
+pub const HISTORY_INTERVAL: chrono::Duration = chrono::Duration::hours(24);
+pub const HISTORY_RETRY_INTERVAL: chrono::Duration = chrono::Duration::minutes(1);
+
+/// 履歴取得の契機。成功だけが24時間の基準を進め、失敗は1分後に再試行する。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct HistorySchedule {
+    last_success: Option<chrono::DateTime<chrono::Utc>>,
+    retry_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl HistorySchedule {
+    pub fn with_last_success(last_success: Option<chrono::DateTime<chrono::Utc>>) -> Self {
+        Self { last_success, retry_after: None }
+    }
+
+    pub fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        if let Some(retry) = self.retry_after {
+            return now >= retry;
+        }
+        self.last_success.is_none_or(|last| now - last >= HISTORY_INTERVAL)
+    }
+
+    pub fn succeeded(&mut self, now: chrono::DateTime<chrono::Utc>) {
+        self.last_success = Some(now);
+        self.retry_after = None;
+    }
+
+    pub fn failed(&mut self, now: chrono::DateTime<chrono::Utc>) {
+        self.retry_after = Some(now + HISTORY_RETRY_INTERVAL);
+    }
+
+    pub fn last_success(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.last_success
+    }
+}
+
 /// 全履歴と帳面を比べ、未送信または本文が変わった訪問だけを返す。
 ///
 /// 訪問時刻で切らない。同期は過去の時刻の訪問を後から加えるため、全件との比較が
@@ -44,6 +80,43 @@ pub fn mark_queued(ledger: &mut Ledger, visits: &[Visit]) {
 fn content_hash(visit: &Visit) -> String {
     let bytes = serde_json::to_vec(&visit.payload).expect("VisitPayload は直列化できる");
     format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+    use chrono::{Duration, TimeZone};
+
+    fn at(seconds: i64) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc.timestamp_opt(seconds, 0).unwrap()
+    }
+
+    /// Scenario: 起動時に前回の成功から 24 時間以上経っていれば取得する
+    /// Scenario: 前回の成功から 24 時間経たないうちは取得しない
+    /// Scenario: 動作中に前回の成功から 24 時間経つと取得する
+    #[test]
+    fn history_schedule_uses_success_and_24_hours() {
+        let mut schedule = HistorySchedule::with_last_success(Some(at(0)));
+        assert!(!schedule.due(at(86_399)));
+        assert!(schedule.due(at(86_400)));
+        schedule.succeeded(at(86_400));
+        assert!(!schedule.due(at(86_400 + 60)));
+        assert!(schedule.due(at(86_400 + Duration::days(1).num_seconds())));
+    }
+
+    #[test]
+    fn history_schedule_starts_when_no_success_was_saved() {
+        assert!(HistorySchedule::default().due(at(0)));
+    }
+
+    #[test]
+    fn history_schedule_retries_failure_after_one_minute_without_advancing_success() {
+        let mut schedule = HistorySchedule::with_last_success(Some(at(0)));
+        schedule.failed(at(86_400));
+        assert!(!schedule.due(at(86_459)));
+        assert!(schedule.due(at(86_460)));
+        assert_eq!(schedule.last_success(), Some(at(0)));
+    }
 }
 
 #[cfg(test)]
