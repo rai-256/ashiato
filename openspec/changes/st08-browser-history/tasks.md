@@ -76,7 +76,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 4.2 表示名との対応（Chromium 系は `Local State`、Firefox は `profiles.ini`）を読み、**初回と対応が変わったときだけ** `profiles` 記録を作る（design D1 / D4）。
   Scenario: `プロファイルの表示名との対応が残る` / `プロファイルの表示名を変えると新しい対応が残る`。
   検証: `cargo test history_profiles_map` rc=0
-- [ ] 4.3 写しを取って読み取り専用で開き、Chromium 系（`visits` + `urls`）と Firefox（`moz_historyvisits` + `moz_places`）を訪問 1 件ごとに読む。
+- [x] 4.3 写しを取って読み取り専用で開き、Chromium 系（`visits` + `urls`）と Firefox（`moz_historyvisits` + `moz_places`）を訪問 1 件ごとに読む。
   写しは読み終えたら消す（design D2）。単体は `rusqlite` で両方の表の形を作って確かめる。
   Scenario: `同じページを 2 回訪問すると 2 件になる` / `ページの題名と滞在時間が載る` / `遷移の種類とどこから来たかが残る` /
   `URL のクエリとフラグメントが残る` / `履歴 DB の URL の文字列を補正しない`。
