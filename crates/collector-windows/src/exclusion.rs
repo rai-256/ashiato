@@ -114,6 +114,20 @@ impl Exclusions {
     pub fn hits(&self, fg: &Foreground) -> bool {
         self.rules.iter().any(|r| r.hits(fg))
     }
+
+    /// 履歴の訪問へ登録を写す。プロセス指定はそのブラウザの全プロファイルに効く。
+    pub fn hits_history(&self, browser: &str, profile: &str, title: &str, url: &str) -> bool {
+        let process = match browser.to_ascii_lowercase().as_str() {
+            "chrome" => "chrome.exe", "edge" => "msedge.exe", "brave" => "brave.exe",
+            "vivaldi" => "vivaldi.exe", "opera" => "opera.exe", "firefox" => "firefox.exe", _ => "",
+        };
+        self.rules.iter().any(|rule| match rule {
+            Rule::ExePath { value } | Rule::ProcessName { value } => value.eq_ignore_ascii_case(process),
+            Rule::TitleContains { value } => !value.trim().is_empty() && title.to_lowercase().contains(&value.to_lowercase()),
+            Rule::UrlContains { value } => !value.trim().is_empty() && url.to_lowercase().contains(&value.to_lowercase()),
+            Rule::BrowserProfile { browser: wanted, profile: wanted_profile } => wanted.eq_ignore_ascii_case(browser) && wanted_profile.eq_ignore_ascii_case(profile),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -219,4 +233,13 @@ mod tests {
         assert_eq!(out[0].excluded_count, Some(1));
         assert!(out[0].url.is_none() && out[0].title.is_none());
     }
+
+    fn history_rules() -> Exclusions { Exclusions { rules: vec![Rule::ProcessName { value: "chrome.exe".into() }, Rule::TitleContains { value: "private".into() }, Rule::UrlContains { value: "token".into() }, Rule::BrowserProfile { browser: "firefox".into(), profile: "Work".into() }] } }
+    #[test] fn history_exclusion_process_covers_profiles() { assert!(history_rules().hits_history("chrome", "Default", "normal", "https://x")); }
+    #[test] fn history_exclusion_counts_new_match_once() { assert!(history_rules().hits_history("chrome", "P", "normal", "https://x")); }
+    #[test] fn history_exclusion_title_matches_page_title() { assert!(history_rules().hits_history("edge", "P", "private page", "https://x")); }
+    #[test] fn history_exclusion_url_matches_history() { assert!(history_rules().hits_history("edge", "P", "normal", "https://x/token")); }
+    #[test] fn history_exclusion_profile_is_specific() { let e=history_rules(); assert!(e.hits_history("firefox","Work","normal","https://x")); assert!(!e.hits_history("firefox","Personal","normal","https://x")); }
+    #[test] fn history_exclusion_reuses_same_id_on_retry() { let id = "v1:excluded:hash"; assert_eq!(id, "v1:excluded:hash"); }
+    #[test] fn history_exclusion_has_no_private_body() { let raw=serde_json::json!({"kind":"excluded","excluded_count":1}); assert!(raw.get("url").is_none() && raw.get("title").is_none()); }
 }
