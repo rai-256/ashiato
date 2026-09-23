@@ -30,11 +30,14 @@
 | production-prep | `security-guidance`（commit 時。実測で 2 件のバグを出した） | commit | 会話 |
 | **deep の問い** | `deep-review` agent。schema の手順 1〜5 を独立にやり直す | 人間に HTML を渡す前 | `review/deep.md` |
 | proposal / specs / design / tasks / 再生成後の Story | `spec-review` agent | 上流の PR 前 | `review/spec.md` |
-| コード | `pr-review-toolkit` の 3 agent + `code-verify` agent | `/story` の PR 前 | `review/code.md` |
+| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | 会話（controller が ledger に写す） |
+| **コード（ブランチ全体）** | `superpowers:requesting-code-review` の `code-reviewer.md`（最上位モデル）＋ `code-verify` agent | 全 Task 完了後、PR の前 | `review/code.md` |
 | PR | `scripts/merge_gate.sh` | 人間が merge する前 | draft 状態 + PR コメント。OK なら**次の 1 手**を印字し、上流なら下流の issue を作る・貼り直す（`scripts/issue_body.py`） |
 | archive | `scripts/archive.sh` | 下流の merge 後 | `openspec/specs/`（正典） |
 
 agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘を出すだけで直さない）。
+SDD の 3 つの prompt は Superpowers のものを**そのまま**使う（`~/.claude/plugins/cache/*/superpowers/*/skills/`）。
+ハーネスは prompt を書き直さない —— 書き直した瞬間、upstream の更新が届かなくなる。
 
 ## 指摘の形と処置
 
@@ -60,6 +63,30 @@ agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘�
 | `conflict` / `daily`（**B 仮でよい**） | 計算し直せば戻る（判定式・閾値・順序・表示・導出）。日常に影響する選択もここ | **仮で閉じる。** `fixed D<n> 仮`。design の D<n> に（仮）と反転条件を書き、PR 本文に列挙する。人間は merge のときに見る。**印の無い `fixed` は FAIL**（要件の矛盾を黙って解くのが当初の事故） |
 | `premise` | 既決の前提が崩れた（例: 列の型が `jsonb` で「そのまま残す」が成立しない） | 人間へ。直せそうでも —— 前提を直すと本人の答えが変わりうる。例外は deep 段階（問いの `context` を直して問い直す） |
 | `defer` | 他 Story の担当 | その Story に **`tasks.md` がまだ無い**なら `deferred ST<NN>`。**ある**（issue 済み・凍結）なら `followup ST<NN>` にして `docs/handoff/ST<NN>.md` へ。**走っている Story へ差し戻さない** |
+
+### レビューの席は 4 つ（増やさない）
+
+1. **task reviewer** —— 1 Task の diff と brief だけ。spec 準拠と品質の 2 つの verdict
+2. **re-reviewer** —— fix ラウンドの diff だけ。各指摘を ADDRESSED / NOT ADDRESSED
+3. **final reviewer** —— ブランチ全体。plan alignment / 品質 / 設計 / test / production readiness
+4. **code-verify** —— **申告と実態のずれ。** 固定値を独立に再計算し、ガードをわざと壊し、
+   `[x]` の検証コマンドを実際に叩く。diff を読むだけの reviewer には出せない指摘を出す
+
+> **`pr-review-toolkit` の 3 agent は下流の既定から外した**（2026-09-23）。
+> `code-reviewer.md` と席が重複する（plan alignment・error handling・test が本物の振る舞いを見るか）。
+> PR そのもののレビューが要るときは `/pr-review-toolkit:review-pr` を人間が別に呼ぶ。
+
+**context の隔離が席の前提。** reviewer に渡すのは brief / implementer の report file /
+review package のパスと Global Constraints だけで、**implementer の推論や会話履歴は 1 行も渡さない**
+（SDD の "Reviewer inputs"）。同じ文脈を共有した目は、同じ誤解を通す。
+
+### `[x]` は controller が付ける
+
+実装した subagent は `tasks.md` を編集しない。task reviewer が通してから controller が付ける。
+
+> 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
+> （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
+> （通るほうの）コマンドを走らせた行まで `[x]` になった。採点者と受験者が同じだった。
 
 `scripts/review_triage.py . <change>` が、処置の無い指摘・指す先の不在・人間に返すべきものの `fixed`・
 印の無い B の `fixed`・凍結された Story への `deferred`・
