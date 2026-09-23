@@ -32,25 +32,25 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 1: 足場（ソースを 2 本持てる形にする）
 
-- [ ] 1.1 `collector-android` に `CollectionSource` の口を置く（`logicalSource` / `intervalMs` /
+- [x] 1.1 `collector-android` に `CollectionSource` の口を置く（`logicalSource` / `intervalMs` /
   `capability(context)` / `collect(window): Result`）。位置を `LocationSourceAdapter` としてその口に載せ替え、
   **振る舞いは 1 つも変えない**（design D5）。
   検証: `./gradlew :app:testDebugUnitTest` rc=0（既存の単体が全部緑のまま）/
   `git diff --numstat -- collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationFix.kt` が 0 行
-- [ ] 1.2 `Telemetry` のソース名の焼き込み（`LOGICAL_SOURCE` 定数）を外し、**書き手が名乗る**形にする（独立レビュー R10）。
+- [x] 1.2 `Telemetry` のソース名の焼き込み（`LOGICAL_SOURCE` 定数）を外し、**書き手が名乗る**形にする（独立レビュー R10）。
   Scenario: `端末のログのソース名がそのソースを指す`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*TelemetryTest*'` rc=0 /
   `grep -c LOGICAL_SOURCE collector-android/app/src/main/kotlin/dev/ashiato/collector/Telemetry.kt` が **0**
   （**いまは 1。実測 2026-09-18** —— `Telemetry.kt:19` の `append(" source=").append(LOGICAL_SOURCE)`。
   spec レビュー R5: 以前の検証パターンは作業前から 0 件で通っていた）
-- [ ] 1.3 `AttemptCounters` の満点の刻みをソースごとに取り、数えの置き場を**ソースごとの別ファイル**にする
+- [x] 1.3 `AttemptCounters` の満点の刻みをソースごとに取り、数えの置き場を**ソースごとの別ファイル**にする
   （いまは `heartbeat-counters.txt` の 1 本。R10）。既存の 1 本は位置の名前へ移す（読めなければ新品から始める）。
   Scenario: `取得率はソースごとの刻みで数えられる` / `どのソースも生存信号の区間に取得契機が 1 回以上入る` /
   `集計の取得率は 6 時間を刻みとして数えられる`（数えの側。取り込みの側は 4.3）。
   **`successes <= attempts` を型か `require` で壊せなくする**（契約が `invalid_counts` で恒久的に断る。spec レビュー R4）。
   検証: `./gradlew :app:testDebugUnitTest --tests '*HeartbeatCountersTest*'` rc=0 /
   2 ソースを同時に数える試験が 1 本以上ある / 全ソースの（生存信号の区間 ≥ 取得契機の間隔）を総当たりで見る試験が 1 本ある
-- [ ] 1.4 `AndroidManifest.xml` に `PACKAGE_USAGE_STATS` の宣言を足し、前景サービスの種別を
+- [x] 1.4 `AndroidManifest.xml` に `PACKAGE_USAGE_STATS` の宣言を足し、前景サービスの種別を
   位置が取れない状態でも立てられる形にする（design D5 のリスク）。
   検証: 計測テストで **位置の権限を拒否した状態で前景サービスが立つ**ことを確かめる
   （`./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'` rc=0）。
