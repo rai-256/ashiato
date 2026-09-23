@@ -168,14 +168,11 @@ class AppUsageSourceAdapter(
         val oldest = events.minByOrNull { it.at }?.at
         val end = if (oldest == null) floor.gapEndWhenNothingReturned() else floor.gapEnd(oldest)
         if (!end.isAfter(coveredThrough)) return emptyList()
-        // 出すのは期間の長さだけ（位置の値も表示名も原文も出さない。製造準備 A-2）
-        log(
-            Telemetry.line(
-                "usage_gap",
-                source = logicalSource,
-                elapsedMs = Duration.between(coveredThrough, end).toMillis(),
-            ),
-        )
+        // **出すのは件数だけ**（製造準備 A-2 / 独立レビュー R5）。
+        // 期間の長さを `elapsed_ms` に載せない —— あの欄は**所要時間**で、
+        // 3 日の gap で `elapsed_ms=259200000` を出すと、ログから所要時間を集計したときに壊れる。
+        // 期間そのものは記録の `begin` / `end` に入っていて、受け手はそちらを読む
+        log(Telemetry.line("usage_gap", source = logicalSource, count = 1))
         return listOf(usageGapRequest(newId(), user, deviceId, zone, coveredThrough, end))
     }
 

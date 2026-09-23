@@ -80,16 +80,139 @@ class UsageRollupProgressStore(
 
     /** 書く。**書いてから差し替える**（[UsageWindowStore] と同じ）。 */
     fun save(done: Set<UsageGranularity>) {
-        try {
-            file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText(ROLLUP_IMPORT_ORDER.filter { it in done }.joinToString("\n") { it.key })
-            if (!tmp.renameTo(file)) throw IOException("rename")
-        } catch (e: IOException) {
-            log(Telemetry.line("usage_rollup_progress_save_failed", source = logicalSource, error = e.javaClass.simpleName))
+        writeAtomically(file, logicalSource, "usage_rollup_progress_save_failed", log) {
+            ROLLUP_IMPORT_ORDER.filter { it in done }.joinToString("\n") { it.key }
         }
     }
 }
+
+/**
+ * 書いてから差し替える（[UsageWindowStore] と同じ）。**差し替えに失敗したら書きかけを片付ける**
+ * （独立レビュー R7）—— `rename` が偽を返す経路は自分の `catch` に入って戻るので、
+ * `finally` で消さないと `*.tmp` が置き場に残る。
+ */
+private fun writeAtomically(
+    file: File,
+    logicalSource: String,
+    failureKind: String,
+    log: (String) -> Unit,
+    text: () -> String,
+) {
+    val tmp = File(file.parentFile, "${file.name}.tmp")
+    try {
+        file.parentFile?.mkdirs()
+        tmp.writeText(text())
+        if (!tmp.renameTo(file)) throw IOException("rename")
+    } catch (e: IOException) {
+        log(Telemetry.line(failureKind, source = logicalSource, error = e.javaClass.simpleName))
+    } finally {
+        // 差し替わっていれば既に無い（`delete` が偽を返すだけ）。残っていれば書きかけなので消す
+        tmp.delete()
+    }
+}
+
+/**
+ * 既に積んだ集計を覚えておく幅（独立レビュー R3）。
+ *
+ * 日ごとの箱は取得元に 10 日ぶん残っていて、6 時間ごとの契機が**毎回まるごと**返させる。
+ * 覚えていないと、同じ 1 件が寿命のあいだに約 40 回、位置と同じ未送信の置き場（C11）へ積まれる。
+ *
+ * 幅は見込みの保持（日ごと 10 日）の 3 倍。[USAGE_FIRST_WINDOW_MS] と同じ考えで、
+ * **見込みが外れて取得元が長く持っていても覚えていられる**ようにしてある ——
+ * ここで足りないと、その分は取りこぼしではなく**重複**になる（失われるものは無い）。
+ *
+ * **反転条件**: 端末の置き場がこの台帳で膨らむ実測（tasks 7.1）が出たら狭める。
+ */
+const val ROLLUP_SEEN_WINDOW_MS: Long = 30 * 24 * 60 * 60 * 1000L
+
+/**
+ * 覚えておく件数の上限。**無制限に育てない**（独立レビュー R3）。
+ *
+ * 1 日に利用のあるアプリを 150 本と見ても 30 日で 4,500 件なので、
+ * 普通の端末では当たらない。当たったときは**古い箱から忘れる** ——
+ * 忘れた箱が返れば積み直すだけで、**失われるものは無い**（サーバは内容の鍵で畳む）。
+ */
+const val ROLLUP_SEEN_MAX: Int = 10_000
+
+/** 既に積んだ集計の台帳の置き場の名前。**ソースごとに別ファイル**。 */
+fun usageRollupSeenFile(dir: File, logicalSource: String): File =
+    File(dir, "usage-rollup-seen-$logicalSource.txt")
+
+/**
+ * 既に積んだ集計の原文の指紋を覚えておく（独立レビュー R3）。
+ *
+ * **窓を切り詰める代わりにここで止める** —— 問い合わせの窓を見込みの下限で切るのは
+ * C3 と spec レビュー R3 が明示で禁じている（取得元がそれより長く持っている端末で、
+ * まだ残っている箱を飛ばす）。切ってよいのは**積む側**で、そこで落としても
+ * 取得元のデータは何も失われない。
+ *
+ * **覚えるのは原文そのものではなく指紋**（SHA-256 の先頭 128 ビット）。
+ * 原文を持つと台帳が記録と同じ大きさになり、置き場を二重に食う。
+ * 冪等キーは `logical_source` + `event_time` + `raw` から作られ、
+ * このソースの中では `event_time` も原文の `end` に入っているので、**原文だけで一意に決まる**。
+ *
+ * **今日の箱は育つので指紋が変わる** —— そのときは別の 1 件として積む（鍵が変わるので畳まれない）。
+ *
+ * **インスタンスの中だけに持たない** —— `START_STICKY` の立て直しで消えると、
+ * そのたびに 10 日ぶんを積み直す。読めなければ**何も積んでいないものとして始める**（落とさない）。
+ */
+class UsageRollupSeenStore(
+    private val file: File,
+    private val logicalSource: String,
+    private val log: (String) -> Unit,
+) {
+    /** 指紋 → その箱の終わり（忘れる順を決めるためだけに持つ）。 */
+    fun load(): MutableMap<String, Instant> = try {
+        if (!file.exists()) {
+            LinkedHashMap()
+        } else {
+            val out = LinkedHashMap<String, Instant>()
+            for (line in file.readLines()) {
+                // 壊れた行は黙って捨てる（捨てた分は積み直されるだけで、失われるものは無い）
+                val parts = line.trim().split(" ")
+                if (parts.size != 2) continue
+                val at = parts[1].toLongOrNull() ?: continue
+                out[parts[0]] = Instant.ofEpochMilli(at)
+            }
+            out
+        }
+    } catch (e: RuntimeException) {
+        log(Telemetry.line("usage_rollup_seen_unreadable", source = logicalSource, error = e.javaClass.simpleName))
+        LinkedHashMap()
+    } catch (e: IOException) {
+        log(Telemetry.line("usage_rollup_seen_unreadable", source = logicalSource, error = e.javaClass.simpleName))
+        LinkedHashMap()
+    }
+
+    fun save(seen: Map<String, Instant>) {
+        writeAtomically(file, logicalSource, "usage_rollup_seen_save_failed", log) {
+            seen.entries.joinToString("\n") { "${it.key} ${it.value.toEpochMilli()}" }
+        }
+    }
+}
+
+/**
+ * 集計を[忘れる][ROLLUP_SEEN_WINDOW_MS]。**新しい箱から残す** ——
+ * 件数で溢れたときに古いほうを落とすのは、古い箱ほど取得元から先に消えて二度と返らないから。
+ */
+internal fun pruneRollupSeen(seen: MutableMap<String, Instant>, now: Instant): MutableMap<String, Instant> {
+    val floor = now.minusMillis(ROLLUP_SEEN_WINDOW_MS)
+    val kept = seen.entries
+        .filter { !it.value.isBefore(floor) }
+        .sortedByDescending { it.value }
+        .take(ROLLUP_SEEN_MAX)
+    if (kept.size == seen.size) return seen
+    val out = LinkedHashMap<String, Instant>(kept.size)
+    for (entry in kept) out[entry.key] = entry.value
+    return out
+}
+
+/** 原文の指紋（SHA-256 の先頭 128 ビット）。**原文そのものは台帳に書かない。** */
+internal fun rollupFingerprint(raw: String): String =
+    java.security.MessageDigest.getInstance("SHA-256")
+        .digest(raw.toByteArray(Charsets.UTF_8))
+        .take(16)
+        .joinToString("") { "%02x".format(it) }
 
 /**
  * アプリ利用の**集計**を [CollectionSource] の口に載せる（tasks 4.3 / design D3 / 本人の決定 Q5）。
@@ -114,6 +237,12 @@ class AppUsageRollupSourceAdapter(
     /** 記録の未送信。**位置とイベントと同じもの**（C11） */
     private val outbox: Outbox<IngestRequest>,
     private val progressStore: UsageRollupProgressStore,
+    /**
+     * 既に積んだ集計の台帳（独立レビュー R3）。**窓を切り詰める代わりにここで止める** ——
+     * 日ごとの箱は 10 日ぶんが 6 時間ごとに毎回まるごと返るので、覚えていないと
+     * 同じ 1 件が寿命のあいだに約 40 回、位置と同じ置き場へ積まれる。
+     */
+    private val seenStore: UsageRollupSeenStore,
     private val labels: AppLabels,
     private val userId: () -> String,
     private val deviceId: String,
@@ -147,10 +276,14 @@ class AppUsageRollupSourceAdapter(
         val collectedIn = zone()
         val user = userId()
 
+        val seen = seenStore.load()
+        val seenBefore = seen.size
+
         val enqueued = mutableListOf<IngestRequest>()
         val imported = done.toMutableSet()
         var unreadable: String? = null
         var persisted = 0
+        var skipped = 0
         for (granularity in targets) {
             when (val read = source.rollups(granularity, CollectionWindow(ROLLUP_QUERY_BEGIN, at))) {
                 is RollupsResult.Unreadable -> {
@@ -163,6 +296,13 @@ class AppUsageRollupSourceAdapter(
                         val record = rollup.toIngestRequest(
                             newId(), user, deviceId, collectedIn, granularity, labels.label(rollup.packageName),
                         )
+                        // **既に積んだ原文は積み直さない**（独立レビュー R3）。
+                        // 育っている途中の箱は原文が変わるので、そのときは別の 1 件として積む
+                        val print = rollupFingerprint(record.raw)
+                        if (seen.put(print, rollup.lastAt) != null) {
+                            skipped++
+                            continue
+                        }
                         enqueued += record
                         if (outbox.add(record)) persisted++
                     }
@@ -176,8 +316,14 @@ class AppUsageRollupSourceAdapter(
         }
         // **取れた分の印は、途中で止まっても残す**（spec「次の契機で取り込んでいない粒度から再開する」）
         if (imported != done) progressStore.save(imported)
+        val pruned = pruneRollupSeen(seen, at)
+        if (pruned.size != seenBefore || enqueued.isNotEmpty()) seenStore.save(pruned)
         // 出すのは件数だけ（製造準備 A-2）。表示名も原文も出さない
         log(Telemetry.line("usage_rollup", source = logicalSource, count = enqueued.size))
+        if (skipped > 0) {
+            // **積み直さずに済んだ件数**（tasks 7.1 の実測が読む）
+            log(Telemetry.line("usage_rollup_already_sent", source = logicalSource, count = skipped))
+        }
         if (persisted != enqueued.size) {
             log(
                 Telemetry.line(

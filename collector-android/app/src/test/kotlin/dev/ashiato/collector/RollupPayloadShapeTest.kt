@@ -92,6 +92,31 @@ class RollupPayloadShapeTest {
         assertEquals("粒度の名前が重なっている", names.size, names.distinct().size)
     }
 
+    /**
+     * 封筒（出来事の時刻・地域）を固定する（独立レビュー R6）。**印は置かない** ——
+     * spec にこの Scenario は無く、ここは KDoc にしか無い決定の回帰の受け皿。
+     *
+     * **出来事の時刻は箱の終わり**（gap の記録と同じ規律）。始まりに置くと、
+     * 年ごとの箱が 2 年前へ落ちて「いつの記録か」が粒度ごとにばらける。
+     * **地域は取得時点の端末のもの**（C12）—— 集計は最大 2 年を遡るが、
+     * その時点の地域は取得元が持っていない。
+     */
+    @Test
+    fun `集計の記録の封筒は箱の終わりと取得時点の地域で決まる`() {
+        val rollup = usageRollup(firstAt = "2025-01-01T00:00:00Z", lastAt = "2026-01-01T00:00:00Z")
+        val request = request(rollup, granularity = UsageGranularity.YEARLY)
+
+        assertEquals("2026-01-01T00:00:00Z", request.eventTime)
+        assertEquals(rollup.lastAt.toString(), request.eventTime)
+        assertEquals("Asia/Tokyo", request.tzId)
+        assertEquals(zone.rules.getOffset(rollup.lastAt).totalSeconds / 60, request.tzOffsetMin)
+        assertEquals(540, request.tzOffsetMin)
+        // 端末の収集なので外部識別子は持たない（登録簿は `external_id_kind = 'none'`）
+        assertEquals(null, request.externalId)
+        assertEquals("collected", request.origin)
+        assertEquals(APP_USAGE_ROLLUP_LOGICAL_SOURCE, request.logicalSource)
+    }
+
     /** パッケージ名が無ければ**欄ごと省く**（`null` を置かない。イベントと同じ規律）。 */
     @Test
     fun `パッケージ名が無ければ欄ごと省く`() {
