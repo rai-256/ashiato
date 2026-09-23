@@ -58,12 +58,12 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 2: 取得元の口と偽物
 
-- [ ] 2.1 `UsageSource` の口を置く（`events(begin, end): EventsResult`（`Unreadable` / `Events(list)`）/
+- [x] 2.1 `UsageSource` の口を置く（`events(begin, end): EventsResult`（`Unreadable` / `Events(list)`）/
   `rollups(granularity, begin, end)` / `retentionFloor(now)`）。本番は `UsageStatsManager`、
   試験は偽物（design D5 / リスクの「`null` と 0 件の取り違え」）。
   検証: `./gradlew :app:testDebugUnitTest --tests '*UsageSourceTest*'` rc=0 /
   `Unreadable` を返す偽物と 0 件を返す偽物の**両方**が試験にある
-- [ ] 2.2 **見込みの**保持の下限（イベント 10 日 / 年 2 年 / 月 6 か月 / 週 4 週）を 1 か所（`UsageRetention`）に置く。
+- [x] 2.2 **見込みの**保持の下限（イベント 10 日 / 年 2 年 / 月 6 か月 / 週 4 週）を 1 か所（`UsageRetention`）に置く。
   出所を逐語でコメントに残す。**この値で問い合わせの窓を切り詰めない**（spec レビュー R3。API から読めない見込みなので、
   切り詰めると残っているイベントを飛ばす）—— 使うのは「gap を積むかどうか」の判定だけ。
   検証: `./gradlew :app:testDebugUnitTest --tests '*UsageRetentionTest*'` rc=0 /
