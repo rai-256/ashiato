@@ -72,22 +72,22 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 3: イベントの取得と窓
 
-- [ ] 3.1 30 分ごとにイベントを取り、**1 イベント 1 記録**で積む。種別も欄もふるいにかけない（design D1）。
+- [x] 3.1 30 分ごとにイベントを取り、**1 イベント 1 記録**で積む。種別も欄もふるいにかけない（design D1）。
   `raw` は取得元が返した値だけ、表示名は `payload` にだけ（design D2）。
   Scenario: `契機ごとに前回以降のイベントが記録になる` / `種別でふるい落とさない` /
   `1 件が取得元の公開しているすべての欄を持つ` / `表示名は解析済みにだけ入る` / `同じイベントの原文は毎回同じ文字列になる`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*AppUsageCollectorTest*'` rc=0 /
   原文を 2 回組み立てて**バイト列が一致する**試験が 1 本ある
-- [ ] 3.2 窓の終わりを端末に保存し、次の契機はその手前から取り直す。`Unreadable` では窓を進めない。
+- [x] 3.2 窓の終わりを端末に保存し、次の契機はその手前から取り直す。`Unreadable` では窓を進めない。
   Scenario: `境界のイベントが落ちない` / `読めなかったときは窓が進まない` / `0 件のときは窓が進む` /
   `窓の終わりは収集の停止と再開をまたいで残る` / `遡って取った記録の地域は取得時点の端末の地域である`（design D7（仮））。
   検証: `./gradlew :app:testDebugUnitTest --tests '*UsageWindowTest*'` rc=0 /
   **ガードをわざと壊す**（`Unreadable` でも窓を進める）と `読めなかったときは窓が進まない` が落ちることを確かめる
-- [ ] 3.3 端末の時計の前進が単調な経過時間と食い違う間は、窓を進めず取り直さない（design D5 / R4）。
+- [x] 3.3 端末の時計の前進が単調な経過時間と食い違う間は、窓を進めず取り直さない（design D5 / R4）。
   `AgeClock`（ST04）の単調な経過時間を使い、**新しい時計を足さない**。
   Scenario: `時計が飛んでいる間は取り直さない`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*UsageWindowClockTest*'` rc=0
-- [ ] 3.4 `payload` の形（欄の並びと省略の規則）を 1 文字単位で固定する試験を置く
+- [x] 3.4 `payload` の形（欄の並びと省略の規則）を 1 文字単位で固定する試験を置く
   （C-02 の `payload_shape_is_pinned` と同じ形。design D2）。
   検証: `./gradlew :app:testDebugUnitTest --tests '*AppUsagePayloadShapeTest*'` rc=0
 
