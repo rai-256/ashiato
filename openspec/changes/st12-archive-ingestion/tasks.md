@@ -12,7 +12,7 @@
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
 DB を使う検査は `docker compose up -d db` が前提。
 
-## 0. 規律（**最初に読む**）
+## Global Constraints（規律。**最初に読む**）
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 同じ書庫をもう一度置いても行が増えない`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
@@ -31,14 +31,14 @@ DB を使う検査は `docker compose up -d db` が前提。
 - **`id` は記録ごとに毎回新しい uuid**（FR-21）。外部サービスの値から導かない
 - **Takeout の書庫の中身を格納する試験（5.7 / 6.x / 7.x / 9.x / 11.3）の準備では、`core.archive_shape_confirmation` に合成の書庫の形を入れておく**（第 2 回 Q10 の印。入れないと 0 件になる。spec-r2 R8）
 
-## 0. 着手の前に（design D13）
+## Task 1: 0. 着手の前に（design D13）
 
 - [x] 0.1 **ST04 が archive されるまで着手しない。** ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、
   この change の `specs/collection-coverage/spec.md` を突き合わせ、**許した差（予算の 1 文・導出元の `FR-55`・「2026-09-15 の変更」の注記・WHEN/THEN を直した 2 本・足した Scenario 3 本）のほかに差があれば、正典に合わせて写し直す**。
   検証: 次が rc=0 —— `test ! -d openspec/changes/st04-offline-retention`（ST04 が archive 済み。まだなら rc=1 で止まる）、
   `python3 scripts/st12_delta_diff.py`（この tasks で足す小さな比較。2 つの Requirement の本文を行の集合で比べ、許した差のほかの行が 1 行でもあれば exit 1）、`openspec validate st12-archive-ingestion --strict`
 
-## 1. 移行（design D14 / D7 / D8 / D2 / D16）
+## Task 2: 1. 移行（design D14 / D7 / D8 / D2 / D16）
 
 - [x] 1.1 移行 `migrations/YYYYMMDDHHMM_archive_ingestion.sql` と `.down.sql` を足す —— `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（`user_id` あり。
   UPDATE / DELETE / TRUNCATE を拒むトリガ）、`core.archive_shape_confirmation`（追記のみ）、`core.archive_sighting` と `core.archive_scan_counter` と `core.archive_pending_shape`（書き換えてよい）、索引 3 本（design D14）、
@@ -49,7 +49,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 1.2 `tools/check-immutable.sh` に台帳の 3 表と `core.archive_shape_confirmation` を足す（全列の UPDATE と DELETE と TRUNCATE が拒まれる）。
   Scenario: `台帳の行は書き換えられない`。検証: `tools/check-immutable.sh` rc=0
 
-## 2. 格納の関門の切り出し（design D4 / D10）
+## Task 3: 2. 格納の関門の切り出し（design D4 / D10）
 
 - [x] 2.1 `ingest_one` を「JSON の解釈」と `store_one(pool, IngestRequest) -> StoreOutcome` に分ける。`DuplicateOfDeleted` を分ける。
   **HTTP の応答と拒否の理由は変えない。**
@@ -60,7 +60,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 2.2 `heartbeat_one` の本体を同じ形で `store_heartbeat(pool, HeartbeatRequest)` に切り出す。
   検証: 既存の `CT heartbeat` がすべて通る、`tools/check-openapi.sh` rc=0（`/heartbeat` の形が変わらない）
 
-## 3. 置き場の走査（design D1 / D8）
+## Task 4: 3. 置き場の走査（design D1 / D8）
 
 - [x] 3.1 `crates/server/src/archive/config.rs` —— 環境変数（D1 の表）を読む。`ASHIATO_ARCHIVE_KEEP_COPIES` の綴り違いは起動を止め、`ASHIATO_ARCHIVE_USER_ID` が無ければ取り込み器を起こさない。
   Scenario: `設定を指定しなければ写しが残る`。
@@ -77,7 +77,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `読んでいる間に置いた書庫は読み終えた後に読まれる`。
   検証: `CT archive_end_to_end_worker_starts`（間隔 1 秒で起こし、置いた書庫が 10 秒以内に台帳に入る / 読み手を止めた試験用の格納で 1 冊目を読ませている間に 2 冊目を置き、1 冊目の台帳の行の後に 2 冊目の行が入る）
 
-## 4. 書庫を開いて見分ける（design D3 / D5 / D7）
+## Task 5: 4. 書庫を開いて見分ける（design D3 / D5 / D7）
 
 - [x] 4.1 `zip` の依存を足し（許諾を `tools/check-licenses.sh` で確かめる）、書庫の中のファイルを列挙する。壊れた zip は `broken_zip`、`.tgz` などは `unsupported_format`。
   Scenario: `読めない形の書庫は台帳に残る` / `分割書庫は 1 本ずつ読まれる`。
@@ -90,7 +90,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   検証: `CT archive_slice`（字下げ・改行・エスケープされた `"` と `]` を含む配列で、各 `raw` がファイルの部分列と一致し、境目が 1 MiB の読みの切れ目をまたいでも同じ）
 - [x] 4.4 検証: 大きなファイルでメモリに載せないこと —— `CT archive_slice_large`（200 MiB の合成の `Records.json` を読み、1 件ずつ受け取る側で同時に持った件数の最大が 1 であることを数える）
 
-## 5. 解析器（design D2 / D5 / D6）
+## Task 6: 5. 解析器（design D2 / D5 / D6）
 
 - [x] 5.1 地域の決め方（ずれを持てばそのずれと `Etc/GMT±N`、持たなければ 0 と `UTC`、`startTimeTimezoneUtcOffsetMinutes` を優先、`tz_from_source`）。
   Scenario: `ずれを持つ時刻はそのずれで残る` / `UTC しか持たない時刻は UTC で残る` / `UTC しか持たない時刻には取得元が地域を持たなかった印が付く` / `地域は位置から推定されない`。検証: `CT archive_tz`
@@ -109,7 +109,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   `6 つの中身がそれぞれ読まれる` / `記録から運んだ書庫が分かる` / `書庫の位置は携帯端末の位置に入らない` / `書庫の位置は携帯端末の位置の収集開始日を動かさない` / `書庫の論理ソースは成功条件 1 の達成に数えられない`。
   検証: `CT archive_end_to_end`（合成の書庫と `Timeline.json` と `Records.json` を置き場に置き、走査 1 回で 6 つの中身から 1 件以上 / `c01-location` の件数と収集開始日が変わらない / `/coverage/achievement` の対象が 5 本のまま）
 
-## 6. 重複・削除済み・読めない項目（design D4 / D7）
+## Task 7: 6. 重複・削除済み・読めない項目（design D4 / D7）
 
 - [x] 6.1 Scenario: `同じ書庫をもう一度置いても行が増えない` / `同じ出来事を含む別の書庫を置いても行が増えない` / `題名が変わった同じ視聴は別の記録として残る` /
   `古い書庫を後から置いても新しい記録は書き換わらない` / `消した記録は書庫を置き直しても戻らない` / `消した記録は別の書庫からも戻らない` / `書庫の位置と端末の位置が同じでも取りやめない`。
@@ -118,7 +118,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `壊れた 1 件があっても残りは格納される` / `壊れた 1 件の場所が台帳に残る` / `格納が落ちた書庫は次の走査で読み直される` / `格納に続けて失敗した書庫は台帳と画面に出る`（サーバ側）。
   検証: `CT archive_partial`（DB の失敗は `FailingSink`（2.1）で 5 件目に Err を返し、台帳に行が無く、`PgSink` に戻した次の走査で全件 / 3 回続けると `store_failed` が 1 行で、4 回目の走査では行が増えない）
 
-## 7. 台帳・写し・本人のファイル（design D7 / D8 / D9）
+## Task 8: 7. 台帳・写し・本人のファイル（design D7 / D8 / D9）
 
 - [x] 7.1 台帳の 1 行を読み終えてから INSERT する（件数・作られた時刻の出所・置き場の種類・`unreadable_kind`・読まなかったファイルの数）。
   論理ソースごとの行に `max_event_at` を持たせる（design D11）。
@@ -133,7 +133,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 7.4 解析器の版が上がったら、覚えている書庫を写しから（無ければ置き場から）読み直す。
   Scenario: `解析器の版が上がると読み直される`。検証: `CT archive_reparse`（版を 1 つ上げた試験用の定数で起こす）
 
-## 7b. 形の確認の印（design D16 / 第 2 回 Q10。写し（7.2）の後）
+## Task 9: 7b. 形の確認の印（design D16 / 第 2 回 Q10。写し（7.2）の後）
 
 - [x] 7b.1 読み手に形の取り出し（見分けた種類・パスの型・最上位の鍵・欄の名前・`products` の値の集合。値は含めない）と、印の無い形のファイルを格納せず `core.archive_pending_shape` に積み、台帳に `pending_shape` を書く経路を足す。
   確認待ちの書庫は写しの設定に関わらず写す。Timeline.json と移行前のロケーション履歴は待たない。
@@ -147,7 +147,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   `印を置いた後の読み直しは台帳に 1 行足す` / `確認待ちのために作った写しは読み直した後に消える`。
   検証: `CT archive_shape_confirm`（印を置くと次の走査で視聴履歴が格納され、台帳に `read` が 1 行増える / 残さない設定では読み直しの後に写しが 0）、合成の書庫で `tools/archive-shape.sh | grep -c '京都'` が 0 かつ rc=0 で `watch-history` の欄の名前の行が出る
 
-## 8. 取り込み器の生存信号（design D10）
+## Task 10: 8. 取り込み器の生存信号（design D10）
 
 - [x] 8.1 走査の回数と、2 つの置き場をどちらも読めた走査の回数を数え、`Asia/Tokyo` の日の最初の走査で `s01-archive-inbox` に 1 件残す（その日の信号が既にあれば送らない。`store_heartbeat` を呼ぶ）。**書庫の論理ソースには送らない。**
   Scenario: `取り込み器が動いている日に生存信号が 1 件残る` / `起動し直しても同じ日の生存信号は 1 件` / `生存信号は走査の回数と読めた走査の回数を持つ` /
@@ -158,7 +158,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `書き出しを忘れると書庫のソースは途絶になる`。
   検証: `CT archive_source_outage`（視聴履歴の最後の記録から 61 日後の日の状態が `outage`。`coverage.rs` の判定は変えない）
 
-## 9. 最終日と API（design D11 / D12）
+## Task 11: 9. 最終日と API（design D11 / D12）
 
 - [x] 9.1 `GET /archives/status`（`sources[].last_event_on` と `last_archive_created_at`、`latest_archive`（`previously_read_at` を含む）、`reading`（読み手のメモリの状態。1,000 件ごと）、`pending_shape`、`inbox`）を足し、OpenAPI に載せる。最終日は台帳の `max_event_at` から導く（design D11）。
   Scenario: `最終日はいちばん新しい出来事の日` / `最終日と一緒に運んだ書庫の作られた時刻が残る` / `最終日の記録を消しても最終日は戻らない` /
@@ -169,7 +169,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   Scenario: `記録の無い日も同じ判定で出る`（サーバ側: 前後の記録が 60 日以内で記録が無い日が `alive_no_record`）。
   検証: `CT coverage_endpoint_returns_five_sources`、`CT coverage_endpoint_returns_five_sources`、既存の `CT coverage` がすべて通る
 
-## 10. 画面（design D12）
+## Task 12: 10. 画面（design D12）
 
 - [x] 10.1 `web/src/archives.ts`（`/archives/status` の型と「`YYYY-MM-DD` まで（N 日前）」の文字列）と、`App.tsx` の並び（Must → 書庫のソース → 退役）と別々の読み出し。
   Scenario: `書庫のソースは Must の後ろで退役の前に並ぶ`。検証: `VT archive-order.test.tsx`
@@ -191,7 +191,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   `git diff --exit-code origin/main -- web/src/__tests__/target-size.test.tsx` rc=0
 - [x] 10.5 検証: `cd web && npx tsc -b && npm run lint && npm run build` rc=0、`tools/check-boundaries.sh` rc=0
 
-## 11. ログ・道具・手順書（design D15）
+## Task 13: 11. ログ・道具・手順書（design D15）
 
 - [x] 11.1 取り込み器のログを件数・論理ソースの名前・ファイルの種類・所要時間・失敗の種別だけにする。
   Scenario: `取り込みのログに検索語が出ない`。
@@ -203,7 +203,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 11.5 `docs/archive-inbox.md` —— 置き場の設定（D1 の環境変数）、Takeout の予約エクスポートで **JSON の形を選ぶ**こと、端末でタイムラインを書き出して**網の外に出ない手段**（Tailscale のファイル送信・USB）で専用のフォルダへ運ぶ手順（本人の決定 Q8）、
   最初の Takeout の書庫を置くと箱に「形の確認待ち」が出るので `tools/archive-shape.sh` の出力を見て `--confirm` で印を置くこと、**新しい製品・初めての中身・書き出しの言語を変えたときはまた確認待ちが出ること**（design D16 の 4 つの型）。検証: `grep -c 'ASHIATO_INBOX_DIR' docs/archive-inbox.md` と `grep -c 'archive-shape' docs/archive-inbox.md` がどちらも 1 以上
 
-## 12. まとめの検査
+## Task 14: 12. まとめの検査
 
 - [x] 12.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、`cd web && npm run test && npm run lint && npm run build` rc=0
 - [x] 12.2 検証: `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0（この change の全 Scenario に印）
