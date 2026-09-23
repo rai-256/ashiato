@@ -12,7 +12,7 @@
 DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@NeedsPristinePermissions` の前提はテストの外で作る）。
 
-## 0. 規律（**最初に読む**）
+## Global Constraints（規律。**最初に読む**）
 
 - **テストには `Scenario: <名前>` の印を置く。** Kotlin と Rust はコメント（`// Scenario: 0 件のときは窓が進む`）、
   bash は `echo`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする
@@ -30,7 +30,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 - 同じ名前のテストで絞る検証（`gradlew test --tests '*AppUsage*'` など）は、
   **1 本以上走ったことも見る**（0 本でも rc=0 になるため）
 
-## 1. 足場（ソースを 2 本持てる形にする）
+## Task 1: 足場（ソースを 2 本持てる形にする）
 
 - [ ] 1.1 `collector-android` に `CollectionSource` の口を置く（`logicalSource` / `intervalMs` /
   `capability(context)` / `collect(window): Result`）。位置を `LocationSourceAdapter` としてその口に載せ替え、
@@ -56,7 +56,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   （`./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'` rc=0）。
   立てられないと分かったら design D5 の落とし所へ倒し、**その事実を `design.md` に追記**する
 
-## 2. 取得元の口と偽物
+## Task 2: 取得元の口と偽物
 
 - [ ] 2.1 `UsageSource` の口を置く（`events(begin, end): EventsResult`（`Unreadable` / `Events(list)`）/
   `rollups(granularity, begin, end)` / `retentionFloor(now)`）。本番は `UsageStatsManager`、
@@ -70,7 +70,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   **見込みより古いイベントを返す偽の取得元でも 1 件も落ちない**試験が 1 本ある
   （Scenario `見込みより古いイベントが返ったときは gap が積まれない` が 4.1 で拾う）
 
-## 3. イベントの取得と窓
+## Task 3: イベントの取得と窓
 
 - [ ] 3.1 30 分ごとにイベントを取り、**1 イベント 1 記録**で積む。種別も欄もふるいにかけない（design D1）。
   `raw` は取得元が返した値だけ、表示名は `payload` にだけ（design D2）。
@@ -91,7 +91,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   （C-02 の `payload_shape_is_pinned` と同じ形。design D2）。
   検証: `./gradlew :app:testDebugUnitTest --tests '*AppUsagePayloadShapeTest*'` rc=0
 
-## 4. 取りこぼしと集計
+## Task 4: 取りこぼしと集計
 
 - [ ] 4.1 窓の始まりが**見込みの**下限より前なら、`[窓の始まり, min(見込みの下限, 返った最古のイベントの時刻))` を
   種別 `gap` の記録 1 件として積む（長さが 0 なら積まない）。**窓は切り詰めない**（design D4）。
@@ -118,7 +118,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   Scenario: `同じ集計の原文は毎回同じ文字列になる`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RollupPayloadShapeTest*'` rc=0
 
-## 5. ソースごとの独立と権限
+## Task 5: ソースごとの独立と権限
 
 - [ ] 5.1 収集の開始を取得条件に依らず行い、取得条件が欠けたソースは `collect()` を呼ばずに
   生存信号だけ出す（design D5）。`MainActivity` の「位置が無ければ終了」をやめる。
@@ -146,7 +146,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   ST04 の「未送信の日数」の表示は**壊さない**。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RetentionNotifierTest*'` rc=0
 
-## 6. ST04 の置き場を 2 ソースで正しく使う
+## Task 6: ST04 の置き場を 2 ソースで正しく使う
 
 - [ ] 6.1 アプリ利用と集計の記録を、位置と**同じ置き場**（`SegmentStore`）に積む（既定 C11）。
   保持の上限は全ソースを通して古い順のまま。
@@ -159,7 +159,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   検証: `./gradlew :app:testDebugUnitTest --tests '*RetentionTest*'` rc=0 /
   ガードをわざと戻す（置き場全体の先頭を使う）とその試験が落ちる
 
-## 7. 実測と結合
+## Task 7: 実測と結合
 
 - [ ] 7.1 `tools/usage-volume.sh` を作る —— エミュレータで**イベントを N 件流し込んでから 1 時間ぶん**を取得し、
   1 件あたりのバイト数 × 実測の 1 日あたり件数から **90 日ぶんの未送信のバイト数**を標準出力に出し、
@@ -184,7 +184,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   検証: 3.4 / 4.4 の固定試験の期待値を**この表から読む**形にし、表を 1 行変えると試験が落ちることを確かめる
   （`check_scenarios.py` は `docs/` を読まないので、契約に表を足したことの検査にならない。spec レビュー R8）
 
-## 8. 仕上げ
+## Task 8: 仕上げ
 
 - [ ] 8.1 `python3 scripts/check_scenarios.py .` で、この change の全 Scenario に印があることを確かめる。
   検証: rc=0（「人間の確認待ち」は 0 本）

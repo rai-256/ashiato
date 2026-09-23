@@ -80,25 +80,29 @@
 |---|---|---|
 | 要件の掘り方 | `grilling`（harness2 にベンダリング） | `superpowers:brainstorming` |
 | 計画の器 | OpenSpec の change（proposal / specs / tasks） | `superpowers:writing-plans` / `executing-plans` |
+| **下流の実装の回し方** | **`superpowers:subagent-driven-development`（そのまま）** | 独自の実装オーケストレーション |
 | skill の書き方 | `skill-creator` | `superpowers:writing-skills` |
-| 並列 | 当面**使わない**（旧ハーネスで肥大した領域） | `dispatching-parallel-agents` |
+| 並列 | **SDD の Task ループだけ**（implementer は 1 本ずつ。reviewer は SDD が決める） | `dispatching-parallel-agents` |
 
-superpowers から実際に使うのは **5 本**:
+superpowers から実際に使うのは **6 本**:
 
-| skill | いつ |
-|---|---|
-| `test-driven-development` | 実装 |
-| `verification-before-completion` | 実装の完了判定 |
-| `requesting-code-review` | PR を出す前 |
-| `receiving-code-review` | レビュー指摘を受けたとき。**鵜呑みにも空返事にもしない**規範 |
-| `finishing-a-development-branch` | 実装が終わって **main へどう統合するか**を決めるとき |
+| skill | いつ | 使い方 |
+|---|---|---|
+| **`subagent-driven-development`** | **下流の実装ぜんぶ** | `/story` が起動する。Task ループ・fix loop・ledger・review package・breaker は**全部これが持つ**。付属 prompt（`implementer-prompt.md` / `task-reviewer-prompt.md` / `re-review-prompt.md`）と付属スクリプト（`sdd-workspace` / `task-brief` / `review-package`）を**書き換えずに**使う |
+| **`requesting-code-review`** | **全 Task 完了後の whole-branch review 1 回だけ** | SDD が `code-reviewer.md` を指すので、その呼び出し関係のまま。**Task ごとに重ねて呼ばない**（Task ごとは SDD の task reviewer） |
+| `test-driven-development` | 実装（implementer の dispatch に入れる） | |
+| `verification-before-completion` | 完了の申告の前 | |
+| `receiving-code-review` | レビュー指摘を受けたとき。**鵜呑みにも空返事にもしない**規範 | |
+| `finishing-a-development-branch` | **使わない。** この repo の統合は PR → `merge_gate.sh` → 人間の merge で決まっている | |
 
 `using-git-worktrees` は Story 並列をやるなら要る。**いまはやらないので保留**（不採用ではない）。
 
 その他の使い分け:
 
 - 画面の**方向を決める**のは `/ui-direction`、**コードに落とす**のは `frontend-design` skill
-- PR レビューは `pr-review-toolkit`（agent 6 本）を本体とする
+- **下流のコードレビューは SDD の 3 席 + `code-verify` の 4 席**（`docs/flow-gates.md`）。
+  `pr-review-toolkit` は下流の既定から外した（`code-reviewer.md` と重複する）——
+  PR そのものを見たいときに人間が `/pr-review-toolkit:review-pr` を呼ぶ
 - `security-guidance` は既定のまま。**ターン終了ごとと commit ごとに LLM を呼ぶ**ので、
   コードを書き始める前にコスト設定を決める（CATALOG.md の表を見る）
 
@@ -165,7 +169,8 @@ scripts/story.sh ST01          # 下流: worktree を用意して、その中で
 ```
 
 `/story-upstream` は **ブリーフ →（画面があれば proto）→ deep → proposal → specs → design → tasks → PR + issue**。
-`/story` は **issue と deep.md と handoff を読む → tasks を順に → PR**。どちらも停止点は merge。
+`/story` は **`superpowers:subagent-driven-development` を起動して Task ごとに回し、最後に whole-branch review → PR**。
+どちらも停止点は merge。
 **issue は PR と同時に作る**（`scripts/issue_body.py` が本文を機械的に出し、`merge_gate.sh` が貼り直す）。
 merge の後に作る規則だと、上流のセッションは PR で止まるので作る係がいなくなる
 （実測: ST02 は merge から issue まで 10 時間空いた）。**merge_gate が OK のとき「次の 1 手」を印字する**
@@ -272,9 +277,30 @@ worktree が無ければ `feat/<change名>` で作り、あれば main に追従
 モードを変えたいときは `STORY_PERMISSION_MODE=manual scripts/story.sh ST01`。
 
 すでに worktree の中にいるなら、セッション内で `/story ST01` だけでよい。
-`/story` は **場所の確認 → issue と deep.md と tasks.md を読む → 規律を敷く →
-tasks を順に進める → PR まで出す** をやる。工程を発明はしない
-（進め方の実体は Story ごとの成果物が持っている）。
+
+**`/story` は実装の回し方を持たない。** 回すのは `superpowers:subagent-driven-development`（SDD）——
+**Task ごとに fresh な implementer** を出し、**Task ごとに独立の task reviewer**（`task-reviewer-prompt.md`）に
+かけ、直しがあれば scoped re-review、全 Task 完了後に **whole-branch review**
+（`requesting-code-review` の `code-reviewer.md` ＋ `code-verify`）を通す。
+`/story` が持つのは **SDD に渡す 4 つの値**（PLAN_FILE = `tasks.md` / Global Constraints /
+担当する Task / 完了の記録先）と、**SDD の外にある関門**（`review/code.md` の処置 →
+`review_triage.py` → `merge_gate.sh`）だけ。
+
+| 誰が | 文脈 | 渡されるもの | 渡されないもの |
+|---|---|---|---|
+| controller（`/story`） | セッション全体 | plan・deep・handoff・ledger | Task の実装の中身 |
+| implementer（Task ごとに新規） | **その Task だけ** | brief file・界面・global constraints・report file のパス | 前の Task の会話、plan 全文 |
+| task reviewer（Task ごとに新規） | **その diff だけ** | brief file・report file・review package・global constraints | **implementer の推論と自己正当化** |
+| final reviewer / code-verify | ブランチ全体 | review package・plan・ledger の parked / deferred | 同上 |
+
+**`tasks.md` の `- [x]` は controller だけが付ける。** implementer は `tasks.md` を触らない ——
+実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
+（`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
+（通るほうの）コマンドを走らせた行まで `[x]` になり、独立レビューが 36 件を出した。
+
+**`tasks.md` の見出しは `## Task <N>: <名前>`**（SDD 付属の `task-brief` がこの形しか読まない）、
+規律の節は `## Global Constraints`（reviewer へ逐語でコピーする節）。
+Task の粒度は **checkbox 1 つではなく、見出し 1 つ**（1 Story あたり 8〜12）。
 
 **なぜ specs を待つか**: 実装は spec の穴を開ける（実測: 1 Story あたり 4 件、
 うち 1 件は実装が黙って決めた設計判断）。ST01 は土台なので、ここが動くと
