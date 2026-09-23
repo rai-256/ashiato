@@ -7,13 +7,21 @@ import java.time.Instant
 /**
  * 取得元がまだ持っている**見込み**の下限（tasks 2.2 / design D4 / spec レビュー R3）。
  *
- * **`Instant` として取り出せない。** 取り出せる形にすると、取得の窓の始まりに代入できてしまう ——
+ * **型が守っているのはここまで**: この型は `Instant` では**ない**ので、
+ * [CollectionWindow] にも [UsageSource.events] にも**そのままでは渡らない**。
+ * 値を外へ出すには、名前が用途を言っている 2 つの口を**明示的に**呼ぶしかない。
+ *
+ * **規律で守るもの（型では止まらない）**: [gapEndWhenNothingReturned] が返す `Instant` は
+ * 下限そのもので、取得の窓の始まりに代入することは**コンパイルできてしまう**。やらない ——
  * それが spec レビュー R3 が止めた形で、**この値で窓を切り詰めると取得元にまだ残っている
  * イベントを飛ばしたうえで「取れなかった」という嘘を正典の形式で残す**（飛ばした分は 10 日で消える）。
- * 持っているのは gap の判定に要る 2 つの問いだけ:
+ * 10 日は API から読めない見込みなので、窓は**保存した終わりから**問い合わせる。
+ *
+ * 持っているのは gap の判定に要る 3 つだけ:
  *
  * - [excludes] —— 窓の始まりがこの下限より前か（＝ gap の候補になるか）
- * - [gapEnd] —— 取れなかった期間の終わりはどこか
+ * - [gapEnd] —— イベントが返ったときの、取れなかった期間の終わり
+ * - [gapEndWhenNothingReturned] —— 1 件も返らなかったときの終わり（＝下限そのもの）
  */
 class RetentionFloor internal constructor(private val at: Instant) {
     /** 窓の始まりがこの下限より**前**にあるか。真なら「取りに行ったが取得元に無かった」の候補。 */
@@ -24,10 +32,16 @@ class RetentionFloor internal constructor(private val at: Instant) {
      *
      * 見込みが外れて取得元が長く持っていれば、その分は普通に記録になるので、
      * 期間は返った最古のイベントの時刻で閉じる（＝取れているものを「取れなかった」と書かない）。
-     * 1 件も返らなかった（[oldestEvent] が `null`）ときは下限そのもの。
      */
-    fun gapEnd(oldestEvent: Instant?): Instant =
-        if (oldestEvent != null && oldestEvent.isBefore(at)) oldestEvent else at
+    fun gapEnd(oldestEvent: Instant): Instant = if (oldestEvent.isBefore(at)) oldestEvent else at
+
+    /**
+     * 1 件も返らなかったときの、取れなかった期間の終わり ＝ **下限そのもの**。
+     *
+     * **下限の値が外へ出る唯一の口**なので、名前で用途を言っている ——
+     * 返るのは gap の記録の終わりであって、**取得の窓の始まりではない**。
+     */
+    fun gapEndWhenNothingReturned(): Instant = at
 
     override fun equals(other: Any?): Boolean = other is RetentionFloor && other.at == at
 
@@ -58,8 +72,9 @@ class RetentionFloor internal constructor(private val at: Instant) {
  * `UserUsageStatsService.queryEvents` は `queryStats(INTERVAL_DAILY, …)` を呼ぶ。
  *
  * **これは API から読めない見込み**（OEM 改変・OS 版差・prune の起動タイミングでずれる）。
- * だから**問い合わせの窓を切り詰めるのには使わない**（spec レビュー R3）。使うのは gap の判定だけで、
- * それも [RetentionFloor] の 2 つの問いを通してしか渡らない。
+ * だから**問い合わせの窓を切り詰めるのには使わない**（spec レビュー R3）。使うのは gap の判定だけ。
+ * 出口を [RetentionFloor] に絞って用途を名前に出してあるが、**切り詰めないことを型は保証しない** ——
+ * `gapEndWhenNothingReturned()` の戻り値は生の `Instant` で、窓に渡せば通ってしまう。
  */
 object UsageRetention {
     /** `mCal.addDays(-10)`（`INTERVAL_DAILY` の箱。生のイベントもここから読まれる） */

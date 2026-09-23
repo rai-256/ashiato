@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import android.app.Application
 import android.app.usage.UsageStatsManager
+import androidx.test.core.app.ApplicationProvider
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * 取得元の口（tasks 2.1 / design D5）。
@@ -15,15 +19,17 @@ import org.junit.Test
  * **「読めなかった」と「0 件だった」が型で別物**であること（design のリスク
  * 「`null` と 0 件の取り違え」）—— 取り違えて窓を進めると、その期間は 10 日で消える。
  */
+@RunWith(RobolectricTestRunner::class)
 class UsageSourceTest {
     private val begin = Instant.parse("2026-05-20T00:00:00Z")
     private val end = Instant.parse("2026-05-20T00:30:00Z")
+    private val window = CollectionWindow(begin, end)
 
     /** 読めなかったときは**件数を持たない** —— 0 件の結果と同じ型に畳まれていない。 */
     @Test
     fun `読めなかった取得元は Unreadable を返す`() {
         val source = FakeUsageSource(unreadable = "locked")
-        val result = source.events(begin, end)
+        val result = source.events(window)
         assertTrue("読めなかったのに $result が返った", result is EventsResult.Unreadable)
         assertEquals("locked", (result as EventsResult.Unreadable).reason)
     }
@@ -31,7 +37,7 @@ class UsageSourceTest {
     /** 0 件は**成功**（本人の決定 C7）。携帯を使っていなかっただけの区間を失敗にしない。 */
     @Test
     fun `0 件の取得元は空の Events を返す`() {
-        val result = FakeUsageSource().events(begin, end)
+        val result = FakeUsageSource().events(window)
         assertTrue("0 件なのに $result が返った", result is EventsResult.Events)
         assertEquals(emptyList<UsageEventSnapshot>(), (result as EventsResult.Events).events)
     }
@@ -39,8 +45,8 @@ class UsageSourceTest {
     /** **同じ型に畳まれていない**ことを直接見る（畳まれていたら呼び出し側は区別できない）。 */
     @Test
     fun `読めなかったと 0 件は別物`() {
-        val unreadable = FakeUsageSource(unreadable = "locked").events(begin, end)
-        val empty = FakeUsageSource().events(begin, end)
+        val unreadable = FakeUsageSource(unreadable = "locked").events(window)
+        val empty = FakeUsageSource().events(window)
         assertTrue("0 件が読めなかった側に入っている", empty !is EventsResult.Unreadable)
         assertTrue("読めなかったが 0 件の側に入っている", unreadable !is EventsResult.Events)
     }
@@ -62,7 +68,7 @@ class UsageSourceTest {
                 usageEvent("2026-05-20T00:30:00Z"),
             ),
         )
-        val got = (source.events(begin, end) as EventsResult.Events).events.map { it.at.toString() }
+        val got = (source.events(window) as EventsResult.Events).events.map { it.at.toString() }
         assertEquals(listOf("2026-05-20T00:00:00Z", "2026-05-20T00:29:59Z"), got)
     }
 
@@ -70,16 +76,16 @@ class UsageSourceTest {
     @Test
     fun `問い合わせた窓を覚えている`() {
         val source = FakeUsageSource()
-        source.events(begin, end)
-        assertEquals(listOf(begin to end), source.eventQueries)
+        source.events(window)
+        assertEquals(listOf(window), source.eventQueries)
     }
 
     /** 集計も「読めなかった」と 0 件を分ける（イベントと同じ規律）。 */
     @Test
     fun `集計も読めなかったと 0 件を分ける`() {
-        val unreadable = FakeUsageSource(unreadable = "locked").rollups(UsageGranularity.DAILY, begin, end)
+        val unreadable = FakeUsageSource(unreadable = "locked").rollups(UsageGranularity.DAILY, window)
         assertTrue("読めなかったのに $unreadable が返った", unreadable is RollupsResult.Unreadable)
-        val empty = FakeUsageSource().rollups(UsageGranularity.DAILY, begin, end)
+        val empty = FakeUsageSource().rollups(UsageGranularity.DAILY, window)
         assertTrue("0 件なのに $empty が返った", empty is RollupsResult.Rollups)
         assertEquals(emptyList<UsageRollupSnapshot>(), (empty as RollupsResult.Rollups).rollups)
     }
@@ -93,8 +99,8 @@ class UsageSourceTest {
                 UsageGranularity.YEARLY to listOf(usageRollup(packageName = "year")),
             ),
         )
-        val daily = source.rollups(UsageGranularity.DAILY, begin, end) as RollupsResult.Rollups
-        val yearly = source.rollups(UsageGranularity.YEARLY, begin, end) as RollupsResult.Rollups
+        val daily = source.rollups(UsageGranularity.DAILY, window) as RollupsResult.Rollups
+        val yearly = source.rollups(UsageGranularity.YEARLY, window) as RollupsResult.Rollups
         assertEquals(listOf("day"), daily.rollups.map { it.packageName })
         assertEquals(listOf("year"), yearly.rollups.map { it.packageName })
         assertEquals(
@@ -127,5 +133,48 @@ class UsageSourceTest {
         for (g in UsageGranularity.entries) {
             assertEquals(UsageRetention.rollupFloor(now, g), source.retentionFloor(now, g))
         }
+    }
+
+    /**
+     * **窓そのものが理由の `null`**（`UserUsageStatsService.validRange` が偽）。
+     * 端末の時刻が戻ると窓の始まりが現在時刻を超える —— 取得元はそこで `null` を返すので、
+     * 0 件と取り違えると窓が進み、その期間は取り直されない（本人の決定 C5）。
+     */
+    @Test
+    fun `窓の始まりが現在時刻を超えていたら読めなかったになる`() {
+        val source = FakeUsageSource().also { it.now = Instant.parse("2026-05-19T00:00:00Z") }
+        assertEquals(EventsResult.Unreadable(UsageStatsSource.REASON_NULL), source.events(window))
+        assertEquals(
+            RollupsResult.Unreadable(UsageStatsSource.REASON_NULL),
+            source.rollups(UsageGranularity.DAILY, window),
+        )
+    }
+
+    /** `validRange` の逐語は `beginTime <= currentTime && beginTime < endTime` —— 長さ 0 の窓も `null`。 */
+    @Test
+    fun `長さ 0 の窓は読めなかったになる`() {
+        val source = FakeUsageSource().also { it.now = Instant.parse("2026-06-01T00:00:00Z") }
+        assertTrue(source.events(CollectionWindow(begin, begin)) is EventsResult.Unreadable)
+    }
+
+    /**
+     * **本番と偽物が同じ窓で同じ結果を返す**（独立レビュー Important 2）。
+     *
+     * 取得元に溜まった統計の中身は単体では作れないが、**窓の形だけで決まる判定**は
+     * 両方が同じ [windowIsQueryable] を通るので、ここで一致を固定できる。
+     * 偽物がこの軸で緩いと、時計が戻った場面で「0 件 → 窓を進める」が緑になり、実機で食い違う。
+     */
+    @Test
+    fun `時刻が戻った窓は本番も偽物も同じ結果を返す`() {
+        val app: Application = ApplicationProvider.getApplicationContext()
+        val now = Instant.parse("2026-05-19T00:00:00Z")
+        val real = UsageStatsSource(app, now = { now })
+        val fake = FakeUsageSource().also { it.now = now }
+        assertEquals(fake.events(window), real.events(window))
+        assertEquals(
+            fake.rollups(UsageGranularity.DAILY, window),
+            real.rollups(UsageGranularity.DAILY, window),
+        )
+        assertEquals(EventsResult.Unreadable(UsageStatsSource.REASON_NULL), real.events(window))
     }
 }

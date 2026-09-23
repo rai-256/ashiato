@@ -19,10 +19,14 @@ import org.junit.Test
 class UsageRetentionTest {
     private val now = Instant.parse("2026-05-20T12:00:00Z")
 
+    /** 20 日前から問い合わせても「窓の形では断られない」ように、偽物の時計を今に合わせる */
+    private fun sourceAt(vararg events: UsageEventSnapshot) =
+        FakeUsageSource(storedEvents = events.toList()).also { it.now = now }
+
     /** `mCal.addDays(-10)`（`UsageStatsDatabase.prune()` が日ごとの箱を落とす境目）。 */
     @Test
     fun `イベントの見込みの下限は 10 日前`() {
-        assertEquals(Instant.parse("2026-05-10T12:00:00Z"), UsageRetention.eventsFloor(now).gapEnd(null))
+        assertEquals(Instant.parse("2026-05-10T12:00:00Z"), UsageRetention.eventsFloor(now).gapEndWhenNothingReturned())
     }
 
     /**
@@ -31,7 +35,7 @@ class UsageRetentionTest {
      */
     @Test
     fun `集計の見込みの下限は粒度ごとに違う`() {
-        val floors = UsageGranularity.entries.associateWith { UsageRetention.rollupFloor(now, it).gapEnd(null) }
+        val floors = UsageGranularity.entries.associateWith { UsageRetention.rollupFloor(now, it).gapEndWhenNothingReturned() }
         assertEquals(
             mapOf(
                 // 日ごとの集計はイベントと同じ箱（INTERVAL_DAILY）なので同じ 10 日
@@ -61,7 +65,7 @@ class UsageRetentionTest {
     fun `1 件も返らなければ取れなかった期間の終わりは下限`() {
         assertEquals(
             Instant.parse("2026-05-10T12:00:00Z"),
-            UsageRetention.eventsFloor(now).gapEnd(oldestEvent = null),
+            UsageRetention.eventsFloor(now).gapEndWhenNothingReturned(),
         )
     }
 
@@ -91,7 +95,7 @@ class UsageRetentionTest {
     /**
      * **見込みより古いイベントを返す取得元でも 1 件も落ちない。**
      *
-     * 窓は下限で切り詰めない（`events(begin, end)` に渡るのは保存した終わりのまま）ので、
+     * 窓は下限で切り詰めない（`events(window)` に渡るのは保存した終わりのまま）ので、
      * 20 日前から問い合わせれば 20 日前のイベントも返る。
      * そのうえで「取れなかった期間」の長さは 0 になる（最古のイベント＝窓の始まり）ので、
      * 見込みが外れても嘘を書かずに済む。
@@ -99,19 +103,17 @@ class UsageRetentionTest {
     @Test
     fun `見込みより古いイベントを返す取得元でも 1 件も落ちない`() {
         val begin = Instant.parse("2026-04-30T12:00:00Z") // 20 日前。見込みの下限（10 日）より古い
-        val source = FakeUsageSource(
-            storedEvents = listOf(
-                usageEvent("2026-04-30T12:00:00Z"),
-                usageEvent("2026-05-05T00:00:00Z"),
-                usageEvent("2026-05-10T11:59:59Z"), // 下限のすぐ手前
-                usageEvent("2026-05-19T00:00:00Z"),
-            ),
+        val source = sourceAt(
+            usageEvent("2026-04-30T12:00:00Z"),
+            usageEvent("2026-05-05T00:00:00Z"),
+            usageEvent("2026-05-10T11:59:59Z"), // 下限のすぐ手前
+            usageEvent("2026-05-19T00:00:00Z"),
         )
-        val got = (source.events(begin, now) as EventsResult.Events).events
+        val got = (source.events(CollectionWindow(begin, now)) as EventsResult.Events).events
         assertEquals("下限より古い分が落ちている", 4, got.size)
         assertEquals(begin, got.first().at)
         // 窓の始まりは切り詰められていない
-        assertEquals(listOf(begin to now), source.eventQueries)
+        assertEquals(listOf(CollectionWindow(begin, now)), source.eventQueries)
         // 取れなかった期間の長さは 0（始まり == 終わり）
         val floor = UsageRetention.eventsFloor(now)
         assertTrue("下限より前から取っているのに候補にならない", floor.excludes(begin))

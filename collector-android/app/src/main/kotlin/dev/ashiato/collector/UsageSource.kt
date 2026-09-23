@@ -110,15 +110,19 @@ sealed interface RollupsResult {
  */
 interface UsageSource {
     /**
-     * `[begin, end)` のイベントを取る。境界は取得元の javadoc のまま
+     * [window]（`[begin, end)`）のイベントを取る。境界は取得元の javadoc のまま
      * （"The **inclusive** beginning" / "The **exclusive** end"）。
+     *
+     * **生の `Instant` 2 本ではなく [CollectionWindow] を取る** —— 終わりが始まりより前の窓は
+     * そもそも組み立てられない（Task 1 の `require`）。取得元はそういう範囲に `null` を返すので、
+     * 生で受けると呼び出し側が「読めなかった」と「0 件だった」を取り違える経路が口に残る。
      *
      * **窓をここで切り詰めない。** 見込みの保持の下限（[retentionFloor]）は渡された窓に一切効かない。
      */
-    fun events(begin: Instant, end: Instant): EventsResult
+    fun events(window: CollectionWindow): EventsResult
 
     /** その粒度の集計を取る。範囲は取得元の都合で箱の境界まで広がりうる。 */
-    fun rollups(granularity: UsageGranularity, begin: Instant, end: Instant): RollupsResult
+    fun rollups(granularity: UsageGranularity, window: CollectionWindow): RollupsResult
 
     /**
      * 生のイベントが取得元に残っている**見込み**の下限。既定は [UsageRetention]。
@@ -134,10 +138,23 @@ interface UsageSource {
 }
 
 /**
+ * 窓そのものを理由に取得元が `null` を返すか（`UserUsageStatsService.validRange`）。
+ * 逐語: `return beginTime <= currentTime && beginTime < endTime;`
+ *
+ * **本番も偽物もここを呼ぶ。** 2 か所に書くと片方だけずれ、偽物が本物より緩くなる ——
+ * 端末の時刻が戻って窓の始まりが現在時刻を超えた場面で、偽物が「0 件だった」を返せば
+ * 呼び出し側は窓を進めて緑になり、実機では `Unreadable` で進まない
+ * （本人の決定 C5 が分かれる、まさにその軸）。
+ */
+internal fun windowIsQueryable(window: CollectionWindow, now: Instant): Boolean =
+    !window.begin.isAfter(now) && window.begin.isBefore(window.end)
+
+/**
  * 本番の取得元（`UsageStatsManager`）。
  *
- * **単体試験はここに触らない** —— 端末に溜まった統計は Robolectric では作れないので、
- * この経路を通すのは計測テスト（tasks 5 / 7）。単体が触るのは偽物だけ。
+ * **取得元に溜まった統計の中身は単体では作れない**ので、イベントや集計が返る経路を通すのは
+ * 計測テスト（tasks 5 / 7）。単体が見るのは、窓の形だけで決まる「読めなかった」の判定が
+ * 偽物と一致することだけ（`UsageSourceTest`）。
  *
  * `queryEvents` が `null` を返す経路は 2 つある（deep レビュー R3）——
  * 再起動後に一度も解錠されていない端末（`UserManager.isUserUnlocked()` が偽。逐語:
@@ -149,16 +166,23 @@ interface UsageSource {
  * `null` なら `Collections.emptyList()`）ので、**解錠の状態をこちらで先に見る** ——
  * 見ないと、解錠前の 6 時間ぶんが「0 件だった」として通る。
  */
-class UsageStatsSource(context: Context) : UsageSource {
+class UsageStatsSource(
+    context: Context,
+    /** 端末の時計。`validRange` の判定に要る（試験が同じ窓を再現できるように口にしてある） */
+    private val now: () -> Instant = Instant::now,
+) : UsageSource {
     private val stats: UsageStatsManager? = context.getSystemService(UsageStatsManager::class.java)
     private val users: UserManager? = context.getSystemService(UserManager::class.java)
 
-    override fun events(begin: Instant, end: Instant): EventsResult {
+    override fun events(window: CollectionWindow): EventsResult {
         val manager = stats ?: return EventsResult.Unreadable(REASON_NO_SERVICE)
-        // **解錠されていない端末を先に弾く**（`queryEvents` の `null` と同じ扱い）
+        // **窓の形で決まる `null` を先に名指しする** —— 取得元も同じ判定で `null` を返すが、
+        // ここで判定を通しておかないと偽物が同じ窓を再現できない
+        if (!windowIsQueryable(window, now())) return EventsResult.Unreadable(REASON_NULL)
+        // **解錠されていない端末を弾く**（`queryEvents` の `null` と同じ扱い）
         val unlocked = users?.isUserUnlocked ?: return EventsResult.Unreadable(REASON_NO_SERVICE)
         if (!unlocked) return EventsResult.Unreadable(REASON_LOCKED)
-        val events = manager.queryEvents(begin.toEpochMilli(), end.toEpochMilli())
+        val events = manager.queryEvents(window.begin.toEpochMilli(), window.end.toEpochMilli())
             ?: return EventsResult.Unreadable(REASON_NULL)
         val out = mutableListOf<UsageEventSnapshot>()
         val event = UsageEvents.Event()
@@ -166,14 +190,18 @@ class UsageStatsSource(context: Context) : UsageSource {
         return EventsResult.Events(out)
     }
 
-    override fun rollups(granularity: UsageGranularity, begin: Instant, end: Instant): RollupsResult {
+    override fun rollups(granularity: UsageGranularity, window: CollectionWindow): RollupsResult {
         val manager = stats ?: return RollupsResult.Unreadable(REASON_NO_SERVICE)
+        if (!windowIsQueryable(window, now())) return RollupsResult.Unreadable(REASON_NULL)
         // **`queryUsageStats` は `null` を空の一覧に畳む** ので、解錠は自分で見ないと
         // 解錠前の 6 時間ぶんが「0 件だった」として通る
         val unlocked = users?.isUserUnlocked ?: return RollupsResult.Unreadable(REASON_NO_SERVICE)
         if (!unlocked) return RollupsResult.Unreadable(REASON_LOCKED)
-        val list = manager.queryUsageStats(granularity.intervalType, begin.toEpochMilli(), end.toEpochMilli())
-            ?: return RollupsResult.Unreadable(REASON_NULL)
+        val list = manager.queryUsageStats(
+            granularity.intervalType,
+            window.begin.toEpochMilli(),
+            window.end.toEpochMilli(),
+        ) ?: return RollupsResult.Unreadable(REASON_NULL)
         return RollupsResult.Rollups(list.map(::snapshotOf))
     }
 
