@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Claude の独立レビューが済む前に Story ブランチを push させない。
+# 独立レビューが済む前に Story ブランチを push させない。
+#
+# 判定は「`openspec/changes/st<NN>-*/review/code.md` があるか」の 1 点。
+# 下流は `superpowers:subagent-driven-development` が回し、**全 Task 完了後の
+# whole-branch review**（`requesting-code-review` の `code-reviewer.md` + `code-verify`）が
+# その `review/code.md` を作る。つまり「レビュー前に PR を出さない」はいまも同じ形で効く。
 #
 # 以前はこれを **sandbox（network を切る）** で効かせていたが、2026-09-19 の実測で
 # 高いうえに漏れていると分かった:
@@ -7,7 +12,7 @@
 #     guardian が transcript 全文を読む。1 run で 5 回・185,141 トークン（その run の 37%）。
 #   - 漏れ: 承認された escalation は**サンドボックス外**で走る。1 run あたり 5 回
 #     フルアクセスを渡していたので、loopback を許すより緩かった。
-# git hook なら 5 行で済み、**Codex 以外の経路にも効く**（pre-commit と同じ型）。
+# git hook なら 5 行で済み、**どの経路にも効く**（pre-commit と同じ型）。
 #
 # 有効化: git config core.hooksPath .githooks（clone 後に 1 度）
 # 例外:   HARNESS_ALLOW_UNREVIEWED_PUSH=1 git push ...
@@ -29,20 +34,21 @@ while read -r local_ref _ _ _; do
   nn="$(printf '%s' "$branch" | sed -n 's|^feat/st\([0-9]\{2\}\)-.*|\1|p')"
   [ -n "$nn" ] || continue
 
-  # review/code.md があれば「Claude のレビューが入った」= push してよい工程
+  # review/code.md があれば「独立レビューが入った」= push してよい工程
   shopt -s nullglob
   reviewed=("$root"/openspec/changes/st"$nn"-*/review/code.md)
   [ ${#reviewed[@]} -gt 0 ] && continue
 
   cat >&2 <<MSG
-error: $branch は Claude のレビュー前なので push しません。
+error: $branch は whole-branch review の前なので push しません。
 
-  実装フェーズはローカル commit まで。push / PR / CI / merge_gate は
-  レビューの指摘を処置してから scripts/codex-resume.sh が一度だけ行います。
+  実装は全 Task が終わるまでローカル commit まで。push / PR / CI / merge_gate は、
+  whole-branch review の指摘を処置してから /story が一度だけ行います。
 
   いまやること:
-    1. scripts/claude-review.sh ST$nn      # 独立レビュー → openspec/changes/st$nn-*/review/code.md
-    2. scripts/codex-resume.sh ST$nn       # 指摘を処置 → push → PR → gate
+    scripts/story.sh ST$nn     # /story → subagent-driven-development
+                               #   全 Task 完了 → whole-branch review
+                               #   → openspec/changes/st$nn-*/review/code.md → 処置 → push → PR → gate
 
   どうしても必要なら: HARNESS_ALLOW_UNREVIEWED_PUSH=1 git push ...
 MSG
