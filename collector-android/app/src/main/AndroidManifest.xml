@@ -18,9 +18,15 @@
     <!-- 継続的な位置取得は前景サービスなしに許されない。常時通知は本人が受け入れ済み（design D7） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- 位置の権限が無い間の前景サービスの種別（ST06 / design D5 のリスク）。
+         targetSdk 34 以降、位置の権限を持たないまま foregroundServiceType="location" で
+         startForeground を呼ぶと SecurityException で立てられず、**2 本目のソース
+         （アプリ利用）まで道連れに止まる**。位置が取れない間だけ dataSync に落ちる。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- FR-2 アプリ利用（保持期間は [NEEDS CLARIFICATION]。要件 FR-2 を参照） -->
+    <!-- FR-2 アプリ利用。**特別なアクセス**（設定アプリで本人が許す）なので、
+         宣言しただけでは付かない —— 宣言が無いと設定画面の一覧にすら出ない -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
@@ -52,6 +58,6 @@
         <service
             android:name=".LocationService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location|dataSync" />
     </application>
 </manifest>

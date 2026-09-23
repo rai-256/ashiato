@@ -3,6 +3,8 @@ package dev.ashiato.collector
 
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -70,7 +72,62 @@ class TelemetryTest {
 
     @Test
     fun `出すのは件数・ソース名・所要時間・エラーの種別だけ`() {
-        val line = Telemetry.line("send", count = 3, elapsedMs = 120, error = "timeout")
+        val line = Telemetry.line("send", source = LOGICAL_SOURCE, count = 3, elapsedMs = 120, error = "timeout")
         assertTrue(line == "kind=send source=c01-location count=3 elapsed_ms=120 error=timeout")
     }
+
+    /** ソースに属さない配管（置き場・時計）のログは**誰の名も騙らない**。 */
+    @Test
+    fun `ソースに属さないログはソース名を名乗らない`() {
+        val line = Telemetry.line("clock_jump", source = null)
+        assertTrue(line == "kind=clock_jump")
+    }
+
+    /**
+     * **ソース名は書き手が名乗る**（独立レビュー R10）。`Telemetry` に焼き込んであったときは、
+     * 2 本目のソースが書いたログまで `source=c01-location` と出て、
+     * 「位置は取れているのにアプリ利用が断られている」が**ログから読めなかった**。
+     */
+    // Scenario: 端末のログのソース名がそのソースを指す
+    @Test
+    fun `アプリ利用の送信が失敗したログはアプリ利用を名乗る`() {
+        val outbox = testOutbox()
+        listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }
+        val lines = mutableListOf<String>()
+        Sender(
+            outbox,
+            { Outcome.Unreachable("timeout") },
+            IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
+            log = lines::add,
+        ).flush()
+
+        val failed = lines.single { it.startsWith("kind=send_failed") }
+        assertTrue(
+            "アプリ利用のログがアプリ利用を名乗っていない: $failed",
+            failed.contains("source=${SourceCadence.APP_USAGE.logicalSource}"),
+        )
+        assertFalse("アプリ利用のログが位置を名乗っている: $failed", failed.contains(LOGICAL_SOURCE))
+    }
+
+    /** 同じ経路でも、位置の送信が失敗したログは位置を名乗る（上の試験が空振りしていないこと）。 */
+    @Test
+    fun `位置の送信が失敗したログは位置を名乗る`() {
+        val failed = linesFor(Outcome.Unreachable("timeout")).single { it.startsWith("kind=send_failed") }
+        assertTrue("位置のログが位置を名乗っていない: $failed", failed.contains("source=$LOGICAL_SOURCE"))
+    }
+
+    private fun usageRequest(id: String) = IngestRequest(
+        id = id,
+        userId = "user-0001",
+        logicalSource = SourceCadence.APP_USAGE.logicalSource,
+        deviceId = "device-secret",
+        origin = "collected",
+        eventTime = "2026-09-08T02:00:00Z",
+        tzOffsetMin = 540,
+        tzId = "Asia/Tokyo",
+        schemaVersion = 1,
+        raw = "{}",
+        payload = JsonObject(emptyMap()),
+    )
 }

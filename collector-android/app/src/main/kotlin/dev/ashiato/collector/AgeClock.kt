@@ -66,7 +66,7 @@ class AgeClock(
             val monoDelta = mono - last.monoMs
             // 同じ起動のあいだに壁時計と単調時計が 1 時間を超えて食い違ったら、時計の飛びを残す（件数だけ）
             if (kotlin.math.abs((wall - last.wallMs) - monoDelta) > CLOCK_JUMP_LOG_MS) {
-                log(Telemetry.line("clock_jump"))
+                log(Telemetry.line("clock_jump", source = null))
             }
             monoDelta
         } else {
@@ -86,10 +86,10 @@ class AgeClock(
             Seen(p[0].toLong(), p[1].toLong(), p[2].toLong(), p.getOrNull(3)?.takeIf { it != "-" }?.toInt())
         }
     } catch (e: IOException) {
-        log(Telemetry.line("age_clock_unreadable", error = e.javaClass.simpleName))
+        log(Telemetry.line("age_clock_unreadable", source = null, error = e.javaClass.simpleName))
         null
     } catch (e: RuntimeException) {
-        log(Telemetry.line("age_clock_unreadable", error = e.javaClass.simpleName))
+        log(Telemetry.line("age_clock_unreadable", source = null, error = e.javaClass.simpleName))
         null
     }
 
@@ -101,7 +101,7 @@ class AgeClock(
             tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"}")
             if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
-            log(Telemetry.line("age_clock_save_failed", error = e.javaClass.simpleName))
+            log(Telemetry.line("age_clock_save_failed", source = null, error = e.javaClass.simpleName))
         }
     }
 

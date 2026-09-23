@@ -340,14 +340,28 @@ class LocationServiceTest {
      * インスタンスの中だけに持っていたときは `START_STICKY` の立て直しで `since` ごと
      * 新品になり、**死んでいた区間が観測から落ちた**。またいで残ることそのものは
      * `HeartbeatCountersTest` が確かめる。ここは**本番の配線**だけを見る。
+     *
+     * **置き場はソースごとに別ファイル**（ST06 / tasks 1.3）—— 2 本目が同じ名前を開くと
+     * 互いの数えを潰し合う。
      */
     @Test
-    fun `数えの置き場が端末の保存領域にある`() {
+    fun `数えの置き場が端末の保存領域にあり、ソースごとに分かれている`() {
         start()
         assertTrue(
             "数えがメモリだけに置かれている",
-            File(app.filesDir, "heartbeat-counters.txt").exists(),
+            counterStoreFile(app.filesDir, LOGICAL_SOURCE).exists(),
         )
+        assertFalse(
+            "ソースを問わない 1 本の置き場に戻っている",
+            File(app.filesDir, LEGACY_COUNTERS_FILE).exists(),
+        )
+    }
+
+    /** 満点の刻みは**そのソースの取得間隔**（ST06 / design D5）。位置は FR-1 の 60 秒。 */
+    @Test
+    fun `位置の満点の刻みは FR-1 の 60 秒`() {
+        assertEquals(FIX_INTERVAL_MS, SourceCadence.LOCATION.intervalMs)
+        assertEquals(60_000L, SourceCadence.LOCATION.intervalMs)
     }
 
     // ------------------------------------------------------------------ ST04 の本番の配線（review R3）

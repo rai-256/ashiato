@@ -75,7 +75,7 @@ class MainActivity : Activity() {
         if (!granted(fine)) {
             // 一度求めて、それでも無いなら断られた。**落とさずに終わる**（tasks 6.2）
             if (fine in asked) {
-                Log.w(TAG, Telemetry.line("permission_denied"))
+                Log.w(TAG, Telemetry.line("permission_denied", source = LOGICAL_SOURCE))
                 finish()
             } else {
                 ask(fine)
@@ -100,7 +100,7 @@ class MainActivity : Activity() {
     private fun start() {
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-            Log.w(TAG, Telemetry.line("degraded", error = "no_background_location"))
+            Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
         }
         startForegroundService(Intent(this, LocationService::class.java))
         finish()

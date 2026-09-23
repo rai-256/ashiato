@@ -42,7 +42,8 @@ open class LocationService : Service() {
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
     private var lastMaintenanceMs = Long.MIN_VALUE
-    private lateinit var fixSource: FixSource
+    /** 位置のソース。**親はこの口だけを見る**（design D5 / tasks 1.1）。 */
+    private lateinit var locationSource: CollectionSource
     private lateinit var deviceId: String
     private var flusher: FlushScheduler? = null
     private var beater: FlushScheduler? = null
@@ -148,9 +149,13 @@ open class LocationService : Service() {
     /** 生存信号の刻み。試験だけが差し替える。 */
     protected open fun newHeartbeatScheduler(): FlushScheduler = ExecutorFlushScheduler()
 
-    /** 数えの置き場。**端末の保存領域**（review/code.md の R16）。試験だけが差し替える。 */
-    protected open fun newCounterStore(): CounterStore =
-        FileCounterStore(File(filesDir, "heartbeat-counters.txt")) { Log.w(TAG, it) }
+    /**
+     * 数えの置き場。**端末の保存領域**（review/code.md の R16）。**ソースごとに別ファイル**
+     * （tasks 1.3 / 独立レビュー R10）—— 2 本目が同じ名前を開くと互いの数えを潰し合う。
+     * ST06 より前の 1 本は位置の名前へ移る。試験だけが差し替える。
+     */
+    protected open fun newCounterStore(logicalSource: String): CounterStore =
+        FileCounterStore(migrateLegacyCounters(filesDir, logicalSource), logicalSource) { Log.w(TAG, it) }
 
     /**
      * いま取得できる状態か（深掘り Q5）。**試験だけが差し替える。**
@@ -159,18 +164,26 @@ open class LocationService : Service() {
      * Android は長期間使っていないアプリの権限を自動で剥がす。
      * 稼働だけを送っていると、壊れているのに「動いていた」と残る。
      */
-    protected open fun readCapability(): Capability = androidCapability(this)
+    protected open fun readCapability(): Capability = locationSource.capability(this)
 
     override fun onCreate() {
         super.onCreate()
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **未送信は端末の保存領域へ**（深掘り 第 2 回）—— START_STICKY で立て直されたときに
         // インスタンスの中だけに積んでいると、最大 5 分ぶんが無言で消える
-        counters = AttemptCounters(now = { Instant.now() }, store = newCounterStore())
+        counters = AttemptCounters(
+            now = { Instant.now() },
+            intervalMs = SourceCadence.LOCATION.intervalMs,
+            store = newCounterStore(SourceCadence.LOCATION.logicalSource),
+        )
         // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
-        startForeground(NOTIFICATION_ID, notification(RetentionNotifier.BASE_TEXT), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        val type = foregroundServiceType()
+        startForeground(NOTIFICATION_ID, notification(RetentionNotifier.BASE_TEXT), type)
+        // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
+        // `startForeground` が投げて `onCreate` ごと落ちるので、**この 1 行が出たこと自体が
+        // 「前景サービスが立った」の証拠**になる（計測テストがこれを見る）
+        Log.i(TAG, Telemetry.line(foregroundServiceTypeKind(type), source = null))
         openStores()
-        fixSource = newFixSource()
         callback = FixCollector(
             outbox = outbox,
             deviceId = deviceId,
@@ -180,6 +193,7 @@ open class LocationService : Service() {
             log = { Log.i(TAG, it) },
             onFix = { counters.recordSuccess() },
         )
+        locationSource = LocationSourceAdapter(newFixSource(), callback)
         // 起動の時点で 1 度見回る（設定が揃っていなくても上限はかかる。深掘り Q1）
         maintain(force = true)
     }
@@ -235,13 +249,13 @@ open class LocationService : Service() {
             if (!force && last != Long.MIN_VALUE && now - last < MAINTENANCE_MIN_GAP_MS) return
             lastMaintenanceMs = now
             runCatching { reportUnreadable() }.onFailure {
-                Log.w(TAG, Telemetry.line("unreadable_report_crashed", error = it.javaClass.simpleName))
+                Log.w(TAG, Telemetry.line("unreadable_report_crashed", source = null, error = it.javaClass.simpleName))
             }
             runCatching { retention.enforce() }.onFailure {
-                Log.w(TAG, Telemetry.line("retention_crashed", error = it.javaClass.simpleName))
+                Log.w(TAG, Telemetry.line("retention_crashed", source = null, error = it.javaClass.simpleName))
             }
             runCatching { notifier.update() }.onFailure {
-                Log.w(TAG, Telemetry.line("notifier_crashed", error = it.javaClass.simpleName))
+                Log.w(TAG, Telemetry.line("notifier_crashed", source = null, error = it.javaClass.simpleName))
             }
         }
     }
@@ -269,7 +283,7 @@ open class LocationService : Service() {
         if (fresh <= 0) return
         if (ledger.unreadable(LOGICAL_SOURCE, fresh.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())) {
             runCatching { mark.writeText(total.toString()) }.onFailure {
-                Log.w(TAG, Telemetry.line("unreadable_mark_failed", error = it.javaClass.simpleName))
+                Log.w(TAG, Telemetry.line("unreadable_mark_failed", source = null, error = it.javaClass.simpleName))
             }
         }
     }
@@ -280,14 +294,39 @@ open class LocationService : Service() {
         null
     }
 
+    /**
+     * 前景サービスの種別（design D5 のリスク / tasks 1.4）。
+     *
+     * **`location` は位置の権限がある間だけ要求する。** targetSdk 34 以降、権限を持たないまま
+     * その種別で `startForeground` を呼ぶと `SecurityException` で立てられず、
+     * **2 本目のソース（アプリ利用）まで道連れに止まる** —— 本人の決定 Q7
+     * 「欠けたソースだけを止め、他は取り続ける」が壊れる。
+     *
+     * **権限があるときは `location` 1 本のまま**にする（振る舞いを変えない）。
+     * `dataSync` を常に併記しない理由は Android 15 以降の**上限（24 時間のうち 6 時間）**で、
+     * 併記すると 24 時間動き続ける収集が毎日打ち切られる。位置が取れない間だけ
+     * `dataSync` に落ちる形なら、上限に触るのはその期間だけで済む。
+     */
+    private fun foregroundServiceType(): Int =
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        }
+
+    /** ログに出す種別の名前。**値そのものは出さない**（数でも私的でもないが、読めない）。 */
+    private fun foregroundServiceTypeKind(type: Int): String =
+        if (type == ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) FOREGROUND_LOCATION else FOREGROUND_DATA_SYNC
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            // **FR-1 が定めた 60 秒。** 本人が決めた値なので、ここをリテラルに書き換えない
-            fixSource.start(FIX_INTERVAL_MS, callback)
+            // **FR-1 が定めた 60 秒**（`SourceCadence.LOCATION`）。ソースが自分で名乗る
+            val now = Instant.now()
+            locationSource.collect(CollectionWindow(now.minusMillis(locationSource.intervalMs), now))
         } catch (e: SecurityException) {
             // 権限が無い。**落とさずに何もしない**（tasks 6.2）——
             // 落ちると次の起動まで収集が止まり、成功条件 1 に直接効く
-            Log.w(TAG, Telemetry.line("no_permission", error = e.javaClass.simpleName))
+            Log.w(TAG, Telemetry.line("no_permission", source = LOGICAL_SOURCE, error = e.javaClass.simpleName))
             stopSelf()
             return START_NOT_STICKY
         }
@@ -302,7 +341,7 @@ open class LocationService : Service() {
         if (flusher != null) return
         if (!Config.isComplete) {
             // 設定が無いなら送らない。**取得は続ける** —— 記録は未送信に積まれ、後から送れる
-            Log.w(TAG, Telemetry.line("not_configured"))
+            Log.w(TAG, Telemetry.line("not_configured", source = null))
             return
         }
         // **記録は恒久的に断られたら捨てる**（ST03 / FR-10 の改訂。深掘り Q4 / Q5）——
@@ -360,6 +399,7 @@ open class LocationService : Service() {
             counters = counters,
             userId = Config.userId,
             deviceId = deviceId,
+            logicalSource = SourceCadence.LOCATION.logicalSource,
             capability = ::readCapability,
             now = { Instant.now() },
             newId = { UUID.randomUUID().toString() },
@@ -371,16 +411,16 @@ open class LocationService : Service() {
         // START_STICKY と合わさってクラッシュループになる ——
         // このファイル自身が権限拒否のところで立てた規律（**落とさずに何もしない**）と食い違う。
         runCatching { emitter.emit() }.onFailure {
-            Log.w(TAG, Telemetry.line("heartbeat_crashed", error = it.javaClass.simpleName))
+            Log.w(TAG, Telemetry.line("heartbeat_crashed", source = null, error = it.javaClass.simpleName))
         }
         // **登録簿の想定間隔に合わせる**（tasks 7.1）。ずらすと正常な運用が途絶に見える
         beater = newHeartbeatScheduler().also { scheduler ->
-            scheduler.every(HEARTBEAT_INTERVAL_MS) { emitter.emit() }
+            scheduler.every(SourceCadence.LOCATION.heartbeatIntervalMs) { emitter.emit() }
         }
     }
 
     override fun onDestroy() {
-        fixSource.stop(callback)
+        locationSource.stop()
         flusher?.cancel()
         flusher = null
         beater?.cancel()
@@ -420,6 +460,12 @@ open class LocationService : Service() {
 
         /** 積む契機からの見回りの間引き */
         const val MAINTENANCE_MIN_GAP_MS: Long = 60_000
+
+        /** 前景サービスを `location` の種別で立てた（位置の権限がある） */
+        const val FOREGROUND_LOCATION = "foreground_location"
+
+        /** 前景サービスを `dataSync` の種別で立てた（位置の権限が無い。design D5 のリスク） */
+        const val FOREGROUND_DATA_SYNC = "foreground_data_sync"
     }
 }
 
@@ -480,7 +526,7 @@ class ExecutorFlushScheduler : FlushScheduler {
             it.scheduleWithFixedDelay(
                 {
                     runCatching { task() }.onFailure { e ->
-                        Log.w("ashiato", Telemetry.line("tick_crashed", error = e.javaClass.simpleName))
+                        Log.w("ashiato", Telemetry.line("tick_crashed", source = null, error = e.javaClass.simpleName))
                     }
                 },
                 periodMs,

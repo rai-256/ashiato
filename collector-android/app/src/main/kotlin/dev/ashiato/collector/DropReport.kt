@@ -37,7 +37,7 @@ data class DropHour(val hour: String, val count: Int)
 data class DropReport(
     override val id: String,
     @SerialName("user_id") val userId: String,
-    @SerialName("logical_source") val logicalSource: String,
+    @SerialName("logical_source") override val logicalSource: String,
     @SerialName("device_id") val deviceId: String,
     val reason: String,
     @SerialName("created_at") val createdAt: String,
@@ -50,8 +50,6 @@ data class DropReport(
 
 /** 捨てた記録から報告を組むのに要るもの。**位置の値は取り出さない**（出来事の時刻とソースだけ）。 */
 interface Retainable : Outboxable {
-    val logicalSource: String
-
     /** 出来事の時刻（RFC 3339） */
     val eventTime: String
 }
@@ -301,7 +299,7 @@ class DropLedger(
         if (drafts.isEmpty()) return true
         val user = userId()
         if (user.isBlank()) {
-            if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", count = drafts.size, error = "no_user_id"))
+            if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", source = null, count = drafts.size, error = "no_user_id"))
             blankUserLogged = true
             return false
         }
@@ -313,12 +311,12 @@ class DropLedger(
             val d = it.next()
             val report = d.toReport(user, deviceId)
             if (frozen.add(report)) {
-                log(Telemetry.line("drop_report", count = d.count, error = d.reason))
+                log(Telemetry.line("drop_report", source = d.source, count = d.count, error = d.reason))
                 it.remove()
             } else {
                 // 積めなかった。メモリにだけある報告は捨て、閉じた下書きのまま次の凍結で積み直す（同じ原文になる）
                 frozen.remove(listOf(report.id))
-                log(Telemetry.line("drop_report_not_persisted", count = d.count))
+                log(Telemetry.line("drop_report_not_persisted", source = d.source, count = d.count))
                 all = false
             }
         }
@@ -353,7 +351,7 @@ class DropLedger(
     private fun aside(e: Exception) {
         val moved = File(openFile.parentFile, "${openFile.name}.unreadable.${System.currentTimeMillis()}")
         val ok = openFile.renameTo(moved)
-        log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", error = e.javaClass.simpleName))
+        log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))
         if (ok) drafts += DropDraft(newId(), LOGICAL_SOURCE, DropReason.UNREADABLE.wire, now().toString(), count = 1)
     }
 
@@ -366,7 +364,7 @@ class DropLedger(
         if (!tmp.renameTo(openFile)) throw IOException("rename")
         true
     } catch (e: IOException) {
-        log(Telemetry.line("drop_drafts_save_failed", error = e.javaClass.simpleName))
+        log(Telemetry.line("drop_drafts_save_failed", source = null, error = e.javaClass.simpleName))
         false
     }
 
@@ -396,13 +394,13 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         try {
             file.parentFile?.mkdirs()
             if (!file.exists() || file.length() != SIZE.toLong()) {
-                if (file.exists()) log(Telemetry.line("write_failed_ledger_reset", error = "size"))
+                if (file.exists()) log(Telemetry.line("write_failed_ledger_reset", source = null, error = "size"))
                 RandomAccessFile(file, "rw").use { it.setLength(SIZE.toLong()); it.seek(0); it.write(MAGIC) }
             }
             read()
         } catch (e: IOException) {
             usable = false
-            log(Telemetry.line("write_failed_ledger_unavailable", error = e.javaClass.simpleName))
+            log(Telemetry.line("write_failed_ledger_unavailable", source = null, error = e.javaClass.simpleName))
         }
     }
 
@@ -508,7 +506,7 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
             true
         } catch (e: IOException) {
             // ファイルにも書けない。メモリにだけ数える（立て直されたら消える。design D5）
-            log(Telemetry.line("write_failed_ledger_save_failed", error = e.javaClass.simpleName))
+            log(Telemetry.line("write_failed_ledger_save_failed", source = null, error = e.javaClass.simpleName))
             false
         }
     }
