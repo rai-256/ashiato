@@ -73,8 +73,17 @@ data class CollectionWindow(val begin: Instant, val end: Instant) {
 
 /** 1 回の取得の結果。 */
 sealed interface CollectionResult {
-    /** 取れた。**0 件でも成功**（本人の決定 C7）—— 携帯を使っていなかっただけの区間を失敗にしない。 */
-    data class Collected(val records: List<IngestRequest>) : CollectionResult
+    /**
+     * 取れた。**0 件でも成功**（本人の決定 C7）—— 携帯を使っていなかっただけの区間を失敗にしない。
+     *
+     * **[enqueued] は「積めたもの」であって「積むもの」ではない。** 未送信への登録は
+     * ソースが済ませている（`gap` の記録と「窓を進めるか」の判定がソースの中に要るので、
+     * 永続化はソースが所有する）。**親が積み直すと同じ 1 件が 2 行になる** ——
+     * 端末の未送信が倍になり、サーバでは原文が同じなので畳まれるが、
+     * 保持の上限（90 日 / 2 GB）はその倍を数える。
+     * 親が読んでよいのは**件数**（生存信号の数え・ログ）だけ。
+     */
+    data class Collected(val enqueued: List<IngestRequest>) : CollectionResult
 
     /**
      * 取得元が読めなかった。**成功に数えない。**

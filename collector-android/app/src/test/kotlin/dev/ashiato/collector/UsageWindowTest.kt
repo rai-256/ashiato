@@ -70,7 +70,7 @@ class UsageWindowTest {
         env.advance(USAGE_INTERVAL_MS)
         val result = env.collect()
         assertTrue("0 件は成功のはずが $result", result is CollectionResult.Collected)
-        assertEquals(emptyList<IngestRequest>(), (result as CollectionResult.Collected).records)
+        assertEquals(emptyList<IngestRequest>(), (result as CollectionResult.Collected).enqueued)
         assertEquals(t0.plusMillis(USAGE_INTERVAL_MS), env.savedEnd())
     }
 

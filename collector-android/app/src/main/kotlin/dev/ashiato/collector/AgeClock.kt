@@ -51,15 +51,16 @@ class AgeClock(
     private val maxGapMs: Long = MAX_REBOOT_GAP_MS,
 ) {
     /**
-     * 最後に見た時計。[gen] は**起動の世代**（起動をまたぐたびに 1 つ増える）——
-     * 呼び出し側が「この 2 点のあいだに再起動が挟まったか」を判定するために持つ。
+     * 最後に見た時計。[discardedMs] は**数えなかった前進の累計**（[MAX_REBOOT_GAP_MS] を
+     * 超えたぶん）—— 呼び出し側が「壁時計は進んだのにこの時計が数えなかった分」を
+     * 差し引けるようにするために持つ。
      */
     private data class Seen(
         val ageMs: Long,
         val monoMs: Long,
         val wallMs: Long,
         val boot: Int?,
-        val gen: Int = 0,
+        val discardedMs: Long = 0,
     )
 
     private var last: Seen = load() ?: Seen(0, device.monoMs(), device.wallMs(), device.bootCount())
@@ -72,6 +73,8 @@ class AgeClock(
         val wall = device.wallMs()
         val boot = device.bootCount()
         val sameBoot = mono >= last.monoMs && (boot == null || last.boot == null || boot == last.boot)
+        // **頭打ちで数えなかった前進**（下の `coerceIn` の上側で落ちる分）。式そのものは変えない
+        val discarded = if (sameBoot) 0 else (wall - last.wallMs - maxGapMs).coerceAtLeast(0)
         val advance = if (sameBoot) {
             val monoDelta = mono - last.monoMs
             // 同じ起動のあいだに壁時計と単調時計が 1 時間を超えて食い違ったら、時計の飛びを残す（件数だけ）
@@ -83,25 +86,25 @@ class AgeClock(
             // 起動をまたいだ。**止まっていた間の壁時計の差を 30 日まで数え、戻っていたら 0**
             (wall - last.wallMs).coerceIn(0, maxGapMs)
         }
-        last = Seen(last.ageMs + advance, mono, wall, boot, if (sameBoot) last.gen else last.gen + 1)
+        last = Seen(last.ageMs + advance, mono, wall, boot, last.discardedMs + discarded)
         save(last)
         return last.ageMs
     }
 
     /**
-     * いまの**起動の世代**（ST06 / tasks 3.3）。[now] が起動の跨ぎを見つけるたびに 1 つ増え、
-     * 端末のファイルに残る（プロセスの立て直しで 0 に戻らない）。
+     * 壁時計は進んだのに**この時計が数えなかった前進**の累計（ST06 / tasks 3.3 /
+     * 独立レビュー Important 1）。端末のファイルに残る（プロセスの立て直しで 0 に戻らない）。
      *
-     * **これが要るのは、起動をまたぐ前進が壁時計と比べられないから** ——
-     * 単調時計は起動をまたぐと 0 に戻るので、跨ぎの前進は壁時計の差を
-     * [MAX_REBOOT_GAP_MS] で頭打ちにして数えている。だから 60 日放置した端末は
-     * **時計が 1 秒も飛んでいなくても 30 日の食い違いを見せる**。
-     * その区間を「時計が飛んだ」と読む側は、世代を見て自分で除ける。
+     * 起動をまたぐ前進は単調時計で測れないので壁時計の差から数えているが、
+     * [MAX_REBOOT_GAP_MS]（30 日）で頭打ちにしている —— **60 日放置した端末では
+     * 30 日ぶんがここに落ちる。** その分を差し引けば、
+     * 「壁時計と経過の食い違い」から**長い放置の見かけだけ**が消え、
+     * **本物の時計の飛びは残る**（跨ぎの前後で時刻が動けば、その分はここに落ちない）。
      *
-     * **[now] を呼んだ後に読む**（跨ぎはそこで数えられる）。
+     * **[now] を呼んだ後に読む**（落ちた分はそこで数えられる）。
      */
     @Synchronized
-    fun bootGeneration(): Int = last.gen
+    fun discardedMs(): Long = last.discardedMs
 
     private fun load(): Seen? = try {
         if (!file.exists()) {
@@ -111,8 +114,8 @@ class AgeClock(
             Seen(
                 p[0].toLong(), p[1].toLong(), p[2].toLong(),
                 p.getOrNull(3)?.takeIf { it != "-" }?.toInt(),
-                // ST06 より前に書かれたファイルには世代が無い（0 から数え直す）
-                p.getOrNull(4)?.toInt() ?: 0,
+                // ST06 より前に書かれたファイルには「数えなかった分」が無い（0 から数え直す）
+                p.getOrNull(4)?.toLong() ?: 0,
             )
         }
     } catch (e: IOException) {
@@ -128,7 +131,7 @@ class AgeClock(
             file.parentFile?.mkdirs()
             // **書いてから差し替える**（review R37）。途中で落ちて壊れると経過が 0 に戻り、90 日の上限と知らせが止まる
             val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"} ${s.gen}")
+            tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"} ${s.discardedMs}")
             if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
             log(Telemetry.line("age_clock_save_failed", source = null, error = e.javaClass.simpleName))

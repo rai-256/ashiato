@@ -106,6 +106,38 @@ class UsageWindowClockTest {
     }
 
     /**
+     * **再起動のあとに時計が前へ飛んだら、跨いでいても断る**（独立レビュー Important 1）。
+     *
+     * RTC が狂った端末が過去の時刻で起動し、契機の前に網の時刻合わせで壁時計が数時間前へ飛ぶ ——
+     * 取得元はそこで保持している統計を丸ごとずらすので、取り直すと出来事の時刻が変わった
+     * 同じイベントが行を増やす。**「跨いだか」だけで免除すると、再起動ごとに 1 契機ぶん素通りする。**
+     * 免除してよいのは [AgeClock] が**数えなかった前進の分だけ**。
+     */
+    @Test
+    fun `再起動の直後に時計が前へ飛んでいたら窓は進まない`() {
+        val env = env()
+        env.collect()
+        val saved = env.savedEnd()
+
+        // 1 分止まって起動。**起動の直後にプロセスが時計を読む**（置き場を開く・上限を見回る）
+        env.clock.reboot(wallGapMs = 60_000)
+        env.restart()
+        env.age.now()
+        // 網の時刻合わせで壁時計が 5 時間前へ飛んだ（単調な経過は 1 分しか進んでいない）
+        env.advance(60_000)
+        env.jumpWall(5 * 60 * 60 * 1000L)
+        val result = env.collect()
+
+        assertTrue("時計が前へ飛んだのに $result", result is CollectionResult.Unavailable)
+        assertEquals(
+            AppUsageSourceAdapter.REASON_CLOCK_SKEW,
+            (result as CollectionResult.Unavailable).reason,
+        )
+        assertEquals("窓が進んでいる", saved, env.savedEnd())
+        assertEquals("ずれた時刻の統計を取り直している", 0, env.records().size)
+    }
+
+    /**
      * ただし**起動をまたいでも壁時計が戻ったぶんは証拠になる** ——
      * 跨ぎの前進は 0 で丸められているので、負の食い違いは「時計が戻った」ことそのもの。
      */

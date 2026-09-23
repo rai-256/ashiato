@@ -46,7 +46,7 @@ class AppUsageCollectorTest {
         )
         val result = env.firstThenNext()
         assertTrue("取れたのに $result が返った", result is CollectionResult.Collected)
-        assertEquals(3, (result as CollectionResult.Collected).records.size)
+        assertEquals(3, (result as CollectionResult.Collected).enqueued.size)
         // **1 イベント = 1 記録**（本人の決定 C1）。1 回の取得を 1 件にまとめない
         assertEquals(
             listOf("2026-05-20T09:10:00Z", "2026-05-20T09:20:00Z", "2026-05-20T09:25:00Z"),

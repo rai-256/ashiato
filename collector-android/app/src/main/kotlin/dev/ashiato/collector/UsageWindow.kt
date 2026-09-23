@@ -58,12 +58,13 @@ data class UsageWindowMark(
     /** その終わりを保存したときの単調な経過（[AgeClock.now]） */
     val ageMs: Long,
     /**
-     * そのときの**起動の世代**（[AgeClock.bootGeneration]）。
+     * そのときの**数えなかった前進の累計**（[AgeClock.discardedMs]）。
      *
-     * 次の契機との間に再起動が挟まったかを見るために持つ —— 挟まった区間では
-     * 壁時計と経過の差が**時計の飛びでなくても**出る（跨ぎの前進は 30 日で頭打ちに数えられる）。
+     * 次の契機との差を取ると「この区間で経過が数え落とした分」が出る ——
+     * 長い電源断はその分だけ壁時計と経過を食い違わせるので、差し引けば
+     * **見かけの食い違いだけが消え、本物の時計の飛びは残る**（独立レビュー Important 1）。
      */
-    val generation: Int,
+    val discardedMs: Long,
 )
 
 /** 窓の置き場の名前。**ソースごとに別ファイル**（数えの置き場と同じ規律）。 */
@@ -89,7 +90,7 @@ class UsageWindowStore(
             null
         } else {
             val parts = file.readText().trim().split(" ")
-            UsageWindowMark(Instant.parse(parts[0]), parts[1].toLong(), parts[2].toInt())
+            UsageWindowMark(Instant.parse(parts[0]), parts[1].toLong(), parts[2].toLong())
         }
     } catch (e: RuntimeException) {
         log(Telemetry.line("usage_window_unreadable", source = logicalSource, error = e.javaClass.simpleName))
@@ -107,7 +108,7 @@ class UsageWindowStore(
         try {
             file.parentFile?.mkdirs()
             val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText("${mark.end} ${mark.ageMs} ${mark.generation}")
+            tmp.writeText("${mark.end} ${mark.ageMs} ${mark.discardedMs}")
             if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
             log(Telemetry.line("usage_window_save_failed", source = logicalSource, error = e.javaClass.simpleName))
