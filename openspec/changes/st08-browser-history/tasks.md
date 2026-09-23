@@ -10,7 +10,7 @@
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
 DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
-## 0. 規律（**最初に読む**）
+## Global Constraints（規律。**最初に読む**）
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust はコメント（`// Scenario: 2 回続けて取得しても行が増えない`）、
   bash は `echo`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする
@@ -25,7 +25,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - **ログに URL・ページの題名・プロファイルの表示名・原文を出さない**（spec の MODIFIED）。帳面にも URL と題名を書かない（design D10）
 - 同じ名前のテストで絞る検証（`cargo test history_vanished` など）は、**`-- --list` で 1 本以上あることも見る**（0 本でも rc=0 になるため。R17）
 
-## 1. 足場
+## Task 1: 足場
 
 - [x] 1.1 `crates/collector-windows/Cargo.toml` に `rusqlite`（`bundled`）を**`cfg(windows)` の外に**足し、
   `history/` モジュール（`locate` / `read` / `contract` / `ledger` / `fetch`）の空の骨組みを置く（design D2）。
@@ -34,7 +34,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   （mingw の C コンパイラを入れる。design D2）。
   検証: `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` が手元と CI で rc=0
 
-## 2. 登録簿と取り込み（サーバ側。取り込みのコードは変えない）
+## Task 2: 登録簿と取り込み（サーバ側。取り込みのコードは変えない）
 
 - [x] 2.1 移行 `YYYYMMDDHHMM_browser_history_record_id.sql`（と `.down.sql`）を作り、`c02-browser-history` の
   `external_id_kind` を**このソースの記録が 0 件のときだけ** `'record'` にする（design D7）。`MIGRATIONS` の末尾に足す。
@@ -51,7 +51,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   `番号が振り直された後の訪問は、前の訪問と別の記録になる`。
   検証: `cargo test -p ashiato-server browser_history_update` rc=0（`-- --list` で 5 本）
 
-## 3. 送る形（契約）
+## Task 3: 送る形（契約）
 
 - [x] 3.1 `VisitPayload`（`visit` / `vanished` / `excluded` / `profiles`）と `IngestRequest::of_visit` を作る（design D4 / D5 / D6 / D15）。
   `event_time` はマイクロ秒、`tz_basis = "collected-at"`、`source_updated_at` は読んだ時刻、`external_id` は D6 の形
@@ -66,7 +66,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   検証: `grep -c "c02-browser-history" docs/collector-contract.md` が 1 以上 / `grep -c "v1:" docs/collector-contract.md` が 1 以上 /
   `grep -c "source_updated_at" docs/collector-contract.md` が 3 以上（既存 2 + 追記）/ `python3 scripts/check_chain.py .` rc=0
 
-## 4. 置き場を探して読む
+## Task 4: 置き場を探して読む
 
 - [x] 4.1 置き場の組み立て（design D1 の表を**全 6 行**。`User Data` の直下 1 段で `History` を持つディレクトリ、
   Firefox は `profiles.ini` の `Path=` と `Profiles\` の走査の和）を純粋な関数にし、一時ディレクトリに作った木で確かめる。
@@ -86,7 +86,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `他の端末の訪問は発生元の印を持つ` / `他の端末の訪問の記録の端末は、読んだ PC である` / `PC 自身の訪問は発生元の印を持たない`。
   検証: `cargo test history_foreign_visits` rc=0
 
-## 5. 帳面と取得
+## Task 5: 帳面と取得
 
 - [x] 5.1 帳面（プロファイルごと。識別子 → 送った内容のハッシュ・訪問時刻・他端末か・除外したか、前回の最大番号、前回の表示名の対応）を作る。
   **URL と題名を書かない。** 一時ファイル + 置き換えで書き、壊れていたら退避して空から始める（design D10）。
@@ -112,7 +112,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `履歴の取得でウィンドウのソースの記録は増えない`。
   検証: `cargo test history_slow_read_does_not_disturb_window` rc=0
 
-## 6. 消えた事実（Q2）
+## Task 6: 消えた事実（Q2）
 
 - [x] 6.1 帳面にあって今回の読みに無い識別子を `vanished` に載せ、手がかり（`age_days` / `foreign` / `table_recreated` / `profile_gone`）を付け、
   帳面から外す。1 件に 1,000 件まで（design D10・**仮**）。**URL と題名を載せない。経路を名指しする値を置かない。**
@@ -127,7 +127,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `消えた訪問の記録は残っている`。
   検証: `tools/smoke.sh` に「`vanished` を送った前後で元の訪問の行の `raw` が同じ」を psql で見る手順を足して rc=0
 
-## 7. 除外（FR-83 を履歴にも）
+## Task 7: 除外（FR-83 を履歴にも）
 
 - [x] 7.1 `Rule` に `url-contains` と `browser-profile` を足す（`deny_unknown_fields` のまま）。`url-contains` がウィンドウに当たったら
   **その前景の変化を丸ごと除外して件数に数える**。`browser-profile` はウィンドウに当てない（design D11）。
@@ -147,7 +147,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `登録を後から足すと、既に送った訪問の変わった内容は送られない` / `登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる`。
   検証: `cargo test history_exclusion_added_later` rc=0 / `cargo test history_exclusion_removed_later` rc=0
 
-## 8. 生存信号（2 本目）
+## Task 8: 生存信号（2 本目）
 
 - [x] 8.1 `c02-browser-history` 用の `Schedule`（86400 秒）と数え（`counters-browser-history.json`）を持ち、ウィンドウとは別の件として送る。
   `blockers` は `history-unreadable:<browser>:<profile_dir>` / `history-none-found`、区間の間の和（design D12）。
@@ -160,7 +160,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `区間に読みが無くても、開けるかを確かめてから報告する`。
   検証: `cargo test history_heartbeat_probes_when_not_read` rc=0 / `cargo test history_heartbeat_on_start` rc=0
 
-## 9. 感度とログ
+## Task 9: 感度とログ
 
 - [x] 9.1 履歴の記録に感度を明示せず、既定に委ねる（ST07 Q3 / ST08 Q1）。
   Scenario: `ブラウザ履歴の記録も既定の感度で格納される`。
@@ -170,7 +170,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   Scenario: `履歴の読み取りの失敗がログに出ても URL と題名は出ない`。
   検証: `cargo test history_log_has_no_private_content` rc=0
 
-## 10. Windows の実行時テスト（design D14）
+## Task 10: Windows の実行時テスト（design D14）
 
 `crates/collector-windows/tests/runtime_windows.rs` に足す。**一時プロファイル**で開き、本人の実物のプロファイルは使わない。
 **Chrome と Firefox も飛ばさない**（runner に無ければ job で入れる。R10）。
@@ -189,7 +189,7 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [x] 10.4 CI の `collector-windows-runtime` job の走った本数の下限を **既存 + 3**（10.1 / 10.2 の 3 本）に上げる。飛ばしを下限に数えない。
   検証: `.github/workflows/ci.yml` の下限の数が既存より 3 大きい（`git diff` で見る）/ `collector-windows-runtime` job が緑
 
-## 11. 仕上げ
+## Task 11: 仕上げ
 
 - [x] 11.1 `openspec validate st08-browser-history --strict` rc=0
 - [x] 11.2 `python3 scripts/check_scenarios.py .` rc=0（**75 本すべてに印**）
