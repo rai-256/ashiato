@@ -53,16 +53,17 @@ class CollectionSourceTest {
     }
 
     /**
-     * **登録は 1 度だけ。** 親が契機ごとに `collect()` を呼んでも取得元へ二重に登録しない
-     * —— 登録し直すと同じ callback に 2 本の要求がぶら下がり、契機が二重に来て
-     * 記録と数えの両方が水増しされる。
+     * **呼ばれるたびに登録し直す**（ST06 より前の `onStartCommand` と同じ）。
+     *
+     * 絞ると「アプリを開き直すたびに要求を張り直す」という**復旧の経路**が消え、
+     * 取得が止まった端末がそこから戻れなくなる。
      */
     @Test
-    fun `契機ごとに呼ばれても取得元への登録は 1 度だけ`() {
+    fun `呼ばれるたびに取得元へ登録し直す`() {
         val fix = CountingFixSource()
         val adapter = LocationSourceAdapter(fix, collector())
         repeat(3) { adapter.collect(window()) }
-        assertEquals(1, fix.starts)
+        assertEquals(3, fix.starts)
     }
 
     /** 権限が無いときは**握りつぶさない** —— 親（`LocationService`）が受けて `no_permission` を残す。 */
@@ -89,6 +90,17 @@ class CollectionSourceTest {
         assertEquals(2, fix.starts)
     }
 
+    /** 登録し直しでも**同じ callback を渡す**（渡すものが変わると要求が置き換わらず重なる）。 */
+    @Test
+    fun `登録し直しでも渡す callback は同じ`() {
+        val fix = CountingFixSource()
+        val callback = collector()
+        val adapter = LocationSourceAdapter(fix, callback)
+        repeat(2) { adapter.collect(window()) }
+        adapter.stop()
+        assertEquals(listOf<Any>(callback, callback, callback), fix.callbacks)
+    }
+
     /** 取得条件は**端末から読む**。読むだけで直そうとしない（`AndroidCapability` の規律）。 */
     @Test
     fun `取得条件は端末から読む`() {
@@ -111,16 +123,21 @@ class CollectionSourceTest {
     }
 }
 
-/** 登録と解除の回数を数える取得元の偽物。 */
+/** 登録と解除の回数、および渡された callback を数える取得元の偽物。 */
 class CountingFixSource : FixSource {
     var starts = 0
     var stops = 0
 
+    /** `start` / `stop` に渡された callback を呼ばれた順に覚える。 */
+    val callbacks = mutableListOf<com.google.android.gms.location.LocationCallback>()
+
     override fun start(intervalMs: Long, callback: com.google.android.gms.location.LocationCallback) {
         starts++
+        callbacks += callback
     }
 
     override fun stop(callback: com.google.android.gms.location.LocationCallback) {
         stops++
+        callbacks += callback
     }
 }

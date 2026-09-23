@@ -119,8 +119,14 @@ interface CollectionSource {
  *
  * 位置の取得元（Play Services）は**契機を自分で配る**ので、`collect()` がするのは
  * 取得元への登録だけで、結果は [CollectionResult.Streaming]。
- * **登録は 1 度だけ**にする —— 契機ごとに登録し直すと同じ callback に要求が重なり、
- * 記録と数えの両方が水増しされる。
+ *
+ * **呼ばれるたびに登録し直す。** ST06 より前の `onStartCommand` が毎回
+ * `fixSource.start(FIX_INTERVAL_MS, callback)` を呼んでいたのと同じ ——
+ * アプリを開き直すたびに要求を張り直すのが**復旧の経路**で、
+ * 「1 度だけ」に絞ると取得が止まった端末がそこから戻れなくなる。
+ * 重ねて呼んでも要求は増えない（`requestLocationUpdates` は**同じ
+ * [com.google.android.gms.location.LocationCallback] インスタンス**への要求を置き換える。
+ * 親は 1 つの [FixCollector] を作って渡し続ける）。
  */
 class LocationSourceAdapter(
     private val fixSource: FixSource,
@@ -129,22 +135,16 @@ class LocationSourceAdapter(
     override val logicalSource: String = SourceCadence.LOCATION.logicalSource
     override val intervalMs: Long = SourceCadence.LOCATION.intervalMs
 
-    private var started = false
-
     override fun capability(context: Context): Capability = androidCapability(context)
 
     override fun collect(window: CollectionWindow): CollectionResult {
         // **権限が無ければ `SecurityException`。** ここで握りつぶさない ——
         // 親が `no_permission` を残す唯一の経路
-        if (!started) {
-            fixSource.start(intervalMs, callback)
-            started = true
-        }
+        fixSource.start(intervalMs, callback)
         return CollectionResult.Streaming
     }
 
     override fun stop() {
         fixSource.stop(callback)
-        started = false
     }
 }

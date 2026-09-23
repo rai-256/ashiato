@@ -20,9 +20,13 @@ import org.robolectric.RobolectricTestRunner
 /** 取得元の偽物。渡された間隔を覚える。 */
 class FakeFixSource(private val fail: Boolean) : FixSource {
     var startedWith: Long? = null
+
+    /** 登録の回数。**起動のたびに張り直す**ことを見るために数える（ST06 の独立レビュー Important 1）。 */
+    var starts = 0
     var stopped = false
     override fun start(intervalMs: Long, callback: LocationCallback) {
         if (fail) throw SecurityException("権限が無い")
+        starts++
         startedWith = intervalMs
     }
     override fun stop(callback: LocationCallback) {
@@ -151,6 +155,24 @@ class LocationServiceTest {
         val segs = File(app.filesDir, "outbox/records").listFiles { f -> f.name.endsWith(".jsonl") }.orEmpty()
         assertTrue("置き場がファイルとして残っていない", segs.isNotEmpty())
         assertTrue("中身が空", segs.any { it.readText().isNotBlank() })
+    }
+
+    /**
+     * **起動のたびに取得元へ登録し直す**（ST06 より前からの振る舞い。独立レビュー Important 1）。
+     *
+     * 消すと「アプリを開き直すたびに要求を張り直す」という**復旧の経路**が無くなり、
+     * 取得が止まった端末がそこから戻れなくなる。
+     * `requestLocationUpdates` は同じ callback への要求を置き換えるので、重ねても増えない。
+     */
+    @Test
+    fun `onStartCommand のたびに取得元へ登録し直す`() {
+        val controller = Robolectric.buildService(TestableLocationService::class.java, Intent()).create()
+        val service = controller.get()
+
+        service.onStartCommand(Intent(), 0, 1)
+        service.onStartCommand(Intent(), 0, 2)
+
+        assertEquals("2 度目の起動で取得元へ登録し直していない", 2, service.source.starts)
     }
 
     @Test
