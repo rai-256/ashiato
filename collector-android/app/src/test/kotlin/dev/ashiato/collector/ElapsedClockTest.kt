@@ -87,6 +87,31 @@ class ElapsedClockTest {
         assertEquals(3 * day, clock().now() - enq)
     }
 
+    /**
+     * 起動の世代（ST06 / tasks 3.3）。**跨ぎのたびに 1 つ増え、ファイルに残る。**
+     *
+     * 立て直しで 0 に戻ると、読む側（アプリ利用の窓）が「起動をまたいだ」を
+     * 見分けられなくなる —— そこが見分けられないと、長い放置が時計の飛びに化ける。
+     */
+    @Test
+    fun `起動の世代は跨ぎのたびに増え立て直しをまたいで残る`() {
+        val c = clock()
+        c.now()
+        assertEquals(0, c.bootGeneration())
+        device.advance(1 * day)
+        c.now()
+        assertEquals("同じ起動のあいだに増えている", 0, c.bootGeneration())
+
+        device.reboot(wallGapMs = 2 * day)
+        val next = clock()            // プロセスが立て直された（ファイルから読み直す）
+        next.now()
+        assertEquals(1, next.bootGeneration())
+        // 立て直しただけでは増えない
+        val again = clock()
+        again.now()
+        assertEquals(1, again.bootGeneration())
+    }
+
     /** 単調時計が戻らなくても、起動回数が変われば再起動として扱う（起動回数の比較を消すと落ちる）。 */
     @Test
     fun `起動回数が変わったら単調時計が進んでいても再起動として扱う`() {

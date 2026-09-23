@@ -57,6 +57,13 @@ data class UsageWindowMark(
     val end: Instant,
     /** その終わりを保存したときの単調な経過（[AgeClock.now]） */
     val ageMs: Long,
+    /**
+     * そのときの**起動の世代**（[AgeClock.bootGeneration]）。
+     *
+     * 次の契機との間に再起動が挟まったかを見るために持つ —— 挟まった区間では
+     * 壁時計と経過の差が**時計の飛びでなくても**出る（跨ぎの前進は 30 日で頭打ちに数えられる）。
+     */
+    val generation: Int,
 )
 
 /** 窓の置き場の名前。**ソースごとに別ファイル**（数えの置き場と同じ規律）。 */
@@ -82,7 +89,7 @@ class UsageWindowStore(
             null
         } else {
             val parts = file.readText().trim().split(" ")
-            UsageWindowMark(Instant.parse(parts[0]), parts[1].toLong())
+            UsageWindowMark(Instant.parse(parts[0]), parts[1].toLong(), parts[2].toInt())
         }
     } catch (e: RuntimeException) {
         log(Telemetry.line("usage_window_unreadable", source = logicalSource, error = e.javaClass.simpleName))
@@ -100,7 +107,7 @@ class UsageWindowStore(
         try {
             file.parentFile?.mkdirs()
             val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText("${mark.end} ${mark.ageMs}")
+            tmp.writeText("${mark.end} ${mark.ageMs} ${mark.generation}")
             if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
             log(Telemetry.line("usage_window_save_failed", source = logicalSource, error = e.javaClass.simpleName))

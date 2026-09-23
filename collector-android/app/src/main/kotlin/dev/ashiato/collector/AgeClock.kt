@@ -50,7 +50,17 @@ class AgeClock(
     /** 起動をまたぐ空白を数える上限（design D2（仮））。 */
     private val maxGapMs: Long = MAX_REBOOT_GAP_MS,
 ) {
-    private data class Seen(val ageMs: Long, val monoMs: Long, val wallMs: Long, val boot: Int?)
+    /**
+     * 最後に見た時計。[gen] は**起動の世代**（起動をまたぐたびに 1 つ増える）——
+     * 呼び出し側が「この 2 点のあいだに再起動が挟まったか」を判定するために持つ。
+     */
+    private data class Seen(
+        val ageMs: Long,
+        val monoMs: Long,
+        val wallMs: Long,
+        val boot: Int?,
+        val gen: Int = 0,
+    )
 
     private var last: Seen = load() ?: Seen(0, device.monoMs(), device.wallMs(), device.bootCount())
         .also { save(it) }
@@ -73,17 +83,37 @@ class AgeClock(
             // 起動をまたいだ。**止まっていた間の壁時計の差を 30 日まで数え、戻っていたら 0**
             (wall - last.wallMs).coerceIn(0, maxGapMs)
         }
-        last = Seen(last.ageMs + advance, mono, wall, boot)
+        last = Seen(last.ageMs + advance, mono, wall, boot, if (sameBoot) last.gen else last.gen + 1)
         save(last)
         return last.ageMs
     }
+
+    /**
+     * いまの**起動の世代**（ST06 / tasks 3.3）。[now] が起動の跨ぎを見つけるたびに 1 つ増え、
+     * 端末のファイルに残る（プロセスの立て直しで 0 に戻らない）。
+     *
+     * **これが要るのは、起動をまたぐ前進が壁時計と比べられないから** ——
+     * 単調時計は起動をまたぐと 0 に戻るので、跨ぎの前進は壁時計の差を
+     * [MAX_REBOOT_GAP_MS] で頭打ちにして数えている。だから 60 日放置した端末は
+     * **時計が 1 秒も飛んでいなくても 30 日の食い違いを見せる**。
+     * その区間を「時計が飛んだ」と読む側は、世代を見て自分で除ける。
+     *
+     * **[now] を呼んだ後に読む**（跨ぎはそこで数えられる）。
+     */
+    @Synchronized
+    fun bootGeneration(): Int = last.gen
 
     private fun load(): Seen? = try {
         if (!file.exists()) {
             null
         } else {
             val p = file.readText().trim().split(" ")
-            Seen(p[0].toLong(), p[1].toLong(), p[2].toLong(), p.getOrNull(3)?.takeIf { it != "-" }?.toInt())
+            Seen(
+                p[0].toLong(), p[1].toLong(), p[2].toLong(),
+                p.getOrNull(3)?.takeIf { it != "-" }?.toInt(),
+                // ST06 より前に書かれたファイルには世代が無い（0 から数え直す）
+                p.getOrNull(4)?.toInt() ?: 0,
+            )
         }
     } catch (e: IOException) {
         log(Telemetry.line("age_clock_unreadable", source = null, error = e.javaClass.simpleName))
@@ -98,7 +128,7 @@ class AgeClock(
             file.parentFile?.mkdirs()
             // **書いてから差し替える**（review R37）。途中で落ちて壊れると経過が 0 に戻り、90 日の上限と知らせが止まる
             val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"}")
+            tmp.writeText("${s.ageMs} ${s.monoMs} ${s.wallMs} ${s.boot ?: "-"} ${s.gen}")
             if (!tmp.renameTo(file)) throw IOException("rename")
         } catch (e: IOException) {
             log(Telemetry.line("age_clock_save_failed", source = null, error = e.javaClass.simpleName))

@@ -49,6 +49,7 @@ class UsageTestEnv(
         deviceId = "device-1",
         zone = { zone },
         age = age::now,
+        bootGeneration = age::bootGeneration,
         newId = { "r${ids++}" },
         capabilityOf = { Capability.of(permission = true, sensor = true, network = true) },
         log = log,

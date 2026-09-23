@@ -80,6 +80,55 @@ class UsageWindowClockTest {
         assertEquals(0, env.records().size)
     }
 
+    /**
+     * **長い放置は時計の飛びではない**（controller の裁定 2026-09-23 / 誤検知の修正）。
+     *
+     * [AgeClock] は起動をまたぐ前進を 30 日で頭打ちにするので（`MAX_REBOOT_GAP_MS`）、
+     * 60 日ぶりに起動した端末は**時計が 1 秒も飛んでいなくても 30 日の食い違い**を見せる。
+     * これを飛びと読むと窓の印が更新されないまま差も縮まらず、**取得は永久に止まる**。
+     */
+    @Test
+    fun `30 日より長く電源を切って放置してから起動しても窓は進む`() {
+        val env = env()
+        env.collect()
+        assertEquals(t0, env.savedEnd())
+
+        env.clock.reboot(wallGapMs = 60 * AgeClock.DAY_MS)   // 60 日ぶりに電源が入った
+        env.restart()                                        // プロセスも作り直される
+        val result = env.collect()
+
+        assertTrue("放置から起動しただけなのに $result", result is CollectionResult.Collected)
+        assertEquals("窓が進んでいない", env.now, env.savedEnd())
+        assertEquals(
+            listOf("2026-05-20T09:10:00Z", "2026-05-20T10:30:00Z"),
+            env.records().map { it.eventTime },
+        )
+    }
+
+    /**
+     * ただし**起動をまたいでも壁時計が戻ったぶんは証拠になる** ——
+     * 跨ぎの前進は 0 で丸められているので、負の食い違いは「時計が戻った」ことそのもの。
+     */
+    @Test
+    fun `再起動をまたいで時計が戻ったときは窓が進まない`() {
+        val env = env()
+        env.collect()
+        val saved = env.savedEnd()
+
+        env.clock.reboot(wallGapMs = -3 * 60 * 60 * 1000L)
+        env.restart()
+        val result = env.collect()
+
+        assertTrue("時計が戻ったのに $result", result is CollectionResult.Unavailable)
+        // 窓が組み立てられないほうの拒み方（`window_ahead`）ではなく、**時計の飛びとして**断っている
+        assertEquals(
+            AppUsageSourceAdapter.REASON_CLOCK_SKEW,
+            (result as CollectionResult.Unavailable).reason,
+        )
+        assertEquals(saved, env.savedEnd())
+        assertEquals(0, env.records().size)
+    }
+
     /** 飛びが直れば、取り直しは**保存した終わりから**続く（飛んだ間のイベントは失われない）。 */
     @Test
     fun `飛びが直れば保存した終わりから続きを取る`() {

@@ -42,6 +42,11 @@ class AppUsageSourceAdapter(
     private val zone: () -> ZoneId,
     /** 単調な経過（[AgeClock.now]。ST04）。**新しい時計を足さない** */
     private val age: () -> Long,
+    /**
+     * 起動の世代（[AgeClock.bootGeneration]）。**[age] と同じ時計の 2 つ目の口**で、
+     * [age] を呼んだ後に読む（起動の跨ぎはそこで数えられる）。
+     */
+    private val bootGeneration: () -> Int,
     private val newId: () -> String,
     /**
      * いま取得できる状態か。**本物の判定（`PACKAGE_USAGE_STATS` の付与状態）は tasks 5.2** ——
@@ -66,11 +71,13 @@ class AppUsageSourceAdapter(
     override fun collect(window: CollectionWindow): CollectionResult {
         val at = window.end
         val ageNow = age()
+        // **経過を進めてから世代を読む**（起動の跨ぎは `age()` の中で数えられる）
+        val generation = bootGeneration()
         val mark = windowStore.load()
         if (mark != null) {
             // **2 つの時計の進み方を比べる。** 端末の時計が飛んだことは、片方だけでは分からない
             val skewMs = Duration.between(mark.end, at).toMillis() - (ageNow - mark.ageMs)
-            if (abs(skewMs) > USAGE_CLOCK_SKEW_TOLERANCE_MS) {
+            if (isClockJump(skewMs, generation, mark)) {
                 log(Telemetry.line("usage_clock_skew", source = logicalSource, elapsedMs = skewMs))
                 return CollectionResult.Unavailable(REASON_CLOCK_SKEW)
             }
@@ -89,12 +96,36 @@ class AppUsageSourceAdapter(
                 log(Telemetry.line("usage_unreadable", source = logicalSource, error = read.reason))
                 CollectionResult.Unavailable(read.reason)
             }
-            is EventsResult.Events -> store(read.events, at, ageNow)
+            is EventsResult.Events -> store(read.events, at, ageNow, generation)
         }
     }
 
+    /**
+     * その食い違いを「端末の時計が飛んだ」と読んでよいか（本人の決定 C6 / controller の裁定 2026-09-23）。
+     *
+     * **起動をまたいだ区間の「前へのずれ」は証拠にならない** —— [AgeClock] は起動をまたぐ前進を
+     * 壁時計の差から数え、[AgeClock.MAX_REBOOT_GAP_MS]（30 日）で頭打ちにする。
+     * だから **60 日 電源を切って放置した端末は、時計が 1 秒も飛んでいなくても
+     * 30 日の食い違いを見せる**。それを飛びと読むと、窓は二度と進まない（取れなかった
+     * イベントは取得元の保持を過ぎて消える）。跨ぎの前進は数えない。
+     *
+     * **後ろへのずれは跨いでいても証拠になる** —— 跨ぎの前進は負にならないように
+     * 0 で丸められているので、負の食い違いは「壁時計が戻った」ことそのもの。
+     * ここまで見逃すと、時刻を戻した端末が壁時計の追いつきとともに
+     * ずれた統計を取り直し、出来事の時刻が変わった同じイベントが行を増やす。
+     */
+    private fun isClockJump(skewMs: Long, generation: Int, mark: UsageWindowMark): Boolean {
+        if (abs(skewMs) <= USAGE_CLOCK_SKEW_TOLERANCE_MS) return false
+        return generation == mark.generation || skewMs < 0
+    }
+
     /** 取れた分を記録にして積み、窓の終わりを進める。**0 件でも進める**（本人の決定 C7）。 */
-    private fun store(events: List<UsageEventSnapshot>, at: Instant, ageMs: Long): CollectionResult {
+    private fun store(
+        events: List<UsageEventSnapshot>,
+        at: Instant,
+        ageMs: Long,
+        generation: Int,
+    ): CollectionResult {
         // 地域も利用者も**1 契機につき 1 度だけ**読む（同じ契機の記録で食い違わせない）
         val collectedIn = zone()
         val user = userId()
@@ -103,7 +134,7 @@ class AppUsageSourceAdapter(
         }
         var persisted = 0
         for (record in records) if (outbox.add(record)) persisted++
-        windowStore.save(UsageWindowMark(at, ageMs))
+        windowStore.save(UsageWindowMark(at, ageMs, generation))
         // 出すのは件数だけ（製造準備 A-2）。表示名も原文もログに出さない
         log(Telemetry.line("usage", source = logicalSource, count = records.size))
         // **「取れた件数」と「置き場に残せた件数」は別**（位置と同じ規律）。
