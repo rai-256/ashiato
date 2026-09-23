@@ -13,6 +13,7 @@
 | `closes #2` で issue が閉じ、残 11 件の入口が消えた | 残タスクの入口を守る規則 |
 | ST02 の deep が FR-33 / NFR-13 の改訂を挙げたが要件も Story も変わらず | deep から要件・Story への戻し |
 | PERM-7 を改訂したのに ST28 の逐語が古いまま。`make_story.py` の入力が commit されていなかった | 判断の単一情報源（`stories.json`）と再生成の一致検査 |
+| **tasks 本文が「取り込み口まで通す」「Runtime の層で固定する」と書いているのに、`runtime.rs` は 1 行も変わらず smoke は手書き JSON を POST するだけで `[x]`（ST08・36 件）** | **Task 単位の独立 spec compliance review。**要求は書いてあった —— 局所の検証（`cargo test <名前>` rc=0）だけを満たした実装を、その場で誰も brief と突き合わせなかった |
 
 テストの書き方そのものは `docs/testing.md`（1 枚）。
 
@@ -72,6 +73,12 @@ SDD の 3 つの prompt は Superpowers のものを**そのまま**使う（`~/
 4. **code-verify** —— **申告と実態のずれ。** 固定値を独立に再計算し、ガードをわざと壊し、
    `[x]` の検証コマンドを実際に叩く。diff を読むだけの reviewer には出せない指摘を出す
 
+**preflight はレビューの席ではない。** `scripts/story.sh` が起動前に見るのは
+**SDD を始められる最低条件**だけ —— `tasks.md` が機械的に読めるか（`openspec validate --strict`）、
+Task brief が切り出せる形か、`tasks.md` が名指しする道具が実在するか、未処置の指摘が残っていないか。
+**「要求が実装されたか」を preflight で見ない**（それは task reviewer の席で、
+grep とファイル名の当て推量では接続点の名前が違うプロジェクトで空振りする）。
+
 > **`pr-review-toolkit` の 3 agent は下流の既定から外した**（2026-09-23）。
 > `code-reviewer.md` と席が重複する（plan alignment・error handling・test が本物の振る舞いを見るか）。
 > PR そのもののレビューが要るときは `/pr-review-toolkit:review-pr` を人間が別に呼ぶ。
@@ -87,6 +94,12 @@ review package のパスと Global Constraints だけで、**implementer の推�
 > 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
 > （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
 > （通るほうの）コマンドを走らせた行まで `[x]` になった。採点者と受験者が同じだった。
+>
+> **これは要求の欠落ではない。** Task 5 は「`tools/smoke.sh` に『サーバを止めて取得 → 起動 →
+> 送信 → psql で件数』の手順を足して rc=0」「**Runtime の層で固定する**」と書き、Task 8 は
+> 「注入した時計で **Runtime を 2 日回して確かめる**」と書いていた。それでもブランチ全体で
+> `runtime.rs` / `engine.rs` / `main.rs` は 1 行も変わらなかった。**書いてある要求を、
+> Task の時点で誰も diff と突き合わせなかった**のが穴で、そこが task reviewer の席である。
 
 `scripts/review_triage.py . <change>` が、処置の無い指摘・指す先の不在・人間に返すべきものの `fixed`・
 印の無い B の `fixed`・凍結された Story への `deferred`・
