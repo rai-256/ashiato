@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import java.time.Instant
 import java.time.ZoneId
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -90,4 +91,69 @@ private fun UsageEventSnapshot.sourceFields(): Map<String, JsonPrimitive> = buil
     interactionAction?.let { put("interaction_action", JsonPrimitive(it)) }
     interactionCategory?.let { put("interaction_category", JsonPrimitive(it)) }
     standbyBucket?.let { put("standby_bucket", JsonPrimitive(it)) }
+}
+
+/**
+ * gap の記録の種別（tasks 4.1 / design D4）。C-02 の `powered-off` と同じ型 ——
+ * **「取りに行ったが取得元に無かった」を記録 1 件として残す**。
+ *
+ * イベントの原文には `kind` が無い（取得元が返す欄だけで組み立てる）ので、
+ * この欄の有無そのものが 2 種類を分ける。
+ */
+const val USAGE_GAP_KIND: String = "gap"
+
+/**
+ * 取得元の見込みの保持より前だった期間の理由。
+ *
+ * いまは 1 つだけだが**欄ごと省かない** —— spec が「取れなかった理由を含める」と定めており、
+ * 理由が 1 種類しか無いことは後から増える（例: 取得条件が欠けていた期間）。
+ */
+const val USAGE_GAP_REASON_RETENTION: String = "retention"
+
+/**
+ * 取りに行ったが取得元に無かった期間を、記録 1 件にする（tasks 4.1 / design D4 / 本人の決定 Q4）。
+ *
+ * **アプリの名前もパッケージの名前も入れない**（spec）—— この 1 件が言えるのは
+ * 「この期間は取得元に無かった」だけで、そこに何があったかは誰も知らない。
+ * 推測で埋めると、無かったことが「あった」として正典に入る。
+ *
+ * **出来事の時刻は期間の終わり**（spec レビュー R2）。始まりに置くと収集開始日より前へ落ちうる。
+ *
+ * 原文の並びと省略の規則は契約の一部（`UsageGapTest` / `AppUsagePayloadShapeTest` と同じ扱い）——
+ * 変えると同じ 1 件が別の鍵になって二重に入る。**解析済みは原文と同じ**（足す欄が無い）。
+ */
+fun usageGapRequest(
+    id: String,
+    userId: String,
+    deviceId: String,
+    zone: ZoneId,
+    /** 期間の始まり＝既に取れているところ（重ねた幅ぶん手前ではない） */
+    begin: Instant,
+    /** 期間の終わり＝見込みの下限と「返った最古のイベント」の早いほう */
+    end: Instant,
+    reason: String = USAGE_GAP_REASON_RETENTION,
+): IngestRequest {
+    val fields = buildMap {
+        put("kind", JsonPrimitive(USAGE_GAP_KIND))
+        put("begin", JsonPrimitive(begin.toString()))
+        put("end", JsonPrimitive(end.toString()))
+        put("reason", JsonPrimitive(reason))
+    }
+    return IngestRequest(
+        id = id,
+        userId = userId,
+        // **イベントと同じ論理ソース**（spec）—— 取りこぼしはそのソースの稼働状況そのもの
+        logicalSource = APP_USAGE_LOGICAL_SOURCE,
+        externalId = null,
+        deviceId = deviceId,
+        origin = "collected",
+        eventTime = end.toString(),
+        tzOffsetMin = zone.rules.getOffset(end).totalSeconds / 60,
+        tzId = zone.id,
+        schemaVersion = 1,
+        unitSystem = null,
+        crs = null,
+        raw = ingestJson.encodeToString(JsonObject.serializer(), JsonObject(fields)),
+        payload = JsonObject(fields),
+    )
 }

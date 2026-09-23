@@ -101,8 +101,12 @@ class UsageWindowClockTest {
         assertEquals("窓が進んでいない", env.now, env.savedEnd())
         assertEquals(
             listOf("2026-05-20T09:10:00Z", "2026-05-20T10:30:00Z"),
-            env.records().map { it.eventTime },
+            env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime },
         )
+        // 保存された終わり（09:00）から**返った中で最も古いイベント**（09:10）までは
+        // 取りに行って取得元に無かった期間なので、gap が 1 件積まれる（tasks 4.1 / design D4）。
+        // 本物の端末では 60 日前のイベントは残っていないので、この期間は見込みの下限まで伸びる
+        assertEquals(1, env.records().count { it.rawText("kind") == USAGE_GAP_KIND })
     }
 
     /**

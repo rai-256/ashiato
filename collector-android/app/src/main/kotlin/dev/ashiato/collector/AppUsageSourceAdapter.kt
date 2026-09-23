@@ -101,13 +101,14 @@ class AppUsageSourceAdapter(
                 log(Telemetry.line("usage_unreadable", source = logicalSource, error = read.reason))
                 CollectionResult.Unavailable(read.reason)
             }
-            is EventsResult.Events -> store(read.events, at, ageNow, discardedNow)
+            is EventsResult.Events -> store(read.events, mark, at, ageNow, discardedNow)
         }
     }
 
     /** 取れた分を記録にして積み、窓の終わりを進める。**0 件でも進める**（本人の決定 C7）。 */
     private fun store(
         events: List<UsageEventSnapshot>,
+        mark: UsageWindowMark?,
         at: Instant,
         ageMs: Long,
         discarded: Long,
@@ -115,7 +116,8 @@ class AppUsageSourceAdapter(
         // 地域も利用者も**1 契機につき 1 度だけ**読む（同じ契機の記録で食い違わせない）
         val collectedIn = zone()
         val user = userId()
-        val records = events.map {
+        val gap = gapOf(events, mark, at, collectedIn, user)
+        val records = gap + events.map {
             it.toIngestRequest(newId(), user, deviceId, collectedIn, labels.label(it.packageName))
         }
         var persisted = 0
@@ -129,6 +131,52 @@ class AppUsageSourceAdapter(
             log(Telemetry.line("usage_not_persisted", source = logicalSource, count = records.size - persisted))
         }
         return CollectionResult.Collected(records)
+    }
+
+    /**
+     * 取りに行ったが取得元に無かった期間を 1 件にする（tasks 4.1 / design D4 / 本人の決定 Q4）。
+     *
+     * 期間は `[既に取れているところ, min(見込みの下限, 返った最古のイベントの時刻))`。
+     * 長さが 0 以下なら積まない。
+     *
+     * **始まりは「保存された窓の終わり」で、問い合わせた窓の始まりではない** ——
+     * 窓は重ね幅（[USAGE_WINDOW_OVERLAP_MS]）ぶん手前から問い合わせているが、
+     * その 60 秒は**前回の契機で既に取れている**。そこを始まりにすると、
+     * 取得元が見込みより長く持っていて最古が保存された終わりちょうどだった場面で
+     * 「60 秒だけ取れなかった」という嘘の 1 件が毎回積まれる。
+     *
+     * **1 度も取れていないときは積まない。** 初回の窓は見込みの 3 倍（[USAGE_FIRST_WINDOW_MS]）
+     * まで手を伸ばす探りで、返らなかった分は「収集が動いていたのに取れなかった」ではなく
+     * **まだ収集していなかった**期間。積むと出来事の時刻（＝見込みの下限＝導入の 10 日前）が
+     * 収集開始日を**そこまで遡らせ**（サーバは記録の最古で `collection_started_on` を下げる）、
+     * 導入前の 10 日が「動いていたのに記録が無い」として稼働状況に出る。
+     * design D4 が「期間の終わりは必ず収集が動いていた窓の中に入る」と言えるのは、
+     * 収集が既に動いていた場合だけ。
+     */
+    private fun gapOf(
+        events: List<UsageEventSnapshot>,
+        mark: UsageWindowMark?,
+        at: Instant,
+        zone: ZoneId,
+        user: String,
+    ): List<IngestRequest> {
+        val coveredThrough = mark?.end ?: return emptyList()
+        val floor = source.retentionFloor(at)
+        // **窓の始まりが見込みの下限より前か**（design D4）。値そのものはここへ出てこない
+        if (!floor.excludes(coveredThrough)) return emptyList()
+        // 返っていれば最古で閉じる（取得元が見込みより長く持っていた分は普通に記録になっている）
+        val oldest = events.minByOrNull { it.at }?.at
+        val end = if (oldest == null) floor.gapEndWhenNothingReturned() else floor.gapEnd(oldest)
+        if (!end.isAfter(coveredThrough)) return emptyList()
+        // 出すのは期間の長さだけ（位置の値も表示名も原文も出さない。製造準備 A-2）
+        log(
+            Telemetry.line(
+                "usage_gap",
+                source = logicalSource,
+                elapsedMs = Duration.between(coveredThrough, end).toMillis(),
+            ),
+        )
+        return listOf(usageGapRequest(newId(), user, deviceId, zone, coveredThrough, end))
     }
 
     companion object {
