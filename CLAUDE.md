@@ -166,6 +166,10 @@ scripts/hx retry ST02           # 落ちた node から再実行
 - **工程間で会話を引き継がない。** agent の node（questions / record / spec / sdd / fix）は毎回 fresh な
   `claude -p`（`--permission-mode auto`。変えるなら `HARNESS_PERMISSION_MODE`）で、渡すのは skill と artifact のパスだけ。
   人間の答えは `deep-answers-<n>.txt` に落ちて、別のセッションが読む
+- **下流の sdd / fix だけは executor を選べる**（2026-09-24）。`hx start ST06 --executor codex|claude` で thread に固定し、
+  Codex なら `codex exec "$story ST06"`。skill・SDD・ledger・tasks.md・review の artifact は同じもので、違いは
+  `harness2/graph/harness_graph/effects.py` の `agent()` の中だけ。落ちたら `hx retry ST06 --executor claude` で切り替える
+  （ledger から続く）。既定は `HARNESS_DOWNSTREAM_EXECUTOR`（無ければ claude）。code-verify はどちらでも Claude の定義
 - **分岐は artifact の観測で決める。** agent が「できた」と言っても、その stage の artifact（tasks.md など）が
   無ければ node が落ちる
 - **issue は PR と同時に作る**（`publish.sh` が `issue_body.py` で）。merge の後に作る規則だと作る係がいなくなる
