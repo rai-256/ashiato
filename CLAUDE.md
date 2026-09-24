@@ -148,8 +148,15 @@ thread 1 本 = Story 1 本。工程の中身は skill と SDD、外への作用�
 ```
 observe ─ admission ⟲ ─ upstream ─ wait_upstream_merge ⟲ ─ downstream ─ wait_verified ⟲ ─ archive
   upstream   = prepare → questions → ask(人間) → record → spec → publish → gate ⇄ fix
-  downstream = prepare → sdd（superpowers:subagent-driven-development）→ [ask → record → sdd] → publish → gate ⇄ fix
+  downstream = prepare → next_task ⟳ sdd_task(Task N) … → final_review → code_verify → finish → publish → gate ⇄ fix
 ```
+
+**下流は Task ごとに実行の境界を持つ**（2026-09-24）。`sdd_task` は Task ごとに fresh な controller を起動し、
+`tasks.md` から Task N だけを切り出した plan（`scripts/task_slice.py`）を SDD の PLAN_FILE にする ——
+SDD は plan の Task を全部終えたら止まるので、Task N の後に止まるのは SDD 自身の終了条件。Task の中
+（implementer・task reviewer・fix loop・ledger）は SDD のまま。グラフは node の後に「Task N が `[x]`」
+「slice の ledger に `Task N: complete`」「ほかの Task の `[x]` が動いていない」を機械で見る。
+失敗は Task 単位で、`hx retry` はその Task から続く。whole-branch review・code-verify・処置と PR 本文は全 Task の後に 1 回ずつ。
 
 分割点は `openspec/changes/<change>/tasks.md` —— 上流の最後の成果物であり、下流の唯一の入力。
 上流は `../ashiato2-up-st<NN>` の `docs/st<NN>-upstream`、下流は `../ashiato2-st<NN>` の `feat/<change>`。
@@ -163,10 +170,10 @@ scripts/hx poke                 # 待ちの thread に条件を見直させる�
 scripts/hx retry ST02           # 落ちた node から再実行
 ```
 
-- **工程間で会話を引き継がない。** agent の node（questions / record / spec / sdd / fix）は毎回 fresh な
+- **工程間で会話を引き継がない。** agent の node（questions / record / spec / sdd_task / final_review / code_verify / finish / fix）は毎回 fresh な
   `claude -p`（`--permission-mode auto`。変えるなら `HARNESS_PERMISSION_MODE`）で、渡すのは skill と artifact のパスだけ。
   人間の答えは `deep-answers-<n>.txt` に落ちて、別のセッションが読む
-- **下流の sdd / fix だけは executor を選べる**（2026-09-24）。`hx start ST06 --executor codex|claude` で thread に固定し、
+- **下流の sdd_task / final_review / finish / fix だけは executor を選べる**（2026-09-24）。`hx start ST06 --executor codex|claude` で thread に固定し、
   Codex なら `codex exec "$story ST06"`。skill・SDD・ledger・tasks.md・review の artifact は同じもので、違いは
   `harness2/graph/harness_graph/effects.py` の `agent()` の中だけ。落ちたら `hx retry ST06 --executor claude` で切り替える
   （ledger から続く）。既定は `HARNESS_DOWNSTREAM_EXECUTOR`（無ければ claude）。code-verify はどちらでも Claude の定義
