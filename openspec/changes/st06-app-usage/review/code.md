@@ -146,3 +146,57 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
   反転条件（tasks 7.1 の実測でこの重複が見えたら、gap の範囲の終わりを
   「窓を最後に進めた時点の下限」に固定する側へ倒す。spec は終わりを「見込みの下限」としか書いていないので破らない）を
   `design.md` の D10 に書いた。
+
+## R13. 位置を拒否した端末では通知の権限を 1 度も求めないので、常駐の通知が出ない
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt`
+- 根拠: `proceed()` の組み替えで `niceToHave()`（背景の位置 ＋ `POST_NOTIFICATIONS`）が
+  `granted(fine)` が真の枝の中に入っていた。背景の位置が「前景の後でしか求められない」のは事実だが、
+  **通知の権限にその依存は無い**。帰結は 3 つ —— Android 13 以降で位置を拒んだ端末は前景サービスが立つが
+  通知が見えず、**design D6 の「以後は常駐の通知から同じ設定画面へたどれる」がその本人にだけ効かない**
+  （自動送出は 1 度きりなので、利用状況へのアクセスへ戻る道が消える）、ST04 の 83 日の知らせも
+  `retention_alert_blocked` のまま出ない。
+  **実装者はこの症状を `PermissionDeniedInstrumentedTest` で実際に踏みながら、テストの観測のほうを
+  `logcat` の `kind=foreground_special_use` に替えて回避していた** —— 本物の振る舞いを見るのをやめた結果、
+  欠陥が緑のまま残った。**この repo がこのハーネスを作った理由そのものの型**（`.claude/skills/story`）。
+- kind: technical
+- 処置: fixed 5.1 —— 通知の権限は位置の可否に依らず求め、前提を持つのは背景の位置だけにした。
+  `PermissionDeniedInstrumentedTest` の観測も通知へ戻させた（ダイアログが出なければその手前で落ちる ＝ 再発検知）。
+
+## R14. 申し送りの「テストが実際に見ている点」が実測と食い違ったまま残る
+
+- 成果物: `docs/handoff/ST11.md`
+- 根拠: `tasks.md` 5.1 が名指しで書き直しを求めた箇所。「★ 前景サービスの通知は出る」が
+  「**テストが実際に見ている 4 点**」という見出しの下にあるのに、R13 の回避で当のテストは通知を見るのをやめていた。
+  **ST11 はここを材料に正典の Scenario を書く**ので、事実でない点が持っていかれる。
+- kind: technical
+- 処置: fixed 5.1 —— 点を 1 つ足して 5 点にし（「位置を拒否した後に通知の権限のダイアログが出る」）、
+  点 2「通知は出る」がその点に依存することも書いた（ST11 が点 2 だけを材料にすると同じ穴が開く）。
+
+## R15. Scenario の印を置いたテストが、その Scenario の THEN を確かめていない
+
+- 成果物: `collector-android/app/src/test/kotlin/dev/ashiato/collector/MainActivityTest.kt` /
+  `collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/UsageAccessInstrumentedTest.kt`
+- 根拠: `許可しなくても収集は始まる` の THEN は「収集は始まり、**位置の記録が生成される**」＋
+  AND「アプリ利用の生存信号は取得できない状態と、何が満たされていないか（権限）を示す」。
+  印を置いた単体は `startedService()` が `LocationService` であることしか見ておらず、
+  計測は通知と未許可しか見ていない。Global Constraints の
+  「**印を置くテストは、その Scenario の THEN を確かめるものにする**」に反する（plan-mandated）。
+  振る舞い自体は `SourceIndependenceTest` が THEN と AND の両方を assert していた。
+- kind: technical
+- 処置: fixed 5.1 —— 印を THEN を確かめているテストへ移し、見ていない 2 本から外した。
+  残り 7 本の印も同じ目で見直させた。
+
+## R16. ソース名を読めない破棄が位置を名乗る
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt`
+  （`UNATTRIBUTED_SOURCE`）
+- 根拠: 退避先の**ファイルごと**読めない場合、中のソースが分からない。契約は登録簿にある名前しか
+  受け付けない（受け付けない名前は `unknown_source` で断られ、**報告が端末に居座る**）ので、
+  どれか 1 つを名乗るしかない。報告を落とすのは扉 #14 の証拠を捨てることになり、
+  登録簿に「不明」を足すのは `collection-coverage` / `record-envelope` の変更で ST12 が走行中なので触れない。
+  当たる範囲は「退避行のうち先頭 512 バイトに `logical_source` が残っていないもの」だけで、
+  件数は `kind=unreadable_source_unknown` で測れる。
+- kind: daily
+- 処置: fixed D11 仮 —— 反転条件（`unreadable_source_unknown` が実測で無視できない件数になったら、
+  ST12 の archive 後に登録簿へ「不明」のソースを足す）を `design.md` の D11 に書いた。
