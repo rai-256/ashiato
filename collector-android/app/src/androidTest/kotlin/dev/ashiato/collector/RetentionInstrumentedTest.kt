@@ -86,7 +86,7 @@ class RetentionInstrumentedTest {
         val records = Outbox(SegmentStore(File(dir, "records"), IngestRequest.serializer(), unreadable, {}), age::now)
         val beats = Outbox(SegmentStore(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {}), age::now)
         val drops = Outbox(SegmentStore(File(dir, "drops"), DropReport.serializer(), unreadable, {}), age::now)
-        val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {})
+        val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {}, LOGICAL_SOURCE)
         val retention = Retention(records, ledger, age::now)
 
         var reachable = false

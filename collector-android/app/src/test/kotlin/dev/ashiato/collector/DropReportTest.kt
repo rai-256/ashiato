@@ -222,7 +222,7 @@ class DropReportTest {
     @Test
     fun `利用者識別子が空のうちは凍結せず、決まってから凍結する`() {
         var user = ""
-        val ledger = DropLedger(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log)
+        val ledger = DropLedger(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log, LOGICAL_SOURCE)
         ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
         ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T13:00:00Z")) // 離れて閉じた 1 本も含む
         assertFalse(ledger.freeze())
@@ -240,7 +240,7 @@ class DropReportTest {
         val blocked = java.io.File(st.dir, "blocked-drops").apply { writeText("x") }
         val failing = Outbox(SegmentStore(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log), st.age::now)
         val openFile = java.io.File(st.dir, "retry.json")
-        val ledger = DropLedger(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log)
+        val ledger = DropLedger(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log, LOGICAL_SOURCE)
         ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z"))
         ledger.endBatch(LOGICAL_SOURCE, DropReason.AGE, null)
         assertFalse(ledger.freeze())
@@ -251,7 +251,7 @@ class DropReportTest {
         ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:01:00Z"))
         assertEquals(kept, ledger.drafts().first())
         // 立て直しても同じ下書きが戻り、積める置き場へ凍結すると同じ原文になる
-        val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log)
+        val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log, LOGICAL_SOURCE)
         assertTrue(reborn.drafts().contains(kept))
         reborn.freeze()
         assertTrue(st.drops.snapshot().any { it.raw == kept.toReport("user-1", "device-1").raw })
@@ -261,7 +261,7 @@ class DropReportTest {
     @Test
     fun `読めない下書きのファイルは上書きせずに退避する`() {
         val openFile = java.io.File(st.dir, "broken-open.json").apply { writeText("[{\"id\":\"x\",\"count\":180") }
-        val ledger = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log)
+        val ledger = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log, LOGICAL_SOURCE)
         val aside = st.dir.listFiles { f -> f.name.startsWith("broken-open.json.unreadable.") }.orEmpty()
         assertEquals(1, aside.size)
         assertEquals("[{\"id\":\"x\",\"count\":180", aside.single().readText())

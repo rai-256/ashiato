@@ -147,7 +147,7 @@ class WriteFailedTest {
         val counter = WriteFailedLedger(ledgerFile, st.log)
         counter.failed(Instant.parse("2026-06-01T10:10:00Z"))
         val blockedDir = File(st.dir, "no-space").apply { writeText("x") }
-        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log)
+        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log, LOGICAL_SOURCE)
 
         val reborn = WriteFailedLedger(ledgerFile, st.log)
         val (slots, overflow) = reborn.peek()
@@ -167,7 +167,7 @@ class WriteFailedTest {
         val t = Instant.parse("2026-06-01T10:10:00Z")
         counter.failed(t)
         val blockedDir = File(st.dir, "no-space-2").apply { writeText("x") }
-        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log)
+        val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log, LOGICAL_SOURCE)
 
         if (ledger.record(DropReason.WRITE_FAILED, listOf(LOGICAL_SOURCE to t)) != null) counter.recovered(t)
 

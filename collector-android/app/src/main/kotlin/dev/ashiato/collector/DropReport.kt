@@ -139,6 +139,15 @@ class DropLedger(
     private val now: () -> Instant,
     private val newId: () -> String,
     private val log: (String) -> Unit,
+    /**
+     * 下書きの**ファイルごと**読めなくなったときに名乗らせる名前（tasks 5.1 / 独立レビュー R10）。
+     *
+     * 中に何本のソースの下書きが入っていたかは、読めない以上もう分からない。
+     * それでも**報告は落とせない**（扉 #14 の証拠）ので、どれか 1 つを名乗るしかない ——
+     * **どれを名乗るかはここで決めない**。焼き込むと、位置を持たない収集アプリが
+     * 位置の破棄を報告する日が来る（`LocationService` が渡す）。
+     */
+    private val unattributedSource: String,
 ) {
     /** 下書き。閉じていないものは**ソース × 理由ごとに 1 本だけ** */
     private val drafts = ArrayList<DropDraft>()
@@ -230,15 +239,27 @@ class DropLedger(
     }
 
     /** 置き場の行が読めなかった件数（出来事の時刻が分からないので範囲を持たない。design D6）。保存できたか。 */
+    fun unreadable(source: String, count: Int): Boolean = unreadable(mapOf(source to count))
+
+    /**
+     * 同じことを**ソースごとの件数**で（tasks 5.1 / 独立レビュー R10）。
+     *
+     * **1 度の保存で全部入れる。** 1 ソースずつ呼ぶと、途中で保存に失敗したときに
+     * 「どこまで報告できたか」が呼び出し側に残らず、次の見回りで**済んだ分が二重に数えられる**
+     * （退避先の行数から数える側は「報告できた行数」しか印を進められない）。
+     */
     @Synchronized
-    fun unreadable(source: String, count: Int): Boolean {
-        if (count <= 0) return true
+    fun unreadable(counts: Map<String, Int>): Boolean {
+        val fresh = counts.filterValues { it > 0 }
+        if (fresh.isEmpty()) return true
         val before = drafts.toList()
-        val i = openIndex(source, DropReason.UNREADABLE.wire)
-        if (i >= 0) {
-            drafts[i] = drafts[i].copy(count = drafts[i].count + count)
-        } else {
-            drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+        for ((source, count) in fresh) {
+            val i = openIndex(source, DropReason.UNREADABLE.wire)
+            if (i >= 0) {
+                drafts[i] = drafts[i].copy(count = drafts[i].count + count)
+            } else {
+                drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+            }
         }
         if (save()) return true
         drafts.clear()
@@ -352,7 +373,11 @@ class DropLedger(
         val moved = File(openFile.parentFile, "${openFile.name}.unreadable.${System.currentTimeMillis()}")
         val ok = openFile.renameTo(moved)
         log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))
-        if (ok) drafts += DropDraft(newId(), LOGICAL_SOURCE, DropReason.UNREADABLE.wire, now().toString(), count = 1)
+        if (ok) {
+            drafts += DropDraft(
+                newId(), unattributedSource, DropReason.UNREADABLE.wire, now().toString(), count = 1,
+            )
+        }
     }
 
     /** 下書きを書く。書けたか。**書けなければメモリに持つ**（呼び出し側が戻すかを決める）。 */
@@ -518,4 +543,49 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         /** (4096 - 4 - 8) / 20 */
         const val SLOTS: Int = 204
     }
+}
+
+/** ST06 より前の、ソースが 1 本だけだった時代の「書けなかった記録」の数えの置き場。 */
+const val LEGACY_WRITE_FAILED_FILE: String = "write-failed.bin"
+
+/**
+ * 書けなかった記録の数えの置き場の名前。**ソースごとに別ファイル**（tasks 5.1 / 独立レビュー R10）。
+ *
+ * 1 本にまとめると、**アプリ利用の書き込みが失敗した件数が位置の破棄として報告される**
+ * （数えは時間ごとの枠しか持たず、ソースを覚えない）。
+ */
+fun writeFailedFile(dir: File, logicalSource: String): File = File(dir, "write-failed-$logicalSource.bin")
+
+/**
+ * ST06 より前の 1 本（[LEGACY_WRITE_FAILED_FILE]）を**位置の名前へ移す**。移した先を返す。
+ *
+ * **位置以外へは引き継がない** —— 位置の書き込みの失敗を別のソースの破棄として報告させない
+ * （`migrateLegacyCounters` と同じ形）。移せなくても落とさない（次のプロセスがもう一度試す）。
+ */
+fun migrateLegacyWriteFailed(dir: File, logicalSource: String): File {
+    val target = writeFailedFile(dir, logicalSource)
+    if (logicalSource == LOGICAL_SOURCE && !target.exists()) {
+        val legacy = File(dir, LEGACY_WRITE_FAILED_FILE)
+        if (legacy.exists()) runCatching { legacy.renameTo(target) }
+    }
+    return target
+}
+
+/** 壊れた行から `logical_source` を拾う形。**原文の中の同じ綴りには当たらない**（原文は `\"` で入る）。 */
+private val UNREADABLE_SOURCE_FIELD = Regex("\"logical_source\"\\s*:\\s*\"([^\"]{1,64})\"")
+
+/**
+ * 退避された 1 行がどのソースのものかを読む（tasks 5.1 / 独立レビュー R10）。読めなければ null。
+ *
+ * **読み解けなかった行**（`SegmentStore` が退避したもの）でも、欄の並びの先頭のほうは
+ * 無事なことが多い（途中で途切れた追記・末尾の壊れ）。そこから名前を拾えれば、
+ * 破棄の報告はそのソースの名前で積める。
+ *
+ * **知っている名前だけを返す** —— 壊れた行から拾った文字列をそのまま載せると、
+ * 登録簿に無い名前として受け口に `unknown_source` で断られ、
+ * 報告は理由を問わず未送信から取り除かれない（＝端末に永久に居座る）。
+ */
+internal fun sourceOfUnreadableLine(line: String): String? {
+    val name = UNREADABLE_SOURCE_FIELD.find(line)?.groupValues?.get(1) ?: return null
+    return SourceCadence.entries.firstOrNull { it.logicalSource == name }?.logicalSource
 }

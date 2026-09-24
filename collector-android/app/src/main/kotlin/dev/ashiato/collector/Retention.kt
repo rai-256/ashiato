@@ -120,6 +120,11 @@ class RetentionNotifier(
     private val age: () -> Long,
     private val alerts: RetentionAlerts,
     private val mark: File,
+    /**
+     * 常駐の通知の本文（tasks 5.4 / 独立レビュー R10）。**既定を置かない** ——
+     * 置くと「位置を記録しています」の決め打ちが名乗り忘れの形で戻る。組み立ては [ongoingBaseText]。
+     */
+    private val baseText: String,
     private val policy: () -> RetentionPolicy = { RetentionPolicy.current },
     private val log: (String) -> Unit = {},
 ) {
@@ -132,7 +137,7 @@ class RetentionNotifier(
         val oldest = records.oldest()
         val elapsed = oldest?.let { age() - it.enqAgeMs }
         val days = elapsed?.let { (it / AgeClock.DAY_MS).toInt() } ?: 0
-        val text = if (elapsed != null && elapsed >= AgeClock.DAY_MS) "$BASE_TEXT · 未送信 $days 日" else BASE_TEXT
+        val text = if (elapsed != null && elapsed >= AgeClock.DAY_MS) "$baseText · 未送信 $days 日" else baseText
         if (text != lastText) {
             alerts.ongoing(text)
             lastText = text
@@ -160,10 +165,20 @@ class RetentionNotifier(
         }
     }
 
-    companion object {
-        const val BASE_TEXT = "位置を記録しています"
-    }
 }
+
+/**
+ * 常駐の通知の本文（tasks 5.4 / 独立レビュー R10）。
+ *
+ * **ソースの数に合わせる。** ST06 より前は「位置を記録しています」で決め打ちだった ——
+ * 2 本目を足した日に文言だけが位置のまま残り、本人の端末には
+ * 「位置を記録しています」と出たままアプリ利用が集められる。
+ *
+ * 数えるのは**登録簿に載る名前の数**（`SourceCadence`）。アプリ利用がイベントと集計の
+ * 2 本に分かれているのは受け手の都合だが、**端末が名乗る名前もその 2 本**なので、
+ * ここで畳んで「2 種類」と見せると、画面に出るソースの数と食い違う。
+ */
+fun ongoingBaseText(sources: Int): String = "$sources 種類の記録を集めています"
 
 /**
  * 送信の契機 1 回ぶん（ST04 / 深掘り Q6 / design D12（仮））。

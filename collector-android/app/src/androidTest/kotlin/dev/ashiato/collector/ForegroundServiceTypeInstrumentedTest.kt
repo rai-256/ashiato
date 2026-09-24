@@ -31,9 +31,12 @@ import org.junit.runner.RunWith
  * **何を見て「立った」と判定するか**: `LocationService.onCreate` は
  * `startForeground` の**直後**に種別の名前を 1 行残す。`startForeground` が投げれば
  * `onCreate` ごと落ちてその行は出ない —— **行が出たこと自体が「前景に上がれた」の証拠**。
- * 前景サービスの通知そのものを数えないのは、位置の権限が無いと `onStartCommand` が
- * `stopSelf()` するので（ST06 の tasks 5.1 まではその振る舞い）、
- * 通知を覗きに行くころには畳まれているため。
+ * 前景サービスの通知そのものを数えないのは、**どちらの種別で立ったか**が通知からは読めないため
+ * （`location` で立てられないまま立ち上がっても通知は出る）。
+ *
+ * **種別は `specialUse`**（tasks 5.1 / design D5 のリスクの落とし所）。`dataSync` は
+ * Android 15 以降 24 時間のうち 6 時間で打ち切られるので、位置を拒んだままの端末では
+ * **毎日 18 時間収集が止まる**。
  *
  * `PermissionDeniedInstrumentedTest` と同じく「未許可・未要求」から始める必要があるので
  * [NeedsPristinePermissions] を付ける（前提はテストの外が作る）。
@@ -75,8 +78,8 @@ class ForegroundServiceTypeInstrumentedTest {
 
         assertTrue(
             "位置の権限が無い状態で前景サービスが立たなかった" +
-                "（`kind=${LocationService.FOREGROUND_DATA_SYNC}` が出ていない）",
-            waitForLog("kind=${LocationService.FOREGROUND_DATA_SYNC}"),
+                "（`kind=${LocationService.FOREGROUND_SPECIAL_USE}` が出ていない）",
+            waitForLog("kind=${LocationService.FOREGROUND_SPECIAL_USE}"),
         )
         // 位置が取れないので `location` の種別は要求していない（要求すれば立てられない）
         assertFalse(

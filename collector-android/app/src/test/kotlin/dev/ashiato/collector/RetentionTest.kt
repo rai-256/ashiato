@@ -151,7 +151,7 @@ class RetentionTest {
     @Test
     fun `破棄の報告の下書きを保存できなければ記録を捨てない`() {
         val blocked = File(st.dir, "no-space").apply { writeText("x") }
-        val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log)
+        val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log, LOGICAL_SOURCE)
         repeat(3) { st.records.add(req("r$it")) }
         st.clock.advance(91 * day)
         assertEquals(0, Retention(st.records, ledger, st.age::now).enforce())

@@ -24,13 +24,30 @@ class FakeFixSource(private val fail: Boolean) : FixSource {
     /** 登録の回数。**起動のたびに張り直す**ことを見るために数える（ST06 の独立レビュー Important 1）。 */
     var starts = 0
     var stopped = false
+
+    /** 登録された受け口。OS の代わりに契機を渡すために持つ（ST06 / tasks 5.1）。 */
+    private var callback: LocationCallback? = null
+
     override fun start(intervalMs: Long, callback: LocationCallback) {
         if (fail) throw SecurityException("権限が無い")
         starts++
         startedWith = intervalMs
+        this.callback = callback
     }
     override fun stop(callback: LocationCallback) {
         stopped = true
+    }
+
+    /** OS が位置の契機を 1 回配った（本番と同じ経路で `FixCollector` に入る）。 */
+    fun deliver(at: Instant = Instant.now()) {
+        val location = android.location.Location("fused").apply {
+            latitude = 35.68
+            longitude = 139.76
+            accuracy = 10f
+            time = at.toEpochMilli()
+        }
+        val target = callback ?: error("取得元に登録されていない")
+        target.onLocationResult(com.google.android.gms.location.LocationResult.create(listOf(location)))
     }
 }
 
@@ -66,15 +83,46 @@ class FakeScheduler : FlushScheduler {
 open class TestableLocationService(permissionDenied: Boolean = false) : LocationService() {
     val source = FakeFixSource(permissionDenied)
     val scheduler = FakeScheduler()
-    val beatScheduler = FakeScheduler()
 
-    /** 端末を読まずに固定する。**本番は `androidCapability` を呼ぶ**（そこは実機の確認）。 */
-    var capability: Capability = Capability.of(permission = true, sensor = true, network = true)
+    /**
+     * ソースごとの刻み（ST06 / tasks 5.1）。**1 本にまとめない** ——
+     * まとめると、間隔の違うソースが同じ契機で動いていても試験が気付けない。
+     */
+    val beatSchedulers = mutableMapOf<String, FakeScheduler>()
+    val sourceSchedulers = mutableMapOf<String, FakeScheduler>()
+
+    /** アプリ利用の取得元。**`create()` の前に差し替える**（`UsageStatsManager` は単体では作れない）。 */
+    var usage: UsageSource = FakeUsageSource()
+
+    /** ソースごとの取得可否。**入っていなければ「取れる」**（既存の試験の前提を変えない）。 */
+    val capabilities = mutableMapOf<String, Capability>()
+
+    /** 端末を読まずに固定する（位置）。**本番は `androidCapability` を呼ぶ**（そこは実機の確認）。 */
+    var capability: Capability
+        get() = capabilities[SourceCadence.LOCATION.logicalSource] ?: allowed
+        set(value) {
+            capabilities[SourceCadence.LOCATION.logicalSource] = value
+        }
+
+    /** 位置の生存信号の刻み（ST06 より前の言い方をそのまま使えるようにしておく）。 */
+    val beatScheduler: FakeScheduler get() = beatSchedulers.getValue(SourceCadence.LOCATION.logicalSource)
+
+    /**
+     * 起動の契機の取得を**その場で回す**（本番は別の糸）。試験が順番を決められるようにするため。
+     * 本番が主糸で回していないことは `CollectionThreadTest` が見る。
+     */
+    override fun runCollection(task: () -> Unit) = task()
 
     override fun newFixSource(): FixSource = source
+    override fun newUsageSource(): UsageSource = usage
+    override fun newAppLabels(): AppLabels = AppLabels { "例のアプリ" }
     override fun newScheduler(): FlushScheduler = scheduler
-    override fun newHeartbeatScheduler(): FlushScheduler = beatScheduler
-    override fun readCapability(): Capability = capability
+    override fun newHeartbeatScheduler(logicalSource: String): FlushScheduler =
+        beatSchedulers.getOrPut(logicalSource) { FakeScheduler() }
+    override fun newSourceScheduler(logicalSource: String): FlushScheduler =
+        sourceSchedulers.getOrPut(logicalSource) { FakeScheduler() }
+    override fun readCapability(source: CollectionSource): Capability =
+        capabilities[source.logicalSource] ?: allowed
 
     /** 受け口ごとに送った本文を覚える偽物（ST04）。既定はすべて受け付ける。 */
     val posted = mutableListOf<Pair<String, String>>()
@@ -91,6 +139,10 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
     /** 時計を試験から進める（ST04）。 */
     val clock = FakeDeviceClock()
     override fun newDeviceClock(): DeviceClock = clock
+
+    private companion object {
+        val allowed: Capability = Capability.of(permission = true, sensor = true, network = true)
+    }
 }
 
 /** 権限を断られる端末。 */
@@ -183,15 +235,24 @@ class LocationServiceTest {
         assertEquals(Service.START_STICKY, controller.get().onStartCommand(Intent(), 0, 1))
     }
 
+    /**
+     * **ST06 で期待が反転した**（tasks 5.1 / 本人の決定 Q7 / design D5）。
+     *
+     * ST06 より前は、位置の取得元が `SecurityException` を投げたら `stopSelf()` して
+     * `START_NOT_STICKY` を返していた。**止まっている間は生存信号も出ない**ので、
+     * 受け手の画面には③「動いていたが取れない状態」ではなく⑥「途絶」が出て、
+     * アプリ利用はその間 1 件も取れなかった。
+     * いまは**落とさず、止まらず、他のソースを取り続ける**。
+     */
     @Test
-    fun `権限が無ければ落とさずに止まり、立て直しも求めない`() {
-        // tasks 6.2 の Service 側。**落ちると次の起動まで収集が止まる**（成功条件 1 に直撃）
+    fun `位置の取得元が権限で投げても、落とさず止まらず立て直しも求める`() {
         val controller = Robolectric.buildService(DeniedLocationService::class.java, Intent()).create()
 
         val result = controller.get().onStartCommand(Intent(), 0, 1)
 
-        assertEquals(Service.START_NOT_STICKY, result)
-        assertTrue("権限が無いのに送信の刻みを始めている", controller.get().scheduler.periodMs == null)
+        assertEquals("位置が投げただけで収集が止まっている", Service.START_STICKY, result)
+        val sources = controller.get().heartbeatOutboxForTest.snapshot().map { it.logicalSource }.toSet()
+        assertEquals("生存信号が出ていないソースがある", SourceCadence.entries.map { it.logicalSource }.toSet(), sources)
     }
 
     @Test
@@ -286,12 +347,15 @@ class LocationServiceTest {
      * 立て直す端末では生存信号が 1 件も出ないまま「途絶」に見える。
      */
     @Test
-    fun `起動した時点で生存信号が 1 件積まれる`() {
+    fun `起動した時点で生存信号がソースごとに 1 件ずつ積まれる`() {
         val service = start()
         val beats = service.heartbeatOutboxForTest.snapshot()
-        assertEquals(1, beats.size)
-        assertEquals(LOGICAL_SOURCE, beats.single().logicalSource)
-        assertTrue(beats.single().capturable)
+        // **ソースごとに 1 件**（ST06 / design D5）。1 本にまとめると、欠けたソースの区間が見えない
+        assertEquals(
+            SourceCadence.entries.associate { it.logicalSource to 1 },
+            beats.groupingBy { it.logicalSource }.eachCount(),
+        )
+        assertTrue(beats.all { it.capturable })
     }
 
     /**
@@ -303,7 +367,7 @@ class LocationServiceTest {
         val service = Robolectric.buildService(TestableLocationService::class.java, Intent()).create().get()
         service.capability = Capability.of(permission = false, sensor = true, network = true)
         service.onStartCommand(Intent(), 0, 1)
-        val beat = service.heartbeatOutboxForTest.snapshot().single()
+        val beat = service.heartbeatOutboxForTest.snapshot().single { it.logicalSource == LOGICAL_SOURCE }
         assertFalse(beat.capturable)
         assertEquals(listOf(Capability.PERMISSION), beat.blockers)
     }
@@ -336,10 +400,11 @@ class LocationServiceTest {
     @Test
     fun `刻みが来るたびに生存信号が積まれる`() {
         val service = start()
-        assertEquals("起動時の 1 件", 1, service.heartbeatOutboxForTest.size())
+        fun locationBeats() = service.heartbeatOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE }
+        assertEquals("起動時の 1 件", 1, locationBeats())
         service.beatScheduler.fire()
         service.beatScheduler.fire()
-        assertEquals("周期側の emit が走っていない", 3, service.heartbeatOutboxForTest.size())
+        assertEquals("周期側の emit が走っていない", 3, locationBeats())
     }
 
     /**
@@ -476,7 +541,8 @@ class LocationServiceTest {
         val nm = app.getSystemService(android.app.NotificationManager::class.java)
         val text = org.robolectric.Shadows.shadowOf(nm).getNotification(LocationService.NOTIFICATION_ID)
             ?.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
-        assertEquals("位置を記録しています · 未送信 12 日", text)
+        // **本文はソースの数に従う**（ST06 / tasks 5.4）。ST04 の「未送信の日数」はそのまま後ろに付く
+        assertEquals("${ongoingBaseText(SourceCadence.entries.size)} · 未送信 12 日", text)
     }
 
     /**
