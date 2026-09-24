@@ -93,7 +93,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 4: 取りこぼしと集計
 
-- [ ] 4.1 窓の始まりが**見込みの**下限より前なら、`[窓の始まり, min(見込みの下限, 返った最古のイベントの時刻))` を
+- [x] 4.1 窓の始まりが**見込みの**下限より前なら、`[窓の始まり, min(見込みの下限, 返った最古のイベントの時刻))` を
   種別 `gap` の記録 1 件として積む（長さが 0 なら積まない）。**窓は切り詰めない**（design D4）。
   Scenario: `見込みの下限より前から取ろうとすると gap が積まれる` / `見込みの下限の内側だけを取ったときは gap が積まれない` /
   `見込みより古いイベントが返ったときは gap が積まれない` / `gap の記録にアプリの名前が入らない` /
@@ -101,20 +101,20 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   **出来事の時刻は期間の終わり**（spec レビュー R2）—— 始まりに置くと収集開始日より前へ落ちうる。
   検証: `./gradlew :app:testDebugUnitTest --tests '*UsageGapTest*'` rc=0 /
   ガードをわざと壊す（出来事の時刻を期間の始まりにする）と対応する試験が落ちる
-- [ ] 4.2 移行 `YYYYMMDDHHMM_app_usage_rollup_source.sql`（と `.down.sql`）で `core.source` に
+- [x] 4.2 移行 `YYYYMMDDHHMM_app_usage_rollup_source.sql`（と `.down.sql`）で `core.source` に
   `c01-app-usage-rollup` を足す。**`expected_gap_sec = 21600` と `external_id_kind = 'none'` を明示する**
   （既定の `'record'` のままだと端末の未送信が永久に詰まる。独立レビュー R7）。`MIGRATIONS` の末尾に足す。
   テスト: (a) 全移行を当てると行がある / (b) `external_id_kind` が `'none'` /
   (c) **識別子なしの `c01-app-usage-rollup` の要求が受理される** / (d) 当て直しても値が変わらない。
   検証: `cargo test -p ashiato-server app_usage_rollup_source` rc=0 / `tools/check-migrations.sh` rc=0
-- [ ] 4.3 収集を始めた時点で、年・月・週・日の 4 粒度の集計を取り込む。途中で終わったら次の契機で続きから。
+- [x] 4.3 収集を始めた時点で、年・月・週・日の 4 粒度の集計を取り込む。途中で終わったら次の契機で続きから。
   **以後は 6 時間ごとに日ごとの粒度だけを取り込む**（生存信号の区間と同じ刻み。spec レビュー R4 ——
   24 時間にすると 6 時間の区間に契機が入らず、試行 0 / 成功 1 の信号が契約に恒久的に断られて端末に居座る）。
   Scenario: `初回に 4 つの粒度が取り込まれる` / `集計はイベントとは別のソースに積まれる` /
   `集計の 1 件が粒度と期間と合計時間を持つ` / `取り込みが途中で終わっても次の契機で続きから入る` /
   `初回の後も日ごとの集計が 6 時間ごとに取り込まれる` / `集計の取得率は 6 時間を刻みとして数えられる`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RollupImportTest*'` rc=0
-- [ ] 4.4 集計の原文を 2 回組み立てて**バイト列が一致する**ことを固定する（design のリスク「集計の重複」）。
+- [x] 4.4 集計の原文を 2 回組み立てて**バイト列が一致する**ことを固定する（design のリスク「集計の重複」）。
   Scenario: `同じ集計の原文は毎回同じ文字列になる`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RollupPayloadShapeTest*'` rc=0
 

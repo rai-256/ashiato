@@ -88,3 +88,61 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
   `usage-rollup-progress-*.txt.tmp` が置き場に残る。次回の書き込みで上書きされるので溜まりはしない。
 - kind: technical
 - 処置: fixed 4.3
+
+## R8. 積んだ原文の指紋を「未送信に書けたか」より先に台帳へ入れている
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageRollupSourceAdapter.kt`
+- 根拠: `Outbox.kt:57` —— `unwritten.size > MAX_UNWRITTEN`（10,000）を超えると古いほうから
+  `failures.lost(...)` で手放す。置き場は位置と共用（本人の決定 C11）なので、空きが尽きた端末では超える。
+  手放された**確定済みの**箱は原文が変わらないので指紋も変わらず、次の契機で `skipped` になって二度と積まれない。
+  R3 の直し（台帳）が足した経路で、**「積み直しは安全・積まないのは取りこぼし」の線の逆へ倒れていた**。
+- kind: technical
+- 処置: fixed 4.3
+
+## R9. 台帳の有界化の要の分岐に試験が 1 本も無い
+
+- 成果物: `collector-android/app/src/test/kotlin/dev/ashiato/collector/RollupImportTest.kt`
+- 根拠: `ROLLUP_SEEN_MAX`（10,000 件）で溢れたときに**新しい箱を残す**分岐は、
+  `sortedByDescending` を `sortedBy` に入れ替えても全 290 本が緑のまま通った
+  （新しい箱＝まだ取得元に残っている箱を先に忘れる ＝ 毎契機積み直す、で R3 が再発する）。
+  `pruneRollupSeen(seen, at)` を `seen` に書き換えても全緑だった（`collect` から呼ばれていることが未固定）。
+  **実装者の報告にあった「試験で固定してある」は事実と違っていた**（報告も訂正させた）。
+- kind: technical
+- 処置: fixed 4.3
+
+## R10. 取り込み済みの印を「読めた」粒度に付けている
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageRollupSourceAdapter.kt`
+- 根拠: spec の Scenario は逐語で「年と月の粒度まで**取り込んだ**ところで収集が止まり」であり、
+  `UsageStatsManager` から読めたことは取り込んだことではない（取り込みは未送信に積むところまで）。
+  置き場に 1 件も書けなかった契機でも年・月・週の印が付き、二度と読まれない。
+  **年は 2 年ぶんで取得元からも消えていく**（`loss: uncaptured` の経路）。
+  実装者が R8 の直しの後に自分で見つけて返した。
+- kind: technical
+- 処置: fixed 4.3
+
+## R11. 窓の終わりを「未送信に書けたか」を見ずに進めている
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt`
+- 根拠: R8 / R10 と同じ型が Task 3 の成果物に残っていた。置き場が満杯の端末で `lost` になったイベントは
+  二度と取りに行かず、取得元の保持 10 日で消える。**gap の記録は積み直す経路が無い**
+  （窓が進むと `RetentionFloor.excludes(...)` が偽になる）。
+  同じ型は ST04 が 1 度踏んで直してある（`AttemptCounters` / `HeartbeatEmitter` の `takeAfter`。
+  ST04 の `review/code.md` R24）。`AgeClock` は同型ではない（書けなければ経過を少なく見積もる ＝ 捨てない側）。
+- kind: technical
+- 処置: fixed 4.1
+
+## R12. 窓を据え置いている間、gap の記録だけはサーバで畳まれない
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt` /
+  `UsageRetention.kt`
+- 根拠: gap の範囲の終わりは `min(見込みの下限, 返った最古のイベント)` で、下限は**取得の時点**から数える。
+  窓が据え置かれている間、始まりは固定でも終わりが 30 分ごとにずれるので、
+  **始まりが同じ・終わりだけ違う原文**が積まれ、内容の鍵が毎回変わって畳まれない。
+  イベントの記録は原文が同じなので畳まれる（＝ R8〜R11 の「積み直しは冪等」が効く）。
+  この経路に入るのは置き場が 10 日以上満杯の端末だけで、1 契機あたり 1 件。
+- kind: daily
+- 処置: fixed D10 仮 —— 取りこぼしではなく重複側なので、引いた線からは正しい倒し方。
+  反転条件（tasks 7.1 の実測でこの重複が見えたら、gap の範囲の終わりを
+  「窓を最後に進めた時点の下限」に固定する側へ倒す。spec は終わりを「見込みの下限」としか書いていないので破らない）を
+  `design.md` の D10 に書いた。
