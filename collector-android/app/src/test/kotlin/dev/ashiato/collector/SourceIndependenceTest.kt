@@ -70,6 +70,16 @@ class SourceIndependenceTest {
     private fun TestableLocationService.beat(logicalSource: String) =
         heartbeatOutboxForTest.snapshot().single { it.logicalSource == logicalSource }
 
+    /** 送信の本番配線を立てるために必要な、試験用の接続設定。 */
+    private fun configured(block: () -> Unit) {
+        Config.overrideForTest(baseUrl = "http://127.0.0.1:1", apiToken = "t", userId = "u")
+        try {
+            block()
+        } finally {
+            Config.clearOverrideForTest()
+        }
+    }
+
     // Scenario: 位置の取得条件が欠けてもアプリ利用は集まる
     @Test
     fun `位置の権限が無くてもアプリ利用の記録が未送信に積まれる`() {
@@ -85,12 +95,19 @@ class SourceIndependenceTest {
 
     // Scenario: 位置の取得条件が欠けても位置の生存信号は届く
     @Test
-    fun `位置の権限が無くても位置の生存信号が理由つきで積まれる`() {
+    fun `位置の権限が無くても位置の生存信号が理由つきで送られる`() = configured {
         val service = start(locationOk = false).get()
 
         val beat = service.beat(location)
         assertFalse("取得できないのに取れていることになっている", beat.capturable)
         assertEquals("何が満たされていないかを示していない", listOf(Capability.PERMISSION), beat.blockers)
+
+        // 本番と同じ 5 分ごとの送信契機を通し、未送信より先の `/heartbeat` まで見る。
+        service.scheduler.fire()
+        assertTrue(
+            "位置の生存信号を /heartbeat へ送っていない",
+            service.posted.any { (path, body) -> path == "/heartbeat" && body.contains("\"logical_source\":\"$location\"") },
+        )
     }
 
     // Scenario: アプリ利用の取得条件が欠けても位置は集まる
@@ -117,7 +134,7 @@ class SourceIndependenceTest {
 
     // Scenario: どのソースも取得できなくても収集は始まり信号は届く
     @Test
-    fun `どのソースも取得できなくても収集は落ちずに始まり、両方の生存信号が積まれる`() {
+    fun `どのソースも取得できなくても収集は落ちずに始まり、全ソースの生存信号が送られる`() = configured {
         val controller = start(locationOk = false, usageOk = false)
         val service = controller.get()
 
@@ -136,6 +153,16 @@ class SourceIndependenceTest {
                 "${source.logicalSource} が何の理由も示していない",
                 listOf(Capability.PERMISSION),
                 beat.blockers,
+            )
+        }
+
+        // Outbox への蓄積だけで終わらせず、Drainer と Sender を経て実際の送信先まで通す。
+        service.scheduler.fire()
+        val sent = service.posted.filter { it.first == "/heartbeat" }.joinToString("\n") { it.second }
+        for (source in SourceCadence.entries) {
+            assertTrue(
+                "${source.logicalSource} の生存信号を /heartbeat へ送っていない",
+                sent.contains("\"logical_source\":\"${source.logicalSource}\""),
             )
         }
     }

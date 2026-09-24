@@ -25,6 +25,28 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
+ * `source_unavailable` の重複抑止。
+ *
+ * 比較・ログ・状態更新と、取得可能へ戻ったときの解除を同じ錠で守る。可視性だけでは、
+ * collectorThread と取得の ticker が同時に同じ理由を読み、同じ行を 2 回出せてしまう。
+ */
+internal class UnavailableLogGate {
+    private var lastReason: String? = null
+
+    @Synchronized
+    fun unavailable(reason: String, log: () -> Unit) {
+        if (lastReason == reason) return
+        log()
+        lastReason = reason
+    }
+
+    @Synchronized
+    fun available() {
+        lastReason = null
+    }
+}
+
+/**
  * 60 秒ごとに位置を取り、5 分ごとにまとめて送る（FR-1 / design D7 / design D9）。
  *
  * **前景サービスにする理由**: Android は継続的な位置取得を前景サービスなしに許さない。
@@ -100,8 +122,7 @@ open class LocationService : Service() {
          * （計測テストも `logcat -t 400` で読んでいる）。
          * 取れない状態そのものは生存信号（`blockers`）が区間ごとに持っている。
          */
-        @Volatile
-        var lastUnavailable: String? = null
+        val unavailableLog = UnavailableLogGate()
     }
 
     /** 未送信の置き場を試験から覗く口。**本番の経路は変えない**（review R1）。 */
@@ -579,16 +600,16 @@ open class LocationService : Service() {
         val capability = capabilityOf(running)
         if (!capability.capturable) {
             // **何が満たされていないかはログにも残す**（出すのは種別だけ。製造準備 A-2）。
-            // **同じ理由が続くあいだは 1 度だけ**（[Running.lastUnavailable]）
+            // **同じ理由が続くあいだは 1 度だけ**（[UnavailableLogGate]）。
+            // collectorThread と ticker が重なっても比較から状態更新までを原子的に扱う。
             val reason = capability.blockers.joinToString("+")
-            if (running.lastUnavailable != reason) {
+            running.unavailableLog.unavailable(reason) {
                 Log.i(TAG, Telemetry.line("source_unavailable", source = source.logicalSource, error = reason))
-                running.lastUnavailable = reason
             }
             return
         }
         // 取れる状態に戻った。次に取れなくなったらまた 1 行出す
-        running.lastUnavailable = null
+        running.unavailableLog.available()
         val now = Instant.now()
         // **窓の長さはそのソースの取得間隔**（位置は FR-1 の 60 秒）。ソースが自分で名乗る
         val window = CollectionWindow(now.minusMillis(source.intervalMs), now)
