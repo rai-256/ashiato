@@ -299,12 +299,22 @@ class AppUsageRollupSourceAdapter(
                         // **既に積んだ原文は積み直さない**（独立レビュー R3）。
                         // 育っている途中の箱は原文が変わるので、そのときは別の 1 件として積む
                         val print = rollupFingerprint(record.raw)
-                        if (seen.put(print, rollup.lastAt) != null) {
+                        if (seen.containsKey(print)) {
                             skipped++
                             continue
                         }
                         enqueued += record
-                        if (outbox.add(record)) persisted++
+                        // **置き場に書けたときだけ台帳へ入れる**（再レビュー F1）——
+                        // `Outbox.add` が偽で返したものはメモリに載るが、端末の空きが尽きた状態が続けば
+                        // `MAX_UNWRITTEN` を超えて `lost` として手放される。先に台帳へ入れると、
+                        // **確定済みの箱は原文が変わらないので指紋も変わらず、二度と積まれない**。
+                        // 積み直しは冪等で安全（サーバが内容の鍵で畳む）だが、積まないのは取りこぼし ——
+                        // `unwritten` に同じ原文が重なる副作用は受け入れる。
+                        // **黙って永久に消えるほうを選ばない。**
+                        if (outbox.add(record)) {
+                            seen[print] = rollup.lastAt
+                            persisted++
+                        }
                     }
                     // **0 件でも取り込み済み**（本人の決定 C7）—— 端末に入れたばかりで過去が無いだけ
                     imported += granularity
@@ -316,8 +326,9 @@ class AppUsageRollupSourceAdapter(
         }
         // **取れた分の印は、途中で止まっても残す**（spec「次の契機で取り込んでいない粒度から再開する」）
         if (imported != done) progressStore.save(imported)
+        // **台帳が動いたときだけ書く。** 動く道は「書けた分を足した」と「忘れる幅で落とした」の 2 つだけ
         val pruned = pruneRollupSeen(seen, at)
-        if (pruned.size != seenBefore || enqueued.isNotEmpty()) seenStore.save(pruned)
+        if (persisted > 0 || pruned.size != seenBefore) seenStore.save(pruned)
         // 出すのは件数だけ（製造準備 A-2）。表示名も原文も出さない
         log(Telemetry.line("usage_rollup", source = logicalSource, count = enqueued.size))
         if (skipped > 0) {

@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -248,6 +249,92 @@ class RollupImportTest {
         assertEquals(1, pruneRollupSeen(fresh, now).size)
     }
 
+    /**
+     * **件数で溢れたときは新しい箱から残す**（再レビュー F2）。
+     *
+     * 古いほうを残すと、**まだ取得元に残っている箱**（＝次の契機でまた返る箱）を先に忘れることになり、
+     * 6 時間ごとに積み直す R3 の形がそのまま戻る。忘れてよいのは、取得元から先に消えて
+     * 二度と返らない古い箱のほう。
+     */
+    @Test
+    fun `件数で溢れたときは新しい箱から残る`() {
+        val now = Instant.parse("2026-05-20T09:00:00Z")
+        val seen = LinkedHashMap<String, Instant>()
+        val total = ROLLUP_SEEN_MAX + 2
+        // 全部が忘れる幅の内側（＝落ちるのは件数の分岐だけ）。`i` が大きいほど古い箱
+        for (i in 0 until total) seen["f$i"] = now.minusMillis(i.toLong() * 1000)
+
+        val kept = pruneRollupSeen(seen, now)
+
+        assertEquals(ROLLUP_SEEN_MAX, kept.size)
+        assertTrue("いちばん新しい箱が忘れられた", kept.containsKey("f0"))
+        assertFalse("いちばん古い箱が残っている", kept.containsKey("f${total - 1}"))
+        assertFalse("2 番目に古い箱が残っている", kept.containsKey("f${total - 2}"))
+    }
+
+    /**
+     * **忘れる幅を越えた契機で台帳の行が落ちる**（再レビュー F3）。
+     *
+     * 有界性は「[pruneRollupSeen] が `collect` から呼ばれていること」が要で、
+     * 関数を直接叩く試験だけでは呼び忘れを捕まえられない。
+     */
+    @Test
+    fun `忘れる幅より先まで進めた契機で台帳の行が落ちる`() {
+        val rollups = stored().toMutableMap()
+        val env = RollupTestEnv(FakeUsageSource(storedRollups = rollups))
+        env.collect()
+        assertEquals("初回の 4 粒度が台帳に入っていない", 4, env.seenLines())
+
+        env.advance(ROLLUP_SEEN_WINDOW_MS + ROLLUP_INTERVAL_MS)
+        // 忘れる幅の**内側**にある新しい箱（これだけが残る）
+        rollups[UsageGranularity.DAILY] = listOf(
+            usageRollup(
+                packageName = "dev.ashiato.daily",
+                firstAt = "2026-06-18T00:00:00Z",
+                lastAt = "2026-06-19T00:00:00Z",
+            ),
+        )
+
+        env.collect()
+
+        assertEquals("忘れる幅より古い行が落ちていない", 1, env.seenLines())
+    }
+
+    /**
+     * **置き場に書けなかった箱は、次の契機で積み直される**（再レビュー F1）。
+     *
+     * `Outbox.add` が偽で返したものはメモリに載るが、端末の空きが尽きた状態が続けば
+     * `MAX_UNWRITTEN` を超えて `lost` として手放される。書けた確認より先に台帳へ入れると、
+     * **確定済みの箱は原文が変わらないので指紋も変わらず、その日のその集計は二度と積まれない。**
+     * 積み直しは冪等で安全（サーバが内容の鍵で畳む）だが、積まないのは取りこぼし。
+     */
+    @Test
+    fun `未送信に書けなかった箱は次の契機で積み直される`() {
+        val env = RollupTestEnv(
+            FakeUsageSource(storedRollups = mapOf(UsageGranularity.DAILY to listOf(usageRollup()))),
+        )
+        env.blockOutbox()
+
+        env.collect()
+
+        // 置き場には書けていない（`Outbox` がメモリに抱えているので `snapshot()` には出る）
+        assertTrue(
+            "置き場に書けたことになっている: ${env.lines}",
+            env.lines.any { it.startsWith("kind=usage_rollup_not_persisted") },
+        )
+        assertEquals("書けていないのに台帳へ入れている", 0, env.seenLines())
+
+        // 空きが戻った（プロセスも立て直された）
+        env.restart()
+        env.outbox = testOutbox()
+        env.advance(ROLLUP_INTERVAL_MS)
+
+        env.collect()
+
+        assertEquals("書けなかった箱が二度と積まれない", 1, env.records().size)
+        assertEquals(1, env.seenLines())
+    }
+
     // Scenario: 集計の取得率は 6 時間を刻みとして数えられる
     @Test
     fun `集計の取得契機は 6 時間で、1 区間に 1 回入って成功する`() {
@@ -294,7 +381,24 @@ private class RollupTestEnv(
     val lines: MutableList<String> = mutableListOf()
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
-    val outbox: Outbox<IngestRequest> = testOutbox()
+
+    /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
+    var outbox: Outbox<IngestRequest> = testOutbox()
+
+    /** 台帳のファイル（試験が行数を直接読む）。まだ 1 度も書いていなければ 0 行と数える */
+    fun seenLines(): Int {
+        val f = usageRollupSeenFile(dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE)
+        return if (f.exists()) f.readLines().filter { it.isNotBlank() }.size else 0
+    }
+
+    /** 置き場に 1 件も書けない未送信（`mkdirs` が通らない道に置く。`WriteFailedTest` と同じ形）。 */
+    fun blockOutbox() {
+        val blocked = File(dir, "blocked-${System.nanoTime()}").apply { writeText("ディレクトリではない") }
+        outbox = Outbox(
+            SegmentStore(File(blocked, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), log),
+            age = { 0L },
+        )
+    }
     private var ids = 0
     private var current: AppUsageRollupSourceAdapter? = null
 
