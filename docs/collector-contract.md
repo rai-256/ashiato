@@ -166,6 +166,47 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
   残さないと「データが無い」の意味が後から区別できなくなる
 - **私的データをログに出さない**（製造準備 A-2）。出すのは件数・ソース名・所要時間・エラーの種別だけ
 
+## C-01（`c01-app-usage`）が送る `payload` の形（ST06 / design D2）
+
+**利用状況のイベント 1 件につき記録を 1 件送る。** 下表の順に直列化する。
+`package` / `class` と種別固有の欄は取得元が値を返したときだけ置き、`null` は置かない。
+`event_type` と `event_time` は省略しない。`app_label` は取得時点に表示名を引けたときだけ
+`payload` の末尾に置き、取得元の原文である `raw` には置かない。
+
+| 欄 | 型 | 省略の規則 |
+|---|---|---|
+| `package` | text | 取得元が返さなければ欄ごと省く |
+| `class` | text | 取得元が返さなければ欄ごと省く |
+| `event_type` | integer | 省略しない |
+| `event_time` | RFC3339（UTC） | 省略しない |
+| `configuration` | text | その種別で取得元が返したときだけ置く |
+| `shortcut_id` | text | その種別で取得元が返したときだけ置く |
+| `interaction_action` | text | その種別で取得元が返したときだけ置く |
+| `interaction_category` | text | その種別で取得元が返したときだけ置く |
+| `standby_bucket` | integer | その種別で取得元が返したときだけ置く |
+| `app_label` | text | 表示名を引けたときだけ `payload` の末尾に置く。`raw` には置かない |
+
+## C-01（`c01-app-usage-rollup`）が送る `payload` の形（ST06 / design D3）
+
+**アプリ・期間・粒度ごとの集計 1 件につき記録を 1 件送る。** 下表の順に直列化する。
+`package` は取得元が値を返したときだけ置き、`null` は置かない。それ以外の取得元の欄は
+省略しない。`app_label` は取得時点に表示名を引けたときだけ `payload` の末尾に置き、
+取得元の原文である `raw` には置かない。
+
+| 欄 | 型 | 省略の規則 |
+|---|---|---|
+| `granularity` | `daily` / `weekly` / `monthly` / `yearly` | 省略しない |
+| `package` | text | 取得元が返さなければ欄ごと省く |
+| `begin` | RFC3339（UTC） | 省略しない |
+| `end` | RFC3339（UTC） | 省略しない |
+| `last_used` | RFC3339（UTC） | 省略しない |
+| `last_visible` | RFC3339（UTC） | 省略しない |
+| `last_foreground_service_used` | RFC3339（UTC） | 省略しない |
+| `total_foreground_ms` | integer（ミリ秒） | 省略しない |
+| `total_visible_ms` | integer（ミリ秒） | 省略しない |
+| `total_foreground_service_ms` | integer（ミリ秒） | 省略しない |
+| `app_label` | text | 表示名を引けたときだけ `payload` の末尾に置く。`raw` には置かない |
+
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
 **PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**

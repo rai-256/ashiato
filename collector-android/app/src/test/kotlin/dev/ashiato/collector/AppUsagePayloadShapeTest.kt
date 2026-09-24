@@ -52,6 +52,10 @@ class AppUsagePayloadShapeTest {
     fun `種別ごとの欄が付く 1 件の形`() {
         val request = request(fullUsageEvent(at))
         assertEquals(
+            payloadContractFields(APP_USAGE_LOGICAL_SOURCE).filterNot { it == "configuration" },
+            request.payload.keys.toList(),
+        )
+        assertEquals(
             """{"package":"dev.ashiato.example","class":"dev.ashiato.example.MainActivity",""" +
                 """"event_type":7,"event_time":"2026-05-20T09:10:00Z","shortcut_id":"shortcut-1",""" +
                 """"interaction_action":"android.intent.action.VIEW",""" +
@@ -76,6 +80,7 @@ class AppUsagePayloadShapeTest {
     fun `設定の変化は時刻の次に入る`() {
         val configuration = Configuration().apply { orientation = Configuration.ORIENTATION_LANDSCAPE }
         val request = request(fullUsageEvent(at, configuration))
+        assertEquals(payloadContractFields(APP_USAGE_LOGICAL_SOURCE), request.payload.keys.toList())
         val quoted = ingestJson.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(configuration.toString()))
         assertEquals(
             """{"package":"dev.ashiato.example","class":"dev.ashiato.example.MainActivity",""" +

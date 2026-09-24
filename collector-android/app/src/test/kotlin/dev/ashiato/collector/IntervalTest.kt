@@ -49,6 +49,20 @@ class IntervalTest {
         )
     }
 
+    // Scenario: アプリ利用は出来事の時刻から数えても 1 時間以内に届く
+    @Test
+    fun `アプリ利用の取得は30分間隔`() {
+        assertEquals(1_800_000L, USAGE_INTERVAL_MS)
+    }
+
+    @Test
+    fun `アプリ利用の取得から送信までの上限は1時間未満`() {
+        assertTrue(
+            "取得 $USAGE_INTERVAL_MS ms と送信 $SEND_INTERVAL_MS ms の合計が 1 時間未満でない",
+            USAGE_INTERVAL_MS + SEND_INTERVAL_MS < 3_600_000L,
+        )
+    }
+
     @Test
     fun `1回の送信にたまる件数は5件`() {
         // 契約（docs/collector-contract.md §送る間隔）が言っている「5 分ぶん」の実体。
