@@ -69,10 +69,23 @@ open class MainActivity : Activity() {
     private fun granted(permission: String) =
         checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
-    /** 無くても始めるが、あったほうがよいもの。 */
+    /**
+     * 無くても始めるが、あったほうがよいもの。
+     *
+     * **前提を持つのは背景の位置だけ**（独立レビュー I1）。前景が許可された後でしか求められないので、
+     * 前景が無いあいだは一覧に入れない（入れても OS が即座に拒否で返し、`asked` に入って二度と求められなくなる）。
+     *
+     * **通知の権限に位置の可否は関係ない。むしろ位置を拒んだ端末ほど要る** ——
+     * Android 13 以降、通知の権限が無いと**前景サービスは立っても通知が表示されない**。
+     * 表示されないと、design D6 の「以後は常駐の通知から同じ設定画面へたどれる」が
+     * その本人にだけ効かず（自動で送るのは 1 度だけなので）**利用状況へのアクセスへ戻る道が消える**。
+     * ST04 の 83 日の知らせも出せない。
+     */
     private fun niceToHave(): List<String> = buildList {
         // 背景が無いと、START_STICKY で立て直されたとき位置を取れずに収集が止まる
-        add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -89,13 +102,13 @@ open class MainActivity : Activity() {
             // 一度求めて、それでも無いなら断られた。**それでも収集は始める**（ST06 / Q7）——
             // 位置だけが③「取れない状態」として生存信号に載り、アプリ利用は取れ続ける
             Log.w(TAG, Telemetry.line("permission_denied", source = LOGICAL_SOURCE))
-        } else {
-            // 背景は前景が許可された**後**でしか求められない
-            val next = niceToHave().firstOrNull { !granted(it) && it !in asked }
-            if (next != null) {
-                ask(next)
-                return
-            }
+        }
+        // **位置の可否で枝を分けない**（独立レビュー I1）。前提を持つのは背景の位置だけで、
+        // それは `niceToHave()` の中で見る —— 分けると、位置を拒んだ端末が通知の権限を 1 度も求めない
+        val next = niceToHave().firstOrNull { !granted(it) && it !in asked }
+        if (next != null) {
+            ask(next)
+            return
         }
         start()
     }

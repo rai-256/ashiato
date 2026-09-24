@@ -16,6 +16,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
+import org.robolectric.shadows.ShadowLog
 
 /**
  * **ソースごとに独立して収集する**（ST06 / tasks 5.1 / 本人の決定 Q7 / design D5）。
@@ -93,6 +94,11 @@ class SourceIndependenceTest {
     }
 
     // Scenario: アプリ利用の取得条件が欠けても位置は集まる
+    // Scenario: 許可しなくても収集は始まる
+    //
+    // 2 つめの印をここに置くのは、その Scenario の THEN（位置の記録が生成される）と
+    // AND（アプリ利用の生存信号が取得できない状態と権限を示す）を**両方**見ているのがここだけだから
+    // （独立レビュー I3）。設定画面から許可せずに戻った端末の状態＝アプリ利用の取得条件が欠けた状態。
     @Test
     fun `利用状況へのアクセスが無くても位置の記録が未送信に積まれる`() {
         val controller = start(usageOk = false)
@@ -175,6 +181,39 @@ class SourceIndependenceTest {
         service.sourceSchedulers.getValue(location).fire()
 
         assertEquals("刻みが取得元へ登録し直している", 1, service.source.starts)
+    }
+
+    /**
+     * **「取れない」を毎回の契機でログに出さない**（独立レビュー M1）。
+     *
+     * 位置の契機は 60 秒ごとなので、権限を拒んだままの端末では 1 日 1440 行になる ——
+     * `logcat` は環状の置き場なので、それだけで**他の行が押し出される**
+     * （計測テストも `logcat -t 400` で読んでいて、その前提に直接効く）。
+     * **理由が変わったときは出す**（取れる状態に戻って、また取れなくなった、を見逃さない）。
+     */
+    @Test
+    fun `取れない理由が同じあいだはログに 1 度だけ出す`() {
+        ShadowLog.clear()
+        val service = start(usageOk = false).get()
+        // **名前の前方一致で数えない** —— `c01-app-usage` は `c01-app-usage-rollup` の頭でもある
+        val mine = Regex("source=" + Regex.escape(usage) + "(\\s|$)")
+        fun lines() = ShadowLog.getLogsForTag(LocationService.TAG)
+            .count { it.msg.contains("kind=source_unavailable") && mine.containsMatchIn(it.msg) }
+
+        assertEquals("起動の契機で 1 行", 1, lines())
+
+        // 取れないまま契機が 2 回来ても増えない
+        service.sourceSchedulers.getValue(usage).fire()
+        service.sourceSchedulers.getValue(usage).fire()
+        assertEquals("同じ理由を毎回出している", 1, lines())
+
+        // 取れる状態に戻り（ここでは何も出ない）、また取れなくなったら出す
+        service.capabilities[usage] = Capability.of(permission = true, sensor = true, network = true)
+        service.sourceSchedulers.getValue(usage).fire()
+        assertEquals("取れるようになった契機で出している", 1, lines())
+        service.capabilities[usage] = Capability.of(permission = false, sensor = true, network = true)
+        service.sourceSchedulers.getValue(usage).fire()
+        assertEquals("理由が立ち直ったのに出していない", 2, lines())
     }
 
     /**

@@ -6,6 +6,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -102,15 +103,74 @@ class MainActivityTest {
      */
     @Test
     fun `前景の位置を断られても、落とさずに収集を始める`() {
-        deny(Manifest.permission.ACCESS_FINE_LOCATION)
+        deny(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
         val controller = launch()
 
         systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+        // 位置を断られた後も**通知の権限は求める**（独立レビュー I1）。その答えも返す
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
 
         val started = startedService()
         assertNotNull("前景を断られただけで収集が始まっていない", started)
         assertEquals(LocationService::class.java.name, started.component?.className)
         assertTrue("画面が閉じていない", controller.get().isFinishing)
+    }
+
+    /**
+     * **位置を断られても通知の権限は求める**（独立レビュー I1）。
+     *
+     * ST06 の 5.1 で `proceed()` を組み替えたとき、通知の権限が
+     * 「前景の位置が許可されている」枝の中に入っていた。Android 13 以降、
+     * 通知の権限が無いと**前景サービスは立っても通知が表示されない** ——
+     * 表示されないと design D6 の「以後は常駐の通知から設定画面へたどれる」が効かず、
+     * 自動で送るのは 1 度だけなので**利用状況へのアクセスへ戻る道が消える**。
+     */
+    @Test
+    fun `位置を断られても通知の権限は求め、収集も始める`() {
+        deny(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val controller = Robolectric.buildActivity(CountingMainActivity::class.java).create().resume()
+
+        systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+
+        assertTrue(
+            "位置を断られた端末が通知の権限を 1 度も求めていない: ${controller.get().requested}",
+            controller.get().requested.contains(Manifest.permission.POST_NOTIFICATIONS),
+        )
+        // 求めた後は、断られても収集を始める
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
+        assertNotNull("通知を断られただけで収集が始まっていない", startedService())
+    }
+
+    /**
+     * **前景の位置が無いあいだは背景の位置を求めない**（I1 の反対側）。
+     *
+     * 背景は前景が許可された**後**でしか求められない —— 前に求めると OS が即座に拒否で返し、
+     * `asked` に入って**二度と求められなくなる**。
+     */
+    @Test
+    fun `前景の位置が無いあいだは背景の位置を求めない`() {
+        deny(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val controller = Robolectric.buildActivity(CountingMainActivity::class.java).create().resume()
+
+        systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
+
+        assertFalse(
+            "前景が無いのに背景の位置を求めている: ${controller.get().requested}",
+            controller.get().requested.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+        )
     }
 
     @Test
@@ -180,7 +240,14 @@ class MainActivityTest {
         assertNotNull("利用状況へのアクセスの設定画面が開いていない", startedSettings())
     }
 
-    // Scenario: 許可しなくても収集は始まる
+    /**
+     * 設定画面で許可せずに戻っても収集は始まる（本人の決定 Q3）。
+     *
+     * **`Scenario: 許可しなくても収集は始まる` の印はここに置かない**（独立レビュー I3）——
+     * その Scenario の THEN は「**位置の記録が生成される**」＋ AND「アプリ利用の生存信号が
+     * 取得できない状態と権限を示す」で、ここは入口が収集を**始めた**ことしか見ていない。
+     * 印は THEN を確かめている `SourceIndependenceTest` にある。
+     */
     @Test
     fun `設定画面で許可せずに戻っても収集は始まる`() {
         forgetSent()

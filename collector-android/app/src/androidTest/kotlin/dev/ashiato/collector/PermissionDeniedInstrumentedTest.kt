@@ -3,6 +3,7 @@ package dev.ashiato.collector
 
 import android.Manifest
 import android.content.Context
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
@@ -33,6 +34,8 @@ import org.junit.runner.RunWith
  *   - 結果コードではなく**実際の権限状態**を見る
  *   - 前景の位置が無ければ、一度求めて、それでも無いなら `permission_denied` を残して `finish()`
  *   - **落とさない**（tasks 6.2）
+ *   - **位置を拒否した後も通知の権限は求める**（独立レビュー I1）—— 求めないと、
+ *     Android 13 以降は前景サービスが立っても**通知が表示されない**
  *   - **収集は始める**（ST06 / 本人の決定 Q7 / design D5）—— ここが 2026-09-18 に反転した。
  *     止めていた間は**生存信号も出なかった**ので、受け手の画面には③「動いていたが取れない状態」ではなく
  *     ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（`docs/handoff/ST11.md` の点 2）
@@ -96,15 +99,37 @@ class PermissionDeniedInstrumentedTest {
             waitForLog("kind=permission_denied"),
         )
 
-        // ---- 2. 収集は始まっている（前景サービスが立ち、生存信号が出る）。**欠けたソースだけが止まる**
+        // ---- 2. **位置を拒否した後も通知の権限を求める**（独立レビュー I1）。
         //
-        // **通知そのものは数えない**（実測 2026-09-24）。この前提は「未許可・未要求」なので
-        // `POST_NOTIFICATIONS` も無く、Android 13 以降は**前景サービスが立っても通知は表示されない**
-        // （`activeNotifications` に出ない）。立ったことの証拠は `startForeground` の直後の 1 行 ——
-        // `startForeground` が投げれば `onCreate` ごと落ちてこの行は出ない
-        // （`ForegroundServiceTypeInstrumentedTest` と同じ見方）
+        // ここが本丸。求めないと、Android 13 以降は**前景サービスが立っても通知が表示されず**、
+        // design D6 の「以後は常駐の通知から利用状況へのアクセスの設定画面へたどれる」が
+        // その本人にだけ効かない（自動で送るのは 1 度だけなので**戻る道が消える**）。
+        // **ダイアログが出ないとここで落ちる** —— 通知を見る前に、求めたこと自体を見る
+        val allowNotifications = device.wait(
+            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow_button"))),
+            DIALOG_TIMEOUT_MS,
+        ) ?: device.wait(
+            Until.findObject(By.text(Pattern.compile("(?i)(許可|allow)"))),
+            DIALOG_TIMEOUT_MS,
+        )
         assertTrue(
-            "位置を拒否しただけで前景サービスが立たない（kind=${LocationService.FOREGROUND_SPECIAL_USE} が出ない）",
+            "位置を拒否した端末に通知の権限のダイアログが出ない（前面: ${device.currentPackageName}）",
+            allowNotifications != null,
+        )
+        allowNotifications!!.click()
+
+        // ---- 3. 収集は始まっている（**前景サービスの通知が出る**）。**欠けたソースだけが止まる**
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val deadline = System.currentTimeMillis() + SETTLE_MS
+        var shown = false
+        while (System.currentTimeMillis() < deadline && !shown) {
+            shown = nm.activeNotifications.any { it.id == LocationService.NOTIFICATION_ID }
+            if (!shown) Thread.sleep(250)
+        }
+        assertTrue("位置を拒否しただけで収集が始まらない（前景サービスの通知が出ない）", shown)
+        // どちらの種別で立ったかは通知から読めないので、その 1 行も見る
+        assertTrue(
+            "位置の権限が無いのに location の種別で立てようとしている",
             waitForLog("kind=${LocationService.FOREGROUND_SPECIAL_USE}", "ashiato:I"),
         )
         // 位置は③「取得できない状態」として生存信号に載る（止まったのは位置だけ）
@@ -115,14 +140,14 @@ class PermissionDeniedInstrumentedTest {
         // アプリ利用の側も同じ区間の信号を出している（**道連れに止まっていない**）
         assertTrue(
             "アプリ利用の生存信号が出ていない（欠けたソースが他を道連れにしている）",
-            waitForLog("kind=heartbeat source=$APP_USAGE_LOGICAL_SOURCE", "ashiato:I"),
+            waitForLog("kind=heartbeat source=$APP_USAGE_LOGICAL_SOURCE count=", "ashiato:I"),
         )
 
-        // ---- 3. 落ちていない（crash バッファに自分の名前が無い）
+        // ---- 4. 落ちていない（crash バッファに自分の名前が無い）
         val crash = shell("logcat -d -b crash -t 400")
         assertFalse("crash ログにアプリが出ている:\n$crash", crash.contains(pkg))
 
-        // ---- 4. 権限は拒否のまま（押した先が「許可」ではなかった）
+        // ---- 5. 位置の権限は拒否のまま（押した先が「許可」ではなかった）
         assertEquals(
             PackageManager.PERMISSION_DENIED,
             context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION),
@@ -147,5 +172,8 @@ class PermissionDeniedInstrumentedTest {
     private companion object {
         const val DIALOG_TIMEOUT_MS = 15_000L
         const val LOG_TIMEOUT_MS = 15_000L
+
+        /** 前景サービスの通知が出るまでの待ち */
+        const val SETTLE_MS = 15_000L
     }
 }

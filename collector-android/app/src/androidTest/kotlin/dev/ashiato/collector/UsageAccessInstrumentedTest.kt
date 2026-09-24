@@ -75,11 +75,20 @@ class UsageAccessInstrumentedTest {
         // ---- Scenario: 特別なアクセスが無ければ初回起動で設定画面へ送られる
         launchEntry()
         assertTrue(
-            "利用状況へのアクセスの設定画面が開かない（前面: ${device.currentPackageName}）",
+            "設定アプリが前面に来ない（前面: ${device.currentPackageName}）",
             waitForForeground { it.contains("settings") },
         )
+        // **「その」設定画面であること**（独立レビュー M4）。設定アプリの適当な画面では THEN を満たさない。
+        // 前面の Activity の名前（`…Settings$UsageAccessSettingsActivity`）と画面の中身の両方を材料にする ——
+        // 名前は端末の言語に依らず、中身は別名で開かれた場合にも効く
+        val evidence = resumedActivity() + " | " + screenText()
+        assertTrue(
+            "開いたのが利用状況へのアクセスの画面ではない: $evidence",
+            Regex("(?i)usage|使用状況|利用状況").containsMatchIn(evidence),
+        )
 
-        // ---- Scenario: 許可しなくても収集は始まる
+        // ---- 許可せずに戻っても収集は始まる（`Scenario: 許可しなくても収集は始まる` の印は置かない ——
+        //      その THEN は「位置の記録が生成される」で、ここは通知までしか見ていない。独立レビュー I3）
         device.pressBack()
         assertTrue(
             "許可せずに戻っただけで収集が始まっていない（前景サービスの通知が出ない）",
@@ -98,6 +107,18 @@ class UsageAccessInstrumentedTest {
             waitForForeground(SETTLE_MS) { it.contains("settings") },
         )
     }
+
+    /** いま前面にある Activity の名前（端末の言語に依らない材料）。 */
+    private fun resumedActivity(): String =
+        java.io.FileInputStream(
+            instrumentation.uiAutomation.executeShellCommand("dumpsys activity activities").fileDescriptor,
+        ).use { it.readBytes().toString(Charsets.UTF_8) }
+            .lineSequence().firstOrNull { it.contains("mResumedActivity") }.orEmpty()
+
+    /** いま出ている画面の中身（表示名で確かめる側の材料）。 */
+    private fun screenText(): String = java.io.ByteArrayOutputStream()
+        .also { device.dumpWindowHierarchy(it) }
+        .toString(Charsets.UTF_8.name())
 
     private fun launchEntry() {
         context.startActivity(

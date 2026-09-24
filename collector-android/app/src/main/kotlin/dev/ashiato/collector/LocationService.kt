@@ -100,6 +100,7 @@ open class LocationService : Service() {
          * （計測テストも `logcat -t 400` で読んでいる）。
          * 取れない状態そのものは生存信号（`blockers`）が区間ごとに持っている。
          */
+        @Volatile
         var lastUnavailable: String? = null
     }
 
@@ -166,6 +167,14 @@ open class LocationService : Service() {
     protected open fun newRetentionAlerts(): RetentionAlerts = AndroidRetentionAlerts(this) { notification(it) }
 
     private fun store(name: String) = File(outboxDir(), name)
+
+    /**
+     * 常駐の通知の本文（tasks 5.4 / R10）。**位置の決め打ちをやめ、走らせているソースの数に合わせる。**
+     *
+     * **1 か所にする**（独立レビュー M5）—— 前景に上がるときの初期の本文と、
+     * 見回りが差し替える本文が別の式だと、片方だけ変えたときに 2 つの文がずれる。
+     */
+    private fun ongoingText(): String = ongoingBaseText(SourceCadence.entries.size)
 
     /**
      * 記録の未送信。**区切りファイル**（ST04 / C7 / design D1）。書けなかった記録は固定長の数えに残し（D5）、
@@ -248,7 +257,7 @@ open class LocationService : Service() {
         deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() }
         // **前景に上がってから置き場を開く**（review R29）。取り込みが長いと、前景に上がる期限（10 秒）を越えて落ちる
         val type = foregroundServiceType()
-        startForeground(NOTIFICATION_ID, notification(ongoingBaseText(SourceCadence.entries.size)), type)
+        startForeground(NOTIFICATION_ID, notification(ongoingText()), type)
         // **どちらの種別で前景に上がれたかを残す**（tasks 1.4）。立てられなかったときは
         // `startForeground` が投げて `onCreate` ごと落ちるので、**この 1 行が出たこと自体が
         // 「前景サービスが立った」の証拠**になる（計測テストがこれを見る）
@@ -408,8 +417,7 @@ open class LocationService : Service() {
             ageClock::now,
             newRetentionAlerts(),
             store("retention-alerted"),
-            // **位置の決め打ちをやめ、走らせているソースの数に合わせる**（tasks 5.4 / R10）
-            baseText = ongoingBaseText(SourceCadence.entries.size),
+            baseText = ongoingText(),
             log = logI,
         )
     }
