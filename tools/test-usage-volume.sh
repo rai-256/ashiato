@@ -17,3 +17,10 @@ USAGE_VOLUME_SAMPLE_FILE="$tmp" USAGE_VOLUME_LIMIT_BYTES=1 tools/usage-volume.sh
 rc=$?
 set -e
 [ "$rc" -eq 1 ] || { echo "上限を超えても rc=$rc" >&2; exit 1; }
+
+# emulator が起動に失敗して adb が一度も ready を返さなくても、待ちは有限で終わる。
+set +e
+ADB=/bin/false tools/wait-android-boot.sh emulator-5554 1 0 >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ] || { echo "端末が現れないとき rc=$rc（期待: 1）" >&2; exit 1; }

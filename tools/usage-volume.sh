@@ -33,12 +33,7 @@ if [ -z "$sample" ]; then
       -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
     serial=emulator-5554
     started=$serial
-    adb -s "$serial" wait-for-device
-    for _ in $(seq 1 180); do
-      [ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break
-      sleep 2
-    done
-    [ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] \
+    tools/wait-android-boot.sh "$serial" \
       || { echo "error: エミュレータの起動が終わらない" >&2; exit 2; }
   fi
 
