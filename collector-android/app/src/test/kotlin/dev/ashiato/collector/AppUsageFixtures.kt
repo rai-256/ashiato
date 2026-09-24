@@ -26,7 +26,8 @@ class UsageTestEnv(
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
     val age: AgeClock = AgeClock(clock, File(dir, "age-clock.txt"), log)
-    val outbox: Outbox<IngestRequest> = testOutbox()
+    /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
+    var outbox: Outbox<IngestRequest> = testOutbox()
     private var ids = 0
     private var current: AppUsageSourceAdapter? = null
 
@@ -54,6 +55,18 @@ class UsageTestEnv(
         capabilityOf = { Capability.of(permission = true, sensor = true, network = true) },
         log = log,
     ).also { current = it }
+
+    /**
+     * 置き場に 1 件も書けない未送信に差し替える（`mkdirs` が通らない道に置く。
+     * `WriteFailedTest` と同じ形）。**端末の空きが尽きた状態**を作るため。
+     */
+    fun blockOutbox() {
+        val blocked = File(dir, "blocked-${System.nanoTime()}").apply { writeText("ディレクトリではない") }
+        outbox = Outbox(
+            SegmentStore(File(blocked, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), log),
+            age = age::now,
+        )
+    }
 
     /** 収集が止まって、また始まる（プロセスが作り直される）。 */
     fun restart() {

@@ -34,6 +34,75 @@ class UsageWindowTest {
         assertEquals(listOf(t0.toString()), env.records().map { it.eventTime })
     }
 
+    /**
+     * **1 件も書けなかった契機では窓が進まない**（再レビュー round 4）。
+     *
+     * 書けなかったものは `Outbox` がメモリに抱えるが、端末の空きが尽きたまま続けば
+     * `MAX_UNWRITTEN` を超えて `lost` として手放される。それでも窓を進めると、
+     * **その期間のイベントは二度と取りに行かず**、取得元の保持（見込み 10 日）で消える。
+     * `HeartbeatEmitter` が「積めてから数えを戻す」のと同じ形（ST04 の review R24）。
+     */
+    @Test
+    fun `置き場に書けなかった契機のあとも窓は進まず、次の契機が同じ範囲を取り直す`() {
+        val source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z")))
+        val env = UsageTestEnv(source = source)
+        env.collect()
+        val saved = env.savedEnd()
+        assertEquals(t0, saved)
+
+        // 空きが尽きた端末（置き場に 1 件も書けない）
+        env.restart()
+        env.blockOutbox()
+        env.advance(USAGE_INTERVAL_MS)
+        val held = env.now
+        source.eventQueries.clear()
+        env.collect()
+
+        assertEquals("書けていないのに窓が進んだ", saved, env.savedEnd())
+        assertTrue(
+            "窓を据え置いたことがログに出ていない: ${env.lines}",
+            env.lines.any { it.startsWith("kind=usage_window_held") },
+        )
+
+        // 空きが戻った（プロセスも立て直された）
+        env.restart()
+        env.outbox = testOutbox()
+        env.advance(USAGE_INTERVAL_MS)
+        source.eventQueries.clear()
+        env.collect()
+
+        // **同じ範囲を取り直している**（始まりは据え置いた終わりから重ね幅ぶん手前）
+        assertEquals(
+            saved!!.minusMillis(USAGE_WINDOW_OVERLAP_MS),
+            source.eventQueries.single().begin,
+        )
+        assertEquals(listOf("2026-05-20T09:10:00Z"), env.records().map { it.eventTime })
+        assertEquals("書けたのに窓が進んでいない", env.now, env.savedEnd())
+        assertTrue("据え置いた契機より後まで進んでいない", env.savedEnd()!!.isAfter(held))
+    }
+
+    /**
+     * **0 件だった契機では窓が進む**（本人の決定 C7「0 件でも成功」）。
+     *
+     * 上の試験と**同じ「置き場に書けた件数が 0」**だが結論が逆 —— 書くものが無いだけで失敗ではない。
+     * 同じ判定式にすると、携帯を使っていなかっただけの区間で窓が永久に止まる。
+     */
+    @Test
+    fun `0 件だった契機では窓が進む`() {
+        val env = UsageTestEnv(source = FakeUsageSource())
+        env.collect()
+        env.advance(USAGE_INTERVAL_MS)
+
+        env.collect()
+
+        assertEquals(0, env.records().size)
+        assertEquals("0 件を「書けなかった」と取り違えている", env.now, env.savedEnd())
+        assertTrue(
+            "0 件なのに窓を据え置いた: ${env.lines}",
+            env.lines.none { it.startsWith("kind=usage_window_held") },
+        )
+    }
+
     // Scenario: 読めなかったときは窓が進まない
     @Test
     fun `読めなかった契機のあとも保存された窓の終わりは変わらない`() {

@@ -105,7 +105,13 @@ class AppUsageSourceAdapter(
         }
     }
 
-    /** 取れた分を記録にして積み、窓の終わりを進める。**0 件でも進める**（本人の決定 C7）。 */
+    /**
+     * 取れた分を記録にして積み、窓の終わりを進める。**0 件でも進める**（本人の決定 C7）。
+     *
+     * ただし**置き場に 1 件でも書けなかった契機では進めない**（再レビュー round 4）——
+     * 書けなかったものは `Outbox` がメモリに抱えるが、端末の空きが尽きたまま続けば手放される。
+     * 進めてしまうと、その期間は取り直されないまま取得元の保持を過ぎて消える。
+     */
     private fun store(
         events: List<UsageEventSnapshot>,
         mark: UsageWindowMark?,
@@ -121,8 +127,30 @@ class AppUsageSourceAdapter(
             it.toIngestRequest(newId(), user, deviceId, collectedIn, labels.label(it.packageName))
         }
         var persisted = 0
-        for (record in records) if (outbox.add(record)) persisted++
-        windowStore.save(UsageWindowMark(at, ageMs, discarded))
+        // **その契機で積んだ全件が置き場に書けたか。** 0 件なら真のまま（書くものが無いだけ）
+        var allStored = true
+        for (record in records) if (outbox.add(record)) persisted++ else allStored = false
+        // **書けたときだけ窓を進める**（再レビュー round 4。`HeartbeatEmitter.takeAfter` と同じ形 ——
+        // あちらは ST04 の review/code.md R24 で同じ型を 1 度踏んで直してある）。
+        //
+        // `Outbox.add` が偽で返したものはメモリに載るが、端末の空きが尽きた状態が続けば
+        // `MAX_UNWRITTEN` を超えて `lost` として手放される。それでも窓を進めると、
+        // **その期間のイベントは二度と取りに行かず**、取得元の保持（見込み 10 日）で消える。
+        // gap の記録はもっと悪く、**積み直す経路が無い** —— 窓が進むと次の契機の
+        // `floor.excludes(coveredThrough)` が偽になり、そもそも候補にならない。
+        //
+        // 進めないあいだは同じ期間を 30 分ごとに取り直すが、**それが安全側**（サーバは
+        // 内容の鍵で畳む）。やがて窓の始まりが見込みの下限より古くなれば gap が積まれるが、
+        // **それは事実として正しい**（そのときには取得元からも消えている）。
+        //
+        // **0 件だった契機は進める**（本人の決定 C7「0 件でも成功」）—— ここを
+        // `persisted == records.size` ではなく `persisted > 0` で判定すると、
+        // 携帯を使っていなかっただけの区間で窓が永久に止まる。
+        if (allStored) {
+            windowStore.save(UsageWindowMark(at, ageMs, discarded))
+        } else {
+            log(Telemetry.line("usage_window_held", source = logicalSource, count = records.size - persisted))
+        }
         // 出すのは件数だけ（製造準備 A-2）。表示名も原文もログに出さない
         log(Telemetry.line("usage", source = logicalSource, count = records.size))
         // **「取れた件数」と「置き場に残せた件数」は別**（位置と同じ規律）。
