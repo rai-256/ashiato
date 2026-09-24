@@ -43,12 +43,12 @@ while read -r local_ref _ _ _; do
 error: $branch は whole-branch review の前なので push しません。
 
   実装は全 Task が終わるまでローカル commit まで。push / PR / CI / merge_gate は、
-  whole-branch review の指摘を処置してから /story が一度だけ行います。
+  whole-branch review の指摘を処置した後に、LangGraph の story グラフ（publish → gate）が行います。
 
   いまやること:
-    scripts/story.sh ST$nn     # /story → subagent-driven-development
-                               #   全 Task 完了 → whole-branch review
-                               #   → openspec/changes/st$nn-*/review/code.md → 処置 → push → PR → gate
+    scripts/hx status          # ST$nn の thread がどこにいるか（無ければ scripts/hx start ST$nn）
+                               #   sdd（/story → subagent-driven-development → whole-branch review
+                               #   → openspec/changes/st$nn-*/review/code.md → 処置）→ publish → gate
 
   どうしても必要なら: HARNESS_ALLOW_UNREVIEWED_PUSH=1 git push ...
 MSG

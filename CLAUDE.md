@@ -140,68 +140,60 @@ git config core.hooksPath .githooks
 > `new_text` …）にしか正規表現を当てられず、**「いまどのブランチにいるか」を見る手段が無い**
 > （`core/config_loader.py`）。git hook なら 5 行で済み、Claude 以外の経路にも効く。
 
-## Story ごとの進め方（上流 → 下流）
+## Story ごとの進め方（上流 → 下流）—— LangGraph の story グラフが回す
 
-**上流と下流を分けて、下流が走っている間に次の Story の上流を進める。**
-分割点は `openspec/changes/<change>/tasks.md` —— これが上流の最後の成果物であり、
-下流の唯一の入力になる。
+**流れの位置・待ち・失敗・再実行点は LangGraph が持つ**（2026-09-24。`~/dev/harness2/graph/`、図は `GRAPH.md`）。
+thread 1 本 = Story 1 本。工程の中身は skill と SDD、外への作用は `scripts/` の台本、正本は artifact。
 
 ```
-上流（worktree ../ashiato2-up-st<NN>）   下流（worktree ../ashiato2-st<NN>）
-─────────────────────────            ─────────────────────────
-docs/st<NN>-upstream を切る
-openspec: proposal → specs
-        → design → tasks
-PR + issue（issue_body.py。merge を待たない）
-merge_gate → CI 緑 → merge
-                            ────→  git worktree add ../st<NN> feat/st<NN>-<slug>
-次の Story の上流へ                    別セッションで実装
-（proposal まで。specs は                openspec apply
- 前の Story が merge されるまで待つ）     /commit-push-pr
-                                       PR まで出す ★ merge が停止点
+observe ─ admission ⟲ ─ upstream ─ wait_upstream_merge ⟲ ─ downstream ─ wait_verified ⟲ ─ archive
+  upstream   = prepare → questions → ask(人間) → record → spec → publish → gate ⇄ fix
+  downstream = prepare → sdd（superpowers:subagent-driven-development）→ [ask → record → sdd] → publish → gate ⇄ fix
 ```
 
-### 起動はどちらも 1 コマンド
+分割点は `openspec/changes/<change>/tasks.md` —— 上流の最後の成果物であり、下流の唯一の入力。
+上流は `../ashiato2-up-st<NN>` の `docs/st<NN>-upstream`、下流は `../ashiato2-st<NN>` の `feat/<change>`。
 
 ```bash
-scripts/upstream.sh ST02       # 上流: worktree（../ashiato2-up-st02）に docs/st02-upstream を用意して起動
-scripts/story.sh ST01          # 下流: worktree を用意して、その中で起動
+scripts/hx dev                  # LangGraph サーバ（langgraph dev）。Studio の URL が出る
+scripts/hx start ST02           # thread を始める。入口は観測で決まる（上流から / 下流から / 確認待ちから）
+scripts/hx status               # 位置・待ち（何を待っているか）・失敗（どの node で）
+scripts/hx answer ST02 a.txt    # 深掘りの答え（ask_wizard の「回答をコピー」）で interrupt を解く
+scripts/hx poke                 # 待ちの thread に条件を見直させる（merge した・先行が archive された）
+scripts/hx retry ST02           # 落ちた node から再実行
 ```
 
-`/story-upstream` は **ブリーフ →（画面があれば proto）→ deep → proposal → specs → design → tasks → PR + issue**。
-`/story` は **`superpowers:subagent-driven-development` を起動して Task ごとに回し、最後に whole-branch review → PR**。
-どちらも停止点は merge。
-**issue は PR と同時に作る**（`scripts/issue_body.py` が本文を機械的に出し、`merge_gate.sh` が貼り直す）。
-merge の後に作る規則だと、上流のセッションは PR で止まるので作る係がいなくなる
-（実測: ST02 は merge から issue まで 10 時間空いた）。**merge_gate が OK のとき「次の 1 手」を印字する**
-（上流なら `scripts/story.sh` と盤面が出す次の `scripts/upstream.sh`、下流なら確認バッチと `scripts/archive.sh`）。
+- **工程間で会話を引き継がない。** agent の node（questions / record / spec / sdd / fix）は毎回 fresh な
+  `claude -p`（`--permission-mode auto`。変えるなら `HARNESS_PERMISSION_MODE`）で、渡すのは skill と artifact のパスだけ。
+  人間の答えは `deep-answers-<n>.txt` に落ちて、別のセッションが読む
+- **分岐は artifact の観測で決める。** agent が「できた」と言っても、その stage の artifact（tasks.md など）が
+  無ければ node が落ちる
+- **issue は PR と同時に作る**（`publish.sh` が `issue_body.py` で）。merge の後に作る規則だと作る係がいなくなる
+  （実測: ST02 は merge から issue まで 10 時間空いた）
+- gate が落ちたら fresh な agent（`fix`）が gate の報告書を読んで直し、publish → gate をやり直す。
+  3 回で通らなければ人間を待つ（kind=wait）
 
-### 何を並列で始めてよいかは盤面が決める
+### 何を並列で始めてよいかは admission が決める
 
-```bash
-python3 scripts/board.py                          # 状態ごとの一覧と「いま同時に始められる上流」
-python3 scripts/board.py --html docs/briefs/board.html   # スマホで見るなら
-```
-
-並列にしてよいのは **2 つとも**満たすもの同士: (1) `requires` が全部 archive 済み（specs を最後まで書ける）、
-(2) capability（`docs/stories/INDEX.md` の表）が走っている Story と重ならない。番号順ではない。
+`admission` node が `board.py` の `admit()` で判定し、駄目なら理由つきで待つ（`hx poke` で見直す）。
+並列にしてよいのは **2 つとも**満たすもの: (1) `requires` が全部 archive 済み（specs を最後まで書ける）、
+(2) capability（`docs/stories/INDEX.md` の表）が走っている他の Story と重ならない。番号順ではない。
 同じ capability を 2 本が同時に触ると差し戻しが起きる（実測: ST02 と ST03 が登録簿を共有し、12 時間で 5 往復）。
-`衝突待ち` と出た Story は始めない。
+requires が「上流済み・archive 前」なら deep と proposal まで書いて待つ。
+thread の無い Story も含めた一覧は `python3 scripts/board.py`。
 
-### 確認は Story ごとにしない。バッチで 1 回
+### 確認は Story ごとにしない。バッチで 1 回（verify グラフ）
 
-Story の下流が終わっても**人間に動作確認を求めない**。gate を通った PR をまとめて `/verify`（確認バッチ）にかける:
+Story の下流が gate を通っても**人間に動作確認を求めない**。Story の thread は `wait_verified` で待つ。
 
 ```bash
-scripts/verify_batch.sh          # verify/<tag> を切り、ready な feat/st* の PR を全部 merge
-                                 # → tools/verify-prep.sh（server の release / web の build / APK / run.sh / manifest）
-                                 # → 手順書 docs/briefs/verify-<tag>.html（完了の判定と「人間の確認待ち」から機械的に）
-                                 # → draft の PR
+scripts/hx verify                # batch: verify/<tag> に gate を通った feat/st* を merge → tools/verify-prep.sh
+                                 #   → 手順書 → draft の PR。check で人間を待つ
 ./dist/verify-<tag>/run.sh       # 人間: DB → サーバ → 画面 → 偽データ を 1 コマンドで起動して、手順書のとおりに見る
-python3 scripts/verify_record.py <tag> answers.txt   # 貼り戻しを tasks.md と docs/verify/<tag>.md に記録 → gh pr ready
+scripts/hx answer verify-<時刻> a.txt   # record: tasks.md と docs/verify/<tag>.md に記録 → 通れば ready
 ```
 
-停止点は verify の PR の merge。merge 後に Story ごとに `scripts/archive.sh ST<NN>`（Story の PR を閉じ、worktree を片付ける）。
+停止点は verify の PR の merge。merge 後に `hx poke` で各 Story の thread が archive へ進む。
 **準備（ビルド・起動・手順書・実機への APK）は AI が済ませる。** 人間がやるのは run.sh を叩いて見ることだけ。
 
 **人間の確認は正しさのテストではない**（2026-09-14）。正しさは単体・結合・実行時テストが持つ ——
@@ -230,8 +222,8 @@ python3 scripts/ask_wizard.py --example > /tmp/q.json   # 入力の形
 python3 scripts/ask_wizard.py /tmp/q.json -o docs/briefs/ST<NN>-deep.html
 ```
 
-`SendUserFile`（`display: "render"`）で渡す → タップで選ぶ → 「回答をコピー」→
-**その文字列をセッションに貼り戻す**。戻りの形は固定で、未回答も分かる。
+グラフの `ask` が HTML のパスを出して待つ → タップで選ぶ → 「回答をコピー」→
+**その文字列で resume する**（`scripts/hx answer ST<NN> <file>` か Studio）。戻りの形は固定で、未回答も分かる。
 
 ```
 === ST02 の深掘り の回答 ===
@@ -248,7 +240,7 @@ Q2 [感度の既定] -> (未回答)
   `premise` は「**既に決めたことの根拠が事実と違っていた**」（実測: ST02 第 8 回 Q30、ST03 第 2 回の 7 件）
 - **問いは 2 段。判定の言葉は「後から答えを変えたら何が失われるか」**（2026-09-12。ST02 / ST03 の振り返り）
   - **A 止める** —— `loss` を持つ問い（`uncaptured` 取っていないデータ / `discarded` 捨てた・拒んだ /
-    `exported` 外に出た / `rewrite-all` 凍結した全行の書き直し）と `premise` / `visual`。未回答なら merge_gate が止める
+    `exported` 外に出た / `rewrite-all` 凍結した全行の書き直し）と `premise` / `visual`。未回答ならグラフが同じ問いを聞き直す
   - **B 仮でよい** —— 計算し直せば戻る（判定式・閾値・順序・表示・導出の規則）。推奨を既定にし、
     未回答なら推奨を採ったと読む。下流では AI が仮で決め、`design.md` に `D<n>（仮）` と反転条件を書き、
     PR 本文に列挙する。人間は merge のときに 1 回で見る
@@ -261,30 +253,17 @@ Q2 [感度の既定] -> (未回答)
   `docs/briefs/ST<NN>-proto.html` を `playground` skill で作り、問いは `kind: visual` + `proto` で
   その HTML を埋め込む（実測: ST02 は格子だけで 8 問・6 回を使い、2 問は絵があれば要らなかった）
 
-**上流は先行 Story が merge されるまで `deep` と `proposal` で止まる。** 機械的に
+**上流は先行 Story が archive されるまで `deep` と `proposal` で止まる。** 機械的に
 書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
 `MODIFIED` を書けない）うえ、実装が spec の穴を開けるので書いても古くなる。
-
-worktree が無ければ `feat/<change名>` で作り、あれば main に追従させてから入る。
-最後に `claude --permission-mode auto "/story ST01"` を exec するので、
-**新しいセッションが auto mode で始まる**。
-
-- **新しいセッション**である必要がある —— プラグインはセッション開始時に読み込まれる
-- **auto mode** を明示する必要がある —— 既定は manual で、放っておくと毎アクション確認になる
-  （`--permission-mode` は `claude --help` に出ないが実在する。2.1.226 で実測。
-  取りうる値は `acceptEdits` / `auto` / `bypassPermissions` / `manual` / `dontAsk` / `plan`）
-
-モードを変えたいときは `STORY_PERMISSION_MODE=manual scripts/story.sh ST01`。
-
-すでに worktree の中にいるなら、セッション内で `/story ST01` だけでよい。
 
 **`/story` は実装の回し方を持たない。** 回すのは `superpowers:subagent-driven-development`（SDD）——
 **Task ごとに fresh な implementer** を出し、**Task ごとに独立の task reviewer**（`task-reviewer-prompt.md`）に
 かけ、直しがあれば scoped re-review、全 Task 完了後に **whole-branch review**
 （`requesting-code-review` の `code-reviewer.md` ＋ `code-verify`）を通す。
 `/story` が持つのは **SDD に渡す 4 つの値**（PLAN_FILE = `tasks.md` / Global Constraints /
-担当する Task / 完了の記録先）と、**SDD の外にある関門**（`review/code.md` の処置 →
-`review_triage.py` → `merge_gate.sh`）だけ。
+担当する Task / 完了の記録先）と、whole-branch review の処置（`review/code.md` → `review_triage.py`）だけ。
+push・PR・gate はグラフの node。
 
 | 誰が | 文脈 | 渡されるもの | 渡されないもの |
 |---|---|---|---|
@@ -307,17 +286,15 @@ Task の粒度は **checkbox 1 つではなく、見出し 1 つ**（1 Story あ
 後続の spec が古くなる。proposal（何を・なぜ）は実装詳細に依存しないので先に書ける。
 
 **worktree にする理由**: 同じディレクトリで 2 セッションが git を触ると壊れる。上流も Story ごとの worktree に分けるので、
-盤面が「同時に始められる」と出した上流どうしを実際に並べられ、main の作業ツリーは main のまま残る
-（2026-09-15。以前は上流が main の作業ツリーでブランチを切り替えていて、コンソールが 2 本目の上流を拒んだ）。
+admission が通した Story どうしを実際に並べられ、main の作業ツリーは main のまま残る（`hx dev` は 8 run を並列に回す）。
 
-**停止点は 1 つだけ**: **merge**。そこまでは人間を待たずに走り切り、PR を出す。
-CI が落ちたら自分で直す。それ以外は推奨 default を採って進み、決めたことを記録する。
-止まらないのではなく、**1 か所だけで止まる**。止まる印は **draft**（`merge_gate.sh` が付け外しする）。
+**人間が止める場所は 3 種類だけ**: 深掘りの答え（A）、**merge**、確認バッチ。それ以外は推奨 default を採って進み、
+決めたことを記録する。止まる印は thread の interrupt と、PR の **draft**（`merge_gate.sh` が付け外しする）。
 `closes #N` は残タスク 0 のときだけ。それ以外は `refs #N`（issue が残タスクの入口）。
 
-例外が 1 つ。**`deep.md` に人間へ返す項目が積まれたときは `--draft` で PR を出す**
-（本文の冒頭に未決を列挙する）。未決でも**作業は捨てない** —— 手元に抱えたまま止まると、
-次のセッションが状況を復元できない。
+下流で **`deep.md` に人間へ返す項目（A）が積まれたら**、`/story` は問いの HTML を作って終え、グラフが `ask` で待つ。
+答えを `record` が `deep.md` に書いた後、`/story` をもう一度呼ぶ（SDD の ledger から続きをやる）。
+未決でも**作業は捨てない** —— 済んだ Task は commit されている。
 
 **走っている Story へは差し戻さない**（2026-09-12）。issue ができた時点でその Story の `tasks.md` は凍結。
 他の Story が見つけた事は、見つけた側の change で直すか、先行の merge 後に `fix/` で拾う
