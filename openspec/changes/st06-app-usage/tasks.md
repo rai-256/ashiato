@@ -120,7 +120,7 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 5: ソースごとの独立と権限
 
-- [ ] 5.1 収集の開始を取得条件に依らず行い、取得条件が欠けたソースは `collect()` を呼ばずに
+- [x] 5.1 収集の開始を取得条件に依らず行い、取得条件が欠けたソースは `collect()` を呼ばずに
   生存信号だけ出す（design D5）。`MainActivity` の「位置が無ければ終了」をやめる。
   Scenario: `位置の取得条件が欠けてもアプリ利用は集まる` / `アプリ利用の取得条件が欠けても位置は集まる` /
   `どのソースも取得できなくても収集は始まり信号は届く`。
@@ -131,18 +131,18 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   点 4「権限は拒否のまま」は変わらない。叩き台の「収集は始まらず」は ST06 の
   `収集の開始を、ソースの取得条件が満たされているかに依らず行う` と**正面から矛盾する**ので、
   ST11 がそのまま採ると正典の中で 2 つの Requirement が食い違う。spec レビュー R9。ST06 の上流で叩き台は書き直してある）
-- [ ] 5.2 アプリ利用の取得可否（`PACKAGE_USAGE_STATS` の付与状態）を `AndroidCapability` と同じ形で読み、
+- [x] 5.2 アプリ利用の取得可否（`PACKAGE_USAGE_STATS` の付与状態）を `AndroidCapability` と同じ形で読み、
   `blockers` は `permission` と `network` の 2 つにする（既定 C9）。**読めなかったら「取れない」に倒す**。
   Scenario: `位置の取得条件が欠けても位置の生存信号は届く`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*AndroidCapabilityTest*'` rc=0
-- [ ] 5.3 初回起動で設定画面へ送り、許可されなくても収集を始める。自動で送るのは 1 度だけで、
+- [x] 5.3 初回起動で設定画面へ送り、許可されなくても収集を始める。自動で送るのは 1 度だけで、
   以後は常駐の通知からたどれるようにする（design D6（仮））。
   Scenario: `特別なアクセスが無ければ初回起動で設定画面へ送られる` / `許可しなくても収集は始まる` /
   `2 度目の起動では自動で送られない` / `後から許可すると次の契機から集まる`。
   検証: 計測テスト `./gradlew :app:connectedDebugAndroidTest --tests '*UsageAccessInstrumentedTest*'` rc=0
   （設定画面へ遷移したことは UI Automator で確かめる。`appops set <pkg> GET_USAGE_STATS` で前提を作り、
   **前提はテストの外**で作る＝`@NeedsPristinePermissions` と同じ 2 段実行）
-- [ ] 5.4 常駐の通知の文言を、位置だけの決め打ちからソースの数に合わせた形へ直す（R10）。
+- [x] 5.4 常駐の通知の文言を、位置だけの決め打ちからソースの数に合わせた形へ直す（R10）。
   ST04 の「未送信の日数」の表示は**壊さない**。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RetentionNotifierTest*'` rc=0
 
