@@ -16,6 +16,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
+import org.robolectric.shadows.ShadowLog
 
 /**
  * 権限のフロー（tasks 6.2 / design D27）。
@@ -173,6 +174,65 @@ class MainActivityTest {
         )
     }
 
+    /**
+     * **位置を断られたことは 1 回の起動で 1 行**（独立レビュー N2）。
+     *
+     * `proceed()` は結果の返りと `onResume` で何度も通る（通知の権限を求めるようになってからは
+     * 1 回の起動で 2 回以上）。毎回出すと `logcat` が同じ行で埋まり、環状の置き場から
+     * 他の行が押し出される —— `logcat -t 400` を読む計測テストの前提に直接効く。
+     */
+    @Test
+    fun `位置を断られたログは 1 回の起動で 1 行だけ`() {
+        ShadowLog.clear()
+        deny(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val controller = launch()
+
+        systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
+        // 設定画面などから戻ってきた（`onResume` がもう一度 `proceed()` を通す）
+        controller.pause().resume()
+
+        assertEquals(
+            "同じ拒否を毎回ログに出している",
+            1,
+            ShadowLog.getLogsForTag(LocationService.TAG).count { it.msg.contains("kind=permission_denied") },
+        )
+    }
+
+    /**
+     * **印は「取れるようになった」で戻す**（N2 の反対側。`source_unavailable` と同じ形）——
+     * 戻さないと、許可 → 剥奪（OS は長期間使っていないアプリの権限を自動で剥がす）を
+     * またいだ 2 度目の拒否が 1 行も残らない。
+     */
+    @Test
+    fun `許可されて戻った後にまた断られたら、もう 1 行残す`() {
+        ShadowLog.clear()
+        fun lines() = ShadowLog.getLogsForTag(LocationService.TAG)
+            .count { it.msg.contains("kind=permission_denied") }
+        deny(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+        val controller = launch()
+        systemAnswers(controller, Manifest.permission.ACCESS_FINE_LOCATION)
+        systemAnswers(controller, Manifest.permission.POST_NOTIFICATIONS)
+        assertEquals("最初の拒否が残っていない", 1, lines())
+
+        // 設定画面で許して戻ってきた（ここで印が戻る）
+        grant(Manifest.permission.ACCESS_FINE_LOCATION)
+        controller.pause().resume()
+        // そのあと剥がされた
+        deny(Manifest.permission.ACCESS_FINE_LOCATION)
+        systemAnswers(controller, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+        assertEquals("2 度目の拒否が 1 行も残っていない", 2, lines())
+    }
+
     @Test
     fun `同じ権限を無限に求め直さない`() {
         // 実状態を見る作りなので、記録が無いと「まだ許可されていない」を理由に永久に求め続ける
@@ -243,10 +303,14 @@ class MainActivityTest {
     /**
      * 設定画面で許可せずに戻っても収集は始まる（本人の決定 Q3）。
      *
-     * **`Scenario: 許可しなくても収集は始まる` の印はここに置かない**（独立レビュー I3）——
-     * その Scenario の THEN は「**位置の記録が生成される**」＋ AND「アプリ利用の生存信号が
+     * **`許可しなくても収集は始まる` の印はここに置かない**（独立レビュー I3）——
+     * その THEN は「**位置の記録が生成される**」＋ AND「アプリ利用の生存信号が
      * 取得できない状態と権限を示す」で、ここは入口が収集を**始めた**ことしか見ていない。
      * 印は THEN を確かめている `SourceIndependenceTest` にある。
+     *
+     * **この説明に `印の書き方` をそのまま書かない**（独立レビュー N1）——
+     * `check_scenarios.py` の印の正規表現は行中のその綴りを無条件に拾うので、
+     * 「置かない」と書いた散文そのものが**幻の印**になり、gate の出力に warn が残る。
      */
     @Test
     fun `設定画面で許可せずに戻っても収集は始まる`() {

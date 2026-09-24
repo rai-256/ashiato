@@ -45,6 +45,16 @@ open class MainActivity : Activity() {
     /** 求めている最中。`onResume` と結果の二重呼び出しで再要求しないため。 */
     private var inFlight = false
 
+    /**
+     * 位置を断られたことを**もうログに残した**（独立レビュー N2）。
+     *
+     * `proceed()` は結果の返りと `onResume` で何度も通る —— 通知の権限を求めるようになってからは
+     * 1 回の起動で少なくとも 2 回通る。毎回出すと `logcat` が同じ 1 行で埋まり、
+     * **環状の置き場から他の行が押し出される**（`logcat -t 400` を読む計測テストの前提に直接効く）。
+     * `LocationService` の `source_unavailable` で潰したのと同じ型。
+     */
+    private var deniedLogged = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // ここでは何もしない。onResume が状態を見る（設定画面からの戻りも同じ経路になる）
@@ -100,8 +110,15 @@ open class MainActivity : Activity() {
         }
         if (!granted(fine)) {
             // 一度求めて、それでも無いなら断られた。**それでも収集は始める**（ST06 / Q7）——
-            // 位置だけが③「取れない状態」として生存信号に載り、アプリ利用は取れ続ける
-            Log.w(TAG, Telemetry.line("permission_denied", source = LOGICAL_SOURCE))
+            // 位置だけが③「取れない状態」として生存信号に載り、アプリ利用は取れ続ける。
+            // **1 回の起動で 1 行だけ**（N2）
+            if (!deniedLogged) {
+                Log.w(TAG, Telemetry.line("permission_denied", source = LOGICAL_SOURCE))
+                deniedLogged = true
+            }
+        } else {
+            // 設定画面で許されて戻ってきた。次に断られたらまた 1 行出す
+            deniedLogged = false
         }
         // **位置の可否で枝を分けない**（独立レビュー I1）。前提を持つのは背景の位置だけで、
         // それは `niceToHave()` の中で見る —— 分けると、位置を拒んだ端末が通知の権限を 1 度も求めない
