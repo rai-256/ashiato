@@ -184,6 +184,20 @@ class SegmentStore<T : Outboxable>(
         return out
     }
 
+    /** 指定したソースで最も古い 1 件。全件をメモリに載せず、最初に見つけたところで止める。 */
+    fun oldest(logicalSource: String): Stored<T>? {
+        var found: Stored<T>? = null
+        scan { entry ->
+            if (entry.item.logicalSource == logicalSource) {
+                found = entry
+                false
+            } else {
+                true
+            }
+        }
+        return found
+    }
+
     /** 取り除かれていない行が `n` 件より多いか。**行を溜めずに数える。** */
     fun hasMoreThan(n: Int): Boolean {
         var seen = 0

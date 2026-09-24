@@ -84,8 +84,10 @@ class Retention<T : Retainable>(
             { _ -> before?.let(ledger::restore) },
         )
         if (n > 0) {
-            val remaining = records.oldest()?.item?.eventTime?.let(::instantOf)
-            for (source in touched) ledger.endBatch(source, reason, remaining)
+            for (source in touched) {
+                val remaining = records.oldest(source)?.item?.eventTime?.let(::instantOf)
+                ledger.endBatch(source, reason, remaining)
+            }
             // **件数と理由の種別だけ**（製造準備 A-2）。捨てた記録の位置・時刻の値は出さない
             log(Telemetry.line("retention_dropped", source = null, count = n, error = reason.wire))
         }

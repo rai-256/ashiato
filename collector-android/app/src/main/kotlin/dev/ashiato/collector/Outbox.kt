@@ -100,6 +100,11 @@ class Outbox<T : Outboxable>(
     @Synchronized
     fun oldest(): Stored<T>? = store.head(1).firstOrNull() ?: unwritten.firstOrNull()
 
+    /** 指定したソースで最も古い未送信。破棄の報告の範囲を同じソースの記録で閉じるために使う。 */
+    @Synchronized
+    fun oldest(logicalSource: String): Stored<T>? =
+        store.oldest(logicalSource) ?: unwritten.firstOrNull { it.item.logicalSource == logicalSource }
+
     /** 未送信が `n` 件より多いか（溜まっている間は続けて送る。design D12）。 */
     @Synchronized
     fun hasMoreThan(n: Int): Boolean =
