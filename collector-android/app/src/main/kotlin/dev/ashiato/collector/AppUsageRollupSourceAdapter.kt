@@ -284,6 +284,7 @@ class AppUsageRollupSourceAdapter(
         var unreadable: String? = null
         var persisted = 0
         var skipped = 0
+        var notImported = 0
         for (granularity in targets) {
             when (val read = source.rollups(granularity, CollectionWindow(ROLLUP_QUERY_BEGIN, at))) {
                 is RollupsResult.Unreadable -> {
@@ -292,6 +293,9 @@ class AppUsageRollupSourceAdapter(
                     unreadable = read.reason
                 }
                 is RollupsResult.Rollups -> {
+                    // **その粒度で積むべき全件が置き場に書けたか**（再レビュー round 3）。
+                    // 0 件なら真のまま（書くものが無いだけ）
+                    var allStored = true
                     for (rollup in read.rollups) {
                         val record = rollup.toIngestRequest(
                             newId(), user, deviceId, collectedIn, granularity, labels.label(rollup.packageName),
@@ -314,10 +318,25 @@ class AppUsageRollupSourceAdapter(
                         if (outbox.add(record)) {
                             seen[print] = rollup.lastAt
                             persisted++
+                        } else {
+                            allStored = false
                         }
                     }
-                    // **0 件でも取り込み済み**（本人の決定 C7）—— 端末に入れたばかりで過去が無いだけ
-                    imported += granularity
+                    // **積んだ全件が書けたときだけ「取り込み済み」にする**（再レビュー round 3）。
+                    //
+                    // spec は逐語で「年と月の粒度まで**取り込んだ**ところで収集が止まり」と書いており、
+                    // 取得元から**読めた**ことは取り込んだことではない（取り込みは未送信に積むところまで）。
+                    // 読めただけで印を付けると、置き場が満杯の端末で**年・月・週は二度と読まれない**
+                    // —— 初回の 1 度きりだからで、年は 2 年ぶんが取得元からも日ごとに消えていく
+                    // （`loss: uncaptured`）。日ごとは以後の契機で取り直されるので助かるが、粗いほうは助からない。
+                    //
+                    // 置き場が満杯の端末では年の粒度が毎契機読み直されるが、**それが安全側** ——
+                    // 積み直しは冪等でサーバが内容の鍵で畳む。積まないことは取りこぼし。
+                    //
+                    // **0 件が返った粒度は取り込み済みにする**（本人の決定 C7「0 件でも成功」）。
+                    // 書くものが無いだけで失敗ではない —— ここを `persisted == 0` で判定すると、
+                    // 過去が無い端末で 4 粒度が永久に読み直される。
+                    if (allStored) imported += granularity else notImported++
                 }
             }
             // **読めなかったらそこで止める**（次の粒度へ進まない）—— 取得元まるごとが
@@ -331,6 +350,10 @@ class AppUsageRollupSourceAdapter(
         if (persisted > 0 || pruned.size != seenBefore) seenStore.save(pruned)
         // 出すのは件数だけ（製造準備 A-2）。表示名も原文も出さない
         log(Telemetry.line("usage_rollup", source = logicalSource, count = enqueued.size))
+        if (notImported > 0) {
+            // **印を付けずに残した粒度の数**（次の契機で読み直す）。置き場が書けない端末で立つ
+            log(Telemetry.line("usage_rollup_not_imported", source = logicalSource, count = notImported))
+        }
         if (skipped > 0) {
             // **積み直さずに済んだ件数**（tasks 7.1 の実測が読む）
             log(Telemetry.line("usage_rollup_already_sent", source = logicalSource, count = skipped))

@@ -301,6 +301,77 @@ class RollupImportTest {
     }
 
     /**
+     * **1 件も書けなかった契機では、その粒度が「取り込み済み」にならない**（再レビュー round 3）。
+     *
+     * spec は逐語で「年と月の粒度まで**取り込んだ**ところで収集が止まり」と書いており、
+     * 取得元から**読めた**ことは取り込んだことではない。読めただけで印を付けると、
+     * 置き場が満杯の端末で**年・月・週は二度と読まれない**（初回の 1 度きりだから）——
+     * 年は 2 年ぶんが取得元からも日ごとに消えていく（`loss: uncaptured`）。
+     */
+    @Test
+    fun `1 件も書けなかった契機ではその粒度が取り込み済みにならない`() {
+        val inner = FakeUsageSource(storedRollups = stored())
+        val env = RollupTestEnv(inner)
+        env.blockOutbox()
+
+        env.collect()
+
+        assertEquals("書けていないのに取り込み済みの印が付いた", 0, env.progressLines())
+        assertTrue(
+            "印を付けずに残したことがログに出ていない: ${env.lines}",
+            env.lines.any { it.startsWith("kind=usage_rollup_not_imported") },
+        )
+
+        // 空きが戻った（プロセスも立て直された）
+        env.restart()
+        env.outbox = testOutbox()
+        inner.rollupQueries.clear()
+        env.advance(ROLLUP_INTERVAL_MS)
+
+        env.collect()
+
+        assertEquals(
+            "年・月・週が読み直されていない（初回の 1 度きりなので二度と読まれない）",
+            ROLLUP_IMPORT_ORDER,
+            inner.rollupQueries.map { it.first },
+        )
+        assertEquals(4, env.records().size)
+        assertEquals(4, env.progressLines())
+    }
+
+    /**
+     * **0 件が返った粒度は取り込み済みになる**（本人の決定 C7「0 件でも成功」）。
+     *
+     * 上の試験と**同じ `persisted == 0`** だが結論が逆 —— 書くものが無いだけで失敗ではない。
+     * 同じ判定式にすると、過去が無い端末で 4 粒度が永久に読み直される。
+     */
+    @Test
+    fun `0 件が返った粒度は取り込み済みになる`() {
+        val inner = FakeUsageSource()
+        val env = RollupTestEnv(inner)
+
+        env.collect()
+
+        assertEquals("0 件だった粒度に印が付いていない", 4, env.progressLines())
+        assertEquals(0, env.records().size)
+        assertFalse(
+            "0 件を「書けなかった」と取り違えている: ${env.lines}",
+            env.lines.any { it.startsWith("kind=usage_rollup_not_imported") },
+        )
+
+        inner.rollupQueries.clear()
+        env.advance(ROLLUP_INTERVAL_MS)
+
+        env.collect()
+
+        assertEquals(
+            "0 件だった粒度が読み直されている",
+            listOf(ROLLUP_ONGOING_GRANULARITY),
+            inner.rollupQueries.map { it.first },
+        )
+    }
+
+    /**
      * **置き場に書けなかった箱は、次の契機で積み直される**（再レビュー F1）。
      *
      * `Outbox.add` が偽で返したものはメモリに載るが、端末の空きが尽きた状態が続けば
@@ -386,10 +457,13 @@ private class RollupTestEnv(
     var outbox: Outbox<IngestRequest> = testOutbox()
 
     /** 台帳のファイル（試験が行数を直接読む）。まだ 1 度も書いていなければ 0 行と数える */
-    fun seenLines(): Int {
-        val f = usageRollupSeenFile(dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE)
-        return if (f.exists()) f.readLines().filter { it.isNotBlank() }.size else 0
-    }
+    fun seenLines(): Int = lines(usageRollupSeenFile(dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE))
+
+    /** 取り込み済みの粒度の印（試験が行数を直接読む）。 */
+    fun progressLines(): Int = lines(usageRollupProgressFile(dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE))
+
+    private fun lines(f: File): Int =
+        if (f.exists()) f.readLines().filter { it.isNotBlank() }.size else 0
 
     /** 置き場に 1 件も書けない未送信（`mkdirs` が通らない道に置く。`WriteFailedTest` と同じ形）。 */
     fun blockOutbox() {
