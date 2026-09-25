@@ -21,6 +21,10 @@
 
 **旧ハーネス（`.harness/`）は持ち込んでいない。** hook もレビューキューも無い。
 
+**ハーネスの所有者は `~/dev/harness2/` である。** LangGraph graph、`scripts/`、Skill、agent、executor と
+それらの設計原則・責務分担の正典は [`~/dev/harness2/README.md`](../harness2/README.md) に置く。
+このリポジトリはプロダクトの要件・Story・OpenSpec・実装・テストを持ち、ハーネスの設計原則を複製・再定義しない。
+
 **旧 ashiato からの参考資料（`reference/`）はこのリポジトリに無い。** 公開にあたって全履歴から消した
 （本人の討議ログなので外に出さない）。文書に出てくる `旧 ashiato の …` という出所は、手元の
 `~/dev/ashiato/` を指す。**出所の検算はそこでしかできない。**
