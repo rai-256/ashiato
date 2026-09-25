@@ -21,6 +21,12 @@
 
 **旧ハーネス（`.harness/`）は持ち込んでいない。** hook もレビューキューも無い。
 
+## AI 開発ハーネスの設計原則
+
+ハーネスの追加・変更・削除を判断する最上位の正典は
+[`docs/harness-design-principles.md`](docs/harness-design-principles.md)。この文書は原則、
+`docs/flow-gates.md` は現在の関門運用を扱う。
+
 **旧 ashiato からの参考資料（`reference/`）はこのリポジトリに無い。** 公開にあたって全履歴から消した
 （本人の討議ログなので外に出さない）。文書に出てくる `旧 ashiato の …` という出所は、手元の
 `~/dev/ashiato/` を指す。**出所の検算はそこでしかできない。**
