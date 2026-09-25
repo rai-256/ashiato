@@ -161,25 +161,25 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 7: 実測と結合
 
-- [ ] 7.1 `tools/usage-volume.sh` を作る —— エミュレータで**イベントを N 件流し込んでから 1 時間ぶん**を取得し、
+- [x] 7.1 `tools/usage-volume.sh` を作る —— エミュレータで**イベントを N 件流し込んでから 1 時間ぶん**を取得し、
   1 件あたりのバイト数 × 実測の 1 日あたり件数から **90 日ぶんの未送信のバイト数**を標準出力に出し、
   **2 GB の上限の半分（1 GB）を超えたら rc=1** で落とす（design のリスク「端末の置き場を位置と食い合う」）。
   出た数を `deep.md` の「確かめたが問わなかったこと」に書き戻す。
   **rc=1 になったら実装を止めて本人に返す**（次の深掘りの問い。種別を絞るかどうかは Q1 の再問）。
   検証: `tools/usage-volume.sh` rc=0 / 出力の数が `deep.md` に写っている
   （**24 時間の実測はしない** —— 「時間そのもの」を待つ形にすると下流の 1 セッションで終わらない。spec レビュー R8）
-- [ ] 7.2 遅延の上限を**単体で**止める —— `USAGE_INTERVAL_MS == 1_800_000` と
+- [x] 7.2 遅延の上限を**単体で**止める —— `USAGE_INTERVAL_MS == 1_800_000` と
   `USAGE_INTERVAL_MS + SEND_INTERVAL_MS < 3_600_000` を assert する（`IntervalTest.kt` と同じ形）。
   Scenario: `アプリ利用は出来事の時刻から数えても 1 時間以内に届く`。
   **smoke には置かない**（spec レビュー R6 ——`tools/smoke.sh` の台本は自分で `event_time` に「いま」を入れて
   即 POST するので、**どんな実装でも緑になる**。`IntervalTest.kt:40-50` が同じ過ちを既に記録している）。
   検証: `./gradlew :app:testDebugUnitTest --tests '*IntervalTest*'` rc=0
-- [ ] 7.2b `tools/smoke.sh` に、アプリ利用と集計の 1 件が取り込み口を通って `core.event` に入ることと、
+- [x] 7.2b `tools/smoke.sh` に、アプリ利用と集計の 1 件が取り込み口を通って `core.event` に入ることと、
   **同じ 1 件を 2 回送っても行が増えない**ことを足す。
   `tools/smoke.sh` の `registered_at` を揃える対象に **`c01-app-usage-rollup` を足す**
   （足さないと集計の 1 件が「登録より前」になる。spec レビュー R6）。
   検証: `tools/smoke.sh` rc=0
-- [ ] 7.3 `docs/collector-contract.md` に `c01-app-usage` と `c01-app-usage-rollup` の `payload` の形を、
+- [x] 7.3 `docs/collector-contract.md` に `c01-app-usage` と `c01-app-usage-rollup` の `payload` の形を、
   C-02 と同じ粒度（欄の表・省略の規則・並び）で足す。
   検証: 3.4 / 4.4 の固定試験の期待値を**この表から読む**形にし、表を 1 行変えると試験が落ちることを確かめる
   （`check_scenarios.py` は `docs/` を読まないので、契約に表を足したことの検査にならない。spec レビュー R8）
