@@ -92,8 +92,9 @@ review package のパスと Global Constraints だけで、**implementer の推�
 実装した subagent は `tasks.md` を編集しない。task reviewer が通してから controller が付ける。
 
 > 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
-> （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
-> （通るほうの）コマンドを走らせた行まで `[x]` になった。採点者と受験者が同じだった。
+> （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）の行まで `[x]` になった。採点者と受験者が同じだった。
+> （訂正 2026-09-25: 以前ここに挙げていた「`check_scenarios.py . st08-browser-history`（通るほう）を走らせた」は、
+> Story の範囲として**正しい検査**だった。下の「関門の 3 段」を見る。）
 >
 > **これは要求の欠落ではない。** Task 5 は「`tools/smoke.sh` に『サーバを止めて取得 → 起動 →
 > 送信 → psql で件数』の手順を足して rc=0」「**Runtime の層で固定する**」と書き、Task 8 は
@@ -105,12 +106,35 @@ review package のパスと Global Constraints だけで、**implementer の推�
 印の無い B の `fixed`・凍結された Story への `deferred`・
 「要件へ戻すもの」の戻し漏れ（`requirements.md` に `★ 日付` の印が無い）を FAIL にする。
 
+### 検証の証跡 —— `[x]` は controller の申告ではなく、ハーネスの記録で決まる（2026-09-25）
+
+`tasks.md` の項目の検証コマンドは `scripts/verify-run <項目>` で走らせる。ハーネスが**本文に書かれたコマンドをそのまま**
+走らせ、`openspec/changes/<change>/evidence.jsonl` に 1 行ずつ残す（コマンド・作業ツリーの tree SHA・HEAD・change・Story・
+時刻・executor・環境・rc・`PASS` / `FAIL` / `BLOCKED_INFRA`・ログ）。status は機械が決める ——
+`BLOCKED_INFRA` は「要る環境が無い」（`/dev/kvm` を開けない・端末が無い・出力が環境の欠落を示す）。
+過去の測定値は `scripts/evidence.py invalidate` で `STALE`（参考のみ）にでき、完了の代わりには使えない。
+
+> 実測 2026-09-25（ST06 Task 7.1）: sandbox の中からエミュレータが起動できず検証は rc=2 だったのに、controller が
+> 前日に以前の実装で測った値を証跡に採用する Ruling を書いて `[x]` にした。取り直すと 510,004,080 bytes（以前は 446,653,440）。
+
+### 関門の 3 段 —— 何を見るかを混ぜない（2026-09-25）
+
+| 段 | 見るもの | どこで |
+|---|---|---|
+| **Task gate** | その Task の `[x]` の項目の検証コマンドすべてに、**いまのコード**に対する `PASS` の証跡があるか（`evidence.py check --task N`）。無い・古い・`FAIL`・`BLOCKED_INFRA` なら Task は完了しない | グラフの `sdd_task` の後 |
+| **Story gate** | 正典（archive 済み）+ **自分の change** の Scenario（`check_scenarios.py . <change>`）・処置・未回答・tasks の残り・`[x]` の最新の証跡が `PASS` でないもの（`evidence.py check --story`）。走っている他の Story の change では落ちない | `merge_gate.sh`、`archive.sh` |
+| **Integration gate** | 統合した木で、正典 + **束ねた全 change** の Scenario（`check_scenarios.py . <束ねた change…>`）。Story どうしの食い違いはここで初めて見える。全 change の監査は `check_scenarios.py . --all` | `verify_batch.sh`（確認バッチの統合ブランチ） |
+
+`check_scenarios.py .` を change 名なしで呼ぶと、グラフが渡す `HX_CHANGE`（実行中の Story の change）を対象にする。
+`HX_CHANGE` も `--all` も無ければ、推測せずに rc=2（ブランチ名から当てない）。
+
 ## 検査の一覧
 
 | スクリプト | 見るもの | 走る場所 |
 |---|---|---|
 | `check_chain.py` | 要件 → Story の鎖（8 観点。対象外は INDEX の「Story の対象外」）。`stories.json` からの再生成と一致するか | ローカル、`merge_gate`、CI（`HARNESS2_TOKEN` があるとき） |
-| `check_scenarios.py` | 全 `#### Scenario:` に test の印（`Scenario: <名前>`）があるか。無いものは「人間の確認待ち」に無ければ FAIL | ローカル、`merge_gate`、`archive` |
+| `check_scenarios.py` | 正典 + 対象の change の `#### Scenario:` に test の印（`Scenario: <名前>`）があるか。無いものは「人間の確認待ち」に無ければ FAIL。対象は change 名 / `HX_CHANGE` / `--all`（上の 3 段） | ローカル、`merge_gate`、`archive`、`verify_batch`（統合） |
+| `evidence.py` / `verify-run` | 検証の証跡の記録（run）と判定（check --task / --story）、無効化（invalidate） | implementer と controller（run）、グラフの `sdd_task`（Task gate）、`merge_gate`（Story gate） |
 | `review_triage.py` | 上の処置 | ローカル、`merge_gate`、`archive` |
 | `merge_gate.sh` | head を main に追従 → その head の CI → tasks の残り → 検査 3 本 → deep の未回答。落ちれば draft に戻し、通れば ready。rc と `[FAIL]` の行でグラフが分岐する | グラフの `gate` |
 | `issue_body.py` | 下流へ渡す issue の本文を deep / tasks / design / Story から機械的に出す。**上流の PR と同時に作る**（merge を待たない） | `publish.sh upstream`、`prepare.sh downstream` |

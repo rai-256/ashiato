@@ -157,6 +157,9 @@ SDD は plan の Task を全部終えたら止まるので、Task N の後に止
 （implementer・task reviewer・fix loop・ledger）は SDD のまま。グラフは node の後に「Task N が `[x]`」
 「slice の ledger に `Task N: complete`」「ほかの Task の `[x]` が動いていない」を機械で見る。
 失敗は Task 単位で、`hx retry` はその Task から続く。whole-branch review・code-verify・処置と PR 本文は全 Task の後に 1 回ずつ。
+**`[x]` は検証の証跡で決まる**（2026-09-25）: 検証コマンドは `scripts/verify-run <項目>` でハーネスが走らせて記録し、
+Task gate / Story gate / Integration gate がそれを機械で見る（`docs/flow-gates.md` の「関門の 3 段」）。
+環境の欠落（`BLOCKED_INFRA`）や過去の測定値では完了にならない。
 
 分割点は `openspec/changes/<change>/tasks.md` —— 上流の最後の成果物であり、下流の唯一の入力。
 上流は `../ashiato2-up-st<NN>` の `docs/st<NN>-upstream`、下流は `../ashiato2-st<NN>` の `feat/<change>`。
