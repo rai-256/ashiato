@@ -16,9 +16,6 @@ cleanup() {
 trap cleanup EXIT
 
 if [ -z "$sample" ]; then
-  # shellcheck disable=SC1091
-  . ./tools/android-env.sh
-  export PATH="$ANDROID_HOME/emulator:$PATH"
   serial=${SERIAL:-$(adb devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }')}
   if [ -z "$serial" ]; then
     avd=${AVD:-ashiato-api35}
@@ -29,7 +26,7 @@ if [ -z "$sample" ]; then
     if ! avdmanager list avd -c 2>/dev/null | grep -qx "$avd"; then
       echo no | avdmanager create avd -n "$avd" -k "$image" -d pixel_6 >/dev/null
     fi
-    emulator -avd "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
+    "$ANDROID_HOME/emulator/emulator" -avd "$avd" -wipe-data -no-window -gpu swiftshader_indirect -noaudio \
       -no-boot-anim -camera-back none -no-snapshot >/dev/null 2>&1 &
     serial=emulator-5554
     started=$serial
