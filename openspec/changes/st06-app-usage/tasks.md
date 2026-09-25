@@ -186,11 +186,11 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 
 ## Task 8: 仕上げ
 
-- [ ] 8.1 `python3 scripts/check_scenarios.py .` で、この change の全 Scenario に印があることを確かめる。
+- [x] 8.1 `python3 scripts/check_scenarios.py .` で、この change の全 Scenario に印があることを確かめる。
   検証: rc=0（「人間の確認待ち」は 0 本）
-- [ ] 8.2 `./gradlew :app:testDebugUnitTest` / `tools/android-emulator.sh` /
+- [x] 8.2 `./gradlew :app:testDebugUnitTest` / `tools/android-emulator.sh` /
   `cargo test --workspace` / `cargo clippy --all-targets -- -D warnings` / `tools/smoke.sh` が全部 rc=0
   （訂正 2026-09-26: 検証の入口を「./gradlew :app:connectedDebugAndroidTest」から上の入口に。受け入れ条件は変えない。理由: 計測テストは 2 段（権限を拒否したときのテストは pm reset-permissions の後に annotation 指定で走らせる）と -Pashiato.baseUrl（127.0.0.1 への平文 HTTP を許す）を前提にしていて、裸の gradle タスクでは原理的に通らない。プロジェクトの正式な入口は tools/android-emulator.sh（エミュレータの起動・2 段・baseUrl つき）。 実証: evidence.jsonl 2026-09-25T15:00:51+00:00 FAIL。承認: 2026-09-25 本人の回答（ST06 8.2: 検証入口だけを正式な tools/android-emulator.sh に修正。受け入れ条件は変えない）。記録: plan-corrections.md）
-- [ ] 8.3 `docs/handoff/` を PR の前にもう 1 度読む（`ST11.md` は 5.1 で書き直したもの、
+- [x] 8.3 `docs/handoff/` を PR の前にもう 1 度読む（`ST11.md` は 5.1 で書き直したもの、
   `ST14.md` は ST06 が申し送った 3 件）。
   検証: `python3 scripts/review_triage.py . st06-app-usage` rc=0
