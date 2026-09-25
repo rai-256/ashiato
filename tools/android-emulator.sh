@@ -50,8 +50,10 @@ echo "== 計測テスト"
 # 状態を作るのはテストの外の仕事にする。`pm clear` は前のテストが残した前景サービスがあると
 # `Failed` で rc=1 になる（実測）ので、権限だけを戻す `pm reset-permissions` を使う。
 A=dev.ashiato.collector.NeedsPristinePermissions
+# 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
-   -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A")
+   -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.UsageVolumeInstrumentedTest")
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \

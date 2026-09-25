@@ -24,3 +24,10 @@ ADB=/bin/false tools/wait-android-boot.sh emulator-5554 1 0 >/dev/null 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 1 ] || { echo "端末が現れないとき rc=$rc（期待: 1）" >&2; exit 1; }
+
+# 採寸専用テストは usage access とイベント生成を前提にするため、通常の計測 suite には混ぜない。
+volume_test=dev.ashiato.collector.UsageVolumeInstrumentedTest
+grep -Fq -- "-Pandroid.testInstrumentationRunnerArguments.notClass=\"$volume_test\"" tools/android-emulator.sh \
+  || { echo "android-emulator.sh が採寸専用テストを通常 suite から除外していない" >&2; exit 1; }
+grep -Fq -- "-e class $volume_test" tools/usage-volume.sh \
+  || { echo "usage-volume.sh が採寸専用テストを明示実行していない" >&2; exit 1; }
