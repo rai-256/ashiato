@@ -64,7 +64,8 @@ class RollupPayloadShapeTest {
                 totalForegroundServiceMs = 120_000,
             ),
         )
-        assertEquals(payloadContractFields(APP_USAGE_ROLLUP_LOGICAL_SOURCE), request.payload.keys.toList())
+        val requiredOnly = request(usageRollup(packageName = "x").copy(packageName = null), label = null)
+        assertPayloadMatchesContract(APP_USAGE_ROLLUP_LOGICAL_SOURCE, request.payload, requiredOnly.payload)
         assertEquals(
             """{"granularity":"daily","package":"dev.ashiato.example",""" +
                 """"begin":"2026-05-01T00:00:00Z","end":"2026-05-02T00:00:00Z",""" +
