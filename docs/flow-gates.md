@@ -117,6 +117,21 @@ review package のパスと Global Constraints だけで、**implementer の推�
 > 実測 2026-09-25（ST06 Task 7.1）: sandbox の中からエミュレータが起動できず検証は rc=2 だったのに、controller が
 > 前日に以前の実装で測った値を証跡に採用する Ruling を書いて `[x]` にした。取り直すと 510,004,080 bytes（以前は 446,653,440）。
 
+### 凍結後に検証コマンドそのものが成立しないとき —— `scripts/plan_fix.py`（2026-09-25）
+
+証跡の gate は tasks.md に**書かれたコマンド**しか認めない。書かれたコマンドが、環境は揃っているのに原理的に通らない
+（plan の欠陥）なら、別名で別のコマンドの証跡を認めるのではなく、**検証コマンドそのものを正式に直す**:
+
+1. controller は tasks.md を直さない。`scripts/verify-run <項目> --command '<旧>'` で、**いまのコード・環境の揃った状態の `FAIL`**
+   を実証として残す（`BLOCKED_INFRA` は環境の欠落で、実証にならない）
+2. premise の A として `deep.md` に積み、成立しない理由と提案する正式な入口を添えて人間に返す
+3. 人間が承認したら `scripts/plan_fix.py <change> <項目> --old … --new … --reason … --approved …`。実証・入口の実在・承認を
+   機械で確かめ、検証コマンドの 1 か所**だけ**を直す（受け入れ条件は変えない）。旧コマンドと理由は項目の下の注記と
+   `<change>/plan-corrections.md` に残る
+
+> 実測 2026-09-25（ST06 8.2）: 裸の `./gradlew :app:connectedDebugAndroidTest` は、2 段と `-Pashiato.baseUrl` を前提にした
+> テストで 12 本中 7 本が落ちた。正式な入口は `tools/android-emulator.sh`（2 段・baseUrl つき）。
+
 ### 関門の 3 段 —— 何を見るかを混ぜない（2026-09-25）
 
 | 段 | 見るもの | どこで |
