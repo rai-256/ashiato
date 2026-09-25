@@ -1,0 +1,1 @@
+{"item": "7.1", "command": "tools/usage-volume.sh", "change": "st06-app-usage", "at": "2026-09-25T09:24:44+00:00", "status": "STALE", "reason": "2026-09-24 の実機値（446,653,440 bytes）は以前の実装を測ったもの。2026-09-25 の Task 7 では sandbox に /dev/kvm が無く tools/usage-volume.sh が rc=2 だったのに、controller の Ruling でこの値を証跡に採用して [x] にした。参考のみ（現在のコードの証跡ではない）", "reference_only": true, "executor": "manual"}
