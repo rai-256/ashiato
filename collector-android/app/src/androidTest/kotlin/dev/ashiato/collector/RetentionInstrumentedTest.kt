@@ -329,10 +329,14 @@ class RetentionInstrumentedTest {
             }
             val reply = ids.joinToString(",", "[", "]") { """{"id":null,"duplicate":false,"accepted":true,"error":null}""" }
                 .toByteArray(Charsets.UTF_8)
-            s.getOutputStream().apply {
-                write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())
-                write(reply)
-                flush()
+            try {
+                s.getOutputStream().apply {
+                    write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                    write(reply)
+                    flush()
+                }
+            } catch (_: java.net.SocketException) {
+                // 大量送信中に client が timeout で閉じても、偽サーバの handler から試験プロセスを落とさない。
             }
             Unit
         }
