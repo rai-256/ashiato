@@ -16,6 +16,11 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+pub mod archive;
+#[cfg(test)]
+mod archive_flow_tests;
+#[cfg(test)]
+mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
 /// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
@@ -51,7 +56,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 15] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -119,6 +124,10 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
     ),
+    (
+        "202609181600_archive_ingestion",
+        include_str!("../../../migrations/202609181600_archive_ingestion.sql"),
+    ),
 ];
 
 /// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
@@ -148,6 +157,9 @@ pub struct App {
     token: String,
     /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
     stays: StayRebuilder,
+    /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
+    /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
+    reading: archive::worker::ReadingState,
 }
 
 impl App {
@@ -159,6 +171,7 @@ impl App {
             token: token.into(),
             stays: StayRebuilder::real(),
             now: None,
+            reading: archive::worker::ReadingState::default(),
         }
     }
 
@@ -381,6 +394,96 @@ impl IngestResult {
             accepted: false,
             error: Some(error),
         }
+    }
+}
+
+/// HTTP の結果表現に依存せず、書庫の読み手が台帳へ数える格納結果。
+///
+/// `DuplicateOfDeleted` は通常の重複と分ける。削除済みの内容を戻さなかった事実は、
+/// 台帳の `deleted_count` にしか残せず、後から記録本体からは導けないため。
+#[derive(Debug, Clone)]
+pub enum StoreOutcome {
+    Inserted(uuid::Uuid),
+    Duplicate(uuid::Uuid),
+    DuplicateOfDeleted(uuid::Uuid),
+    Rejected(IngestError),
+}
+
+/// 書庫の読み手が差し替えられる格納口。
+///
+/// 失敗を注入する読み手は archive 側に置く。HTTP ハンドラを経由しないため、
+/// 書庫の一部失敗をその冊子だけの失敗として扱える。
+pub trait RecordSink: Send + Sync {
+    fn store<'a>(
+        &'a self,
+        request: IngestRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
+    >;
+}
+
+/// PostgreSQL へ本物の格納関門を通す `RecordSink`。
+#[derive(Debug, Clone)]
+pub struct PgSink {
+    pool: sqlx::PgPool,
+}
+
+impl PgSink {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl RecordSink for PgSink {
+    fn store<'a>(
+        &'a self,
+        request: IngestRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
+    > {
+        Box::pin(store_one(&self.pool, request))
+    }
+}
+
+/// JSON の解釈を終えた 1 件を既存の格納関門へ渡し、書庫用の結果へ写す。
+///
+/// HTTP の応答と拒否理由を変えずに、読み手が 1 件ごとの結果を数えられるようにする。
+pub async fn store_one(
+    pool: &sqlx::PgPool,
+    request: IngestRequest,
+) -> anyhow::Result<StoreOutcome> {
+    #[cfg(test)]
+    let app = App::for_test(pool.clone(), "archive-store");
+    #[cfg(not(test))]
+    let app = App {
+        pool: pool.clone(),
+        token: "archive-store".into(),
+        stays: StayRebuilder::real(),
+        reading: archive::worker::ReadingState::default(),
+    };
+    let result = ingest_one(
+        &app,
+        &serde_json::to_value(&request).expect("IngestRequest は常に JSON 化できる"),
+    )
+    .await
+    .map_err(|(_, message)| anyhow::anyhow!(message))?;
+    match (result.id, result.duplicate, result.error) {
+        (Some(id), false, None) => Ok(StoreOutcome::Inserted(id)),
+        (Some(id), true, None) => {
+            let deleted: Option<(uuid::Uuid,)> = sqlx::query_as(
+                "SELECT id FROM core.event WHERE id = $1 AND deleted_at IS NOT NULL",
+            )
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+            Ok(if deleted.is_some() {
+                StoreOutcome::DuplicateOfDeleted(id)
+            } else {
+                StoreOutcome::Duplicate(id)
+            })
+        }
+        (_, _, Some(error)) => Ok(StoreOutcome::Rejected(error)),
+        _ => anyhow::bail!("格納結果が不完全"),
     }
 }
 
@@ -1479,6 +1582,31 @@ async fn heartbeat_one(
     })
 }
 
+/// JSON の解釈を終えた生存信号を、HTTP と同じ格納規則で 1 件保存する。
+///
+/// 取り込み器は loopback HTTP の可用性に依存せず、`/heartbeat` と同じ冪等キー・
+/// 収集開始日の更新・拒否規則を使う。
+pub async fn store_heartbeat(
+    pool: &sqlx::PgPool,
+    request: heartbeat::HeartbeatRequest,
+) -> anyhow::Result<HeartbeatResult> {
+    #[cfg(test)]
+    let app = App::for_test(pool.clone(), "archive-heartbeat");
+    #[cfg(not(test))]
+    let app = App {
+        pool: pool.clone(),
+        token: "archive-heartbeat".into(),
+        stays: StayRebuilder::real(),
+        reading: archive::worker::ReadingState::default(),
+    };
+    heartbeat_one(
+        &app,
+        &serde_json::to_value(request).expect("HeartbeatRequest は常に JSON 化できる"),
+    )
+    .await
+    .map_err(|(_, message)| anyhow::anyhow!(message))
+}
+
 /// 生存信号をまとめて受け取る（FR-78）。
 ///
 /// **`/ingest` と統合しない**（design D9）—— `/ingest` は記録のエンベロープ
@@ -1532,6 +1660,206 @@ pub struct CoverageQuery {
     user_id: Option<uuid::Uuid>,
 }
 
+/// 書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ArchiveSourceStatus {
+    pub logical_source: String,
+    pub last_event_on: Option<String>,
+    pub last_archive_created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// `GET /archives/status`（design D12）。画面の「直近に置いた書庫」の箱はここだけを読む。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ArchivesStatus {
+    pub sources: Vec<ArchiveSourceStatus>,
+    pub latest_archive: Option<LatestArchiveStatus>,
+    /// 読み手のメモリの状態。**台帳は読み終えてから書く**ので、ここにしか無い。
+    pub reading: Option<archive::worker::Reading>,
+    pub pending_shape: Option<PendingShapeStatus>,
+    /// 取り込み器そのものの直近の生存信号。置き場が読めるか・いつ動いたかを画面へ渡す。
+    pub inbox: Option<InboxStatus>,
+}
+
+/// 直近に置いた書庫の結果。台帳の追記行からのみ導く。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct LatestArchiveStatus {
+    pub file_name: Option<String>,
+    pub first_seen_at: chrono::DateTime<chrono::Utc>,
+    pub outcome: String,
+    pub unreadable_kind: Option<String>,
+    pub inserted: i64,
+    pub duplicate: i64,
+    /// **読めなかった件数は台帳の行そのものが持つ**（論理ソース別の行は、格納まで
+    /// 進めた項目しか持たない —— 読めなかった項目はどの論理ソースにも属さない）。
+    pub unreadable: i64,
+    /// `already_read` のときだけ入る、前に読んだ時刻。
+    pub previously_read_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 形の確認を待っている書庫とファイルの数（D16）。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PendingShapeStatus {
+    pub archives: i64,
+    pub files: i64,
+}
+
+/// 取り込み器の直近の生存信号（D12 / C22）。
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct InboxStatus {
+    pub capturable: bool,
+    pub blockers: Vec<String>,
+    pub emitted_at: chrono::DateTime<chrono::Utc>,
+}
+
+type ArchiveStatusRow = (
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
+
+/// 直近に置いた書庫 1 件（`already_read` / `store_failed` を含む。D12）。
+///
+/// **件数は論理ソースごとの行を足し合わせる** —— 台帳の行そのものは論理ソースを持たない。
+/// 読めなかった件数だけは台帳の行の側にある（どの論理ソースにも属さないため）。
+async fn latest_archive_for(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> Result<Option<LatestArchiveStatus>, sqlx::Error> {
+    type Row = (
+        Option<String>,
+        chrono::DateTime<chrono::Utc>,
+        String,
+        Option<String>,
+        i32,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<i64>,
+        Option<i64>,
+    );
+    let row: Option<Row> = sqlx::query_as(
+        "SELECT l.file_name, l.discovered_at, l.outcome, l.unreadable_kind, l.unreadable_count,
+                previous.finished_at,
+                (SELECT sum(inserted_count) FROM core.archive_ledger_source WHERE ledger_id = l.id),
+                (SELECT sum(duplicate_count) FROM core.archive_ledger_source WHERE ledger_id = l.id)
+           FROM core.archive_ledger l
+           LEFT JOIN core.archive_ledger previous ON previous.id = l.already_read_ledger_id
+          WHERE l.user_id = $1
+          ORDER BY l.finished_at DESC, l.id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(
+        |(
+            file_name,
+            first_seen_at,
+            outcome,
+            unreadable_kind,
+            unreadable,
+            previously_read_at,
+            inserted,
+            duplicate,
+        )| LatestArchiveStatus {
+            file_name,
+            first_seen_at,
+            outcome,
+            unreadable_kind,
+            inserted: inserted.unwrap_or(0),
+            duplicate: duplicate.unwrap_or(0),
+            unreadable: i64::from(unreadable),
+            previously_read_at,
+        },
+    ))
+}
+
+/// 台帳から導くので、後で記録を消しても最終日は戻らない。
+pub async fn archives_status_for(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    reading: Option<archive::worker::Reading>,
+) -> Result<ArchivesStatus, sqlx::Error> {
+    let rows: Vec<ArchiveStatusRow> = sqlx::query_as(
+        "SELECT s.logical_source, MAX(ls.max_event_at) AS max_event_at,
+                -- **最終日を運んだ書庫だけを見る**（D11）。絞らないと、そのソースの
+                -- 記録を 1 件も運んでいない書庫の作られた時刻が、1 件も入っていない
+                -- ソースに付く（最終日は無いのに「いつまでの書庫か」だけ出る）。
+                (array_agg(l.created_at ORDER BY ls.max_event_at DESC, l.created_at DESC)
+                   FILTER (WHERE ls.max_event_at IS NOT NULL))[1] AS archive_created_at
+           FROM core.source s
+           LEFT JOIN core.archive_ledger l ON l.user_id = $1 AND l.outcome = 'read'
+           LEFT JOIN core.archive_ledger_source ls ON ls.ledger_id = l.id AND ls.logical_source = s.logical_source
+          WHERE s.logical_source LIKE 'c03-%'
+          GROUP BY s.logical_source
+          ORDER BY s.logical_source",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    let latest_archive = latest_archive_for(pool, user_id).await?;
+    let (pending_archives, pending_files): (i64, i64) = sqlx::query_as(
+        "SELECT count(DISTINCT sha256), count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    let inbox: Option<(bool, Vec<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT capturable, blockers, emitted_at FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+          ORDER BY emitted_at DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(ArchivesStatus {
+        reading,
+        pending_shape: (pending_files > 0).then_some(PendingShapeStatus {
+            archives: pending_archives,
+            files: pending_files,
+        }),
+        inbox: inbox.map(|(capturable, blockers, emitted_at)| InboxStatus {
+            capturable,
+            blockers,
+            emitted_at,
+        }),
+        sources: rows
+            .into_iter()
+            .map(
+                |(logical_source, event_at, created_at)| ArchiveSourceStatus {
+                    logical_source,
+                    last_event_on: event_at.map(|time| {
+                        (time + chrono::Duration::hours(9))
+                            .date_naive()
+                            .format("%F")
+                            .to_string()
+                    }),
+                    last_archive_created_at: created_at,
+                },
+            )
+            .collect(),
+        latest_archive,
+    })
+}
+
+/// 書庫の台帳と論理ソースごとの最終日を返す。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ArchivesStatusQuery {
+    pub user_id: uuid::Uuid,
+}
+
+#[utoipa::path(get, path = "/archives/status", params(ArchivesStatusQuery),
+    responses((status = 200, body = ArchivesStatus), (status = 401)))]
+pub async fn archives_status_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<ArchivesStatusQuery>,
+) -> Result<Json<ArchivesStatus>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let reading = app.reading.read().ok().and_then(|slot| slot.clone());
+    archives_status_for(&app.pool, q.user_id, reading)
+        .await
+        .map(Json)
+        .map_err(|error| internal_at("archives.status", error))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -1548,10 +1876,18 @@ pub async fn coverage_get(
     // 鎖の先端を数え、**格子と達成パネルが別の 5 本を見ていた** ——
     // 後継のソースの格子が画面のどこにも出ず、いま実際に収集しているソースの途絶が
     // 稼働状況の画面から消えていた。
-    let names: Vec<String> = coverage::must_sources()
+    let mut names: Vec<String> = coverage::must_sources()
         .into_iter()
         .map(|(n, _)| n)
         .collect();
+    let archive_names: Vec<String> = sqlx::query_scalar(
+        "SELECT logical_source FROM core.source
+          WHERE logical_source LIKE 'c03-%' ORDER BY display_name, logical_source",
+    )
+    .fetch_all(&app.pool)
+    .await
+    .map_err(|e| internal_at("coverage.archive_sources", e))?;
+    names.extend(archive_names);
     let out = coverage::of_sources(&app.pool, q.user_id, &names, q.from, q.to)
         .await
         .map_err(|e| internal_at("coverage.of_sources", e))?;
@@ -1780,6 +2116,23 @@ pub async fn run() -> anyhow::Result<()> {
         .connect(&url)
         .await?;
     migrate(&pool).await?;
+    let archive_config = archive::config::from_env()?;
+    // 読み手と `/archives/status` が同じ実体を見る（D12）。
+    let reading = archive::worker::ReadingState::default();
+    if let Some(user_id) = archive_config.user_id {
+        // **握ったまま持つ**（落とすと取り込み器が止まる）。
+        std::mem::forget(archive::worker::spawn_inspecting(
+            pool.clone(),
+            archive_config,
+            user_id,
+            reading.clone(),
+        ));
+    } else {
+        tracing::info!(
+            kind = "archive_disabled",
+            "書庫の利用者が未設定のため取り込み器を起こさない"
+        );
+    }
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
@@ -1789,6 +2142,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
+        .route("/archives/status", get(archives_status_get))
         .route("/stays", get(stays_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
@@ -1804,6 +2158,7 @@ pub async fn run() -> anyhow::Result<()> {
             stays: StayRebuilder::real(),
             #[cfg(test)]
             now: None,
+            reading,
         });
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
@@ -1829,6 +2184,7 @@ pub async fn run() -> anyhow::Result<()> {
         events,
         coverage_get,
         achievement_get,
+        archives_status_get,
         stays_get,
         stays_rebuild,
         stays_criteria_get,
@@ -1856,6 +2212,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Band,
         coverage::Subject,
         coverage::Achievement,
+        ArchivesStatus,
+        ArchiveSourceStatus,
+        LatestArchiveStatus,
         coverage::SourceAchievement,
         RebuildRequest,
         RebuildResponse,

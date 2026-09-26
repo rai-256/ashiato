@@ -10,6 +10,38 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/archives/status": {
+      "get": {
+        "tags": [],
+        "operationId": "archives_status_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivesStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/attributes": {
       "get": {
         "tags": [],
@@ -593,6 +625,88 @@
           "verdict": {
             "type": "boolean",
             "description": "**5 本すべてが分母の 95 % 以上**か（第 4 回 Q9 / 第 5 回 Q18）"
+          }
+        }
+      },
+      "ArchiveSourceStatus": {
+        "type": "object",
+        "description": "書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。",
+        "required": [
+          "logical_source"
+        ],
+        "properties": {
+          "last_archive_created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_event_on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "ArchivesStatus": {
+        "type": "object",
+        "description": "`GET /archives/status`（design D12）。画面の「直近に置いた書庫」の箱はここだけを読む。",
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "inbox": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InboxStatus",
+                "description": "取り込み器そのものの直近の生存信号。置き場が読めるか・いつ動いたかを画面へ渡す。"
+              }
+            ]
+          },
+          "latest_archive": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LatestArchiveStatus"
+              }
+            ]
+          },
+          "pending_shape": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PendingShapeStatus"
+              }
+            ]
+          },
+          "reading": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Reading",
+                "description": "読み手のメモリの状態。**台帳は読み終えてから書く**ので、ここにしか無い。"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSourceStatus"
+            }
           }
         }
       },
@@ -1211,6 +1325,30 @@
           }
         }
       },
+      "InboxStatus": {
+        "type": "object",
+        "description": "取り込み器の直近の生存信号（D12 / C22）。",
+        "required": [
+          "capturable",
+          "blockers",
+          "emitted_at"
+        ],
+        "properties": {
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capturable": {
+            "type": "boolean"
+          },
+          "emitted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IngestError": {
         "type": "string",
         "description": "取り込みを断った理由。**受け取った値は載せない**（design D5）——\n値をそのまま返すと、呼び出し元へ内容が反射する。",
@@ -1494,6 +1632,77 @@
           }
         }
       },
+      "LatestArchiveStatus": {
+        "type": "object",
+        "description": "直近に置いた書庫の結果。台帳の追記行からのみ導く。",
+        "required": [
+          "first_seen_at",
+          "outcome",
+          "inserted",
+          "duplicate",
+          "unreadable"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inserted": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "previously_read_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "`already_read` のときだけ入る、前に読んだ時刻。"
+          },
+          "unreadable": {
+            "type": "integer",
+            "format": "int64",
+            "description": "**読めなかった件数は台帳の行そのものが持つ**（論理ソース別の行は、格納まで\n進めた項目しか持たない —— 読めなかった項目はどの論理ソースにも属さない）。"
+          },
+          "unreadable_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PendingShapeStatus": {
+        "type": "object",
+        "description": "形の確認を待っている書庫とファイルの数（D16）。",
+        "required": [
+          "archives",
+          "files"
+        ],
+        "properties": {
+          "archives": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "files": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "Precision": {
         "type": "string",
         "description": "「いつから」の精度（深掘り C3）。**丸めない** ——\n2019 年とだけ分かっている値を 2019-01-01 にすると、丸めたことが後から分からない。",
@@ -1503,6 +1712,32 @@
           "day",
           "unknown"
         ]
+      },
+      "Reading": {
+        "type": "object",
+        "description": "読み手が「いま読んでいる書庫」を置く場所（D12）。\n\n**台帳は読み終えてから 1 回で書く**（D7）ので、読んでいる途中の状態は台帳から出ない。\n百万件級の書庫は読み終わるまで数分かかり、その間に画面を開いた本人には\n「置いたのに何も起きていない」ようにしか見えない。",
+        "required": [
+          "file_name",
+          "inner_path",
+          "items_read",
+          "started_at"
+        ],
+        "properties": {
+          "file_name": {
+            "type": "string"
+          },
+          "inner_path": {
+            "type": "string"
+          },
+          "items_read": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "RebuildRequest": {
         "type": "object",

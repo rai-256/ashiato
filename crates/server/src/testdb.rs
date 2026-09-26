@@ -20,6 +20,10 @@ const DEFAULT_URL: &str = "postgres://ashiato:ashiato@127.0.0.1:55432/ashiato";
 static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 /// 接続済みのプールを返す。初回だけマイグレーションを当てる。
+///
+/// **プールは試験ごとに持つ。** 1 本を共有すると、背景の取り込み器を起こす結合
+/// 試験どうしが同じ接続を奪い合って全体が止まる（実測）。そのぶん PostgreSQL 側の
+/// 接続の上限を上げてある（`docker-compose.yml` の `max_connections`）。
 pub async fn pool() -> sqlx::PgPool {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.into());
     let pool = PgPoolOptions::new()

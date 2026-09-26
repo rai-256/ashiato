@@ -2,7 +2,10 @@
 import { useEffect, useState } from "react";
 import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
-import { retiredLast, type Achievement, type SourceCoverage } from "./coverage";
+import { type Achievement, type SourceCoverage } from "./coverage";
+import { archiveLastEventLabel, orderCoverageWithArchives } from "./archives";
+import { type ArchivesStatus } from "./archives";
+import { LatestArchive } from "./LatestArchive";
 import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
 
 /**
@@ -34,6 +37,23 @@ export function yearRange(now: Date): { from: string; to: string } {
   return { from: anchor.toISOString().slice(0, 10), to };
 }
 
+/**
+ * 書庫のソースの見出しに添える注記（design D12）。
+ *
+ * **Must の 5 本には渡さない** —— 注記は「取り込み済みの最終日」の話で、
+ * 毎日入る収集側には意味が無い。1 件も入っていない書庫のソースは「まだ無い」。
+ */
+export function archiveAnnotation(
+  logicalSource: string,
+  archives: Load<ArchivesStatus>,
+  now: Date,
+): string | undefined {
+  if (!logicalSource.startsWith("c03-") || archives.at !== "ok") return undefined;
+  const found = archives.value.sources.find((s) => s.logical_source === logicalSource);
+  if (found === undefined || found.last_event_on === null) return "まだ無い";
+  return archiveLastEventLabel(found.last_event_on, now);
+}
+
 /** 読み出しの状態。**「読み込み中」と「データが無い」を分ける**（review/code.md の R19）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
 
@@ -45,6 +65,7 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
 export function App(): React.ReactElement {
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
+  const [archives, setArchives] = useState<Load<ArchivesStatus>>({ at: "loading" });
 
   useEffect(() => {
     const { from, to } = yearRange(new Date());
@@ -64,6 +85,9 @@ export function App(): React.ReactElement {
     get("/api/coverage/achievement")
       .then((v) => setAchievement({ at: "ok", value: v as Achievement }))
       .catch((e: unknown) => setAchievement({ at: "failed", why: why(e) }));
+    get("/api/archives/status")
+      .then((v) => setArchives({ at: "ok", value: v as ArchivesStatus }))
+      .catch((e: unknown) => setArchives({ at: "failed", why: why(e) }));
   }, []);
 
   return (
@@ -122,6 +146,11 @@ export function App(): React.ReactElement {
         </p>
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
+      {/* **格子と別々に受ける**（D12）—— 書庫の読み出しが落ちても格子は消さない */}
+      <LatestArchive
+        status={archives.at === "ok" ? archives.value : null}
+        failed={archives.at === "failed"}
+      />
 
       {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
       {sources.at === "failed" && (
@@ -134,7 +163,13 @@ export function App(): React.ReactElement {
       )}
       {/* **退役したソースは後ろ**（ST03 の R63）—— Must の 5 本を 1 画面から押し出さない */}
       {sources.at === "ok" &&
-        retiredLast(sources.value).map((s) => <CoverageGrid key={s.logical_source} source={s} />)}
+        orderCoverageWithArchives(sources.value).map((s) => (
+          <CoverageGrid
+            key={s.logical_source}
+            source={s}
+            annotation={archiveAnnotation(s.logical_source, archives, new Date())}
+          />
+        ))}
     </main>
   );
 }
