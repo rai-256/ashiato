@@ -21,6 +21,63 @@ import org.robolectric.RobolectricTestRunner
 class UsageWindowClockTest {
     private val t0 = Instant.parse("2026-05-20T09:00:00Z")
 
+    @Test
+    fun `壁時計だけが大きく飛んでも経過が10日以内なら再開しない`() {
+        val env = UsageTestEnv(FakeUsageSource())
+        env.collect()
+        env.jumpWall(40 * AgeClock.DAY_MS)
+        env.advance(10 * AgeClock.DAY_MS)
+        assertTrue(env.collect() is CollectionResult.Unavailable)
+        assertEquals(t0, env.savedEnd())
+        assertEquals(1, (env.source as FakeUsageSource).eventQueries.size)
+    }
+
+    // Scenario: 時計の食い違いが10日を超えても解消しないときは自動で取得を再開する
+    @Test
+    fun `10日を超える停止は再起動後も下限から再開して諦めた期間をgapに残す`() {
+        val source = FakeUsageSource(storedEvents = listOf(
+            usageEvent("2026-05-20T10:00:00Z"),
+            usageEvent("2026-05-21T12:00:00Z"),
+        ))
+        val env = UsageTestEnv(source)
+        env.collect()
+        env.jumpWall(2 * 60 * 60 * 1000L)
+        env.advance(10 * AgeClock.DAY_MS)
+        assertTrue(env.collect() is CollectionResult.Unavailable)
+        env.restart()
+        env.advance(AgeClock.DAY_MS)
+        assertTrue(env.collect() is CollectionResult.Collected)
+        assertEquals(Instant.parse("2026-05-21T11:00:00Z"), source.eventQueries.last().begin)
+        assertEquals(env.now, env.savedEnd())
+        val gap = env.records().single { it.rawText("kind") == USAGE_GAP_KIND }
+        assertEquals("2026-05-20T09:00:00Z", gap.rawText("begin"))
+        assertEquals("2026-05-21T11:00:00Z", gap.rawText("end"))
+        assertEquals("2026-05-21T11:00:00Z", gap.eventTime)
+        assertEquals(listOf("2026-05-21T12:00:00Z"),
+            env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime })
+        env.advance(USAGE_INTERVAL_MS)
+        assertTrue(env.collect() is CollectionResult.Collected)
+    }
+
+    @Test
+    fun `自動再開のgapを書けなければ窓を保ち次の契機で積み直す`() {
+        val env = UsageTestEnv(FakeUsageSource())
+        env.collect()
+        env.jumpWall(2 * 60 * 60 * 1000L)
+        env.advance(11 * AgeClock.DAY_MS)
+        env.blockOutbox()
+        env.restart()
+        assertTrue(env.collect() is CollectionResult.Collected)
+        assertEquals(t0, env.savedEnd())
+        assertTrue(env.lines.any { it.startsWith("kind=usage_window_held") })
+        env.outbox = testOutbox()
+        env.restart()
+        assertTrue(env.collect() is CollectionResult.Collected)
+        assertEquals(env.now, env.savedEnd())
+        assertEquals("2026-05-20T09:00:00Z", env.records().single().rawText("begin"))
+        assertEquals("2026-05-21T11:00:00Z", env.records().single().rawText("end"))
+    }
+
     private fun env() = UsageTestEnv(
         source = FakeUsageSource(
             storedEvents = listOf(

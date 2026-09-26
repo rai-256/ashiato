@@ -336,7 +336,7 @@ class AppUsageRollupSourceAdapter(
                     // **0 件が返った粒度は取り込み済みにする**（本人の決定 C7「0 件でも成功」）。
                     // 書くものが無いだけで失敗ではない —— ここを `persisted == 0` で判定すると、
                     // 過去が無い端末で 4 粒度が永久に読み直される。
-                    if (allStored) imported += granularity else notImported++
+                    if (allStored) imported += granularity else if (granularity !in done) notImported++
                 }
             }
             // **読めなかったらそこで止める**（次の粒度へ進まない）—— 取得元まるごとが

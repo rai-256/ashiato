@@ -200,3 +200,45 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: daily
 - 処置: fixed D11 仮 —— 反転条件（`unreadable_source_unknown` が実測で無視できない件数になったら、
   ST12 の archive 後に登録簿へ「不明」のソースを足す）を `design.md` の D11 に書いた。
+
+## R17. 本人が選んだ Q9=c の自動再開が未実装
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt`
+- 根拠: `deep.md` の本人回答 Q9=c は、時計の食い違いが解消しないまま取得元の保持（10 日）を超えたら、見込みの下限から取得を再開し、保存された窓の終わりから下限までを gap に残す、と決めている。現状の `AppUsageSourceAdapter.kt:85` は期間によらず `Unavailable` を返し続けるため、再開も gap 生成も起きない。
+- kind: technical
+- 処置: fixed 3.3
+
+## R18. API 35 の `getExtras()` を API 31〜34 でも呼ぶ
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/UsageSource.kt`
+- 根拠: `UsageEvents.Event.getExtras()` は API 35 の API だが、`UsageSource.kt:219` のガードは `VERSION_CODES.S`。minSdk 30 のため API 31〜34 で `USER_INTERACTION` を含む問い合わせを処理すると `NoSuchMethodError` になり、窓全体の収集が失敗する。
+- kind: technical
+- 処置: fixed 2.1
+
+## R19. 任意の第三者アプリの表示名を取得するための package visibility 宣言が無い
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppLabels.kt` / `collector-android/app/src/main/AndroidManifest.xml`
+- 根拠: `AppLabels.kt:38` は `getApplicationInfo()` で表示名を読むが、manifest に `<queries>` / `QUERY_ALL_PACKAGES` が無い。Android 11 以降、可視でない第三者アプリは `NameNotFoundException` となり、UsageStats が返したイベントでも表示名が省略される。D2 の「削除後にも何のアプリだったか残す」を通常の利用アプリで満たせない。
+- kind: technical
+- 処置: fixed D2
+
+## R20. heartbeat だけが存在する通常状態で rollup source の down migration が失敗する
+
+- 成果物: `migrations/202609240758_app_usage_rollup_source.down.sql`
+- 根拠: `core.event` だけで削除可否を判定するが、権限未許可でも heartbeat が送られ、`core.heartbeat.logical_source` は `core.source` を参照する。event が 0 件でも外部キー違反で DELETE が止まる。`drop_report` 等の参照も同様に確認が要る。
+- kind: technical
+- 処置: fixed 4.2
+
+## R21. `Collected.enqueued` の説明が永続化成功を保証するように読める
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/CollectionSource.kt`
+- 根拠: `CollectionSource.kt:79` は「積めたもの」と説明するが、両アダプタは `outbox.add()` が失敗した記録も返す。将来この件数を成功数として使うと誤集計になる。
+- kind: technical
+- 処置: fixed 1.1
+
+## R22. 定常取得でも rollup の `notImported` が窓の据え置きを示すように見える
+
+- 成果物: `collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageRollupSourceAdapter.kt`
+- 根拠: 初回完了後の DAILY は既に `done` でも、書込み失敗で `notImported++` が増え `usage_rollup_not_imported` が出る。印は変更されず、ログの説明と一致しない。
+- kind: technical
+- 処置: fixed 4.3

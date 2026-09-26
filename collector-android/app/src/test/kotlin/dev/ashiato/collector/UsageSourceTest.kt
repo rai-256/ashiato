@@ -21,6 +21,29 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class UsageSourceTest {
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34, 35])
+    fun `本番のイベント変換はAPI34ではextrasを呼ばずAPI35では値を残す`() {
+        val app: Application = ApplicationProvider.getApplicationContext()
+        org.robolectric.Shadows.shadowOf(app.getSystemService(android.os.UserManager::class.java))
+            .setUserUnlocked(true)
+        val builder = org.robolectric.shadows.ShadowUsageStatsManager.EventBuilder.buildEvent()
+            .setPackage("third.party.app").setClass("third.party.Screen")
+            .setTimeStamp(begin.plusSeconds(1).toEpochMilli())
+            .setEventType(android.app.usage.UsageEvents.Event.USER_INTERACTION)
+        if (android.os.Build.VERSION.SDK_INT >= 35) builder.setExtras(android.os.PersistableBundle().apply {
+            putString(UsageStatsManager.EXTRA_EVENT_ACTION, "open")
+            putString(UsageStatsManager.EXTRA_EVENT_CATEGORY, "reader")
+        })
+        org.robolectric.Shadows.shadowOf(app.getSystemService(UsageStatsManager::class.java))
+            .addEvent(builder.build())
+        val event = (UsageStatsSource(app, now = { end }).events(window) as EventsResult.Events).events.single()
+        assertEquals("third.party.app", event.packageName)
+        assertEquals(begin.plusSeconds(1), event.at)
+        assertEquals(if (android.os.Build.VERSION.SDK_INT >= 35) "open" else null, event.interactionAction)
+        assertEquals(if (android.os.Build.VERSION.SDK_INT >= 35) "reader" else null, event.interactionCategory)
+    }
+
     private val begin = Instant.parse("2026-05-20T00:00:00Z")
     private val end = Instant.parse("2026-05-20T00:30:00Z")
     private val window = CollectionWindow(begin, end)

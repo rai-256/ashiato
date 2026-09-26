@@ -216,7 +216,7 @@ class UsageStatsSource(
     private fun snapshotOf(event: UsageEvents.Event): UsageEventSnapshot {
         val type = event.eventType
         val extras = if (type == UsageEvents.Event.USER_INTERACTION &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM
         ) {
             event.extras
         } else {

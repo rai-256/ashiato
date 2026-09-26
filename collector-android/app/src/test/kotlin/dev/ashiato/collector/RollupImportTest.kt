@@ -23,6 +23,18 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class RollupImportTest {
+    @Test
+    fun `初回完了後の保存失敗は未永続化だけを報告して取り込み済みの印を保つ`() {
+        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        UsageRollupProgressStore(usageRollupProgressFile(env.dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE),
+            APP_USAGE_ROLLUP_LOGICAL_SOURCE, {}).save(UsageGranularity.entries.toSet())
+        env.blockOutbox()
+        env.collect()
+        assertEquals(4, env.progressLines())
+        assertTrue(env.lines.any { it.startsWith("kind=usage_rollup_not_persisted") })
+        assertFalse(env.lines.any { it.startsWith("kind=usage_rollup_not_imported") })
+    }
+
     private fun stored(): Map<UsageGranularity, List<UsageRollupSnapshot>> =
         UsageGranularity.entries.associateWith { granularity ->
             listOf(usageRollup(packageName = "dev.ashiato.${granularity.name.lowercase()}"))

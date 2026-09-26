@@ -9,21 +9,25 @@ import java.time.Instant
  *
  * **型が守っているのはここまで**: この型は `Instant` では**ない**ので、
  * [CollectionWindow] にも [UsageSource.events] にも**そのままでは渡らない**。
- * 値を外へ出すには、名前が用途を言っている 2 つの口を**明示的に**呼ぶしかない。
+ * 値を外へ出すには、名前が用途を言っている口を**明示的に**呼ぶ。
  *
  * **規律で守るもの（型では止まらない）**: [gapEndWhenNothingReturned] が返す `Instant` は
  * 下限そのもので、取得の窓の始まりに代入することは**コンパイルできてしまう**。やらない ——
  * それが spec レビュー R3 が止めた形で、**この値で窓を切り詰めると取得元にまだ残っている
  * イベントを飛ばしたうえで「取れなかった」という嘘を正典の形式で残す**（飛ばした分は 10 日で消える）。
- * 10 日は API から読めない見込みなので、窓は**保存した終わりから**問い合わせる。
+ * 10 日は API から読めない見込みなので、通常の窓は**保存した終わりから**問い合わせる。
+ * 唯一の例外は Q9=c の自動再開で、[clockSkewResumeBegin] を使う。
  *
- * 持っているのは gap の判定に要る 3 つだけ:
+ * gap の判定には次の 3 つを使う:
  *
  * - [excludes] —— 窓の始まりがこの下限より前か（＝ gap の候補になるか）
  * - [gapEnd] —— イベントが返ったときの、取れなかった期間の終わり
  * - [gapEndWhenNothingReturned] —— 1 件も返らなかったときの終わり（＝下限そのもの）
  */
 class RetentionFloor internal constructor(private val at: Instant) {
+    /** Q9=c の唯一の切り詰め経路。時計の食い違いが保持期間を超えて残った場合に限る。 */
+    fun clockSkewResumeBegin(): Instant = at
+
     /** 窓の始まりがこの下限より**前**にあるか。真なら「取りに行ったが取得元に無かった」の候補。 */
     fun excludes(windowBegin: Instant): Boolean = at.isAfter(windowBegin)
 
@@ -38,7 +42,7 @@ class RetentionFloor internal constructor(private val at: Instant) {
     /**
      * 1 件も返らなかったときの、取れなかった期間の終わり ＝ **下限そのもの**。
      *
-     * **下限の値が外へ出る唯一の口**なので、名前で用途を言っている ——
+     * 名前で用途を言っている ——
      * 返るのは gap の記録の終わりであって、**取得の窓の始まりではない**。
      */
     fun gapEndWhenNothingReturned(): Instant = at
@@ -72,13 +76,17 @@ class RetentionFloor internal constructor(private val at: Instant) {
  * `UserUsageStatsService.queryEvents` は `queryStats(INTERVAL_DAILY, …)` を呼ぶ。
  *
  * **これは API から読めない見込み**（OEM 改変・OS 版差・prune の起動タイミングでずれる）。
- * だから**問い合わせの窓を切り詰めるのには使わない**（spec レビュー R3）。使うのは gap の判定だけ。
+ * だから**通常の問い合わせの窓を切り詰めるのには使わない**（spec レビュー R3）。
+ * gap の判定と、本人が決めた Q9=c の自動再開だけに使う。
  * 出口を [RetentionFloor] に絞って用途を名前に出してあるが、**切り詰めないことを型は保証しない** ——
  * `gapEndWhenNothingReturned()` の戻り値は生の `Instant` で、窓に渡せば通ってしまう。
  */
 object UsageRetention {
     /** `mCal.addDays(-10)`（`INTERVAL_DAILY` の箱。生のイベントもここから読まれる） */
     private val EVENTS: Duration = Duration.ofDays(10)
+
+    /** 時計の飛びの大きさではなく、保存済み窓からの経過で停止の上限を判定する（Q9=c）。 */
+    fun eventsRetentionExceeded(elapsedMs: Long): Boolean = elapsedMs > EVENTS.toMillis()
 
     /** `mCal.addWeeks(-4)` = 28 日（`UnixCalendar.WEEK_IN_MILLIS = 7 * DAY_IN_MILLIS`） */
     private val WEEKLY: Duration = Duration.ofDays(4 * 7)

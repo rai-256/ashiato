@@ -223,3 +223,64 @@ async fn read_rollup_source(pool: &sqlx::PgPool) -> (i64, String, i32) {
     .await
     .unwrap()
 }
+
+/// イベントがなくても参照が一つあれば down は登録簿を残す。各 fixture は rollback で隔離する。
+#[tokio::test]
+async fn app_usage_rollup_source_down_preserves_every_reference() {
+    let pool = testdb::pool().await;
+    let cases = [
+        ("event", "INSERT INTO core.event (id,user_id,logical_source,origin,event_time,tz_offset_min,tz_id,schema_version,content_hash,raw,payload) VALUES ($1,$1,$2,'collected',now(),0,'UTC',1,'test','{}','{}')"),
+        ("heartbeat", "INSERT INTO core.heartbeat (id,user_id,logical_source,emitted_at,capturable,attempts,successes,content_hash,raw) VALUES ($1,$1,$2,now(),false,0,0,'test','{}')"),
+        ("drop_report", "INSERT INTO core.drop_report (id,user_id,logical_source,device_id,reason,count,created_at,content_hash,raw) VALUES ($1,$1,$2,'test','unreadable',1,now(),'test','{}')"),
+        ("coverage", "INSERT INTO core.coverage (user_id,logical_source,day,event_count) VALUES ($1,$2,current_date,0)"),
+        ("coverage_span", "INSERT INTO core.coverage_span (id,user_id,logical_source,kind,started_at) VALUES ($1,$1,$2,'stopped',now())"),
+        ("source", "INSERT INTO core.source (logical_source,display_name,expected_gap_sec,succeeds,user_id) VALUES ($2 || '-next','test',21600,$2,$1)"),
+    ];
+    for (kind, insert) in cases {
+        let mut tx = pool.begin().await.unwrap();
+        let name = format!("t-rollup-down-{}", uuid::Uuid::new_v4());
+        sqlx::query("INSERT INTO core.source (logical_source,display_name,expected_gap_sec) VALUES ($1,'test',21600)")
+            .bind(&name).execute(&mut *tx).await.unwrap();
+        sqlx::query(insert)
+            .bind(uuid::Uuid::new_v4())
+            .bind(&name)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let down =
+            include_str!("../../../migrations/202609240758_app_usage_rollup_source.down.sql")
+                .replace("c01-app-usage-rollup", &name);
+        sqlx::raw_sql(&down)
+            .execute(&mut *tx)
+            .await
+            .unwrap_or_else(|e| panic!("{kind} だけが残る状態の down が失敗: {e}"));
+        let (exists,): (bool,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM core.source WHERE logical_source=$1)")
+                .bind(&name)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert!(exists, "{kind} が参照する登録簿が消えた");
+        tx.rollback().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn app_usage_rollup_source_down_removes_unused_source() {
+    let pool = testdb::pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    let name = format!("t-rollup-unused-{}", uuid::Uuid::new_v4());
+    sqlx::query("INSERT INTO core.source (logical_source,display_name,expected_gap_sec) VALUES ($1,'test',21600)")
+        .bind(&name).execute(&mut *tx).await.unwrap();
+    let down = include_str!("../../../migrations/202609240758_app_usage_rollup_source.down.sql")
+        .replace("c01-app-usage-rollup", &name);
+    sqlx::raw_sql(&down).execute(&mut *tx).await.unwrap();
+    let (exists,): (bool,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM core.source WHERE logical_source=$1)")
+            .bind(&name)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(!exists, "未使用の登録簿が残った");
+    tx.rollback().await.unwrap();
+}

@@ -25,7 +25,8 @@ import kotlin.math.abs
  * - 取得元が「読めなかった」を返した —— 0 件と取り違えて進めると、その期間は取り直されない
  * - 端末の時計が単調な経過と食い違う（[USAGE_CLOCK_SKEW_TOLERANCE_MS]）——
  *   取得元は時計の変化で統計をずらすので、ずれた時刻で取り直すと出来事の時刻が変わった
- *   同じイベントが畳まれずに行を増やす（出来事の時刻は凍結されていて直せない）
+ *   同じイベントが畳まれずに行を増やす（出来事の時刻は凍結されていて直せない）。
+ *   ただし停止が10日を超えたら保持の下限から再開する（本人回答 Q9=c）
  * - 保存した終わりが今より先にある —— 問い合わせられる窓にならない
  *
  * **記録は位置と同じ置き場**（本人の決定 C11）。保持の上限は全ソースを通して古い順にかかる。
@@ -74,26 +75,34 @@ class AppUsageSourceAdapter(
         // **経過を進めてから読む**（数え落とした分は `age()` の中で数えられる）
         val discardedNow = discardedMs()
         val mark = windowStore.load()
+        var resumeFloor: Instant? = null
         if (mark != null) {
             // **2 つの時計の進み方を比べる。** 端末の時計が飛んだことは、片方だけでは分からない。
             // **経過が数えなかった前進は差し引く**（本人の決定 C6 / 独立レビュー Important 1）——
             // 起動をまたぐ前進は 30 日で頭打ちに数えられるので、60 日の電源断は
             // 時計が 1 秒も飛んでいなくても 30 日の食い違いを見せる。落ちた分だけを引けば、
             // **その見かけはちょうど 0 になり、本物の飛び（跨ぎの前後で時刻が動いた分）は残る**
-            val skewMs = Duration.between(mark.end, at).toMillis() -
-                (ageNow - mark.ageMs) - (discardedNow - mark.discardedMs)
+            val elapsedMs = (ageNow - mark.ageMs) + (discardedNow - mark.discardedMs)
+            val skewMs = Duration.between(mark.end, at).toMillis() - elapsedMs
             if (abs(skewMs) > USAGE_CLOCK_SKEW_TOLERANCE_MS) {
                 log(Telemetry.line("usage_clock_skew", source = logicalSource, elapsedMs = skewMs))
-                return CollectionResult.Unavailable(REASON_CLOCK_SKEW)
+                if (!UsageRetention.eventsRetentionExceeded(elapsedMs)) {
+                    return CollectionResult.Unavailable(REASON_CLOCK_SKEW)
+                }
+                // Q9=c: 単調な経過で10日を超えた停止だけ、保持の下限から再開する。
+                // mark は先に進めない。諦めた期間の gap も保存できた後で進める。
+                resumeFloor = source.retentionFloor(at).clockSkewResumeBegin()
             }
         }
         // **保存した終わりの手前から**（C4）。1 度も取れていなければ、見込みの保持より手前から（C3）
-        val begin = mark?.end?.minusMillis(USAGE_WINDOW_OVERLAP_MS) ?: at.minusMillis(USAGE_FIRST_WINDOW_MS)
+        val begin = resumeFloor ?: mark?.end?.minusMillis(USAGE_WINDOW_OVERLAP_MS)
+            ?: at.minusMillis(USAGE_FIRST_WINDOW_MS)
         if (!begin.isBefore(at)) {
             log(Telemetry.line("usage_window_ahead", source = logicalSource))
             return CollectionResult.Unavailable(REASON_WINDOW_AHEAD)
         }
-        // **窓を切り詰めない**（spec レビュー R3）—— 見込みの保持（10 日）は API から読めないので、
+        // **通常の窓を切り詰めない**（spec レビュー R3。Q9=c の自動再開だけが例外）。
+        // 見込みの保持（10 日）は API から読めないので、
         // 切ると取得元にまだ残っているイベントを飛ばす。取りこぼした期間の記録は tasks 4.1 の担当
         return when (val read = source.events(CollectionWindow(begin, at))) {
             is EventsResult.Unreadable -> {
