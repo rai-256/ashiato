@@ -285,10 +285,27 @@ push・PR・gate はグラフの node。
 
 | 誰が | 文脈 | 渡されるもの | 渡されないもの |
 |---|---|---|---|
-| controller（`/story`） | セッション全体 | plan・deep・handoff・ledger | Task の実装の中身 |
-| implementer（Task ごとに新規） | **その Task だけ** | brief file・界面・global constraints・report file のパス | 前の Task の会話、plan 全文 |
-| task reviewer（Task ごとに新規） | **その diff だけ** | brief file・report file・review package・global constraints | **implementer の推論と自己正当化** |
+| controller（`/story`） | セッション全体 | plan・制約の写し・handoff・ledger | Task の実装の中身、**原典の全文** |
+| implementer（Task ごとに新規） | **その Task だけ** | brief file・**制約の写し**・界面・report file のパス | 前の Task の会話、plan 全文 |
+| **fixer（fix round ごとに新規）** | **その指摘だけ** | 制約の写し・brief file・**未解決の指摘**・report file・いまの木と diff のパス | **初回 implementer と前の fixer の会話**、tool 出力、閉じた指摘 |
+| task reviewer（Task ごとに新規） | **その diff だけ** | brief file・report file・review package・**制約の写し** | **implementer の推論と自己正当化** |
 | final reviewer / code-verify | ブランチ全体 | review package・plan・ledger の parked / deferred | 同上 |
+
+**制約の写し**（`scripts/task_context.py`。`.superpowers/sdd/st<nn>-task-<N>/task-<N>-context.md`）は、
+**その Task が名指しする制約を原典から機械で逐語に引いたもの** —— `tasks.md` の前置きと Global Constraints・
+`deep.md` の `C<n>` / `Q<n>`・`design.md` の `D<n>`・spec の Scenario（WHEN/THEN）・項目ごとの検証コマンド・
+名指しされたパスの実在を、`Source: <path>:<行>` つきで持つ。**新しい正本ではない**（要約を作らない。
+出典が正本）。**原典を読むことは禁じていない** —— 足りなければ写しの先頭の表からその見出しだけを読む。
+実測 2026-09-26（ST06 Task 7 の replay）: implementer は最初の編集までに 10 呼び出しで context を
+18.8k → 89.2k まで上げ、その 89k を残り 110 呼び出しに持ち越して 14.88M（Task 全体の 87 %）になっていた。
+
+**fix round も fresh**（2026-09-26）。SDD の既定は round 1〜3 で元の implementer を resume するが、
+ashiato2 は SDD 自身が用意している fallback（*fresh implementer ＋ report file が persistent memory*）を
+全 round の既定にする。**引き継ぐのは会話ではなく、いまの木・Task の制約の写し・未解決の指摘。**
+未解決の一覧は `scripts/fix_round.py` が `task-<N>-findings.md`（reviewer の返答の逐語）から導くので、
+controller が数え直して落とす経路が無い。5 round の上限・breaker・scoped re-review は SDD のまま。
+実測 2026-09-26（ST06 Task 7 の replay）: resume だと fix round 2 の開始時が 169k・最大 178k で、
+150k を超えた 37 呼び出しだけで 6.03M（Task 全体 17.19M で credit が切れた）。
 
 **`tasks.md` の `- [x]` は controller だけが付ける。** implementer は `tasks.md` を触らない ——
 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**

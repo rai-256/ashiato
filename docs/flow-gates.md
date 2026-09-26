@@ -31,10 +31,19 @@
 | production-prep | `security-guidance`（commit 時。実測で 2 件のバグを出した） | commit | 会話 |
 | **deep の問い** | `deep-review` agent。schema の手順 1〜5 を独立にやり直す | 人間に HTML を渡す前 | `review/deep.md` |
 | proposal / specs / design / tasks / 再生成後の Story | `spec-review` agent | 上流の PR 前 | `review/spec.md` |
-| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | 会話（controller が ledger に写す） |
+| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | `.superpowers/sdd/st<nn>-task-<N>/task-<N>-findings.md`（reviewer の返答の逐語。`F<k>` の番号だけを足す）＋ ledger の round の行 |
 | **コード（ブランチ全体）** | `superpowers:requesting-code-review` の `code-reviewer.md`（最上位モデル）＋ `code-verify` agent | 全 Task 完了後、PR の前 | `review/code.md` |
 | PR | `scripts/merge_gate.sh`（グラフの `gate` node） | 人間が merge する前 | draft 状態 + PR コメント。落ちればグラフが `fix`（fresh な agent）→ `publish` → `gate` を回し、3 回で人間 |
 | archive | `scripts/archive.sh` | 下流の merge 後 | `openspec/specs/`（正典） |
+
+**fix round は round ごとに fresh な fixer**（2026-09-26）。前の round の会話を持ち越さないので、
+指摘は会話ではなく上の写しが正本になる。未解決の一覧は `python3 scripts/fix_round.py <写し>` が逐語の記録から
+導き（controller が数え直さない）、グラフの `sdd_task` が node の後に同じ台本で「写しが読めるか・未解決が
+残ったまま complete になっていないか」を見る。park するなら ledger に ruling つきで残す（SDD の breaker）。
+
+> なぜ（実測 2026-09-26、ST06 Task 7 の replay）: resume だと fix round 2 の開始時の文脈が 169k で、
+> 150k を超えた 37 呼び出しだけで 6.03M。中身は初回実装の tool 履歴・test と build の出力・探索で、
+> 数件の指摘を直すのに要るものではなかった。
 
 agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘を出すだけで直さない）。
 SDD の 3 つの prompt は Superpowers のものを**そのまま**使う（`~/.claude/plugins/cache/*/superpowers/*/skills/`）。
