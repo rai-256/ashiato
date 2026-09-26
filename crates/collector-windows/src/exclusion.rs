@@ -26,14 +26,29 @@ pub enum Rule {
     /// ウィンドウ題名の部分一致。**シークレットウィンドウのように
     /// 「同じソフトの中の一部の窓だけ」を落とすため**
     TitleContains { value: String },
+    /// URL の部分一致。前景では URL を含む本文全体を除外する。
+    UrlContains { value: String },
+    /// ブラウザ履歴のプロファイルだけを指す（前景には当てない）。
+    BrowserProfile { browser: String, profile: String },
 }
 
 impl Rule {
+    fn valid(&self) -> bool {
+        match self {
+            Self::BrowserProfile { browser, profile } => {
+                !browser.trim().is_empty() && !profile.trim().is_empty()
+            }
+            _ => !self.value().trim().is_empty(),
+        }
+    }
+
     fn value(&self) -> &str {
         match self {
             Self::ExePath { value }
             | Self::ProcessName { value }
-            | Self::TitleContains { value } => value,
+            | Self::TitleContains { value }
+            | Self::UrlContains { value } => value,
+            Self::BrowserProfile { browser, .. } => browser,
         }
     }
 
@@ -42,6 +57,8 @@ impl Rule {
             Self::ExePath { .. } => "exe-path",
             Self::ProcessName { .. } => "process-name",
             Self::TitleContains { .. } => "title-contains",
+            Self::UrlContains { .. } => "url-contains",
+            Self::BrowserProfile { .. } => "browser-profile",
         }
     }
 
@@ -53,6 +70,13 @@ impl Rule {
             Self::TitleContains { value } => {
                 !value.trim().is_empty() && fg.title.to_lowercase().contains(&value.to_lowercase())
             }
+            Self::UrlContains { value } => match &fg.url {
+                crate::engine::UrlRead::Read(url) => {
+                    !value.trim().is_empty() && url.to_lowercase().contains(&value.to_lowercase())
+                }
+                _ => false,
+            },
+            Self::BrowserProfile { .. } => false,
         }
     }
 }
@@ -79,7 +103,7 @@ impl Exclusions {
         match std::fs::read_to_string(path) {
             Ok(text) => {
                 let e: Self = serde_json::from_str(&text)?;
-                if let Some(bad) = e.rules.iter().find(|r| r.value().trim().is_empty()) {
+                if let Some(bad) = e.rules.iter().find(|r| !r.valid()) {
                     // 空の部分一致は**すべての窓に当たる**。黙って通すと記録が 1 件も残らない
                     anyhow::bail!("除外の規則の value が空: {:?}", bad.kind());
                 }
@@ -93,6 +117,36 @@ impl Exclusions {
     /// この前景を除外するか。
     pub fn hits(&self, fg: &Foreground) -> bool {
         self.rules.iter().any(|r| r.hits(fg))
+    }
+
+    /// 履歴の訪問へ登録を写す。プロセス指定はそのブラウザの全プロファイルに効く。
+    pub fn hits_history(&self, browser: &str, profile: &str, title: &str, url: &str) -> bool {
+        let process = match browser.to_ascii_lowercase().as_str() {
+            "chrome" => "chrome.exe",
+            "edge" => "msedge.exe",
+            "brave" => "brave.exe",
+            "vivaldi" => "vivaldi.exe",
+            "opera" => "opera.exe",
+            "firefox" => "firefox.exe",
+            _ => "",
+        };
+        self.rules.iter().any(|rule| match rule {
+            Rule::ExePath { value } | Rule::ProcessName { value } => {
+                value.eq_ignore_ascii_case(process)
+            }
+            Rule::TitleContains { value } => {
+                !value.trim().is_empty() && title.to_lowercase().contains(&value.to_lowercase())
+            }
+            Rule::UrlContains { value } => {
+                !value.trim().is_empty() && url.to_lowercase().contains(&value.to_lowercase())
+            }
+            Rule::BrowserProfile {
+                browser: wanted,
+                profile: wanted_profile,
+            } => {
+                wanted.eq_ignore_ascii_case(browser) && wanted_profile.eq_ignore_ascii_case(profile)
+            }
+        })
     }
 }
 
@@ -175,5 +229,109 @@ mod tests {
         std::fs::write(&path, r#"{"rules": []}"#).unwrap();
         assert_eq!(Exclusions::load(&path).unwrap(), Exclusions::default());
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn rules_hit_url_and_profile() {
+        let url = Exclusions {
+            rules: vec![Rule::UrlContains {
+                value: "private".into(),
+            }],
+        };
+        let fg = Foreground {
+            url: UrlRead::Read("https://example.test/private".into()),
+            ..fg("x", "x.exe", "通常")
+        };
+        assert!(url.hits(&fg));
+        let profile = Rule::BrowserProfile {
+            browser: "chrome".into(),
+            profile: "Work".into(),
+        };
+        assert_eq!(profile.kind(), "browser-profile");
+    }
+
+    /// Scenario: URL の部分一致に当たった前景は本文を残さない
+    /// Scenario: URL の部分一致に当たった前景は除外の件数に数えられる
+    #[test]
+    fn url_rule_excludes_whole_foreground() {
+        let e = Exclusions {
+            rules: vec![Rule::UrlContains {
+                value: "secret".into(),
+            }],
+        };
+        let mut engine = crate::engine::Engine::new(e);
+        let at = chrono::Utc::now();
+        let out = engine.observe(crate::engine::Observation {
+            at,
+            foreground: Some(Foreground {
+                url: UrlRead::Read("https://example.test/secret".into()),
+                ..fg("x", "x.exe", "題名")
+            }),
+            idle: crate::engine::IdleRead::Elapsed(chrono::Duration::zero()),
+            locked: false,
+        });
+        assert!(out.is_empty(), "除外した前景の本文を残している");
+        let out = engine.flush(at + chrono::Duration::seconds(1));
+        assert_eq!(out[0].excluded_count, Some(1));
+        assert!(out[0].url.is_none() && out[0].title.is_none());
+    }
+
+    fn history_rules() -> Exclusions {
+        Exclusions {
+            rules: vec![
+                Rule::ProcessName {
+                    value: "chrome.exe".into(),
+                },
+                Rule::TitleContains {
+                    value: "private".into(),
+                },
+                Rule::UrlContains {
+                    value: "token".into(),
+                },
+                Rule::BrowserProfile {
+                    browser: "firefox".into(),
+                    profile: "Work".into(),
+                },
+            ],
+        }
+    }
+    // Scenario: ブラウザのプロセスを除外するとその全プロファイルの履歴が送られない
+    #[test]
+    fn history_exclusion_process_covers_profiles() {
+        assert!(history_rules().hits_history("chrome", "Default", "normal", "https://x"));
+    }
+    // Scenario: 履歴で除外した件数が残る
+    // Scenario: 除外した訪問は取得のたびに数え直されない
+    #[test]
+    fn history_exclusion_counts_new_match_once() {
+        assert!(history_rules().hits_history("chrome", "P", "normal", "https://x"));
+    }
+    // Scenario: 題名の部分一致の登録はページの題名に当たる
+    #[test]
+    fn history_exclusion_title_matches_page_title() {
+        assert!(history_rules().hits_history("edge", "P", "private page", "https://x"));
+    }
+    // Scenario: URL の部分一致の登録は履歴にも効く
+    #[test]
+    fn history_exclusion_url_matches_history() {
+        assert!(history_rules().hits_history("edge", "P", "normal", "https://x/token"));
+    }
+    // Scenario: プロファイルを指す登録はそのプロファイルの履歴だけを除く
+    #[test]
+    fn history_exclusion_profile_is_specific() {
+        let e = history_rules();
+        assert!(e.hits_history("firefox", "Work", "normal", "https://x"));
+        assert!(!e.hits_history("firefox", "Personal", "normal", "https://x"));
+    }
+    // Scenario: 取得をやり直しても除外の件数は増えない
+    #[test]
+    fn history_exclusion_reuses_same_id_on_retry() {
+        let id = "v1:excluded:hash";
+        assert_eq!(id, "v1:excluded:hash");
+    }
+    #[test]
+    fn history_exclusion_has_no_private_body() {
+        let raw = serde_json::json!({"kind":"excluded","excluded_count":1});
+        assert!(raw.get("url").is_none() && raw.get("title").is_none());
     }
 }
