@@ -27,3 +27,6 @@ web/test-results/
 web/playwright-report/
 web/blob-report/
 web/.playwright/
+
+# LangGraph の dev サーバの保存先（scripts/hx dev）
+.langgraph_api/

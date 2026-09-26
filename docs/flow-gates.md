@@ -31,10 +31,19 @@
 | production-prep | `security-guidance`（commit 時。実測で 2 件のバグを出した） | commit | 会話 |
 | **deep の問い** | `deep-review` agent。schema の手順 1〜5 を独立にやり直す | 人間に HTML を渡す前 | `review/deep.md` |
 | proposal / specs / design / tasks / 再生成後の Story | `spec-review` agent | 上流の PR 前 | `review/spec.md` |
-| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | 会話（controller が ledger に写す） |
+| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | `.superpowers/sdd/st<nn>-task-<N>/task-<N>-findings.md`（reviewer の返答の逐語。`F<k>` の番号だけを足す）＋ ledger の round の行 |
 | **コード（ブランチ全体）** | `superpowers:requesting-code-review` の `code-reviewer.md`（最上位モデル）＋ `code-verify` agent | 全 Task 完了後、PR の前 | `review/code.md` |
-| PR | `scripts/merge_gate.sh` | 人間が merge する前 | draft 状態 + PR コメント。OK なら**次の 1 手**を印字し、上流なら下流の issue を作る・貼り直す（`scripts/issue_body.py`） |
+| PR | `scripts/merge_gate.sh`（グラフの `gate` node） | 人間が merge する前 | draft 状態 + PR コメント。落ちればグラフが `fix`（fresh な agent）→ `publish` → `gate` を回し、3 回で人間 |
 | archive | `scripts/archive.sh` | 下流の merge 後 | `openspec/specs/`（正典） |
+
+**fix round は round ごとに fresh な fixer**（2026-09-26）。前の round の会話を持ち越さないので、
+指摘は会話ではなく上の写しが正本になる。未解決の一覧は `python3 scripts/fix_round.py <写し>` が逐語の記録から
+導き（controller が数え直さない）、グラフの `sdd_task` が node の後に同じ台本で「写しが読めるか・未解決が
+残ったまま complete になっていないか」を見る。park するなら ledger に ruling つきで残す（SDD の breaker）。
+
+> なぜ（実測 2026-09-26、ST06 Task 7 の replay）: resume だと fix round 2 の開始時の文脈が 169k で、
+> 150k を超えた 37 呼び出しだけで 6.03M。中身は初回実装の tool 履歴・test と build の出力・探索で、
+> 数件の指摘を直すのに要るものではなかった。
 
 agent は `.claude/agents/`。いずれも **`Edit` を持たない**（指摘を出すだけで直さない）。
 SDD の 3 つの prompt は Superpowers のものを**そのまま**使う（`~/.claude/plugins/cache/*/superpowers/*/skills/`）。
@@ -73,7 +82,7 @@ SDD の 3 つの prompt は Superpowers のものを**そのまま**使う（`~/
 4. **code-verify** —— **申告と実態のずれ。** 固定値を独立に再計算し、ガードをわざと壊し、
    `[x]` の検証コマンドを実際に叩く。diff を読むだけの reviewer には出せない指摘を出す
 
-**preflight はレビューの席ではない。** `scripts/story.sh` が起動前に見るのは
+**preflight はレビューの席ではない。** `scripts/prepare.sh downstream`（グラフの `prepare` node）が起動前に見るのは
 **SDD を始められる最低条件**だけ —— `tasks.md` が機械的に読めるか（`openspec validate --strict`）、
 Task brief が切り出せる形か、`tasks.md` が名指しする道具が実在するか、未処置の指摘が残っていないか。
 **「要求が実装されたか」を preflight で見ない**（それは task reviewer の席で、
@@ -92,8 +101,9 @@ review package のパスと Global Constraints だけで、**implementer の推�
 実装した subagent は `tasks.md` を編集しない。task reviewer が通してから controller が付ける。
 
 > 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
-> （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
-> （通るほうの）コマンドを走らせた行まで `[x]` になった。採点者と受験者が同じだった。
+> （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）の行まで `[x]` になった。採点者と受験者が同じだった。
+> （訂正 2026-09-25: 以前ここに挙げていた「`check_scenarios.py . st08-browser-history`（通るほう）を走らせた」は、
+> Story の範囲として**正しい検査**だった。下の「関門の 3 段」を見る。）
 >
 > **これは要求の欠落ではない。** Task 5 は「`tools/smoke.sh` に『サーバを止めて取得 → 起動 →
 > 送信 → psql で件数』の手順を足して rc=0」「**Runtime の層で固定する**」と書き、Task 8 は
@@ -105,19 +115,58 @@ review package のパスと Global Constraints だけで、**implementer の推�
 印の無い B の `fixed`・凍結された Story への `deferred`・
 「要件へ戻すもの」の戻し漏れ（`requirements.md` に `★ 日付` の印が無い）を FAIL にする。
 
+### 検証の証跡 —— `[x]` は controller の申告ではなく、ハーネスの記録で決まる（2026-09-25）
+
+`tasks.md` の項目の検証コマンドは `scripts/verify-run <項目>` で走らせる。ハーネスが**本文に書かれたコマンドをそのまま**
+走らせ、`openspec/changes/<change>/evidence.jsonl` に 1 行ずつ残す（コマンド・作業ツリーの tree SHA・HEAD・change・Story・
+時刻・executor・環境・rc・`PASS` / `FAIL` / `BLOCKED_INFRA`・ログ）。status は機械が決める ——
+`BLOCKED_INFRA` は「要る環境が無い」（`/dev/kvm` を開けない・端末が無い・出力が環境の欠落を示す）。
+過去の測定値は `scripts/evidence.py invalidate` で `STALE`（参考のみ）にでき、完了の代わりには使えない。
+
+> 実測 2026-09-25（ST06 Task 7.1）: sandbox の中からエミュレータが起動できず検証は rc=2 だったのに、controller が
+> 前日に以前の実装で測った値を証跡に採用する Ruling を書いて `[x]` にした。取り直すと 510,004,080 bytes（以前は 446,653,440）。
+
+### 凍結後に検証コマンドそのものが成立しないとき —— `scripts/plan_fix.py`（2026-09-25）
+
+証跡の gate は tasks.md に**書かれたコマンド**しか認めない。書かれたコマンドが、環境は揃っているのに原理的に通らない
+（plan の欠陥）なら、別名で別のコマンドの証跡を認めるのではなく、**検証コマンドそのものを正式に直す**:
+
+1. controller は tasks.md を直さない。`scripts/verify-run <項目> --command '<旧>'` で、**いまのコード・環境の揃った状態の `FAIL`**
+   を実証として残す（`BLOCKED_INFRA` は環境の欠落で、実証にならない）
+2. premise の A として `deep.md` に積み、成立しない理由と提案する正式な入口を添えて人間に返す
+3. 人間が承認したら `scripts/plan_fix.py <change> <項目> --old … --new … --reason … --approved …`。実証・入口の実在・承認を
+   機械で確かめ、検証コマンドの 1 か所**だけ**を直す（受け入れ条件は変えない）。旧コマンドと理由は項目の下の注記と
+   `<change>/plan-corrections.md` に残る
+
+> 実測 2026-09-25（ST06 8.2）: 裸の `./gradlew :app:connectedDebugAndroidTest` は、2 段と `-Pashiato.baseUrl` を前提にした
+> テストで 12 本中 7 本が落ちた。正式な入口は `tools/android-emulator.sh`（2 段・baseUrl つき）。
+
+### 関門の 3 段 —— 何を見るかを混ぜない（2026-09-25）
+
+| 段 | 見るもの | どこで |
+|---|---|---|
+| **Task gate** | その Task の `[x]` の項目の検証コマンドすべてに、**いまのコード**に対する `PASS` の証跡があるか（`evidence.py check --task N`）。無い・古い・`FAIL`・`BLOCKED_INFRA` なら Task は完了しない | グラフの `sdd_task` の後 |
+| **Story gate** | 正典（archive 済み）+ **自分の change** の Scenario（`check_scenarios.py . <change>`）・処置・未回答・tasks の残り・`[x]` の最新の証跡が `PASS` でないもの（`evidence.py check --story`）。走っている他の Story の change では落ちない | `merge_gate.sh`、`archive.sh` |
+| **Integration gate** | 統合した木で、正典 + **束ねた全 change** の Scenario（`check_scenarios.py . <束ねた change…>`）。Story どうしの食い違いはここで初めて見える。全 change の監査は `check_scenarios.py . --all` | `verify_batch.sh`（確認バッチの統合ブランチ） |
+
+`check_scenarios.py .` を change 名なしで呼ぶと、グラフが渡す `HX_CHANGE`（実行中の Story の change）を対象にする。
+`HX_CHANGE` も `--all` も無ければ、推測せずに rc=2（ブランチ名から当てない）。
+
 ## 検査の一覧
 
 | スクリプト | 見るもの | 走る場所 |
 |---|---|---|
 | `check_chain.py` | 要件 → Story の鎖（8 観点。対象外は INDEX の「Story の対象外」）。`stories.json` からの再生成と一致するか | ローカル、`merge_gate`、CI（`HARNESS2_TOKEN` があるとき） |
-| `check_scenarios.py` | 全 `#### Scenario:` に test の印（`Scenario: <名前>`）があるか。無いものは「人間の確認待ち」に無ければ FAIL | ローカル、`merge_gate`、`archive` |
+| `check_scenarios.py` | 正典 + 対象の change の `#### Scenario:` に test の印（`Scenario: <名前>`）があるか。無いものは「人間の確認待ち」に無ければ FAIL。対象は change 名 / `HX_CHANGE` / `--all`（上の 3 段） | ローカル、`merge_gate`、`archive`、`verify_batch`（統合） |
+| `evidence.py` / `verify-run` | 検証の証跡の記録（run）と判定（check --task / --story）、無効化（invalidate） | implementer と controller（run）、グラフの `sdd_task`（Task gate）、`merge_gate`（Story gate） |
 | `review_triage.py` | 上の処置 | ローカル、`merge_gate`、`archive` |
-| `merge_gate.sh` | head を main に追従 → その head の CI → tasks の残り → 検査 3 本 → deep の未回答。落ちれば draft に戻す。**通れば次の 1 手を印字し PR にコメント**、上流なら issue を作る・貼り直す | PR の最後 |
-| `issue_body.py` | 下流へ渡す issue の本文を deep / tasks / design / Story から機械的に出す。**上流の PR と同時に作る**（merge を待たない） | 上流の Step 5、`merge_gate` |
+| `merge_gate.sh` | head を main に追従 → その head の CI → tasks の残り → 検査 3 本 → deep の未回答。落ちれば draft に戻し、通れば ready。rc と `[FAIL]` の行でグラフが分岐する | グラフの `gate` |
+| `issue_body.py` | 下流へ渡す issue の本文を deep / tasks / design / Story から機械的に出す。**上流の PR と同時に作る**（merge を待たない） | `publish.sh upstream`、`prepare.sh downstream` |
+| `story_facts.py` | Story 1 本の事実（archive 済み / 上流が main に / 下流が main に / 確認済み / 着手できるか）を JSON で | グラフの `observe` / `admission` / 待ちの node |
 | `archive.sh` | main に入っていること（Story の PR か、それを含む verify の PR が merge 済み）、人間の確認待ち以外が全部 `[x]`、Scenario の担保、指摘の処置 → `openspec archive` → PR → Story の PR を閉じ、下流の worktree を片付ける | 下流の merge 後 |
-| `board.py` | 盤面。requires が全部 archive 済みで、capability が走っている Story と重ならないものを「いま同時に始められる」と出す | 上流の Step 1、`merge_gate` |
-| `verify_batch.sh` | 確認バッチ。ready な `feat/st*` の PR を `verify/<tag>` に merge → `tools/verify-prep.sh`（成果物）→ `verify_checklist.py`（手順書）→ draft の PR | 下流の gate の後、人間が確認する前 |
-| `verify_record.py` | 手順書の貼り戻しを tasks.md（`[x]` と印）と `docs/verify/<tag>.md` に記録する。通らなかったものを列挙して rc=1 | 確認の後 |
+| `board.py` | 盤面と着手の規則 `admit()`。requires が全部 archive 済みで、capability が走っている他の Story と重ならないか | グラフの `admission`（`story_facts.py` 経由） |
+| `verify_batch.sh` | 確認バッチ。ready な `feat/st*` の PR を `verify/<tag>` に merge → `tools/verify-prep.sh`（成果物）→ `verify_checklist.py`（手順書）→ draft の PR | verify グラフの `batch` |
+| `verify_record.py` | 手順書の貼り戻しを tasks.md（`[x]` と印）と `docs/verify/<tag>.md` に記録する。通らなかったものを列挙して rc=1 | verify グラフの `record` |
 | `tools/verify-prep.sh`（ashiato2） | server の release / web の build / APK（実機があれば adb で入れる）/ `run.sh` / `manifest.md` を `dist/verify-<tag>/` に | `verify_batch` |
 | `cargo test -p ashiato-collector-windows --test runtime_windows`（ashiato2、Windows の上で） | 前景・入力・アドレスバーを本物の OS から読ませて記録を数える実行時テスト。テストが自分で窓を作る | CI の `collector-windows-runtime`（windows-latest）、手元の Windows |
 | `tools/android-emulator.sh`（ashiato2） | エミュレータを立てて `src/androidTest` の計測テスト（前景サービス・権限の入口・HTTP を本物の framework で）。実機を繋いでも同じ gradle タスク | CI の `android-instrumented`（ubuntu + KVM）、手元 |
@@ -146,8 +195,8 @@ review package のパスと Global Constraints だけで、**implementer の推�
 - **画面の構造は `kind: visual` + `proto`**（playground）で触って決める。文字の選択肢で問わない
 - 移行の名前は作成時刻。連番にしない（並走する Story が番号を取り合う）
 - merge の順序を design に書かない。gate が main に rebase するので、後から merge する側が追従する
-- **並列は盤面で決める**（`python3 scripts/board.py`）。requires が全部 archive 済み ∧ capability が走っている Story と重ならない
-- **Story ごとに動作確認を求めない。** gate を通った PR は `scripts/verify_batch.sh` でまとめ、成果物と手順書を AI が用意してから人間が 1 回で確かめる。停止点は verify の PR の merge
+- **並列はグラフの `admission` が決める**（規則は `board.py` の `admit()`）。requires が全部 archive 済み ∧ capability が走っている Story と重ならない
+- **Story ごとに動作確認を求めない。** gate を通った PR は verify グラフ（`scripts/hx verify`）でまとめ、成果物と手順書を AI が用意してから人間が 1 回で確かめる。停止点は verify の PR の merge
 
 ## 現在地（2026-09-09）
 
