@@ -20,6 +20,8 @@ pub const REBUILD_PREFIX: &str = "rebuild:";
 pub const ABSORBED: &str = "rebuild:absorbed";
 /// 本人が消した時間帯と重なった（design D4）。
 pub const ERASED_RANGE: &str = "rebuild:erased-range";
+/// 本人が消した滞在の時間帯へ、消した後に届いた基準ソースの記録。
+pub const USER_LATE: &str = "user:late";
 
 /// 日の区切り（`Asia/Tokyo`）。JST は固定の +09:00（`lib.rs` の `today_jst` と同じ前提）。
 pub fn day_bounds(day: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
@@ -562,7 +564,9 @@ pub async fn rebuild_day(
     let mut tx = pool.begin().await?;
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
-    let (lo, hi) = settle_range(&mut tx, user, &c, day_bounds(day)).await?;
+    let bounds = day_bounds(day);
+    mark_late_arrivals(&mut tx, user, &c.sources, bounds).await?;
+    let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
     let fresh = stay::detect(&points, &c);
@@ -611,6 +615,71 @@ pub async fn rebuild_day(
     }
     tx.commit().await?;
     Ok(out)
+}
+
+/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースの記録を隠す。
+///
+/// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
+/// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
+async fn mark_late_arrivals(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    sources: &[String],
+    (from, to): (DateTime<Utc>, DateTime<Utc>),
+) -> sqlx::Result<()> {
+    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(
+        "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
+           FROM core.event e
+           JOIN core.event s
+             ON s.user_id = e.user_id
+            AND s.logical_source = $5
+            AND s.origin = 'derived'
+            AND s.deleted_at IS NOT NULL
+            AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $6)
+            AND e.event_time >= s.event_time
+            AND e.event_time <= coalesce((s.payload->>'end')::timestamptz, s.event_time)
+            AND e.ingest_time >= s.deleted_at
+          WHERE e.user_id = $1
+            AND e.logical_source = ANY($2)
+            AND e.event_time >= $3 AND e.event_time < $4
+            AND e.deleted_at IS NULL
+          ORDER BY e.id, s.event_time, s.id",
+    )
+    .bind(user)
+    .bind(sources)
+    .bind(from)
+    .bind(to)
+    .bind(stay::SOURCE)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for (event_id, logical_source, cause_event_id) in candidates {
+        let changed = sqlx::query(
+            "UPDATE core.event SET deleted_at = now(), deleted_by = $2
+              WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(event_id)
+        .bind(USER_LATE)
+        .execute(&mut **tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            continue;
+        }
+        sqlx::query(
+            "INSERT INTO core.deletion_ledger
+               (event_id, user_id, logical_source, action, cause_event_id, mark)
+             VALUES ($1, $2, $3, 'erase', $4, $5)",
+        )
+        .bind(event_id)
+        .bind(user)
+        .bind(logical_source)
+        .bind(cause_event_id)
+        .bind(USER_LATE)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 /// 前の版を履歴へ積む（`core.event_version`）。`version_no` は続き番号 —— 錠の中なので衝突しない。
