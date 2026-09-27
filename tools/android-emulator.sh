@@ -50,6 +50,13 @@ echo "== 計測テスト"
 # 状態を作るのはテストの外の仕事にする。`pm clear` は前のテストが残した前景サービスがあると
 # `Failed` で rc=1 になる（実測）ので、権限だけを戻す `pm reset-permissions` を使う。
 A=dev.ashiato.collector.NeedsPristinePermissions
+# **前の台本が AVD に残した状態を持ち込まない**（code-verify R29）。AVD の userdata は起動をまたいで残り、
+# gradle の `install -r` は入っているアプリの app-op を引き継ぐ —— `tools/usage-volume.sh` が付けた
+# 「利用状況へのアクセス」の許可が残ったまま suite が走り、`UsageAccessInstrumentedTest` が前提不備で、
+# `RetentionInstrumentedTest` がアプリ利用の記録ぶん（129800 / 129600）で落ちた（実測 2026-09-27:
+# `appops get dev.ashiato.collector GET_USAGE_STATS` → `allow`）。入っていなければ何もしない。
+adb uninstall dev.ashiato.collector.test >/dev/null 2>&1 || true
+adb uninstall dev.ashiato.collector >/dev/null 2>&1 || true
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
