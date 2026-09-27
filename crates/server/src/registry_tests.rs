@@ -256,7 +256,10 @@ async fn app_usage_rollup_source_migration_keeps_values_changed_by_hand() {
     .await
     .unwrap();
     assert_eq!(gap, 43200, "当て直しで本人が変えた想定間隔が初期値へ戻った");
-    assert_eq!(name, "手で変えた名前", "当て直しで本人が変えた表示名が初期値へ戻った");
+    assert_eq!(
+        name, "手で変えた名前",
+        "当て直しで本人が変えた表示名が初期値へ戻った"
+    );
     tx.rollback().await.unwrap();
 }
 
