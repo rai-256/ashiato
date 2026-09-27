@@ -153,3 +153,24 @@ Story の側: `docs/stories/stories.json` の ST22 に `requires: ST16` を足�
 - **Q4 は proto の初期値（その場で確認・戻す操作は作らない）から軸 3 を動かし、「消した時間の行からいつでも戻せる」を選んだ。** 当初 C の一覧で「戻す」は作らない前提だった箇所
   （C2 の台帳の「戻す」の行）が実際に使われる
 - **Story の依存を覆した**: `requires` は ST01 だけだったが、画面と消した時間の出し方が ST16 の `browsing-views` を書き換えるので ST16 を足した
+
+## 深掘り 第 2 回（2026-09-27。Task 2 の検証で判明）
+
+問いは `deep-questions-r2.json`、渡す HTML は `docs/briefs/ST22-deep-r2.html`。
+
+### Q5. `CT` と書いた Task の検証を gate が実行できない（A / premise）
+
+- **状態**: **(未回答)**
+- **崩れた前提**: tasks.md の前置きは `CT <絞り込み>` を件数つき `cargo test` の検証として定義しているが、
+  `scripts/verify-run` と evidence gate は項目中の backtick のコマンドだけを declared として扱う。Task 2 の 2.1〜2.6 は
+  `検証: CT erase_endpoint` の形で、backtick のコマンドが 1 本も無い。
+- **実証**: いまの実装で `scripts/verify-run 2.1` を実行すると rc=2、
+  `本文に検証コマンドが無い（backtick のコマンドを名指ししていない）。記録しない`。
+  ログは `.superpowers/sdd/logs/20260927-174208-task2-verify-2-1.log`。証跡そのものを記録しない失敗なので、
+  `evidence.jsonl` の FAIL にもならない。
+- **既存の正式入口も使えない理由**: `scripts/plan_fix.py` は「旧コマンドが declared であること」と、その旧コマンドの FAIL 証跡を要求する。
+  今回は旧コマンドが存在せず、`verify-run` も記録しないため、通常の plan correction の入口へ入れない。
+- **提案**: `plan_fix.py` に「検証コマンド欠落」の訂正を、承認・rc=2 の実証・新入口の実在を必須にした狭い形で足し、
+  2.1〜2.6 を repo 内の件数つきテスト入口（`scripts/ct-run <絞り込み>`）へ正式に訂正する。
+- **別案**: `CT` を tasks の正式な構文として `verify-run` / evidence gate の全体で解釈する。ただし過去・将来の全 change に効くため、
+  ST22 の 6 項目だけを直す案より影響が広い。

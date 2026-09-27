@@ -27,6 +27,10 @@ pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
+/// 滞在を消す判定・印・追記専用台帳（ST22 / design D2〜D5）。
+pub mod deletion;
+#[cfg(test)]
+mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
@@ -1205,6 +1209,72 @@ pub struct RebuildResponse {
     took_ms: i64,
 }
 
+/// `POST /stays/erase` の本文。利用者は滞在の行から決め、添えられた値は照合だけに使う。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EraseRequest {
+    pub stay_id: uuid::Uuid,
+    pub user_id: Option<uuid::Uuid>,
+}
+
+/// 消した記録の種類別件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ErasedCounts {
+    stays: u64,
+    locations: u64,
+}
+
+/// `POST /stays/erase` の応答。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct EraseResponse {
+    erased: ErasedCounts,
+}
+
+/// 滞在と、その時間帯にある現在基準の位置へ削除の印を付ける。
+#[utoipa::path(post, path = "/stays/erase", request_body = EraseRequest,
+    responses((status = 200, body = EraseResponse), (status = 401), (status = 404)))]
+pub async fn stays_erase(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<EraseRequest>,
+) -> Result<Json<EraseResponse>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let outcome = deletion::erase(&app.pool, req.stay_id, req.user_id)
+        .await
+        .map_err(|e| match e {
+            deletion::EraseError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found".into()),
+            deletion::EraseError::UserMismatch => {
+                tracing::warn!(
+                    kind = "erase_user_mismatch",
+                    "滞在の利用者と添えられた利用者が違うため消さなかった"
+                );
+                (StatusCode::NOT_FOUND, "stay_not_found".into())
+            }
+            deletion::EraseError::Database(e) => internal_at("stays.erase", e),
+        })?;
+
+    if outcome.stays > 0 {
+        for day in outcome.days() {
+            if let Err(e) = (app.stays.0)(app.pool.clone(), outcome.user_id, day).await {
+                tracing::error!(
+                    kind = "stay.rebuild",
+                    user = %outcome.user_id,
+                    %day,
+                    failure = %stay_store::failure_kind(&e),
+                    "消した後の滞在の作り直しに失敗（削除の印は保存済み）"
+                );
+            }
+        }
+    }
+
+    Ok(Json(EraseResponse {
+        erased: ErasedCounts {
+            stays: outcome.stays,
+            locations: outcome.locations,
+        },
+    }))
+}
+
 /// 範囲の外にある基準の欄の名前（spec「範囲外の基準は断られる」）。**欄の名前だけを返し、値は返さない。**
 fn criteria_out_of_range(r: &RebuildRequest) -> Option<&'static str> {
     let within = |v: Option<i32>, hi: i32| v.is_none_or(|x| (1..=hi).contains(&x));
@@ -1795,6 +1865,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
+        .route("/stays/erase", post(stays_erase))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/attributes", get(attributes_get))
@@ -1835,6 +1906,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         stays_get,
+        stays_erase,
         stays_rebuild,
         stays_criteria_get,
         attributes_get,
@@ -1864,6 +1936,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::SourceAchievement,
         RebuildRequest,
         RebuildResponse,
+        EraseRequest,
+        EraseResponse,
+        ErasedCounts,
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,

@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! 滞在を消すときの判定と SQL（ST22 / design D2〜D5）。
+
+use chrono::{DateTime, NaiveDate, Utc};
+use sqlx::{PgPool, Postgres, Transaction};
+
+use crate::{stay::Criteria, stay_store};
+
+/// 消す操作が成立しなかった理由。404 に畳む 2 種類は、ログの要否だけが違う。
+#[derive(Debug)]
+pub enum EraseError {
+    NotFound,
+    UserMismatch,
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for EraseError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct StayRow {
+    user_id: uuid::Uuid,
+    event_time: DateTime<Utc>,
+    payload: serde_json::Value,
+    deleted_at: Option<DateTime<Utc>>,
+}
+
+/// commit 後の作り直しに必要な範囲と、応答に出す件数。
+#[derive(Debug)]
+pub struct EraseOutcome {
+    pub user_id: uuid::Uuid,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    pub stays: u64,
+    pub locations: u64,
+}
+
+impl EraseOutcome {
+    /// 滞在が触れる `Asia/Tokyo` の日を、古い順に一度ずつ返す。
+    pub fn days(&self) -> impl Iterator<Item = NaiveDate> {
+        let first = stay_store::jst_date(self.start);
+        let last = stay_store::jst_date(self.end);
+        first.iter_days().take_while(move |day| *day <= last)
+    }
+}
+
+/// 滞在と連鎖対象の位置に印を付け、同じ transaction の台帳へ追記する。
+pub async fn erase(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+) -> Result<EraseOutcome, EraseError> {
+    erase_using_action(pool, stay_id, requested_user, "erase").await
+}
+
+/// 台帳の CHECK 違反を起こし、印と台帳が同時に rollback されることを試す口。
+#[cfg(test)]
+pub(crate) async fn erase_with_action(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+    action: &str,
+) -> Result<EraseOutcome, EraseError> {
+    erase_using_action(pool, stay_id, requested_user, action).await
+}
+
+async fn erase_using_action(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+    action: &str,
+) -> Result<EraseOutcome, EraseError> {
+    let mut tx = pool.begin().await?;
+    // 利用者は行からしか分からないため、最初の SQL で行を読むのと同時にその利用者の錠を取る。
+    let Some(identity) = stay_row_and_lock(&mut tx, stay_id).await? else {
+        return Err(EraseError::NotFound);
+    };
+    if requested_user.is_some_and(|user| user != identity.user_id) {
+        return Err(EraseError::UserMismatch);
+    }
+    let row = stay_row(&mut tx, stay_id, true)
+        .await?
+        .ok_or(EraseError::NotFound)?;
+    let (start, end) = stay_store::span_of(row.event_time, &row.payload);
+    if row.deleted_at.is_some() {
+        tx.commit().await?;
+        return Ok(EraseOutcome {
+            user_id: row.user_id,
+            start,
+            end,
+            stays: 0,
+            locations: 0,
+        });
+    }
+
+    let sources = stay_store::current_criteria(&mut *tx, row.user_id)
+        .await?
+        .unwrap_or_else(Criteria::default_values)
+        .sources;
+    let stay_changed: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'user'
+          WHERE id = $1 AND deleted_at IS NULL
+          RETURNING id, logical_source",
+    )
+    .bind(stay_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let locations: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:cascade'
+          WHERE user_id = $1 AND logical_source = ANY($2)
+            AND event_time >= $3 AND event_time <= $4 AND deleted_at IS NULL
+          RETURNING id, logical_source",
+    )
+    .bind(row.user_id)
+    .bind(&sources)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for (event_id, logical_source) in &stay_changed {
+        ledger(
+            &mut tx,
+            *event_id,
+            row.user_id,
+            logical_source,
+            action,
+            stay_id,
+            "user",
+        )
+        .await?;
+    }
+    for (event_id, logical_source) in &locations {
+        ledger(
+            &mut tx,
+            *event_id,
+            row.user_id,
+            logical_source,
+            action,
+            stay_id,
+            "user:cascade",
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(EraseOutcome {
+        user_id: row.user_id,
+        start,
+        end,
+        stays: stay_changed.len() as u64,
+        locations: locations.len() as u64,
+    })
+}
+
+async fn stay_row_and_lock(
+    tx: &mut Transaction<'_, Postgres>,
+    stay_id: uuid::Uuid,
+) -> sqlx::Result<Option<StayRow>> {
+    sqlx::query_as(
+        "SELECT user_id, event_time, payload, deleted_at,
+                pg_advisory_xact_lock($2, hashtext(user_id::text)) AS locked
+           FROM core.event
+          WHERE id = $1 AND logical_source = 's01-stay' AND origin = 'derived'",
+    )
+    .bind(stay_id)
+    .bind(stay_store::LOCK_KEY)
+    .fetch_optional(&mut **tx)
+    .await
+}
+
+async fn stay_row(
+    tx: &mut Transaction<'_, Postgres>,
+    stay_id: uuid::Uuid,
+    for_update: bool,
+) -> sqlx::Result<Option<StayRow>> {
+    let suffix = if for_update { " FOR UPDATE" } else { "" };
+    sqlx::query_as(&format!(
+        "SELECT user_id, event_time, payload, deleted_at
+           FROM core.event
+          WHERE id = $1 AND logical_source = 's01-stay' AND origin = 'derived'{suffix}"
+    ))
+    .bind(stay_id)
+    .fetch_optional(&mut **tx)
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn ledger(
+    tx: &mut Transaction<'_, Postgres>,
+    event_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    logical_source: &str,
+    action: &str,
+    cause_event_id: uuid::Uuid,
+    mark: &str,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1,$2,$3,$4,$5,$6)",
+    )
+    .bind(event_id)
+    .bind(user_id)
+    .bind(logical_source)
+    .bind(action)
+    .bind(cause_event_id)
+    .bind(mark)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
