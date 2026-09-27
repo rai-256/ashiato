@@ -84,15 +84,15 @@
 |---|---|---|
 | 要件の掘り方 | `grilling`（harness2 にベンダリング） | `superpowers:brainstorming` |
 | 計画の器 | OpenSpec の change（proposal / specs / tasks） | `superpowers:writing-plans` / `executing-plans` |
-| **下流の実装の回し方** | **`superpowers:subagent-driven-development`（そのまま）** | 独自の実装オーケストレーション |
+| **下流の実装の回し方** | **`superpowers:subagent-driven-development` の prompt と付属スクリプト（書き換えない）**。Task ループはグラフ（2026-09-27） | SDD の controller を LLM で回すこと |
 | skill の書き方 | `skill-creator` | `superpowers:writing-skills` |
-| 並列 | **SDD の Task ループだけ**（implementer は 1 本ずつ。reviewer は SDD が決める） | `dispatching-parallel-agents` |
+| 並列 | しない（Task は 1 本ずつ。implementer → reviewer → fixer の順） | `dispatching-parallel-agents` |
 
 superpowers から実際に使うのは **6 本**:
 
 | skill | いつ | 使い方 |
 |---|---|---|
-| **`subagent-driven-development`** | **下流の実装ぜんぶ** | `/story` が起動する。Task ループ・fix loop・ledger・review package・breaker は**全部これが持つ**。付属 prompt（`implementer-prompt.md` / `task-reviewer-prompt.md` / `re-review-prompt.md`）と付属スクリプト（`sdd-workspace` / `task-brief` / `review-package`）を**書き換えずに**使う |
+| **`subagent-driven-development`** | **下流の実装ぜんぶ** | グラフが付属 prompt（`implementer-prompt.md` / `task-reviewer-prompt.md` / `re-review-prompt.md`）の穴を埋めて Task agent・reviewer・fixer を**直接**起こし、付属スクリプト（`task-brief` / `review-package`）を使う。どれも**書き換えない**。SDD の controller は起動しない（2026-09-27） |
 | **`requesting-code-review`** | **全 Task 完了後の whole-branch review 1 回だけ** | SDD が `code-reviewer.md` を指すので、その呼び出し関係のまま。**Task ごとに重ねて呼ばない**（Task ごとは SDD の task reviewer） |
 | `test-driven-development` | 実装（implementer の dispatch に入れる） | |
 | `verification-before-completion` | 完了の申告の前 | |
@@ -152,14 +152,13 @@ thread 1 本 = Story 1 本。工程の中身は skill と SDD、外への作用�
 ```
 observe ─ admission ⟲ ─ upstream ─ wait_upstream_merge ⟲ ─ downstream ─ wait_verified ⟲ ─ archive
   upstream   = prepare → questions → ask(人間) → record → spec → publish → gate ⇄ fix
-  downstream = prepare → next_task ⟳ sdd_task(Task N) … → final_review → code_verify → finish → publish → gate ⇄ fix
+  downstream = prepare → next_task ⟳ [task_gate ⇄ implement / review / fixer → mark](Task N) … → final_review → code_verify → finish → publish → gate ⇄ fix
 ```
 
-**下流は Task ごとに実行の境界を持つ**（2026-09-24）。`sdd_task` は Task ごとに fresh な controller を起動し、
-`tasks.md` から Task N だけを切り出した plan（`scripts/task_slice.py`）を SDD の PLAN_FILE にする ——
-SDD は plan の Task を全部終えたら止まるので、Task N の後に止まるのは SDD 自身の終了条件。Task の中
-（implementer・task reviewer・fix loop・ledger）は SDD のまま。グラフは node の後に「Task N が `[x]`」
-「slice の ledger に `Task N: complete`」「ほかの Task の `[x]` が動いていない」を機械で見る。
+**下流は Task ごとに実行の境界を持つ**（2026-09-24。2026-09-27 に LLM の controller を外した）。
+Task agent（Codex / Claude 自身）が 1 Task を探索から検証・commit まで 1 session で持ち、グラフが
+`task_gate`（証跡と commit）→ 独立の `review` → 指摘があれば fresh な `fixer` → `mark`（`[x]` と commit）を回す。
+次の一手は毎回 artifact（HEAD・証跡・指摘の記録・試行の記録）から決まり、外的な中断では同じ session を resume する。
 失敗は Task 単位で、`hx retry` はその Task から続く。whole-branch review・code-verify・処置と PR 本文は全 Task の後に 1 回ずつ。
 **`[x]` は検証の証跡で決まる**（2026-09-25）: 検証コマンドは `scripts/verify-run <項目>` でハーネスが走らせて記録し、
 Task gate / Story gate / Integration gate がそれを機械で見る（`docs/flow-gates.md` の「関門の 3 段」）。
@@ -177,13 +176,13 @@ scripts/hx poke                 # 待ちの thread に条件を見直させる�
 scripts/hx retry ST02           # 落ちた node から再実行
 ```
 
-- **工程間で会話を引き継がない。** agent の node（questions / record / spec / sdd_task / final_review / code_verify / finish / fix）は毎回 fresh な
+- **工程間で会話を引き継がない。** agent の node（questions / record / spec / implement / review / fixer / final_review / code_verify / finish / fix）は毎回 fresh な
   `claude -p`（`--permission-mode auto`。変えるなら `HARNESS_PERMISSION_MODE`）で、渡すのは skill と artifact のパスだけ。
   人間の答えは `deep-answers-<n>.txt` に落ちて、別のセッションが読む
-- **下流の sdd_task / final_review / finish / fix だけは executor を選べる**（2026-09-24）。`hx start ST06 --executor codex|claude` で thread に固定し、
-  Codex なら `codex exec "$story ST06"`。skill・SDD・ledger・tasks.md・review の artifact は同じもので、違いは
+- **下流の implement / review / fixer / final_review / finish / fix だけは executor を選べる**（2026-09-24）。`hx start ST06 --executor codex|claude` で thread に固定し、
+  Codex なら `codex exec`。prompt・tasks.md・証跡・review の artifact は同じもので、違いは
   `harness2/graph/harness_graph/effects.py` の `agent()` の中だけ。落ちたら `hx retry ST06 --executor claude` で切り替える
-  （ledger から続く）。既定は `HARNESS_DOWNSTREAM_EXECUTOR`（無ければ claude）。code-verify はどちらでも Claude の定義
+  （いまの木から続く）。既定は `HARNESS_DOWNSTREAM_EXECUTOR`（無ければ claude）。code-verify はどちらでも Claude の定義
 - **分岐は artifact の観測で決める。** agent が「できた」と言っても、その stage の artifact（tasks.md など）が
   無ければ node が落ちる
 - **issue は PR と同時に作る**（`publish.sh` が `issue_body.py` で）。merge の後に作る規則だと作る係がいなくなる
@@ -275,21 +274,18 @@ Q2 [感度の既定] -> (未回答)
 書けない（先行が archive されるまで capability が `openspec/specs/` に無いので
 `MODIFIED` を書けない）うえ、実装が spec の穴を開けるので書いても古くなる。
 
-**`/story` は実装の回し方を持たない。** 回すのは `superpowers:subagent-driven-development`（SDD）——
-**Task ごとに fresh な implementer** を出し、**Task ごとに独立の task reviewer**（`task-reviewer-prompt.md`）に
-かけ、直しがあれば scoped re-review、全 Task 完了後に **whole-branch review**
-（`requesting-code-review` の `code-reviewer.md` ＋ `code-verify`）を通す。
-`/story` が持つのは **SDD に渡す 4 つの値**（PLAN_FILE = `tasks.md` / Global Constraints /
-担当する Task / 完了の記録先）と、whole-branch review の処置（`review/code.md` → `review_triage.py`）だけ。
-push・PR・gate はグラフの node。
+**Task は `/story` を通らない**（2026-09-27）。グラフが **Task ごとに Task agent**（implementer）を起こし、
+**Task ごとに独立の task reviewer**（`task-reviewer-prompt.md`）にかけ、直しがあれば fresh な fixer と scoped re-review、
+全 Task 完了後に **whole-branch review**（`/story final` = `code-reviewer.md` ＋ `code-verify`）を通す。
+`/story` が持つのは final と、whole-branch review の処置（`/story finish`。`review/code.md` → `review_triage.py`）だけ。
+Task agent の規律は harness2 の `skills/story/task.md`。push・PR・gate はグラフの node。
 
 | 誰が | 文脈 | 渡されるもの | 渡されないもの |
 |---|---|---|---|
-| controller（`/story`） | セッション全体 | plan・制約の写し・handoff・ledger | Task の実装の中身、**原典の全文** |
-| implementer（Task ごとに新規） | **その Task だけ** | brief file・**制約の写し**・界面・report file のパス | 前の Task の会話、plan 全文 |
+| implementer = Task agent（Task ごとに新規。外的な中断だけ resume） | **その Task だけ** | brief file・**制約の写し**・界面・report file のパス | 前の Task の会話、plan 全文 |
 | **fixer（fix round ごとに新規）** | **その指摘だけ** | 制約の写し・brief file・**未解決の指摘**・report file・いまの木と diff のパス | **初回 implementer と前の fixer の会話**、tool 出力、閉じた指摘 |
 | task reviewer（Task ごとに新規） | **その diff だけ** | brief file・report file・review package・**制約の写し** | **implementer の推論と自己正当化** |
-| final reviewer / code-verify | ブランチ全体 | review package・plan・ledger の parked / deferred | 同上 |
+| final reviewer / code-verify | ブランチ全体 | review package・plan・ledger の parked・Task の指摘の記録の Minor / ⚠️ | 同上 |
 
 **制約の写し**（`scripts/task_context.py`。`.superpowers/sdd/st<nn>-task-<N>/task-<N>-context.md`）は、
 **その Task が名指しする制約を原典から機械で逐語に引いたもの** —— `tasks.md` の前置きと Global Constraints・
@@ -303,11 +299,11 @@ push・PR・gate はグラフの node。
 ashiato2 は SDD 自身が用意している fallback（*fresh implementer ＋ report file が persistent memory*）を
 全 round の既定にする。**引き継ぐのは会話ではなく、いまの木・Task の制約の写し・未解決の指摘。**
 未解決の一覧は `scripts/fix_round.py` が `task-<N>-findings.md`（reviewer の返答の逐語）から導くので、
-controller が数え直して落とす経路が無い。5 round の上限・breaker・scoped re-review は SDD のまま。
+誰かが数え直して落とす経路が無い。5 round の上限と scoped re-review は SDD のまま。上限で閉じなければ人間へ（park は ledger に ruling つき）。
 実測 2026-09-26（ST06 Task 7 の replay）: resume だと fix round 2 の開始時が 169k・最大 178k で、
 150k を超えた 37 呼び出しだけで 6.03M（Task 全体 17.19M で credit が切れた）。
 
-**`tasks.md` の `- [x]` は controller だけが付ける。** implementer は `tasks.md` を触らない ——
+**`tasks.md` の `- [x]` はグラフの `mark`（`task_mark.py`）だけが付ける**（Task gate と review が通った後）。implementer は `tasks.md` を触らない ——
 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
 （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）や、tasks 本文と違う
 （通るほうの）コマンドを走らせた行まで `[x]` になり、独立レビューが 36 件を出した。
@@ -327,8 +323,8 @@ admission が通した Story どうしを実際に並べられ、main の作業�
 決めたことを記録する。止まる印は thread の interrupt と、PR の **draft**（`merge_gate.sh` が付け外しする）。
 `closes #N` は残タスク 0 のときだけ。それ以外は `refs #N`（issue が残タスクの入口）。
 
-下流で **`deep.md` に人間へ返す項目（A）が積まれたら**、`/story` は問いの HTML を作って終え、グラフが `ask` で待つ。
-答えを `record` が `deep.md` に書いた後、`/story` をもう一度呼ぶ（SDD の ledger から続きをやる）。
+下流で **`deep.md` に人間へ返す項目（A）が積まれたら**、Task agent（か `/story`）は問いの HTML を作って終え、グラフが `ask` で待つ。
+答えを `record` が `deep.md` に書いた後、グラフが同じ Task をもう一度回す（Task agent の session の続きから）。
 未決でも**作業は捨てない** —— 済んだ Task は commit されている。
 
 **走っている Story へは差し戻さない**（2026-09-12）。issue ができた時点でその Story の `tasks.md` は凍結。
