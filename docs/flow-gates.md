@@ -31,15 +31,15 @@
 | production-prep | `security-guidance`（commit 時。実測で 2 件のバグを出した） | commit | 会話 |
 | **deep の問い** | `deep-review` agent。schema の手順 1〜5 を独立にやり直す | 人間に HTML を渡す前 | `review/deep.md` |
 | proposal / specs / design / tasks / 再生成後の Story | `spec-review` agent | 上流の PR 前 | `review/spec.md` |
-| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task が終わるたび。**controller が `[x]` を付ける前** | `.superpowers/sdd/st<nn>-task-<N>/task-<N>-findings.md`（reviewer の返答の逐語。`F<k>` の番号だけを足す）＋ ledger の round の行 |
+| **コード（Task ごと）** | `superpowers:subagent-driven-development` の **task reviewer**（`task-reviewer-prompt.md`）。fix があれば **re-reviewer**（`re-review-prompt.md`） | Task gate が通るたび。**グラフが `[x]` を付ける前** | `.superpowers/sdd/st<nn>-task-<N>/task-<N>-findings.md`（reviewer の返答の逐語。グラフが写す。`F<k>` は reviewer が振る） |
 | **コード（ブランチ全体）** | `superpowers:requesting-code-review` の `code-reviewer.md`（最上位モデル）＋ `code-verify` agent | 全 Task 完了後、PR の前 | `review/code.md` |
 | PR | `scripts/merge_gate.sh`（グラフの `gate` node） | 人間が merge する前 | draft 状態 + PR コメント。落ちればグラフが `fix`（fresh な agent）→ `publish` → `gate` を回し、3 回で人間 |
 | archive | `scripts/archive.sh` | 下流の merge 後 | `openspec/specs/`（正典） |
 
 **fix round は round ごとに fresh な fixer**（2026-09-26）。前の round の会話を持ち越さないので、
 指摘は会話ではなく上の写しが正本になる。未解決の一覧は `python3 scripts/fix_round.py <写し>` が逐語の記録から
-導き（controller が数え直さない）、グラフの `sdd_task` が node の後に同じ台本で「写しが読めるか・未解決が
-残ったまま complete になっていないか」を見る。park するなら ledger に ruling つきで残す（SDD の breaker）。
+導き、グラフの `task_gate` が同じ台本で「写しが読めるか・未解決が残っていないか」を見て、fixer か `mark` へ回す。
+5 round で閉じなければ人間へ。park するなら ledger に ruling つきで残す。
 
 > なぜ（実測 2026-09-26、ST06 Task 7 の replay）: resume だと fix round 2 の開始時の文脈が 169k で、
 > 150k を超えた 37 呼び出しだけで 6.03M。中身は初回実装の tool 履歴・test と build の出力・探索で、
@@ -96,9 +96,9 @@ grep とファイル名の当て推量では接続点の名前が違うプロジ
 review package のパスと Global Constraints だけで、**implementer の推論や会話履歴は 1 行も渡さない**
 （SDD の "Reviewer inputs"）。同じ文脈を共有した目は、同じ誤解を通す。
 
-### `[x]` は controller が付ける
+### `[x]` はグラフが付ける
 
-実装した subagent は `tasks.md` を編集しない。task reviewer が通してから controller が付ける。
+実装した agent は `tasks.md` を編集しない。Task gate と task reviewer が通してから、グラフの `mark`（`task_mark.py`）が付ける。
 
 > 実測 2026-09-22（ST08）: 実装者自身が付けていたので、**存在しないテスト名**
 > （`cargo test window_request_body_is_unchanged` は 0 本で rc=0）の行まで `[x]` になった。採点者と受験者が同じだった。
@@ -131,7 +131,7 @@ review package のパスと Global Constraints だけで、**implementer の推�
 証跡の gate は tasks.md に**書かれたコマンド**しか認めない。書かれたコマンドが、環境は揃っているのに原理的に通らない
 （plan の欠陥）なら、別名で別のコマンドの証跡を認めるのではなく、**検証コマンドそのものを正式に直す**:
 
-1. controller は tasks.md を直さない。`scripts/verify-run <項目> --command '<旧>'` で、**いまのコード・環境の揃った状態の `FAIL`**
+1. Task agent は tasks.md を直さない。`scripts/verify-run <項目> --command '<旧>'` で、**いまのコード・環境の揃った状態の `FAIL`**
    を実証として残す（`BLOCKED_INFRA` は環境の欠落で、実証にならない）
 2. premise の A として `deep.md` に積み、成立しない理由と提案する正式な入口を添えて人間に返す
 3. 人間が承認したら `scripts/plan_fix.py <change> <項目> --old … --new … --reason … --approved …`。実証・入口の実在・承認を
@@ -145,7 +145,7 @@ review package のパスと Global Constraints だけで、**implementer の推�
 
 | 段 | 見るもの | どこで |
 |---|---|---|
-| **Task gate** | その Task の `[x]` の項目の検証コマンドすべてに、**いまのコード**に対する `PASS` の証跡があるか（`evidence.py check --task N`）。無い・古い・`FAIL`・`BLOCKED_INFRA` なら Task は完了しない | グラフの `sdd_task` の後 |
+| **Task gate** | その Task の `[x]` の項目の検証コマンドすべてに、**いまのコード**に対する `PASS` の証跡があるか（`evidence.py check --task N`）。無い・古い・`FAIL`・`BLOCKED_INFRA` なら Task は完了しない | グラフの `task_gate`（`--pending`）と `mark` |
 | **Story gate** | 正典（archive 済み）+ **自分の change** の Scenario（`check_scenarios.py . <change>`）・処置・未回答・tasks の残り・`[x]` の最新の証跡が `PASS` でないもの（`evidence.py check --story`）。走っている他の Story の change では落ちない | `merge_gate.sh`、`archive.sh` |
 | **Integration gate** | 統合した木で、正典 + **束ねた全 change** の Scenario（`check_scenarios.py . <束ねた change…>`）。Story どうしの食い違いはここで初めて見える。全 change の監査は `check_scenarios.py . --all` | `verify_batch.sh`（確認バッチの統合ブランチ） |
 
@@ -158,7 +158,7 @@ review package のパスと Global Constraints だけで、**implementer の推�
 |---|---|---|
 | `check_chain.py` | 要件 → Story の鎖（8 観点。対象外は INDEX の「Story の対象外」）。`stories.json` からの再生成と一致するか | ローカル、`merge_gate`、CI（`HARNESS2_TOKEN` があるとき） |
 | `check_scenarios.py` | 正典 + 対象の change の `#### Scenario:` に test の印（`Scenario: <名前>`）があるか。無いものは「人間の確認待ち」に無ければ FAIL。対象は change 名 / `HX_CHANGE` / `--all`（上の 3 段） | ローカル、`merge_gate`、`archive`、`verify_batch`（統合） |
-| `evidence.py` / `verify-run` | 検証の証跡の記録（run）と判定（check --task / --story）、無効化（invalidate） | implementer と controller（run）、グラフの `sdd_task`（Task gate）、`merge_gate`（Story gate） |
+| `evidence.py` / `verify-run` | 検証の証跡の記録（run）と判定（check --task / --story）、無効化（invalidate） | Task agent と fixer（run）、グラフの `task_gate` / `mark`（Task gate）、`merge_gate`（Story gate） |
 | `review_triage.py` | 上の処置 | ローカル、`merge_gate`、`archive` |
 | `merge_gate.sh` | head を main に追従 → その head の CI → tasks の残り → 検査 3 本 → deep の未回答。落ちれば draft に戻し、通れば ready。rc と `[FAIL]` の行でグラフが分岐する | グラフの `gate` |
 | `issue_body.py` | 下流へ渡す issue の本文を deep / tasks / design / Story から機械的に出す。**上流の PR と同時に作る**（merge を待たない） | `publish.sh upstream`、`prepare.sh downstream` |
