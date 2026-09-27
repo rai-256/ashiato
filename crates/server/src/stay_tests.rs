@@ -48,6 +48,132 @@ async fn stays_migration_applies_twice() {
     );
 }
 
+/// 削除の台帳を含む全版を、まっさらな DB に 2 回当てても壊れない（ST22 tasks 1.1）。
+#[tokio::test]
+async fn deletion_ledger_migration_applies_twice() {
+    let (fresh, drop) = fresh_db().await;
+    let applied = async {
+        for round in 1..=2 {
+            for (label, sql) in crate::MIGRATIONS {
+                sqlx::raw_sql(sql)
+                    .execute(&fresh)
+                    .await
+                    .map_err(|e| format!("{round} 回目の {label}: {e}"))?;
+            }
+        }
+        sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass('core.deletion_ledger')::text")
+            .fetch_one(&fresh)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    drop.await;
+
+    assert_eq!(
+        applied.unwrap().as_deref(),
+        Some("core.deletion_ledger"),
+        "削除の台帳が MIGRATIONS に登録されていない"
+    );
+    assert!(
+        crate::MIGRATIONS
+            .iter()
+            .any(|(name, _)| name.ends_with("_deletion_ledger")),
+        "削除の台帳の移行が MIGRATIONS に無い"
+    );
+}
+
+/// 削除済み滞在の読み出しは、識別子・時刻範囲・削除印だけに絞る（ST22 design D12）。
+#[tokio::test]
+async fn stay_erased_view_hides_coordinates() {
+    let pool = testdb::pool().await;
+    let columns: Vec<(String,)> = sqlx::query_as(
+        "SELECT column_name
+           FROM information_schema.columns
+          WHERE table_schema = 'core' AND table_name = 'stay_erased'
+          ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let columns: Vec<String> = columns.into_iter().map(|(name,)| name).collect();
+
+    assert_eq!(
+        columns,
+        [
+            "id",
+            "user_id",
+            "start_at",
+            "end_at",
+            "deleted_at",
+            "deleted_by"
+        ],
+        "stay_erased は座標・raw を含まず、必要な識別子・時刻範囲・削除印だけを返す"
+    );
+}
+
+// Scenario: 台帳の行は書き換えられない
+// Scenario: 台帳の行は消せず、表も切り詰められない
+// Scenario: 台帳の行は記録の読み出しに出ない
+#[tokio::test]
+async fn deletion_ledger_is_append_only() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let event = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 's01-stay', 'erase', $1, 'user')",
+    )
+    .bind(event)
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let update =
+        sqlx::query("UPDATE core.deletion_ledger SET action = 'restore' WHERE event_id = $1")
+            .bind(event)
+            .execute(&pool)
+            .await;
+    assert!(update.is_err(), "台帳の行を書き換えられた");
+
+    let delete = sqlx::query("DELETE FROM core.deletion_ledger WHERE event_id = $1")
+        .bind(event)
+        .execute(&pool)
+        .await;
+    assert!(delete.is_err(), "台帳の行を削除できた");
+
+    // 成功した場合にも共有 DB を失わないよう、TRUNCATE は必ずロールバックする。
+    let mut tx = pool.begin().await.unwrap();
+    let truncate = sqlx::raw_sql("TRUNCATE core.deletion_ledger")
+        .execute(&mut *tx)
+        .await;
+    tx.rollback().await.unwrap();
+    assert!(truncate.is_err(), "台帳を切り詰められた");
+
+    let (left,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.deletion_ledger WHERE event_id = $1")
+            .bind(event)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(left, 1, "拒否された操作の後に台帳の行が残っていない");
+
+    let app = crate::App::for_test(pool.clone(), TOKEN);
+    let axum::Json(records) = crate::events(axum::extract::State(app), auth())
+        .await
+        .unwrap();
+    assert!(
+        records.iter().all(|record| record.id != event),
+        "台帳の行が記録の一覧に出ている"
+    );
+    let view = day(&pool, user, "2026-09-27", "2026-09-28T00:00:00Z").await;
+    assert!(
+        view.entries.iter().all(|entry| entry.id != Some(event)),
+        "台帳の行が 1 日の並びに出ている"
+    );
+}
+
 /// 基準の台帳と吸収の台帳は**追記のみ**（tasks 1.2 / design D10）。
 #[tokio::test]
 async fn stay_ledgers_are_append_only() {

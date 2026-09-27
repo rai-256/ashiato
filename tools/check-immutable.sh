@@ -831,6 +831,26 @@ names=$(psql -c "SELECT count(*) FROM core.attribute_kind_name WHERE kind_id='$K
   && echo "  OK 種類の台帳は書き換えも削除も切り詰めもできない" \
   || { echo "  NG 種類 $kinds 行 / 名前 $names 行（どちらも 1 行のはず）"; fail=1; }
 
+# --- ST22: 削除の台帳は追記のみ（design D1 / D10）
+echo "== ST22: deletion_ledger の錠"
+DELETION_EVENT='13131313-1313-4313-8313-131313131313'
+psql -c "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ('$DELETION_EVENT','00000000-0000-0000-0000-000000000000',
+                 's01-stay','erase','$DELETION_EVENT','user');" >/dev/null
+for stmt in \
+  "UPDATE core.deletion_ledger SET action='restore' WHERE event_id='$DELETION_EVENT';" \
+  "DELETE FROM core.deletion_ledger WHERE event_id='$DELETION_EVENT';" \
+  "TRUNCATE core.deletion_ledger;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG deletion_ledger を変更できた: $stmt"; fail=1
+  fi
+done
+left=$(psql -c "SELECT count(*) FROM core.deletion_ledger WHERE event_id='$DELETION_EVENT';")
+[ "$left" = "1" ] \
+  && echo "  OK deletion_ledger は UPDATE / DELETE / TRUNCATE を拒む" \
+  || { echo "  NG deletion_ledger が $left 行になっている（1 行のはず）"; fail=1; }
+
 
 # --- **後から足した列が、黙って書き換えられる側に入らないこと**
 #
@@ -918,7 +938,17 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
-# **新しい版から戻す。** ST19 の主張の版がいちばん新しい（ここは schema を作り直した直後なので
+# **新しい版から戻す。** ST22 の削除の台帳がいちばん新しい。
+psql < "migrations/202609271716_deletion_ledger.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609271716_deletion_ledger.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.deletion_ledger') IS NULL AND to_regclass('core.stay_erased') IS NULL;")" = "t" ] \
+  || { echo "  NG deletion_ledger の戻しで表または stay_erased ビューが残っている"; fail=1; down_fail=1; }
+psql < "migrations/202609271716_deletion_ledger.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609271716_deletion_ledger.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202609271716_deletion_ledger.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202609271716_deletion_ledger.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
+
+# ST19 の主張を戻す（ここは schema を作り直した直後なので
 # 主張は 0 件 —— D12 の「主張が残っていなければ 2 表と登録簿の行も落とす」側を通る）
 psql < "migrations/202609160220_personal_attributes.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609160220_personal_attributes.down.sql が当たらない"; fail=1; down_fail=1; }
@@ -953,7 +983,7 @@ for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST22 の 1 本・ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \
