@@ -76,26 +76,58 @@ class AppUsageSourceAdapter(
         val discardedNow = discardedMs()
         val mark = windowStore.load()
         var resumeFloor: Instant? = null
+        var gapReason = USAGE_GAP_REASON_RETENTION
+        // 保存した終わりを**取得元がいま使っている時刻の軸へ写したもの**。
+        // 時計が動いていなければ保存した終わりそのもの（下の食い違いの分だけずれる）
+        var coveredThrough: Instant? = mark?.end
         if (mark != null) {
-            // **2 つの時計の進み方を比べる。** 端末の時計が飛んだことは、片方だけでは分からない。
-            // **経過が数えなかった前進は差し引く**（本人の決定 C6 / 独立レビュー Important 1）——
-            // 起動をまたぐ前進は 30 日で頭打ちに数えられるので、60 日の電源断は
-            // 時計が 1 秒も飛んでいなくても 30 日の食い違いを見せる。落ちた分だけを引けば、
-            // **その見かけはちょうど 0 になり、本物の飛び（跨ぎの前後で時刻が動いた分）は残る**
-            val elapsedMs = (ageNow - mark.ageMs) + (discardedNow - mark.discardedMs)
-            val skewMs = Duration.between(mark.end, at).toMillis() - elapsedMs
-            if (abs(skewMs) > USAGE_CLOCK_SKEW_TOLERANCE_MS) {
-                log(Telemetry.line("usage_clock_skew", source = logicalSource, elapsedMs = skewMs))
-                if (!UsageRetention.eventsRetentionExceeded(elapsedMs)) {
-                    return CollectionResult.Unavailable(REASON_CLOCK_SKEW)
+            if (ageNow < mark.ageMs || discardedNow < mark.discardedMs) {
+                // **経過が巻き戻った ＝ 経過の置き場が作り直された**（code-verify R24）。
+                // [AgeClock] は置き場が読めないと `Seen(0, …)` から数え直すので、
+                // 印が持っている経過（`mark.ageMs`）だけが取り残され、差は
+                // **それまでの稼働日数ぶん負**の一定値になる。その見かけを飛びと読むと、
+                // 実測では稼働 1 日の端末で 11 日・稼働 40 日の端末で 50 日のあいだ取得が止まり、
+                // 10 日を超えた分のイベントは取得元から消える（`loss: uncaptured`）。
+                //
+                // **これは時計が飛んだ証拠ではない**（壁時計は 1 秒も動いていない）。
+                // 印の経過を今の値へ付け替えて、通常の取得に進む ——
+                // 失うのは「この 1 区間ぶんの飛びの判定」だけで、窓は 1 ミリ秒も進めない
+                log(Telemetry.line("usage_age_clock_restamped", source = logicalSource))
+                windowStore.save(UsageWindowMark(mark.end, ageNow, discardedNow))
+            } else {
+                // **2 つの時計の進み方を比べる。** 端末の時計が飛んだことは、片方だけでは分からない。
+                // **経過が数えなかった前進は差し引く**（本人の決定 C6 / 独立レビュー Important 1）——
+                // 起動をまたぐ前進は 30 日で頭打ちに数えられるので、60 日の電源断は
+                // 時計が 1 秒も飛んでいなくても 30 日の食い違いを見せる。落ちた分だけを引けば、
+                // **その見かけはちょうど 0 になり、本物の飛び（跨ぎの前後で時刻が動いた分）は残る**
+                val elapsedMs = (ageNow - mark.ageMs) + (discardedNow - mark.discardedMs)
+                val skewMs = Duration.between(mark.end, at).toMillis() - elapsedMs
+                if (abs(skewMs) > USAGE_CLOCK_SKEW_TOLERANCE_MS) {
+                    log(Telemetry.line("usage_clock_skew", source = logicalSource, elapsedMs = skewMs))
+                    if (!UsageRetention.eventsRetentionExceeded(elapsedMs)) {
+                        return CollectionResult.Unavailable(REASON_CLOCK_SKEW)
+                    }
+                    // Q9=c: 単調な経過で10日を超えた停止だけ、保持の下限から再開する。
+                    // mark は先に進めない。諦めた期間の gap も保存できた後で進める。
+                    resumeFloor = source.retentionFloor(at).clockSkewResumeBegin()
+                    // **その期間は 1 度も問い合わせていない**（code-verify R26）——
+                    // 「取得元に無かった」と書くと扉 #14 の材料が嘘になる
+                    gapReason = USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED
+                } else {
+                    // **閾値の内側でも、ずれた分だけ写す**（code-verify R25 / design D8）。
+                    // 取得元は時計の変化を知ると保持している統計を**丸ごとその差だけずらす**ので、
+                    // 食い違い（`skewMs`）は**取得元がずらした幅そのもの**。写さないと、
+                    // 戻る向きでは保存した終わりが未来に居座って窓が組み立てられず
+                    // （`usage_window_ahead`）**戻る前後のイベントを黙って失い**、
+                    // 進む向きでは既に取った期間をずれた時刻で取り直して**同じ 1 件が 2 行になる**。
+                    // 1 時間の閾値（[USAGE_CLOCK_SKEW_TOLERANCE_MS]）が決めるのは
+                    // 「窓を止めるか」ではなく「このずらしを信用するか」
+                    coveredThrough = mark.end.plusMillis(skewMs)
                 }
-                // Q9=c: 単調な経過で10日を超えた停止だけ、保持の下限から再開する。
-                // mark は先に進めない。諦めた期間の gap も保存できた後で進める。
-                resumeFloor = source.retentionFloor(at).clockSkewResumeBegin()
             }
         }
         // **保存した終わりの手前から**（C4）。1 度も取れていなければ、見込みの保持より手前から（C3）
-        val begin = resumeFloor ?: mark?.end?.minusMillis(USAGE_WINDOW_OVERLAP_MS)
+        val begin = resumeFloor ?: coveredThrough?.minusMillis(USAGE_WINDOW_OVERLAP_MS)
             ?: at.minusMillis(USAGE_FIRST_WINDOW_MS)
         if (!begin.isBefore(at)) {
             log(Telemetry.line("usage_window_ahead", source = logicalSource))
@@ -110,7 +142,8 @@ class AppUsageSourceAdapter(
                 log(Telemetry.line("usage_unreadable", source = logicalSource, error = read.reason))
                 CollectionResult.Unavailable(read.reason)
             }
-            is EventsResult.Events -> store(read.events, mark, at, ageNow, discardedNow)
+            is EventsResult.Events ->
+                store(read.events, coveredThrough, gapReason, at, ageNow, discardedNow)
         }
     }
 
@@ -123,7 +156,9 @@ class AppUsageSourceAdapter(
      */
     private fun store(
         events: List<UsageEventSnapshot>,
-        mark: UsageWindowMark?,
+        /** 既に取れているところ（保存した終わりを、取得元がいま使っている時刻の軸へ写したもの） */
+        coveredThrough: Instant?,
+        gapReason: String,
         at: Instant,
         ageMs: Long,
         discarded: Long,
@@ -131,7 +166,7 @@ class AppUsageSourceAdapter(
         // 地域も利用者も**1 契機につき 1 度だけ**読む（同じ契機の記録で食い違わせない）
         val collectedIn = zone()
         val user = userId()
-        val gap = gapOf(events, mark, at, collectedIn, user)
+        val gap = gapOf(events, coveredThrough, gapReason, at, collectedIn, user)
         val records = gap + events.map {
             it.toIngestRequest(newId(), user, deviceId, collectedIn, labels.label(it.packageName))
         }
@@ -192,12 +227,15 @@ class AppUsageSourceAdapter(
      */
     private fun gapOf(
         events: List<UsageEventSnapshot>,
-        mark: UsageWindowMark?,
+        coveredThrough: Instant?,
+        /** なぜ取れなかったか。**諦めた期間と「取得元に無かった」期間を混ぜない**（code-verify R26） */
+        reason: String,
         at: Instant,
         zone: ZoneId,
         user: String,
     ): List<IngestRequest> {
-        val coveredThrough = mark?.end ?: return emptyList()
+        @Suppress("NAME_SHADOWING")
+        val coveredThrough = coveredThrough ?: return emptyList()
         val floor = source.retentionFloor(at)
         // **窓の始まりが見込みの下限より前か**（design D4）。値そのものはここへ出てこない
         if (!floor.excludes(coveredThrough)) return emptyList()
@@ -210,7 +248,7 @@ class AppUsageSourceAdapter(
         // 3 日の gap で `elapsed_ms=259200000` を出すと、ログから所要時間を集計したときに壊れる。
         // 期間そのものは記録の `begin` / `end` に入っていて、受け手はそちらを読む
         log(Telemetry.line("usage_gap", source = logicalSource, count = 1))
-        return listOf(usageGapRequest(newId(), user, deviceId, zone, coveredThrough, end))
+        return listOf(usageGapRequest(newId(), user, deviceId, zone, coveredThrough, end, reason))
     }
 
     companion object {

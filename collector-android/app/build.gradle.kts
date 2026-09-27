@@ -46,6 +46,14 @@ android {
                 test.systemProperty("robolectric.offline", "true")
                 test.systemProperty("robolectric.dependency.dir", jars)
             }
+            // **人が読む契約表も入力**（tasks 7.3 / code-verify R33）。
+            // `CollectorContractFixture` は期待値をこの md から読むのに、Gradle は
+            // ソースと classpath しか入力に数えない —— **表だけを 1 行変えると
+            // `UP-TO-DATE` で rc=0 のまま通り**、手元では 7.3 のガードが効かなかった
+            // （`--rerun` を付けたときだけ落ちる。実測 2026-09-26）。
+            test.inputs.file(rootProject.file("../docs/collector-contract.md"))
+                .withPropertyName("collectorContract")
+                .withPathSensitivity(PathSensitivity.RELATIVE)
         }
     }
     compileOptions {

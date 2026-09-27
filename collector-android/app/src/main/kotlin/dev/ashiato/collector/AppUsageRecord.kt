@@ -103,12 +103,22 @@ private fun UsageEventSnapshot.sourceFields(): Map<String, JsonPrimitive> = buil
 const val USAGE_GAP_KIND: String = "gap"
 
 /**
- * 取得元の見込みの保持より前だった期間の理由。
+ * **取りに行った**が、取得元の見込みの保持（10 日）より前で取得元に無かった期間。
  *
- * いまは 1 つだけだが**欄ごと省かない** —— spec が「取れなかった理由を含める」と定めており、
- * 理由が 1 種類しか無いことは後から増える（例: 取得条件が欠けていた期間）。
+ * spec が「取れなかった理由を含める」と定めるのは、扉 #14 の「データが無い」を
+ * ②「動いていたが記録が無い」と見分けるため。**理由ごとに意味が違う**ので混ぜない。
  */
 const val USAGE_GAP_REASON_RETENTION: String = "retention"
+
+/**
+ * 端末の時計の食い違いが 10 日を超えて解消せず、**諦めて**見込みの下限から再開した期間
+ * （深掘り Q9=c / design D8 / code-verify R26）。
+ *
+ * [USAGE_GAP_REASON_RETENTION] と**分ける** —— こちらは 1 度も問い合わせていない期間で、
+ * 取得元にはまだイベントが残っていたかもしれない。「取得元が消していた」と書くと、
+ * 扉 #14 の材料（収集が壊れていたのか、取得元が消したのか）が嘘になる。
+ */
+const val USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED: String = "clock_skew_abandoned"
 
 /**
  * 取りに行ったが取得元に無かった期間を、記録 1 件にする（tasks 4.1 / design D4 / 本人の決定 Q4）。

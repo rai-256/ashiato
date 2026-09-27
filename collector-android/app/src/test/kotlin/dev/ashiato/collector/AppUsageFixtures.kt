@@ -25,7 +25,12 @@ class UsageTestEnv(
     val lines: MutableList<String> = mutableListOf()
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
-    val age: AgeClock = AgeClock(clock, File(dir, "age-clock.txt"), log)
+
+    /** 経過の置き場（[AgeClock] が書くファイル）。**作り直せる**ようにここに名前を持つ */
+    private val ageFile: File = File(dir, "age-clock.txt")
+
+    /** 単調な経過。**[resetAgeClock] で作り直せる**（置き場が読めなくなった端末を作るため） */
+    var age: AgeClock = AgeClock(clock, ageFile, log)
     /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
     var outbox: Outbox<IngestRequest> = testOutbox()
     private var ids = 0
@@ -49,8 +54,8 @@ class UsageTestEnv(
         userId = { "user-1" },
         deviceId = "device-1",
         zone = { zone },
-        age = age::now,
-        discardedMs = age::discardedMs,
+        age = { age.now() },
+        discardedMs = { age.discardedMs() },
         newId = { "r${ids++}" },
         capabilityOf = { Capability.of(permission = true, sensor = true, network = true) },
         log = log,
@@ -64,8 +69,20 @@ class UsageTestEnv(
         val blocked = File(dir, "blocked-${System.nanoTime()}").apply { writeText("ディレクトリではない") }
         outbox = Outbox(
             SegmentStore(File(blocked, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), log),
-            age = age::now,
+            age = { age.now() },
         )
+    }
+
+    /**
+     * 経過の置き場が読めなくなって**新品から数え直す**（`AgeClock` の `age_clock_unreadable` の経路）。
+     *
+     * 端末の時計は 1 秒も飛んでいない —— 飛んだのは**こちらの数え**のほうで、
+     * 窓の印が持っている経過（`mark.ageMs`）だけが取り残される。
+     */
+    fun resetAgeClock() {
+        ageFile.writeText("broken")
+        age = AgeClock(clock, ageFile, log)
+        restart()
     }
 
     /** 収集が止まって、また始まる（プロセスが作り直される）。 */

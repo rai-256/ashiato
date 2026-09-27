@@ -53,6 +53,9 @@ class UsageWindowClockTest {
         assertEquals("2026-05-20T09:00:00Z", gap.rawText("begin"))
         assertEquals("2026-05-21T11:00:00Z", gap.rawText("end"))
         assertEquals("2026-05-21T11:00:00Z", gap.eventTime)
+        // **理由は「取得元に無かった」ではない**（code-verify R26）——
+        // この期間は 1 度も問い合わせていない。取得元にはまだイベントが残っていた
+        assertEquals(USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED, gap.rawText("reason"))
         assertEquals(listOf("2026-05-21T12:00:00Z"),
             env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime })
         env.advance(USAGE_INTERVAL_MS)
@@ -76,6 +79,7 @@ class UsageWindowClockTest {
         assertEquals(env.now, env.savedEnd())
         assertEquals("2026-05-20T09:00:00Z", env.records().single().rawText("begin"))
         assertEquals("2026-05-21T11:00:00Z", env.records().single().rawText("end"))
+        assertEquals(USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED, env.records().single().rawText("reason"))
     }
 
     private fun env() = UsageTestEnv(
@@ -220,6 +224,124 @@ class UsageWindowClockTest {
         )
         assertEquals(saved, env.savedEnd())
         assertEquals(0, env.records().size)
+    }
+
+    /**
+     * **閾値の内側で時計が戻ったとき、戻る前後のイベントを失わない**（code-verify R25）。
+     *
+     * 取得元は時計の変化を知ると保持している統計を**丸ごとその差だけずらす**ので、
+     * 保存した終わり（09:00）は取得元の側では 08:10 にある。ずらさずに 08:59 から
+     * 問い合わせると窓が組み立てられず（`usage_window_ahead`）、やがて時計が追いつくころには
+     * **戻る前の 1 件も戻った後の 1 件もどの記録にも gap にもならない**（実測のプローブ）。
+     *
+     * 食い違い（`skewMs`）は**取得元がずらした幅そのもの**なので、
+     * 「保存した終わり ＋ 食い違い」を次の窓の始まりにする（機械で決まる）。
+     */
+    @Test
+    fun `閾値の内側で時計が50分戻っても戻る前後のイベントを取る`() {
+        val source = FakeUsageSource(
+            storedEvents = listOf(
+                usageEvent("2026-05-20T09:10:00Z"),   // 戻る前に起きた 1 件
+                usageEvent("2026-05-20T09:25:00Z"),   // 戻った後に起きた 1 件（ずらされた後は 08:35）
+            ),
+        )
+        val env = UsageTestEnv(source)
+        env.collect()                          // 09:00 を保存（この時点ではまだ 1 件も無い）
+        env.advance(20 * 60 * 1000L)           // 09:20
+        source.shiftMs = -50 * 60 * 1000L      // 取得元も統計を 50 分ずらす
+        env.jumpWall(-50 * 60 * 1000L)         // 端末の時計が 08:30 へ戻った
+        env.advance(10 * 60 * 1000L)           // 08:40 の契機
+
+        val result = env.collect()
+
+        assertTrue("50 分の戻りで $result", result is CollectionResult.Collected)
+        assertEquals(
+            listOf("2026-05-20T08:20:00Z", "2026-05-20T08:35:00Z"),
+            env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime },
+        )
+    }
+
+    /**
+     * **閾値の内側で時計が進んだとき、同じイベントを 2 行にしない**（code-verify R25）。
+     *
+     * 取得元がずらした後の 09:40 は、ずらす前の 08:50 と**同じ 1 件**。
+     * 出来事の時刻は凍結されるので、2 行になったら後から畳めない。
+     */
+    @Test
+    fun `閾値の内側で時計が50分進んでも同じイベントが2行にならない`() {
+        val source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T08:50:00Z")))
+        val env = UsageTestEnv(source)
+        env.collect()                          // 初回の窓で 08:50 の 1 件を取る
+        assertEquals(listOf("2026-05-20T08:50:00Z"), env.records().map { it.eventTime })
+        env.advance(20 * 60 * 1000L)           // 09:20
+        source.shiftMs = 50 * 60 * 1000L       // 取得元も統計を 50 分ずらす
+        env.jumpWall(50 * 60 * 1000L)          // 端末の時計が 10:10 へ進んだ
+        env.advance(10 * 60 * 1000L)           // 10:20 の契機
+
+        env.collect()
+
+        assertEquals(
+            "ずらされた同じ 1 件が別の時刻で 2 行になった",
+            listOf("2026-05-20T08:50:00Z"),
+            env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime },
+        )
+    }
+
+    /**
+     * **10 日ちょうどでは再開せず、その次の契機（30 分後）で再開する**（code-verify R35）。
+     *
+     * 「10 日を超えたら」の境界を 1 契機の幅で挟む —— 10 日と 11 日の 2 点だけを見ていたときは、
+     * 閾値を (10 日, 11 日] のどこに置いても全部緑だった。
+     */
+    @Test
+    fun `10日を1契機超えたところで再開する`() {
+        val env = UsageTestEnv(FakeUsageSource())
+        env.collect()
+        env.jumpWall(2 * 60 * 60 * 1000L)
+        env.advance(10 * AgeClock.DAY_MS)
+        assertTrue("10 日ちょうどで再開した", env.collect() is CollectionResult.Unavailable)
+        assertEquals(t0, env.savedEnd())
+
+        env.advance(USAGE_INTERVAL_MS)
+        val result = env.collect()
+
+        assertTrue("10 日を 1 契機超えたのに $result", result is CollectionResult.Collected)
+        assertEquals(env.now, env.savedEnd())
+    }
+
+    /**
+     * **経過の置き場が作り直されただけでは止まらない**（code-verify R24）。
+     *
+     * [AgeClock] は置き場が読めないと `Seen(0, …)` から数え直す。窓の印は前の経過
+     * （`mark.ageMs`）を持ったまま残るので、差は**それまでの稼働日数ぶん負**になり、
+     * その一定値が [USAGE_CLOCK_SKEW_TOLERANCE_MS] を越え続ける ——
+     * 実測（複製のプローブ）では稼働 1 日で 11 日、稼働 40 日で 50 日のあいだ
+     * `Unavailable(clock_skew)` が続いた。**時計は 1 秒も飛んでいない。**
+     * 止まっている間のイベントは取得元の保持（10 日）で消える（`loss: uncaptured`）。
+     *
+     * **経過が巻き戻ったことは時計の飛びの証拠ではない。** 印の経過を今の値へ付け替えて、
+     * 通常の取得へ進む（判定は壁時計の差だけで行う）。
+     */
+    @Test
+    fun `経過の置き場が作り直されても次の契機で取れる`() {
+        val env = env()
+        env.collect()
+        env.advance(AgeClock.DAY_MS)          // 1 日ぶん動いた端末（時計は飛んでいない）
+        assertTrue(env.collect() is CollectionResult.Collected)
+        val saved = env.savedEnd()
+
+        env.resetAgeClock()                   // 置き場が読めなくなり、経過が 0 から数え直しになる
+        env.advance(USAGE_INTERVAL_MS)
+        val result = env.collect()
+
+        assertTrue("経過が巻き戻っただけなのに $result", result is CollectionResult.Collected)
+        assertEquals("窓が進んでいない", env.now, env.savedEnd())
+        val asked = (env.source as FakeUsageSource).eventQueries.last()
+        assertEquals("保存した終わりから続いていない", saved!!.minusMillis(USAGE_WINDOW_OVERLAP_MS), asked.begin)
+        // 付け替えた後は普通の契機が続く（1 契機だけ通って次からまた止まる、にならない）
+        env.advance(USAGE_INTERVAL_MS)
+        assertTrue(env.collect() is CollectionResult.Collected)
+        assertEquals(env.now, env.savedEnd())
     }
 
     /** 飛びが直れば、取り直しは**保存した終わりから**続く（飛んだ間のイベントは失われない）。 */

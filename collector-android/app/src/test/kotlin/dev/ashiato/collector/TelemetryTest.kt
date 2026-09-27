@@ -4,6 +4,7 @@ package dev.ashiato.collector
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -88,7 +89,44 @@ class TelemetryTest {
      * 2 本目のソースが書いたログまで `source=c01-location` と出て、
      * 「位置は取れているのにアプリ利用が断られている」が**ログから読めなかった**。
      */
+    /**
+     * **ひと組が混ざっていても名乗る**（code-verify R27）。記録の置き場は全ソースで 1 本
+     * （既定 C11）で、位置は 60 秒ごと・送信は 5 分ごとなので、**アプリ利用が載るひと組には
+     * ほぼ常に位置も載る**。ひと組に 1 本だけ名を付ける形（`singleOrNull()`）だったときは、
+     * その混ざったひと組では `kind=send_failed count=2 error=timeout` と出て
+     * **`source=` が丸ごと落ちていた** —— アプリ利用だけのひと組しか観測していなかったので、
+     * 通常の運用でこの Scenario が成り立たないことに試験が気付かなかった。
+     */
     // Scenario: 端末のログのソース名がそのソースを指す
+    @Test
+    fun `位置と混ざったひと組でもアプリ利用の失敗はアプリ利用を名乗る`() {
+        val outbox = testOutbox()
+        outbox.add(req("l1"))                 // 位置 1 件
+        listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }   // アプリ利用 2 件
+        val lines = mutableListOf<String>()
+        Sender(
+            outbox,
+            { Outcome.Unreachable("timeout") },
+            IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
+            log = lines::add,
+        ).flush()
+
+        val failed = lines.filter { it.startsWith("kind=send_failed") }
+        // **ソースごとに 1 行ずつ、そのソースの件数で**（混ぜて count=3 の 1 行にしない）
+        assertEquals(
+            listOf(
+                "kind=send_failed source=$LOGICAL_SOURCE count=1 error=timeout",
+                "kind=send_failed source=${SourceCadence.APP_USAGE.logicalSource} count=2 error=timeout",
+            ),
+            failed,
+        )
+        val usage = failed.single { it.contains("source=${SourceCadence.APP_USAGE.logicalSource}") }
+        assertFalse("アプリ利用の行が位置を名乗っている: $usage", usage.contains("source=$LOGICAL_SOURCE"))
+        assertNoPrivateData(lines)
+    }
+
+    /** アプリ利用だけのひと組でも同じ（上の試験が混ざり方に依存していないこと）。 */
     @Test
     fun `アプリ利用の送信が失敗したログはアプリ利用を名乗る`() {
         val outbox = testOutbox()
@@ -108,6 +146,45 @@ class TelemetryTest {
             failed.contains("source=${SourceCadence.APP_USAGE.logicalSource}"),
         )
         assertFalse("アプリ利用のログが位置を名乗っている: $failed", failed.contains(LOGICAL_SOURCE))
+    }
+
+    /**
+     * **受理と拒否も混ざったひと組でソースごとに分かれる**（code-verify R27）——
+     * 「位置は通っているのにアプリ利用だけ断られている」は、この 2 行の差でしか読めない。
+     */
+    @Test
+    fun `混ざったひと組では受理と拒否もソースごとに分かれる`() {
+        val outbox = testOutbox()
+        outbox.add(req("l1"))                 // 位置 1 件（受理される）
+        listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }   // アプリ利用 2 件（断られる）
+        val lines = mutableListOf<String>()
+        Sender(
+            outbox,
+            {
+                Outcome.Responded(
+                    200,
+                    """[{"accepted":true},{"accepted":false,"error":"unknown_source"},""" +
+                        """{"accepted":false,"error":"unknown_source"}]""",
+                )
+            },
+            IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
+            log = lines::add,
+        ).flush()
+
+        val usage = SourceCadence.APP_USAGE.logicalSource
+        assertEquals(
+            listOf("kind=rejected source=$usage count=2 error=unknown_source"),
+            lines.filter { it.startsWith("kind=rejected") },
+        )
+        assertEquals(
+            listOf(
+                "kind=accepted source=$LOGICAL_SOURCE count=1",
+                "kind=accepted source=$usage count=0",
+            ),
+            lines.filter { it.startsWith("kind=accepted") },
+        )
+        assertNoPrivateData(lines)
     }
 
     /** 同じ経路でも、位置の送信が失敗したログは位置を名乗る（上の試験が空振りしていないこと）。 */

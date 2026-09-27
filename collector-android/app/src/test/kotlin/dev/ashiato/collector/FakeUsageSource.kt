@@ -32,6 +32,14 @@ class FakeUsageSource(
      * 既定の [Instant.MAX] は「窓の形では断らない」。時計が戻った場面を再現する試験だけが値を入れる。
      */
     var now: Instant = Instant.MAX,
+    /**
+     * 取得元が**保持している統計をずらした**幅（`UserUsageStatsService.onTimeChanged`）。
+     *
+     * 本物は端末の時計が変わったことを知ると、保持している統計を丸ごとその差だけずらす
+     * （design の Context / tasks 3.3）。**ずらさない偽物は本物より優しい** ——
+     * 時計が動いた後も同じ時刻でイベントが返るので、窓の付け替えを間違えても緑になる。
+     */
+    var shiftMs: Long = 0,
 ) : UsageSource {
     /** 問い合わせられた窓を順に覚える（**窓を切り詰めていない**ことを呼び出し側が見るため） */
     val eventQueries = mutableListOf<CollectionWindow>()
@@ -45,6 +53,7 @@ class FakeUsageSource(
         if (!windowIsQueryable(window, now)) return EventsResult.Unreadable(UsageStatsSource.REASON_NULL)
         unreadable?.let { return EventsResult.Unreadable(it) }
         val hit = storedEvents
+            .map { if (shiftMs == 0L) it else it.copy(at = it.at.plusMillis(shiftMs)) }
             .filter { !it.at.isBefore(window.begin) && it.at.isBefore(window.end) }
             .sortedBy { it.at }
         return EventsResult.Events(hit)

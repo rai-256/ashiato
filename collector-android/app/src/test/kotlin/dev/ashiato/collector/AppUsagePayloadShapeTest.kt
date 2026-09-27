@@ -100,6 +100,60 @@ class AppUsagePayloadShapeTest {
         assertEquals("""{"event_type":2,"event_time":"2026-05-20T09:10:00Z"}""", payloadText(request))
     }
 
+    private fun gap(reason: String) = usageGapRequest(
+        "r1",
+        "user-1",
+        "device-1",
+        zone,
+        begin = Instant.parse("2026-05-10T09:00:00Z"),
+        end = Instant.parse("2026-05-20T09:00:00Z"),
+        reason = reason,
+    )
+
+    /**
+     * **取りこぼし（`kind: gap`）の形も契約表から読む**（tasks 7.3 / code-verify R32）。
+     *
+     * 同じ論理ソースに積まれるのに契約表に載っていなかった —— 受け手（ST14）は
+     * この契約を読んで gap を畳むので、表に無い形は**読み手が知らない形**になる。
+     */
+    @Test
+    fun `取りこぼしの 1 件の形`() {
+        val request = gap(USAGE_GAP_REASON_RETENTION)
+        assertGapMatchesContract(request)
+        assertEquals(
+            """{"kind":"gap","begin":"2026-05-10T09:00:00Z",""" +
+                """"end":"2026-05-20T09:00:00Z","reason":"retention"}""",
+            request.raw,
+        )
+        // **出来事の時刻は期間の終わり**（spec レビュー R2）。アプリの名前は入らない
+        assertEquals("2026-05-20T09:00:00Z", request.eventTime)
+        assertEquals(APP_USAGE_LOGICAL_SOURCE, request.logicalSource)
+    }
+
+    /**
+     * **諦めた期間の理由も契約表に載っている**（code-verify R26 / R32）。
+     * 表に `retention` しか無ければ、こちらは受け手の知らない値として落ちる。
+     */
+    @Test
+    fun `諦めた期間の取りこぼしも契約表のとおり`() {
+        val request = gap(USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED)
+        assertGapMatchesContract(request)
+        assertEquals(
+            """{"kind":"gap","begin":"2026-05-10T09:00:00Z",""" +
+                """"end":"2026-05-20T09:00:00Z","reason":"clock_skew_abandoned"}""",
+            request.raw,
+        )
+    }
+
+    /** 契約表が数え上げる理由と、実装が送りうる理由が**過不足なく**一致する。 */
+    @Test
+    fun `契約表の理由の列挙が実装と一致する`() {
+        assertEquals(
+            listOf(USAGE_GAP_REASON_RETENTION, USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED),
+            contractGapReasons(),
+        )
+    }
+
     /** エンベロープ（契約の外枠）も固定する。**取得時点の端末の地域が付く**（design D7）。 */
     @Test
     fun `エンベロープの形`() {

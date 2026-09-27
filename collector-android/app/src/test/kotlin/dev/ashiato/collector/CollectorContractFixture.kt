@@ -77,25 +77,82 @@ private fun isRequired(field: PayloadContractField): Boolean = when (field.omiss
     else -> error("契約表に未知の省略規則がある: ${field.name}=${field.omission}")
 }
 
-private fun payloadContractFields(logicalSource: String): List<PayloadContractField> {
+private fun payloadContractFields(logicalSource: String): List<PayloadContractField> =
+    contractTable("## C-01（`$logicalSource`）が送る `payload` の形")
+
+private fun contractFile(): File {
     val cwd = File(System.getProperty("user.dir"))
-    val contract = generateSequence(cwd) { it.parentFile }
+    return generateSequence(cwd) { it.parentFile }
         .map { File(it, "docs/collector-contract.md") }
         .firstOrNull(File::isFile)
         ?: error("docs/collector-contract.md が見つからない: user.dir=$cwd")
-    val heading = "## C-01（`$logicalSource`）が送る `payload` の形"
-    val section = contract.readText().substringAfter(heading, missingDelimiterValue = "")
+}
+
+/**
+ * 契約の節の**最初のひと続きの表**を読む。
+ *
+ * 節の中の 2 つ目以降の表（理由の対照表など）は混ぜない —— 混ぜると
+ * 「欄の表に行が増えた」と見分けがつかなくなる。
+ */
+private fun contractTable(heading: String): List<PayloadContractField> {
+    val section = contractFile().readText().substringAfter(heading, missingDelimiterValue = "")
     check(section.isNotEmpty()) { "契約に節が無い: $heading" }
     return section.substringBefore("\n## ")
         .lineSequence()
-        .filter { it.startsWith("| `") }
+        .dropWhile { !it.startsWith("| `") }
+        .takeWhile { it.startsWith("| `") }
         .map { line ->
             val cells = line.removePrefix("|").removeSuffix("|").split('|').map(String::trim)
             check(cells.size == 3) { "契約表が3列でない: $line" }
             PayloadContractField(cells[0].removeSurrounding("`"), cells[1], cells[2])
         }
         .toList()
-        .also { check(it.isNotEmpty()) { "契約の payload 表が空: $heading" } }
+        .also { check(it.isNotEmpty()) { "契約の表が空: $heading" } }
+}
+
+/** 取りこぼし（`kind: gap`）の節の見出し。イベントの `payload` の節とは別に持つ。 */
+private const val GAP_HEADING = "## C-01（`c01-app-usage`）が送る取りこぼし（`kind: gap`）の形"
+
+private val expectedGapContract = listOf(
+    PayloadContractField("kind", "`gap`", REQUIRED),
+    PayloadContractField("begin", "RFC3339（UTC）", REQUIRED),
+    PayloadContractField("end", "RFC3339（UTC）", REQUIRED),
+    PayloadContractField("reason", "`retention` / `clock_skew_abandoned`", REQUIRED),
+)
+
+/**
+ * 契約表が数え上げている取りこぼしの理由（`reason` の行の型の欄）。
+ *
+ * **理由は意味が違うものを混ぜない**（code-verify R26 / R32）—— 扉 #14 の
+ * 「データが無い」を②「動いていたが記録が無い」と見分ける材料なので、
+ * 実装が理由を増やしたら契約表にも載っていなければならない。
+ */
+internal fun contractGapReasons(): List<String> =
+    contractTable(GAP_HEADING)
+        .single { it.name == "reason" }
+        .type
+        .split('/')
+        .map { it.trim().removeSurrounding("`") }
+
+/**
+ * 取りこぼしの 1 件が、人が読む契約表のとおりであることを見る（tasks 7.3 / code-verify R32）。
+ *
+ * イベントの `payload` の表と同じ粒度 —— **欄・型・並び・省略の規則**を表から読み、
+ * `raw` と `payload` の両方に当てる（gap は足す欄が無いので 2 つは同じ中身）。
+ */
+internal fun assertGapMatchesContract(request: IngestRequest) {
+    val fields = contractTable(GAP_HEADING)
+    assertEquals("契約表の欄・型・省略規則が期待仕様と違う", expectedGapContract, fields)
+    assertTrue("取りこぼしに省いてよい欄がある（どれも省略しない）", fields.all(::isRequired))
+
+    val raw = ingestJson.parseToJsonElement(request.raw) as JsonObject
+    assertEquals("契約表の欄または並びが原文と違う", fields.map { it.name }, raw.keys.toList())
+    assertEquals("解析済みが原文と違う", raw, request.payload)
+    fields.forEach { field -> assertJsonType(field, raw.getValue(field.name)) }
+    assertTrue(
+        "契約表に無い理由を送っている: ${raw["reason"]}",
+        (raw.getValue("reason") as JsonPrimitive).content in contractGapReasons(),
+    )
 }
 
 private fun assertJsonType(field: PayloadContractField, value: kotlinx.serialization.json.JsonElement) {

@@ -214,6 +214,52 @@ async fn app_usage_rollup_source_migration_is_idempotent() {
     assert_eq!(after.0, 1, "当て直すと行が増える");
 }
 
+/// **本人が変えた値が、当て直しで初期値へ戻らない**（tasks 4.2 (d) / code-verify R34）。
+///
+/// 上の `…_is_idempotent` は**当て直しの前後で値が同じ**ことしか見ていないので、
+/// `ON CONFLICT DO NOTHING` を条件なしの上書きに変えても緑のままだった（実測: 6 本 rc=0）。
+/// 移行のコメントが理由に挙げるのは「本人が変えた想定間隔が再起動のたびに初期値へ戻る」——
+/// それを止めているのは `DO NOTHING` そのものなので、**値を変えてから当て直す**形で見る。
+///
+/// 登録簿は全テストで 1 本しかないので、変更は**トランザクションの中だけ**に閉じて戻す。
+#[tokio::test]
+async fn app_usage_rollup_source_migration_keeps_values_changed_by_hand() {
+    let pool = testdb::pool().await;
+    let sql = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.ends_with("_app_usage_rollup_source"))
+        .expect("集計の移行が MIGRATIONS に無い")
+        .1;
+    let mut tx = pool.begin().await.unwrap();
+    // 本人が受け手の「途絶」の窓を自分で広げた（6 時間 → 12 時間）
+    let changed = sqlx::query(
+        "UPDATE core.source SET expected_gap_sec = 43200, display_name = '手で変えた名前'
+           WHERE logical_source = 'c01-app-usage-rollup'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        changed.rows_affected(),
+        1,
+        "登録簿に `c01-app-usage-rollup` の行が無い（移行が当たっていない）"
+    );
+
+    // 起動のたびに `migrate()` が当て直す（版の記録があっても中身は毎回流れる）
+    sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap();
+
+    let (gap, name): (i32, String) = sqlx::query_as(
+        "SELECT expected_gap_sec, display_name FROM core.source
+           WHERE logical_source = 'c01-app-usage-rollup'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(gap, 43200, "当て直しで本人が変えた想定間隔が初期値へ戻った");
+    assert_eq!(name, "手で変えた名前", "当て直しで本人が変えた表示名が初期値へ戻った");
+    tx.rollback().await.unwrap();
+}
+
 async fn read_rollup_source(pool: &sqlx::PgPool) -> (i64, String, i32) {
     sqlx::query_as(
         "SELECT count(*), coalesce(min(external_id_kind), '?'), coalesce(min(expected_gap_sec), 0)

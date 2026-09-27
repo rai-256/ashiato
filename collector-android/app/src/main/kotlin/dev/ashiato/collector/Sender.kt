@@ -58,7 +58,14 @@ class Sender<T : Outboxable>(
      * 後続を永久に止める。サーバ側は 1 件ごとの結果を返してそれを避けているのに、
      * **収集側には抜け道が無かった**。
      */
-    private data class Verdict(val remove: List<String>, val accepted: Int, val responded: Boolean = false)
+    private data class Verdict(
+        val remove: List<String>,
+        /** 受理された項目の識別子。**件数ではなく中身**を持つ（ソースごとに数え直すため。R27） */
+        val acceptedIds: List<String>,
+        val responded: Boolean = false,
+    ) {
+        val accepted: Int get() = acceptedIds.size
+    }
 
     companion object {
         /**
@@ -100,15 +107,33 @@ class Sender<T : Outboxable>(
     private val skipped = LinkedHashSet<String>()
 
     /**
-     * そのひと組が名乗るソース（tasks 1.2 / 独立レビュー R10）。
+     * ひと組の中の**ソースごとに 1 行**書く（tasks 1.2 / 独立レビュー R10 / code-verify R27）。
      *
-     * 記録の置き場は**全ソースで 1 本**（既定 C11）なので、ひと組に 2 本以上のソースが
-     * 混ざりうる。混ざっているときは `null` —— **どれか 1 本の名を騙るより名乗らない**。
-     * 1 本だけのときに名乗れれば、「位置は通っているのにアプリ利用だけ断られている」が
-     * ログから読める（画面に出る経路が無いので、ここが唯一の経路）。
+     * 記録の置き場は**全ソースで 1 本**（既定 C11）なので、ひと組に 2 本以上のソースが混ざる ——
+     * 位置は 60 秒ごと・送信は 5 分ごとなので、**アプリ利用が載るひと組にはほぼ常に位置も載る**。
+     * ひと組に 1 本だけ名を付ける形（`singleOrNull()`）だと、その混ざったひと組では
+     * `source=` が丸ごと落ち、「位置は通っているのにアプリ利用だけ断られている」が読めなかった
+     * （実測: 位置 1 件とアプリ利用 1 件で `kind=send_failed count=2 error=timeout`）。
+     * 画面に出る経路が無いので、**ここが唯一の経路**。
+     *
+     * @param items 数える対象（ひと組の一部でもよい）
+     * @param sources 行を出すソース。既定は [items] に載っているものだけ。
+     *   **0 件でも 1 行残したいとき**にひと組の全ソースを渡す
      */
-    private fun sourceOf(batch: List<T>): String? =
-        batch.mapTo(LinkedHashSet()) { it.logicalSource }.singleOrNull()
+    private fun logEachSource(
+        kind: String,
+        items: List<T>,
+        error: String? = null,
+        sources: List<String> = items.map { it.logicalSource }.distinct(),
+    ) {
+        val counts = items.groupingBy { it.logicalSource }.eachCount()
+        sources.distinct().forEach { source ->
+            log(Telemetry.line(kind, source = source, count = counts[source] ?: 0, error = error))
+        }
+    }
+
+    /** ひと組に載っているソースを、載った順に（ログの行の順を端末ごとに揺らがせない）。 */
+    private fun sourcesOf(batch: List<T>): List<String> = batch.map { it.logicalSource }.distinct()
 
     fun flush(): Flushed {
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
@@ -120,16 +145,15 @@ class Sender<T : Outboxable>(
         if (batch.isEmpty()) return Flushed(0, 0)
         if (fresh.isEmpty()) skipped.clear()
 
-        val source = sourceOf(batch)
         val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
         val verdict = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
-                log(Telemetry.line("send_failed", source = source, count = batch.size, error = outcome.kind))
+                logEachSource("send_failed", batch, error = outcome.kind)
                 return Flushed(batch.size, 0)
             }
 
-            is Outcome.Responded -> verdictOf(batch, outcome, source)
+            is Outcome.Responded -> verdictOf(batch, outcome)
         }
         val responded = verdict.responded
 
@@ -138,11 +162,14 @@ class Sender<T : Outboxable>(
             // 受け付けられたが置き場へ書けなかった。**次の契機で再送になる**（重複は入らない）。
             // **取り除けたと数えない**（review R5）—— 数えると、溜まっている間は続けて送る判定が真のままになり、
             // 同じ 200 件を 1 回の契機の中で送り続ける
-            log(Telemetry.line("outbox_shrink_failed", source = source, count = verdict.remove.size))
+            val stuck = verdict.remove.toSet()
+            logEachSource("outbox_shrink_failed", batch.filter { it.id in stuck })
             removed = 0
         }
-        log(Telemetry.line("send", source = source, count = batch.size))
-        log(Telemetry.line("accepted", source = source, count = verdict.accepted))
+        logEachSource("send", batch)
+        // **受理が 0 件のソースも 1 行残す** —— 行が無いのと 0 件なのを読み手に区別させない
+        val ok = verdict.acceptedIds.toSet()
+        logEachSource("accepted", batch.filter { it.id in ok }, sources = sourcesOf(batch))
         return Flushed(batch.size, verdict.accepted, removed, responded)
     }
 
@@ -156,30 +183,30 @@ class Sender<T : Outboxable>(
      * **一時的な失敗（到達できない・サーバ側の失敗・資格情報の不一致）では 1 件も取り除かない。**
      * 恒久的な拒否と違い、**再び送れば結果が変わる**。
      */
-    private fun verdictOf(batch: List<T>, res: Outcome.Responded, source: String?): Verdict {
+    private fun verdictOf(batch: List<T>, res: Outcome.Responded): Verdict {
         if (res.status == 401) {
             // 資格情報の不一致は**一時的**（合言葉を直せば通る）。捨てると記録が失われる
-            log(Telemetry.line("send_failed", source = source, count = batch.size, error = "unauthorized"))
-            return Verdict(emptyList(), 0)
+            logEachSource("send_failed", batch, error = "unauthorized")
+            return Verdict(emptyList(), emptyList())
         }
         // **サーバが約束している状態符号は 200 と 400 だけ**（docs/collector-contract.md）。
         // それ以外（403 のトークン失効・WAF、408、413、429、5xx）は**一時的な失敗**として扱い、
         // 1 件も取り除かない（R119）。`>= 500` だけを見ていたときは、403 や 429 が
         // 本文の復号へ進み、**中身が配列に見えれば全件捨てていた**。
         if (res.status != 200 && res.status != 400) {
-            log(Telemetry.line("send_failed", source = source, count = batch.size, error = "server_${res.status}"))
-            return Verdict(emptyList(), 0)
+            logEachSource("send_failed", batch, error = "server_${res.status}")
+            return Verdict(emptyList(), emptyList())
         }
         val results = runCatching {
             ingestJson.decodeFromString<List<IngestResult>>(res.body)
         }.getOrElse {
             // 応答の形が読めないときは**何も取り除かない**。取り除くと記録が消える
-            log(Telemetry.line("send_failed", source = source, count = batch.size, error = "unreadable_response"))
-            return Verdict(emptyList(), 0)
+            logEachSource("send_failed", batch, error = "unreadable_response")
+            return Verdict(emptyList(), emptyList())
         }
         if (results.size != batch.size) {
-            log(Telemetry.line("send_failed", source = source, count = batch.size, error = "result_count_mismatch"))
-            return Verdict(emptyList(), 0)
+            logEachSource("send_failed", batch, error = "result_count_mismatch")
+            return Verdict(emptyList(), emptyList())
         }
         val responded = true
         // **捨てるのは、許可リストに載った種別だけ**（R107）。
@@ -197,10 +224,11 @@ class Sender<T : Outboxable>(
             .groupBy { isPermanent(it) }
             .forEach { (permanent, idx) ->
                 val kindName = if (permanent) "dropped" else "rejected"
-                idx.groupingBy { results[it].error ?: "unknown" }
-                    .eachCount()
-                    .forEach { (why, count) ->
-                        log(Telemetry.line(kindName, source = source, count = count, error = why))
+                // **理由ごと・ソースごとに 1 行**（code-verify R27）—— ソースを畳むと
+                // 「どちらのソースが断られているか」がログから消える
+                idx.groupBy { results[it].error ?: "unknown" }
+                    .forEach { (why, hits) ->
+                        logEachSource(kindName, hits.map { batch[it] }, error = why)
                     }
                 if (permanent) {
                     // **何を失ったかを後から数えられるようにする**（R118）。
@@ -215,7 +243,7 @@ class Sender<T : Outboxable>(
         batch.forEachIndexed { i, item -> if (!results[i].accepted && !isPermanent(i)) skipped += item.id }
         return Verdict(
             remove = batch.filterIndexed { i, _ -> results[i].accepted || isPermanent(i) }.map { it.id },
-            accepted = results.count { it.accepted },
+            acceptedIds = batch.filterIndexed { i, _ -> results[i].accepted }.map { it.id },
             responded = responded,
         )
     }
