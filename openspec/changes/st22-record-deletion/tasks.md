@@ -35,16 +35,16 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 1: 移行 —— 削除の台帳（design D1 / D10）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_deletion_ledger.sql` と `.down.sql` を足す —— `core.deletion_ledger`（D1 の列）、
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_deletion_ledger.sql` と `.down.sql` を足す —— `core.deletion_ledger`（D1 の列）、
   索引 2 本、UPDATE / DELETE を拒む行トリガと TRUNCATE を拒む文トリガ（**この移行専用の関数** `core.reject_deletion_ledger_change()`）。
   当て直せる形（`IF NOT EXISTS`）。`MIGRATIONS` 配列の末尾に足す。`.down.sql` の先頭に「先に戻す操作を済ませること」をコメントで書く（design の Migration Plan 4）。
   同じ移行に**削除済みの滞在を読む専用のビュー** `core.stay_erased`（design D12。識別子と時刻の範囲と印だけ。緯度経度と `raw` を載せない）も入れる。
   検証: `tools/check-migrations.sh` rc=0、`CT deletion_ledger_migration_applies_twice`（全版を 2 回当てて落ちないテスト）、
   `CT stay_erased_view_hides_coordinates`（ビューの列に緯度経度と `raw` が無いことをテストで固定する）
-- [ ] 1.2 台帳が追記のみであることのテスト。
+- [x] 1.2 台帳が追記のみであることのテスト。
   Scenario: `台帳の行は書き換えられない` / `台帳の行は消せず、表も切り詰められない` / `台帳の行は記録の読み出しに出ない`。
   検証: `CT deletion_ledger_is_append_only`
-- [ ] 1.3 `tools/check-immutable.sh` に足す（design D10。**手で維持している台本なので、足さないと新しい錠も down 移行も 1 度も当たらない**）——
+- [x] 1.3 `tools/check-immutable.sh` に足す（design D10。**手で維持している台本なので、足さないと新しい錠も down 移行も 1 度も当たらない**）——
   (a) `core.deletion_ledger` への UPDATE / DELETE / TRUNCATE が psql から拒まれること、(b) `…_deletion_ledger.down.sql` を戻しの逆順の先頭で当てて、
   当て直せること。検証: `tools/check-immutable.sh` rc=0 かつ出力に `deletion_ledger` の行がある
   （`bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q deletion_ledger /tmp/ci.log`）
