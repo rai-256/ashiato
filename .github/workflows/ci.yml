@@ -219,8 +219,9 @@ jobs:
           # 行継続（`\`）は使わない —— この action に渡すと `Task '\' not found` になる（実測 2026-09-18）。
           # `pm clear` は使わない —— 前のテストが残した前景サービスがあると `Failed` で rc=1 になる（実測）。
           # 要るのは**権限の状態だけ**なので `pm reset-permissions`（既定 = 未許可・フラグ無し）で足りる。
+          # UsageVolumeInstrumentedTest は usage access とイベント生成を準備する tools/usage-volume.sh だけで走らせる。
           script: |
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.UsageVolumeInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions

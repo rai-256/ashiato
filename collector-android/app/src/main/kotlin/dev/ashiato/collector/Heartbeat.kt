@@ -30,7 +30,7 @@ const val HEARTBEAT_INTERVAL_MS: Long = 6 * 60 * 60 * 1000L
 data class HeartbeatRequest(
     override val id: String,
     @SerialName("user_id") val userId: String,
-    @SerialName("logical_source") val logicalSource: String,
+    @SerialName("logical_source") override val logicalSource: String,
     @SerialName("device_id") val deviceId: String? = null,
     /** 収集側が信号を作った時刻。**受信時刻ではない**（第 6 回 Q24 と同じ向き） */
     @SerialName("emitted_at") val emittedAt: String,
@@ -85,6 +85,21 @@ data class Capability(val capturable: Boolean, val blockers: List<String>) {
 }
 
 /**
+ * 生存信号に載る 1 区間ぶんの数え（tasks 1.3 / spec レビュー R4）。
+ *
+ * **`successes <= attempts` を型で壊せなくする。** 契約（`docs/collector-contract.md`）は
+ * 成功が試行を超える信号を `invalid_counts` で**恒久的に**断り、
+ * 断られた信号は理由を問わず未送信に残る —— 作れてしまうと端末に永久に居座る。
+ */
+data class Counts(val attempts: Int, val successes: Int) {
+    init {
+        require(attempts >= 0) { "試行が負: $attempts" }
+        require(successes >= 0) { "成功が負: $successes" }
+        require(successes <= attempts) { "成功 $successes が試行 $attempts を超えている" }
+    }
+}
+
+/**
  * 前回の生存信号からの取得の試行と成功を数える（第 5 回 Q17。tasks 7.2b）。
  *
  * **これが ST01 の R46（Doze）が渡した宿題の答え。** 生存信号は 6 時間間隔なので
@@ -103,8 +118,13 @@ data class Capability(val capturable: Boolean, val blockers: List<String>) {
  */
 class AttemptCounters(
     private val now: () -> Instant,
-    /** 満点の刻み。位置は FR-1 の 60 秒。 */
-    private val intervalMs: Long = FIX_INTERVAL_MS,
+    /**
+     * 満点の刻み。**そのソースの取得間隔**（`SourceCadence`。位置 60 秒 / アプリ利用 30 分 /
+     * 集計 6 時間）。**既定値を置かない**（tasks 1.3 / 独立レビュー R10）—— 位置の 60 秒に
+     * 固定したままだと、30 分間隔のアプリ利用が 6 時間ごとに「試行 360 / 成功 12」を送り、
+     * **取得率 3 % ＝ ずっと眠っていた**と読まれる。
+     */
+    private val intervalMs: Long,
     /**
      * 数えの置き場。**プロセスの立て直しをまたいで残す**（review/code.md の R16 / C-2 / I8）。
      *
@@ -130,7 +150,7 @@ class AttemptCounters(
 
     /** いまの数え。**読むだけでは戻さない**（信号を組み立てられなかったときに数えが消える）。 */
     @Synchronized
-    fun peek(): Pair<Int, Int> = attemptsNow() to successes
+    fun peek(): Counts = Counts(attemptsNow(), successes)
 
     /**
      * 数えを取り出して**戻す**（specs「数えは信号を送るたびに戻る」）。
@@ -146,8 +166,8 @@ class AttemptCounters(
      * `peek()` の docstring が書いていた問題そのものが、`emit()` 側で起きていた。
      */
     @Synchronized
-    fun <T> takeAfter(commit: (Pair<Int, Int>) -> Pair<Boolean, T>): Pair<Boolean, T> {
-        val got = attemptsNow() to successes
+    fun <T> takeAfter(commit: (Counts) -> Pair<Boolean, T>): Pair<Boolean, T> {
+        val got = Counts(attemptsNow(), successes)
         val (stored, value) = commit(got)
         if (stored) {
             since = now()
@@ -158,8 +178,8 @@ class AttemptCounters(
     }
 
     @Synchronized
-    fun take(): Pair<Int, Int> {
-        val got = attemptsNow() to successes
+    fun take(): Counts {
+        val got = Counts(attemptsNow(), successes)
         since = now()
         successes = 0
         store.save(since, successes)
@@ -210,6 +230,8 @@ class MemoryCounterStore : CounterStore {
  */
 class FileCounterStore(
     private val file: java.io.File,
+    /** この置き場が数えているソース。**ログはその名を名乗る**（tasks 1.2）。 */
+    private val logicalSource: String,
     private val log: (String) -> Unit,
 ) : CounterStore {
     override fun load(): Pair<Instant, Int>? = try {
@@ -220,10 +242,10 @@ class FileCounterStore(
             Instant.parse(parts[0]) to parts[1].toInt()
         }
     } catch (e: RuntimeException) {
-        log(Telemetry.line("counters_unreadable", error = e.javaClass.simpleName))
+        log(Telemetry.line("counters_unreadable", source = logicalSource, error = e.javaClass.simpleName))
         null
     } catch (e: java.io.IOException) {
-        log(Telemetry.line("counters_unreadable", error = e.javaClass.simpleName))
+        log(Telemetry.line("counters_unreadable", source = logicalSource, error = e.javaClass.simpleName))
         null
     }
 
@@ -231,9 +253,35 @@ class FileCounterStore(
         try {
             file.writeText("$since $successes")
         } catch (e: java.io.IOException) {
-            log(Telemetry.line("counters_save_failed", error = e.javaClass.simpleName))
+            log(Telemetry.line("counters_save_failed", source = logicalSource, error = e.javaClass.simpleName))
         }
     }
+}
+
+/** ST06 より前の、ソースが 1 本だけだった時代の数えの置き場。 */
+const val LEGACY_COUNTERS_FILE: String = "heartbeat-counters.txt"
+
+/**
+ * 数えの置き場の名前。**ソースごとに別ファイル**（tasks 1.3 / 独立レビュー R10）——
+ * 2 本目が同じ名前を開くと、互いの `since` と成功数を潰し合う。
+ */
+fun counterStoreFile(dir: java.io.File, logicalSource: String): java.io.File =
+    java.io.File(dir, "heartbeat-counters-$logicalSource.txt")
+
+/**
+ * ST06 より前の 1 本（[LEGACY_COUNTERS_FILE]）を**位置の名前へ移す**。移した先を返す。
+ *
+ * **位置以外へは引き継がない** —— 位置の数えを別のソースの取得率として読ませない。
+ * 移せなくても落とさない（数えは証拠ではなく目安で、失っても記録は消えない）。
+ * 読めなければ `FileCounterStore` が新品から始める。
+ */
+fun migrateLegacyCounters(dir: java.io.File, logicalSource: String): java.io.File {
+    val target = counterStoreFile(dir, logicalSource)
+    if (logicalSource == LOGICAL_SOURCE && !target.exists()) {
+        val legacy = java.io.File(dir, LEGACY_COUNTERS_FILE)
+        if (legacy.exists()) runCatching { legacy.renameTo(target) }
+    }
+    return target
 }
 
 /**
@@ -247,7 +295,7 @@ class HeartbeatEmitter(
     private val counters: AttemptCounters,
     private val userId: String,
     private val deviceId: String,
-    private val logicalSource: String = LOGICAL_SOURCE,
+    private val logicalSource: String,
     private val capability: () -> Capability,
     private val now: () -> Instant,
     private val newId: () -> String,
@@ -259,8 +307,8 @@ class HeartbeatEmitter(
         val at = now()
         // **積めてから数えを戻す**（review/code.md の R24）。先に `take()` していたときは、
         // 置き場へ書けなかった区間の取得率が丸ごと消えていた。
-        val (stored, _) = counters.takeAfter { (attempts, successes) ->
-            buildAndStore(cap, at, attempts, successes) to Unit
+        val (stored, _) = counters.takeAfter { counts ->
+            buildAndStore(cap, at, counts.attempts, counts.successes) to Unit
         }
         return stored
     }
@@ -291,9 +339,9 @@ class HeartbeatEmitter(
         )
         val stored = outbox.add(request)
         // 出すのは種別と件数だけ。**取得できない理由は私的データではない**ので出せる
-        log(Telemetry.line("heartbeat", count = attempts, error = cap.blockers.firstOrNull()))
+        log(Telemetry.line("heartbeat", source = logicalSource, count = attempts, error = cap.blockers.firstOrNull()))
         // 積めなかったら**数えは戻らない**（`takeAfter`）。次の契機でまとめて載る
-        if (!stored) log(Telemetry.line("heartbeat_not_persisted", count = 1))
+        if (!stored) log(Telemetry.line("heartbeat_not_persisted", source = logicalSource, count = 1))
         return stored
     }
 }

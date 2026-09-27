@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.Tasks
 import java.io.File
@@ -49,9 +50,10 @@ class LocationServiceInstrumentedTest {
     @Before
     fun allowMockLocation() {
         // 偽装位置を入れる許可（設定アプリの「仮の現在地情報アプリ」と同じもの）。shell 経由でしか付けられない
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("appops set ${context.packageName} android:mock_location allow")
-            .close()
+        // **終わるまで待つ**（`executeShellCommand` は非同期。閉じるだけだと、直後の `setMockMode` が
+        // 許可の反映より先に走って `Caller must be selected as the mock location app` になる。
+        // `RetentionInstrumentedTest.shell` と同じ理由）
+        shell("appops set ${context.packageName} android:mock_location allow")
         context.stopService(Intent(context, LocationService::class.java))
         outboxDir.deleteRecursively()
     }
@@ -63,18 +65,39 @@ class LocationServiceInstrumentedTest {
             val client = LocationServices.getFusedLocationProviderClient(context)
             Tasks.await(client.setMockMode(false), 5, TimeUnit.SECONDS)
         }
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("appops set ${context.packageName} android:mock_location deny")
-            .close()
+        shell("appops set ${context.packageName} android:mock_location deny")
+    }
+
+    private fun shell(cmd: String) {
+        val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+    }
+
+    /**
+     * **サービスを立てる前に**偽装を有効にする（code-verify R29）。
+     *
+     * 立ててから有効にすると、その間に端末の本物の位置（エミュレータの GPS は
+     * `39.237255,-123.150032`）が fused から配られ、**先頭の記録が偽装でない位置になる**
+     * （実測 2026-09-27: 単独で走らせても毎回落ちた。`dumpsys location` の gps の最後の位置がその値）。
+     * 偽装を先に有効にしておけば、サービスが受け取る位置は全部この試験が入れたものになる。
+     * 許可の反映が遅れて断られることがあるので、数回だけ当たり直す（`RetentionInstrumentedTest.mockLocations` と同じ）。
+     */
+    private fun enableMockMode(client: FusedLocationProviderClient) {
+        var lastError: Throwable? = null
+        for (attempt in 1..5) {
+            if (runCatching { Tasks.await(client.setMockMode(true), 10, TimeUnit.SECONDS) }.onFailure { lastError = it }.isSuccess) return
+            Thread.sleep(1_000)
+        }
+        throw AssertionError("偽装位置を有効にできない", lastError)
     }
 
     // Scenario: 契機ごとに 1 件生成される
     @Test
     fun aMockFixBecomesOneRecordInTheOutbox() {
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        enableMockMode(client)
         ActivityScenario.launch(MainActivity::class.java).close()
 
-        val client = LocationServices.getFusedLocationProviderClient(context)
-        Tasks.await(client.setMockMode(true), 10, TimeUnit.SECONDS)
         val fix = Location("fused").apply {
             latitude = 35.681236
             longitude = 139.767125

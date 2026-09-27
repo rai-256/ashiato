@@ -76,7 +76,7 @@ fun <T : Outboxable> migrateLegacyOutbox(
             }
             if (complete && !flush()) complete = false
         } catch (e: IOException) {
-            log(Telemetry.line("legacy_outbox_unreadable", error = e.javaClass.simpleName))
+            log(Telemetry.line("legacy_outbox_unreadable", source = null, error = e.javaClass.simpleName))
             complete = false
         }
         if (complete && pending.exists()) {
@@ -87,7 +87,7 @@ fun <T : Outboxable> migrateLegacyOutbox(
                 pending.delete()
                 true
             } catch (e: IOException) {
-                log(Telemetry.line("legacy_salvage_failed", error = e.javaClass.simpleName))
+                log(Telemetry.line("legacy_salvage_failed", source = null, error = e.javaClass.simpleName))
                 false
             }
         }
@@ -96,7 +96,7 @@ fun <T : Outboxable> migrateLegacyOutbox(
             broken = 0
         }
         if (complete && !legacy.delete()) complete = false
-        log(Telemetry.line("legacy_outbox_imported", count = imported))
+        log(Telemetry.line("legacy_outbox_imported", source = null, count = imported))
     }
 
     // ST01 が脇へ退けたファイル。**消さずに移し、行数を 1 度だけ数える**
@@ -105,15 +105,15 @@ fun <T : Outboxable> migrateLegacyOutbox(
         val n = try {
             f.bufferedReader(Charsets.UTF_8).useLines { seq -> seq.count { it.isNotBlank() } }
         } catch (e: IOException) {
-            log(Telemetry.line("legacy_salvage_unreadable", error = e.javaClass.simpleName))
+            log(Telemetry.line("legacy_salvage_unreadable", source = null, error = e.javaClass.simpleName))
             continue
         }
         if (n > 0 && !recordSalvaged(n)) continue
         salvaged.mkdirs()
-        if (!f.renameTo(File(salvaged, f.name))) log(Telemetry.line("legacy_salvage_move_failed"))
+        if (!f.renameTo(File(salvaged, f.name))) log(Telemetry.line("legacy_salvage_move_failed", source = null))
         broken += n
     }
-    if (broken > 0) log(Telemetry.line("legacy_outbox_broken", count = broken))
+    if (broken > 0) log(Telemetry.line("legacy_outbox_broken", source = null, count = broken))
     return LegacyMigration(imported, broken, complete)
 }
 

@@ -84,10 +84,12 @@ class Retention<T : Retainable>(
             { _ -> before?.let(ledger::restore) },
         )
         if (n > 0) {
-            val remaining = records.oldest()?.item?.eventTime?.let(::instantOf)
-            for (source in touched) ledger.endBatch(source, reason, remaining)
+            for (source in touched) {
+                val remaining = records.oldest(source)?.item?.eventTime?.let(::instantOf)
+                ledger.endBatch(source, reason, remaining)
+            }
             // **件数と理由の種別だけ**（製造準備 A-2）。捨てた記録の位置・時刻の値は出さない
-            log(Telemetry.line("retention_dropped", count = n, error = reason.wire))
+            log(Telemetry.line("retention_dropped", source = null, count = n, error = reason.wire))
         }
         return n
     }
@@ -120,6 +122,11 @@ class RetentionNotifier(
     private val age: () -> Long,
     private val alerts: RetentionAlerts,
     private val mark: File,
+    /**
+     * 常駐の通知の本文（tasks 5.4 / 独立レビュー R10）。**既定を置かない** ——
+     * 置くと「位置を記録しています」の決め打ちが名乗り忘れの形で戻る。組み立ては [ongoingBaseText]。
+     */
+    private val baseText: String,
     private val policy: () -> RetentionPolicy = { RetentionPolicy.current },
     private val log: (String) -> Unit = {},
 ) {
@@ -132,7 +139,7 @@ class RetentionNotifier(
         val oldest = records.oldest()
         val elapsed = oldest?.let { age() - it.enqAgeMs }
         val days = elapsed?.let { (it / AgeClock.DAY_MS).toInt() } ?: 0
-        val text = if (elapsed != null && elapsed >= AgeClock.DAY_MS) "$BASE_TEXT · 未送信 $days 日" else BASE_TEXT
+        val text = if (elapsed != null && elapsed >= AgeClock.DAY_MS) "$baseText · 未送信 $days 日" else baseText
         if (text != lastText) {
             alerts.ongoing(text)
             lastText = text
@@ -144,26 +151,36 @@ class RetentionNotifier(
                         mark.parentFile?.mkdirs()
                         mark.writeText(days.toString())
                     } catch (e: IOException) {
-                        log(Telemetry.line("retention_mark_failed", error = e.javaClass.simpleName))
+                        log(Telemetry.line("retention_mark_failed", source = null, error = e.javaClass.simpleName))
                     }
                 } else if (!blockedLogged) {
                     // **出せなかったら印を付けない**（review R39）。付けると、権限を戻しても 83 日を下回るまで鳴らない。
                     // ログは 1 度だけ（5 分ごとに積み上げない）
-                    log(Telemetry.line("retention_alert_blocked", count = days))
+                    log(Telemetry.line("retention_alert_blocked", source = null, count = days))
                     blockedLogged = true
                 }
             }
         } else if (mark.exists()) {
             // 送れて古い分が無くなった。次の長い圏外ではまた鳴る
-            if (!mark.delete()) log(Telemetry.line("retention_mark_delete_failed"))
+            if (!mark.delete()) log(Telemetry.line("retention_mark_delete_failed", source = null))
             blockedLogged = false
         }
     }
 
-    companion object {
-        const val BASE_TEXT = "位置を記録しています"
-    }
 }
+
+/**
+ * 常駐の通知の本文（tasks 5.4 / 独立レビュー R10）。
+ *
+ * **ソースの数に合わせる。** ST06 より前は「位置を記録しています」で決め打ちだった ——
+ * 2 本目を足した日に文言だけが位置のまま残り、本人の端末には
+ * 「位置を記録しています」と出たままアプリ利用が集められる。
+ *
+ * 数えるのは**登録簿に載る名前の数**（`SourceCadence`）。アプリ利用がイベントと集計の
+ * 2 本に分かれているのは受け手の都合だが、**端末が名乗る名前もその 2 本**なので、
+ * ここで畳んで「2 種類」と見せると、画面に出るソースの数と食い違う。
+ */
+fun ongoingBaseText(sources: Int): String = "$sources 種類の記録を集めています"
 
 /**
  * 送信の契機 1 回ぶん（ST04 / 深掘り Q6 / design D12（仮））。
@@ -192,28 +209,28 @@ class Drainer(
         var rounds = 0
         while (true) {
             runCatching { maintenance() }.onFailure {
-                log(Telemetry.line("maintenance_crashed", error = it.javaClass.simpleName))
+                log(Telemetry.line("maintenance_crashed", source = null, error = it.javaClass.simpleName))
             }
             // **記録の送信が落ちても生存信号と破棄の報告は送る**（ST02 と同じ規律）
             val flushed = runCatching { records.flush() }.onFailure {
-                log(Telemetry.line("flush_crashed", error = it.javaClass.simpleName))
+                log(Telemetry.line("flush_crashed", source = null, error = it.javaClass.simpleName))
             }.getOrNull()
             runCatching { beats.flush() }.onFailure {
-                log(Telemetry.line("heartbeat_flush_crashed", error = it.javaClass.simpleName))
+                log(Telemetry.line("heartbeat_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
             // **送信に載せる前に凍結する**（spec「送ろうとした報告は書き換えられない」）
             runCatching {
                 ledger.freeze()
                 drops.flush()
             }.onFailure {
-                log(Telemetry.line("drops_flush_crashed", error = it.javaClass.simpleName))
+                log(Telemetry.line("drops_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
             rounds++
             val keepGoing = flushed != null && flushed.responded && flushed.removed > 0 &&
                 rounds < maxRounds && recordsOutbox.hasMoreThan(MAX_BATCH)
             if (!keepGoing) break
         }
-        if (rounds > 1) log(Telemetry.line("drained", count = rounds))
+        if (rounds > 1) log(Telemetry.line("drained", source = null, count = rounds))
         return rounds
     }
 }
