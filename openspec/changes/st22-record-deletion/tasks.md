@@ -12,7 +12,7 @@
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
 DB を使う検査は `docker compose up -d db` が前提。
 
-## 0. 規律（**最初に読む**）
+## Global Constraints（規律。**最初に読む**）
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 消した滞在を戻すと一覧に戻る`）、
   bash は `echo`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**
@@ -33,7 +33,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - **Q1〜Q4 は本人の決定。下流は変えない**（消す範囲・後から届いた位置・稼働状況・画面の形）
 - 記録の値（座標・時刻・URL）を**ログに出さない**（製造準備 A-2）。出すのは件数・日付・種別・利用者だけ
 
-## 1. 移行 —— 削除の台帳（design D1 / D10）
+## Task 1: 移行 —— 削除の台帳（design D1 / D10）
 
 - [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_deletion_ledger.sql` と `.down.sql` を足す —— `core.deletion_ledger`（D1 の列）、
   索引 2 本、UPDATE / DELETE を拒む行トリガと TRUNCATE を拒む文トリガ（**この移行専用の関数** `core.reject_deletion_ledger_change()`）。
@@ -49,7 +49,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   当て直せること。検証: `tools/check-immutable.sh` rc=0 かつ出力に `deletion_ledger` の行がある
   （`bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q deletion_ledger /tmp/ci.log`）
 
-## 2. 消す口（design D2 / D3 / D4 / D5。`crates/server/src/`）
+## Task 2: 消す口（design D2 / D3 / D4 / D5。`crates/server/src/`）
 
 削除の操作は新しいモジュール `crates/server/src/deletion.rs`（判定と SQL）と `lib.rs`（ハンドラ）に置く。
 テストは `crates/server/src/deletion_tests.rs`。
@@ -75,7 +75,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 2.5 台帳の行（design D1 / C2）。滞在 1 行＋位置 N 行、位置の行は原因の滞在を持つ。
   Scenario: `滞在と連鎖した位置の消去が台帳に残る`。検証: `CT erase_writes_ledger`
 
-## 3. 作り直しと、後から届いた位置（design D5 / D6。申し送り R37）
+## Task 3: 作り直しと、後から届いた位置（design D5 / D6。申し送り R37）
 
 - [ ] 3.1 消した後、触れた日（Asia/Tokyo。滞在が日をまたげば 2 日）ごとに 1 回 `stay_store::rebuild_day` を呼ぶ。**コミットの後**に呼ぶ。
   Scenario: `消した位置から作られていた滞在は一覧から外れる`。検証: `CT erase_rebuilds_day`
@@ -90,7 +90,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 3.4 取り込みの口の応答が変わらないこと（C9）。受理・重複の返り方を固定する。
   検証: `CT ingest_response_unchanged_after_erase`（消した時間帯へ送って `accepted=true` を確かめる。2.1 の Scenario には数えない）
 
-## 4. 戻す口（design D2 / D5 / D6）
+## Task 4: 戻す口（design D2 / D5 / D6）
 
 - [ ] 4.1 `POST /stays/restore` を足す。1 件以上の滞在の識別子を 1 つのまとまりで戻す。
   戻す対象は「**その記録について台帳に最後に書かれた行**が、この滞在を原因とする `erase`」の行（`seq` の最大で引く）。
@@ -106,7 +106,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 4.5 戻すと台帳に `restore` の行が積まれ、`erase` の行が残ること。
   Scenario: `戻すと台帳に戻した行が積まれ、消した行は残る`。検証: `CT restore_writes_ledger`
 
-## 5. 1 日の並びに「消した」を足す（design D7。`stay_store::day_view`）
+## Task 5: 1 日の並びに「消した」を足す（design D7。`stay_store::day_view`）
 
 - [ ] 5.1 `EntryKind` に `Erased` を足し、いま「移動で埋めない」ために引いている隠れた滞在の区間を**つないで 1 行**にする。
   行は `stay_ids`（その区間に重なる**本人が消した滞在**の識別子）を持つ。吸収された滞在（`rebuild:absorbed`）は行にしない。
@@ -124,18 +124,18 @@ DB を使う検査は `docker compose up -d db` が前提。
   `一覧の文字はライトでもダークでも 4.5:1 を下回らない` / `日を移る操作は 24 px を下回らない` / `キーボードで移るとフォーカスの位置が見える`。
   検証: `CT stay_day_view` と `cd web && npm run test -- DayView`（ST16 のテストを走らせる。印は動かさない）
 
-## 6. 詳細の件数の口（design D8）
+## Task 6: 詳細の件数の口（design D8）
 
 - [ ] 6.1 `GET /stays/detail?stay_id=&user_id=` を足す。滞在の時間に重なる `core.event_live` の行を `logical_source` ごとに数え、
   登録簿の表示名を添える（滞在自身は除く）。未知の識別子は 404、資格情報なしは 401。
   Scenario: `詳細にその時間の記録の件数がソースごとに出る`（サーバ側の件数） / `削除済みの記録は件数に数えない`。検証: `CT stays_detail_counts`
 
-## 7. 稼働状況を固定する（design D11。Q3）
+## Task 7: 稼働状況を固定する（design D11。Q3）
 
 - [ ] 7.1 消しても稼働状況と達成日数が変わらないことをテストで固定する（`coverage.rs` は変えない）。
   Scenario: `1 日の記録をすべて消しても稼働状況は記録ありのまま` / `記録を消しても達成日数は減らない`。検証: `CT coverage_counts_deleted`
 
-## 8. 画面（design D9。`web/src/`。jsdom で測れるもの）
+## Task 8: 画面（design D9。`web/src/`。jsdom で測れるもの）
 
 - [ ] 8.1 `stays.ts` —— `EntryKind` に `"erased"` を足し、`DayEntry` に `stay_ids?: string[]`。`isDayView` が新しい種類と識別子を通す
   （**形が違えば失敗として出す**を保つ）。検証: `cd web && npm run test -- stays`（新しい種類の応答を通し、壊れた応答を弾く単体テスト）
@@ -152,7 +152,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 8.5 キーボードで開けること（`aria-expanded` を持つ操作対象に Enter / Space）。
   Scenario: `キーボードで詳細を開ける`。検証: `cd web && npm run test -- keyboard`
 
-## 9. e2e（本物のブラウザ。`web/e2e/day-erase.spec.ts`）
+## Task 9: e2e（本物のブラウザ。`web/e2e/day-erase.spec.ts`）
 
 **画面の Scenario を「人間の確認待ち」へ逃がさない。** アサートするのは**数値と経路**（実寸・可視・URL）。スクリーンショット比較は使わない。
 偽データ（`SEED=normal`）は 2026-09-07 に滞在を作るので、`#/day/2026-09-07` を使う。
@@ -163,7 +163,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 9.2 消す → 一覧からその滞在の行が消え、同じ時間に「消した」の行が出る → 戻す → 滞在の行が戻る（`#/day/2026-09-07` のまま。画面は移らない）。
   Scenario: `確認して消すとその滞在の行が一覧から消える`。検証: `cd web && npm run test:e2e -- day-erase`
 
-## 10. 仕上げ
+## Task 10: 仕上げ
 
 - [ ] 10.1 OpenAPI に 3 本の口を足す（`utoipa`）。検証: `tools/check-openapi.sh` rc=0
 - [ ] 10.2 検査 3 本。検証: `python3 scripts/check_scenarios.py . st22-record-deletion` rc=0、
