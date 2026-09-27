@@ -53,9 +53,10 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
 - [x] 1.4 `AndroidManifest.xml` に `PACKAGE_USAGE_STATS` の宣言を足し、前景サービスの種別を
   位置が取れない状態でも立てられる形にする（design D5 のリスク）。
   検証: 計測テストで **位置の権限を拒否した状態で前景サービスが立つ**ことを確かめる
-  （`./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'` rc=0）。
+  （`tools/android-emulator.sh` rc=0）。
   立てられないと分かったら design D5 の落とし所へ倒し、**その事実を `design.md` に追記**する
 
+  （訂正 2026-09-27: 検証の入口を「./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'」から上の入口に。受け入れ条件は変えない。理由: connectedDebugAndroidTest は --tests を受け付けない（Unknown command-line option）。計測テストは 2 段（未許可・未要求から始める）と -Pashiato.baseUrl を前提にしており、プロジェクトの正式な入口は tools/android-emulator.sh（8.2 と同じ。deep.md Q11 → a） 実証: evidence.jsonl 2026-09-27T01:02:53+00:00 FAIL。承認: 2026-09-27 本人の回答: ST06 1.4 / 5.1 / 5.3 の検証入口を tools/android-emulator.sh に修正。受け入れ条件は変えない。記録: plan-corrections.md）
 ## Task 2: 取得元の口と偽物
 
 - [x] 2.1 `UsageSource` の口を置く（`events(begin, end): EventsResult`（`Unreadable` / `Events(list)`）/
@@ -125,12 +126,13 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   Scenario: `位置の取得条件が欠けてもアプリ利用は集まる` / `アプリ利用の取得条件が欠けても位置は集まる` /
   `どのソースも取得できなくても収集は始まり信号は届く`。
   検証: `./gradlew :app:testDebugUnitTest --tests '*SourceIndependenceTest*'` rc=0 /
-  計測テスト `./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'` rc=0
+  計測テスト `tools/android-emulator.sh` rc=0
   （**いまのテストの期待が変わる** —— 「前景サービスの通知が出ない」は「出る」へ。
   `docs/handoff/ST11.md` の **4 点のうち 2 と、「文面の叩き台」**を書き直す。
   点 4「権限は拒否のまま」は変わらない。叩き台の「収集は始まらず」は ST06 の
   `収集の開始を、ソースの取得条件が満たされているかに依らず行う` と**正面から矛盾する**ので、
   ST11 がそのまま採ると正典の中で 2 つの Requirement が食い違う。spec レビュー R9。ST06 の上流で叩き台は書き直してある）
+  （訂正 2026-09-27: 検証の入口を「./gradlew :app:connectedDebugAndroidTest --tests '*PermissionDeniedInstrumentedTest*'」から上の入口に。受け入れ条件は変えない。理由: connectedDebugAndroidTest は --tests を受け付けない（Unknown command-line option）。計測テストは 2 段（未許可・未要求から始める）と -Pashiato.baseUrl を前提にしており、プロジェクトの正式な入口は tools/android-emulator.sh（8.2 と同じ。deep.md Q11 → a） 実証: evidence.jsonl 2026-09-27T01:03:00+00:00 FAIL。承認: 2026-09-27 本人の回答: ST06 1.4 / 5.1 / 5.3 の検証入口を tools/android-emulator.sh に修正。受け入れ条件は変えない。記録: plan-corrections.md）
 - [x] 5.2 アプリ利用の取得可否（`PACKAGE_USAGE_STATS` の付与状態）を `AndroidCapability` と同じ形で読み、
   `blockers` は `permission` と `network` の 2 つにする（既定 C9）。**読めなかったら「取れない」に倒す**。
   Scenario: `位置の取得条件が欠けても位置の生存信号は届く`。
@@ -139,9 +141,10 @@ Android の計測テストは `tools/android-emulator.sh`（2 段実行。`@Need
   以後は常駐の通知からたどれるようにする（design D6（仮））。
   Scenario: `特別なアクセスが無ければ初回起動で設定画面へ送られる` / `許可しなくても収集は始まる` /
   `2 度目の起動では自動で送られない` / `後から許可すると次の契機から集まる`。
-  検証: 計測テスト `./gradlew :app:connectedDebugAndroidTest --tests '*UsageAccessInstrumentedTest*'` rc=0
+  検証: 計測テスト `tools/android-emulator.sh` rc=0
   （設定画面へ遷移したことは UI Automator で確かめる。`appops set <pkg> GET_USAGE_STATS` で前提を作り、
   **前提はテストの外**で作る＝`@NeedsPristinePermissions` と同じ 2 段実行）
+  （訂正 2026-09-27: 検証の入口を「./gradlew :app:connectedDebugAndroidTest --tests '*UsageAccessInstrumentedTest*'」から上の入口に。受け入れ条件は変えない。理由: connectedDebugAndroidTest は --tests を受け付けない（Unknown command-line option）。計測テストは 2 段（未許可・未要求から始める）と -Pashiato.baseUrl を前提にしており、プロジェクトの正式な入口は tools/android-emulator.sh（8.2 と同じ。deep.md Q11 → a） 実証: evidence.jsonl 2026-09-27T01:02:54+00:00 FAIL。承認: 2026-09-27 本人の回答: ST06 1.4 / 5.1 / 5.3 の検証入口を tools/android-emulator.sh に修正。受け入れ条件は変えない。記録: plan-corrections.md）
 - [x] 5.4 常駐の通知の文言を、位置だけの決め打ちからソースの数に合わせた形へ直す（R10）。
   ST04 の「未送信の日数」の表示は**壊さない**。
   検証: `./gradlew :app:testDebugUnitTest --tests '*RetentionNotifierTest*'` rc=0

@@ -300,6 +300,9 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - 提案: `UsageSourceTest` の形（`ShadowUsageStatsManager.EventBuilder`）で、種別ごとの 1 件（`setConfiguration` /
   `setShortcutId` / `setAppStandbyBucket` を含む）を本番の `UsageStatsSource.events` に通し、種別と欄が全部残ることを確かめる。
   2 つの Scenario の印はそちらへ移す。
+- 処置: fixed 3.1 —— `AppUsageCollectorTest` に本番の `UsageStatsSource` 越しに 1 契機を回す足場（`realSourceEnv`。
+  `ShadowUsageStatsManager.EventBuilder`）を足し、`本番の変換を通しても種別は 1 件も落ちない` と
+  `本番の変換が種別ごとの欄まで解析済みに残す` を置いた。2 つの Scenario の印はこちらへ移した（`e5e2067`）。
 
 ## R24. 経過の置き場（`age-clock.txt`）が読めなくなると、アプリ利用が「それまでの稼働日数＋10 日」止まる
 
@@ -317,6 +320,9 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: `ageNow < mark.ageMs`（経過が戻った＝経過の置き場が作り直された）は時計の飛びの証拠にならないので、
   そのときは印の経過を今の値へ付け替えて通常の取得に進める（壁時計の差だけで判定する）。試験は上のプローブの形で 1 本。
+- 処置: fixed 3.3 —— 経過が巻き戻った（`ageNow < mark.ageMs` か破棄の数えが減った）ときは飛びと読まず、
+  印の経過を今の値へ付け替えて通常の取得に進む（`usage_age_clock_restamped`。窓は進めない）。
+  試験 `経過の置き場が作り直されても次の契機で取れる`（`UsageWindowClockTest`。`e5e2067`）。
 
 ## R25. 1 時間未満の時計の変化で、戻りはイベントを黙って失い、進みは同じイベントを別の時刻で 2 行にする
 
@@ -335,6 +341,9 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: 食い違い（`skewMs`）は取得元がずらした幅そのものなので、閾値の内側でも「保存した終わり＋食い違い」を
   次の窓の始まりにする（機械で決まる）。1 時間の閾値は「窓を止めるか」ではなく「そのずらしを信用するか」に使う。
+- 処置: fixed D8 仮 —— 閾値の内側でも保存した終わりを食い違い（`skewMs`）の分だけ写し、次の窓をそこから組む。
+  D8 の表の「なぜ」と反転条件を「幅はずらしを信用するかを決める」に書き直した。試験は提案の 2 通り
+  （`閾値の内側で時計が50分戻っても戻る前後のイベントを取る` / `…進んでも同じイベントが2行にならない`。`e5e2067`）。
 
 ## R26. Q9 の自動再開で積む gap の理由が `retention`（取得元に無かった）になる。問い合わせていない期間で、取得元にはまだイベントがあった
 
@@ -349,6 +358,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: 再開の経路だけ別の理由（例: `clock_skew_abandoned`）を渡し、契約表（R32）にも載せる。
   Q9 の試験で `reason` を確かめる。
+- 処置: fixed 3.3 —— 再開の経路だけ理由を `clock_skew_abandoned`（`USAGE_GAP_REASON_CLOCK_SKEW_ABANDONED`）にした。
+  Q9 の試験で `reason` を確かめ、契約表（R32）にも 2 つの理由と「問い合わせたか」を載せた（`e5e2067`）。
 
 ## R27. 送信のログは、位置と混ざったひと組ではソースを名乗らない。通常の運用ではひと組はほぼ常に混ざる
 
@@ -362,6 +373,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: ひと組の中のソースごとに件数を分けて 1 行ずつ書く（`send_failed source=c01-location count=…` と
   `source=c01-app-usage count=…`）。試験は混ざったひと組で持つ。
+- 処置: fixed 1.2 —— `Sender` がひと組の中をソースごとに数え、失敗・受理・拒否をソースごとに 1 行ずつ書く。
+  試験は混ざったひと組で 2 本（`TelemetryTest`。`e5e2067`）。
 
 ## R28. tasks 1.4 / 5.1 / 5.3 の検証コマンドは `--tests` を受け付けず rc=1。証跡は 1 件も無いまま `[x]`
 
@@ -375,11 +388,10 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: 8.2 と同じ手順（`scripts/plan_fix.py`）で入口を `tools/android-emulator.sh`（または
   `-Pandroid.testInstrumentationRunnerArguments.class=…`）へ直し、証跡を取り直す。
-- 処置: escalated —— **凍結された `tasks.md` を下流は直さない**（自分で書いたコマンドを自分で認めることになる）。
-  `docs/flow-gates.md` の「凍結後に検証コマンドそのものが成立しないとき」の手順どおり、premise の A として
-  `deep.md` の **Q11** に積んだ（`deep-questions-r2.json` / `docs/briefs/ST06-deep-r2.html`）。
-  本人が入口を承認したら `scripts/plan_fix.py` が旧コマンドの FAIL の証跡と承認の出所を機械で確かめて直す。
-  **受け入れ条件は変えない。**
+- 処置: fixed 1.4 —— 2026-09-27 本人の回答（`deep.md` の **Q11** → a）。`scripts/plan_fix.py` が旧コマンドの FAIL の証跡
+  （いまのコード・端末あり・`Unknown command-line option '--tests'` rc=1）と承認の出所を確かめてから、1.4 / 5.1 / 5.3 の入口だけを
+  `tools/android-emulator.sh` に直した（`plan-corrections.md`。受け入れ条件は変えていない）。新しい入口の証跡は
+  1.4 / 5.1 / 5.3 とも **rc=0**（それぞれ 879 / 880 / 878 秒。R29 の修正の後の HEAD）。
 
 ## R29. `tools/android-emulator.sh`（8.2）が HEAD で rc=1。`LocationServiceInstrumentedTest` は 2 回とも落ちた
 
@@ -398,6 +410,12 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - 提案: 位置の試験は「先頭」ではなく偽装した座標を持つ記録を探す形にするか、実位置が先に入る原因
   （収集の開始を位置の許可より先にした ST06 の変更との関係）を調べる。suite の中でだけ落ちる 2 本は
   前のテストが残す状態（サービス・置き場・権限）を洗う。HEAD で rc=0 の証跡を取り直す。
+- 処置: fixed 8.2 —— 原因は 2 つで、どちらも再現してから直した（`349c456`）。
+  (1) `LocationServiceInstrumentedTest` はサービスを立ててから偽装を有効にしていたので、その間にエミュレータの本物の GPS
+  （`39.237255,-123.150032`）が先頭の記録になっていた → 偽装を**サービスより先に**有効にする（判定は変えない）。
+  (2) suite の中でだけ落ちる 2 本は、AVD の userdata に `usage-volume.sh` が付けた `GET_USAGE_STATS` の allow が残り、
+  `install -r` が引き継いでいた → `android-emulator.sh` は suite の前に、`usage-volume.sh` は終わりにアプリを外す。
+  HEAD `349c456` で `scripts/verify-run 8.2` → `tools/android-emulator.sh` **rc=0（881 秒）**、unit / cargo（424 passed）/ clippy / smoke も rc=0。
 
 ## R30. harness の offline 設定のままだと `./gradlew :app:testDebugUnitTest` が rc=1
 
@@ -452,6 +470,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
 - kind: technical
 - 提案: `c01-app-usage` の節に `kind: gap` の形（`kind` / `begin` / `end` / `reason` と理由の列挙）を足し、
   gap の原文も表から読む固定試験にする。
+- 処置: fixed 7.3 —— `docs/collector-contract.md` に `c01-app-usage` の `kind: gap` の節（`kind` / `begin` / `end` / `reason`・
+  理由の列挙）を足し、`AppUsagePayloadShapeTest` が gap の原文と理由の列挙も表から読むようにした（`e5e2067`）。
 
 ## R33. docs の契約表だけを変えると単体テストが UP-TO-DATE になり、7.3 のガードが手元で効かない
 
@@ -463,6 +483,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
   試験は `user.dir` から上へたどって docs を読むが、Gradle の入力に宣言されていない。CI（まっさらな build）では効く。
 - kind: daily
 - 提案: `unitTests.all` の中で `test.inputs.file(rootProject.file("../docs/collector-contract.md"))` を宣言する。
+- 処置: fixed D12 仮 —— `unitTests.all` で `docs/collector-contract.md` を試験の入力に宣言した（`build.gradle.kts`。`e5e2067`）。
+  build の設定なので design に D12（仮）と反転条件を足した。
 
 ## R34. 移行の `ON CONFLICT DO NOTHING`（本人が変えた想定間隔を再起動で戻さない）を上書きに変えても 6 本すべて緑
 
@@ -474,6 +496,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
   再起動のたびに初期値へ戻る」を止める試験が無い。
 - kind: technical
 - 提案: 試験の中で `expected_gap_sec` を別の値へ変えてから移行を当て直し、変えた値が残ることを確かめる（トランザクション内で戻す）。
+- 処置: fixed 4.2 —— `app_usage_rollup_source_migration_keeps_values_changed_by_hand` を足した。トランザクション内で
+  想定間隔と表示名を変えてから移行を当て直し、変えた値が残ることを確かめる（`registry_tests.rs`。`e5e2067`）。
 
 ## R35. Q9 の「10 日」は試験で 1 日ぶん緩い（閾値を 10 日＋12 時間にしても全緑）
 
@@ -484,6 +508,8 @@ Task ごとの独立レビュー（SDD の task reviewer）と、全 Task 完了
   (10 日, 11 日] のどこに閾値を置いても通る。`false`（再開しない）に変える変異は rc=1 で止まった。
 - kind: daily
 - 提案: 10 日＋1 契機（30 分）で再開することを 1 本足す。
+- 処置: fixed D8 仮 —— `10日を1契機超えたところで再開する` を足した（10 日ちょうどでは `Unavailable`、
+  30 分後に `Collected`）。閾値そのもの（Q9=c の 10 日）は D8 の本人回答の段にあり、変えていない（`e5e2067`）。
 
 ## 手ごとの結果
 
