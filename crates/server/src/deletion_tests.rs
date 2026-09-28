@@ -127,6 +127,7 @@ async fn live_count(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str) -> i64 
 }
 
 // Scenario: 消した滞在は 1 日の並びの滞在として出なくなる
+// Scenario: 消した位置から作られていた滞在は一覧から外れる
 // Scenario: 消した印は作り直しの印と区別される
 // Scenario: 滞在でない記録の識別子では消せない
 // Scenario: 知らない識別子を消そうとすると断られる
@@ -454,4 +455,321 @@ async fn erase_writes_ledger() {
             .iter()
             .any(|row| { row == &(location, "c01-location".into(), stay, "user:cascade".into()) }));
     }
+}
+
+fn location_item(id: uuid::Uuid, user: uuid::Uuid, at: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "user_id": user,
+        "logical_source": "c01-location",
+        "external_id": null,
+        "device_id": "test-dev",
+        "origin": "collected",
+        "event_time": at,
+        "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo",
+        "schema_version": 1,
+        "raw": r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#,
+        "payload": {"lat":35.68,"lon":139.76,"acc_m":10},
+    })
+}
+
+#[tokio::test]
+async fn erase_rebuilds_day() {
+    let pool = testdb::pool().await;
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = calls.clone();
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(move |pool, user, day| {
+            let captured = captured.clone();
+            Box::pin(async move {
+                let committed: bool = sqlx::query_scalar(
+                    "SELECT deleted_at IS NOT NULL FROM core.event
+                      WHERE user_id = $1 AND logical_source = 's01-stay'",
+                )
+                .bind(user)
+                .fetch_one(&pool)
+                .await?;
+                captured.lock().unwrap().push((day, committed));
+                Ok(())
+            })
+        }),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-07T23:50:00+09:00",
+        "2026-09-08T00:10:00+09:00",
+    )
+    .await;
+
+    erase(&app, stay, None).await.unwrap();
+
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            (testdb::date("2026-09-07"), true),
+            (testdb::date("2026-09-08"), true),
+        ],
+        "JST で触れた各日を、削除の commit 後に一度ずつ作り直していない"
+    );
+}
+
+// Scenario: 作り直しが失敗しても消したことは残る
+#[tokio::test]
+async fn erase_survives_rebuild_failure() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| {
+            Box::pin(async { Err(anyhow::anyhow!("lat=35.68 lon=139.76")) })
+        }),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-09T10:00:00+09:00",
+        "2026-09-09T11:00:00+09:00",
+    )
+    .await;
+    let location = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-09T10:30:00+09:00"),
+    )
+    .await;
+    let captured = Captured::default();
+    let sink = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || sink.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+
+    let response = erase(&app, stay, None).await.unwrap();
+    drop(guard);
+
+    assert_eq!(
+        response,
+        serde_json::json!({"erased":{"stays":1,"locations":1}})
+    );
+    assert_eq!(mark(&app.pool, stay).await.1.as_deref(), Some("user"));
+    assert_eq!(
+        mark(&app.pool, location).await.1.as_deref(),
+        Some("user:cascade")
+    );
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    let failure = log
+        .lines()
+        .find(|line| line.contains("kind=\"stay.rebuild\"") && line.contains("ERROR"))
+        .expect("作り直しの失敗が stay.rebuild として残っていない");
+    assert!(
+        failure.contains(&user.to_string()),
+        "利用者が無い: {failure}"
+    );
+    assert!(failure.contains("day=2026-09-09"), "日が無い: {failure}");
+    assert!(failure.contains("failure=other"), "種別が無い: {failure}");
+    assert!(
+        !failure.contains("35.68"),
+        "位置の値がログに出た: {failure}"
+    );
+    assert!(
+        !failure.contains("139.76"),
+        "位置の値がログに出た: {failure}"
+    );
+}
+
+// Scenario: 消した時間に後から届いた位置は行として残る
+// Scenario: 消した時間に後から届いた位置は読み出しに出ない
+// Scenario: 後から届いて印が付いた位置は台帳に消した行を持つ
+// Scenario: 消した時間の外に届いた位置には印が付かない
+#[tokio::test]
+async fn late_arrival_is_marked() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-10T10:00:00+09:00",
+        "2026-09-10T11:00:00+09:00",
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    let late = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-10T10:30:00+09:00"),
+    )
+    .await;
+    let outside = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-10T11:30:00+09:00"),
+    )
+    .await;
+
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-10"))
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, late).await.1.as_deref(), Some("user:late"));
+    assert_eq!(mark(&app.pool, outside).await, (None, None));
+    assert_eq!(live_count(&app.pool, user, "c01-location").await, 1);
+    let row_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core.event WHERE id = $1)")
+            .bind(late)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert!(row_exists, "後から届いた位置の行を捨てた");
+    let ledger: Vec<(String, uuid::Uuid, String)> = sqlx::query_as(
+        "SELECT action, cause_event_id, mark FROM core.deletion_ledger WHERE event_id = $1",
+    )
+    .bind(late)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(ledger, vec![("erase".into(), stay, "user:late".into())]);
+
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-10"))
+        .await
+        .unwrap();
+    let ledger_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger WHERE event_id = $1")
+            .bind(late)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger_count, 1, "同じ後着位置の台帳を二度書いた");
+
+    let axum::Json(hidden) = crate::events(State(app.clone()), auth()).await.unwrap();
+    assert!(
+        hidden.iter().all(|record| record.id != late),
+        "消した時間の後着位置が読み出しに出ている"
+    );
+
+    // Task 4 の API を先取りせず、同じ原因の印を外すという戻す操作の DB 結果を作る。
+    sqlx::query(
+        "UPDATE core.event SET deleted_at = NULL, deleted_by = NULL
+          WHERE id = $1 OR id IN (
+            SELECT event_id FROM core.deletion_ledger
+             WHERE cause_event_id = $1 AND action = 'erase'
+          )",
+    )
+    .bind(stay)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let axum::Json(restored) = crate::events(State(app.clone()), auth()).await.unwrap();
+    assert!(
+        restored.iter().any(|record| record.id == late),
+        "戻した後着位置が実際の読み出し経路に出ていない"
+    );
+}
+
+/// 削除より先に始まった取り込みが、削除の commit 後に確定する競合を固定する。
+#[tokio::test]
+async fn late_arrival_is_marked_after_concurrent_commit() {
+    let app = app().await;
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-12T10:00:00+09:00",
+        "2026-09-12T11:00:00+09:00",
+    )
+    .await;
+    let late = uuid::Uuid::new_v4();
+    let mut ingest_tx = app.pool.begin().await.unwrap();
+    let raw = r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#;
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'c01-location','test','collected',$3,540,'Asia/Tokyo',1,$4,$5,$5::jsonb)",
+    )
+    .bind(late)
+    .bind(user)
+    .bind(t("2026-09-12T10:30:00+09:00"))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(raw)
+    .execute(&mut *ingest_tx)
+    .await
+    .unwrap();
+
+    erase(&app, stay, None).await.unwrap();
+    ingest_tx.commit().await.unwrap();
+
+    let (ingested_at, deleted_at): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+        "SELECT e.ingest_time, s.deleted_at
+           FROM core.event e JOIN core.event s ON s.id = $2
+          WHERE e.id = $1",
+    )
+    .bind(late)
+    .bind(stay)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(
+        ingested_at < deleted_at,
+        "回帰テストの前提（取り込み transaction が削除より先に開始）が成立していない"
+    );
+
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-12"))
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, late).await.1.as_deref(), Some("user:late"));
+}
+
+#[tokio::test]
+async fn ingest_response_unchanged_after_erase() {
+    let app = app().await;
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-11T10:00:00+09:00",
+        "2026-09-11T11:00:00+09:00",
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    let id = uuid::Uuid::new_v4();
+    let item = location_item(id, user, "2026-09-11T10:30:00+09:00");
+
+    let (first_code, axum::Json(first)) = crate::ingest(
+        axum::extract::State(app.clone()),
+        auth(),
+        axum::Json(item.clone()),
+    )
+    .await
+    .unwrap();
+    let (second_code, axum::Json(second)) =
+        crate::ingest(axum::extract::State(app.clone()), auth(), axum::Json(item))
+            .await
+            .unwrap();
+
+    assert_eq!(first_code, axum::http::StatusCode::OK);
+    assert_eq!(second_code, axum::http::StatusCode::OK);
+    assert_eq!(
+        serde_json::to_value(first).unwrap(),
+        serde_json::json!([{"id":id,"duplicate":false,"accepted":true,"error":null}])
+    );
+    assert_eq!(
+        serde_json::to_value(second).unwrap(),
+        serde_json::json!([{"id":id,"duplicate":true,"accepted":true,"error":null}])
+    );
+    assert_eq!(mark(&app.pool, id).await.1.as_deref(), Some("user:late"));
 }

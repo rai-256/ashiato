@@ -156,7 +156,7 @@ Story の側: `docs/stories/stories.json` の ST22 に `requires: ST16` を足�
 
 ## 深掘り 第 2 回（2026-09-27。Task 2 の検証で判明）
 
-Q5 は取り下げ済みで、未回答時に渡すための `deep-questions-r2.json` と `docs/briefs/ST22-deep-r2.html` は削除した。
+問いは `deep-questions-r2.json`、渡す HTML は `docs/briefs/ST22-deep-r2.html`。
 
 ### Q5. `CT` と書いた Task の検証を gate が実行できない（A / premise）
 
