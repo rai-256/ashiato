@@ -78,3 +78,9 @@ Web の指定 `cd web && npm run test -- DayView` は、依存導入後も `No t
 - F1/F2 の対象である Web 検証を現行ツリーで再実行し、指定コマンドが対象テストを選択できることを確認した。
 - `scripts/quiet-run web-dayview-current -- bash -lc 'cd web && npm run test -- DayView'` — rc=0。
 - `scripts/verify-run 5.3` — Rust の `stay_day_view` 9 本が PASS、Web の `cd web && npm run test -- DayView` が PASS。現行ツリーの証跡を `evidence.jsonl` に追記した。
+
+## Fix report (review 3)
+
+- F1/F2 について、現行ツリーの指定 Web 検証を再実行し、対象テストが選択されることを確認した。
+- `scripts/quiet-run web-dayview-fix3 -- bash -lc 'cd web && npm run test -- DayView'` — rc=0。
+- `scripts/verify-run 5.3` — Rust の `stay_day_view` と Web の `cd web && npm run test -- DayView` がともに PASS。現行ツリーの証跡を `evidence.jsonl` に追記した。
