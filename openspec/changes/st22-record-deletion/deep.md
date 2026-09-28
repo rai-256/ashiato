@@ -160,7 +160,9 @@ Story の側: `docs/stories/stories.json` の ST22 に `requires: ST16` を足�
 
 ### Q5. `CT` と書いた Task の検証を gate が実行できない（A / premise）
 
-- **状態**: **(未回答)**
+- **状態**: **取り下げ（2026-09-28、本人）。** 前提がハーネス側で解消した —— harness2 #26 で `verify-run` と evidence gate が
+  tasks.md の前置きの略記の定義（`CT <絞り込み>` → 件数つき `cargo test`）を展開するようになり、2.1〜2.6 の `CT …` は
+  そのまま検証コマンドとして走る。tasks.md も `plan_fix.py` も変えない（提案・別案はどちらも採らない）
 - **崩れた前提**: tasks.md の前置きは `CT <絞り込み>` を件数つき `cargo test` の検証として定義しているが、
   `scripts/verify-run` と evidence gate は項目中の backtick のコマンドだけを declared として扱う。Task 2 の 2.1〜2.6 は
   `検証: CT erase_endpoint` の形で、backtick のコマンドが 1 本も無い。
