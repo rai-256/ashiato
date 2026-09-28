@@ -72,3 +72,9 @@ Web の指定 `cd web && npm run test -- DayView` は、依存導入後も `No t
 - GREEN: `scripts/verify-run 5.3` — Rust/Web とも PASS。Web の `cd web && npm run test -- DayView` は rc=0。
 - 回帰確認: `scripts/quiet-run web-full -- bash -lc 'cd web && npm run test'` — rc=0、20/20 test files、135/135 tests passed。
 - `openspec/changes/st22-record-deletion/evidence.jsonl` に現行ツリーの 5.3 PASS 証跡を追加した。
+
+## Fix report (review 2)
+
+- F1/F2 の対象である Web 検証を現行ツリーで再実行し、指定コマンドが対象テストを選択できることを確認した。
+- `scripts/quiet-run web-dayview-current -- bash -lc 'cd web && npm run test -- DayView'` — rc=0。
+- `scripts/verify-run 5.3` — Rust の `stay_day_view` 9 本が PASS、Web の `cd web && npm run test -- DayView` が PASS。現行ツリーの証跡を `evidence.jsonl` に追記した。
