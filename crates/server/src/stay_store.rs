@@ -911,9 +911,11 @@ pub enum EntryKind {
     Move,
     /// 位置の記録が無い時間（隣り合う記録の間隔が「記録が無い」とみなす間隔以上）
     NoRecord,
+    /// 本人が消した滞在を含む時間
+    Erased,
 }
 
-/// 並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、移動と記録なしはその日の中に切る。
+/// 並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、ほかはその日の中に切る。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct DayEntry {
     pub kind: EntryKind,
@@ -925,6 +927,41 @@ pub struct DayEntry {
     /// 滞在を作った基準の版（滞在の行だけ。取り込みの口から入った滞在には無いことがある）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub criteria_id: Option<i64>,
+    /// この「消した」区間から戻せる、本人が消した滞在の識別子
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stay_ids: Option<Vec<uuid::Uuid>>,
+}
+
+#[derive(Debug)]
+struct ErasedSpan {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    stay_ids: Vec<uuid::Uuid>,
+}
+
+fn subtract_spans(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    erased: &[ErasedSpan],
+) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+    let mut fragments = Vec::new();
+    let mut cursor = start;
+    for span in erased {
+        if span.end <= cursor || span.start >= end {
+            continue;
+        }
+        if cursor < span.start {
+            fragments.push((cursor, span.start.min(end)));
+        }
+        cursor = cursor.max(span.end);
+        if cursor >= end {
+            break;
+        }
+    }
+    if cursor < end {
+        fragments.push((cursor, end));
+    }
+    fragments
 }
 
 /// 並んだ滞在を作った基準（一覧の上に出す）。
@@ -945,12 +982,13 @@ pub struct DayView {
     pub entries: Vec<DayEntry>,
 }
 
-/// その日（`Asia/Tokyo`）の滞在・移動・記録なしを並べる（design D8 / R23）。`now` は差し替えられる。
+/// その日（`Asia/Tokyo`）の滞在・移動・記録なし・消した区間を並べる（design D7 / D8 / R23）。`now` は差し替えられる。
 ///
 /// - 滞在: その日と時間が重なる、読み出しに出ている `origin='derived'` の `s01-stay`
 /// - 記録なし: 緯度経度を持つ位置の記録（精度を問わない）の間隔が `gap_minutes` 以上の区間。
 ///   **前後の日の記録も含めて測る**（日の頭と尻を、隣の日から続く記録で記録なしにしない）。
 ///   今日は、最後の位置から `now` までが `gap_minutes` 以上ならそこまでを記録なしにし、`now` より後は並べない
+/// - 消した: 本人が消した滞在と、その時間帯で隠れた滞在の重なる・隣り合う区間をつないだもの
 /// - 移動: 滞在にも記録なしにも入らない時間（今日は最後の位置まで）
 pub async fn day_view(
     pool: &PgPool,
@@ -1005,35 +1043,57 @@ pub async fn day_view(
             end,
             id: Some(r.id),
             criteria_id: tag.map(|t| t.criteria_id),
+            stay_ids: None,
         });
     }
     tags.sort_by_key(|t| std::cmp::Reverse(t.criteria_id));
 
-    // **本人が消した滞在と、消した時間帯で隠した滞在の時間は、移動として埋めない**（R35 / design D8（仮））。
-    // 埋めると、とどまっていた時間を「移動」と書くことになる（記録なしを移動と同じ顔にしないのと同じ型）。
-    // 行は出さない（消したものを一覧に出さない）。吸収された滞在は吸収先が同じ時間を持つので数えない
-    let hidden_rows: Vec<(DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
-        "SELECT event_time, payload FROM core.event
-          WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
-            AND deleted_at IS NOT NULL AND deleted_by IS DISTINCT FROM $6
-            AND event_time < $3
-            AND (event_time >= $4 OR payload->>'end' >= $5)",
-    )
-    .bind(stay::SOURCE)
-    .bind(user)
-    .bind(d1)
-    .bind(d0 - Duration::days(2))
-    .bind((d0 - Duration::days(2)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
-    .bind(ABSORBED)
-    .fetch_all(pool)
-    .await?;
-    let hidden: Vec<(DateTime<Utc>, DateTime<Utc>)> = hidden_rows
-        .iter()
-        .map(|(t, p)| span_of(*t, p))
-        .filter(|(s, e)| *s < d1 && *e > d0)
-        .map(|(s, e)| (s.max(d0), e.min(upper)))
-        .filter(|(s, e)| s < e)
-        .collect();
+    // **本人が消した滞在と、消した時間帯で隠した滞在を「消した」の行にする**（design D7）。
+    // 吸収された滞在は吸収先が同じ時間を持つので数えない。読み出しは座標を持たない専用ビュー越しに限る（D12）。
+    let hidden_rows: Vec<(uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+          WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
+            AND start_at < $2 AND end_at > $3
+          ORDER BY start_at, id",
+        )
+        .bind(user)
+        .bind(d1)
+        .bind(d0)
+        .bind(ABSORBED)
+        .fetch_all(pool)
+        .await?;
+    let mut hidden: Vec<ErasedSpan> = Vec::new();
+    for (id, start, end, deleted_by) in hidden_rows {
+        let start = start.max(d0);
+        let end = end.min(upper);
+        if start >= end {
+            continue;
+        }
+        let restorable = !deleted_by
+            .as_deref()
+            .is_some_and(|by| by.starts_with(REBUILD_PREFIX));
+        if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
+            last.end = last.end.max(end);
+            if restorable {
+                last.stay_ids.push(id);
+            }
+        } else {
+            hidden.push(ErasedSpan {
+                start,
+                end,
+                stay_ids: if restorable { vec![id] } else { Vec::new() },
+            });
+        }
+    }
+    entries.extend(hidden.iter().map(|span| DayEntry {
+        kind: EntryKind::Erased,
+        start: span.start,
+        end: span.end,
+        id: None,
+        criteria_id: None,
+        stay_ids: Some(span.stay_ids.clone()),
+    }));
 
     // 記録なし。読む窓の端を「その外側に記録がある」とみなさない仮の点にして、頭と尻も同じ規則で測る
     let observed: Vec<DateTime<Utc>> = load_points(pool, user, &c.sources, d0 - gap, d1 + gap)
@@ -1054,17 +1114,21 @@ pub async fn day_view(
         .collect();
     for w in edges.windows(2) {
         let (a, b) = (w[0], w[1]);
-        if b - a < gap {
-            continue;
-        }
-        let (s, e) = (a.max(d0), b.min(upper));
-        if s < e {
+        for (s, e) in subtract_spans(a, b, &hidden)
+            .into_iter()
+            .filter(|(s, e)| *e - *s >= gap)
+        {
+            let (s, e) = (s.max(d0), e.min(upper));
+            if s >= e {
+                continue;
+            }
             entries.push(DayEntry {
                 kind: EntryKind::NoRecord,
                 start: s,
                 end: e,
                 id: None,
                 criteria_id: None,
+                stay_ids: None,
             });
             covered.push((s, e));
         }
@@ -1083,7 +1147,6 @@ pub async fn day_view(
     } else {
         upper
     };
-    covered.extend(hidden);
     covered.sort();
     let mut cursor = d0;
     for (s, e) in covered {
@@ -1094,6 +1157,7 @@ pub async fn day_view(
                 end: s.min(move_upper),
                 id: None,
                 criteria_id: None,
+                stay_ids: None,
             });
         }
         cursor = cursor.max(e);
@@ -1105,6 +1169,7 @@ pub async fn day_view(
             end: move_upper,
             id: None,
             criteria_id: None,
+            stay_ids: None,
         });
     }
 
