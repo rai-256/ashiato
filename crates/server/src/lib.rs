@@ -1311,7 +1311,7 @@ pub async fn stays_restore(
             deletion::RestoreError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found".into()),
             deletion::RestoreError::UserMismatch => {
                 tracing::warn!(
-                    kind = "restore_user_mismatch",
+                    kind = "erase_user_mismatch",
                     "滞在の利用者と添えられた利用者が違うため戻さなかった"
                 );
                 (StatusCode::NOT_FOUND, "stay_not_found".into())

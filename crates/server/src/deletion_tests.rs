@@ -216,6 +216,35 @@ async fn restore_endpoint() {
         Some("user:cascade")
     );
 
+    let other = testdb::user();
+    let captured = Captured::default();
+    let sink = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || sink.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    assert_eq!(
+        restore(&app, vec![stay], Some(other)).await,
+        Err(axum::http::StatusCode::NOT_FOUND)
+    );
+    drop(guard);
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("kind=\"erase_user_mismatch\""), "{log}");
+    assert!(
+        !log.contains(&stay.to_string()),
+        "滞在の識別子がログに出た: {log}"
+    );
+    assert!(
+        !log.contains(&user.to_string()),
+        "利用者がログに出た: {log}"
+    );
+    assert!(
+        !log.contains(&other.to_string()),
+        "添えた利用者がログに出た: {log}"
+    );
+
     assert_eq!(
         restore(&app, vec![stay], Some(user)).await.unwrap(),
         serde_json::json!({"restored":{"stays":1,"locations":1}})
