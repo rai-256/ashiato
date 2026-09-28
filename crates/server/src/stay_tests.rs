@@ -2442,8 +2442,8 @@ async fn stay_identity_touching_edges() {
         "2026-05-21T09:30:00+09:00",
     )
     .await;
-    put_dwell(&pool, v, "2026-05-21T09:30:00+09:00", 30, 500.0, Some(10.0)).await;
     user_deletes(&pool, erased, Some("user")).await;
+    put_dwell(&pool, v, "2026-05-21T09:30:00+09:00", 30, 500.0, Some(10.0)).await;
     rebuild(&pool, v, "2026-05-21").await;
     assert!(
         live(&pool, v).await.is_empty(),
