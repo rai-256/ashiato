@@ -107,6 +107,21 @@ async fn erase(
     .map_err(|(status, _)| status)
 }
 
+async fn restore(
+    app: &crate::App,
+    stay_ids: Vec<uuid::Uuid>,
+    user_id: Option<uuid::Uuid>,
+) -> Result<serde_json::Value, axum::http::StatusCode> {
+    crate::stays_restore(
+        State(app.clone()),
+        auth(),
+        axum::Json(crate::RestoreRequest { stay_ids, user_id }),
+    )
+    .await
+    .map(|axum::Json(value)| serde_json::to_value(value).unwrap())
+    .map_err(|(status, _)| status)
+}
+
 async fn mark(pool: &sqlx::PgPool, id: uuid::Uuid) -> (Option<DateTime<Utc>>, Option<String>) {
     sqlx::query_as("SELECT deleted_at, deleted_by FROM core.event WHERE id = $1")
         .bind(id)
@@ -124,6 +139,323 @@ async fn live_count(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str) -> i64 
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+async fn put_dwell(pool: &sqlx::PgPool, user: uuid::Uuid, at: &str, minutes: i64) {
+    let start = t(at);
+    let times: Vec<_> = (0..=minutes)
+        .map(|minute| start + Duration::minutes(minute))
+        .collect();
+    let raw = r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#;
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         SELECT gen_random_uuid(), $1, 'c01-location', 'test', 'collected', event_time,
+                540, 'Asia/Tokyo', 1, gen_random_uuid()::text, $3, $3::jsonb
+           FROM unnest($2::timestamptz[]) AS event_time",
+    )
+    .bind(user)
+    .bind(&times)
+    .bind(raw)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+// Scenario: 消した滞在を戻すと一覧に戻る
+// Scenario: 戻すと連鎖で消えた位置も戻る
+// Scenario: 資格情報の無い戻す求めは断られる
+// Scenario: 知らない識別子を戻そうとすると断られる
+#[tokio::test]
+async fn restore_endpoint() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-20T10:00:00+09:00",
+        "2026-09-20T11:00:00+09:00",
+    )
+    .await;
+    let location = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-20T10:30:00+09:00"),
+    )
+    .await;
+    erase(&app, stay, Some(user)).await.unwrap();
+
+    let unauthorized = crate::stays_restore(
+        State(app.clone()),
+        axum::http::HeaderMap::new(),
+        axum::Json(crate::RestoreRequest {
+            stay_ids: vec![stay],
+            user_id: Some(user),
+        }),
+    )
+    .await;
+    assert!(matches!(
+        unauthorized,
+        Err((axum::http::StatusCode::UNAUTHORIZED, _))
+    ));
+
+    let unknown = uuid::Uuid::new_v4();
+    assert_eq!(
+        restore(&app, vec![stay, unknown], Some(user)).await,
+        Err(axum::http::StatusCode::NOT_FOUND)
+    );
+    assert_eq!(mark(&app.pool, stay).await.1.as_deref(), Some("user"));
+    assert_eq!(
+        mark(&app.pool, location).await.1.as_deref(),
+        Some("user:cascade")
+    );
+
+    assert_eq!(
+        restore(&app, vec![stay], Some(user)).await.unwrap(),
+        serde_json::json!({"restored":{"stays":1,"locations":1}})
+    );
+    assert_eq!(mark(&app.pool, stay).await, (None, None));
+    assert_eq!(mark(&app.pool, location).await, (None, None));
+    let day = stay_store::day_view(
+        &app.pool,
+        user,
+        testdb::date("2026-09-20"),
+        t("2026-09-21T00:00:00+09:00"),
+    )
+    .await
+    .unwrap();
+    let restored = day
+        .entries
+        .iter()
+        .find(|entry| entry.id == Some(stay))
+        .expect("戻した滞在が 1 日の並びに無い");
+    assert_eq!(restored.start, t("2026-09-20T10:00:00+09:00"));
+    assert_eq!(restored.end, t("2026-09-20T11:00:00+09:00"));
+    assert_eq!(live_count(&app.pool, user, "c01-location").await, 1);
+}
+
+// Scenario: 後から届いて印が付いた位置も戻すと戻る
+#[tokio::test]
+async fn restore_includes_late_arrivals() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-21T10:00:00+09:00",
+        "2026-09-21T11:00:00+09:00",
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    let late = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-21T10:30:00+09:00"),
+    )
+    .await;
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-21"))
+        .await
+        .unwrap();
+    assert_eq!(mark(&app.pool, late).await.1.as_deref(), Some("user:late"));
+
+    assert_eq!(
+        restore(&app, vec![stay], None).await.unwrap(),
+        serde_json::json!({"restored":{"stays":1,"locations":1}})
+    );
+    assert_eq!(mark(&app.pool, late).await, (None, None));
+    let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
+    assert!(events.iter().any(|event| event.id == late));
+}
+
+// Scenario: 別の操作で消した記録は戻らない
+// Scenario: 消えていない滞在を戻しても何も起きない
+#[tokio::test]
+async fn restore_is_scoped() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let first = put_stay(
+        &app.pool,
+        user,
+        "2026-09-22T10:00:00+09:00",
+        "2026-09-22T11:00:00+09:00",
+    )
+    .await;
+    let second = put_stay(
+        &app.pool,
+        user,
+        "2026-09-22T10:00:00+09:00",
+        "2026-09-22T11:00:00+09:00",
+    )
+    .await;
+    let location = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-22T10:30:00+09:00"),
+    )
+    .await;
+
+    erase(&app, first, None).await.unwrap();
+    restore(&app, vec![first], None).await.unwrap();
+    erase(&app, second, None).await.unwrap();
+    erase(&app, first, None).await.unwrap();
+    restore(&app, vec![first], None).await.unwrap();
+
+    assert_eq!(mark(&app.pool, first).await, (None, None));
+    assert_eq!(mark(&app.pool, second).await.1.as_deref(), Some("user"));
+    assert_eq!(
+        mark(&app.pool, location).await.1.as_deref(),
+        Some("user:cascade"),
+        "最新の台帳行が別の滞在を原因とする位置を戻した"
+    );
+
+    let live = put_stay(
+        &app.pool,
+        user,
+        "2026-09-22T13:00:00+09:00",
+        "2026-09-22T14:00:00+09:00",
+    )
+    .await;
+    let ledger_before: i64 = sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restore(&app, vec![live], None).await.unwrap(),
+        serde_json::json!({"restored":{"stays":0,"locations":0}})
+    );
+    let ledger_after: i64 = sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(ledger_after, ledger_before);
+}
+
+// Scenario: 戻すと重なって隠れていた滞在も戻る
+#[tokio::test]
+async fn restore_unhides_overlapping_stays() {
+    let app = app().await;
+    let user = testdb::user();
+    put_dwell(&app.pool, user, "2026-09-23T08:00:00+09:00", 110).await;
+    put_dwell(&app.pool, user, "2026-09-23T10:00:00+09:00", 60).await;
+    put_dwell(&app.pool, user, "2026-09-23T11:10:00+09:00", 50).await;
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-23"))
+        .await
+        .unwrap();
+    let erased: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM core.event_live
+          WHERE user_id = $1 AND logical_source = 's01-stay'
+            AND event_time = $2",
+    )
+    .bind(user)
+    .bind(t("2026-09-23T10:00:00+09:00"))
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user' WHERE id = $1")
+        .bind(erased)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    stay_store::set_criteria(&app.pool, user, None, None, Some(15))
+        .await
+        .unwrap();
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-23"))
+        .await
+        .unwrap();
+    let hidden: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM core.event
+          WHERE user_id = $1 AND logical_source = 's01-stay'
+            AND event_time = $2 AND deleted_by = 'rebuild:erased-range'",
+    )
+    .bind(user)
+    .bind(t("2026-09-23T08:00:00+09:00"))
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 's01-stay', 'erase', $1, 'user')",
+    )
+    .bind(erased)
+    .bind(user)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    restore(&app, vec![erased], None).await.unwrap();
+
+    assert_eq!(mark(&app.pool, hidden).await, (None, None));
+    let span: (DateTime<Utc>, serde_json::Value) =
+        sqlx::query_as("SELECT event_time, payload FROM core.event_live WHERE id = $1")
+            .bind(hidden)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stay_store::span_of(span.0, &span.1).1,
+        t("2026-09-23T12:00:00+09:00")
+    );
+}
+
+// Scenario: 戻すと台帳に戻した行が積まれ、消した行は残る
+#[tokio::test]
+async fn restore_writes_ledger() {
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-24T10:00:00+09:00",
+        "2026-09-24T11:00:00+09:00",
+    )
+    .await;
+    let location = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-24T10:30:00+09:00"),
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    restore(&app, vec![stay], None).await.unwrap();
+
+    for event_id in [stay, location] {
+        let rows: Vec<(String, uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT action, cause_event_id, mark FROM core.deletion_ledger
+              WHERE event_id = $1 ORDER BY seq",
+        )
+        .bind(event_id)
+        .fetch_all(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "erase");
+        assert_eq!(rows[1].0, "restore");
+        assert_eq!(rows[0].1, stay);
+        assert_eq!(rows[1].1, stay);
+        assert_eq!(rows[0].2, rows[1].2);
+    }
 }
 
 // Scenario: 消した滞在は 1 日の並びの滞在として出なくなる

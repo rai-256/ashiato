@@ -3,6 +3,7 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
+use std::collections::HashSet;
 
 use crate::{stay::Criteria, stay_store};
 
@@ -12,6 +13,20 @@ pub enum EraseError {
     NotFound,
     UserMismatch,
     Database(sqlx::Error),
+}
+
+/// 戻す操作が成立しなかった理由。存在と利用者の不一致はどちらも API では 404 に畳む。
+#[derive(Debug)]
+pub enum RestoreError {
+    NotFound,
+    UserMismatch,
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for RestoreError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
 }
 
 impl From<sqlx::Error> for EraseError {
@@ -26,6 +41,23 @@ struct StayRow {
     event_time: DateTime<Utc>,
     payload: serde_json::Value,
     deleted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(sqlx::FromRow)]
+struct RestoreStayRow {
+    id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    event_time: DateTime<Utc>,
+    payload: serde_json::Value,
+}
+
+#[derive(sqlx::FromRow)]
+struct LedgerRow {
+    event_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    logical_source: String,
+    cause_event_id: uuid::Uuid,
+    mark: String,
 }
 
 /// commit 後の作り直しに必要な範囲と、応答に出す件数。
@@ -45,6 +77,121 @@ impl EraseOutcome {
         let last = stay_store::jst_date(self.end);
         first.iter_days().take_while(move |day| *day <= last)
     }
+}
+
+/// 戻した件数と、commit 後に作り直す利用者・日。
+#[derive(Debug)]
+pub struct RestoreOutcome {
+    pub stays: u64,
+    pub locations: u64,
+    pub rebuild_days: Vec<(uuid::Uuid, NaiveDate)>,
+}
+
+/// 要求内の滞在を原因とする最新の `erase` だけを、一つの transaction で戻す。
+pub async fn restore(
+    pool: &PgPool,
+    stay_ids: &[uuid::Uuid],
+    requested_user: Option<uuid::Uuid>,
+) -> Result<RestoreOutcome, RestoreError> {
+    let requested: HashSet<_> = stay_ids.iter().copied().collect();
+    if requested.is_empty() {
+        return Err(RestoreError::NotFound);
+    }
+
+    let mut tx = pool.begin().await?;
+    // 利用者は行から取る。最初の SQL で、決定的な順に対象利用者の錠を取る。
+    let stays: Vec<RestoreStayRow> = sqlx::query_as(
+        "SELECT id, user_id, event_time, payload,
+                pg_advisory_xact_lock($2, hashtext(user_id::text)) AS locked
+           FROM core.event
+          WHERE id = ANY($1) AND logical_source = 's01-stay' AND origin = 'derived'
+          ORDER BY user_id, id
+          FOR UPDATE",
+    )
+    .bind(stay_ids)
+    .bind(stay_store::LOCK_KEY)
+    .fetch_all(&mut *tx)
+    .await?;
+    if stays.len() != requested.len() {
+        return Err(RestoreError::NotFound);
+    }
+    if requested_user.is_some_and(|user| stays.iter().any(|stay| stay.user_id != user)) {
+        return Err(RestoreError::UserMismatch);
+    }
+
+    let rows: Vec<LedgerRow> = sqlx::query_as(
+        "SELECT d.event_id, d.user_id, d.logical_source, d.cause_event_id, d.mark
+           FROM core.deletion_ledger d
+           JOIN core.event e ON e.id = d.event_id AND e.user_id = d.user_id
+          WHERE d.cause_event_id = ANY($1)
+            AND d.action = 'erase'
+            AND d.seq = (
+              SELECT max(last.seq) FROM core.deletion_ledger last
+               WHERE last.event_id = d.event_id
+            )
+            AND e.deleted_at IS NOT NULL
+            AND e.deleted_by IS NOT DISTINCT FROM d.mark
+          ORDER BY d.event_id",
+    )
+    .bind(stay_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let mut restored_causes = HashSet::new();
+    let mut restored_stays = 0;
+    let mut restored_locations = 0;
+    for row in rows {
+        let changed = sqlx::query(
+            "UPDATE core.event SET deleted_at = NULL, deleted_by = NULL
+              WHERE id = $1 AND deleted_at IS NOT NULL
+                AND deleted_by IS NOT DISTINCT FROM $2",
+        )
+        .bind(row.event_id)
+        .bind(&row.mark)
+        .execute(&mut *tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            continue;
+        }
+        ledger(
+            &mut tx,
+            row.event_id,
+            row.user_id,
+            &row.logical_source,
+            "restore",
+            row.cause_event_id,
+            &row.mark,
+        )
+        .await?;
+        restored_causes.insert(row.cause_event_id);
+        if row.logical_source == crate::stay::SOURCE {
+            restored_stays += 1;
+        } else {
+            restored_locations += 1;
+        }
+    }
+    tx.commit().await?;
+
+    let mut rebuild_days = Vec::new();
+    for stay in stays {
+        if !restored_causes.contains(&stay.id) {
+            continue;
+        }
+        let (start, end) = stay_store::span_of(stay.event_time, &stay.payload);
+        let first = stay_store::jst_date(start);
+        let last = stay_store::jst_date(end);
+        for day in first.iter_days().take_while(|day| *day <= last) {
+            if !rebuild_days.contains(&(stay.user_id, day)) {
+                rebuild_days.push((stay.user_id, day));
+            }
+        }
+    }
+
+    Ok(RestoreOutcome {
+        stays: restored_stays,
+        locations: restored_locations,
+        rebuild_days,
+    })
 }
 
 /// 滞在と連鎖対象の位置に印を付け、同じ transaction の台帳へ追記する。

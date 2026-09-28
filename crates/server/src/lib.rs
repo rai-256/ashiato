@@ -1230,6 +1230,27 @@ pub struct EraseResponse {
     erased: ErasedCounts,
 }
 
+/// `POST /stays/restore` の本文。全件を一つの transaction で戻す。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RestoreRequest {
+    pub stay_ids: Vec<uuid::Uuid>,
+    pub user_id: Option<uuid::Uuid>,
+}
+
+/// 戻した記録の種類別件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RestoredCounts {
+    stays: u64,
+    locations: u64,
+}
+
+/// `POST /stays/restore` の応答。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RestoreResponse {
+    restored: RestoredCounts,
+}
+
 /// 滞在と、その時間帯にある現在基準の位置へ削除の印を付ける。
 #[utoipa::path(post, path = "/stays/erase", request_body = EraseRequest,
     responses((status = 200, body = EraseResponse), (status = 401), (status = 404)))]
@@ -1269,6 +1290,49 @@ pub async fn stays_erase(
 
     Ok(Json(EraseResponse {
         erased: ErasedCounts {
+            stays: outcome.stays,
+            locations: outcome.locations,
+        },
+    }))
+}
+
+/// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
+#[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
+    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404)))]
+pub async fn stays_restore(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<RestoreRequest>,
+) -> Result<Json<RestoreResponse>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let outcome = deletion::restore(&app.pool, &req.stay_ids, req.user_id)
+        .await
+        .map_err(|e| match e {
+            deletion::RestoreError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found".into()),
+            deletion::RestoreError::UserMismatch => {
+                tracing::warn!(
+                    kind = "restore_user_mismatch",
+                    "滞在の利用者と添えられた利用者が違うため戻さなかった"
+                );
+                (StatusCode::NOT_FOUND, "stay_not_found".into())
+            }
+            deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
+        })?;
+
+    for (user, day) in &outcome.rebuild_days {
+        if let Err(e) = (app.stays.0)(app.pool.clone(), *user, *day).await {
+            tracing::error!(
+                kind = "stay.rebuild",
+                %user,
+                %day,
+                failure = %stay_store::failure_kind(&e),
+                "戻した後の滞在の作り直しに失敗（戻した印は保存済み）"
+            );
+        }
+    }
+
+    Ok(Json(RestoreResponse {
+        restored: RestoredCounts {
             stays: outcome.stays,
             locations: outcome.locations,
         },
@@ -1866,6 +1930,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
         .route("/stays/erase", post(stays_erase))
+        .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/attributes", get(attributes_get))
@@ -1907,6 +1972,7 @@ pub async fn run() -> anyhow::Result<()> {
         achievement_get,
         stays_get,
         stays_erase,
+        stays_restore,
         stays_rebuild,
         stays_criteria_get,
         attributes_get,
@@ -1939,6 +2005,9 @@ pub async fn run() -> anyhow::Result<()> {
         EraseRequest,
         EraseResponse,
         ErasedCounts,
+        RestoreRequest,
+        RestoreResponse,
+        RestoredCounts,
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,
