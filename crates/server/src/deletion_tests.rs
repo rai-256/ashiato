@@ -127,6 +127,7 @@ async fn live_count(pool: &sqlx::PgPool, user: uuid::Uuid, source: &str) -> i64 
 }
 
 // Scenario: 消した滞在は 1 日の並びの滞在として出なくなる
+// Scenario: 消した位置から作られていた滞在は一覧から外れる
 // Scenario: 消した印は作り直しの印と区別される
 // Scenario: 滞在でない記録の識別子では消せない
 // Scenario: 知らない識別子を消そうとすると断られる
@@ -473,7 +474,6 @@ fn location_item(id: uuid::Uuid, user: uuid::Uuid, at: &str) -> serde_json::Valu
     })
 }
 
-// Scenario: 消した位置から作られていた滞在は一覧から外れる
 #[tokio::test]
 async fn erase_rebuilds_day() {
     let pool = testdb::pool().await;
@@ -652,6 +652,86 @@ async fn late_arrival_is_marked() {
             .await
             .unwrap();
     assert_eq!(ledger_count, 1, "同じ後着位置の台帳を二度書いた");
+
+    let axum::Json(hidden) = crate::events(State(app.clone()), auth()).await.unwrap();
+    assert!(
+        hidden.iter().all(|record| record.id != late),
+        "消した時間の後着位置が読み出しに出ている"
+    );
+
+    // Task 4 の API を先取りせず、同じ原因の印を外すという戻す操作の DB 結果を作る。
+    sqlx::query(
+        "UPDATE core.event SET deleted_at = NULL, deleted_by = NULL
+          WHERE id = $1 OR id IN (
+            SELECT event_id FROM core.deletion_ledger
+             WHERE cause_event_id = $1 AND action = 'erase'
+          )",
+    )
+    .bind(stay)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let axum::Json(restored) = crate::events(State(app.clone()), auth()).await.unwrap();
+    assert!(
+        restored.iter().any(|record| record.id == late),
+        "戻した後着位置が実際の読み出し経路に出ていない"
+    );
+}
+
+/// 削除より先に始まった取り込みが、削除の commit 後に確定する競合を固定する。
+#[tokio::test]
+async fn late_arrival_is_marked_after_concurrent_commit() {
+    let app = app().await;
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-12T10:00:00+09:00",
+        "2026-09-12T11:00:00+09:00",
+    )
+    .await;
+    let late = uuid::Uuid::new_v4();
+    let mut ingest_tx = app.pool.begin().await.unwrap();
+    let raw = r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#;
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'c01-location','test','collected',$3,540,'Asia/Tokyo',1,$4,$5,$5::jsonb)",
+    )
+    .bind(late)
+    .bind(user)
+    .bind(t("2026-09-12T10:30:00+09:00"))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(raw)
+    .execute(&mut *ingest_tx)
+    .await
+    .unwrap();
+
+    erase(&app, stay, None).await.unwrap();
+    ingest_tx.commit().await.unwrap();
+
+    let (ingested_at, deleted_at): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+        "SELECT e.ingest_time, s.deleted_at
+           FROM core.event e JOIN core.event s ON s.id = $2
+          WHERE e.id = $1",
+    )
+    .bind(late)
+    .bind(stay)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(
+        ingested_at < deleted_at,
+        "回帰テストの前提（取り込み transaction が削除より先に開始）が成立していない"
+    );
+
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-12"))
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, late).await.1.as_deref(), Some("user:late"));
 }
 
 #[tokio::test]

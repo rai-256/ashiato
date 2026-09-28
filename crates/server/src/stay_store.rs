@@ -621,6 +621,8 @@ pub async fn rebuild_day(
 ///
 /// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
+/// 消す transaction が見えた範囲内の位置にはすべて印を付けるため、ここで未印の行は
+/// 消す側から未 commit で見えなかったか、その commit 後に届いた行である。
 async fn mark_late_arrivals(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
@@ -636,9 +638,17 @@ async fn mark_late_arrivals(
             AND s.origin = 'derived'
             AND s.deleted_at IS NOT NULL
             AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $6)
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = s.id
+                 AND d.action = 'erase'
+                 AND d.seq = (
+                   SELECT max(last.seq) FROM core.deletion_ledger last
+                    WHERE last.event_id = s.id
+                 )
+            )
             AND e.event_time >= s.event_time
             AND e.event_time <= coalesce((s.payload->>'end')::timestamptz, s.event_time)
-            AND e.ingest_time >= s.deleted_at
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
