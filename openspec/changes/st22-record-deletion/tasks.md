@@ -92,18 +92,18 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 4: 戻す口（design D2 / D5 / D6）
 
-- [ ] 4.1 `POST /stays/restore` を足す。1 件以上の滞在の識別子を 1 つのまとまりで戻す。
+- [x] 4.1 `POST /stays/restore` を足す。1 件以上の滞在の識別子を 1 つのまとまりで戻す。
   戻す対象は「**その記録について台帳に最後に書かれた行**が、この滞在を原因とする `erase`」の行（`seq` の最大で引く）。
   戻した後に触れた日ごとに `rebuild_day`。
   Scenario: `消した滞在を戻すと一覧に戻る` / `戻すと連鎖で消えた位置も戻る` / `資格情報の無い戻す求めは断られる` /
   `知らない識別子を戻そうとすると断られる`。検証: `CT restore_endpoint`
-- [ ] 4.2 後から届いて `user:late` の印が付いた位置も、同じ原因なので一緒に戻る。
+- [x] 4.2 後から届いて `user:late` の印が付いた位置も、同じ原因なので一緒に戻る。
   Scenario: `後から届いて印が付いた位置も戻すと戻る`。検証: `CT restore_includes_late_arrivals`
-- [ ] 4.3 別の操作で消えた記録は戻さない（原因で引く）。消えていない滞在を戻しても件数 0 で 200、台帳に行を足さない。
+- [x] 4.3 別の操作で消えた記録は戻さない（原因で引く）。消えていない滞在を戻しても件数 0 で 200、台帳に行を足さない。
   Scenario: `別の操作で消した記録は戻らない` / `消えていない滞在を戻しても何も起きない`。検証: `CT restore_is_scoped`
-- [ ] 4.4 戻した時間帯の `rebuild:erased-range` が作り直しで外れること（申し送り R19 の後段）。
+- [x] 4.4 戻した時間帯の `rebuild:erased-range` が作り直しで外れること（申し送り R19 の後段）。
   Scenario: `戻すと重なって隠れていた滞在も戻る`。検証: `CT restore_unhides_overlapping_stays`
-- [ ] 4.5 戻すと台帳に `restore` の行が積まれ、`erase` の行が残ること。
+- [x] 4.5 戻すと台帳に `restore` の行が積まれ、`erase` の行が残ること。
   Scenario: `戻すと台帳に戻した行が積まれ、消した行は残る`。検証: `CT restore_writes_ledger`
 
 ## Task 5: 1 日の並びに「消した」を足す（design D7。`stay_store::day_view`）
