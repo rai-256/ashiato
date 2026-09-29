@@ -1092,12 +1092,14 @@ pub async fn day_view(
                 "SELECT id FROM core.stay_erased
                    WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
                      AND start_at < $4 AND end_at > $3
+                     AND (deleted_by IS NULL OR deleted_by NOT LIKE $5)
                    ORDER BY start_at, id",
             )
             .bind(user)
             .bind(ABSORBED)
             .bind(start)
             .bind(end)
+            .bind(format!("{REBUILD_PREFIX}%"))
             .fetch_all(pool)
             .await?
         } else {
@@ -1108,6 +1110,8 @@ pub async fn day_view(
         if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
             last.end = last.end.max(end);
             last.stay_ids.extend(causes);
+            last.stay_ids.sort_unstable();
+            last.stay_ids.dedup();
         } else {
             hidden.push(ErasedSpan {
                 start,

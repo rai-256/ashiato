@@ -58,6 +58,7 @@ struct LedgerRow {
     logical_source: String,
     cause_event_id: uuid::Uuid,
     mark: String,
+    blocked_by_other_cause: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -127,7 +128,19 @@ pub async fn restore(
     }
 
     let rows: Vec<LedgerRow> = sqlx::query_as(
-        "SELECT d.event_id, d.user_id, d.logical_source, d.cause_event_id, d.mark
+        "SELECT d.event_id, d.user_id, d.logical_source, d.cause_event_id, d.mark,
+                EXISTS (
+                  SELECT 1
+                    FROM core.deletion_ledger other
+                   WHERE other.event_id = d.event_id
+                     AND other.action = 'erase'
+                     AND other.seq = (
+                       SELECT max(latest.seq) FROM core.deletion_ledger latest
+                        WHERE latest.event_id = other.event_id
+                          AND latest.cause_event_id = other.cause_event_id
+                     )
+                     AND other.cause_event_id <> ALL($1)
+                ) AS blocked_by_other_cause
            FROM core.deletion_ledger d
            JOIN core.event e ON e.id = d.event_id AND e.user_id = d.user_id
           WHERE d.cause_event_id = ANY($1)
@@ -139,18 +152,6 @@ pub async fn restore(
             )
             AND e.deleted_at IS NOT NULL
             AND e.deleted_by IS NOT DISTINCT FROM d.mark
-            AND NOT EXISTS (
-              SELECT 1
-                FROM core.deletion_ledger other
-               WHERE other.event_id = d.event_id
-                 AND other.action = 'erase'
-                 AND other.seq = (
-                   SELECT max(latest.seq) FROM core.deletion_ledger latest
-                    WHERE latest.event_id = other.event_id
-                      AND latest.cause_event_id = other.cause_event_id
-                 )
-                 AND other.cause_event_id <> ALL($1)
-            )
           ORDER BY d.event_id",
     )
     .bind(stay_ids)
@@ -160,6 +161,20 @@ pub async fn restore(
     let mut restored_stays = 0;
     let mut restored_locations = 0;
     for row in rows {
+        ledger(
+            &mut tx,
+            row.event_id,
+            row.user_id,
+            &row.logical_source,
+            "restore",
+            row.cause_event_id,
+            &row.mark,
+        )
+        .await?;
+        restored_causes.insert(row.cause_event_id);
+        if row.blocked_by_other_cause {
+            continue;
+        }
         let changed = sqlx::query(
             "UPDATE core.event SET deleted_at = NULL, deleted_by = NULL
               WHERE id = $1 AND deleted_at IS NOT NULL
@@ -172,17 +187,6 @@ pub async fn restore(
         if changed.rows_affected() == 0 {
             continue;
         }
-        ledger(
-            &mut tx,
-            row.event_id,
-            row.user_id,
-            &row.logical_source,
-            "restore",
-            row.cause_event_id,
-            &row.mark,
-        )
-        .await?;
-        restored_causes.insert(row.cause_event_id);
         if row.logical_source == crate::stay::SOURCE {
             restored_stays += 1;
         } else {

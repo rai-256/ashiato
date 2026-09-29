@@ -276,12 +276,16 @@ async fn stays_detail_query_uses_user_time_index() {
 
     let plan: Vec<(String,)> = sqlx::query_as(
         "EXPLAIN (COSTS OFF)
+           WITH live_events AS MATERIALIZED (
+             SELECT logical_source
+               FROM core.event_live
+              WHERE user_id = $1
+                AND logical_source <> 's01-stay'
+                AND event_time BETWEEN $2 AND $3
+           )
            SELECT e.logical_source, s.display_name, count(*)
-             FROM core.event_live e
+             FROM live_events e
              JOIN core.source s ON s.logical_source = e.logical_source
-            WHERE e.user_id = $1
-              AND e.logical_source <> 's01-stay'
-              AND e.event_time BETWEEN $2 AND $3
             GROUP BY e.logical_source, s.display_name",
     )
     .bind(user)
@@ -447,14 +451,14 @@ async fn restoring_one_of_overlapping_erases_keeps_the_other_cause_hidden() {
         mark(&app.pool, location).await.1.as_deref(),
         Some("user:cascade")
     );
-    let latest_cause: uuid::Uuid = sqlx::query_scalar(
-        "SELECT cause_event_id FROM core.deletion_ledger WHERE event_id = $1 ORDER BY seq DESC LIMIT 1",
+    let latest: (String, uuid::Uuid) = sqlx::query_as(
+        "SELECT action, cause_event_id FROM core.deletion_ledger WHERE event_id = $1 ORDER BY seq DESC LIMIT 1",
     )
     .bind(location)
     .fetch_one(&app.pool)
     .await
     .unwrap();
-    assert_eq!(latest_cause, second);
+    assert_eq!(latest, ("restore".into(), first));
 
     restore(&app, vec![second], None).await.unwrap();
     assert_eq!(mark(&app.pool, location).await, (None, None));
@@ -586,18 +590,22 @@ async fn restore_is_scoped() {
         "2026-09-22T14:00:00+09:00",
     )
     .await;
-    let ledger_before: i64 = sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger")
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let ledger_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(
         restore(&app, vec![live], None).await.unwrap(),
         serde_json::json!({"restored":{"stays":0,"locations":0}})
     );
-    let ledger_after: i64 = sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger")
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let ledger_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(ledger_after, ledger_before);
 }
 

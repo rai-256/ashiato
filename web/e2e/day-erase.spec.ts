@@ -27,7 +27,7 @@ test("キーボードで滞在の行を開ける", async ({ page }) => {
   await openDay(page);
   const row = page.getByTestId("row-stay").first();
   await expect(row).toBeVisible();
-  const toggle = row.getByRole("button");
+  const toggle = row.getByRole("button").first();
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");

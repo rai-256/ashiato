@@ -1529,12 +1529,16 @@ pub async fn stays_detail_get(
     };
 
     let counts: Vec<(String, String, i64)> = sqlx::query_as(
-        "SELECT e.logical_source, s.display_name, count(*)
-           FROM core.event_live e
+        "WITH live_events AS MATERIALIZED (
+             SELECT logical_source
+               FROM core.event_live
+              WHERE user_id = $1
+                AND logical_source <> 's01-stay'
+                AND event_time BETWEEN $2 AND $3
+           )
+         SELECT e.logical_source, s.display_name, count(*)
+           FROM live_events e
            JOIN core.source s ON s.logical_source = e.logical_source
-          WHERE e.user_id = $1
-            AND e.logical_source <> 's01-stay'
-            AND e.event_time BETWEEN $2 AND $3
           GROUP BY e.logical_source, s.display_name
           ORDER BY e.logical_source",
     )

@@ -1889,7 +1889,7 @@ async fn stay_day_view_day_view_erased_hides_deleted_and_absorbed() {
         id_starting(&rows, "2026-07-04T09:00:00+09:00"),
         id_starting(&rows, "2026-07-04T15:00:00+09:00"),
     );
-    user_deletes(&pool, deleted, Some("user")).await;
+    user_deletes(&pool, deleted, None).await;
     set(&pool, u, None, Some(10)).await;
     rebuild(&pool, u, "2026-07-04").await;
 
