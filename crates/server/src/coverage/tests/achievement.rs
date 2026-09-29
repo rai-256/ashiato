@@ -37,7 +37,18 @@ async fn coverage_counts_deleted() {
     .await
     .unwrap();
     let before_days = before.sources[0].achieved_days;
+    assert_eq!(
+        before_days, 2,
+        "削除対象を含む 2 日が達成日として数えられている"
+    );
 
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE core.event
             SET deleted_at = now(), deleted_by = 'user'
@@ -47,9 +58,10 @@ async fn coverage_counts_deleted() {
     )
     .bind(user)
     .bind(&source.logical_source)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
+    tx.commit().await.unwrap();
 
     assert_eq!(
         state_on(&pool, user, &source, "2026-05-01").await,
@@ -64,6 +76,7 @@ async fn coverage_counts_deleted() {
     )
     .await
     .unwrap();
+    assert_eq!(after.sources[0].achieved_days, 2);
     assert_eq!(after.sources[0].achieved_days, before_days);
 }
 
