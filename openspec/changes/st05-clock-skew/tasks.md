@@ -106,7 +106,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 5: 端末の測定記録を組み立てる（Android）
 
-- [ ] 5.1 `ClockSkewMeasurer` を置く —— 3 つの基準を読み、`c01-clock` の `IngestRequest` を 1 件組み立てる（形は design D5。
+- [x] 5.1 `ClockSkewMeasurer` を置く —— 3 つの基準を読み、`c01-clock` の `IngestRequest` を 1 件組み立てる（形は design D5。
   `raw` は `payload` と同じ JSON を `ingestJson` で直列化した文字列。時刻はミリ秒まで・UTC・`Z`）。
   出来事時刻は測ったときの端末の壁時計。`elapsed_ms` と `boot_count` は `DeviceClock` から（取れなければ `null`）。
   3 つの出どころは `references` と `unavailable` のどちらかに 1 回ずつ。基準が 1 つも取れなければ `available: false`。
@@ -118,9 +118,9 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
   `取れなかった記録にも端末の時計と起動の識別が入る`。
   「どの組み合わせでも」は 3 つの基準の取れる / 取れないの 8 通りを総当たりで回す。
   検証: `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewMeasurerTest*'` rc=0
-- [ ] 5.2 測定記録の形を固定する試験を置く（欄の名前と並び。同じ入力で原文の文字列が毎回一致する）。
+- [x] 5.2 測定記録の形を固定する試験を置く（欄の名前と並び。同じ入力で原文の文字列が毎回一致する）。
   検証: `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewPayloadShapeTest*'` rc=0
-- [ ] 5.3 `docs/collector-contract.md` に `c01-clock` の節を足す（欄・出どころの 3 種・理由の値・差の符号と、差に使う壁時計を読む時点・`s01-date` の 0〜+999 ms の偏り・生存信号を送らないこと）。
+- [x] 5.3 `docs/collector-contract.md` に `c01-clock` の節を足す（欄・出どころの 3 種・理由の値・差の符号と、差に使う壁時計を読む時点・`s01-date` の 0〜+999 ms の偏り・生存信号を送らないこと）。
   検証: `bash -c 'grep -q "c01-clock" docs/collector-contract.md && grep -q "no_response_since_last" docs/collector-contract.md && grep -q "clock_changed_since" docs/collector-contract.md'` rc=0
 
 ## Task 6: 端末の測る契機と測り直し（Android）
