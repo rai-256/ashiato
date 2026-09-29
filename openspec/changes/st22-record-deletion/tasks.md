@@ -137,19 +137,19 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 8: 画面（design D9。`web/src/`。jsdom で測れるもの）
 
-- [ ] 8.1 `stays.ts` —— `EntryKind` に `"erased"` を足し、`DayEntry` に `stay_ids?: string[]`。`isDayView` が新しい種類と識別子を通す
+- [x] 8.1 `stays.ts` —— `EntryKind` に `"erased"` を足し、`DayEntry` に `stay_ids?: string[]`。`isDayView` が新しい種類と識別子を通す
   （**形が違えば失敗として出す**を保つ）。検証: `cd web && npm run test -- stays`（新しい種類の応答を通し、壊れた応答を弾く単体テスト）
-- [ ] 8.2 滞在の行を開ける行にする（`aria-expanded`。一度に 1 件）。開くと `GET /stays/detail` を 1 回叩き、件数をソースごとに出す。
+- [x] 8.2 滞在の行を開ける行にする（`aria-expanded`。一度に 1 件）。開くと `GET /stays/detail` を 1 回叩き、件数をソースごとに出す。
   Scenario: `行を選ぶとその場で詳細が開く` / `別の行を開くと前の行は閉じる` / `詳細にその時間の記録の件数がソースごとに出る`。
   検証: `cd web && npm run test -- DayView`
-- [ ] 8.3 詳細の末尾に「この滞在を消す」。閉じている行には出さない。押すと**同じ行の中**に確認（文面に一緒に消える位置の件数）。
+- [x] 8.3 詳細の末尾に「この滞在を消す」。閉じている行には出さない。押すと**同じ行の中**に確認（文面に一緒に消える位置の件数）。
   「やめる」で何も消さない、「消す」で `POST /stays/erase` を叩いて一覧を読み直す。`window.confirm` は使わない。
   Scenario: `閉じている行に消す操作は出ない` / `消す前に確認が出て、やめると消えない` / `確認の文面に一緒に消える位置の件数が出る`。
   検証: `cd web && npm run test -- erase`
-- [ ] 8.4 「消した」の行（記録なしと同じ濃さの 1 行。詳細は開かない）と「戻す」。押すと `POST /stays/restore` を叩いて読み直す。
+- [x] 8.4 「消した」の行（記録なしと同じ濃さの 1 行。詳細は開かない）と「戻す」。押すと `POST /stays/restore` を叩いて読み直す。
   Scenario: `消した行から戻すと滞在の行が戻る` / `消した行は文字で区別される`（色を外しても読み分けられる。`web/src/contrast.ts` と同じ形で固定する）。
   検証: `cd web && npm run test -- erased-row`
-- [ ] 8.5 キーボードで開けること（`aria-expanded` を持つ操作対象に Enter / Space）。
+- [x] 8.5 キーボードで開けること（`aria-expanded` を持つ操作対象に Enter / Space）。
   Scenario: `キーボードで詳細を開ける`。検証: `cd web && npm run test -- keyboard`
 
 ## Task 9: e2e（本物のブラウザ。`web/e2e/day-erase.spec.ts`）
