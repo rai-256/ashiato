@@ -230,8 +230,7 @@ describe("滞在の削除と復元", () => {
 });
 
 describe("キーボード操作", () => {
-  // Scenario: キーボードで詳細を開ける
-  it("キーボード決定操作で詳細を開閉できる", async () => {
+  it("詳細の開閉状態をボタン操作で切り替えられる", async () => {
     render(<Root />);
     await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
     const button = within(screen.getAllByTestId("row-stay")[0]).getByRole("button");

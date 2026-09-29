@@ -1082,19 +1082,37 @@ pub async fn day_view(
         if start >= end {
             continue;
         }
-        let restorable = !deleted_by
+        let mut causes = if deleted_by.as_deref() == Some(ABSORBED) {
+            Vec::new()
+        } else if deleted_by
             .as_deref()
-            .is_some_and(|by| by.starts_with(REBUILD_PREFIX));
+            .is_some_and(|by| by.starts_with(REBUILD_PREFIX))
+        {
+            sqlx::query_scalar(
+                "SELECT id FROM core.stay_erased
+                   WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
+                     AND start_at < $4 AND end_at > $3
+                   ORDER BY start_at, id",
+            )
+            .bind(user)
+            .bind(ABSORBED)
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await?
+        } else {
+            vec![id]
+        };
+        causes.sort_unstable();
+        causes.dedup();
         if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
             last.end = last.end.max(end);
-            if restorable {
-                last.stay_ids.push(id);
-            }
+            last.stay_ids.extend(causes);
         } else {
             hidden.push(ErasedSpan {
                 start,
                 end,
-                stay_ids: if restorable { vec![id] } else { Vec::new() },
+                stay_ids: causes,
             });
         }
     }

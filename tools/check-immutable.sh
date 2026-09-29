@@ -941,8 +941,8 @@ down_fail=0
 # **新しい版から戻す。** ST22 の削除の台帳がいちばん新しい。
 psql < "migrations/202609271716_deletion_ledger.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609271716_deletion_ledger.down.sql が当たらない"; fail=1; down_fail=1; }
-[ "$(psql -c "SELECT to_regclass('core.deletion_ledger') IS NULL AND to_regclass('core.stay_erased') IS NULL;")" = "t" ] \
-  || { echo "  NG deletion_ledger の戻しで表または stay_erased ビューが残っている"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.deletion_ledger') IS NULL AND to_regclass('core.stay_erased') IS NULL AND to_regclass('core.event_by_user_time_live') IS NULL AND to_regprocedure('core.try_timestamptz(text)') IS NULL;")" = "t" ] \
+  || { echo "  NG deletion_ledger の戻しで表・ビュー・索引・補助関数が残っている"; fail=1; down_fail=1; }
 psql < "migrations/202609271716_deletion_ledger.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609271716_deletion_ledger.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
 psql < "migrations/202609271716_deletion_ledger.down.sql" >/dev/null 2>&1 \

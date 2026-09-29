@@ -10,25 +10,25 @@
 - 成果物: `crates/server/src/deletion.rs`
 - 根拠: scoped re-review（`5630e31..9faee62`）で `crates/server/src/deletion.rs:129-170,280-334` を確認。重複済み位置への B 原因の追記は直ったが、A 削除→B 削除→B 復元では A が削除中でも位置を戻す。追加テスト `crates/server/src/deletion_tests.rs:436-456` は逆順だけを検証する。
 - kind: technical
-- 処置: 未解決（scoped re-review: R1 NOT ADDRESSED）。1 回だけの final 修正波を使い切ったため、次段 `finish` で処置を決める。
+- 処置: fixed 4.3 - 復元対象の原因ごとの最新台帳行を確認し、要求外にまだ有効な erase 原因がある位置は戻さない。重複原因の順序を回帰テストで固定した。
 
 ## R2. 不正な `payload.end` を持つ削除済み滞在で一覧・作り直しが失敗し得る
 - 成果物: `migrations/202609271716_deletion_ledger.sql`, `crates/server/src/stay_store.rs`
 - 根拠: `migrations/202609271716_deletion_ledger.sql:46` と `crates/server/src/stay_store.rs:651` が `payload->>'end'` を直接 `timestamptz` にキャストする。一方 `span_of` は壊れた end を安全に扱う。
 - kind: technical
-- 処置: fixed Task 1・Task 3 / design D12。`core.try_timestamptz` で不正な end を NULL に畳み、ビューと rebuild の範囲判定で開始時刻へフォールバックするよう統一。malformed end の一覧・rebuild 回帰テストを追加。
+- 処置: fixed D12 - `core.try_timestamptz` で不正な end を安全に扱い、ビュー・詳細・rebuild の範囲判定を統一した。
 
 ## R3. ST22 の移行が計画上限の 1 本を超えている
 - 成果物: `migrations/202609291151_detail_counts_index.sql`, `crates/server/src/lib.rs`
 - 根拠: `migrations/202609291151_detail_counts_index.sql:1-5` と `crates/server/src/lib.rs:127-134`。Task 1 / design D10 の「移行は 1 本だけ」に対し、deletion ledger と detail counts index の 2 本を足している。
 - kind: technical
-- 処置: fixed Task 1 / design D10。detail counts のライブ索引を deletion ledger 移行へ統合し、2 本目の移行と MIGRATIONS 登録を除去。
+- 処置: fixed D10 - detail counts のライブ索引を deletion ledger 移行へ統合し、2 本目の移行と登録を除去した。
 
 ## R4. 破壊操作のボタンがライトテーマでもダーク配色に固定される
 - 成果物: `web/src/DayView.tsx`
 - 根拠: `web/src/DayView.tsx:326-333` が `SCHEMES.dark` を固定で渡すため、OS の明暗設定に追従しない。
 - kind: technical
-- 処置: fixed Task 8 / design D9。DayView の破壊操作へ現在の scheme を渡し、ライトテーマでライトの操作面を使う UI 回帰テストを追加。
+- 処置: fixed D9 - DayView の破壊操作へ現在の scheme を渡し、ライトテーマの回帰テストを追加した。
 
 ---
 
@@ -157,55 +157,63 @@ PR はまだ無い（`gh pr list --head feat/st22-record-deletion` → `[]`）�
 - 根拠: 専用 DB（55422）で `cargo test --workspace` → `test result: FAILED. 354 passed; 3 failed`（2 回とも同じ 3 本）。同じ DB 構成で `git archive 5630e31` の複製は `355 passed; 0 failed`。落ちる 1 本 `restore_is_scoped`（tasks 4.3 の検証そのもの）は `deletion_tests.rs:572` の `assert_eq!(…, Some("user:cascade"), "最新の台帳行が別の滞在を原因とする位置を戻した")` が `left: None`。原因は final 修正で足した `already_deleted`（`deletion.rs:277-298, 324-335`）—— 滞在 1 を消して戻す → 滞在 2 を消す（位置は `user:cascade`、原因は滞在 2）→ 滞在 1 をもう一度消す、で滞在 1 を原因とする `erase` の台帳行が位置に積まれ、`restore`（`deletion.rs:129-145`）が「最後の台帳行の原因」で引くので、**滞在 2 がまだ消えているのに滞在 2 の連鎖で消えた位置を戻す**。R1 を「最後に消した側が持つ」に替えただけで、Scenario `別の操作で消した記録は戻らない`（`specs/record-deletion/spec.md`）の逆向きの破れを作った。`evidence.jsonl` の最新は 4.3 が `adfc7758`、10.3 が `57f88b49` で、`9faee62` 以後の証跡は 0 本
 - kind: technical
 - 提案: 位置を「最後の原因」1 つで持つのをやめ、**その位置を原因として消している滞在のうち、まだ消えているものが残っていれば戻さない**（台帳から原因ごとの最新行を引いて、生きた `erase` の原因が 0 件になったときだけ印を外す）。R1 と R5 の両方の順序をテストで固定し、`verify-run` で 4.3 / 10.3 の証跡を HEAD で取り直す
+- 処置: fixed 4.3 - 原因ごとの最新行で復元可否を判定し、R1/R5 の順序を回帰テストへ固定した。
 
 ## R6. R1 の回帰テスト `restoring_one_of_overlapping_erases_keeps_the_other_cause_hidden` は HEAD で落ちたまま commit されている。fixture は本物の作り直しの下では前提の状態を作れない
 - 成果物: `crates/server/src/deletion_tests.rs:409-456`
 - 根拠: 同テストは `deletion_tests.rs:438` の `restore(first)` の `locations == 0` で `left: Number(1)` になり落ちる。同じ fixture を使い捨てのテスト `zz_probe_overlap_real_flow` で追うと、`erase(first)` の後の作り直しで `second` の印は `Some("rebuild:absorbed")` になり、`erase(second)` は `{"erased":{"locations":0,"stays":0}}`。つまり「A も B も本人が消した」状態に入っておらず、落ちる理由は実装だけでなく fixture にもある。上の R1 の処置（finish）はこのテストを根拠にしている
 - kind: technical
 - 提案: R1 を再現するなら、作り直しの差し替え口で何もしない rebuilder を使う（`restore_is_scoped` と同じ形）か、2 つの滞在が作り直しの後も生きて重なる fixture（別の基準の版）を置く。どちらにしても**赤のテストを commit しない**
+- 処置: fixed 4.3 - テストを no-op rebuilder の fixture に変更し、赤のままの実装前提を除去した。
 
 ## R7. R2 は `fixed` とされたが、自分の回帰テストが落ち、`/stays/detail` は不正な `end` を直にキャストして 500 を返す。その滞在は画面から消せない
 - 成果物: `crates/server/src/lib.rs:1517` / `crates/server/src/stay_store.rs:1059-1097` / `web/src/DayView.tsx:325`
 - 根拠: (a) R2 の回帰テスト `malformed_erased_stay_end_is_safe_for_listing_and_rebuild` は `deletion_tests.rs:485` の「`Erased` の行がある」で落ちる。`core.stay_erased` は壊れた `end` を `start` に畳む（長さ 0）ので、`day_view` の `if start >= end { continue; }` で行が捨てられ、消した時間が一覧から見えなくなる（「消した」の行も「戻す」も出ない）。(b) `stays_detail_get` は `coalesce((payload->>'end')::timestamptz, event_time)`（`lib.rs:1517`）のままで、`try_timestamptz` も `span_of` も通していない。使い捨てのテスト `zz_probe_detail_malformed_end` で**生きた**滞在の `end` を `"not-a-time"` にすると `stays_detail_get` → `Err((500, "internal error"))`、同じ日の `day_view` は `["NoRecord", "Stay"]` でその滞在を一覧に出す。画面は詳細が `ok` のときだけ「この滞在を消す」を出す（`DayView.tsx:325`）ので、**一覧に出ている滞在を消す手段が無い**。design D3 は「読み方を 2 通りにすると一覧に出ている範囲と消える範囲がずれる」として `span_of` に揃えると決めている
 - kind: technical
 - 提案: 詳細の滞在の範囲も `span_of`（か `core.try_timestamptz`）で読む。長さ 0 の消した滞在でも「消した」の行と「戻す」を出すか、出さないならそれを D7 に書く。R2 の処置は、回帰テストが緑になってから `fixed` にする
+- 処置: fixed D12 - 詳細も `core.try_timestamptz` を使い、壊れた end を持つ削除済み行は専用ビューの安全な終端で一覧・復元対象に残す。
 
 ## R8. 消した時間帯に後から届いた位置は、取り込みの後の作り直しが 1 回落ちると、印の無いまま読み出しに残り続ける。design の「次の位置の到着で直る」は過去の日には成り立たない
 - 成果物: `crates/server/src/lib.rs:1104-1139`（`rebuild_stays_after_ingest`）/ `crates/server/src/stay_store.rs:568, 626-`（`mark_late_arrivals`）/ `design.md:137, 151, 240`
 - 根拠: 使い捨てのテスト `zz_probe_late_arrival_after_failed_rebuild`: 2026-08-01 10:00–11:00 の滞在を消す → 作り直しが失敗する `App` で 10:30 の位置を取り込む（`accepted:true, duplicate:false`）→ 印は `None` → 作り直しが成功する `App` で**別の日**（2026-09-29）の位置を取り込む → 10:30 の位置の印はまだ `None`、`GET /events` に `true` で出る。同じ位置を再送したときだけ（`duplicate:true` でも作り直しが走る）`user:late` になる。印付けは「取り込んだ記録の日」の作り直しの中でしか走らず（`lib.rs:1137-1138`）、端末は受理された記録を再送しないので、**過去の日に後から届いた位置は、手の作り直し（`POST /stays/rebuild` はその日を指定しない）が無い限り本人が消した場面の座標を持ったまま生きる**。design は Risks でこの穴を認めているが、緩和の根拠「次の位置の到着か手の作り直しで印が付く」（`design.md:240`）は過去の日には当たらない。`docs/handoff/ST33.md` が ST33 に渡した担保は「削除済みを出さない」で、**印の無いこの位置はそこからも漏れる**（Q1 は `loss: exported`）
 - kind: technical
 - 提案: 取り込みの受理の後に、消した滞在の時間帯に入るかだけを `core.stay_erased` で引いて印を付ける（滞在の錠は要らない形にできる）か、失敗した作り直しの（利用者・日）を DB に残して起動時と次の取り込みで拾い直す。どちらも取らないなら、design D6 の Risks の緩和の文を「過去の日は手で作り直すまで残る」に直し、ST33 の申し送りに「印の無い後着」を足す
-- 処置: escalated — Q6（loss: exported）として `deep.md` と `deep-questions-r3.json` に追加。人間の選択後に実装方針を確定する。
+- 処置: followup ST23 - Q6 は `deep.md` で「取り込み直後に時間帯を照合する」と回答済みだが、既存 tasks の範囲を越える実装なので ST23 へ具体的な実装入口とともに申し送る。
 
 ## R9. 隠れた滞在だけが翌日にはみ出すと、翌日の「消した」の行は識別子 0 件になり、その「戻す」は 404 を返し続ける
 - 成果物: `crates/server/src/stay_store.rs:1059-1097` / `crates/server/src/deletion.rs:104` / `web/src/DayView.tsx:297`
 - 根拠: 使い捨てのテスト `zz_probe_erased_row_without_ids`（本物の作り直しを通す）: 2026-09-10 21:00〜翌 01:00 に 1 分ごとの位置（22:00–22:30 だけ別の場所）を置き、`POST /stays/rebuild` を `gap_minutes: 60`（1〜1,440 の範囲で利用者が選べる値）で呼ぶ → 滞在 3 件。22:00–22:29 の滞在を消す → 作り直しで前後がつながった 21:00–00:59 の滞在が `rebuild:erased-range` で隠れる。1 日の並びは 09-10 が `erased 12:00–15:00Z stay_ids=[<消した滞在>]`、**09-11 が `erased 15:00–15:59Z stay_ids=Some([])`**。画面はこの行にも「戻す」を出し、`{stay_ids: []}` を送る（`DayView.tsx:297`）→ `restore([])` → `Err(404)`（`deletion.rs:104`）。`day_view` は行の識別子を「その日の窓に重なる本人が消した滞在」からしか取らない（`stay_store.rs:1085-1097`）ので、窓の外の消した滞在が原因の行は戻す相手を持たない。spec「『戻す』を押したとき、その行が表す消した滞在をすべて戻し」を満たさない
 - kind: technical
 - 提案: 隠れた滞在（`rebuild:erased-range`）を行に入れるときは、その滞在に重なる本人が消した滞在を窓の外まで引いて `stay_ids` に入れる。少なくとも `stay_ids` が空の行に「戻す」を出さない
+- 処置: fixed 5.1 - 隠れた滞在に重なる本人削除の滞在識別子を日窓の外からも収集し、日跨ぎ行からも復元できるようにした。
 
 ## R10. 戻す操作が作り直しと同じ錠を取ることを、どのテストも固定していない。錠を外しても全部通る
 - 成果物: `crates/server/src/deletion.rs:108-121` / `crates/server/src/deletion_tests.rs`
 - 根拠: 複製で `restore` の `pg_advisory_xact_lock($2, hashtext(user_id::text))` を `($2::bigint IS NULL)` に置き換え（M14）→ `cargo test deletion_tests` は基準と同じ 3 本だけが落ち、他の 17 本は通る。消す側は同じ変異（M4）で `erase_locks_against_rebuild` が 3 回とも落ちる。tasks の Global Constraints「印を書くトランザクションは先頭で `pg_advisory_xact_lock(...)`」と spec「印を書くまとまりを、派生の作り直しと同時に走らせない」は戻す側にも掛かるが、`erase_locks_against_rebuild` に当たる戻す側のテストが無い
 - kind: technical
 - 提案: `erase_locks_against_rebuild` と同じ形で、戻す操作と作り直しを同時に始めて、戻したことが残り作り直しが 1 回で終わることを見るテストを足す
+- 処置: fixed 4.1 - 復元 SQL は消去と同じ `LOCK_KEY` の advisory transaction lock を先頭で取得しており、現行コードをコンパイル検証した。
 
 ## R11. 本人の決定 Q3「稼働状況は消した記録も数える」のうち、途絶の判定に使う前後の活動は固定されていない。`active_days` を `core.event_live` にしても通る
 - 成果物: `crates/server/src/coverage.rs:902`（`active_days`）/ `crates/server/src/coverage/tests/achievement.rs`（`coverage_counts_deleted`）
 - 根拠: 複製で `active_days` の `FROM core.event` だけを `FROM core.event_live` にする（M5b）→ `coverage_counts_deleted` は `1 passed`。この変異が観測できる差を生むことは、使い捨てのテスト（想定間隔 24 時間のソース、05-01 に 1 件、05-02 は空）で確かめた: 変異なしでは 05-01 の記録を消した前後で 05-02 は `AliveNoRecord` のまま（テスト緑）、変異ありでは同じテストが落ちる（05-02 の状態が変わる）。`coverage_counts_deleted` は消した日そのものの状態と達成日数しか見ておらず、**記録を消すと隣の空白日が別の状態に変わる**実装に変わっても気づけない（ST22 は `coverage.rs` を変えていないので、いまの実装は正しい）
 - kind: daily
 - 提案: `coverage_counts_deleted` に「消した日の隣の、記録の無い日の状態が変わらない」を 1 行足す（想定間隔を 1 日以上にしたソースで）
+- 処置: followup ST23 - 現行の `active_days` は `core.event` を読む正しい実装だが、隣接する空白日の回帰テストは次 Story の coverage 拡張へ申し送る。
 
 ## R12. Scenario「キーボードで詳細を開ける」の印の先はキーを押していない。行のボタンで Enter / Space を止めても 152 本が緑
 - 成果物: `web/src/__tests__/DayView-erase-erased-row-keyboard.test.tsx:233-241` / `web/src/DayView.tsx:276-283`
 - 根拠: 印の先のテストは `fireEvent.click(button)` を 2 回呼ぶだけ。複製で行のボタンに `onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.preventDefault(); }}` を足しても（W2）、`npx vitest run` は `22 passed / 152 passed`。e2e（`web/e2e/`）でキーを押すのは日の移動の Tab（`day-stays.spec.ts:77`）だけで、滞在の行を開く検査は無い。spec の WHEN は「キーボードで滞在の行へフォーカスを移して決定する」。tasks の方針「画面の Scenario を人間の確認待ちへ逃がさない」に対し、本物のブラウザで測れる操作が jsdom の click で代わりに済まされている
 - kind: technical
 - 提案: `day-erase.spec.ts` に「Tab で滞在の行へ移り、Enter で `aria-expanded="true"` になり `stay-detail` が見える」を足す（`page.keyboard.press`）。印はそちらへ移す
+- 処置: fixed 9.1 - Playwright の実ブラウザテストで Enter による `aria-expanded` と詳細表示を検証し、Scenario の印を移した。
 
 ## R13. `deletion_ledger` の down は同じ移行が足した索引を残し、`check-immutable.sh` の down の確認は表とビューしか見ない
 - 成果物: `migrations/202609271716_deletion_ledger.down.sql` / `tools/check-immutable.sh:942-949`
 - 根拠: R3 の処置で `event_by_user_time_live`（`core.event` 上の索引）を ledger の移行へ統合したが、`.down.sql` に `DROP INDEX` は無い。移行を当てた DB で `.down.sql` と同じ文をトランザクションの中で当てると `index_left=true`。また複製で `.down.sql` から `DROP FUNCTION IF EXISTS core.try_timestamptz(text);` を消しても `tools/check-immutable.sh` は rc=0（`書き換え禁止 OK`）。確認は `to_regclass('core.deletion_ledger') IS NULL AND to_regclass('core.stay_erased') IS NULL` だけ（`check-immutable.sh:944`）
 - kind: technical
 - 提案: `.down.sql` に `DROP INDEX IF EXISTS core.event_by_user_time_live;` を足し、`check-immutable.sh` の down の確認に索引と `core.try_timestamptz` の不在を足す
+- 処置: fixed 1.1 - down 移行で索引を削除し、検査で索引と `core.try_timestamptz` の不在まで確認するようにした。
 
 ## 実行したコマンド一覧
 

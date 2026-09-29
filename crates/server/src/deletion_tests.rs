@@ -409,7 +409,11 @@ async fn restore_endpoint() {
 
 #[tokio::test]
 async fn restoring_one_of_overlapping_erases_keeps_the_other_cause_hidden() {
-    let app = app().await;
+    let pool = testdb::pool().await;
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(pool, TOKEN)
+    };
     let user = testdb::user();
     let first = put_stay(
         &app.pool,

@@ -1514,7 +1514,7 @@ pub async fn stays_detail_get(
     let user = q.user_id.unwrap_or_default();
     let stay: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
         sqlx::query_as(
-            "SELECT event_time, coalesce((payload->>'end')::timestamptz, event_time)
+            "SELECT event_time, coalesce(core.try_timestamptz(payload->>'end'), event_time)
                FROM core.event_live
               WHERE id = $1 AND user_id = $2
                 AND logical_source = 's01-stay' AND origin = 'derived'",

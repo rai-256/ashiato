@@ -57,7 +57,7 @@ CREATE OR REPLACE VIEW core.stay_erased AS
   SELECT id,
          user_id,
          event_time AS start_at,
-         coalesce(core.try_timestamptz(payload->>'end'), event_time) AS end_at,
+         coalesce(core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
          deleted_at,
          deleted_by
     FROM core.event

@@ -22,6 +22,18 @@ async function openFirstStay(page: Page): Promise<{ row: Locator; range: string 
   return { row, range };
 }
 
+// Scenario: キーボードで詳細を開ける
+test("キーボードで滞在の行を開ける", async ({ page }) => {
+  await openDay(page);
+  const row = page.getByTestId("row-stay").first();
+  await expect(row).toBeVisible();
+  const toggle = row.getByRole("button");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(row.getByTestId("stay-detail")).toBeVisible();
+});
+
 // Scenario: 詳細の末尾の消す操作は 44 px を下回らない
 test("詳細の末尾の「この滞在を消す」は幅と高さが 44 CSS px 以上ある", async ({ page }) => {
   await openDay(page);

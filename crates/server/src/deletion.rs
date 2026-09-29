@@ -135,9 +135,22 @@ pub async fn restore(
             AND d.seq = (
               SELECT max(last.seq) FROM core.deletion_ledger last
                WHERE last.event_id = d.event_id
+                 AND last.cause_event_id = d.cause_event_id
             )
             AND e.deleted_at IS NOT NULL
             AND e.deleted_by IS NOT DISTINCT FROM d.mark
+            AND NOT EXISTS (
+              SELECT 1
+                FROM core.deletion_ledger other
+               WHERE other.event_id = d.event_id
+                 AND other.action = 'erase'
+                 AND other.seq = (
+                   SELECT max(latest.seq) FROM core.deletion_ledger latest
+                    WHERE latest.event_id = other.event_id
+                      AND latest.cause_event_id = other.cause_event_id
+                 )
+                 AND other.cause_event_id <> ALL($1)
+            )
           ORDER BY d.event_id",
     )
     .bind(stay_ids)
