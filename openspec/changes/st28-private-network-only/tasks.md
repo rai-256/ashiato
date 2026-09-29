@@ -92,18 +92,18 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 3: 待ち受けと DB の接続先の検査（design D7 / D14）
 
-- [ ] 3.1 `bind_allowed(addr) -> Result<(), BindRefusal>` を純関数で置き、`run()` の DB 接続の前で `BIND` を解決したすべてのアドレスに掛ける。
+- [x] 3.1 `bind_allowed(addr) -> Result<(), BindRefusal>` を純関数で置き、`run()` の DB 接続の前で `BIND` を解決したすべてのアドレスに掛ける。
   拒否は `bind_unspecified` / `bind_not_loopback` をログに出して終了コード 2。単体: `127.0.0.1` / `127.0.0.2` / `::1` / `0.0.0.0` / `::` / `192.0.2.1` / `localhost`（印は置かない。R10）。
   検証: `CT server_startup_bind_allowed`
-- [ ] 3.2 起動の結合（`crates/server/tests/server_startup.rs`）。サーバの実体を環境を変えて起動し、終了コードとログの `kind` を見る:
+- [x] 3.2 起動の結合（`crates/server/tests/server_startup.rs`）。サーバの実体を環境を変えて起動し、終了コードとログの `kind` を見る:
   `BIND` なし → 待ち受け、`ss -ltnpH` のそのプロセスの口がすべて loopback / `BIND=192.0.2.1:0`（TEST-NET）→ 2・`bind_not_loopback` / `BIND=0.0.0.0:0` → 2・`bind_unspecified`。
   Scenario: `既定では loopback でだけ待ち受ける` / `loopback 以外のアドレスでは起動しない` / `全インタフェースでは起動しない`。
   検証: `CT server_startup_bind`
-- [ ] 3.3 DB の接続先の検査（design D14）。サーバと `migrate` は `DATABASE_URL` / `DATABASE_OWNER_URL` の host が loopback か unix socket でなければ、接続せずに `kind = "db_not_loopback"` で終了コード 2。
+- [x] 3.3 DB の接続先の検査（design D14）。サーバと `migrate` は `DATABASE_URL` / `DATABASE_OWNER_URL` の host が loopback か unix socket でなければ、接続せずに `kind = "db_not_loopback"` で終了コード 2。
   結合: `DATABASE_URL=postgres://x:y@192.0.2.1:5432/ashiato` のサーバと、同じ形の `DATABASE_OWNER_URL` の `migrate` がどちらも 2 で終わり、接続の試みがログに無い。
   Scenario: `DB の接続先が loopback でなければ起動しない`。
   検証: `CT server_startup_db_not_loopback`
-- [ ] 3.4 `tools/stack.sh` の案内「端末から届くには BIND を LAN / Tailscale の IP にする」を `docs/network.md`（Task 9）への案内に書き換える。
+- [x] 3.4 `tools/stack.sh` の案内「端末から届くには BIND を LAN / Tailscale の IP にする」を `docs/network.md`（Task 9）への案内に書き換える。
   検証: `bash -c '! grep -n "LAN / Tailscale の IP" tools/stack.sh tools/verify-prep.sh'`
 
 ## Task 4: 移行とログインの口（design D1 / D2 / D3 / D9 / D16 / D17 / D18）
