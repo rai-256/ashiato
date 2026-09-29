@@ -49,6 +49,8 @@ data class ClockReading(
     val monoBeforeMs: Long,
     val monoAfterMs: Long,
     val reason: String?,
+    /** 読んだ原文（`s01-date` の `Date` 見出しそのまま）。他の基準では null */
+    val rawText: String? = null,
 )
 
 /**
@@ -92,9 +94,9 @@ class ClockReferences(
                 val r = taken.received
                 val time = r.date?.let(::parseHttpDate)
                 if (time == null) {
-                    ClockReading(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE)
+                    ClockReading(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE, r.date)
                 } else {
-                    ClockReading(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null)
+                    ClockReading(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null, r.date)
                 }
             }
         }
