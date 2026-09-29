@@ -35,6 +35,7 @@ pub mod drops;
 mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
+pub mod net_guard;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -185,6 +186,9 @@ pub async fn check_db_role(pool: &sqlx::PgPool) -> anyhow::Result<Option<DbRoleR
 pub async fn run_migrate() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     let url = std::env::var("DATABASE_OWNER_URL").context("DATABASE_OWNER_URL が未設定")?;
+    if !net_guard::db_host_is_local(&url) {
+        net_guard::refuse("db_not_loopback");
+    }
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&url)
@@ -1837,6 +1841,14 @@ pub async fn run() -> anyhow::Result<()> {
     if token.len() < 16 {
         anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
     }
+    // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
+    let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    if let Err(refusal) = net_guard::check_bind(&addr).await? {
+        net_guard::refuse(refusal.kind());
+    }
+    if !net_guard::db_host_is_local(&url) {
+        net_guard::refuse("db_not_loopback");
+    }
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&url)
@@ -1883,7 +1895,6 @@ pub async fn run() -> anyhow::Result<()> {
         app = app.route("/selftest/panic", get(selftest_panic));
     }
 
-    let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "起動");
     axum::serve(listener, app).await?;

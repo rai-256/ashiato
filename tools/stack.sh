@@ -97,5 +97,5 @@ fi
 echo "== 画面 http://127.0.0.1:$WEB_PORT"
 (cd web && npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort --outDir "$web_abs" >/dev/null 2>&1) &
 echo
-echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届くには BIND を LAN / Tailscale の IP にする）"
+echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届く手順は docs/network.md を見る。BIND は loopback のまま）"
 wait
