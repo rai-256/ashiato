@@ -60,13 +60,7 @@ fn assert_refused(out: &Output, reason: &str) {
 #[test]
 fn server_startup_refuses_privileged_role() {
     // 表が無いと所有者の拒否を見られないので、先に移行を当てる（本物と同じ手順）
-    let migrate = Command::new(env!("CARGO_BIN_EXE_ashiato-server"))
-        .arg("migrate")
-        .env_clear()
-        .env("DATABASE_OWNER_URL", env("DATABASE_OWNER_URL"))
-        .output()
-        .unwrap();
-    assert!(migrate.status.success(), "migrate が失敗した");
+    migrate_as_owner();
 
     let admin = url_as(
         &std::env::var("POSTGRES_USER").unwrap_or_else(|_| "ashiato".into()),
@@ -109,7 +103,10 @@ fn assert_kind_refused(out: &Output, kind: &str) {
     );
 }
 
+/// 移行を当てる。**この binary の試験は並列に走るので、移行は 1 本ずつ**（同じ DB に同時に当てると落ちる）。
 fn migrate_as_owner() {
+    static MIGRATING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = MIGRATING.lock().unwrap_or_else(|e| e.into_inner());
     let m = Command::new(env!("CARGO_BIN_EXE_ashiato-server"))
         .arg("migrate")
         .env_clear()
