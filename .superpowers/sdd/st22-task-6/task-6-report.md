@@ -60,3 +60,15 @@
 - 全体検証: `scripts/quiet-run task6-f1-full-2 -- cargo test --workspace -- --test-threads=1` — rc=0。
 - テスト名確認: `cargo test -p ashiato-server --lib -- --list | rg 'stays_detail'` — `stays_detail_counts` と
   `stays_detail_query_uses_user_time_index` を確認。
+
+## Fix report（review 2 / F1 の再確認）
+
+- 現ツリー（`eb08c0f`）に F1 の修正が存在することを確認した。末尾 migration
+  `202609291151_detail_counts_index.sql` が `core.event` に `(user_id, event_time)` の
+  `WHERE deleted_at IS NULL` 索引を追加し、`MIGRATIONS` に登録されている。
+- `scripts/verify-run 6.1` — PASS（rc=0）。現ツリーの `eb08c0f` に対する証跡が
+  `openspec/changes/st22-record-deletion/evidence.jsonl` に追加された。
+- `scripts/quiet-run task6-f1-round2-focused -- cargo test -p ashiato-server stays_detail_query_uses_user_time_index`
+  — rc=0、`1 passed; 0 failed`。
+- `scripts/quiet-run task6-f1-round2-full -- cargo test --workspace -- --test-threads=1`
+  — rc=0。
