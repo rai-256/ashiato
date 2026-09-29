@@ -7,13 +7,18 @@
 use anyhow::Context as _;
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use tower_http::set_header::SetResponseHeaderLayer;
 
+/// 読み出しの記録（ST28 / design D8）。
+pub mod access_log;
+#[cfg(test)]
+mod access_log_tests;
 /// 読み出しの記録の移行と錠（ST28 / design D8 / D9）。
 #[cfg(test)]
 mod access_migration_tests;
@@ -226,6 +231,8 @@ pub struct App {
     token: String,
     /// 画面のログインの設定と失敗の数（ST28 / design D3 / D17 / D18）。
     login: web_session::WebLogin,
+    /// 読み出しの記録を書く口（ST28 / design D8）。
+    access: access_log::AccessLog,
     /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
     stays: StayRebuilder,
 }
@@ -240,6 +247,7 @@ impl App {
     ) -> Self {
         Self {
             login: web_session::WebLogin::new(&token, web_password, session_max_age_days),
+            access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
             pool,
             token,
             stays: StayRebuilder::real(),
@@ -271,6 +279,15 @@ impl App {
             return now;
         }
         chrono::Utc::now()
+    }
+
+    /// 読み出しの記録の口を差し替えた複製（書けないときの試験。design D8）。
+    #[cfg(test)]
+    pub(crate) fn with_access_sink(self, sink: impl access_log::AccessSink + 'static) -> Self {
+        Self {
+            access: access_log::AccessLog::new(sink),
+            ..self
+        }
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -348,26 +365,42 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
     given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
-/// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
-/// API の合言葉（`Bearer`）か有効なログインの印（cookie）のどちらかで通る。無ければ 401。
-async fn authorize(
+/// 資格情報の種類だけを引く。**ログは出さない**（読み出しの記録の middleware と `authorize` の両方が呼ぶ）。
+async fn authorize_quiet(
     app: &App,
     headers: &HeaderMap,
-) -> Result<web_session::Caller, (StatusCode, String)> {
+) -> Result<Option<web_session::Caller>, sqlx::Error> {
     let given = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
     if token_matches(given, &app.token) {
-        return Ok(web_session::Caller::ApiToken);
+        return Ok(Some(web_session::Caller::ApiToken));
     }
-    if web_session::session_valid(app, headers)
+    if web_session::session_valid(app, headers).await? {
+        return Ok(Some(web_session::Caller::WebSession));
+    }
+    Ok(None)
+}
+
+/// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
+/// API の合言葉（`Bearer`）か有効なログインの印（cookie）のどちらかで通る。無ければ 401。
+async fn authorize(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<web_session::Caller, (StatusCode, String)> {
+    if let Some(caller) = authorize_quiet(app, headers)
         .await
         .map_err(|e| internal_at("session.lookup", e))?
     {
-        return Ok(web_session::Caller::WebSession);
+        return Ok(caller);
     }
+    let given = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
     // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
     // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
     // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
@@ -1907,9 +1940,19 @@ pub fn router(app: App) -> Router {
                 .delete(web_session::session_delete)
                 .get(web_session::session_get),
         )
+        // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
+        .route_layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            access_log::middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             web_session::refresh_cookie,
+        ))
+        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
         ))
         .with_state(app)
 }

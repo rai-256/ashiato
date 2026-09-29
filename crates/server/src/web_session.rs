@@ -20,6 +20,7 @@ use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+use crate::access_log::{via_of, AccessEntry};
 use crate::{internal_at, token_matches, App};
 
 /// 印を運ぶ cookie の名前（D3）。
@@ -210,6 +211,24 @@ pub struct SessionState {
     pub credential: String,
 }
 
+/// `/session` の求めの 1 行。ログインの結果はハンドラが判定した場で書く（D8）。
+fn session_entry(
+    headers: &HeaderMap,
+    credential: &'static str,
+    method: &str,
+    outcome: &'static str,
+    status: StatusCode,
+) -> AccessEntry {
+    AccessEntry {
+        via: via_of(headers),
+        credential,
+        route: "/session".into(),
+        method: method.into(),
+        outcome,
+        status: status.as_u16(),
+    }
+}
+
 fn unauthorized() -> (StatusCode, String) {
     (StatusCode::UNAUTHORIZED, "unauthorized".into())
 }
@@ -238,6 +257,15 @@ pub async fn session_post(
     }
     if app.login.limiter.throttled() {
         tracing::warn!(kind = "login_throttled", "ログインの失敗が多いので断る");
+        app.access
+            .write(session_entry(
+                &headers,
+                "none",
+                "POST",
+                "login_throttled",
+                StatusCode::TOO_MANY_REQUESTS,
+            ))
+            .await?;
         return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests".into()));
     }
     let given = serde_json::from_slice::<serde_json::Value>(&body)
@@ -250,6 +278,15 @@ pub async fn session_post(
     if given.is_empty() || !token_matches(&given, &app.login.password) {
         app.login.limiter.record_failure();
         tracing::warn!(kind = "login_failed", "ログインの合言葉が一致しない");
+        app.access
+            .write(session_entry(
+                &headers,
+                "none",
+                "POST",
+                "login_failed",
+                StatusCode::UNAUTHORIZED,
+            ))
+            .await?;
         tokio::time::sleep(app.login.failure_delay).await;
         return Err(unauthorized());
     }
@@ -265,6 +302,16 @@ pub async fn session_post(
     .execute(&app.pool)
     .await
     .map_err(|e| internal_at("session.insert", e))?;
+    // 書けなければ印を渡さない（渡さない印は使えない）
+    app.access
+        .write(session_entry(
+            &headers,
+            "none",
+            "POST",
+            "login_ok",
+            StatusCode::NO_CONTENT,
+        ))
+        .await?;
     let mut res = StatusCode::NO_CONTENT.into_response();
     res.headers_mut()
         .append(header::SET_COOKIE, set_cookie(&token, COOKIE_MAX_AGE_SECS));
@@ -277,6 +324,23 @@ pub async fn session_delete(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, String)> {
+    let credential = if session_valid(&app, &headers)
+        .await
+        .map_err(|e| internal_at("session.lookup", e))?
+    {
+        "web_session"
+    } else {
+        "none"
+    };
+    app.access
+        .write(session_entry(
+            &headers,
+            credential,
+            "DELETE",
+            "logout",
+            StatusCode::NO_CONTENT,
+        ))
+        .await?;
     if let Some(token) = cookie_token(&headers) {
         sqlx::query(
             "UPDATE core.web_session SET revoked_at = $2
