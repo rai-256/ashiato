@@ -40,14 +40,22 @@ test("確認して消すと同じ時刻の消した行になり、戻すと滞�
   await expect(row.getByTestId("erase-confirm")).toBeVisible();
   await row.getByRole("button", { name: "消す" }).click();
 
-  await expect(page).toHaveURL(/#\/day\/2026-09-07$/);
-  await expect(page.getByTestId("row-stay").filter({ hasText: range })).toHaveCount(0);
   const erased = page.getByTestId("row-erased").filter({ hasText: range });
-  await expect(erased).toHaveCount(1);
-  await expect(erased).toContainText("消した");
+  let restored = false;
+  try {
+    await expect(page).toHaveURL(/#\/day\/2026-09-07$/);
+    await expect(page.getByTestId("row-stay").filter({ hasText: range })).toHaveCount(0);
+    await expect(erased).toHaveCount(1);
+    await expect(erased).toContainText("消した");
 
-  await erased.getByRole("button", { name: "戻す" }).click();
-  await expect(page.getByTestId("row-erased").filter({ hasText: range })).toHaveCount(0);
-  await expect(page.getByTestId("row-stay").filter({ hasText: range })).toHaveCount(1);
-  await expect(page).toHaveURL(/#\/day\/2026-09-07$/);
+    await erased.getByRole("button", { name: "戻す" }).click();
+    restored = true;
+    await expect(page.getByTestId("row-erased").filter({ hasText: range })).toHaveCount(0);
+    await expect(page.getByTestId("row-stay").filter({ hasText: range })).toHaveCount(1);
+    await expect(page).toHaveURL(/#\/day\/2026-09-07$/);
+  } finally {
+    if (!restored) {
+      await erased.getByRole("button", { name: "戻す" }).click({ timeout: 5_000 }).catch(() => undefined);
+    }
+  }
 });
