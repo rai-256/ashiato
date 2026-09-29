@@ -200,6 +200,53 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 - **出来事時刻の意味は変わらない。** `event_time` と `device_time` は今までどおり `Location.getTime()` で、補正しない（C4）
 - `fix_elapsed_ns` と `received_elapsed_ms` を並べると測位から受け取りまでの遅れが引け、`received_device_time` から測位の時点の端末の壁時計を戻せる
 
+## 端末の時計のずれ（`c01-clock`）が送る `payload` の形（ST05 / design D5）
+
+**端末が 1 時間ごと・起動時・時計の変更のときに 1 件ずつ送る。** 論理ソースは位置の記録（`c01-location`）と別。
+`origin = collected`、`schema_version = 1`。原文（`raw`）は `payload` と同じ JSON を直列化した**文字列**（位置と同じ）。
+
+```json
+{
+  "kind": "clock-skew",
+  "trigger": "hourly",
+  "available": true,
+  "device_time": "2026-09-29T01:00:00.123Z",
+  "elapsed_ms": 123456789,
+  "boot_count": 42,
+  "references": [
+    {"source": "network",  "time": "2026-09-29T00:55:00.100Z", "skew_ms": 300023, "mono_before_ms": 123456780, "mono_after_ms": 123456781},
+    {"source": "s01-date", "time": "2026-09-29T00:51:00.000Z", "skew_ms": 300456, "mono_before_ms": 123200000, "mono_after_ms": 123200310,
+     "raw": "Tue, 29 Sep 2026 00:51:00 GMT"}
+  ],
+  "unavailable": [{"source": "gnss", "reason": "not_available"}]
+}
+```
+
+| 欄 | 型 | 中身 |
+|---|---|---|
+| `kind` | string | 常に `clock-skew` |
+| `trigger` | string | 測った契機（`hourly` / `startup` / `clock_changed`） |
+| `available` | boolean | `references` が 1 件以上か。**1 つも取れなかった記録も 1 件残る**（`references: []`） |
+| `device_time` | RFC3339（ミリ秒まで・UTC・`Z`） | 測ったときの端末の壁時計。**出来事時刻（`event_time`）と同じ値**で、補正しない |
+| `elapsed_ms` | integer | 測ったときの起動からの経過時間（`elapsedRealtime`） |
+| `boot_count` | integer または `null` | 起動の識別。**取れない端末では `null`**（そのときは `elapsed_ms` が戻ったことで起動を知る） |
+| `references[]` | array | 取れた基準。各要素は `source`・`time`（基準の時刻）・`skew_ms`・`mono_before_ms`・`mono_after_ms`（読む直前と直後の `elapsedRealtime`）。`s01-date` は `raw`（`Date` 見出しそのまま）も持つ |
+| `unavailable[]` | array | 取れなかった基準。各要素は `source` と `reason` |
+
+- **出どころ（`source`）は 3 種**: `network`（`SystemClock.currentNetworkTimeClock()`、API 33 以上）/ `gnss`（`SystemClock.currentGnssTimeClock()`、API 29 以上）/
+  `s01-date`（送信がすでに受け取った応答の `Date` 見出し）。**3 つのそれぞれが `references` と `unavailable` のどちらかに 1 回ずつ**出る
+- **理由（`reason`）の値**: `unsupported`（OS の版がその基準の口を持たない）/ `not_available`（いま取れない）/
+  `no_response_since_last`（前回の測定より後に S-01 から応答を受け取っていない）/
+  `clock_changed_since`（時計の変更より後に応答を受け取っていない）/ `unreadable`（`Date` 見出しが無い・読めない）/
+  `error:<例外の型名>`（読み取りの失敗。値は出さず種別だけ）
+- **差（`skew_ms`）の符号**: `端末の壁時計 − 基準の時刻`。**端末が進んでいれば正、遅れていれば負**
+- **差に使う壁時計は、その基準を読む直前と直後の間で読む。** `network` / `gnss` は読んだ直後、`s01-date` は応答を読み終えた直後。
+  測定の先頭で読んだ壁時計を使い回さない（測定の途中で時計が動いても差に混ざらない）。`device_time` とは別の読み
+- **`s01-date` の差は 0〜+999 ms 大きく出る。** HTTP の `Date` は秒で切り捨てなので、基準の時刻が実際より最大 999 ms 手前になる（PC の測定と同じ偏り）
+- **測定のために通信を起こさない。** 外部の時刻サーバにも問い合わせない。`s01-date` は送信が受け取った応答の見出しを読むだけ
+- **生存信号（`heartbeat`）は送らない。** 測定記録の送信は記録だけで、測定のための生存信号の経路を足さない
+- **私的なものをログに出さない。** 時刻の値・差・原文は出さず、件数・種別・`available` だけ
+
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
 **PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**
