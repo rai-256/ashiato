@@ -65,28 +65,28 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 2: 移行の分離と、アプリの接続（design D4 / D5）
 
-- [ ] 2.1 `crates/server/src/grants.sql` を足し、`migrate()` の最後（`MIGRATIONS` を当てた後）で毎回当てる（design D4 の付与と既定の権限。TRUNCATE / REFERENCES / TRIGGER を付けない）。
+- [x] 2.1 `crates/server/src/grants.sql` を足し、`migrate()` の最後（`MIGRATIONS` を当てた後）で毎回当てる（design D4 の付与と既定の権限。TRUNCATE / REFERENCES / TRIGGER を付けない）。
   Scenario: `移行が足したどの表にもアプリの役割が届き、切り詰めの権限は無い`（`core` の全表を `pg_tables` から引いて `has_table_privilege` と `tableowner` で見る。表の名前を試験に書かない —— 並走中の change が足す表も自動で入る）。
   検証: `CT app_role_privileges`
-- [ ] 2.2 `ashiato-server migrate` を足す（`DATABASE_OWNER_URL` で `migrate()`）。`run()` からは `migrate()` を外す。
+- [x] 2.2 `ashiato-server migrate` を足す（`DATABASE_OWNER_URL` で `migrate()`）。`run()` からは `migrate()` を外す。
   **DB を作り直す台本を含めて**（`tools/stack.sh`（`STACK_RESET=1`）/ `tools/dev.sh` / `tools/smoke.sh`（`down -v`）/ CI）、`tools/db-roles.sh` → `ashiato-server migrate` → サーバの順にする（review R17）。
   サーバは `env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL` で起動する（design D5）。
   `tools/smoke.sh` に、動いているサーバの `/proc/<pid>/environ` にその 3 つの名前と所有者・管理者の合言葉の値が無いことを見る段を足す。
   Scenario: `サーバの実行時の環境に所有者と管理者の合言葉が無い`（`tools/smoke.sh` の `echo`）。
   検証: `tools/smoke.sh`、`bash -c 'STACK_RESET=1 bash tools/stack.sh up --check-only'`（2.2 で `--check-only` を足す: 作り直し → 役割 → 移行 → サーバの `/healthz` まで通して止める）
-- [ ] 2.3 `run()` の DB 接続の直後に自己検査（`rolsuper` / `core` の表の所有者）。拒否は `kind = "db_role"` と理由の種別を出して終了コード 2。
+- [x] 2.3 `run()` の DB 接続の直後に自己検査（`rolsuper` / `core` の表の所有者）。拒否は `kind = "db_role"` と理由の種別を出して終了コード 2。
   結合の試験は `crates/server/tests/server_startup.rs`（`env!("CARGO_BIN_EXE_ashiato-server")` を管理者・所有者の URL で起動し、終了コードと標準エラーの種別を見る）。
   Scenario: `管理者の接続ではサーバが起動しない` / `所有者の接続ではサーバが起動しない`。
   検証: `CT server_startup_refuses_privileged_role`
-- [ ] 2.4 アプリの接続で門を外せないことを撃つ（R103 の再現を逆向きに）。`testdb::app_pool()` で
+- [x] 2.4 アプリの接続で門を外せないことを撃つ（R103 の再現を逆向きに）。`testdb::app_pool()` で
   `SET session_replication_role = replica` が拒まれる / `ALTER TABLE core.event DISABLE TRIGGER ALL` が拒まれてトリガが有効のまま /
   `core` の**すべての表**（`pg_tables` から引く）で `TRUNCATE` が拒まれて行数が変わらない。
   Scenario: `アプリの接続からは門を外せない` / `アプリの接続からは表の定義を変えられない` / `アプリの接続からはどの表も切り詰められない`。
   検証: `CT app_role_cannot_bypass_gate`
-- [ ] 2.5 アプリの接続でハンドラを通す結合（`App::for_test(testdb::app_pool().await, …)` で `/ingest` → `/events`）。
+- [x] 2.5 アプリの接続でハンドラを通す結合（`App::for_test(testdb::app_pool().await, …)` で `/ingest` → `/events`）。
   Scenario: `アプリの接続で取り込みと読み出しが通る`。
   検証: `CT app_role_ingest_and_read`
-- [ ] 2.6 `tools/check-immutable.sh` に、`psql -U ashiato_app`（コンテナ内の socket）から `session_replication_role` / `DISABLE TRIGGER` / `TRUNCATE` が**拒まれたときだけ**
+- [x] 2.6 `tools/check-immutable.sh` に、`psql -U ashiato_app`（コンテナ内の socket）から `session_replication_role` / `DISABLE TRIGGER` / `TRUNCATE` が**拒まれたときだけ**
   `  OK app-role <操作> を拒んだ` を出す 3 行を足す（通ってしまったら `NG` で exit 1）。
   検証: `bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && test "$(grep -c "OK app-role" /tmp/ci.log)" -eq 3`
 
