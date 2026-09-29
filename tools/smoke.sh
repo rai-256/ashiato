@@ -32,7 +32,7 @@ env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/deb
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
 
-echo "== 2b. Scenario: サーバの実行時の環境に所有者と管理者の合言葉が無い（/proc/<pid>/environ）"
+echo "== 2b. Scenario: サーバの実行時の環境に所有者と管理者の合言葉が無い"
 env_dump="$(tr '\0' '\n' < "/proc/$SRV/environ")"
 for name in POSTGRES_PASSWORD OWNER_DB_PASSWORD DATABASE_OWNER_URL; do
   if printf '%s\n' "$env_dump" | grep -q "^$name="; then echo "  NG $name がサーバの環境にある"; exit 1; fi
