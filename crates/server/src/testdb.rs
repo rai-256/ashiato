@@ -45,6 +45,10 @@ pub async fn pool() -> sqlx::PgPool {
             for sql in crate::MIGRATIONS {
                 sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
             }
+            sqlx::raw_sql(crate::GRANTS)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
             tx.commit().await.unwrap();
         })
         .await;

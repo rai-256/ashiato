@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
+export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}"
 export BIND="${BIND:-127.0.0.1:18787}"
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
@@ -20,15 +21,29 @@ docker compose down -v >/dev/null 2>&1 || true
 docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
 
-echo "== 2. サーバを起動（起動時にマイグレーションを当てる）"
+echo "== 2. 移行を当ててからサーバを起動（サーバは移行を当てない。所有者・管理者の秘密は環境から外す）"
 # **ビルドを起動待ちの外に出す。** cargo run のままだと待ち時間の中でコンパイルが走り、
 # CI の cold build（2〜4 分）が 60 秒の待ちを超えて「起動しない」と誤判定する
 # （実測: GitHub Actions で curl exit 7 / run 34209473342）。
 # 生成物を直接起動するので、trap の kill が確実にサーバへ届く利点もある。
 cargo build -q -p ashiato-server --bin ashiato-server
-./target/debug/ashiato-server & SRV=$!
+./target/debug/ashiato-server migrate
+env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
+
+echo "== 2b. Scenario: サーバの実行時の環境に所有者と管理者の合言葉が無い（/proc/<pid>/environ）"
+env_dump="$(tr '\0' '\n' < "/proc/$SRV/environ")"
+for name in POSTGRES_PASSWORD OWNER_DB_PASSWORD DATABASE_OWNER_URL; do
+  if printf '%s\n' "$env_dump" | grep -q "^$name="; then echo "  NG $name がサーバの環境にある"; exit 1; fi
+done
+# 値そのもの（別の名前で渡っていても見つかる）。値は出さない
+for name in POSTGRES_PASSWORD OWNER_DB_PASSWORD; do
+  value="${!name:-}"
+  [ -n "$value" ] || { echo "  NG $name が手元に無く、環境に無いことを値で確かめられない"; exit 1; }
+  if printf '%s\n' "$env_dump" | grep -qF -- "$value"; then echo "  NG $name の値がサーバの環境にある"; exit 1; fi
+done
+echo "  OK サーバの環境に管理者・所有者の合言葉も所有者の接続先も無い"
 
 echo "== 3. ソースを登録簿へ 1 行（FR-61: API を変えずにソースを増やす）"
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \

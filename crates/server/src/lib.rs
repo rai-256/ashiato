@@ -16,6 +16,9 @@ use sqlx::postgres::PgPoolOptions;
 
 #[cfg(test)]
 mod api_tests;
+/// アプリの役割の権限（ST28 / design D4）。
+#[cfg(test)]
+mod app_role_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
 /// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
@@ -121,7 +124,11 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
     ),
 ];
 
-/// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
+/// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
+pub const GRANTS: &str = include_str!("grants.sql");
+
+/// 版を順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
+/// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     for (name, sql) in MIGRATIONS {
         sqlx::raw_sql(sql)
@@ -129,6 +136,61 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
             .await
             .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
     }
+    sqlx::raw_sql(GRANTS)
+        .execute(pool)
+        .await
+        .context("アプリの役割への付与に失敗")?;
+    Ok(())
+}
+
+/// 起動を拒む接続の役割の種別（design D4）。値（役割名・合言葉）は出さず、種別だけを出す。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DbRoleRefusal {
+    /// 接続した役割が DB の管理者（superuser）。トリガを止められる。
+    Superuser,
+    /// 接続した役割が記録の schema（`core`）の表の所有者。トリガを外せる。
+    TableOwner,
+}
+
+impl DbRoleRefusal {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Superuser => "superuser",
+            Self::TableOwner => "table_owner",
+        }
+    }
+}
+
+/// 起動時の自己検査。**管理者でも `core` の表の所有者でもない接続でだけ**起動を許す。
+pub async fn check_db_role(pool: &sqlx::PgPool) -> anyhow::Result<Option<DbRoleRefusal>> {
+    let superuser: bool =
+        sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+            .fetch_one(pool)
+            .await
+            .context("接続した役割の検査に失敗")?;
+    if superuser {
+        return Ok(Some(DbRoleRefusal::Superuser));
+    }
+    let owns: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_tables
+                         WHERE schemaname = 'core' AND tableowner = current_user)",
+    )
+    .fetch_one(pool)
+    .await
+    .context("接続した役割の検査に失敗")?;
+    Ok(owns.then_some(DbRoleRefusal::TableOwner))
+}
+
+/// `ashiato-server migrate`。`DATABASE_OWNER_URL` で繋いで移行と付与を当てる。
+pub async fn run_migrate() -> anyhow::Result<()> {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+    let url = std::env::var("DATABASE_OWNER_URL").context("DATABASE_OWNER_URL が未設定")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await?;
+    migrate(&pool).await?;
+    tracing::info!(versions = MIGRATIONS.len(), "移行を当てた");
     Ok(())
 }
 
@@ -1779,7 +1841,16 @@ pub async fn run() -> anyhow::Result<()> {
         .max_connections(5)
         .connect(&url)
         .await?;
-    migrate(&pool).await?;
+    // 移行は当てない（`ashiato-server migrate`。design D5）。管理者・所有者の接続では起動しない。
+    if let Some(refusal) = check_db_role(&pool).await? {
+        tracing::error!(
+            kind = "db_role",
+            reason = refusal.reason(),
+            "この接続の役割では起動しない"
+        );
+        eprintln!("error: kind=db_role reason={}", refusal.reason());
+        std::process::exit(2);
+    }
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))

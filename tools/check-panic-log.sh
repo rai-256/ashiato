@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
+export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す}"
 export BIND="${BIND:-127.0.0.1:18788}"
 export API_TOKEN="${API_TOKEN:-panic-token-0123456789abcdef}"
 export ASHIATO_SELFTEST_PANIC=1
@@ -11,7 +12,9 @@ cleanup(){ kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/nu
 trap cleanup EXIT
 docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
-cargo run -q -p ashiato-server --bin ashiato-server > "$LOG" 2>&1 & SRV=$!
+cargo build -q -p ashiato-server --bin ashiato-server
+./target/debug/ashiato-server migrate > "$LOG" 2>&1
+env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server >> "$LOG" 2>&1 & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -s -o /dev/null "http://$BIND/selftest/panic" || true
 sleep 2
