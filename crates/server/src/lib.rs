@@ -14,6 +14,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 
+/// 読み出しの記録の移行と錠（ST28 / design D8 / D9）。
+#[cfg(test)]
+mod access_migration_tests;
 #[cfg(test)]
 mod api_tests;
 /// アプリの役割の権限（ST28 / design D4）。
@@ -48,6 +51,10 @@ pub mod stay_store;
 mod stay_tests;
 #[cfg(test)]
 pub mod testdb;
+/// 画面のログイン（ST28 / design D1 / D2 / D3）。
+pub mod web_session;
+#[cfg(test)]
+mod web_session_tests;
 
 use coverage::DAY_TZ;
 use ingest::{content_hash, IngestRequest};
@@ -55,7 +62,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 15] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -122,6 +129,11 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
     (
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
+    ),
+    // 画面のログインの印と、読み出しの記録（ST28 / design D3 / D8 / D9）
+    (
+        "202609290900_access_control",
+        include_str!("../../../migrations/202609290900_access_control.sql"),
     ),
 ];
 
@@ -212,20 +224,53 @@ pub struct App {
     /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
     /// 素通しで読み書きできてしまう。
     token: String,
+    /// 画面のログインの設定と失敗の数（ST28 / design D3 / D17 / D18）。
+    login: web_session::WebLogin,
     /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
     stays: StayRebuilder,
 }
 
 impl App {
-    /// テスト用。作り直しの口は本物を使う。
-    #[cfg(test)]
-    pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
+    /// 起動時の組み立て。`web_password` は `check_web_password` を通ったもの。
+    pub fn new(
+        pool: sqlx::PgPool,
+        token: String,
+        web_password: &str,
+        session_max_age_days: u32,
+    ) -> Self {
         Self {
+            login: web_session::WebLogin::new(&token, web_password, session_max_age_days),
             pool,
-            token: token.into(),
+            token,
             stays: StayRebuilder::real(),
+            #[cfg(test)]
             now: None,
         }
+    }
+
+    /// テスト用。作り直しの口は本物を使う。画面の合言葉は試験の既定値、失敗の待ちは 0。
+    #[cfg(test)]
+    pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
+        let mut app = Self::new(pool, token.into(), "test-web-password-0123456789", 0);
+        app.login.failure_delay = std::time::Duration::ZERO;
+        app
+    }
+
+    /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
+    #[cfg(test)]
+    pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
+        let mut login = web_session::WebLogin::new(&self.token, web_password, session_max_age_days);
+        login.failure_delay = self.login.failure_delay;
+        Self { login, ..self }
+    }
+
+    /// いまの時刻。試験は `at()` で差し込める。
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        #[cfg(test)]
+        if let Some(now) = self.now {
+            return now;
+        }
+        chrono::Utc::now()
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -303,28 +348,36 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
     given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
-/// 合言葉を確かめる。無ければ 401。
-fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+/// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
+/// API の合言葉（`Bearer`）か有効なログインの印（cookie）のどちらかで通る。無ければ 401。
+async fn authorize(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<web_session::Caller, (StatusCode, String)> {
     let given = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
-    let ok = token_matches(given, &app.token);
-    if ok {
-        Ok(())
-    } else {
-        // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
-        // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
-        // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
-        // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
-        tracing::warn!(
-            kind = "unauthorized",
-            credential_present = !given.is_empty(),
-            "資格情報が一致しない"
-        );
-        Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
+    if token_matches(given, &app.token) {
+        return Ok(web_session::Caller::ApiToken);
     }
+    if web_session::session_valid(app, headers)
+        .await
+        .map_err(|e| internal_at("session.lookup", e))?
+    {
+        return Ok(web_session::Caller::WebSession);
+    }
+    // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
+    // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
+    // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
+    // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
+    tracing::warn!(
+        kind = "unauthorized",
+        credential_present = !given.is_empty(),
+        "資格情報が一致しない"
+    );
+    Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——
@@ -1115,7 +1168,7 @@ pub async fn ingest(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<IngestResult>>), (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -1288,7 +1341,7 @@ pub async fn stays_rebuild(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<RebuildResponse>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let req: RebuildRequest = if body.iter().all(u8::is_ascii_whitespace) {
         RebuildRequest::default()
     } else {
@@ -1368,7 +1421,7 @@ pub async fn stays_criteria_get(
     headers: HeaderMap,
     Query(q): Query<StaysCriteriaQuery>,
 ) -> Result<Json<Vec<stay_store::CriteriaVersion>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     stay_store::criteria_versions(&app.pool, q.user_id.unwrap_or_default())
         .await
         .map(Json)
@@ -1391,7 +1444,7 @@ pub async fn stays_get(
     headers: HeaderMap,
     Query(q): Query<StaysQuery>,
 ) -> Result<Json<stay_store::DayView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
     stay_store::day_view(
@@ -1560,7 +1613,7 @@ pub async fn heartbeat_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -1606,7 +1659,7 @@ pub async fn coverage_get(
     headers: HeaderMap,
     Query(q): Query<CoverageQuery>,
 ) -> Result<Json<Vec<coverage::SourceCoverage>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
     //
     // **`of_sources` が名前ごとに引き継ぎの鎖を解決する**（第 8 回 Q31 /
@@ -1639,7 +1692,7 @@ pub async fn achievement_get(
     headers: HeaderMap,
     Query(q): Query<AchievementQuery>,
 ) -> Result<Json<coverage::Achievement>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let today = today_jst();
     let got = coverage::achievement(&app.pool, q.user_id, today, &coverage::must_sources())
         .await
@@ -1679,7 +1732,7 @@ pub async fn attributes_get(
     headers: HeaderMap,
     Query(q): Query<AttributesQuery>,
 ) -> Result<Json<attributes::AttributesView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let today = app.today();
     attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today)
         .await
@@ -1698,7 +1751,7 @@ pub async fn attributes_kind_post(
     Json(req): Json<attributes_store::KindRequest>,
 ) -> Result<Json<attributes_store::KindCreated>, (StatusCode, Json<attributes_store::KindErrorBody>)>
 {
-    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    authorize(&app, &headers).await.map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::add_kind(&app.pool, user_id, &req.name)
         .await
@@ -1736,7 +1789,7 @@ pub async fn attributes_kind_name_post(
     Path(id): Path<uuid::Uuid>,
     Json(req): Json<attributes_store::KindRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<attributes_store::KindErrorBody>)> {
-    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    authorize(&app, &headers).await.map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::rename_kind(&app.pool, user_id, id, &req.name)
         .await
@@ -1768,7 +1821,7 @@ pub async fn events(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
     let rows = sqlx::query_as::<
         _,
@@ -1829,6 +1882,38 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
+/// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
+pub fn router(app: App) -> Router {
+    Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .route("/ingest", post(ingest))
+        .route("/heartbeat", post(heartbeat_post))
+        .route("/drops", post(drops::drops_post))
+        .route("/events", get(events))
+        .route("/coverage", get(coverage_get))
+        .route("/coverage/achievement", get(achievement_get))
+        .route("/stays", get(stays_get))
+        .route("/stays/rebuild", post(stays_rebuild))
+        .route("/stays/criteria", get(stays_criteria_get))
+        .route("/attributes", get(attributes_get))
+        .route("/attributes/kinds", post(attributes_kind_post))
+        .route(
+            "/attributes/kinds/{id}/names",
+            post(attributes_kind_name_post),
+        )
+        .route(
+            "/session",
+            post(web_session::session_post)
+                .delete(web_session::session_delete)
+                .get(web_session::session_get),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            web_session::refresh_cookie,
+        ))
+        .with_state(app)
+}
+
 pub async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     std::panic::set_hook(Box::new(|info| {
@@ -1841,6 +1926,26 @@ pub async fn run() -> anyhow::Result<()> {
     if token.len() < 16 {
         anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
     }
+    // 画面の合言葉の検査（design D16）。値は出さず、理由の種別だけ。
+    let web_password = std::env::var("WEB_PASSWORD").ok();
+    if let Err(refusal) = web_session::check_web_password(web_password.as_deref(), &token) {
+        tracing::error!(
+            kind = "web_password",
+            reason = refusal.reason(),
+            "起動しない"
+        );
+        eprintln!("error: kind=web_password reason={}", refusal.reason());
+        std::process::exit(2);
+    }
+    let web_password = web_password.unwrap_or_default();
+    // ログインの期限（日。0 = なし。design D18）
+    let session_max_age_days: u32 = match std::env::var("WEB_SESSION_MAX_AGE_DAYS") {
+        Ok(v) => v
+            .trim()
+            .parse()
+            .context("WEB_SESSION_MAX_AGE_DAYS が日数（整数）でない")?,
+        Err(_) => 0,
+    };
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
     let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     if let Err(refusal) = net_guard::check_bind(&addr).await? {
@@ -1864,30 +1969,7 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(2);
     }
 
-    let mut app = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
-        .route("/ingest", post(ingest))
-        .route("/heartbeat", post(heartbeat_post))
-        .route("/drops", post(drops::drops_post))
-        .route("/events", get(events))
-        .route("/coverage", get(coverage_get))
-        .route("/coverage/achievement", get(achievement_get))
-        .route("/stays", get(stays_get))
-        .route("/stays/rebuild", post(stays_rebuild))
-        .route("/stays/criteria", get(stays_criteria_get))
-        .route("/attributes", get(attributes_get))
-        .route("/attributes/kinds", post(attributes_kind_post))
-        .route(
-            "/attributes/kinds/{id}/names",
-            post(attributes_kind_name_post),
-        )
-        .with_state(App {
-            pool,
-            token,
-            stays: StayRebuilder::real(),
-            #[cfg(test)]
-            now: None,
-        });
+    let mut app = router(App::new(pool, token, &web_password, session_max_age_days));
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -1916,7 +1998,10 @@ pub async fn run() -> anyhow::Result<()> {
         stays_criteria_get,
         attributes_get,
         attributes_kind_post,
-        attributes_kind_name_post
+        attributes_kind_name_post,
+        web_session::session_post,
+        web_session::session_delete,
+        web_session::session_get
     ),
     components(schemas(
         IngestResult,
@@ -1955,6 +2040,8 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindCreated,
         attributes_store::KindError,
         attributes_store::KindErrorBody,
+        web_session::LoginRequest,
+        web_session::SessionState,
     )),
     info(
         title = "ashiato S-01",

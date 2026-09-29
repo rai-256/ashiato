@@ -17,8 +17,15 @@ chrono.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 unicode-normalization.workspace = true
+hmac = "0.12"
+base64 = "0.22"
+rand = "0.8"
 axum = "0.8"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

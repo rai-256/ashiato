@@ -24,6 +24,7 @@ fn start_with(database_url: &str) -> Output {
         .env_clear()
         .env("DATABASE_URL", database_url)
         .env("API_TOKEN", "test-token-0123456789abcdef")
+        .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
         .env("BIND", "127.0.0.1:0")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -71,11 +72,13 @@ fn server_startup_refuses_privileged_role() {
 }
 
 const TEST_TOKEN: &str = "test-token-0123456789abcdef";
+const TEST_WEB_PASSWORD: &str = "test-web-password-0123456789";
 
 fn server_cmd() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ashiato-server"));
     c.env_clear()
         .env("API_TOKEN", TEST_TOKEN)
+        .env("WEB_PASSWORD", TEST_WEB_PASSWORD)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     c
@@ -226,4 +229,55 @@ fn server_startup_db_not_loopback_refuses_server_and_migrate() {
             "接続を試みた痕跡がある: {all}"
         );
     }
+}
+
+/// 画面の合言葉の検査は DB より前。DB は繋がない先にして、判定が DB に触れないことも見る。
+fn start_with_web_password(web_password: Option<&str>, api_token: &str) -> Output {
+    let mut c = server_cmd();
+    c.env("API_TOKEN", api_token)
+        .env("DATABASE_URL", "postgres://x:y@127.0.0.1:1/ashiato")
+        // 検査を通った場合は次の段（待ち受けの検査）で止める。DB には繋がない
+        .env("BIND", "0.0.0.0:0");
+    match web_password {
+        Some(p) => c.env("WEB_PASSWORD", p),
+        None => c.env_remove("WEB_PASSWORD"),
+    };
+    wait_exit(c.spawn().unwrap())
+}
+
+fn assert_web_password_refused(out: &Output, reason: &str, secrets: &[&str]) {
+    assert_kind_refused(out, "web_password");
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        all.contains(&format!("reason={reason}")),
+        "理由が無い: {all}"
+    );
+    for secret in secrets {
+        assert!(!all.contains(secret), "合言葉の値が出ている");
+    }
+}
+
+/// Scenario: 画面の合言葉が API の合言葉と同じだと起動しない
+#[test]
+fn server_startup_web_password_same_as_api_token_refuses() {
+    let out = start_with_web_password(Some(TEST_TOKEN), TEST_TOKEN);
+    assert_web_password_refused(&out, "same_as_api_token", &[TEST_TOKEN]);
+}
+
+/// Scenario: 画面の合言葉が無いか短いと起動しない
+#[test]
+fn server_startup_web_password_missing_or_short_refuses() {
+    let out = start_with_web_password(None, TEST_TOKEN);
+    assert_web_password_refused(&out, "missing", &[]);
+    let fifteen = "a1b2c3d4e5f6g7h";
+    assert_eq!(fifteen.len(), 15);
+    let out = start_with_web_password(Some(fifteen), TEST_TOKEN);
+    assert_web_password_refused(&out, "too_short", &[fifteen]);
+    // 16 文字ちょうどは検査を通り、次の段（待ち受け）で止まる
+    let out = start_with_web_password(Some("a1b2c3d4e5f6g7h8"), TEST_TOKEN);
+    assert_kind_refused(&out, "bind_unspecified");
 }

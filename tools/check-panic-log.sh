@@ -6,6 +6,7 @@ export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; se
 export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す}"
 export BIND="${BIND:-127.0.0.1:18788}"
 export API_TOKEN="${API_TOKEN:-panic-token-0123456789abcdef}"
+export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
 export ASHIATO_SELFTEST_PANIC=1
 LOG=$(mktemp)
 cleanup(){ kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
