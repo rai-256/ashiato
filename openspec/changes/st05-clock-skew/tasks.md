@@ -60,13 +60,13 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 2: 登録簿に端末の時計のソースを足す（サーバ）
 
-- [ ] 2.1 移行 `migrations/YYYYMMDDHHMM_clock_source.sql` と `.down.sql` を足す —— `core.source` に
+- [x] 2.1 移行 `migrations/YYYYMMDDHHMM_clock_source.sql` と `.down.sql` を足す —— `core.source` に
   `('c01-clock', '携帯端末の時計のずれ', 21600, 'none')`（`ON CONFLICT (logical_source) DO NOTHING`）。
   `.down.sql` は `c01-clock` の記録が 1 件も無いときだけ行を消す。`MIGRATIONS` 配列の末尾に足す（design D1 / Migration Plan）。
   試験 `clock_source_migration_applies_twice`（全版を 2 回当てて落ちず、行が 1 行で `external_id_kind = 'none'`）を置く。
   検証: `tools/check-migrations.sh` rc=0 /
   `bash -o pipefail -c 'cargo test -p ashiato-server clock_source_migration 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
-- [ ] 2.2 `/ingest` に識別子を持たない `c01-clock` の記録を送って格納される試験と、`c01-clock` の記録だけがある日が
+- [x] 2.2 `/ingest` に識別子を持たない `c01-clock` の記録を送って格納される試験と、`c01-clock` の記録だけがある日が
   稼働状況の端末が主語の達成日に数えられない試験（`coverage.rs` の数えを通す）を、名前 `clock_record_ingest_*` で置く。
   Scenario: `識別子を持たない測定記録が格納される` / `測定記録だけの日は端末が主語の達成日にならない`。
   検証: `bash -o pipefail -c 'cargo test -p ashiato-server clock_record_ingest_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([2-9]|[1-9][0-9]+) passed' /tmp/ct.log`（2 本以上）
