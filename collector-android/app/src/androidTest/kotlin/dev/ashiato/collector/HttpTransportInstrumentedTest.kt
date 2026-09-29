@@ -114,6 +114,6 @@ class HttpTransportInstrumentedTest {
     }
 }
 
-/** 時計のずれの測定が使う欄（`Date` と時計の値）を既定値へ戻す。状態符号と本文だけを比べるため。 */
+/** 時計のずれの測定が使う欄（`Date`・時計の値・宛先）を既定値へ戻す。状態符号と本文だけを比べるため。 */
 private fun Outcome.withoutClockFields(): Outcome =
-    if (this is Outcome.Responded) copy(date = null, monoBeforeMs = 0, monoAfterMs = 0, wallAfterMs = 0) else this
+    if (this is Outcome.Responded) copy(date = null, monoBeforeMs = 0, monoAfterMs = 0, wallAfterMs = 0, host = null) else this
