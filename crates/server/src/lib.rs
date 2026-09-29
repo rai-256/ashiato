@@ -1456,6 +1456,30 @@ pub struct StaysQuery {
     user_id: Option<uuid::Uuid>,
 }
 
+/// `GET /stays/detail` の絞り込み。滞在の時間帯にある記録の件数を返す。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct StaysDetailQuery {
+    stay_id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 詳細に表示する論理ソースごとの記録件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct StayDetailCount {
+    logical_source: String,
+    display_name: String,
+    count: i64,
+}
+
+/// 滞在の時間帯と、その時間帯にある読み出し中の記録の件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct StayDetail {
+    stay_id: uuid::Uuid,
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+    counts: Vec<StayDetailCount>,
+}
+
 /// 1 日の並び（滞在・移動・記録なし）を時刻順に返す（design D8）。
 #[utoipa::path(get, path = "/stays", params(StaysQuery),
     responses((status = 200, body = stay_store::DayView), (status = 400), (status = 401)))]
@@ -1476,6 +1500,64 @@ pub async fn stays_get(
     .await
     .map(Json)
     .map_err(|e| internal_at("stays.day", e))
+}
+
+/// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
+#[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
+    responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
+pub async fn stays_detail_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<StaysDetailQuery>,
+) -> Result<Json<StayDetail>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let user = q.user_id.unwrap_or_default();
+    let stay: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT event_time, coalesce((payload->>'end')::timestamptz, event_time)
+               FROM core.event_live
+              WHERE id = $1 AND user_id = $2
+                AND logical_source = 's01-stay' AND origin = 'derived'",
+        )
+        .bind(q.stay_id)
+        .bind(user)
+        .fetch_optional(&app.pool)
+        .await
+        .map_err(|e| internal_at("stays.detail_stay", e))?;
+    let Some((start, end)) = stay else {
+        return Err((StatusCode::NOT_FOUND, "stay_not_found".into()));
+    };
+
+    let counts: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT e.logical_source, s.display_name, count(*)
+           FROM core.event_live e
+           JOIN core.source s ON s.logical_source = e.logical_source
+          WHERE e.user_id = $1
+            AND e.logical_source <> 's01-stay'
+            AND e.event_time BETWEEN $2 AND $3
+          GROUP BY e.logical_source, s.display_name
+          ORDER BY e.logical_source",
+    )
+    .bind(user)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&app.pool)
+    .await
+    .map_err(|e| internal_at("stays.detail_counts", e))?;
+
+    Ok(Json(StayDetail {
+        stay_id: q.stay_id,
+        start,
+        end,
+        counts: counts
+            .into_iter()
+            .map(|(logical_source, display_name, count)| StayDetailCount {
+                logical_source,
+                display_name,
+                count,
+            })
+            .collect(),
+    }))
 }
 
 // ------------------------------------------------------------------ 生存信号
@@ -1929,6 +2011,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
+        .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
@@ -1971,6 +2054,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         stays_get,
+        stays_detail_get,
         stays_erase,
         stays_restore,
         stays_rebuild,

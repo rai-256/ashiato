@@ -163,6 +163,92 @@ async fn put_dwell(pool: &sqlx::PgPool, user: uuid::Uuid, at: &str, minutes: i64
     .unwrap();
 }
 
+// Scenario: 詳細にその時間の記録の件数がソースごとに出る
+// Scenario: 削除済みの記録は件数に数えない
+#[tokio::test]
+async fn stays_detail_counts() {
+    let app = app().await;
+    let user = testdb::user();
+    let location = testdb::source(&app.pool, "detail-location", 21_600).await;
+    let windows = testdb::source(&app.pool, "detail-windows", 21_600).await;
+    sqlx::query("UPDATE core.source SET display_name = $2 WHERE logical_source = $1")
+        .bind(&location)
+        .bind("位置")
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core.source SET display_name = $2 WHERE logical_source = $1")
+        .bind(&windows)
+        .bind("PC のウィンドウ")
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-28T10:00:00+09:00",
+        "2026-09-28T11:00:00+09:00",
+    )
+    .await;
+    for minute in 0..12 {
+        let at = format!("2026-09-28T10:{minute:02}:00+09:00");
+        put_event(&app.pool, user, &location, t(&at)).await;
+    }
+    for _ in 0..3 {
+        put_event(&app.pool, user, &windows, t("2026-09-28T10:30:00+09:00")).await;
+    }
+    for minute in 0..4 {
+        let at = format!("2026-09-28T10:{minute:02}:00+09:00");
+        testdb::put_deleted_event(&app.pool, user, &location, &at).await;
+    }
+
+    let axum::Json(detail) = crate::stays_detail_get(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::StaysDetailQuery {
+            stay_id: stay,
+            user_id: Some(user),
+        }),
+    )
+    .await
+    .unwrap();
+    let json = serde_json::to_value(detail).unwrap();
+    assert_eq!(json["stay_id"], stay.to_string());
+    assert_eq!(
+        json["counts"],
+        serde_json::json!([
+            {"logical_source": location, "display_name": "位置", "count": 8},
+            {"logical_source": windows, "display_name": "PC のウィンドウ", "count": 3}
+        ])
+    );
+
+    assert!(matches!(
+        crate::stays_detail_get(
+            State(app.clone()),
+            axum::http::HeaderMap::new(),
+            axum::extract::Query(crate::StaysDetailQuery {
+                stay_id: stay,
+                user_id: Some(user),
+            }),
+        )
+        .await,
+        Err((axum::http::StatusCode::UNAUTHORIZED, _))
+    ));
+    assert!(matches!(
+        crate::stays_detail_get(
+            State(app),
+            auth(),
+            axum::extract::Query(crate::StaysDetailQuery {
+                stay_id: uuid::Uuid::new_v4(),
+                user_id: Some(user),
+            }),
+        )
+        .await,
+        Err((axum::http::StatusCode::NOT_FOUND, _))
+    ));
+}
+
 // Scenario: 消した滞在を戻すと一覧に戻る
 // Scenario: 戻すと連鎖で消えた位置も戻る
 // Scenario: 資格情報の無い戻す求めは断られる
