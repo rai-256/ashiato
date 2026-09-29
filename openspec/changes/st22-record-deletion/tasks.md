@@ -126,7 +126,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 6: 詳細の件数の口（design D8）
 
-- [ ] 6.1 `GET /stays/detail?stay_id=&user_id=` を足す。滞在の時間に重なる `core.event_live` の行を `logical_source` ごとに数え、
+- [x] 6.1 `GET /stays/detail?stay_id=&user_id=` を足す。滞在の時間に重なる `core.event_live` の行を `logical_source` ごとに数え、
   登録簿の表示名を添える（滞在自身は除く）。未知の識別子は 404、資格情報なしは 401。
   Scenario: `詳細にその時間の記録の件数がソースごとに出る`（サーバ側の件数） / `削除済みの記録は件数に数えない`。検証: `CT stays_detail_counts`
 
