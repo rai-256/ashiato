@@ -249,6 +249,58 @@ async fn stays_detail_counts() {
     ));
 }
 
+#[tokio::test]
+async fn stays_detail_query_uses_user_time_index() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = testdb::source(&pool, "detail-index", 21_600).await;
+
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         SELECT gen_random_uuid(), $1, $2, 'test', 'collected',
+                '2026-09-28T00:00:00+00:00'::timestamptz + make_interval(mins => i),
+                0, 'UTC', 1, gen_random_uuid()::text, '{}', '{}'::jsonb
+           FROM generate_series(0, 20_000) AS i",
+    )
+    .bind(user)
+    .bind(&source)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql("ANALYZE core.event")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let plan: Vec<(String,)> = sqlx::query_as(
+        "EXPLAIN (COSTS OFF)
+           SELECT e.logical_source, s.display_name, count(*)
+             FROM core.event_live e
+             JOIN core.source s ON s.logical_source = e.logical_source
+            WHERE e.user_id = $1
+              AND e.logical_source <> 's01-stay'
+              AND e.event_time BETWEEN $2 AND $3
+            GROUP BY e.logical_source, s.display_name",
+    )
+    .bind(user)
+    .bind(t("2026-09-28T00:00:00+00:00"))
+    .bind(t("2026-09-28T12:00:00+00:00"))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let plan = plan
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        plan.contains("event_by_user_time_live"),
+        "詳細集計が user_id, event_time のライブ索引を使わない:\n{plan}"
+    );
+}
+
 // Scenario: 消した滞在を戻すと一覧に戻る
 // Scenario: 戻すと連鎖で消えた位置も戻る
 // Scenario: 資格情報の無い戻す求めは断られる

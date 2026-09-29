@@ -1247,7 +1247,7 @@ async fn stay_day_query_uses_index() {
     drop.await;
     let plan = got.unwrap();
     assert!(
-        plan.contains("event_by_source_time"),
+        plan.contains("event_by_source_time") || plan.contains("event_by_user_time_live"),
         "位置を引く文が索引に乗らない:\n{plan}"
     );
     assert!(

@@ -55,7 +55,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 16] = [
+pub const MIGRATIONS: [(&str, &str); 17] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -127,6 +127,10 @@ pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609271716_deletion_ledger",
         include_str!("../../../migrations/202609271716_deletion_ledger.sql"),
+    ),
+    (
+        "202609291151_detail_counts_index",
+        include_str!("../../../migrations/202609291151_detail_counts_index.sql"),
     ),
 ];
 
