@@ -165,13 +165,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 10: 仕上げ
 
-- [ ] 10.1 OpenAPI に 3 本の口を足す（`utoipa`）。検証: `tools/check-openapi.sh` rc=0
-- [ ] 10.2 検査 3 本。検証: `python3 scripts/check_scenarios.py . st22-record-deletion` rc=0、
+- [x] 10.1 OpenAPI に 3 本の口を足す（`utoipa`）。検証: `tools/check-openapi.sh` rc=0
+- [x] 10.2 検査 3 本。検証: `python3 scripts/check_scenarios.py . st22-record-deletion` rc=0、
   `python3 scripts/review_triage.py . st22-record-deletion` rc=0、`python3 scripts/check_chain.py .` rc=0
-- [ ] 10.3 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` /
+- [x] 10.3 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` /
   `cargo test --workspace` / `cd web && npm run lint && npm run test && npm run build && npm run test:e2e` /
   `tools/check-immutable.sh` / `tools/smoke.sh` が全部 rc=0
-- [ ] 10.4 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。ST22 宛ての 7 件のうち、
+- [x] 10.4 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。ST22 宛ての 7 件のうち、
   ST22 が扱わないもの（st19 Q1 → ST23 / st19 R20 → ST23 / st08 R4 → ST23）が `design.md` の Non-Goals に残り、
   宛先のファイル（`docs/handoff/ST23.md` / `docs/handoff/ST33.md`）に置かれていることを確かめる。
   検証: `grep -c 'st22-record-deletion' docs/handoff/ST23.md docs/handoff/ST33.md` がどちらも 1 以上
