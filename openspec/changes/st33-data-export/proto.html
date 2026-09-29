@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST33 proto — 全記録を書き出す（S-7 設定の「書き出し」）</title>
+<style>
+  /* ---- playground 自体の UI（upstream 既定どおりダーク。プレビュー対象の明暗とは別物） ---- */
+  :root{
+    --ui-bg:#14161a; --ui-panel:#1b1e24; --ui-line:#2b3039; --ui-fg:#dfe3ea; --ui-dim:#939bab;
+    --ui-accent:#7fb98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui-bg);color:var(--ui-fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif;font-size:14px}
+  .wrap{display:grid;grid-template-columns:360px 1fr;min-height:100vh}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .controls{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:16px;overflow-y:auto;max-height:100vh}
+  @media (max-width:900px){.controls{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+  .right{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--ui-dim);font-size:12px;margin:0 0 14px;line-height:1.6}
+  .sub b{color:var(--ui-fg)}
+  .grp{border-top:1px solid var(--ui-line);padding:14px 0 4px}
+  .grp:first-of-type{border-top:none}
+  .grp > .lbl{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin-bottom:10px}
+  .hint{display:block;color:var(--ui-dim);font-size:11px;margin-top:6px;line-height:1.55}
+  .hint b{color:var(--ui-fg)}
+  .cards{display:grid;gap:6px}
+  .card{background:#232730;border:1px solid var(--ui-line);border-radius:8px;padding:9px 10px;
+        cursor:pointer;font-size:12.5px;line-height:1.45;text-align:left;color:inherit;font-family:inherit;width:100%}
+  .card:hover{border-color:#3d4552}
+  .card.on{border-color:var(--ui-accent);background:#22302460}
+  .card .t{font-weight:600}
+  .card .d{color:var(--ui-dim);font-size:11px;margin-top:3px}
+  .presets{display:flex;flex-wrap:wrap;gap:6px}
+  .presets button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:14px;
+        padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+  .presets button:hover{border-color:var(--ui-accent)}
+  .fixed{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;
+         font-size:11.5px;color:var(--ui-dim);line-height:1.75}
+  .fixed b{color:var(--ui-fg);font-weight:600}
+  /* ---- プレビュー ---- */
+  .stage{flex:1;padding:18px;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;
+         background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+  .meta{width:100%;max-width:920px;display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ui-dim);justify-content:center}
+  .meta b{color:var(--ui-accent);font-family:ui-monospace,Menlo,monospace}
+  .meta button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .phone{border:1px solid var(--ui-line);border-radius:20px;overflow:hidden;flex:0 0 auto;box-shadow:0 10px 40px #0008;width:362px}
+  .phone .cap{font-size:11px;color:var(--ui-dim);padding:6px 10px;background:#101216;
+              display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}
+  .screen{overflow-y:auto;height:640px;width:360px;position:relative}
+  .howto{font-size:11.5px;color:var(--ui-dim);max-width:520px;text-align:center;line-height:1.6}
+  /* ---- 出力 ---- */
+  .out{border-top:1px solid var(--ui-line);background:var(--ui-panel);padding:14px 18px}
+  .out h2{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin:0 0 8px}
+  pre#prompt{white-space:pre-wrap;background:#101216;border:1px solid var(--ui-line);border-radius:8px;
+       padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;
+       max-height:230px;overflow:auto;margin:0 0 10px;color:#cbd2dd;user-select:text}
+  button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
+       font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.copy:hover{filter:brightness(1.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============================ コントロール ============================ -->
+<div class="controls">
+  <h1>ST33 — 全記録を書き出す（S-7 設定）</h1>
+  <p class="sub">
+    完了の判定は「<b>全記録を書き出し、このシステムを使わずに中身を読める</b>」。
+    書き出しの置き場は <code>docs/ui-direction.md</code> の画面一覧で <b>S-7 設定</b>。S-7 はまだ 1 枚も無いので、<b>ST33 が S-7 の最初の節</b>になる
+    （ソース・停止は ST15、アカウント系の定期取得は ST13、感度は ST24、プラグインは ST29 が後から同じ画面に足す）。<br>
+    触るのは<b>構造の軸</b>だけ。右の画面で<b>「書き出す」を押して、終わるところまで見てください</b>。
+  </p>
+
+  <div class="grp">
+    <div class="lbl">まとめて選ぶ</div>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 1 — 押す前に何を見せるか</div>
+    <div class="cards" id="beforeCards"></div>
+    <span class="hint">件数は書き出しと同じ読み方（削除の印の付いた記録を除く）で数える。<b>入らないもの</b>は、削除の印の付いた記録・削除と消去の台帳（聞かないで決める既定 C1 / C6）。<b>消した滞在の時間に入る、印の無い行（書庫の位置・前の版など）をどうするかは Q5</b>。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 2 — 押してから終わるまで</div>
+    <div class="cards" id="runCards"></div>
+    <span class="hint">時間の目安はこの proto の仮定（1 秒に 2 万行）。1 年分でおよそ 1 分、3 年分で 3 分、NFR-5 の上限で 3 年なら 20 分近く。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 3 — 書き出した後に記録を消したら、画面で知らせるか</div>
+    <div class="cards" id="staleCards"></div>
+    <span class="hint">書き出したファイルは<b>その時点の写し</b>で、後から滞在を消しても<b>ファイルの中には残る</b>（ST22 の Q1 で本人が守ろうとした「消した場面の緯度経度」）。知らせるかどうかは画面の話で、ファイルの扱い（上書きするか）は文字の問い Q4。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">入力（軸ではない。深掘りの別の問いと、データの量）</div>
+    <div class="cards" id="destCards"></div>
+    <span class="hint">「書き出したファイルがどこへ行くか」は文字の問い（Q1）で聞く。ここでは<b>終わった後の見え方</b>だけに効く。</span>
+    <div class="cards" id="spanCards" style="margin-top:10px"></div>
+    <span class="hint">量は推定。位置は 60 秒間隔 × 取得率 67 %（ST01 の実測）で 1 日 約 960 件、PC のウィンドウ 約 2,000 件（FR-12 の通常の切り替え 1,500〜3,000 件）、ブラウザ履歴 約 100 件、アプリ利用 約 150 件（ST06 は OS が返すイベントを全部取るので実測ではない）、滞在 約 9 件、写真のメタ 約 5.5 件（NFR-6）、稼働の信号 約 13 件（6 時間ごと × 3 ソース ＋ ブラウザ 1 日 1 件）。1 行 約 0.9 KB（FR-12 の実測の概算 891 B）。「上限」は NFR-5 の記号データ 年 6 GB。<b>書庫（ST12）で過去を取り込むと、位置は百万件級で増えうる</b>（ST12 design D1）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">動かせないもの（要件と ui-direction の決着）</div>
+    <div class="fixed">
+      <b>色相 132° / 彩度 30% / 面 3 段</b>（tokens.ts。ダークは地 12・面 18 / 24・文字 92 / 72）<br>
+      <b>NFR-17</b> OS の明暗に追従 ・ <b>NFR-18</b> 本文 4.5:1 ・ <b>NFR-19</b> 触れる対象 24×24px ・ <b>NFR-22</b> フォーカスが見える<br>
+      書き出しは D-01 を何も変えない。ボタンは NFR-19 の 24 px 以上（NFR-20 の 44 px は FR-51 / FR-53 が対象）。<b>ただし Q1 で端末に受け取る側を選ぶと、押すことが Q1 の不可逆になる</b>（入力で切り替えると確認の文面が変わる）<br>
+      <b>入るのは全期間・全ソース</b>（NFR-16 の「全記録」。期間やソースで絞る口は作らない —— 既定 C9）
+    </div>
+  </div>
+</div>
+
+<!-- ============================ プレビュー ============================ -->
+<div class="right">
+  <div class="stage">
+    <div class="meta">
+      <span>入る行 <b id="mRows">—</b></span>
+      <span>大きさの目安 <b id="mSize">—</b></span>
+      <span>1 画面（640 px）の高さ <b id="mHeight">—</b></span>
+      <button id="schemeBtn" type="button">明暗: ダーク</button>
+      <button id="resetBtn" type="button">最初から（書き出しを無かったことに）</button>
+      <button id="eraseBtn" type="button">（試す）書き出しの後に滞在を 1 件消す</button>
+    </div>
+    <div class="phone">
+      <div class="cap"><span>360 × 640</span><span>S-7 設定</span></div>
+      <div class="screen" id="screen"></div>
+    </div>
+    <div class="howto">「書き出す」を押す → 終わるまで見る → 上の「書き出しの後に滞在を 1 件消す」で、軸 3 の見え方を試す。</div>
+  </div>
+
+  <div class="out">
+    <h2>この設定を指示として出す</h2>
+    <pre id="prompt"></pre>
+    <button class="copy" id="copyBtn">指示をコピー</button>
+    <span id="copyNote" style="margin-left:10px;font-size:12px;color:var(--ui-dim)"></span>
+  </div>
+</div>
+</div>
+
+<script>
+const HUE=132, SAT=30;
+const SCHEMES={dark:{ground:12,s1:18,s2:24,text:92,muted:72},light:{ground:96,s1:91,s2:86,text:14,muted:30}};
+const tone=l=>`hsl(${HUE} ${SAT}% ${l}%)`;
+
+// ---- 軸 ----
+const BEFORE=[
+  {v:"button",t:"ボタンだけ",d:"「全記録を書き出す」と押す口だけ。何が入るかは説明書（ファイルの中）で読む"},
+  {v:"counts",t:"ソースごとの件数と期間",d:"位置 N 件・PC のウィンドウ N 件…と、いちばん古い日〜今日。大きさの目安"},
+  {v:"inout",t:"件数・期間 ＋「入らないもの」",d:"件数に加えて「消した記録は入らない」「削除と消去の台帳は入らない」を一覧の下に出す"},
+];
+const RUN=[
+  {v:"inline",t:"その場で進み具合を出す",d:"押した場所に「書き出し中 N / M 行」。画面を離れても書き出しは続く"},
+  {v:"confirm",t:"確認をはさんでから、その場で進み具合",d:"押すと「約 N 行・約 N MB・約 N 秒。書き出す / やめる」。その後は左と同じ"},
+  {v:"quiet",t:"「始めた」とだけ出す",d:"進み具合は出さない。終わったら「前回の書き出し」の欄が新しくなる"},
+];
+const STALE=[
+  {v:"none",t:"知らせない",d:"前回の書き出しの時刻と件数だけを出す"},
+  {v:"count",t:"「この書き出しの後に消した記録が N 件ある」と出す",d:"前回の書き出しの欄に 1 行足す。もう一度書き出せば消える"},
+];
+const DEST=[
+  {v:"folder",t:"Q1: 自宅 PC の決まったフォルダに置く",d:"終わると置き場のパスとファイル名を出す。画面からは受け取れない"},
+  {v:"download",t:"Q1: いま見ている端末に受け取る",d:"終わると端末の保存の画面が開く"},
+  {v:"encrypted",t:"Q1: いま見ている端末に、暗号化して受け取る",d:"押す前にパスワードを 2 回入れる。終わると保存の画面"},
+];
+const SPAN=[
+  {v:"m1",t:"運用 1 か月目",days:30},
+  {v:"y1",t:"運用 1 年目",days:365},
+  {v:"y3",t:"運用 3 年目",days:1095},
+  {v:"y3max",t:"運用 3 年目・NFR-5 の上限（年 6 GB）",days:1095,scale:5.6},
+];
+const PER_DAY=[
+  ["携帯端末の位置",960],["PC のウィンドウ",2000],["PC のブラウザ履歴",100],["携帯端末のアプリ利用",150],
+  ["滞在",9],["写真のメタ",5.5],["個人属性",0.05],["稼働の信号",13],
+];
+const DEFAULTS={before:"counts",run:"inline",stale:"none",dest:"folder",span:"y1"};
+const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false};
+const PRESETS=[
+  {n:"初期値",s:{before:"counts",run:"inline",stale:"none"}},
+  {n:"最小",s:{before:"button",run:"quiet",stale:"none"}},
+  {n:"入るもの・入らないものを見て押す",s:{before:"inout",run:"confirm",stale:"count"}},
+];
+
+function rows(){
+  const sp=SPAN.find(x=>x.v===state.span), days=sp.days, k=sp.scale||1;
+  return PER_DAY.map(([n,p])=>[n,Math.round(p*days*(n==="稼働の信号"?1:k))]);
+}
+const total=()=>rows().reduce((a,[,c])=>a+c,0);
+const fmt=n=>n.toLocaleString("ja-JP");
+const mb=n=>{const m=n*0.9/1024; return m>=1024?`${(m/1024).toFixed(1)} GB`:`${Math.max(1,Math.round(m))} MB`;};
+const secs=n=>Math.max(1,Math.round(n/20000));
+function firstDay(){const d=new Date("2026-09-29");d.setDate(d.getDate()-SPAN.find(x=>x.v===state.span).days+1);return d.toISOString().slice(0,10);}
+
+// ---- 描画 ----
+function cards(id,list,key){
+  const el=document.getElementById(id); el.innerHTML="";
+  list.forEach(o=>{
+    const b=document.createElement("button"); b.type="button"; b.className="card"+(state[key]===o.v?" on":"");
+    b.innerHTML=`<div class="t">${o.t}</div>${o.d?`<div class="d">${o.d}</div>`:""}`;
+    b.onclick=()=>{state[key]=o.v; if(key==="dest"||key==="span"){state.phase="idle";state.done=null;state.erasedAfter=0;} updateAll();};
+    el.appendChild(b);
+  });
+}
+function renderControls(){
+  cards("beforeCards",BEFORE,"before"); cards("runCards",RUN,"run"); cards("staleCards",STALE,"stale");
+  cards("destCards",DEST,"dest"); cards("spanCards",SPAN.map(x=>({v:x.v,t:x.t})),"span");
+  const p=document.getElementById("presets"); p.innerHTML="";
+  PRESETS.forEach(ps=>{const b=document.createElement("button");b.type="button";b.textContent=ps.n;b.onclick=()=>{Object.assign(state,ps.s);updateAll();};p.appendChild(b);});
+}
+
+function renderScreen(){
+  const c=SCHEMES[state.scheme], scr=document.getElementById("screen");
+  scr.style.background=tone(c.ground); scr.style.color=tone(c.text);
+  scr.style.font="400 15px/1.6 system-ui,sans-serif";
+  const btn=`min-height:24px;min-width:24px;padding:6px 14px;font:600 15px/1.4 system-ui,sans-serif;color:${tone(c.text)};background:${tone(c.s2)};border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  const ghost=`min-height:24px;min-width:24px;padding:6px 12px;font:400 15px/1.4 system-ui,sans-serif;color:${tone(c.text)};background:transparent;border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  const muted=`color:${tone(c.muted)}`;
+  const focus=`<style>#screen [data-f]:focus-visible{outline:3px solid ${tone(c.text)};outline-offset:2px}</style>`;
+  let h=focus+`<div style="padding:12px">`;
+  h+=`<header style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h1 style="font:600 18px/1.3 system-ui,sans-serif;margin:0 0 16px">設定</h1>`;
+  h+=`<a data-f href="#" onclick="return false" style="color:${tone(c.text)};font-size:14px;min-height:24px;display:inline-flex;align-items:center">稼働状況へ</a></header>`;
+
+  h+=`<section style="background:${tone(c.s1)};border-radius:10px;padding:12px">`;
+  h+=`<h2 style="font:600 16px/1.3 system-ui,sans-serif;margin:0 0 8px">全記録の書き出し</h2>`;
+  h+=`<p style="margin:0 0 10px;${muted};font-size:13.5px">このシステムを使わずに読める形（表ごとのファイルと説明書）で、全期間・全ソースを書き出します。</p>`;
+
+  const n=total();
+  if(state.before!=="button"){
+    h+=`<dl style="display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:0 0 8px;font-size:13.5px">`;
+    rows().filter(([,v])=>v>0).forEach(([k,v])=>{h+=`<dt style="${muted}">${k}</dt><dd style="margin:0;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)} 件</dd>`;});
+    h+=`</dl>`;
+    h+=`<p style="margin:0 0 8px;font-size:13.5px">期間 ${firstDay()} 〜 2026-09-29 ・ 約 ${mb(n)}</p>`;
+    if(state.before==="inout"){
+      h+=`<p style="margin:0 0 4px;font-size:13.5px">入らないもの</p><ul style="margin:0 0 10px;padding-left:18px;${muted};font-size:13.5px">`;
+      h+=`<li>削除の印の付いた記録（とその前の版）</li><li>削除と消去の台帳</li><li>写真・動画の原本（D-02。記録のメタは入る）</li></ul>`;
+    }
+  }
+  if(state.dest==="encrypted" && state.phase==="idle"){
+    h+=`<label style="display:block;font-size:13.5px;margin:0 0 4px">パスワード（2 回）</label>`;
+    h+=`<input data-f type="password" value="••••••••" style="width:100%;min-height:32px;margin:0 0 4px;background:${tone(c.s2)};color:${tone(c.text)};border:1px solid ${tone(c.muted)};border-radius:8px;padding:4px 8px">`;
+    h+=`<input data-f type="password" value="••••••••" style="width:100%;min-height:32px;margin:0 0 8px;background:${tone(c.s2)};color:${tone(c.text)};border:1px solid ${tone(c.muted)};border-radius:8px;padding:4px 8px">`;
+    h+=`<p style="margin:0 0 8px;${muted};font-size:12.5px">忘れると、このファイルは誰にも開けません。</p>`;
+  }
+
+  if(state.phase==="idle"){
+    h+=`<button data-f id="go" style="${btn}">全記録を書き出す</button>`;
+  }else if(state.phase==="confirm"){
+    h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。":"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
+    h+=`<div style="display:flex;gap:8px"><button data-f id="yes" style="${btn}">書き出す</button><button data-f id="no" style="${ghost}">やめる</button></div></div>`;
+  }else if(state.phase==="running"){
+    if(state.run==="quiet") h+=`<p role="status" style="margin:0">書き出しを始めました。終わると下の「前回の書き出し」が新しくなります。</p>`;
+    else{
+      const done=Math.round(n*state.progress);
+      h+=`<p role="status" style="margin:0 0 6px">書き出し中 ${fmt(done)} / ${fmt(n)} 行</p>`;
+      h+=`<div style="height:8px;border-radius:4px;background:${tone(c.s2)}"><div style="height:8px;border-radius:4px;width:${Math.round(state.progress*100)}%;background:${tone(c.muted)}"></div></div>`;
+      h+=`<p style="margin:6px 0 0;${muted};font-size:12.5px">画面を離れても書き出しは続きます。</p>`;
+    }
+  }
+  if(state.done && state.phase==="idle" && state.justDone){
+    if(state.dest==="folder") h+=`<p role="status" style="margin:10px 0 0">書き出しました。</p>`;
+    else h+=`<p role="status" style="margin:10px 0 0">書き出しました。端末の保存の画面で置き場を選んでください。</p>`;
+  }
+  h+=`</section>`;
+
+  // 前回の書き出し
+  h+=`<section style="margin-top:12px;background:${tone(c.s1)};border-radius:10px;padding:12px">`;
+  h+=`<h2 style="font:600 15px/1.3 system-ui,sans-serif;margin:0 0 6px">前回の書き出し</h2>`;
+  if(!state.done){ h+=`<p style="margin:0;${muted}">まだ書き出していません。</p>`; }
+  else{
+    h+=`<p style="margin:0 0 4px">${state.done.at} ・ ${fmt(state.done.n)} 行 ・ 約 ${mb(state.done.n)}</p>`;
+    if(state.dest==="folder"){
+      h+=`<p style="margin:0 0 2px;${muted};font-size:13px">置き場（この PC）</p>`;
+      h+=`<p style="margin:0;font:13px/1.5 ui-monospace,Menlo,monospace;word-break:break-all">%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260929-1412\\</p>`;
+      h+=`<p style="margin:4px 0 0;${muted};font-size:12.5px">中の README.txt に、ファイルごとの列の意味があります。</p>`;
+    }else{
+      h+=`<p style="margin:0;${muted};font-size:13px">この画面を見ていた端末に保存しました（どこに置いたかは、このシステムには分かりません）。</p>`;
+    }
+    if(state.stale==="count" && state.erasedAfter>0){
+      h+=`<p role="note" style="margin:8px 0 0;padding:6px 8px;border-left:3px solid ${tone(c.muted)}">この書き出しの後に消した記録が ${fmt(state.erasedAfter)} 件あります。書き出したファイルの中には残っています。</p>`;
+    }
+  }
+  h+=`</section>`;
+
+  h+=`<section style="margin-top:12px;${muted};font-size:13px"><p style="margin:0">ソースと停止・感度・プラグインの節は、それぞれの Story ができたときにここへ足されます。</p></section>`;
+  h+=`</div>`;
+  scr.innerHTML=h;
+
+  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ if(state.run==="confirm"){state.phase="confirm";renderScreen();} else start(); };
+  const yes=scr.querySelector("#yes"); if(yes) yes.onclick=start;
+  const no=scr.querySelector("#no"); if(no) no.onclick=()=>{state.phase="idle";renderScreen();};
+
+  document.getElementById("mRows").textContent=`${fmt(n)} 行`;
+  document.getElementById("mSize").textContent=`${mb(n)} / 約 ${secs(n)} 秒`;
+  requestAnimationFrame(()=>{const inner=scr.firstElementChild?.nextElementSibling||scr; document.getElementById("mHeight").textContent=`${scr.scrollHeight} px`+(scr.scrollHeight>640?"（スクロールあり）":"（収まる）");});
+}
+
+let timer=null;
+function start(){
+  clearInterval(timer);
+  state.phase="running"; state.progress=0; state.justDone=false; renderScreen();
+  const dur=Math.min(6000,Math.max(1500,secs(total())*100)); const t0=Date.now();
+  timer=setInterval(()=>{
+    state.progress=Math.min(1,(Date.now()-t0)/dur);
+    if(state.progress>=1){clearInterval(timer); state.phase="idle"; state.justDone=true; state.erasedAfter=0;
+      state.done={at:"2026-09-29 14:12",n:total()};}
+    renderScreen(); updatePrompt();
+  },120);
+}
+
+function updatePrompt(){
+  const L=[];
+  const pick=(list,v)=>list.find(x=>x.v===v).t;
+  L.push("ST33 の S-7 設定に「全記録の書き出し」の節を置く。S-7 は ST33 が最初の節で、ソース・停止（ST15）・アカウント系の定期取得（ST13）・感度（ST24）・プラグイン（ST29）は後から同じ画面に足す。");
+  L.push(`- 押す前に見せるもの: ${pick(BEFORE,state.before)}`+(state.before==="inout"?" —— 入らないもの（削除の印の付いた記録・削除と消去の台帳・D-02 の原本）を一覧の下に出す。":state.before==="counts"?" —— 削除の印の付いた記録を除いた件数を、ソースごとに出す。":" —— 何が入るかは書き出したファイルの説明書で読む。"));
+  L.push(`- 押してから終わるまで: ${pick(RUN,state.run)}`+(state.run==="quiet"?"。":"。書き出しは画面を離れても続く。"));
+  L.push(`- 書き出した後に記録を消したとき: ${pick(STALE,state.stale)}`+(state.stale==="count"?" —— 前回の書き出しの欄に「この書き出しの後に消した記録が N 件ある。ファイルの中には残っている」を出す。":"。"));
+  L.push("- 前回の書き出し（時刻・行数・大きさ）を常に出す。ボタンは NFR-19 の 24 px 以上。");
+  const moved=["before","run","stale"].filter(k=>state[k]!==DEFAULTS[k]).map(k=>({before:"軸 1",run:"軸 2",stale:"軸 3"})[k]);
+  L.push(`見たときの入力: 置き場は「${pick(DEST,state.dest).replace(/^Q1: /,"")}」、量は ${pick(SPAN,state.span)}（${fmt(total())} 行・約 ${mb(total())}）。書き出してみた: ${state.done?"はい":"いいえ"}。`);
+  L.push(`proto の初期値から動かした軸: ${moved.length?moved.join("・"):"なし"}。`);
+  document.getElementById("prompt").textContent=L.join("\n");
+}
+function updateAll(){renderControls();renderScreen();updatePrompt();}
+
+document.getElementById("schemeBtn").onclick=()=>{state.scheme=state.scheme==="dark"?"light":"dark";document.getElementById("schemeBtn").textContent="明暗: "+(state.scheme==="dark"?"ダーク":"ライト");renderScreen();};
+document.getElementById("resetBtn").onclick=()=>{clearInterval(timer);Object.assign(state,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false});updateAll();};
+document.getElementById("eraseBtn").onclick=()=>{ if(!state.done){document.getElementById("copyNote").textContent="先に書き出してください";return;} state.erasedAfter+=1+120; renderScreen(); };
+document.getElementById("copyBtn").onclick=()=>{
+  const t=document.getElementById("prompt").textContent, note=document.getElementById("copyNote");
+  const fallback=()=>{note.textContent="コピーできない。上の欄を長押しして選んでください";};
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(()=>{note.textContent="コピーしました";},fallback);
+  else fallback();
+};
+if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches){state.scheme="light";document.getElementById("schemeBtn").textContent="明暗: ライト";}
+updateAll();
+</script>
+</body>
+</html>
