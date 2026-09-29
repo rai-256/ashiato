@@ -8,9 +8,9 @@
 
 ## R1. 重なる削除操作の片方を戻すと、なお削除中の位置が復元される
 - 成果物: `crates/server/src/deletion.rs`
-- 根拠: `crates/server/src/deletion.rs:122-172,258-269`。A が連鎖削除した位置を重なる B が削除しても B 原因の台帳行を足さず、A を復元すると B が削除中でも位置を戻す。
+- 根拠: scoped re-review（`5630e31..9faee62`）で `crates/server/src/deletion.rs:129-170,280-334` を確認。重複済み位置への B 原因の追記は直ったが、A 削除→B 削除→B 復元では A が削除中でも位置を戻す。追加テスト `crates/server/src/deletion_tests.rs:436-456` は逆順だけを検証する。
 - kind: technical
-- 処置: fixed Task 2 / design D2・D6。重複済み位置にも後の削除原因を台帳へ追記し、A削除→重なるB削除→A復元でB原因の位置が残る回帰テストを追加。
+- 処置: 未解決（scoped re-review: R1 NOT ADDRESSED）。1 回だけの final 修正波を使い切ったため、次段 `finish` で処置を決める。
 
 ## R2. 不正な `payload.end` を持つ削除済み滞在で一覧・作り直しが失敗し得る
 - 成果物: `migrations/202609271716_deletion_ledger.sql`, `crates/server/src/stay_store.rs`
