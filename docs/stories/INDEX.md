@@ -191,6 +191,12 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > |---|---|---|
 > | NFR-13（主語の仕分け） | ST02 | **ST14** が `collection-coverage` の正典と `coverage.rs` の定数に、アプリ利用を「利用が主語」へ移した訂正を反映する（★ 2026-09-18。st06-app-usage の deep Q2）。ST12 が同じ capability を走らせている間は触れないので `docs/handoff/ST14.md` に置いた |
 
+> **同じ型が ST28 からも 1 件出ている**（2026-09-29）:
+>
+> | 要件 | 本体の Story | 別の Story が満たす条項 |
+> |---|---|---|
+> | PERM-10（資格情報） | ST01（配り方は ST29） | **ST28** が画面の経路を画面の合言葉のログインで満たし直し、アプリの DB 接続を管理者・所有者でない役割に分ける（★ 2026-09-29。st28-private-network-only の deep Q1 / Q5）。収集側の合言葉が読める範囲は ST29（`docs/handoff/ST29.md`） |
+
 > **訂正（2026-09-15、ST22 の上流工程）**
 >
 > ST22 を `record-deletion` だけでなく **`browsing-views` にも割り当て、`requires` に ST16 を足した**（layer 1 → 2）。
