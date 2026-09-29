@@ -39,13 +39,13 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 1: DB の役割と、DB の合言葉を秘密へ（design D4 / D19）
 
-- [ ] 1.1 `tools/db-roles.sh` を足す。`.env`（`ENV_FILE` で差し替えられる）を読み、`docker compose exec -T db psql -U "$POSTGRES_USER"` で
+- [x] 1.1 `tools/db-roles.sh` を足す。`.env`（`ENV_FILE` で差し替えられる）を読み、`docker compose exec -T db psql -U "$POSTGRES_USER"` で
   (a) 管理者の合言葉を `POSTGRES_PASSWORD` に揃える（`ALTER ROLE`）、(b) `ashiato_owner`（`LOGIN CREATEDB NOSUPERUSER NOCREATEROLE`）と
   `ashiato_app`（`LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE`）を作るか合言葉を揃える、(c) `ashiato` DB と `core` の schema・全表・sequence・関数・型の所有を
   `ashiato_owner` へ移す（`REASSIGN OWNED BY` は使わない。design Risks）。**2 回走らせても同じ結果**。合言葉は標準出力に出さない。
   3 つの合言葉のどれかが空か `change-me` で始まれば、**DB に触れずに** exit 1 して項目の名前だけを出す。
   検証: `bash -c 'tools/db-roles.sh && tools/db-roles.sh'`、`bash -c 'test "$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM pg_tables WHERE schemaname = '"'"'core'"'"' AND tableowner <> '"'"'ashiato_owner'"'"'")" = 0'`
-- [ ] 1.2 `docker-compose.yml` の `POSTGRES_PASSWORD` を `${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を置く}` にし、固定値を消す。
+- [x] 1.2 `docker-compose.yml` の `POSTGRES_PASSWORD` を `${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を置く}` にし、固定値を消す。
   `.env.example` に `POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` / `DATABASE_OWNER_URL` / `WEB_PASSWORD` の雛形を足し、
   `DATABASE_URL` をアプリの役割に直す（値は `change-me-…` の雛形だけ）。`testdb.rs` の既定の URL（固定の合言葉入り）を消す（1.3）。
   `tools/check-db-secret.sh` を足す: (a) `git ls-files` の追跡ファイルのうち DB を立てる設定・試験・台本（`docker-compose.yml` / `crates/**/testdb.rs` / `tools/*.sh` / `.github/workflows/*.yml`）に
@@ -54,11 +54,11 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
   Scenario: `配布物に DB の合言葉の固定値が無い`（(a) の `echo`）/ `雛形の合言葉のままでは役割を作らない`（(b) の `echo`）。
   **この時点では (a) は `.github/workflows/ci.yml` の字面の値に当たって落ちる**ので、1.2 の検証は `docker-compose.yml` と `testdb.rs` だけを見る形（`--only compose,testdb`）で走らせ、全体は 1.4 で走らせる（review R16）。
   検証: `tools/check-db-secret.sh --only compose,testdb`
-- [ ] 1.3 `testdb.rs`: `pool()` は `DATABASE_OWNER_URL` で接続して移行と付与を当てる。無ければ「`.env` を読み込むか `DATABASE_OWNER_URL` を渡す」と出して落ちる（飛ばさない）。
+- [x] 1.3 `testdb.rs`: `pool()` は `DATABASE_OWNER_URL` で接続して移行と付与を当てる。無ければ「`.env` を読み込むか `DATABASE_OWNER_URL` を渡す」と出して落ちる（飛ばさない）。
   `app_pool()` を足す（`DATABASE_URL`）。役割が無いときは「`tools/db-roles.sh` を先に」と出して落ちる。
   `stay_tests.rs` / `attributes_tests.rs` の `fresh_db` の URL を `DATABASE_OWNER_URL` から組む。**既存の試験の本体は書き換えない。**
   検証: `bash -c 'set -a; . ./.env; set +a; cargo test -p ashiato-server'`、`bash -c 'git diff --exit-code origin/main -- crates/server/src/dedup_tests.rs crates/server/src/registry_tests.rs crates/server/src/drops_tests.rs'`
-- [ ] 1.4 `.github/workflows/ci.yml` の DB を使う job（rust / smoke / e2e のすべて）で、合言葉を job の中で乱数から作り（`openssl rand -hex 24` を `$GITHUB_ENV` へ）、
+- [x] 1.4 `.github/workflows/ci.yml` の DB を使う job（rust / smoke / e2e のすべて）で、合言葉を job の中で乱数から作り（`openssl rand -hex 24` を `$GITHUB_ENV` へ）、
   `services` の `POSTGRES_PASSWORD` にも `${{ env.… }}` で渡し、役割を作ってから試験する。`DATABASE_URL`（アプリ）と `DATABASE_OWNER_URL` と `WEB_PASSWORD` を渡す。
   **ワークフローに字面の合言葉を書かない**（design D19）。`tools/check-db-secret.sh`（全体）を CI の検査の job に足す。
   検証: `tools/check-db-secret.sh`
