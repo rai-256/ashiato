@@ -157,10 +157,19 @@ async fn clock_record_ingest_day_is_not_device_achieved_day() {
     .expect("取り込み口");
     testdb::put_event(&fresh, u, "c01-location", "2026-05-03T02:00:00Z").await;
 
+    let stored: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = 'c01-clock'",
+    )
+    .bind(u)
+    .fetch_one(&fresh)
+    .await
+    .unwrap();
     let got = achievement(&fresh, Some(u), testdb::date("2026-05-04"), &must_sources())
         .await
         .unwrap();
     drop.await;
+
+    assert_eq!(stored.0, 3, "測定記録が格納されていない: {res:?}");
 
     let loc = got
         .sources
