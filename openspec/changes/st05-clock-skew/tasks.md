@@ -125,14 +125,14 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 6: 端末の測る契機と測り直し（Android）
 
-- [ ] 6.1 `ClockSkewScheduler` を置く —— 1 時間・起動時・時計の変更の契機で測り、取れなかったら 1 件積んで 5 分ごとに測り直す。
+- [x] 6.1 `ClockSkewScheduler` を置く —— 1 時間・起動時・時計の変更の契機で測り、取れなかったら 1 件積んで 5 分ごとに測り直す。
   測り直しで取れなければ積まない。取れたら `trigger: retry` で 1 件積んで測り直しをやめる。次の 1 時間の契機で測り直しの印を下ろす（design D3 / D4。1.2 の結果で方式が変わったらそれに従う）。
   測定のログは件数・種別・`available` だけ。時計は偽物（`DeviceClock`）と偽の刻みで進める。
   Scenario: `1 時間ごとに測定記録が 1 件残る` / `測った契機が記録に残る` / `収集の起動時にその場で測る` / `端末の時計が変更されるとその場で測る` /
   `測り直しのたびには記録を増やさない` / `測り直しで取れたら別の 1 件が残る` / `圏外が 1 日続くと取れなかった記録は 24 件` /
   `測定のログに時刻の値と差が出ない`。
   検証: `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ClockSkewSchedulerTest*'` rc=0
-- [ ] 6.2 `LocationService` に組み込む —— `newClockScheduler()`（試験だけが差し替える）で 1 時間と測り直しの刻みを立て、`onStartCommand` で 1 回測り、
+- [x] 6.2 `LocationService` に組み込む —— `newClockScheduler()`（試験だけが差し替える）で 1 時間と測り直しの刻みを立て、`onStartCommand` で 1 回測り、
   `ACTION_TIME_CHANGED` の受け手を `onCreate` で登録・`onDestroy` で解除する（受けたら `ResponseDateCache` を空にしてから測る）。
   測定記録は**記録の未送信（`outbox`）**に積む（保持の上限と送信に乗る）。`c01-clock` の生存信号は出さない。
   測定の 1 回を `runCatching` で包み、失敗は `clock_skew_crashed` と型名だけをログに出す（design D11）。**`LocationService` の差分は組み込みだけにする**（ST06 と重なる）。
