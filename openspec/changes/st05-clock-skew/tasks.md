@@ -87,7 +87,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 4: 端末の基準を読む口（Android）
 
-- [ ] 4.1 `HttpTransport` の応答に `Date` 見出し（文字列そのまま）と、接続を開く直前・応答を読み終えた直後の `elapsedRealtime`、
+- [x] 4.1 `HttpTransport` の応答に `Date` 見出し（文字列そのまま）と、接続を開く直前・応答を読み終えた直後の `elapsedRealtime`、
   応答を読み終えた直後の壁時計を載せる（`Outcome.Responded` に既定値つきの欄を足す。既存の呼び出し元は変えない。design D2）。
   `Sender` が受け取った最後の 1 件を `ResponseDateCache` に置く（`/ingest` `/heartbeat` `/drops` のどれでも）。
   **取り出すと空になる。時計の変更の通知で空になり、そのことを理由（`clock_changed_since`）として返せる。**
@@ -95,7 +95,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
   Scenario: `前回の測定より前の応答の日付は使わない` / `時計の変更より前に受け取った応答の日付は使わない`。
   検証: `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*ResponseDateCacheTest*'` rc=0 /
   `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*SenderTest*'` rc=0（既存が緑のまま）
-- [ ] 4.2 `ClockReferences` を置く —— `network`（`currentNetworkTimeClock`。API 33 未満は `unsupported`、`DateTimeException` は `not_available`）/
+- [x] 4.2 `ClockReferences` を置く —— `network`（`currentNetworkTimeClock`。API 33 未満は `unsupported`、`DateTimeException` は `not_available`）/
   `gnss`（`currentGnssTimeClock`）/ `s01-date`（`ResponseDateCache` から取り出す）。
   各基準は出どころ・時刻・差・読む直前と直後の単調時計を返し、取れなければ理由を返す。**差に使う壁時計は、その基準を読む直前と直後の間で読む。**
   **例外を外へ出さない**（`error:<型名>`）。OS の時計の読み取りは口（`SystemTimeSources`）の後ろに置き、試験は偽物に差し替える。
