@@ -40,17 +40,17 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 1: 前提を確かめる（エミュレータと Windows。設計を覆しうるものを先に）
 
-- [ ] 1.1 融合プロバイダの `Location.getTime()` がどの時計から来るかをエミュレータで確かめる
+- [x] 1.1 融合プロバイダの `Location.getTime()` がどの時計から来るかをエミュレータで確かめる
   （端末の時計を 5 分ずらし、`getTime()` と `System.currentTimeMillis()` と `getElapsedRealtimeNanos()` を並べる。design D6）。
   結果（どちらだったか・確かめた手順・日付）を `docs/collector-contract.md` の位置の節に見出し「`Location.getTime()` の出どころ」で書く。
   **結果がどちらでも spec と以降の Task は変わらない。** 時計をずらせなかったらそう書く（推測で埋めない）。
   検証: `bash -c 'grep -q "Location.getTime() の出どころ" docs/collector-contract.md'` rc=0
-- [ ] 1.2 エミュレータで、(a) 端末の時計を変えられるか（`UiAutomation.executeShellCommand` で `cmd alarm set-time` など）、
+- [x] 1.2 エミュレータで、(a) 端末の時計を変えられるか（`UiAutomation.executeShellCommand` で `cmd alarm set-time` など）、
   (b) 変えたときに `Intent.ACTION_TIME_CHANGED` がサービスの動的な受け手に届くか、を確かめる。
   結果（試したコマンド・届いたか・日付）を `design.md` の D3 の末尾に「ACTION_TIME_CHANGED の確かめ」として追記する。
   届かなければ D3 の反転条件（1 分ごとの見回りで 60 秒以上の食い違いを見る）へ倒して Task 6 を作る。
   検証: `bash -c 'grep -q "ACTION_TIME_CHANGED の確かめ" openspec/changes/st05-clock-skew/design.md'` rc=0
-- [ ] 1.3 `w32tm /query /status /verbose` が**管理者権限なしで**読めるか、出力の見出しが何語かを、手元の Windows と `windows-latest` の実行時テストで確かめる（design D8）。
+- [x] 1.3 `w32tm /query /status /verbose` が**管理者権限なしで**読めるか、出力の見出しが何語かを、手元の Windows と `windows-latest` の実行時テストで確かめる（design D8）。
   `crates/collector-windows/tests/runtime_windows.rs` に、本物の `TimeSyncSource` で読み、**終了コード 0 で、最後に同期した時刻か同期元のどちらかが解析できる**ことを
   assert する実行時テスト `clock_time_sync_is_readable` を置く（読めなければ落ちる）。結果（読めたか・エラー符号・表示言語・見出し）を
   `design.md` の D8 の末尾に「w32tm の確かめ」として追記する。読めなければ D8 の反転条件（イベントログ）を確かめ、
