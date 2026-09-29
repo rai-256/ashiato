@@ -848,3 +848,53 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
         summarize(&all)
     );
 }
+
+/// `w32tm /query /status /verbose` の見出し（ST05 design D8）。表示言語で変わるので英語と日本語の両方。
+/// 日本語の出力はコンソールの符号ページ（cp932）のままなので、バイト列で照合する。
+const LAST_SYNC_KEYS: [&[u8]; 2] = [
+    b"Last Successful Sync Time",
+    b"\x8d\xc5\x8f\x49\x90\xb3\x8f\xed\x93\xaf\x8a\xfa\x8e\x9e\x8d\x8f", // 最終正常同期時刻
+];
+const SOURCE_KEYS: [&[u8]; 2] = [
+    b"Source",
+    b"\x83\x5c\x81\x5b\x83\x58", // ソース
+];
+
+/// 見出しが `keys` のどれかで、値が空でも「未指定」（cp932）でもない行の値。
+fn w32tm_value(out: &[u8], keys: &[&[u8]]) -> Option<String> {
+    const UNSPECIFIED_JA: &[u8] = b"\x96\xa2\x8e\x77\x92\xe8";
+    const UNSPECIFIED_EN: &[u8] = b"unspecified";
+    out.split(|&b| b == b'\n').find_map(|line| {
+        let colon = line.iter().position(|&b| b == b':')?;
+        let (key, value) = (&line[..colon], line[colon + 1..].trim_ascii());
+        let unspecified = value.is_empty()
+            || value == UNSPECIFIED_JA
+            || value.eq_ignore_ascii_case(UNSPECIFIED_EN);
+        (keys.contains(&key.trim_ascii()) && !unspecified)
+            .then(|| String::from_utf8_lossy(value).into_owned())
+    })
+}
+
+// 管理者権限なしで読めるかの確かめ（design D8）。読めなければ落ちる。
+// 子プロセスに渡す引数は `/query /status /verbose` に固定（`/resync` `/config` は渡さない）。
+#[test]
+fn clock_time_sync_is_readable() {
+    let out = Command::new("w32tm")
+        .args(["/query", "/status", "/verbose"])
+        .output()
+        .expect("w32tm が起動しない");
+    let code = out.status.code();
+    assert_eq!(
+        code,
+        Some(0),
+        "w32tm が非 0 で終わった: {code:?} / 標準出力の長さ {}",
+        out.stdout.len()
+    );
+    let last_sync = w32tm_value(&out.stdout, &LAST_SYNC_KEYS);
+    let source = w32tm_value(&out.stdout, &SOURCE_KEYS);
+    assert!(
+        last_sync.is_some() || source.is_some(),
+        "最後に同期した時刻も同期元も解析できない（見出しの言語が想定外か）: {} バイト",
+        out.stdout.len()
+    );
+}

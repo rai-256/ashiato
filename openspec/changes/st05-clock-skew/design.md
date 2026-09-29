@@ -85,6 +85,15 @@
 反転条件（仮）: 届かないと分かったら、1 分ごとの軽い見回り（壁時計と `elapsedRealtime` の進みの差が 60 秒以上なら測る。PC の `CLOCK_JUMP_SEC` と同じ）へ倒す。
 spec の「60 秒以上変更されると測る」はどちらの方式でも成り立つので、spec は変わらない。
 
+**ACTION_TIME_CHANGED の確かめ（2026-09-29・Task 1.2）**:
+- (a) 端末の時計は変えられた。API 35 の `google_apis` エミュレータで `settings put global auto_time 0` の後、計測テストの
+  `UiAutomation.executeShellCommand("cmd alarm set-time <ms>")` が rc 0・出力なしで通り、`System.currentTimeMillis()` が指定した値へ跳んだ（+5 分と −5 分の 2 回）
+- (b) `Intent.ACTION_TIME_CHANGED` は、テストのプロセスが `registerReceiver(rx, IntentFilter(Intent.ACTION_TIME_CHANGED), RECEIVER_EXPORTED)` で
+  動的に登録した受け手に、**2 回とも数 ms 以内に届いた**（全ての実行で。届いた `action` の文字列は `android.intent.action.TIME_SET`）。
+  `Intent.ACTION_TIME_CHANGED` の定数の値が `TIME_SET` であって、別の通知ではない
+- 結論: **反転条件には倒さない**。D3 は「サービスの動的な受け手で `ACTION_TIME_CHANGED` を受ける」のまま、Task 6 もこの方式で作る。
+  限界: 受け手を登録したのは計測テストのプロセスで、`LocationService`（前景サービス）の中ではない。サービスの中での受信は Task 6 の計測テストが担保する
+
 ### D4. 取れなかった契機と測り直し（1 時間の契機ごとに取れなかった記録は 1 件まで。測り直しは 5 分ごと。仮）
 
 1 時間・起動時・時計の変更の契機で測って**基準が 1 つも取れなければ**、`available: false` の記録を 1 件積み、
@@ -178,6 +187,22 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
   （候補: System のイベントログの `Microsoft-Windows-Time-Service` の同期の記録。一般の利用者で読めるかも Task 1 で確かめる）。
   設定（レジストリの `NtpServer`）や調整量（`GetSystemTimeAdjustment`）は「最後に同期した時刻」ではないので代わりにしない（spec レビュー R7）。
   **どの口でも読めなければ、Q3 の ③（同じ機械の構成で独立に比べる）の前提が崩れるので、実装で決めずに `deep.md` に R 番号つき `(未回答)` で書いて止まる**
+
+**w32tm の確かめ（2026-09-29・Task 1.3）**:
+- **読めた。反転条件には倒さない。** 終了コード 0。手元の Windows（日本語表示）で、管理者権限あり（WSL から起動したプロセスは High 完全性）と
+  **管理者権限なし**（`schtasks /create /rl LIMITED` で Medium 完全性にして実行。`whoami /groups` で `Medium Mandatory Level` を確認）の両方で同じ出力が読めた。エラー符号（`0x80070005` など）は出なかった
+- 表示言語: 手元は**日本語**。出力は**コンソールの符号ページ（cp932）のバイト列**で、UTF-8 ではない（`from_utf8_lossy` では見出しが化ける）。
+  子プロセスの出力は**バイト列で受けて `raw` に持ち**、見出しの照合はバイト列（または cp932 の復号）で行うこと（Task 8.1 への注意）
+- 見出し（日本語 / 英語の対応。英語は Windows の既定の出力）。行の順序は両言語で同じ:
+  `閏インジケーター` / `Leap Indicator`、`階層` / `Stratum`、`精度` / `Precision`、`ルート遅延` / `Root Delay`、`ルート分散` / `Root Dispersion`、
+  `参照 ID` / `ReferenceId`、**`最終正常同期時刻` / `Last Successful Sync Time`**、**`ソース` / `Source`**、`ポーリング間隔` / `Poll Interval`、
+  **`フェーズ オフセット` / `Phase Offset`**、`クロック レート` / `ClockRate`、`最終同期エラー` / `Last Sync Error`、`最終正常同期時刻からの時間` / `Time since Last Good Sync Time`。
+  英語の見出しは記憶による**未実測の推定**（この機械で実測したのは日本語だけ）。英語の出力は `windows-latest` の実行時テストの失敗ログ（英語の Windows）で確かめ、違っていれば Task 8.1 で見出しを直す
+- 値の癖: 同期していない機械（手元）では `最終正常同期時刻: 未指定`（英語は `unspecified`）、`ソース: Local CMOS Clock`、`最終同期エラー: 1 (…)` だった。
+  つまり**「最後に同期した時刻」が無いのは正常な状態**で、同期元だけが解析できる。実行時テスト `clock_time_sync_is_readable` が「時刻か同期元のどちらか」を assert するのはこのため
+- 実行時テスト `clock_time_sync_is_readable`（`crates/collector-windows/tests/runtime_windows.rs`）は、`w32tm /query /status /verbose` を本物で走らせ、
+  終了コード 0 と、上の 2 見出し（両言語）のどちらかが解析できることを見る。手元（WSL から Windows 側の cargo）で PASS。`windows-latest` の結果は CI で確かめる。
+  `TimeSyncSource` はまだ無いので、テストは同じ引数の子プロセスを直接走らせる（Task 8.1 で本物の `TimeSyncSource` に差し替える）
 
 ### D9. PC の起動の識別と単調時計
 

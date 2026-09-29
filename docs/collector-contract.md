@@ -166,6 +166,25 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
   残さないと「データが無い」の意味が後から区別できなくなる
 - **私的データをログに出さない**（製造準備 A-2）。出すのは件数・ソース名・所要時間・エラーの種別だけ
 
+## 位置（C-01）の記録の時刻（ST05 / design D6）
+
+### Location.getTime() の出どころ
+
+**確かめた結果（2026-09-29）: エミュレータでは、`getTime()` は端末の壁時計（`System.currentTimeMillis()`）から来ていた。
+端末の時計を +5 分ずらすと `getTime()` も追従した。** 衛星の時計ではない（少なくともエミュレータの GNSS では）。
+
+- 手順: API 35 の `google_apis` エミュレータ（`tools/android-emulator.sh` と同じ AVD）で `auto_time` を切り、計測テスト（使い捨て・commit しない）が
+  `FusedLocationProviderClient.requestLocationUpdates`（`HIGH_ACCURACY`・1 秒）と `LocationManager` の `gps` を同時に購読。
+  ホストから `adb emu geo fix` を 1 秒ごとに送り、テストが `UiAutomation.executeShellCommand("cmd alarm set-time <ms>")` で
+  壁時計を +5 分ずらして 15 秒後に戻す。各 fix で `getTime()`・`currentTimeMillis()`・`getElapsedRealtimeNanos()` と `elapsedRealtimeNanos()` を並べた
+- 結果: ずらす前も後も `getTime() - currentTimeMillis()` は −1〜−18 ms（受け取りまでの遅れ）で、+5 分（300000 ms）のずれは現れなかった。
+  `getElapsedRealtimeNanos()` は端末の起動からの経過時間として単調に進み、時計を変えても影響を受けなかった。
+  fused の `getTime()` は `gps` の `getTime()` と同じ値だった（fused は GNSS の値を素通しにしていた）
+- **限界**: エミュレータの GNSS HAL は端末の壁時計で時刻を刻むので、**実機の衛星の時刻を持つ GNSS（時計が狂っていても正しい時刻を返す）で
+  同じかは、この手順では確かめられていない**。実機では `getTime()` が衛星の時刻になりうる。
+  だから `event_time` は補正せず（C4）、`received_device_time` / `fix_elapsed_ns` / `received_elapsed_ms` を並べて残す（D6）。
+  **結果がどちらでも spec と以降の Task は変わらない**
+
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
 **PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**
