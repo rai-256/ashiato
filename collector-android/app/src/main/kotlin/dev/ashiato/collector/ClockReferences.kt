@@ -66,7 +66,7 @@ class ClockReferences(
 
     private fun network(): ClockReading = live(SOURCE_NETWORK, minSdk = 33) { sources.networkMs() }
 
-    private fun gnss(): ClockReading = live(SOURCE_GNSS, minSdk = 34) { sources.gnssMs() }
+    private fun gnss(): ClockReading = live(SOURCE_GNSS, minSdk = 29) { sources.gnssMs() }
 
     /** OS の口を 1 回読む。単調時計は呼び出しの前後、壁時計はその間で読む。 */
     private fun live(source: String, minSdk: Int, read: () -> Long): ClockReading {
