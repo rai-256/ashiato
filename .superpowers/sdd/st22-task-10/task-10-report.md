@@ -8,10 +8,10 @@
 
 ## 検証結果
 
-- 10.1 `scripts/verify-run 10.1`: PASS
-- 10.2 `scripts/verify-run 10.2`: 3 検査すべて PASS
-- 10.3: fmt / clippy / Web 一式 / immutable / smoke は PASS。
-- 10.3 の `cargo test --workspace` は 2 回とも `pool timed out while waiting for an open connection` で `BLOCKED_INFRA`。コードのコンパイル後テスト失敗ではなく、DB 接続プール枯渇としてハーネスが判定した。
+- 10.1 `scripts/verify-run 10.1`: 現行 commit `57f88b4` で PASS
+- 10.2 `scripts/verify-run 10.2`: 3 検査すべて現行 commit `57f88b4` で PASS
+- 10.3 `scripts/verify-run 10.3`: fmt / clippy / `cargo test --workspace` / Web 一式 / immutable / smoke がすべて現行木で PASS。
+- 初回の 10.3 再検証では DB コンテナ停止により `BLOCKED_INFRA` だったため、`docker compose up -d db` で前提を復旧して再実行した。
 - 10.4: `grep -c st22-record-deletion docs/handoff/ST23.md docs/handoff/ST33.md` 相当を確認し、ST23=6、ST33=3。指定の handoff を再読した。
 
 ## TDD Evidence
@@ -33,4 +33,4 @@ Task 10.1 は新しい API 挙動の実装ではなく、コードから生成�
 
 ## 懸念
 
-- `cargo test --workspace` の PASS 証跡を取得できていない。DB 接続プール枯渇が解消した環境で、Task gate が 10.3 を再実行する必要がある。
+- なし。DB 起動後の現行木で全検証が PASS した。
