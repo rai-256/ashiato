@@ -34,6 +34,8 @@ pub mod attributes_store;
 /// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
 #[cfg(test)]
 mod attributes_tests;
+#[cfg(test)]
+mod clock_tests;
 pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
@@ -71,7 +73,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 18] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -139,21 +141,10 @@ pub const MIGRATIONS: [(&str, &str); 18] = [
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
     ),
-    // アプリ利用の**集計**の論理ソース（ST06 / design D3）。`external_id_kind = 'none'` を
-    // 明示する版なので、**`202609120940_source_columns` より後**でなければ列が無い
+    // 端末の時計のずれの測定記録の論理ソース（ST05 / design D1）
     (
-        "202609240758_app_usage_rollup_source",
-        include_str!("../../../migrations/202609240758_app_usage_rollup_source.sql"),
-    ),
-    // 滞在を消した・戻した操作の追記専用台帳と、削除済み滞在の限定列ビュー（ST22）
-    (
-        "202609271716_deletion_ledger",
-        include_str!("../../../migrations/202609271716_deletion_ledger.sql"),
-    ),
-    // 画面のログインの印と、読み出しの記録（ST28 / design D3 / D8 / D9）
-    (
-        "202609290900_access_control",
-        include_str!("../../../migrations/202609290900_access_control.sql"),
+        "202609291230_clock_source",
+        include_str!("../../../migrations/202609291230_clock_source.sql"),
     ),
 ];
 
