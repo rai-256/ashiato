@@ -27,6 +27,8 @@ class HttpTransport(
      *  404 が返り続けて**収集は動いているのに 1 件も届かない**状態が黙って続く（review R22）。 */
     private val baseUrl = baseUrl.trimEnd('/')
 
+    private val hostPort: String? = URL(this.baseUrl).let { u -> if (u.port >= 0) "${u.host}:${u.port}" else u.host }
+
     override fun post(bodyJson: String): Outcome {
         var conn: HttpURLConnection? = null
         val monoBefore = monoClock()
@@ -46,7 +48,7 @@ class HttpTransport(
             val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             val date = conn.getHeaderField("Date")
             val monoAfter = monoClock()
-            Outcome.Responded(status, body, date, monoBefore, monoAfter, wallClock())
+            Outcome.Responded(status, body, date, monoBefore, monoAfter, wallClock(), hostPort)
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
         } finally {

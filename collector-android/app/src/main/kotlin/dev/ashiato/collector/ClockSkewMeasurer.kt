@@ -83,6 +83,7 @@ class ClockSkewMeasurer(
             "mono_after_ms" to JsonPrimitive(r.monoAfterMs),
         )
         r.rawText?.let { f["raw"] = JsonPrimitive(it) }
+        r.host?.let { f["host"] = JsonPrimitive(it) }
         return JsonObject(f)
     }
 

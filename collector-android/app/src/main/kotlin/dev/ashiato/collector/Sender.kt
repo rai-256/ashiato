@@ -24,6 +24,8 @@ sealed interface Outcome {
         val monoBeforeMs: Long = 0,
         val monoAfterMs: Long = 0,
         val wallAfterMs: Long = 0,
+        /** 叩いた宛先の `host:port`（`s01-date` の参照が持つ。測ったときにしか取れない） */
+        val host: String? = null,
     ) : Outcome
 }
 
@@ -175,7 +177,7 @@ class Sender<T : Outboxable>(
 
             is Outcome.Responded -> {
                 responseDates?.put(
-                    ResponseDateCache.Received(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs),
+                    ResponseDateCache.Received(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs, outcome.host),
                 )
                 verdictOf(batch, outcome)
             }

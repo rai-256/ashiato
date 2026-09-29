@@ -12,7 +12,7 @@ package dev.ashiato.collector
  */
 class ResponseDateCache {
     /** 応答の `Date` 見出し（文字列そのまま）と、それを受け取ったときの単調時計・壁時計。 */
-    data class Received(val date: String?, val monoBeforeMs: Long, val monoAfterMs: Long, val wallAfterMs: Long)
+    data class Received(val date: String?, val monoBeforeMs: Long, val monoAfterMs: Long, val wallAfterMs: Long, val host: String? = null)
 
     sealed interface Taken {
         data class Got(val received: Received) : Taken

@@ -51,6 +51,8 @@ data class ClockReading(
     val reason: String?,
     /** 読んだ原文（`s01-date` の `Date` 見出しそのまま）。他の基準では null */
     val rawText: String? = null,
+    /** `s01-date` が基準にした宛先の `host:port`。他の基準では null */
+    val host: String? = null,
 )
 
 /**
@@ -94,9 +96,9 @@ class ClockReferences(
                 val r = taken.received
                 val time = r.date?.let(::parseHttpDate)
                 if (time == null) {
-                    ClockReading(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE, r.date)
+                    ClockReading(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE, r.date, r.host)
                 } else {
-                    ClockReading(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null, r.date)
+                    ClockReading(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null, r.date, r.host)
                 }
             }
         }
