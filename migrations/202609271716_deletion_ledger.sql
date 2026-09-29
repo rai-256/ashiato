@@ -19,6 +19,20 @@ CREATE INDEX IF NOT EXISTS deletion_ledger_by_event
 CREATE INDEX IF NOT EXISTS deletion_ledger_by_cause
   ON core.deletion_ledger (cause_event_id, seq);
 
+-- 詳細の件数集計（ST22 / design D8）が利用するライブ行の検索経路。
+CREATE INDEX IF NOT EXISTS event_by_user_time_live
+  ON core.event (user_id, event_time)
+  WHERE deleted_at IS NULL;
+
+-- 過去の取り込み済み payload は信頼しない。壊れた end は NULL に畳む。
+CREATE OR REPLACE FUNCTION core.try_timestamptz(value text) RETURNS timestamptz AS $fn$
+BEGIN
+  RETURN value::timestamptz;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql IMMUTABLE;
+
 -- この台帳を開ける操作は無い。TRUNCATE は行トリガでは拒めないため、文トリガも置く。
 -- 他の台帳の関数を共用すると、その関数を落とす古い down 移行が依存で当たらなくなる。
 CREATE OR REPLACE FUNCTION core.reject_deletion_ledger_change() RETURNS trigger AS $fn$
@@ -43,7 +57,7 @@ CREATE OR REPLACE VIEW core.stay_erased AS
   SELECT id,
          user_id,
          event_time AS start_at,
-         coalesce((payload->>'end')::timestamptz, event_time) AS end_at,
+         coalesce(core.try_timestamptz(payload->>'end'), event_time) AS end_at,
          deleted_at,
          deleted_by
     FROM core.event

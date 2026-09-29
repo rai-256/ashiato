@@ -128,6 +128,19 @@ describe("滞在の削除と復元", () => {
     expect(button.getAttribute("style")).toContain("min-width: 44px");
   });
 
+  it("ライトテーマでは破壊操作にもライト配色を使う", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
+    render(<Root />);
+    await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
+    const row = screen.getAllByTestId("row-stay")[0];
+    fireEvent.click(within(row).getByRole("button"));
+    await screen.findByTestId("stay-detail");
+    const erase = within(row).getByRole("button", { name: "この滞在を消す" });
+    expect(erase.style.background).toBe("rgb(209, 230, 213)");
+    fireEvent.click(erase);
+    expect(within(row).getByRole("button", { name: "消す" }).style.background).toBe("rgb(209, 230, 213)");
+  });
+
   // Scenario: 消す前に確認が出て、やめると消えない
   it("やめると削除せず一覧に残す", async () => {
     render(<Root />);

@@ -648,7 +648,7 @@ async fn mark_late_arrivals(
                  )
             )
             AND e.event_time >= s.event_time
-            AND e.event_time <= coalesce((s.payload->>'end')::timestamptz, s.event_time)
+            AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4

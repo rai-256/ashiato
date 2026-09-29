@@ -407,6 +407,90 @@ async fn restore_endpoint() {
     assert_eq!(live_count(&app.pool, user, "c01-location").await, 1);
 }
 
+#[tokio::test]
+async fn restoring_one_of_overlapping_erases_keeps_the_other_cause_hidden() {
+    let app = app().await;
+    let user = testdb::user();
+    let first = put_stay(
+        &app.pool,
+        user,
+        "2026-09-22T10:00:00+09:00",
+        "2026-09-22T11:00:00+09:00",
+    )
+    .await;
+    let second = put_stay(
+        &app.pool,
+        user,
+        "2026-09-22T10:30:00+09:00",
+        "2026-09-22T11:30:00+09:00",
+    )
+    .await;
+    let location = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-22T10:45:00+09:00"),
+    )
+    .await;
+
+    erase(&app, first, None).await.unwrap();
+    erase(&app, second, None).await.unwrap();
+    assert_eq!(
+        restore(&app, vec![first], None).await.unwrap()["restored"]["locations"],
+        0
+    );
+    assert_eq!(
+        mark(&app.pool, location).await.1.as_deref(),
+        Some("user:cascade")
+    );
+    let latest_cause: uuid::Uuid = sqlx::query_scalar(
+        "SELECT cause_event_id FROM core.deletion_ledger WHERE event_id = $1 ORDER BY seq DESC LIMIT 1",
+    )
+    .bind(location)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(latest_cause, second);
+
+    restore(&app, vec![second], None).await.unwrap();
+    assert_eq!(mark(&app.pool, location).await, (None, None));
+}
+
+#[tokio::test]
+async fn malformed_erased_stay_end_is_safe_for_listing_and_rebuild() {
+    let app = app().await;
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        "2026-09-23T10:00:00+09:00",
+        "2026-09-23T11:00:00+09:00",
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    sqlx::query("UPDATE core.event SET payload = jsonb_set(payload, '{end}', '\"not-a-time\"') WHERE id = $1")
+        .bind(stay)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    let view = stay_store::day_view(
+        &app.pool,
+        user,
+        testdb::date("2026-09-23"),
+        t("2026-09-24T00:00:00+09:00"),
+    )
+    .await
+    .expect("壊れた end を一覧で安全に扱う");
+    assert!(view
+        .entries
+        .iter()
+        .any(|entry| entry.kind == stay_store::EntryKind::Erased));
+    stay_store::rebuild_day(&app.pool, user, testdb::date("2026-09-23"))
+        .await
+        .expect("壊れた end を作り直しで安全に扱う");
+}
+
 // Scenario: 後から届いて印が付いた位置も戻すと戻る
 #[tokio::test]
 async fn restore_includes_late_arrivals() {

@@ -60,6 +60,13 @@ struct LedgerRow {
     mark: String,
 }
 
+#[derive(sqlx::FromRow)]
+struct ActiveDeletionRow {
+    event_id: uuid::Uuid,
+    logical_source: String,
+    mark: String,
+}
+
 /// commit 後の作り直しに必要な範囲と、応答に出す件数。
 #[derive(Debug)]
 pub struct EraseOutcome {
@@ -136,7 +143,6 @@ pub async fn restore(
     .bind(stay_ids)
     .fetch_all(&mut *tx)
     .await?;
-
     let mut restored_causes = HashSet::new();
     let mut restored_stays = 0;
     let mut restored_locations = 0;
@@ -268,6 +274,29 @@ async fn erase_using_action(
     .fetch_all(&mut *tx)
     .await?;
 
+    // 既に別の消去原因で隠れている位置にも、この操作の原因を追記する。
+    // A を戻したとき、重なる B の消去まで戻さないために必要な因果関係である。
+    // 新たに消した行はまだ台帳に載せていないため、この検索には含まれない。
+    let already_deleted: Vec<ActiveDeletionRow> = sqlx::query_as(
+        "SELECT e.id AS event_id, e.logical_source, e.deleted_by AS mark
+           FROM core.event e
+          WHERE e.user_id = $1 AND e.logical_source = ANY($2)
+            AND e.event_time >= $3 AND e.event_time <= $4
+            AND e.deleted_at IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = e.id AND d.action = 'erase'
+                 AND e.deleted_by IS NOT DISTINCT FROM d.mark
+                 AND d.seq = (SELECT max(last.seq) FROM core.deletion_ledger last WHERE last.event_id = e.id)
+            )",
+    )
+    .bind(row.user_id)
+    .bind(&sources)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&mut *tx)
+    .await?;
+
     for (event_id, logical_source) in &stay_changed {
         ledger(
             &mut tx,
@@ -289,6 +318,18 @@ async fn erase_using_action(
             action,
             stay_id,
             "user:cascade",
+        )
+        .await?;
+    }
+    for row in &already_deleted {
+        ledger(
+            &mut tx,
+            row.event_id,
+            identity.user_id,
+            &row.logical_source,
+            action,
+            stay_id,
+            &row.mark,
         )
         .await?;
     }

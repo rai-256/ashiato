@@ -285,7 +285,7 @@ function Row({
           <p style={{ margin: 0, color: tone(c.muted) }}>{long} ・ {range}</p>
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{criteriaLabel(criteria)} で作った</p>}
         </button>
-        {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} />}
+        {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
       </li>
     );
@@ -314,7 +314,7 @@ function controlStyle(c: (typeof SCHEMES)[Scheme]): React.CSSProperties {
   return { minHeight: MIN_TARGET_PX, minWidth: MIN_TARGET_PX, padding: "4px 10px", color: tone(c.text), background: tone(c.surface2), border: `1px solid ${tone(c.muted)}`, borderRadius: 8 };
 }
 
-function StayDetailView({ entry, detail, onAction }: { entry: DayEntry; detail: Load<StayDetail> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void }): React.ReactElement {
+function StayDetailView({ entry, detail, onAction, scheme }: { entry: DayEntry; detail: Load<StayDetail> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
   const [confirming, setConfirming] = useState(false);
   const counts = detail?.at === "ok" ? detail.value.counts : [];
   return (
@@ -323,14 +323,14 @@ function StayDetailView({ entry, detail, onAction }: { entry: DayEntry; detail: 
       {detail?.at === "failed" && <p role="alert">詳細の読み出しに失敗しました（{detail.why}）。</p>}
       {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{count.display_name} {count.count} 件</p>)}</div>}
       {detail?.at === "ok" && !confirming ? (
-        <button type="button" onClick={() => setConfirming(true)} style={{ ...controlStyle(SCHEMES.dark), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginTop: 8 }}>
+        <button type="button" onClick={() => setConfirming(true)} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginTop: 8 }}>
           この滞在を消す
         </button>
       ) : detail?.at === "ok" && confirming ? (
         <div data-testid="erase-confirm" style={{ marginTop: 8 }}>
           <p>この滞在と一緒に消える位置の記録 {counts.find((count) => count.logical_source === "c01-location")?.count ?? 0} 件です。消しますか？</p>
-          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES.dark)}>やめる</button>
-          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES.dark), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>消す</button>
+          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES[scheme])}>やめる</button>
+          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>消す</button>
         </div>
       ) : null}
     </div>
