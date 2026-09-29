@@ -59,8 +59,10 @@
 - **`desktop-collection`** —— 「PC 側の収集は時計のずれを測って残す」を MODIFIED（取れなかった契機・前後の単調時計・起動の識別・Windows の時刻同期の状態）。
   これも表に無かった。Q3 の答えで足した
 
-`record-envelope` は変えない見込み —— 新しい論理ソースは登録簿に 1 行足すだけで、「登録簿に無いソースは受け付けない」の振る舞いは変わらない。
-specs を書くときに要るかを確かめる。
+**`record-envelope` は変えない**（specs を書いて確かめた。2026-09-29）—— 新しい論理ソースは登録簿に 1 行足すだけで、
+「登録簿に無いソースは受け付けない」「識別子の種類を宣言する」の振る舞いは変わらない。測定記録が識別子なしで受け付けられることは
+`device-collection` の Requirement（PC の `desktop-collection` にある同じ型の Requirement に倣う）に置いた。
+`docs/stories/INDEX.md` の `record-envelope` の行から ST05 を外した（訂正 2026-09-29）。
 
 ## Impact
 
@@ -68,26 +70,24 @@ specs を書くときに要るかを確かめる。
   （既定の `'record'` のままだと全件が `missing_external_id` で断られ、端末の未送信に残り続ける。レビュー R3）
 - `collector-android`: 測定の刻み（1 時間・起動時・時計の飛び）、基準の読み取り（`SystemClock.currentNetworkTimeClock()` / `currentGnssTimeClock()` /
   応答の `Date`）、`HttpTransport` が応答の見出しを返す口、測定記録の組み立て、位置の記録の 3 項目（`LocationFix` / `FixCollector`）
-- `collector-windows`: `clock.rs` / `runtime.rs` —— 取れなかった契機の記録、前後の単調時計、起動の識別、Windows の時刻同期の状態の読み取り
+- `collector-windows`: `clock.rs` / `sender.rs` / `runtime.rs` —— 取れなかった契機の記録、前後の単調時計、起動の識別、Windows の時刻同期の状態の読み取り。
+  取り込み口の日付は ST07 のとおり**測定の契機に `/healthz` を叩いて**読み、差には応答を受け取った直後の壁時計を使う。読み取りは見回りの輪の外（作業スレッド）で行う（design D7（仮）。FR-7 ★ 2026-09-29 訂正）
   （`w32tm /query /status` が管理者権限なしで読めるかは**未確認**。下流の最初に確かめる）
 - `docs/collector-contract.md`: 携帯端末の時計の論理ソースの形、位置の記録の追加項目、PC の `clock-skew` の追加項目
 - `crates/server`: 移行の登録（`MIGRATIONS` 配列）以外は変わらない見込み
-- 要件: FR-1 / FR-7 に ★（`deep.md` の「要件へ戻すもの」）。Story: ST05 の壊してはいけないもの 1 行・完了の判定 3 行を足した。ST01.md は FR-1 の逐語の再生成で差分
+- 要件: FR-1 / FR-7 に ★（`deep.md` の「要件へ戻すもの」）。FR-7 は spec レビュー R2 で C-02 の読み方を ★ 2026-09-29 に訂正。ST05 の satisfies に FR-1 を足した（R19）。Story: ST05 の壊してはいけないもの 1 行・完了の判定 3 行を足した。ST01.md は FR-1 の逐語の再生成で差分
 - 確かめること（下流の最初）: 融合プロバイダの `Location.getTime()` がどの時計から来るか（エミュレータで端末の時計を 5 分ずらして並べる。Q2 の context）
 
 ### 走っている Story・並ぶ Story との重なり
 
-| Story | 状態 | 重なり | 扱い |
+| Story | 状態（2026-09-29） | 重なり | 扱い |
 |---|---|---|---|
-| ST04（`device-collection`, `collection-coverage`） | 上流（PR #44 draft。specs / design / tasks まで済み） | **同じ capability**。端末で重なるのは、壁時計と単調時計の飛びの検知（ST04 design D2 と C3）・未送信の置き場（測定記録も 90 日・2 GB の上限に乗る）・`LocationService` の刻み | **ST05 の specs 以降は ST04 の archive を待つ**（下の「上流の進み方」）。ST04 へ戻すものは無い |
-| ST16（`derived-records`, `browsing-views`） | 下流が走っている（PR #42） | capability は重ならない。同じファイルに追記する（`crates/server/src/lib.rs` の `MIGRATIONS` 配列、`docs/collector-contract.md` は ST16 は触らない見込み） | 移行の名前が作成時刻なので番号は取り合わない。後から merge する側が追従する |
-| ST08（`desktop-collection`） | 着手可 → **ST05 と重なる** | 同じ capability（Q3 で足した） | ST05 が走っている間は `衝突待ち` |
-| ST11 / ST06 / ST09 / ST34 / ST35（`device-collection`） | 衝突待ち / 待ち | 同じ capability | ST04 と ST05 の archive 後に足す |
+| ST04（`device-collection`, `collection-coverage`） | **archive 済み**（2026-09-17） | 壁時計と単調時計の飛び（`AgeClock`）・未送信の置き場・`DeviceClock` | ST05 の specs は archive 後の正典に対して書いた。`DeviceClock` を**読むだけ**で `AgeClock` は変えない（design の Non-Goals） |
+| ST06（`device-collection`） | **下流が走っている**（PR #17） | 同じ capability。delta は別の Requirement（ST06 の MODIFIED は「破棄の報告」「1 時間以内に格納」、ST05 の MODIFIED は「位置は 60 秒間隔で記録される」）。コードは `LocationService` を両方が触る | 測定は別ファイル（`ClockSkew*.kt`）に置き、`LocationService` の差分は組み込みだけにする。後から merge する側が rebase で追従する。ST06 へ戻すものは無い |
+| ST08（`desktop-collection`） | **下流が走っている**（PR #14） | 同じ capability。delta は別の Requirement（ST08 の MODIFIED は除外・生存信号・感度・保持・ログ、ST05 の MODIFIED は「時計のずれを測って残す」）。コードは `runtime.rs` を両方が触る | 測定は `clock.rs` と `sender.rs` の `Reply` に閉じ、`runtime.rs` の差分を最小にする。ST08 へ戻すものは無い |
+| ST16（`derived-records`, `browsing-views`） | archive 済み | `crates/server/src/lib.rs` の `MIGRATIONS` 配列 | 移行の名前が作成時刻なので番号は取り合わない |
+| ST11 / ST09 / ST34 / ST35（`device-collection`） | 衝突待ち / 待ち | 同じ capability | ST05 と ST06 の archive 後に足す |
 
 ## 上流の進み方
 
-**proposal で止める。** ST05 の requires（ST01）は archive 済みだが、Step 3 の照合で `device-collection` を足した結果、
-ST04 の上流（PR #44）と capability が重なった（盤面の規則では `衝突待ち`）。
-ST05 の delta は ST04 と別の Requirement に書ける見込みだが、端末のコードは同じ所（`LocationService` の刻み・時計の飛びの検知・未送信の置き場）を触る。
-ST04 の design D2 が端末に持たせる「壁時計・単調時計・起動回数」を ST05 の起動の識別と共有できるかは、ST04 の実装が固まるまで決められない。
-specs / design / tasks は ST04 の archive 後に、archive 後の正典に対して書く。
+proposal までを 2026-09-15 に書き、ST04 の archive（2026-09-17）を待って specs / design / tasks を書いた（2026-09-29）。

@@ -24,7 +24,7 @@
 | [ST02](ST02.md) | 収集が動いていたかが日単位で見える | 1 | FR-33, FR-54, FR-78, FR-79, FR-80, NFR-13 | ST01 | 14 |
 | [ST03](ST03.md) | 同じ記録を何度送っても増えない | 1 | FR-22, FR-23 | ST01 | 12 |
 | [ST04](ST04.md) | 圏外でも記録が失われない | 2 | FR-8, FR-9, NFR-7 | ST02, ST03 | 14 |
-| [ST05](ST05.md) | 端末時計のずれを測って残す | 1 | FR-7 | ST01 | 5 |
+| [ST05](ST05.md) | 端末時計のずれを測って残す | 1 | FR-1, FR-7 | ST01 | 5 |
 | [ST06](ST06.md) | 携帯端末のアプリ利用を集める | 3 | FR-2, FR-84, FR-85 | ST04 | 14 |
 | [ST07](ST07.md) | PC のアクティブウィンドウを集める | 1 | FR-12, FR-81, FR-82, FR-83 | ST01 | 14, 15 |
 | [ST08](ST08.md) | PC のブラウザ履歴を集める | 1 | FR-13 | ST01 | — |
@@ -65,7 +65,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 | capability | 何の能力か | 積む Story |
 |---|---|---|
-| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03, ST05 |
+| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03 |
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
@@ -253,3 +253,15 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 - NFR-8: 開発費は月 2,000 円以内
 - NFR-11: 開発に充てられる時間は週 15 時間
+
+> **訂正（2026-09-29、ST05 の上流工程 spec）**
+>
+> ST05 を **`record-envelope` から外した**。specs を書いて確かめると、ST05 が足すのは登録簿の 1 行（`c01-clock`、識別子の種類 `none`）だけで、
+> `record-envelope` の振る舞い（登録簿に無いソースを断る・識別子の種類を宣言する）は変わらない。
+> 測定記録が識別子なしで受け付けられることは、PC の同じ型の Requirement（`desktop-collection`）に倣って `device-collection` に置いた。
+> ST05 の capability は `device-collection` と `desktop-collection` の 2 本になる。
+>
+> あわせて **ST05 の satisfies に FR-1 を足した**（spec レビュー R19）。FR-1 の本体は ST01（archive 済み）が満たしたが、
+> ★ 2026-09-15 で足した節（位置の記録に、受け取ったときの端末の時計の時刻・測位の起動からの経過時間・起動の識別を持たせる）は
+> ST05 の深掘り Q2 の決定で、ST05 が `device-collection` の「位置は 60 秒間隔で記録される」を MODIFIED して満たす。
+

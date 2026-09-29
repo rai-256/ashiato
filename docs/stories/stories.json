@@ -109,6 +109,7 @@
     "id": "ST05",
     "title": "端末時計のずれを測って残す",
     "satisfies": [
+      "FR-1",
       "FR-7"
     ],
     "requires": [
