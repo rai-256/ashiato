@@ -36,7 +36,7 @@ class ClockSkewPayloadShapeTest {
     @Test
     fun `取れた基準の原文の欄の名前と並び`() {
         val cache = ResponseDateCache()
-        cache.put(ResponseDateCache.Received("Fri, 15 Jan 2027 07:55:00 GMT", 100, 410, 1_800_000_000_456))
+        cache.put(ResponseDateCache.Received("Fri, 15 Jan 2027 07:55:00 GMT", 100, 410, 1_800_000_000_456, "s01.lan:8787"))
 
         val r = build(1_799_999_700_100, 1_799_999_700_090, cache)
 
@@ -47,7 +47,7 @@ class ClockSkewPayloadShapeTest {
                 """{"source":"network","time":"2027-01-15T07:55:00.100Z","skew_ms":300023,"mono_before_ms":500,"mono_after_ms":500},""" +
                 """{"source":"gnss","time":"2027-01-15T07:55:00.090Z","skew_ms":300033,"mono_before_ms":500,"mono_after_ms":500},""" +
                 """{"source":"s01-date","time":"2027-01-15T07:55:00.000Z","skew_ms":300456,"mono_before_ms":100,"mono_after_ms":410,""" +
-                """"raw":"Fri, 15 Jan 2027 07:55:00 GMT"}""" +
+                """"raw":"Fri, 15 Jan 2027 07:55:00 GMT","host":"s01.lan:8787"}""" +
                 """],"unavailable":[]}""",
             r.raw,
         )
