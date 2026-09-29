@@ -9,9 +9,9 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST33, ST41
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41
 - **layer 2**: ST04, ST14, ST15, ST17, ST20, ST21, ST22, ST29, ST44
-- **layer 3**: ST06, ST09, ST12, ST18, ST23, ST24, ST25, ST26, ST34, ST37, ST42
+- **layer 3**: ST06, ST09, ST12, ST18, ST23, ST24, ST25, ST26, ST33, ST34, ST37, ST42
 - **layer 4**: ST10, ST13, ST30, ST35, ST36, ST38, ST47
 - **layer 5**: ST31, ST39, ST45
 - **layer 6**: ST27, ST32, ST40, ST46
@@ -53,7 +53,7 @@
 | [ST30](ST30.md) | 毎日と毎週のバックアップが回る | 4 | FR-66, FR-67, FR-70, NFR-5 | ST09 | 20, 23 |
 | [ST31](ST31.md) | 暗号化した写しを拠点外へ送る | 5 | FR-68, FR-69, NFR-9 | ST30 | 23, 24 |
 | [ST32](ST32.md) | 復元テストを促す | 6 | FR-71, NFR-10 | ST31 | — |
-| [ST33](ST33.md) | 全記録を外部の道具で読める形に書き出す | 1 | NFR-16 | ST01 | — |
+| [ST33](ST33.md) | 全記録を外部の道具で読める形に書き出す | 3 | NFR-16 | ST01, ST22 | — |
 | [ST34](ST34.md) | 健康データを取り込む | 3 | FR-73, NFR-2 | ST11, ST04 | 21 |
 | [ST35](ST35.md) | 画面を一定間隔で取る | 4 | FR-74 | ST09 | 22, 25 |
 | [ST36](ST36.md) | 意味で探す | 4 | FR-75 | ST26 | — |
@@ -247,6 +247,8 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   ST04 / ST12 の並走を避けて `record-deletion` に置いた。**稼働状況の数え方を変える Story（ST14 / ST15）は
 >   `record-deletion`「稼働状況は消した記録も数える」を読むこと**
 > - 書き出し（ST33）が削除済みを出さないことが、ST22 の深掘り Q1（`loss: exported`）の担保の残り半分。`docs/handoff/ST33.md`
+>   **印だけでは足りなかった**（ST33 の深掘り Q5、2026-09-29）—— 書き出しは消した滞在の時間に入る緯度経度つきの行（書庫・写真・前の版）も除く。
+>   そのため ST33 は ST22 の「本人が消した滞在」と遅着の判定を読み、`requires` に ST22 を足した（layer 1 → 3）
 
 > **訂正（2026-10-01、ST21 の上流工程）**
 >
