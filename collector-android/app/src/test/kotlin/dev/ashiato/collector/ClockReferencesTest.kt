@@ -85,6 +85,13 @@ class ClockReferencesTest {
     }
 
     @Test
+    fun `gnss は API 30 の端末でも読まれる`() {
+        val r = byName(ClockReferences(FakeSources(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 }), ResponseDateCache()).readAll())
+
+        assertEquals(-500L, r.getValue("gnss").skewMs)
+    }
+
+    @Test
     fun `例外は外へ出さず error 型名で残す`() {
         val s = FakeSources(network = { throw IllegalStateException("x") }, gnss = { throw SecurityException("y") })
 
