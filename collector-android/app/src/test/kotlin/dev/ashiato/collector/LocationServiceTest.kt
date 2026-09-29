@@ -141,7 +141,8 @@ class LocationServiceTest {
         // 「プロセスが立て直された」＝ 同じ filesDir から新しいサービスを起こす
         val reborn = start()
 
-        assertEquals(listOf("survivor"), reborn.outboxForTest.snapshot().map { it.id })
+        // 測定記録（c01-clock）も同じ置き場に積まれる（ST05）ので、位置の記録だけを見る
+        assertEquals(listOf("survivor"), reborn.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })
     }
 
     @Test
@@ -201,7 +202,7 @@ class LocationServiceTest {
     fun `起動すると既存の outbox jsonl を取り込んで元を消す`() {
         File(app.filesDir, "outbox.jsonl").writeText(ingestJson.encodeToString(IngestRequest.serializer(), fix("legacy")) + "\n")
         val service = start()
-        assertEquals(listOf("legacy"), service.outboxForTest.snapshot().map { it.id })
+        assertEquals(listOf("legacy"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })
         assertFalse(File(app.filesDir, "outbox.jsonl").exists())
     }
 
@@ -239,7 +240,7 @@ class LocationServiceTest {
         service.clock.advance(91 * AgeClock.DAY_MS)
         service.maintainForTest()
         assertEquals(0, service.outboxForTest.size())
-        assertEquals(1, service.ledgerForTest.drafts().single().count)
+        assertEquals(1, service.ledgerForTest.drafts().single { it.source == LOGICAL_SOURCE }.count)
     }
 
     private fun fix(id: String) =
@@ -381,10 +382,10 @@ class LocationServiceTest {
         service.clock.advance(90 * AgeClock.DAY_MS + 60_000)
         service.scheduler.fire()
         assertTrue("/drops に送っていない", service.posted.any { it.first == "/drops" })
-        assertEquals("断られた破棄の報告が取り除かれた", 1, service.dropsOutboxForTest.size())
+        assertEquals("断られた破棄の報告が取り除かれた", 1, service.dropsOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE })
         service.scheduler.fire()
         assertEquals(2, service.posted.count { it.first == "/drops" })
-        assertEquals(1, service.dropsOutboxForTest.size())
+        assertEquals(1, service.dropsOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE })
     }
 
     /**
@@ -461,8 +462,8 @@ class LocationServiceTest {
         assertTrue("間引かずに毎回見回っている", service.outboxForTest.snapshot().any { it.id == "old" })
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(61))
         service.outboxForTest.add(fix("new-2"))
-        assertEquals(listOf("new-1", "new-2"), service.outboxForTest.snapshot().map { it.id })
-        assertEquals(1, service.ledgerForTest.drafts().single().count)
+        assertEquals(listOf("new-1", "new-2"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })
+        assertEquals(1, service.ledgerForTest.drafts().single { it.source == LOGICAL_SOURCE }.count)
         assertEquals("生存信号を捨てた", beatsBefore, service.heartbeatOutboxForTest.size())
     }
 }
