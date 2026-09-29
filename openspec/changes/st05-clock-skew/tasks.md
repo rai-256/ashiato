@@ -73,7 +73,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 3: 位置の記録に 3 項目を足す（Android）
 
-- [ ] 3.1 `LocationFix` に `receivedDeviceTime` / `fixElapsedNs` / `receivedElapsedMs` / `bootCount` を足し、原文と解析済みの両方に
+- [x] 3.1 `LocationFix` に `receivedDeviceTime` / `fixElapsedNs` / `receivedElapsedMs` / `bootCount` を足し、原文と解析済みの両方に
   `received_device_time` / `fix_elapsed_ns` / `received_elapsed_ms` / `boot_count` として載せる（design D6）。
   `FixCollector` は `DeviceClock` を受け取り、受け取ったときの値を入れる（`bootCount()` が `null` なら `null` を載せる）。
   **`event_time` と `device_time` は `Location.getTime()` のまま。** 既存の `FixCollectorTest` の「契機ごとに 1 件」を新しい欄に合わせて直す。
@@ -82,7 +82,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
   `位置の記録の出来事時刻は測位の結果が持つ時刻のまま` / `契機ごとに 1 件生成される`。
   検証: `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*LocationFixClockFieldsTest*'` rc=0 /
   `cd collector-android && ./gradlew :app:testDebugUnitTest --tests '*FixCollectorTest*'` rc=0
-- [ ] 3.2 `docs/collector-contract.md` の位置の節に 4 欄を足す（足す前の記録には無いこと・出来事時刻の意味は変わらないこと・`boot_count` は取れなければ `null`）。
+- [x] 3.2 `docs/collector-contract.md` の位置の節に 4 欄を足す（足す前の記録には無いこと・出来事時刻の意味は変わらないこと・`boot_count` は取れなければ `null`）。
   検証: `bash -c 'grep -q "received_device_time" docs/collector-contract.md && grep -q "fix_elapsed_ns" docs/collector-contract.md && grep -q "received_elapsed_ms" docs/collector-contract.md'` rc=0
 
 ## Task 4: 端末の基準を読む口（Android）
