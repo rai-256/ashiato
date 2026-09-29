@@ -59,21 +59,13 @@ jobs:
     # **どれも DB の側にある**（ST02 design D14）。模擬した DB で確かめると
     # 0004 が実測で見つけた「3 手の迂回」の型の穴がそのまま残るので、本物を立てる。
     # **飛ばさない** —— テストは接続できなければ落ちる（crates/server/src/testdb.rs）。
-    services:
-      db:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: ashiato
-          POSTGRES_PASSWORD: ashiato
-          POSTGRES_DB: ashiato
-        ports: ["55432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U ashiato"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-    env:
-      DATABASE_URL: postgres://ashiato:ashiato@127.0.0.1:55432/ashiato
+    # DB は `services` でなく compose で立てる: 合言葉を job の中で乱数から作る（design D19）ので、
+    # job 開始時に立つ `services` の env（`env` コンテキストが使えない）へは渡せない。
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: ./tools/ci-db-env.sh
+      - run: docker compose up -d --wait db
+      - run: ./tools/db-roles.sh
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: { components: rustfmt, clippy }
       - run: cargo fmt --all --check
@@ -151,6 +143,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: ./tools/ci-db-env.sh   # 合言葉は job の中で乱数から作る（tools/stack.sh が役割まで作る）
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
@@ -232,6 +225,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: ./tools/ci-db-env.sh   # 合言葉は job の中で乱数から作る（tools/smoke.sh が役割まで作る）
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       # 縦串。A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ。
       - run: ./tools/smoke.sh
@@ -253,6 +247,10 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
+      - run: ./tools/ci-db-env.sh
+      - run: docker compose up -d --wait db
+      - run: ./tools/check-db-secret.sh
       - if: env.HARNESS2_TOKEN == ''
         run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_chain を飛ばす（merge_gate がローカルで見る）"
       - if: env.HARNESS2_TOKEN != ''

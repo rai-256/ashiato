@@ -4,7 +4,7 @@
 # **A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ**（製造準備 B）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
+export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
 export BIND="${BIND:-127.0.0.1:18787}"
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
@@ -18,6 +18,7 @@ echo "== 1. DB を起動（**まっさらにしてから**）"
 # 末尾の trap と対にして、先頭でも落とす。
 docker compose down -v >/dev/null 2>&1 || true
 docker compose up -d --wait db >/dev/null
+./tools/db-roles.sh
 
 echo "== 2. サーバを起動（起動時にマイグレーションを当てる）"
 # **ビルドを起動待ちの外に出す。** cargo run のままだと待ち時間の中でコンパイルが走り、

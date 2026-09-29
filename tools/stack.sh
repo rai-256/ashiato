@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 cmd="${1:-up}"
 
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
+export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
 export BIND="${BIND:-127.0.0.1:18787}"
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 export WEB_PORT="${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない
@@ -59,6 +59,7 @@ if [ "${STACK_RESET:-}" = "1" ]; then
   echo "== DB を作り直す（STACK_RESET=1）"; docker compose down -v >/dev/null 2>&1 || true
 fi
 echo "== DB"; docker compose up -d --wait db >/dev/null
+./tools/db-roles.sh
 trap 'kill 0' EXIT
 echo "== サーバ $BIND"; "$server" &
 for _ in $(seq 1 30); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done

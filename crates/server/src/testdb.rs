@@ -11,23 +11,29 @@
 
 use sqlx::postgres::PgPoolOptions;
 
-/// 開発用 DB（`docker compose up -d db`）の既定。CI は `DATABASE_URL` で差し替える。
-const DEFAULT_URL: &str = "postgres://ashiato:ashiato@127.0.0.1:55432/ashiato";
-
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
 /// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
 /// 助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
 static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
+/// 環境からだけ読む。**既定の URL（固定の合言葉入り）は持たない**（ST28 / design D19）。
+/// 無ければ飛ばさずに落ちる。値（合言葉入りの URL）は出さない。
+fn url_from_env(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| {
+        panic!("{name} が無い。.env を読み込む（set -a; . ./.env; set +a）か {name} を渡す")
+    })
+}
+
 /// 接続済みのプールを返す。初回だけマイグレーションを当てる。
+/// **所有者（`DATABASE_OWNER_URL`）で繋ぐ。** 門はトリガで効くので、所有者でも止まることを既存の試験が見る。
 pub async fn pool() -> sqlx::PgPool {
-    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.into());
+    let url = url_from_env("DATABASE_OWNER_URL");
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&url)
         .await
         .unwrap_or_else(|e| {
-            panic!("テスト用 DB へ接続できない（{url}）: {e}\n  docker compose up -d --wait db を先に実行する")
+            panic!("テスト用 DB へ所有者で接続できない: {e}\n  docker compose up -d --wait db のあと tools/db-roles.sh を先に実行する")
         });
     MIGRATED
         .get_or_init(|| async {
@@ -43,6 +49,20 @@ pub async fn pool() -> sqlx::PgPool {
         })
         .await;
     pool
+}
+
+/// アプリの役割（`DATABASE_URL`）で繋いだプール。**役割の試験だけが使う。**
+/// 表が無いと何も試せないので、先に所有者の `pool()` で移行を当てておく。
+pub async fn app_pool() -> sqlx::PgPool {
+    drop(pool().await);
+    let url = url_from_env("DATABASE_URL");
+    PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("テスト用 DB へアプリの役割で接続できない: {e}\n  役割が無いなら tools/db-roles.sh を先に実行する")
+        })
 }
 
 /// テストごとに固有の論理ソースを登録簿へ置く。
