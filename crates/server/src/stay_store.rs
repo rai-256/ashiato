@@ -1050,21 +1050,33 @@ pub async fn day_view(
 
     // **本人が消した滞在と、消した時間帯で隠した滞在を「消した」の行にする**（design D7）。
     // 吸収された滞在は吸収先が同じ時間を持つので数えない。読み出しは座標を持たない専用ビュー越しに限る（D12）。
-    let hidden_rows: Vec<(uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+    #[derive(sqlx::FromRow)]
+    struct HiddenRow {
+        id: uuid::Uuid,
+        start_at: DateTime<Utc>,
+        end_at: DateTime<Utc>,
+        deleted_by: Option<String>,
+    }
+    let hidden_rows: Vec<HiddenRow> = sqlx::query_as(
+        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
           WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
             AND start_at < $2 AND end_at > $3
           ORDER BY start_at, id",
-        )
-        .bind(user)
-        .bind(d1)
-        .bind(d0)
-        .bind(ABSORBED)
-        .fetch_all(pool)
-        .await?;
+    )
+    .bind(user)
+    .bind(d1)
+    .bind(d0)
+    .bind(ABSORBED)
+    .fetch_all(pool)
+    .await?;
     let mut hidden: Vec<ErasedSpan> = Vec::new();
-    for (id, start, end, deleted_by) in hidden_rows {
+    for row in hidden_rows {
+        let HiddenRow {
+            id,
+            start_at: start,
+            end_at: end,
+            deleted_by,
+        } = row;
         let start = start.max(d0);
         let end = end.min(upper);
         if start >= end {

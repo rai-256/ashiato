@@ -500,6 +500,89 @@
         }
       }
     },
+    "/stays/detail": {
+      "get": {
+        "tags": [],
+        "summary": "滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。",
+        "operationId": "stays_detail_get",
+        "parameters": [
+          {
+            "name": "stay_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StayDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/stays/erase": {
+      "post": {
+        "tags": [],
+        "summary": "滞在と、その時間帯にある現在基準の位置へ削除の印を付ける。",
+        "operationId": "stays_erase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EraseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EraseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/stays/rebuild": {
       "post": {
         "tags": [],
@@ -531,6 +614,41 @@
             "description": ""
           },
           "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/stays/restore": {
+      "post": {
+        "tags": [],
+        "summary": "滞在と、同じ原因で消えた位置の最新の削除を戻す。",
+        "operationId": "stays_restore",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
             "description": ""
           }
         }
@@ -812,7 +930,7 @@
       },
       "DayEntry": {
         "type": "object",
-        "description": "並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、移動と記録なしはその日の中に切る。",
+        "description": "並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、ほかはその日の中に切る。",
         "required": [
           "kind",
           "start",
@@ -845,6 +963,17 @@
           "start": {
             "type": "string",
             "format": "date-time"
+          },
+          "stay_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "この「消した」区間から戻せる、本人が消した滞在の識別子"
           }
         }
       },
@@ -1065,8 +1194,62 @@
         "enum": [
           "stay",
           "move",
-          "no-record"
+          "no-record",
+          "erased"
         ]
+      },
+      "EraseRequest": {
+        "type": "object",
+        "description": "`POST /stays/erase` の本文。利用者は滞在の行から決め、添えられた値は照合だけに使う。",
+        "required": [
+          "stay_id"
+        ],
+        "properties": {
+          "stay_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EraseResponse": {
+        "type": "object",
+        "description": "`POST /stays/erase` の応答。記録の値は含めない。",
+        "required": [
+          "erased"
+        ],
+        "properties": {
+          "erased": {
+            "$ref": "#/components/schemas/ErasedCounts"
+          }
+        }
+      },
+      "ErasedCounts": {
+        "type": "object",
+        "description": "消した記録の種類別件数。",
+        "required": [
+          "stays",
+          "locations"
+        ],
+        "properties": {
+          "locations": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stays": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "EventRow": {
         "type": "object",
@@ -1580,6 +1763,62 @@
           }
         }
       },
+      "RestoreRequest": {
+        "type": "object",
+        "description": "`POST /stays/restore` の本文。全件を一つの transaction で戻す。",
+        "required": [
+          "stay_ids"
+        ],
+        "properties": {
+          "stay_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RestoreResponse": {
+        "type": "object",
+        "description": "`POST /stays/restore` の応答。記録の値は含めない。",
+        "required": [
+          "restored"
+        ],
+        "properties": {
+          "restored": {
+            "$ref": "#/components/schemas/RestoredCounts"
+          }
+        }
+      },
+      "RestoredCounts": {
+        "type": "object",
+        "description": "戻した記録の種類別件数。",
+        "required": [
+          "stays",
+          "locations"
+        ],
+        "properties": {
+          "locations": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stays": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "SourceAchievement": {
         "type": "object",
         "description": "ソース 1 本ぶんの達成（NFR-13）。",
@@ -1696,6 +1935,57 @@
             ],
             "format": "date",
             "description": "退役した日（FR-61）。**この日より後が⑧**。まだ退役していなければ `None`"
+          }
+        }
+      },
+      "StayDetail": {
+        "type": "object",
+        "description": "滞在の時間帯と、その時間帯にある読み出し中の記録の件数。",
+        "required": [
+          "stay_id",
+          "start",
+          "end",
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StayDetailCount"
+            }
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stay_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "StayDetailCount": {
+        "type": "object",
+        "description": "詳細に表示する論理ソースごとの記録件数。",
+        "required": [
+          "logical_source",
+          "display_name",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "logical_source": {
+            "type": "string"
           }
         }
       },
