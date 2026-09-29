@@ -7,7 +7,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -71,6 +74,11 @@ open class LocationService : Service() {
     /** 見回りを 1 本の糸ずつにする錠（位置の糸と送信の糸が同時に入らない。review R14）。 */
     private val maintenanceLock = Any()
     private var lastMaintenanceMs = Long.MIN_VALUE
+
+    /** 受け口の応答の `Date`（ST05）。記録の送り手が置き、測定が取り出す。 */
+    private val responseDates = ResponseDateCache()
+    private var clockScheduler: ClockSkewScheduler? = null
+    private var timeReceiver: BroadcastReceiver? = null
 
     /**
      * 走らせているソース。**親はこの口だけを見る**（design D5 / tasks 1.1 / 5.1）——
@@ -187,6 +195,12 @@ open class LocationService : Service() {
     /** 知らせの出し先。**試験では Robolectric の本物の NotificationManager** を通す。 */
     protected open fun newRetentionAlerts(): RetentionAlerts = AndroidRetentionAlerts(this) { notification(it) }
 
+    /** 端末の時計の測定の刻み（1 時間と測り直し）。**試験だけが差し替える**（ST05 / design D3 / D4）。 */
+    protected open fun newClockScheduler(): ClockTicks = ClockTicks(ExecutorFlushScheduler(), ExecutorFlushScheduler())
+
+    /** OS の時計の読み取り。同上。 */
+    protected open fun newSystemTimeSources(): SystemTimeSources = AndroidSystemTimeSources()
+
     private fun store(name: String) = File(outboxDir(), name)
 
     /**
@@ -297,6 +311,47 @@ open class LocationService : Service() {
         sources = buildSources()
         // 起動の時点で 1 度見回る（設定が揃っていなくても上限はかかる。深掘り Q1）
         maintain(force = true)
+        watchTimeChange()
+    }
+
+    /**
+     * 端末の時計の変更を受ける（ST05 / design D3）。受けたら、変更より前の応答の日付を捨ててから測る。
+     * タイムゾーンの変更では測らない（壁時計のエポックからのミリ秒は変わらない）。
+     */
+    private fun watchTimeChange() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                responseDates.clockChanged()
+                clockScheduler?.timeChanged()
+            }
+        }
+        val filter = IntentFilter(Intent.ACTION_TIME_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(receiver, filter)
+        }
+        timeReceiver = receiver
+    }
+
+    /** 1 回測り、1 時間と測り直しの刻みを立てる（ST05 / design D3 / D4）。測定記録は記録の未送信に積む。 */
+    private fun startClockSkew() {
+        if (clockScheduler != null) return
+        val measurer = ClockSkewMeasurer(
+            references = ClockReferences(newSystemTimeSources(), responseDates),
+            clock = newDeviceClock(),
+            deviceId = deviceId,
+            userId = Config.userId,
+            zone = ZoneId.systemDefault(),
+            newId = { UUID.randomUUID().toString() },
+        )
+        clockScheduler = ClockSkewScheduler(
+            measure = measurer::measure,
+            emit = { outbox.add(it) },
+            ticks = newClockScheduler(),
+            log = { Log.i(TAG, it) },
+            onCrash = { Log.w(TAG, Telemetry.line("clock_skew_crashed", error = it.javaClass.simpleName)) },
+        ).also { it.start() }
     }
 
     /**
@@ -584,7 +639,7 @@ open class LocationService : Service() {
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         startBeating()
-        startTicking()
+        startClockSkew()
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
     }
@@ -685,6 +740,7 @@ open class LocationService : Service() {
             newTransport("/ingest"),
             IngestRequest.serializer(),
             dropPermanentlyRejected = true,
+            responseDates = responseDates,
         ) { Log.i(TAG, it) }
         // **生存信号も同じ契機で送る**（specs「記録と同じ未送信の仕組みに乗せて再送する」）。
         // 別の刻みを立てると、送信の契機が 2 つになって電池と網の使い方が読めなくなる。
@@ -769,7 +825,12 @@ open class LocationService : Service() {
         }
         flusher?.cancel()
         flusher = null
-        collectorThread.shutdownNow()
+        beater?.cancel()
+        beater = null
+        clockScheduler?.stop()
+        clockScheduler = null
+        timeReceiver?.let { runCatching { unregisterReceiver(it) } }
+        timeReceiver = null
         super.onDestroy()
     }
 
