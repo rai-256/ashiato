@@ -290,6 +290,7 @@ open class LocationService : Service() {
             userId = Config.userId,
             zone = ZoneId.systemDefault(),
             newId = { UUID.randomUUID().toString() },
+            clock = newDeviceClock(),
             log = { Log.i(TAG, it) },
             onFix = { locationCounters?.recordSuccess() },
         )

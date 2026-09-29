@@ -21,6 +21,8 @@ class FixCollector(
     private val userId: String,
     private val zone: ZoneId,
     private val newId: () -> String,
+    /** 受け取ったときの端末の時計（ST05 / design D6）。試験だけが差し替える */
+    private val clock: DeviceClock,
     private val log: (String) -> Unit = {},
     /**
      * 取得できた契機を数える口（第 5 回 Q17）。**既定は何もしない** ——
@@ -35,11 +37,18 @@ class FixCollector(
             // 生存信号の取得率は、Doze で眠っていた区間を見分けるためのもの（ST01 の R46）
             onFix()
             // **水平精度でふるい落とさない**（design D11）。捨てた記録は復元できない
+            // 時計は受け取った瞬間に 1 度だけ読む（同じ記録の 3 項目が同じ瞬間を指すように）
+            val receivedWallMs = clock.wallMs()
+            val receivedMonoMs = clock.monoMs()
             val fix = LocationFix(
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracyMeters = location.accuracy,
                 at = Instant.ofEpochMilli(location.time),
+                receivedDeviceTime = Instant.ofEpochMilli(receivedWallMs),
+                fixElapsedNs = location.elapsedRealtimeNanos,
+                receivedElapsedMs = receivedMonoMs,
+                bootCount = clock.bootCount(),
             )
             if (outbox.add(fix.toIngestRequest(newId(), userId, deviceId, zone))) persisted++
         }
