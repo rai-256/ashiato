@@ -185,6 +185,21 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
   だから `event_time` は補正せず（C4）、`received_device_time` / `fix_elapsed_ns` / `received_elapsed_ms` を並べて残す（D6）。
   **結果がどちらでも spec と以降の Task は変わらない**
 
+### 位置の記録に足した 4 欄（ST05 / design D6 / Q2）
+
+`raw`（文字列）と `payload`（解析済み）の**両方**に載る。`schema_version` は 1 のまま。
+
+| 欄 | 型 | 中身 |
+|---|---|---|
+| `received_device_time` | RFC3339（ミリ秒まで・UTC） | 測位の結果を**受け取ったときの端末の壁時計**（`DeviceClock.wallMs()`） |
+| `fix_elapsed_ns` | integer | 測位の結果が持つ起動からの経過時間（`Location.getElapsedRealtimeNanos()`、ナノ秒） |
+| `received_elapsed_ms` | integer | 受け取ったときの起動からの経過時間（`DeviceClock.monoMs()`、ミリ秒） |
+| `boot_count` | integer または `null` | 起動の識別（`Settings.Global.BOOT_COUNT`）。**取れない端末では `null`** |
+
+- **この 4 欄を足す前に積んだ記録には無い。** 読む側は欄の有無を許す（未送信に積まれた記録は積んだときの文字列のまま送られる）
+- **出来事時刻の意味は変わらない。** `event_time` と `device_time` は今までどおり `Location.getTime()` で、補正しない（C4）
+- `fix_elapsed_ns` と `received_elapsed_ms` を並べると測位から受け取りまでの遅れが引け、`received_device_time` から測位の時点の端末の壁時計を戻せる
+
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
 **PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**

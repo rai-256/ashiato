@@ -3,6 +3,7 @@ package dev.ashiato.collector
 
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -37,8 +38,19 @@ data class LocationFix(
     val latitude: Double,
     val longitude: Double,
     val accuracyMeters: Float,
-    /** 端末時計での取得時刻 */
+    /** 測位の結果が持つ時刻（`Location.getTime()`）。**出来事時刻はこれのまま**で、補正しない（C4） */
     val at: Instant,
+    /**
+     * 受け取ったときの端末の壁時計（ST05 / design D6）。`at` とは別の項目で、差が端末の時計のずれの手掛かりになる。
+     * 既定値は既存の試験の組み立てを保つためだけのもの —— 本番は `FixCollector` が全部渡す。
+     */
+    val receivedDeviceTime: Instant = at,
+    /** 測位の結果が持つ起動からの経過時間（`Location.getElapsedRealtimeNanos()`） */
+    val fixElapsedNs: Long = 0L,
+    /** 受け取ったときの起動からの経過時間（`DeviceClock.monoMs()`） */
+    val receivedElapsedMs: Long = 0L,
+    /** 起動の識別。取れない端末では null */
+    val bootCount: Int? = null,
 )
 
 /**
@@ -61,6 +73,10 @@ fun LocationFix.toIngestRequest(
         "acc_m" to JsonPrimitive(accuracyMeters),
         "device_time" to JsonPrimitive(at.toString()),
         "device_id" to JsonPrimitive(deviceId),
+        "received_device_time" to JsonPrimitive(receivedDeviceTime.toString()),
+        "fix_elapsed_ns" to JsonPrimitive(fixElapsedNs),
+        "received_elapsed_ms" to JsonPrimitive(receivedElapsedMs),
+        "boot_count" to (bootCount?.let { JsonPrimitive(it) } ?: JsonNull),
     )
     return IngestRequest(
         id = id,

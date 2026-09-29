@@ -17,7 +17,10 @@ class LocationFixTest {
     private val at = Instant.parse("2026-09-08T02:00:00Z")
 
     private fun fix(accuracy: Float = 12.5f) =
-        LocationFix(latitude = 35.681236, longitude = 139.767125, accuracyMeters = accuracy, at = at)
+        LocationFix(latitude = 35.681236, longitude = 139.767125, accuracyMeters = accuracy, at = at,
+            receivedDeviceTime = Instant.parse("2026-09-08T02:00:01.500Z"), fixElapsedNs = 1_000L,
+            receivedElapsedMs = 2L, bootCount = 3,
+        )
 
     @Test
     fun `緯度・経度・水平精度・端末時刻・端末識別子を含む1件になる`() {
@@ -40,7 +43,9 @@ class LocationFixTest {
         assertEquals(a, b)
         assertEquals(
             """{"lat":35.681236,"lon":139.767125,"acc_m":12.5,""" +
-                """"device_time":"2026-09-08T02:00:00Z","device_id":"device-1"}""",
+                """"device_time":"2026-09-08T02:00:00Z","device_id":"device-1",""" +
+                """"received_device_time":"2026-09-08T02:00:01.500Z","fix_elapsed_ns":1000,""" +
+                """"received_elapsed_ms":2,"boot_count":3}""",
             a,
         )
     }
