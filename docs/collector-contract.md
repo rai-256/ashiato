@@ -166,74 +166,24 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
   残さないと「データが無い」の意味が後から区別できなくなる
 - **私的データをログに出さない**（製造準備 A-2）。出すのは件数・ソース名・所要時間・エラーの種別だけ
 
-## C-01（`c01-app-usage`）が送る `payload` の形（ST06 / design D2）
+## 位置（C-01）の記録の時刻（ST05 / design D6）
 
-**利用状況のイベント 1 件につき記録を 1 件送る。** 下表の順に直列化する。
-`package` / `class` と種別固有の欄は取得元が値を返したときだけ置き、`null` は置かない。
-`event_type` と `event_time` は省略しない。`app_label` は取得時点に表示名を引けたときだけ
-`payload` の末尾に置き、取得元の原文である `raw` には置かない。
+### Location.getTime() の出どころ
 
-| 欄 | 型 | 省略の規則 |
-|---|---|---|
-| `package` | text | 取得元が返さなければ欄ごと省く |
-| `class` | text | 取得元が返さなければ欄ごと省く |
-| `event_type` | integer | 省略しない |
-| `event_time` | RFC3339（UTC） | 省略しない |
-| `configuration` | text | その種別で取得元が返したときだけ置く |
-| `shortcut_id` | text | その種別で取得元が返したときだけ置く |
-| `interaction_action` | text | その種別で取得元が返したときだけ置く |
-| `interaction_category` | text | その種別で取得元が返したときだけ置く |
-| `standby_bucket` | integer | その種別で取得元が返したときだけ置く |
-| `app_label` | text | 表示名を引けたときだけ `payload` の末尾に置く。`raw` には置かない |
+**確かめた結果（2026-09-29）: エミュレータでは、`getTime()` は端末の壁時計（`System.currentTimeMillis()`）から来ていた。
+端末の時計を +5 分ずらすと `getTime()` も追従した。** 衛星の時計ではない（少なくともエミュレータの GNSS では）。
 
-## C-01（`c01-app-usage`）が送る取りこぼし（`kind: gap`）の形（ST06 / FR-85 / design D4）
-
-**取りに行ったが取れなかった期間は、イベントと同じ論理ソース（`c01-app-usage`）に記録 1 件として積む。**
-下表の順に直列化し、**どの欄も省略しない**。`event_time` は**期間の終わり**（`end` と同じ値）——
-始まりに置くと収集を始めた日より前へ落ちうる。**解析済み（`payload`）は原文と同じ**（足す欄が無い）。
-
-**アプリの名前もパッケージの名前も入れない。** この 1 件が言えるのは「この期間の記録が無い」だけで、
-そこに何があったかは誰も知らない。推測で埋めると、無かったことが「あった」として正典に入る。
-
-| 欄 | 型 | 省略の規則 |
-|---|---|---|
-| `kind` | `gap` | 省略しない |
-| `begin` | RFC3339（UTC） | 省略しない |
-| `end` | RFC3339（UTC） | 省略しない |
-| `reason` | `retention` / `clock_skew_abandoned` | 省略しない |
-
-**`reason` は 2 つあり、混ぜない。** 扉 #14 の「データが無い」を②「動いていたが記録が無い」と
-見分ける材料なので、**取りに行って無かった**のと**取りに行っていない**のは別のことを意味する:
-
-| `reason` | いつ積むか | その期間を取得元に問い合わせたか |
-|---|---|---|
-| `retention` | 窓の始まりが取得元の見込みの保持（10 日）より前で、その手前は取得元に無かった | **問い合わせた**（無かった） |
-| `clock_skew_abandoned` | 端末の時計と単調な経過の食い違いが 10 日を超えて解消せず、**諦めて**見込みの下限から取り直した（深掘り Q9=c / design D8） | **していない**（取得元にはまだ残っていたかもしれない） |
-
-> **イベントの記録と分けるのは `kind` の有無だけ。** イベントの原文には `kind` が無い
-> （取得元が返す欄だけで組み立てる）ので、この欄そのものが 2 種類を分ける。
-> 受け手（ST14）はこの表を読んで gap を畳む。
-
-## C-01（`c01-app-usage-rollup`）が送る `payload` の形（ST06 / design D3）
-
-**アプリ・期間・粒度ごとの集計 1 件につき記録を 1 件送る。** 下表の順に直列化する。
-`package` は取得元が値を返したときだけ置き、`null` は置かない。それ以外の取得元の欄は
-省略しない。`app_label` は取得時点に表示名を引けたときだけ `payload` の末尾に置き、
-取得元の原文である `raw` には置かない。
-
-| 欄 | 型 | 省略の規則 |
-|---|---|---|
-| `granularity` | `daily` / `weekly` / `monthly` / `yearly` | 省略しない |
-| `package` | text | 取得元が返さなければ欄ごと省く |
-| `begin` | RFC3339（UTC） | 省略しない |
-| `end` | RFC3339（UTC） | 省略しない |
-| `last_used` | RFC3339（UTC） | 省略しない |
-| `last_visible` | RFC3339（UTC） | 省略しない |
-| `last_foreground_service_used` | RFC3339（UTC） | 省略しない |
-| `total_foreground_ms` | integer（ミリ秒） | 省略しない |
-| `total_visible_ms` | integer（ミリ秒） | 省略しない |
-| `total_foreground_service_ms` | integer（ミリ秒） | 省略しない |
-| `app_label` | text | 表示名を引けたときだけ `payload` の末尾に置く。`raw` には置かない |
+- 手順: API 35 の `google_apis` エミュレータ（`tools/android-emulator.sh` と同じ AVD）で `auto_time` を切り、計測テスト（使い捨て・commit しない）が
+  `FusedLocationProviderClient.requestLocationUpdates`（`HIGH_ACCURACY`・1 秒）と `LocationManager` の `gps` を同時に購読。
+  ホストから `adb emu geo fix` を 1 秒ごとに送り、テストが `UiAutomation.executeShellCommand("cmd alarm set-time <ms>")` で
+  壁時計を +5 分ずらして 15 秒後に戻す。各 fix で `getTime()`・`currentTimeMillis()`・`getElapsedRealtimeNanos()` と `elapsedRealtimeNanos()` を並べた
+- 結果: ずらす前も後も `getTime() - currentTimeMillis()` は −1〜−18 ms（受け取りまでの遅れ）で、+5 分（300000 ms）のずれは現れなかった。
+  `getElapsedRealtimeNanos()` は端末の起動からの経過時間として単調に進み、時計を変えても影響を受けなかった。
+  fused の `getTime()` は `gps` の `getTime()` と同じ値だった（fused は GNSS の値を素通しにしていた）
+- **限界**: エミュレータの GNSS HAL は端末の壁時計で時刻を刻むので、**実機の衛星の時刻を持つ GNSS（時計が狂っていても正しい時刻を返す）で
+  同じかは、この手順では確かめられていない**。実機では `getTime()` が衛星の時刻になりうる。
+  だから `event_time` は補正せず（C4）、`received_device_time` / `fix_elapsed_ns` / `received_elapsed_ms` を並べて残す（D6）。
+  **結果がどちらでも spec と以降の Task は変わらない**
 
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
