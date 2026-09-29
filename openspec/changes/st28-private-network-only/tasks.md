@@ -108,23 +108,23 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 4: 移行とログインの口（design D1 / D2 / D3 / D9 / D16 / D17 / D18）
 
-- [ ] 4.1 移行 `migrations/YYYYMMDDHHMM_access_control.sql` と `.down.sql` —— `core.web_session`（design D3）と `core.access_log`（design D8。UPDATE / DELETE を拒む行トリガと
+- [x] 4.1 移行 `migrations/YYYYMMDDHHMM_access_control.sql` と `.down.sql` —— `core.web_session`（design D3）と `core.access_log`（design D8。UPDATE / DELETE を拒む行トリガと
   TRUNCATE を拒む文トリガ。**この移行専用の関数**）。当て直せる形。`MIGRATIONS` 配列の末尾に足す。
   検証: `tools/check-migrations.sh`、`CT access_log_migration_applies_twice`
-- [ ] 4.2 起動時の画面の合言葉の検査（`WEB_PASSWORD` が無い / 16 文字未満 / `API_TOKEN` と同じ → 拒否。`kind = "web_password"`。D16（仮））。
+- [x] 4.2 起動時の画面の合言葉の検査（`WEB_PASSWORD` が無い / 16 文字未満 / `API_TOKEN` と同じ → 拒否。`kind = "web_password"`。D16（仮））。
   Scenario: `画面の合言葉が API の合言葉と同じだと起動しない` / `画面の合言葉が無いか短いと起動しない`（15 文字で撃つ）。
   検証: `CT server_startup_web_password`
-- [ ] 4.3 `POST /session` / `DELETE /session` / `GET /session` と、`authorize()` がログインの印も受けて呼び出し元の種類を返す形（design D1 / D2 / D3）。
+- [x] 4.3 `POST /session` / `DELETE /session` / `GET /session` と、`authorize()` がログインの印も受けて呼び出し元の種類を返す形（design D1 / D2 / D3）。
   比較は `token_matches`。`secret_tag` の鍵は `API_TOKEN`（design D3）。失敗は 1 秒待たせ、1 分 10 回を超えたら 429（D17（仮）。試験は待ちを差し替えられる形にする）。
   Scenario: `違う合言葉のログインの求めは断られ、印は発行されない` / `合言葉を付けないログインの求めは断られる` / `API の合言葉では画面にログインできない` /
   `ログインの印は暗号化された接続でだけ送られる` / `ログインの印は別のサイトから始まった求めには付かない` / `ログアウトした印を持ち出しても使えない` /
   `失敗を重ねたログインは一時的に断られる` / `API の合言葉での読み書きは変わらない`。
   検証: `CT web_session_endpoint`
-- [ ] 4.4 期限・寿命・合言葉の変更（試験は `App::at()` で時刻を差し込む。合言葉の変更は `App` を別の合言葉で組み直す）。
+- [x] 4.4 期限・寿命・合言葉の変更（試験は `App::at()` で時刻を差し込む。合言葉の変更は `App` を別の合言葉で組み直す）。
   Scenario: `既定では日が経ってもログインは切れない` / `ログインの印はブラウザを閉じても残り、使うたびに延びる`（ログインと読み出しの 2 つの応答の `Set-Cookie` の `Max-Age` が 86400 以上）/
   `画面の合言葉を変えると、それまでのログインはすべて使えなくなる` / `期限を設定したときは、過ぎた印は使えない`。
   検証: `CT web_session_lifetime`
-- [ ] 4.5 OpenAPI に 3 本を載せ、`docs/openapi.json` を再生成する。
+- [x] 4.5 OpenAPI に 3 本を載せ、`docs/openapi.json` を再生成する。
   検証: `tools/check-openapi.sh`
 
 ## Task 5: 読み出しの記録と応答ヘッダ（design D8 / D10 / C4 / C5）
