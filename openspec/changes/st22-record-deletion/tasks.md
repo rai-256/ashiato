@@ -132,7 +132,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 7: 稼働状況を固定する（design D11。Q3）
 
-- [ ] 7.1 消しても稼働状況と達成日数が変わらないことをテストで固定する（`coverage.rs` は変えない）。
+- [x] 7.1 消しても稼働状況と達成日数が変わらないことをテストで固定する（`coverage.rs` は変えない）。
   Scenario: `1 日の記録をすべて消しても稼働状況は記録ありのまま` / `記録を消しても達成日数は減らない`。検証: `CT coverage_counts_deleted`
 
 ## Task 8: 画面（design D9。`web/src/`。jsdom で測れるもの）
