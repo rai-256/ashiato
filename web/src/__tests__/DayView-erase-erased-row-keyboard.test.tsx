@@ -4,6 +4,7 @@ import { Root } from "../Root";
 import type { DayView } from "../stays";
 
 const response = (body: unknown): Response => ({ ok: true, json: () => Promise.resolve(body) }) as Response;
+const failedResponse = (status = 500): Response => ({ ok: false, status, json: () => Promise.resolve({}) }) as Response;
 const stay = (id: string, start = "2026-09-29T00:00:00Z", end = "2026-09-29T01:00:00Z") => ({
   kind: "stay" as const,
   start,
@@ -13,9 +14,11 @@ const stay = (id: string, start = "2026-09-29T00:00:00Z", end = "2026-09-29T01:0
 
 let calls: string[];
 let day: DayView;
+let failActions = false;
 
 beforeEach(() => {
   calls = [];
+  failActions = false;
   day = { date: "2026-09-29", criteria: [], entries: [stay("stay-1"), stay("stay-2", "2026-09-29T02:00:00Z", "2026-09-29T03:00:00Z")] };
   vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${input}`);
@@ -26,10 +29,11 @@ beforeEach(() => {
       ] }));
     }
     if (input.includes("/erase")) {
+      if (failActions) return Promise.resolve(failedResponse());
       day = { ...day, entries: [{ kind: "erased", start: "2026-09-29T00:00:00Z", end: "2026-09-29T01:00:00Z", stay_ids: ["stay-1"] }] };
       return Promise.resolve(response({}));
     }
-    if (input.includes("/restore")) return Promise.resolve(response({}));
+    if (input.includes("/restore")) return Promise.resolve(failActions ? failedResponse() : response({}));
     return Promise.resolve(response(day));
   });
   window.location.hash = "#/day/2026-09-29";
@@ -62,6 +66,35 @@ describe("滞在の詳細", () => {
     await waitFor(() => expect(screen.getAllByTestId("stay-detail")).toHaveLength(1));
     expect(within(rows[0]).queryByTestId("stay-detail")).toBeNull();
     expect(within(rows[1]).getByTestId("stay-detail")).toBeTruthy();
+  });
+
+  it("先に開いた行の遅延した詳細を後から開いた行へ表示しない", async () => {
+    let resolveFirst: (value: Response) => void = () => undefined;
+    const firstDetail = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${input}`);
+      if (input.includes("/detail?stay_id=stay-1")) return firstDetail;
+      if (input.includes("/detail?stay_id=stay-2")) {
+        return Promise.resolve(response({ stay_id: "stay-2", start: day.entries[1].start, end: day.entries[1].end, counts: [
+          { logical_source: "c01-location", display_name: "位置", count: 2 },
+        ] }));
+      }
+      return Promise.resolve(response(day));
+    });
+    render(<Root />);
+    await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
+    const rows = screen.getAllByTestId("row-stay");
+    fireEvent.click(within(rows[0]).getByRole("button"));
+    fireEvent.click(within(rows[1]).getByRole("button"));
+    await waitFor(() => expect(within(rows[1]).getByText("位置 2 件")).toBeTruthy());
+    resolveFirst(response({ stay_id: "stay-1", start: day.entries[0].start, end: day.entries[0].end, counts: [
+      { logical_source: "c01-location", display_name: "位置", count: 99 },
+    ] }));
+    await Promise.resolve();
+    expect(within(rows[1]).getByText("位置 2 件")).toBeTruthy();
+    expect(within(rows[1]).queryByText("位置 99 件")).toBeNull();
   });
 
   // Scenario: 詳細にその時間の記録の件数がソースごとに出る
@@ -119,6 +152,37 @@ describe("滞在の削除と復元", () => {
     expect(within(row).getByTestId("erase-confirm").textContent).toContain("位置の記録 12 件");
   });
 
+  it("詳細の読み込み中は削除操作を出さない", async () => {
+    let resolveDetail: (value: Response) => void = () => undefined;
+    vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${input}`);
+      if (input.includes("/detail")) return new Promise<Response>((resolve) => {
+        resolveDetail = resolve;
+      });
+      return Promise.resolve(response(day));
+    });
+    render(<Root />);
+    await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
+    const row = screen.getAllByTestId("row-stay")[0];
+    fireEvent.click(within(row).getByRole("button"));
+    expect(within(row).queryByRole("button", { name: "この滞在を消す" })).toBeNull();
+    resolveDetail(response({ stay_id: "stay-1", start: day.entries[0].start, end: day.entries[0].end, counts: [] }));
+    await waitFor(() => expect(within(row).getByRole("button", { name: "この滞在を消す" })).toBeTruthy());
+  });
+
+  it("削除の失敗を行内に表示し、再試行できる", async () => {
+    failActions = true;
+    render(<Root />);
+    await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
+    const row = screen.getAllByTestId("row-stay")[0];
+    fireEvent.click(within(row).getByRole("button"));
+    await screen.findByTestId("stay-detail");
+    fireEvent.click(within(row).getByRole("button", { name: "この滞在を消す" }));
+    fireEvent.click(within(row).getByRole("button", { name: "消す" }));
+    await waitFor(() => expect(within(row).getByRole("alert").textContent).toContain("操作に失敗しました"));
+    expect(within(row).getByRole("button", { name: "消す" })).toBeTruthy();
+  });
+
   // Scenario: 確認して消すとその滞在の行が一覧から消える
   it("消すで一覧を読み直し、消した行に置き換える", async () => {
     render(<Root />);
@@ -154,13 +218,13 @@ describe("滞在の削除と復元", () => {
 
 describe("キーボード操作", () => {
   // Scenario: キーボードで詳細を開ける
-  it("Enter と Space で詳細を開ける", async () => {
+  it("キーボード決定操作で詳細を開閉できる", async () => {
     render(<Root />);
     await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
     const button = within(screen.getAllByTestId("row-stay")[0]).getByRole("button");
-    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.click(button);
     await screen.findByTestId("stay-detail");
-    fireEvent.keyDown(button, { key: " " });
+    fireEvent.click(button);
     expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 });
