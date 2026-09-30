@@ -194,11 +194,11 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 9: 手順書と確認バッチ（design D12 / D20）
 
-- [ ] 9.1 `docs/network.md` を足す —— `tailscale serve` の HTTPS の口を画面と API の 2 本・http と開発用の画面の口を消す・**証明書ログに機械の名前と網の名前が載り消せない**（Q2）・
+- [x] 9.1 `docs/network.md` を足す —— `tailscale serve` の HTTPS の口を画面と API の 2 本・http と開発用の画面の口を消す・**証明書ログに機械の名前と網の名前が載り消せない**（Q2）・
   収集アプリの `https://` の入れ直し・**電話を落としたとき**（Q4 / Q6。`API_TOKEN` と画面の合言葉を変える）・**画面を出す機械名に信頼できないサービスを同居させない**（design D12）・
   **本人の機械での移行の順序**（design D20 の 1〜5。退避を先に）・`tools/check-exposure.sh` で確かめる。網の名前は雛形（`<machine>.<tailnet>.ts.net`）だけ。
   検証: `tools/check-private.sh`、`bash -c 'for w in 証明書 落とした check-exposure pg_dump db-roles 同居; do grep -q "$w" docs/network.md || { echo "無い: $w"; exit 1; }; done'`
-- [ ] 9.2 `docs/screens.md` の網越しの URL を `https://` に直し、ログインの面を 1 行足す。`tools/verify-prep.sh` の手順書（`run.sh` の説明）に
+- [x] 9.2 `docs/screens.md` の網越しの URL を `https://` に直し、ログインの面を 1 行足す。`tools/verify-prep.sh` の手順書（`run.sh` の説明）に
   ログイン（`.env` の `WEB_PASSWORD`）・`https://` を反映する。`curl` の例は `API_TOKEN` のまま（Q4）。
   `ashiato.baseUrl` が平文で loopback でなければ APK を作らずに「`docs/network.md` の移行の 5 を済ませる」と出して続ける（design D20）。
   検証: `bash -c '! grep -n "http://<手元の網のホスト名>" docs/screens.md tools/verify-prep.sh'`、`bash -c 'grep -q WEB_PASSWORD tools/verify-prep.sh && grep -q "network.md" tools/verify-prep.sh'`
