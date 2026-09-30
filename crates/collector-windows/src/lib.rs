@@ -20,6 +20,7 @@
 pub mod autostart;
 pub mod browsers;
 pub mod clock;
+pub mod clock_record;
 pub mod clock_worker;
 pub mod config;
 pub mod contract;

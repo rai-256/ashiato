@@ -270,10 +270,26 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 | `ended_by` | `superseded` / `restart` / `unreadable`（**入力の再開以外で閉じた区間**。普通は省く） | `idle`（出た側） |
 | `mono_gap_ms` | integer（見回りが飛んだ間に**単調時計**が進んだ長さ） | `idle`（`suspended`） |
 | `excluded_count` | integer（**除外した変化の件数**。対象を前景にしたこと自体を 1 回と数える） | `excluded` |
-| `boot_at` | RFC3339（**OS が最後に起動した時刻**。区間の始まりより後なら PC は本当に止まっていた） | `powered-off` |
+| `boot_at` | RFC3339（**OS が最後に起動した時刻**。区間の始まりより後なら PC は本当に止まっていた。`clock-skew` では**起動の識別**） | `powered-off` / `clock-skew` |
 | `clean_stop` | `true`（前回の収集が自分で止まった。電源断・強制終了では省かれる） | `powered-off` |
-| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる。HTTP の日付は秒で切り捨てなので 0〜+999 ms に偏る） | `clock-skew` |
-| `skew_reference` | text（基準の出どころ = 取り込み口の `host:port`。ループバックなら自分の時計と比べている） | `clock-skew` |
+| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる。HTTP の日付は秒で切り捨てなので 0〜+999 ms に偏る） | `clock-skew`（**`s01-date` が取れたときだけ。取れなかった記録では無い**） |
+| `skew_reference` | text（基準の出どころ = 取り込み口の `host:port`。ループバックなら自分の時計と比べている） | `clock-skew`（**`s01-date` が取れたときだけ。取れなかった記録では無い**） |
+| `clock_trigger` | `hourly` / `start` / `jump` / `retry`（測った契機。`jump` は壁時計の飛び・戻り、`retry` は取れなかった契機の測り直しで取れた記録） | `clock-skew` |
+| `clock_available` | boolean（`clock_references` が 1 件以上か。**1 つも取れなかった記録も 1 件残る**） | `clock-skew` |
+| `uptime_ms` | integer（測ったときの起動からの経過時間。`boot_at` と組で起動をまたいだ比較に使う。本番の刻みは秒） | `clock-skew` |
+| `clock_references` | array（取れた基準。要素は下記） | `clock-skew` |
+| `clock_unavailable` | array（取れなかった基準。要素は `source`・`reason`・`raw?`） | `clock-skew` |
+
+**`clock_references[]` の要素**: `source`・`mono_before_ms` / `mono_after_ms`（その基準を読む直前と直後の `uptime_ms`。**読み取り時間の上限**の幅）は必ず持つ。
+`s01-date` は `time`・`skew_ms`・`host`（取り込み口の `host:port`）。`windows-time-sync` は `raw`（`w32tm /query /status /verbose` の出力。
+cp932 のバイト列なので、**ASCII 以外のバイトと `\` は `\xNN`** に直して持つ）・`last_sync`（最後に正常に同期した時刻。表示のまま）・
+`sync_source`・`os_offset_ms`（位相のずれ）。状態なので `windows-time-sync` は `skew_ms` を持たない。
+
+- **出どころは 2 つ**（`s01-date` = 取り込み口の応答の日付 / `windows-time-sync` = Windows の時刻同期の状態）。
+  **2 つのそれぞれが `clock_references` と `clock_unavailable` のどちらかに 1 回ずつ**出る。
+  `reason` は `timeout` / `unreachable`（`s01-date`）・`spawn_failed` / `exit:<code>` / `timeout`（`windows-time-sync`）・
+  `unparsed`（出力から項目を 1 つも読めなかった。`raw` を持つ）・`worker_failed`（読み取りのスレッドが結果を返さなかった）
+- **取れなかった記録は 1 時間の契機ごとに 1 件まで**。測り直し（60 秒ごと）では増やさず、取れたら `retry` の記録を 1 件残す
 
 > **`at` を原文にも入れる理由**: 冪等キーは `logical_source` + `event_time` + `raw` から
 > 作られる。本文を持たない記録（`excluded`）の原文が全部同じ文字列だと、

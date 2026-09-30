@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 
-use crate::contract::{RecordKind, WindowPayload};
+use crate::contract::ClockTrigger;
 
 /// 測る間隔（spec「1 時間ごと」）。
 pub const SKEW_INTERVAL_SEC: i64 = 3_600;
@@ -69,19 +69,27 @@ pub trait ReferenceClock: std::fmt::Debug + Send + Sync {
 pub const SKEW_RETRY_SEC: i64 = 60;
 
 /// 測る契機。
+///
+/// 1 時間ごとの契機を **1 周期**とし、周期の中で取れなかった記録は 1 件までにする（design D4 / D10）。
+/// 測り直し（60 秒）は周期の中で続き、取れたら `retry` の記録を 1 件残す。周期が 1 時間を過ぎたら新しい周期にする。
 #[derive(Debug, Clone)]
 pub struct SkewSchedule {
     interval: Duration,
     last: Option<DateTime<Utc>>,
+    /// 次に測るときの契機（起動・飛び・戻りで立て、測り始めたら `Hourly` に戻る）
+    pending: ClockTrigger,
+    /// いまの周期の始まり
+    cycle_start: Option<DateTime<Utc>>,
+    /// 取れなかった契機のあと、測り直している最中
+    retrying: bool,
+    /// いまの周期で、取れなかった記録を残したか
+    unavailable_recorded: bool,
 }
 
 impl SkewSchedule {
-    /// 1 時間ごと。
+    /// 1 時間ごと。最初の契機は起動。
     pub fn new() -> Self {
-        Self {
-            interval: Duration::seconds(SKEW_INTERVAL_SEC),
-            last: None,
-        }
+        Self::with_interval(Duration::seconds(SKEW_INTERVAL_SEC))
     }
 
     /// 間隔を明示して作る（テスト用）。
@@ -89,6 +97,10 @@ impl SkewSchedule {
         Self {
             interval,
             last: None,
+            pending: ClockTrigger::Start,
+            cycle_start: None,
+            retrying: false,
+            unavailable_recorded: false,
         }
     }
 
@@ -102,9 +114,42 @@ impl SkewSchedule {
         self.last = Some(now);
     }
 
+    /// 測り始める。**どの契機の測定かを返す**（測り直しの間は `Retry`、周期が変われば起動・飛び・1 時間ごと）。
+    pub fn begin(&mut self, now: DateTime<Utc>) -> ClockTrigger {
+        self.mark(now);
+        let in_cycle = self.cycle_start.is_some_and(|s| now - s < self.interval);
+        if self.retrying && in_cycle {
+            return ClockTrigger::Retry;
+        }
+        self.cycle_start = Some(now);
+        self.retrying = false;
+        self.unavailable_recorded = false;
+        std::mem::replace(&mut self.pending, ClockTrigger::Hourly)
+    }
+
+    /// 起動・壁時計の飛び・戻りで、次の見回りにすぐ測らせる。
+    pub fn reset(&mut self, trigger: ClockTrigger) {
+        self.last = None;
+        self.pending = trigger;
+        self.cycle_start = None;
+        self.retrying = false;
+        self.unavailable_recorded = false;
+    }
+
     /// 測れなかった。**`SKEW_RETRY_SEC` 後にもう一度**測る。
     pub fn failed(&mut self, now: DateTime<Utc>) {
         self.last = Some(now - self.interval + Duration::seconds(SKEW_RETRY_SEC));
+        self.retrying = true;
+    }
+
+    /// 取れた。測り直しを終える。
+    pub fn succeeded(&mut self) {
+        self.retrying = false;
+    }
+
+    /// 取れなかった記録をいま残すか。**周期に 1 件まで**（測り直しのたびには増やさない）。
+    pub fn record_unavailable(&mut self) -> bool {
+        !std::mem::replace(&mut self.unavailable_recorded, true)
     }
 }
 
@@ -112,18 +157,6 @@ impl Default for SkewSchedule {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// 測定の記録。**正なら PC の時計が進んでいる。**
-///
-/// `source` は基準の出どころ（`host:port`）。ループバックなら「自分の時計と比べた 0」だと
-/// 後から分かる（R15）。HTTP の日付は**秒で切り捨て**なので、同じ PC でも
-/// 0〜+999 ms に偏る（design D17）。
-pub fn measure(local: DateTime<Utc>, reference: DateTime<Utc>, source: &str) -> WindowPayload {
-    let mut p = WindowPayload::new(RecordKind::ClockSkew, local);
-    p.skew_ms = Some((local - reference).num_milliseconds());
-    p.skew_reference = Some(source.to_string());
-    p
 }
 
 /// HTTP の `date` ヘッダを読む。
@@ -218,34 +251,46 @@ mod tests {
     /// Scenario: 1 時間ごとにずれの測定記録が残る
     #[test]
     fn clock_skew_is_measured() {
+        use crate::clock_record::{skew_record, RecordContext};
+        use crate::clock_worker::ClockReading;
+        use crate::contract::{rfc3339, RecordKind};
+
         let mut s = SkewSchedule::new();
         assert!(s.due(t(0)), "起動直後に 1 回も測らない");
-        s.mark(t(0));
+        assert_eq!(s.begin(t(0)), ClockTrigger::Start, "最初の契機は起動");
         assert!(!s.due(t(3_599)), "1 時間より早く測っている");
         assert!(s.due(t(3_600)), "1 時間経っても測らない");
+        assert_eq!(s.begin(t(3_600)), ClockTrigger::Hourly);
 
         // PC の時計が 1.2 秒進んでいる
-        let p = measure(
-            t(3_600),
-            t(3_600) - Duration::milliseconds(1_200),
-            "127.0.0.1:8787",
-        );
+        let reading = ClockReading {
+            source: "127.0.0.1:8787".into(),
+            reference: Ok(ReferenceReading {
+                time: t(3_600) - Duration::milliseconds(1_200),
+                uptime_before_ms: 10,
+                uptime_after_ms: 11,
+                wall_after: t(3_600),
+            }),
+            time_sync: Err("spawn_failed".into()),
+        };
+        let ctx = RecordContext {
+            trigger: ClockTrigger::Hourly,
+            at: t(3_600),
+            uptime_ms: 3_600_000,
+            boot_at: None,
+        };
+        let p = skew_record(&ctx, reading);
         assert_eq!(p.kind, RecordKind::ClockSkew);
         assert_eq!(p.skew_ms, Some(1_200));
         assert_eq!(p.skew_reference.as_deref(), Some("127.0.0.1:8787"));
-        assert_eq!(p.at, crate::contract::rfc3339(t(3_600)));
-        // 遅れている側も測れる（符号で向きが分かる）
-        assert_eq!(
-            measure(t(0), t(0) + Duration::milliseconds(500), "h").skew_ms,
-            Some(-500)
-        );
+        assert_eq!(p.at, rfc3339(t(3_600)));
 
         // 1 日動かし続けると 24 件（起動直後の 1 件 + 1 時間ごと。24 時間目は翌日に入る）
         let mut s = SkewSchedule::new();
         let mut n = 0;
         for sec in (0..86_400).step_by(60) {
             if s.due(t(sec)) {
-                s.mark(t(sec));
+                s.begin(t(sec));
                 n += 1;
             }
         }
@@ -332,8 +377,10 @@ mod tests {
         let (base, _) = fake_ingest(reference);
         let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
         let r = clock.now().unwrap();
-        let p = measure(r.wall_after, r.time, &clock.source());
-        (p.skew_ms.unwrap(), r.uptime_after_ms - r.uptime_before_ms)
+        (
+            (r.wall_after - r.time).num_milliseconds(),
+            r.uptime_after_ms - r.uptime_before_ms,
+        )
     }
 
     /// 刻みが粗い経過時間でも、幅は実際の読み取り時間を下回らない。
