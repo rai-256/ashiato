@@ -198,19 +198,19 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 10: 通しの検査
 
-- [ ] 10.1 時刻サーバへの経路が無いことの静的検査 `tools/check-no-time-server.sh` を置く —— `collector-android/app/src/main` と `crates/collector-windows/src` を見て、
+- [x] 10.1 時刻サーバへの経路が無いことの静的検査 `tools/check-no-time-server.sh` を置く —— `collector-android/app/src/main` と `crates/collector-windows/src` を見て、
   時刻のプロトコルの送信（`DatagramSocket` / `SntpClient` / `NtpTrustedTime` / `UdpSocket`）・時刻サーバの宛先（`ntp.org` / `time.google.com` / `time.windows.com` / `time.apple.com` / `:123`）・
   同期を起こす指示（`/resync`）が 1 つでもあれば rc=1。`--self-test` で、一時ディレクトリに経路を 1 つ植えたときに rc=1 になることを自分で確かめる。
   `echo "Scenario: 外部の時刻サーバへ問い合わせない"` と `echo "Scenario: PC は外部の時刻サーバへ問い合わせない"` を出す。CI（`.github/workflows/ci.yml`）の静的検査の段に足す。
   検証: `tools/check-no-time-server.sh` rc=0 / `tools/check-no-time-server.sh --self-test` rc=0 /
   `bash -c 'grep -q "check-no-time-server.sh" .github/workflows/ci.yml'` rc=0
-- [ ] 10.2 実物の取り込み口に通す —— `tools/smoke.sh` に、`c01-clock` の測定記録（取れた記録と取れなかった記録の 2 件）を `/ingest` へ送って
+- [x] 10.2 実物の取り込み口に通す —— `tools/smoke.sh` に、`c01-clock` の測定記録（取れた記録と取れなかった記録の 2 件）を `/ingest` へ送って
   格納されることと、PC の新しい形の clock-skew が格納されることを足す（`echo "== Scenario: 識別子を持たない測定記録が格納される"`）。
   検証: `tools/smoke.sh` rc=0（`docker compose up -d db` の後）
-- [ ] 10.3 確かめる係を置く（design D4 の反転条件）—— `tools/verify-prep.sh` の手順書の組み立てに、`c01-clock` の `trigger = retry` と `trigger = hourly` の
+- [x] 10.3 確かめる係を置く（design D4 の反転条件）—— `tools/verify-prep.sh` の手順書の組み立てに、`c01-clock` の `trigger = retry` と `trigger = hourly` の
   直近 7 日の件数を出す SQL を足し、手順書に数を載せる（人間には聞かない。数を残すだけ）。
   検証: `bash -c 'grep -q "c01-clock" tools/verify-prep.sh && grep -q "retry" tools/verify-prep.sh'` rc=0
-- [ ] 10.4 Scenario と test の突き合わせ・全体のテスト・静的検査を通す。
+- [x] 10.4 Scenario と test の突き合わせ・全体のテスト・静的検査を通す。
   検証: `python3 scripts/check_scenarios.py . st05-clock-skew` rc=0 /
   `bash -o pipefail -c 'cargo test --workspace 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log` /
   `cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest` rc=0 /
