@@ -17,10 +17,15 @@ pub const SKEW_INTERVAL_SEC: i64 = 3_600;
 pub trait Uptime: std::fmt::Debug + Send + Sync {
     /// 起動からの経過時間（ミリ秒）。
     fn millis(&self) -> u64;
+
+    /// 刻み（ミリ秒）。読んだ値は本当の値より最大 `刻み - 1` 小さい（切り捨て）。
+    fn resolution_ms(&self) -> u64 {
+        1
+    }
 }
 
-/// 本番: Windows の起動からの経過時間（`GetTickCount64` と同じ値。sysinfo が安全に包んでいる。
-/// **unsafe を書かない**ため直接は呼ばない）。刻みは秒。
+/// 本番: Windows の起動からの経過時間（sysinfo が安全に包んでいる。**unsafe を書かない**ため
+/// `GetTickCount64` は直接呼ばない）。**刻みは秒**（D9（仮）: ミリ秒でなく、幅を上限側に寄せる）。
 #[cfg(windows)]
 #[derive(Debug, Default)]
 pub struct SystemUptime;
@@ -29,6 +34,10 @@ pub struct SystemUptime;
 impl Uptime for SystemUptime {
     fn millis(&self) -> u64 {
         sysinfo::System::uptime().saturating_mul(1000)
+    }
+
+    fn resolution_ms(&self) -> u64 {
+        1000
     }
 }
 
@@ -170,7 +179,8 @@ impl ReferenceClock for HttpDateClock {
             .map_err(|e| anyhow::anyhow!("基準時刻を取れない: {}", e))?;
         // **応答を受け取った直後**に読む（Q3 ②）。差にはこの壁時計を使う
         let wall_after = Utc::now();
-        let uptime_after_ms = self.uptime.millis();
+        // 刻みで切り捨てた分を直後の側へ足し、幅を**実際の読み取り時間の上限**にする（D9（仮））
+        let uptime_after_ms = self.uptime.millis() + self.uptime.resolution_ms() - 1;
         let date = res
             .headers()
             .get("date")
@@ -324,6 +334,25 @@ mod tests {
         let r = clock.now().unwrap();
         let p = measure(r.wall_after, r.time, &clock.source());
         (p.skew_ms.unwrap(), r.uptime_after_ms - r.uptime_before_ms)
+    }
+
+    /// 刻みが粗い経過時間でも、幅は実際の読み取り時間を下回らない。
+    #[test]
+    fn clock_reference_width_covers_coarse_uptime_resolution() {
+        #[derive(Debug)]
+        struct Coarse;
+        impl Uptime for Coarse {
+            fn millis(&self) -> u64 {
+                5_000
+            }
+            fn resolution_ms(&self) -> u64 {
+                1_000
+            }
+        }
+        let (base, _) = fake_ingest(Utc::now());
+        let r = HttpDateClock::new(&base, Arc::new(Coarse)).now().unwrap();
+        assert_eq!(r.uptime_before_ms, 5_000);
+        assert_eq!(r.uptime_after_ms, 5_999);
     }
 
     /// Scenario: PC の時計が進んでいると差が正で残る
