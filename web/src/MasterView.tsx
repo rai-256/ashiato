@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FOCUS_ATTR, focusRule, useScheme } from "./DayView";
+import { FOCUS_ATTR, useFocusRule, useScheme } from "./DayView";
 import {
   assertedAtLabel,
   buildClaim,
@@ -48,6 +48,7 @@ const PRECISIONS: { value: Precision; label: string }[] = [
  */
 export function MasterView(): React.ReactElement {
   const scheme = useScheme();
+  useFocusRule(scheme);
   const c = SCHEMES[scheme];
   const [data, setData] = useState<Load<AttributesView>>({ at: "loading" });
   const [adding, setAdding] = useState(false);
@@ -90,7 +91,6 @@ export function MasterView(): React.ReactElement {
         boxSizing: "border-box",
       }}
     >
-      <style>{focusRule(scheme)}</style>
       <nav style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={{ ...link(scheme) }}>
           稼働状況へ

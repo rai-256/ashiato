@@ -25,7 +25,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0, // 落ちたら落ちたままにする（再試行で緑にしない）
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  globalSetup: "./e2e/global-setup.ts", // 1 回ログインして storageState を作る（ST28 / D10）
   use: {
+    storageState: "./e2e/.auth/state.json",
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
