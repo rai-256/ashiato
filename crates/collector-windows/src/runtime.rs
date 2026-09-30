@@ -1663,4 +1663,23 @@ mod tests {
         );
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
+
+    /// 起動したとき壁時計が前回の印より戻っていたら、契機は `jump`（戻り）で残る。
+    ///
+    /// Scenario: PC の測定記録に測った契機が残る
+    #[test]
+    fn clock_skew_record_after_the_clock_went_back_has_jump_trigger() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        Marker::new(&cfg.state_dir).touch(t(500)).unwrap();
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(SwitchReference::new(true)));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 10, 1);
+        let recs = skew_records(&mut rt, &transport, 11);
+        assert_eq!(recs.len(), 1, "{recs:?}");
+        assert_eq!(recs[0]["clock_trigger"], "jump");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
 }
