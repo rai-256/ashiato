@@ -296,3 +296,19 @@ tasks の cargo は全部件数つきの形で、0 本一致の rc=0 はない�
 - 提案: `docs/handoff/ST14.md` に「st05-clock-skew D1 —— `c01-clock` は生存信号を送らない測定のソース。FR-35 の途絶の判定から除くか、想定間隔で判定するかを ST14 の上流で決める」を足し、処置を `followup ST14` にする
 
 - 処置: deferred ST14 —— ST14 は tasks.md を持たない（`ls openspec/changes | grep st14` は空）。畳み方の候補と根拠は `docs/handoff/ST14.md` の「st05-clock-skew R24」に書いた
+
+## Q4 の答えの反映（4703145）と scoped re-review
+
+- deep 第 2 回 Q4 の本人の答え（2026-09-30。推奨の側）を 4703145 で入れた（R22 の処置の本文）
+- scoped re-review 1 回（独立の subagent。4703145 の diff だけ。変異は `git archive` の写しで）: Critical 0 / Important 3 / Minor 3。**6 件とも fe2a8f6 で直した**
+  - I-1 本番の `read` の組み込みが試験で固定されていない（写しで組み込みを外しても 128 本緑）→ 子プロセスを走らせる口を差し替えられる `read_with` に切り出し、
+    `time_sync_read_runs_the_event_log_query_only_when_stopped`（止まっていれば 2 本目に `wevtutil` と固定の引数、動いていれば 1 本だけ）で固定。
+    残るのは `read` の 1 行（`read_with` に本物の `run_with_timeout` を渡す）で、実機では `clock_skew_runtime` が W32Time の止まっているときに見る
+  - I-2 `<Event` の無い出力を全部「0 件」にして黙って `service_stopped` に倒す → 空（空白だけ）のときだけ 0 件、それ以外は `unparsed` で原文つき
+    （`time_sync_event_log_unexpected_output_is_not_taken_as_no_records`）
+  - I-3 `program()` が exe 名を取るようになり、`check-no-time-server.sh` が System32 のどの exe（`sc start w32time` も）も通すようになった（写しで植えて rc=0）
+    → 口を `w32tm_program()` / `wevtutil_program()` に戻し、検査は `Command::new` にその 2 つの形だけを許す。自己検査に `program(…, "sc.exe")` を植える 1 種を足した（21 種）
+  - M-1「`0x80070426` のときだけ」が固定されていない → `exit:1` はイベントログを読まないことを足した
+  - M-2 固定入力が Event 37 だけ → 手元で読めた Event 35 の XML を足した（`time_sync_event_log_reads_event_35`）
+  - M-3 design の「w32tm は 5 秒」→「最大 2 本 × 5 秒」に直した（design D8 と D7 の危険の節、`clock_worker.rs` の説明）
+- 反映の fix は答え 1 件について 1 回。re-review の後の fix（fe2a8f6）はさらに re-review していない（SDD の final と同じく 1 回ずつ）
