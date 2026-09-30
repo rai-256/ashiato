@@ -210,6 +210,9 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - **起動からの経過時間** = Windows の `GetTickCount64()`（ミリ秒。スリープの間も進む）。非 Windows のビルドでは試験用の偽物。
   `Uptime` の口に置く。`runtime.rs` の `clocks()`（プロセスの中の `Instant`）は見回りの判定に使うもので、記録には載せない
   （プロセスの立て直しで 0 に戻り、起動の識別と組にならない）
+- **D9（仮）: 本番の刻みは秒**（sysinfo の `uptime()` ×1000。unsafe を書かないため `GetTickCount64` を直接呼ばない）。
+  `Uptime::resolution_ms()` を持ち、読んだ直後の値に `刻み - 1` を足して `mono_after_ms - mono_before_ms` を実際の読み取り時間の**上限**にする。
+  反転条件: ミリ秒で読める安全な口が入る、または幅の精度が ST07 の判定に足りないと分かったら `GetTickCount64` に替える（`SystemUptime` の中だけ）。
 
 ### D10. PC の測定記録の形（`c02-window` の `kind = clock-skew` に欄を足す）
 
