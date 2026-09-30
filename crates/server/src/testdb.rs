@@ -11,8 +11,33 @@
 
 use sqlx::postgres::PgPoolOptions;
 
-/// 開発用 DB（`docker compose up -d db`）の既定。CI は `DATABASE_URL` で差し替える。
-const DEFAULT_URL: &str = "postgres://ashiato:ashiato@127.0.0.1:55432/ashiato";
+/// worktree の名前から開発用 DB のポートを決める（`tools/ports.sh` と同じ規則。変えるなら両方を変える）。
+/// `-st<NN>` で終わる Story の worktree は 55500+NN、それ以外（main など）は 55432。
+/// 並行して走る Story のテストが、別の Story の DB に繋がらないようにする（2026-09-30）。
+pub fn worktree_db_port(name: &str) -> u16 {
+    name.rsplit_once("-st")
+        .and_then(|(_, n)| n.parse::<u16>().ok())
+        .map_or(55432, |n| 55500 + n)
+}
+
+/// テスト用 DB の URL。`DATABASE_URL`（CI）> `ASHIATO_DB_PORT` > この worktree の既定（`tools/db.sh up -d --wait db`）。
+pub fn url() -> String {
+    if let Ok(u) = std::env::var("DATABASE_URL") {
+        return u;
+    }
+    let port = std::env::var("ASHIATO_DB_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or_else(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let name = root
+                .canonicalize()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+            worktree_db_port(name.as_deref().unwrap_or(""))
+        });
+    format!("postgres://ashiato:ashiato@127.0.0.1:{port}/ashiato")
+}
 
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
 /// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
@@ -21,13 +46,13 @@ static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 /// 接続済みのプールを返す。初回だけマイグレーションを当てる。
 pub async fn pool() -> sqlx::PgPool {
-    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.into());
+    let url = url();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&url)
         .await
         .unwrap_or_else(|e| {
-            panic!("テスト用 DB へ接続できない（{url}）: {e}\n  docker compose up -d --wait db を先に実行する")
+            panic!("テスト用 DB へ接続できない（{url}）: {e}\n  tools/db.sh up -d --wait db を先に実行する")
         });
     MIGRATED
         .get_or_init(|| async {
@@ -346,4 +371,13 @@ pub async fn put_drop(
         .await
         .unwrap();
     }
+}
+
+#[test]
+fn each_story_worktree_has_its_own_db_port() {
+    assert_eq!(worktree_db_port("ashiato2"), 55432);
+    assert_eq!(worktree_db_port("ashiato2-st05"), 55505);
+    assert_eq!(worktree_db_port("ashiato2-up-st22"), 55522);
+    assert_eq!(worktree_db_port("ashiato2-st06-t7"), 55432); // 名前の末尾が -st<NN> でないものは main と同じ
+    assert_eq!(worktree_db_port("ashiato2-rt"), 55432);
 }

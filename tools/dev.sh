@@ -3,8 +3,9 @@
 # （依存を足した直後の起動失敗を構造的に塞ぐ / 製造準備 B）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
-export BIND="${BIND:-127.0.0.1:18787}"
+. tools/ports.sh     # worktree ごとのポート（Story を並行して走らせても取り合わない）
+export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:${ASHIATO_DB_PORT}/ashiato}"
+export BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 
 echo "== 依存を揃える"
