@@ -36,7 +36,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 0.1 **ST04 が archive されるまで着手しない。** ST04 の archive 後の正典 `openspec/specs/collection-coverage/spec.md` の「稼働状況は 1 年を週に畳んだ格子で見える」と、
   この change の `specs/collection-coverage/spec.md` を突き合わせ、**許した差（予算の 1 文・導出元の `FR-55`・「2026-09-15 の変更」の注記・WHEN/THEN を直した 2 本・足した Scenario 3 本）のほかに差があれば、正典に合わせて写し直す**。
   検証: 次が rc=0 —— `test ! -d openspec/changes/st04-offline-retention`（ST04 が archive 済み。まだなら rc=1 で止まる）、
-  `python3 scripts/st12_delta_diff.py`（この tasks で足す小さな比較。2 つの Requirement の本文を行の集合で比べ、許した差のほかの行が 1 行でもあれば exit 1）、`openspec validate st12-archive-ingestion --strict`
+  `python3 tools/st12_delta_diff.py`（この tasks で足す小さな比較。2 つの Requirement の本文を行の集合で比べ、許した差のほかの行が 1 行でもあれば exit 1）、`openspec validate st12-archive-ingestion --strict`
 
 ## 1. 移行（design D14 / D7 / D8 / D2 / D16）
 
