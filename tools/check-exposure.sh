@@ -3,7 +3,7 @@
 #
 #   tools/check-exposure.sh              # 実機を見る（ss と、あれば tailscale）
 #   tools/check-exposure.sh --listen-only # (a) だけ（tools/stack.sh が起動の後に使う）
-#   tools/check-exposure.sh --self-test  # fixture で 6 つを撃つ
+#   tools/check-exposure.sh --self-test  # fixture で 9 つを撃つ
 #
 # (a) `ss -ltnH` の待ち受けのうち、BIND の port・WEB_PORT・DEV_WEB_PORT（既定 5173）・DB の 55432 が loopback。
 # (b) `tailscale serve status --json`（あれば）: 網の外への公開（AllowFunnel）が無い・本システムの口を
@@ -20,12 +20,41 @@ run_check() {
   local ports="${bind##*:} ${WEB_PORT:-5180} ${DEV_WEB_PORT:-5173} 55432"
   local ng=0
 
+  local skipped=0
+  # 網の手段の設定（(a) が tailscaled の口を見分けるのにも使う）
+  local json=""
+  if [ -n "${EXPOSURE_SERVE_JSON:-}" ]; then
+    json="$(cat "$EXPOSURE_SERVE_JSON")" || { echo "  NG 網の手段の設定を読めなかった"; ng=1; }
+  elif command -v tailscale >/dev/null 2>&1; then
+    json="$(tailscale serve status --json 2>/dev/null)" || { echo "  NG 網の手段の設定を読めなかった（tailscale serve status --json が失敗）"; ng=1; json=""; }
+  else
+    skipped=1
+  fi
+  local https_ports=""
+  if [ -n "$json" ]; then
+    https_ports="$(printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    print(" ".join(k for k, v in (json.load(sys.stdin).get("TCP") or {}).items() if (v or {}).get("HTTPS")))
+except Exception:
+    pass')" || https_ports=""
+  fi
+
   # (a)
   local ss
   if [ -n "${EXPOSURE_SS_OUTPUT:-}" ]; then ss="$(cat "$EXPOSURE_SS_OUTPUT")"; else ss="$(ss -ltnH)"; fi
-  if ! printf '%s\n' "$ss" | PORTS="$ports" python3 -c '
-import os, sys
+  if ! printf '%s\n' "$ss" | PORTS="$ports" HTTPS_PORTS="$https_ports" python3 -c '
+import ipaddress, os, sys
 ports = set(os.environ["PORTS"].split())
+https = set(os.environ["HTTPS_PORTS"].split())
+def is_tailnet(host):
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if ip.version == 4:  # 共有アドレス空間（tailnet の v4）は private でも global でもない
+        return not ip.is_private and not ip.is_global
+    return ip.packed[:6] == bytes.fromhex("fd7a115ca1e0")  # tailnet の v6
 bad = 0
 for line in sys.stdin:
     f = line.split()
@@ -37,21 +66,15 @@ for line in sys.stdin:
     host = addr.split("%")[0].strip("[]")
     if host.startswith("127.") or host == "::1":
         continue
+    # 網の手段（tailscale serve）が暗号化して出している口は、網の側の待ち受けとして許す
+    if port in https and is_tailnet(host):
+        continue
     print("  NG loopback 以外で待ち受けている口 port=%s address=%s" % (port, addr))
     bad = 1
 sys.exit(bad)'; then ng=1; fi
 
-  # (b)
   [ "${LISTEN_ONLY:-0}" = 1 ] && return $ng
-  local json=""
-  if [ -n "${EXPOSURE_SERVE_JSON:-}" ]; then
-    json="$(cat "$EXPOSURE_SERVE_JSON")" || { echo "  NG 網の手段の設定を読めなかった"; ng=1; }
-  elif command -v tailscale >/dev/null 2>&1; then
-    json="$(tailscale serve status --json 2>/dev/null)" || { echo "  NG 網の手段の設定を読めなかった（tailscale serve status --json が失敗）"; ng=1; json=""; }
-  else
-    echo "  -- tailscale が無いので (b) は飛ばした（網の手段が別のもの）"
-    return $ng
-  fi
+  [ "$skipped" = 1 ] && { echo "  -- tailscale が無いので (b) は飛ばした（網の手段が別のもの）"; return $ng; }
   if [ -n "$json" ]; then
     if ! printf '%s' "$json" | OURS="${bind##*:} ${WEB_PORT:-5180}" DEV="${DEV_WEB_PORT:-5173}" python3 -c '
 import json, os, sys
@@ -107,13 +130,25 @@ expect() { # <期待 pass|fail> <Scenario 名> <ss fixture> <serve fixture> [出
 }
 
 if [ "${1:-}" = "--self-test" ]; then
+  # Scenario: 網の外への公開が有効だと検査が落ちる
   expect fail '網の外への公開が有効だと検査が落ちる' ss-ok.txt serve-funnel.json 'AllowFunnel'
+  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
   expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-bad-bind.txt serve-ok.json 'port=18787 address=0.0.0.0'
+  # Scenario: 網へ平文で出している口があると検査が落ちる
   expect fail '網へ平文で出している口があると検査が落ちる' ss-ok.txt serve-plain.json '平文'
+  # Scenario: 開発用の画面を網へ出していると検査が落ちる
   expect fail '開発用の画面を網へ出していると検査が落ちる' ss-ok.txt serve-dev.json '開発用の画面'
+  # Scenario: 網の手段の設定を読めないと検査が落ちる
   expect fail '網の手段の設定を読めないと検査が落ちる' ss-ok.txt serve-unreadable.json '読めなかった'
+  # Scenario: loopback と暗号化された網の口だけなら検査は通る
   expect pass 'loopback と暗号化された網の口だけなら検査は通る' ss-ok.txt serve-ok.json
-  echo "OK check-exposure の自己検査（6 つ）"
+  # Scenario: loopback と暗号化された網の口だけなら検査は通る
+  expect pass 'loopback と暗号化された網の口だけなら検査は通る' ss-tailnet-https.txt serve-tailnet-https.json
+  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
+  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-https.txt serve-ok.json 'port=18787 address=[fd7a'
+  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
+  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-lan.txt serve-tailnet-https.json 'address=203.0.113.5'
+  echo "OK check-exposure の自己検査（9 つ）"
   exit 0
 fi
 
