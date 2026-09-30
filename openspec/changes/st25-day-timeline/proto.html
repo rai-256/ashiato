@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST25 proto — 1 日を時刻順に見る（S-2 にソースをまたいだ記録を載せる）</title>
+<style>
+  /* ---- playground 自体の UI（upstream 既定どおりダーク。プレビュー対象の明暗とは別物） ---- */
+  :root{
+    --ui-bg:#14161a; --ui-panel:#1b1e24; --ui-line:#2b3039; --ui-fg:#dfe3ea; --ui-dim:#939bab;
+    --ui-accent:#7fb98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui-bg);color:var(--ui-fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif;font-size:14px}
+  .wrap{display:grid;grid-template-columns:370px 1fr;min-height:100vh}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .controls{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:16px;overflow-y:auto;max-height:100vh}
+  @media (max-width:900px){.controls{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+  .right{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--ui-dim);font-size:12px;margin:0 0 14px;line-height:1.6}
+  .sub b{color:var(--ui-fg)}
+  .grp{border-top:1px solid var(--ui-line);padding:14px 0 4px}
+  .grp:first-of-type{border-top:none}
+  .grp > .lbl{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin-bottom:10px}
+  .hint{display:block;color:var(--ui-dim);font-size:11px;margin-top:6px;line-height:1.55}
+  .hint b{color:var(--ui-fg)}
+  .cards{display:grid;gap:6px}
+  .card{background:#232730;border:1px solid var(--ui-line);border-radius:8px;padding:9px 10px;
+        cursor:pointer;font-size:12.5px;line-height:1.45;text-align:left;color:inherit;font-family:inherit;width:100%}
+  .card:hover{border-color:#3d4552}
+  .card.on{border-color:var(--ui-accent);background:#22302460}
+  .card[disabled]{opacity:.45;cursor:default}
+  .card .t{font-weight:600}
+  .card .d{color:var(--ui-dim);font-size:11px;margin-top:3px}
+  .presets{display:flex;flex-wrap:wrap;gap:6px}
+  .presets button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:14px;
+        padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+  .presets button:hover{border-color:var(--ui-accent)}
+  .fixed{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;
+         font-size:11.5px;color:var(--ui-dim);line-height:1.75}
+  .fixed b{color:var(--ui-fg);font-weight:600}
+  /* ---- プレビュー ---- */
+  .stage{flex:1;padding:18px;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;
+         background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+  .meta{width:100%;max-width:980px;display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ui-dim);justify-content:center}
+  .meta b{color:var(--ui-accent);font-family:ui-monospace,Menlo,monospace}
+  .meta button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .phone{border:1px solid var(--ui-line);border-radius:20px;overflow:hidden;flex:0 0 auto;box-shadow:0 10px 40px #0008}
+  .phone .cap{font-size:11px;color:var(--ui-dim);padding:6px 10px;background:#101216;
+              display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}
+  .screen{overflow-y:auto;height:640px;position:relative}
+  .howto{font-size:11.5px;color:var(--ui-dim);max-width:560px;text-align:center;line-height:1.6}
+  /* ---- 出力 ---- */
+  .out{border-top:1px solid var(--ui-line);background:var(--ui-panel);padding:14px 18px}
+  .out h2{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin:0 0 8px}
+  pre#prompt{white-space:pre-wrap;background:#101216;border:1px solid var(--ui-line);border-radius:8px;
+       padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;
+       max-height:260px;overflow:auto;margin:0 0 10px;color:#cbd2dd;user-select:text}
+  button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
+       font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.copy:hover{filter:brightness(1.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============================ コントロール ============================ -->
+<div class="controls">
+  <h1>ST25 — 1 日を時刻順に見る</h1>
+  <p class="sub">
+    要件 FR-56 は「その日の<b>記録</b>を時刻順に表示する」。1 日の記録は<b>数千件</b>
+    （<code>ui-direction.md</code> の見積もり 約 4,120: 位置 1,440・PC のウィンドウ 500〜2,000・スマホのアプリ・ブラウザ履歴 数十〜数百）。<br>
+    いまの 1 日の画面（ST16）は<b>滞在・移動・記録なし</b>の行だけで、<code>docs/ui-direction.md</code> は
+    「<b>リスト</b>で並べ、1 行の単位は<b>滞在</b>・詳細は<b>その場で開く</b>」と決めている。<br>
+    <b>滞在の骨格に、場所以外の記録をどう載せるか</b>を触って選んでください。右の画面は行をタップすると開きます。
+    <b>右上の「日」を切り替えて、4 つの日で比べてください。</b>
+  </p>
+
+  <div class="grp">
+    <div class="lbl">まとめて選ぶ</div>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 1 — 1 日の並べ方（骨格）</div>
+    <div class="cards" id="axSkel"></div>
+    <span class="hint">「滞在の行の中に入れる」以外は、<code>ui-direction.md</code> の「リストで並べる」か「1 行の単位＝滞在」から外れる（どちらから外れるかはカードと出力に書く）。<b>外れる側を選ぶなら、それが答え</b>（方向の文書を直す）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 2 — 閉じた行に、場所以外の何を出すか</div>
+    <div class="cards" id="axSum"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 3 — 行を開いたときの中身</div>
+    <div class="cards" id="axDet"></div>
+    <span class="hint">どれを選んでも、場所以外の記録は<b>時刻順に並ぶ</b>（FR-56）。ST22（下流が実装中）が、滞在の行を開くと詳細が出て、その末尾に「この滞在を消す」（44 px）を置く。ここで決めるのはその<b>詳細の中の、場所以外の記録の並び</b>。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 4 — 取れていない時間（離席・PC の停止・除外・まだ届いていない）</div>
+    <div class="cards" id="axIdle"></div>
+    <span class="hint">離席（FR-81）・PC の停止（FR-82）・除外（FR-83。本文は無く、事実と件数だけ）は記録として残っている。ブラウザ履歴は 24 時間ごとに取る（FR-13）ので、<b>今日の訪問はまだ届いていない</b>（日「今日 14:30」で見える）。
+    ウィンドウの使用時間は「次の変化まで」から<b>離席を引いて</b>数える（どれを選んでも）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">動かせないもの（要件と既に決まったこと）</div>
+    <div class="fixed">
+      <b>色相 132° / 彩度 30% / 面 3 段</b>（<code>web/src/tokens.ts</code>。ダークは地 12・面 18 / 24・文字 92 / 72）<br>
+      <b>種類は文字で区別する</b>（「PC」「スマホ」「ブラウザ」「場所」「書庫: …」）。色では分けない ——
+      等明度の 6 色は輝度差 1.009:1 で、NFR-23（意味を担う色は隣と 3:1）を満たせない（<code>ui-direction.md</code> の宿題 1）<br>
+      <b>日は Asia/Tokyo で区切る</b>（ST16）・<b>行の見出しは時刻の範囲</b>（場所の名前は ST21 まで無い）・
+      「移動 42 分」「記録なし」は<b>文字で</b>区別（ST16 の Q4）<br>
+      <b>NFR-17</b> OS の明暗に追従（右上で切替） ・ <b>NFR-18</b> 本文 4.5:1 ・ <b>NFR-19</b> 触れる対象 24×24px（3 列では 24 px を割る塊の数を測って出す） ・ <b>NFR-22</b> フォーカスが見える（Tab で辿れる）<br>
+      <b>時刻は記録の出来事の時刻のまま</b>並べる（端末の時計のずれ ST05 で直さない）<br>
+      「書庫を置いた日」は Q2 の推奨（2 経路の組を両方出す）で描いている
+    </div>
+  </div>
+</div>
+
+<!-- ============================ プレビュー ============================ -->
+<div class="right">
+  <div class="stage">
+    <div class="meta">
+      <button id="dayBtn" type="button">日: いつもの日</button>
+      <button id="schemeBtn" type="button">明暗: ダーク</button>
+      <button id="widthBtn" type="button">幅: 360</button>
+    </div>
+    <div class="meta">
+      <span>閉じた行 <b id="mRows">—</b></span>
+      <span>一覧の高さ <b id="mHeight">—</b></span>
+      <span>開いてすぐ（640 px）に見える行 <b id="mFirst">—</b></span>
+      <span>開いた詳細の行 <b id="mDet">—</b></span>
+      <span id="mSmallWrap">24 px を割る塊 <b id="mSmall">—</b></span>
+    </div>
+    <div class="phone" id="phone">
+      <div class="cap"><span id="capSize">360 × 640</span><span>S-2 1 日を見る</span></div>
+      <div class="screen" id="screen"></div>
+    </div>
+    <div class="howto" id="howto">行をタップ → その場で開く。データは 1 日の実物の量で作っている（下の「この日の記録」）。</div>
+    <div class="howto" id="counts"></div>
+  </div>
+
+  <div class="out">
+    <h2>この設定を指示として出す</h2>
+    <pre id="prompt"></pre>
+    <button class="copy" id="copyBtn">指示をコピー</button>
+    <span id="copyNote" style="margin-left:10px;font-size:12px;color:var(--ui-dim)"></span>
+  </div>
+</div>
+</div>
+
+<script>
+/* ================= 値（tokens.ts と同じ） ================= */
+const HUE=132, SAT=30;
+const SCHEMES={dark:{ground:12,s1:18,s2:24,text:92,muted:72},light:{ground:96,s1:91,s2:86,text:14,muted:30}};
+const tone=l=>`hsl(${HUE} ${SAT}% ${l}%)`;
+
+/* ================= 軸 ================= */
+const SKELS=[
+  {id:"nest",t:"滞在の行の中に入れる",d:"骨格は ST16 のまま（滞在・移動・記録なし）。その時間の PC・スマホ・ブラウザは各行の中に要約で出し、開くと中身。ui-direction どおり",off:null},
+  {id:"inter",t:"滞在の行と、PC・スマホのまとまりの行を 1 列に交互に並べる",d:"「PC 8:40–12:00」「スマホ 7:45–8:28」を独立の行にして、滞在の行と一緒に始まりの時刻順。同じ時間の行が続けて出る",off:"1 行の単位＝滞在"},
+  {id:"lanes",t:"横に 3 本の列（場所 / スマホ / PC）、縦が時刻",d:"時刻の目盛りを縦に取る（1 分 = 1.2 px で 1 日 1,728 px）。同じ時刻が横に揃う。タップすると上に中身",off:"リストで並べる"},
+  {id:"hour",t:"1 時間ごとの帯（24 行）",d:"行の単位を時間にする。帯の中に、その 1 時間の場所・PC・スマホの要約",off:"1 行の単位＝滞在"},
+  {id:"flat",t:"全記録を 1 列に時刻順",d:"FR-56 の字義どおり。位置の点も 1 件 1 行。滞在・移動・記録なしは区切りの行として挟む",off:"1 行の単位＝滞在"},
+];
+const SUMS=[
+  {id:"count",t:"件数と時間だけ",d:"「PC 3 時間 12 分 · 612 件」「スマホ 14 分」「ブラウザ 41 件」"},
+  {id:"apps",t:"＋使ったアプリの上位 3 つと時間",d:"「VS Code 1:48 · Chrome 0:52 · Slack 0:21」"},
+  {id:"sites",t:"＋アプリ上位 3 と、見たサイト上位 3",d:"ブラウザは URL のドメインで束ねる（「github.com 18 件」）"},
+];
+const DETS=[
+  {id:"all",t:"全件を時刻順",d:"ウィンドウの変化・ブラウザの訪問・スマホのアプリを 1 件 1 行、秒まで"},
+  {id:"fold",t:"同じアプリの連続を 1 行に畳んで時刻順",d:"「9:02–9:14 PC VS Code（題名 23 件）」。畳んだ行をもう一度開くと中の全件"},
+  {id:"totalfold",t:"アプリ・サイトごとの合計を先に、その下に畳んだ時刻順",d:"「VS Code 1:48 / Chrome 0:52 …」の後に、上と同じ畳んだ時刻順"},
+];
+const IDLES=[
+  {id:"text",t:"要約と見出しに文字で添える",d:"「PC 3 時間 12 分（離席 27 分を除く）· 除外 3 件」「ブラウザは 9/13 まで届いている」。独立の行にしない"},
+  {id:"row",t:"行にする",d:"「離席 10:15–10:32」「PC 停止 23:40–」「除外 16:05–16:25」「ブラウザ 今日の分はまだ届いていない」を 1 行ずつ（10 分以上の離席）"},
+];
+const DAYS=[
+  {id:"usual",t:"いつもの日",d:"平日。滞在 7 件"},
+  {id:"many",t:"滞在 15 件の日",d:"FR-76 の上限（1 日 5〜15 件）"},
+  {id:"archive",t:"書庫を置いた日",d:"Takeout の Chrome 履歴・YouTube・マイアクティビティ・タイムラインが手元の記録と重なる"},
+  {id:"today",t:"今日 14:30",d:"14:30 より後は無い。ブラウザ履歴はまだ届いていない"},
+];
+const DEFAULTS={skel:"nest",sum:"apps",det:"fold",idle:"text"};
+const PRESETS=[
+  {n:"滞在の中に要約・開くと畳んだ時刻順",v:{skel:"nest",sum:"apps",det:"fold",idle:"text"}},
+  {n:"交互に並べる",v:{skel:"inter",sum:"apps",det:"fold",idle:"row"}},
+  {n:"横に揃える（3 列）",v:{skel:"lanes",sum:"count",det:"fold",idle:"text"}},
+  {n:"時間の帯",v:{skel:"hour",sum:"apps",det:"fold",idle:"text"}},
+  {n:"全部を 1 列（字義どおり）",v:{skel:"flat",sum:"count",det:"all",idle:"row"}},
+];
+const state={...DEFAULTS, day:"usual", scheme:"dark", width:360, open:null, openFold:null};
+
+/* ================= データ（1 日の実物の量。決定的な擬似乱数） ================= */
+let seed=1;
+const rnd=()=>{seed=(seed*1664525+1013904223)%4294967296;return seed/4294967296;};
+const pick=w=>{const s=w.reduce((a,x)=>a+x[1],0);let r=rnd()*s;for(const x of w){r-=x[1];if(r<=0)return x[0];}return w[0][0];};
+const T=(h,m)=>h*60+m; // 分
+const hm=m=>{m=Math.round(m);return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`;};
+const hms=s=>{const m=Math.floor(s/60);return `${hm(m)}:${String(Math.floor(s%60)).padStart(2,"0")}`;};
+const dur=m=>{m=Math.round(m);return m>=60?`${Math.floor(m/60)} 時間 ${m%60} 分`:`${m} 分`;};
+const dhm=m=>{m=Math.round(m);return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`;};
+
+const PC_APPS=[["VS Code",34],["Chrome",26],["Slack",12],["Windows Terminal",10],["エクスプローラー",5],["Zoom",4],["Obsidian",6]];
+const PC_TITLES={"VS Code":["main.rs — ashiato2","DayView.tsx — ashiato2","tasks.md — ashiato2","lib.rs — ashiato2"],
+ "Slack":["#general — Slack","DM — Slack","#dev — Slack"],"Windows Terminal":["cargo test","git status","psql"],
+ "エクスプローラー":["ダウンロード","ドキュメント"],"Zoom":["Zoom ミーティング"],"Obsidian":["日記","読書メモ"]};
+const SITES=[["github.com",30],["docs.rs",14],["developer.mozilla.org",8],["youtube.com",14],["x.com",12],["mail.google.com",8],["zenn.dev",8],["wikipedia.org",6]];
+const PHONE_APPS=[["X",24],["LINE",20],["Chrome",12],["YouTube",12],["Kindle",10],["Google マップ",6],["カメラ",3],["Spotify",8]];
+
+// 骨格（ST16 の行）を滞在の区間から作る。滞在の間は移動
+function locFrom(stays,nodata){
+  const L=[]; const all=[...stays.map(([s,e])=>({k:"stay",s,e})),...nodata.map(([s,e])=>({k:"nodata",s,e}))].sort((a,b)=>a.s-b.s);
+  for(let i=0;i<all.length;i++){ L.push(all[i]); const n=all[i+1]; if(n&&n.s>all[i].e) L.push({k:"move",s:all[i].e,e:n.s}); }
+  return L;
+}
+const USUAL_STAYS=[[T(0,0),T(2,10)],[T(5,30),T(7,42)],[T(8,31),T(12,4)],[T(12,15),T(12,58)],[T(13,9),T(17,36)],[T(18,20),T(19,5)],[T(19,30),T(24,0)]];
+const MANY_STAYS=[[T(0,0),T(2,10)],[T(5,30),T(7,30)],[T(7,50),T(8,10)],[T(8,30),T(12,0)],[T(12,10),T(12,40)],[T(12,50),T(13,5)],[T(13,15),T(15,0)],
+  [T(15,10),T(15,30)],[T(15,45),T(17,30)],[T(17,45),T(18,5)],[T(18,15),T(19,15)],[T(19,25),T(19,45)],[T(19,55),T(20,15)],[T(20,25),T(21,10)],[T(21,45),T(24,0)]];
+// 夜中の記録なし（2:10–5:30）で家の滞在が 2 つに割れるので、区間 15 本 = 滞在 15 件
+
+let LOC,PC_ON,IDLE,EXCL,REC,COUNT,NOW,BROWSER_UPTO;
+function genDay(type){
+  seed=20260914;
+  LOC=locFrom(type==="many"?MANY_STAYS:USUAL_STAYS,[[T(2,10),T(5,30)]]);
+  PC_ON=[[T(8,40),T(12,0)],[T(13,15),T(17,30)],[T(20,30),T(23,40)]];
+  IDLE=[[T(10,15),T(10,32)],[T(15,2),T(15,21)],[T(16,40),T(16,46)],[T(21,50),T(22,14)]];
+  EXCL=[[T(16,5),T(16,25),3]]; // 除外（パスワード管理など）: 本文なし・件数だけ
+  NOW=type==="today"?T(14,30):T(24,0);
+  BROWSER_UPTO=type==="today"?"9/13":null;
+  const PHONE_SPANS=[[T(0,0),T(1,40),30],[T(5,40),T(7,40),25],[T(7,44),T(8,28),30],[T(12,6),T(12,14),6],[T(12,18),T(12,55),14],
+    [T(13,0),T(13,8),5],[T(15,5),T(15,20),6],[T(17,38),T(18,18),28],[T(18,22),T(19,0),10],[T(19,6),T(19,28),12],[T(19,40),T(20,25),20],[T(22,40),T(24,0),40]];
+  REC=[];
+  for(let m=0;m<1440;m++){ if(m>=T(2,10)&&m<T(5,30)) continue; if(rnd()<0.67) REC.push({t:m*60+Math.floor(rnd()*60),src:"場所",title:"位置"}); }
+  const inIdle=s=>IDLE.some(([a,b])=>s>=a*60&&s<b*60)||EXCL.some(([a,b])=>s>=a*60&&s<b*60);
+  for(const [a,b] of PC_ON){
+    let s=a*60;
+    while(s<b*60){
+      if(inIdle(s)){s+=60;continue;}
+      const app=pick(PC_APPS); let title, site=null;
+      if(app==="Chrome"){site=pick(SITES);title=`${site} — ${["Pull request","Issue","検索","動画","記事"][Math.floor(rnd()*5)]}`;}
+      else{const ts=PC_TITLES[app];title=ts[Math.floor(rnd()*ts.length)];}
+      REC.push({t:s,src:"PC",app,title,site});
+      if(site&&rnd()<0.5){
+        REC.push({t:s+2,src:"ブラウザ",site,title});
+        if(type==="archive"&&rnd()<0.8) REC.push({t:s+2,src:"書庫: Chrome",site,title});
+      }
+      s+=Math.max(4,Math.floor(-Math.log(1-rnd())*21));
+    }
+  }
+  for(const [a,b] of IDLE) REC.push({t:a*60,src:"PC",app:"（離席）",title:`離席 ${hm(a)}–${hm(b)}`,idle:true,end:b*60});
+  for(const [a,b,n] of EXCL) REC.push({t:a*60,src:"PC",app:"（除外）",title:`除外 ${hm(a)}–${hm(b)}（${n} 件。本文なし）`,excl:n,idle:true,end:b*60});
+  REC.push({t:T(23,40)*60,src:"PC",app:"（停止）",title:"PC 停止 23:40–",idle:true,stop:true,end:T(24,0)*60});
+  for(const [a,b,n] of PHONE_SPANS){ for(let i=0;i<n;i++){ const s=a*60+Math.floor((b-a)*60*i/n+rnd()*20); const app=pick(PHONE_APPS); REC.push({t:s,src:"スマホ",app});
+    if(type==="archive"&&app==="YouTube"){ REC.push({t:s+5,src:"書庫: YouTube",title:"視聴: 動画"}); REC.push({t:s+5,src:"書庫: マイアクティビティ",title:"YouTube: 動画"}); } } }
+  if(type==="archive"){ for(const x of LOC){ if(x.k==="nodata") continue; REC.push({t:x.s*60+30,src:"書庫: タイムライン",title:x.k==="stay"?"訪問（placeVisit）":"移動（activitySegment）"}); } }
+  if(type==="today"){
+    REC=REC.filter(r=>r.t<NOW*60&&r.src!=="ブラウザ");
+    LOC=LOC.filter(x=>x.s<NOW).map(x=>({...x,e:Math.min(x.e,NOW)}));
+    PC_ON=PC_ON.filter(([a])=>a<NOW).map(([a,b])=>[a,Math.min(b,NOW)]);
+    IDLE=IDLE.filter(([a])=>a<NOW); EXCL=EXCL.filter(([a])=>a<NOW);
+  }
+  REC.sort((x,y)=>x.t-y.t);
+  const bySrc={PC:[],スマホ:[]};
+  for(const r of REC) if(bySrc[r.src]) bySrc[r.src].push(r);
+  for(const src of ["PC","スマホ"]){
+    const L=bySrc[src];
+    for(let i=0;i<L.length;i++){
+      const r=L[i]; if(r.idle){r.use=0;continue;}
+      let e=i+1<L.length?L[i+1].t:r.t+60;
+      const cap=src==="PC"?(PC_ON.find(([a,b])=>r.t>=a*60&&r.t<b*60)||[0,24*60])[1]*60:r.t+600;
+      e=Math.min(e,cap,NOW*60); for(const [a] of IDLE.concat(EXCL)) if(r.t<a*60&&e>a*60) e=a*60;
+      r.use=Math.max(0,e-r.t);
+    }
+  }
+  COUNT={};for(const r of REC) COUNT[r.src]=(COUNT[r.src]||0)+1;
+}
+const recsIn=(s,e)=>REC.filter(r=>r.t>=s*60&&r.t<e*60);
+const isArch=src=>src.startsWith("書庫");
+
+/* ================= 要約 ================= */
+function summarize(recs){
+  const pc=recs.filter(r=>r.src==="PC"&&!r.idle), ph=recs.filter(r=>r.src==="スマホ"), br=recs.filter(r=>r.src==="ブラウザ");
+  const ar=recs.filter(r=>isArch(r.src));
+  const idle=recs.filter(r=>r.idle&&!r.stop&&!r.excl).reduce((a,r)=>a+(r.end-r.t)/60,0);
+  const excl=recs.filter(r=>r.excl).reduce((a,r)=>a+r.excl,0);
+  const tot=(L,key)=>{const m={};for(const r of L){m[r[key]]=(m[r[key]]||0)+r.use/60;}return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
+  const cnt=(L,key)=>{const m={};for(const r of L){m[r[key]]=(m[r[key]]||0)+1;}return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
+  return {pc,ph,br,ar,idle,excl,pcMin:pc.reduce((a,r)=>a+r.use/60,0),phMin:ph.reduce((a,r)=>a+r.use/60,0),
+    pcApps:tot(pc,"app"),phApps:tot(ph,"app"),sites:cnt(br,"site"),arch:cnt(ar,"src"),stop:recs.some(r=>r.stop)};
+}
+function sumLines(S,opts={}){
+  const L=[];
+  const withSum=opts.noSum?false:true;
+  if(S.pc.length){
+    let s=`PC ${dur(S.pcMin)}`; if(state.sum==="count") s+=` · ${S.pc.length} 件`;
+    if(state.idle==="text"&&S.idle>0) s+=`（離席 ${Math.round(S.idle)} 分を除く）`;
+    if(state.idle==="text"&&S.excl>0) s+=` · 除外 ${S.excl} 件`;
+    if(withSum&&state.sum!=="count") s+=` — ${S.pcApps.slice(0,3).map(([a,m])=>`${a} ${dhm(m)}`).join(" · ")}`;
+    L.push(s);
+  }
+  if(S.ph.length){
+    let s=`スマホ ${dur(S.phMin)}`; if(state.sum==="count") s+=` · ${S.ph.length} 件`;
+    if(withSum&&state.sum!=="count") s+=` — ${S.phApps.slice(0,3).map(([a,m])=>`${a} ${dhm(m)}`).join(" · ")}`;
+    L.push(s);
+  }
+  if(S.br.length){
+    let s=`ブラウザ ${S.br.length} 件`;
+    if(withSum&&state.sum==="sites") s+=` — ${S.sites.slice(0,3).map(([d,n])=>`${d} ${n}`).join(" · ")}`;
+    L.push(s);
+  }
+  if(S.ar.length) L.push(S.arch.map(([s,n])=>`${s} ${n} 件`).join(" · "));
+  if(state.idle==="text"&&S.stop) L.push("PC 停止 23:40–");
+  return L;
+}
+
+/* ================= 描画 ================= */
+const $=id=>document.getElementById(id);
+function el(tag,attrs,...kids){const e=document.createElement(tag);for(const k in attrs||{}){if(k==="style")Object.assign(e.style,attrs[k]);else if(k.startsWith("on"))e.addEventListener(k.slice(2),attrs[k]);else e.setAttribute(k,attrs[k]);}for(const c of kids){if(c==null)continue;e.append(c.nodeType?c:document.createTextNode(c));}return e;}
+
+function styles(c){
+  return `.day{font:400 15px/1.6 system-ui,"Noto Sans JP",sans-serif;color:${tone(c.text)};background:${tone(c.ground)};min-height:100%;padding:12px}
+  .day h2{font-size:17px;margin:0 0 2px;font-weight:600}
+  .day .crit{color:${tone(c.muted)};font-size:13px;margin:0 0 10px}
+  .row{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:${tone(c.s1)};border:1px solid ${tone(c.muted)}55;
+       border-radius:15px;padding:8px 12px;margin:0 0 8px;min-height:24px;cursor:pointer}
+  .row.thin{background:transparent;border-style:dashed;padding:4px 12px}
+  .row .h{font-weight:600}
+  .row .k,.det .k,.blk .k{display:inline-block;font-size:12.5px;padding:0 7px;border:1px solid ${tone(c.muted)};border-radius:10px;margin-right:6px;color:${tone(c.text)};white-space:nowrap}
+  .row .s{color:${tone(c.muted)};font-size:13.5px;line-height:1.55}
+  .det{background:${tone(c.s2)};border-radius:12px;padding:8px 10px;margin:-2px 0 10px;font-size:13.5px;line-height:1.55}
+  .det .r{display:flex;gap:8px;padding:2px 0;min-height:24px;align-items:center}
+  .det .r button{all:unset;cursor:pointer;display:flex;gap:8px;min-height:24px;align-items:center;width:100%}
+  .det .tm{font-family:ui-monospace,Menlo,monospace;color:${tone(c.muted)};font-size:12.5px;white-space:nowrap}
+  .det .sub{padding-left:14px;border-left:2px solid ${tone(c.muted)}66;margin:2px 0 4px}
+  .det .more{color:${tone(c.muted)};font-size:12.5px}
+  .det .sep{font-weight:600;margin:6px 0 2px}
+  .del{margin-top:6px;color:${tone(c.muted)};font-size:12.5px}
+  [data-f]:focus-visible{outline:3px solid ${tone(c.text)};outline-offset:2px}
+  .lanes{position:relative}
+  .lane-h{display:grid;grid-template-columns:40px 1fr 1fr 1fr;gap:4px;font-size:12.5px;color:${tone(c.muted)};position:sticky;top:0;background:${tone(c.ground)};z-index:2;padding:4px 0}
+  .blk{position:absolute;border-radius:8px;border:1px solid ${tone(c.muted)};background:${tone(c.s1)};font-size:12px;line-height:1.3;padding:2px 4px;overflow:hidden;cursor:pointer;color:${tone(c.text)};text-align:left;font-family:inherit}
+  .blk.nodata{background:transparent;border-style:dashed}
+  .tick{position:absolute;left:0;width:36px;font-size:11.5px;color:${tone(c.muted)};font-family:ui-monospace,Menlo,monospace}`;
+}
+
+const KLABEL={stay:"滞在",move:"移動",nodata:"記録なし"};
+let measure={rows:0,height:0,first:0,det:0,small:null};
+
+function recLine(r){
+  if(r.src==="スマホ") return r.app;
+  if(r.src==="PC") return r.idle?r.title:`${r.app} — ${r.title}`;
+  return r.title;
+}
+function foldGroups(recs){
+  const groups=[];
+  for(const r of recs){
+    const key=r.src==="ブラウザ"?"PC|Chrome":`${r.src}|${r.app||r.title}`;
+    const g=groups[groups.length-1];
+    if(g&&g.key===key&&!r.idle){g.items.push(r);g.e=r.t+(r.use||0);}
+    else groups.push({key,src:r.src==="ブラウザ"?"PC":r.src,app:r.src==="ブラウザ"?"Chrome":(r.app||r.title),s:r.t,e:r.t+(r.use||0),items:[r],idle:r.idle,title:r.title});
+  }
+  return groups;
+}
+function detailBox(s,e){
+  const all=recsIn(s,e); const recs=all.filter(r=>r.src!=="場所");
+  const box=el("div",{class:"det"});
+  box.append(el("div",{class:"more"},`場所 ${all.length-recs.length} 件（位置の点。この行を作ったもの）`));
+  let n=1;
+  if(!recs.length){box.append(el("div",{class:"more"},"場所のほかの記録は無い"));measure.det=n+1;return box;}
+  if(state.det==="totalfold"){
+    const S=summarize(recs);
+    box.append(el("div",{class:"sep"},"合計"));
+    for(const [a,m] of S.pcApps){box.append(el("div",{class:"r"},el("span",{class:"k"},"PC"),`${a}`,el("span",{class:"tm"},dhm(m))));n++;}
+    for(const [a,m] of S.phApps){box.append(el("div",{class:"r"},el("span",{class:"k"},"スマホ"),`${a}`,el("span",{class:"tm"},dhm(m))));n++;}
+    for(const [d,c] of S.sites){box.append(el("div",{class:"r"},el("span",{class:"k"},"ブラウザ"),`${d}`,el("span",{class:"tm"},`${c} 件`)));n++;}
+    for(const [a,c] of S.arch){box.append(el("div",{class:"r"},el("span",{class:"k"},a),el("span",{class:"tm"},`${c} 件`)));n++;}
+    box.append(el("div",{class:"sep"},"時刻順"));
+  }
+  if(state.det==="all"){
+    for(const r of recs){box.append(el("div",{class:"r"},el("span",{class:"tm"},hms(r.t)),el("span",{class:"k"},r.src),recLine(r)));n++;}
+  } else {
+    foldGroups(recs).forEach((g,i)=>{
+      const id=`${s}-${i}`;
+      if(g.idle){box.append(el("div",{class:"r"},el("span",{class:"tm"},hm(g.s/60)),el("span",{class:"k"},"PC"),g.title));n++;return;}
+      const visits=g.items.filter(x=>x.src==="ブラウザ").length;
+      const label=`${g.app}${g.items.length>1?`（${g.src==="PC"?"題名":"回"} ${g.items.length-visits} 件${visits?`・訪問 ${visits} 件`:""}）`:""}`;
+      const btn=el("button",{"data-f":"1","aria-expanded":String(state.openFold===id),onclick:()=>{state.openFold=state.openFold===id?null:id;render();}},
+        el("span",{class:"tm"},`${hm(g.s/60)}–${hm(g.e/60)}`),el("span",{class:"k"},g.src),label);
+      box.append(el("div",{class:"r"},btn));n++;
+      if(state.openFold===id){
+        const sub=el("div",{class:"sub"});
+        for(const r of g.items){sub.append(el("div",{class:"r"},el("span",{class:"tm"},hms(r.t)),el("span",{class:"k"},r.src),recLine(r)));n++;}
+        box.append(sub);
+      }
+    });
+  }
+  box.append(el("div",{class:"del"},"（ST22: 滞在の行ならこの下に「この滞在を消す」44 px）"));
+  measure.det=n;
+  return box;
+}
+
+function rowBtn(key,kind,head,lines,thin){
+  const open=state.open===key;
+  const b=el("button",{class:"row"+(thin?" thin":""),"data-f":"1","data-row":"1","aria-expanded":String(open),onclick:()=>{state.open=open?null:key;state.openFold=null;render();}},
+    el("div",{class:"h"},el("span",{class:"k"},kind),head));
+  for(const l of lines) b.append(el("div",{class:"s"},l));
+  return b;
+}
+function locHead(x){
+  const end=(state.day==="today"&&x.e===NOW)?"（いま）":hm(x.e);
+  return x.k==="stay"?`${hm(x.s)} – ${end}　${dur(x.e-x.s)}`:x.k==="move"?`${dur(x.e-x.s)}　${hm(x.s)} – ${end}`:`${hm(x.s)} – ${end}`;
+}
+// 取れていない時間の行（軸 4 = 行にする）
+function gapRows(s,e){
+  const out=[];
+  for(const [a,b] of IDLE) if(a>=s&&a<e&&b-a>=10) out.push({s:a,key:`I${a}`,kind:"PC",head:`離席 ${hm(a)} – ${hm(b)}`});
+  for(const [a,b,n] of EXCL) if(a>=s&&a<e) out.push({s:a,key:`X${a}`,kind:"PC",head:`除外 ${hm(a)} – ${hm(b)}（${n} 件。本文なし）`});
+  if(state.day!=="today"&&T(23,40)>=s&&T(23,40)<e) out.push({s:T(23,40),key:"stop",kind:"PC",head:"PC 停止 23:40 –"});
+  return out;
+}
+function browserNote(){ return BROWSER_UPTO?`ブラウザは ${BROWSER_UPTO} まで届いている（24 時間ごとに取る）`:null; }
+
+function renderNest(root){
+  if(BROWSER_UPTO) root.append(state.idle==="row"?rowBtn("BR","ブラウザ","今日の分はまだ届いていない",[],true):el("p",{class:"crit"},browserNote()));
+  for(const x of LOC){
+    const key=`L${x.s}`;
+    const lines=sumLines(summarize(recsIn(x.s,x.e)));
+    root.append(rowBtn(key,KLABEL[x.k],locHead(x),lines,x.k!=="stay"&&!lines.length));
+    if(state.idle==="row") for(const g of gapRows(x.s,x.e)) root.append(rowBtn(g.key,g.kind,g.head,[],true));
+    if(state.open===key) root.append(detailBox(x.s,x.e));
+  }
+}
+
+function sessions(src,gap){
+  const L=REC.filter(r=>r.src===src&&!r.idle); const out=[]; let cur=null;
+  for(const r of L){ if(cur&&r.t-cur.eT<=gap*60){cur.eT=Math.max(cur.eT,r.t+r.use);} else {cur={src,sT:r.t,eT:r.t+r.use};out.push(cur);} }
+  return out.map(o=>({src,s:o.sT/60,e:o.eT/60}));
+}
+
+function renderInter(root){
+  if(BROWSER_UPTO) root.append(state.idle==="row"?rowBtn("BR","ブラウザ","今日の分はまだ届いていない",[],true):el("p",{class:"crit"},browserNote()));
+  const items=[];
+  for(const x of LOC) items.push({kind:"loc",x,s:x.s});
+  for(const o of sessions("PC",20)) items.push({kind:"PC",s:o.s,e:o.e});
+  for(const o of sessions("スマホ",10)) items.push({kind:"スマホ",s:o.s,e:o.e});
+  if(state.idle==="row") for(const g of gapRows(0,1440)) items.push({kind:"gap",g,s:g.s});
+  items.sort((a,b)=>a.s-b.s||(a.kind==="loc"?-1:1));
+  for(const it of items){
+    if(it.kind==="loc"){
+      const x=it.x, key=`L${x.s}`;
+      const ar=summarize(recsIn(x.s,x.e)).arch;
+      root.append(rowBtn(key,KLABEL[x.k],locHead(x),ar.length?[ar.map(([s,n])=>`${s} ${n} 件`).join(" · ")]:[],x.k!=="stay"));
+      if(state.open===key) root.append(detailBox(x.s,x.e));
+      continue;
+    }
+    if(it.kind==="gap"){root.append(rowBtn(it.g.key,it.g.kind,it.g.head,[],true));continue;}
+    const key=`${it.kind}${it.s}`;
+    const recs=recsIn(it.s,it.e+1).filter(r=>it.kind==="PC"?(r.src==="PC"||r.src==="ブラウザ"):r.src==="スマホ");
+    const S=summarize(recs);
+    const lines=sumLines(S).map(l=>l.replace(/^(PC|スマホ) [^—（·]*/,"").replace(/^ ?(— |· )/,"")).filter(Boolean);
+    root.append(rowBtn(key,it.kind,`${hm(it.s)} – ${hm(it.e)}　${dur(it.e-it.s)}`,lines,false));
+    if(state.open===key) root.append(detailBox(it.s,it.e+1));
+  }
+}
+
+function renderHour(root){
+  if(BROWSER_UPTO) root.append(state.idle==="row"?rowBtn("BR","ブラウザ","今日の分はまだ届いていない",[],true):el("p",{class:"crit"},browserNote()));
+  const last=state.day==="today"?Math.ceil(NOW/60):24;
+  for(let h=0;h<last;h++){
+    const key=`H${h}`; const S=summarize(recsIn(h*60,h*60+60));
+    const where=LOC.filter(x=>x.s<h*60+60&&x.e>h*60).map(x=>KLABEL[x.k]).filter((v,i,a)=>a.indexOf(v)===i).join("・");
+    root.append(rowBtn(key,`${h} 時`,`${where}`,sumLines(S),false));
+    if(state.idle==="row") for(const g of gapRows(h*60,h*60+60)) root.append(rowBtn(g.key,g.kind,g.head,[],true));
+    if(state.open===key) root.append(detailBox(h*60,h*60+60));
+  }
+}
+
+function renderFlat(root){
+  if(BROWSER_UPTO) root.append(state.idle==="row"?rowBtn("BR","ブラウザ","今日の分はまだ届いていない",[],true):el("p",{class:"crit"},browserNote()));
+  // 滞在・移動・記録なしは区切りの行として、その始まりの位置に挟む
+  const box=el("div",{class:"det",style:{margin:0}});
+  let li=0;
+  for(const r of REC){
+    while(li<LOC.length&&LOC[li].s*60<=r.t){ const x=LOC[li++]; box.append(el("div",{class:"r sep","data-row":"1"},el("span",{class:"k"},KLABEL[x.k]),locHead(x))); }
+    box.append(el("div",{class:"r","data-row":"1"},el("span",{class:"tm"},hms(r.t)),el("span",{class:"k"},r.src),recLine(r)));
+  }
+  while(li<LOC.length){ const x=LOC[li++]; box.append(el("div",{class:"r sep","data-row":"1"},el("span",{class:"k"},KLABEL[x.k]),locHead(x))); }
+  root.append(box);
+}
+
+function renderLanes(root){
+  const PX=1.2, cols=["場所","スマホ","PC"];
+  if(BROWSER_UPTO) root.append(el("p",{class:"crit"},browserNote()));
+  if(state.open){ const [s,e]=state.open.split(":").map(Number); root.append(detailBox(s,e)); }
+  root.append(el("div",{class:"lane-h"},el("span",{}," "),...cols.map(c=>el("span",{},c))));
+  const area=el("div",{class:"lanes",style:{height:`${1440*PX}px`}});
+  for(let h=0;h<24;h+=2) area.append(el("div",{class:"tick",style:{top:`${h*60*PX}px`}},`${h}:00`));
+  const W=state.width-24-44; const cw=(W-8)/3;
+  let small=0;
+  // 塊は時刻どおりの高さで描く（伸ばすと次の塊に重なる）。24 px を割る塊は数えて出す（NFR-19）
+  const blk=(col,s,e,txt,cls)=>{
+    const key=`${s}:${e}`; const h=(e-s)*PX-2;
+    if(h<24) small++;
+    const b=el("button",{class:"blk"+(cls?" "+cls:""),"data-f":"1","data-row":"1",style:{top:`${s*PX}px`,height:`${Math.max(4,h)}px`,left:`${44+col*(cw+4)}px`,width:`${cw}px`},
+      onclick:()=>{state.open=state.open===key?null:key;state.openFold=null;render();$("screen").scrollTop=0;}},txt);
+    area.append(b);
+  };
+  for(const x of LOC) blk(0,x.s,x.e,x.k==="stay"?`滞在 ${hm(x.s)}–${hm(x.e)}`:x.k==="move"?`移動 ${dur(x.e-x.s)}`:"記録なし",x.k==="nodata"?"nodata":"");
+  for(const o of sessions("スマホ",10)) blk(1,o.s,o.e,`${dur(o.e-o.s)}`);
+  for(const o of sessions("PC",20)){
+    const S=summarize(recsIn(o.s,o.e+1));
+    let t=`${hm(o.s)}–${hm(o.e)}`;
+    if(state.idle==="text"){ if(S.idle>0) t+=`（離席 ${Math.round(S.idle)} 分）`; if(S.excl>0) t+=` 除外 ${S.excl} 件`; if(state.day!=="today"&&o.e>=T(23,39)) t+=" → 停止"; }
+    blk(2,o.s,o.e,t);
+  }
+  if(state.idle==="row"){for(const [a,b] of IDLE) if(b-a>=10) blk(2,a,b,"離席","nodata"); for(const [a,b] of EXCL) blk(2,a,b,"除外","nodata"); if(state.day!=="today") blk(2,T(23,40),T(24,0),"停止","nodata");}
+  root.append(area);
+  measure.small=small;
+}
+
+function render(){
+  const c=SCHEMES[state.scheme];
+  const scr=$("screen"); const keep=scr.scrollTop; scr.innerHTML=""; scr.style.width=state.width+"px";
+  scr.append(el("style",{},styles(c)));
+  const day=el("div",{class:"day"});
+  day.append(el("h2",{},state.day==="today"?"9月30日（水）今日":"9月14日（月）"));
+  day.append(el("p",{class:"crit"},"半径 100 m / 10 分 ・ 前の日 ・ 次の日 ・ 日付"));
+  measure={rows:0,height:0,first:0,det:0,small:null};
+  ({nest:renderNest,inter:renderInter,hour:renderHour,flat:renderFlat,lanes:renderLanes})[state.skel](day);
+  scr.append(day);
+  scr.scrollTop=keep;
+  const rows=[...day.querySelectorAll("[data-row]")];
+  const top=day.getBoundingClientRect().top;
+  measure.rows=rows.length;
+  measure.first=rows.filter(r=>r.getBoundingClientRect().bottom-top<=640).length;
+  if(!state.open){ measure.height=day.scrollHeight; closed[`${state.day}`]={...measure}; }
+  $("mRows").textContent=`${measure.rows.toLocaleString()} 行`;
+  $("mHeight").textContent=state.open?`（閉じて測る）`:`${measure.height.toLocaleString()} px`;
+  $("mFirst").textContent=`${measure.first} 行`;
+  $("mDet").textContent=state.open?`${measure.det} 行`:"—";
+  $("mSmallWrap").style.display=state.skel==="lanes"?"":"none";
+  $("mSmall").textContent=measure.small==null?"—":`${measure.small} 個`;
+  $("capSize").textContent=`${state.width} × 640`;
+  $("schemeBtn").textContent=`明暗: ${state.scheme==="dark"?"ダーク":"ライト"}`;
+  $("widthBtn").textContent=`幅: ${state.width}`;
+  $("dayBtn").textContent=`日: ${DAYS.find(d=>d.id===state.day).t}`;
+  renderControls(); if(!rendering) schedulePrompt();
+}
+let closed={};
+
+/* ================= コントロール ================= */
+function disabled(key){ return (key==="sum"&&(state.skel==="flat"||state.skel==="lanes"))||(key==="det"&&state.skel==="flat"); }
+function cardsInto(id,list,key){
+  const box=$(id); box.innerHTML="";
+  for(const o of list){
+    const dis=disabled(key);
+    const b=el("button",{class:"card"+(state[key]===o.id?" on":""),type:"button",onclick:()=>{if(dis)return;state[key]=o.id;state.open=null;state.openFold=null;closed={};render();}},
+      el("div",{class:"t"},o.t),el("div",{class:"d"},o.d+(o.off?`（ui-direction の「${o.off}」から外れる）`:"")));
+    if(dis) b.setAttribute("disabled","");
+    box.append(b);
+  }
+}
+function renderControls(){
+  cardsInto("axSkel",SKELS,"skel"); cardsInto("axSum",SUMS,"sum"); cardsInto("axDet",DETS,"det"); cardsInto("axIdle",IDLES,"idle");
+  const p=$("presets"); if(!p.childElementCount) for(const x of PRESETS) p.append(el("button",{type:"button",onclick:()=>{Object.assign(state,x.v);state.open=null;state.openFold=null;closed={};render();}},x.n));
+  const parts=Object.entries(COUNT).map(([s,n])=>`${s} ${n.toLocaleString()} 件`).join("・");
+  $("counts").textContent=`この日の記録: ${parts} ＝ 計 ${REC.length.toLocaleString()} 件（PC はウィンドウの変化・離席・除外・停止。スマホは前景に出た回数で、OS が返す画面の入切などのイベントは含めていない）`;
+}
+
+/* ================= 出力 ================= */
+const name=(list,id)=>list.find(o=>o.id===id).t;
+// 4 つの日を閉じた状態で測る（出力に書くため）。いまの表示は壊さない
+function measureAllDays(){
+  const keep={day:state.day,open:state.open,openFold:state.openFold};
+  const res={};
+  for(const d of DAYS){
+    if(closed[d.id]){res[d.id]=closed[d.id];continue;}
+    state.day=d.id; state.open=null; state.openFold=null; genDay(d.id);
+    const c=SCHEMES[state.scheme]; const scr=$("screen"); scr.innerHTML=""; scr.style.width=state.width+"px"; scr.append(el("style",{},styles(c)));
+    const day=el("div",{class:"day"}); day.append(el("h2",{},"—")); day.append(el("p",{class:"crit"},"—"));
+    measure={rows:0,height:0,first:0,det:0,small:null};
+    ({nest:renderNest,inter:renderInter,hour:renderHour,flat:renderFlat,lanes:renderLanes})[state.skel](day);
+    scr.append(day);
+    const rows=[...day.querySelectorAll("[data-row]")]; const top=day.getBoundingClientRect().top;
+    res[d.id]={rows:rows.length,height:day.scrollHeight,first:rows.filter(r=>r.getBoundingClientRect().bottom-top<=640).length,small:measure.small};
+    closed[d.id]=res[d.id];
+  }
+  Object.assign(state,keep); genDay(state.day);
+  return res;
+}
+function updatePrompt(){
+  const L=[];
+  const sk=SKELS.find(o=>o.id===state.skel);
+  L.push(`ST25 の 1 日の画面（S-2）は、次の構造で作る。`);
+  L.push(`並べ方 — ${sk.t}。`);
+  if(!disabled("sum")) L.push(`閉じた行に出すもの — ${name(SUMS,state.sum)}。`);
+  if(!disabled("det")) L.push(`行を開いたときの中身 — ${name(DETS,state.det)}（詳細はその場で開く）。`);
+  L.push(`取れていない時間（離席・PC の停止・除外・まだ届いていないブラウザ履歴） — ${name(IDLES,state.idle)}。`);
+  if(sk.off) L.push(`これは docs/ui-direction.md の「${sk.off}」から外れる。方向の文書を直す。`);
+  return L;
+}
+function writePrompt(){
+  const L=updatePrompt();
+  const res=measureAllDays();
+  L.push(`幅 ${state.width} px で、閉じた状態を 4 つの日で測った値:`);
+  for(const d of DAYS){ const m=res[d.id]; L.push(`  ${d.t} — 行 ${m.rows.toLocaleString()}・高さ ${m.height.toLocaleString()} px・開いてすぐ（640 px）に見える行 ${m.first}${m.small!=null?`・24 px を割る塊 ${m.small} 個（NFR-19 を割る。選ぶなら塊の出し方を直す）`:""}`); }
+  L.push(`（種類は文字で区別し、色では分けない。日は Asia/Tokyo で区切る。書庫を置いた日は 2 経路の組を両方出して描いた。）`);
+  $("prompt").textContent=L.join("\n");
+}
+let promptTimer=null;
+function schedulePrompt(){ clearTimeout(promptTimer); $("prompt").textContent=updatePrompt().join("\n")+"\n（測っています…）"; promptTimer=setTimeout(()=>{ const keepScroll=$("screen").scrollTop; writePrompt(); renderOnly(); $("screen").scrollTop=keepScroll; },60); }
+
+$("copyBtn").addEventListener("click",()=>{
+  clearTimeout(promptTimer); writePrompt(); renderOnly();
+  const txt=$("prompt").textContent, note=$("copyNote");
+  const ok=()=>{note.textContent="コピーしました";setTimeout(()=>note.textContent="",1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(ok).catch(()=>{note.textContent="コピーできない。上の欄を長押しして選んでください";});
+  } else { note.textContent="コピーできない。上の欄を長押しして選んでください"; }
+});
+$("schemeBtn").addEventListener("click",()=>{state.scheme=state.scheme==="dark"?"light":"dark";render();});
+$("widthBtn").addEventListener("click",()=>{state.width=state.width===360?1024:360;state.open=null;closed={};render();});
+$("dayBtn").addEventListener("click",()=>{const i=DAYS.findIndex(d=>d.id===state.day);state.day=DAYS[(i+1)%DAYS.length].id;state.open=null;state.openFold=null;genDay(state.day);render();});
+
+// render はプレビューを描いてから出力を測り直す。renderOnly は描くだけ（測った後の描き戻し）
+let rendering=false;
+function renderOnly(){ rendering=true; try{ render(); } finally { rendering=false; } }
+if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches) state.scheme="light";
+genDay(state.day);
+render();
+</script>
+</body>
+</html>
