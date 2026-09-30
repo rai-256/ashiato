@@ -673,6 +673,7 @@ fn clock_skew_runtime() {
     )
     .unwrap();
     let mut source = WindowsSource::open();
+    let state_before = w32time_running();
     rt.start(&source);
     // 作業スレッドの結果は見回りが拾う（w32tm は最長 5 秒）
     let started = Instant::now();
@@ -681,6 +682,7 @@ fn clock_skew_runtime() {
         std::thread::sleep(Duration::from_millis(100));
     }
     rt.stop();
+    let state_after = w32time_running();
 
     let sent: Vec<serde_json::Value> = transport
         .0
@@ -695,7 +697,38 @@ fn clock_skew_runtime() {
         .collect();
     assert_eq!(skew.len(), 1, "測定記録が 1 件: {sent:?}");
     let p = &skew[0]["payload"];
+    assert!(
+        p["uptime_ms"].as_u64().unwrap() > 0,
+        "起動からの経過時間: {p}"
+    );
+    assert!(p["boot_at"].is_string(), "起動の識別: {p}");
+    assert_eq!(p["clock_trigger"], "start");
     let refs = p["clock_references"].as_array().unwrap();
+    let un = p["clock_unavailable"].as_array().unwrap();
+    // W32Time は手動（トリガー）起動で、止まっていることがある（2026-09-30。本人の指示で両方の経路を確かめる）。
+    // **止まっていたら取れなかった経路**を、**動いていたら取れた経路**を見る。どちらも製品の仕様どおりなら通す
+    if let Some(u) = un.iter().find(|u| u["source"] == "windows-time-sync") {
+        assert!(
+            state_before == Some(false) || state_after == Some(false),
+            "時刻同期が取れなかったのに W32Time は止まっていない（{state_before:?} → {state_after:?}）: {p}"
+        );
+        assert_eq!(
+            u["reason"], "service_stopped",
+            "止まっていた理由がそのまま残る: {p}"
+        );
+        assert!(refs.is_empty(), "どの基準も取れていない: {p}");
+        assert_eq!(p["clock_available"], false, "{p}");
+        assert_eq!(
+            un.len(),
+            2,
+            "2 つの出どころが取れなかった側に 1 回ずつ: {p}"
+        );
+        return;
+    }
+    assert!(
+        state_before == Some(true) || state_after == Some(true),
+        "W32Time が止まっているのに時刻同期が取れた（{state_before:?} → {state_after:?}）: {p}"
+    );
     let sync = refs
         .iter()
         .find(|r| r["source"] == "windows-time-sync")
@@ -705,16 +738,9 @@ fn clock_skew_runtime() {
         sync["mono_before_ms"].as_u64().unwrap() <= sync["mono_after_ms"].as_u64().unwrap(),
         "読む直前と直後の経過時間: {sync}"
     );
-    assert!(
-        p["uptime_ms"].as_u64().unwrap() > 0,
-        "起動からの経過時間: {p}"
-    );
-    assert!(p["boot_at"].is_string(), "起動の識別: {p}");
     // 取り込み口の基準は取れていないので、取れなかった側に 1 回だけ出る
-    let un = p["clock_unavailable"].as_array().unwrap();
     assert_eq!(un.len(), 1, "{p}");
     assert_eq!(un[0]["source"], "s01-date");
-    assert_eq!(p["clock_trigger"], "start");
 }
 
 // ---------------------------------------------------------------------------
@@ -961,6 +987,25 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
 
 /// `w32tm /query /status /verbose` の見出し（ST05 design D8）。表示言語で変わるので英語と日本語の両方。
 /// 日本語の出力はコンソールの符号ページ（cp932）のままなので、バイト列で照合する。
+/// W32Time が動いているか（`sc query w32time` の STATE の数値。4 = RUNNING / 1 = STOPPED）。
+/// 管理者権限は要らない。STATE の見出しは日本語の Windows でも英語で出る（2026-09-30 実測）。読めなければ None。
+fn w32time_running() -> Option<bool> {
+    let out = Command::new("sc")
+        .args(["query", "w32time"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().find(|l| l.trim_start().starts_with("STATE"))?;
+    let n: u32 = line
+        .split(':')
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    Some(n == 4)
+}
+
 const LAST_SYNC_KEYS: [&[u8]; 2] = [
     b"Last Successful Sync Time",
     b"\x8d\xc5\x8f\x49\x90\xb3\x8f\xed\x93\xaf\x8a\xfa\x8e\x9e\x8d\x8f", // 最終正常同期時刻
@@ -989,11 +1034,23 @@ fn w32tm_value(out: &[u8], keys: &[&[u8]]) -> Option<String> {
 // 子プロセスに渡す引数は `/query /status /verbose` に固定（`/resync` `/config` は渡さない）。
 #[test]
 fn clock_time_sync_is_readable() {
+    let state_before = w32time_running();
     let out = Command::new("w32tm")
         .args(["/query", "/status", "/verbose"])
         .output()
         .expect("w32tm が起動しない");
     let code = out.status.code();
+    if code == Some(ashiato_collector_windows::time_sync::SERVICE_NOT_STARTED) {
+        // 止まっている経路（2026-09-30）。管理者権限の不足など別の理由の非 0 はここに来ない
+        let state_after = w32time_running();
+        assert!(
+            state_before == Some(false) || state_after == Some(false),
+            "サービスが開始されていないと返したのに W32Time は止まっていない（{state_before:?} → {state_after:?}）"
+        );
+        let err = ashiato_collector_windows::time_sync::TimeSyncError::Exit(code);
+        assert_eq!(err.reason(), "service_stopped");
+        return;
+    }
     assert_eq!(
         code,
         Some(0),

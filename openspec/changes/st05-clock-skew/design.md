@@ -179,7 +179,7 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - **出力は原文のまま** `raw` に入れ、解析できた欄（最後に正常に同期した時刻・同期元・位相のずれ）だけを解析済みに入れる。
   出力の見出しは OS の表示言語で変わるので、**英語と日本語の見出しの両方**を解析する。解析できなければ `raw` を持ったまま `reason: unparsed`
 - この基準の `skew_ms` は置かない（時刻そのものではなく状態）。OS の見積もったずれ（位相のずれ）が読めたら `os_offset_ms` に入れる
-- 取れないとき（子プロセスが起動しない・非 0 で終わる・打ち切り）は `unavailable` に `reason`（`spawn_failed` / `exit:<code>` / `timeout`）
+- 取れないとき（子プロセスが起動しない・非 0 で終わる・打ち切り）は `unavailable` に `reason`（`spawn_failed` / `service_stopped` / `exit:<code>` / `timeout`）
 - **子プロセスに渡す引数は `/query /status /verbose` に固定する**（試験で固定する）。`/resync` や `/config` は渡さない。外部への通信は起きない
 - **Task 1 で確かめ、結果（読めたか・エラー符号・表示言語・出力の見出し）をこの D8 に追記する**:
   管理者権限なしで読めるか（`windows-latest` の実行時テストと手元の Windows の両方）
@@ -203,6 +203,15 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - 実行時テスト `clock_time_sync_is_readable`（`crates/collector-windows/tests/runtime_windows.rs`）は、`w32tm /query /status /verbose` を本物で走らせ、
   終了コード 0 と、上の 2 見出し（両言語）のどちらかが解析できることを見る。手元（WSL から Windows 側の cargo）で PASS。`windows-latest` の結果は CI で確かめる。
   `TimeSyncSource` はまだ無いので、テストは同じ引数の子プロセスを直接走らせる（Task 8.1 で本物の `TimeSyncSource` に差し替える）
+
+**W32Time が止まっているとき（2026-09-30。本人の指示）**:
+- W32Time の起動の種類は既定で**手動（トリガー起動）**（手元は `DEMAND_START`）で、**止まっていることがある**。止まっていると `w32tm` は
+  `0x80070426`（サービスが開始されていない）で終わる。Task 1.3 の確かめは**たまたま動いていたとき**のもので、「いつでも読める」の根拠ではなかった
+- 製品はそれを異常にしない: `unavailable` に `reason: service_stopped` で残す（`exit:-2147023834` のままでは止まっていたと読めない）。
+  **サービスを起動しない・起動の種類を変えない**（利用者の OS の設定を収集のために変えない）
+- 実行時テスト（`clock_time_sync_is_readable` / `clock_skew_runtime`）は **その時の状態で経路を分ける**: 動いていれば取れた経路を、
+  止まっていれば `service_stopped` の経路を見る。状態は `sc query w32time` の STATE の数値（権限不要）を読む前と後で見て、結果と食い違えば落ちる。
+  出力の解析そのものは実 OS に依らない固定入力の単体テスト（`time_sync_parses_english_output` など）が持つ
 
 ### D9. PC の起動の識別と単調時計
 
