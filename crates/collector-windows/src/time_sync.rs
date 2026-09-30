@@ -5,6 +5,11 @@
 //! （`/resync` や `/config` は渡さない。外部への通信も起きない）。出力は OS の表示言語の
 //! コンソールの符号ページ（日本語は cp932）のバイト列なので、**バイト列のまま原文として持ち**、
 //! 見出しの照合もバイト列で行う。
+//!
+//! **W32Time が止まっているとき**（`w32tm` が `0x80070426` で終わる）は、System のイベントログの
+//! `Microsoft-Windows-Time-Service` の同期の記録（Event 35 / 37）の最新 1 件を `wevtutil qe` で読み、
+//! その時刻と同期元を並べる（deep Q4。2026-09-30 本人の答え）。**サービスは起動しない・起動の種類も変えない。**
+//! 記録が無い・読めないときは、止まっていたこと（`service_stopped`）だけを残す。
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -13,6 +18,35 @@ use std::time::{Duration, Instant};
 pub const TIME_SYNC_TIMEOUT: Duration = Duration::from_secs(5);
 
 const ARGS: [&str; 3] = ["/query", "/status", "/verbose"];
+
+/// イベントログの照会（`qe` = 読むだけ）。Time-Service の同期の記録（35 = 同期元を選んで同期している /
+/// 37 = 同期元から正しい時刻を受けている）の**新しいほうから 1 件**を XML で。
+const EVENT_LOG_ARGS: [&str; 6] = [
+    "qe",
+    "System",
+    "/q:*[System[Provider[@Name='Microsoft-Windows-Time-Service'] and (EventID=35 or EventID=37)]]",
+    "/c:1",
+    "/rd:true",
+    "/f:xml",
+];
+
+/// 時刻同期の状態をどこから読んだか（記録の `sync_via`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeSyncVia {
+    /// `w32tm /query /status /verbose`
+    W32tm,
+    /// W32Time が止まっていたので、イベントログの同期の記録から（`last_sync` は UTC の RFC 3339）
+    EventLog,
+}
+
+impl TimeSyncVia {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::W32tm => "w32tm",
+            Self::EventLog => "eventlog",
+        }
+    }
+}
 
 /// 読んだ時刻同期の状態。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +61,8 @@ pub struct TimeSyncReading {
     pub os_offset_ms: Option<i64>,
     /// 項目を 1 つも読み取れなかったとき `Some("unparsed")`。
     pub reason: Option<String>,
+    /// どこから読んだか。
+    pub via: TimeSyncVia,
 }
 
 /// 読めなかった理由。
@@ -70,24 +106,55 @@ impl ProcessTimeSync {
 
     /// 走らせるコマンド。**引数は照会だけに固定**（試験で固定する）。
     pub fn command(&self) -> Command {
-        let mut c = Command::new(program(std::env::var_os("SystemRoot")));
+        let mut c = Command::new(program(std::env::var_os("SystemRoot"), "w32tm.exe"));
         c.args(ARGS);
         c
     }
+
+    /// W32Time が止まっているときに走らせるコマンド。**引数はイベントログの照会だけに固定**（試験で固定する）。
+    pub fn event_log_command(&self) -> Command {
+        let mut c = Command::new(program(std::env::var_os("SystemRoot"), "wevtutil.exe"));
+        c.args(EVENT_LOG_ARGS);
+        c
+    }
+
+    /// イベントログから最後の同期を読む。記録が無ければ `Ok(None)`。
+    pub fn read_event_log(&self) -> Result<Option<TimeSyncReading>, TimeSyncError> {
+        run_with_timeout(self.event_log_command(), TIME_SYNC_TIMEOUT).map(parse_event_log)
+    }
 }
 
-/// `%SystemRoot%\System32\w32tm.exe`。**PATH や exe の置き場所からは探さない** ——
+/// `%SystemRoot%\System32\<exe>`。**PATH や exe の置き場所からは探さない** ——
 /// 探すと、収集の exe と同じ場所や PATH の先に置かれた別の `w32tm` を掴む（review R13）。
 /// `SystemRoot` が無いときは Windows の既定の置き場所。
-fn program(system_root: Option<std::ffi::OsString>) -> std::ffi::OsString {
+fn program(system_root: Option<std::ffi::OsString>, exe: &str) -> std::ffi::OsString {
     let mut p = system_root.unwrap_or_else(|| r"C:\Windows".into());
-    p.push(r"\System32\w32tm.exe");
+    p.push(r"\System32\");
+    p.push(exe);
     p
 }
 
 impl TimeSyncSource for ProcessTimeSync {
     fn read(&self) -> Result<TimeSyncReading, TimeSyncError> {
-        run_with_timeout(self.command(), TIME_SYNC_TIMEOUT).map(parse_status)
+        with_event_log_fallback(
+            run_with_timeout(self.command(), TIME_SYNC_TIMEOUT).map(parse_status),
+            || self.read_event_log(),
+        )
+    }
+}
+
+/// `w32tm` が「サービスが開始されていない」で終わったときだけ、イベントログを読む。
+/// イベントログに記録が無い・読めない（権限・打ち切り）ときは `service_stopped` のまま返す
+/// （止まっていたことだけを残す。deep Q4 の推奨の条件）。
+pub fn with_event_log_fallback(
+    w32tm: Result<TimeSyncReading, TimeSyncError>,
+    event_log: impl FnOnce() -> Result<Option<TimeSyncReading>, TimeSyncError>,
+) -> Result<TimeSyncReading, TimeSyncError> {
+    match w32tm {
+        Err(stopped @ TimeSyncError::Exit(Some(SERVICE_NOT_STARTED))) => {
+            event_log().ok().flatten().ok_or(stopped)
+        }
+        other => other,
     }
 }
 
@@ -193,7 +260,52 @@ pub fn parse_status(raw: Vec<u8>) -> TimeSyncReading {
         source,
         os_offset_ms,
         reason,
+        via: TimeSyncVia::W32tm,
     }
+}
+
+/// `wevtutil qe … /f:xml` の出力（最新 1 件）を解析する。**記録が 1 件も無ければ `None`**。
+/// 時刻は `TimeCreated` の `SystemTime`（UTC）、同期元は `TimeSource` の値。原文は必ず持つ。
+pub fn parse_event_log(raw: Vec<u8>) -> Option<TimeSyncReading> {
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    if !text.contains("<Event") {
+        return None;
+    }
+    let last_sync = attr_value(&text, "SystemTime=");
+    let source = between(&text, "Name='TimeSource'>", "</Data>")
+        .or_else(|| between(&text, "Name=\"TimeSource\">", "</Data>"))
+        .map(unescape_xml)
+        .filter(|s| !s.trim().is_empty());
+    let reason = (last_sync.is_none() && source.is_none()).then(|| "unparsed".to_string());
+    Some(TimeSyncReading {
+        raw,
+        last_sync,
+        source,
+        os_offset_ms: None,
+        reason,
+        via: TimeSyncVia::EventLog,
+    })
+}
+
+/// `name='値'` / `name="値"` の値（最初の 1 つ）。
+fn attr_value(text: &str, name: &str) -> Option<String> {
+    let rest = &text[text.find(name)? + name.len()..];
+    let quote = rest.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+    let rest = &rest[1..];
+    Some(rest[..rest.find(quote)?].to_string()).filter(|v| !v.is_empty())
+}
+
+fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let rest = &text[text.find(start)? + start.len()..];
+    Some(&rest[..rest.find(end)?])
+}
+
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 #[cfg(test)]
@@ -273,14 +385,103 @@ mod tests {
         assert_eq!(args, ["/query", "/status", "/verbose"]);
     }
 
+    /// W32Time が止まっているときもサービスを起動しない。渡すのはイベントログの照会（`qe`）だけ（deep Q4）。
+    ///
+    /// Scenario: PC は Windows に時刻を同期させない
+    #[test]
+    fn time_sync_event_log_arguments_are_pinned_to_the_query() {
+        let cmd = ProcessTimeSync::new().event_log_command();
+        let program = cmd.get_program().to_string_lossy();
+        assert!(program.ends_with(r"\System32\wevtutil.exe"), "{program}");
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "qe",
+                "System",
+                "/q:*[System[Provider[@Name='Microsoft-Windows-Time-Service'] and (EventID=35 or EventID=37)]]",
+                "/c:1",
+                "/rd:true",
+                "/f:xml",
+            ]
+        );
+    }
+
+    /// 手元の Windows で読めた Event 37 の形（2026-09-30。`wevtutil qe System … /f:xml`）。
+    fn event_log_output() -> Vec<u8> {
+        br#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Time-Service' Guid='{06edcfeb-0fd0-4e53-acca-a6f8bbf81bcb}'/><EventID>37</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x8000000000000000</Keywords><TimeCreated SystemTime='2026-09-30T11:47:51.9244260Z'/><EventRecordID>1463</EventRecordID><Correlation/><Execution ProcessID='9856' ThreadID='4112'/><Channel>System</Channel><Computer>pc</Computer><Security UserID='S-1-5-19'/></System><EventData Name='TMP_EVENT_TIME_SOURCE_REACHABLE'><Data Name='TimeSource'>time.windows.com,0x9 (ntp.m|0x9|0.0.0.0:123-&gt;20.43.94.199:123)</Data></EventData></Event>"#.to_vec()
+    }
+
+    /// Scenario: Windows の時刻同期のサービスが止まっていても最後の同期が並ぶ
+    /// Scenario: Windows の時刻同期の状態は読んだままの出力が残る
+    #[test]
+    fn time_sync_event_log_gives_last_sync_and_source() {
+        let r = parse_event_log(event_log_output()).unwrap();
+        assert_eq!(r.last_sync.as_deref(), Some("2026-09-30T11:47:51.9244260Z"));
+        assert_eq!(
+            r.source.as_deref(),
+            Some("time.windows.com,0x9 (ntp.m|0x9|0.0.0.0:123->20.43.94.199:123)")
+        );
+        assert_eq!(r.os_offset_ms, None);
+        assert_eq!(r.reason, None);
+        assert_eq!(r.via, TimeSyncVia::EventLog);
+        assert_eq!(r.raw, event_log_output(), "原文に手を加えない");
+    }
+
+    #[test]
+    fn time_sync_event_log_without_records_is_none() {
+        assert_eq!(parse_event_log(Vec::new()), None);
+        assert_eq!(parse_event_log(b"\r\n".to_vec()), None);
+    }
+
+    /// Scenario: 項目を読み取れなかった出力も残る
+    #[test]
+    fn time_sync_event_log_unparsable_record_is_kept_with_reason() {
+        let out = b"<Event><System/></Event>".to_vec();
+        let r = parse_event_log(out.clone()).unwrap();
+        assert_eq!(r.raw, out);
+        assert_eq!(r.reason.as_deref(), Some("unparsed"));
+    }
+
+    /// 止まっているときだけイベントログを読み、読めればその値、無い・読めなければ `service_stopped`。
+    ///
+    /// Scenario: Windows の時刻同期のサービスが止まっていても最後の同期が並ぶ
+    /// Scenario: Windows の時刻同期のサービスが止まっていて同期の記録も無ければ止まっていたことが残る
+    #[test]
+    fn time_sync_stopped_service_falls_back_to_the_event_log() {
+        let stopped = || Err(TimeSyncError::Exit(Some(SERVICE_NOT_STARTED)));
+        let from_log = || Ok(parse_event_log(event_log_output()));
+        let r = with_event_log_fallback(stopped(), from_log).unwrap();
+        assert_eq!(r.via, TimeSyncVia::EventLog);
+        assert_eq!(r.last_sync.as_deref(), Some("2026-09-30T11:47:51.9244260Z"));
+
+        let err = with_event_log_fallback(stopped(), || Ok(None)).unwrap_err();
+        assert_eq!(err.reason(), "service_stopped", "記録が無い");
+        let err =
+            with_event_log_fallback(stopped(), || Err(TimeSyncError::Exit(Some(5)))).unwrap_err();
+        assert_eq!(err.reason(), "service_stopped", "読めない（権限など）");
+
+        // 止まっている以外の失敗・取れたときはイベントログを読まない
+        let never = || -> Result<Option<TimeSyncReading>, TimeSyncError> {
+            panic!("イベントログを読んだ")
+        };
+        let err = with_event_log_fallback(Err(TimeSyncError::Timeout), never).unwrap_err();
+        assert_eq!(err.reason(), "timeout");
+        let r = with_event_log_fallback(Ok(parse_status(english_output())), never).unwrap();
+        assert_eq!(r.via, TimeSyncVia::W32tm);
+    }
+
     /// 走らせるのは `%SystemRoot%` の下の `w32tm.exe` だけ（PATH から探さない。review R13）。
     #[test]
     fn time_sync_program_is_resolved_from_the_system_root() {
         assert_eq!(
-            program(Some(r"D:\WinNT".into())),
+            program(Some(r"D:\WinNT".into()), "w32tm.exe"),
             r"D:\WinNT\System32\w32tm.exe"
         );
-        assert_eq!(program(None), r"C:\Windows\System32\w32tm.exe");
+        assert_eq!(
+            program(None, "wevtutil.exe"),
+            r"C:\Windows\System32\wevtutil.exe"
+        );
     }
 
     /// 記録に載る原文（`raw_text`）は元のバイト列へ戻せる。`\` と `\x8d` という 4 文字の並びと、

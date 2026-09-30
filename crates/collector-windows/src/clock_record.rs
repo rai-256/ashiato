@@ -48,6 +48,7 @@ pub fn skew_record(ctx: &RecordContext, reading: ClockReading) -> WindowPayload 
                 raw: None,
                 last_sync: None,
                 sync_source: None,
+                sync_via: None,
             });
         }
         Err(reason) => unavailable.push(ClockUnavailable {
@@ -75,6 +76,7 @@ pub fn skew_record(ctx: &RecordContext, reading: ClockReading) -> WindowPayload 
             raw: Some(raw_text(&t.reading.raw)),
             last_sync: t.reading.last_sync,
             sync_source: t.reading.source,
+            sync_via: Some(t.reading.via.as_str().into()),
         }),
         Err(reason) => unavailable.push(ClockUnavailable {
             source: SOURCE_TIME_SYNC.into(),
@@ -101,7 +103,7 @@ mod tests {
     use super::*;
     use crate::clock::ReferenceReading;
     use crate::clock_worker::TimedTimeSync;
-    use crate::time_sync::{parse_status, TimeSyncReading};
+    use crate::time_sync::{parse_event_log, parse_status, TimeSyncReading, TimeSyncVia};
 
     fn t(sec: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-13T00:00:00Z")
@@ -137,6 +139,7 @@ mod tests {
                 source: Some("time.windows.com,0x8".into()),
                 os_offset_ms: Some(-1),
                 reason: None,
+                via: TimeSyncVia::W32tm,
             },
             uptime_before_ms: 123_455_100,
             uptime_after_ms: 123_455_200,
@@ -202,6 +205,36 @@ mod tests {
         assert_eq!(sync.os_offset_ms, Some(-1));
         assert!(sync.raw.is_some(), "読んだままの出力が残る");
         assert_eq!(sync.skew_ms, None, "状態には差を置かない（D8）");
+    }
+
+    /// W32Time が止まっていてイベントログから読んだ同期は、取れた基準に `sync_via: eventlog` で並ぶ（deep Q4）。
+    ///
+    /// Scenario: Windows の時刻同期のサービスが止まっていても最後の同期が並ぶ
+    #[test]
+    fn clock_skew_payload_marks_time_sync_read_from_the_event_log() {
+        let xml = b"<Event><System><TimeCreated SystemTime='2026-09-30T11:47:51.9244260Z'/></System><EventData><Data Name='TimeSource'>time.windows.com,0x9</Data></EventData></Event>".to_vec();
+        let from_log = Ok(TimedTimeSync {
+            reading: parse_event_log(xml).unwrap(),
+            uptime_before_ms: 1,
+            uptime_after_ms: 2,
+        });
+        let p = skew_record(&ctx(), reading(Err("unreachable".into()), from_log));
+        let refs = p.clock_references.unwrap();
+        assert_eq!(names(&refs), [SOURCE_TIME_SYNC]);
+        assert_eq!(refs[0].sync_via.as_deref(), Some("eventlog"));
+        assert_eq!(
+            refs[0].last_sync.as_deref(),
+            Some("2026-09-30T11:47:51.9244260Z")
+        );
+        assert_eq!(refs[0].sync_source.as_deref(), Some("time.windows.com,0x9"));
+        assert!(refs[0].raw.as_deref().unwrap().starts_with("<Event>"));
+        assert_eq!(p.clock_available, Some(true));
+        // w32tm から読んだものは `w32tm`
+        let p = skew_record(&ctx(), reading(reference(), time_sync()));
+        assert_eq!(
+            p.clock_references.unwrap()[1].sync_via.as_deref(),
+            Some("w32tm")
+        );
     }
 
     /// Scenario: 2 つの出どころは取れたか取れなかったかのどちらかに 1 回ずつ出る

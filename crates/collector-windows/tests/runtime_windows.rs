@@ -721,15 +721,24 @@ fn clock_skew_runtime() {
     let refs = p["clock_references"].as_array().unwrap();
     let un = p["clock_unavailable"].as_array().unwrap();
     // W32Time は手動（トリガー）起動で、止まっていることがある（2026-09-30。本人の指示で両方の経路を確かめる）。
-    // **止まっていたら取れなかった経路**を、**動いていたら取れた経路**を見る。どちらも製品の仕様どおりなら通す
+    // 止まっていればイベントログの同期の記録から読み（deep Q4）、その記録も無ければ取れなかった経路になる。
+    // **いまの状態で通った経路**を見る。どれも製品の仕様どおりなら通す
+    let stopped = state_before == Some(false) || state_after == Some(false);
     if let Some(u) = un.iter().find(|u| u["source"] == "windows-time-sync") {
         assert!(
-            state_before == Some(false) || state_after == Some(false),
+            stopped,
             "時刻同期が取れなかったのに W32Time は止まっていない（{state_before:?} → {state_after:?}）: {p}"
         );
         assert_eq!(
             u["reason"], "service_stopped",
             "止まっていた理由がそのまま残る: {p}"
+        );
+        assert!(
+            !matches!(
+                ashiato_collector_windows::time_sync::ProcessTimeSync::new().read_event_log(),
+                Ok(Some(_))
+            ),
+            "イベントログに同期の記録があるのに並ばなかった: {p}"
         );
         assert!(refs.is_empty(), "どの基準も取れていない: {p}");
         assert_eq!(p["clock_available"], false, "{p}");
@@ -740,14 +749,26 @@ fn clock_skew_runtime() {
         );
         return;
     }
-    assert!(
-        state_before == Some(true) || state_after == Some(true),
-        "W32Time が止まっているのに時刻同期が取れた（{state_before:?} → {state_after:?}）: {p}"
-    );
     let sync = refs
         .iter()
         .find(|r| r["source"] == "windows-time-sync")
         .unwrap_or_else(|| panic!("時刻同期の状態が取れていない: {p}"));
+    if sync["sync_via"] == "eventlog" {
+        assert!(
+            stopped,
+            "W32Time が動いているのにイベントログから読んだ（{state_before:?} → {state_after:?}）: {p}"
+        );
+        assert!(
+            sync["last_sync"].is_string() && sync["sync_source"].is_string(),
+            "最後の同期の時刻と同期元が並ぶ: {sync}"
+        );
+    } else {
+        assert_eq!(sync["sync_via"], "w32tm", "{sync}");
+        assert!(
+            state_before == Some(true) || state_after == Some(true),
+            "W32Time が止まっているのに w32tm から読めた（{state_before:?} → {state_after:?}）: {p}"
+        );
+    }
     assert!(sync["raw"].is_string(), "読んだままの出力を持つ: {sync}");
     assert!(
         sync["mono_before_ms"].as_u64().unwrap() <= sync["mono_after_ms"].as_u64().unwrap(),
@@ -1043,6 +1064,22 @@ fn w32tm_value(out: &[u8], keys: &[&[u8]]) -> Option<String> {
         (keys.contains(&key.trim_ascii()) && !unspecified)
             .then(|| String::from_utf8_lossy(value).into_owned())
     })
+}
+
+// イベントログの同期の記録（Time-Service の 35 / 37）が読めるかの確かめ（deep Q4 / design D8）。
+// **W32Time の状態に依らず走る。** 読めなければ（権限・打ち切り）落ちる。記録が 0 件なのは読めた扱い。
+#[test]
+fn clock_time_sync_event_log_is_readable() {
+    let r = ashiato_collector_windows::time_sync::ProcessTimeSync::new()
+        .read_event_log()
+        .unwrap_or_else(|e| panic!("イベントログが読めない: {}", e.reason()));
+    if let Some(r) = r {
+        assert_eq!(
+            r.reason, None,
+            "最新の記録から時刻も同期元も読めない: {r:?}"
+        );
+        assert!(r.last_sync.is_some() && r.source.is_some(), "{r:?}");
+    }
 }
 
 // 管理者権限なしで読めるかの確かめ（design D8）。読めなければ落ちる。

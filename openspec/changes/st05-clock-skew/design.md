@@ -217,6 +217,25 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
   止まっていれば `service_stopped` の経路を見る。状態は `sc query w32time` の STATE の数値（権限不要）を読む前と後で見て、結果と食い違えば落ちる。
   出力の解析そのものは実 OS に依らない固定入力の単体テスト（`time_sync_parses_english_output` など）が持つ
 
+**止まっている間はイベントログから最後の同期を読む（2026-09-30。deep Q4 の本人の答え。review R22）**:
+- `w32tm` が `0x80070426`（サービスが開始されていない）で終わったときだけ、`%SystemRoot%\System32\wevtutil.exe qe System
+  "/q:*[System[Provider[@Name='Microsoft-Windows-Time-Service'] and (EventID=35 or EventID=37)]]" /c:1 /rd:true /f:xml` を走らせる
+  （同じ 5 秒の打ち切り。同じ作業スレッドの中で、`mono_before_ms` / `mono_after_ms` は 2 つの子プロセスをまたぐ）。
+  **引数は照会（`qe`）だけに固定し、試験で固定する**（`time_sync_event_log_arguments_are_pinned_to_the_query`）。サービスは起動しない・起動の種類も変えない
+- 35 = 同期元を選んで同期している / 37 = 同期元から正しい時刻を受けている。**新しいほうから 1 件**の `TimeCreated` の `SystemTime` を `last_sync`
+  （**UTC の RFC 3339**。`w32tm` の表示のままのローカル時刻とは形が違う）、`TimeSource` を `sync_source` にする。`raw` はその XML の原文。
+  `os_offset_ms` は無い。どちらから読んだかは `clock_references[]` の `sync_via`（`w32tm` / `eventlog`）に残す。項目を読めなければ `unparsed`（`raw` つき）
+- **記録が 0 件・読めない（権限・非 0・打ち切り）ときは `service_stopped` のまま**（止まっていたことだけを残す。deep Q4 の推奨の条件）
+- **一般の利用者の権限で読めるか**: System のチャネルの ACL（`wevtutil gl System` の `channelAccess`）が `(A;;0x1;;;IU)`（対話ログオンの利用者に読み取り）・
+  `(A;;0x1;;;S-1-5-32-573)`（Event Log Readers）を持つ（2026-09-30 手元で読んだ）。PC の収集は対話ログオンの利用者の下で動くので読める側に入る。
+  権限を下げたプロセスでの実測は、タスクスケジューラへの登録が実行の許可で止められたので**していない**（Task 1.3 の w32tm は同じ方法で実測した）。
+  読めなかったときは上のとおり `service_stopped` に戻るので、記録は失われない
+- 実行時テスト `clock_time_sync_event_log_is_readable` は W32Time の状態に依らずイベントログを本物で読み、読めること（0 件は読めた扱い）と最新の記録から時刻と同期元が取れることを見る。
+  `clock_skew_runtime` は通った経路（`w32tm` / `eventlog` / `service_stopped`）ごとに、W32Time の状態・イベントログの記録と食い違わないことを見る。
+  2026-09-30 の手元の実行では W32Time は**動いていた**（起動の契機で動いた）ので、実機で通ったのは `w32tm` の経路とイベントログを読む口で、
+  止まっている経路の切り替えは単体テスト `time_sync_stopped_service_falls_back_to_the_event_log` が持つ
+- 反転条件: 一般の利用者で読めないと分かったら、この口は常に `service_stopped` に倒れるだけなので、別の口を探すか deep に返す
+
 ### D9. PC の起動の識別と単調時計
 
 - **起動の識別** = OS が最後に起動した時刻（`Source::boot_time()`。いまの `powered-off` の `boot_at` と同じ値・同じ欄名）
