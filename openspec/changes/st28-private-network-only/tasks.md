@@ -165,16 +165,16 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 7: 収集側は loopback 以外へ平文で送らない（design D13）
 
-- [ ] 7.1 Android: `GenerateNetworkSecurityConfig` を、`base-config` の平文禁止と `localhost` / `127.0.0.1` だけの `domain-config` を常に出す形にする（`ashiato.baseUrl` から例外を作らない）。
+- [x] 7.1 Android: `GenerateNetworkSecurityConfig` を、`base-config` の平文禁止と `localhost` / `127.0.0.1` だけの `domain-config` を常に出す形にする（`ashiato.baseUrl` から例外を作らない）。
   `ashiato.baseUrl` が `http://` で host が loopback でなければ build を落とす task を足す。
   `tools/check-apk-cleartext.sh` を足す: (a) `-Pashiato.baseUrl=https://example.invalid:1` で `:app:generateNetworkSecurityConfig` を走らせ、生成物に `example.invalid` の平文の許可も、loopback 以外の `domain-config` の平文の許可も無い、
   (b) `-Pashiato.baseUrl=http://example.invalid:1` の `assembleDebug` が失敗し、出力に理由がある。**(a) はいまのコードでは落ちる**（review R14）。
   Scenario: `収集アプリは接続先の宛先にも平文を許さない`（(a) の `echo`）/ `平文の接続先では収集アプリを組み立てられない`（(b) の `echo`）。
   検証: `tools/check-apk-cleartext.sh`
-- [ ] 7.2 計測テスト `CleartextPolicyInstrumentedTest`（`NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("127.0.0.1")` が真）。
+- [x] 7.2 計測テスト `CleartextPolicyInstrumentedTest`（`NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("127.0.0.1")` が真）。
   Scenario: `収集アプリは loopback への平文の接続を許す`。
   検証: `tools/android-emulator.sh`
-- [ ] 7.3 C-02: `Config::from_env` が `ASHIATO_BASE_URL` の平文・非 loopback を `Err` にする（`127.0.0.1` / `::1` / `localhost` は通す）。試験の名前は `base_url_cleartext_` で始める。
+- [x] 7.3 C-02: `Config::from_env` が `ASHIATO_BASE_URL` の平文・非 loopback を `Err` にする（`127.0.0.1` / `::1` / `localhost` は通す）。試験の名前は `base_url_cleartext_` で始める。
   Scenario: `平文の接続先では PC の収集器が起動しない`。
   検証: `bash -o pipefail -c 'cargo test -p ashiato-collector-windows base_url_cleartext_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
 
