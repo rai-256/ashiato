@@ -7,7 +7,7 @@
 # (a) DB を立てる設定・試験・台本に、`POSTGRES_PASSWORD: <字面>` と `postgres://<役割>:<字面>@` が無い。
 #     `${` で始まるもの（環境からの参照）は通す。`.env.example` は見ない（雛形は change-me-）。
 # (b) 雛形の値だけの環境ファイルでは tools/db-roles.sh が失敗し、DB の役割の一覧が変わらない。
-#     **DB が立っていること**（docker compose up -d --wait db）が前提。
+#     DB が立っていなければ自分で立てる（docker compose up -d --wait db。tools/smoke.sh が落としていることがある）。
 #
 # 場所の名前: compose / testdb / tools / workflows
 set -euo pipefail
@@ -51,6 +51,8 @@ echo "配布物に DB の合言葉の固定値が無い（${places[*]}）"
 
 roles() { docker compose exec -T db psql -X -qtA -U "${POSTGRES_USER:-ashiato}" -d "${POSTGRES_DB:-ashiato}" \
   -c "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin FROM pg_roles ORDER BY 1"; }
+# 直前に tools/smoke.sh が DB を落としていることがある（末尾の down -v）。立っていなければ立てる
+docker compose up -d --wait db >/dev/null 2>&1 || true
 before="$(roles)" || { echo "error: DB に問えない（docker compose up -d --wait db を先に）" >&2; exit 1; }
 if ENV_FILE=tools/fixtures/db-roles/placeholder.env tools/db-roles.sh >/tmp/db-roles-placeholder.log 2>&1; then
   echo "error: 雛形の合言葉で役割を作る手順が成功した" >&2; exit 1
