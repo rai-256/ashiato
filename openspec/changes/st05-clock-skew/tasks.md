@@ -144,7 +144,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 7: 端末の計測テスト（エミュレータ）
 
-- [ ] 7.1 本物の `LocationService` を起動し、起動時の測定記録が `c01-clock` として記録の未送信に積まれ、3 つの出どころが `references` と `unavailable` に 1 回ずつ出ることを確かめる
+- [x] 7.1 本物の `LocationService` を起動し、起動時の測定記録が `c01-clock` として記録の未送信に積まれ、3 つの出どころが `references` と `unavailable` に 1 回ずつ出ることを確かめる
   計測テスト `ClockSkewInstrumentedTest` を置く。1.2 で時計を変えられたなら、変えた直後に `trigger: time_set` の記録が 1 件増えることも確かめる。
   Scenario: `収集の起動時にその場で測る` / `端末の時計が変更されるとその場で測る`（1.2 で変えられなかったときは、6.1 の印だけが担保する）。
   検証: `tools/android-emulator.sh` rc=0（計測テストを全部走らせる）/
