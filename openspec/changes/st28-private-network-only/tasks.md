@@ -143,20 +143,20 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 6: 画面（design D10）
 
-- [ ] 6.1 `web/vite.config.ts` の proxy から `authorization` を外す。`preview.headers` に CSP（`default-src 'self'; frame-ancestors 'none'`）と `Cache-Control: no-store`。
+- [x] 6.1 `web/vite.config.ts` の proxy から `authorization` を外す。`preview.headers` に CSP（`default-src 'self'; frame-ancestors 'none'`）と `Cache-Control: no-store`。
   **最初に** `http://127.0.0.1` で `Secure` の cookie が Chromium に残るかを 1 本の e2e（`web/e2e/login-cookie.spec.ts`）で確かめ、残らなければ `playwright.config.ts` の `baseURL` を `http://localhost` にする（design Risks）。
   検証: `bash -c '! grep -n "authorization" web/vite.config.ts'`、`ET login-cookie`
-- [ ] 6.2 画面のログイン: 起動時に `GET /api/session`、401 なら合言葉の入力欄（`ui-direction.md` の下限）。どの面でも読み出しが 401 なら入力欄へ。画面の頭に「ログアウト」。
+- [x] 6.2 画面のログイン: 起動時に `GET /api/session`、401 なら合言葉の入力欄（`ui-direction.md` の下限）。どの面でも読み出しが 401 なら入力欄へ。画面の頭に「ログアウト」。
   単体は `web/src/__tests__/session.test.ts`。
   検証: `bash -o pipefail -c 'cd web && npx vitest run src/__tests__/session.test.ts 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log`、`bash -c 'cd web && npm run lint && npm run build'`
-- [ ] 6.3 e2e の足場: `globalSetup` で 1 回ログインし、`storageState` を既定にする（既存の `coverage-year` / `day-stays` / `stack` は**書き換えずに**通る）。
+- [x] 6.3 e2e の足場: `globalSetup` で 1 回ログインし、`storageState` を既定にする（既存の `coverage-year` / `day-stays` / `stack` は**書き換えずに**通る）。
   ログインの e2e（`web/e2e/login.spec.ts`）は未ログインの `storageState` から始める。
   Scenario: `ログインしていないブラウザには記録が 1 件も返らない`（画面が出した `/api/` の読み出しの応答がすべて 401・記録の行の要素が 0 個）/
   `ログインしていないブラウザには合言葉の入力欄が出る` / `合言葉でログインすると画面が記録を読める` / `違う合言葉を入れても画面は記録を出さない` /
   `ログアウトすると記録が読めなくなる` / `画面を配る側は合言葉を付け足さない`（cookie を持たない `request` で preview の `/api/events` を叩いて 401）/
   `ログインの印はスクリプトから読めない`（画面の中で `document.cookie` に `ashiato_session` が無い）。
   検証: `ET login.spec`、`ET coverage-year`、`ET day-stays`、`ET stack`
-- [ ] 6.4 CSP・外部への要求・端末の写し（`web/e2e/offsite.spec.ts`）。`page.on('request')` で稼働状況・1 日を見る・マスタ管理を開いた間の要求を集め、preview の出所以外が 0 件。
+- [x] 6.4 CSP・外部への要求・端末の写し（`web/e2e/offsite.spec.ts`）。`page.on('request')` で稼働状況・1 日を見る・マスタ管理を開いた間の要求を集め、preview の出所以外が 0 件。
   `securitypolicyviolation` の報告が 0 件。応答の `content-security-policy` と `cache-control` を見る。`navigator.serviceWorker.getRegistrations()` が 0 件、
   `localStorage` / `sessionStorage` / `indexedDB.databases()` に試験が入れた偽データの値が無い。
   Scenario: `画面を開いても外部への要求は 0 件である` / `画面は外部の資源の読み込みを禁じる指示を持つ` / `画面を開いても読み込みの指示に反した報告は出ない` /
