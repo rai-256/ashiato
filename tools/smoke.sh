@@ -4,15 +4,15 @@
 # **A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ**（製造準備 B）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [ -f .env ]; then set -a; . ./.env; set +a; fi   # tools/stack.sh と同じ。CI は環境で渡す
-export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
-export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}"
-export BIND="${BIND:-127.0.0.1:18787}"
+. tools/ports.sh     # worktree ごとのポート（Story を並行して走らせても取り合わない）
+export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:${ASHIATO_DB_PORT}/ashiato}"
+export BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
-cleanup() { kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
+# SRV が無いときに kill "${SRV:-0}" とすると kill 0 = プロセスグループ全体（呼び出し元の verify-run ごと）を止める
+cleanup() { if [ -n "${SRV:-}" ]; then kill "$SRV" 2>/dev/null || true; fi; docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 echo "== 1. DB を起動（**まっさらにしてから**）"
