@@ -283,7 +283,10 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 **`clock_references[]` の要素**: `source`・`mono_before_ms` / `mono_after_ms`（その基準を読む直前と直後の `uptime_ms`。**読み取り時間の上限**の幅）は必ず持つ。
 `s01-date` は `time`・`skew_ms`・`host`（取り込み口の `host:port`）。`windows-time-sync` は `raw`（`w32tm /query /status /verbose` の出力。
 cp932 のバイト列なので、**ASCII 以外のバイトと `\` は `\xNN`** に直して持つ）・`last_sync`（最後に正常に同期した時刻。表示のまま）・
-`sync_source`・`os_offset_ms`（位相のずれ）。状態なので `windows-time-sync` は `skew_ms` を持たない。
+`sync_source`・`os_offset_ms`（位相のずれ）・`sync_via`（どこから読んだか: `w32tm` / `eventlog`）。状態なので `windows-time-sync` は `skew_ms` を持たない。
+**W32Time が止まっていた**（`w32tm` が `0x80070426`）ときは System のイベントログの Time-Service の同期の記録（Event 35 / 37）の最新 1 件から読み、
+`sync_via: eventlog`・`last_sync` は**UTC の RFC 3339**（イベントの `TimeCreated`）・`sync_source` はイベントの `TimeSource`・`raw` はイベントの XML・`os_offset_ms` は無い。
+記録が無い・読めないときは `clock_unavailable` に `service_stopped`。
 
 - **出どころは 2 つ**（`s01-date` = 取り込み口の応答の日付 / `windows-time-sync` = Windows の時刻同期の状態）。
   **2 つのそれぞれが `clock_references` と `clock_unavailable` のどちらかに 1 回ずつ**出る。

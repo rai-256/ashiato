@@ -231,6 +231,9 @@ pub struct ClockReference {
     /// 同期元
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_source: Option<String>,
+    /// どこから読んだか（`windows-time-sync` のみ。`w32tm` / `eventlog` = W32Time が止まっていてイベントログから）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_via: Option<String>,
 }
 
 /// 取れなかった基準 1 つ。
@@ -487,6 +490,7 @@ mod tests {
             raw: None,
             last_sync: None,
             sync_source: None,
+            sync_via: None,
         }]);
         skew.clock_unavailable = Some(vec![ClockUnavailable {
             source: SOURCE_TIME_SYNC.into(),
