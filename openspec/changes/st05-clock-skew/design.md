@@ -220,12 +220,14 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 **止まっている間はイベントログから最後の同期を読む（2026-09-30。deep Q4 の本人の答え。review R22）**:
 - `w32tm` が `0x80070426`（サービスが開始されていない）で終わったときだけ、`%SystemRoot%\System32\wevtutil.exe qe System
   "/q:*[System[Provider[@Name='Microsoft-Windows-Time-Service'] and (EventID=35 or EventID=37)]]" /c:1 /rd:true /f:xml` を走らせる
-  （同じ 5 秒の打ち切り。同じ作業スレッドの中で、`mono_before_ms` / `mono_after_ms` は 2 つの子プロセスをまたぐ）。
+  （同じ 5 秒の打ち切り。**読み取りは最大 2 本 × 5 秒 = 10 秒**になる。同じ作業スレッドの中で、`mono_before_ms` / `mono_after_ms` は 2 つの子プロセスをまたぐ）。
   **引数は照会（`qe`）だけに固定し、試験で固定する**（`time_sync_event_log_arguments_are_pinned_to_the_query`）。サービスは起動しない・起動の種類も変えない
 - 35 = 同期元を選んで同期している / 37 = 同期元から正しい時刻を受けている。**新しいほうから 1 件**の `TimeCreated` の `SystemTime` を `last_sync`
   （**UTC の RFC 3339**。`w32tm` の表示のままのローカル時刻とは形が違う）、`TimeSource` を `sync_source` にする。`raw` はその XML の原文。
   `os_offset_ms` は無い。どちらから読んだかは `clock_references[]` の `sync_via`（`w32tm` / `eventlog`）に残す。項目を読めなければ `unparsed`（`raw` つき）
-- **記録が 0 件・読めない（権限・非 0・打ち切り）ときは `service_stopped` のまま**（止まっていたことだけを残す。deep Q4 の推奨の条件）
+- **記録が 0 件（出力が空）・読めない（権限・非 0・打ち切り）ときは `service_stopped` のまま**（止まっていたことだけを残す。deep Q4 の推奨の条件）。
+  空でないのに `<Event` の無い出力は 0 件と見なさず、`unparsed` で原文を持つ
+- 子プロセスの口は `w32tm_program()` / `wevtutil_program()` の 2 つだけ（exe 名を引数に取らない）。`tools/check-no-time-server.sh` はこの 2 つの形しか `Command::new` に許さない
 - **一般の利用者の権限で読めるか**: System のチャネルの ACL（`wevtutil gl System` の `channelAccess`）が `(A;;0x1;;;IU)`（対話ログオンの利用者に読み取り）・
   `(A;;0x1;;;S-1-5-32-573)`（Event Log Readers）を持つ（2026-09-30 手元で読んだ）。PC の収集は対話ログオンの利用者の下で動くので読める側に入る。
   権限を下げたプロセスでの実測は、タスクスケジューラへの登録が実行の許可で止められたので**していない**（Task 1.3 の w32tm は同じ方法で実測した）。
@@ -301,7 +303,7 @@ PC が動いていて窓が読めなかった日（③）や記録の無い日�
 - [`Date` 見出しは秒の分解能] → 差が 0〜+999 ms 大きく出ることを spec の Scenario の幅と契約文書に書く
 - [時計の変更の通知の取りこぼし] 通知が届かない端末では変更直後に測らない → 1 時間以内には必ず測るので、ずれは 1 時間遅れで残る。D3 の反転条件
 - [PC の `w32tm` の出力の言語] → 原文を持つので、解析を後から直せば過去の記録も読み直せる
-- [PC の作業スレッドが打ち切られずに残る] `/healthz` は `sender::agent()` の打ち切り、`w32tm` は 5 秒の打ち切りを持つので、作業スレッドは有限の時間で終わる
+- [PC の作業スレッドが打ち切られずに残る] `/healthz` は `sender::agent()` の打ち切り、`w32tm` と（止まっているときの）`wevtutil` はそれぞれ 5 秒の打ち切り（最大 2 本で 10 秒）を持つので、作業スレッドは有限の時間で終わる
 
 ## Migration Plan
 

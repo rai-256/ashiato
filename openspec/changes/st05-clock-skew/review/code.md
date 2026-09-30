@@ -274,7 +274,7 @@ tasks の cargo は全部件数つきの形で、0 本一致の rc=0 はない�
 - loss: uncaptured
 - 提案: 本人に問う —— 「W32Time が止まっている間は、`w32tm` の代わりにイベントログ（Time-Service の 35 / 37）から最後の同期の時刻と同期元を読んで並べるか / 止まっていることだけを残す（いま）か」。
   並べるなら先に一般の利用者の権限で読めるかを確かめる。どちらでもサービスは起動しない（本人の指示のまま）
-- 処置: escalated —— `deep.md` の Q4（第 2 回）に `(未回答)` で積み、`deep-questions-r2.json` → `docs/briefs/ST05-deep-r2.html`
+- 処置: escalated —— `deep.md` の第 2 回 Q4（`docs/briefs/ST05-deep-r2.html`）。本人の答え（2026-09-30。推奨の側）を 4703145 で入れた: `w32tm` が `0x80070426` のときだけ `wevtutil qe` で Time-Service の Event 35 / 37 の最新 1 件を読み、`sync_via: eventlog` で並べる。記録が無い・読めなければ `service_stopped` のまま。試験 `time_sync_stopped_service_falls_back_to_the_event_log` / `time_sync_event_log_*` / `clock_skew_payload_marks_time_sync_read_from_the_event_log`、実行時テスト `clock_time_sync_event_log_is_readable`（手元で PASS）。一般の利用者の権限はチャネルの ACL（`IU` に読み取り）で確かめた。権限を下げた実測はしていない（design D8）
 
 ## R23. Scenario「Windows の時刻同期の状態は読んだままの出力が残る」は解析の構造体の段でしか観測されず、記録の `raw` を元のバイト列へ戻せることを固定する試験が無い。`\` をエスケープしなくても 118 本緑
 - 成果物: crates/collector-windows/src/time_sync.rs / crates/collector-windows/src/clock_record.rs

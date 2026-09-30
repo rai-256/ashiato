@@ -5,8 +5,9 @@
 #   ./tools/check-no-time-server.sh --self-test  → 経路を 1 種ずつ植えた一時ディレクトリで、どれも見つかることを確かめる
 #
 # 見るのは 5 種類: 時刻のプロトコルの送信（部品の名前も）/ 時刻サーバの宛先 / 同期を起こす・設定する・
-# 外へ問い合わせる `w32tm` の指示 / **PC の子プロセスは `w32tm` と `wevtutil` の照会だけ**（`Command::new` の相手は `program(` だけを許す。
-# 引数の固定は `time_sync_*arguments_are_pinned_to_the_query` の試験が持つ。
+# 外へ問い合わせる `w32tm` の指示 / **PC の子プロセスは `w32tm` と `wevtutil` の照会だけ**（`Command::new` の相手は
+# `Command::new(w32tm_program())` / `Command::new(wevtutil_program())` の 2 つの形だけを許す。exe 名を引数に取る口を許すと
+# System32 のどの exe でも通る —— review の I-3。引数の固定は `time_sync_*arguments_are_pinned_to_the_query` の試験が持つ。
 # `sc start w32time` のような同期させる操作もここで止まる）/ 端末の子プロセス。
 # **依存（`Cargo.toml` / `build.gradle.kts`）も同じ一覧で見る**（NTP の部品を足しただけで通っていた。review R20）。
 # **コメント行と、Rust の最上位の `#[cfg(test)]` が付いた `mod … {` の塊（試験の値）は数えない** ——
@@ -16,7 +17,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-PATTERN='DatagramSocket|DatagramChannel|UdpSocket|[Ss]ntp|[Nn]tp[A-Z_:.-]|NTPUDPClient|TrustedTime|commons-net|play-services-time|ntp\.org|time\.google\.com|time\.windows\.com|time\.apple\.com|time\.nist\.gov|nict\.(go\.)?jp|:123([^0-9]|$)|/resync|/stripchart|/config|/computer|Command::new\((\)|[^p]|p[^r]|pr[^o]|pro[^g])|ProcessBuilder|getRuntime\(\)\.exec'
+PATTERN='DatagramSocket|DatagramChannel|UdpSocket|[Ss]ntp|[Nn]tp[A-Z_:.-]|NTPUDPClient|TrustedTime|commons-net|play-services-time|ntp\.org|time\.google\.com|time\.windows\.com|time\.apple\.com|time\.nist\.gov|nict\.(go\.)?jp|:123([^0-9]|$)|/resync|/stripchart|/config|/computer|ProcessBuilder|getRuntime\(\)\.exec'
 
 scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。読めなければ rc=2
   local root f files
@@ -40,7 +41,9 @@ scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。
         }
         /^#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
         /^[[:space:]]*(\/\/|\*|\/\*|#)/ { next }
-        $0 ~ ENVIRON["PAT"] { printf "%s:%d: %s\n", file, FNR, $0 }
+        $0 ~ ENVIRON["PAT"] || ($0 ~ /Command::new\(/ && $0 !~ /Command::new\((w32tm|wevtutil)_program\(\)\)/) {
+          printf "%s:%d: %s\n", file, FNR, $0
+        }
       ' "$f" || { echo "読めない: $f" >&2; return 2; }
     done <<< "$files"
   done
@@ -76,6 +79,7 @@ if [ "${1:-}" = "--self-test" ]; then
   plant channel B.kt 'java.nio.channels.DatagramChannel.open().send(buf, InetSocketAddress("ntp.nict.jp", 123))'
   plant stripchart b.rs 'Command::new("w32tm").args(["/stripchart", "/computer:time.nist.gov", "/samples:1"]).status();'
   plant sc-start b.rs 'Command::new("sc").args(["start", "w32time"]).status();'
+  plant sc-system32 b.rs 'Command::new(program(std::env::var_os("SystemRoot"), "sc.exe")).args(["start", "w32time"]);'
   plant sntpc b.rs 'let t = sntpc::simple_get_time(("ntp.nict.jp", 123), &sock);'
   plant cargo-dep Cargo.toml 'sntpc = "0.5"'
   plant gradle-dep build.gradle.kts '    implementation("commons-net:commons-net:3.11.1")'
@@ -91,12 +95,12 @@ if [ "${1:-}" = "--self-test" ]; then
     printf 'fn main() {}\n' > "$tmp/unreadable/a.rs"; chmod 000 "$tmp/unreadable/a.rs"
     if scan "$tmp/unreadable" >/dev/null 2>&1; then fail "読めないファイルを通した"; fi
   fi
-  # 許してよい子プロセスは `w32tm` の照会（`Command::new(program(...))`）だけ
+  # 許してよい子プロセスは `w32tm` と `wevtutil` の照会（`Command::new(w32tm_program())` / `Command::new(wevtutil_program())`）だけ
   mkdir -p "$tmp/allowed"
-  printf 'fn c() { let mut c = Command::new(program(std::env::var_os("SystemRoot"))); }\n' > "$tmp/allowed/a.rs"
+  printf 'fn c() { let mut c = Command::new(w32tm_program()); }\nfn e() { let mut c = Command::new(wevtutil_program()); }\n' > "$tmp/allowed/a.rs"
   out="$(scan "$tmp/allowed")" || fail "照会の子プロセスで検査が落ちた"
   [ -z "$out" ] || fail "照会の子プロセスを止めた: $out"
-  echo "自己検査 OK（経路の無い場所と照会の子プロセスは通り、植えた経路は 20 種とも止まり、読めないものは落ちる）"
+  echo "自己検査 OK（経路の無い場所と照会の子プロセスは通り、植えた経路は 21 種とも止まり、読めないものは落ちる）"
   exit 0
 fi
 

@@ -106,14 +106,14 @@ impl ProcessTimeSync {
 
     /// 走らせるコマンド。**引数は照会だけに固定**（試験で固定する）。
     pub fn command(&self) -> Command {
-        let mut c = Command::new(program(std::env::var_os("SystemRoot"), "w32tm.exe"));
+        let mut c = Command::new(w32tm_program());
         c.args(ARGS);
         c
     }
 
     /// W32Time が止まっているときに走らせるコマンド。**引数はイベントログの照会だけに固定**（試験で固定する）。
     pub fn event_log_command(&self) -> Command {
-        let mut c = Command::new(program(std::env::var_os("SystemRoot"), "wevtutil.exe"));
+        let mut c = Command::new(wevtutil_program());
         c.args(EVENT_LOG_ARGS);
         c
     }
@@ -122,6 +122,26 @@ impl ProcessTimeSync {
     pub fn read_event_log(&self) -> Result<Option<TimeSyncReading>, TimeSyncError> {
         run_with_timeout(self.event_log_command(), TIME_SYNC_TIMEOUT).map(parse_event_log)
     }
+
+    /// `read` の中身。子プロセスを走らせる口を差し替えられる（組み込みを試験で固定する。review I-1）。
+    fn read_with(
+        &self,
+        mut run: impl FnMut(Command) -> Result<Vec<u8>, TimeSyncError>,
+    ) -> Result<TimeSyncReading, TimeSyncError> {
+        let w32tm = run(self.command()).map(parse_status);
+        with_event_log_fallback(w32tm, || run(self.event_log_command()).map(parse_event_log))
+    }
+}
+
+/// `%SystemRoot%\System32\w32tm.exe`。**exe 名を引数に取る口にしない** ——
+/// `tools/check-no-time-server.sh` はこの名前の口だけを子プロセスとして許す（review I-3）。
+fn w32tm_program() -> std::ffi::OsString {
+    program(std::env::var_os("SystemRoot"), "w32tm.exe")
+}
+
+/// `%SystemRoot%\System32\wevtutil.exe`（W32Time が止まっているときの照会だけ）。
+fn wevtutil_program() -> std::ffi::OsString {
+    program(std::env::var_os("SystemRoot"), "wevtutil.exe")
 }
 
 /// `%SystemRoot%\System32\<exe>`。**PATH や exe の置き場所からは探さない** ——
@@ -136,10 +156,7 @@ fn program(system_root: Option<std::ffi::OsString>, exe: &str) -> std::ffi::OsSt
 
 impl TimeSyncSource for ProcessTimeSync {
     fn read(&self) -> Result<TimeSyncReading, TimeSyncError> {
-        with_event_log_fallback(
-            run_with_timeout(self.command(), TIME_SYNC_TIMEOUT).map(parse_status),
-            || self.read_event_log(),
-        )
+        self.read_with(|cmd| run_with_timeout(cmd, TIME_SYNC_TIMEOUT))
     }
 }
 
@@ -264,13 +281,14 @@ pub fn parse_status(raw: Vec<u8>) -> TimeSyncReading {
     }
 }
 
-/// `wevtutil qe … /f:xml` の出力（最新 1 件）を解析する。**記録が 1 件も無ければ `None`**。
+/// `wevtutil qe … /f:xml` の出力（最新 1 件）を解析する。**出力が空（空白だけ）なら記録 0 件で `None`**。
+/// 空でないのに読めない形（`<Event` が無い・別の符号化）は `unparsed` で原文を持つ（黙って 0 件にしない。review I-2）。
 /// 時刻は `TimeCreated` の `SystemTime`（UTC）、同期元は `TimeSource` の値。原文は必ず持つ。
 pub fn parse_event_log(raw: Vec<u8>) -> Option<TimeSyncReading> {
-    let text = String::from_utf8_lossy(&raw).into_owned();
-    if !text.contains("<Event") {
+    if raw.trim_ascii().is_empty() {
         return None;
     }
+    let text = String::from_utf8_lossy(&raw).into_owned();
     let last_sync = attr_value(&text, "SystemTime=");
     let source = between(&text, "Name='TimeSource'>", "</Data>")
         .or_else(|| between(&text, "Name=\"TimeSource\">", "</Data>"))
@@ -428,10 +446,82 @@ mod tests {
         assert_eq!(r.raw, event_log_output(), "原文に手を加えない");
     }
 
+    /// 手元の Windows で読めた Event 35 の形（2026-09-30。同期元を選んだ記録。`TimeSource` の名前は 37 と同じ）。
+    fn event_35_output() -> Vec<u8> {
+        br#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Time-Service' Guid='{06edcfeb-0fd0-4e53-acca-a6f8bbf81bcb}'/><EventID>35</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x8000000000000000</Keywords><TimeCreated SystemTime='2026-09-29T16:18:08.1743249Z'/><EventRecordID>1366</EventRecordID><Correlation/><Execution ProcessID='12360' ThreadID='7980'/><Channel>System</Channel><Computer>pc</Computer><Security UserID='S-1-5-19'/></System><EventData Name='TMP_EVENT_TIME_SOURCE_CHOSEN'><Data Name='TimeSource'>time.windows.com,0x9 (ntp.m|0x9|0.0.0.0:123-&gt;20.43.94.199:123)</Data><Data Name='TimeSourceRefId'>3344837396</Data><Data Name='CurrentStratumNumber'>5</Data></EventData></Event>"#.to_vec()
+    }
+
+    #[test]
+    fn time_sync_event_log_reads_event_35() {
+        let r = parse_event_log(event_35_output()).unwrap();
+        assert_eq!(r.last_sync.as_deref(), Some("2026-09-29T16:18:08.1743249Z"));
+        assert_eq!(
+            r.source.as_deref(),
+            Some("time.windows.com,0x9 (ntp.m|0x9|0.0.0.0:123->20.43.94.199:123)")
+        );
+        assert_eq!(r.reason, None);
+    }
+
     #[test]
     fn time_sync_event_log_without_records_is_none() {
         assert_eq!(parse_event_log(Vec::new()), None);
         assert_eq!(parse_event_log(b"\r\n".to_vec()), None);
+    }
+
+    /// 空でないのに `<Event` の無い出力（別の符号化など）は 0 件にせず、原文つきで `unparsed`（review I-2）。
+    ///
+    /// Scenario: 項目を読み取れなかった出力も残る
+    #[test]
+    fn time_sync_event_log_unexpected_output_is_not_taken_as_no_records() {
+        let utf16: Vec<u8> = "<Event>"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let r = parse_event_log(utf16.clone()).unwrap();
+        assert_eq!(r.reason.as_deref(), Some("unparsed"));
+        assert_eq!(r.raw, utf16);
+    }
+
+    /// 本番の `read` の組み込み: 止まっていれば 2 本目に `wevtutil` の照会を走らせ、動いていれば走らせない（review I-1）。
+    ///
+    /// Scenario: Windows の時刻同期のサービスが止まっていても最後の同期が並ぶ
+    /// Scenario: PC は Windows に時刻を同期させない
+    #[test]
+    fn time_sync_read_runs_the_event_log_query_only_when_stopped() {
+        let sync = ProcessTimeSync::new();
+        let mut ran: Vec<(String, Vec<String>)> = Vec::new();
+        let r = sync
+            .read_with(|cmd| {
+                let program = cmd.get_program().to_string_lossy().into_owned();
+                let args = cmd
+                    .get_args()
+                    .map(|a| a.to_string_lossy().into_owned())
+                    .collect();
+                ran.push((program.clone(), args));
+                if program.ends_with("w32tm.exe") {
+                    Err(TimeSyncError::Exit(Some(SERVICE_NOT_STARTED)))
+                } else {
+                    Ok(event_log_output())
+                }
+            })
+            .unwrap();
+        assert_eq!(r.via, TimeSyncVia::EventLog);
+        assert_eq!(ran.len(), 2);
+        assert!(ran[1].0.ends_with(r"\System32\wevtutil.exe"), "{ran:?}");
+        assert_eq!(ran[1].1, EVENT_LOG_ARGS);
+
+        let mut calls = 0;
+        let r = sync
+            .read_with(|_| {
+                calls += 1;
+                Ok(english_output())
+            })
+            .unwrap();
+        assert_eq!(
+            (r.via, calls),
+            (TimeSyncVia::W32tm, 1),
+            "動いていれば 1 本だけ"
+        );
     }
 
     /// Scenario: 項目を読み取れなかった出力も残る
@@ -467,6 +557,12 @@ mod tests {
         };
         let err = with_event_log_fallback(Err(TimeSyncError::Timeout), never).unwrap_err();
         assert_eq!(err.reason(), "timeout");
+        let err = with_event_log_fallback(Err(TimeSyncError::Exit(Some(1))), never).unwrap_err();
+        assert_eq!(
+            err.reason(),
+            "exit:1",
+            "止まっている以外の非 0 は読まない（review M-1）"
+        );
         let r = with_event_log_fallback(Ok(parse_status(english_output())), never).unwrap();
         assert_eq!(r.via, TimeSyncVia::W32tm);
     }
