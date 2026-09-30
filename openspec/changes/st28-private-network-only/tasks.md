@@ -129,15 +129,15 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 5: 読み出しの記録と応答ヘッダ（design D8 / D10 / C4 / C5）
 
-- [ ] 5.1 axum の middleware で `core.access_log` に 1 求め 1 行（design D8 の書く求め・列・時機）。書く口は `AccessSink` の trait で、書けなければハンドラを呼ばずに 500。
+- [x] 5.1 axum の middleware で `core.access_log` に 1 求め 1 行（design D8 の書く求め・列・時機）。書く口は `AccessSink` の trait で、書けなければハンドラを呼ばずに 500。
   Scenario: `記録の読み出しで読み出しの記録に 1 行増える` / `断られた求めも読み出しの記録に残る` / `取り込みは読み出しの記録に残らない` /
   `読み出しの記録には中身も合言葉も残らない`（全列を文字列にして、試験が送った引数の値・合言葉・印・利用者の識別子の部分文字列が 1 つも無い）/
   `読み出しの記録に書けないときは記録を返さない`（常に `Err` を返す偽の `AccessSink`）/ `読み出しの記録は記録の読み出しに出ない`。
   検証: `CT access_log_middleware`
-- [ ] 5.2 読み出しの記録が追記のみであること（所有者の接続で UPDATE / DELETE / TRUNCATE がトリガで拒まれる）。`tools/check-immutable.sh` にも `OK access_log …` の 3 行を足す。
+- [x] 5.2 読み出しの記録が追記のみであること（所有者の接続で UPDATE / DELETE / TRUNCATE がトリガで拒まれる）。`tools/check-immutable.sh` にも `OK access_log …` の 3 行を足す。
   Scenario: `読み出しの記録の行は書き換えも削除もできない`。
   検証: `CT access_log_is_append_only`、`bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && test "$(grep -c "OK access_log" /tmp/ci.log)" -eq 3`
-- [ ] 5.3 サーバの全応答に `Cache-Control: no-store`（`tower-http`）。
+- [x] 5.3 サーバの全応答に `Cache-Control: no-store`（`tower-http`）。
   Scenario: `サーバの応答は写しを保存させない`（読み出し・取り込み・ログイン・ログアウト・401 の 5 つ）。
   検証: `CT response_no_store_server`
 
