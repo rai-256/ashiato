@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST21 proto — 場所の画面の構造（S-6 マスタ管理）</title>
+<style>
+  /* ---- playground 自体の UI（upstream 既定どおりダーク。プレビュー対象の明暗とは別物） ---- */
+  :root{
+    --ui-bg:#14161a; --ui-panel:#1b1e24; --ui-line:#2b3039; --ui-fg:#dfe3ea; --ui-dim:#939bab;
+    --ui-accent:#7fb98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui-bg);color:var(--ui-fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif;font-size:14px}
+  .wrap{display:grid;grid-template-columns:370px 1fr;min-height:100vh}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .controls{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:16px;overflow-y:auto;max-height:100vh}
+  @media (max-width:900px){.controls{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+  .right{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--ui-dim);font-size:12px;margin:0 0 14px;line-height:1.6}
+  .sub b{color:var(--ui-fg)}
+  .grp{border-top:1px solid var(--ui-line);padding:14px 0 4px}
+  .grp > .lbl{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin-bottom:10px}
+  .hint{display:block;color:var(--ui-dim);font-size:11px;margin-top:6px;line-height:1.55}
+  .cards{display:grid;gap:6px}
+  .card{background:#232730;border:1px solid var(--ui-line);border-radius:8px;padding:9px 10px;
+        cursor:pointer;font-size:12.5px;line-height:1.45}
+  .card:hover{border-color:#3d4552}
+  .card.on{border-color:var(--ui-accent);background:#22302460}
+  .card .t{font-weight:600}
+  .card .d{color:var(--ui-dim);font-size:11px;margin-top:3px}
+  .presets{display:flex;flex-wrap:wrap;gap:6px}
+  .presets button{background:#232730;color:var(--ui-fg);border:1px solid var(--ui-line);border-radius:14px;
+       padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+  .presets button:hover{border-color:var(--ui-accent)}
+  .fixed{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;
+         font-size:11.5px;color:var(--ui-dim);line-height:1.75}
+  .fixed b{color:var(--ui-fg);font-weight:600}
+  /* ---- プレビュー ---- */
+  .stage{flex:1;padding:18px;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;
+         background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+  .meta{width:100%;max-width:920px;display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ui-dim)}
+  .meta b{color:var(--ui-accent);font-family:ui-monospace,Menlo,monospace}
+  .meta b.bad{color:#e0a36f}
+  .phone{border:1px solid var(--ui-line);border-radius:20px;overflow:hidden;flex:0 0 auto;box-shadow:0 10px 40px #0008;width:362px}
+  .phone .cap{font-size:11px;color:var(--ui-dim);padding:6px 10px;background:#101216;
+              display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}
+  .screen{overflow-y:auto;height:640px;width:360px;position:relative}
+  .fold{position:absolute;left:0;right:0;border-top:1px dashed #e0a36f;pointer-events:none;z-index:5}
+  .fold span{position:absolute;right:4px;top:-15px;font:10px ui-monospace,Menlo,monospace;color:#e0a36f}
+  /* ---- 出力 ---- */
+  .out{border-top:1px solid var(--ui-line);background:var(--ui-panel);padding:14px 18px}
+  .out h2{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin:0 0 8px}
+  pre#prompt{white-space:pre-wrap;background:#101216;border:1px solid var(--ui-line);border-radius:8px;
+       padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;
+       max-height:260px;overflow:auto;margin:0 0 10px;color:#cbd2dd;user-select:text}
+  button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
+       font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.copy:hover{filter:brightness(1.08)}
+
+  /* ---- 画面の中（ui-direction の確定値: 色相 132° / 彩度 30% / 地 12 / 面 3 段 / 角 15px / 行間 1.65 / 境界線） ---- */
+  .app{--g:hsl(132 30% 12%);--s1:hsl(132 30% 18%);--s2:hsl(132 30% 24%);--tx:hsl(132 30% 92%);--mu:hsl(132 30% 72%);
+       --ln:hsl(132 30% 30%);--ac:hsl(132 30% 62%);
+       background:var(--g);color:var(--tx);font-size:15px;line-height:1.65;min-height:100%;padding:12px 12px 90px}
+  .app .ttl{font-size:17px;font-weight:600;margin:2px 2px 10px}
+  .app .tabs{display:flex;gap:6px;margin-bottom:12px}
+  .app .tab{min-height:32px;padding:4px 12px;border:1px solid var(--ln);border-radius:15px;font-size:13px;color:var(--mu)}
+  .app .tab.on{color:var(--tx);background:var(--s2);border-color:var(--ac)}
+  .app .tab.off{opacity:.55}
+  .kc{background:var(--s1);border:1px solid var(--ln);border-radius:15px;padding:10px 12px;margin-bottom:10px}
+  .kc .kn{font-size:12.5px;color:var(--mu)}
+  .kc .cur{font-size:18px;font-weight:600;line-height:1.4;margin:2px 0}
+  .kc .since{font-size:13px;color:var(--mu)}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .pbtn{min-height:32px;min-width:32px;padding:3px 12px;border:1px solid var(--ln);border-radius:15px;
+        background:var(--s2);color:var(--tx);font-size:13px;font-family:inherit;cursor:pointer}
+  .pbtn.ghost{background:transparent;color:var(--mu)}
+  .hist{margin-top:8px;border-top:1px solid var(--ln)}
+  .hr{padding:6px 0;border-bottom:1px solid var(--ln);font-size:14px}
+  .hr:last-child{border-bottom:none}
+  .hr .v{font-weight:500}
+  .hr .f{color:var(--mu);font-size:13px}
+  .hr .a{color:var(--mu);font-size:11.5px}
+  .hr.sup .v{text-decoration:line-through;text-decoration-thickness:1px;color:var(--mu)}
+  .tag{display:inline-block;font-size:11px;border:1px solid var(--ln);border-radius:10px;padding:0 6px;margin-left:6px;color:var(--mu);vertical-align:1px}
+  .twocol{display:grid;grid-template-columns:1fr auto;gap:0 8px;align-items:baseline}
+  .folded{font-size:12.5px;color:var(--mu);padding:6px 0}
+  .fab{position:sticky;bottom:12px;margin-top:10px;display:flex;justify-content:flex-end}
+  .fab .pbtn{min-height:44px;padding:6px 18px;background:var(--s2);border-color:var(--ac);font-size:14px}
+  .form{background:var(--s2);border:1px solid var(--ac);border-radius:15px;padding:10px 12px;margin-top:10px;font-size:13.5px}
+  .form .row{margin:6px 0}
+  .form .lab{font-size:12px;color:var(--mu);display:block;margin-bottom:2px}
+  .inp{background:var(--g);border:1px solid var(--ln);border-radius:10px;min-height:32px;padding:4px 10px;color:var(--tx);font-size:14px;width:100%}
+  .seg{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px}
+  .seg span{min-height:28px;padding:2px 9px;border:1px solid var(--ln);border-radius:12px;font-size:12.5px;color:var(--mu)}
+  .seg span.on{color:var(--tx);border-color:var(--ac);background:var(--s1)}
+  .echo{font-size:12px;color:var(--ac);margin-top:2px}
+  /* 帯 */
+  .band{margin:4px 0 12px}
+  .band .bk{font-size:12.5px;color:var(--mu);margin-bottom:2px}
+  .band .bar{position:relative;height:32px;background:var(--s1);border:1px solid var(--ln);border-radius:10px;overflow:hidden}
+  .band .seg2{position:absolute;top:0;bottom:0;border-right:1px solid var(--g);font-size:12px;line-height:30px;padding:0 3px;
+              overflow:hidden;white-space:nowrap;color:var(--tx)}
+  .band .seg2.odd{background:var(--s2)}
+  .band .seg2.clip{box-shadow:inset 0 -3px 0 #e0a36f}
+  .axis{position:relative;height:18px;font-size:10.5px;color:var(--mu);margin-bottom:6px}
+  .axis span{position:absolute;transform:translateX(-50%)}
+  .bdetail{font-size:13px;color:var(--mu);margin:-6px 0 12px}
+  /* 1 本の時系列 */
+  .tl .yr{font-size:12.5px;color:var(--mu);margin:10px 2px 4px}
+  .tl .item{background:var(--s1);border:1px solid var(--ln);border-radius:12px;padding:6px 10px;margin-bottom:6px}
+  .tl .item .kn{font-size:12px;color:var(--mu)}
+</style>
+<style>
+  .pc{background:var(--s1);border:1px solid var(--ln);border-radius:15px;padding:10px 12px;margin-bottom:10px}
+  .pc .nm{font-size:18px;font-weight:600;line-height:1.4}
+  .pc .sm{font-size:13px;color:var(--mu)}
+  .pc .co{font-size:11.5px;color:var(--mu);font-family:ui-monospace,Menlo,monospace}
+  .cand{background:transparent;border:1px dashed var(--ln);border-radius:15px;padding:8px 12px;margin-bottom:8px}
+  .cand .nm{font-size:15px;font-weight:500;color:var(--mu)}
+  .sec{font-size:12.5px;color:var(--mu);margin:14px 2px 6px}
+  .clock{display:grid;grid-template-columns:repeat(24,1fr);gap:1px;margin:5px 0 2px;height:10px}
+  .clock i{display:block;background:var(--ac);border-radius:1px}
+  .clk2{display:flex;justify-content:space-between;font-size:10px;color:var(--mu)}
+  .old{font-size:12.5px;color:var(--mu);border-top:1px solid var(--ln);margin-top:6px;padding-top:4px}
+  .old s{text-decoration-thickness:1px}
+  .more{font-size:12.5px;color:var(--mu);padding:4px 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="controls">
+  <h1>ST21 — 場所の画面（S-6 のタブ）</h1>
+  <p class="sub">
+    完了の判定は「<b>場所を登録して名前を変え、座標を修正しても、識別子が変わらない</b>」。
+    <b>地図は使わない</b>（外の地図タイルを取ると、見ている座標がその事業者へ出る）ので、
+    「この座標はどこか」を<b>自分の滞在（いつ・どれだけ居たか）から見分ける</b>ことになる。
+    何を手がかりに名前を付け、登録した場所と<b>名前の無い、よく居た所</b>をどう並べるかを触って選ぶ。<br>
+    触るのは<b>構造の軸</b>だけ。表面は <code>ui-direction.md</code> と ST19 の S-6 の骨格（タブ・カード）を引き継ぐ。
+  </p>
+  <div class="grp"><div class="lbl">見本（押すと全部の軸がそろう）</div><div class="presets" id="presets"></div></div>
+  <div class="grp"><div class="lbl">データの量（入力。軸ではない）</div><div class="cards" id="volCards"></div>
+    <span class="hint">1 人の実物の量で描いている。滞在（10 分以上とどまった所。FR-76）を 100 m でまとめた<b>居た所</b>が 1 年で 34 か所。
+      登録した場所のうち<b>職場は 2026-04 に同じ会社が 800 m 先へ移った</b>（座標を変えた）、<b>カフェは名前を 1 回変えた</b>。</span></div>
+  <div class="grp"><div class="lbl">画面の状態（入力。軸ではない）</div><div class="cards" id="stateCards"></div></div>
+  <div class="grp"><div class="lbl">軸 1 — 骨格</div><div class="cards" id="skelCards"></div></div>
+  <div class="grp"><div class="lbl">軸 2 — 名前の無い所の手がかり</div><div class="cards" id="clueCards"></div>
+    <span class="hint">地図の代わり。<b>いつ居たか</b>が見えると「平日 9〜18 時 = 職場」と分かる。</span></div>
+  <div class="grp"><div class="lbl">軸 2b — 名前の無い所を何件出すか</div><div class="cards" id="cmaxCards"></div>
+    <span class="hint">5 年後は 98 か所。全部出すと 29 画面になる（実測）。</span></div>
+  <div class="grp"><div class="lbl">軸 3 — 並び</div><div class="cards" id="orderCards"></div></div>
+  <div class="grp"><div class="lbl">軸 4 — 座標の入れ方（居た所から選ぶ以外に）</div><div class="cards" id="inCards"></div>
+    <span class="hint">まだ行っていない場所（来月からの職場）や、記録を取る前の場所（実家の昔の家）は、居た所の中に無い。</span></div>
+  <div class="grp"><div class="lbl">軸 5 — 前の名前・座標</div><div class="cards" id="histCards"></div>
+    <span class="hint">前の名前と座標は<b>行として残る</b>（どちらを選んでも保存は同じ）。ここで選ぶのは画面に出すかだけ。</span></div>
+  <div class="grp"><div class="lbl">軸 6 — 場所の広さ（半径）</div><div class="cards" id="radCards"></div></div>
+  <div class="grp"><div class="lbl">Q2 の選択肢ごとの見え方（入力。軸ではない・出力に入らない）</div><div class="cards" id="moveCards"></div>
+    <span class="hint">「画面の状態」を<b>職場の座標を変える</b>にすると、このフォームが見える。<b>答えるのは Q2</b> —— ここは手間を見るため。</span></div>
+  <div class="grp"><div class="lbl">動かせないもの</div><div class="fixed">
+    <b>色相 132° / 彩度 30% / 地 12 / 面 3 段 / 角 15px / 行間 1.65 / 境界線</b>（ui-direction）・S-6 はタブとカード（ST19 D9）<br>
+    <b>NFR-19</b> 触れる対象 24px 以上（ここでは 32px）・<b>NFR-18</b> 本文 4.5:1 以上・<b>NFR-17</b> 明暗は OS に追従（ここではダークだけ）<br>
+    <b>FR-49</b> 名前や座標を変えても識別子は変わらない（識別子は画面に出さない）<br>
+    <b>地図・外のタイルは使わない</b>（見ている座標がタイルの事業者へ出る）・<b>消す操作は描いていない</b>（ST22 / ST23）
+  </div></div>
+</div>
+<div class="right">
+  <div class="stage">
+    <div class="meta">
+      <span>登録 <b id="mReg">—</b> ・名前の無い居た所 <b id="mCand">—</b></span>
+      <span>縦 <b id="mHeight">—</b> px（<b id="mScreens">—</b> 画面）</span>
+      <span>1 画面目に見える登録した場所 <b id="mFirst">—</b></span>
+      <span>1 画面目に見える名前の無い所 <b id="mFirstC">—</b></span>
+    </div>
+    <div class="phone"><div class="cap"><span>360 × 640</span><span>S-6 マスタ管理 › 場所</span></div><div class="screen" id="screen"></div></div>
+  </div>
+  <div class="out"><h2>この設定を指示として出す</h2><pre id="prompt"></pre>
+    <button class="copy" id="copyBtn">指示をコピー</button><span id="copyNote" style="margin-left:10px;font-size:12px;color:var(--ui-dim)"></span></div>
+</div>
+</div>
+<script>
+// ---------------------------------------------------------------- データ（合成。1 人の実物の量）
+let seed=21; const rnd=()=>{seed=(seed*1103515245+12345)%2147483648; return seed/2147483648;};
+const H0=[35.6800,139.7000];
+// pat: 24 時間の居る重み
+const P={
+  night:h=>(h>=20||h<8)?1:(h>=18?0.5:0.15), work:h=>(h>=9&&h<18)?1:(h===8||h===18?0.4:0),
+  eve:h=>(h>=18&&h<21)?1:0.05, lunch:h=>(h===12)?1:(h===13?0.5:0), day:h=>(h>=10&&h<17)?1:0.05,
+  wkend:h=>(h>=13&&h<17)?1:(h>=10&&h<19?0.4:0), trip:h=>(h>=9&&h<22)?0.8:0.3,
+};
+const BASE=[ // key, 仮の名前（登録すると付く名）, 時間/年, 回数, パターン, 距離km, 向き, 最初, 最後
+ ["home","自宅",4710,361,"night",0,"",  "2026-01-01","2026-12-31"],
+ ["work2","職場",1380,176,"work",4.8,"東","2026-04-01","2026-12-28"],
+ ["work1","（職場の前の座標）",470,59,"work",4.2,"東","2026-01-05","2026-03-31"],
+ ["gym","ジム",142,96,"eve",0.9,"北","2026-01-08","2026-12-26"],
+ ["lunch","定食屋",88,168,"lunch",4.9,"東","2026-01-06","2026-12-25"],
+ ["parents","実家",172,8,"trip",62,"西","2026-01-02","2026-12-30"],
+ ["cafe","いつものカフェ",76,41,"wkend",0.6,"南","2026-01-11","2026-12-20"],
+ ["super",null,58,152,"eve",0.3,"西","2026-01-03","2026-12-31"],
+ ["lib",null,51,19,"wkend",1.4,"北東","2026-02-08","2026-11-29"],
+ ["friend",null,39,6,"wkend",7.5,"南西","2026-03-14","2026-11-21"],
+ ["kyoto_h",null,38,3,"night",370,"西","2026-05-03","2026-05-05"],
+ ["hosp",null,22,9,"day",2.1,"北西","2026-02-17","2026-10-06"],
+ ["barber",null,11,8,"wkend",0.8,"南東","2026-01-25","2026-12-12"],
+ ["client1",null,19,12,"work",9.2,"北","2026-03-02","2026-09-30"],
+ ["station",null,14,55,"eve",4.5,"東","2026-01-09","2026-12-18"],
+ ["cinema",null,12,5,"wkend",5.1,"北東","2026-02-21","2026-11-07"],
+ ["kyoto_t1",null,6,2,"trip",371,"西","2026-05-04","2026-05-05"],
+ ["kyoto_t2",null,4,1,"trip",369,"西","2026-05-04","2026-05-04"],
+ ["dentist",null,6,5,"day",1.1,"南","2026-04-15","2026-08-19"],
+ ["park",null,9,11,"wkend",1.7,"東","2026-04-05","2026-10-25"],
+ ["hotel",null,26,2,"night",510,"南西","2026-07-09","2026-07-10"],
+ ["client2",null,8,4,"work",12.3,"北東","2026-06-10","2026-11-11"],
+ ["book",null,7,13,"eve",4.6,"東","2026-01-19","2026-12-02"],
+ ["relative",null,15,2,"trip",28,"北","2026-08-13","2026-08-14"],
+ ["airport",null,5,2,"day",18,"南","2026-07-09","2026-07-10"],
+ ["bbq",null,6,1,"day",22,"西","2026-09-21","2026-09-21"],
+ ["cowork",null,11,7,"work",4.7,"東","2026-02-03","2026-06-22"],
+ ["onsen",null,21,1,"night",140,"北西","2026-11-02","2026-11-03"],
+ ["mall",null,9,6,"wkend",3.3,"南","2026-03-07","2026-12-19"],
+ ["clinic2",null,3,2,"day",1.9,"北","2026-10-14","2026-10-28"],
+ ["event",null,5,1,"day",8.8,"南東","2026-06-01","2026-06-01"],
+ ["sister",null,18,4,"wkend",15,"南","2026-01-31","2026-10-10"],
+ ["photo",null,4,3,"day",2.6,"西","2026-05-17","2026-09-06"],
+ ["river",null,3,4,"eve",1.2,"南西","2026-06-20","2026-08-29"],
+];
+function coord(km,dir){ if(!km) return H0; const a={"北":90,"北東":45,"東":0,"南東":-45,"南":-90,"南西":-135,"西":180,"北西":135}[dir]*Math.PI/180;
+  return [H0[0]+km*Math.sin(a)/111, H0[1]+km*Math.cos(a)/(111*Math.cos(H0[0]*Math.PI/180))]; }
+function makeVol(v){
+  seed=21; let rows=BASE.map(r=>({k:r[0],name:r[1],h:r[2],n:r[3],pat:r[4],km:r[5],dir:r[6],first:r[7],last:r[8]}));
+  if(v==="five"){ rows=rows.map(r=>({...r,h:Math.round(r.h*(r.k.startsWith("kyoto")||r.k==="hotel"||r.k==="onsen"?1:4.6)),n:Math.round(r.n*(r.k.startsWith("kyoto")?1:4.5)),first:r.first.replace("2026","2022")}));
+    const pats=Object.keys(P), dirs=["北","北東","東","南東","南","南西","西","北西"];
+    for(let i=0;i<86;i++){ rows.push({k:"x"+i,name:null,h:Math.round(2+rnd()*rnd()*60),n:Math.round(1+rnd()*20),pat:pats[Math.floor(rnd()*pats.length)],
+      km:Math.round((0.3+rnd()*rnd()*40)*10)/10,dir:dirs[Math.floor(rnd()*8)],first:`20${22+Math.floor(rnd()*4)}-0${1+Math.floor(rnd()*9)}-1${Math.floor(rnd()*9)}`,last:"2030-"+String(1+Math.floor(rnd()*12)).padStart(2,"0")+"-0"+(1+Math.floor(rnd()*9))}); }
+    const extra=["旧自宅","美容院","図書館","歯医者","妹の家","病院","スーパー","取引先 A","温泉宿","公園","本屋","映画館","京都の宿","ホテル（出張）","親戚の家","駅"];
+    const map={old:"旧自宅",barber:"美容院",lib:"図書館",dentist:"歯医者",sister:"妹の家",hosp:"病院",super:"スーパー",client1:"取引先 A",onsen:"温泉宿",park:"公園",book:"本屋",cinema:"映画館",kyoto_h:"京都の宿",hotel:"ホテル（出張）",relative:"親戚の家",station:"駅"};
+    rows.forEach(r=>{ if(map[r.k]) r.name=map[r.k]; });
+    rows.push({k:"old",name:"旧自宅",h:6100,n:540,pat:"night",km:3.1,dir:"北西",first:"2022-01-01",last:"2024-03-20"});
+  }
+  if(v==="zero") rows=rows.map(r=>({...r,name:null}));
+  rows.forEach(r=>{ r.c=coord(r.km,r.dir); r.w=Array.from({length:24},(_,h)=>P[r.pat](h)); });
+  // 職場: 移った前後で 2 つの居た所。登録は後の座標、前の座標は履歴に
+  const reg=rows.filter(r=>r.name && r.k!=="work1"), cand=rows.filter(r=>!r.name && r.k!=="work1");
+  const w1=rows.find(r=>r.k==="work1");
+  reg.forEach((r,i)=>{ r.regAt=["2026-09-30","2026-09-30","2026-10-01","2026-10-01","2026-10-02","2026-10-05"][i]||"2027-0"+(1+i%9)+"-01";
+    r.hist=[]; if(r.k==="work2"&&w1){ r.hist.push({t:"座標",v:`${w1.c[0].toFixed(4)}, ${w1.c[1].toFixed(4)}`,until:"2026-03"}); r.h2=r.h+w1.h; }
+    if(r.k==="cafe") r.hist.push({t:"名前",v:"駅前のカフェ",until:"2026-10-12"});
+    if(r.k==="old") r.hist.push({t:"名前",v:"自宅",until:"2024-03-20"}); });
+  if(v!=="zero" && w1 && state.move==="none"){ /* 訂正として扱う: 前の座標の滞在は照合から外れ、名前の無い所に戻る */ cand.push({...w1,name:null}); }
+  if(v==="zero" && w1) cand.push(w1);
+  return {reg,cand};
+}
+// ---------------------------------------------------------------- 軸
+const VOLS=[{id:"zero",t:"使い始め（登録 0・1 年分の滞在）",d:"ST21 が入った日。滞在は ST16 から 1 年分ある"},
+            {id:"one",t:"登録してから（登録 6・居た所 34）",d:"自宅・職場・ジム・定食屋・実家・カフェ"},
+            {id:"five",t:"5 年後（登録 22・居た所 120）",d:"引っ越しで「旧自宅」ができた"}];
+const STATES=[{id:"list",t:"一覧",d:"開いたとき"},{id:"name",t:"名前の無い所を押した",d:"名前を付けるフォーム"},{id:"move",t:"職場の座標を変える",d:"カードの「座標を変える」を押した"}];
+const SKELS=[{id:"split",t:"登録した場所のカード → 下に名前の無い居た所",d:"2 段。登録が上"},
+             {id:"mixed",t:"1 本の一覧に混ぜる",d:"登録も名前の無い所も同じ並びに。名前の無い所は枠が点線"},
+             {id:"regonly",t:"登録した場所だけ。「場所を足す」で居た所が出る",d:"名前の無い所は足すときだけ見える"}];
+const CLUES=[{id:"clock",t:"いつ居たか（24 時間の帯）と合計",d:"帯の濃さ = その時刻に居た割合"},
+             {id:"text",t:"文字だけ（合計・回数・最初と最後の日）",d:"帯を描かない"},
+             {id:"rel",t:"帯 ＋ 登録した場所からの距離と向き",d:"「自宅から 0.3 km 西」"}];
+const CMAXS=[{id:"all",t:"全部",d:"10 分以上居た所は全部"},{id:"top10",t:"上位 10 件 ＋「残り N か所」",d:"押すと残りが開く"}];
+const ORDERS=[{id:"hours",t:"長く居た順",d:"登録も名前の無い所も"},{id:"recent",t:"最近居た順",d:"最後に居た日が新しい順"},{id:"reg",t:"登録した順（名前の無い所は長く居た順）",d:""}];
+const INS=[{id:"pick",t:"居た所から選ぶだけ",d:"座標を打つ欄は無い"},{id:"paste",t:"＋ 緯度経度を貼る欄",d:"地図アプリからコピーした座標を貼る"},
+           {id:"here",t:"＋ この端末のいまの位置 ＋ 緯度経度",d:"押すと位置の提供者（PC なら Google / Microsoft の位置サービス、スマホなら OS）へ周りの Wi-Fi などが問い合わされる。画面が https になる ST28 までは動かない"}];
+const HISTS=[{id:"tap",t:"押したときだけ",d:"カードに「前の名前・座標 1」"},{id:"always",t:"カードに常に出す",d:"取り消し線で 1 行ずつ"}];
+const RADS=[{id:"hidden",t:"出さない（どの場所も 100 m）",d:"滞在の判定と同じ半径"},{id:"shown",t:"カードに出して、場所ごとに変えられる",d:"大学の構内は 300 m、など"}];
+const MOVES=[{id:"none",t:"聞かない（座標の訂正として扱う）",d:"前の座標で居た時間は、この場所から外れる"},
+             {id:"ask",t:"「間違いを直す」か「移った（いつから）」かを聞く",d:"移ったなら、前の座標で居た時間もこの場所"},
+             {id:"new",t:"移ったなら新しい場所を作る",d:"座標を変えるのは訂正だけ。移ったら別の場所に名前を移す"}];
+const DEFAULTS={vol:"one",st:"list",skel:"split",clue:"clock",cmax:"top10",order:"hours",inp:"paste",hist:"tap",rad:"hidden",move:"ask"};
+const state={...DEFAULTS};
+const PRESETS=[{n:"初期値",s:{...DEFAULTS}},{n:"名前を付けていく",s:{cmax:"all",skel:"mixed",clue:"rel",order:"hours",inp:"here"}},
+               {n:"登録だけ見たい",s:{skel:"regonly",clue:"text",order:"reg",hist:"always",rad:"shown"}}];
+// ---------------------------------------------------------------- 描く
+const fmtH=h=>h>=100?Math.round(h).toLocaleString()+" 時間":h+" 時間";
+function clockHtml(w){ const m=Math.max(...w); return `<div class="clock">${w.map(x=>`<i style="opacity:${(0.08+0.92*x/m).toFixed(2)}"></i>`).join("")}</div><div class="clk2"><span>0 時</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`; }
+function relText(r,reg){ const home=reg.find(x=>x.k==="home"); if(!home||r.k==="home") return ""; return `自宅から ${r.km} km ${r.dir}`; }
+function candHtml(r,reg,idx){
+  let s=`<div class="cand" data-c="${idx}"><div class="twocol"><span class="nm">名前なし</span><span class="sm">${fmtH(r.h)}</span></div>`;
+  if(state.clue!=="text") s+=clockHtml(r.w);
+  s+=`<div class="sm">${r.n} 回 · ${r.first} 〜 ${r.last}${state.clue==="rel"&&relText(r,reg)?" · "+relText(r,reg):""}</div>`;
+  if(state.clue==="text") s+=`<div class="co">${r.c[0].toFixed(4)}, ${r.c[1].toFixed(4)}</div>`;
+  s+=`<div class="btnrow"><button class="pbtn">名前を付ける</button></div>`;
+  if(state.st==="name"&&idx===0) s+=nameForm(r);
+  return s+"</div>";
+}
+function nameForm(r){
+  return `<div class="form"><div class="row"><span class="lab">名前</span><div class="inp">スーパー</div></div>
+  <div class="row"><span class="lab">座標</span><div class="co">${r.c[0].toFixed(4)}, ${r.c[1].toFixed(4)}（この居た所の真ん中）</div></div>
+  ${state.rad==="shown"?`<div class="row"><span class="lab">広さ</span><div class="seg"><span>50 m</span><span class="on">100 m</span><span>200 m</span><span>300 m</span></div></div>`:""}
+  <div class="row"><span class="lab">補足</span><div class="inp" style="color:var(--mu)">任意</div></div>
+  <div class="btnrow"><button class="pbtn">登録する</button><button class="pbtn ghost">やめる</button></div></div>`;
+}
+function moveForm(r){
+  let s=`<div class="form"><div class="row"><span class="lab">新しい座標</span><div class="seg"><span class="on">居た所から選ぶ</span>${state.inp!=="pick"?"<span>緯度経度を貼る</span>":""}${state.inp==="here"?"<span>いまの位置</span>":""}</div>
+   <div class="co">35.6800, 139.7532 ・ 1,380 時間 · 平日 9〜18 時</div></div>`;
+  if(state.move==="ask") s+=`<div class="row"><span class="lab">なぜ変えるか</span><div class="seg"><span>前の座標が間違っていた</span><span class="on">この場所が移った</span></div>
+    <span class="lab">いつから</span><div class="seg"><span>年</span><span class="on">年月</span><span>年月日</span><span>分からない</span></div><div class="inp">2026-04</div>
+    <div class="echo">2026-03 までの 470 時間も「職場」のまま</div></div>`;
+  if(state.move==="none") s+=`<div class="echo">前の座標で居た 470 時間は「職場」から外れ、名前の無い所に戻る</div>`;
+  if(state.move==="new") s+=`<div class="row"><span class="lab">なぜ変えるか</span><div class="seg"><span>前の座標が間違っていた</span><span class="on">この場所が移った</span></div>
+    <div class="echo">移ったなら: 新しい場所「職場」を作り、いまの場所は「職場（〜2026-03）」に名前を変える。2 つの場所は別の識別子</div></div>`;
+  return s+`<div class="btnrow"><button class="pbtn">変える</button><button class="pbtn ghost">やめる</button></div></div>`;
+}
+function regHtml(r){
+  const hrs=r.h2||r.h;
+  let s=`<div class="pc"><div class="twocol"><span class="nm">${r.name}</span><span class="sm">${fmtH(hrs)}</span></div>`;
+  s+=`<div class="sm">最後に居た日 ${r.last}${state.rad==="shown"?" · 広さ 100 m":""}</div>`;
+  if(state.clue!=="text") s+=clockHtml(r.w);
+  s+=`<div class="co">${r.c[0].toFixed(4)}, ${r.c[1].toFixed(4)}</div>`;
+  if(r.hist.length){ if(state.hist==="always") s+=`<div class="old">${r.hist.map(h=>`前の${h.t}: <s>${h.v}</s>（〜${h.until}）`).join("<br>")}</div>`;
+    else s+=`<div class="more">前の名前・座標 ${r.hist.length} ▸</div>`; }
+  s+=`<div class="btnrow"><button class="pbtn ghost">名前を変える</button><button class="pbtn ghost">座標を変える</button></div>`;
+  if(state.st==="move"&&r.k==="work2") s+=moveForm(r);
+  return s+"</div>";
+}
+function sortRows(a,key){ const c=[...a];
+  if(key==="hours") c.sort((x,y)=>(y.h2||y.h)-(x.h2||x.h)); else if(key==="recent") c.sort((x,y)=>y.last.localeCompare(x.last)); else c.sort((x,y)=>(x.regAt||"").localeCompare(y.regAt||"")); return c; }
+function renderPreview(){
+  const {reg,cand}=makeVol(state.vol);
+  const R=sortRows(reg,state.order), Call=sortRows(cand,state.order==="reg"?"hours":state.order);
+  const C=state.cmax==="top10"?Call.slice(0,10):Call, rest=Call.length-C.length;
+  const restHtml=rest>0?`<div class="more">残り ${rest} か所 ▸</div>`:"";
+  let h=`<div class="app"><div class="ttl">マスタ管理</div><div class="tabs"><span class="tab">個人属性</span><span class="tab on">場所</span></div>`;
+  let items=[];
+  if(state.skel==="split"){
+    h+=R.length?R.map(regHtml).join(""):`<div class="sm" style="padding:6px 2px">まだ場所が無い。下の「名前の無い、よく居た所」から名前を付ける</div>`;
+    h+=`<div class="sec">名前の無い、よく居た所（${Call.length}）</div>`+C.map((r,i)=>candHtml(r,reg,i)).join("")+restHtml;
+  } else if(state.skel==="mixed"){
+    const all=sortRows([...R,...C],state.order==="reg"?"hours":state.order); let ci=0;
+    h+=all.map(r=>r.name?regHtml(r):candHtml(r,reg,ci++)).join("")+restHtml;
+  } else {
+    h+=R.length?R.map(regHtml).join(""):`<div class="sm" style="padding:6px 2px">まだ場所が無い</div>`;
+    if(state.st==="name"){ h+=`<div class="sec">名前の無い、よく居た所（${Call.length}）</div>`+C.map((r,i)=>candHtml(r,reg,i)).join("")+restHtml; }
+  }
+  if(state.inp!=="pick" && state.skel!=="regonly") h+=`<div class="sec">居た所に無い場所</div><div class="btnrow"><button class="pbtn">緯度経度で足す</button>${state.inp==="here"?'<button class="pbtn">いまの位置で足す</button>':""}</div>`;
+  if(state.skel==="regonly") h+=`<div class="fab"><button class="pbtn">場所を足す</button></div>`;
+  h+=`</div>`;
+  const sc=document.getElementById("screen"); sc.innerHTML=h; sc.scrollTop=0;
+  const H=sc.firstChild.scrollHeight;
+  let first=0, firstC=0; sc.querySelectorAll(".pc").forEach(e=>{ if(e.offsetTop<640) first++; }); sc.querySelectorAll(".cand").forEach(e=>{ if(e.offsetTop<640) firstC++; });
+  const f=document.createElement("div"); f.className="fold"; f.style.top="640px"; f.innerHTML="<span>1 画面目の下端</span>"; sc.firstChild.style.position="relative"; sc.firstChild.appendChild(f);
+  const shownC = state.skel==="regonly"&&state.st!=="name" ? 0 : Call.length;
+  document.getElementById("mReg").textContent=R.length; document.getElementById("mCand").textContent=Call.length;
+  document.getElementById("mHeight").textContent=H.toLocaleString(); document.getElementById("mScreens").textContent=(H/640).toFixed(1);
+  document.getElementById("mFirst").textContent=`${first} / ${R.length}`; document.getElementById("mFirstC").textContent=`${firstC} / ${shownC}`;
+  return {H,first,firstC,R,C:Call};
+}
+// ---------------------------------------------------------------- 出力
+const T=(list,id)=>list.find(x=>x.id===id).t;
+const AXN={skel:"骨格",clue:"名前の無い所の手がかり",cmax:"名前の無い所の件数",order:"並び",inp:"座標の入れ方",hist:"前の名前・座標",rad:"広さ"};
+function updatePrompt(m){
+  const L=[];
+  L.push("ST21 の場所の画面（S-6 マスタ管理の「場所」タブ）は次の構造で作る。"); L.push("");
+  L.push(`（このとき画面に出ていたデータ: ${T(VOLS,state.vol)}・登録 ${m.R.length}・名前の無い居た所 ${m.C.length}。画面の状態: ${T(STATES,state.st)}）`);
+  L.push(`骨格 - ${T(SKELS,state.skel)}`);
+  L.push(`名前の無い所の手がかり - ${T(CLUES,state.clue)}`);
+  L.push(`名前の無い所の件数 - ${T(CMAXS,state.cmax)}`);
+  L.push(`並び - ${T(ORDERS,state.order)}`);
+  L.push(`座標の入れ方 - ${T(INS,state.inp)}`);
+  L.push(`前の名前・座標 - ${T(HISTS,state.hist)}`);
+  L.push(`広さ - ${T(RADS,state.rad)}`);
+  const moved=Object.keys(AXN).filter(k=>state[k]!==DEFAULTS[k]); L.push("");
+  L.push(moved.length?`proto の初期値から動かした軸: ${moved.map(k=>AXN[k]).join("・")}`:"proto の初期値のまま（どの軸も動かしていない）");
+  L.push(`実測（幅 360 px）: 縦 ${m.H.toLocaleString()} px = ${(m.H/640).toFixed(1)} 画面。1 画面目に見える登録した場所 ${m.first} / ${m.R.length}、名前の無い所 ${m.firstC}。`);
+  L.push("");
+  L.push("動かさない前提: 名前や座標を変えても識別子は変わらない（FR-49）/ 地図と外のタイルは使わない（座標がタイルの事業者へ出る）/ 座標を変えるときの意味は Q2 の答えに従う /");
+  L.push("表面は ui-direction の確定値（色相 132°・彩度 30%・地 12・面 3 段・角 15px・境界線）と ST19 の S-6 の骨格（タブ・カード）/ 触れる対象 24px 以上（NFR-19）/ 明暗は OS に追従（NFR-17）/");
+  L.push("消す操作はここでは描いていない（口は ST23 へ申し送る）。");
+  document.getElementById("prompt").textContent=L.join("\n");
+}
+function cardsFor(elId,list,field){ const el=document.getElementById(elId);
+  el.innerHTML=list.map(x=>`<div class="card ${state[field]===x.id?"on":""}" data-id="${x.id}"><div class="t">${x.t}</div>${x.d?`<div class="d">${x.d}</div>`:""}</div>`).join("");
+  el.querySelectorAll(".card").forEach(c=>c.onclick=()=>{state[field]=c.dataset.id; updateAll();}); }
+function renderControls(){ cardsFor("volCards",VOLS,"vol"); cardsFor("stateCards",STATES,"st"); cardsFor("skelCards",SKELS,"skel"); cardsFor("clueCards",CLUES,"clue"); cardsFor("cmaxCards",CMAXS,"cmax");
+  cardsFor("orderCards",ORDERS,"order"); cardsFor("inCards",INS,"inp"); cardsFor("histCards",HISTS,"hist"); cardsFor("radCards",RADS,"rad"); cardsFor("moveCards",MOVES,"move"); }
+document.getElementById("presets").innerHTML=PRESETS.map((p,i)=>`<button data-i="${i}">${p.n}</button>`).join("");
+document.querySelectorAll("#presets button").forEach(b=>b.onclick=()=>{Object.assign(state,PRESETS[b.dataset.i].s); updateAll();});
+function updateAll(){ renderControls(); const m=renderPreview(); updatePrompt(m); }
+document.getElementById("copyBtn").onclick=()=>{ const t=document.getElementById("prompt").textContent, note=document.getElementById("copyNote");
+  const p=(navigator.clipboard&&navigator.clipboard.writeText)?navigator.clipboard.writeText(t):Promise.reject(new Error("no clipboard"));
+  p.then(()=>{note.textContent="コピーしました"; setTimeout(()=>note.textContent="",1400);}).catch(()=>{note.textContent="コピーできない。上の欄を長押しして選んでください";}); };
+const hp=new URLSearchParams(location.hash.slice(1)); for(const [k,v] of hp) if(k in state) state[k]=v;
+updateAll();
+</script>
+</body>
+</html>
