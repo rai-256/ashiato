@@ -24,5 +24,5 @@ trap 'kill 0' EXIT
 # サーバの環境から管理者と所有者の秘密を外す（design D5）。cargo run は外側で済ませて実体を起動する
 cargo build -q -p ashiato-server --bin ashiato-server
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server &
-(cd web && npm run dev -- --host 127.0.0.1) &
+(cd web && npm run dev -- --host 127.0.0.1 --port "${DEV_WEB_PORT:-5173}") &
 wait

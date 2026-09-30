@@ -75,7 +75,9 @@ env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL "$server" &
 srv=$!
 for _ in $(seq 1 30); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null || { echo "サーバが起動しない（BIND=$BIND）"; exit 1; }
+# 起動した口が網の外に開いていないこと（design D11 (a)）。落ちたら止める（trap が全部止める）
 if [ "$check_only" = 1 ]; then
+  ./tools/check-exposure.sh --listen-only || exit 1
   # 呼び出し元まで巻き込まないよう、サーバだけを止める
   trap - EXIT; kill "$srv"; wait "$srv" 2>/dev/null || true
   echo "== 作り直し → 役割 → 移行 → サーバの /healthz まで通った"
@@ -97,6 +99,8 @@ if ! ./tools/seed.sh "${SEED:-normal}" > /tmp/ashiato-seed.log 2>&1; then
 fi
 echo "== 画面 http://127.0.0.1:$WEB_PORT"
 (cd web && npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort --outDir "$web_abs" >/dev/null 2>&1) &
+sleep 2   # vite preview が待ち受けるのを待つ
+./tools/check-exposure.sh --listen-only || exit 1
 echo
 echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届く手順は docs/network.md を見る。BIND は loopback のまま）"
 wait
