@@ -134,6 +134,20 @@ const UNSPECIFIED: [&[u8]; 2] = [
     b"\x96\xa2\x8e\x77\x92\xe8", // 未指定
 ];
 
+/// 出力を記録に載せる文字列にする。**JSON の文字列は cp932 のバイト列を持てない**ので、
+/// ASCII はそのまま、ASCII 以外のバイトと `\` は `\xNN` にして、元のバイト列へ戻せる形にする（D8（仮））。
+pub fn raw_text(raw: &[u8]) -> String {
+    let mut s = String::with_capacity(raw.len());
+    for &b in raw {
+        if b.is_ascii() && b != b'\\' {
+            s.push(char::from(b));
+        } else {
+            s.push_str(&format!("\\x{b:02x}"));
+        }
+    }
+    s
+}
+
 /// 見出しが `keys` のどれかの行の値。値が空・「未指定」なら `None`。
 fn value_of(out: &[u8], keys: &[&[u8]]) -> Option<String> {
     out.split(|&b| b == b'\n').find_map(|line| {

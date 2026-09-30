@@ -513,50 +513,54 @@ fn idle_enter_and_leave_are_both_recorded() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Runtime を通す試験の偽物（送り先・基準・時刻同期）。
+
+#[derive(Debug, Default)]
+struct Capture(std::cell::RefCell<Vec<(String, String)>>);
+impl Transport for Capture {
+    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+        self.0.borrow_mut().push((path.into(), body.into()));
+        let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
+            .map(|v| v.len())
+            .unwrap_or(0);
+        let items: Vec<serde_json::Value> = (0..n)
+            .map(|_| serde_json::json!({"accepted": true, "duplicate": false}))
+            .collect();
+        Ok(Reply {
+            status: 200,
+            body: serde_json::to_string(&items).unwrap(),
+        })
+    }
+}
+#[derive(Debug)]
+struct NoReference;
+impl ashiato_collector_windows::clock::ReferenceClock for NoReference {
+    fn now(&self) -> anyhow::Result<ashiato_collector_windows::clock::ReferenceReading> {
+        anyhow::bail!("基準時刻は取らない")
+    }
+    fn source(&self) -> String {
+        "none".into()
+    }
+}
+
+#[derive(Debug)]
+struct NoTimeSync;
+impl ashiato_collector_windows::time_sync::TimeSyncSource for NoTimeSync {
+    fn read(
+        &self,
+    ) -> Result<
+        ashiato_collector_windows::time_sync::TimeSyncReading,
+        ashiato_collector_windows::time_sync::TimeSyncError,
+    > {
+        Err(ashiato_collector_windows::time_sync::TimeSyncError::SpawnFailed)
+    }
+}
+
 // Scenario: 起動時に止まっていた期間が 1 件残る
 #[test]
 fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
     let _g = desktop();
-    #[derive(Debug, Default)]
-    struct Capture(std::cell::RefCell<Vec<(String, String)>>);
-    impl Transport for Capture {
-        fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
-            self.0.borrow_mut().push((path.into(), body.into()));
-            let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            let items: Vec<serde_json::Value> = (0..n)
-                .map(|_| serde_json::json!({"accepted": true, "duplicate": false}))
-                .collect();
-            Ok(Reply {
-                status: 200,
-                body: serde_json::to_string(&items).unwrap(),
-            })
-        }
-    }
-    #[derive(Debug)]
-    struct NoReference;
-    impl ashiato_collector_windows::clock::ReferenceClock for NoReference {
-        fn now(&self) -> anyhow::Result<ashiato_collector_windows::clock::ReferenceReading> {
-            anyhow::bail!("基準時刻は取らない")
-        }
-        fn source(&self) -> String {
-            "none".into()
-        }
-    }
-
-    #[derive(Debug)]
-    struct NoTimeSync;
-    impl ashiato_collector_windows::time_sync::TimeSyncSource for NoTimeSync {
-        fn read(
-            &self,
-        ) -> Result<
-            ashiato_collector_windows::time_sync::TimeSyncReading,
-            ashiato_collector_windows::time_sync::TimeSyncError,
-        > {
-            Err(ashiato_collector_windows::time_sync::TimeSyncError::SpawnFailed)
-        }
-    }
 
     /// 落ちても消す（review/code-r2.md R6）
     struct TempDir(std::path::PathBuf);
@@ -587,8 +591,11 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         zone,
         engine(Vec::new()),
         &transport,
-        reference,
-        time_sync,
+        ashiato_collector_windows::runtime::ClockInputs {
+            reference,
+            time_sync,
+            uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
+        },
         Utc::now(),
     )
     .unwrap();
@@ -620,6 +627,94 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         p["boot_at"].is_string(),
         "本物の OS の起動時刻が載る（design D23）: {p}"
     );
+}
+
+// Scenario: PC の測定記録に起動の識別と起動からの経過時間が入っている
+// Scenario: 基準ごとに読む直前と直後の経過時間が入っている
+// Scenario: 同じ機械の構成でも Windows の時刻同期の状態が並ぶ
+//
+// 本物の `TimeSyncSource`（w32tm）・`Uptime`・OS の起動時刻で 1 回測る。
+// 取り込み口の基準は取れない状態にして、**Windows の時刻同期の状態だけで**記録が残ることを見る。
+// 読めなければ落ちる（design D8 の前提。1.3 で読めると確かめた）。
+#[test]
+fn clock_skew_runtime() {
+    let _g = desktop();
+    let dir = std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(dir.clone());
+    let cfg = Config {
+        base_url: "http://127.0.0.1:1".into(),
+        api_token: "t".into(),
+        user_id: uuid::Uuid::nil(),
+        device_id: "rt".into(),
+        state_dir: dir,
+    };
+    let transport = Capture::default();
+    let zone = ashiato_collector_windows::config::Zone::current().unwrap();
+    let mut rt = Runtime::new(
+        &cfg,
+        zone,
+        engine(Vec::new()),
+        &transport,
+        ashiato_collector_windows::runtime::ClockInputs {
+            reference: std::sync::Arc::new(NoReference),
+            time_sync: std::sync::Arc::new(
+                ashiato_collector_windows::time_sync::ProcessTimeSync::new(),
+            ),
+            uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
+        },
+        Utc::now(),
+    )
+    .unwrap();
+    let mut source = WindowsSource::open();
+    rt.start(&source);
+    // 作業スレッドの結果は見回りが拾う（w32tm は最長 5 秒）
+    let started = Instant::now();
+    while rt.pending().0 == 0 && started.elapsed() < Duration::from_secs(20) {
+        rt.tick(&mut source);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    rt.stop();
+
+    let sent: Vec<serde_json::Value> = transport
+        .0
+        .borrow()
+        .iter()
+        .filter(|(p, _)| p == "/ingest")
+        .flat_map(|(_, b)| serde_json::from_str::<Vec<serde_json::Value>>(b).unwrap())
+        .collect();
+    let skew: Vec<_> = sent
+        .iter()
+        .filter(|r| r["payload"]["kind"] == "clock-skew")
+        .collect();
+    assert_eq!(skew.len(), 1, "測定記録が 1 件: {sent:?}");
+    let p = &skew[0]["payload"];
+    let refs = p["clock_references"].as_array().unwrap();
+    let sync = refs
+        .iter()
+        .find(|r| r["source"] == "windows-time-sync")
+        .unwrap_or_else(|| panic!("時刻同期の状態が取れていない: {p}"));
+    assert!(sync["raw"].is_string(), "読んだままの出力を持つ: {sync}");
+    assert!(
+        sync["mono_before_ms"].as_u64().unwrap() <= sync["mono_after_ms"].as_u64().unwrap(),
+        "読む直前と直後の経過時間: {sync}"
+    );
+    assert!(
+        p["uptime_ms"].as_u64().unwrap() > 0,
+        "起動からの経過時間: {p}"
+    );
+    assert!(p["boot_at"].is_string(), "起動の識別: {p}");
+    // 取り込み口の基準は取れていないので、取れなかった側に 1 回だけ出る
+    let un = p["clock_unavailable"].as_array().unwrap();
+    assert_eq!(un.len(), 1, "{p}");
+    assert_eq!(un[0]["source"], "s01-date");
+    assert_eq!(p["clock_trigger"], "start");
 }
 
 // ---------------------------------------------------------------------------

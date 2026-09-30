@@ -227,6 +227,8 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 | `clock_references` | 配列。`{source, time?, skew_ms?, os_offset_ms?, mono_before_ms, mono_after_ms, host?, raw?, last_sync?, sync_source?}` |
 | `clock_unavailable` | 配列。`{source, reason, raw?}`（`unparsed` のときは原文を持つ） |
 
+- **D10（仮）: `raw` は JSON の文字列なので、cp932 のバイト列は ASCII 以外のバイトと `\` を `\xNN` にして持つ**（元のバイト列へ戻せる。`from_utf8_lossy` は原文を壊す）。
+  `last_sync` は表示のまま（ロケール・ローカル時刻）で、正規化しない。反転条件: ST07 が時刻として読む必要が出たら、`raw` から引き直す（原文があるので計算し直せば戻る）。
 - **`skew_ms` / `skew_reference` は残す**。`s01-date` が取れたときだけ、その差と `host` を入れる（ST07 の読む側を壊さない）。
   取れなかった記録では省く（いまは必ずあった —— `docs/collector-contract.md` の表に「取れなかった記録では無い」と書く）
 - 測り直しは今の `SKEW_RETRY_SEC`（60 秒）のまま。取れなかった記録を 1 時間の契機ごとに 1 件までにするのは D4 と同じ形の印（`SkewSchedule` に持たせる）

@@ -97,9 +97,10 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
     );
     let engine = c02::engine::Engine::new(exclusions);
     let transport = c02::sender::HttpTransport::new(&cfg.base_url, &cfg.api_token);
+    let uptime = std::sync::Arc::new(c02::clock::SystemUptime);
     let reference = std::sync::Arc::new(c02::clock::HttpDateClock::new(
         &cfg.base_url,
-        std::sync::Arc::new(c02::clock::SystemUptime),
+        uptime.clone(),
     ));
     let time_sync = std::sync::Arc::new(c02::time_sync::ProcessTimeSync::new());
     let mut rt = c02::runtime::Runtime::new(
@@ -107,8 +108,11 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
         zone,
         engine,
         &transport,
-        reference,
-        time_sync,
+        c02::runtime::ClockInputs {
+            reference,
+            time_sync,
+            uptime,
+        },
         Utc::now(),
     )?;
     let mut source = c02::platform::WindowsSource::open();
