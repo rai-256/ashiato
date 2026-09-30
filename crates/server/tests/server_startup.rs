@@ -175,7 +175,7 @@ fn server_startup_bind_default_is_loopback_only() {
 fn server_startup_bind_refuses_non_loopback() {
     // DB は繋がない先（loopback の閉じた口）にして、判定が DB より前であることも見る
     let child = server_cmd()
-        .env("DATABASE_URL", "postgres://x:y@127.0.0.1:1/ashiato")
+        .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
         .env("BIND", "192.0.2.1:0")
         .spawn()
         .unwrap();
@@ -186,7 +186,7 @@ fn server_startup_bind_refuses_non_loopback() {
 #[test]
 fn server_startup_bind_refuses_unspecified() {
     let child = server_cmd()
-        .env("DATABASE_URL", "postgres://x:y@127.0.0.1:1/ashiato")
+        .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
         .env("BIND", "0.0.0.0:0")
         .spawn()
         .unwrap();
@@ -196,7 +196,7 @@ fn server_startup_bind_refuses_unspecified() {
 /// Scenario: DB の接続先が loopback でなければ起動しない
 #[test]
 fn server_startup_db_not_loopback_refuses_server_and_migrate() {
-    let url = "postgres://x:y@192.0.2.1:5432/ashiato";
+    let url = "postgres://x@192.0.2.1:5432/ashiato";
     let server = server_cmd()
         .env("DATABASE_URL", url)
         .env("BIND", "127.0.0.1:0")
@@ -235,7 +235,7 @@ fn server_startup_db_not_loopback_refuses_server_and_migrate() {
 fn start_with_web_password(web_password: Option<&str>, api_token: &str) -> Output {
     let mut c = server_cmd();
     c.env("API_TOKEN", api_token)
-        .env("DATABASE_URL", "postgres://x:y@127.0.0.1:1/ashiato")
+        .env("DATABASE_URL", "postgres://x@127.0.0.1:1/ashiato")
         // 検査を通った場合は次の段（待ち受けの検査）で止める。DB には繋がない
         .env("BIND", "0.0.0.0:0");
     match web_password {

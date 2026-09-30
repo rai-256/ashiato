@@ -4,6 +4,7 @@
 # **A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ**（製造準備 B）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ -f .env ]; then set -a; . ./.env; set +a; fi   # tools/stack.sh と同じ。CI は環境で渡す
 export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
 export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}"
 export BIND="${BIND:-127.0.0.1:18787}"

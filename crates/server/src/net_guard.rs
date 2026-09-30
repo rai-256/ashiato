@@ -109,18 +109,18 @@ mod tests {
     #[test]
     fn server_startup_db_not_loopback_host_rules() {
         for ok in [
-            "postgres://u:p@127.0.0.1:5432/d",
-            "postgres://u:p@127.0.0.9/d",
-            "postgres://u:p@[::1]:5432/d",
-            "postgres://u:p@localhost/d",
-            "postgres://u:p@localhost/d?host=/var/run/postgresql",
+            "postgres://u@127.0.0.1:5432/d",
+            "postgres://u@127.0.0.9/d",
+            "postgres://u@[::1]:5432/d",
+            "postgres://u@localhost/d",
+            "postgres://u@localhost/d?host=/var/run/postgresql",
         ] {
             assert!(db_host_is_local(ok), "{ok}");
         }
         for ng in [
-            "postgres://u:p@192.0.2.1:5432/d",
-            "postgres://u:p@0.0.0.0/d",
-            "postgres://u:p@db.example.com/d",
+            "postgres://u@192.0.2.1:5432/d",
+            "postgres://u@0.0.0.0/d",
+            "postgres://u@db.example.com/d",
             "not a url",
         ] {
             assert!(!db_host_is_local(ng), "{ng}");
