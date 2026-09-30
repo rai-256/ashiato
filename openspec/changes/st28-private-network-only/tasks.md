@@ -180,15 +180,15 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 8: 網の外に開いていない・拠点外へ書き出さない、の検査（design D11 / D14 / D15）
 
-- [ ] 8.1 `tools/check-exposure.sh`（design D11）。入力を `EXPOSURE_SS_OUTPUT` / `EXPOSURE_SERVE_JSON` で差し替えられる。fixture は `tools/fixtures/exposure/`（**網の名前とアドレスは雛形の値**。`tools/check-private.sh` が通ること）。
+- [x] 8.1 `tools/check-exposure.sh`（design D11）。入力を `EXPOSURE_SS_OUTPUT` / `EXPOSURE_SERVE_JSON` で差し替えられる。fixture は `tools/fixtures/exposure/`（**網の名前とアドレスは雛形の値**。`tools/check-private.sh` が通ること）。
   `--self-test` が fixture で 6 つを撃つ（期待どおりに落ちる / 通るを見る）。`tools/stack.sh` が起動の後に (a) を走らせる。`tools/dev.sh` は vite dev に `--port "${DEV_WEB_PORT:-5173}"` を渡す。
   Scenario: `網の外への公開が有効だと検査が落ちる` / `loopback 以外で待ち受ける口があると検査が落ちる` / `網へ平文で出している口があると検査が落ちる` /
   `開発用の画面を網へ出していると検査が落ちる` / `網の手段の設定を読めないと検査が落ちる` / `loopback と暗号化された網の口だけなら検査は通る`。
   検証: `tools/check-exposure.sh --self-test`、`tools/check-private.sh`
-- [ ] 8.2 `tools/check-offsite.sh`（design D14）。一覧は台本の中に持ち、空なら落ちる。`--self-test` は一覧の名前を 1 つ含む偽の `cargo tree` の出力で落ちること。CI の検査の job に足す。
+- [x] 8.2 `tools/check-offsite.sh`（design D14）。一覧は台本の中に持ち、空なら落ちる。`--self-test` は一覧の名前を 1 つ含む偽の `cargo tree` の出力で落ちること。CI の検査の job に足す。
   Scenario: `サーバは拠点外へ書き出す部品を持たない`。
   検証: `tools/check-offsite.sh`、`tools/check-offsite.sh --self-test`
-- [ ] 8.3 `tools/check-private.sh --staged` が、`tailscale` があれば機械の短い名前と網の名前をその場で読んで禁止語に足す（design D15）。値は出力に出さない。
+- [x] 8.3 `tools/check-private.sh --staged` が、`tailscale` があれば機械の短い名前と網の名前をその場で読んで禁止語に足す（design D15）。値は出力に出さない。
   `--self-test` は `CHECK_PRIVATE_EXTRA=<偽の名前>` で禁止語を差し込み、その語を含むファイルで落ち、出力にその語が出ないこと。
   検証: `tools/check-private.sh --self-test`
 
