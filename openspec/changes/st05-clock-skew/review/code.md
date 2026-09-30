@@ -119,6 +119,15 @@
 
 ---
 
+## finish の fix（25680be）と scoped re-review
+
+- fix: 1 回（25680be。R9・R10・R13・R16〜R21・R23 を直し、R5・R11・R12 を反証、R24 を ST14 へ、R22 を deep.md の Q4 へ）
+- scoped re-review 1 回（独立の subagent。25680be の diff だけ）: ADDRESSED 11 件（R9・R13・R16・R17・R18・R19・R20・R21・R23・R24 と R16 は B 仮として）、
+  **PARTIAL 1 件**（R10: `time_sync` が `Ok` で `unparsed` のときログに出ない）、反証 3 件はいずれも妥当（R5 は「根拠はコミットの本文の自己申告だけ。中身は Q4 で本人に返っているので実害なし」）
+- 新たな Important 1 件: R20 の子プロセスの許可一覧が行単位の文字列判定で、改行・別名の import ですり抜ける。Critical なし（`cargo test -p ashiato-collector-windows --lib` 122 passed、clippy 通過）
+- R10 の残りと R20 の残りは fix 1 回の規則に従い直さず、ledger（st05-task-9 / st05-task-10 の progress.md）に Ruling つきで park した。PR 本文に載せる
+- 証跡はいまの木で取り直した（3.1・5.2・6.1・6.2・8.1・9.1・9.2・9.3・1.3・10.1・10.4。すべて PASS）
+
 ## code-verify（独立検証。HEAD 5aa5b2f）
 
 - 席: code-verify（実装者ではない）。日付: 2026-09-30
