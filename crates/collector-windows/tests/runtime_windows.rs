@@ -33,7 +33,7 @@ use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
 use ashiato_collector_windows::sender::{Reply, Transport};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use uiautomation::controls::ControlType;
 use uiautomation::types::Handle;
 use uiautomation::UIAutomation;
@@ -537,11 +537,24 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
     #[derive(Debug)]
     struct NoReference;
     impl ashiato_collector_windows::clock::ReferenceClock for NoReference {
-        fn now(&self) -> anyhow::Result<DateTime<Utc>> {
+        fn now(&self) -> anyhow::Result<ashiato_collector_windows::clock::ReferenceReading> {
             anyhow::bail!("基準時刻は取らない")
         }
         fn source(&self) -> String {
             "none".into()
+        }
+    }
+
+    #[derive(Debug)]
+    struct NoTimeSync;
+    impl ashiato_collector_windows::time_sync::TimeSyncSource for NoTimeSync {
+        fn read(
+            &self,
+        ) -> Result<
+            ashiato_collector_windows::time_sync::TimeSyncReading,
+            ashiato_collector_windows::time_sync::TimeSyncError,
+        > {
+            Err(ashiato_collector_windows::time_sync::TimeSyncError::SpawnFailed)
         }
     }
 
@@ -566,14 +579,16 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         state_dir: dir.clone(),
     };
     let transport = Capture::default();
-    let reference = NoReference;
+    let reference = std::sync::Arc::new(NoReference);
+    let time_sync = std::sync::Arc::new(NoTimeSync);
     let zone = ashiato_collector_windows::config::Zone::current().unwrap();
     let mut rt = Runtime::new(
         &cfg,
         zone,
         engine(Vec::new()),
         &transport,
-        &reference,
+        reference,
+        time_sync,
         Utc::now(),
     )
     .unwrap();
