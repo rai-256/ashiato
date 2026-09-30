@@ -152,21 +152,21 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
 
 ## Task 8: PC の基準を読む口と、輪の外で読む作業スレッド（Windows）
 
-- [ ] 8.1 `TimeSyncSource` の口と本番の実装（`w32tm /query /status /verbose` の子プロセス。5 秒で打ち切る）と偽物を置く。
+- [x] 8.1 `TimeSyncSource` の口と本番の実装（`w32tm /query /status /verbose` の子プロセス。5 秒で打ち切る）と偽物を置く。
   出力は原文のまま持ち、英語と日本語の見出しから最後に正常に同期した時刻・同期元・位相のずれを解析する。解析できなければ原文を持ったまま `unparsed`、
   起動しない・非 0・打ち切りは理由で返す。**子プロセスに渡す引数は照会だけに固定し、試験で固定する**（1.3 の結果で反転したらその口で同じことをする）。
   試験の名前は `time_sync_*`（英語の出力・日本語の出力・解析できない出力・打ち切り・引数の固定の 5 通り以上）。
   Scenario: `Windows の時刻同期の状態が入っている` / `OS の見積もったずれが読めたときは並ぶ` / `Windows の時刻同期の状態は読んだままの出力が残る` /
   `項目を読み取れなかった出力も残る` / `PC は Windows に時刻を同期させない`。
   検証: `bash -o pipefail -c 'cargo test -p ashiato-collector-windows time_sync_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([5-9]|[1-9][0-9]+) passed' /tmp/ct.log`（5 本以上）
-- [ ] 8.2 `ReferenceClock::now()` の戻り値を「基準の時刻・読む直前と直後の起動からの経過時間・受け取った直後の壁時計」の組にし、差をその壁時計で計算する
+- [x] 8.2 `ReferenceClock::now()` の戻り値を「基準の時刻・読む直前と直後の起動からの経過時間・受け取った直後の壁時計」の組にし、差をその壁時計で計算する
   （見回りの先頭の `wall` を差に使わない。Q3 ②。design D7）。`Uptime` の口（`GetTickCount64`。非 Windows は偽物）を置く（design D9）。
   口の形が変わるので、`crates/collector-windows/tests/runtime_windows.rs` の `NoReference` と `main.rs` の組み立ても合わせる。
   試験の名前は `clock_reference_*`。
   Scenario: `PC の時計が進んでいると差が正で残る` / `PC の時計が遅れていると差が負で残る` / `差に使う PC の時計は基準を読む前後の間で読む` /
   `測るための要求は取り込み口の生存確認の 1 本だけ`（偽の取り込み口が受けた要求を数える）。
   検証: `bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_reference_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([4-9]|[1-9][0-9]+) passed' /tmp/ct.log`（4 本以上）
-- [ ] 8.3 基準の読み取り（`/healthz` と `TimeSyncSource`）を 1 本の作業スレッドで行い、結果を通り道で見回りへ返す（design D7 / D11）。
+- [x] 8.3 基準の読み取り（`/healthz` と `TimeSyncSource`）を 1 本の作業スレッドで行い、結果を通り道で見回りへ返す（design D7 / D11）。
   作業スレッドが走っている間は次の測定を始めない。作業スレッドが panic したら `worker_failed` として扱う。試験の名前は `clock_worker_*`。
   Scenario: `基準の読み取りが長引いても前景の切り替えは記録に残る`（読み取りを 5 秒止める偽物の間に 1 秒ごとの見回りで切り替えを起こし、その記録が残る）/
   `測定が失敗し続けても送信は続く`。
