@@ -4,6 +4,8 @@
 //! 記録の時刻（`event_time`）は PC の時計そのもので、**冪等キーの入力でもある**。
 //! 扉 #5 は「常に正しい時刻を確保するはオフライン時に必ず破れ、**破れたことを
 //! 後から知る手段が無い**」と決着している。**測らなかった期間のずれは後から作れない。**
+use std::sync::Arc;
+
 use chrono::{DateTime, Duration, Utc};
 
 use crate::contract::{RecordKind, WindowPayload};
@@ -11,10 +13,43 @@ use crate::contract::{RecordKind, WindowPayload};
 /// 測る間隔（spec「1 時間ごと」）。
 pub const SKEW_INTERVAL_SEC: i64 = 3_600;
 
+/// OS が起動してからの経過時間（design D9）。スリープの間も進む。
+pub trait Uptime: std::fmt::Debug + Send + Sync {
+    /// 起動からの経過時間（ミリ秒）。
+    fn millis(&self) -> u64;
+}
+
+/// 本番: Windows の起動からの経過時間（`GetTickCount64` と同じ値。sysinfo が安全に包んでいる。
+/// **unsafe を書かない**ため直接は呼ばない）。刻みは秒。
+#[cfg(windows)]
+#[derive(Debug, Default)]
+pub struct SystemUptime;
+
+#[cfg(windows)]
+impl Uptime for SystemUptime {
+    fn millis(&self) -> u64 {
+        sysinfo::System::uptime().saturating_mul(1000)
+    }
+}
+
+/// 基準を 1 回読んだ結果（design D7）。**差は `wall_after` で計算する**（見回りの先頭の壁時計は使わない）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceReading {
+    /// 基準の時刻。
+    pub time: DateTime<Utc>,
+    /// 読む直前の起動からの経過時間（ミリ秒）。
+    pub uptime_before_ms: u64,
+    /// 読んだ直後の起動からの経過時間（ミリ秒）。
+    pub uptime_after_ms: u64,
+    /// 応答を受け取った直後の PC の壁時計。
+    pub wall_after: DateTime<Utc>,
+}
+
 /// 基準の時刻をくれるもの。**PC の外から**取る（PC の時計と比べるため）。
-pub trait ReferenceClock: std::fmt::Debug {
-    /// 基準時刻。取れなければ `Err`（**推測で埋めない**）。
-    fn now(&self) -> anyhow::Result<DateTime<Utc>>;
+/// 作業スレッドへ渡す（design D7）ので `Send + Sync`。
+pub trait ReferenceClock: std::fmt::Debug + Send + Sync {
+    /// 基準を読む。取れなければ `Err`（**推測で埋めない**）。
+    fn now(&self) -> anyhow::Result<ReferenceReading>;
 
     /// 基準の出どころ（記録に載せる。R15）。
     fn source(&self) -> String;
@@ -101,6 +136,7 @@ pub struct HttpDateClock {
     url: String,
     source: String,
     agent: ureq::Agent,
+    uptime: Arc<dyn Uptime>,
 }
 
 impl std::fmt::Debug for HttpDateClock {
@@ -113,30 +149,40 @@ impl std::fmt::Debug for HttpDateClock {
 
 impl HttpDateClock {
     /// 取り込み口の生存確認の口（`/healthz`）を叩く。**合言葉を要しない口**を使う。
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, uptime: Arc<dyn Uptime>) -> Self {
         Self {
             url: format!("{}/healthz", base_url.trim_end_matches('/')),
             source: host_of(base_url),
             // **timeout を持つ**（見回りの輪の中で呼ぶ。R22）
             agent: crate::sender::agent(),
+            uptime,
         }
     }
 }
 
 impl ReferenceClock for HttpDateClock {
-    fn now(&self) -> anyhow::Result<DateTime<Utc>> {
+    fn now(&self) -> anyhow::Result<ReferenceReading> {
+        let uptime_before_ms = self.uptime.millis();
         let res = self
             .agent
             .get(&self.url)
             .call()
             .map_err(|e| anyhow::anyhow!("基準時刻を取れない: {}", e))?;
+        // **応答を受け取った直後**に読む（Q3 ②）。差にはこの壁時計を使う
+        let wall_after = Utc::now();
+        let uptime_after_ms = self.uptime.millis();
         let date = res
             .headers()
             .get("date")
             .ok_or_else(|| anyhow::anyhow!("応答に date が無い"))?
             .to_str()?
             .to_string();
-        parse_http_date(&date)
+        Ok(ReferenceReading {
+            time: parse_http_date(&date)?,
+            uptime_before_ms,
+            uptime_after_ms,
+            wall_after,
+        })
     }
 
     fn source(&self) -> String {
@@ -220,5 +266,109 @@ mod tests {
         assert!(parse_http_date("きのう").is_err());
         assert_eq!(host_of("http://127.0.0.1:8787/"), "127.0.0.1:8787");
         assert_eq!(host_of("http://s01.lan:8787/base"), "s01.lan:8787");
+    }
+
+    // ---- 基準を読む（clock_reference_*） ----
+
+    use std::io::{Read, Write};
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    /// 起動からの経過時間の偽物。作ってからの実時間を返す。
+    #[derive(Debug)]
+    struct ElapsedUptime(Instant);
+
+    impl Uptime for ElapsedUptime {
+        fn millis(&self) -> u64 {
+            u64::try_from(self.0.elapsed().as_millis()).unwrap()
+        }
+    }
+
+    /// `date` に指定の時刻を入れて返す偽の取り込み口。受けた要求の 1 行目を数える。
+    fn fake_ingest(date: DateTime<Utc>) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut buf = [0u8; 512];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => head.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let first = String::from_utf8_lossy(&head)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                seen.lock().unwrap().push(first);
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nDate: {}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    date.format("%a, %d %b %Y %H:%M:%S GMT")
+                );
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        (base, requests)
+    }
+
+    /// 基準を 1 回読んで、PC の差（ミリ秒）と、読む直前と直後の経過時間の幅を返す。
+    fn skew_against(reference: DateTime<Utc>) -> (i64, u64) {
+        let (base, _) = fake_ingest(reference);
+        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
+        let r = clock.now().unwrap();
+        let p = measure(r.wall_after, r.time, &clock.source());
+        (p.skew_ms.unwrap(), r.uptime_after_ms - r.uptime_before_ms)
+    }
+
+    /// Scenario: PC の時計が進んでいると差が正で残る
+    #[test]
+    fn clock_reference_pc_ahead_gives_positive_difference() {
+        let (skew, width) = skew_against(Utc::now() - Duration::minutes(5));
+        assert!(
+            (300_000..301_000 + i64::try_from(width).unwrap()).contains(&skew),
+            "skew={skew} width={width}"
+        );
+    }
+
+    /// Scenario: PC の時計が遅れていると差が負で残る
+    #[test]
+    fn clock_reference_pc_behind_gives_negative_difference() {
+        let (skew, width) = skew_against(Utc::now() + Duration::minutes(5));
+        assert!(
+            (-300_000 - i64::try_from(width).unwrap()..-299_000 + i64::try_from(width).unwrap())
+                .contains(&skew),
+            "skew={skew} width={width}"
+        );
+    }
+
+    /// 壁時計は応答を受け取った直後に読み、経過時間はその前後を挟む。
+    #[test]
+    fn clock_reference_reads_wall_between_the_uptime_readings() {
+        let (base, _) = fake_ingest(Utc::now());
+        let uptime = Arc::new(ElapsedUptime(Instant::now()));
+        let clock = HttpDateClock::new(&base, uptime.clone());
+        let (before, started) = (Utc::now(), uptime.millis());
+        let r = clock.now().unwrap();
+        let (after, finished) = (Utc::now(), uptime.millis());
+        assert!(r.wall_after >= before && r.wall_after <= after);
+        assert!(started <= r.uptime_before_ms && r.uptime_before_ms <= r.uptime_after_ms);
+        assert!(r.uptime_after_ms <= finished);
+    }
+
+    /// Scenario: 測るための要求は取り込み口の生存確認の 1 本だけ
+    #[test]
+    fn clock_reference_asks_the_ingest_health_check_once() {
+        let (base, requests) = fake_ingest(Utc::now());
+        let clock = HttpDateClock::new(&base, Arc::new(ElapsedUptime(Instant::now())));
+        clock.now().unwrap();
+        let seen = requests.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert!(seen[0].starts_with("GET /healthz "), "{seen:?}");
     }
 }
