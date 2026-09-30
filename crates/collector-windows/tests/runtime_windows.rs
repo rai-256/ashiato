@@ -653,7 +653,7 @@ fn clock_skew_runtime() {
         api_token: "t".into(),
         user_id: uuid::Uuid::nil(),
         device_id: "rt".into(),
-        state_dir: dir,
+        state_dir: dir.clone(),
     };
     let transport = Capture::default();
     let zone = ashiato_collector_windows::config::Zone::current().unwrap();
@@ -675,9 +675,24 @@ fn clock_skew_runtime() {
     let mut source = WindowsSource::open();
     let state_before = w32time_running();
     rt.start(&source);
-    // 作業スレッドの結果は見回りが拾う（w32tm は最長 5 秒）
+    // 作業スレッドの結果は見回りが拾う（w32tm は最長 5 秒）。
+    // **測定記録が現れるまで**回す（review R4）—— 「未送信が 1 件でもある」で抜けると、
+    // 作業スレッドの結果より先に前景などの記録が積まれたときに測定記録の無いまま止まる。
+    // 測定記録は未送信の置き場（ファイル）か、見回りの送信が渡した先のどちらかにある
+    let outbox = dir.join("outbox.jsonl");
+    let measured = |transport: &Capture| {
+        let queued = std::fs::read_to_string(&outbox).unwrap_or_default();
+        let sent = transport.0.borrow();
+        std::iter::once(queued.as_str())
+            .chain(
+                sent.iter()
+                    .filter(|(p, _)| p == "/ingest")
+                    .map(|(_, b)| b.as_str()),
+            )
+            .any(|text| text.contains("clock-skew"))
+    };
     let started = Instant::now();
-    while rt.pending().0 == 0 && started.elapsed() < Duration::from_secs(20) {
+    while !measured(&transport) && started.elapsed() < Duration::from_secs(20) {
         rt.tick(&mut source);
         std::thread::sleep(Duration::from_millis(100));
     }

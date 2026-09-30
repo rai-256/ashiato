@@ -81,6 +81,31 @@ class ResponseDateCacheTest {
         assertEquals(7_000L, outcome.wallAfterMs)
     }
 
+    // Scenario: 差に使う端末の時計は基準を読む前後の間で読む
+    @Test
+    fun `応答の壁時計は前後の単調時計の間で読む`() {
+        // review R6: 壁時計を monoAfter の後に読むと、字面で Scenario に反する
+        val order = mutableListOf<String>()
+        HttpTransport(
+            baseUrl,
+            "t",
+            monoClock = { order += "mono"; 1L },
+            wallClock = { order += "wall"; 2L },
+        ).post("[]") as Outcome.Responded
+
+        assertEquals(listOf("mono", "wall", "mono"), order)
+    }
+
+    @Test
+    fun `不正な送り先でも組み立ては投げず、送ると到達できないに畳まれる`() {
+        // review R1: 組み立てで URL() が投げると、サービスの起動が落ち START_STICKY で落ち続ける
+        val transport = HttpTransport("not a url", "t", monoClock = { 1L }, wallClock = { 2L })
+
+        val outcome = transport.post("[]")
+
+        assertEquals("MalformedURLException", (outcome as Outcome.Unreachable).kind)
+    }
+
     @Test
     fun `Date 見出しが無い応答は date が null`() {
         dateLine = null

@@ -141,6 +141,49 @@ class LocationServiceClockTest {
         assertEquals(1, draft.count)
     }
 
+    /** `path` の受け口だけが `date` つきで応え（503 で何も取り除かない）、他は届かない。 */
+    private fun onlyRespondsOn(path: String, date: String): (String, Int) -> Outcome = { p, _ ->
+        if (p == path) Outcome.Responded(503, "", date, 1, 2, 3) else Outcome.Unreachable("timeout")
+    }
+
+    private fun lastClockRaw(s: TestableLocationService) = clockRecords(s).last().raw
+
+    /**
+     * 応答の `Date` は `/ingest` だけでなく `/heartbeat` `/drops` の応答からも同じ置き場へ入る（design D2。review R2）。
+     * 置き場が別のインスタンスなら、測定は `no_response_since_last` を返す。
+     */
+    @Test
+    fun `生存信号の受け口の応答の日付を次の測定が使う`() {
+        withConfig {
+            val date = "Tue, 29 Sep 2026 03:04:05 GMT"
+            val (_, s) = create()
+            s.reply = onlyRespondsOn("/heartbeat", date)
+            s.beatScheduler.fire()
+            s.scheduler.fire()
+            assertTrue("生存信号が送られていない", s.posted.any { it.first == "/heartbeat" })
+
+            s.hourly.fire()
+
+            assertTrue(lastClockRaw(s).contains(date))
+        }
+    }
+
+    @Test
+    fun `破棄の報告の受け口の応答の日付を次の測定が使う`() {
+        withConfig {
+            val date = "Wed, 30 Sep 2026 04:05:06 GMT"
+            val (_, s) = create()
+            s.reply = onlyRespondsOn("/drops", date)
+            s.clock.advance(90 * AgeClock.DAY_MS + 60_000) // 測定記録を 1 件捨てさせ、破棄の報告を作る
+            s.scheduler.fire()
+            assertTrue("破棄の報告が送られていない", s.posted.any { it.first == "/drops" })
+
+            s.hourly.fire()
+
+            assertTrue(lastClockRaw(s).contains(date))
+        }
+    }
+
     // Scenario: 位置の記録の時刻は補正されない
     @Test
     fun `端末の時計が進んでいても位置の記録の出来事時刻は測位の結果の時刻のまま`() {
@@ -181,7 +224,7 @@ class LocationServiceClockTest {
 
         val lines = ShadowLog.getLogs().map { it.msg }.filter { it.contains("clock_skew_crashed") }
 
-        assertEquals(listOf("kind=clock_skew_crashed source=$LOGICAL_SOURCE error=IllegalStateException"), lines)
+        assertEquals(listOf("kind=clock_skew_crashed source=$CLOCK_LOGICAL_SOURCE error=IllegalStateException"), lines)
         assertTrue(lines.none { it.contains("35.68") || it.contains("139.76") || it.contains("boom") || Regex("20\\d\\d-\\d\\d").containsMatchIn(it) })
     }
 

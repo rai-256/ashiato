@@ -130,7 +130,7 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-docker compose up -d --wait db && cargo test --workspace          # 本物の DB
+./tools/db.sh up -d --wait db && cargo test --workspace          # 本物の DB（ポートは worktree ごと。tools/ports.sh）
 ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）

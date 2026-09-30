@@ -92,6 +92,64 @@ async fn clock_source_migration_applies_twice() {
     );
 }
 
+/// 戻しの移行は、**破棄の報告が c01-clock を参照していても**外部キーで落ちず、登録簿の行を残す。
+/// 参照が無ければ登録簿の行を消す（review R8）。使い捨ての DB に当てる。
+#[tokio::test]
+async fn clock_source_down_keeps_row_referenced_by_drop_report() {
+    const UP: &str = include_str!("../../../migrations/202609291230_clock_source.sql");
+    const DOWN: &str = include_str!("../../../migrations/202609291230_clock_source.down.sql");
+    let (fresh, drop) = fresh_db().await;
+    let result = async {
+        for (label, sql) in crate::MIGRATIONS {
+            sqlx::raw_sql(sql)
+                .execute(&fresh)
+                .await
+                .map_err(|e| format!("{label}: {e}"))?;
+        }
+        let count = |pool: sqlx::PgPool| async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM core.source WHERE logical_source = 'c01-clock'",
+            )
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())
+        };
+        // 参照が無ければ消す（破棄の報告は削除できないので、こちらを先に見る）
+        sqlx::raw_sql(DOWN)
+            .execute(&fresh)
+            .await
+            .map_err(|e| format!("参照が無いのに戻しが落ちる: {e}"))?;
+        let removed = count(fresh.clone()).await?;
+
+        sqlx::raw_sql(UP)
+            .execute(&fresh)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query(
+            "INSERT INTO core.drop_report \
+               (id, user_id, logical_source, device_id, reason, count, created_at, content_hash, raw) \
+             VALUES ($1, $2, 'c01-clock', 'test-dev', 'age', 1, now(), 'h', '{}')",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
+        .execute(&fresh)
+        .await
+        .map_err(|e| e.to_string())?;
+        sqlx::raw_sql(DOWN)
+            .execute(&fresh)
+            .await
+            .map_err(|e| format!("破棄の報告があると戻しが落ちる: {e}"))?;
+        let kept = count(fresh.clone()).await?;
+        Ok::<_, String>((kept, removed))
+    }
+    .await;
+    drop.await;
+
+    let (kept, removed) = result.unwrap();
+    assert_eq!(kept, 1, "破棄の報告が参照しているのに登録簿の行を消した");
+    assert_eq!(removed, 0, "参照が無いのに登録簿の行が残った");
+}
+
 /// Scenario: 識別子を持たない測定記録が格納される
 #[tokio::test]
 async fn clock_record_ingest_stores_record_without_external_id() {
