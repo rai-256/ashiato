@@ -336,3 +336,7 @@ admission が通した Story どうしを実際に並べられ、main の作業�
 
 **移行の名前は作成時刻**（`YYYYMMDDHHMM_<slug>.sql`。連番にしない —— 並走する Story が番号を取り合う）。
 `tools/check-migrations.sh` が形を見る。適用の順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列。
+
+## agent への指示（プロジェクト固有）
+
+@AGENTS.md
