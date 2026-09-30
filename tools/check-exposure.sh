@@ -145,7 +145,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # Scenario: loopback と暗号化された網の口だけなら検査は通る
   expect pass 'loopback と暗号化された網の口だけなら検査は通る' ss-tailnet-https.txt serve-tailnet-https.json
   # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
-  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-https.txt serve-ok.json 'port=18787 address=[fd7a'
+  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-https.txt serve-ok.json 'port=18787 address=.fd7a'
   # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
   expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-lan.txt serve-tailnet-https.json 'address=203.0.113.5'
   echo "OK check-exposure の自己検査（9 つ）"
