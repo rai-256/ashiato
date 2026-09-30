@@ -283,6 +283,74 @@ async fn access_log_middleware_keeps_no_content_or_secret() {
     }
 }
 
+/// `/session` の method と分岐ごとに、何が 1 行として残るかの一覧（D8）。
+/// 印は置かない（Scenario の印は別の試験が持つ）。
+#[tokio::test]
+async fn access_log_middleware_session_routes_each_write_one_row() {
+    let password = random_password();
+    let (app, seen) = tee_app(&password).await;
+    let take = || std::mem::take(&mut *seen.lock().unwrap());
+
+    let res = send(&app, get_bare("/session")).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        take(),
+        vec![entry("none", "/session", "GET", "unauthorized", 401)]
+    );
+
+    let cookie = login(&app, &password).await;
+    assert_eq!(
+        take(),
+        vec![entry("none", "/session", "POST", "login_ok", 204)]
+    );
+
+    let res = send(&app, get_with_cookie("/session", &cookie)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        take(),
+        vec![entry("web_session", "/session", "GET", "ok", 200)]
+    );
+
+    let res = send(&app, bearer(Method::GET, "/session", Body::empty())).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        take(),
+        vec![entry("api_token", "/session", "GET", "ok", 200)]
+    );
+
+    let logout = |c: Option<&str>| {
+        let mut b = Request::builder().method(Method::DELETE).uri("/session");
+        if let Some(c) = c {
+            b = b.header(header::COOKIE, format!("{}={c}", web_session::COOKIE_NAME));
+        }
+        b.body(Body::empty()).unwrap()
+    };
+    let res = send(&app, logout(Some(&cookie))).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        take(),
+        vec![entry("web_session", "/session", "DELETE", "logout", 204)]
+    );
+    let res = send(&app, logout(None)).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        take(),
+        vec![entry("none", "/session", "DELETE", "logout", 204)]
+    );
+
+    // 失敗が溜まると 429（login_throttled）。閾値は web_session の THROTTLE_MAX_FAILURES
+    for _ in 0..10 {
+        send(&app, login_req(&random_password())).await;
+    }
+    take();
+    let res = send(&app, login_req(&password)).await;
+    assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        take(),
+        vec![entry("none", "/session", "POST", "login_throttled", 429)]
+    );
+}
+
 /// Scenario: 読み出しの記録に書けないときは記録を返さない
 #[tokio::test]
 async fn access_log_middleware_write_failure_returns_no_records() {

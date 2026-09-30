@@ -365,7 +365,33 @@ pub async fn session_get(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<SessionState>, (StatusCode, String)> {
-    let caller = crate::authorize(&app, &headers).await?;
+    let caller = match crate::authorize(&app, &headers).await {
+        Ok(c) => c,
+        Err(e) => {
+            // 401 も残す（画面は起動時に必ずここを引く）。判定そのものの失敗（500）は書かない
+            if e.0 == StatusCode::UNAUTHORIZED {
+                app.access
+                    .write(session_entry(
+                        &headers,
+                        "none",
+                        "GET",
+                        "unauthorized",
+                        StatusCode::UNAUTHORIZED,
+                    ))
+                    .await?;
+            }
+            return Err(e);
+        }
+    };
+    app.access
+        .write(session_entry(
+            &headers,
+            caller.as_str(),
+            "GET",
+            "ok",
+            StatusCode::OK,
+        ))
+        .await?;
     Ok(Json(SessionState {
         credential: caller.as_str().into(),
     }))
