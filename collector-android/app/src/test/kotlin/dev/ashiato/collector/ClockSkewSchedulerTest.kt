@@ -180,6 +180,39 @@ class ClockSkewSchedulerTest {
         assertNull(r.retry.periodMs)
     }
 
+    /**
+     * 刻みを畳んでも、錠を待っていた糸は測りに来る（`shutdownNow()` は待っている糸を止めない。review R3）。
+     * 偽の刻みは `cancel()` の後も `fire()` できるので、その糸を再現できる。
+     */
+    @Test
+    fun `止めた後に来た刻みは測らず、記録も積まず、測り直しも立てない`() {
+        val r = Rig().apply { sources.network = 1_800_000_000_000 }
+        r.scheduler.start()
+        r.scheduler.stop()
+        val retryPeriod = r.retry.periodMs
+        r.sources.network = null // 取れない —— 測れば 1 件積んで測り直しを立てる
+
+        r.hourly.fire()
+        r.scheduler.timeChanged()
+
+        assertEquals(listOf("start"), r.triggers())
+        assertEquals("止めた後に測り直しを立てた", retryPeriod, r.retry.periodMs)
+    }
+
+    // Scenario: 測り直しで取れたら別の 1 件が残る
+    @Test
+    fun `測り直しを畳んだ後に来た測り直しの刻みは記録を積まない`() {
+        val r = Rig()
+        r.scheduler.start() // 取れない → 測り直しへ
+        r.sources.network = 1_800_000_000_000
+        r.hourly.fire() // 1 時間の契機で取れて、測り直しを畳む
+        assertTrue(r.retry.cancelled)
+
+        r.retry.fire() // 畳む前から錠を待っていた測り直し
+
+        assertEquals(listOf("start", "hourly"), r.triggers())
+    }
+
     @Test
     fun `止めると両方の刻みが畳まれる`() {
         val r = Rig()

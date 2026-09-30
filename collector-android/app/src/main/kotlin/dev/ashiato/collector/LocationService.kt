@@ -236,7 +236,11 @@ open class LocationService : Service() {
             emit = { outbox.add(it) },
             ticks = newClockScheduler(),
             log = { Log.i(TAG, it) },
-            onCrash = { Log.w(TAG, Telemetry.line("clock_skew_crashed", error = it.javaClass.simpleName)) },
+            onCrash = {
+                // 測定のログは測定記録の論理ソースで出す（review R7）。`Telemetry.line` の source は位置の論理ソースに
+                // 固定なので、`ClockSkewScheduler` の測定のログと同じく種別だけを並べる（値を渡す口は作らない）
+                Log.w(TAG, "kind=clock_skew_crashed source=$CLOCK_LOGICAL_SOURCE error=${it.javaClass.simpleName}")
+            },
         ).also { it.start() }
     }
 
@@ -377,6 +381,8 @@ open class LocationService : Service() {
             heartbeatOutbox,
             newTransport("/heartbeat"),
             HeartbeatRequest.serializer(),
+            // 応答の `Date` は `/ingest` `/heartbeat` `/drops` のどれでも同じ置き場へ（design D2。review R2）
+            responseDates = responseDates,
         ) { Log.i(TAG, it) }
         // **破棄の報告は断られても取り除かない**（ST04 / C2 / design D13）—— 扉 #14 の唯一の証拠
         val dropSender = Sender(
@@ -384,6 +390,7 @@ open class LocationService : Service() {
             newTransport("/drops"),
             DropReport.serializer(),
             dropPermanentlyRejected = false,
+            responseDates = responseDates,
         ) { Log.i(TAG, it) }
         val drainer = Drainer(
             records = sender,

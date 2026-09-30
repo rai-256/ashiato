@@ -2,39 +2,77 @@
 # 時刻サーバへの経路が、端末にも PC にも無いことの静的検査（ST05 / FR-7 / Q1 / design D7）。
 #
 #   ./tools/check-no-time-server.sh              → 実物（端末の main と PC の src）を見る
-#   ./tools/check-no-time-server.sh --self-test  → 経路を 1 つ植えた一時ディレクトリで rc=1 になることを確かめる
+#   ./tools/check-no-time-server.sh --self-test  → 経路を 1 種ずつ植えた一時ディレクトリで、どれも見つかることを確かめる
 #
 # 見るのは 3 種類: 時刻のプロトコルの送信 / 時刻サーバの宛先 / 同期を起こす指示（`w32tm /resync`）。
-# **コメント行と、Rust の最上位の `#[cfg(test)]` 以降（試験の値）は数えない** ——
+# **コメント行と、Rust の最上位の `#[cfg(test)]` が付いた `mod … {` の塊（試験の値）は数えない** ——
 # 出力の見本に `time.windows.com` が出てくるだけで、通信は起きない。
+# 塊の終わりは行頭の `}`（rustfmt の形）。塊の後ろにある本物のコードはまた数える（review R14）。
+# `#[cfg(test)]` が `mod … {` 以外（関数・欄・`mod tests;`）に付いているときは読み飛ばさない（厳しい側）。
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 PATTERN='DatagramSocket|SntpClient|NtpTrustedTime|UdpSocket|ntp\.org|time\.google\.com|time\.windows\.com|time\.apple\.com|:123([^0-9]|$)|/resync'
 
-scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す
-  local root f
+scan() {   # $@ = 見る根。当たった行を `path:行: 本文` で出す。読めなければ rc=2
+  local root f files
   for root in "$@"; do
     [ -d "$root" ] || { echo "見る場所が無い: $root" >&2; return 2; }
+    files="$(find "$root" -type f \( -name '*.kt' -o -name '*.java' -o -name '*.rs' -o -name '*.xml' \) | sort)" \
+      || { echo "見る場所を列挙できない: $root" >&2; return 2; }
     while IFS= read -r f; do
+      [ -n "$f" ] || continue
       PAT="$PATTERN" awk -v file="$f" '
-        /^#\[cfg\(test\)\]/ { exit }
+        skip == 1 { if ($0 ~ /^}/) skip = 0; next }
+        pending == 1 {
+          if ($0 ~ /^[[:space:]]*$/) next
+          pending = 0
+          if ($0 ~ /^(pub(\([a-z]+\))? )?mod [A-Za-z_][A-Za-z0-9_]* *\{/) { if ($0 !~ /}[[:space:]]*$/) skip = 1; next }
+        }
+        /^#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
         /^[[:space:]]*(\/\/|\*|\/\*)/ { next }
         $0 ~ ENVIRON["PAT"] { printf "%s:%d: %s\n", file, FNR, $0 }
-      ' "$f"
-    done < <(find "$root" -type f \( -name '*.kt' -o -name '*.java' -o -name '*.rs' -o -name '*.xml' \) | sort)
+      ' "$f" || { echo "読めない: $f" >&2; return 2; }
+    done <<< "$files"
   done
 }
 
 if [ "${1:-}" = "--self-test" ]; then
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/clean" "$tmp/planted"
-  printf 'fn main() {}\n// UdpSocket は書かない（コメントは数えない）\n#[cfg(test)]\nmod t { const S: &str = "time.windows.com"; }\n' > "$tmp/clean/a.rs"
-  cp "$tmp/clean/a.rs" "$tmp/planted/a.rs"
-  printf 'val s = DatagramSocket()\n' > "$tmp/planted/B.kt"
-  [ -z "$(scan "$tmp/clean")" ] || { echo "自己検査 FAIL: 経路の無い場所で当たった"; exit 1; }
-  [ -n "$(scan "$tmp/planted")" ] || { echo "自己検査 FAIL: 植えた経路を見つけられなかった"; exit 1; }
-  echo "自己検査 OK（経路の無い場所は通り、植えた経路は止まる）"
+  tmp="$(mktemp -d)"; trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+  fail() { echo "自己検査 FAIL: $*"; exit 1; }
+  # 経路の無い場所: コメントと、最上位の試験の塊の中は数えない
+  mkdir -p "$tmp/clean"
+  printf 'fn main() {}\n// UdpSocket は書かない（コメントは数えない）\n#[cfg(test)]\nmod tests {\n    const S: &str = "time.windows.com";\n    fn f() {\n        let _ = "/resync";\n    }\n}\n' > "$tmp/clean/a.rs"
+  out="$(scan "$tmp/clean")" || fail "経路の無い場所で検査が落ちた（rc=$?）"
+  [ -z "$out" ] || fail "経路の無い場所で当たった: $out"
+  # 植える経路。**1 つずつ別の場所に植え、どれも止まる**ことを見る
+  plant() {   # $1 = 名前, $2 = ファイル名, $3 = 中身
+    mkdir -p "$tmp/planted-$1"
+    cp "$tmp/clean/a.rs" "$tmp/planted-$1/a.rs"
+    printf '%s\n' "$3" > "$tmp/planted-$1/$2"
+    out="$(scan "$tmp/planted-$1")" || fail "$1: 検査が落ちた"
+    [ -n "$out" ] || fail "植えた経路（$1）を見つけられなかった"
+  }
+  plant datagram B.kt 'val s = DatagramSocket()'
+  plant sntp B.kt 'val c = SntpClient()'
+  plant ntp-trusted B.java 'NtpTrustedTime t = NtpTrustedTime.getInstance(ctx);'
+  plant udp b.rs 'let s = std::net::UdpSocket::bind("0.0.0.0:0");'
+  plant resync b.rs 'Command::new("w32tm").args(["/resync"]).status();'
+  plant host b.rs 'const H: &str = "time.windows.com";'
+  plant ntp-pool B.kt 'val h = "pool.ntp.org"'
+  plant port b.rs 'let a = "192.0.2.1:123";'
+  plant xml c.xml '<string name="t">time.google.com</string>'
+  # 試験の塊の**後ろ**にある本物のコードは数える（最上位の #[cfg(test)] 以降を全部読み飛ばしていた。review R14）
+  plant after-tests d.rs "$(printf '#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n\nfn sync() {\n    let _ = std::net::UdpSocket::bind("0.0.0.0:0");\n}')"
+  # `#[cfg(test)]` が mod の塊以外に付いていても、その後ろは読み飛ばさない
+  plant cfg-fn e.rs "$(printf '#[cfg(test)]\nfn helper() {}\nfn sync() { let _ = "/resync"; }')"
+  # 読めないファイルは「経路が無い」ではなく失敗にする（awk の失敗を拾う）
+  if [ "$(id -u)" != 0 ]; then
+    mkdir -p "$tmp/unreadable"
+    printf 'fn main() {}\n' > "$tmp/unreadable/a.rs"; chmod 000 "$tmp/unreadable/a.rs"
+    if scan "$tmp/unreadable" >/dev/null 2>&1; then fail "読めないファイルを通した"; fi
+  fi
+  echo "自己検査 OK（経路の無い場所は通り、植えた経路は 11 種とも止まり、読めないものは落ちる）"
   exit 0
 fi
 

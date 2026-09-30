@@ -34,8 +34,15 @@ class ClockSkewScheduler(
     private val lock = Any()
     private var retrying = false
 
+    /**
+     * 止めた印（review R3）。`shutdownNow()` は錠を待っている糸を止めないので、`stop()` の後に
+     * 錠を取った測定がここで引き返す。引き返さないと記録を積み、測り直しの刻みを新しく立ててしまう。
+     */
+    private var stopped = false
+
     /** その場で 1 回測り（`start`）、1 時間の刻みを立てる。 */
     fun start() {
+        synchronized(lock) { stopped = false }
         run(TRIGGER_START)
         ticks.hourly.every(CLOCK_SKEW_INTERVAL_MS) { run(TRIGGER_HOURLY) }
     }
@@ -47,6 +54,7 @@ class ClockSkewScheduler(
         ticks.hourly.cancel()
         ticks.retry.cancel()
         retrying = false
+        stopped = true
     }
 
     private fun run(trigger: String) {
@@ -54,6 +62,10 @@ class ClockSkewScheduler(
     }
 
     private fun measureLocked(trigger: String) {
+        if (stopped) return
+        // 測り直しを畳んだ後に錠を待っていた測り直しは測らない（review R3）。
+        // 測ると余分な `retry` の記録が積まれ、D4 の反転条件の比を汚す
+        if (trigger == TRIGGER_RETRY && !retrying) return
         val record = measure(trigger)
         val available = record.payload["available"]!!.jsonPrimitive.boolean
         if (!available && trigger == TRIGGER_RETRY) return
