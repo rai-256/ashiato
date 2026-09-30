@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 /// 子プロセスを待つ上限（design D8）。
 pub const TIME_SYNC_TIMEOUT: Duration = Duration::from_secs(5);
 
-const PROGRAM: &str = "w32tm";
 const ARGS: [&str; 3] = ["/query", "/status", "/verbose"];
 
 /// 読んだ時刻同期の状態。
@@ -71,10 +70,19 @@ impl ProcessTimeSync {
 
     /// 走らせるコマンド。**引数は照会だけに固定**（試験で固定する）。
     pub fn command(&self) -> Command {
-        let mut c = Command::new(PROGRAM);
+        let mut c = Command::new(program(std::env::var_os("SystemRoot")));
         c.args(ARGS);
         c
     }
+}
+
+/// `%SystemRoot%\System32\w32tm.exe`。**PATH や exe の置き場所からは探さない** ——
+/// 探すと、収集の exe と同じ場所や PATH の先に置かれた別の `w32tm` を掴む（review R13）。
+/// `SystemRoot` が無いときは Windows の既定の置き場所。
+fn program(system_root: Option<std::ffi::OsString>) -> std::ffi::OsString {
+    let mut p = system_root.unwrap_or_else(|| r"C:\Windows".into());
+    p.push(r"\System32\w32tm.exe");
+    p
 }
 
 impl TimeSyncSource for ProcessTimeSync {
@@ -259,9 +267,51 @@ mod tests {
     #[test]
     fn time_sync_arguments_are_pinned_to_the_query() {
         let cmd = ProcessTimeSync::new().command();
-        assert_eq!(cmd.get_program(), "w32tm");
+        let program = cmd.get_program().to_string_lossy();
+        assert!(program.ends_with(r"\System32\w32tm.exe"), "{program}");
         let args: Vec<_> = cmd.get_args().collect();
         assert_eq!(args, ["/query", "/status", "/verbose"]);
+    }
+
+    /// 走らせるのは `%SystemRoot%` の下の `w32tm.exe` だけ（PATH から探さない。review R13）。
+    #[test]
+    fn time_sync_program_is_resolved_from_the_system_root() {
+        assert_eq!(
+            program(Some(r"D:\WinNT".into())),
+            r"D:\WinNT\System32\w32tm.exe"
+        );
+        assert_eq!(program(None), r"C:\Windows\System32\w32tm.exe");
+    }
+
+    /// 記録に載る原文（`raw_text`）は元のバイト列へ戻せる。`\` と `\x8d` という 4 文字の並びと、
+    /// cp932 の 1 バイトを区別できる（Scenario の「読んだままの出力」を記録の段で見る。review R23）。
+    ///
+    /// Scenario: Windows の時刻同期の状態は読んだままの出力が残る
+    #[test]
+    fn time_sync_raw_text_round_trips_to_the_bytes() {
+        fn back(s: &str) -> Vec<u8> {
+            let b = s.as_bytes();
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'\\' {
+                    assert_eq!(b.get(i + 1), Some(&b'x'), "`\\` の後ろが `x` でない: {s}");
+                    let hex = std::str::from_utf8(&b[i + 2..i + 4]).unwrap();
+                    out.push(u8::from_str_radix(hex, 16).unwrap());
+                    i += 4;
+                } else {
+                    out.push(b[i]);
+                    i += 1;
+                }
+            }
+            out
+        }
+        let mut raw = japanese_output();
+        raw.extend_from_slice(br"C:\x8d\path\ Source: \x");
+        raw.extend_from_slice(&[0x8d, 0x5c, b'\n', 0x00, 0xff]);
+        let text = raw_text(&raw);
+        assert!(text.is_ascii());
+        assert_eq!(back(&text), raw);
     }
 
     #[test]

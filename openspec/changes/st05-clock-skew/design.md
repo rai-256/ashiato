@@ -104,6 +104,9 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - 5 分は仮。反転条件: `c01-clock` の `trigger = retry` の記録が、1 週間で `hourly` の記録の半分を超えるなら（取れる / 取れないが細かく揺れている）、
   測り直しを 15 分にする。**観測する係**: 確認バッチの準備（`tools/verify-prep.sh`）が、この比を出す SQL を走らせて手順書に数を載せる（Task 10）。
   spec は「次の 1 時間の契機までの間に測り直す」だけを定めているので変わらない
+- **数える DB（仮。review R16）**: 確認バッチの DB で数える。偽データ（`tools/seed.sh`）は `c01-clock` を作らないので、数は確認の間に本物の端末が送った分だけで、
+  `hourly` が 0 件なら判定しないと手順書に書く（`tools/verify-prep.sh`）。1 回のバッチでは 1 週間ぶんが溜まらないことが多いのは受け入れる。
+  反転条件: 確認バッチが 3 回続けて「`hourly` が 0 件で判定しない」を出したら、数える係を確認バッチから外し、本番の S-01 の DB を数える口（サーバの定期の集計）に移す
 
 ### D5. 端末の測定記録の形（`c01-clock`、`schema_version = 1`）
 
@@ -130,6 +133,7 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - `device_time` = 出来事時刻（`event_time`）。**測ったときの端末の壁時計**（C7）。`elapsed_ms` はその瞬間の `elapsedRealtime`
 - `boot_count` は `DeviceClock.bootCount()`（ST04）。取れない端末では `null`（spec の「取れないことを示す値」）。そのときは `elapsed_ms` が戻ったことで起動を知る
 - `unavailable` は `[{"source": "network", "reason": "unsupported"}, …]`。**3 つの出どころが `references` と `unavailable` のどちらかに 1 回ずつ**（spec）
+- `s01-date` が `unreadable`（`Date` 見出しを読めなかった）のときは、`unavailable` の 1 件に `raw`（見出しの原文）と `host` も載せる（review R18。読み方を直せば後から差を出せる）
 - `available` は `references` が 1 件以上か。取れなかった記録は `references: []`
 - 時刻の書き方はミリ秒まで・UTC・`Z` 終わり（`Instant.toString()` は秒ちょうどでミリ秒を落とすので、ミリ秒に固定する書き方を 1 か所に置く）
 - `tz_offset_min` / `tz_id` は位置と同じく `ZoneId.systemDefault()`。`device_id` は位置と同じ端末識別子。`origin = collected`

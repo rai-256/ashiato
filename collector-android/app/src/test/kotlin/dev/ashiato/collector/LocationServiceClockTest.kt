@@ -88,8 +88,29 @@ class LocationServiceClockTest {
         val records = clockRecords(s)
         assertEquals(1, records.size)
         assertEquals("start", records.single().payload["trigger"]!!.jsonPrimitive.content)
-        assertEquals(CLOCK_SKEW_INTERVAL_MS, s.hourly.periodMs)
-        assertEquals(CLOCK_SKEW_RETRY_MS, s.retry.periodMs) // 基準が無いので測り直しに入る
+        // リテラルで固定する（review R19）: 1 時間は FR-7 / C2、5 分は D4（仮）
+        assertEquals(3_600_000L, s.hourly.periodMs)
+        assertEquals(300_000L, s.retry.periodMs) // 基準が無いので測り直しに入る
+    }
+
+    // Scenario: 測るために通信を起こさない
+    @Test
+    fun `起動・時計の変更・1 時間・測り直しで測っても送信の要求は 1 つも増えない`() {
+        withConfig {
+            val (_, s) = create()
+            assertEquals(1, clockRecords(s).size)
+            val before = s.posted.size
+
+            app.sendBroadcast(Intent(Intent.ACTION_TIME_CHANGED))
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+            s.hourly.fire()
+            s.sources.network = System.currentTimeMillis()
+            s.retry.fire()
+
+            // 起動のほかに 3 回測った（時計の変更・1 時間・測り直しで取れた）
+            assertEquals(listOf("start", "time_set", "hourly", "retry"), clockRecords(s).map { it.payload["trigger"]!!.jsonPrimitive.content })
+            assertEquals("測るために通信を起こしている", before, s.posted.size)
+        }
     }
 
     // Scenario: 測定記録の論理ソースは生存信号を送らない

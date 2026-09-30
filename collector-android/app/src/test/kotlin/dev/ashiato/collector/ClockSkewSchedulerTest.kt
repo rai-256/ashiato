@@ -55,7 +55,8 @@ class ClockSkewSchedulerTest {
     fun `基準が取れる状態で 1 時間経つと測定記録が 1 件増える`() {
         val r = Rig().apply { sources.network = 1_800_000_000_000 }
         r.scheduler.start()
-        assertEquals(CLOCK_SKEW_INTERVAL_MS, r.hourly.periodMs)
+        // **定数を定数と比べない**（review R19）。FR-7 / C2 の 1 時間をリテラルで固定する
+        assertEquals(3_600_000L, r.hourly.periodMs)
         val before = r.emitted.size
 
         r.hourly.fire()
@@ -105,7 +106,8 @@ class ClockSkewSchedulerTest {
     fun `基準が取れない状態が 1 時間続いても取れなかった記録は 1 件だけである`() {
         val r = Rig()
         r.scheduler.start()
-        assertEquals(CLOCK_SKEW_RETRY_MS, r.retry.periodMs)
+        // 5 分は D4（仮）。反転したらこの値も一緒に直す（review R19）
+        assertEquals(300_000L, r.retry.periodMs)
 
         repeat(11) { r.retry.fire() } // 5 分 × 11 = 55 分
 

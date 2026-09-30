@@ -42,15 +42,16 @@ data class LocationFix(
     val at: Instant,
     /**
      * 受け取ったときの端末の壁時計（ST05 / design D6）。`at` とは別の項目で、差が端末の時計のずれの手掛かりになる。
-     * 既定値は既存の試験の組み立てを保つためだけのもの —— 本番は `FixCollector` が全部渡す。
+     * **既定値を持たない**（review R17）—— `at` や 0 は本物の値に見えるので、渡し忘れた組み立てが黙って偽の値を送る。
+     * 試験の組み立ては試験側の `testFix` が既定値を持つ。
      */
-    val receivedDeviceTime: Instant = at,
+    val receivedDeviceTime: Instant,
     /** 測位の結果が持つ起動からの経過時間（`Location.getElapsedRealtimeNanos()`） */
-    val fixElapsedNs: Long = 0L,
+    val fixElapsedNs: Long,
     /** 受け取ったときの起動からの経過時間（`DeviceClock.monoMs()`） */
-    val receivedElapsedMs: Long = 0L,
+    val receivedElapsedMs: Long,
     /** 起動の識別。取れない端末では null */
-    val bootCount: Int? = null,
+    val bootCount: Int?,
 )
 
 /**

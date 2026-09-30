@@ -12,7 +12,7 @@ class OutboxTest {
     private fun outbox() = testOutbox()
 
     private fun req(id: String, accuracy: Float = 10f) =
-        LocationFix(35.68, 139.76, accuracy, Instant.parse("2026-09-08T02:00:00Z"))
+        testFix(35.68, 139.76, accuracy, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     @Test

@@ -231,7 +231,7 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 | `elapsed_ms` | integer | 測ったときの起動からの経過時間（`elapsedRealtime`） |
 | `boot_count` | integer または `null` | 起動の識別。**取れない端末では `null`**（そのときは `elapsed_ms` が戻ったことで起動を知る） |
 | `references[]` | array | 取れた基準。各要素は `source`・`time`（基準の時刻）・`skew_ms`・`mono_before_ms`・`mono_after_ms`（読む直前と直後の `elapsedRealtime`）。`s01-date` は `raw`（`Date` 見出しそのまま）と `host`（基準にした宛先の `host:port`）も持つ |
-| `unavailable[]` | array | 取れなかった基準。各要素は `source` と `reason` |
+| `unavailable[]` | array | 取れなかった基準。各要素は `source` と `reason`。`s01-date` が `unreadable` のときだけ `raw`（`Date` 見出しの原文）と `host` も持つ |
 
 - **出どころ（`source`）は 3 種**: `network`（`SystemClock.currentNetworkTimeClock()`、API 33 以上）/ `gnss`（`SystemClock.currentGnssTimeClock()`、API 29 以上）/
   `s01-date`（送信がすでに受け取った応答の `Date` 見出し）。**3 つのそれぞれが `references` と `unavailable` のどちらかに 1 回ずつ**出る

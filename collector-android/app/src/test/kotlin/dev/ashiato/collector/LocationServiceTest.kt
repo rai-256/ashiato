@@ -327,7 +327,7 @@ class LocationServiceTest {
     }
 
     private fun fix(id: String) =
-        LocationFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+        testFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "u", "d", ZoneId.of("Asia/Tokyo"))
 
     /**

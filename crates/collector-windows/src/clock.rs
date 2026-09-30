@@ -84,6 +84,8 @@ pub struct SkewSchedule {
     retrying: bool,
     /// いまの周期で、取れなかった記録を残したか
     unavailable_recorded: bool,
+    /// 測り始めた後に飛び・戻りで作り直された。その読み取りの失敗では測り直しを 60 秒後へ送らない（review R9）
+    superseded: bool,
 }
 
 impl SkewSchedule {
@@ -101,6 +103,7 @@ impl SkewSchedule {
             cycle_start: None,
             retrying: false,
             unavailable_recorded: false,
+            superseded: false,
         }
     }
 
@@ -117,6 +120,7 @@ impl SkewSchedule {
     /// 測り始める。**どの契機の測定かを返す**（測り直しの間は `Retry`、周期が変われば起動・飛び・1 時間ごと）。
     pub fn begin(&mut self, now: DateTime<Utc>) -> ClockTrigger {
         self.mark(now);
+        self.superseded = false;
         let in_cycle = self.cycle_start.is_some_and(|s| now - s < self.interval);
         if self.retrying && in_cycle {
             return ClockTrigger::Retry;
@@ -134,10 +138,17 @@ impl SkewSchedule {
         self.cycle_start = None;
         self.retrying = false;
         self.unavailable_recorded = false;
+        self.superseded = true;
     }
 
     /// 測れなかった。**`SKEW_RETRY_SEC` 後にもう一度**測る。
+    ///
+    /// 読み取りの途中で飛び・戻り（`reset`）があったら何もしない —— 飛ぶ前に始めた読み取りの失敗で
+    /// `last` を上書きすると、飛びの直後に測るはずの契機が 60 秒遅れる（review R9）。
     pub fn failed(&mut self, now: DateTime<Utc>) {
+        if self.superseded {
+            return;
+        }
         self.last = Some(now - self.interval + Duration::seconds(SKEW_RETRY_SEC));
         self.retrying = true;
     }
@@ -307,6 +318,21 @@ mod tests {
             "測れなかった直後にまた叩いている"
         );
         assert!(s.due(t(SKEW_RETRY_SEC)));
+    }
+
+    /// 読み取りの途中で壁時計が飛んだら、飛ぶ前に始めた読み取りが失敗で返っても、飛びの契機はすぐ測る（review R9）。
+    #[test]
+    fn skew_failure_of_a_read_started_before_the_jump_does_not_delay_the_jump() {
+        let mut s = SkewSchedule::new();
+        assert_eq!(s.begin(t(0)), ClockTrigger::Start);
+        s.reset(ClockTrigger::Jump); // 読み取りの途中で飛んだ
+        s.failed(t(5)); // 飛ぶ前に始めた読み取りが失敗で返る
+        assert!(s.due(t(5)), "飛びの測定が 60 秒後へ送られた");
+        assert_eq!(s.begin(t(5)), ClockTrigger::Jump);
+        // その後の失敗はいつもどおり 60 秒後に測り直す
+        s.failed(t(6));
+        assert!(!s.due(t(6 + SKEW_RETRY_SEC - 1)));
+        assert!(s.due(t(6 + SKEW_RETRY_SEC)));
     }
 
     /// HTTP の日付と基点 URL の読み方。

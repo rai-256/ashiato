@@ -36,7 +36,7 @@ class RetentionNotifierTest {
     private lateinit var service: Service
 
     private fun req(id: String) =
-        LocationFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z"))
+        testFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z"))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private fun notifier(): RetentionNotifier {

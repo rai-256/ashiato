@@ -188,6 +188,21 @@ class ClockSkewMeasurerTest {
         assertEquals("no_response_since_last", d.str("reason"))
     }
 
+    @Test
+    fun `読めなかった Date の原文と宛先は取れなかった側に残る`() {
+        val cache = ResponseDateCache()
+        cache.put(ResponseDateCache.Received("not a date", 10, 20, dateMs, host = "s01.lan:8787"))
+
+        val r = measure(FakeSources(), cache)
+
+        val d = r.unavail().single { it.str("source") == "s01-date" }
+        assertEquals("unreadable", d.str("reason"))
+        assertEquals("not a date", d.str("raw"))
+        assertEquals("s01.lan:8787", d.str("host"))
+        // 原文の無い取れなかった基準には欄を足さない
+        assertEquals(setOf("source", "reason"), r.unavail().single { it.str("source") == "network" }.keys)
+    }
+
     // Scenario: 測定記録は位置の記録と別のソースに入る
     @Test
     fun `論理ソースは c01-clock で位置の記録の論理ソースと違う`() {

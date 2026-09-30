@@ -22,7 +22,7 @@ class SegmentStoreTest {
     private val lines = mutableListOf<String>()
 
     private fun req(i: Int) =
-        LocationFix(35.681236, 139.767125, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
+        testFix(35.681236, 139.767125, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
             .toIngestRequest("id-%06d".format(i), "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private fun store(segmentBytes: Long = SegmentStore.SEGMENT_BYTES) =
