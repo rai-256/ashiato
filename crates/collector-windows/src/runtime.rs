@@ -473,7 +473,7 @@ impl<'a> Runtime<'a> {
         mono: DateTime<Utc>,
         source: &dyn Source,
     ) {
-        let reason = reading.reference.as_ref().err().cloned();
+        let reason = unavailable_error(&reading);
         let ctx = RecordContext {
             trigger: self.skew_trigger,
             at: wall,
@@ -491,7 +491,7 @@ impl<'a> Runtime<'a> {
             "clock_skew_unavailable",
             None,
             None,
-            Some(reason.as_deref().unwrap_or("time_sync")),
+            Some(&reason),
         ));
         self.skew_schedule.failed(mono);
         if self.skew_schedule.record_unavailable() {
@@ -575,6 +575,20 @@ impl<'a> Runtime<'a> {
             ));
         }
     }
+}
+
+/// 取れなかったときのログの `error`。**2 つの基準の理由を両方**、`<基準>:<理由>` で並べる（review R10）。
+/// 理由は `TimeSyncError::reason` / `telemetry::error_kind` が名付けた種別だけなので、値は混ざらない。
+fn unavailable_error(reading: &crate::clock_worker::ClockReading) -> String {
+    use crate::contract::{SOURCE_S01_DATE, SOURCE_TIME_SYNC};
+    [
+        (SOURCE_S01_DATE, reading.reference.as_ref().err()),
+        (SOURCE_TIME_SYNC, reading.time_sync.as_ref().err()),
+    ]
+    .into_iter()
+    .filter_map(|(source, reason)| reason.map(|r| format!("{source}:{r}")))
+    .collect::<Vec<_>>()
+    .join(",")
 }
 
 /// 取得できる状態かを観測から決める（design D4）。
@@ -1370,6 +1384,30 @@ mod tests {
         assert_eq!(foreground, 1, "切り替えの記録が 1 件残っていない");
         drop(gate);
         std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取れなかったときのログには、2 つの基準の理由が両方出る（review R10）。
+    #[test]
+    fn clock_skew_unavailable_log_names_both_reasons() {
+        let reading = crate::clock_worker::ClockReading {
+            source: "127.0.0.1:1".into(),
+            reference: Err("unreachable".into()),
+            time_sync: Err("service_stopped".into()),
+        };
+        assert_eq!(
+            unavailable_error(&reading),
+            "s01-date:unreachable,windows-time-sync:service_stopped"
+        );
+        let line = telemetry::line(
+            "clock_skew_unavailable",
+            None,
+            None,
+            Some(&unavailable_error(&reading)),
+        );
+        assert!(
+            line.ends_with("error=s01-date:unreachable,windows-time-sync:service_stopped"),
+            "{line}"
+        );
     }
 
     /// 基準の読み取りが失敗し続けても、送信の契機で未送信の記録は送られる。

@@ -17,7 +17,7 @@ class LocationFixTest {
     private val at = Instant.parse("2026-09-08T02:00:00Z")
 
     private fun fix(accuracy: Float = 12.5f) =
-        LocationFix(latitude = 35.681236, longitude = 139.767125, accuracyMeters = accuracy, at = at,
+        testFix(latitude = 35.681236, longitude = 139.767125, accuracyMeters = accuracy, at = at,
             receivedDeviceTime = Instant.parse("2026-09-08T02:00:01.500Z"), fixElapsedNs = 1_000L,
             receivedElapsedMs = 2L, bootCount = 3,
         )
@@ -77,8 +77,8 @@ class LocationFixTest {
     fun `夏時間のある地域では取得時点のずれが入る`() {
         // ずれだけでは夏時間を再現できないので識別子も持つ（FR-20 の理由）
         val ny = ZoneId.of("America/New_York")
-        val summer = LocationFix(0.0, 0.0, 1f, Instant.parse("2026-07-01T12:00:00Z"))
-        val winter = LocationFix(0.0, 0.0, 1f, Instant.parse("2026-01-01T12:00:00Z"))
+        val summer = testFix(0.0, 0.0, 1f, Instant.parse("2026-07-01T12:00:00Z"))
+        val winter = testFix(0.0, 0.0, 1f, Instant.parse("2026-01-01T12:00:00Z"))
         assertEquals(-240, summer.toIngestRequest("a", "u", "d", ny).tzOffsetMin)
         assertEquals(-300, winter.toIngestRequest("b", "u", "d", ny).tzOffsetMin)
     }

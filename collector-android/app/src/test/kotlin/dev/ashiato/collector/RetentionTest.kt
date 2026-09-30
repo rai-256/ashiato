@@ -16,7 +16,7 @@ class RetentionTest {
     private val day = AgeClock.DAY_MS
 
     private fun req(id: String, at: String = "2026-06-01T01:00:00Z") =
-        LocationFix(35.68, 139.76, 10f, Instant.parse(at))
+        testFix(35.68, 139.76, 10f, Instant.parse(at))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private fun retention(policy: RetentionPolicy = RetentionPolicy.DEFAULT) =

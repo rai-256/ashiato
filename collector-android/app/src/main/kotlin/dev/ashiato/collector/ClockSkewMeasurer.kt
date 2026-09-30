@@ -87,6 +87,14 @@ class ClockSkewMeasurer(
         return JsonObject(f)
     }
 
-    private fun unavailableJson(r: ClockReading): JsonObject =
-        JsonObject(mapOf("source" to JsonPrimitive(r.source), "reason" to JsonPrimitive(r.reason!!)))
+    /** 読めなかった `Date` の原文と宛先も捨てない（`unreadable`。review R18）—— 読み方を直せば後から差を出せる。 */
+    private fun unavailableJson(r: ClockReading): JsonObject {
+        val f = linkedMapOf<String, kotlinx.serialization.json.JsonElement>(
+            "source" to JsonPrimitive(r.source),
+            "reason" to JsonPrimitive(r.reason!!),
+        )
+        r.rawText?.let { f["raw"] = JsonPrimitive(it) }
+        r.host?.let { f["host"] = JsonPrimitive(it) }
+        return JsonObject(f)
+    }
 }

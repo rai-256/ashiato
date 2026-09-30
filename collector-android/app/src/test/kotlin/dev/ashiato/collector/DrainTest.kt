@@ -18,7 +18,7 @@ class DrainTest {
     private val calls = mutableListOf<String>()
 
     private fun req(i: Int) =
-        LocationFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
+        testFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
             .toIngestRequest("id-$i", "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 載っている件数ぶん同じ結果を返す偽の受け口。`reply` は何回目か（1 始まり）で答えを変えられる。 */

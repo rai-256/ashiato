@@ -96,7 +96,7 @@ class LocationFixClockFieldsTest {
     @Test
     fun `同じ位置の記録から原文を 2 回組み立てると同じ文字列になる`() {
         // 冪等キーは原文から作られる（design D16）。新しい欄が入っても再送で鍵が変わらない
-        val fix = LocationFix(
+        val fix = testFix(
             latitude = 35.68, longitude = 139.76, accuracyMeters = 10f, at = fixTime,
             receivedDeviceTime = fixTime.plusSeconds(1), fixElapsedNs = 5L, receivedElapsedMs = 6L, bootCount = 7,
         )

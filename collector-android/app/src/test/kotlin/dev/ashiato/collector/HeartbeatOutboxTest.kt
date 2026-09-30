@@ -105,7 +105,7 @@ class HeartbeatOutboxTest {
         val events = File(dir, "records")
         val beats = File(dir, "heartbeats")
         Outbox.inDir(events, IngestRequest.serializer()) {}.add(
-            LocationFix(35.68, 139.76, 10f, Instant.parse("2026-05-01T00:00:00Z"))
+            testFix(35.68, 139.76, 10f, Instant.parse("2026-05-01T00:00:00Z"))
                 .toIngestRequest("e1", "user-1", "device-1", java.time.ZoneId.of("Asia/Tokyo")),
         )
         Outbox.inDir(beats, HeartbeatRequest.serializer()) {}.add(beat("h1"))

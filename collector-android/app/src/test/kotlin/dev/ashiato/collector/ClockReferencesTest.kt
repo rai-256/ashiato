@@ -151,7 +151,7 @@ class ClockReferencesTest {
         val cache = ResponseDateCache()
         val outbox = testOutbox()
         outbox.add(
-            LocationFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+            testFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
                 .toIngestRequest("id-1", "user-1", "device-1", ZoneId.of("Asia/Tokyo")),
         )
         Sender(outbox, transport, IngestRequest.serializer(), responseDates = cache).flush()

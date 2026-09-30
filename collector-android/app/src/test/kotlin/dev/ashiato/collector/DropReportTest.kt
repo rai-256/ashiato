@@ -20,7 +20,7 @@ class DropReportTest {
     private fun at(s: String): Instant = Instant.parse(s)
 
     private fun req(id: String, time: String) =
-        LocationFix(35.681236, 139.767125, 10f, at(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
+        testFix(35.681236, 139.767125, 10f, at(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private fun report(): DropReport {
         st.ledger.freeze()

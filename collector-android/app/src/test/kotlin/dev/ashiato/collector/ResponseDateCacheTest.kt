@@ -62,7 +62,7 @@ class ResponseDateCacheTest {
         val outbox = testOutbox()
         outbox.add(
             java.time.Instant.parse("2026-09-08T02:00:00Z").let {
-                LocationFix(35.681236, 139.767125, 10f, it)
+                testFix(35.681236, 139.767125, 10f, it)
                     .toIngestRequest("id-1", "user-1", "device-1", java.time.ZoneId.of("Asia/Tokyo"))
             },
         )
