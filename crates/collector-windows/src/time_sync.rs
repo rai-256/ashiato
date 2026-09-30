@@ -38,11 +38,16 @@ pub enum TimeSyncError {
     Timeout,
 }
 
+/// `w32tm` の終了コードが「Windows Time サービスが開始されていない」（HRESULT `0x80070426`）。
+/// W32Time は既定で手動（トリガー）起動なので、止まっているのは異常ではない（2026-09-30 実測: `DEMAND_START` で停止中）。
+pub const SERVICE_NOT_STARTED: i32 = 0x8007_0426_u32 as i32;
+
 impl TimeSyncError {
-    /// 記録に載せる理由（`spawn_failed` / `exit:<code>` / `timeout`）。
+    /// 記録に載せる理由（`spawn_failed` / `service_stopped` / `exit:<code>` / `timeout`）。
     pub fn reason(&self) -> String {
         match self {
             Self::SpawnFailed => "spawn_failed".into(),
+            Self::Exit(Some(SERVICE_NOT_STARTED)) => "service_stopped".into(),
             Self::Exit(Some(code)) => format!("exit:{code}"),
             Self::Exit(None) => "exit:none".into(),
             Self::Timeout => "timeout".into(),
@@ -267,6 +272,20 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.reason(), "spawn_failed");
+    }
+
+    #[test]
+    fn time_sync_stopped_service_is_reported_as_such() {
+        // 実 OS の状態に依らない: 停止中の w32tm が返す終了コードを固定で与える
+        assert_eq!(
+            TimeSyncError::Exit(Some(-2_147_023_834)).reason(),
+            "service_stopped"
+        );
+        assert_eq!(
+            TimeSyncError::Exit(Some(SERVICE_NOT_STARTED)).reason(),
+            "service_stopped"
+        );
+        assert_eq!(TimeSyncError::Exit(Some(1)).reason(), "exit:1");
     }
 
     #[cfg(unix)]

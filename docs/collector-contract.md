@@ -287,7 +287,7 @@ cp932 のバイト列なので、**ASCII 以外のバイトと `\` は `\xNN`** 
 
 - **出どころは 2 つ**（`s01-date` = 取り込み口の応答の日付 / `windows-time-sync` = Windows の時刻同期の状態）。
   **2 つのそれぞれが `clock_references` と `clock_unavailable` のどちらかに 1 回ずつ**出る。
-  `reason` は `timeout` / `unreachable`（`s01-date`）・`spawn_failed` / `exit:<code>` / `timeout`（`windows-time-sync`）・
+  `reason` は `timeout` / `unreachable`（`s01-date`）・`spawn_failed` / `service_stopped`（Windows Time サービスが止まっていた。`w32tm` の終了コード `0x80070426`）/ `exit:<code>` / `timeout`（`windows-time-sync`）・
   `unparsed`（出力から項目を 1 つも読めなかった。`raw` を持つ）・`worker_failed`（読み取りのスレッドが結果を返さなかった）
 - **取れなかった記録は 1 時間の契機ごとに 1 件まで**。測り直し（60 秒ごと）では増やさず、取れたら `retry` の記録を 1 件残す
 

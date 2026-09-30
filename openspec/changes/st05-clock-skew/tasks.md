@@ -191,7 +191,7 @@ Windows の実行時テストは WSL から Windows 側の cargo で回す（`C:
   検証: `bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_skew_record_ 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. ([8-9]|[1-9][0-9]+) passed' /tmp/ct.log`（8 本以上）/
   `bash -o pipefail -c 'cargo test -p ashiato-collector-windows clock_skew_is_measured 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
 - [ ] 9.3 PC の実行時テストに、本物の `TimeSyncSource` と `Uptime` と `boot_time` で 1 回測り、clock-skew の記録の `clock_references` に `windows-time-sync` があり、
-  `uptime_ms` と `boot_at` を持つことを足す（`clock_skew_runtime`。1.3 で読めると確かめた前提で、読めなければ落ちる）。
+  `uptime_ms` と `boot_at` を持つことを足す（`clock_skew_runtime`）。★ 2026-09-30 本人の指示で訂正: W32Time は止まっていることがあるので、動いていれば `clock_references` の `windows-time-sync` を、止まっていれば `clock_unavailable` の `reason: service_stopped` を見る（design D8）。
   `docs/collector-contract.md` の C-02 の表に 9.1 の欄を足し、`skew_ms` / `skew_reference` が「`s01-date` が取れなかった記録では無い」と書く。
   検証: `bash -c 'rsync -a --delete --exclude target --exclude .git ./ /mnt/c/dev/ashiato2-rt/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows clock_skew_runtime -- --test-threads=1"'` rc=0 /
   `bash -c 'grep -q "clock_references" docs/collector-contract.md && grep -q "clock_unavailable" docs/collector-contract.md'` rc=0
