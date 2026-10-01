@@ -146,9 +146,17 @@ function PlaceCard({
           )}
         </>
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+      {/* **3 つの操作は 1 行に並べる**（design D21。折り返すとカードが高くなり、幅 360 × 高さ 640 の 1 画面目に 3 枚入らない） */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
         {CHANGES.map(([kind, label]) => (
-          <button key={kind} type="button" aria-expanded={change.open === kind} {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => change.toggle(kind)}>
+          <button
+            key={kind}
+            type="button"
+            aria-expanded={change.open === kind}
+            {...{ [FOCUS_ATTR]: "" }}
+            style={{ ...control(scheme), font: "400 14px/1.6 system-ui, sans-serif", padding: "4px 4px", flex: "1 1 auto" }}
+            onClick={() => change.toggle(kind)}
+          >
             {label}
           </button>
         ))}
