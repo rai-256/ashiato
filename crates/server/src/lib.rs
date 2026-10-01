@@ -2033,9 +2033,10 @@ pub async fn run() -> anyhow::Result<()> {
     };
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
     let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
-    if let Err(refusal) = net_guard::check_bind(&addr).await? {
-        net_guard::refuse(refusal.kind());
-    }
+    let addrs = match net_guard::check_bind(&addr).await? {
+        Ok(addrs) => addrs,
+        Err(refusal) => net_guard::refuse(refusal.kind()),
+    };
     if !net_guard::db_host_is_local(&url) {
         net_guard::refuse("db_not_loopback");
     }
@@ -2062,7 +2063,8 @@ pub async fn run() -> anyhow::Result<()> {
         app = app.route("/selftest/panic", get(selftest_panic));
     }
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
+    let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
     axum::serve(listener, app).await?;
     Ok(())

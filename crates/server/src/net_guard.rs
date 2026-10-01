@@ -38,11 +38,13 @@ pub fn bind_allowed(addr: &SocketAddr) -> Result<(), BindRefusal> {
     }
 }
 
-/// `BIND` を解決したすべてのアドレスに `bind_allowed` を掛ける。解決できなければ Err。
-pub async fn check_bind(bind: &str) -> anyhow::Result<Result<(), BindRefusal>> {
+/// `BIND` を解決したすべてのアドレスに `bind_allowed` を掛け、通れば**そのアドレス**を返す。
+/// 解決できなければ Err。待ち受けはこのアドレスに対して行う —— 名前をもう一度解決すると、
+/// 検査した先と待ち受ける先が食い違いうる（final review R7）。
+pub async fn check_bind(bind: &str) -> anyhow::Result<Result<Vec<SocketAddr>, BindRefusal>> {
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host(bind).await?.collect();
     anyhow::ensure!(!addrs.is_empty(), "BIND がアドレスに解決できない");
-    Ok(addrs.iter().try_for_each(bind_allowed))
+    Ok(addrs.iter().try_for_each(bind_allowed).map(|()| addrs))
 }
 
 /// DB の接続先が loopback（`127.0.0.0/8` / `::1` / `localhost`）か unix socket か（design D14）。
@@ -52,8 +54,12 @@ pub fn db_host_is_local(url: &str) -> bool {
     let Ok(opts) = PgConnectOptions::from_str(url) else {
         return false;
     };
+    // `?host=/…` は host でなく socket に入る（sqlx。host は URL のまま）。繋ぐのは socket（final review R6）
     let host = opts.get_host();
-    if host.starts_with('/') || host.eq_ignore_ascii_case("localhost") {
+    if opts.get_socket().is_some()
+        || host.starts_with('/')
+        || host.eq_ignore_ascii_case("localhost")
+    {
         return true;
     }
     host.trim_matches(['[', ']'])
@@ -99,7 +105,9 @@ mod tests {
 
     #[tokio::test]
     async fn server_startup_bind_allowed_localhost_resolves_to_loopback_only() {
-        assert_eq!(check_bind("localhost:1").await.unwrap(), Ok(()));
+        let addrs = check_bind("localhost:1").await.unwrap().unwrap();
+        assert!(!addrs.is_empty());
+        assert!(addrs.iter().all(|a| a.ip().is_loopback() && a.port() == 1));
         assert_eq!(
             check_bind("192.0.2.1:1").await.unwrap(),
             Err(BindRefusal::NotLoopback)
@@ -114,6 +122,10 @@ mod tests {
             "postgres://u@[::1]:5432/d",
             "postgres://u@localhost/d",
             "postgres://u@localhost/d?host=/var/run/postgresql",
+            // `?host=/…` は sqlx が unix socket として持ち、host は URL のまま（final review R6）。
+            // 繋ぐのは socket なので、URL の host が何であれ手元
+            "postgres://u@db.example.com/d?host=/var/run/postgresql",
+            "postgres://u@192.0.2.1/d?host=/tmp",
         ] {
             assert!(db_host_is_local(ok), "{ok}");
         }
