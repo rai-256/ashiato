@@ -205,11 +205,11 @@ DB を使う検査は `.env`（Task 1 の雛形から作る）と `docker compos
 
 ## Task 10: 仕上げ
 
-- [ ] 10.1 `python3 scripts/check_scenarios.py .` で、この change の 59 本すべてに印があることを確かめる。
+- [x] 10.1 `python3 scripts/check_scenarios.py .` で、この change の 59 本すべてに印があることを確かめる。
   検証: `python3 scripts/check_scenarios.py .`
-- [ ] 10.2 全部の検査を通す。
+- [x] 10.2 全部の検査を通す。
   検証: `bash -c 'set -a; . ./.env; set +a; cargo test --workspace'`、`cargo clippy --all-targets -- -D warnings`、`tools/smoke.sh`、`tools/check-immutable.sh`、`tools/check-licenses.sh`、`tools/check-db-secret.sh`、`bash -c 'set -a; . ./.env; set +a; cd web && npm run lint && npm test && npx playwright test'`
-- [ ] 10.3 `docs/handoff/` を PR の前にもう 1 度読み、並走中の change が merge していたら rebase で追従する
+- [x] 10.3 `docs/handoff/` を PR の前にもう 1 度読み、並走中の change が merge していたら rebase で追従する
   （足された表 → 2.1 / 2.4 の試験が自動で拾う / 足された e2e → 既定の `storageState` で通る / superuser の操作を使う試験 → 所有者で書き直す /
   st12 が変えた `testdb.rs` のプールの持ち方 → `app_pool()` を同じ持ち方に揃える / st12 の `docker-compose.yml` の `max_connections` → 残したまま合言葉だけ `${…}`）。
   検証: `python3 scripts/review_triage.py . st28-private-network-only`
