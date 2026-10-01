@@ -188,14 +188,19 @@ pub(crate) async fn session_valid(app: &App, headers: &HeaderMap) -> Result<bool
     }))
 }
 
-/// 印で認めた応答には、寿命を出し直す `Set-Cookie` を付ける（D18）。
+/// 最も外側の層。**この求めの認可をここで 1 回だけ判定し**（`crate::AUTHN`。final review R3）、
+/// 内側（読み出しの記録・ハンドラ）はその判定を読む。
+/// 印で認めた応答には、寿命を出し直す `Set-Cookie` を付ける（D18）。ただし応答がもう
+/// `Set-Cookie` を持っているとき（ログイン・ログアウト）は付けない —— 2 本並ぶとブラウザは
+/// 後のほう（古い印）を採る（final review R2）。
 pub async fn refresh_cookie(State(app): State<App>, req: Request, next: Next) -> Response {
     let token = cookie_token(req.headers()).map(str::to_owned);
-    let headers = req.headers().clone();
-    let mut res = next.run(req).await;
+    let authn = crate::decide(&app, req.headers()).await;
+    let mut res = crate::AUTHN.scope(authn, next.run(req)).await;
     if let Some(token) = token {
-        if res.status() != StatusCode::UNAUTHORIZED
-            && matches!(session_valid(&app, &headers).await, Ok(true))
+        if authn == crate::Authn::Decided(Some(Caller::WebSession))
+            && res.status() != StatusCode::UNAUTHORIZED
+            && !res.headers().contains_key(header::SET_COOKIE)
         {
             res.headers_mut()
                 .append(header::SET_COOKIE, set_cookie(&token, COOKIE_MAX_AGE_SECS));
@@ -257,6 +262,15 @@ pub async fn session_post(
                 .starts_with("application/json")
         });
     if !is_json {
+        app.access
+            .write(session_entry(
+                &headers,
+                "none",
+                "POST",
+                "login_failed",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ))
+            .await?;
         return Err((
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "unsupported media type".into(),
@@ -300,15 +314,28 @@ pub async fn session_post(
     let mut raw = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO core.web_session (token_sha256, secret_tag, issued_at) VALUES ($1, $2, $3)",
     )
     .bind(sha256(&token))
     .bind(&app.login.tag)
     .bind(app.now())
     .execute(&app.pool)
-    .await
-    .map_err(|e| internal_at("session.insert", e))?;
+    .await;
+    if let Err(e) = inserted {
+        let err = internal_at("session.insert", e);
+        // 印を渡せなかったログインも 1 行残す（D8。final review R8）。書けなくても 500 のまま
+        app.access
+            .write(session_entry(
+                &headers,
+                "none",
+                "POST",
+                "login_failed",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+            .await?;
+        return Err(err);
+    }
     // 書けなければ印を渡さない（渡さない印は使えない）
     app.access
         .write(session_entry(

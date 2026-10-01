@@ -365,7 +365,7 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
     given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
 }
 
-/// 資格情報の種類だけを引く。**ログは出さない**（読み出しの記録の middleware と `authorize` の両方が呼ぶ）。
+/// 資格情報の種類だけを引く。**ログは出さない**。
 async fn authorize_quiet(
     app: &App,
     headers: &HeaderMap,
@@ -384,17 +384,55 @@ async fn authorize_quiet(
     Ok(None)
 }
 
+/// 1 つの求めについて 1 回だけ下した認可の判定（final review R3）。
+///
+/// 判定を段ごと（読み出しの記録・ハンドラ・印の出し直し）にやり直すと、その間にログアウトが
+/// 割り込んだとき「記録は ok / 200、応答は 401」のように食い違う。最も外側の層
+/// （`web_session::refresh_cookie`）が判定して [`AUTHN`] に置き、内側はそれを読む。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Authn {
+    /// 判定できた（`None` は資格情報が認められなかった）。
+    Decided(Option<web_session::Caller>),
+    /// 判定そのもの（印の照会）が DB で失敗した。ログは判定の場で 1 回だけ出してある。
+    LookupFailed,
+}
+
+tokio::task_local! {
+    /// この求めの判定。`router()` を通らない呼び出し（ハンドラを直に呼ぶ試験）では無い。
+    pub(crate) static AUTHN: Authn;
+}
+
+/// 判定を下す。DB の失敗は操作名つきでログに出し、`LookupFailed` にする。
+pub(crate) async fn decide(app: &App, headers: &HeaderMap) -> Authn {
+    match authorize_quiet(app, headers).await {
+        Ok(c) => Authn::Decided(c),
+        Err(e) => {
+            internal_at("session.lookup", e);
+            Authn::LookupFailed
+        }
+    }
+}
+
+/// この求めの判定。外側の層が下していればそれを使い、無ければここで下す。
+pub(crate) async fn decided(app: &App, headers: &HeaderMap) -> Authn {
+    match AUTHN.try_with(|a| *a) {
+        Ok(a) => a,
+        Err(_) => decide(app, headers).await,
+    }
+}
+
 /// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
 /// API の合言葉（`Bearer`）か有効なログインの印（cookie）のどちらかで通る。無ければ 401。
 async fn authorize(
     app: &App,
     headers: &HeaderMap,
 ) -> Result<web_session::Caller, (StatusCode, String)> {
-    if let Some(caller) = authorize_quiet(app, headers)
-        .await
-        .map_err(|e| internal_at("session.lookup", e))?
-    {
-        return Ok(caller);
+    match decided(app, headers).await {
+        Authn::Decided(Some(caller)) => return Ok(caller),
+        Authn::Decided(None) => {}
+        Authn::LookupFailed => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
     }
     let given = headers
         .get("authorization")

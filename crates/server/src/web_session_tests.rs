@@ -308,3 +308,57 @@ async fn web_session_lifetime_configured_expiry_applies() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+/// 有効な印を持ったまま合言葉でログインし直すと、`Set-Cookie` は新しい印の 1 本だけ
+/// （古い印の出し直しが後に並ぶと、ブラウザは後のほうを採る。final review R2）。
+#[tokio::test]
+async fn web_session_endpoint_relogin_with_cookie_sets_only_new_cookie() {
+    let pw = random_password();
+    let app = app_with(&pw, 0).await;
+    let old = login(&app, &pw).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/session")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, format!("{COOKIE}={old}"))
+        .body(Body::from(login_body(&pw)))
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let all: Vec<_> = res.headers().get_all(header::SET_COOKIE).iter().collect();
+    assert_eq!(all.len(), 1, "Set-Cookie が 1 本でない");
+    let new = token_of(all[0].to_str().unwrap());
+    assert_ne!(new, old, "新しい印が渡っていない");
+    assert_eq!(read_events(&app, &new).await.status(), StatusCode::OK);
+}
+
+/// 認可の判定は 1 求めに 1 回（final review R3）。外側の層が下した判定があれば、ハンドラの
+/// `authorize` は DB を引き直さずにそれを使う —— 途中でログアウトが割り込んでも、記録（ok / 200）と
+/// 応答が食い違わない。
+#[tokio::test]
+async fn web_session_authorization_is_decided_once_per_request() {
+    let pw = random_password();
+    let app = app_with(&pw, 0).await;
+    let token = login(&app, &pw).await;
+    let headers = with_cookie(Method::GET, "/events", &token)
+        .headers()
+        .clone();
+    let decided = crate::decide(&app, &headers).await;
+    assert_eq!(
+        decided,
+        Authn::Decided(Some(web_session::Caller::WebSession))
+    );
+
+    // 判定の後にログアウトしても、この求めの中では同じ判定が使われる
+    let res = send(&app, with_cookie(Method::DELETE, "/session", &token)).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let inner = crate::AUTHN
+        .scope(decided, async { authorize(&app, &headers).await })
+        .await;
+    assert_eq!(inner.unwrap(), web_session::Caller::WebSession);
+    // 判定の外（次の求め）では、ログアウトが効いている
+    assert_eq!(
+        authorize(&app, &headers).await.unwrap_err().0,
+        StatusCode::UNAUTHORIZED
+    );
+}

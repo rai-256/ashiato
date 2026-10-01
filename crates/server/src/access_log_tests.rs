@@ -462,3 +462,51 @@ async fn response_no_store_server_every_response() {
         assert!(cc.contains("no-store"), "{what}: Cache-Control = {cc}");
     }
 }
+
+/// 書く口に届いた行を残すだけの偽物（DB に触れない）。
+#[derive(Clone, Default)]
+struct Recorder(Arc<Mutex<Vec<AccessEntry>>>);
+
+impl AccessSink for Recorder {
+    fn record(&self, entry: AccessEntry) -> AccessFuture {
+        self.0.lock().unwrap().push(entry);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// `POST /session` の 415（本文の型が違う）と 500（印を DB に書けない）も 1 行残す（D8 の「`/session` の 3 本」。
+/// final review R8）。印は置かない（Scenario の印は別の試験が持つ）。
+#[tokio::test]
+async fn access_log_middleware_session_post_unsupported_and_failed_are_logged() {
+    let password = random_password();
+    let (app, seen) = tee_app(&password).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/session")
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(Body::from(
+            serde_json::json!({ "password": password }).to_string(),
+        ))
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(res.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        std::mem::take(&mut *seen.lock().unwrap()),
+        vec![entry("none", "/session", "POST", "login_failed", 415)]
+    );
+
+    // 印を DB に書けない（接続を閉じた）ときの 500 も残す。書く口は DB に触れない偽物
+    let pool = testdb::pool().await;
+    let rec = Recorder::default();
+    let app = App::for_test(pool.clone(), TOKEN)
+        .with_web_login(&password, 0)
+        .with_access_sink(rec.clone());
+    pool.close().await;
+    let res = send(&app, login_req(&password)).await;
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(res.headers().get(header::SET_COOKIE).is_none());
+    assert_eq!(
+        std::mem::take(&mut *rec.0.lock().unwrap()),
+        vec![entry("none", "/session", "POST", "login_failed", 500)]
+    );
+}

@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 
-use crate::{authorize_quiet, internal_at, App};
+use crate::{decided, internal_at, App, Authn};
 
 /// 記録の経路（D8）。`x-forwarded-for` があれば網越し（`tailscale serve` が付ける）。
 /// **同じ PC のプロセスは偽れる**（spec の注記）。
@@ -116,9 +116,12 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
     if route == "/healthz" || route == "/session" {
         return next.run(req).await;
     }
-    let caller = match authorize_quiet(&app, req.headers()).await {
-        Ok(c) => c,
-        Err(e) => return internal_at("session.lookup", e).into_response(),
+    // 判定は外側の層が 1 回だけ下したもの（final review R3）。ハンドラも同じ判定を読む
+    let caller = match decided(&app, req.headers()).await {
+        Authn::Decided(c) => c,
+        Authn::LookupFailed => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+        }
     };
     if caller.is_some() && is_ingest(&route) {
         return next.run(req).await;
