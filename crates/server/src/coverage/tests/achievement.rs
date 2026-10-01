@@ -5,6 +5,81 @@
 use super::*;
 use crate::testdb;
 
+/// 削除は後から付く印であり、収集が動いていた事実と達成日数を変えない。
+///
+/// Scenario: 1 日の記録をすべて消しても稼働状況は記録ありのまま
+/// Scenario: 記録を消しても達成日数は減らない
+#[tokio::test]
+async fn coverage_counts_deleted() {
+    let pool = testdb::pool().await;
+    let (source, user) = src(&pool, "deleted-fixed", SIX_HOURS, Some("2026-05-01")).await;
+    testdb::put_event(
+        &pool,
+        user,
+        &source.logical_source,
+        "2026-05-01T12:00:00+09:00",
+    )
+    .await;
+    testdb::put_event(
+        &pool,
+        user,
+        &source.logical_source,
+        "2026-05-02T12:00:00+09:00",
+    )
+    .await;
+
+    let before = achievement(
+        &pool,
+        Some(user),
+        testdb::date("2026-05-03"),
+        &[(source.logical_source.clone(), Subject::Device)],
+    )
+    .await
+    .unwrap();
+    let before_days = before.sources[0].achieved_days;
+    assert_eq!(
+        before_days, 2,
+        "削除対象を含む 2 日が達成日として数えられている"
+    );
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE core.event
+            SET deleted_at = now(), deleted_by = 'user'
+          WHERE user_id = $1 AND logical_source = $2
+            AND event_time >= '2026-05-01T00:00:00+09:00'
+            AND event_time < '2026-05-02T00:00:00+09:00'",
+    )
+    .bind(user)
+    .bind(&source.logical_source)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(
+        state_on(&pool, user, &source, "2026-05-01").await,
+        DayState::Recorded,
+    );
+
+    let after = achievement(
+        &pool,
+        Some(user),
+        testdb::date("2026-05-03"),
+        &[(source.logical_source, Subject::Device)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(after.sources[0].achieved_days, 2);
+    assert_eq!(after.sources[0].achieved_days, before_days);
+}
+
 /// 端末が主語のソースは記録の有無で数える（tasks 6.2）。
 ///
 /// Scenario: 端末が主語のソースは記録の有無で数える

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { todayInTz } from "./App";
 import {
   clock,
@@ -12,10 +12,29 @@ import {
   type DayEntry,
   type DayView as DayData,
 } from "./stays";
-import { MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
+import { DESTRUCTIVE_TARGET_PX, MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
 
 /** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
+
+type StayDetailCount = { logical_source: string; display_name: string; count: number };
+type StayDetail = { stay_id: string; start: string; end: string; counts: StayDetailCount[] };
+
+function isStayDetail(v: unknown): v is StayDetail {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.stay_id === "string" &&
+    typeof o.start === "string" &&
+    typeof o.end === "string" &&
+    Array.isArray(o.counts) &&
+    o.counts.every((count) => {
+      if (typeof count !== "object" || count === null) return false;
+      const c = count as Record<string, unknown>;
+      return typeof c.logical_source === "string" && typeof c.display_name === "string" && typeof c.count === "number";
+    })
+  );
+}
 
 /** OS の明暗の設定。**取得できないときはダーク**（NFR-17）。 */
 export function useScheme(): Scheme {
@@ -50,6 +69,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
   const scheme = useScheme();
   const c = SCHEMES[scheme];
   const [data, setData] = useState<Load<DayData>>({ at: "loading" });
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -66,7 +86,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     return () => {
       live = false;
     };
-  }, [date]);
+  }, [date, reload]);
 
   const control: React.CSSProperties = {
     minHeight: MIN_TARGET_PX,
@@ -132,16 +152,56 @@ export function DayView({ date }: { date: string }): React.ReactElement {
           1 日の並びの読み出しに失敗しました（{data.why}）。滞在や記録が無いのではありません。
         </p>
       )}
-      {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} />}
+      {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} reload={() => setReload((n) => n + 1)} />}
     </main>
   );
 }
 
-function Entries({ view, scheme, future }: { view: DayData; scheme: Scheme; future: boolean }): React.ReactElement {
+function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Scheme; future: boolean; reload: () => void }): React.ReactElement {
   const c = SCHEMES[scheme];
   const main = view.criteria[0];
   const byId = new Map<number, CriteriaTag>(view.criteria.map((t) => [t.criteria_id, t]));
   const stays = view.entries.filter((e) => e.kind === "stay").length;
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Load<StayDetail> | null>(null);
+  const detailGeneration = useRef(0);
+  const [actionError, setActionError] = useState<{ entryKey: string; message: string } | null>(null);
+
+  const open = (entry: DayEntry): void => {
+    const id = entry.id;
+    if (id === undefined) return;
+    if (openId === id) {
+      detailGeneration.current += 1;
+      setOpenId(null);
+      setDetail(null);
+      return;
+    }
+    const generation = detailGeneration.current + 1;
+    detailGeneration.current = generation;
+    setOpenId(id);
+    setDetail({ at: "loading" });
+    fetch(`/api/stays/detail?stay_id=${encodeURIComponent(id)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        const body: unknown = await res.json();
+        if (!isStayDetail(body)) throw new Error("unexpected_shape");
+        return body;
+      })
+      .then((value) => generation === detailGeneration.current && setDetail({ at: "ok", value }))
+      .catch((e: unknown) => generation === detailGeneration.current && setDetail({ at: "failed", why: e instanceof Error ? e.message : "unknown" }));
+  };
+
+  const action = (path: string, body: Record<string, unknown>, entryKey: string): void => {
+    setActionError(null);
+    fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then((res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        setOpenId(null);
+        setDetail(null);
+        reload();
+      })
+      .catch(() => setActionError({ entryKey, message: "操作に失敗しました。もう一度お試しください。" }));
+  };
   return (
     <>
       {main !== undefined && (
@@ -169,6 +229,11 @@ function Entries({ view, scheme, future }: { view: DayData; scheme: Scheme; futu
             viewing={view.date}
             scheme={scheme}
             criteria={e.criteria_id !== undefined && main !== undefined && e.criteria_id !== main.criteria_id ? byId.get(e.criteria_id) : undefined}
+            open={openId === e.id}
+            detail={openId === e.id ? detail : null}
+            onOpen={() => open(e)}
+            onAction={action}
+            actionError={actionError}
           />
         ))}
       </ol>
@@ -181,11 +246,21 @@ function Row({
   viewing,
   scheme,
   criteria,
+  open,
+  detail,
+  onOpen,
+  onAction,
+  actionError,
 }: {
   entry: DayEntry;
   viewing: string;
   scheme: Scheme;
   criteria: CriteriaTag | undefined;
+  open: boolean;
+  detail: Load<StayDetail> | null;
+  onOpen: () => void;
+  onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void;
+  actionError: { entryKey: string; message: string } | null;
 }): React.ReactElement {
   const c = SCHEMES[scheme];
   const range = `${clock(entry.start, viewing)} – ${clock(entry.end, viewing)}`;
@@ -195,18 +270,34 @@ function Row({
     padding: "6px 10px",
     margin: "0 0 6px",
   };
+  const entryKey = entry.id ?? entry.stay_ids?.join(",") ?? "";
   if (entry.kind === "stay") {
     return (
       <li data-testid="row-stay" data-kind="stay" style={{ ...base, background: tone(c.surface1), borderRadius: 8 }}>
-        <h2 style={{ font: "600 17px/1.4 system-ui, sans-serif", margin: 0 }}>{range}</h2>
-        <p style={{ margin: 0, color: tone(c.muted) }}>
-          {long} ・ {range}
-        </p>
-        {criteria !== undefined && (
-          <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>
-            {criteriaLabel(criteria)} で作った
-          </p>
-        )}
+        <button
+          type="button"
+          aria-expanded={open}
+          {...{ [FOCUS_ATTR]: "" }}
+          onClick={onOpen}
+          style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", color: "inherit", background: "transparent", border: 0 }}
+        >
+          <h2 style={{ font: "600 17px/1.4 system-ui, sans-serif", margin: 0 }}>{range}</h2>
+          <p style={{ margin: 0, color: tone(c.muted) }}>{long} ・ {range}</p>
+          {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{criteriaLabel(criteria)} で作った</p>}
+        </button>
+        {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
+        {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
+      </li>
+    );
+  }
+  if (entry.kind === "erased") {
+    return (
+      <li data-testid="row-erased" data-kind="erased" style={{ ...base, color: tone(c.muted) }}>
+        消した {range}
+        <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={{ ...controlStyle(c), marginLeft: 8 }}>
+          戻す
+        </button>
+        {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
       </li>
     );
   }
@@ -216,5 +307,32 @@ function Row({
       {entry.kind === "move" ? `${word} ${long}` : `${word} ${range}`}
       {entry.kind === "move" && <span> ・ {range}</span>}
     </li>
+  );
+}
+
+function controlStyle(c: (typeof SCHEMES)[Scheme]): React.CSSProperties {
+  return { minHeight: MIN_TARGET_PX, minWidth: MIN_TARGET_PX, padding: "4px 10px", color: tone(c.text), background: tone(c.surface2), border: `1px solid ${tone(c.muted)}`, borderRadius: 8 };
+}
+
+function StayDetailView({ entry, detail, onAction, scheme }: { entry: DayEntry; detail: Load<StayDetail> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
+  const [confirming, setConfirming] = useState(false);
+  const counts = detail?.at === "ok" ? detail.value.counts : [];
+  return (
+    <div data-testid="stay-detail" style={{ marginTop: 8 }}>
+      {detail?.at === "loading" && <p>詳細を読み込み中…</p>}
+      {detail?.at === "failed" && <p role="alert">詳細の読み出しに失敗しました（{detail.why}）。</p>}
+      {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{count.display_name} {count.count} 件</p>)}</div>}
+      {detail?.at === "ok" && !confirming ? (
+        <button type="button" onClick={() => setConfirming(true)} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginTop: 8 }}>
+          この滞在を消す
+        </button>
+      ) : detail?.at === "ok" && confirming ? (
+        <div data-testid="erase-confirm" style={{ marginTop: 8 }}>
+          <p>この滞在と一緒に消える位置の記録 {counts.find((count) => count.logical_source === "c01-location")?.count ?? 0} 件です。消しますか？</p>
+          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES[scheme])}>やめる</button>
+          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>消す</button>
+        </div>
+      ) : null}
+    </div>
   );
 }
