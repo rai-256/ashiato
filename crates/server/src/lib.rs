@@ -50,6 +50,9 @@ mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod net_guard;
+/// 場所の器と場所の記録の錠（ST21）。
+#[cfg(test)]
+mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -73,7 +76,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 19] = [
+pub const MIGRATIONS: [(&str, &str); 20] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -161,6 +164,12 @@ pub const MIGRATIONS: [(&str, &str); 19] = [
     (
         "202609291230_clock_source",
         include_str!("../../../migrations/202609291230_clock_source.sql"),
+    ),
+    // 場所の器と、場所の記録の錠（ST21 / design D1 / D5 / D16）。
+    // 場所の記録そのものは `core.event` に入る
+    (
+        "202610020030_places",
+        include_str!("../../../migrations/202610020030_places.sql"),
     ),
 ];
 

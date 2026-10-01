@@ -926,6 +926,184 @@ else
 fi
 
 
+# ================================================================ ST21: 場所の器と場所の記録の錠
+#
+# **取り込み口を通さず psql から直に殴る**（`cargo test` の `place_lock_` は同じ文を sqlx で撃つが、
+# 同じ PC の第三者製プラグインや手作業が打てるのはこの経路）。
+# 通すのは **削除の印・感度・その記録の台帳つきの消去**だけ。`s01-place` の登録簿の行は移行が入れている。
+echo "== ST21: 場所の器と場所の記録の錠"
+PL='b0000000-0000-4000-8000-000000000001'      # 器
+PA='b1111111-1111-4111-8111-000000000001'      # 書き換えの拒否と、消去の偽物を全部ここへ当てる
+PB='b2222222-2222-4222-8222-000000000001'      # 削除の印・感度
+PC='b3333333-3333-4333-8333-000000000001'      # 台帳つきの消去が**通る**ことだけを見る
+
+# Scenario: 器の表は書き換えも削除も切り詰めもできない
+psql -c "INSERT INTO core.place (id, user_id) VALUES ('$PL','$AU') ON CONFLICT DO NOTHING;" >/dev/null
+for stmt in "UPDATE core.place SET user_id='11111111-1111-4111-8111-111111111111' WHERE id='$PL';" \
+            "UPDATE core.place SET id='b9999999-9999-4999-8999-999999999999' WHERE id='$PL';" \
+            "DELETE FROM core.place WHERE id='$PL';" \
+            "TRUNCATE core.place;" \
+            "TRUNCATE core.place CASCADE;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG 場所の器が変えられた: $stmt"; fail=1
+  fi
+done
+left=$(psql -c "SELECT count(*) FROM core.place WHERE id='$PL' AND user_id='$AU';")
+[ "$left" = "1" ] \
+  && echo "  OK place 器の表は書き換えも削除も切り詰めもできない" \
+  || { echo "  NG 場所の器が $left 行（1 行のはず）"; fail=1; }
+
+place_row_of() {   # $1=id
+  printf "INSERT INTO core.event
+     (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
+      schema_version, sensitivity, content_hash, raw, payload)
+   VALUES ('%s','%s','s01-place','authored','2026-09-15T02:00:00Z',540,'Asia/Tokyo',1,1,
+           'place-hash-%s',
+           '{\"lat\":35.0,\"lon\":139.0}','{\"lat\":35.0,\"lon\":139.0}');" "$1" "$AU" "$1"
+}
+for id in "$PA" "$PB" "$PC"; do psql -c "$(place_row_of "$id")" >/dev/null; done
+
+# Scenario: 場所の記録の座標を書き換える文は拒まれる
+if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{lat}','36.0') WHERE id='$PA';" \
+     >/dev/null 2>&1; then
+  echo "  NG 場所の記録の座標が書き換えられた（FR-46 違反）"; fail=1
+else
+  echo "  OK place 場所の記録の座標の書き換えは拒まれた"
+fi
+got=$(psql -c "SELECT payload->>'lat' FROM core.event WHERE id='$PA';")
+[ "$got" = "35.0" ] || { echo "  NG 拒まれたのに緯度が変わっている: $got"; fail=1; }
+
+# Scenario: 場所の記録の書いた日時は書き換えられない / 場所の記録の利用者は書き換えられない
+for set in "event_time='2000-01-01T00:00:00Z'" "user_id='11111111-1111-4111-8111-111111111111'"; do
+  if psql -c "UPDATE core.event SET $set WHERE id='$PA';" >/dev/null 2>&1; then
+    echo "  NG 場所の記録の列が書き換えられた: $set"; fail=1
+  fi
+done
+
+# Scenario: 場所の記録の行は削除できない
+if psql -c "DELETE FROM core.event WHERE id='$PA';" >/dev/null 2>&1; then
+  echo "  NG 場所の記録を行ごと消せた（FR-46 違反）"; fail=1
+else
+  echo "  OK place 場所の記録は行ごと消せない"
+fi
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE id='$PA';")" = "1" ] \
+  || { echo "  NG 場所の記録が消えている"; fail=1; }
+
+# Scenario: 他の記録を場所の記録へ付け替えられない
+if psql -c "UPDATE core.event SET logical_source='s01-place'
+             WHERE id='33333333-3333-4333-8333-333333333333';" >/dev/null 2>&1; then
+  echo "  NG 他の「本人が書いた」記録を場所の記録へ付け替えられた"; fail=1
+else
+  echo "  OK place 他の記録を場所の記録へ付け替えられない"
+fi
+
+# --- 通さなければならない開口部
+#
+# Scenario: 場所の記録に削除の印を付けられる
+if psql -c "UPDATE core.event SET deleted_at=now(), deleted_by='check' WHERE id='$PB';" \
+     >/dev/null 2>&1; then
+  echo "  OK place 場所の記録に削除の印を付けられる"
+else
+  echo "  NG 場所の記録の削除の印まで止めている（FR-50）"; fail=1
+fi
+psql -c "UPDATE core.event SET deleted_at=NULL, deleted_by=NULL WHERE id='$PB';" >/dev/null
+
+# Scenario: 場所の記録の感度を変えられる
+if psql -c "UPDATE core.event SET sensitivity=3 WHERE id='$PB';" >/dev/null 2>&1; then
+  echo "  OK place 場所の記録の感度を変えられる"
+else
+  echo "  NG 場所の記録の感度まで止めている（PERM-2）"; fail=1
+fi
+
+# --- 消去（FR-51）。**通るのは「その記録の台帳がある、消去の形」だけ**
+place_ledger() {   # $1=台帳に書く記録の id
+  printf "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+          VALUES ('%s','%s','s01-place','event','check');" "$1" "$AU"
+}
+
+# Scenario: 台帳の無い場所の記録の消去は拒まれる
+if psql -c "UPDATE core.event SET raw='', payload='{}' WHERE id='$PA';" >/dev/null 2>&1; then
+  echo "  NG 台帳を書かない消去が通った"; fail=1
+else
+  echo "  OK place 台帳の無い場所の記録の消去は拒まれた"
+fi
+[ "$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$PA';")" = "t" ] \
+  || { echo "  NG 拒まれたのに本文が消えている"; fail=1; }
+
+# Scenario: 別の記録の台帳の行では場所の記録の消去は通らない
+if psql -c "$(place_ledger '77777777-7777-4777-8777-777777777777')
+            UPDATE core.event SET raw='', payload='{}' WHERE id='$PA';" >/dev/null 2>&1; then
+  echo "  NG 別の記録の台帳 1 行で場所の記録が消去できた（門が「その記録の」を見ていない）"; fail=1
+else
+  echo "  OK place 別の記録の台帳の行では場所の記録の消去は通らない"
+fi
+[ "$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$PA';")" = "t" ] \
+  || { echo "  NG 別の記録の台帳で本文が消えた"; fail=1; }
+
+# Scenario: 台帳の行があっても消去の形でない場所の記録の書き換えは拒まれる
+if psql -c "$(place_ledger "$PA")
+            UPDATE core.event SET raw='', payload='{\"lat\":1.0,\"lon\":2.0}' WHERE id='$PA';" \
+     >/dev/null 2>&1; then
+  echo "  NG 消去の顔で解析済みを差し替えられた"; fail=1
+else
+  echo "  OK place 台帳の行があっても、消去の形でない書き換えは拒まれた"
+fi
+
+# Scenario: 台帳のある場所の記録の消去は通る
+if psql -c "$(place_ledger "$PC")
+            UPDATE core.event SET raw='', payload='{}' WHERE id='$PC';" >/dev/null 2>&1; then
+  echo "  OK place 台帳のある場所の記録の消去は通る"
+else
+  echo "  NG 場所の記録の本文が消せない（FR-51）"; fail=1
+fi
+[ "$(psql -c "SELECT raw = '' AND payload = '{}'::jsonb FROM core.event WHERE id='$PC';")" = "t" ] \
+  || { echo "  NG 通ったのに本文が残っている"; fail=1; }
+[ "$(psql -c "SELECT content_hash FROM core.event WHERE id='$PC';")" = "place-hash-$PC" ] \
+  || { echo "  NG 消去で内容の鍵が動いた"; fail=1; }
+
+# Scenario: 場所の錠を足しても主張の錠は変わらない
+if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{value}','\"京都府\"')
+             WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  echo "  NG 場所の錠を足したら主張の値が書き換えられるようになった"; fail=1
+elif psql -c "UPDATE core.event SET deleted_at=now(), deleted_by='check' WHERE id='$CLAIM_B';" \
+       >/dev/null 2>&1; then
+  echo "  OK place 場所の錠を足しても主張の錠は変わらない"
+else
+  echo "  NG 場所の錠を足したら主張の削除の印が付けられなくなった"; fail=1
+fi
+psql -c "UPDATE core.event SET deleted_at=NULL, deleted_by=NULL WHERE id='$CLAIM_B';" >/dev/null
+
+# **場所の行がある DB でも、本人が書いた記録（`immutable-check`）は従来どおり書き換えられる**
+# （ST19 の段が `logical_source = 'immutable-check'` に絞られている。絞らないと場所の行に当たって落ちる）
+if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
+            WHERE logical_source = 'immutable-check' AND origin = 'authored';" >/dev/null 2>&1; then
+  echo "  OK place 場所の行があっても、主張・場所以外の本人が書いた記録は書き換えられる"
+else
+  echo "  NG 場所の行があると本人が書いた記録の書き換えが通らない"; fail=1
+fi
+
+# --- 戻し手順（D16）。**場所の記録か器の行が残っていれば、器の表も登録簿の行も残す**
+#
+# 錠が落ちるので、この節の最後に置く。
+before=$(psql -c "SELECT count(*) FROM core.place;")
+psql < migrations/202610020030_places.down.sql >/dev/null 2>&1 \
+  || { echo "  NG 202610020030_places.down.sql が当たらない"; fail=1; }
+after=$(psql -c "SELECT count(*) FROM core.place;")
+[ "$before" = "$after" ] \
+  || { echo "  NG 器が残っているのに器の表が $before → $after 行になった"; fail=1; }
+[ "$(psql -c "SELECT count(*) FROM core.source WHERE logical_source='s01-place';")" = "1" ] \
+  || { echo "  NG 場所が残っているのに登録簿の行が消えた"; fail=1; }
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE id IN ('$PA','$PB','$PC');")" = "3" ] \
+  || { echo "  NG 戻しでこの節の場所の記録が減った（3 件のはず）"; fail=1; }
+echo "  OK place 場所が残っていれば、戻しても器の表と登録簿の行と場所の記録が残る"
+psql < migrations/202610020030_places.sql >/dev/null 2>&1 \
+  || { echo "  NG 戻した後に当て直せない"; fail=1; }
+if psql -c "UPDATE core.event SET payload='{\"forged\":1}' WHERE id='$PA';" >/dev/null 2>&1; then
+  echo "  NG 戻して進めた後に場所の記録の錠が消えている"; fail=1
+else
+  echo "  OK place 戻して進めても場所の記録の錠は効いている"
+fi
+
 # --- 戻し手順が当たること（R117）。
 # `tools/check-migrations.sh` は **down.sql の存在と「不可逆」の記載だけ**を静的に見ており、
 # **1 度も当てていない**。この change で 5 本増えるので、ここで逆順に当てて構文と依存を見る。
@@ -939,6 +1117,16 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
+# **ST21 の場所の版をいちばん先に戻す**（最後に足した版）。場所の行は 0 件 —— 器の表と登録簿の行も落ちる側を通る。
+# 戻して進め直せること、2 回目の戻しも当たることまで見る
+psql < "migrations/202610020030_places.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610020030_places.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.place') IS NULL AND NOT EXISTS (SELECT 1 FROM core.source WHERE logical_source='s01-place');")" = "t" ] \
+  || { echo "  NG 場所が 0 件なのに器の表か登録簿の行が残っている"; fail=1; down_fail=1; }
+psql < "migrations/202610020030_places.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610020030_places.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202610020030_places.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610020030_places.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 # **新しい版から戻す。** ST22 の削除の台帳がいちばん新しい。
 psql < "migrations/202609271716_deletion_ledger.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202609271716_deletion_ledger.down.sql が当たらない"; fail=1; down_fail=1; }
@@ -984,7 +1172,7 @@ for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK ST22 の 1 本・ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST21 の 1 本・ST22 の 1 本・ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \
