@@ -358,11 +358,15 @@ impl std::fmt::Debug for StayRebuilder {
 /// **この性質は単体テストでは捕まえられない**（時間を測らない限り観測できない）。
 /// 早期打ち切りが書けない型に置き換えて、性質を構造で保証する。
 ///
-/// 長さの一致は先に見る。**全体の長さは漏れるが、それは合言葉の中身ではない** ——
-/// spec が禁じているのは「一致した長さ（＝どこまで合っていたか）」からの推測。
+/// **長さも先に比べない**（final review R9）。長さ違いで早く返すと、掛かった時間から合言葉の
+/// 長さが漏れる。両方を SHA-256 にして同じ 32 バイトどうしを比べる（ダイジェストが一致するのは
+/// 元が同じときだけ、とみなせる）。
 pub fn token_matches(given: &str, expected: &str) -> bool {
+    use sha2::{Digest as _, Sha256};
     use subtle::ConstantTimeEq as _;
-    given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
+    let given = Sha256::digest(given.as_bytes());
+    let expected = Sha256::digest(expected.as_bytes());
+    given.as_slice().ct_eq(expected.as_slice()).into()
 }
 
 /// 資格情報の種類だけを引く。**ログは出さない**。
