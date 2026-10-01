@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { FOCUS_ATTR } from "./DayView";
 import { control } from "./controls";
+import { Band } from "./PlaceBand";
+import { AddPanel, ChangeForm, useChangeOpen, type ChangeKind } from "./PlaceForms";
 import {
   coordLabel,
   durationLabel,
-  hourLevels,
   isPlacesData,
   previousCoordLabel,
   type Place,
@@ -25,6 +26,9 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
  */
 export function PlacesView({ scheme }: { scheme: Scheme }): React.ReactElement {
   const [data, setData] = useState<Load<PlacesData>>({ at: "loading" });
+  const [adding, setAdding] = useState(false);
+  /** 受理のたびに進めて、開いている居た所の一覧を読み直させる */
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -42,8 +46,20 @@ export function PlacesView({ scheme }: { scheme: Scheme }): React.ReactElement {
     void load();
   }, [load]);
 
+  const reload = useCallback(async (): Promise<void> => {
+    await load();
+    setReloadKey((k) => k + 1);
+  }, [load]);
+
+  const registered = data.at === "ok" ? data.value.places.map((p) => p.coord) : [];
   return (
     <section data-testid="places-view" aria-label="場所">
+      <div style={{ marginBottom: 8 }}>
+        <button type="button" aria-expanded={adding} {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => setAdding(!adding)}>
+          場所を足す
+        </button>
+      </div>
+      {adding && <AddPanel scheme={scheme} reloadKey={reloadKey} onDone={reload} />}
       {data.at === "loading" && <p data-testid="places-loading">読み込み中…</p>}
       {/* **読み出しの失敗と「場所がまだ無い」を混ぜない**（spec）。混ぜるとサーバが落ちている間ずっと「場所が無い」と読める */}
       {data.at === "failed" && (
@@ -53,15 +69,36 @@ export function PlacesView({ scheme }: { scheme: Scheme }): React.ReactElement {
       )}
       {data.at === "ok" && data.value.places.length === 0 && <p data-testid="places-empty">場所がまだありません。</p>}
       {data.at === "ok" &&
-        data.value.places.map((p) => <PlaceCard key={p.id} place={p} scheme={scheme} />)}
+        data.value.places.map((p) => (
+          <PlaceCard key={p.id} place={p} registered={registered} scheme={scheme} reloadKey={reloadKey} onDone={reload} />
+        ))}
     </section>
   );
 }
 
+const CHANGES: [ChangeKind, string][] = [
+  ["name", "名前を変える"],
+  ["radius", "広さを変える"],
+  ["coord", "座標を変える"],
+];
+
 /** 場所 1 つぶんのカード。 */
-function PlaceCard({ place, scheme }: { place: Place; scheme: Scheme }): React.ReactElement {
+function PlaceCard({
+  place,
+  registered,
+  scheme,
+  reloadKey,
+  onDone,
+}: {
+  place: Place;
+  registered: { lat: number; lon: number }[];
+  scheme: Scheme;
+  reloadKey: number;
+  onDone: () => Promise<void>;
+}): React.ReactElement {
   const c = SCHEMES[scheme];
   const [open, setOpen] = useState(false);
+  const change = useChangeOpen();
   const previousCount = place.previous_names.length + place.previous_coords.length;
   const { stays } = place;
   return (
@@ -109,35 +146,28 @@ function PlaceCard({ place, scheme }: { place: Place; scheme: Scheme }): React.R
           )}
         </>
       )}
-    </article>
-  );
-}
-
-/** 24 区分の帯。濃さ = その時刻台の分 ÷ 最大。**0 の区分も枠は描く**（D12）。 */
-function Band({ hours, scheme }: { hours: number[]; scheme: Scheme }): React.ReactElement {
-  const c = SCHEMES[scheme];
-  const levels = hourLevels(hours);
-  return (
-    <div
-      role="img"
-      aria-label="24 区分の帯（0 時台から 23 時台）"
-      data-testid="place-band"
-      style={{ display: "flex", gap: 1, margin: "4px 0" }}
-    >
-      {levels.map((level, h) => (
-        <span
-          key={h}
-          data-hour={h}
-          data-level={level}
-          style={{
-            flex: 1,
-            height: 14,
-            boxSizing: "border-box",
-            border: `1px solid ${tone(c.muted)}`,
-            background: tone(c.surface2 + (c.muted - c.surface2) * level),
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+        {CHANGES.map(([kind, label]) => (
+          <button key={kind} type="button" aria-expanded={change.open === kind} {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => change.toggle(kind)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {change.open !== null && (
+        <ChangeForm
+          key={change.open}
+          kind={change.open}
+          place={place}
+          registered={registered}
+          scheme={scheme}
+          reloadKey={reloadKey}
+          onDone={async () => {
+            change.close();
+            await onDone();
           }}
+          onCancel={change.close}
         />
-      ))}
-    </div>
+      )}
+    </article>
   );
 }

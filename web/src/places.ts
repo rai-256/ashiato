@@ -6,7 +6,13 @@
  * **原文は画面が組む**（design D2 / D3）—— サーバは受け取ったまま保存するので、サーバが乱数を足すと原文が変わる。
  * 場所の識別子は応答の型として持つだけで、画面には出さない。
  */
-import { newNonce, type ValidFrom } from "./attributes";
+import {
+  newNonce,
+  readKindResponse,
+  UNREACHABLE_MESSAGE,
+  type SendOutcome,
+  type ValidFrom,
+} from "./attributes";
 
 /** 場所の記録の 2 つの時刻。RFC 3339（地域のずれつき / UTC）。 */
 export interface RecordTimes {
@@ -276,4 +282,114 @@ export function ingestPlaceItem(built: BuiltPlaceRecord, userId?: string): unkno
     raw: built.raw,
     payload: {},
   };
+}
+
+/** 広さの選択肢（m。D14。API は 5,000 m まで受ける）。 */
+export const RADIUS_CHOICES = [50, 100, 200, 300];
+/** 登録の広さの最初（`places::PLACE_DEFAULT_RADIUS_M` と同じ） */
+export const DEFAULT_RADIUS_M = 100;
+/** 名前の無い居た所を最初に出す件数（D10 / D14）。残りは「残り N か所」 */
+export const CANDIDATE_TOP = 10;
+
+/** 器を作る求めの断り。押し直しで識別子を作り直す印（D13） */
+export const PLACE_ID_TAKEN = "place_id_taken";
+
+/** 断られた理由を、本人に読める文にする（design D13 の表。種別ごとに文を分ける）。 */
+export function placeRejectionMessage(kind: string): string {
+  switch (kind) {
+    case "invalid_place_name":
+      return "名前が空です。名前を入れてください";
+    case "invalid_radius":
+      return "広さが範囲の外です";
+    case "invalid_valid_from":
+      return "「いつから」の日付が読めません";
+    case "unknown_place":
+      return "この場所が見つかりません。画面を読み直してください";
+    case "invalid_coord_supersedes":
+      return "直す座標が見つかりません。画面を読み直してください";
+    case "invalid_coord_change":
+      return "この場所の座標の変え方が合いません。画面を読み直してください";
+    case "invalid_coordinate":
+      return "座標が読めません";
+    case PLACE_ID_TAKEN:
+      return "場所を作れませんでした。もう一度「登録する」を押してください";
+    default:
+      return `受け付けられませんでした（${kind}）`;
+  }
+}
+
+/** 送った結果を本人に見せる文。`accepted` には文が無い。 */
+export function outcomeMessage(outcome: Exclude<SendOutcome, { at: "accepted" }>): string {
+  return outcome.at === "rejected" ? placeRejectionMessage(outcome.kind) : UNREACHABLE_MESSAGE;
+}
+
+/**
+ * 記録の束への応答を読む（D13）。**200 でも 400 でも本文の 1 件ごとの結果を読む**。
+ * 1 件でも受理されなかったものがあれば、その理由を返す（束は冪等なので、押し直しで受理済みは畳まれる）。
+ * 本文が読めない・5xx・401 だけが「届かなかった」。
+ */
+export async function readPlaceIngestResponse(res: Response): Promise<SendOutcome> {
+  if (res.status >= 500 || res.status === 401) return { at: "unreachable" };
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return { at: "unreachable" };
+  }
+  if (!Array.isArray(body)) return { at: "unreachable" };
+  if (body.length === 0) return { at: "rejected", kind: "unknown" };
+  const refused = (body as { accepted?: unknown; error?: unknown }[]).find((r) => r.accepted !== true);
+  if (refused === undefined) return { at: "accepted" };
+  return { at: "rejected", kind: typeof refused.error === "string" ? refused.error : "unknown" };
+}
+
+/** 場所の記録の束を `POST /api/ingest` へ送る。 */
+export async function sendPlaceRecords(records: BuiltPlaceRecord[]): Promise<SendOutcome> {
+  const res = await fetch("/api/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(records.map((r) => ingestPlaceItem(r))),
+  });
+  return readPlaceIngestResponse(res);
+}
+
+/** 器を作る（`POST /api/places`。同じ利用者の同じ識別子は 200）。 */
+export async function sendPlaceContainer(id: string): Promise<SendOutcome> {
+  const res = await fetch("/api/places", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  return readKindResponse(res);
+}
+
+/** 登録で本人が入れたもの。座標は選んだ居た所の中心（書き換えられない）。 */
+export interface RegistrationInput {
+  name: string;
+  lat: number;
+  lon: number;
+  radius_m: number;
+  note: string;
+}
+
+/** 登録で送るもの: 新しい器の識別子と、名前・初めての座標・広さ（・補足）の記録。 */
+export interface Registration {
+  placeId: string;
+  records: BuiltPlaceRecord[];
+}
+
+/**
+ * 登録の求めを組む（D13）。**押した時点で器の識別子・各記録の `id`・乱数・書いた日時が決まる**。
+ * 広さは既定の 100 m でも送る（本人が選んだ値を記録に残す）。補足は入れたときだけ。
+ */
+export function buildRegistration(input: RegistrationInput, now: Date): Registration {
+  const placeId = crypto.randomUUID();
+  const rec = (spec: PlaceField): BuiltPlaceRecord => buildPlaceRecord(spec, now, crypto.randomUUID(), placeId);
+  const records = [
+    rec({ field: "name", name: input.name }),
+    rec({ field: "coord", lat: input.lat, lon: input.lon, change: "first" }),
+    rec({ field: "radius", radius_m: input.radius_m }),
+  ];
+  if (input.note.trim() !== "") records.push(rec({ field: "note", note: input.note }));
+  return { placeId, records };
 }
