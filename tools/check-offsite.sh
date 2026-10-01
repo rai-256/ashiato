@@ -47,5 +47,5 @@ if [ -n "$hits" ]; then
   printf '  NG %s\n' $hits >&2
   exit 1
 fi
-# Scenario: サーバは拠点外へ書き出す部品を持たない
-echo "サーバは拠点外へ書き出す部品を持たない（一覧 $(( ${#exact[@]} + ${#prefix[@]} )) 件と突き合わせた）"
+echo "Scenario: サーバは拠点外へ書き出す部品を持たない"
+echo "  （一覧 $(( ${#exact[@]} + ${#prefix[@]} )) 件と突き合わせた）"
