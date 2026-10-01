@@ -1007,4 +1007,40 @@ else
   echo "  OK 戻して進めても門は効いている"
 fi
 
+# **読み出しの記録（core.access_log）は追記のみ**（ST28 / design D8）。管理者の接続でも拒まれる（トリガ）。
+# （Scenario「読み出しの記録の行は書き換えも削除もできない」の試験の本体は crates/server/src/access_migration_tests.rs）
+psql -c "INSERT INTO core.access_log (via, credential, route, method, outcome, status)
+         VALUES ('direct','none','/immutable-check','GET','ok',200);" >/dev/null
+for stmt in "UPDATE core.access_log SET status = 500" \
+            "DELETE FROM core.access_log" \
+            "TRUNCATE core.access_log"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG access_log が変えられた: $stmt"; fail=1
+  else
+    echo "  OK access_log ${stmt%% *} を拒んだ"
+  fi
+done
+kept=$(psql -c "SELECT count(*) FROM core.access_log WHERE route = '/immutable-check';")
+[ "$kept" = "1" ] || { echo "  NG access_log の行が $kept 行になっている（1 行のはず）"; fail=1; }
+
+# **アプリの役割（ashiato_app）の接続から、門を外す操作が拒まれること**（ST28 / design D4）。
+# 上の検査は管理者（superuser）で撃つので、アプリの接続の権限は見ていない。
+# 移行は管理者が当てたので、所有を ashiato_owner へ移し、付与（grants.sql）を当ててから、アプリで撃つ。
+# **拒まれたときだけ OK を出す**（通ってしまったら NG）。コンテナの中の socket で入る（合言葉は要らない）。
+./tools/db-roles.sh >/dev/null
+docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/grants.sql >/dev/null
+app_psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_app -d ashiato "$@"; }
+for op in "session_replication_role:SET session_replication_role = replica" \
+          "DISABLE TRIGGER:ALTER TABLE core.event DISABLE TRIGGER ALL" \
+          "TRUNCATE:TRUNCATE core.event CASCADE"; do
+  name="${op%%:*}"; sql="${op#*:}"
+  if err=$(app_psql -c "$sql" 2>&1); then
+    echo "  NG app-role $name が通ってしまった"; fail=1
+  elif printf '%s' "$err" | grep -qE 'permission denied|must be owner'; then
+    echo "  OK app-role $name を拒んだ"
+  else
+    echo "  NG app-role $name が権限の不足以外で落ちた"; fail=1
+  fi
+done
+
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }

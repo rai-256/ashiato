@@ -63,33 +63,32 @@ android {
 }
 
 /**
- * 平文 HTTP を**設定した接続先 1 ホストだけ**に許す設定を生成する。
+ * 平文 HTTP を **loopback（`localhost` / `127.0.0.1`）だけ**に許す設定を生成する（ST28 design D13）。
  *
- * **これが無いと 1 件も届かない。** targetSdk 28 以降、Android は平文 HTTP を既定で遮断し、
- * `UnknownServiceException`（`IOException` の子）を投げる。`HttpTransport` はそれを
- * `Unreachable` に畳むので、**アプリは動き続け、未送信は積まれ続け、logcat に 1 行出るだけ**になる。
- * 実機を持って歩いてから気付く型の失敗なので、ここで塞ぐ。
+ * **例外を `ashiato.baseUrl` の host から作らない。** 接続先は `https://`（`tailscale serve`）で、
+ * 平文が要るのは端末の中のテスト用サーバ（計測テスト）だけ。接続先の host に平文を許す形だと、
+ * 設定を間違えただけで網の外へ暗号化なしで出られる。
+ * `usesCleartextTraffic="true"` にもしない —— それだと**どこへでも**平文で出られる。
  *
- * `usesCleartextTraffic="true"` にはしない —— それだと**どこへでも**平文で出られる。
- * 接続先は Tailscale 網内の 1 台（PERM-7）なので、そのホストだけを開ける。
- * 接続先が設定されていない（CI のビルド）ときは**全部拒否**したまま。
+ * `ashiato.baseUrl` が `http://` で host が loopback でなければ**組み立てを落とす**。
  */
 abstract class GenerateNetworkSecurityConfig : DefaultTask() {
     @get:Input
-    abstract val host: Property<String>
+    abstract val baseUrl: Property<String>
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
     @TaskAction
     fun generate() {
-        val h = host.get()
-        val allow = if (h.isBlank()) {
-            ""
-        } else {
-            "\n    <domain-config cleartextTrafficPermitted=\"true\">" +
-                "\n        <domain includeSubdomains=\"false\">$h</domain>" +
-                "\n    </domain-config>"
+        val m = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*)://(\\[[^\\]]*\\]|[^/:?#]+)").find(baseUrl.get())
+        if (m != null && m.groupValues[1].lowercase() == "http" &&
+            // 生成する domain-config と同じ 2 つだけ（`[::1]` は許可に無いので、通すと組み立てた後に送れない。final review R10）
+            m.groupValues[2].lowercase() !in setOf("localhost", "127.0.0.1")
+        ) {
+            throw GradleException(
+                "ashiato.baseUrl が http:// で、接続先が暗号化されていない（loopback 以外へ平文で送らない）。https:// にする",
+            )
         }
         val dir = outputDir.get().asFile.resolve("xml")
         dir.mkdirs()
@@ -97,22 +96,19 @@ abstract class GenerateNetworkSecurityConfig : DefaultTask() {
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
                 "<!-- 生成物。app/build.gradle.kts の GenerateNetworkSecurityConfig が作る -->\n" +
                 "<network-security-config>\n" +
-                "    <base-config cleartextTrafficPermitted=\"false\" />$allow\n" +
+                "    <base-config cleartextTrafficPermitted=\"false\" />\n" +
+                "    <domain-config cleartextTrafficPermitted=\"true\">\n" +
+                "        <domain includeSubdomains=\"false\">localhost</domain>\n" +
+                "        <domain includeSubdomains=\"false\">127.0.0.1</domain>\n" +
+                "    </domain-config>\n" +
                 "</network-security-config>\n",
         )
     }
 }
 
-// `java.net.URI` は Gradle の `java` 拡張と名前がぶつかるので、素直に切り出す
-val configuredHost: String =
-    Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#]+)")
-        .find(project.findProperty("ashiato.baseUrl")?.toString().orEmpty())
-        ?.groupValues?.get(1)
-        .orEmpty()
-
 val generateNetworkSecurityConfig =
     tasks.register<GenerateNetworkSecurityConfig>("generateNetworkSecurityConfig") {
-        host.set(configuredHost)
+        baseUrl.set(project.findProperty("ashiato.baseUrl")?.toString().orEmpty())
         outputDir.set(layout.buildDirectory.dir("generated/res/nsconfig"))
     }
 

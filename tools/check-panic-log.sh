@@ -2,15 +2,20 @@
 # 未捕捉の異常がログに出ることを、**わざと落として**確かめる（製造準備 C）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
+export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
+export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す}"
 export BIND="${BIND:-127.0.0.1:18788}"
 export API_TOKEN="${API_TOKEN:-panic-token-0123456789abcdef}"
+export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
 export ASHIATO_SELFTEST_PANIC=1
 LOG=$(mktemp)
 cleanup(){ kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker compose up -d --wait db >/dev/null
-cargo run -q -p ashiato-server --bin ashiato-server > "$LOG" 2>&1 & SRV=$!
+./tools/db-roles.sh
+cargo build -q -p ashiato-server --bin ashiato-server
+./target/debug/ashiato-server migrate > "$LOG" 2>&1
+env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server >> "$LOG" 2>&1 & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -s -o /dev/null "http://$BIND/selftest/panic" || true
 sleep 2

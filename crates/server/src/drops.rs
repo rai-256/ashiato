@@ -357,7 +357,7 @@ pub async fn drops_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<DropResult>>), (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],

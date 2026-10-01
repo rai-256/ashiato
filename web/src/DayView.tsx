@@ -60,6 +60,23 @@ export function focusRule(scheme: Scheme): string {
 }
 
 /**
+ * 輪郭の規則を文書に当てる。**`<style>` 要素は使わない** —— 画面の CSP（`default-src 'self'`。ST28 / D10）が
+ * 要素として埋め込んだ style を止める。CSSOM で足した規則（構成可能スタイルシート）は止められない。
+ */
+export function useFocusRule(scheme: Scheme): void {
+  useEffect(() => {
+    // 構成可能スタイルシートを持たない環境（jsdom）では当てない。ブラウザは全部持つ（Chromium / Firefox 101+ / Safari 16.4+）
+    if (!("adoptedStyleSheets" in document)) return;
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(focusRule(scheme));
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    return () => {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+    };
+  }, [scheme]);
+}
+
+/**
  * S-2 の最小形（ST16 / design D8）—— 1 日の滞在の一覧。
  *
  * 行の形は深掘り Q4 の proto の出力のまま: 見出し＝時刻の範囲 / 添える値＝長さ・始まり – 終わり /
@@ -67,6 +84,7 @@ export function focusRule(scheme: Scheme): string {
  */
 export function DayView({ date }: { date: string }): React.ReactElement {
   const scheme = useScheme();
+  useFocusRule(scheme);
   const c = SCHEMES[scheme];
   const [data, setData] = useState<Load<DayData>>({ at: "loading" });
   const [reload, setReload] = useState(0);
@@ -118,7 +136,6 @@ export function DayView({ date }: { date: string }): React.ReactElement {
         boxSizing: "border-box",
       }}
     >
-      <style>{focusRule(scheme)}</style>
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={{ ...control, background: "transparent", border: "none", display: "inline-flex", alignItems: "center" }}>
           稼働状況へ

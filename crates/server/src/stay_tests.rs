@@ -1264,8 +1264,8 @@ async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
         .execute(&admin)
         .await
         .unwrap();
-    let base = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://ashiato:ashiato@127.0.0.1:55432/ashiato".into());
+    let base = std::env::var("DATABASE_OWNER_URL")
+        .expect("DATABASE_OWNER_URL が無い（testdb::pool が先に落ちるはず）");
     let url = format!("{}/{name}", &base[..base.rfind('/').unwrap()]);
     let fresh = sqlx::PgPool::connect(&url).await.unwrap();
     let closer = fresh.clone();

@@ -413,6 +413,73 @@
         }
       }
     },
+    "/session": {
+      "get": {
+        "tags": [
+          "web_session"
+        ],
+        "summary": "ログインの状態。印か API の合言葉で認められれば、その種類を返す。",
+        "operationId": "session_get",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "web_session"
+        ],
+        "summary": "ログイン。**画面の合言葉そのものを資格情報として要求する**（`authorize()` は通さない）。",
+        "operationId": "session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "415": {
+            "description": ""
+          },
+          "429": {
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "web_session"
+        ],
+        "summary": "ログアウト。印が無くても 204。行は消さず `revoked_at` を付ける。",
+        "operationId": "session_delete",
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/stays": {
       "get": {
         "tags": [],
@@ -1677,6 +1744,19 @@
           }
         }
       },
+      "LoginRequest": {
+        "type": "object",
+        "description": "`POST /session` の本文。",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "画面の合言葉"
+          }
+        }
+      },
       "Precision": {
         "type": "string",
         "description": "「いつから」の精度（深掘り C3）。**丸めない** ——\n2019 年とだけ分かっている値を 2019-01-01 にすると、丸めたことが後から分からない。",
@@ -1816,6 +1896,19 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "SessionState": {
+        "type": "object",
+        "description": "`GET /session` の応答。",
+        "required": [
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "type": "string",
+            "description": "`web_session` または `api_token`"
           }
         }
       },
