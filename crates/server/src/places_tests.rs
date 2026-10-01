@@ -3078,6 +3078,197 @@ mod view_endpoint {
         assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
     }
 
+    // ---------------------------------------------------------------- 名前の無い、よく居た所（Task 6 / D10 / D15）
+
+    async fn candidates(app: &App, user: Uuid) -> Vec<serde_json::Value> {
+        let out = crate::place_candidates_get(
+            State(app.clone()),
+            auth(),
+            Query(PlacesQuery {
+                user_id: Some(user),
+            }),
+        )
+        .await
+        .expect("読み出せる");
+        serde_json::to_value(out.0).unwrap()["candidates"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn place_candidates_radius_is_pinned_and_separate() {
+        assert_eq!(crate::places::CANDIDATE_RADIUS_M, 100.0);
+        assert_eq!(crate::places::PLACE_DEFAULT_RADIUS_M, 100);
+    }
+
+    #[tokio::test]
+    async fn place_candidates_endpoint_requires_the_token() {
+        let app = app().await;
+        let (code, _) = crate::place_candidates_get(
+            State(app),
+            HeaderMap::new(),
+            Query(PlacesQuery {
+                user_id: Some(testdb::user()),
+            }),
+        )
+        .await
+        .expect_err("資格情報なしで読み出せた");
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+    }
+
+    // Scenario: 名前の無い所は場所に当たらない滞在から作られる
+    #[tokio::test]
+    async fn place_candidates_are_made_from_stays_no_place_catches() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        registered(&app, user, "職場").await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            60,
+            north(LAT, 80.0),
+        )
+        .await;
+        let far = north(LAT, 1000.0);
+        stay_min(&app, user, "2026-09-11T10:00:00+09:00", 30, far).await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-12T10:00:00+09:00",
+            30,
+            north(far, 30.0),
+        )
+        .await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["stays"]["count"], 2);
+        assert_eq!(c[0]["stays"]["minutes"], 60);
+        assert_eq!(c[0]["stays"]["first_day"], "2026-09-11");
+        assert_eq!(c[0]["stays"]["last_day"], "2026-09-12");
+        assert_eq!(c[0]["stays"]["hours"].as_array().unwrap().len(), 24);
+    }
+
+    // Scenario: 100 m より離れた滞在は別の名前の無い所になる
+    #[tokio::test]
+    async fn place_candidates_stays_500_m_apart_are_two() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-11T10:00:00+09:00",
+            60,
+            north(LAT, 500.0),
+        )
+        .await;
+        assert_eq!(candidates(&app, user).await.len(), 2);
+    }
+
+    // Scenario: 中心から 90 m の滞在は同じ名前の無い所に入る
+    #[tokio::test]
+    async fn place_candidates_a_stay_90_m_from_the_center_joins() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-11T10:00:00+09:00",
+            60,
+            north(LAT, 90.0),
+        )
+        .await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["stays"]["count"], 2);
+    }
+
+    // Scenario: 中心から 110 m の滞在は別の名前の無い所になる
+    #[tokio::test]
+    async fn place_candidates_a_stay_110_m_from_the_center_is_separate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-11T10:00:00+09:00",
+            60,
+            north(LAT, 110.0),
+        )
+        .await;
+        assert_eq!(candidates(&app, user).await.len(), 2);
+    }
+
+    // Scenario: 名前の無い所は最近居た順に返る
+    #[tokio::test]
+    async fn place_candidates_come_back_most_recent_first() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (x, y) = (north(LAT, 1000.0), north(LAT, 2000.0));
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 600, x).await;
+        stay_min(&app, user, "2026-09-25T10:00:00+09:00", 30, y).await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0]["stays"]["last_day"], "2026-09-25");
+        assert_eq!(c[1]["stays"]["last_day"], "2026-09-10");
+    }
+
+    // Scenario: 登録すると名前の無い所から消える
+    #[tokio::test]
+    async fn place_candidates_registering_removes_the_cluster() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let at = north(LAT, 1000.0);
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, at).await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 1);
+        place_at(&app, user, "新しい場所", c[0]["lat"].as_f64().unwrap(), 100).await;
+        assert!(candidates(&app, user).await.is_empty());
+    }
+
+    // Scenario: 消した滞在は名前の無い所に入らない
+    #[tokio::test]
+    async fn place_candidates_a_deleted_stay_is_not_counted() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let id = stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(&app, user, "2026-09-11T10:00:00+09:00", 120, LAT).await;
+        mark_deleted(&app, id).await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["stays"]["count"], 1);
+        assert_eq!(c[0]["stays"]["minutes"], 120);
+    }
+
+    /// 並びの決着: 同じ最後の日なら合計の大きい順（D10 の 4）
+    #[tokio::test]
+    async fn place_candidates_ties_break_by_the_larger_total() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            30,
+            north(LAT, 1000.0),
+        )
+        .await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            90,
+            north(LAT, 2000.0),
+        )
+        .await;
+        let c = candidates(&app, user).await;
+        assert_eq!(c[0]["stays"]["minutes"], 90);
+    }
+
     // Scenario: 直すと全期間が新しい座標で照らされる
     #[tokio::test]
     async fn place_window_a_fix_lights_the_whole_period_with_the_new_coordinate() {

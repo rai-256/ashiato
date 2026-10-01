@@ -709,27 +709,7 @@ pub fn view_with_stays(
     today: NaiveDate,
 ) -> PlacesView {
     let today_start = jst_midnight(today);
-    let mut by_place: std::collections::HashMap<Uuid, Vec<StoredPlaceRecord>> =
-        std::collections::HashMap::new();
-    for r in records {
-        by_place.entry(r.record.place).or_default().push(r.clone());
-    }
-    let mut out: Vec<PlaceOut> = Vec::new();
-    let mut targets: Vec<MatchPlace> = Vec::new();
-    for id in places {
-        let Some(recs) = by_place.get(id) else {
-            continue;
-        };
-        let Some(p) = place_out(*id, recs, today_start) else {
-            continue;
-        };
-        targets.push(MatchPlace {
-            id: *id,
-            radius_m: p.radius_m,
-            windows: coord_windows(recs),
-        });
-        out.push(p);
-    }
+    let (mut out, targets) = places_and_targets(places, records, today_start);
 
     let assigned = assign(stays, &targets);
     let mut last_end: Vec<Option<DateTime<Utc>>> = Vec::with_capacity(out.len());
@@ -751,6 +731,36 @@ pub fn view_with_stays(
         today: today.to_string(),
         places: order.into_iter().filter_map(|i| slots[i].take()).collect(),
     }
+}
+
+/// 名前と座標を持つ場所の読み出しと、その照合の的（作った順）。
+fn places_and_targets(
+    places: &[Uuid],
+    records: &[StoredPlaceRecord],
+    today_start: DateTime<Utc>,
+) -> (Vec<PlaceOut>, Vec<MatchPlace>) {
+    let mut by_place: std::collections::HashMap<Uuid, Vec<StoredPlaceRecord>> =
+        std::collections::HashMap::new();
+    for r in records {
+        by_place.entry(r.record.place).or_default().push(r.clone());
+    }
+    let mut out: Vec<PlaceOut> = Vec::new();
+    let mut targets: Vec<MatchPlace> = Vec::new();
+    for id in places {
+        let Some(recs) = by_place.get(id) else {
+            continue;
+        };
+        let Some(p) = place_out(*id, recs, today_start) else {
+            continue;
+        };
+        targets.push(MatchPlace {
+            id: *id,
+            radius_m: p.radius_m,
+            windows: coord_windows(recs),
+        });
+        out.push(p);
+    }
+    (out, targets)
 }
 
 fn place_out(
@@ -961,6 +971,130 @@ fn summarize(hit: &[&StayPoint]) -> PlaceStays {
     }
 }
 
+// ------------------------------------------------------------------ 名前の無い、よく居た所（D10）
+
+/// 名前の無い所へまとめる半径（m）。場所の広さとも滞在の判定の半径とも別の定数（D10 / C9）。
+pub const CANDIDATE_RADIUS_M: f64 = 100.0;
+
+/// 名前の無い所の滞在の項。
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+pub struct CandidateStays {
+    pub count: i64,
+    pub minutes: i64,
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）。最初に居た日
+    pub first_day: String,
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）。最後に居た日
+    pub last_day: String,
+    /// 時間帯（0〜23 時）ごとの分
+    pub hours: Vec<i64>,
+}
+
+/// 名前の無い、よく居た所 1 つ（D10。保存しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+pub struct Candidate {
+    /// 属する滞在の代表点の単純平均
+    pub lat: f64,
+    pub lon: f64,
+    pub stays: CandidateStays,
+}
+
+/// `GET /places/candidates` の中身（D15）。
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+pub struct CandidatesView {
+    pub candidates: Vec<Candidate>,
+}
+
+struct Cluster<'a> {
+    lat: f64,
+    lon: f64,
+    stays: Vec<&'a StayPoint>,
+}
+
+fn jst_day(t: DateTime<Utc>) -> String {
+    (t + chrono::Duration::hours(9)).date_naive().to_string()
+}
+
+/// どの場所にも当たらない滞在から、名前の無い所を作る（D10）。**純粋な関数**で、何も書かない。
+///
+/// `stays` は始まり → 識別子の順。代表点の無い滞在は数えない。
+/// 1 件ずつ、中心が `CANDIDATE_RADIUS_M` 以内の最初のまとまりに足し（中心は属する代表点の単純平均）、無ければ新しいまとまり。
+/// 並びは属する滞在の `end` の最大の新しい順、同じなら合計の大きい順、同じなら中心の緯度・経度の順。
+pub fn candidates(stays: &[StayPoint]) -> Vec<Candidate> {
+    let mut clusters: Vec<Cluster> = Vec::new();
+    for s in stays {
+        let (Some(lat), Some(lon)) = (s.lat, s.lon) else {
+            continue;
+        };
+        let near = clusters
+            .iter_mut()
+            .find(|c| crate::stay::distance_m(lat, lon, c.lat, c.lon) <= CANDIDATE_RADIUS_M);
+        match near {
+            Some(c) => {
+                c.stays.push(s);
+                let n = c.stays.len() as f64;
+                let pts = c.stays.iter().filter_map(|p| p.lat.zip(p.lon));
+                let (sl, so) = pts.fold((0.0, 0.0), |(a, b), (la, lo)| (a + la, b + lo));
+                c.lat = sl / n;
+                c.lon = so / n;
+            }
+            None => clusters.push(Cluster {
+                lat,
+                lon,
+                stays: vec![s],
+            }),
+        }
+    }
+    let mut out: Vec<(DateTime<Utc>, Candidate)> = clusters
+        .into_iter()
+        .map(|c| {
+            let summary = summarize(&c.stays);
+            let last = c.stays.iter().map(|s| s.end).max();
+            let first = c.stays.iter().map(|s| s.start).min();
+            (
+                last.unwrap_or_default(),
+                Candidate {
+                    lat: c.lat,
+                    lon: c.lon,
+                    stays: CandidateStays {
+                        count: summary.count,
+                        minutes: summary.minutes,
+                        first_day: first.map(jst_day).unwrap_or_default(),
+                        last_day: summary.last_day.unwrap_or_default(),
+                        hours: summary.hours,
+                    },
+                },
+            )
+        })
+        .collect();
+    out.sort_by(|(ea, a), (eb, b)| {
+        eb.cmp(ea)
+            .then(b.stays.minutes.cmp(&a.stays.minutes))
+            .then(a.lat.total_cmp(&b.lat))
+            .then(a.lon.total_cmp(&b.lon))
+    });
+    out.into_iter().map(|(_, c)| c).collect()
+}
+
+/// どの場所にも当たらない滞在から名前の無い所を作る（純粋。DB を持たない）。
+pub fn candidates_view(
+    places: &[Uuid],
+    records: &[StoredPlaceRecord],
+    stays: &[StayPoint],
+    today: NaiveDate,
+) -> CandidatesView {
+    let (_, targets) = places_and_targets(places, records, jst_midnight(today));
+    let assigned = assign(stays, &targets);
+    let unassigned: Vec<StayPoint> = stays
+        .iter()
+        .zip(&assigned)
+        .filter(|(_, a)| a.is_none())
+        .map(|(s, _)| s.clone())
+        .collect();
+    CandidatesView {
+        candidates: candidates(&unassigned),
+    }
+}
+
 // ------------------------------------------------------------------ 読み出し（DB）
 
 #[derive(sqlx::FromRow)]
@@ -982,6 +1116,26 @@ pub async fn places_view(
     user_id: Uuid,
     today: NaiveDate,
 ) -> sqlx::Result<PlacesView> {
+    let (ids, records) = place_records(pool, user_id).await?;
+    let stays = stays_of(pool, user_id).await?;
+    Ok(view_with_stays(&ids, &records, &stays, today))
+}
+
+/// 名前の無い、よく居た所（D10 / D15）。**読むだけ**で、保存しない。
+pub async fn candidates_of(
+    pool: &PgPool,
+    user_id: Uuid,
+    today: NaiveDate,
+) -> sqlx::Result<CandidatesView> {
+    let (ids, records) = place_records(pool, user_id).await?;
+    let stays = stays_of(pool, user_id).await?;
+    Ok(candidates_view(&ids, &records, &stays, today))
+}
+
+async fn place_records(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> sqlx::Result<(Vec<Uuid>, Vec<StoredPlaceRecord>)> {
     let ids: Vec<(Uuid,)> =
         sqlx::query_as("SELECT id FROM core.place WHERE user_id = $1 ORDER BY seq")
             .bind(user_id)
@@ -1007,9 +1161,7 @@ pub async fn places_view(
             "読めない場所の記録を読み出しから落とした（行は DB に残っている）"
         );
     }
-    let ids: Vec<Uuid> = ids.into_iter().map(|(id,)| id).collect();
-    let stays = stays_of(pool, user_id).await?;
-    Ok(view_with_stays(&ids, &records, &stays, today))
+    Ok((ids.into_iter().map(|(id,)| id).collect(), records))
 }
 
 /// 利用者の滞在の全部（`day_view` と同じ絞り方。削除の印の付いたものは `event_live` が外す）。

@@ -2253,6 +2253,21 @@ pub async fn places_get(
         .map_err(|e| internal_at("places.view", e))
 }
 
+/// 名前の無い、よく居た所を全部返す（design D10 / D15）。上位で切るのは画面。
+#[utoipa::path(get, path = "/places/candidates", params(PlacesQuery),
+    responses((status = 200, body = places::CandidatesView), (status = 401)))]
+pub async fn place_candidates_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PlacesQuery>,
+) -> Result<Json<places::CandidatesView>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    places::candidates_of(&app.pool, q.user_id.unwrap_or_default(), app.today())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("places.candidates", e))
+}
+
 /// 種類を足す（design D7）。空・いまある名前と重なるものは 400。
 #[utoipa::path(post, path = "/attributes/kinds",
     request_body = attributes_store::KindRequest,
@@ -2437,6 +2452,7 @@ pub fn router(app: App) -> Router {
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
+        .route("/places/candidates", get(place_candidates_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -2558,7 +2574,8 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::session_delete,
         web_session::session_get,
         places_post,
-        places_get
+        places_get,
+        place_candidates_get
     ),
     components(schemas(
         IngestResult,
@@ -2610,6 +2627,9 @@ pub async fn run() -> anyhow::Result<()> {
         places::PlaceError,
         places::PlaceErrorBody,
         places::PlacesView,
+        places::CandidatesView,
+        places::Candidate,
+        places::CandidateStays,
         places::PlaceOut,
         places::PlaceStays,
         places::NameRecordOut,
