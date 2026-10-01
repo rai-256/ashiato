@@ -174,7 +174,7 @@ D14 の一覧（外部の宛先へ送る部品）に当たるものは足さな�
 ### D13. 収集側の平文の検査
 
 - **Android**: `GenerateNetworkSecurityConfig` は `base-config cleartextTrafficPermitted="false"` と、`localhost` / `127.0.0.1` だけに平文を許す `domain-config` を常に出す
-  （`ashiato.baseUrl` の host から例外を作らない）。`ashiato.baseUrl` が `http://` で host が loopback でなければ build を落とす（gradle の task で `GradleException`）
+  （`ashiato.baseUrl` の host から例外を作らない）。`ashiato.baseUrl` が `http://` で host が `domain-config` の 2 つ（`localhost` / `127.0.0.1`）でなければ build を落とす（gradle の task で `GradleException`。`[::1]` も落とす —— 平文の許可に無い宛先を組み立てで通すと、送るときに断られる。final review R10）
 - **変更前のコードで落ちる検査**（review R14）: `-Pashiato.baseUrl=https://example.invalid:1` で組み立て、生成された `network_security_config.xml` に `example.invalid` の平文の許可が無いこと
   （いまのコードはその host に `cleartextTrafficPermitted="true"` を出すので落ちる）
 - 計測テスト: `NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("127.0.0.1")` が真（loopback の Scenario）

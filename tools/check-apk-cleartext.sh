@@ -24,4 +24,8 @@ if out=$(./gradlew -q :app:assembleDebug -Pashiato.baseUrl=http://example.invali
   echo "NG 平文の接続先で組み立てが通った" >&2; exit 1
 fi
 echo "$out" | grep -q '暗号化されていない' || { echo "NG 理由が出ていない" >&2; echo "$out" >&2; exit 1; }
+# 同じ Scenario の別の形（印は下に 1 つだけ）: [::1] は domain-config の許可に無いので、組み立ても落とす（final review R10）
+if out=$(./gradlew -q :app:generateNetworkSecurityConfig '-Pashiato.baseUrl=http://[::1]:1' 2>&1); then
+  echo "NG 平文の許可に無い [::1] で組み立てが通った" >&2; exit 1
+fi
 echo "Scenario: 平文の接続先では収集アプリを組み立てられない"

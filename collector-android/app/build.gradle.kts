@@ -75,7 +75,8 @@ abstract class GenerateNetworkSecurityConfig : DefaultTask() {
     fun generate() {
         val m = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*)://(\\[[^\\]]*\\]|[^/:?#]+)").find(baseUrl.get())
         if (m != null && m.groupValues[1].lowercase() == "http" &&
-            m.groupValues[2].lowercase() !in setOf("localhost", "127.0.0.1", "[::1]")
+            // 生成する domain-config と同じ 2 つだけ（`[::1]` は許可に無いので、通すと組み立てた後に送れない。final review R10）
+            m.groupValues[2].lowercase() !in setOf("localhost", "127.0.0.1")
         ) {
             throw GradleException(
                 "ashiato.baseUrl が http:// で、接続先が暗号化されていない（loopback 以外へ平文で送らない）。https:// にする",
