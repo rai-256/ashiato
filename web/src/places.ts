@@ -176,7 +176,7 @@ export function hourLevels(hours: number[]): number[] {
 /**
  * 前の座標に添える文字。**色だけで区別しない**（D12）。
  *
- * 移る前の「〜YYYY-MM」は、その座標の次に書かれた「移った」の座標の「いつから」
+ * 移る前の「〜YYYY-MM」は、その座標の次の版（「いつから」の順で直後の「移った」の座標）の「いつから」
  * （応答は移る前の座標自身には移った日を持たない）。分からないときは日付を足さない。
  */
 export function previousCoordLabel(prev: PreviousCoord, place: Place): string {
@@ -185,10 +185,11 @@ export function previousCoordLabel(prev: PreviousCoord, place: Place): string {
     const date = prev.valid_from?.date;
     return date ? `予定（${date} から）` : "予定";
   }
-  const at = Date.parse(prev.written_at);
-  const next = [...place.previous_coords.filter((c) => c.state !== "fixed"), place.coord]
-    .filter((c) => c.change === "move" && Date.parse(c.written_at) > at)
-    .sort((a, b) => Date.parse(a.written_at) - Date.parse(b.written_at))[0];
+  // サーバは版を「いつから」（valid_from）の順に並べる。書いた順ではない
+  const from = prev.valid_from?.date ?? "";
+  const next = [...place.previous_coords.filter((c) => c.state !== "fixed" && c !== prev), place.coord]
+    .filter((c) => c.change === "move" && c.valid_from?.date && c.valid_from.date > from)
+    .sort((a, b) => (a.valid_from?.date ?? "").localeCompare(b.valid_from?.date ?? ""))[0];
   const date = next?.valid_from?.date;
   return date ? `移る前（〜${date}）` : "移る前";
 }

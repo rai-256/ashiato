@@ -115,6 +115,18 @@ describe("places-model: 書き方", () => {
     ).toBe("予定（2027-01 から）");
   });
 
+  it("より前の移転を後から書き足しても、移る前の日付は「いつから」の順で直後の版から引く", () => {
+    const p = place({
+      coord: move("2026-04", "2026-09-10T10:00:00+09:00"),
+      previous_coords: [
+        prev({ state: "before_move", written_at: "2026-09-01T10:00:00+09:00" }),
+        { ...move("2025-01", "2026-09-20T10:00:00+09:00"), state: "before_move", fixed_by: null },
+      ],
+    });
+    expect(previousCoordLabel(p.previous_coords[0], p)).toBe("移る前（〜2025-01）");
+    expect(previousCoordLabel(p.previous_coords[1], p)).toBe("移る前（〜2026-04）");
+  });
+
   it("移った日が分からないときは日付を足さない", () => {
     const p = place({ coord: { ...move("2026-04", "2026-09-15T10:00:00+09:00"), valid_from: { precision: "unknown", date: null } } });
     expect(previousCoordLabel(prev({ state: "before_move" }), p)).toBe("移る前");
