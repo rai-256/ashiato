@@ -68,6 +68,59 @@ describe("画面のログイン", () => {
     expect(screen.queryByTestId("inner")).toBeNull();
   });
 
+  it.each([
+    [429, "試しすぎ"],
+    [500, "届かなかった"],
+  ])("ログインが %i なら「合言葉が違います」とは出さず、別の理由を出す", async (status, word) => {
+    stubFetch((_url, init) => ({ status: init?.method === "POST" ? status : 401 }));
+    mount();
+    fireEvent.change(await screen.findByLabelText("合言葉"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "ログイン" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain("合言葉が違います");
+    expect(alert.textContent).toContain(word);
+  });
+
+  it("ログインの求めが届かない（fetch が失敗）なら「合言葉が違います」とは出さない", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") throw new TypeError("network");
+        return new Response("{}", { status: 401 });
+      }),
+    );
+    mount();
+    fireEvent.change(await screen.findByLabelText("合言葉"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "ログイン" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toContain("合言葉が違います");
+    expect(alert.textContent).toContain("届かなかった");
+  });
+
+  it("ログアウトが失敗したら中身に留まり、ログアウトできなかったと出す", async () => {
+    stubFetch((_url, init) => ({ status: init?.method === "DELETE" ? 500 : 200 }));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "ログアウト" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("ログアウトできなかった");
+    expect(screen.getByTestId("inner")).toBeTruthy();
+    expect(screen.queryByLabelText("合言葉")).toBeNull();
+  });
+
+  it("ログアウトの求めが届かなくても、ログアウトしたようには見せない", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "DELETE") throw new TypeError("network");
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "ログアウト" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("ログアウトできなかった");
+    expect(screen.queryByLabelText("合言葉")).toBeNull();
+  });
+
   it("中身の読み出しが 401 を返したら入力欄へ戻す", async () => {
     stubFetch((url) => ({ status: url === "/api/session" ? 200 : 401 }));
     mount();

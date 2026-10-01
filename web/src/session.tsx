@@ -33,6 +33,7 @@ function watchUnauthorized(onUnauthorized: () => void): () => void {
 
 export function Gate({ children }: { children: React.ReactNode }): React.ReactElement {
   const [state, setState] = useState<State>("checking");
+  const [logoutFailed, setLogoutFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -55,11 +56,16 @@ export function Gate({ children }: { children: React.ReactNode }): React.ReactEl
           type="button"
           style={{ minHeight: MIN_TARGET_PX, minWidth: MIN_TARGET_PX, font: "400 14px/1.6 system-ui, sans-serif" }}
           onClick={() => {
-            void fetch("/api/session", { method: "DELETE" }).finally(() => setState("out"));
+            // 失敗（届かない・5xx）をログアウトしたように見せない —— 印はまだ生きている
+            setLogoutFailed(false);
+            fetch("/api/session", { method: "DELETE" })
+              .then((res) => (res.ok ? setState("out") : setLogoutFailed(true)))
+              .catch(() => setLogoutFailed(true));
           }}
         >
           ログアウト
         </button>
+        {logoutFailed && <p role="alert">ログアウトできなかった。もう一度押してください。</p>}
       </header>
       {children}
     </>
@@ -72,9 +78,18 @@ const ground: React.CSSProperties = {
   minHeight: "100vh",
 };
 
+/** ログインが通らなかった理由。401 だけが「合言葉が違う」（429 と 5xx・届かないは別。final review R13）。 */
+type Refusal = "wrong" | "throttled" | "unreachable";
+
+const REFUSAL_TEXT: Record<Refusal, string> = {
+  wrong: "合言葉が違います。",
+  throttled: "試しすぎで、しばらく受け付けません。1 分ほど待ってからもう一度。",
+  unreachable: "サーバに届かなかったか、サーバで失敗しました。もう一度試してください。",
+};
+
 function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
   const [password, setPassword] = useState("");
-  const [refused, setRefused] = useState(false);
+  const [refused, setRefused] = useState<Refusal | null>(null);
   const [sending, setSending] = useState(false);
 
   const submit = async (e: React.FormEvent): Promise<void> => {
@@ -89,9 +104,9 @@ function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
       });
       setPassword("");
       if (res.ok) onDone();
-      else setRefused(true);
+      else setRefused(res.status === 401 ? "wrong" : res.status === 429 ? "throttled" : "unreachable");
     } catch {
-      setRefused(true);
+      setRefused("unreachable");
     } finally {
       setSending(false);
     }
@@ -112,7 +127,7 @@ function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
         <button type="submit" disabled={sending} style={{ ...INPUT_FLOOR, minWidth: 44 }}>
           ログイン
         </button>
-        {refused && <p role="alert">合言葉が違います。</p>}
+        {refused && <p role="alert">{REFUSAL_TEXT[refused]}</p>}
       </form>
     </main>
   );
