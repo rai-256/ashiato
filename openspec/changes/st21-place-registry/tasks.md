@@ -43,22 +43,22 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 1: 移行 —— 器の表・場所の記録の錠・登録簿（design D1 / D5 / D16）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_places.sql` と `.down.sql` を足す —— `core.place`（D1 の列・`UNIQUE (id, user_id)`・`(user_id, seq)` の索引）と、
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_places.sql` と `.down.sql` を足す —— `core.place`（D1 の列・`UNIQUE (id, user_id)`・`(user_id, seq)` の索引）と、
   UPDATE / DELETE を拒む行トリガと TRUNCATE を拒む文トリガ（**この移行専用の関数** `core.reject_place_change()`）、
   D5 の 3 関数（`core.reject_place_record_rewrite()` / `core.require_place_erasure_ledger()` / `core.reject_place_record_delete()`）とトリガ、
   登録簿の 1 行 `('s01-place', '場所', 86400, 'none')`。当て直せる形。`MIGRATIONS` 配列の末尾に足す。
   `.down.sql` は場所の記録か器の行が残れば登録簿の行と器の表を残す（D16）。
   検証: `tools/check-migrations.sh` rc=0、`CT place_lock_migration_applies_twice`（全版を 2 回当てて落ちない）、
   `CT place_lock_down_keeps_rows`（器の行を 1 つ入れて `.down.sql` を当て、器の表と登録簿の行が残る）
-- [ ] 1.2 器の表が追記のみであること。
+- [x] 1.2 器の表が追記のみであること。
   Scenario: `器の表は書き換えも削除も切り詰めもできない`。検証: `CT place_container_append_only`
-- [ ] 1.3 場所の記録の錠（`s01-place` の行を SQL で直接入れて撃つ）。
+- [x] 1.3 場所の記録の錠（`s01-place` の行を SQL で直接入れて撃つ）。
   Scenario: `場所の記録の座標を書き換える文は拒まれる` / `場所の記録の書いた日時は書き換えられない` / `場所の記録の利用者は書き換えられない` /
   `場所の記録の行は削除できない` / `他の記録を場所の記録へ付け替えられない` / `場所の記録に削除の印を付けられる` / `場所の記録の感度を変えられる` /
   `台帳のある場所の記録の消去は通る` / `台帳の無い場所の記録の消去は拒まれる` / `別の記録の台帳の行では場所の記録の消去は通らない` /
   `台帳の行があっても消去の形でない場所の記録の書き換えは拒まれる` / `場所の錠を足しても主張の錠は変わらない`。
   検証: `CT place_lock_`
-- [ ] 1.4 `tools/check-immutable.sh` に足す —— (a) `core.place` への UPDATE / DELETE / TRUNCATE が psql から拒まれる、
+- [x] 1.4 `tools/check-immutable.sh` に足す —— (a) `core.place` への UPDATE / DELETE / TRUNCATE が psql から拒まれる、
   (b) `s01-place` の行の書き換え・行の削除・台帳の無い消去が拒まれ、削除の印と台帳つきの消去は通る、(c) `…_places.down.sql` を戻しの逆順の先頭で当てて当て直せる。
   ST19 の「本人が書いた記録は書き換えられる」の段が、場所の行がある DB でも通ること（`logical_source = 'immutable-check'` に絞られている）を確かめる。
   検証: `bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q "OK place" /tmp/ci.log`
