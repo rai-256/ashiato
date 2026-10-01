@@ -168,6 +168,9 @@ pub enum DbRoleRefusal {
     Superuser,
     /// 接続した役割が記録の schema（`core`）の表の所有者。トリガを外せる。
     TableOwner,
+    /// 接続した役割が `core` の表の所有者の役割を持つ（`GRANT ashiato_owner TO …`）。
+    /// 継承でも `SET ROLE` でもトリガを外せる（code-verify R16）。
+    OwnerMember,
 }
 
 impl DbRoleRefusal {
@@ -175,11 +178,12 @@ impl DbRoleRefusal {
         match self {
             Self::Superuser => "superuser",
             Self::TableOwner => "table_owner",
+            Self::OwnerMember => "owner_member",
         }
     }
 }
 
-/// 起動時の自己検査。**管理者でも `core` の表の所有者でもない接続でだけ**起動を許す。
+/// 起動時の自己検査。**管理者でも `core` の表の所有者でも、その役割を持つ者でもない接続でだけ**起動を許す。
 pub async fn check_db_role(pool: &sqlx::PgPool) -> anyhow::Result<Option<DbRoleRefusal>> {
     let superuser: bool =
         sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
@@ -196,7 +200,19 @@ pub async fn check_db_role(pool: &sqlx::PgPool) -> anyhow::Result<Option<DbRoleR
     .fetch_one(pool)
     .await
     .context("接続した役割の検査に失敗")?;
-    Ok(owns.then_some(DbRoleRefusal::TableOwner))
+    if owns {
+        return Ok(Some(DbRoleRefusal::TableOwner));
+    }
+    // 'MEMBER' は継承しない付与（NOINHERIT）も拾う。`SET ROLE` で所有者になれるので
+    let member: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_tables
+                         WHERE schemaname = 'core'
+                           AND pg_has_role(current_user, tableowner, 'MEMBER'))",
+    )
+    .fetch_one(pool)
+    .await
+    .context("接続した役割の検査に失敗")?;
+    Ok(member.then_some(DbRoleRefusal::OwnerMember))
 }
 
 /// `ashiato-server migrate`。`DATABASE_OWNER_URL` で繋いで移行と付与を当てる。
@@ -2024,15 +2040,11 @@ pub async fn run() -> anyhow::Result<()> {
     }
     let web_password = web_password.unwrap_or_default();
     // ログインの期限（日。0 = なし。design D18）
-    let session_max_age_days: u32 = match std::env::var("WEB_SESSION_MAX_AGE_DAYS") {
-        Ok(v) => v
-            .trim()
-            .parse()
-            .context("WEB_SESSION_MAX_AGE_DAYS が日数（整数）でない")?,
-        Err(_) => 0,
-    };
+    let session_max_age_days = web_session::session_max_age_days(
+        std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
+    )?;
     // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
-    let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    let addr = std::env::var("BIND").unwrap_or_else(|_| net_guard::DEFAULT_BIND.into());
     let addrs = match net_guard::check_bind(&addr).await? {
         Ok(addrs) => addrs,
         Err(refusal) => net_guard::refuse(refusal.kind()),

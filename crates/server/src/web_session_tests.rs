@@ -250,7 +250,9 @@ async fn web_session_endpoint_api_token_reads_and_writes() {
 async fn web_session_lifetime_default_never_expires() {
     let pw = random_password();
     let now = chrono::Utc::now();
-    let app = app_with(&pw, 0).await.at(now);
+    // 「期限を設定せずに」= 環境に WEB_SESSION_MAX_AGE_DAYS が無いときの既定（code-verify R15）
+    let days = web_session::session_max_age_days(None).unwrap();
+    let app = app_with(&pw, days).await.at(now);
     let token = login(&app, &pw).await;
     let later = app.clone().at(now + chrono::Duration::days(400));
     assert_eq!(read_events(&later, &token).await.status(), StatusCode::OK);
@@ -263,13 +265,13 @@ async fn web_session_lifetime_cookie_persists_and_is_refreshed() {
     let app = app_with(&pw, 0).await;
     let res = send(&app, login_req(&login_body(&pw))).await;
     let login_cookie = set_cookie(&res).unwrap();
-    assert!(max_age(&login_cookie) >= 86_400, "{login_cookie}");
+    assert_eq!(max_age(&login_cookie), 400 * 86_400, "{login_cookie}");
     let token = token_of(&login_cookie);
 
     let read = read_events(&app, &token).await;
     assert_eq!(read.status(), StatusCode::OK);
     let read_cookie = set_cookie(&read).expect("読み出しの応答に印の出し直しが無い");
-    assert!(max_age(&read_cookie) >= 86_400, "{read_cookie}");
+    assert_eq!(max_age(&read_cookie), 400 * 86_400, "{read_cookie}");
     assert_eq!(token_of(&read_cookie), token);
 }
 

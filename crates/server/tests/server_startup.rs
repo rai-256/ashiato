@@ -69,6 +69,29 @@ fn server_startup_refuses_privileged_role() {
     );
     assert_refused(&start_with(&admin), "superuser");
     assert_refused(&start_with(&env("DATABASE_OWNER_URL")), "table_owner");
+
+    // 所有者の役割を付けられた役割も所有者と同じに扱う（code-verify R16）。
+    // 本物の ashiato_app に付けると並走する試験が拒まれるので、使い捨ての役割で見る
+    let member = format!("ashiato_member_{}", std::process::id());
+    let pw = format!("pw-{}", uuid::Uuid::new_v4().simple());
+    let as_admin = |sql: String| {
+        let admin = admin.clone();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let pool = sqlx::PgPool::connect(&admin).await.unwrap();
+                sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+            });
+    };
+    as_admin(format!(
+        "DROP ROLE IF EXISTS {member}; CREATE ROLE {member} LOGIN PASSWORD '{pw}';
+         GRANT ashiato_owner TO {member};"
+    ));
+    let out = start_with(&url_as(&member, &pw));
+    as_admin(format!("DROP ROLE {member}"));
+    assert_refused(&out, "owner_member");
 }
 
 const TEST_TOKEN: &str = "test-token-0123456789abcdef";
@@ -141,6 +164,18 @@ fn is_loopback_local(addr: &str) -> bool {
 /// Scenario: 既定では loopback でだけ待ち受ける
 #[test]
 fn server_startup_bind_default_is_loopback_only() {
+    let default: std::net::SocketAddr = ashiato_server::net_guard::DEFAULT_BIND.parse().unwrap();
+    assert!(
+        default.ip().is_loopback(),
+        "既定の待ち受けが loopback でない"
+    );
+    // 既定の port は固定なので、並べた worktree のサーバが使っていれば起動は確かめられない（code-verify R18）
+    if std::net::TcpListener::bind(default).is_err() {
+        eprintln!(
+            "skip: {default} が使用中なので、既定での起動は確かめない（既定の値は上で確かめた）"
+        );
+        return;
+    }
     migrate_as_owner();
     let mut child = server_cmd()
         .env("DATABASE_URL", env("DATABASE_URL"))

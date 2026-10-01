@@ -7,6 +7,7 @@
 # やること（管理者 = POSTGRES_USER。コンテナの中の psql で入るので合言葉は要らない）:
 #   (a) 管理者の合言葉を POSTGRES_PASSWORD に揃える
 #   (b) ashiato_owner（移行・所有）と ashiato_app（サーバの実行時）を作る／合言葉を揃える
+#   (b') ashiato_app が持つ役割の付与をすべて外す（所有者の役割を持てば門を外せる）
 #   (c) DB と core の schema・表・sequence・関数・型の所有を ashiato_owner へ移す
 #       （`REASSIGN OWNED BY` は使わない。管理者が持つ他のものまで動かすので）
 #
@@ -51,6 +52,11 @@ SELECT format('ALTER ROLE ashiato_owner LOGIN CREATEDB NOSUPERUSER NOCREATEROLE 
 SELECT 'CREATE ROLE ashiato_app LOGIN'
  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ashiato_app') \gexec
 SELECT format('ALTER ROLE ashiato_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'app_pw') \gexec
+
+-- アプリの役割は他の役割を持たない。所有者の役割を持てば継承か SET ROLE で門を外せる（code-verify R16）
+SELECT format('REVOKE %I FROM ashiato_app', r.rolname)
+  FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
+ WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = 'ashiato_app') \gexec
 
 SELECT format('ALTER DATABASE %I OWNER TO ashiato_owner', :'dbname') \gexec
 

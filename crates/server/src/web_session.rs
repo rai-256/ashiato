@@ -106,8 +106,11 @@ fn sha256(s: &str) -> Vec<u8> {
 pub struct LoginLimiter(Mutex<VecDeque<Instant>>);
 
 impl LoginLimiter {
-    fn recent(q: &mut VecDeque<Instant>) -> usize {
-        while q.front().is_some_and(|t| t.elapsed() >= THROTTLE_WINDOW) {
+    fn recent(q: &mut VecDeque<Instant>, now: Instant) -> usize {
+        while q
+            .front()
+            .is_some_and(|t| now.saturating_duration_since(*t) >= THROTTLE_WINDOW)
+        {
             q.pop_front();
         }
         q.len()
@@ -115,14 +118,33 @@ impl LoginLimiter {
 
     /// 窓の中の失敗が上限に達しているか。
     fn throttled(&self) -> bool {
+        self.throttled_at(Instant::now())
+    }
+
+    fn throttled_at(&self, now: Instant) -> bool {
         let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        Self::recent(&mut q) >= THROTTLE_MAX_FAILURES
+        Self::recent(&mut q, now) >= THROTTLE_MAX_FAILURES
     }
 
     fn record_failure(&self) {
+        self.record_failure_at(Instant::now());
+    }
+
+    fn record_failure_at(&self, now: Instant) {
         let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        Self::recent(&mut q);
-        q.push_back(Instant::now());
+        Self::recent(&mut q, now);
+        q.push_back(now);
+    }
+}
+
+/// `WEB_SESSION_MAX_AGE_DAYS` の値からログインの期限（日）を決める。**設定が無ければ 0 = 期限なし**（Q6 / D18）。
+pub fn session_max_age_days(var: Option<&str>) -> anyhow::Result<u32> {
+    match var {
+        None => Ok(0),
+        Some(v) => v
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("WEB_SESSION_MAX_AGE_DAYS が日数（整数）でない")),
     }
 }
 
@@ -429,4 +451,42 @@ pub async fn session_get(
     Ok(Json(SessionState {
         credential: caller.as_str().into(),
     }))
+}
+
+/// 仮決めの値（D17 の窓と待ち・D18 の cookie の寿命）を固定する（code-verify R15）。
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn login_limiter_window_is_60_seconds() {
+        let limiter = LoginLimiter::default();
+        let t0 = Instant::now();
+        for _ in 0..THROTTLE_MAX_FAILURES {
+            limiter.record_failure_at(t0);
+        }
+        assert!(limiter.throttled_at(t0 + Duration::from_secs(59)));
+        assert!(!limiter.throttled_at(t0 + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn login_failure_delay_default_is_1_second() {
+        assert_eq!(
+            WebLogin::new("t", "p", 0).failure_delay,
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn cookie_max_age_is_400_days() {
+        assert_eq!(COOKIE_MAX_AGE_SECS, 34_560_000);
+    }
+
+    #[test]
+    fn session_max_age_days_unset_is_never() {
+        assert_eq!(session_max_age_days(None).unwrap(), 0);
+        assert_eq!(session_max_age_days(Some(" 30 ")).unwrap(), 30);
+        assert!(session_max_age_days(Some("30d")).is_err());
+    }
 }

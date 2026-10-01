@@ -26,6 +26,9 @@ impl BindRefusal {
     }
 }
 
+/// `BIND` が無いときの待ち受け（design D7。loopback）。
+pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
+
 /// 待ち受けてよいのは loopback（`127.0.0.0/8` / `::1`）だけ。
 pub fn bind_allowed(addr: &SocketAddr) -> Result<(), BindRefusal> {
     let ip = addr.ip();
