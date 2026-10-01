@@ -9,20 +9,35 @@
 
 ## 構成
 
+### コード（探索の入口。deep-review / iwakan / Task agent はここから当たりを付ける）
+<!-- harness2:layout -->
+
+| パス | 何が置かれているか | テストの置き場 |
+|---|---|---|
+| `crates/server` | S-01 バックエンド（Rust）。API・取り込み（`ingest.rs`）・滞在（`stay*.rs`）・稼働状況（`coverage*`）・属性・削除（`drops.rs`）。`src/lib.rs` が router と **`MIGRATIONS` 配列（適用順の正本）** を持つ。`src/bin/openapi.rs` が API 契約を生成する | 同じ `src/` の `*_tests.rs`（`testdb.rs` がテスト用 DB） |
+| `crates/collector-windows` | C-02 PC の収集アプリ（Rust）。前景の窓・入力・ブラウザのアドレスバー（`platform.rs` `browsers.rs`）→ `engine.rs` → 送信（`outbox.rs` `sender.rs`）。`runtime.rs` が組み立て | 各モジュールの `#[cfg(test)]`、本物の Windows で走る `tests/runtime_windows.rs` |
+| `collector-android` | C-01 携帯の収集アプリ（Kotlin / Android）。`app/src/main/kotlin/dev/ashiato/collector/` | `app/src/test`（JUnit4 + Robolectric）、`app/src/androidTest`（エミュレータ・実機の計測テスト） |
+| `migrations` | D-01 PostgreSQL の移行。`YYYYMMDDHHMM_<slug>.sql` と `.down.sql` の対。足したら `crates/server/src/lib.rs` の `MIGRATIONS` の末尾へ | `tools/check-migrations.sh`・`tools/check-immutable.sh` |
+| `web/src` | V-01 画面（TypeScript + React + vite）。`App.tsx` が並び、画面の部品は `*View.tsx` / `*Panel.tsx` / `CoverageGrid.tsx`、API の型と文字列は `stays.ts` `coverage.ts` `attributes.ts` | `web/src/__tests__`（vitest + jsdom。指定と勘定まで） |
+| `web/e2e` | 画面の e2e（playwright + 本物の Chromium）。`*.spec.ts` に `// Scenario: <名前>` の印。**画面の Scenario はここが担保する** | 走らせ方は `docs/testing.md` §4.5 |
+| `tools` | プロジェクトの道具。縦串（`stack.sh` `smoke.sh` `dev.sh` `seed.sh`）・検査（`check-*.sh`）・Android（`android-env.sh` `android-emulator.sh`）・ハーネスの差し込み口（`agent-env.sh` `verify-prep.sh` `pre-commit.sh`） | — |
+
+テストの規約と CI の job は `docs/testing.md`。
+
+### 文書とハーネス
+
 | パス | 何か | 書き込み |
 |---|---|---|
 | `docs/` | フローが作る成果物 | する |
 | `openspec/` | Story ごとの設計と正典 | する（`openspec` CLI が管理） |
-| `src/` `tests/` | 実装 | する |
-| `.claude/skills` → `~/dev/harness2/skills` | skill（symlink） | harness2 側で直す |
-| `AGENTS.md` → `~/dev/harness2/codex/AGENTS.md` | Codex 下流の project 指示（symlink） | 同上 |
-| `.agents/skills` → `~/dev/harness2/codex/skills` | Codex の skill（symlink） | 同上 |
-| `scripts` → `~/dev/harness2/scripts` | 検査スクリプト（symlink） | 同上 |
+| `.harness2` → harness2 の置き場 | **この checkout から harness2 を指す唯一のリンク**（gitignore。`python3 <harness2>/scripts/init.py` が作り、Story の worktree には `prepare.sh` が張る） | 作らない |
+| `scripts` `.claude/skills` `.claude/agents` `.agents/skills` `openspec/schemas/story` `.githooks/pre-push` `.githooks/pre-commit` | `.harness2/…` への相対 symlink（`.githooks/pre-commit` も。ashiato2 固有の検査は `tools/pre-commit.sh`） | harness2 側で直す |
+| `AGENTS.md` | agent へのプロジェクト固有の指示（実ファイル。末尾で import） | する |
 
 **旧ハーネス（`.harness/`）は持ち込んでいない。** hook もレビューキューも無い。
 
-**ハーネスの所有者は `~/dev/harness2/` である。** LangGraph graph、`scripts/`、Skill、agent、executor と
-それらの設計原則・責務分担の正典は [`~/dev/harness2/README.md`](../harness2/README.md) に置く。
+**ハーネスの所有者は harness2 である**（置き場は `.harness2` が指す先）。 LangGraph graph、`scripts/`、Skill、agent、executor と
+それらの設計原則・責務分担の正典は harness2 の `README.md`（この checkout からは `.harness2/README.md`）に置く。
 このリポジトリはプロダクトの要件・Story・OpenSpec・実装・テストを持ち、ハーネスの設計原則を複製・再定義しない。
 
 **旧 ashiato からの参考資料（`reference/`）はこのリポジトリに無い。** 公開にあたって全履歴から消した
@@ -62,7 +77,7 @@
 
 検査: `python3 scripts/check_chain.py`（要件 → Story の鎖と、`stories.json` からの再生成との一致）
 
-**レビューと関門は `docs/flow-gates.md`。** 成果物ごとに独立レビュー（`deep-review` / `spec-review` /
+**レビューと関門は `.harness2/docs/flow-gates.md`**（ashiato2 固有の検査は `docs/flow-gates.md`）。 成果物ごとに独立レビュー（`deep-review` / `spec-review` /
 `code-verify` + `pr-review-toolkit`）→ 指摘 1 件ごとに `処置:`（`review_triage.py` が処置の無い指摘を止める）
 → `scripts/merge_gate.sh`（その head の CI・tasks・検査・未回答。落ちれば draft に戻す）→ 人間が merge
 → `scripts/archive.sh`。**人間は draft でない PR だけを merge する。**
@@ -74,7 +89,7 @@
 
 ## 借り物の優先順位（superpowers との決着）
 
-外部プラグインを 12 本入れている。一覧・出所・落とし穴は **`~/dev/harness2/CATALOG.md`** が単一情報源。
+外部プラグインを 12 本入れている。一覧・出所・落とし穴は **`.harness2/CATALOG.md`** が単一情報源。
 
 `superpowers` プラグインは毎セッション「1% でも該当しそうな skill は必ず先に呼べ」という規範を
 注入するが、**本プロジェクトでは以下が優先する**（`using-superpowers` 自身が
@@ -104,7 +119,7 @@ superpowers から実際に使うのは **6 本**:
 その他の使い分け:
 
 - 画面の**方向を決める**のは `/ui-direction`、**コードに落とす**のは `frontend-design` skill
-- **下流のコードレビューは SDD の 3 席 + `code-verify` の 4 席**（`docs/flow-gates.md`）。
+- **下流のコードレビューは SDD の 3 席 + `code-verify` の 4 席**（`.harness2/docs/flow-gates.md`）。
   `pr-review-toolkit` は下流の既定から外した（`code-reviewer.md` と重複する）——
   PR そのものを見たいときに人間が `/pr-review-toolkit:review-pr` を呼ぶ
 - `security-guidance` は既定のまま。**ターン終了ごとと commit ごとに LLM を呼ぶ**ので、
@@ -146,7 +161,7 @@ git config core.hooksPath .githooks
 
 ## Story ごとの進め方（上流 → 下流）—— LangGraph の story グラフが回す
 
-**流れの位置・待ち・失敗・再実行点は LangGraph が持つ**（2026-09-24。`~/dev/harness2/graph/`、図は `GRAPH.md`）。
+**流れの位置・待ち・失敗・再実行点は LangGraph が持つ**（2026-09-24。`.harness2/graph/`、図は `GRAPH.md`）。
 thread 1 本 = Story 1 本。工程の中身は skill と SDD、外への作用は `scripts/` の台本、正本は artifact。
 
 ```
@@ -161,7 +176,7 @@ Task agent（Codex / Claude 自身）が 1 Task を探索から検証・commit �
 次の一手は毎回 artifact（HEAD・証跡・指摘の記録・試行の記録）から決まり、外的な中断では同じ session を resume する。
 失敗は Task 単位で、`hx retry` はその Task から続く。whole-branch review・code-verify・処置と PR 本文は全 Task の後に 1 回ずつ。
 **`[x]` は検証の証跡で決まる**（2026-09-25）: 検証コマンドは `scripts/verify-run <項目>` でハーネスが走らせて記録し、
-Task gate / Story gate / Integration gate がそれを機械で見る（`docs/flow-gates.md` の「関門の 3 段」）。
+Task gate / Story gate / Integration gate がそれを機械で見る（`.harness2/docs/flow-gates.md` の「関門の 3 段」）。
 環境の欠落（`BLOCKED_INFRA`）や過去の測定値では完了にならない。
 
 分割点は `openspec/changes/<change>/tasks.md` —— 上流の最後の成果物であり、下流の唯一の入力。
@@ -336,3 +351,7 @@ admission が通した Story どうしを実際に並べられ、main の作業�
 
 **移行の名前は作成時刻**（`YYYYMMDDHHMM_<slug>.sql`。連番にしない —— 並走する Story が番号を取り合う）。
 `tools/check-migrations.sh` が形を見る。適用の順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列。
+
+## agent への指示（プロジェクト固有）
+
+@AGENTS.md

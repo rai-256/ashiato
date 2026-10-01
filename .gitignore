@@ -31,3 +31,6 @@ web/.playwright/
 
 # LangGraph の dev サーバの保存先（scripts/hx dev）
 .langgraph_api/
+
+# harness2（scripts/init.py が足した）
+/.harness2
