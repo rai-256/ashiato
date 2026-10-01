@@ -33,7 +33,7 @@ use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
 use ashiato_collector_windows::sender::{Reply, Transport};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use uiautomation::controls::ControlType;
 use uiautomation::types::Handle;
 use uiautomation::UIAutomation;
@@ -513,37 +513,54 @@ fn idle_enter_and_leave_are_both_recorded() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Runtime を通す試験の偽物（送り先・基準・時刻同期）。
+
+#[derive(Debug, Default)]
+struct Capture(std::cell::RefCell<Vec<(String, String)>>);
+impl Transport for Capture {
+    fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+        self.0.borrow_mut().push((path.into(), body.into()));
+        let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
+            .map(|v| v.len())
+            .unwrap_or(0);
+        let items: Vec<serde_json::Value> = (0..n)
+            .map(|_| serde_json::json!({"accepted": true, "duplicate": false}))
+            .collect();
+        Ok(Reply {
+            status: 200,
+            body: serde_json::to_string(&items).unwrap(),
+        })
+    }
+}
+#[derive(Debug)]
+struct NoReference;
+impl ashiato_collector_windows::clock::ReferenceClock for NoReference {
+    fn now(&self) -> anyhow::Result<ashiato_collector_windows::clock::ReferenceReading> {
+        anyhow::bail!("基準時刻は取らない")
+    }
+    fn source(&self) -> String {
+        "none".into()
+    }
+}
+
+#[derive(Debug)]
+struct NoTimeSync;
+impl ashiato_collector_windows::time_sync::TimeSyncSource for NoTimeSync {
+    fn read(
+        &self,
+    ) -> Result<
+        ashiato_collector_windows::time_sync::TimeSyncReading,
+        ashiato_collector_windows::time_sync::TimeSyncError,
+    > {
+        Err(ashiato_collector_windows::time_sync::TimeSyncError::SpawnFailed)
+    }
+}
+
 // Scenario: 起動時に止まっていた期間が 1 件残る
 #[test]
 fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
     let _g = desktop();
-    #[derive(Debug, Default)]
-    struct Capture(std::cell::RefCell<Vec<(String, String)>>);
-    impl Transport for Capture {
-        fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
-            self.0.borrow_mut().push((path.into(), body.into()));
-            let n = serde_json::from_str::<Vec<serde_json::Value>>(body)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            let items: Vec<serde_json::Value> = (0..n)
-                .map(|_| serde_json::json!({"accepted": true, "duplicate": false}))
-                .collect();
-            Ok(Reply {
-                status: 200,
-                body: serde_json::to_string(&items).unwrap(),
-            })
-        }
-    }
-    #[derive(Debug)]
-    struct NoReference;
-    impl ashiato_collector_windows::clock::ReferenceClock for NoReference {
-        fn now(&self) -> anyhow::Result<DateTime<Utc>> {
-            anyhow::bail!("基準時刻は取らない")
-        }
-        fn source(&self) -> String {
-            "none".into()
-        }
-    }
 
     /// 落ちても消す（review/code-r2.md R6）
     struct TempDir(std::path::PathBuf);
@@ -566,14 +583,19 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         state_dir: dir.clone(),
     };
     let transport = Capture::default();
-    let reference = NoReference;
+    let reference = std::sync::Arc::new(NoReference);
+    let time_sync = std::sync::Arc::new(NoTimeSync);
     let zone = ashiato_collector_windows::config::Zone::current().unwrap();
     let mut rt = Runtime::new(
         &cfg,
         zone,
         engine(Vec::new()),
         &transport,
-        &reference,
+        ashiato_collector_windows::runtime::ClockInputs {
+            reference,
+            time_sync,
+            uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
+        },
         Utc::now(),
     )
     .unwrap();
@@ -605,6 +627,156 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
         p["boot_at"].is_string(),
         "本物の OS の起動時刻が載る（design D23）: {p}"
     );
+}
+
+// Scenario: PC の測定記録に起動の識別と起動からの経過時間が入っている
+// Scenario: 基準ごとに読む直前と直後の経過時間が入っている
+// Scenario: 同じ機械の構成でも Windows の時刻同期の状態が並ぶ
+//
+// 本物の `TimeSyncSource`（w32tm）・`Uptime`・OS の起動時刻で 1 回測る。
+// 取り込み口の基準は取れない状態にして、**Windows の時刻同期の状態だけで**記録が残ることを見る。
+// 読めなければ落ちる（design D8 の前提。1.3 で読めると確かめた）。
+#[test]
+fn clock_skew_runtime() {
+    let _g = desktop();
+    let dir = std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(dir.clone());
+    let cfg = Config {
+        base_url: "http://127.0.0.1:1".into(),
+        api_token: "t".into(),
+        user_id: uuid::Uuid::nil(),
+        device_id: "rt".into(),
+        state_dir: dir.clone(),
+    };
+    let transport = Capture::default();
+    let zone = ashiato_collector_windows::config::Zone::current().unwrap();
+    let mut rt = Runtime::new(
+        &cfg,
+        zone,
+        engine(Vec::new()),
+        &transport,
+        ashiato_collector_windows::runtime::ClockInputs {
+            reference: std::sync::Arc::new(NoReference),
+            time_sync: std::sync::Arc::new(
+                ashiato_collector_windows::time_sync::ProcessTimeSync::new(),
+            ),
+            uptime: std::sync::Arc::new(ashiato_collector_windows::clock::SystemUptime),
+        },
+        Utc::now(),
+    )
+    .unwrap();
+    let mut source = WindowsSource::open();
+    let state_before = w32time_running();
+    rt.start(&source);
+    // 作業スレッドの結果は見回りが拾う（w32tm は最長 5 秒）。
+    // **測定記録が現れるまで**回す（review R4）—— 「未送信が 1 件でもある」で抜けると、
+    // 作業スレッドの結果より先に前景などの記録が積まれたときに測定記録の無いまま止まる。
+    // 測定記録は未送信の置き場（ファイル）か、見回りの送信が渡した先のどちらかにある
+    let outbox = dir.join("outbox.jsonl");
+    let measured = |transport: &Capture| {
+        let queued = std::fs::read_to_string(&outbox).unwrap_or_default();
+        let sent = transport.0.borrow();
+        std::iter::once(queued.as_str())
+            .chain(
+                sent.iter()
+                    .filter(|(p, _)| p == "/ingest")
+                    .map(|(_, b)| b.as_str()),
+            )
+            .any(|text| text.contains("clock-skew"))
+    };
+    let started = Instant::now();
+    while !measured(&transport) && started.elapsed() < Duration::from_secs(20) {
+        rt.tick(&mut source);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    rt.stop();
+    let state_after = w32time_running();
+
+    let sent: Vec<serde_json::Value> = transport
+        .0
+        .borrow()
+        .iter()
+        .filter(|(p, _)| p == "/ingest")
+        .flat_map(|(_, b)| serde_json::from_str::<Vec<serde_json::Value>>(b).unwrap())
+        .collect();
+    let skew: Vec<_> = sent
+        .iter()
+        .filter(|r| r["payload"]["kind"] == "clock-skew")
+        .collect();
+    assert_eq!(skew.len(), 1, "測定記録が 1 件: {sent:?}");
+    let p = &skew[0]["payload"];
+    assert!(
+        p["uptime_ms"].as_u64().unwrap() > 0,
+        "起動からの経過時間: {p}"
+    );
+    assert!(p["boot_at"].is_string(), "起動の識別: {p}");
+    assert_eq!(p["clock_trigger"], "start");
+    let refs = p["clock_references"].as_array().unwrap();
+    let un = p["clock_unavailable"].as_array().unwrap();
+    // W32Time は手動（トリガー）起動で、止まっていることがある（2026-09-30。本人の指示で両方の経路を確かめる）。
+    // 止まっていればイベントログの同期の記録から読み（deep Q4）、その記録も無ければ取れなかった経路になる。
+    // **いまの状態で通った経路**を見る。どれも製品の仕様どおりなら通す
+    let stopped = state_before == Some(false) || state_after == Some(false);
+    if let Some(u) = un.iter().find(|u| u["source"] == "windows-time-sync") {
+        assert!(
+            stopped,
+            "時刻同期が取れなかったのに W32Time は止まっていない（{state_before:?} → {state_after:?}）: {p}"
+        );
+        assert_eq!(
+            u["reason"], "service_stopped",
+            "止まっていた理由がそのまま残る: {p}"
+        );
+        assert!(
+            !matches!(
+                ashiato_collector_windows::time_sync::ProcessTimeSync::new().read_event_log(),
+                Ok(Some(_))
+            ),
+            "イベントログに同期の記録があるのに並ばなかった: {p}"
+        );
+        assert!(refs.is_empty(), "どの基準も取れていない: {p}");
+        assert_eq!(p["clock_available"], false, "{p}");
+        assert_eq!(
+            un.len(),
+            2,
+            "2 つの出どころが取れなかった側に 1 回ずつ: {p}"
+        );
+        return;
+    }
+    let sync = refs
+        .iter()
+        .find(|r| r["source"] == "windows-time-sync")
+        .unwrap_or_else(|| panic!("時刻同期の状態が取れていない: {p}"));
+    if sync["sync_via"] == "eventlog" {
+        assert!(
+            stopped,
+            "W32Time が動いているのにイベントログから読んだ（{state_before:?} → {state_after:?}）: {p}"
+        );
+        assert!(
+            sync["last_sync"].is_string() && sync["sync_source"].is_string(),
+            "最後の同期の時刻と同期元が並ぶ: {sync}"
+        );
+    } else {
+        assert_eq!(sync["sync_via"], "w32tm", "{sync}");
+        assert!(
+            state_before == Some(true) || state_after == Some(true),
+            "W32Time が止まっているのに w32tm から読めた（{state_before:?} → {state_after:?}）: {p}"
+        );
+    }
+    assert!(sync["raw"].is_string(), "読んだままの出力を持つ: {sync}");
+    assert!(
+        sync["mono_before_ms"].as_u64().unwrap() <= sync["mono_after_ms"].as_u64().unwrap(),
+        "読む直前と直後の経過時間: {sync}"
+    );
+    // 取り込み口の基準は取れていないので、取れなかった側に 1 回だけ出る
+    assert_eq!(un.len(), 1, "{p}");
+    assert_eq!(un[0]["source"], "s01-date");
 }
 
 // ---------------------------------------------------------------------------
@@ -846,5 +1018,102 @@ fn browser_url_is_recorded_as_displayed_and_a_url_change_adds_one_record() {
         fg[n_before - 1].title,
         "題名は変わっていない:\n  {}",
         summarize(&all)
+    );
+}
+
+/// `w32tm /query /status /verbose` の見出し（ST05 design D8）。表示言語で変わるので英語と日本語の両方。
+/// 日本語の出力はコンソールの符号ページ（cp932）のままなので、バイト列で照合する。
+/// W32Time が動いているか（`sc query w32time` の STATE の数値。4 = RUNNING / 1 = STOPPED）。
+/// 管理者権限は要らない。STATE の見出しは日本語の Windows でも英語で出る（2026-09-30 実測）。読めなければ None。
+fn w32time_running() -> Option<bool> {
+    let out = Command::new("sc")
+        .args(["query", "w32time"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().find(|l| l.trim_start().starts_with("STATE"))?;
+    let n: u32 = line
+        .split(':')
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    Some(n == 4)
+}
+
+const LAST_SYNC_KEYS: [&[u8]; 2] = [
+    b"Last Successful Sync Time",
+    b"\x8d\xc5\x8f\x49\x90\xb3\x8f\xed\x93\xaf\x8a\xfa\x8e\x9e\x8d\x8f", // 最終正常同期時刻
+];
+const SOURCE_KEYS: [&[u8]; 2] = [
+    b"Source",
+    b"\x83\x5c\x81\x5b\x83\x58", // ソース
+];
+
+/// 見出しが `keys` のどれかで、値が空でも「未指定」（cp932）でもない行の値。
+fn w32tm_value(out: &[u8], keys: &[&[u8]]) -> Option<String> {
+    const UNSPECIFIED_JA: &[u8] = b"\x96\xa2\x8e\x77\x92\xe8";
+    const UNSPECIFIED_EN: &[u8] = b"unspecified";
+    out.split(|&b| b == b'\n').find_map(|line| {
+        let colon = line.iter().position(|&b| b == b':')?;
+        let (key, value) = (&line[..colon], line[colon + 1..].trim_ascii());
+        let unspecified = value.is_empty()
+            || value == UNSPECIFIED_JA
+            || value.eq_ignore_ascii_case(UNSPECIFIED_EN);
+        (keys.contains(&key.trim_ascii()) && !unspecified)
+            .then(|| String::from_utf8_lossy(value).into_owned())
+    })
+}
+
+// イベントログの同期の記録（Time-Service の 35 / 37）が読めるかの確かめ（deep Q4 / design D8）。
+// **W32Time の状態に依らず走る。** 読めなければ（権限・打ち切り）落ちる。記録が 0 件なのは読めた扱い。
+#[test]
+fn clock_time_sync_event_log_is_readable() {
+    let r = ashiato_collector_windows::time_sync::ProcessTimeSync::new()
+        .read_event_log()
+        .unwrap_or_else(|e| panic!("イベントログが読めない: {}", e.reason()));
+    if let Some(r) = r {
+        assert_eq!(
+            r.reason, None,
+            "最新の記録から時刻も同期元も読めない: {r:?}"
+        );
+        assert!(r.last_sync.is_some() && r.source.is_some(), "{r:?}");
+    }
+}
+
+// 管理者権限なしで読めるかの確かめ（design D8）。読めなければ落ちる。
+// 子プロセスに渡す引数は `/query /status /verbose` に固定（`/resync` `/config` は渡さない）。
+#[test]
+fn clock_time_sync_is_readable() {
+    let state_before = w32time_running();
+    let out = Command::new("w32tm")
+        .args(["/query", "/status", "/verbose"])
+        .output()
+        .expect("w32tm が起動しない");
+    let code = out.status.code();
+    if code == Some(ashiato_collector_windows::time_sync::SERVICE_NOT_STARTED) {
+        // 止まっている経路（2026-09-30）。管理者権限の不足など別の理由の非 0 はここに来ない
+        let state_after = w32time_running();
+        assert!(
+            state_before == Some(false) || state_after == Some(false),
+            "サービスが開始されていないと返したのに W32Time は止まっていない（{state_before:?} → {state_after:?}）"
+        );
+        let err = ashiato_collector_windows::time_sync::TimeSyncError::Exit(code);
+        assert_eq!(err.reason(), "service_stopped");
+        return;
+    }
+    assert_eq!(
+        code,
+        Some(0),
+        "w32tm が非 0 で終わった: {code:?} / 標準出力の長さ {}",
+        out.stdout.len()
+    );
+    let last_sync = w32tm_value(&out.stdout, &LAST_SYNC_KEYS);
+    let source = w32tm_value(&out.stdout, &SOURCE_KEYS);
+    assert!(
+        last_sync.is_some() || source.is_some(),
+        "最後に同期した時刻も同期元も解析できない（見出しの言語が想定外か）: {} バイト",
+        out.stdout.len()
     );
 }

@@ -11,6 +11,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * 送信に**資格情報が付く**（tasks 9.9 / PERM-10 /
@@ -23,6 +25,8 @@ import org.junit.Test
  * サーバは生の `ServerSocket` で書く。`com.sun.net.httpserver` は Android の
  * コンパイル経路に無く、HTTP の器のために依存を 1 つ増やす価値も無い。
  */
+// 本物の `SystemClock` を読むので Robolectric で動かす（ST05。応答に単調時計の値が載る）
+@RunWith(RobolectricTestRunner::class)
 class HttpTransportTest {
     private lateinit var server: ServerSocket
     private val requests = mutableListOf<Request>()

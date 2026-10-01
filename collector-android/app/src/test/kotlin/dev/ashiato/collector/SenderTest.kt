@@ -12,7 +12,7 @@ import org.junit.Test
 /** まとめ送りと部分失敗（tasks 7.2 / 7.3 / design D9）。 */
 class SenderTest {
     private fun req(id: String) =
-        LocationFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+        testFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 送られた本文を覚える偽の取り込み口。 */

@@ -85,7 +85,7 @@ class HttpTransportInstrumentedTest {
         assertEquals("Bearer test-token-0123456789abcdef", server.headers["authorization"])
         assertEquals("application/json", server.headers["content-type"])
         assertEquals("""[{"hello":"world"}]""", server.body)
-        assertEquals(Outcome.Responded(200, """[{"id":null,"duplicate":false,"accepted":true,"error":null}]"""), outcome)
+        assertEquals(Outcome.Responded(200, """[{"id":null,"duplicate":false,"accepted":true,"error":null}]"""), outcome.withoutClockFields())
     }
 
     /** 400 は「到達したが断られた」で、網の失敗（`Unreachable`）とは別物。本文は読み出せる。 */
@@ -98,7 +98,7 @@ class HttpTransportInstrumentedTest {
         val outcome = transport.post("{}")
 
         assertTrue(server.done.await(10, TimeUnit.SECONDS))
-        assertEquals(Outcome.Responded(400, """[{"accepted":false,"error":"malformed"}]"""), outcome)
+        assertEquals(Outcome.Responded(400, """[{"accepted":false,"error":"malformed"}]"""), outcome.withoutClockFields())
     }
 
     /** 誰も聞いていない port は `Unreachable`。**例外の型名だけ**が残り、URL や本文は出ない。 */
@@ -113,3 +113,7 @@ class HttpTransportInstrumentedTest {
         assertEquals("ConnectException", (outcome as Outcome.Unreachable).kind)
     }
 }
+
+/** 時計のずれの測定が使う欄（`Date`・時計の値・宛先）を既定値へ戻す。状態符号と本文だけを比べるため。 */
+private fun Outcome.withoutClockFields(): Outcome =
+    if (this is Outcome.Responded) copy(date = null, monoBeforeMs = 0, monoAfterMs = 0, wallAfterMs = 0, host = null) else this

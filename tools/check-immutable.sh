@@ -6,6 +6,7 @@
 # 同じ PC の第三者製プラグインや手作業の psql を止められるのは DB の側だけ。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. tools/ports.sh     # worktree ごとのポート（docker compose の DB の待ち受け）
 cleanup() { docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 

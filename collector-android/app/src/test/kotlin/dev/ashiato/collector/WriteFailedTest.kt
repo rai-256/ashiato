@@ -19,7 +19,7 @@ class WriteFailedTest {
     private val ledgerFile = File(st.dir, "write-failed.bin")
 
     private fun req(id: String, time: String) =
-        LocationFix(35.68, 139.76, 10f, Instant.parse(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
+        testFix(35.68, 139.76, 10f, Instant.parse(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 書き込みを失敗させる置き場に、固定長の数えをつないだ Outbox（本番の `LocationService` と同じ配線）。 */
     private fun failingOutbox(counter: WriteFailedLedger): Outbox<IngestRequest> {

@@ -20,18 +20,22 @@
 //! しかも次の起動の `powered-off` が「PC が止まっていた」を主張してしまう。
 //! 失敗はログに出して次の見回りでやり直し、記録は手元に抱えて積み直す。
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 
-use crate::clock::{self, ReferenceClock, SkewSchedule};
+use crate::clock::{ReferenceClock, SkewSchedule, Uptime};
+use crate::clock_record::{skew_record, RecordContext};
+use crate::clock_worker::{ClockReading, ClockWorker, WorkerPoll};
 use crate::config::{Config, Zone};
-use crate::contract::{HeartbeatRequest, IngestRequest, WindowPayload};
+use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
 use crate::outbox::Outbox;
 use crate::sender::{Sender, Transport};
 use crate::telemetry;
+use crate::time_sync::TimeSyncSource;
 
 /// 見回りの間隔（design D5・**仮**）。題名だけの変化は OS からの通知が
 /// 来ないことがあるので、**最長 1 秒遅れ**で拾う。
@@ -62,6 +66,17 @@ pub trait Source: std::fmt::Debug {
     }
 }
 
+/// 時計のずれを測るために読む 3 つの口。**試験では偽物に差し替える。**
+#[derive(Debug)]
+pub struct ClockInputs {
+    /// 取り込み口の応答の日付
+    pub reference: Arc<dyn ReferenceClock>,
+    /// Windows の時刻同期の状態
+    pub time_sync: Arc<dyn TimeSyncSource>,
+    /// 起動からの経過時間
+    pub uptime: Arc<dyn Uptime>,
+}
+
 /// 収集の本体。
 pub struct Runtime<'a> {
     user_id: uuid::Uuid,
@@ -73,7 +88,17 @@ pub struct Runtime<'a> {
     ingest: Sender,
     beat_sender: Sender,
     transport: &'a dyn Transport,
-    reference: &'a dyn ReferenceClock,
+    reference: Arc<dyn ReferenceClock>,
+    time_sync: Arc<dyn TimeSyncSource>,
+    /// 起動からの経過時間（記録に載せる。design D9）
+    uptime: Arc<dyn Uptime>,
+    /// いま読んでいる測定の契機（記録に載せる）
+    skew_trigger: ClockTrigger,
+    /// 基準を読んでいる作業スレッド。**走っている間は次の測定を始めない**（design D7）
+    clock_worker: Option<ClockWorker>,
+    /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
+    #[cfg(test)]
+    settle_clock_worker: bool,
     marker: Marker,
     engine_path: std::path::PathBuf,
     saved_state: Option<EngineState>,
@@ -120,9 +145,14 @@ impl<'a> Runtime<'a> {
         zone: Zone,
         engine: Engine,
         transport: &'a dyn Transport,
-        reference: &'a dyn ReferenceClock,
+        clocks: ClockInputs,
         now: DateTime<Utc>,
     ) -> anyhow::Result<Self> {
+        let ClockInputs {
+            reference,
+            time_sync,
+            uptime,
+        } = clocks;
         let counter_store = CounterStore::new(&cfg.state_dir);
         let (counters, broken_counters) = counter_store.load_or_quarantine();
         if broken_counters {
@@ -156,6 +186,12 @@ impl<'a> Runtime<'a> {
             beat_sender: Sender::heartbeat(),
             transport,
             reference,
+            time_sync,
+            uptime,
+            skew_trigger: ClockTrigger::Start,
+            clock_worker: None,
+            #[cfg(test)]
+            settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
             engine_path: cfg.state_dir.join("engine.json"),
             saved_state: None,
@@ -197,7 +233,7 @@ impl<'a> Runtime<'a> {
         } else if last_seen.is_some_and(|l| l >= wall) {
             // **時計が戻っていた**。区間は作れないので、ずれをすぐ測る（R17 / R22 の穴）
             (self.log)(telemetry::line("clock_went_back", Some(1), None, None));
-            self.skew_schedule = SkewSchedule::new();
+            self.skew_schedule.reset(ClockTrigger::Jump);
         }
         for p in records {
             self.push(p);
@@ -226,7 +262,7 @@ impl<'a> Runtime<'a> {
             if (wall_gap - mono_gap).num_seconds().abs() >= CLOCK_JUMP_SEC {
                 // **壁時計が飛んだ**。破れた直後こそ測る（扉 #5 / R17）
                 (self.log)(telemetry::line("clock_jump", Some(1), None, None));
-                self.skew_schedule = SkewSchedule::new();
+                self.skew_schedule.reset(ClockTrigger::Jump);
             }
         }
         self.last_tick = Some((wall, mono));
@@ -265,7 +301,7 @@ impl<'a> Runtime<'a> {
         }
 
         // 4. 契機（**単調時計で測る**）
-        self.maybe_measure_skew(wall, mono);
+        self.maybe_measure_skew(wall, mono, &*source);
         self.maybe_beat(wall, mono);
         self.maybe_send(wall, mono);
     }
@@ -389,26 +425,77 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn maybe_measure_skew(&mut self, wall: DateTime<Utc>, mono: DateTime<Utc>) {
-        if !self.skew_schedule.due(mono) {
+    /// 基準の読み取りを進める。**読み取りは作業スレッドで行い、ここでは待たない**（design D7）。
+    ///
+    /// 結果が来ていれば測定記録を積み、走っていなくて契機が来ていれば作業スレッドを起こす。
+    /// 測り直し（60 秒）は読み取りが終わってから数える。
+    fn maybe_measure_skew(
+        &mut self,
+        wall: DateTime<Utc>,
+        mono: DateTime<Utc>,
+        source: &dyn Source,
+    ) {
+        if let Some(worker) = self.clock_worker.as_mut() {
+            let reading = match worker.poll() {
+                WorkerPoll::Pending => return,
+                WorkerPoll::Done(reading) => *reading,
+                // **作業スレッドが落ちても見回りは止まらない**（D11）。2 つとも取れなかったとして扱う
+                WorkerPoll::Failed => ClockReading::worker_failed(self.reference.source()),
+            };
+            self.clock_worker = None;
+            self.finish_skew(reading, wall, mono, source);
+        }
+        if self.clock_worker.is_none() && self.skew_schedule.due(mono) {
+            self.skew_trigger = self.skew_schedule.begin(mono);
+            self.clock_worker = Some(ClockWorker::spawn(
+                Arc::clone(&self.reference),
+                Arc::clone(&self.time_sync),
+                Arc::clone(&self.uptime),
+            ));
+            // 読み取りの間は契機が来ない。飛び・戻りで作り直されたら、終わった後にまた測る
+            #[cfg(test)]
+            if self.settle_clock_worker {
+                if let Some(w) = self.clock_worker.as_mut() {
+                    w.settle();
+                }
+            }
+        }
+    }
+
+    /// 作業スレッドが返した読み取りを記録にする。**差は応答を受け取った直後の壁時計で計算する**（Q3 ②）。
+    ///
+    /// 1 つも取れなければ、取れなかった記録を**周期に 1 件だけ**残し、60 秒後に測り直す。
+    /// 測り直しで取れたら `retry` の記録を 1 件残す（design D4 / D10）。
+    fn finish_skew(
+        &mut self,
+        reading: ClockReading,
+        wall: DateTime<Utc>,
+        mono: DateTime<Utc>,
+        source: &dyn Source,
+    ) {
+        let reason = unavailable_error(&reading);
+        let ctx = RecordContext {
+            trigger: self.skew_trigger,
+            at: wall,
+            uptime_ms: self.uptime.millis(),
+            boot_at: source.boot_time(),
+        };
+        let p = skew_record(&ctx, reading);
+        if p.clock_available == Some(true) {
+            self.skew_schedule.succeeded();
+            self.push(p);
             return;
         }
-        match self.reference.now() {
-            Ok(reference) => {
-                let p = clock::measure(wall, reference, &self.reference.source());
-                self.push(p);
-                self.skew_schedule.mark(mono);
-            }
-            // **推測で埋めない。** 1 分後に測り直す（毎秒は叩かない）
-            Err(e) => {
-                (self.log)(telemetry::line(
-                    "clock_skew_unavailable",
-                    None,
-                    None,
-                    Some(telemetry::error_kind(&e)),
-                ));
-                self.skew_schedule.failed(mono);
-            }
+        // **推測で埋めない。** 1 分後に測り直す（毎秒は叩かない）
+        (self.log)(telemetry::line(
+            "clock_skew_unavailable",
+            None,
+            None,
+            Some(&reason),
+        ));
+        self.skew_schedule.failed(mono);
+        if self.skew_schedule.record_unavailable() {
+            self.push(p);
         }
     }
 
@@ -490,6 +577,20 @@ impl<'a> Runtime<'a> {
     }
 }
 
+/// 取れなかったときのログの `error`。**2 つの基準の理由を両方**、`<基準>:<理由>` で並べる（review R10）。
+/// 理由は `TimeSyncError::reason` / `telemetry::error_kind` が名付けた種別だけなので、値は混ざらない。
+fn unavailable_error(reading: &crate::clock_worker::ClockReading) -> String {
+    use crate::contract::{SOURCE_S01_DATE, SOURCE_TIME_SYNC};
+    [
+        (SOURCE_S01_DATE, reading.reference.as_ref().err()),
+        (SOURCE_TIME_SYNC, reading.time_sync.as_ref().err()),
+    ]
+    .into_iter()
+    .filter_map(|(source, reason)| reason.map(|r| format!("{source}:{r}")))
+    .collect::<Vec<_>>()
+    .join(",")
+}
+
 /// 取得できる状態かを観測から決める（design D4）。
 ///
 /// **URL の経路は「前景がブラウザのとき」しか判らない** ——
@@ -519,9 +620,11 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+    use crate::clock;
     use crate::engine::Foreground;
     use crate::exclusion::{Exclusions, Rule};
     use crate::sender::Reply;
+    use crate::time_sync::TimeSyncError;
     use std::cell::RefCell;
 
     fn t(sec: i64) -> DateTime<Utc> {
@@ -639,15 +742,48 @@ mod tests {
             .collect()
     }
 
+    /// 基準の時刻は固定。応答を受け取った直後の壁時計は、読むたびに 1 秒ずつ進む（記録の時刻が重ならない）。
     #[derive(Debug)]
-    struct FixedReference(DateTime<Utc>);
+    struct FixedReference(DateTime<Utc>, std::sync::atomic::AtomicI64);
+
+    impl FixedReference {
+        fn new(time: DateTime<Utc>) -> Self {
+            Self(time, std::sync::atomic::AtomicI64::new(0))
+        }
+    }
 
     impl ReferenceClock for FixedReference {
-        fn now(&self) -> anyhow::Result<DateTime<Utc>> {
-            Ok(self.0)
+        fn now(&self) -> anyhow::Result<clock::ReferenceReading> {
+            let n = self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(clock::ReferenceReading {
+                time: self.0,
+                uptime_before_ms: 0,
+                uptime_after_ms: 0,
+                wall_after: self.0 + Duration::seconds(n),
+            })
         }
         fn source(&self) -> String {
             "127.0.0.1:1".into()
+        }
+    }
+
+    /// 起動からの経過時間は固定の偽物。
+    #[derive(Debug)]
+    struct FixedUptime;
+
+    impl Uptime for FixedUptime {
+        fn millis(&self) -> u64 {
+            42_000
+        }
+    }
+
+    /// 時刻同期の状態は読めない偽物。
+    #[derive(Debug)]
+    struct NoTimeSync;
+
+    impl TimeSyncSource for NoTimeSync {
+        fn read(&self) -> Result<crate::time_sync::TimeSyncReading, TimeSyncError> {
+            Err(TimeSyncError::SpawnFailed)
         }
     }
 
@@ -657,7 +793,19 @@ mod tests {
         transport: &'a AcceptAll,
         reference: &'a FixedReference,
     ) -> Runtime<'a> {
-        Runtime::new(cfg, zone(), engine, transport, reference, t(0)).unwrap()
+        Runtime::new(
+            cfg,
+            zone(),
+            engine,
+            transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap()
     }
 
     /// 壁時計と単調時計を揃えて `sec` 秒ぶん回す。
@@ -672,7 +820,7 @@ mod tests {
     fn start_records_powered_off_span() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         std::fs::create_dir_all(&cfg.state_dir).unwrap();
         Marker::new(&cfg.state_dir).touch(t(-50_000)).unwrap();
 
@@ -707,7 +855,7 @@ mod tests {
     fn clean_stop_is_carried_to_next_start() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         {
             let mut rt = runtime(
                 &cfg,
@@ -743,7 +891,7 @@ mod tests {
     fn suspend_gap_is_recorded() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -781,7 +929,7 @@ mod tests {
     fn ticks_keep_heartbeat_and_skew_intervals_for_a_day() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -811,7 +959,7 @@ mod tests {
     fn marker_advances_every_minute_while_running() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -837,7 +985,7 @@ mod tests {
     fn clock_jumps_do_not_stop_the_intervals() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -883,7 +1031,7 @@ mod tests {
     fn locked_hours_are_not_failures() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -912,7 +1060,7 @@ mod tests {
     fn blockers_are_sticky_within_the_interval() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -947,7 +1095,7 @@ mod tests {
     fn write_failures_do_not_stop_collection() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let mut rt = runtime(
             &cfg,
             Engine::new(Exclusions::default()),
@@ -978,7 +1126,7 @@ mod tests {
     fn restart_closes_previous_away_and_excluded() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let rules = || Exclusions {
             rules: vec![Rule::ProcessName {
                 value: "vault.exe".into(),
@@ -1026,7 +1174,7 @@ mod tests {
     fn excluded_body_never_reaches_the_transport() {
         let cfg = cfg();
         let transport = AcceptAll::default();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let rules = Exclusions {
             rules: vec![Rule::ProcessName {
                 value: "vault.exe".into(),
@@ -1093,5 +1241,483 @@ mod tests {
             locked: true,
         });
         assert!(locked.capturable, "ロック中を取れないと報告した");
+    }
+
+    /// 基準を読むのに `gate` が開くまで（最長 5 秒）かかる偽物。
+    #[derive(Debug)]
+    struct SlowReference(std::sync::Mutex<std::sync::mpsc::Receiver<()>>);
+
+    impl ReferenceClock for SlowReference {
+        fn now(&self) -> anyhow::Result<clock::ReferenceReading> {
+            let _ = self
+                .0
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(5));
+            anyhow::bail!("打ち切られた")
+        }
+        fn source(&self) -> String {
+            "127.0.0.1:1".into()
+        }
+    }
+
+    /// 読み取りに失敗するか panic する偽物。読まれた回数を数える。
+    #[derive(Debug)]
+    struct BrokenReference {
+        panics: bool,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ReferenceClock for BrokenReference {
+        fn now(&self) -> anyhow::Result<clock::ReferenceReading> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.panics {
+                panic!("作業スレッドの試験用の panic");
+            }
+            anyhow::bail!("基準を取れない")
+        }
+        fn source(&self) -> String {
+            "127.0.0.1:1".into()
+        }
+    }
+
+    fn runtime_with<'a>(
+        cfg: &Config,
+        transport: &'a AcceptAll,
+        reference: Arc<dyn ReferenceClock>,
+    ) -> Runtime<'a> {
+        Runtime::new(
+            cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            transport,
+            ClockInputs {
+                reference,
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap()
+    }
+
+    /// 見回りの先頭の壁時計ではなく、応答を受け取った直後の壁時計で差を計算する。
+    ///
+    /// Scenario: 差に使う PC の時計は基準を読む前後の間で読む
+    #[test]
+    fn clock_reference_difference_ignores_the_patrol_start_wall() {
+        struct Skewed;
+        impl std::fmt::Debug for Skewed {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("Skewed")
+            }
+        }
+        impl ReferenceClock for Skewed {
+            fn now(&self) -> anyhow::Result<clock::ReferenceReading> {
+                // 見回りの先頭（t(0)）から応答を受け取るまでに PC の時計が 30 秒進んだ
+                Ok(clock::ReferenceReading {
+                    time: t(30),
+                    uptime_before_ms: 1,
+                    uptime_after_ms: 2,
+                    wall_after: t(30),
+                })
+            }
+            fn source(&self) -> String {
+                "127.0.0.1:1".into()
+            }
+        }
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(Skewed));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        rt.tick_at(&mut src, t(0), t(0));
+        rt.tick_at(&mut src, t(1), t(1));
+        let raws: Vec<String> = rt.events.snapshot().iter().map(|r| r.raw.clone()).collect();
+        let skew = raws
+            .iter()
+            .find(|r| r.contains("clock-skew"))
+            .expect("測定記録が積まれていない");
+        assert!(
+            skew.contains("\"skew_ms\":0"),
+            "その 30 秒が差に混ざっている: {skew}"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 基準の読み取りが打ち切りまでかかる間も、1 秒ごとの見回りは止まらず、切り替えは残る。
+    ///
+    /// Scenario: 基準の読み取りが長引いても前景の切り替えは記録に残る
+    #[test]
+    fn clock_worker_slow_read_does_not_hold_the_patrol() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let (gate, slow) = std::sync::mpsc::channel();
+        let mut rt = runtime_with(
+            &cfg,
+            &transport,
+            Arc::new(SlowReference(std::sync::Mutex::new(slow))),
+        );
+        rt.settle_clock_worker = false;
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        let started = std::time::Instant::now();
+        run(&mut rt, &mut src, 0, 3, 1);
+        assert!(rt.clock_worker.is_some(), "読み取りが走っていない");
+        src.app = "browser".into();
+        run(&mut rt, &mut src, 4, 8, 1);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "見回りが読み取りを待っている"
+        );
+        assert!(
+            rt.clock_worker.is_some(),
+            "読み取りはまだ終わっていないはず"
+        );
+        let foreground = rt
+            .events
+            .snapshot()
+            .iter()
+            .filter(|r| r.raw.contains("\"kind\":\"foreground\""))
+            .count();
+        assert_eq!(foreground, 1, "切り替えの記録が 1 件残っていない");
+        drop(gate);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取れなかったときのログには、2 つの基準の理由が両方出る（review R10）。
+    #[test]
+    fn clock_skew_unavailable_log_names_both_reasons() {
+        let reading = crate::clock_worker::ClockReading {
+            source: "127.0.0.1:1".into(),
+            reference: Err("unreachable".into()),
+            time_sync: Err("service_stopped".into()),
+        };
+        assert_eq!(
+            unavailable_error(&reading),
+            "s01-date:unreachable,windows-time-sync:service_stopped"
+        );
+        let line = telemetry::line(
+            "clock_skew_unavailable",
+            None,
+            None,
+            Some(&unavailable_error(&reading)),
+        );
+        assert!(
+            line.ends_with("error=s01-date:unreachable,windows-time-sync:service_stopped"),
+            "{line}"
+        );
+    }
+
+    /// 基準の読み取りが失敗し続けても、送信の契機で未送信の記録は送られる。
+    ///
+    /// Scenario: 測定が失敗し続けても送信は続く
+    #[test]
+    fn clock_worker_failing_reads_do_not_stop_sending() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let reference = BrokenReference {
+            panics: false,
+            calls: Arc::clone(&calls),
+        };
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 100, 1);
+        src.app = "browser".into();
+        run(&mut rt, &mut src, 101, 400, 1);
+        assert!(
+            calls.load(std::sync::atomic::Ordering::Relaxed) >= 2,
+            "測り直していない"
+        );
+        assert!(
+            !of_kind(&transport, "foreground").is_empty(),
+            "未送信の記録が送られていない"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 作業スレッドが panic しても見回りは止まらず、取れなかったとして 60 秒後に測り直す。
+    #[test]
+    fn clock_worker_panic_is_unavailable_and_retried_after_a_minute() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let reference = BrokenReference {
+            panics: true,
+            calls: Arc::clone(&calls),
+        };
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 130, 1);
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::Relaxed),
+            3,
+            "0 秒・1 分後・2 分後に測り直すはず"
+        );
+        assert_eq!(
+            skew_records(&mut rt, &transport, 131).len(),
+            1,
+            "取れなかった記録は測り直しのたびには増えない"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    // ---- 測定記録（clock_skew_record_*。ST05 design D4 / D10） ----
+
+    /// 取れる・取れないを外から切り替えられ、PC の時計の進みも外から決められる基準の偽物。
+    #[derive(Debug, Clone)]
+    struct SwitchReference {
+        ok: Arc<std::sync::atomic::AtomicBool>,
+        /// 応答を受け取った直後の PC の時計の、基準の時刻からの進み（ミリ秒）
+        pc_ahead_ms: Arc<std::sync::atomic::AtomicI64>,
+    }
+
+    impl SwitchReference {
+        fn new(ok: bool) -> Self {
+            Self {
+                ok: Arc::new(std::sync::atomic::AtomicBool::new(ok)),
+                pc_ahead_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            }
+        }
+        fn set_ok(&self, ok: bool) {
+            self.ok.store(ok, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    impl ReferenceClock for SwitchReference {
+        fn now(&self) -> anyhow::Result<crate::clock::ReferenceReading> {
+            if !self.ok.load(std::sync::atomic::Ordering::Relaxed) {
+                anyhow::bail!("基準を取れない");
+            }
+            let ahead = self.pc_ahead_ms.load(std::sync::atomic::Ordering::Relaxed);
+            Ok(crate::clock::ReferenceReading {
+                time: t(1_000),
+                uptime_before_ms: 41_000,
+                uptime_after_ms: 41_999,
+                wall_after: t(1_000) + Duration::milliseconds(ahead),
+            })
+        }
+        fn source(&self) -> String {
+            "127.0.0.1:1".into()
+        }
+    }
+
+    /// 測定記録だけを、積まれた順に返す（送ってから読む）。
+    fn skew_records(rt: &mut Runtime, transport: &AcceptAll, end: i64) -> Vec<serde_json::Value> {
+        rt.stop_at(t(end));
+        of_kind(transport, "clock-skew")
+            .into_iter()
+            .map(|r| r["payload"].clone())
+            .collect()
+    }
+
+    /// 1 時間ごとに測定記録が残り、最初は起動・以降は 1 時間ごとの契機を持つ。
+    ///
+    /// Scenario: 1 時間ごとにずれの測定記録が残る
+    /// Scenario: PC の測定記録に測った契機が残る
+    /// Scenario: PC の測定記録に起動の識別と起動からの経過時間が入っている
+    #[test]
+    fn clock_skew_record_is_left_hourly_with_trigger_and_boot_identity() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(SwitchReference::new(true)));
+        let mut src = FakeSource::new("editor");
+        src.boot = Some(t(-60));
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 7_300, 10);
+        let recs = skew_records(&mut rt, &transport, 7_301);
+        let triggers: Vec<_> = recs.iter().map(|p| p["clock_trigger"].clone()).collect();
+        assert_eq!(triggers, ["start", "hourly", "hourly"], "{recs:?}");
+        for p in &recs {
+            assert_eq!(p["uptime_ms"], 42_000);
+            assert_eq!(p["boot_at"], crate::contract::rfc3339(t(-60)));
+        }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 壁時計が飛ぶと、次の 1 時間の契機を待たずに、飛んだ後の差を持つ記録が残る。
+    ///
+    /// Scenario: 壁時計が飛ぶとその場で測る
+    /// Scenario: 時計が飛んだ直後の測定は飛んだ後の差を持つ
+    /// Scenario: PC の測定記録に測った契機が残る
+    #[test]
+    fn clock_skew_record_is_taken_at_once_after_the_clock_jumps() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = SwitchReference::new(true);
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference.clone()));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 100, 1);
+
+        // PC の時計が 5 分先へ飛ぶ（単調時計はそのまま進む）
+        reference
+            .pc_ahead_ms
+            .store(300_000, std::sync::atomic::Ordering::Relaxed);
+        for s in 101..=110 {
+            rt.tick_at(&mut src, t(s + 300), t(s));
+        }
+        let recs = skew_records(&mut rt, &transport, 111);
+        assert_eq!(recs.len(), 2, "{recs:?}");
+        assert_eq!(recs[0]["clock_trigger"], "start");
+        assert_eq!(recs[0]["skew_ms"], 0);
+        assert_eq!(recs[1]["clock_trigger"], "jump");
+        assert_eq!(recs[1]["skew_ms"], 300_000, "飛んだ後の差");
+        assert_eq!(
+            recs[1]["clock_references"][0]["skew_ms"], 300_000,
+            "基準ごとの差も飛んだ後"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 基準が 1 つも取れないと、取れなかった印の付いた記録が 1 件残り、基準ごとの理由を持つ。
+    ///
+    /// Scenario: PC で基準が 1 つも取れないと取れなかった印の付いた記録が残る
+    /// Scenario: PC の取れなかった記録は基準ごとの理由を持つ
+    #[test]
+    fn clock_skew_record_unavailable_has_a_reason_per_source() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(SwitchReference::new(false)));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 10, 1);
+        let recs = skew_records(&mut rt, &transport, 11);
+        assert_eq!(recs.len(), 1, "{recs:?}");
+        let p = &recs[0];
+        assert_eq!(p["clock_available"], false);
+        assert_eq!(p["clock_references"], serde_json::json!([]));
+        let un = p["clock_unavailable"].as_array().unwrap();
+        let of = |source: &str| un.iter().find(|u| u["source"] == source).unwrap();
+        assert_eq!(of("s01-date")["reason"], "unreachable");
+        assert_eq!(of("windows-time-sync")["reason"], "spawn_failed");
+        assert!(p.get("skew_ms").is_none(), "取れなかった記録に差は無い");
+        assert!(p.get("skew_reference").is_none());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取れない状態が 1 時間続いても、その契機の取れなかった記録は 1 件（測り直しのたびには増えない）。
+    /// 次の 1 時間の契機では改めて 1 件残る。
+    ///
+    /// Scenario: PC の測り直しのたびには記録を増やさない
+    #[test]
+    fn clock_skew_record_unavailable_is_not_repeated_by_retries() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let reference = BrokenReference {
+            panics: false,
+            calls: Arc::clone(&calls),
+        };
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 3_500, 5);
+        assert!(
+            calls.load(std::sync::atomic::Ordering::Relaxed) >= 50,
+            "測り直していない"
+        );
+        assert_eq!(skew_records(&mut rt, &transport, 3_501).len(), 1);
+
+        // 次の 1 時間の契機
+        run(&mut rt, &mut src, 3_502, 3_700, 5);
+        let recs = skew_records(&mut rt, &transport, 3_701);
+        assert_eq!(recs.len(), 2, "{recs:?}");
+        assert_eq!(recs[1]["clock_trigger"], "hourly");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取れなかった契機のあと、測り直しで取れたら、別の 1 件が `retry` で残る。
+    ///
+    /// Scenario: PC の測り直しで取れたら別の 1 件が残る
+    #[test]
+    fn clock_skew_record_retry_that_succeeds_leaves_another_one() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = SwitchReference::new(false);
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference.clone()));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 200, 1);
+        reference.set_ok(true);
+        run(&mut rt, &mut src, 201, 400, 1);
+        let recs = skew_records(&mut rt, &transport, 401);
+        assert_eq!(recs.len(), 2, "{recs:?}");
+        assert_eq!(recs[0]["clock_available"], false);
+        assert_eq!(recs[0]["clock_trigger"], "start");
+        assert_eq!(recs[1]["clock_available"], true);
+        assert_eq!(recs[1]["clock_trigger"], "retry");
+        assert!(recs[1].get("skew_ms").is_some());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取れた測定のあとは、測り直しの記録は増えない（次は 1 時間後）。
+    #[test]
+    fn clock_skew_record_success_stops_the_retries() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = SwitchReference::new(false);
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference.clone()));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 100, 1);
+        reference.set_ok(true);
+        run(&mut rt, &mut src, 101, 1_000, 1);
+        assert_eq!(skew_records(&mut rt, &transport, 1_001).len(), 2);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// PC の時計が進んでいても、測定記録も前景の記録も観測したときの PC の時計のまま。
+    ///
+    /// Scenario: PC の記録の時刻は補正されない
+    #[test]
+    fn clock_skew_record_time_is_not_corrected() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = SwitchReference::new(true);
+        // PC の時計は基準より 10 分進んでいる
+        reference
+            .pc_ahead_ms
+            .store(600_000, std::sync::atomic::Ordering::Relaxed);
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(reference));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 5, 1);
+        rt.stop_at(t(6));
+        let fg = of_kind(&transport, "foreground");
+        assert_eq!(fg.len(), 1);
+        assert_eq!(fg[0]["payload"]["at"], crate::contract::rfc3339(t(0)));
+        assert_eq!(fg[0]["event_time"], crate::contract::rfc3339(t(0)));
+        let skew = of_kind(&transport, "clock-skew");
+        assert_eq!(skew[0]["payload"]["skew_ms"], 600_000);
+        assert_eq!(
+            skew[0]["payload"]["at"],
+            crate::contract::rfc3339(t(1)),
+            "測定記録の時刻は積んだときの PC の時計で、差で補正されない"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 起動したとき壁時計が前回の印より戻っていたら、契機は `jump`（戻り）で残る。
+    ///
+    /// Scenario: PC の測定記録に測った契機が残る
+    #[test]
+    fn clock_skew_record_after_the_clock_went_back_has_jump_trigger() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        Marker::new(&cfg.state_dir).touch(t(500)).unwrap();
+        let mut rt = runtime_with(&cfg, &transport, Arc::new(SwitchReference::new(true)));
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 10, 1);
+        let recs = skew_records(&mut rt, &transport, 11);
+        assert_eq!(recs.len(), 1, "{recs:?}");
+        assert_eq!(recs[0]["clock_trigger"], "jump");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 }

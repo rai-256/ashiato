@@ -4,12 +4,14 @@
 # **A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ**（製造準備 B）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
-export BIND="${BIND:-127.0.0.1:18787}"
+. tools/ports.sh     # worktree ごとのポート（Story を並行して走らせても取り合わない）
+export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:${ASHIATO_DB_PORT}/ashiato}"
+export BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
-cleanup() { kill "${SRV:-0}" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1 || true; }
+# SRV が無いときに kill "${SRV:-0}" とすると kill 0 = プロセスグループ全体（呼び出し元の verify-run ごと）を止める
+cleanup() { if [ -n "${SRV:-}" ]; then kill "$SRV" 2>/dev/null || true; fi; docker compose down -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 echo "== 1. DB を起動（**まっさらにしてから**）"
@@ -694,6 +696,54 @@ echo "== 40. 基準時刻の口に date ヘッダがある（design D17 / review
 # 扉 #5 の「破れたことを後から知る」が黙って消える**
 curl -sfI "http://$BIND/healthz" | grep -qi '^date:' || { echo "/healthz に date ヘッダが無い"; exit 1; }
 echo "   → 記録・感度・生存信号・基準時刻（ST07）まで通った"
+
+# ------------------------------------------------------------------ ST05（時計のずれ）
+
+# Scenario: 識別子を持たない測定記録が格納される
+echo "== Scenario: 識別子を持たない測定記録が格納される"
+echo "== 40a. 端末の測定記録（取れた / 取れなかった）と PC の新しい形の測定記録が格納される（ST05 / tasks 10.2）"
+# 端末の測定は外部識別子を持たない（`c01-clock` は external_id_kind = none。design D1）。
+# raw は payload と同じ JSON を直列化した文字列（契約）
+clock_item() {   # $1=識別子 / $2=時刻 / $3=契機 / $4=available / $5=references / $6=unavailable
+  local p
+  p=$(jq -c -n --arg t "$3" --argjson a "$4" --arg dt "$2" --argjson r "$5" --argjson u "$6" \
+    '{kind:"clock-skew",trigger:$t,available:$a,device_time:$dt,elapsed_ms:123456789,boot_count:42,references:$r,unavailable:$u}')
+  jq -c -n --arg id "$1" --arg t "$2" --arg raw "$p" --argjson payload "$p" \
+    '{id:$id,user_id:"00000000-0000-0000-0000-000000000000",logical_source:"c01-clock",external_id:null,
+      device_id:"smoke-dev",origin:"collected",event_time:$t,tz_offset_min:540,tz_id:"Asia/Tokyo",
+      schema_version:1,raw:$raw,payload:$payload}'
+}
+clock_items=$(
+  { clock_item "c1000001-0000-4000-8000-000000000000" "2026-03-02T01:00:00.123Z" hourly true \
+      '[{"source":"network","time":"2026-03-02T00:55:00.100Z","skew_ms":300023,"mono_before_ms":123456780,"mono_after_ms":123456781}]' \
+      '[{"source":"gnss","reason":"not_available"}]'
+    clock_item "c1000002-0000-4000-8000-000000000000" "2026-03-02T02:00:00.456Z" hourly false '[]' \
+      '[{"source":"network","reason":"not_available"},{"source":"gnss","reason":"not_available"},{"source":"s01-date","reason":"no_response_since_last"}]'
+  } | jq -s -c .)
+code=$(post "$clock_items")
+echo "   → $code / accepted=$(jq -c '[.[].accepted]' /tmp/smoke.body)"
+[ "$code" = "200" ] || { echo "測定記録が $code で断られた: $(cat /tmp/smoke.body)"; exit 1; }
+[ "$(jq -r '[.[] | select(.accepted)] | length' /tmp/smoke.body)" = "2" ] \
+  || { echo "取れた記録と取れなかった記録の 2 件とも受理されていない: $(cat /tmp/smoke.body)"; exit 1; }
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-clock' AND external_id IS NULL;")
+[ "$n" = "2" ] || { echo "識別子なしで格納された測定記録が $n 件（2 件のはず）"; exit 1; }
+av=$(psql -c "SELECT string_agg(payload->>'available', ',' ORDER BY event_time) FROM core.event WHERE logical_source='c01-clock';")
+[ "$av" = "true,false" ] || { echo "取れた / 取れなかったの区別が格納されていない: $av"; exit 1; }
+# 同じ本文をもう 1 回送っても増えない（冪等）
+code=$(post "$clock_items")
+[ "$code" = "200" ] || { echo "測定記録の再送が $code"; exit 1; }
+n=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-clock';")
+[ "$n" = "2" ] || { echo "再送で測定記録が増えた: $n"; exit 1; }
+
+echo "== 40b. PC の新しい形の測定記録（clock-skew）が格納される（ST05 / tasks 10.2）"
+# 本文は収集側の crate に組ませる（手順 37 と同じ理由）
+pc_clock=$(./target/debug/examples/sample_body clock)
+code=$(post "$pc_clock")
+[ "$code" = "200" ] || { echo "PC の測定記録が $code で断られた: $(cat /tmp/smoke.body)"; exit 1; }
+[ "$(jq -r '.[0].accepted' /tmp/smoke.body)" = "true" ] || { echo "PC の測定記録が受け付けられていない: $(cat /tmp/smoke.body)"; exit 1; }
+got=$(psql -c "SELECT payload->>'kind' || ',' || (payload->>'clock_trigger') || ',' || (payload->>'clock_available') || ',' || jsonb_array_length(payload->'clock_references') FROM core.event WHERE logical_source='c02-window' AND payload->>'kind'='clock-skew';")
+[ "$got" = "clock-skew,hourly,true,2" ] || { echo "PC の測定記録の形が格納されていない: $got"; exit 1; }
+echo "   → 端末の測定記録 2 件・PC の測定記録 1 件（ST05）まで通った"
 
 # ------------------------------------------------------------------ ST16（滞在）
 

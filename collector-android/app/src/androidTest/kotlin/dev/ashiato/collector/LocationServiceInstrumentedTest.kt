@@ -85,10 +85,12 @@ class LocationServiceInstrumentedTest {
         // サービスが購読を始めるまで少し掛かるので、何度か入れる
         val deadline = System.currentTimeMillis() + 30_000
         var stored = emptyList<IngestRequest>()
+        // 測定記録（c01-clock）や、偽装の前に届いた本物の位置も同じ未送信に積まれるので、偽装した位置の記録だけを見る
         while (System.currentTimeMillis() < deadline) {
             Tasks.await(client.setMockLocation(fix), 10, TimeUnit.SECONDS)
             Thread.sleep(1_000)
             stored = SegmentStore(File(outboxDir, "records"), IngestRequest.serializer(), File(outboxDir, "u.jsonl"), {}).readAll()
+                .filter { it.logicalSource == "c01-location" && it.raw.contains("35.681236") }
             if (stored.isNotEmpty()) break
         }
         assertTrue("偽装した位置が未送信に 1 件以上書かれる（${outboxDir.exists()}）", stored.isNotEmpty())
