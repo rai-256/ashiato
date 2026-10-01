@@ -137,11 +137,11 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 7: 契約・縦串・偽データ（design D15 / D18）
 
-- [ ] 7.1 OpenAPI に 3 本の口と理由の種別を載せ、`docs/openapi.json` を再生成する。検証: `tools/check-openapi.sh` rc=0
-- [ ] 7.2 `tools/smoke.sh` に足す —— 位置の記録から滞在を作り、`/places/candidates` の中心で器と記録を送って登録 → 名前を変える → 座標を「間違いを直す」で変える。
+- [x] 7.1 OpenAPI に 3 本の口と理由の種別を載せ、`docs/openapi.json` を再生成する。検証: `tools/check-openapi.sh` rc=0
+- [x] 7.2 `tools/smoke.sh` に足す —— 位置の記録から滞在を作り、`/places/candidates` の中心で器と記録を送って登録 → 名前を変える → 座標を「間違いを直す」で変える。
   その後 `GET /places` の場所が 1 つで識別子が登録のときと同じこと（Story の完了の判定。D18）を `echo` で出して確かめる。
   検証: `bash -o pipefail -c 'tools/smoke.sh | tee /tmp/smoke.log' && grep -q "OK place id unchanged" /tmp/smoke.log`
-- [ ] 7.3 `tools/seed.sh`（`normal`）に場所を 2 つ足す（偽データの滞在のうち 2 か所に名前を付け、1 つは名前を 1 回変えておく）。名前の無い居た所が 1 つ以上残るようにする。
+- [x] 7.3 `tools/seed.sh`（`normal`）に場所を 2 つ足す（偽データの滞在のうち 2 か所に名前を付け、1 つは名前を 1 回変えておく）。名前の無い居た所が 1 つ以上残るようにする。
   `tools/smoke.sh` の**最後の段**に、同じサーバ（`BIND` / `API_TOKEN` を渡す）へ `tools/seed.sh normal` を当て、
   `curl -fsS "${AUTH[@]}" "http://$BIND/places"` の場所が 2 つ以上・`/places/candidates` の居た所が 1 つ以上なら `echo "OK seed places"` を出す段を足す
   （smoke は起動と後始末を自分で持つので、待ち続ける `tools/stack.sh up` を検証に使わない。spec-review R10）。
