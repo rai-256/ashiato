@@ -29,6 +29,8 @@ pub const COOKIE_NAME: &str = "ashiato_session";
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
 /// 画面の合言葉の下限（D16（仮））。
 const MIN_WEB_PASSWORD_LEN: usize = 16;
+/// 雛形の合言葉の頭（`.env.example`。D16（仮））。
+const PLACEHOLDER_PREFIX: &str = "change-me";
 /// 失敗を数える窓と上限（D17（仮））。
 const THROTTLE_WINDOW: Duration = Duration::from_secs(60);
 const THROTTLE_MAX_FAILURES: usize = 10;
@@ -54,6 +56,8 @@ impl Caller {
 pub enum WebPasswordRefusal {
     Missing,
     TooShort,
+    /// `.env.example` の雛形（`change-me` で始まる）のまま（D16（仮））。
+    Placeholder,
     SameAsApiToken,
 }
 
@@ -62,12 +66,14 @@ impl WebPasswordRefusal {
         match self {
             Self::Missing => "missing",
             Self::TooShort => "too_short",
+            Self::Placeholder => "placeholder",
             Self::SameAsApiToken => "same_as_api_token",
         }
     }
 }
 
-/// 起動時の画面の合言葉の検査。無い・16 文字未満・API の合言葉と同じなら拒む。
+/// 起動時の画面の合言葉の検査。無い・16 文字未満・雛形のまま（`change-me` で始まる）・
+/// API の合言葉と同じなら拒む。雛形の判定は `tools/db-roles.sh` と同じ（D16（仮））。
 pub fn check_web_password(
     web_password: Option<&str>,
     api_token: &str,
@@ -75,6 +81,7 @@ pub fn check_web_password(
     match web_password {
         None | Some("") => Err(WebPasswordRefusal::Missing),
         Some(p) if p.chars().count() < MIN_WEB_PASSWORD_LEN => Err(WebPasswordRefusal::TooShort),
+        Some(p) if p.starts_with(PLACEHOLDER_PREFIX) => Err(WebPasswordRefusal::Placeholder),
         Some(p) if token_matches(p, api_token) => Err(WebPasswordRefusal::SameAsApiToken),
         Some(_) => Ok(()),
     }

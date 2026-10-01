@@ -277,6 +277,11 @@ fn server_startup_web_password_missing_or_short_refuses() {
     assert_eq!(fifteen.len(), 15);
     let out = start_with_web_password(Some(fifteen), TEST_TOKEN);
     assert_web_password_refused(&out, "too_short", &[fifteen]);
+    // 雛形（.env.example）の値のままは、長さが足りていても通さない（D16（仮））
+    let placeholder = "change-me-web-password";
+    assert!(placeholder.len() >= 16);
+    let out = start_with_web_password(Some(placeholder), TEST_TOKEN);
+    assert_web_password_refused(&out, "placeholder", &[placeholder]);
     // 16 文字ちょうどは検査を通り、次の段（待ち受け）で止まる
     let out = start_with_web_password(Some("a1b2c3d4e5f6g7h8"), TEST_TOKEN);
     assert_kind_refused(&out, "bind_unspecified");
