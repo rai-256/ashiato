@@ -50,6 +50,7 @@ mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod net_guard;
+pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
@@ -2138,6 +2139,31 @@ pub async fn attributes_kind_name_post(
     }
 }
 
+/// 場所の器を作る（ST21 / design D1）。識別子は画面が決めて渡す。
+/// 同じ利用者の同じ識別子は 200（押し直しで器を 2 つにしない）、別の利用者の識別子は 400。
+#[utoipa::path(post, path = "/places",
+    request_body = places::PlaceCreateRequest,
+    responses((status = 200, body = places::PlaceCreated),
+              (status = 400, body = places::PlaceErrorBody), (status = 401)))]
+pub async fn places_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<places::PlaceCreateRequest>,
+) -> Result<Json<places::PlaceCreated>, (StatusCode, Json<places::PlaceErrorBody>)> {
+    let body = |code: StatusCode, error| (code, Json(places::PlaceErrorBody { error }));
+    authorize(&app, &headers).map_err(|(code, _)| body(code, places::PlaceError::Unavailable))?;
+    let user_id = req.user_id.unwrap_or_default();
+    match places::create_place(&app.pool, user_id, req.id)
+        .await
+        .map_err(|e| {
+            let (code, _) = internal_at("places.create", e);
+            body(code, places::PlaceError::Unavailable)
+        })? {
+        Ok(created) => Ok(Json(created)),
+        Err(why) => Err(body(StatusCode::BAD_REQUEST, why)),
+    }
+}
+
 /// 断った理由を本文にする。**種別の名前だけ**（受け取った値は載せない）。
 ///
 /// **`Json` で返す**（review/code.md R8）。`String` で返すと axum が
@@ -2236,6 +2262,7 @@ pub fn router(app: App) -> Router {
         .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
+        .route("/places", post(places_post))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -2355,7 +2382,8 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_kind_name_post,
         web_session::session_post,
         web_session::session_delete,
-        web_session::session_get
+        web_session::session_get,
+        places_post
     ),
     components(schemas(
         IngestResult,
@@ -2402,6 +2430,10 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindErrorBody,
         web_session::LoginRequest,
         web_session::SessionState,
+        places::PlaceCreateRequest,
+        places::PlaceCreated,
+        places::PlaceError,
+        places::PlaceErrorBody,
     )),
     info(
         title = "ashiato S-01",

@@ -514,3 +514,102 @@ async fn place_lock_leaves_the_claim_lock_unchanged() {
         .await
         .expect("主張の削除の印まで止めている");
 }
+
+// ---------------------------------------------------------------- 器の口（Task 2 / design D1 / D15）
+
+mod container_endpoint {
+    use crate::places::{PlaceCreateRequest, PlaceError};
+    use crate::{places_post, testdb, App};
+    use axum::{extract::State, http::HeaderMap, http::StatusCode, Json};
+    use uuid::Uuid;
+
+    const TOKEN: &str = "test-token-0123456789abcdef";
+
+    async fn app() -> App {
+        App::for_test(testdb::pool().await, TOKEN)
+    }
+
+    fn auth() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            "authorization",
+            format!("Bearer {TOKEN}").parse().expect("ヘッダ"),
+        );
+        h
+    }
+
+    fn req(id: Uuid, user: Uuid) -> Json<PlaceCreateRequest> {
+        Json(PlaceCreateRequest {
+            id,
+            user_id: Some(user),
+        })
+    }
+
+    async fn rows_of(app: &App, id: Uuid) -> Vec<Uuid> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT user_id FROM core.place WHERE id = $1")
+            .bind(id)
+            .fetch_all(&app.pool)
+            .await
+            .unwrap();
+        rows.into_iter().map(|r| r.0).collect()
+    }
+
+    #[tokio::test]
+    // Scenario: 渡した識別子で場所の器ができる
+    async fn place_container_endpoint_creates_the_given_id() {
+        let app = app().await;
+        let (user, id) = (testdb::user(), Uuid::new_v4());
+        let Json(out) = places_post(State(app.clone()), auth(), req(id, user))
+            .await
+            .expect("器が作れる");
+        assert_eq!(out.id, id, "渡した識別子がそのまま返る");
+        assert_eq!(rows_of(&app, id).await, vec![user]);
+    }
+
+    #[tokio::test]
+    // Scenario: 同じ識別子で器を 2 回作っても 1 つ
+    async fn place_container_endpoint_is_idempotent() {
+        let app = app().await;
+        let (user, id) = (testdb::user(), Uuid::new_v4());
+        for _ in 0..2 {
+            let Json(out) = places_post(State(app.clone()), auth(), req(id, user))
+                .await
+                .expect("2 回とも受け付ける");
+            assert_eq!(out.id, id);
+        }
+        assert_eq!(rows_of(&app, id).await.len(), 1);
+    }
+
+    #[tokio::test]
+    // Scenario: 別の利用者の器の識別子では作れない
+    async fn place_container_endpoint_rejects_another_users_id() {
+        let app = app().await;
+        let (a, b, id) = (testdb::user(), testdb::user(), Uuid::new_v4());
+        let _ = places_post(State(app.clone()), auth(), req(id, a))
+            .await
+            .expect("A の器");
+        let (code, Json(body)) = places_post(State(app.clone()), auth(), req(id, b))
+            .await
+            .expect_err("別の利用者の識別子で作れた");
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert_eq!(body.error, PlaceError::PlaceIdTaken);
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({ "error": "place_id_taken" })
+        );
+        assert_eq!(rows_of(&app, id).await, vec![a], "行は A の 1 つのまま");
+    }
+
+    #[tokio::test]
+    async fn place_container_endpoint_requires_the_token() {
+        let app = app().await;
+        let (code, _) = places_post(
+            State(app),
+            HeaderMap::new(),
+            req(Uuid::new_v4(), testdb::user()),
+        )
+        .await
+        .expect_err("資格情報なしで器が作れた");
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+    }
+}
