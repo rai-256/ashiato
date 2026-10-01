@@ -71,7 +71,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 3: 場所の記録の取り込み（design D2 / D3 / D4 / D11。`crates/server/src/places.rs`）
 
-- [ ] 3.1 `places.rs` に原文の解釈（`parse_place_record(raw, id)`）と形の検査を置き、`ingest_one` が `logical_source = 's01-place'` のときだけ呼ぶ。
+- [x] 3.1 `places.rs` に原文の解釈（`parse_place_record(raw, id)`）と形の検査を置き、`ingest_one` が `logical_source = 's01-place'` のときだけ呼ぶ。
   `valid_from` は `attributes.rs` の解釈を呼ぶ（同じ規則を 2 か所に書かない）。`payload` は原文から `nonce` を除いて組み直し、文字列を NFC にする。
   理由の種別 10 個を `IngestError` に足す（spec の表）。座標の記録では先頭で場所ごとの錠（D4）。
   Scenario: `無い器を指す場所の記録は受け付けない` / `別の利用者の器を指す場所の記録は受け付けない` / `空の名前は受け付けない` / `範囲の外の緯度は受け付けない` /
@@ -80,16 +80,16 @@ DB を使う検査は `docker compose up -d db` が前提。
   `広すぎる広さは受け付けない` / `何を書くものか分からない場所の記録は受け付けない` / `乱数が短い場所の記録は受け付けない` /
   `本人が書いたでない場所の記録は受け付けない` / `外部識別子を持つ場所の記録は受け付けない` / `場所の記録の拒否の応答に値が含まれない`。
   検証: `CT place_ingest_rejects`
-- [ ] 3.2 受け付けた記録の保存の形。
+- [x] 3.2 受け付けた記録の保存の形。
   Scenario: `同じ場所の記録の再送は増えない` / `場所の記録の原文が 1 バイトも変わらずに残る` / `原文と食い違う解析済みを送っても原文の座標で格納される` /
   `場所の記録の乱数は解析済みに写らない` / `消去後に残る列と正しい座標から場所の記録の鍵を作り直せない`。
   検証: `CT place_ingest_stores`
-- [ ] 3.3 同時に `first` を 2 本送っても座標の記録が 1 本だけ入ること（D4 の錠）。印は置かない（`座標を持つ場所に初めての座標は書けない` の裏側）。
+- [x] 3.3 同時に `first` を 2 本送っても座標の記録が 1 本だけ入ること（D4 の錠）。印は置かない（`座標を持つ場所に初めての座標は書けない` の裏側）。
   検証: `CT place_ingest_first_is_serialized`
-- [ ] 3.4 既定の感度（D11（仮））。`default_sensitivity` に `places::SOURCE` の枝を足し、`places::DEFAULT_SENSITIVITY = 1` を名指しで固定する。
+- [x] 3.4 既定の感度（D11（仮））。`default_sensitivity` に `places::SOURCE` の枝を足し、`places::DEFAULT_SENSITIVITY = 1` を名指しで固定する。
   Scenario: `場所の記録は外部 AI に出してよいで格納される` / `場所を足しても主張の既定の感度は変わらない`。
   検証: `CT place_sensitivity`
-- [ ] 3.5 範囲の定数を名指しで固定する（`PLACE_RADIUS_MIN_M = 10` / `PLACE_RADIUS_MAX_M = 5000`。10 と 5,000 は通り、9 と 5,001 は断る）。
+- [x] 3.5 範囲の定数を名指しで固定する（`PLACE_RADIUS_MIN_M = 10` / `PLACE_RADIUS_MAX_M = 5000`。10 と 5,000 は通り、9 と 5,001 は断る）。
   検証: `CT place_ingest_radius_bounds`
 
 ## Task 4: いまの値と前の値、座標の版（design D6 / D7 / D15。`GET /places`）
