@@ -4,8 +4,8 @@
 #   tools/check-db-secret.sh                      # 全部（(a) 追跡ファイル (b) 雛形の拒否）
 #   tools/check-db-secret.sh --only compose,testdb # (a) の見る場所を絞る。(b) は走らせない
 #
-# (a) DB を立てる設定・試験・台本に、`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` の
-#     `: <字面>`・`=<字面>` と `postgres://<役割>:<字面>@` が無い。
+# (a) DB を立てる設定・試験・台本に、`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` /
+#     `PGPASSWORD` の `: <字面>`・`=<字面>` と、`postgres://<役割>:<字面>@`・libpq の `password=<字面>` が無い。
 #     `${` で始まるもの（環境からの参照）は通す。`.env.example` は見ない（雛形は change-me-）。
 # (b) 雛形の値だけの環境ファイルでは tools/db-roles.sh が失敗し、DB の役割の一覧が変わらない。
 #     DB が立っていなければ自分で立てる（docker compose up -d --wait db。tools/smoke.sh が落としていることがある）。
@@ -29,15 +29,16 @@ files_of() {
 places=(compose testdb tools workflows)
 [ -z "$only" ] || IFS=',' read -r -a places <<<"$only"
 
-# 字面の値 = `$` で始まらず、空でもない。（YAML の `KEY: 値` / URL の `://役割:値@`）
-lit_env='(^|[[:space:],])(POSTGRES|OWNER_DB|APP_DB)_PASSWORD[:=][[:space:]]*["'"'"']?[^$"'"'"'[:space:]#]'
+# 字面の値 = `$` で始まらず、空でもない。（YAML の `KEY: 値` / URL の `://役割:値@` / libpq の `password=値`）
+lit_env='(^|[[:space:],])((POSTGRES|OWNER_DB|APP_DB)_PASSWORD|PGPASSWORD)[:=][[:space:]]*["'"'"']?[^$"'"'"'[:space:]#]'
+lit_kv='(^|[[:space:]"'"'"'])password=[^$"'"'"'[:space:]]'
 lit_url='postgres(ql)?://[^:/@[:space:]]+:[^$@[:space:]][^@[:space:]]*@'
 
 found=0
 for place in "${places[@]}"; do
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    if hits="$(grep -nE "$lit_env|$lit_url" "$f")"; then
+    if hits="$(grep -nE "$lit_env|$lit_url|$lit_kv" "$f")"; then
       # 行番号と場所だけ出す（値は出さない）
       echo "$hits" | cut -d: -f1 | sed "s|^|NG $f:|"
       found=1

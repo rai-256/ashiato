@@ -5,7 +5,9 @@
 #   tools/check-exposure.sh --listen-only # (a) だけ（tools/stack.sh が起動の後に使う）
 #   tools/check-exposure.sh --self-test  # fixture で 10 個を撃つ
 #
-# (a) `ss -ltnH` の待ち受けのうち、BIND の port・WEB_PORT・DEV_WEB_PORT（既定 5173）・DB の 55432 が loopback。
+# (a) `ss -ltnH` の待ち受けのうち、BIND の port・WEB_PORT・DEV_WEB_PORT（既定 5173）・DB の port が loopback。
+#     BIND / WEB_PORT / DEV_WEB_PORT は、渡されていなければ .env から補う（無ければサーバの既定 127.0.0.1:8787）。
+#     DB の port は `docker compose config` の公開の設定から取る。**取れなければ落ちる**（code-verify R17）。
 # (b) `tailscale serve status --json`（あれば）: 網の外への公開（AllowFunnel）が無い・本システムの口を
 #     平文で網へ出していない・開発用の画面の口を網へ出していない。**読めなければ落ちる**。
 #     `tailscale` が無ければ (b) は飛ばしたと出す（網の手段が別のもの）。
@@ -16,8 +18,8 @@ cd "$(dirname "$0")/.."
 
 fx=tools/fixtures/exposure
 run_check() {
-  local bind="${BIND:-127.0.0.1:18787}"
-  local ports="${bind##*:} ${WEB_PORT:-5180} ${DEV_WEB_PORT:-5173} 55432"
+  local bind="${BIND:-127.0.0.1:8787}"
+  local ports="${bind##*:} ${WEB_PORT:-5180} ${DEV_WEB_PORT:-5173} ${DB_PORT:?}"
   local ng=0
 
   local skipped=0
@@ -122,7 +124,7 @@ sys.exit(bad)'; then ng=1; fi
 
 expect() { # <期待 pass|fail> <Scenario 名> <ss fixture> <serve fixture> [出力に含まれるべき語]
   local want="$1" name="$2" out rc=0
-  out="$(EXPOSURE_SS_OUTPUT="$fx/$3" EXPOSURE_SERVE_JSON="$fx/$4" BIND=127.0.0.1:18787 WEB_PORT=5180 DEV_WEB_PORT=5173 \
+  out="$(EXPOSURE_SS_OUTPUT="$fx/$3" EXPOSURE_SERVE_JSON="$fx/$4" BIND=127.0.0.1:18787 WEB_PORT=5180 DEV_WEB_PORT=5173 DB_PORT=55432 \
     run_check 2>&1)" || rc=$?
   if [ "$want" = fail ]; then
     [ "$rc" -ne 0 ] || { echo "error: 落ちるはずが通った: $name" >&2; exit 1; }
@@ -157,6 +159,23 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 [ "${1:-}" = "--listen-only" ] && LISTEN_ONLY=1
+# 呼び出し元が渡した値を優先し、無いものだけ .env から補う（手順書は単独で走らせる。code-verify R17）
+if [ -f .env ]; then
+  keep_bind="${BIND-}" keep_web="${WEB_PORT-}" keep_dev="${DEV_WEB_PORT-}"
+  set -a; . ./.env; set +a
+  if [ -n "$keep_bind" ]; then BIND="$keep_bind"; fi
+  if [ -n "$keep_web" ]; then WEB_PORT="$keep_web"; fi
+  if [ -n "$keep_dev" ]; then DEV_WEB_PORT="$keep_dev"; fi
+fi
+if [ -z "${DB_PORT:-}" ]; then
+  DB_PORT="$(docker compose config --format json 2>/dev/null | python3 -c '
+import json, sys
+ports = json.load(sys.stdin)["services"]["db"].get("ports") or []
+print(" ".join(sorted({str(p["published"]) for p in ports if p.get("published")})))' 2>/dev/null)" || DB_PORT=""
+  if [ -z "$DB_PORT" ]; then
+    echo "error: DB の公開の port を docker compose config から取れなかった（DB_PORT で渡せる）" >&2; exit 1
+  fi
+fi
 if run_check; then echo "OK 網の外に開いている口は無い"; else
   echo "error: 網の外に開いている口がある。自動では直さない（網の手段の設定は本人のもの）" >&2; exit 1
 fi
