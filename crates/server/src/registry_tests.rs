@@ -95,3 +95,241 @@ async fn window_record_without_external_id_is_accepted() {
         "ウィンドウの記録が既定より厳しい感度で入っている（QS-7 / QS-10 が答えられなくなる）"
     );
 }
+
+// ================================================================ ST06 / 集計の論理ソース（tasks 4.2）
+
+/// 集計の論理ソースが**全移行を当てた後に登録簿にある**（design D3）。
+///
+/// 無いと `core.event.logical_source` の外部キーで取り込みが 500 になり、
+/// 端末は「受理されなかった」として未送信に残し続ける。
+#[tokio::test]
+async fn app_usage_rollup_source_is_registered() {
+    let pool = testdb::pool().await;
+    let (n, gap): (i64, i32) = sqlx::query_as(
+        "SELECT count(*), coalesce(min(expected_gap_sec), 0)
+           FROM core.source WHERE logical_source = $1",
+    )
+    .bind("c01-app-usage-rollup")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 1, "c01-app-usage-rollup が登録簿に無い");
+    assert_eq!(
+        gap, 21600,
+        "想定間隔が 6 時間でない（生存信号の区間とずれると正常な運用が途絶に見える）"
+    );
+}
+
+/// **`external_id_kind` が `'none'`**（design D3 / 独立レビュー R7）。
+///
+/// 既定の `'record'` のままだと `missing_external_id` で断られ、しかもその理由は
+/// 「受け手側の設定で変わりうる」扱いなので**端末の未送信に永久に溜まる**。
+/// **列の有無で分岐させない** —— 分岐すると「まだ列が無いから合格」で素通りする。
+#[tokio::test]
+async fn app_usage_rollup_source_external_id_kind_is_none() {
+    let pool = testdb::pool().await;
+    let (kind,): (String,) =
+        sqlx::query_as("SELECT external_id_kind FROM core.source WHERE logical_source = $1")
+            .bind("c01-app-usage-rollup")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        kind, "none",
+        "集計のソースが識別子を要求している（端末の未送信に永久に溜まる）"
+    );
+}
+
+/// **識別子なしの集計の要求が受理される**（tasks 4.2 (c)）。
+///
+/// 宣言だけを見ても、取り込み口が実際に通すかは分からない ——
+/// 端末が積むのは `external_id` が `null` の 1 件なので、その形で通す。
+#[tokio::test]
+async fn app_usage_rollup_source_record_without_external_id_is_accepted() {
+    let app = app().await;
+    let u = testdb::user();
+    let raw = format!(
+        r#"{{"granularity":"daily","package":"dev.ashiato.example","begin":"2026-05-01T00:00:00Z","end":"2026-05-02T00:00:00Z","nonce":"{}"}}"#,
+        uuid::Uuid::new_v4()
+    );
+    let body = serde_json::json!([{
+        "id": uuid::Uuid::new_v4(),
+        "user_id": u,
+        "logical_source": "c01-app-usage-rollup",
+        "external_id": null,
+        "device_id": "phone-01",
+        "origin": "collected",
+        "event_time": "2026-05-02T00:00:00.000Z",
+        "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo",
+        "schema_version": 1,
+        "raw": raw,
+        "payload": serde_json::from_str::<serde_json::Value>(&raw).unwrap(),
+    }]);
+    let (code, Json(res)): (_, Json<Vec<IngestResult>>) =
+        ingest(State(app.clone()), auth(), Json(body))
+            .await
+            .expect("取り込み口");
+    assert_eq!(code, axum::http::StatusCode::OK, "{res:?}");
+    assert!(
+        res[0].accepted,
+        "識別子が無いことを理由に断られた（端末の未送信に永久に溜まる）: {res:?}"
+    );
+}
+
+/// **当て直しても値が変わらない**（tasks 4.2 (d)）。
+///
+/// `migrate()` は起動のたびに全版を当て直すので、条件なしで書く版は
+/// **本人が変えた想定間隔を再起動のたびに初期値へ戻す**。
+/// 行が増えないことも一緒に見る（主キーの衝突ではなく `ON CONFLICT DO NOTHING` で止まっているか）。
+#[tokio::test]
+async fn app_usage_rollup_source_migration_is_idempotent() {
+    let pool = testdb::pool().await;
+    let sql = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.ends_with("_app_usage_rollup_source"))
+        .expect("集計の移行が MIGRATIONS に無い（当て忘れると本番だけ登録簿に行が無い）")
+        .1;
+    // **「末尾にある」とは書かない**（並走する Story が末尾を取る）。見たいのは
+    // 登録し忘れていないことと、**前提にしている版より後にあること** ——
+    // `external_id_kind` の列は `202609120940_source_columns` が作る
+    let names: Vec<&str> = crate::MIGRATIONS.iter().map(|(n, _)| *n).collect();
+    let mine = names
+        .iter()
+        .position(|n| n.ends_with("_app_usage_rollup_source"))
+        .expect("集計の移行が MIGRATIONS に無い");
+    let columns = names
+        .iter()
+        .position(|n| n.ends_with("_source_columns"))
+        .expect("ST03 の列の版が MIGRATIONS に無い");
+    assert!(
+        mine > columns,
+        "集計の移行が、`external_id_kind` の列を作る版より前にある"
+    );
+
+    let before: (i64, String, i32) = read_rollup_source(&pool).await;
+    sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+    let after: (i64, String, i32) = read_rollup_source(&pool).await;
+    assert_eq!(before, after, "当て直すと登録簿の行が変わる");
+    assert_eq!(after.0, 1, "当て直すと行が増える");
+}
+
+/// **本人が変えた値が、当て直しで初期値へ戻らない**（tasks 4.2 (d) / code-verify R34）。
+///
+/// 上の `…_is_idempotent` は**当て直しの前後で値が同じ**ことしか見ていないので、
+/// `ON CONFLICT DO NOTHING` を条件なしの上書きに変えても緑のままだった（実測: 6 本 rc=0）。
+/// 移行のコメントが理由に挙げるのは「本人が変えた想定間隔が再起動のたびに初期値へ戻る」——
+/// それを止めているのは `DO NOTHING` そのものなので、**値を変えてから当て直す**形で見る。
+///
+/// 登録簿は全テストで 1 本しかないので、変更は**トランザクションの中だけ**に閉じて戻す。
+#[tokio::test]
+async fn app_usage_rollup_source_migration_keeps_values_changed_by_hand() {
+    let pool = testdb::pool().await;
+    let sql = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.ends_with("_app_usage_rollup_source"))
+        .expect("集計の移行が MIGRATIONS に無い")
+        .1;
+    let mut tx = pool.begin().await.unwrap();
+    // 本人が受け手の「途絶」の窓を自分で広げた（6 時間 → 12 時間）
+    let changed = sqlx::query(
+        "UPDATE core.source SET expected_gap_sec = 43200, display_name = '手で変えた名前'
+           WHERE logical_source = 'c01-app-usage-rollup'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        changed.rows_affected(),
+        1,
+        "登録簿に `c01-app-usage-rollup` の行が無い（移行が当たっていない）"
+    );
+
+    // 起動のたびに `migrate()` が当て直す（版の記録があっても中身は毎回流れる）
+    sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap();
+
+    let (gap, name): (i32, String) = sqlx::query_as(
+        "SELECT expected_gap_sec, display_name FROM core.source
+           WHERE logical_source = 'c01-app-usage-rollup'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(gap, 43200, "当て直しで本人が変えた想定間隔が初期値へ戻った");
+    assert_eq!(
+        name, "手で変えた名前",
+        "当て直しで本人が変えた表示名が初期値へ戻った"
+    );
+    tx.rollback().await.unwrap();
+}
+
+async fn read_rollup_source(pool: &sqlx::PgPool) -> (i64, String, i32) {
+    sqlx::query_as(
+        "SELECT count(*), coalesce(min(external_id_kind), '?'), coalesce(min(expected_gap_sec), 0)
+           FROM core.source WHERE logical_source = 'c01-app-usage-rollup'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// イベントがなくても参照が一つあれば down は登録簿を残す。各 fixture は rollback で隔離する。
+#[tokio::test]
+async fn app_usage_rollup_source_down_preserves_every_reference() {
+    let pool = testdb::pool().await;
+    let cases = [
+        ("event", "INSERT INTO core.event (id,user_id,logical_source,origin,event_time,tz_offset_min,tz_id,schema_version,content_hash,raw,payload) VALUES ($1,$1,$2,'collected',now(),0,'UTC',1,'test','{}','{}')"),
+        ("heartbeat", "INSERT INTO core.heartbeat (id,user_id,logical_source,emitted_at,capturable,attempts,successes,content_hash,raw) VALUES ($1,$1,$2,now(),false,0,0,'test','{}')"),
+        ("drop_report", "INSERT INTO core.drop_report (id,user_id,logical_source,device_id,reason,count,created_at,content_hash,raw) VALUES ($1,$1,$2,'test','unreadable',1,now(),'test','{}')"),
+        ("coverage", "INSERT INTO core.coverage (user_id,logical_source,day,event_count) VALUES ($1,$2,current_date,0)"),
+        ("coverage_span", "INSERT INTO core.coverage_span (id,user_id,logical_source,kind,started_at) VALUES ($1,$1,$2,'stopped',now())"),
+        ("source", "INSERT INTO core.source (logical_source,display_name,expected_gap_sec,succeeds,user_id) VALUES ($2 || '-next','test',21600,$2,$1)"),
+    ];
+    for (kind, insert) in cases {
+        let mut tx = pool.begin().await.unwrap();
+        let name = format!("t-rollup-down-{}", uuid::Uuid::new_v4());
+        sqlx::query("INSERT INTO core.source (logical_source,display_name,expected_gap_sec) VALUES ($1,'test',21600)")
+            .bind(&name).execute(&mut *tx).await.unwrap();
+        sqlx::query(insert)
+            .bind(uuid::Uuid::new_v4())
+            .bind(&name)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let down =
+            include_str!("../../../migrations/202609240758_app_usage_rollup_source.down.sql")
+                .replace("c01-app-usage-rollup", &name);
+        sqlx::raw_sql(&down)
+            .execute(&mut *tx)
+            .await
+            .unwrap_or_else(|e| panic!("{kind} だけが残る状態の down が失敗: {e}"));
+        let (exists,): (bool,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM core.source WHERE logical_source=$1)")
+                .bind(&name)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert!(exists, "{kind} が参照する登録簿が消えた");
+        tx.rollback().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn app_usage_rollup_source_down_removes_unused_source() {
+    let pool = testdb::pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    let name = format!("t-rollup-unused-{}", uuid::Uuid::new_v4());
+    sqlx::query("INSERT INTO core.source (logical_source,display_name,expected_gap_sec) VALUES ($1,'test',21600)")
+        .bind(&name).execute(&mut *tx).await.unwrap();
+    let down = include_str!("../../../migrations/202609240758_app_usage_rollup_source.down.sql")
+        .replace("c01-app-usage-rollup", &name);
+    sqlx::raw_sql(&down).execute(&mut *tx).await.unwrap();
+    let (exists,): (bool,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM core.source WHERE logical_source=$1)")
+            .bind(&name)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(!exists, "未使用の登録簿が残った");
+    tx.rollback().await.unwrap();
+}

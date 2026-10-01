@@ -2,7 +2,9 @@
 # 手元の網の名前・私設 IP が**リポジトリに入っていない**ことを確かめる。
 #
 #   tools/check-private.sh            # 追跡ファイル全部を見る（CI の chain job）
-#   tools/check-private.sh --staged   # staged だけ見る（.githooks/pre-commit）
+#   tools/check-private.sh --staged   # staged だけ見る（.githooks/pre-commit）。tailscale があれば
+#                                     # 機械の短い名前と網の名前もその場で読んで禁止語に足す（ST28 / design D15）
+#   tools/check-private.sh --self-test  # CHECK_PRIVATE_EXTRA に差し込んだ偽の語で落ち、語が出力に出ないこと
 #
 # **`.gitignore` では守れない。** 守れるのは `.env` のような「置かないファイル」だけで、
 # 実際に漏れていたのは `docs/` と `openspec/` の**追跡済みの文書**だった
@@ -12,8 +14,45 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 手元の機械の短い名前と網の名前（`Self.DNSName` の 1 つめと 2 つめのラベル）をその場で読む。
+# **値はリポジトリにも出力にも書かない**（一致した位置だけ出す）。tailscale が無ければ足さない。
+live_names() {
+  command -v tailscale >/dev/null 2>&1 || return 0
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    labels = json.load(sys.stdin)["Self"]["DNSName"].rstrip(".").split(".")
+except Exception:
+    sys.exit(0)
+for l in labels[:2]:
+    if l:
+        print(l)' 2>/dev/null || true
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  word="zz$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  probe="tools/.check-private-selftest.tmp"
+  tmpidx="$(mktemp)"; cp "$(git rev-parse --git-path index)" "$tmpidx"
+  trap 'rm -f "$probe" "$tmpidx"' EXIT
+  echo "メモ: $word を含む行" > "$probe"
+  GIT_INDEX_FILE="$tmpidx" git add -f -- "$probe"
+  rc=0; out="$(GIT_INDEX_FILE="$tmpidx" CHECK_PRIVATE_EXTRA="$word" "$0" --staged 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] || { echo "error: 差し込んだ語を含むファイルで落ちなかった" >&2; exit 1; }
+  printf '%s' "$out" | grep -qF "$probe" || { echo "error: 落ちた位置（ファイル）が出ていない" >&2; exit 1; }
+  if printf '%s' "$out" | grep -qF "$word"; then echo "error: 禁止語が出力に出た" >&2; exit 1; fi
+  echo "OK check-private の自己検査（差し込んだ語で落ち、語は出力に出ない）"
+  exit 0
+fi
+
 staged=0
 [ "${1:-}" = "--staged" ] && staged=1
+
+# 実行時に足す禁止語（1 行 1 語）。CHECK_PRIVATE_EXTRA は空白区切り（自己検査と手元の追加用）
+extras=()
+if [ "$staged" -eq 1 ]; then
+  while IFS= read -r w; do [ -n "$w" ] && extras+=("$w"); done < <(live_names)
+fi
+for w in ${CHECK_PRIVATE_EXTRA:-}; do extras+=("$w"); done
 
 # 見つけたら止めるもの。**実値の形**だけを書き、置き換え後の雛形は下の許容で逃がす
 patterns=(
@@ -62,6 +101,14 @@ for f in "${files[@]}"; do
       echo "  NG $f:$line"
       ng=1
     done <<< "$hits"
+  done
+  # 実行時の禁止語。値を出さないので位置（ファイルと行番号）だけ出す
+  for w in "${extras[@]}"; do
+    while IFS=: read -r ln _; do
+      [ -n "$ln" ] || continue
+      echo "  NG $f:$ln（実行時に読んだ禁止語）"
+      ng=1
+    done < <(grep -nwiIF -- "$w" "$f" 2>/dev/null || true)
   done
 done
 

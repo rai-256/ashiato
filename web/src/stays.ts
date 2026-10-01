@@ -7,13 +7,14 @@
  */
 import { DAY_TZ } from "./tokens";
 
-export type EntryKind = "stay" | "move" | "no-record";
+export type EntryKind = "stay" | "move" | "no-record" | "erased";
 
 export interface DayEntry {
   kind: EntryKind;
   start: string;
   end: string;
   id?: string;
+  stay_ids?: string[];
   criteria_id?: number;
 }
 
@@ -48,7 +49,7 @@ export function isRealDate(date: string): boolean {
 export function isDayView(v: unknown): v is DayView {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
-  const kinds = ["stay", "move", "no-record"];
+  const kinds = ["stay", "move", "no-record", "erased"];
   return (
     typeof o.date === "string" &&
     Array.isArray(o.criteria) &&
@@ -56,7 +57,14 @@ export function isDayView(v: unknown): v is DayView {
     Array.isArray(o.entries) &&
     o.entries.every((e) => {
       const x = e as DayEntry;
-      return typeof e === "object" && e !== null && kinds.includes(x.kind) && typeof x.start === "string" && typeof x.end === "string";
+      return (
+        typeof e === "object" &&
+        e !== null &&
+        kinds.includes(x.kind) &&
+        typeof x.start === "string" &&
+        typeof x.end === "string" &&
+        (x.stay_ids === undefined || (Array.isArray(x.stay_ids) && x.stay_ids.every((id) => typeof id === "string")))
+      );
     })
   );
 }

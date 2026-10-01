@@ -26,9 +26,10 @@ class HeartbeatWithoutRecordsTest {
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
         val emitter = HeartbeatEmitter(
             outbox = beats,
-            counters = AttemptCounters(now = clock),
+            counters = AttemptCounters(now = clock, intervalMs = FIX_INTERVAL_MS),
             userId = "user-1",
             deviceId = "device-1",
+            logicalSource = LOGICAL_SOURCE,
             capability = { Capability.of(permission = true, sensor = true, network = true) },
             now = clock,
             newId = { "hb-${beats.size()}" },
@@ -59,12 +60,13 @@ class HeartbeatWithoutRecordsTest {
     fun `取得が 0 件の区間も取得率として残る`() {
         val beats = testHeartbeatOutbox()
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
-        val counters = AttemptCounters(now = clock)
+        val counters = AttemptCounters(now = clock, intervalMs = FIX_INTERVAL_MS)
         val emitter = HeartbeatEmitter(
             outbox = beats,
             counters = counters,
             userId = "user-1",
             deviceId = "device-1",
+            logicalSource = LOGICAL_SOURCE,
             capability = { Capability.of(permission = true, sensor = true, network = true) },
             now = clock,
             newId = { "hb-0" },

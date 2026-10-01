@@ -168,13 +168,20 @@ D14 の一覧（外部の宛先へ送る部品）に当たるものは足さな�
 - **電話を落としたとき**（Q4 の context）: 網からノードを外す → `API_TOKEN` を変えて APK と C-02 を入れ直す → 画面の合言葉を変えてサーバを起動し直す（Q6。D3 により `API_TOKEN` を変えた時点でも全端末のログインが切れる）
 - **ログインの印は同じ機械名の別の口にも送られる**（cookie は port で分かれない。RFC 6265 §8.5。review R21）。この機械は同じ機械名で操作盤の口も出している。
   手順書に「画面を出す機械名に、信頼できないサービスを同居させない」を書く
+- **別のサイトから始まった書き込み（CSRF）への守りは、cookie の `SameSite=Strict` と本文の型だけに頼っている**（final review R14）。
+  `POST /session` は `application/json` 以外を 415 で断るが、`POST /stays/rebuild` は本文を `Bytes` で受けて型を見ない
+  （空の本文を既定の基準として受ける、先行 Story の約束。この change では変えない）。
+  `SameSite` は**同じサイト**（同じ機械名の別の口を含む）からの求めには cookie を付けるので、この守りは
+  上の「同じ機械名に信頼できないサービスを同居させない」が守られている間だけ成り立つ。
+  **反転条件**: 同じ機械名に、画面の外の手が書ける口（操作盤以外の Web サービス）を出すことになったら、
+  `cookie` で認める書き込みの route すべてに `Content-Type: application/json` の要求か CSRF の印を足す
 - `docs/screens.md` の「`http://<手元の網のホスト名>:5180`」を `https://` に直し、ログインの面を 1 行足す
 - 本人の機械での移行の順序（D20）
 
 ### D13. 収集側の平文の検査
 
 - **Android**: `GenerateNetworkSecurityConfig` は `base-config cleartextTrafficPermitted="false"` と、`localhost` / `127.0.0.1` だけに平文を許す `domain-config` を常に出す
-  （`ashiato.baseUrl` の host から例外を作らない）。`ashiato.baseUrl` が `http://` で host が loopback でなければ build を落とす（gradle の task で `GradleException`）
+  （`ashiato.baseUrl` の host から例外を作らない）。`ashiato.baseUrl` が `http://` で host が `domain-config` の 2 つ（`localhost` / `127.0.0.1`）でなければ build を落とす（gradle の task で `GradleException`。`[::1]` も落とす —— 平文の許可に無い宛先を組み立てで通すと、送るときに断られる。final review R10）
 - **変更前のコードで落ちる検査**（review R14）: `-Pashiato.baseUrl=https://example.invalid:1` で組み立て、生成された `network_security_config.xml` に `example.invalid` の平文の許可が無いこと
   （いまのコードはその host に `cleartextTrafficPermitted="true"` を出すので落ちる）
 - 計測テスト: `NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted("127.0.0.1")` が真（loopback の Scenario）
@@ -195,9 +202,12 @@ D14 の一覧（外部の宛先へ送る部品）に当たるものは足さな�
 `tools/check-private.sh --staged` は、`tailscale` があれば `tailscale status --json` の `Self.DNSName` の先頭のラベル（機械の短い名前）と
 網の名前（2 つめのラベル）をその場で読み、禁止語に足す。**値はリポジトリにも出力にも書かない**（一致した行の位置だけ出す）。`tailscale` が無ければ足さない。
 
-### D16（仮）. 画面の合言葉の下限は 16 文字
+### D16（仮）. 画面の合言葉の下限は 16 文字。雛形の値（`change-me` で始まる）のままでは起動しない
 
-API の合言葉と同じ下限。**反転条件**: 本人が電話で打つのが負担だと言ったら 12 文字に下げる（期限なし（Q6）なので打つのは端末ごとに 1 回）。
+API の合言葉と同じ下限。**加えて `change-me` で始まる値は長さに関係なく拒む**（`reason=placeholder`。値は出さない）——
+`.env.example` の雛形 `change-me-web-password` は 22 文字で下限を通ってしまい、雛形を写しただけの `.env` で
+公開されている合言葉のまま画面が開く（final review R1）。判定は `tools/db-roles.sh` が DB の合言葉に使う規則と同じ。
+**反転条件**: 本人が電話で打つのが負担だと言ったら 12 文字に下げる（期限なし（Q6）なので打つのは端末ごとに 1 回）。
 spec の Scenario（15 文字で起動しない）も同時に直す。
 
 ### D17（仮）. ログインの失敗が 1 分に 10 回を超えたら、その 1 分が過ぎるまで 429。失敗は 1 回ごとに 1 秒待たせる

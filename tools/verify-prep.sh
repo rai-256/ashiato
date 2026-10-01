@@ -32,7 +32,10 @@ apk=""; device=""; android_note="ビルドしていない（~/.local/opt/jdk21 �
 if [ -f tools/android-env.sh ] && [ -d "$HOME/.local/opt/jdk21" ]; then
   # shellcheck disable=SC1091
   . ./tools/android-env.sh
-  if (cd collector-android && ./gradlew -q :app:assembleDebug >/dev/null 2>&1); then
+  base_url="$(grep -hs '^ashiato.baseUrl=' "$HOME/.gradle/gradle.properties" | tail -1 | cut -d= -f2- || true)"
+  if [[ "$base_url" =~ ^http://([^/:?#]+|\[[^]]*\]) ]] && ! [[ "${BASH_REMATCH[1]}" =~ ^(localhost|127\.[0-9.]+|\[::1\])$ ]]; then
+    android_note="APK を作っていない。ashiato.baseUrl が平文で loopback でない。docs/network.md の移行の 5 を済ませる"
+  elif (cd collector-android && ./gradlew -q :app:assembleDebug >/dev/null 2>&1); then
     cp collector-android/app/build/outputs/apk/debug/app-debug.apk "$out/app-debug.apk"
     apk="$out/app-debug.apk"
     android_note="\`$apk\`"
@@ -71,7 +74,9 @@ cat > "$out/manifest.md" <<EOF
 
 画面 \`http://127.0.0.1:5180\`（\`WEB_PORT\` で変えられる）/ API は \`.env\` の BIND（既定 \`127.0.0.1:18787\`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは \`docs/screens.md\`。
 
-スマホ・端末から届かせるなら \`http://<手元の網のホスト名>:<port>\`（\`.env\` の \`ALLOWED_HOSTS\`） ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
+画面を開くと合言葉のログインが出る（\`.env\` の \`WEB_PASSWORD\`。\`API_TOKEN\` とは別の値）。
+
+スマホ・端末から届かせるなら \`https://<手元の網のホスト名>:<port>\`（\`tailscale serve\` の HTTPS。手順は \`docs/network.md\`）（\`.env\` の \`ALLOWED_HOSTS\`） ——  **IP ではなくホスト名**（\`tailscale serve\` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが \`error=server_404\` を出し続けた）。
 
 確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）——
 作り直し: \`curl -sS -H "authorization: Bearer \$API_TOKEN" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{"radius_m":30}'\`（戻すときは \`100\`。範囲外の値は 400 で、基準も滞在も変わらない）。

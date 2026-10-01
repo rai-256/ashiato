@@ -20,6 +20,8 @@ pub const REBUILD_PREFIX: &str = "rebuild:";
 pub const ABSORBED: &str = "rebuild:absorbed";
 /// 本人が消した時間帯と重なった（design D4）。
 pub const ERASED_RANGE: &str = "rebuild:erased-range";
+/// 本人が消した滞在の時間帯へ、消した後に届いた基準ソースの記録。
+pub const USER_LATE: &str = "user:late";
 
 /// 日の区切り（`Asia/Tokyo`）。JST は固定の +09:00（`lib.rs` の `today_jst` と同じ前提）。
 pub fn day_bounds(day: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
@@ -562,7 +564,9 @@ pub async fn rebuild_day(
     let mut tx = pool.begin().await?;
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
-    let (lo, hi) = settle_range(&mut tx, user, &c, day_bounds(day)).await?;
+    let bounds = day_bounds(day);
+    mark_late_arrivals(&mut tx, user, &c.sources, bounds).await?;
+    let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
     let fresh = stay::detect(&points, &c);
@@ -611,6 +615,81 @@ pub async fn rebuild_day(
     }
     tx.commit().await?;
     Ok(out)
+}
+
+/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースの記録を隠す。
+///
+/// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
+/// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
+/// 消す transaction が見えた範囲内の位置にはすべて印を付けるため、ここで未印の行は
+/// 消す側から未 commit で見えなかったか、その commit 後に届いた行である。
+async fn mark_late_arrivals(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    sources: &[String],
+    (from, to): (DateTime<Utc>, DateTime<Utc>),
+) -> sqlx::Result<()> {
+    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(
+        "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
+           FROM core.event e
+           JOIN core.event s
+             ON s.user_id = e.user_id
+            AND s.logical_source = $5
+            AND s.origin = 'derived'
+            AND s.deleted_at IS NOT NULL
+            AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $6)
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = s.id
+                 AND d.action = 'erase'
+                 AND d.seq = (
+                   SELECT max(last.seq) FROM core.deletion_ledger last
+                    WHERE last.event_id = s.id
+                 )
+            )
+            AND e.event_time >= s.event_time
+            AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
+          WHERE e.user_id = $1
+            AND e.logical_source = ANY($2)
+            AND e.event_time >= $3 AND e.event_time < $4
+            AND e.deleted_at IS NULL
+          ORDER BY e.id, s.event_time, s.id",
+    )
+    .bind(user)
+    .bind(sources)
+    .bind(from)
+    .bind(to)
+    .bind(stay::SOURCE)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for (event_id, logical_source, cause_event_id) in candidates {
+        let changed = sqlx::query(
+            "UPDATE core.event SET deleted_at = now(), deleted_by = $2
+              WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(event_id)
+        .bind(USER_LATE)
+        .execute(&mut **tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            continue;
+        }
+        sqlx::query(
+            "INSERT INTO core.deletion_ledger
+               (event_id, user_id, logical_source, action, cause_event_id, mark)
+             VALUES ($1, $2, $3, 'erase', $4, $5)",
+        )
+        .bind(event_id)
+        .bind(user)
+        .bind(logical_source)
+        .bind(cause_event_id)
+        .bind(USER_LATE)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 /// 前の版を履歴へ積む（`core.event_version`）。`version_no` は続き番号 —— 錠の中なので衝突しない。
@@ -832,9 +911,11 @@ pub enum EntryKind {
     Move,
     /// 位置の記録が無い時間（隣り合う記録の間隔が「記録が無い」とみなす間隔以上）
     NoRecord,
+    /// 本人が消した滞在を含む時間
+    Erased,
 }
 
-/// 並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、移動と記録なしはその日の中に切る。
+/// 並びの 1 行。**滞在は実際の始まりと終わり**（日をまたいでも切らない）、ほかはその日の中に切る。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct DayEntry {
     pub kind: EntryKind,
@@ -846,6 +927,41 @@ pub struct DayEntry {
     /// 滞在を作った基準の版（滞在の行だけ。取り込みの口から入った滞在には無いことがある）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub criteria_id: Option<i64>,
+    /// この「消した」区間から戻せる、本人が消した滞在の識別子
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stay_ids: Option<Vec<uuid::Uuid>>,
+}
+
+#[derive(Debug)]
+struct ErasedSpan {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    stay_ids: Vec<uuid::Uuid>,
+}
+
+fn subtract_spans(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    erased: &[ErasedSpan],
+) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+    let mut fragments = Vec::new();
+    let mut cursor = start;
+    for span in erased {
+        if span.end <= cursor || span.start >= end {
+            continue;
+        }
+        if cursor < span.start {
+            fragments.push((cursor, span.start.min(end)));
+        }
+        cursor = cursor.max(span.end);
+        if cursor >= end {
+            break;
+        }
+    }
+    if cursor < end {
+        fragments.push((cursor, end));
+    }
+    fragments
 }
 
 /// 並んだ滞在を作った基準（一覧の上に出す）。
@@ -866,12 +982,13 @@ pub struct DayView {
     pub entries: Vec<DayEntry>,
 }
 
-/// その日（`Asia/Tokyo`）の滞在・移動・記録なしを並べる（design D8 / R23）。`now` は差し替えられる。
+/// その日（`Asia/Tokyo`）の滞在・移動・記録なし・消した区間を並べる（design D7 / D8 / R23）。`now` は差し替えられる。
 ///
 /// - 滞在: その日と時間が重なる、読み出しに出ている `origin='derived'` の `s01-stay`
 /// - 記録なし: 緯度経度を持つ位置の記録（精度を問わない）の間隔が `gap_minutes` 以上の区間。
 ///   **前後の日の記録も含めて測る**（日の頭と尻を、隣の日から続く記録で記録なしにしない）。
 ///   今日は、最後の位置から `now` までが `gap_minutes` 以上ならそこまでを記録なしにし、`now` より後は並べない
+/// - 消した: 本人が消した滞在と、その時間帯で隠れた滞在の重なる・隣り合う区間をつないだもの
 /// - 移動: 滞在にも記録なしにも入らない時間（今日は最後の位置まで）
 pub async fn day_view(
     pool: &PgPool,
@@ -926,35 +1043,91 @@ pub async fn day_view(
             end,
             id: Some(r.id),
             criteria_id: tag.map(|t| t.criteria_id),
+            stay_ids: None,
         });
     }
     tags.sort_by_key(|t| std::cmp::Reverse(t.criteria_id));
 
-    // **本人が消した滞在と、消した時間帯で隠した滞在の時間は、移動として埋めない**（R35 / design D8（仮））。
-    // 埋めると、とどまっていた時間を「移動」と書くことになる（記録なしを移動と同じ顔にしないのと同じ型）。
-    // 行は出さない（消したものを一覧に出さない）。吸収された滞在は吸収先が同じ時間を持つので数えない
-    let hidden_rows: Vec<(DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
-        "SELECT event_time, payload FROM core.event
-          WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
-            AND deleted_at IS NOT NULL AND deleted_by IS DISTINCT FROM $6
-            AND event_time < $3
-            AND (event_time >= $4 OR payload->>'end' >= $5)",
+    // **本人が消した滞在と、消した時間帯で隠した滞在を「消した」の行にする**（design D7）。
+    // 吸収された滞在は吸収先が同じ時間を持つので数えない。読み出しは座標を持たない専用ビュー越しに限る（D12）。
+    #[derive(sqlx::FromRow)]
+    struct HiddenRow {
+        id: uuid::Uuid,
+        start_at: DateTime<Utc>,
+        end_at: DateTime<Utc>,
+        deleted_by: Option<String>,
+    }
+    let hidden_rows: Vec<HiddenRow> = sqlx::query_as(
+        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+          WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
+            AND start_at < $2 AND end_at > $3
+          ORDER BY start_at, id",
     )
-    .bind(stay::SOURCE)
     .bind(user)
     .bind(d1)
-    .bind(d0 - Duration::days(2))
-    .bind((d0 - Duration::days(2)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    .bind(d0)
     .bind(ABSORBED)
     .fetch_all(pool)
     .await?;
-    let hidden: Vec<(DateTime<Utc>, DateTime<Utc>)> = hidden_rows
-        .iter()
-        .map(|(t, p)| span_of(*t, p))
-        .filter(|(s, e)| *s < d1 && *e > d0)
-        .map(|(s, e)| (s.max(d0), e.min(upper)))
-        .filter(|(s, e)| s < e)
-        .collect();
+    let mut hidden: Vec<ErasedSpan> = Vec::new();
+    for row in hidden_rows {
+        let HiddenRow {
+            id,
+            start_at: start,
+            end_at: end,
+            deleted_by,
+        } = row;
+        let start = start.max(d0);
+        let end = end.min(upper);
+        if start >= end {
+            continue;
+        }
+        let mut causes = if deleted_by.as_deref() == Some(ABSORBED) {
+            Vec::new()
+        } else if deleted_by
+            .as_deref()
+            .is_some_and(|by| by.starts_with(REBUILD_PREFIX))
+        {
+            sqlx::query_scalar(
+                "SELECT id FROM core.stay_erased
+                   WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
+                     AND start_at < $4 AND end_at > $3
+                     AND (deleted_by IS NULL OR deleted_by NOT LIKE $5)
+                   ORDER BY start_at, id",
+            )
+            .bind(user)
+            .bind(ABSORBED)
+            .bind(start)
+            .bind(end)
+            .bind(format!("{REBUILD_PREFIX}%"))
+            .fetch_all(pool)
+            .await?
+        } else {
+            vec![id]
+        };
+        causes.sort_unstable();
+        causes.dedup();
+        if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
+            last.end = last.end.max(end);
+            last.stay_ids.extend(causes);
+            last.stay_ids.sort_unstable();
+            last.stay_ids.dedup();
+        } else {
+            hidden.push(ErasedSpan {
+                start,
+                end,
+                stay_ids: causes,
+            });
+        }
+    }
+    entries.extend(hidden.iter().map(|span| DayEntry {
+        kind: EntryKind::Erased,
+        start: span.start,
+        end: span.end,
+        id: None,
+        criteria_id: None,
+        stay_ids: Some(span.stay_ids.clone()),
+    }));
 
     // 記録なし。読む窓の端を「その外側に記録がある」とみなさない仮の点にして、頭と尻も同じ規則で測る
     let observed: Vec<DateTime<Utc>> = load_points(pool, user, &c.sources, d0 - gap, d1 + gap)
@@ -975,17 +1148,21 @@ pub async fn day_view(
         .collect();
     for w in edges.windows(2) {
         let (a, b) = (w[0], w[1]);
-        if b - a < gap {
-            continue;
-        }
-        let (s, e) = (a.max(d0), b.min(upper));
-        if s < e {
+        for (s, e) in subtract_spans(a, b, &hidden)
+            .into_iter()
+            .filter(|(s, e)| *e - *s >= gap)
+        {
+            let (s, e) = (s.max(d0), e.min(upper));
+            if s >= e {
+                continue;
+            }
             entries.push(DayEntry {
                 kind: EntryKind::NoRecord,
                 start: s,
                 end: e,
                 id: None,
                 criteria_id: None,
+                stay_ids: None,
             });
             covered.push((s, e));
         }
@@ -1004,7 +1181,6 @@ pub async fn day_view(
     } else {
         upper
     };
-    covered.extend(hidden);
     covered.sort();
     let mut cursor = d0;
     for (s, e) in covered {
@@ -1015,6 +1191,7 @@ pub async fn day_view(
                 end: s.min(move_upper),
                 id: None,
                 criteria_id: None,
+                stay_ids: None,
             });
         }
         cursor = cursor.max(e);
@@ -1026,6 +1203,7 @@ pub async fn day_view(
             end: move_upper,
             id: None,
             criteria_id: None,
+            stay_ids: None,
         });
     }
 

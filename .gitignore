@@ -7,6 +7,7 @@ node_modules/
 /target
 web/node_modules
 web/dist
+web/e2e/.auth/
 .env
 web/*.tsbuildinfo
 
@@ -15,6 +16,7 @@ collector-android/.gradle/
 collector-android/build/
 collector-android/app/build/
 collector-android/local.properties
+# Kotlin 2.x の daemon が作る作業ディレクトリ（ビルドの副産物）
 collector-android/.kotlin/
 
 # 生成物（scripts/story_brief.py で再生成できる）
