@@ -982,6 +982,42 @@ mod ingest_endpoint {
         rejects(&app, user, &again, "invalid_coord_change").await;
     }
 
+    // Scenario: 座標をすべて消した場所にも初めての座標は書けない
+    #[tokio::test]
+    async fn place_ingest_rejects_first_after_every_coordinate_is_erased() {
+        let app = app().await;
+        let user = testdb::user();
+        let place = container(&app, user).await;
+        let coord = Uuid::new_v4();
+        let it = item(coord, user, &first_raw(coord, place));
+        assert_accepted(&send_item(&app, it).await, "1 件目");
+        let mut tx = app.pool.begin().await.unwrap();
+        sqlx::query(
+            "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+             VALUES ($1, $2, 's01-place', 'event', 'test')",
+        )
+        .bind(coord)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE core.event SET raw = '', payload = '{}' WHERE id = $1")
+            .bind(coord)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let again = coord_raw(
+            Uuid::new_v4(),
+            place,
+            35.7,
+            "first",
+            serde_json::Value::Null,
+            None,
+        );
+        rejects(&app, user, &again, "invalid_coord_change").await;
+    }
+
     // Scenario: 移ったの精度と日付が合わなければ受け付けない
     #[tokio::test]
     async fn place_ingest_rejects_a_move_with_a_mismatched_valid_from() {

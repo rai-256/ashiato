@@ -946,7 +946,15 @@ async fn ingest_one(
         ));
     }
 
-    let (external_id, external_ref) = place_identifiers(kind, &req);
+    let (external_id, mut external_ref) = place_identifiers(kind, &req);
+    // **座標の記録には、どの場所のものかをサーバが `external_ref` に印す**（本文を消去しても残る列。
+    // 錠が変化を拒む）。消去した記録も「座標の記録を持つ」に数えるため（`places::has_coord_record`）。
+    // 送り主の外部識別子は場所の記録では断っているので、ここで上書きして失うものは無い。
+    if let Some(p) = &place_record {
+        if matches!(p.field, places::PlaceField::Coord { .. }) {
+            external_ref = Some(places::coord_marker(p.place));
+        }
+    }
     let hash = content_hash(&req);
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。

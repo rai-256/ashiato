@@ -298,10 +298,15 @@ pub async fn is_resend(
     Ok(found)
 }
 
-/// その場所が座標の記録を 1 件でも持つか。**削除の印の付いたものも数える**（spec）。
+/// 座標の記録に印す `external_ref`（どの場所の座標か）。本文を消去しても残り、錠が変化を拒む。
+pub fn coord_marker(place: Uuid) -> String {
+    format!("place-coord:{place}")
+}
+
+/// その場所が座標の記録を 1 件でも持つか。**削除の印の付いたものも、本文を消去したものも数える**（spec）。
 ///
-/// 本文を消去した記録は `payload = '{}'` で、どの場所のどの項目だったかが残らない
-/// （FR-51）ので、ここでは数えられない。
+/// 本文を消去した記録は `payload = '{}'` になるので、本文ではなく、取り込みが印した
+/// `external_ref`（`coord_marker`）で数える。
 pub async fn has_coord_record(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
@@ -309,12 +314,11 @@ pub async fn has_coord_record(
 ) -> sqlx::Result<bool> {
     let (found,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM core.event
-          WHERE user_id = $1 AND logical_source = $2
-            AND payload->>'field' = 'coord' AND payload->>'place' = $3)",
+          WHERE user_id = $1 AND logical_source = $2 AND external_ref = $3)",
     )
     .bind(user_id)
     .bind(SOURCE)
-    .bind(place.to_string())
+    .bind(coord_marker(place))
     .fetch_one(&mut **tx)
     .await?;
     Ok(found)
