@@ -65,7 +65,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 2: 器の口 `POST /places`（design D1 / D15）
 
-- [ ] 2.1 `POST /places`（`{id, user_id}` → `{id}`）を足す。`INSERT … ON CONFLICT (id) DO NOTHING` の後で行の利用者を読み、同じなら 200、違えば 400 `{"error":"place_id_taken"}`。資格情報なしは 401。
+- [x] 2.1 `POST /places`（`{id, user_id}` → `{id}`）を足す。`INSERT … ON CONFLICT (id) DO NOTHING` の後で行の利用者を読み、同じなら 200、違えば 400 `{"error":"place_id_taken"}`。資格情報なしは 401。
   Scenario: `渡した識別子で場所の器ができる` / `同じ識別子で器を 2 回作っても 1 つ` / `別の利用者の器の識別子では作れない`。
   検証: `CT place_container_endpoint`
 
