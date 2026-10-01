@@ -115,10 +115,15 @@ async fn app_role_cannot_bypass_gate() {
             .fetch_one(&mut *guard)
             .await
             .unwrap();
-        let e = sqlx::query(&format!("TRUNCATE core.\"{name}\" CASCADE"))
-            .execute(&app)
-            .await
-            .unwrap_err();
+        // 権限が戻ると TRUNCATE は guard の錠を待ち続ける（guard は同じタスクで commit を待つ）ので、
+        // 待ちを期限で切って、ハングでなく失敗として落とす
+        let e = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            sqlx::query(&format!("TRUNCATE core.\"{name}\" CASCADE")).execute(&app),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{name} の TRUNCATE が拒まれず錠を待っている（権限が戻った）"))
+        .unwrap_err();
         assert!(
             is_denied(&e),
             "{name} の TRUNCATE が権限の不足で拒まれない: {e}"
