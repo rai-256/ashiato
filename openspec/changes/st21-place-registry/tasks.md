@@ -149,14 +149,14 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 8: 画面 —— タブと場所のカード（design D12。`web/src/`。jsdom で指定と勘定）
 
-- [ ] 8.1 `places.ts` —— `GET /places` / `GET /places/candidates` の型と形の検査（**形が違えば失敗として出す**）、時間・日付・座標の書き方、原文の組み立て（D13）。
+- [x] 8.1 `places.ts` —— `GET /places` / `GET /places/candidates` の型と形の検査（**形が違えば失敗として出す**）、時間・日付・座標の書き方、原文の組み立て（D13）。
   原文の乱数は記録ごとに 128 bit（`crypto.getRandomValues`）で、識別子と一致しない。
   Scenario: `同じ内容の 2 つの場所の記録は別々の乱数を持つ`。
   検証: `VT places-model`
-- [ ] 8.2 `MasterView.tsx` のタブを「個人属性」（`#/master`）・「場所」（`#/master/places`）の 2 つにし、`Root.tsx` に `#/master/places` を足す。`#/master` は個人属性を開く。
+- [x] 8.2 `MasterView.tsx` のタブを「個人属性」（`#/master`）・「場所」（`#/master/places`）の 2 つにし、`Root.tsx` に `#/master/places` を足す。`#/master` は個人属性を開く。
   ST19 の `master-view.test.tsx` の「人物と場所のタブは無い」の試験を、2 つのタブと人物のタブが無いことを見る形に**直す**（印は置かない。印は 10.1 の e2e）。
   検証: `VT master-view`、`VT places-tabs`
-- [ ] 8.3 `PlacesView.tsx` —— カード（名前・合計・最後に居た日 / まだ居たことが無い・広さ・24 区分の帯・座標・「前の名前・座標 N」）、
+- [x] 8.3 `PlacesView.tsx` —— カード（名前・合計・最後に居た日 / まだ居たことが無い・広さ・24 区分の帯・座標・「前の名前・座標 N」）、
   前の座標の「直した」「移る前（〜YYYY-MM）」「予定（YYYY-MM から）」の文字、場所が無いとき・読み出しの失敗。地図・`navigator.geolocation` を使わない。
   色は `tokens.ts` からだけ引く。
   Scenario: `場所の画面は確定した色だけを使う`。
