@@ -240,7 +240,7 @@ jobs:
       - run: ./tools/check-immutable.sh
 
   # 要件 → Story の鎖と、stories.json からの再生成との一致（scripts/check_chain.py）。
-  # scripts/ は harness2 への symlink で、runner には無い。private なので token が要る:
+  # scripts/ は .harness2/scripts への symlink で、.harness2 は runner には無い。private なので token が要る:
   # fine-grained PAT（harness2 の Contents: read）を secrets.HARNESS2_TOKEN に置く。
   # **無ければ warning で素通りする** —— ローカルの scripts/merge_gate.sh が同じ検査を必ず走らせる。
   chain:
@@ -260,5 +260,5 @@ jobs:
         with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2 }
       - if: env.HARNESS2_TOKEN != ''
         run: |
-          rm -f scripts && ln -s "$PWD/harness2/scripts" scripts
+          ln -sfn "$PWD/harness2" .harness2      # scripts → .harness2/scripts（checkout ごとのリンク。runner には無い）
           python3 scripts/check_chain.py .
