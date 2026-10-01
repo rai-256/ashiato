@@ -23,10 +23,19 @@ import {
   type Precision,
   type SendOutcome,
 } from "./attributes";
+import { control, link } from "./controls";
+import { PlacesView } from "./PlacesView";
 import { MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
 
 /** 読み出しの状態。**「読み込み中」「失敗」「まだ書いていない」を分ける**（spec）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
+
+export type MasterTab = "attributes" | "places";
+
+const TABS: { id: MasterTab; label: string; hash: string }[] = [
+  { id: "attributes", label: "個人属性", hash: "#/master" },
+  { id: "places", label: "場所", hash: "#/master/places" },
+];
 
 /** 精度の選択肢。**先に選ぶ**（Q2。本人が proto で決めた）。 */
 const PRECISIONS: { value: Precision; label: string }[] = [
@@ -46,7 +55,7 @@ const PRECISIONS: { value: Precision; label: string }[] = [
  *
  * **画面が長い（10 年後の量で 4.3 画面）のは本人が承知で選んだ。畳む形に戻さない。**
  */
-export function MasterView(): React.ReactElement {
+export function MasterView({ tab = "attributes" }: { tab?: MasterTab } = {}): React.ReactElement {
   const scheme = useScheme();
   useFocusRule(scheme);
   const c = SCHEMES[scheme];
@@ -73,8 +82,8 @@ export function MasterView(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (tab === "attributes") void load();
+  }, [tab, load]);
 
   return (
     <main
@@ -98,38 +107,42 @@ export function MasterView(): React.ReactElement {
       </nav>
       <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>マスタ管理</h1>
 
-      {/*
-        **タブは「個人属性」の 1 つだけ**（design D9）。押しても何も無いタブを置かない ——
-        人物（ST20）と場所（ST21）が中身とともに足す。
-      */}
+      {/* タブは「個人属性」（`#/master`）と「場所」（`#/master/places`）の 2 つ（ST21 / design D12）。人物は ST20 が中身とともに足す */}
       <div role="tablist" aria-label="マスタ管理" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected="true"
-          {...{ [FOCUS_ATTR]: "" }}
-          style={{ ...control(scheme), background: tone(c.surface2) }}
-        >
-          個人属性
-        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            {...{ [FOCUS_ATTR]: "" }}
+            style={{ ...control(scheme), background: tone(tab === t.id ? c.surface2 : c.surface1) }}
+            onClick={() => {
+              window.location.hash = t.hash;
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {stored !== null && (
+      {tab === "places" && <PlacesView scheme={scheme} />}
+      {tab === "attributes" && stored !== null && (
         <p role="status" data-testid="master-stored" style={{ fontSize: 14 }}>
           {stored}
         </p>
       )}
-      {data.at === "loading" && <p data-testid="master-loading">読み込み中…</p>}
+      {tab === "attributes" && data.at === "loading" && <p data-testid="master-loading">読み込み中…</p>}
       {/*
         **読み出しの失敗と「まだ書いていない」を混ぜない**（spec）——
         混ぜると、サーバが落ちている間ずっと「属性が 1 つも無い」と読める。
       */}
-      {data.at === "failed" && (
+      {tab === "attributes" && data.at === "failed" && (
         <p role="alert" data-testid="master-failed">
           個人属性を読み出せませんでした（{data.why}）。
         </p>
       )}
-      {data.at === "ok" && (
+      {tab === "attributes" && data.at === "ok" && (
         <>
           {data.value.kinds.map((k) => (
             <KindCard key={k.id} kind={k} scheme={scheme} onChanged={load} onStored={setStored} />
@@ -647,27 +660,3 @@ function NameForm({
 }
 
 /** 操作できるものの見た目。**24 × 24 CSS px 以上**（NFR-19）。色は `tokens.ts` からだけ引く。 */
-function control(scheme: Scheme): React.CSSProperties {
-  const c = SCHEMES[scheme];
-  return {
-    minHeight: MIN_TARGET_PX,
-    minWidth: MIN_TARGET_PX,
-    padding: "4px 10px",
-    font: "400 15px/1.6 system-ui, sans-serif",
-    color: tone(c.text),
-    background: tone(c.surface2),
-    border: `1px solid ${tone(c.muted)}`,
-    borderRadius: 8,
-    boxSizing: "border-box",
-  };
-}
-
-function link(scheme: Scheme): React.CSSProperties {
-  return {
-    ...control(scheme),
-    background: "transparent",
-    border: "none",
-    display: "inline-flex",
-    alignItems: "center",
-  };
-}
