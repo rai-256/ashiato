@@ -3,7 +3,7 @@
 #
 #   tools/check-exposure.sh              # 実機を見る（ss と、あれば tailscale）
 #   tools/check-exposure.sh --listen-only # (a) だけ（tools/stack.sh が起動の後に使う）
-#   tools/check-exposure.sh --self-test  # fixture で 9 つを撃つ
+#   tools/check-exposure.sh --self-test  # fixture で 10 個を撃つ
 #
 # (a) `ss -ltnH` の待ち受けのうち、BIND の port・WEB_PORT・DEV_WEB_PORT（既定 5173）・DB の 55432 が loopback。
 # (b) `tailscale serve status --json`（あれば）: 網の外への公開（AllowFunnel）が無い・本システムの口を
@@ -29,6 +29,10 @@ run_check() {
     json="$(tailscale serve status --json 2>/dev/null)" || { echo "  NG 網の手段の設定を読めなかった（tailscale serve status --json が失敗）"; ng=1; json=""; }
   else
     skipped=1
+  fi
+  # 網の手段はあるのに設定が空（rc=0 でも）なら、読めなかったのと同じ扱い（final review R4）
+  if [ "$skipped" = 0 ] && [ "$ng" = 0 ] && [ -z "${json//[[:space:]]/}" ]; then
+    echo "  NG 網の手段の設定を読めなかった（空だった）"; ng=1
   fi
   local https_ports=""
   if [ -n "$json" ]; then
@@ -126,29 +130,29 @@ expect() { # <期待 pass|fail> <Scenario 名> <ss fixture> <serve fixture> [出
   else
     [ "$rc" -eq 0 ] || { echo "error: 通るはずが落ちた: $name" >&2; printf '%s\n' "$out" >&2; exit 1; }
   fi
-  echo "Scenario: $name"
 }
 
 if [ "${1:-}" = "--self-test" ]; then
-  # Scenario: 網の外への公開が有効だと検査が落ちる
+  # 印（Scenario の echo）は 1 Scenario に 1 つ、THEN を確かめる撃ち方の直後にだけ置く（review R10 / final review R11）
   expect fail '網の外への公開が有効だと検査が落ちる' ss-ok.txt serve-funnel.json 'AllowFunnel'
-  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
+  echo "Scenario: 網の外への公開が有効だと検査が落ちる"
   expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-bad-bind.txt serve-ok.json 'port=18787 address=0.0.0.0'
-  # Scenario: 網へ平文で出している口があると検査が落ちる
+  echo "Scenario: loopback 以外で待ち受ける口があると検査が落ちる"
   expect fail '網へ平文で出している口があると検査が落ちる' ss-ok.txt serve-plain.json '平文'
-  # Scenario: 開発用の画面を網へ出していると検査が落ちる
+  echo "Scenario: 網へ平文で出している口があると検査が落ちる"
   expect fail '開発用の画面を網へ出していると検査が落ちる' ss-ok.txt serve-dev.json '開発用の画面'
-  # Scenario: 網の手段の設定を読めないと検査が落ちる
+  echo "Scenario: 開発用の画面を網へ出していると検査が落ちる"
   expect fail '網の手段の設定を読めないと検査が落ちる' ss-ok.txt serve-unreadable.json '読めなかった'
-  # Scenario: loopback と暗号化された網の口だけなら検査は通る
-  expect pass 'loopback と暗号化された網の口だけなら検査は通る' ss-ok.txt serve-ok.json
-  # Scenario: loopback と暗号化された網の口だけなら検査は通る
+  echo "Scenario: 網の手段の設定を読めないと検査が落ちる"
+  # 同じ Scenario の別の形（印は上に 1 つだけ）: 空の設定（rc=0 で空を返した）も読めなかったと扱う
+  expect fail '網の手段の設定が空だと検査が落ちる' ss-ok.txt serve-empty.json '読めなかった'
   expect pass 'loopback と暗号化された網の口だけなら検査は通る' ss-tailnet-https.txt serve-tailnet-https.json
-  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
-  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-https.txt serve-ok.json 'port=18787 address=.fd7a'
-  # Scenario: loopback 以外で待ち受ける口があると検査が落ちる
-  expect fail 'loopback 以外で待ち受ける口があると検査が落ちる' ss-tailnet-lan.txt serve-tailnet-https.json 'address=203.0.113.5'
-  echo "OK check-exposure の自己検査（9 つ）"
+  echo "Scenario: loopback と暗号化された網の口だけなら検査は通る"
+  # 以下は上の Scenario の別の形（印は上に 1 つだけ）
+  expect pass '網の口が無く loopback だけなら検査は通る' ss-ok.txt serve-ok.json
+  expect fail 'tailnet の v6 でも HTTPS で出していない口は落ちる' ss-tailnet-https.txt serve-ok.json 'port=18787 address=.fd7a'
+  expect fail 'LAN のアドレスで待ち受ける口は落ちる' ss-tailnet-lan.txt serve-tailnet-https.json 'address=203.0.113.5'
+  echo "OK check-exposure の自己検査（10 個）"
   exit 0
 fi
 

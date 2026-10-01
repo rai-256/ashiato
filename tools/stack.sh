@@ -99,7 +99,10 @@ if ! ./tools/seed.sh "${SEED:-normal}" > /tmp/ashiato-seed.log 2>&1; then
 fi
 echo "== 画面 http://127.0.0.1:$WEB_PORT"
 (cd web && npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort --outDir "$web_abs" >/dev/null 2>&1) &
-sleep 2   # vite preview が待ち受けるのを待つ
+# vite preview が待ち受けるまで待つ（上限 30 秒）。待ち受ける前に検査すると、どのアドレスで
+# 待ち受けても通ってしまう（final review R4）
+for _ in $(seq 1 60); do [ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] && break; sleep 0.5; done
+[ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] || { echo "error: 画面が待ち受けない（WEB_PORT=$WEB_PORT）" >&2; exit 1; }
 ./tools/check-exposure.sh --listen-only || exit 1
 echo
 echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届く手順は docs/network.md を見る。BIND は loopback のまま）"
