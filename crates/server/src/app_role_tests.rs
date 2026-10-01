@@ -99,11 +99,20 @@ async fn app_role_cannot_bypass_gate() {
         "DISABLE TRIGGER が拒まれていない / トリガが無効になった: {e}"
     );
 
-    // どの表も切り詰められない（行を 1 行ずつ置いて、行数が変わらないことも見る）
+    // どの表も切り詰められない（行を 1 行ずつ置いて、行数が変わらないことも見る）。
+    // 開発 DB は並走する試験と共有なので、数える間は所有者の側で表を錠で止め、他の試験の挿入で
+    // 行数がずれないようにする。TRUNCATE の権限は錠を取る前に判定されるので、拒否は待たずに返る
     let tables = core_tables(&owner).await;
     for (name, _) in &tables {
+        let mut guard = owner.begin().await.unwrap();
+        sqlx::query(&format!(
+            "LOCK TABLE core.\"{name}\" IN SHARE ROW EXCLUSIVE MODE"
+        ))
+        .execute(&mut *guard)
+        .await
+        .unwrap();
         let before: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core.\"{name}\""))
-            .fetch_one(&owner)
+            .fetch_one(&mut *guard)
             .await
             .unwrap();
         let e = sqlx::query(&format!("TRUNCATE core.\"{name}\" CASCADE"))
@@ -115,9 +124,10 @@ async fn app_role_cannot_bypass_gate() {
             "{name} の TRUNCATE が権限の不足で拒まれない: {e}"
         );
         let after: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM core.\"{name}\""))
-            .fetch_one(&owner)
+            .fetch_one(&mut *guard)
             .await
             .unwrap();
+        guard.commit().await.unwrap();
         assert_eq!(before, after, "{name} の行数が変わった");
     }
 }
