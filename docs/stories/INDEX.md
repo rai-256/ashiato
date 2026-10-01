@@ -9,9 +9,9 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST25, ST28, ST33
-- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST22, ST23
-- **layer 3**: ST06, ST09, ST12, ST18, ST26, ST34
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST25, ST28, ST33
+- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST21, ST22
+- **layer 3**: ST06, ST09, ST12, ST18, ST23, ST26, ST34
 - **layer 4**: ST10, ST13, ST24, ST30, ST35, ST36
 - **layer 5**: ST27, ST29, ST31
 - **layer 6**: ST32
@@ -40,9 +40,9 @@
 | [ST18](ST18.md) | 主観の紐づけ先を後から増やせる | 3 | FR-38 | ST17 | 2 |
 | [ST19](ST19.md) | 個人属性を上書きせず履歴で残す | 1 | FR-44, FR-45 | ST01 | 3 |
 | [ST20](ST20.md) | 人物を登録して滞在に紐づける | 2 | FR-46, FR-47, PERM-5 | ST16 | 4 |
-| [ST21](ST21.md) | 場所を登録し、識別子を変えない | 1 | FR-48, FR-49 | ST01 | 17 |
+| [ST21](ST21.md) | 場所を登録し、識別子を変えない | 2 | FR-48, FR-49 | ST01, ST16 | 17 |
 | [ST22](ST22.md) | 記録を消したことにできる | 2 | FR-50 | ST01, ST16 | — |
-| [ST23](ST23.md) | 本文を本当に消せる | 2 | FR-51, FR-52 | ST22 | — |
+| [ST23](ST23.md) | 本文を本当に消せる | 3 | FR-51, FR-52 | ST22 | — |
 | [ST24](ST24.md) | 記録に感度を持たせ、既定で守る | 4 | PERM-2, PERM-3, PERM-4, PERM-6, PERM-9 | ST09, ST17 | 15 |
 | [ST25](ST25.md) | 1 日を時刻順に見る | 1 | FR-56 | ST01 | — |
 | [ST26](ST26.md) | 語で探す | 3 | FR-58, NFR-4 | ST17 | — |
