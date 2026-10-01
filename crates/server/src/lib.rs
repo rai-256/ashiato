@@ -2232,6 +2232,27 @@ pub async fn attributes_get(
         .map_err(|e| internal_at("attributes.view", e))
 }
 
+/// `GET /places` の絞り込み。**利用者は名乗り**（ST29 まで。ほかの読み出しと同じ）。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PlacesQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 場所のいまの値と前の値・座標の版を返す（design D6 / D7 / D15）。
+#[utoipa::path(get, path = "/places", params(PlacesQuery),
+    responses((status = 200, body = places::PlacesView), (status = 401)))]
+pub async fn places_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PlacesQuery>,
+) -> Result<Json<places::PlacesView>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    places::places_view(&app.pool, q.user_id.unwrap_or_default(), app.today())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("places.view", e))
+}
+
 /// 種類を足す（design D7）。空・いまある名前と重なるものは 400。
 #[utoipa::path(post, path = "/attributes/kinds",
     request_body = attributes_store::KindRequest,
@@ -2415,7 +2436,7 @@ pub fn router(app: App) -> Router {
         .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
-        .route("/places", post(places_post))
+        .route("/places", get(places_get).post(places_post))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -2536,7 +2557,8 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::session_post,
         web_session::session_delete,
         web_session::session_get,
-        places_post
+        places_post,
+        places_get
     ),
     components(schemas(
         IngestResult,
@@ -2587,6 +2609,15 @@ pub async fn run() -> anyhow::Result<()> {
         places::PlaceCreated,
         places::PlaceError,
         places::PlaceErrorBody,
+        places::PlacesView,
+        places::PlaceOut,
+        places::PlaceStays,
+        places::NameRecordOut,
+        places::PreviousNameOut,
+        places::CoordOut,
+        places::CoordChange,
+        places::PreviousCoordOut,
+        places::PreviousCoordState,
     )),
     info(
         title = "ashiato S-01",

@@ -623,18 +623,18 @@ mod ingest_endpoint {
     use unicode_normalization::UnicodeNormalization as _;
     use uuid::Uuid;
 
-    const TOKEN: &str = "test-token-0123456789abcdef";
+    pub(super) const TOKEN: &str = "test-token-0123456789abcdef";
     /// 128 bit を base64url で書いた 22 文字（design D3）
-    const NONCE: &str = "Zm9vYmFyYmF6cXV4MTIzNDU2";
+    pub(super) const NONCE: &str = "Zm9vYmFyYmF6cXV4MTIzNDU2";
     /// 64 bit（11 文字）
-    const SHORT_NONCE: &str = "Zm9vYmFyYmE";
-    const AT: &str = "2026-10-01T02:00:00Z";
+    pub(super) const SHORT_NONCE: &str = "Zm9vYmFyYmE";
+    pub(super) const AT: &str = "2026-10-01T02:00:00Z";
 
-    async fn app() -> App {
+    pub(super) async fn app() -> App {
         App::for_test(testdb::pool().await, TOKEN)
     }
 
-    fn auth() -> HeaderMap {
+    pub(super) fn auth() -> HeaderMap {
         let mut h = HeaderMap::new();
         h.insert(
             "authorization",
@@ -644,7 +644,7 @@ mod ingest_endpoint {
     }
 
     /// 器を作る（`POST /places`）
-    async fn container(app: &App, user: Uuid) -> Uuid {
+    pub(super) async fn container(app: &App, user: Uuid) -> Uuid {
         let id = Uuid::new_v4();
         let _ = places_post(
             State(app.clone()),
@@ -660,7 +660,7 @@ mod ingest_endpoint {
     }
 
     /// 原文を組む（design D2 の形）。`extra` は項目ごとの欄
-    fn raw_of(id: Uuid, place: Uuid, nonce: &str, extra: serde_json::Value) -> String {
+    pub(super) fn raw_of(id: Uuid, place: Uuid, nonce: &str, extra: serde_json::Value) -> String {
         let mut v = serde_json::json!({ "record": id, "place": place, "nonce": nonce });
         for (k, val) in extra.as_object().unwrap() {
             v[k] = val.clone();
@@ -668,7 +668,7 @@ mod ingest_endpoint {
         v.to_string()
     }
 
-    fn name_raw(id: Uuid, place: Uuid, name: &str) -> String {
+    pub(super) fn name_raw(id: Uuid, place: Uuid, name: &str) -> String {
         raw_of(
             id,
             place,
@@ -677,7 +677,7 @@ mod ingest_endpoint {
         )
     }
 
-    fn coord_raw(
+    pub(super) fn coord_raw(
         id: Uuid,
         place: Uuid,
         lat: f64,
@@ -696,11 +696,11 @@ mod ingest_endpoint {
         )
     }
 
-    fn first_raw(id: Uuid, place: Uuid) -> String {
+    pub(super) fn first_raw(id: Uuid, place: Uuid) -> String {
         coord_raw(id, place, 35.681236, "first", serde_json::Value::Null, None)
     }
 
-    fn radius_raw(id: Uuid, place: Uuid, radius: serde_json::Value) -> String {
+    pub(super) fn radius_raw(id: Uuid, place: Uuid, radius: serde_json::Value) -> String {
         raw_of(
             id,
             place,
@@ -709,7 +709,7 @@ mod ingest_endpoint {
         )
     }
 
-    fn item(id: Uuid, user: Uuid, raw: &str) -> serde_json::Value {
+    pub(super) fn item(id: Uuid, user: Uuid, raw: &str) -> serde_json::Value {
         serde_json::json!({
             "id": id, "user_id": user, "logical_source": places::SOURCE,
             "external_id": null, "device_id": null, "origin": "authored",
@@ -718,19 +718,19 @@ mod ingest_endpoint {
         })
     }
 
-    async fn send_item(app: &App, item: serde_json::Value) -> IngestResult {
+    pub(super) async fn send_item(app: &App, item: serde_json::Value) -> IngestResult {
         let (_, Json(mut res)) = crate::ingest(State(app.clone()), auth(), Json(item_array(item)))
             .await
             .expect("取り込み口");
         res.pop().expect("1 件ぶんの結果")
     }
 
-    fn item_array(item: serde_json::Value) -> serde_json::Value {
+    pub(super) fn item_array(item: serde_json::Value) -> serde_json::Value {
         serde_json::json!([item])
     }
 
     /// 原文の `record` を記録の識別子にして送る（原文が JSON でないときだけ新しい識別子）
-    async fn send(app: &App, user: Uuid, raw: &str) -> IngestResult {
+    pub(super) async fn send(app: &App, user: Uuid, raw: &str) -> IngestResult {
         let id = serde_json::from_str::<serde_json::Value>(raw)
             .ok()
             .and_then(|v| v["record"].as_str().and_then(|s| Uuid::parse_str(s).ok()))
@@ -739,7 +739,7 @@ mod ingest_endpoint {
     }
 
     /// 結果の理由の種別を文字列で見る
-    fn error_of(r: &IngestResult) -> String {
+    pub(super) fn error_of(r: &IngestResult) -> String {
         assert!(!r.accepted, "受理されている");
         serde_json::to_value(r).unwrap()["error"]
             .as_str()
@@ -747,13 +747,13 @@ mod ingest_endpoint {
             .to_string()
     }
 
-    async fn rejects(app: &App, user: Uuid, raw: &str, want: &str) {
+    pub(super) async fn rejects(app: &App, user: Uuid, raw: &str, want: &str) {
         let r = send(app, user, raw).await;
         assert_eq!(error_of(&r), want, "原文: {raw}");
     }
 
     /// 送った 1 件が受理された
-    fn assert_accepted(r: &IngestResult, why: &str) {
+    pub(super) fn assert_accepted(r: &IngestResult, why: &str) {
         assert!(r.accepted, "{why}: 受理されていない {:?}", r.error);
     }
 
@@ -1690,5 +1690,1167 @@ mod ingest_endpoint {
             );
             assert_accepted(&send(&app, user, &raw).await, "補足");
         }
+    }
+}
+
+// ---------------------------------------------------------------- いまの値と前の値・座標の版（Task 4 / design D6 / D7 / D15）
+
+/// `view` と `coord_windows` の単体（DB を持たない。D6 / D7 の表を固定する）。
+mod view_unit {
+    use crate::attributes::{Precision, ValidFrom};
+    use crate::places::{
+        coord_windows, view, CoordChange, PlaceField, PlaceRecord, StoredPlaceRecord,
+        PLACE_DEFAULT_RADIUS_M,
+    };
+    use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
+    use uuid::Uuid;
+
+    fn written(s: &str) -> DateTime<FixedOffset> {
+        DateTime::parse_from_rfc3339(s).unwrap()
+    }
+
+    fn today(s: &str) -> NaiveDate {
+        s.parse().unwrap()
+    }
+
+    fn utc(s: &str) -> DateTime<Utc> {
+        written(s).with_timezone(&Utc)
+    }
+
+    /// 1 件の記録。`ingested` は D-01 に入った時刻（2026-10-01 の 00:00:`ingested` 秒）
+    fn rec(place: Uuid, field: PlaceField, at: &str, ingested: u32) -> StoredPlaceRecord {
+        let id = Uuid::new_v4();
+        StoredPlaceRecord {
+            record: PlaceRecord {
+                id,
+                place,
+                field,
+                payload: serde_json::json!({}),
+            },
+            written_at: written(at),
+            ingested_at: utc("2026-10-01T00:00:00Z") + chrono::Duration::seconds(ingested.into()),
+        }
+    }
+
+    fn name(place: Uuid, n: &str, at: &str, ingested: u32) -> StoredPlaceRecord {
+        rec(place, PlaceField::Name(n.into()), at, ingested)
+    }
+
+    fn first(place: Uuid, lat: f64, at: &str) -> StoredPlaceRecord {
+        coord(place, lat, CoordChange::First, None, None, at)
+    }
+
+    fn coord(
+        place: Uuid,
+        lat: f64,
+        change: CoordChange,
+        valid_from: Option<ValidFrom>,
+        supersedes: Option<Uuid>,
+        at: &str,
+    ) -> StoredPlaceRecord {
+        rec(
+            place,
+            PlaceField::Coord {
+                lat,
+                lon: 139.0,
+                change,
+                valid_from,
+                supersedes,
+            },
+            at,
+            0,
+        )
+    }
+
+    fn moved(
+        place: Uuid,
+        lat: f64,
+        precision: Precision,
+        date: Option<&str>,
+        at: &str,
+    ) -> StoredPlaceRecord {
+        let vf = ValidFrom {
+            precision,
+            date: date.map(str::to_string),
+        };
+        coord(place, lat, CoordChange::Move, Some(vf), None, at)
+    }
+
+    fn fix(place: Uuid, lat: f64, target: &StoredPlaceRecord, at: &str) -> StoredPlaceRecord {
+        coord(
+            place,
+            lat,
+            CoordChange::Fix,
+            None,
+            Some(target.record.id),
+            at,
+        )
+    }
+
+    // ---------------------------------------------------------------- view（D6）
+
+    #[test]
+    fn place_view_unit_default_radius_is_pinned_and_separate_from_the_stay_criteria() {
+        assert_eq!(PLACE_DEFAULT_RADIUS_M, 100);
+        // 滞在の判定の半径は別の定数（どちらも 100 を名指しで固定する）
+        assert_eq!(crate::stay::Criteria::default_values().radius_m, 100);
+    }
+
+    #[test]
+    fn place_view_unit_latest_written_wins_and_ties_break_by_ingest_time() {
+        let p = Uuid::new_v4();
+        let recs = vec![
+            name(p, "旧", "2026-09-01T09:00:00+09:00", 1),
+            // 書いた日時が同じなら D-01 に入った時刻が後のものが勝つ
+            name(p, "新A", "2026-09-02T09:00:00+09:00", 2),
+            name(p, "新B", "2026-09-02T09:00:00+09:00", 3),
+            first(p, 35.0, "2026-09-01T09:00:00+09:00"),
+        ];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        assert_eq!(v.places.len(), 1);
+        assert_eq!(v.places[0].name, "新B");
+        let prev: Vec<&str> = v.places[0]
+            .previous_names
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        // 前の名前は書いた日時の新しい順
+        assert_eq!(prev, vec!["新A", "旧"]);
+    }
+
+    #[test]
+    fn place_view_unit_later_ingest_does_not_beat_a_later_written_time() {
+        let p = Uuid::new_v4();
+        let recs = vec![
+            name(p, "後に書いた", "2026-09-05T09:00:00+09:00", 1),
+            // 先に書いたものを後から送っても、いまの名前にならない
+            name(p, "先に書いた", "2026-09-01T09:00:00+09:00", 9),
+            first(p, 35.0, "2026-09-01T09:00:00+09:00"),
+        ];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        assert_eq!(v.places[0].name, "後に書いた");
+    }
+
+    #[test]
+    fn place_view_unit_a_place_needs_a_name_and_a_coordinate() {
+        let (only_name, only_coord, both) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let recs = vec![
+            name(only_name, "名前だけ", "2026-09-01T09:00:00+09:00", 1),
+            first(only_coord, 35.0, "2026-09-01T09:00:00+09:00"),
+            name(both, "両方", "2026-09-01T09:00:00+09:00", 2),
+            first(both, 35.0, "2026-09-01T09:00:00+09:00"),
+        ];
+        let v = view(&[only_name, only_coord, both], &recs, today("2026-10-01"));
+        let ids: Vec<Uuid> = v.places.iter().map(|p| p.id).collect();
+        assert_eq!(ids, vec![both]);
+    }
+
+    #[test]
+    fn place_view_unit_places_keep_the_container_order() {
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut recs = vec![];
+        for (p, n) in [(a, "A"), (b, "B")] {
+            recs.push(name(p, n, "2026-09-01T09:00:00+09:00", 1));
+            recs.push(first(p, 35.0, "2026-09-01T09:00:00+09:00"));
+        }
+        let v = view(&[b, a], &recs, today("2026-10-01"));
+        let names: Vec<&str> = v.places.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["B", "A"]);
+    }
+
+    #[test]
+    fn place_view_unit_radius_defaults_and_the_latest_wins() {
+        let p = Uuid::new_v4();
+        let mut recs = vec![
+            name(p, "n", "2026-09-01T09:00:00+09:00", 1),
+            first(p, 35.0, "2026-09-01T09:00:00+09:00"),
+        ];
+        assert_eq!(
+            view(&[p], &recs, today("2026-10-01")).places[0].radius_m,
+            100
+        );
+        recs.push(rec(
+            p,
+            PlaceField::Radius(50),
+            "2026-09-02T09:00:00+09:00",
+            2,
+        ));
+        recs.push(rec(
+            p,
+            PlaceField::Radius(300),
+            "2026-09-03T09:00:00+09:00",
+            3,
+        ));
+        assert_eq!(
+            view(&[p], &recs, today("2026-10-01")).places[0].radius_m,
+            300
+        );
+    }
+
+    #[test]
+    fn place_view_unit_a_null_note_clears_the_note() {
+        let p = Uuid::new_v4();
+        let mut recs = vec![
+            name(p, "n", "2026-09-01T09:00:00+09:00", 1),
+            first(p, 35.0, "2026-09-01T09:00:00+09:00"),
+            rec(
+                p,
+                PlaceField::Note(Some("裏口".into())),
+                "2026-09-02T09:00:00+09:00",
+                2,
+            ),
+        ];
+        assert_eq!(
+            view(&[p], &recs, today("2026-10-01")).places[0]
+                .note
+                .as_deref(),
+            Some("裏口")
+        );
+        recs.push(rec(
+            p,
+            PlaceField::Note(None),
+            "2026-09-03T09:00:00+09:00",
+            3,
+        ));
+        assert_eq!(view(&[p], &recs, today("2026-10-01")).places[0].note, None);
+    }
+
+    #[test]
+    fn place_view_unit_other_places_records_do_not_leak() {
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let recs = vec![
+            name(a, "A", "2026-09-01T09:00:00+09:00", 1),
+            first(a, 35.0, "2026-09-01T09:00:00+09:00"),
+            name(b, "B", "2026-09-02T09:00:00+09:00", 2),
+            first(b, 36.0, "2026-09-02T09:00:00+09:00"),
+            rec(b, PlaceField::Radius(300), "2026-09-02T09:00:00+09:00", 3),
+        ];
+        let v = view(&[a, b], &recs, today("2026-10-01"));
+        assert_eq!(v.places[0].name, "A");
+        assert_eq!(v.places[0].radius_m, 100);
+        assert_eq!(v.places[0].coord.lat, 35.0);
+        assert_eq!(v.places[1].radius_m, 300);
+    }
+
+    #[test]
+    fn place_view_unit_previous_coordinates_carry_their_state() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let x = fix(p, 35.1, &f, "2026-09-02T09:00:00+09:00");
+        let m = moved(
+            p,
+            35.2,
+            Precision::Month,
+            Some("2026-04"),
+            "2026-09-03T09:00:00+09:00",
+        );
+        let future = moved(
+            p,
+            35.3,
+            Precision::Year,
+            Some("2027"),
+            "2026-09-04T09:00:00+09:00",
+        );
+        let recs = vec![
+            name(p, "n", "2026-09-01T09:00:00+09:00", 1),
+            f.clone(),
+            x.clone(),
+            m.clone(),
+            future.clone(),
+        ];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        let out = &v.places[0];
+        assert_eq!(out.coord.record_id, m.record.id, "いまは 2026-04 の移転");
+        let state = |id: Uuid| {
+            let c = out
+                .previous_coords
+                .iter()
+                .find(|c| c.record_id == id)
+                .unwrap();
+            (c.state.as_str(), c.fixed_by)
+        };
+        assert_eq!(state(f.record.id), ("fixed", Some(x.record.id)));
+        assert_eq!(state(x.record.id), ("before_move", None));
+        assert_eq!(state(future.record.id), ("upcoming", None));
+        assert_eq!(
+            out.previous_coords.len(),
+            3,
+            "いまの座標は前の座標に入らない"
+        );
+    }
+
+    #[test]
+    fn place_view_unit_with_no_version_containing_today_the_last_written_is_current() {
+        // 最初の座標を消して、未来の移転だけが残った
+        let p = Uuid::new_v4();
+        let m = moved(
+            p,
+            35.2,
+            Precision::Year,
+            Some("2027"),
+            "2026-09-03T09:00:00+09:00",
+        );
+        let recs = vec![name(p, "n", "2026-09-01T09:00:00+09:00", 1), m.clone()];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        assert_eq!(v.places[0].coord.record_id, m.record.id);
+        assert!(v.places[0].previous_coords.is_empty());
+    }
+
+    // ---------------------------------------------------------------- coord_windows（D7）
+
+    fn jst(date: &str) -> Option<DateTime<Utc>> {
+        Some(utc(&format!("{date}T00:00:00+09:00")))
+    }
+
+    #[test]
+    fn place_window_unit_a_first_coordinate_covers_all_time() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let w = coord_windows(std::slice::from_ref(&f));
+        assert_eq!(w.len(), 1);
+        assert_eq!((w[0].id, w[0].start, w[0].end), (f.record.id, None, None));
+    }
+
+    #[test]
+    fn place_window_unit_a_dated_move_cuts_the_previous_version_at_its_start() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let cases = [
+            (Precision::Year, "2026", "2026-01-01"),
+            (Precision::Month, "2026-04", "2026-04-01"),
+            (Precision::Day, "2026-04-15", "2026-04-15"),
+        ];
+        for (precision, date, from) in cases {
+            let m = moved(p, 35.1, precision, Some(date), "2026-09-02T09:00:00+09:00");
+            let w = coord_windows(&[f.clone(), m.clone()]);
+            assert_eq!(w.len(), 2, "{date}");
+            // 日の境は Asia/Tokyo の 0 時
+            assert_eq!((w[0].start, w[0].end), (None, jst(from)), "{date}");
+            assert_eq!((w[1].start, w[1].end), (jst(from), None), "{date}");
+        }
+    }
+
+    #[test]
+    fn place_window_unit_an_unknown_move_overlaps_until_it_was_written() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let m = moved(
+            p,
+            35.1,
+            Precision::Unknown,
+            None,
+            "2026-09-05T09:00:00+09:00",
+        );
+        let w = coord_windows(&[f, m]);
+        // 移ったと書いた日まで、前の版と新しい版の両方が当たる
+        assert_eq!(
+            (w[0].start, w[0].end),
+            (None, Some(utc("2026-09-05T09:00:00+09:00")))
+        );
+        assert_eq!((w[1].start, w[1].end), (None, None));
+    }
+
+    #[test]
+    fn place_window_unit_the_later_written_version_wins_an_overlap() {
+        // 2026-04 の後に、より古い 2025-06 の移転を書いた（spec-review R15）
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let a = moved(
+            p,
+            35.1,
+            Precision::Month,
+            Some("2026-04"),
+            "2026-09-02T09:00:00+09:00",
+        );
+        let b = moved(
+            p,
+            35.2,
+            Precision::Month,
+            Some("2025-06"),
+            "2026-09-03T09:00:00+09:00",
+        );
+        let w = coord_windows(&[f, a, b]);
+        assert_eq!(w[0].end, jst("2025-06-01"));
+        assert_eq!(w[1].end, jst("2025-06-01"), "間の版は空の期間を持つ");
+        assert!(w[1].start > w[1].end);
+        assert_eq!((w[2].start, w[2].end), (jst("2025-06-01"), None));
+    }
+
+    #[test]
+    fn place_window_unit_a_fix_inherits_the_position_and_start_of_the_fixed_record() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let m = moved(
+            p,
+            35.1,
+            Precision::Month,
+            Some("2026-04"),
+            "2026-09-02T09:00:00+09:00",
+        );
+        // 最初の座標を、移った後に直す
+        let x = fix(p, 35.05, &f, "2026-09-03T09:00:00+09:00");
+        let w = coord_windows(&[f.clone(), m.clone(), x.clone()]);
+        assert_eq!(w.len(), 2, "直された座標はどの期間にも当たらない");
+        assert_eq!(
+            (w[0].id, w[0].start, w[0].end),
+            (x.record.id, None, jst("2026-04-01"))
+        );
+        assert_eq!(
+            (w[1].id, w[1].start, w[1].end),
+            (m.record.id, jst("2026-04-01"), None)
+        );
+    }
+
+    #[test]
+    fn place_window_unit_a_fix_of_a_move_keeps_the_moves_start() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let m = moved(
+            p,
+            35.1,
+            Precision::Day,
+            Some("2026-04-10"),
+            "2026-09-02T09:00:00+09:00",
+        );
+        let x = fix(p, 35.15, &m, "2026-09-03T09:00:00+09:00");
+        let w = coord_windows(&[f, m, x.clone()]);
+        assert_eq!(w.len(), 2);
+        assert_eq!((w[1].id, w[1].start), (x.record.id, jst("2026-04-10")));
+    }
+
+    #[test]
+    fn place_window_unit_a_fix_of_a_fix_resolves_to_the_root() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let x1 = fix(p, 35.1, &f, "2026-09-02T09:00:00+09:00");
+        let x2 = fix(p, 35.2, &x1, "2026-09-03T09:00:00+09:00");
+        let w = coord_windows(&[f, x1, x2.clone()]);
+        assert_eq!(w.len(), 1);
+        assert_eq!((w[0].id, w[0].start, w[0].end), (x2.record.id, None, None));
+    }
+
+    #[test]
+    fn place_window_unit_a_fix_whose_target_is_unusable_stands_on_its_own_position() {
+        let p = Uuid::new_v4();
+        let gone = first(p, 35.0, "2026-09-01T09:00:00+09:00"); // 渡さない（消えた記録）
+        let m = moved(
+            p,
+            35.1,
+            Precision::Month,
+            Some("2026-04"),
+            "2026-09-02T09:00:00+09:00",
+        );
+        let x = fix(p, 35.2, &gone, "2026-09-03T09:00:00+09:00");
+        let w = coord_windows(&[m.clone(), x.clone()]);
+        // 並びは自分の書いた順（移った → 直す）。直す先が無いので最も古い時刻から、書いた日時で区切る
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].id, m.record.id);
+        assert_eq!(
+            (w[0].start, w[0].end),
+            (jst("2026-04-01"), Some(utc("2026-09-03T09:00:00+09:00")))
+        );
+        assert_eq!((w[1].id, w[1].start, w[1].end), (x.record.id, None, None));
+    }
+
+    #[test]
+    fn place_window_unit_records_that_are_not_coordinates_are_ignored() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let w = coord_windows(&[name(p, "n", "2026-09-01T09:00:00+09:00", 1), f.clone()]);
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, f.record.id);
+        assert!(coord_windows(&[]).is_empty());
+    }
+
+    #[test]
+    fn place_window_unit_the_order_of_the_input_does_not_matter() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let m = moved(
+            p,
+            35.1,
+            Precision::Month,
+            Some("2026-04"),
+            "2026-09-02T09:00:00+09:00",
+        );
+        let a = coord_windows(&[f.clone(), m.clone()]);
+        let b = coord_windows(&[m, f]);
+        assert_eq!(a, b);
+    }
+}
+
+/// `GET /places` の口（Task 4 / design D15）。
+mod view_endpoint {
+    use super::ingest_endpoint::{
+        app, assert_accepted, auth, container, coord_raw, first_raw, item, name_raw, radius_raw,
+        raw_of, send_item, NONCE,
+    };
+    use crate::{places_get, testdb, App, PlacesQuery};
+    use axum::{extract::Query, extract::State, http::HeaderMap, http::StatusCode};
+    use chrono::{DateTime, Utc};
+    use uuid::Uuid;
+
+    /// 2026-10-01 の昼（JST）に読み出す
+    const NOW: &str = "2026-10-01T03:00:00Z";
+
+    fn at_now(app: App, now: &str) -> App {
+        app.at(DateTime::parse_from_rfc3339(now)
+            .unwrap()
+            .with_timezone(&Utc))
+    }
+
+    /// 書いた日時を決めて送り、記録の識別子を返す
+    async fn put(app: &App, user: Uuid, raw: String, written: &str) -> Uuid {
+        let id = serde_json::from_str::<serde_json::Value>(&raw).unwrap()["record"]
+            .as_str()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .unwrap();
+        let mut it = item(id, user, &raw);
+        it["event_time"] = serde_json::json!(written);
+        assert_accepted(&send_item(app, it).await, "場所の記録");
+        id
+    }
+
+    async fn put_name(app: &App, user: Uuid, place: Uuid, name: &str, written: &str) -> Uuid {
+        put(app, user, name_raw(Uuid::new_v4(), place, name), written).await
+    }
+
+    /// 名前と座標を持つ場所を作る。返すのは (器, 名前の記録, 座標の記録)
+    async fn registered(app: &App, user: Uuid, name: &str) -> (Uuid, Uuid, Uuid) {
+        let place = container(app, user).await;
+        let n = put_name(app, user, place, name, "2026-09-01T09:00:00+09:00").await;
+        let c = put_coord(
+            app,
+            user,
+            place,
+            35.681236,
+            "first",
+            serde_json::Value::Null,
+            None,
+            "2026-09-01T09:00:00+09:00",
+        )
+        .await;
+        (place, n, c)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn put_coord(
+        app: &App,
+        user: Uuid,
+        place: Uuid,
+        lat: f64,
+        change: &str,
+        valid_from: serde_json::Value,
+        supersedes: Option<Uuid>,
+        written: &str,
+    ) -> Uuid {
+        let raw = coord_raw(Uuid::new_v4(), place, lat, change, valid_from, supersedes);
+        put(app, user, raw, written).await
+    }
+
+    async fn get(app: &App, user: Uuid) -> serde_json::Value {
+        let out = places_get(
+            State(app.clone()),
+            auth(),
+            Query(PlacesQuery {
+                user_id: Some(user),
+            }),
+        )
+        .await
+        .expect("読み出せる");
+        serde_json::to_value(out.0).unwrap()
+    }
+
+    fn place_of(v: &serde_json::Value, id: Uuid) -> Option<&serde_json::Value> {
+        v["places"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == serde_json::json!(id))
+    }
+
+    async fn mark_deleted(app: &App, id: Uuid) {
+        sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = $1")
+            .bind(id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+    }
+
+    async fn erase(app: &App, user: Uuid, id: Uuid) {
+        let mut tx = app.pool.begin().await.unwrap();
+        sqlx::query(
+            "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+             VALUES ($1, $2, 's01-place', 'event', 'test')",
+        )
+        .bind(id)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE core.event SET raw = '', payload = '{}' WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    fn month(date: &str) -> serde_json::Value {
+        serde_json::json!({ "precision": "month", "date": date })
+    }
+
+    fn names_of(p: &serde_json::Value, key: &str) -> Vec<String> {
+        p[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn place_view_endpoint_requires_the_token() {
+        let app = app().await;
+        let (code, _) = places_get(
+            State(app),
+            HeaderMap::new(),
+            Query(PlacesQuery {
+                user_id: Some(testdb::user()),
+            }),
+        )
+        .await
+        .expect_err("資格情報なしで読み出せた");
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn place_view_endpoint_returns_today_and_the_zero_stays() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let v = get(&app, user).await;
+        assert_eq!(v["today"], "2026-10-01");
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["stays"]["count"], 0, "滞在の項は Task 5 で埋める");
+        assert_eq!(p["stays"]["hours"].as_array().unwrap().len(), 24);
+    }
+
+    // Scenario: 名前を 2 回変えると 3 つの名前の記録が残る
+    #[tokio::test]
+    async fn place_view_endpoint_three_name_records_after_two_renames() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        put_name(&app, user, place, "本社", "2026-09-02T09:00:00+09:00").await;
+        let last = put_name(&app, user, place, "職場", "2026-09-03T09:00:00+09:00").await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["name"], "職場");
+        assert_eq!(p["name_record"]["record_id"], serde_json::json!(last));
+        // いまの名前の記録 1 件 + 前の名前の記録 2 件 = 3 件
+        assert_eq!(p["previous_names"].as_array().unwrap().len(), 2);
+    }
+
+    // Scenario: 座標の記録は変え方を持つ
+    #[tokio::test]
+    async fn place_view_endpoint_coordinate_records_carry_the_change() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.7,
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.8,
+            "move",
+            month("2026-04"),
+            None,
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        let mut changes = vec![p["coord"]["change"].as_str().unwrap().to_string()];
+        for c in p["previous_coords"].as_array().unwrap() {
+            changes.push(c["change"].as_str().unwrap().to_string());
+        }
+        changes.sort();
+        assert_eq!(changes, vec!["first", "fix", "move"]);
+    }
+
+    // Scenario: 直す記録は直した座標の記録を指す
+    #[tokio::test]
+    async fn place_view_endpoint_a_fix_points_at_the_fixed_record() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.7,
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["change"], "fix");
+        assert_eq!(p["coord"]["supersedes"], serde_json::json!(first));
+    }
+
+    // Scenario: 移ったのいつからは精度のまま残る
+    #[tokio::test]
+    async fn place_view_endpoint_valid_from_keeps_its_precision() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.8,
+            "move",
+            month("2026-04"),
+            None,
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["valid_from"], month("2026-04"));
+        assert!(
+            p["coord"]["valid_from"]["date"].as_str().unwrap().len() == 7,
+            "日を持たない"
+        );
+    }
+
+    // Scenario: 座標は丸めずに残る
+    #[tokio::test]
+    async fn place_view_endpoint_coordinates_are_not_rounded() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = container(&app, user).await;
+        put_name(&app, user, place, "駅", "2026-09-01T09:00:00+09:00").await;
+        put(
+            &app,
+            user,
+            first_raw(Uuid::new_v4(), place),
+            "2026-09-01T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["lat"].as_f64(), Some(35.681236));
+        assert_eq!(p["coord"]["lon"].as_f64(), Some(139.767125));
+    }
+
+    // Scenario: 場所の記録の書いた日時と D-01 に入った時刻が別々に入る
+    #[tokio::test]
+    async fn place_view_endpoint_written_and_ingested_times_are_separate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = container(&app, user).await;
+        put_name(&app, user, place, "職場", "2026-09-01T09:00:00+09:00").await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.0,
+            "first",
+            serde_json::Value::Null,
+            None,
+            "2026-09-01T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let rec = &place_of(&v, place).unwrap()["name_record"];
+        assert_eq!(rec["written_at"], "2026-09-01T09:00:00+09:00");
+        let ingested = DateTime::parse_from_rfc3339(rec["ingested_at"].as_str().unwrap()).unwrap();
+        let gap = (Utc::now() - ingested.with_timezone(&Utc))
+            .num_seconds()
+            .abs();
+        assert!(
+            gap < 300,
+            "D-01 に入った時刻は送った時刻（いま）: {gap} 秒のずれ"
+        );
+    }
+
+    // Scenario: 同じ名前に変え直しても 1 件増える
+    #[tokio::test]
+    async fn place_view_endpoint_renaming_to_the_same_name_adds_a_record() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        put_name(&app, user, place, "職場", "2026-09-02T09:00:00+09:00").await;
+        let v = get(&app, user).await;
+        assert_eq!(
+            place_of(&v, place).unwrap()["previous_names"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    // Scenario: 場所の名前は合成済みで読み出される
+    #[tokio::test]
+    async fn place_view_endpoint_names_are_read_composed() {
+        use unicode_normalization::UnicodeNormalization as _;
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let decomposed: String = "ガ".nfd().collect();
+        assert_ne!(decomposed, "ガ", "分解された形で送る");
+        let (place, _, _) = registered(&app, user, &decomposed).await;
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["name"], "ガ");
+    }
+
+    // Scenario: 同じ名前の場所を 2 つ持てる
+    #[tokio::test]
+    async fn place_view_endpoint_two_places_can_share_a_name() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (a, _, _) = registered(&app, user, "支店").await;
+        let (b, _, _) = registered(&app, user, "支店").await;
+        let v = get(&app, user).await;
+        let shop: Vec<&serde_json::Value> = v["places"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["name"] == "支店")
+            .collect();
+        assert_eq!(shop.len(), 2);
+        assert_ne!(shop[0]["id"], shop[1]["id"]);
+        assert!(place_of(&v, a).is_some() && place_of(&v, b).is_some());
+    }
+
+    // Scenario: 名前と座標と広さを変えても識別子が変わらない
+    #[tokio::test]
+    async fn place_view_endpoint_the_id_survives_every_change() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        put_name(&app, user, place, "本社", "2026-09-02T09:00:00+09:00").await;
+        put_coord(
+            &app,
+            user,
+            place,
+            35.7,
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        put(
+            &app,
+            user,
+            radius_raw(Uuid::new_v4(), place, serde_json::json!(200)),
+            "2026-09-04T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        assert_eq!(v["places"].as_array().unwrap().len(), 1);
+        assert_eq!(v["places"][0]["id"], serde_json::json!(place));
+    }
+
+    // Scenario: 名前を変えるといまの名前が変わり前の名前が残る
+    #[tokio::test]
+    async fn place_view_endpoint_a_rename_keeps_the_previous_name() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        put_name(&app, user, place, "本社", "2026-09-02T09:00:00+09:00").await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["name"], "本社");
+        assert_eq!(names_of(p, "previous_names"), vec!["職場"]);
+    }
+
+    // Scenario: 広さの記録の無い場所は 100 m
+    #[tokio::test]
+    async fn place_view_endpoint_a_place_without_a_radius_record_is_100_m() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["radius_m"], 100);
+    }
+
+    // Scenario: 広さを変えるといまの広さが変わる
+    #[tokio::test]
+    async fn place_view_endpoint_a_new_radius_record_changes_the_radius() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        put(
+            &app,
+            user,
+            radius_raw(Uuid::new_v4(), place, serde_json::json!(100)),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        put(
+            &app,
+            user,
+            radius_raw(Uuid::new_v4(), place, serde_json::json!(300)),
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["radius_m"], 300);
+    }
+
+    // Scenario: 補足なしを書くと補足が消える
+    #[tokio::test]
+    async fn place_view_endpoint_a_null_note_clears_the_note() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let note = |v: serde_json::Value| {
+            raw_of(
+                Uuid::new_v4(),
+                place,
+                NONCE,
+                serde_json::json!({ "field": "note", "note": v }),
+            )
+        };
+        put(
+            &app,
+            user,
+            note(serde_json::json!("裏口から")),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["note"], "裏口から");
+        put(
+            &app,
+            user,
+            note(serde_json::Value::Null),
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        assert!(place_of(&v, place).unwrap()["note"].is_null());
+    }
+
+    // Scenario: 消したことにした名前の記録の前の名前がいまの名前に戻る
+    #[tokio::test]
+    async fn place_view_endpoint_a_deleted_name_record_is_ignored() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let renamed = put_name(&app, user, place, "本社", "2026-09-02T09:00:00+09:00").await;
+        mark_deleted(&app, renamed).await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["name"], "職場");
+        assert!(!names_of(p, "previous_names").contains(&"本社".to_string()));
+    }
+
+    // Scenario: 本文を消去した名前の記録は使わない
+    #[tokio::test]
+    async fn place_view_endpoint_an_erased_name_record_is_not_used() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let renamed = put_name(&app, user, place, "本社", "2026-09-02T09:00:00+09:00").await;
+        erase(&app, user, renamed).await;
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["name"], "職場");
+    }
+
+    // Scenario: 名前の記録が全部消えた場所は返らない
+    #[tokio::test]
+    async fn place_view_endpoint_a_place_without_any_usable_name_is_not_returned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, name, _) = registered(&app, user, "職場").await;
+        mark_deleted(&app, name).await;
+        let v = get(&app, user).await;
+        assert!(place_of(&v, place).is_none());
+    }
+
+    // Scenario: 座標の記録の無い器は返らない
+    #[tokio::test]
+    async fn place_view_endpoint_a_container_without_a_coordinate_is_not_returned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = container(&app, user).await;
+        put_name(&app, user, place, "名前だけ", "2026-09-01T09:00:00+09:00").await;
+        let v = get(&app, user).await;
+        assert!(place_of(&v, place).is_none());
+    }
+
+    // Scenario: 直した前の座標は直したものとして返る
+    #[tokio::test]
+    async fn place_view_endpoint_a_fixed_coordinate_is_returned_as_fixed() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let fix = put_coord(
+            &app,
+            user,
+            place,
+            35.7,
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["lat"].as_f64(), Some(35.7));
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(fix));
+        let prev = &p["previous_coords"][0];
+        assert_eq!(p["previous_coords"].as_array().unwrap().len(), 1);
+        assert_eq!(prev["record_id"], serde_json::json!(first));
+        assert_eq!(prev["state"], "fixed");
+        assert_eq!(prev["fixed_by"], serde_json::json!(fix));
+        assert_eq!(prev["lat"].as_f64(), Some(35.681236));
+    }
+
+    // Scenario: 移る前の座標は移る前のものとして返る
+    #[tokio::test]
+    async fn place_view_endpoint_the_coordinate_before_a_move_is_returned_as_before_the_move() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let moved = put_coord(
+            &app,
+            user,
+            place,
+            35.8,
+            "move",
+            month("2026-04"),
+            None,
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(moved));
+        // 移った日はいまの座標の「いつから」が持つ
+        assert_eq!(p["coord"]["valid_from"], month("2026-04"));
+        assert_eq!(p["previous_coords"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            p["previous_coords"][0]["record_id"],
+            serde_json::json!(first)
+        );
+        assert_eq!(p["previous_coords"][0]["state"], "before_move");
+    }
+
+    // Scenario: 未来のいつからの移転はいまの座標を変えない
+    #[tokio::test]
+    async fn place_view_endpoint_a_future_move_does_not_change_the_current_coordinate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let future = put_coord(
+            &app,
+            user,
+            place,
+            35.8,
+            "move",
+            month("2026-12"),
+            None,
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(first));
+        let prev = &p["previous_coords"][0];
+        assert_eq!(prev["record_id"], serde_json::json!(future));
+        assert_eq!(prev["state"], "upcoming");
+        assert_eq!(prev["valid_from"], month("2026-12"));
+    }
+
+    // Scenario: いまの座標の記録の識別子が返る
+    #[tokio::test]
+    async fn place_view_endpoint_the_current_coordinate_record_id_is_returned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let v = get(&app, user).await;
+        assert_eq!(
+            place_of(&v, place).unwrap()["coord"]["record_id"],
+            serde_json::json!(first)
+        );
+    }
+
+    // Scenario: 感度で場所の記録を絞らない
+    #[tokio::test]
+    async fn place_view_endpoint_does_not_filter_by_sensitivity() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, name, _) = registered(&app, user, "職場").await;
+        sqlx::query("UPDATE core.event SET sensitivity = 3 WHERE id = $1")
+            .bind(name)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let v = get(&app, user).await;
+        assert_eq!(place_of(&v, place).unwrap()["name"], "職場");
+    }
+
+    // Scenario: 別の利用者の場所は読み出せない
+    #[tokio::test]
+    async fn place_view_endpoint_does_not_read_another_users_places() {
+        let app = at_now(app().await, NOW);
+        let (a, b) = (testdb::user(), testdb::user());
+        let (pa, _, _) = registered(&app, a, "A の場所").await;
+        let (pb, _, _) = registered(&app, b, "B の場所").await;
+        let v = get(&app, a).await;
+        assert!(place_of(&v, pa).is_some());
+        assert!(place_of(&v, pb).is_none());
+    }
+
+    // 4.3: 日は Asia/Tokyo で切る（UTC では 2026-03-31 15:00 は 3/31）
+    #[tokio::test]
+    async fn place_view_today_is_tokyo() {
+        let base = app().await;
+        let user = testdb::user();
+        let (place, _, first) = registered(&base, user, "職場").await;
+        let moved = put_coord(
+            &base,
+            user,
+            place,
+            35.8,
+            "move",
+            serde_json::json!({"precision":"day","date":"2026-04-01"}),
+            None,
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        // 東京ではまだ 3/31（UTC の 3/31 14:59:59）→ 移転は予定
+        let before = get(&at_now(base.clone(), "2026-03-31T14:59:59Z"), user).await;
+        assert_eq!(before["today"], "2026-03-31");
+        let p = place_of(&before, place).unwrap();
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(first));
+        assert_eq!(p["previous_coords"][0]["state"], "upcoming");
+        // 東京では 4/1 0 時（UTC の 3/31 15:00）→ 移転がいまの座標
+        let after = get(&at_now(base, "2026-03-31T15:00:00Z"), user).await;
+        assert_eq!(after["today"], "2026-04-01");
+        let p = place_of(&after, place).unwrap();
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(moved));
+        assert_eq!(p["previous_coords"][0]["state"], "before_move");
     }
 }
