@@ -167,7 +167,7 @@ async function placeRecordCount(request: APIRequestContext, place: string, field
   const res = await request.get("/api/events");
   const rows = (await res.json()) as { logical_source: string; raw: string }[];
   return rows
-    .filter((r) => r.logical_source === "s01-place")
+    .filter((r) => r.logical_source === "s01-place" && r.raw.trim() !== "")
     .map((r) => JSON.parse(r.raw) as { place?: string; field?: string })
     .filter((r) => r.place === place && r.field === field).length;
 }
