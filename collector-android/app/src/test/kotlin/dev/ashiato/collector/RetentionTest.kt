@@ -19,6 +19,9 @@ class RetentionTest {
         LocationFix(35.68, 139.76, 10f, Instant.parse(at))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
+    private fun usageReq(id: String, at: String) =
+        req(id, at).copy(logicalSource = APP_USAGE_LOGICAL_SOURCE)
+
     private fun retention(policy: RetentionPolicy = RetentionPolicy.DEFAULT) =
         Retention(st.records, st.ledger, st.age::now, policy = { policy })
 
@@ -79,6 +82,25 @@ class RetentionTest {
         val reports = st.drops.snapshot()
         assertTrue(reports.all { it.reason == "bytes" })
         assertEquals(dropped, reports.sumOf { it.count })
+    }
+
+    // Scenario: 破棄の範囲は別のソースの記録で閉じない
+    @Test
+    fun `位置の破棄の範囲は先に残ったアプリ利用ではなく残った位置で閉じる`() {
+        st.records.add(req("old-location", "2026-06-01T10:00:00Z"))
+        st.clock.advance(2)
+        st.records.add(usageReq("usage", "2026-06-01T10:10:00Z"))
+        st.records.add(req("next-location", "2026-06-01T10:20:00Z"))
+
+        assertEquals(1, retention(RetentionPolicy(maxAgeMs = 1)).enforce())
+        assertEquals(
+            listOf(APP_USAGE_LOGICAL_SOURCE, LOGICAL_SOURCE),
+            st.records.snapshot().map { it.logicalSource },
+        )
+        st.ledger.freeze()
+        val report = st.drops.snapshot().single()
+        assertEquals(LOGICAL_SOURCE, report.logicalSource)
+        assertEquals("2026-06-01T10:20:00Z", report.rangeEnd)
     }
 
     // Scenario: 到達できても断られ続ける未送信にも上限がかかる
@@ -151,7 +173,7 @@ class RetentionTest {
     @Test
     fun `破棄の報告の下書きを保存できなければ記録を捨てない`() {
         val blocked = File(st.dir, "no-space").apply { writeText("x") }
-        val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log)
+        val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log, LOGICAL_SOURCE)
         repeat(3) { st.records.add(req("r$it")) }
         st.clock.advance(91 * day)
         assertEquals(0, Retention(st.records, ledger, st.age::now).enforce())

@@ -123,6 +123,12 @@ pub const MIGRATIONS: [(&str, &str); 16] = [
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
     ),
+    // アプリ利用の**集計**の論理ソース（ST06 / design D3）。`external_id_kind = 'none'` を
+    // 明示する版なので、**`202609120940_source_columns` より後**でなければ列が無い
+    (
+        "202609240758_app_usage_rollup_source",
+        include_str!("../../../migrations/202609240758_app_usage_rollup_source.sql"),
+    ),
     // 滞在を消した・戻した操作の追記専用台帳と、削除済み滞在の限定列ビュー（ST22）
     (
         "202609271716_deletion_ledger",

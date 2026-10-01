@@ -98,7 +98,7 @@ class DropReportSendTest {
         st.ledger.freeze()
         // 下書きのファイルが消える前に落ちた（凍結は積めた）
         openFile.writeText(beforeFreeze)
-        val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log)
+        val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)
         assertTrue("積んだ報告を下書きとして持ち直している", reborn.drafts().isEmpty())
         assertEquals(1, st.drops.size())
     }
@@ -107,7 +107,7 @@ class DropReportSendTest {
     fun `凍結の前に立て直されても下書きは残り、同じ本文の報告になる`() {
         drop("2026-06-01T10:00:00Z")
         val expected = st.ledger.drafts().single().toReport("user-1", "device-1")
-        val reborn = DropLedger(File(st.dir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log)
+        val reborn = DropLedger(File(st.dir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)
         reborn.freeze()
         assertEquals(expected.raw, st.drops.snapshot().single().raw)
     }

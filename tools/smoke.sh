@@ -46,7 +46,7 @@ docker compose exec -T db psql -q -U ashiato -d ashiato -c \
 # （`registered_at` は第 8 回 Q29 以降、収集開始日の算出根拠になった列）。
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
   "UPDATE core.source SET registered_at = '2026-01-01T00:00:00+09:00'
-    WHERE logical_source IN ('smoke','c01-location','c01-app-usage','c01-photo',
+    WHERE logical_source IN ('smoke','c01-location','c01-app-usage','c01-app-usage-rollup','c01-photo',
                              'c02-window','c02-browser-history');"
 
 # Scenario: 1 件だけの裸の要求も受け取る
@@ -117,6 +117,34 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
 post()  { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
             -w '%{http_code}' -X POST "http://$BIND/ingest" -d "$1"; }
+
+echo "== 9b. アプリ利用のイベントと集計を取り込み、同じ 2 件の再送では増やさない（ST06）"
+usage='[{"id":"06000001-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-app-usage",
+  "external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-09-08T02:30:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+  "raw":"{\"package\":\"dev.ashiato.example\",\"event_type\":1,\"event_time\":\"2026-09-08T02:30:00Z\"}",
+  "payload":{"package":"dev.ashiato.example","event_type":1,"event_time":"2026-09-08T02:30:00Z"}},
+ {"id":"06000002-0000-4000-8000-000000000000",
+  "user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c01-app-usage-rollup",
+  "external_id":null,"device_id":"c01-smoke","origin":"collected",
+  "event_time":"2026-09-08T03:00:00Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+  "raw":"{\"granularity\":\"daily\",\"package\":\"dev.ashiato.example\",\"begin\":\"2026-09-07T15:00:00Z\",\"end\":\"2026-09-08T03:00:00Z\",\"last_used\":\"2026-09-08T02:30:00Z\",\"last_visible\":\"2026-09-08T02:30:00Z\",\"last_foreground_service_used\":\"1970-01-01T00:00:00Z\",\"total_foreground_ms\":60000,\"total_visible_ms\":60000,\"total_foreground_service_ms\":0}",
+  "payload":{"granularity":"daily","package":"dev.ashiato.example","begin":"2026-09-07T15:00:00Z","end":"2026-09-08T03:00:00Z","last_used":"2026-09-08T02:30:00Z","last_visible":"2026-09-08T02:30:00Z","last_foreground_service_used":"1970-01-01T00:00:00Z","total_foreground_ms":60000,"total_visible_ms":60000,"total_foreground_service_ms":0}}]'
+code=$(post "$usage")
+[ "$code" = "200" ] || { echo "アプリ利用の 2 件が $code"; exit 1; }
+[ "$(jq -c '[.[].duplicate]' /tmp/smoke.body)" = "[false,false]" ] \
+  || { echo "初回が新規 2 件でない"; exit 1; }
+[ "$(post "$usage")" = "200" ] || { echo "アプリ利用の再送が通らない"; exit 1; }
+[ "$(jq -c '[.[].duplicate]' /tmp/smoke.body)" = "[true,true]" ] \
+  || { echo "再送が重複 2 件でない"; exit 1; }
+got=$(psql -c "SELECT string_agg(logical_source||'='||n, ',' ORDER BY logical_source)
+               FROM (SELECT logical_source,count(*) n FROM core.event
+                     WHERE logical_source IN ('c01-app-usage','c01-app-usage-rollup')
+                     GROUP BY logical_source) s;")
+[ "$got" = "c01-app-usage=1,c01-app-usage-rollup=1" ] \
+  || { echo "アプリ利用の行数が合わない: $got"; exit 1; }
+echo "   → 初回 1 行ずつ / 再送後も 1 行ずつ"
 # 原文は **text** で送る（0003 / design D16）。JSON の値ではなく「文字列」なので、
 # 送りたい原文をそのまま JSON 文字列にくるむ。
 rawstr() { printf '%s' "$1" | jq -Rs .; }

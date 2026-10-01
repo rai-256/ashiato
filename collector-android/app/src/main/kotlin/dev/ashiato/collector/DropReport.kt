@@ -37,7 +37,7 @@ data class DropHour(val hour: String, val count: Int)
 data class DropReport(
     override val id: String,
     @SerialName("user_id") val userId: String,
-    @SerialName("logical_source") val logicalSource: String,
+    @SerialName("logical_source") override val logicalSource: String,
     @SerialName("device_id") val deviceId: String,
     val reason: String,
     @SerialName("created_at") val createdAt: String,
@@ -50,8 +50,6 @@ data class DropReport(
 
 /** 捨てた記録から報告を組むのに要るもの。**位置の値は取り出さない**（出来事の時刻とソースだけ）。 */
 interface Retainable : Outboxable {
-    val logicalSource: String
-
     /** 出来事の時刻（RFC 3339） */
     val eventTime: String
 }
@@ -141,6 +139,15 @@ class DropLedger(
     private val now: () -> Instant,
     private val newId: () -> String,
     private val log: (String) -> Unit,
+    /**
+     * 下書きの**ファイルごと**読めなくなったときに名乗らせる名前（tasks 5.1 / 独立レビュー R10）。
+     *
+     * 中に何本のソースの下書きが入っていたかは、読めない以上もう分からない。
+     * それでも**報告は落とせない**（扉 #14 の証拠）ので、どれか 1 つを名乗るしかない ——
+     * **どれを名乗るかはここで決めない**。焼き込むと、位置を持たない収集アプリが
+     * 位置の破棄を報告する日が来る（`LocationService` が渡す）。
+     */
+    private val unattributedSource: String,
 ) {
     /** 下書き。閉じていないものは**ソース × 理由ごとに 1 本だけ** */
     private val drafts = ArrayList<DropDraft>()
@@ -232,15 +239,27 @@ class DropLedger(
     }
 
     /** 置き場の行が読めなかった件数（出来事の時刻が分からないので範囲を持たない。design D6）。保存できたか。 */
+    fun unreadable(source: String, count: Int): Boolean = unreadable(mapOf(source to count))
+
+    /**
+     * 同じことを**ソースごとの件数**で（tasks 5.1 / 独立レビュー R10）。
+     *
+     * **1 度の保存で全部入れる。** 1 ソースずつ呼ぶと、途中で保存に失敗したときに
+     * 「どこまで報告できたか」が呼び出し側に残らず、次の見回りで**済んだ分が二重に数えられる**
+     * （退避先の行数から数える側は「報告できた行数」しか印を進められない）。
+     */
     @Synchronized
-    fun unreadable(source: String, count: Int): Boolean {
-        if (count <= 0) return true
+    fun unreadable(counts: Map<String, Int>): Boolean {
+        val fresh = counts.filterValues { it > 0 }
+        if (fresh.isEmpty()) return true
         val before = drafts.toList()
-        val i = openIndex(source, DropReason.UNREADABLE.wire)
-        if (i >= 0) {
-            drafts[i] = drafts[i].copy(count = drafts[i].count + count)
-        } else {
-            drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+        for ((source, count) in fresh) {
+            val i = openIndex(source, DropReason.UNREADABLE.wire)
+            if (i >= 0) {
+                drafts[i] = drafts[i].copy(count = drafts[i].count + count)
+            } else {
+                drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+            }
         }
         if (save()) return true
         drafts.clear()
@@ -301,7 +320,7 @@ class DropLedger(
         if (drafts.isEmpty()) return true
         val user = userId()
         if (user.isBlank()) {
-            if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", count = drafts.size, error = "no_user_id"))
+            if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", source = null, count = drafts.size, error = "no_user_id"))
             blankUserLogged = true
             return false
         }
@@ -313,12 +332,12 @@ class DropLedger(
             val d = it.next()
             val report = d.toReport(user, deviceId)
             if (frozen.add(report)) {
-                log(Telemetry.line("drop_report", count = d.count, error = d.reason))
+                log(Telemetry.line("drop_report", source = d.source, count = d.count, error = d.reason))
                 it.remove()
             } else {
                 // 積めなかった。メモリにだけある報告は捨て、閉じた下書きのまま次の凍結で積み直す（同じ原文になる）
                 frozen.remove(listOf(report.id))
-                log(Telemetry.line("drop_report_not_persisted", count = d.count))
+                log(Telemetry.line("drop_report_not_persisted", source = d.source, count = d.count))
                 all = false
             }
         }
@@ -353,8 +372,12 @@ class DropLedger(
     private fun aside(e: Exception) {
         val moved = File(openFile.parentFile, "${openFile.name}.unreadable.${System.currentTimeMillis()}")
         val ok = openFile.renameTo(moved)
-        log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", error = e.javaClass.simpleName))
-        if (ok) drafts += DropDraft(newId(), LOGICAL_SOURCE, DropReason.UNREADABLE.wire, now().toString(), count = 1)
+        log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))
+        if (ok) {
+            drafts += DropDraft(
+                newId(), unattributedSource, DropReason.UNREADABLE.wire, now().toString(), count = 1,
+            )
+        }
     }
 
     /** 下書きを書く。書けたか。**書けなければメモリに持つ**（呼び出し側が戻すかを決める）。 */
@@ -366,7 +389,7 @@ class DropLedger(
         if (!tmp.renameTo(openFile)) throw IOException("rename")
         true
     } catch (e: IOException) {
-        log(Telemetry.line("drop_drafts_save_failed", error = e.javaClass.simpleName))
+        log(Telemetry.line("drop_drafts_save_failed", source = null, error = e.javaClass.simpleName))
         false
     }
 
@@ -396,13 +419,13 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         try {
             file.parentFile?.mkdirs()
             if (!file.exists() || file.length() != SIZE.toLong()) {
-                if (file.exists()) log(Telemetry.line("write_failed_ledger_reset", error = "size"))
+                if (file.exists()) log(Telemetry.line("write_failed_ledger_reset", source = null, error = "size"))
                 RandomAccessFile(file, "rw").use { it.setLength(SIZE.toLong()); it.seek(0); it.write(MAGIC) }
             }
             read()
         } catch (e: IOException) {
             usable = false
-            log(Telemetry.line("write_failed_ledger_unavailable", error = e.javaClass.simpleName))
+            log(Telemetry.line("write_failed_ledger_unavailable", source = null, error = e.javaClass.simpleName))
         }
     }
 
@@ -508,7 +531,7 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
             true
         } catch (e: IOException) {
             // ファイルにも書けない。メモリにだけ数える（立て直されたら消える。design D5）
-            log(Telemetry.line("write_failed_ledger_save_failed", error = e.javaClass.simpleName))
+            log(Telemetry.line("write_failed_ledger_save_failed", source = null, error = e.javaClass.simpleName))
             false
         }
     }
@@ -520,4 +543,49 @@ class WriteFailedLedger(private val file: File, private val log: (String) -> Uni
         /** (4096 - 4 - 8) / 20 */
         const val SLOTS: Int = 204
     }
+}
+
+/** ST06 より前の、ソースが 1 本だけだった時代の「書けなかった記録」の数えの置き場。 */
+const val LEGACY_WRITE_FAILED_FILE: String = "write-failed.bin"
+
+/**
+ * 書けなかった記録の数えの置き場の名前。**ソースごとに別ファイル**（tasks 5.1 / 独立レビュー R10）。
+ *
+ * 1 本にまとめると、**アプリ利用の書き込みが失敗した件数が位置の破棄として報告される**
+ * （数えは時間ごとの枠しか持たず、ソースを覚えない）。
+ */
+fun writeFailedFile(dir: File, logicalSource: String): File = File(dir, "write-failed-$logicalSource.bin")
+
+/**
+ * ST06 より前の 1 本（[LEGACY_WRITE_FAILED_FILE]）を**位置の名前へ移す**。移した先を返す。
+ *
+ * **位置以外へは引き継がない** —— 位置の書き込みの失敗を別のソースの破棄として報告させない
+ * （`migrateLegacyCounters` と同じ形）。移せなくても落とさない（次のプロセスがもう一度試す）。
+ */
+fun migrateLegacyWriteFailed(dir: File, logicalSource: String): File {
+    val target = writeFailedFile(dir, logicalSource)
+    if (logicalSource == LOGICAL_SOURCE && !target.exists()) {
+        val legacy = File(dir, LEGACY_WRITE_FAILED_FILE)
+        if (legacy.exists()) runCatching { legacy.renameTo(target) }
+    }
+    return target
+}
+
+/** 壊れた行から `logical_source` を拾う形。**原文の中の同じ綴りには当たらない**（原文は `\"` で入る）。 */
+private val UNREADABLE_SOURCE_FIELD = Regex("\"logical_source\"\\s*:\\s*\"([^\"]{1,64})\"")
+
+/**
+ * 退避された 1 行がどのソースのものかを読む（tasks 5.1 / 独立レビュー R10）。読めなければ null。
+ *
+ * **読み解けなかった行**（`SegmentStore` が退避したもの）でも、欄の並びの先頭のほうは
+ * 無事なことが多い（途中で途切れた追記・末尾の壊れ）。そこから名前を拾えれば、
+ * 破棄の報告はそのソースの名前で積める。
+ *
+ * **知っている名前だけを返す** —— 壊れた行から拾った文字列をそのまま載せると、
+ * 登録簿に無い名前として受け口に `unknown_source` で断られ、
+ * 報告は理由を問わず未送信から取り除かれない（＝端末に永久に居座る）。
+ */
+internal fun sourceOfUnreadableLine(line: String): String? {
+    val name = UNREADABLE_SOURCE_FIELD.find(line)?.groupValues?.get(1) ?: return null
+    return SourceCadence.entries.firstOrNull { it.logicalSource == name }?.logicalSource
 }

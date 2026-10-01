@@ -87,6 +87,52 @@ class ElapsedClockTest {
         assertEquals(3 * day, clock().now() - enq)
     }
 
+    /**
+     * **数えなかった前進**（ST06 / tasks 3.3 / 独立レビュー Important 1）。
+     * 30 日の頭打ちで落ちた分だけが積もり、ファイルに残る。
+     *
+     * 立て直しで 0 に戻ると、読む側（アプリ利用の窓）が長い電源断を
+     * 「時計が飛んだ」と読み、取得が永久に止まる。
+     */
+    @Test
+    fun `数えなかった前進は頭打ちのぶんだけ積もり立て直しをまたいで残る`() {
+        val c = clock()
+        c.now()
+        assertEquals(0, c.discardedMs())
+        device.advance(1 * day)
+        c.now()
+        assertEquals("同じ起動のあいだに落ちている", 0, c.discardedMs())
+
+        // 30 日以内の空白は**全部数える**ので、落ちる分は無い
+        device.reboot(wallGapMs = 20 * day)
+        val kept = clock()
+        kept.now()
+        assertEquals(0, kept.discardedMs())
+
+        // 60 日の空白は 30 日で頭打ち —— 落ちた 30 日がここに出る
+        device.reboot(wallGapMs = 60 * day)
+        val next = clock()            // プロセスが立て直された（ファイルから読み直す）
+        next.now()
+        assertEquals(30 * day, next.discardedMs())
+        // 立て直しただけでは増えない（ファイルから読み直しても同じ値）
+        val again = clock()
+        again.now()
+        assertEquals(30 * day, again.discardedMs())
+    }
+
+    /** 時計が**戻った**跨ぎでは何も落ちない（負の食い違いは飛びの証拠として残す側）。 */
+    @Test
+    fun `時計が戻った跨ぎでは数えなかった前進は増えない`() {
+        val c = clock()
+        c.now()
+        device.advance(5 * day)
+        c.now()
+        device.reboot(wallGapMs = -10 * day)
+        val next = clock()
+        next.now()
+        assertEquals(0, next.discardedMs())
+    }
+
     /** 単調時計が戻らなくても、起動回数が変われば再起動として扱う（起動回数の比較を消すと落ちる）。 */
     @Test
     fun `起動回数が変わったら単調時計が進んでいても再起動として扱う`() {

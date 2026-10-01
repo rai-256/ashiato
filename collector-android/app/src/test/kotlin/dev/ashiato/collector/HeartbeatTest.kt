@@ -20,7 +20,7 @@ class HeartbeatTest {
     private fun emitter(
         outbox: Outbox<HeartbeatRequest> = testHeartbeatOutbox(),
         capability: () -> Capability = { Capability.of(permission = true, sensor = true, network = true) },
-        counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }),
+        counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS),
         now: () -> Instant = { Instant.parse("2026-05-01T06:00:00Z") },
         log: (String) -> Unit = {},
     ) = HeartbeatEmitter(
@@ -28,6 +28,7 @@ class HeartbeatTest {
         counters = counters,
         userId = "user-1",
         deviceId = "device-1",
+        logicalSource = LOGICAL_SOURCE,
         capability = capability,
         now = now,
         newId = { "hb-1" },

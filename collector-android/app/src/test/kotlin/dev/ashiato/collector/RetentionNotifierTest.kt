@@ -30,6 +30,9 @@ class RetentionNotifierTest {
     private val st = TestStores()
     private val day = AgeClock.DAY_MS
 
+    /** 常駐の通知の本文。**本番と同じ組み立て**（`LocationService` が同じ式で渡す）。 */
+    private val base = ongoingBaseText(SourceCadence.entries.size)
+
     private lateinit var service: Service
 
     private fun req(id: String) =
@@ -43,7 +46,7 @@ class RetentionNotifierTest {
             android.app.Notification.Builder(service, LocationService.CHANNEL)
                 .setContentText(text).setSmallIcon(android.R.drawable.ic_menu_mylocation).build()
         }
-        return RetentionNotifier(st.records, st.age::now, alerts, File(st.dir, "retention-alerted"))
+        return RetentionNotifier(st.records, st.age::now, alerts, File(st.dir, "retention-alerted"), base)
     }
 
     private fun ongoingText(): String? =
@@ -65,6 +68,30 @@ class RetentionNotifierTest {
         manager.cancelAll()
     }
 
+    /**
+     * **常駐の通知の文言はソースの数に従う**（tasks 5.4 / 独立レビュー R10）。
+     *
+     * ST06 より前は「位置を記録しています」の決め打ちで、2 本目を足しても文言だけが位置のまま残った
+     * （本人の端末には「位置を記録しています」と出たままアプリ利用が集められる）。
+     */
+    @Test
+    fun `常駐の通知の本文はソースの数に従い、位置の決め打ちを持たない`() {
+        assertEquals("1 種類の記録を集めています", ongoingBaseText(1))
+        assertEquals("3 種類の記録を集めています", ongoingBaseText(3))
+        assertFalse("位置の決め打ちが残っている: $base", base.contains("位置"))
+        assertTrue("走らせているソースの数を出していない", base.startsWith("${SourceCadence.entries.size} "))
+    }
+
+    /** ST04 の「未送信の日数」は**そのまま**（tasks 5.4）。文言を変えて壊さない。 */
+    @Test
+    fun `未送信の日数は本文の後ろに付く`() {
+        val n = notifier()
+        st.records.add(req("a"))
+        st.clock.advance(5 * day)
+        n.update()
+        assertEquals("$base · 未送信 5 日", ongoingText())
+    }
+
     // Scenario: 常駐の通知に未送信の日数が出る
     @Test
     fun `積んでから 12 日の記録が最も古いと常駐の通知に 12 日と出る`() {
@@ -72,7 +99,7 @@ class RetentionNotifierTest {
         st.records.add(req("a"))
         st.clock.advance(12 * day + 5_000)
         n.update()
-        assertEquals("位置を記録しています · 未送信 12 日", ongoingText())
+        assertEquals("$base · 未送信 12 日", ongoingText())
     }
 
     // Scenario: 1 日に満たない未送信では日数が出ない
@@ -82,7 +109,7 @@ class RetentionNotifierTest {
         st.records.add(req("a"))
         st.clock.advance(3 * 60 * 60 * 1000L)
         n.update()
-        assertEquals("位置を記録しています", ongoingText())
+        assertEquals(base, ongoingText())
     }
 
     // Scenario: 上限の 7 日前に音の鳴る通知が出る
@@ -116,7 +143,7 @@ class RetentionNotifierTest {
         st.clock.advance(100 * day)
         n.update(); countAlert()
         assertEquals(0, alertsPosted)
-        assertEquals("位置を記録しています", ongoingText())
+        assertEquals(base, ongoingText())
     }
 
     // Scenario: 送り切った後の次の長い圏外ではまた鳴る
@@ -128,7 +155,7 @@ class RetentionNotifierTest {
         n.update(); countAlert()
         st.records.remove(listOf("a"))
         n.update(); countAlert()
-        assertEquals("日数が消えていない", "位置を記録しています", ongoingText())
+        assertEquals("日数が消えていない", base, ongoingText())
         st.records.add(req("b"))
         st.clock.advance(83 * day)
         n.update(); countAlert()
@@ -143,7 +170,7 @@ class RetentionNotifierTest {
         val blocked = RetentionNotifier(
             st.records, st.age::now,
             AndroidRetentionAlerts(service) { android.app.Notification.Builder(service, LocationService.CHANNEL).build() },
-            File(st.dir, "blocked-mark"), log = { lines += it },
+            File(st.dir, "blocked-mark"), base, log = { lines += it },
         )
         st.records.add(req("a"))
         st.clock.advance(83 * day)
