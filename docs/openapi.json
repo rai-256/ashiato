@@ -1479,7 +1479,16 @@
           "unknown_attribute_kind",
           "invalid_claim_value",
           "invalid_valid_from",
-          "invalid_supersedes"
+          "invalid_supersedes",
+          "malformed_place_record",
+          "place_record_not_authored",
+          "place_record_has_external_id",
+          "unknown_place",
+          "invalid_place_name",
+          "invalid_coordinate",
+          "invalid_coord_change",
+          "invalid_coord_supersedes",
+          "invalid_radius"
         ]
       },
       "IngestRequest": {

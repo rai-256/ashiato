@@ -546,6 +546,44 @@ pub enum IngestError {
     InvalidValidFrom,
     /// 取り消す主張が無い / 個人属性の主張でない / 別の利用者 / 別の種類 / 自分自身
     InvalidSupersedes,
+
+    // --- 場所の記録だけに当たる 9 種別（ST21 / design D4（仮）。spec「形の合わない場所の記録は受け付けない」）
+    //
+    // **置き場は spec の表**。ここは写しで、当たる条件は spec が持つ。
+    // `invalid_valid_from` は個人属性の主張と同じ種別を使う（同じ規則を呼ぶ。design D2）。
+    /// 原文が JSON でない / 欄が欠ける・型が違う / 何を書くものか分からない /
+    /// 原文の記録の識別子が記録の識別子と違う / 原文の乱数が 128 bit に満たない
+    MalformedPlaceRecord,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    PlaceRecordNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    PlaceRecordHasExternalId,
+    /// 指す器がその利用者に無い
+    UnknownPlace,
+    /// 名前が、前後の空白を除いて空
+    InvalidPlaceName,
+    /// 緯度・経度が範囲の外 / 数でない / 座標系が WGS84 でない
+    InvalidCoordinate,
+    /// 変え方と、その場所の座標の有無・欄の組が合わない
+    InvalidCoordChange,
+    /// 直す先が無い・座標の記録でない・別の場所・別の利用者・自分自身
+    InvalidCoordSupersedes,
+    /// 広さが整数でない・範囲の外
+    InvalidRadius,
+}
+
+impl From<places::PlaceRecordInvalid> for IngestError {
+    fn from(v: places::PlaceRecordInvalid) -> Self {
+        use places::PlaceRecordInvalid as Bad;
+        match v {
+            Bad::Malformed => Self::MalformedPlaceRecord,
+            Bad::Name => Self::InvalidPlaceName,
+            Bad::Coordinate => Self::InvalidCoordinate,
+            Bad::CoordChange => Self::InvalidCoordChange,
+            Bad::ValidFrom => Self::InvalidValidFrom,
+            Bad::Radius => Self::InvalidRadius,
+        }
+    }
 }
 
 impl From<attributes::ClaimInvalid> for IngestError {
@@ -587,6 +625,10 @@ fn default_sensitivity(logical_source: &str) -> i32 {
     if logical_source == attributes::SOURCE {
         // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
         attributes::DEFAULT_SENSITIVITY
+    } else if logical_source == places::SOURCE {
+        // 場所の記録は「外部 AI に出してよい」（深掘り Q3 / design D11（仮））。
+        // **DB の既定と同じ値でも分岐として明示する** —— 黙って既定に乗らない
+        places::DEFAULT_SENSITIVITY
     } else {
         DEFAULT_SENSITIVITY
     }
@@ -696,6 +738,67 @@ fn place_identifiers(
     }
 }
 
+/// 場所の記録の、DB を見る 3 つの検査（器・座標の変え方・直す先。design D4（仮））。
+///
+/// **座標の記録では先頭で場所ごとの錠を取る** —— `first` を同時に 2 本送ったとき、
+/// 両方が「まだ座標が無い」を見て 2 本入るのを止める（錠は記録を入れるまとまりの終わりまで）。
+/// **再送は座標の有無で断らない**（`places::is_resend`）。
+async fn place_state_error(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: uuid::Uuid,
+    hash: &str,
+    record: &places::PlaceRecord,
+) -> Result<Option<IngestError>, (StatusCode, String)> {
+    let is_coord = matches!(record.field, places::PlaceField::Coord { .. });
+    if is_coord {
+        places::lock_place(tx, record.place)
+            .await
+            .map_err(|e| internal_at("ingest.place_lock", e))?;
+    }
+    if places::is_resend(tx, user_id, hash)
+        .await
+        .map_err(|e| internal_at("ingest.place_resend", e))?
+    {
+        return Ok(None);
+    }
+    if !places::place_exists(tx, user_id, record.place)
+        .await
+        .map_err(|e| internal_at("ingest.place_exists", e))?
+    {
+        return Ok(Some(IngestError::UnknownPlace));
+    }
+    let places::PlaceField::Coord {
+        change, supersedes, ..
+    } = &record.field
+    else {
+        return Ok(None);
+    };
+    let has_coord = places::has_coord_record(tx, user_id, record.place)
+        .await
+        .map_err(|e| internal_at("ingest.place_coord", e))?;
+    match change {
+        // 初めての座標は、座標の記録が 1 件も無い場所にだけ。移るのは 1 件でもある場所だけ
+        places::CoordChange::First if has_coord => {
+            return Ok(Some(IngestError::InvalidCoordChange))
+        }
+        places::CoordChange::Move if !has_coord => {
+            return Ok(Some(IngestError::InvalidCoordChange))
+        }
+        _ => {}
+    }
+    if let Some(target) = *supersedes {
+        // **自分自身は直せない**
+        let ok = target != record.id
+            && places::coord_supersedes_is_valid(tx, user_id, record.place, target)
+                .await
+                .map_err(|e| internal_at("ingest.place_supersedes", e))?;
+        if !ok {
+            return Ok(Some(IngestError::InvalidCoordSupersedes));
+        }
+    }
+    Ok(None)
+}
+
 /// 1 件を格納して結果を返す。**呼び出し側の誤りは Err ではなく `IngestResult` で返す** ——
 /// まとめ送りの一部が不正でも、他の件は格納しなければならない（design D9）。
 /// Err になるのはサーバ側の失敗（DB）だけ。
@@ -774,6 +877,40 @@ async fn ingest_one(
         None
     };
 
+    // **場所の記録も同じ向きで、ここで形を確かめる**（ST21 / design D4（仮））。
+    // 順は 形 → 由来と端末 → 外部識別子 → 地域のずれ → 名前 / 座標 / 「いつから」/ 広さの値 →
+    // 座標系 で、**DB を見る 3 つ（器・座標の変え方・直す先）は記録を入れるのと同じまとまりの中**（下）。
+    // 一般の検査（`validate`）より先に見る理由は主張と同じ（由来が違う記録を端末識別子の欠落として返さない）。
+    let place_record = if req.logical_source == places::SOURCE {
+        let parsed = places::parse_place_record(&req.raw, req.id);
+        let reject = |why: IngestError| Ok(IngestResult::rejected(Some(req.id), why));
+        if matches!(parsed, Err(places::PlaceRecordInvalid::Malformed)) {
+            return reject(IngestError::MalformedPlaceRecord);
+        }
+        if req.origin != "authored" || req.device_id.is_some() {
+            return reject(IngestError::PlaceRecordNotAuthored);
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return reject(IngestError::PlaceRecordHasExternalId);
+        }
+        // 地域のずれの範囲（主張と同じ理由。範囲外は受理された顔で格納され、読み出しから消える）
+        if !(-1439..=1439).contains(&req.tz_offset_min) {
+            return reject(IngestError::MalformedPlaceRecord);
+        }
+        let record = match parsed {
+            Ok(r) => r,
+            Err(why) => return reject(why.into()),
+        };
+        if matches!(record.field, places::PlaceField::Coord { .. })
+            && req.crs_or_default() != ingest::DEFAULT_CRS
+        {
+            return reject(IngestError::InvalidCoordinate);
+        }
+        Some(record)
+    } else {
+        None
+    };
+
     // 受け取り時の検査はアプリ層で閉じる（design D5）。DB の制約に任せると 500 になり、
     // 呼び出し側から「自分の要求が悪い」と分からない。
     // **500 はまとめ送り全体を落とす** —— 1 件の恒久的な失敗が後続を永久に止める（design D20）。
@@ -816,9 +953,10 @@ async fn ingest_one(
     //
     // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
     // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
-    let payload = match &claim {
-        Some(c) => c.payload.clone(),
-        None => ingest::to_nfc(&req.payload),
+    let payload = match (&claim, &place_record) {
+        (Some(c), _) => c.payload.clone(),
+        (None, Some(p)) => p.payload.clone(),
+        (None, None) => ingest::to_nfc(&req.payload),
     };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
@@ -854,6 +992,13 @@ async fn ingest_one(
                     IngestError::InvalidSupersedes,
                 ));
             }
+        }
+    }
+
+    // **場所の記録の DB を見る検査も、記録を入れるのと同じまとまりの中**（ST21 / design D4（仮））。
+    if let Some(p) = &place_record {
+        if let Some(why) = place_state_error(&mut tx, req.user_id, &hash, p).await? {
+            return Ok(IngestResult::rejected(Some(req.id), why));
         }
     }
 
