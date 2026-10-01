@@ -9,9 +9,9 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST25, ST28, ST33
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST21, ST28, ST33
 - **layer 2**: ST04, ST14, ST15, ST17, ST20, ST22, ST23
-- **layer 3**: ST06, ST09, ST12, ST18, ST26, ST34
+- **layer 3**: ST06, ST09, ST12, ST18, ST25, ST26, ST34
 - **layer 4**: ST10, ST13, ST24, ST30, ST35, ST36
 - **layer 5**: ST27, ST29, ST31
 - **layer 6**: ST32
@@ -44,7 +44,7 @@
 | [ST22](ST22.md) | 記録を消したことにできる | 2 | FR-50 | ST01, ST16 | — |
 | [ST23](ST23.md) | 本文を本当に消せる | 2 | FR-51, FR-52 | ST22 | — |
 | [ST24](ST24.md) | 記録に感度を持たせ、既定で守る | 4 | PERM-2, PERM-3, PERM-4, PERM-6, PERM-9 | ST09, ST17 | 15 |
-| [ST25](ST25.md) | 1 日を時刻順に見る | 1 | FR-56 | ST01 | — |
+| [ST25](ST25.md) | 1 日を時刻順に見る | 3 | FR-56 | ST01, ST22 | — |
 | [ST26](ST26.md) | 語で探す | 3 | FR-58, NFR-4 | ST17 | — |
 | [ST27](ST27.md) | AI から MCP で問い合わせる | 5 | FR-59, FR-60, NFR-14 | ST24, ST26 | 15, 26 |
 | [ST28](ST28.md) | 外からは許可した私設網の内側でしか届かない | 1 | PERM-7, NFR-15 | ST01 | 23 |
@@ -271,3 +271,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > ★ 2026-09-15 で足した節（位置の記録に、受け取ったときの端末の時計の時刻・測位の起動からの経過時間・起動の識別を持たせる）は
 > ST05 の深掘り Q2 の決定で、ST05 が `device-collection` の「位置は 60 秒間隔で記録される」を MODIFIED して満たす。
 
+> **訂正（2026-10-01、ST25 の上流工程 spec）**
+>
+> **ST25 の `requires` に ST22 を足した**（layer 1 → 3）。ST25 は 1 日の画面の行の中に、その時間の他のソースの記録を時刻順に出す（深掘り Q1）が、
+> その「開ける行」と詳細（件数と「この滞在を消す」）は ST22 が作る（`openspec/changes/st22-record-deletion` の `browsing-views` の ADDED）。
+> ST25 の spec はその要件を名指しし、下流のコードはその上に積む。前例は ST22 が ST16 の上に積むときに `requires` に ST16 を足したこと（上の 2026-09-15 の訂正）。
+>
+> - ST25 の `browsing-views` の delta は **ADDED と、ST22 が触らない「日を移れる」の置き換えだけ**で、ST22 の MODIFIED と要件の名前が重ならない（archive の順で正典の文は壊れない）
+> - **satisfies の NFR-20（44 px）は、ST22 の消す操作の上に時刻順の記録を足しても 44 px を保つ形で満たす**（spec の Scenario `時刻順の記録を足しても消す操作は 44 px を下回らない`）。止める操作（FR-53）は ST15
