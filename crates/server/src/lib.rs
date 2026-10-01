@@ -27,6 +27,10 @@ pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
+/// 滞在を消す判定・印・追記専用台帳（ST22 / design D2〜D5）。
+pub mod deletion;
+#[cfg(test)]
+mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
@@ -51,7 +55,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 15] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -118,6 +122,11 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
     (
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
+    ),
+    // 滞在を消した・戻した操作の追記専用台帳と、削除済み滞在の限定列ビュー（ST22）
+    (
+        "202609271716_deletion_ledger",
+        include_str!("../../../migrations/202609271716_deletion_ledger.sql"),
     ),
 ];
 
@@ -1200,6 +1209,136 @@ pub struct RebuildResponse {
     took_ms: i64,
 }
 
+/// `POST /stays/erase` の本文。利用者は滞在の行から決め、添えられた値は照合だけに使う。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EraseRequest {
+    pub stay_id: uuid::Uuid,
+    pub user_id: Option<uuid::Uuid>,
+}
+
+/// 消した記録の種類別件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ErasedCounts {
+    stays: u64,
+    locations: u64,
+}
+
+/// `POST /stays/erase` の応答。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct EraseResponse {
+    erased: ErasedCounts,
+}
+
+/// `POST /stays/restore` の本文。全件を一つの transaction で戻す。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RestoreRequest {
+    pub stay_ids: Vec<uuid::Uuid>,
+    pub user_id: Option<uuid::Uuid>,
+}
+
+/// 戻した記録の種類別件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RestoredCounts {
+    stays: u64,
+    locations: u64,
+}
+
+/// `POST /stays/restore` の応答。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RestoreResponse {
+    restored: RestoredCounts,
+}
+
+/// 滞在と、その時間帯にある現在基準の位置へ削除の印を付ける。
+#[utoipa::path(post, path = "/stays/erase", request_body = EraseRequest,
+    responses((status = 200, body = EraseResponse), (status = 401), (status = 404)))]
+pub async fn stays_erase(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<EraseRequest>,
+) -> Result<Json<EraseResponse>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let outcome = deletion::erase(&app.pool, req.stay_id, req.user_id)
+        .await
+        .map_err(|e| match e {
+            deletion::EraseError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found".into()),
+            deletion::EraseError::UserMismatch => {
+                tracing::warn!(
+                    kind = "erase_user_mismatch",
+                    "滞在の利用者と添えられた利用者が違うため消さなかった"
+                );
+                (StatusCode::NOT_FOUND, "stay_not_found".into())
+            }
+            deletion::EraseError::Database(e) => internal_at("stays.erase", e),
+        })?;
+
+    if outcome.stays > 0 {
+        for day in outcome.days() {
+            if let Err(e) = (app.stays.0)(app.pool.clone(), outcome.user_id, day).await {
+                tracing::error!(
+                    kind = "stay.rebuild",
+                    user = %outcome.user_id,
+                    %day,
+                    failure = %stay_store::failure_kind(&e),
+                    "消した後の滞在の作り直しに失敗（削除の印は保存済み）"
+                );
+            }
+        }
+    }
+
+    Ok(Json(EraseResponse {
+        erased: ErasedCounts {
+            stays: outcome.stays,
+            locations: outcome.locations,
+        },
+    }))
+}
+
+/// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
+#[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
+    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404)))]
+pub async fn stays_restore(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<RestoreRequest>,
+) -> Result<Json<RestoreResponse>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let outcome = deletion::restore(&app.pool, &req.stay_ids, req.user_id)
+        .await
+        .map_err(|e| match e {
+            deletion::RestoreError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found".into()),
+            deletion::RestoreError::UserMismatch => {
+                tracing::warn!(
+                    kind = "erase_user_mismatch",
+                    "滞在の利用者と添えられた利用者が違うため戻さなかった"
+                );
+                (StatusCode::NOT_FOUND, "stay_not_found".into())
+            }
+            deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
+        })?;
+
+    for (user, day) in &outcome.rebuild_days {
+        if let Err(e) = (app.stays.0)(app.pool.clone(), *user, *day).await {
+            tracing::error!(
+                kind = "stay.rebuild",
+                %user,
+                %day,
+                failure = %stay_store::failure_kind(&e),
+                "戻した後の滞在の作り直しに失敗（戻した印は保存済み）"
+            );
+        }
+    }
+
+    Ok(Json(RestoreResponse {
+        restored: RestoredCounts {
+            stays: outcome.stays,
+            locations: outcome.locations,
+        },
+    }))
+}
+
 /// 範囲の外にある基準の欄の名前（spec「範囲外の基準は断られる」）。**欄の名前だけを返し、値は返さない。**
 fn criteria_out_of_range(r: &RebuildRequest) -> Option<&'static str> {
     let within = |v: Option<i32>, hi: i32| v.is_none_or(|x| (1..=hi).contains(&x));
@@ -1317,6 +1456,30 @@ pub struct StaysQuery {
     user_id: Option<uuid::Uuid>,
 }
 
+/// `GET /stays/detail` の絞り込み。滞在の時間帯にある記録の件数を返す。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct StaysDetailQuery {
+    stay_id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 詳細に表示する論理ソースごとの記録件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct StayDetailCount {
+    logical_source: String,
+    display_name: String,
+    count: i64,
+}
+
+/// 滞在の時間帯と、その時間帯にある読み出し中の記録の件数。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct StayDetail {
+    stay_id: uuid::Uuid,
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+    counts: Vec<StayDetailCount>,
+}
+
 /// 1 日の並び（滞在・移動・記録なし）を時刻順に返す（design D8）。
 #[utoipa::path(get, path = "/stays", params(StaysQuery),
     responses((status = 200, body = stay_store::DayView), (status = 400), (status = 401)))]
@@ -1337,6 +1500,68 @@ pub async fn stays_get(
     .await
     .map(Json)
     .map_err(|e| internal_at("stays.day", e))
+}
+
+/// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
+#[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
+    responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
+pub async fn stays_detail_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<StaysDetailQuery>,
+) -> Result<Json<StayDetail>, (StatusCode, String)> {
+    authorize(&app, &headers)?;
+    let user = q.user_id.unwrap_or_default();
+    let stay: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT event_time, coalesce(core.try_timestamptz(payload->>'end'), event_time)
+               FROM core.event_live
+              WHERE id = $1 AND user_id = $2
+                AND logical_source = 's01-stay' AND origin = 'derived'",
+        )
+        .bind(q.stay_id)
+        .bind(user)
+        .fetch_optional(&app.pool)
+        .await
+        .map_err(|e| internal_at("stays.detail_stay", e))?;
+    let Some((start, end)) = stay else {
+        return Err((StatusCode::NOT_FOUND, "stay_not_found".into()));
+    };
+
+    let counts: Vec<(String, String, i64)> = sqlx::query_as(
+        "WITH live_events AS MATERIALIZED (
+             SELECT logical_source
+               FROM core.event_live
+              WHERE user_id = $1
+                AND logical_source <> 's01-stay'
+                AND event_time BETWEEN $2 AND $3
+           )
+         SELECT e.logical_source, s.display_name, count(*)
+           FROM live_events e
+           JOIN core.source s ON s.logical_source = e.logical_source
+          GROUP BY e.logical_source, s.display_name
+          ORDER BY e.logical_source",
+    )
+    .bind(user)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&app.pool)
+    .await
+    .map_err(|e| internal_at("stays.detail_counts", e))?;
+
+    Ok(Json(StayDetail {
+        stay_id: q.stay_id,
+        start,
+        end,
+        counts: counts
+            .into_iter()
+            .map(|(logical_source, display_name, count)| StayDetailCount {
+                logical_source,
+                display_name,
+                count,
+            })
+            .collect(),
+    }))
 }
 
 // ------------------------------------------------------------------ 生存信号
@@ -1790,6 +2015,9 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
+        .route("/stays/detail", get(stays_detail_get))
+        .route("/stays/erase", post(stays_erase))
+        .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/attributes", get(attributes_get))
@@ -1830,6 +2058,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         stays_get,
+        stays_detail_get,
+        stays_erase,
+        stays_restore,
         stays_rebuild,
         stays_criteria_get,
         attributes_get,
@@ -1859,6 +2090,12 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::SourceAchievement,
         RebuildRequest,
         RebuildResponse,
+        EraseRequest,
+        EraseResponse,
+        ErasedCounts,
+        RestoreRequest,
+        RestoreResponse,
+        RestoredCounts,
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,

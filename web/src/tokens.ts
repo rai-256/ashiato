@@ -68,6 +68,9 @@ export function tone(lightness: number): string {
  */
 export const MIN_TARGET_PX = 24;
 
+/** 消去のような破壊的操作の最小の大きさ（D9）。 */
+export const DESTRUCTIVE_TARGET_PX = 44;
+
 /**
  * 日の区切り。**サーバの `DAY_TZ`（`crates/server/src/coverage.rs`）と同じでなければならない**
  * （深掘り Q2 / design D1）。
