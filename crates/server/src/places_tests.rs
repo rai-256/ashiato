@@ -2853,4 +2853,587 @@ mod view_endpoint {
         assert_eq!(p["coord"]["record_id"], serde_json::json!(moved));
         assert_eq!(p["previous_coords"][0]["state"], "before_move");
     }
+
+    // ---------------------------------------------------------------- 照合と合計（Task 5 / D7 / D8 / D9）
+
+    /// 場所の座標の経度（`coord_raw` と同じ）
+    const LON: f64 = 139.767125;
+    /// 登録の座標の緯度（`registered` と同じ）
+    const LAT: f64 = 35.681236;
+    /// 緯度 1 度が約 111.32 km（`stay::distance_m` と同じ近似）。北へ `m` メートル離れた緯度
+    fn north(lat: f64, m: f64) -> f64 {
+        lat + m / 111_320.0
+    }
+
+    /// 派生の滞在を直に置く（`stay_tests` と同じ形。代表点と時刻を試験が決める）。返すのは行の識別子
+    async fn stay(app: &App, user: Uuid, start: &str, end: &str, lat: f64) -> Uuid {
+        let id = Uuid::new_v4();
+        let raw = serde_json::json!({
+            "start": DateTime::parse_from_rfc3339(start).unwrap().with_timezone(&Utc).to_rfc3339(),
+            "end": DateTime::parse_from_rfc3339(end).unwrap().with_timezone(&Utc).to_rfc3339(),
+            "lat": lat, "lon": LON,
+        })
+        .to_string();
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, external_id, origin, event_time,
+                tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+             VALUES ($1,$2,'s01-stay',$3,'derived',$4,540,'Asia/Tokyo',1,$3,$5,$5::jsonb)",
+        )
+        .bind(id)
+        .bind(user)
+        .bind(id.to_string())
+        .bind(
+            DateTime::parse_from_rfc3339(start)
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+        .bind(&raw)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    /// 滞在を時刻（JST）と長さで置く
+    async fn stay_min(app: &App, user: Uuid, start: &str, minutes: i64, lat: f64) -> Uuid {
+        let s = DateTime::parse_from_rfc3339(start).unwrap();
+        let e = s + chrono::Duration::minutes(minutes);
+        stay(app, user, start, &e.to_rfc3339(), lat).await
+    }
+
+    /// (件数, 合計分)
+    fn count_minutes(v: &serde_json::Value, place: Uuid) -> (i64, i64) {
+        let s = &place_of(v, place).unwrap()["stays"];
+        (s["count"].as_i64().unwrap(), s["minutes"].as_i64().unwrap())
+    }
+
+    async fn radius(app: &App, user: Uuid, place: Uuid, m: i64, written: &str) -> Uuid {
+        put(
+            app,
+            user,
+            radius_raw(Uuid::new_v4(), place, serde_json::json!(m)),
+            written,
+        )
+        .await
+    }
+
+    async fn place_at(app: &App, user: Uuid, name: &str, lat: f64, radius_m: i64) -> Uuid {
+        let place = container(app, user).await;
+        put_name(app, user, place, name, "2026-09-01T09:00:00+09:00").await;
+        put_coord(
+            app,
+            user,
+            place,
+            lat,
+            "first",
+            serde_json::Value::Null,
+            None,
+            "2026-09-01T09:00:00+09:00",
+        )
+        .await;
+        radius(app, user, place, radius_m, "2026-09-01T09:00:00+09:00").await;
+        place
+    }
+
+    // Scenario: 広さの中の滞在はその場所に当たる
+    #[tokio::test]
+    async fn place_match_a_stay_inside_the_radius_is_assigned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            60,
+            north(LAT, 80.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+    }
+
+    // Scenario: 広さの外の滞在は当たらない
+    #[tokio::test]
+    async fn place_match_a_stay_outside_the_radius_is_not_assigned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            60,
+            north(LAT, 120.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+    }
+
+    // Scenario: 広さを広げると外にあった滞在も当たる
+    #[tokio::test]
+    async fn place_match_widening_the_radius_assigns_the_outside_stay() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            60,
+            north(LAT, 120.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+        radius(&app, user, place, 200, "2026-09-02T09:00:00+09:00").await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+    }
+
+    // Scenario: 2 つの場所に入る滞在は近いほうに当たる
+    #[tokio::test]
+    async fn place_match_the_nearer_place_wins() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        // 滞在は LAT。A は 150 m 南、B は 90 m 北
+        let a = place_at(&app, user, "A", north(LAT, -150.0), 300).await;
+        let b = place_at(&app, user, "B", north(LAT, 90.0), 300).await;
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        let v = get(&app, user).await;
+        assert_eq!(count_minutes(&v, b), (1, 60));
+        assert_eq!(count_minutes(&v, a), (0, 0));
+    }
+
+    // Scenario: 同じ距離なら先に作った場所に当たる
+    #[tokio::test]
+    async fn place_match_a_tie_goes_to_the_place_made_first() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let a = place_at(&app, user, "A", north(LAT, 50.0), 100).await;
+        let b = place_at(&app, user, "B", north(LAT, 50.0), 100).await;
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        let v = get(&app, user).await;
+        assert_eq!(count_minutes(&v, a), (1, 60));
+        assert_eq!(count_minutes(&v, b), (0, 0));
+    }
+
+    // Scenario: 照合は滞在に書き込まない
+    #[tokio::test]
+    async fn place_match_does_not_write_to_the_stays() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let id = stay_min(
+            &app,
+            user,
+            "2026-09-10T10:00:00+09:00",
+            60,
+            north(LAT, 10.0),
+        )
+        .await;
+        let snapshot = || async {
+            sqlx::query_as::<_, (String, serde_json::Value, String)>(
+                "SELECT raw, payload, content_hash FROM core.event WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap()
+        };
+        let before = snapshot().await;
+        let (place, _, _) = registered(&app, user, "職場").await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+        assert_eq!(snapshot().await, before);
+    }
+
+    // Scenario: 消した滞在は場所に当たらない
+    #[tokio::test]
+    async fn place_match_a_deleted_stay_is_not_counted() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let id = stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(&app, user, "2026-09-11T10:00:00+09:00", 120, LAT).await;
+        mark_deleted(&app, id).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 120));
+    }
+
+    /// 代表点を持たない滞在は当てない（D8）
+    #[tokio::test]
+    async fn place_match_a_stay_without_a_representative_point_is_not_assigned() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, external_id, origin, event_time,
+                tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+             VALUES ($1,$2,'s01-stay',$3,'derived','2026-09-10T01:00:00Z',540,'Asia/Tokyo',1,$3,'{}','{}')",
+        )
+        .bind(id)
+        .bind(user)
+        .bind(id.to_string())
+        .execute(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+    }
+
+    // Scenario: 直すと全期間が新しい座標で照らされる
+    #[tokio::test]
+    async fn place_window_a_fix_lights_the_whole_period_with_the_new_coordinate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let fixed = north(LAT, 1000.0);
+        stay_min(
+            &app,
+            user,
+            "2025-03-10T10:00:00+09:00",
+            60,
+            north(fixed, 50.0),
+        )
+        .await;
+        put_coord(
+            &app,
+            user,
+            place,
+            fixed,
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+    }
+
+    // Scenario: 直すと前の座標の近くの滞在は外れる
+    #[tokio::test]
+    async fn place_window_a_fix_drops_the_stay_near_the_old_coordinate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+        put_coord(
+            &app,
+            user,
+            place,
+            north(LAT, 1000.0),
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-11T09:00:00+09:00",
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+    }
+
+    /// 座標 A（登録）の場所を 2026-04 に座標 B（A の 1 km 北）へ移した場所を作る
+    async fn moved_place(
+        app: &App,
+        user: Uuid,
+        valid_from: serde_json::Value,
+        written: &str,
+    ) -> Uuid {
+        let (place, _, _) = registered(app, user, "職場").await;
+        put_coord(
+            app,
+            user,
+            place,
+            north(LAT, 1000.0),
+            "move",
+            valid_from,
+            None,
+            written,
+        )
+        .await;
+        place
+    }
+
+    // Scenario: 移ったなら前の座標で居た時間もこの場所
+    #[tokio::test]
+    async fn place_window_a_move_keeps_the_time_spent_at_the_old_coordinate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = moved_place(&app, user, month("2026-04"), "2026-09-02T09:00:00+09:00").await;
+        stay_min(&app, user, "2025-06-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(
+            &app,
+            user,
+            "2026-05-10T10:00:00+09:00",
+            120,
+            north(LAT, 1000.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (2, 180));
+    }
+
+    // Scenario: 移ったより前の新しい座標の滞在は当たらない
+    #[tokio::test]
+    async fn place_window_the_new_coordinate_does_not_light_the_time_before_the_move() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = moved_place(&app, user, month("2026-04"), "2026-09-02T09:00:00+09:00").await;
+        stay_min(
+            &app,
+            user,
+            "2025-06-10T10:00:00+09:00",
+            60,
+            north(LAT, 1000.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+    }
+
+    // Scenario: 移ったより後の前の座標の滞在は当たらない
+    #[tokio::test]
+    async fn place_window_the_old_coordinate_does_not_light_the_time_after_the_move() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = moved_place(&app, user, month("2026-04"), "2026-09-02T09:00:00+09:00").await;
+        stay_min(&app, user, "2026-05-10T10:00:00+09:00", 60, LAT).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+    }
+
+    // Scenario: 年だけの移ったはその年の初めから当てる
+    #[tokio::test]
+    async fn place_window_a_year_only_move_starts_at_the_beginning_of_the_year() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = moved_place(
+            &app,
+            user,
+            serde_json::json!({ "precision": "year", "date": "2026" }),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        stay_min(
+            &app,
+            user,
+            "2026-01-02T10:00:00+09:00",
+            60,
+            north(LAT, 1000.0),
+        )
+        .await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (1, 60));
+    }
+
+    // Scenario: いつから分からない移転は書いた日まで両方の座標で当てる
+    #[tokio::test]
+    async fn place_window_an_unknown_start_move_lights_both_coordinates_until_it_was_written() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let place = moved_place(
+            &app,
+            user,
+            serde_json::json!({ "precision": "unknown", "date": null }),
+            "2026-10-01T09:00:00+09:00",
+        )
+        .await;
+        stay_min(&app, user, "2025-06-10T10:00:00+09:00", 60, LAT).await;
+        stay_min(
+            &app,
+            user,
+            "2025-07-10T10:00:00+09:00",
+            120,
+            north(LAT, 1000.0),
+        )
+        .await;
+        stay_min(&app, user, "2026-10-05T10:00:00+09:00", 30, LAT).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (2, 180));
+    }
+
+    // Scenario: 後から書いた古いいつからの移転が後を占める
+    #[tokio::test]
+    async fn place_window_a_later_written_older_move_takes_over_the_rest() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        let b = north(LAT, 1000.0);
+        let c = north(LAT, 2000.0);
+        put_coord(
+            &app,
+            user,
+            place,
+            b,
+            "move",
+            month("2026-04"),
+            None,
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        put_coord(
+            &app,
+            user,
+            place,
+            c,
+            "move",
+            month("2025-06"),
+            None,
+            "2026-09-03T09:00:00+09:00",
+        )
+        .await;
+        stay_min(&app, user, "2025-08-10T10:00:00+09:00", 60, c).await;
+        stay_min(&app, user, "2026-05-10T10:00:00+09:00", 120, c).await;
+        stay_min(&app, user, "2026-05-11T10:00:00+09:00", 30, b).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (2, 180));
+    }
+
+    // Scenario: 直す記録を消すと直す前の座標に戻る
+    #[tokio::test]
+    async fn place_window_deleting_the_fix_restores_the_old_coordinate() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, first) = registered(&app, user, "職場").await;
+        let fix = put_coord(
+            &app,
+            user,
+            place,
+            north(LAT, 1000.0),
+            "fix",
+            serde_json::Value::Null,
+            Some(first),
+            "2026-09-02T09:00:00+09:00",
+        )
+        .await;
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 60, LAT).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (0, 0));
+        mark_deleted(&app, fix).await;
+        let v = get(&app, user).await;
+        let p = place_of(&v, place).unwrap();
+        assert_eq!(p["coord"]["record_id"], serde_json::json!(first));
+        assert_eq!(count_minutes(&v, place), (1, 60));
+    }
+
+    // Scenario: 場所の滞在の件数と合計が返る
+    #[tokio::test]
+    async fn place_view_stays_count_and_total() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay_min(&app, user, "2026-09-10T10:00:00+09:00", 120, LAT).await;
+        stay_min(&app, user, "2026-09-11T10:00:00+09:00", 180, LAT).await;
+        assert_eq!(count_minutes(&get(&app, user).await, place), (2, 300));
+    }
+
+    // Scenario: 最後に居た日が返る
+    #[tokio::test]
+    async fn place_view_stays_last_day() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        assert!(place_of(&get(&app, user).await, place).unwrap()["stays"]["last_day"].is_null());
+        stay(
+            &app,
+            user,
+            "2026-09-20T09:00:00+09:00",
+            "2026-09-20T10:00:00+09:00",
+            LAT,
+        )
+        .await;
+        stay(
+            &app,
+            user,
+            "2026-09-28T17:00:00+09:00",
+            "2026-09-28T18:00:00+09:00",
+            LAT,
+        )
+        .await;
+        let v = get(&app, user).await;
+        assert_eq!(
+            place_of(&v, place).unwrap()["stays"]["last_day"],
+            "2026-09-28"
+        );
+    }
+
+    fn hours_of(v: &serde_json::Value, place: Uuid) -> Vec<i64> {
+        place_of(v, place).unwrap()["stays"]["hours"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h.as_i64().unwrap())
+            .collect()
+    }
+
+    // Scenario: 24 時間の帯は時刻ごとの居た分を持つ
+    #[tokio::test]
+    async fn place_view_stays_hours_hold_the_minutes_per_hour() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay(
+            &app,
+            user,
+            "2026-09-10T08:30:00+09:00",
+            "2026-09-10T10:00:00+09:00",
+            LAT,
+        )
+        .await;
+        let mut want = vec![0; 24];
+        want[8] = 30;
+        want[9] = 60;
+        assert_eq!(hours_of(&get(&app, user).await, place), want);
+    }
+
+    // Scenario: 日をまたぐ滞在は両方の日の時刻に分かれる
+    #[tokio::test]
+    async fn place_view_stays_hours_split_a_stay_across_midnight() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let (place, _, _) = registered(&app, user, "職場").await;
+        stay(
+            &app,
+            user,
+            "2026-09-10T23:00:00+09:00",
+            "2026-09-11T01:00:00+09:00",
+            LAT,
+        )
+        .await;
+        let mut want = vec![0; 24];
+        want[23] = 60;
+        want[0] = 60;
+        assert_eq!(hours_of(&get(&app, user).await, place), want);
+    }
+
+    // Scenario: 場所は最近居た順に返る
+    #[tokio::test]
+    async fn place_view_stays_places_come_back_most_recent_first() {
+        let app = at_now(app().await, NOW);
+        let user = testdb::user();
+        let a = place_at(&app, user, "A", north(LAT, 10_000.0), 100).await;
+        let b = place_at(&app, user, "B", north(LAT, 20_000.0), 100).await;
+        let c = place_at(&app, user, "C", north(LAT, 30_000.0), 100).await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-28T10:00:00+09:00",
+            60,
+            north(LAT, 10_000.0),
+        )
+        .await;
+        stay_min(
+            &app,
+            user,
+            "2026-09-30T10:00:00+09:00",
+            60,
+            north(LAT, 20_000.0),
+        )
+        .await;
+        let v = get(&app, user).await;
+        let ids: Vec<&serde_json::Value> = v["places"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| &p["id"])
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                &serde_json::json!(b),
+                &serde_json::json!(a),
+                &serde_json::json!(c)
+            ]
+        );
+    }
 }

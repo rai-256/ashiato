@@ -642,7 +642,7 @@ pub struct PreviousCoordOut {
     pub fixed_by: Option<Uuid>,
 }
 
-/// 場所の滞在の項（Task 5 が埋める。それまでは 0）。
+/// 場所の滞在の項（D9）。当たった滞在が無ければ 0 と `null`。
 #[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct PlaceStays {
     pub count: i64,
@@ -692,24 +692,64 @@ fn times(r: &StoredPlaceRecord) -> (String, String) {
     (r.written_at.to_rfc3339(), r.ingested_at.to_rfc3339())
 }
 
-/// 器ごとのいまの値と前の値を組む（D6（仮））。**純粋な関数**（DB を持たない）。
-///
-/// `places` は器の識別子を並べたい順で渡す。`records` は使える記録（削除の印の付いたものと
-/// 本文を消去したものを除いたもの）の全部。滞在の項は Task 5 が埋める（いまは 0）。
+/// 器ごとのいまの値と前の値を組む（D6（仮））。滞在は与えない（滞在の項は 0）。
 pub fn view(places: &[Uuid], records: &[StoredPlaceRecord], today: NaiveDate) -> PlacesView {
+    view_with_stays(places, records, &[], today)
+}
+
+/// 器ごとのいまの値と前の値に、滞在の照合と合計を足して組む（D6 / D8 / D9）。**純粋な関数**（DB を持たない）。
+///
+/// `places` は器の識別子を**作った順**（`seq`）で渡す。`records` は使える記録（削除の印の付いたものと
+/// 本文を消去したものを除いたもの）の全部、`stays` は使える滞在の全部。
+/// 返す並びは最近居た順（当たった滞在の無い場所は、その後に作った順）。
+pub fn view_with_stays(
+    places: &[Uuid],
+    records: &[StoredPlaceRecord],
+    stays: &[StayPoint],
+    today: NaiveDate,
+) -> PlacesView {
     let today_start = jst_midnight(today);
     let mut by_place: std::collections::HashMap<Uuid, Vec<StoredPlaceRecord>> =
         std::collections::HashMap::new();
     for r in records {
         by_place.entry(r.record.place).or_default().push(r.clone());
     }
-    let out = places
-        .iter()
-        .filter_map(|id| place_out(*id, by_place.get(id)?, today_start))
-        .collect();
+    let mut out: Vec<PlaceOut> = Vec::new();
+    let mut targets: Vec<MatchPlace> = Vec::new();
+    for id in places {
+        let Some(recs) = by_place.get(id) else {
+            continue;
+        };
+        let Some(p) = place_out(*id, recs, today_start) else {
+            continue;
+        };
+        targets.push(MatchPlace {
+            id: *id,
+            radius_m: p.radius_m,
+            windows: coord_windows(recs),
+        });
+        out.push(p);
+    }
+
+    let assigned = assign(stays, &targets);
+    let mut last_end: Vec<Option<DateTime<Utc>>> = Vec::with_capacity(out.len());
+    for (i, p) in out.iter_mut().enumerate() {
+        let hit: Vec<&StayPoint> = stays
+            .iter()
+            .zip(&assigned)
+            .filter(|(_, a)| **a == Some(targets[i].id))
+            .map(|(s, _)| s)
+            .collect();
+        last_end.push(hit.iter().map(|s| s.end).max());
+        p.stays = summarize(&hit);
+    }
+    // 最近居た順。当たった滞在の無い場所はその後（安定な並べ替えなので、同じなら作った順のまま）
+    let mut order: Vec<usize> = (0..out.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(last_end[i]));
+    let mut slots: Vec<Option<PlaceOut>> = out.into_iter().map(Some).collect();
     PlacesView {
         today: today.to_string(),
-        places: out,
+        places: order.into_iter().filter_map(|i| slots[i].take()).collect(),
     }
 }
 
@@ -834,6 +874,93 @@ fn place_out(
     })
 }
 
+// ------------------------------------------------------------------ 照合と合計（D8 / D9）
+
+/// 照合に使う滞在 1 件（`core.event_live` の `s01-stay`・`origin='derived'`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct StayPoint {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// 代表点。**無ければ当てない**
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+}
+
+/// 照合される場所 1 つ。`windows` は `coord_windows` の結果。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchPlace {
+    pub id: Uuid,
+    pub radius_m: i64,
+    pub windows: Vec<Window>,
+}
+
+/// 滞在がどの場所に当たるか（D8）。`places` は作った順で渡す。**純粋な関数**で、何も書かない。
+///
+/// 各場所について、滞在の始まりを期間に含む版の座標との距離の最小が広さ以下なら候補。
+/// 候補のうち距離が最小のもの、同じなら先に作った（先に渡された）場所。
+pub fn assign(stays: &[StayPoint], places: &[MatchPlace]) -> Vec<Option<Uuid>> {
+    stays
+        .iter()
+        .map(|stay| {
+            let (lat, lon) = (stay.lat?, stay.lon?);
+            let mut best: Option<(f64, Uuid)> = None;
+            for place in places {
+                let nearest = place
+                    .windows
+                    .iter()
+                    .filter(|w| {
+                        w.start.is_none_or(|s| s <= stay.start)
+                            && w.end.is_none_or(|e| stay.start < e)
+                    })
+                    .map(|w| crate::stay::distance_m(lat, lon, w.lat, w.lon))
+                    .min_by(f64::total_cmp);
+                let Some(d) = nearest.filter(|d| *d <= place.radius_m as f64) else {
+                    continue;
+                };
+                if best.is_none_or(|(b, _)| d < b) {
+                    best = Some((d, place.id));
+                }
+            }
+            best.map(|(_, id)| id)
+        })
+        .collect()
+}
+
+/// 秒を分へ丸める（四捨五入）。
+fn round_minutes(secs: i64) -> i64 {
+    (secs + 30).div_euclid(60)
+}
+
+/// 当たった滞在の件数・合計・最後に居た日・24 時間の帯（D9）。
+fn summarize(hit: &[&StayPoint]) -> PlaceStays {
+    const JST_SECS: i64 = 9 * 3600;
+    let mut total = 0_i64;
+    let mut hour_secs = [0_i64; 24];
+    for s in hit {
+        let (start, end) = (s.start.timestamp(), s.end.timestamp());
+        total += end - start;
+        // `Asia/Tokyo` の時刻で 1 時間ごとに切る
+        let mut cur = start;
+        while cur < end {
+            let hour = (cur + JST_SECS).div_euclid(3600);
+            let next = ((hour + 1) * 3600 - JST_SECS).min(end);
+            hour_secs[hour.rem_euclid(24) as usize] += next - cur;
+            cur = next;
+        }
+    }
+    let last_day = hit
+        .iter()
+        .map(|s| s.end)
+        .max()
+        .map(|e| (e + chrono::Duration::hours(9)).date_naive().to_string());
+    PlaceStays {
+        count: hit.len() as i64,
+        minutes: round_minutes(total),
+        last_day,
+        hours: hour_secs.iter().map(|s| round_minutes(*s)).collect(),
+    }
+}
+
 // ------------------------------------------------------------------ 読み出し（DB）
 
 #[derive(sqlx::FromRow)]
@@ -881,7 +1008,34 @@ pub async fn places_view(
         );
     }
     let ids: Vec<Uuid> = ids.into_iter().map(|(id,)| id).collect();
-    Ok(view(&ids, &records, today))
+    let stays = stays_of(pool, user_id).await?;
+    Ok(view_with_stays(&ids, &records, &stays, today))
+}
+
+/// 利用者の滞在の全部（`day_view` と同じ絞り方。削除の印の付いたものは `event_live` が外す）。
+/// **読むだけ**（FR-48 ★: 滞在にも場所の記録にも書き込まない）。
+async fn stays_of(pool: &PgPool, user_id: Uuid) -> sqlx::Result<Vec<StayPoint>> {
+    let rows: Vec<(DateTime<Utc>, serde_json::Value)> = sqlx::query_as(
+        "SELECT event_time, payload FROM core.event_live
+          WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
+          ORDER BY event_time, id",
+    )
+    .bind(crate::stay::SOURCE)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(event_time, payload)| {
+            let (start, end) = crate::stay_store::span_of(event_time, &payload);
+            StayPoint {
+                start,
+                end,
+                lat: payload.get("lat").and_then(serde_json::Value::as_f64),
+                lon: payload.get("lon").and_then(serde_json::Value::as_f64),
+            }
+        })
+        .collect())
 }
 
 fn stored_record_of(row: RecordRow) -> Option<StoredPlaceRecord> {
