@@ -304,3 +304,62 @@ printf '%s' "$after" | jq -e '
   and (.kinds[] | select(.name == "副業") | .current.value == null)' >/dev/null \
   || { echo "normal: 訂正・予定・分からない・「なし」のどれかが読み出しに出ていない"; exit 1; }
 echo "normal: 個人属性の主張を $claims_total 件入れ、同じ数を読み戻した（種類 $(printf '%s' "$after" | jq '.kinds | length') 件）"
+
+# ------------------------------------------------------------------ 場所の登録（ST21）
+#
+# 確認バッチの画面（S-6 マスタ管理の「場所」タブ）の材料。**滞在 9 件のうち 2 か所に名前を付ける**:
+# 1 つ目（東京駅の周り）は名前を 1 回変えてある（前の名前が「前の値」に出る）、2 つ目は名前を変えていない。
+# 残りの 7 か所は名前の無い居た所（`/places/candidates`）として残る。
+#
+# **何度当てても同じ結果にする**: 器の識別子・記録の識別子・乱数・「書いた日時」は固定。
+# 器は同じ利用者なら何度作っても同じ（`POST /places`）、記録は原文が 1 バイトも変わらないので内容の鍵で畳まれる（FR-22）。
+python3 - > "$work/places.json" <<'PY'
+import json, math, uuid
+
+USER = "00000000-0000-0000-0000-000000000000"
+NS = uuid.UUID("21212121-0000-4000-8000-000000000021")
+LAT0, LON0 = 35.6812, 139.7671          # 上の位置の組み立てと同じ起点（k 番目は北へ 2 km × k）
+M_PER_DEG = 111_320.0
+
+def nonce(seed):
+    return uuid.uuid5(NS, f"nonce/{seed}").hex[:24]
+
+out, places = [], []
+def record(seed, place, at, extra):
+    rid = str(uuid.uuid5(NS, f"record/{seed}"))
+    raw = json.dumps({"record": rid, "place": place, "nonce": nonce(seed), **extra},
+                     ensure_ascii=False, separators=(",", ":"))
+    out.append({"id": rid, "user_id": USER, "logical_source": "s01-place", "external_id": None,
+                "device_id": None, "origin": "authored", "event_time": at, "tz_offset_min": 540,
+                "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": raw, "payload": {}})
+
+for k, names in enumerate([["本社", "職場"], ["自宅"]]):
+    pid = str(uuid.uuid5(NS, f"place/{k}"))
+    places.append(pid)
+    lat = LAT0 + 2000.0 * k / M_PER_DEG
+    # 名前は書いた順に並ぶ（最後に書いたものがいまの名前）
+    for n, name in enumerate(names):
+        record(f"name/{k}/{n}", pid, f"2026-09-0{8 + n}T01:00:00Z", {"field": "name", "name": name})
+    record(f"coord/{k}", pid, "2026-09-08T01:05:00Z",
+           {"field": "coord", "lat": round(lat, 7), "lon": LON0, "change": "first",
+            "valid_from": None, "supersedes": None})
+print(json.dumps({"places": places, "items": out}, ensure_ascii=False))
+PY
+for pid in $(jq -r '.places[]' "$work/places.json"); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" -X POST "http://$BIND/places" -d "{\"id\":\"$pid\"}")
+  [ "$code" = "200" ] || { echo "normal: 場所の器 $pid を作れない（$code）"; exit 1; }
+done
+place_total=$(jq '.items | length' "$work/places.json")
+got=$(jq -c .items "$work/places.json" | curl -sS "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- \
+      | jq '[.[] | select(.accepted)] | length')
+[ "$got" -eq "$place_total" ] \
+  || { echo "normal: 場所の記録 $place_total 件のうち $got 件しか受け入れられなかった"; exit 1; }
+# 入れた数と読めた数を断言する（個人属性と同じ。受理数だけでは読み出しから消えても気付かない）
+registered=$(curl -sf "${AUTH[@]}" "http://$BIND/places")
+cands=$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates")
+printf '%s' "$registered" | jq -e '(.places | length) == 2 and ([.places[] | .name] | sort) == ["職場","自宅"]
+  and ([.places[] | select(.name == "職場") | .previous_names | length] == [1])' >/dev/null \
+  || { echo "normal: 場所が 2 つ読めない（名前の変更が前の値に出ていない）: $registered"; exit 1; }
+printf '%s' "$cands" | jq -e '.candidates | length >= 1' >/dev/null \
+  || { echo "normal: 名前の無い居た所が残っていない: $cands"; exit 1; }
+echo "normal: 場所を $(printf '%s' "$registered" | jq '.places | length') 件登録し（1 件は名前を 1 回変えた）、名前の無い居た所が $(printf '%s' "$cands" | jq '.candidates | length') 件残った"
