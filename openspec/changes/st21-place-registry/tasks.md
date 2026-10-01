@@ -129,7 +129,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 6: 名前の無い、よく居た所（design D10 / D15。`GET /places/candidates`）
 
-- [ ] 6.1 `places.rs` に純粋な関数 `candidates` を置き、`CANDIDATE_RADIUS_M = 100` を名指しで固定する。`GET /places/candidates?user_id=` を足す（全部返す）。資格情報なしは 401。
+- [x] 6.1 `places.rs` に純粋な関数 `candidates` を置き、`CANDIDATE_RADIUS_M = 100` を名指しで固定する。`GET /places/candidates?user_id=` を足す（全部返す）。資格情報なしは 401。
   Scenario: `名前の無い所は場所に当たらない滞在から作られる` / `100 m より離れた滞在は別の名前の無い所になる` /
   `中心から 90 m の滞在は同じ名前の無い所に入る` / `中心から 110 m の滞在は別の名前の無い所になる` / `名前の無い所は最近居た順に返る` /
   `登録すると名前の無い所から消える` / `消した滞在は名前の無い所に入らない`。
