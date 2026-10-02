@@ -262,6 +262,33 @@ async fn st25_usage_phone_background_of_same_app_closes_the_use() {
 }
 
 #[tokio::test]
+async fn st25_usage_phone_overlapping_uses_of_same_app_count_once() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    stay(
+        &pool,
+        u,
+        "2026-09-07T21:00:00+09:00",
+        "2026-09-07T23:50:00+09:00",
+    )
+    .await;
+    // 後ろに下がった記録が無いまま同じアプリの前景が続く: 10:00–10:10 と 10:05–10:15 は重なる
+    phone_foreground(&pool, u, "2026-09-07T22:00:00+09:00", "com.map", "地図").await;
+    phone_foreground(&pool, u, "2026-09-07T22:05:00+09:00", "com.map", "地図").await;
+    phone_foreground(&pool, u, "2026-09-07T22:30:00+09:00", "com.mail", "メール").await;
+
+    let v = view(&pool, u, DATE, later()).await;
+    let phone = row_of(&v, RowKind::Stay)
+        .summary
+        .clone()
+        .unwrap()
+        .phone
+        .unwrap();
+    let map = phone.top.iter().find(|a| a.app == "地図").unwrap();
+    assert_eq!(map.seconds, 15 * 60, "{phone:?}");
+}
+
+#[tokio::test]
 async fn st25_usage_outside_the_row_is_not_counted() {
     let pool = testdb::pool().await;
     let u = testdb::user();
@@ -681,7 +708,8 @@ async fn st25_other_erased_time_gets_an_other_row() {
     assert_eq!(records.len(), 30);
 }
 
-// Scenario: 今日の最後の位置の後の記録はほかの記録の行に出る
+// 前提の食い違い（deep.md Q7）の回答待ち。既定の gap_minutes（10 分）では末尾は記録なしの行になるので、
+// この試験は 3 時間にしたときだけ通る。回答が出るまで Scenario の印は付けない。
 #[tokio::test]
 async fn st25_other_after_the_last_location_today() {
     let pool = testdb::pool().await;

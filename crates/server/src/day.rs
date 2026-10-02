@@ -127,6 +127,8 @@ pub(crate) struct Seg {
     end: DateTime<Utc>,
 }
 
+type Span = (DateTime<Utc>, DateTime<Utc>);
+
 /// `pieces` から `blocks` と重なる部分を取り除く。
 fn subtract(
     pieces: Vec<(DateTime<Utc>, DateTime<Utc>)>,
@@ -197,7 +199,9 @@ pub(crate) fn usage_segments(norms: &[Norm], now: DateTime<Utc>) -> Vec<Seg> {
     }
 
     // スマホ: 前に出た時刻から、次に別のアプリが前に出た時刻か同じアプリが後ろに下がった時刻まで。1 回 10 分で打ち切る。
+    // 後ろに下がった記録が無いまま同じアプリの前景が続くと区間が重なるので、端末とアプリごとに和集合をとる。
     for list in by_device(norms, Origin::Phone).values() {
+        let mut by_app: BTreeMap<Option<&str>, (&str, Vec<Span>)> = BTreeMap::new();
         for (i, n) in list.iter().enumerate() {
             let (Kind::Foreground, Some(app)) = (n.kind, n.app.as_ref()) else {
                 continue;
@@ -213,13 +217,28 @@ pub(crate) fn usage_segments(norms: &[Norm], now: DateTime<Utc>) -> Vec<Seg> {
                 })
                 .map_or(cap, |m| m.start.min(cap));
             if end > n.start {
-                out.push(Seg {
-                    origin: Origin::Phone,
-                    app: app.clone(),
-                    start: n.start,
-                    end,
-                });
+                by_app
+                    .entry(key)
+                    .or_insert_with(|| (app.as_str(), Vec::new()))
+                    .1
+                    .push((n.start, end));
             }
+        }
+        for (app, mut spans) in by_app.into_values() {
+            spans.sort();
+            let mut merged: Vec<Span> = Vec::new();
+            for (start, end) in spans {
+                match merged.last_mut() {
+                    Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                    _ => merged.push((start, end)),
+                }
+            }
+            out.extend(merged.into_iter().map(|(start, end)| Seg {
+                origin: Origin::Phone,
+                app: app.to_owned(),
+                start,
+                end,
+            }));
         }
     }
     out
