@@ -130,15 +130,15 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 
 `web/src/Root.tsx` / `App.tsx` / `DayView.tsx`（`nav` と見出し）/ `docs/screens.md`。design D12。
 
-- [ ] 7.1 ルート（空・`#/`・解釈できないアドレス）を今日の 1 日の画面に、`#/coverage` を稼働状況にする。1 日の画面の上に「稼働状況」「マスタ管理」の行き先、稼働状況に「1 日の画面へ」とマスタ管理への行き先。見出しを日付にする。
+- [x] 7.1 ルート（空・`#/`・解釈できないアドレス）を今日の 1 日の画面に、`#/coverage` を稼働状況にする。1 日の画面の上に「稼働状況」「マスタ管理」の行き先、稼働状況に「1 日の画面へ」とマスタ管理への行き先。見出しを日付にする。
   REMOVED した Scenario の試験（`DayView.test.tsx` の `稼働状況の画面の入口は変わらない`）を直す。
   Scenario: `ルートを開くと今日の 1 日の画面が出る` / `稼働状況は専用のアドレスで開く` / `稼働状況から 1 日の画面へ移れる` /
   `解釈できないアドレスでは今日の 1 日の画面が出る` / `1 日の画面の見出しは日付`。
   検証: `VT st25-routes.test.tsx`、`bash -c '! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates'`
-- [ ] 7.2 `DayView` の読み出し先を `/api/stays` から `/api/day` へ付け替え、**`/api/stays?date=` の呼び出しを固定している既存の試験**（ST22 の後の `DayView.test.tsx` / `DayView-erase-erased-row-keyboard.test.tsx` など）を
+- [x] 7.2 `DayView` の読み出し先を `/api/stays` から `/api/day` へ付け替え、**`/api/stays?date=` の呼び出しを固定している既存の試験**（ST22 の後の `DayView.test.tsx` / `DayView-erase-erased-row-keyboard.test.tsx` など）を
   `/api/day` に付け替える（ST16 / ST22 の印は残す）。暦に無い日付の画面を `useScheme()` にする（C10）。
   検証: `bash -c 'cd web && npx vitest run'`（既存の試験が全部緑）、`bash -c '! grep -rn "api/stays?date" web/src/DayView.tsx'`
-- [ ] 7.3 `docs/screens.md` の表を直す（S-1 は `/#/coverage`、S-2 は `/`）。`web/e2e/stack.spec.ts` と `coverage-year.spec.ts` は `/#/coverage` を開く。
+- [x] 7.3 `docs/screens.md` の表を直す（S-1 は `/#/coverage`、S-2 は `/`）。`web/e2e/stack.spec.ts` と `coverage-year.spec.ts` は `/#/coverage` を開く。
   検証: `bash -c 'grep -q "#/coverage" docs/screens.md'`、`ET stack.spec.ts`、`ET coverage-year.spec.ts`
 
 ## Task 8: 画面 —— 要約・取れていない時間の行・記録なしの事情・ほかの記録の行
