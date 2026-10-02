@@ -176,7 +176,7 @@ describe("日を移る", () => {
     window.location.hash = "#/day/2026-09-12";
     render(<Root />);
     expect(screen.getByTestId("day-title").textContent).toContain("9 月 12 日");
-    await waitFor(() => expect(calls).toContain("/api/stays?date=2026-09-12"));
+    await waitFor(() => expect(calls).toContain("/api/day?date=2026-09-12"));
   });
 
   // Scenario: 前の日へ移ると前の日の滞在が出る
@@ -193,7 +193,7 @@ describe("日を移る", () => {
     fireEvent.click(screen.getByRole("button", { name: "前の日" }));
     await waitFor(() => expect(screen.getByTestId("day-title").textContent).toContain("9 月 12 日"));
     await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(1));
-    expect(calls.at(-1)).toBe("/api/stays?date=2026-09-12");
+    expect(calls.at(-1)).toBe("/api/day?date=2026-09-12");
   });
 
   it("日付を省くと今日（Asia/Tokyo）", async () => {
@@ -201,22 +201,7 @@ describe("日を移る", () => {
     window.location.hash = "#/day/";
     render(<Root />);
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    await waitFor(() => expect(calls).toContain(`/api/stays?date=${today}`));
-  });
-
-  // Scenario: 稼働状況の画面の入口は変わらない
-  it("ルートは稼働状況で、そこから 1 日の一覧へ移れる", async () => {
-    vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
-    render(<Root />);
-    expect(screen.getByTestId("coverage-loading")).toBeTruthy();
-    expect(screen.queryByTestId("day-view")).toBeNull();
-    const link = screen.getByTestId("to-day") as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("#/day/");
-    window.location.hash = "#/day/";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    await waitFor(() => expect(screen.getByTestId("day-view")).toBeTruthy());
-    // 一覧から稼働状況へ戻る行き先もある
-    expect(screen.getByRole("link", { name: "稼働状況へ" }).getAttribute("href")).toBe("#/");
+    await waitFor(() => expect(calls).toContain(`/api/day?date=${today}`));
   });
 });
 
@@ -252,7 +237,7 @@ describe("独立レビューで足したもの（review/code.md）", () => {
     await waitFor(() => expect(screen.getByTestId("day-title").textContent).toContain("9 月 13 日"));
     fireEvent.change(screen.getByLabelText("日付を指定"), { target: { value: "2026-01-02" } });
     await waitFor(() => expect(screen.getByTestId("day-title").textContent).toContain("1 月 2 日"));
-    await waitFor(() => expect(calls.at(-1)).toBe("/api/stays?date=2026-01-02"));
+    await waitFor(() => expect(calls.at(-1)).toBe("/api/day?date=2026-01-02"));
   });
 
   // R63: 前の日へ素早く 2 回移ると、遅れて返った古い日の応答を描かない

@@ -19,7 +19,7 @@ const WEEKS_IN_A_YEAR = 53;
 
 // Scenario: 1 年ぶんが一目で読める
 test("伸ばすと 1 年ぶんの日が週に畳まれた格子として、実寸で読める", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#/coverage");
 
   // 格子を 1 つ選ぶ（ソースは複数ある。最初の 1 本で足りる）
   const section = page.locator("section", { has: page.locator("[data-role=grid]") }).first();

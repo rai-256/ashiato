@@ -61,7 +61,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
   useEffect(() => {
     let live = true;
     setData({ at: "loading" });
-    fetch(`/api/stays?date=${date}`)
+    fetch(`/api/day?date=${date}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`status_${res.status}`);
         const body: unknown = await res.json();
@@ -86,8 +86,11 @@ export function DayView({ date }: { date: string }): React.ReactElement {
       style={pageStyle(c)}
     >
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: SPACE.targetGap, marginBottom: round1(SPACE.gap * 0.3) }}>
-        <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
+        <a href="#/coverage" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
           {common.toCoverage}
+        </a>
+        <a href="#/master" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
+          {msg("coverage").toMaster}
         </a>
       </nav>
       <h1 data-testid="day-title" style={titleStyle(c)}>
