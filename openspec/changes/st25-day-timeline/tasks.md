@@ -13,7 +13,8 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 ## Global Constraints
 
 - **ST25 は ST22 の上に積む**（`requires: [ST01, ST22]`）。ST25 の画面は ST22 の「開ける行」（`DayView.tsx` の `openId`・`GET /stays/detail`・「この滞在を消す」）を広げる。
-  Task 1.1 が ST22 のコードが main にあることを確かめる。無ければ始めない
+  Task 1.1 が ST22 の実装が**作業ブランチにある**ことを確かめる（`deps.json` に記録した SHA が HEAD に含まれる）。無ければ始めない。
+  ST22 の main への merge・人間の確認・archive は待たない —— gate を通った ST22 の実装を `scripts/story_deps.py take` で取り込んで使う（2026-10-02）
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 10 分以上の離席は行になる`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
 - **この change の Scenario は 86 本**（`browsing-views` の ADDED のみ。うち 2 本 —— `日付を含むアドレスでその日の一覧が開く` / `前の日へ移ると前の日の滞在が出る` —— は ST16 の印がそのまま使える）。
@@ -42,9 +43,9 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 
 `crates/server/src/day_records.rs`（新規）。試験は `crates/server/src/day_records_tests.rs`。design D2 / D3 / D4 / D5。
 
-- [ ] 1.1 前提を確かめる: ST22 のコードが main にある。ST06 / ST08 / ST12 のうち main に入ったものは、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
+- [ ] 1.1 前提を確かめる: ST22 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含み、そのコードがある）。ST06 / ST08 / ST12 のうち作業ブランチに入ったもの（main か、取り込んだ確認バッチから）は、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
   あわせて、**登録簿に実在する `c03-%` の論理ソースがどれも D2（活動）か D11（位置の点）の表にある**ことを試験にする（表に無い名前を列挙して落ちる）。
-  検証: `bash -c 'test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'`、`CT st25_allow_registry_covers_archive`
+  検証: `bash -c 'python3 scripts/story_deps.py included ST25 ST22 && test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'`、`CT st25_allow_registry_covers_archive`
 - [ ] 1.2 許可リスト（D2 の表）を 1 つの定数の表にし、`core.event` の行を 2 段で正規化する（1 段目はスマホの `background` を持つ内部の形、2 段目が `/day/records` に出す形）。
   除外は本文を写さない。離席は leave だけ（今日に限り、leave の無い enter をいままでの離席にする）。感度で外さない。表の行ごとに試験を置く（偽の記録を 1 件ずつ）。
   Scenario: `許可リストに無い種別の記録は返らない` / `除外の記録は件数を持つ` / `除外の記録は本文を持たない` / `地域の違う記録はその地域を持って返る` / `感度の高い記録も返る`。

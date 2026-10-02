@@ -76,7 +76,7 @@
   既定は厳しい側 —— ST06 は種別をふるい落とさずに積むので、許可リストでないと新しい種別が黙って行に混ざる
 - **離席は leave の記録だけを使う**（区間は leave が持つ。ST07 の契約）。enter だけがあって leave がまだ無い離席（今日のいま離席中）は、**今日に限り** enter の時刻からいままでの離席として出す
 - 書庫の `display_name` は登録簿（`core.source.display_name`）から引き、画面は「書庫: <表示名>」と書く（C1）
-- **ST06 / ST08 / ST12 の payload の鍵名は、それぞれの下流が main に入れた契約（`docs/collector-contract.md`）で確かめてから写す**。
+- **ST06 / ST08 / ST12 の payload の鍵名は、それぞれの下流が作業ブランチに入れた契約（`docs/collector-contract.md`。main か、取り込んだ確認バッチから）で確かめてから写す**。
   ST08 は design と枝の実装で鍵名が一部違う（`profile_dir` / `profile`）が、この表が読むのは両方にある `browser` / `url` / `title` だけ。
   鍵名が違えばこの表の 1 行を直す（試験はこの表の行ごとにある。Task 1）。
   **書庫の論理ソースの名前は収集の契約に載らない**（サーバ側の取り込み）ので、登録簿（`core.source`）に実在する `c03-%` がどれも表（D2 か D11 の位置の点）にあることを試験で確かめる（Task 1.1）
@@ -249,8 +249,10 @@ spec の読み出しの要件に「感度の値で記録を外さない」を置
 
 ### D18（仮）. ST25 の `requires` に ST22 を足す
 
-ST25 の画面は ST22 の開ける行と詳細の上に積み、spec も ST22 の要件を名指しする。admission に ST22 の archive を待たせるため、`docs/stories/stories.json` の ST25 の `requires` に ST22 を足し（layer 1 → 3）、
+ST25 の画面は ST22 の開ける行と詳細の上に積み、spec も ST22 の要件を名指しする。依存を機械に見せるため、`docs/stories/stories.json` の ST25 の `requires` に ST22 を足し（layer 1 → 3）、
 `docs/stories/INDEX.md` に訂正を書いた（spec-review R19。前例は ST22 → ST16）。
+下流は ST22 の archive を待たない（2026-10-02）: ST22 の実装が gate を通っていれば、その SHA を作業ブランチに取り込み、`deps.json` に記録して始める
+（harness2 の `story_deps.py`。下流の開始と merge gate が照合する）。ST22 の main への merge は確認バッチで、ST25 も同じバッチで確認する。
 **反転条件**: ST22 が開ける行を作らずに閉じたら、ST25 が開ける行を作り、`requires` から ST22 を外す
 
 ### D19（仮）. どの行にも入らない時間の記録は「ほかの記録」の行に出す
@@ -275,7 +277,7 @@ ST25 は取り返しの付かない操作を足さない（Q6）が、ST22 の�
 - **`GET /day` は 1 日ぶんの記録を毎回正規化する**（3,000〜4,000 件）→ `event_by_source_time` の索引に当たる範囲で読み、正規化は Rust で 1 回。数十 ms を見込む。
   遅ければ要約を日ごとに持つ（記録から作り直せるので後から足せる）
 - **区間の記録の 40 日の下限**（D5）→ それより長い停止は日の頭に出ない。反転条件を書いた
-- **ST22 の merge 前に下流を始めると、`DayView.tsx` の開ける行を 2 本の Story が別々に作る** → Task 1 が ST22 のコードが main にあることを確かめてから始める
+- **ST22 の merge 前に下流を始めると、`DayView.tsx` の開ける行を 2 本の Story が別々に作る** → Task 1 が ST22 の実装が作業ブランチにある（記録した SHA を含む）ことを確かめてから始める
 
 ## Migration Plan
 
