@@ -63,6 +63,7 @@ EOF
   mkdir -p .rec-bin && cp "$CARGO_TARGET_DIR/release/ashiato-server" .rec-bin/ashiato-server || exit 1
   (cd web && npm ci --no-audit --no-fund && npm run build) || exit 1
   [ -f web/dist/index.html ] || { echo "error: 画面のビルドに index.html が無い" >&2; exit 1; }
+  local android_ok=""
   if [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
     # 録画用のサーバへ送る APK（接続先は端末の中の 127.0.0.1:18787。record-run が adb reverse で API の port へ渡す。
     # 平文 HTTP を許すのは loopback だけ —— app/build.gradle.kts の検査）。トークンと利用者はこの実行の .env の値
@@ -72,11 +73,15 @@ EOF
       # shellcheck disable=SC1091
       . ./tools/android-env.sh >/dev/null 2>&1
       set -u
-      ./collector-android/gradlew -q -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
-        -Pashiato.baseUrl=http://127.0.0.1:18787 \
-        -Pashiato.apiToken="$(sed -n 's/^API_TOKEN=//p' .env)" \
-        -Pashiato.userId="$(sed -n 's/^ASHIATO_USER_ID=//p' .env)"
-    ) || { echo "error: APK のビルドが落ちた" >&2; exit 1; }
+      # トークンはコマンド行（ps に見える）に出さず、Gradle のプロジェクト属性の環境変数で渡す。
+      # daemon は使わない（片付けがこの環境のプロセスグループを止めるとき、他のビルドが使う daemon を巻き込まない）
+      env "ORG_GRADLE_PROJECT_ashiato.apiToken=$(sed -n 's/^API_TOKEN=//p' .env)" \
+          "ORG_GRADLE_PROJECT_ashiato.userId=$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" \
+        ./collector-android/gradlew -q --no-daemon -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
+          -Pashiato.baseUrl=http://127.0.0.1:18787
+    ) && android_ok=1
+    # APK が作れなくても画面のシナリオは撮る（Android のシナリオだけが「撮れなかった」になる）
+    [ -n "$android_ok" ] || echo "warn: APK のビルドが落ちた。Android のシナリオは撮らない" >&2
   fi
 
   echo "== 起動: DB $db / API $api / 画面 $web（compose project $PROJECT）"
@@ -105,7 +110,9 @@ EOF
     echo "INFO_compose_project=$PROJECT"
     echo "INFO_ports=DB $db / API $api / 画面 $web"
     echo "INFO_seed=normal（STACK_RESET=1 で作り直した直後）"
-    if [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
+    if [[ " ${REC_PLATFORMS:-} " == *" android "* ]] && [ -z "$android_ok" ]; then
+      echo "ANDROID_UNAVAILABLE=APK のビルドが落ちた（logs/env-up.log）"
+    elif [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
       local apk="$WT/collector-android/app/build/outputs/apk/debug/app-debug.apk"
       local tapk="$WT/collector-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
       echo "ANDROID_APK=$apk"; echo "ANDROID_TEST_APK=$tapk"; echo "ANDROID_REVERSE=18787:$api"
