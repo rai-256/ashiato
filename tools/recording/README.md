@@ -44,7 +44,7 @@ tools/recording/record-st22.sh run              # HEAD を録画
 tools/recording/record-st22.sh run 23938e7      # コミットを指定
 ```
 
-- 所要: 初回（ビルドのキャッシュ無し）約 2.5 分。以後は 1.5〜2 分（多くは Windows 側の `npm ci`）
+- 所要: 初回（ビルドのキャッシュ無し）約 2.5 分。以後は約 1.5 分（実測 95 秒）
 - rc: 0 = テストが全部通り、かつ本命の動画が再生できた。1 = それ以外。2 = 使い方の誤り・同時実行
 - 同時に 2 本は走らせない（`~/.cache/ashiato2-rec/lock`）
 

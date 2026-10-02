@@ -81,10 +81,17 @@ def main():
         checks = [json.loads(ln) for ln in vc.read_text(encoding="utf-8").splitlines() if ln.strip()]
     # Playwright は出力フォルダの名前を縮める（`e2e-recording-st22-erase-r-<hash>-…`）ので、頭で見分ける
     main_check = next((c for c in checks if "/e2e-recording-st22-erase-r" in c["file"]), None)
-    recorded = bool(main_check and main_check["check"].get("exists"))
+    # 録画の有無はファイルそのもので見る（確かめの工程まで進まずに止まっても、撮れた動画はある）
+    main_video = next(iter(sorted((out / "playwright/results").glob("e2e-recording-st22-erase-r*/video.webm"))), None)
+    recorded = main_video is not None
     playable = bool(main_check and main_check["check"].get("playable"))
     recording_status = "recorded" if recorded else "missing"
-    playable_status = ("playable" if playable else "not_playable") if recorded else "unchecked"
+    if not recorded:
+        playable_status = "unchecked"
+    elif main_check is None:
+        playable_status = "unchecked"  # 再生の確かめまで進まなかった
+    else:
+        playable_status = "playable" if playable else "not_playable"
 
     # ---- 対象と未コミット変更
     tool_head = sh(["git", "-C", repo, "rev-parse", "HEAD"])
@@ -142,10 +149,12 @@ def main():
         "| 項目 | 結果 |",
         "|---|---|",
         f"| テストの合否 | **{test_status}**（{test_note}。再試行 0） |",
-        f"| 録画 | **{recording_status}**（`ST22-erase-reload.webm`） |",
+        f"| 録画 | **{recording_status}**"
+        + (f"（`{main_video.relative_to(out)}`" + ("、写し `ST22-erase-reload.webm`）" if (out / "ST22-erase-reload.webm").exists() else "）")
+           if main_video else "") + " |",
         f"| 再生できるか | **{playable_status}**"
         + (f"（{main_check['check'].get('duration_s')} 秒・{main_check['check'].get('width')}×{main_check['check'].get('height')}・"
-           f"再生して {main_check['check'].get('played_s')} 秒進んだ）" if recorded else "") + " |",
+           f"再生して {main_check['check'].get('played_s')} 秒進んだ）" if main_check else "") + " |",
         "| 見やすさ | 判定しない（人間が見る） |",
         "| 人間の承認 | **未実施** |",
     ]
