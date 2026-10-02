@@ -31,7 +31,7 @@ async function openDay(page: Page): Promise<void> {
 }
 
 test("ST22 録画: 消す → 消えた表示 → 再読み込みしても消えている", async ({ page, browser, browserName }) => {
-  // 実行環境の記録用（record-st22.sh が results.json から拾う）。アサーションではない
+  // 実行環境の記録用（ハーネスの record_summarize.py が results.json から拾う）。アサーションではない
   test.info().annotations.push({ type: "browser", description: `${browserName} ${browser.version()}` });
 
   // 1. 削除前の記録（test.step の名前は動画に焼き込まれる。見るための見出し）
