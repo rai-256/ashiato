@@ -230,6 +230,54 @@
         }
       }
     },
+    "/day": {
+      "get": {
+        "tags": [],
+        "summary": "1 日の並び（`/stays` と同じ行）に、行ごとの要約とほかの記録の行を足して返す（ST25 design D1）。",
+        "operationId": "day_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/day/records": {
       "get": {
         "tags": [],
@@ -856,6 +904,59 @@
           }
         }
       },
+      "AppSeconds": {
+        "type": "object",
+        "description": "アプリ 1 つの使った時間。",
+        "required": [
+          "app",
+          "seconds"
+        ],
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AppSummary": {
+        "type": "object",
+        "description": "PC / スマホの要約。`seconds` は全アプリの合計、`top` は長い順に最大 `SUMMARY_TOP`。",
+        "required": [
+          "seconds",
+          "top"
+        ],
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppSeconds"
+            }
+          }
+        }
+      },
+      "ArchiveCount": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
       "AttributesView": {
         "type": "object",
         "description": "個人属性の読み出し全体（design D8）。",
@@ -884,6 +985,26 @@
           "alive_no_record",
           "other"
         ]
+      },
+      "BrowserSummary": {
+        "type": "object",
+        "description": "ブラウザの要約。`count` は訪問の総数、`top` はドメインごとの件数の多い順。",
+        "required": [
+          "count",
+          "top"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainCount"
+            }
+          }
+        }
       },
       "ClaimOut": {
         "type": "object",
@@ -1193,6 +1314,89 @@
           }
         }
       },
+      "DayResponse": {
+        "type": "object",
+        "description": "`GET /day` の応答。",
+        "required": [
+          "date",
+          "criteria",
+          "entries"
+        ],
+        "properties": {
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriteriaTag"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayRow"
+            }
+          }
+        }
+      },
+      "DayRow": {
+        "type": "object",
+        "description": "並びの 1 行。`day_view` の行の欄に `summary` を足したもの（「消した」の行には付けない）。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RowKind"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stay_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Summary"
+              }
+            ]
+          }
+        }
+      },
       "DayState": {
         "type": "string",
         "description": "ソース × 日 の状態（FR-54）。**8 つのいずれか 1 つに決まる。**\n\n⑧「退役」は ST03 の深掘りが差し戻したもの（R55 / R56）—— ソースを分けて\n古い名前を退役させる運用が通常になったため、**退役した後の空白日**を\n⑥「途絶」と区別できないと、退役したソースが毎日「壊れている」ように見える。",
@@ -1233,6 +1437,22 @@
               "$ref": "#/components/schemas/DayEntry"
             },
             "description": "始まりの時刻順"
+          }
+        }
+      },
+      "DomainCount": {
+        "type": "object",
+        "required": [
+          "domain",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "domain": {
+            "type": "string"
           }
         }
       },
@@ -2048,6 +2268,17 @@
           }
         }
       },
+      "RowKind": {
+        "type": "string",
+        "description": "並びの 1 行の種類。`day_view` の種類に「ほかの記録」を足したもの（並びは `day_view` の順のまま）。",
+        "enum": [
+          "stay",
+          "move",
+          "no-record",
+          "erased",
+          "other"
+        ]
+      },
       "SessionState": {
         "type": "object",
         "description": "`GET /session` の応答。",
@@ -2238,6 +2469,51 @@
           "device",
           "usage"
         ]
+      },
+      "Summary": {
+        "type": "object",
+        "description": "行の `[start, end)` の要約。**記録の無いソースは鍵ごと出さない。**",
+        "properties": {
+          "archive": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ArchiveCount"
+            }
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserSummary"
+              }
+            ]
+          },
+          "pc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          },
+          "phone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          }
+        }
       },
       "ValidFrom": {
         "type": "object",

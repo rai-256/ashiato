@@ -37,10 +37,14 @@ mod attributes_tests;
 #[cfg(test)]
 mod clock_tests;
 pub mod coverage;
+/// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
+pub mod day;
 /// 1 日の記録の読み出し（ST25 / 許可リスト・畳み・日の範囲）。
 pub mod day_records;
 #[cfg(test)]
 mod day_records_tests;
+#[cfg(test)]
+mod day_tests;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
@@ -1744,6 +1748,36 @@ pub async fn stays_get(
     .map_err(|e| internal_at("stays.day", e))
 }
 
+/// `GET /day` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DayQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 1 日の並び（`/stays` と同じ行）に、行ごとの要約とほかの記録の行を足して返す（ST25 design D1）。
+#[utoipa::path(get, path = "/day", params(DayQuery),
+    responses((status = 200, body = day::DayResponse), (status = 400), (status = 401)))]
+pub async fn day_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<DayQuery>,
+) -> Result<Json<day::DayResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    day::day(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        date,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("day.day", e))
+}
+
 /// `GET /day/records` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct DayRecordsQuery {
@@ -2287,6 +2321,7 @@ pub fn router(app: App) -> Router {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
+        .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
@@ -2402,6 +2437,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         stays_get,
+        day_get,
         day_records_get,
         stays_detail_get,
         stays_erase,
@@ -2450,6 +2486,15 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::EntryKind,
         stay_store::CriteriaTag,
         day_records::DayRecord,
+        day::DayResponse,
+        day::DayRow,
+        day::RowKind,
+        day::Summary,
+        day::AppSummary,
+        day::AppSeconds,
+        day::BrowserSummary,
+        day::DomainCount,
+        day::ArchiveCount,
         attributes::AttributesView,
         attributes::KindView,
         attributes::ClaimOut,

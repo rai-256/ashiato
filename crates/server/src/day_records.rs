@@ -86,6 +86,8 @@ pub struct Norm {
     /// 区間の記録の終わり。点の記録は `None`。
     pub end: Option<DateTime<Utc>>,
     pub app: Option<String>,
+    /// スマホのパッケージ名。前景（表示名で出る）と後ろに下がった記録を同じアプリと読むための鍵（D6）。
+    pub package: Option<String>,
     pub title: Option<String>,
     pub domain: Option<String>,
     /// マイアクティビティの製品名。
@@ -151,6 +153,7 @@ struct Allow {
 #[derive(Debug, Default)]
 struct Shape {
     app: Option<String>,
+    package: Option<String>,
     title: Option<String>,
     domain: Option<String>,
     product: Option<String>,
@@ -259,6 +262,7 @@ const ALLOW: &[Allow] = &[
         span: Span::Point,
         shape: |v| Shape {
             app: s(v, "app_label").or_else(|| s(v, "package")),
+            package: s(v, "package"),
             ..Shape::default()
         },
     },
@@ -270,6 +274,7 @@ const ALLOW: &[Allow] = &[
         span: Span::Point,
         shape: |v| Shape {
             app: s(v, "package"),
+            package: s(v, "package"),
             ..Shape::default()
         },
     },
@@ -376,6 +381,7 @@ pub(crate) fn normalize(row: &StoredEvent) -> Option<Norm> {
         start,
         end,
         app: shape.app,
+        package: shape.package,
         title: shape.title,
         domain: shape.domain,
         product: shape.product,
@@ -425,6 +431,7 @@ pub(crate) fn normalize_all(rows: &[StoredEvent], now: DateTime<Utc>) -> Vec<Nor
                     start: row.event_time,
                     end: Some(now),
                     app: None,
+                    package: None,
                     title: None,
                     domain: None,
                     product: None,
