@@ -1,0 +1,16 @@
+{
+  "out_root": "/mnt/c/dev/ashiato2-recordings",
+  "web_dir": "web",
+  "playwright_config": "tools/recording/playwright.recording.config.ts",
+  "env_hook": "tools/record-env.sh",
+  "ready_timeout_s": 900,
+  "scenarios": [
+    {
+      "id": "ST22-erase-reload",
+      "story": "ST22",
+      "spec": "tools/recording/st22/st22-erase-reload.rec.ts",
+      "with": ["e2e/day-erase.spec.ts"],
+      "requires": ["web/e2e/day-erase.spec.ts", "web/e2e/global-setup.ts"]
+    }
+  ]
+}
