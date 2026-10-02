@@ -270,6 +270,11 @@ ST25 は取り返しの付かない操作を足さない（Q6）が、ST22 の�
 `retention` は「スマホ 取得元に残っていない」、`clock_skew_abandoned` は「スマホ 時計のずれで取れていない」（ST06 の契約「2 つを混ぜない」。spec-review R4）。
 **反転条件**: 文言が本人に読みにくいと分かったら変える（表示の規則。記録は残る）
 
+### D22（仮）. 「OS の明暗が取得できない」の e2e は matchMedia を無くして作る
+
+tasks.md 10.4 は `colorScheme: "no-preference"` で作るとしたが、Chromium は no-preference を light と同じに `matchMedia` へ出す（実測 2026-10-02）ので、`DayView` の `typeof matchMedia` の分岐を通らない。e2e は `addInitScript` で `window.matchMedia` を無くして同じ分岐を通す。
+**反転条件**: Chromium が no-preference を「取得できない」として出すようになったら、10.4 の文言どおり `emulateMedia` に戻す（e2e 1 本の作り方だけ。製品コードは不変）
+
 ## Risks / Trade-offs
 
 - **ST06 / ST08 / ST12 の記録の形がまだ main に無い** → D2 の表を 1 か所に置き、試験は表の行ごとに偽の記録で持つ。各下流が merge された後、契約と表がずれていれば表を直す（ST25 の下流の開始時に `docs/collector-contract.md` を読む。Task 1）
