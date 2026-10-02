@@ -18,8 +18,13 @@ use crate::stay_store::{self, day_bounds, jst_date, CriteriaTag, DayEntry, Entry
 /// 要約に出すアプリ・ドメインの数（deep.md Q1。本人の決定）。
 pub const SUMMARY_TOP: usize = 3;
 
+/// 離席を行にする下限（分。deep.md Q1。本人の決定）。要約の差し引きは 10 分未満も含める（D6）。
+pub const AWAY_ROW_MIN_MINUTES: i64 = 10;
+
 /// スマホのアプリを前に出していた時間の打ち切り（D6（仮））。
 const PHONE_USE_CAP_MINUTES: i64 = 10;
+
+const BROWSER_SOURCE: &str = "c02-browser-history";
 
 // ------------------------------------------------------------------ 応答の型
 
@@ -108,12 +113,40 @@ pub struct DayRow {
     pub summary: Option<Summary>,
 }
 
+/// 取れていない時間の種類（D9）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum GapKind {
+    Away,
+    Stopped,
+    Excluded,
+    Unavailable,
+}
+
+/// 取れていない時間 1 つ。置く位置は画面が決める（D9）。日の端といまで切ってある。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct Gap {
+    pub kind: GapKind,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// 除外した変化の件数（`excluded` だけ。本文は持たない）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+    /// スマホの取れていない理由（`unavailable` だけ。`retention` / `clock_skew_abandoned`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// `GET /day` の応答。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct DayResponse {
     pub date: NaiveDate,
     pub criteria: Vec<CriteriaTag>,
     pub entries: Vec<DayRow>,
+    pub gaps: Vec<Gap>,
+    /// ブラウザ履歴が最後に届いた時刻。**「まだ届いていない」を出すべきときだけ**ある（D10）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser_through: Option<DateTime<Utc>>,
 }
 
 // ------------------------------------------------------------------ 使った時間（D6）
@@ -369,6 +402,123 @@ pub(crate) fn other_candidates(
     out
 }
 
+// ------------------------------------------------------------------ 取れていない時間（D9）
+
+fn clip(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    d0: DateTime<Utc>,
+    upper: DateTime<Utc>,
+) -> Option<Span> {
+    let (s, e) = (start.max(d0), end.min(upper));
+    (s < e).then_some((s, e))
+}
+
+/// 除外の記録を、続くものを 1 つにまとめた塊にする（PC の端末ごと）。
+/// 塊の終わりは「次の前景の記録」（無ければ次の停止の始まり）。`range_end` は下限（D9）。
+/// 前景を挟まず、前の `range_end` までに始まる記録は同じ塊（送る契機の区間切り。数えが 0 の続きは記録にならない）。
+fn excluded_gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> Vec<Gap> {
+    let mut out = Vec::new();
+    for list in by_device(norms, Origin::Pc).values() {
+        // (始まり, range_end の最大, 件数)
+        let mut groups: Vec<(DateTime<Utc>, DateTime<Utc>, i64)> = Vec::new();
+        for (i, n) in list.iter().enumerate() {
+            if n.kind != Kind::Excluded {
+                continue;
+            }
+            let range_end = n.end.unwrap_or(n.start);
+            let count = n.excluded_count.unwrap_or(0);
+            let continues = groups.last().is_some_and(|g| {
+                n.start <= g.1
+                    && !list[..i]
+                        .iter()
+                        .any(|m| m.kind == Kind::Foreground && m.start > g.0 && m.start <= n.start)
+            });
+            match groups.last_mut() {
+                Some(g) if continues => {
+                    g.1 = g.1.max(range_end);
+                    g.2 += count;
+                }
+                _ => groups.push((n.start, range_end, count)),
+            }
+        }
+        for (start, range_end, count) in groups {
+            let boundary = list
+                .iter()
+                .find(|m| matches!(m.kind, Kind::Foreground | Kind::Stopped) && m.start > start)
+                .map_or(upper, |m| m.start);
+            if let Some((s, e)) = clip(start, boundary.max(range_end), d0, upper) {
+                out.push(Gap {
+                    kind: GapKind::Excluded,
+                    start: s,
+                    end: e,
+                    count: Some(count),
+                    reason: None,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// その日の取れていない時間（離席・PC の停止・除外・スマホ）。`[d0, upper)` で切る。始まりの時刻順。
+pub(crate) fn gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> Vec<Gap> {
+    let mut out = excluded_gaps(norms, d0, upper);
+    for n in norms {
+        let end = n.end.unwrap_or(n.start);
+        let (kind, reason) = match n.kind {
+            // 10 分未満は行にしない。長さは記録そのものの長さで見る（日の端で切る前）。
+            Kind::Away if end - n.start >= Duration::minutes(AWAY_ROW_MIN_MINUTES) => {
+                (GapKind::Away, None)
+            }
+            Kind::Stopped => (GapKind::Stopped, None),
+            Kind::Unavailable => (GapKind::Unavailable, n.reason.clone()),
+            _ => continue,
+        };
+        if let Some((start, end)) = clip(n.start, end, d0, upper) {
+            out.push(Gap {
+                kind,
+                start,
+                end,
+                count: None,
+                reason,
+            });
+        }
+    }
+    out.sort_by_key(|g| (g.start, g.kind as u8, g.end));
+    out
+}
+
+// ------------------------------------------------------------------ ブラウザの最後に届いた時刻（D10（仮））
+
+/// `c02-browser-history` の `ingest_time` の最大（削除済みを含む）を、「まだ届いていない」を出すべきときだけ返す。
+/// 収集を始めた日より前の日と、その日の終わり（今日はいま）以後に届いている日には出さない。
+async fn browser_through(
+    pool: &PgPool,
+    user: Uuid,
+    date: NaiveDate,
+    upper: DateTime<Utc>,
+) -> sqlx::Result<Option<DateTime<Utc>>> {
+    let started: Option<NaiveDate> = sqlx::query_scalar(
+        "SELECT collection_started_on FROM core.source WHERE logical_source = $1",
+    )
+    .bind(BROWSER_SOURCE)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    if started.is_none_or(|d| d > date) {
+        return Ok(None);
+    }
+    let through: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT max(ingest_time) FROM core.event WHERE user_id = $1 AND logical_source = $2",
+    )
+    .bind(user)
+    .bind(BROWSER_SOURCE)
+    .fetch_one(pool)
+    .await?;
+    Ok(through.filter(|t| *t < upper))
+}
+
 /// その日（`Asia/Tokyo`）の並びに、行ごとの要約とほかの記録の行を足して返す。
 pub async fn day(
     pool: &PgPool,
@@ -388,18 +538,10 @@ pub async fn day(
         .filter(|e| e.kind != EntryKind::Erased)
         .map(|e| (e.start, e.end))
         .chain(others.iter().copied());
-    let window = spans.fold(None, |w: Option<(DateTime<Utc>, DateTime<Utc>)>, (s, e)| {
-        Some(w.map_or((s, e), |(ws, we)| (ws.min(s), we.max(e))))
-    });
-    let (norms, segs) = match window {
-        Some((from, to)) => {
-            let norms =
-                day_records::read(pool, user, day_bounds(jst_date(from)).0, to, now).await?;
-            let segs = usage_segments(&norms, now);
-            (norms, segs)
-        }
-        None => (Vec::new(), Vec::new()),
-    };
+    // 取れていない時間（D9）は行に覆われない日にもあるので、窓はその日の全体を含める。
+    let (from, to) = spans.fold((d0, d1), |(ws, we), (s, e)| (ws.min(s), we.max(e)));
+    let norms = day_records::read(pool, user, day_bounds(jst_date(from)).0, to, now).await?;
+    let segs = usage_segments(&norms, now);
 
     let mut entries: Vec<DayRow> = view
         .entries
@@ -434,5 +576,7 @@ pub async fn day(
         date,
         criteria: view.criteria,
         entries,
+        gaps: gaps(&norms, d0, upper),
+        browser_through: browser_through(pool, user, date, upper).await?,
     })
 }

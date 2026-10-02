@@ -2488,6 +2488,8 @@ pub async fn run() -> anyhow::Result<()> {
         day_records::DayRecord,
         day::DayResponse,
         day::DayRow,
+        day::Gap,
+        day::GapKind,
         day::RowKind,
         day::Summary,
         day::AppSummary,

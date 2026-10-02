@@ -1320,9 +1320,18 @@
         "required": [
           "date",
           "criteria",
-          "entries"
+          "entries",
+          "gaps"
         ],
         "properties": {
+          "browser_through": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "ブラウザ履歴が最後に届いた時刻。**「まだ届いていない」を出すべきときだけ**ある（D10）。"
+          },
           "criteria": {
             "type": "array",
             "items": {
@@ -1337,6 +1346,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DayRow"
+            }
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Gap"
             }
           }
         }
@@ -1720,6 +1735,53 @@
             "type": "string"
           }
         }
+      },
+      "Gap": {
+        "type": "object",
+        "description": "取れていない時間 1 つ。置く位置は画面が決める（D9）。日の端といまで切ってある。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ。本文は持たない）。"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GapKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "スマホの取れていない理由（`unavailable` だけ。`retention` / `clock_skew_abandoned`）。"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GapKind": {
+        "type": "string",
+        "description": "取れていない時間の種類（D9）。",
+        "enum": [
+          "away",
+          "stopped",
+          "excluded",
+          "unavailable"
+        ]
       },
       "HeartbeatError": {
         "type": "string",

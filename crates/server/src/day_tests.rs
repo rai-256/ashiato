@@ -5,7 +5,7 @@
 //! 時刻は `+09:00`（Asia/Tokyo）で書く。滞在の行は `day_view` が読む形で直に置く（作り直しを通さない）。
 #![allow(clippy::unwrap_used)]
 
-use crate::day::{self, DayResponse, DayRow, RowKind, SUMMARY_TOP};
+use crate::day::{self, DayResponse, DayRow, GapKind, RowKind, AWAY_ROW_MIN_MINUTES, SUMMARY_TOP};
 use crate::testdb;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
@@ -772,6 +772,373 @@ async fn st25_other_row_needs_a_record() {
 }
 
 // ------------------------------------------------------------------ 3.4 `GET /day`
+
+// ------------------------------------------------------------------ 取れていない時間（4.1 / D9）
+
+async fn pc_stopped(pool: &PgPool, user: Uuid, from: &str, to: &str) {
+    let p = json!({"kind": "powered-off", "at": from, "range_end": to});
+    put(pool, user, "c02-window", "pc-1", from, p).await;
+}
+
+async fn pc_excluded_n(pool: &PgPool, user: Uuid, from: &str, to: &str, count: i64) {
+    let p = json!({"kind": "excluded", "at": from, "range_end": to, "excluded_count": count});
+    put(pool, user, "c02-window", "pc-1", from, p).await;
+}
+
+async fn phone_gap(pool: &PgPool, user: Uuid, begin: &str, end: &str, reason: &str) {
+    let p = json!({"kind": "gap", "begin": begin, "end": end, "reason": reason});
+    put(pool, user, "c01-app-usage", "phone-1", end, p).await;
+}
+
+fn gaps_of(v: &DayResponse, kind: GapKind) -> Vec<&day::Gap> {
+    v.gaps.iter().filter(|g| g.kind == kind).collect()
+}
+
+#[test]
+fn st25_gaprow_away_minimum_is_pinned_to_ten_minutes() {
+    assert_eq!(AWAY_ROW_MIN_MINUTES, 10);
+}
+
+#[tokio::test]
+async fn st25_gaprow_ten_minute_away_is_a_row() {
+    // Scenario: 10 分以上の離席は行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_away(
+        &pool,
+        u,
+        "2026-09-07T10:15:00+09:00",
+        "2026-09-07T10:25:00+09:00",
+    )
+    .await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Away);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T10:15:00+09:00"));
+    assert_eq!(g[0].end, t("2026-09-07T10:25:00+09:00"));
+}
+
+#[tokio::test]
+async fn st25_gaprow_away_under_ten_minutes_is_not_a_row() {
+    // Scenario: 10 分に満たない離席は行にならない
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_away(
+        &pool,
+        u,
+        "2026-09-07T11:00:00+09:00",
+        "2026-09-07T11:09:59+09:00",
+    )
+    .await;
+    let v = view(&pool, u, DATE, later()).await;
+    assert!(gaps_of(&v, GapKind::Away).is_empty(), "{:?}", v.gaps);
+}
+
+#[tokio::test]
+async fn st25_gaprow_away_now_is_a_row_today() {
+    // Scenario: いま離席中の時間は今日の行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let enter = json!({"kind": "idle", "transition": "enter", "at": "2026-09-07T14:05:00+09:00"});
+    put(
+        &pool,
+        u,
+        "c02-window",
+        "pc-1",
+        "2026-09-07T14:05:00+09:00",
+        enter,
+    )
+    .await;
+    let now = t("2026-09-07T14:30:00+09:00");
+    let v = view(&pool, u, DATE, now).await;
+    let g = gaps_of(&v, GapKind::Away);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T14:05:00+09:00"));
+    assert_eq!(g[0].end, now);
+    assert!(
+        v.gaps.iter().all(|g| g.end <= now) && v.entries.iter().all(|r| r.start <= now),
+        "いまより後の時刻を持つ行は無い"
+    );
+}
+
+#[tokio::test]
+async fn st25_gaprow_stopped_is_clipped_to_the_day_end() {
+    // Scenario: PC の停止は行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_stopped(
+        &pool,
+        u,
+        "2026-09-07T23:40:00+09:00",
+        "2026-09-08T08:10:00+09:00",
+    )
+    .await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Stopped);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T23:40:00+09:00"));
+    assert_eq!(g[0].end, t("2026-09-08T00:00:00+09:00"));
+}
+
+#[tokio::test]
+async fn st25_gaprow_excluded_is_a_count_row_until_the_next_foreground() {
+    // Scenario: 除外は件数だけの行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_foreground(&pool, u, "2026-09-07T16:00:00+09:00", "Code").await;
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:05:00+09:00",
+        "2026-09-07T16:05:00+09:00",
+        3,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T16:25:00+09:00", "Code").await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Excluded);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T16:05:00+09:00"));
+    assert_eq!(g[0].end, t("2026-09-07T16:25:00+09:00"));
+    assert_eq!(g[0].count, Some(3));
+}
+
+#[tokio::test]
+async fn st25_gaprow_excluded_range_end_is_a_lower_bound() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:05:00+09:00",
+        "2026-09-07T16:40:00+09:00",
+        1,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T16:25:00+09:00", "Code").await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Excluded);
+    assert_eq!(g[0].end, t("2026-09-07T16:40:00+09:00"));
+}
+
+#[tokio::test]
+async fn st25_gaprow_excluded_split_by_the_send_trigger_is_one_row() {
+    // Scenario: 送る契機で区切られた除外は 1 行にまとまる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:05:00+09:00",
+        "2026-09-07T16:10:00+09:00",
+        2,
+    )
+    .await;
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:10:00+09:00",
+        "2026-09-07T16:15:00+09:00",
+        1,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T16:25:00+09:00", "Code").await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Excluded);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T16:05:00+09:00"));
+    assert_eq!(g[0].end, t("2026-09-07T16:25:00+09:00"));
+    assert_eq!(g[0].count, Some(3));
+}
+
+#[tokio::test]
+async fn st25_gaprow_excluded_separated_by_a_foreground_stay_apart() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:05:00+09:00",
+        "2026-09-07T16:10:00+09:00",
+        2,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T16:09:00+09:00", "Code").await;
+    pc_excluded_n(
+        &pool,
+        u,
+        "2026-09-07T16:10:00+09:00",
+        "2026-09-07T16:15:00+09:00",
+        1,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T16:25:00+09:00", "Code").await;
+    let v = view(&pool, u, DATE, later()).await;
+    assert_eq!(gaps_of(&v, GapKind::Excluded).len(), 2, "{:?}", v.gaps);
+}
+
+#[tokio::test]
+async fn st25_gaprow_phone_gap_keeps_its_reason() {
+    // Scenario: スマホの取得元に残っていなかった期間は行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    phone_gap(
+        &pool,
+        u,
+        "2026-09-07T06:00:00+09:00",
+        "2026-09-07T09:00:00+09:00",
+        "retention",
+    )
+    .await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Unavailable);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].start, t("2026-09-07T06:00:00+09:00"));
+    assert_eq!(g[0].end, t("2026-09-07T09:00:00+09:00"));
+    assert_eq!(g[0].reason.as_deref(), Some("retention"));
+}
+
+#[tokio::test]
+async fn st25_gaprow_clock_skew_gap_has_a_different_reason() {
+    // Scenario: 時計のずれで取り直さなかった期間は別の文字の行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    phone_gap(
+        &pool,
+        u,
+        "2026-09-07T06:00:00+09:00",
+        "2026-09-07T09:00:00+09:00",
+        "clock_skew_abandoned",
+    )
+    .await;
+    let v = view(&pool, u, DATE, later()).await;
+    let g = gaps_of(&v, GapKind::Unavailable);
+    assert_eq!(g.len(), 1, "{:?}", v.gaps);
+    assert_eq!(g[0].reason.as_deref(), Some("clock_skew_abandoned"));
+}
+
+// ------------------------------------------------------------------ ブラウザの最後に届いた時刻（4.2 / D10）
+
+const BROWSER: &str = "c02-browser-history";
+
+/// 収集開始日は論理ソースごと（利用者ごとではない）に 1 つ。並走する試験が書き合わないよう、
+/// 開始日を置く試験は順に走らせる。
+static BROWSER_STARTED_ON: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// ブラウザの訪問を、届いた時刻を指定して置く。
+async fn visit_ingested(pool: &PgPool, user: Uuid, at: &str, ingested: &str) {
+    ensure_source(pool, BROWSER).await;
+    let p = json!({"kind": "visit", "at": at, "browser": "Chrome", "title": "題", "url": "https://example.com/"});
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time, ingest_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,$3,'pc-1','collected',$4::timestamptz,$5::timestamptz,540,'Asia/Tokyo',1,$6,'{}',$7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user)
+    .bind(BROWSER)
+    .bind(at)
+    .bind(ingested)
+    .bind(Uuid::new_v4().to_string())
+    .bind(&p)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn st25_browser_not_yet_arrived_is_a_row() {
+    let _serial = BROWSER_STARTED_ON.lock().await;
+    // Scenario: まだ届いていないブラウザ履歴は行になる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    visit_ingested(
+        &pool,
+        u,
+        "2026-09-06T08:50:00+09:00",
+        "2026-09-06T09:00:00+09:00",
+    )
+    .await;
+    testdb::set_started_on(&pool, BROWSER, "2026-09-01").await;
+    let now = t("2026-09-07T15:00:00+09:00");
+    let v = view(&pool, u, DATE, now).await;
+    assert_eq!(v.browser_through, Some(t("2026-09-06T09:00:00+09:00")));
+}
+
+#[tokio::test]
+async fn st25_browser_deleted_rows_still_count_as_arrived() {
+    let _serial = BROWSER_STARTED_ON.lock().await;
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    visit_ingested(
+        &pool,
+        u,
+        "2026-09-06T08:50:00+09:00",
+        "2026-09-06T09:00:00+09:00",
+    )
+    .await;
+    visit_ingested(
+        &pool,
+        u,
+        "2026-09-06T10:50:00+09:00",
+        "2026-09-06T11:00:00+09:00",
+    )
+    .await;
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user' WHERE user_id = $1 AND ingest_time > '2026-09-06T10:00:00+09:00'")
+        .bind(u)
+        .execute(&pool)
+        .await
+        .unwrap();
+    testdb::set_started_on(&pool, BROWSER, "2026-09-01").await;
+    let v = view(&pool, u, DATE, t("2026-09-07T15:00:00+09:00")).await;
+    assert_eq!(v.browser_through, Some(t("2026-09-06T11:00:00+09:00")));
+}
+
+#[tokio::test]
+async fn st25_browser_arrived_after_the_day_end_has_no_row() {
+    let _serial = BROWSER_STARTED_ON.lock().await;
+    // Scenario: 届いた日にはまだ届いていない行は出ない
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    visit_ingested(
+        &pool,
+        u,
+        "2026-09-07T08:50:00+09:00",
+        "2026-09-08T00:00:00+09:00",
+    )
+    .await;
+    testdb::set_started_on(&pool, BROWSER, "2026-09-01").await;
+    let v = view(&pool, u, DATE, later()).await;
+    assert_eq!(v.browser_through, None);
+}
+
+#[tokio::test]
+async fn st25_browser_before_collection_started_has_no_row() {
+    let _serial = BROWSER_STARTED_ON.lock().await;
+    // Scenario: ブラウザ履歴を集めていない日にはまだ届いていない行は出ない
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    visit_ingested(
+        &pool,
+        u,
+        "2026-09-06T08:50:00+09:00",
+        "2026-09-06T09:00:00+09:00",
+    )
+    .await;
+    testdb::set_started_on(&pool, BROWSER, "2026-09-10").await;
+    let v = view(&pool, u, DATE, later()).await;
+    assert_eq!(v.browser_through, None);
+}
+
+#[tokio::test]
+async fn st25_browser_without_any_arrival_has_no_row() {
+    let _serial = BROWSER_STARTED_ON.lock().await;
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let v = view(&pool, u, DATE, later()).await;
+    assert_eq!(v.browser_through, None);
+}
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
