@@ -1386,6 +1386,13 @@
           "kind": {
             "$ref": "#/components/schemas/RowKind"
           },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "description": "「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。"
+          },
           "start": {
             "type": "string",
             "format": "date-time"
@@ -2196,6 +2203,35 @@
           "month",
           "day",
           "unknown"
+        ]
+      },
+      "Reason": {
+        "type": "object",
+        "description": "記録なしの事情 1 つ。`count` は `dropped` と `archive` だけ。",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReasonKind"
+          }
+        }
+      },
+      "ReasonKind": {
+        "type": "string",
+        "description": "記録なしの事情の種類。宣言の順が並び（D11（仮））。",
+        "enum": [
+          "before_start",
+          "stopped",
+          "dropped",
+          "archive"
         ]
       },
       "RebuildRequest": {

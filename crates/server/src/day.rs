@@ -25,6 +25,7 @@ pub const AWAY_ROW_MIN_MINUTES: i64 = 10;
 const PHONE_USE_CAP_MINUTES: i64 = 10;
 
 const BROWSER_SOURCE: &str = "c02-browser-history";
+const LOCATION_SOURCE: &str = "c01-location";
 
 // ------------------------------------------------------------------ 応答の型
 
@@ -111,6 +112,31 @@ pub struct DayRow {
     pub stay_ids: Option<Vec<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
+    /// 「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<Reason>,
+}
+
+/// 記録なしの事情の種類。宣言の順が並び（D11（仮））。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasonKind {
+    /// 位置の収集を始める前の日
+    BeforeStart,
+    /// 本人が位置の収集を止めていた
+    Stopped,
+    /// 端末が位置の記録を破棄した
+    Dropped,
+    /// 書庫に位置の記録がある
+    Archive,
+}
+
+/// 記録なしの事情 1 つ。`count` は `dropped` と `archive` だけ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct Reason {
+    pub kind: ReasonKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
 }
 
 /// 取れていない時間の種類（D9）。
@@ -519,6 +545,104 @@ async fn browser_through(
     Ok(through.filter(|t| *t < upper))
 }
 
+// ------------------------------------------------------------------ 記録なしの事情（D11）
+
+/// 記録なしの行 `[start, end)` の事情。**行の範囲は変えない**（添えるだけ）。
+/// 稼働状況（`coverage.rs`）は呼ばず、同じ表を別に読む。
+async fn reasons(
+    pool: &PgPool,
+    user: Uuid,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+) -> sqlx::Result<Vec<Reason>> {
+    let mut out = Vec::new();
+
+    let started: Option<NaiveDate> = sqlx::query_scalar(
+        "SELECT collection_started_on FROM core.source WHERE logical_source = $1",
+    )
+    .bind(LOCATION_SOURCE)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    if started.is_some_and(|d| jst_date(start) < d) {
+        out.push(Reason {
+            kind: ReasonKind::BeforeStart,
+            count: None,
+        });
+    }
+
+    let stopped: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM core.coverage_span
+                         WHERE user_id = $1 AND logical_source = $2 AND kind = 'stopped'
+                           AND started_at < $4 AND (ended_at IS NULL OR ended_at > $3))",
+    )
+    .bind(user)
+    .bind(LOCATION_SOURCE)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    if stopped {
+        out.push(Reason {
+            kind: ReasonKind::Stopped,
+            count: None,
+        });
+    }
+
+    // 破棄: 報告の範囲が行と重なる。件数は重なる時間の 1 時間ごとの件数の和。旧形（`coverage_span` の dropped）は行の件数。
+    let (reports, hours): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core.drop_report
+                  WHERE user_id = $1 AND logical_source = $2 AND range_start IS NOT NULL
+                    AND range_start < $4 AND range_end > $3),
+                (SELECT coalesce(sum(h.count), 0)::bigint
+                   FROM core.drop_report_hour h JOIN core.drop_report r ON r.id = h.report_id
+                  WHERE r.user_id = $1 AND r.logical_source = $2
+                    AND h.hour < $4 AND h.hour + interval '1 hour' > $3)",
+    )
+    .bind(user)
+    .bind(LOCATION_SOURCE)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    let (legacy, legacy_count): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), coalesce(sum(event_count), 0)::bigint FROM core.coverage_span
+          WHERE user_id = $1 AND logical_source = $2 AND kind = 'dropped'
+            AND started_at < $4 AND (ended_at IS NULL OR ended_at > $3)",
+    )
+    .bind(user)
+    .bind(LOCATION_SOURCE)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    if reports + legacy > 0 {
+        out.push(Reason {
+            kind: ReasonKind::Dropped,
+            count: Some(hours + legacy_count),
+        });
+    }
+
+    // 書庫の位置の点。内容で畳んだ後の数（D3）。タイムラインと移行前の 2 経路は畳まず両方数える（Q2 の（1））。
+    let archive: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT (logical_source, content_hash)) FROM core.event_live
+          WHERE user_id = $1 AND logical_source = ANY($2) AND event_time >= $3 AND event_time < $4",
+    )
+    .bind(user)
+    .bind(day_records::ARCHIVE_LOCATION_SOURCES)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    if archive > 0 {
+        out.push(Reason {
+            kind: ReasonKind::Archive,
+            count: Some(archive),
+        });
+    }
+    Ok(out)
+}
+
 /// その日（`Asia/Tokyo`）の並びに、行ごとの要約とほかの記録の行を足して返す。
 pub async fn day(
     pool: &PgPool,
@@ -543,20 +667,24 @@ pub async fn day(
     let norms = day_records::read(pool, user, day_bounds(jst_date(from)).0, to, now).await?;
     let segs = usage_segments(&norms, now);
 
-    let mut entries: Vec<DayRow> = view
-        .entries
-        .into_iter()
-        .map(|e| DayRow {
+    let mut entries: Vec<DayRow> = Vec::new();
+    for e in view.entries {
+        entries.push(DayRow {
             summary: (e.kind != EntryKind::Erased)
                 .then(|| summarize(&norms, &segs, e.start, e.end)),
+            reasons: if e.kind == EntryKind::NoRecord {
+                reasons(pool, user, e.start, e.end).await?
+            } else {
+                Vec::new()
+            },
             kind: e.kind.into(),
             start: e.start,
             end: e.end,
             id: e.id,
             criteria_id: e.criteria_id,
             stay_ids: e.stay_ids,
-        })
-        .collect();
+        });
+    }
     for (s, e) in others {
         // 位置以外の記録があるときだけ行にする（開くとその記録に届く）。
         if norms.iter().any(|n| n.is_listed() && n.in_range(s, e)) {
@@ -568,6 +696,7 @@ pub async fn day(
                 criteria_id: None,
                 stay_ids: None,
                 summary: Some(summarize(&norms, &segs, s, e)),
+                reasons: Vec::new(),
             });
         }
     }

@@ -1224,3 +1224,289 @@ async fn st25_api_day_without_credentials_is_401() {
         .unwrap_err();
     assert_eq!(err.0, axum::http::StatusCode::UNAUTHORIZED);
 }
+
+// ------------------------------------------------------------------ 記録なしの事情（Task 5 / D11）
+
+const LOCATION: &str = "c01-location";
+
+/// 登録簿の収集開始日は全試験で共有するので、事情の試験は他の試験が付ける日より後の日を読む。
+const REASON_DATE: &str = "2030-01-05";
+
+fn reasons_now() -> DateTime<Utc> {
+    t("2031-01-01T00:00:00+09:00")
+}
+
+/// 08:00 – 08:20 と 16:40 – 17:00 に位置があり、間 08:20 – 16:40 が「記録なし」になる日。
+async fn gap_day(pool: &PgPool, user: Uuid) {
+    locations(
+        pool,
+        user,
+        "2030-01-05T08:00:00+09:00",
+        "2030-01-05T08:20:00+09:00",
+        5,
+    )
+    .await;
+    locations(
+        pool,
+        user,
+        "2030-01-05T16:40:00+09:00",
+        "2030-01-05T17:00:00+09:00",
+        5,
+    )
+    .await;
+}
+
+fn no_record_at<'a>(v: &'a DayResponse, start: &str) -> &'a DayRow {
+    v.entries
+        .iter()
+        .find(|e| e.kind == RowKind::NoRecord && e.start == t(start))
+        .unwrap_or_else(|| panic!("{start} から始まる記録なしの行が無い: {:#?}", v.entries))
+}
+
+fn reasons_of(r: &DayRow) -> Vec<(day::ReasonKind, Option<i64>)> {
+    r.reasons.iter().map(|x| (x.kind, x.count)).collect()
+}
+
+/// 書庫の位置の点を `n` 件、`from` から 1 分おきに置く。
+async fn archive_points(pool: &PgPool, user: Uuid, source: &str, from: &str, n: i64) {
+    for i in 0..n {
+        let at = t(from) + chrono::Duration::minutes(i);
+        put(
+            pool,
+            user,
+            source,
+            "archive",
+            &at.to_rfc3339(),
+            json!({"lat": 35.0, "lon": 139.0 + i as f64 * 1e-5}),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn st25_reasons_before_collection_started() {
+    // Scenario: 収集を始める前の日の記録なしにはそう添えられる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    // 収集開始日が無ければこの試験の間だけ置く（他の試験が付けた日があれば、それは 2001 年より後）
+    let set = sqlx::query(
+        "UPDATE core.source SET collection_started_on = '2030-01-10'
+          WHERE logical_source = $1 AND collection_started_on IS NULL",
+    )
+    .bind(LOCATION)
+    .execute(&pool)
+    .await
+    .unwrap()
+    .rows_affected()
+        > 0;
+    let v = view(&pool, u, "2001-01-05", reasons_now()).await;
+    if set {
+        sqlx::query("UPDATE core.source SET collection_started_on = NULL WHERE logical_source = $1 AND collection_started_on = '2030-01-10'")
+            .bind(LOCATION)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let r = no_record_at(&v, "2001-01-05T00:00:00+09:00");
+    assert_eq!(r.end, t("2001-01-06T00:00:00+09:00"));
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::BeforeStart, None)]);
+}
+
+#[tokio::test]
+async fn st25_reasons_dropped_with_count() {
+    // Scenario: 端末が破棄した時間の記録なしには件数が添えられる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    testdb::put_drop(
+        &pool,
+        u,
+        LOCATION,
+        Some(("2030-01-05T13:00:00+09:00", "2030-01-05T14:00:00+09:00")),
+        &[("2030-01-05T04:00:00Z", 60)],
+    )
+    .await;
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::Dropped, Some(60))]);
+}
+
+#[tokio::test]
+async fn st25_reasons_legacy_dropped_span_counts_its_own_events() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    sqlx::query(
+        "INSERT INTO core.coverage_span (id, user_id, logical_source, kind, started_at, ended_at, event_count)
+         VALUES ($1,$2,$3,'dropped','2030-01-05T13:00:00+09:00','2030-01-05T14:00:00+09:00',7)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(u)
+    .bind(LOCATION)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::Dropped, Some(7))]);
+}
+
+#[tokio::test]
+async fn st25_reasons_archive_counts_both_routes() {
+    // Scenario: 書庫に位置がある時間の記録なしには件数が添えられる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    archive_points(
+        &pool,
+        u,
+        "c03-timeline-route",
+        "2030-01-05T02:10:00+09:00",
+        10,
+    )
+    .await;
+    archive_points(
+        &pool,
+        u,
+        "c03-legacy-location",
+        "2030-01-05T02:10:00+09:00",
+        4,
+    )
+    .await;
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::Archive, Some(14))]);
+}
+
+#[tokio::test]
+async fn st25_reasons_stopped() {
+    // Scenario: 本人が止めていた時間の記録なしにはそう添えられる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    testdb::put_span(
+        &pool,
+        u,
+        LOCATION,
+        "stopped",
+        "2030-01-05T20:00:00+09:00",
+        Some("2030-01-05T22:00:00+09:00"),
+    )
+    .await;
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::Stopped, None)]);
+}
+
+#[tokio::test]
+async fn st25_reasons_overlap_in_the_fixed_order() {
+    // Scenario: 事情が重なると並べて添えられる
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    // 置く順は並びと逆
+    archive_points(
+        &pool,
+        u,
+        "c03-timeline-route",
+        "2030-01-05T02:10:00+09:00",
+        3,
+    )
+    .await;
+    testdb::put_drop(
+        &pool,
+        u,
+        LOCATION,
+        Some(("2030-01-05T13:00:00+09:00", "2030-01-05T14:00:00+09:00")),
+        &[("2030-01-05T04:00:00Z", 60)],
+    )
+    .await;
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert_eq!(
+        reasons_of(r),
+        vec![
+            (day::ReasonKind::Dropped, Some(60)),
+            (day::ReasonKind::Archive, Some(3))
+        ]
+    );
+}
+
+#[tokio::test]
+async fn st25_reasons_none_means_no_key() {
+    // Scenario: 事情の無い記録なしには何も添えない
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&v, "2030-01-05T00:00:00+09:00");
+    assert!(r.reasons.is_empty());
+    let json = serde_json::to_value(r).unwrap();
+    assert!(
+        json.get("reasons").is_none(),
+        "事情が無ければ鍵ごと出さない: {json}"
+    );
+}
+
+#[tokio::test]
+async fn st25_reasons_do_not_change_the_row_range() {
+    // Scenario: 事情は記録なしの行の範囲を変えない
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    gap_day(&pool, u).await;
+    let before = view(&pool, u, REASON_DATE, reasons_now()).await;
+    testdb::put_drop(
+        &pool,
+        u,
+        LOCATION,
+        Some(("2030-01-05T13:00:00+09:00", "2030-01-05T14:00:00+09:00")),
+        &[("2030-01-05T04:00:00Z", 60)],
+    )
+    .await;
+    let after = view(&pool, u, REASON_DATE, reasons_now()).await;
+    let r = no_record_at(&after, "2030-01-05T08:20:00+09:00");
+    assert_eq!(r.end, t("2030-01-05T16:40:00+09:00"));
+    assert_eq!(reasons_of(r), vec![(day::ReasonKind::Dropped, Some(60))]);
+    let ranges = |v: &DayResponse| -> Vec<(RowKind, DateTime<Utc>, DateTime<Utc>)> {
+        v.entries.iter().map(|e| (e.kind, e.start, e.end)).collect()
+    };
+    assert_eq!(
+        ranges(&before),
+        ranges(&after),
+        "行の並びと範囲は事情で変わらない"
+    );
+}
+
+/// 同じ地点の点を 2 分おきに 5 時間置いて作り直す（滞在になる材料）。
+async fn dwell_points(pool: &PgPool, user: Uuid, source: &str) {
+    for i in 0..150 {
+        let at = t("2030-01-05T02:10:00+09:00") + chrono::Duration::minutes(i * 2);
+        let p = json!({"lat": 35.0, "lon": 139.0});
+        put(pool, user, source, "test", &at.to_rfc3339(), p).await;
+    }
+    crate::stay_store::rebuild_all(pool, user).await.unwrap();
+}
+
+#[tokio::test]
+async fn st25_nostay_archive_locations_make_no_stay() {
+    // Scenario: 書庫の位置からは滞在を作らない
+    let pool = testdb::pool().await;
+    // 対照: 手元の位置なら同じ点の並びが滞在になる
+    let control = testdb::user();
+    dwell_points(&pool, control, LOCATION).await;
+    let v = view(&pool, control, REASON_DATE, reasons_now()).await;
+    assert!(
+        v.entries.iter().any(|e| e.kind == RowKind::Stay),
+        "対照に滞在が無い: {:#?}",
+        v.entries
+    );
+
+    let u = testdb::user();
+    for source in [
+        "c03-timeline-route",
+        "c03-timeline-signal",
+        "c03-legacy-location",
+    ] {
+        dwell_points(&pool, u, source).await;
+    }
+    let v = view(&pool, u, REASON_DATE, reasons_now()).await;
+    assert!(
+        !v.entries.iter().any(|e| e.kind == RowKind::Stay),
+        "書庫の位置から滞在の行ができた: {:#?}",
+        v.entries
+    );
+}
