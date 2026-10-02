@@ -19,6 +19,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0, // 落ちたら落ちたままにする（再試行で緑にしない）
+  forbidOnly: true, // 対象コミットに test.only が残っていたら走らせない（一部だけ走って緑になるのを防ぐ）
   reporter: [["list"], ["json", { outputFile: `${process.env.REC_OUT ?? "./recording-results"}/results.json` }],
     ["html", { open: "never", outputFolder: process.env.REC_REPORT ?? "./recording-report" }]],
   globalSetup: "./e2e/global-setup.ts",

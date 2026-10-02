@@ -45,7 +45,9 @@ tools/recording/record-st22.sh run 23938e7      # コミットを指定
 ```
 
 - 所要: 初回（ビルドのキャッシュ無し）約 2.5 分。以後は約 1.5 分（実測 95 秒）
-- rc: 0 = テストが全部通り、かつ本命の動画が再生できた。1 = それ以外。2 = 使い方の誤り・同時実行
+- rc: 0 = テストが通り（本命と既存の ST22 のテストが passed・飛ばし 0・Playwright の rc 0）、本命の動画が再生でき、
+  写しが原本と一致し、片付けに残りが無く、止まった工程が無い。1 = それ以外（失敗・中断を成功にしない）。2 = 使い方・前提の誤り・同時実行
+- Ctrl-C / SIGTERM で止めてよい。止めた実行も記録を書き（「止まった工程: 中断」）、片付けてから rc=1 で終わる
 - 同時に 2 本は走らせない（`~/.cache/ashiato2-rec/lock`）
 
 ## 保存先と開き方
@@ -55,23 +57,29 @@ tools/recording/record-st22.sh run 23938e7      # コミットを指定
 
 | ファイル | 中身 | 開き方 |
 |---|---|---|
-| `RUN.md` | 先頭の表に テストの合否 / 録画 / 再生できるか / 人間の承認（未実施）。対象・環境・コマンド・片付けの結果 | テキストで読む |
+| `RUN.md` | 先頭の表に 全体 / テストの合否 / 録画 / 再生できるか / 片付け / 人間の承認（未実施）。対象（コミット・重ねたファイル・ビルドの sha256）・道具の版・環境・コマンド・片付けの記録 | テキストで読む |
 | `ST22-erase-reload.webm` | 本命の動画 | Edge / Chrome で開く |
 | `ST22-erase-reload.trace.zip` | 同じ実行の trace | `npx playwright show-trace <file>`、または https://trace.playwright.dev に落とす |
 | `playwright/report/` | 4 本ぶんのレポート（動画・trace つき） | `npx playwright show-report playwright\report` |
 | `playwright/results/` | 4 本ぶんの動画・trace・スクリーンショット・`results.json` | — |
 | `run.json` | 記録の機械向けの形 | — |
+| `tool-status.txt` / `build-info.txt` / `cleanup-status.txt` | 開始時の道具の版と未コミット変更 / ビルドの sha256 と道具の版 / 片付けの残り | — |
 | `video-check.jsonl` | 動画ごとの「再生できるか」の確かめ | — |
 | `logs/` | build / stack / windows-setup / playwright / cleanup | — |
 | `overlay/` | 重ねた録画用ファイルの写し | — |
 
-一覧は `C:\dev\ashiato2-recordings\st22\runs.tsv`（1 回 1 行。追記のみ）。
+一覧は `C:\dev\ashiato2-recordings\st22\runs.tsv`（1 回 1 行。追記のみ）。列は
+`run_id / commit / overall（ok|ng）/ test / recording / playable / cleanup / failed_step / human_approval`。
+`test` は `passed` / `failed` / `inconsistent`（結果は緑だが Playwright の rc≠0）/ `unreadable` / `not_run`、
+`human_approval` は常に `未実施`（人間の承認はこの道具の外）。
 
 消すとき: 要らない実行のフォルダをそのまま消す（`runs.tsv` の行は履歴として残る）。
 ビルドのキャッシュ `~/.cache/ashiato2-rec/target` も消してよい（次回のビルドが遅くなるだけ）。
+記録の書き出しそのものが落ちたときは `runs.tsv` に `unrecorded` の行が、Python も動かなかったときは `runs-errors.tsv` に行が残る。
 
 ## 専用環境と片付け
 
+- `REC_ROOT` は `/mnt/<drive>/` の下で、英数字・`. _ - /` だけのパスに限る（Windows のコマンド行にそのまま載るため。外れたら止める）
 - DB は実行ごとの compose project（`ashiato2rec<日時><コミット>`）で、空いている port（55440〜 / 18810〜 / 5210〜）に立てる。
   合言葉は毎回乱数。偽データは `SEED=normal` を作り直した直後
 - cargo の出力は専用のキャッシュ（`~/.cache/ashiato2-rec/target`）。リポジトリの `target/` は使わない
@@ -79,5 +87,6 @@ tools/recording/record-st22.sh run 23938e7      # コミットを指定
   - 今回立てたサーバ・画面（プロセスグループごと）
   - 今回の compose project の DB（volume ごと）
   - 一時 worktree
-  - Windows 側の作業場所
+  - Windows 側の作業場所と、コマンド行にその場所（`\_work\<実行>\`）を含む cmd.exe / node.exe（木ごと）
+  - 残りがあれば `cleanup-status.txt`・`RUN.md`・`runs.tsv` の cleanup に出し、rc=1 にする
 - **既存の DB・worktree・他の compose project には触らない**（片付けの対象はこの実行の名前を持つものだけ）
