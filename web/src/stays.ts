@@ -7,8 +7,9 @@
  */
 import { msg } from "./messages";
 import { DAY_TZ } from "./tokens";
+import { isGaps, isReasons, isSummary, type Gap, type Reason, type Summary } from "./timeline";
 
-export type EntryKind = "stay" | "move" | "no-record" | "erased";
+export type EntryKind = "stay" | "move" | "no-record" | "erased" | "other";
 
 export interface DayEntry {
   kind: EntryKind;
@@ -17,6 +18,10 @@ export interface DayEntry {
   id?: string;
   stay_ids?: string[];
   criteria_id?: number;
+  /** 消した行には無い（D7） */
+  summary?: Summary;
+  /** 記録なしの行にだけ。無ければ事情なし（D11） */
+  reasons?: Reason[];
 }
 
 export interface CriteriaTag {
@@ -30,6 +35,10 @@ export interface DayView {
   /** 新しい版から順。先頭が一覧の上に出す基準 */
   criteria: CriteriaTag[];
   entries: DayEntry[];
+  /** 取れていない時間（D9）。置く位置は画面が決める */
+  gaps?: Gap[];
+  /** ブラウザ履歴が最後に届いた時刻。「まだ届いていない」を出すべきときだけある（D10） */
+  browser_through?: string;
 }
 
 /** `#/day/YYYY-MM-DD` から日付を読む。日付を含まない `#/day` は `null`（今日）。一覧のアドレスでなければ `undefined`。 */
@@ -50,7 +59,7 @@ export function isRealDate(date: string): boolean {
 export function isDayView(v: unknown): v is DayView {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
-  const kinds = ["stay", "move", "no-record", "erased"];
+  const kinds = ["stay", "move", "no-record", "erased", "other"];
   return (
     typeof o.date === "string" &&
     Array.isArray(o.criteria) &&
@@ -64,9 +73,13 @@ export function isDayView(v: unknown): v is DayView {
         kinds.includes(x.kind) &&
         typeof x.start === "string" &&
         typeof x.end === "string" &&
-        (x.stay_ids === undefined || (Array.isArray(x.stay_ids) && x.stay_ids.every((id) => typeof id === "string")))
+        (x.stay_ids === undefined || (Array.isArray(x.stay_ids) && x.stay_ids.every((id) => typeof id === "string"))) &&
+        (x.summary === undefined || isSummary(x.summary)) &&
+        (x.reasons === undefined || isReasons(x.reasons))
       );
-    })
+    }) &&
+    (o.gaps === undefined || isGaps(o.gaps)) &&
+    (o.browser_through === undefined || typeof o.browser_through === "string")
   );
 }
 

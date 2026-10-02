@@ -19,6 +19,49 @@ import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, t
 
 // 明暗とフォーカスの輪郭は `scheme.ts` に移した（S-1 も使う）。ここから引いていた部品とテストのために同じ名前で出す
 export { FOCUS_ATTR, focusRule, useFocusRule, useScheme } from "./scheme";
+import { gapText, placeGaps, reasonText, summaryLines, TIMELINE_PAIRS, type Gap, type Reason, type Summary, type TimelineRole } from "./timeline";
+
+/** 文字と背景の組（`TIMELINE_PAIRS`。8.3 の検査と同じ表から引く）。地の上の組は背景を描かない。 */
+function paint(c: (typeof SCHEMES)[Scheme], role: TimelineRole): React.CSSProperties {
+  const pair = TIMELINE_PAIRS[role];
+  return pair.bg === "ground" ? { color: tone(c[pair.fg]) } : { color: tone(c[pair.fg]), background: tone(c[pair.bg]) };
+}
+
+/** 要約（ソースごとに 1 行。種類の文字で始まる）。消した行・要約の無い行には出ない。 */
+function SummaryView({ summary, role, scheme }: { summary: Summary | undefined; role: TimelineRole; scheme: Scheme }): React.ReactElement | null {
+  if (summary === undefined) return null;
+  const lines = summaryLines(summary);
+  if (lines.length === 0) return null;
+  return (
+    <div data-testid="summary" style={paint(SCHEMES[scheme], role)}>
+      {lines.map((l) => (
+        <p key={l.key} data-testid={`summary-${l.key.split("-")[0]}`} style={{ margin: 0 }}>
+          {l.text}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** 記録なしの事情（無ければ何も出さない）。 */
+function ReasonsView({ reasons, scheme }: { reasons: Reason[] | undefined; scheme: Scheme }): React.ReactElement | null {
+  if (reasons === undefined || reasons.length === 0) return null;
+  return (
+    <p data-testid="reasons" style={{ margin: 0, ...paint(SCHEMES[scheme], "reason") }}>
+      {reasons.map(reasonText).join(" ・ ")}
+    </p>
+  );
+}
+
+/** 取れていない時間の行。**種類は文字で言う**（色も枠も使わない）。 */
+function GapRow({ gap, viewing, scheme }: { gap: Gap; viewing: string; scheme: Scheme }): React.ReactElement {
+  const range = `${clock(gap.start, viewing)} – ${clock(gap.end, viewing)}`;
+  return (
+    <li data-testid="row-gap" data-kind={`gap-${gap.kind}`} style={{ padding: "6px 10px", margin: "0 0 6px", ...paint(SCHEMES[scheme], "gap") }}>
+      {gapText(gap, range)}
+    </li>
+  );
+}
 
 /** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
@@ -191,20 +234,29 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
         </p>
       )}
       <ol aria-label={m.listLabel} style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {view.entries.map((e) => (
-          <Row
-            key={`${e.kind}-${e.start}`}
-            entry={e}
-            viewing={view.date}
-            scheme={scheme}
-            criteria={e.criteria_id !== undefined && main !== undefined && e.criteria_id !== main.criteria_id ? byId.get(e.criteria_id) : undefined}
-            open={openId === e.id}
-            detail={openId === e.id ? detail : null}
-            onOpen={() => open(e)}
-            onAction={action}
-            actionError={actionError}
-          />
-        ))}
+        {view.browser_through !== undefined && (
+          <li data-testid="row-browser-pending" data-kind="gap-browser" style={{ padding: "6px 10px", margin: "0 0 6px", ...paint(c, "gap") }}>
+            ブラウザ 最後に届いたのは {clock(view.browser_through, view.date)}。それより後の訪問はまだ届いていない
+          </li>
+        )}
+        {placeGaps(view.entries, view.gaps ?? []).map((p) => {
+          if (p.at === "gap") return <GapRow key={`gap-${p.gap.kind}-${p.gap.start}`} gap={p.gap} viewing={view.date} scheme={scheme} />;
+          const e = p.entry;
+          return (
+            <Row
+              key={`${e.kind}-${e.start}`}
+              entry={e}
+              viewing={view.date}
+              scheme={scheme}
+              criteria={e.criteria_id !== undefined && main !== undefined && e.criteria_id !== main.criteria_id ? byId.get(e.criteria_id) : undefined}
+              open={openId === e.id}
+              detail={openId === e.id ? detail : null}
+              onOpen={() => open(e)}
+              onAction={action}
+              actionError={actionError}
+            />
+          );
+        })}
       </ol>
     </>
   );
@@ -262,6 +314,7 @@ function Row({
           <h2 style={{ font: font(TYPE.h2, 600, 1.35), margin: 0 }}>{range}</h2>
           <p style={{ margin: 0, color: tone(c.muted) }}>{m.lengthAndRange(long, range)}</p>
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
+          <SummaryView summary={entry.summary} role="summaryOnStay" scheme={scheme} />
         </button>
         {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
@@ -285,9 +338,11 @@ function Row({
     <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, color: tone(c.muted) }}>
       {mark}
       <span>
-        {entry.kind === "move" ? m.move(long) : m.noRecord(range)}
+        {entry.kind === "move" ? m.move(long) : entry.kind === "other" ? `ほかの記録 ${range}` : m.noRecord(range)}
         {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
       </span>
+      <SummaryView summary={entry.summary} role="summaryOnGround" scheme={scheme} />
+      <ReasonsView reasons={entry.reasons} scheme={scheme} />
     </li>
   );
 }
