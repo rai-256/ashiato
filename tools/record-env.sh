@@ -8,6 +8,8 @@
 #   BASE_URL=…                 画面
 #   PASS_<名前>=…              Playwright へ渡す値（合言葉。record-run はコマンド行に出さずに渡す）
 #   INFO_<名前>=…              記録に残す値（ビルドの sha256・compose project・port）
+#   ANDROID_APK= / ANDROID_TEST_APK=   REC_PLATFORMS に android があるとき。録画用のサーバ向けに作った APK
+#   ANDROID_REVERSE=18787:<API の port>   端末の中の 127.0.0.1:18787（APK の接続先）を録画用のサーバへ
 #
 # 専用にするもの: compose project（<state> の名前から。ashiato2rec<数字>）・port（空いている番号。Windows 側で
 # 待ち受けのある番号 REC_AVOID_PORTS も避ける）・合言葉（毎回乱数）・偽データ（STACK_RESET=1 SEED=normal）。
@@ -61,6 +63,21 @@ EOF
   mkdir -p .rec-bin && cp "$CARGO_TARGET_DIR/release/ashiato-server" .rec-bin/ashiato-server || exit 1
   (cd web && npm ci --no-audit --no-fund && npm run build) || exit 1
   [ -f web/dist/index.html ] || { echo "error: 画面のビルドに index.html が無い" >&2; exit 1; }
+  if [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
+    # 録画用のサーバへ送る APK（接続先は端末の中の 127.0.0.1:18787。record-run が adb reverse で API の port へ渡す。
+    # 平文 HTTP を許すのは loopback だけ —— app/build.gradle.kts の検査）。トークンと利用者はこの実行の .env の値
+    echo "== Android（APK とテスト APK。録画用のサーバ向け）"
+    (
+      set +u
+      # shellcheck disable=SC1091
+      . ./tools/android-env.sh >/dev/null 2>&1
+      set -u
+      ./collector-android/gradlew -q -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
+        -Pashiato.baseUrl=http://127.0.0.1:18787 \
+        -Pashiato.apiToken="$(sed -n 's/^API_TOKEN=//p' .env)" \
+        -Pashiato.userId="$(sed -n 's/^ASHIATO_USER_ID=//p' .env)"
+    ) || { echo "error: APK のビルドが落ちた" >&2; exit 1; }
+  fi
 
   echo "== 起動: DB $db / API $api / 画面 $web（compose project $PROJECT）"
   SERVER_BIN="$WT/.rec-bin/ashiato-server" WEB_DIST="$WT/web/dist" WEB_PORT="$web" STACK_RESET=1 SEED=normal \
@@ -88,6 +105,13 @@ EOF
     echo "INFO_compose_project=$PROJECT"
     echo "INFO_ports=DB $db / API $api / 画面 $web"
     echo "INFO_seed=normal（STACK_RESET=1 で作り直した直後）"
+    if [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
+      local apk="$WT/collector-android/app/build/outputs/apk/debug/app-debug.apk"
+      local tapk="$WT/collector-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+      echo "ANDROID_APK=$apk"; echo "ANDROID_TEST_APK=$tapk"; echo "ANDROID_REVERSE=18787:$api"
+      echo "INFO_apk_sha256=$(sha256sum "$apk" | cut -d' ' -f1)"
+      echo "INFO_test_apk_sha256=$(sha256sum "$tapk" | cut -d' ' -f1)"
+    fi
   } >"$tmp" && mv "$tmp" "$STATE/ready"
   echo "== 用意ができた: http://127.0.0.1:$web"
   wait "$stack"

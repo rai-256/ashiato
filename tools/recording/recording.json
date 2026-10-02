@@ -9,8 +9,34 @@
       "id": "ST22-erase-reload",
       "story": "ST22",
       "spec": "tools/recording/st22/st22-erase-reload.rec.ts",
-      "with": ["e2e/day-erase.spec.ts"],
-      "requires": ["web/e2e/day-erase.spec.ts", "web/e2e/global-setup.ts"]
+      "with": [
+        "e2e/day-erase.spec.ts"
+      ],
+      "requires": [
+        "web/e2e/day-erase.spec.ts",
+        "web/e2e/global-setup.ts"
+      ]
+    },
+    {
+      "id": "ST06-first-launch",
+      "story": "ST06",
+      "platform": "android",
+      "spec": "tools/recording/st06/St06RecordingTest.kt",
+      "test_class": "dev.ashiato.collector.St06RecordingTest",
+      "requires": [
+        "collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt"
+      ]
     }
-  ]
+  ],
+  "android": {
+    "env_script": "tools/android-env.sh",
+    "system_image": "system-images;android-35;google_apis;x86_64",
+    "device": "pixel_6",
+    "locale": "ja-JP",
+    "geo": "139.7671 35.6812",
+    "test_src_dir": "collector-android/app/src/androidTest/kotlin/dev/ashiato/collector",
+    "package": "dev.ashiato.collector",
+    "test_package": "dev.ashiato.collector.test",
+    "runner": "androidx.test.runner.AndroidJUnitRunner"
+  }
 }
