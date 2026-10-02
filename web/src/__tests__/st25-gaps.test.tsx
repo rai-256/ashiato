@@ -136,6 +136,17 @@ describe("取れていない時間の行の文字", () => {
     expect(kinds).toEqual(["gap:08:00", "stay", "erased", "gap:11:10", "gap:11:30", "stay"]);
   });
 
+  // Scenario: 「消した」の行の直後に「ほかの記録」の行がある
+  it("消した行の中に始まる離席は、同じ範囲のほかの記録の行の直後に並ぶ", () => {
+    const entries: DayEntry[] = [
+      { kind: "erased", start: at("10:00"), end: at("11:00") },
+      { kind: "other", start: at("10:00"), end: at("11:00") },
+    ];
+    const gaps: Gap[] = [{ kind: "away", start: at("10:15"), end: at("10:40") }];
+    const kinds = placeGaps(entries, gaps).map((p) => (p.at === "gap" ? "gap" : p.entry.kind));
+    expect(kinds).toEqual(["erased", "other", "gap"]);
+  });
+
   // Scenario: 取れていない時間の行は文字で区別される
   it("離席・PC 停止・除外・スマホ・移動・記録なしがそれぞれの文字を持つ", async () => {
     const list = await show(

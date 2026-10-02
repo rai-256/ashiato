@@ -99,7 +99,7 @@ const minutesOf = (g: Gap): number => (Date.parse(g.end) - Date.parse(g.start)) 
 
 /**
  * 取れていない時間の行を並びに差し込む（D9）。始まりを含む行（`[start, end)`）の直後に、始まりの時刻順で。
- * どの行にも入らなければ、始まりより前で最も近い行の直後（前に行が無ければ並びの先頭）。
+ * 「消した」の行の中は、どの行にも入らない扱い。どの行にも入らなければ、始まりより前で最も近い行の直後（前に行が無ければ並びの先頭）。
  * 離席は `AWAY_ROW_MIN_MINUTES` 分に満たないものを行にしない。
  */
 export function placeGaps(entries: DayEntry[], gaps: Gap[]): Placed[] {
@@ -110,7 +110,7 @@ export function placeGaps(entries: DayEntry[], gaps: Gap[]): Placed[] {
   const head: Gap[] = [];
   for (const g of rows) {
     const at = Date.parse(g.start);
-    let idx = entries.findIndex((e) => Date.parse(e.start) <= at && at < Date.parse(e.end));
+    let idx = entries.findIndex((e) => e.kind !== "erased" && Date.parse(e.start) <= at && at < Date.parse(e.end));
     if (idx < 0) {
       entries.forEach((e, i) => {
         if (Date.parse(e.start) <= at && (idx < 0 || Date.parse(e.start) >= Date.parse(entries[idx].start))) idx = i;
