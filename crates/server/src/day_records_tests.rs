@@ -895,6 +895,21 @@ async fn st25_api_unchanged_events_and_stays_shapes() {
     Put::new(u, "c02-window", at, foreground(at, "Code"))
         .run(&app.pool)
         .await;
+    // 同じ地点に 30 分いた位置の記録で、`/stays` の行を stay と no-record の 2 つ以上にする
+    for i in 0..=30 {
+        let at = (DateTime::parse_from_rfc3339("2026-09-07T01:00:00Z").unwrap()
+            + chrono::Duration::minutes(i))
+        .to_rfc3339();
+        Put::new(
+            u,
+            "c01-location",
+            &at,
+            json!({"lat": 35.0, "lon": 139.0, "acc_m": 12}),
+        )
+        .run(&app.pool)
+        .await;
+    }
+    crate::stay_store::rebuild_all(&app.pool, u).await.unwrap();
 
     // `/events` は 6 つの鍵のまま（`payload` を返さない）、時刻順
     let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
@@ -935,7 +950,24 @@ async fn st25_api_unchanged_events_and_stays_shapes() {
     .unwrap();
     let stays = serde_json::to_value(stays).unwrap();
     assert_eq!(keys(&stays), ["criteria", "date", "entries"], "{stays}");
-    for e in stays["entries"].as_array().unwrap() {
+    let entries = stays["entries"].as_array().unwrap();
+    assert!(entries.len() >= 2, "{stays}");
+    // 行の鍵の集合は種類ごとに固定（滞在だけが識別子と基準を持つ）
+    for e in entries {
+        let expected: &[&str] = if e["kind"] == "stay" {
+            &["criteria_id", "end", "id", "kind", "start"]
+        } else {
+            &["end", "kind", "start"]
+        };
+        assert_eq!(keys(e), expected, "{e}");
         assert!(e["kind"].is_string() && e["start"].is_string() && e["end"].is_string());
     }
+    assert!(entries.iter().any(|e| e["kind"] == "stay"), "{stays}");
+    let starts: Vec<DateTime<Utc>> = entries
+        .iter()
+        .map(|e| e["start"].as_str().unwrap().parse().unwrap())
+        .collect();
+    let mut sorted = starts.clone();
+    sorted.sort();
+    assert_eq!(starts, sorted);
 }
