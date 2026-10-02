@@ -708,3 +708,234 @@ async fn st25_read_sql_uses_source_time_index() {
     assert!(plan.contains("logical_source = ANY"), "{plan}");
     assert!(!plan.contains("Filter: ((logical_source"), "{plan}");
 }
+
+// ------------------------------------------------------------------ 2 `GET /day/records`
+
+const TOKEN: &str = "test-token-0123456789abcdef";
+
+async fn app() -> crate::App {
+    crate::App::for_test(testdb::pool().await, TOKEN)
+}
+
+fn auth() -> axum::http::HeaderMap {
+    let mut h = axum::http::HeaderMap::new();
+    h.insert(
+        "authorization",
+        format!("Bearer {TOKEN}").parse().expect("ヘッダ"),
+    );
+    h
+}
+
+async fn call(
+    app: &crate::App,
+    headers: axum::http::HeaderMap,
+    user: Uuid,
+    date: &str,
+    range: Option<(&str, &str)>,
+) -> Result<Value, (axum::http::StatusCode, String)> {
+    let q = crate::DayRecordsQuery {
+        date: date.into(),
+        from: range.map(|r| r.0.into()),
+        to: range.map(|r| r.1.into()),
+        user_id: Some(user),
+    };
+    crate::day_records_get(
+        axum::extract::State(app.clone()),
+        headers,
+        axum::extract::Query(q),
+    )
+    .await
+    .map(|axum::Json(v)| serde_json::to_value(v).unwrap())
+}
+
+fn visit(at: &str) -> Value {
+    json!({"kind": "visit", "at": at, "browser": "Chrome", "title": "題", "url": format!("https://example.com/{at}")})
+}
+
+// Scenario: その日の記録が出来事の時刻順に 1 件ずつ返る
+#[tokio::test]
+async fn st25_api_records_are_in_event_order_one_by_one() {
+    let app = app().await;
+    let pool = &app.pool;
+    let u = testdb::user();
+    // 挿入順は時刻順にしない
+    for at in [
+        "2026-09-07T05:00:00Z",
+        "2026-09-07T01:00:00Z",
+        "2026-09-07T03:00:00Z",
+    ] {
+        Put::new(u, "c02-window", at, foreground(at, "Code"))
+            .run(pool)
+            .await;
+    }
+    for at in ["2026-09-07T04:00:00Z", "2026-09-07T02:00:00Z"] {
+        Put::new(u, "c02-browser-history", at, visit(at))
+            .run(pool)
+            .await;
+    }
+    let at = "2026-09-07T06:00:00Z";
+    let p = json!({"event_type": 1, "package": "com.x", "app_label": "メモ"});
+    let mut phone = Put::new(u, "c01-app-usage", at, p);
+    phone.device = "phone-1";
+    phone.run(pool).await;
+
+    let got = call(&app, auth(), u, "2026-09-07", None).await.unwrap();
+    let rows = got.as_array().unwrap();
+    assert_eq!(rows.len(), 6);
+    let starts: Vec<&str> = rows.iter().map(|r| r["start"].as_str().unwrap()).collect();
+    let mut sorted = starts.clone();
+    sorted.sort();
+    assert_eq!(starts, sorted, "出来事の時刻順");
+    let kinds: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|r| (r["kind"].as_str().unwrap(), r["source"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("foreground", "pc"),
+            ("visit", "browser"),
+            ("foreground", "pc"),
+            ("visit", "browser"),
+            ("foreground", "pc"),
+            ("foreground", "phone"),
+        ]
+    );
+    assert!(rows
+        .iter()
+        .all(|r| r["id"].is_string() && r["tz_id"] == "Asia/Tokyo"));
+}
+
+// Scenario: 時刻の範囲を指定するとその範囲の記録だけが返る
+#[tokio::test]
+async fn st25_api_records_range_returns_overlapping_only() {
+    let app = app().await;
+    let pool = &app.pool;
+    let u = testdb::user();
+    // 2026-09-07 の 10:00 – 11:00（JST）= 01:00 – 02:00Z
+    for at in ["2026-09-07T00:30:00Z", "2026-09-07T01:30:00Z"] {
+        Put::new(u, "c02-window", at, foreground(at, "Code"))
+            .run(pool)
+            .await;
+    }
+    // 9:50 – 10:20（JST）の離席: 範囲の外から始まって中で終わる
+    let (b, e) = ("2026-09-07T00:50:00Z", "2026-09-07T01:20:00Z");
+    let away = json!({"kind": "idle", "transition": "leave", "at": b, "range_end": e});
+    Put::new(u, "c02-window", b, away).run(pool).await;
+
+    let got = call(
+        &app,
+        auth(),
+        u,
+        "2026-09-07",
+        Some(("2026-09-07T01:00:00Z", "2026-09-07T02:00:00Z")),
+    )
+    .await
+    .unwrap();
+    let rows = got.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{got}");
+    assert_eq!(rows[0]["kind"], "away");
+    assert_eq!(rows[0]["start"], "2026-09-07T00:50:00Z");
+    assert_eq!(rows[0]["end"], "2026-09-07T01:20:00Z");
+    assert_eq!(rows[1]["kind"], "foreground");
+    assert_eq!(rows[1]["start"], "2026-09-07T01:30:00Z");
+}
+
+// Scenario: 日付として読めない求めは断られる
+#[tokio::test]
+async fn st25_api_records_invalid_date_is_400() {
+    let app = app().await;
+    let err = call(&app, auth(), testdb::user(), "2026-13-40", None)
+        .await
+        .unwrap_err();
+    assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
+    let err = call(
+        &app,
+        auth(),
+        testdb::user(),
+        "2026-09-07",
+        Some(("きのう", "2026-09-07T02:00:00Z")),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
+}
+
+// Scenario: 資格情報の無い 1 日の記録の求めは断られる
+#[tokio::test]
+async fn st25_api_records_without_credentials_is_401() {
+    let app = app().await;
+    let err = call(
+        &app,
+        axum::http::HeaderMap::new(),
+        testdb::user(),
+        "2026-09-07",
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.0, axum::http::StatusCode::UNAUTHORIZED);
+}
+
+// ------------------------------------------------------------------ 2.2 既存の口の形
+
+fn keys(v: &Value) -> Vec<String> {
+    let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+    k.sort();
+    k
+}
+
+// Scenario: 記録の読み出しの形は変わらない
+#[tokio::test]
+async fn st25_api_unchanged_events_and_stays_shapes() {
+    use axum::extract::{Query, State};
+    let app = app().await;
+    let u = testdb::user();
+    let at = "2026-09-07T03:00:00Z";
+    Put::new(u, "c02-window", at, foreground(at, "Code"))
+        .run(&app.pool)
+        .await;
+
+    // `/events` は 6 つの鍵のまま（`payload` を返さない）、時刻順
+    let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let events = serde_json::to_value(events).unwrap();
+    let rows = events.as_array().unwrap();
+    assert!(!rows.is_empty());
+    for r in rows {
+        assert_eq!(
+            keys(r),
+            [
+                "event_time",
+                "id",
+                "logical_source",
+                "origin",
+                "raw",
+                "tz_id"
+            ]
+        );
+    }
+    let times: Vec<DateTime<Utc>> = rows
+        .iter()
+        .map(|r| r["event_time"].as_str().unwrap().parse().unwrap())
+        .collect();
+    let mut sorted = times.clone();
+    sorted.sort();
+    assert_eq!(times, sorted);
+
+    // `/stays` の応答の鍵の集合
+    let axum::Json(stays) = crate::stays_get(
+        State(app.clone()),
+        auth(),
+        Query(crate::StaysQuery {
+            date: "2026-09-07".into(),
+            user_id: Some(u),
+        }),
+    )
+    .await
+    .unwrap();
+    let stays = serde_json::to_value(stays).unwrap();
+    assert_eq!(keys(&stays), ["criteria", "date", "entries"], "{stays}");
+    for e in stays["entries"].as_array().unwrap() {
+        assert!(e["kind"].is_string() && e["start"].is_string() && e["end"].is_string());
+    }
+}

@@ -1744,6 +1744,52 @@ pub async fn stays_get(
     .map_err(|e| internal_at("stays.day", e))
 }
 
+/// `GET /day/records` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DayRecordsQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    /// この時刻以後（RFC 3339）。省くと日の始まり。
+    from: Option<String>,
+    /// この時刻より前（RFC 3339）。省くと日の終わり。
+    to: Option<String>,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// その日の記録を、出来事の時刻順に 1 件ずつ返す（ST25 design D1）。
+#[utoipa::path(get, path = "/day/records", params(DayRecordsQuery),
+    responses((status = 200, body = Vec<day_records::DayRecord>), (status = 400), (status = 401)))]
+pub async fn day_records_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<DayRecordsQuery>,
+) -> Result<Json<Vec<day_records::DayRecord>>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    let instant = |v: &Option<String>| -> Result<Option<chrono::DateTime<chrono::Utc>>, _> {
+        v.as_deref()
+            .map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .map(|t| t.with_timezone(&chrono::Utc))
+                    .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_range".to_string()))
+            })
+            .transpose()
+    };
+    let (from, to) = (instant(&q.from)?, instant(&q.to)?);
+    day_records::records(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        date,
+        from,
+        to,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("day.records", e))
+}
+
 /// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
 #[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
     responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
@@ -2241,6 +2287,7 @@ pub fn router(app: App) -> Router {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/stays", get(stays_get))
+        .route("/day/records", get(day_records_get))
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
@@ -2355,6 +2402,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         stays_get,
+        day_records_get,
         stays_detail_get,
         stays_erase,
         stays_restore,
@@ -2401,6 +2449,7 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::DayEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
+        day_records::DayRecord,
         attributes::AttributesView,
         attributes::KindView,
         attributes::ClaimOut,

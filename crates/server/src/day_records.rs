@@ -12,6 +12,7 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use serde::Serialize;
 use serde_json::Value;
 use sqlx::{PgPool, Row as _};
 use uuid::Uuid;
@@ -532,4 +533,70 @@ pub async fn read_day(
 ) -> Result<Vec<Norm>, sqlx::Error> {
     let (d0, d1) = day_bounds(day);
     read(pool, user, d0, d1, now).await
+}
+
+/// `GET /day/records` の 1 件（D1）。記録の値（題名・URL）はそのまま持つが、**ログには出さない**。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DayRecord {
+    pub id: Uuid,
+    /// `foreground` / `away` / `stopped` / `excluded` / `visit` / `unavailable` / `archive`
+    pub kind: &'static str,
+    /// `pc` / `phone` / `browser` / `archive`
+    pub source: &'static str,
+    /// 書庫のときだけ、登録簿の表示名（画面は「書庫: <表示名>」と書く）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub start: DateTime<Utc>,
+    /// 区間の記録だけ。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<DateTime<Utc>>,
+    pub tz_id: String,
+    /// アプリ名。ブラウザの訪問ではブラウザ名、マイアクティビティでは製品名。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// 除外した変化の件数（`excluded` だけ）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+}
+
+impl From<Norm> for DayRecord {
+    fn from(n: Norm) -> Self {
+        DayRecord {
+            id: n.id,
+            kind: n.kind.as_str(),
+            source: n.origin.as_str(),
+            display_name: n.source_label,
+            start: n.start,
+            end: n.end,
+            tz_id: n.tz_id,
+            app: n.app.or(n.product),
+            title: n.title,
+            domain: n.domain,
+            count: n.excluded_count,
+        }
+    }
+}
+
+/// `[from, to)` を `Asia/Tokyo` のその日に収めて、`/day/records` の形で返す。`from` / `to` を省くと日の端。
+pub async fn records(
+    pool: &PgPool,
+    user: Uuid,
+    day: NaiveDate,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Result<Vec<DayRecord>, sqlx::Error> {
+    let (d0, d1) = day_bounds(day);
+    let from = from.map_or(d0, |f| f.max(d0));
+    let to = to.map_or(d1, |t| t.min(d1));
+    Ok(read(pool, user, from, to, now)
+        .await?
+        .into_iter()
+        .filter(Norm::is_listed)
+        .map(DayRecord::from)
+        .collect())
 }

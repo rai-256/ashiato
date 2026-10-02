@@ -230,6 +230,81 @@
         }
       }
     },
+    "/day/records": {
+      "get": {
+        "tags": [],
+        "summary": "その日の記録を、出来事の時刻順に 1 件ずつ返す（ST25 design D1）。",
+        "operationId": "day_records_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "この時刻以後（RFC 3339）。省くと日の始まり。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "この時刻より前（RFC 3339）。省くと日の終わり。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DayRecord"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/drops": {
       "post": {
         "tags": [
@@ -1041,6 +1116,80 @@
               "format": "uuid"
             },
             "description": "この「消した」区間から戻せる、本人が消した滞在の識別子"
+          }
+        }
+      },
+      "DayRecord": {
+        "type": "object",
+        "description": "`GET /day/records` の 1 件（D1）。記録の値（題名・URL）はそのまま持つが、**ログには出さない**。",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "start",
+          "tz_id"
+        ],
+        "properties": {
+          "app": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "アプリ名。ブラウザの訪問ではブラウザ名、マイアクティビティでは製品名。"
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ）。"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "書庫のときだけ、登録簿の表示名（画面は「書庫: <表示名>」と書く）。"
+          },
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "区間の記録だけ。"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`foreground` / `away` / `stopped` / `excluded` / `visit` / `unavailable` / `archive`"
+          },
+          "source": {
+            "type": "string",
+            "description": "`pc` / `phone` / `browser` / `archive`"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tz_id": {
+            "type": "string"
           }
         }
       },
