@@ -48,6 +48,10 @@ setup() {
 }
 
 # ---------------------------------------------------------------- run
+# 長い工程は裏で走らせて wait で待つ。wait の間なら Ctrl-C / SIGTERM の trap がすぐ効き、
+# 片付けが子をプロセスグループごと止める（run の頭で set -m にするので、裏の工程は自分のグループを持つ）
+bg() { "$@" & CHILD=$!; wait "$CHILD"; local rc=$?; CHILD=""; return "$rc"; }
+
 free_port() { # $1 から上へ、待ち受けの無い番号を探す
   local p=$1
   while [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ]; do p=$((p + 1)); done
@@ -68,7 +72,8 @@ run() {
   WT="$REC_CACHE/wt-$RUN_ID"
   WINWORK="$REC_ROOT/_work/$RUN_ID"
   PROJECT="ashiato2rec$(echo "$RUN_ID" | tr -dc '0-9a-f')"
-  STACK_PID=""
+  STACK_PID=""; CHILD=""
+  set -m
   T_START="$(date -Iseconds)"
   INVOCATION="tools/recording/record-st22.sh run $ref"
   FAILED_STEP=""
@@ -116,13 +121,13 @@ EOF
   # ---- 3. ビルド（対象コミットのコードから）
   say "ビルド（サーバ release・画面）"
   export CARGO_TARGET_DIR="$REC_CACHE/target"
-  ( cd "$WT" && cargo build -q --release -p ashiato-server --bin ashiato-server ) >"$OUT/logs/build.log" 2>&1 \
+  bg bash -c 'cd "$1" && cargo build -q --release -p ashiato-server --bin ashiato-server' _ "$WT" >"$OUT/logs/build.log" 2>&1 \
     || { FAILED_STEP="サーバのビルド（logs/build.log）"; exit 1; }
   mkdir -p "$WT/.rec-bin" && cp "$CARGO_TARGET_DIR/release/ashiato-server" "$WT/.rec-bin/ashiato-server"
-  ( cd "$WT/web" && npm ci --no-audit --no-fund && npm run build ) >>"$OUT/logs/build.log" 2>&1 \
+  bg bash -c 'cd "$1" && npm ci --no-audit --no-fund && npm run build' _ "$WT/web" >>"$OUT/logs/build.log" 2>&1 \
     || { FAILED_STEP="画面のビルド（logs/build.log）"; exit 1; }
   # 再生できるかの確かめに WSL 側の Chromium を使う（入っていれば何もしない）
-  ( cd "$WT/web" && npx playwright install chromium ) >>"$OUT/logs/build.log" 2>&1 \
+  bg bash -c 'cd "$1" && npx playwright install chromium' _ "$WT/web" >>"$OUT/logs/build.log" 2>&1 \
     || { FAILED_STEP="WSL 側の playwright install（logs/build.log）"; exit 1; }
   SERVER_SHA="$(sha256sum "$WT/.rec-bin/ashiato-server" | cut -c1-16)"
   WEB_SHA="$( (cd "$WT/web/dist" && find . -type f | sort | xargs sha256sum) | sha256sum | cut -c1-16)"
@@ -146,21 +151,24 @@ EOF
   ( cd "$WT/web" && tar --exclude=node_modules --exclude=dist --exclude=test-results --exclude=playwright-report -cf - . ) \
     | ( cd "$WINWORK" && mkdir -p web && cd web && tar -xf - ) || { FAILED_STEP="Windows 側へ写す"; exit 1; }
   local wwork; wwork="$(wslpath -w "$WINWORK/web")"
-  (cd /mnt/c && "$CMD_EXE" /c "cd /d $wwork && npm ci --no-audit --no-fund && npx playwright install chromium") \
+  # Windows 側のコマンド行には必ず作業場所のパス（= RUN_ID）を含める。中断したとき、片付けがそれで探して止める
+  #（WSL 側のプロセスを止めても、Windows 側の npm / node は残る。実測 2026-10-02）
+  local pwbin="$wwork\node_modules\.bin\playwright.cmd"
+  cd /mnt/c && bg "$CMD_EXE" /c "cd /d $wwork && npm ci --prefix $wwork --no-audit --no-fund && $pwbin install chromium" \
     >"$OUT/logs/windows-setup.log" 2>&1 || { FAILED_STEP="Windows 側の npm ci / playwright install（logs/windows-setup.log）"; exit 1; }
 
   say "録画（Windows の Playwright → WSL の画面 http://127.0.0.1:$WEB_PORT）"
   mkdir -p "$OUT/playwright"
   # 合言葉はコマンド行に出さない（WSLENV で環境変数として渡す）
-  PW_CMD="cd /d $wwork && npx playwright test -c playwright.recording.config.ts"
-  ( cd /mnt/c && \
-    WEB_PASSWORD="$(grep '^WEB_PASSWORD=' "$WT/.env" | cut -d= -f2)" \
-    REC_BASE_URL="http://127.0.0.1:$WEB_PORT" \
-    REC_OUT="$(wslpath -w "$OUT/playwright")\\results" \
-    REC_REPORT="$(wslpath -w "$OUT/playwright")\\report" \
-    WSLENV="WEB_PASSWORD:REC_BASE_URL:REC_OUT:REC_REPORT" \
-    "$CMD_EXE" /c "$PW_CMD" ) >"$OUT/logs/playwright.log" 2>&1
+  PW_CMD="cd /d $wwork && $pwbin test -c $wwork\playwright.recording.config.ts"
+  WEB_PASSWORD="$(grep '^WEB_PASSWORD=' "$WT/.env" | cut -d= -f2)" \
+  REC_BASE_URL="http://127.0.0.1:$WEB_PORT" \
+  REC_OUT="$(wslpath -w "$OUT/playwright")\\results" \
+  REC_REPORT="$(wslpath -w "$OUT/playwright")\\report" \
+  WSLENV="WEB_PASSWORD:REC_BASE_URL:REC_OUT:REC_REPORT" \
+    bg "$CMD_EXE" /c "$PW_CMD" >"$OUT/logs/playwright.log" 2>&1
   PW_RC=$?
+  cd "$REPO" || true
 
   # ---- 6. 録画の有無と再生できるか（テストの合否とは別に記録する。見やすさは判定しない）
   say "録画を確かめる（ファイルがあるか・再生できるか）"
@@ -181,6 +189,18 @@ EOF
 cleanup() {
   {
     echo "== 片付け $(date -Iseconds)"
+    if [ -n "${CHILD:-}" ] && kill -0 "$CHILD" 2>/dev/null; then
+      kill -TERM -- "-$CHILD" 2>/dev/null; sleep 1; kill -KILL -- "-$CHILD" 2>/dev/null
+      echo "途中の工程: 止めた（pgid $CHILD）"
+    fi
+    if [ -n "${RUN_ID:-}" ]; then
+      # Windows 側で、コマンド行にこの実行の RUN_ID を含むプロセスだけを木ごと止める（他には触らない）
+      local wp
+      wp="$(cd /mnt/c && /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command \
+        "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like '*$RUN_ID*' -and \$_.Name -ne 'powershell.exe' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null | tr -d '\r' | tr '\n' ' ')"
+      for pid in $wp; do (cd /mnt/c && /mnt/c/Windows/System32/taskkill.exe /T /F /PID "$pid" >/dev/null 2>&1); done
+      [ -n "${wp// /}" ] && echo "Windows のプロセス: 止めた（$wp）" || echo "Windows のプロセス: 残っていない"
+    fi
     if [ -n "${STACK_PID:-}" ] && kill -0 "$STACK_PID" 2>/dev/null; then
       # setsid で立てたので、プロセスグループごと止める（サーバ・vite preview も同じグループ）
       local pg; pg="$(ps -o pgid= -p "$STACK_PID" 2>/dev/null | tr -d ' ')"
