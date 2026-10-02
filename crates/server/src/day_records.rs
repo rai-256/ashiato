@@ -329,7 +329,7 @@ pub fn source_matches(pattern: &str, name: &str) -> bool {
 }
 
 /// 許可リストが読む論理ソースの SQL の `LIKE` 形（`*` → `%`）。
-fn like_patterns() -> Vec<String> {
+pub(crate) fn like_patterns() -> Vec<String> {
     let mut out: Vec<String> = ALLOW
         .iter()
         .flat_map(|a| a.sources.iter())
@@ -455,6 +455,21 @@ fn fold_visits(mut rows: Vec<StoredEvent>) -> Vec<StoredEvent> {
         .collect()
 }
 
+/// 許可リストの前置き（`c03-myactivity-*`）を、登録簿 `core.source` の具体名に開く SQL。
+pub(crate) const SOURCES_SQL: &str =
+    "SELECT logical_source FROM core.source WHERE logical_source LIKE ANY($1)";
+
+/// `fetch` の SQL。論理ソースは具体名の `= ANY` で引く（D3。`LIKE ANY` だと
+/// `event_by_source_time` が使われず、位置の記録も含めて ±40 日を全部走る。
+/// サブクエリで開いても計画時に値が無く、同じく索引に乗らない）。
+pub(crate) const FETCH_SQL: &str = "SELECT DISTINCT ON (e.logical_source, e.content_hash)
+                e.id, e.logical_source, e.event_time, e.ingest_time, e.tz_id, e.device_id,
+                e.payload, s.display_name
+           FROM core.event_live e JOIN core.source s USING (logical_source)
+          WHERE e.user_id = $1 AND e.logical_source = ANY($2)
+            AND e.event_time >= $3 AND e.event_time < $4
+          ORDER BY e.logical_source, e.content_hash, e.ingest_time, e.id";
+
 /// 内容ハッシュで畳んだ行を日の範囲（±40 日）で読む（D3）。
 /// `core.event_live` を日付で先に絞ってから畳む。感度は読まない（C5）。
 async fn fetch(
@@ -464,21 +479,17 @@ async fn fetch(
     to: DateTime<Utc>,
 ) -> Result<Vec<StoredEvent>, sqlx::Error> {
     let margin = Duration::days(RANGE_MARGIN_DAYS);
-    let rows = sqlx::query(
-        "SELECT DISTINCT ON (e.logical_source, e.content_hash)
-                e.id, e.logical_source, e.event_time, e.ingest_time, e.tz_id, e.device_id,
-                e.payload, s.display_name
-           FROM core.event_live e JOIN core.source s USING (logical_source)
-          WHERE e.user_id = $1 AND e.logical_source LIKE ANY($2)
-            AND e.event_time >= $3 AND e.event_time < $4
-          ORDER BY e.logical_source, e.content_hash, e.ingest_time, e.id",
-    )
-    .bind(user)
-    .bind(like_patterns())
-    .bind(from - margin)
-    .bind(to + margin)
-    .fetch_all(pool)
-    .await?;
+    let sources: Vec<String> = sqlx::query_scalar(SOURCES_SQL)
+        .bind(like_patterns())
+        .fetch_all(pool)
+        .await?;
+    let rows = sqlx::query(FETCH_SQL)
+        .bind(user)
+        .bind(sources)
+        .bind(from - margin)
+        .bind(to + margin)
+        .fetch_all(pool)
+        .await?;
     rows.iter()
         .map(|r| {
             Ok(StoredEvent {

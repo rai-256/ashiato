@@ -676,3 +676,35 @@ async fn st25_range_from_to_uses_same_overlap_rule() {
         .unwrap();
     assert!(got.is_empty(), "to は含まない");
 }
+
+/// 読みの SQL は論理ソースで索引を引く（`LIKE ANY` に戻すと全ソースを走る）。
+/// 試験の DB は小さく、計画が時間の索引に寄るので、トランザクションの中でそれを落として
+/// （ロールバックで戻る）、この SQL が論理ソースを索引条件にできることを見る。
+#[tokio::test]
+async fn st25_read_sql_uses_source_time_index() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let from: DateTime<Utc> = "2026-09-07T00:00:00Z".parse().unwrap();
+    let sources: Vec<String> = sqlx::query_scalar(SOURCES_SQL)
+        .bind(like_patterns())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("DROP INDEX core.event_by_user_time_live")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN {FETCH_SQL}"))
+        .bind(u)
+        .bind(sources)
+        .bind(from)
+        .bind(from + Duration::days(1))
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    let plan = plan.into_iter().map(|r| r.0).collect::<Vec<_>>().join("\n");
+    // 論理ソースが索引条件に乗る（`LIKE ANY` だと Filter に落ちて全ソースを走る）。
+    assert!(plan.contains("logical_source = ANY"), "{plan}");
+    assert!(!plan.contains("Filter: ((logical_source"), "{plan}");
+}
