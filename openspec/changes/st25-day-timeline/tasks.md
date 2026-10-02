@@ -61,11 +61,11 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 
 design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 
-- [ ] 2.1 `GET /day/records?date=&from=&to=&user_id=` を足す。出来事の時刻順。認証・利用者・日付の解釈は `/stays` と同じ。OpenAPI に足す（`utoipa`）。
+- [x] 2.1 `GET /day/records?date=&from=&to=&user_id=` を足す。出来事の時刻順。認証・利用者・日付の解釈は `/stays` と同じ。OpenAPI に足す（`utoipa`）。
   Scenario: `その日の記録が出来事の時刻順に 1 件ずつ返る` / `時刻の範囲を指定するとその範囲の記録だけが返る`（範囲の外から始まって中で終わる離席を含める） /
   `日付として読めない求めは断られる` / `資格情報の無い 1 日の記録の求めは断られる`。
   検証: `CT st25_api_records_`、`tools/check-openapi.sh` rc=0
-- [ ] 2.2 既存の口の形が変わらないこと。`/events` と `/stays` の応答の鍵の集合と並びを、口を足す前と同じ入力で固定する（`/events` は `payload` を返さないまま）。
+- [x] 2.2 既存の口の形が変わらないこと。`/events` と `/stays` の応答の鍵の集合と並びを、口を足す前と同じ入力で固定する（`/events` は `payload` を返さないまま）。
   Scenario: `記録の読み出しの形は変わらない`。検証: `CT st25_api_unchanged_`
 
 ## Task 3: 使った時間・要約・ほかの記録の行と、`GET /day`
