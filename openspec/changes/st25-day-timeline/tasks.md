@@ -43,17 +43,17 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 
 `crates/server/src/day_records.rs`（新規）。試験は `crates/server/src/day_records_tests.rs`。design D2 / D3 / D4 / D5。
 
-- [ ] 1.1 前提を確かめる: ST22 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含み、そのコードがある）。ST06 / ST08 / ST12 のうち作業ブランチに入ったもの（main か、取り込んだ確認バッチから）は、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
+- [x] 1.1 前提を確かめる: ST22 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含み、そのコードがある）。ST06 / ST08 / ST12 のうち作業ブランチに入ったもの（main か、取り込んだ確認バッチから）は、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
   あわせて、**登録簿に実在する `c03-%` の論理ソースがどれも D2（活動）か D11（位置の点）の表にある**ことを試験にする（表に無い名前を列挙して落ちる）。
   検証: `bash -c 'python3 scripts/story_deps.py included ST25 ST22 && test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'`、`CT st25_allow_registry_covers_archive`
-- [ ] 1.2 許可リスト（D2 の表）を 1 つの定数の表にし、`core.event` の行を 2 段で正規化する（1 段目はスマホの `background` を持つ内部の形、2 段目が `/day/records` に出す形）。
+- [x] 1.2 許可リスト（D2 の表）を 1 つの定数の表にし、`core.event` の行を 2 段で正規化する（1 段目はスマホの `background` を持つ内部の形、2 段目が `/day/records` に出す形）。
   除外は本文を写さない。離席は leave だけ（今日に限り、leave の無い enter をいままでの離席にする）。感度で外さない。表の行ごとに試験を置く（偽の記録を 1 件ずつ）。
   Scenario: `許可リストに無い種別の記録は返らない` / `除外の記録は件数を持つ` / `除外の記録は本文を持たない` / `地域の違う記録はその地域を持って返る` / `感度の高い記録も返る`。
   検証: `CT st25_allow_`
-- [ ] 1.3 読み出しの SQL（D3）: `core.event_live` を日付で先に絞り、`DISTINCT ON (logical_source, content_hash)` を `ingest_time, id` の順で畳む。続けて訪問を `(event_time, url)` で畳む（D4）。
+- [x] 1.3 読み出しの SQL（D3）: `core.event_live` を日付で先に絞り、`DISTINCT ON (logical_source, content_hash)` を `ingest_time, id` の順で畳む。続けて訪問を `(event_time, url)` で畳む（D4）。
   Scenario: `削除済みの記録は返らない` / `内容が同じ記録は 1 件として返る` / `2 台の PC から届いた同じ訪問は 1 件になる` / `書庫と手元の同じ出来事は両方返る` / `書庫どうしの同じ出来事も両方返る`。
   検証: `CT st25_fold_`
-- [ ] 1.4 日の範囲（D5）: 点は出来事の時刻、区間は重なりで判定（SQL は ±40 日で索引に当て、重なりは Rust）。`from` / `to` も同じ判定。
+- [x] 1.4 日の範囲（D5）: 点は出来事の時刻、区間は重なりで判定（SQL は ±40 日で索引に当て、重なりは Rust）。`from` / `to` も同じ判定。
   Scenario: `日の区切りは Asia/Tokyo で決まる` / `前の日から続く区間はその日にも返る` / `他の日の記録は返らない`。
   検証: `CT st25_range_`
 
