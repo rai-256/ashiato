@@ -22,6 +22,7 @@ beforeEach(() => {
   day = { date: "2026-09-29", criteria: [], entries: [stay("stay-1"), stay("stay-2", "2026-09-29T02:00:00Z", "2026-09-29T03:00:00Z")] };
   vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${input}`);
+    if (input.includes("/day/records")) return Promise.resolve(response([]));
     if (input.includes("/detail")) {
       return Promise.resolve(response({ stay_id: "stay-1", start: day.entries[0].start, end: day.entries[0].end, counts: [
         { logical_source: "c01-location", display_name: "位置", count: 12 },
@@ -75,6 +76,7 @@ describe("滞在の詳細", () => {
     });
     vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? "GET"} ${input}`);
+      if (input.includes("/day/records")) return Promise.resolve(response([]));
       if (input.includes("/detail?stay_id=stay-1")) return firstDetail;
       if (input.includes("/detail?stay_id=stay-2")) {
         return Promise.resolve(response({ stay_id: "stay-2", start: day.entries[1].start, end: day.entries[1].end, counts: [

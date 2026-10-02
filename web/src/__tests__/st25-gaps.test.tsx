@@ -24,7 +24,13 @@ async function show(entries: unknown[], gaps: unknown[] = [], extra: Record<stri
   render(<DayView date={DATE} />);
   return screen.findByRole("list", { name: "1 日の並び" });
 }
-const texts = (list: HTMLElement): string[] => within(list).getAllByRole("listitem").map((li) => (li.textContent ?? "").trim());
+/** 行の文字。種類のしるし（`data-mark`。読み上げに出さない記号）は除く。 */
+const textOf = (el: HTMLElement): string => {
+  const copy = el.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll("[data-mark]").forEach((n) => n.remove());
+  return (copy.textContent ?? "").trim();
+};
+const texts = (list: HTMLElement): string[] => within(list).getAllByRole("listitem").map(textOf);
 
 const stay = { kind: "stay", start: at("09:00"), end: at("12:00"), id: "s1", criteria_id: 1 };
 const move = { kind: "move", start: at("12:00"), end: at("12:42") };
@@ -204,7 +210,7 @@ describe("記録なしの事情の文字", () => {
   it("事情が無ければ記録なしと範囲だけ", async () => {
     const list = await show([noRecord()]);
     const row = within(list).getByTestId("row-no-record");
-    expect(row.textContent).toBe("記録なし 8:20 – 16:40");
+    expect(textOf(row)).toBe("記録なし 8:20 – 16:40");
     expect(within(row).queryByTestId("reasons")).toBeNull();
   });
 

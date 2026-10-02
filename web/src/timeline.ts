@@ -4,7 +4,11 @@
  *
  * **数と規則はサーバが持つ**（`GET /day`）。画面が持つのは文字の組み立てと、取れていない時間の行を置く位置だけ（D9）。
  */
+import { msg } from "./messages";
 import type { DayEntry } from "./stays";
+
+const t = msg("timeline");
+const day = msg("day");
 
 /** 要約に出す上位の数（Q1 の本人の決定。サーバの `SUMMARY_TOP` と同じ値。jsdom の試験が固定する）。 */
 export const SUMMARY_TOP = 3;
@@ -126,11 +130,11 @@ export function placeGaps(entries: DayEntry[], gaps: Gap[]): Placed[] {
   return out;
 }
 
-/** 秒を `2 時間 45 分` / `30 分` で書く。 */
+/** 秒を `2 時間 45 分` / `30 分` で書く。**上位の各アプリ（`hm`）と同じく切り捨て**（合計と内訳の丸めを揃える）。 */
 export function spent(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
+  const minutes = Math.floor(seconds / 60);
   const h = Math.floor(minutes / 60);
-  return h === 0 ? `${minutes} 分` : `${h} 時間 ${minutes % 60} 分`;
+  return h === 0 ? day.minutes(minutes) : day.hoursMinutes(h, minutes % 60);
 }
 
 /** 上位のアプリの 1 つの時間を `1:30` で書く。 */
@@ -139,18 +143,21 @@ function hm(seconds: number): string {
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
+/** 頭に続ける内訳（無ければ頭だけ）。 */
+const withTop = (head: string, top: string[]): string => (top.length > 0 ? `${head}${t.lead}${top.join(t.topSep)}` : head);
+
 /** 要約の各行の文字。**どの行も種類の文字で始める**（色を外しても読み分けられる）。記録の無いソースの行は無い。 */
 export function summaryLines(s: Summary): { key: string; text: string }[] {
   const out: { key: string; text: string }[] = [];
   const apps = (label: string, a: AppSummary): string =>
-    `${label} ${spent(a.seconds)}${a.top.length > 0 ? ` — ${a.top.slice(0, SUMMARY_TOP).map((t) => `${t.app} ${hm(t.seconds)}`).join(" · ")}` : ""}`;
-  if (s.pc !== undefined) out.push({ key: "pc", text: apps("PC", s.pc) });
-  if (s.phone !== undefined) out.push({ key: "phone", text: apps("スマホ", s.phone) });
+    withTop(`${label} ${spent(a.seconds)}`, a.top.slice(0, SUMMARY_TOP).map((x) => `${x.app} ${hm(x.seconds)}`));
+  if (s.pc !== undefined) out.push({ key: "pc", text: apps(t.pc, s.pc) });
+  if (s.phone !== undefined) out.push({ key: "phone", text: apps(t.phone, s.phone) });
   if (s.browser !== undefined) {
-    const sites = s.browser.top.slice(0, SUMMARY_TOP).map((t) => `${t.domain} ${t.count}`).join(" · ");
-    out.push({ key: "browser", text: `ブラウザ ${s.browser.count} 件${sites === "" ? "" : ` — ${sites}`}` });
+    const sites = s.browser.top.slice(0, SUMMARY_TOP).map((x) => `${x.domain} ${x.count}`);
+    out.push({ key: "browser", text: withTop(t.browserCount(s.browser.count), sites) });
   }
-  for (const a of s.archive ?? []) out.push({ key: `archive-${a.display_name}`, text: `書庫: ${a.display_name} ${a.count} 件` });
+  for (const a of s.archive ?? []) out.push({ key: `archive-${a.display_name}`, text: t.archiveCount(a.display_name, a.count) });
   return out;
 }
 
@@ -158,27 +165,32 @@ export function summaryLines(s: Summary): { key: string; text: string }[] {
 export function reasonText(r: Reason): string {
   switch (r.kind) {
     case "before_start":
-      return "位置の収集を始める前";
+      return t.reason.before_start;
     case "stopped":
-      return "止めていた";
+      return t.reason.stopped;
     case "dropped":
-      return `端末が破棄 ${r.count ?? 0} 件`;
+      return t.reason.dropped(r.count ?? 0);
     case "archive":
-      return `書庫に位置 ${r.count ?? 0} 件`;
+      return t.reason.archive(r.count ?? 0);
   }
+}
+
+/** 記録なしの事情を 1 行に並べる。 */
+export function reasonsLine(rs: Reason[]): string {
+  return rs.map(reasonText).join(t.sep);
 }
 
 /** 取れていない時間の行の文字。`range` は「始まり – 終わり」。 */
 export function gapText(g: Gap, range: string): string {
   switch (g.kind) {
     case "away":
-      return `離席 ${range}`;
+      return t.gap.away(range);
     case "stopped":
-      return `PC 停止 ${range}`;
+      return t.gap.stopped(range);
     case "excluded":
-      return `除外 ${range}（${g.count ?? 0} 件。本文なし）`;
+      return t.gap.excluded(range, g.count ?? 0);
     case "unavailable":
-      return g.reason === "clock_skew_abandoned" ? `スマホ 時計のずれで取れていない ${range}` : `スマホ 取得元に残っていない ${range}`;
+      return g.reason === "clock_skew_abandoned" ? t.gap.clockSkew(range) : t.gap.retention(range);
   }
 }
 
@@ -195,9 +207,147 @@ export const TIMELINE_PAIRS = {
   gap: { fg: "muted", bg: "ground" },
   /** 記録なしの事情 */
   reason: { fg: "muted", bg: "ground" },
-  /** 開いた中身 */
-  detail: { fg: "text", bg: "surface1" },
-  /** 畳んだ行 */
-  folded: { fg: "muted", bg: "ground" },
+  /** 開いた中身（中身の面を自分で塗る） */
+  detail: { fg: "text", bg: "surface2" },
+  /** 畳んだ行（開いた中身の面の上） */
+  folded: { fg: "muted", bg: "surface2" },
 } as const;
 export type TimelineRole = keyof typeof TIMELINE_PAIRS;
+
+/** `GET /day/records` の 1 件（D8）。`kind` は `foreground` / `away` / `stopped` / `excluded` / `visit` / `unavailable` / `archive`。 */
+export interface DayRecord {
+  id: string;
+  kind: string;
+  source: string;
+  display_name?: string;
+  start: string;
+  end?: string;
+  tz_id: string;
+  app?: string;
+  title?: string;
+  domain?: string;
+  count?: number;
+}
+
+const optStr = (v: unknown): boolean => v === undefined || typeof v === "string";
+
+export const isDayRecords = (v: unknown): v is DayRecord[] =>
+  isArr(
+    v,
+    (r): r is DayRecord =>
+      isObj(r) &&
+      typeof r.id === "string" &&
+      typeof r.kind === "string" &&
+      typeof r.source === "string" &&
+      typeof r.start === "string" &&
+      typeof r.tz_id === "string" &&
+      optStr(r.display_name) &&
+      optStr(r.end) &&
+      optStr(r.app) &&
+      optStr(r.title) &&
+      optStr(r.domain) &&
+      (r.count === undefined || isNum(r.count)),
+  );
+
+/** 同じアプリの連続を畳んだ 1 行（D8）。`end` は中の最後の記録の終わり（点なら出来事の時刻）。 */
+export interface FoldRun {
+  at: "run";
+  /** 開閉の鍵（中の最初の記録の id） */
+  key: string;
+  source: string;
+  app?: string;
+  start: string;
+  end: string;
+  count: number;
+  records: DayRecord[];
+}
+export type Folded = { at: "one"; record: DayRecord } | FoldRun;
+
+/** 畳む記録の種類。取れていない時間（離席・停止・除外・取れていない）は畳まず 1 行ずつ出す（D8）。 */
+const FOLDABLE_KINDS: readonly string[] = ["foreground", "visit", "archive"];
+
+const runKey = (r: DayRecord): string => `${r.source}\u0000${r.display_name ?? ""}\u0000${r.app ?? ""}`;
+
+/**
+ * 同じ `source` の同じアプリ（ブラウザは同じ `browser` ＝ `app`）が続く間を 1 行にする（D8）。
+ * 別のアプリが挟まれば別の行。1 件だけの連続は畳まない。入力は時刻順。
+ */
+export function foldRuns(records: DayRecord[]): Folded[] {
+  const out: Folded[] = [];
+  let run: DayRecord[] = [];
+  const flush = (): void => {
+    if (run.length === 1) out.push({ at: "one", record: run[0] });
+    else if (run.length > 1) {
+      const last = run[run.length - 1];
+      out.push({ at: "run", key: run[0].id, source: run[0].source, app: run[0].app, start: run[0].start, end: last.end ?? last.start, count: run.length, records: run });
+    }
+    run = [];
+  };
+  for (const r of records) {
+    if (!FOLDABLE_KINDS.includes(r.kind)) {
+      flush();
+      out.push({ at: "one", record: r });
+      continue;
+    }
+    if (run.length > 0 && runKey(run[0]) !== runKey(r)) flush();
+    run.push(r);
+  }
+  flush();
+  return out;
+}
+
+/** 出どころの文字（種類は文字で言う。C1）。 */
+export function sourceLabel(r: { source: string; display_name?: string }): string {
+  switch (r.source) {
+    case "pc":
+      return t.pc;
+    case "phone":
+      return t.phone;
+    case "browser":
+      return t.browser;
+    default:
+      return t.archive(r.display_name ?? "");
+  }
+}
+
+/** 地域の時刻（`8:02`）。知らない地域名なら `undefined`。 */
+function clockIn(iso: string, tz: string): string | undefined {
+  try {
+    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "numeric", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(/^0(\d):/, "$1:");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Asia/Tokyo でない記録に添える `（London 8:02）`（C11。地域の名前は `tz_id` の最後の区切りの後）。 */
+export function regionStamp(tz: string, iso: string): string {
+  if (tz === "Asia/Tokyo") return "";
+  const time = clockIn(iso, tz);
+  return time === undefined ? "" : t.region(tz.slice(tz.lastIndexOf("/") + 1), time);
+}
+
+/** 記録 1 件の文字（種類の文字・アプリ・題名・サイト）。時刻は含まない。 */
+export function recordText(r: DayRecord): string {
+  switch (r.kind) {
+    case "away":
+      return t.record.away;
+    case "stopped":
+      return t.record.stopped;
+    case "excluded":
+      return t.record.excluded(r.count ?? 0);
+    case "unavailable":
+      return t.record.unavailable(sourceLabel(r));
+    default:
+      return joinParts([sourceLabel(r), r.app, r.title, r.domain]);
+  }
+}
+
+/** 空でないものを「・」で並べる。 */
+export function joinParts(parts: (string | undefined)[]): string {
+  return parts.filter((s): s is string => s !== undefined && s !== "").join(t.sep);
+}
+
+/** 畳んだ行の文字（`9:02 – 9:14 ・ PC ・ VS Code ・ 23 件`）。 */
+export function foldedText(run: FoldRun, range: string): string {
+  return joinParts([range, sourceLabel({ source: run.source, display_name: run.records[0].display_name }), run.app, t.count(run.count)]);
+}

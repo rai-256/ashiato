@@ -12,6 +12,25 @@ import {
   type DayEntry,
   type DayView as DayData,
 } from "./stays";
+import {
+  foldedText,
+  foldRuns,
+  gapText,
+  isDayRecords,
+  joinParts,
+  placeGaps,
+  reasonsLine,
+  recordText,
+  regionStamp,
+  summaryLines,
+  TIMELINE_PAIRS,
+  type DayRecord,
+  type FoldRun,
+  type Gap,
+  type Reason,
+  type Summary,
+  type TimelineRole,
+} from "./timeline";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle as control, destructiveStyle, inputStyle, linkStyle, markStyle, pageStyle, titleStyle } from "./surface";
@@ -19,10 +38,18 @@ import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, t
 
 // 明暗とフォーカスの輪郭は `scheme.ts` に移した（S-1 も使う）。ここから引いていた部品とテストのために同じ名前で出す
 export { FOCUS_ATTR, focusRule, useFocusRule, useScheme } from "./scheme";
-import { gapText, placeGaps, reasonText, summaryLines, TIMELINE_PAIRS, type Gap, type Reason, type Summary, type TimelineRole } from "./timeline";
+
+/** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
+type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
+
+const m = msg("day");
+const common = msg("common");
+
+/** 要約・事情の行間（添える文字。本文の 1.70 より詰める） */
+const SUMMARY_LINE = 1.45;
 
 /** 文字と背景の組（`TIMELINE_PAIRS`。8.3 の検査と同じ表から引く）。地の上の組は背景を描かない。 */
-function paint(c: (typeof SCHEMES)[Scheme], role: TimelineRole): React.CSSProperties {
+function paint(c: SchemeColors, role: TimelineRole): React.CSSProperties {
   const pair = TIMELINE_PAIRS[role];
   return pair.bg === "ground" ? { color: tone(c[pair.fg]) } : { color: tone(c[pair.fg]), background: tone(c[pair.bg]) };
 }
@@ -33,7 +60,8 @@ function SummaryView({ summary, role, scheme }: { summary: Summary | undefined; 
   const lines = summaryLines(summary);
   if (lines.length === 0) return null;
   return (
-    <div data-testid="summary" style={paint(SCHEMES[scheme], role)}>
+    // 要約と事情は添える文字の大きさ（閉じた行を 200 px 以下・開いてすぐ 6 行に収める。spec の 1 日の画面の下限）
+    <div data-testid="summary" style={{ font: font(TYPE.caption, 400, SUMMARY_LINE), ...paint(SCHEMES[scheme], role) }}>
       {lines.map((l) => (
         <p key={l.key} data-testid={`summary-${l.key.split("-")[0]}`} style={{ margin: 0 }}>
           {l.text}
@@ -47,27 +75,26 @@ function SummaryView({ summary, role, scheme }: { summary: Summary | undefined; 
 function ReasonsView({ reasons, scheme }: { reasons: Reason[] | undefined; scheme: Scheme }): React.ReactElement | null {
   if (reasons === undefined || reasons.length === 0) return null;
   return (
-    <p data-testid="reasons" style={{ margin: 0, ...paint(SCHEMES[scheme], "reason") }}>
-      {reasons.map(reasonText).join(" ・ ")}
+    <p data-testid="reasons" style={{ margin: 0, font: font(TYPE.caption, 400, SUMMARY_LINE), ...paint(SCHEMES[scheme], "reason") }}>
+      {reasonsLine(reasons)}
     </p>
   );
 }
 
 /** 取れていない時間の行。**種類は文字で言う**（色も枠も使わない）。 */
 function GapRow({ gap, viewing, scheme }: { gap: Gap; viewing: string; scheme: Scheme }): React.ReactElement {
-  const range = `${clock(gap.start, viewing)} – ${clock(gap.end, viewing)}`;
+  const range = m.range(clock(gap.start, viewing), clock(gap.end, viewing));
   return (
-    <li data-testid="row-gap" data-kind={`gap-${gap.kind}`} style={{ padding: "6px 10px", margin: "0 0 6px", ...paint(SCHEMES[scheme], "gap") }}>
+    <li data-testid="row-gap" data-kind={`gap-${gap.kind}`} style={{ padding: `${SPACE.rowY}px ${SPACE.rowX}px`, margin: `0 0 ${SPACE.rowGap}px`, ...paint(SCHEMES[scheme], "gap") }}>
       {gapText(gap, range)}
     </li>
   );
 }
 
-/** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
-type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
-
-const m = msg("day");
-const common = msg("common");
+/** 取れていない時間の行の鍵。 */
+function gapKey(g: Gap): string {
+  return `gap-${g.kind}-${g.start}`;
+}
 
 type StayDetailCount = { logical_source: string; display_name: string; count: number };
 type StayDetail = { stay_id: string; start: string; end: string; counts: StayDetailCount[] };
@@ -130,10 +157,10 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     >
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: SPACE.targetGap, marginBottom: round1(SPACE.gap * 0.3) }}>
         <a href="#/coverage" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
-          {common.toCoverage}
+          {m.toCoverage}
         </a>
         <a href="#/master" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
-          {msg("coverage").toMaster}
+          {m.toMaster}
         </a>
       </nav>
       <h1 data-testid="day-title" style={titleStyle(c)}>
@@ -176,31 +203,52 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
   const stays = view.entries.filter((e) => e.kind === "stay").length;
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Load<StayDetail> | null>(null);
+  const [records, setRecords] = useState<Load<DayRecord[]> | null>(null);
   const detailGeneration = useRef(0);
   const [actionError, setActionError] = useState<{ entryKey: string; message: string } | null>(null);
 
   const open = (entry: DayEntry): void => {
-    const id = entry.id;
-    if (id === undefined) return;
+    if (entry.kind === "erased") return;
+    const id = rowKey(entry);
     if (openId === id) {
       detailGeneration.current += 1;
       setOpenId(null);
       setDetail(null);
+      setRecords(null);
       return;
     }
     const generation = detailGeneration.current + 1;
     detailGeneration.current = generation;
+    const current = (): boolean => generation === detailGeneration.current;
+    const why = (e: unknown): string => (e instanceof Error ? e.message : "unknown");
+    const read = async (path: string): Promise<unknown> => {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`status_${res.status}`);
+      return res.json();
+    };
     setOpenId(id);
+    setRecords({ at: "loading" });
+    // **行の実際の範囲で読む**（D7）。日をまたぐ行も前の日の側を含めて出す（`from` / `to` は日の端で切られない）
+    const range = `date=${view.date}&from=${encodeURIComponent(entry.start)}&to=${encodeURIComponent(entry.end)}`;
+    read(`/api/day/records?${range}`)
+      .then((body) => {
+        if (!isDayRecords(body)) throw new Error("unexpected_shape");
+        return body;
+      })
+      .then((value) => current() && setRecords({ at: "ok", value }))
+      .catch((e: unknown) => current() && setRecords({ at: "failed", why: why(e) }));
+    if (entry.kind !== "stay" || entry.id === undefined) {
+      setDetail(null);
+      return;
+    }
     setDetail({ at: "loading" });
-    fetch(`/api/stays/detail?stay_id=${encodeURIComponent(id)}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`status_${res.status}`);
-        const body: unknown = await res.json();
+    read(`/api/stays/detail?stay_id=${encodeURIComponent(entry.id)}`)
+      .then((body) => {
         if (!isStayDetail(body)) throw new Error("unexpected_shape");
         return body;
       })
-      .then((value) => generation === detailGeneration.current && setDetail({ at: "ok", value }))
-      .catch((e: unknown) => generation === detailGeneration.current && setDetail({ at: "failed", why: e instanceof Error ? e.message : "unknown" }));
+      .then((value) => current() && setDetail({ at: "ok", value }))
+      .catch((e: unknown) => current() && setDetail({ at: "failed", why: why(e) }));
   };
 
   const action = (path: string, body: Record<string, unknown>, entryKey: string): void => {
@@ -210,6 +258,7 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
         if (!res.ok) throw new Error(`status_${res.status}`);
         setOpenId(null);
         setDetail(null);
+        setRecords(null);
         reload();
       })
       .catch(() => setActionError({ entryKey, message: m.actionFailed }));
@@ -235,12 +284,12 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
       )}
       <ol aria-label={m.listLabel} style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {view.browser_through !== undefined && (
-          <li data-testid="row-browser-pending" data-kind="gap-browser" style={{ padding: "6px 10px", margin: "0 0 6px", ...paint(c, "gap") }}>
-            ブラウザ 最後に届いたのは {clock(view.browser_through, view.date)}。それより後の訪問はまだ届いていない
+          <li data-testid="row-browser-pending" data-kind="gap-browser" style={{ padding: `${SPACE.rowY}px ${SPACE.rowX}px`, margin: `0 0 ${SPACE.rowGap}px`, ...paint(c, "gap") }}>
+            {m.browserPending(clock(view.browser_through, view.date))}
           </li>
         )}
         {placeGaps(view.entries, view.gaps ?? []).map((p) => {
-          if (p.at === "gap") return <GapRow key={`gap-${p.gap.kind}-${p.gap.start}`} gap={p.gap} viewing={view.date} scheme={scheme} />;
+          if (p.at === "gap") return <GapRow key={gapKey(p.gap)} gap={p.gap} viewing={view.date} scheme={scheme} />;
           const e = p.entry;
           return (
             <Row
@@ -249,8 +298,9 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
               viewing={view.date}
               scheme={scheme}
               criteria={e.criteria_id !== undefined && main !== undefined && e.criteria_id !== main.criteria_id ? byId.get(e.criteria_id) : undefined}
-              open={openId === e.id}
-              detail={openId === e.id ? detail : null}
+              open={openId === rowKey(e)}
+              detail={openId === rowKey(e) ? detail : null}
+              records={openId === rowKey(e) ? records : null}
               onOpen={() => open(e)}
               onAction={action}
               actionError={actionError}
@@ -269,6 +319,7 @@ function Row({
   criteria,
   open,
   detail,
+  records,
   onOpen,
   onAction,
   actionError,
@@ -279,6 +330,7 @@ function Row({
   criteria: CriteriaTag | undefined;
   open: boolean;
   detail: Load<StayDetail> | null;
+  records: Load<DayRecord[]> | null;
   onOpen: () => void;
   onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void;
   actionError: { entryKey: string; message: string } | null;
@@ -316,7 +368,7 @@ function Row({
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
           <SummaryView summary={entry.summary} role="summaryOnStay" scheme={scheme} />
         </button>
-        {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
+        {open && <StayDetailView entry={entry} viewing={viewing} detail={detail} records={records} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
         </div>
       </li>
@@ -335,14 +387,84 @@ function Row({
     );
   }
   return (
-    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, color: tone(c.muted) }}>
+    <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, alignItems: "flex-start", color: tone(c.muted) }}>
       {mark}
-      <span>
-        {entry.kind === "move" ? m.move(long) : entry.kind === "other" ? `ほかの記録 ${range}` : m.noRecord(range)}
-        {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
-      </span>
-      <SummaryView summary={entry.summary} role="summaryOnGround" scheme={scheme} />
-      <ReasonsView reasons={entry.reasons} scheme={scheme} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <button
+          type="button"
+          aria-expanded={open}
+          {...{ [FOCUS_ATTR]: "" }}
+          onClick={onOpen}
+          style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", color: "inherit", font: "inherit", background: "transparent", border: 0 }}
+        >
+          {entry.kind === "move" ? m.move(long) : entry.kind === "other" ? m.other(range) : m.noRecord(range)}
+          {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
+        </button>
+        <SummaryView summary={entry.summary} role="summaryOnGround" scheme={scheme} />
+        <ReasonsView reasons={entry.reasons} scheme={scheme} />
+        {open && <RecordsView load={records} viewing={viewing} scheme={scheme} />}
+      </div>
+    </li>
+  );
+}
+
+/** 行の開閉の鍵。滞在は `id`、ほかの行は種類と始まり（ST22 の `openId` 1 つのまま）。 */
+function rowKey(entry: DayEntry): string {
+  return entry.id ?? `${entry.kind}-${entry.start}`;
+}
+
+/** 記録 1 件の行の文字。時刻は Asia/Tokyo。地域が違えば地域の時刻を添える。 */
+function recordLine(r: DayRecord, viewing: string): string {
+  return `${clock(r.start, viewing)}${regionStamp(r.tz_id, r.start)} ${recordText(r)}`;
+}
+
+/** 開いた中身（時刻順の記録）。同じアプリの連続は畳み、畳んだ行も一度に 1 つ開く（D8）。 */
+function RecordsView({ load, viewing, scheme }: { load: Load<DayRecord[]> | null; viewing: string; scheme: Scheme }): React.ReactElement | null {
+  const [foldOpen, setFoldOpen] = useState<string | null>(null);
+  if (load === null) return null;
+  if (load.at === "loading") return <p>{m.recordsLoading}</p>;
+  if (load.at === "failed") return <p role="alert">{m.recordsFailed(load.why)}</p>;
+  const c = SCHEMES[scheme];
+  return (
+    <ol
+      data-testid="records"
+      aria-label={m.recordsLabel}
+      style={{ listStyle: "none", margin: "8px 0 0", padding: `${SPACE.rowY}px ${SPACE.rowX}px`, borderRadius: RADIUS.row, ...paint(c, "detail") }}
+    >
+      {foldRuns(load.value).map((f) =>
+        f.at === "one" ? (
+          <li key={f.record.id} style={{ margin: 0 }}>
+            {recordLine(f.record, viewing)}
+          </li>
+        ) : (
+          <FoldedRow key={f.key} run={f} viewing={viewing} open={foldOpen === f.key} onToggle={() => setFoldOpen(foldOpen === f.key ? null : f.key)} c={c} />
+        ),
+      )}
+    </ol>
+  );
+}
+
+function FoldedRow({ run, viewing, open, onToggle, c }: { run: FoldRun; viewing: string; open: boolean; onToggle: () => void; c: SchemeColors }): React.ReactElement {
+  return (
+    <li style={{ margin: 0 }}>
+      <button
+        type="button"
+        aria-expanded={open}
+        {...{ [FOCUS_ATTR]: "" }}
+        onClick={onToggle}
+        style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", font: "inherit", border: 0, ...paint(c, "folded") }}
+      >
+        {foldedText(run, m.range(clock(run.start, viewing), clock(run.end, viewing)))}
+      </button>
+      {open && (
+        <ol data-testid="fold-records" style={{ listStyle: "none", margin: 0, padding: "0 0 0 12px" }}>
+          {run.records.map((r) => (
+            <li key={r.id} style={{ margin: 0 }}>
+              {`${clock(r.start, viewing)}${regionStamp(r.tz_id, r.start)} ${joinParts([r.title, r.domain])}`}
+            </li>
+          ))}
+        </ol>
+      )}
     </li>
   );
 }
@@ -351,12 +473,13 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-function StayDetailView({ entry, detail, onAction, scheme }: { entry: DayEntry; detail: Load<StayDetail> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
+function StayDetailView({ entry, viewing, detail, records, onAction, scheme }: { entry: DayEntry; viewing: string; detail: Load<StayDetail> | null; records: Load<DayRecord[]> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
   const [confirming, setConfirming] = useState(false);
   const counts = detail?.at === "ok" ? detail.value.counts : [];
   const c: SchemeColors = SCHEMES[scheme];
   return (
     <div data-testid="stay-detail" style={{ marginTop: 8, padding: `${SPACE.rowY}px ${SPACE.rowX}px`, background: tone(c.surface2), borderRadius: RADIUS.row }}>
+      <RecordsView load={records} viewing={viewing} scheme={scheme} />
       {detail?.at === "loading" && <p>{m.detailLoading}</p>}
       {detail?.at === "failed" && <p role="alert">{m.detailFailed(detail.why)}</p>}
       {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{m.detailCount(count.display_name, count.count)}</p>)}</div>}
