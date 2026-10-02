@@ -37,6 +37,10 @@ mod attributes_tests;
 #[cfg(test)]
 mod clock_tests;
 pub mod coverage;
+/// 1 日の記録の読み出し（ST25 / 許可リスト・畳み・日の範囲）。
+pub mod day_records;
+#[cfg(test)]
+mod day_records_tests;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
