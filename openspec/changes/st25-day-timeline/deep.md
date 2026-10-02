@@ -160,3 +160,15 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
   - 「日付を指定すると、その日の記録がソースをまたいで時刻順に並ぶ」→ 滞在の行の中に他のソースの要約が入り、開くと時刻順に並ぶ形（Q1）
   - 「OS をライトに切り替えると画面が明るくなり…」→ **1 日の画面が**（Q5。稼働状況は ST14 へ）
 - 表題・価値・satisfies は変えない（NFR-17〜23 は自分の画面について満たす）
+
+### Q8. REMOVED した Scenario が正典に残る間、11.1 の `check_scenarios.py` をどう通すか（A / premise）
+
+- **本人の答え**: (未回答)
+- **何が崩れたか**: 11.1 は `python3 scripts/check_scenarios.py . st25-day-timeline` が rc=0 であることを求める。ところが `check_scenarios.py` は REMOVED を読まず、
+  正典 `openspec/specs/browsing-views/spec.md:148` に残る Scenario `稼働状況の画面の入口は変わらない`（この change が REMOVED する）を「担保の無い Scenario」として FAIL にする
+  （`scenarios: FAIL (担保なし 1 件)`。他の FAIL は無い）。印を足せば通るが、Task 7.1 の検証（`! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates`）と
+  Global Constraints（印を残すと嘘の試験が残る）に反する。この Scenario は archive で正典から消えるので、**archive 後は自然に解消する**
+- **実証**: 現在の HEAD（11.2 が全部 PASS の木）で `scripts/verify-run 11.1` が FAIL（evidence.jsonl の 11.1、rc=1）
+- **提案する正式な入口**: (a) `check_scenarios.py` が change の `## REMOVED Requirements` の Scenario 名を担保の対象から外す（harness2 側の直し。11.1 のコマンドは変えない）/
+  (b) 11.1 の検証を「FAIL の担保なしが REMOVED の 1 件だけ」を見るコマンドに `plan_fix.py` で直す
+- **効く先**: tasks.md 11.1 / `.harness2/scripts/check_scenarios.py`
