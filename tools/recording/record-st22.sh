@@ -50,7 +50,8 @@ setup() {
 # ---------------------------------------------------------------- run
 # 長い工程は裏で走らせて wait で待つ。wait の間なら Ctrl-C / SIGTERM の trap がすぐ効き、
 # 片付けが子をプロセスグループごと止める（run の頭で set -m にするので、裏の工程は自分のグループを持つ）
-bg() { "$@" & CHILD=$!; wait "$CHILD"; local rc=$?; CHILD=""; return "$rc"; }
+# 子にはロックの fd 9 を渡さない（子が残ると次の実行まで「別の録画が走っている」になる）
+bg() { "$@" 9>&- & CHILD=$!; wait "$CHILD"; local rc=$?; CHILD=""; return "$rc"; }
 
 free_port() { # $1 から上へ、待ち受けの無い番号を探す
   local p=$1
@@ -135,7 +136,7 @@ EOF
   # ---- 4. 起動（WSL）。専用 DB を作り直し、偽データを入れる
   say "起動: DB $DB_PORT / API $API_PORT / 画面 $WEB_PORT（compose project $PROJECT）"
   ( cd "$WT" && SERVER_BIN="$WT/.rec-bin/ashiato-server" WEB_DIST="$WT/web/dist" WEB_PORT="$WEB_PORT" \
-      STACK_RESET=1 SEED=normal setsid ./tools/stack.sh up ) >"$OUT/logs/stack.log" 2>&1 &
+      STACK_RESET=1 SEED=normal exec ./tools/stack.sh up ) >"$OUT/logs/stack.log" 2>&1 9>&- &
   STACK_PID=$!
   local i
   for i in $(seq 1 300); do
@@ -201,12 +202,13 @@ cleanup() {
       for pid in $wp; do (cd /mnt/c && /mnt/c/Windows/System32/taskkill.exe /T /F /PID "$pid" >/dev/null 2>&1); done
       [ -n "${wp// /}" ] && echo "Windows のプロセス: 止めた（$wp）" || echo "Windows のプロセス: 残っていない"
     fi
-    if [ -n "${STACK_PID:-}" ] && kill -0 "$STACK_PID" 2>/dev/null; then
-      # setsid で立てたので、プロセスグループごと止める（サーバ・vite preview も同じグループ）
-      local pg; pg="$(ps -o pgid= -p "$STACK_PID" 2>/dev/null | tr -d ' ')"
-      [ -n "$pg" ] && kill -TERM -- "-$pg" 2>/dev/null
-      for _ in $(seq 1 20); do kill -0 "$STACK_PID" 2>/dev/null || break; sleep 0.5; done
-      kill -0 "$STACK_PID" 2>/dev/null && [ -n "$pg" ] && kill -KILL -- "-$pg" 2>/dev/null
+    if [ -n "${STACK_PID:-}" ] && kill -0 -- "-$STACK_PID" 2>/dev/null; then
+      # set -m で裏に立てたので、stack.sh は自分のプロセスグループを持つ（サーバ・vite preview も同じグループ）。
+      # setsid を重ねない —— グループの頭で setsid すると fork して親が抜け、グループから外れる（実測 2026-10-02）
+      local pg="$STACK_PID"
+      kill -TERM -- "-$pg" 2>/dev/null
+      for _ in $(seq 1 20); do kill -0 -- "-$pg" 2>/dev/null || break; sleep 0.5; done
+      kill -0 -- "-$pg" 2>/dev/null && kill -KILL -- "-$pg" 2>/dev/null
       echo "stack: 止めた（pgid $pg）"
     fi
     if [ -n "${PROJECT:-}" ] && [ -d "${WT:-/nonexistent}" ]; then
