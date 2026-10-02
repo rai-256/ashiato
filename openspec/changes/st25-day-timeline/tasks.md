@@ -121,8 +121,10 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 - [ ] 6.1 `normal` の 2026-09-07 に、PC の前景（同じアプリの連続を含む）・離席 4 回（うち 1 回は 10 分未満）・除外 1 回（件数 3）・PC の停止 23:40〜・スマホの前景と後ろに下がったイベントを足す。
   ブラウザの訪問（2 台目の PC からの同じ訪問を含む）は、**`c02-browser-history` の `external_id_kind` が `record` のとき（ST08 の移行が済んでいるとき）だけ**入れ、そうでなければ入れないと出して続ける（design D13。spec-review R18）。
   書庫は入れない。登録簿に無い論理ソースは先頭で `ON CONFLICT DO NOTHING` で足す。固定の乱数で作り、2 回入れても件数が変わらない（再送として畳まれる）。
-  検証: `bash -c 'tools/stack.sh up && tools/seed.sh normal && tools/seed.sh normal'`、
-  `bash -c 'set -a; . ./.env 2>/dev/null; set +a; curl -sf -H "authorization: Bearer ${API_TOKEN:-dev-token-0123456789abcdef}" "http://127.0.0.1:18787/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"'`
+  （2026-10-02 に検証の形を直した。`tools/stack.sh up` は前景で待ち、終わるとサーバごと止めるので、`stack.sh up && …` と
+  2 本目の `curl` は先へ進めなかった。確かめる中身 —— 作り直した DB に 2 回入れても畳まれ、2026-09-07 の `/day` が離席 3・除外 1・
+  PC とスマホの要約を持つ —— は変えていない）
+  検証: `bash -c 'set -a; . ./.env; set +a; STACK_RESET=1 setsid tools/stack.sh up >/tmp/st25-6.1-stack.log 2>&1 & s=$!; trap "kill -- -$s 2>/dev/null; wait $s 2>/dev/null" EXIT; for i in $(seq 1 1800); do grep -q "^画面:" /tmp/st25-6.1-stack.log && break; kill -0 $s 2>/dev/null || break; sleep 1; done; grep -q "^画面:" /tmp/st25-6.1-stack.log || { tail -20 /tmp/st25-6.1-stack.log; exit 1; }; tools/seed.sh normal && tools/seed.sh normal && curl -sf -H "authorization: Bearer $API_TOKEN" "http://$BIND/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"'`
 
 ## Task 7: 画面 —— ルート・行き先・明暗
 
