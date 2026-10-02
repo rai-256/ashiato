@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST17 proto — その日どう感じたか（S-3 主観入力 / 主観の無い日）</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+         background: #15181a; color: #e6e8e6; }
+  .wrap { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  .ctl { padding: 14px; border-right: 1px solid #2b302d; overflow: auto; }
+  .ctl h1 { font-size: 15px; margin: 0 0 6px; }
+  .ctl p.lead { font-size: 12px; color: #b9beba; margin: 0 0 10px; line-height: 1.5; }
+  .grp { margin: 0 0 14px; }
+  .grp h2 { font-size: 12px; color: #b9beba; margin: 0 0 6px; font-weight: 600; }
+  .cards { display: grid; gap: 6px; }
+  .card { text-align: left; border: 1px solid #3a413c; background: #1d2220; color: inherit; border-radius: 6px;
+          padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer; min-height: 24px; }
+  .card small { display: block; color: #aab0ac; font-size: 11px; margin-top: 2px; line-height: 1.4; }
+  .card[aria-pressed="true"] { border-color: #9cc3a4; background: #24302a; }
+  .card:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid #cfe6d4; outline-offset: 2px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .row .card { flex: 1 1 auto; }
+  .presets .card { font-size: 12px; }
+  .fixed { font-size: 11px; color: #aab0ac; border: 1px dashed #3a413c; border-radius: 6px; padding: 8px; line-height: 1.5; }
+  .main { padding: 14px; display: grid; gap: 14px; align-content: start; }
+  .stage { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .phone { border: 1px solid #3a413c; border-radius: 14px; padding: 8px; background: #0f1112; }
+  .phone .cap { font-size: 11px; color: #aab0ac; margin: 0 0 6px; }
+  .screen { overflow: auto; border-radius: 8px; height: 640px; }
+  .meter { font-size: 12px; color: #cfd4d0; background: #1d2220; border: 1px solid #3a413c; border-radius: 6px; padding: 8px 10px; line-height: 1.6; }
+  .out { background: #1d2220; border: 1px solid #3a413c; border-radius: 6px; padding: 10px; }
+  .out pre { white-space: pre-wrap; user-select: text; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; margin: 0 0 8px; line-height: 1.55; }
+  .copy { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #9cc3a4; background: #24302a; color: inherit; cursor: pointer; min-height: 32px; }
+  .copied { font-size: 12px; color: #9cc3a4; margin-left: 8px; }
+
+  /* ---- 製品側（プレビュー）。tokens.ts の確定値: 色相 132 / 彩度 30% / 面 3 段 ---- */
+  .app { font-size: 15px; min-height: 100%; padding: 12px; }
+  .app.dark  { --g: hsl(132 30% 12%); --s1: hsl(132 30% 18%); --s2: hsl(132 30% 24%); --t: hsl(132 30% 92%); --m: hsl(132 30% 72%); --line: hsl(132 30% 40%); }
+  .app.light { --g: hsl(132 30% 96%); --s1: hsl(132 30% 91%); --s2: hsl(132 30% 86%); --t: hsl(132 30% 14%); --m: hsl(132 30% 30%); --line: hsl(132 30% 45%); }
+  .app { background: var(--g); color: var(--t); }
+  .app h3 { font-size: 17px; margin: 0 0 4px; }
+  .app .sub { color: var(--m); font-size: 13px; margin: 0 0 10px; }
+  .app .panel { background: var(--s1); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
+  .app button, .app a.btn { font: inherit; color: var(--t); background: var(--s2); border: 1px solid var(--line); border-radius: 6px;
+                            min-height: 24px; min-width: 24px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  .app button:focus-visible, .app a.btn:focus-visible { outline: 3px solid var(--t); outline-offset: 2px; }
+  .scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .scale button { flex-direction: column; min-height: 64px; padding: 6px 2px; font-size: 13px; line-height: 1.25; }
+  .scale button b { font-size: 18px; }
+  .scale button[aria-pressed="true"] { background: var(--t); color: var(--g); border-color: var(--t); }
+  .small-scale button { min-height: 44px; }
+  .save { width: 100%; min-height: 48px !important; margin-top: 8px; font-weight: 600; }
+  .toast { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin: 0 0 10px; background: var(--s2); }
+  .note { width: 100%; font: inherit; color: var(--t); background: var(--g); border: 1px solid var(--line); border-radius: 6px; padding: 6px; min-height: 40px; }
+  .daybar { display: flex; gap: 6px; align-items: center; justify-content: space-between; margin: 0 0 8px; }
+  .daybar button { padding: 0 10px; min-height: 36px; }
+  .strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .strip button { flex-direction: column; min-height: 52px; font-size: 12px; padding: 4px 0; line-height: 1.25; }
+  .strip button.miss { background: var(--g); border-style: dashed; }
+  .strip button[aria-current="true"] { outline: 2px solid var(--t); outline-offset: 1px; }
+  .month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; font-size: 11px; }
+  .month div { min-height: 34px; border-radius: 4px; background: var(--s2); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; }
+  .month div.miss { background: var(--g); border: 1px dashed var(--line); }
+  .month div.pad { background: transparent; }
+  .month .wd { background: transparent; color: var(--m); min-height: 18px; }
+  .s2head { background: var(--s1); border-radius: 8px; padding: 10px; margin: 0 0 8px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 2px 10px; font-size: 13px; min-height: 28px; }
+  .badge.miss { border-style: dashed; }
+  .staylist .stay { background: var(--s1); border-radius: 8px; padding: 8px 10px; margin: 0 0 6px; font-size: 14px; }
+  .staylist .stay .feel { margin-top: 6px; font-size: 13px; color: var(--m); }
+  .staylist .move { color: var(--m); font-size: 13px; padding: 2px 10px 8px; }
+  .notif { background: #2a2f2c; color: #eef1ee; border-radius: 10px; padding: 10px; font-size: 13px; margin: 0 0 10px; }
+  .notif b { display: block; font-size: 12px; color: #c9cec9; font-weight: 500; }
+  .ppa { display: flex; gap: 6px; }
+  .ppa button { flex: 1; min-height: 36px; font-size: 13px; }
+  .ppa button[aria-pressed="true"] { background: var(--t); color: var(--g); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="ctl" aria-label="コントロール">
+    <h1>ST17 — その日どう感じたか</h1>
+    <p class="lead">S-3（主観入力）の形と、主観の無い日（FR-57）の出し方を触って選びます。滞在ごとの気分の口を作るかは Q4、ここでは置き場だけ。補足と追加の尺度を持つかどうかも別の問い（Q2 / Q3）で、ここでは置き方だけを選ぶ。右の 2 台は<strong>通知から開いた S-3</strong>と<strong>1 日の画面（S-2）の頭</strong>。快–不快のボタンを押すと保存までの手数が下に出ます。</p>
+
+    <div class="grp"><h2>1. 保存の仕方</h2><div class="cards" id="c-save"></div></div>
+    <div class="grp"><h2>2. 補足（ひとこと）と追加の尺度の置き方</h2><div class="cards" id="c-extra"></div></div>
+    <div class="grp"><h2>3. 対象の日の選び方（昨日の分を書く）</h2><div class="cards" id="c-date"></div></div>
+    <div class="grp"><h2>4. 主観の無い日をどこで区別して出すか（FR-57）</h2><div class="cards" id="c-miss"></div></div>
+    <div class="grp"><h2>5. 滞在ごとの気分を書く置き場（Q4 で「作る」を選んだときだけ効く）</h2><div class="cards" id="c-stay"></div></div>
+
+    <div class="grp"><h2>文脈（軸ではない。同じ設定のまま切り替えて両方成立するか見る）</h2>
+      <div class="row" id="c-scheme"></div>
+      <div class="row" id="c-width" style="margin-top:6px"></div>
+      <div class="row" id="c-when" style="margin-top:6px"></div>
+    </div>
+    <div class="grp presets"><h2>プリセット（性格）</h2><div class="row" id="c-preset"></div></div>
+
+    <div class="fixed"><b>どの状態でも満たしている前提（コントロールにしない）</b><br>
+      NFR-17 OS の明暗に追従（文脈で切替）/ NFR-18 文字 4.5:1（tokens.ts の文字 92 / 72 と面 12〜24）/ NFR-19 触れる対象 24 px 以上（快–不快のボタンは 64 px）/ NFR-21 原色を使わず角は 4 px 以上 / NFR-22 フォーカスが見える / NFR-23 意味を担う非テキストは 3:1 —— <b>快–不快は色で分けず、数値と言葉で出す</b>。主観の無い日は破線と文字「未記入」で出し、色だけに頼らない。<br>
+      日は Asia/Tokyo で区切る（tokens.ts の DAY_TZ）。データ: 2026-09-04〜10-03 の 30 日、うち 9 日が未記入（今日 10/3 も未記入）。2026-10-02 は滞在 6 件。</div>
+  </aside>
+
+  <main class="main">
+    <div class="stage">
+      <div class="phone"><p class="cap" id="cap1">S-3 主観入力（通知から開いた）</p><div class="screen" id="s3"></div></div>
+      <div class="phone"><p class="cap" id="cap2">S-2 1 日の画面の頭（主観の無い日の区別）</p><div class="screen" id="s2"></div></div>
+    </div>
+    <div class="meter" id="meter" aria-live="polite"></div>
+    <div class="out">
+      <pre id="prompt"></pre>
+      <button class="copy" id="copy" type="button">指示をコピー</button><span class="copied" id="copied"></span>
+    </div>
+  </main>
+</div>
+
+<script>
+const VAL = [
+  { v: -2, w: "とても不快" }, { v: -1, w: "不快" }, { v: 0, w: "どちらでもない" }, { v: 1, w: "快" }, { v: 2, w: "とても快" },
+];
+const sign = v => (v > 0 ? "+" + v : String(v));
+const word = v => VAL.find(x => x.v === v).w;
+
+// 30 日ぶんの記録（偽物）。null は未記入
+const DAYS = (() => {
+  const miss = new Set(["2026-09-06","2026-09-12","2026-09-13","2026-09-19","2026-09-24","2026-09-28","2026-10-01","2026-10-02","2026-10-03"]);
+  const seq = [1,0,2,-1,1,0,1,1,-2,0,1,2,0,-1,1,0,1,2,1,0,-1,1,0,1,2,0,1,1,0,1];
+  const out = []; const d = new Date("2026-09-04T12:00:00Z");
+  for (let i = 0; i < 30; i++) {
+    const k = d.toISOString().slice(0,10);
+    out.push({ date: k, v: miss.has(k) ? null : seq[i], dow: d.getUTCDay() });
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+})();
+const WD = ["日","月","火","水","木","金","土"];
+const md = k => `${Number(k.slice(5,7))}/${Number(k.slice(8,10))}`;
+
+const AXES = {
+  save: { def: "tap", opts: [
+    ["tap", "押したら保存（1 タップ）", "快–不快を押した瞬間に保存。補足は保存の後に足せる。押し間違いは押し直すと新しい記録が積まれる"],
+    ["confirm", "選んで「保存」を押す（2 タップ）", "選び直してから確定できる。保存の前に補足・尺度も同じ画面で書ける"],
+  ]},
+  extra: { def: "after", opts: [
+    ["after", "畳んでおき、開くと出る", "「ひとこと・ほかの尺度を書く」を開くと、補足 1 欄と追加の尺度（例: 元気さ -2〜+2）が出る"],
+    ["open", "いつも出しておく", "5 つのボタンの下に補足の欄と追加の尺度が常に並ぶ"],
+  ]},
+  date: { def: "head", opts: [
+    ["head", "見出しの日付＋前の日へ", "「10 月 3 日（土）」の左右に ‹ › 。昨日の分は ‹ を 1 回"],
+    ["strip", "直近 7 日の帯から選ぶ", "見出しの下に 7 日の帯。未記入の日は破線と「未記入」。帯のどれかを押すとその日を書く"],
+  ]},
+  miss: { def: "both", opts: [
+    ["s2", "1 日の画面（S-2）の頭に「気分 未記入」", "1 日の画面を開くと、その日の気分か「未記入 — 書く」が頭に出る。日を移るたびに分かる"],
+    ["s3", "S-3 に 1 か月の暦", "S-3 の下に 1 か月の暦。未記入の日は破線と「未」。S-2 には出さない"],
+    ["both", "両方", "S-2 の頭にも、S-3 の帯（または暦）にも出す"],
+  ]},
+};
+AXES.stay = { def: "s3", opts: [
+  ["s3", "S-3 の下に、その日の滞在を並べて書く", "日の気分の下に、その日の滞在（時刻の範囲）を並べ、各行に小さい 5 つのボタン。browsing-views に触れない"],
+  ["s2", "1 日の画面（S-2）の滞在の行の中で書く", "ui-direction.md の置き場どおり。S-3 は日の気分だけ。ST22 と ST25 の archive まで ST17 は止まる"],
+]};
+const STAYS = [["0:00 – 7:40","自宅の辺り"],["8:15 – 12:05","職場の辺り"],["12:10 – 12:50","駅前の辺り"],["12:55 – 18:30","職場の辺り"],["19:05 – 19:40","スーパーの辺り"],["19:55 – 24:00","自宅の辺り"]];
+const CTX = {
+  scheme: { def: "dark", opts: [["dark","ダーク"],["light","ライト"]] },
+  width: { def: "360", opts: [["360","幅 360 px"],["420","幅 420 px"]] },
+  when: { def: "today", opts: [["today","今日 21:30 の通知から開く"],["yday","翌朝 8:10 に自分で開いて昨日の分"]] },
+};
+const PRESETS = [
+  ["最短", { save: "tap", extra: "after", date: "head", miss: "s2", stay: "s3" }],
+  ["書き足せる", { save: "tap", extra: "after", date: "head", miss: "both", stay: "s3" }],
+  ["じっくり", { save: "confirm", extra: "open", date: "strip", miss: "both", stay: "s2" }],
+  ["振り返り重視", { save: "confirm", extra: "after", date: "strip", miss: "s3", stay: "s3" }],
+];
+
+const state = {}; for (const k in AXES) state[k] = AXES[k].def; for (const k in CTX) state[k] = CTX[k].def;
+const sim = { picked: null, saved: false, taps: 0, open: false, target: null };
+
+function cards(id, axis, map, isCtx) {
+  const el = document.getElementById(id); el.innerHTML = "";
+  for (const o of map.opts) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "card"; b.setAttribute("aria-pressed", String(state[axis] === o[0]));
+    b.innerHTML = o[1] + (o[2] ? `<small>${o[2]}</small>` : "");
+    b.onclick = () => { state[axis] = o[0]; resetSim(); updateAll(); };
+    el.appendChild(b);
+  }
+}
+function resetSim() { sim.picked = null; sim.saved = false; sim.taps = 1; sim.open = false; sim.target = "2026-10-03"; }
+
+function renderS3() {
+  const s = state; const el = document.getElementById("s3");
+  el.style.width = s.width + "px";
+  const t = sim.target; const tDay = DAYS.find(d => d.date === t);
+  const hd = `${Number(t.slice(5,7))} 月 ${Number(t.slice(8,10))} 日（${WD[new Date(t+"T12:00:00Z").getUTCDay()]}）`;
+  let h = `<div class="app ${s.scheme}">`;
+  h += s.when === "today" ? `<div class="notif"><b>あしあと · 21:30</b>今日はどうでしたか（30 秒）</div>` : `<p class="sub">（通知ではなく、自分で開いた。通知は 1 日 1 回だけ —— FR-43）</p>`;
+  if (s.date === "head") {
+    h += `<div class="daybar"><button type="button" data-shift="-1" aria-label="前の日">‹</button><h3 style="margin:0">${hd}</h3><button type="button" data-shift="1" aria-label="次の日" ${t === "2026-10-03" ? "disabled" : ""}>›</button></div>`;
+  } else {
+    h += `<h3>${hd}</h3>`;
+  }
+  h += `<p class="sub">この日はどう感じましたか（快–不快）${tDay && tDay.v !== null && !sim.saved ? ` · いまの記録: ${sign(tDay.v)} ${word(tDay.v)}` : ""}</p>`;
+  if (s.date === "strip") {
+    const last7 = DAYS.slice(-7);
+    h += `<div class="strip" style="margin:0 0 10px">` + last7.map(d => {
+      const v = d.date === t && sim.saved ? sim.picked : d.v;
+      return `<button type="button" data-day="${d.date}" class="${v === null ? "miss" : ""}" aria-current="${d.date === t}">${md(d.date)}<span>${WD[d.dow]}</span><span>${v === null ? "未記入" : sign(v)}</span></button>`;
+    }).join("") + `</div>`;
+  }
+  if (sim.saved && s.save === "tap") h += `<div class="toast" role="status">保存しました: ${sign(sim.picked)} ${word(sim.picked)} · 記入 ${s.when === "today" ? "10/3 21:30" : "10/3 8:10"}（対象の日 ${md(t)}）</div>`;
+  h += `<div class="panel"><div class="scale" role="group" aria-label="快–不快">` + VAL.map(x =>
+    `<button type="button" data-val="${x.v}" aria-pressed="${sim.picked === x.v}"><b>${sign(x.v)}</b>${x.w}</button>`).join("") + `</div>`;
+  const showExtra = s.extra === "open" || (s.extra === "after" && sim.open);
+  if (s.extra === "after" && !sim.open) h += `<button type="button" data-open="1" style="width:100%;margin-top:8px;min-height:40px">ひとこと・ほかの尺度を書く</button>`;
+  if (showExtra) {
+    h += `<label style="display:block;margin-top:10px;font-size:13px">ひとこと（任意）<textarea class="note" rows="2" placeholder="例: 久しぶりに走った"></textarea></label>`;
+    h += `<div style="margin-top:8px;font-size:13px">元気さ（任意。尺度 energy 版 1）</div><div class="scale small-scale">` + VAL.map(x => `<button type="button"><b>${sign(x.v)}</b></button>`).join("") + `</div>`;
+  }
+  if (s.save === "confirm") h += `<button type="button" class="save" data-save="1" ${sim.picked === null ? "disabled" : ""}>保存</button>`;
+  if (sim.saved && s.save === "confirm") h += `<div class="toast" role="status" style="margin-top:8px">保存しました: ${sign(sim.picked)} ${word(sim.picked)} · 記入 ${s.when === "today" ? "10/3 21:30" : "10/3 8:10"}（対象の日 ${md(t)}）</div>`;
+  h += `</div>`;
+  if (s.stay === "s3") {
+    h += `<div class="panel"><div style="font-size:13px;margin:0 0 6px">この日の滞在ごと（任意）</div>` + STAYS.map(st =>
+      `<div style="margin:0 0 8px"><div style="font-size:13px">${st[0]} · <span style="color:var(--m)">${st[1]}</span></div><div class="ppa" style="margin-top:4px">${VAL.map(x => `<button type="button" aria-label="${x.w}">${sign(x.v)}</button>`).join("")}</div></div>`).join("") + `</div>`;
+  }
+  if (s.miss === "s3" || s.miss === "both") {
+    if (!(s.date === "strip" && s.miss === "both")) {
+      h += `<div class="panel"><div style="font-size:13px;margin:0 0 6px">9 月 4 日〜10 月 3 日（未記入は破線と「未」）</div><div class="month">`;
+      h += WD.map(w => `<div class="wd">${w}</div>`).join("");
+      for (let i = 0; i < DAYS[0].dow; i++) h += `<div class="pad"></div>`;
+      for (const d of DAYS) { const v = d.date === t && sim.saved ? sim.picked : d.v;
+        h += `<div class="${v === null ? "miss" : ""}"><span>${Number(d.date.slice(8,10))}</span><span>${v === null ? "未" : sign(v)}</span></div>`; }
+      h += `</div></div>`;
+    }
+  }
+  h += `</div>`;
+  el.innerHTML = h;
+  el.querySelectorAll("[data-val]").forEach(b => b.onclick = () => {
+    sim.picked = Number(b.dataset.val); sim.taps++;
+    if (s.save === "tap") sim.saved = true; renderAll(); });
+  el.querySelectorAll("[data-save]").forEach(b => b.onclick = () => { sim.taps++; sim.saved = true; renderAll(); });
+  el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { sim.taps++; sim.open = true; renderAll(); });
+  el.querySelectorAll("[data-shift]").forEach(b => b.onclick = () => {
+    const d = new Date(sim.target + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + Number(b.dataset.shift));
+    const k = d.toISOString().slice(0,10); if (k > "2026-10-03" || k < "2026-09-04") return;
+    sim.target = k; sim.taps++; sim.picked = null; sim.saved = false; renderAll(); });
+  el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { sim.target = b.dataset.day; sim.taps++; sim.picked = null; sim.saved = false; renderAll(); });
+}
+
+function renderS2() {
+  const s = state; const el = document.getElementById("s2");
+  el.style.width = s.width + "px";
+  const day = "2026-10-02"; const rec = DAYS.find(d => d.date === day);
+  const v = sim.target === day && sim.saved ? sim.picked : rec.v;
+  let h = `<div class="app ${s.scheme}"><div class="s2head"><div class="daybar"><button type="button" aria-label="前の日">‹</button><h3 style="margin:0">10 月 2 日（金）</h3><button type="button" aria-label="次の日">›</button></div>`;
+  if (s.miss === "s2" || s.miss === "both") {
+    h += v === null
+      ? `<span class="badge miss">気分 未記入</span> <a class="btn" href="#" style="padding:0 10px;min-height:28px;font-size:13px">書く</a>`
+      : `<span class="badge">気分 ${sign(v)} ${word(v)}</span>`;
+  } else {
+    h += `<span style="font-size:13px;color:var(--m)">（S-2 には気分を出さない）</span>`;
+  }
+  h += `</div><div class="staylist">`;
+  const stays = STAYS;
+  stays.forEach((st, i) => {
+    h += `<div class="stay"><div><b>${st[0]}</b></div><div style="font-size:13px;color:var(--m)">滞在 · ${st[1]}（場所の名前は ST21）</div>`;
+    if (s.stay === "s2") h += `<div class="feel">この滞在の気分</div><div class="ppa" style="margin-top:4px">${VAL.map(x => `<button type="button" aria-label="${x.w}">${sign(x.v)}</button>`).join("")}</div>`;
+    h += `</div>`;
+    if (i < stays.length - 1) h += `<div class="move">移動</div>`;
+  });
+  h += `</div></div>`;
+  el.innerHTML = h;
+}
+
+function renderMeter() {
+  const s = state;
+  const min = 1 + (s.save === "confirm" ? 2 : 1) + (s.when === "yday" && s.date === "head" ? 0 : 0);
+  const m = document.getElementById("meter");
+  const tgt = sim.target;
+  m.innerHTML = `<b>保存までの手数</b>: いまの操作で ${sim.taps} タップ（開く 1 を含む）${sim.saved ? " · 保存済み" : ""}。` +
+    ` この設定の最短は ${min} タップ（開く → ${s.save === "confirm" ? "選ぶ → 保存" : "押す"}。昨日の分は ‹ で +1）。` +
+    ` 対象の日 ${md(tgt)} / 記入の日時 ${s.when === "today" ? "10/3 21:30" : "10/3 8:10"} —— <b>別々に入る</b>（FR-41）。` +
+    (s.when === "yday" ? " 翌朝は自分で開き、‹ で昨日へ移る（夜中に開いたときの既定は Q9）。" : "") +
+    ` 前/後（FR-39）はこの画面では選ばせず、記入の日時と対象の日から入る想定で描いている（別の問い）。`;
+}
+
+function updatePrompt() {
+  const s = state; const p = [];
+  const lbl = (ax) => AXES[ax].opts.find(o => o[0] === s[ax])[1];
+  p.push(`ST17 の S-3（主観入力）と主観の無い日の出し方を、次の形で作る。`);
+  p.push(`- 保存の仕方: ${lbl("save")}${s.save === "tap" ? "。押し直しは新しい記録として積み、最新を出す" : "。保存の前に選び直せる"}`);
+  p.push(`- 補足（ひとこと）と追加の尺度: ${lbl("extra")}`);
+  p.push(`- 対象の日の選び方: ${lbl("date")}${s.date === "strip" ? "。帯の未記入の日は破線と文字「未記入」" : "。昨日の分は前の日へ 1 回で開く"}`);
+  p.push(`- 主観の無い日（FR-57）: ${lbl("miss")}。どこでも色ではなく破線と文字「未記入」で区別する`);
+  p.push(`- 滞在ごとの気分の置き場（Q4 で作るとき）: ${lbl("stay")}`);
+  const diff = ["save","extra","date","miss","stay"].filter(k => s[k] !== AXES[k].def);
+  p.push(diff.length === 0 ? `（すべて初期値のまま）` : `（初期値から動かした軸: ${diff.map(k => ({save:"保存の仕方",extra:"補足と尺度",date:"対象の日",miss:"主観の無い日",stay:"滞在の置き場"})[k]).join("・")}）`);
+  p.push(`見て確かめた文脈: ${s.scheme === "dark" ? "ダーク" : "ライト"} / 幅 ${s.width} px / ${s.when === "today" ? "当日 21:30 の通知から" : "翌朝に自分で開いて昨日の分"}。保存までの最短 ${1 + (s.save === "confirm" ? 2 : 1)} タップ。`);
+  document.getElementById("prompt").textContent = p.join("\n");
+}
+
+function renderAll() { renderS3(); renderS2(); renderMeter(); updatePrompt(); }
+function updateAll() {
+  cards("c-save","save",AXES.save); cards("c-extra","extra",AXES.extra); cards("c-date","date",AXES.date);
+  cards("c-miss","miss",AXES.miss); cards("c-stay","stay",AXES.stay);
+  cards("c-scheme","scheme",CTX.scheme); cards("c-width","width",CTX.width); cards("c-when","when",CTX.when);
+  renderAll();
+}
+const pe = document.getElementById("c-preset");
+for (const [name, v] of PRESETS) { const b = document.createElement("button"); b.type = "button"; b.className = "card"; b.textContent = name;
+  b.onclick = () => { Object.assign(state, v); resetSim(); updateAll(); }; pe.appendChild(b); }
+document.getElementById("copy").onclick = () => {
+  const text = document.getElementById("prompt").textContent; const c = document.getElementById("copied");
+  if (!navigator.clipboard) { c.textContent = "コピーできない。上の欄を長押しして選んでください"; return; }
+  navigator.clipboard.writeText(text).then(() => { c.textContent = "コピーしました"; setTimeout(() => c.textContent = "", 1500); })
+    .catch(() => { c.textContent = "コピーできない。上の欄を長押しして選んでください"; });
+};
+// OS の明暗を初期値に（NFR-17。取れなければダーク）
+if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) state.scheme = "light";
+resetSim(); updateAll();
+</script>
+</body>
+</html>
