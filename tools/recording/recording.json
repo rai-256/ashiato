@@ -18,6 +18,15 @@
       ]
     },
     {
+      "id": "ST22-phone-dark",
+      "story": "ST22",
+      "spec": "tools/recording/st22/st22-phone-dark.rec.ts",
+      "requires": [
+        "web/e2e/day-erase.spec.ts",
+        "web/e2e/global-setup.ts"
+      ]
+    },
+    {
       "id": "ST06-first-launch",
       "story": "ST06",
       "platform": "android",
@@ -25,6 +34,38 @@
       "test_class": "dev.ashiato.collector.St06RecordingTest",
       "requires": [
         "collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt"
+      ]
+    },
+    {
+      "id": "ST06-later-grant",
+      "story": "ST06",
+      "platform": "android",
+      "spec": "tools/recording/st06/St06LaterGrantRecordingTest.kt",
+      "test_class": "dev.ashiato.collector.St06LaterGrantRecordingTest",
+      "requires": [
+        "collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageSourceAdapter.kt"
+      ]
+    },
+    {
+      "id": "ST28-login",
+      "story": "ST28",
+      "spec": "tools/recording/st28/st28-login.rec.ts",
+      "with": [
+        "e2e/login.spec.ts"
+      ],
+      "requires": [
+        "web/e2e/login.spec.ts",
+        "web/e2e/global-setup.ts"
+      ]
+    },
+    {
+      "id": "ST05-clock-skew",
+      "story": "ST05",
+      "platform": "android",
+      "spec": "tools/recording/st05/St05RecordingTest.kt",
+      "test_class": "dev.ashiato.collector.St05RecordingTest",
+      "requires": [
+        "collector-android/app/src/main/kotlin/dev/ashiato/collector/ClockSkewMeasurer.kt"
       ]
     }
   ],

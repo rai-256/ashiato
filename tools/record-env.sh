@@ -35,7 +35,9 @@ up() {
   r_() { openssl rand -hex 24; }
   pg="$(r_)"; ow="$(r_)"; ap="$(r_)"
   old_umask="$(umask)"; umask 077
-  cat >.env <<EOF || exit 1
+  if grep -q '^APP_DB_PASSWORD=' .env.example 2>/dev/null; then
+    # ST28 以降の木: DB の役割が 3 つ（管理者・所有者・アプリ）と画面の合言葉
+    cat >.env <<EOF || exit 1
 COMPOSE_PROJECT_NAME=$PROJECT
 POSTGRES_PASSWORD=$pg
 OWNER_DB_PASSWORD=$ow
@@ -48,6 +50,18 @@ WEB_PASSWORD=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF
+  else
+    # ST28 より前の木（ST28 を含まない Story のブランチ）: DB の合言葉は docker-compose.yml の固定値で、
+    # 画面のログインも無い（実測 2026-10-03: ST05 の木に上の形を渡すと DB の認証で落ちた）。DB は loopback の専用 project
+    cat >.env <<EOF || exit 1
+COMPOSE_PROJECT_NAME=$PROJECT
+DATABASE_URL=postgres://ashiato:ashiato@127.0.0.1:$db/ashiato
+BIND=127.0.0.1:$api
+API_TOKEN=$(r_)
+ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
+ALLOWED_HOSTS=.example.ts.net
+EOF
+  fi
   umask "$old_umask"
   cat >docker-compose.override.yml <<EOF || exit 1
 services:
@@ -101,7 +115,8 @@ EOF
   local tmp="$STATE/ready.tmp"
   {
     echo "BASE_URL=http://127.0.0.1:$web"
-    echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"
+    # 画面のログインが無い木（ST28 より前）では渡さない
+    if grep -q '^WEB_PASSWORD=' .env; then echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"; fi
     # 録画の間（各工程の後の停止 / 操作の間隔）。録画用の spec と設定が読む。変えるなら呼ぶ側で REC_HOLD_MS / REC_SLOWMO_MS
     echo "PASS_REC_HOLD_MS=${REC_HOLD_MS:-1200}"; echo "INFO_rec_hold_ms=${REC_HOLD_MS:-1200}"
     echo "PASS_REC_SLOWMO_MS=${REC_SLOWMO_MS:-250}"; echo "INFO_rec_slowmo_ms=${REC_SLOWMO_MS:-250}"
