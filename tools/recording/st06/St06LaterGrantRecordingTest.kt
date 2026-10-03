@@ -17,6 +17,7 @@ import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import java.io.File
+import java.util.regex.Pattern
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -24,87 +25,96 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.regex.Pattern
 
 /**
- * 録画専用（人間が後から動画で見る）。ST06 の初回起動の導線を 1 本の流れで撮る:
- * 位置（使用中）→ 位置（常に）→ 通知 → 利用状況へのアクセス → 常駐の通知
- * → もう一度開いても設定画面へは送られない → 端末に集まったアプリ利用（結果の札）。
+ * 録画専用（人間が後から動画で見る）。ST06 の**許可しなかったとき**と**後から許可したとき**を 1 本の流れで撮る:
+ * 位置を許可しない → 通知は許可 → 利用状況へのアクセスを許さずに戻る → それでも収集は始まっている（常駐の通知）
+ * → 後から常駐の通知をたどって利用状況へのアクセスを許可 → 次の契機からアプリ利用が集まる。
  *
- * **結果の札**は録画のテストが出す通知（「【録画の結果】」）。中身はアプリの未送信の置き場（`filesDir/outbox`）を
- * 読んだもの —— 送信は 5 分ごとなので、この動画の間にはサーバへ届かない（届くことは計測テストと smoke が持つ）。
+ * spec「許可しなくても収集は始まる」「後から許可すると次の契機から集まる」「以後は常駐の通知から同じ画面へたどれる」（design D6）。
+ * 「次の契機」はここではアプリを開き直すこと（収集の起動時にその場で取る）。放っておけば 30 分ごとの刻み。
  *
- * **録画のときだけ走る**（`-e recording 1`）。通常の計測テストでは飛ばす ——
- * 権限が未許可・未要求の「入れたばかり」から始める必要があり、外で入れ直してから起動する。
- * 端末の言語は日本語を前提に、英語の文言も受ける。各工程の見出しは Toast で画面に出す（動画の目印）。
- *
- * 置き場は `tools/recording/st06/`（宣言は `tools/recording/recording.json`）。録画はハーネスの `scripts/record-run` が
- * 対象コミットの androidTest へ写し、エミュレータを入れたばかりの状態から起こして走らせる。
+ * **録画のときだけ走る**（`-e recording 1`）。入れたばかりの状態から始める（record-run が入れ直してから起動する）。
+ * 結果の札は録画のテストが出す通知（「【録画の結果】」）で、中身はアプリの未送信の置き場を読んだもの。
  */
 @RunWith(AndroidJUnit4::class)
-class St06RecordingTest {
+class St06LaterGrantRecordingTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val device: UiDevice get() = UiDevice.getInstance(instrumentation)
 
     @Test
-    fun firstLaunchFlowForRecording() {
+    fun denyThenGrantLaterForRecording() {
         assumeTrue("録画のときだけ走る（-e recording 1）", InstrumentationRegistry.getArguments().getString("recording") == "1")
         assertFalse("入れたばかりの状態から始める（位置がもう許可されている）", granted(Manifest.permission.ACCESS_FINE_LOCATION))
 
         step("1. あしあと。を初めて起動する")
         device.pressHome()
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        launchApp()
 
-        step("2. 位置: アプリの使用時のみ許可")
-        click("アプリの使用時のみ|While using the app")
+        step("2. 位置: 許可しない")
+        click(DENY)
 
-        step("3. 位置: 常に許可（背景の位置）")
-        click("常に許可|Allow all the time")
+        step("3. 通知の送信は許可")
+        click("^(許可|Allow)$")
+
+        step("4. 利用状況へのアクセス: 許可せずに戻る")
+        assertNotNull("利用状況へのアクセスの画面が開かない", device.wait(Until.findObject(By.text(Pattern.compile("あしあと。"))), TIMEOUT_MS))
         hold()
         device.pressBack()
 
-        step("4. 通知の送信を許可")
-        click("許可|Allow")
-
-        step("5. 利用状況へのアクセス: あしあと。を許可")
-        click("あしあと。")
-        click("使用状況へのアクセスを許可|Permit usage access")
-        assertTrue("利用状況へのアクセスが許可にならない", waitUntil { usageAccessCapability(context).blockers.none { it == Capability.PERMISSION } })
-        hold()
-        device.pressBack()
-        device.pressBack()
-
-        step("6. 常駐の通知（収集中）")
-        assertTrue("前景サービスの通知が出ない", waitUntil { notificationShown() })
-        device.openNotification()
-        // 通知の一覧は systemui が描くので、パッケージではなく通知のタイトル（LocationService の「あしあと。」）で探す
-        assertNotNull(
-            "通知の一覧にあしあと。が出ない",
-            device.wait(Until.findObject(By.pkg("com.android.systemui").text(Pattern.compile("あしあと。.*"))), TIMEOUT_MS),
+        step("5. それでも収集は始まっている（常駐の通知）")
+        assertTrue("前景サービスの通知が出ない（許可しなくても収集は始まるはず）", waitUntil { notificationShown() })
+        assertFalse(granted(Manifest.permission.ACCESS_FINE_LOCATION))
+        assertFalse(usageAccessGranted())
+        showCard(
+            "【録画の結果】許可しなかった状態",
+            listOf(
+                "位置: 未許可 / 利用状況へのアクセス: 未許可 / 通知: 許可",
+                "収集のサービス: 動いている（常駐の通知が出ている）",
+                "アプリ利用の記録: ${outbox().count { it.logicalSource == APP_USAGE_LOGICAL_SOURCE }} 件（許可が無いので取らない）",
+            ),
         )
-        hold(3_000)
-        device.pressBack()
 
-        step("7. 結果: 位置（常に）・通知・利用状況のアクセスが揃った")
-        assertTrue(granted(Manifest.permission.ACCESS_FINE_LOCATION))
-        assertTrue(granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
-        assertTrue(granted(Manifest.permission.POST_NOTIFICATIONS))
-        assertTrue(notificationShown())
-        device.pressHome()
+        step("6. 後から: 常駐の通知をたどって利用状況へのアクセスを許可")
+        device.openNotification()
+        // 本文（「…記録を集めています」）を押す。タイトルの「あしあと。」を押しても開かなかった（実測 2026-10-03。
+        // 手で本文を押すと利用状況へのアクセスの画面が開く）
+        val ongoing = device.wait(Until.findObject(By.pkg("com.android.systemui").textContains("記録を集めています")), TIMEOUT_MS)
+        assertNotNull("通知の一覧にあしあと。の常駐の通知が出ない", ongoing)
         hold()
+        ongoing.click()
+        // 通知の一覧が閉じきる前は一覧の「あしあと。」も拾えてしまう（実測: 押す前に消えて StaleObjectException）。
+        // 設定画面が前に出るのを待ち、その中の「あしあと。」を押す
+        assertTrue("常駐の通知から設定画面が開かない", device.wait(Until.hasObject(By.pkg(SETTINGS_PACKAGE)), TIMEOUT_MS))
+        val app = device.wait(Until.findObject(By.pkg(SETTINGS_PACKAGE).text("あしあと。")), TIMEOUT_MS)
+        assertNotNull("設定画面にあしあと。が出ない", app)
+        hold()
+        app.click()
+        click("使用状況へのアクセスを許可|Permit usage access")
+        assertTrue("利用状況へのアクセスが許可にならない", waitUntil { usageAccessGranted() })
+        hold()
+        device.pressBack()
+        device.pressBack()
+        device.pressHome()
 
-        // spec「2 度目の起動では自動で送られない」。開き直しは収集の契機にもなる（onStartCommand がその場で取る）
-        step("8. もう一度開く: 設定画面へは送られない")
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        step("7. 次の契機（ここではアプリを開き直す）")
+        launchApp()
+        // 位置をもう一度求められたら、また断る（2 度目の起動でも収集は始まる）
+        device.wait(Until.findObject(By.text(Pattern.compile(DENY))), 5_000)?.let { hold(); it.click() }
         hold(3_000)
         assertFalse("2 度目の起動で設定画面へ送られた", device.currentPackageName == SETTINGS_PACKAGE)
         device.pressHome()
 
-        step("9. 端末に集まったアプリ利用")
+        step("8. 許可した後のアプリ利用が集まった")
         assertTrue("アプリ利用の記録が未送信に積まれない", waitUntil(30_000) { outbox().any { it.logicalSource == APP_USAGE_LOGICAL_SOURCE } })
-        showCard("【録画の結果】端末に集まった記録", summary())
+        showCard("【録画の結果】後から許可した後", summary())
     }
+
+    private fun launchApp() =
+        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+    private fun usageAccessGranted() = usageAccessCapability(context).blockers.none { it == Capability.PERMISSION }
 
     /** 未送信の置き場を読む（アプリと同じ置き場・同じ形。`ClockSkewInstrumentedTest` と同じ読み方） */
     private fun outbox(): List<IngestRequest> {
@@ -114,13 +124,15 @@ class St06RecordingTest {
 
     private fun summary(): List<String> {
         val all = outbox()
-        val usage = all.filter { it.logicalSource == APP_USAGE_LOGICAL_SOURCE }
-        val apps = usage.groupingBy { r ->
+        val apps = all.filter { it.logicalSource == APP_USAGE_LOGICAL_SOURCE }.groupingBy { r ->
             (r.payload["app_label"] ?: r.payload["package"])?.jsonPrimitive?.content ?: "?"
         }.eachCount().entries.sortedByDescending { it.value }.take(5)
-        return listOf("記録の種類ごとの件数: " + all.groupingBy { it.logicalSource }.eachCount().entries.joinToString(" / ") { "${it.key} ${it.value}" }) +
-            "アプリ利用（イベント）の多いアプリ: " + apps.joinToString(" / ") { "${it.key} ${it.value}" } +
-            "送信は 5 分ごと（この動画の間にはサーバへ送らない）"
+        return listOf(
+            "記録の種類ごとの件数: " + all.groupingBy { it.logicalSource }.eachCount().entries.joinToString(" / ") { "${it.key} ${it.value}" },
+            "アプリ利用（イベント）の多いアプリ: " + apps.joinToString(" / ") { "${it.key} ${it.value}" },
+            "位置: 未許可のまま（位置の記録は増えない）",
+            "送信は 5 分ごと（この動画の間にはサーバへ送らない）",
+        )
     }
 
     /** 結果の札を通知で出し、通知の一覧を開いて見せる（アプリには画面が無いので） */
@@ -195,8 +207,9 @@ class St06RecordingTest {
     private companion object {
         const val TIMEOUT_MS = 15_000L
         const val HOLD_MS = 1_500L
+        const val DENY = "^(許可しない|Don.t allow)$"
         const val SETTINGS_PACKAGE = "com.android.settings"
         const val CARD_CHANNEL = "recording-card"
-        const val CARD_ID = 9_001
+        const val CARD_ID = 9_002
     }
 }
