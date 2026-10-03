@@ -1,12 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// 画面は合言葉を持たない（ブラウザに置かない）。**API の合言葉は proxy が付ける**（PERM-10）。
-// 起動側（tools/dev.sh / dist/verify-<tag>/run.sh）が API_TOKEN を環境に持っているので、それを読む。
-// 無ければ header を付けず、サーバの 401 がそのまま画面に出る（黙って通さない）。
-// 実測 2026-09-14（確認バッチ 20260913-2255）: 付けていなかったので、画面は稼働状況も達成も 401 で読めなかった。
-// 画面がどう資格情報を持つかは Story に無い（ST28 は網の話）。ここは確認用の最小で、本決めは deep へ。
-const token = process.env.API_TOKEN;
+// 画面を配る側は合言葉を付け足さない（ST28 / design D10）。cookie はそのまま通る（http-proxy の既定）。
+// 画面の読み出しはログインの印（HttpOnly の cookie）で通る。印が無ければサーバの 401 がそのまま画面に届く。
 // **行き先も起動側から読む**（2026-09-18）。`BIND` を変えられるのにここが 18787 固定だったので、
 // 別の番号で立てた縦串の画面が**隣で動いている別のサーバ**を読んでいた（e2e が偶然緑になっていた）。
 // 既定は run.sh / tools/stack.sh と同じ。
@@ -15,7 +11,6 @@ const proxy = {
   "/api": {
     target,
     rewrite: (p: string) => p.replace(/^\/api/, ""),
-    ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
   },
 };
 
@@ -26,10 +21,16 @@ const proxy = {
 // （`tools/stack.sh` が `.env` を export するので preview にも届く）。例: `.tailXXXXXX.ts.net`
 const allowedHosts = (process.env.ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean);
 
+// 画面の本体への指示。`vite dev` は HMR が inline script を使うので付けない（開発用の画面は網へ出さない）。
+const previewHeaders = {
+  "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
+  "Cache-Control": "no-store",
+};
+
 export default defineConfig({
   plugins: [react()],
   server: { proxy, allowedHosts },
   // preview（build 済みを配る側）は server.proxy を継がない。確認バッチの run.sh が build 済みの画面を
   // vite preview で出すので、同じ proxy を明示する（実測 2026-09-12: 無いと /api が 404）。
-  preview: { proxy, allowedHosts },
+  preview: { proxy, allowedHosts, headers: previewHeaders },
 });

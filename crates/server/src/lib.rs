@@ -7,15 +7,26 @@
 use anyhow::Context as _;
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
+use tower_http::set_header::SetResponseHeaderLayer;
 
+/// 読み出しの記録（ST28 / design D8）。
+pub mod access_log;
+#[cfg(test)]
+mod access_log_tests;
+/// 読み出しの記録の移行と錠（ST28 / design D8 / D9）。
+#[cfg(test)]
+mod access_migration_tests;
 #[cfg(test)]
 mod api_tests;
+/// アプリの役割の権限（ST28 / design D4）。
+#[cfg(test)]
+mod app_role_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
 /// 属性の種類の台帳と、個人属性の読み出し（ST19 / design D7 / D8）。
@@ -32,6 +43,7 @@ pub mod drops;
 mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
+pub mod net_guard;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -44,6 +56,10 @@ pub mod stay_store;
 mod stay_tests;
 #[cfg(test)]
 pub mod testdb;
+/// 画面のログイン（ST28 / design D1 / D2 / D3）。
+pub mod web_session;
+#[cfg(test)]
+mod web_session_tests;
 
 use coverage::DAY_TZ;
 use ingest::{content_hash, IngestRequest};
@@ -51,7 +67,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 15] = [
+pub const MIGRATIONS: [(&str, &str); 16] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -119,9 +135,18 @@ pub const MIGRATIONS: [(&str, &str); 15] = [
         "202609160220_personal_attributes",
         include_str!("../../../migrations/202609160220_personal_attributes.sql"),
     ),
+    // 画面のログインの印と、読み出しの記録（ST28 / design D3 / D8 / D9）
+    (
+        "202609290900_access_control",
+        include_str!("../../../migrations/202609290900_access_control.sql"),
+    ),
 ];
 
-/// 版を順に当てる。**当て直しても壊れない**（`run()` は起動のたびに全部当てる）。
+/// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
+pub const GRANTS: &str = include_str!("grants.sql");
+
+/// 版を順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
+/// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     for (name, sql) in MIGRATIONS {
         sqlx::raw_sql(sql)
@@ -129,6 +154,80 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
             .await
             .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
     }
+    sqlx::raw_sql(GRANTS)
+        .execute(pool)
+        .await
+        .context("アプリの役割への付与に失敗")?;
+    Ok(())
+}
+
+/// 起動を拒む接続の役割の種別（design D4）。値（役割名・合言葉）は出さず、種別だけを出す。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DbRoleRefusal {
+    /// 接続した役割が DB の管理者（superuser）。トリガを止められる。
+    Superuser,
+    /// 接続した役割が記録の schema（`core`）の表の所有者。トリガを外せる。
+    TableOwner,
+    /// 接続した役割が `core` の表の所有者の役割を持つ（`GRANT ashiato_owner TO …`）。
+    /// 継承でも `SET ROLE` でもトリガを外せる（code-verify R16）。
+    OwnerMember,
+}
+
+impl DbRoleRefusal {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Superuser => "superuser",
+            Self::TableOwner => "table_owner",
+            Self::OwnerMember => "owner_member",
+        }
+    }
+}
+
+/// 起動時の自己検査。**管理者でも `core` の表の所有者でも、その役割を持つ者でもない接続でだけ**起動を許す。
+pub async fn check_db_role(pool: &sqlx::PgPool) -> anyhow::Result<Option<DbRoleRefusal>> {
+    let superuser: bool =
+        sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+            .fetch_one(pool)
+            .await
+            .context("接続した役割の検査に失敗")?;
+    if superuser {
+        return Ok(Some(DbRoleRefusal::Superuser));
+    }
+    let owns: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_tables
+                         WHERE schemaname = 'core' AND tableowner = current_user)",
+    )
+    .fetch_one(pool)
+    .await
+    .context("接続した役割の検査に失敗")?;
+    if owns {
+        return Ok(Some(DbRoleRefusal::TableOwner));
+    }
+    // 'MEMBER' は継承しない付与（NOINHERIT）も拾う。`SET ROLE` で所有者になれるので
+    let member: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_tables
+                         WHERE schemaname = 'core'
+                           AND pg_has_role(current_user, tableowner, 'MEMBER'))",
+    )
+    .fetch_one(pool)
+    .await
+    .context("接続した役割の検査に失敗")?;
+    Ok(member.then_some(DbRoleRefusal::OwnerMember))
+}
+
+/// `ashiato-server migrate`。`DATABASE_OWNER_URL` で繋いで移行と付与を当てる。
+pub async fn run_migrate() -> anyhow::Result<()> {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+    let url = std::env::var("DATABASE_OWNER_URL").context("DATABASE_OWNER_URL が未設定")?;
+    if !net_guard::db_host_is_local(&url) {
+        net_guard::refuse("db_not_loopback");
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await?;
+    migrate(&pool).await?;
+    tracing::info!(versions = MIGRATIONS.len(), "移行を当てた");
     Ok(())
 }
 
@@ -146,19 +245,64 @@ pub struct App {
     /// 同じ PC の別プロセス（＝第三者製プラグイン。PERM-8 は既定を最も厳しい側に置いている）が
     /// 素通しで読み書きできてしまう。
     token: String,
+    /// 画面のログインの設定と失敗の数（ST28 / design D3 / D17 / D18）。
+    login: web_session::WebLogin,
+    /// 読み出しの記録を書く口（ST28 / design D8）。
+    access: access_log::AccessLog,
     /// 位置を受け入れた日の滞在を作り直す口（ST16 / design D5）。
     stays: StayRebuilder,
 }
 
 impl App {
-    /// テスト用。作り直しの口は本物を使う。
+    /// 起動時の組み立て。`web_password` は `check_web_password` を通ったもの。
+    pub fn new(
+        pool: sqlx::PgPool,
+        token: String,
+        web_password: &str,
+        session_max_age_days: u32,
+    ) -> Self {
+        Self {
+            login: web_session::WebLogin::new(&token, web_password, session_max_age_days),
+            access: access_log::AccessLog::new(access_log::PgAccessSink(pool.clone())),
+            pool,
+            token,
+            stays: StayRebuilder::real(),
+            #[cfg(test)]
+            now: None,
+        }
+    }
+
+    /// テスト用。作り直しの口は本物を使う。画面の合言葉は試験の既定値、失敗の待ちは 0。
     #[cfg(test)]
     pub(crate) fn for_test(pool: sqlx::PgPool, token: &str) -> Self {
+        let mut app = Self::new(pool, token.into(), "test-web-password-0123456789", 0);
+        app.login.failure_delay = std::time::Duration::ZERO;
+        app
+    }
+
+    /// 画面の合言葉と期限を差し替えた複製（試験が「合言葉を変えて起動し直す」ため）。
+    #[cfg(test)]
+    pub(crate) fn with_web_login(self, web_password: &str, session_max_age_days: u32) -> Self {
+        let mut login = web_session::WebLogin::new(&self.token, web_password, session_max_age_days);
+        login.failure_delay = self.login.failure_delay;
+        Self { login, ..self }
+    }
+
+    /// いまの時刻。試験は `at()` で差し込める。
+    pub(crate) fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        #[cfg(test)]
+        if let Some(now) = self.now {
+            return now;
+        }
+        chrono::Utc::now()
+    }
+
+    /// 読み出しの記録の口を差し替えた複製（書けないときの試験。design D8）。
+    #[cfg(test)]
+    pub(crate) fn with_access_sink(self, sink: impl access_log::AccessSink + 'static) -> Self {
         Self {
-            pool,
-            token: token.into(),
-            stays: StayRebuilder::real(),
-            now: None,
+            access: access_log::AccessLog::new(sink),
+            ..self
         }
     }
 
@@ -230,35 +374,101 @@ impl std::fmt::Debug for StayRebuilder {
 /// **この性質は単体テストでは捕まえられない**（時間を測らない限り観測できない）。
 /// 早期打ち切りが書けない型に置き換えて、性質を構造で保証する。
 ///
-/// 長さの一致は先に見る。**全体の長さは漏れるが、それは合言葉の中身ではない** ——
-/// spec が禁じているのは「一致した長さ（＝どこまで合っていたか）」からの推測。
+/// **長さも先に比べない**（final review R9）。長さ違いで早く返すと、掛かった時間から合言葉の
+/// 長さが漏れる。両方を SHA-256 にして同じ 32 バイトどうしを比べる（ダイジェストが一致するのは
+/// 元が同じときだけ、とみなせる）。
 pub fn token_matches(given: &str, expected: &str) -> bool {
+    use sha2::{Digest as _, Sha256};
     use subtle::ConstantTimeEq as _;
-    given.len() == expected.len() && given.as_bytes().ct_eq(expected.as_bytes()).into()
+    let given = Sha256::digest(given.as_bytes());
+    let expected = Sha256::digest(expected.as_bytes());
+    given.as_slice().ct_eq(expected.as_slice()).into()
 }
 
-/// 合言葉を確かめる。無ければ 401。
-fn authorize(app: &App, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+/// 資格情報の種類だけを引く。**ログは出さない**。
+async fn authorize_quiet(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<Option<web_session::Caller>, sqlx::Error> {
     let given = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
-    let ok = token_matches(given, &app.token);
-    if ok {
-        Ok(())
-    } else {
-        // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
-        // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
-        // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
-        // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
-        tracing::warn!(
-            kind = "unauthorized",
-            credential_present = !given.is_empty(),
-            "資格情報が一致しない"
-        );
-        Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
+    if token_matches(given, &app.token) {
+        return Ok(Some(web_session::Caller::ApiToken));
     }
+    if web_session::session_valid(app, headers).await? {
+        return Ok(Some(web_session::Caller::WebSession));
+    }
+    Ok(None)
+}
+
+/// 1 つの求めについて 1 回だけ下した認可の判定（final review R3）。
+///
+/// 判定を段ごと（読み出しの記録・ハンドラ・印の出し直し）にやり直すと、その間にログアウトが
+/// 割り込んだとき「記録は ok / 200、応答は 401」のように食い違う。最も外側の層
+/// （`web_session::refresh_cookie`）が判定して [`AUTHN`] に置き、内側はそれを読む。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Authn {
+    /// 判定できた（`None` は資格情報が認められなかった）。
+    Decided(Option<web_session::Caller>),
+    /// 判定そのもの（印の照会）が DB で失敗した。ログは判定の場で 1 回だけ出してある。
+    LookupFailed,
+}
+
+tokio::task_local! {
+    /// この求めの判定。`router()` を通らない呼び出し（ハンドラを直に呼ぶ試験）では無い。
+    pub(crate) static AUTHN: Authn;
+}
+
+/// 判定を下す。DB の失敗は操作名つきでログに出し、`LookupFailed` にする。
+pub(crate) async fn decide(app: &App, headers: &HeaderMap) -> Authn {
+    match authorize_quiet(app, headers).await {
+        Ok(c) => Authn::Decided(c),
+        Err(e) => {
+            internal_at("session.lookup", e);
+            Authn::LookupFailed
+        }
+    }
+}
+
+/// この求めの判定。外側の層が下していればそれを使い、無ければここで下す。
+pub(crate) async fn decided(app: &App, headers: &HeaderMap) -> Authn {
+    match AUTHN.try_with(|a| *a) {
+        Ok(a) => a,
+        Err(_) => decide(app, headers).await,
+    }
+}
+
+/// 資格情報を確かめて呼び出し元の種類を返す（design D1）。
+/// API の合言葉（`Bearer`）か有効なログインの印（cookie）のどちらかで通る。無ければ 401。
+async fn authorize(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<web_session::Caller, (StatusCode, String)> {
+    match decided(app, headers).await {
+        Authn::Decided(Some(caller)) => return Ok(caller),
+        Authn::Decided(None) => {}
+        Authn::LookupFailed => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()))
+        }
+    }
+    let given = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    // **黙って断らない**（review/code.md の R27）。合言葉がずれた端末は 5 分ごとに
+    // 401 を受け続け、画面には⑥「途絶」が並ぶ。それが「端末が死んだ」のか
+    // 「合言葉がずれている」のかを分ける情報を、サーバは握っていながら捨てていた。
+    // **出すのは「資格情報が有った／無かった」だけ** —— 値は載せない（製造準備 A-2）。
+    tracing::warn!(
+        kind = "unauthorized",
+        credential_present = !given.is_empty(),
+        "資格情報が一致しない"
+    );
+    Err((StatusCode::UNAUTHORIZED, "unauthorized".into()))
 }
 
 /// 取り込みを断った理由。**受け取った値は載せない**（design D5）——
@@ -1049,7 +1259,7 @@ pub async fn ingest(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<IngestResult>>), (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -1222,7 +1432,7 @@ pub async fn stays_rebuild(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<RebuildResponse>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let req: RebuildRequest = if body.iter().all(u8::is_ascii_whitespace) {
         RebuildRequest::default()
     } else {
@@ -1302,7 +1512,7 @@ pub async fn stays_criteria_get(
     headers: HeaderMap,
     Query(q): Query<StaysCriteriaQuery>,
 ) -> Result<Json<Vec<stay_store::CriteriaVersion>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     stay_store::criteria_versions(&app.pool, q.user_id.unwrap_or_default())
         .await
         .map(Json)
@@ -1325,7 +1535,7 @@ pub async fn stays_get(
     headers: HeaderMap,
     Query(q): Query<StaysQuery>,
 ) -> Result<Json<stay_store::DayView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
         .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
     stay_store::day_view(
@@ -1494,7 +1704,7 @@ pub async fn heartbeat_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -1540,7 +1750,7 @@ pub async fn coverage_get(
     headers: HeaderMap,
     Query(q): Query<CoverageQuery>,
 ) -> Result<Json<Vec<coverage::SourceCoverage>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     // **NFR-13 の 5 ソースの順で返す**（登録簿の並び順ではない）。画面の縦の並びがこれになる。
     //
     // **`of_sources` が名前ごとに引き継ぎの鎖を解決する**（第 8 回 Q31 /
@@ -1573,7 +1783,7 @@ pub async fn achievement_get(
     headers: HeaderMap,
     Query(q): Query<AchievementQuery>,
 ) -> Result<Json<coverage::Achievement>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let today = today_jst();
     let got = coverage::achievement(&app.pool, q.user_id, today, &coverage::must_sources())
         .await
@@ -1613,7 +1823,7 @@ pub async fn attributes_get(
     headers: HeaderMap,
     Query(q): Query<AttributesQuery>,
 ) -> Result<Json<attributes::AttributesView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let today = app.today();
     attributes_store::attributes_view(&app.pool, q.user_id.unwrap_or_default(), today)
         .await
@@ -1632,7 +1842,7 @@ pub async fn attributes_kind_post(
     Json(req): Json<attributes_store::KindRequest>,
 ) -> Result<Json<attributes_store::KindCreated>, (StatusCode, Json<attributes_store::KindErrorBody>)>
 {
-    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    authorize(&app, &headers).await.map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::add_kind(&app.pool, user_id, &req.name)
         .await
@@ -1670,7 +1880,7 @@ pub async fn attributes_kind_name_post(
     Path(id): Path<uuid::Uuid>,
     Json(req): Json<attributes_store::KindRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<attributes_store::KindErrorBody>)> {
-    authorize(&app, &headers).map_err(unauthorized_kind)?;
+    authorize(&app, &headers).await.map_err(unauthorized_kind)?;
     let user_id = req.user_id.unwrap_or_default();
     match attributes_store::rename_kind(&app.pool, user_id, id, &req.name)
         .await
@@ -1702,7 +1912,7 @@ pub async fn events(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
     let rows = sqlx::query_as::<
         _,
@@ -1763,25 +1973,9 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
-pub async fn run() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("info").init();
-    std::panic::set_hook(Box::new(|info| {
-        // 未捕捉の異常が黙って消えないようにする（製造準備 C）
-        tracing::error!(kind = "panic", location = ?info.location(), "未捕捉の異常");
-    }));
-
-    let url = std::env::var("DATABASE_URL").context("DATABASE_URL が未設定")?;
-    let token = std::env::var("API_TOKEN").context("API_TOKEN が未設定")?;
-    if token.len() < 16 {
-        anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
-    }
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&url)
-        .await?;
-    migrate(&pool).await?;
-
-    let mut app = Router::new()
+/// 全 route と、印で認めた応答の寿命の出し直し（design D18）。
+pub fn router(app: App) -> Router {
+    Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
@@ -1798,13 +1992,82 @@ pub async fn run() -> anyhow::Result<()> {
             "/attributes/kinds/{id}/names",
             post(attributes_kind_name_post),
         )
-        .with_state(App {
-            pool,
-            token,
-            stays: StayRebuilder::real(),
-            #[cfg(test)]
-            now: None,
-        });
+        .route(
+            "/session",
+            post(web_session::session_post)
+                .delete(web_session::session_delete)
+                .get(web_session::session_get),
+        )
+        // route_layer: `MatchedPath` が要る。書けなければハンドラを呼ばない（D8）
+        .route_layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            access_log::middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            web_session::refresh_cookie,
+        ))
+        // サーバの全応答は写しを保存させない（C4 / D10）。404・500 も含めて最も外側で付ける
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
+        .with_state(app)
+}
+
+pub async fn run() -> anyhow::Result<()> {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+    std::panic::set_hook(Box::new(|info| {
+        // 未捕捉の異常が黙って消えないようにする（製造準備 C）
+        tracing::error!(kind = "panic", location = ?info.location(), "未捕捉の異常");
+    }));
+
+    let url = std::env::var("DATABASE_URL").context("DATABASE_URL が未設定")?;
+    let token = std::env::var("API_TOKEN").context("API_TOKEN が未設定")?;
+    if token.len() < 16 {
+        anyhow::bail!("API_TOKEN が短すぎる（16 文字以上にする）");
+    }
+    // 画面の合言葉の検査（design D16）。値は出さず、理由の種別だけ。
+    let web_password = std::env::var("WEB_PASSWORD").ok();
+    if let Err(refusal) = web_session::check_web_password(web_password.as_deref(), &token) {
+        tracing::error!(
+            kind = "web_password",
+            reason = refusal.reason(),
+            "起動しない"
+        );
+        eprintln!("error: kind=web_password reason={}", refusal.reason());
+        std::process::exit(2);
+    }
+    let web_password = web_password.unwrap_or_default();
+    // ログインの期限（日。0 = なし。design D18）
+    let session_max_age_days = web_session::session_max_age_days(
+        std::env::var("WEB_SESSION_MAX_AGE_DAYS").ok().as_deref(),
+    )?;
+    // 待ち受けと DB の接続先の検査。**DB に繋ぐより前**（design D7 / D14）。
+    let addr = std::env::var("BIND").unwrap_or_else(|_| net_guard::DEFAULT_BIND.into());
+    let addrs = match net_guard::check_bind(&addr).await? {
+        Ok(addrs) => addrs,
+        Err(refusal) => net_guard::refuse(refusal.kind()),
+    };
+    if !net_guard::db_host_is_local(&url) {
+        net_guard::refuse("db_not_loopback");
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&url)
+        .await?;
+    // 移行は当てない（`ashiato-server migrate`。design D5）。管理者・所有者の接続では起動しない。
+    if let Some(refusal) = check_db_role(&pool).await? {
+        tracing::error!(
+            kind = "db_role",
+            reason = refusal.reason(),
+            "この接続の役割では起動しない"
+        );
+        eprintln!("error: kind=db_role reason={}", refusal.reason());
+        std::process::exit(2);
+    }
+
+    let mut app = router(App::new(pool, token, &web_password, session_max_age_days));
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -1812,8 +2075,8 @@ pub async fn run() -> anyhow::Result<()> {
         app = app.route("/selftest/panic", get(selftest_panic));
     }
 
-    let addr = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // 検査を通したアドレスそのものに待ち受ける（名前を解決し直さない。final review R7）
+    let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     tracing::info!(addr = %addr, "起動");
     axum::serve(listener, app).await?;
     Ok(())
@@ -1834,7 +2097,10 @@ pub async fn run() -> anyhow::Result<()> {
         stays_criteria_get,
         attributes_get,
         attributes_kind_post,
-        attributes_kind_name_post
+        attributes_kind_name_post,
+        web_session::session_post,
+        web_session::session_delete,
+        web_session::session_get
     ),
     components(schemas(
         IngestResult,
@@ -1873,6 +2139,8 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindCreated,
         attributes_store::KindError,
         attributes_store::KindErrorBody,
+        web_session::LoginRequest,
+        web_session::SessionState,
     )),
     info(
         title = "ashiato S-01",

@@ -2,7 +2,8 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_PASSWORD: ashiato
+      # 管理者の合言葉。固定値を持たない（ST28 / design D19）。`.env` に置く
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env に POSTGRES_PASSWORD を置く}
       POSTGRES_USER: ashiato
       POSTGRES_DB: ashiato
     ports: ["127.0.0.1:55432:5432"]   # 全インタフェースに出さない（製造準備 C: 既定値の棚卸し）

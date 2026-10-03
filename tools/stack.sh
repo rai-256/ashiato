@@ -2,6 +2,7 @@
 # 縦串を 1 コマンドで立てる。**人間が見るものと、e2e が見るものを同じ起動にする。**
 #
 #   ./tools/stack.sh up        DB → サーバ → 偽データ → 画面。前景で待つ（Ctrl-C で全部止まる）
+#   ./tools/stack.sh up --check-only   DB → 役割 → 移行 → サーバの /healthz まで通して止める（偽データ・画面は立てない）
 #   ./tools/stack.sh down      DB を止める（-v は付けない。消すのは STACK_RESET=1 の up）
 #
 # 環境変数:
@@ -17,11 +18,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cmd="${1:-up}"
+check_only=0; [ "${2:-}" = "--check-only" ] && check_only=1
 
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-export DATABASE_URL="${DATABASE_URL:-postgres://ashiato:ashiato@127.0.0.1:55432/ashiato}"
+export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
+export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}"
 export BIND="${BIND:-127.0.0.1:18787}"
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
+export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
 export WEB_PORT="${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない
 
 if [ "$cmd" = "down" ]; then
@@ -29,7 +33,7 @@ if [ "$cmd" = "down" ]; then
   echo "== DB を止めた"
   exit 0
 fi
-[ "$cmd" = "up" ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ "$cmd" = "up" ] || { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 # port が使用中なら 30 秒待たずにここで止める（実測: 5173 を別プロジェクトの vite が使っていて、
 # preview が隣の番号に逃げ、確認者は別の画面を見ていた）。
@@ -38,7 +42,9 @@ fi
 busy() { local l port="${1##*:}"; l="$(ss -ltn 2>/dev/null | awk '{print $4}')"
   printf '%s\n' "$l" | grep -qxF "$1" || printf '%s\n' "$l" | grep -qE "^(0\.0\.0\.0|\[::\]|\*):$port$"; }
 busy "$BIND" && { echo "error: $BIND は使用中（$(ss -ltnp 2>/dev/null | grep -F "$BIND " | grep -oE 'users:\(.*' | head -1)）。BIND を変えるか、そのサーバを止める"; exit 1; }
-busy "127.0.0.1:$WEB_PORT" && { echo "error: port $WEB_PORT は使用中。WEB_PORT=<別の番号> で叩き直す"; exit 1; }
+if [ "$check_only" = 0 ] && busy "127.0.0.1:$WEB_PORT"; then
+  echo "error: port $WEB_PORT は使用中。WEB_PORT=<別の番号> で叩き直す"; exit 1
+fi
 
 # 依存の導入を前段に含める（製造準備 B）。渡されていて実在するならビルドしない
 server="${SERVER_BIN:-target/release/ashiato-server}"
@@ -48,21 +54,35 @@ if [ ! -x "$server" ]; then
   server="target/release/ashiato-server"
 fi
 web="${WEB_DIST:-web/dist}"
-if [ ! -f "$web/index.html" ]; then
+if [ "$check_only" = 0 ] && [ ! -f "$web/index.html" ]; then
   echo "== 画面を build（$web が無い）"
   (cd web && npm ci --silent >/dev/null && npm run build --silent >/dev/null)
   web="web/dist"
 fi
-web_abs="$(cd "$web" && pwd)"
+[ "$check_only" = 1 ] || web_abs="$(cd "$web" && pwd)"
 
 if [ "${STACK_RESET:-}" = "1" ]; then
   echo "== DB を作り直す（STACK_RESET=1）"; docker compose down -v >/dev/null 2>&1 || true
 fi
 echo "== DB"; docker compose up -d --wait db >/dev/null
+# 役割 → 移行 → サーバの順（volume を消すと役割も消える。design D5 / review R17）
+./tools/db-roles.sh
+echo "== 移行（所有者の接続。サーバは移行を当てない）"; "$server" migrate
 trap 'kill 0' EXIT
-echo "== サーバ $BIND"; "$server" &
+# サーバの環境から管理者と所有者の秘密を外す（.env の全部を export しているので。design D5）
+echo "== サーバ $BIND"
+env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL "$server" &
+srv=$!
 for _ in $(seq 1 30); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null || { echo "サーバが起動しない（BIND=$BIND）"; exit 1; }
+# 起動した口が網の外に開いていないこと（design D11 (a)）。落ちたら止める（trap が全部止める）
+if [ "$check_only" = 1 ]; then
+  ./tools/check-exposure.sh --listen-only || exit 1
+  # 呼び出し元まで巻き込まないよう、サーバだけを止める
+  trap - EXIT; kill "$srv"; wait "$srv" 2>/dev/null || true
+  echo "== 作り直し → 役割 → 移行 → サーバの /healthz まで通った"
+  exit 0
+fi
 # 偽データ。**STACK_RESET=1（毎回同じ状態から始める＝e2e）のときは落ちたら止める。**
 # 溜まった DB では seed の読み直しが合わないことがあり（実測 2026-09-18: ST19 の主張が
 # 「入れた 21 件と読めた件数が合わない」で rc=1）、そこを警告で流すと
@@ -79,6 +99,11 @@ if ! ./tools/seed.sh "${SEED:-normal}" > /tmp/ashiato-seed.log 2>&1; then
 fi
 echo "== 画面 http://127.0.0.1:$WEB_PORT"
 (cd web && npx vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort --outDir "$web_abs" >/dev/null 2>&1) &
+# vite preview が待ち受けるまで待つ（上限 30 秒）。待ち受ける前に検査すると、どのアドレスで
+# 待ち受けても通ってしまう（final review R4）
+for _ in $(seq 1 60); do [ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] && break; sleep 0.5; done
+[ -n "$(ss -ltnH "sport = :$WEB_PORT")" ] || { echo "error: 画面が待ち受けない（WEB_PORT=$WEB_PORT）" >&2; exit 1; }
+./tools/check-exposure.sh --listen-only || exit 1
 echo
-echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届くには BIND を LAN / Tailscale の IP にする）"
+echo "画面: http://127.0.0.1:$WEB_PORT    API: http://$BIND    （端末から届く手順は docs/network.md を見る。BIND は loopback のまま）"
 wait
