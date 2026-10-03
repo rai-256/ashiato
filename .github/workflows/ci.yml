@@ -93,6 +93,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: { targets: x86_64-pc-windows-gnu, components: clippy }
+      # rusqlite の `bundled` は SQLite を C から組み立てる。クロス lint でも
+      # Windows 向け C コンパイラが無ければビルドスクリプトで止まる（ST08 design D2）。
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
       # **型だけでなく lint も当てる**（review/code.md B-5 / R34）。ubuntu の clippy は
       # cfg(windows) の中身をコンパイルしないので、作業場の lint が platform.rs に届かない
       - run: cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
@@ -110,7 +113,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
+      # 単体 86 本 + 実行時テスト。ST08 の Edge / Chrome / Firefox 履歴 3 本を含める。
+      # 前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
       # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
       - shell: pwsh
@@ -119,7 +123,7 @@ jobs:
           Write-Host $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($out -notmatch 'test result: ok\. (\d+) passed') { Write-Error "結果の行が無い"; exit 1 }
-          if ([int]$Matches[1] -lt 7) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（7 本のはず）"; exit 1 }
+          if ([int]$Matches[1] -lt 10) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（10 本のはず）"; exit 1 }
 
   web:
     needs: changes

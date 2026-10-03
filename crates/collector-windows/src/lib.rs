@@ -26,6 +26,8 @@ pub mod engine;
 pub mod exclusion;
 pub mod fsutil;
 pub mod heartbeat;
+/// ブラウザ履歴の発見・読取り・契約・帳面・取得（ST08）。
+pub mod history;
 pub mod marker;
 pub mod outbox;
 #[cfg(windows)]
