@@ -854,3 +854,9 @@ re-review が挙げた Minor 3 件は、2 回目の fix wave を出さない規�
 - **手 5（tasks の `[x]` と実体）**: `CT` の絞り込み 35 種は、どれも 1 本以上の試験に一致した（`-- --list` で数えた）。`VT` の 5 ファイルは実在して緑。**12.5 は rc=1**（R66）、**11.4 は本文のままだと rc=4**（R70）、4.4 は本番で使われない関数を測っている（R71）。
 - **手 6（隙間）**: 「捨てたもの・外へ出たものは戻らない」型は 2 件: R66（消した場面が書庫から戻る。loss: exported）と R67（起動場所によって写しを見失い、確認待ちが永久に進まない）。
   記録 → 台帳 → ソース別台帳の途中で落ちると最終日が戻らない件は、R25 として既に deferred（ST13）なので重ねていない。
+
+## scoped re-review（7b95619..4ae2c48）: R64〜R71 すべて ADDRESSED（R66 は正しく escalated）。新しい Critical / Important なし
+
+re-review が挙げた Minor 3 件（取り込み器を起こさないときの相対パスでも起動を止める / 800 px の `test.fail` にも印が付く / docker の `psql` の `-q`）は、
+2 回目の fix wave を出さない規則に従い、ledger（`.superpowers/sdd/st12-task-final/progress.md`）に ruling つきで park した。PR 本文に写した。
+
