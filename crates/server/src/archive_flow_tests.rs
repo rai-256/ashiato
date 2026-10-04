@@ -843,7 +843,7 @@ async fn archive_flow_one_broken_item_does_not_stop_the_rest() {
 async fn archive_flow_region_is_never_inferred_from_a_location() {
     let inbox = Inbox::new("archive-no-region-guess").await;
     // 同じ時刻にニューヨークにいたことを示すタイムラインを先に入れておく。
-    let timeline = br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"40.7128, -74.0060"}}}}]}"#;
+    let timeline = r#"{"semanticSegments":[{"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T04:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"40.7128°, -74.0060°"}}}}]}"#.as_bytes();
     inbox.put("Timeline.json.zip", &[("Timeline.json", timeline)]);
     inbox.spawn(true);
     inbox
@@ -1152,7 +1152,7 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
     let inbox = Inbox::new("archive-private-log").await;
     // 検索語・題名・URL・座標を全部含む書庫を、読める中身と読めない中身の両方で置く。
     let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"祇園 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E7%A5%87%E5%9C%92+%E6%97%85%E9%A4%A8"}]"#;
-    let timeline = r#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#;
+    let timeline = r#"{"semanticSegments":[{"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T04:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.0116°, 135.7681°"}}}}]}"#;
     inbox
         .confirm(
             crate::archive::classify::KnownKind::YouTubeSearch,
@@ -1265,9 +1265,10 @@ async fn archive_flow_a_broken_zip_lands_in_the_ledger() {
 async fn archive_flow_a_bare_timeline_json_is_read() {
     let inbox = Inbox::new("archive-bare-timeline").await;
     // **zip に包まない。** 端末はタイムラインを裸の JSON で書き出す（本人の決定 Q8）。
+    // **本物の書き出しの形**（時刻と時差はセグメントの側、生の信号は 1 段入れ子。R48）。
     std::fs::write(
         inbox.inbox.join("Timeline.json"),
-        br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#,
+        crate::archive_tests::REAL_TIMELINE.as_bytes(),
     )
     .unwrap();
     inbox.spawn(true);
@@ -1277,6 +1278,27 @@ async fn archive_flow_a_bare_timeline_json_is_read() {
             inbox.events("c03-timeline-visit").await == 1
         })
         .await;
+    // 訪問だけでなく、移動・経路の点・生の信号も入る（合成の形では 1 件も入らなかった）
+    for (source, expected) in [
+        ("c03-timeline-move", 1),
+        ("c03-timeline-route", 2),
+        ("c03-timeline-signal", 3),
+    ] {
+        inbox
+            .until(&format!("{source} が {expected} 件入らない"), || async {
+                inbox.events(source).await == expected
+            })
+            .await;
+    }
+    let offsets: Vec<i32> = sqlx::query_scalar(
+        "SELECT DISTINCT tz_offset_min FROM core.event
+          WHERE user_id = $1 AND logical_source LIKE 'c03-timeline-%'",
+    )
+    .bind(inbox.user)
+    .fetch_all(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(offsets, [540], "セグメントが示した +09:00 で残っていない");
     inbox
         .until("読めた書庫の台帳が残らない", || async {
             inbox.ledger_rows("read").await == 1
@@ -1723,7 +1745,7 @@ async fn archive_flow_confirming_a_shape_ingests_a_mixed_archive() {
     let inbox = Inbox::new("archive-confirm-mixed").await;
     // **混在した書庫**（印の要らない Timeline + 印の要るマイアクティビティ）。
     // 本物の Takeout はこの形なので、ここが通らないと通常経路が入らない。
-    let timeline = br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z","topCandidate":{"placeLocation":{"latLng":"35.0116, 135.7681"}}}}]}"#;
+    let timeline = r#"{"semanticSegments":[{"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T04:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.0116°, 135.7681°"}}}}]}"#.as_bytes();
     let activity = myactivity("Discover");
     inbox.put(
         "takeout-20260912T000000Z-001.zip",
@@ -1880,4 +1902,50 @@ async fn archive_flow_status_answers_without_a_user_id() {
         axum::http::StatusCode::OK,
         "`user_id` の無い問い合わせを断っている（画面の箱が必ず「読み出せませんでした」になる）"
     );
+}
+
+/// Scenario: UTC しか持たない時刻には取得元が地域を持たなかった印が付く
+/// Scenario: UTC しか持たない時刻は UTC で残る
+///
+/// **格納された payload を読む**（final review R54）。印の名前が試験の名前にだけあり、
+/// 中身を見ていなかった。
+#[tokio::test]
+async fn archive_flow_stored_payload_marks_a_utc_only_time() {
+    let inbox = Inbox::new("archive-payload-utc").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    let (offset, tz_id, payload): (i32, String, serde_json::Value) = sqlx::query_as(
+        "SELECT tz_offset_min, tz_id, payload FROM core.event
+          WHERE user_id = $1 AND logical_source = 'c03-youtube-watch'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!((offset, tz_id.as_str()), (0, "UTC"));
+    assert_eq!(
+        payload["tz_from_source"],
+        serde_json::json!(false),
+        "取得元が地域を持たなかった印が payload に無い: {payload}"
+    );
+    assert_eq!(
+        payload["parser_version"],
+        serde_json::json!(crate::archive::PARSER_VERSION)
+    );
+    assert_eq!(payload["url"], "https://www.youtube.com/watch?v=abc");
 }

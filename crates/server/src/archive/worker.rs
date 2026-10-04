@@ -310,6 +310,458 @@ pub fn requests_for_file(
     Ok(requests_for_file_reporting(kind, inner_path, bytes, user_id, archive_sha256)?.requests)
 }
 
+type When = anyhow::Result<(
+    chrono::DateTime<chrono::Utc>,
+    super::timezone::SourceTimezone,
+)>;
+
+/// 記録 1 件の材料。時刻・地域・原文の範囲・design D6 の欄を、項目の形ごとに集めたもの。
+struct Item<'a> {
+    source: String,
+    when: When,
+    /// 原文を切り出せないときに書き戻す値。
+    value: &'a serde_json::Value,
+    /// **書庫のバイト列の切り出し**（spec「原文は書庫のバイト列の一部と一致する」）。
+    raw: Option<&'a [u8]>,
+    fields: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 時刻の表記から UTC の時刻と取得元が示した地域を取る。
+///
+/// `offset` は Timeline の `startTimeTimezoneUtcOffsetMinutes`（あれば表記より優先。D5）。
+/// **示していなければ UTC のまま**（位置から推定しない。本人の決定 C2）。
+fn when_text(text: Option<&str>, offset: Option<i32>) -> When {
+    let text = text.ok_or_else(|| anyhow::anyhow!("書庫項目の時刻が無い"))?;
+    let time = chrono::DateTime::parse_from_rfc3339(text)?.to_utc();
+    Ok((time, super::timezone::from_timestamp(text, offset)?))
+}
+
+/// 時差を持たない時刻（`time_usec` / `timestampMs`）。取得元は地域を示していない。
+fn when_utc(time: chrono::DateTime<chrono::Utc>) -> When {
+    Ok((
+        time,
+        super::timezone::SourceTimezone {
+            offset_min: 0,
+            id: "UTC".into(),
+            from_source: false,
+        },
+    ))
+}
+
+fn text<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
+    at(value, path).and_then(serde_json::Value::as_str)
+}
+
+fn at<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    path.iter().try_fold(value, |value, key| value.get(*key))
+}
+
+/// `"35.0116°, 135.7681°"`（`geo:` が前に付く書き出しもある）を度の組にする。
+/// **原文は文字列のまま**（D6）。ここは解析済みの内容に足すだけ。
+fn lat_lng(text: Option<&str>) -> Option<(f64, f64)> {
+    let text = text?.trim();
+    let text = text.strip_prefix("geo:").unwrap_or(text);
+    let (lat, lng) = text.split_once(',')?;
+    let number = |part: &str| part.trim().trim_end_matches('°').trim().parse::<f64>().ok();
+    Some((number(lat)?, number(lng)?))
+}
+
+/// E7（度の 1,000 万倍の整数）を度にする。
+fn e7(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let degrees = value?.as_i64()? as f64 / 10_000_000.0;
+    serde_json::Number::from_f64(degrees).map(serde_json::Value::Number)
+}
+
+/// 欄を足す。値が無い欄は足さない（`null` を入れて「欄があった」ように見せない）。
+fn put(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    name: &str,
+    value: Option<serde_json::Value>,
+) {
+    if let Some(value) = value {
+        fields.insert(name.to_owned(), value);
+    }
+}
+
+fn put_lat_lng(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    prefix: &str,
+    text: Option<&str>,
+) {
+    if let Some((lat, lng)) = lat_lng(text) {
+        fields.insert(format!("{prefix}lat"), serde_json::json!(lat));
+        fields.insert(format!("{prefix}lng"), serde_json::json!(lng));
+    }
+}
+
+fn cloned(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    value.cloned()
+}
+
+/// 解釈した配列と**添字が揃うときだけ**切り出しを使う。揃わなければ書き戻しへ落とす
+/// （原文の厳密さは失うが、別の記録の原文を付ける取り違えはしない。review I3）。
+fn aligned<'a>(spans: Option<Vec<&'a [u8]>>, expected: usize) -> Vec<Option<&'a [u8]>> {
+    match spans {
+        Some(spans) if spans.len() == expected => spans.into_iter().map(Some).collect(),
+        Some(_) => {
+            tracing::warn!(
+                kind = "archive_raw_slice",
+                "原文の切り出しと項目の数が合わない"
+            );
+            vec![None; expected]
+        }
+        None => vec![None; expected],
+    }
+}
+
+/// オブジェクト `input` の欄 `key` が配列なら、その各要素の切り出し。
+fn member_elements<'a>(input: Option<&'a [u8]>, key: &str) -> Option<Vec<&'a [u8]>> {
+    let member = super::slice::object_member(input?, key).ok()??;
+    super::slice::array_elements(member).ok()
+}
+
+fn as_array(value: Option<&serde_json::Value>) -> &[serde_json::Value] {
+    value
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// 端末が書き出した `Timeline.json`（D6）。
+///
+/// **時刻と時差はセグメントの側にある**（`startTime` / `startTimeTimezoneUtcOffsetMinutes`）。
+/// `visit` / `activity` の中を見ていたときは、本物の書き出しから 1 件も入らなかった（final review R48）。
+/// 訪問・移動の原文はセグメント 1 つ、経路の点と生の信号はその項目 1 つ。
+fn timeline_items<'a>(root: &'a serde_json::Value, bytes: &'a [u8]) -> Vec<Item<'a>> {
+    let mut items = Vec::new();
+    let segments = as_array(root.get("semanticSegments"));
+    let segment_raws = aligned(
+        member_elements(Some(bytes), "semanticSegments"),
+        segments.len(),
+    );
+    for (segment, segment_raw) in segments.iter().zip(segment_raws) {
+        let offset = segment
+            .get("startTimeTimezoneUtcOffsetMinutes")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|minutes| i32::try_from(minutes).ok());
+        let start = text(segment, &["startTime"]);
+        if let Some(visit) = segment.get("visit") {
+            let mut fields = serde_json::Map::new();
+            put(&mut fields, "end_time", cloned(segment.get("endTime")));
+            put(
+                &mut fields,
+                "place_id",
+                cloned(at(visit, &["topCandidate", "placeId"])),
+            );
+            put(
+                &mut fields,
+                "semantic_type",
+                cloned(at(visit, &["topCandidate", "semanticType"])),
+            );
+            put_lat_lng(
+                &mut fields,
+                "",
+                text(visit, &["topCandidate", "placeLocation", "latLng"]),
+            );
+            put(&mut fields, "probability", cloned(visit.get("probability")));
+            items.push(Item {
+                source: "c03-timeline-visit".into(),
+                when: when_text(start, offset),
+                value: segment,
+                raw: segment_raw,
+                fields,
+            });
+        }
+        if let Some(activity) = segment.get("activity") {
+            let mut fields = serde_json::Map::new();
+            put(&mut fields, "end_time", cloned(segment.get("endTime")));
+            put(
+                &mut fields,
+                "activity_type",
+                cloned(at(activity, &["topCandidate", "type"])),
+            );
+            put(
+                &mut fields,
+                "distance_m",
+                cloned(activity.get("distanceMeters")),
+            );
+            put_lat_lng(&mut fields, "start_", text(activity, &["start", "latLng"]));
+            put_lat_lng(&mut fields, "end_", text(activity, &["end", "latLng"]));
+            items.push(Item {
+                source: "c03-timeline-move".into(),
+                when: when_text(start, offset),
+                value: segment,
+                raw: segment_raw,
+                fields,
+            });
+        }
+        let points = as_array(segment.get("timelinePath"));
+        let point_raws = aligned(member_elements(segment_raw, "timelinePath"), points.len());
+        for (point, point_raw) in points.iter().zip(point_raws) {
+            let mut fields = serde_json::Map::new();
+            put_lat_lng(&mut fields, "", text(point, &["point"]));
+            items.push(Item {
+                source: "c03-timeline-route".into(),
+                when: when_text(text(point, &["time"]), offset),
+                value: point,
+                raw: point_raw,
+                fields,
+            });
+        }
+    }
+    let signals = as_array(root.get("rawSignals"));
+    let signal_raws = aligned(member_elements(Some(bytes), "rawSignals"), signals.len());
+    for (signal, signal_raw) in signals.iter().zip(signal_raws) {
+        // **信号は 1 段入れ子**（`{"position":{…}}` / `{"wifiScan":{…}}` / `{"activityRecord":{…}}`）。
+        let inner = signal
+            .as_object()
+            .and_then(|object| object.iter().find(|(_, value)| value.is_object()));
+        let mut fields = serde_json::Map::new();
+        let when = match inner {
+            Some((kind, inner)) => {
+                fields.insert("signal_kind".into(), serde_json::json!(kind));
+                put_lat_lng(
+                    &mut fields,
+                    "",
+                    text(inner, &["LatLng"]).or_else(|| text(inner, &["latLng"])),
+                );
+                put(
+                    &mut fields,
+                    "accuracy_m",
+                    cloned(inner.get("accuracyMeters")),
+                );
+                when_text(
+                    text(inner, &["timestamp"]).or_else(|| text(inner, &["deliveryTime"])),
+                    None,
+                )
+            }
+            None => Err(anyhow::anyhow!("生の信号の形が分からない")),
+        };
+        items.push(Item {
+            source: "c03-timeline-signal".into(),
+            when,
+            value: signal,
+            raw: signal_raw,
+            fields,
+        });
+    }
+    items
+}
+
+/// 移行前の時刻（`timestamp` / `startTimestamp` の表記か、`timestampMs` のミリ秒）。
+fn legacy_when(value: &serde_json::Value) -> When {
+    let value = value.get("duration").unwrap_or(value);
+    if let Some(text) = text(value, &["timestamp"]).or_else(|| text(value, &["startTimestamp"])) {
+        return when_text(Some(text), None);
+    }
+    let millis = text(value, &["timestampMs"])
+        .or_else(|| text(value, &["startTimestampMs"]))
+        .ok_or_else(|| anyhow::anyhow!("移行前の項目の時刻が無い"))?
+        .parse::<i64>()?;
+    when_utc(
+        chrono::DateTime::from_timestamp_millis(millis)
+            .ok_or_else(|| anyhow::anyhow!("移行前の時刻が範囲外"))?,
+    )
+}
+
+fn legacy_end(value: &serde_json::Value) -> Option<serde_json::Value> {
+    cloned(
+        at(value, &["duration", "endTimestamp"])
+            .or_else(|| at(value, &["duration", "endTimestampMs"])),
+    )
+}
+
+/// `Records.json` と `Semantic Location History`（D6）。
+fn legacy_items<'a>(
+    kind: super::classify::KnownKind,
+    root: &'a serde_json::Value,
+    bytes: &'a [u8],
+) -> Vec<Item<'a>> {
+    let mut items = Vec::new();
+    if kind == super::classify::KnownKind::Records {
+        let rows = as_array(root.get("locations"));
+        let raws = aligned(member_elements(Some(bytes), "locations"), rows.len());
+        for (row, raw) in rows.iter().zip(raws) {
+            let mut fields = serde_json::Map::new();
+            put(&mut fields, "lat", e7(row.get("latitudeE7")));
+            put(&mut fields, "lng", e7(row.get("longitudeE7")));
+            put(&mut fields, "accuracy_m", cloned(row.get("accuracy")));
+            put(&mut fields, "source", cloned(row.get("source")));
+            put(&mut fields, "device_tag", cloned(row.get("deviceTag")));
+            items.push(Item {
+                source: "c03-legacy-location".into(),
+                when: legacy_when(row),
+                value: row,
+                raw,
+                fields,
+            });
+        }
+        return items;
+    }
+    let rows = as_array(root.get("timelineObjects"));
+    let raws = aligned(member_elements(Some(bytes), "timelineObjects"), rows.len());
+    for (row, row_raw) in rows.iter().zip(raws) {
+        for (field, source) in [
+            ("placeVisit", "c03-legacy-visit"),
+            ("activitySegment", "c03-legacy-activity"),
+        ] {
+            let Some(item) = row.get(field) else {
+                continue;
+            };
+            let raw =
+                row_raw.and_then(|raw| super::slice::object_member(raw, field).ok().flatten());
+            let mut fields = serde_json::Map::new();
+            put(&mut fields, "end_time", legacy_end(item));
+            if field == "placeVisit" {
+                put(
+                    &mut fields,
+                    "place_id",
+                    cloned(at(item, &["location", "placeId"])),
+                );
+                put(&mut fields, "name", cloned(at(item, &["location", "name"])));
+                put(
+                    &mut fields,
+                    "address",
+                    cloned(at(item, &["location", "address"])),
+                );
+                put(
+                    &mut fields,
+                    "lat",
+                    e7(at(item, &["location", "latitudeE7"])),
+                );
+                put(
+                    &mut fields,
+                    "lng",
+                    e7(at(item, &["location", "longitudeE7"])),
+                );
+            } else {
+                put(
+                    &mut fields,
+                    "activity_type",
+                    cloned(item.get("activityType")),
+                );
+                put(&mut fields, "distance_m", cloned(item.get("distance")));
+            }
+            items.push(Item {
+                source: source.into(),
+                when: legacy_when(item),
+                value: item,
+                raw,
+                fields,
+            });
+        }
+    }
+    items
+}
+
+/// YouTube の視聴・検索、マイアクティビティ、Chrome の履歴（D6）。
+fn takeout_items<'a>(
+    kind: super::classify::KnownKind,
+    root: &'a serde_json::Value,
+    bytes: &'a [u8],
+) -> Vec<Item<'a>> {
+    use super::classify::KnownKind;
+    let (rows, raws) = if kind == KnownKind::ChromeHistory {
+        let rows = as_array(root.get("Browser History"));
+        let raws = aligned(member_elements(Some(bytes), "Browser History"), rows.len());
+        (rows, raws)
+    } else {
+        let rows = as_array(Some(root));
+        let raws = aligned(super::slice::array_elements(bytes).ok(), rows.len());
+        (rows, raws)
+    };
+    let mut items = Vec::new();
+    for (row, raw) in rows.iter().zip(raws) {
+        let mut fields = serde_json::Map::new();
+        let url = text(row, &["titleUrl"]);
+        let (source, when) = match kind {
+            KnownKind::YouTubeWatch | KnownKind::YouTubeSearch => {
+                // **見分けた種類を既定にする。** 削除済みの動画は `titleUrl` を持たない。
+                // URL が無ければ検索へ回していたときは、視聴が検索のソースに入り、
+                // 検索履歴が先に書いた台帳の行と衝突して読み直しが止まった（final review R50）。
+                let search = match url {
+                    Some(url) if url.contains("watch?v=") => false,
+                    Some(url) if url.contains("search_query=") => true,
+                    _ => kind == KnownKind::YouTubeSearch,
+                };
+                put(&mut fields, "title", cloned(row.get("title")));
+                put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                if search {
+                    let query = url
+                        .and_then(|url| url.split("search_query=").nth(1))
+                        .map(|encoded| encoded.split('&').next().unwrap_or(encoded))
+                        .map(super::youtube::percent_decode);
+                    put(&mut fields, "query", query.map(serde_json::Value::String));
+                } else {
+                    put(
+                        &mut fields,
+                        "channel_name",
+                        cloned(first_subtitle(row, "name")),
+                    );
+                    put(
+                        &mut fields,
+                        "channel_url",
+                        cloned(first_subtitle(row, "url")),
+                    );
+                }
+                (
+                    if search {
+                        "c03-youtube-search".to_owned()
+                    } else {
+                        "c03-youtube-watch".to_owned()
+                    },
+                    when_text(text(row, &["time"]), None),
+                )
+            }
+            KnownKind::MyActivity => {
+                // 製品の名前は**画面の見出し**になる（`マイアクティビティ: <製品>`）。
+                let product = row
+                    .get("products")
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|products| products.first())
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                fields.insert("product".into(), serde_json::json!(product));
+                put(&mut fields, "title", cloned(row.get("title")));
+                put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                put(&mut fields, "details", cloned(row.get("details")));
+                (
+                    super::myactivity::source_name(product),
+                    when_text(text(row, &["time"]), None),
+                )
+            }
+            KnownKind::ChromeHistory => {
+                for name in ["title", "url", "page_transition", "client_id"] {
+                    put(&mut fields, name, cloned(row.get(name)));
+                }
+                let when = row
+                    .get("time_usec")
+                    .and_then(serde_json::Value::as_i64)
+                    .ok_or_else(|| anyhow::anyhow!("Chrome時刻が無い"))
+                    .and_then(super::chrome::time_usec_to_utc)
+                    .and_then(when_utc);
+                ("c03-chrome-history".to_owned(), when)
+            }
+            _ => continue,
+        };
+        items.push(Item {
+            source,
+            when,
+            value: row,
+            raw,
+            fields,
+        });
+    }
+    items
+}
+
+fn first_subtitle<'a>(row: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+    row.get("subtitles")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|subtitles| subtitles.first())
+        .and_then(|subtitle| subtitle.get(name))
+}
+
 /// `requests_for_file` の、読めなかった項目の場所も返す版。読み手はこちらを使う。
 pub fn requests_for_file_reporting(
     kind: super::classify::KnownKind,
@@ -318,266 +770,50 @@ pub fn requests_for_file_reporting(
     user_id: uuid::Uuid,
     archive_sha256: String,
 ) -> anyhow::Result<FileRequests> {
-    if kind == super::classify::KnownKind::Timeline {
-        let root: serde_json::Value = serde_json::from_slice(bytes)?;
-        let mut rows: Vec<(&str, &serde_json::Value)> = Vec::new();
-        for segment in root
-            .get("semanticSegments")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(value) = segment.get("visit") {
-                rows.push(("c03-timeline-visit", value));
-            }
-            if let Some(value) = segment.get("activity") {
-                rows.push(("c03-timeline-move", value));
-            }
-            for value in segment
-                .get("timelinePath")
-                .and_then(serde_json::Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                rows.push(("c03-timeline-route", value));
-            }
-        }
-        for value in root
-            .get("rawSignals")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            rows.push(("c03-timeline-signal", value));
-        }
-        let mut out = FileRequests::default();
-        for (position, (source, value)) in rows.into_iter().enumerate() {
-            match request(
-                source.to_owned(),
-                value,
-                inner_path,
-                user_id,
-                archive_sha256.clone(),
-            ) {
-                Ok(request) => out.requests.push(request),
-                Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
-            }
-        }
-        return Ok(out);
-    }
-    if kind == super::classify::KnownKind::Records
-        || kind == super::classify::KnownKind::SemanticHistory
-    {
-        let records = if kind == super::classify::KnownKind::Records {
-            super::legacy::parse_records(bytes)?
-        } else {
-            super::legacy::parse_semantic(bytes)?
-        };
-        let mut out = FileRequests::default();
-        for (position, record) in records.into_iter().enumerate() {
-            match request_at(
-                record.logical_source.to_owned(),
-                &record.item,
-                record.event_time,
-                inner_path,
-                user_id,
-                archive_sha256.clone(),
-            ) {
-                Ok(request) => out.requests.push(request),
-                Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
-            }
-        }
-        return Ok(out);
-    }
-    let values: Vec<serde_json::Value> = match kind {
-        super::classify::KnownKind::ChromeHistory => {
-            serde_json::from_slice::<serde_json::Value>(bytes)?
-                .get("Browser History")
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        }
-        _ => serde_json::from_slice(bytes)?,
-    };
-    // **原文は書庫のバイト列の切り出し**（spec「原文は書庫のバイト列の一部と一致する」）。
-    // 解釈して書き戻すと、欄の並び・空白・数値の表記が変わり、**書庫を消した後に
-    // 元の 1 件を復元できない**（review R2）。切り出せない形のときだけ書き戻す。
-    // **件数が合うときだけ使う。** `array_items` はトップレベルの `{…}` しか拾わないので、
-    // 配列に `null` や数値が混ざると添字がずれ、**別の記録の原文が付く**（review I3）。
-    // 合わないときは書き戻しに落とす（原文の厳密さは失うが、取り違えはしない）。
-    let sliced = match kind {
-        super::classify::KnownKind::ChromeHistory => Vec::new(),
-        _ => match super::slice::array_items(bytes) {
-            Ok(items) if items.len() == values.len() => items,
-            Ok(_) => {
-                tracing::warn!(
-                    kind = "archive_raw_slice",
-                    "原文の切り出しと項目の数が合わない"
-                );
-                Vec::new()
-            }
-            Err(_) => {
-                tracing::warn!(kind = "archive_raw_slice", "原文を切り出せない");
-                Vec::new()
-            }
-        },
+    use super::classify::KnownKind;
+    let root: serde_json::Value = serde_json::from_slice(bytes)?;
+    let items = match kind {
+        KnownKind::Timeline => timeline_items(&root, bytes),
+        KnownKind::Records | KnownKind::SemanticHistory => legacy_items(kind, &root, bytes),
+        _ => takeout_items(kind, &root, bytes),
     };
     let mut out = FileRequests::default();
-    for (position, value) in values.into_iter().enumerate() {
-        // 製品の名前は**画面の見出し**になる（`マイアクティビティ: <製品>`）。
-        // 論理ソース名を渡していたときは、非 ASCII の製品で
-        // 「マイアクティビティ: c03-myactivity-u097022418c48」と出ていた（review I1）。
-        let mut product_name: Option<String> = None;
-        let parsed = (|| -> anyhow::Result<Option<(String, chrono::DateTime<chrono::Utc>)>> {
-            Ok(Some(match kind {
-                super::classify::KnownKind::YouTubeWatch
-                | super::classify::KnownKind::YouTubeSearch => {
-                    let url = value
-                        .get("titleUrl")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default();
-                    let source = if url.contains("watch?v=") {
-                        "c03-youtube-watch"
-                    } else {
-                        "c03-youtube-search"
-                    };
-                    (source.to_owned(), event_time(&value)?)
-                }
-                super::classify::KnownKind::MyActivity => {
-                    let product = value
-                        .get("products")
-                        .and_then(serde_json::Value::as_array)
-                        .and_then(|v| v.first())
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown");
-                    product_name = Some(product.to_owned());
-                    (super::myactivity::source_name(product), event_time(&value)?)
-                }
-                super::classify::KnownKind::ChromeHistory => {
-                    let time = value
-                        .get("time_usec")
-                        .and_then(serde_json::Value::as_i64)
-                        .ok_or_else(|| anyhow::anyhow!("Chrome時刻が無い"))?;
-                    (
-                        "c03-chrome-history".to_owned(),
-                        super::chrome::time_usec_to_utc(time)?,
-                    )
-                }
-                _ => return Ok(None),
-            }))
-        })();
-        let Some((logical_source, event_time)) = (match parsed {
-            Ok(parsed) => parsed,
+    for (position, item) in items.into_iter().enumerate() {
+        match build_request(item, inner_path, user_id, &archive_sha256) {
+            Ok(request) => out.requests.push(request),
             // **この項目だけ飛ばす。** 場所を残すので、入らなかったことは台帳に出る。
-            Err(_) => {
-                out.unreadable.push(format!("{inner_path}#{position}"));
-                continue;
-            }
-        }) else {
-            continue;
-        };
-        let raw = sliced
-            .get(position)
-            .and_then(|item| std::str::from_utf8(item).ok())
-            .map(str::to_owned);
-        match request_at_raw(
-            logical_source,
-            &value,
-            raw,
-            event_time,
-            inner_path,
-            user_id,
-            archive_sha256.clone(),
-        ) {
-            Ok(mut request) => {
-                if let Some(product) = product_name {
-                    request.payload["myactivity_product"] = serde_json::Value::String(product);
-                }
-                out.requests.push(request);
-            }
             Err(_) => out.unreadable.push(format!("{inner_path}#{position}")),
         }
     }
     Ok(out)
 }
 
-fn request(
-    source: String,
-    value: &serde_json::Value,
+/// 材料から要求を作る。payload は design D6 の全記録の欄 + 論理ソースごとの欄。
+fn build_request(
+    item: Item<'_>,
     inner_path: &str,
     user_id: uuid::Uuid,
-    archive_sha256: String,
+    archive_sha256: &str,
 ) -> anyhow::Result<crate::IngestRequest> {
-    request_at(
-        source,
-        value,
-        event_time(value)?,
-        inner_path,
-        user_id,
-        archive_sha256,
-    )
-}
-
-/// 項目が持つ時刻の表記から、取得元が示した時差を引く（`archive::timezone`）。
-///
-/// Timeline は `startTimeTimezoneUtcOffsetMinutes` を明示するので、あればそれを優先する。
-/// **示していなければ UTC のまま**（位置から推定しない。本人の決定 C2）。
-fn source_timezone(value: &serde_json::Value) -> super::timezone::SourceTimezone {
-    let offset = value
-        .get("startTimeTimezoneUtcOffsetMinutes")
-        .and_then(serde_json::Value::as_i64)
-        .and_then(|minutes| i32::try_from(minutes).ok());
-    let text = ["time", "startTime", "timestamp", "endTime"]
-        .iter()
-        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
-        .or_else(|| {
-            value
-                .get("duration")
-                .and_then(|duration| duration.get("startTimestamp"))
-                .and_then(serde_json::Value::as_str)
-        });
-    text.and_then(|text| super::timezone::from_timestamp(text, offset).ok())
-        .unwrap_or(super::timezone::SourceTimezone {
-            offset_min: 0,
-            id: "UTC".into(),
-            from_source: false,
-        })
-}
-
-fn request_at(
-    source: String,
-    value: &serde_json::Value,
-    event_time: chrono::DateTime<chrono::Utc>,
-    inner_path: &str,
-    user_id: uuid::Uuid,
-    archive_sha256: String,
-) -> anyhow::Result<crate::IngestRequest> {
-    request_at_raw(
-        source,
-        value,
-        None,
-        event_time,
-        inner_path,
-        user_id,
-        archive_sha256,
-    )
-}
-
-/// `raw` に**書庫のバイト列の切り出し**を渡せる版。`None` なら書き戻す。
-fn request_at_raw(
-    source: String,
-    value: &serde_json::Value,
-    raw: Option<String>,
-    event_time: chrono::DateTime<chrono::Utc>,
-    inner_path: &str,
-    user_id: uuid::Uuid,
-    archive_sha256: String,
-) -> anyhow::Result<crate::IngestRequest> {
-    let zone = source_timezone(value);
+    let (event_time, zone) = item.when?;
+    let raw = match item.raw.map(std::str::from_utf8) {
+        Some(Ok(raw)) => raw.to_owned(),
+        // 切り出せない形のときだけ書き戻す（原文の厳密さは失うが、項目は落とさない）。
+        _ => serde_json::to_string(item.value)?,
+    };
+    let mut payload = item.fields;
+    payload.insert("archive_sha256".into(), serde_json::json!(archive_sha256));
+    payload.insert("inner_path".into(), serde_json::json!(inner_path));
+    // **取得元が地域を示したか**（spec「取得元が地域を持たなかった印」。D5）。
+    payload.insert("tz_from_source".into(), serde_json::json!(zone.from_source));
+    payload.insert(
+        "parser_version".into(),
+        serde_json::json!(super::PARSER_VERSION),
+    );
     Ok(crate::IngestRequest {
         id: uuid::Uuid::new_v4(),
         user_id,
-        logical_source: source,
+        logical_source: item.source,
         external_id: None,
         device_id: Some("s01-c03".into()),
         origin: "collected".into(),
@@ -592,22 +828,9 @@ fn request_at_raw(
         crs: None,
         source_updated_at: None,
         external_ref: None,
-        raw: match raw {
-            Some(raw) => raw,
-            None => serde_json::to_string(value)?,
-        },
-        payload: serde_json::json!({"archive_sha256": archive_sha256, "inner_path": inner_path}),
+        raw,
+        payload: serde_json::Value::Object(payload),
     })
-}
-
-fn event_time(value: &serde_json::Value) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-    let text = value
-        .get("time")
-        .or_else(|| value.get("timestamp"))
-        .or_else(|| value.get("startTime"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("書庫項目の時刻が無い"))?;
-    Ok(chrono::DateTime::parse_from_rfc3339(text)?.to_utc())
 }
 
 /// 移行前の書き出しが運んだ最終日の翌日に、3 本の旧ソースを退役させる。
@@ -1073,7 +1296,7 @@ pub async fn ingest_confirmed_pending(
                 ensure_myactivity_source(
                     pool,
                     &request.logical_source,
-                    request.payload["myactivity_product"]
+                    request.payload["product"]
                         .as_str()
                         .unwrap_or(&request.logical_source),
                 )
@@ -1442,7 +1665,7 @@ pub fn spawn_inspecting(
                                 && ensure_myactivity_source(
                                     &pool,
                                     &request.logical_source,
-                                    request.payload["myactivity_product"]
+                                    request.payload["product"]
                                         .as_str()
                                         .unwrap_or(&request.logical_source),
                                 )

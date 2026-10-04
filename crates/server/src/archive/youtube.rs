@@ -25,7 +25,7 @@ pub fn parse(bytes: &[u8]) -> anyhow::Result<Vec<Row>> {
         })
         .collect())
 }
-fn percent_decode(input: &str) -> String {
+pub fn percent_decode(input: &str) -> String {
     let mut bytes = Vec::new();
     let raw = input.as_bytes();
     let mut i = 0;

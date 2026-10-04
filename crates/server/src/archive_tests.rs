@@ -604,7 +604,7 @@ fn archive_tz_uses_source_offset_or_marks_utc_as_unknown() {
 /// Scenario: タイムラインの訪問と経路の点は別の論理ソースに入る
 #[test]
 fn archive_parse_timeline_separates_all_record_kinds() {
-    let input = br#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"},"activity":{"startTime":"2026-01-01T00:00:01Z"},"timelinePath":[{"time":"2026-01-01T00:01:00Z"}]}],"rawSignals":[{"time":"2026-01-01T00:02:00Z"}]}"#;
+    let input = REAL_TIMELINE.as_bytes();
     let records = crate::archive::timeline::parse(input).unwrap();
     assert_eq!(
         records
@@ -615,6 +615,9 @@ fn archive_parse_timeline_separates_all_record_kinds() {
             "c03-timeline-visit",
             "c03-timeline-move",
             "c03-timeline-route",
+            "c03-timeline-route",
+            "c03-timeline-signal",
+            "c03-timeline-signal",
             "c03-timeline-signal"
         ]
     );
@@ -683,14 +686,14 @@ fn archive_requests_accept_timeline_segments() {
     let requests = crate::archive::worker::requests_for_file(
         crate::archive::classify::KnownKind::Timeline,
         "Timeline.json",
-        br#"{"semanticSegments":[{"visit":{"startTime":"2026-09-12T03:00:00Z"},"activity":{"startTime":"2026-09-12T04:00:00Z"},"timelinePath":[{"time":"2026-09-12T05:00:00Z"}]}],"rawSignals":[{"time":"2026-09-12T06:00:00Z"}]}"#,
+        REAL_TIMELINE.as_bytes(),
         uuid::Uuid::nil(),
         "b".repeat(64),
     )
     .unwrap();
-    assert_eq!(requests.len(), 4);
+    assert_eq!(requests.len(), 7);
     assert_eq!(requests[0].logical_source, "c03-timeline-visit");
-    assert_eq!(requests[3].logical_source, "c03-timeline-signal");
+    assert_eq!(requests[6].logical_source, "c03-timeline-signal");
     assert!(requests.iter().all(|request| request.origin == "collected"));
 }
 
@@ -1526,7 +1529,7 @@ fn archive_end_to_end_builds_requests_for_every_supported_content() {
     let fixtures = [
         (
             crate::archive::classify::KnownKind::Timeline,
-            r#"{"semanticSegments":[{"visit":{"startTime":"2026-01-01T00:00:00Z"}}]}"#,
+            r#"{"semanticSegments":[{"startTime":"2026-01-01T00:00:00Z","visit":{}}]}"#,
         ),
         (
             crate::archive::classify::KnownKind::Records,
@@ -1653,4 +1656,324 @@ async fn archive_ledgers_are_append_only() {
             "{sql} が通っている"
         );
     }
+}
+
+/// **端末から書き出した `Timeline.json` の実物の形**（final review R48）。
+///
+/// 時刻と時差は**セグメントの側**にあり（`startTime` / `endTime` /
+/// `startTimeTimezoneUtcOffsetMinutes`）、`visit` / `activity` の中には無い。
+/// 生の信号は `{"position":{…,"timestamp"}}` / `{"wifiScan":{"deliveryTime"}}` /
+/// `{"activityRecord":{"timestamp"}}` と 1 段入れ子。座標は `"35.0116°, 135.7681°"` の文字列。
+/// 合成の形（`visit` の中に `startTime`）で試していたときは、コードの思い込みと素材が
+/// 同じ形をしていて、本物では 1 件も入らないことが見えなかった。
+pub(crate) const REAL_TIMELINE: &str = r#"{
+  "semanticSegments": [
+    {
+      "startTime": "2026-09-12T12:00:00.000+09:00",
+      "endTime": "2026-09-12T13:00:00.000+09:00",
+      "startTimeTimezoneUtcOffsetMinutes": 540,
+      "endTimeTimezoneUtcOffsetMinutes": 540,
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.85,
+        "topCandidate": {
+          "placeId": "ChIJ8cM8zdaoAWARPR27azYdlsA",
+          "semanticType": "UNKNOWN",
+          "probability": 0.6,
+          "placeLocation": { "latLng": "35.0116°, 135.7681°" }
+        }
+      }
+    },
+    {
+      "startTime": "2026-09-12T13:00:00.000+09:00",
+      "endTime": "2026-09-12T13:30:00.000+09:00",
+      "startTimeTimezoneUtcOffsetMinutes": 540,
+      "endTimeTimezoneUtcOffsetMinutes": 540,
+      "activity": {
+        "start": { "latLng": "35.0116°, 135.7681°" },
+        "end": { "latLng": "35.0000°, 135.7600°" },
+        "distanceMeters": 1520.5,
+        "probability": 0.9,
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    },
+    {
+      "startTime": "2026-09-12T12:00:00.000+09:00",
+      "endTime": "2026-09-12T14:00:00.000+09:00",
+      "timelinePath": [
+        { "point": "35.0116°, 135.7681°", "time": "2026-09-12T13:05:00.000+09:00" },
+        { "point": "35.0050°, 135.7650°", "time": "2026-09-12T13:15:00.000+09:00" }
+      ]
+    }
+  ],
+  "rawSignals": [
+    { "position": { "LatLng": "35.0116°, 135.7681°", "accuracyMeters": 13, "altitudeMeters": 50.1, "source": "WIFI", "timestamp": "2026-09-12T13:10:00.000+09:00", "speedMetersPerSecond": 0.0 } },
+    { "wifiScan": { "deliveryTime": "2026-09-12T13:11:00.000+09:00", "devicesRecords": [ { "mac": 1234567, "rawRssi": -60 } ] } },
+    { "activityRecord": { "probableActivities": [ { "type": "STILL", "confidence": 0.9 } ], "timestamp": "2026-09-12T13:12:00.000+09:00" } }
+  ],
+  "userLocationProfile": { "frequentPlaces": [] }
+}"#;
+
+/// Scenario: タイムラインの訪問と経路の点は別の論理ソースに入る
+/// Scenario: ずれを持つ時刻はそのずれで残る
+#[test]
+fn archive_requests_read_the_real_timeline_shape() {
+    let read = crate::archive::worker::requests_for_file_reporting(
+        crate::archive::classify::KnownKind::Timeline,
+        "Timeline.json",
+        REAL_TIMELINE.as_bytes(),
+        uuid::Uuid::nil(),
+        "e".repeat(64),
+    )
+    .unwrap();
+    assert!(
+        read.unreadable.is_empty(),
+        "本物の形の項目が読めなかった: {:?}",
+        read.unreadable
+    );
+    let got: Vec<(&str, String, i32)> = read
+        .requests
+        .iter()
+        .map(|r| {
+            (
+                r.logical_source.as_str(),
+                r.event_time.to_rfc3339(),
+                r.tz_offset_min,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (
+                "c03-timeline-visit",
+                "2026-09-12T03:00:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-move",
+                "2026-09-12T04:00:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-route",
+                "2026-09-12T04:05:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-route",
+                "2026-09-12T04:15:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-signal",
+                "2026-09-12T04:10:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-signal",
+                "2026-09-12T04:11:00+00:00".to_owned(),
+                540
+            ),
+            (
+                "c03-timeline-signal",
+                "2026-09-12T04:12:00+00:00".to_owned(),
+                540
+            ),
+        ]
+    );
+    // 原文は**ファイルのバイト列の連続した一部**（訪問・移動はセグメントごと、点と信号はその項目）
+    for request in &read.requests {
+        assert!(
+            REAL_TIMELINE.contains(&request.raw),
+            "{} の原文が書庫のバイト列の一部でない: {}",
+            request.logical_source,
+            request.raw
+        );
+    }
+    assert!(
+        read.requests[0].raw.contains("\"startTime\""),
+        "訪問の原文にセグメントの時刻が無い"
+    );
+    assert!(
+        read.requests[2].raw.starts_with("{ \"point\""),
+        "点の原文が点でない"
+    );
+}
+
+/// Scenario: UTC しか持たない時刻には取得元が地域を持たなかった印が付く
+/// Scenario: 記録から運んだ書庫が分かる
+///
+/// design D6 の payload の欄を、**格納される payload を読んで**固定する（final review R54）。
+#[test]
+fn archive_payload_carries_the_design_d6_fields() {
+    let user = uuid::Uuid::nil();
+    let timeline = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::Timeline,
+        "Timeline.json",
+        REAL_TIMELINE.as_bytes(),
+        user,
+        "e".repeat(64),
+    )
+    .unwrap();
+    let visit = &timeline[0].payload;
+    assert_eq!(visit["archive_sha256"], "e".repeat(64));
+    assert_eq!(visit["inner_path"], "Timeline.json");
+    assert_eq!(
+        visit["tz_from_source"], true,
+        "+09:00 を示した記録に印が無い"
+    );
+    assert_eq!(visit["parser_version"], crate::archive::PARSER_VERSION);
+    assert_eq!(visit["end_time"], "2026-09-12T13:00:00.000+09:00");
+    assert_eq!(visit["place_id"], "ChIJ8cM8zdaoAWARPR27azYdlsA");
+    assert_eq!(visit["semantic_type"], "UNKNOWN");
+    assert_eq!(visit["lat"], 35.0116);
+    assert_eq!(visit["lng"], 135.7681);
+    assert_eq!(visit["probability"], 0.85);
+    let moving = &timeline[1].payload;
+    assert_eq!(moving["activity_type"], "WALKING");
+    assert_eq!(moving["distance_m"], 1520.5);
+    assert_eq!(moving["start_lat"], 35.0116);
+    assert_eq!(moving["end_lng"], 135.76);
+    let point = &timeline[2].payload;
+    assert_eq!(
+        (point["lat"].clone(), point["lng"].clone()),
+        (serde_json::json!(35.0116), serde_json::json!(135.7681))
+    );
+    let position = &timeline[4].payload;
+    assert_eq!(position["signal_kind"], "position");
+    assert_eq!(position["accuracy_m"], 13);
+    assert_eq!(timeline[5].payload["signal_kind"], "wifiScan");
+    assert_eq!(timeline[6].payload["signal_kind"], "activityRecord");
+
+    let watch = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/YouTube/watch-history.json",
+        r#"[{"header":"YouTube","title":"ある動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc","subtitles":[{"name":"あるチャンネル","url":"https://www.youtube.com/channel/x"}],"time":"2026-09-12T03:00:00.000Z","products":["YouTube"]}]"#.as_bytes(),
+        user,
+        "f".repeat(64),
+    )
+    .unwrap();
+    let payload = &watch[0].payload;
+    assert_eq!(
+        payload["tz_from_source"], false,
+        "Z の時刻に「地域を持たなかった」印が無い"
+    );
+    assert_eq!(payload["parser_version"], crate::archive::PARSER_VERSION);
+    assert_eq!(payload["title"], "ある動画 を視聴しました");
+    assert_eq!(payload["url"], "https://www.youtube.com/watch?v=abc");
+    assert_eq!(payload["channel_name"], "あるチャンネル");
+    assert_eq!(payload["channel_url"], "https://www.youtube.com/channel/x");
+
+    let search = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::YouTubeSearch,
+        "Takeout/YouTube/search-history.json",
+        r#"[{"title":"京都 を検索しました","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD&sp=x","time":"2026-09-12T03:00:00Z"}]"#.as_bytes(),
+        user,
+        "f".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(search[0].payload["query"], "京都");
+
+    let chrome = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::ChromeHistory,
+        "Takeout/Chrome/History.json",
+        r#"{"Browser History":[{"title":"ある頁","url":"https://example.com/","page_transition":"LINK","client_id":"c1","time_usec":13370000000000000}]}"#.as_bytes(),
+        user,
+        "f".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(chrome[0].payload["url"], "https://example.com/");
+    assert_eq!(chrome[0].payload["page_transition"], "LINK");
+    assert_eq!(chrome[0].payload["client_id"], "c1");
+    assert_eq!(chrome[0].payload["tz_from_source"], false);
+
+    let legacy = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::Records,
+        "Takeout/Records.json",
+        br#"{"locations":[{"latitudeE7":356580000,"longitudeE7":1397450000,"accuracy":17,"source":"WIFI","deviceTag":42,"timestamp":"2021-06-01T00:00:00Z"}]}"#,
+        user,
+        "f".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(legacy[0].payload["lat"], 35.658);
+    assert_eq!(legacy[0].payload["lng"], 139.745);
+    assert_eq!(legacy[0].payload["accuracy_m"], 17);
+    assert_eq!(legacy[0].payload["device_tag"], 42);
+}
+
+/// Scenario: 原文は書庫のバイト列の一部と一致する
+///
+/// spec の SHALL は**全記録**に掛かる。YouTube とマイアクティビティにしか効いていなかった（final review R55）。
+#[test]
+fn archive_raw_is_sliced_for_every_kind() {
+    let user = uuid::Uuid::nil();
+    let cases: [(crate::archive::classify::KnownKind, &str); 4] = [
+        (
+            crate::archive::classify::KnownKind::ChromeHistory,
+            r#"{"Browser History": [ {"url":"https://example.com/",  "time_usec":13370000000000000, "zz":1.0e2} ]}"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::Records,
+            r#"{"locations": [ {"timestamp":"2021-06-01T00:00:00Z",  "latitudeE7":356580000, "zz":1.0e2} ]}"#,
+        ),
+        (
+            crate::archive::classify::KnownKind::SemanticHistory,
+            r#"{"timelineObjects": [ {"placeVisit": {"duration": {"startTimestamp":"2021-06-01T00:00:00Z"},  "zz":1.0e2}} ]}"#,
+        ),
+        (crate::archive::classify::KnownKind::Timeline, REAL_TIMELINE),
+    ];
+    for (kind, body) in cases {
+        let requests = crate::archive::worker::requests_for_file(
+            kind,
+            "x.json",
+            body.as_bytes(),
+            user,
+            "f".repeat(64),
+        )
+        .unwrap();
+        assert!(!requests.is_empty(), "{kind:?} から記録が作られない");
+        for request in requests {
+            assert!(
+                body.contains(&request.raw),
+                "{kind:?} の原文が書庫のバイト列の一部でない（書き戻している）: {}",
+                request.raw
+            );
+        }
+    }
+}
+
+/// Scenario: 6 つの中身がそれぞれ読まれる
+///
+/// 削除済みの動画は `titleUrl` を持たない。先頭がそれだとファイルごと「読まなかった」に
+/// なっていた（final review R57）。視聴の項目は検索のソースへ回さない（R50）。
+#[test]
+fn archive_classify_skips_items_without_a_title_url() {
+    let body = r#"[{"header":"YouTube","title":"削除された動画を視聴しました","time":"2026-09-12T02:00:00Z","products":["YouTube"]},{"header":"YouTube","title":"ある動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc","time":"2026-09-12T03:00:00Z","products":["YouTube"]}]"#.as_bytes();
+    let files = [crate::archive::open::ArchiveFile {
+        path: "Takeout/YouTube/watch-history.json".into(),
+        bytes: body.to_vec(),
+    }];
+    let classified = crate::archive::classify::classify_files(&files);
+    assert_eq!(
+        classified.known.first().map(|k| k.kind),
+        Some(crate::archive::classify::KnownKind::YouTubeWatch),
+        "先頭が削除済みの動画の視聴履歴を見分けられない"
+    );
+    let requests = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/YouTube/watch-history.json",
+        body,
+        uuid::Uuid::nil(),
+        "f".repeat(64),
+    )
+    .unwrap();
+    assert_eq!(
+        requests
+            .iter()
+            .map(|r| r.logical_source.as_str())
+            .collect::<Vec<_>>(),
+        ["c03-youtube-watch", "c03-youtube-watch"],
+        "削除済みの動画の視聴が検索のソースへ回っている"
+    );
 }

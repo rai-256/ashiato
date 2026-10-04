@@ -76,18 +76,32 @@ fn kind_of(value: serde_json::Value) -> Option<KnownKind> {
             return Some(KnownKind::ChromeHistory);
         }
     }
-    let item = value.as_array()?.first()?.as_object()?;
-    let url = item.get("titleUrl")?.as_str()?;
-    if url.contains("watch?v=") {
-        Some(KnownKind::YouTubeWatch)
-    } else if url.contains("results?search_query=") {
-        Some(KnownKind::YouTubeSearch)
-    } else if item.contains_key("products")
-        && item.contains_key("header")
-        && item.contains_key("time")
+    // **先頭 1 件だけで決めない**（final review R57）。削除済みの動画は `titleUrl` を持たないので、
+    // 先頭がそれだと視聴履歴がファイルごと「読まなかった」になった。URL を持つ最初の項目で決める。
+    let items: Vec<&serde_json::Map<String, serde_json::Value>> = value
+        .as_array()?
+        .iter()
+        .filter_map(serde_json::Value::as_object)
+        .collect();
+    if let Some(url) = items
+        .iter()
+        .find_map(|item| item.get("titleUrl").and_then(serde_json::Value::as_str))
     {
-        Some(KnownKind::MyActivity)
-    } else {
-        None
+        if url.contains("watch?v=") {
+            return Some(KnownKind::YouTubeWatch);
+        }
+        if url.contains("results?search_query=") {
+            return Some(KnownKind::YouTubeSearch);
+        }
     }
+    items
+        .iter()
+        .find(|item| item.contains_key("titleUrl"))
+        .or_else(|| items.first())
+        .filter(|item| {
+            item.contains_key("products")
+                && item.contains_key("header")
+                && item.contains_key("time")
+        })
+        .map(|_| KnownKind::MyActivity)
 }
