@@ -200,7 +200,8 @@ async fn archive_flow_reads_takeout_from_the_downloads_folder() {
 /// Scenario: 既定の間隔でも置かれてから 10 分以内に読み始める
 #[test]
 fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
-    let config = crate::archive::config::from_values(&std::collections::BTreeMap::new()).unwrap();
+    let home = std::collections::BTreeMap::from([("HOME".to_string(), "/home/me".to_string())]);
+    let config = crate::archive::config::from_values(&home).unwrap();
     // D8 は「2 回続けて大きさと更新時刻が変わらない」ことを読み始めの条件にしている。
     // 置いた直後の走査は 1 回目なので、読み始めるのは **2 回目**の走査。
     const SCANS_BEFORE_READ: u64 = 2;

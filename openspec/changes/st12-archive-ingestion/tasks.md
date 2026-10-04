@@ -88,7 +88,8 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 4.3 字句の走査で配列の項目の境目を 1 MiB ずつ探し、`raw` をバイト列の範囲そのままで切り出す（64 MiB の上限。UTF-8 でない範囲は読めなかった項目）。
   Scenario: `原文は書庫のバイト列の一部と一致する`。
   検証: `CT archive_slice`（字下げ・改行・エスケープされた `"` と `]` を含む配列で、各 `raw` がファイルの部分列と一致し、境目が 1 MiB の読みの切れ目をまたいでも同じ）
-- [x] 4.4 検証: 大きなファイルでメモリに載せないこと —— `CT archive_slice_large`（200 MiB の合成の `Records.json` を読み、1 件ずつ受け取る側で同時に持った件数の最大が 1 であることを数える）
+- [x] 4.4 検証: 大きなファイルでメモリに載せないこと —— `CT archive_slice_large`（200 MiB の合成の `Records.json` を読み、1 件ずつ受け取る側で同時に持った件数の最大が 1 であることを数える）。
+  **本番の読み手はまだこの関数を通らない**（design D17（仮）。code-verify R71）—— この検証は `stream_array_items` の性質の証跡で、本番の経路が D5 を守った証跡ではない
 
 ## Task 6: 5. 解析器（design D2 / D5 / D6）
 
@@ -199,7 +200,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 11.3 `tools/smoke.sh` に 1 段足す: 一時ディレクトリを置き場にしてサーバを起こし、合成の Takeout の書庫を置き、`tools/archive-shape.sh --confirm` で印を置き、`/archives/status` の `last_event_on` が合成の最後の日になり、同じ書庫を別名で置いて `/coverage` の件数が変わらないことを `jq -e` で見る。
   検証: `tools/smoke.sh` rc=0
 - [x] 11.4 `tools/seed.sh normal` に、書庫のソースの記録（視聴履歴の最終日を今日の 3 日前）と台帳の 1 行（読めた書庫）を足す（確認バッチの画面で見出しと箱が見える材料）。
-  検証: `tools/seed.sh normal` rc=0 の後、`curl -sf -H "authorization: Bearer $API_TOKEN" http://127.0.0.1:18787/archives/status | jq -e '.latest_archive.outcome=="read"'` rc=0
+  検証: `tools/seed.sh normal` rc=0 の後、`curl -sf -H "authorization: Bearer $API_TOKEN" "http://${BIND:-127.0.0.1:18787}/archives/status" | jq -e '.latest_archive.outcome=="read"'` rc=0
 - [x] 11.5 `docs/archive-inbox.md` —— 置き場の設定（D1 の環境変数）、Takeout の予約エクスポートで **JSON の形を選ぶ**こと、端末でタイムラインを書き出して**網の外に出ない手段**（Tailscale のファイル送信・USB）で専用のフォルダへ運ぶ手順（本人の決定 Q8）、
   最初の Takeout の書庫を置くと箱に「形の確認待ち」が出るので `tools/archive-shape.sh` の出力を見て `--confirm` で印を置くこと、**新しい製品・初めての中身・書き出しの言語を変えたときはまた確認待ちが出ること**（design D16 の 4 つの型）。検証: `grep -c 'ASHIATO_INBOX_DIR' docs/archive-inbox.md` と `grep -c 'archive-shape' docs/archive-inbox.md` がどちらも 1 以上
 
@@ -212,7 +213,8 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 12.4 PR 本文に **仮決め（D1 / D2 / D3 / D5 / D6 / D7 / D9 / D10 / D12）と反転条件**、**写しをバックアップ（ST30）に入れる申し送り**（design D9）を列挙する。
   検証: `body=$(gh pr view --json body -q .body); for d in 1 2 3 5 6 7 9 10 12; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q ST30 <<<"$body"` rc=0
 - [x] 12.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
-  検証: `test ! -f docs/handoff/ST12.md || { body=$(gh pr view --json body -q .body); grep -oE 'R[0-9]+' docs/handoff/ST12.md | sort -u | while read r; do grep -q "$r" <<<"$body" || exit 1; done; }` rc=0
+  検証: `test ! -f docs/handoff/ST12.md || { body=$(gh pr view --json body -q .body); grep -oE '^## [a-z0-9-]+ R[0-9]+' docs/handoff/ST12.md | sed 's/^## //' | sort -u | while read -r h; do grep -qF "$h" <<<"$body" || { echo "PR 本文に無い: $h"; exit 1; }; done; }` rc=0
+  （申し送りの見出し「`<change> R<n>`」ごとに突き合わせる。R 番号だけの部分一致だと `R6` が `R61` に当たって通っていた。code-verify R66）
 
 ## 人間の確認待ち
 

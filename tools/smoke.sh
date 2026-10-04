@@ -22,13 +22,8 @@ export ASHIATO_ARCHIVE_SCAN_SEC=1
 mkdir -p "$ASHIATO_INBOX_DIR" "$ASHIATO_DOWNLOADS_DIR" "$ASHIATO_ARCHIVE_COPY_DIR"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
-# `archive-shape.sh` は `psql` を直接使う。開発用コンテナと同じ DB へつなぐため、
-# 接続文字列だけを捨てて compose 内の psql へ渡す。
-psql() {
-  [ "${1:-}" = "$DATABASE_URL" ] && shift
-  docker compose exec -T db psql -q -U ashiato -d ashiato "$@"
-}
-export -f psql
+# `archive-shape.sh` は差し替えずに呼ぶ —— 手元に `psql` が無ければ道具自身が開発用コンテナの
+# `psql` へ回す（code-verify R68。前は smoke だけが差し替えて緑になり、本人の機械では止まっていた）。
 
 # SRV が無いときに kill "${SRV:-0}" とすると kill 0 = プロセスグループ全体（呼び出し元の verify-run ごと）を止める
 cleanup() { if [ -n "${SRV:-}" ]; then kill "$SRV" 2>/dev/null || true; fi; docker compose down -v >/dev/null 2>&1 || true; rm -rf "$ARCHIVE_ROOT"; }

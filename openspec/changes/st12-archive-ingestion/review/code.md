@@ -688,3 +688,169 @@
 ## scoped re-review（8be2abf..dd6cda8）: R47〜R62 すべて ADDRESSED（R61 は裁定を支持）。新しい Critical / Important なし
 
 re-review が挙げた Minor 3 件は、2 回目の fix wave を出さない規則（SDD の Final Review）に従い、ledger（`.superpowers/sdd/st12-task-final/progress.md`）に ruling つきで park した。
+
+---
+
+# code-verify 第 3 回（`7d08921..7b95619`）— 2026-10-05
+
+対象: `feat/st12-archive-ingestion` の HEAD `7b95619`（PR #10 の head はまだ `2a98724` で、push 前）。**実装は触っていない。**
+変異試験は作業ツリーの外の複製（`git archive HEAD`）で行い、元に戻してから次へ進んだ。
+
+> 作業の副作用（報告）: (1) 画面の実寸の probe を複製で回したとき、複製の `web/node_modules` を worktree へのシンボリックリンクにしていたので、
+> `tools/stack.sh` の `npm ci` が **worktree の `web/node_modules` を空にした**。`cd web && npm ci` で戻し、`tsc -b` / lint / build / vitest 195 本が緑に戻ったことを確かめた。
+> (2) 変異試験が試験用 DB の登録簿に `c03-myactivity-u772c89a697d3`（30 日）と `c03-myactivity-u8904d416c8a9`（`record`）を残したので、`none` / 60 日へ戻した。
+> (3) `tools/check-immutable.sh` と `tools/smoke.sh` は DB を `down -v` で作り直す（試験用 DB の中身は消える）。
+
+## 申告: 63/63 件を処置済み・tasks の `[x]` は 43/44（13.1 だけ未了）・CI 緑。独立に実行した検証コマンド
+
+| # | 申告 | 実行したもの |
+|---|---|---|
+| 1 | `cargo test` が全部緑 | `set -a; . ./.env; set +a; cargo test --workspace`（4 回） |
+| 2 | 全 Scenario に印がある | `python3 scripts/check_scenarios.py . st12-archive-ingestion` |
+| 3 | tasks の `[x]` の検証が通る | 0.1〜12.5 の検証コマンドを本文のまま 1 つずつ（下の表） |
+| 4 | 画面の Scenario を担保している | `cd web && npm run test:e2e`（本物の Chromium）＋ 360×640 で箱と格子の実寸を測る probe（`page.route` で状態を差し替え） |
+| 5 | 決定値を試験が固定している | 定数を 1 つずつ書き換えて `cargo test -p ashiato-server archive` / `npx vitest run` |
+| 6 | 守りの検査が効く | 複製で `archive_file` のトリガを外して `tools/check-immutable.sh`、spec に 1 行混ぜて `tools/st12_delta_diff.py` |
+| 7 | 置き場と写しの既定 | release のサーバを別々の作業ディレクトリから起動し、目録の `stored_path` と、印を置いた後の読み直しを観測 |
+
+## 実測（一致 / 不一致）
+
+| 申告 | 実測 | 判定 |
+|---|---|---|
+| cargo test 緑 | 1 回目は `505 passed; 1 failed`（`drops_tests::drops_api_idempotent` が `40P01 deadlock detected`）、2〜4 回目は `506 passed` | おおむね一致（ST12 の外の試験が 4 回に 1 回不安定。原因の表は特定していない） |
+| check_scenarios rc=0 | `Scenario 691 / 印 836 / 担保あり 691`・rc=0（spec に無い名前を指す印の warn が 6 件） | 一致（中身は R64 / R65） |
+| vitest 緑 | `27 files / 195 passed` | 一致 |
+| e2e 緑 | `22 passed`（ST12 のものは `latest-archive.spec.ts` の 2 本だけ） | 一致（ただし R65） |
+| fmt / clippy / tsc / lint / build / check-boundaries / check-openapi / check-migrations / check-licenses / check-private / check_chain / openspec validate | いずれも rc=0 | 一致 |
+| 0.1 `st12_delta_diff.py` | rc=0。spec に 1 行混ぜた複製では rc=1（`[FAIL] 前書きに許していない差`） | 一致（検査は本物） |
+| 1.2 `check-immutable.sh` | rc=0。`archive_file` の `archive_append_only` を外した複製では rc=1（`NG archive_file の全列を書き換えられた` ほか 2 行） | 一致（検査は本物） |
+| 9.1 openapi | 生成物が `docs/openapi.json` と一致・`"/archives/status"` が 1 件 | 一致 |
+| 11.3 `tools/smoke.sh` | rc=0（9b を通る。ただし `psql` を docker に差し替えて通している。R68） | 一致 |
+| 11.4 seed → curl | **本文のまま（`127.0.0.1:18787`）だと rc=4**。この worktree の `.env` は `BIND=127.0.0.1:18797` で、そこへ叩くと `latest_archive.outcome=="read"` が rc=0 | 環境差（R70） |
+| 12.4 PR 本文 | rc=0 | 一致 |
+| **12.5 handoff** | **rc=1**（PR 本文に `R6` が無い。R66） | **不一致** |
+| 箱は 160 px・溢れても読めなかった行を省かない | jsdom は緑。**本物の Chromium の 360×640 では外寸 178 px で、「ほか N 件」と読めなかった書庫の行が箱の外にはみ出して見えない**（R64） | **不一致** |
+| 箱が上限のとき 2 ソースは 800 以内 / 5 ソースは 1,440 以内 | jsdom は緑。**本物の Chromium では 894 / 1,457**（R65） | **不一致** |
+| 決定値の固定 | 失敗 3 回 / 先頭 100 件 / 120 秒 / 写しの既定 `true` / 3 日 / 160 px / myactivity の粒度は、書き換えると落ちる試験がある。**myactivity の 60 日・日本語名のハッシュ・1 時間・1,000 件ごとは書き換えても全部緑**（R69） | 一部不一致 |
+
+---
+
+## R64. 本物のブラウザでは箱の外寸が 178 px になり、溢れたとき「ほか N 件」と「読めなかった書庫」の行が箱の外にはみ出して見えない
+- 成果物: `web/src/LatestArchive.tsx:17-36`（`BOX_MAX_ROWS` は 1 行 = 22.4 px として数える）/ `:167-170`（`maxHeight: 160`・`overflow: "hidden"`。`box-sizing` は既定の `content-box`）/ `web/src/__tests__/latest-archive.test.tsx`（`declaredHeight` だけで測る）
+- 根拠: 複製で `tools/stack.sh` を立て、playwright を 360×640 で開いた。`/archives/status` は「読んでいる途中・両方の置き場が読めない・最後の確認が 4 日前・確認待ち 2 冊・直近の書庫」に差し替えて測った（rc=0）:
+  ```
+  BOX {"h":178,"boxSizing":"content-box","maxH":"160px","pad":"8px","scrollH":195}
+  ROW archive-row-reading top=31 bottom=99 見える=true   ← 長いファイル名で 3 行に折り返す
+  ROW archive-row-inbox-unreadable top=99 bottom=143 見える=true
+  ROW archive-row-inbox-stale top=143 bottom=166 見える=true
+  ROW archive-row-more top=166 bottom=188 見える=false  ← 「ほか 2 件」
+  ```
+  直近の書庫を `unreadable`（`broken_zip`）にすると `archive-row-latest top=143 bottom=211 見える=false`・`scrollH=240`。
+  `maxHeight: 160` は中身だけの高さなので、上下の余白 8 px と枠 1 px が足されて外寸は 178 px になる。行数は折り返しを考えずに数えているので、中身の行が溢れて `overflow: hidden` で切られる。
+  jsdom は文字を折り返さず、`style` に書かれた値を足すだけなので、どの試験も緑になる。
+- 影響: 本人が開く幅で、spec `external-ingestion:664`「箱の高さは 160 CSS px 以下で、出しきれない文字があれば省いたことが示される」と `:654`「箱が溢れても読めなかった書庫は省かれない」が両方とも成り立たない。文字は DOM には残るので、jsdom の `textContent` の試験は通る。
+  省かない行（`pinned`）は「置いたのに入っていないことに気づけないまま、書庫が約 7 日で失効する」のを防ぐためにある。見えなければその役目を果たさない。
+- kind: technical
+- 提案: `boxSizing: "border-box"` にし、各行に `whiteSpace: nowrap` と `textOverflow: ellipsis` を付けて 1 行に収める（または `pinned` の行を先頭に置く）。
+  `web/e2e/latest-archive.spec.ts` に試験を足す: 360×640 で状態を `page.route` で差し替え、`boundingBox().height <= 160` であることと、`pinned` の行と「ほか N 件」の行が箱の中にあることを測る。
+- 処置: fixed D12 — 箱を `box-sizing: border-box` にし、見出しと各行を 1 行（`nowrap` + `text-overflow: ellipsis`。全文は `title`）にした。本物の Chromium の 360×640 で、上限まで埋めた箱の外寸 130 px・「ほか N 件」と読めなかった書庫の行が箱の中（`web/e2e/archive-layout.spec.ts` の「箱は 160 px を超えない」「箱が溢れても読めなかった書庫は省かれない」）
+
+## R65. 実寸を主張する画面の Scenario 18 本が、jsdom の宣言値だけで担保されている。本物のブラウザでは 800 / 1,440 px の予算を超える
+- 成果物: `web/src/__tests__/archive-one-scroll.test.tsx` / `latest-archive.test.tsx` / `archive-heading.test.tsx` / `archive-order.test.tsx` / `web/e2e/latest-archive.spec.ts`（2 本だけ）/ `AGENTS.md`「画面の Scenario は `web/e2e`（本物のブラウザ）で担保する。jsdom へも〜逃がさない」/ `docs/testing.md:70-73`（実寸・スクロール量・横溢れは `web/e2e` が測る。2026-09-18 から）
+- 根拠: 画面の Scenario 20 本の印の置き場を grep で数えた。`web/e2e` にあるのは `直近に置いた書庫の結果が箱に出る` と `直近に置いた書庫の箱は Must の前にある` の 2 本だけで、残りの 18 本（`箱は 160 px を超えない` / `書庫のソースの格子は 360 px に収まる` / `書庫のソースの週の帯は 24 px 以上` / `箱が上限の高さのとき 2 ソースが 800 px に収まる` / `箱が上限の高さのとき 5 ソースが 1,440 px に収まる` / `箱の高さを除く量は 160 px を超えない` ほか）は jsdom にしか無い。
+  R64 と同じ probe で、`SEED=normal`・箱を溢れさせた状態の格子の位置を測った:
+  ```
+  SECTION#achievement top=119 h=253 / SECTION#latest-archive top=385 h=178
+  GRID grid-c01-location        weeks=4 top=610  bottom=706
+  GRID grid-c01-app-usage       weeks=4 top=798  bottom=894   ← 2 本目。spec は 800 以内
+  GRID grid-c02-browser-history weeks=4 top=1361 bottom=1457  ← 5 本目。spec は 1,440 以内
+  ```
+  横溢れは無かった（`document.documentElement.scrollWidth = 360`）。箱（178）と余白（12）を除いても 2 本目の下端は約 704 px で、ST02 の 640 px も超えると推定できる（達成の欄が実寸で 253 px ある）。
+  **予算超えの一部は ST12 より前からある見込み。ただし 800 / 1,440 は ST12 が MODIFIED で書いた THEN で、それを確かめた試験は本物の寸法を一度も測っていない。**
+- kind: conflict
+- 提案: 実寸の Scenario を `web/e2e` に移す（`setViewportSize(360, 640)` にし、`page.route` で箱を上限の高さにして、`boundingBox` で 800 / 1,440 / 24 px を測る）。jsdom の試験は「指定と勘定」の確認として残す。
+  予算を実際に超えているなら、まず e2e の数字で原因を分ける —— 達成の欄の高さが前提とずれているのか（ST02 の前提）、ST12 の箱が足した分なのか。そのうえで `collection-coverage` の予算の文を直すかを決める。
+- 処置: fixed D20 仮 — 実寸の Scenario を `web/e2e/archive-layout.spec.ts` で測る（160 px・押し下げ 160 px 以下・5 本目 1,440 px 以内・360 px・24 px）。R64 の後の実測で 5 本目は 1,409 px で収まり、**2 本目は 846 px で 800 を超える** —— 箱を除いた土台が約 703 px で、ST02 の 640 px が箱の無い画面で既に超えている（達成の欄 253 px）。800 の Scenario は `test.fail` で「いまは成り立たない」を固定し、反転条件を D20 に書いた。PR 本文の冒頭に出す
+
+## R66. ST22 からの申し送り R6「消した場面の位置が、書庫の別のソースから生きた記録として入る」が、この change のどこにも無い。tasks 12.5 は rc=1 のまま `[x]`
+- 成果物: `docs/handoff/ST12.md:22-28` / `openspec/changes/st12-archive-ingestion/{deep,design,tasks}.md`（`ST22` / `st22` は 0 件）/ `tasks.md:214`（12.5）/ `crates/server/src/archive/worker.rs`（削除の時間帯を見ていない）
+- 根拠: `tasks.md` 12.5 の検証を本文のまま実行すると **rc=1**（`PR 本文に無い: R6`）。`grep -n 'st22\|ST22' openspec/changes/st12-archive-ingestion/*.md` の結果も PR 本文の中も 0 件。
+  ST22 は 2026-10-04 に archive 済み。`openspec/changes/archive/2026-10-04-st22-record-deletion/deep.md:46` は「書庫から別のソースで入る同じ場面（ST12）は隠れない…後者は `docs/handoff/ST12.md` へ」と書いている。
+  ST22 の削除は `c01-location` にしか掛からない（`stay.rs:31` の `sources`）。`archive/` には `stay_erased` や削除の時間帯を見るコードが無い（grep で 0 件）。
+  一方 ST12 は `c03-timeline-visit` / `route` / `signal` と `c03-legacy-location` に座標を入れる。つまり、本人が ST22 で滞在とその時間の位置を消した後に `Timeline.json` を置くと、**消した場面の位置が別の論理ソースから生きた記録として読み出しに出る**。
+  加えて、12.5 の検査は `grep -oE 'R[0-9]+'` の部分一致で見ている。申し送りの `R3` / `R4` は、PR 本文の `R37〜R46` や `R25` に当たって通っている（R3 / R4 は外部識別子を持つソースの話で、ST12 は全ソースを `none` にしたので実害は無い。ただし読んだ跡も無い）。
+- 影響: loss: exported —— 本人が消したつもりの場所が、書庫を置くたびに戻り、読み出しと書き出しへ流れる。滞在を消した画面からは本人は気づけない。
+- kind: irreversible
+- 提案: `deep.md` に A の問いとして立てる（「消した時間帯に書庫から入る位置を、削除済みとして入れるか」。選択肢は ST22 第 2 回 Q2 / 第 3 回 Q6 と同じ）。
+  12.5 の検査は、R 番号を単語の境界つき（`\bR6\b` のように）で、さらに申し送りの見出し（`st22-record-deletion R6`）ごとに突き合わせる形に直す。
+- 処置: escalated — `deep.md` 第 4 回 Q13（loss: exported）。問いは `deep-questions-r4.json` / `docs/briefs/ST12-deep-r4.html`。あわせて tasks 12.5 の検査を、申し送りの見出し「`<change> R<n>`」ごとの突き合わせに直した（R 番号の部分一致をやめた）。PR 本文に st22-record-deletion R3 / R4 / R6 と st25-day-timeline R3 の扱いを書く
+
+## R67. 置き場と写しの既定がサーバの作業ディレクトリからの相対パスで、目録にも相対パスのまま残る。別の場所から起動すると、印を置いた後の読み直しが永久に止まる
+- 成果物: `crates/server/src/archive/config.rs:36-44`（`Documents/ashiato/取り込み待ち` / `Downloads` / `AppData/Local/ashiato/archive-copies`）/ `worker.rs:1400`（`std::fs::read(stored_path)` が失敗すると `continue`）/ design D1 の表（既定は `%USERPROFILE%\…` / `%LOCALAPPDATA%\…`）
+- 根拠: release のサーバを、`ASHIATO_INBOX_DIR` / `ASHIATO_DOWNLOADS_DIR` だけ絶対パスで渡し、`ASHIATO_ARCHIVE_COPY_DIR` は既定のままにして起動した。
+  - 置き場も既定のままだと、起動のログに `書庫の置き場を読めない: Documents/ashiato/取り込み待ち` が出る（`/tmp` から起動した場合）
+  - `run1/` から起動して視聴履歴の Takeout を置いた → 目録の `stored_path` は `AppData/Local/ashiato/archive-copies/da/dad79a…`（相対）、台帳は `pending_shape`、書庫は `取り込み済み` へ移った
+  - `tools/archive-shape.sh --confirm` で印を置き、**`run2/` から起動した** → `events 0 / pending 1`、ログに `書庫の写しを読めない` が 8 回
+  - 同じ DB のまま **`run1/` から起動し直した** → `events 1 / pending 0`
+- 影響: Windows のサービスやタスクスケジューラから起動すると、作業ディレクトリは `C:\Windows\System32` などになる。写しはそこに作られ、次に別の場所から起動したときには読めない。
+  確認待ちの書庫はもう `取り込み済み` へ移っているので走査でも拾われず、本人が `--confirm` を叩いても何も起きない（ログに警告が出るだけで、画面の箱は「確認待ち」のまま）。
+  `docs/archive-inbox.md` は 3 つとも設定するよう書いているので、手順どおりなら起きない。ただし design の既定とは違う。
+- kind: technical
+- 提案: 既定を design D1 のとおり `%USERPROFILE%` / `%LOCALAPPDATA%`（Linux なら `$HOME`）から作るか、相対パスなら起動を止める（`KEEP_COPIES` の綴り違いと同じ扱い）。目録には `canonicalize` した絶対パスを書く。
+- 処置: fixed D1 — 既定を `%USERPROFILE%`（無ければ `$HOME`）・`%LOCALAPPDATA%`（無ければ `<ホーム>/AppData/Local`）から作り、相対パスとホームの無い環境は起動を止める（写しの置き場が絶対なので目録の `stored_path` も絶対になる）。`archive_config_places_are_absolute_from_the_home`、`docs/archive-inbox.md` に既定と絶対パスを書いた
+
+## R68. `tools/archive-shape.sh` はホストの `psql` を前提にしているが、smoke は docker の `psql` に差し替えて緑になっている。この機械では `psql: command not found` で止まる
+- 成果物: `tools/archive-shape.sh:15` / `:30` / `tools/smoke.sh:23-28`（`psql()` を `docker compose exec -T db psql` に差し替えて `export -f`）/ `docs/archive-inbox.md`（`psql` の記載は 0 件）/ tasks 13.1（人間が `archive-shape.sh` で印を置く）
+- 根拠: `ASHIATO_ARCHIVE_USER_ID=… tools/archive-shape.sh --confirm <hash>` → `tools/archive-shape.sh: line 15: psql: command not found`。`command -v psql` も見つからない。smoke と同じ関数を定義すると通る。
+- 影響: 本人の決定（第 2 回 Q10）により、Takeout の中身は印を置くまで 1 件も入らない。印を置く道具が本人の機械で動かなければ、最初の Takeout から先へ進めない。smoke は Fake で素通りしているので、どの検査もこれに気づかない（ST01 の「Bearer の検査が Fake で素通り」と同じ型）。
+- kind: daily
+- 提案: `psql` が無ければ `docker compose exec -T db psql` に回すよう、smoke の差し替えを `archive-shape.sh` 自身へ移す。あるいは `docs/archive-inbox.md` に前提として書き、`psql` が無ければ止まる 1 行を道具の先頭に置く。
+- 処置: fixed D21 仮 — `tools/archive-shape.sh` 自身が、`psql` が無ければ `docker compose exec -T db psql` に回す。`tools/smoke.sh` の `psql` の差し替えを外し、道具をそのまま呼ぶ。`docs/archive-inbox.md` に書いた
+
+## R69. マイアクティビティの製品ソースについて、凍結される名前（日本語名のハッシュ）と登録の値（60 日）をどの試験も固定していない
+- 成果物: `crates/server/src/archive/myactivity.rs:16-19` / `worker.rs:873`（`expected_gap_sec = 5184000`）/ `archive_tests.rs:1092-1094`（`starts_with` と長さしか見ない）/ `archive_flow_tests.rs:1519`（60 日の試験は `NOT LIKE 'c03-myactivity-%'` で除外している）
+- 根拠: 複製で 1 つずつ書き換えて、`cargo test -p ashiato-server archive` を走らせた:
+
+  | 書き換え | 結果 |
+  |---|---|
+  | ハッシュの入力を `format!("v2:{product}")` に | `106 passed; 0 failed` |
+  | myactivity の登録の `5184000` → `2592000`（30 日） | `106 passed; 0 failed`（試験用 DB に 30 日の行が残った） |
+  | 同じく粒度 `'none'` → `'record'` | 1 本落ちる（`archive_flow_myactivity_display_name_uses_the_product`） |
+  | 参考: 失敗 3 回・先頭 100 件・走査 120 秒・写しの既定 `true` | どれも 1 本以上落ちる |
+  | 参考: 失敗後の `interval '1 hour'` → 10 分、`READING_STEP` 1,000 → 500 | `106 passed`（どちらも design の仮の値で、本人の決定ではない） |
+
+  期待値は独立に計算した（python の `hashlib.sha256`）: `マップ` → `c03-myactivity-u097022418c48`、`検索` → `c03-myactivity-u1b6b1a6f8931`。Chrome の epoch `11644473600000000` は python の `datetime` で計算した値と一致した。
+- 影響: 名前は登録簿と記録に凍結される（loss: rewrite-all の側）。ハッシュの作り方が変わると、次の書庫から同じ製品が別の論理ソースに割れ、格子も最終日も 2 本になる。60 日（C13 / design D2）を変えても気づけない。
+- kind: technical
+- 提案: 独立に計算した値で `source_name("マップ") == "c03-myactivity-u097022418c48"` を固定する。60 日の試験に、取り込み器が足した `c03-myactivity-*` の行も含める（試験の中で 1 本足してから見る）。
+- 処置: fixed D2 — `source_name("マップ") == "c03-myactivity-u097022418c48"` / `source_name("検索") == "c03-myactivity-u1b6b1a6f8931"`（python で独立に計算）を固定し、`archive_myactivity_source_is_registered_with_sixty_days`（毎回知らない製品で足して 60 日・`none` を見る）を足した。変異で確かめた: ハッシュの入力を `v2:` 付きにすると前者が、`5184000` → `2592000` にすると後者が落ちる
+
+## R70. tasks 11.4 の検証はポート `18787` を直書きしていて、worktree ごとの `BIND`（ここでは `18797`）では rc=4 になる
+- 成果物: `tasks.md:201-202` / `.env`（`BIND=127.0.0.1:18797`）/ `tools/stack.sh`（`BIND` の既定は 18787 だが、`.env` が上書きする）
+- 根拠: `tools/stack.sh up` の後、本文のままの `curl … http://127.0.0.1:18787/archives/status | jq -e …` は **rc=4**（繋がらない）。`http://$BIND/archives/status` に叩けば rc=0（`{"o":"read","s":10,"inbox":null}`）。
+- kind: daily
+- 提案: 検証を `http://${BIND:-127.0.0.1:18787}/…` にする。いまは、`verify-run` がこの worktree で走らせると落ちる形のまま `[x]` になっている。
+- 処置: fixed D21 仮 — 11.4 の検証を `"http://${BIND:-127.0.0.1:18787}/archives/status"` にした
+
+## R71. tasks 4.4（大きなファイルをメモリに載せない）は、本番から呼ばれない `stream_array_items` を測って `[x]` になっている
+- 成果物: `tasks.md:91` / `crates/server/src/archive/slice.rs:13`（`stream_array_items`）/ `worker.rs`（使っているのは `array_elements` / `object_member` で、どちらもファイル全体を受け取る）/ design D17（仮）
+- 根拠: `grep -n 'slice::' crates/server/src/archive/worker.rs` の結果は `object_member` / `array_elements` だけ。`stream_array_items` を呼んでいるのは `archive_tests.rs:561` だけ。
+  本番は R19 で指摘したとおり書庫を全部展開し、ファイル 1 本を丸ごと `Value` にする（design D17（仮）が「いまの形で進める」と記録している）。
+- kind: technical
+- 提案: D17 の決定に合わせて、4.4 の本文を「本番の経路ではまだ守っていない（D17 仮）」と書き直す（`[x]` が D5 を守った証跡として読まれないように）。D17 の反転条件が来たら、`stream_array_items` を本番の経路に入れて同じ試験で測る。
+- 処置: fixed D17 — D17 と tasks 4.4 の本文に「本番の読み手はまだ `stream_array_items` を通らない。4.4 は関数の性質の証跡で、本番が D5 を守った証跡ではない」と書いた（切り替えは D17 の反転条件のまま）
+
+---
+
+## 手ごとの結果
+
+- **手 1（固定値を独立に再計算する）**: Chrome の epoch は python で計算した値と一致した。マイアクティビティの日本語名は**期待値が試験に無い**（長さしか見ない）ので、python で計算した値を R69 に挙げた。content_hash の固定値は ST03 の試験が python の式つきで持っている（ST12 は触っていない）。
+- **手 2（守りをわざと壊す）**: `check-immutable.sh`（`archive_file` のトリガを外すと rc=1）・`st12_delta_diff.py`（1 行混ぜると rc=1）・`KEEP_COPIES=flase` で起動が止まる（rc=1）の 3 つは本物だった。**検査の外側**に素通りが 3 つある: `archive-shape.sh` の `psql` は smoke の差し替えで素通り（R68）、画面の実寸は jsdom の宣言値で素通り（R64 / R65）、12.5 の handoff の検査は R 番号の部分一致で素通り（R66）。`check-licenses.sh` は `--all-features` で `zip` の依存（bzip2 / zstd / lzma 系）まで見ていて、不許可は 0 件。
+- **手 3（Scenario と試験を突き合わせる）**: rc=0。サーバ側は 2 本を読んで、主張と試験の階層が合っていることを確かめた（`原文は書庫のバイト列の一部と一致する` は `core.event.raw`（`text`）を取り出し、書庫の本文の部分列かを見ている / `書庫の位置と端末の位置が同じでも取りやめない` は、同じ点を本物の格納関門で先に入れている）。**画面の 18 本は、主張が実寸なのに試験は宣言値**（R64 / R65）。
+- **手 4（本人の決定を試験が固定しているか）**: 書き換えて落ちることを実行で確かめたのは Q2（写しの既定 `true`）/ C22（3 日）/ D12（160 px）/ D1（120 秒）/ D7（3 回・先頭 100 件）。
+  Q6 / Q7（固定 10 本の `none` と 60 日）と C19（取り込み器の 1 日）は、`archive_flow_every_archive_source_is_registered_with_sixty_days` / `archive_migration_registers_sources_and_preserves_interval` が値を assert しているのをコードを読んで確かめた
+  （移行の値を書き換える変異は、使い回している試験用 DB では `ON CONFLICT DO NOTHING` に隠れるので実行していない）。
+  **書き換えても落ちないのは myactivity の 60 日と名前のハッシュ**（R69）と、design の仮の値（1 時間・1,000 件ごと）。
+- **手 5（tasks の `[x]` と実体）**: `CT` の絞り込み 35 種は、どれも 1 本以上の試験に一致した（`-- --list` で数えた）。`VT` の 5 ファイルは実在して緑。**12.5 は rc=1**（R66）、**11.4 は本文のままだと rc=4**（R70）、4.4 は本番で使われない関数を測っている（R71）。
+- **手 6（隙間）**: 「捨てたもの・外へ出たものは戻らない」型は 2 件: R66（消した場面が書庫から戻る。loss: exported）と R67（起動場所によって写しを見失い、確認待ちが永久に進まない）。
+  記録 → 台帳 → ソース別台帳の途中で落ちると最終日が戻らない件は、R25 として既に deferred（ST13）なので重ねていない。

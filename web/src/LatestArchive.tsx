@@ -23,6 +23,19 @@ const BORDER_PX = 1;
 const MARGIN_BOTTOM_PX = 12;
 
 /**
+ * 1 行に収める（code-verify R64）。本物のブラウザは長いファイル名を折り返し、
+ * 行数で数えた上限を中身が越えて `overflow: hidden` に切られていた —— 「ほか N 件」と
+ * 省かない行（`pinned`）が箱の外に出て見えなかった。収まらない文字は「…」で省いたと示す。
+ */
+const ONE_LINE = {
+  font: FONT,
+  margin: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+} as const;
+
+/**
  * 上限に収まる行数。**宣言している値から数える** —— 定数を 2 か所に書いて
  * 突き合わせると、どちらかを直し忘れても緑のままになる（design D27）。
  *
@@ -166,6 +179,8 @@ export function LatestArchive({
       data-testid="latest-archive"
       style={{
         font: FONT,
+        // 上限は枠と内側の余白を含めた外寸（R64。既定の content-box だと 178 px になっていた）
+        boxSizing: "border-box",
         maxHeight: ARCHIVE_BOX_MAX_PX,
         overflow: "hidden",
         borderStyle: "solid",
@@ -181,14 +196,19 @@ export function LatestArchive({
         marginBottom: MARGIN_BOTTOM_PX,
       }}
     >
-      <strong style={{ font: FONT, display: "block" }}>直近に置いた書庫</strong>
+      <strong style={{ ...ONE_LINE, display: "block" }}>直近に置いた書庫</strong>
       {shown.map((row) => (
-        <p key={row.key} data-testid={`archive-row-${row.key}`} style={{ font: FONT, margin: 0 }}>
+        <p
+          key={row.key}
+          data-testid={`archive-row-${row.key}`}
+          title={row.text}
+          style={ONE_LINE}
+        >
           {row.text}
         </p>
       ))}
       {hidden > 0 && (
-        <p data-testid="archive-row-more" style={{ font: FONT, margin: 0 }}>
+        <p data-testid="archive-row-more" style={ONE_LINE}>
           ほか {hidden} 件
         </p>
       )}

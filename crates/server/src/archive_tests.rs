@@ -400,14 +400,59 @@ async fn archives_status_uses_ledger_max_event_time_in_japan() {
 /// Scenario: 設定を指定しなければ写しが残る
 #[test]
 fn archive_config_defaults_and_rejects_a_misspelling() {
-    let env = std::collections::BTreeMap::new();
+    let mut env = std::collections::BTreeMap::new();
+    env.insert("HOME".into(), "/home/me".into());
     let config = crate::archive::config::from_values(&env).unwrap();
     assert!(config.keep_copies);
     assert!(config.user_id.is_none());
 
-    let mut invalid = std::collections::BTreeMap::new();
+    let mut invalid = env.clone();
     invalid.insert("ASHIATO_ARCHIVE_KEEP_COPIES".into(), "flase".into());
     assert!(crate::archive::config::from_values(&invalid).is_err());
+}
+
+/// code-verify R67: 置き場と写しの既定は作業ディレクトリでなく本人のホームから作る（design D1 の表）。
+/// 相対だと、起動した場所が変わると目録の写しを読めず、印を置いた後の読み直しが止まる。
+#[test]
+fn archive_config_places_are_absolute_from_the_home() {
+    use std::path::PathBuf;
+    let mut windows = std::collections::BTreeMap::new();
+    windows.insert("USERPROFILE".into(), "/Users/me".into());
+    windows.insert("LOCALAPPDATA".into(), "/Users/me/AppData/Local".into());
+    windows.insert("HOME".into(), "/ignored".into());
+    let config = crate::archive::config::from_values(&windows).unwrap();
+    assert_eq!(
+        config.inbox_dir,
+        PathBuf::from("/Users/me/Documents/ashiato/取り込み待ち")
+    );
+    assert_eq!(config.downloads_dir, PathBuf::from("/Users/me/Downloads"));
+    assert_eq!(
+        config.copy_dir,
+        PathBuf::from("/Users/me/AppData/Local/ashiato/archive-copies")
+    );
+
+    let mut unix = std::collections::BTreeMap::new();
+    unix.insert("HOME".into(), "/home/me".into());
+    let config = crate::archive::config::from_values(&unix).unwrap();
+    assert_eq!(
+        config.copy_dir,
+        PathBuf::from("/home/me/AppData/Local/ashiato/archive-copies")
+    );
+
+    // 相対パスは起動を止める（KEEP_COPIES の綴り違いと同じ扱い）
+    let mut relative = unix.clone();
+    relative.insert(
+        "ASHIATO_ARCHIVE_COPY_DIR".into(),
+        "AppData/Local/ashiato/archive-copies".into(),
+    );
+    assert!(crate::archive::config::from_values(&relative).is_err());
+    // 取り込み器を起こすのに既定を作るホームが無ければ止める（起こさないなら HTTP は止めない）
+    let user_only = std::collections::BTreeMap::from([(
+        "ASHIATO_ARCHIVE_USER_ID".to_string(),
+        "00000000-0000-0000-0000-000000000000".to_string(),
+    )]);
+    assert!(crate::archive::config::from_values(&user_only).is_err());
+    assert!(crate::archive::config::from_values(&std::collections::BTreeMap::new()).is_ok());
 }
 
 fn write_file(path: &Path, name: &str, content: &[u8]) {
@@ -1092,6 +1137,45 @@ fn archive_parse_myactivity_source_name_uses_ascii_or_a_stable_hash() {
     let japanese = crate::archive::myactivity::source_name("マップ");
     assert!(japanese.starts_with("c03-myactivity-u"));
     assert_eq!(japanese.len(), "c03-myactivity-u".len() + 12);
+    // code-verify R69: **名前は登録簿と記録に凍結される**ので、作り方を値で固定する。期待値は試験の外で
+    // 独立に計算した（python: `"c03-myactivity-u" + hashlib.sha256("マップ".encode()).hexdigest()[:12]`）
+    assert_eq!(japanese, "c03-myactivity-u097022418c48");
+    assert_eq!(
+        crate::archive::myactivity::source_name("検索"),
+        "c03-myactivity-u1b6b1a6f8931"
+    );
+}
+
+/// code-verify R69: 取り込み器が足すマイアクティビティの製品ソースも、固定の 10 本と同じ
+/// 60 日・内容の鍵だけ（深掘り Q6 / Q7・C13・design D2）で登録される。
+/// 毎回知らない製品の名前で足す —— 使い回す試験用 DB の `ON CONFLICT DO NOTHING` に隠れないように。
+#[tokio::test]
+async fn archive_myactivity_source_is_registered_with_sixty_days() {
+    let pool = testdb::pool().await;
+    const SIXTY_DAYS_SEC: i32 = 5_184_000;
+    let product = format!("試験の製品 {}", uuid::Uuid::new_v4());
+    let name = crate::archive::myactivity::source_name(&product);
+    crate::archive::worker::ensure_myactivity_source(&pool, &name, &product)
+        .await
+        .unwrap();
+    let (gap, kind, display): (i32, String, String) = sqlx::query_as(
+        "SELECT expected_gap_sec, external_id_kind, display_name FROM core.source WHERE logical_source = $1",
+    )
+    .bind(&name)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(gap, SIXTY_DAYS_SEC, "{name} の想定間隔が 60 日でない");
+    assert_eq!(
+        kind, "none",
+        "{name} の外部識別子の粒度が内容の鍵だけでない"
+    );
+    assert_eq!(display, format!("マイアクティビティ: {product}"));
+    sqlx::query("DELETE FROM core.source WHERE logical_source = $1")
+        .bind(&name)
+        .execute(&pool)
+        .await
+        .unwrap();
 }
 
 #[test]
