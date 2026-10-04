@@ -587,77 +587,104 @@
 - 成果物: `crates/server/src/lib.rs:2297`（`ArchivesStatusQuery.user_id: uuid::Uuid` が必須）/ `web/src/App.tsx:88`（`user_id` を付けずに呼ぶ）
 - 根拠: 他のエンドポイントは `Option<Uuid>` + `unwrap_or_default()`。ここだけ必須なので axum の `Query` が 400 を返す。smoke は `?user_id=` を付けて叩き、jsdom の試験は fetch を通らないので緑。tasks 11.4 の `curl …/archives/status | jq -e …` も `user_id` 無しでは落ちるはず。画面の Scenario に web/e2e の担保が無い
 - kind: technical
+- 処置: fixed 11.4 — `user_id` を `Option<Uuid>` + `unwrap_or_default()` に揃えた。`archive_flow_status_answers_without_a_user_id` と e2e `web/e2e/latest-archive.spec.ts` が固定する
 
 ## R48. 本物の `Timeline.json` では訪問・移動・生の信号が 1 件も入らない
 - 成果物: `crates/server/src/archive/worker.rs:325-366` / `:523-539` / `:603-607`
 - 根拠: `visit` / `activity` の中身を `event_time` に渡すが、実物の書き出しでは `startTime` / `endTime` / `startTimeTimezoneUtcOffsetMinutes` はセグメントの側にある。`rawSignals` は `{"position":{…,"timestamp"}}` / `{"wifiScan":{"deliveryTime"}}` / `{"activityRecord":{"timestamp"}}` と 1 段入れ子。試験の素材（`archive_tests.rs:607`、`archive_flow_tests.rs:846` など）は合成の形で、コードの思い込みと同じ
 - kind: technical
+- 処置: fixed D6 — セグメントから時刻と時差、`rawSignals` は入れ子の中の時刻。素材を実物の形に。`archive_requests_read_the_real_timeline_shape` / `archive_flow_a_bare_timeline_json_is_read`
 
 ## R49. `tools/archive-shape.sh` の一覧表示（引数なし）が必ず失敗する
 - 成果物: `tools/archive-shape.sh:24`
 - 根拠: `psql -c` の文字列では `:'user'` が展開されない。reviewer の実測で `ERROR: syntax error at or near ":"`。tasks 7b.2 の `archive-shape.sh | grep -c '京都'` も落ちるはず。付随: `--confirm` は確認待ちのファイル数だけ `archive_shape_confirmation` に行を足す（`DISTINCT` も一意制約も無い。追記のみ表）
 - kind: technical
+- 処置: fixed D16 — 一覧を here-doc に、`--confirm` は形ごとに 1 行。`tools/smoke.sh` 9b が一覧と印の行数を見る
 
 ## R50. 印を置いた後の読み直し（`ingest_confirmed_pending`）が 1 件の失敗で永久に止まる。削除済みの動画が検索のソースへ入る
 - 成果物: `crates/server/src/archive/worker.rs:1069` / `:1084` / `:1114` / `:439`
 - 根拠: `?` で関数ごと抜け、毎走査同じ順で同じ行から始まる。`watch-history.json` の `titleUrl` の無い項目が `c03-youtube-search` へ回り、`search-history.json` が先に書いた `archive_ledger_source` の PK `(ledger_id, logical_source)` に当たる
 - kind: technical
+- 処置: fixed D18 仮 — 読み直しを書庫ごとにし失敗は warn で次へ。URL の無い視聴は検索へ回さない。同じ論理ソースが印あり・確認待ちの両方から来たときのソース別台帳は足さずに warn（反転条件は D18）。`archive_flow_confirming_never_sticks_on_a_source_the_first_read_wrote`
 
 ## R51. 確認待ちの経路が写し・目録の失敗を黙って捨て、中身が同じ 2 冊目の確認待ちが永久に残る
 - 成果物: `crates/server/src/archive/worker.rs:1349`（`if let Ok`）/ `let _ = record_copy` / `:1366` `let _ = record_pending_shape`
 - 根拠: `archive_file` の PK `(user_id, sha256)` で 2 冊目の目録が `ON CONFLICT` で落ち、`confirmed_pending_copies` の JOIN に当たらない
 - kind: technical
+- 処置: fixed D18 — 失敗を捨てず、写しを中身のハッシュ（`archive_pending_shape.file_sha256`）で引く。`archive_flow_a_second_archive_with_the_same_file_is_read_after_confirming`
 
 ## R52. 確認待ちだけの書庫は走査のたびに全体を読み直される
 - 成果物: `crates/server/src/archive/worker.rs:1515`
 - 根拠: 置き場に残し、台帳は `pending_shape` だけなので `scan.rs` が毎回 `Read` で積む。120 秒ごとに zip 全体を 2 回展開する
 - kind: technical
+- 処置: fixed D14 — 既読判定に `pending_shape` を入れた。`archive_flow_a_pending_only_archive_is_not_read_again_on_every_scan`
 
 ## R53. 解析器の版を上げても専用のフォルダの書庫は読み直されない（tasks 7.4 は `[x]` だが本番から呼ばれていない）
 - 成果物: `reparse_path` / `copied_files_for_reparse`（`crates/server/src/archive/`）
 - 根拠: grep で本番からの呼び出し 0。R37〜R46 の M1 を deferred にしていたが、計画した機能の欠落
 - kind: technical
+- 処置: fixed 7.4 — `reparse_older_versions` を走査の周ごとに呼ぶ。`archive_flow_a_parser_version_bump_rereads_from_the_copies`
 
 ## R54. payload が design D6 と spec（地域を持たなかった印・`parser_version`・各欄）を満たしていない
 - 成果物: `crates/server/src/archive/worker.rs:599`
 - 根拠: payload は `archive_sha256` / `inner_path` の 2 欄。spec `:226` の印を payload で見る試験が無い（`archive_flow_tests.rs:1340` は名前と中身が別の Scenario）
 - kind: technical
+- 処置: fixed D6 — payload に D6 の全欄。`archive_payload_carries_the_design_d6_fields` / `archive_flow_stored_payload_marks_a_utc_only_time`
 
 ## R55. 原文の切り出しが YouTube とマイアクティビティにしか効いていない
 - 成果物: `crates/server/src/archive/worker.rs`（Timeline / 移行前は `raw=None`、Chrome は `sliced = Vec::new()`）
 - 根拠: spec `:224` の SHALL は全記録に掛かる
 - kind: technical
+- 処置: fixed D5 — 全種類の原文をバイト列から切り出す。`archive_raw_is_sliced_for_every_kind`
 
 ## R56. 本人の決定 Q2「残さない設定でも、確認待ちの写しは読み直し終えたら消す」の消す側が無い（R23 を ST23 送り）
 - 成果物: `crates/server/src/archive/worker.rs`（`ingest_confirmed_pending` の後）/ spec `:352`
 - 根拠: 消す経路が無い。tasks 7b.2「残さない設定では読み直しの後に写しが 0」が `[x]` のまま
 - kind: technical
+- 処置: fixed D9 — 残さない設定では、確認待ちのために作った写しを読み直し後に消す。`archive_flow_pending_copies_are_removed_after_rereading_when_copies_are_off`
 
 ## R57. MyActivity / YouTube の見分けが先頭 1 件だけを見る（R28）
 - 成果物: `crates/server/src/archive/classify.rs:79`
 - 根拠: `watch-history.json` の先頭が削除済みの動画だと、ファイルごと「読まなかった」になる。「先頭で `titleUrl` を持つ項目を探す」なら誤判定を新しく作らない
 - kind: technical
+- 処置: fixed D3 — `titleUrl` を持つ最初の項目で見分ける。`archive_classify_skips_items_without_a_title_url`
 
 ## R58. 印を置いた後の読み直しが書く `read` 行の `file_name` / `created_at` が NULL、`inbox_kind` が既定の `inbox`
 - 成果物: `crates/server/src/archive/worker.rs:1094`
+- 根拠: 読み直しの `read` 行は `record_read_ledger` に名前と時刻を渡さず、`inbox_kind` は列の既定（`inbox`）になる（final reviewer がコードを読んで確認）
 - kind: technical
+- 処置: fixed D7 — 確認待ちの台帳の作られた時刻と置き場の種類を引き継ぐ。`archive_flow_the_reread_ledger_row_keeps_the_archive_name_and_place`
 
 ## R59. 生存信号は 1 日の最初の 1 回だけなので、昼に置き場が読めなくなっても翌日まで箱に出ない
 - 成果物: `record_archive_heartbeat`
+- 根拠: 生存信号は日に 1 回しか書かれず、箱の「取り込み器」はその信号だけを見ていた（D10）
 - kind: daily
+- 処置: fixed D19 仮 — 箱の取り込み器は直近の走査（`archive_scan_counter.last_capturable`）を見る。`archive_flow_the_box_shows_an_unreadable_inbox_on_the_same_day`
 
 ## R60. `docs/archive-inbox.md` の `ASHIATO_ARCHIVE_USER_ID=<利用者 UUID>` は、nil 以外を入れると画面にも格子にも出ない
 - 成果物: `docs/archive-inbox.md`
+- 根拠: 画面と `tools/seed.sh` は nil UUID（`ASHIATO_USER_ID` の既定）を引くので、別の UUID で入れた記録はどこにも出ない
 - kind: technical
+- 処置: fixed 7.1 — `docs/archive-inbox.md` に `ASHIATO_USER_ID` と同じ値にする旨を書いた
 
 ## R61. `DuplicateOfDeleted` でも最終日が進む
 - 成果物: `record_ledger_sources`
+- 根拠: `DuplicateOfDeleted` の項目も `max_event_at` の計算に入っている（final reviewer がコードを読んで確認）
 - kind: daily
+- 処置: rejected: spec `external-ingestion/spec.md:458` と design D11（`design.md:250`）が「`max_event_at` は削除済みで入れなかった項目も含めて数える」と明示している。いまの振る舞いはそのとおりで、scoped re-review も裁定を支持した
 
 ## R62. `PgSink::store` が 1 件ごとに `App::new` と JSON の往復をする
 - 成果物: `crates/server/src/archive/`（`PgSink::store`）
+- 根拠: 1 件ごとに `App::new` を作り、要求を JSON に直列化して解き直していた（百万件級の書庫で無駄）
 - kind: technical
+- 処置: fixed D4 — `PgSink` が App を 1 度だけ持ち `ingest_request` を直に呼ぶ。既存の格納の試験が覆う
 
 ## R63. R37〜R46 の申し送り先が ST13（アカウント系の定期取得）で、ST12 の不具合を受け取る Story ではない
 - 成果物: 上の R37〜R46 の処置 / `docs/handoff/ST13.md`
+- 根拠: ST13 はアカウント系の定期取得で、ST12 の取り込み器の不具合を受け取る Story ではない（final reviewer）
 - kind: defer
+- 処置: rejected: 申し送りの器は Story 単位しか無く、ST13 はまだ `tasks.md` を持たないので `deferred ST13` が規則どおり（上流が深掘りの前に読む）。M1 は R53 で閉じたので `docs/handoff/ST13.md` から外した
+
+## scoped re-review（8be2abf..dd6cda8）: R47〜R62 すべて ADDRESSED（R61 は裁定を支持）。新しい Critical / Important なし
+
+re-review が挙げた Minor 3 件は、2 回目の fix wave を出さない規則（SDD の Final Review）に従い、ledger（`.superpowers/sdd/st12-task-final/progress.md`）に ruling つきで park した。
