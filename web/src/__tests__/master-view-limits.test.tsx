@@ -8,6 +8,7 @@
  *
  * 測り方は `day-view-limits.test.tsx` と同じ（ST16）。
  */
+import { captureAdoptedRules } from "./focus-rule";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FOCUS_ATTR, focusRule } from "../DayView";
@@ -126,12 +127,13 @@ describe("個人属性の画面の下限", () => {
   it("操作対象すべてに輪郭の規則が掛かり、輪郭は地に対して 3:1 以上", async () => {
     for (const light of [false, true]) {
       stubScheme(light);
+      const captured = captureAdoptedRules();
       const { unmount } = render(<MasterView />);
       await waitFor(() => expect(screen.queryByTestId("master-loading")).toBeNull());
       fireEvent.click(screen.getByRole("button", { name: "書く" }));
 
       const scheme = light ? "light" : "dark";
-      const rule = [...document.querySelectorAll("style")].map((s) => s.textContent ?? "").join("\n");
+      const rule = captured.text();
       expect(rule).toContain(focusRule(scheme));
       expect(rule).toMatch(new RegExp(`\\[${FOCUS_ATTR}\\]:focus-visible \\{ outline: 3px solid`));
       for (const el of document.querySelectorAll("button, a, input, select")) {

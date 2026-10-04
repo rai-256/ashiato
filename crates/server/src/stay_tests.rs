@@ -48,6 +48,132 @@ async fn stays_migration_applies_twice() {
     );
 }
 
+/// 削除の台帳を含む全版を、まっさらな DB に 2 回当てても壊れない（ST22 tasks 1.1）。
+#[tokio::test]
+async fn deletion_ledger_migration_applies_twice() {
+    let (fresh, drop) = fresh_db().await;
+    let applied = async {
+        for round in 1..=2 {
+            for (label, sql) in crate::MIGRATIONS {
+                sqlx::raw_sql(sql)
+                    .execute(&fresh)
+                    .await
+                    .map_err(|e| format!("{round} 回目の {label}: {e}"))?;
+            }
+        }
+        sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass('core.deletion_ledger')::text")
+            .fetch_one(&fresh)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    drop.await;
+
+    assert_eq!(
+        applied.unwrap().as_deref(),
+        Some("core.deletion_ledger"),
+        "削除の台帳が MIGRATIONS に登録されていない"
+    );
+    assert!(
+        crate::MIGRATIONS
+            .iter()
+            .any(|(name, _)| name.ends_with("_deletion_ledger")),
+        "削除の台帳の移行が MIGRATIONS に無い"
+    );
+}
+
+/// 削除済み滞在の読み出しは、識別子・時刻範囲・削除印だけに絞る（ST22 design D12）。
+#[tokio::test]
+async fn stay_erased_view_hides_coordinates() {
+    let pool = testdb::pool().await;
+    let columns: Vec<(String,)> = sqlx::query_as(
+        "SELECT column_name
+           FROM information_schema.columns
+          WHERE table_schema = 'core' AND table_name = 'stay_erased'
+          ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let columns: Vec<String> = columns.into_iter().map(|(name,)| name).collect();
+
+    assert_eq!(
+        columns,
+        [
+            "id",
+            "user_id",
+            "start_at",
+            "end_at",
+            "deleted_at",
+            "deleted_by"
+        ],
+        "stay_erased は座標・raw を含まず、必要な識別子・時刻範囲・削除印だけを返す"
+    );
+}
+
+// Scenario: 台帳の行は書き換えられない
+// Scenario: 台帳の行は消せず、表も切り詰められない
+// Scenario: 台帳の行は記録の読み出しに出ない
+#[tokio::test]
+async fn deletion_ledger_is_append_only() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let event = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 's01-stay', 'erase', $1, 'user')",
+    )
+    .bind(event)
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let update =
+        sqlx::query("UPDATE core.deletion_ledger SET action = 'restore' WHERE event_id = $1")
+            .bind(event)
+            .execute(&pool)
+            .await;
+    assert!(update.is_err(), "台帳の行を書き換えられた");
+
+    let delete = sqlx::query("DELETE FROM core.deletion_ledger WHERE event_id = $1")
+        .bind(event)
+        .execute(&pool)
+        .await;
+    assert!(delete.is_err(), "台帳の行を削除できた");
+
+    // 成功した場合にも共有 DB を失わないよう、TRUNCATE は必ずロールバックする。
+    let mut tx = pool.begin().await.unwrap();
+    let truncate = sqlx::raw_sql("TRUNCATE core.deletion_ledger")
+        .execute(&mut *tx)
+        .await;
+    tx.rollback().await.unwrap();
+    assert!(truncate.is_err(), "台帳を切り詰められた");
+
+    let (left,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.deletion_ledger WHERE event_id = $1")
+            .bind(event)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(left, 1, "拒否された操作の後に台帳の行が残っていない");
+
+    let app = crate::App::for_test(pool.clone(), TOKEN);
+    let axum::Json(records) = crate::events(axum::extract::State(app), auth())
+        .await
+        .unwrap();
+    assert!(
+        records.iter().all(|record| record.id != event),
+        "台帳の行が記録の一覧に出ている"
+    );
+    let view = day(&pool, user, "2026-09-27", "2026-09-28T00:00:00Z").await;
+    assert!(
+        view.entries.iter().all(|entry| entry.id != Some(event)),
+        "台帳の行が 1 日の並びに出ている"
+    );
+}
+
 /// 基準の台帳と吸収の台帳は**追記のみ**（tasks 1.2 / design D10）。
 #[tokio::test]
 async fn stay_ledgers_are_append_only() {
@@ -1121,7 +1247,7 @@ async fn stay_day_query_uses_index() {
     drop.await;
     let plan = got.unwrap();
     assert!(
-        plan.contains("event_by_source_time"),
+        plan.contains("event_by_source_time") || plan.contains("event_by_user_time_live"),
         "位置を引く文が索引に乗らない:\n{plan}"
     );
     assert!(
@@ -1138,8 +1264,8 @@ async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
         .execute(&admin)
         .await
         .unwrap();
-    let base = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://ashiato:ashiato@127.0.0.1:55432/ashiato".into());
+    let base = std::env::var("DATABASE_OWNER_URL")
+        .expect("DATABASE_OWNER_URL が無い（testdb::pool が先に落ちるはず）");
     let url = format!("{}/{name}", &base[..base.rfind('/').unwrap()]);
     let fresh = sqlx::PgPool::connect(&url).await.unwrap();
     let closer = fresh.clone();
@@ -1628,6 +1754,10 @@ fn kinds(v: &stay_store::DayView, kind: EntryKind) -> Vec<(DateTime<Utc>, DateTi
         .collect()
 }
 
+fn overlaps(entry: &DayEntry, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
+    entry.start < end && entry.end > start
+}
+
 /// 北へ `north_m` ずつ 1 分ごとに進む位置（移動。どの 2 点も半径 100 m に入らない）。
 async fn put_walk(
     pool: &sqlx::PgPool,
@@ -1648,7 +1778,7 @@ async fn put_walk(
 // Scenario: 解釈できない日付は断られる
 // Scenario: 資格情報の無い 1 日の並びの求めは断られる
 #[tokio::test]
-async fn stays_day_api_shape_and_errors() {
+async fn stay_day_view_day_view_erased_shape_and_errors() {
     use axum::extract::{Query, State};
     let app = app().await;
     let u = testdb::user();
@@ -1689,8 +1819,8 @@ async fn stays_day_api_shape_and_errors() {
     assert_eq!(entries.iter().filter(|e| e["kind"] == "stay").count(), 2);
     for e in entries {
         assert!(
-            ["stay", "move", "no-record"].contains(&e["kind"].as_str().unwrap()),
-            "種類が 3 つのどれでもない: {e}"
+            ["stay", "move", "no-record", "erased"].contains(&e["kind"].as_str().unwrap()),
+            "種類が 4 つのどれでもない: {e}"
         );
         assert!(
             e["start"].is_string() && e["end"].is_string(),
@@ -1726,7 +1856,7 @@ async fn stays_day_api_shape_and_errors() {
 
 // Scenario: 日付をまたぐ滞在は両方の日に出る
 #[tokio::test]
-async fn stays_day_api_across_midnight_on_both_days() {
+async fn stay_day_view_across_midnight_on_both_days() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     put_dwell(&pool, u, "2026-07-02T23:00:00+09:00", 180, 0.0, Some(10.0)).await;
@@ -1746,7 +1876,7 @@ async fn stays_day_api_across_midnight_on_both_days() {
 
 // Scenario: 消した滞在と吸収された滞在は一覧に出ない
 #[tokio::test]
-async fn stays_day_api_hides_deleted_and_absorbed() {
+async fn stay_day_view_day_view_erased_hides_deleted_and_absorbed() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     put_dwell(&pool, u, "2026-07-04T09:00:00+09:00", 30, 0.0, Some(10.0)).await;
@@ -1759,7 +1889,7 @@ async fn stays_day_api_hides_deleted_and_absorbed() {
         id_starting(&rows, "2026-07-04T09:00:00+09:00"),
         id_starting(&rows, "2026-07-04T15:00:00+09:00"),
     );
-    user_deletes(&pool, deleted, Some("user")).await;
+    user_deletes(&pool, deleted, None).await;
     set(&pool, u, None, Some(10)).await;
     rebuild(&pool, u, "2026-07-04").await;
 
@@ -1768,11 +1898,145 @@ async fn stays_day_api_hides_deleted_and_absorbed() {
     assert_eq!(ids.len(), 1, "{v:#?}");
     assert!(!ids.contains(&absorbed), "吸収された滞在が一覧に出ている");
     assert!(!ids.contains(&deleted), "本人が消した滞在が一覧に出ている");
+    let erased: Vec<_> = v
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == EntryKind::Erased)
+        .collect();
+    assert_eq!(
+        erased.len(),
+        1,
+        "本人が消した時間だけが消した行になっていない: {v:#?}"
+    );
+    assert_eq!(
+        (erased[0].start, erased[0].end),
+        (
+            t("2026-07-04T15:00:00+09:00"),
+            t("2026-07-04T15:30:00+09:00")
+        )
+    );
+    assert_eq!(erased[0].stay_ids.as_deref(), Some([deleted].as_slice()));
+}
+
+// Scenario: 消した区間は戻すための識別子を持つ
+// Scenario: 隣り合う消した時間は 1 つの行にまとまる
+#[tokio::test]
+async fn day_view_erased_merges_adjacent_ranges_with_restorable_ids() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let first = put_stay_row(
+        &pool,
+        u,
+        "2026-07-14T10:00:00+09:00",
+        "2026-07-14T11:00:00+09:00",
+    )
+    .await;
+    let second = put_stay_row(
+        &pool,
+        u,
+        "2026-07-14T11:00:00+09:00",
+        "2026-07-14T11:30:00+09:00",
+    )
+    .await;
+    let absorbed = put_stay_row(
+        &pool,
+        u,
+        "2026-07-14T12:00:00+09:00",
+        "2026-07-14T13:00:00+09:00",
+    )
+    .await;
+    user_deletes(&pool, first, Some("user")).await;
+    user_deletes(&pool, second, Some("user")).await;
+    user_deletes(&pool, absorbed, Some("rebuild:absorbed")).await;
+
+    let view = day(&pool, u, "2026-07-14", "2026-09-01T00:00:00Z").await;
+    let json = serde_json::to_value(view).unwrap();
+    let erased: Vec<_> = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["kind"] == "erased")
+        .collect();
+    assert_eq!(erased.len(), 1, "隣り合う削除区間が 1 行でない: {json:#}");
+    assert_eq!(
+        (erased[0]["start"].as_str(), erased[0]["end"].as_str()),
+        (Some("2026-07-14T01:00:00Z"), Some("2026-07-14T02:30:00Z"))
+    );
+    let mut got_ids: Vec<uuid::Uuid> = erased[0]["stay_ids"]
+        .as_array()
+        .expect("消した行に stay_ids が無い")
+        .iter()
+        .map(|id| id.as_str().unwrap().parse().unwrap())
+        .collect();
+    got_ids.sort();
+    let mut wanted_ids = vec![first, second];
+    wanted_ids.sort();
+    assert_eq!(
+        got_ids, wanted_ids,
+        "戻す対象でない識別子が混じった: {json:#}"
+    );
+}
+
+// Scenario: 位置ごと消した時間は記録なしにならない
+// Scenario: 消した時間は消したと書かれた行で出る
+// Scenario: 消した時間の端に短い記録なしの行が生えない
+// Scenario: 消した時間は移動の行にならない
+#[tokio::test]
+async fn day_view_erased_not_no_record_or_move() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    put_dwell(&pool, u, "2026-07-15T09:59:00+09:00", 62, 0.0, Some(10.0)).await;
+    let stay = put_stay_row(
+        &pool,
+        u,
+        "2026-07-15T10:00:00+09:00",
+        "2026-07-15T11:00:00+09:00",
+    )
+    .await;
+    let before = day(&pool, u, "2026-07-15", "2026-09-01T00:00:00Z").await;
+    let before_no_record = kinds(&before, EntryKind::NoRecord).len();
+    crate::deletion::erase(&pool, stay, Some(u)).await.unwrap();
+
+    let view = day(&pool, u, "2026-07-15", "2026-09-01T00:00:00Z").await;
+    let erased = (
+        t("2026-07-15T10:00:00+09:00"),
+        t("2026-07-15T11:00:00+09:00"),
+    );
+    let erased_entry = view
+        .entries
+        .iter()
+        .find(|entry| entry.start == erased.0 && entry.end == erased.1)
+        .unwrap_or_else(|| panic!("10:00 – 11:00 の消した行が無い: {view:#?}"));
+    let json = serde_json::to_value(erased_entry).unwrap();
+    assert_eq!(json["kind"], "erased", "消した行の種類でない: {json}");
+    assert!(
+        json.get("id").is_none(),
+        "消した行から滞在の詳細を開ける: {json}"
+    );
+    assert!(
+        view.entries.iter().all(|entry| {
+            entry.start == erased.0 && entry.end == erased.1 || !overlaps(entry, erased.0, erased.1)
+        }),
+        "消した時間に別の種類の行が重なっている: {view:#?}"
+    );
+    assert!(
+        !view.entries.iter().any(|entry| {
+            matches!(entry.kind, EntryKind::NoRecord)
+                && (entry.start == t("2026-07-15T09:59:00+09:00")
+                    || entry.end == t("2026-07-15T11:01:00+09:00"))
+        }),
+        "消した時間の端に 1 分の記録なしが生えた: {view:#?}"
+    );
+    assert_eq!(
+        kinds(&view, EntryKind::NoRecord).len(),
+        before_no_record,
+        "消したことで記録なしの行数が増えた: before={before:#?}, after={view:#?}"
+    );
 }
 
 // Scenario: 滞在の間に移動の行が出る
 #[tokio::test]
-async fn stays_day_api_move_between_stays() {
+async fn stay_day_view_move_between_stays() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     put_dwell(&pool, u, "2026-07-05T08:00:00+09:00", 40, 0.0, Some(10.0)).await;
@@ -1815,7 +2079,7 @@ async fn stays_day_api_move_between_stays() {
 
 // Scenario: 記録が欠けた時間は記録なしとして出る
 #[tokio::test]
-async fn stays_day_api_gap_is_no_record() {
+async fn stay_day_view_gap_is_no_record() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     put_dwell(&pool, u, "2026-07-06T08:00:00+09:00", 20, 0.0, Some(10.0)).await;
@@ -1840,7 +2104,7 @@ async fn stays_day_api_gap_is_no_record() {
 
 // Scenario: 位置の記録が無い日は丸ごと記録なしになる
 #[tokio::test]
-async fn stays_day_api_empty_day_is_all_no_record() {
+async fn stay_day_view_empty_day_is_all_no_record() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     let v = day(&pool, u, "2026-07-07", "2026-09-01T00:00:00Z").await;
@@ -1852,6 +2116,7 @@ async fn stays_day_api_empty_day_is_all_no_record() {
             end: t("2026-07-08T00:00:00+09:00"),
             id: None,
             criteria_id: None,
+            stay_ids: None,
         }]
     );
     assert!(v.criteria.is_empty());
@@ -1859,7 +2124,7 @@ async fn stays_day_api_empty_day_is_all_no_record() {
 
 // Scenario: 前の日から途切れず続く記録は日の頭を記録なしにしない
 #[tokio::test]
-async fn stays_day_api_continuous_from_previous_day() {
+async fn stay_day_view_continuous_from_previous_day() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     // **分の頭からずらす**。前の日の記録を読まない実装だと、00:00 から最初の位置（00:00:30）までが記録なしになる
@@ -1896,7 +2161,7 @@ async fn stays_day_api_continuous_from_previous_day() {
 
 // Scenario: 今日の一覧はいまより後を記録なしにしない
 #[tokio::test]
-async fn stays_day_api_today_stops_at_now() {
+async fn stay_day_view_today_stops_at_now() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     put_dwell(&pool, u, "2026-07-10T08:00:00+09:00", 55, 0.0, Some(10.0)).await;
@@ -1960,7 +2225,7 @@ async fn stays_day_api_criteria_follow_rebuild() {
 
 // Scenario: 1 日歩き回った後、その日の滞在が一覧で出る
 #[tokio::test]
-async fn stays_day_api_walked_day() {
+async fn stay_day_view_walked_day() {
     let app = app().await;
     let u = testdb::user();
     const HOME: f64 = 0.0;
@@ -2316,8 +2581,8 @@ async fn stay_identity_touching_edges() {
         "2026-05-21T09:30:00+09:00",
     )
     .await;
-    user_deletes(&pool, erased, Some("user")).await;
     put_dwell(&pool, v, "2026-05-21T09:30:00+09:00", 30, 500.0, Some(10.0)).await;
+    user_deletes(&pool, erased, Some("user")).await;
     rebuild(&pool, v, "2026-05-21").await;
     assert!(
         live(&pool, v).await.is_empty(),

@@ -44,11 +44,11 @@ class FixCollector(
             if (outbox.add(fix.toIngestRequest(newId(), userId, deviceId, zone))) persisted++
         }
         // 出すのは件数だけ。位置の値はログに出さない（製造準備 A-2）
-        log(Telemetry.line("fix", count = result.locations.size))
+        log(Telemetry.line("fix", source = LOGICAL_SOURCE, count = result.locations.size))
         // **「取れた件数」と「置き場に残せた件数」は別**（review MEDIUM-17）。
         // 揃っているときだけ黙る —— 揃っていないなら、送れないのではなく**残せていない**
         if (persisted != result.locations.size) {
-            log(Telemetry.line("fix_not_persisted", count = result.locations.size - persisted))
+            log(Telemetry.line("fix_not_persisted", source = LOGICAL_SOURCE, count = result.locations.size - persisted))
         }
     }
 }

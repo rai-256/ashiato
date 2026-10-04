@@ -86,7 +86,7 @@ class RetentionInstrumentedTest {
         val records = Outbox(SegmentStore(File(dir, "records"), IngestRequest.serializer(), unreadable, {}), age::now)
         val beats = Outbox(SegmentStore(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {}), age::now)
         val drops = Outbox(SegmentStore(File(dir, "drops"), DropReport.serializer(), unreadable, {}), age::now)
-        val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {})
+        val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {}, LOGICAL_SOURCE)
         val retention = Retention(records, ledger, age::now)
 
         var reachable = false
@@ -329,10 +329,14 @@ class RetentionInstrumentedTest {
             }
             val reply = ids.joinToString(",", "[", "]") { """{"id":null,"duplicate":false,"accepted":true,"error":null}""" }
                 .toByteArray(Charsets.UTF_8)
-            s.getOutputStream().apply {
-                write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())
-                write(reply)
-                flush()
+            try {
+                s.getOutputStream().apply {
+                    write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                    write(reply)
+                    flush()
+                }
+            } catch (_: java.net.SocketException) {
+                // 大量送信中に client が timeout で閉じても、偽サーバの handler から試験プロセスを落とさない。
             }
             Unit
         }

@@ -25,16 +25,35 @@ import android.util.Log
  *
  * ## 何が必須か
  *
- * **必須は前景の位置だけ。** それが無ければ取るものが無いので始めない。
- * 背景の位置と通知は**無くても収集を始める** —— 始めないより degraded で動くほうが
- * 成功条件 1（1 年間途切れない）に近い。足りないものはログに種別だけ残す。
+ * **必須は何も無い**（ST06 / tasks 5.1 / 本人の決定 Q7 / design D5）。求めるものは順に求めるが、
+ * **どれを断られても収集は始める** —— 取得条件が欠けたソースだけが止まり、他は取り続ける。
+ * ST06 より前は前景の位置を断られると `finish()` していた。そのときは**アプリ利用も止まり、
+ * 生存信号も出なかった**ので、受け手の画面には③「動いていたが取れない状態」ではなく
+ * ⑥「途絶」が出た（アプリ利用は 10 日を越えれば二度と取れない）。
+ *
+ * ## 利用状況へのアクセス（本人の決定 Q3 / design D6（仮））
+ *
+ * **その場のダイアログでは取れない。** アプリから開けるのは設定画面までなので、
+ * **初回起動で 1 度だけ**そこへ送り、許されなくても収集は始める。
+ * 2 度目からは自動で送らない（許さないと決めた本人の邪魔になる）——
+ * 以後は常駐の通知から同じ画面へたどれる。
  */
-class MainActivity : Activity() {
+open class MainActivity : Activity() {
     /** 一度求めた権限。**同じものを無限に求めない**ための記録。 */
     private val asked = mutableSetOf<String>()
 
     /** 求めている最中。`onResume` と結果の二重呼び出しで再要求しないため。 */
     private var inFlight = false
+
+    /**
+     * 位置を断られたことを**もうログに残した**（独立レビュー N2）。
+     *
+     * `proceed()` は結果の返りと `onResume` で何度も通る —— 通知の権限を求めるようになってからは
+     * 1 回の起動で少なくとも 2 回通る。毎回出すと `logcat` が同じ 1 行で埋まり、
+     * **環状の置き場から他の行が押し出される**（`logcat -t 400` を読む計測テストの前提に直接効く）。
+     * `LocationService` の `source_unavailable` で潰したのと同じ型。
+     */
+    private var deniedLogged = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,10 +79,23 @@ class MainActivity : Activity() {
     private fun granted(permission: String) =
         checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
-    /** 無くても始めるが、あったほうがよいもの。 */
+    /**
+     * 無くても始めるが、あったほうがよいもの。
+     *
+     * **前提を持つのは背景の位置だけ**（独立レビュー I1）。前景が許可された後でしか求められないので、
+     * 前景が無いあいだは一覧に入れない（入れても OS が即座に拒否で返し、`asked` に入って二度と求められなくなる）。
+     *
+     * **通知の権限に位置の可否は関係ない。むしろ位置を拒んだ端末ほど要る** ——
+     * Android 13 以降、通知の権限が無いと**前景サービスは立っても通知が表示されない**。
+     * 表示されないと、design D6 の「以後は常駐の通知から同じ設定画面へたどれる」が
+     * その本人にだけ効かず（自動で送るのは 1 度だけなので）**利用状況へのアクセスへ戻る道が消える**。
+     * ST04 の 83 日の知らせも出せない。
+     */
     private fun niceToHave(): List<String> = buildList {
         // 背景が無いと、START_STICKY で立て直されたとき位置を取れずに収集が止まる
-        add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -72,17 +104,24 @@ class MainActivity : Activity() {
     /** 足りない権限を 1 段ずつ求め、求め終わったら収集を始める。 */
     private fun proceed() {
         val fine = Manifest.permission.ACCESS_FINE_LOCATION
-        if (!granted(fine)) {
-            // 一度求めて、それでも無いなら断られた。**落とさずに終わる**（tasks 6.2）
-            if (fine in asked) {
-                Log.w(TAG, Telemetry.line("permission_denied"))
-                finish()
-            } else {
-                ask(fine)
-            }
+        if (!granted(fine) && fine !in asked) {
+            ask(fine)
             return
         }
-        // 背景は前景が許可された**後**でしか求められない
+        if (!granted(fine)) {
+            // 一度求めて、それでも無いなら断られた。**それでも収集は始める**（ST06 / Q7）——
+            // 位置だけが③「取れない状態」として生存信号に載り、アプリ利用は取れ続ける。
+            // **1 回の起動で 1 行だけ**（N2）
+            if (!deniedLogged) {
+                Log.w(TAG, Telemetry.line("permission_denied", source = LOGICAL_SOURCE))
+                deniedLogged = true
+            }
+        } else {
+            // 設定画面で許されて戻ってきた。次に断られたらまた 1 行出す
+            deniedLogged = false
+        }
+        // **位置の可否で枝を分けない**（独立レビュー I1）。前提を持つのは背景の位置だけで、
+        // それは `niceToHave()` の中で見る —— 分けると、位置を拒んだ端末が通知の権限を 1 度も求めない
         val next = niceToHave().firstOrNull { !granted(it) && it !in asked }
         if (next != null) {
             ask(next)
@@ -94,20 +133,52 @@ class MainActivity : Activity() {
     private fun ask(permission: String) {
         asked += permission
         inFlight = true
+        requestPermission(permission)
+    }
+
+    /**
+     * OS へ権限を求める。**試験だけが差し替える**（`LocationService` の取得元と同じ形）——
+     * `Activity.requestPermissions` は final で、求めた回数を外から数える口が無い。
+     */
+    protected open fun requestPermission(permission: String) {
         requestPermissions(arrayOf(permission), REQUEST)
     }
 
     private fun start() {
         // 足りないものは種別だけ残す。**値は出さない**（製造準備 A-2）
         if (!granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-            Log.w(TAG, Telemetry.line("degraded", error = "no_background_location"))
+            Log.w(TAG, Telemetry.line("degraded", source = LOGICAL_SOURCE, error = "no_background_location"))
         }
+        // **先に収集を始める**（本人の決定 Q3「拒んでも位置の収集は始める」）——
+        // 設定画面から戻ってこない本人の端末でも、収集はもう動いている
         startForegroundService(Intent(this, LocationService::class.java))
+        sendToUsageAccessOnce()
         finish()
     }
 
-    private companion object {
-        const val TAG = "ashiato"
-        const val REQUEST = 1
+    /**
+     * 「利用状況へのアクセス」の設定画面へ**初回起動で 1 度だけ**送る（本人の決定 Q3 / design D6（仮））。
+     *
+     * **送ったことを端末に残す。** インスタンスにだけ持つと、アプリを開き直すたびに設定画面が開き、
+     * 「許さない」と決めた本人の邪魔になる（D6 が避けた当のこと）。
+     * **許可されていれば送らない**（既に許している本人を設定画面へ連れていかない）。
+     */
+    private fun sendToUsageAccessOnce() {
+        val marks = getSharedPreferences(PREFS, MODE_PRIVATE)
+        if (marks.getBoolean(SENT_TO_USAGE_ACCESS, false)) return
+        if (usageAccessCapability(this).blockers.none { it == Capability.PERMISSION }) return
+        // **先に印を書く。** 開けなかった端末（設定画面を持たない）で毎回試し続けないため
+        marks.edit().putBoolean(SENT_TO_USAGE_ACCESS, true).apply()
+        val sent = runCatching { startActivity(usageAccessSettingsIntent()) }.isSuccess
+        if (!sent) Log.w(TAG, Telemetry.line("usage_access_settings_missing", source = APP_USAGE_LOGICAL_SOURCE))
+    }
+
+    internal companion object {
+        private const val TAG = "ashiato"
+        private const val REQUEST = 1
+
+        /** 「1 度だけ」を端末に残す置き場（design D6（仮））。**試験も同じ名前を読む。** */
+        const val PREFS = "collector"
+        const val SENT_TO_USAGE_ACCESS = "sent_to_usage_access"
     }
 }

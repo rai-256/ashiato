@@ -3,5 +3,9 @@
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    ashiato_server::run().await
+    match std::env::args().nth(1).as_deref() {
+        None => ashiato_server::run().await,
+        Some("migrate") => ashiato_server::run_migrate().await,
+        Some(other) => anyhow::bail!("知らない引数: {other}（使えるのは migrate だけ）"),
+    }
 }

@@ -16,6 +16,13 @@ import kotlinx.serialization.json.JsonObject
  */
 interface Outboxable {
     val id: String
+
+    /**
+     * 登録簿の名前。**どのソースが書いたものかを積んだ後からも読めるようにする**（ST06 / R10）——
+     * 送信の失敗をログに残すとき、`Telemetry` に焼き込んだ 1 本の名前ではなく
+     * **その 1 件が属するソース**を名乗るために要る。
+     */
+    val logicalSource: String
 }
 
 /**

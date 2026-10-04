@@ -66,6 +66,29 @@ pub const VARS: [&str; 5] = [
     "ASHIATO_STATE_DIR",
 ];
 
+/// **loopback 以外へ平文で送らない**（ST28 design D13）。`http://` で host が
+/// `127.0.0.1` / `::1` / `localhost` でなければ断る。`https://` はどの host でも通す。
+fn ensure_no_cleartext_off_loopback(base_url: &str) -> anyhow::Result<()> {
+    let url = base_url.trim();
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return Ok(());
+    };
+    if !scheme.eq_ignore_ascii_case("http") {
+        return Ok(());
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let hostport = authority.rsplit('@').next().unwrap_or("");
+    let host = match hostport.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => hostport.split(':').next().unwrap_or(""),
+    };
+    anyhow::ensure!(
+        matches!(host.to_ascii_lowercase().as_str(), "127.0.0.1" | "::1" | "localhost"),
+        "ASHIATO_BASE_URL が http:// で、接続先が暗号化されていない（loopback 以外へ平文で送らない）。https:// にする"
+    );
+    Ok(())
+}
+
 impl Config {
     /// 環境変数から読む。
     pub fn from_env() -> anyhow::Result<Self> {
@@ -90,8 +113,10 @@ impl Config {
             state_dir.is_absolute(),
             "ASHIATO_STATE_DIR は絶対パスで書く（相対だと起動のしかたで置き場が変わる）"
         );
+        let base_url = var("ASHIATO_BASE_URL")?;
+        ensure_no_cleartext_off_loopback(&base_url)?;
         Ok(Self {
-            base_url: var("ASHIATO_BASE_URL")?,
+            base_url,
             api_token: var("ASHIATO_API_TOKEN")?,
             user_id: uuid::Uuid::parse_str(user_id.trim())
                 .context("ASHIATO_USER_ID が uuid ではない")?,
@@ -171,5 +196,46 @@ mod tests {
             state_dir: std::path::PathBuf::from(abs_dir()),
         };
         assert!(!format!("{c:?}").contains("SUPER-SECRET"));
+    }
+
+    fn env_with_base(base: &'static str) -> impl Fn(&str) -> Option<String> {
+        move |k| {
+            Some(match k {
+                "ASHIATO_BASE_URL" => base.to_string(),
+                "ASHIATO_API_TOKEN" => "t0123456789".to_string(),
+                "ASHIATO_USER_ID" => uuid::Uuid::nil().to_string(),
+                "ASHIATO_DEVICE_ID" => "pc-01".to_string(),
+                "ASHIATO_STATE_DIR" => abs_dir(),
+                _ => return None,
+            })
+        }
+    }
+
+    // Scenario: 平文の接続先では PC の収集器が起動しない
+    #[test]
+    fn base_url_cleartext_off_loopback_is_refused() {
+        for bad in [
+            "http://example.invalid:8787",
+            "http://example.invalid",
+            "http://example.test:8787/x",
+            "HTTP://s01.lan",
+            "http://127.0.0.1@evil.example",
+        ] {
+            let e = Config::from_lookup(env_with_base(bad)).expect_err(bad);
+            assert!(e.to_string().contains("暗号化されていない"), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn base_url_cleartext_loopback_and_https_are_accepted() {
+        for ok in [
+            "http://127.0.0.1:8787",
+            "http://[::1]:8787",
+            "http://localhost:8787/",
+            "https://example.invalid",
+            "https://example.test",
+        ] {
+            assert!(Config::from_lookup(env_with_base(ok)).is_ok(), "{ok}");
+        }
     }
 }

@@ -68,5 +68,5 @@ class TestStores(
     val drops = Outbox(SegmentStore(File(dir, "drops"), DropReport.serializer(), unreadable, log), age::now)
     private var nextId = 0
     var now: java.time.Instant = java.time.Instant.parse("2026-09-14T00:00:00Z")
-    val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { now }, { "r${nextId++}" }, log)
+    val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { now }, { "r${nextId++}" }, log, LOGICAL_SOURCE)
 }

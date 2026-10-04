@@ -78,7 +78,7 @@ class SegmentStore<T : Outboxable>(
         val names = dir.listFiles()
         if (names == null) {
             // **黙って空として進まない**（review R38）。既存の未送信が見えないまま、連番 0 から書き始めることになる
-            log(Telemetry.line("outbox_list_failed"))
+            log(Telemetry.line("outbox_list_failed", source = null))
             return false
         }
         for (f in names) {
@@ -114,7 +114,7 @@ class SegmentStore<T : Outboxable>(
             val line = try {
                 lineOf(items[i], enqAgeMs).toByteArray(Charsets.UTF_8)
             } catch (e: SerializationException) {
-                log(Telemetry.line("outbox_append_failed", error = e.javaClass.simpleName))
+                log(Telemetry.line("outbox_append_failed", source = null, error = e.javaClass.simpleName))
                 return false
             }
             val tail = segments.lastEntry()?.value
@@ -166,7 +166,7 @@ class SegmentStore<T : Outboxable>(
             segments.remove(target.seq)
             target.file.delete()
         }
-        log(Telemetry.line("outbox_append_failed", error = e.javaClass.simpleName))
+        log(Telemetry.line("outbox_append_failed", source = null, error = e.javaClass.simpleName))
         false
     }
 
@@ -182,6 +182,20 @@ class SegmentStore<T : Outboxable>(
             out.size < limit
         }
         return out
+    }
+
+    /** 指定したソースで最も古い 1 件。全件をメモリに載せず、最初に見つけたところで止める。 */
+    fun oldest(logicalSource: String): Stored<T>? {
+        var found: Stored<T>? = null
+        scan { entry ->
+            if (entry.item.logicalSource == logicalSource) {
+                found = entry
+                false
+            } else {
+                true
+            }
+        }
+        return found
     }
 
     /** 取り除かれていない行が `n` 件より多いか。**行を溜めずに数える。** */
@@ -262,7 +276,7 @@ class SegmentStore<T : Outboxable>(
                 true
             }
             if (r == Read.FAILED) {
-                log(Telemetry.line("retention_paused", error = "segment_unreadable"))
+                log(Telemetry.line("retention_paused", source = null, error = "segment_unreadable"))
                 return dropped
             }
             if (gone.isNotEmpty()) {
@@ -304,7 +318,7 @@ class SegmentStore<T : Outboxable>(
                 true
             }
             if (r == Read.FAILED) {
-                log(Telemetry.line("retention_paused", error = "segment_unreadable"))
+                log(Telemetry.line("retention_paused", source = null, error = "segment_unreadable"))
                 return dropped
             }
             if (gone.isEmpty()) continue
@@ -381,12 +395,12 @@ class SegmentStore<T : Outboxable>(
                 }
             }
         } catch (e: IOException) {
-            log(Telemetry.line("outbox_read_failed", error = e.javaClass.simpleName))
+            log(Telemetry.line("outbox_read_failed", source = null, error = e.javaClass.simpleName))
             result = Read.FAILED
         }
         if (result == Read.DONE) s.lines = nonBlank
         if (broken.isNotEmpty() && ack(s, broken)) {
-            log(Telemetry.line("outbox_line_broken", count = broken.size))
+            log(Telemetry.line("outbox_line_broken", source = null, count = broken.size))
             onUnreadable(broken.size)
         }
         return result
@@ -426,7 +440,7 @@ class SegmentStore<T : Outboxable>(
                     if (n != null && b != null && set.add(n)) bytes += b
                 }
             } catch (e: IOException) {
-                log(Telemetry.line("outbox_acked_unreadable", error = e.javaClass.simpleName))
+                log(Telemetry.line("outbox_acked_unreadable", source = null, error = e.javaClass.simpleName))
                 return false
             }
         }
@@ -449,7 +463,7 @@ class SegmentStore<T : Outboxable>(
             s.ackFile.appendText(keys.joinToString("") { "L${it.first}\t${it.second}\n" }, Charsets.UTF_8)
         } catch (e: IOException) {
             ackTerminated -= s.seq
-            log(Telemetry.line("outbox_shrink_failed", count = keys.size, error = e.javaClass.simpleName))
+            log(Telemetry.line("outbox_shrink_failed", source = null, count = keys.size, error = e.javaClass.simpleName))
             return false
         }
         for ((n, b) in keys) if (acked.add(n)) s.ackedBytes += b
@@ -466,7 +480,7 @@ class SegmentStore<T : Outboxable>(
             terminated -= s.seq
             ackTerminated -= s.seq
         } else {
-            log(Telemetry.line("outbox_segment_delete_failed"))
+            log(Telemetry.line("outbox_segment_delete_failed", source = null))
         }
     }
 
@@ -480,7 +494,7 @@ class SegmentStore<T : Outboxable>(
         true
     } catch (e: IOException) {
         // 退避できなければ印を付けない（区切りに残したまま。次に読んだときにもう一度当たる）
-        log(Telemetry.line("outbox_salvage_failed", error = e.javaClass.simpleName))
+        log(Telemetry.line("outbox_salvage_failed", source = null, error = e.javaClass.simpleName))
         false
     }
 

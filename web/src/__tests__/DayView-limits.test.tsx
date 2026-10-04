@@ -5,6 +5,7 @@
  * **jsdom は実寸も `:focus-visible` も計算しない。** ここが見るのは、
  * 値から計算したコントラスト比と、24 px 以上を要求する指定と、フォーカスの輪郭の規則が操作対象に掛かっていること。
  */
+import { captureAdoptedRules } from "./focus-rule";
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DayView, FOCUS_ATTR, focusRule } from "../DayView";
@@ -84,9 +85,10 @@ describe("一覧の下限", () => {
   it("操作対象すべてにフォーカスの輪郭の規則が掛かり、輪郭は地に対して 3:1 以上", () => {
     for (const light of [false, true]) {
       stubScheme(light);
+      const captured = captureAdoptedRules();
       const { unmount } = render(<DayView date="2026-07-01" />);
       const scheme = light ? "light" : "dark";
-      const rule = [...document.querySelectorAll("style")].map((s) => s.textContent ?? "").join("\n");
+      const rule = captured.text();
       expect(rule).toContain(focusRule(scheme));
       expect(rule).toMatch(new RegExp(`\\[${FOCUS_ATTR}\\]:focus-visible \\{ outline: 3px solid`));
       for (const el of document.querySelectorAll("button, a, input")) {

@@ -2,11 +2,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Root } from "./Root";
+import { Gate } from "./session";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root が無い");
 createRoot(root).render(
   <StrictMode>
-    <Root />
+    <Gate><Root /></Gate>
   </StrictMode>,
 );
