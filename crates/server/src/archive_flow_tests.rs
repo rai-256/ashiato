@@ -1949,3 +1949,398 @@ async fn archive_flow_stored_payload_marks_a_utc_only_time() {
     );
     assert_eq!(payload["url"], "https://www.youtube.com/watch?v=abc");
 }
+
+impl Inbox {
+    async fn pending_files(&self) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1")
+            .bind(self.user)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap()
+    }
+
+    /// 写しの置き場にある実体の数（目録の行ではなく、ファイルそのもの）。
+    fn copy_files(&self) -> usize {
+        fn walk(dir: &Path) -> usize {
+            std::fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .map(|entry| {
+                            let path = entry.path();
+                            if path.is_dir() {
+                                walk(&path)
+                            } else {
+                                1
+                            }
+                        })
+                        .sum()
+                })
+                .unwrap_or(0)
+        }
+        walk(&self.copies)
+    }
+}
+
+/// マイアクティビティの 1 ファイルに複数の製品を持たせる（製品の集合が形になる）。
+fn myactivity_products(products: &[&str]) -> String {
+    let rows: Vec<String> = products
+        .iter()
+        .enumerate()
+        .map(|(i, product)| {
+            format!(
+                r#"{{"header":"{product}","title":"見た {i}","titleUrl":"https://www.google.com/search?q={i}","time":"2026-09-1{i}T03:00:00Z","products":["{product}"]}}"#
+            )
+        })
+        .collect();
+    format!("[{}]", rows.join(","))
+}
+
+/// Scenario: 印を置くと確認待ちの書庫が格納される
+///
+/// 同じ書庫の中で、印のあるファイルと確認待ちのファイルが同じ論理ソースを作るとき、
+/// 読み直しがソース別の台帳の鍵 `(ledger_id, logical_source)` に当たって関数ごと抜け、
+/// **毎走査同じ行から始まって永久に止まっていた**（final review R50）。
+#[tokio::test]
+async fn archive_flow_confirming_never_sticks_on_a_source_the_first_read_wrote() {
+    let inbox = Inbox::new("archive-confirm-overlap").await;
+    let known = myactivity("Search");
+    let mixed = myactivity_products(&["Search", "Discover"]);
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            known.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[
+            (
+                "Takeout/My Activity/Search/MyActivity.json",
+                known.as_bytes(),
+            ),
+            (
+                "Takeout/My Activity/Discover/MyActivity.json",
+                mixed.as_bytes(),
+            ),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちが積まれない", || async {
+            inbox.pending_files().await == 1
+        })
+        .await;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            mixed.as_bytes(),
+        )
+        .await;
+    inbox
+        .until(
+            "印を置いても確認待ちの中身が格納されない",
+            || async { inbox.events("c03-myactivity-discover").await == 1 },
+        )
+        .await;
+    inbox
+        .until(
+            "読み直しが止まり、確認待ちが永久に残っている",
+            || async { inbox.pending_files().await == 0 },
+        )
+        .await;
+}
+
+/// Scenario: 印を置くと確認待ちの書庫が格納される
+///
+/// 中身が同じファイルを持つ 2 冊目の書庫は、写しの目録の鍵 `(user_id, sha256)` で
+/// 目録が落ち、読み直しの JOIN に当たらず**永久に確認待ちに残っていた**（final review R51）。
+#[tokio::test]
+async fn archive_flow_a_second_archive_with_the_same_file_is_read_after_confirming() {
+    let inbox = Inbox::new("archive-confirm-same-file").await;
+    let activity = myactivity("Discover");
+    let first_watch = watch("2026-09-10T03:00:00Z", "一冊目");
+    let second_watch = watch("2026-09-11T03:00:00Z", "二冊目");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            first_watch.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[
+            ("Takeout/YouTube/watch-history.json", first_watch.as_bytes()),
+            (
+                "Takeout/My Activity/Discover/活動.json",
+                activity.as_bytes(),
+            ),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("1 冊目が確認待ちにならない", || async {
+            inbox.pending_files().await == 1
+        })
+        .await;
+    inbox.put(
+        "takeout-20260913T000000Z-001.zip",
+        &[
+            (
+                "Takeout/YouTube/watch-history.json",
+                second_watch.as_bytes(),
+            ),
+            (
+                "Takeout/My Activity/Discover/活動.json",
+                activity.as_bytes(),
+            ),
+        ],
+    );
+    inbox
+        .until("2 冊目が確認待ちにならない", || async {
+            inbox.pending_files().await == 2
+        })
+        .await;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+    inbox
+        .until("2 冊目の確認待ちが永久に残る", || async {
+            inbox.pending_files().await == 0
+        })
+        .await;
+}
+
+/// Scenario: 確認待ちの書庫は走査を重ねても台帳の行が増えない
+///
+/// 確認待ちだけの書庫は `read` の行を持たないので、走査が毎回「読む」へ回し、
+/// 120 秒ごとに書庫全体を展開し直していた（final review R52）。
+#[tokio::test]
+async fn archive_flow_a_pending_only_archive_is_not_read_again_on_every_scan() {
+    let inbox = Inbox::new("archive-pending-rescan").await;
+    let activity = myactivity("Discover");
+    inbox.put_downloads(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/Discover/活動.json",
+            activity.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちの台帳が残らない", || async {
+            inbox.ledger_rows("pending_shape").await == 1
+        })
+        .await;
+    let config = inbox.config(true);
+    for _ in 0..2 {
+        let candidates = crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
+            .await
+            .unwrap();
+        assert!(
+            candidates
+                .iter()
+                .all(|c| c.disposition != crate::archive::scan::ScanDisposition::Read),
+            "確認待ちだけの書庫が走査のたびに読み直しへ回っている"
+        );
+    }
+}
+
+/// Scenario: 確認待ちのために作った写しは読み直した後に消える
+///
+/// 本人の決定（第 2 回 Q11 の補足の読み / spec）。消す側が無かった（final review R56）。
+#[tokio::test]
+async fn archive_flow_pending_copies_are_removed_after_rereading_when_copies_are_off() {
+    let inbox = Inbox::new("archive-pending-copy-removed").await;
+    let activity = myactivity("Discover");
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/Discover/活動.json",
+            activity.as_bytes(),
+        )],
+    );
+    inbox.spawn(false);
+    inbox
+        .until("確認待ちの台帳が残らない", || async {
+            inbox.ledger_rows("pending_shape").await == 1
+        })
+        .await;
+    assert_eq!(inbox.copy_files(), 1, "確認待ちの写しが作られていない");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+    inbox
+        .until("印を置いても格納されない", || async {
+            inbox.events("c03-myactivity-discover").await == 1
+        })
+        .await;
+    inbox
+        .until(
+            "残さない設定で、確認待ちのために作った写しが残っている",
+            || async { inbox.copy_files() == 0 },
+        )
+        .await;
+}
+
+/// Scenario: 印を置いた後の読み直しは台帳に 1 行足す
+///
+/// 読み直しが書く `read` の行に、置き場の名前・作られた時刻・置き場の種類を引き継ぐ
+/// （NULL と既定の `inbox` だった。final review R58）。
+#[tokio::test]
+async fn archive_flow_the_reread_ledger_row_keeps_the_archive_name_and_place() {
+    let inbox = Inbox::new("archive-reread-row").await;
+    let activity = myactivity("Discover");
+    inbox.put_downloads(
+        "takeout-20260912T010203Z-001.zip",
+        &[(
+            "Takeout/My Activity/Discover/活動.json",
+            activity.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちの台帳が残らない", || async {
+            inbox.ledger_rows("pending_shape").await == 1
+        })
+        .await;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            activity.as_bytes(),
+        )
+        .await;
+    inbox
+        .until("読み直しの行が無い", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+    let (file_name, created_at, inbox_kind): (
+        Option<String>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        String,
+    ) = sqlx::query_as(
+        "SELECT file_name, created_at, inbox_kind FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'read'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        file_name.as_deref(),
+        Some("takeout-20260912T010203Z-001.zip")
+    );
+    assert_eq!(
+        created_at.map(|t| t.to_rfc3339()).as_deref(),
+        Some("2026-09-12T01:02:03+00:00")
+    );
+    assert_eq!(inbox_kind, "downloads");
+}
+
+/// Scenario: 解析器の版が上がると読み直される
+///
+/// 本番の走査から呼ばれていなかった（final review R53）。専用のフォルダの書庫は
+/// 「取り込み済み」へ移って走査されないので、**写しから**読み直すしか道が無い（D8）。
+#[tokio::test]
+async fn archive_flow_a_parser_version_bump_rereads_from_the_copies() {
+    let inbox = Inbox::new("archive-version-bump").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTubeWatch,
+            body.as_bytes(),
+        )
+        .await;
+    // **古い版で読み終えた状態**を作る: 台帳に古い版の `read` と、写しと目録。
+    let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+    std::fs::create_dir_all(&inbox.copies).unwrap();
+    let stored = crate::archive::worker::copy_known_file(&inbox.copies, body.as_bytes()).unwrap();
+    crate::archive::worker::record_copy(
+        &inbox.pool,
+        inbox.user,
+        stored.file_name().unwrap().to_str().unwrap().to_owned(),
+        "Takeout/YouTube/watch-history.json",
+        &stored,
+        &archive_sha,
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
+         VALUES ($1, $2, 'older', 'read', 'takeout-old.zip')",
+    )
+    .bind(inbox.user)
+    .bind(&archive_sha)
+    .execute(&inbox.pool)
+    .await
+    .unwrap();
+
+    inbox.spawn(true);
+    inbox
+        .until(
+            "版を上げても写しから読み直されない",
+            || async {
+                let rows: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM core.archive_ledger
+                  WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3 AND outcome = 'read'",
+                )
+                .bind(inbox.user)
+                .bind(&archive_sha)
+                .bind(crate::archive::PARSER_VERSION)
+                .fetch_one(&inbox.pool)
+                .await
+                .unwrap();
+                rows == 1
+            },
+        )
+        .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+}
+
+/// Scenario: 置き場が読めないことが画面に出る
+///
+/// 生存信号は日に 1 回なので、昼に置き場が読めなくなっても、箱が信号だけを見ていると
+/// 翌日まで出なかった（final review R59 / design D19（仮））。箱は**直近の走査**を見る。
+#[tokio::test]
+async fn archive_flow_the_box_shows_an_unreadable_inbox_on_the_same_day() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let at = |hour: u32| {
+        chrono::DateTime::parse_from_rfc3339(&format!("2026-09-12T{hour:02}:00:00Z"))
+            .unwrap()
+            .to_utc()
+    };
+    // 朝の最初の走査は読めた（その日の信号はこれ 1 件）
+    crate::archive::worker::record_archive_heartbeat(&pool, user, at(0), true, Vec::new())
+        .await
+        .unwrap();
+    // 昼に専用のフォルダが読めなくなった
+    crate::archive::worker::record_archive_heartbeat(
+        &pool,
+        user,
+        at(3),
+        false,
+        vec!["dedicated_inbox_unreadable".into()],
+    )
+    .await
+    .unwrap();
+    let inbox = crate::archives_status_for(&pool, user, None)
+        .await
+        .unwrap()
+        .inbox
+        .expect("取り込み器の状態が無い");
+    assert!(!inbox.capturable, "昼に読めなくなった置き場が箱に出ない");
+    assert_eq!(inbox.blockers, ["dedicated_inbox_unreadable"]);
+    assert_eq!(
+        inbox.emitted_at,
+        at(3),
+        "最後の確認が直近の走査になっていない"
+    );
+}

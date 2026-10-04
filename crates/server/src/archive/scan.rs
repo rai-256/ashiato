@@ -103,11 +103,13 @@ pub async fn scan_once_with_hasher(
             continue;
         }
         if stable {
+            // **確認待ちの書庫も覚えている**（D16）。`read` の行を持たない確認待ちだけの書庫を
+            // 読みへ回していたときは、120 秒ごとに書庫全体を展開し直していた（final review R52）。
             let already_read: bool = sqlx::query_scalar(
                 "SELECT EXISTS(
                    SELECT 1 FROM core.archive_ledger
                     WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-                      AND outcome IN ('read', 'unreadable')
+                      AND outcome IN ('read', 'unreadable', 'pending_shape')
                  )",
             )
             .bind(user_id)

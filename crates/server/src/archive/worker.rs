@@ -232,10 +232,16 @@ pub async fn record_ledger_sources(
         );
     }
     for (logical_source, counts) in per_source {
-        sqlx::query(
+        // **同じ読みの行に同じ論理ソースが既にあれば足さない**（鍵 `(ledger_id, logical_source)`）。
+        // 印を置いた後の読み直しは 1 回目の読みの `read` の行へ足す（D18）ので、1 回目に
+        // 印のあるファイルが同じ論理ソースを書いていると鍵に当たる。当たって関数ごと抜けると、
+        // 毎走査同じ行から始まって**読み直しが永久に止まった**（final review R50）。
+        // 記録そのものは格納済み。台帳の件数が 1 回目のぶんだけになることはログに種別で残す。
+        let inserted = sqlx::query(
             "INSERT INTO core.archive_ledger_source
                (ledger_id, logical_source, inserted_count, duplicate_count, deleted_count, unreadable_count, max_event_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (ledger_id, logical_source) DO NOTHING",
         )
         .bind(ledger_id)
         .bind(logical_source)
@@ -246,6 +252,12 @@ pub async fn record_ledger_sources(
         .bind(counts.max_event_at)
         .execute(pool)
         .await?;
+        if inserted.rows_affected() == 0 {
+            tracing::warn!(
+                kind = "archive_ledger_source_overlap",
+                "同じ読みの台帳に同じ論理ソースが既にある（件数は 1 回目のぶん）"
+            );
+        }
     }
     Ok(())
 }
@@ -909,15 +921,24 @@ pub fn copy_known_file(
     copy_dir: &std::path::Path,
     bytes: &[u8],
 ) -> std::io::Result<std::path::PathBuf> {
+    Ok(copy_known_file_reporting(copy_dir, bytes)?.0)
+}
+
+/// `copy_known_file` の、**今回作ったか**（前から在ったのでなく）も返す版。
+pub fn copy_known_file_reporting(
+    copy_dir: &std::path::Path,
+    bytes: &[u8],
+) -> std::io::Result<(std::path::PathBuf, bool)> {
     use sha2::Digest as _;
     let hash = format!("{:x}", sha2::Sha256::digest(bytes));
     let target = copy_dir.join(&hash[..2]).join(&hash);
-    if !target.exists() {
-        let parent = target.parent().expect("写しの親");
-        std::fs::create_dir_all(parent)?;
-        std::fs::write(&target, bytes)?;
+    if target.exists() {
+        return Ok((target, false));
     }
-    Ok(target)
+    let parent = target.parent().expect("写しの親");
+    std::fs::create_dir_all(parent)?;
+    std::fs::write(&target, bytes)?;
+    Ok((target, true))
 }
 
 /// 写しを残す設定のときだけ内容ハッシュの写しを作る。
@@ -956,6 +977,10 @@ pub async fn record_copy(
     Ok(())
 }
 
+/// 確認待ちのファイル 1 つの写し: 書庫のハッシュ・書庫の中のパス・写しの場所・
+/// 確認待ちのために写しを作ったか・写しの中身のハッシュ。
+pub type PendingCopy = (String, String, String, bool, String);
+
 /// 印が置かれて読めるようになった、確認待ちのファイルの写し。
 ///
 /// **写しから読む**（D16）—— 置き場の書庫は「取り込み済み」へ移っているか、
@@ -963,14 +988,19 @@ pub async fn record_copy(
 pub async fn confirmed_pending_copies(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
-) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+) -> Result<Vec<PendingCopy>, sqlx::Error> {
+    // **写しは中身のハッシュで引く**（final review R51）。書庫のハッシュで引いていたときは、
+    // 中身が同じファイルを持つ 2 冊目の書庫の目録が鍵 `(user_id, sha256)` で落ちていて、
+    // 2 冊目が永久に確認待ちに残った。中身のハッシュを持たない古い行だけ書庫で引く。
     sqlx::query_as(
-        "SELECT p.sha256, p.inner_path, f.stored_path
+        "SELECT p.sha256, p.inner_path, f.stored_path, p.made_copy, f.sha256
            FROM core.archive_pending_shape p
            JOIN core.archive_file f
              ON f.user_id = p.user_id
-            AND f.archive_sha256 = p.sha256
-            AND f.inner_path = p.inner_path
+            AND (f.sha256 = p.file_sha256
+                 OR (p.file_sha256 IS NULL
+                     AND f.archive_sha256 = p.sha256
+                     AND f.inner_path = p.inner_path))
           WHERE p.user_id = $1
             AND EXISTS (SELECT 1 FROM core.archive_shape_confirmation c
                          WHERE c.user_id = p.user_id AND c.shape_hash = p.shape_hash)
@@ -1122,16 +1152,44 @@ pub async fn record_pending_shape(
     inner_path: &str,
     shape: &serde_json::Value,
 ) -> Result<(), sqlx::Error> {
+    record_pending_file(
+        pool,
+        user_id,
+        archive_sha256,
+        inner_path,
+        shape,
+        None,
+        false,
+    )
+    .await
+}
+
+/// `record_pending_shape` の、写しの中身のハッシュと「確認待ちのために写しを作ったか」も積む版。
+pub async fn record_pending_file(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    inner_path: &str,
+    shape: &serde_json::Value,
+    file_sha256: Option<&str>,
+    made_copy: bool,
+) -> Result<(), sqlx::Error> {
     let shape_hash = hash_shape(shape);
     sqlx::query(
-        "INSERT INTO core.archive_pending_shape (user_id, sha256, inner_path, shape_hash, shape)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_pending_shape
+           (user_id, sha256, inner_path, shape_hash, shape, file_sha256, made_copy)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (user_id, sha256, inner_path) DO UPDATE
+           SET file_sha256 = COALESCE(EXCLUDED.file_sha256, core.archive_pending_shape.file_sha256),
+               made_copy = core.archive_pending_shape.made_copy OR EXCLUDED.made_copy",
     )
     .bind(user_id)
     .bind(archive_sha256)
     .bind(inner_path)
     .bind(shape_hash)
     .bind(shape)
+    .bind(file_sha256)
+    .bind(made_copy)
     .execute(pool)
     .await?;
     Ok(())
@@ -1167,16 +1225,20 @@ pub async fn record_archive_heartbeat(
     blockers: Vec<String>,
 ) -> anyhow::Result<()> {
     let (attempts, successes): (i32, i32) = sqlx::query_as(
-        "INSERT INTO core.archive_scan_counter (user_id, scanned_at, attempts, successes)
-         VALUES ($1, $2, 1, CASE WHEN $3 THEN 1 ELSE 0 END)
+        "INSERT INTO core.archive_scan_counter
+           (user_id, scanned_at, attempts, successes, last_capturable, last_blockers)
+         VALUES ($1, $2, 1, CASE WHEN $3 THEN 1 ELSE 0 END, $3, $4)
          ON CONFLICT (user_id) DO UPDATE SET scanned_at = EXCLUDED.scanned_at,
            attempts = core.archive_scan_counter.attempts + 1,
-           successes = core.archive_scan_counter.successes + CASE WHEN $3 THEN 1 ELSE 0 END
+           successes = core.archive_scan_counter.successes + CASE WHEN $3 THEN 1 ELSE 0 END,
+           last_capturable = EXCLUDED.last_capturable,
+           last_blockers = EXCLUDED.last_blockers
          RETURNING attempts, successes",
     )
     .bind(user_id)
     .bind(emitted_at)
     .bind(capturable)
+    .bind(&blockers)
     .fetch_one(pool)
     .await?;
     let exists: bool = sqlx::query_scalar(
@@ -1231,14 +1293,30 @@ pub async fn record_pending_ledger(
     sha256: String,
     file_name: Option<String>,
 ) -> Result<(), sqlx::Error> {
+    record_pending_ledger_at(pool, user_id, sha256, file_name, None, "inbox").await
+}
+
+/// `record_pending_ledger` の、書庫の作られた時刻と置き場の種類も残す版。
+/// 印を置いた後の読み直しが、ここから `read` の行へ引き継ぐ（final review R58）。
+pub async fn record_pending_ledger_at(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: String,
+    file_name: Option<String>,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+    inbox_kind: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
-         VALUES ($1, $2, $3, 'pending_shape', $4) ON CONFLICT DO NOTHING",
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name, created_at, inbox_kind)
+         VALUES ($1, $2, $3, 'pending_shape', $4, $5, $6) ON CONFLICT DO NOTHING",
     )
     .bind(user_id)
     .bind(sha256)
     .bind(super::PARSER_VERSION)
     .bind(file_name)
+    .bind(created_at)
+    .bind(inbox_kind)
     .execute(pool)
     .await?;
     Ok(())
@@ -1256,20 +1334,71 @@ pub fn hash_shape(shape: &serde_json::Value) -> String {
     format!("{:x}", sha2::Sha256::digest(encoded))
 }
 
-/// 印が置かれた後に、確認待ちだったファイルを**写しから**読み直して格納する（D16）。
-///
-/// 置き場の書庫はもう「取り込み済み」へ移っているか既読として覚えられているので、
-/// 走査をもう一度回しても読み直せない。**ここが無いと、本人が `--confirm` を叩いても
-/// 何も起きない**（実測: 混在した書庫＝本物の Takeout の形で必ず起きる）。
-pub async fn ingest_confirmed_pending(
+/// 読み直しが書く `read` の行へ引き継ぐ、元の読みの台帳の値（final review R58）。
+#[derive(Debug, Clone, Default)]
+pub struct LedgerMeta {
+    pub file_name: Option<String>,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub inbox_kind: String,
+}
+
+/// その書庫の、ある版・ある結果の台帳の行から名前・作られた時刻・置き場の種類を引く。
+async fn ledger_meta(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
-) -> anyhow::Result<usize> {
-    let rows = confirmed_pending_copies(pool, user_id).await?;
-    let mut ingested = 0;
-    for (archive_sha256, inner_path, stored_path) in rows {
-        let Ok(bytes) = std::fs::read(&stored_path) else {
-            tracing::warn!(kind = "archive_reparse_copy", "確認待ちの写しを読めない");
+    sha256: &str,
+    parser_version: Option<&str>,
+    outcome: &str,
+) -> Result<LedgerMeta, sqlx::Error> {
+    let row: Option<(
+        Option<String>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        String,
+    )> = sqlx::query_as(
+        "SELECT file_name, created_at, inbox_kind FROM core.archive_ledger
+              WHERE user_id = $1 AND sha256 = $2 AND outcome = $3
+                AND ($4::text IS NULL OR parser_version = $4)
+              ORDER BY finished_at DESC, id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(outcome)
+    .bind(parser_version)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row
+        .map(|(file_name, created_at, inbox_kind)| LedgerMeta {
+            file_name,
+            created_at,
+            inbox_kind,
+        })
+        .unwrap_or_else(|| LedgerMeta {
+            inbox_kind: "inbox".into(),
+            ..LedgerMeta::default()
+        }))
+}
+
+/// 1 冊の書庫の、写しに残したファイルを読み直して格納し、いまの版の `read` の行へ結果を残す。
+///
+/// 返すのは格納まで終えたファイルの書庫の中のパス。**格納の途中で落ちたら Err**
+/// （台帳を書かないので、次の走査で同じファイルから読み直す。格納は内容の鍵で冪等）。
+/// `require_confirmed` のときは、形の印が無いファイルを読まない（D16）。
+async fn reread_archive(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    files: &[(String, String)],
+    meta: &LedgerMeta,
+    require_confirmed: bool,
+) -> anyhow::Result<Vec<String>> {
+    let sink = crate::PgSink::new(pool.clone());
+    let mut stored_requests = Vec::new();
+    let mut stored_outcomes = Vec::new();
+    let mut unreadable = Vec::new();
+    let mut done = Vec::new();
+    for (inner_path, stored_path) in files {
+        let Ok(bytes) = std::fs::read(stored_path) else {
+            tracing::warn!(kind = "archive_reparse_copy", "書庫の写しを読めない");
             continue;
         };
         let file = super::open::ArchiveFile {
@@ -1280,17 +1409,35 @@ pub async fn ingest_confirmed_pending(
         let Some(known) = classified.known.first() else {
             tracing::warn!(
                 kind = "archive_reparse_classify",
-                "確認待ちの写しを見分けられない"
+                "書庫の写しを見分けられない"
             );
             continue;
         };
-        let read = requests_for_file_reporting(
+        if require_confirmed && requires_shape_confirmation(known.kind) {
+            let shape = shape_for_file(known.kind, inner_path, &file.bytes)?;
+            if !is_shape_confirmed(pool, user_id, &hash_shape(&shape)).await? {
+                tracing::warn!(
+                    kind = "archive_reparse_unconfirmed",
+                    "形の印が無い写しは読み直さない"
+                );
+                continue;
+            }
+        }
+        let read = match requests_for_file_reporting(
             known.kind,
-            &inner_path,
+            inner_path,
             &file.bytes,
             user_id,
-            archive_sha256.clone(),
-        )?;
+            archive_sha256.to_owned(),
+        ) {
+            Ok(read) => read,
+            // ファイルそのものが読めない。読み直しても変わらないので、読めなかったとして畳む。
+            Err(_) => {
+                unreadable.push(inner_path.clone());
+                done.push(inner_path.clone());
+                continue;
+            }
+        };
         for request in &read.requests {
             if request.logical_source.starts_with("c03-myactivity-") {
                 ensure_myactivity_source(
@@ -1303,42 +1450,193 @@ pub async fn ingest_confirmed_pending(
                 .await?;
             }
         }
-        let sink = crate::PgSink::new(pool.clone());
         let outcomes = store_requests(&sink, read.requests.clone()).await?;
-        // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`）。一意索引が
-        // `(user_id, sha256, parser_version, outcome)` なので、混在した書庫は 1 回目の
-        // 読みで既に `read` の行を持っている。読み直しでもう 1 行足すと
-        // 「同じ書庫をもう一度置いても行が増えない」と衝突する（design D18）。
-        let ledger: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO core.archive_ledger
-               (user_id, sha256, parser_version, outcome, file_name)
-             VALUES ($1, $2, $3, 'read', NULL) ON CONFLICT DO NOTHING RETURNING id",
+        unreadable.extend(read.unreadable);
+        stored_requests.extend(read.requests);
+        stored_outcomes.extend(outcomes);
+        done.push(inner_path.clone());
+    }
+    if done.is_empty() {
+        return Ok(done);
+    }
+    // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`。design D18）。混在した書庫は
+    // 1 回目の読みで既に `read` の行を持っている。名前・作られた時刻・置き場の種類は
+    // 元の読みの行から引き継ぐ（NULL と既定の `inbox` で書いていた。final review R58）。
+    let ledger: Option<i64> = sqlx::query_scalar(
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name, created_at, inbox_kind,
+            unreadable_count, unreadable_at)
+         VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING id",
+    )
+    .bind(user_id)
+    .bind(archive_sha256)
+    .bind(super::PARSER_VERSION)
+    .bind(&meta.file_name)
+    .bind(meta.created_at)
+    .bind(&meta.inbox_kind)
+    .bind(i32::try_from(unreadable.len()).unwrap_or(i32::MAX))
+    .bind(unreadable_summary(&unreadable))
+    .fetch_optional(pool)
+    .await?;
+    let ledger_id = match ledger {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar(
+                "SELECT id FROM core.archive_ledger
+                  WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
+                    AND outcome = 'read'",
+            )
+            .bind(user_id)
+            .bind(archive_sha256)
+            .bind(super::PARSER_VERSION)
+            .fetch_one(pool)
+            .await?
+        }
+    };
+    record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
+    Ok(done)
+}
+
+/// 印が置かれた後に、確認待ちだったファイルを**写しから**読み直して格納する（D16）。
+///
+/// 置き場の書庫はもう「取り込み済み」へ移っているか既読として覚えられているので、
+/// 走査をもう一度回しても読み直せない。**ここが無いと、本人が `--confirm` を叩いても
+/// 何も起きない**（実測: 混在した書庫＝本物の Takeout の形で必ず起きる）。
+///
+/// **書庫ごとに読み、1 冊の失敗で他の書庫を止めない**（final review R50）。`?` で関数ごと
+/// 抜けていたときは、毎走査同じ順で同じ行から始まり、後ろの書庫が永久に読まれなかった。
+/// 写しを残さない設定（`keep_copies = false`）のときは、確認待ちのために作った写しを
+/// 読み直し終えたら消す（spec / 本人の決定 第 2 回 Q11。final review R56）。
+pub async fn ingest_confirmed_pending(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    keep_copies: bool,
+) -> anyhow::Result<usize> {
+    let rows = confirmed_pending_copies(pool, user_id).await?;
+    let mut by_archive: std::collections::BTreeMap<String, Vec<PendingCopy>> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        by_archive.entry(row.0.clone()).or_default().push(row);
+    }
+    let mut ingested = 0;
+    for (archive_sha256, copies) in by_archive {
+        let files: Vec<(String, String)> = copies
+            .iter()
+            .map(|(_, inner_path, stored_path, _, _)| (inner_path.clone(), stored_path.clone()))
+            .collect();
+        let read = async {
+            let meta = ledger_meta(
+                pool,
+                user_id,
+                &archive_sha256,
+                Some(super::PARSER_VERSION),
+                "pending_shape",
+            )
+            .await?;
+            let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, false).await?;
+            for inner_path in &done {
+                remove_pending_shape(pool, user_id, &archive_sha256, inner_path).await?;
+            }
+            anyhow::Ok(done)
+        }
+        .await;
+        let done = match read {
+            Ok(done) => done,
+            Err(error) => {
+                tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの書庫を読み直せない");
+                continue;
+            }
+        };
+        ingested += done.len();
+        if keep_copies {
+            continue;
+        }
+        for (_, inner_path, stored_path, made_copy, file_sha256) in &copies {
+            if !made_copy || !done.contains(inner_path) {
+                continue;
+            }
+            // 同じ中身の写しを、まだ確認待ちの別の書庫が使っていれば残す。
+            let still_used: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM core.archive_pending_shape
+                                WHERE user_id = $1 AND file_sha256 = $2)",
+            )
+            .bind(user_id)
+            .bind(file_sha256)
+            .fetch_one(pool)
+            .await?;
+            if !still_used && std::fs::remove_file(stored_path).is_err() {
+                tracing::warn!(
+                    kind = "archive_pending_copy_remove",
+                    "確認待ちの写しを消せない"
+                );
+            }
+        }
+    }
+    Ok(ingested)
+}
+
+/// 解析器の版が上がったとき、前の版で読んだ書庫を**写しから**読み直す（D8。final review R53）。
+///
+/// 専用のフォルダの書庫は「取り込み済み」へ移って走査されないので、写しが唯一の道。
+/// ダウンロードのフォルダに残っている書庫は走査が「読む」へ回す（台帳はいまの版の行を持たない）。
+/// 写しが無い書庫は読み直さず、件数だけをログに出す。
+pub async fn reparse_older_versions(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> anyhow::Result<usize> {
+    let archives: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT l.sha256 FROM core.archive_ledger l
+          WHERE l.user_id = $1 AND l.outcome = 'read' AND l.parser_version <> $2
+            AND NOT EXISTS (SELECT 1 FROM core.archive_ledger n
+                             WHERE n.user_id = l.user_id AND n.sha256 = l.sha256
+                               AND n.parser_version = $2
+                               AND n.outcome IN ('read', 'unreadable', 'pending_shape'))
+          ORDER BY l.sha256",
+    )
+    .bind(user_id)
+    .bind(super::PARSER_VERSION)
+    .fetch_all(pool)
+    .await?;
+    let mut reread = 0;
+    let mut without_copies = 0;
+    for archive_sha256 in archives {
+        let files: Vec<(String, String)> = sqlx::query_as(
+            "SELECT inner_path, stored_path FROM core.archive_file
+              WHERE user_id = $1 AND archive_sha256 = $2 ORDER BY inner_path",
         )
         .bind(user_id)
         .bind(&archive_sha256)
-        .bind(super::PARSER_VERSION)
-        .fetch_optional(pool)
+        .fetch_all(pool)
         .await?;
-        let ledger_id = match ledger {
-            Some(id) => id,
-            None => {
-                sqlx::query_scalar(
-                    "SELECT id FROM core.archive_ledger
-                      WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-                        AND outcome = 'read'",
-                )
-                .bind(user_id)
-                .bind(&archive_sha256)
-                .bind(super::PARSER_VERSION)
-                .fetch_one(pool)
-                .await?
+        let files: Vec<(String, String)> = files
+            .into_iter()
+            .filter(|(_, stored)| std::path::Path::new(stored).exists())
+            .collect();
+        if files.is_empty() {
+            without_copies += 1;
+            continue;
+        }
+        let read = async {
+            let meta = ledger_meta(pool, user_id, &archive_sha256, None, "read").await?;
+            reread_archive(pool, user_id, &archive_sha256, &files, &meta, true).await
+        }
+        .await;
+        match read {
+            Ok(done) if !done.is_empty() => reread += 1,
+            Ok(_) => without_copies += 1,
+            Err(error) => {
+                tracing::warn!(kind = "archive_reparse_version", error = %error, "前の版で読んだ書庫を読み直せない");
             }
-        };
-        record_ledger_sources(pool, ledger_id, &read.requests, &outcomes).await?;
-        remove_pending_shape(pool, user_id, &archive_sha256, &inner_path).await?;
-        ingested += 1;
+        }
     }
-    Ok(ingested)
+    if without_copies > 0 {
+        tracing::debug!(
+            kind = "archive_reparse_no_copy",
+            archives = without_copies,
+            "写しが無いので前の版の書庫を読み直さない"
+        );
+    }
+    Ok(reread)
 }
 
 /// 解析前に、書庫を開いて既知・未読・読めない中身を数える結果。
@@ -1406,7 +1704,16 @@ pub fn spawn_inspecting(
         loop {
             // **印が置かれていないか、走査のたびに見る**（D16）。本人が
             // `tools/archive-shape.sh --confirm` を叩いた後に効く唯一の経路。
-            if let Err(error) = ingest_confirmed_pending(&scan_pool, user_id).await {
+            // **解析器の版が上がっていれば、前の版で読んだ書庫を写しから読み直す**（D8）。
+            // 本番から呼ばれていなかったので、版を上げても専用のフォルダの書庫は
+            // 二度と読まれなかった（final review R53）。走査より先に回すので、
+            // 同じ書庫を走査が「読む」へ回しても読み手が既読として捨てる。
+            if let Err(error) = reparse_older_versions(&scan_pool, user_id).await {
+                tracing::warn!(kind = "archive_reparse_version", error = %error, "前の版で読んだ書庫を読み直せない");
+            }
+            if let Err(error) =
+                ingest_confirmed_pending(&scan_pool, user_id, config.keep_copies).await
+            {
                 tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの書庫を読み直せない");
             }
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
@@ -1489,10 +1796,11 @@ pub fn spawn_inspecting(
             // 走査は読み手を待たないので（`scan_sec` ごとに回る）、1 冊に数分かかると
             // 同じ書庫が 2 度積まれる。2 度目はファイルが「取り込み済み」へ移った後に
             // 開かれ、**読めた書庫に `unreadable` の行が付いて画面が嘘をつく**。
+            // **確認待ちの書庫も「覚えている」**（D16。final review R52）。
             match sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM core.archive_ledger
                    WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-                     AND outcome IN ('read', 'unreadable'))",
+                     AND outcome IN ('read', 'unreadable', 'pending_shape'))",
             )
             .bind(user_id)
             .bind(&sha256)
@@ -1569,32 +1877,65 @@ pub fn spawn_inspecting(
                                     }
                                 }
                                 Ok(false) => {
-                                    if let Ok(stored_path) =
-                                        copy_known_file(&read_config.copy_dir, &file.bytes)
-                                    {
-                                        if let Some(file_sha256) =
-                                            stored_path.file_name().and_then(|name| name.to_str())
-                                        {
-                                            let _ = record_copy(
-                                                &pool,
-                                                user_id,
-                                                file_sha256.to_owned(),
-                                                &file.path,
-                                                &stored_path,
-                                                &sha256,
-                                            )
-                                            .await;
-                                        }
-                                    }
-                                    let _ = record_pending_shape(
-                                        &pool, user_id, &sha256, &file.path, &shape,
+                                    // **写し・目録・待ち行列のどれかを残せなければ、確認待ちの台帳を
+                                    // 書かずに抜ける**（final review R51）。黙って捨てていたときは、
+                                    // 写しの無い確認待ちが残り、印を置いても読み直せなかった。
+                                    // 台帳を書かなければ次の走査で同じ書庫を最初から読み直す。
+                                    let Ok((stored_path, created)) = copy_known_file_reporting(
+                                        &read_config.copy_dir,
+                                        &file.bytes,
+                                    ) else {
+                                        tracing::warn!(
+                                            kind = "archive_copy",
+                                            "確認待ちの写しを残せない"
+                                        );
+                                        return;
+                                    };
+                                    let Some(file_sha256) =
+                                        stored_path.file_name().and_then(|name| name.to_str())
+                                    else {
+                                        return;
+                                    };
+                                    if record_copy(
+                                        &pool,
+                                        user_id,
+                                        file_sha256.to_owned(),
+                                        &file.path,
+                                        &stored_path,
+                                        &sha256,
                                     )
-                                    .await;
-                                    if record_pending_ledger(
+                                    .await
+                                    .is_err()
+                                        || record_pending_file(
+                                            &pool,
+                                            user_id,
+                                            &sha256,
+                                            &file.path,
+                                            &shape,
+                                            Some(file_sha256),
+                                            // 残さない設定で、確認待ちのために作った写しだけが
+                                            // 読み直しの後に消える（既に在った写しは残す）。
+                                            created && !read_config.keep_copies,
+                                        )
+                                        .await
+                                        .is_err()
+                                    {
+                                        tracing::warn!(
+                                            kind = "archive_pending_shape",
+                                            "確認待ちを残せない"
+                                        );
+                                        return;
+                                    }
+                                    if record_pending_ledger_at(
                                         &pool,
                                         user_id,
                                         sha256.clone(),
                                         file_name_of(&candidate.path),
+                                        Some(archive_created_at(
+                                            &candidate.path,
+                                            chrono::Utc::now(),
+                                        )),
+                                        inbox_kind,
                                     )
                                     .await
                                     .is_err()
@@ -1736,6 +2077,13 @@ pub fn spawn_inspecting(
                         }
                     }
                     if has_pending_shape && stored_requests.is_empty() {
+                        // 確認待ちだけの書庫。台帳（`pending_shape`）と写しは残したので、
+                        // 専用のフォルダの書庫は「取り込み済み」へ移す（D9）。置いたままにすると
+                        // 走査のたびに積まれ、書庫全体を展開し直していた（final review R52）。
+                        if !candidate.from_downloads && move_to_processed(&candidate.path).is_err()
+                        {
+                            tracing::warn!(kind = "archive_move", "書庫を取り込み済みへ移せない");
+                        }
                         return;
                     }
                     let ledger = sqlx::query_scalar(

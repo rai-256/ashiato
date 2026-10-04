@@ -3,12 +3,18 @@
 書庫の読み手は、利用者と2つの置き場を環境変数で指定して起動する。
 
 ```text
-ASHIATO_ARCHIVE_USER_ID=<利用者 UUID>
+ASHIATO_ARCHIVE_USER_ID=00000000-0000-0000-0000-000000000000
 ASHIATO_INBOX_DIR=<専用の置き場>
 ASHIATO_DOWNLOADS_DIR=<ダウンロードのフォルダ>
 ASHIATO_ARCHIVE_COPY_DIR=<写しの置き場>
 ASHIATO_ARCHIVE_KEEP_COPIES=true
 ```
+
+`ASHIATO_ARCHIVE_USER_ID` は **`.env` の `ASHIATO_USER_ID` と同じ値**にする（利用者は 1 名。
+いまは `00000000-0000-0000-0000-000000000000`）。画面は利用者を名乗らずに読む（既定の利用者を見る）ので、
+別の値を入れると読んだ書庫が画面にも稼働状況の格子にも出ない。
+
+`tools/archive-shape.sh` にも、`DATABASE_URL` と一緒に同じ `ASHIATO_ARCHIVE_USER_ID` を環境で渡す。
 
 Google Takeout は予約エクスポートで作り、形式は **JSON** を選ぶ。届いた
 `takeout-*.zip` はダウンロードのフォルダに残したまま読まれる。端末から書き出した

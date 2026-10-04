@@ -171,6 +171,11 @@ pub const MIGRATIONS: [(&str, &str); 20] = [
         "202609181600_archive_ingestion",
         include_str!("../../../migrations/202609181600_archive_ingestion.sql"),
     ),
+    // 確認待ちのファイルの中身のハッシュと、確認待ちのために写しを作ったか（ST12 / final review R51 / R56）
+    (
+        "202610042315_archive_pending_file",
+        include_str!("../../../migrations/202610042315_archive_pending_file.sql"),
+    ),
 ];
 
 /// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
@@ -666,12 +671,16 @@ pub trait RecordSink: Send + Sync {
 /// PostgreSQL へ本物の格納関門を通す `RecordSink`。
 #[derive(Debug, Clone)]
 pub struct PgSink {
-    pool: sqlx::PgPool,
+    /// **1 度だけ作る**（final review R62）。1 件ごとに `App::new` していたときは、
+    /// 百万件級の書庫で合言葉の検査の口まで毎件作り直していた。
+    app: App,
 }
 
 impl PgSink {
     pub fn new(pool: sqlx::PgPool) -> Self {
-        Self { pool }
+        Self {
+            app: internal_app(pool),
+        }
     }
 }
 
@@ -682,8 +691,17 @@ impl RecordSink for PgSink {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = anyhow::Result<StoreOutcome>> + Send + 'a>,
     > {
-        Box::pin(store_one(&self.pool, request))
+        Box::pin(store_with(&self.app, request))
     }
+}
+
+/// HTTP に出さない内部の App（取り込み器が格納関門を直に呼ぶ）。ログインの口も読み出しの記録も通らない。
+fn internal_app(pool: sqlx::PgPool) -> App {
+    #[cfg(test)]
+    let app = App::for_test(pool, "archive-store");
+    #[cfg(not(test))]
+    let app = App::new(pool, "archive-store".into(), INTERNAL_WEB_PASSWORD, 0);
+    app
 }
 
 /// JSON の解釈を終えた 1 件を既存の格納関門へ渡し、書庫用の結果へ写す。
@@ -693,22 +711,14 @@ pub async fn store_one(
     pool: &sqlx::PgPool,
     request: IngestRequest,
 ) -> anyhow::Result<StoreOutcome> {
-    #[cfg(test)]
-    let app = App::for_test(pool.clone(), "archive-store");
-    // HTTP に出さない内部の App（取り込み器が格納関門を直に呼ぶ）。ログインの口も読み出しの記録も通らない
-    #[cfg(not(test))]
-    let app = App::new(
-        pool.clone(),
-        "archive-store".into(),
-        INTERNAL_WEB_PASSWORD,
-        0,
-    );
-    let result = ingest_one(
-        &app,
-        &serde_json::to_value(&request).expect("IngestRequest は常に JSON 化できる"),
-    )
-    .await
-    .map_err(|(_, message)| anyhow::anyhow!(message))?;
+    store_with(&internal_app(pool.clone()), request).await
+}
+
+async fn store_with(app: &App, request: IngestRequest) -> anyhow::Result<StoreOutcome> {
+    let pool = &app.pool;
+    let result = ingest_request(app, request)
+        .await
+        .map_err(|(_, message)| anyhow::anyhow!(message))?;
     match (result.id, result.duplicate, result.error) {
         (Some(id), false, None) => Ok(StoreOutcome::Inserted(id)),
         (Some(id), true, None) => {
@@ -824,7 +834,17 @@ async fn ingest_one(
             return Ok(IngestResult::rejected(sent_id, IngestError::Malformed));
         }
     };
+    ingest_request(app, req).await
+}
 
+/// 解釈を終えた 1 件を格納する（`ingest_one` の本体）。
+///
+/// 取り込み器は要求を型のまま持っているので、ここを直に呼ぶ。JSON へ直して
+/// `ingest_one` で読み戻していたときは、百万件級の書庫で 1 件ごとに往復していた（final review R62）。
+async fn ingest_request(
+    app: &App,
+    req: IngestRequest,
+) -> Result<IngestResult, (StatusCode, String)> {
     // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
     // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
     // 記録を入れるのと同じまとまりの中**（下）。
@@ -2260,10 +2280,20 @@ pub async fn archives_status_for(
     .bind(user_id)
     .fetch_one(pool)
     .await?;
+    // **直近の走査を見る**（design D19（仮）。final review R59）。生存信号は日に 1 回なので、
+    // 信号だけを見ていると昼に置き場が読めなくなっても翌日まで箱に出なかった。
+    // 走査の記録が無い（この列を足す前に動いた）ときだけ直近の信号に倒す。
     let inbox: Option<(bool, Vec<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
-        "SELECT capturable, blockers, emitted_at FROM core.heartbeat
-          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
-          ORDER BY emitted_at DESC LIMIT 1",
+        "SELECT capturable, blockers, emitted_at FROM (
+           SELECT last_capturable AS capturable, last_blockers AS blockers,
+                  scanned_at AS emitted_at, 0 AS rank
+             FROM core.archive_scan_counter
+            WHERE user_id = $1 AND last_capturable IS NOT NULL
+           UNION ALL
+           SELECT capturable, blockers, emitted_at, 1 AS rank FROM core.heartbeat
+            WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+         ) latest
+         ORDER BY rank, emitted_at DESC LIMIT 1",
     )
     .bind(user_id)
     .fetch_optional(pool)
