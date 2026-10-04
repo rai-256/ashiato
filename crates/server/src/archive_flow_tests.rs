@@ -1876,8 +1876,9 @@ fn archive_flow_half_hour_offsets_keep_their_minutes() {
     assert_eq!((whole.offset_min, whole.id.as_str()), (540, "Etc/GMT-9"));
 }
 
-/// Scenario: 直近に置いた書庫の結果が箱に出る（画面は `user_id` を付けずに呼ぶ）
+/// Scenario: 直近に置いた書庫の結果が箱に出る
 ///
+/// （画面は `user_id` を付けずに呼ぶ。）
 /// 画面（`web/src/App.tsx`）は他の読み出しと同じく `user_id` を付けない。ここだけ必須に
 /// していたときは axum の `Query` が 400 を返し、箱はいつも「読み出せませんでした」だった
 /// （final review R47）。ハンドラを直に呼ぶ試験はこの経路を通らないので、口から叩く。
