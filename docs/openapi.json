@@ -18,9 +18,13 @@
           {
             "name": "user_id",
             "in": "query",
-            "required": true,
+            "description": "**名乗りは省ける**（他の読み出しと同じ。省けば既定の利用者）。必須にしていたときは\n画面が `user_id` を付けずに呼ぶので必ず 400 になり、箱が「読み出せませんでした」だけだった（R47）。",
+            "required": false,
             "schema": {
-              "type": "string",
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "uuid"
             }
           }

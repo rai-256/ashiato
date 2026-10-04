@@ -156,6 +156,10 @@ ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
 printf '%s' '[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke"}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube/watch-history.json"
+# **同じ形のファイルを 2 つ**（分割書庫の別の場所にある視聴履歴）。印が形ごとに 1 行であることを見る（R49）
+mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube 2"
+printf '%s' '[{"time":"2026-09-11T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke2"}]' \
+  > "$ARCHIVE_FIXTURE/Takeout/YouTube 2/watch-history.json"
 (cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
 for _ in $(seq 1 15); do
   SHAPE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
@@ -164,7 +168,18 @@ for _ in $(seq 1 15); do
   sleep 1
 done
 [ -n "${SHAPE:-}" ] || { echo "書庫の形が確認待ちにならない"; exit 1; }
+# Scenario: 形の確認の出力に見分けた中身と製品の名前と件数が出る
+# 引数なしの一覧（本人が最初に叩く形）。`-c` で渡していたときは必ず構文エラーで落ちた（R49）
+listing=$(tools/archive-shape.sh) || { echo "形の一覧が落ちる"; exit 1; }
+printf '%s' "$listing" | grep -q "$SHAPE" || { echo "形の一覧に確認待ちの形が出ない: $listing"; exit 1; }
+printf '%s' "$listing" | grep -q 'YouTubeWatch' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
 tools/archive-shape.sh --confirm "$SHAPE"
+marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
+  -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid AND shape_hash = '$SHAPE'")
+[ "$marks" = "1" ] || { echo "同じ形の印が $marks 行ある（確認待ちのファイルの数だけ積まれている）"; exit 1; }
+# 画面と同じく `user_id` を付けずに読む（R47。必須にしていたときは 400 だった）
+curl -sf "${AUTH[@]}" "http://$BIND/archives/status" >/dev/null \
+  || { echo "/archives/status が user_id 無しで読めない（画面の箱が必ず失敗になる）"; exit 1; }
 for _ in $(seq 1 15); do
   status=$(curl -sf "${AUTH[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
   if printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null; then break; fi

@@ -1853,3 +1853,31 @@ fn archive_flow_half_hour_offsets_keep_their_minutes() {
     let whole = crate::archive::timezone::from_rfc3339("2026-09-12T12:00:00+09:00").unwrap();
     assert_eq!((whole.offset_min, whole.id.as_str()), (540, "Etc/GMT-9"));
 }
+
+/// Scenario: 直近に置いた書庫の結果が箱に出る（画面は `user_id` を付けずに呼ぶ）
+///
+/// 画面（`web/src/App.tsx`）は他の読み出しと同じく `user_id` を付けない。ここだけ必須に
+/// していたときは axum の `Query` が 400 を返し、箱はいつも「読み出せませんでした」だった
+/// （final review R47）。ハンドラを直に呼ぶ試験はこの経路を通らないので、口から叩く。
+#[tokio::test]
+async fn archive_flow_status_answers_without_a_user_id() {
+    use tower::ServiceExt as _;
+    let pool = testdb::pool().await;
+    let token = "test-token-0123456789abcdef";
+    let app = crate::App::for_test(pool, token);
+    let response = crate::router(app)
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/archives/status")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::OK,
+        "`user_id` の無い問い合わせを断っている（画面の箱が必ず「読み出せませんでした」になる）"
+    );
+}

@@ -2301,7 +2301,9 @@ pub async fn archives_status_for(
 /// 書庫の台帳と論理ソースごとの最終日を返す。
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ArchivesStatusQuery {
-    pub user_id: uuid::Uuid,
+    /// **名乗りは省ける**（他の読み出しと同じ。省けば既定の利用者）。必須にしていたときは
+    /// 画面が `user_id` を付けずに呼ぶので必ず 400 になり、箱が「読み出せませんでした」だけだった（R47）。
+    pub user_id: Option<uuid::Uuid>,
 }
 
 #[utoipa::path(get, path = "/archives/status", params(ArchivesStatusQuery),
@@ -2313,7 +2315,7 @@ pub async fn archives_status_get(
 ) -> Result<Json<ArchivesStatus>, (StatusCode, String)> {
     authorize(&app, &headers).await?;
     let reading = app.reading.read().ok().and_then(|slot| slot.clone());
-    archives_status_for(&app.pool, q.user_id, reading)
+    archives_status_for(&app.pool, q.user_id.unwrap_or_default(), reading)
         .await
         .map(Json)
         .map_err(|error| internal_at("archives.status", error))
