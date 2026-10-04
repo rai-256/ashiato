@@ -262,6 +262,10 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 取り込み器の内部の App が持つ画面の合言葉。**HTTP に出さない**ので使われない（ログインの口を通らない）。
+#[cfg_attr(test, allow(dead_code))]
+const INTERNAL_WEB_PASSWORD: &str = "archive-internal-not-served";
+
 #[derive(Clone, Debug)]
 pub struct App {
     pool: sqlx::PgPool,
@@ -303,7 +307,13 @@ impl App {
             stays: StayRebuilder::real(),
             #[cfg(test)]
             now: None,
+            reading: archive::worker::ReadingState::default(),
         }
+    }
+
+    /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
+    pub fn with_reading(self, reading: archive::worker::ReadingState) -> Self {
+        Self { reading, ..self }
     }
 
     /// テスト用。作り直しの口は本物を使う。画面の合言葉は試験の既定値、失敗の待ちは 0。
@@ -337,11 +347,6 @@ impl App {
         Self {
             access: access_log::AccessLog::new(sink),
             ..self
-            pool,
-            token: token.into(),
-            stays: StayRebuilder::real(),
-            now: None,
-            reading: archive::worker::ReadingState::default(),
         }
     }
 
@@ -690,13 +695,14 @@ pub async fn store_one(
 ) -> anyhow::Result<StoreOutcome> {
     #[cfg(test)]
     let app = App::for_test(pool.clone(), "archive-store");
+    // HTTP に出さない内部の App（取り込み器が格納関門を直に呼ぶ）。ログインの口も読み出しの記録も通らない
     #[cfg(not(test))]
-    let app = App {
-        pool: pool.clone(),
-        token: "archive-store".into(),
-        stays: StayRebuilder::real(),
-        reading: archive::worker::ReadingState::default(),
-    };
+    let app = App::new(
+        pool.clone(),
+        "archive-store".into(),
+        INTERNAL_WEB_PASSWORD,
+        0,
+    );
     let result = ingest_one(
         &app,
         &serde_json::to_value(&request).expect("IngestRequest は常に JSON 化できる"),
@@ -2044,13 +2050,14 @@ pub async fn store_heartbeat(
 ) -> anyhow::Result<HeartbeatResult> {
     #[cfg(test)]
     let app = App::for_test(pool.clone(), "archive-heartbeat");
+    // HTTP に出さない内部の App（取り込み器が格納関門を直に呼ぶ）。ログインの口も読み出しの記録も通らない
     #[cfg(not(test))]
-    let app = App {
-        pool: pool.clone(),
-        token: "archive-heartbeat".into(),
-        stays: StayRebuilder::real(),
-        reading: archive::worker::ReadingState::default(),
-    };
+    let app = App::new(
+        pool.clone(),
+        "archive-heartbeat".into(),
+        INTERNAL_WEB_PASSWORD,
+        0,
+    );
     heartbeat_one(
         &app,
         &serde_json::to_value(request).expect("HeartbeatRequest は常に JSON 化できる"),
@@ -2304,7 +2311,7 @@ pub async fn archives_status_get(
     headers: HeaderMap,
     Query(q): Query<ArchivesStatusQuery>,
 ) -> Result<Json<ArchivesStatus>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     let reading = app.reading.read().ok().and_then(|slot| slot.clone());
     archives_status_for(&app.pool, q.user_id, reading)
         .await
@@ -2561,6 +2568,7 @@ pub fn router(app: App) -> Router {
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
+        .route("/archives/status", get(archives_status_get))
         .route("/stays", get(stays_get))
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
@@ -2646,7 +2654,8 @@ pub async fn run() -> anyhow::Result<()> {
         );
         eprintln!("error: kind=db_role reason={}", refusal.reason());
         std::process::exit(2);
-    migrate(&pool).await?;
+    }
+
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
@@ -2665,33 +2674,8 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
 
-    let mut app = router(App::new(pool, token, &web_password, session_max_age_days));
-    let mut app = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
-        .route("/ingest", post(ingest))
-        .route("/heartbeat", post(heartbeat_post))
-        .route("/drops", post(drops::drops_post))
-        .route("/events", get(events))
-        .route("/coverage", get(coverage_get))
-        .route("/coverage/achievement", get(achievement_get))
-        .route("/archives/status", get(archives_status_get))
-        .route("/stays", get(stays_get))
-        .route("/stays/rebuild", post(stays_rebuild))
-        .route("/stays/criteria", get(stays_criteria_get))
-        .route("/attributes", get(attributes_get))
-        .route("/attributes/kinds", post(attributes_kind_post))
-        .route(
-            "/attributes/kinds/{id}/names",
-            post(attributes_kind_name_post),
-        )
-        .with_state(App {
-            pool,
-            token,
-            stays: StayRebuilder::real(),
-            #[cfg(test)]
-            now: None,
-            reading,
-        });
+    let mut app =
+        router(App::new(pool, token, &web_password, session_max_age_days).with_reading(reading));
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
