@@ -575,3 +575,89 @@
   `unsupported_format` と呼ぶ）/ M9（guard のスキーマ条件）/ M10（新旧 DB で `shape` の DEFAULT が食い違う）は
   小さいが、**この PR で触った範囲の外**か、H.1 の後に形が変わる見込みのもの。
   まとめて `docs/handoff/ST13.md` に書いた。
+
+---
+
+# final review（7d08921..2a98724）— 2026-10-04
+
+席: final reviewer（SDD の `code-reviewer.md`。ブランチ全体の review package を読む）。判定は **Ready to merge: No**。
+入口 2 回目の申し送り（`docs/handoff/ST12.md` の st25-day-timeline R3）は、この段で design D2 / D6 の名前を実装（`c03-timeline-move` / `c03-timeline-route`）に揃えて閉じた（ST25 の design は実装の名前で書かれているので触らない）。
+
+## R47. 画面の `/api/archives/status` が必ず 400 になり、箱はいつも「読み出せませんでした」になる
+- 成果物: `crates/server/src/lib.rs:2297`（`ArchivesStatusQuery.user_id: uuid::Uuid` が必須）/ `web/src/App.tsx:88`（`user_id` を付けずに呼ぶ）
+- 根拠: 他のエンドポイントは `Option<Uuid>` + `unwrap_or_default()`。ここだけ必須なので axum の `Query` が 400 を返す。smoke は `?user_id=` を付けて叩き、jsdom の試験は fetch を通らないので緑。tasks 11.4 の `curl …/archives/status | jq -e …` も `user_id` 無しでは落ちるはず。画面の Scenario に web/e2e の担保が無い
+- kind: technical
+
+## R48. 本物の `Timeline.json` では訪問・移動・生の信号が 1 件も入らない
+- 成果物: `crates/server/src/archive/worker.rs:325-366` / `:523-539` / `:603-607`
+- 根拠: `visit` / `activity` の中身を `event_time` に渡すが、実物の書き出しでは `startTime` / `endTime` / `startTimeTimezoneUtcOffsetMinutes` はセグメントの側にある。`rawSignals` は `{"position":{…,"timestamp"}}` / `{"wifiScan":{"deliveryTime"}}` / `{"activityRecord":{"timestamp"}}` と 1 段入れ子。試験の素材（`archive_tests.rs:607`、`archive_flow_tests.rs:846` など）は合成の形で、コードの思い込みと同じ
+- kind: technical
+
+## R49. `tools/archive-shape.sh` の一覧表示（引数なし）が必ず失敗する
+- 成果物: `tools/archive-shape.sh:24`
+- 根拠: `psql -c` の文字列では `:'user'` が展開されない。reviewer の実測で `ERROR: syntax error at or near ":"`。tasks 7b.2 の `archive-shape.sh | grep -c '京都'` も落ちるはず。付随: `--confirm` は確認待ちのファイル数だけ `archive_shape_confirmation` に行を足す（`DISTINCT` も一意制約も無い。追記のみ表）
+- kind: technical
+
+## R50. 印を置いた後の読み直し（`ingest_confirmed_pending`）が 1 件の失敗で永久に止まる。削除済みの動画が検索のソースへ入る
+- 成果物: `crates/server/src/archive/worker.rs:1069` / `:1084` / `:1114` / `:439`
+- 根拠: `?` で関数ごと抜け、毎走査同じ順で同じ行から始まる。`watch-history.json` の `titleUrl` の無い項目が `c03-youtube-search` へ回り、`search-history.json` が先に書いた `archive_ledger_source` の PK `(ledger_id, logical_source)` に当たる
+- kind: technical
+
+## R51. 確認待ちの経路が写し・目録の失敗を黙って捨て、中身が同じ 2 冊目の確認待ちが永久に残る
+- 成果物: `crates/server/src/archive/worker.rs:1349`（`if let Ok`）/ `let _ = record_copy` / `:1366` `let _ = record_pending_shape`
+- 根拠: `archive_file` の PK `(user_id, sha256)` で 2 冊目の目録が `ON CONFLICT` で落ち、`confirmed_pending_copies` の JOIN に当たらない
+- kind: technical
+
+## R52. 確認待ちだけの書庫は走査のたびに全体を読み直される
+- 成果物: `crates/server/src/archive/worker.rs:1515`
+- 根拠: 置き場に残し、台帳は `pending_shape` だけなので `scan.rs` が毎回 `Read` で積む。120 秒ごとに zip 全体を 2 回展開する
+- kind: technical
+
+## R53. 解析器の版を上げても専用のフォルダの書庫は読み直されない（tasks 7.4 は `[x]` だが本番から呼ばれていない）
+- 成果物: `reparse_path` / `copied_files_for_reparse`（`crates/server/src/archive/`）
+- 根拠: grep で本番からの呼び出し 0。R37〜R46 の M1 を deferred にしていたが、計画した機能の欠落
+- kind: technical
+
+## R54. payload が design D6 と spec（地域を持たなかった印・`parser_version`・各欄）を満たしていない
+- 成果物: `crates/server/src/archive/worker.rs:599`
+- 根拠: payload は `archive_sha256` / `inner_path` の 2 欄。spec `:226` の印を payload で見る試験が無い（`archive_flow_tests.rs:1340` は名前と中身が別の Scenario）
+- kind: technical
+
+## R55. 原文の切り出しが YouTube とマイアクティビティにしか効いていない
+- 成果物: `crates/server/src/archive/worker.rs`（Timeline / 移行前は `raw=None`、Chrome は `sliced = Vec::new()`）
+- 根拠: spec `:224` の SHALL は全記録に掛かる
+- kind: technical
+
+## R56. 本人の決定 Q2「残さない設定でも、確認待ちの写しは読み直し終えたら消す」の消す側が無い（R23 を ST23 送り）
+- 成果物: `crates/server/src/archive/worker.rs`（`ingest_confirmed_pending` の後）/ spec `:352`
+- 根拠: 消す経路が無い。tasks 7b.2「残さない設定では読み直しの後に写しが 0」が `[x]` のまま
+- kind: technical
+
+## R57. MyActivity / YouTube の見分けが先頭 1 件だけを見る（R28）
+- 成果物: `crates/server/src/archive/classify.rs:79`
+- 根拠: `watch-history.json` の先頭が削除済みの動画だと、ファイルごと「読まなかった」になる。「先頭で `titleUrl` を持つ項目を探す」なら誤判定を新しく作らない
+- kind: technical
+
+## R58. 印を置いた後の読み直しが書く `read` 行の `file_name` / `created_at` が NULL、`inbox_kind` が既定の `inbox`
+- 成果物: `crates/server/src/archive/worker.rs:1094`
+- kind: technical
+
+## R59. 生存信号は 1 日の最初の 1 回だけなので、昼に置き場が読めなくなっても翌日まで箱に出ない
+- 成果物: `record_archive_heartbeat`
+- kind: daily
+
+## R60. `docs/archive-inbox.md` の `ASHIATO_ARCHIVE_USER_ID=<利用者 UUID>` は、nil 以外を入れると画面にも格子にも出ない
+- 成果物: `docs/archive-inbox.md`
+- kind: technical
+
+## R61. `DuplicateOfDeleted` でも最終日が進む
+- 成果物: `record_ledger_sources`
+- kind: daily
+
+## R62. `PgSink::store` が 1 件ごとに `App::new` と JSON の往復をする
+- 成果物: `crates/server/src/archive/`（`PgSink::store`）
+- kind: technical
+
+## R63. R37〜R46 の申し送り先が ST13（アカウント系の定期取得）で、ST12 の不具合を受け取る Story ではない
+- 成果物: 上の R37〜R46 の処置 / `docs/handoff/ST13.md`
+- kind: defer

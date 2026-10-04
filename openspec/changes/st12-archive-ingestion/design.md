@@ -73,7 +73,7 @@
 
 | 中身 | 論理ソース | 1 件 |
 |---|---|---|
-| マップのタイムライン（`Timeline.json`） | `c03-timeline-visit` / `c03-timeline-activity` / `c03-timeline-path` / `c03-timeline-signal` | `semanticSegments` の訪問 / 移動 / 経路の点 1 つ / `rawSignals` の 1 件 |
+| マップのタイムライン（`Timeline.json`） | `c03-timeline-visit` / `c03-timeline-move` / `c03-timeline-route` / `c03-timeline-signal` | `semanticSegments` の訪問 / 移動 / 経路の点 1 つ / `rawSignals` の 1 件 |
 | 移行前のロケーション履歴 | `c03-legacy-location` / `c03-legacy-visit` / `c03-legacy-activity` | `Records.json` の `locations` 1 件 / Semantic Location History の `placeVisit` / `activitySegment` |
 | YouTube の視聴履歴 | `c03-youtube-watch` | 視聴 1 件 |
 | YouTube の検索履歴 | `c03-youtube-search` | 検索 1 件 |
@@ -155,8 +155,8 @@ UTF-8 として正しくない範囲は読めなかった項目に数える（`r
 | 論理ソース | 出来事の時刻 | payload の主な欄 |
 |---|---|---|
 | `c03-timeline-visit` | `startTime` | `end_time` / `place_id` / `semantic_type` / `lat` / `lng` / `probability` |
-| `c03-timeline-activity` | `startTime` | `end_time` / `activity_type` / `distance_m` / 始点と終点の `lat` `lng` |
-| `c03-timeline-path` | 点の `time` | `lat` / `lng`（`"35.6812°, 139.7671°"` の文字列を数に。**原文は文字列のまま**） |
+| `c03-timeline-move` | `startTime` | `end_time` / `activity_type` / `distance_m` / 始点と終点の `lat` `lng` |
+| `c03-timeline-route` | 点の `time` | `lat` / `lng`（`"35.6812°, 139.7671°"` の文字列を数に。**原文は文字列のまま**） |
 | `c03-timeline-signal` | 信号の `timestamp` | 種類（`position` / `wifiScan` / `activityRecord`）と、位置なら `lat` `lng` `accuracy_m` |
 | `c03-legacy-location` | `timestamp` か `timestampMs` | `lat` / `lng`（`E7` を度に）/ `accuracy_m` / `source` / `device_tag` |
 | `c03-legacy-visit` | `duration.startTimestamp` | `end_time` / `place_id` / `name` / `address` / `lat` / `lng` |
