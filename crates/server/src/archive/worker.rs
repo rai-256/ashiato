@@ -412,7 +412,7 @@ fn cloned(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
 
 /// 解釈した配列と**添字が揃うときだけ**切り出しを使う。揃わなければ書き戻しへ落とす
 /// （原文の厳密さは失うが、別の記録の原文を付ける取り違えはしない。review I3）。
-fn aligned<'a>(spans: Option<Vec<&'a [u8]>>, expected: usize) -> Vec<Option<&'a [u8]>> {
+fn aligned(spans: Option<Vec<&[u8]>>, expected: usize) -> Vec<Option<&[u8]>> {
     match spans {
         Some(spans) if spans.len() == expected => spans.into_iter().map(Some).collect(),
         Some(_) => {
