@@ -665,14 +665,22 @@ pub(crate) fn overlaps_erased_sql(
 /// マイアクティビティの論理ソースの前置き（`archive::myactivity::source_name`）。
 const MYACTIVITY_PREFIX: &str = "c03-myactivity-";
 
-/// 登録済みのマイアクティビティの論理ソース（製品ごとに 1 本。design D22-b）。
-pub(crate) async fn myactivity_sources(
-    executor: impl sqlx::PgExecutor<'_>,
-) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar("SELECT logical_source FROM core.source WHERE logical_source LIKE $1")
-        .bind(format!("{MYACTIVITY_PREFIX}%"))
-        .fetch_all(executor)
-        .await
+/// 位置の欄を持てば印付けの対象になる項目の論理ソース（design D22-b / D22-d）。
+/// 登録済みのマイアクティビティ（製品ごとに 1 本）に、固定名の `archive::ITEM_SOURCES` を足したもの。
+pub(crate) async fn item_sources(executor: impl sqlx::PgExecutor<'_>) -> sqlx::Result<Vec<String>> {
+    let mut sources: Vec<String> =
+        sqlx::query_scalar("SELECT logical_source FROM core.source WHERE logical_source LIKE $1")
+            .bind(format!("{MYACTIVITY_PREFIX}%"))
+            .fetch_all(executor)
+            .await?;
+    sources.extend(crate::archive::ITEM_SOURCES.iter().map(|s| (*s).to_owned()));
+    Ok(sources)
+}
+
+/// 論理ソースが、位置の欄を持てば印付けの対象になる項目のものか（`item_sources` と `myactivity_located_sql` と同じ範囲）。
+fn is_item_source(logical_source: &str) -> bool {
+    logical_source.starts_with(MYACTIVITY_PREFIX)
+        || crate::archive::ITEM_SOURCES.contains(&logical_source)
 }
 
 /// 原文の項目が位置（`locationInfos`）の欄を空でない値で持つか（design D22-b / 第 5 回 Q14）。
@@ -704,7 +712,8 @@ pub(crate) fn carries_location(raw: &str) -> bool {
 /// 原文に位置の欄の名前があるかの安い前置き（引用符ごと見る。`carries_location` と SQL で共有する）。
 const LOCATION_KEY: &str = "\"locationInfos\"";
 
-/// マイアクティビティの行は、原文に位置を持つものだけを通す SQL の条件（他のソースは常に通す）。
+/// 位置を持ちうる項目（マイアクティビティ・YouTube・Chrome）の行は、原文に位置を持つものだけを通す SQL の条件
+/// （他のソースは常に通す）。範囲は `is_item_source` と同じ。
 /// `raw` は text なので、JSON として読めるときだけ中を見る（入れ子の CASE で評価の順を固定する）。
 ///
 /// **欄の名前が原文に無い行は jsonb として読まない**（final review 第 3 回 R85）。助言ロックを握ったまま
@@ -713,14 +722,20 @@ const LOCATION_KEY: &str = "\"locationInfos\"";
 /// `carries_location` も同じ前置きを置くので、両者の判定は一致したまま。
 pub(crate) fn myactivity_located_sql(alias: &str) -> String {
     format!(
-        "(CASE WHEN {a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
+        "(CASE WHEN ({a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
+                    OR {a}.logical_source IN ({fixed}))
                THEN CASE WHEN strpos({a}.raw, '{LOCATION_KEY}') = 0 THEN false
                          WHEN pg_input_is_valid({a}.raw, 'jsonb')
                          THEN COALESCE({a}.raw::jsonb->'locationInfos'
                                        NOT IN ('null', '[]', '{{}}', '\"\"'), false)
                          ELSE false END
                ELSE true END)",
-        a = alias
+        a = alias,
+        fixed = crate::archive::ITEM_SOURCES
+            .iter()
+            .map(|s| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 
@@ -737,8 +752,8 @@ pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
 ///
 /// **見る範囲はその書庫が入れた位置の始まりの時刻の範囲だけ**（final review 第 2 回 R73）。この書庫の行は
 /// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
-/// **位置を持たない項目だけの書庫では何もしない**（YouTube だけの書庫や、`locationInfos` を持たない
-/// マイアクティビティだけの書庫。R78）。位置を持つマイアクティビティの項目は位置と同じく範囲に入る（D22-b）。
+/// **位置を持たない項目だけの書庫では何もしない**（`locationInfos` を持たない YouTube・Chrome・
+/// マイアクティビティだけの書庫。R78）。位置を持つ項目は位置と同じく範囲に入る（D22-b / D22-d）。
 /// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
 pub async fn mark_archive_arrivals(
     pool: &PgPool,
@@ -749,7 +764,7 @@ pub async fn mark_archive_arrivals(
         .iter()
         .filter(|r| {
             crate::archive::LOCATION_SOURCES.contains(&r.logical_source.as_str())
-                || (r.logical_source.starts_with(MYACTIVITY_PREFIX) && carries_location(&r.raw))
+                || (is_item_source(&r.logical_source) && carries_location(&r.raw))
         })
         .map(|r| r.event_time)
         .fold(None, |span: Option<(DateTime<Utc>, DateTime<Utc>)>, t| {
@@ -784,9 +799,9 @@ async fn mark_late_arrivals(
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
 ) -> sqlx::Result<()> {
-    // 位置を持つマイアクティビティの項目も同じ印の対象（design D22-b。位置を持たない項目は下の条件で外れる）
+    // 位置を持つ項目（マイアクティビティ・YouTube・Chrome）も同じ印の対象（design D22-b / D22-d。位置を持たない項目は下の条件で外れる）
     let mut sources = sources.to_vec();
-    sources.extend(myactivity_sources(&mut **tx).await?);
+    sources.extend(item_sources(&mut **tx).await?);
     let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
         "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
            FROM core.event e

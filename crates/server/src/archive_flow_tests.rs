@@ -3528,6 +3528,183 @@ async fn archive_erased_myactivity_window_after_confirming_a_pending_archive() {
         .await;
 }
 
+/// 位置（`locationInfos`）を持つ項目と持たない項目を 1 件ずつ含む合成の YouTube の視聴・検索の履歴
+/// （第 6 回 Q15）。どれも消した滞在（03:00Z〜04:00Z）の中の時刻。
+const LOCATED_YOUTUBE_WATCH: &str = r#"[
+  {"header":"YouTube","title":"位置ありを視聴しました","titleUrl":"https://www.youtube.com/watch?v=aaa","time":"2026-09-12T03:30:00Z","products":["YouTube"],
+   "locationInfos":[{"name":"この付近","url":"https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12","source":"もとの場所"}]},
+  {"header":"YouTube","title":"位置なしを視聴しました","titleUrl":"https://www.youtube.com/watch?v=bbb","time":"2026-09-12T03:40:00Z","products":["YouTube"]}
+ ]"#;
+const LOCATED_YOUTUBE_SEARCH: &str = r#"[
+  {"header":"YouTube","title":"位置ありを検索しました","titleUrl":"https://www.youtube.com/results?search_query=aaa","time":"2026-09-12T03:31:00Z","products":["YouTube"],
+   "locationInfos":[{"name":"この付近","url":"https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12","source":"もとの場所"}]},
+  {"header":"YouTube","title":"位置なしを検索しました","titleUrl":"https://www.youtube.com/results?search_query=bbb","time":"2026-09-12T03:41:00Z","products":["YouTube"]}
+ ]"#;
+
+impl Inbox {
+    /// YouTube の視聴・検索の 4 行の (題名, 印)。題名の順。
+    async fn youtube_marks(&self) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT payload->>'title', deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source IN ('c03-youtube-watch', 'c03-youtube-search')
+              ORDER BY payload->>'title'",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn youtube_ledger_rows(&self, cause: uuid::Uuid, mark: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.deletion_ledger
+              WHERE user_id = $1 AND cause_event_id = $2 AND action = 'erase' AND mark = $3
+                AND logical_source IN ('c03-youtube-watch', 'c03-youtube-search')",
+        )
+        .bind(self.user)
+        .bind(cause)
+        .bind(mark)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// 合成の YouTube の視聴・検索を取り込み器を介さずに格納する（形の確認の印は不要）。
+    async fn store_youtube(&self) {
+        use crate::archive::classify::KnownKind;
+        for (kind, name, body) in [
+            (
+                KnownKind::YouTubeWatch,
+                "Takeout/YouTube/watch-history.json",
+                LOCATED_YOUTUBE_WATCH,
+            ),
+            (
+                KnownKind::YouTubeSearch,
+                "Takeout/YouTube/search-history.json",
+                LOCATED_YOUTUBE_SEARCH,
+            ),
+        ] {
+            let requests = crate::archive::worker::requests_for_file(
+                kind,
+                name,
+                body.as_bytes(),
+                self.user,
+                format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+            )
+            .unwrap();
+            let sink = crate::PgSink::new(self.pool.clone());
+            crate::archive::worker::store_requests(&sink, requests)
+                .await
+                .unwrap();
+        }
+    }
+}
+
+fn marks(rows: &[(&str, Option<&str>)]) -> Vec<(String, Option<String>)> {
+    rows.iter()
+        .map(|(title, mark)| ((*title).to_owned(), mark.map(str::to_owned)))
+        .collect()
+}
+
+// Scenario: 消した滞在の時間帯の位置を持つ YouTube の履歴の項目は削除済みになる
+// Scenario: 位置を持たない YouTube の履歴の項目は消した時間帯でも生きた記録として入る
+#[tokio::test]
+async fn archive_erased_youtube_window() {
+    use crate::archive::classify::KnownKind;
+    let inbox = Inbox::new("archive-erased-youtube-window").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    inbox
+        .confirm(KnownKind::YouTubeWatch, LOCATED_YOUTUBE_WATCH.as_bytes())
+        .await;
+    inbox
+        .confirm(KnownKind::YouTubeSearch, LOCATED_YOUTUBE_SEARCH.as_bytes())
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[
+            (
+                "Takeout/YouTube/watch-history.json",
+                LOCATED_YOUTUBE_WATCH.as_bytes(),
+            ),
+            (
+                "Takeout/YouTube/search-history.json",
+                LOCATED_YOUTUBE_SEARCH.as_bytes(),
+            ),
+        ],
+    );
+    inbox.spawn(true);
+    let expected = marks(&[
+        ("位置ありを検索しました", Some("user:late")),
+        ("位置ありを視聴しました", Some("user:late")),
+        ("位置なしを検索しました", None),
+        ("位置なしを視聴しました", None),
+    ]);
+    inbox
+        .until(
+            "位置を持つ YouTube の項目に後着の印が付かない",
+            || async { inbox.youtube_marks().await == expected },
+        )
+        .await;
+    assert_eq!(inbox.youtube_ledger_rows(stay, "user:late").await, 2);
+    let raw: String = sqlx::query_scalar(
+        "SELECT raw FROM core.event
+          WHERE user_id = $1 AND logical_source = 'c03-youtube-watch' AND payload->>'title' = '位置ありを視聴しました'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert!(raw.contains("locationInfos"), "原文から欄を外している");
+}
+
+// Scenario: 滞在を消すとその時間帯の位置を持つ YouTube の履歴の項目も削除済みになる
+// Scenario: 滞在の削除を戻すと位置を持つ YouTube の履歴の項目も戻る
+#[tokio::test]
+async fn archive_erased_youtube_cascade() {
+    let inbox = Inbox::new("archive-erased-youtube-cascade").await;
+    inbox.store_youtube().await;
+    assert_eq!(
+        inbox.youtube_marks().await,
+        marks(&[
+            ("位置ありを検索しました", None),
+            ("位置ありを視聴しました", None),
+            ("位置なしを検索しました", None),
+            ("位置なしを視聴しました", None),
+        ])
+    );
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.youtube_marks().await,
+        marks(&[
+            ("位置ありを検索しました", Some("user:cascade")),
+            ("位置ありを視聴しました", Some("user:cascade")),
+            ("位置なしを検索しました", None),
+            ("位置なしを視聴しました", None),
+        ])
+    );
+    assert_eq!(inbox.youtube_ledger_rows(stay, "user:cascade").await, 2);
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 2);
+    assert_eq!(
+        inbox.youtube_marks().await,
+        marks(&[
+            ("位置ありを検索しました", None),
+            ("位置ありを視聴しました", None),
+            ("位置なしを検索しました", None),
+            ("位置なしを視聴しました", None),
+        ])
+    );
+}
+
 // Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
 //
 // 確認待ちを写しから読み直す経路（`ingest_confirmed_pending` → `reread_archive`）でも、印付けが落ち続ければ
@@ -3697,7 +3874,21 @@ async fn archive_myactivity_location_rust_and_sql_agree() {
             .unwrap();
         assert_eq!(rust, *expected, "Rust の判定が違う: {raw}");
         assert_eq!(in_db, *expected, "SQL の判定が違う: {raw}");
-        // マイアクティビティでない行は常に通す（SQL の側だけの約束）。
+        // 位置を持ちうる項目のソース（YouTube の視聴・検索・Chrome の履歴。第 6 回 Q15）も同じ判定。
+        for source in [
+            "c03-youtube-watch",
+            "c03-youtube-search",
+            "c03-chrome-history",
+        ] {
+            let item: bool = sqlx::query_scalar(&sql)
+                .bind(raw)
+                .bind(source)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(item, *expected, "{source} の SQL の判定が違う: {raw}");
+        }
+        // 項目のソースでない行は常に通す（SQL の側だけの約束）。
         let other: bool = sqlx::query_scalar(&sql)
             .bind(raw)
             .bind("c03-timeline-visit")

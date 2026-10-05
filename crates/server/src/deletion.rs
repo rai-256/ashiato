@@ -274,8 +274,8 @@ async fn erase_using_action(
     let sources = stay_store::with_archive_sources(&sources);
     // 点で見るソースと区間で見るソースに分け、点の側は始まりの時刻の上下限で索引を効かせる（R73）。
     let (mut points, intervals) = stay_store::split_by_span(&sources);
-    // 位置を持つマイアクティビティの項目も連鎖の対象（design D22-b。持たない項目は `located` で外れる）
-    points.extend(stay_store::myactivity_sources(&mut *tx).await?);
+    // 位置を持つ項目（マイアクティビティ・YouTube・Chrome）も連鎖の対象（design D22-b / D22-d。持たない項目は `located` で外れる）
+    points.extend(stay_store::item_sources(&mut *tx).await?);
     let overlaps = stay_store::overlaps_erased_sql("core.event", "$2", "$5", "$3", "$4");
     let located = stay_store::myactivity_located_sql("core.event");
     let stay_changed: Vec<(uuid::Uuid, String)> = sqlx::query_as(

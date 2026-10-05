@@ -26,6 +26,15 @@ pub const LOCATION_SOURCES: [&str; 7] = [
     "c03-legacy-activity",
 ];
 
+/// 位置の 7 本以外で、書庫が項目を入れる論理ソースのうち固定名のもの（第 6 回 Q15 / design D22-d）。
+/// 項目が位置（`locationInfos`）の欄を持つときだけ、位置と同じ印付けの対象になる
+/// （判定は `stay_store::carries_location`。ソースの名前では決めない）。マイアクティビティは製品ごとの名前なので前置きで見る。
+pub const ITEM_SOURCES: [&str; 3] = [
+    "c03-youtube-watch",
+    "c03-youtube-search",
+    "c03-chrome-history",
+];
+
 /// `LOCATION_SOURCES` のうち、終わり（`payload.end_time`）を持つ区間のソース 4 本（design D22）。
 /// 削除の重なりの判定で、これだけを終わりで見る。他のソース（基準のソースと点のソース）は始まりの時刻
 /// だけで判定でき、索引 `event_by_source_time` の上下限が効く（final review 第 2 回 R73）。
