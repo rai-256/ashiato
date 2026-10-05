@@ -1255,3 +1255,36 @@ R68（大きな積み込みで見回りが止まり、偽の `suspended` が入�
 独立の reviewer（`pr-review-toolkit:code-reviewer`）が、R69 / R71 / R72 / R73 の修正の差分だけを見た。**指摘なし**（Critical / Important 0 件）。
 参考の Minor 1 件: `history_vanished_unknown_existence_is_present` は `#[cfg(unix)]` なので、Windows では M16 が固定されていない（処置の記述どおり。指摘にしない）。
 R68 / R70 は直さず deep.md 第 5 回 Q9 / Q10 へ返した。
+
+### R68・R70 の実装（深掘り第 5 回の答え）の scoped re-review（`/story ST08 finish`。2026-10-05、990cc9b）
+
+独立の reviewer（`pr-review-toolkit:code-reviewer`）が 990cc9b の差分だけを見た。**Critical / Important 0 件。**
+頼んだ不変条件（帳面は未送信へ永続化した後にだけ書く / 失敗した取得は前回の成功を進めない / 1 回の取得で同じ帳面を 2 度開かない / 成功 ≤ 試行）はどれも守られていると確かめた（`cargo test -p ashiato-collector-windows --lib history` 116 本）。
+Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、下の 3 件にまとめて申し送る。
+
+## R74. Minor: 積み込みの途中で失敗した取得は、やり直しのたびに最初から積み直し、`add_many` の書きかけが次の行を壊しうる
+
+- 処置: followup ST08 — Minor（失うものは無い。取り込み口が `external_id` で畳み、書きかけは `pending` に残る）。docs/handoff/ST08.md
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`Stage::Queueing` の失敗）/ crates/collector-windows/src/outbox.rs（`add_many`）
+- 根拠: 帳面は全部積み終えるまで書かないので、k 個目のまとまりで落ちると、試し直し（1 分〜1 時間）のたびに 0..k-1 個目を重ねて積む。2,000 件の `write_all` が途中で落ちる（ENOSPC）と、改行の無い断片に次の追記が連結され、再起動時に「壊れた行」として退避される
+- kind: technical
+- 提案: 書く前に置き場の末尾が改行で終わるかを確かめて足す / 積み直しを件数で数えてログに出す
+
+## R75. Minor: 消えたプロファイルの帳面を毎回書き直す・除外の登録を読む時点が積む直前から読み終えた直後に早まった
+
+- 処置: followup ST08 — Minor（害は無い。除外の時点は spec の「以後」の範囲内）。docs/handoff/ST08.md
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`Planner::queue_gone_profiles` / `Planner::plan`）
+- 根拠: 開いた帳面はすべて `Plan::save` で書く（旧版は消えた訪問が無ければ書かなかった）。除外の登録は別スレッドの組み立ての中で読むので、15 万件なら積み終えるまでの約 75 秒に足した除外はその回に効かない
+- kind: technical
+- 提案: 変えた帳面だけを書く印を持つ
+
+## R76. Minor: 2 つめ以降のまとまりで積めなかったとき・帳面の保存に失敗したときを見るテストが無い
+
+- 処置: followup ST08 — Minor（今の実装は正しい。守りを外したときに落ちるテストが足りないだけ）。docs/handoff/ST08.md
+
+- 成果物: crates/collector-windows/src/history/collect.rs（tests）
+- 根拠: `history_not_queued_writes_no_ledger_and_is_reported` は最初のまとまりで落とすので、「最初のまとまりの後で帳面を書く」誤りでも通る。`Plan::save` の `store.save()` の失敗で `queued=false` になることも固定していない
+- kind: technical
+- 提案: 2,001 件以上で 2 回目の `queue` を失敗させるテストと、帳面の置き場を書けなくするテストを足す
