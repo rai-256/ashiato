@@ -99,6 +99,35 @@ pub fn profile_names(browser: Browser, base: &Path) -> std::collections::BTreeMa
     out
 }
 
+/// 見つかったプロファイルのディレクトリ名 → 表示名（読めなければ `None`）。
+/// 表示名の一覧に無いディレクトリも載る（ディレクトリだけは記録に残す。design D1）。
+pub fn current_mapping(
+    browser: Browser,
+    base: &Path,
+    found: &[Profile],
+) -> std::collections::BTreeMap<String, Option<String>> {
+    let names = profile_names(browser, base);
+    found
+        .iter()
+        .filter(|p| p.browser == browser)
+        .map(|p| (p.directory.clone(), names.get(&p.directory).cloned()))
+        .collect()
+}
+
+/// `profiles` 記録を作るのは、初回と、帳面に残した前回の対応から変わったときだけ（design D1 / D4）。
+/// 変わらない対応を毎回送ると、出来事の時刻が違うので毎日版が積む。
+pub fn profiles_record_if_changed(
+    browser: Browser,
+    now: chrono::DateTime<chrono::Utc>,
+    current: &std::collections::BTreeMap<String, Option<String>>,
+    previous: &std::collections::BTreeMap<String, Option<String>>,
+) -> anyhow::Result<Option<crate::history::contract::Visit>> {
+    if current.is_empty() || current == previous {
+        return Ok(None);
+    }
+    crate::history::contract::Visit::profiles(browser, now, current).map(Some)
+}
+
 /// 既知の 6 ブラウザを発見する。Chromium は直下 1 段、Firefox は走査と ini の和を取る。
 pub fn locate(local: &Path, roaming: &Path) -> Vec<Profile> {
     let mut found = Vec::new();
@@ -165,7 +194,9 @@ fn scan_ini(browser: Browser, ini: &Path, out: &mut Vec<Profile>) {
                 continue;
             };
             let dir = if relative {
-                parent.join(path)
+                // ini は `/` 区切り。Windows の走査の結果と同じ綴りに揃えて重複を畳む
+                path.split(['/', '\\'])
+                    .fold(parent.to_path_buf(), |d, c| d.join(c))
             } else {
                 PathBuf::from(path)
             };
@@ -201,6 +232,14 @@ mod tests {
         }
         let found = locate(&root.join("local"), &root.join("roaming"));
         assert_eq!(found.len(), 6);
+        for browser in Browser::ALL {
+            assert_eq!(
+                found.iter().filter(|p| p.browser == browser).count(),
+                1,
+                "{} のプロファイルが 1 件見つかる",
+                browser.name()
+            );
+        }
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -331,6 +370,118 @@ mod tests {
         assert!(found
             .iter()
             .any(|p| p.path == absolute.join("places.sqlite")));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn history_locate_reads_one_level_and_special_directories() {
+        // Scenario: 6 つのブラウザの既知の置き場にあるプロファイルが全部見つかる
+        let root = temp();
+        fixture(&root, Browser::Chrome, "Guest Profile");
+        fixture(&root, Browser::Chrome, "Profile 2");
+        // 1 段より深いものと、History の無いディレクトリは拾わない
+        let base = Browser::Chrome.base(&root.join("local"), &root.join("roaming"));
+        std::fs::create_dir_all(base.join("Crashpad")).unwrap();
+        std::fs::create_dir_all(base.join("Profile 2/Nested")).unwrap();
+        std::fs::write(base.join("Profile 2/Nested/History"), []).unwrap();
+        // Opera は直下の History を Default と読み、_side_profiles も見る
+        let opera = Browser::Opera.base(&root.join("local"), &root.join("roaming"));
+        std::fs::create_dir_all(opera.join("_side_profiles/side1")).unwrap();
+        std::fs::write(opera.join("History"), []).unwrap();
+        std::fs::write(opera.join("_side_profiles/side1/History"), []).unwrap();
+        let found = locate(&root.join("local"), &root.join("roaming"));
+        let dirs = |b: Browser| {
+            let mut d: Vec<_> = found
+                .iter()
+                .filter(|p| p.browser == b)
+                .map(|p| p.directory.as_str())
+                .collect();
+            d.sort_unstable();
+            d
+        };
+        assert_eq!(dirs(Browser::Chrome), ["Guest Profile", "Profile 2"]);
+        assert_eq!(dirs(Browser::Opera), ["Default", "side1"]);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn history_locate_firefox_default_dir_listed_in_ini_is_not_doubled() {
+        // Scenario: Firefox の一覧にある既定の外の置き場も見つかる
+        let root = temp();
+        fixture(&root, Browser::Firefox, "abc.default");
+        let roaming = root.join("roaming");
+        std::fs::write(
+            roaming.join("Mozilla/Firefox/profiles.ini"),
+            "[Profile0]\nName=個人\nPath=Profiles/abc.default\nIsRelative=1\n",
+        )
+        .unwrap();
+        let found = locate(&root.join("local"), &roaming);
+        assert_eq!(found.len(), 1);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn history_profiles_map_record_only_on_first_or_change() {
+        // Scenario: プロファイルの表示名との対応が残る
+        // Scenario: プロファイルの表示名を変えると新しい対応が残る
+        let root = temp();
+        let (local, roaming) = (root.join("local"), root.join("roaming"));
+        fixture(&root, Browser::Chrome, "Default");
+        fixture(&root, Browser::Chrome, "Profile 1");
+        let base = Browser::Chrome.base(&local, &roaming);
+        let write_state = |name: &str| {
+            std::fs::write(
+                base.join("Local State"),
+                format!(r#"{{"profile":{{"info_cache":{{"Default":{{"name":"{name}"}}}}}}}}"#),
+            )
+            .unwrap()
+        };
+        let now = chrono::Utc::now();
+        let found = locate(&local, &roaming);
+
+        write_state("個人");
+        let first = current_mapping(Browser::Chrome, &base, &found);
+        // 表示名の一覧に無い Profile 1 もディレクトリだけは載る
+        assert_eq!(first.get("Default"), Some(&Some("個人".to_string())));
+        assert_eq!(first.get("Profile 1"), Some(&None));
+        let record = profiles_record_if_changed(Browser::Chrome, now, &first, &Default::default())
+            .unwrap()
+            .expect("初回は作る");
+        assert_eq!(record.payload.kind, "profiles");
+        // 帳面に残した対応と同じなら作らない
+        assert!(
+            profiles_record_if_changed(Browser::Chrome, now, &first, &first)
+                .unwrap()
+                .is_none()
+        );
+
+        write_state("仕事");
+        let renamed = current_mapping(Browser::Chrome, &base, &found);
+        let second = profiles_record_if_changed(Browser::Chrome, now, &renamed, &first)
+            .unwrap()
+            .expect("変わったら作る");
+        // 新しい対応の記録は前の記録と別の識別子（前の記録は上書きされず残る）
+        assert_ne!(second.external_id, record.external_id);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn history_profiles_map_firefox_names_come_from_profiles_ini() {
+        // Scenario: プロファイルの表示名との対応が残る
+        let root = temp();
+        let (local, roaming) = (root.join("local"), root.join("roaming"));
+        fixture(&root, Browser::Firefox, "abc.default");
+        std::fs::write(
+            roaming.join("Mozilla/Firefox/profiles.ini"),
+            "[Profile0]\nName=個人\nPath=Profiles/abc.default\nIsRelative=1\n",
+        )
+        .unwrap();
+        let found = locate(&local, &roaming);
+        let base = Browser::Firefox.base(&local, &roaming);
+        assert_eq!(
+            current_mapping(Browser::Firefox, &base, &found).get("abc.default"),
+            Some(&Some("個人".to_string()))
+        );
         std::fs::remove_dir_all(root).ok();
     }
 
