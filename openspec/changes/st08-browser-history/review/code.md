@@ -1180,7 +1180,7 @@ R68（大きな積み込みで見回りが止まり、偽の `suspended` が入�
 - loss: uncaptured （止まっている間の前景の変化。あわせて事実でない「眠っていた」区間が書き換えられない記録として残る）
 - 提案: 1 回の取得の分をまとめて追記し、同期は 1 回にする（`Outbox::add_many`）か、積み込みを数千件ずつ見回りに分ける。
   「15 万件を積む間も `c02-window` に `suspended` が入らない」を Runtime の層（実時計か、積み込みの所要時間を見回りの時計に反映する形）で固定する。
-- 処置: escalated — deep.md 第 5 回 Q9（loss: uncaptured。大きな取り込みの間、見回りを止めてよいか）。`docs/briefs/ST08-deep-r5.html`
+- 処置: escalated — deep.md 第 5 回 Q9（loss: uncaptured。大きな取り込みの間、見回りを止めてよいか）。`docs/briefs/ST08-deep-r5.html`。2026-10-05 回答済み（まとめて書き、見回りは止めない）で、答えどおり design D3 に実装した（`/story ST08 finish`）:読みの後の組み立ても別スレッド、見回り 1 回に `QUEUE_PER_TICK`（2,000）件を `Outbox::add_many`（同期 1 回）で積み、帳面と前回の成功は積み終えてから別スレッドで書く。`history_large_fetch_keeps_observing_foreground`（帳面がある状態で 3 万件。積んでいる途中の前景の切り替えが積まれ、見回り 1 回が 1 秒未満）。上限を外す / 1 件ずつ同期する（Windows 実機）変異で落ちることを確かめた
 
 ## R69. 初回の取り込みの後ろで、ウィンドウの記録の送信が件数 ÷ 200 × 5 分待つ（2,000 件で 50 分、10 万件で約 42 時間）
 
@@ -1207,7 +1207,7 @@ R68（大きな積み込みで見回りが止まり、偽の `suspended` が入�
 - loss: uncaptured
 - 提案: 積み込みの失敗も「取得できない」に数え、`blockers` に種別だけを載せる（例 `history-not-queued`。URL・パスは載せない）。
   既定は厳しい側（Q1 の R8「1 つでも読めなければ取得できない」と同じ向き）なので問いにはしない。spec の生存信号の Requirement に 1 行と、Runtime の層のテストを足す。
-- 処置: escalated — deep.md 第 5 回 Q10（loss: uncaptured。積めない間の生存信号を「取得できる」にしてよいか）。`docs/briefs/ST08-deep-r5.html`
+- 処置: escalated — deep.md 第 5 回 Q10（loss: uncaptured。積めない間の生存信号を「取得できる」にしてよいか）。`docs/briefs/ST08-deep-r5.html`。2026-10-05 回答済み（送る準備の失敗も「取得できない」にし、理由に種別を付ける）で、答えどおり design D12 に実装した（`/story ST08 finish`）:`FetchReport::queued` が偽の取得はどのプロファイルも成功に数えず `history-not-queued` を載せる（読めないだけの失敗は除く）。`history_heartbeat_reports_not_queued_at_runtime`（壊れた登録で 3 日、信号が `capturable=false`・`["history-not-queued"]`）/ `history_not_queued_writes_no_ledger_and_is_reported`。数えを外す変異・積む前に帳面を書く変異で落ちることを確かめた
 
 ## R71. Opera の主プロファイルと、Firefox の既定の外に置いたプロファイルは、ディレクトリが在っても「無くなった」と判定され、`profile_gone: true` の「消えた」記録が送られる
 
