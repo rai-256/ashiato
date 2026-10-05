@@ -5,8 +5,8 @@
 - **第 6 回 Q15（premise / loss: exported）—— YouTube の視聴・検索の履歴の項目が位置（`locationInfos`）を持っていたとき、消した場面の印の対象に入れるか**（code-verify 第 5 回 R92）。
   本人は推奨の側を選んだ: **位置を持つ Takeout の項目（YouTube の視聴・検索も含む）は、消した時間帯ならマイアクティビティと同じく削除済みの印を付けて入れる（後から消したときも同じ）**（`deep-answers-3.txt`。FR-50 に追記）。
   spec の同じ Requirement に YouTube の論理ソースを足し（Scenario 4 本）、design **D22-d**（**ソースの名前でなく項目が位置を持つかで決める** —— 位置の 7 本以外で書庫が項目を入れるソースすべて。本人が名指していない `c03-chrome-history` も C（厳しい側）で含める）、
-  tasks に **Task 17（16.1〜16.3）** を足し、13.1 の見るものに YouTube の視聴・検索の形の `field_names` を足した。いまの `[x]` は動かしていない。
-  **Task 17 はこの本文を書いた時点で未実装**（グラフの Task ループが回し、final review と code-verify をやり直す）。実物に欄があるかは 13.1 で確かめる（無ければ何も起きない）
+  tasks に **Task 17（16.1〜16.3）** を足し、13.1 の見るものに YouTube の視聴・検索の形の `field_names` を足した。
+  **Task 17 は実装済み**（final review 第 4 回・code-verify 第 6 回を通した）。足し忘れを止める見張り（R93）は、種類を derive で全部辿る（R97）。実物に欄があるかは 13.1 で確かめる（無ければ何も起きない）
 
 - **第 5 回 Q14（premise / loss: exported）—— マイアクティビティの項目が位置（`locationInfos`）を持っていたとき、消した場面の印の対象に入れるか**（code-verify 第 4 回 R81）。
   本人は推奨の側を選んだ: **位置を持つマイアクティビティの項目は、消した時間帯なら書庫の位置と同じく削除済みの印を付けて入れる（後から消したときも同じ）**（`deep-answers-2.txt`。FR-50 にマイアクティビティの位置を含めた）。
@@ -59,17 +59,23 @@
 - code-verify 第 4 回の re-review Minor 1（**final review 第 3 回 R82 で解消**。下の 1 件目の Ruling と D22-a）— Ruling: 写しからの読み直し（`reread_archive`）で印付けが落ち続けたときに失敗を数えず、毎周 読み直すのを park する — その経路は置き場のファイルの行（`archive_sighting`）を持たず、格納の失敗も同じく数えていない。入力は手元の写しで、解析器の版を上げたときに限る（D22-a） — 誤りなら版を上げた後に印付けが落ち続けると、消した場面の位置が生きたまま毎周 読み直しが続き画面に出ない（直すなら版ごとに失敗を数える行を持ち、格納の失敗と一緒に数える）
 - Ruling: R82 の数え方のために 3 本目の移行（`202610051730_archive_reread_failure`）を足し、tasks.md の前置き「移行は 1 本だけ足す（D14）」を越える — D14 に本人の決定は無く（——）、表は書き換えてよい観測値だけで追記のみの表に触らない — 誤りなら移行の本数の約束が破れる（直すなら既存の表に列を足す形へ畳む）
 - Ruling: R85 で `"locationInfos"` の文字列の前置きを置き、欄名を `\u` でエスケープした原文は位置を持たないと判定する — Takeout はその形を書かない — 誤りならその項目は消した時間帯でも生きたまま入る（Q14 の loss: exported。直すなら前置きを外す）
+- final review 第 4 回の re-review 範囲外 1 — Ruling: st12 の試験用 DB に `st12_fault_*_tg` の trigger が 4 本残るのを park する — 第 2 回 fixer の注意（R72）と同じもので、利用者ごとの条件付きなので他の試験に効かない — 誤りなら同じ DB を使う試験が不意に落ちる（DB を作り直せば消える）
+- final review 第 4 回の re-review 範囲外 2 — Ruling: worktree の `.env` の DB の port（55432）が st12 の DB（55512）と違い、`app_pool()` と `server_startup` の試験が手元で落ちるのを park する — worktree の port の割り当ては ST05 の後の fix で台帳にする決定済みで、CI は自前の DB を使う — 誤りなら手元の `cargo test --workspace` が 5 本落ち続ける
+- code-verify 第 6 回の fix の re-review 範囲外 1 — Ruling: st12 の試験用 DB に `core.event` が 689,485 行（DB 585MB）溜まり、`web_session_tests::web_session_endpoint_api_token_reads_and_writes` の `/events` が 64MB の上限を超えて手元で落ちるのを park する — 試験は ST12 で変えておらず、行は変異試験の繰り返しで溜まったもので、CI はまっさらな DB を使う — 誤りなら手元の `cargo test --workspace` がこの 1 本で落ち続ける（DB を作り直せば消える）
 
 ## Task
 
-- **51/55 が `[x]`**（Task 1〜16 すべて。Task 17 の 3 項目を足した後）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない。
+- **54/55 が `[x]`**（Task 1〜17 すべて）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない。
   13.1 では、マイアクティビティ・YouTube の視聴・検索の形の `field_names` に `locationInfos` があるかも見る
 - **Task 16（15.1〜15.3。第 5 回 Q14 / design D22-b）は実装済み**
-- **Task 17（16.1〜16.3。第 6 回 Q15 / design D22-d）を足した** —— この本文を書いた時点では未実装。グラフの Task ループが実装・review し、final review と code-verify をやり直す
+- **Task 17（16.1〜16.3。第 6 回 Q15 / design D22-d）は実装済み** —— YouTube の視聴・検索と Chrome の履歴の、位置を持つ項目にも格納の直後・消すときの連鎖・後着の印を付ける
 
-## 独立レビュー（指摘 140 件すべてに処置。`review_triage.py` rc=0）
+## 独立レビュー（指摘 145 件すべてに処置。`review_triage.py` rc=0）
 
-final review 3 回（R47〜R63 / R72〜R78 / R82〜R89）と code-verify 5 回（〜R92）。final review はどの回も fix wave 1 回の後の scoped re-review で全件 ADDRESSED・新しい Critical / Important なし。
+final review 4 回（R47〜R63 / R72〜R78 / R82〜R89 / R93〜R96）と code-verify 6 回（〜R92 / R97）。どの回も fix 1 回の後の scoped re-review で全件 ADDRESSED・新しい Critical / Important なし。
+
+- **R97**（code-verify 第 6 回）R93 の見張りは種類を手で繋いだ連なりで辿っていて、足した種類を繋ぎ忘れると見張りが緑のまま分類から漏れた → `strum::EnumIter`（dev-dependency・MIT）で全種類を辿る。名前を変える変異で見張りが落ちることを確かめた（0baf123）
+- **R93〜R96**（final review 第 4 回）分類の足し忘れを止める見張り（R93）・Chrome の履歴の印付けの試験（R94）・判定の名前を範囲に合わせる（`item_located_sql`。R95）。R96（作り直しの候補に Chrome の履歴が入る）は `EXPLAIN ANALYZE` で 5000 行 4.6 ms を測って rejected
 code-verify 第 5 回（R90〜R92）も fix 1 回（5749da8）の後の scoped re-review で R90・R91 が ADDRESSED・新しい Critical / Important なし（R92 は escalated）。
 
 - **R90** 読み直しの失敗を数える部品 5 つのうち 4 つと値 2 つ（3 回・1 時間）は、外しても全試験が緑だった → 版の読み直しを直に呼ぶ試験 2 本と、確認待ちの経路の試験の締め付け。変異 M4〜M8 を入れ直してすべて落ちることを確かめた
@@ -100,23 +106,27 @@ code-verify 第 5 回（R90〜R92）も fix 1 回（5749da8）の後の scoped r
 
 ## 通した検証
 
-Task 17 を足した後は、新しい Scenario 4 本の印がまだ無いので `check_scenarios.py` は Task 17 の実装まで落ちる（担保なし 4 件）。`openspec validate --strict` と `check_chain.py` は足した後も rc=0。
-
-code-verify 第 5 回の処置の後（5749da8、この worktree の試験用 DB 55512）に手で走らせたもの:
+code-verify 第 6 回（b3f0d59、この worktree の試験用 DB 55512）が独立に走らせたもの:
 
 | コマンド | rc |
 |---|---|
-| `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | 0（server lib 534 passed / collector-windows 133 / server_startup 7、failed 0） |
+| `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | 0（server lib 539 passed / collector-windows 133 / server_startup 7、failed 0） |
+| `tools/check-{migrations,boundaries,openapi,private,licenses}.sh` | 0 |
 | `python3 scripts/check_scenarios.py . st12-archive-ingestion` | 0 |
 | `openspec validate st12-archive-ingestion --strict` | 0 |
 | `python3 scripts/check_chain.py .` | 0 |
 | `python3 scripts/review_triage.py . st12-archive-ingestion` | 0 |
 
-`verify-run` の記録（`evidence.jsonl`）の最後の PASS（Task 16 の head `e6c2de8`）:
+R97 の fix の後（0baf123）: fmt / clippy / 見張り 1 本・`tools/check-licenses.sh` は rc=0。`cargo test --workspace` は server lib 538 passed / 1 failed —— 落ちた `web_session_endpoint_api_token_reads_and_writes` は試験用 DB に溜まった 68.9 万行が原因（上の Ruling。ST12 の差分の外）。
+
+`verify-run` の記録（`evidence.jsonl`）の最後の PASS:
 
 | 項目 | コマンド | 結果 |
 |---|---|---|
-| 15.1 | `cargo test -p ashiato-server archive_erased_myactivity_window`（`test result: ok. [1-9]` を確かめる） | PASS |
+| 16.1 | `cargo test -p ashiato-server archive_erased_youtube_window`（`test result: ok. [1-9]` を確かめる。Task 17 の head `1920209`） | PASS |
+| 16.2 | `cargo test -p ashiato-server archive_erased_youtube_cascade` / `archive_myactivity_location_rust_and_sql_agree`（同上） | PASS |
+| 16.3 | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` / `check_scenarios.py` | PASS |
+| 15.1 | `cargo test -p ashiato-server archive_erased_myactivity_window`（Task 16 の head `e6c2de8`） | PASS |
 | 15.2 | `cargo test -p ashiato-server archive_erased_myactivity_cascade`（同上） | PASS |
 | 15.3 | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | PASS |
 | 15.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion` | PASS |

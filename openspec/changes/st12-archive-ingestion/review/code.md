@@ -1289,6 +1289,7 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 影響: いまの 7 種類はすべて繋がっていて、バグではない。M10 で止めたのは Chrome 専用の振る舞いの試験で、**新しい種類には振る舞いの試験が無い**ので、繋ぎ忘れと分類への足し忘れが重なると、その種類の位置の欄を持つ項目は消した時間帯でも座標を原文に持ったまま生きて入る（Q13〜Q15 が避けた loss: exported）。Takeout の中身は形の確認の印を置くまで入らない（第 2 回 Q10）ので、起きるのは新しい種類を足した後に印を置いたときから。
 - kind: technical
 - 提案: 種類の全列挙を手で繋がずに導く（`strum::EnumIter` の derive など。手の網羅の `match` だけでは、腕を書かせても連なりへ繋ぐことは強制できない）。足さない場合は、R93 の処置の「コンパイルで落ちる」を「コンパイルが新しい種類の腕を書かせるところまで。連なりへ繋ぐのは手」に直す。
+- 処置: fixed D22 — `KnownKind` に `#[cfg_attr(test, derive(strum::EnumIter))]`（strum 0.28 は dev-dependency・MIT）、見張りは手の連なり `next` を消して `IntoEnumIterator::iter()` で全種類を辿る。`fixture` は `_` の無い網羅の `match` のままなので、種類を足すと材料を書くまでコンパイルで落ち、書けば見張りは必ずその種類を通る。`ITEM_SOURCES` の Chrome の名前と読み手の名前を変える変異で見張りが FAIL、戻すと PASS（0baf123）
 
 ## 手ごとの結果
 
@@ -1299,3 +1300,7 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - **手 5（tasks の `[x]` と実体）**: 16.1 / 16.2 / 16.3 の検証は実在し rc=0。`CT` に書かれた名前は、ファイルの名前で絞る 3 本（`api_tests` / `dedup_tests` / `registry_tests`。どれも `crates/server/src/` に実在）を除いて、すべて関数として実在する。`cargo test --test` 型の検証は tasks に無い。16.2 の本文の `myactivity_located_sql` は R95 で `item_located_sql` に名前が変わり、もう無い（凍結した文面。R95 の処置が書いている。検証のコマンドは別の名前なので rc=0）。
 - **手 6（隙間）**: 「外へ出たものは戻らない」型は R97（新しい種類の繋ぎ忘れ）だけ。
   確かめて隙間でなかったもの: (1) 原文が切り出せないとき（`aligned` が `None`）は項目そのものを `serde_json::to_string` で書き戻す（`archive/worker.rs:888-892`）ので、位置の欄は原文に残り、Rust と SQL の判定は同じ原文を見る。(2) `item_sources` は固定名を `core.source` の登録に依らずに足すので、登録の前に入った YouTube・Chrome の行も連鎖と後着の印の対象になる。(3) `mark_archive_arrivals` は `mark_late_arrivals` を通るので、格納の直後の印付けは後着の印と同じ集合・同じ判定を使う（M5 で `archive_erased_youtube_window` が落ちることで確かめた）。
+
+## scoped re-review（cec6be8..0baf123）: R97 ADDRESSED。新しい Critical / Important なし
+- 試験: fixer が fmt / clippy / 見張り 1 本 rc=0、`tools/check-licenses.sh` rc=0。`cargo test --workspace` は server lib 538 passed / 1 failed（`web_session_endpoint_api_token_reads_and_writes`。`.superpowers/sdd/st12-task-final/fix-5-report.md`）
+- 範囲外の観測（park。ledger に ruling）: その 1 本は、st12 の試験用 DB に `core.event` が 689,485 行溜まって `/events` の応答が 64MB の上限を超えるため。ST12 はその試験を変えておらず、CI はまっさらな DB
