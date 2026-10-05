@@ -474,14 +474,23 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
   確認待ちの読み直しは、最初の Takeout のマイアクティビティが必ず通る主経路（形の印が置かれるまで中身は格納されない。D16）。
   この経路は置き場で見たファイルの行（`archive_sighting`）を持たないので、**書庫の `sha256` ごとに** `core.archive_reread_failure` で数え
   （`record_reread_failure`。D14 の 3 本目の移行）、格納の失敗と印付けの失敗を両方まとめて数える。3 回続いたら `store_failed` を 1 行書き、
-  以後 1 時間はその書庫を読み直さない（`ingest_confirmed_pending` と `reparse_older_versions` の両方が見る）。読み直しに成功したら数を消す
+  以後 1 時間はその書庫を読み直さない（`ingest_confirmed_pending` と `reparse_older_versions` の両方が見る）。読み直しに成功したら数を消す。
+  部品ごとに試験で固定する（code-verify 第 5 回 R90）: 格納の失敗も数える・ちょうど 3 回目で `store_failed`・待ちは 1 時間（`retry_after` を 59〜61 分で見る）・
+  版の読み直しも待ちを見る・成功したら数の行が消える（`archive_reparse_persistent_store_failure_is_ledgered_and_throttled` / `archive_reparse_success_clears_reread_failures` と、確認待ちの経路の試験）
 
 - **D22-b. 位置を持つマイアクティビティの項目も書庫の位置に入れる**（第 5 回 Q14。本人の決定。code-verify 第 4 回 R81）:
-  論理ソースが `c03-myactivity-` で始まり、**原文の項目に `locationInfos` が空でない配列で入っているもの**を、(1) 格納の直後・(2) 消すとき・(3) 戻すときの対象に足す。
+  論理ソースが `c03-myactivity-` で始まり、**原文の項目に `locationInfos` の欄が空でない値で入っているもの**（下の D22-c（仮））を、(1) 格納の直後・(2) 消すとき・(3) 戻すときの対象に足す。
   時刻は項目の `time`（点。終わりは持たない）。位置を持たない項目は対象外。**payload と内容の鍵は変えない**（捨てない・原文から欄を外さない。Q14 の選択肢 3 を採らない）。
   マイアクティビティのソースの名前は製品ごとに増えるので、7 本の並び（`LOCATION_SOURCES`）には足さず、接頭辞と原文の欄で見分ける。滞在の判定の入力には足さない（Non-Goals のまま）。
   実物の書庫に `locationInfos` があるかは 13.1 で `tools/archive-shape.sh` の `field_names` を見て確かめる（無ければ何も起きない）。
   `locationInfos` の中身（地図の URL・中心の座標・出所の種類）の形は検証者の知識で、この repo の材料に実物は無い。**欄の有無だけで判定し、中身は解析しない**（C: 厳しい側。中身の形が違っても印は付く）
+
+- **D22-c（仮）. 欄の中身の形を見ない**（code-verify 第 5 回 R91。D22-b の本文が「空でない配列」と「中身の形が違っても印は付く」の両方を書いていた）:
+  厳しい側に揃える。`locationInfos` の欄があり、値が `null`・空の配列・空のオブジェクト・空文字の**どれでもなければ**位置を持つとみなす
+  （配列でないオブジェクト・文字列・数も印を付ける）。Rust の `carries_location` と SQL の `myactivity_located_sql` を同時に直し、
+  `archive_myactivity_location_rust_and_sql_agree` の期待値も揃えた。tasks 15.1 の「空でない配列」は凍結された文面で、この判定はそれを含む広い側。
+  反転条件: 13.1 で実物の `locationInfos` が位置でない値（空の印や件数など）を持つ形だと分かり、位置を持たない項目まで印が付いて本人の記録が消えて見えるなら、
+  実物の形に合わせて狭める（印は削除の台帳の原因で戻せるので、捨てたものは無い）
 
 ## Risks / Trade-offs
 

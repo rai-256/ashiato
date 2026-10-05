@@ -675,7 +675,11 @@ pub(crate) async fn myactivity_sources(
         .await
 }
 
-/// 原文の項目が位置（`locationInfos`）を空でない配列で持つか（design D22-b / 第 5 回 Q14）。
+/// 原文の項目が位置（`locationInfos`）の欄を空でない値で持つか（design D22-b / 第 5 回 Q14）。
+///
+/// **中身の形は見ない**（C: 既定は厳しい側。code-verify 第 5 回 R91）。実物の形はこの repo の材料に無いので、
+/// 配列でなくても（1 件だけのときのオブジェクト・文字列など）印を付ける。外すのは `null` と空の配列・
+/// オブジェクト・文字列だけ。
 ///
 /// **`myactivity_located_sql` と同じ判定にする**（片方だけを直すと、印付けの範囲と印を付ける条件が黙ってずれる。
 /// `archive_myactivity_location_rust_and_sql_agree` が固定する）。欄の名前が原文に無ければ解析しない（同じ前置き）。
@@ -685,7 +689,15 @@ pub(crate) fn carries_location(raw: &str) -> bool {
     }
     serde_json::from_str::<serde_json::Value>(raw)
         .ok()
-        .and_then(|item| item.get("locationInfos")?.as_array().map(|a| !a.is_empty()))
+        .and_then(|item| {
+            Some(match item.get("locationInfos")? {
+                serde_json::Value::Null => false,
+                serde_json::Value::Array(values) => !values.is_empty(),
+                serde_json::Value::Object(fields) => !fields.is_empty(),
+                serde_json::Value::String(text) => !text.is_empty(),
+                serde_json::Value::Bool(_) | serde_json::Value::Number(_) => true,
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -704,9 +716,8 @@ pub(crate) fn myactivity_located_sql(alias: &str) -> String {
         "(CASE WHEN {a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
                THEN CASE WHEN strpos({a}.raw, '{LOCATION_KEY}') = 0 THEN false
                          WHEN pg_input_is_valid({a}.raw, 'jsonb')
-                         THEN CASE WHEN jsonb_typeof({a}.raw::jsonb->'locationInfos') = 'array'
-                                   THEN jsonb_array_length({a}.raw::jsonb->'locationInfos') > 0
-                                   ELSE false END
+                         THEN COALESCE({a}.raw::jsonb->'locationInfos'
+                                       NOT IN ('null', '[]', '{{}}', '\"\"'), false)
                          ELSE false END
                ELSE true END)",
         a = alias

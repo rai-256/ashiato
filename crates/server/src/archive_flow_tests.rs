@@ -2808,27 +2808,38 @@ async fn archive_erased_cascade_marks_and_restores_records_points() {
     );
 }
 
-/// 印付け（`mark_archive_arrivals`）を落とす継ぎ目。この利用者の `user:late` の削除の台帳の行を拒む
-/// trigger を置き、拒んだ回数を sequence に数える（sequence は transaction が巻き戻っても戻らない）。
+/// 印付け（`mark_archive_arrivals`）か格納を落とす継ぎ目。この利用者の `user:late` の削除の台帳の行
+/// （格納なら `core.event` の行）を拒む trigger を置き、拒んだ回数を sequence に数える
+/// （sequence は transaction が巻き戻っても戻らない）。
 /// **条件にこの利用者を入れる**ので、DB を共有する他の試験には掛からない。
 struct LateMarkFault {
     pool: sqlx::PgPool,
     name: String,
+    table: &'static str,
 }
 
 impl LateMarkFault {
     async fn install(inbox: &Inbox) -> Self {
+        Self::install_on(inbox, "core.deletion_ledger", "AND NEW.mark = 'user:late'").await
+    }
+
+    /// 格納（`core.event` への書き込み）を落とす。`PgSink` は最初の失敗で止まるので、1 回の格納で 1 回だけ数える。
+    async fn install_store(inbox: &Inbox) -> Self {
+        Self::install_on(inbox, "core.event", "").await
+    }
+
+    async fn install_on(inbox: &Inbox, table: &'static str, condition: &str) -> Self {
         let name = format!("st12_fault_{}", inbox.user.simple());
         sqlx::raw_sql(&format!(
             "CREATE SEQUENCE core.{name}_seq;
              CREATE FUNCTION core.{name}_fn() RETURNS trigger AS $fn$
              BEGIN
                PERFORM nextval('core.{name}_seq');
-               RAISE EXCEPTION '試験の差し込み: 印付けを落とす';
+               RAISE EXCEPTION '試験の差し込み: 書き込みを落とす';
              END;
              $fn$ LANGUAGE plpgsql;
-             CREATE TRIGGER {name}_tg BEFORE INSERT ON core.deletion_ledger
-               FOR EACH ROW WHEN (NEW.user_id = '{user}'::uuid AND NEW.mark = 'user:late')
+             CREATE TRIGGER {name}_tg BEFORE INSERT ON {table}
+               FOR EACH ROW WHEN (NEW.user_id = '{user}'::uuid {condition})
                EXECUTE FUNCTION core.{name}_fn();",
             user = inbox.user
         ))
@@ -2838,6 +2849,7 @@ impl LateMarkFault {
         Self {
             pool: inbox.pool.clone(),
             name,
+            table,
         }
     }
 
@@ -2854,10 +2866,11 @@ impl LateMarkFault {
 
     async fn remove(self) {
         sqlx::raw_sql(&format!(
-            "DROP TRIGGER {name}_tg ON core.deletion_ledger;
+            "DROP TRIGGER {name}_tg ON {table};
              DROP FUNCTION core.{name}_fn();
              DROP SEQUENCE core.{name}_seq;",
-            name = self.name
+            name = self.name,
+            table = self.table
         ))
         .execute(&self.pool)
         .await
@@ -2962,29 +2975,7 @@ async fn archive_erased_window_marks_after_a_failed_marking_on_the_next_scan() {
 #[tokio::test]
 async fn archive_erased_window_reparse_marks_after_a_failed_marking() {
     let inbox = Inbox::new("archive-erased-reparse-retry").await;
-    let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
-    std::fs::create_dir_all(&inbox.copies).unwrap();
-    let stored =
-        crate::archive::worker::copy_known_file(&inbox.copies, ERASE_TIMELINE.as_bytes()).unwrap();
-    crate::archive::worker::record_copy(
-        &inbox.pool,
-        inbox.user,
-        stored.file_name().unwrap().to_str().unwrap().to_owned(),
-        "Timeline.json",
-        &stored,
-        &archive_sha,
-    )
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
-         VALUES ($1, $2, 'older', 'read', 'Timeline.json.zip')",
-    )
-    .bind(inbox.user)
-    .bind(&archive_sha)
-    .execute(&inbox.pool)
-    .await
-    .unwrap();
+    let archive_sha = inbox.seed_older_version().await;
     let stay = inbox.put_stay().await;
     crate::deletion::erase(&inbox.pool, stay, None)
         .await
@@ -3012,6 +3003,134 @@ async fn archive_erased_window_reparse_marks_after_a_failed_marking() {
         .await;
     assert_eq!(inbox.archive_locations().await, (4, 3));
     assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 4);
+}
+
+impl Inbox {
+    /// 前の版で読んだことにした `Timeline.json` の写しを 1 冊置き、その書庫の `sha256` を返す
+    /// （`reparse_older_versions` が写しから読み直す対象になる）。
+    async fn seed_older_version(&self) -> String {
+        let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+        std::fs::create_dir_all(&self.copies).unwrap();
+        let stored =
+            crate::archive::worker::copy_known_file(&self.copies, ERASE_TIMELINE.as_bytes())
+                .unwrap();
+        crate::archive::worker::record_copy(
+            &self.pool,
+            self.user,
+            stored.file_name().unwrap().to_str().unwrap().to_owned(),
+            "Timeline.json",
+            &stored,
+            &archive_sha,
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
+             VALUES ($1, $2, 'older', 'read', 'Timeline.json.zip')",
+        )
+        .bind(self.user)
+        .bind(&archive_sha)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+        archive_sha
+    }
+
+    /// 読み直しの失敗の数と、読み直しを再開するまでの分（待ちが無ければ `None`）。行が無ければ `None`。
+    async fn reread_failure(&self) -> Option<(i32, Option<f64>)> {
+        sqlx::query_as(
+            "SELECT consecutive_failures,
+                    (extract(epoch FROM retry_after - now()) / 60)::float8
+               FROM core.archive_reread_failure WHERE user_id = $1",
+        )
+        .bind(self.user)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+//
+// 解析器の版の読み直し（`reparse_older_versions` → `reread_archive`）で**格納**が落ち続けたときも書庫ごとに数え、
+// ちょうど 3 回目で `store_failed` を 1 行書き、1 時間はその書庫を読み直さない（code-verify 第 5 回 R90。design D22-a）。
+// 取り込み器を起こさず関数を直に呼ぶので、回数と待ちが走査の間隔に依らず決まる。
+#[tokio::test]
+async fn archive_reparse_persistent_store_failure_is_ledgered_and_throttled() {
+    let inbox = Inbox::new("archive-reparse-store-persistent").await;
+    let archive_sha = inbox.seed_older_version().await;
+    let fault = LateMarkFault::install_store(&inbox).await;
+    for attempt in 1..=3 {
+        assert_eq!(
+            crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            fault.fired().await,
+            attempt,
+            "1 回の読み直しで格納が 1 回でない"
+        );
+        let expected_failed = i64::from(attempt == 3);
+        assert_eq!(
+            inbox.ledger_rows("store_failed").await,
+            expected_failed,
+            "{attempt} 回目の格納の失敗の後の store_failed の行の数が違う"
+        );
+    }
+    let (failures, retry_in) = inbox
+        .reread_failure()
+        .await
+        .expect("失敗が数えられていない");
+    assert_eq!(failures, 3);
+    let retry_in = retry_in.expect("3 回落ちても読み直しの待ちが無い");
+    assert!(
+        (59.0..=61.0).contains(&retry_in),
+        "読み直しの待ちが 1 時間でない: {retry_in} 分"
+    );
+    // 待ちの間は版の読み直しもその書庫を飛ばす。
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    let fired_later = fault.fired().await;
+    fault.remove().await;
+    assert_eq!(fired_later, 3, "待ちの間に版の読み直しが写しを読んだ");
+    assert_eq!(inbox.ledger_rows("store_failed").await, 1);
+    assert_eq!(inbox.read_rows_now(Some(&archive_sha)).await, 0);
+}
+
+// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+//
+// 読み直しに成功したら数を消す（code-verify 第 5 回 R90。design D22-a）。消さなければ、一時的に 2 回落ちた書庫は
+// 成功した後でも、次の 1 回の失敗で `store_failed` と 1 時間の待ちになる。
+#[tokio::test]
+async fn archive_reparse_success_clears_reread_failures() {
+    let inbox = Inbox::new("archive-reparse-store-recovers").await;
+    let archive_sha = inbox.seed_older_version().await;
+    let fault = LateMarkFault::install_store(&inbox).await;
+    for _ in 0..2 {
+        crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+            .await
+            .unwrap();
+    }
+    assert_eq!(fault.fired().await, 2);
+    assert_eq!(inbox.reread_failure().await, Some((2, None)));
+    fault.remove().await;
+
+    assert_eq!(
+        crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(inbox.read_rows_now(Some(&archive_sha)).await, 1);
+    assert_eq!(
+        inbox.reread_failure().await,
+        None,
+        "読み直しに成功しても失敗の数が残っている"
+    );
+    assert_eq!(inbox.ledger_rows("store_failed").await, 0);
 }
 
 // Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
@@ -3048,10 +3167,7 @@ async fn archive_erased_window_persistent_marking_failure_is_ledgered_and_thrott
     let still_in_inbox = inbox.inbox.join("Timeline.json.zip").exists();
     fault.remove().await;
 
-    assert!(
-        fired >= 3,
-        "store_failed の行が 3 回の失敗の前に書かれた: {fired}"
-    );
+    assert_eq!(fired, 3, "store_failed の行が 3 回目の失敗で書かれていない");
     assert_eq!(
         fired_later, fired,
         "store_failed の後も走査のたびに読み直している"
@@ -3459,18 +3575,22 @@ async fn archive_erased_pending_reread_persistent_marking_failure_is_ledgered_an
     let ledger_failed = inbox.ledger_rows("store_failed").await;
     let read_rows = inbox.read_rows_now(None).await;
     let marks = inbox.myactivity_marks().await;
+    let reread_failure = inbox.reread_failure().await;
     fault.remove().await;
 
-    assert!(
-        fired >= 3,
-        "store_failed の行が 3 回の失敗の前に書かれた: {fired}"
-    );
+    assert_eq!(fired, 3, "store_failed の行が 3 回目の失敗で書かれていない");
     assert_eq!(
         fired_later, fired,
         "store_failed の後も走査のたびに写しを読み直している"
     );
     assert_eq!(ledger_failed, 1, "store_failed の行が 1 行でない");
     assert_eq!(read_rows, 0, "印の付かない読み直しに read の行がある");
+    let (failures, retry_in) = reread_failure.expect("印付けの失敗が数えられていない");
+    assert_eq!(failures, 3);
+    assert!(
+        retry_in.is_some_and(|minutes| (59.0..=61.0).contains(&minutes)),
+        "読み直しの待ちが 1 時間でない: {retry_in:?} 分"
+    );
     assert_eq!(
         marks,
         vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)],
@@ -3549,11 +3669,12 @@ async fn archive_myactivity_location_rust_and_sql_agree() {
         (r#"{"title":"a", "locationInfos" : [ 1 ] }"#, true),
         (r#"{"title":"a","locationInfos":[]}"#, false),
         (r#"{"title":"a","locationInfos":null}"#, false),
-        (
-            r#"{"title":"a","locationInfos":{"name":"この付近"}}"#,
-            false,
-        ),
-        (r#"{"title":"a","locationInfos":"この付近"}"#, false),
+        // 中身の形は見ない（C: 厳しい側。code-verify 第 5 回 R91）。配列でなくても空でなければ位置を持つ。
+        (r#"{"title":"a","locationInfos":{"name":"この付近"}}"#, true),
+        (r#"{"title":"a","locationInfos":"この付近"}"#, true),
+        (r#"{"title":"a","locationInfos":1}"#, true),
+        (r#"{"title":"a","locationInfos":{}}"#, false),
+        (r#"{"title":"a","locationInfos":""}"#, false),
         (r#"[{"locationInfos":[{"name":"この付近"}]}]"#, false),
         (r#"{"title":"a"}"#, false),
         (r#"{"title":"\"locationInfos\""}"#, false),
