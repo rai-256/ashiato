@@ -999,7 +999,7 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 - 影響: その欄が実物にあれば、本人が ST22 で消した場面の「この付近」の位置が、検索・マップ・アシスタントなどのマイアクティビティのソースから生きた記録として入り、読み出しと書き出しへ流れる（Q13 が避けた loss: exported と同じ型）。ソースの名前は形の確認の印で凍結されるので、後からソースを並びに足すことはできるが、それまでに出た分は戻らない。
 - kind: premise
 - 提案: 13.1（本物の Takeout を置く）の見るものに「マイアクティビティの項目に `locationInfos` があるか」を足し、`tools/archive-shape.sh` の形の出力（欄の名前）でも分かるようにする。あれば、どこまでを「書庫の位置」とするか（マイアクティビティの項目ごと印を付けるか）を deep の問い（loss: exported）として本人へ返す。
-- 処置: escalated — `deep.md` 第 5 回 Q14（premise / loss: exported）。問いは `deep-questions-r5.json` / `docs/briefs/ST12-deep-r5.html`。Takeout の中身は形の確認の印まで入らない（第 2 回 Q10）ので、答えまでに外へ出るものは無い
+- 処置: escalated — `deep.md` 第 5 回 Q14（premise / loss: exported）。問いは `deep-questions-r5.json` / `docs/briefs/ST12-deep-r5.html`。Takeout の中身は形の確認の印まで入らない（第 2 回 Q10）ので、答えまでに外へ出るものは無い。**答え（2026-10-05）**: 推奨のまま「位置を持つ項目は印を付けて入れる（後から消したときも同じ）」→ spec の Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」に対象を足した（Scenario 4 本）・design D22-b・tasks Task 16（15.1〜15.3）・13.1 に `field_names` の `locationInfos` を見ることを足した。実装はグラフの Task ループが回す
 
 ## 手ごとの結果
 
