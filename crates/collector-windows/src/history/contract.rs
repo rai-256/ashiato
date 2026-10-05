@@ -30,6 +30,8 @@ pub struct Visit {
     pub payload: VisitPayload,
     /// `payload` を直列化した文字列。`raw` と内容のハッシュの元
     pub raw: String,
+    /// 出来事の時刻（`payload.at` と同じ値）。帳面の訪問時刻に使う（文字列から読み直さない）
+    pub at: DateTime<Utc>,
 }
 
 /// 本文（design D4 の表）。**欄の並びと省略の規則が契約。**
@@ -47,7 +49,7 @@ pub struct VisitPayload {
     pub visit_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visit_time_raw: Option<i64>,
-    /// DB の文字列そのまま。補正しない
+    /// DB の文字列そのまま。補正しない。URL の行が無い訪問では題名とともに省く（deep.md 第 4 回 Q8）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// 題名が NULL なら欄を省く
@@ -159,24 +161,31 @@ impl VisitPayload {
 }
 
 impl Visit {
-    fn build(external_id: String, payload: VisitPayload) -> anyhow::Result<Self> {
+    fn build(
+        external_id: String,
+        payload: VisitPayload,
+        at: DateTime<Utc>,
+    ) -> anyhow::Result<Self> {
         let raw = serde_json::to_string(&payload).context("履歴の本文を直列化できない")?;
         Ok(Self {
             external_id,
             payload,
             raw,
+            at,
         })
     }
 
     /// 訪問 1 件（design D4）。識別子は
     /// `v1:visit:<sha256(family \x1f browser \x1f profile_dir \x1f visit_id \x1f visit_time_raw \x1f url)>`（D6）。
+    /// **URL の行が無い訪問は組から URL を省く**（5 つの組。空の URL の 6 つの組とも別の値になる。deep.md 第 4 回 Q8）。
     pub fn from_read(browser: Browser, profile_dir: &str, v: &ReadVisit) -> anyhow::Result<Self> {
         let mut p = VisitPayload::base("visit", v.at, browser);
         p.profile_dir = Some(profile_dir.to_owned());
         p.visit_id = Some(v.id);
         p.visit_time_raw = Some(v.visit_time_raw);
-        p.url = Some(v.url.clone());
-        p.title = v.title.clone();
+        p.url = v.url.clone();
+        // 題名は URL の行にあるので、URL の無い訪問は題名も持たない
+        p.title = v.url.as_ref().and(v.title.clone());
         p.transition = Some(v.transition);
         p.transition_core = match browser {
             Browser::Firefox => firefox_core(v.transition),
@@ -191,18 +200,17 @@ impl Visit {
         // 発生元の印は他端末の訪問だけ（空の guid は PC 自身。D9）
         p.originator_cache_guid = v.originator_cache_guid.clone().filter(|g| !g.is_empty());
         p.originator_visit_id = p.originator_cache_guid.as_ref().and(v.originator_visit_id);
-        let id = format!(
-            "v1:visit:{}",
-            digest(&[
-                browser.family(),
-                browser.name(),
-                profile_dir,
-                &v.id.to_string(),
-                &v.visit_time_raw.to_string(),
-                &v.url,
-            ])
-        );
-        Self::build(id, p)
+        let (visit_id, visit_time_raw) = (v.id.to_string(), v.visit_time_raw.to_string());
+        let mut parts = vec![
+            browser.family(),
+            browser.name(),
+            profile_dir,
+            &visit_id,
+            &visit_time_raw,
+        ];
+        parts.extend(v.url.as_deref());
+        let id = format!("v1:visit:{}", digest(&parts));
+        Self::build(id, p, v.at)
     }
 
     /// 消えた訪問のまとまり 1 件（design D10）。識別子は
@@ -221,7 +229,7 @@ impl Visit {
         let mut p = VisitPayload::base("vanished", now, browser);
         p.profile_dir = Some(profile_dir.to_owned());
         p.vanished = Some(items);
-        Self::build(id, p)
+        Self::build(id, p, now)
     }
 
     /// その回に新しく除外した訪問の数 1 件（design D11）。識別子は
@@ -240,7 +248,7 @@ impl Visit {
         let mut p = VisitPayload::base("excluded", now, browser);
         p.profile_dir = Some(profile_dir.to_owned());
         p.excluded_count = Some(newly_excluded.len());
-        Self::build(id, p)
+        Self::build(id, p, now)
     }
 
     /// ディレクトリ名 → 表示名の対応 1 件（design D1）。識別子は
@@ -268,7 +276,7 @@ impl Visit {
                 .map(|(dir, name)| (dir.clone(), ProfileName { name: name.clone() }))
                 .collect(),
         );
-        Self::build(id, p)
+        Self::build(id, p, now)
     }
 }
 
@@ -283,7 +291,7 @@ pub(crate) fn sample_visit(id: i64, at: DateTime<Utc>, url: &str, title: &str) -
         id,
         visit_time_raw: raw,
         at,
-        url: url.into(),
+        url: Some(url.into()),
         title: Some(title.into()),
         transition: 0,
         from_visit: None,
@@ -344,7 +352,7 @@ mod tests {
             id,
             visit_time_raw: raw,
             at: chromium_micros(raw).unwrap(),
-            url: url.into(),
+            url: Some(url.into()),
             title: title.map(Into::into),
             transition: 805_306_368,
             from_visit: Some(3),
@@ -463,6 +471,31 @@ mod tests {
             pr.external_id,
             "v1:profiles:5c4f485246b6988da1511f50e3507d49ae5f85204d603f6782b8c72174b8e8db"
         );
+    }
+
+    /// URL の行が無い訪問は、URL と題名を省いた `visit` になる。識別子は組から URL を省いたもの（deep.md 第 4 回 Q8。R57）。
+    /// 期待値は `printf 'chromium\x1fchrome\x1fDefault\x1f7\x1f13402627200000001' | sha256sum`。
+    #[test]
+    fn visit_without_url_row_omits_url_and_title() {
+        let mut rv = read_visit(7, 13_402_627_200_000_001, "", Some("残っていた題名"));
+        rv.url = None;
+        let v = Visit::from_read(Browser::Chrome, "Default", &rv).unwrap();
+        assert_eq!(
+            v.raw,
+            r#"{"kind":"visit","at":"2025-09-18T00:00:00.000001Z","browser":"chrome","family":"chromium","profile_dir":"Default","visit_id":7,"visit_time_raw":13402627200000001,"transition":805306368,"transition_core":"link","from_visit":3,"visit_duration_us":1500000,"is_known_to_sync":false,"tz_basis":"collected-at"}"#
+        );
+        assert_eq!(
+            v.external_id,
+            "v1:visit:c8aa63ce0ee01af0c4bcd0044f6feacd57ee01983151c3ab96189c456acd5d7a"
+        );
+        // 空の URL の訪問とは別の識別子
+        let empty = Visit::from_read(
+            Browser::Chrome,
+            "Default",
+            &read_visit(7, 13_402_627_200_000_001, "", None),
+        )
+        .unwrap();
+        assert_ne!(empty.external_id, v.external_id);
     }
 
     #[test]

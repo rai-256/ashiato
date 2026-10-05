@@ -393,10 +393,11 @@ PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomatio
 `visit` はさらに `visit_id` / `visit_time_raw`（DB の値そのまま）・`url` / `title`（DB の文字列そのまま。題名が NULL なら欄を省く）・
 `transition` / `transition_core`・`from_visit` / `opener_visit`（0 は省く）を持ち、Chromium だけ `visit_duration_us` / `is_known_to_sync`、
 他の端末から同期で入った訪問だけ `originator_cache_guid` / `originator_visit_id` を持つ。
+**URL の行が見つからない訪問は `url` と `title` を省く**（時刻・遷移・滞在時間は持つ。捨てない —— ST08 deep.md 第 4 回 Q8）。
 `tz_id` / `tz_offset_min` は**その内容を読んだ取得のときの PC のもの**で、`tz_basis` がそれを示す。
 
 `external_id` は `v1:<kind>:<sha256 の 16 進 64 桁>`。`visit` は `family` / `browser` / `profile_dir` / `visit_id` / `visit_time_raw` / `url` の組を
-区切り `\x1f` で繋いだ全体のハッシュで、**識別子から URL・訪問時刻・プロファイルを読めない**（本文を消しても識別子は残るため）。
+区切り `\x1f` で繋いだ全体のハッシュ（URL の無い訪問は `url` を組から省く）で、**識別子から URL・訪問時刻・プロファイルを読めない**（本文を消しても識別子は残るため）。
 `vanished` / `excluded` / `profiles` は中身（整列した識別子・対応表）から決まり、取得の時刻と `device_id` を入れない
 （やり直しで同じ事実が 2 件にならず、設定の打ち直しで読み直した 90 日ぶんが二重にならない）。
 

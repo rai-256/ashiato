@@ -65,12 +65,12 @@ impl Source for LockedPc {
 struct OneDb(std::path::PathBuf);
 
 impl HistoryReader for OneDb {
-    fn read(&self) -> anyhow::Result<ReadOutcome> {
+    fn read(&self, tmp: &std::path::Path) -> anyhow::Result<ReadOutcome> {
         Ok(ReadOutcome {
             profiles: vec![ProfileRead {
                 browser: Browser::Chrome,
                 directory: "Default".into(),
-                visits: read_visits(Browser::Chrome, &self.0),
+                visits: read_visits(Browser::Chrome, &self.0, tmp),
             }],
             names: Vec::new(),
         })

@@ -131,9 +131,12 @@ impl Exclusions {
             _ => "",
         };
         self.rules.iter().any(|rule| match rule {
-            Rule::ExePath { value } | Rule::ProcessName { value } => {
-                value.eq_ignore_ascii_case(process)
-            }
+            // `exe-path` はフルパスで登録される。履歴にはパスが無いので、ファイル名部分で当てる（D11）
+            Rule::ExePath { value } => value
+                .rsplit(['\\', '/'])
+                .next()
+                .is_some_and(|name| !process.is_empty() && name.eq_ignore_ascii_case(process)),
+            Rule::ProcessName { value } => value.eq_ignore_ascii_case(process),
             Rule::TitleContains { value } => {
                 !value.trim().is_empty() && title.to_lowercase().contains(&value.to_lowercase())
             }
