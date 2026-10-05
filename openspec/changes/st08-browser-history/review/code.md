@@ -661,3 +661,95 @@ DB: `docker compose up -d --wait db`（healthy）で実行。作業ツリーは�
 
 > `tasks.md` 10.4 の検証「`collector-windows-runtime` job が緑」は、**job が一度も動いていない**
 > 状態で `[x]` になっている（R10 のとおり、動けば必ず落ちる）。
+
+---
+
+## final review（7d08921..3b86eb4）
+
+席: final reviewer（`superpowers:requesting-code-review` の `code-reviewer.md`。review package `.superpowers/sdd/tasks/review-7d08921..3b86eb4.diff`）。
+判定: **No**。前回の検証（96ac2f2）の後に入ったのは `ef3d145`（locate / read / contract の小修正）・tasks 見出しの整形・Q6 の問いと答えだけで、
+**Q6「決めたとおりに繋ぎ直し、識別子も設計どおりに直す」は実装に入っていない**。tasks 3〜10 の `[x]` は実態を表していない。
+良い点（reviewer）: 移行の冪等の番人と対称な `.down.sql`、サーバの取り込みを変えない結合テスト、`queue_then_save` の順序、
+帳面に URL と題名を持たない形、`window_request_body_is_unchanged` / `window_sensitivity_uses_collection_default` の追加（R4 / R17 解消）。
+
+## R37. 履歴の収集経路が今も Runtime に繋がっていない（R1 / Q6 が未実装）
+
+- 成果物: crates/collector-windows/src/runtime.rs、crates/collector-windows/src/history/
+- 根拠: `grep -rn "history::" --include=*.rs crates/collector-windows/src | grep -v src/history/` → crates/collector-windows/src/contract.rs:268（`of_visit`）とそのテストだけ。`HistoryWorker` / `HistorySchedule` / `LedgerStore` / `locate` / `read_*` に本番の呼び手が無い
+- kind: technical
+- loss: uncaptured
+
+## R38. 訪問の識別子が design D6 の式と違う（R21 が未処置）
+
+- 成果物: crates/collector-windows/src/history/contract.rs
+- 根拠: crates/collector-windows/src/history/contract.rs:38 が `v1:<sha256(len‖browser, len‖profile, len‖visit_id, len‖at, len‖url)>`。design.md:141 は `v1:visit:<sha256(family \x1f browser \x1f profile_dir \x1f visit_id \x1f visit_time_raw \x1f url)>`。`visit_external_id_is_pinned` は式を固定していない（R5）
+- kind: technical
+- loss: rewrite-all
+
+## R39. `vanished` / `excluded` / `profiles` の記録と `ReadVisit` → `Visit` の変換が無い（R2 / R3）
+
+- 成果物: crates/collector-windows/src/history/contract.rs、crates/collector-windows/src/history/fetch.rs
+- 根拠: crates/collector-windows/src/history/contract.rs の `kind` は `visit` 固定。`duration_ms` / `transition` / `referrer` を設定する経路が無く常に `None`（contract.rs:31-33）。D4 の `family` / `profile_dir` / `visit_id` / `visit_time_raw` / `transition_core` を持たない
+- kind: technical
+- loss: uncaptured
+
+## R40. CI の `collector-windows-runtime` の下限 10 に対してテストは 7 本で、job が必ず落ちる（R10）
+
+- 成果物: .github/workflows/ci.yml、crates/collector-windows/tests/runtime_windows.rs
+- 根拠: .github/workflows/ci.yml:123 が `-lt 10`。`tests/runtime_windows.rs` に `browser_history_*` は 0 本（10.1 / 10.2 は `[ ]` のまま 10.4 だけ `[x]`）
+- kind: technical
+
+## R41. `exe-path` の除外登録がブラウザ履歴に当たらない（R22）
+
+- 成果物: crates/collector-windows/src/exclusion.rs
+- 根拠: crates/collector-windows/src/exclusion.rs:134 が `ExePath` の値（フルパス）を `"chrome.exe"` 等のプロセス名と `eq_ignore_ascii_case` で比べる。一致しないので、`exe-path` でブラウザを除外した本人の URL と題名が送られる
+- kind: technical
+- loss: exported
+
+## R42. 写しが `-wal` / `-journal` を取らない（R15）
+
+- 成果物: crates/collector-windows/src/history/read.rs
+- 根拠: crates/collector-windows/src/history/read.rs:89 の `with_copy` が本体だけを写す。design D2 は `History-journal` / `History-wal`（Firefox は `places.sqlite-wal`）も写すと決めている
+- kind: technical
+
+## R43. 写しを `%TEMP%` に作り、削除の失敗を握りつぶし、unwind で写しが残る（R16 / R23）
+
+- 成果物: crates/collector-windows/src/history/read.rs
+- 根拠: crates/collector-windows/src/history/read.rs:93-100。design D2 は置き場の一時ディレクトリ。除外したプロファイルの URL もディスクに残りうる
+- kind: technical
+
+## R44. `table_recreated` / `profile_gone` を計算する呼び手が無い（R24）
+
+- 成果物: crates/collector-windows/src/history/fetch.rs
+- 根拠: `detect_vanished` は手がかりを引数で受けるだけで、本番で計算するコードが無い（R37 と同根）
+- kind: technical
+
+## R45. Scenario の印が付いたテストが THEN を観測していない（R11 / R12 / R13 / R32 / R34）
+
+- 成果物: crates/collector-windows/src/history/fetch.rs、crates/collector-windows/src/exclusion.rs、crates/collector-windows/src/heartbeat.rs、crates/collector-windows/src/history/contract.rs
+- 根拠: `history_slow_read_does_not_disturb_window` は Runtime も `c02-window` も見ない（tasks 5.6 は「Runtime の層で」）。`history_exclusion_counts_new_match_once` は件数を見ない。`history_heartbeat_*` は汎用の `Schedule` と定数だけで `counters-browser-history.json` が無い。`history_foreign_visits` は `device_id` を見ない
+- kind: technical
+
+## R46. smoke.sh の ST08 は本物の取得を通さず、固定値も食い違う（R8 / R9）
+
+- 成果物: tools/smoke.sh
+- 根拠: tools/smoke.sh:885-927 は作った履歴 DB を読まず手書き JSON を POST する。`visit_time=13402627200000000` は 2025-09-18 だが smoke は 2026-09-08 を期待する
+- kind: technical
+
+## R47. 移行の `NOT EXISTS` の番人を固定するテスト（tasks 2.1 (b)）が無い（R6）
+
+- 成果物: crates/server/src/registry_tests.rs
+- 根拠: `registry_tests.rs` にあるのは 2.1 の (a) と (d) だけ。番人を外しても server のテストは全部緑（R6 の実測）
+- kind: technical
+
+## R48. tasks 3〜10 の `[x]` と、「R1 / Q6 待ち」を理由にした rejected が実態と食い違う
+
+- 成果物: openspec/changes/st08-browser-history/tasks.md、openspec/changes/st08-browser-history/review/code.md
+- 根拠: deep.md の Q6「何が変わるか」が「tasks の 3〜10 章をやり直す（完了の印は検証の証跡で付け直す）」。R5 / R8 / R9 / R10 / R11 / R12 / R13 / R25 / R27 / R28 / R32 の rejected の理由は Q6 の回答で成り立たなくなった
+- kind: technical
+
+## R49. Minor: 負の時刻 1 行で読み全体が失敗・`JOIN` の欠落と退避が無言・本番の `.expect`
+
+- 成果物: crates/collector-windows/src/history/read.rs、crates/collector-windows/src/history/ledger.rs、crates/collector-windows/src/history/fetch.rs
+- 根拠: crates/collector-windows/src/history/read.rs:40-55（負の時刻で `InvalidQuery`）、crates/collector-windows/src/history/ledger.rs:69（`*.broken.ledger` を上書き・ログ無し。R26 / R27 / R28）、crates/collector-windows/src/history/fetch.rs:118 と :180 の `.expect`
+- kind: technical
