@@ -178,6 +178,7 @@ impl HistorySchedule {
 }
 
 /// 全履歴と帳面を比べ、未送信または本文が変わった訪問だけを返す。
+/// 帳面が「除外した」と覚えている訪問がここへ来たなら、除外が外れたので送る。
 ///
 /// 訪問時刻で切らない。同期は過去の時刻の訪問を後から加えるため、全件との比較が
 /// 唯一「まだ送っていない」を保てる。
@@ -188,7 +189,7 @@ pub fn select_new_or_changed(ledger: &Ledger, visits: &[Visit]) -> Vec<Visit> {
             ledger
                 .visits
                 .get(&visit.external_id)
-                .is_none_or(|saved| saved.content_hash != content_hash(visit))
+                .is_none_or(|saved| saved.excluded || saved.content_hash != content_hash(visit))
         })
         .cloned()
         .collect()
@@ -242,9 +243,7 @@ mod schedule_tests {
         chrono::Utc.timestamp_opt(seconds, 0).unwrap()
     }
 
-    /// Scenario: 起動時に前回の成功から 24 時間以上経っていれば取得する
-    /// Scenario: 前回の成功から 24 時間経たないうちは取得しない
-    /// Scenario: 動作中に前回の成功から 24 時間経つと取得する
+    // 契機の Scenario の印は、Runtime を通す `runtime::tests::history_schedule_runtime_*` が持つ。
     #[test]
     fn history_schedule_uses_success_and_24_hours() {
         let mut schedule = HistorySchedule::with_last_success(Some(at(0)));
@@ -314,7 +313,7 @@ mod worker_tests {
     use super::*;
     use std::sync::mpsc;
 
-    /// Scenario: 履歴の取得でウィンドウのソースの記録は増えない
+    // 印は Runtime を通す `runtime::tests::history_slow_read_does_not_disturb_window` が持つ。
     #[test]
     fn history_slow_read_does_not_disturb_window() {
         let (started_tx, started_rx) = mpsc::channel();
