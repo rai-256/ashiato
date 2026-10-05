@@ -1013,3 +1013,58 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 
 ## scoped re-review（fef41a8..5ce3a7d）: R79・R80 とも ADDRESSED。新しい Critical / Important なし（R81 は escalated で対象外）
 - Minor（park）: 写しからの読み直し（`reread_archive` / `reparse_older_versions`）で印付けが落ち続けると、毎周 写しを読み直し続け、台帳にも画面にも出ない（R80 と同型。入力は手元の写しで、版を上げたときの経路に限る。D22-a に記録済み。ledger に ruling）
+
+# final review 第 3 回（94c427c..3482251。724de38..3482251 = Task 15 / 16・R79〜R80 の処置・rebase を厚く）— 2026-10-05
+
+席: final reviewer（SDD の `code-reviewer.md`。ブランチ全体の review package。本文は `.superpowers/sdd/st12-task-final/final-review-3.md`）。判定は **Ready to merge: With fixes**（Critical 0 / Important 1 / Minor 7）。
+入口 2 回目の申し送り: `docs/handoff/ST12.md` は前回（最終更新 2026-10-01）から増えていない。st25 R3（タイムラインの論理ソースの名前）は design D6 / D22 がすでに実装の名前（`c03-timeline-move` / `-route`）に揃っている。
+package の base: `94c427c` は `origin/main` との merge-base（rebase 後）で正しい。reviewer の「ST05 が混ざる」という注記は、古いローカルの `main` で merge-base を取ったためで、事実ではない。
+試験: reviewer の複製での `cargo test` は環境の都合で走らなかった（`/tmp` が他のセッションで満杯・試験用 DB のコンテナが他から消された）。走らせて rc=0 を確かめたのは `openspec validate --strict`・`check_scenarios.py`・`check-migrations.sh`・`check-immutable.sh`。
+ledger の仕分け: parked 9 件のうち 8 件は park のまま（理由は本文の Ledger triage）。Task 15 の F2 / F6 / ⚠️ と Task 16 の ⚠️（validate）は解決済み。Task 16 の ⚠️（実物に `locationInfos` があるか）は 13.1 に残る。
+
+## R82. 写しからの読み直しで印付けが落ち続けても数えないという park は、根拠が事実と違う。この経路は、最初の Takeout のマイアクティビティが入る主経路である
+- 成果物: `crates/server/src/archive/worker.rs:1540`（`ingest_confirmed_pending` → `reread_archive(…, false)`）/ `:1465`（`mark_archive_arrivals(...).await?`）/ `:1547-1552`（Err は `warn` を出して `continue`）/ `:7-15`（形の確認が要る種類）/ `.superpowers/sdd/st12-task-final/progress.md:16`（ruling「解析器の版を上げたときに限る」）
+- 根拠: 形の確認の印が置かれるまで、Takeout の中身は格納されない（D16）。そのため、最初に置く全期間の Takeout のマイアクティビティは必ず「置く → `pending_shape` → `--confirm` → `ingest_confirmed_pending` → `reread_archive`」の順で入る。R80 で失敗を数えるようにした `spawn_inspecting` を通るのは、形が確認済みになった 2 冊目以降だけである。`reread_archive` の呼び出し元が `reparse_older_versions` だけでないことは、`grep -n reread_archive worker.rs` で確かめた（:1540 / :1625）。
+- 影響: この経路で印付けが落ち続けると、`pending_shape` が残ったまま、120 秒ごとに写しを全件読み直して格納し直すことになる。台帳にも `/archives/status` にも何も出ない。そのあいだ、消した時間帯の位置を持つマイアクティビティの項目は、生きた記録として読み出せる（Q14 の loss: exported。R80 と同じ型）。
+- kind: technical
+- 提案: 読み直しの経路でも、書庫の sha ごとに印付けの失敗を数える。3 回続いたら `store_failed` を台帳に 1 行書き、以後は 1 時間に 1 回へ落とす（R80 / D22-a と同じ扱い）。試験は fault を入れたまま印を置き、4 周以上回して台帳と `/archives/status` を見る。
+
+## R83. `mark_archive_arrivals` の doc が D22-b の後の挙動と食い違う（Task 16 F1）
+- 成果物: `crates/server/src/stay_store.rs:714`（「位置を 1 件も入れなかった書庫では何もしない（YouTube・マイアクティビティだけの書庫。R78）」）
+- 影響: いまは `locationInfos` を持つマイアクティビティだけの書庫でも、錠を取って印を付ける。読んだ人が R78 の条件を取り違える。
+- kind: technical
+- 提案: 「位置を持たない項目だけの書庫」に直す。`mark_late_arrivals` の doc にも D22-b の対象を一言足す。
+
+## R84. D22 / D22-b の試験は、形を先に確認した経路だけを通っている（現実の最初の 1 冊の順が無い）
+- 成果物: `crates/server/src/archive_flow_tests.rs:3273-3281`（`archive_erased_myactivity_window` は `confirm` を `put` より前に呼ぶ）
+- 影響: 「置く → 確認待ち → confirm → `ingest_confirmed_pending`」の順で、消した時間帯に印が付くことを固定した試験が無い。
+- kind: technical
+- 提案: R82 の試験と兼ねて、確認待ちを経た順で印が付く試験を足す。
+
+## R85. `myactivity_located_sql` は 1 行につき原文を最大 3 回 jsonb として読み、助言ロックを握ったまま広い範囲を評価しうる
+- 成果物: `crates/server/src/stay_store.rs:688-699`
+- 影響: 全期間の Takeout では、範囲に含まれる全マイアクティビティ行に jsonb の解析が掛かりうる。ただし実測はしていない。
+- kind: technical
+- 提案: `raw LIKE '%"locationInfos"%'` を安い前置きの条件として置く、または `raw::jsonb` を 1 回だけ取る形にする。
+
+## R86. `carries_location`（Rust）と `myactivity_located_sql`（SQL）の一致を固定する試験が無い（Task 16 F2）
+- 成果物: `crates/server/src/stay_store.rs:266-286` / `:688-699`
+- 影響: 実際の入力では一致する（reviewer が DB で確かめた）。ただし片方だけを直すと、範囲と印付けが黙ってずれる。
+- kind: technical
+- 提案: `[]` / `null` / 配列でない値 / 最上位が配列 の 4 つについて、両者がどちらも false になる試験を置く。
+
+## R87. 2 つの消去が重なるときの `already_deleted` + `located_e` の経路に試験が無い（Task 16 F3）
+- 成果物: `crates/server/src/deletion.rs:221-226`
+- 影響: 重なる 2 つの滞在を消して片方だけ戻したとき、位置を持つ項目が隠れたままになることが担保されていない。
+- kind: technical
+- 提案: 重なる 2 つの滞在を消し、片方だけを戻して、項目が隠れたままであることを見る試験を足す。
+
+## R88. design.md の D14「移行は 1 本」と Migration Plan が、2 本目の移行と食い違う
+- 成果物: `openspec/changes/st12-archive-ingestion/design.md:42` / `:491`（実際は `202609181600_archive_ingestion` と `202610042315_archive_pending_file` の 2 本）
+- kind: technical
+- 提案: D14 と Migration Plan を 2 本に直す。
+
+## R89. 印付けの失敗も `consecutive_failures` に数えるようになり、数を戻す経路が無い件の届く範囲が広がった
+- 成果物: `crates/server/src/archive/scan.rs:84-90`（UPSERT は数を戻さない）/ `docs/handoff/ST13.md:65`（R37〜R46 の M7 として申し送り済み）
+- 影響: ダウンロードのフォルダで、同じパスに中身の違う書庫を置き直すと、前の書庫の回数と `retry_after` を引き継ぐ。
+- kind: technical
