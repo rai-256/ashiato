@@ -39,7 +39,7 @@
 | D12 | 稼働状況の API と画面 | Q5（本人）/ 第 2 回 Q9（本人）/ C22 | 箱の高さの上限と取り込み器の止まりを出す閾値だけ仮 |
 | D13 | 変えないもの・`collection-coverage` に触るもの | Step 3 / spec R2 / 第 2 回 Q9（本人） | —— |
 | D22 | 書庫の位置も滞在の削除に従う（格納の直後・消すとき・戻すとき。位置を持つマイアクティビティの項目も） | 第 4 回 Q13（本人）/ 第 5 回 Q14（本人）/ code-verify R66 / R81 / ST22 の申し送り R6 | 重なりの判定は C（厳しい側）。D22-a は仮 |
-| D14 | 移行は 1 本 | —— | —— |
+| D14 | 移行は 3 本（`202609181600_archive_ingestion` と、final review の処置で足した `202610042315_archive_pending_file` / `202610051730_archive_reread_failure`） | final review R51 / R56 / R59 / 第 3 回 R82 / R88 | —— |
 | D16 | 形の確認の印（Takeout の書庫の中身） | 第 2 回 Q10（本人）/ 第 3 回 Q12（本人）/ spec-r2 R4 / R5 / R10 | —— |
 | D15 | 完了の判定を機械で確かめる | 完了の判定 1〜5 | —— |
 
@@ -310,7 +310,7 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - **同じファイルは触る**: `lib.rs`（`MIGRATIONS`・route・`coverage_get` の名前の並び）・`App.tsx`・`CoverageGrid.tsx`・`docs/openapi.json` と既存の試験 3 本（tasks 1.1 / 9.2 / 10.4）
 - `collector-android` / `collector-windows` は触らない（Q8）
 
-## D14. 移行は 1 本
+## D14. 移行は 3 本（初めは 1 本。final review の処置で 2 本足した）
 
 `migrations/YYYYMMDDHHMM_archive_ingestion.sql`（名前は作成時刻）と `.down.sql`:
 - `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（D7。`user_id` あり。追記のみのトリガ）
@@ -323,6 +323,10 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 **final review の処置で 1 本足した**（`202610042315_archive_pending_file`。列を足すだけで、書き換えてよい表にだけ当てる）:
 `core.archive_pending_shape` に `file_sha256`（写しを中身のハッシュで引く。R51）と `made_copy`（確認待ちのために写しを作ったか。R56）、
 `core.archive_scan_counter` に `last_capturable` / `last_blockers`（D19（仮）。R59）。追記のみの 3 表には触らない
+
+**final review 第 3 回の処置でもう 1 本足した**（`202610051730_archive_reread_failure`。書き換えてよい表を 1 つ足すだけ）:
+`core.archive_reread_failure`（`user_id` / 書庫の `sha256` / `consecutive_failures` / `retry_after`）。写しから読み直す経路の失敗を
+書庫ごとに数える（D22-a。R82）。読み直しに成功したら行を消す。追記のみの表には触らない
 
 ## D15. 完了の判定を機械で確かめる
 
@@ -466,8 +470,11 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
   3 回続いたら台帳に `store_failed` を 1 行書いて箱の「直近に置いた書庫」に出し、以後 1 時間に 1 回へ落とす（格納の失敗と同じ仕組み）。
   **outcome は新しく作らず `store_failed` を流用する** —— 本人から見れば「その書庫は入り切っていない」で同じで、移行（outcome の制約）を足さずに済む。
   反転条件: 本人が箱の文言で格納の失敗と印付けの失敗を見分けたいと言ったら、印付けの失敗と分かる outcome を足して文言を分ける（台帳は追記のみなので、
-  過去の `store_failed` の行はそのまま残る）。写しから読み直す経路（確認待ち・版の読み直しの `reread_archive`）は置き場で見たファイルの行
-  （`archive_sighting`）を持たないので数えず、格納の失敗と同じく `warn` を出して次の周で読み直す（その経路の格納の失敗もいまは数えていない。数えるなら両方まとめて）
+  過去の `store_failed` の行はそのまま残る）。**写しから読み直す経路（確認待ち・版の読み直しの `reread_archive`）も数える**（final review 第 3 回 R82）:
+  確認待ちの読み直しは、最初の Takeout のマイアクティビティが必ず通る主経路（形の印が置かれるまで中身は格納されない。D16）。
+  この経路は置き場で見たファイルの行（`archive_sighting`）を持たないので、**書庫の `sha256` ごとに** `core.archive_reread_failure` で数え
+  （`record_reread_failure`。D14 の 3 本目の移行）、格納の失敗と印付けの失敗を両方まとめて数える。3 回続いたら `store_failed` を 1 行書き、
+  以後 1 時間はその書庫を読み直さない（`ingest_confirmed_pending` と `reparse_older_versions` の両方が見る）。読み直しに成功したら数を消す
 
 - **D22-b. 位置を持つマイアクティビティの項目も書庫の位置に入れる**（第 5 回 Q14。本人の決定。code-verify 第 4 回 R81）:
   論理ソースが `c03-myactivity-` で始まり、**原文の項目に `locationInfos` が空でない配列で入っているもの**を、(1) 格納の直後・(2) 消すとき・(3) 戻すときの対象に足す。
@@ -488,7 +495,9 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 
 ## Migration Plan
 
-移行 1 本（D14）。戻すときは `.down.sql`（3 表と sighting を落とし、登録簿の `c03-*` の行は**記録が無いときだけ**消す）。
+移行 3 本（D14）。当てる順は `MIGRATIONS` の末尾の `202609181600_archive_ingestion` → `202610042315_archive_pending_file` →
+`202610051730_archive_reread_failure`。戻すときは逆の順に `.down.sql` を当てる（3 本目は `core.archive_reread_failure` を落とす。
+2 本目は書き換えてよい 2 表の足した列を落とす。1 本目は 3 表と sighting を落とし、登録簿の `c03-*` の行は**記録が無いときだけ**消す）。
 取り込み器は `ASHIATO_ARCHIVE_USER_ID` が無ければ起きないので、移行を当てても既存の運用は変わらない。
 
 ## Open Questions
