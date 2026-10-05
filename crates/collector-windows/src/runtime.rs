@@ -2613,7 +2613,9 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         again.send();
+        assert!(reader.reads() > before, "やり直しの取得が走らなかった");
         let records = excluded_records(&transport);
+        assert_eq!(records.len(), 2, "やり直しの取得で除外が積まれなかった");
         let mut ids: Vec<_> = records
             .iter()
             .map(|r| r["external_id"].as_str().unwrap().to_string())
@@ -2646,12 +2648,12 @@ mod tests {
             .collect::<String>();
         assert!(!all.contains("変わった題名"), "登録の後の内容が送られた");
         assert!(history_urls_of_kind(&second, "visit").is_empty());
-        let ledger =
-            std::fs::read_to_string(cfg.state_dir.join("browser-history/chrome/Default.ledger"))
-                .unwrap();
+        // 既に格納された訪問は、除外されても消えた（vanished）ことにはならない
         assert!(
-            ledger.contains("v1:visit:"),
-            "既に格納された訪問の行（帳面）が消えた"
+            history_records(&second)
+                .iter()
+                .all(|r| r["payload"]["kind"] != "vanished"),
+            "除外した訪問が履歴から消えたものとして送られた"
         );
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
