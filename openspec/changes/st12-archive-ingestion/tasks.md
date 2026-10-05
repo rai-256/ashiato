@@ -218,13 +218,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 15: 14. 書庫の位置と滞在の削除（design D22 / 第 4 回 Q13）
 
-- [ ] 14.1 書庫の位置の論理ソース 7 本の並びを `archive/` の 1 か所に置き、書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ `user:late` の印と削除の台帳の `erase` 行を付ける（滞在の作り直しを呼ばない）。
+- [x] 14.1 書庫の位置の論理ソース 7 本の並びを `archive/` の 1 か所に置き、書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ `user:late` の印と削除の台帳の `erase` 行を付ける（滞在の作り直しを呼ばない）。
   Scenario: `消した滞在の時間帯に書庫から入る位置は削除済みになる` / `消した滞在の時間帯の外の書庫の位置は生きた記録として入る` / `書庫の位置の印は滞在の作り直しを待たずに付く`。
   検証: `CT archive_erased_window`（滞在は `POST /stays/erase` か `deletion::erase` で消してから、端末で書き出した合成の `Timeline.json` を置く。区間の記録は端が触れるだけでも印が付くこと・作り直しを走らせずに印が付いていること・`core.event` の生きた行の件数を見る）
-- [ ] 14.2 `deletion::erase` の位置の連鎖と `stay_store::mark_late_arrivals` を、基準のソース ∪ 書庫の位置の論理ソースに掛ける。滞在の判定（`Criteria::sources`）は変えない。
+- [x] 14.2 `deletion::erase` の位置の連鎖と `stay_store::mark_late_arrivals` を、基準のソース ∪ 書庫の位置の論理ソースに掛ける。滞在の判定（`Criteria::sources`）は変えない。
   Scenario: `滞在を消すとその時間帯の書庫の位置も削除済みになる` / `滞在の削除を戻すと書庫の位置も戻る`。
   検証: `CT archive_erased_cascade`（書庫の位置を格納した後に滞在を消し、印と台帳の行を見る / 戻して生きた行に戻ること / 滞在の判定の入力が `c01-location` だけのままであること）
-- [ ] 14.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+- [x] 14.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
   `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0
 
 ## 人間の確認待ち
