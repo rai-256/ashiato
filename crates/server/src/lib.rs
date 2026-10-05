@@ -78,7 +78,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 21] = [
+pub const MIGRATIONS: [(&str, &str); 22] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -175,6 +175,11 @@ pub const MIGRATIONS: [(&str, &str); 21] = [
     (
         "202610042315_archive_pending_file",
         include_str!("../../../migrations/202610042315_archive_pending_file.sql"),
+    ),
+    // 写しからの読み直しで格納か印付けに続けて失敗した回数（ST12 / final review 第 3 回 R82 / design D22-a）
+    (
+        "202610051730_archive_reread_failure",
+        include_str!("../../../migrations/202610051730_archive_reread_failure.sql"),
     ),
 ];
 

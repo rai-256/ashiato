@@ -676,19 +676,34 @@ pub(crate) async fn myactivity_sources(
 }
 
 /// 原文の項目が位置（`locationInfos`）を空でない配列で持つか（design D22-b / 第 5 回 Q14）。
+///
+/// **`myactivity_located_sql` と同じ判定にする**（片方だけを直すと、印付けの範囲と印を付ける条件が黙ってずれる。
+/// `archive_myactivity_location_rust_and_sql_agree` が固定する）。欄の名前が原文に無ければ解析しない（同じ前置き）。
 pub(crate) fn carries_location(raw: &str) -> bool {
+    if !raw.contains(LOCATION_KEY) {
+        return false;
+    }
     serde_json::from_str::<serde_json::Value>(raw)
         .ok()
         .and_then(|item| item.get("locationInfos")?.as_array().map(|a| !a.is_empty()))
         .unwrap_or(false)
 }
 
+/// 原文に位置の欄の名前があるかの安い前置き（引用符ごと見る。`carries_location` と SQL で共有する）。
+const LOCATION_KEY: &str = "\"locationInfos\"";
+
 /// マイアクティビティの行は、原文に位置を持つものだけを通す SQL の条件（他のソースは常に通す）。
 /// `raw` は text なので、JSON として読めるときだけ中を見る（入れ子の CASE で評価の順を固定する）。
+///
+/// **欄の名前が原文に無い行は jsonb として読まない**（final review 第 3 回 R85）。助言ロックを握ったまま
+/// 全期間の Takeout の範囲を評価するので、位置を持たない大多数の行の解析を文字列の照合 1 回で畳む。
+/// 前置きが偽で中を見ると真になるのは、欄の名前を `\u` でエスケープした原文だけ（Takeout はそう書かない）。
+/// `carries_location` も同じ前置きを置くので、両者の判定は一致したまま。
 pub(crate) fn myactivity_located_sql(alias: &str) -> String {
     format!(
         "(CASE WHEN {a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
-               THEN CASE WHEN pg_input_is_valid({a}.raw, 'jsonb')
+               THEN CASE WHEN strpos({a}.raw, '{LOCATION_KEY}') = 0 THEN false
+                         WHEN pg_input_is_valid({a}.raw, 'jsonb')
                          THEN CASE WHEN jsonb_typeof({a}.raw::jsonb->'locationInfos') = 'array'
                                    THEN jsonb_array_length({a}.raw::jsonb->'locationInfos') > 0
                                    ELSE false END
@@ -711,7 +726,8 @@ pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
 ///
 /// **見る範囲はその書庫が入れた位置の始まりの時刻の範囲だけ**（final review 第 2 回 R73）。この書庫の行は
 /// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
-/// **位置を 1 件も入れなかった書庫では何もしない**（YouTube・マイアクティビティだけの書庫。R78）。
+/// **位置を持たない項目だけの書庫では何もしない**（YouTube だけの書庫や、`locationInfos` を持たない
+/// マイアクティビティだけの書庫。R78）。位置を持つマイアクティビティの項目は位置と同じく範囲に入る（D22-b）。
 /// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
 pub async fn mark_archive_arrivals(
     pool: &PgPool,
@@ -745,6 +761,7 @@ pub async fn mark_archive_arrivals(
 }
 
 /// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースと書庫の位置の記録を隠す。
+/// 位置（`locationInfos`）を持つマイアクティビティの項目も対象（design D22-b。持たない項目は外れる）。
 ///
 /// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。

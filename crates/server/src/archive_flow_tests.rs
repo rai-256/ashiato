@@ -2377,10 +2377,16 @@ const OUTSIDE_TIMELINE: &str = r#"{"semanticSegments":[
 impl Inbox {
     /// 2026-09-12 12:00〜13:00 JST の滞在を 1 件置く（`deletion::erase` が消せる、本物の導出行）。
     async fn put_stay(&self) -> uuid::Uuid {
+        self.put_stay_at("2026-09-12T03:00:00+00:00", "2026-09-12T04:00:00+00:00")
+            .await
+    }
+
+    /// 始まりと終わり（オフセット付きの時刻）を指定して滞在を 1 件置く。
+    async fn put_stay_at(&self, start: &str, end: &str) -> uuid::Uuid {
         let id = uuid::Uuid::new_v4();
         let payload = serde_json::json!({
-            "start": "2026-09-12T03:00:00+00:00",
-            "end": "2026-09-12T04:00:00+00:00",
+            "start": start,
+            "end": end,
             "lat": 35.658,
             "lon": 139.745,
         })
@@ -2389,12 +2395,13 @@ impl Inbox {
             "INSERT INTO core.event
                (id, user_id, logical_source, external_id, origin, event_time,
                 tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
-             VALUES ($1,$2,'s01-stay',$3,'derived','2026-09-12T03:00:00Z',540,'Asia/Tokyo',1,$3,$4,$4::jsonb)",
+             VALUES ($1,$2,'s01-stay',$3,'derived',$5::timestamptz,540,'Asia/Tokyo',1,$3,$4,$4::jsonb)",
         )
         .bind(id)
         .bind(self.user)
         .bind(id.to_string())
         .bind(payload)
+        .bind(start)
         .execute(&self.pool)
         .await
         .unwrap();
@@ -3346,4 +3353,236 @@ async fn archive_erased_myactivity_cascade() {
         inbox.myactivity_marks().await,
         vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)]
     );
+}
+
+// Scenario: 消した滞在の時間帯の位置を持つマイアクティビティの項目は削除済みになる
+//
+// 最初の Takeout のマイアクティビティは、形の印が無いので必ず「置く → 確認待ち → 印 → 写しから読み直す」
+// （`ingest_confirmed_pending` → `reread_archive`）の順で入る（D16）。この順でも消した時間帯の位置を持つ項目に
+// 印が付く（final review 第 3 回 R84）。
+#[tokio::test]
+async fn archive_erased_myactivity_window_after_confirming_a_pending_archive() {
+    let inbox = Inbox::new("archive-erased-myactivity-pending").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/検索/活動.json",
+            LOCATED_MYACTIVITY.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "印の無い形の書庫が確認待ちにならない",
+            || async { inbox.ledger_rows("pending_shape").await == 1 },
+        )
+        .await;
+    assert!(
+        inbox.myactivity_marks().await.is_empty(),
+        "確認待ちの書庫の中身が格納された"
+    );
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            LOCATED_MYACTIVITY.as_bytes(),
+        )
+        .await;
+    inbox
+        .until(
+            "確認待ちを経た書庫の位置を持つ項目に後着の印が付かない",
+            || async {
+                inbox.myactivity_marks().await
+                    == vec![
+                        ("位置あり".to_owned(), Some("user:late".to_owned())),
+                        ("位置なし".to_owned(), None),
+                    ]
+            },
+        )
+        .await;
+    assert_eq!(inbox.myactivity_ledger_rows(stay, "user:late").await, 1);
+    inbox
+        .until(
+            "確認待ちを経た書庫に read の行が無い",
+            || async { inbox.read_rows_now(None).await == 1 },
+        )
+        .await;
+}
+
+// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+//
+// 確認待ちを写しから読み直す経路（`ingest_confirmed_pending` → `reread_archive`）でも、印付けが落ち続ければ
+// 書庫ごとに数え、3 回続いたら `store_failed` を 1 行書き、以後 1 時間に 1 回へ落とす（final review 第 3 回 R82。
+// design D22-a）。数えなかったときは、走査のたびに写しを全件読み直し、台帳にも画面にも何も出なかった。
+#[tokio::test]
+async fn archive_erased_pending_reread_persistent_marking_failure_is_ledgered_and_throttled() {
+    let inbox = Inbox::new("archive-erased-pending-mark-persistent").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let fault = LateMarkFault::install(&inbox).await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/検索/活動.json",
+            LOCATED_MYACTIVITY.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "印の無い形の書庫が確認待ちにならない",
+            || async { inbox.ledger_rows("pending_shape").await == 1 },
+        )
+        .await;
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            LOCATED_MYACTIVITY.as_bytes(),
+        )
+        .await;
+    inbox
+        .until(
+            "読み直しの印付けが 3 回落ちても store_failed の行が無い",
+            || async { inbox.ledger_rows("store_failed").await == 1 },
+        )
+        .await;
+    let fired = fault.fired().await;
+    // 1 時間に 1 回へ落ちている: 走査（1 秒ごと）を 4 回以上待っても読み直さない。
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    let fired_later = fault.fired().await;
+    let status = inbox.status().await;
+    let ledger_failed = inbox.ledger_rows("store_failed").await;
+    let read_rows = inbox.read_rows_now(None).await;
+    let marks = inbox.myactivity_marks().await;
+    fault.remove().await;
+
+    assert!(
+        fired >= 3,
+        "store_failed の行が 3 回の失敗の前に書かれた: {fired}"
+    );
+    assert_eq!(
+        fired_later, fired,
+        "store_failed の後も走査のたびに写しを読み直している"
+    );
+    assert_eq!(ledger_failed, 1, "store_failed の行が 1 行でない");
+    assert_eq!(read_rows, 0, "印の付かない読み直しに read の行がある");
+    assert_eq!(
+        marks,
+        vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)],
+        "落ちた印付けの後の行が想定と違う"
+    );
+    let latest = status.latest_archive.expect("直近の書庫が箱に出ない");
+    assert_eq!(latest.outcome, "store_failed");
+    assert_eq!(
+        latest.file_name.as_deref(),
+        Some("takeout-20260912T000000Z-001.zip")
+    );
+}
+
+// Scenario: 滞在の削除を戻すと位置を持つマイアクティビティの項目も戻る
+//
+// 重なる 2 つの滞在を消すと、位置を持つ項目は 2 つ目の消去の原因も台帳に持つ（`already_deleted` + `located_e`）。
+// 片方だけを戻しても、もう一方の消去がまだ効いているので項目は隠れたまま（final review 第 3 回 R87）。
+#[tokio::test]
+async fn archive_erased_myactivity_overlapping_erasures_restore_one_keeps_it_hidden() {
+    let inbox = Inbox::new("archive-erased-myactivity-overlap").await;
+    inbox.store_myactivity().await;
+    let first = inbox.put_stay().await;
+    let second = inbox
+        .put_stay_at("2026-09-12T03:15:00+00:00", "2026-09-12T04:15:00+00:00")
+        .await;
+    crate::deletion::erase(&inbox.pool, first, None)
+        .await
+        .unwrap();
+    crate::deletion::erase(&inbox.pool, second, None)
+        .await
+        .unwrap();
+    let hidden = vec![
+        ("位置あり".to_owned(), Some("user:cascade".to_owned())),
+        ("位置なし".to_owned(), None),
+    ];
+    assert_eq!(inbox.myactivity_marks().await, hidden);
+    // 2 つ目の消去も、既に隠れていた項目に自分の原因を追記している。
+    assert_eq!(inbox.myactivity_ledger_rows(first, "user:cascade").await, 1);
+    assert_eq!(
+        inbox.myactivity_ledger_rows(second, "user:cascade").await,
+        1,
+        "重なる 2 つ目の消去が、位置を持つ項目に原因を追記していない"
+    );
+
+    crate::deletion::restore(&inbox.pool, &[first], None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.myactivity_marks().await,
+        hidden,
+        "片方の消去を戻しただけで、もう一方の時間帯の位置を持つ項目が戻った"
+    );
+
+    crate::deletion::restore(&inbox.pool, &[second], None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.myactivity_marks().await,
+        vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)],
+        "両方の消去を戻しても、位置を持つ項目が戻らない"
+    );
+}
+
+// Scenario: 位置を持たないマイアクティビティの項目は消した時間帯でも生きた記録として入る
+//
+// 印付けの範囲（Rust の `carries_location`）と、印を付ける条件（SQL の `myactivity_located_sql`）は
+// 同じ判定でなければならない。片方だけを直すと、範囲と印付けが黙ってずれる（final review 第 3 回 R86）。
+#[tokio::test]
+async fn archive_myactivity_location_rust_and_sql_agree() {
+    let pool = testdb::pool().await;
+    let cases: &[(&str, bool)] = &[
+        (
+            r#"{"title":"a","locationInfos":[{"name":"この付近"}]}"#,
+            true,
+        ),
+        (r#"{"title":"a", "locationInfos" : [ 1 ] }"#, true),
+        (r#"{"title":"a","locationInfos":[]}"#, false),
+        (r#"{"title":"a","locationInfos":null}"#, false),
+        (
+            r#"{"title":"a","locationInfos":{"name":"この付近"}}"#,
+            false,
+        ),
+        (r#"{"title":"a","locationInfos":"この付近"}"#, false),
+        (r#"[{"locationInfos":[{"name":"この付近"}]}]"#, false),
+        (r#"{"title":"a"}"#, false),
+        (r#"{"title":"\"locationInfos\""}"#, false),
+        // 欄の名前をエスケープした原文は、両方とも前置き（R85）で落とす（Takeout はそう書かない）。
+        (r#"{"location\u0049nfos":[{"name":"x"}]}"#, false),
+        (r#"{"title":"a","locationInfos":[{"name":"x"}]"#, false),
+        ("", false),
+    ];
+    let sql = format!(
+        "SELECT {} FROM (SELECT $1::text AS raw, $2::text AS logical_source) t",
+        crate::stay_store::myactivity_located_sql("t")
+    );
+    for (raw, expected) in cases {
+        let rust = crate::stay_store::carries_location(raw);
+        let in_db: bool = sqlx::query_scalar(&sql)
+            .bind(raw)
+            .bind("c03-myactivity-検索")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rust, *expected, "Rust の判定が違う: {raw}");
+        assert_eq!(in_db, *expected, "SQL の判定が違う: {raw}");
+        // マイアクティビティでない行は常に通す（SQL の側だけの約束）。
+        let other: bool = sqlx::query_scalar(&sql)
+            .bind(raw)
+            .bind("c03-timeline-visit")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(other, "マイアクティビティでない行を落とした: {raw}");
+    }
 }

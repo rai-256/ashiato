@@ -162,6 +162,83 @@ pub async fn record_store_failure(
     Ok(true)
 }
 
+/// 写しからの読み直しで格納か印付けに落ちたことを、書庫ごとに数える（final review 第 3 回 R82。design D22-a）。
+///
+/// 確認待ちの読み直し（`ingest_confirmed_pending`）と版の読み直し（`reparse_older_versions`）は
+/// 置き場のファイルを持たないので、`record_store_failure`（置き場のパスで数える）では数えられない。
+/// 扱いは同じ: 3 回続いたら `store_failed` を台帳に 1 行書き、以後 1 時間に 1 回へ落とす。
+pub async fn record_reread_failure(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: &str,
+    file_name: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let failures: i32 = sqlx::query_scalar(
+        "INSERT INTO core.archive_reread_failure (user_id, sha256, consecutive_failures)
+         VALUES ($1, $2, 1)
+         ON CONFLICT (user_id, sha256) DO UPDATE
+           SET consecutive_failures = core.archive_reread_failure.consecutive_failures + 1
+         RETURNING consecutive_failures",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .fetch_one(pool)
+    .await?;
+    if failures < 3 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE core.archive_reread_failure SET retry_after = now() + interval '1 hour'
+          WHERE user_id = $1 AND sha256 = $2",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO core.archive_ledger
+           (user_id, sha256, parser_version, outcome, file_name)
+         VALUES ($1, $2, $3, 'store_failed', $4) ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(super::PARSER_VERSION)
+    .bind(file_name)
+    .execute(pool)
+    .await?;
+    Ok(true)
+}
+
+/// `record_reread_failure` を呼び、数えられなければ `warn` を出す（元の失敗を Err で返すのは呼び出し側）。
+async fn count_reread_failure(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    meta: &LedgerMeta,
+) {
+    if let Err(error) =
+        record_reread_failure(pool, user_id, archive_sha256, meta.file_name.as_deref()).await
+    {
+        tracing::warn!(kind = "archive_reread_failure", error = %error, "読み直しの失敗を数えられない");
+    }
+}
+
+/// 読み直しが 1 時間に 1 回へ落ちている書庫か（`record_reread_failure` が 3 回続けて数えた後）。
+async fn reread_throttled(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    sha256: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core.archive_reread_failure
+                        WHERE user_id = $1 AND sha256 = $2 AND retry_after > now())",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .fetch_one(pool)
+    .await
+}
+
 /// 読めなかった書庫を台帳へ 1 行残す（spec「読めない形の書庫は台帳に残す」）。
 ///
 /// **黙って `return` しない。** Takeout の書き出しは約 7 日で失効するので、
@@ -1450,7 +1527,14 @@ async fn reread_archive(
                 .await?;
             }
         }
-        let outcomes = store_requests(&sink, read.requests.clone()).await?;
+        // 格納の失敗も印付けの失敗と同じく書庫ごとに数える（R82。design D22-a「数えるなら両方まとめて」）。
+        let outcomes = match store_requests(&sink, read.requests.clone()).await {
+            Ok(outcomes) => outcomes,
+            Err(error) => {
+                count_reread_failure(pool, user_id, archive_sha256, meta).await;
+                return Err(error);
+            }
+        };
         unreadable.extend(read.unreadable);
         stored_requests.extend(read.requests);
         stored_outcomes.extend(outcomes);
@@ -1462,7 +1546,15 @@ async fn reread_archive(
     // **`read` の台帳の行より先に印を付ける**（final review 第 2 回 R72）。落ちたら Err で返し、いまの版の
     // `read` の行を書かないので、版の読み直しは次の周の対象に残り、確認待ちは確認待ちの行が残る。
     // どちらも次に写しから読み直して（格納は内容の鍵で増えない）印を付け直す。
-    crate::stay_store::mark_archive_arrivals(pool, user_id, &stored_requests).await?;
+    // **落ち続けるときは書庫ごとに数える**（final review 第 3 回 R82。design D22-a）。確認待ちの読み直しは
+    // 最初の Takeout のマイアクティビティが入る主経路で、数えなかったときは走査のたびに写しを全件
+    // 読み直し、台帳にも画面にも何も出なかった。
+    if let Err(error) =
+        crate::stay_store::mark_archive_arrivals(pool, user_id, &stored_requests).await
+    {
+        count_reread_failure(pool, user_id, archive_sha256, meta).await;
+        return Err(error.into());
+    }
     // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`。design D18）。混在した書庫は
     // 1 回目の読みで既に `read` の行を持っている。名前・作られた時刻・置き場の種類は
     // 元の読みの行から引き継ぐ（NULL と既定の `inbox` で書いていた。final review R58）。
@@ -1498,6 +1590,11 @@ async fn reread_archive(
         }
     };
     record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
+    sqlx::query("DELETE FROM core.archive_reread_failure WHERE user_id = $1 AND sha256 = $2")
+        .bind(user_id)
+        .bind(archive_sha256)
+        .execute(pool)
+        .await?;
     Ok(done)
 }
 
@@ -1529,6 +1626,10 @@ pub async fn ingest_confirmed_pending(
             .map(|(_, inner_path, stored_path, _, _)| (inner_path.clone(), stored_path.clone()))
             .collect();
         let read = async {
+            // 印付けが 3 回続けて落ちた書庫は 1 時間に 1 回へ落とす（R82。design D22-a）。
+            if reread_throttled(pool, user_id, &archive_sha256).await? {
+                return anyhow::Ok(Vec::new());
+            }
             let meta = ledger_meta(
                 pool,
                 user_id,
@@ -1604,6 +1705,10 @@ pub async fn reparse_older_versions(
     let mut reread = 0;
     let mut without_copies = 0;
     for archive_sha256 in archives {
+        // 印付けが 3 回続けて落ちた書庫は 1 時間に 1 回へ落とす（R82。design D22-a）。
+        if reread_throttled(pool, user_id, &archive_sha256).await? {
+            continue;
+        }
         let files: Vec<(String, String)> = sqlx::query_as(
             "SELECT inner_path, stored_path FROM core.archive_file
               WHERE user_id = $1 AND archive_sha256 = $2 ORDER BY inner_path",
