@@ -483,8 +483,8 @@ mod tests {
         )
     }
 
-    /// Scenario: 初回の取得で過去の履歴が入る
-    /// Scenario: 前回の取得の後に古い時刻で入った訪問も取り込まれる
+    // 印は Runtime を通す `runtime::tests::history_runtime_first_fetch_sends_past_visits` と
+    // `history_runtime_late_arriving_old_visit_is_sent` が持つ。ここは選別関数だけを見る。
     #[test]
     fn history_fetch_sends_only_new_or_changed() {
         let mut ledger = Ledger::default();
