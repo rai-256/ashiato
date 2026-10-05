@@ -892,27 +892,119 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 
 ## R75. `archive_erased_cascade_marks_locations_stored_before_the_erase` のコメント「置き直しても行は増えない」を確かめるコードが無い（Task 15 F4）
 - 成果物: `crates/server/src/archive_flow_tests.rs`
+- 根拠: `git show f29dfea:crates/server/src/archive_flow_tests.rs` の :2574 にコメント「同じ内容の書庫を置き直しても行は増えない（内容の鍵）」があり、続く assert は `Criteria::default_values().sources` だけ。書庫を置き直す `inbox.put` も行数の比較も無い
 - kind: technical
 - 処置: fixed D22 — 同じ Timeline.json を別の書庫として実際に置き直し、位置の行数と連鎖の台帳の行数が変わらないことを見る（`archive_flow_tests.rs:2587-2613`）
 - 提案: 置き直しを実際に行って行数を見るか、コメントを消す
 
 ## R76. `event_end_sql` のミリ秒の分岐と、移行前の区間（`c03-legacy-visit` / `-activity` の `endTimestampMs`）を通る試験が無い（Task 15 F5）
 - 成果物: `crates/server/src/deletion.rs`（`event_end_sql`）
+- 根拠: `f29dfea` の `stay_store::event_end_sql`（:633）は `end_time` が数字だけならミリ秒として `to_timestamp(…/1000.0)` に回す分岐を持つが、`archive_flow_tests.rs` に `endTimestampMs` は 0 件（`grep -c`）。移行前の区間が消した滞在に重なる場面を通る試験が無い
 - kind: technical
 - 処置: fixed D22 — `archive_erased_legacy_millisecond_spans_follow_the_erased_stay`。ミリ秒の分岐を壊すと落ちることを確認
 - 提案: 移行前の区間を持つ位置が消した滞在に重なれば印が付く試験を足す
 
 ## R77. `archive_erased_window_marks_the_overlapping_archive_locations` の最後の `stays()==1` は作り直しが走っていても通る（Task 15 F3）
 - 成果物: `crates/server/src/archive_flow_tests.rs`
+- 根拠: `f29dfea` の `archive_flow_tests.rs:2520` は `assert_eq!(inbox.stays().await, 1, "滞在の作り直しが走っている")` だけ。作り直しは同じ区間の滞在を 1 件に作り直すので、走っても件数は 1 のままで通る
 - kind: technical
 - 処置: fixed D22 — `stay_criteria` の行と `rebuild:` の印が 0、消した滞在の印が `user` のままであることも見る
 - 提案: 作り直しの印か台帳の行が無いことを見る
 
 ## R78. `mark_archive_arrivals` が位置を 1 件も入れなかった書庫（YouTube・マイアクティビティだけ）でも全期間を走査する
 - 成果物: `crates/server/src/stay_store.rs`（`mark_archive_arrivals`）/ `worker.rs` の呼び出し
+- 根拠: `f29dfea` の `stay_store.rs:646-658` は書庫の中身を受け取らず、錠を取って `from = UNIX_EPOCH - 1000 年` 〜 `UNIX_EPOCH + 7000 年` で `mark_late_arrivals` を呼ぶ。`worker.rs:1499` / `:2129` は書庫の種類を問わず毎回呼ぶ
 - kind: technical
 - 処置: fixed D22 — 位置のソースの要求が 0 件なら錠も取らずに返す。`archive_marking_skips_an_archive_without_locations`
 - 提案: R73 の絞り込みと一緒に、位置を格納しなかったときは飛ばす
 
 ## scoped re-review（b8fc9f6..d1035a8）: R72〜R78 すべて ADDRESSED。新しい Critical / Important なし
 - Minor（park）: `mark_archive_arrivals` の範囲の絞り込みは「その書庫より前に格納された行は、消すときの連鎖か前の書庫の印付けで処理済み」という前提に依る（ledger に ruling）
+
+
+# code-verify 第 4 回（`4ae2c48..3739245`。Task 15 / design D22 と R72〜R78 の処置を厚く）— 2026-10-05
+
+対象: `feat/st12-archive-ingestion` の HEAD `3739245`（PR #10 の head はまだ `bbf66a0` で、push 前）。**実装は触っていない。**
+前回（第 3 回）の後のコードの差分は `crates/server/src/{archive/mod.rs, archive/worker.rs, deletion.rs, stay_store.rs, archive_flow_tests.rs, archive_tests.rs, stay_tests.rs}` と `tools/archive-shape.sh` だけ（画面・移行・API の形は触っていない）ので、第 3 回で確かめた手は繰り返さず、この差分と Task 15 を見た。
+変異試験と probe は作業ツリーの外の複製（`git archive HEAD`。`~/.cache` の下。`.env` は複製せず元の worktree から読んだ）で行い、終わってから消した。
+
+> 作業の副作用（報告）: (1) `tools/smoke.sh` が DB を `down -v` で作り直したので、試験用 DB の中身は消えた。`docker compose up -d db` と `tools/db-roles.sh` で戻し、`CT archive_erased` が 7 passed に戻ったことを確かめた。
+> (2) probe の試験は共有の試験用 DB に固有の利用者で行と登録簿の行（`c03-myactivity-u1b6b1a6f8931`）を書いたが、その後の smoke の `down -v` で消えている。
+
+## 申告: tasks の `[x]` は 48/49（13.1（人間）だけ未了）・R72〜R78 はすべて ADDRESSED。独立に実行した検証コマンド
+
+| # | 申告 | 実行したもの |
+|---|---|---|
+| 1 | 14.3: fmt / clippy / `cargo test --workspace` が緑 | `set -a; . ./.env; set +a; scripts/quiet-run full -- bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace'` |
+| 2 | 14.1 / 14.2 の `CT` | `CT archive_erased_window` / `CT archive_erased_cascade`（本文の定義のまま `tee` + `grep 'test result: ok\. [1-9]'`）、R73 / R78 の `CT stay_erase_overlap_bounds` / `CT archive_marking` |
+| 3 | 14.3 / 12.2 の Scenario と validate | `python3 scripts/check_scenarios.py . st12-archive-ingestion`、`openspec validate st12-archive-ingestion --strict` |
+| 4 | 12.4 / 12.5 | 本文のコマンドをそのまま（`gh pr view --json body`） |
+| 5 | 11.3（R74 で `archive-shape.sh` が変わった） | `tools/smoke.sh`、`ASHIATO_ARCHIVE_USER_ID=<nil> tools/archive-shape.sh`（この機械に `psql` は無い） |
+| 6 | 重なりの判定・余白・ソースの並びを試験が固定している | 複製で 3 つの変異（下の表）を入れて `cargo test -p ashiato-server` |
+| 7 | 隙間 | 複製に probe の試験を 3 本足して観測（経路の点と移行前の点 / 印付けが落ち続けたとき / 位置の欄を持つマイアクティビティ） |
+
+## 実測（一致 / 不一致）
+
+| 申告 | 実測 | 判定 |
+|---|---|---|
+| 14.3 cargo | rc=0（server 517 passed / 88 passed / 7 passed。fmt・clippy も rc=0） | 一致 |
+| 14.1 `CT archive_erased_window` | rc=0・4 passed | 一致 |
+| 14.2 `CT archive_erased_cascade` | rc=0・2 passed | 一致 |
+| R73 / R78 の試験 | `CT stay_erase_overlap_bounds` 1 passed / `CT archive_marking` 1 passed | 一致 |
+| 12.2 check_scenarios | rc=0（`Scenario 696 / 印 853 / 担保あり 696`。spec に無い名前を指す印の warn 6 件は第 3 回と同じ） | 一致（中身は R79） |
+| openspec validate --strict | rc=0 | 一致 |
+| 12.4 / 12.5 | どちらも rc=0 | 一致（ただし PR 本文は `bbf66a0` 時点のもので「Task 15 はこの本文を書いた時点で未実装」「45/49」と書いてある。push と finish の前なので指摘にしない） |
+| 11.3 smoke | rc=0。9b の段で `psql が無いので…（接続先: コンテナ db / 利用者 ashiato_app / DB ashiato…）` が 2 行出て通る（R74 の処置どおり） | 一致 |
+| 試験の固定のミリ秒（R76 の材料） | python で時刻に直した: `1789178400000..1789182000000` = 02:00〜03:00Z（終わりが触れる）、`1789180200000..1789183800000` = 02:30〜03:30Z、`1789180200000..1789185540000` = 02:30〜03:59Z。消す滞在 03:00〜04:00Z とコメントの主張が一致 | 一致 |
+| 変異 M2: 端が触れる重なりを外す（`{e} >= {start}` → `>`、`{end} >= s.event_time` → `>`） | `archive_erased_*` 6 本が FAILED | 一致（判定は固定されている） |
+| 変異 M3: 印付けの範囲の余白 1 ms → 0 | `archive_erased_legacy_millisecond_spans_follow_the_erased_stay` が FAILED | 一致 |
+| **変異 M1: `LOCATION_SOURCES` から `c03-timeline-route` と `c03-legacy-location` を外す** | **server 517 passed・0 failed** | **不一致（R79）** |
+| 印付けに落ちた書庫は次の走査で印が付く（R72） | 一時的な失敗では成り立つ（試験 2 本が緑）。**落ち続けると台帳にも画面にも何も出ない** | **不一致（R80）** |
+
+---
+
+## R79. 書庫の位置の論理ソース 7 本のうち、件数の大半を占める `c03-timeline-route` と `c03-legacy-location` を外しても、全試験が緑のまま
+- 成果物: `crates/server/src/archive/mod.rs:19-27`（`LOCATION_SOURCES`）/ `crates/server/src/archive_flow_tests.rs:2354-2370`（`ERASE_TIMELINE` / `OUTSIDE_TIMELINE`。`semanticSegments` の訪問・移動と `rawSignals` だけで、`timelinePath` が無い）/ `:2625-2650`（`archive_erased_cascade_restore_brings_the_locations_back`）/ spec `external-ingestion` の Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（7 本を名指し）
+- 根拠: 複製で `LOCATION_SOURCES` を 5 本（`c03-timeline-route` と `c03-legacy-location` を削る）にして `cargo test -p ashiato-server` → `test result: ok. 517 passed; 0 failed`（rc=0）。
+  D22 の試験の材料（`ERASE_TIMELINE` と `LEGACY_SEMANTIC_*`）に経路の点（`timelinePath`）と `Records.json` の点が 1 件も無く、`archive_locations()` の数え方も `LOCATION_SOURCES` そのものを使うので、並びから外したソースは数からも消えて試験が通る。
+  いまの実装が正しく動くことは probe で確かめた: 滞在を消した後に `timelinePath` の点 2 つと `Records.json` の点 2 つ（中と外 1 つずつ）を置くと `[("c03-legacy-location", Some("user:late")), ("c03-legacy-location", None), ("c03-timeline-route", Some("user:late")), ("c03-timeline-route", None)]`、`deletion::restore` の後は `locations=2` ですべて `None`。
+  同じ probe で、**後着の印（`user:late`）を戻す経路**も初めて観測した —— Scenario `滞在の削除を戻すと書庫の位置も戻る` の試験は、先に格納して後から消した（`user:cascade`）場合だけを戻している。
+- 影響: 経路の点は 1 本の移動に何十もの点を持ち、移行前の点は deep の見積もりで 8 年 約 117 万行と、書庫の位置の件数の大半を占める。並びを書き換える変更（ソースの改名・並びの整理）でこの 2 本が抜けても試験は止めず、消した場面の位置が書庫から生きた記録として入る（第 4 回 Q13 の loss: exported）。
+- kind: technical
+- 提案: `LOCATION_SOURCES` を spec の 7 本の文字列のリテラルと `assert_eq!` で比べる試験を置く。あわせて D22 の試験の材料に `timelinePath` の点と `Records.json` の点を足し（上の probe の形）、消した後に置いた書庫の位置を `deletion::restore` で戻す場合（`user:late`）も試験で固定する。
+
+## R80. 書庫の位置への印付けが落ち続けると、書庫は走査のたびに丸ごと読み直され続け、台帳にも画面にも何も出ない（箱は「書庫が置かれていない」と出す）
+- 成果物: `crates/server/src/archive/worker.rs:2093-2108`（`mark_archive_arrivals` が失敗したら `warn` を出して `return`。台帳も `record_store_failure` も書かない）/ `:128-163`（`record_store_failure`。3 回続いたら `store_failed` を 1 行書き、1 時間に 1 回へ落とす仕組みは格納の失敗にしか効かない）/ spec `external-ingestion`「格納に続けて失敗した書庫は台帳と画面に出る」
+- 根拠: 複製に probe を足した。滞在を消し、`LateMarkFault`（この利用者の `user:late` の台帳の行を拒む trigger）を入れたまま、`Timeline.json.zip` を置いて取り込み器（`scan_sec = 1`）を 15 秒動かした:
+  ```
+  PROBE fired=14 ledger=[] consecutive_failures=Some(0) live_hidden=(0, 5)
+  PROBE status={…,"latest_archive":null,"reading":null,"pending_shape":null,"inbox":{"capturable":true,"blockers":[],…}}
+  ```
+  15 秒で 14 回読み直し、そのたびに書庫を展開して全件を格納し直している（内容の鍵で行は増えない）。台帳は 0 行、`archive_sighting.consecutive_failures` は 0 のまま、`/archives/status` の `latest_archive` は `null`（画面の箱は「まだ書庫が置かれていません」と出す）。消した時間帯の 3 件は生きた記録のまま（`(hidden, live) = (0, 5)`）。
+  R72 の処置は「一時的な失敗なら次の走査で印が付く」を直したもので、試験 2 本（`…_after_a_failed_marking_…`）も trigger を 1 回で外している。**落ち続ける場合は誰も止めず、誰にも見えない**。
+- 影響: 本番の間隔は 120 秒なので、移行前のロケーション履歴（約 1 GB）のような書庫だと 2 分ごとに全件を読み直し続ける。そのあいだ消した場面の位置は生きた記録のまま読み出せ、本人には「置いていない」と見えるので気づけない。専用のフォルダの書庫は取り込み済みへ移らないまま残る。
+- kind: technical
+- 提案: 印付けの失敗も `record_store_failure` に数え、3 回続いたら `store_failed`（か印付けの失敗と分かる outcome）を台帳に 1 行書いて箱に出し、1 時間に 1 回へ落とす。試験は `LateMarkFault` を外さずに置いたまま、走査を 4 回以上回して台帳の行と `/archives/status` の `latest_archive.outcome` を見る。
+
+## R81. マイアクティビティの項目が位置（`locationInfos`）を持っていれば、消した滞在の時間帯でも座標を原文に持ったまま生きて入る。Q13 の「書庫が位置を入れるのは 7 本」はマイアクティビティの原文を確かめていない
+- 成果物: `openspec/changes/st12-archive-ingestion/deep.md:313-315`（Q13 の「事実」: 書庫が位置を入れるのは `c03-timeline-*` と `c03-legacy-*` の 7 本）/ spec `external-ingestion` の Q13 の Requirement / `crates/server/src/archive/mod.rs:19`（`LOCATION_SOURCES`）/ `crates/server/src/archive/worker.rs:728-743`（マイアクティビティの payload は `product` / `title` / `url` / `details` だけを持ち、原文はそのまま残す）
+- 根拠: 複製に probe を足した。滞在（03:00〜04:00Z）を消した後、`locationInfos` に `center=35.658,139.745` を持つマイアクティビティの項目（03:30Z・`products: ["検索"]`）を `requests_for_file` → `store_requests` → `mark_archive_arrivals` の順で格納した:
+  ```
+  PROBE myactivity: [("c03-myactivity-u1b6b1a6f8931", None, true, "{\"url\": …, \"title\": \"「ラーメン」を検索しました\", \"product\": \"検索\", …}")]
+  ```
+  `deleted_by` は `None`（生きた記録）、原文（`raw`）には座標の文字列が残る（`true`）。`mark_archive_arrivals` は `LOCATION_SOURCES` だけを見るので、位置を持つ項目でもマイアクティビティには印を付けない。
+  **Google の Takeout のマイアクティビティの JSON が項目ごとに `locationInfos`（地図の URL に中心の緯度経度）を持つことがある、というのは検証者の知識で、この repo の文書（deep / design / `reference`）にも試験の材料にも出てこない**（`grep -rn locationInfos` は 0 件）。実物の書庫ではまだ確かめていない（13.1 は未了）。
+- 影響: その欄が実物にあれば、本人が ST22 で消した場面の「この付近」の位置が、検索・マップ・アシスタントなどのマイアクティビティのソースから生きた記録として入り、読み出しと書き出しへ流れる（Q13 が避けた loss: exported と同じ型）。ソースの名前は形の確認の印で凍結されるので、後からソースを並びに足すことはできるが、それまでに出た分は戻らない。
+- kind: premise
+- 提案: 13.1（本物の Takeout を置く）の見るものに「マイアクティビティの項目に `locationInfos` があるか」を足し、`tools/archive-shape.sh` の形の出力（欄の名前）でも分かるようにする。あれば、どこまでを「書庫の位置」とするか（マイアクティビティの項目ごと印を付けるか）を deep の問い（loss: exported）として本人へ返す。
+- 処置: escalated — `deep.md` 第 5 回 Q14（premise / loss: exported）。問いは `deep-questions-r5.json` / `docs/briefs/ST12-deep-r5.html`。Takeout の中身は形の確認の印まで入らない（第 2 回 Q10）ので、答えまでに外へ出るものは無い
+
+## 手ごとの結果
+
+- **手 1（固定値を独立に再計算する）**: R76 で足した移行前の区間の固定のミリ秒 4 組を python で時刻に直し、コメントの主張（始まりは前・終わりが触れる / 中で終わる / 外）と一致した。この差分にハッシュの直書きは無い。
+- **手 2（守りをわざと壊す）**: 重なりの判定（端が触れる）と 1 ms の余白は、外すと落ちる試験がある（M2 で 6 本・M3 で 1 本）。**位置のソースの並びは 2 本外しても全部緑**（R79）。`tools/archive-shape.sh` の psql の回り道は、`psql` の無いこの機械で一覧（rc=0）と smoke の `--confirm`（rc=0）が通り、接続先を stderr に出す。
+- **手 3（Scenario と試験を突き合わせる）**: rc=0。Q13 の 5 本を 1 本ずつ読んだ。`書庫の位置の印は滞在の作り直しを待たずに付く` は `stay_criteria` の行と `rebuild:` の印が 0 であることまで見ていて主張と合う。**`滞在の削除を戻すと書庫の位置も戻る` は WHEN が「書庫の位置に削除済みの印が付いた後」で後着の印（`user:late`）も含むのに、試験は連鎖の印（`user:cascade`）だけを戻している**（実装は probe で戻ることを確かめた。R79 に含めた）。
+- **手 4（本人の決定を試験が固定しているか）**: 第 4 回 Q13 の「捨てずに印を付けて入れる」は件数 `(hidden, live) = (3, 2)` の assert が、「後から消したときも印を付ける」は `archive_erased_cascade_*` が、D22 の C（端が触れるだけでも印）は M2 で落ちることを確かめた。**spec が名指しする 7 本の並びは、値を変えても全部通る**（`c03-timeline-route` / `c03-legacy-location`。R79）。
+- **手 5（tasks の `[x]` と実体）**: 14.1〜14.3 の検証はすべて実在し rc=0（`CT` は 4 本・2 本、`-- --list` で数えた `archive_erased` は 7 本）。12.4 / 12.5 も rc=0。第 3 回で見た 0.1〜12.5 は、その後にコードが触っていない範囲なので繰り返していない。
+- **手 6（隙間）**: 「捨てたもの・外へ出たものは戻らない」型は 2 件: R80（印付けが落ち続けると消した場面の位置が生きたまま、画面は「置いていない」）と R81（位置を持つマイアクティビティの項目が印の対象の外。前提は実物で未確認）。
+  確かめて隙間でなかったもの: (1) 格納の途中で落ちた書庫を読み直すとき、前回に入った行は `Duplicate` になるが、`stored_requests` は結果を問わず全要求を持つので範囲に入り印が付く（`worker.rs:2059`）。(2) 消すときと書庫の印付けは同じ利用者の助言の錠（`LOCK_KEY`）を取るので、格納の commit が消す transaction の途中に挟まっても、印付けは消す側の commit を待ってから見る。(3) 戻した日の作り直しは、戻した滞在の最後の台帳の行が `restore` なので書庫の位置に印を付け直さない。
