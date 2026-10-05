@@ -1718,11 +1718,13 @@ async fn archive_flow_confirming_a_shape_ingests_a_takeout_archive() {
             || async { inbox.events("c03-myactivity-discover").await == 1 },
         )
         .await;
-    assert_eq!(
-        inbox.ledger_rows("read").await,
-        1,
-        "印を置いた後の読み直しが台帳に 1 行足していない"
-    );
+    // 台帳の行は格納の後に入るので、イベントが見えた直後には無いことがある。待つ。
+    inbox
+        .until(
+            "印を置いた後の読み直しが台帳に 1 行足していない",
+            || async { inbox.ledger_rows("read").await == 1 },
+        )
+        .await;
     inbox
         .until(
             "格納した後も確認待ちの待ち行列に残っている",
