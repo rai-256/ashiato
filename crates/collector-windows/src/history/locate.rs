@@ -21,6 +21,24 @@ impl Browser {
         Self::Opera,
         Self::Firefox,
     ];
+    /// 記録の `browser`（design D4）。
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Chrome => "chrome",
+            Self::Edge => "edge",
+            Self::Brave => "brave",
+            Self::Vivaldi => "vivaldi",
+            Self::Opera => "opera",
+            Self::Firefox => "firefox",
+        }
+    }
+    /// 記録の `family`。履歴 DB の形がどちらか。
+    pub fn family(self) -> &'static str {
+        match self {
+            Self::Firefox => "firefox",
+            _ => "chromium",
+        }
+    }
     pub fn base(self, local: &Path, roaming: &Path) -> PathBuf {
         match self {
             Self::Chrome => local.join("Google/Chrome/User Data"),
