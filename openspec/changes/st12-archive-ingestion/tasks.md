@@ -240,13 +240,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 17: 16. 位置を持つ YouTube の履歴の項目と滞在の削除（design D22-d / 第 6 回 Q15）
 
-- [ ] 16.1 書庫 1 冊の格納の直後の印付け（`stay_store::mark_archive_arrivals`）の対象を、`c03-myactivity-` の接頭辞から「位置の 7 本以外で書庫が項目を入れる論理ソース」（`c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history` を含む）へ広げる。判定は `carries_location`（欄の有無。payload と内容の鍵は変えない）。
+- [x] 16.1 書庫 1 冊の格納の直後の印付け（`stay_store::mark_archive_arrivals`）の対象を、`c03-myactivity-` の接頭辞から「位置の 7 本以外で書庫が項目を入れる論理ソース」（`c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history` を含む）へ広げる。判定は `carries_location`（欄の有無。payload と内容の鍵は変えない）。
   Scenario: `消した滞在の時間帯の位置を持つ YouTube の履歴の項目は削除済みになる` / `位置を持たない YouTube の履歴の項目は消した時間帯でも生きた記録として入る`。
   検証: `CT archive_erased_youtube_window`（滞在を消してから、同じ時間帯の時刻で `locationInfos` を持つ項目と持たない項目を 1 件ずつ含む合成の YouTube の視聴の書庫と検索の書庫を形の確認の印を置いて格納する。前者は `deleted_by = 'user:late'` と台帳の `erase` 行、後者は生きた行のままであることを見る）
-- [ ] 16.2 `deletion::erase` の位置の連鎖・`stay_store::mark_late_arrivals` のソースの集合と、SQL の判定（`myactivity_located_sql`）を同じ範囲に広げる。`deletion::restore` で一緒に戻ることを試験で固定する。Rust と SQL の判定の一致の試験（`archive_myactivity_location_rust_and_sql_agree`）に YouTube の論理ソースの入力を足す。滞在の判定（`Criteria::sources`）は変えない。
+- [x] 16.2 `deletion::erase` の位置の連鎖・`stay_store::mark_late_arrivals` のソースの集合と、SQL の判定（`myactivity_located_sql`）を同じ範囲に広げる。`deletion::restore` で一緒に戻ることを試験で固定する。Rust と SQL の判定の一致の試験（`archive_myactivity_location_rust_and_sql_agree`）に YouTube の論理ソースの入力を足す。滞在の判定（`Criteria::sources`）は変えない。
   Scenario: `滞在を消すとその時間帯の位置を持つ YouTube の履歴の項目も削除済みになる` / `滞在の削除を戻すと位置を持つ YouTube の履歴の項目も戻る`。
   検証: `CT archive_erased_youtube_cascade`（位置を持つ項目と持たない項目を格納した後に滞在を消し、前者だけに `user:cascade` の印と台帳の行が付くこと / 戻して生きた行に戻ること）、`CT archive_myactivity_location_rust_and_sql_agree`
-- [ ] 16.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+- [x] 16.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
   `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0
 
 ## 人間の確認待ち
