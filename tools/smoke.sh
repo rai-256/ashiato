@@ -958,6 +958,9 @@ history_after_raw=$(psql -c "SELECT raw FROM core.event
   WHERE logical_source='c02-browser-history'
     AND external_id='v1:visit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';")
 [ "$history_before_raw" = "$history_after_raw" ] || { echo "消えた記録で元の訪問の原文が変わった"; exit 1; }
+vanished_rows=$(psql -c "SELECT count(*) FROM core.event
+  WHERE logical_source='c02-browser-history' AND payload->>'kind'='vanished';")
+[ "$vanished_rows" = "1" ] || { echo "消えた記録が 1 件入っていない: $vanished_rows"; exit 1; }
 
 # Scenario: ブラウザ履歴の記録も既定の感度で格納される
 echo "== ST08. 履歴の記録は既定の感度で格納する"

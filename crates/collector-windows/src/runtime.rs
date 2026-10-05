@@ -1797,6 +1797,15 @@ mod tests {
         gate: Option<Mutex<mpsc::Receiver<()>>>,
         visits: Mutex<Vec<ReadVisit>>,
         reads: Mutex<usize>,
+        /// 次の読みで、プロファイルが読めない / ディレクトリごと無い、を再現する
+        profile: Mutex<ProfileState>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum ProfileState {
+        Readable,
+        Unreadable,
+        Gone,
     }
 
     impl FakeReader {
@@ -1805,6 +1814,7 @@ mod tests {
                 gate: None,
                 visits: Mutex::new(visits),
                 reads: Mutex::new(0),
+                profile: Mutex::new(ProfileState::Readable),
             })
         }
 
@@ -1814,6 +1824,7 @@ mod tests {
                 gate: Some(Mutex::new(rx)),
                 visits: Mutex::new(visits),
                 reads: Mutex::new(0),
+                profile: Mutex::new(ProfileState::Readable),
             });
             (reader, tx)
         }
@@ -1829,11 +1840,18 @@ mod tests {
                 gate.lock().unwrap().recv().ok();
             }
             *self.reads.lock().unwrap() += 1;
+            let visits = match *self.profile.lock().unwrap() {
+                ProfileState::Gone => {
+                    return Ok(ReadOutcome::default());
+                }
+                ProfileState::Unreadable => Err(anyhow::anyhow!("履歴 DB を開けない")),
+                ProfileState::Readable => Ok(self.visits.lock().unwrap().clone()),
+            };
             Ok(ReadOutcome {
                 profiles: vec![ProfileRead {
                     browser: Browser::Chrome,
                     directory: "Default".into(),
-                    visits: Ok(self.visits.lock().unwrap().clone()),
+                    visits,
                 }],
                 names: Vec::new(),
             })
@@ -2041,6 +2059,195 @@ mod tests {
             history_urls(&transport),
             vec!["https://example.test/1", "https://example.test/2"]
         );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    fn vanished_records(t: &AcceptAll) -> Vec<serde_json::Value> {
+        history_records(t)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "vanished")
+            .collect()
+    }
+
+    fn visit_id_of(t: &AcceptAll, url: &str) -> String {
+        history_records(t)
+            .iter()
+            .find(|r| r["payload"]["url"] == url)
+            .unwrap()["external_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// 1 回目に `first` を取り、1 日後に `second` を取って、2 回目までに積まれた `vanished` を返す。
+    fn fetch_then_change(
+        first: Vec<ReadVisit>,
+        change: impl FnOnce(&FakeReader),
+    ) -> (AcceptAll, Vec<serde_json::Value>) {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(first);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        change(&reader);
+        tick_until_read_again(
+            &mut rt,
+            &mut src,
+            &reader,
+            Duration::hours(24).num_seconds(),
+        );
+        rt.send();
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+        let vanished = vanished_records(&transport);
+        (transport, vanished)
+    }
+
+    /// Scenario: 履歴から 1 件消すと次の取得で「消えた」記録が残る
+    #[test]
+    fn history_vanished_is_recorded_after_next_fetch() {
+        let (transport, vanished) =
+            fetch_then_change(vec![read_visit(1, "a"), read_visit(2, "b")], |r| {
+                r.visits.lock().unwrap().retain(|v| v.id != 2);
+            });
+        assert_eq!(vanished.len(), 1);
+        let gone = visit_id_of(&transport, "https://example.test/2");
+        assert_eq!(vanished[0]["payload"]["vanished"][0]["external_id"], gone);
+        assert_eq!(
+            vanished[0]["payload"]["vanished"].as_array().unwrap().len(),
+            1
+        );
+    }
+
+    /// Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
+    #[test]
+    fn history_vanished_has_age_days_over_90() {
+        let mut old = read_visit(1, "古い");
+        old.at = t(0) - Duration::days(100);
+        let (_, vanished) = fetch_then_change(vec![old], |r| r.visits.lock().unwrap().clear());
+        let age = vanished[0]["payload"]["vanished"][0]["age_days"]
+            .as_i64()
+            .unwrap();
+        assert!(age > 90, "age_days = {age}");
+    }
+
+    /// Scenario: 同期で入った訪問が消えたことが本文にある
+    #[test]
+    fn history_vanished_marks_foreign_visit() {
+        let mut synced = read_visit(1, "他の端末");
+        synced.originator_cache_guid = Some("other-device".into());
+        let (_, vanished) = fetch_then_change(vec![synced, read_visit(2, "ここ")], |r| {
+            r.visits.lock().unwrap().clear();
+            r.visits.lock().unwrap().push(read_visit(2, "ここ"));
+        });
+        assert_eq!(vanished[0]["payload"]["vanished"][0]["foreign"], true);
+    }
+
+    /// Scenario: 表が作り直されたことが本文にある
+    #[test]
+    fn history_vanished_marks_recreated_table() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(5, "a"), read_visit(6, "b")], |r| {
+            *r.visits.lock().unwrap() = vec![read_visit(1, "作り直した後")];
+        });
+        let items = vanished[0]["payload"]["vanished"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|i| i["table_recreated"] == true));
+        assert!(items.iter().all(|i| i["profile_gone"] == false));
+    }
+
+    /// Scenario: プロファイルが無くなったことが本文にある
+    #[test]
+    fn history_vanished_marks_gone_profile() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Gone;
+        });
+        assert_eq!(vanished.len(), 1);
+        let item = &vanished[0]["payload"]["vanished"][0];
+        assert_eq!(item["profile_gone"], true);
+        assert_eq!(item["table_recreated"], false);
+    }
+
+    /// Scenario: 消えた経路を名指しする値を持たない
+    /// Scenario: 消えた記録に URL と題名が載らない
+    #[test]
+    fn history_vanished_has_no_named_cause_url_or_title() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "秘密の題名")], |r| {
+            r.visits.lock().unwrap().clear();
+        });
+        assert_eq!(vanished.len(), 1);
+        let keys: Vec<_> = vanished[0]["payload"]["vanished"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        let mut keys = keys;
+        keys.sort();
+        assert_eq!(
+            keys,
+            [
+                "age_days",
+                "external_id",
+                "foreign",
+                "profile_gone",
+                "table_recreated"
+            ]
+        );
+        let body = vanished[0].to_string();
+        assert!(!body.contains("example.test") && !body.contains("秘密の題名"));
+        assert!(!body.contains("deleted") && !body.contains("expired"));
+    }
+
+    /// Scenario: 読めなかったプロファイルでは消えた記録を出さない
+    #[test]
+    fn history_vanished_skips_unreadable_profile_at_runtime() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Unreadable;
+        });
+        assert!(vanished.is_empty());
+    }
+
+    /// Scenario: 取得をやり直しても「消えた」記録は増えない
+    #[test]
+    fn history_vanished_is_idempotent_on_retry_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let ledger = cfg.state_dir.join("browser-history/chrome/Default.ledger");
+        let before = std::fs::read(&ledger).unwrap();
+
+        reader.visits.lock().unwrap().clear();
+        let day = Duration::hours(24).num_seconds();
+        tick_until_read_again(&mut rt, &mut src, &reader, day);
+        rt.send();
+        drop(rt);
+        // 積んだ後・取得の成功を書く前に止まった（帳面は前のまま）。起動し直して、少し後にやり直す
+        std::fs::write(&ledger, before).unwrap();
+        std::fs::remove_file(cfg.state_dir.join("browser-history/last_success.json")).unwrap();
+        let mut again = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let before_reads = reader.reads();
+        for sec in day + 1000..day + 3000 {
+            again.tick_at(&mut src, t(sec), t(sec));
+            if reader.reads() > before_reads && !again.history.as_ref().unwrap().is_reading() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        again.send();
+        let mut ids: Vec<_> = vanished_records(&transport)
+            .iter()
+            .map(|r| r["external_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids.len(), 2, "やり直しで積み直した");
+        ids.dedup();
+        assert_eq!(ids.len(), 1, "同じ事実が別の識別子になった");
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
