@@ -169,13 +169,25 @@ pub fn apply_history_exclusions(
 ) -> (Vec<Visit>, Vec<String>) {
     let mut kept = Vec::new();
     let mut newly_excluded = Vec::new();
-    for visit in visits {
-        let excluded = exclusions.hits_history(
-            visit.payload.browser,
-            visit.payload.profile_dir.as_deref().unwrap_or_default(),
-            visit.payload.title.as_deref().unwrap_or_default(),
-            visit.payload.url.as_deref().unwrap_or_default(),
-        );
+    // URL の行を失った訪問は URL と題名で当たらなくなる。同じ組の訪問を除外していたなら、除外を引き継ぐ
+    // （除外した訪問の時刻・滞在時間を、識別子が変わったことで送らない。deep.md 第 4 回 Q8 / D11）
+    let excluded_slots: std::collections::BTreeSet<&String> = ledger
+        .visits
+        .values()
+        .filter(|saved| saved.excluded)
+        .filter_map(|saved| saved.slot.as_ref())
+        .collect();
+    let inherits =
+        |visit: &Visit| visit.payload.url.is_none() && excluded_slots.contains(&slot(visit));
+    let inherited: Vec<bool> = visits.iter().map(inherits).collect();
+    for (visit, inherited) in visits.iter().zip(inherited) {
+        let excluded = inherited
+            || exclusions.hits_history(
+                visit.payload.browser,
+                visit.payload.profile_dir.as_deref().unwrap_or_default(),
+                visit.payload.title.as_deref().unwrap_or_default(),
+                visit.payload.url.as_deref().unwrap_or_default(),
+            );
         if excluded {
             let was_excluded = ledger
                 .visits
