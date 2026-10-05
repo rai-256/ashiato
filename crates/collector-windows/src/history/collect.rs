@@ -120,15 +120,44 @@ impl HistoryReader for FsHistoryReader {
     }
 
     fn profile_dir_absent(&self, browser: Browser, directory: &str) -> bool {
-        let base = browser.base(&self.local, &self.roaming);
-        // 置き場そのものが読めないときは、無いとは言えない
-        if std::fs::read_dir(&base).is_err() {
+        // 探す先の根が無いときは、無いとは言えない（環境が違う）
+        if ![&self.local, &self.roaming]
+            .iter()
+            .all(|root| matches!(root.try_exists(), Ok(true)))
+        {
             return false;
         }
-        let parents = [base.clone(), base.join("_side_profiles")];
+        // 見つけるときと同じ置き場を候補にする（R71）。置き場ごと無いときは、どの候補も無い
+        let base = browser.base(&self.local, &self.roaming);
+        let mut candidates = vec![base.join(directory)];
+        match browser {
+            // Opera の主プロファイルは置き場の直下を `Default` と読む
+            Browser::Opera => {
+                candidates.push(base.join("_side_profiles").join(directory));
+                if directory == "Default" {
+                    candidates.push(base.clone());
+                }
+            }
+            // ini に絶対パスで書かれたプロファイルは置き場の外にある
+            Browser::Firefox => {
+                let ini = self.roaming.join("Mozilla/Firefox/profiles.ini");
+                match std::fs::read_to_string(&ini) {
+                    Ok(text) => candidates.extend(
+                        locate::ini_profile_dirs(&ini, &text)
+                            .into_iter()
+                            .filter(|d| d.file_name() == Some(std::ffi::OsStr::new(directory))),
+                    ),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    // 読めない ini では確かめられない
+                    Err(_) => return false,
+                }
+            }
+            _ => {}
+        }
         // 在るかどうか確かめられないときは「在る」と読む
-        let dir_exists = |parent: &PathBuf| parent.join(directory).try_exists().unwrap_or(true);
-        !parents.iter().any(dir_exists)
+        !candidates
+            .iter()
+            .any(|dir| dir.try_exists().unwrap_or(true))
     }
 }
 
@@ -578,6 +607,118 @@ mod tests {
         // 写しは tmp の下に作られた（ディレクトリができている）が、中身は残らない
         assert!(tmp.is_dir(), "写しを置き場の tmp の下に作っていない");
         assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+    }
+
+    /// 除外の登録が読めないときは、空の登録で送らない —— 訪問を 1 件も積まず、取得は失敗（D11。R72）。
+    #[test]
+    fn history_exclusion_broken_registration_sends_nothing() {
+        let fx = Fixture::new("INSERT INTO visits VALUES(1,1,13402627200000000,0,1);");
+        std::fs::create_dir_all(fx.state()).unwrap();
+        std::fs::write(
+            fx.state().join("exclusions.json"),
+            r#"[{"kind":"no-such-kind","value":"x"}]"#,
+        )
+        .unwrap();
+        let mut collector = fx.collector();
+        let (result, queued) = fetch(&mut collector, Utc::now());
+        assert!(result.is_err(), "壊れた登録で取得を成功にした");
+        assert!(queued.is_empty(), "壊れた登録で積んだ: {}", queued.len());
+        assert_eq!(collector.schedule.last_success(), None);
+    }
+
+    /// 読めないプロファイルが 1 つでもあれば、取得は成功にならず前回の成功も進まない（design D3。R72）。
+    #[test]
+    fn history_unreadable_profile_does_not_advance_success() {
+        let fx = Fixture::new("INSERT INTO visits VALUES(1,1,13402627200000000,0,1);");
+        let other = fx.root.join("local/Google/Chrome/User Data/Profile 2");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("History"), b"not a sqlite file").unwrap();
+        let mut collector = fx.collector();
+        let (result, _) = fetch(&mut collector, Utc::now());
+        assert!(result.is_err(), "読めないプロファイルがあるのに成功にした");
+        assert_eq!(collector.schedule.last_success(), None);
+        assert!(!fx
+            .state()
+            .join("browser-history/last_success.json")
+            .exists());
+    }
+
+    fn reader(root: &Path) -> FsHistoryReader {
+        FsHistoryReader::new(root.join("local"), root.join("roaming"))
+    }
+
+    fn temp_root() -> PathBuf {
+        let root = std::env::temp_dir().join(format!("ashiato-absent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::create_dir_all(root.join("roaming")).unwrap();
+        root
+    }
+
+    /// Opera の主プロファイル（置き場の直下を `Default` と読む）は、置き場が在れば無くなっていない（R71）。
+    #[test]
+    fn history_vanished_opera_main_profile_is_its_place() {
+        let root = temp_root();
+        let r = reader(&root);
+        let opera = Browser::Opera.base(&root.join("local"), &root.join("roaming"));
+        std::fs::create_dir_all(&opera).unwrap();
+        assert!(!r.profile_dir_absent(Browser::Opera, "Default"));
+        std::fs::remove_dir_all(&opera).unwrap();
+        assert!(r.profile_dir_absent(Browser::Opera, "Default"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// Firefox の ini に絶対パスで書かれたプロファイルは、そのパスで確かめる（R71）。
+    #[test]
+    fn history_vanished_firefox_absolute_profile_is_checked_at_its_path() {
+        let root = temp_root();
+        let r = reader(&root);
+        let elsewhere = root.join("D/ffprof.work");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::create_dir_all(root.join("roaming/Mozilla/Firefox/Profiles")).unwrap();
+        std::fs::write(
+            root.join("roaming/Mozilla/Firefox/profiles.ini"),
+            format!(
+                "[Profile0]\nName=work\nIsRelative=0\nPath={}\n",
+                elsewhere.display()
+            ),
+        )
+        .unwrap();
+        assert!(!r.profile_dir_absent(Browser::Firefox, "ffprof.work"));
+        std::fs::remove_dir_all(&elsewhere).unwrap();
+        assert!(r.profile_dir_absent(Browser::Firefox, "ffprof.work"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 置き場ごと消えた（データも消すアンインストール）ら無くなった。探す先の根が無いときは、無いとは言えない（R71）。
+    #[test]
+    fn history_vanished_whole_place_removed_is_gone() {
+        let root = temp_root();
+        let r = reader(&root);
+        let base = Browser::Chrome.base(&root.join("local"), &root.join("roaming"));
+        std::fs::create_dir_all(base.join("Default")).unwrap();
+        assert!(!r.profile_dir_absent(Browser::Chrome, "Default"));
+        std::fs::remove_dir_all(&base).unwrap();
+        assert!(r.profile_dir_absent(Browser::Chrome, "Default"));
+        std::fs::remove_dir_all(root.join("local")).unwrap();
+        assert!(
+            !r.profile_dir_absent(Browser::Chrome, "Default"),
+            "探す先の根が無いのに無くなったとした"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 在るかどうか確かめられないときは「在る」と読む（R72）。
+    /// 置き場がファイルだと、その下を確かめる問い合わせが「無い」でなく失敗を返す（Linux の ENOTDIR）。
+    #[cfg(unix)]
+    #[test]
+    fn history_vanished_unknown_existence_is_present() {
+        let root = temp_root();
+        let r = reader(&root);
+        let base = Browser::Chrome.base(&root.join("local"), &root.join("roaming"));
+        std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+        std::fs::write(&base, b"").unwrap();
+        assert!(!r.profile_dir_absent(Browser::Chrome, "Default"));
+        std::fs::remove_dir_all(root).ok();
     }
 
     /// 壊れた帳面の退避は、件数だけログへ渡る（R63）。

@@ -338,3 +338,31 @@ Q8 [URL の行が見つからない訪問を、捨てるか・URL 無しで入�
 ### 第 4 回の「当初案を覆したもの」
 
 なし（2 問とも推奨どおり）。実装（R55・R26 の箇所）は答えに合わせて作り直す —— Task 3 からの回し直しに入る。
+
+---
+
+## 第 5 回（code-verify 3 回目が見つけた A。未回答）
+
+`review/code.md` の R68・R70 が `loss: uncaptured` を持つ。問いは `deep-questions-r5.json` → `docs/briefs/ST08-deep-r5.html`。
+同じ回の R69・R71・R72・R73 は失うものが無いので `/story ST08 finish` で直した（R69 は design D3 の（仮））。
+
+### Q9. 初回の大きな取り込みの間、見回り（前景の観測）を止めてよいか（A / irreversible / loss: uncaptured）
+
+- **なぜ人間の判断か**: 読みは別スレッドだが、読み終えた訪問を未送信に積むのは見回りのスレッドで、1 件ごとに追記と同期をする。
+  Windows 実機で 15 万件を積むと見回りが 148 秒止まり、その間の前景の変化は取れず、`c02-window` に事実でない「眠っていた」（`suspended`）が入る（R68 の実測）。
+  収集した記録は書き換えられないので、偽の区間は残り、止まっていた間の前景は後から取れない
+- **出所**: `review/code.md` の `R68`（`crates/collector-windows/src/history/collect.rs` の `apply` → `runtime.rs` の `maybe_history` → `outbox.rs` の `add`）
+- **推奨**: 1 回の取得の分をまとめて追記し、同期は 1 回にする。それでも見回り 1 回で積む件数に上限を置き、残りは次の見回りへ回す（見回りは止まらない）
+- **本人の答え**: (未回答)
+- **効く先**: design D3（「見回りを止めない」）、spec の「履歴の取得でウィンドウのソースの記録は増えない」
+- **何が変わるか**: 推奨なら、未送信の置き場にまとめて積む口を足し、Runtime の層で「15 万件を積む間も `c02-window` に `suspended` が入らない」を固定する
+
+### Q10. 読めたのに積めない取得が続く間、履歴の生存信号を「取得できる」にしてよいか（A / irreversible / loss: uncaptured）
+
+- **なぜ人間の判断か**: 生存信号は「写しが読めたか」しか数えないので、除外の登録が壊れる・帳面や未送信の置き場に書けない、で積み込みが毎回失敗しても `capturable=true` を出し続ける
+  （R70 の実測: 3 日で送った訪問 0 件・信号 4 回とも `capturable=true`）。気づく経路が無く、Chromium は 90 日を過ぎた訪問を手元から消すので、その間の訪問は後から取れない
+- **出所**: `review/code.md` の `R70`（`history/collect.rs` の `tick` / `apply`、`runtime.rs` の `HistoryBeat::record`）
+- **推奨**: 積み込みの失敗も「取得できない」に数え、`blockers` に種別だけ（`history-not-queued`。URL・パスは載せない）を載せる。既定は厳しい側（第 1 回 Q1 の「1 つでも読めなければ取得できない」と同じ向き）
+- **本人の答え**: (未回答)
+- **効く先**: design D12、spec の生存信号の Requirement（`blockers` の語彙が 1 つ増える）
+- **何が変わるか**: 推奨なら、取得の結果（積めたか）を生存信号の数えに渡し、Runtime の層で「壊れた除外の登録の間は `capturable=false`」を固定する

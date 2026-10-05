@@ -92,11 +92,14 @@ impl Sender {
         if retry_all {
             self.skipped.clear();
         }
-        let batch: Vec<&T> = if retry_all {
-            pending.iter().take(MAX_BATCH).collect()
+        let mut candidates: Vec<&T> = if retry_all {
+            pending.iter().collect()
         } else {
-            fresh.into_iter().take(MAX_BATCH).collect()
+            fresh
         };
+        // 後回しにするもの（履歴）は、そうでないものの後ろへ。どちらの中でも積んだ順のまま（R69）
+        candidates.sort_by_key(|i| i.sends_late());
+        let batch: Vec<&T> = candidates.into_iter().take(MAX_BATCH).collect();
         if batch.is_empty() {
             return Ok(Flushed {
                 sent: 0,
@@ -449,6 +452,34 @@ mod tests {
         let f = s.flush(&mut o, &t, &mut log).unwrap();
         assert_eq!(f.sent, MAX_BATCH);
         assert_eq!(o.len(), 50);
+    }
+
+    /// 履歴の大きな取り込みの後ろに積んだウィンドウの記録が、次の 1 回で出る（R69。design D3（仮））。
+    #[test]
+    fn history_backlog_does_not_hold_back_window_records() {
+        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        for n in 0..(MAX_BATCH as u32 * 3) {
+            let mut r = req(n);
+            r.logical_source = crate::history::contract::LOGICAL_SOURCE.to_string();
+            o.add(r).unwrap();
+        }
+        let window = req(9999);
+        o.add(window.clone()).unwrap();
+        let t = FakeTransport::with(vec![ok_reply(&[true; MAX_BATCH])]);
+        let mut s = Sender::ingest();
+        let mut log = |_: String| {};
+        let f = s.flush(&mut o, &t, &mut log).unwrap();
+        assert_eq!(f.sent, MAX_BATCH);
+        assert!(
+            !o.snapshot().iter().any(|i| i.id == window.id),
+            "ウィンドウの記録が履歴の後ろで待っている"
+        );
+        // 履歴どうしは積んだ順のまま（先頭の MAX_BATCH - 1 件が出て、残りは後ろから）
+        assert_eq!(o.len(), MAX_BATCH * 2 + 1);
+        assert_eq!(
+            o.snapshot()[0].event_time,
+            req(MAX_BATCH as u32 - 1).event_time
+        );
     }
 
     /// 1 回だけ応答する本物の HTTP の相手。受け取った要求の頭と本文を返す。

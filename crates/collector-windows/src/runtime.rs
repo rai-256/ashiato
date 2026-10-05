@@ -2036,6 +2036,18 @@ mod tests {
         .with_history(reader)
     }
 
+    /// 起動の経路（`with_history`）で、前のプロセスが残した写しが消える（design D2。R60 / R72）。
+    #[test]
+    fn history_copy_leftovers_are_swept_at_startup() {
+        let cfg = cfg();
+        let tmp = cfg.state_dir.join("browser-history/tmp");
+        std::fs::create_dir_all(tmp.join("left-over")).unwrap();
+        std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let _rt = history_runtime(&cfg, &transport, &reference, FakeReader::new(Vec::new()));
+        assert!(!tmp.join("left-over").exists(), "起動時に写しを掃除しない");
+    }
+
     fn write_last_success(cfg: &Config, at: DateTime<Utc>) {
         let path = cfg.state_dir.join("browser-history/last_success.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

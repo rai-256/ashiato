@@ -1059,3 +1059,199 @@ HEAD の複製で 1 つずつ書き換えて `cargo test -p ashiato-collector-wi
 - 成果物: crates/collector-windows/src/history/read.rs（`CLEANUP_FAILURES`、`collect_rows`）
 - 根拠: 並んで走るテストで `history_bad_row_does_not_fail_the_profile` の `take_log_counts()` に別のテストの後始末の失敗が混ざりうる。`InvalidColumnIndex` などのコードの誤りも黙って飛ぶ
 - kind: technical
+
+## code-verify（3 回目。HEAD `291b271`）
+
+対象: worktree `/home/yosis/dev/ashiato2-st08`（`feat/st08-browser-history` / HEAD `291b271`）。作業ツリーは検証の前後とも clean（`git status --short` が空）。
+DB: `docker compose up -d --wait db` ＋ `tools/db-roles.sh`（smoke の後始末で止まったので、移行の変異の前に起こし直した。終わりに `stop`）。
+ガードの変異・一時テストは **HEAD を `git archive HEAD` で書き出した複製**（`/home/yosis/dev/.st08-verify3`）で走らせ、1 件ごとに原状へ戻した。複製は検証の後に消した。
+Windows の実測は、この PC の Windows 側の cargo（msvc）で、作業ツリーを `C:\dev\ashiato2-rt-st08cv3` に同期して走らせた（検証の後に消した）。
+
+### 申告と実測
+
+申告: tasks.md は `- [x]` 36 件 / `- [ ]` 2 件（10.1・10.2）。`review_triage.py` は指摘 97 件すべてに処置あり。
+
+| 走らせたもの | 実測 | 申告との一致 |
+|---|---|---|
+| `cargo test --workspace`（.env を読み込んで） | rc=0（collector lib 197 本 / server 409 本 + 7 本。`runtime_windows` は Linux では 0 本） | 一致 |
+| `cargo clippy --workspace --all-targets -- -D warnings` / `cargo fmt --all --check`（11.6） | rc=0 / rc=0 | 一致 |
+| `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings`（1.2） | rc=0 | 一致 |
+| `openspec validate st08-browser-history --strict`（11.1） | rc=0 | 一致 |
+| `python3 scripts/check_scenarios.py .` / `… . st08-browser-history`（11.2） | rc=0 / rc=0（642/642。delta は `#### Scenario:` 75 本） | 一致。中身は手 3 |
+| `python3 scripts/check_chain.py .`（11.3） | rc=0 | 一致 |
+| `python3 scripts/review_triage.py . st08-browser-history`（11.4） | rc=0（`指摘 97 件 / 仮決め 3 件`） | 一致 |
+| `tools/smoke.sh`（5.3 / 5.5 / 6.3 / 9.1 / 10.3 / 11.5） | rc=0（ST08 の 8 節とも通る。うち 3 節は本物の `Runtime` と読み手で psql まで） | 一致（手組み JSON の時刻は R73） |
+| `tools/check-immutable.sh` / `check-migrations.sh` / `check-licenses.sh`（11.5） | rc=0 / rc=0 / rc=0（Rust 315 件・Node 257 件。Android は「対象外」と明示） | 一致 |
+| tasks に名前のある `cargo test <名前> -- --list` 36 種（collector 34・server 2） | すべて 1 本以上。下限のあるもの: `history_heartbeat` 10（≥5）/ `history_vanished` 22（≥7）/ `history_exclusion` 14（≥7）/ `history_locate` 6（≥3）/ `history_schedule` 10（≥3）/ `browser_history_update` 5。`window_request_body_is_unchanged` は 1 本（前回 R4 の 0 本は解消） | 一致 |
+| 3.3 の grep（`c02-browser-history` / `v1:` / `source_updated_at`） | 1 / 1 / 3 | 一致 |
+| 7.1 の grep（README の `url-contains` / `browser-profile`） | 2 / 2 | 一致 |
+| 10.4 `git diff main...HEAD -- .github/workflows/ci.yml` | 下限 `-lt 7` → `-lt 10`、Chrome / Firefox の choco 導入 | 前半は一致。**「job が緑」は未確認**: `origin/feat/st08-browser-history` は `6768425` のままで 37 commit が未 push（R61 で rejected 済み。状態は同じなので新しい R にしない） |
+| 10.1 / 10.2（`[ ]`）を Windows 実機で: `cargo test -p ashiato-collector-windows --test runtime_windows browser_history -- --test-threads=1` | `browser_history_while_running` ok / `browser_history_chrome` ok / `browser_history_firefox` FAILED（この PC に Firefox が無い。`runtime_windows.rs:1067` の `expect`） | 申告なし（`[ ]`）。Edge・Chrome は**動いているブラウザの履歴を本物の読み手で取れる**ことを確かめた。Firefox は手元では確かめられない |
+| 固定値の独立再計算（python `hashlib` / `datetime`） | 識別子 5 つ・時刻 2 つが一致 / smoke の手組み JSON の時刻 2 つが不一致 | 手 1・R73 |
+| ガードの変異 23 件（collector 22 ＋ 移行 1） | 19 件はどれかのテストが落ちる / **4 件は 197 本全部緑** | 手 2・R72 |
+| 初回の大きな取り込み（Windows 実機・実時計の `Runtime::tick`） | 10 万件で見回りが 107 秒止まる / **15 万件で 148 秒止まり、`c02-window` に `suspended` が 2 件入る** | 新規（R68） |
+
+### 手 1: 固定値を独立に再計算する
+
+python の `hashlib.sha256` で `\x1f` 区切りの組から計算し直した。**5 つとも一致**:
+
+| テスト | 組 | python | テストの期待値 |
+|---|---|---|---|
+| `visit_external_id_is_pinned` | `chromium·chrome·Default·7·13402627200000001·https://example.test/a?q=x` | `981e93fe…79ecefa1` | 一致 |
+| 同上（vanished / excluded） | `chrome·Default·v1:visit:a·v1:visit:b` | `1803175b…7fd469d8` | 一致 |
+| 同上（profiles） | `chrome·Default\x1e個人·Profile 1` | `5c4f4852…74b8e8db` | 一致 |
+| `visit_without_url_row_omits_url_and_title` | `chromium·chrome·Default·7·13402627200000001`（URL を省いた 5 つ） | `c8aa63ce…56acd5d7a` | 一致 |
+| 同上（空の URL の 6 つの組） | 末尾が空文字 | `04e70926…30c3d370` | `assert_ne!` のとおり別の値 |
+
+時刻: `13402627200000001`（1601 年起点 µs）→ `2025-09-18 00:00:00.000001+00`、`1758153600000000`（1970 年起点）→ `2025-09-18 00:00:00+00`、
+`805306368 & 0xff = 0`（`link`）。`visit_time_keeps_micros` / `visit_payload_shape_is_pinned` の期待値と一致する。
+smoke の本物の取得の節（`browser_history_smoke make` の `13402627200000000`）の期待 `2025-09-18 00:00:00+00` も一致。
+**手組み JSON の 2 節だけが食い違う** → R73。
+
+### 手 2: ガードをわざと壊す
+
+複製で 1 件ずつ書き換え、`cargo test -p ashiato-collector-windows --lib` を走らせた（原状は 197 passed）。
+
+| # | 壊したもの | 結果 |
+|---|---|---|
+| M01 | Q7: `due` の `last > now \|\|` を外す | 2 本 FAILED（`history_schedule_fetches_at_once_when_last_success_is_ahead`・Runtime の同名） |
+| M02 | Q7: 試し直しの時刻が先にあるときの `\|\| retry - now > …` を外す | 1 本 FAILED |
+| M03 / M04 | Q8: Chromium / Firefox を `LEFT JOIN` → `JOIN` | それぞれ 1 本 FAILED（`history_read_keeps_visits_whose_url_row_is_missing`） |
+| M05 | Q8: `still_present` の `slot` の照合を無効にする | 2 本 FAILED |
+| M06 | D11: URL を失った訪問の除外の引き継ぎを無効にする | 1 本 FAILED（`history_exclusion_survives_lost_url_row`） |
+| M07 | D11: `exe-path` をファイル名でなく全体で比べる | 1 本 FAILED（`history_exclusion_exe_path_covers_all_profiles`。前回 R58 は解消） |
+| M08 | Q4: 識別子を発生元の番号で作る | 1 本 FAILED |
+| M09〜M12 | 24h→23h / 試し直し 1 分→2 分 / 上限 1h→2h / `chunks(1000)`→`999` | 3 / 2 / 1 / 1 本 FAILED |
+| **M13** | `apply` の `ensure!(unreadable == 0, …)` を外す（読めないプロファイルがあっても成功にする） | **197 本全部 ok**（R72） |
+| M14 | 生存信号 86400→21600 | 2 本 FAILED |
+| **M15** | 除外の登録が読めないとき `unwrap_or_default()`（空の登録で送る） | **197 本全部 ok**（R72） |
+| **M16** | `profile_dir_absent` の `try_exists().unwrap_or(true)` → `unwrap_or(false)` | **197 本全部 ok**（R72） |
+| **M17** | `with_history` の起動時の写しの掃除（`sweep_copies`）を呼ばない | **197 本全部 ok**（R72） |
+| M18 | 区間に読みが無いときの確かめ（`start_probe`）を外す | 3 本 FAILED |
+| M19 | 除外を外した訪問を送り直す条件を外す | 1 本 FAILED（`history_exclusion_removed_later`） |
+| M20 | `source_updated_at` を載せない | 1 本 FAILED |
+| M22 | Q1: Vivaldi の置き場を `VivaldiX/User Data` に | 1 本 FAILED（`browser_bases_match_the_documented_locations`） |
+| M23 | Q2: `vanished` を積まない | 8 本 FAILED |
+| 移行 | `…_browser_history_record_id.sql` の `NOT EXISTS` を外す（server） | `browser_history_record_id_is_kept_once_records_exist` FAILED（原状は 2 本 ok。DB を起こした状態で対照を取った） |
+
+### 手 3: Scenario と test
+
+`check_scenarios.py` は rc=0（642/642）。印の先を見て、主張の階層とテストの階層が違うもの:
+
+- `履歴の取得でウィンドウのソースの記録は増えない`（spec 81〜85 行。AND「取得の間の時間が、ウィンドウのソースに PC が眠っていた時間として記録されていない」）
+  の印 `history_slow_read_does_not_disturb_window` は**読み**（別スレッド）を 3 分止めるだけで、訪問は 1 件。**積み込み**（見回りのスレッドで 1 件ずつ `sync_data`）は測っていない。
+  Windows 実機で 15 万件を積むと AND が破れる → R68
+- `ブラウザが動いている間も取得できる` は `tests/runtime_windows.rs` の 3 本だけが印を持つ（前回 R62 は解消）。Windows 実機で Edge・Chrome の 2 本は rc=0。Firefox はこの PC に無く未確認
+- `check_scenarios.py` の `[warn] spec に無い Scenario を指す印` が ST08 のコードに 7 個ある（`locate.rs` の `6つのブラウザの既知の置き場が設計表どおりである` など）。
+  数えに入らない名前なので害は無いが、印の形をしていて Scenario でない。指摘にはしない
+
+### 手 4: 本人の決定が test で固定されているか
+
+`deep.md` の答えを 1 件ずつ壊した（手 2 の M 番号）:
+Q1（6 つの置き場）M22 / Q2（消えた記録）M23 / Q4（PC 側の番号）M08 / Q5（組全体のハッシュ）は手 1 の独立計算と一致する固定値 / Q7 M01・M02 / Q8 M03〜M05・M06 /
+24 時間 M09・試し直し 1 分 M10・上限 1 時間 M11・1,000 件 M12・生存信号 86,400 秒 M14 —— **どれも書き換えると 1 本以上落ちる**。
+前回の手 4 の「固定されているのは使われない定数」は解消（`HistorySchedule` / `HistoryBeat` が `Runtime` から使われ、Runtime の層のテストも落ちる）。
+Q3（版を残す）はサーバの `browser_history_update` 5 本が持つ。今回サーバのコードは壊していない。
+
+### 手 5: tasks の `[x]` と実体
+
+`[x]` 36 件の検証コマンドは、10.4 の「job が緑」を除いてすべて実在し rc=0（上の表）。10.4 の後半は R61（rejected）のまま —— 新しい R にしない。
+
+### 手 6: 隙間
+
+R68（大きな積み込みで見回りが止まり、偽の `suspended` が入る）・R69（積み残しの後ろでウィンドウの記録が待つ）・R70（積めない間も生存信号が「取得できる」）・R71（在るプロファイルを「無くなった」とする）。
+時計が戻る（Q7）は M01 / M02 で固定済み。読めないプロファイル・URL の行の欠落は手 2 のとおり固定済み。
+
+---
+
+## R68. 初回の大きな取り込みは見回りのスレッドで 1 件ずつ同期して積むので、Windows で 15 万件なら 148 秒止まり、`c02-window` に偽の「眠っていた」が入る
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`HistoryCollector::tick` → `apply` → `queue_then_save`）/ crates/collector-windows/src/runtime.rs:525-536（`maybe_history` の `queue` が `events.add`）/ crates/collector-windows/src/outbox.rs:81-94（`add` が 1 件ごとに open・追記・`sync_data`）/ runtime.rs:46・293（`SUSPEND_GAP_SEC = 120`）
+- 根拠:
+  - Windows 実機（この PC。Windows 側の cargo）で、HEAD の複製の `runtime::tests` に一時テストを足し、偽の読み手が N 件を返す `Runtime` を**実時計の `tick()`**で 1 秒ごとに回した:
+    N=1,000 → 最長の 1 回 0 秒・`suspended` 0 件 / N=100,000 → **最長 107 秒** / N=150,000 → **最長 148 秒、`outbox.jsonl` の `c02-window` に
+    `{"kind":"idle","reason":"suspended","transition":"enter","mono_gap_ms":149624}` と `leave`（`range_end` 08:20:05）の 2 件**
+  - 同じテストを Linux で: N=20,000 → 3.4 秒 / 100,000 → 18.2 秒 / 400,000 → 51 秒（件数に比例）。Windows の NTFS で「追記して `Flush(true)`」を 2,000 回 → 1 回 1.79〜1.92 ms（PowerShell で 2 回測った）
+  - 読み（別スレッド）は待たないが、`tick` が読みの終わりを見つけた回に `apply` が**見回りのスレッドで**全件を `queue`（= `Outbox::add`、1 件 1 回の `sync_data`）する。
+    止まっている間は前景を 1 度も観測せず（その間の前景の変化は取れない）、次の見回りで `wall_gap >= 120` が「眠っていた」を積む。収集した記録は書き換えられない
+  - design D3 は「Firefox が何年分も持っていると最初の読みは数十秒かかりうるので、見回りを止めると眠りの判定に化ける」として読みを別スレッドにしたが、積み込みが同じ型で残っている。
+    帳面が壊れて退避した後（D10「空から始める」）も全件を積み直すので、初回だけの話ではない
+- kind: technical
+- loss: uncaptured （止まっている間の前景の変化。あわせて事実でない「眠っていた」区間が書き換えられない記録として残る）
+- 提案: 1 回の取得の分をまとめて追記し、同期は 1 回にする（`Outbox::add_many`）か、積み込みを数千件ずつ見回りに分ける。
+  「15 万件を積む間も `c02-window` に `suspended` が入らない」を Runtime の層（実時計か、積み込みの所要時間を見回りの時計に反映する形）で固定する。
+- 処置: escalated — deep.md 第 5 回 Q9（loss: uncaptured。大きな取り込みの間、見回りを止めてよいか）。`docs/briefs/ST08-deep-r5.html`
+
+## R69. 初回の取り込みの後ろで、ウィンドウの記録の送信が件数 ÷ 200 × 5 分待つ（2,000 件で 50 分、10 万件で約 42 時間）
+
+- 成果物: crates/collector-windows/src/sender.rs:84-98（`snapshot` の先頭から `MAX_BATCH = 200`）/ crates/collector-windows/src/runtime.rs:43（`SEND_INTERVAL_SEC = 300`）/ history/collect.rs（履歴を同じ `events` の outbox に積む）
+- 根拠: 複製の一時テストで、2,000 件の履歴を積んだ直後に前景のアプリを変えて 1 件のウィンドウの記録を作り、`rt.send()` を繰り返した → **10 回目の送信で初めてその記録が出る**
+  （`PROBE sends_until_window=10 interval_sec=300`）。送信は 5 分に 1 回・200 件なので 50 分。同じ形で 10 万件なら 500 回 ≒ 41.7 時間。
+  未送信の置き場は 1 つで、送る順は積んだ順。この間、`remove` のたびに置き場の全行を書き直す（`outbox.rs:111-131`）
+- kind: daily （失うものは無い。初回と帳面の退避の後に、PC の前景の記録が画面に出るまで最大で日単位で遅れる）
+- 提案: 履歴の取り込みの間も、ウィンドウの記録を先に送る（ソースごとに 1 回の送信の枠を分ける・履歴を別の置き場にする）か、
+  初回だけ送信の間隔を詰める。どちらにするかは design D3 の（仮）に足して反転条件を書く。
+- 処置: fixed D3 仮 — 1 回の送信でウィンドウの記録を履歴より先に載せる（`Outboxable::sends_late`。どちらの中でも積んだ順）。反転条件は D3。`history_backlog_does_not_hold_back_window_records`（並べ替えを外すと落ちることを確かめた）
+
+## R70. 積み込みが失敗し続けている間も、履歴の生存信号は「取得できる」を報告する（除外の登録が壊れた 3 日間、送った訪問 0 件・信号 4 回とも `capturable=true`）
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`tick` が `apply` の前に `finished_reads` を「読めた」で作る / `apply` の `Exclusions::load(...)?`）/ crates/collector-windows/src/runtime.rs:127-160（`HistoryBeat::record` は読めたかだけを数える）
+- 根拠: 複製の一時テストで、起動の後に `exclusions.json` を壊れた形（`[{"kind":"no-such-kind","value":"x"}]`）にして 3 日回した:
+  `PROBE visits_sent=0 reads=66`、生存信号は 4 件とも `capturable=true blockers=[] attempts=successes`（2 / 24 / 20 / 21）。
+  `apply` は毎回 `除外の登録を読めないので履歴を送らない` で失敗し、ログは `history_fetch_failed`（種別 `failed`）だけ。
+  同じことは `apply` の中のどの失敗（帳面の保存・`last_success.json` の書き込み・未送信の置き場への追記）でも起きる —— 生存信号は「写しが読めたか」しか見ない。
+  ウィンドウの側は起動時に読んだ登録で動き続けるので、壊れたことに気づく経路が無い（再起動すれば起動が止まる）。
+  Chromium 系は 90 日を過ぎた訪問を手元から消すので、この状態が続くとその間の訪問は後から取れない。spec の生存信号の Requirement（440〜451 行）は「読めなかった」しか書いておらず、
+  「読めたが積めない」状態を想定していない
+- kind: technical
+- loss: uncaptured
+- 提案: 積み込みの失敗も「取得できない」に数え、`blockers` に種別だけを載せる（例 `history-not-queued`。URL・パスは載せない）。
+  既定は厳しい側（Q1 の R8「1 つでも読めなければ取得できない」と同じ向き）なので問いにはしない。spec の生存信号の Requirement に 1 行と、Runtime の層のテストを足す。
+- 処置: escalated — deep.md 第 5 回 Q10（loss: uncaptured。積めない間の生存信号を「取得できる」にしてよいか）。`docs/briefs/ST08-deep-r5.html`
+
+## R71. Opera の主プロファイルと、Firefox の既定の外に置いたプロファイルは、ディレクトリが在っても「無くなった」と判定され、`profile_gone: true` の「消えた」記録が送られる
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`FsHistoryReader::profile_dir_absent` / `queue_gone_profiles`）/ history/locate.rs:42-51（`Browser::base`）
+- 根拠:
+  - `profile_dir_absent` は `base/<directory>` と `base/_side_profiles/<directory>` しか見ない。Opera の主プロファイルは `Opera Stable` の直下（directory = `Default`）、
+    Firefox は `base` が `Mozilla/Firefox/Profiles` で、`profiles.ini` の絶対パスのプロファイルはその外にある。
+    複製の一時テスト: `Opera Stable` が在る状態で `profile_dir_absent(Opera, "Default")` → `true`、
+    在る `D/ffprof.work`（ini の絶対パス相当）で `profile_dir_absent(Firefox, "ffprof.work")` → `true`
+  - 本物の読み手（`FsHistoryReader`）と `HistoryCollector` で端から端まで: Opera の `History` に 1 訪問 → 1 回目は `visit` と `profiles` を積む →
+    `History` を一時的に別名にして（`Opera Stable` は在る）24 時間後に取得 → `{"kind":"vanished",…,"browser":"opera","profile_dir":"Default",…,"profile_gone":true}` が積まれ、取得は成功扱い（試し直さない）
+  - 同じ状態の Chrome（`User Data\Default` は在り `History` だけ無い）は「無くなった」にならず、帳面も残る。ブラウザによって同じ状態の扱いが違う。
+    逆に Chrome の `User Data` ごと消えた（アンインストールでデータも消した）ときは、`read_dir(base)` が失敗して「無いとは言えない」となり、`profile_gone` は一度も出ない（`chrome_userdata_exists=false absent=false`）
+  - 「消えた」は収集した記録として残り、書き換えられない。帳面から外れた訪問は、`History` が戻ると同じ識別子で送り直され取り込み口で畳まれる（行は失われない）が、事実でない「無くなった」は残る
+- kind: technical
+- 提案: 「無くなった」の確かめを、見つけたときの実際のパス（`Profile.path` の親）で行い、帳面にそのパスの形（ディレクトリ名でなく、置き場からの相対か ini の絶対かの印）を持つ。
+  Opera の主プロファイル・Firefox の ini の絶対パス・`User Data` ごと消えた、の 3 つを `history_vanished` に足す。
+- 処置: fixed D10 — `profile_dir_absent` を見つけるときと同じ場所（Opera の主プロファイルは置き場そのもの・Firefox は `profiles.ini` のパス）で確かめ、置き場ごと消えたら無くなった、探す先の根が無い / ini が読めないなら「在る」（`locate::ini_profile_dirs` を共有）。`history_vanished_opera_main_profile_is_its_place` / `history_vanished_firefox_absolute_profile_is_checked_at_its_path` / `history_vanished_whole_place_removed_is_gone`（それぞれの分岐を外すと落ちる）
+
+## R72. 4 つのガードが、壊しても collector の 197 本が全部緑のまま（読めないプロファイルでも成功にする / 除外の登録が読めないとき空で送る / 在るか不明を無いと読む / 起動時に写しを掃除しない）
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`apply` の `ensure!(unreadable == 0)`・`Exclusions::load(...).context(...)?`・`profile_dir_absent` の `unwrap_or(true)`）/ crates/collector-windows/src/runtime.rs:233-244（`with_history` の `sweep_copies`）
+- 根拠: 手 2 の M13 / M15 / M16 / M17。複製で 1 件ずつ書き換えて `cargo test -p ashiato-collector-windows --lib` → 4 件とも `197 passed; 0 failed`。
+  - M15 は**除外した URL と題名が送られる**向きの変更（`exported`）で、spec の除外の Requirement と D11「既定は厳しい側」の担保が無い。ウィンドウの側の同じ規則は `broken_registration_is_an_error_not_empty` が持つが、履歴の経路には無い
+  - M13 は design D3「失敗した取得は成功を進めない」の、読めないプロファイルの場合の担保が無い（`history_vanished_skips_unreadable_profile` は「消えた」を出さないことだけを見る）
+  - M16 は R71 と同じ関数の安全側の既定（確かめられないなら「在る」）が固定されていない
+  - M17 は design D2 / R60 の「起動時に残骸を消す」。`history_copy_leftovers_are_swept` は `read::sweep_copies` を直接呼ぶだけで、起動の経路から呼ばれていることを見ない
+- kind: technical
+- 提案: 4 本を Runtime か `HistoryCollector` の層に足す（壊れた `exclusions.json` で訪問が 1 件も送られない / 読めないプロファイルがあると 1 分後に試し直す /
+  `try_exists` が失敗する置き場で「消えた」が出ない / 起動時に `browser-history/tmp` の残骸が消える）。
+- 処置: fixed D11 — 4 本を足した: `history_exclusion_broken_registration_sends_nothing`（M15）/ `history_unreadable_profile_does_not_advance_success`（M13）/ `history_vanished_unknown_existence_is_present`（M16。unix のみ —— ENOTDIR で問い合わせを失敗させる）/ `history_copy_leftovers_are_swept_at_startup`（M17。Runtime の起動経路）。4 件とも変異を当てて 1 本落ちることを確かめた
+
+## R73. Minor: smoke の手組み JSON の `visit_time_raw` と `at` が食い違う（`13402627200000000` は 2025-09-18、`at` は 2026-09-08）
+
+- 成果物: tools/smoke.sh:891（`history_raw`）/ :932（`orphan_raw`）
+- 根拠: python の `datetime(1601,1,1) + timedelta(µs)` で `13402627200000000` → `2025-09-18 00:00:00+00`、`13402630800000000` → `2025-09-18 01:00:00+00`。
+  本文の `at` はそれぞれ `2026-09-08T02:00:00`・`03:00:00`（その時刻の 1601 年起点 µs は `13433306400000000`）。収集側の `Visit::from_read` は `at` を `visit_time_raw` から作るので、この組は実装が作らない形。
+  smoke は取り込み口の側（行が増えない・原文が変わらない・感度・URL の無い訪問の格納）しか見ないので rc=0 になる（前回 R46 / R63 の残り。本物の取得の節は一致している）
+- kind: technical
+- 提案: 手組みの 2 本を `browser_history_smoke make` の値（`13402627200000000` ⇔ `2025-09-18T00:00:00.000000Z`）に揃えるか、手組みをやめて本物の取得の節へ寄せる。
+- 処置: fixed 11.5 — 手組みの `visit_time_raw` を `at` に揃えた（`13433306400000000` ⇔ 2026-09-08T02:00、`13433310000000000` ⇔ 03:00。python で再計算）。`tools/smoke.sh` rc=0
+
+### R68〜R73 の処置の scoped re-review（`/story ST08 finish`。2026-10-05）
+
+独立の reviewer（`pr-review-toolkit:code-reviewer`）が、R69 / R71 / R72 / R73 の修正の差分だけを見た。**指摘なし**（Critical / Important 0 件）。
+参考の Minor 1 件: `history_vanished_unknown_existence_is_present` は `#[cfg(unix)]` なので、Windows では M16 が固定されていない（処置の記述どおり。指摘にしない）。
+R68 / R70 は直さず deep.md 第 5 回 Q9 / Q10 へ返した。

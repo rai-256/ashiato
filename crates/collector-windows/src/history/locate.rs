@@ -180,7 +180,26 @@ fn scan_ini(browser: Browser, ini: &Path, out: &mut Vec<Profile>) {
     let Ok(text) = std::fs::read_to_string(ini) else {
         return;
     };
+    for dir in ini_profile_dirs(ini, &text) {
+        let db = dir.join("places.sqlite");
+        if db.is_file() {
+            out.push(Profile {
+                browser,
+                directory: dir
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                path: db,
+            });
+        }
+    }
+}
+
+/// `profiles.ini` に書かれたプロファイルのディレクトリ（相対は ini の隣から、絶対はそのまま）。
+pub fn ini_profile_dirs(ini: &Path, text: &str) -> Vec<PathBuf> {
     let parent = ini.parent().unwrap_or_else(|| Path::new(""));
+    let mut dirs = Vec::new();
     let mut path = None;
     let mut relative = true;
     for line in text.lines().chain(std::iter::once("")) {
@@ -189,32 +208,19 @@ fn scan_ini(browser: Browser, ini: &Path, out: &mut Vec<Profile>) {
         } else if let Some(value) = line.strip_prefix("IsRelative=") {
             relative = value != "0";
         } else if line.is_empty() || line.starts_with('[') {
-            let Some(path) = path.take() else {
-                relative = true;
-                continue;
-            };
-            let dir = if relative {
-                // ini は `/` 区切り。Windows の走査の結果と同じ綴りに揃えて重複を畳む
-                path.split(['/', '\\'])
-                    .fold(parent.to_path_buf(), |d, c| d.join(c))
-            } else {
-                PathBuf::from(path)
-            };
-            let db = dir.join("places.sqlite");
-            if db.is_file() {
-                out.push(Profile {
-                    browser,
-                    directory: dir
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned(),
-                    path: db,
+            if let Some(path) = path.take() {
+                dirs.push(if relative {
+                    // ini は `/` 区切り。Windows の走査の結果と同じ綴りに揃えて重複を畳む
+                    path.split(['/', '\\'])
+                        .fold(parent.to_path_buf(), |d, c| d.join(c))
+                } else {
+                    PathBuf::from(path)
                 });
             }
             relative = true;
         }
     }
+    dirs
 }
 
 #[cfg(test)]
