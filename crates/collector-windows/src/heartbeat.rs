@@ -26,6 +26,9 @@ pub mod blocker {
 /// 履歴の側だけで使う blocker。ウィンドウの取得可否と混ぜない。
 pub mod history_blocker {
     pub const NONE_FOUND: &str = "history-none-found";
+    /// 読めたが送る準備（除外の登録を読む・未送信に積む・帳面と前回の成功を書く）を終えられなかった。
+    /// 種別だけで、URL・パスは載せない（deep.md 第 5 回 Q10）
+    pub const NOT_QUEUED: &str = "history-not-queued";
     pub fn unreadable(browser: &str, profile: &str) -> String {
         format!("history-unreadable:{browser}:{profile}")
     }

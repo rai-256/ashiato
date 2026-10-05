@@ -1226,8 +1226,9 @@ fn fetch_history_until(
     let mut last_error = String::new();
     while start.elapsed() < Duration::from_secs(90) {
         // 取得契機に達してから、読みが終わって積むまで
-        let mut queue = |v: &ashiato_collector_windows::history::contract::Visit| {
-            if v.payload.kind == "visit" {
+        let mut queue = |visits: &[ashiato_collector_windows::history::contract::Visit],
+                         _read_at: chrono::DateTime<Utc>| {
+            for v in visits.iter().filter(|v| v.payload.kind == "visit") {
                 assert_eq!(v.payload.browser, expected_browser, "ブラウザの名前");
                 got.push((
                     v.payload.url.clone().unwrap_or_default(),

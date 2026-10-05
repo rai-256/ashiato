@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! 見つけたプロファイルの履歴を取得し、未送信へ積む（ST08 design D3 / D10）。
 //!
-//! 読みは別のスレッド（[`HistoryWorker`]）で行い、**積むのは見回りの側**（`Runtime`）。
+//! 読みと積む分の組み立て・帳面の書き込みは別のスレッド（[`HistoryWorker`]）で行い、
+//! **積むのは見回りの側**（`Runtime`）で 1 回 [`QUEUE_PER_TICK`] 件まで（deep.md 第 5 回 Q9）。
 //! 成功とみなすのは、未送信に積み終えて帳面を書いた**後**だけ。
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use chrono::{DateTime, Utc};
 use crate::exclusion::Exclusions;
 use crate::history::contract::Visit;
 use crate::history::fetch::{
-    apply_history_exclusions, apply_vanished, detect_vanished_if_readable, queue_then_save,
+    apply_history_exclusions, apply_vanished, detect_vanished_if_readable, mark_queued,
     select_new_or_changed, still_present, vanished_chunks, HistorySchedule, HistoryWorker,
     VanishedVisit,
 };
@@ -161,29 +162,87 @@ impl HistoryReader for FsHistoryReader {
     }
 }
 
+/// 見回り 1 回で未送信に積む履歴の件数の上限。残りは次の見回りへ回す（deep.md 第 5 回 Q9）。
+///
+/// 積むのは見回りのスレッドなので、1 回の取得の全件を一度に積むと、件数に比例して見回りが戻らない
+/// （Windows 実機で 15 万件 148 秒。review/code.md R68）。
+pub const QUEUE_PER_TICK: usize = 2_000;
+
+/// 読めなかったプロファイルだけが理由で、取得を成功にしなかったこと。
+/// 積み込みと帳面はほかのプロファイルの分まで済んでいるので、「送る準備の失敗」には数えない（Q10）。
+#[derive(Debug)]
+struct UnreadableProfiles;
+
+impl std::fmt::Display for UnreadableProfiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("読めなかったプロファイルがある")
+    }
+}
+
+impl std::error::Error for UnreadableProfiles {}
+
+/// 訪問をまとめて未送信へ積む口（2 つめの引数は読んだ時刻。design D15）。
+pub type QueueVisits<'q> = dyn FnMut(&[Visit], DateTime<Utc>) -> anyhow::Result<()> + 'q;
+
+/// 取得 1 回の、生存信号の数えへ渡す結果（design D12）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchReport {
+    pub profiles: Vec<ProfileHealth>,
+    /// 送る準備（除外の登録を読む・未送信に積む・帳面と前回の成功を書く）まで済んだか（deep.md 第 5 回 Q10）
+    pub queued: bool,
+}
+
+/// 読んだ後、見回りが未送信に積む分と、積み終えてから書く帳面。
+struct Plan {
+    items: VecDeque<Visit>,
+    /// 積み終える前に書くと、落ちたときに積んでいない訪問を「送った」と読む
+    stores: Vec<LedgerStore>,
+    unreadable: usize,
+    /// 読んだ時刻（`source_updated_at` と前回の成功。design D15）
+    read_at: DateTime<Utc>,
+    queued: usize,
+}
+
+/// 別スレッドで読み、積む分を組んだもの。
+struct Fetched {
+    health: Vec<ProfileHealth>,
+    skipped: usize,
+    quarantined: usize,
+    plan: anyhow::Result<Plan>,
+}
+
+/// 取得 1 回の段。**どの段も見回りを待たせない**（積むのだけが見回りの側で、1 回 [`QUEUE_PER_TICK`] 件まで）。
+enum Stage {
+    Idle,
+    /// 読みと、積む分の組み立て（別スレッド）
+    Reading(HistoryWorker<Fetched>),
+    /// 見回りごとに少しずつ未送信へ積む
+    Queueing(Plan, Vec<ProfileHealth>),
+    /// 帳面と前回の成功を書く（別スレッド）
+    Saving(HistoryWorker<usize>, Vec<ProfileHealth>, DateTime<Utc>),
+}
+
 /// 取得の契機・別スレッドの読み・未送信への積み込みを持つ。
 pub struct HistoryCollector {
     reader: Arc<dyn HistoryReader>,
     dir: PathBuf,
     exclusions_path: PathBuf,
     schedule: HistorySchedule,
-    worker: Option<HistoryWorker<ReadOutcome>>,
+    stage: Stage,
     /// 別スレッドの「開けるかの確かめ」（生存信号の前。読みとは別）
     probe: Option<HistoryWorker<Vec<ProfileHealth>>>,
-    /// 読み終えたが、生存信号の数えへまだ渡していない読みの結果
-    finished_reads: Vec<ProfileHealth>,
-    /// 読みが 1 回でも終わったか（見つからなかった読みも含む）が `finished_reads` と別に要るので件数でなく印で持つ
-    read_finished: bool,
+    /// 終わったが、生存信号の数えへまだ渡していない取得の結果
+    report: Option<FetchReport>,
     /// まだログに出していない、飛ばした行の数（R59）
     skipped_rows: usize,
     /// まだログに出していない、壊れていて退避した帳面の数（R63）
-    quarantined: Cell<usize>,
+    quarantined: usize,
 }
 
 impl std::fmt::Debug for HistoryCollector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HistoryCollector")
-            .field("reading", &self.worker.is_some())
+            .field("reading", &self.is_reading())
             .finish()
     }
 }
@@ -206,12 +265,11 @@ impl HistoryCollector {
             dir,
             exclusions_path: state_dir.join("exclusions.json"),
             schedule: HistorySchedule::with_last_success(last),
-            worker: None,
+            stage: Stage::Idle,
             probe: None,
-            finished_reads: Vec::new(),
-            read_finished: false,
+            report: None,
             skipped_rows: 0,
-            quarantined: Cell::new(0),
+            quarantined: 0,
         }
     }
 
@@ -233,7 +291,10 @@ impl HistoryCollector {
                 "history_rows_skipped",
                 std::mem::take(&mut self.skipped_rows),
             ),
-            ("history_ledger_quarantined", self.quarantined.take()),
+            (
+                "history_ledger_quarantined",
+                std::mem::take(&mut self.quarantined),
+            ),
             ("history_copy_cleanup_failed", read::take_cleanup_failures()),
         ]
         .into_iter()
@@ -241,9 +302,9 @@ impl HistoryCollector {
         .collect()
     }
 
-    /// 前回から終わった読みの結果を渡す。読みが 1 回でも終わっていたら `Some`（空は「1 つも見つからない」）。
-    pub fn take_reads(&mut self) -> Option<Vec<ProfileHealth>> {
-        std::mem::take(&mut self.read_finished).then(|| std::mem::take(&mut self.finished_reads))
+    /// 前回から終わった取得の結果を渡す（読みが終わらなかった取得は無い）。`profiles` が空なら「1 つも見つからない」。
+    pub fn take_report(&mut self) -> Option<FetchReport> {
+        self.report.take()
     }
 
     /// 開けるかの確かめを別スレッドで始める。
@@ -267,72 +328,185 @@ impl HistoryCollector {
         Some(self.probe.take()?.join().unwrap_or_default())
     }
 
-    /// 読みの最中か（読みを始めて、まだ積み込んでいない）。
+    /// 取得の最中か（読みを始めて、まだ積み終えて帳面を書き終えていない）。
     pub fn is_reading(&self) -> bool {
-        self.worker.is_some()
+        !matches!(self.stage, Stage::Idle)
     }
 
-    /// 見回りごとに呼ぶ。読みが終わっていれば積み込んで結果（積んだ件数）を返し、
-    /// 契機に達していれば読みを別スレッドで始める。**読みの完了は待たない。**
+    /// 見回りごとに呼ぶ。取得を 1 段ずつ進め、終わった回に結果（積んだ件数）を返す。
+    /// 契機に達していれば読みを別スレッドで始める。**読みも帳面の書き込みも待たず、積むのは 1 回 [`QUEUE_PER_TICK`] 件まで。**
+    ///
+    /// `queue` は訪問をまとめて未送信へ積む（2 つめの引数は読んだ時刻）。
     pub fn tick(
         &mut self,
         wall: DateTime<Utc>,
-        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
+        queue: &mut QueueVisits<'_>,
     ) -> Option<anyhow::Result<usize>> {
-        if let Some(worker) = &self.worker {
+        if let Stage::Reading(worker) = &self.stage {
             if !worker.is_finished() {
                 return None;
             }
-            let outcome = self.worker.take()?.join();
-            if let Ok(o) = &outcome {
-                self.skipped_rows += o
-                    .profiles
-                    .iter()
-                    .filter_map(|p| p.visits.as_ref().ok())
-                    .map(|r| r.skipped)
-                    .sum::<usize>();
-                self.finished_reads = o
-                    .profiles
-                    .iter()
-                    .map(|p| ProfileHealth {
-                        browser: p.browser,
-                        directory: p.directory.clone(),
-                        readable: p.visits.is_ok(),
-                    })
-                    .collect();
-                self.read_finished = true;
+            let Stage::Reading(worker) = std::mem::replace(&mut self.stage, Stage::Idle) else {
+                unreachable!()
+            };
+            let fetched = match worker.join() {
+                Ok(f) => f,
+                // 読みそのものが落ちた（thread の panic）。読めたプロファイルが分からないので数えない
+                Err(e) => {
+                    self.schedule.failed(wall);
+                    return Some(Err(e));
+                }
+            };
+            self.skipped_rows += fetched.skipped;
+            self.quarantined += fetched.quarantined;
+            match fetched.plan {
+                Ok(plan) => self.stage = Stage::Queueing(plan, fetched.health),
+                Err(e) => return Some(self.finish(wall, None, fetched.health, Err(e))),
             }
-            let result = outcome.and_then(|o| self.apply(o, wall, queue));
-            match &result {
-                Ok(_) => self.schedule.succeeded(wall),
-                Err(_) => self.schedule.failed(wall),
+        }
+        if let Stage::Queueing(plan, _) = &mut self.stage {
+            let n = plan.items.len().min(QUEUE_PER_TICK);
+            let chunk: Vec<Visit> = plan.items.drain(..n).collect();
+            let queued = if chunk.is_empty() {
+                Ok(())
+            } else {
+                queue(&chunk, plan.read_at)
+            };
+            let more = !plan.items.is_empty();
+            let Stage::Queueing(plan, health) = std::mem::replace(&mut self.stage, Stage::Idle)
+            else {
+                unreachable!()
+            };
+            if let Err(e) = queued {
+                return Some(self.finish(wall, None, health, Err(e)));
             }
-            return Some(result);
+            if more {
+                self.stage = Stage::Queueing(plan, health);
+            } else {
+                let read_at = plan.read_at;
+                let dir = self.dir.clone();
+                self.stage = Stage::Saving(
+                    HistoryWorker::spawn(move || plan.save(&dir)),
+                    health,
+                    read_at,
+                );
+            }
+            return None;
+        }
+        if let Stage::Saving(worker, ..) = &self.stage {
+            if !worker.is_finished() {
+                return None;
+            }
+            let Stage::Saving(worker, health, read_at) =
+                std::mem::replace(&mut self.stage, Stage::Idle)
+            else {
+                unreachable!()
+            };
+            return Some(self.finish(wall, Some(read_at), health, worker.join()));
         }
         if self.schedule.due(wall) {
-            let (reader, tmp) = (Arc::clone(&self.reader), self.tmp());
-            self.worker = Some(HistoryWorker::spawn(move || reader.read(&tmp)));
+            let planner = Planner {
+                reader: Arc::clone(&self.reader),
+                dir: self.dir.clone(),
+                exclusions_path: self.exclusions_path.clone(),
+                quarantined: Cell::new(0),
+            };
+            self.stage = Stage::Reading(HistoryWorker::spawn(move || planner.fetch(wall)));
         }
         None
     }
 
-    /// 積み終えて帳面を書いてから、前回の成功を置き場へ書く。途中で落ちたら成功にしない。
-    fn apply(
-        &self,
-        outcome: ReadOutcome,
+    /// 取得 1 回を閉じる。成功なら前回の成功を読んだ時刻へ進め、生存信号の数えへ結果を渡す。
+    fn finish(
+        &mut self,
         wall: DateTime<Utc>,
-        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
+        read_at: Option<DateTime<Utc>>,
+        health: Vec<ProfileHealth>,
+        result: anyhow::Result<usize>,
     ) -> anyhow::Result<usize> {
+        let queued = match &result {
+            Ok(_) => true,
+            Err(e) => e.downcast_ref::<UnreadableProfiles>().is_some(),
+        };
+        match (&result, read_at) {
+            (Ok(_), Some(at)) => self.schedule.succeeded(at),
+            _ => self.schedule.failed(wall),
+        }
+        self.report = Some(FetchReport {
+            profiles: health,
+            queued,
+        });
+        result
+    }
+}
+
+impl Plan {
+    /// 積み終えた後に帳面を書き、読めなかったプロファイルが無ければ前回の成功を書く。
+    fn save(self, dir: &Path) -> anyhow::Result<usize> {
+        for store in &self.stores {
+            store.save()?;
+        }
+        if self.unreadable > 0 {
+            return Err(UnreadableProfiles.into());
+        }
+        crate::fsutil::atomic_write(
+            &dir.join("last_success.json"),
+            &serde_json::to_vec(&LastSuccess {
+                last_success: self.read_at,
+            })?,
+        )?;
+        Ok(self.queued)
+    }
+}
+
+/// 読みと、積む分の組み立て。別スレッドで動く（件数に比例する仕事を見回りに残さない。Q9）。
+struct Planner {
+    reader: Arc<dyn HistoryReader>,
+    dir: PathBuf,
+    exclusions_path: PathBuf,
+    quarantined: Cell<usize>,
+}
+
+impl Planner {
+    fn fetch(self, wall: DateTime<Utc>) -> anyhow::Result<Fetched> {
+        let outcome = self.reader.read(&self.dir.join("tmp"))?;
+        let health = outcome
+            .profiles
+            .iter()
+            .map(|p| ProfileHealth {
+                browser: p.browser,
+                directory: p.directory.clone(),
+                readable: p.visits.is_ok(),
+            })
+            .collect();
+        let skipped = outcome
+            .profiles
+            .iter()
+            .filter_map(|p| p.visits.as_ref().ok())
+            .map(|r| r.skipped)
+            .sum();
+        let plan = self.plan(outcome, wall);
+        Ok(Fetched {
+            health,
+            skipped,
+            quarantined: self.quarantined.get(),
+            plan,
+        })
+    }
+
+    /// 積む分を順に組み、帳面は書かずに持つ（積み終えてから書く）。
+    fn plan(&self, outcome: ReadOutcome, wall: DateTime<Utc>) -> anyhow::Result<Plan> {
         let exclusions = Exclusions::load(&self.exclusions_path)
             .context("除外の登録を読めないので履歴を送らない")?;
-        let mut queued = 0;
+        let mut items = Vec::new();
+        let mut stores = BTreeMap::new();
         let mut unreadable = 0;
         for profile in &outcome.profiles {
             let Ok(read) = &profile.visits else {
                 unreadable += 1;
                 continue;
             };
-            let mut store = self.open_ledger(profile.browser, &profile.directory)?;
+            let store = self.ledger(&mut stores, profile.browser, &profile.directory)?;
             let visits = read
                 .visits
                 .iter()
@@ -343,13 +517,12 @@ impl HistoryCollector {
             // 除外の件数は「その回に新しく除外した数」1 件。0 なら書かない。識別子は中身から決まるので、
             // 積んだ後・帳面の保存の前に落ちたやり直しでも同じ 1 件に畳まれる（D6 / D11）
             if !newly_excluded.is_empty() {
-                queue(&Visit::excluded(
+                items.push(Visit::excluded(
                     profile.browser,
                     &profile.directory,
                     wall,
                     &newly_excluded,
-                )?)?;
-                queued += 1;
+                )?);
             }
             let fresh = select_new_or_changed(store.ledger(), &kept);
             // 帳面の最大の訪問番号と比べるので、書き換える前に消えた訪問を見つける
@@ -364,61 +537,42 @@ impl HistoryCollector {
                 false,
                 true,
             );
-            queued += self.queue_vanished(
-                &mut store,
+            queue_vanished(
+                store,
                 profile.browser,
                 &profile.directory,
                 &vanished,
                 wall,
-                &mut *queue,
+                &mut items,
             )?;
             // 全件が消えて番号が無いときは、前回の番号を比べる土台として残す
             let ledger = store.ledger_mut();
             ledger.max_visit_id = max_visit_id.or(ledger.max_visit_id);
             ledger.visit_sequence = read.sequence.or(ledger.visit_sequence);
-            queue_then_save(&mut store, &fresh, &mut *queue)?;
-            queued += fresh.len();
+            mark_queued(ledger, &fresh);
+            items.extend(fresh);
         }
-        queued += self.queue_gone_profiles(&outcome.profiles, wall, &mut *queue)?;
+        self.queue_gone_profiles(&mut stores, &outcome.profiles, wall, &mut items)?;
         for (browser, current) in &outcome.names {
-            queued += self.queue_profiles(*browser, current, wall, &mut *queue)?;
+            self.queue_profiles(&mut stores, *browser, current, wall, &mut items)?;
         }
-        anyhow::ensure!(unreadable == 0, "読めなかったプロファイルがある");
-        crate::fsutil::atomic_write(
-            &self.dir.join("last_success.json"),
-            &serde_json::to_vec(&LastSuccess { last_success: wall })?,
-        )?;
-        Ok(queued)
-    }
-
-    /// 消えた訪問を `vanished` にして積み、帳面から外す（保存は呼び出し側）。
-    /// 積んだ後・保存の前に落ちても、識別子が中身から決まるのでやり直しで畳まれる（D6）。
-    fn queue_vanished(
-        &self,
-        store: &mut LedgerStore,
-        browser: Browser,
-        directory: &str,
-        vanished: &[VanishedVisit],
-        wall: DateTime<Utc>,
-        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
-    ) -> anyhow::Result<usize> {
-        let mut queued = 0;
-        for chunk in vanished_chunks(vanished) {
-            queue(&Visit::vanished(browser, directory, wall, chunk)?)?;
-            queued += 1;
-        }
-        apply_vanished(store.ledger_mut(), vanished);
-        Ok(queued)
+        Ok(Plan {
+            queued: items.len(),
+            items: items.into(),
+            stores: stores.into_values().collect(),
+            unreadable,
+            read_at: wall,
+        })
     }
 
     /// 帳面があるのに今回見つからず、ディレクトリそのものが無いと確かめられたものを消えたとする。
     fn queue_gone_profiles(
         &self,
+        stores: &mut BTreeMap<PathBuf, LedgerStore>,
         found: &[ProfileRead],
         wall: DateTime<Utc>,
-        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
-    ) -> anyhow::Result<usize> {
-        let mut queued = 0;
+        items: &mut Vec<Visit>,
+    ) -> anyhow::Result<()> {
         for browser in Browser::ALL {
             let Ok(entries) = std::fs::read_dir(self.dir.join(browser.name())) else {
                 continue;
@@ -436,66 +590,80 @@ impl HistoryCollector {
                 .collect();
             gone.sort();
             for directory in gone {
-                let mut store = self.open_ledger(browser, &directory)?;
+                let store = self.ledger(stores, browser, &directory)?;
                 let vanished =
                     detect_vanished_if_readable(store.ledger(), &[], wall, None, None, true, true);
-                if vanished.is_empty() {
-                    continue;
-                }
-                queued += self.queue_vanished(
-                    &mut store,
-                    browser,
-                    &directory,
-                    &vanished,
-                    wall,
-                    &mut *queue,
-                )?;
-                store.save()?;
+                queue_vanished(store, browser, &directory, &vanished, wall, items)?;
             }
         }
-        Ok(queued)
+        Ok(())
     }
 
     /// 表示名の対応が初回か変わったときだけ `profiles` を積み、帳面に今回の対応を残す。
     fn queue_profiles(
         &self,
+        stores: &mut BTreeMap<PathBuf, LedgerStore>,
         browser: Browser,
         current: &BTreeMap<String, Option<String>>,
         wall: DateTime<Utc>,
-        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
-    ) -> anyhow::Result<usize> {
-        let mut stores = Vec::new();
+        items: &mut Vec<Visit>,
+    ) -> anyhow::Result<()> {
         let mut previous = BTreeMap::new();
         for directory in current.keys() {
-            let store = self.open_ledger(browser, directory)?;
+            let store = self.ledger(stores, browser, directory)?;
             previous.extend(store.ledger().profile_names.clone());
-            stores.push((directory, store));
         }
-        let record = locate::profiles_record_if_changed(browser, wall, current, &previous)?;
-        let Some(record) = record else {
-            return Ok(0);
+        let Some(record) = locate::profiles_record_if_changed(browser, wall, current, &previous)?
+        else {
+            return Ok(());
         };
-        queue(&record)?;
-        for (directory, mut store) in stores {
-            store
+        items.push(record);
+        for (directory, name) in current {
+            self.ledger(stores, browser, directory)?
                 .ledger_mut()
-                .set_profile_name(directory, current[directory].clone());
-            store.save()?;
+                .set_profile_name(directory, name.clone());
         }
-        Ok(1)
+        Ok(())
     }
 
-    fn open_ledger(&self, browser: Browser, directory: &str) -> anyhow::Result<LedgerStore> {
-        let store = LedgerStore::open(
-            self.dir
-                .join(browser.name())
-                .join(format!("{directory}.ledger")),
-        )?;
-        if store.quarantined() {
-            self.quarantined.set(self.quarantined.get() + 1);
+    /// 帳面を開く。**1 回の取得で同じ帳面は 1 度だけ開く** —— 書くのは積み終えた後なので、
+    /// 開き直すと前の変更を持たない版で上書きする。
+    fn ledger<'s>(
+        &self,
+        stores: &'s mut BTreeMap<PathBuf, LedgerStore>,
+        browser: Browser,
+        directory: &str,
+    ) -> anyhow::Result<&'s mut LedgerStore> {
+        let path = self
+            .dir
+            .join(browser.name())
+            .join(format!("{directory}.ledger"));
+        if !stores.contains_key(&path) {
+            let store = LedgerStore::open(path.clone())?;
+            if store.quarantined() {
+                self.quarantined.set(self.quarantined.get() + 1);
+            }
+            stores.insert(path.clone(), store);
         }
-        Ok(store)
+        stores.get_mut(&path).context("開いた帳面が見つからない")
     }
+}
+
+/// 消えた訪問を `vanished` にして積む分へ足し、帳面から外す（保存は積み終えた後）。
+/// 積んだ後・保存の前に落ちても、識別子が中身から決まるのでやり直しで畳まれる（D6）。
+fn queue_vanished(
+    store: &mut LedgerStore,
+    browser: Browser,
+    directory: &str,
+    vanished: &[VanishedVisit],
+    wall: DateTime<Utc>,
+    items: &mut Vec<Visit>,
+) -> anyhow::Result<()> {
+    for chunk in vanished_chunks(vanished) {
+        items.push(Visit::vanished(browser, directory, wall, chunk)?);
+    }
+    apply_vanished(store.ledger_mut(), vanished);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -546,8 +714,8 @@ mod tests {
         let mut queued = Vec::new();
         let started = std::time::Instant::now();
         loop {
-            let mut queue = |v: &Visit| {
-                queued.push(v.clone());
+            let mut queue = |v: &[Visit], _: DateTime<Utc>| {
+                queued.extend_from_slice(v);
                 Ok(())
             };
             if let Some(result) = collector.tick(wall, &mut queue) {
@@ -641,6 +809,53 @@ mod tests {
             .state()
             .join("browser-history/last_success.json")
             .exists());
+    }
+
+    /// 未送信へ積めなかった取得は、帳面も前回の成功も書かず、生存信号には「送る準備を終えられなかった」と渡す。
+    /// 読めなかったプロファイルだけが理由の失敗は、送る準備の失敗にしない（deep.md 第 5 回 Q10）。
+    #[test]
+    fn history_not_queued_writes_no_ledger_and_is_reported() {
+        let fx = Fixture::new("INSERT INTO visits VALUES(1,1,13402627200000000,0,1);");
+        let mut collector = fx.collector();
+        let started = std::time::Instant::now();
+        let result = loop {
+            let mut queue = |_: &[Visit], _: DateTime<Utc>| anyhow::bail!("置き場へ書けない");
+            if let Some(r) = collector.tick(Utc::now(), &mut queue) {
+                break r;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(result.is_err());
+        assert!(
+            !fx.state()
+                .join("browser-history/chrome/Default.ledger")
+                .exists(),
+            "積めないのに帳面を書いた"
+        );
+        assert!(!fx
+            .state()
+            .join("browser-history/last_success.json")
+            .exists());
+        let report = collector.take_report().unwrap();
+        assert!(!report.queued);
+        assert!(report.profiles.iter().all(|p| p.readable));
+
+        let other = fx.root.join("local/Google/Chrome/User Data/Profile 2");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("History"), b"not a sqlite file").unwrap();
+        let (result, _) = fetch(&mut collector, Utc::now() + chrono::Duration::hours(2));
+        assert!(result.is_err());
+        assert!(
+            collector.take_report().unwrap().queued,
+            "読めないだけの取得を送る準備の失敗にした"
+        );
+        assert!(
+            fx.state()
+                .join("browser-history/chrome/Default.ledger")
+                .is_file(),
+            "読めたプロファイルの帳面を書いていない"
+        );
     }
 
     fn reader(root: &Path) -> FsHistoryReader {

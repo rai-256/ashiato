@@ -165,14 +165,21 @@ impl HistoryBeat {
     }
 
     /// プロファイル 1 つの読み（か確かめ）1 回を 1 試行と数える。空は「1 つも見つからない」。
-    fn record(&mut self, profiles: &[ProfileHealth]) {
+    ///
+    /// `queued` が偽（読めたが送る準備を終えられなかった取得）なら、どのプロファイルも成功に数えず、
+    /// 種別だけを満たされていないものに載せる（deep.md 第 5 回 Q10）。
+    fn record(&mut self, profiles: &[ProfileHealth], queued: bool) {
         self.read_seen = true;
         if profiles.is_empty() {
             self.blockers
                 .insert(heartbeat::history_blocker::NONE_FOUND.to_string());
         }
+        if !queued {
+            self.blockers
+                .insert(heartbeat::history_blocker::NOT_QUEUED.to_string());
+        }
         for p in profiles {
-            self.counters.record(p.readable);
+            self.counters.record(p.readable && queued);
             if !p.readable {
                 self.blockers.insert(heartbeat::history_blocker::unreadable(
                     p.browser.name(),
@@ -616,10 +623,13 @@ impl<'a> Runtime<'a> {
         };
         let (user_id, device_id, zone, events) =
             (self.user_id, &self.device_id, &self.zone, &mut self.events);
-        let mut queue = |visit: &Visit| {
-            events.add(IngestRequest::of_visit(
-                visit, user_id, device_id, wall, zone,
-            )?)
+        // まとめて積み、同期は 1 回（見回りを止めない。deep.md 第 5 回 Q9）。`source_updated_at` は読んだ時刻（D15）
+        let mut queue = |visits: &[Visit], read_at: DateTime<Utc>| {
+            let reqs = visits
+                .iter()
+                .map(|v| IngestRequest::of_visit(v, user_id, device_id, read_at, zone))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            events.add_many(reqs)
         };
         match history.tick(wall, &mut queue) {
             None => {}
@@ -649,8 +659,8 @@ impl<'a> Runtime<'a> {
             return;
         };
         let mut counted = false;
-        if let Some(profiles) = history.take_reads() {
-            beat.record(&profiles);
+        if let Some(report) = history.take_report() {
+            beat.record(&report.profiles, report.queued);
             counted = true;
         }
         if history.is_probing() {
@@ -658,7 +668,7 @@ impl<'a> Runtime<'a> {
             let Some(profiles) = history.poll_probe() else {
                 return self.save_history_counters_if(counted);
             };
-            beat.record(&profiles);
+            beat.record(&profiles, true);
         } else if !beat.schedule.due(mono) {
             return self.save_history_counters_if(counted);
         } else if !beat.read_seen {
@@ -2796,6 +2806,148 @@ mod tests {
             window.len()
         };
         assert_eq!(window_records(true), window_records(false));
+    }
+
+    /// 訪問の多い取得（初回に限らない。帳面がある状態で数万件が新しく入った取得）でも、積み終えるまでの間
+    /// 見回りは毎回すぐ戻り、その間の前景の変化が積まれる（deep.md 第 5 回 Q9。review/code.md R68）。
+    ///
+    /// Scenario: 訪問の多い取得でも前景の観測は止まらない
+    #[test]
+    fn history_large_fetch_keeps_observing_foreground() {
+        use crate::history::collect::QUEUE_PER_TICK;
+        const N: i64 = 30_000;
+        // 送らない（未送信に積んだ順をそのまま見る）
+        #[derive(Debug)]
+        struct Down;
+        impl Transport for Down {
+            fn post(&self, _: &str, _: &str) -> anyhow::Result<Reply> {
+                anyhow::bail!("取り込み口が止まっている")
+            }
+        }
+        let cfg = cfg();
+        let reference = FixedReference(t(0));
+        let reader = FakeReader::new((1..=10).map(|i| read_visit(i, "a")).collect());
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &Down,
+            &reference,
+            t(0),
+        )
+        .unwrap()
+        .with_history(reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        // 帳面がある状態で、同期などで新しい訪問がまとめて入る
+        *reader.visits.lock().unwrap() = (1..=N).map(|i| read_visit(i, "a")).collect();
+        let history = |rt: &Runtime| {
+            rt.events
+                .snapshot()
+                .iter()
+                .filter(|r| r.logical_source == "c02-browser-history")
+                .count()
+        };
+        let before = history(&rt);
+        // 24 時間後へ飛ぶ（この 1 回の見回りの「眠っていた」は時刻を飛ばしたことによる）
+        let mut sec = 86_400;
+        rt.tick_at(&mut src, t(sec), t(sec));
+        let from = rt.events.len();
+        let (mut slowest, mut queueing_ticks) = (std::time::Duration::ZERO, 0);
+        let mut switched_at = None;
+        while reader.reads() < 2 || rt.history.as_ref().unwrap().is_reading() {
+            sec += 1;
+            let started = std::time::Instant::now();
+            rt.tick_at(&mut src, t(sec), t(sec));
+            slowest = slowest.max(started.elapsed());
+            if history(&rt) > before && rt.history.as_ref().unwrap().is_reading() {
+                queueing_ticks += 1;
+                // 積んでいる途中で前景を変える
+                if switched_at.is_none() {
+                    src.app = "browser".into();
+                    switched_at = Some(rt.events.len());
+                }
+            }
+            assert!(sec < 86_400 + 60_000, "取得が終わらない");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            slowest < std::time::Duration::from_secs(POLL_INTERVAL_SEC as u64),
+            "見回り 1 回が {slowest:?} かかった"
+        );
+        assert!(
+            queueing_ticks >= (N as usize - 10) / QUEUE_PER_TICK,
+            "積み込みを見回りに分けていない: {queueing_ticks} 回"
+        );
+        let events = rt.events.snapshot();
+        let switched_at = switched_at.expect("積んでいる途中が無かった");
+        let window_at = (switched_at..events.len())
+            .find(|&i| events[i].logical_source == "c02-window")
+            .expect("積んでいる間の前景の変化が積まれていない");
+        assert!(
+            events[window_at..]
+                .iter()
+                .any(|r| r.logical_source == "c02-browser-history"),
+            "前景の変化が積み込みの後になった（見回りが止まっていた）"
+        );
+        assert!(
+            events[from..].iter().all(|r| !r.raw.contains("suspended")),
+            "積み込みの間に眠りが入った"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|r| r.logical_source == "c02-browser-history"
+                    && r.raw.contains(r#""kind":"visit""#))
+                .count(),
+            N as usize,
+            "積みこぼした"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 除外の登録が壊れて、読めても積めない取得が続く間は、履歴の生存信号が「取得できない」を報告し、
+    /// 理由に種別だけを載せる（deep.md 第 5 回 Q10。review/code.md R70）。
+    ///
+    /// Scenario: 送る準備を終えられない取得は取得できないとして報告される
+    #[test]
+    fn history_heartbeat_reports_not_queued_at_runtime() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"kind":"no-such-kind","value":"x"}]"#);
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        // 3 日回す（失敗した取得は 1 分から 1 時間まで間を空けて試し直す）
+        for day in 1..=3 {
+            for sec in ((day - 1) * 86_400 + 60..day * 86_400).step_by(60) {
+                rt.tick_at(&mut src, t(sec), t(sec));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            tick_until_history_beats(
+                &mut rt,
+                &mut src,
+                &transport,
+                day * 86_400,
+                day as usize + 1,
+            );
+        }
+        assert!(reader.reads() >= 3, "読みが試し直されていない");
+        assert!(history_records(&transport).is_empty(), "壊れた登録で送った");
+        let beats = history_beats(&transport);
+        for beat in &beats[1..] {
+            assert_eq!(
+                beat["capturable"], false,
+                "積めないのに取得できるとした: {beat}"
+            );
+            assert_eq!(beat["blockers"], serde_json::json!(["history-not-queued"]));
+            assert!(beat["successes"].as_i64() < beat["attempts"].as_i64());
+            assert!(!beat["raw"].as_str().unwrap().contains("example.test"));
+        }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     // ---- 履歴の除外（ST08 Task 7）。取り込み口へ送られた本文で確かめる ----
