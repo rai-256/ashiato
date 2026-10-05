@@ -16,7 +16,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 同じ書庫をもう一度置いても行が増えない`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は `external-ingestion` 118 本（第 4 回 Q13 の 5 本・第 5 回 Q14 の 4 本を含む） + `collection-coverage` の MODIFIED で増えた 3 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えずに THEN を直した 2 本: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
+- **この change が足す Scenario は `external-ingestion` 122 本（第 4 回 Q13 の 5 本・第 5 回 Q14 の 4 本・第 6 回 Q15 の 4 本を含む） + `collection-coverage` の MODIFIED で増えた 3 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えずに THEN を直した 2 本: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで **`CT <絞り込み>`** と書いたものは、
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log` が rc=0 になることを指す。
   **`VT <ファイル>`** は `bash -o pipefail -c 'cd web && npx vitest run src/__tests__/<ファイル> 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log` が rc=0
@@ -238,6 +238,17 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 15.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
   `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0
 
+## Task 17: 16. 位置を持つ YouTube の履歴の項目と滞在の削除（design D22-d / 第 6 回 Q15）
+
+- [ ] 16.1 書庫 1 冊の格納の直後の印付け（`stay_store::mark_archive_arrivals`）の対象を、`c03-myactivity-` の接頭辞から「位置の 7 本以外で書庫が項目を入れる論理ソース」（`c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history` を含む）へ広げる。判定は `carries_location`（欄の有無。payload と内容の鍵は変えない）。
+  Scenario: `消した滞在の時間帯の位置を持つ YouTube の履歴の項目は削除済みになる` / `位置を持たない YouTube の履歴の項目は消した時間帯でも生きた記録として入る`。
+  検証: `CT archive_erased_youtube_window`（滞在を消してから、同じ時間帯の時刻で `locationInfos` を持つ項目と持たない項目を 1 件ずつ含む合成の YouTube の視聴の書庫と検索の書庫を形の確認の印を置いて格納する。前者は `deleted_by = 'user:late'` と台帳の `erase` 行、後者は生きた行のままであることを見る）
+- [ ] 16.2 `deletion::erase` の位置の連鎖・`stay_store::mark_late_arrivals` のソースの集合と、SQL の判定（`myactivity_located_sql`）を同じ範囲に広げる。`deletion::restore` で一緒に戻ることを試験で固定する。Rust と SQL の判定の一致の試験（`archive_myactivity_location_rust_and_sql_agree`）に YouTube の論理ソースの入力を足す。滞在の判定（`Criteria::sources`）は変えない。
+  Scenario: `滞在を消すとその時間帯の位置を持つ YouTube の履歴の項目も削除済みになる` / `滞在の削除を戻すと位置を持つ YouTube の履歴の項目も戻る`。
+  検証: `CT archive_erased_youtube_cascade`（位置を持つ項目と持たない項目を格納した後に滞在を消し、前者だけに `user:cascade` の印と台帳の行が付くこと / 戻して生きた行に戻ること）、`CT archive_myactivity_location_rust_and_sql_agree`
+- [ ] 16.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+  `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0
+
 ## 人間の確認待ち
 
 **機械で確かめられないのは「違和感」と、本物の Google の書き出しだけ**（2026-09-14 の決定）。正しさは 11 章までのテストが持つ。
@@ -245,6 +256,6 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [ ] 13.1 本物の Takeout の書庫（YouTube・マイアクティビティ・Chrome を JSON で）と、端末から書き出した `Timeline.json` を専用のフォルダに置き、
   稼働状況の「直近に置いた書庫」で**読めなかった 0**、各ソースの見出しに最終日が出るか（合成の書庫は Google の実物の形の揺れを再現できない。design D3 / D2）。
   置いた後に箱に出る「形の確認待ち」に対して `tools/archive-shape.sh` の出力（値を含まない）を見て、マイアクティビティの `products` の値と見分け方を確かめてから `--confirm` で印を置く。
-  あわせてマイアクティビティの形の `field_names` に `locationInfos` があるかを見る（あれば位置を持つ項目が消した時間帯で印の対象になる。design D22-b / 第 5 回 Q14）
+  あわせてマイアクティビティ・YouTube の視聴・YouTube の検索の形の `field_names` に `locationInfos` があるかを見る（あれば位置を持つ項目が消した時間帯で印の対象になる。design D22-b / D22-d / 第 5 回 Q14・第 6 回 Q15）
 - 確認バッチ（`/verify`）の手順書が、この Story について「触ってみて違和感は無かったか」を 1 問だけ聞く
   （見るもの: `SEED=normal` の稼働状況で、達成の下・Must の 5 本の前の「直近に置いた書庫」の箱・Must の後ろの書庫のソースの格子・見出しの「まで（N 日前）」）

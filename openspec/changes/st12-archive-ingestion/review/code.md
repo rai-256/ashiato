@@ -1174,7 +1174,7 @@ ledger の仕分け: parked 9 件のうち 8 件は park のまま（理由は�
 - 影響: 実物の YouTube の項目にその欄があれば、Q14 が避けた型（消した場面の「この付近」の位置が生きた記録として読み出しと書き出しへ流れる。loss: exported）が、YouTube のソースからそのまま起きる。Takeout の中身は形の確認の印を置くまで入らない（第 2 回 Q10）ので、いまの時点で外へ出たものは無い。13.1 の手順のままだと、YouTube の形の `field_names` は見落とされる。
 - kind: premise
 - 提案: 13.1 の見るものを「マイアクティビティ・YouTube の視聴・YouTube の検索の形の `field_names` に `locationInfos` があるか」に広げる。YouTube にあれば、印の対象を「Takeout の項目のうち `locationInfos` を持つもの」へ広げるかを本人へ問う（Q14 と同じ loss: exported）。印を置く前に分かるので、問うのは 13.1 の後でよい。
-- 処置: escalated — `deep.md` 第 6 回 Q15（premise / loss: exported・(未回答)）。問いは `deep-questions-r6.json`、HTML は `docs/briefs/ST12-deep-r6.html`
+- 処置: escalated — `deep.md` 第 6 回 Q15（premise / loss: exported・(未回答)）。問いは `deep-questions-r6.json`、HTML は `docs/briefs/ST12-deep-r6.html`。**答え（2026-10-05）**: 推奨のまま「位置を持つ Takeout の項目（YouTube の視聴・検索も含む）は印を付けて入れる（後から消したときも同じ）」→ spec の Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」に対象を足した（Scenario 4 本）・design D22-d（ソースの名前でなく項目が位置を持つかで決める）・tasks Task 17（16.1〜16.3）・13.1 に YouTube の形の `field_names` を見ることを足した。実装はグラフの Task ループが回す
 
 ## 手ごとの結果
 

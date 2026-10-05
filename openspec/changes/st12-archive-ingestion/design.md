@@ -14,7 +14,7 @@
 
 ## Goals / Non-Goals
 
-**Goals**: specs の 14 の Requirement（第 4 回 Q13 で 1 つ足し、第 5 回 Q14 でその対象を広げた。D22 / D22-b）。
+**Goals**: specs の 14 の Requirement（第 4 回 Q13 で 1 つ足し、第 5 回 Q14・第 6 回 Q15 でその対象を広げた。D22 / D22-b / D22-d）。
 **Non-Goals**:
 - 書庫の記録から滞在を作る（ST16 は `c01-location` だけ）。同じ出来事が 2 経路で入る組の読み方（ST25 / ST27 へ）
 - 途絶の通知（ST14）・感度の操作（ST24）・写しの消去（ST23）
@@ -38,7 +38,7 @@
 | D11 | 取り込み済みの最終日は台帳の列から導く | Q4（本人）/ C12 / spec R13 | —— |
 | D12 | 稼働状況の API と画面 | Q5（本人）/ 第 2 回 Q9（本人）/ C22 | 箱の高さの上限と取り込み器の止まりを出す閾値だけ仮 |
 | D13 | 変えないもの・`collection-coverage` に触るもの | Step 3 / spec R2 / 第 2 回 Q9（本人） | —— |
-| D22 | 書庫の位置も滞在の削除に従う（格納の直後・消すとき・戻すとき。位置を持つマイアクティビティの項目も） | 第 4 回 Q13（本人）/ 第 5 回 Q14（本人）/ code-verify R66 / R81 / ST22 の申し送り R6 | 重なりの判定は C（厳しい側）。D22-a は仮 |
+| D22 | 書庫の位置も滞在の削除に従う（格納の直後・消すとき・戻すとき。位置を持つマイアクティビティ・YouTube の履歴の項目も） | 第 4 回 Q13（本人）/ 第 5 回 Q14（本人）/ 第 6 回 Q15（本人）/ code-verify R66 / R81 / R92 / ST22 の申し送り R6 | 重なりの判定は C（厳しい側）。D22-a・D22-c は仮 |
 | D14 | 移行は 3 本（`202609181600_archive_ingestion` と、final review の処置で足した `202610042315_archive_pending_file` / `202610051730_archive_reread_failure`） | final review R51 / R56 / R59 / 第 3 回 R82 / R88 | —— |
 | D16 | 形の確認の印（Takeout の書庫の中身） | 第 2 回 Q10（本人）/ 第 3 回 Q12（本人）/ spec-r2 R4 / R5 / R10 | —— |
 | D15 | 完了の判定を機械で確かめる | 完了の判定 1〜5 | —— |
@@ -491,6 +491,14 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
   `archive_myactivity_location_rust_and_sql_agree` の期待値も揃えた。tasks 15.1 の「空でない配列」は凍結された文面で、この判定はそれを含む広い側。
   反転条件: 13.1 で実物の `locationInfos` が位置でない値（空の印や件数など）を持つ形だと分かり、位置を持たない項目まで印が付いて本人の記録が消えて見えるなら、
   実物の形に合わせて狭める（印は削除の台帳の原因で戻せるので、捨てたものは無い）
+
+- **D22-d. 位置を持つ YouTube の履歴の項目も書庫の位置に入れる。ソースの名前でなく項目で決める**（第 6 回 Q15。本人の決定。code-verify 第 5 回 R92）:
+  D22-b の対象を、マイアクティビティの接頭辞から**位置の 7 本（`LOCATION_SOURCES`）以外で書庫が項目を入れる論理ソースすべて**へ広げる ——
+  いまは `c03-myactivity-*` / `c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history`。判定は D22-b / D22-c と同じ `locationInfos` の欄の有無（Rust の `carries_location` と SQL の `myactivity_located_sql` を同じ範囲で使う）。
+  (1) 格納の直後（`mark_archive_arrivals` の範囲の絞り込み）・(2) 消すとき（`deletion::erase` の連鎖）・(3) 戻すとき・後着の印（`mark_late_arrivals`）の 3 か所で、ソースの集合と判定の両方を同じ範囲にする（片方だけを広げると、印付けの範囲と印を付ける条件が黙ってずれる）。
+  `c03-chrome-history` は本人の答えが名指していないが、「項目が位置を持つかで決める」の読み取りに従って含める（C: 厳しい側。欄が無ければ何も起きない。印は戻せる）。
+  書庫の取り込み器の生存信号・途絶（`c03-archive` / `c03-outage`）は項目でないので対象外。payload と内容の鍵は変えない。滞在の判定の入力には足さない（Non-Goals のまま）。
+  実物の YouTube の視聴・検索の形に `locationInfos` があるかは 13.1 で `tools/archive-shape.sh` の `field_names` を見て確かめる（無ければ何も起きない）
 
 ## Risks / Trade-offs
 
