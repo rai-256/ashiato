@@ -2350,11 +2350,16 @@ async fn archive_flow_the_box_shows_an_unreadable_inbox_on_the_same_day() {
 }
 
 /// 端末で書き出した合成の `Timeline.json`。位置は消した滞在（2026-09-12 12:00〜13:00 JST = 03:00Z〜04:00Z）に対して
-/// 端が触れる訪問・触れる移動・内側の信号・外の訪問・外の信号を持つ。
+/// 端が触れる訪問・触れる移動・内側の信号・内側の経路の点・外の訪問・外の信号・外の経路の点を持つ
+/// （位置は 7 行。印が付くのは 4 行。経路の点は code-verify 第 4 回 R79 で足した）。
 const ERASE_TIMELINE: &str = r#"{"semanticSegments":[
   {"startTime":"2026-09-12T02:00:00Z","endTime":"2026-09-12T03:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.658°, 139.745°"}}}},
   {"startTime":"2026-09-12T04:00:00Z","endTime":"2026-09-12T05:00:00Z","activity":{"start":{"latLng":"35.658°, 139.745°"},"end":{"latLng":"35.660°, 139.750°"},"topCandidate":{"type":"WALKING"}}},
-  {"startTime":"2026-09-12T06:00:00Z","endTime":"2026-09-12T07:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.670°, 139.760°"}}}}
+  {"startTime":"2026-09-12T06:00:00Z","endTime":"2026-09-12T07:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.670°, 139.760°"}}}},
+  {"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T09:00:00Z","timelinePath":[
+    {"point":"35.659°, 139.746°","time":"2026-09-12T03:40:00Z"},
+    {"point":"35.671°, 139.761°","time":"2026-09-12T08:30:00Z"}
+  ]}
  ],
  "rawSignals":[
   {"position":{"LatLng":"35.658°, 139.745°","timestamp":"2026-09-12T03:30:00Z"}},
@@ -2481,7 +2486,7 @@ async fn archive_erased_window_marks_the_overlapping_archive_locations() {
         &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
     );
     inbox.spawn(true);
-    inbox.until_archive_locations(5).await;
+    inbox.until_archive_locations(7).await;
 
     // 端が触れるだけの訪問（〜03:00Z）と移動（04:00Z〜）、内側の信号に印が付く。外の 2 行は生きる。
     let marks = inbox.marks().await;
@@ -2507,13 +2512,18 @@ async fn archive_erased_window_marks_the_overlapping_archive_locations() {
         "内側の信号に印が無い: {marks:?}"
     );
     assert_eq!(
+        late("c03-timeline-route"),
+        1,
+        "内側の経路の点に印が無い: {marks:?}"
+    );
+    assert_eq!(
         inbox.archive_locations().await,
-        (3, 2),
+        (4, 3),
         "生きた行の件数が違う"
     );
     assert_eq!(
         inbox.erase_ledger_rows(stay, "user:late").await,
-        3,
+        4,
         "台帳の erase 行が違う"
     );
     // 作り直しを走らせていない（final review 第 2 回 R77）。作り直しは最初に基準の版を書き
@@ -2561,10 +2571,10 @@ async fn archive_erased_cascade_marks_locations_stored_before_the_erase() {
         &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
     );
     inbox.spawn(true);
-    inbox.until_archive_locations(5).await;
+    inbox.until_archive_locations(7).await;
     assert_eq!(
         inbox.archive_locations().await,
-        (0, 5),
+        (0, 7),
         "格納の時点で印が付いている"
     );
 
@@ -2578,11 +2588,11 @@ async fn archive_erased_cascade_marks_locations_stored_before_the_erase() {
             .iter()
             .filter(|(_, by)| by.as_deref() == Some("user:cascade"))
             .count(),
-        3,
+        4,
         "{marks:?}"
     );
-    assert_eq!(inbox.archive_locations().await, (3, 2));
-    assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 3);
+    assert_eq!(inbox.archive_locations().await, (4, 3));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 4);
 
     // 同じ内容の書庫を置き直しても行は増えない（内容の鍵。final review 第 2 回 R75）。書庫の
     // ハッシュが同じだと走査が既読として畳み中身を読まないので、読まない別のファイルを足して別の書庫にする。
@@ -2604,12 +2614,12 @@ async fn archive_erased_cascade_marks_locations_stored_before_the_erase() {
         .await;
     assert_eq!(
         inbox.archive_locations().await,
-        (3, 2),
+        (4, 3),
         "置き直した書庫で位置の行が増えた / 印が外れた"
     );
     assert_eq!(
         inbox.erase_ledger_rows(stay, "user:cascade").await,
-        3,
+        4,
         "置き直しで連鎖の台帳の行が増えた"
     );
 
@@ -2629,21 +2639,165 @@ async fn archive_erased_cascade_restore_brings_the_locations_back() {
         &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
     );
     inbox.spawn(true);
-    inbox.until_archive_locations(5).await;
+    inbox.until_archive_locations(7).await;
     let stay = inbox.put_stay().await;
     crate::deletion::erase(&inbox.pool, stay, None)
         .await
         .unwrap();
-    assert_eq!(inbox.archive_locations().await, (3, 2));
+    assert_eq!(inbox.archive_locations().await, (4, 3));
 
     let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
         .await
         .unwrap();
-    assert_eq!(outcome.locations, 3);
+    assert_eq!(outcome.locations, 4);
     assert_eq!(
         inbox.archive_locations().await,
-        (0, 5),
+        (0, 7),
         "戻した後に印が残っている"
+    );
+}
+
+/// 移行前の `Records.json`。消した滞在（03:00Z〜04:00Z）の中の点と外の点を 1 つずつ持つ（code-verify 第 4 回 R79）。
+const LEGACY_RECORDS: &str = r#"{"locations":[
+  {"latitudeE7":356580000,"longitudeE7":1397450000,"accuracy":10,"timestamp":"2026-09-12T03:20:00Z"},
+  {"latitudeE7":356700000,"longitudeE7":1397600000,"accuracy":10,"timestamp":"2026-09-12T08:20:00Z"}
+ ]}"#;
+
+/// spec が名指しする書庫の位置の論理ソース 7 本の**文字列**。`LOCATION_SOURCES` を通さずに数えるので、
+/// 並びからソースが抜けると件数が合わなくなる（R79）。
+const SPEC_LOCATION_SOURCES: [&str; 7] = [
+    "c03-timeline-visit",
+    "c03-timeline-move",
+    "c03-timeline-route",
+    "c03-timeline-signal",
+    "c03-legacy-location",
+    "c03-legacy-visit",
+    "c03-legacy-activity",
+];
+
+impl Inbox {
+    /// 移行前の `Records.json` を、取り込み器を介さずに格納する（退役の日付を動かさない）。
+    async fn store_records(&self, body: &str) -> Vec<crate::IngestRequest> {
+        let requests = crate::archive::worker::requests_for_file(
+            crate::archive::classify::KnownKind::Records,
+            "Takeout/Location History/Records.json",
+            body.as_bytes(),
+            self.user,
+            format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+        )
+        .unwrap();
+        let sink = crate::PgSink::new(self.pool.clone());
+        crate::archive::worker::store_requests(&sink, requests.clone())
+            .await
+            .unwrap();
+        requests
+    }
+
+    /// 名指しした論理ソースの行の (ソース, 印)。並びは論理ソース・時刻の順。
+    async fn marks_of(&self, sources: &[&str]) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT logical_source, deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source = ANY($2) ORDER BY logical_source, event_time",
+        )
+        .bind(self.user)
+        .bind(sources.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+fn mark(source: &str, by: Option<&str>) -> (String, Option<String>) {
+    (source.to_owned(), by.map(str::to_owned))
+}
+
+// Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+// Scenario: 滞在の削除を戻すと書庫の位置も戻る
+//
+// 件数の大半を占める経路の点（`c03-timeline-route`）と移行前の点（`c03-legacy-location`）にも、消した後に
+// 置いた書庫で後着の印（`user:late`）が付き、`deletion::restore` で戻る（code-verify 第 4 回 R79。
+// それまでの試験は先に格納して後から消した `user:cascade` だけを戻していた）。
+#[tokio::test]
+async fn archive_erased_late_marks_on_route_and_records_points_are_restored() {
+    let inbox = Inbox::new("archive-erased-late-restore").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(7).await;
+    inbox
+        .until("書庫の位置に後着の印が付かない", || async {
+            Inbox::late_marks(&inbox.marks().await) == 4
+        })
+        .await;
+    let records = inbox.store_records(LEGACY_RECORDS).await;
+    assert_eq!(records.len(), 2);
+    crate::stay_store::mark_archive_arrivals(&inbox.pool, inbox.user, &records)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        inbox
+            .marks_of(&["c03-timeline-route", "c03-legacy-location"])
+            .await,
+        vec![
+            mark("c03-legacy-location", Some("user:late")),
+            mark("c03-legacy-location", None),
+            mark("c03-timeline-route", Some("user:late")),
+            mark("c03-timeline-route", None),
+        ],
+        "経路の点と移行前の点の中だけに後着の印が付いていない"
+    );
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 5);
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 5, "後着の印を付けた位置が戻らない");
+    let after = inbox.marks_of(&SPEC_LOCATION_SOURCES).await;
+    assert_eq!(after.len(), 9, "{after:?}");
+    assert!(
+        after.iter().all(|(_, by)| by.is_none()),
+        "戻した後に印が残っている: {after:?}"
+    );
+}
+
+// Scenario: 滞在を消すとその時間帯の書庫の位置も削除済みになる
+// Scenario: 滞在の削除を戻すと書庫の位置も戻る
+//
+// 先に格納した移行前の点（`c03-legacy-location`）にも、滞在を消すときの連鎖の印が付き、戻すと外れる（R79）。
+#[tokio::test]
+async fn archive_erased_cascade_marks_and_restores_records_points() {
+    let inbox = Inbox::new("archive-erased-records-cascade").await;
+    inbox.store_records(LEGACY_RECORDS).await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.marks_of(&["c03-legacy-location"]).await,
+        vec![
+            mark("c03-legacy-location", Some("user:cascade")),
+            mark("c03-legacy-location", None),
+        ]
+    );
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 1);
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 1);
+    assert_eq!(
+        inbox.marks_of(&["c03-legacy-location"]).await,
+        vec![
+            mark("c03-legacy-location", None),
+            mark("c03-legacy-location", None),
+        ]
     );
 }
 
@@ -2780,17 +2934,17 @@ async fn archive_erased_window_marks_after_a_failed_marking_on_the_next_scan() {
         inbox.inbox.join("Timeline.json.zip").exists(),
         "印付けに落ちた書庫が置き場に残っていない"
     );
-    assert_eq!(inbox.archive_locations().await, (0, 5));
+    assert_eq!(inbox.archive_locations().await, (0, 7));
     fault.remove().await;
 
-    inbox.until_archive_locations(5).await;
+    inbox.until_archive_locations(7).await;
     inbox
         .until("次の走査で印が付かない", || async {
-            Inbox::late_marks(&inbox.marks().await) == 3
+            Inbox::late_marks(&inbox.marks().await) == 4
         })
         .await;
-    assert_eq!(inbox.archive_locations().await, (3, 2));
-    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 3);
+    assert_eq!(inbox.archive_locations().await, (4, 3));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 4);
     assert_eq!(inbox.read_rows_now(None).await, 1);
 }
 
@@ -2845,12 +2999,62 @@ async fn archive_erased_window_reparse_marks_after_a_failed_marking() {
 
     inbox
         .until("次の周の読み直しで印が付かない", || async {
-            Inbox::late_marks(&inbox.marks().await) == 3
+            Inbox::late_marks(&inbox.marks().await) == 4
                 && inbox.read_rows_now(Some(&archive_sha)).await == 1
         })
         .await;
-    assert_eq!(inbox.archive_locations().await, (3, 2));
-    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 3);
+    assert_eq!(inbox.archive_locations().await, (4, 3));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 4);
+}
+
+// Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
+//
+// 印付けが落ち続ける書庫も、格納の失敗と同じく数える（code-verify 第 4 回 R80。design D22）。数えなかったときは、
+// 走査のたびに書庫を丸ごと読み直し続け、台帳は 0 行・`latest_archive` は null（箱は「置かれていない」）だった。
+// 3 回続いたら `store_failed` を 1 行書き、以後 1 時間はその書庫を読みへ回さない。
+#[tokio::test]
+async fn archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled() {
+    let inbox = Inbox::new("archive-erased-mark-persistent").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let fault = LateMarkFault::install(&inbox).await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "印付けが 3 回落ちても store_failed の行が無い",
+            || async { inbox.ledger_rows("store_failed").await == 1 },
+        )
+        .await;
+    let fired = fault.fired().await;
+    // 1 時間に 1 回へ落ちている: 走査（1 秒ごと）を 4 回以上待っても読み直さない。
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    let fired_later = fault.fired().await;
+    let status = inbox.status().await;
+    let ledger_failed = inbox.ledger_rows("store_failed").await;
+    let read_rows = inbox.read_rows_now(None).await;
+    let still_in_inbox = inbox.inbox.join("Timeline.json.zip").exists();
+    fault.remove().await;
+
+    assert!(
+        fired >= 3,
+        "store_failed の行が 3 回の失敗の前に書かれた: {fired}"
+    );
+    assert_eq!(
+        fired_later, fired,
+        "store_failed の後も走査のたびに読み直している"
+    );
+    assert_eq!(ledger_failed, 1, "store_failed の行が 1 行でない");
+    assert_eq!(read_rows, 0, "印の付かない書庫に read の行がある");
+    assert!(still_in_inbox, "印の付かない書庫が置き場から動いた");
+    let latest = status.latest_archive.expect("直近の書庫が箱に出ない");
+    assert_eq!(latest.outcome, "store_failed");
+    assert_eq!(latest.file_name.as_deref(), Some("Timeline.json.zip"));
 }
 
 /// 移行前の `Semantic Location History`。消した滞在（03:00Z〜04:00Z）に対して、**始まりは前で終わりだけが

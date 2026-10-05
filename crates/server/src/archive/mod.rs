@@ -38,3 +38,34 @@ pub const INTERVAL_SOURCES: [&str; 4] = [
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
 pub const PARSER_VERSION: &str = "1";
+
+#[cfg(test)]
+mod tests {
+    // Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+    //
+    // 並びは spec `external-ingestion` の Requirement「本人が滞在を消した時間帯の書庫の位置は、
+    // 削除済みの印を付けて入る」が名指しする 7 本と同じ文字列で固定する。試験の数え方も並びそのものを
+    // 使うので、並びから外したソースは数からも消えて試験が通っていた（code-verify 第 4 回 R79）。
+    #[test]
+    fn location_sources_are_the_seven_named_by_the_spec() {
+        assert_eq!(
+            super::LOCATION_SOURCES.as_slice(),
+            [
+                "c03-timeline-visit",
+                "c03-timeline-move",
+                "c03-timeline-route",
+                "c03-timeline-signal",
+                "c03-legacy-location",
+                "c03-legacy-visit",
+                "c03-legacy-activity",
+            ]
+            .as_slice()
+        );
+        for source in super::INTERVAL_SOURCES {
+            assert!(
+                super::LOCATION_SOURCES.contains(&source),
+                "区間のソース {source} が位置の並びに無い"
+            );
+        }
+    }
+}

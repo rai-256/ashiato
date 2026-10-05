@@ -2095,10 +2095,16 @@ pub fn spawn_inspecting(
                     // 読み直し（格納は内容の鍵で増えない）、印を付け直す。`read` の行を先に書いていたときは、
                     // 次の走査が既読として畳み、消した時間帯の位置が生きた記録のまま残った
                     // （取り込みは作り直しを起こさないので、他に印を付ける経路が無い）。
+                    // **落ち続けるときは格納の失敗と同じく数える**（code-verify 第 4 回 R80。design D22）。
+                    // 数えなかったときは、走査のたびに書庫を丸ごと読み直し続け、台帳にも画面にも何も出なかった。
+                    // 3 回続いたら `store_failed` を 1 行書いて箱に出し、1 時間に 1 回へ落とす。
                     if crate::stay_store::mark_archive_arrivals(&pool, user_id, &stored_requests)
                         .await
                         .is_err()
                     {
+                        let _ =
+                            record_store_failure(&pool, user_id, &candidate.path, sha256.clone())
+                                .await;
                         tracing::warn!(
                             kind = "archive_mark_erased",
                             "消した時間帯の印を付けられない"
