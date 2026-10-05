@@ -62,6 +62,51 @@ async fn browser_history_record_id_is_required() {
     assert_eq!(kind, "record", "履歴は訪問ごとの識別子を要求する");
 }
 
+/// **記録が 1 件でも入った後は、移行が登録簿の宣言を触らない**（tasks 2.1 (b) / design D7）。
+///
+/// `migrate()` は起動のたびに全版を当て直す。`NOT EXISTS` の番人を外すと、本人が後から
+/// `'none'` に戻した宣言を再起動のたびに `'record'` へ戻し、既存の行と鍵の対応が切れる（Q3 の不可逆）。
+/// 上の `…_is_required` は「全移行の後に `'record'`」しか見ないので、番人を外しても緑だった（R6 / R47）。
+///
+/// 登録簿は全テストで 1 本しかないので、変更は**トランザクションの中だけ**に閉じて戻す。
+#[tokio::test]
+async fn browser_history_record_id_is_kept_once_records_exist() {
+    let pool = testdb::pool().await;
+    let sql = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.ends_with("_browser_history_record_id"))
+        .expect("ST08 の移行が MIGRATIONS に無い")
+        .1;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE core.source SET external_id_kind = 'none'
+           WHERE logical_source = 'c02-browser-history'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO core.event (id,user_id,logical_source,origin,event_time,tz_offset_min,tz_id,schema_version,content_hash,raw,payload) VALUES ($1,$1,'c02-browser-history','collected',now(),0,'UTC',1,'test','{}','{}')")
+        .bind(uuid::Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // 起動のたびの当て直し
+    sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap();
+
+    let (kind,): (String,) = sqlx::query_as(
+        "SELECT external_id_kind FROM core.source WHERE logical_source = 'c02-browser-history'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        kind, "none",
+        "記録がある状態で当て直すと、宣言が 'record' へ戻った（既存行と鍵の対応が切れる）"
+    );
+    tx.rollback().await.unwrap();
+}
+
 /// 識別子のない履歴は、同じ訪問の更新先を決められないため断る。
 ///
 /// Scenario: 識別子を欠いた履歴の記録は断られる
