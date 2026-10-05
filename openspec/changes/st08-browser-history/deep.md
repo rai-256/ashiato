@@ -281,3 +281,34 @@ Q6 [繋がっていない履歴の収集を、第 1 回・第 2 回の決定ど�
   tasks の 3〜10 章をやり直す（完了の印は検証の証跡で付け直す）
 - **要件へ戻すもの**: **なし。** 答えは既に決めた要件（FR-13 の ★ 2026-09-15 訂正）どおりに実装する、というもので、要件の本文は変わらない
 - **当初案を覆したもの**: なし
+
+### Q6 の答えが覆う、その後の指摘（`/story ST08 finish`。2026-10-05）
+
+Q6 の後の whole-branch review（`review/code.md` R37〜R49）と code-verify 2 回目（R50〜R55）、
+および Q6 より前に「Q6 待ち」を理由に rejected していた指摘は、**どれも Q6 の答え（決めたとおりに繋ぎ直し、識別子も設計どおりに直す）の範囲**にある。
+答えは出ているので聞き直さない。実装は Q6 の「何が変わるか」どおり、`tasks.md` の 3〜11 章の impl の印を外し、グラフが Task 3 から回し直す。
+
+- **Q6 の範囲（繋ぎ直し・識別子・写し・除外・判定・観測するテスト）**: R2 / R5 / R8 / R9 / R10 / R11 / R12 / R13 / R25 / R27 / R28 / R32 / R35 /
+  R37 / R38 / R39 / R40 / R41 / R42 / R43 / R44 / R45 / R46 / R48 / R49 / R51 / R52 / R54
+- **新しい A（第 4 回）**: R55 → Q7、R26 → Q8
+
+## 第 4 回（code-verify 2 回目が見つけた A）
+
+`review/code.md` の R55・R26 が「取りこぼしの起きる箇所」で、`loss: uncaptured` を持つ。問いは `deep-questions-r4.json` → `docs/briefs/ST08-deep-r4.html`。
+
+### Q7. PC の時計が一度先に進んでから戻ったとき、履歴の取得を待つか（A / irreversible / loss: uncaptured）
+
+- **なぜ人間の判断か**: `HistorySchedule::due` は `now - last_success >= 24h` だけで、`last_success > now`（時計が戻った）を扱わない。
+  1 年先の成功の後に戻すと 365 日 1 度も取得しない（R55 の実測）。Chromium 系は 90 日で消すので、戻った幅が 90 日を超えるとその間の訪問は後から取れない
+- **出所**: `review/code.md` の `R55`（`crates/collector-windows/src/history/fetch.rs:158-164`）
+- **推奨**: 前回の成功が今より先なら、すぐ取得する（失うものが無い）
+- **本人の答え**: (未回答)
+- **効く先**: design D3、tasks 5.4
+
+### Q8. URL の行が見つからない訪問を、捨てるか・URL 無しで入れるか（A / irreversible / loss: uncaptured）
+
+- **なぜ人間の判断か**: `visits JOIN urls` で `urls` の行を失った訪問が黙って落ち、帳面にあれば次の取得で「消えた」に化ける。件数の検算も無い。捨てた訪問は後から取れない
+- **出所**: `review/code.md` の `R26`（`crates/collector-windows/src/history/read.rs:41, 63`）
+- **推奨**: URL 無しの訪問として入れ、「消えた」にしない（扉を開けたままにする既定 = 捨てるより印を付けて入れる）
+- **本人の答え**: (未回答)
+- **効く先**: design D2 / D10、tasks 4.3 / 6.1

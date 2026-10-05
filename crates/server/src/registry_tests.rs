@@ -136,130 +136,131 @@ async fn browser_history_without_external_id_is_rejected() {
     );
 }
 
-/// 履歴ソース自身で、訪問ごとの更新と版保存を取り込み口まで通して固定する。
-async fn assert_browser_history_update() {
-    async fn send(
-        app: &App,
-        user: uuid::Uuid,
-        external_id: &str,
-        raw: &str,
-        updated: &str,
-    ) -> IngestResult {
-        let body = serde_json::json!([{
-            "id": uuid::Uuid::new_v4(), "user_id": user,
-            "logical_source": "c02-browser-history", "external_id": external_id,
-            "device_id": "pc-01", "origin": "collected",
-            "event_time": "2026-03-01T12:00:00.000001Z", "tz_offset_min": 540,
-            "tz_id": "Asia/Tokyo", "schema_version": 1, "source_updated_at": updated,
-            "raw": raw, "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
-        }]);
-        let (_, Json(results)): (_, Json<Vec<IngestResult>>) =
-            ingest(State(app.clone()), auth(), Json(body))
-                .await
-                .expect("取り込み口");
-        results.into_iter().next().expect("結果")
-    }
+/// 履歴ソースへ訪問 1 件を取り込み口から送る（tasks 2.2 の 5 本が共有する。検査は各テストが持つ）。
+async fn send_visit(
+    app: &App,
+    user: uuid::Uuid,
+    external_id: &str,
+    raw: &str,
+    updated: &str,
+) -> IngestResult {
+    let body = serde_json::json!([{
+        "id": uuid::Uuid::new_v4(), "user_id": user,
+        "logical_source": "c02-browser-history", "external_id": external_id,
+        "device_id": "pc-01", "origin": "collected",
+        "event_time": "2026-03-01T12:00:00.000001Z", "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo", "schema_version": 1, "source_updated_at": updated,
+        "raw": raw, "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
+    }]);
+    let (_, Json(results)): (_, Json<Vec<IngestResult>>) =
+        ingest(State(app.clone()), auth(), Json(body))
+            .await
+            .expect("取り込み口");
+    results.into_iter().next().expect("結果")
+}
 
-    let app = app().await;
-    let user = testdb::user();
-    let first = send(
-        &app,
-        user,
-        "visit-1",
-        r#"{"kind":"visit","title":"前","duration_ms":1}"#,
-        "2026-03-01T12:00:00Z",
-    )
-    .await;
-    let id = first.id.expect("最初の行");
-    let second = send(
-        &app,
-        user,
-        "visit-1",
-        r#"{"kind":"visit","title":"後","duration_ms":1}"#,
-        "2026-03-02T12:00:00Z",
-    )
-    .await;
-    assert_eq!(second.id, Some(id));
-    let (count, raw, versions): (i64, String, i64) = sqlx::query_as(
-        "SELECT count(*), max(raw), (SELECT count(*) FROM core.event_version WHERE event_id = $1) FROM core.event WHERE logical_source = 'c02-browser-history' AND user_id = $2",
-    ).bind(id).bind(user).fetch_one(&app.pool).await.unwrap();
-    // Scenario: 題名が変わった訪問は 1 行のまま新しい題名を持つ
-    // Scenario: 題名が変わった訪問の前の版が残る
-    assert_eq!(
-        (count, raw, versions),
-        (
-            1,
-            r#"{"kind":"visit","title":"後","duration_ms":1}"#.to_string(),
-            1
-        )
-    );
+const FIRST: &str = r#"{"kind":"visit","title":"前","duration_ms":1}"#;
+const RETITLED: &str = r#"{"kind":"visit","title":"後","duration_ms":1}"#;
 
-    send(
-        &app,
-        user,
-        "visit-1",
-        r#"{"kind":"visit","title":"後","duration_ms":9}"#,
-        "2026-03-03T12:00:00Z",
-    )
-    .await;
-    // Scenario: 閉じたタブの滞在時間が後の取得で更新され、前の版が残る
-    let (versions,): (i64,) =
+/// 最初の到着を入れ、その行の id を返す。
+async fn first_visit(app: &App, user: uuid::Uuid) -> uuid::Uuid {
+    send_visit(app, user, "visit-1", FIRST, "2026-03-01T12:00:00Z")
+        .await
+        .id
+        .expect("最初の行")
+}
+
+async fn versions_of(app: &App, id: uuid::Uuid) -> i64 {
+    let (n,): (i64,) =
         sqlx::query_as("SELECT count(*) FROM core.event_version WHERE event_id = $1")
             .bind(id)
             .fetch_one(&app.pool)
             .await
             .unwrap();
-    assert_eq!(versions, 2);
+    n
+}
 
-    send(
-        &app,
-        user,
-        "visit-1",
-        r#"{"kind":"visit","title":"古い","duration_ms":1}"#,
-        "2026-03-01T12:00:00Z",
-    )
-    .await;
-    // Scenario: 未送信の再送で古い題名が新しい題名を書き戻さない
+async fn raw_of(app: &App, id: uuid::Uuid) -> String {
     let (raw,): (String,) = sqlx::query_as("SELECT raw FROM core.event WHERE id = $1")
         .bind(id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(raw, r#"{"kind":"visit","title":"後","duration_ms":9}"#);
+    raw
+}
 
-    send(
-        &app,
-        user,
-        "visit-2",
-        r#"{"kind":"visit","title":"別","duration_ms":1}"#,
-        "2026-03-03T12:00:00Z",
+async fn rows_of(app: &App, user: uuid::Uuid) -> i64 {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.event WHERE logical_source = 'c02-browser-history' AND user_id = $1",
     )
-    .await;
-    // Scenario: 番号が振り直された後の訪問は、前の訪問と別の記録になる
-    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM core.event WHERE logical_source = 'c02-browser-history' AND user_id = $1").bind(user).fetch_one(&app.pool).await.unwrap();
-    assert_eq!(count, 2);
+    .bind(user)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    n
 }
 
-// 個別の Scenario 名で列挙し、どの回帰でも同じ受け口の縦断検証を通す。
-#[tokio::test]
-async fn browser_history_update() {
-    assert_browser_history_update().await;
-}
+/// (a) 題名だけ違う到着で行が 1 のまま新しい題名を持つ（tasks 2.2）。
+// Scenario: 題名が変わった訪問は 1 行のまま新しい題名を持つ
 #[tokio::test]
 async fn browser_history_update_title_keeps_one_row() {
-    assert_browser_history_update().await;
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let second = send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    assert_eq!(second.id, Some(id));
+    assert_eq!(rows_of(&app, user).await, 1);
+    assert_eq!(raw_of(&app, id).await, RETITLED);
 }
+
+/// (b) 前の題名の版が 1 つ積む（tasks 2.2）。
+// Scenario: 題名が変わった訪問の前の版が残る
 #[tokio::test]
 async fn browser_history_update_title_keeps_version() {
-    assert_browser_history_update().await;
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    assert_eq!(versions_of(&app, id).await, 0);
+    send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    assert_eq!(versions_of(&app, id).await, 1);
 }
+
+/// (c) 滞在時間だけ違う到着で版が積み、新しい滞在時間を持つ（tasks 2.2）。
+// Scenario: 閉じたタブの滞在時間が後の取得で更新され、前の版が残る
 #[tokio::test]
 async fn browser_history_update_duration_keeps_version() {
-    assert_browser_history_update().await;
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let longer = r#"{"kind":"visit","title":"前","duration_ms":9}"#;
+    send_visit(&app, user, "visit-1", longer, "2026-03-02T12:00:00Z").await;
+    assert_eq!(versions_of(&app, id).await, 1);
+    assert_eq!(raw_of(&app, id).await, longer);
 }
+
+/// (d) `source_updated_at` の古い到着が後から届いても題名が書き戻らない（tasks 2.2）。
+// Scenario: 未送信の再送で古い題名が新しい題名を書き戻さない
 #[tokio::test]
 async fn browser_history_update_stale_does_not_rewind() {
-    assert_browser_history_update().await;
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    let stale = r#"{"kind":"visit","title":"古い","duration_ms":1}"#;
+    send_visit(&app, user, "visit-1", stale, "2026-02-28T12:00:00Z").await;
+    assert_eq!(raw_of(&app, id).await, RETITLED);
+}
+
+/// (e) 番号だけ同じで訪問時刻の違う識別子は別の行になる（tasks 2.2。識別子は組全体から決まるので、サーバには別の識別子として届く）。
+// Scenario: 番号が振り直された後の訪問は、前の訪問と別の記録になる
+#[tokio::test]
+async fn browser_history_update_renumbered_is_another_row() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let other = send_visit(&app, user, "visit-2", FIRST, "2026-03-03T12:00:00Z").await;
+    assert_ne!(other.id, Some(id));
+    assert_eq!(rows_of(&app, user).await, 2);
 }
 
 /// **識別子を持たない記録が受け付けられる**（spec / FR-23 / FR-61）。
