@@ -53,16 +53,16 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## Task 3: 送る形（契約）
 
-- [ ] 3.1 `VisitPayload`（`visit` / `vanished` / `excluded` / `profiles`）と `IngestRequest::of_visit` を作る（design D4 / D5 / D6 / D15）。
+- [x] 3.1 `VisitPayload`（`visit` / `vanished` / `excluded` / `profiles`）と `IngestRequest::of_visit` を作る（design D4 / D5 / D6 / D15）。
   `event_time` はマイクロ秒、`tz_basis = "collected-at"`、`source_updated_at` は読んだ時刻、`external_id` は D6 の形
   （**第 2 回 Q5 の答えに従う**）。`IngestRequest` の `source_updated_at` は `skip_serializing_if` で足す（design D13）。
   Scenario: `訪問時刻がマイクロ秒で残る` / `タイムゾーンが取得時のものだと本文から分かる` / `識別子から URL と訪問時刻とプロファイルが読み取れない` /
   `記録の本文にブラウザとプロファイルがある`。
   検証: `cargo test visit_time_keeps_micros` rc=0 / `cargo test visit_external_id_is_pinned` rc=0 /
   `cargo test visit_payload_shape_is_pinned` rc=0 / `cargo test window_request_body_is_unchanged` rc=0 / `cargo test payload_shape_is_pinned` rc=0
-- [ ] 3.2 起点の換算（Chromium の 1601 年起点・Firefox の 1970 年起点）を純粋な関数にし、境界（0・負）を単体で固定する。
+- [x] 3.2 起点の換算（Chromium の 1601 年起点・Firefox の 1970 年起点）を純粋な関数にし、境界（0・負）を単体で固定する。
   検証: `cargo test history_epoch_conversion` rc=0
-- [ ] 3.3 `docs/collector-contract.md` に **C-02 の履歴の `payload` の形・識別子の作り方・`source_updated_at` に読んだ時刻を載せる理由**を追記する（design D4 / D6 / D15）。
+- [x] 3.3 `docs/collector-contract.md` に **C-02 の履歴の `payload` の形・識別子の作り方・`source_updated_at` に読んだ時刻を載せる理由**を追記する（design D4 / D6 / D15）。
   検証: `grep -c "c02-browser-history" docs/collector-contract.md` が 1 以上 / `grep -c "v1:" docs/collector-contract.md` が 1 以上 /
   `grep -c "source_updated_at" docs/collector-contract.md` が 3 以上（既存 2 + 追記）/ `python3 scripts/check_chain.py .` rc=0
 
