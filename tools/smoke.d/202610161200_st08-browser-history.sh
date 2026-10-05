@@ -1,6 +1,5 @@
 # ST08: ブラウザ履歴（c02-browser-history）の縦串。tools/smoke.sh の末尾が `.` で読む
 
-# Scenario: 2 回続けて取得しても行が増えない
 echo "== ST08. 同じ履歴を2回取り込んでも行を増やさない"
 HISTORY_DB=$(mktemp)
 rm -f "$HISTORY_DB"
@@ -42,4 +41,40 @@ case "$history_yesterday" in
   'https://example.test/yesterday 2026-09-08 02:00:00+00') : ;;
   *) echo "前日の URL と訪問時刻が格納されていない: $history_yesterday"; exit 1 ;;
 esac
+
+# Scenario: 2 回続けて取得しても行が増えない
+echo "== ST08. 同じ履歴 DB を収集側で 2 回取得しても、取り込み口まで通して行が増えない"
+FETCH_DB=$(mktemp); rm -f "$FETCH_DB"
+cargo build -q -p ashiato-collector-windows --example browser_history_smoke
+HSMOKE=./target/debug/examples/browser_history_smoke
+"$HSMOKE" make "$FETCH_DB" https://example.test/collected 収集した訪問
+count_history() { psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history';"; }
+h0=$(count_history)
+STATE1=$(mktemp -d)
+"$HSMOKE" fetch "$FETCH_DB" "$STATE1" "http://$BIND" "$API_TOKEN"
+h1=$(count_history)
+[ "$h1" = "$((h0 + 1))" ] || { echo "取得した訪問が 1 行だけ増えていない: $h0 -> $h1"; exit 1; }
+# 置き場を作り直して（再導入と同じ）同じ履歴 DB を取得し直す。行は増えない
+STATE2=$(mktemp -d)
+"$HSMOKE" fetch "$FETCH_DB" "$STATE2" "http://$BIND" "$API_TOKEN"
+h2=$(count_history)
+[ "$h1" = "$h2" ] || { echo "2 回目の取得で行が増えた: $h1 -> $h2"; exit 1; }
+
+# Scenario: 取り込み口が止まっている間に取得した履歴が後から届く
+echo "== ST08. 取り込み口を止めて取得し、戻した後に送って格納されている"
+kill "$SRV"; wait "$SRV" 2>/dev/null || true
+DOWN_DB=$(mktemp); rm -f "$DOWN_DB"
+"$HSMOKE" make "$DOWN_DB" https://example.test/while-down 止まっている間の訪問
+STATE3=$(mktemp -d)
+"$HSMOKE" fetch "$DOWN_DB" "$STATE3" "http://$BIND" "$API_TOKEN"
+env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
+for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
+curl -sf "http://$BIND/healthz" >/dev/null
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE payload->>'url'='https://example.test/while-down';")" = "0" ] \
+  || { echo "取り込み口が止まっている間に格納されている"; exit 1; }
+"$HSMOKE" send "$STATE3" "http://$BIND" "$API_TOKEN"
+down_rows=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history' AND payload->>'url'='https://example.test/while-down';")
+[ "$down_rows" = "1" ] || { echo "戻した後に届いていない: $down_rows"; exit 1; }
+rm -rf "$FETCH_DB" "$DOWN_DB" "$STATE1" "$STATE2" "$STATE3"
+
 rm -f "$HISTORY_DB"
