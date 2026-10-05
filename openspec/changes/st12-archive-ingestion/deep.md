@@ -1,6 +1,8 @@
 # ST12 の深掘り — 書庫を置くだけで過去のデータが入る
 
-> 状態: **第 5 回: 答えが揃った（2026-10-05）。未回答 0 件・推奨のまま 0 件。** Q14 は本人が推奨の選択肢を明示的に選んだ。下流の code-verify 第 4 回が見つけた 1 件（R81。premise / loss: exported）。問いは `deep-questions-r5.json`、渡した形は `docs/briefs/ST12-deep-r5.html`、答えは `deep-answers-2.txt`。
+> 状態: **第 6 回: 答え待ち（2026-10-05）。未回答 1 件（Q15）。** 下流の code-verify 第 5 回が見つけた 1 件（R92。premise / loss: exported）。問いは `deep-questions-r6.json`、渡した形は `docs/briefs/ST12-deep-r6.html`。
+>
+> 第 5 回: **答えが揃った（2026-10-05）。未回答 0 件・推奨のまま 0 件。** Q14 は本人が推奨の選択肢を明示的に選んだ。下流の code-verify 第 4 回が見つけた 1 件（R81。premise / loss: exported）。問いは `deep-questions-r5.json`、渡した形は `docs/briefs/ST12-deep-r5.html`、答えは `deep-answers-2.txt`。
 > **第 5 回で要件へ戻すもの: FR-50**（書庫のマイアクティビティの項目が位置を持つときも「その時間の位置の記録」に含めることを明記した）。
 > 第 4 回: **答えが揃った（2026-10-05）。未回答 0 件・推奨のまま 0 件。** Q13 は本人が推奨の選択肢を明示的に選んだ。下流の code-verify 第 3 回が見つけた 1 件（R66。loss: exported）。問いは `deep-questions-r4.json`、渡した形は `docs/briefs/ST12-deep-r4.html`、答えは `deep-answers-1.txt`。
 > **第 4 回で要件へ戻すもの: FR-50**（滞在の削除が書庫から入る位置にも及ぶことを明記した）。
@@ -350,6 +352,29 @@ design の D 番号に残す。**異論があれば、答えを貼り戻すと�
   3. マイアクティビティの項目の位置の欄を、格納のときに原文から外す —— 不可逆: 外した位置は戻らない（loss: discarded）
 - **loss**: `exported`
 - **効く先**: specs `external-ingestion` の Q13 の Requirement（対象のソース）/ design D22 / tasks に 1 Task。あわせて 13.1（本物の Takeout を置く）の見るものに「マイアクティビティの項目に `locationInfos` があるか」を足す
+
+## 第 6 回（2026-10-05。下流の code-verify 第 5 回が返したもの）
+
+### Q15. YouTube の視聴・検索の履歴の項目が位置を持っていたとき、消した場面の印の対象に入れるか（A / premise / loss: exported。推奨: 位置を持つ Takeout の項目はマイアクティビティと同じく印を付けて入れる）
+
+- **本人の答え**: (未回答)
+- **なぜ人間の判断か**: Q14 の答えは「位置（`locationInfos`）を持ちうるのはマイアクティビティの項目」という前提の上に立っていた。YouTube の視聴・検索の履歴も同じ形の JSON
+  （`header` / `title` / `titleUrl` / `time` / `products`）で、位置の欄を持つならその前提が崩れる（premise）。いまのままだと、本人が ST22 で消した場面の「この付近」の位置が、
+  `c03-youtube-watch` / `c03-youtube-search` から**原文に座標を持ったまま生きた記録として入り**、読み出しと書き出しへ流れる（Q13 / Q14 が避けた loss: exported と同じ型）
+- **出所**: code-verify 第 5 回 **R92**（premise）
+- **事実**: 印付け（`stay_store::mark_archive_arrivals`）は `archive::LOCATION_SOURCES` の 7 本と `c03-myactivity-` の接頭辞だけを見る（`stay_store.rs:737-742`）。
+  YouTube の項目はマイアクティビティと同じく項目の切り出しを原文に持つ（`archive/worker.rs:767-803`）。
+  検証者の probe: 滞在（03:00〜04:00Z）を消した後、`locationInfos`（`center=35.658,139.745`）を持つ YouTube の視聴の項目（03:30Z）を格納すると、`deleted_by` は `None`、原文に座標が残った。
+  **YouTube の履歴が実物で `locationInfos` を持つかは確かめていない**（検証者の知識の範囲。この repo の材料にも無い）。
+  Takeout の中身は形の確認の印を置くまで 1 件も入らない（第 2 回 Q10）ので、いまの時点で外へ出たものは無い
+- **当初の案**: 無い（Q14 の事実がマイアクティビティだけを数えていた）
+- **選択肢**:
+  1. **Takeout の項目（YouTube の視聴・検索も含む）のうち位置（`locationInfos`）を持つものは、消した時間帯ならマイアクティビティと同じく削除済みの印を付けて入れる。後から滞在を消したときも同じ**（推奨。Q13 / Q14 と同じ向き。捨てないので戻せる。実物に欄が無ければ何も起きない）
+  2. YouTube の履歴は印の対象外のまま入れる —— 不可逆: 消した場面のおおまかな位置が読み出しと書き出しで外に出る
+  3. YouTube の履歴の項目の位置の欄を、格納のときに原文から外す —— 不可逆: 外した位置は戻らない（loss: discarded）
+- **loss**: `exported`
+- **効く先**: specs `external-ingestion` の Q13 / Q14 の Requirement（対象のソース）/ design D22-b / 答えによっては tasks に 1 Task。
+  あわせて 13.1（本物の Takeout を置く）の見るものに「YouTube の視聴・検索の形の `field_names` に `locationInfos` があるか」を足す（答えに依らない）
 
 ## 要件へ戻すもの
 

@@ -1,12 +1,17 @@
 # ST12 書庫を置くだけで過去のデータが入る
 
-## 人間へ返す未決（A）—— **なし**（第 5 回 Q14 は 2026-10-05 に答えが入った）
+## 人間へ返す未決（A）—— **1 件（第 6 回 Q15。答え待ち）**
+
+- **第 6 回 Q15（premise / loss: exported）—— YouTube の視聴・検索の履歴の項目が位置（`locationInfos`）を持っていたとき、消した場面の印の対象に入れるか**（code-verify 第 5 回 R92）。
+  Q14 は「位置を持ちうるのはマイアクティビティ」という前提で決めたが、YouTube の履歴も同じ形の JSON で、欄があれば消した場面の位置が原文に座標を持ったまま生きて入る（検証者の probe で再現）。
+  実物に欄があるかは未確認（13.1 で YouTube の形の `field_names` も見る）。Takeout の中身は形の確認の印を置くまで入らない（第 2 回 Q10）ので、いまの時点で外へ出たものは無い。
+  推奨は「位置を持つ Takeout の項目はマイアクティビティと同じく印を付けて入れる」。問いは `deep-questions-r6.json` / `docs/briefs/ST12-deep-r6.html`。**直していない**（答えの後にグラフが続きを回す）
 
 - **第 5 回 Q14（premise / loss: exported）—— マイアクティビティの項目が位置（`locationInfos`）を持っていたとき、消した場面の印の対象に入れるか**（code-verify 第 4 回 R81）。
   本人は推奨の側を選んだ: **位置を持つマイアクティビティの項目は、消した時間帯なら書庫の位置と同じく削除済みの印を付けて入れる（後から消したときも同じ）**（`deep-answers-2.txt`。FR-50 にマイアクティビティの位置を含めた）。
   spec の Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」に対象を足し（Scenario 4 本）、design **D22-b**（欄の有無だけで判定・payload と内容の鍵は変えない・中身は解析しない）、
-  tasks に **Task 16（15.1〜15.3）** を足し、13.1 の見るものに `tools/archive-shape.sh` の `field_names` の `locationInfos` を足した。いまの `[x]` は動かしていない。
-  **Task 16 はこの本文を書いた時点で未実装**（グラフの Task ループが回し、final review と code-verify をやり直す）。実物の書庫に欄があるかは 13.1 で確かめる（無ければ何も起きない）
+  tasks に **Task 16（15.1〜15.3）** を足し、13.1 の見るものに `tools/archive-shape.sh` の `field_names` の `locationInfos` を足した。**Task 16 は実装済み**（final review 第 3 回・code-verify 第 5 回を通した）。
+  判定は欄の値が空でなければ印を付ける側（**D22-c（仮）**。R91）。実物の書庫に欄があるかは 13.1 で確かめる（無ければ何も起きない）
 - 第 4 回 Q13（消した場面の位置が書庫から別の論理ソースで入る。st22-record-deletion R6）は 2026-10-05 に「印を付けて入れる」の答えが入り、**Task 15（14.1〜14.3）/ design D22 として実装済み**。
   spec に Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（Scenario 5 本）。重なりの判定は端が触れるだけでも印を付ける。滞在の判定の入力には書庫の位置を足さない
 
@@ -36,7 +41,8 @@
 | **D18（仮）** | 印を置いた後の読み直しは台帳の行を増やさない | 本人が「印を置いた回」を台帳で数えたいと言ったとき |
 | **D19（仮）** | 箱の「取り込み器」は直近の走査を見る | 「読めない」が点滅して邪魔になるとき |
 | **D20（仮）** | 画面の実寸は本物のブラウザで測る。800 px は `test.fail` で未達を固定（上の節） | 予算の数を置き直したとき、または土台が 640 px に収まったとき |
-| **D22-a（仮）** | 置き場の書庫の印付けが落ち続けたら格納の失敗として数え、3 回で台帳に `store_failed`（outcome は流用）・以後 1 時間に 1 回。写しからの読み直しは数えない（R80） | 本人が箱の文言で格納の失敗と印付けの失敗を見分けたいと言ったとき |
+| **D22-a（仮）** | 置き場の書庫の印付けが落ち続けたら格納の失敗として数え、3 回で台帳に `store_failed`（outcome は流用）・以後 1 時間に 1 回（R80）。**写しからの読み直し（確認待ち・版の読み直し）も書庫の `sha256` ごとに格納と印付けの失敗をまとめて数え、成功したら数を消す**（R82。移行 3 本目 `core.archive_reread_failure`）。部品ごとに試験で固定（R90） | 本人が箱の文言で格納の失敗と印付けの失敗を見分けたいと言ったとき |
+| **D22-c（仮）** | マイアクティビティの `locationInfos` は中身の形を見ない。値が `null`・空の配列・空のオブジェクト・空文字でなければ位置を持つとみなす（R91。design の C「厳しい側」に実装を揃えた） | 13.1 で実物の欄が位置でない値を持つ形だと分かり、位置を持たない項目まで印が付くとき（印は戻せる） |
 | **D21（仮）** | `tools/archive-shape.sh` は `psql` が無ければ開発用コンテナの `psql` へ回す（R68）。tasks 11.4 の検証は `${BIND}` に叩く（R70） | 本人の DB が開発用コンテナでなくなったとき / port を台帳で割り当てるようになったとき |
 
 ### Ruling（全 Task の ledger から。`.superpowers/sdd/st12-task-final/progress.md`）
@@ -49,17 +55,25 @@
 - code-verify 第 3 回の re-review Minor 3 — Ruling: `archive-shape.sh` の docker への回り道は `-q` 付きで `INSERT 0 1` を出さず、手元の `psql` と出力が少し違うのを park する — 印の有無は一覧を出し直せば分かり、smoke は行数で見ている — 誤りなら本人が印を置けたかを出力だけでは読めない
 - final review 第 2 回の re-review Minor 1 — Ruling: `mark_archive_arrivals` をその書庫が入れた位置の時刻の範囲に絞るのは「範囲の外の行は、消すときの連鎖か前の書庫の印付けで処理済み」という前提に依るのを park する — 消す側と印付けは同じ助言ロックを取り、どちらかが必ず相手を見る（D22）ので前提は成り立つ — 誤りなら範囲の外の書庫の位置が生きたまま残る（直すなら作り直しの日付境界で全期間を見直す）
 - final review 第 2 回の fixer の注意 — Ruling: R72 の失敗差し込みの試験は、落ちると試験の利用者だけに掛かる trigger を DB に残すのを park する — 条件に試験の利用者を入れてあり他の試験には掛からない — 誤りなら手元の DB に trigger が溜まる（直すなら試験の始めに同名の trigger を消す）
-- code-verify 第 4 回の re-review Minor 1 — Ruling: 写しからの読み直し（`reread_archive`）で印付けが落ち続けたときに失敗を数えず、毎周 読み直すのを park する — その経路は置き場のファイルの行（`archive_sighting`）を持たず、格納の失敗も同じく数えていない。入力は手元の写しで、解析器の版を上げたときに限る（D22-a） — 誤りなら版を上げた後に印付けが落ち続けると、消した場面の位置が生きたまま毎周 読み直しが続き画面に出ない（直すなら版ごとに失敗を数える行を持ち、格納の失敗と一緒に数える）
+- code-verify 第 4 回の re-review Minor 1（**final review 第 3 回 R82 で解消**。下の 1 件目の Ruling と D22-a）— Ruling: 写しからの読み直し（`reread_archive`）で印付けが落ち続けたときに失敗を数えず、毎周 読み直すのを park する — その経路は置き場のファイルの行（`archive_sighting`）を持たず、格納の失敗も同じく数えていない。入力は手元の写しで、解析器の版を上げたときに限る（D22-a） — 誤りなら版を上げた後に印付けが落ち続けると、消した場面の位置が生きたまま毎周 読み直しが続き画面に出ない（直すなら版ごとに失敗を数える行を持ち、格納の失敗と一緒に数える）
+- Ruling: R82 の数え方のために 3 本目の移行（`202610051730_archive_reread_failure`）を足し、tasks.md の前置き「移行は 1 本だけ足す（D14）」を越える — D14 に本人の決定は無く（——）、表は書き換えてよい観測値だけで追記のみの表に触らない — 誤りなら移行の本数の約束が破れる（直すなら既存の表に列を足す形へ畳む）
+- Ruling: R85 で `"locationInfos"` の文字列の前置きを置き、欄名を `\u` でエスケープした原文は位置を持たないと判定する — Takeout はその形を書かない — 誤りならその項目は消した時間帯でも生きたまま入る（Q14 の loss: exported。直すなら前置きを外す）
 
 ## Task
 
-- **48/52 が `[x]`**（Task 1〜15 すべて。Task 16 の 3 項目を足した後）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない。
-  13.1 では、マイアクティビティの形の `field_names` に `locationInfos` があるかも見る
-- **Task 16（15.1〜15.3。第 5 回 Q14 / design D22-b）を足した** —— この本文を書いた時点では未実装。グラフの Task ループが実装・review し、final review と code-verify をやり直す
+- **51/52 が `[x]`**（Task 1〜16 すべて）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない。
+  13.1 では、マイアクティビティの形の `field_names` に `locationInfos` があるかも見る（Q15 の答えに依らず、YouTube の視聴・検索の形も見る）
+- **Task 16（15.1〜15.3。第 5 回 Q14 / design D22-b）は実装済み**
 
-## 独立レビュー（指摘 129 件すべてに処置。`review_triage.py` rc=0）
+## 独立レビュー（指摘 140 件すべてに処置。`review_triage.py` rc=0）
 
-final review 2 回（R47〜R63 / R72〜R78）と code-verify 4 回（〜R81）。どの回も fix wave 1 回の後の scoped re-review で全件 ADDRESSED・新しい Critical / Important なし。
+final review 3 回（R47〜R63 / R72〜R78 / R82〜R89）と code-verify 5 回（〜R92）。final review はどの回も fix wave 1 回の後の scoped re-review で全件 ADDRESSED・新しい Critical / Important なし。
+code-verify 第 5 回（R90〜R92）も fix 1 回（5749da8）の後の scoped re-review で R90・R91 が ADDRESSED・新しい Critical / Important なし（R92 は escalated）。
+
+- **R90** 読み直しの失敗を数える部品 5 つのうち 4 つと値 2 つ（3 回・1 時間）は、外しても全試験が緑だった → 版の読み直しを直に呼ぶ試験 2 本と、確認待ちの経路の試験の締め付け。変異 M4〜M8 を入れ直してすべて落ちることを確かめた
+- **R91** design D22-b が「中身の形が違っても印は付く」と書きながら、実装は空でない配列だけを見ていた → 厳しい側に揃えた（D22-c（仮））
+- **R92** YouTube の履歴の項目の位置 → escalated → 第 6 回 Q15（冒頭）
+- **R82〜R88**（final review 第 3 回）写しからの読み直しでも失敗を数える（3 本目の移行）・欄名の前置き・Rust と SQL の判定の一致・重なる 2 つの消去の戻し ほか。R89 は `deferred ST13`
 
 - **R72** 印付けを台帳の `read` の後に置いていたので、一時的に落ちると次の走査で読み直されず、消した場面の位置が生きたまま残った → 印付けを台帳の前へ
 - **R73** 消すときの連鎖と印付けが、利用者の位置の全期間を助言ロックを握ったまま走査した → 基準・点のソースは索引の上下限で絞る
@@ -84,28 +98,28 @@ final review 2 回（R47〜R63 / R72〜R78）と code-verify 4 回（〜R81）�
 
 ## 通した検証
 
-Task 16 を足した後は、新しい Scenario 4 本の印がまだ無いので `check_scenarios.py` は Task 16 の実装まで落ちる（担保なし 4 件）。`openspec validate --strict` と `check_chain.py` は足した後も rc=0。
-
-`verify-run` の記録（`evidence.jsonl`）の最後の PASS（Task 15 の head `48e6ab3`）:
-
-| 項目 | コマンド | 結果 |
-|---|---|---|
-| 14.1 | `cargo test -p ashiato-server archive_erased_window`（`test result: ok. [1-9]` を確かめる） | PASS |
-| 14.2 | `cargo test -p ashiato-server archive_erased_cascade`（同上） | PASS |
-| 14.3 | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | PASS |
-| 14.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion` | PASS |
-
-その後の fix wave（final review 第 2 回 d1035a8・code-verify 第 4 回 5ce3a7d）で手で走らせたもの:
+code-verify 第 5 回の処置の後（5749da8、この worktree の試験用 DB 55512）に手で走らせたもの:
 
 | コマンド | rc |
 |---|---|
-| `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`（5ce3a7d） | 0（server 521 passed） |
-| `python3 scripts/check_scenarios.py . st12-archive-ingestion`（5ce3a7d） | 0 |
-| `tools/smoke.sh`（code-verify 第 4 回、3739245） | 0 |
-| `openspec validate st12-archive-ingestion --strict`（code-verify 第 4 回） | 0 |
+| `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | 0（server lib 534 passed / collector-windows 133 / server_startup 7、failed 0） |
+| `python3 scripts/check_scenarios.py . st12-archive-ingestion` | 0 |
+| `openspec validate st12-archive-ingestion --strict` | 0 |
+| `python3 scripts/check_chain.py .` | 0 |
 | `python3 scripts/review_triage.py . st12-archive-ingestion` | 0 |
 
-変異で確かめた: `LOCATION_SOURCES` から `c03-timeline-route` を外す → 7 本落ちる / `c03-legacy-location` → 3 本 / 印付けの失敗を数えない → R80 の試験が落ちる / 端が触れる重なりを外す → 6 本 / 移行前の区間の 1 ms の余白を外す → 1 本。
-web（vitest 195・playwright 28（うち 1 本は D20 の expected-fail）・lint・build）と `tools/check-*.sh` は code-verify 第 3 回の処置のターンで rc=0。その後、画面・移行・API の形は触っていない。
+`verify-run` の記録（`evidence.jsonl`）の最後の PASS（Task 16 の head `e6c2de8`）:
+
+| 項目 | コマンド | 結果 |
+|---|---|---|
+| 15.1 | `cargo test -p ashiato-server archive_erased_myactivity_window`（`test result: ok. [1-9]` を確かめる） | PASS |
+| 15.2 | `cargo test -p ashiato-server archive_erased_myactivity_cascade`（同上） | PASS |
+| 15.3 | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | PASS |
+| 15.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion` | PASS |
+| 14.1〜14.3 | 同じ形（Task 15 の head `48e6ab3`） | PASS |
+
+変異で確かめた: `LOCATION_SOURCES` から `c03-timeline-route` を外す → 7 本落ちる / `c03-legacy-location` → 3 本 / 印付けの失敗を数えない → R80 の試験が落ちる / 端が触れる重なりを外す → 6 本 / 移行前の区間の 1 ms の余白を外す → 1 本 /
+読み直しの格納の失敗を数えない・成功で数を消さない・版の読み直しの待ちを外す・閾値 4 回・待ち 8 秒 → それぞれ 1〜2 本（R90）。
+web（vitest 195・lint）は code-verify 第 5 回で rc=0、playwright 28（うち 1 本は D20 の expected-fail）と `tools/check-*.sh` は第 3〜5 回で rc=0。その後、画面と API の形は触っていない。
 
 既知の不安定（ST12 の外）: `drops_tests::drops_api_idempotent` が 4 回に 1 回 `40P01 deadlock detected` で落ちる（code-verify 第 3 回の実測）。

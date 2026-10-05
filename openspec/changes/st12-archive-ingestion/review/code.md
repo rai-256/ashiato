@@ -1087,3 +1087,107 @@ ledger の仕分け: parked 9 件のうち 8 件は park のまま（理由は�
 ## scoped re-review（c05a039..05d6d6d）: R82〜R88 すべて ADDRESSED。新しい Critical / Important なし（R89 は deferred で対象外）
 - 3 本目の移行は許容（書き換えてよい観測表を 1 つ足すだけで、追記のみの表に触らない。`.down.sql` と `MIGRATIONS` 21→22。tasks.md の前置きは凍結された上流の文面）
 - 全体の試験: `scripts/quiet-run final -- … cargo test --workspace` rc=0（server lib 532 passed ほか、failed 0）
+
+# code-verify 第 5 回（`724de38..218077d`。Task 16 / design D22-b と R79〜R88 の処置・3 本目の移行を厚く）— 2026-10-05
+
+対象: `feat/st12-archive-ingestion` の HEAD `218077d`（PR #10 の head はまだ `f9a3ad3` で、push 前）。**実装は触っていない。**
+第 4 回の後のコードの差分は `crates/server/src/{archive/mod.rs, archive/worker.rs, deletion.rs, lib.rs, stay_store.rs, archive_flow_tests.rs}` と移行 `202610051730_archive_reread_failure`（`git diff --stat 724de38..HEAD`）。画面（`web/`）は触っていない。第 4 回までに確かめた手は、コードが触っていない範囲では繰り返していない。
+変異試験と probe は作業ツリーの外の複製（`git archive HEAD` を `~/.cache/st12-cv5/` に展開。`CARGO_TARGET_DIR` も別）で行い、終わってから消した。
+
+> 作業の副作用（報告）: (1) 最初に `docker compose up -d db` を素で叩いて既定の 55432 で DB を立ててしまい、試験が繋がらなかった（この worktree の試験は `tools/db.sh` の 55512）。そのコンテナは落とし、`tools/db.sh up -d --wait db` と `tools/db-roles.sh` で立て直した。
+> (2) `.env` の `DATABASE_URL` / `DATABASE_OWNER_URL` は 55432 のままなので、`testdb::app_pool()`（`DATABASE_URL` をそのまま使う）と `tests/server_startup.rs` の 3 本 + 2 本は、素の `.env` だと「接続できない」で落ちる。55512 に差し替えて走らせた（ST12 の差分ではない。worktree の port 割り当ての既知の件）。
+> (3) 共有の試験用 DB で、tasks の `CT` の一巡と複製の変異試験を同時に走らせたところ、`stay_tests` の 3〜7 本と `CT archive_copy` / `archive_ledger` / `archive_parse_legacy` が落ちた。どれも単独で走らせ直すと緑（下の表）。2 つの `cargo test` を同じ DB に並べると干渉する（ST12 の差分ではない）。
+> (4) probe の試験は共有の試験用 DB に固有の利用者で行を書いた（消していない）。
+
+## 申告: tasks の `[x]` は 51/52（13.1（人間）だけ未了）・R82〜R88 はすべて ADDRESSED。独立に実行した検証コマンド
+
+| # | 申告 | 実行したもの |
+|---|---|---|
+| 1 | 15.3 / 14.3 / 12.1: fmt / clippy / `cargo test --workspace` が緑 | `set -a; . ./.env; set +a; export DATABASE_URL=…55512 DATABASE_OWNER_URL=…55512; scripts/quiet-run full -- bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace'`、`cargo test -p ashiato-server --test server_startup` |
+| 2 | 12.1 の画面 | `cd web && npm run test -- --run`、`npm run lint` |
+| 3 | 15.1 / 15.2 ほか tasks の `CT` 全 39 本 | tasks.md の `CT <名前>` の定義のまま（`tee /tmp/ct.log` + `grep -Eq 'test result: ok\. [1-9][0-9]* passed'`）を 1 本ずつ |
+| 4 | 12.2 / 12.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion`、`openspec validate st12-archive-ingestion --strict`、`python3 scripts/check_chain.py .`、`tools/check-{migrations,immutable,openapi,boundaries,licenses,private,panic-log}.sh` |
+| 5 | 0.1 / 12.4 / 12.5 | 本文のコマンドをそのまま（`test ! -d …st04…`・`tools/st12_delta_diff.py`・`gh pr view --json body`） |
+| 6 | Task 16 と R82 の処置を試験が固定している | 複製で 9 つの変異（下の表）を入れて `cargo test -p ashiato-server --lib -- archive_ stay_ deletion location_sources` |
+| 7 | 移行の検査 | 複製で 3 本目の `.down.sql` を外す / `MIGRATIONS` から外して `tools/check-migrations.sh` |
+| 8 | 隙間 | 複製に probe を 1 本足して観測（位置の欄を持つ YouTube の視聴の項目） |
+
+## 実測（一致 / 不一致）
+
+| 申告 | 実測 | 判定 |
+|---|---|---|
+| 15.3 cargo | fmt・clippy rc=0。collector-windows 133 passed / server lib 532 passed / server_startup 7 passed、failed 0（port を合わせた後） | 一致 |
+| 12.1 web | `Test Files 27 passed / Tests 195 passed` rc=0、lint rc=0 | 一致 |
+| 15.1 `CT archive_erased_myactivity_window` | rc=0・2 passed | 一致 |
+| 15.2 `CT archive_erased_myactivity_cascade` | rc=0・1 passed | 一致 |
+| tasks の `CT` 全 39 本 | 39 本すべて rc=0（3 本は同時実行の干渉で一度落ち、単独で 3 / 3 / 2 passed） | 一致 |
+| 12.2 check_scenarios | rc=0（`Scenario 765 / 印 960 / 担保あり 765 / 人間の確認待ち 0`。spec に無い名前を指す印の warn 6 件は前回と同じ） | 一致 |
+| 12.3 validate / chain / check-*.sh | すべて rc=0（`check-panic-log.sh` は `.env` を読ませて rc=0） | 一致 |
+| 0.1 / 12.4 / 12.5 | どちらも rc=0 | 一致（ただし PR 本文は `f9a3ad3` 時点のもので「Task 16 はこの本文を書いた時点で未実装」「48/52」「写しからの読み直しは数えない（D22-a）」と書いてある。push と finish の前なので指摘にしない） |
+| 手 1: マイアクティビティのソース名の固定値 | python の `hashlib.sha256` で独立に計算: `検索` → `c03-myactivity-u1b6b1a6f8931`、`マップ` → `c03-myactivity-u097022418c48`。`archive_tests.rs:1142-1145` の固定値と一致 | 一致 |
+| 変異 M0（変異なし・単独） | 216 passed | 基準 |
+| M1: `mark_archive_arrivals` の範囲から位置を持つマイアクティビティを外す | `archive_erased_myactivity_window` ほか 3 本 FAILED | 一致（固定されている） |
+| M2: `deletion::erase` の連鎖からマイアクティビティのソースを外す | `archive_erased_myactivity_cascade` / `…_overlapping_erasures_…` FAILED | 一致 |
+| M3: `mark_late_arrivals` からマイアクティビティのソースを外す | 3 本 FAILED | 一致 |
+| M9: 「空でない配列」を `>= 0` にする | `archive_myactivity_location_rust_and_sql_agree` FAILED | 一致 |
+| **M4: `reread_archive` の格納の失敗を数えない** | **216 passed** | **不一致（R90）** |
+| **M5: 読み直しに成功しても数を消さない** | **216 passed** | **不一致（R90）** |
+| **M6: `reparse_older_versions` の 1 時間の待ちを外す** | **216 passed** | **不一致（R90）** |
+| **M7: 読み直しの閾値 3 回 → 4 回** | **216 passed** | **不一致（R90）** |
+| **M8: 読み直しの待ち 1 時間 → 8 秒** | **216 passed** | **不一致（R90）** |
+| 移行の `.down.sql` を外す | `check-migrations.sh` rc=1（`戻し手順 … が無い`） | 一致 |
+| 移行を `MIGRATIONS` から外す | `check-migrations.sh` rc=0（検査は配列との一致を見ない）。ただし表が無い新しい DB では R82 の試験が `store_failed` を待って落ちる経路なので、CI（毎回新しい DB）が止める | 指摘にしない |
+| design D22-b「欄の有無だけで判定し…中身の形が違っても印は付く」 | 試験 `archive_flow_tests.rs:3553` / `:3556` が「`locationInfos` が配列でなければ印を付けない」を固定している | **不一致（R91）** |
+
+---
+
+## R90. 読み直しの経路の失敗を数える処置（R82 / D22-a）は 5 つの部品のうち 4 つを、変えても全試験が緑のまま通す
+- 成果物: `crates/server/src/archive/worker.rs:1531-1537`（格納の失敗を数える）/ `:1593`（成功したら数を消す）/ `:1708-1711`（`reparse_older_versions` の待ち）/ `:187`（`failures < 3`）/ `:191`（`interval '1 hour'`）/ `crates/server/src/archive_flow_tests.rs:3421-3484`（R82 の試験は 1 本だけ）
+- 根拠: 複製で 1 つずつ変異を入れ、`cargo test -p ashiato-server --lib -- archive_ stay_ deletion location_sources` を走らせた（変異なしの基準は 216 passed）:
+  - M4 `reread_archive` の格納の失敗の枝から `count_reread_failure` を外す → `ok. 216 passed`
+  - M5 成功したときの `DELETE FROM core.archive_reread_failure` を何もしない文にする → `ok. 216 passed`
+  - M6 `reparse_older_versions` の `reread_throttled` の確認を外す → `ok. 216 passed`
+  - M7 `record_reread_failure` の閾値を `failures < 4` にする → `ok. 216 passed`（試験の assert は `fired >= 3` という下限だけ。`:3465`）
+  - M8 待ちを `interval '8 seconds'` にする → `ok. 216 passed`（試験が待つのは 5 秒だけ。`:3456`）
+  固定されているのは「確認待ちの読み直しで、印付けが落ち続けたら `store_failed` が 1 行書かれ、5 秒は読み直さない」だけ。`reparse_older_versions` を通る失敗の試験は無い（`grep -n reparse_older_versions *_tests.rs` は `:2960` の成功の経路 1 件だけ）。
+- 影響: D22-a が「数えるなら両方まとめて」「読み直しに成功したら数を消す」「`ingest_confirmed_pending` と `reparse_older_versions` の両方が待ちを見る」と書いている部品が、片方ずつ消えても止まらない。M5 が入ると、一時的な失敗が 3 回あった書庫は、成功した後でも次の 1 回の失敗で `store_failed` と 1 時間の待ちになる。M6 が入ると、版を上げた後に印付けが落ち続ける書庫は R80 / R82 と同じく走査のたびに写しを全件読み直す（消した場面の位置が生きた記録のまま、画面は何も出さない）。値はどれも D22-a（仮）で、本人の決定ではない。
+- kind: technical
+- 提案: R82 の試験の形（fault を外さず走査を回す）で、(1) 格納の失敗（`FailingSink` か trigger）で数える、(2) 解析器の版の読み直し（`reparse_older_versions`）でも `store_failed` と待ちになる、(3) 2 回落ちた後に成功すると `core.archive_reread_failure` の行が消える、の 3 本を足す。閾値は `fired == 3`（`store_failed` が書かれた時点の回数）で固定する。1 時間は `retry_after - now()` を 59〜61 分で見る。
+- 処置: fixed D22 — `archive_reparse_persistent_store_failure_is_ledgered_and_throttled`（格納の失敗・ちょうど 3 回・59〜61 分・版の読み直しの待ち）と `archive_reparse_success_clears_reread_failures`（成功で数の行が消える）を足し、確認待ちの経路の試験を `fired == 3` と待ちの分で見るようにした。M4〜M8 を入れ直してそれぞれ 1〜2 本が落ちることを確かめた（5749da8）
+
+## R91. design D22-b は「欄の有無だけで判定し、中身の形が違っても印は付く（C: 厳しい側）」と書くが、実装と試験は「`locationInfos` が空でない配列のときだけ印を付ける」
+- 成果物: `openspec/changes/st12-archive-ingestion/design.md:484` / `crates/server/src/stay_store.rs:682-690`（`carries_location`。`as_array()` で配列でなければ false）/ `:702-713`（`myactivity_located_sql`。`jsonb_typeof(...) = 'array'` でなければ false）/ `crates/server/src/archive_flow_tests.rs:3553`（`"locationInfos":{"name":"この付近"}` → false）/ `:3556`（`"locationInfos":"この付近"` → false）/ `tasks.md` 15.1（「空でない配列で入っている」）
+- 根拠: `archive_myactivity_location_rust_and_sql_agree` は M0 で緑（rc=0）。12 入力の期待値のうち、欄はあるが配列でない 2 件（オブジェクト・文字列）を「位置を持たない」として固定している。design:484 の文言（欄の有無だけで判定・中身は解析しない・中身の形が違っても印は付く）と、tasks 15.1 / 実装 / 試験（空でない配列だけ）が食い違う。
+- 影響: `locationInfos` の形は design 自身が「検証者の知識で、この repo の材料に実物は無い」と書いている。実物で欄が配列でない形（1 件だけのときにオブジェクトになる、など）だった場合、design が約束した厳しい側の既定（C）は効かず、その項目は消した時間帯でも座標を原文に持ったまま生きて入る（Q14 の loss: exported）。13.1 で `field_names` を見ても、欄の名前があることしか分からず、型までは分からない。
+- kind: conflict
+- 提案: どちらかに揃える。厳しい側（design の C）に揃えるなら、判定を「欄があり、`null` でも空の配列・空のオブジェクト・空文字でもない」にして、Rust と SQL と試験の期待値を同時に直す。配列だけでよいとするなら、design:484 の「中身の形が違っても印は付く」を消し、反転条件（実物が配列でなかったら）を書く。
+- 処置: fixed D22 仮 — （D22-c）厳しい側（design の C）に揃えた。`locationInfos` の値が null・空の配列・空のオブジェクト・空文字でなければ印を付ける（`carries_location` と `myactivity_located_sql` を同時に）。`archive_myactivity_location_rust_and_sql_agree` の期待値を直し 3 入力を足した。反転条件は design D22-c（5749da8）
+
+## R92. YouTube の視聴・検索の項目も同じ形の JSON で、`locationInfos` を持っていれば消した滞在の時間帯でも座標を原文に持ったまま生きて入る。13.1 はマイアクティビティの `field_names` しか見ない
+- 成果物: `crates/server/src/stay_store.rs:737-742`（`mark_archive_arrivals` の範囲は `LOCATION_SOURCES` と `c03-myactivity-` だけ）/ `crates/server/src/archive/worker.rs:767-803`（YouTube の項目はマイアクティビティと同じ配列の形。原文は項目の切り出し）/ `:1159-1172`（形の出力の `field_names` は YouTube の書庫でも出る）/ `tasks.md` 13.1（「マイアクティビティの形の `field_names` に `locationInfos` があるかを見る」）/ `deep.md` Q14
+- 根拠: 複製に probe を足した。滞在（03:00〜04:00Z）を消した後、`locationInfos`（`center=35.658,139.745`）を持つ YouTube の視聴の項目（03:30Z）を `requests_for_file(KnownKind::YouTubeWatch, "Takeout/YouTube and YouTube Music/history/watch-history.json", …)` → `store_requests` → `mark_archive_arrivals` の順で格納した:
+  ```
+  PROBE youtube_after_erase: [("c03-youtube-watch", None, true)]
+  ```
+  `deleted_by` は `None`（生きた記録）、原文に座標の文字列が残る（`true`）。
+  **YouTube の視聴・検索の履歴が実物で `locationInfos` を持つかは確かめていない**（R81 と同じく検証者の知識の範囲。この repo の材料にも無い）。言えるのは、Takeout の YouTube の履歴はマイアクティビティと同じ形の JSON（`header` / `title` / `titleUrl` / `time` / `products`）で、Q14 の答えは対象をマイアクティビティのソースに限っている、ということまで。
+- 影響: 実物の YouTube の項目にその欄があれば、Q14 が避けた型（消した場面の「この付近」の位置が生きた記録として読み出しと書き出しへ流れる。loss: exported）が、YouTube のソースからそのまま起きる。Takeout の中身は形の確認の印を置くまで入らない（第 2 回 Q10）ので、いまの時点で外へ出たものは無い。13.1 の手順のままだと、YouTube の形の `field_names` は見落とされる。
+- kind: premise
+- 提案: 13.1 の見るものを「マイアクティビティ・YouTube の視聴・YouTube の検索の形の `field_names` に `locationInfos` があるか」に広げる。YouTube にあれば、印の対象を「Takeout の項目のうち `locationInfos` を持つもの」へ広げるかを本人へ問う（Q14 と同じ loss: exported）。印を置く前に分かるので、問うのは 13.1 の後でよい。
+- 処置: escalated — `deep.md` 第 6 回 Q15（premise / loss: exported・(未回答)）。問いは `deep-questions-r6.json`、HTML は `docs/briefs/ST12-deep-r6.html`
+
+## 手ごとの結果
+
+- **手 1（固定値を独立に再計算する）**: マイアクティビティのソース名の固定値 2 つを python の `hashlib` で計算し直し、一致した。Q14 の試験の材料の時刻（項目は 03:30Z / 03:40Z、消す滞在は 03:00〜04:00Z、重なる 2 つ目は 03:15〜04:15Z）は読み比べて、コメントの主張（中・重なる）と合う。
+- **手 2（ガードをわざと壊す）**: Q14 の判定（M1 / M2 / M3 / M9）は外すと落ちる。**R82 の処置の部品 5 つのうち 4 つと値 2 つは、外しても全部緑**（R90）。`check-migrations.sh` は `.down.sql` を外すと rc=1。`MIGRATIONS` から外しても rc=0 だが、新しい DB の CI で R82 の試験が落ちる経路なので指摘にしない。新しい表への付与は `app_role_privileges_reach_every_table` が緑（全表を見る試験）。
+- **手 3（Scenario と試験を突き合わせる）**: rc=0。Q14 の 4 本を 1 本ずつ読んだ。格納の直後（`user:late`）・消すとき（`user:cascade`。位置を持たない項目に印が付かないことまで見る）・戻すとき（`deletion::restore` の後に両方 `None`）・確認待ちを経た順（R84）で、主張と試験の階層は合う。`格納に続けて失敗した書庫は台帳と画面に出る` に足された R82 の試験は `/archives/status` の `latest_archive.outcome` まで見ている。
+- **手 4（本人の決定を試験が固定しているか）**: 第 5 回 Q14 の「位置を持つ項目は印を付けて入れる（後から消したときも同じ）」は M1 / M2 / M3 で落ちる。「位置を持たない項目は印を付けない」は件数つきの assert（`("位置なし", None)`）が持つ。D22-a の 3 回・1 時間は仮で本人の決定ではないが、値を変えても全部通る（R90）。ほかの本人の決定（Q1〜Q13）を持つコードは第 4 回の後に触られていない。
+- **手 5（tasks の `[x]` と実体）**: 15.1 / 15.2 の `CT` は実在し rc=0（`archive_erased_myactivity_window` 2 本・`archive_erased_myactivity_cascade` 1 本）。tasks の `CT` 全 39 本、`VT` を含む 12.1 の画面、12.3 の検査、0.1 / 12.4 / 12.5 もすべて rc=0。`cargo test --test` 型の検証は tasks に無い。
+- **手 6（隙間）**: 「外へ出たものは戻らない」型は R92（YouTube の項目の位置。前提は実物で未確認）と R91（欄の形が配列でないとき）。
+  確かめて隙間でなかったもの: (1) 新しい表 `core.archive_reread_failure` は DB に残るので、プロセスを再起動しても数と待ちは消えない（R80 の前のメモリだけの状態とは違う）。(2) 台帳の一意の索引は `(user_id, sha256, parser_version, outcome)`（移行 1 本目:48-49）なので、読み直しの `store_failed` の行が後の `read` の行を塞ぐことはない。(3) 新しい表もアプリの役割に付与される（`grants.sql` は schema の全表。役割の試験が緑）。
+
+
+## scoped re-review（218077d..5749da8）: R90・R91 は ADDRESSED。新しい Critical / Important なし（R92 は escalated で対象外）
+- R90: 版の読み直しを直に呼ぶ 2 本と確認待ちの試験の締め付けで、M4〜M8 のそれぞれが落ちる assert を持つ
+- R91: Rust（`carries_location`）と SQL（`myactivity_located_sql`）が同じ厳しい側の判定に揃い、一致の試験の期待値も揃った。D22-c（仮）に反転条件
+- Minor（指摘にしない）: SQL の `NOT IN` は jsonb の等価比較に依る（`[ ]` も正規化されて等価）
