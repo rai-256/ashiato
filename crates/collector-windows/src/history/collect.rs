@@ -39,6 +39,12 @@ pub struct ReadOutcome {
 /// 履歴 DB を読む側。**実機では [`FsHistoryReader`]、試験では差し替える。**
 pub trait HistoryReader: Send + Sync + 'static {
     fn read(&self) -> anyhow::Result<ReadOutcome>;
+
+    /// プロファイルのディレクトリそのものが無いと**確かめられた**ときだけ `true`。
+    /// 読みに出てこない（読めない・DB が一時的に無い）だけでは `true` にしない（D10）。
+    fn profile_dir_absent(&self, _browser: Browser, _directory: &str) -> bool {
+        false
+    }
 }
 
 /// 置き場を探して写しから読む、本物の読み手。
@@ -82,6 +88,18 @@ impl HistoryReader for FsHistoryReader {
             })
             .collect();
         Ok(ReadOutcome { profiles, names })
+    }
+
+    fn profile_dir_absent(&self, browser: Browser, directory: &str) -> bool {
+        let base = browser.base(&self.local, &self.roaming);
+        // 置き場そのものが読めないときは、無いとは言えない
+        if std::fs::read_dir(&base).is_err() {
+            return false;
+        }
+        let parents = [base.clone(), base.join("_side_profiles")];
+        // 在るかどうか確かめられないときは「在る」と読む
+        let dir_exists = |parent: &PathBuf| parent.join(directory).try_exists().unwrap_or(true);
+        !parents.iter().any(dir_exists)
     }
 }
 
@@ -191,7 +209,9 @@ impl HistoryCollector {
                 wall,
                 &mut *queue,
             )?;
-            store.ledger_mut().max_visit_id = max_visit_id;
+            // 全件が消えて番号が無いときは、前回の番号を比べる土台として残す
+            let ledger = store.ledger_mut();
+            ledger.max_visit_id = max_visit_id.or(ledger.max_visit_id);
             queue_then_save(&mut store, &fresh, &mut *queue)?;
             queued += fresh.len();
         }
@@ -227,7 +247,7 @@ impl HistoryCollector {
         Ok(queued)
     }
 
-    /// 帳面があるのに、今回見つかったプロファイルに無いもの（ディレクトリごと無くなった）を消えたとする。
+    /// 帳面があるのに今回見つからず、ディレクトリそのものが無いと確かめられたものを消えたとする。
     fn queue_gone_profiles(
         &self,
         found: &[ProfileRead],
@@ -248,6 +268,7 @@ impl HistoryCollector {
                         .iter()
                         .any(|p| p.browser == browser && &p.directory == d)
                 })
+                .filter(|d| self.reader.profile_dir_absent(browser, d))
                 .collect();
             gone.sort();
             for directory in gone {

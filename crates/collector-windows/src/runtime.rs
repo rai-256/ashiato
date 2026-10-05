@@ -1805,6 +1805,8 @@ mod tests {
     enum ProfileState {
         Readable,
         Unreadable,
+        /// 読みに出てこないが、ディレクトリは在る（置き場が一時的に読めない・DB を作り直し中）
+        Missing,
         Gone,
     }
 
@@ -1841,7 +1843,7 @@ mod tests {
             }
             *self.reads.lock().unwrap() += 1;
             let visits = match *self.profile.lock().unwrap() {
-                ProfileState::Gone => {
+                ProfileState::Gone | ProfileState::Missing => {
                     return Ok(ReadOutcome::default());
                 }
                 ProfileState::Unreadable => Err(anyhow::anyhow!("履歴 DB を開けない")),
@@ -1855,6 +1857,10 @@ mod tests {
                 }],
                 names: Vec::new(),
             })
+        }
+
+        fn profile_dir_absent(&self, _browser: Browser, _directory: &str) -> bool {
+            *self.profile.lock().unwrap() == ProfileState::Gone
         }
     }
 
@@ -2177,13 +2183,12 @@ mod tests {
             r.visits.lock().unwrap().clear();
         });
         assert_eq!(vanished.len(), 1);
-        let keys: Vec<_> = vanished[0]["payload"]["vanished"][0]
+        let mut keys: Vec<_> = vanished[0]["payload"]["vanished"][0]
             .as_object()
             .unwrap()
             .keys()
             .cloned()
             .collect();
-        let mut keys = keys;
         keys.sort();
         assert_eq!(
             keys,
@@ -2198,6 +2203,25 @@ mod tests {
         let body = vanished[0].to_string();
         assert!(!body.contains("example.test") && !body.contains("秘密の題名"));
         assert!(!body.contains("deleted") && !body.contains("expired"));
+    }
+
+    #[test]
+    fn history_vanished_not_gone_while_profile_dir_exists() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Missing;
+        });
+        assert!(vanished.is_empty(), "ディレクトリが在るのに消えたとした");
+    }
+
+    #[test]
+    fn history_vanished_all_gone_is_not_recreated_table_at_runtime() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            r.visits.lock().unwrap().clear();
+        });
+        assert_eq!(
+            vanished[0]["payload"]["vanished"][0]["table_recreated"],
+            false
+        );
     }
 
     /// Scenario: 読めなかったプロファイルでは消えた記録を出さない
