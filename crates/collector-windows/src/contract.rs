@@ -376,11 +376,21 @@ pub struct HeartbeatRequest {
 pub trait Outboxable: Serialize + serde::de::DeserializeOwned + Clone {
     /// 収集側が振った識別子。
     fn id(&self) -> uuid::Uuid;
+
+    /// 1 回の送信で後回しにするか。積んだ順は同じ印のものどうしでだけ保つ
+    /// （履歴の大きな取り込みの後ろで、ウィンドウの記録が待たないように。design D3（仮）・R69）。
+    fn sends_late(&self) -> bool {
+        false
+    }
 }
 
 impl Outboxable for IngestRequest {
     fn id(&self) -> uuid::Uuid {
         self.id
+    }
+
+    fn sends_late(&self) -> bool {
+        self.logical_source == crate::history::contract::LOGICAL_SOURCE
     }
 }
 
