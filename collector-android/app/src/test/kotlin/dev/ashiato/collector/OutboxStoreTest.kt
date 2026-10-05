@@ -23,7 +23,7 @@ class OutboxStoreTest {
     private val lines = mutableListOf<String>()
 
     private fun req(id: String) =
-        LocationFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+        testFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 「プロセスが立て直された」＝ 同じ置き場から新しい Outbox を作り直す。 */

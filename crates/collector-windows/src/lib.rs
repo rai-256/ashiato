@@ -20,6 +20,8 @@
 pub mod autostart;
 pub mod browsers;
 pub mod clock;
+pub mod clock_record;
+pub mod clock_worker;
 pub mod config;
 pub mod contract;
 pub mod engine;
@@ -33,6 +35,7 @@ pub mod platform;
 pub mod runtime;
 pub mod sender;
 pub mod telemetry;
+pub mod time_sync;
 pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**

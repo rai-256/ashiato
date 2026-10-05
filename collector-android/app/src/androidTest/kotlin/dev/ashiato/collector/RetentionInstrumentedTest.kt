@@ -170,7 +170,7 @@ class RetentionInstrumentedTest {
     // ------------------------------------------------------------------ 足場
 
     private fun fix(id: String, at: Instant) =
-        LocationFix(35.681236, 139.767125, 10f, at).toIngestRequest(id, "00000000-0000-0000-0000-000000000000", "device-1", ZoneId.of("Asia/Tokyo"))
+        testFix(35.681236, 139.767125, 10f, at).toIngestRequest(id, "00000000-0000-0000-0000-000000000000", "device-1", ZoneId.of("Asia/Tokyo"))
 
     /** 区切りを直に置く（1 本 1 MB。本番の `SegmentStore` と同じ行の形）。積んでからの経過は 0（捨てない）。 */
     private fun placeRecords(n: Int) {

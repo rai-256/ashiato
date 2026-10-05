@@ -21,9 +21,11 @@ cmd="${1:-up}"
 check_only=0; [ "${2:-}" = "--check-only" ] && check_only=1
 
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-export DATABASE_URL="${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}"
-export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}"
-export BIND="${BIND:-127.0.0.1:18787}"
+. tools/ports.sh     # worktree ごとのポート（Story を並行して走らせても取り合わない。ST05）
+# 合言葉は .env の URL から（ST28 / design D19）。port だけをこの worktree のものに差し替える
+export DATABASE_URL="$(ashiato_db_url "${DATABASE_URL:?.env を読み込む（set -a; . ./.env; set +a）か DATABASE_URL を渡す}")"
+export DATABASE_OWNER_URL="$(ashiato_db_url "${DATABASE_OWNER_URL:?.env を読み込むか DATABASE_OWNER_URL を渡す（移行は所有者の接続で当てる）}")"
+export BIND="127.0.0.1:${ASHIATO_HTTP_PORT}"   # port は worktree ごと（.env の BIND の port より優先。ST05）
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
 export WEB_PORT="${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない

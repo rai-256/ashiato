@@ -147,7 +147,7 @@ pub struct WindowPayload {
     /// 除外した変化の件数（`excluded` のみ。FR-83 / design D11 / D18）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub excluded_count: Option<u32>,
-    /// OS が最後に起動した時刻（`powered-off` のみ。design D23）。
+    /// OS が最後に起動した時刻（`powered-off` と `clock-skew`。design D23 / ST05 D9）。
     /// **区間の始まりより後なら PC は本当に止まっていた。前なら PC は動いていて
     /// 収集だけが止まっていた**（深掘り Q8 の「効く先」を成り立たせる材料）
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +163,89 @@ pub struct WindowPayload {
     /// **取り込み口の `host:port`** —— ループバックなら「自分の時計と比べた 0」だと後から分かる
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skew_reference: Option<String>,
+    /// 測った契機（`clock-skew` のみ。ST05 design D10）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_trigger: Option<ClockTrigger>,
+    /// 基準が 1 つ以上取れたか（`clock-skew` のみ）。**1 つも取れなかった記録も 1 件残る**
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_available: Option<bool>,
+    /// 測ったときの起動からの経過時間（ミリ秒。`clock-skew` のみ。design D9）。
+    /// `boot_at`（起動の識別）と組で、起動をまたいだ時計の比較の基になる
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_ms: Option<u64>,
+    /// 取れた基準（`clock-skew` のみ）。2 つの出どころのそれぞれが、ここか `clock_unavailable` に 1 回ずつ出る
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_references: Option<Vec<ClockReference>>,
+    /// 取れなかった基準（`clock-skew` のみ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_unavailable: Option<Vec<ClockUnavailable>>,
+}
+
+/// 測定の契機（design D10）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClockTrigger {
+    /// 1 時間ごと
+    Hourly,
+    /// 収集の起動
+    Start,
+    /// 壁時計の飛び・戻り
+    Jump,
+    /// 取れなかった契機の測り直しで取れた
+    Retry,
+}
+
+/// 出どころ: 取り込み口の応答の日付。
+pub const SOURCE_S01_DATE: &str = "s01-date";
+/// 出どころ: Windows の時刻同期の状態。
+pub const SOURCE_TIME_SYNC: &str = "windows-time-sync";
+
+/// 取れた基準 1 つ。時刻を持つ基準（`s01-date`）は `time` と `skew_ms`、
+/// 状態を持つ基準（`windows-time-sync`）は `last_sync` / `sync_source` / `os_offset_ms` / `raw`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClockReference {
+    /// 出どころ（`SOURCE_S01_DATE` / `SOURCE_TIME_SYNC`）
+    pub source: String,
+    /// 基準の時刻
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<String>,
+    /// 基準との差。**正なら PC の時計が進んでいる**
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skew_ms: Option<i64>,
+    /// OS の見積もったずれ（ミリ秒）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os_offset_ms: Option<i64>,
+    /// 読む直前の起動からの経過時間（ミリ秒）
+    pub mono_before_ms: u64,
+    /// 読んだ直後の起動からの経過時間（ミリ秒）
+    pub mono_after_ms: u64,
+    /// 取り込み口の宛先（`host:port`。`s01-date` のみ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// OS から読んだ出力（`windows-time-sync` のみ。ASCII 以外のバイトは `\xNN`）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+    /// 最後に正常に同期した時刻（表示のまま）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sync: Option<String>,
+    /// 同期元
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_source: Option<String>,
+    /// どこから読んだか（`windows-time-sync` のみ。`w32tm` / `eventlog` = W32Time が止まっていてイベントログから）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_via: Option<String>,
+}
+
+/// 取れなかった基準 1 つ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClockUnavailable {
+    /// 出どころ
+    pub source: String,
+    /// 理由（`timeout` / `unreachable` / `spawn_failed` / `exit:<code>` / `unparsed` / `worker_failed`）
+    pub reason: String,
+    /// 読めた出力（`unparsed` のときだけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
 }
 
 impl WindowPayload {
@@ -191,6 +274,11 @@ impl WindowPayload {
             clean_stop: None,
             skew_ms: None,
             skew_reference: None,
+            clock_trigger: None,
+            clock_available: None,
+            uptime_ms: None,
+            clock_references: None,
+            clock_unavailable: None,
         }
     }
 }
@@ -385,11 +473,33 @@ mod tests {
         );
 
         let mut skew = WindowPayload::new(RecordKind::ClockSkew, at());
+        skew.boot_at = Some(rfc3339(at() - chrono::Duration::hours(1)));
         skew.skew_ms = Some(-1200);
         skew.skew_reference = Some("127.0.0.1:8787".into());
+        skew.clock_trigger = Some(ClockTrigger::Hourly);
+        skew.clock_available = Some(true);
+        skew.uptime_ms = Some(3_600_000);
+        skew.clock_references = Some(vec![ClockReference {
+            source: SOURCE_S01_DATE.into(),
+            time: Some(rfc3339(at())),
+            skew_ms: Some(-1200),
+            os_offset_ms: None,
+            mono_before_ms: 3_599_000,
+            mono_after_ms: 3_599_999,
+            host: Some("127.0.0.1:8787".into()),
+            raw: None,
+            last_sync: None,
+            sync_source: None,
+            sync_via: None,
+        }]);
+        skew.clock_unavailable = Some(vec![ClockUnavailable {
+            source: SOURCE_TIME_SYNC.into(),
+            reason: "timeout".into(),
+            raw: None,
+        }]);
         assert_eq!(
             serde_json::to_string(&skew).expect("直列化"),
-            r#"{"kind":"clock-skew","at":"2026-09-13T01:02:03.456Z","skew_ms":-1200,"skew_reference":"127.0.0.1:8787"}"#
+            r#"{"kind":"clock-skew","at":"2026-09-13T01:02:03.456Z","boot_at":"2026-09-13T00:02:03.456Z","skew_ms":-1200,"skew_reference":"127.0.0.1:8787","clock_trigger":"hourly","clock_available":true,"uptime_ms":3600000,"clock_references":[{"source":"s01-date","time":"2026-09-13T01:02:03.456Z","skew_ms":-1200,"mono_before_ms":3599000,"mono_after_ms":3599999,"host":"127.0.0.1:8787"}],"clock_unavailable":[{"source":"windows-time-sync","reason":"timeout"}]}"#
         );
     }
 

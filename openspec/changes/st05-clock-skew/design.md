@@ -85,6 +85,15 @@
 反転条件（仮）: 届かないと分かったら、1 分ごとの軽い見回り（壁時計と `elapsedRealtime` の進みの差が 60 秒以上なら測る。PC の `CLOCK_JUMP_SEC` と同じ）へ倒す。
 spec の「60 秒以上変更されると測る」はどちらの方式でも成り立つので、spec は変わらない。
 
+**ACTION_TIME_CHANGED の確かめ（2026-09-29・Task 1.2）**:
+- (a) 端末の時計は変えられた。API 35 の `google_apis` エミュレータで `settings put global auto_time 0` の後、計測テストの
+  `UiAutomation.executeShellCommand("cmd alarm set-time <ms>")` が rc 0・出力なしで通り、`System.currentTimeMillis()` が指定した値へ跳んだ（+5 分と −5 分の 2 回）
+- (b) `Intent.ACTION_TIME_CHANGED` は、テストのプロセスが `registerReceiver(rx, IntentFilter(Intent.ACTION_TIME_CHANGED), RECEIVER_EXPORTED)` で
+  動的に登録した受け手に、**2 回とも数 ms 以内に届いた**（全ての実行で。届いた `action` の文字列は `android.intent.action.TIME_SET`）。
+  `Intent.ACTION_TIME_CHANGED` の定数の値が `TIME_SET` であって、別の通知ではない
+- 結論: **反転条件には倒さない**。D3 は「サービスの動的な受け手で `ACTION_TIME_CHANGED` を受ける」のまま、Task 6 もこの方式で作る。
+  限界: 受け手を登録したのは計測テストのプロセスで、`LocationService`（前景サービス）の中ではない。サービスの中での受信は Task 6 の計測テストが担保する
+
 ### D4. 取れなかった契機と測り直し（1 時間の契機ごとに取れなかった記録は 1 件まで。測り直しは 5 分ごと。仮）
 
 1 時間・起動時・時計の変更の契機で測って**基準が 1 つも取れなければ**、`available: false` の記録を 1 件積み、
@@ -95,6 +104,9 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - 5 分は仮。反転条件: `c01-clock` の `trigger = retry` の記録が、1 週間で `hourly` の記録の半分を超えるなら（取れる / 取れないが細かく揺れている）、
   測り直しを 15 分にする。**観測する係**: 確認バッチの準備（`tools/verify-prep.sh`）が、この比を出す SQL を走らせて手順書に数を載せる（Task 10）。
   spec は「次の 1 時間の契機までの間に測り直す」だけを定めているので変わらない
+- **数える DB（仮。review R16）**: 確認バッチの DB で数える。偽データ（`tools/seed.sh`）は `c01-clock` を作らないので、数は確認の間に本物の端末が送った分だけで、
+  `hourly` が 0 件なら判定しないと手順書に書く（`tools/verify-prep.sh`）。1 回のバッチでは 1 週間ぶんが溜まらないことが多いのは受け入れる。
+  反転条件: 確認バッチが 3 回続けて「`hourly` が 0 件で判定しない」を出したら、数える係を確認バッチから外し、本番の S-01 の DB を数える口（サーバの定期の集計）に移す
 
 ### D5. 端末の測定記録の形（`c01-clock`、`schema_version = 1`）
 
@@ -121,6 +133,7 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - `device_time` = 出来事時刻（`event_time`）。**測ったときの端末の壁時計**（C7）。`elapsed_ms` はその瞬間の `elapsedRealtime`
 - `boot_count` は `DeviceClock.bootCount()`（ST04）。取れない端末では `null`（spec の「取れないことを示す値」）。そのときは `elapsed_ms` が戻ったことで起動を知る
 - `unavailable` は `[{"source": "network", "reason": "unsupported"}, …]`。**3 つの出どころが `references` と `unavailable` のどちらかに 1 回ずつ**（spec）
+- `s01-date` が `unreadable`（`Date` 見出しを読めなかった）のときは、`unavailable` の 1 件に `raw`（見出しの原文）と `host` も載せる（review R18。読み方を直せば後から差を出せる）
 - `available` は `references` が 1 件以上か。取れなかった記録は `references: []`
 - 時刻の書き方はミリ秒まで・UTC・`Z` 終わり（`Instant.toString()` は秒ちょうどでミリ秒を落とすので、ミリ秒に固定する書き方を 1 か所に置く）
 - `tz_offset_min` / `tz_id` は位置と同じく `ZoneId.systemDefault()`。`device_id` は位置と同じ端末識別子。`origin = collected`
@@ -170,7 +183,7 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 - **出力は原文のまま** `raw` に入れ、解析できた欄（最後に正常に同期した時刻・同期元・位相のずれ）だけを解析済みに入れる。
   出力の見出しは OS の表示言語で変わるので、**英語と日本語の見出しの両方**を解析する。解析できなければ `raw` を持ったまま `reason: unparsed`
 - この基準の `skew_ms` は置かない（時刻そのものではなく状態）。OS の見積もったずれ（位相のずれ）が読めたら `os_offset_ms` に入れる
-- 取れないとき（子プロセスが起動しない・非 0 で終わる・打ち切り）は `unavailable` に `reason`（`spawn_failed` / `exit:<code>` / `timeout`）
+- 取れないとき（子プロセスが起動しない・非 0 で終わる・打ち切り）は `unavailable` に `reason`（`spawn_failed` / `service_stopped` / `exit:<code>` / `timeout`）
 - **子プロセスに渡す引数は `/query /status /verbose` に固定する**（試験で固定する）。`/resync` や `/config` は渡さない。外部への通信は起きない
 - **Task 1 で確かめ、結果（読めたか・エラー符号・表示言語・出力の見出し）をこの D8 に追記する**:
   管理者権限なしで読めるか（`windows-latest` の実行時テストと手元の Windows の両方）
@@ -179,12 +192,61 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
   設定（レジストリの `NtpServer`）や調整量（`GetSystemTimeAdjustment`）は「最後に同期した時刻」ではないので代わりにしない（spec レビュー R7）。
   **どの口でも読めなければ、Q3 の ③（同じ機械の構成で独立に比べる）の前提が崩れるので、実装で決めずに `deep.md` に R 番号つき `(未回答)` で書いて止まる**
 
+**w32tm の確かめ（2026-09-29・Task 1.3）**:
+- **読めた。反転条件には倒さない。** 終了コード 0。手元の Windows（日本語表示）で、管理者権限あり（WSL から起動したプロセスは High 完全性）と
+  **管理者権限なし**（`schtasks /create /rl LIMITED` で Medium 完全性にして実行。`whoami /groups` で `Medium Mandatory Level` を確認）の両方で同じ出力が読めた。エラー符号（`0x80070005` など）は出なかった
+- 表示言語: 手元は**日本語**。出力は**コンソールの符号ページ（cp932）のバイト列**で、UTF-8 ではない（`from_utf8_lossy` では見出しが化ける）。
+  子プロセスの出力は**バイト列で受けて `raw` に持ち**、見出しの照合はバイト列（または cp932 の復号）で行うこと（Task 8.1 への注意）
+- 見出し（日本語 / 英語の対応。英語は Windows の既定の出力）。行の順序は両言語で同じ:
+  `閏インジケーター` / `Leap Indicator`、`階層` / `Stratum`、`精度` / `Precision`、`ルート遅延` / `Root Delay`、`ルート分散` / `Root Dispersion`、
+  `参照 ID` / `ReferenceId`、**`最終正常同期時刻` / `Last Successful Sync Time`**、**`ソース` / `Source`**、`ポーリング間隔` / `Poll Interval`、
+  **`フェーズ オフセット` / `Phase Offset`**、`クロック レート` / `ClockRate`、`最終同期エラー` / `Last Sync Error`、`最終正常同期時刻からの時間` / `Time since Last Good Sync Time`。
+  英語の見出しは記憶による**未実測の推定**（この機械で実測したのは日本語だけ）。英語の出力は `windows-latest` の実行時テストの失敗ログ（英語の Windows）で確かめ、違っていれば Task 8.1 で見出しを直す
+- 値の癖: 同期していない機械（手元）では `最終正常同期時刻: 未指定`（英語は `unspecified`）、`ソース: Local CMOS Clock`、`最終同期エラー: 1 (…)` だった。
+  つまり**「最後に同期した時刻」が無いのは正常な状態**で、同期元だけが解析できる。実行時テスト `clock_time_sync_is_readable` が「時刻か同期元のどちらか」を assert するのはこのため
+- 実行時テスト `clock_time_sync_is_readable`（`crates/collector-windows/tests/runtime_windows.rs`）は、`w32tm /query /status /verbose` を本物で走らせ、
+  終了コード 0 と、上の 2 見出し（両言語）のどちらかが解析できることを見る。手元（WSL から Windows 側の cargo）で PASS。`windows-latest` の結果は CI で確かめる。
+  `TimeSyncSource` はまだ無いので、テストは同じ引数の子プロセスを直接走らせる（Task 8.1 で本物の `TimeSyncSource` に差し替える）
+
+**W32Time が止まっているとき（2026-09-30。本人の指示）**:
+- W32Time の起動の種類は既定で**手動（トリガー起動）**（手元は `DEMAND_START`）で、**止まっていることがある**。止まっていると `w32tm` は
+  `0x80070426`（サービスが開始されていない）で終わる。Task 1.3 の確かめは**たまたま動いていたとき**のもので、「いつでも読める」の根拠ではなかった
+- 製品はそれを異常にしない: `unavailable` に `reason: service_stopped` で残す（`exit:-2147023834` のままでは止まっていたと読めない）。
+  **サービスを起動しない・起動の種類を変えない**（利用者の OS の設定を収集のために変えない）
+- 実行時テスト（`clock_time_sync_is_readable` / `clock_skew_runtime`）は **その時の状態で経路を分ける**: 動いていれば取れた経路を、
+  止まっていれば `service_stopped` の経路を見る。状態は `sc query w32time` の STATE の数値（権限不要）を読む前と後で見て、結果と食い違えば落ちる。
+  出力の解析そのものは実 OS に依らない固定入力の単体テスト（`time_sync_parses_english_output` など）が持つ
+
+**止まっている間はイベントログから最後の同期を読む（2026-09-30。deep Q4 の本人の答え。review R22）**:
+- `w32tm` が `0x80070426`（サービスが開始されていない）で終わったときだけ、`%SystemRoot%\System32\wevtutil.exe qe System
+  "/q:*[System[Provider[@Name='Microsoft-Windows-Time-Service'] and (EventID=35 or EventID=37)]]" /c:1 /rd:true /f:xml` を走らせる
+  （同じ 5 秒の打ち切り。**読み取りは最大 2 本 × 5 秒 = 10 秒**になる。同じ作業スレッドの中で、`mono_before_ms` / `mono_after_ms` は 2 つの子プロセスをまたぐ）。
+  **引数は照会（`qe`）だけに固定し、試験で固定する**（`time_sync_event_log_arguments_are_pinned_to_the_query`）。サービスは起動しない・起動の種類も変えない
+- 35 = 同期元を選んで同期している / 37 = 同期元から正しい時刻を受けている。**新しいほうから 1 件**の `TimeCreated` の `SystemTime` を `last_sync`
+  （**UTC の RFC 3339**。`w32tm` の表示のままのローカル時刻とは形が違う）、`TimeSource` を `sync_source` にする。`raw` はその XML の原文。
+  `os_offset_ms` は無い。どちらから読んだかは `clock_references[]` の `sync_via`（`w32tm` / `eventlog`）に残す。項目を読めなければ `unparsed`（`raw` つき）
+- **記録が 0 件（出力が空）・読めない（権限・非 0・打ち切り）ときは `service_stopped` のまま**（止まっていたことだけを残す。deep Q4 の推奨の条件）。
+  空でないのに `<Event` の無い出力は 0 件と見なさず、`unparsed` で原文を持つ
+- 子プロセスの口は `w32tm_program()` / `wevtutil_program()` の 2 つだけ（exe 名を引数に取らない）。`tools/check-no-time-server.sh` はこの 2 つの形しか `Command::new` に許さない
+- **一般の利用者の権限で読めるか**: System のチャネルの ACL（`wevtutil gl System` の `channelAccess`）が `(A;;0x1;;;IU)`（対話ログオンの利用者に読み取り）・
+  `(A;;0x1;;;S-1-5-32-573)`（Event Log Readers）を持つ（2026-09-30 手元で読んだ）。PC の収集は対話ログオンの利用者の下で動くので読める側に入る。
+  権限を下げたプロセスでの実測は、タスクスケジューラへの登録が実行の許可で止められたので**していない**（Task 1.3 の w32tm は同じ方法で実測した）。
+  読めなかったときは上のとおり `service_stopped` に戻るので、記録は失われない
+- 実行時テスト `clock_time_sync_event_log_is_readable` は W32Time の状態に依らずイベントログを本物で読み、読めること（0 件は読めた扱い）と最新の記録から時刻と同期元が取れることを見る。
+  `clock_skew_runtime` は通った経路（`w32tm` / `eventlog` / `service_stopped`）ごとに、W32Time の状態・イベントログの記録と食い違わないことを見る。
+  2026-09-30 の手元の実行では W32Time は**動いていた**（起動の契機で動いた）ので、実機で通ったのは `w32tm` の経路とイベントログを読む口で、
+  止まっている経路の切り替えは単体テスト `time_sync_stopped_service_falls_back_to_the_event_log` が持つ
+- 反転条件: 一般の利用者で読めないと分かったら、この口は常に `service_stopped` に倒れるだけなので、別の口を探すか deep に返す
+
 ### D9. PC の起動の識別と単調時計
 
 - **起動の識別** = OS が最後に起動した時刻（`Source::boot_time()`。いまの `powered-off` の `boot_at` と同じ値・同じ欄名）
 - **起動からの経過時間** = Windows の `GetTickCount64()`（ミリ秒。スリープの間も進む）。非 Windows のビルドでは試験用の偽物。
   `Uptime` の口に置く。`runtime.rs` の `clocks()`（プロセスの中の `Instant`）は見回りの判定に使うもので、記録には載せない
   （プロセスの立て直しで 0 に戻り、起動の識別と組にならない）
+- **D9（仮）: 本番の刻みは秒**（sysinfo の `uptime()` ×1000。unsafe を書かないため `GetTickCount64` を直接呼ばない）。
+  `Uptime::resolution_ms()` を持ち、読んだ直後の値に `刻み - 1` を足して `mono_after_ms - mono_before_ms` を実際の読み取り時間の**上限**にする。
+  反転条件: ミリ秒で読める安全な口が入る、または幅の精度が ST07 の判定に足りないと分かったら `GetTickCount64` に替える（`SystemUptime` の中だけ）。
 
 ### D10. PC の測定記録の形（`c02-window` の `kind = clock-skew` に欄を足す）
 
@@ -199,6 +261,8 @@ spec の「60 秒以上変更されると測る」はどちらの方式でも成
 | `clock_references` | 配列。`{source, time?, skew_ms?, os_offset_ms?, mono_before_ms, mono_after_ms, host?, raw?, last_sync?, sync_source?}` |
 | `clock_unavailable` | 配列。`{source, reason, raw?}`（`unparsed` のときは原文を持つ） |
 
+- **D10（仮）: `raw` は JSON の文字列なので、cp932 のバイト列は ASCII 以外のバイトと `\` を `\xNN` にして持つ**（元のバイト列へ戻せる。`from_utf8_lossy` は原文を壊す）。
+  `last_sync` は表示のまま（ロケール・ローカル時刻）で、正規化しない。反転条件: ST07 が時刻として読む必要が出たら、`raw` から引き直す（原文があるので計算し直せば戻る）。
 - **`skew_ms` / `skew_reference` は残す**。`s01-date` が取れたときだけ、その差と `host` を入れる（ST07 の読む側を壊さない）。
   取れなかった記録では省く（いまは必ずあった —— `docs/collector-contract.md` の表に「取れなかった記録では無い」と書く）
 - 測り直しは今の `SKEW_RETRY_SEC`（60 秒）のまま。取れなかった記録を 1 時間の契機ごとに 1 件までにするのは D4 と同じ形の印（`SkewSchedule` に持たせる）
@@ -239,7 +303,7 @@ PC が動いていて窓が読めなかった日（③）や記録の無い日�
 - [`Date` 見出しは秒の分解能] → 差が 0〜+999 ms 大きく出ることを spec の Scenario の幅と契約文書に書く
 - [時計の変更の通知の取りこぼし] 通知が届かない端末では変更直後に測らない → 1 時間以内には必ず測るので、ずれは 1 時間遅れで残る。D3 の反転条件
 - [PC の `w32tm` の出力の言語] → 原文を持つので、解析を後から直せば過去の記録も読み直せる
-- [PC の作業スレッドが打ち切られずに残る] `/healthz` は `sender::agent()` の打ち切り、`w32tm` は 5 秒の打ち切りを持つので、作業スレッドは有限の時間で終わる
+- [PC の作業スレッドが打ち切られずに残る] `/healthz` は `sender::agent()` の打ち切り、`w32tm` と（止まっているときの）`wevtutil` はそれぞれ 5 秒の打ち切り（最大 2 本で 10 秒）を持つので、作業スレッドは有限の時間で終わる
 
 ## Migration Plan
 
