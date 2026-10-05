@@ -783,7 +783,7 @@ re-review が挙げた Minor 3 件は、2 回目の fix wave を出さない規�
 - kind: irreversible
 - 提案: `deep.md` に A の問いとして立てる（「消した時間帯に書庫から入る位置を、削除済みとして入れるか」。選択肢は ST22 第 2 回 Q2 / 第 3 回 Q6 と同じ）。
   12.5 の検査は、R 番号を単語の境界つき（`\bR6\b` のように）で、さらに申し送りの見出し（`st22-record-deletion R6`）ごとに突き合わせる形に直す。
-- 処置: escalated — `deep.md` 第 4 回 Q13（loss: exported）。問いは `deep-questions-r4.json` / `docs/briefs/ST12-deep-r4.html`。あわせて tasks 12.5 の検査を、申し送りの見出し「`<change> R<n>`」ごとの突き合わせに直した（R 番号の部分一致をやめた）。PR 本文に st22-record-deletion R3 / R4 / R6 と st25-day-timeline R3 の扱いを書く
+- 処置: escalated — `deep.md` 第 4 回 Q13（loss: exported）。問いは `deep-questions-r4.json` / `docs/briefs/ST12-deep-r4.html`。あわせて tasks 12.5 の検査を、申し送りの見出し「`<change> R<n>`」ごとの突き合わせに直した（R 番号の部分一致をやめた）。PR 本文に st22-record-deletion R3 / R4 / R6 と st25-day-timeline R3 の扱いを書く。**答え（2026-10-05）**: 推奨のまま「印を付けて入れる」→ spec の Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（Scenario 5 本）・design D22・tasks Task 15（14.1〜14.3）。実装はグラフの Task ループが回す
 
 ## R67. 置き場と写しの既定がサーバの作業ディレクトリからの相対パスで、目録にも相対パスのまま残る。別の場所から起動すると、印を置いた後の読み直しが永久に止まる
 - 成果物: `crates/server/src/archive/config.rs:36-44`（`Documents/ashiato/取り込み待ち` / `Downloads` / `AppData/Local/ashiato/archive-copies`）/ `worker.rs:1400`（`std::fs::read(stored_path)` が失敗すると `continue`）/ design D1 の表（既定は `%USERPROFILE%\…` / `%LOCALAPPDATA%\…`）

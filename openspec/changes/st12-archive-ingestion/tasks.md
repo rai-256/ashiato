@@ -16,7 +16,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 同じ書庫をもう一度置いても行が増えない`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は `external-ingestion` 109 本 + `collection-coverage` の MODIFIED で増えた 3 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えずに THEN を直した 2 本: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
+- **この change が足す Scenario は `external-ingestion` 114 本（第 4 回 Q13 の 5 本を含む） + `collection-coverage` の MODIFIED で増えた 3 本**。MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えずに THEN を直した 2 本: `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える`）
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで **`CT <絞り込み>`** と書いたものは、
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log` が rc=0 になることを指す。
   **`VT <ファイル>`** は `bash -o pipefail -c 'cd web && npx vitest run src/__tests__/<ファイル> 2>&1 | tee /tmp/vt.log' && grep -Eq 'Tests +[1-9][0-9]* passed' /tmp/vt.log` が rc=0
@@ -215,6 +215,17 @@ DB を使う検査は `docker compose up -d db` が前提。
 - [x] 12.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
   検証: `test ! -f docs/handoff/ST12.md || { body=$(gh pr view --json body -q .body); grep -oE '^## [a-z0-9-]+ R[0-9]+' docs/handoff/ST12.md | sed 's/^## //' | sort -u | while read -r h; do grep -qF "$h" <<<"$body" || { echo "PR 本文に無い: $h"; exit 1; }; done; }` rc=0
   （申し送りの見出し「`<change> R<n>`」ごとに突き合わせる。R 番号だけの部分一致だと `R6` が `R61` に当たって通っていた。code-verify R66）
+
+## Task 15: 14. 書庫の位置と滞在の削除（design D22 / 第 4 回 Q13）
+
+- [ ] 14.1 書庫の位置の論理ソース 7 本の並びを `archive/` の 1 か所に置き、書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ `user:late` の印と削除の台帳の `erase` 行を付ける（滞在の作り直しを呼ばない）。
+  Scenario: `消した滞在の時間帯に書庫から入る位置は削除済みになる` / `消した滞在の時間帯の外の書庫の位置は生きた記録として入る` / `書庫の位置の印は滞在の作り直しを待たずに付く`。
+  検証: `CT archive_erased_window`（滞在は `POST /stays/erase` か `deletion::erase` で消してから、端末で書き出した合成の `Timeline.json` を置く。区間の記録は端が触れるだけでも印が付くこと・作り直しを走らせずに印が付いていること・`core.event` の生きた行の件数を見る）
+- [ ] 14.2 `deletion::erase` の位置の連鎖と `stay_store::mark_late_arrivals` を、基準のソース ∪ 書庫の位置の論理ソースに掛ける。滞在の判定（`Criteria::sources`）は変えない。
+  Scenario: `滞在を消すとその時間帯の書庫の位置も削除済みになる` / `滞在の削除を戻すと書庫の位置も戻る`。
+  検証: `CT archive_erased_cascade`（書庫の位置を格納した後に滞在を消し、印と台帳の行を見る / 戻して生きた行に戻ること / 滞在の判定の入力が `c01-location` だけのままであること）
+- [ ] 14.3 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` rc=0、
+  `python3 scripts/check_scenarios.py . st12-archive-ingestion` rc=0、`openspec validate st12-archive-ingestion --strict` rc=0
 
 ## 人間の確認待ち
 

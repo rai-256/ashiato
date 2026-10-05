@@ -1,14 +1,11 @@
 # ST12 書庫を置くだけで過去のデータが入る
 
-## 人間へ返す未決（A）—— **1 件。merge の前に答えが要る**
+## 人間へ返す未決（A）—— **なし**（第 4 回 Q13 は 2026-10-05 に答えが入った）
 
-- **第 4 回 Q13（loss: exported）—— 本人が ST22 で消した場面の位置が、書庫から別の論理ソースで入ってくる**（code-verify 第 3 回 R66）。
-  ST22 からの申し送り `docs/handoff/ST12.md` の **st22-record-deletion R6** を、この change は受けていなかった。いまは何もしないので、
-  滞在とその時間の位置を消した後に `Timeline.json` や Takeout を置くと、消した場面の位置が `c03-timeline-*` / `c03-legacy-*` から
-  生きた記録として入り、読み出しと書き出しへ流れる（逆の順でも書庫の位置は残る）。
-  問いは `openspec/changes/st12-archive-ingestion/deep-questions-r4.json`、渡す形は `docs/briefs/ST12-deep-r4.html`。
-  推奨は「消した時間帯に入る書庫の位置は削除済みの印を付けて入れる（後から消したときも印を付ける）」で、ST22 の第 2 回 Q2 / 第 3 回 Q6 と同じ向き。
-  答えによっては Task を 1 つ足す（いまの `[x]` は動かさない）
+- **第 4 回 Q13（loss: exported）—— 本人が ST22 で消した場面の位置が、書庫から別の論理ソースで入ってくる**（code-verify 第 3 回 R66 / ST22 からの申し送り **st22-record-deletion R6**）。
+  本人は推奨の側を選んだ: **消した時間帯に入る書庫の位置は削除済みの印を付けて入れ、後から滞在を消したときもその時間帯の書庫の位置に印を付ける。戻せば一緒に戻る**（`deep-answers-1.txt`。FR-50 に書庫の位置を含めた）。
+  spec に Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（Scenario 5 本）、design **D22**（重なりの判定は C: 区間の端が触れるだけでも印を付ける。滞在の判定の入力には書庫の位置を足さない）、
+  tasks に **Task 15（14.1〜14.3）** を足した。いまの `[x]` は動かしていない。**Task 15 はこの本文を書いた時点で未実装**（グラフの Task ループが回し、final review と code-verify をやり直す）
 
 ## 実寸で成り立っていない Scenario（merge のときに見る）
 
@@ -49,8 +46,8 @@
 
 ## Task
 
-- **45/46 が `[x]`**。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない
-- 第 4 回 Q13 の答えによって Task が 1 つ増えることがある
+- **45/49 が `[x]`**（Task 15 の 3 項目を足した後）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない
+- **Task 15（14.1〜14.3。第 4 回 Q13 / design D22）を足した** —— この本文を書いた時点では未実装。グラフの Task ループが実装・review し、final review と code-verify をやり直す
 
 ## 独立レビュー（指摘 119 件すべてに処置。`review_triage.py` rc=0）
 
@@ -72,10 +69,12 @@ final review（R47〜R63）と code-verify 3 回。このターンは code-verif
 
 - **st22-record-deletion R3** —— 外部識別子で畳むソースで、前の版の内容が別の外部識別子で届くと生きた記録として入る。**ST12 は全ソースを `external_id_kind = 'none'`（第 1 回 Q6）にしたので起きない**
 - **st22-record-deletion R4** —— 消していた間に届いた外部の更新がどこにも残らない。同じ理由で起きない
-- **st22-record-deletion R6** —— **未決（A）の第 4 回 Q13 として人間に返した**（冒頭）
+- **st22-record-deletion R6** —— 第 4 回 Q13 として人間に返し、**「印を付けて入れる」の答えで Task 15 / design D22 として受けた**（冒頭）
 - **st25-day-timeline R3** —— タイムラインの論理ソースの名前が design（`c03-timeline-activity` / `-path`）と実装（`c03-timeline-move` / `-route`）で違う。**未処置**。宛先の指定どおり ST12 の merge 後の `fix/` で design を実装に揃える（ST25 は実装の名前で作っている）
 
-## 通した検証（このターン、HEAD で）
+## 通した検証（code-verify 第 3 回の処置のターン。Task 15 を足す前の HEAD で）
+
+Task 15 を足した後は、新しい Scenario 5 本の印がまだ無いので `check_scenarios.py` は Task 15 の実装まで落ちる。`openspec validate --strict` と `check_chain.py` は足した後も rc=0。
 
 `evidence.jsonl` はこの change に無い（`verify-run` の記録を持たない時期の Story）ので、手で走らせた結果を書く。
 
