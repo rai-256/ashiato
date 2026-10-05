@@ -70,6 +70,10 @@ services:
       - "127.0.0.1:$db:5432"
 EOF
   export COMPOSE_PROJECT_NAME="$PROJECT"
+  # worktree ごとの port の規則（ST05 の tools/ports.sh）を持つ木では、規則が名前から port を決めて
+  # .env の URL と BIND の port を差し替える。録画の worktree の名前は -st<NN> で終わらないので規則は 55432 / 18787
+  # —— **手元の開発用の DB とサーバ**になる。ここで選んだ port を規則より先に渡す（ports.sh は既にある値を使う）
+  export ASHIATO_DB_PORT="$db" ASHIATO_HTTP_PORT="$api"
 
   echo "== ビルド（サーバ release・画面）"
   export CARGO_TARGET_DIR="${REC_CACHE:-$HOME/.cache/harness2-rec}/ashiato2-target"
