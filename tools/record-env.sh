@@ -27,6 +27,52 @@ free_port() { # $1 から上へ、WSL 側でも REC_AVOID_PORTS（Windows 側）
   echo "$p"
 }
 
+# 合成の書庫を 2 冊置く（ST12 の録画用。tools/smoke.sh の書庫の段と同じ手順）:
+#   1 冊目 rec-youtube.zip（YouTube の視聴履歴）—— 形を本人の代わりに確認して取り込ませる
+#   2 冊目 rec-pending.zip（マイアクティビティの検索）—— 形の確認待ちのまま残す
+# 本人の作業（tools/archive-shape.sh で形を見て印を置く）はターミナルの操作で、画面からは押せないので、ここで済ませる。
+# 標準出力の最後の 1 行が要約（ready の INFO_archive）。
+archive_prepare() {
+  local api="$1" uid token admin shape status i
+  uid="$ASHIATO_ARCHIVE_USER_ID"; token="$(sed -n 's/^API_TOKEN=//p' .env)"
+  admin="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
+  q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
+  st() { curl -sf -H "authorization: Bearer $token" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
+  zipdir() { python3 -c 'import sys,zipfile,pathlib as P
+src,dst=P.Path(sys.argv[1]),sys.argv[2]
+with zipfile.ZipFile(dst+".part","w") as z:
+    [z.write(f,f.relative_to(src)) for f in sorted(src.rglob("*")) if f.is_file()]
+P.Path(dst+".part").rename(dst)' "$1" "$2"; }
+  local a="$ARCHIVE_DIR/src/a" b="$ARCHIVE_DIR/src/b"
+  mkdir -p "$a/Takeout/YouTube" "$b/Takeout/My Activity/Search"
+  printf '%s' '[{"header":"YouTube","title":"録画の確認の動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=rec1","time":"2026-09-20T03:00:00Z"},{"header":"YouTube","title":"録画の確認の動画 2 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=rec2","time":"2026-09-21T12:30:00Z"}]' \
+    >"$a/Takeout/YouTube/watch-history.json"
+  printf '%s' '[{"header":"検索","title":"録画の確認 を検索しました","time":"2026-09-21T03:00:00Z","products":["Search"]}]' \
+    >"$b/Takeout/My Activity/Search/MyActivity.json"
+  zipdir "$a" "$ASHIATO_INBOX_DIR/rec-youtube.zip" || { echo "1 冊目を作れない"; return 1; }
+  for i in $(seq 1 60); do
+    shape="$(q "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$uid'::uuid LIMIT 1")"
+    [ -n "$shape" ] && break; sleep 1
+  done
+  [ -n "$shape" ] || { echo "1 冊目が形の確認待ちにならない（60 秒）"; return 1; }
+  DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' .env)" ASHIATO_ARCHIVE_USER_ID="$uid" tools/archive-shape.sh --confirm "$shape" >/dev/null 2>&1 \
+    || { echo "tools/archive-shape.sh --confirm が落ちた"; return 1; }
+  for i in $(seq 1 60); do
+    status="$(st)"
+    printf '%s' "$status" | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d.get("latest_archive") or {}; sys.exit(0 if l.get("file_name")=="rec-youtube.zip" and l.get("outcome") not in ("pending_shape",None) else 1)' 2>/dev/null && break
+    status=""; sleep 1
+  done
+  [ -n "$status" ] || { echo "1 冊目が取り込まれない（60 秒）"; return 1; }
+  zipdir "$b" "$ASHIATO_INBOX_DIR/rec-pending.zip" || { echo "2 冊目を作れない"; return 1; }
+  for i in $(seq 1 60); do
+    st | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d.get("latest_archive") or {}; sys.exit(0 if d.get("pending_shape") and l.get("file_name")=="rec-pending.zip" and l.get("outcome")=="pending_shape" else 1)' 2>/dev/null && break
+    sleep 1
+  done
+  st | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d.get("latest_archive") or {}; sys.exit(0 if d.get("pending_shape") and l.get("file_name")=="rec-pending.zip" and l.get("outcome")=="pending_shape" else 1)' 2>/dev/null \
+    || { echo "2 冊目が形の確認待ちにならない（60 秒）"; return 1; }
+  echo "rec-youtube.zip を取り込み済み・rec-pending.zip が形の確認待ち"
+}
+
 up() {
   cd "$WT" || exit 1
   local db api web pg ow ap old_umask
@@ -79,6 +125,18 @@ EOF
   # .env の URL と BIND の port を差し替える。録画の worktree の名前は -st<NN> で終わらないので規則は 55432 / 18787
   # —— **手元の開発用の DB とサーバ**になる。ここで選んだ port を規則より先に渡す（ports.sh は既にある値を使う）
   export ASHIATO_DB_PORT="$db" ASHIATO_HTTP_PORT="$api"
+  # 書庫の取り込み器（ST12 の入った木だけ）。置き場は**必ずこの実行の一時の場所**にする ——
+  # 渡さないと既定で本人のダウンロードフォルダを見に行く（archive/config.rs）
+  ARCHIVE_DIR=""
+  if [ -f crates/server/src/archive/config.rs ]; then
+    ARCHIVE_DIR="$STATE/archive"
+    mkdir -p "$ARCHIVE_DIR/inbox" "$ARCHIVE_DIR/downloads" "$ARCHIVE_DIR/copies" "$ARCHIVE_DIR/src" || exit 1
+    # 利用者は**既定の利用者**（全部 0）。画面は名乗らずに `/archives/status` を読み、サーバは既定の利用者で答える
+    # （seed と tools/smoke.sh の書庫も同じ。実測 2026-10-05: .env の利用者で動かすと、箱は取り込み器を一度も見なかった）
+    export ASHIATO_ARCHIVE_USER_ID="00000000-0000-0000-0000-000000000000"
+    export ASHIATO_INBOX_DIR="$ARCHIVE_DIR/inbox" ASHIATO_DOWNLOADS_DIR="$ARCHIVE_DIR/downloads"
+    export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_DIR/copies" ASHIATO_ARCHIVE_SCAN_SEC=1
+  fi
 
   echo "== ビルド（サーバ release・画面）"
   export CARGO_TARGET_DIR="${REC_CACHE:-$HOME/.cache/harness2-rec}/ashiato2-target"
@@ -120,6 +178,11 @@ EOF
   curl -sf -o /dev/null "http://127.0.0.1:$web/" || { echo "error: 画面が ${i} 秒で立たない" >&2; exit 1; }
   sleep 2   # stack.sh の網の外への口の検査（check-exposure）を待つ。落ちていれば stack.sh が止まる
   kill -0 "$stack" 2>/dev/null || { echo "error: tools/stack.sh up が止まった（網の外への口の検査？）" >&2; exit 1; }
+  local archive_info="無し（この木に書庫の取り込み器が無い）"
+  if [ -n "$ARCHIVE_DIR" ]; then
+    # 落ちても他のシナリオは撮る（書庫のシナリオのアサーションが落ちる）
+    archive_info="$(archive_prepare "$api")" || echo "warn: 書庫の用意が落ちた: $archive_info" >&2
+  fi
 
   local tmp="$STATE/ready.tmp"
   {
@@ -134,6 +197,7 @@ EOF
     echo "INFO_compose_project=$PROJECT"
     echo "INFO_ports=DB $db / API $api / 画面 $web"
     echo "INFO_seed=normal（STACK_RESET=1 で作り直した直後）"
+    echo "INFO_archive=$archive_info"
     if [[ " ${REC_PLATFORMS:-} " == *" android "* ]] && [ -z "$android_ok" ]; then
       echo "ANDROID_UNAVAILABLE=APK のビルドが落ちた（logs/env-up.log）"
     elif [[ " ${REC_PLATFORMS:-} " == *" android "* ]]; then
