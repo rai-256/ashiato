@@ -31,7 +31,7 @@ use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
-use crate::history::collect::{HistoryCollector, HistoryReader};
+use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
 use crate::history::contract::Visit;
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
 use crate::outbox::Outbox;
@@ -118,6 +118,8 @@ pub struct Runtime<'a> {
     unsaved: Vec<WindowPayload>,
     /// ブラウザ履歴の取得（ST08）。**読みは別スレッド**で、見回りは待たない（design D3）
     history: Option<HistoryCollector>,
+    /// ブラウザ履歴の生存信号（design D12）。**ウィンドウのとは別の契機・別の数え・別の和**
+    history_beat: HistoryBeat,
     state_dir: std::path::PathBuf,
     /// 単調時計の起点（`tick` が使う）
     anchor: Option<(std::time::Instant, DateTime<Utc>)>,
@@ -133,6 +135,51 @@ impl std::fmt::Debug for Runtime<'_> {
             .field("unsaved", &self.unsaved.len())
             .field("engine", &self.engine)
             .finish()
+    }
+}
+
+/// 履歴のソースの生存信号の状態（24 時間ごと。起動直後に 1 回）。
+struct HistoryBeat {
+    schedule: heartbeat::Schedule,
+    counters: Counters,
+    store: CounterStore,
+    /// 区間の間に一度でも欠けたもの（ウィンドウの R26 と同じ和）
+    blockers: BTreeSet<String>,
+    /// 区間に読み（か確かめ）が 1 回でもあったか。無ければ信号の前に開けるかを確かめる
+    read_seen: bool,
+}
+
+impl HistoryBeat {
+    fn new(state_dir: &std::path::Path, now: DateTime<Utc>) -> Self {
+        let store = CounterStore::named(state_dir, "counters-browser-history.json");
+        let (counters, _) = store.load_or_quarantine();
+        Self {
+            schedule: heartbeat::Schedule::with_interval(Duration::seconds(
+                heartbeat::HISTORY_EXPECTED_GAP_SEC,
+            )),
+            counters: counters.unwrap_or_else(|| Counters::new(now)),
+            store,
+            blockers: BTreeSet::new(),
+            read_seen: false,
+        }
+    }
+
+    /// プロファイル 1 つの読み（か確かめ）1 回を 1 試行と数える。空は「1 つも見つからない」。
+    fn record(&mut self, profiles: &[ProfileHealth]) {
+        self.read_seen = true;
+        if profiles.is_empty() {
+            self.blockers
+                .insert(heartbeat::history_blocker::NONE_FOUND.to_string());
+        }
+        for p in profiles {
+            self.counters.record(p.readable);
+            if !p.readable {
+                self.blockers.insert(heartbeat::history_blocker::unreadable(
+                    p.browser.name(),
+                    &p.directory,
+                ));
+            }
+        }
     }
 }
 
@@ -211,6 +258,7 @@ impl<'a> Runtime<'a> {
             interval_blockers: BTreeSet::new(),
             unsaved: Vec::new(),
             history: None,
+            history_beat: HistoryBeat::new(&cfg.state_dir, now),
             state_dir: cfg.state_dir.clone(),
             anchor: None,
             log: info,
@@ -319,6 +367,7 @@ impl<'a> Runtime<'a> {
         self.maybe_measure_skew(wall, mono, &*source);
         self.maybe_beat(wall, mono);
         self.maybe_history(wall);
+        self.maybe_history_beat(wall, mono);
         self.maybe_send(wall, mono);
     }
 
@@ -577,6 +626,75 @@ impl<'a> Runtime<'a> {
                 None,
                 Some("failed"),
             )),
+        }
+    }
+
+    /// 履歴のソースの生存信号。区間に読みが 1 回も無いときは、**別スレッドで開けるかを確かめてから**出す（design D12）。
+    fn maybe_history_beat(&mut self, wall: DateTime<Utc>, mono: DateTime<Utc>) {
+        let (Some(history), beat) = (self.history.as_mut(), &mut self.history_beat) else {
+            return;
+        };
+        let mut counted = false;
+        if let Some(profiles) = history.take_reads() {
+            beat.record(&profiles);
+            counted = true;
+        }
+        if history.is_probing() {
+            // 確かめの結果が出たら、それを区間の読みとして数えて出す
+            let Some(profiles) = history.poll_probe() else {
+                return self.save_history_counters_if(counted);
+            };
+            beat.record(&profiles);
+        } else if !beat.schedule.due(mono) {
+            return self.save_history_counters_if(counted);
+        } else if !beat.read_seen {
+            history.start_probe();
+            return self.save_history_counters_if(counted);
+        }
+        self.emit_history_beat(wall, mono);
+    }
+
+    fn emit_history_beat(&mut self, wall: DateTime<Utc>, mono: DateTime<Utc>) {
+        let beat = &mut self.history_beat;
+        let (attempts, successes) = beat.counters.take(wall);
+        let cap = Capability::from_blockers(&beat.blockers);
+        beat.blockers.clear();
+        beat.read_seen = false;
+        self.save_history_counters();
+        match heartbeat::history_signal(
+            self.user_id,
+            &self.device_id,
+            wall,
+            &cap,
+            attempts,
+            successes,
+        )
+        .and_then(|sig| self.beats.add(sig))
+        {
+            Ok(()) => self.history_beat.schedule.mark(mono),
+            Err(e) => (self.log)(telemetry::line(
+                "heartbeat_add_failed",
+                None,
+                None,
+                Some(telemetry::error_kind(&e)),
+            )),
+        }
+    }
+
+    fn save_history_counters_if(&self, counted: bool) {
+        if counted {
+            self.save_history_counters();
+        }
+    }
+
+    fn save_history_counters(&self) {
+        if let Err(e) = self.history_beat.store.save(&self.history_beat.counters) {
+            (self.log)(telemetry::line(
+                "counters_save_failed",
+                None,
+                None,
+                Some(telemetry::error_kind(&e)),
+            ));
         }
     }
 
@@ -1871,6 +1989,19 @@ mod tests {
             })
         }
 
+        fn probe(&self) -> Vec<crate::history::collect::ProfileHealth> {
+            let readable = match *self.profile.lock().unwrap() {
+                ProfileState::Gone | ProfileState::Missing => return Vec::new(),
+                ProfileState::Unreadable => false,
+                ProfileState::Readable => true,
+            };
+            vec![crate::history::collect::ProfileHealth {
+                browser: Browser::Chrome,
+                directory: "Default".into(),
+                readable,
+            }]
+        }
+
         fn profile_dir_absent(&self, _browser: Browser, _directory: &str) -> bool {
             *self.profile.lock().unwrap() == ProfileState::Gone
         }
@@ -1914,6 +2045,150 @@ mod tests {
             .into_iter()
             .filter(|r| r["logical_source"] == "c02-browser-history")
             .collect()
+    }
+
+    fn history_beats(t: &AcceptAll) -> Vec<serde_json::Value> {
+        sent(t, "/heartbeat")
+            .into_iter()
+            .filter(|r| r["logical_source"] == "c02-browser-history")
+            .collect()
+    }
+
+    /// 履歴の生存信号が `want` 件届くまで（実時間で）見回りを回す。確かめも読みも別スレッドなので同じ時刻に回し直す。
+    fn tick_until_history_beats(
+        rt: &mut Runtime,
+        src: &mut FakeSource,
+        transport: &AcceptAll,
+        sec: i64,
+        want: usize,
+    ) {
+        for _ in 0..400 {
+            rt.tick_at(src, t(sec), t(sec));
+            rt.send();
+            if history_beats(transport).len() >= want {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("履歴の生存信号が届かない");
+    }
+
+    /// Scenario: ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く
+    /// Scenario: ブラウザ履歴の生存信号はウィンドウの生存信号と別の件である
+    #[test]
+    fn history_heartbeat_every_day_and_separate_from_window_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        // 2 日回す。24 時間より前には増えない
+        for sec in (600..2 * 86_400).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            if sec == 86_400 - 600 {
+                rt.send();
+                assert_eq!(history_beats(&transport).len(), 1, "24 時間より早く出た");
+            }
+            if sec == 86_400 {
+                tick_until_history_beats(&mut rt, &mut src, &transport, sec, 2);
+            }
+        }
+        rt.send();
+        assert_eq!(history_beats(&transport).len(), 2);
+        let window = sent(&transport, "/heartbeat")
+            .into_iter()
+            .filter(|r| r["logical_source"] == "c02-window")
+            .count();
+        assert!(
+            window >= 8,
+            "ウィンドウの生存信号が別に届いていない: {window}"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 読めないプロファイルが 1 つでもあれば取得できないとして報告される
+    /// Scenario: 読めなかったブラウザとプロファイルが満たされていないものに挙がる
+    #[test]
+    fn history_heartbeat_reports_unreadable_profile_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        *reader.profile.lock().unwrap() = ProfileState::Unreadable;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        // 起動直後は読みの結果を待たずに確かめる。読みが終わっていても同じ結果になる
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!(["history-unreadable:chrome:Default"])
+        );
+        assert!(!beat["raw"].as_str().unwrap().contains("example.test"));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 履歴が 1 つも見つからなければ取得できないとして報告される
+    #[test]
+    fn history_heartbeat_reports_none_found_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(Vec::new());
+        *reader.profile.lock().unwrap() = ProfileState::Missing;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(beat["blockers"], serde_json::json!(["history-none-found"]));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 区間に読みが 1 回も無い（直近の取得が 24 時間以内で読みを始めない）起動直後でも、開けるかを確かめて報告する。
+    ///
+    /// Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
+    #[test]
+    fn history_heartbeat_probes_when_not_read_at_runtime() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0));
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        *reader.profile.lock().unwrap() = ProfileState::Unreadable;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        assert_eq!(reader.reads(), 0, "確かめだけで行を読んでいる");
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(beat["attempts"], 1, "確かめが 1 試行に数えられていない");
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!(["history-unreadable:chrome:Default"])
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 起動直後に 1 件出る（読みも契機も待たない）。
+    ///
+    /// Scenario: ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く
+    #[test]
+    fn history_heartbeat_on_start_at_runtime() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0));
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        assert_eq!(history_beats(&transport)[0]["capturable"], true);
+        assert!(cfg.state_dir.join("counters-browser-history.json").exists());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     /// Scenario: 起動時に前回の成功から 24 時間以上経っていれば取得する

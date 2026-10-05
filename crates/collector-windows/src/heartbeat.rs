@@ -148,8 +148,13 @@ pub struct CounterStore {
 impl CounterStore {
     /// 置き場を決める。
     pub fn new(state_dir: &std::path::Path) -> Self {
+        Self::named(state_dir, "counters.json")
+    }
+
+    /// ファイル名を決めて作る（履歴のソースは `counters-browser-history.json`。design D12）。
+    pub fn named(state_dir: &std::path::Path, file: &str) -> Self {
         Self {
-            path: state_dir.join("counters.json"),
+            path: state_dir.join(file),
         }
     }
 

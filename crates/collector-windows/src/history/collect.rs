@@ -36,9 +36,23 @@ pub struct ReadOutcome {
     pub names: Vec<(Browser, BTreeMap<String, Option<String>>)>,
 }
 
+/// 見つかったプロファイル 1 つの、履歴を読めた（開けた）かどうか。生存信号の取得可否の材料（design D12）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileHealth {
+    pub browser: Browser,
+    pub directory: String,
+    pub readable: bool,
+}
+
 /// 履歴 DB を読む側。**実機では [`FsHistoryReader`]、試験では差し替える。**
 pub trait HistoryReader: Send + Sync + 'static {
     fn read(&self) -> anyhow::Result<ReadOutcome>;
+
+    /// 見つかった対象の写しを取って開けるか（`SELECT` まで）だけを確かめる。行は読まない。
+    /// 区間に読みが 1 回も無いときの生存信号が使う（design D12）。
+    fn probe(&self) -> Vec<ProfileHealth> {
+        Vec::new()
+    }
 
     /// プロファイルのディレクトリそのものが無いと**確かめられた**ときだけ `true`。
     /// 読みに出てこない（読めない・DB が一時的に無い）だけでは `true` にしない（D10）。
@@ -90,6 +104,17 @@ impl HistoryReader for FsHistoryReader {
         Ok(ReadOutcome { profiles, names })
     }
 
+    fn probe(&self) -> Vec<ProfileHealth> {
+        locate::locate(&self.local, &self.roaming)
+            .into_iter()
+            .map(|p| ProfileHealth {
+                readable: read::probe_readable(&p.path).is_ok(),
+                browser: p.browser,
+                directory: p.directory,
+            })
+            .collect()
+    }
+
     fn profile_dir_absent(&self, browser: Browser, directory: &str) -> bool {
         let base = browser.base(&self.local, &self.roaming);
         // 置き場そのものが読めないときは、無いとは言えない
@@ -110,6 +135,12 @@ pub struct HistoryCollector {
     exclusions_path: PathBuf,
     schedule: HistorySchedule,
     worker: Option<HistoryWorker<ReadOutcome>>,
+    /// 別スレッドの「開けるかの確かめ」（生存信号の前。読みとは別）
+    probe: Option<HistoryWorker<Vec<ProfileHealth>>>,
+    /// 読み終えたが、生存信号の数えへまだ渡していない読みの結果
+    finished_reads: Vec<ProfileHealth>,
+    /// 読みが 1 回でも終わったか（見つからなかった読みも含む）が `finished_reads` と別に要るので件数でなく印で持つ
+    read_finished: bool,
 }
 
 impl std::fmt::Debug for HistoryCollector {
@@ -139,7 +170,36 @@ impl HistoryCollector {
             exclusions_path: state_dir.join("exclusions.json"),
             schedule: HistorySchedule::with_last_success(last),
             worker: None,
+            probe: None,
+            finished_reads: Vec::new(),
+            read_finished: false,
         }
+    }
+
+    /// 前回から終わった読みの結果を渡す。読みが 1 回でも終わっていたら `Some`（空は「1 つも見つからない」）。
+    pub fn take_reads(&mut self) -> Option<Vec<ProfileHealth>> {
+        std::mem::take(&mut self.read_finished).then(|| std::mem::take(&mut self.finished_reads))
+    }
+
+    /// 開けるかの確かめを別スレッドで始める。
+    pub fn start_probe(&mut self) {
+        if self.probe.is_none() {
+            let reader = Arc::clone(&self.reader);
+            self.probe = Some(HistoryWorker::spawn(move || Ok(reader.probe())));
+        }
+    }
+
+    pub fn is_probing(&self) -> bool {
+        self.probe.is_some()
+    }
+
+    /// 確かめが終わっていれば結果を返す。終わっていなければ `None`（待たない）。
+    pub fn poll_probe(&mut self) -> Option<Vec<ProfileHealth>> {
+        if !self.probe.as_ref()?.is_finished() {
+            return None;
+        }
+        // 確かめの thread が落ちたら、見つからなかったと同じ扱い（理由の無い「取れる」にしない）
+        Some(self.probe.take()?.join().unwrap_or_default())
     }
 
     /// 読みの最中か（読みを始めて、まだ積み込んでいない）。
@@ -159,6 +219,18 @@ impl HistoryCollector {
                 return None;
             }
             let outcome = self.worker.take()?.join();
+            if let Ok(o) = &outcome {
+                self.finished_reads = o
+                    .profiles
+                    .iter()
+                    .map(|p| ProfileHealth {
+                        browser: p.browser,
+                        directory: p.directory.clone(),
+                        readable: p.visits.is_ok(),
+                    })
+                    .collect();
+                self.read_finished = true;
+            }
             let result = outcome.and_then(|o| self.apply(o, wall, queue));
             match &result {
                 Ok(_) => self.schedule.succeeded(wall),
