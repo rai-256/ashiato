@@ -1,11 +1,13 @@
 # ST12 書庫を置くだけで過去のデータが入る
 
-## 人間へ返す未決（A）—— **なし**（第 4 回 Q13 は 2026-10-05 に答えが入った）
+## 人間へ返す未決（A）—— **1 件: 第 5 回 Q14**（`docs/briefs/ST12-deep-r5.html`）
 
-- **第 4 回 Q13（loss: exported）—— 本人が ST22 で消した場面の位置が、書庫から別の論理ソースで入ってくる**（code-verify 第 3 回 R66 / ST22 からの申し送り **st22-record-deletion R6**）。
-  本人は推奨の側を選んだ: **消した時間帯に入る書庫の位置は削除済みの印を付けて入れ、後から滞在を消したときもその時間帯の書庫の位置に印を付ける。戻せば一緒に戻る**（`deep-answers-1.txt`。FR-50 に書庫の位置を含めた）。
-  spec に Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（Scenario 5 本）、design **D22**（重なりの判定は C: 区間の端が触れるだけでも印を付ける。滞在の判定の入力には書庫の位置を足さない）、
-  tasks に **Task 15（14.1〜14.3）** を足した。いまの `[x]` は動かしていない。**Task 15 はこの本文を書いた時点で未実装**（グラフの Task ループが回し、final review と code-verify をやり直す）
+- **第 5 回 Q14（premise / loss: exported）—— マイアクティビティの項目が位置（`locationInfos`）を持っていたとき、消した場面の印の対象に入れるか**（code-verify 第 4 回 R81）。
+  第 4 回 Q13 は「書庫が位置を入れるのは 7 本」という事実の上に立っていたが、マイアクティビティの項目も「この付近」の座標を原文に持つことがある（検証者の知識。実物では未確認 —— 13.1 で見る）。
+  いまのままだと、その項目は消した時間帯でも生きた記録として入る。推奨は「位置を持つ項目は書庫の位置と同じく削除済みの印を付けて入れる」。
+  **Takeout の中身は形の確認の印を置くまで 1 件も入らない（第 2 回 Q10）ので、答えまでに外へ出るものは無い**
+- 第 4 回 Q13（消した場面の位置が書庫から別の論理ソースで入る。st22-record-deletion R6）は 2026-10-05 に「印を付けて入れる」の答えが入り、**Task 15（14.1〜14.3）/ design D22 として実装済み**。
+  spec に Requirement「本人が滞在を消した時間帯の書庫の位置は、削除済みの印を付けて入る」（Scenario 5 本）。重なりの判定は端が触れるだけでも印を付ける。滞在の判定の入力には書庫の位置を足さない
 
 ## 実寸で成り立っていない Scenario（merge のときに見る）
 
@@ -33,6 +35,7 @@
 | **D18（仮）** | 印を置いた後の読み直しは台帳の行を増やさない | 本人が「印を置いた回」を台帳で数えたいと言ったとき |
 | **D19（仮）** | 箱の「取り込み器」は直近の走査を見る | 「読めない」が点滅して邪魔になるとき |
 | **D20（仮）** | 画面の実寸は本物のブラウザで測る。800 px は `test.fail` で未達を固定（上の節） | 予算の数を置き直したとき、または土台が 640 px に収まったとき |
+| **D22-a（仮）** | 置き場の書庫の印付けが落ち続けたら格納の失敗として数え、3 回で台帳に `store_failed`（outcome は流用）・以後 1 時間に 1 回。写しからの読み直しは数えない（R80） | 本人が箱の文言で格納の失敗と印付けの失敗を見分けたいと言ったとき |
 | **D21（仮）** | `tools/archive-shape.sh` は `psql` が無ければ開発用コンテナの `psql` へ回す（R68）。tasks 11.4 の検証は `${BIND}` に叩く（R70） | 本人の DB が開発用コンテナでなくなったとき / port を台帳で割り当てるようになったとき |
 
 ### Ruling（全 Task の ledger から。`.superpowers/sdd/st12-task-final/progress.md`）
@@ -43,20 +46,25 @@
 - code-verify 第 3 回の re-review Minor 1 — Ruling: 取り込み器を起こさない（利用者が未設定）ときでも、置き場の環境変数に相対パスを入れればサーバ全体が起動しないのを park する — 明示した設定の誤りを黙って通さない側（KEEP_COPIES の綴り違いと同じ）で、既定のままなら起きない — 誤りなら書庫を使わない人が設定を消すまで起動できない
 - code-verify 第 3 回の re-review Minor 2 — Ruling: 800 px の Scenario の印が `test.fail` の試験にも付き、`check_scenarios.py` が「担保あり」と数えるのを park する — 未達であることは試験の中・design D20（仮）・この本文の冒頭で示し、緑に変われば `test.fail` が落ちる — 誤りなら印の数だけを見る人が未達に気づかない（直すなら `check_scenarios.py` が `test.fail` の印を別に数える。harness2 側）
 - code-verify 第 3 回の re-review Minor 3 — Ruling: `archive-shape.sh` の docker への回り道は `-q` 付きで `INSERT 0 1` を出さず、手元の `psql` と出力が少し違うのを park する — 印の有無は一覧を出し直せば分かり、smoke は行数で見ている — 誤りなら本人が印を置けたかを出力だけでは読めない
+- final review 第 2 回の re-review Minor 1 — Ruling: `mark_archive_arrivals` をその書庫が入れた位置の時刻の範囲に絞るのは「範囲の外の行は、消すときの連鎖か前の書庫の印付けで処理済み」という前提に依るのを park する — 消す側と印付けは同じ助言ロックを取り、どちらかが必ず相手を見る（D22）ので前提は成り立つ — 誤りなら範囲の外の書庫の位置が生きたまま残る（直すなら作り直しの日付境界で全期間を見直す）
+- final review 第 2 回の fixer の注意 — Ruling: R72 の失敗差し込みの試験は、落ちると試験の利用者だけに掛かる trigger を DB に残すのを park する — 条件に試験の利用者を入れてあり他の試験には掛からない — 誤りなら手元の DB に trigger が溜まる（直すなら試験の始めに同名の trigger を消す）
+- code-verify 第 4 回の re-review Minor 1 — Ruling: 写しからの読み直し（`reread_archive`）で印付けが落ち続けたときに失敗を数えず、毎周 読み直すのを park する — その経路は置き場のファイルの行（`archive_sighting`）を持たず、格納の失敗も同じく数えていない。入力は手元の写しで、解析器の版を上げたときに限る（D22-a） — 誤りなら版を上げた後に印付けが落ち続けると、消した場面の位置が生きたまま毎周 読み直しが続き画面に出ない（直すなら版ごとに失敗を数える行を持ち、格納の失敗と一緒に数える）
 
 ## Task
 
-- **45/49 が `[x]`**（Task 15 の 3 項目を足した後）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない
-- **Task 15（14.1〜14.3。第 4 回 Q13 / design D22）を足した** —— この本文を書いた時点では未実装。グラフの Task ループが実装・review し、final review と code-verify をやり直す
+- **48/49 が `[x]`**（Task 1〜15 すべて）。残りは **13.1（human）** —— 本物の Takeout の書庫と端末から書き出した `Timeline.json` を置いて見る。合成では Google の実物の形の揺れを再現できない。
+  Q14 の答えによっては、13.1 の見るものに「マイアクティビティの項目に `locationInfos` があるか」を足し、Task を 1 つ足す
 
-## 独立レビュー（指摘 119 件すべてに処置。`review_triage.py` rc=0）
+## 独立レビュー（指摘 129 件すべてに処置。`review_triage.py` rc=0）
 
-final review（R47〜R63）と code-verify 3 回。このターンは code-verify 第 3 回の 8 件（R64〜R71）を処置し、scoped re-review が全件 ADDRESSED（R66 は正しく escalated）・新しい Critical / Important なしと判定した。
+final review 2 回（R47〜R63 / R72〜R78）と code-verify 4 回（〜R81）。どの回も fix wave 1 回の後の scoped re-review で全件 ADDRESSED・新しい Critical / Important なし。
 
-- **R64** 本物のブラウザでは箱の外寸が 178 px で、溢れたとき「ほか N 件」と読めなかった書庫の行が箱の外に切られて見えなかった（jsdom は折り返しも `box-sizing` も知らないので全緑だった）→ `border-box` と 1 行化
-- **R65** 実寸を主張する画面の Scenario 18 本が jsdom の宣言値だけ → `web/e2e/archive-layout.spec.ts`（上の節）
-- **R67** 置き場と写しの既定が作業ディレクトリからの相対で、別の場所から起動し直すと印を置いた後の読み直しが永久に止まった
-- **R68** `archive-shape.sh` はこの機械では `psql: command not found` で止まり、smoke だけが差し替えて緑だった
+- **R72** 印付けを台帳の `read` の後に置いていたので、一時的に落ちると次の走査で読み直されず、消した場面の位置が生きたまま残った → 印付けを台帳の前へ
+- **R73** 消すときの連鎖と印付けが、利用者の位置の全期間を助言ロックを握ったまま走査した → 基準・点のソースは索引の上下限で絞る
+- **R79** 書庫の位置のソースの並びから件数の大半を占める 2 本を外しても全試験が緑だった → spec の 7 本のリテラルで固定し、経路の点・`Records.json` の点・後着の印の戻しを試験の材料に
+- **R80** 印付けが落ち続けると、書庫を走査のたびに丸ごと読み直し続け、台帳にも画面にも出なかった → 格納の失敗として数える（D22-a（仮））
+- **R81** マイアクティビティの位置 → escalated（冒頭の Q14）
+- それ以前: R64（箱の外寸 178 px）・R65（実寸の Scenario を本物のブラウザへ）・R67（置き場の既定が相対パス）・R68（`archive-shape.sh` の `psql`）
 
 ## 申し送り
 
@@ -72,28 +80,28 @@ final review（R47〜R63）と code-verify 3 回。このターンは code-verif
 - **st22-record-deletion R6** —— 第 4 回 Q13 として人間に返し、**「印を付けて入れる」の答えで Task 15 / design D22 として受けた**（冒頭）
 - **st25-day-timeline R3** —— タイムラインの論理ソースの名前が design（`c03-timeline-activity` / `-path`）と実装（`c03-timeline-move` / `-route`）で違う。**未処置**。宛先の指定どおり ST12 の merge 後の `fix/` で design を実装に揃える（ST25 は実装の名前で作っている）
 
-## 通した検証（code-verify 第 3 回の処置のターン。Task 15 を足す前の HEAD で）
+## 通した検証
 
-Task 15 を足した後は、新しい Scenario 5 本の印がまだ無いので `check_scenarios.py` は Task 15 の実装まで落ちる。`openspec validate --strict` と `check_chain.py` は足した後も rc=0。
+`verify-run` の記録（`evidence.jsonl`）の最後の PASS（Task 15 の head `48e6ab3`）:
 
-`evidence.jsonl` はこの change に無い（`verify-run` の記録を持たない時期の Story）ので、手で走らせた結果を書く。
+| 項目 | コマンド | 結果 |
+|---|---|---|
+| 14.1 | `cargo test -p ashiato-server archive_erased_window`（`test result: ok. [1-9]` を確かめる） | PASS |
+| 14.2 | `cargo test -p ashiato-server archive_erased_cascade`（同上） | PASS |
+| 14.3 | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` | PASS |
+| 14.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion` | PASS |
+
+その後の fix wave（final review 第 2 回 d1035a8・code-verify 第 4 回 5ce3a7d）で手で走らせたもの:
 
 | コマンド | rc |
 |---|---|
-| `cargo fmt --all --check` | 0 |
-| `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
-| `cargo test --workspace` | 0（server 508 passed） |
-| `cd web && npx vitest run` | 0（195 passed） |
-| `cd web && npm run lint && npm run build` | 0 |
-| `cd web && npx playwright test` | 0（28 passed。うち 1 本は D20 の expected-fail） |
-| `tools/smoke.sh` | 0（9b は `psql` の無いこの機械で道具の回り道を通った） |
-| `tools/check-immutable.sh` / `check-migrations.sh` / `check-openapi.sh` / `check-boundaries.sh` / `check-licenses.sh` / `check-private.sh` | 0 |
-| `python3 scripts/check_scenarios.py . st12-archive-ingestion` | 0 |
-| `python3 scripts/check_chain.py .` / `openspec validate st12-archive-ingestion --strict` | 0 |
-| `python3 tools/st12_delta_diff.py` | 0 |
-| 11.4（`tools/seed.sh normal` → `curl … "http://${BIND:-127.0.0.1:18787}/archives/status" \| jq -e '.latest_archive.outcome=="read"'`） | 0 |
+| `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`（5ce3a7d） | 0（server 521 passed） |
+| `python3 scripts/check_scenarios.py . st12-archive-ingestion`（5ce3a7d） | 0 |
+| `tools/smoke.sh`（code-verify 第 4 回、3739245） | 0 |
+| `openspec validate st12-archive-ingestion --strict`（code-verify 第 4 回） | 0 |
 | `python3 scripts/review_triage.py . st12-archive-ingestion` | 0 |
 
-変異で確かめた: マイアクティビティの名前のハッシュの入力を変える / 登録の 60 日を 30 日にする → それぞれ新しい試験が落ちる。
+変異で確かめた: `LOCATION_SOURCES` から `c03-timeline-route` を外す → 7 本落ちる / `c03-legacy-location` → 3 本 / 印付けの失敗を数えない → R80 の試験が落ちる / 端が触れる重なりを外す → 6 本 / 移行前の区間の 1 ms の余白を外す → 1 本。
+web（vitest 195・playwright 28（うち 1 本は D20 の expected-fail）・lint・build）と `tools/check-*.sh` は code-verify 第 3 回の処置のターンで rc=0。その後、画面・移行・API の形は触っていない。
 
 既知の不安定（ST12 の外）: `drops_tests::drops_api_idempotent` が 4 回に 1 回 `40P01 deadlock detected` で落ちる（code-verify 第 3 回の実測）。

@@ -972,6 +972,7 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 - 影響: 経路の点は 1 本の移動に何十もの点を持ち、移行前の点は deep の見積もりで 8 年 約 117 万行と、書庫の位置の件数の大半を占める。並びを書き換える変更（ソースの改名・並びの整理）でこの 2 本が抜けても試験は止めず、消した場面の位置が書庫から生きた記録として入る（第 4 回 Q13 の loss: exported）。
 - kind: technical
 - 提案: `LOCATION_SOURCES` を spec の 7 本の文字列のリテラルと `assert_eq!` で比べる試験を置く。あわせて D22 の試験の材料に `timelinePath` の点と `Records.json` の点を足し（上の probe の形）、消した後に置いた書庫の位置を `deletion::restore` で戻す場合（`user:late`）も試験で固定する。
+- 処置: fixed D22 — `location_sources_are_the_seven_named_by_the_spec`（spec の 7 本のリテラルと比べる）、`ERASE_TIMELINE` に `timelinePath` の点（中・外）を足し、`archive_erased_late_marks_on_route_and_records_points_are_restored`（後着の印 `user:late` を `deletion::restore` で戻す）/ `archive_erased_cascade_marks_and_restores_records_points`。変異: `c03-timeline-route` を外すと 7 本、`c03-legacy-location` を外すと 3 本落ちる（5ce3a7d）
 
 ## R80. 書庫の位置への印付けが落ち続けると、書庫は走査のたびに丸ごと読み直され続け、台帳にも画面にも何も出ない（箱は「書庫が置かれていない」と出す）
 - 成果物: `crates/server/src/archive/worker.rs:2093-2108`（`mark_archive_arrivals` が失敗したら `warn` を出して `return`。台帳も `record_store_failure` も書かない）/ `:128-163`（`record_store_failure`。3 回続いたら `store_failed` を 1 行書き、1 時間に 1 回へ落とす仕組みは格納の失敗にしか効かない）/ spec `external-ingestion`「格納に続けて失敗した書庫は台帳と画面に出る」
@@ -985,6 +986,7 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 - 影響: 本番の間隔は 120 秒なので、移行前のロケーション履歴（約 1 GB）のような書庫だと 2 分ごとに全件を読み直し続ける。そのあいだ消した場面の位置は生きた記録のまま読み出せ、本人には「置いていない」と見えるので気づけない。専用のフォルダの書庫は取り込み済みへ移らないまま残る。
 - kind: technical
 - 提案: 印付けの失敗も `record_store_failure` に数え、3 回続いたら `store_failed`（か印付けの失敗と分かる outcome）を台帳に 1 行書いて箱に出し、1 時間に 1 回へ落とす。試験は `LateMarkFault` を外さずに置いたまま、走査を 4 回以上回して台帳の行と `/archives/status` の `latest_archive.outcome` を見る。
+- 処置: fixed D22 仮 — D22-a。置き場の書庫の印付けの失敗を `record_store_failure` に数え、3 回で `store_failed` を台帳に 1 行・以後 1 時間に 1 回（outcome は流用。反転条件は D22-a）。`archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled`（fault を外さず走査 4 回以上）。写しからの読み直し（`reread_archive`）は数えない —— 下の re-review の Minor として park（5ce3a7d）
 
 ## R81. マイアクティビティの項目が位置（`locationInfos`）を持っていれば、消した滞在の時間帯でも座標を原文に持ったまま生きて入る。Q13 の「書庫が位置を入れるのは 7 本」はマイアクティビティの原文を確かめていない
 - 成果物: `openspec/changes/st12-archive-ingestion/deep.md:313-315`（Q13 の「事実」: 書庫が位置を入れるのは `c03-timeline-*` と `c03-legacy-*` の 7 本）/ spec `external-ingestion` の Q13 の Requirement / `crates/server/src/archive/mod.rs:19`（`LOCATION_SOURCES`）/ `crates/server/src/archive/worker.rs:728-743`（マイアクティビティの payload は `product` / `title` / `url` / `details` だけを持ち、原文はそのまま残す）
@@ -1008,3 +1010,6 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 - **手 5（tasks の `[x]` と実体）**: 14.1〜14.3 の検証はすべて実在し rc=0（`CT` は 4 本・2 本、`-- --list` で数えた `archive_erased` は 7 本）。12.4 / 12.5 も rc=0。第 3 回で見た 0.1〜12.5 は、その後にコードが触っていない範囲なので繰り返していない。
 - **手 6（隙間）**: 「捨てたもの・外へ出たものは戻らない」型は 2 件: R80（印付けが落ち続けると消した場面の位置が生きたまま、画面は「置いていない」）と R81（位置を持つマイアクティビティの項目が印の対象の外。前提は実物で未確認）。
   確かめて隙間でなかったもの: (1) 格納の途中で落ちた書庫を読み直すとき、前回に入った行は `Duplicate` になるが、`stored_requests` は結果を問わず全要求を持つので範囲に入り印が付く（`worker.rs:2059`）。(2) 消すときと書庫の印付けは同じ利用者の助言の錠（`LOCK_KEY`）を取るので、格納の commit が消す transaction の途中に挟まっても、印付けは消す側の commit を待ってから見る。(3) 戻した日の作り直しは、戻した滞在の最後の台帳の行が `restore` なので書庫の位置に印を付け直さない。
+
+## scoped re-review（fef41a8..5ce3a7d）: R79・R80 とも ADDRESSED。新しい Critical / Important なし（R81 は escalated で対象外）
+- Minor（park）: 写しからの読み直し（`reread_archive` / `reparse_older_versions`）で印付けが落ち続けると、毎周 写しを読み直し続け、台帳にも画面にも出ない（R80 と同型。入力は手元の写しで、版を上げたときの経路に限る。D22-a に記録済み。ledger に ruling）
