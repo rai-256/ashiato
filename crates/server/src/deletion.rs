@@ -273,8 +273,11 @@ async fn erase_using_action(
     // 基準のソース ∪ 書庫の位置の論理ソース（design D22）。滞在の判定の入力は変えない。
     let sources = stay_store::with_archive_sources(&sources);
     // 点で見るソースと区間で見るソースに分け、点の側は始まりの時刻の上下限で索引を効かせる（R73）。
-    let (points, intervals) = stay_store::split_by_span(&sources);
+    let (mut points, intervals) = stay_store::split_by_span(&sources);
+    // 位置を持つマイアクティビティの項目も連鎖の対象（design D22-b。持たない項目は `located` で外れる）
+    points.extend(stay_store::myactivity_sources(&mut *tx).await?);
     let overlaps = stay_store::overlaps_erased_sql("core.event", "$2", "$5", "$3", "$4");
+    let located = stay_store::myactivity_located_sql("core.event");
     let stay_changed: Vec<(uuid::Uuid, String)> = sqlx::query_as(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user'
           WHERE id = $1 AND deleted_at IS NULL
@@ -285,7 +288,7 @@ async fn erase_using_action(
     .await?;
     let locations: Vec<(uuid::Uuid, String)> = sqlx::query_as(&format!(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:cascade'
-          WHERE user_id = $1 AND {overlaps} AND deleted_at IS NULL
+          WHERE user_id = $1 AND {overlaps} AND {located} AND deleted_at IS NULL
           RETURNING id, logical_source",
     ))
     .bind(row.user_id)
@@ -300,10 +303,11 @@ async fn erase_using_action(
     // A を戻したとき、重なる B の消去まで戻さないために必要な因果関係である。
     // 新たに消した行はまだ台帳に載せていないため、この検索には含まれない。
     let overlaps_e = stay_store::overlaps_erased_sql("e", "$2", "$5", "$3", "$4");
+    let located_e = stay_store::myactivity_located_sql("e");
     let already_deleted: Vec<ActiveDeletionRow> = sqlx::query_as(&format!(
         "SELECT e.id AS event_id, e.logical_source, e.deleted_by AS mark
            FROM core.event e
-          WHERE e.user_id = $1 AND {overlaps_e}
+          WHERE e.user_id = $1 AND {overlaps_e} AND {located_e}
             AND e.deleted_at IS NOT NULL
             AND EXISTS (
               SELECT 1 FROM core.deletion_ledger d

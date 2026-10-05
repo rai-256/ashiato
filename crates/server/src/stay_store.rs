@@ -662,6 +662,42 @@ pub(crate) fn overlaps_erased_sql(
     )
 }
 
+/// マイアクティビティの論理ソースの前置き（`archive::myactivity::source_name`）。
+const MYACTIVITY_PREFIX: &str = "c03-myactivity-";
+
+/// 登録済みのマイアクティビティの論理ソース（製品ごとに 1 本。design D22-b）。
+pub(crate) async fn myactivity_sources(
+    executor: impl sqlx::PgExecutor<'_>,
+) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar("SELECT logical_source FROM core.source WHERE logical_source LIKE $1")
+        .bind(format!("{MYACTIVITY_PREFIX}%"))
+        .fetch_all(executor)
+        .await
+}
+
+/// 原文の項目が位置（`locationInfos`）を空でない配列で持つか（design D22-b / 第 5 回 Q14）。
+pub(crate) fn carries_location(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|item| item.get("locationInfos")?.as_array().map(|a| !a.is_empty()))
+        .unwrap_or(false)
+}
+
+/// マイアクティビティの行は、原文に位置を持つものだけを通す SQL の条件（他のソースは常に通す）。
+/// `raw` は text なので、JSON として読めるときだけ中を見る（入れ子の CASE で評価の順を固定する）。
+pub(crate) fn myactivity_located_sql(alias: &str) -> String {
+    format!(
+        "(CASE WHEN {a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
+               THEN CASE WHEN pg_input_is_valid({a}.raw, 'jsonb')
+                         THEN CASE WHEN jsonb_typeof({a}.raw::jsonb->'locationInfos') = 'array'
+                                   THEN jsonb_array_length({a}.raw::jsonb->'locationInfos') > 0
+                                   ELSE false END
+                         ELSE false END
+               ELSE true END)",
+        a = alias
+    )
+}
+
 /// 消す側の論理ソースの集合を、点で見るもの（基準のソースと点のソース）と区間で見るもの
 /// （`archive::INTERVAL_SOURCES`）に分ける（`overlaps_erased_sql` の 2 つの束縛）。
 pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
@@ -684,7 +720,10 @@ pub async fn mark_archive_arrivals(
 ) -> sqlx::Result<()> {
     let Some((first, last)) = stored
         .iter()
-        .filter(|r| crate::archive::LOCATION_SOURCES.contains(&r.logical_source.as_str()))
+        .filter(|r| {
+            crate::archive::LOCATION_SOURCES.contains(&r.logical_source.as_str())
+                || (r.logical_source.starts_with(MYACTIVITY_PREFIX) && carries_location(&r.raw))
+        })
         .map(|r| r.event_time)
         .fold(None, |span: Option<(DateTime<Utc>, DateTime<Utc>)>, t| {
             Some(span.map_or((t, t), |(lo, hi)| (lo.min(t), hi.max(t))))
@@ -717,6 +756,9 @@ async fn mark_late_arrivals(
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
 ) -> sqlx::Result<()> {
+    // 位置を持つマイアクティビティの項目も同じ印の対象（design D22-b。位置を持たない項目は下の条件で外れる）
+    let mut sources = sources.to_vec();
+    sources.extend(myactivity_sources(&mut **tx).await?);
     let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
         "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
            FROM core.event e
@@ -741,11 +783,13 @@ async fn mark_late_arrivals(
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
             AND e.deleted_at IS NULL
+            AND {located}
           ORDER BY e.id, s.event_time, s.id",
-        end = event_end_sql("e")
+        end = event_end_sql("e"),
+        located = myactivity_located_sql("e")
     ))
     .bind(user)
-    .bind(sources)
+    .bind(&sources)
     .bind(from)
     .bind(to)
     .bind(stay::SOURCE)

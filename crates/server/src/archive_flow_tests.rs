@@ -3203,3 +3203,147 @@ async fn archive_marking_skips_an_archive_without_locations() {
     assert!(waited.is_err(), "位置を入れた書庫の印付けが錠を待たない");
     held.rollback().await.unwrap();
 }
+
+/// 位置（`locationInfos`）を持つ項目と持たない項目を 1 件ずつ含む合成のマイアクティビティ。
+/// どちらも消した滞在（03:00Z〜04:00Z）の中の時刻（第 5 回 Q14）。
+const LOCATED_MYACTIVITY: &str = r#"[
+  {"header":"検索","title":"位置あり","titleUrl":"https://www.google.com/search?q=a","time":"2026-09-12T03:30:00Z","products":["検索"],
+   "locationInfos":[{"name":"この付近","url":"https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12","source":"もとの場所"}]},
+  {"header":"検索","title":"位置なし","titleUrl":"https://www.google.com/search?q=b","time":"2026-09-12T03:40:00Z","products":["検索"]}
+ ]"#;
+
+impl Inbox {
+    /// 合成のマイアクティビティ（`LOCATED_MYACTIVITY`）の 2 行の (題名, 印)。題名の順。
+    async fn myactivity_marks(&self) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT payload->>'title', deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source LIKE 'c03-myactivity-%'
+              ORDER BY payload->>'title'",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn myactivity_ledger_rows(&self, cause: uuid::Uuid, mark: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.deletion_ledger
+              WHERE user_id = $1 AND cause_event_id = $2 AND action = 'erase' AND mark = $3
+                AND logical_source LIKE 'c03-myactivity-%'",
+        )
+        .bind(self.user)
+        .bind(cause)
+        .bind(mark)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// `LOCATED_MYACTIVITY` を取り込み器を介さずに格納する（形の確認の印は不要）。
+    async fn store_myactivity(&self) -> Vec<crate::IngestRequest> {
+        let requests = crate::archive::worker::requests_for_file(
+            crate::archive::classify::KnownKind::MyActivity,
+            "Takeout/My Activity/検索/活動.json",
+            LOCATED_MYACTIVITY.as_bytes(),
+            self.user,
+            format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+        )
+        .unwrap();
+        for request in &requests {
+            crate::archive::worker::ensure_myactivity_source(
+                &self.pool,
+                &request.logical_source,
+                "検索",
+            )
+            .await
+            .unwrap();
+        }
+        let sink = crate::PgSink::new(self.pool.clone());
+        crate::archive::worker::store_requests(&sink, requests.clone())
+            .await
+            .unwrap();
+        requests
+    }
+}
+
+// Scenario: 消した滞在の時間帯の位置を持つマイアクティビティの項目は削除済みになる
+// Scenario: 位置を持たないマイアクティビティの項目は消した時間帯でも生きた記録として入る
+#[tokio::test]
+async fn archive_erased_myactivity_window() {
+    let inbox = Inbox::new("archive-erased-myactivity-window").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    // 形の確認の印を置いて、書庫を取り込み器へ置く
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::MyActivity,
+            LOCATED_MYACTIVITY.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(
+            "Takeout/My Activity/検索/活動.json",
+            LOCATED_MYACTIVITY.as_bytes(),
+        )],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "位置を持つ項目に後着の印が付かない",
+            || async {
+                inbox.myactivity_marks().await
+                    == vec![
+                        ("位置あり".to_owned(), Some("user:late".to_owned())),
+                        ("位置なし".to_owned(), None),
+                    ]
+            },
+        )
+        .await;
+    assert_eq!(inbox.myactivity_ledger_rows(stay, "user:late").await, 1);
+    let raw: String = sqlx::query_scalar(
+        "SELECT raw FROM core.event
+          WHERE user_id = $1 AND logical_source LIKE 'c03-myactivity-%' AND payload->>'title' = '位置あり'",
+    )
+    .bind(inbox.user)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert!(raw.contains("locationInfos"), "原文から欄を外している");
+}
+
+// Scenario: 滞在を消すとその時間帯の位置を持つマイアクティビティの項目も削除済みになる
+// Scenario: 滞在の削除を戻すと位置を持つマイアクティビティの項目も戻る
+#[tokio::test]
+async fn archive_erased_myactivity_cascade() {
+    let inbox = Inbox::new("archive-erased-myactivity-cascade").await;
+    inbox.store_myactivity().await;
+    assert_eq!(
+        inbox.myactivity_marks().await,
+        vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)]
+    );
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.myactivity_marks().await,
+        vec![
+            ("位置あり".to_owned(), Some("user:cascade".to_owned())),
+            ("位置なし".to_owned(), None)
+        ]
+    );
+    assert_eq!(inbox.myactivity_ledger_rows(stay, "user:cascade").await, 1);
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 1);
+    assert_eq!(
+        inbox.myactivity_marks().await,
+        vec![("位置あり".to_owned(), None), ("位置なし".to_owned(), None)]
+    );
+}
