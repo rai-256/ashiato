@@ -3055,6 +3055,32 @@ mod tests {
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
+    /// URL で除外した訪問が URL の行を失っても、URL 無しの訪問として送られない（除外を引き継ぐ。D11 / deep.md 第 4 回 Q8）。
+    #[test]
+    fn history_exclusion_survives_lost_url_row() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/2"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "伏せた")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(history_urls_of_kind(&first, "visit").len(), 1);
+        {
+            let mut visits = reader.visits.lock().unwrap();
+            visits[1].url = None;
+            visits[1].title = None;
+        }
+        let second = fetch_twice_from_second(&cfg, &reader);
+        assert!(
+            history_records(&second)
+                .iter()
+                .all(|r| r["payload"]["visit_id"] != 2),
+            "除外した訪問が URL を失って送られた"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
     /// 前回の成功を 1 日前に置いて、同じ状態の置き場でもう 1 回取得する。
     fn fetch_twice_from_second(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
         write_last_success(cfg, t(0) - Duration::hours(24));
