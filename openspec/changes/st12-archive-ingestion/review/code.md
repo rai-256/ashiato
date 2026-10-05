@@ -1028,43 +1028,62 @@ ledger の仕分け: parked 9 件のうち 8 件は park のまま（理由は�
 - 影響: この経路で印付けが落ち続けると、`pending_shape` が残ったまま、120 秒ごとに写しを全件読み直して格納し直すことになる。台帳にも `/archives/status` にも何も出ない。そのあいだ、消した時間帯の位置を持つマイアクティビティの項目は、生きた記録として読み出せる（Q14 の loss: exported。R80 と同じ型）。
 - kind: technical
 - 提案: 読み直しの経路でも、書庫の sha ごとに印付けの失敗を数える。3 回続いたら `store_failed` を台帳に 1 行書き、以後は 1 時間に 1 回へ落とす（R80 / D22-a と同じ扱い）。試験は fault を入れたまま印を置き、4 周以上回して台帳と `/archives/status` を見る。
+- 処置: fixed D22 仮 — D22-a を読み直しの経路へ広げた。新しい移行 `202610051730_archive_reread_failure`（書き換えてよい観測表 `core.archive_reread_failure`、鍵は書庫の sha。`archive_sighting` は置き場のパスが鍵で、確認待ちの書庫には行が無いので使えない）。`reread_archive` の格納と印付けの失敗を数え、3 回で `store_failed` を台帳に 1 行・以後 1 時間に 1 回。`ingest_confirmed_pending` / `reparse_older_versions` の両方が待ちを見る。`archive_erased_pending_reread_persistent_marking_failure_is_ledgered_and_throttled`（直す前に落ちるのを確認）。code-verify 第 4 回 re-review Minor 1 の park はこれで閉じた。移行は 3 本になり、tasks.md の前置き「移行は 1 本だけ」（凍結）とは食い違う —— D14 に本人の決定は無く（——）、2 本目は第 3 回の処置で既に足していた（9119e7a）
 
 ## R83. `mark_archive_arrivals` の doc が D22-b の後の挙動と食い違う（Task 16 F1）
 - 成果物: `crates/server/src/stay_store.rs:714`（「位置を 1 件も入れなかった書庫では何もしない（YouTube・マイアクティビティだけの書庫。R78）」）
+- 根拠: 3482251 の `stay_store.rs:714` の doc の文言と、同じ関数の D22-b の分岐（`locationInfos` を持つ項目があれば錠を取って印を付ける。Task 16 F1）を読み比べた
 - 影響: いまは `locationInfos` を持つマイアクティビティだけの書庫でも、錠を取って印を付ける。読んだ人が R78 の条件を取り違える。
 - kind: technical
 - 提案: 「位置を持たない項目だけの書庫」に直す。`mark_late_arrivals` の doc にも D22-b の対象を一言足す。
+- 処置: fixed D22 — `mark_archive_arrivals` / `mark_late_arrivals` の doc（9119e7a）
 
 ## R84. D22 / D22-b の試験は、形を先に確認した経路だけを通っている（現実の最初の 1 冊の順が無い）
 - 成果物: `crates/server/src/archive_flow_tests.rs:3273-3281`（`archive_erased_myactivity_window` は `confirm` を `put` より前に呼ぶ）
+- 根拠: `archive_flow_tests.rs:3273-3281` で `archive_erased_myactivity_window` は `confirm` を `put` より前に呼ぶ。`ingest_confirmed_pending` を通る D22 / D22-b の試験は 3482251 に無い
 - 影響: 「置く → 確認待ち → confirm → `ingest_confirmed_pending`」の順で、消した時間帯に印が付くことを固定した試験が無い。
 - kind: technical
 - 提案: R82 の試験と兼ねて、確認待ちを経た順で印が付く試験を足す。
+- 処置: fixed D22 — `archive_erased_myactivity_window_after_confirming_a_pending_archive`（確認待ちを経た順。直す前から緑 = 隙間の補填）（9119e7a）
 
 ## R85. `myactivity_located_sql` は 1 行につき原文を最大 3 回 jsonb として読み、助言ロックを握ったまま広い範囲を評価しうる
 - 成果物: `crates/server/src/stay_store.rs:688-699`
+- 根拠: `stay_store.rs:688-699` の SQL は `pg_input_is_valid(raw,'jsonb')`・`raw::jsonb->'locationInfos'` を 2 回と、1 行につき 3 回解析する式を持つ（実測はしていない）
 - 影響: 全期間の Takeout では、範囲に含まれる全マイアクティビティ行に jsonb の解析が掛かりうる。ただし実測はしていない。
 - kind: technical
 - 提案: `raw LIKE '%"locationInfos"%'` を安い前置きの条件として置く、または `raw::jsonb` を 1 回だけ取る形にする。
+- 処置: fixed D22 — `myactivity_located_sql` と `carries_location` の両方に `"locationInfos"` の文字列の前置きを置いた（`\u` でエスケープした欄名は偽。Takeout は書かない形で、R86 の試験に入れた）（9119e7a）
 
 ## R86. `carries_location`（Rust）と `myactivity_located_sql`（SQL）の一致を固定する試験が無い（Task 16 F2）
 - 成果物: `crates/server/src/stay_store.rs:266-286` / `:688-699`
+- 根拠: `stay_store.rs:266-286`（`carries_location`）と `:688-699`（`myactivity_located_sql`）が同じ判定を別々に持ち、両者を同じ入力で比べる試験は 3482251 に無い（Task 16 F2）。実際の入力で一致することは reviewer が DB で確かめた
 - 影響: 実際の入力では一致する（reviewer が DB で確かめた）。ただし片方だけを直すと、範囲と印付けが黙ってずれる。
 - kind: technical
 - 提案: `[]` / `null` / 配列でない値 / 最上位が配列 の 4 つについて、両者がどちらも false になる試験を置く。
+- 処置: fixed D22 — `archive_myactivity_location_rust_and_sql_agree`（12 入力で Rust と SQL を期待値と比べる）（9119e7a）
 
 ## R87. 2 つの消去が重なるときの `already_deleted` + `located_e` の経路に試験が無い（Task 16 F3）
 - 成果物: `crates/server/src/deletion.rs:221-226`
+- 根拠: `deletion.rs:221-226` の `already_deleted` に `located_e` を足した経路を、重なる 2 つの消去で通す試験は 3482251 に無い（Task 16 F3）
 - 影響: 重なる 2 つの滞在を消して片方だけ戻したとき、位置を持つ項目が隠れたままになることが担保されていない。
 - kind: technical
 - 提案: 重なる 2 つの滞在を消し、片方だけを戻して、項目が隠れたままであることを見る試験を足す。
+- 処置: fixed D22 — `archive_erased_myactivity_overlapping_erasures_restore_one_keeps_it_hidden`（`already_deleted` からマイアクティビティを外すと落ちる）（9119e7a）
 
 ## R88. design.md の D14「移行は 1 本」と Migration Plan が、2 本目の移行と食い違う
 - 成果物: `openspec/changes/st12-archive-ingestion/design.md:42` / `:491`（実際は `202609181600_archive_ingestion` と `202610042315_archive_pending_file` の 2 本）
+- 根拠: `design.md:42`（「移行は 1 本」）/ `:491`（「移行 1 本（D14）」）と、`migrations/` の `202609181600_archive_ingestion` と `202610042315_archive_pending_file` の 2 本を突き合わせた
 - kind: technical
 - 提案: D14 と Migration Plan を 2 本に直す。
+- 処置: fixed D14 — D14 の行・見出し・本文と Migration Plan を 3 本と戻す順に（05d6d6d）
 
 ## R89. 印付けの失敗も `consecutive_failures` に数えるようになり、数を戻す経路が無い件の届く範囲が広がった
 - 成果物: `crates/server/src/archive/scan.rs:84-90`（UPSERT は数を戻さない）/ `docs/handoff/ST13.md:65`（R37〜R46 の M7 として申し送り済み）
+- 根拠: R80 の処置で `record_store_failure` に印付けの失敗が入った。`scan.rs:84-90` の UPSERT は `consecutive_failures` を戻さない
 - 影響: ダウンロードのフォルダで、同じパスに中身の違う書庫を置き直すと、前の書庫の回数と `retry_after` を引き継ぐ。
 - kind: technical
+- 処置: deferred ST13 — `docs/handoff/ST13.md` の M7 に R89 として届く範囲の広がりを書き足した（ST13 は `tasks.md` をまだ持たない。R63 と同じ扱い）
+
+## scoped re-review（c05a039..05d6d6d）: R82〜R88 すべて ADDRESSED。新しい Critical / Important なし（R89 は deferred で対象外）
+- 3 本目の移行は許容（書き換えてよい観測表を 1 つ足すだけで、追記のみの表に触らない。`.down.sql` と `MIGRATIONS` 21→22。tasks.md の前置きは凍結された上流の文面）
+- 全体の試験: `scripts/quiet-run final -- … cargo test --workspace` rc=0（server lib 532 passed ほか、failed 0）
