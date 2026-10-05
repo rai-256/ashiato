@@ -593,7 +593,7 @@ mod tests {
             id: 1,
             visit_time_raw: 1,
             at: at(),
-            url: "https://example.test/a".into(),
+            url: Some("https://example.test/a".into()),
             title: Some("題名".into()),
             transition: 0,
             from_visit: None,

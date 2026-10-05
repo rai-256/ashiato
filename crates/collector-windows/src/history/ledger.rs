@@ -14,6 +14,10 @@ pub struct LedgerVisit {
     pub at: DateTime<Utc>,
     pub foreign: bool,
     pub excluded: bool,
+    /// URL を除いた訪問の組のハッシュ（`fetch::slot`）。URL の行を失って識別子が変わった訪問を、
+    /// 「消えた」にしないための照合に使う（deep.md 第 4 回 Q8）。前の版の帳面には無い
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<String>,
 }
 
 /// プロファイル単位で永続化する比較状態。
@@ -21,6 +25,9 @@ pub struct LedgerVisit {
 pub struct Ledger {
     pub visits: BTreeMap<String, LedgerVisit>,
     pub max_visit_id: Option<i64>,
+    /// 前回読んだ Chromium の `sqlite_sequence` の `visits` の値（design D10）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visit_sequence: Option<i64>,
     /// ディレクトリ名と、前回送った表示名の対応。表示名を訪問へ複写しない。
     pub profile_names: BTreeMap<String, Option<String>>,
 }
@@ -41,6 +48,7 @@ impl Ledger {
                 at,
                 foreign,
                 excluded,
+                slot: None,
             },
         );
     }
@@ -55,14 +63,18 @@ impl Ledger {
 pub struct LedgerStore {
     path: std::path::PathBuf,
     ledger: Ledger,
+    /// 開いたときに壊れていて退避したか（呼び出し側が種別だけをログに出す）
+    quarantined: bool,
 }
 
 impl LedgerStore {
     pub fn open(path: std::path::PathBuf) -> anyhow::Result<Self> {
+        let mut quarantined = false;
         let ledger = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(ledger) => ledger,
                 Err(_) => {
+                    quarantined = true;
                     let quarantine = path.with_extension("broken.ledger");
                     std::fs::rename(&path, &quarantine).with_context(|| {
                         format!("壊れた履歴帳面を退避できない: {}", path.display())
@@ -73,7 +85,16 @@ impl LedgerStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ledger::default(),
             Err(error) => return Err(error).context("履歴帳面を読めない"),
         };
-        Ok(Self { path, ledger })
+        Ok(Self {
+            path,
+            ledger,
+            quarantined,
+        })
+    }
+
+    /// 開いたときに壊れた帳面を退避したか。
+    pub fn quarantined(&self) -> bool {
+        self.quarantined
     }
 
     pub fn ledger(&self) -> &Ledger {
@@ -123,6 +144,8 @@ mod tests {
         std::fs::write(&path, b"{broken").unwrap();
         let ledger = LedgerStore::open(path.clone()).unwrap();
         assert!(ledger.ledger().visits.is_empty());
+        assert!(ledger.quarantined(), "退避したことを呼び出し側へ返さない");
+        assert!(!LedgerStore::open(path.clone()).unwrap().quarantined());
         assert!(!path.exists());
         assert_eq!(
             std::fs::read(path.with_extension("broken.ledger")).unwrap(),

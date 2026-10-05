@@ -8,12 +8,19 @@ use crate::history::ledger::{Ledger, LedgerStore};
 
 pub const HISTORY_INTERVAL: chrono::Duration = chrono::Duration::hours(24);
 pub const HISTORY_RETRY_INTERVAL: chrono::Duration = chrono::Duration::minutes(1);
+/// 続けて失敗したときの試し直しの間隔の上限（design D3（仮））。24 時間の契機より短く保つ
+pub const HISTORY_RETRY_INTERVAL_MAX: chrono::Duration = chrono::Duration::hours(1);
 
 /// 履歴取得の契機。成功だけが24時間の基準を進め、失敗は1分後に再試行する。
+/// 続けて失敗するたびに間隔を倍にし、1 時間で止める（design D3（仮）。R59 —— 読めないプロファイルが
+/// 1 つ残り続けると、全プロファイルの写しと全件読みが 1 日 1,440 回走る）。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct HistorySchedule {
     last_success: Option<chrono::DateTime<chrono::Utc>>,
     retry_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// 前回の成功から続けて失敗した回数
+    #[serde(default)]
+    failures: u32,
 }
 
 /// 時間のかかる DB 読取りを見回りのスレッドから切り離す受け皿。
@@ -51,20 +58,24 @@ pub struct VanishedVisit {
 }
 
 /// 今回読めた識別子に無い、送信済み（除外以外）の訪問を消失として返す。
+///
+/// 表の作り直しは、最大の訪問番号が前回より小さいか、Chromium の `sqlite_sequence` の値が前回より小さいときに印を付ける
+/// （design D10。最大の番号が下がらない作り直しは `sqlite_sequence` でだけ分かる）。
 pub fn detect_vanished(
     ledger: &Ledger,
     seen: &[String],
     now: chrono::DateTime<chrono::Utc>,
     max_visit_id: Option<i64>,
+    sequence: Option<i64>,
     profile_gone: bool,
 ) -> Vec<VanishedVisit> {
     let seen: std::collections::BTreeSet<_> = seen.iter().collect();
+    let dropped = |before: Option<i64>, now: Option<i64>| {
+        before.zip(now).is_some_and(|(before, now)| now < before)
+    };
     // 最大の番号が無い（全件が消えた）のは作り直しの印ではない。ディレクトリごと無いときも表の話ではない
     let table_recreated = !profile_gone
-        && ledger
-            .max_visit_id
-            .zip(max_visit_id)
-            .is_some_and(|(before, now)| now < before);
+        && (dropped(ledger.max_visit_id, max_visit_id) || dropped(ledger.visit_sequence, sequence));
     ledger
         .visits
         .iter()
@@ -85,13 +96,61 @@ pub fn detect_vanished_if_readable(
     seen: &[String],
     now: chrono::DateTime<chrono::Utc>,
     max_visit_id: Option<i64>,
+    sequence: Option<i64>,
     profile_gone: bool,
     readable: bool,
 ) -> Vec<VanishedVisit> {
     if readable {
-        detect_vanished(ledger, seen, now, max_visit_id, profile_gone)
+        detect_vanished(ledger, seen, now, max_visit_id, sequence, profile_gone)
     } else {
         Vec::new()
+    }
+}
+
+/// URL を除いた訪問の組（family・browser・profile_dir・番号・訪問時刻）のハッシュ。
+///
+/// 識別子（design D6）は URL を組に含むので、URL の行を失った訪問は別の識別子になる。同じ組の訪問が
+/// 今回の読みにあれば、前の識別子の訪問は「消えた」ではない（deep.md 第 4 回 Q8）。
+pub fn slot(visit: &Visit) -> String {
+    let p = &visit.payload;
+    let parts = [
+        p.family.to_owned(),
+        p.browser.to_owned(),
+        p.profile_dir.clone().unwrap_or_default(),
+        p.visit_id.map(|v| v.to_string()).unwrap_or_default(),
+        p.visit_time_raw.map(|v| v.to_string()).unwrap_or_default(),
+    ];
+    format!("{:x}", Sha256::digest(parts.join("\x1f").as_bytes()))
+}
+
+/// 今回の読みに「まだある」識別子。読んだ訪問の識別子と、帳面にあって**同じ組の訪問が今回の読みにある**識別子
+/// （URL の行を失って識別子が変わった訪問。deep.md 第 4 回 Q8 —— 「消えた」とは記録しない）。
+pub fn still_present(ledger: &Ledger, visits: &[Visit]) -> Vec<String> {
+    let slots: std::collections::BTreeSet<String> = visits.iter().map(slot).collect();
+    visits
+        .iter()
+        .map(|v| v.external_id.clone())
+        .chain(
+            ledger
+                .visits
+                .iter()
+                .filter(|(_, saved)| saved.slot.as_ref().is_some_and(|s| slots.contains(s)))
+                .map(|(id, _)| id.clone()),
+        )
+        .collect()
+}
+
+/// 帳面に 1 件書く。訪問時刻と組のハッシュは `Visit` から取る。
+fn record(ledger: &mut Ledger, visit: &Visit, excluded: bool) {
+    ledger.record_visit(
+        &visit.external_id,
+        &content_hash(visit),
+        visit.at,
+        visit.payload.originator_cache_guid.is_some(),
+        excluded,
+    );
+    if let Some(saved) = ledger.visits.get_mut(&visit.external_id) {
+        saved.slot = Some(slot(visit));
     }
 }
 
@@ -125,16 +184,7 @@ pub fn apply_history_exclusions(
             if !was_excluded {
                 newly_excluded.push(visit.external_id.clone());
             }
-            let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at)
-                .expect("Visit は RFC3339")
-                .with_timezone(&chrono::Utc);
-            ledger.record_visit(
-                &visit.external_id,
-                &content_hash(visit),
-                at,
-                visit.payload.originator_cache_guid.is_some(),
-                true,
-            );
+            record(ledger, visit, true);
         } else {
             kept.push(visit.clone());
         }
@@ -154,24 +204,38 @@ impl HistorySchedule {
         Self {
             last_success,
             retry_after: None,
+            failures: 0,
         }
     }
 
+    /// 今の失敗の回数での試し直しの間隔（1 分 → 2 分 → 4 分 … 1 時間）。
+    fn retry_interval(&self) -> chrono::Duration {
+        let doublings = self.failures.saturating_sub(1).min(6);
+        (HISTORY_RETRY_INTERVAL * 2_i32.pow(doublings)).min(HISTORY_RETRY_INTERVAL_MAX)
+    }
+
+    /// 取得の契機に達したか（design D3）。
+    ///
+    /// **前回の成功が今より先なら（時計が戻った）、24 時間を待たずにすぐ取得する**（deep.md 第 4 回 Q7）。
+    /// 待つと戻った幅だけ取得が止まり、Chromium は 90 日で消すのでその間の訪問を後から取れない。
+    /// 試し直しの時刻も同じで、今より試し直しの間隔を超えて先にあれば時計が戻ったと読む。
     pub fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
         if let Some(retry) = self.retry_after {
-            return now >= retry;
+            return now >= retry || retry - now > self.retry_interval();
         }
         self.last_success
-            .is_none_or(|last| now - last >= HISTORY_INTERVAL)
+            .is_none_or(|last| last > now || now - last >= HISTORY_INTERVAL)
     }
 
     pub fn succeeded(&mut self, now: chrono::DateTime<chrono::Utc>) {
         self.last_success = Some(now);
         self.retry_after = None;
+        self.failures = 0;
     }
 
     pub fn failed(&mut self, now: chrono::DateTime<chrono::Utc>) {
-        self.retry_after = Some(now + HISTORY_RETRY_INTERVAL);
+        self.failures = self.failures.saturating_add(1);
+        self.retry_after = Some(now + self.retry_interval());
     }
 
     pub fn last_success(&self) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -203,16 +267,7 @@ pub fn select_new_or_changed(ledger: &Ledger, visits: &[Visit]) -> Vec<Visit> {
 /// 送る前に落ちた訪問を「送った」と誤認して次回の取得で失う。
 pub fn mark_queued(ledger: &mut Ledger, visits: &[Visit]) {
     for visit in visits {
-        let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at)
-            .expect("Visit は RFC3339 マイクロ秒を作る")
-            .with_timezone(&chrono::Utc);
-        ledger.record_visit(
-            &visit.external_id,
-            &content_hash(visit),
-            at,
-            visit.payload.originator_cache_guid.is_some(),
-            false,
-        );
+        record(ledger, visit, false);
     }
 }
 
@@ -257,6 +312,19 @@ mod schedule_tests {
     }
 
     #[test]
+    fn history_schedule_fetches_at_once_when_last_success_is_ahead() {
+        // 1 年先の成功の後に時計が戻っても、365 日待たない（deep.md 第 4 回 Q7。R56）
+        let mut schedule = HistorySchedule::with_last_success(Some(at(400 * 86_400)));
+        assert!(schedule.due(at(0)));
+        schedule.succeeded(at(0));
+        assert!(!schedule.due(at(60)));
+        // 試し直しの時刻が先に残ったまま戻ったときも待たない
+        let mut failed = HistorySchedule::with_last_success(Some(at(0)));
+        failed.failed(at(400 * 86_400));
+        assert!(failed.due(at(86_400)));
+    }
+
+    #[test]
     fn history_schedule_starts_when_no_success_was_saved() {
         assert!(HistorySchedule::default().due(at(0)));
     }
@@ -268,6 +336,25 @@ mod schedule_tests {
         assert!(!schedule.due(at(86_459)));
         assert!(schedule.due(at(86_460)));
         assert_eq!(schedule.last_success(), Some(at(0)));
+    }
+
+    #[test]
+    fn history_schedule_backs_off_repeated_failures_up_to_one_hour() {
+        let mut schedule = HistorySchedule::with_last_success(Some(at(0)));
+        let mut now = 86_400;
+        for want in [60, 120, 240, 480, 960, 1920, 3600, 3600] {
+            schedule.failed(at(now));
+            assert!(
+                !schedule.due(at(now + want - 1)),
+                "{want} 秒より前に試し直した"
+            );
+            assert!(schedule.due(at(now + want)), "{want} 秒で試し直さない");
+            now += want;
+        }
+        // 成功すると 1 分に戻る
+        schedule.succeeded(at(now));
+        schedule.failed(at(now + 86_400));
+        assert!(schedule.due(at(now + 86_400 + 60)));
     }
 }
 
@@ -356,14 +443,14 @@ mod vanished_tests {
     #[test]
     fn history_vanished_is_detected() {
         assert_eq!(
-            detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].external_id,
+            detect_vanished(&ledger(), &[], Utc::now(), Some(10), None, false)[0].external_id,
             "v1:a"
         );
     }
     #[test]
     fn history_vanished_has_age_days() {
         assert_eq!(
-            detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0].age_days,
+            detect_vanished(&ledger(), &[], Utc::now(), Some(10), None, false)[0].age_days,
             3
         );
     }
@@ -371,23 +458,62 @@ mod vanished_tests {
     fn history_vanished_marks_foreign() {
         let mut l = ledger();
         l.visits.get_mut("v1:a").unwrap().foreign = true;
-        assert!(detect_vanished(&l, &[], Utc::now(), Some(10), false)[0].foreign);
+        assert!(detect_vanished(&l, &[], Utc::now(), Some(10), None, false)[0].foreign);
     }
     #[test]
     fn history_vanished_marks_recreated_table() {
-        assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(1), false)[0].table_recreated);
+        assert!(
+            detect_vanished(&ledger(), &[], Utc::now(), Some(1), None, false)[0].table_recreated
+        );
+    }
+    #[test]
+    fn history_vanished_marks_recreated_table_by_sequence() {
+        // 最大の番号が下がらない作り直しは `sqlite_sequence` でだけ分かる（design D10。R64）
+        let mut l = ledger();
+        l.visit_sequence = Some(50);
+        assert!(detect_vanished(&l, &[], Utc::now(), Some(10), Some(3), false)[0].table_recreated);
+        assert!(
+            !detect_vanished(&l, &[], Utc::now(), Some(10), Some(50), false)[0].table_recreated
+        );
+        // 前回の値が無い（Firefox・古い帳面）なら比べない
+        assert!(
+            !detect_vanished(&ledger(), &[], Utc::now(), Some(10), Some(3), false)[0]
+                .table_recreated
+        );
+    }
+    #[test]
+    fn history_vanished_keeps_visit_whose_url_row_went_missing() {
+        // URL の行を失って識別子が変わっても、同じ組の訪問が読めていれば「消えた」にしない（deep.md 第 4 回 Q8）
+        let at = Utc::now();
+        let with_url = crate::history::contract::sample_visit(1, at, "https://example.test/a", "t");
+        let mut l = Ledger::default();
+        mark_queued(&mut l, std::slice::from_ref(&with_url));
+        let mut read = with_url.payload.clone();
+        read.url = None;
+        let mut without_url = with_url.clone();
+        without_url.external_id = "v1:visit:other".into();
+        without_url.payload = read;
+        let seen = still_present(&l, std::slice::from_ref(&without_url));
+        assert!(detect_vanished(&l, &seen, at, Some(1), None, false).is_empty());
+        // 別の訪問（番号が違う）しか無ければ消えた
+        let other = crate::history::contract::sample_visit(2, at, "https://example.test/a", "t");
+        let seen = still_present(&l, &[other]);
+        assert_eq!(
+            detect_vanished(&l, &seen, at, Some(2), None, false).len(),
+            1
+        );
     }
     #[test]
     fn history_vanished_all_gone_is_not_recreated_table() {
-        assert!(!detect_vanished(&ledger(), &[], Utc::now(), None, false)[0].table_recreated);
+        assert!(!detect_vanished(&ledger(), &[], Utc::now(), None, None, false)[0].table_recreated);
     }
     #[test]
     fn history_vanished_marks_gone_profile() {
-        assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), true)[0].profile_gone);
+        assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), None, true)[0].profile_gone);
     }
     #[test]
     fn history_vanished_has_no_named_cause_or_private_text() {
-        let item = &detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0];
+        let item = &detect_vanished(&ledger(), &[], Utc::now(), Some(10), None, false)[0];
         let json = serde_json::to_string(item).unwrap();
         assert!(!json.contains("deleted") && !json.contains("url") && !json.contains("title"));
     }
@@ -397,7 +523,7 @@ mod vanished_tests {
         for i in 0..1001 {
             l.record_visit(&format!("v1:{i:04}"), "h", Utc::now(), false, false);
         }
-        let chunks = vanished_chunks(&detect_vanished(&l, &[], Utc::now(), None, false));
+        let chunks = vanished_chunks(&detect_vanished(&l, &[], Utc::now(), None, None, false));
         assert_eq!(
             chunks.iter().map(Vec::len).collect::<Vec<_>>(),
             vec![1000, 1]
@@ -407,15 +533,20 @@ mod vanished_tests {
     fn history_vanished_skips_unreadable_profile() {
         let l = ledger();
         assert!(
-            detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, false).is_empty()
+            detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), None, false, false)
+                .is_empty()
         );
     }
     #[test]
     fn history_vanished_is_idempotent_on_retry() {
         let mut l = ledger();
-        let vanished = detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, true);
+        let vanished =
+            detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), None, false, true);
         apply_vanished(&mut l, &vanished);
-        assert!(detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, true).is_empty());
+        assert!(
+            detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), None, false, true)
+                .is_empty()
+        );
     }
 }
 

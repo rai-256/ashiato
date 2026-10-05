@@ -268,7 +268,17 @@ impl<'a> Runtime<'a> {
     /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
     #[must_use]
     pub fn with_history(mut self, reader: std::sync::Arc<dyn HistoryReader>) -> Self {
-        self.history = Some(HistoryCollector::new(reader, &self.state_dir));
+        let history = HistoryCollector::new(reader, &self.state_dir);
+        // 前のプロセスが落ちて残した写しを、読みを始める前に消す（design D2。R60）。文言にはパスが入るので種別だけ
+        if history.sweep_copies().is_err() {
+            (self.log)(telemetry::history_line(
+                "history_copy_sweep_failed",
+                Some(1),
+                None,
+                Some("io"),
+            ));
+        }
+        self.history = Some(history);
         self
     }
 
@@ -626,6 +636,10 @@ impl<'a> Runtime<'a> {
                 None,
                 Some("failed"),
             )),
+        }
+        // 飛ばした行・退避した帳面・消せなかった写しは、件数だけ（R59 / R60 / R63）
+        for (kind, count) in history.take_log_counts() {
+            (self.log)(telemetry::history_line(kind, Some(count), None, None));
         }
     }
 
@@ -1896,7 +1910,7 @@ mod tests {
         ReadVisit {
             id,
             visit_time_raw: 13_402_627_200_000_000 + id,
-            url: format!("https://example.test/{id}"),
+            url: Some(format!("https://example.test/{id}")),
             title: Some(title.into()),
             at: t(-86_400),
             transition: 0,
@@ -1959,7 +1973,7 @@ mod tests {
     }
 
     impl HistoryReader for FakeReader {
-        fn read(&self) -> anyhow::Result<ReadOutcome> {
+        fn read(&self, _tmp: &std::path::Path) -> anyhow::Result<ReadOutcome> {
             if let Some(gate) = &self.gate {
                 gate.lock().unwrap().recv().ok();
             }
@@ -1969,7 +1983,7 @@ mod tests {
                     return Ok(ReadOutcome::default());
                 }
                 ProfileState::Unreadable => Err(anyhow::anyhow!("履歴 DB を開けない")),
-                ProfileState::Readable => Ok(self.visits.lock().unwrap().clone()),
+                ProfileState::Readable => Ok(self.visits.lock().unwrap().clone().into()),
             };
             let mut profiles = vec![ProfileRead {
                 browser: Browser::Chrome,
@@ -1980,7 +1994,7 @@ mod tests {
                 profiles.push(ProfileRead {
                     browser: *browser,
                     directory: directory.clone(),
-                    visits: Ok(visits.clone()),
+                    visits: Ok(visits.clone().into()),
                 });
             }
             Ok(ReadOutcome {
@@ -1989,7 +2003,7 @@ mod tests {
             })
         }
 
-        fn probe(&self) -> Vec<crate::history::collect::ProfileHealth> {
+        fn probe(&self, _tmp: &std::path::Path) -> Vec<crate::history::collect::ProfileHealth> {
             let readable = match *self.profile.lock().unwrap() {
                 ProfileState::Gone | ProfileState::Missing => return Vec::new(),
                 ProfileState::Unreadable => false,
@@ -2247,6 +2261,36 @@ mod tests {
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
+    /// 時計が一度先に進んでから戻ると、前回の成功が今より先になる。そのときは 24 時間を待たずにすぐ取得し、
+    /// 今の時刻を成功として書き直す（deep.md 第 4 回 Q7 / design D3。R56）。
+    #[test]
+    fn history_schedule_runtime_fetches_at_once_when_last_success_is_ahead() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0) + Duration::days(400));
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        assert_eq!(reader.reads(), 1, "前回の成功が先にあるのに待った");
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(cfg.state_dir.join("browser-history/last_success.json")).unwrap(),
+        )
+        .unwrap();
+        let saved = DateTime::parse_from_rfc3339(saved["last_success"].as_str().unwrap()).unwrap();
+        assert!(
+            saved < t(0) + Duration::days(1),
+            "成功を今の時刻に書き直していない: {saved}"
+        );
+        // 書き直した後は、また 24 時間ごと
+        run(&mut rt, &mut src, 2000, 2040, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        run(&mut rt, &mut src, 2041, 2050, 1);
+        assert_eq!(reader.reads(), 1);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
     /// 取得の成功は置き場へ書かれ、次の起動では 24 時間経つまで読まない。
     #[test]
     fn history_schedule_runtime_persists_success_across_restart() {
@@ -2412,6 +2456,63 @@ mod tests {
             vanished[0]["payload"]["vanished"].as_array().unwrap().len(),
             1
         );
+    }
+
+    /// URL の行を失った訪問は、URL と題名を省いた `visit` として送られ、「消えた」に出ない
+    /// （deep.md 第 4 回 Q8 / design D2 / D10。R57）。時刻・滞在時間・遷移の種類は残る。
+    #[test]
+    fn history_visit_whose_url_row_is_missing_is_sent_without_url_and_not_vanished() {
+        let mut lost = read_visit(2, "消える題名");
+        lost.duration_us = Some(1_500_000);
+        lost.transition = 1;
+        let (transport, vanished) = fetch_then_change(vec![read_visit(1, "a"), lost], |r| {
+            let mut visits = r.visits.lock().unwrap();
+            visits[1].url = None;
+            visits[1].title = None;
+        });
+        assert!(
+            vanished.is_empty(),
+            "URL の行が無い訪問を消えたとした: {vanished:?}"
+        );
+        let visits: Vec<_> = history_records(&transport)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "visit")
+            .collect();
+        let without_url: Vec<_> = visits
+            .iter()
+            .filter(|r| r["payload"].get("url").is_none())
+            .collect();
+        assert_eq!(
+            without_url.len(),
+            1,
+            "URL 無しの訪問が送られない: {visits:?}"
+        );
+        let p = &without_url[0]["payload"];
+        assert!(p.get("title").is_none());
+        assert_eq!(p["visit_id"], 2);
+        assert_eq!(p["visit_duration_us"], 1_500_000);
+        assert_eq!(p["transition_core"], "typed");
+        assert_eq!(without_url[0]["event_time"], p["at"]);
+    }
+
+    /// 初めて読んだ時点で URL の行が無い訪問も、捨てずに URL 無しで入る（deep.md 第 4 回 Q8。R57）。
+    #[test]
+    fn history_visit_without_url_row_is_sent_on_first_fetch() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let mut orphan = read_visit(2, "");
+        orphan.url = None;
+        orphan.title = None;
+        let reader = FakeReader::new(vec![read_visit(1, "a"), orphan]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let records = history_records(&transport);
+        assert_eq!(records.len(), 2, "URL の行が無い訪問を捨てた");
+        assert!(records.iter().any(|r| r["payload"].get("url").is_none()));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     /// Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
@@ -2742,6 +2843,27 @@ mod tests {
             "ひとつめの題名",
             "ふたつめの題名",
         ] {
+            assert!(
+                !all.contains(leaked),
+                "除外したはずの本文が送られた: {leaked}"
+            );
+        }
+        assert!(history_urls_of_kind(&transport, "visit").is_empty());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// `exe-path` は実行ファイルのフルパスで登録する（README の手順）。履歴には、そのファイル名部分で当てる（design D11。R58）。
+    #[test]
+    fn history_exclusion_exe_path_covers_all_profiles() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"exe-path","value":"C:\\Program Files\\Google\\Chrome\\Application\\CHROME.EXE"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "ひとつめの題名")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "ふたつめの題名")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        for leaked in ["example.test/1", "example.test/2", "ひとつめの題名"] {
             assert!(
                 !all.contains(leaked),
                 "除外したはずの本文が送られた: {leaked}"
