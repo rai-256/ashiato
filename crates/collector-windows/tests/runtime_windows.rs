@@ -29,6 +29,7 @@ use ashiato_collector_windows::config::Config;
 use ashiato_collector_windows::contract::{RecordKind, Transition, WindowPayload};
 use ashiato_collector_windows::engine::{Engine, Foreground, Observation, UrlRead};
 use ashiato_collector_windows::exclusion::{Exclusions, Rule};
+use ashiato_collector_windows::history::collect::{FsHistoryReader, HistoryCollector};
 use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
@@ -1116,4 +1117,222 @@ fn clock_time_sync_is_readable() {
         "最後に同期した時刻も同期元も解析できない（見出しの言語が想定外か）: {} バイト",
         out.stdout.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// ブラウザ履歴（ST08 design D14）。**一時プロファイル**で開くので、本人の実物のプロファイルは使わない。
+// 本物の置き場探し・写し・読み手・取得（`FsHistoryReader` → `HistoryCollector`）を、
+// **ブラウザを開いたまま**通す。取得契機は注入した時計で起こす（24 時間を待たない）。
+
+/// 履歴の検査で開いたブラウザ 1 つ。一時の置き場（`LOCALAPPDATA` と `APPDATA` の代わり）を持つ。
+struct HistoryBrowser {
+    child: Child,
+    local: std::path::PathBuf,
+    roaming: std::path::PathBuf,
+}
+
+impl HistoryBrowser {
+    fn temp_roots() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("ashiato-rt-history-{}", uuid::Uuid::new_v4()));
+        let (local, roaming) = (root.join("local"), root.join("roaming"));
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir_all(&roaming).unwrap();
+        (local, roaming)
+    }
+
+    /// Chromium 系。`user_data` は `FsHistoryReader` が見つける置き場（`<local>/<社名>/<製品>/User Data`）と同じ形。
+    fn chromium(exe: &str, user_data_under_local: &str, urls: &[String]) -> Self {
+        let (local, roaming) = Self::temp_roots();
+        let user_data = local.join(user_data_under_local);
+        let child = Command::new(exe)
+            .arg(format!("--user-data-dir={}", user_data.display()))
+            .args([
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-sync",
+                "--disable-features=msEdgeFirstRunExperience,msImplicitSignin",
+                "--new-window",
+                "--window-size=900,600",
+            ])
+            .args(urls)
+            .spawn()
+            .unwrap_or_else(|e| panic!("{exe} が起動しない: {e}"));
+        Self {
+            child,
+            local,
+            roaming,
+        }
+    }
+
+    fn firefox(exe: &str, urls: &[String]) -> Self {
+        let (local, roaming) = Self::temp_roots();
+        let profile = roaming.join("Mozilla/Firefox/Profiles/ashiato-rt.default");
+        std::fs::create_dir_all(&profile).unwrap();
+        // 初回の案内を出さない（出ると最初の頁が開かない）
+        std::fs::write(
+            profile.join("user.js"),
+            "user_pref(\"browser.shell.checkDefaultBrowser\", false);\n\
+             user_pref(\"browser.aboutwelcome.enabled\", false);\n\
+             user_pref(\"startup.homepage_welcome_url\", \"\");\n\
+             user_pref(\"datareporting.policy.dataSubmissionEnabled\", false);\n\
+             user_pref(\"browser.startup.page\", 0);\n",
+        )
+        .unwrap();
+        let child = Command::new(exe)
+            .args(["-no-remote", "-new-instance", "-profile"])
+            .arg(&profile)
+            .args(urls)
+            .spawn()
+            .unwrap_or_else(|e| panic!("{exe} が起動しない: {e}"));
+        Self {
+            child,
+            local,
+            roaming,
+        }
+    }
+}
+
+impl Drop for HistoryBrowser {
+    fn drop(&mut self) {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &self.child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = self.child.wait();
+        std::thread::sleep(Duration::from_millis(500));
+        if let Some(root) = self.local.parent() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+}
+
+/// 一時の置き場から取得契機を起こし、`want` の URL が全部**訪問時刻つきの記録**として積まれるまで繰り返す。
+///
+/// ブラウザは履歴を少し遅れて書く。読んだ時点で無ければ、時計を 25 時間進めて次の取得契機を起こす
+/// （帳面があるので、先の回で積んだものは重ならない）。
+fn fetch_history_until(
+    browser: &HistoryBrowser,
+    expected_browser: &str,
+    want: &[&str],
+) -> Vec<(String, String)> {
+    let state = std::env::temp_dir().join(format!("ashiato-rt-state-{}", uuid::Uuid::new_v4()));
+    let reader = FsHistoryReader::new(browser.local.clone(), browser.roaming.clone());
+    let mut collector = HistoryCollector::new(std::sync::Arc::new(reader), &state);
+    let mut got: Vec<(String, String)> = Vec::new();
+    let mut wall = Utc::now();
+    let start = Instant::now();
+    let mut last_error = String::new();
+    while start.elapsed() < Duration::from_secs(90) {
+        // 取得契機に達してから、読みが終わって積むまで
+        let mut queue = |v: &ashiato_collector_windows::history::contract::Visit| {
+            if v.payload.kind == "visit" {
+                assert_eq!(v.payload.browser, expected_browser, "ブラウザの名前");
+                got.push((
+                    v.payload.url.clone().unwrap_or_default(),
+                    v.payload.at.clone(),
+                ));
+            }
+            Ok(())
+        };
+        let finished = loop {
+            if let Some(r) = collector.tick(wall, &mut queue) {
+                break r;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(90),
+                "読みが終わらない"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        if let Err(e) = finished {
+            last_error = format!("{e:#}");
+        }
+        if want.iter().all(|w| got.iter().any(|(u, _)| u.contains(w))) {
+            let _ = std::fs::remove_dir_all(&state);
+            return got;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+        wall += chrono::Duration::hours(25);
+    }
+    panic!(
+        "期待した訪問が積まれていない（最後の読みの失敗: {last_error:?}）。積まれたもの: {got:?}"
+    );
+}
+
+/// 2 つの訪問が URL と訪問時刻つきで積まれていること。
+fn assert_two_visits(got: &[(String, String)], before: DateTime<Utc>, marks: [&str; 2]) {
+    for mark in marks {
+        let (url, at) = got
+            .iter()
+            .find(|(u, _)| u.contains(mark))
+            .unwrap_or_else(|| panic!("{mark} の訪問が無い: {got:?}"));
+        let at = DateTime::parse_from_rfc3339(at)
+            .unwrap_or_else(|e| panic!("訪問時刻が読めない {at}: {e}"))
+            .with_timezone(&Utc);
+        // 訪問時刻は「今」の近く（記録の時刻でなく、ブラウザが書いた訪問の時刻）
+        assert!(
+            at >= before - chrono::Duration::minutes(1)
+                && at <= Utc::now() + chrono::Duration::minutes(1),
+            "訪問時刻が訪問した頃ではない: {url} {at}"
+        );
+    }
+}
+
+fn history_pages(pages: &Pages) -> [String; 2] {
+    let port = pages.port;
+    [
+        format!("http://127.0.0.1:{port}/history-one"),
+        format!("http://127.0.0.1:{port}/history-two"),
+    ]
+}
+
+fn history_roundtrip(open: impl FnOnce(&[String]) -> HistoryBrowser, expected: &str) {
+    let _g = desktop();
+    let pages = Pages::serve();
+    let urls = history_pages(&pages);
+    let before = Utc::now();
+    let browser = open(&urls);
+    let got = fetch_history_until(&browser, expected, &["/history-one", "/history-two"]);
+    assert_two_visits(&got, before, ["/history-one", "/history-two"]);
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_while_running() {
+    let exe = Edge::exe().expect("Edge が無い");
+    history_roundtrip(
+        |urls| HistoryBrowser::chromium(exe, "Microsoft/Edge/User Data", urls),
+        "edge",
+    );
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_chrome() {
+    let exe = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    .into_iter()
+    .find(|p| std::path::Path::new(p).is_file())
+    .expect("Chrome が無い（runner に入れる。飛ばさない: design D14）");
+    history_roundtrip(
+        |urls| HistoryBrowser::chromium(exe, "Google/Chrome/User Data", urls),
+        "chrome",
+    );
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_firefox() {
+    let exe = [
+        r"C:\Program Files\Mozilla Firefox\firefox.exe",
+        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+    ]
+    .into_iter()
+    .find(|p| std::path::Path::new(p).is_file())
+    .expect("Firefox が無い（runner に入れる。飛ばさない: design D14）");
+    history_roundtrip(|urls| HistoryBrowser::firefox(exe, urls), "firefox");
 }

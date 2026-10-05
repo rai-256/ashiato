@@ -968,8 +968,7 @@ history_sensitivities=$(psql -c "SELECT DISTINCT sensitivity FROM core.event
   WHERE logical_source='c02-browser-history' ORDER BY sensitivity;")
 [ "$history_sensitivities" = "1" ] || { echo "履歴の感度が既定ではない: $history_sensitivities"; exit 1; }
 
-# Scenario: 前日に見たページが翌日の取得で入っている
-echo "== ST08. 前日の履歴を翌日の取得で格納する"
+echo "== ST08. 前日の履歴を手で組んだ記録で格納する"
 history_yesterday=$(psql -c "SELECT payload->>'url'||' '||event_time::text FROM core.event
   WHERE logical_source='c02-browser-history'
     AND payload->>'url'='https://example.test/yesterday';")
@@ -1012,6 +1011,20 @@ curl -sf "http://$BIND/healthz" >/dev/null
 down_rows=$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c02-browser-history' AND payload->>'url'='https://example.test/while-down';")
 [ "$down_rows" = "1" ] || { echo "戻した後に届いていない: $down_rows"; exit 1; }
 rm -rf "$FETCH_DB" "$DOWN_DB" "$STATE1" "$STATE2" "$STATE3"
+
+# Scenario: 前日に見たページが翌日の取得で入っている
+echo "== ST08. 取得契機を 1 日進めて取得し、前日の訪問を取り込み口まで通して psql で行を見る"
+NEXT_DB=$(mktemp); rm -f "$NEXT_DB"
+"$HSMOKE" make "$NEXT_DB" https://example.test/next-day 前日に見たページ
+STATE4=$(mktemp -d)
+[ "$(psql -c "SELECT count(*) FROM core.event WHERE payload->>'url'='https://example.test/next-day';")" = "0" ] \
+  || { echo "取得の前に格納されている（検査が空振り）"; exit 1; }
+"$HSMOKE" next-day "$NEXT_DB" "$STATE4" "http://$BIND" "$API_TOKEN"
+next_day_row=$(psql -c "SELECT payload->>'url'||' '||event_time::text FROM core.event
+  WHERE logical_source='c02-browser-history' AND payload->>'url'='https://example.test/next-day';")
+[ "$next_day_row" = 'https://example.test/next-day 2025-09-18 00:00:00+00' ] \
+  || { echo "翌日の取得で前日の URL と訪問時刻が格納されていない: $next_day_row"; exit 1; }
+rm -rf "$NEXT_DB" "$STATE4"
 
 rm -f "$HISTORY_DB"
 

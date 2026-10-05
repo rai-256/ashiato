@@ -116,6 +116,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # ST08 の履歴の実行時テストは Chrome と Firefox も飛ばさない（design D14）。runner に無ければ入れる
+      - shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\Program Files\Mozilla Firefox\firefox.exe")) { choco install firefox -y --no-progress; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          if (-not ((Test-Path "C:\Program Files\Google\Chrome\Application\chrome.exe") -or (Test-Path "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"))) { choco install googlechrome -y --no-progress; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
       # 単体 86 本 + 実行時テスト。ST08 の Edge / Chrome / Firefox 履歴 3 本を含める。
       # 前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
