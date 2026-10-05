@@ -1235,3 +1235,67 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 本番コードの変更は名前の置換だけで、判定の中身は変わらない
 - 全体の試験: fixer が `scripts/quiet-run final4 -- cargo test --workspace` rc=0（679 passed / failed 0）。`.env` の `DATABASE_URL` / `DATABASE_OWNER_URL` が 55432 を指したままで、st12 の DB（55512）へ置き換えて走らせた（`testdb::url()` は port を差し替えるが、`app_pool()` と `tests/server_startup.rs` は env をそのまま使う）。fmt / clippy / `check_scenarios.py` / `openspec validate --strict` も rc=0
 - 範囲外の観測（park。ledger に ruling）: st12 の DB に `st12_fault_*_tg` の trigger が 4 本残る（第 2 回で park した R72 の注意と同じもの）/ 上の `.env` の port
+
+# code-verify 第 6 回（`218077d..b3f0d59`。Task 17 / design D22-d・R90〜R96 の処置を厚く）— 2026-10-05
+
+対象: `feat/st12-archive-ingestion` の HEAD `b3f0d59`（PR #10 の head はまだ `1920209` で、push 前）。**実装は触っていない。**
+第 5 回の後のコードの差分は `crates/server/src/{archive/classify.rs, archive/mod.rs, archive_flow_tests.rs, deletion.rs, stay_store.rs}` だけ（`git diff --stat 218077d..HEAD`）。移行と画面（`migrations/` `web/`）は触っていないので、第 5 回までに確かめた手は繰り返していない。
+変異試験は作業ツリーの外の複製（`git archive HEAD` を `~/.cache/st12-cv6/` に展開。`CARGO_TARGET_DIR` も別）で 1 つずつ入れて戻した。
+
+> 作業の副作用（報告）: (1) 1 回目の `cargo test --workspace` は server の lib の途中で外から `SIGTERM` を受けて止まった（同じ時刻に別の worktree（st08）のセッションが試験を走らせていた。原因は特定していない）。走らせ直すと緑。
+> (2) 変異試験の 1 回目は背景の上限（10 分）で殺され、複製に変異が 1 つ残ったまま次の回が走った。複製を作業ツリーと突き合わせて（`diff -rq` で差 0）戻してから、全部をやり直した。下の表はやり直した後のもの。
+> (3) 複製の試験は、DB のポートを**ディレクトリ名から**決める（`testdb::db_port`）ので、`~/.cache/st12-cv6` では存在しないポートへ繋いで全部が `pool timed out` になった。`ASHIATO_DB_PORT=55512` を渡して直した（ST12 の差分ではない）。
+> (4) 殺した試験の残りで、試験用 DB の `st12_fault_*_tg` の trigger が 4 本から 7 本に増えた（利用者ごとの名前なので他の試験には効かない。第 4 回の re-review で park したものと同じ）。消していない。
+
+## 申告: tasks の `[x]` は 54/55（13.1（人間）だけ未了）・R93〜R96 はすべて処置済み（R96 は rejected）。独立に実行した検証コマンド
+
+| # | 申告 | 実行したもの |
+|---|---|---|
+| 1 | 16.3: fmt / clippy / `cargo test --workspace` が緑 | `set -a; . ./.env; set +a; export DATABASE_URL=…55512 DATABASE_OWNER_URL=…55512; scripts/quiet-run cv6full -- bash -c 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace'`（1 回目は SIGTERM。2 回目は `cargo test --workspace` だけ） |
+| 2 | 16.1 / 16.2 の `CT` | tasks.md の `CT` の定義のまま（`tee /tmp/ct.log` + `grep -Eq 'test result: ok\. [1-9][0-9]* passed'`）で `archive_erased_youtube_window` / `archive_erased_youtube_cascade` / `archive_myactivity_location_rust_and_sql_agree` |
+| 3 | 16.3 / 12.2 / 12.3 | `python3 scripts/check_scenarios.py . st12-archive-ingestion`、`openspec validate st12-archive-ingestion --strict`、`python3 scripts/check_chain.py .`、`tools/check-{migrations,boundaries,openapi,private,licenses}.sh` |
+| 4 | 0.1 / 12.4 / 12.5 / 2.x の差分なし | 本文のコマンドをそのまま。`git diff --exit-code origin/main -- crates/server/src/dedup_tests.rs crates/server/src/registry_tests.rs` |
+| 5 | Q15 / D22-d と R93・R94 の処置を試験が固定している | 複製で 10 の変異（下の表）を入れて `cargo test -p ashiato-server --lib -- archive_ stay_ deletion location_sources` |
+| 6 | 試験の材料の時刻 | Chrome の `time_usec` を python の `datetime`（1601-01-01 起点）で計算し直す |
+
+## 実測（一致 / 不一致）
+
+| 申告 | 実測 | 判定 |
+|---|---|---|
+| 16.3 cargo | fmt・clippy rc=0。collector-windows 133 passed / server lib 539 passed / server_startup 7 passed、failed 0（2 回目） | 一致 |
+| 16.1 `CT archive_erased_youtube_window` | rc=0・1 passed | 一致 |
+| 16.2 `CT archive_erased_youtube_cascade` / `CT archive_myactivity_location_rust_and_sql_agree` | どちらも rc=0・1 passed | 一致 |
+| check_scenarios | rc=0（`scenarios: OK`。spec に無い名前を指す印の warn は `tools/st12_delta_diff.py` の 2 件で、前回と同じもの） | 一致 |
+| validate / chain / check-*.sh（DB を作り直す `check-immutable.sh` と smoke は、移行が変わっていないので走らせていない） | すべて rc=0 | 一致 |
+| 0.1 / 12.4 / 12.5 / dedup・registry の試験が無変更 | すべて rc=0 | 一致（ただし手元の PR 本文の下書き `docs/briefs/ST12-pr.md:9` / `:65` / `:103` はまだ「Task 17 は未実装」「51/55」「`check_scenarios.py` は Task 17 まで落ちる」と書いている。finish の前なので指摘にしない） |
+| 手 1: 試験の材料の時刻 | `13433657520000000` → `2026-09-12 03:32:00Z`、`13433658120000000` → `03:42:00Z`（消す滞在 03:00〜04:00Z の中。コメントと一致）。見張りの材料の `13222310400000000` → `2020-01-01`（コメントは無く、分類の材料なので時刻は効かない） | 一致 |
+| 変異 M0（変異なし） | 223 passed | 基準 |
+| M1: `ITEM_SOURCES` から `c03-chrome-history` を外す | 見張り・Chrome の 2 本・一致の試験の計 4 本 FAILED | 一致（固定されている） |
+| M2: `is_item_source` を接頭辞だけにする（格納の直後の範囲） | `archive_erased_youtube_window` / `archive_erased_chrome_history_late_mark` FAILED | 一致 |
+| M3: `item_located_sql` の固定名の枝を常に偽にする（SQL の判定） | YouTube と Chrome の連鎖・一致の試験の 3 本 FAILED（位置を持たない項目にまで印が付く側も止まる） | 一致 |
+| M4: `deletion::erase` の連鎖から固定名を外す | `archive_erased_youtube_cascade` / `archive_erased_chrome_history_cascade` FAILED | 一致 |
+| M5: `mark_late_arrivals` から固定名を外す | 2 本 FAILED | 一致 |
+| M6: `mark_late_arrivals` から項目のソースを全部外す | 5 本 FAILED | 一致 |
+| M7: `ITEM_SOURCES` から `c03-youtube-search` を外す | 4 本 FAILED | 一致 |
+| M8 / M9: 読み手の出す論理ソースの名前を変える（Chrome / YouTube の検索） | どちらも見張りを含む 3 本 FAILED | 一致（R93 の処置は名前の足し忘れを止める） |
+| **M10: 見張りの種類の連なり（`next`）を `SemanticHistory => None` で切り、切った先の Chrome の名前を変えて分類から外す** | **見張り `every_archive_logical_source_is_classified_as_location_or_item` は緑のまま**。落ちたのは Chrome の振る舞いの 2 本と一致の試験だけ | **不一致（R97）** |
+
+---
+
+## R97. R93 の見張りは、種類を足したときに「連なりへ繋ぐ」ことを強制しない。繋ぎ忘れた種類は、見張りが緑のまま分類から漏れる
+- 成果物: `crates/server/src/archive/classify.rs:114-125`（`next`。種類の全列挙を、手で繋いだ連なりで作る）/ `:169-172`（`kinds` は `YouTubeWatch` から `next` を辿った分だけ）/ `:203-210`（逆向きの確認は `LOCATION_SOURCES ∪ ITEM_SOURCES` の名前だけを見る）/ R93 の処置（「種類は `_` の無い網羅の `match` で持つので、種類を足すとコンパイルで落ちる」）
+- 根拠: 複製で M10 を入れた —— `next` の `KnownKind::SemanticHistory => Some(KnownKind::ChromeHistory)` を `=> None` にし（ChromeHistory を連なりの外に置く）、`ITEM_SOURCES` から `c03-chrome-history` を外し、読み手が出す Chrome の名前を `c03-chrome-visits` に変えた。`cargo test -p ashiato-server --lib -- archive_ stay_ deletion location_sources` は `220 passed; 3 failed`。落ちたのは `archive_erased_chrome_history_cascade` / `archive_erased_chrome_history_late_mark` / `archive_myactivity_location_rust_and_sql_agree` で、**見張りは緑**（連なりに無い種類の材料は読まれず、名前の確認も分類側の名前しか見ない）。名前だけを変えた M8 では見張りが落ちるので、見張りが効かないのは「連なりへの繋ぎ忘れ」の 1 点だけ。
+  網羅の `match` が強制するのは、新しい種類の腕を `next` と `fixture` に**書くこと**まで。新しい種類 X に `X => None` と書き、いまの末尾（`ChromeHistory => None`）を直さなくてもコンパイルは通る。コードのコメント（`:115`「繋がない種類は見張りから漏れる」）がこの限界を書いているが、R93 の処置の文は「種類を足すとコンパイルで落ちる」と書いている。
+- 影響: いまの 7 種類はすべて繋がっていて、バグではない。M10 で止めたのは Chrome 専用の振る舞いの試験で、**新しい種類には振る舞いの試験が無い**ので、繋ぎ忘れと分類への足し忘れが重なると、その種類の位置の欄を持つ項目は消した時間帯でも座標を原文に持ったまま生きて入る（Q13〜Q15 が避けた loss: exported）。Takeout の中身は形の確認の印を置くまで入らない（第 2 回 Q10）ので、起きるのは新しい種類を足した後に印を置いたときから。
+- kind: technical
+- 提案: 種類の全列挙を手で繋がずに導く（`strum::EnumIter` の derive など。手の網羅の `match` だけでは、腕を書かせても連なりへ繋ぐことは強制できない）。足さない場合は、R93 の処置の「コンパイルで落ちる」を「コンパイルが新しい種類の腕を書かせるところまで。連なりへ繋ぐのは手」に直す。
+
+## 手ごとの結果
+
+- **手 1（固定値を独立に再計算する）**: Task 17 の試験の材料の Chrome の時刻 2 つを python で計算し直し、消す滞在の中（03:32Z / 03:42Z）であることを確かめた。YouTube の材料の時刻（03:30Z〜03:41Z）は ISO の文字列なので読み比べだけ。この範囲で増えたハッシュの固定値は無い。
+- **手 2（ガードをわざと壊す）**: Q15 / D22-d の判定の部品（固定名の集合・Rust の範囲・SQL の判定・消すときの連鎖・後着の印）は、1 つずつ外すとどれも 2〜5 本が落ちる（M1〜M7）。R93 の見張りは名前の足し忘れ（M8 / M9）では落ち、**連なりへの繋ぎ忘れ（M10）では落ちない**（R97）。
+- **手 3（Scenario と試験を突き合わせる）**: rc=0。Q15 の 4 本を 1 本ずつ読んだ。`消した滞在の時間帯の位置を持つ YouTube の履歴の項目は削除済みになる` と `位置を持たない YouTube の履歴の項目は消した時間帯でも生きた記録として入る` は、置き場に zip を置いて形の確認の印を経て取り込み器に読ませ（WHEN の「書庫を置く」と同じ階層）、視聴と検索の両方で `user:late`・台帳 2 行・原文に欄が残ることまで見る。消すとき・戻すときの 2 本は格納を `store_requests` で直に行うが、主張は消す・戻すの振る舞いなので階層は合う。THEN の「生きた記録としては読み出されない」は `deleted_at` / `deleted_by` で見ている（第 4 回・第 5 回の位置とマイアクティビティの Scenario と同じ観測。ST03 の削除済みの門）。
+- **手 4（本人の決定を試験が固定しているか）**: 第 6 回 Q15 の「位置を持つ YouTube の視聴・検索の項目は印を付けて入れる（後から消したときも同じ）」は M2 / M4 / M5 / M7 で、「位置を持たない項目は印を付けない」は M3（印が付きすぎる側）で落ちる。戻すときは `restore` の後の `locations == 2` と全 4 行が `None` で見ている。D22-d が本人の答えの外から足した Chrome の履歴も M1 / M4 で落ちる。D22-c（仮）の判定は一致の試験の 15 入力で固定されている（前回の確認から変わっていない）。
+- **手 5（tasks の `[x]` と実体）**: 16.1 / 16.2 / 16.3 の検証は実在し rc=0。`CT` に書かれた名前は、ファイルの名前で絞る 3 本（`api_tests` / `dedup_tests` / `registry_tests`。どれも `crates/server/src/` に実在）を除いて、すべて関数として実在する。`cargo test --test` 型の検証は tasks に無い。16.2 の本文の `myactivity_located_sql` は R95 で `item_located_sql` に名前が変わり、もう無い（凍結した文面。R95 の処置が書いている。検証のコマンドは別の名前なので rc=0）。
+- **手 6（隙間）**: 「外へ出たものは戻らない」型は R97（新しい種類の繋ぎ忘れ）だけ。
+  確かめて隙間でなかったもの: (1) 原文が切り出せないとき（`aligned` が `None`）は項目そのものを `serde_json::to_string` で書き戻す（`archive/worker.rs:888-892`）ので、位置の欄は原文に残り、Rust と SQL の判定は同じ原文を見る。(2) `item_sources` は固定名を `core.source` の登録に依らずに足すので、登録の前に入った YouTube・Chrome の行も連鎖と後着の印の対象になる。(3) `mark_archive_arrivals` は `mark_late_arrivals` を通るので、格納の直後の印付けは後着の印と同じ集合・同じ判定を使う（M5 で `archive_erased_youtube_window` が落ちることで確かめた）。
