@@ -191,13 +191,13 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 `openspec validate st08-browser-history --strict` rc=0
-- [ ] 11.2 `python3 scripts/check_scenarios.py .` rc=0（**75 本すべてに印**）
-- [ ] 11.3 `python3 scripts/check_chain.py .` rc=0
-- [ ] 11.4 `python3 scripts/review_triage.py . st08-browser-history` rc=0
-- [ ] 11.5 `tools/smoke.sh` rc=0 / `tools/check-immutable.sh` rc=0 / `tools/check-migrations.sh` rc=0 / `tools/check-licenses.sh` rc=0
-- [ ] 11.6 `cargo test --workspace` rc=0 / `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `cargo fmt --all --check` rc=0
-- [ ] 11.7 `docs/handoff/` を読み直す（PR 前の 2 回目）
+- [x] 11.1 `openspec validate st08-browser-history --strict` rc=0
+- [x] 11.2 `python3 scripts/check_scenarios.py .` rc=0（**75 本すべてに印**）
+- [x] 11.3 `python3 scripts/check_chain.py .` rc=0
+- [x] 11.4 `python3 scripts/review_triage.py . st08-browser-history` rc=0
+- [x] 11.5 `tools/smoke.sh` rc=0 / `tools/check-immutable.sh` rc=0 / `tools/check-migrations.sh` rc=0 / `tools/check-licenses.sh` rc=0
+- [x] 11.6 `cargo test --workspace` rc=0 / `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `cargo fmt --all --check` rc=0
+- [x] 11.7 `docs/handoff/` を読み直す（PR 前の 2 回目）
 
 ## 人間の確認待ち
 
