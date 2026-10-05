@@ -640,20 +640,68 @@ pub(crate) fn event_end_sql(alias: &str) -> String {
     )
 }
 
+/// 消した時間帯 `[start, end]`（SQL の束縛の番号）と重なる記録の条件（design D22）。
+///
+/// 区間を持つ書庫のソース（`archive::INTERVAL_SOURCES`。束縛 `intervals`）だけを終わりで見て、
+/// それ以外（束縛 `points`。基準のソースと点のソース）は始まりの時刻が時間帯の中にあるかで見る。
+/// 点の終わりは始まりと同じなので意味は 1 本の式と変わらず、点の側には索引
+/// `event_by_source_time (logical_source, event_time)` の上下限が効く（final review 第 2 回 R73）。
+/// 端が触れるだけでも重なりとする（Q12）。
+pub(crate) fn overlaps_erased_sql(
+    alias: &str,
+    points: &str,
+    intervals: &str,
+    start: &str,
+    end: &str,
+) -> String {
+    format!(
+        "(({a}.logical_source = ANY({points}) AND {a}.event_time >= {start} AND {a}.event_time <= {end})
+          OR ({a}.logical_source = ANY({intervals}) AND {a}.event_time <= {end} AND {e} >= {start}))",
+        a = alias,
+        e = event_end_sql(alias),
+    )
+}
+
+/// 消す側の論理ソースの集合を、点で見るもの（基準のソースと点のソース）と区間で見るもの
+/// （`archive::INTERVAL_SOURCES`）に分ける（`overlaps_erased_sql` の 2 つの束縛）。
+pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
+    sources
+        .iter()
+        .cloned()
+        .partition(|s| !crate::archive::INTERVAL_SOURCES.contains(&s.as_str()))
+}
+
 /// 書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ印を付ける（design D22 (1)）。
 ///
+/// **見る範囲はその書庫が入れた位置の始まりの時刻の範囲だけ**（final review 第 2 回 R73）。この書庫の行は
+/// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
+/// **位置を 1 件も入れなかった書庫では何もしない**（YouTube・マイアクティビティだけの書庫。R78）。
 /// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
-pub async fn mark_archive_arrivals(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result<()> {
+pub async fn mark_archive_arrivals(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    stored: &[crate::IngestRequest],
+) -> sqlx::Result<()> {
+    let Some((first, last)) = stored
+        .iter()
+        .filter(|r| crate::archive::LOCATION_SOURCES.contains(&r.logical_source.as_str()))
+        .map(|r| r.event_time)
+        .fold(None, |span: Option<(DateTime<Utc>, DateTime<Utc>)>, t| {
+            Some(span.map_or((t, t), |(lo, hi)| (lo.min(t), hi.max(t))))
+        })
+    else {
+        return Ok(());
+    };
     let mut tx = pool.begin().await?;
     lock(&mut tx, user).await?;
     let sources: Vec<String> = crate::archive::LOCATION_SOURCES
         .iter()
         .map(|s| (*s).to_owned())
         .collect();
-    // 全期間（`timestamptz` が持てる範囲）。
-    let from = DateTime::<Utc>::UNIX_EPOCH - Duration::days(365 * 1000);
-    let to = DateTime::<Utc>::UNIX_EPOCH + Duration::days(365 * 7000);
-    mark_late_arrivals(&mut tx, user, &sources, (from, to)).await?;
+    // `mark_late_arrivals` の範囲は終わりを含まない。DB の時刻はマイクロ秒に丸まるので、両端を 1 ms 広げる
+    // （広げても見る行が増えるだけで、印を付ける条件は変わらない）。
+    let margin = Duration::milliseconds(1);
+    mark_late_arrivals(&mut tx, user, &sources, (first - margin, last + margin)).await?;
     tx.commit().await
 }
 

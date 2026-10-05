@@ -272,7 +272,9 @@ async fn erase_using_action(
         .sources;
     // 基準のソース ∪ 書庫の位置の論理ソース（design D22）。滞在の判定の入力は変えない。
     let sources = stay_store::with_archive_sources(&sources);
-    let event_end = stay_store::event_end_sql("core.event");
+    // 点で見るソースと区間で見るソースに分け、点の側は始まりの時刻の上下限で索引を効かせる（R73）。
+    let (points, intervals) = stay_store::split_by_span(&sources);
+    let overlaps = stay_store::overlaps_erased_sql("core.event", "$2", "$5", "$3", "$4");
     let stay_changed: Vec<(uuid::Uuid, String)> = sqlx::query_as(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user'
           WHERE id = $1 AND deleted_at IS NULL
@@ -283,26 +285,25 @@ async fn erase_using_action(
     .await?;
     let locations: Vec<(uuid::Uuid, String)> = sqlx::query_as(&format!(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:cascade'
-          WHERE user_id = $1 AND logical_source = ANY($2)
-            AND event_time <= $4 AND {event_end} >= $3 AND deleted_at IS NULL
+          WHERE user_id = $1 AND {overlaps} AND deleted_at IS NULL
           RETURNING id, logical_source",
     ))
     .bind(row.user_id)
-    .bind(&sources)
+    .bind(&points)
     .bind(start)
     .bind(end)
+    .bind(&intervals)
     .fetch_all(&mut *tx)
     .await?;
 
     // 既に別の消去原因で隠れている位置にも、この操作の原因を追記する。
     // A を戻したとき、重なる B の消去まで戻さないために必要な因果関係である。
     // 新たに消した行はまだ台帳に載せていないため、この検索には含まれない。
-    let event_end_e = stay_store::event_end_sql("e");
+    let overlaps_e = stay_store::overlaps_erased_sql("e", "$2", "$5", "$3", "$4");
     let already_deleted: Vec<ActiveDeletionRow> = sqlx::query_as(&format!(
         "SELECT e.id AS event_id, e.logical_source, e.deleted_by AS mark
            FROM core.event e
-          WHERE e.user_id = $1 AND e.logical_source = ANY($2)
-            AND e.event_time <= $4 AND {event_end_e} >= $3
+          WHERE e.user_id = $1 AND {overlaps_e}
             AND e.deleted_at IS NOT NULL
             AND EXISTS (
               SELECT 1 FROM core.deletion_ledger d
@@ -312,9 +313,10 @@ async fn erase_using_action(
             )"
     ))
     .bind(row.user_id)
-    .bind(&sources)
+    .bind(&points)
     .bind(start)
     .bind(end)
+    .bind(&intervals)
     .fetch_all(&mut *tx)
     .await?;
 

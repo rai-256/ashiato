@@ -9,13 +9,25 @@ set -euo pipefail
 # **手元に `psql` が無ければ、開発用コンテナの `psql` を使う**（code-verify R68）。本人の機械には
 # `psql` が無いことがある（実測: `psql: command not found`）。印を置く道具が動かなければ、
 # 最初の Takeout から先へ進めない（第 2 回 Q10）。smoke もこの道具を差し替えずに通す。
+# 回り道では **`DATABASE_URL` の利用者と DB 名をコンテナの psql へ渡し、回り道に入ったことと接続先を
+# stderr に出す**（final review 第 2 回 R74）。固定の `-U ashiato -d ashiato` へ書いていたときは、
+# `DATABASE_URL` が別の DB を指していても黙って成功した。繋ぎ先のホストはコンテナなので、URL のホストが
+# 違えば別の DB に書くことになる —— それも出力で分かるようにする。合言葉は出さない。
 run_psql() {
   if command -v psql >/dev/null 2>&1; then
     psql "$DATABASE_URL" "$@"
-  else
-    echo "psql が無いので、開発用コンテナ（docker compose の db）の psql を使います" >&2
-    (cd "$(dirname "$0")/.." && docker compose exec -T db psql -q -U ashiato -d ashiato "$@")
+    return
   fi
+  local rest="${DATABASE_URL#*://}" auth="" host="" db_user="" db_name=""
+  if [[ "$rest" == *@* ]]; then auth="${rest%%@*}"; rest="${rest#*@}"; fi
+  host="${rest%%/*}"
+  db_user="${auth%%:*}"
+  db_name="${rest#*/}"; db_name="${db_name%%\?*}"
+  [[ "$rest" == */* && -n "$db_name" ]] || db_name="${db_user:-postgres}"
+  db_user="${db_user:-postgres}"
+  echo "psql が無いので、開発用コンテナ（docker compose の db）の psql を使います" \
+       "（接続先: コンテナ db / 利用者 ${db_user} / DB ${db_name}。DATABASE_URL のホスト ${host:-なし} ではなくコンテナへ繋ぐ）" >&2
+  (cd "$(dirname "$0")/.." && docker compose exec -T db psql -q -U "$db_user" -d "$db_name" "$@")
 }
 
 if [[ "${1:-}" == "--confirm" ]]; then

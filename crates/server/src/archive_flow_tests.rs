@@ -2516,8 +2516,21 @@ async fn archive_erased_window_marks_the_overlapping_archive_locations() {
         3,
         "台帳の erase 行が違う"
     );
-    // 作り直しを走らせていない: 滞在は消した 1 件のまま増えていない。
-    assert_eq!(inbox.stays().await, 1, "滞在の作り直しが走っている");
+    // 作り直しを走らせていない（final review 第 2 回 R77）。作り直しは最初に基準の版を書き
+    // （`ensure_criteria`）、置き換えた滞在に `rebuild:` の印を付ける。どちらも無く、消した滞在は本人の印のまま。
+    assert_eq!(
+        inbox.rebuild_traces().await,
+        (0, 0),
+        "滞在の作り直しが走っている（基準の版の行 / rebuild: の印）"
+    );
+    assert_eq!(inbox.stays().await, 1, "滞在が増えている");
+    let stay_mark: Option<String> =
+        sqlx::query_scalar("SELECT deleted_by FROM core.event WHERE id = $1")
+            .bind(stay)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
+    assert_eq!(stay_mark.as_deref(), Some("user"));
 }
 
 // Scenario: 消した滞在の時間帯の外の書庫の位置は生きた記録として入る
@@ -2571,7 +2584,35 @@ async fn archive_erased_cascade_marks_locations_stored_before_the_erase() {
     assert_eq!(inbox.archive_locations().await, (3, 2));
     assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 3);
 
-    // 同じ内容の書庫を置き直しても行は増えない（内容の鍵）。
+    // 同じ内容の書庫を置き直しても行は増えない（内容の鍵。final review 第 2 回 R75）。書庫の
+    // ハッシュが同じだと走査が既読として畳み中身を読まないので、読まない別のファイルを足して別の書庫にする。
+    inbox.put(
+        "Timeline-again.json.zip",
+        &[
+            ("Timeline.json", ERASE_TIMELINE.as_bytes()),
+            ("readme.txt", b"not an export"),
+        ],
+    );
+    let again = inbox
+        .inbox
+        .join("取り込み済み")
+        .join("Timeline-again.json.zip");
+    inbox
+        .until("置き直した書庫が読まれない", || async {
+            again.exists() && inbox.read_rows_now(None).await == 2
+        })
+        .await;
+    assert_eq!(
+        inbox.archive_locations().await,
+        (3, 2),
+        "置き直した書庫で位置の行が増えた / 印が外れた"
+    );
+    assert_eq!(
+        inbox.erase_ledger_rows(stay, "user:cascade").await,
+        3,
+        "置き直しで連鎖の台帳の行が増えた"
+    );
+
     // 滞在の判定の入力は基準のソースのままで、書庫の位置は足されていない。
     assert_eq!(
         crate::stay::Criteria::default_values().sources,
@@ -2604,4 +2645,357 @@ async fn archive_erased_cascade_restore_brings_the_locations_back() {
         (0, 5),
         "戻した後に印が残っている"
     );
+}
+
+/// 印付け（`mark_archive_arrivals`）を落とす継ぎ目。この利用者の `user:late` の削除の台帳の行を拒む
+/// trigger を置き、拒んだ回数を sequence に数える（sequence は transaction が巻き戻っても戻らない）。
+/// **条件にこの利用者を入れる**ので、DB を共有する他の試験には掛からない。
+struct LateMarkFault {
+    pool: sqlx::PgPool,
+    name: String,
+}
+
+impl LateMarkFault {
+    async fn install(inbox: &Inbox) -> Self {
+        let name = format!("st12_fault_{}", inbox.user.simple());
+        sqlx::raw_sql(&format!(
+            "CREATE SEQUENCE core.{name}_seq;
+             CREATE FUNCTION core.{name}_fn() RETURNS trigger AS $fn$
+             BEGIN
+               PERFORM nextval('core.{name}_seq');
+               RAISE EXCEPTION '試験の差し込み: 印付けを落とす';
+             END;
+             $fn$ LANGUAGE plpgsql;
+             CREATE TRIGGER {name}_tg BEFORE INSERT ON core.deletion_ledger
+               FOR EACH ROW WHEN (NEW.user_id = '{user}'::uuid AND NEW.mark = 'user:late')
+               EXECUTE FUNCTION core.{name}_fn();",
+            user = inbox.user
+        ))
+        .execute(&inbox.pool)
+        .await
+        .unwrap();
+        Self {
+            pool: inbox.pool.clone(),
+            name,
+        }
+    }
+
+    /// 印付けを拒んだ回数。
+    async fn fired(&self) -> i64 {
+        sqlx::query_scalar(&format!(
+            "SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM core.{}_seq",
+            self.name
+        ))
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn remove(self) {
+        sqlx::raw_sql(&format!(
+            "DROP TRIGGER {name}_tg ON core.deletion_ledger;
+             DROP FUNCTION core.{name}_fn();
+             DROP SEQUENCE core.{name}_seq;",
+            name = self.name
+        ))
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
+}
+
+impl Inbox {
+    /// この書庫の、いまの解析器の版の `read` の台帳の行の数。
+    async fn read_rows_now(&self, archive_sha256: Option<&str>) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.archive_ledger
+              WHERE user_id = $1 AND parser_version = $2 AND outcome = 'read'
+                AND ($3::text IS NULL OR sha256 = $3)",
+        )
+        .bind(self.user)
+        .bind(crate::archive::PARSER_VERSION)
+        .bind(archive_sha256)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// 滞在の作り直しの跡: この利用者の基準の版の行の数と、`rebuild:` の印の付いた行の数。
+    async fn rebuild_traces(&self) -> (i64, i64) {
+        let criteria: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core.stay_criteria WHERE user_id = $1")
+                .bind(self.user)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap();
+        let rebuilt: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE user_id = $1 AND deleted_by LIKE $2",
+        )
+        .bind(self.user)
+        .bind(format!("{}%", crate::stay_store::REBUILD_PREFIX))
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        (criteria, rebuilt)
+    }
+
+    fn late_marks(marks: &[(String, Option<String>)]) -> usize {
+        marks
+            .iter()
+            .filter(|(_, by)| by.as_deref() == Some("user:late"))
+            .count()
+    }
+}
+
+// Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+//
+// 印付けが一時的に落ちた書庫は `read` の台帳の行を持たずに置き場に残り、次の走査で読み直されて印が付く
+// （final review 第 2 回 R72。`read` の行を先に書いていたときは、次の走査が既読として畳み、
+// 消した時間帯の位置が生きた記録のまま残った）。
+#[tokio::test]
+async fn archive_erased_window_marks_after_a_failed_marking_on_the_next_scan() {
+    let inbox = Inbox::new("archive-erased-mark-retry").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let fault = LateMarkFault::install(&inbox).await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("印付けが一度も試されない", || async {
+            fault.fired().await >= 1
+        })
+        .await;
+    // 落ちた書庫は既読になっていない（次の走査で読み直される）。位置は格納済みで印は無い。
+    assert_eq!(
+        inbox.read_rows_now(None).await,
+        0,
+        "印付けに落ちた書庫に read の台帳の行がある（次の走査が読み直さない）"
+    );
+    assert!(
+        inbox.inbox.join("Timeline.json.zip").exists(),
+        "印付けに落ちた書庫が置き場に残っていない"
+    );
+    assert_eq!(inbox.archive_locations().await, (0, 5));
+    fault.remove().await;
+
+    inbox.until_archive_locations(5).await;
+    inbox
+        .until("次の走査で印が付かない", || async {
+            Inbox::late_marks(&inbox.marks().await) == 3
+        })
+        .await;
+    assert_eq!(inbox.archive_locations().await, (3, 2));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 3);
+    assert_eq!(inbox.read_rows_now(None).await, 1);
+}
+
+// Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+//
+// 解析器の版が上がって写しから読み直す経路（`reparse_older_versions` → `reread_archive`）も、
+// 印付けに落ちればいまの版の `read` の行を残さず、次の周で読み直して印を付ける（R72）。
+#[tokio::test]
+async fn archive_erased_window_reparse_marks_after_a_failed_marking() {
+    let inbox = Inbox::new("archive-erased-reparse-retry").await;
+    let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+    std::fs::create_dir_all(&inbox.copies).unwrap();
+    let stored =
+        crate::archive::worker::copy_known_file(&inbox.copies, ERASE_TIMELINE.as_bytes()).unwrap();
+    crate::archive::worker::record_copy(
+        &inbox.pool,
+        inbox.user,
+        stored.file_name().unwrap().to_str().unwrap().to_owned(),
+        "Timeline.json",
+        &stored,
+        &archive_sha,
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, file_name)
+         VALUES ($1, $2, 'older', 'read', 'Timeline.json.zip')",
+    )
+    .bind(inbox.user)
+    .bind(&archive_sha)
+    .execute(&inbox.pool)
+    .await
+    .unwrap();
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let fault = LateMarkFault::install(&inbox).await;
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読み直しの印付けが一度も試されない",
+            || async { fault.fired().await >= 1 },
+        )
+        .await;
+    assert_eq!(
+        inbox.read_rows_now(Some(&archive_sha)).await,
+        0,
+        "印付けに落ちた読み直しに いまの版の read の行がある（次の周の対象から外れる）"
+    );
+    fault.remove().await;
+
+    inbox
+        .until("次の周の読み直しで印が付かない", || async {
+            Inbox::late_marks(&inbox.marks().await) == 3
+                && inbox.read_rows_now(Some(&archive_sha)).await == 1
+        })
+        .await;
+    assert_eq!(inbox.archive_locations().await, (3, 2));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 3);
+}
+
+/// 移行前の `Semantic Location History`。消した滞在（03:00Z〜04:00Z）に対して、**始まりは前で終わりだけが
+/// 触れる・入る**訪問と移動（ミリ秒の `endTimestampMs`）と、外の訪問を持つ。終わりをミリ秒として読まないと
+/// 終わりが始まりに倒れ、重なる 2 件にも印が付かない（final review 第 2 回 R76）。
+const LEGACY_SEMANTIC_BEFORE: &str = r#"{"timelineObjects":[
+  {"placeVisit":{"location":{"placeId":"before-touch"},"duration":{"startTimestampMs":"1789178400000","endTimestampMs":"1789182000000"}}},
+  {"activitySegment":{"activityType":"WALKING","duration":{"startTimestampMs":"1789180200000","endTimestampMs":"1789183800000"}}},
+  {"placeVisit":{"location":{"placeId":"outside"},"duration":{"startTimestampMs":"1789192800000","endTimestampMs":"1789196400000"}}}
+ ]}"#;
+
+/// 消した後に届く移行前の訪問。始まりは消した時間帯の前、終わりは中（ミリ秒）。
+const LEGACY_SEMANTIC_AFTER: &str = r#"{"timelineObjects":[
+  {"placeVisit":{"location":{"placeId":"late-arrival"},"duration":{"startTimestampMs":"1789180200000","endTimestampMs":"1789185540000"}}}
+ ]}"#;
+
+impl Inbox {
+    /// 移行前の `Semantic Location History` を、取り込み器を介さずに格納する（退役の日付を動かさない）。
+    async fn store_semantic(&self, body: &str) -> Vec<crate::IngestRequest> {
+        let requests = crate::archive::worker::requests_for_file(
+            crate::archive::classify::KnownKind::SemanticHistory,
+            "Semantic Location History/2026/2026_SEPTEMBER.json",
+            body.as_bytes(),
+            self.user,
+            format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+        )
+        .unwrap();
+        let sink = crate::PgSink::new(self.pool.clone());
+        crate::archive::worker::store_requests(&sink, requests.clone())
+            .await
+            .unwrap();
+        requests
+    }
+
+    async fn legacy_marks(&self) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT logical_source, deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source IN ('c03-legacy-visit', 'c03-legacy-activity')
+              ORDER BY event_time, logical_source",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 滞在を消すとその時間帯の書庫の位置も削除済みになる
+// Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+//
+// 移行前の区間（`c03-legacy-visit` / `-activity`）の終わりはミリ秒（`endTimestampMs`）。消すときの連鎖と
+// 格納の直後の印付けの両方が、ミリ秒の終わりで重なりを見る（final review 第 2 回 R76）。
+#[tokio::test]
+async fn archive_erased_legacy_millisecond_spans_follow_the_erased_stay() {
+    let inbox = Inbox::new("archive-erased-legacy").await;
+    let before = inbox.store_semantic(LEGACY_SEMANTIC_BEFORE).await;
+    assert_eq!(before.len(), 3);
+    assert!(
+        before.iter().all(|r| r.payload["end_time"]
+            .as_str()
+            .is_some_and(|t| t.len() == 13)),
+        "終わりがミリ秒の文字列で格納されていない: {:?}",
+        before
+            .iter()
+            .map(|r| &r.payload["end_time"])
+            .collect::<Vec<_>>()
+    );
+
+    // (2) 消すとき: 終わりが触れる訪問と、中で終わる移動に連鎖の印。外の訪問は生きる。
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.legacy_marks().await,
+        vec![
+            (
+                "c03-legacy-visit".to_owned(),
+                Some("user:cascade".to_owned())
+            ),
+            (
+                "c03-legacy-activity".to_owned(),
+                Some("user:cascade".to_owned())
+            ),
+            ("c03-legacy-visit".to_owned(), None),
+        ]
+    );
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 2);
+
+    // (1) 格納の直後: 消した後に届いた、始まりが前で終わりが中の訪問に後着の印。
+    let after = inbox.store_semantic(LEGACY_SEMANTIC_AFTER).await;
+    crate::stay_store::mark_archive_arrivals(&inbox.pool, inbox.user, &after)
+        .await
+        .unwrap();
+    let late: Vec<_> = inbox
+        .legacy_marks()
+        .await
+        .into_iter()
+        .filter(|(_, by)| by.as_deref() == Some("user:late"))
+        .collect();
+    assert_eq!(
+        late,
+        vec![("c03-legacy-visit".to_owned(), Some("user:late".to_owned()))]
+    );
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 1);
+}
+
+/// 位置を 1 件も入れなかった書庫（YouTube だけ）では印付けを飛ばす（final review 第 2 回 R78）。
+/// 飛ばさなければ利用者の錠を取りに行くので、錠を握ったままでも待たずに返ることで見る。
+#[tokio::test]
+async fn archive_marking_skips_an_archive_without_locations() {
+    let inbox = Inbox::new("archive-mark-skip").await;
+    let requests = crate::archive::worker::requests_for_file(
+        crate::archive::classify::KnownKind::YouTubeWatch,
+        "Takeout/YouTube/watch-history.json",
+        watch("2026-09-12T03:00:00Z", "ある動画").as_bytes(),
+        inbox.user,
+        "e".repeat(64),
+    )
+    .unwrap();
+    assert!(!requests.is_empty());
+    let mut held = inbox.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(inbox.user)
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    let other = testdb::pool().await;
+    let skipped = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::stay_store::mark_archive_arrivals(&other, inbox.user, &requests),
+    )
+    .await;
+    assert!(
+        matches!(skipped, Ok(Ok(()))),
+        "位置の無い書庫で印付けが利用者の錠を待った"
+    );
+    // 位置を入れた書庫なら錠を待つ（上の観測が、飛ばしたことを見ている裏付け）。
+    let located = inbox.store_semantic(LEGACY_SEMANTIC_AFTER).await;
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        crate::stay_store::mark_archive_arrivals(&other, inbox.user, &located),
+    )
+    .await;
+    assert!(waited.is_err(), "位置を入れた書庫の印付けが錠を待たない");
+    held.rollback().await.unwrap();
 }

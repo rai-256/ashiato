@@ -1459,6 +1459,10 @@ async fn reread_archive(
     if done.is_empty() {
         return Ok(done);
     }
+    // **`read` の台帳の行より先に印を付ける**（final review 第 2 回 R72）。落ちたら Err で返し、いまの版の
+    // `read` の行を書かないので、版の読み直しは次の周の対象に残り、確認待ちは確認待ちの行が残る。
+    // どちらも次に写しから読み直して（格納は内容の鍵で増えない）印を付け直す。
+    crate::stay_store::mark_archive_arrivals(pool, user_id, &stored_requests).await?;
     // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`。design D18）。混在した書庫は
     // 1 回目の読みで既に `read` の行を持っている。名前・作られた時刻・置き場の種類は
     // 元の読みの行から引き継ぐ（NULL と既定の `inbox` で書いていた。final review R58）。
@@ -1494,9 +1498,6 @@ async fn reread_archive(
         }
     };
     record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
-    // 印を付けられなければ失敗として返す。書庫は置き場に残り、次の走査が読み直して印を付け直す
-    // （書庫の取り込みは作り直しを起こさないので、ここで畳むと消した時間帯の位置が生きたまま残る）。
-    crate::stay_store::mark_archive_arrivals(pool, user_id).await?;
     Ok(done)
 }
 
@@ -2089,6 +2090,21 @@ pub fn spawn_inspecting(
                         }
                         return;
                     }
+                    // **`read` の台帳の行より先に印を付ける**（final review 第 2 回 R72）。格納は commit 済みで
+                    // 印付けは冪等。落ちたら台帳を書かずに書庫を置き場に残すので、次の走査が既読と見なさずに
+                    // 読み直し（格納は内容の鍵で増えない）、印を付け直す。`read` の行を先に書いていたときは、
+                    // 次の走査が既読として畳み、消した時間帯の位置が生きた記録のまま残った
+                    // （取り込みは作り直しを起こさないので、他に印を付ける経路が無い）。
+                    if crate::stay_store::mark_archive_arrivals(&pool, user_id, &stored_requests)
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            kind = "archive_mark_erased",
+                            "消した時間帯の印を付けられない"
+                        );
+                        return;
+                    }
                     let ledger = sqlx::query_scalar(
                     "INSERT INTO core.archive_ledger
                        (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_at, skipped_file_count, file_name)
@@ -2121,18 +2137,6 @@ pub fn spawn_inspecting(
                                 tracing::warn!(
                                     kind = "archive_ledger_source",
                                     "書庫のソース別台帳を残せない"
-                                );
-                                return;
-                            }
-                            // 印を付けられなければ書庫を置き場に残し、次の走査で読み直して付け直す
-                            // （取り込みは作り直しを起こさないので、畳むと消した時間帯の位置が生きたまま残る）。
-                            if crate::stay_store::mark_archive_arrivals(&pool, user_id)
-                                .await
-                                .is_err()
-                            {
-                                tracing::warn!(
-                                    kind = "archive_mark_erased",
-                                    "消した時間帯の印を付けられない"
                                 );
                                 return;
                             }

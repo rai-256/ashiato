@@ -26,5 +26,15 @@ pub const LOCATION_SOURCES: [&str; 7] = [
     "c03-legacy-activity",
 ];
 
+/// `LOCATION_SOURCES` のうち、終わり（`payload.end_time`）を持つ区間のソース 4 本（design D22）。
+/// 削除の重なりの判定で、これだけを終わりで見る。他のソース（基準のソースと点のソース）は始まりの時刻
+/// だけで判定でき、索引 `event_by_source_time` の上下限が効く（final review 第 2 回 R73）。
+pub const INTERVAL_SOURCES: [&str; 4] = [
+    "c03-timeline-visit",
+    "c03-timeline-move",
+    "c03-legacy-visit",
+    "c03-legacy-activity",
+];
+
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
 pub const PARSER_VERSION: &str = "1";
