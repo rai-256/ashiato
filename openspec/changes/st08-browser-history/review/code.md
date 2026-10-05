@@ -936,3 +936,82 @@ HEAD の複製で 1 つずつ書き換えて `cargo test -p ashiato-collector-wi
 - kind: technical
 - loss: uncaptured
 - 提案: `last_success > now` なら取得する（あるいは `last_success` を `now` に丸める）。注入した時計で「戻った直後に取得する」を固定するテストを足す。
+
+## final review（7d08921..2d02000）
+
+席: final reviewer（`superpowers:requesting-code-review` の `code-reviewer.md`。review package `.superpowers/sdd/tasks/review-7d08921..2d02000.diff`、77 commit）。
+判定: **No**。Task 3 からの回し直しで R37 / R38 / R39 / R42 / R44 / R46 / R47 / R51 は解消（`main.rs` → `Runtime::with_history` → `HistoryCollector::tick` → `HistoryWorker` → outbox が繋がり、識別子は D6 の式どおり）。
+`cargo test -p ashiato-collector-windows` rc=0（179 passed）。ただし deep.md 第 4 回 Q7 / Q8 の答えが design / tasks / spec に写されないまま回し直されたので、どちらも未実装（使い捨ての worktree で再現）。
+良い点（reviewer）: 読みの完了を待たない形（D3）を Runtime の層で固定、4 種の記録と `-wal` / `-journal` の写し、`profile_gone` の実在確認、成功の順序（帳面の後に `last_success`）、生存信号 2 本、smoke が本物の Runtime と読み手で psql まで通す。
+
+## R56. deep.md Q7（前回の成功が今より先ならすぐ取得する）が未実装
+
+- 成果物: crates/collector-windows/src/history/fetch.rs:160-166（`HistorySchedule::due`）
+- 根拠: `due` は `now - last >= 24h` だけ。`last_success` を 400 日目に置いて 0〜364 日目に毎日 `due()` → `days_blocked=365`（reviewer の一時テスト。R55 の実測と同じ）。
+  Q7 の「効く先」design D3 / tasks 5.4 に答えが写っていない（`grep -n 'Q7' design.md tasks.md specs/` が空）
+- kind: technical（答えは deep.md Q7 で出ている。実装するだけ）
+- 提案: `last.is_some_and(|l| l > now)` なら due。Runtime の層で「戻った直後に取得する」を固定。design D3 に Q7 を写し、D15（`source_updated_at` が過去になり題名の更新が古い到着として捨てられうる）に一行足す
+
+## R57. deep.md Q8（URL の行が無い訪問は URL 無しで入れ、「消えた」にしない）が未実装
+
+- 成果物: crates/collector-windows/src/history/read.rs:66-67（`FROM visits v JOIN urls u`）、:103（`JOIN moz_places p`）、`ReadVisit.url: String`、history/contract.rs の識別子と除外
+- 根拠: `urls` に無い `url=99` の訪問を 1 行入れると 2 件のはずが 1 件しか読まれない（reviewer の一時テスト）。帳面にあればこの後 `detect_vanished` で「消えた」に化ける（R26）。
+  Q8 の「効く先」design D2 / D10 に答えが写っていない
+- kind: technical（答えは deep.md Q8 で出ている）
+- 提案: `LEFT JOIN` と `url: Option<String>`。D6 の識別子の組での URL 無しの表し方を design D6 に書く。「URL の行が無い訪問が URL と題名を省いた visit として送られ、vanished に出ない」をテストで固定
+
+## R58. `exe-path` の除外登録がブラウザ履歴に当たらない（R41 が未解消）
+
+- 成果物: crates/collector-windows/src/exclusion.rs:134 付近（`hits_history`）
+- 根拠: `ExePath` の値（フルパス）を `"chrome.exe"` と `eq_ignore_ascii_case` で比べる。`exe-path: C:\Program Files\Google\Chrome\Application\chrome.exe` で `hits_history("chrome", …)` が false（reviewer の一時テスト）
+- kind: technical
+- loss: exported（README の手順どおり exe-path で除外した人の URL と題名が送られる。D11 の表に反する）
+- 提案: 値のファイル名部分（`\` / `/` の最後）で比べる。runtime の `history_exclusion_*` に exe-path の 1 本を足す
+
+## R59. 読めないプロファイルが 1 つ常にあると、全プロファイルを 1 分ごとに永久に読み直す
+
+- 成果物: crates/collector-windows/src/history/collect.rs:306（`ensure!(unreadable == 0)`）、history/read.rs:86 / :112（負の `visit_time` で `ok_or(InvalidQuery)?`。R49 の残り）
+- 根拠: 1 プロファイルの失敗で `schedule.failed` → 1 分後に再試行し、`last_success` が進まない。負の時刻 1 行・表の無い `History`・壊れた古いプロファイルのどれでも、全 DB の写しと全件読みが 1 日 1,440 回走る
+- kind: technical
+- 提案: 行 1 つの不正でプロファイル全体を落とさない（その行を飛ばして数える）。再試行の間隔を失敗回数で延ばすのは D3 の（仮）の範囲
+
+## R60. 写しの置き場と後始末が design D2 と違う（R43 が未解消）
+
+- 成果物: crates/collector-windows/src/history/read.rs:138-142
+- 根拠: 写しを `std::env::temp_dir()` に作り、`remove_dir_all(...).ok()` で削除の失敗を握りつぶす。読み手が panic すると（`HistoryWorker::join` が捕まえて収集は続く）URL を含む写しが %TEMP% に残る
+- kind: technical
+- 提案: drop guard にし、置き場（`state_dir/browser-history/tmp`）の下に作る。起動時に残骸を掃除し、削除の失敗は種別だけログに出す
+
+## R61. 10.1 / 10.2 は未検証なのに 10.4 は `[x]`。CI は今の head を一度も走らせていない
+
+- 成果物: openspec/changes/st08-browser-history/tasks.md:189-190、evidence.jsonl:69、.github/workflows/ci.yml
+- 根拠: evidence.jsonl:69 は 10.1 が FAIL（Linux で 0 本）。`origin/feat/st08-browser-history` は `6768425` のままで未 push が 33 commit。10.4 の検証「`collector-windows-runtime` job が緑」を今の head で見た者がいない。Chrome / Firefox の choco 導入と `-lt 10` の下限は `windows-latest` で未実行
+- kind: technical
+- 提案: push して job の結果で 10.1 / 10.2 / 10.4 を付け直す
+
+## R62. 単体が今も `Scenario: ブラウザが動いている間も取得できる` の印を持つ（R54 が未解消）
+
+- 成果物: crates/collector-windows/src/history/read.rs:293、:375
+- 根拠: Linux で写しが消えるのを見るだけの単体に印があり、`check_scenarios.py` は Windows の 3 本（10.1 / 10.2）が一度も通っていなくても担保ありに数える
+- kind: technical
+- 提案: 単体側の印を外す（担保は `tests/runtime_windows.rs` の 3 本）
+
+## R63. Minor: README の `browser-profile` の例が表示名に見える・帳面の退避が無言・本番の `.expect`・smoke の手組み JSON
+
+- 成果物: crates/collector-windows/README.md:70、history/ledger.rs（`*.broken.ledger`）、history/fetch.rs:128 / :206、tools/smoke.sh（ST08 の最初の節）
+- 根拠: README の例 `"profile": "Work"` は表示名に見えるが照合先は `profile_dir`（`Default` / `Profile 1`）で、表示名の登録は黙って当たらない。
+  帳面の退避がログ無しで上書き（R49 の残り）。`.expect` は `micros()` が作った値の再パース。smoke の手組み JSON は `"profile":"Default"` で D4 は `profile_dir`
+- kind: technical
+- 提案: README に「ディレクトリ名」と明記。退避を種別だけログに出す。`.expect` を消す。手組み JSON を D4 の形に揃える
+
+## R64. Minor: D10 の Chromium `sqlite_sequence` による作り直し判定が未実装（最大番号の比較だけ）
+
+- 成果物: crates/collector-windows/src/history/（`table_recreated` の算出）
+- 根拠: Task 6 の F2 の後半。最大番号が下がらない作り直しは見逃す
+- kind: technical
+
+## R65. Minor: Firefox の帳面が、ini の絶対パスのプロファイルと `Profiles\` 直下の同名ディレクトリで衝突する
+
+- 成果物: crates/collector-windows/src/history/locate.rs（`scan_ini` の `directory` = `file_name`）
+- 根拠: 2 つが同じ `(browser, directory)` の帳面を共有し、互いの訪問を毎回「消えた」と判定する
+- kind: technical
