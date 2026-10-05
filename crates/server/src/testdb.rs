@@ -41,7 +41,7 @@ pub fn url() -> String {
     with_port(&url_from_env("DATABASE_OWNER_URL"), db_port())
 }
 
-/// `postgres://user:pass@host:port/db` の port を差し替える。形が違えばそのまま返す。
+/// 接続の URL の `@<host>:<port>/` の port を差し替える（利用者と合言葉の部分は触らない）。形が違えばそのまま返す。
 fn with_port(url: &str, port: u16) -> String {
     let Some(at) = url.rfind('@') else {
         return url.to_string();
