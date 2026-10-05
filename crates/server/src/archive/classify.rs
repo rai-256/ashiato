@@ -3,7 +3,9 @@
 
 use super::open::ArchiveFile;
 
+// 試験の見張りが種類を手で並べずに全部を辿れるように（code-verify 第 6 回 R97）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 pub enum KnownKind {
     YouTubeWatch,
     YouTubeSearch,
@@ -111,21 +113,8 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::KnownKind;
 
-    /// 種類の全列挙。**`match` は網羅で、`_` を置かない**（種類を足すとここがコンパイルで落ちる）。
-    /// 足した種類は、いまの末尾の次に繋ぐ（繋がない種類は見張りから漏れる）。
-    fn next(kind: KnownKind) -> Option<KnownKind> {
-        match kind {
-            KnownKind::YouTubeWatch => Some(KnownKind::YouTubeSearch),
-            KnownKind::YouTubeSearch => Some(KnownKind::MyActivity),
-            KnownKind::MyActivity => Some(KnownKind::Timeline),
-            KnownKind::Timeline => Some(KnownKind::Records),
-            KnownKind::Records => Some(KnownKind::SemanticHistory),
-            KnownKind::SemanticHistory => Some(KnownKind::ChromeHistory),
-            KnownKind::ChromeHistory => None,
-        }
-    }
-
-    /// 種類ごとに、読み手のすべての枝（論理ソース）を通る材料。これも網羅の `match`。
+    /// 種類ごとに、読み手のすべての枝（論理ソース）を通る材料。**`match` は網羅で、`_` を置かない**
+    /// （種類を足すと、ここに材料を書くまでコンパイルで落ちる）。
     fn fixture(kind: KnownKind) -> &'static str {
         match kind {
             KnownKind::YouTubeWatch => {
@@ -166,12 +155,9 @@ mod tests {
     // （`s01-archive-inbox`）や台帳は要求を作らない。
     #[test]
     fn every_archive_logical_source_is_classified_as_location_or_item() {
-        let mut kinds = vec![KnownKind::YouTubeWatch];
-        while let Some(kind) = next(*kinds.last().unwrap()) {
-            kinds.push(kind);
-        }
+        // 種類は derive で全部を辿る（手で並べると、足した種類を並べ忘れても緑のまま。R97）。
         let mut seen = std::collections::BTreeSet::new();
-        for kind in kinds {
+        for kind in <KnownKind as strum::IntoEnumIterator>::iter() {
             let bytes = fixture(kind);
             let value: serde_json::Value = serde_json::from_str(bytes).unwrap();
             assert_eq!(

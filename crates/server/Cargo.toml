@@ -31,3 +31,4 @@ zip = "2"
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+strum = { version = "0.28", features = ["derive"] }
