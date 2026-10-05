@@ -8,15 +8,16 @@
 //! - `send <state_dir> <base_url> <token>` … 置き場に残っている未送信を送る
 use std::sync::Arc;
 
-use ashiato_collector_windows::clock::HttpDateClock;
+use ashiato_collector_windows::clock::{HttpDateClock, Uptime};
 use ashiato_collector_windows::config::{Config, Zone};
 use ashiato_collector_windows::engine::{Engine, IdleRead, Observation};
 use ashiato_collector_windows::exclusion::Exclusions;
 use ashiato_collector_windows::history::collect::{HistoryReader, ProfileRead, ReadOutcome};
 use ashiato_collector_windows::history::locate::Browser;
 use ashiato_collector_windows::history::read::read_visits;
-use ashiato_collector_windows::runtime::{Runtime, Source};
+use ashiato_collector_windows::runtime::{ClockInputs, Runtime, Source};
 use ashiato_collector_windows::sender::HttpTransport;
+use ashiato_collector_windows::time_sync::ProcessTimeSync;
 use rusqlite::Connection;
 
 fn main() -> anyhow::Result<()> {
@@ -78,13 +79,13 @@ impl HistoryReader for OneDb {
 }
 
 fn run(state_dir: &str, base_url: &str, token: &str, db: Option<&String>) -> anyhow::Result<()> {
-    let (cfg, zone, transport, reference) = parts(state_dir, base_url, token);
+    let (cfg, zone, transport, clock) = parts(state_dir, base_url, token);
     let mut rt = Runtime::new(
         &cfg,
         zone,
         Engine::new(Exclusions::default()),
         &transport,
-        &reference,
+        clock,
         chrono::Utc::now(),
     )?;
     if let Some(db) = db {
@@ -109,14 +110,14 @@ fn run(state_dir: &str, base_url: &str, token: &str, db: Option<&String>) -> any
 /// 訪問の無い履歴 DB を 1 回取得して「成功」を置き、訪問を置いてから**時計を 1 日進めて**取得する。
 /// 取得契機は 24 時間の間隔（design D3）なので、1 日進めたときだけ 2 回目の読みが始まる。
 fn next_day(db: &str, state_dir: &str, base_url: &str, token: &str) -> anyhow::Result<()> {
-    let (cfg, zone, transport, reference) = parts(state_dir, base_url, token);
+    let (cfg, zone, transport, clock) = parts(state_dir, base_url, token);
     let day1 = chrono::Utc::now();
     let mut rt = Runtime::new(
         &cfg,
         zone,
         Engine::new(Exclusions::default()),
         &transport,
-        &reference,
+        clock,
         day1,
     )?;
     rt = rt.with_history(Arc::new(OneDb(db.into())));
@@ -167,7 +168,7 @@ fn parts(
     state_dir: &str,
     base_url: &str,
     token: &str,
-) -> (Config, Zone, HttpTransport, HttpDateClock) {
+) -> (Config, Zone, HttpTransport, ClockInputs) {
     let cfg = Config {
         base_url: base_url.into(),
         api_token: token.into(),
@@ -180,6 +181,21 @@ fn parts(
         offset_min: 540,
     };
     let transport = HttpTransport::new(base_url, token);
-    let reference = HttpDateClock::new(base_url);
-    (cfg, zone, transport, reference)
+    let uptime: Arc<dyn Uptime> = Arc::new(ProcessUptime(std::time::Instant::now()));
+    let clock = ClockInputs {
+        reference: Arc::new(HttpDateClock::new(base_url, uptime.clone())),
+        time_sync: Arc::new(ProcessTimeSync::new()),
+        uptime,
+    };
+    (cfg, zone, transport, clock)
+}
+
+/// 起動からの経過時間の代わりに、この smoke の経過時間（`SystemUptime` は Windows だけ）。
+#[derive(Debug)]
+struct ProcessUptime(std::time::Instant);
+
+impl Uptime for ProcessUptime {
+    fn millis(&self) -> u64 {
+        self.0.elapsed().as_millis() as u64
+    }
 }
