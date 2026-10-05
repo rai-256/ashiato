@@ -873,36 +873,46 @@ parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merg
 - 根拠: `read` の台帳の行を INSERT した**後**に `mark_archive_arrivals` を呼び、失敗で `return` する。`read` 行は残るので、次の走査で `scan.rs` の既読の判定（`outcome IN ('read','unreadable','pending_shape')`）が `AlreadyRead` を返し、`worker.rs:1783-1793` は印を付け直さずに畳む。`reparse_older_versions` も新しい版の `read` 行が残るので次の周の対象から外れる。コメントと 8588e7f の「次の走査で読み直して付け直す」は成り立たない
 - 影響: 印付けが一時的な DB エラーで落ちると、消した時間帯の書庫の位置が生きた記録のまま残る（Q13 の loss: exported の経路）
 - kind: technical
+- 処置: fixed D22 — 印付けを `read` 台帳の INSERT の前へ（spawn_inspecting / reread_archive）。失敗すれば台帳が無いまま次の走査・次の周で読み直される。`archive_erased_window_marks_after_a_failed_marking_on_the_next_scan` / `archive_erased_window_reparse_marks_after_a_failed_marking`（直す前に 2 本とも落ちるのを確認）
 - 提案: `mark_archive_arrivals` を `read` 行の INSERT の前へ（格納は commit 済み・印付けは冪等）。reread_archive も同じ順に。印付けの失敗を差し込み、次の走査で印が付く試験を足す
 
 ## R73. 消すときの連鎖と書庫の印付けが、利用者の位置の全期間を助言ロックを握ったまま走査する（Task 15 F2 の格上げ）
 - 成果物: `crates/server/src/deletion.rs:284-289` / `:300-313` / `crates/server/src/stay_store.rs`（`mark_archive_arrivals`）
 - 根拠: `event_time >= $3` を外し `event_time <= $4 AND {event_end} >= $3` にしたため、索引 `event_by_source_time (logical_source, event_time)` が上側しか絞れない。基準の `c01-location`（年 50 万行）も含めて全履歴の payload を読む。基準のソースは `end_time` を持たないので意味は前と同じで索引だけを失っている。`mark_archive_arrivals` も書庫 1 冊ごとに書庫の位置の全期間 × 消した滞在を評価する
 - kind: technical
+- 処置: fixed D22 — 基準・点のソースは `event_time` の上下限、区間 4 本（`archive::INTERVAL_SOURCES`）だけ終わりで重なりを見る（`stay_store::overlaps_erased_sql`）。`mark_archive_arrivals` はその書庫が入れた位置の時刻の範囲だけ。区間のソースに下限が無いことは D22 に明記。`stay_erase_overlap_bounds_the_base_source_by_index`（EXPLAIN で Index Cond に上下限）
 - 提案: 下限 `event_time >= $3 - <区間の最長>` を足すか、基準のソースは `BETWEEN` のまま区間を持つ書庫のソースにだけ終わりの重なりを見る。`mark_archive_arrivals` はその書庫が入れた時刻の範囲に絞る
 
 ## R74. `tools/archive-shape.sh` の psql が無いときの回り道が `DATABASE_URL` を見ない
 - 成果物: `tools/archive-shape.sh:12-19`
 - 根拠: `docker compose exec db` の DB へ書き、`DATABASE_URL` が別の DB を指していても黙って成功する
 - kind: technical
+- 処置: fixed D16 — 回り道で `DATABASE_URL` の利用者・DB 名を `-U` / `-d` に渡し、回り道と接続先を stderr に出す（合言葉は出さない）。`tools/smoke.sh` 緑
 - 提案: 回り道に入ったことと接続先を出力に示す（または `DATABASE_URL` の DB 名・利用者を渡す）
 
 ## R75. `archive_erased_cascade_marks_locations_stored_before_the_erase` のコメント「置き直しても行は増えない」を確かめるコードが無い（Task 15 F4）
 - 成果物: `crates/server/src/archive_flow_tests.rs`
 - kind: technical
+- 処置: fixed D22 — 同じ Timeline.json を別の書庫として実際に置き直し、位置の行数と連鎖の台帳の行数が変わらないことを見る（`archive_flow_tests.rs:2587-2613`）
 - 提案: 置き直しを実際に行って行数を見るか、コメントを消す
 
 ## R76. `event_end_sql` のミリ秒の分岐と、移行前の区間（`c03-legacy-visit` / `-activity` の `endTimestampMs`）を通る試験が無い（Task 15 F5）
 - 成果物: `crates/server/src/deletion.rs`（`event_end_sql`）
 - kind: technical
+- 処置: fixed D22 — `archive_erased_legacy_millisecond_spans_follow_the_erased_stay`。ミリ秒の分岐を壊すと落ちることを確認
 - 提案: 移行前の区間を持つ位置が消した滞在に重なれば印が付く試験を足す
 
 ## R77. `archive_erased_window_marks_the_overlapping_archive_locations` の最後の `stays()==1` は作り直しが走っていても通る（Task 15 F3）
 - 成果物: `crates/server/src/archive_flow_tests.rs`
 - kind: technical
+- 処置: fixed D22 — `stay_criteria` の行と `rebuild:` の印が 0、消した滞在の印が `user` のままであることも見る
 - 提案: 作り直しの印か台帳の行が無いことを見る
 
 ## R78. `mark_archive_arrivals` が位置を 1 件も入れなかった書庫（YouTube・マイアクティビティだけ）でも全期間を走査する
 - 成果物: `crates/server/src/stay_store.rs`（`mark_archive_arrivals`）/ `worker.rs` の呼び出し
 - kind: technical
+- 処置: fixed D22 — 位置のソースの要求が 0 件なら錠も取らずに返す。`archive_marking_skips_an_archive_without_locations`
 - 提案: R73 の絞り込みと一緒に、位置を格納しなかったときは飛ばす
+
+## scoped re-review（b8fc9f6..d1035a8）: R72〜R78 すべて ADDRESSED。新しい Critical / Important なし
+- Minor（park）: `mark_archive_arrivals` の範囲の絞り込みは「その書庫より前に格納された行は、消すときの連鎖か前の書庫の印付けで処理済み」という前提に依る（ledger に ruling）
