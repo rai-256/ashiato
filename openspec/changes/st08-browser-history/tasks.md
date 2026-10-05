@@ -181,12 +181,12 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
   検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running` が rc=0
 - [ ] 10.2 Chrome と Firefox でも同じことを確かめる。
   検証: Windows で `... --test runtime_windows browser_history_chrome` rc=0 / `... --test runtime_windows browser_history_firefox` rc=0
-- [ ] 10.3 「前日に見たページが翌日の取得で入っている」を取り込み口まで通して見る: 10.1 の記録を smoke と同じ手順でサーバへ送り、
+- [x] 10.3 「前日に見たページが翌日の取得で入っている」を取り込み口まで通して見る: 10.1 の記録を smoke と同じ手順でサーバへ送り、
   psql で URL と訪問時刻の行があることを見る（Windows の job ではサーバを立てないので、`tools/smoke.sh` の側で
   履歴 DB を読んで取得契機を 1 日進める形にする）。
   Scenario: `前日に見たページが翌日の取得で入っている`。
   検証: `tools/smoke.sh` rc=0（手順に「取得契機を 1 日進めて psql で行を見る」がある）
-- [ ] 10.4 CI の `collector-windows-runtime` job の走った本数の下限を **既存 + 3**（10.1 / 10.2 の 3 本）に上げる。飛ばしを下限に数えない。
+- [x] 10.4 CI の `collector-windows-runtime` job の走った本数の下限を **既存 + 3**（10.1 / 10.2 の 3 本）に上げる。飛ばしを下限に数えない。
   検証: `.github/workflows/ci.yml` の下限の数が既存より 3 大きい（`git diff` で見る）/ `collector-windows-runtime` job が緑
 
 ## Task 11: 仕上げ
