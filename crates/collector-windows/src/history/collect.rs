@@ -194,7 +194,19 @@ impl HistoryCollector {
                 .iter()
                 .map(|v| Visit::from_read(profile.browser, &profile.directory, v))
                 .collect::<anyhow::Result<Vec<_>>>()?;
-            let (kept, _) = apply_history_exclusions(store.ledger_mut(), &exclusions, &visits);
+            let (kept, newly_excluded) =
+                apply_history_exclusions(store.ledger_mut(), &exclusions, &visits);
+            // 除外の件数は「その回に新しく除外した数」1 件。0 なら書かない。識別子は中身から決まるので、
+            // 積んだ後・帳面の保存の前に落ちたやり直しでも同じ 1 件に畳まれる（D6 / D11）
+            if !newly_excluded.is_empty() {
+                queue(&Visit::excluded(
+                    profile.browser,
+                    &profile.directory,
+                    wall,
+                    &newly_excluded,
+                )?)?;
+                queued += 1;
+            }
             let fresh = select_new_or_changed(store.ledger(), &kept);
             // 帳面の最大の訪問番号と比べるので、書き換える前に消えた訪問を見つける
             let max_visit_id = read.iter().map(|v| v.id).max();

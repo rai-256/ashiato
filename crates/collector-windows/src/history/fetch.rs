@@ -107,9 +107,9 @@ pub fn apply_history_exclusions(
     ledger: &mut Ledger,
     exclusions: &crate::exclusion::Exclusions,
     visits: &[Visit],
-) -> (Vec<Visit>, usize) {
+) -> (Vec<Visit>, Vec<String>) {
     let mut kept = Vec::new();
-    let mut newly_excluded = 0;
+    let mut newly_excluded = Vec::new();
     for visit in visits {
         let excluded = exclusions.hits_history(
             visit.payload.browser,
@@ -123,7 +123,7 @@ pub fn apply_history_exclusions(
                 .get(&visit.external_id)
                 .is_some_and(|saved| saved.excluded);
             if !was_excluded {
-                newly_excluded += 1;
+                newly_excluded.push(visit.external_id.clone());
             }
             let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at)
                 .expect("Visit は RFC3339")
@@ -434,7 +434,7 @@ mod exclusion_change_tests {
     }
     #[test]
     fn history_exclusion_added_later() {
-        // Scenario: 登録を後から足すと、既に送った訪問の変わった内容は送られない
+        // 印は Runtime を通す `runtime::tests::history_exclusion_added_later` が持つ。
         let v = visit();
         let mut ledger = Ledger::default();
         mark_queued(&mut ledger, std::slice::from_ref(&v));
@@ -444,11 +444,11 @@ mod exclusion_change_tests {
             }],
         };
         let (kept, excluded) = apply_history_exclusions(&mut ledger, &rules, &[v]);
-        assert!(kept.is_empty() && excluded == 1);
+        assert!(kept.is_empty() && excluded.len() == 1);
     }
     #[test]
     fn history_exclusion_removed_later() {
-        // Scenario: 登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる
+        // 印は Runtime を通す `runtime::tests::history_exclusion_removed_later` が持つ。
         let v = visit();
         let mut ledger = Ledger::default();
         ledger.record_visit(&v.external_id, "h", chrono::Utc::now(), false, true);
@@ -458,7 +458,7 @@ mod exclusion_change_tests {
             std::slice::from_ref(&v),
         );
         assert_eq!(kept, vec![v]);
-        assert_eq!(excluded, 0);
+        assert!(excluded.is_empty());
     }
 }
 

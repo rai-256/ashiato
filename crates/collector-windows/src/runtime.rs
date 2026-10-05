@@ -1799,6 +1799,8 @@ mod tests {
         reads: Mutex<usize>,
         /// 次の読みで、プロファイルが読めない / ディレクトリごと無い、を再現する
         profile: Mutex<ProfileState>,
+        /// ほかのプロファイル（ブラウザ・ディレクトリ名・訪問）。除外の写像を見るためのもの
+        others: Mutex<Vec<(Browser, String, Vec<ReadVisit>)>>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1817,6 +1819,7 @@ mod tests {
                 visits: Mutex::new(visits),
                 reads: Mutex::new(0),
                 profile: Mutex::new(ProfileState::Readable),
+                others: Mutex::new(Vec::new()),
             })
         }
 
@@ -1827,6 +1830,7 @@ mod tests {
                 visits: Mutex::new(visits),
                 reads: Mutex::new(0),
                 profile: Mutex::new(ProfileState::Readable),
+                others: Mutex::new(Vec::new()),
             });
             (reader, tx)
         }
@@ -1849,12 +1853,20 @@ mod tests {
                 ProfileState::Unreadable => Err(anyhow::anyhow!("履歴 DB を開けない")),
                 ProfileState::Readable => Ok(self.visits.lock().unwrap().clone()),
             };
+            let mut profiles = vec![ProfileRead {
+                browser: Browser::Chrome,
+                directory: "Default".into(),
+                visits,
+            }];
+            for (browser, directory, visits) in self.others.lock().unwrap().iter() {
+                profiles.push(ProfileRead {
+                    browser: *browser,
+                    directory: directory.clone(),
+                    visits: Ok(visits.clone()),
+                });
+            }
             Ok(ReadOutcome {
-                profiles: vec![ProfileRead {
-                    browser: Browser::Chrome,
-                    directory: "Default".into(),
-                    visits,
-                }],
+                profiles,
                 names: Vec::new(),
             })
         }
@@ -2396,5 +2408,278 @@ mod tests {
             window.len()
         };
         assert_eq!(window_records(true), window_records(false));
+    }
+
+    // ---- 履歴の除外（ST08 Task 7）。取り込み口へ送られた本文で確かめる ----
+
+    fn write_rules(cfg: &Config, rules: &str) {
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        std::fs::write(
+            cfg.state_dir.join("exclusions.json"),
+            format!(r#"{{"rules": {rules}}}"#),
+        )
+        .unwrap();
+    }
+
+    fn with_other_profile(reader: &FakeReader, directory: &str, visits: Vec<ReadVisit>) {
+        reader
+            .others
+            .lock()
+            .unwrap()
+            .push((Browser::Chrome, directory.into(), visits));
+    }
+
+    /// 1 回取得して送る。取り込み口に届いた全部の本文（文字列）を返す。
+    fn fetch_and_send(cfg: &Config, reader: &Arc<FakeReader>) -> (AcceptAll, String) {
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, reader, 0);
+        rt.send();
+        let all = transport
+            .bodies
+            .borrow()
+            .iter()
+            .map(|(_, b)| b.clone())
+            .collect::<String>();
+        (transport, all)
+    }
+
+    fn excluded_records(t: &AcceptAll) -> Vec<serde_json::Value> {
+        history_records(t)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "excluded")
+            .collect()
+    }
+
+    /// Scenario: ブラウザのプロセスを除外するとその全プロファイルの履歴が送られない
+    #[test]
+    fn history_exclusion_process_covers_all_profiles() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "ひとつめの題名")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "ふたつめの題名")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        for leaked in [
+            "example.test/1",
+            "example.test/2",
+            "ひとつめの題名",
+            "ふたつめの題名",
+        ] {
+            assert!(
+                !all.contains(leaked),
+                "除外したはずの本文が送られた: {leaked}"
+            );
+        }
+        assert!(history_urls_of_kind(&transport, "visit").is_empty());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    fn history_urls_of_kind(t: &AcceptAll, kind: &str) -> Vec<String> {
+        history_records(t)
+            .iter()
+            .filter(|r| r["payload"]["kind"] == kind)
+            .map(|r| r["payload"]["url"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Scenario: 履歴で除外した件数が残る
+    #[test]
+    fn history_exclusion_count_is_recorded() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![
+            read_visit(1, "a"),
+            read_visit(2, "b"),
+            read_visit(3, "c"),
+        ]);
+        let (transport, _) = fetch_and_send(&cfg, &reader);
+        let excluded = excluded_records(&transport);
+        assert_eq!(excluded.len(), 1, "1 回・1 プロファイルにつき 1 件");
+        assert_eq!(excluded[0]["payload"]["excluded_count"], 3);
+        assert!(
+            excluded[0]["payload"]["url"].is_null() && excluded[0]["payload"]["title"].is_null()
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 2 回目の取得（1 日後）まで回して送る。
+    fn fetch_twice(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, reader, 0);
+        rt.send();
+        tick_until_read_again(&mut rt, &mut src, reader, Duration::hours(24).num_seconds());
+        rt.send();
+        transport
+    }
+
+    /// Scenario: 除外した訪問は取得のたびに数え直されない
+    #[test]
+    fn history_exclusion_is_not_recounted_each_fetch() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let transport = fetch_twice(&cfg, &reader);
+        let counted: u64 = excluded_records(&transport)
+            .iter()
+            .map(|r| r["payload"]["excluded_count"].as_u64().unwrap())
+            .sum();
+        assert_eq!(counted, 1, "2 回目の取得で数え直した");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 題名の部分一致の登録はページの題名に当たる
+    #[test]
+    fn history_exclusion_title_matches_page_title() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"title-contains","value":"シークレット"}]"#,
+        );
+        let reader = FakeReader::new(vec![
+            read_visit(1, "シークレットの頁"),
+            read_visit(2, "普通"),
+        ]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        assert!(!all.contains("example.test/1") && !all.contains("シークレットの頁"));
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: URL の部分一致の登録は履歴にも効く
+    #[test]
+    fn history_exclusion_url_matches_history() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "b")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        assert!(!all.contains("example.test/1"));
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: プロファイルを指す登録はそのプロファイルの履歴だけを除く
+    #[test]
+    fn history_exclusion_profile_is_specific() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"browser-profile","browser":"chrome","profile":"Default"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "b")]);
+        let (transport, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 取得をやり直しても除外の件数は増えない
+    #[test]
+    fn history_exclusion_retry_counts_once() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        drop(rt);
+        // 除外の記録を積んだ後・取得の成功を書く前に止まった（帳面は書く前のまま）。起動し直してやり直す
+        std::fs::remove_dir_all(cfg.state_dir.join("browser-history")).unwrap();
+        let mut again = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let before = reader.reads();
+        for sec in 1000..3000 {
+            again.tick_at(&mut src, t(sec), t(sec));
+            if reader.reads() > before && !again.history.as_ref().unwrap().is_reading() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        again.send();
+        let records = excluded_records(&transport);
+        let mut ids: Vec<_> = records
+            .iter()
+            .map(|r| r["external_id"].as_str().unwrap().to_string())
+            .collect();
+        ids.dedup();
+        assert_eq!(ids.len(), 1, "やり直しで別の識別子になった");
+        assert!(records.iter().all(|r| r["payload"]["excluded_count"] == 1));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 登録を後から足すと、既に送った訪問の変わった内容は送られない
+    #[test]
+    fn history_exclusion_added_later() {
+        let cfg = cfg();
+        let reader = FakeReader::new(vec![read_visit(1, "元の題名")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(history_urls_of_kind(&first, "visit").len(), 1);
+
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        reader.visits.lock().unwrap()[0].title = Some("変わった題名".into());
+        let second = fetch_twice_from_second(&cfg, &reader);
+        let all = second
+            .bodies
+            .borrow()
+            .iter()
+            .map(|(_, b)| b.clone())
+            .collect::<String>();
+        assert!(!all.contains("変わった題名"), "登録の後の内容が送られた");
+        assert!(history_urls_of_kind(&second, "visit").is_empty());
+        let ledger =
+            std::fs::read_to_string(cfg.state_dir.join("browser-history/chrome/Default.ledger"))
+                .unwrap();
+        assert!(
+            ledger.contains("v1:visit:"),
+            "既に格納された訪問の行（帳面）が消えた"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 前回の成功を 1 日前に置いて、同じ状態の置き場でもう 1 回取得する。
+    fn fetch_twice_from_second(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
+        write_last_success(cfg, t(0) - Duration::hours(24));
+        fetch_and_send(cfg, reader).0
+    }
+
+    /// Scenario: 登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる
+    #[test]
+    fn history_exclusion_removed_later() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert!(history_urls_of_kind(&first, "visit").is_empty());
+
+        write_rules(&cfg, "[]");
+        let second = fetch_twice_from_second(&cfg, &reader);
+        assert_eq!(
+            history_urls_of_kind(&second, "visit"),
+            vec!["https://example.test/1"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 }
