@@ -188,8 +188,9 @@ impl Visit {
             p.visit_duration_us = v.duration_us;
             p.is_known_to_sync = v.is_known_to_sync;
         }
-        p.originator_cache_guid = v.originator_cache_guid.clone();
-        p.originator_visit_id = v.originator_cache_guid.as_ref().and(v.originator_visit_id);
+        // 発生元の印は他端末の訪問だけ（空の guid は PC 自身。D9）
+        p.originator_cache_guid = v.originator_cache_guid.clone().filter(|g| !g.is_empty());
+        p.originator_visit_id = p.originator_cache_guid.as_ref().and(v.originator_visit_id);
         let id = format!(
             "v1:visit:{}",
             digest(&[

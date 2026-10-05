@@ -39,13 +39,45 @@ pub struct ReadVisit {
     pub is_known_to_sync: Option<bool>,
 }
 
+/// 表にその列があれば `v.<列>`、無ければ `NULL`（古い版のブラウザの履歴 DB は列が少ない）。
+fn column_or_null(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<String> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let has = stmt
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column);
+    Ok(if has {
+        format!("v.{column}")
+    } else {
+        "NULL".to_owned()
+    })
+}
+
 pub fn read_chromium(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
     let conn =
         rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut stmt = conn.prepare("SELECT v.id,u.url,u.title,v.visit_time,v.transition,v.from_visit,v.visit_duration,v.originator_cache_guid,v.originator_visit_id FROM visits v JOIN urls u ON u.id=v.url ORDER BY v.id")?;
+    let col = |c| column_or_null(&conn, "visits", c);
+    let sql = format!(
+        "SELECT v.id,u.url,u.title,v.visit_time,v.transition,v.from_visit,{},{},{},{},{} \
+         FROM visits v JOIN urls u ON u.id=v.url ORDER BY v.id",
+        col("visit_duration")?,
+        col("opener_visit")?,
+        col("originator_cache_guid")?,
+        col("originator_visit_id")?,
+        col("is_known_to_sync")?,
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let visits = stmt
         .query_map([], |r| {
             let raw: i64 = r.get(3)?;
+            // 空の発生元は「この PC 自身の訪問」（他端末の訪問だけが印を持つ。design D9）
+            let guid = r.get::<_, Option<String>>(8)?.filter(|g| !g.is_empty());
+            let originator_visit_id = guid.as_ref().and(r.get::<_, Option<i64>>(9)?);
             Ok(ReadVisit {
                 id: r.get(0)?,
                 visit_time_raw: raw,
@@ -53,12 +85,12 @@ pub fn read_chromium(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
                 title: r.get(2)?,
                 at: chromium_micros(raw).ok_or(rusqlite::Error::InvalidQuery)?,
                 transition: r.get(4)?,
-                from_visit: nonzero(r.get(5)?),
-                opener_visit: None,
+                from_visit: nonzero(r.get::<_, Option<i64>>(5)?.unwrap_or(0)),
+                opener_visit: nonzero(r.get::<_, Option<i64>>(7)?.unwrap_or(0)),
                 duration_us: r.get(6)?,
-                originator_cache_guid: r.get(7)?,
-                originator_visit_id: r.get(8)?,
-                is_known_to_sync: None,
+                originator_cache_guid: guid,
+                originator_visit_id,
+                is_known_to_sync: r.get::<_, Option<i64>>(10)?.map(|f| f != 0),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -79,7 +111,7 @@ pub fn read_firefox(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
                 title: r.get(2)?,
                 at: firefox_micros(raw).ok_or(rusqlite::Error::InvalidQuery)?,
                 transition: r.get(4)?,
-                from_visit: nonzero(r.get(5)?),
+                from_visit: nonzero(r.get::<_, Option<i64>>(5)?.unwrap_or(0)),
                 opener_visit: None,
                 duration_us: None,
                 originator_cache_guid: None,
@@ -95,19 +127,53 @@ fn nonzero(value: i64) -> Option<i64> {
     (value != 0).then_some(value)
 }
 
-/// 開いている DB を直接触らず、一時の写しへ読み取り操作を閉じ込める。
+/// 開いている DB を直接触らず、一時の写しへ読み取り操作を閉じ込める（design D2）。
+///
+/// `<名前>` と、あれば `<名前>-journal` / `<名前>-wal` を一時ディレクトリへ写し、
+/// 読み終えたらディレクトリごと消す（私的な内容を置き場に残さない）。
 pub fn with_copy<T>(
     source: &std::path::Path,
     read: impl FnOnce(&std::path::Path) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-    let copy = std::env::temp_dir().join(format!(
-        "ashiato-history-copy-{}.sqlite",
-        uuid::Uuid::new_v4()
-    ));
-    std::fs::copy(source, &copy)?;
-    let result = read(&copy);
-    std::fs::remove_file(copy).ok();
+    let dir = std::env::temp_dir().join(format!("ashiato-history-copy-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir)?;
+    let result = copy_and_read(source, &dir, read);
+    std::fs::remove_dir_all(&dir).ok();
     result
+}
+
+fn copy_and_read<T>(
+    source: &std::path::Path,
+    dir: &std::path::Path,
+    read: impl FnOnce(&std::path::Path) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let name = source
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("履歴 DB のファイル名が無い"))?;
+    let copy = dir.join(name);
+    std::fs::copy(source, &copy)?;
+    for suffix in ["-journal", "-wal"] {
+        let mut from = source.as_os_str().to_owned();
+        from.push(suffix);
+        let mut to = copy.as_os_str().to_owned();
+        to.push(suffix);
+        // 無いのが普通。あるのに写せなければ、写しが古い DB になるので失敗として返す
+        if std::path::Path::new(&from).is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    read(&copy)
+}
+
+/// ブラウザの系統に合う読み手で、履歴 DB の写しから訪問を読む。
+pub fn read_visits(
+    browser: crate::history::locate::Browser,
+    source: &std::path::Path,
+) -> anyhow::Result<Vec<ReadVisit>> {
+    with_copy(source, |copy| match browser {
+        crate::history::locate::Browser::Firefox => read_firefox(copy),
+        _ => read_chromium(copy),
+    })
 }
 
 /// 履歴を読む区間が無いときでも、写しを開いて最小の問い合わせまで通す。
@@ -252,6 +318,132 @@ mod tests {
         assert!(probe_readable(&db).is_err());
         std::fs::remove_file(db).ok();
     }
+    const CHROMIUM_FULL: &str = "CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER, visit_duration INTEGER, opener_visit INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER, is_known_to_sync INTEGER);";
+
+    #[test]
+    fn history_read_chromium_opener_and_sync_flag() {
+        // Scenario: 遷移の種類とどこから来たかが残る
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(CHROMIUM_FULL).unwrap();
+        conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/',NULL); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'',0,0),(2,1,20,1,1,5,1,'',0,1);").unwrap();
+        drop(conn);
+        let v = read_chromium(&db).unwrap();
+        assert_eq!(v[0].opener_visit, None);
+        assert_eq!(v[0].is_known_to_sync, Some(false));
+        assert_eq!(v[1].opener_visit, Some(1));
+        assert_eq!(v[1].is_known_to_sync, Some(true));
+        // 空の発生元は「他端末の訪問」ではない
+        assert_eq!(v[0].originator_cache_guid, None);
+        assert_eq!(v[0].originator_visit_id, None);
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_read_chromium_old_schema_without_optional_columns() {
+        // Scenario: 同じページを 2 回訪問すると 2 件になる
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER); INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1);").unwrap();
+        drop(conn);
+        let v = read_chromium(&db).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].duration_us, None);
+        assert_eq!(v[0].originator_cache_guid, None);
+        assert_eq!(v[0].is_known_to_sync, None);
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_read_firefox_keeps_url_text_untouched() {
+        // Scenario: 履歴 DB の URL の文字列を補正しない
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'HTTPS://Example.TEST/Path',NULL); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0),(2,1,6,1,1);").unwrap();
+        drop(conn);
+        let v = read_firefox(&db).unwrap();
+        assert_eq!(v.len(), 2, "同じページを 2 回訪問すると 2 件");
+        assert_eq!(v[0].url, "HTTPS://Example.TEST/Path");
+        assert_eq!(v[0].title, None);
+        assert_eq!(v[1].from_visit, Some(1));
+        assert_eq!(v[0].originator_cache_guid, None);
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_copy_is_removed_with_wal_and_journal_and_reads_wal_rows() {
+        // Scenario: ブラウザが動いている間も取得できる
+        let dir = std::env::temp_dir().join(format!("ashiato-read-dir-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("History");
+        let open = rusqlite::Connection::open(&db).unwrap();
+        open.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE t(x INTEGER); INSERT INTO t VALUES(7);").unwrap();
+        // 開いたまま（ブラウザが動いている）。行は -wal にだけある
+        assert!(dir.join("History-wal").exists());
+        std::fs::write(dir.join("History-journal"), []).unwrap();
+        let mut seen = Vec::new();
+        let n: i64 = with_copy(&db, |copy| {
+            let parent = copy.parent().unwrap();
+            seen = std::fs::read_dir(parent)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
+            let c = rusqlite::Connection::open_with_flags(
+                copy,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )?;
+            Ok(c.query_row("SELECT x FROM t", [], |r| r.get(0))?)
+        })
+        .unwrap();
+        assert_eq!(n, 7);
+        assert!(seen.len() >= 2, "journal / wal も写す: {seen:?}");
+        for p in &seen {
+            assert!(!p.exists(), "写しは消える: {}", p.display());
+        }
+        drop(open);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn history_read_visits_picks_reader_by_family() {
+        // Scenario: 複数のブラウザと複数のプロファイルの履歴が全部入る
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'https://a.test/',NULL); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0);").unwrap();
+        drop(conn);
+        let v = read_visits(crate::history::locate::Browser::Firefox, &db).unwrap();
+        assert_eq!(v.len(), 1);
+        std::fs::remove_file(db).ok();
+    }
+
+    #[test]
+    fn history_foreign_visits_keep_pc_side_identifier_and_pc_mark() {
+        // Scenario: 他の端末の訪問は発生元の印を持つ
+        // Scenario: PC 自身の訪問は発生元の印を持たない
+        let db = temp_db();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(CHROMIUM_FULL).unwrap();
+        conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'other-pc',99,1),(2,1,10,0,1,5,0,'',0,0);").unwrap();
+        drop(conn);
+        let b = crate::history::locate::Browser::Chrome;
+        let v = read_visits(b, &db).unwrap();
+        let foreign = crate::history::contract::Visit::from_read(b, "Default", &v[0]).unwrap();
+        let local = crate::history::contract::Visit::from_read(b, "Default", &v[1]).unwrap();
+        assert_eq!(
+            foreign.payload.originator_cache_guid.as_deref(),
+            Some("other-pc")
+        );
+        assert_eq!(foreign.payload.originator_visit_id, Some(99));
+        assert_eq!(
+            foreign.payload.visit_id,
+            Some(1),
+            "識別子の元は PC 側の番号"
+        );
+        assert_eq!(local.payload.originator_cache_guid, None);
+        assert!(!local.raw.contains("originator"));
+        std::fs::remove_file(db).ok();
+    }
+
     fn temp_db() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("ashiato-read-{}.sqlite", uuid::Uuid::new_v4()))
     }
