@@ -34,7 +34,7 @@ use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
 use ashiato_collector_windows::sender::{Reply, Transport};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use uiautomation::controls::ControlType;
 use uiautomation::types::Handle;
 use uiautomation::UIAutomation;

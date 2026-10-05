@@ -2053,7 +2053,7 @@ mod tests {
         let tmp = cfg.state_dir.join("browser-history/tmp");
         std::fs::create_dir_all(tmp.join("left-over")).unwrap();
         std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let _rt = history_runtime(&cfg, &transport, &reference, FakeReader::new(Vec::new()));
         assert!(!tmp.join("left-over").exists(), "起動時に写しを掃除しない");
     }
@@ -2114,7 +2114,7 @@ mod tests {
     #[test]
     fn history_heartbeat_every_day_and_separate_from_window_at_runtime() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2149,7 +2149,7 @@ mod tests {
     #[test]
     fn history_heartbeat_reports_unreadable_profile_at_runtime() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         *reader.profile.lock().unwrap() = ProfileState::Unreadable;
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
@@ -2171,7 +2171,7 @@ mod tests {
     #[test]
     fn history_heartbeat_reports_none_found_at_runtime() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(Vec::new());
         *reader.profile.lock().unwrap() = ProfileState::Missing;
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
@@ -2191,7 +2191,7 @@ mod tests {
     fn history_heartbeat_probes_when_not_read_at_runtime() {
         let cfg = cfg();
         write_last_success(&cfg, t(0));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         *reader.profile.lock().unwrap() = ProfileState::Unreadable;
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
@@ -2216,7 +2216,7 @@ mod tests {
     fn history_heartbeat_on_start_at_runtime() {
         let cfg = cfg();
         write_last_success(&cfg, t(0));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2232,7 +2232,7 @@ mod tests {
     fn history_schedule_runtime_fetches_on_first_tick_after_24h() {
         let cfg = cfg();
         write_last_success(&cfg, t(0) - Duration::hours(24));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2249,7 +2249,7 @@ mod tests {
     fn history_schedule_runtime_skips_within_24h() {
         let cfg = cfg();
         write_last_success(&cfg, t(0) - Duration::hours(24) + Duration::seconds(60));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2266,7 +2266,7 @@ mod tests {
     fn history_schedule_runtime_fetches_when_24h_pass_while_running() {
         let cfg = cfg();
         write_last_success(&cfg, t(0));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2289,7 +2289,7 @@ mod tests {
     fn history_schedule_runtime_fetches_at_once_when_last_success_is_ahead() {
         let cfg = cfg();
         write_last_success(&cfg, t(0) + Duration::days(400));
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2317,7 +2317,7 @@ mod tests {
     #[test]
     fn history_schedule_runtime_persists_success_across_restart() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         {
             let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
@@ -2340,7 +2340,7 @@ mod tests {
     #[test]
     fn history_runtime_second_fetch_queues_only_the_difference() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "b")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2376,7 +2376,7 @@ mod tests {
     #[test]
     fn history_runtime_first_fetch_sends_past_visits() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let mut old = read_visit(1, "一年前");
         old.at = t(0) - Duration::days(365);
         let reader = FakeReader::new(vec![old, read_visit(2, "昨日")]);
@@ -2398,7 +2398,7 @@ mod tests {
     #[test]
     fn history_runtime_late_arriving_old_visit_is_sent() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "最初")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2444,7 +2444,7 @@ mod tests {
         change: impl FnOnce(&FakeReader),
     ) -> (AcceptAll, Vec<serde_json::Value>) {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(first);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2521,7 +2521,7 @@ mod tests {
     #[test]
     fn history_visit_without_url_row_is_sent_on_first_fetch() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let mut orphan = read_visit(2, "");
         orphan.url = None;
         orphan.title = None;
@@ -2647,7 +2647,7 @@ mod tests {
     #[test]
     fn history_vanished_is_idempotent_on_retry_at_runtime() {
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2727,14 +2727,18 @@ mod tests {
             up: std::cell::Cell::new(false),
             inner: AcceptAll::default(),
         };
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = Runtime::new(
             &cfg,
             zone(),
             Engine::new(Exclusions::default()),
             &transport,
-            &reference,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
             t(0),
         )
         .unwrap()
@@ -2761,14 +2765,18 @@ mod tests {
     fn history_slow_read_does_not_disturb_window() {
         let window_records = |with_history: bool| {
             let cfg = cfg();
-            let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+            let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
             let (reader, release) = FakeReader::gated(vec![read_visit(1, "a")]);
             let mut rt = Runtime::new(
                 &cfg,
                 zone(),
                 Engine::new(Exclusions::default()),
                 &transport,
-                &reference,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(reference.0)),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
                 t(0),
             )
             .unwrap();
@@ -2825,14 +2833,18 @@ mod tests {
             }
         }
         let cfg = cfg();
-        let reference = FixedReference(t(0));
+        let reference = FixedReference::new(t(0));
         let reader = FakeReader::new((1..=10).map(|i| read_visit(i, "a")).collect());
         let mut rt = Runtime::new(
             &cfg,
             zone(),
             Engine::new(Exclusions::default()),
             &Down,
-            &reference,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
             t(0),
         )
         .unwrap()
@@ -2915,7 +2927,7 @@ mod tests {
     fn history_heartbeat_reports_not_queued_at_runtime() {
         let cfg = cfg();
         write_rules(&cfg, r#"[{"kind":"no-such-kind","value":"x"}]"#);
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
@@ -2971,7 +2983,7 @@ mod tests {
 
     /// 1 回取得して送る。取り込み口に届いた全部の本文（文字列）を返す。
     fn fetch_and_send(cfg: &Config, reader: &Arc<FakeReader>) -> (AcceptAll, String) {
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
@@ -3067,7 +3079,7 @@ mod tests {
 
     /// 2 回目の取得（1 日後）まで回して送る。
     fn fetch_twice(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
@@ -3156,7 +3168,7 @@ mod tests {
         let cfg = cfg();
         write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
-        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
