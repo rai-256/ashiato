@@ -25,14 +25,18 @@ pub fn firefox_micros(value: i64) -> Option<chrono::DateTime<chrono::Utc>> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadVisit {
     pub id: i64,
+    /// DB の訪問時刻そのもの（Chromium は 1601 年起点、Firefox は 1970 年起点のマイクロ秒）
+    pub visit_time_raw: i64,
     pub url: String,
     pub title: Option<String>,
     pub at: chrono::DateTime<chrono::Utc>,
     pub transition: i64,
     pub from_visit: Option<i64>,
+    pub opener_visit: Option<i64>,
     pub duration_us: Option<i64>,
     pub originator_cache_guid: Option<String>,
     pub originator_visit_id: Option<i64>,
+    pub is_known_to_sync: Option<bool>,
 }
 
 pub fn read_chromium(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
@@ -41,16 +45,20 @@ pub fn read_chromium(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
     let mut stmt = conn.prepare("SELECT v.id,u.url,u.title,v.visit_time,v.transition,v.from_visit,v.visit_duration,v.originator_cache_guid,v.originator_visit_id FROM visits v JOIN urls u ON u.id=v.url ORDER BY v.id")?;
     let visits = stmt
         .query_map([], |r| {
+            let raw: i64 = r.get(3)?;
             Ok(ReadVisit {
                 id: r.get(0)?,
+                visit_time_raw: raw,
                 url: r.get(1)?,
                 title: r.get(2)?,
-                at: chromium_micros(r.get(3)?).ok_or(rusqlite::Error::InvalidQuery)?,
+                at: chromium_micros(raw).ok_or(rusqlite::Error::InvalidQuery)?,
                 transition: r.get(4)?,
                 from_visit: nonzero(r.get(5)?),
+                opener_visit: None,
                 duration_us: r.get(6)?,
                 originator_cache_guid: r.get(7)?,
                 originator_visit_id: r.get(8)?,
+                is_known_to_sync: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -63,16 +71,20 @@ pub fn read_firefox(path: &std::path::Path) -> anyhow::Result<Vec<ReadVisit>> {
     let mut stmt = conn.prepare("SELECT v.id,p.url,p.title,v.visit_date,v.visit_type,v.from_visit FROM moz_historyvisits v JOIN moz_places p ON p.id=v.place_id ORDER BY v.id")?;
     let visits = stmt
         .query_map([], |r| {
+            let raw: i64 = r.get(3)?;
             Ok(ReadVisit {
                 id: r.get(0)?,
+                visit_time_raw: raw,
                 url: r.get(1)?,
                 title: r.get(2)?,
-                at: firefox_micros(r.get(3)?).ok_or(rusqlite::Error::InvalidQuery)?,
+                at: firefox_micros(raw).ok_or(rusqlite::Error::InvalidQuery)?,
                 transition: r.get(4)?,
                 from_visit: nonzero(r.get(5)?),
+                opener_visit: None,
                 duration_us: None,
                 originator_cache_guid: None,
                 originator_visit_id: None,
+                is_known_to_sync: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -134,6 +146,18 @@ mod tests {
         );
         assert_eq!(chromium_micros(-1), None);
         assert_eq!(firefox_micros(-1), None);
+        // 起点の差（1601 → 1970）は 11,644,473,600 秒。マイクロ秒の端数は落とさない
+        assert_eq!(
+            chromium_micros(11_644_473_600_000_001),
+            Some(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH + chrono::Duration::microseconds(1))
+        );
+        assert_eq!(
+            firefox_micros(1_758_153_600_000_001).map(|t| t.timestamp_subsec_micros()),
+            Some(1)
+        );
+        // 範囲を超える値は None（panic しない）
+        assert_eq!(chromium_micros(i64::MAX), None);
+        assert_eq!(firefox_micros(i64::MAX), None);
     }
 
     #[test]

@@ -350,32 +350,6 @@ impl IngestRequest {
             payload: serde_json::to_value(payload)?,
         })
     }
-
-    /// ブラウザ履歴の訪問を、訪問ごとの識別子を持つ要求へ変換する。
-    pub fn of_visit(
-        visit: &crate::history::contract::Visit,
-        user_id: uuid::Uuid,
-        device_id: &str,
-        collected_at: chrono::DateTime<chrono::Utc>,
-        zone: &crate::config::Zone,
-    ) -> anyhow::Result<Self> {
-        let raw = serde_json::to_string(&visit.payload)?;
-        Ok(Self {
-            id: uuid::Uuid::new_v4(),
-            user_id,
-            logical_source: "c02-browser-history".to_string(),
-            external_id: Some(visit.external_id.clone()),
-            device_id: device_id.to_string(),
-            origin: "collected".to_string(),
-            event_time: visit.payload.at.clone(),
-            tz_offset_min: zone.offset_min,
-            tz_id: zone.id.clone(),
-            schema_version: SCHEMA_VERSION,
-            source_updated_at: Some(rfc3339(collected_at)),
-            raw,
-            payload: serde_json::to_value(&visit.payload)?,
-        })
-    }
 }
 
 /// 生存信号 1 件（`POST /heartbeat`）。**記録とは別の受け口**（ST02 design D9）。
@@ -601,14 +575,8 @@ mod tests {
     #[test]
     fn history_sensitivity_uses_collection_default() {
         // Scenario: ブラウザ履歴の記録も既定の感度で格納される
-        let visit = crate::history::contract::Visit::new(
-            "chrome",
-            "Default",
-            1,
-            at(),
-            "https://example.test/private",
-            "題名",
-        );
+        let visit =
+            crate::history::contract::sample_visit(1, at(), "https://example.test/private", "題名");
         let req = IngestRequest::of_visit(&visit, uuid::Uuid::nil(), "dev-1", at(), &zone())
             .expect("履歴の契約の形");
         let json = serde_json::to_string(&req).expect("直列化");
@@ -621,15 +589,26 @@ mod tests {
     #[test]
     fn history_foreign_visit_request_keeps_the_collecting_device() {
         // Scenario: 他の端末の訪問の記録の端末は、読んだ PC である
-        let visit = crate::history::contract::Visit::new(
-            "chrome",
+        let read = crate::history::read::ReadVisit {
+            id: 1,
+            visit_time_raw: 1,
+            at: at(),
+            url: "https://example.test/a".into(),
+            title: Some("題名".into()),
+            transition: 0,
+            from_visit: None,
+            opener_visit: None,
+            duration_us: None,
+            originator_cache_guid: Some("other-pc".into()),
+            originator_visit_id: Some(99),
+            is_known_to_sync: None,
+        };
+        let visit = crate::history::contract::Visit::from_read(
+            crate::history::locate::Browser::Chrome,
             "Default",
-            1,
-            at(),
-            "https://example.test/a",
-            "題名",
+            &read,
         )
-        .with_originator(Some("other-pc".into()), Some(99));
+        .expect("履歴の契約の形");
         let req = IngestRequest::of_visit(&visit, uuid::Uuid::nil(), "reader-pc", at(), &zone())
             .expect("履歴の契約の形");
         assert_eq!(req.device_id, "reader-pc");

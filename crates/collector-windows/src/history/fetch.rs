@@ -110,10 +110,10 @@ pub fn apply_history_exclusions(
     let mut newly_excluded = 0;
     for visit in visits {
         let excluded = exclusions.hits_history(
-            &visit.payload.browser,
-            &visit.payload.profile,
-            &visit.payload.title,
-            &visit.payload.url,
+            visit.payload.browser,
+            visit.payload.profile_dir.as_deref().unwrap_or_default(),
+            visit.payload.title.as_deref().unwrap_or_default(),
+            visit.payload.url.as_deref().unwrap_or_default(),
         );
         if excluded {
             let was_excluded = ledger
@@ -201,7 +201,7 @@ pub fn select_new_or_changed(ledger: &Ledger, visits: &[Visit]) -> Vec<Visit> {
 pub fn mark_queued(ledger: &mut Ledger, visits: &[Visit]) {
     for visit in visits {
         let at = chrono::DateTime::parse_from_rfc3339(&visit.payload.at)
-            .expect("Visit::new が RFC3339 マイクロ秒を作る")
+            .expect("Visit は RFC3339 マイクロ秒を作る")
             .with_timezone(&chrono::Utc);
         ledger.record_visit(
             &visit.external_id,
@@ -230,8 +230,7 @@ pub fn queue_then_save(
 }
 
 fn content_hash(visit: &Visit) -> String {
-    let bytes = serde_json::to_vec(&visit.payload).expect("VisitPayload は直列化できる");
-    format!("{:x}", Sha256::digest(bytes))
+    format!("{:x}", Sha256::digest(visit.raw.as_bytes()))
 }
 
 #[cfg(test)]
@@ -285,9 +284,7 @@ mod outbox_tests {
             std::env::temp_dir().join(format!("ashiato-history-fetch-{}", uuid::Uuid::new_v4()));
         let path = dir.join("ledger");
         let mut store = LedgerStore::open(path.clone()).unwrap();
-        let visit = Visit::new(
-            "chrome",
-            "Default",
+        let visit = crate::history::contract::sample_visit(
             1,
             chrono::Utc::now(),
             "https://example.test",
@@ -431,9 +428,7 @@ mod exclusion_change_tests {
     use crate::exclusion::{Exclusions, Rule};
 
     fn visit() -> Visit {
-        Visit::new(
-            "chrome",
-            "Default",
+        crate::history::contract::sample_visit(
             1,
             chrono::Utc::now(),
             "https://example.test",
@@ -479,9 +474,7 @@ mod tests {
     use crate::history::ledger::Ledger;
 
     fn visit(id: i64, at: &str, title: &str) -> Visit {
-        Visit::new(
-            "chrome",
-            "Default",
+        crate::history::contract::sample_visit(
             id,
             chrono::DateTime::parse_from_rfc3339(at)
                 .unwrap()
