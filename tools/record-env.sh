@@ -51,11 +51,16 @@ ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
 ALLOWED_HOSTS=.example.ts.net
 EOF
   else
-    # ST28 より前の木（ST28 を含まない Story のブランチ）: DB の合言葉は docker-compose.yml の固定値で、
-    # 画面のログインも無い（実測 2026-10-03: ST05 の木に上の形を渡すと DB の認証で落ちた）。DB は loopback の専用 project
+    # ST28 より前の木（ST28 を含まない Story のブランチ）: DB の合言葉はその木の docker-compose.yml の固定値で、
+    # 画面のログインも無い（実測 2026-10-03: ST05 の木に上の形を渡すと DB の認証で落ちた）。DB は loopback の専用 project。
+    # 値はその木の docker-compose.yml から読む（この台本に字面で書かない。ST28 の tools/check-db-secret.sh）
+    local old_user old_pw
+    old_user="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
+    old_pw="$(sed -n 's/^ *POSTGRES_PASSWORD: *//p' docker-compose.yml | head -1)"
+    [ -n "$old_user" ] && [ -n "$old_pw" ] || { echo "error: docker-compose.yml から DB の利用者と合言葉を読めない" >&2; exit 1; }
     cat >.env <<EOF || exit 1
 COMPOSE_PROJECT_NAME=$PROJECT
-DATABASE_URL=postgres://ashiato:ashiato@127.0.0.1:$db/ashiato
+DATABASE_URL=postgres://${old_user}:${old_pw}@127.0.0.1:$db/ashiato
 BIND=127.0.0.1:$api
 API_TOKEN=$(r_)
 ASHIATO_USER_ID=$(cat /proc/sys/kernel/random/uuid)
@@ -70,6 +75,10 @@ services:
       - "127.0.0.1:$db:5432"
 EOF
   export COMPOSE_PROJECT_NAME="$PROJECT"
+  # worktree ごとの port の規則（ST05 の tools/ports.sh）を持つ木では、規則が名前から port を決めて
+  # .env の URL と BIND の port を差し替える。録画の worktree の名前は -st<NN> で終わらないので規則は 55432 / 18787
+  # —— **手元の開発用の DB とサーバ**になる。ここで選んだ port を規則より先に渡す（ports.sh は既にある値を使う）
+  export ASHIATO_DB_PORT="$db" ASHIATO_HTTP_PORT="$api"
 
   echo "== ビルド（サーバ release・画面）"
   export CARGO_TARGET_DIR="${REC_CACHE:-$HOME/.cache/harness2-rec}/ashiato2-target"
