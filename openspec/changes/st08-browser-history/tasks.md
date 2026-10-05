@@ -129,21 +129,21 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 
 ## Task 7: 除外（FR-83 を履歴にも）
 
-- [ ] 7.1 `Rule` に `url-contains` と `browser-profile` を足す（`deny_unknown_fields` のまま）。`url-contains` がウィンドウに当たったら
+- [x] 7.1 `Rule` に `url-contains` と `browser-profile` を足す（`deny_unknown_fields` のまま）。`url-contains` がウィンドウに当たったら
   **その前景の変化を丸ごと除外して件数に数える**。`browser-profile` はウィンドウに当てない（design D11）。
   README の除外の登録の手順に 2 つを書き足す。
   Scenario: `URL の部分一致に当たった前景は本文を残さない` / `URL の部分一致に当たった前景は除外の件数に数えられる`。
   検証: `cargo test rules_hit_url_and_profile` rc=0 / `cargo test url_rule_excludes_whole_foreground` rc=0 /
   `cargo test broken_registration_is_an_error_not_empty` rc=0 /
   `grep -c "url-contains" crates/collector-windows/README.md` が 1 以上 / `grep -c "browser-profile" crates/collector-windows/README.md` が 1 以上
-- [ ] 7.2 履歴への写像（プロセスの登録 → そのブラウザの全プロファイル、題名 → ページの題名、URL → 訪問の URL、`browser-profile` → そのプロファイル）を実装し、
+- [x] 7.2 履歴への写像（プロセスの登録 → そのブラウザの全プロファイル、題名 → ページの題名、URL → 訪問の URL、`browser-profile` → そのプロファイル）を実装し、
   **送る前**に落とす。除外した訪問は帳面に書き、取得 1 回・プロファイル 1 つにつき `excluded` を 1 件（design D11）。
   Scenario: `ブラウザのプロセスを除外するとその全プロファイルの履歴が送られない` / `履歴で除外した件数が残る` /
   `題名の部分一致の登録はページの題名に当たる` / `URL の部分一致の登録は履歴にも効く` /
   `プロファイルを指す登録はそのプロファイルの履歴だけを除く` / `除外した訪問は取得のたびに数え直されない` /
   `取得をやり直しても除外の件数は増えない`。
   検証: `cargo test history_exclusion` rc=0（`-- --list` で 7 本以上）
-- [ ] 7.3 登録を後から足した / 外したときの振る舞いを固定する（design D11 / R8）。
+- [x] 7.3 登録を後から足した / 外したときの振る舞いを固定する（design D11 / R8）。
   Scenario: `登録を後から足すと、既に送った訪問の変わった内容は送られない` / `登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる`。
   検証: `cargo test history_exclusion_added_later` rc=0 / `cargo test history_exclusion_removed_later` rc=0
 
