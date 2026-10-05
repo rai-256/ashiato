@@ -860,3 +860,49 @@ re-review が挙げた Minor 3 件は、2 回目の fix wave を出さない規�
 re-review が挙げた Minor 3 件（取り込み器を起こさないときの相対パスでも起動を止める / 800 px の `test.fail` にも印が付く / docker の `psql` の `-q`）は、
 2 回目の fix wave を出さない規則に従い、ledger（`.superpowers/sdd/st12-task-final/progress.md`）に ruling つきで park した。PR 本文に写した。
 
+
+# final review 第 2 回（7d08921..f29dfea。7b95619..f29dfea を厚く）— 2026-10-05
+
+席: final reviewer（SDD の `code-reviewer.md`。ブランチ全体の review package）。判定は **Ready to merge: With fixes**（Critical 0 / Important 2 / Minor 5）。
+入口 2 回目の申し送り: `docs/handoff/ST12.md` は前回の final review（2026-10-04）以降に増えていない（最終更新 2026-10-01）。
+Task 15 の ⚠️（`archive_flow_confirming_a_shape_ingests_a_takeout_archive` が証跡 :598 で 1 度落ちた件）: 試験の待ち方の競合で 75d6294 が直した。reviewer が f29dfea で `archive_` 5 回・server 全体 3 回走らせ全て緑。
+parked 6 件（`.superpowers/sdd/st12-task-final/progress.md`）: どれも merge を止めない（park のまま）。
+
+## R72. 印付けに失敗した書庫を置き場に残しても、次の走査は読み直さない（Task 15 F1 の ADDRESSED は実態と違う）
+- 成果物: `crates/server/src/archive/worker.rs:2092-2137`（spawn_inspecting）/ `:1463-1498`（reread_archive）/ `crates/server/src/archive/scan.rs:112`
+- 根拠: `read` の台帳の行を INSERT した**後**に `mark_archive_arrivals` を呼び、失敗で `return` する。`read` 行は残るので、次の走査で `scan.rs` の既読の判定（`outcome IN ('read','unreadable','pending_shape')`）が `AlreadyRead` を返し、`worker.rs:1783-1793` は印を付け直さずに畳む。`reparse_older_versions` も新しい版の `read` 行が残るので次の周の対象から外れる。コメントと 8588e7f の「次の走査で読み直して付け直す」は成り立たない
+- 影響: 印付けが一時的な DB エラーで落ちると、消した時間帯の書庫の位置が生きた記録のまま残る（Q13 の loss: exported の経路）
+- kind: technical
+- 提案: `mark_archive_arrivals` を `read` 行の INSERT の前へ（格納は commit 済み・印付けは冪等）。reread_archive も同じ順に。印付けの失敗を差し込み、次の走査で印が付く試験を足す
+
+## R73. 消すときの連鎖と書庫の印付けが、利用者の位置の全期間を助言ロックを握ったまま走査する（Task 15 F2 の格上げ）
+- 成果物: `crates/server/src/deletion.rs:284-289` / `:300-313` / `crates/server/src/stay_store.rs`（`mark_archive_arrivals`）
+- 根拠: `event_time >= $3` を外し `event_time <= $4 AND {event_end} >= $3` にしたため、索引 `event_by_source_time (logical_source, event_time)` が上側しか絞れない。基準の `c01-location`（年 50 万行）も含めて全履歴の payload を読む。基準のソースは `end_time` を持たないので意味は前と同じで索引だけを失っている。`mark_archive_arrivals` も書庫 1 冊ごとに書庫の位置の全期間 × 消した滞在を評価する
+- kind: technical
+- 提案: 下限 `event_time >= $3 - <区間の最長>` を足すか、基準のソースは `BETWEEN` のまま区間を持つ書庫のソースにだけ終わりの重なりを見る。`mark_archive_arrivals` はその書庫が入れた時刻の範囲に絞る
+
+## R74. `tools/archive-shape.sh` の psql が無いときの回り道が `DATABASE_URL` を見ない
+- 成果物: `tools/archive-shape.sh:12-19`
+- 根拠: `docker compose exec db` の DB へ書き、`DATABASE_URL` が別の DB を指していても黙って成功する
+- kind: technical
+- 提案: 回り道に入ったことと接続先を出力に示す（または `DATABASE_URL` の DB 名・利用者を渡す）
+
+## R75. `archive_erased_cascade_marks_locations_stored_before_the_erase` のコメント「置き直しても行は増えない」を確かめるコードが無い（Task 15 F4）
+- 成果物: `crates/server/src/archive_flow_tests.rs`
+- kind: technical
+- 提案: 置き直しを実際に行って行数を見るか、コメントを消す
+
+## R76. `event_end_sql` のミリ秒の分岐と、移行前の区間（`c03-legacy-visit` / `-activity` の `endTimestampMs`）を通る試験が無い（Task 15 F5）
+- 成果物: `crates/server/src/deletion.rs`（`event_end_sql`）
+- kind: technical
+- 提案: 移行前の区間を持つ位置が消した滞在に重なれば印が付く試験を足す
+
+## R77. `archive_erased_window_marks_the_overlapping_archive_locations` の最後の `stays()==1` は作り直しが走っていても通る（Task 15 F3）
+- 成果物: `crates/server/src/archive_flow_tests.rs`
+- kind: technical
+- 提案: 作り直しの印か台帳の行が無いことを見る
+
+## R78. `mark_archive_arrivals` が位置を 1 件も入れなかった書庫（YouTube・マイアクティビティだけ）でも全期間を走査する
+- 成果物: `crates/server/src/stay_store.rs`（`mark_archive_arrivals`）/ `worker.rs` の呼び出し
+- kind: technical
+- 提案: R73 の絞り込みと一緒に、位置を格納しなかったときは飛ばす
