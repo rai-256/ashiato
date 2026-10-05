@@ -9,7 +9,24 @@ sealed interface Outcome {
     /** 到達できなかった。**種別だけを持つ** —— 例外の文言は本文を含むことがある */
     data class Unreachable(val kind: String) : Outcome
 
-    data class Responded(val status: Int, val body: String) : Outcome
+    /**
+     * 受け口が答えた。`date` から後ろは**時計のずれの測定が使う**（ST05 / design D2）。
+     * 既定値は「測っていない」—— 偽の口と既存の呼び出し元はそのまま書ける。
+     *
+     * - `date`: `Date` 見出しの文字列そのまま（無ければ null）。読み解くのは測る側
+     * - `monoBeforeMs` / `monoAfterMs`: 接続を開く直前と応答を読み終えた直後の `elapsedRealtime`
+     * - `wallAfterMs`: 応答を読み終えた直後の壁時計（差に使う壁時計は基準を読む前後の間で読む）
+     */
+    data class Responded(
+        val status: Int,
+        val body: String,
+        val date: String? = null,
+        val monoBeforeMs: Long = 0,
+        val monoAfterMs: Long = 0,
+        val wallAfterMs: Long = 0,
+        /** 叩いた宛先の `host:port`（`s01-date` の参照が持つ。測ったときにしか取れない） */
+        val host: String? = null,
+    ) : Outcome
 }
 
 /** 取り込み口への 1 回の POST。試験では偽物に差し替える。 */
@@ -40,6 +57,11 @@ class Sender<T : Outboxable>(
      * で解いてある（ST02 の review R18 / H-1）—— こちらは捨てない解き方。
      */
     private val dropPermanentlyRejected: Boolean = false,
+    /**
+     * 受け取った応答の `Date` を置く先（ST05 / design D2）。**状態符号によらず**、受け取った最後の 1 件を置く。
+     * 時計のずれの測定が読むだけで、測るために送ることは無い。
+     */
+    private val responseDates: ResponseDateCache? = null,
     private val log: (String) -> Unit = {},
 ) {
     /**
@@ -153,7 +175,12 @@ class Sender<T : Outboxable>(
                 return Flushed(batch.size, 0)
             }
 
-            is Outcome.Responded -> verdictOf(batch, outcome)
+            is Outcome.Responded -> {
+                responseDates?.put(
+                    ResponseDateCache.Received(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs, outcome.host),
+                )
+                verdictOf(batch, outcome)
+            }
         }
         val responded = verdict.responded
 

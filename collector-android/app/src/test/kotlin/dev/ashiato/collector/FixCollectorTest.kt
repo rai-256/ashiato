@@ -44,6 +44,7 @@ class FixCollectorTest {
             userId = "user-1",
             zone = ZoneId.of("Asia/Tokyo"),
             newId = { "id-${n++}" },
+            clock = FakeDeviceClock(),
             log = log,
             onFix = onFix,
         )
@@ -70,6 +71,11 @@ class FixCollectorTest {
         )
 
         val raw = outbox.snapshot().single().raw
+        // 契機ごとの 1 件は、ST05 で足した 4 項目も持つ
+        for (part in listOf("\"received_device_time\":", "\"fix_elapsed_ns\":",
+                            "\"received_elapsed_ms\":", "\"boot_count\":")) {
+            assertTrue("原文に $part が無い: $raw", raw.contains(part))
+        }
         for (part in listOf("\"lat\":35.681236", "\"lon\":139.767125", "\"acc_m\":12.5",
                             "\"device_time\":\"2026-09-08T02:00:00Z\"", "\"device_id\":\"device-1\"")) {
             assertTrue("原文に $part が無い: $raw", raw.contains(part))

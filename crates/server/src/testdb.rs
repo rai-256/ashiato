@@ -11,6 +11,51 @@
 
 use sqlx::postgres::PgPoolOptions;
 
+/// worktree の名前から開発用 DB のポートを決める（`tools/ports.sh` と同じ規則。変えるなら両方を変える）。
+/// `-st<NN>` で終わる Story の worktree は 55500+NN、それ以外（main など）は 55432。
+/// 並行して走る Story のテストが、別の Story の DB に繋がらないようにする（2026-09-30）。
+pub fn worktree_db_port(name: &str) -> u16 {
+    name.rsplit_once("-st")
+        .and_then(|(_, n)| n.parse::<u16>().ok())
+        .map_or(55432, |n| 55500 + n)
+}
+
+/// この worktree のテスト用 DB の port。`ASHIATO_DB_PORT` > worktree の名前の規則（`tools/ports.sh` と同じ）。
+fn db_port() -> u16 {
+    std::env::var("ASHIATO_DB_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or_else(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let name = root
+                .canonicalize()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+            worktree_db_port(name.as_deref().unwrap_or(""))
+        })
+}
+
+/// テスト用 DB の所有者の URL。**合言葉は環境（`.env` の `DATABASE_OWNER_URL`）からだけ**読み（ST28 / design D19）、
+/// port だけをこの worktree の DB のものに差し替える（ST05。`tools/ports.sh` の `ashiato_db_url` と同じ）。
+pub fn url() -> String {
+    with_port(&url_from_env("DATABASE_OWNER_URL"), db_port())
+}
+
+/// 接続の URL の `@<host>:<port>/` の port を差し替える（利用者と合言葉の部分は触らない）。形が違えばそのまま返す。
+fn with_port(url: &str, port: u16) -> String {
+    let Some(at) = url.rfind('@') else {
+        return url.to_string();
+    };
+    let rest = &url[at + 1..];
+    let Some(slash) = rest.find('/') else {
+        return url.to_string();
+    };
+    let host = rest[..slash]
+        .rsplit_once(':')
+        .map_or(&rest[..slash], |(h, _)| h);
+    format!("{}@{host}:{port}{}", &url[..at], &rest[slash..])
+}
+
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
 /// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
 /// 助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
@@ -27,13 +72,13 @@ fn url_from_env(name: &str) -> String {
 /// 接続済みのプールを返す。初回だけマイグレーションを当てる。
 /// **所有者（`DATABASE_OWNER_URL`）で繋ぐ。** 門はトリガで効くので、所有者でも止まることを既存の試験が見る。
 pub async fn pool() -> sqlx::PgPool {
-    let url = url_from_env("DATABASE_OWNER_URL");
+    let url = url();
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&url)
         .await
         .unwrap_or_else(|e| {
-            panic!("テスト用 DB へ所有者で接続できない: {e}\n  docker compose up -d --wait db のあと tools/db-roles.sh を先に実行する")
+            panic!("テスト用 DB へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
         });
     MIGRATED
         .get_or_init(|| async {
@@ -370,4 +415,13 @@ pub async fn put_drop(
         .await
         .unwrap();
     }
+}
+
+#[test]
+fn each_story_worktree_has_its_own_db_port() {
+    assert_eq!(worktree_db_port("ashiato2"), 55432);
+    assert_eq!(worktree_db_port("ashiato2-st05"), 55505);
+    assert_eq!(worktree_db_port("ashiato2-up-st22"), 55522);
+    assert_eq!(worktree_db_port("ashiato2-st06-t7"), 55432); // 名前の末尾が -st<NN> でないものは main と同じ
+    assert_eq!(worktree_db_port("ashiato2-rt"), 55432);
 }

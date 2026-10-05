@@ -29,6 +29,7 @@ class CollectionSourceTest {
         userId = "user-1",
         zone = java.time.ZoneId.of("Asia/Tokyo"),
         newId = { "r1" },
+        clock = FakeDeviceClock(),
     )
 
     private fun window() = CollectionWindow(

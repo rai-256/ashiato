@@ -34,6 +34,8 @@ pub mod attributes_store;
 /// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
 #[cfg(test)]
 mod attributes_tests;
+#[cfg(test)]
+mod clock_tests;
 pub mod coverage;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
@@ -71,7 +73,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 18] = [
+pub const MIGRATIONS: [(&str, &str); 19] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -154,6 +156,11 @@ pub const MIGRATIONS: [(&str, &str); 18] = [
     (
         "202609290900_access_control",
         include_str!("../../../migrations/202609290900_access_control.sql"),
+    ),
+    // 端末の時計のずれの測定記録の論理ソース（ST05 / design D1）
+    (
+        "202609291230_clock_source",
+        include_str!("../../../migrations/202609291230_clock_source.sql"),
     ),
 ];
 

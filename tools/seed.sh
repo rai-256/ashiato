@@ -12,8 +12,9 @@
 # 送るたびにサーバが滞在を作り直す（design D5）ので、入れ終われば `GET /stays?date=2026-09-07` に並ぶ。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. tools/ports.sh     # worktree ごとのポート（docker compose の DB の待ち受け）
 MODE="${1:-normal}"
-BIND="${BIND:-127.0.0.1:18787}"
+BIND="${BIND:-127.0.0.1:${ASHIATO_HTTP_PORT}}"   # tools/dev.sh のサーバと同じ口（Story の worktree では 19000+2×NN）
 API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 AUTH=(-H "authorization: Bearer $API_TOKEN" -H 'content-type: application/json')
 

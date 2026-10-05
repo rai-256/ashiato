@@ -234,6 +234,86 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 | `total_visible_ms` | integer（ミリ秒） | 省略しない |
 | `total_foreground_service_ms` | integer（ミリ秒） | 省略しない |
 | `app_label` | text | 表示名を引けたときだけ `payload` の末尾に置く。`raw` には置かない |
+## 位置（C-01）の記録の時刻（ST05 / design D6）
+
+### Location.getTime() の出どころ
+
+**確かめた結果（2026-09-29）: エミュレータでは、`getTime()` は端末の壁時計（`System.currentTimeMillis()`）から来ていた。
+端末の時計を +5 分ずらすと `getTime()` も追従した。** 衛星の時計ではない（少なくともエミュレータの GNSS では）。
+
+- 手順: API 35 の `google_apis` エミュレータ（`tools/android-emulator.sh` と同じ AVD）で `auto_time` を切り、計測テスト（使い捨て・commit しない）が
+  `FusedLocationProviderClient.requestLocationUpdates`（`HIGH_ACCURACY`・1 秒）と `LocationManager` の `gps` を同時に購読。
+  ホストから `adb emu geo fix` を 1 秒ごとに送り、テストが `UiAutomation.executeShellCommand("cmd alarm set-time <ms>")` で
+  壁時計を +5 分ずらして 15 秒後に戻す。各 fix で `getTime()`・`currentTimeMillis()`・`getElapsedRealtimeNanos()` と `elapsedRealtimeNanos()` を並べた
+- 結果: ずらす前も後も `getTime() - currentTimeMillis()` は −1〜−18 ms（受け取りまでの遅れ）で、+5 分（300000 ms）のずれは現れなかった。
+  `getElapsedRealtimeNanos()` は端末の起動からの経過時間として単調に進み、時計を変えても影響を受けなかった。
+  fused の `getTime()` は `gps` の `getTime()` と同じ値だった（fused は GNSS の値を素通しにしていた）
+- **限界**: エミュレータの GNSS HAL は端末の壁時計で時刻を刻むので、**実機の衛星の時刻を持つ GNSS（時計が狂っていても正しい時刻を返す）で
+  同じかは、この手順では確かめられていない**。実機では `getTime()` が衛星の時刻になりうる。
+  だから `event_time` は補正せず（C4）、`received_device_time` / `fix_elapsed_ns` / `received_elapsed_ms` を並べて残す（D6）。
+  **結果がどちらでも spec と以降の Task は変わらない**
+
+### 位置の記録に足した 4 欄（ST05 / design D6 / Q2）
+
+`raw`（文字列）と `payload`（解析済み）の**両方**に載る。`schema_version` は 1 のまま。
+
+| 欄 | 型 | 中身 |
+|---|---|---|
+| `received_device_time` | RFC3339（ミリ秒まで・UTC） | 測位の結果を**受け取ったときの端末の壁時計**（`DeviceClock.wallMs()`） |
+| `fix_elapsed_ns` | integer | 測位の結果が持つ起動からの経過時間（`Location.getElapsedRealtimeNanos()`、ナノ秒） |
+| `received_elapsed_ms` | integer | 受け取ったときの起動からの経過時間（`DeviceClock.monoMs()`、ミリ秒） |
+| `boot_count` | integer または `null` | 起動の識別（`Settings.Global.BOOT_COUNT`）。**取れない端末では `null`** |
+
+- **この 4 欄を足す前に積んだ記録には無い。** 読む側は欄の有無を許す（未送信に積まれた記録は積んだときの文字列のまま送られる）
+- **出来事時刻の意味は変わらない。** `event_time` と `device_time` は今までどおり `Location.getTime()` で、補正しない（C4）
+- `fix_elapsed_ns` と `received_elapsed_ms` を並べると測位から受け取りまでの遅れが引け、`received_device_time` から測位の時点の端末の壁時計を戻せる
+
+## 端末の時計のずれ（`c01-clock`）が送る `payload` の形（ST05 / design D5）
+
+**端末が 1 時間ごと・起動時・時計の変更のときに 1 件ずつ送る。** 論理ソースは位置の記録（`c01-location`）と別。
+`origin = collected`、`schema_version = 1`。原文（`raw`）は `payload` と同じ JSON を直列化した**文字列**（位置と同じ）。
+
+```json
+{
+  "kind": "clock-skew",
+  "trigger": "hourly",
+  "available": true,
+  "device_time": "2026-09-29T01:00:00.123Z",
+  "elapsed_ms": 123456789,
+  "boot_count": 42,
+  "references": [
+    {"source": "network",  "time": "2026-09-29T00:55:00.100Z", "skew_ms": 300023, "mono_before_ms": 123456780, "mono_after_ms": 123456781},
+    {"source": "s01-date", "time": "2026-09-29T00:51:00.000Z", "skew_ms": 300456, "mono_before_ms": 123200000, "mono_after_ms": 123200310,
+     "raw": "Tue, 29 Sep 2026 00:51:00 GMT"}
+  ],
+  "unavailable": [{"source": "gnss", "reason": "not_available"}]
+}
+```
+
+| 欄 | 型 | 中身 |
+|---|---|---|
+| `kind` | string | 常に `clock-skew` |
+| `trigger` | string | 測った契機（`hourly` / `startup` / `clock_changed`） |
+| `available` | boolean | `references` が 1 件以上か。**1 つも取れなかった記録も 1 件残る**（`references: []`） |
+| `device_time` | RFC3339（ミリ秒まで・UTC・`Z`） | 測ったときの端末の壁時計。**出来事時刻（`event_time`）と同じ値**で、補正しない |
+| `elapsed_ms` | integer | 測ったときの起動からの経過時間（`elapsedRealtime`） |
+| `boot_count` | integer または `null` | 起動の識別。**取れない端末では `null`**（そのときは `elapsed_ms` が戻ったことで起動を知る） |
+| `references[]` | array | 取れた基準。各要素は `source`・`time`（基準の時刻）・`skew_ms`・`mono_before_ms`・`mono_after_ms`（読む直前と直後の `elapsedRealtime`）。`s01-date` は `raw`（`Date` 見出しそのまま）と `host`（基準にした宛先の `host:port`）も持つ |
+| `unavailable[]` | array | 取れなかった基準。各要素は `source` と `reason`。`s01-date` が `unreadable` のときだけ `raw`（`Date` 見出しの原文）と `host` も持つ |
+
+- **出どころ（`source`）は 3 種**: `network`（`SystemClock.currentNetworkTimeClock()`、API 33 以上）/ `gnss`（`SystemClock.currentGnssTimeClock()`、API 29 以上）/
+  `s01-date`（送信がすでに受け取った応答の `Date` 見出し）。**3 つのそれぞれが `references` と `unavailable` のどちらかに 1 回ずつ**出る
+- **理由（`reason`）の値**: `unsupported`（OS の版がその基準の口を持たない）/ `not_available`（いま取れない）/
+  `no_response_since_last`（前回の測定より後に S-01 から応答を受け取っていない）/
+  `clock_changed_since`（時計の変更より後に応答を受け取っていない）/ `unreadable`（`Date` 見出しが無い・読めない）/
+  `error:<例外の型名>`（読み取りの失敗。値は出さず種別だけ）
+- **差（`skew_ms`）の符号**: `端末の壁時計 − 基準の時刻`。**端末が進んでいれば正、遅れていれば負**
+- **差に使う壁時計は、その基準を読む直前と直後の間で読む。** `network` / `gnss` は読んだ直後、`s01-date` は応答を読み終えた直後。
+  測定の先頭で読んだ壁時計を使い回さない（測定の途中で時計が動いても差に混ざらない）。`device_time` とは別の読み
+- **`s01-date` の差は 0〜+999 ms 大きく出る。** HTTP の `Date` は秒で切り捨てなので、基準の時刻が実際より最大 999 ms 手前になる（PC の測定と同じ偏り）
+- **測定のために通信を起こさない。** 外部の時刻サーバにも問い合わせない。`s01-date` は送信が受け取った応答の見出しを読むだけ
+- **生存信号（`heartbeat`）は送らない。** 測定記録の送信は記録だけで、測定のための生存信号の経路を足さない
+- **私的なものをログに出さない。** 時刻の値・差・原文は出さず、件数・種別・`available` だけ
 
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
@@ -258,10 +338,29 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 | `ended_by` | `superseded` / `restart` / `unreadable`（**入力の再開以外で閉じた区間**。普通は省く） | `idle`（出た側） |
 | `mono_gap_ms` | integer（見回りが飛んだ間に**単調時計**が進んだ長さ） | `idle`（`suspended`） |
 | `excluded_count` | integer（**除外した変化の件数**。対象を前景にしたこと自体を 1 回と数える） | `excluded` |
-| `boot_at` | RFC3339（**OS が最後に起動した時刻**。区間の始まりより後なら PC は本当に止まっていた） | `powered-off` |
+| `boot_at` | RFC3339（**OS が最後に起動した時刻**。区間の始まりより後なら PC は本当に止まっていた。`clock-skew` では**起動の識別**） | `powered-off` / `clock-skew` |
 | `clean_stop` | `true`（前回の収集が自分で止まった。電源断・強制終了では省かれる） | `powered-off` |
-| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる。HTTP の日付は秒で切り捨てなので 0〜+999 ms に偏る） | `clock-skew` |
-| `skew_reference` | text（基準の出どころ = 取り込み口の `host:port`。ループバックなら自分の時計と比べている） | `clock-skew` |
+| `skew_ms` | integer（基準時刻との差。正なら PC の時計が進んでいる。HTTP の日付は秒で切り捨てなので 0〜+999 ms に偏る） | `clock-skew`（**`s01-date` が取れたときだけ。取れなかった記録では無い**） |
+| `skew_reference` | text（基準の出どころ = 取り込み口の `host:port`。ループバックなら自分の時計と比べている） | `clock-skew`（**`s01-date` が取れたときだけ。取れなかった記録では無い**） |
+| `clock_trigger` | `hourly` / `start` / `jump` / `retry`（測った契機。`jump` は壁時計の飛び・戻り、`retry` は取れなかった契機の測り直しで取れた記録） | `clock-skew` |
+| `clock_available` | boolean（`clock_references` が 1 件以上か。**1 つも取れなかった記録も 1 件残る**） | `clock-skew` |
+| `uptime_ms` | integer（測ったときの起動からの経過時間。`boot_at` と組で起動をまたいだ比較に使う。本番の刻みは秒） | `clock-skew` |
+| `clock_references` | array（取れた基準。要素は下記） | `clock-skew` |
+| `clock_unavailable` | array（取れなかった基準。要素は `source`・`reason`・`raw?`） | `clock-skew` |
+
+**`clock_references[]` の要素**: `source`・`mono_before_ms` / `mono_after_ms`（その基準を読む直前と直後の `uptime_ms`。**読み取り時間の上限**の幅）は必ず持つ。
+`s01-date` は `time`・`skew_ms`・`host`（取り込み口の `host:port`）。`windows-time-sync` は `raw`（`w32tm /query /status /verbose` の出力。
+cp932 のバイト列なので、**ASCII 以外のバイトと `\` は `\xNN`** に直して持つ）・`last_sync`（最後に正常に同期した時刻。表示のまま）・
+`sync_source`・`os_offset_ms`（位相のずれ）・`sync_via`（どこから読んだか: `w32tm` / `eventlog`）。状態なので `windows-time-sync` は `skew_ms` を持たない。
+**W32Time が止まっていた**（`w32tm` が `0x80070426`）ときは System のイベントログの Time-Service の同期の記録（Event 35 / 37）の最新 1 件から読み、
+`sync_via: eventlog`・`last_sync` は**UTC の RFC 3339**（イベントの `TimeCreated`）・`sync_source` はイベントの `TimeSource`・`raw` はイベントの XML・`os_offset_ms` は無い。
+記録が無い・読めないときは `clock_unavailable` に `service_stopped`。
+
+- **出どころは 2 つ**（`s01-date` = 取り込み口の応答の日付 / `windows-time-sync` = Windows の時刻同期の状態）。
+  **2 つのそれぞれが `clock_references` と `clock_unavailable` のどちらかに 1 回ずつ**出る。
+  `reason` は `timeout` / `unreachable`（`s01-date`）・`spawn_failed` / `service_stopped`（Windows Time サービスが止まっていた。`w32tm` の終了コード `0x80070426`）/ `exit:<code>` / `timeout`（`windows-time-sync`）・
+  `unparsed`（出力から項目を 1 つも読めなかった。`raw` を持つ）・`worker_failed`（読み取りのスレッドが結果を返さなかった）
+- **取れなかった記録は 1 時間の契機ごとに 1 件まで**。測り直し（60 秒ごと）では増やさず、取れたら `retry` の記録を 1 件残す
 
 > **`at` を原文にも入れる理由**: 冪等キーは `logical_source` + `event_time` + `raw` から
 > 作られる。本文を持たない記録（`excluded`）の原文が全部同じ文字列だと、

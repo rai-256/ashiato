@@ -19,7 +19,7 @@ class TelemetryTest {
     private val lon = 139.767125
 
     private fun req(id: String) =
-        LocationFix(lat, lon, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+        testFix(lat, lon, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "user-0001", "device-secret", ZoneId.of("Asia/Tokyo"))
 
     /** 送信のどの経路を通っても、値がログに出ない */

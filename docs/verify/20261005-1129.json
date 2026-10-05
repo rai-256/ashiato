@@ -1,0 +1,36 @@
+{
+  "title": "確認バッチ 20261005-1129",
+  "subtitle": "ST05 端末時計のずれを測って残す",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261005-1129/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261005-1129/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261005-1129/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: 数えていない（DB を起動できない、または core.event がまだ無い）。run.sh の後に次で数える: `docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select coalesce(sum((payload->>'trigger'='retry')::int),0) as retry, coalesce(sum((payload->>'trigger'='hourly')::int),0) as hourly from core.event where logical_source='c01-clock' and payload->>'kind'='clock-skew' and event_time > now() - interval '7 days'\"`",
+    "成果物: `dist/verify-20261005-1129/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261005-113016-b1828da（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST05-F",
+      "topic": "ST05 違和感",
+      "kind": "check",
+      "question": "ST05「端末時計のずれを測って残す」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
+      "context": "録画 ▶ ST05-clock-skew（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261005-113016-b1828da\\scenarios\\ST05-clock-skew\\video.mp4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ]
+    }
+  ]
+}

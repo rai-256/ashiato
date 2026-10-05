@@ -1,0 +1,24 @@
+{
+  "tag": "20261005-1129",
+  "run_id": "20261005-113016-b1828da",
+  "commit": "b1828da5ebb7ff11c6f298af44a79aac3a4bcb9b",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261005-113016-b1828da",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261005-113016-b1828da",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST05-clock-skew",
+      "story": "ST05",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST05-clock-skew/video.mp4",
+      "trace": ""
+    }
+  ]
+}

@@ -19,7 +19,7 @@ class UnreadableLineTest {
     private val st = TestStores(segmentBytes = 4_000)
 
     private fun req(i: Int) =
-        LocationFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
+        testFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
             .toIngestRequest("id-$i", "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
 
     private val broken1 = """{"enq":1,"item":{"id":"x1","raw":"半端"""

@@ -97,9 +97,24 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
     );
     let engine = c02::engine::Engine::new(exclusions);
     let transport = c02::sender::HttpTransport::new(&cfg.base_url, &cfg.api_token);
-    let reference = c02::clock::HttpDateClock::new(&cfg.base_url);
-    let mut rt =
-        c02::runtime::Runtime::new(&cfg, zone, engine, &transport, &reference, Utc::now())?;
+    let uptime = std::sync::Arc::new(c02::clock::SystemUptime);
+    let reference = std::sync::Arc::new(c02::clock::HttpDateClock::new(
+        &cfg.base_url,
+        uptime.clone(),
+    ));
+    let time_sync = std::sync::Arc::new(c02::time_sync::ProcessTimeSync::new());
+    let mut rt = c02::runtime::Runtime::new(
+        &cfg,
+        zone,
+        engine,
+        &transport,
+        c02::runtime::ClockInputs {
+            reference,
+            time_sync,
+            uptime,
+        },
+        Utc::now(),
+    )?;
     let mut source = c02::platform::WindowsSource::open();
     if !source.focus_events() {
         tracing::info!(
