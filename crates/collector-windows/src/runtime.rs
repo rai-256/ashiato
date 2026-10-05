@@ -1988,6 +1988,62 @@ mod tests {
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
+    fn history_urls(t: &AcceptAll) -> Vec<String> {
+        history_records(t)
+            .iter()
+            .map(|r| r["payload"]["url"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Scenario: 初回の取得で過去の履歴が入る
+    #[test]
+    fn history_runtime_first_fetch_sends_past_visits() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let mut old = read_visit(1, "一年前");
+        old.at = t(0) - Duration::days(365);
+        let reader = FakeReader::new(vec![old, read_visit(2, "昨日")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let mut urls = history_urls(&transport);
+        urls.sort();
+        assert_eq!(
+            urls,
+            vec!["https://example.test/1", "https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 前回の取得の後に古い時刻で入った訪問も取り込まれる
+    #[test]
+    fn history_runtime_late_arriving_old_visit_is_sent() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "最初")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        assert_eq!(history_urls(&transport), vec!["https://example.test/1"]);
+
+        // 前回の取得より前の時刻の訪問が、同期で後から履歴 DB に入る。
+        let mut late = read_visit(2, "後から同期");
+        late.at = t(0) - Duration::days(30);
+        reader.visits.lock().unwrap().push(late);
+        let day = Duration::hours(24).num_seconds();
+        tick_until_read_again(&mut rt, &mut src, &reader, day);
+        rt.send();
+        assert_eq!(
+            history_urls(&transport),
+            vec!["https://example.test/1", "https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
     /// 次の読みが終わるまで（`reads` が増えるまで）見回しを回す。
     fn tick_until_read_again(
         rt: &mut Runtime,
