@@ -1205,6 +1205,7 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 影響: いまの集合は一致しており、バグではない。足し忘れたときに起きるのは Q13〜Q15 が避けた loss: exported（消した場面の座標を原文に持ったまま生きて入る）
 - kind: technical
 - 提案: `KnownKind` の全種類について要求を作り、出てくる `logical_source` が `LOCATION_SOURCES ∪ ITEM_SOURCES ∪ c03-myactivity-*` に入ることを確かめる見張りの試験を足す
+- 処置: fixed D22 — `archive/classify.rs` の `every_archive_logical_source_is_classified_as_location_or_item`（種類は `_` の無い網羅の `match` で持つので、種類を足すとコンパイルで落ちる。逆向きに、分類側の名前がどれも材料から出ることも見る）。`ITEM_SOURCES` から `c03-chrome-history` を外すと FAIL、戻すと PASS（3f8e113）
 
 ## R94. Chrome の履歴は、格納の直後・連鎖・戻しの振る舞いの試験が無い（Task 17 F2）
 - 成果物: `crates/server/src/archive/mod.rs:35` / `crates/server/src/archive_flow_tests.rs`（`archive_erased_youtube_*` は YouTube だけ）
@@ -1212,6 +1213,7 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 影響: Chrome だけ経路から外れても、一致の試験しか落ちない
 - kind: technical
 - 提案: `archive_erased_youtube_cascade` に Chrome の 1 件を足す
+- 処置: fixed D22 — `archive_erased_chrome_history_cascade`（消す → 位置ありだけに `user:cascade`・戻すと `locations == 1`）と `archive_erased_chrome_history_late_mark`（消した後に格納 → 位置ありだけに `user:late`）。同じ変異で 2 本とも FAIL（3f8e113）
 
 ## R95. 範囲が広がった後も、名前と文言がマイアクティビティのまま
 - 成果物: `crates/server/src/stay_store.rs`（`myactivity_located_sql`）/ `crates/server/src/archive_flow_tests.rs:3898`（「マイアクティビティでない行を落とした」。Task 17 F1）/ `docs/briefs/ST12-pr.md:46`（D22-c（仮）の行が「マイアクティビティの `locationInfos`」）
@@ -1219,6 +1221,7 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 影響: 反転条件を読む人が範囲を狭く読む
 - kind: technical
 - 提案: 関数名を範囲に合わせる。assert の文言を直す。PR 本文の D22-c に「D22-d の範囲も同じ」と足す
+- 処置: fixed D22 — `myactivity_located_sql` → `item_located_sql`（呼び出し 3 箇所・doc・design.md）、assert の文言、PR 本文の D22-c の行（3f8e113）。凍結した tasks.md 16.2 の本文には旧名が残る
 
 ## R96. 作り直しのたびに、後着の印の候補に Chrome の履歴が入る
 - 成果物: `crates/server/src/stay_store.rs:804`（`rebuild_day` → `mark_late_arrivals`）
@@ -1226,3 +1229,9 @@ ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor
 - 影響: 本物の量で日ごとの作り直しが遅くなる可能性
 - kind: technical
 - 提案: 本物の量（13.1）で遅いと分かったら、候補の引き方を変える
+- 処置: rejected: st12 の DB で、消した滞在 1 件・1 日分の Chrome の履歴 5000 行（50 行に 1 行が位置あり）・位置 1440 行を入れて `mark_late_arrivals` の候補の SQL に `EXPLAIN (ANALYZE, BUFFERS)` を当てた（ROLLBACK）。消した滞在を索引で引き、滞在ごとに `event_by_user_time_live` の Index Scan、Seq Scan なし、3532 行を読んで位置の無い行は `strpos` の前置きで落ち、4.6 ms。費用は「消した滞在の数 × 日の始まりから滞在の終わりまでの行数」に比例し、いまの範囲では問題にならない。遅ければ内側の下限を「滞在の始まり − 区間の最大の長さ」に縮める（`.superpowers/sdd/st12-task-final/fix-4-report.md`）
+
+## scoped re-review（d3ef5b0..3f8e113）: R93〜R96 すべて ADDRESSED。新しい Critical / Important なし
+- 本番コードの変更は名前の置換だけで、判定の中身は変わらない
+- 全体の試験: fixer が `scripts/quiet-run final4 -- cargo test --workspace` rc=0（679 passed / failed 0）。`.env` の `DATABASE_URL` / `DATABASE_OWNER_URL` が 55432 を指したままで、st12 の DB（55512）へ置き換えて走らせた（`testdb::url()` は port を差し替えるが、`app_pool()` と `tests/server_startup.rs` は env をそのまま使う）。fmt / clippy / `check_scenarios.py` / `openspec validate --strict` も rc=0
+- 範囲外の観測（park。ledger に ruling）: st12 の DB に `st12_fault_*_tg` の trigger が 4 本残る（第 2 回で park した R72 の注意と同じもの）/ 上の `.env` の port
