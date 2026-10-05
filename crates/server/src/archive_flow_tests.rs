@@ -2346,3 +2346,260 @@ async fn archive_flow_the_box_shows_an_unreadable_inbox_on_the_same_day() {
         "最後の確認が直近の走査になっていない"
     );
 }
+
+/// 端末で書き出した合成の `Timeline.json`。位置は消した滞在（2026-09-12 12:00〜13:00 JST = 03:00Z〜04:00Z）に対して
+/// 端が触れる訪問・触れる移動・内側の信号・外の訪問・外の信号を持つ。
+const ERASE_TIMELINE: &str = r#"{"semanticSegments":[
+  {"startTime":"2026-09-12T02:00:00Z","endTime":"2026-09-12T03:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.658°, 139.745°"}}}},
+  {"startTime":"2026-09-12T04:00:00Z","endTime":"2026-09-12T05:00:00Z","activity":{"start":{"latLng":"35.658°, 139.745°"},"end":{"latLng":"35.660°, 139.750°"},"topCandidate":{"type":"WALKING"}}},
+  {"startTime":"2026-09-12T06:00:00Z","endTime":"2026-09-12T07:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.670°, 139.760°"}}}}
+ ],
+ "rawSignals":[
+  {"position":{"LatLng":"35.658°, 139.745°","timestamp":"2026-09-12T03:30:00Z"}},
+  {"position":{"LatLng":"35.658°, 139.745°","timestamp":"2026-09-12T08:00:00Z"}}
+ ]}"#;
+
+/// 消した滞在の外だけを含む `Timeline.json`。
+const OUTSIDE_TIMELINE: &str = r#"{"semanticSegments":[
+  {"startTime":"2026-09-12T06:00:00Z","endTime":"2026-09-12T07:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.670°, 139.760°"}}}}
+ ],
+ "rawSignals":[
+  {"position":{"LatLng":"35.658°, 139.745°","timestamp":"2026-09-12T08:00:00Z"}}
+ ]}"#;
+
+impl Inbox {
+    /// 2026-09-12 12:00〜13:00 JST の滞在を 1 件置く（`deletion::erase` が消せる、本物の導出行）。
+    async fn put_stay(&self) -> uuid::Uuid {
+        let id = uuid::Uuid::new_v4();
+        let payload = serde_json::json!({
+            "start": "2026-09-12T03:00:00+00:00",
+            "end": "2026-09-12T04:00:00+00:00",
+            "lat": 35.658,
+            "lon": 139.745,
+        })
+        .to_string();
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, external_id, origin, event_time,
+                tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+             VALUES ($1,$2,'s01-stay',$3,'derived','2026-09-12T03:00:00Z',540,'Asia/Tokyo',1,$3,$4,$4::jsonb)",
+        )
+        .bind(id)
+        .bind(self.user)
+        .bind(id.to_string())
+        .bind(payload)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn stays(&self) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = 's01-stay'",
+        )
+        .bind(self.user)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// 書庫の位置の論理ソース 7 本のうち、印の付いた行と生きた行の件数。
+    async fn archive_locations(&self) -> (i64, i64) {
+        let hidden: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event
+              WHERE user_id = $1 AND logical_source = ANY($2) AND deleted_at IS NOT NULL",
+        )
+        .bind(self.user)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        let live: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event_live
+              WHERE user_id = $1 AND logical_source = ANY($2)",
+        )
+        .bind(self.user)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        (hidden, live)
+    }
+
+    async fn marks(&self) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT logical_source, deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source = ANY($2) ORDER BY logical_source, event_time",
+        )
+        .bind(self.user)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn erase_ledger_rows(&self, cause: uuid::Uuid, mark: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.deletion_ledger
+              WHERE user_id = $1 AND cause_event_id = $2 AND action = 'erase' AND mark = $3
+                AND logical_source = ANY($4)",
+        )
+        .bind(self.user)
+        .bind(cause)
+        .bind(mark)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// 書庫が置き場から「取り込み済み」へ移るまで待つ（格納・印付け・台帳の後）。位置の行数も確かめる。
+    async fn until_archive_locations(&self, total: i64) {
+        let processed = self.inbox.join("取り込み済み").join("Timeline.json.zip");
+        self.until("Timeline.json の位置が格納されない", || async {
+            let (hidden, live) = self.archive_locations().await;
+            processed.exists() && hidden + live >= total
+        })
+        .await;
+    }
+}
+
+// Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
+// Scenario: 書庫の位置の印は滞在の作り直しを待たずに付く
+#[tokio::test]
+async fn archive_erased_window_marks_the_overlapping_archive_locations() {
+    let inbox = Inbox::new("archive-erased-window").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(5).await;
+
+    // 端が触れるだけの訪問（〜03:00Z）と移動（04:00Z〜）、内側の信号に印が付く。外の 2 行は生きる。
+    let marks = inbox.marks().await;
+    let late = |source: &str| {
+        marks
+            .iter()
+            .filter(|(s, by)| s == source && by.as_deref() == Some("user:late"))
+            .count()
+    };
+    assert_eq!(
+        late("c03-timeline-visit"),
+        1,
+        "終わりが触れる訪問に印が無い: {marks:?}"
+    );
+    assert_eq!(
+        late("c03-timeline-move"),
+        1,
+        "始まりが触れる移動に印が無い: {marks:?}"
+    );
+    assert_eq!(
+        late("c03-timeline-signal"),
+        1,
+        "内側の信号に印が無い: {marks:?}"
+    );
+    assert_eq!(
+        inbox.archive_locations().await,
+        (3, 2),
+        "生きた行の件数が違う"
+    );
+    assert_eq!(
+        inbox.erase_ledger_rows(stay, "user:late").await,
+        3,
+        "台帳の erase 行が違う"
+    );
+    // 作り直しを走らせていない: 滞在は消した 1 件のまま増えていない。
+    assert_eq!(inbox.stays().await, 1, "滞在の作り直しが走っている");
+}
+
+// Scenario: 消した滞在の時間帯の外の書庫の位置は生きた記録として入る
+#[tokio::test]
+async fn archive_erased_window_leaves_locations_outside_alive() {
+    let inbox = Inbox::new("archive-erased-outside").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", OUTSIDE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(2).await;
+
+    assert_eq!(inbox.archive_locations().await, (0, 2));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:late").await, 0);
+}
+
+// Scenario: 滞在を消すとその時間帯の書庫の位置も削除済みになる
+#[tokio::test]
+async fn archive_erased_cascade_marks_locations_stored_before_the_erase() {
+    let inbox = Inbox::new("archive-erased-cascade").await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(5).await;
+    assert_eq!(
+        inbox.archive_locations().await,
+        (0, 5),
+        "格納の時点で印が付いている"
+    );
+
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let marks = inbox.marks().await;
+    assert_eq!(
+        marks
+            .iter()
+            .filter(|(_, by)| by.as_deref() == Some("user:cascade"))
+            .count(),
+        3,
+        "{marks:?}"
+    );
+    assert_eq!(inbox.archive_locations().await, (3, 2));
+    assert_eq!(inbox.erase_ledger_rows(stay, "user:cascade").await, 3);
+
+    // 同じ内容の書庫を置き直しても行は増えない（内容の鍵）。
+    // 滞在の判定の入力は基準のソースのままで、書庫の位置は足されていない。
+    assert_eq!(
+        crate::stay::Criteria::default_values().sources,
+        vec!["c01-location".to_owned()]
+    );
+}
+
+// Scenario: 滞在の削除を戻すと書庫の位置も戻る
+#[tokio::test]
+async fn archive_erased_cascade_restore_brings_the_locations_back() {
+    let inbox = Inbox::new("archive-erased-restore").await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(5).await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(inbox.archive_locations().await, (3, 2));
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 3);
+    assert_eq!(
+        inbox.archive_locations().await,
+        (0, 5),
+        "戻した後に印が残っている"
+    );
+}

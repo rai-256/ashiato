@@ -565,7 +565,7 @@ pub async fn rebuild_day(
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let bounds = day_bounds(day);
-    mark_late_arrivals(&mut tx, user, &c.sources, bounds).await?;
+    mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), bounds).await?;
     let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
@@ -617,7 +617,47 @@ pub async fn rebuild_day(
     Ok(out)
 }
 
-/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースの記録を隠す。
+/// 基準のソースに書庫の位置の論理ソースを足した集合（design D22）。滞在の判定（`Criteria::sources`）は変えない。
+pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
+    let mut all = base.to_vec();
+    for source in crate::archive::LOCATION_SOURCES {
+        if !all.iter().any(|s| s == source) {
+            all.push(source.to_owned());
+        }
+    }
+    all
+}
+
+/// 記録の終わりの SQL 式。区間の記録（`end_time`）は終わりを、点は始まりを返す
+/// （`end_time` はオフセット付きの時刻か、移行前のミリ秒）。重なりは端が触れるだけでも成り立つ（Q12）。
+pub(crate) fn event_end_sql(alias: &str) -> String {
+    format!(
+        "coalesce(core.try_timestamptz({a}.payload->>'end_time'),
+                  CASE WHEN {a}.payload->>'end_time' ~ '^[0-9]{{1,15}}$'
+                       THEN to_timestamp(({a}.payload->>'end_time')::numeric / 1000.0) END,
+                  {a}.event_time)",
+        a = alias
+    )
+}
+
+/// 書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ印を付ける（design D22 (1)）。
+///
+/// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
+pub async fn mark_archive_arrivals(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    lock(&mut tx, user).await?;
+    let sources: Vec<String> = crate::archive::LOCATION_SOURCES
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    // 全期間（`timestamptz` が持てる範囲）。
+    let from = DateTime::<Utc>::UNIX_EPOCH - Duration::days(365 * 1000);
+    let to = DateTime::<Utc>::UNIX_EPOCH + Duration::days(365 * 7000);
+    mark_late_arrivals(&mut tx, user, &sources, (from, to)).await?;
+    tx.commit().await
+}
+
+/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースと書庫の位置の記録を隠す。
 ///
 /// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
@@ -629,7 +669,7 @@ async fn mark_late_arrivals(
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
 ) -> sqlx::Result<()> {
-    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(
+    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
         "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
            FROM core.event e
            JOIN core.event s
@@ -647,14 +687,15 @@ async fn mark_late_arrivals(
                     WHERE last.event_id = s.id
                  )
             )
-            AND e.event_time >= s.event_time
             AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
+            AND {end} >= s.event_time
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
             AND e.deleted_at IS NULL
           ORDER BY e.id, s.event_time, s.id",
-    )
+        end = event_end_sql("e")
+    ))
     .bind(user)
     .bind(sources)
     .bind(from)

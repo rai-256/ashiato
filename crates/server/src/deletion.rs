@@ -270,6 +270,9 @@ async fn erase_using_action(
         .await?
         .unwrap_or_else(Criteria::default_values)
         .sources;
+    // 基準のソース ∪ 書庫の位置の論理ソース（design D22）。滞在の判定の入力は変えない。
+    let sources = stay_store::with_archive_sources(&sources);
+    let event_end = stay_store::event_end_sql("core.event");
     let stay_changed: Vec<(uuid::Uuid, String)> = sqlx::query_as(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user'
           WHERE id = $1 AND deleted_at IS NULL
@@ -278,12 +281,12 @@ async fn erase_using_action(
     .bind(stay_id)
     .fetch_all(&mut *tx)
     .await?;
-    let locations: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+    let locations: Vec<(uuid::Uuid, String)> = sqlx::query_as(&format!(
         "UPDATE core.event SET deleted_at = now(), deleted_by = 'user:cascade'
           WHERE user_id = $1 AND logical_source = ANY($2)
-            AND event_time >= $3 AND event_time <= $4 AND deleted_at IS NULL
+            AND event_time <= $4 AND {event_end} >= $3 AND deleted_at IS NULL
           RETURNING id, logical_source",
-    )
+    ))
     .bind(row.user_id)
     .bind(&sources)
     .bind(start)
@@ -294,19 +297,20 @@ async fn erase_using_action(
     // 既に別の消去原因で隠れている位置にも、この操作の原因を追記する。
     // A を戻したとき、重なる B の消去まで戻さないために必要な因果関係である。
     // 新たに消した行はまだ台帳に載せていないため、この検索には含まれない。
-    let already_deleted: Vec<ActiveDeletionRow> = sqlx::query_as(
+    let event_end_e = stay_store::event_end_sql("e");
+    let already_deleted: Vec<ActiveDeletionRow> = sqlx::query_as(&format!(
         "SELECT e.id AS event_id, e.logical_source, e.deleted_by AS mark
            FROM core.event e
           WHERE e.user_id = $1 AND e.logical_source = ANY($2)
-            AND e.event_time >= $3 AND e.event_time <= $4
+            AND e.event_time <= $4 AND {event_end_e} >= $3
             AND e.deleted_at IS NOT NULL
             AND EXISTS (
               SELECT 1 FROM core.deletion_ledger d
                WHERE d.event_id = e.id AND d.action = 'erase'
                  AND e.deleted_by IS NOT DISTINCT FROM d.mark
                  AND d.seq = (SELECT max(last.seq) FROM core.deletion_ledger last WHERE last.event_id = e.id)
-            )",
-    )
+            )"
+    ))
     .bind(row.user_id)
     .bind(&sources)
     .bind(start)
