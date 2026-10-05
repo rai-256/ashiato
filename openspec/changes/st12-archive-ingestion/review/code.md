@@ -1191,3 +1191,38 @@ ledger の仕分け: parked 9 件のうち 8 件は park のまま（理由は�
 - R90: 版の読み直しを直に呼ぶ 2 本と確認待ちの試験の締め付けで、M4〜M8 のそれぞれが落ちる assert を持つ
 - R91: Rust（`carries_location`）と SQL（`myactivity_located_sql`）が同じ厳しい側の判定に揃い、一致の試験の期待値も揃った。D22-c（仮）に反転条件
 - Minor（指摘にしない）: SQL の `NOT IN` は jsonb の等価比較に依る（`[ ]` も正規化されて等価）
+
+# final review 第 4 回（94c427c..4ecd3b9。218077d..4ecd3b9 = R90・R91 の処置・深掘り第 6 回 Q15・Task 17 を厚く）— 2026-10-05
+
+席: final reviewer（SDD の `code-reviewer.md`。ブランチ全体の review package。本文は `.superpowers/sdd/st12-task-final/final-review-4.md`）。判定は **Ready to merge: With fixes**（Critical 0 / Important 1 / Minor 3）。
+入口 2 回目の申し送り: `docs/handoff/ST12.md` は前回（最終更新 2026-10-01）から増えていない。st25 R3 は PR 本文の「未処置の申し送り」に載っている。
+試験: reviewer が `cargo test -p ashiato-server --lib -- archive_erased_youtube archive_myactivity_location_rust_and_sql_agree archive_reparse_ archive_erased_myactivity`（11 passed）・`openspec validate --strict`・`check_scenarios.py`（769 / 769）・`check_chain.py` を走らせ、すべて rc=0。
+ledger の仕分け: parked は全件 park のまま（第 2 回 re-review Minor 1 の前提は D22-d で範囲が広がっても成り立つ）。Task 16 の F2 / F3 と、Task 16 / 17 の ⚠️（validate）は解決済み。Task 17 の ⚠️（16.3 の証跡）は、該当の試験 11 本が緑。全体は fix の後に走らせる。
+
+## R93. 「ソースの名前でなく項目で決める」（Q15 / D22-d）が、実装では固定名の許可リストになっていて、足し忘れを止める試験が無い
+- 成果物: `crates/server/src/archive/mod.rs:32-36`（`ITEM_SOURCES`）/ `crates/server/src/stay_store.rs:670-685`（`item_sources` / `is_item_source`）/ `crates/server/src/archive/worker.rs:798-832`（論理ソースの名前を別の文字列で持つ）
+- 根拠: spec の Requirement は「位置の 7 本以外で書庫が項目を入れる論理ソースは**すべて**同じ判定に掛ける」と書き、deep.md Q15 は「次に同じ形のソースが見つかっても同じ問いを立て直さないため」に名前で決めないと読んだ。実装は `c03-myactivity-` の前置きと固定の 3 本の和で、`KnownKind` に種類を足して `ITEM_SOURCES` に足し忘れても、どの試験も落ちない
+- 影響: いまの集合は一致しており、バグではない。足し忘れたときに起きるのは Q13〜Q15 が避けた loss: exported（消した場面の座標を原文に持ったまま生きて入る）
+- kind: technical
+- 提案: `KnownKind` の全種類について要求を作り、出てくる `logical_source` が `LOCATION_SOURCES ∪ ITEM_SOURCES ∪ c03-myactivity-*` に入ることを確かめる見張りの試験を足す
+
+## R94. Chrome の履歴は、格納の直後・連鎖・戻しの振る舞いの試験が無い（Task 17 F2）
+- 成果物: `crates/server/src/archive/mod.rs:35` / `crates/server/src/archive_flow_tests.rs`（`archive_erased_youtube_*` は YouTube だけ）
+- 根拠: SQL と Rust の一致の試験には Chrome が出るが、印付けの 3 経路の試験は YouTube だけ
+- 影響: Chrome だけ経路から外れても、一致の試験しか落ちない
+- kind: technical
+- 提案: `archive_erased_youtube_cascade` に Chrome の 1 件を足す
+
+## R95. 範囲が広がった後も、名前と文言がマイアクティビティのまま
+- 成果物: `crates/server/src/stay_store.rs`（`myactivity_located_sql`）/ `crates/server/src/archive_flow_tests.rs:3898`（「マイアクティビティでない行を落とした」。Task 17 F1）/ `docs/briefs/ST12-pr.md:46`（D22-c（仮）の行が「マイアクティビティの `locationInfos`」）
+- 根拠: D22-d で判定は YouTube・Chrome にも掛かる
+- 影響: 反転条件を読む人が範囲を狭く読む
+- kind: technical
+- 提案: 関数名を範囲に合わせる。assert の文言を直す。PR 本文の D22-c に「D22-d の範囲も同じ」と足す
+
+## R96. 作り直しのたびに、後着の印の候補に Chrome の履歴が入る
+- 成果物: `crates/server/src/stay_store.rs:804`（`rebuild_day` → `mark_late_arrivals`）
+- 根拠: 候補に、これまで外れていた Chrome の履歴（1 日に数百〜数千行になりうる）が入る。`located` は `strpos` の安い前置きを持ち、消した滞在との結合で絞られる（reviewer は「いまは問題にならない」と見た。実測はしていない）
+- 影響: 本物の量で日ごとの作り直しが遅くなる可能性
+- kind: technical
+- 提案: 本物の量（13.1）で遅いと分かったら、候補の引き方を変える
