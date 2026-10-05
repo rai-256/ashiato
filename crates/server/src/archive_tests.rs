@@ -1580,6 +1580,14 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     .unwrap();
     // Scenario: 同じ書庫を置き直すと台帳に 1 行残る
     let processed = inbox.join("取り込み済み");
+    // 台帳の行が出た時点では、まだ「取り込み済み」へ移し終えていないことがある（印を付ける鍵の待ちが挟まる）。
+    tokio::time::timeout(WORKER_WAIT, async {
+        while !processed.join("takeout-20260912.zip").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("書庫が取り込み済みへ移る");
     std::fs::copy(
         processed.join("takeout-20260912.zip"),
         inbox.join("takeout-20260912-again.zip"),
