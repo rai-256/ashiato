@@ -487,14 +487,14 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 
 - **D22-c（仮）. 欄の中身の形を見ない**（code-verify 第 5 回 R91。D22-b の本文が「空でない配列」と「中身の形が違っても印は付く」の両方を書いていた）:
   厳しい側に揃える。`locationInfos` の欄があり、値が `null`・空の配列・空のオブジェクト・空文字の**どれでもなければ**位置を持つとみなす
-  （配列でないオブジェクト・文字列・数も印を付ける）。Rust の `carries_location` と SQL の `myactivity_located_sql` を同時に直し、
+  （配列でないオブジェクト・文字列・数も印を付ける）。Rust の `carries_location` と SQL の `item_located_sql` を同時に直し、
   `archive_myactivity_location_rust_and_sql_agree` の期待値も揃えた。tasks 15.1 の「空でない配列」は凍結された文面で、この判定はそれを含む広い側。
   反転条件: 13.1 で実物の `locationInfos` が位置でない値（空の印や件数など）を持つ形だと分かり、位置を持たない項目まで印が付いて本人の記録が消えて見えるなら、
   実物の形に合わせて狭める（印は削除の台帳の原因で戻せるので、捨てたものは無い）
 
 - **D22-d. 位置を持つ YouTube の履歴の項目も書庫の位置に入れる。ソースの名前でなく項目で決める**（第 6 回 Q15。本人の決定。code-verify 第 5 回 R92）:
   D22-b の対象を、マイアクティビティの接頭辞から**位置の 7 本（`LOCATION_SOURCES`）以外で書庫が項目を入れる論理ソースすべて**へ広げる ——
-  いまは `c03-myactivity-*` / `c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history`。判定は D22-b / D22-c と同じ `locationInfos` の欄の有無（Rust の `carries_location` と SQL の `myactivity_located_sql` を同じ範囲で使う）。
+  いまは `c03-myactivity-*` / `c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history`。判定は D22-b / D22-c と同じ `locationInfos` の欄の有無（Rust の `carries_location` と SQL の `item_located_sql` を同じ範囲で使う）。
   (1) 格納の直後（`mark_archive_arrivals` の範囲の絞り込み）・(2) 消すとき（`deletion::erase` の連鎖）・(3) 戻すとき・後着の印（`mark_late_arrivals`）の 3 か所で、ソースの集合と判定の両方を同じ範囲にする（片方だけを広げると、印付けの範囲と印を付ける条件が黙ってずれる）。
   `c03-chrome-history` は本人の答えが名指していないが、「項目が位置を持つかで決める」の読み取りに従って含める（C: 厳しい側。欄が無ければ何も起きない。印は戻せる）。
   書庫の取り込み器の生存信号・途絶（`c03-archive` / `c03-outage`）は項目でないので対象外。payload と内容の鍵は変えない。滞在の判定の入力には足さない（Non-Goals のまま）。

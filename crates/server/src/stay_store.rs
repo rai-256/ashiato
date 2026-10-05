@@ -677,7 +677,7 @@ pub(crate) async fn item_sources(executor: impl sqlx::PgExecutor<'_>) -> sqlx::R
     Ok(sources)
 }
 
-/// 論理ソースが、位置の欄を持てば印付けの対象になる項目のものか（`item_sources` と `myactivity_located_sql` と同じ範囲）。
+/// 論理ソースが、位置の欄を持てば印付けの対象になる項目のものか（`item_sources` と `item_located_sql` と同じ範囲）。
 fn is_item_source(logical_source: &str) -> bool {
     logical_source.starts_with(MYACTIVITY_PREFIX)
         || crate::archive::ITEM_SOURCES.contains(&logical_source)
@@ -689,7 +689,7 @@ fn is_item_source(logical_source: &str) -> bool {
 /// 配列でなくても（1 件だけのときのオブジェクト・文字列など）印を付ける。外すのは `null` と空の配列・
 /// オブジェクト・文字列だけ。
 ///
-/// **`myactivity_located_sql` と同じ判定にする**（片方だけを直すと、印付けの範囲と印を付ける条件が黙ってずれる。
+/// **`item_located_sql` と同じ判定にする**（片方だけを直すと、印付けの範囲と印を付ける条件が黙ってずれる。
 /// `archive_myactivity_location_rust_and_sql_agree` が固定する）。欄の名前が原文に無ければ解析しない（同じ前置き）。
 pub(crate) fn carries_location(raw: &str) -> bool {
     if !raw.contains(LOCATION_KEY) {
@@ -720,7 +720,7 @@ const LOCATION_KEY: &str = "\"locationInfos\"";
 /// 全期間の Takeout の範囲を評価するので、位置を持たない大多数の行の解析を文字列の照合 1 回で畳む。
 /// 前置きが偽で中を見ると真になるのは、欄の名前を `\u` でエスケープした原文だけ（Takeout はそう書かない）。
 /// `carries_location` も同じ前置きを置くので、両者の判定は一致したまま。
-pub(crate) fn myactivity_located_sql(alias: &str) -> String {
+pub(crate) fn item_located_sql(alias: &str) -> String {
     format!(
         "(CASE WHEN ({a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
                     OR {a}.logical_source IN ({fixed}))
@@ -787,7 +787,7 @@ pub async fn mark_archive_arrivals(
 }
 
 /// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースと書庫の位置の記録を隠す。
-/// 位置（`locationInfos`）を持つマイアクティビティの項目も対象（design D22-b。持たない項目は外れる）。
+/// 位置（`locationInfos`）を持つ項目（マイアクティビティ・YouTube・Chrome）も対象（design D22-b / D22-d。持たない項目は外れる）。
 ///
 /// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
@@ -829,7 +829,7 @@ async fn mark_late_arrivals(
             AND {located}
           ORDER BY e.id, s.event_time, s.id",
         end = event_end_sql("e"),
-        located = myactivity_located_sql("e")
+        located = item_located_sql("e")
     ))
     .bind(user)
     .bind(&sources)

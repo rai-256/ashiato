@@ -105,3 +105,107 @@ fn kind_of(value: serde_json::Value) -> Option<KnownKind> {
         })
         .map(|_| KnownKind::MyActivity)
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::KnownKind;
+
+    /// 種類の全列挙。**`match` は網羅で、`_` を置かない**（種類を足すとここがコンパイルで落ちる）。
+    /// 足した種類は、いまの末尾の次に繋ぐ（繋がない種類は見張りから漏れる）。
+    fn next(kind: KnownKind) -> Option<KnownKind> {
+        match kind {
+            KnownKind::YouTubeWatch => Some(KnownKind::YouTubeSearch),
+            KnownKind::YouTubeSearch => Some(KnownKind::MyActivity),
+            KnownKind::MyActivity => Some(KnownKind::Timeline),
+            KnownKind::Timeline => Some(KnownKind::Records),
+            KnownKind::Records => Some(KnownKind::SemanticHistory),
+            KnownKind::SemanticHistory => Some(KnownKind::ChromeHistory),
+            KnownKind::ChromeHistory => None,
+        }
+    }
+
+    /// 種類ごとに、読み手のすべての枝（論理ソース）を通る材料。これも網羅の `match`。
+    fn fixture(kind: KnownKind) -> &'static str {
+        match kind {
+            KnownKind::YouTubeWatch => {
+                r#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/watch?v=x"}]"#
+            }
+            KnownKind::YouTubeSearch => {
+                r#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/results?search_query=x"}]"#
+            }
+            KnownKind::MyActivity => {
+                r#"[{"header":"検索","time":"2026-01-01T00:00:00Z","products":["検索"],"title":"x"}]"#
+            }
+            KnownKind::Timeline => {
+                r#"{"semanticSegments":[
+                    {"startTime":"2026-01-01T00:00:00Z","endTime":"2026-01-01T01:00:00Z","visit":{}},
+                    {"startTime":"2026-01-01T01:00:00Z","endTime":"2026-01-01T02:00:00Z","activity":{}},
+                    {"startTime":"2026-01-01T02:00:00Z","endTime":"2026-01-01T03:00:00Z",
+                     "timelinePath":[{"point":"35.0°, 139.0°","time":"2026-01-01T02:10:00Z"}]}],
+                   "rawSignals":[{"position":{"LatLng":"35.0°, 139.0°","timestamp":"2026-01-01T04:00:00Z"}}]}"#
+            }
+            KnownKind::Records => r#"{"locations":[{"timestamp":"2026-01-01T00:00:00Z"}]}"#,
+            KnownKind::SemanticHistory => {
+                r#"{"timelineObjects":[
+                    {"placeVisit":{"duration":{"startTimestamp":"2026-01-01T00:00:00Z","endTimestamp":"2026-01-01T01:00:00Z"}}},
+                    {"activitySegment":{"duration":{"startTimestamp":"2026-01-01T01:00:00Z","endTimestamp":"2026-01-01T02:00:00Z"}}}]}"#
+            }
+            KnownKind::ChromeHistory => {
+                r#"{"Browser History":[{"time_usec":13222310400000000,"title":"x","url":"https://example.com/"}]}"#
+            }
+        }
+    }
+
+    // 見張り（final review 第 4 回 R93。第 6 回 Q15 / design D22-d）: 書庫が項目を入れる論理ソースは、
+    // すべて「位置」（`LOCATION_SOURCES`）か「位置の欄を見る項目」（`ITEM_SOURCES` と `c03-myactivity-*`）の
+    // どちらかに分類されている。種類やソースを足して分類へ足し忘れると、消した場面の座標を原文に持ったまま
+    // 生きて入る（loss: exported）ので、ここで落とす。
+    //
+    // 除外は無い: 読み手（`requests_for_file`）が出すのは項目の論理ソースだけで、取り込み器の生存信号
+    // （`s01-archive-inbox`）や台帳は要求を作らない。
+    #[test]
+    fn every_archive_logical_source_is_classified_as_location_or_item() {
+        let mut kinds = vec![KnownKind::YouTubeWatch];
+        while let Some(kind) = next(*kinds.last().unwrap()) {
+            kinds.push(kind);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for kind in kinds {
+            let bytes = fixture(kind);
+            let value: serde_json::Value = serde_json::from_str(bytes).unwrap();
+            assert_eq!(
+                super::kind_of(value),
+                Some(kind),
+                "材料が {kind:?} に分類されない"
+            );
+            let out = crate::archive::worker::requests_for_file_reporting(
+                kind,
+                "fixture.json",
+                bytes.as_bytes(),
+                uuid::Uuid::nil(),
+                "x".repeat(64),
+            )
+            .unwrap();
+            assert!(out.unreadable.is_empty(), "{kind:?}: {:?}", out.unreadable);
+            assert!(!out.requests.is_empty(), "{kind:?} が要求を作らない");
+            for request in out.requests {
+                let source = request.logical_source;
+                assert!(
+                    crate::archive::LOCATION_SOURCES.contains(&source.as_str())
+                        || crate::archive::ITEM_SOURCES.contains(&source.as_str())
+                        || source.starts_with("c03-myactivity-"),
+                    "{kind:?} の論理ソース {source} が位置にも項目にも分類されていない"
+                );
+                seen.insert(source);
+            }
+        }
+        // 材料が読み手の枝をすべて通ったこと（分類の側の名前がどれも実際に出ること）。
+        for source in crate::archive::LOCATION_SOURCES
+            .iter()
+            .chain(crate::archive::ITEM_SOURCES.iter())
+        {
+            assert!(seen.contains(*source), "材料が {source} を出さない");
+        }
+    }
+}

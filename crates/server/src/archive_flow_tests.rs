@@ -3705,6 +3705,114 @@ async fn archive_erased_youtube_cascade() {
     );
 }
 
+/// 位置を持つ 1 件と持たない 1 件の Chrome の履歴（時刻は 2026-09-12T03:32Z / 03:42Z。消す滞在の 03:00〜04:00 の中）。
+const LOCATED_CHROME: &str = r#"{"Browser History":[
+  {"title":"位置ありを開きました","url":"https://example.com/a","time_usec":13433657520000000,"page_transition":"LINK","client_id":"c",
+   "locationInfos":[{"name":"この付近","url":"https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12","source":"もとの場所"}]},
+  {"title":"位置なしを開きました","url":"https://example.com/b","time_usec":13433658120000000,"page_transition":"LINK","client_id":"c"}
+ ]}"#;
+
+impl Inbox {
+    /// Chrome の履歴の行の (題名, 印)。題名の順。
+    async fn chrome_marks(&self) -> Vec<(String, Option<String>)> {
+        sqlx::query_as(
+            "SELECT payload->>'title', deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source = 'c03-chrome-history'
+              ORDER BY payload->>'title'",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn chrome_ledger_rows(&self, cause: uuid::Uuid, mark: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.deletion_ledger
+              WHERE user_id = $1 AND cause_event_id = $2 AND action = 'erase' AND mark = $3
+                AND logical_source = 'c03-chrome-history'",
+        )
+        .bind(self.user)
+        .bind(cause)
+        .bind(mark)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    /// 合成の Chrome の履歴を取り込み器を介さずに格納し、格納した要求を返す（形の確認の印は不要）。
+    async fn store_chrome(&self) -> Vec<crate::IngestRequest> {
+        let requests = crate::archive::worker::requests_for_file(
+            crate::archive::classify::KnownKind::ChromeHistory,
+            "Takeout/Chrome/History.json",
+            LOCATED_CHROME.as_bytes(),
+            self.user,
+            format!("{:064x}", uuid::Uuid::new_v4().as_u128()),
+        )
+        .unwrap();
+        let sink = crate::PgSink::new(self.pool.clone());
+        crate::archive::worker::store_requests(&sink, requests.clone())
+            .await
+            .unwrap();
+        requests
+    }
+}
+
+// 位置を持つ Chrome の履歴の項目も、YouTube と同じく消すときの連鎖で印が付き、戻すと外れる
+// （第 6 回 Q15 / design D22-d。final review 第 4 回 R94。それまで印付けの経路の試験は YouTube だけで、
+// Chrome だけが経路から外れても Rust と SQL の一致の試験しか落ちなかった）。
+#[tokio::test]
+async fn archive_erased_chrome_history_cascade() {
+    let inbox = Inbox::new("archive-erased-chrome-cascade").await;
+    inbox.store_chrome().await;
+    let alive = marks(&[
+        ("位置ありを開きました", None),
+        ("位置なしを開きました", None),
+    ]);
+    assert_eq!(inbox.chrome_marks().await, alive);
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.chrome_marks().await,
+        marks(&[
+            ("位置ありを開きました", Some("user:cascade")),
+            ("位置なしを開きました", None),
+        ])
+    );
+    assert_eq!(inbox.chrome_ledger_rows(stay, "user:cascade").await, 1);
+
+    let outcome = crate::deletion::restore(&inbox.pool, &[stay], None)
+        .await
+        .unwrap();
+    assert_eq!(outcome.locations, 1);
+    assert_eq!(inbox.chrome_marks().await, alive);
+}
+
+// 消した後に格納した位置を持つ Chrome の履歴の項目には、書庫の印付け（`mark_archive_arrivals`）で後着の印が付く
+// （final review 第 4 回 R94）。位置を持たない項目は生きたまま。
+#[tokio::test]
+async fn archive_erased_chrome_history_late_mark() {
+    let inbox = Inbox::new("archive-erased-chrome-late").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let stored = inbox.store_chrome().await;
+    crate::stay_store::mark_archive_arrivals(&inbox.pool, inbox.user, &stored)
+        .await
+        .unwrap();
+    assert_eq!(
+        inbox.chrome_marks().await,
+        marks(&[
+            ("位置ありを開きました", Some("user:late")),
+            ("位置なしを開きました", None),
+        ])
+    );
+    assert_eq!(inbox.chrome_ledger_rows(stay, "user:late").await, 1);
+}
+
 // Scenario: 格納に続けて失敗した書庫は台帳と画面に出る
 //
 // 確認待ちを写しから読み直す経路（`ingest_confirmed_pending` → `reread_archive`）でも、印付けが落ち続ければ
@@ -3833,7 +3941,7 @@ async fn archive_erased_myactivity_overlapping_erasures_restore_one_keeps_it_hid
 
 // Scenario: 位置を持たないマイアクティビティの項目は消した時間帯でも生きた記録として入る
 //
-// 印付けの範囲（Rust の `carries_location`）と、印を付ける条件（SQL の `myactivity_located_sql`）は
+// 印付けの範囲（Rust の `carries_location`）と、印を付ける条件（SQL の `item_located_sql`）は
 // 同じ判定でなければならない。片方だけを直すと、範囲と印付けが黙ってずれる（final review 第 3 回 R86）。
 #[tokio::test]
 async fn archive_myactivity_location_rust_and_sql_agree() {
@@ -3862,7 +3970,7 @@ async fn archive_myactivity_location_rust_and_sql_agree() {
     ];
     let sql = format!(
         "SELECT {} FROM (SELECT $1::text AS raw, $2::text AS logical_source) t",
-        crate::stay_store::myactivity_located_sql("t")
+        crate::stay_store::item_located_sql("t")
     );
     for (raw, expected) in cases {
         let rust = crate::stay_store::carries_location(raw);
@@ -3895,6 +4003,6 @@ async fn archive_myactivity_location_rust_and_sql_agree() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert!(other, "マイアクティビティでない行を落とした: {raw}");
+        assert!(other, "項目のソースでない行を落とした: {raw}");
     }
 }
