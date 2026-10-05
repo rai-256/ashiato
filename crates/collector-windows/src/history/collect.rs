@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use crate::exclusion::Exclusions;
 use crate::history::contract::Visit;
 use crate::history::fetch::{
-    apply_history_exclusions, queue_then_save, select_new_or_changed, HistorySchedule,
-    HistoryWorker,
+    apply_history_exclusions, apply_vanished, detect_vanished_if_readable, queue_then_save,
+    select_new_or_changed, vanished_chunks, HistorySchedule, HistoryWorker, VanishedVisit,
 };
 use crate::history::ledger::LedgerStore;
 use crate::history::locate::{self, Browser};
@@ -166,8 +166,8 @@ impl HistoryCollector {
             .context("除外の登録を読めないので履歴を送らない")?;
         let mut queued = 0;
         let mut unreadable = 0;
-        for profile in outcome.profiles {
-            let Ok(read) = profile.visits else {
+        for profile in &outcome.profiles {
+            let Ok(read) = &profile.visits else {
                 unreadable += 1;
                 continue;
             };
@@ -178,10 +178,24 @@ impl HistoryCollector {
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let (kept, _) = apply_history_exclusions(store.ledger_mut(), &exclusions, &visits);
             let fresh = select_new_or_changed(store.ledger(), &kept);
-            store.ledger_mut().max_visit_id = read.iter().map(|v| v.id).max();
+            // 帳面の最大の訪問番号と比べるので、書き換える前に消えた訪問を見つける
+            let max_visit_id = read.iter().map(|v| v.id).max();
+            let seen: Vec<String> = visits.iter().map(|v| v.external_id.clone()).collect();
+            let vanished =
+                detect_vanished_if_readable(store.ledger(), &seen, wall, max_visit_id, false, true);
+            queued += self.queue_vanished(
+                &mut store,
+                profile.browser,
+                &profile.directory,
+                &vanished,
+                wall,
+                &mut *queue,
+            )?;
+            store.ledger_mut().max_visit_id = max_visit_id;
             queue_then_save(&mut store, &fresh, &mut *queue)?;
             queued += fresh.len();
         }
+        queued += self.queue_gone_profiles(&outcome.profiles, wall, &mut *queue)?;
         for (browser, current) in &outcome.names {
             queued += self.queue_profiles(*browser, current, wall, &mut *queue)?;
         }
@@ -190,6 +204,70 @@ impl HistoryCollector {
             &self.dir.join("last_success.json"),
             &serde_json::to_vec(&LastSuccess { last_success: wall })?,
         )?;
+        Ok(queued)
+    }
+
+    /// 消えた訪問を `vanished` にして積み、帳面から外す（保存は呼び出し側）。
+    /// 積んだ後・保存の前に落ちても、識別子が中身から決まるのでやり直しで畳まれる（D6）。
+    fn queue_vanished(
+        &self,
+        store: &mut LedgerStore,
+        browser: Browser,
+        directory: &str,
+        vanished: &[VanishedVisit],
+        wall: DateTime<Utc>,
+        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
+    ) -> anyhow::Result<usize> {
+        let mut queued = 0;
+        for chunk in vanished_chunks(vanished) {
+            queue(&Visit::vanished(browser, directory, wall, chunk)?)?;
+            queued += 1;
+        }
+        apply_vanished(store.ledger_mut(), vanished);
+        Ok(queued)
+    }
+
+    /// 帳面があるのに、今回見つかったプロファイルに無いもの（ディレクトリごと無くなった）を消えたとする。
+    fn queue_gone_profiles(
+        &self,
+        found: &[ProfileRead],
+        wall: DateTime<Utc>,
+        queue: &mut dyn FnMut(&Visit) -> anyhow::Result<()>,
+    ) -> anyhow::Result<usize> {
+        let mut queued = 0;
+        for browser in Browser::ALL {
+            let Ok(entries) = std::fs::read_dir(self.dir.join(browser.name())) else {
+                continue;
+            };
+            let mut gone: Vec<String> = entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter_map(|n| n.strip_suffix(".ledger").map(str::to_owned))
+                .filter(|d| !d.ends_with(".broken"))
+                .filter(|d| {
+                    !found
+                        .iter()
+                        .any(|p| p.browser == browser && &p.directory == d)
+                })
+                .collect();
+            gone.sort();
+            for directory in gone {
+                let mut store = self.open_ledger(browser, &directory)?;
+                let vanished =
+                    detect_vanished_if_readable(store.ledger(), &[], wall, None, true, true);
+                if vanished.is_empty() {
+                    continue;
+                }
+                queued += self.queue_vanished(
+                    &mut store,
+                    browser,
+                    &directory,
+                    &vanished,
+                    wall,
+                    &mut *queue,
+                )?;
+                store.save()?;
+            }
+        }
         Ok(queued)
     }
 

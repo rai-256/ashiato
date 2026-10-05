@@ -59,10 +59,11 @@ pub fn detect_vanished(
     profile_gone: bool,
 ) -> Vec<VanishedVisit> {
     let seen: std::collections::BTreeSet<_> = seen.iter().collect();
-    let table_recreated = ledger
-        .max_visit_id
-        .zip(max_visit_id)
-        .is_some_and(|(before, now)| now < before);
+    // 全部消えた表（最大の番号が無い）も、前回より小さい。ディレクトリごと無いときは表の話ではない
+    let table_recreated = !profile_gone
+        && ledger
+            .max_visit_id
+            .is_some_and(|before| max_visit_id.unwrap_or(0) < before);
     ledger
         .visits
         .iter()
@@ -338,6 +339,7 @@ mod worker_tests {
 }
 
 #[cfg(test)]
+// 印は Runtime を通す `runtime::tests::history_vanished_*` が持つ。ここは判定関数だけを見る。
 mod vanished_tests {
     use super::*;
     use crate::history::ledger::Ledger;
@@ -350,7 +352,6 @@ mod vanished_tests {
         ledger
     }
 
-    // Scenario: 履歴から 1 件消すと次の取得で「消えた」記録が残る
     #[test]
     fn history_vanished_is_detected() {
         assert_eq!(
@@ -358,7 +359,6 @@ mod vanished_tests {
             "v1:a"
         );
     }
-    // Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
     #[test]
     fn history_vanished_has_age_days() {
         assert_eq!(
@@ -366,25 +366,20 @@ mod vanished_tests {
             3
         );
     }
-    // Scenario: 同期で入った訪問が消えたことが本文にある
     #[test]
     fn history_vanished_marks_foreign() {
         let mut l = ledger();
         l.visits.get_mut("v1:a").unwrap().foreign = true;
         assert!(detect_vanished(&l, &[], Utc::now(), Some(10), false)[0].foreign);
     }
-    // Scenario: 表が作り直されたことが本文にある
     #[test]
     fn history_vanished_marks_recreated_table() {
         assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(1), false)[0].table_recreated);
     }
-    // Scenario: プロファイルが無くなったことが本文にある
     #[test]
     fn history_vanished_marks_gone_profile() {
         assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(10), true)[0].profile_gone);
     }
-    // Scenario: 消えた経路を名指しする値を持たない
-    // Scenario: 消えた記録に URL と題名が載らない
     #[test]
     fn history_vanished_has_no_named_cause_or_private_text() {
         let item = &detect_vanished(&ledger(), &[], Utc::now(), Some(10), false)[0];
@@ -403,7 +398,6 @@ mod vanished_tests {
             vec![1000, 1]
         );
     }
-    // Scenario: 読めなかったプロファイルでは消えた記録を出さない
     #[test]
     fn history_vanished_skips_unreadable_profile() {
         let l = ledger();
@@ -411,7 +405,6 @@ mod vanished_tests {
             detect_vanished_if_readable(&l, &[], Utc::now(), Some(10), false, false).is_empty()
         );
     }
-    // Scenario: 取得をやり直しても「消えた」記録は増えない
     #[test]
     fn history_vanished_is_idempotent_on_retry() {
         let mut l = ledger();
