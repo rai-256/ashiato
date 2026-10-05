@@ -14,7 +14,7 @@
 
 ## Goals / Non-Goals
 
-**Goals**: specs の 13 の Requirement。
+**Goals**: specs の 14 の Requirement（第 4 回 Q13 で 1 つ足し、第 5 回 Q14・第 6 回 Q15 でその対象を広げた。D22 / D22-b / D22-d）。
 **Non-Goals**:
 - 書庫の記録から滞在を作る（ST16 は `c01-location` だけ）。同じ出来事が 2 経路で入る組の読み方（ST25 / ST27 へ）
 - 途絶の通知（ST14）・感度の操作（ST24）・写しの消去（ST23）
@@ -38,7 +38,8 @@
 | D11 | 取り込み済みの最終日は台帳の列から導く | Q4（本人）/ C12 / spec R13 | —— |
 | D12 | 稼働状況の API と画面 | Q5（本人）/ 第 2 回 Q9（本人）/ C22 | 箱の高さの上限と取り込み器の止まりを出す閾値だけ仮 |
 | D13 | 変えないもの・`collection-coverage` に触るもの | Step 3 / spec R2 / 第 2 回 Q9（本人） | —— |
-| D14 | 移行は 1 本 | —— | —— |
+| D22 | 書庫の位置も滞在の削除に従う（格納の直後・消すとき・戻すとき。位置を持つマイアクティビティ・YouTube の履歴の項目も） | 第 4 回 Q13（本人）/ 第 5 回 Q14（本人）/ 第 6 回 Q15（本人）/ code-verify R66 / R81 / R92 / ST22 の申し送り R6 | 重なりの判定は C（厳しい側）。D22-a・D22-c は仮 |
+| D14 | 移行は 3 本（`202609181600_archive_ingestion` と、final review の処置で足した `202610042315_archive_pending_file` / `202610051730_archive_reread_failure`） | final review R51 / R56 / R59 / 第 3 回 R82 / R88 | —— |
 | D16 | 形の確認の印（Takeout の書庫の中身） | 第 2 回 Q10（本人）/ 第 3 回 Q12（本人）/ spec-r2 R4 / R5 / R10 | —— |
 | D15 | 完了の判定を機械で確かめる | 完了の判定 1〜5 | —— |
 
@@ -66,6 +67,10 @@
 - 移行前のロケーション履歴（百万件級）は 1 件 1 トランザクション（D4）で**数十分〜1 時間**かかる見込み。
   反転条件: 実測で 1 冊が 3 時間を超えるとき（まとめて格納する関門の形を足す。判定は変えない）
 - ダウンロードのフォルダのパスは Windows の既知フォルダの変更を追わない。環境変数で指す。反転条件: 本人の環境で既定が外れていたとき
+- **既定は本人のホームから作り、相対パスは起動を止める**（code-verify R67）。`%USERPROFILE%`（無ければ `$HOME`）と `%LOCALAPPDATA%`（無ければ `<ホーム>\AppData\Local`）から上の表の既定を作る。
+  前は作業ディレクトリからの相対パスで、サービスやタスクスケジューラから起動すると写しが `C:\Windows\System32` の下に作られ、目録の `stored_path` も相対のまま残った ——
+  別の場所から起動し直すと写しを読めず、印を置いた後の読み直しが永久に止まっていた（実測: `run2/` から起動すると `events 0 / pending 1`）。
+  環境変数に相対パスを渡したときと、既定を作るホームが無いときは、`KEEP_COPIES` の綴り違いと同じく起動を止める。`archive_config_places_are_absolute_from_the_home`
 
 ## D2. 論理ソースの名前と登録
 
@@ -73,7 +78,7 @@
 
 | 中身 | 論理ソース | 1 件 |
 |---|---|---|
-| マップのタイムライン（`Timeline.json`） | `c03-timeline-visit` / `c03-timeline-activity` / `c03-timeline-path` / `c03-timeline-signal` | `semanticSegments` の訪問 / 移動 / 経路の点 1 つ / `rawSignals` の 1 件 |
+| マップのタイムライン（`Timeline.json`） | `c03-timeline-visit` / `c03-timeline-move` / `c03-timeline-route` / `c03-timeline-signal` | `semanticSegments` の訪問 / 移動 / 経路の点 1 つ / `rawSignals` の 1 件 |
 | 移行前のロケーション履歴 | `c03-legacy-location` / `c03-legacy-visit` / `c03-legacy-activity` | `Records.json` の `locations` 1 件 / Semantic Location History の `placeVisit` / `activitySegment` |
 | YouTube の視聴履歴 | `c03-youtube-watch` | 視聴 1 件 |
 | YouTube の検索履歴 | `c03-youtube-search` | 検索 1 件 |
@@ -155,8 +160,8 @@ UTF-8 として正しくない範囲は読めなかった項目に数える（`r
 | 論理ソース | 出来事の時刻 | payload の主な欄 |
 |---|---|---|
 | `c03-timeline-visit` | `startTime` | `end_time` / `place_id` / `semantic_type` / `lat` / `lng` / `probability` |
-| `c03-timeline-activity` | `startTime` | `end_time` / `activity_type` / `distance_m` / 始点と終点の `lat` `lng` |
-| `c03-timeline-path` | 点の `time` | `lat` / `lng`（`"35.6812°, 139.7671°"` の文字列を数に。**原文は文字列のまま**） |
+| `c03-timeline-move` | `startTime` | `end_time` / `activity_type` / `distance_m` / 始点と終点の `lat` `lng` |
+| `c03-timeline-route` | 点の `time` | `lat` / `lng`（`"35.6812°, 139.7671°"` の文字列を数に。**原文は文字列のまま**） |
 | `c03-timeline-signal` | 信号の `timestamp` | 種類（`position` / `wifiScan` / `activityRecord`）と、位置なら `lat` `lng` `accuracy_m` |
 | `c03-legacy-location` | `timestamp` か `timestampMs` | `lat` / `lng`（`E7` を度に）/ `accuracy_m` / `source` / `device_tag` |
 | `c03-legacy-visit` | `duration.startTimestamp` | `end_time` / `place_id` / `name` / `address` / `lat` / `lng` |
@@ -168,6 +173,11 @@ UTF-8 として正しくない範囲は読めなかった項目に数える（`r
 
 - 座標は `crs = EPSG:4326` の度（FR-28）
 - **NFC は解析済みの内容だけ**（`store_one` がそのまま行う。原文は触らない）
+- 欄の名前（final review R54 で実装）: 移動の始点と終点は `start_lat` / `start_lng` / `end_lat` / `end_lng`、信号の種類は `signal_kind`。
+  値の無い欄は足さない（`null` で「欄があった」ように見せない）
+- **`Timeline.json` の時刻と時差はセグメントの側**（`startTime` / `endTime` / `startTimeTimezoneUtcOffsetMinutes`）。
+  訪問・移動の原文はセグメント 1 つ、経路の点と生の信号はその項目 1 つ。生の信号は 1 段入れ子で、時刻は
+  `position.timestamp` / `wifiScan.deliveryTime` / `activityRecord.timestamp`（final review R48）
 
 ## D7. 書庫の台帳と書庫の中のファイルの表（追記のみ）
 
@@ -273,6 +283,9 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - `reading` があれば箱の先頭に「読んでいます: <file_name> <items_read> 件まで（<started_at> から）」（第 2 回 Q9）。`pending_shape` があれば「形の確認を待っている書庫が N 冊あります（`tools/archive-shape.sh` で形を見て印を置く）」（D16）
 - **箱の高さは 160 CSS px 以下（仮）**: **直近の書庫が読めなかった・格納に失敗した行は省かない**（spec R14。第 1 回 Q5 の理由そのもの）。残りを優先順（読んでいる途中 → 読めない置き場・取り込み器の止まり → 形の確認待ち → 直近の書庫の読めた結果）に積み、溢れる行は省いて「ほか N 件」を 1 行出す。
   反転条件: 優先の低い行が常に省かれ、本人が見落としたと分かったとき（上限を上げ、`collection-coverage` の予算の文も合わせて直す）
+  **160 px は枠と内側の余白を含めた外寸**（`box-sizing: border-box`）で、**各行は 1 行に収め、収まらない文字は「…」で省く**（code-verify R64）。
+  前は既定の `content-box` で外寸が 178 px になり、長いファイル名が折り返して、行数で数えた上限を中身が越え、「ほか N 件」と省かない行が `overflow: hidden` で箱の外に切られていた。
+  本物の Chromium の 360 × 640 で測る: `web/e2e/archive-layout.spec.ts`
 - `CoverageGrid.tsx`: 見出しの横に**任意の注記**を受け取る（Must の 5 本には渡さない）。書庫のソースには「`YYYY-MM-DD` まで（N 日前）」か「まだ無い」。
   N は `todayInTz`（`Asia/Tokyo`）との差。**格子の形・3 段・週の選択・既定の 4 週は変えない**
 - 表面は `tokens.ts` のまま。箱の境界線は `TEXT.muted`（proto と同じ）
@@ -297,7 +310,7 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - **同じファイルは触る**: `lib.rs`（`MIGRATIONS`・route・`coverage_get` の名前の並び）・`App.tsx`・`CoverageGrid.tsx`・`docs/openapi.json` と既存の試験 3 本（tasks 1.1 / 9.2 / 10.4）
 - `collector-android` / `collector-windows` は触らない（Q8）
 
-## D14. 移行は 1 本
+## D14. 移行は 3 本（初めは 1 本。final review の処置で 2 本足した）
 
 `migrations/YYYYMMDDHHMM_archive_ingestion.sql`（名前は作成時刻）と `.down.sql`:
 - `core.archive_ledger` / `core.archive_ledger_source` / `core.archive_file`（D7。`user_id` あり。追記のみのトリガ）
@@ -306,6 +319,14 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - 索引: `archive_ledger (user_id, sha256, parser_version)` / `archive_ledger (user_id, finished_at DESC)` / `archive_ledger_source (logical_source, max_event_at DESC)`
 - 登録簿の行: D2 の固定の 10 本と `s01-archive-inbox`（計 11 本。`c03-myactivity-*` は取り込み器が足す）
 - **当て直せる形**（`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`）。`MIGRATIONS` 配列の末尾に足す
+
+**final review の処置で 1 本足した**（`202610042315_archive_pending_file`。列を足すだけで、書き換えてよい表にだけ当てる）:
+`core.archive_pending_shape` に `file_sha256`（写しを中身のハッシュで引く。R51）と `made_copy`（確認待ちのために写しを作ったか。R56）、
+`core.archive_scan_counter` に `last_capturable` / `last_blockers`（D19（仮）。R59）。追記のみの 3 表には触らない
+
+**final review 第 3 回の処置でもう 1 本足した**（`202610051730_archive_reread_failure`。書き換えてよい表を 1 つ足すだけ）:
+`core.archive_reread_failure`（`user_id` / 書庫の `sha256` / `consecutive_failures` / `retry_after`）。写しから読み直す経路の失敗を
+書庫ごとに数える（D22-a。R82）。読み直しに成功したら行を消す。追記のみの表には触らない
 
 ## D15. 完了の判定を機械で確かめる
 
@@ -343,6 +364,142 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 - 画面: `/archives/status` の `pending_shape` から箱に「形の確認を待っている書庫が N 冊あります」（D12）
 - 本人の手順書（`docs/archive-inbox.md`）: 最初の Takeout の書庫を置く → 箱に確認待ちが出る → `tools/archive-shape.sh` の出力を見る（値は出ない）→ `--confirm`
 
+## D17. 書庫は 1 ファイルずつメモリに載せて読む（**仮**）
+
+**独立レビュー R19 が出した差**: D5 は「zip の中のファイルを 1 MiB ずつ読み、ファイル全体を
+メモリに載せない」と書いたが、実装は `open_archive` が zip の全エントリを展開してから
+見分け、`requests_for_file` がファイル 1 本を丸ごと `Value` にする。
+
+**いまはこのまま進む。** spec の Scenario はどれもこの形で満たせており、実データの規模
+（本人の Takeout が何 GB で、`Records.json` が何件か）は **H.1 で本物を置くまで分からない**。
+`slice.rs` の streaming の口は残してあるので、切り替えは読み手の中だけで済む。
+
+**反転条件**: H.1 で本物の書庫を置いたとき、(1) 読み込みが終わらない・落ちる、
+(2) 取り込み器の常駐メモリが本人の PC で問題になる、のどちらかが起きたとき。
+そのときは `open_archive` を「名前と大きさの一覧 → 必要なエントリだけ展開」の 2 段にし、
+配列の項目は `slice::stream_array_items` で 1 件ずつ格納へ回す（性能の change として立てる）。
+
+**tasks 4.4 の検証が測っているのは `stream_array_items` の性質で、本番の経路ではない**（code-verify R71）。
+本番の読み手は `object_member` / `array_elements`（ファイル全体を受け取る）しか呼ばない。4.4 の `[x]` は
+「D5 の『メモリに載せない』を本番が守った」証跡ではない —— 守るのは上の反転条件で切り替えた後で、そのとき同じ試験を本番の経路に当てる。
+
+## D18. 印を置いた後の読み直しは、台帳の行を増やさない（**仮**）
+
+**独立レビューの C1 が見つけた穴**: 印を置いても確認待ちの中身が二度と取り込まれなかった
+（置き場の書庫は「取り込み済み」へ移るか既読として覚えられるので、走査をもう一度回しても
+読み直せない）。**写しから読み直す経路**を足した（`ingest_confirmed_pending`。走査の周ごとに見る）。
+
+**D16 の「台帳に `read` の行を 1 つ足す」と、D7 の一意索引 `(user_id, sha256, parser_version, outcome)`
+が両立しない。** 混在した書庫（Timeline + マイアクティビティ = 本物の Takeout の形）は 1 回目の
+読みで既に `read` の行を持つので、読み直しで 2 行目を足せない。
+
+**増やさない側に倒す**（`ON CONFLICT DO NOTHING`）。理由: 「同じ書庫をもう一度置いても行が増えない」
+（FR-17 / 本人の決定）のほうが、行の数より本人にとって意味がある。読み直したぶんは
+`archive_ledger_source` に残るので、何がいつ入ったかは辿れる。
+確認待ちだけの書庫（1 回目に `read` の行が無い）では、読み直しが 1 行目を足すので D16 の文どおりになる。
+
+**反転条件**: 本人が「印を置いた回」を台帳で数えたいと言ったとき（一意索引に読みの連番を足す）。
+
+**読み直しは書庫ごと**（final review R50）。1 冊の失敗で他の書庫を止めない。読み直しの `read` の行は、
+確認待ちの台帳の行から名前・作られた時刻・置き場の種類を引き継ぐ（R58）。1 回目の読みが同じ論理ソースを
+既に書いていた（印のあるファイルと確認待ちのファイルが同じ製品を持つ）ときは、ソース別の行の鍵
+`(ledger_id, logical_source)` に当たるので**足さない**（`ON CONFLICT DO NOTHING`。ログに種別だけ出す）。
+記録は格納済みで、その論理ソースの件数と `max_event_at` は 1 回目のぶんになる。
+反転条件: その差（最終日が 1 回目のぶんで止まる）が実物で起きたとき —— ソース別の行に読みの連番を足す移行を立てる
+
+**確認待ちだけの書庫も「覚えている」**（D16 の文どおり。R52）: 走査は既読へ回し、専用のフォルダの書庫は
+確認待ちの台帳を書いた後で「取り込み済み」へ移す（写しから読み直すので置き場の書庫は要らない）。
+**残さない設定のときは、確認待ちのために作った写しを読み直した後に消す**（D9。R56）。同じ中身の写しを
+まだ確認待ちの別の書庫が使っていれば残す。前から在った写しは消さない。
+
+## D19（仮）. 箱の「取り込み器」は直近の走査を見る
+
+**final review R59**: 生存信号は `Asia/Tokyo` の日の最初の走査で 1 件だけ（D10）なので、箱が信号だけを見ていると、
+昼に置き場が読めなくなっても翌日まで箱に出なかった。
+
+- 走査のたびに `core.archive_scan_counter`（書き換えてよい 1 行）へ `last_capturable` / `last_blockers` と走査の時刻を残し、
+  `/archives/status` の `inbox` は**それを先に見る**（無ければ直近の信号）。「最後の確認」も直近の走査の時刻になる
+- 生存信号（記録）は D10 のまま 1 日 1 件。稼働状況の格子の判定は信号から導く（変えない）
+- 反転条件: 箱の「読めない」が一時的な読み取りの失敗で点滅して本人の邪魔になるとき —— その日の信号に戻すか、連続 N 回で出す
+
+## D20（仮）. 画面の実寸は本物のブラウザで測る。2 本目の Must の 800 px は、いまは成り立たない
+
+**code-verify R65**: 実寸を主張する画面の Scenario が jsdom の宣言値（`declaredHeight`）でしか確かめられていなかった。
+本物の Chromium の 360 × 640 で測る試験を `web/e2e/archive-layout.spec.ts` に置いた（箱の外寸 160 px・溢れても省かない行と「ほか N 件」が箱の中・
+箱が押し下げる量 160 px 以下・Must の 5 本目 1,440 px 以内・書庫の格子が 360 px に収まる・週の帯 24 px 以上）。jsdom の試験は「指定と勘定」として残す。
+
+**実測（R64 を直した後）**: 箱を上限まで埋めた状態で、箱の外寸 130 px・Must の 5 本目の下端 1,409 px（1,440 以内）・**2 本目の下端 846 px（800 を超える）**。
+箱が最も低い状態（63 px）でも 2 本目は 779 px で、箱と余白を除いた土台は約 703 px —— **ST02 第 8 回 Q30 の 640 px が、箱の無い画面で既に約 63 px 超えている**
+（達成の欄の実寸が約 253 px）。ST12 の箱が足す量は上限の 160 px に収まっている。
+
+- **決めたこと（仮）**: 800 px の Scenario は e2e で測り、**成り立たないことを `test.fail` で固定する**（直ったら緑に変わったところで落ちるので、外し忘れない）。
+  土台の 640 px を直すのは ST12 の範囲の外（ST02 の達成の欄の高さか、予算の数そのもの）。第 2 回 Q9 の読み取りが書いたとおり、数の置き方が変わるだけで何も失われない
+- **反転条件**: 本人が予算の数を置き直したとき（`collection-coverage` の 640 / 800 を書き換え、`test.fail` を外す）、または達成の欄が縮んで土台が 640 px に収まったとき
+
+## D21（仮）. 道具と検証のコマンドは、手元の環境の差を自分で吸収する
+
+- **`tools/archive-shape.sh`**（code-verify R68）: 手元に `psql` が無ければ、開発用コンテナ（`docker compose` の `db`）の `psql` に回す。
+  前は smoke だけが `psql` を差し替えて緑になり、本人の機械では `psql: command not found` で止まった —— 印を置けなければ最初の Takeout から先へ進めない（第 2 回 Q10）。smoke は差し替えをやめて道具をそのまま呼ぶ。
+  反転条件: 本人の DB が開発用コンテナでなくなったとき（配布の形が決まったとき。接続先を `DATABASE_URL` だけで決める）
+- **tasks 11.4 の検証**（code-verify R70）: ポートを直書きせず `${BIND:-127.0.0.1:18787}` に叩く。worktree ごとの `.env` が `BIND` を変えるので、直書きだと `verify-run` がこの worktree で落ちる。
+  反転条件: worktree の port の割り当てが台帳で決まる形になったとき（その値を読む）
+
+## D22. 書庫の位置も滞在の削除に従う（第 4 回 Q13。本人の決定）
+
+**code-verify 第 3 回 R66 / ST22 からの申し送り st22-record-deletion R6**: ST22 の削除（`deletion::erase` の位置の連鎖と `stay_store::mark_late_arrivals`）は
+滞在の基準のソース（`c01-location`）にしか掛からない。内容の鍵は論理ソースを含むので、消した場面の位置が書庫から生きた記録として入っていた。
+
+- **書庫の位置の論理ソース**は 7 本（`c03-timeline-visit` / `-move` / `-route` / `-signal` / `c03-legacy-location` / `-visit` / `-activity`）。名前の並びは `archive/` の 1 か所に置き、削除の側はそれを読む
+- **(1) 格納の直後**: 書庫 1 冊の格納を commit した後、同じ利用者の消した滞在（`mark_late_arrivals` と同じ条件: 削除の台帳の最後の行が `erase` の `s01-stay`）と重なる書庫の位置に
+  `deleted_by = 'user:late'` と削除の台帳の `erase` 行（原因 = その滞在）を付ける。**滞在の作り直しを呼ばない・待たない**（ST22 第 3 回 Q6 と同じく、作り直しの成否に依存させない）
+- **(2) 滞在を消すとき**: `deletion::erase` の位置の連鎖を、基準のソース ∪ 書庫の位置の論理ソースに掛ける（印は `user:cascade`、台帳も同じ）。`mark_late_arrivals` も同じ集合を見る
+- **(3) 戻すとき**: 削除の台帳の原因で戻すので、`deletion::restore` は変えなくても書庫の位置が一緒に戻る（試験で固定する）
+- **重なりの判定**（C: 既定は厳しい側）: 点はその時刻、区間（`move` / `route` / `legacy-activity` / `visit` の始まりと終わり）は区間が消した時間帯と**少しでも**重なれば印を付ける（ST22 の Q12 と同じ）。
+  滞在の判定（`stay.rs` の `Criteria::sources`）には書庫の位置を足さない（Non-Goals のまま）
+- 捨てない: 印を付けて入れるので、同じ内容の書庫を置き直しても行は増えず（内容の鍵）、戻せば生きた記録になる
+- **判定の引き方**（final review 第 2 回 R72 / R73 / R78。意味は上のまま）: 終わりで重なりを見るのは区間を持つ書庫のソース 4 本
+  （`archive::INTERVAL_SOURCES`）だけで、基準のソースと点のソースは始まりの時刻が時間帯の中にあるかで見る（点の終わりは始まりと同じ。索引の上下限が効く）。
+  (1) の印付けは**その書庫が入れた位置の始まりの時刻の範囲だけ**を見て、位置を 1 件も入れなかった書庫では飛ばす。
+  (1) は **`read` の台帳の行より前**に行い、落ちたら台帳を書かない —— 書庫は置き場に残り（版の読み直しは次の周の対象に、確認待ちは確認待ちに残り）、
+  次に読み直して印を付け直す（`read` の行が先だと次の走査が既読として畳み、印が付かないまま残った）。
+  区間のソースの側には下限が無い（区間の長さに上限を置くと意味が変わる）。件数は訪問・移動の数で、点のソースより桁が小さい
+- **並びは spec の 7 本の文字列で固定する**（code-verify 第 4 回 R79）: `archive::LOCATION_SOURCES` を spec の Requirement が名指しする 7 本のリテラルと
+  単体の試験で比べる。試験の材料には件数の大半を占める経路の点（`timelinePath`）と `Records.json` の点を入れ、消した後に置いた書庫の印（`user:late`）が
+  `deletion::restore` で戻ることも固定する。`Records.json` は取り込み器を通さずに格納する（取り込み器は移行前のソースの退役の日付を DB 全体で動かすため）
+- **D22-a（仮）. 印付けが落ち続けたら格納の失敗として数える**（code-verify 第 4 回 R80）: 置き場の書庫の (1) が落ちたら `record_store_failure` に数え、
+  3 回続いたら台帳に `store_failed` を 1 行書いて箱の「直近に置いた書庫」に出し、以後 1 時間に 1 回へ落とす（格納の失敗と同じ仕組み）。
+  **outcome は新しく作らず `store_failed` を流用する** —— 本人から見れば「その書庫は入り切っていない」で同じで、移行（outcome の制約）を足さずに済む。
+  反転条件: 本人が箱の文言で格納の失敗と印付けの失敗を見分けたいと言ったら、印付けの失敗と分かる outcome を足して文言を分ける（台帳は追記のみなので、
+  過去の `store_failed` の行はそのまま残る）。**写しから読み直す経路（確認待ち・版の読み直しの `reread_archive`）も数える**（final review 第 3 回 R82）:
+  確認待ちの読み直しは、最初の Takeout のマイアクティビティが必ず通る主経路（形の印が置かれるまで中身は格納されない。D16）。
+  この経路は置き場で見たファイルの行（`archive_sighting`）を持たないので、**書庫の `sha256` ごとに** `core.archive_reread_failure` で数え
+  （`record_reread_failure`。D14 の 3 本目の移行）、格納の失敗と印付けの失敗を両方まとめて数える。3 回続いたら `store_failed` を 1 行書き、
+  以後 1 時間はその書庫を読み直さない（`ingest_confirmed_pending` と `reparse_older_versions` の両方が見る）。読み直しに成功したら数を消す。
+  部品ごとに試験で固定する（code-verify 第 5 回 R90）: 格納の失敗も数える・ちょうど 3 回目で `store_failed`・待ちは 1 時間（`retry_after` を 59〜61 分で見る）・
+  版の読み直しも待ちを見る・成功したら数の行が消える（`archive_reparse_persistent_store_failure_is_ledgered_and_throttled` / `archive_reparse_success_clears_reread_failures` と、確認待ちの経路の試験）
+
+- **D22-b. 位置を持つマイアクティビティの項目も書庫の位置に入れる**（第 5 回 Q14。本人の決定。code-verify 第 4 回 R81）:
+  論理ソースが `c03-myactivity-` で始まり、**原文の項目に `locationInfos` の欄が空でない値で入っているもの**（下の D22-c（仮））を、(1) 格納の直後・(2) 消すとき・(3) 戻すときの対象に足す。
+  時刻は項目の `time`（点。終わりは持たない）。位置を持たない項目は対象外。**payload と内容の鍵は変えない**（捨てない・原文から欄を外さない。Q14 の選択肢 3 を採らない）。
+  マイアクティビティのソースの名前は製品ごとに増えるので、7 本の並び（`LOCATION_SOURCES`）には足さず、接頭辞と原文の欄で見分ける。滞在の判定の入力には足さない（Non-Goals のまま）。
+  実物の書庫に `locationInfos` があるかは 13.1 で `tools/archive-shape.sh` の `field_names` を見て確かめる（無ければ何も起きない）。
+  `locationInfos` の中身（地図の URL・中心の座標・出所の種類）の形は検証者の知識で、この repo の材料に実物は無い。**欄の有無だけで判定し、中身は解析しない**（C: 厳しい側。中身の形が違っても印は付く）
+
+- **D22-c（仮）. 欄の中身の形を見ない**（code-verify 第 5 回 R91。D22-b の本文が「空でない配列」と「中身の形が違っても印は付く」の両方を書いていた）:
+  厳しい側に揃える。`locationInfos` の欄があり、値が `null`・空の配列・空のオブジェクト・空文字の**どれでもなければ**位置を持つとみなす
+  （配列でないオブジェクト・文字列・数も印を付ける）。Rust の `carries_location` と SQL の `item_located_sql` を同時に直し、
+  `archive_myactivity_location_rust_and_sql_agree` の期待値も揃えた。tasks 15.1 の「空でない配列」は凍結された文面で、この判定はそれを含む広い側。
+  反転条件: 13.1 で実物の `locationInfos` が位置でない値（空の印や件数など）を持つ形だと分かり、位置を持たない項目まで印が付いて本人の記録が消えて見えるなら、
+  実物の形に合わせて狭める（印は削除の台帳の原因で戻せるので、捨てたものは無い）
+
+- **D22-d. 位置を持つ YouTube の履歴の項目も書庫の位置に入れる。ソースの名前でなく項目で決める**（第 6 回 Q15。本人の決定。code-verify 第 5 回 R92）:
+  D22-b の対象を、マイアクティビティの接頭辞から**位置の 7 本（`LOCATION_SOURCES`）以外で書庫が項目を入れる論理ソースすべて**へ広げる ——
+  いまは `c03-myactivity-*` / `c03-youtube-watch` / `c03-youtube-search` / `c03-chrome-history`。判定は D22-b / D22-c と同じ `locationInfos` の欄の有無（Rust の `carries_location` と SQL の `item_located_sql` を同じ範囲で使う）。
+  (1) 格納の直後（`mark_archive_arrivals` の範囲の絞り込み）・(2) 消すとき（`deletion::erase` の連鎖）・(3) 戻すとき・後着の印（`mark_late_arrivals`）の 3 か所で、ソースの集合と判定の両方を同じ範囲にする（片方だけを広げると、印付けの範囲と印を付ける条件が黙ってずれる）。
+  `c03-chrome-history` は本人の答えが名指していないが、「項目が位置を持つかで決める」の読み取りに従って含める（C: 厳しい側。欄が無ければ何も起きない。印は戻せる）。
+  書庫の取り込み器の生存信号・途絶（`c03-archive` / `c03-outage`）は項目でないので対象外。payload と内容の鍵は変えない。滞在の判定の入力には足さない（Non-Goals のまま）。
+  実物の YouTube の視聴・検索の形に `locationInfos` があるかは 13.1 で `tools/archive-shape.sh` の `field_names` を見て確かめる（無ければ何も起きない）
+
 ## Risks / Trade-offs
 
 - **[実物の形が公開の形と違う]** → 形で見分け（D3）、読めないものは台帳と画面に出す。`tools/archive-shape.sh` で入れる前に確かめる。解析器の版を上げれば写しから読み直せる（D8）
@@ -355,7 +512,9 @@ FR-35 の「最後の記録または最後の生存信号」からの通知も�
 
 ## Migration Plan
 
-移行 1 本（D14）。戻すときは `.down.sql`（3 表と sighting を落とし、登録簿の `c03-*` の行は**記録が無いときだけ**消す）。
+移行 3 本（D14）。当てる順は `MIGRATIONS` の末尾の `202609181600_archive_ingestion` → `202610042315_archive_pending_file` →
+`202610051730_archive_reread_failure`。戻すときは逆の順に `.down.sql` を当てる（3 本目は `core.archive_reread_failure` を落とす。
+2 本目は書き換えてよい 2 表の足した列を落とす。1 本目は 3 表と sighting を落とし、登録簿の `c03-*` の行は**記録が無いときだけ**消す）。
 取り込み器は `ASHIATO_ARCHIVE_USER_ID` が無ければ起きないので、移行を当てても既存の運用は変わらない。
 
 ## Open Questions

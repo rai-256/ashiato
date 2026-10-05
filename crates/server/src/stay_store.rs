@@ -565,7 +565,7 @@ pub async fn rebuild_day(
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let bounds = day_bounds(day);
-    mark_late_arrivals(&mut tx, user, &c.sources, bounds).await?;
+    mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), bounds).await?;
     let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
@@ -617,7 +617,177 @@ pub async fn rebuild_day(
     Ok(out)
 }
 
-/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースの記録を隠す。
+/// 基準のソースに書庫の位置の論理ソースを足した集合（design D22）。滞在の判定（`Criteria::sources`）は変えない。
+pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
+    let mut all = base.to_vec();
+    for source in crate::archive::LOCATION_SOURCES {
+        if !all.iter().any(|s| s == source) {
+            all.push(source.to_owned());
+        }
+    }
+    all
+}
+
+/// 記録の終わりの SQL 式。区間の記録（`end_time`）は終わりを、点は始まりを返す
+/// （`end_time` はオフセット付きの時刻か、移行前のミリ秒）。重なりは端が触れるだけでも成り立つ（Q12）。
+pub(crate) fn event_end_sql(alias: &str) -> String {
+    format!(
+        "coalesce(core.try_timestamptz({a}.payload->>'end_time'),
+                  CASE WHEN {a}.payload->>'end_time' ~ '^[0-9]{{1,15}}$'
+                       THEN to_timestamp(({a}.payload->>'end_time')::numeric / 1000.0) END,
+                  {a}.event_time)",
+        a = alias
+    )
+}
+
+/// 消した時間帯 `[start, end]`（SQL の束縛の番号）と重なる記録の条件（design D22）。
+///
+/// 区間を持つ書庫のソース（`archive::INTERVAL_SOURCES`。束縛 `intervals`）だけを終わりで見て、
+/// それ以外（束縛 `points`。基準のソースと点のソース）は始まりの時刻が時間帯の中にあるかで見る。
+/// 点の終わりは始まりと同じなので意味は 1 本の式と変わらず、点の側には索引
+/// `event_by_source_time (logical_source, event_time)` の上下限が効く（final review 第 2 回 R73）。
+/// 端が触れるだけでも重なりとする（Q12）。
+pub(crate) fn overlaps_erased_sql(
+    alias: &str,
+    points: &str,
+    intervals: &str,
+    start: &str,
+    end: &str,
+) -> String {
+    format!(
+        "(({a}.logical_source = ANY({points}) AND {a}.event_time >= {start} AND {a}.event_time <= {end})
+          OR ({a}.logical_source = ANY({intervals}) AND {a}.event_time <= {end} AND {e} >= {start}))",
+        a = alias,
+        e = event_end_sql(alias),
+    )
+}
+
+/// マイアクティビティの論理ソースの前置き（`archive::myactivity::source_name`）。
+const MYACTIVITY_PREFIX: &str = "c03-myactivity-";
+
+/// 位置の欄を持てば印付けの対象になる項目の論理ソース（design D22-b / D22-d）。
+/// 登録済みのマイアクティビティ（製品ごとに 1 本）に、固定名の `archive::ITEM_SOURCES` を足したもの。
+pub(crate) async fn item_sources(executor: impl sqlx::PgExecutor<'_>) -> sqlx::Result<Vec<String>> {
+    let mut sources: Vec<String> =
+        sqlx::query_scalar("SELECT logical_source FROM core.source WHERE logical_source LIKE $1")
+            .bind(format!("{MYACTIVITY_PREFIX}%"))
+            .fetch_all(executor)
+            .await?;
+    sources.extend(crate::archive::ITEM_SOURCES.iter().map(|s| (*s).to_owned()));
+    Ok(sources)
+}
+
+/// 論理ソースが、位置の欄を持てば印付けの対象になる項目のものか（`item_sources` と `item_located_sql` と同じ範囲）。
+fn is_item_source(logical_source: &str) -> bool {
+    logical_source.starts_with(MYACTIVITY_PREFIX)
+        || crate::archive::ITEM_SOURCES.contains(&logical_source)
+}
+
+/// 原文の項目が位置（`locationInfos`）の欄を空でない値で持つか（design D22-b / 第 5 回 Q14）。
+///
+/// **中身の形は見ない**（C: 既定は厳しい側。code-verify 第 5 回 R91）。実物の形はこの repo の材料に無いので、
+/// 配列でなくても（1 件だけのときのオブジェクト・文字列など）印を付ける。外すのは `null` と空の配列・
+/// オブジェクト・文字列だけ。
+///
+/// **`item_located_sql` と同じ判定にする**（片方だけを直すと、印付けの範囲と印を付ける条件が黙ってずれる。
+/// `archive_myactivity_location_rust_and_sql_agree` が固定する）。欄の名前が原文に無ければ解析しない（同じ前置き）。
+pub(crate) fn carries_location(raw: &str) -> bool {
+    if !raw.contains(LOCATION_KEY) {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|item| {
+            Some(match item.get("locationInfos")? {
+                serde_json::Value::Null => false,
+                serde_json::Value::Array(values) => !values.is_empty(),
+                serde_json::Value::Object(fields) => !fields.is_empty(),
+                serde_json::Value::String(text) => !text.is_empty(),
+                serde_json::Value::Bool(_) | serde_json::Value::Number(_) => true,
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// 原文に位置の欄の名前があるかの安い前置き（引用符ごと見る。`carries_location` と SQL で共有する）。
+const LOCATION_KEY: &str = "\"locationInfos\"";
+
+/// 位置を持ちうる項目（マイアクティビティ・YouTube・Chrome）の行は、原文に位置を持つものだけを通す SQL の条件
+/// （他のソースは常に通す）。範囲は `is_item_source` と同じ。
+/// `raw` は text なので、JSON として読めるときだけ中を見る（入れ子の CASE で評価の順を固定する）。
+///
+/// **欄の名前が原文に無い行は jsonb として読まない**（final review 第 3 回 R85）。助言ロックを握ったまま
+/// 全期間の Takeout の範囲を評価するので、位置を持たない大多数の行の解析を文字列の照合 1 回で畳む。
+/// 前置きが偽で中を見ると真になるのは、欄の名前を `\u` でエスケープした原文だけ（Takeout はそう書かない）。
+/// `carries_location` も同じ前置きを置くので、両者の判定は一致したまま。
+pub(crate) fn item_located_sql(alias: &str) -> String {
+    format!(
+        "(CASE WHEN ({a}.logical_source LIKE '{MYACTIVITY_PREFIX}%'
+                    OR {a}.logical_source IN ({fixed}))
+               THEN CASE WHEN strpos({a}.raw, '{LOCATION_KEY}') = 0 THEN false
+                         WHEN pg_input_is_valid({a}.raw, 'jsonb')
+                         THEN COALESCE({a}.raw::jsonb->'locationInfos'
+                                       NOT IN ('null', '[]', '{{}}', '\"\"'), false)
+                         ELSE false END
+               ELSE true END)",
+        a = alias,
+        fixed = crate::archive::ITEM_SOURCES
+            .iter()
+            .map(|s| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// 消す側の論理ソースの集合を、点で見るもの（基準のソースと点のソース）と区間で見るもの
+/// （`archive::INTERVAL_SOURCES`）に分ける（`overlaps_erased_sql` の 2 つの束縛）。
+pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
+    sources
+        .iter()
+        .cloned()
+        .partition(|s| !crate::archive::INTERVAL_SOURCES.contains(&s.as_str()))
+}
+
+/// 書庫 1 冊の格納を commit した直後に、消した滞在の時間帯と重なる書庫の位置へ印を付ける（design D22 (1)）。
+///
+/// **見る範囲はその書庫が入れた位置の始まりの時刻の範囲だけ**（final review 第 2 回 R73）。この書庫の行は
+/// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
+/// **位置を持たない項目だけの書庫では何もしない**（`locationInfos` を持たない YouTube・Chrome・
+/// マイアクティビティだけの書庫。R78）。位置を持つ項目は位置と同じく範囲に入る（D22-b / D22-d）。
+/// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
+pub async fn mark_archive_arrivals(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    stored: &[crate::IngestRequest],
+) -> sqlx::Result<()> {
+    let Some((first, last)) = stored
+        .iter()
+        .filter(|r| {
+            crate::archive::LOCATION_SOURCES.contains(&r.logical_source.as_str())
+                || (is_item_source(&r.logical_source) && carries_location(&r.raw))
+        })
+        .map(|r| r.event_time)
+        .fold(None, |span: Option<(DateTime<Utc>, DateTime<Utc>)>, t| {
+            Some(span.map_or((t, t), |(lo, hi)| (lo.min(t), hi.max(t))))
+        })
+    else {
+        return Ok(());
+    };
+    let mut tx = pool.begin().await?;
+    lock(&mut tx, user).await?;
+    let sources: Vec<String> = crate::archive::LOCATION_SOURCES
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    // `mark_late_arrivals` の範囲は終わりを含まない。DB の時刻はマイクロ秒に丸まるので、両端を 1 ms 広げる
+    // （広げても見る行が増えるだけで、印を付ける条件は変わらない）。
+    let margin = Duration::milliseconds(1);
+    mark_late_arrivals(&mut tx, user, &sources, (first - margin, last + margin)).await?;
+    tx.commit().await
+}
+
+/// 本人が消した滞在の時間帯へ後から届いた、まだ印の無い基準ソースと書庫の位置の記録を隠す。
+/// 位置（`locationInfos`）を持つ項目（マイアクティビティ・YouTube・Chrome）も対象（design D22-b / D22-d。持たない項目は外れる）。
 ///
 /// 作り直しと同じ錠・transaction の中で、滞在の判定用の位置を読む前に呼ぶ。
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
@@ -629,7 +799,10 @@ async fn mark_late_arrivals(
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
 ) -> sqlx::Result<()> {
-    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(
+    // 位置を持つ項目（マイアクティビティ・YouTube・Chrome）も同じ印の対象（design D22-b / D22-d。位置を持たない項目は下の条件で外れる）
+    let mut sources = sources.to_vec();
+    sources.extend(item_sources(&mut **tx).await?);
+    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
         "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
            FROM core.event e
            JOIN core.event s
@@ -647,16 +820,19 @@ async fn mark_late_arrivals(
                     WHERE last.event_id = s.id
                  )
             )
-            AND e.event_time >= s.event_time
             AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
+            AND {end} >= s.event_time
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
             AND e.deleted_at IS NULL
+            AND {located}
           ORDER BY e.id, s.event_time, s.id",
-    )
+        end = event_end_sql("e"),
+        located = item_located_sql("e")
+    ))
     .bind(user)
-    .bind(sources)
+    .bind(&sources)
     .bind(from)
     .bind(to)
     .bind(stay::SOURCE)
