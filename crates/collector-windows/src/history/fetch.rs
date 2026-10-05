@@ -59,11 +59,12 @@ pub fn detect_vanished(
     profile_gone: bool,
 ) -> Vec<VanishedVisit> {
     let seen: std::collections::BTreeSet<_> = seen.iter().collect();
-    // 全部消えた表（最大の番号が無い）も、前回より小さい。ディレクトリごと無いときは表の話ではない
+    // 最大の番号が無い（全件が消えた）のは作り直しの印ではない。ディレクトリごと無いときも表の話ではない
     let table_recreated = !profile_gone
         && ledger
             .max_visit_id
-            .is_some_and(|before| max_visit_id.unwrap_or(0) < before);
+            .zip(max_visit_id)
+            .is_some_and(|(before, now)| now < before);
     ledger
         .visits
         .iter()
@@ -375,6 +376,10 @@ mod vanished_tests {
     #[test]
     fn history_vanished_marks_recreated_table() {
         assert!(detect_vanished(&ledger(), &[], Utc::now(), Some(1), false)[0].table_recreated);
+    }
+    #[test]
+    fn history_vanished_all_gone_is_not_recreated_table() {
+        assert!(!detect_vanished(&ledger(), &[], Utc::now(), None, false)[0].table_recreated);
     }
     #[test]
     fn history_vanished_marks_gone_profile() {
