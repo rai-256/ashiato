@@ -1494,16 +1494,9 @@ async fn reread_archive(
         }
     };
     record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
-    // 印を付けられなくても台帳は残す。次の作り直し（`mark_late_arrivals`）が同じ集合を見る。
-    if crate::stay_store::mark_archive_arrivals(pool, user_id)
-        .await
-        .is_err()
-    {
-        tracing::warn!(
-            kind = "archive_mark_erased",
-            "消した時間帯の印を付けられない"
-        );
-    }
+    // 印を付けられなければ失敗として返す。書庫は置き場に残り、次の走査が読み直して印を付け直す
+    // （書庫の取り込みは作り直しを起こさないので、ここで畳むと消した時間帯の位置が生きたまま残る）。
+    crate::stay_store::mark_archive_arrivals(pool, user_id).await?;
     Ok(done)
 }
 
@@ -2131,7 +2124,8 @@ pub fn spawn_inspecting(
                                 );
                                 return;
                             }
-                            // 印を付けられなくても台帳は残す。次の作り直し（`mark_late_arrivals`）が同じ集合を見る。
+                            // 印を付けられなければ書庫を置き場に残し、次の走査で読み直して付け直す
+                            // （取り込みは作り直しを起こさないので、畳むと消した時間帯の位置が生きたまま残る）。
                             if crate::stay_store::mark_archive_arrivals(&pool, user_id)
                                 .await
                                 .is_err()
@@ -2140,6 +2134,7 @@ pub fn spawn_inspecting(
                                     kind = "archive_mark_erased",
                                     "消した時間帯の印を付けられない"
                                 );
+                                return;
                             }
                             if !candidate.from_downloads
                                 && move_to_processed(&candidate.path).is_err()
