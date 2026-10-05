@@ -643,6 +643,7 @@ open class LocationService : Service() {
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         startBeating()
+        startTicking()
         startClockSkew()
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
@@ -832,12 +833,12 @@ open class LocationService : Service() {
         }
         flusher?.cancel()
         flusher = null
-        beater?.cancel()
-        beater = null
+        // 生存信号の打ち手はソースごと（上のループ。ST06）。時計の測定と時刻の変更の受け手は ST05
         clockScheduler?.stop()
         clockScheduler = null
         timeReceiver?.let { runCatching { unregisterReceiver(it) } }
         timeReceiver = null
+        collectorThread.shutdownNow()
         super.onDestroy()
     }
 

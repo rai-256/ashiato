@@ -16,4 +16,8 @@ else
   : "${ASHIATO_HTTP_PORT:=18787}"
 fi
 export ASHIATO_DB_PORT ASHIATO_HTTP_PORT
+
+# `.env` の DB の URL（合言葉は `.env` だけが持つ。ST28 / design D19）の port を、この worktree の DB の port に差し替える。
+# 合言葉を台本に書かないまま、worktree ごとの DB に繋ぐ（2026-10-05。ST05 と ST28 の統合）
+ashiato_db_url() { printf '%s' "$1" | sed -E "s#^(postgres(ql)?://[^@/]*@[^:/]+):[0-9]+/#\1:${ASHIATO_DB_PORT}/#"; }
 unset _ports_root _ports_n

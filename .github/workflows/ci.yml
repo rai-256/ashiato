@@ -74,6 +74,11 @@ jobs:
       - run: ./tools/check-migrations.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
+      # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中
+      - run: ./tools/check-offsite.sh --self-test
+      - run: ./tools/check-offsite.sh
+      - run: ./tools/check-exposure.sh --self-test
+      - run: ./tools/check-private.sh --self-test
       # 時刻サーバへの経路が端末にも PC にも無いこと（ST05 / FR-7）
       - run: ./tools/check-no-time-server.sh
       - run: ./tools/check-no-time-server.sh --self-test

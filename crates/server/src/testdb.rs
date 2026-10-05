@@ -20,12 +20,9 @@ pub fn worktree_db_port(name: &str) -> u16 {
         .map_or(55432, |n| 55500 + n)
 }
 
-/// テスト用 DB の URL。`DATABASE_URL`（CI）> `ASHIATO_DB_PORT` > この worktree の既定（`tools/db.sh up -d --wait db`）。
-pub fn url() -> String {
-    if let Ok(u) = std::env::var("DATABASE_URL") {
-        return u;
-    }
-    let port = std::env::var("ASHIATO_DB_PORT")
+/// この worktree のテスト用 DB の port。`ASHIATO_DB_PORT` > worktree の名前の規則（`tools/ports.sh` と同じ）。
+fn db_port() -> u16 {
+    std::env::var("ASHIATO_DB_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or_else(|| {
@@ -35,8 +32,28 @@ pub fn url() -> String {
                 .ok()
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
             worktree_db_port(name.as_deref().unwrap_or(""))
-        });
-    format!("postgres://ashiato:ashiato@127.0.0.1:{port}/ashiato")
+        })
+}
+
+/// テスト用 DB の所有者の URL。**合言葉は環境（`.env` の `DATABASE_OWNER_URL`）からだけ**読み（ST28 / design D19）、
+/// port だけをこの worktree の DB のものに差し替える（ST05。`tools/ports.sh` の `ashiato_db_url` と同じ）。
+pub fn url() -> String {
+    with_port(&url_from_env("DATABASE_OWNER_URL"), db_port())
+}
+
+/// `postgres://user:pass@host:port/db` の port を差し替える。形が違えばそのまま返す。
+fn with_port(url: &str, port: u16) -> String {
+    let Some(at) = url.rfind('@') else {
+        return url.to_string();
+    };
+    let rest = &url[at + 1..];
+    let Some(slash) = rest.find('/') else {
+        return url.to_string();
+    };
+    let host = rest[..slash]
+        .rsplit_once(':')
+        .map_or(&rest[..slash], |(h, _)| h);
+    format!("{}@{host}:{port}{}", &url[..at], &rest[slash..])
 }
 
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
@@ -61,7 +78,7 @@ pub async fn pool() -> sqlx::PgPool {
         .connect(&url)
         .await
         .unwrap_or_else(|e| {
-            panic!("テスト用 DB へ接続できない（{url}）: {e}\n  tools/db.sh up -d --wait db を先に実行する")
+            panic!("テスト用 DB へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
         });
     MIGRATED
         .get_or_init(|| async {
