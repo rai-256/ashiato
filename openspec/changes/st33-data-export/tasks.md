@@ -1,0 +1,197 @@
+# ST33 実装タスク — 全記録を外部の道具で読める形に書き出す
+
+読む順: `deep.md`（**最優先。本人が決めた 5 件と、聞かずに決めた C1〜C18**）→ このファイル →
+`specs/data-durability/spec.md` → `design.md` → `docs/stories/ST33.md` → `docs/handoff/ST33.md`（開始時と PR 前の 2 回）→ `CLAUDE.md`。
+
+**移行は 1 本だけ足す**（design D10）。**名前は作成時刻 `YYYYMMDDHHMM_export_ledger.sql`**（連番にしない）で、
+`crates/server/src/lib.rs` の `MIGRATIONS` 配列の末尾に足す（配列の長さも書き換える）。
+**`GET /events`・`record-deletion` の要件・`rebuild_day` の振る舞い・`core.event_live` / `core.event_version_live` の定義には触らない**（design D14）。
+
+検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。
+DB を使う検査は `docker compose up -d db` が前提。
+
+## Global Constraints（規律。**最初に読む**）
+
+- **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 削除の印の付いた記録は出ない`）、
+  bash は `echo`。`scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**
+- 印の名前は spec の `#### Scenario:` と**一字一句合わせる**（空白は無視される）
+- **この change が持つ Scenario は 70 本**（すべて `data-durability`。サーバ 57 本は Rust のテスト、画面 13 本は `web/e2e`）
+- **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで
+  **`CT <絞り込み> <N>`** と書いたものは、次のコマンドが rc=0 になることを指す（`<N>` はその項目が持つテストの本数の下限）:
+  `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && n=$(grep -Eo 'test result: ok\. [0-9]+ passed' /tmp/ct.log | awk '{s+=$4} END{print s+0}') && [ "$n" -ge <N> ]`
+  （`cargo test` に絞り込みを 2 つ渡すと `unexpected argument` で落ちる。1 つずつ書く。**Scenario 1 本にテスト 1 本以上**を置くので、`<N>` はその項目の Scenario の数以上）
+- **e2e も件数で確かめる**: `ET <grep> <N>` は `cd web && npx playwright test settings-export --grep '<grep>' --list` の件数が `<N>` 以上で、かつ `npm run test:e2e -- settings-export --grep '<grep>'` が rc=0
+- **書き出しのテストは直列にする**（spec-review R16）。書き出しの台帳・状態・置き場は全利用者で 1 つで、`cargo test` はテストを並列に走らせる。
+  `export_tests.rs` の書き出しを走らせるテストは、static の `tokio::sync::Mutex`（`EXPORT_SERIAL`）を先頭で取る
+- **テストは利用者で隔離する**（`testdb::user()` で毎回新しい利用者を作る）。書き出しは全利用者を読むので、
+  **ファイルの中身を確かめるときは、そのテストの利用者の行だけを見る**（他のテストの行が混ざる前提で書く）。
+  **表の件数の比較は、書き出しと同じ写しで数えた値（目録の `rows`）と比べる** —— テストの外の表の件数と比べない。置き場はテストごとの一時ディレクトリ
+- **除く範囲の SQL は 1 か所だけ**（design D5）。書き出しと `GET /export/summary` が同じ断片を使う。件数を別の式で数えない
+- **書き出しの分類の正本は `export::CATALOG` 1 つ**（design D8）。説明書の列の意味もここから引く。2 か所で持たない
+- **記録の値を口の応答に載せない**（Q1）。ダウンロード・保存の口も画面の操作も作らない
+- **`mark_late_arrivals` の判定を書き写さない**（design D6）。`stay_store` に呼ぶ口を足すだけ
+- **D2 / D3 / D5a / D7 / D13 / D16 は（仮）決め。** 反転条件は `design.md` にある。変えたらその D 番号の（仮）を外すか反転条件を書き直す
+- **Q1〜Q5 は本人の決定。下流は変えない**（置き場・形式・画面の形・前のフォルダを残す・除く範囲）。除く範囲を**狭める**変更はしない（deep.md の「spec で精密化したもの」）
+- 記録の値（座標・時刻・URL）と置き場のフルパスを**ログに出さない**（製造準備 A-2。design D15）。出すのは件数・大きさ・種別・`export_id`・フォルダの最後の名前だけ
+
+## Task 1: 移行 —— 書き出しの台帳（design D10）
+
+- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_export_ledger.sql` と `.down.sql` を足す —— `core.export_ledger`（D10 の列と CHECK）、索引 1 本、
+  UPDATE / DELETE を拒む行トリガと TRUNCATE を拒む文トリガ（**この移行専用の関数** `core.reject_export_ledger_change()`）。当て直せる形（`IF NOT EXISTS`）。
+  `MIGRATIONS` 配列の末尾に足す。検証: `tools/check-migrations.sh` rc=0、`CT export_ledger_migration 1`（全版を 2 回当てて落ちないテスト `export_ledger_migration_applies_twice`）
+- [ ] 1.2 台帳が追記のみであることのテスト。
+  Scenario: `書き出しの台帳の行は書き換えも削除もできない`。検証: `CT export_ledger_is_append_only 1`
+- [ ] 1.3 `tools/check-immutable.sh` に足す —— (a) `core.export_ledger` への UPDATE / DELETE / TRUNCATE が psql から拒まれること、
+  (b) `…_export_ledger.down.sql` を戻しの逆順の先頭で当てて、当て直せること。
+  検証: `bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q export_ledger /tmp/ci.log`
+
+## Task 2: 書き出しの骨組み —— 設定の型・差し替え口・分類（design D2 / D3 / D8 / D9。`crates/server/src/export.rs`）
+
+書き出しは新しいモジュール `crates/server/src/export.rs`（分類・SQL・ファイル・本体）に置く。テストは `crates/server/src/export_tests.rs`。
+**後の Task が使う差し替え口はここで作る**（spec-review R14）。
+
+- [ ] 2.1 本体が受ける設定の型（置き場・遅延・**段ごとの差し替え口**: 分類の段に渡す表と列の一覧、段の前後で呼ぶ関数、失敗の差し込み）と、
+  置き場の決め方（`ASHIATO_EXPORT_DIR` → `LOCALAPPDATA` → `XDG_DATA_HOME` → `HOME`。環境を引数で受ける純関数）。
+  本体はこの Task では「分類 → 列の突き合わせ → 空のフォルダを `.partial-…` で作り `rename`」まで（ファイルの中身は Task 5）。
+  Scenario: `置き場の指定が無ければローカルのアプリのデータのフォルダの下に書く`（純関数に `LOCALAPPDATA` だけを持つ環境を渡し `…\ashiato\export` を返すこと、ドキュメント・デスクトップの下でないこと） /
+  `置き場を環境で指定すればそこに書く`（一時フォルダを指定して本体を走らせ、その下にフォルダができる）。
+  検証: `CT export_dir 2`
+- [ ] 2.2 `export::CATALOG` —— core のすべての表を `Include { file, view, excluded_columns, columns: [(名前, 意味)] }` か `Exclude { reason }` に分ける（design D7 の表と D8 の `Exclude` の一覧）。
+  `information_schema` を読んで、分類の無い表と、`Include` の表で分類の無い列を返す。
+  Scenario: `いまの記録の schema の表と列はすべて分類されている`（いまの DB で 0 個） /
+  `分類の無い表があると書き出しは始まらない` / `分類の無い列があると書き出しは始まらない`（**2.1 の差し替え口で、分類の段に分類の無い表 `x` / 列 `y` を足した一覧を渡して本体を走らせ**、
+  失敗で終わること・`.` で始まらないフォルダが無いこと・`.partial-…` も残らないこと・失敗の理由（台帳の `reason` は Task 6 で足す。ここでは本体の返す失敗）に名前があることを確かめる。共有のテスト DB に表を足さない）。
+  検証: `CT export_catalog 3`
+- [ ] 2.3 列の突き合わせ（D9）—— `core.event` の出す列が `core.event_live` に、`core.event_version` の出す列が `core.event_version_live` に全部あるか。欠けていれば種別 `missing_column` と列の名前。
+  Scenario: `いまの記録の表の列はすべて読み出しにある`（いまの DB で 0 個） / `読み出しに欠けた列があると書き出しは失敗する`（2.2 と同じく差し替え口で読み出しの列の一覧から 1 つ抜いて本体を走らせ、THEN を全部確かめる）。
+  検証: `CT export_view_columns 2`
+
+## Task 3: 除く範囲と、書き出す前の件数（design D5 / D5a / D12。`GET /export/summary`）
+
+- [ ] 3.1 除く範囲の SQL 断片（D5）・終わりの鍵の一覧 `END_KEYS`・緯度経度を持たないソースの一覧 `NO_COORD_SOURCES`（理由をコメントで添える）・(2) の項目名と (3) の座標の並びの判定（D5a）。
+  「本人が消した滞在」は `core.stay_erased` から `Mark::of` と同じ読み方で、利用者を問わずに引く（緯度経度を読まない）。
+  前の版は「親が除かれたら除く」と「自分が条件を満たせば除く」の両方。
+  **この Task では断片を通した件数（そのテストの利用者の行）で形を固定する**。ファイルでの確かめは 5.4。
+  検証: `CT export_excluded_sql 11`（spec の「書き出しは本人が消した場面を出さない」の 11 本と同じ形を、件数で 1 本ずつ）
+- [ ] 3.2 `GET /export/summary` —— ソースごとの件数・いちばん古い時刻・いちばん新しい時刻（3.1 の断片で除いた残り。全利用者の和。件数 0 のソースは出さない）、登録簿の表示名。資格情報なしは 401。
+  Scenario: `資格情報の無い件数と状態の求めは断られる`（件数の側。状態の側は 6.4）。検証: `CT export_summary 1`
+
+## Task 4: 遅れて届いた位置の印（design D6。`stay_store`）
+
+- [ ] 4.1 `stay_store::mark_late_for_user(pool, user)` を足す —— トランザクション → `lock(LOCK_KEY, user)` → 基準を読む →
+  既存の `mark_late_arrivals` を、本人が消した滞在の最小の始まり〜（最大の終わり＋1 マイクロ秒）で 1 回呼ぶ。
+  本人が消した滞在が無ければ何もしない。何度走っても印と台帳の行は増えない。
+  検証: `CT mark_late_for_user 3`（消した後に印の無い位置を `testdb::put_event` で直に入れ、呼ぶと `user:late` が付く / **最後の消した滞在のちょうど終わりの時刻の位置にも付く** / 2 回目で台帳が増えない）、
+  `CT late_arrival_is_marked 1`（ST22 のテストがそのまま緑。`rebuild_day` の振る舞いは変えない）
+
+## Task 5: 書き出しの中身（design D4 / D7 / D9。`export.rs`）
+
+- [ ] 5.1 写し（D4）: `REPEATABLE READ READ ONLY`、`SET LOCAL TimeZone = 'UTC'`、分類と列の突き合わせ → 表ごとの件数（`total`）→ 表ごとに `fetch`（stream）して 1 行ずつ書く（`fetch_all` を使わない）。
+  1 行は `CATALOG` の列から組んだ `json_build_object(...)::text`（`raw` は文字列のまま、時刻は `to_char(… AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`）。前の版は表の列だけ（ビューが足す親の 3 列を出さない）。
+  Scenario: `記録の行は記録の表のすべての列を持つ` / `前の版の行は前の版の表の列から内部の番号を除いた列を持つ` / `原文は受け取った文字列のまま出る` /
+  `時刻は UTC で書かれ、ずれとタイムゾーンは列のまま出る` / `どのファイルのどの時刻の列も UTC で書かれる`（`information_schema` で時刻の型の列を引き、全ファイルの全行の値を見る） /
+  `同じ内容の行は畳まずに出る` / `どの感度の記録も出る` / `前の版は親が書き出しに入るものだけ出る` / `読むための辞書と稼働の元データが出る`（ファイルがあり、件数が目録の `rows` と一致し、そのテストの利用者が足した行が入っている） /
+  `生存信号から取得の回数と原文が出ない`。検証: `CT export_file_rows 10`
+- [ ] 5.2 フォルダ（D3）: `.partial-ashiato-export-YYYYMMDD-HHMMSS` に書き、README と目録まで書いてから `rename`。同じ名前があれば `-2` …。失敗したら `.partial-…` を消す。前のフォルダには触らない。
+  Scenario: `書き出すと置き場の下に日時つきのフォルダが 1 つできる` / `書き出すたびに別のフォルダができ、前のフォルダは残る`（1 回目のファイルの大きさと中身のハッシュを 2 回目の後に比べる） /
+  `書き終えていないフォルダは書き出しの名前を持たない`（2.1 の差し替え口で書く途中に止めて置き場の名前を読み、続けて書き終えた後にも読む）。
+  検証: `CT export_folder 3`
+- [ ] 5.3 説明書と目録（D9）: `README.txt`（日本語。D9 の 1〜5）と `manifest.json`（`rows` は書いた数）。除いた件数をどこにも書かない。
+  畳む規則の文面が `core.event_folded` の定義（`GROUP BY` の列）と食い違わないことをテストで突き合わせる。
+  Scenario: `説明書にファイルごとの列の意味と件数が書かれている` / `出さない列は説明書の入らないものに名前で挙がる` / `目録の行の数はファイルの行の数と一致する` /
+  `このシステムを使わずに中身を読める`（pool を閉じてから、`serde_json` だけで全ファイルの全行を読み、原文の値を取り込んだ文字列と比べる）。
+  検証: `CT export_readme 4`
+- [ ] 5.4 除く範囲をファイルで確かめる —— spec の「書き出しは本人が消した場面を出さない」の Scenario 11 本（`削除の印の付いた記録は出ない` 〜 `親が消した場面の規則で除かれると、前の版も出ない`。
+  `消した時間に後から届いて印の無い位置には、書き出しの前に印が付く` は 6.1）を、書き出したファイル（そのテストの利用者の行。`別の利用者の識別子で入った同じ時間の位置も出ない` は 2 人目の利用者の行）で確かめる。
+  `台帳と導出の表は書き出しに入らない`（フォルダのファイル名の一覧が spec の THEN の一覧と等しい）も足す。
+  `除いた行の件数はどこにも出ない`（消した滞在があるときのフォルダの全ファイルに、除いた件数の数字も「削除」の件数の欄も無い。応答の側は 6.4）。
+  検証: `CT export_file_excludes 13`
+- [ ] 5.5 写しの時点（C10）。2.1 の差し替え口で、写しを読み始めた後・書き終える前に記録を取り込み・滞在を消す。
+  Scenario: `書き出しの途中で届いた記録はその書き出しに入らない`（取り込みは受理され、次の書き出しには出る） /
+  `書き出しの途中で付いた削除の印はその書き出しに反映しない`（その書き出しには出て、次の書き出しには出ない） /
+  `書き出しのファイルどうしが食い違わない`（前の版の `event_id` がすべて記録のファイルにあり、記録の `logical_source` がすべて登録簿のファイルにある）。
+  検証: `CT export_snapshot 3`
+- [ ] 5.6 量 —— 偽データ 1 年分（`tools/seed.sh` の量か、テストで 1 利用者に 35 万行）で書き出しを 1 回走らせ、かかった時間と最大メモリを `kind = "export"` のログに出す。
+  **除く判定の `EXISTS` が 1 年分で 5 分を超えたら**消した区間を一時表に置く（design D5）。検証: `CT export_volume 1`（`#[ignore]` にせず、件数を減らす環境変数で CI では 2 万行）
+
+## Task 6: 口と背景の仕事と台帳（design D1 / D2 / D10 / D11。`lib.rs`）
+
+- [ ] 6.1 `App` に `exports`（D2）と、2.1 の設定・差し替え口を足す。`POST /export` は 202 と `export_id`、走っていれば 409、資格情報なしは 401、引数か本体が付いていれば 400。
+  `ASHIATO_EXPORT_SELFTEST_DELAY_MS`（未設定は 0）をファイル 1 つごとに待つ。本体の順は「台帳の始まりの行 → 遅着の印（Task 4。失敗なら `late_mark`）→ 写し」（D4）。
+  Scenario: `範囲を指定した書き出しの求めは断られる` / `書き出し中にもう一度求めると断られる` / `資格情報の無い書き出しの求めは断られる` /
+  `消した時間に後から届いて印の無い位置には、書き出しの前に印が付く`（書き出しの後に `GET /events` を読んで出ないこと、削除の台帳に `user:late` の行）。
+  検証: `CT export_endpoint 4`
+- [ ] 6.2 台帳（D10）: 最初に `start` の行をコミット、終わったら `finish`（`done` / `failed`・表ごとの行の数・大きさ・`reason`）。
+  Scenario: `書き出すと台帳に始まりと終わりの行が積まれる` / `台帳の行は経路を持ち、記録の中身を持たない` /
+  `失敗した書き出しも台帳に残る`（`late_mark` の段と分類の段の 2 つで、差し替え口から失敗させる。分類の段の `reason` に表の名前）。
+  検証: `CT export_ledger_rows 4`
+- [ ] 6.3 `GET /export`（D11）: `running`（メモリ）/ `last` / `last_failure` / `interrupted`（台帳）。台帳の行と `running` から状態を作る部分は純関数にする。
+  Scenario: `書き出しの間は進み具合が行の数で読める`（遅延の差し替え口で止めて読む） / `書き終えると前回の書き出しが読める`（`rows` は各ファイルの行の和、`bytes` はファイルの大きさの和） /
+  `1 度も書き出していなければそう返る`（**共有のテスト DB では台帳を空にできない**（追記のみ）ので、状態を作る純関数に「行が無い」を渡して固定し、口はその関数を通すだけであることを 6.3 の他のテストが確かめる） /
+  `失敗しても前回の書き出しの値は変わらない` / `途中で止まった書き出しはそう返り、次の書き出しを始められる`（終わりの無い `start` の行を直に入れ、新しい `App` で読む） /
+  `書き出した後に記録を消しても状態は変わらない`。検証: `CT export_status 6`
+- [ ] 6.4 応答に記録の値が無いこと・資格情報。
+  Scenario: `書き出しの口は記録の中身を返さない`（3 つの口の応答の文字列に、取り込んだ記録の原文・`lat` の値・本文が含まれない） /
+  `資格情報の無い件数と状態の求めは断られる`（状態の側）/ `除いた行の件数はどこにも出ない`（応答の側）。
+  検証: `CT export_responses 3`
+
+## Task 7: OpenAPI と画面の在り処
+
+- [ ] 7.1 3 本の口を `#[utoipa::path]` と `ApiDoc` の `paths` / `components` に足し、`docs/openapi.json` を作り直す。検証: `tools/check-openapi.sh` rc=0
+- [ ] 7.2 `docs/screens.md` の表に `S-7 設定 | /#/settings | S-1 の見出しの行の「設定」` を 1 行足し、末尾の「まだ実装が無い面」から S-7 を外す。
+  検証: `grep -q '#/settings' docs/screens.md`
+
+## Task 8: 画面（design D13。`web/src/`。jsdom で測れるもの）
+
+- [ ] 8.1 `export.ts` —— 3 本の口の応答の型と読み手（**形が違えば失敗として出す**。`stays.ts` と同じ形）。
+  検証: `cd web && npm run test -- export`（正しい応答を通し、壊れた応答を弾く単体テスト）
+- [ ] 8.2 `SettingsView.tsx` と `Root.tsx` の `#/settings`、`App.tsx` の見出しの行に「設定」のリンク。
+  節の並びは D13（proto の初期値のまま）。開いたときに summary と状態を 1 回ずつ読み、`running` の間は 1 秒ごとに状態を読み直す。失敗と途中で止まったものは節の中に 1 行。
+  ダウンロード・保存・`file://` のリンクを置かない。
+  検証: `cd web && npm run test -- SettingsView`（件数と期間の表示・押すと 1 回だけ `POST` する・`running` が消えたら読み直しが止まる・失敗と途中で止まったものの 1 行）
+- [ ] 8.3 色は `tokens.ts` の値だけを使い、ライト / ダークのコントラスト比を `web/src/contrast.ts` で単体テストに固定する（画面の Scenario の印は 9.5 の e2e に置く）。
+  検証: `cd web && npm run test -- settings-contrast`
+
+## Task 9: e2e（本物のブラウザ。`web/e2e/settings-export.spec.ts`）
+
+**画面の Scenario を「人間の確認待ち」へ逃がさない。** アサートするのは**数値と経路**（実寸・可視・フォーカス・URL・`scrollWidth`）。スクリーンショット比較は使わない。
+`tools/stack.sh` の起動に `ASHIATO_EXPORT_DIR`（worktree の中の gitignore された置き場。`.gitignore` に足す）と、**e2e のときだけ** `ASHIATO_EXPORT_SELFTEST_DELAY_MS=400` を渡す
+（確認バッチの `run.sh` には遅延を渡さない）。消した後は同じテストの中で戻し、DB を元の状態に返す（後続のテストが同じ DB を見る）。
+
+- [ ] 9.1 `tools/stack.sh` に置き場と遅延を足す。`settings-export.spec.ts` の `beforeAll` で **遅延が効いていることを確かめ、効いていなければ理由つきで落とす**
+  （`POST /api/export` の直後の `GET /api/export` に `running` が出ること。手元の `run.sh` の stack を `reuseExistingServer` で使い回すと遅延が 0 で、進み具合の Scenario が揺れるため。spec-review R19。
+  落ちたときの文言に「run.sh を止めるか CI=1 で走らせる」を出す）。`web/e2e/offsite.spec.ts` の `VIEWS` に `/#/settings` を足す（data-sensitivity の既存の Scenario。印は動かさない）。
+  検証: `cd web && npm run test:e2e -- offsite`
+- [ ] 9.2 入口・件数・押す・進み具合・離れて戻る・前回の書き出し。
+  Scenario: `設定画面に全記録の書き出しの節がある`（S-1 のリンクから。URL が `#/settings`） / `押す前にソースごとの件数と期間が出る`（画面の件数を `GET /api/export/summary` と突き合わせる） /
+  `押すとその場で進み具合が出る`（確認の dialog が出ないこと） / `画面を離れて戻っても進み具合が出る`（`#/day/2026-09-07` へ移って戻る） /
+  `書き終えると前回の書き出しが新しくなる`（行の数を `GET /api/export` と突き合わせる）。
+  検証: `ET 'Scenario 9.2' 5`（各テストの名前の頭に `Scenario 9.2:` を付ける）
+- [ ] 9.3 台帳の状態で決まる表示 —— **台帳が空・失敗・途中で止まったの状態は共有の stack では作れない**（台帳は追記のみ）ので、`page.route` で `GET /api/export` を
+  `last: null` / `last_failure` あり / `interrupted` ありの応答に差し替えて、画面の文言と「全記録を書き出す」が押せることを確かめる（サーバの側は 6.3 が固定する）。
+  Scenario: `まだ書き出していなければそう出る` / `失敗した書き出しと途中で止まった書き出しは節に出て、押し直せる`。検証: `ET 'Scenario 9.3' 2`
+- [ ] 9.4 書き出した後に消しても知らせない —— 書き終えた後に `#/day/2026-09-07` で滞在を 1 件消し、設定画面を開き直して「前回の書き出し」の欄の文字が消す前と同じこと。最後に戻す。
+  Scenario: `書き出した後に記録を消しても画面は知らせない`。検証: `ET 'Scenario 9.4' 1`
+- [ ] 9.5 操作と下限 —— 360 px の幅で「全記録を書き出す」の `boundingBox` の幅と高さが 24 以上、Tab で移ってフォーカスの輪郭（`outline` の幅が 0 でない）、Enter で進み具合が出る、
+  `document.documentElement.scrollWidth <= clientWidth`（置き場のパスが出ている状態で）、操作できる要素（`a, button, [download]`）にダウンロード・保存・`file:` が無い。
+  `page.emulateMedia({ colorScheme })` でライトとダークを切り替え、節の文字（見出し・件数・前回の書き出し）の計算後の文字色と背景色からコントラスト比を出して 4.5 以上。
+  Scenario: `書き出すの操作は 24 px を下回らない` / `キーボードで書き出すを押せてフォーカスの位置が見える` / `設定画面は 360 px の幅で横にスクロールしない` /
+  `画面から書き出したファイルを受け取る操作は無い` / `設定画面の文字はライトでもダークでも 4.5:1 を下回らない`。検証: `ET 'Scenario 9.5' 5`
+
+## Task 10: 仕上げ
+
+- [ ] 10.1 検査 3 本。検証: `python3 scripts/check_scenarios.py . st33-data-export` rc=0、
+  `python3 scripts/review_triage.py . st33-data-export` rc=0、`python3 scripts/check_chain.py .` rc=0
+- [ ] 10.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` /
+  `cargo test --workspace` / `cd web && npm run lint && npm run test && npm run build && npm run test:e2e` /
+  `tools/check-immutable.sh` / `tools/check-offsite.sh` / `tools/check-log-private.sh` / `tools/smoke.sh` が全部 rc=0
+- [ ] 10.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。ST33 宛ての st22-record-deletion R2 が、
+  5.4 の Scenario（`削除の印の付いた記録は出ない` ほか）で閉じていることを確かめる。
+  検証: `grep -c 'st22-record-deletion' docs/handoff/ST33.md` が 1 以上、かつ `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_tests.rs` が 1 以上
+
+## 人間の確認待ち
+
+**無し。** 画面の Scenario は 9 章の e2e（本物のブラウザ）が担保し、サーバの Scenario は Rust のテストが担保する。
+書き出したファイルを「このシステムを使わずに読める」ことも、DB を閉じてから汎用の JSON の読み手で読むテスト（5.3）が担保する。
+機械が再現できない物理（ロック・電池・本物の GPS・時間そのもの・実機）に当たるものが、この Story には無い。
+確認バッチの手順書が Story ごとに 1 問聞く「触ってみて違和感は無かったか」だけが人間に渡る。

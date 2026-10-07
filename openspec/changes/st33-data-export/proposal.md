@@ -67,28 +67,29 @@ Story の `requires` に ST22 を足した（Q5 と C18 で ST22 の「本人が
 
 **capability の前倒し**: なし。INDEX の割当（`data-durability` → ST33）のとおり。
 
-## 止めた理由と、解ける時点
+## 先行の archive と、specs 以降
 
-**proposal で止める。** `requires` の **ST22 が下流を走っていて archive 前**（record で requires に足したので、
-`board.py` の `admit()` はいま `proposal` を返す）。
-
-1. 書き出しが除く範囲（Q5）と遅着の判定（C18）は、ST22 の `record-deletion` の「本人が消した滞在」と
-   「消した時間帯に後から届いた位置に印を付ける」の上に立つ。ST22 の実装がその spec に穴を開けたら、ST33 の specs も書き直しになる
-2. `record-deletion` の正典は ST22 の archive まで `openspec/specs/` に無く、Scenario から引けない
-
-ST22 が archive されたら、specs → design → tasks を書く。
+`requires` の ST22 は 2026-10-04 に archive された（`openspec/changes/archive/2026-10-04-st22-record-deletion/`）。
+specs は `record-deletion` の正典（「消した時間帯に後から届いた位置の記録は、削除済みとして入る」と `core.stay_erased`）の上に書いた。
+**`record-deletion` の要件は変えない** —— 書き出しが除く範囲は ST22 の印に頼らず、本人が消した滞在の時間と緯度経度で決める（Q5）。
+遅着の印（C18）は ST22 の判定を呼ぶ口を `stay_store` に足すだけ（design D6）。
 
 ## Impact
 
-- **サーバ**（`crates/server`）: 書き出しの口（`GET /events` とは別。背景の仕事として走り、進み具合を返す）、
+- **サーバ**（`crates/server`）: 書き出しの口 3 本（`POST /export`・`GET /export`・`GET /export/summary`。`GET /events` とは別。背景の仕事として走り、進み具合を返す。design D1 / D2）、
   1 つの時点の写しで全表を読む処理、除く範囲の判定（ST22 の判定を呼ぶ）、JSON Lines と説明書を書く処理、
   書き出しの台帳の表と移行（`migrations/YYYYMMDDHHMM_<slug>.sql`）、列の突き合わせの検査
-- **画面**（`web`）: S-7 設定の画面そのもの（まだ 1 枚も無い）と書き出しの節。`web/e2e` の e2e
+- **画面**（`web`）: S-7 設定の画面そのもの（まだ 1 枚も無い。`#/settings`）と書き出しの節、S-1 の見出しの行からのリンク。`web/e2e` の e2e。
+  `web/e2e/offsite.spec.ts`（ST28 の data-sensitivity）が開く画面に `#/settings` を足す（要件は変えない）
 - **並走している Story との重なり**（差し戻さない）
-  - **ST22**（下流。`record-deletion` / `browsing-views`）: `record-deletion` を読むだけで変えない。archive を待つ（上）
+  - **ST25**（下流。`browsing-views`。入口の付け替え）: S-7 への入口はいま S-1 に置き、入口を付け替えるときに ST25 が運ぶ（design D13）。差し戻さない
+  - **ST21**（下流。`personal-entities`）: `core.place` と `s01-place` を足す予定。main に入った時点で書き出しの分類の検査（design D8）が名前を挙げて落ちるので、
+    後から入る側か ST33 の下流のどちらかが分類を 1 行足す（`s01-place` は緯度経度を持つソースとして既定で扱われる）
+  - **ST22**（archive 済み。`record-deletion`）: 読むだけで変えない。`stay_store` に既存の遅着の判定を呼ぶ口を 1 本足す（design D6）
   - **ST12**（下流。`external-ingestion` / `collection-coverage`）: 書庫の位置は別のソースで入り、ST22 の印が付かない（ST12 への申し送り R6）。
-    ST33 は印でなく時間と緯度経度で除くので、ST12 の実装を変えずに成り立つ。ST12 の内部表（`core.archive_*` / `core.stay_absorbed`）は出さない
-  - **ST06 / ST08**（下流。`device-collection` / `desktop-collection`）: 足すソースは登録簿に載れば書き出しに入る。capability は重ならない
-  - **ST28**（上流。`data-sensitivity`）: NFR-15 の「拠点外」の読み方は ST28 の Q3。Q1 で端末に渡さない側を選んだので NFR-15 の文面とは接しない。
-    書き出しの口の合言葉は ST28 の答えに従う（C11）
+    ST33 は印でなく時間と緯度経度で除くので、ST12 の実装を変えずに成り立つ。ST12 の内部表（`core.archive_*` / `core.stay_absorbed`）は出さない。
+    ST12 が main に入ったら、`core.archive_*` を書き出しの分類（design D8）で `Exclude` に足す（分類の検査が名前を挙げて落ちる）
+  - **ST06 / ST08**（下流。`device-collection` / `desktop-collection`）: 足すソースは登録簿に載れば書き出しに入る。緯度経度を持たない一覧（design D5a）に無いソースは、消した時間の中では除かれる（既定は厳しい側）。capability は重ならない
+  - **ST28**（archive 済み。`data-sensitivity`）: NFR-15 の「拠点外」は ST28 の Q3 で読み方が決まった（暗号化されたバックアップを除き写しを拠点外に置かない）。
+    Q1 で端末に渡さない側を選んだので文面と接しない。書き出しの口は読み出しと同じ `authorize`（API の合言葉か画面のログイン。C11）で、読み出しの記録にも残る
 - **後続**: ST30（バックアップ）は D-01 の写しで削除済みも含む —— ST33 の書き出しの経路ではない（`deep.md` X1）
