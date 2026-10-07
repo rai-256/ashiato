@@ -399,7 +399,7 @@ fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str)
         if !seen.insert(cur.clone()) {
             tracing::warn!(
                 kind = "source_chain_cycle",
-                logical_source = %base, at = %cur,
+                logical_source = %base, cycle_at = %cur,
                 "引き継ぎの鎖が輪になっている。そこで止める"
             );
             break;
@@ -451,7 +451,7 @@ fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str)
         if !seen.insert(next.clone()) {
             tracing::warn!(
                 kind = "source_chain_cycle",
-                logical_source = %base, at = %next,
+                logical_source = %base, cycle_at = %next,
                 "引き継ぎの鎖が輪になっている。そこで止める"
             );
             break;

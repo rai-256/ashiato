@@ -30,18 +30,25 @@ python3 - "$@" <<'PY'
 import re, subprocess, sys
 
 # 構造化フィールドとして出してよい名前。**値の中身が私的データにならない**ものだけ。
+# 方針の 4 つ（件数・ソース名・所要時間・エラーの種別）の外にあるものは、理由と決めた日を添える。
 ALLOWED = {
     # 種別・理由（自分で名付けた語。下位の文言を素通しさせない）
     "kind", "reason", "why", "failure", "error", "op", "sqlstate", "field",
     # 件数・所要時間・深さ
     "count", "sent", "accepted", "read", "dropped", "successors", "versions", "took_ms", "depth",
     "days", "days_done", "stays_before", "stays_after",
-    # ソース名・真偽
-    "logical_source", "credential_present", "has_external_id",
-    # 識別子（UUID。中身を持たない）・待ち受けの番地（自分のサーバ）・コードの位置
-    "user", "id", "addr", "location",
-    # 時刻（稼働の境目・作り直した日。記録の中身ではない）
-    "at", "day",
+    # ソース名（cycle_at は引き継ぎの鎖が輪になった所のソース名）・真偽
+    "logical_source", "cycle_at", "credential_present", "has_external_id",
+    # コードの位置（panic の file:line）
+    "location",
+    # ---- 方針の 4 つの外。本人が 2026-10-07 に認めた（記録の中身ではなく、調査に要る値）----
+    # user: 利用者の UUID（いまは本人 1 人なので常に同じ値）/ id: 壊れた属性の行を DB で探す UUID（値は出ない）
+    "user", "id",
+    # day: 滞在を作り直した日付（JST）。「その日に位置の記録がある」は分かるが場所は出ない。失敗した日を手で作り直すのに要る
+    # at: 携帯が生存信号を出した時刻（登録簿より前の信号の調査）
+    "day", "at",
+    # addr: サーバの待ち受けの番地（起動時に 1 回）。私設網の IP のことがある
+    "addr",
 }
 ALLOWED_DEBUG = {"location"}   # panic の発生位置（ソースの file:line）
 
