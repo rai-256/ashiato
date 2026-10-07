@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { expect, test, type APIRequestContext, type Locator, type Page, type Request, type Route } from "@playwright/test";
+import { expect, test as base, type APIRequestContext, type Locator, type Page, type Request, type Route } from "@playwright/test";
 import type { Candidate, Place, PreviousCoord } from "../src/places";
+
+declare const process: { env: Record<string, string | undefined> };
+
+/**
+ * 試験の中で `/api` を直に叩く `request` は、API の合言葉（Bearer）で通す。既定の `storageState`（ログインの印）は、
+ * 先に走る login の e2e のログアウトで失効していることがあり、それに依らない（ST28 の認証との合わせ。`tools/stack.sh` と同じ既定値）。
+ * 画面（`page`）には何も付けない。
+ */
+const test = base.extend({
+  request: async ({ playwright, baseURL }, use) => {
+    const ctx = await playwright.request.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
+      extraHTTPHeaders: { Authorization: `Bearer ${process.env.API_TOKEN ?? "dev-token-0123456789abcdef"}` },
+    });
+    await use(ctx);
+    await ctx.dispose();
+  },
+});
 
 /**
  * 場所の画面の e2e（ST21 / tasks 10.1〜10.4）。**画面の Scenario を「人間の確認待ち」へ逃がさない。**
