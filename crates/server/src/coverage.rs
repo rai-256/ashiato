@@ -429,6 +429,7 @@ fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str)
         }
         let Some(next) = successor.get(tip.as_str()).and_then(|v| {
             if v.len() > 1 {
+                // log-ok: successors は論理ソース名の並び（記録の中身ではない）
                 tracing::warn!(
                     kind = "source_chain_forked",
                     logical_source = %tip, successors = ?v,

@@ -2276,6 +2276,7 @@ pub async fn run() -> anyhow::Result<()> {
             reason = refusal.reason(),
             "起動しない"
         );
+        // log-ok: reason() は自分で名付けた &'static str（合言葉の値は出さない）。起動前の拒否を端末にも出す
         eprintln!("error: kind=web_password reason={}", refusal.reason());
         std::process::exit(2);
     }
@@ -2304,6 +2305,7 @@ pub async fn run() -> anyhow::Result<()> {
             reason = refusal.reason(),
             "この接続の役割では起動しない"
         );
+        // log-ok: reason() は自分で名付けた &'static str。起動前の拒否を端末にも出す
         eprintln!("error: kind=db_role reason={}", refusal.reason());
         std::process::exit(2);
     }

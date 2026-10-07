@@ -256,6 +256,9 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      # ログに私的データを出せる書き方が無いこと（製造準備 A-2。一度出たログは消せない）
+      - run: ./tools/check-log-private.sh --self-test
+      - run: ./tools/check-log-private.sh
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db

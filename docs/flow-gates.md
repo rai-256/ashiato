@@ -13,6 +13,7 @@
 | `tools/android-emulator.sh`（ashiato2） | エミュレータを立てて `src/androidTest` の計測テスト（前景サービス・権限の入口・HTTP を本物の framework で）。実機を繋いでも同じ gradle タスク | CI の `android-instrumented`（ubuntu + KVM）、手元 |
 | `check-migrations.sh`（ashiato2） | 前進側の破壊的変更・戻し手順の欠落・**名前が作成時刻 `YYYYMMDDHHMM_<slug>.sql` でない**もの | ローカル、CI |
 | `tools/check-private.sh` | 手元の網の名前・私設 IP がリポジトリに入っていない | `.githooks/pre-commit`（`tools/pre-commit.sh`）、CI の `chain` |
+| `tools/check-log-private.sh` | ログに私的データを出せる**書き方**（メッセージへの値の埋め込み・許可外のフィールド・Debug 出力・println、携帯の `Telemetry.line` を通さない文字列、画面の console）。例外は `// log-ok: <理由>`（製造準備 A-2。一度出たログは消せない） | `.githooks/pre-commit`（`tools/pre-commit.sh`）、CI の `chain` |
 
 ## ashiato2 の規則
 
