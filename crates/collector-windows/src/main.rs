@@ -41,12 +41,11 @@ fn init_logging(cfg: &c02::config::Config) {
 
 #[cfg(windows)]
 fn install_autostart(cfg: &c02::config::Config) -> anyhow::Result<()> {
-    let path = c02::autostart::install(cfg)?;
+    c02::autostart::install(cfg)?;
     tracing::info!(
         "{}",
         c02::telemetry::line("autostart_installed", None, None, None)
     );
-    tracing::info!("置いた場所: {}", path.display());
     Ok(())
 }
 

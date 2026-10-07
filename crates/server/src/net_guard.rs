@@ -73,6 +73,7 @@ pub fn db_host_is_local(url: &str) -> bool {
 /// 拒否を出して終了コード 2 で終わる。値は出さず種別だけ。
 pub fn refuse(kind: &'static str) -> ! {
     tracing::error!(kind = kind, "起動しない");
+    // log-ok: kind は &'static str の種別の名前。起動前の拒否を端末にも出す
     eprintln!("error: kind={kind}");
     std::process::exit(2);
 }
