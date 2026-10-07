@@ -7,6 +7,7 @@
 #   （オンラインだと $HOME 直下のロックを掴み、sandbox の中で落ちる。2026-09-21 実測）
 # - HARNESS_CODEX_WRITABLE_DIRS: Codex の sandbox で書けるようにする道具のキャッシュ（$HOME にあり、既定では書けない。
 #   2026-09-21 実測）。harness2 が実在するものだけを --add-dir に足す
+# - この worktree の `.env` の値（DB の接続先・合言葉。テストが環境から読む。下の節）
 # - Codex のときだけ GRADLE_OPTS に daemon を使わない指定: daemon は sandbox の制限を持ったまま生き残り、
 #   外のビルドを壊す（2026-09-21 実測）。harness2 は source するときに HARNESS_EXECUTOR（codex / claude / harness）を見せる
 #
@@ -36,6 +37,17 @@ fi
 export HARNESS_CODEX_WRITABLE_DIRS="$HOME/.cargo:$HOME/.gradle:$HOME/.android"
 if [ "${HARNESS_EXECUTOR:-}" = codex ]; then
   export GRADLE_OPTS="${GRADLE_OPTS:+$GRADLE_OPTS }-Dorg.gradle.daemon=false"
+fi
+
+# この worktree の `.env`（DB の接続先・合言葉・画面の合言葉。ST28 / design D19 で合言葉は .env だけが持つ）。
+# テスト（crates/server/src/testdb.rs・web/e2e）は環境から読むので、ハーネスが走らせる検証にも渡す ——
+# 渡さないと、人が手で `set -a; . ./.env` した検証だけが通る（実測 2026-10-07 ST21 11.3:
+# `DATABASE_OWNER_URL が無い` / `WEB_PASSWORD が無い` で、cargo test と e2e が機械の取り直しで落ちた）。
+# port は testdb.rs と tools/ports.sh が worktree ごとに差し替えるので、ここでは値をそのまま渡す。
+if [ -f "$_here/../.env" ]; then
+  set -a
+  . "$_here/../.env"
+  set +a
 fi
 
 unset _here _jars _j _n
