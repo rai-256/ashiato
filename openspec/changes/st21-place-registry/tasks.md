@@ -212,13 +212,13 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。ST21 が渡すもの（`docs/handoff/ST23.md` の場所を消す口 / `docs/handoff/ST25.md` の S-2 の見出し）が置かれていることを確かめ、
+- [x] 11.1 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。ST21 が渡すもの（`docs/handoff/ST23.md` の場所を消す口 / `docs/handoff/ST25.md` の S-2 の見出し）が置かれていることを確かめ、
   **PR 本文の「後続」に、S-2 の見出しを場所の名前にする `fix/`（ST21・ST22・ST25 の archive 後。`docs/handoff/ST25.md`）を挙げる**（起こす係を残す。design D19 / spec-review R14）。
   検証: `bash -c 'grep -q "st21-place-registry" docs/handoff/ST23.md && grep -q "st21-place-registry" docs/handoff/ST25.md'`
-- [ ] 11.2 検査 4 本。検証: `python3 scripts/check_scenarios.py . st21-place-registry` rc=0、`python3 scripts/review_triage.py . st21-place-registry` rc=0、`python3 scripts/check_chain.py .` rc=0、
+- [x] 11.2 検査 4 本。検証: `python3 scripts/check_scenarios.py . st21-place-registry` rc=0、`python3 scripts/review_triage.py . st21-place-registry` rc=0、`python3 scripts/check_chain.py .` rc=0、
   この change の Scenario の名前が正典の他の Requirement の Scenario と重ならないこと（重なってよいのは design D20（仮）の 10 本だけ）:
   `bash -c 'comm -12 <(grep -h "^#### Scenario:" openspec/specs/personal-entities/spec.md | sort -u) <(grep -h "^#### Scenario:" openspec/changes/st21-place-registry/specs/personal-entities/spec.md | sort -u) | wc -l | grep -qx 10'`
-- [ ] 11.3 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
+- [x] 11.3 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
   `cd web && npm run lint && npm run test && npm run build && npm run test:e2e` / `tools/check-immutable.sh` / `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/smoke.sh` が全部 rc=0
 
 ## 人間の確認待ち
