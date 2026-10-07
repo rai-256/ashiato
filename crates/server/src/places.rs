@@ -335,16 +335,17 @@ pub async fn has_coord_record(
 /// 直す先として使える座標の記録か（spec「形の合わない場所の記録は受け付けない」）。
 ///
 /// 同じ利用者・同じ場所の座標の記録でなければならない。**削除の印は見ない**（消した記録を指せる）。
-/// **本文を消去した記録（`raw = ''`）も断らない** —— どの場所のものかは残らないので確かめられない
-/// （spec が理由では断らないと定めている）。**行錠を取らずに読む**（ST19 D5 と同じ）。
+/// **本文を消去した記録（`raw = ''`）も、消去を理由には断らない**（spec）—— 本文は読めないが、
+/// 取り込みが印した `external_ref = coord_marker(place)` は残る（錠が凍結する）ので、それで
+/// 「その場所の座標の記録か」を確かめる（D4（仮））。**行錠を取らずに読む**（ST19 D5 と同じ）。
 pub async fn coord_supersedes_is_valid(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
     place: Uuid,
     target: Uuid,
 ) -> sqlx::Result<bool> {
-    let row: Option<(String, serde_json::Value)> = sqlx::query_as(
-        "SELECT raw, payload FROM core.event
+    let row: Option<(String, serde_json::Value, Option<String>)> = sqlx::query_as(
+        "SELECT raw, payload, external_ref FROM core.event
           WHERE id = $1 AND user_id = $2 AND logical_source = $3",
     )
     .bind(target)
@@ -352,11 +353,13 @@ pub async fn coord_supersedes_is_valid(
     .bind(SOURCE)
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(row.is_some_and(|(raw, payload)| {
-        raw.is_empty()
-            || (payload.get("field").and_then(|v| v.as_str()) == Some("coord")
-                && payload.get("place").and_then(|v| v.as_str())
-                    == Some(place.to_string().as_str()))
+    let marker = coord_marker(place);
+    Ok(row.is_some_and(|(raw, payload, external_ref)| {
+        if raw.is_empty() {
+            return external_ref.as_deref() == Some(marker.as_str());
+        }
+        payload.get("field").and_then(|v| v.as_str()) == Some("coord")
+            && payload.get("place").and_then(|v| v.as_str()) == Some(place.to_string().as_str())
     }))
 }
 
@@ -465,6 +468,8 @@ struct Version<'a> {
     anchor: &'a StoredPlaceRecord,
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
+    /// この版に負けて版にならなかった兄弟の fix（同じ記録を辿る、先に書いた fix）
+    siblings: Vec<Uuid>,
 }
 
 /// 座標の記録の欄（緯度・経度・変え方・いつから・直す先）。
@@ -540,6 +545,7 @@ fn versions<'a>(records: &'a [StoredPlaceRecord]) -> Vec<Version<'a>> {
                     anchor,
                     start,
                     end: None,
+                    siblings: Vec::new(),
                 },
                 boundary,
             )
@@ -547,6 +553,22 @@ fn versions<'a>(records: &'a [StoredPlaceRecord]) -> Vec<Version<'a>> {
         .collect();
     // 並び: 直した記録の書いた順、同じなら自分の書いた順
     vs.sort_by_key(|(v, _)| (v.anchor.order_key(), v.record.order_key()));
+
+    // 兄弟の fix（同じ記録を辿る fix が 2 件以上。2 つのタブ・2 つの端末から）は、最後に書いた 1 件だけを版にする
+    // （D7（仮））。取り込みでは断らない —— 断ると本人の操作を捨てるので、計算し直せる読み出しの側で決める
+    let mut kept: Vec<(Version<'_>, DateTime<Utc>)> = Vec::with_capacity(vs.len());
+    for (v, boundary) in vs {
+        match kept.last_mut() {
+            Some((prev, prev_boundary)) if prev.anchor.record.id == v.anchor.record.id => {
+                let mut siblings = std::mem::take(&mut prev.siblings);
+                siblings.push(prev.record.record.id);
+                *prev = Version { siblings, ..v };
+                *prev_boundary = boundary;
+            }
+            _ => kept.push((v, boundary)),
+        }
+    }
+    let mut vs = kept;
 
     // 当て終わり: 後に書いたどの版の区切りよりも前まで
     let mut earliest_later: Option<DateTime<Utc>> = None;
@@ -844,11 +866,21 @@ fn place_out(
                     (PreviousCoordState::BeforeMove, None)
                 }
             } else {
-                // 使える fix に直された記録。最初に書いた fix を直した記録とする
-                let fixer = ordered.iter().find(|f| {
-                    matches!(coord_of(f), Some((_, _, CoordChange::Fix, _, Some(t))) if t == r.record.id)
-                });
-                (PreviousCoordState::Fixed, fixer.map(|f| f.record.id))
+                // 使える fix に直された記録。最後に書いた fix を直した記録とする（兄弟の fix は D7（仮））。
+                // 直す fix が無いのは兄弟に負けた fix —— 勝った版を直した記録とする
+                let fixer = ordered
+                    .iter()
+                    .rev()
+                    .find(|f| {
+                        matches!(coord_of(f), Some((_, _, CoordChange::Fix, _, Some(t))) if t == r.record.id)
+                    })
+                    .map(|f| f.record.id)
+                    .or_else(|| {
+                        vs.iter()
+                            .find(|v| v.siblings.contains(&r.record.id))
+                            .map(|v| v.record.record.id)
+                    });
+                (PreviousCoordState::Fixed, fixer)
             };
             let (written_at, ingested_at) = times(r);
             Some(PreviousCoordOut {

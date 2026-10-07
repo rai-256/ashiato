@@ -247,20 +247,57 @@ describe("places-add: 名前を付けるフォーム", () => {
     expect(posts("/api/places")[1].body).toEqual(posts("/api/places")[0].body);
   });
 
-  it("入力を変えて押し直すと器の識別子も原文も組み直す", async () => {
+  it("入力を変えて押し直すと、器の識別子は保ち、変えた項目の記録だけを組み直す（D13（仮））", async () => {
     candidates = [cand(0)];
-    ingestReplies = [new Error("net"), accepted(3)];
+    ingestReplies = [new Error("net"), accepted(4)];
     const form = await openForm();
     const name = within(form).getByLabelText("名前");
     fireEvent.change(name, { target: { value: "駅" } });
+    fireEvent.change(within(form).getByLabelText("補足"), { target: { value: "北口" } });
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
     await screen.findByTestId("place-problem");
     fireEvent.change(name, { target: { value: "駅前" } });
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
     await waitFor(() => expect(posts("/api/ingest")).toHaveLength(2));
-    const [a, b] = posts("/api/ingest");
-    expect(records(a)[0].nonce).not.toBe(records(b)[0].nonce);
-    expect((posts("/api/places")[1].body as { id: string }).id).not.toBe((posts("/api/places")[0].body as { id: string }).id);
+    const ids = posts("/api/places").map((c) => (c.body as { id: string }).id);
+    expect(ids[1], "器の識別子は同じ").toBe(ids[0]);
+    const [a, b] = posts("/api/ingest").map((c) => c.body as { id: string; raw: string; event_time: string }[]);
+    // 名前だけが組み直され、座標・広さ・補足は同じ識別子・原文・書いた日時（サーバで畳まれる）
+    expect(b[0].id).not.toBe(a[0].id);
+    expect(JSON.parse(b[0].raw)).toMatchObject({ field: "name", name: "駅前", place: ids[0] });
+    expect(b.slice(1)).toEqual(a.slice(1));
+  });
+
+  it("送った補足を空にして押し直すと、補足を消す記録に組み直す", async () => {
+    candidates = [cand(0)];
+    ingestReplies = [new Error("net"), accepted(4)];
+    const form = await openForm();
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
+    const note = within(form).getByLabelText("補足");
+    fireEvent.change(note, { target: { value: "北口" } });
+    fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
+    await screen.findByTestId("place-problem");
+    fireEvent.change(note, { target: { value: "" } });
+    fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
+    await waitFor(() => expect(posts("/api/ingest")).toHaveLength(2));
+    const [a, b] = posts("/api/ingest").map((c) => c.body as { id: string; raw: string }[]);
+    expect(b.slice(0, 3)).toEqual(a.slice(0, 3));
+    expect(b[3].id).not.toBe(a[3].id);
+    expect(JSON.parse(b[3].raw)).toMatchObject({ field: "note", note: null });
+  });
+
+  it("名前が空白だけのうちは「登録する」を押せない", async () => {
+    candidates = [cand(0)];
+    const form = await openForm();
+    const btn = within(form).getByRole("button", { name: "登録する" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "  　" } });
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
+    expect(btn.disabled).toBe(false);
+    expect(posts("/api/places")).toHaveLength(0);
+    expect(posts("/api/ingest")).toHaveLength(0);
   });
 
   it("器が place_id_taken で断られた後の押し直しは識別子を作り直す", async () => {
@@ -284,6 +321,8 @@ describe("places-add: 名前を付けるフォーム", () => {
     candidates = [cand(0)];
     ingestReplies = [refused("invalid_place_name")];
     const form = await openForm();
+    // 空の名前は押せない（D13（仮））。断られる応答は差し替えで作る
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
     fireEvent.click(within(form).getByRole("radio", { name: "300 m" }));
     fireEvent.change(within(form).getByLabelText("補足"), { target: { value: "メモ" } });
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
@@ -296,6 +335,7 @@ describe("places-add: 名前を付けるフォーム", () => {
     candidates = [cand(0)];
     ingestReplies = [json(200, [{ id: "a", accepted: true, error: null }, { id: "b", accepted: false, error: "invalid_radius" }])];
     const form = await openForm();
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
     expect((await screen.findByTestId("place-problem")).textContent).toBe("広さが範囲の外です");
     ingestReplies = [json(401, {})];

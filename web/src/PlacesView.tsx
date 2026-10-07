@@ -147,7 +147,7 @@ function PlaceCard({
         </>
       )}
       {/* **3 つの操作は 1 行に並べる**（design D21。折り返すとカードが高くなり、幅 360 × 高さ 640 の 1 画面目に 3 枚入らない） */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+      <div style={{ display: "flex", flexWrap: "nowrap", gap: 4, marginTop: 4 }}>
         {CHANGES.map(([kind, label]) => (
           <button
             key={kind}

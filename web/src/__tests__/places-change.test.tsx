@@ -147,11 +147,36 @@ describe("places-change: 名前を変える", () => {
       something_new: "受け付けられませんでした（something_new）",
     };
     const form = await open("名前を変える");
+    // いまと同じ名前のうちは押せない（M3）ので、違う名前を入れる
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "本社" } });
     for (const [kind, text] of Object.entries(expected)) {
       ingestReplies = [refused(kind)];
       fireEvent.click(send(form));
       await waitFor(() => expect(screen.getByTestId("place-problem").textContent).toBe(text));
     }
+  });
+});
+
+describe("places-change: いまと同じ値", () => {
+  it("名前・広さがいまと同じ値のうちは「変える」を押せない", async () => {
+    const form = await open("名前を変える");
+    const name = within(form).getByLabelText("名前") as HTMLInputElement;
+    expect(name.value).toBe(PLACE.name);
+    expect(send(form).disabled).toBe(true);
+    fireEvent.change(name, { target: { value: "本社" } });
+    expect(send(form).disabled).toBe(false);
+    fireEvent.change(name, { target: { value: PLACE.name } });
+    expect(send(form).disabled).toBe(true);
+    fireEvent.click(within(form).getByRole("button", { name: "やめる" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "広さを変える" }));
+    const radius = await screen.findByTestId("place-change-form");
+    expect(send(radius).disabled).toBe(true);
+    fireEvent.click(within(radius).getByRole("radio", { name: "300 m" }));
+    expect(send(radius).disabled).toBe(false);
+    fireEvent.click(within(radius).getByRole("radio", { name: `${PLACE.radius_m} m` }));
+    expect(send(radius).disabled).toBe(true);
+    expect(ingests()).toHaveLength(0);
   });
 });
 
@@ -170,6 +195,7 @@ describe("places-change: 広さを変える", () => {
   it("入力を変えずに 2 回押すと同じ原文を送る", async () => {
     ingestReplies = [new Error("net"), accepted()];
     const form = await open("広さを変える");
+    fireEvent.click(within(form).getByRole("radio", { name: "300 m" }));
     fireEvent.click(send(form));
     await screen.findByTestId("place-problem");
     fireEvent.click(send(form));

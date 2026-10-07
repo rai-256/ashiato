@@ -191,7 +191,7 @@ export function previousCoordLabel(prev: PreviousCoord, place: Place): string {
     const date = prev.valid_from?.date;
     return date ? `予定（${date} から）` : "予定";
   }
-  // サーバは版を「いつから」（valid_from）の順に並べる。書いた順ではない
+  // サーバは前の座標を書いた順に返す。ここで「いつから」（valid_from）の順に並べ直して、直後の移転を引く
   const from = prev.valid_from?.date ?? "";
   const next = [...place.previous_coords.filter((c) => c.state !== "fixed" && c !== prev), place.coord]
     .filter((c) => c.change === "move" && c.valid_from?.date && c.valid_from.date > from)
@@ -372,24 +372,45 @@ export interface RegistrationInput {
   note: string;
 }
 
-/** 登録で送るもの: 新しい器の識別子と、名前・初めての座標・広さ（・補足）の記録。 */
+/** 登録の 1 項目の記録と、それを組んだ入力（同じ入力なら同じ記録を送り直す）。 */
+interface RegistrationPart {
+  key: string;
+  record: BuiltPlaceRecord;
+}
+
+/** 登録で送るもの: 器の識別子と、名前・初めての座標・広さ（・補足）の記録。 */
 export interface Registration {
   placeId: string;
   records: BuiltPlaceRecord[];
+  /** 項目ごとの記録（押し直しで、変わらない項目の記録を使い回すため。D13（仮）） */
+  parts: Partial<Record<"name" | "coord" | "radius" | "note", RegistrationPart>>;
 }
 
 /**
- * 登録の求めを組む（D13）。**押した時点で器の識別子・各記録の `id`・乱数・書いた日時が決まる**。
+ * 登録の求めを組む（D13（仮））。**押した時点で器の識別子・各記録の `id`・乱数・書いた日時が決まる**。
  * 広さは既定の 100 m でも送る（本人が選んだ値を記録に残す）。補足は入れたときだけ。
+ *
+ * `prev`（前に押したときに組んだもの）を渡すと、**器の識別子を保ち、入力の変わらない項目は同じ記録を、
+ * 変わった項目だけ新しい記録を**組む。束は 1 件ごとに受理されるので、前の押下で受理された項目は
+ * 同じ原文で送り直せばサーバで畳まれ、器を組み直すと前の器と受理済みの記録が消せないごみとして残る
+ * （final review I1）。前に送った補足を空にしたら、補足を消す記録（`note: null`）にする。
  */
-export function buildRegistration(input: RegistrationInput, now: Date): Registration {
-  const placeId = crypto.randomUUID();
-  const rec = (spec: PlaceField): BuiltPlaceRecord => buildPlaceRecord(spec, now, crypto.randomUUID(), placeId);
+export function buildRegistration(input: RegistrationInput, now: Date, prev: Registration | null = null): Registration {
+  const placeId = prev?.placeId ?? crypto.randomUUID();
+  const parts: Registration["parts"] = {};
+  const part = (spec: PlaceField): BuiltPlaceRecord => {
+    const key = JSON.stringify(spec);
+    const old = prev?.parts[spec.field];
+    const record = old !== undefined && old.key === key ? old.record : buildPlaceRecord(spec, now, crypto.randomUUID(), placeId);
+    parts[spec.field] = { key, record };
+    return record;
+  };
   const records = [
-    rec({ field: "name", name: input.name }),
-    rec({ field: "coord", lat: input.lat, lon: input.lon, change: "first" }),
-    rec({ field: "radius", radius_m: input.radius_m }),
+    part({ field: "name", name: input.name }),
+    part({ field: "coord", lat: input.lat, lon: input.lon, change: "first" }),
+    part({ field: "radius", radius_m: input.radius_m }),
   ];
-  if (input.note.trim() !== "") records.push(rec({ field: "note", note: input.note }));
-  return { placeId, records };
+  if (input.note.trim() !== "") records.push(part({ field: "note", note: input.note }));
+  else if (prev?.parts.note !== undefined) records.push(part({ field: "note", note: null }));
+  return { placeId, records, parts };
 }

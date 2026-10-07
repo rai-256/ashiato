@@ -956,7 +956,7 @@ place_raw() { # <記録> <器> <乱数> <項目ごとの欄 JSON>
 }
 
 # Scenario: 名前と座標と広さを変えても識別子が変わらない
-echo "== 43. 位置から滞在を作り、居た所の中心で場所を登録 → 名前を変える → 座標を直す（ST21 / design D18）"
+echo "== 43. 位置から滞在を作り、居た所の中心で場所を登録 → 名前・広さを変える → 座標を直す（ST21 / design D18）"
 place_items=$(for i in $(seq 0 20); do
   printf '{"id":"%s","user_id":"%s","logical_source":"c01-location","external_id":null,
     "device_id":"smoke-dev","origin":"collected","event_time":"2026-08-20T%02d:%02d:00Z",
@@ -990,6 +990,11 @@ place_rec "21210000-0000-4000-8000-0000000000a1" \
 place_rec "$COORD1" \
   "$(place_raw $COORD1 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU3 \
      "{\"field\":\"coord\",\"lat\":$CLAT,\"lon\":$CLON,\"change\":\"first\",\"valid_from\":null,\"supersedes\":null}")"
+place_rec "21210000-0000-4000-8000-0000000000b1" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000b1 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDYw '{"field":"radius","radius_m":100}')"
+# 広さを変える（書いた日時が同じなので、D-01 に後で入った記録がいまの値）
+place_rec "21210000-0000-4000-8000-0000000000b2" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000b2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDYx '{"field":"radius","radius_m":200}')"
 # 名前を変える（前の名前は記録として残る）
 place_rec "21210000-0000-4000-8000-0000000000a2" \
   "$(place_raw 21210000-0000-4000-8000-0000000000a2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU4 '{"field":"name","name":"本社"}')"
@@ -999,14 +1004,14 @@ place_rec "21210000-0000-4000-8000-0000000000c2" \
      "{\"field\":\"coord\",\"lat\":35.6815,\"lon\":$CLON,\"change\":\"fix\",\"valid_from\":null,\"supersedes\":\"$COORD1\"}")"
 
 pl=$(curl -sf "${AUTH[@]}" "http://$BIND/places?user_id=$PLACE_USER")
-echo "   → $(printf '%s' "$pl" | jq -c '[.places[] | {id, name, change: .coord.change, prev: (.previous_names | length)}]')"
+echo "   → $(printf '%s' "$pl" | jq -c '[.places[] | {id, name, radius_m, change: .coord.change, prev: (.previous_names | length)}]')"
 printf '%s' "$pl" | jq -e --arg id "$PLACE_ID" '
-  (.places | length) == 1 and .places[0].id == $id and .places[0].name == "本社"
+  (.places | length) == 1 and .places[0].id == $id and .places[0].name == "本社" and .places[0].radius_m == 200
   and .places[0].coord.change == "fix" and .places[0].coord.lat == 35.6815
   and (.places[0].previous_names | map(.name)) == ["職場"]
   and (.places[0].previous_coords | length) == 1 and .places[0].previous_coords[0].state == "fixed"
   and .places[0].stays.count == 1' >/dev/null \
-  || { echo "名前と座標を変えたあとの場所が合わない: $pl"; exit 1; }
+  || { echo "名前・広さ・座標を変えたあとの場所が合わない: $pl"; exit 1; }
 # 登録した場所が居た所から外れる（名前の無い居た所は残らない）
 [ "$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER" | jq '.candidates | length')" = "0" ] \
   || { echo "登録した場所がまだ居た所に出ている"; exit 1; }
@@ -1023,4 +1028,4 @@ seed_cands=$(curl -fsS "${AUTH[@]}" "http://$BIND/places/candidates")
 [ "$(printf '%s' "$seed_cands" | jq '.candidates | length')" -ge 1 ] || { echo "名前の無い居た所が無い: $seed_cands"; exit 1; }
 echo "OK seed places"
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張・ST21 の場所まで）"

@@ -658,5 +658,3 @@ function NameForm({
     </div>
   );
 }
-
-/** 操作できるものの見た目。**24 × 24 CSS px 以上**（NFR-19）。色は `tokens.ts` からだけ引く。 */

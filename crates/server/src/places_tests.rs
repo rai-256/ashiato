@@ -1167,6 +1167,47 @@ mod ingest_endpoint {
         assert_accepted(&send(&app, user, &raw).await, "消去した座標を直す");
     }
 
+    // 本文を消去した記録でも、別の場所の座標・座標でない記録は直す先に指せない
+    // （消去の後も残る `external_ref = place-coord:<place>` で場所と種別を確かめる。D4（仮））
+    #[tokio::test]
+    async fn place_ingest_rejects_fixing_an_erased_record_of_another_place_or_kind() {
+        let app = app().await;
+        let user = testdb::user();
+        let (place, other) = (container(&app, user).await, container(&app, user).await);
+        put_first(&app, user, place).await;
+        let in_other = put_first(&app, user, other).await;
+        let name = Uuid::new_v4();
+        let it = item(name, user, &name_raw(name, place, "自宅"));
+        assert_accepted(&send_item(&app, it).await, "名前の記録");
+        for target in [in_other, name] {
+            let mut tx = app.pool.begin().await.unwrap();
+            sqlx::query(
+                "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
+                 VALUES ($1, $2, 's01-place', 'event', 'test')",
+            )
+            .bind(target)
+            .bind(user)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            sqlx::query("UPDATE core.event SET raw = '', payload = '{}' WHERE id = $1")
+                .bind(target)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            let raw = coord_raw(
+                Uuid::new_v4(),
+                place,
+                35.7,
+                "fix",
+                serde_json::Value::Null,
+                Some(target),
+            );
+            rejects(&app, user, &raw, "invalid_coord_supersedes").await;
+        }
+    }
+
     // 移った・直すが正しく通る
     #[tokio::test]
     async fn place_ingest_rejects_nothing_valid_for_move_and_fix() {
@@ -2126,6 +2167,61 @@ mod view_unit {
         let w = coord_windows(&[f, x1, x2.clone()]);
         assert_eq!(w.len(), 1);
         assert_eq!((w[0].id, w[0].start, w[0].end), (x2.record.id, None, None));
+    }
+
+    #[test]
+    fn place_window_unit_sibling_fixes_keep_only_the_last_written() {
+        // 同じ記録を直す fix が 2 件（2 つのタブ・2 つの端末から）。最後に書いた 1 件だけが版（D7（仮））
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let a = fix(p, 35.1, &f, "2026-09-02T09:00:00+09:00");
+        let b = fix(p, 35.2, &f, "2026-09-03T09:00:00+09:00");
+        // 入力の順に依らない
+        for recs in [
+            vec![f.clone(), a.clone(), b.clone()],
+            vec![b.clone(), a.clone(), f.clone()],
+        ] {
+            let w = coord_windows(&recs);
+            assert_eq!(w.len(), 1, "先に書いた兄弟の fix は版にならない");
+            assert_eq!((w[0].id, w[0].start, w[0].end), (b.record.id, None, None));
+        }
+        // 先に書いた兄弟を直す fix（連鎖）も、同じ記録を辿る兄弟として最後の 1 件だけが残る
+        let c = fix(p, 35.3, &a, "2026-09-04T09:00:00+09:00");
+        let w = coord_windows(&[f.clone(), a.clone(), b.clone(), c.clone()]);
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, c.record.id);
+    }
+
+    #[test]
+    fn place_view_unit_sibling_fixes_show_as_fixed_by_the_last_written() {
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let a = fix(p, 35.1, &f, "2026-09-02T09:00:00+09:00");
+        let b = fix(p, 35.2, &f, "2026-09-03T09:00:00+09:00");
+        let recs = vec![
+            name(p, "n", "2026-09-01T09:00:00+09:00", 1),
+            f.clone(),
+            a.clone(),
+            b.clone(),
+        ];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        let out = &v.places[0];
+        assert_eq!(
+            out.coord.record_id, b.record.id,
+            "いまの座標は後に書いた fix"
+        );
+        let state = |id: Uuid| {
+            let c = out
+                .previous_coords
+                .iter()
+                .find(|c| c.record_id == id)
+                .unwrap();
+            (c.state.as_str(), c.fixed_by)
+        };
+        // 直された記録は最後に書いた fix を指す。先に書いた兄弟も「移る前」ではなく「直した」
+        assert_eq!(state(f.record.id), ("fixed", Some(b.record.id)));
+        assert_eq!(state(a.record.id), ("fixed", Some(b.record.id)));
+        assert_eq!(out.previous_coords.len(), 2);
     }
 
     #[test]

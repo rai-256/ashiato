@@ -246,16 +246,18 @@ function AddForm({
   const [radius, setRadius] = useState(DEFAULT_RADIUS_M);
   const [note, setNote] = useState("");
   const { sending, problem, send } = useSender(onDone);
-  const built = useBuilt<Registration>();
-  const key = JSON.stringify({ name, radius, note, lat: candidate.lat, lon: candidate.lon });
+  // 前に押したときに組んだもの。器の識別子を保ち、変わらない項目は同じ記録を送り直す（D13（仮））
+  const last = useRef<Registration | null>(null);
+  const blank = name.trim() === "";
 
   const submit = (): Promise<void> =>
     send(async () => {
-      const reg = built.get(key, () => buildRegistration({ name, lat: candidate.lat, lon: candidate.lon, radius_m: radius, note }, new Date()));
+      const reg = buildRegistration({ name, lat: candidate.lat, lon: candidate.lon, radius_m: radius, note }, new Date(), last.current);
+      last.current = reg;
       const container = await sendPlaceContainer(reg.placeId);
       if (container.at !== "accepted") {
         // 乱数の衝突でしか起きない。同じ識別子を送り直しても通らないので、次の押し直しは組み直す
-        if (container.at === "rejected" && container.kind === PLACE_ID_TAKEN) built.forget();
+        if (container.at === "rejected" && container.kind === PLACE_ID_TAKEN) last.current = null;
         return container;
       }
       return sendPlaceRecords(reg.records);
@@ -279,8 +281,9 @@ function AddForm({
       </label>
       <Problem text={problem} />
       <div style={{ display: "flex", gap: 8 }}>
-        {/* **送っている間は押せなくする**（押せると同じ場所が 2 つになる） */}
-        <button type="button" disabled={sending} {...focus} style={control(scheme)} onClick={() => void submit()}>
+        {/* **送っている間は押せなくする**（押せると同じ場所が 2 つになる）。**名前が空白だけのうちも送らない**
+            （名前だけ断られて、位置と補足の記録が名前の無い器に残る。D13（仮）） */}
+        <button type="button" disabled={sending || blank} {...focus} style={control(scheme)} onClick={() => void submit()}>
           登録する
         </button>
         <button type="button" {...focus} style={control(scheme)} onClick={onCancel}>
@@ -361,9 +364,10 @@ export function ChangeForm({
   const options = candidates.at === "ok" ? candidates.value.filter((cand) => !registered.some((r) => sameCoord(r, cand))) : [];
   const { shown, rest, showAll } = useTop(options);
 
+  // **いまと同じ値のうちは送らない**（同じ値の記録が増え、「前の名前: <いまと同じ名前>」が出る）
   let spec: PlaceField | null;
-  if (kind === "name") spec = { field: "name", name };
-  else if (kind === "radius") spec = { field: "radius", radius_m: radius };
+  if (kind === "name") spec = name === place.name ? null : { field: "name", name };
+  else if (kind === "radius") spec = radius === place.radius_m ? null : { field: "radius", radius_m: radius };
   else if (pick === null || how === null) spec = null;
   else if (how === "fix") spec = { field: "coord", lat: pick.lat, lon: pick.lon, change: "fix", supersedes: place.coord.record_id };
   else spec = { field: "coord", lat: pick.lat, lon: pick.lon, change: "move", valid_from: validFromOf(when) };

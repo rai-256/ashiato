@@ -520,7 +520,9 @@ test("前の名前・座標は押したときだけ出て、直した・移る�
 
   // どの場所のどの識別子も画面の文字に無い（全カードの「前の名前・座標」を開いた状態で）
   const closed = page.getByRole("button", { name: /^前の名前・座標 \d+ ▸$/ });
-  while ((await closed.count()) > 0) await closed.first().click();
+  // 開くたびに 1 つ減る。減らなければ上限で止めて、開ききったことを確かめる（無限に回さない）
+  for (let left = await closed.count(), guard = 0; left > 0 && guard < 50; left = await closed.count(), guard += 1) await closed.first().click();
+  await expect(closed).toHaveCount(0);
   const text = await page.evaluate(() => document.body.innerText);
   const all = await apiPlaces(request);
   const ids = all.flatMap((p) => [
@@ -710,6 +712,41 @@ test("登録の応答が返らず押し直しても、器の識別子と各記�
   expect((await apiPlaces(request)).filter((p) => p.name === name)).toHaveLength(1);
 });
 
+// 実サーバへ通す（final review I1）: 1 回目の束はサーバで受理され応答だけが落ちた後、名前を打ち直して押し直しても、
+// 器は 1 つで、座標・広さの記録は 1 件ずつ（変えた名前の記録だけが組み直される。design D13（仮））
+test("登録の応答が返らず名前を直して押し直しても、器の識別子は同じで、座標の記録は 1 件・場所は 1 つ増えるだけ", async ({ page, request }) => {
+  const [c] = await seedVisits(request, 1);
+  const typo = `打ち間違い-${TAG}`;
+  const name = `打ち直し-${TAG}`;
+  const { sent } = watch(page);
+  const dropped = await dropFirstIngestReply(page);
+  await openPlaces(page);
+  const before = (await apiPlaces(request)).length;
+  const form = await fillAdd(page, c, typo);
+  await form.getByRole("button", { name: "登録する" }).click();
+  await expect(page.getByTestId("place-problem")).toContainText("サーバに届きませんでした");
+  expect(dropped.calls(), "1 回目はサーバへ届いている").toBe(1);
+
+  await form.getByLabel("名前", { exact: true }).fill(name);
+  await form.getByRole("button", { name: "登録する" }).click();
+  await expect(page.getByTestId("place-add-form")).toHaveCount(0);
+
+  const ids = bodiesOf(sent, "POST", "/api/places").map((b) => (JSON.parse(b) as { id: string }).id);
+  expect(ids).toHaveLength(2);
+  expect(ids[1], "器の識別子が同じ").toBe(ids[0]);
+  const place = ids[0];
+  expect(await placeRecordCount(request, place, "coord"), "座標の記録は 1 件").toBe(1);
+  expect(await placeRecordCount(request, place, "radius"), "広さの記録は 1 件").toBe(1);
+  expect(await placeRecordCount(request, place, "name"), "名前の記録は打ち間違いと打ち直しの 2 件").toBe(2);
+
+  const after = await apiPlaces(request);
+  expect(after.length, "場所は 1 つ増えるだけ").toBe(before + 1);
+  const mine = after.filter((p) => p.name === name || p.name === typo);
+  expect(mine).toHaveLength(1);
+  expect(mine[0].id).toBe(place);
+  expect(mine[0].name, "いまの名前は打ち直した名前").toBe(name);
+});
+
 // Scenario: 器の識別子が取られていたら押し直しで識別子を作り直す
 test("器を作る求めが place_id_taken で断られたら、押し直しの器の識別子は 1 回目と違う", async ({ page, request }) => {
   const [c] = await seedVisits(request, 1);
@@ -765,7 +802,11 @@ test("名前が空だと断られたときと届かなかったときで文が�
     mode === "refuse" ? route.fulfill({ status: 400, json: refusal("invalid_place_name") }) : route.abort("failed"),
   );
   await openPlaces(page);
-  const form = await fillAdd(page, c, "", 300);
+  // 名前が空白だけのうちは「登録する」を押せない（design D13（仮）。送ると名前だけ断られ、位置と補足が名前の無い器に残る）。
+  // 断られる応答（WHEN）は差し替えで作る
+  const form = await fillAdd(page, c, " ", 300);
+  await expect(form.getByRole("button", { name: "登録する" })).toBeDisabled();
+  await form.getByLabel("名前", { exact: true }).fill(`断られる-${TAG}`);
   await form.getByLabel("補足").fill("メモ");
   await form.getByRole("button", { name: "登録する" }).click();
   const problem = page.getByTestId("place-problem");
