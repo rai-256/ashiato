@@ -2246,7 +2246,7 @@ pub async fn places_get(
     headers: HeaderMap,
     Query(q): Query<PlacesQuery>,
 ) -> Result<Json<places::PlacesView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     places::places_view(&app.pool, q.user_id.unwrap_or_default(), app.today())
         .await
         .map(Json)
@@ -2261,7 +2261,7 @@ pub async fn place_candidates_get(
     headers: HeaderMap,
     Query(q): Query<PlacesQuery>,
 ) -> Result<Json<places::CandidatesView>, (StatusCode, String)> {
-    authorize(&app, &headers)?;
+    authorize(&app, &headers).await?;
     places::candidates_of(&app.pool, q.user_id.unwrap_or_default(), app.today())
         .await
         .map(Json)
@@ -2340,7 +2340,9 @@ pub async fn places_post(
     Json(req): Json<places::PlaceCreateRequest>,
 ) -> Result<Json<places::PlaceCreated>, (StatusCode, Json<places::PlaceErrorBody>)> {
     let body = |code: StatusCode, error| (code, Json(places::PlaceErrorBody { error }));
-    authorize(&app, &headers).map_err(|(code, _)| body(code, places::PlaceError::Unavailable))?;
+    authorize(&app, &headers)
+        .await
+        .map_err(|(code, _)| body(code, places::PlaceError::Unavailable))?;
     let user_id = req.user_id.unwrap_or_default();
     match places::create_place(&app.pool, user_id, req.id)
         .await
