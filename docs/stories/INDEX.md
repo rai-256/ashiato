@@ -75,7 +75,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
 | `record-deletion` | 削除 | ST22, ST23 |
 | `data-sensitivity` | 感度・アクセス制御・プラグイン権限 | ST24, ST28, ST29 |
-| `browsing-views` | 閲覧と検索 | **ST16**, **ST22**, ST25, ST26, ST36 |
+| `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
 
@@ -294,3 +294,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >
 > - ST25 の `browsing-views` の delta は **ADDED と、ST22 が触らない「日を移れる」の置き換えだけ**で、ST22 の MODIFIED と要件の名前が重ならない（archive の順で正典の文は壊れない）
 > - **satisfies の NFR-20（44 px）は、ST22 の消す操作の上に時刻順の記録を足しても 44 px を保つ形で満たす**（spec の Scenario `時刻順の記録を足しても消す操作は 44 px を下回らない`）。止める操作（FR-53）は ST15
+
+> **訂正（2026-10-07、ST17 の上流工程 record）**
+>
+> ST17 を `subjective-log` だけでなく **`browsing-views` にも割り当てた**。本人が深掘り Q1 の proto で、
+> 主観の無い日（FR-57）を **1 日の画面（S-2）の頭と S-3 の暦の両方**に出す形を選んだ（`openspec/changes/st17-daily-feeling/deep.md`）。
+> S-2 は `browsing-views` なので、ST17 は 1 日の画面に「気分 未記入 — 書く」を足す。滞在ごとの気分を書く口は S-3 に置いた（Q1 の軸 5）ので、S-2 の滞在の行には触れない。
+>
+> - **代償: `browsing-views` を触る ST22・ST25 が走っている間、ST17 は `衝突待ち`**（問いの context に書いたうえで本人が選んだ）
