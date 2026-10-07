@@ -379,8 +379,6 @@ async function paintedText(page: Page): Promise<Painted[]> {
 // ================================================================== 10.1 タブと一覧
 
 // Scenario: タブは個人属性と場所の 2 つで人物のタブは無い
-// 正典に残る旧 Scenario（この change が REMOVED にする。archive まで正典に居る）。人物のタブが無いことはこの試験が今も断言している
-// Scenario: 人物と場所のタブは無い
 // Scenario: 場所のタブを押すと場所の画面に移る
 test("マスタ管理のタブは「個人属性」「場所」の 2 つで、場所を押すと場所の画面に移る", async ({ page }) => {
   await page.goto("/#/master");
