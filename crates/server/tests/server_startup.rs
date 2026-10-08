@@ -6,8 +6,44 @@
 use std::process::{Command, Output};
 
 fn env(name: &str) -> String {
+    // 接続先の URL は port だけ、この worktree の DB のものにする（`.env` の port は main の DB）
+    if matches!(name, "DATABASE_URL" | "DATABASE_OWNER_URL") {
+        return with_worktree_port(&raw_env(name));
+    }
+    raw_env(name)
+}
+
+fn raw_env(name: &str) -> String {
     std::env::var(name)
         .unwrap_or_else(|_| panic!("{name} が無い。.env を読み込む（set -a; . ./.env; set +a）"))
+}
+
+/// URL の `@<host>:<port>/` の port を、この worktree の DB のものに差し替える。
+/// 規則は `ASHIATO_DB_PORT` > worktree の名前（`-st<NN>` なら 55500+NN、他は 55432）。`testdb.rs` / `tools/ports.sh` と同じ。
+fn with_worktree_port(url: &str) -> String {
+    let port = std::env::var("ASHIATO_DB_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or_else(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let name = root
+                .canonicalize()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            name.rsplit_once("-st")
+                .and_then(|(_, n)| n.parse::<u32>().ok())
+                .map_or(55432, |n| 55500 + n)
+        });
+    let at = url.rfind('@').unwrap();
+    let rest = &url[at + 1..];
+    let slash = rest.find('/').unwrap();
+    let host = rest[..slash]
+        .rsplit_once(':')
+        .map_or(&rest[..slash], |(h, _)| h);
+    format!("{}@{host}:{port}{}", &url[..at], &rest[slash..])
 }
 
 /// 所有者の URL の「ユーザ:合言葉」だけを差し替えた URL（接続先の host / port / DB は同じ）。

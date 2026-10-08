@@ -933,4 +933,99 @@ printf '%s' "$attrs" | jq -e --arg k "$kid" \
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://$BIND/attributes")
 [ "$code" = "401" ] || { echo "/attributes が 401 のはずが $code"; exit 1; }
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張まで）"
+# ================================================================ ST21 の場所の登録
+#
+# Story の完了の判定「場所を登録して名前を変え、座標を修正しても、識別子が変わらない」（design D18）。
+# 位置の記録 → 滞在 → 居た所（`/places/candidates`）→ その中心で登録 → 名前を変える → 座標を「間違いを直す」で変える。
+# **別の利用者で送る**（上の段が数えている利用者の記録を増やさない）。
+# 記録の本文は text で送る。乱数は 22 文字以上（design D3）
+PLACE_USER="21212121-0000-4000-8000-000000000021"
+place_post() { curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body \
+                 -w '%{http_code}' -X POST "http://$BIND/places" -d "$1"; }
+# 場所の記録 1 件を送る: place_rec <記録の識別子> <原文（JSON のテキスト）>
+place_rec() {
+  local item
+  item=$(jq -nc --arg id "$1" --arg user "$PLACE_USER" --arg raw "$2" \
+    '[{id:$id,user_id:$user,logical_source:"s01-place",external_id:null,device_id:null,origin:"authored",
+       event_time:"2026-10-01T02:00:00Z",tz_offset_min:540,tz_id:"Asia/Tokyo",schema_version:1,raw:$raw,payload:{}}]')
+  [ "$(post "$item")" = "200" ] && [ "$(jq -r '.[0].accepted' /tmp/smoke.body)" = "true" ] \
+    || { echo "場所の記録 $1 が受理されなかった: $(cat /tmp/smoke.body)"; exit 1; }
+}
+place_raw() { # <記録> <器> <乱数> <項目ごとの欄 JSON>
+  jq -nc --arg r "$1" --arg p "$2" --arg n "$3" --argjson x "$4" '{record:$r,place:$p,nonce:$n} + $x'
+}
+
+# Scenario: 名前と座標と広さを変えても識別子が変わらない
+echo "== 43. 位置から滞在を作り、居た所の中心で場所を登録 → 名前・広さを変える → 座標を直す（ST21 / design D18）"
+place_items=$(for i in $(seq 0 20); do
+  printf '{"id":"%s","user_id":"%s","logical_source":"c01-location","external_id":null,
+    "device_id":"smoke-dev","origin":"collected","event_time":"2026-08-20T%02d:%02d:00Z",
+    "tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,
+    "raw":"{\\"lat\\":35.6812,\\"lon\\":139.7671,\\"acc_m\\":12}",
+    "payload":{"lat":35.6812,"lon":139.7671,"acc_m":12}}\n' \
+    "$(printf '21000%03d-0000-4000-8000-000000000000' "$i")" "$PLACE_USER" 0 "$i"
+done | jq -s -c .)
+[ "$(post "$place_items")" = "200" ] || { echo "位置の記録が断られた"; exit 1; }
+cands=$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER")
+echo "   → $(printf '%s' "$cands" | jq -c '[.candidates[] | {lat, lon, n: .stays.count}]')"
+printf '%s' "$cands" | jq -e '.candidates | length == 1 and (.[0].stays.count == 1)' >/dev/null \
+  || { echo "居た所が 1 つ出ていない: $cands"; exit 1; }
+CLAT=$(printf '%s' "$cands" | jq -r '.candidates[0].lat')
+CLON=$(printf '%s' "$cands" | jq -r '.candidates[0].lon')
+
+PLACE_ID="21210000-0000-4000-8000-000000000001"
+[ "$(place_post "{\"id\":\"$PLACE_ID\",\"user_id\":\"$PLACE_USER\"}")" = "200" ] \
+  || { echo "器が作れない: $(cat /tmp/smoke.body)"; exit 1; }
+# 同じ識別子を別の利用者が取ろうとすると 400 place_id_taken
+code=$(curl -s "${AUTH[@]}" -H 'content-type: application/json' -o /tmp/smoke.body -w '%{http_code}' \
+       -X POST "http://$BIND/places" -d "{\"id\":\"$PLACE_ID\",\"user_id\":\"00000000-0000-0000-0000-000000000000\"}")
+[ "$code" = "400" ] && [ "$(jq -r .error /tmp/smoke.body)" = "place_id_taken" ] \
+  || { echo "他人の識別子が $code で断られていない: $(cat /tmp/smoke.body)"; exit 1; }
+curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+  -d "{\"id\":\"$PLACE_ID\"}" "http://$BIND/places" | grep -q 401 || { echo "/places が合言葉なしで通った"; exit 1; }
+
+COORD1="21210000-0000-4000-8000-0000000000c1"
+place_rec "21210000-0000-4000-8000-0000000000a1" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000a1 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU2 '{"field":"name","name":"職場"}')"
+place_rec "$COORD1" \
+  "$(place_raw $COORD1 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU3 \
+     "{\"field\":\"coord\",\"lat\":$CLAT,\"lon\":$CLON,\"change\":\"first\",\"valid_from\":null,\"supersedes\":null}")"
+place_rec "21210000-0000-4000-8000-0000000000b1" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000b1 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDYw '{"field":"radius","radius_m":100}')"
+# 広さを変える（書いた日時が同じなので、D-01 に後で入った記録がいまの値）
+place_rec "21210000-0000-4000-8000-0000000000b2" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000b2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDYx '{"field":"radius","radius_m":200}')"
+# 名前を変える（前の名前は記録として残る）
+place_rec "21210000-0000-4000-8000-0000000000a2" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000a2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU4 '{"field":"name","name":"本社"}')"
+# 座標を「間違いを直す」で変える（直す先は最初の座標の記録）
+place_rec "21210000-0000-4000-8000-0000000000c2" \
+  "$(place_raw 21210000-0000-4000-8000-0000000000c2 $PLACE_ID Zm9vYmFyYmF6cXV4MTIzNDU5 \
+     "{\"field\":\"coord\",\"lat\":35.6815,\"lon\":$CLON,\"change\":\"fix\",\"valid_from\":null,\"supersedes\":\"$COORD1\"}")"
+
+pl=$(curl -sf "${AUTH[@]}" "http://$BIND/places?user_id=$PLACE_USER")
+echo "   → $(printf '%s' "$pl" | jq -c '[.places[] | {id, name, radius_m, change: .coord.change, prev: (.previous_names | length)}]')"
+printf '%s' "$pl" | jq -e --arg id "$PLACE_ID" '
+  (.places | length) == 1 and .places[0].id == $id and .places[0].name == "本社" and .places[0].radius_m == 200
+  and .places[0].coord.change == "fix" and .places[0].coord.lat == 35.6815
+  and (.places[0].previous_names | map(.name)) == ["職場"]
+  and (.places[0].previous_coords | length) == 1 and .places[0].previous_coords[0].state == "fixed"
+  and .places[0].stays.count == 1' >/dev/null \
+  || { echo "名前・広さ・座標を変えたあとの場所が合わない: $pl"; exit 1; }
+# 登録した場所が居た所から外れる（名前の無い居た所は残らない）
+[ "$(curl -sf "${AUTH[@]}" "http://$BIND/places/candidates?user_id=$PLACE_USER" | jq '.candidates | length')" = "0" ] \
+  || { echo "登録した場所がまだ居た所に出ている"; exit 1; }
+echo "OK place id unchanged"
+
+# ================================================================ 偽データの場所（ST21 / tasks 7.3）
+# 同じサーバ（`BIND` / `API_TOKEN`）へ `tools/seed.sh normal` を当てる。
+# smoke は起動と後始末を自分で持つので、待ち続ける `tools/stack.sh up` を検証に使わない（spec-review R10）。
+echo "== 44. 偽データ（seed normal）を当てて、場所が 2 つ以上・名前の無い居た所が 1 つ以上"
+tools/seed.sh normal
+seed_places=$(curl -fsS "${AUTH[@]}" "http://$BIND/places")
+seed_cands=$(curl -fsS "${AUTH[@]}" "http://$BIND/places/candidates")
+[ "$(printf '%s' "$seed_places" | jq '.places | length')" -ge 2 ] || { echo "偽データの場所が 2 つ無い: $seed_places"; exit 1; }
+[ "$(printf '%s' "$seed_cands" | jq '.candidates | length')" -ge 1 ] || { echo "名前の無い居た所が無い: $seed_cands"; exit 1; }
+echo "OK seed places"
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張・ST21 の場所まで）"

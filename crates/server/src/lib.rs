@@ -50,6 +50,10 @@ mod drops_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod net_guard;
+pub mod places;
+/// 場所の器と場所の記録の錠（ST21）。
+#[cfg(test)]
+mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -73,7 +77,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 19] = [
+pub const MIGRATIONS: [(&str, &str); 20] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -161,6 +165,12 @@ pub const MIGRATIONS: [(&str, &str); 19] = [
     (
         "202609291230_clock_source",
         include_str!("../../../migrations/202609291230_clock_source.sql"),
+    ),
+    // 場所の器と、場所の記録の錠（ST21 / design D1 / D5 / D16）。
+    // 場所の記録そのものは `core.event` に入る
+    (
+        "202610020030_places",
+        include_str!("../../../migrations/202610020030_places.sql"),
     ),
 ];
 
@@ -536,6 +546,44 @@ pub enum IngestError {
     InvalidValidFrom,
     /// 取り消す主張が無い / 個人属性の主張でない / 別の利用者 / 別の種類 / 自分自身
     InvalidSupersedes,
+
+    // --- 場所の記録だけに当たる 9 種別（ST21 / design D4（仮）。spec「形の合わない場所の記録は受け付けない」）
+    //
+    // **置き場は spec の表**。ここは写しで、当たる条件は spec が持つ。
+    // `invalid_valid_from` は個人属性の主張と同じ種別を使う（同じ規則を呼ぶ。design D2）。
+    /// 原文が JSON でない / 欄が欠ける・型が違う / 何を書くものか分からない /
+    /// 原文の記録の識別子が記録の識別子と違う / 原文の乱数が 128 bit に満たない
+    MalformedPlaceRecord,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    PlaceRecordNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    PlaceRecordHasExternalId,
+    /// 指す器がその利用者に無い
+    UnknownPlace,
+    /// 名前が、前後の空白を除いて空
+    InvalidPlaceName,
+    /// 緯度・経度が範囲の外 / 数でない / 座標系が WGS84 でない
+    InvalidCoordinate,
+    /// 変え方と、その場所の座標の有無・欄の組が合わない
+    InvalidCoordChange,
+    /// 直す先が無い・座標の記録でない・別の場所・別の利用者・自分自身
+    InvalidCoordSupersedes,
+    /// 広さが整数でない・範囲の外
+    InvalidRadius,
+}
+
+impl From<places::PlaceRecordInvalid> for IngestError {
+    fn from(v: places::PlaceRecordInvalid) -> Self {
+        use places::PlaceRecordInvalid as Bad;
+        match v {
+            Bad::Malformed => Self::MalformedPlaceRecord,
+            Bad::Name => Self::InvalidPlaceName,
+            Bad::Coordinate => Self::InvalidCoordinate,
+            Bad::CoordChange => Self::InvalidCoordChange,
+            Bad::ValidFrom => Self::InvalidValidFrom,
+            Bad::Radius => Self::InvalidRadius,
+        }
+    }
 }
 
 impl From<attributes::ClaimInvalid> for IngestError {
@@ -577,6 +625,10 @@ fn default_sensitivity(logical_source: &str) -> i32 {
     if logical_source == attributes::SOURCE {
         // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
         attributes::DEFAULT_SENSITIVITY
+    } else if logical_source == places::SOURCE {
+        // 場所の記録は「外部 AI に出してよい」（深掘り Q3 / design D11（仮））。
+        // **DB の既定と同じ値でも分岐として明示する** —— 黙って既定に乗らない
+        places::DEFAULT_SENSITIVITY
     } else {
         DEFAULT_SENSITIVITY
     }
@@ -686,6 +738,67 @@ fn place_identifiers(
     }
 }
 
+/// 場所の記録の、DB を見る 3 つの検査（器・座標の変え方・直す先。design D4（仮））。
+///
+/// **座標の記録では先頭で場所ごとの錠を取る** —— `first` を同時に 2 本送ったとき、
+/// 両方が「まだ座標が無い」を見て 2 本入るのを止める（錠は記録を入れるまとまりの終わりまで）。
+/// **再送は座標の有無で断らない**（`places::is_resend`）。
+async fn place_state_error(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: uuid::Uuid,
+    hash: &str,
+    record: &places::PlaceRecord,
+) -> Result<Option<IngestError>, (StatusCode, String)> {
+    let is_coord = matches!(record.field, places::PlaceField::Coord { .. });
+    if is_coord {
+        places::lock_place(tx, record.place)
+            .await
+            .map_err(|e| internal_at("ingest.place_lock", e))?;
+    }
+    if places::is_resend(tx, user_id, hash)
+        .await
+        .map_err(|e| internal_at("ingest.place_resend", e))?
+    {
+        return Ok(None);
+    }
+    if !places::place_exists(tx, user_id, record.place)
+        .await
+        .map_err(|e| internal_at("ingest.place_exists", e))?
+    {
+        return Ok(Some(IngestError::UnknownPlace));
+    }
+    let places::PlaceField::Coord {
+        change, supersedes, ..
+    } = &record.field
+    else {
+        return Ok(None);
+    };
+    let has_coord = places::has_coord_record(tx, user_id, record.place)
+        .await
+        .map_err(|e| internal_at("ingest.place_coord", e))?;
+    match change {
+        // 初めての座標は、座標の記録が 1 件も無い場所にだけ。移るのは 1 件でもある場所だけ
+        places::CoordChange::First if has_coord => {
+            return Ok(Some(IngestError::InvalidCoordChange))
+        }
+        places::CoordChange::Move if !has_coord => {
+            return Ok(Some(IngestError::InvalidCoordChange))
+        }
+        _ => {}
+    }
+    if let Some(target) = *supersedes {
+        // **自分自身は直せない**
+        let ok = target != record.id
+            && places::coord_supersedes_is_valid(tx, user_id, record.place, target)
+                .await
+                .map_err(|e| internal_at("ingest.place_supersedes", e))?;
+        if !ok {
+            return Ok(Some(IngestError::InvalidCoordSupersedes));
+        }
+    }
+    Ok(None)
+}
+
 /// 1 件を格納して結果を返す。**呼び出し側の誤りは Err ではなく `IngestResult` で返す** ——
 /// まとめ送りの一部が不正でも、他の件は格納しなければならない（design D9）。
 /// Err になるのはサーバ側の失敗（DB）だけ。
@@ -764,6 +877,40 @@ async fn ingest_one(
         None
     };
 
+    // **場所の記録も同じ向きで、ここで形を確かめる**（ST21 / design D4（仮））。
+    // 順は 形 → 由来と端末 → 外部識別子 → 地域のずれ → 名前 / 座標 / 「いつから」/ 広さの値 →
+    // 座標系 で、**DB を見る 3 つ（器・座標の変え方・直す先）は記録を入れるのと同じまとまりの中**（下）。
+    // 一般の検査（`validate`）より先に見る理由は主張と同じ（由来が違う記録を端末識別子の欠落として返さない）。
+    let place_record = if req.logical_source == places::SOURCE {
+        let parsed = places::parse_place_record(&req.raw, req.id);
+        let reject = |why: IngestError| Ok(IngestResult::rejected(Some(req.id), why));
+        if matches!(parsed, Err(places::PlaceRecordInvalid::Malformed)) {
+            return reject(IngestError::MalformedPlaceRecord);
+        }
+        if req.origin != "authored" || req.device_id.is_some() {
+            return reject(IngestError::PlaceRecordNotAuthored);
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return reject(IngestError::PlaceRecordHasExternalId);
+        }
+        // 地域のずれの範囲（主張と同じ理由。範囲外は受理された顔で格納され、読み出しから消える）
+        if !(-1439..=1439).contains(&req.tz_offset_min) {
+            return reject(IngestError::MalformedPlaceRecord);
+        }
+        let record = match parsed {
+            Ok(r) => r,
+            Err(why) => return reject(why.into()),
+        };
+        if matches!(record.field, places::PlaceField::Coord { .. })
+            && req.crs_or_default() != ingest::DEFAULT_CRS
+        {
+            return reject(IngestError::InvalidCoordinate);
+        }
+        Some(record)
+    } else {
+        None
+    };
+
     // 受け取り時の検査はアプリ層で閉じる（design D5）。DB の制約に任せると 500 になり、
     // 呼び出し側から「自分の要求が悪い」と分からない。
     // **500 はまとめ送り全体を落とす** —— 1 件の恒久的な失敗が後続を永久に止める（design D20）。
@@ -799,16 +946,25 @@ async fn ingest_one(
         ));
     }
 
-    let (external_id, external_ref) = place_identifiers(kind, &req);
+    let (external_id, mut external_ref) = place_identifiers(kind, &req);
+    // **座標の記録には、どの場所のものかをサーバが `external_ref` に印す**（本文を消去しても残る列。
+    // 錠が変化を拒む）。消去した記録も「座標の記録を持つ」に数えるため（`places::has_coord_record`）。
+    // 送り主の外部識別子は場所の記録では断っているので、ここで上書きして失うものは無い。
+    if let Some(p) = &place_record {
+        if matches!(p.field, places::PlaceField::Coord { .. }) {
+            external_ref = Some(places::coord_marker(p.place));
+        }
+    }
     let hash = content_hash(&req);
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
     //
     // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
     // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
-    let payload = match &claim {
-        Some(c) => c.payload.clone(),
-        None => ingest::to_nfc(&req.payload),
+    let payload = match (&claim, &place_record) {
+        (Some(c), _) => c.payload.clone(),
+        (None, Some(p)) => p.payload.clone(),
+        (None, None) => ingest::to_nfc(&req.payload),
     };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
@@ -844,6 +1000,13 @@ async fn ingest_one(
                     IngestError::InvalidSupersedes,
                 ));
             }
+        }
+    }
+
+    // **場所の記録の DB を見る検査も、記録を入れるのと同じまとまりの中**（ST21 / design D4（仮））。
+    if let Some(p) = &place_record {
+        if let Some(why) = place_state_error(&mut tx, req.user_id, &hash, p).await? {
+            return Ok(IngestResult::rejected(Some(req.id), why));
         }
     }
 
@@ -2069,6 +2232,42 @@ pub async fn attributes_get(
         .map_err(|e| internal_at("attributes.view", e))
 }
 
+/// `GET /places` の絞り込み。**利用者は名乗り**（ST29 まで。ほかの読み出しと同じ）。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PlacesQuery {
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 場所のいまの値と前の値・座標の版を返す（design D6 / D7 / D15）。
+#[utoipa::path(get, path = "/places", params(PlacesQuery),
+    responses((status = 200, body = places::PlacesView), (status = 401), (status = 500)))]
+pub async fn places_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PlacesQuery>,
+) -> Result<Json<places::PlacesView>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    places::places_view(&app.pool, q.user_id.unwrap_or_default(), app.today())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("places.view", e))
+}
+
+/// 名前の無い、よく居た所を全部返す（design D10 / D15）。上位で切るのは画面。
+#[utoipa::path(get, path = "/places/candidates", params(PlacesQuery),
+    responses((status = 200, body = places::CandidatesView), (status = 401), (status = 500)))]
+pub async fn place_candidates_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PlacesQuery>,
+) -> Result<Json<places::CandidatesView>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    places::candidates_of(&app.pool, q.user_id.unwrap_or_default(), app.today())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("places.candidates", e))
+}
+
 /// 種類を足す（design D7）。空・いまある名前と重なるものは 400。
 #[utoipa::path(post, path = "/attributes/kinds",
     request_body = attributes_store::KindRequest,
@@ -2126,6 +2325,41 @@ pub async fn attributes_kind_name_post(
     {
         Ok(()) => Ok(StatusCode::NO_CONTENT),
         Err(why) => Err(kind_error_body(why)),
+    }
+}
+
+/// 場所の器を作る（ST21 / design D1）。識別子は画面が決めて渡す。
+/// 同じ利用者の同じ識別子は 200（押し直しで器を 2 つにしない）、別の利用者の識別子は 400。
+#[utoipa::path(post, path = "/places",
+    request_body = places::PlaceCreateRequest,
+    responses((status = 200, body = places::PlaceCreated),
+              (status = 400, body = places::PlaceErrorBody),
+              (status = 401, body = places::PlaceUnavailableBody),
+              (status = 500, body = places::PlaceUnavailableBody)))]
+pub async fn places_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<places::PlaceCreateRequest>,
+) -> axum::response::Response {
+    // `Result<_, Response>` にしない。`Err` が 128 バイトを超えて clippy の
+    // `result_large_err` に当たる（CI の rust job）。応答はどの枝も `Response` で返す。
+    use axum::response::IntoResponse as _;
+    let unavailable = |code: StatusCode| {
+        let error = places::PlaceUnavailable::Unavailable;
+        (code, Json(places::PlaceUnavailableBody { error })).into_response()
+    };
+    if let Err((code, _)) = authorize(&app, &headers).await {
+        return unavailable(code);
+    }
+    let user_id = req.user_id.unwrap_or_default();
+    match places::create_place(&app.pool, user_id, req.id).await {
+        Err(e) => unavailable(internal_at("places.create", e).0),
+        Ok(Ok(created)) => Json(created).into_response(),
+        Ok(Err(error)) => (
+            StatusCode::BAD_REQUEST,
+            Json(places::PlaceErrorBody { error }),
+        )
+            .into_response(),
     }
 }
 
@@ -2227,6 +2461,8 @@ pub fn router(app: App) -> Router {
         .route("/stays/restore", post(stays_restore))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
+        .route("/places", get(places_get).post(places_post))
+        .route("/places/candidates", get(place_candidates_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -2346,7 +2582,10 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_kind_name_post,
         web_session::session_post,
         web_session::session_delete,
-        web_session::session_get
+        web_session::session_get,
+        places_post,
+        places_get,
+        place_candidates_get
     ),
     components(schemas(
         IngestResult,
@@ -2393,6 +2632,24 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindErrorBody,
         web_session::LoginRequest,
         web_session::SessionState,
+        places::PlaceCreateRequest,
+        places::PlaceCreated,
+        places::PlaceError,
+        places::PlaceErrorBody,
+        places::PlaceUnavailable,
+        places::PlaceUnavailableBody,
+        places::PlacesView,
+        places::CandidatesView,
+        places::Candidate,
+        places::CandidateStays,
+        places::PlaceOut,
+        places::PlaceStays,
+        places::NameRecordOut,
+        places::PreviousNameOut,
+        places::CoordOut,
+        places::CoordChange,
+        places::PreviousCoordOut,
+        places::PreviousCoordState,
     )),
     info(
         title = "ashiato S-01",

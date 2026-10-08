@@ -104,7 +104,7 @@ pub async fn pool() -> sqlx::PgPool {
 /// 表が無いと何も試せないので、先に所有者の `pool()` で移行を当てておく。
 pub async fn app_pool() -> sqlx::PgPool {
     drop(pool().await);
-    let url = url_from_env("DATABASE_URL");
+    let url = with_port(&url_from_env("DATABASE_URL"), db_port());
     PgPoolOptions::new()
         .max_connections(2)
         .connect(&url)
