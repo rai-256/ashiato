@@ -49,6 +49,220 @@ async fn c02_window_external_id_kind_is_not_record() {
     );
 }
 
+/// c02-browser-history は訪問ごとの外部識別子で更新・版管理する（ST08 design D7）。
+#[tokio::test]
+async fn browser_history_record_id_is_required() {
+    let pool = testdb::pool().await;
+    let (kind,): (String,) =
+        sqlx::query_as("SELECT external_id_kind FROM core.source WHERE logical_source = $1")
+            .bind("c02-browser-history")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "record", "履歴は訪問ごとの識別子を要求する");
+}
+
+/// **記録が 1 件でも入った後は、移行が登録簿の宣言を触らない**（tasks 2.1 (b) / design D7）。
+///
+/// `migrate()` は起動のたびに全版を当て直す。`NOT EXISTS` の番人を外すと、本人が後から
+/// `'none'` に戻した宣言を再起動のたびに `'record'` へ戻し、既存の行と鍵の対応が切れる（Q3 の不可逆）。
+/// 上の `…_is_required` は「全移行の後に `'record'`」しか見ないので、番人を外しても緑だった（R6 / R47）。
+///
+/// 登録簿は全テストで 1 本しかないので、変更は**トランザクションの中だけ**に閉じて戻す。
+#[tokio::test]
+async fn browser_history_record_id_is_kept_once_records_exist() {
+    let pool = testdb::pool().await;
+    let sql = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.ends_with("_browser_history_record_id"))
+        .expect("ST08 の移行が MIGRATIONS に無い")
+        .1;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE core.source SET external_id_kind = 'none'
+           WHERE logical_source = 'c02-browser-history'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO core.event (id,user_id,logical_source,origin,event_time,tz_offset_min,tz_id,schema_version,content_hash,raw,payload) VALUES ($1,$1,'c02-browser-history','collected',now(),0,'UTC',1,'test','{}','{}')")
+        .bind(uuid::Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // 起動のたびの当て直し
+    sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap();
+
+    let (kind,): (String,) = sqlx::query_as(
+        "SELECT external_id_kind FROM core.source WHERE logical_source = 'c02-browser-history'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        kind, "none",
+        "記録がある状態で当て直すと、宣言が 'record' へ戻った（既存行と鍵の対応が切れる）"
+    );
+    tx.rollback().await.unwrap();
+}
+
+/// 識別子のない履歴は、同じ訪問の更新先を決められないため断る。
+///
+/// Scenario: 識別子を欠いた履歴の記録は断られる
+#[tokio::test]
+async fn browser_history_without_external_id_is_rejected() {
+    let app = app().await;
+    let raw = r#"{"kind":"visit","at":"2026-03-01T12:00:00.000001Z","browser":"chrome"}"#;
+    let body = serde_json::json!([{
+        "id": uuid::Uuid::new_v4(), "user_id": testdb::user(),
+        "logical_source": "c02-browser-history", "external_id": null,
+        "device_id": "pc-01", "origin": "collected",
+        "event_time": "2026-03-01T12:00:00.000001Z", "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": raw,
+        "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
+    }]);
+    let (_, Json(results)): (_, Json<Vec<IngestResult>>) = ingest(State(app), auth(), Json(body))
+        .await
+        .expect("取り込み口");
+    assert!(!results[0].accepted, "識別子なしの履歴を受け付けた");
+    assert!(
+        matches!(
+            results[0].error,
+            Some(crate::IngestError::MissingExternalId)
+        ),
+        "異なる理由で断られた: {:?}",
+        results[0].error
+    );
+}
+
+/// 履歴ソースへ訪問 1 件を取り込み口から送る（tasks 2.2 の 5 本が共有する。検査は各テストが持つ）。
+async fn send_visit(
+    app: &App,
+    user: uuid::Uuid,
+    external_id: &str,
+    raw: &str,
+    updated: &str,
+) -> IngestResult {
+    let body = serde_json::json!([{
+        "id": uuid::Uuid::new_v4(), "user_id": user,
+        "logical_source": "c02-browser-history", "external_id": external_id,
+        "device_id": "pc-01", "origin": "collected",
+        "event_time": "2026-03-01T12:00:00.000001Z", "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo", "schema_version": 1, "source_updated_at": updated,
+        "raw": raw, "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
+    }]);
+    let (_, Json(results)): (_, Json<Vec<IngestResult>>) =
+        ingest(State(app.clone()), auth(), Json(body))
+            .await
+            .expect("取り込み口");
+    results.into_iter().next().expect("結果")
+}
+
+const FIRST: &str = r#"{"kind":"visit","title":"前","duration_ms":1}"#;
+const RETITLED: &str = r#"{"kind":"visit","title":"後","duration_ms":1}"#;
+
+/// 最初の到着を入れ、その行の id を返す。
+async fn first_visit(app: &App, user: uuid::Uuid) -> uuid::Uuid {
+    send_visit(app, user, "visit-1", FIRST, "2026-03-01T12:00:00Z")
+        .await
+        .id
+        .expect("最初の行")
+}
+
+async fn versions_of(app: &App, id: uuid::Uuid) -> i64 {
+    let (n,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM core.event_version WHERE event_id = $1")
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    n
+}
+
+async fn raw_of(app: &App, id: uuid::Uuid) -> String {
+    let (raw,): (String,) = sqlx::query_as("SELECT raw FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    raw
+}
+
+async fn rows_of(app: &App, user: uuid::Uuid) -> i64 {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM core.event WHERE logical_source = 'c02-browser-history' AND user_id = $1",
+    )
+    .bind(user)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    n
+}
+
+/// (a) 題名だけ違う到着で行が 1 のまま新しい題名を持つ（tasks 2.2）。
+// Scenario: 題名が変わった訪問は 1 行のまま新しい題名を持つ
+#[tokio::test]
+async fn browser_history_update_title_keeps_one_row() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let second = send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    assert_eq!(second.id, Some(id));
+    assert_eq!(rows_of(&app, user).await, 1);
+    assert_eq!(raw_of(&app, id).await, RETITLED);
+}
+
+/// (b) 前の題名の版が 1 つ積む（tasks 2.2）。
+// Scenario: 題名が変わった訪問の前の版が残る
+#[tokio::test]
+async fn browser_history_update_title_keeps_version() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    assert_eq!(versions_of(&app, id).await, 0);
+    send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    assert_eq!(versions_of(&app, id).await, 1);
+}
+
+/// (c) 滞在時間だけ違う到着で版が積み、新しい滞在時間を持つ（tasks 2.2）。
+// Scenario: 閉じたタブの滞在時間が後の取得で更新され、前の版が残る
+#[tokio::test]
+async fn browser_history_update_duration_keeps_version() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let longer = r#"{"kind":"visit","title":"前","duration_ms":9}"#;
+    send_visit(&app, user, "visit-1", longer, "2026-03-02T12:00:00Z").await;
+    assert_eq!(versions_of(&app, id).await, 1);
+    assert_eq!(raw_of(&app, id).await, longer);
+}
+
+/// (d) `source_updated_at` の古い到着が後から届いても題名が書き戻らない（tasks 2.2）。
+// Scenario: 未送信の再送で古い題名が新しい題名を書き戻さない
+#[tokio::test]
+async fn browser_history_update_stale_does_not_rewind() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    send_visit(&app, user, "visit-1", RETITLED, "2026-03-02T12:00:00Z").await;
+    let stale = r#"{"kind":"visit","title":"古い","duration_ms":1}"#;
+    send_visit(&app, user, "visit-1", stale, "2026-02-28T12:00:00Z").await;
+    assert_eq!(raw_of(&app, id).await, RETITLED);
+}
+
+/// (e) 番号だけ同じで訪問時刻の違う識別子は別の行になる（tasks 2.2。識別子は組全体から決まるので、サーバには別の識別子として届く）。
+// Scenario: 番号が振り直された後の訪問は、前の訪問と別の記録になる
+#[tokio::test]
+async fn browser_history_update_renumbered_is_another_row() {
+    let app = app().await;
+    let user = testdb::user();
+    let id = first_visit(&app, user).await;
+    let other = send_visit(&app, user, "visit-2", FIRST, "2026-03-03T12:00:00Z").await;
+    assert_ne!(other.id, Some(id));
+    assert_eq!(rows_of(&app, user).await, 2);
+}
+
 /// **識別子を持たない記録が受け付けられる**（spec / FR-23 / FR-61）。
 ///
 /// Scenario: 識別子を持たない記録が受け付けられる

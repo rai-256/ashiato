@@ -31,6 +31,8 @@ use crate::config::{Config, Zone};
 use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPayload};
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
+use crate::history::collect::{HistoryCollector, HistoryReader, ProfileHealth};
+use crate::history::contract::Visit;
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
 use crate::outbox::Outbox;
 use crate::sender::{Sender, Transport};
@@ -114,6 +116,11 @@ pub struct Runtime<'a> {
     interval_blockers: BTreeSet<String>,
     /// 置き場へ積めなかった記録。**捨てずに次の見回りで積み直す**（R16）
     unsaved: Vec<WindowPayload>,
+    /// ブラウザ履歴の取得（ST08）。**読みは別スレッド**で、見回りは待たない（design D3）
+    history: Option<HistoryCollector>,
+    /// ブラウザ履歴の生存信号（design D12）。**ウィンドウのとは別の契機・別の数え・別の和**
+    history_beat: HistoryBeat,
+    state_dir: std::path::PathBuf,
     /// 単調時計の起点（`tick` が使う）
     anchor: Option<(std::time::Instant, DateTime<Utc>)>,
     log: fn(String),
@@ -128,6 +135,58 @@ impl std::fmt::Debug for Runtime<'_> {
             .field("unsaved", &self.unsaved.len())
             .field("engine", &self.engine)
             .finish()
+    }
+}
+
+/// 履歴のソースの生存信号の状態（24 時間ごと。起動直後に 1 回）。
+struct HistoryBeat {
+    schedule: heartbeat::Schedule,
+    counters: Counters,
+    store: CounterStore,
+    /// 区間の間に一度でも欠けたもの（ウィンドウの R26 と同じ和）
+    blockers: BTreeSet<String>,
+    /// 区間に読み（か確かめ）が 1 回でもあったか。無ければ信号の前に開けるかを確かめる
+    read_seen: bool,
+}
+
+impl HistoryBeat {
+    fn new(state_dir: &std::path::Path, now: DateTime<Utc>) -> Self {
+        let store = CounterStore::named(state_dir, "counters-browser-history.json");
+        let (counters, _) = store.load_or_quarantine();
+        Self {
+            schedule: heartbeat::Schedule::with_interval(Duration::seconds(
+                heartbeat::HISTORY_EXPECTED_GAP_SEC,
+            )),
+            counters: counters.unwrap_or_else(|| Counters::new(now)),
+            store,
+            blockers: BTreeSet::new(),
+            read_seen: false,
+        }
+    }
+
+    /// プロファイル 1 つの読み（か確かめ）1 回を 1 試行と数える。空は「1 つも見つからない」。
+    ///
+    /// `queued` が偽（読めたが送る準備を終えられなかった取得）なら、どのプロファイルも成功に数えず、
+    /// 種別だけを満たされていないものに載せる（deep.md 第 5 回 Q10）。
+    fn record(&mut self, profiles: &[ProfileHealth], queued: bool) {
+        self.read_seen = true;
+        if profiles.is_empty() {
+            self.blockers
+                .insert(heartbeat::history_blocker::NONE_FOUND.to_string());
+        }
+        if !queued {
+            self.blockers
+                .insert(heartbeat::history_blocker::NOT_QUEUED.to_string());
+        }
+        for p in profiles {
+            self.counters.record(p.readable && queued);
+            if !p.readable {
+                self.blockers.insert(heartbeat::history_blocker::unreadable(
+                    p.browser.name(),
+                    &p.directory,
+                ));
+            }
+        }
     }
 }
 
@@ -205,9 +264,29 @@ impl<'a> Runtime<'a> {
             last_send: None,
             interval_blockers: BTreeSet::new(),
             unsaved: Vec::new(),
+            history: None,
+            history_beat: HistoryBeat::new(&cfg.state_dir, now),
+            state_dir: cfg.state_dir.clone(),
             anchor: None,
             log: info,
         })
+    }
+
+    /// ブラウザ履歴の取得を有効にする。**読み手を差し込めるようにしてある**（試験は偽の読み手を渡す）。
+    #[must_use]
+    pub fn with_history(mut self, reader: std::sync::Arc<dyn HistoryReader>) -> Self {
+        let history = HistoryCollector::new(reader, &self.state_dir);
+        // 前のプロセスが落ちて残した写しを、読みを始める前に消す（design D2。R60）。文言にはパスが入るので種別だけ
+        if history.sweep_copies().is_err() {
+            (self.log)(telemetry::history_line(
+                "history_copy_sweep_failed",
+                Some(1),
+                None,
+                Some("io"),
+            ));
+        }
+        self.history = Some(history);
+        self
     }
 
     /// 起動時にやること（壁時計と単調時計は今の値）。
@@ -304,6 +383,8 @@ impl<'a> Runtime<'a> {
         // 4. 契機（**単調時計で測る**）
         self.maybe_measure_skew(wall, mono, &*source);
         self.maybe_beat(wall, mono);
+        self.maybe_history(wall);
+        self.maybe_history_beat(wall, mono);
         self.maybe_send(wall, mono);
     }
 
@@ -532,6 +613,112 @@ impl<'a> Runtime<'a> {
                 None,
                 Some(telemetry::error_kind(&e)),
             )),
+        }
+    }
+
+    /// 履歴の取得を進める。**読みの完了は待たない**（待つと眠りの判定に化ける。design D3）。
+    fn maybe_history(&mut self, wall: DateTime<Utc>) {
+        let Some(history) = self.history.as_mut() else {
+            return;
+        };
+        let (user_id, device_id, zone, events) =
+            (self.user_id, &self.device_id, &self.zone, &mut self.events);
+        // まとめて積み、同期は 1 回（見回りを止めない。deep.md 第 5 回 Q9）。`source_updated_at` は読んだ時刻（D15）
+        let mut queue = |visits: &[Visit], read_at: DateTime<Utc>| {
+            let reqs = visits
+                .iter()
+                .map(|v| IngestRequest::of_visit(v, user_id, device_id, read_at, zone))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            events.add_many(reqs)
+        };
+        match history.tick(wall, &mut queue) {
+            None => {}
+            Some(Ok(queued)) => (self.log)(telemetry::history_line(
+                "history_fetched",
+                Some(queued),
+                None,
+                None,
+            )),
+            // 文言には URL や表示名が入りうるので、種別だけを出す
+            Some(Err(_)) => (self.log)(telemetry::history_line(
+                "history_fetch_failed",
+                Some(1),
+                None,
+                Some("failed"),
+            )),
+        }
+        // 飛ばした行・退避した帳面・消せなかった写しは、件数だけ（R59 / R60 / R63）
+        for (kind, count) in history.take_log_counts() {
+            (self.log)(telemetry::history_line(kind, Some(count), None, None));
+        }
+    }
+
+    /// 履歴のソースの生存信号。区間に読みが 1 回も無いときは、**別スレッドで開けるかを確かめてから**出す（design D12）。
+    fn maybe_history_beat(&mut self, wall: DateTime<Utc>, mono: DateTime<Utc>) {
+        let (Some(history), beat) = (self.history.as_mut(), &mut self.history_beat) else {
+            return;
+        };
+        let mut counted = false;
+        if let Some(report) = history.take_report() {
+            beat.record(&report.profiles, report.queued);
+            counted = true;
+        }
+        if history.is_probing() {
+            // 確かめの結果が出たら、それを区間の読みとして数えて出す
+            let Some(profiles) = history.poll_probe() else {
+                return self.save_history_counters_if(counted);
+            };
+            beat.record(&profiles, true);
+        } else if !beat.schedule.due(mono) {
+            return self.save_history_counters_if(counted);
+        } else if !beat.read_seen {
+            history.start_probe();
+            return self.save_history_counters_if(counted);
+        }
+        self.emit_history_beat(wall, mono);
+    }
+
+    fn emit_history_beat(&mut self, wall: DateTime<Utc>, mono: DateTime<Utc>) {
+        let beat = &mut self.history_beat;
+        let (attempts, successes) = beat.counters.take(wall);
+        let cap = Capability::from_blockers(&beat.blockers);
+        beat.blockers.clear();
+        beat.read_seen = false;
+        self.save_history_counters();
+        match heartbeat::history_signal(
+            self.user_id,
+            &self.device_id,
+            wall,
+            &cap,
+            attempts,
+            successes,
+        )
+        .and_then(|sig| self.beats.add(sig))
+        {
+            Ok(()) => self.history_beat.schedule.mark(mono),
+            Err(e) => (self.log)(telemetry::line(
+                "heartbeat_add_failed",
+                None,
+                None,
+                Some(telemetry::error_kind(&e)),
+            )),
+        }
+    }
+
+    fn save_history_counters_if(&self, counted: bool) {
+        if counted {
+            self.save_history_counters();
+        }
+    }
+
+    fn save_history_counters(&self) {
+        if let Err(e) = self.history_beat.store.save(&self.history_beat.counters) {
+            (self.log)(telemetry::line(
+                "counters_save_failed",
+                None,
+                None,
+                Some(telemetry::error_kind(&e)),
+            ));
         }
     }
 
@@ -1719,6 +1906,1381 @@ mod tests {
         let recs = skew_records(&mut rt, &transport, 11);
         assert_eq!(recs.len(), 1, "{recs:?}");
         assert_eq!(recs[0]["clock_trigger"], "jump");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    // ---- ブラウザ履歴の取得（ST08）。読み手は偽物で、取り込み口まで通す ----
+
+    use crate::history::collect::{ProfileRead, ReadOutcome};
+    use crate::history::locate::Browser;
+    use crate::history::read::ReadVisit;
+    use std::sync::{mpsc, Arc, Mutex};
+
+    fn read_visit(id: i64, title: &str) -> ReadVisit {
+        ReadVisit {
+            id,
+            visit_time_raw: 13_402_627_200_000_000 + id,
+            url: Some(format!("https://example.test/{id}")),
+            title: Some(title.into()),
+            at: t(-86_400),
+            transition: 0,
+            from_visit: None,
+            opener_visit: None,
+            duration_us: None,
+            originator_cache_guid: None,
+            originator_visit_id: None,
+            is_known_to_sync: None,
+        }
+    }
+
+    /// 読み終えるのを `release` で止められる偽の読み手（本物の「3 分かかる」を待たずに再現する）。
+    #[derive(Debug)]
+    struct FakeReader {
+        gate: Option<Mutex<mpsc::Receiver<()>>>,
+        visits: Mutex<Vec<ReadVisit>>,
+        reads: Mutex<usize>,
+        /// 次の読みで、プロファイルが読めない / ディレクトリごと無い、を再現する
+        profile: Mutex<ProfileState>,
+        /// ほかのプロファイル（ブラウザ・ディレクトリ名・訪問）。除外の写像を見るためのもの
+        others: Mutex<Vec<(Browser, String, Vec<ReadVisit>)>>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum ProfileState {
+        Readable,
+        Unreadable,
+        /// 読みに出てこないが、ディレクトリは在る（置き場が一時的に読めない・DB を作り直し中）
+        Missing,
+        Gone,
+    }
+
+    impl FakeReader {
+        fn new(visits: Vec<ReadVisit>) -> Arc<Self> {
+            Arc::new(Self {
+                gate: None,
+                visits: Mutex::new(visits),
+                reads: Mutex::new(0),
+                profile: Mutex::new(ProfileState::Readable),
+                others: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn gated(visits: Vec<ReadVisit>) -> (Arc<Self>, mpsc::Sender<()>) {
+            let (tx, rx) = mpsc::channel();
+            let reader = Arc::new(Self {
+                gate: Some(Mutex::new(rx)),
+                visits: Mutex::new(visits),
+                reads: Mutex::new(0),
+                profile: Mutex::new(ProfileState::Readable),
+                others: Mutex::new(Vec::new()),
+            });
+            (reader, tx)
+        }
+
+        fn reads(&self) -> usize {
+            *self.reads.lock().unwrap()
+        }
+    }
+
+    impl HistoryReader for FakeReader {
+        fn read(&self, _tmp: &std::path::Path) -> anyhow::Result<ReadOutcome> {
+            if let Some(gate) = &self.gate {
+                gate.lock().unwrap().recv().ok();
+            }
+            *self.reads.lock().unwrap() += 1;
+            let visits = match *self.profile.lock().unwrap() {
+                ProfileState::Gone | ProfileState::Missing => {
+                    return Ok(ReadOutcome::default());
+                }
+                ProfileState::Unreadable => Err(anyhow::anyhow!("履歴 DB を開けない")),
+                ProfileState::Readable => Ok(self.visits.lock().unwrap().clone().into()),
+            };
+            let mut profiles = vec![ProfileRead {
+                browser: Browser::Chrome,
+                directory: "Default".into(),
+                visits,
+            }];
+            for (browser, directory, visits) in self.others.lock().unwrap().iter() {
+                profiles.push(ProfileRead {
+                    browser: *browser,
+                    directory: directory.clone(),
+                    visits: Ok(visits.clone().into()),
+                });
+            }
+            Ok(ReadOutcome {
+                profiles,
+                names: Vec::new(),
+            })
+        }
+
+        fn probe(&self, _tmp: &std::path::Path) -> Vec<crate::history::collect::ProfileHealth> {
+            let readable = match *self.profile.lock().unwrap() {
+                ProfileState::Gone | ProfileState::Missing => return Vec::new(),
+                ProfileState::Unreadable => false,
+                ProfileState::Readable => true,
+            };
+            vec![crate::history::collect::ProfileHealth {
+                browser: Browser::Chrome,
+                directory: "Default".into(),
+                readable,
+            }]
+        }
+
+        fn profile_dir_absent(&self, _browser: Browser, _directory: &str) -> bool {
+            *self.profile.lock().unwrap() == ProfileState::Gone
+        }
+    }
+
+    fn history_runtime<'a>(
+        cfg: &Config,
+        transport: &'a AcceptAll,
+        reference: &'a FixedReference,
+        reader: Arc<FakeReader>,
+    ) -> Runtime<'a> {
+        runtime(
+            cfg,
+            Engine::new(Exclusions::default()),
+            transport,
+            reference,
+        )
+        .with_history(reader)
+    }
+
+    /// 起動の経路（`with_history`）で、前のプロセスが残した写しが消える（design D2。R60 / R72）。
+    #[test]
+    fn history_copy_leftovers_are_swept_at_startup() {
+        let cfg = cfg();
+        let tmp = cfg.state_dir.join("browser-history/tmp");
+        std::fs::create_dir_all(tmp.join("left-over")).unwrap();
+        std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let _rt = history_runtime(&cfg, &transport, &reference, FakeReader::new(Vec::new()));
+        assert!(!tmp.join("left-over").exists(), "起動時に写しを掃除しない");
+    }
+
+    fn write_last_success(cfg: &Config, at: DateTime<Utc>) {
+        let path = cfg.state_dir.join("browser-history/last_success.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!(r#"{{"last_success":"{}"}}"#, at.to_rfc3339())).unwrap();
+    }
+
+    /// 読みが終わるまで（実時間で）見回りを回す。
+    fn tick_until_read(rt: &mut Runtime, src: &mut FakeSource, reader: &FakeReader, from: i64) {
+        for sec in from..from + 2000 {
+            rt.tick_at(src, t(sec), t(sec));
+            if reader.reads() > 0 && rt.history.as_ref().is_some_and(|h| !h.is_reading()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("履歴の取得が終わらない");
+    }
+
+    fn history_records(t: &AcceptAll) -> Vec<serde_json::Value> {
+        sent(t, "/ingest")
+            .into_iter()
+            .filter(|r| r["logical_source"] == "c02-browser-history")
+            .collect()
+    }
+
+    fn history_beats(t: &AcceptAll) -> Vec<serde_json::Value> {
+        sent(t, "/heartbeat")
+            .into_iter()
+            .filter(|r| r["logical_source"] == "c02-browser-history")
+            .collect()
+    }
+
+    /// 履歴の生存信号が `want` 件届くまで（実時間で）見回りを回す。確かめも読みも別スレッドなので同じ時刻に回し直す。
+    fn tick_until_history_beats(
+        rt: &mut Runtime,
+        src: &mut FakeSource,
+        transport: &AcceptAll,
+        sec: i64,
+        want: usize,
+    ) {
+        for _ in 0..400 {
+            rt.tick_at(src, t(sec), t(sec));
+            rt.send();
+            if history_beats(transport).len() >= want {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("履歴の生存信号が届かない");
+    }
+
+    /// Scenario: ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く
+    /// Scenario: ブラウザ履歴の生存信号はウィンドウの生存信号と別の件である
+    #[test]
+    fn history_heartbeat_every_day_and_separate_from_window_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        // 2 日回す。24 時間より前には増えない
+        for sec in (600..2 * 86_400).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            if sec == 86_400 - 600 {
+                rt.send();
+                assert_eq!(history_beats(&transport).len(), 1, "24 時間より早く出た");
+            }
+            if sec == 86_400 {
+                tick_until_history_beats(&mut rt, &mut src, &transport, sec, 2);
+            }
+        }
+        rt.send();
+        assert_eq!(history_beats(&transport).len(), 2);
+        let window = sent(&transport, "/heartbeat")
+            .into_iter()
+            .filter(|r| r["logical_source"] == "c02-window")
+            .count();
+        assert!(
+            window >= 8,
+            "ウィンドウの生存信号が別に届いていない: {window}"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 読めないプロファイルが 1 つでもあれば取得できないとして報告される
+    /// Scenario: 読めなかったブラウザとプロファイルが満たされていないものに挙がる
+    #[test]
+    fn history_heartbeat_reports_unreadable_profile_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        *reader.profile.lock().unwrap() = ProfileState::Unreadable;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        // 起動直後は読みの結果を待たずに確かめる。読みが終わっていても同じ結果になる
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!(["history-unreadable:chrome:Default"])
+        );
+        assert!(!beat["raw"].as_str().unwrap().contains("example.test"));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 履歴が 1 つも見つからなければ取得できないとして報告される
+    #[test]
+    fn history_heartbeat_reports_none_found_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(Vec::new());
+        *reader.profile.lock().unwrap() = ProfileState::Missing;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(beat["blockers"], serde_json::json!(["history-none-found"]));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 区間に読みが 1 回も無い（直近の取得が 24 時間以内で読みを始めない）起動直後でも、開けるかを確かめて報告する。
+    ///
+    /// Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
+    #[test]
+    fn history_heartbeat_probes_when_not_read_at_runtime() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        *reader.profile.lock().unwrap() = ProfileState::Unreadable;
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        assert_eq!(reader.reads(), 0, "確かめだけで行を読んでいる");
+        let beat = &history_beats(&transport)[0];
+        assert_eq!(beat["capturable"], false);
+        assert_eq!(beat["attempts"], 1, "確かめが 1 試行に数えられていない");
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!(["history-unreadable:chrome:Default"])
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 起動直後に 1 件出る（読みも契機も待たない）。
+    ///
+    /// Scenario: ブラウザ履歴のソースにも想定間隔ごとに生存信号が届く
+    #[test]
+    fn history_heartbeat_on_start_at_runtime() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        assert_eq!(history_beats(&transport)[0]["capturable"], true);
+        assert!(cfg.state_dir.join("counters-browser-history.json").exists());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 起動時に前回の成功から 24 時間以上経っていれば取得する
+    #[test]
+    fn history_schedule_runtime_fetches_on_first_tick_after_24h() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0) - Duration::hours(24));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        assert_eq!(reader.reads(), 1);
+        rt.send();
+        assert_eq!(history_records(&transport).len(), 1);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 前回の成功から 24 時間経たないうちは取得しない
+    #[test]
+    fn history_schedule_runtime_skips_within_24h() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0) - Duration::hours(24) + Duration::seconds(60));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 30, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        run(&mut rt, &mut src, 31, 40, 1);
+        assert_eq!(reader.reads(), 0, "24 時間経たないのに読んだ");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 動作中に前回の成功から 24 時間経つと取得する
+    #[test]
+    fn history_schedule_runtime_fetches_when_24h_pass_while_running() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 10, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(reader.reads(), 0);
+        let due = Duration::hours(24).num_seconds();
+        rt.tick_at(&mut src, t(due - 1), t(due - 1));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(reader.reads(), 0, "24 時間の 1 秒前に読んだ");
+        tick_until_read(&mut rt, &mut src, &reader, due);
+        assert_eq!(reader.reads(), 1);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 時計が一度先に進んでから戻ると、前回の成功が今より先になる。そのときは 24 時間を待たずにすぐ取得し、
+    /// 今の時刻を成功として書き直す（deep.md 第 4 回 Q7 / design D3。R56）。
+    #[test]
+    fn history_schedule_runtime_fetches_at_once_when_last_success_is_ahead() {
+        let cfg = cfg();
+        write_last_success(&cfg, t(0) + Duration::days(400));
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        assert_eq!(reader.reads(), 1, "前回の成功が先にあるのに待った");
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(cfg.state_dir.join("browser-history/last_success.json")).unwrap(),
+        )
+        .unwrap();
+        let saved = DateTime::parse_from_rfc3339(saved["last_success"].as_str().unwrap()).unwrap();
+        assert!(
+            saved < t(0) + Duration::days(1),
+            "成功を今の時刻に書き直していない: {saved}"
+        );
+        // 書き直した後は、また 24 時間ごと
+        run(&mut rt, &mut src, 2000, 2040, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        run(&mut rt, &mut src, 2041, 2050, 1);
+        assert_eq!(reader.reads(), 1);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 取得の成功は置き場へ書かれ、次の起動では 24 時間経つまで読まない。
+    #[test]
+    fn history_schedule_runtime_persists_success_across_restart() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        {
+            let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+            let mut src = FakeSource::new("editor");
+            rt.start_at(&src, t(0), t(0));
+            tick_until_read(&mut rt, &mut src, &reader, 0);
+        }
+        let again = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, again.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(3600), t(3600));
+        run(&mut rt, &mut src, 3600, 3640, 1);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        run(&mut rt, &mut src, 3641, 3650, 1);
+        assert_eq!(again.reads(), 0);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 1 回目で送った訪問は、2 回目に読んでも積まれない。変わった訪問と新しい訪問だけが積まれる。
+    #[test]
+    fn history_runtime_second_fetch_queues_only_the_difference() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "b")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        assert_eq!(history_records(&transport).len(), 2);
+
+        let day = Duration::hours(24).num_seconds();
+        tick_until_read_again(&mut rt, &mut src, &reader, day);
+        rt.send();
+        assert_eq!(
+            history_records(&transport).len(),
+            2,
+            "変わらない訪問を積んだ"
+        );
+
+        *reader.visits.lock().unwrap() = vec![read_visit(1, "a"), read_visit(2, "題名が変わった")];
+        tick_until_read_again(&mut rt, &mut src, &reader, 2 * day + 10);
+        rt.send();
+        assert_eq!(history_records(&transport).len(), 3);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    fn history_urls(t: &AcceptAll) -> Vec<String> {
+        history_records(t)
+            .iter()
+            .map(|r| r["payload"]["url"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Scenario: 初回の取得で過去の履歴が入る
+    #[test]
+    fn history_runtime_first_fetch_sends_past_visits() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut old = read_visit(1, "一年前");
+        old.at = t(0) - Duration::days(365);
+        let reader = FakeReader::new(vec![old, read_visit(2, "昨日")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let mut urls = history_urls(&transport);
+        urls.sort();
+        assert_eq!(
+            urls,
+            vec!["https://example.test/1", "https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 前回の取得の後に古い時刻で入った訪問も取り込まれる
+    #[test]
+    fn history_runtime_late_arriving_old_visit_is_sent() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "最初")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        assert_eq!(history_urls(&transport), vec!["https://example.test/1"]);
+
+        // 前回の取得より前の時刻の訪問が、同期で後から履歴 DB に入る。
+        let mut late = read_visit(2, "後から同期");
+        late.at = t(0) - Duration::days(30);
+        reader.visits.lock().unwrap().push(late);
+        let day = Duration::hours(24).num_seconds();
+        tick_until_read_again(&mut rt, &mut src, &reader, day);
+        rt.send();
+        assert_eq!(
+            history_urls(&transport),
+            vec!["https://example.test/1", "https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    fn vanished_records(t: &AcceptAll) -> Vec<serde_json::Value> {
+        history_records(t)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "vanished")
+            .collect()
+    }
+
+    fn visit_id_of(t: &AcceptAll, url: &str) -> String {
+        history_records(t)
+            .iter()
+            .find(|r| r["payload"]["url"] == url)
+            .unwrap()["external_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// 1 回目に `first` を取り、1 日後に `second` を取って、2 回目までに積まれた `vanished` を返す。
+    fn fetch_then_change(
+        first: Vec<ReadVisit>,
+        change: impl FnOnce(&FakeReader),
+    ) -> (AcceptAll, Vec<serde_json::Value>) {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(first);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        change(&reader);
+        tick_until_read_again(
+            &mut rt,
+            &mut src,
+            &reader,
+            Duration::hours(24).num_seconds(),
+        );
+        rt.send();
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+        let vanished = vanished_records(&transport);
+        (transport, vanished)
+    }
+
+    /// Scenario: 履歴から 1 件消すと次の取得で「消えた」記録が残る
+    #[test]
+    fn history_vanished_is_recorded_after_next_fetch() {
+        let (transport, vanished) =
+            fetch_then_change(vec![read_visit(1, "a"), read_visit(2, "b")], |r| {
+                r.visits.lock().unwrap().retain(|v| v.id != 2);
+            });
+        assert_eq!(vanished.len(), 1);
+        let gone = visit_id_of(&transport, "https://example.test/2");
+        assert_eq!(vanished[0]["payload"]["vanished"][0]["external_id"], gone);
+        assert_eq!(
+            vanished[0]["payload"]["vanished"].as_array().unwrap().len(),
+            1
+        );
+    }
+
+    /// URL の行を失った訪問は、URL と題名を省いた `visit` として送られ、「消えた」に出ない
+    /// （deep.md 第 4 回 Q8 / design D2 / D10。R57）。時刻・滞在時間・遷移の種類は残る。
+    #[test]
+    fn history_visit_whose_url_row_is_missing_is_sent_without_url_and_not_vanished() {
+        let mut lost = read_visit(2, "消える題名");
+        lost.duration_us = Some(1_500_000);
+        lost.transition = 1;
+        let (transport, vanished) = fetch_then_change(vec![read_visit(1, "a"), lost], |r| {
+            let mut visits = r.visits.lock().unwrap();
+            visits[1].url = None;
+            visits[1].title = None;
+        });
+        assert!(
+            vanished.is_empty(),
+            "URL の行が無い訪問を消えたとした: {vanished:?}"
+        );
+        let visits: Vec<_> = history_records(&transport)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "visit")
+            .collect();
+        let without_url: Vec<_> = visits
+            .iter()
+            .filter(|r| r["payload"].get("url").is_none())
+            .collect();
+        assert_eq!(
+            without_url.len(),
+            1,
+            "URL 無しの訪問が送られない: {visits:?}"
+        );
+        let p = &without_url[0]["payload"];
+        assert!(p.get("title").is_none());
+        assert_eq!(p["visit_id"], 2);
+        assert_eq!(p["visit_duration_us"], 1_500_000);
+        assert_eq!(p["transition_core"], "typed");
+        assert_eq!(without_url[0]["event_time"], p["at"]);
+    }
+
+    /// 初めて読んだ時点で URL の行が無い訪問も、捨てずに URL 無しで入る（deep.md 第 4 回 Q8。R57）。
+    #[test]
+    fn history_visit_without_url_row_is_sent_on_first_fetch() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut orphan = read_visit(2, "");
+        orphan.url = None;
+        orphan.title = None;
+        let reader = FakeReader::new(vec![read_visit(1, "a"), orphan]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let records = history_records(&transport);
+        assert_eq!(records.len(), 2, "URL の行が無い訪問を捨てた");
+        assert!(records.iter().any(|r| r["payload"].get("url").is_none()));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 消えた訪問の、訪問から取得までの日数が本文にある
+    #[test]
+    fn history_vanished_has_age_days_over_90() {
+        let mut old = read_visit(1, "古い");
+        old.at = t(0) - Duration::days(100);
+        let (_, vanished) = fetch_then_change(vec![old], |r| r.visits.lock().unwrap().clear());
+        let age = vanished[0]["payload"]["vanished"][0]["age_days"]
+            .as_i64()
+            .unwrap();
+        assert!(age > 90, "age_days = {age}");
+    }
+
+    /// Scenario: 同期で入った訪問が消えたことが本文にある
+    #[test]
+    fn history_vanished_marks_foreign_visit() {
+        let mut synced = read_visit(1, "他の端末");
+        synced.originator_cache_guid = Some("other-device".into());
+        let (_, vanished) = fetch_then_change(vec![synced, read_visit(2, "ここ")], |r| {
+            r.visits.lock().unwrap().clear();
+            r.visits.lock().unwrap().push(read_visit(2, "ここ"));
+        });
+        assert_eq!(vanished[0]["payload"]["vanished"][0]["foreign"], true);
+    }
+
+    /// Scenario: 表が作り直されたことが本文にある
+    #[test]
+    fn history_vanished_marks_recreated_table() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(5, "a"), read_visit(6, "b")], |r| {
+            *r.visits.lock().unwrap() = vec![read_visit(1, "作り直した後")];
+        });
+        let items = vanished[0]["payload"]["vanished"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|i| i["table_recreated"] == true));
+        assert!(items.iter().all(|i| i["profile_gone"] == false));
+    }
+
+    /// Scenario: プロファイルが無くなったことが本文にある
+    #[test]
+    fn history_vanished_marks_gone_profile() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Gone;
+        });
+        assert_eq!(vanished.len(), 1);
+        let item = &vanished[0]["payload"]["vanished"][0];
+        assert_eq!(item["profile_gone"], true);
+        assert_eq!(item["table_recreated"], false);
+    }
+
+    /// Scenario: 消えた経路を名指しする値を持たない
+    /// Scenario: 消えた記録に URL と題名が載らない
+    #[test]
+    fn history_vanished_has_no_named_cause_url_or_title() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "秘密の題名")], |r| {
+            r.visits.lock().unwrap().clear();
+        });
+        assert_eq!(vanished.len(), 1);
+        let mut keys: Vec<_> = vanished[0]["payload"]["vanished"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            [
+                "age_days",
+                "external_id",
+                "foreign",
+                "profile_gone",
+                "table_recreated"
+            ]
+        );
+        let body = vanished[0].to_string();
+        assert!(!body.contains("example.test") && !body.contains("秘密の題名"));
+        assert!(!body.contains("deleted") && !body.contains("expired"));
+    }
+
+    #[test]
+    fn history_vanished_not_gone_while_profile_dir_exists() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Missing;
+        });
+        assert!(vanished.is_empty(), "ディレクトリが在るのに消えたとした");
+    }
+
+    #[test]
+    fn history_vanished_all_gone_is_not_recreated_table_at_runtime() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            r.visits.lock().unwrap().clear();
+        });
+        assert_eq!(
+            vanished[0]["payload"]["vanished"][0]["table_recreated"],
+            false
+        );
+    }
+
+    /// Scenario: 読めなかったプロファイルでは消えた記録を出さない
+    #[test]
+    fn history_vanished_skips_unreadable_profile_at_runtime() {
+        let (_, vanished) = fetch_then_change(vec![read_visit(1, "a")], |r| {
+            *r.profile.lock().unwrap() = ProfileState::Unreadable;
+        });
+        assert!(vanished.is_empty());
+    }
+
+    /// Scenario: 取得をやり直しても「消えた」記録は増えない
+    #[test]
+    fn history_vanished_is_idempotent_on_retry_at_runtime() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let ledger = cfg.state_dir.join("browser-history/chrome/Default.ledger");
+        let before = std::fs::read(&ledger).unwrap();
+
+        reader.visits.lock().unwrap().clear();
+        let day = Duration::hours(24).num_seconds();
+        tick_until_read_again(&mut rt, &mut src, &reader, day);
+        rt.send();
+        drop(rt);
+        // 積んだ後・取得の成功を書く前に止まった（帳面は前のまま）。起動し直して、少し後にやり直す
+        std::fs::write(&ledger, before).unwrap();
+        std::fs::remove_file(cfg.state_dir.join("browser-history/last_success.json")).unwrap();
+        let mut again = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let before_reads = reader.reads();
+        for sec in day + 1000..day + 3000 {
+            again.tick_at(&mut src, t(sec), t(sec));
+            if reader.reads() > before_reads && !again.history.as_ref().unwrap().is_reading() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        again.send();
+        let mut ids: Vec<_> = vanished_records(&transport)
+            .iter()
+            .map(|r| r["external_id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids.len(), 2, "やり直しで積み直した");
+        ids.dedup();
+        assert_eq!(ids.len(), 1, "同じ事実が別の識別子になった");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 次の読みが終わるまで（`reads` が増えるまで）見回しを回す。
+    fn tick_until_read_again(
+        rt: &mut Runtime,
+        src: &mut FakeSource,
+        reader: &FakeReader,
+        from: i64,
+    ) {
+        let before = reader.reads();
+        for sec in from..from + 2000 {
+            rt.tick_at(src, t(sec), t(sec));
+            if reader.reads() > before && rt.history.as_ref().is_some_and(|h| !h.is_reading()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("履歴の取得が終わらない");
+    }
+
+    /// 取り込み口が止まっていても取得は未送信へ積まれ、戻った後に届く。
+    ///
+    /// Scenario: 取り込み口が止まっている間に取得した履歴が後から届く
+    #[test]
+    fn history_success_only_after_outbox() {
+        #[derive(Debug)]
+        struct Switch {
+            up: std::cell::Cell<bool>,
+            inner: AcceptAll,
+        }
+        impl Transport for Switch {
+            fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+                if self.up.get() {
+                    self.inner.post(path, body)
+                } else {
+                    anyhow::bail!("取り込み口が止まっている")
+                }
+            }
+        }
+        let cfg = cfg();
+        let transport = Switch {
+            up: std::cell::Cell::new(false),
+            inner: AcceptAll::default(),
+        };
+        let reference = FixedReference::new(t(0));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &transport,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap()
+        .with_history(reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        assert!(history_records(&transport.inner).is_empty());
+        assert!(rt.pending().0 >= 1, "止まっている間は未送信に残る");
+
+        transport.up.set(true);
+        rt.send();
+        let stored = history_records(&transport.inner);
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0]["payload"]["url"], "https://example.test/1");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 読みが数分かかっても見回りは続き、ウィンドウのソースに眠りも履歴の記録も入らない。
+    ///
+    /// Scenario: 履歴の取得でウィンドウのソースの記録は増えない
+    #[test]
+    fn history_slow_read_does_not_disturb_window() {
+        let window_records = |with_history: bool| {
+            let cfg = cfg();
+            let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+            let (reader, release) = FakeReader::gated(vec![read_visit(1, "a")]);
+            let mut rt = Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(reference.0)),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+            )
+            .unwrap();
+            if with_history {
+                rt = rt.with_history(reader.clone());
+            }
+            let mut src = FakeSource::new("editor");
+            rt.start_at(&src, t(0), t(0));
+            // 読み手が 3 分止まっている間も、1 秒ごとの見回りは続く
+            run(&mut rt, &mut src, 0, 180, 1);
+            assert_eq!(reader.reads(), 0, "読みはまだ終わっていない");
+            release.send(()).unwrap();
+            if with_history {
+                tick_until_read(&mut rt, &mut src, &reader, 181);
+            } else {
+                run(&mut rt, &mut src, 181, 190, 1);
+            }
+            rt.send();
+            let window: Vec<_> = sent(&transport, "/ingest")
+                .into_iter()
+                .filter(|r| r["logical_source"] == "c02-window")
+                .collect();
+            assert!(
+                window.iter().all(|r| r["payload"]["reason"] != "suspended"),
+                "履歴の読みで眠りが入った"
+            );
+            assert!(
+                window.iter().all(|r| r["payload"]["kind"] != "visit"),
+                "履歴の記録がウィンドウのソースに入った"
+            );
+            if with_history {
+                assert_eq!(history_records(&transport).len(), 1);
+            }
+            std::fs::remove_dir_all(&cfg.state_dir).ok();
+            window.len()
+        };
+        assert_eq!(window_records(true), window_records(false));
+    }
+
+    /// 訪問の多い取得（初回に限らない。帳面がある状態で数万件が新しく入った取得）でも、積み終えるまでの間
+    /// 見回りは毎回すぐ戻り、その間の前景の変化が積まれる（deep.md 第 5 回 Q9。review/code.md R68）。
+    ///
+    /// Scenario: 訪問の多い取得でも前景の観測は止まらない
+    #[test]
+    fn history_large_fetch_keeps_observing_foreground() {
+        use crate::history::collect::QUEUE_PER_TICK;
+        const N: i64 = 30_000;
+        // 送らない（未送信に積んだ順をそのまま見る）
+        #[derive(Debug)]
+        struct Down;
+        impl Transport for Down {
+            fn post(&self, _: &str, _: &str) -> anyhow::Result<Reply> {
+                anyhow::bail!("取り込み口が止まっている")
+            }
+        }
+        let cfg = cfg();
+        let reference = FixedReference::new(t(0));
+        let reader = FakeReader::new((1..=10).map(|i| read_visit(i, "a")).collect());
+        let mut rt = Runtime::new(
+            &cfg,
+            zone(),
+            Engine::new(Exclusions::default()),
+            &Down,
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(reference.0)),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap()
+        .with_history(reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        // 帳面がある状態で、同期などで新しい訪問がまとめて入る
+        *reader.visits.lock().unwrap() = (1..=N).map(|i| read_visit(i, "a")).collect();
+        let history = |rt: &Runtime| {
+            rt.events
+                .snapshot()
+                .iter()
+                .filter(|r| r.logical_source == "c02-browser-history")
+                .count()
+        };
+        let before = history(&rt);
+        // 24 時間後へ飛ぶ（この 1 回の見回りの「眠っていた」は時刻を飛ばしたことによる）
+        let mut sec = 86_400;
+        rt.tick_at(&mut src, t(sec), t(sec));
+        let from = rt.events.len();
+        let (mut slowest, mut queueing_ticks) = (std::time::Duration::ZERO, 0);
+        let mut switched_at = None;
+        while reader.reads() < 2 || rt.history.as_ref().unwrap().is_reading() {
+            sec += 1;
+            let started = std::time::Instant::now();
+            rt.tick_at(&mut src, t(sec), t(sec));
+            slowest = slowest.max(started.elapsed());
+            if history(&rt) > before && rt.history.as_ref().unwrap().is_reading() {
+                queueing_ticks += 1;
+                // 積んでいる途中で前景を変える
+                if switched_at.is_none() {
+                    src.app = "browser".into();
+                    switched_at = Some(rt.events.len());
+                }
+            }
+            assert!(sec < 86_400 + 60_000, "取得が終わらない");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            slowest < std::time::Duration::from_secs(POLL_INTERVAL_SEC as u64),
+            "見回り 1 回が {slowest:?} かかった"
+        );
+        assert!(
+            queueing_ticks >= (N as usize - 10) / QUEUE_PER_TICK,
+            "積み込みを見回りに分けていない: {queueing_ticks} 回"
+        );
+        let events = rt.events.snapshot();
+        let switched_at = switched_at.expect("積んでいる途中が無かった");
+        let window_at = (switched_at..events.len())
+            .find(|&i| events[i].logical_source == "c02-window")
+            .expect("積んでいる間の前景の変化が積まれていない");
+        assert!(
+            events[window_at..]
+                .iter()
+                .any(|r| r.logical_source == "c02-browser-history"),
+            "前景の変化が積み込みの後になった（見回りが止まっていた）"
+        );
+        assert!(
+            events[from..].iter().all(|r| !r.raw.contains("suspended")),
+            "積み込みの間に眠りが入った"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|r| r.logical_source == "c02-browser-history"
+                    && r.raw.contains(r#""kind":"visit""#))
+                .count(),
+            N as usize,
+            "積みこぼした"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 除外の登録が壊れて、読めても積めない取得が続く間は、履歴の生存信号が「取得できない」を報告し、
+    /// 理由に種別だけを載せる（deep.md 第 5 回 Q10。review/code.md R70）。
+    ///
+    /// Scenario: 送る準備を終えられない取得は取得できないとして報告される
+    #[test]
+    fn history_heartbeat_reports_not_queued_at_runtime() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"kind":"no-such-kind","value":"x"}]"#);
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        // 3 日回す（失敗した取得は 1 分から 1 時間まで間を空けて試し直す）
+        for day in 1..=3 {
+            for sec in ((day - 1) * 86_400 + 60..day * 86_400).step_by(60) {
+                rt.tick_at(&mut src, t(sec), t(sec));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            tick_until_history_beats(
+                &mut rt,
+                &mut src,
+                &transport,
+                day * 86_400,
+                day as usize + 1,
+            );
+        }
+        assert!(reader.reads() >= 3, "読みが試し直されていない");
+        assert!(history_records(&transport).is_empty(), "壊れた登録で送った");
+        let beats = history_beats(&transport);
+        for beat in &beats[1..] {
+            assert_eq!(
+                beat["capturable"], false,
+                "積めないのに取得できるとした: {beat}"
+            );
+            assert_eq!(beat["blockers"], serde_json::json!(["history-not-queued"]));
+            assert!(beat["successes"].as_i64() < beat["attempts"].as_i64());
+            assert!(!beat["raw"].as_str().unwrap().contains("example.test"));
+        }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    // ---- 履歴の除外（ST08 Task 7）。取り込み口へ送られた本文で確かめる ----
+
+    fn write_rules(cfg: &Config, rules: &str) {
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        std::fs::write(
+            cfg.state_dir.join("exclusions.json"),
+            format!(r#"{{"rules": {rules}}}"#),
+        )
+        .unwrap();
+    }
+
+    fn with_other_profile(reader: &FakeReader, directory: &str, visits: Vec<ReadVisit>) {
+        reader
+            .others
+            .lock()
+            .unwrap()
+            .push((Browser::Chrome, directory.into(), visits));
+    }
+
+    /// 1 回取得して送る。取り込み口に届いた全部の本文（文字列）を返す。
+    fn fetch_and_send(cfg: &Config, reader: &Arc<FakeReader>) -> (AcceptAll, String) {
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, reader, 0);
+        rt.send();
+        let all = transport
+            .bodies
+            .borrow()
+            .iter()
+            .map(|(_, b)| b.clone())
+            .collect::<String>();
+        (transport, all)
+    }
+
+    fn excluded_records(t: &AcceptAll) -> Vec<serde_json::Value> {
+        history_records(t)
+            .into_iter()
+            .filter(|r| r["payload"]["kind"] == "excluded")
+            .collect()
+    }
+
+    /// Scenario: ブラウザのプロセスを除外するとその全プロファイルの履歴が送られない
+    #[test]
+    fn history_exclusion_process_covers_all_profiles() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "ひとつめの題名")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "ふたつめの題名")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        for leaked in [
+            "example.test/1",
+            "example.test/2",
+            "ひとつめの題名",
+            "ふたつめの題名",
+        ] {
+            assert!(
+                !all.contains(leaked),
+                "除外したはずの本文が送られた: {leaked}"
+            );
+        }
+        assert!(history_urls_of_kind(&transport, "visit").is_empty());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// `exe-path` は実行ファイルのフルパスで登録する（README の手順）。履歴には、そのファイル名部分で当てる（design D11。R58）。
+    #[test]
+    fn history_exclusion_exe_path_covers_all_profiles() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"exe-path","value":"C:\\Program Files\\Google\\Chrome\\Application\\CHROME.EXE"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "ひとつめの題名")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "ふたつめの題名")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        for leaked in ["example.test/1", "example.test/2", "ひとつめの題名"] {
+            assert!(
+                !all.contains(leaked),
+                "除外したはずの本文が送られた: {leaked}"
+            );
+        }
+        assert!(history_urls_of_kind(&transport, "visit").is_empty());
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    fn history_urls_of_kind(t: &AcceptAll, kind: &str) -> Vec<String> {
+        history_records(t)
+            .iter()
+            .filter(|r| r["payload"]["kind"] == kind)
+            .map(|r| r["payload"]["url"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Scenario: 履歴で除外した件数が残る
+    #[test]
+    fn history_exclusion_count_is_recorded() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![
+            read_visit(1, "a"),
+            read_visit(2, "b"),
+            read_visit(3, "c"),
+        ]);
+        let (transport, _) = fetch_and_send(&cfg, &reader);
+        let excluded = excluded_records(&transport);
+        assert_eq!(excluded.len(), 1, "1 回・1 プロファイルにつき 1 件");
+        assert_eq!(excluded[0]["payload"]["excluded_count"], 3);
+        assert!(
+            excluded[0]["payload"]["url"].is_null() && excluded[0]["payload"]["title"].is_null()
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 2 回目の取得（1 日後）まで回して送る。
+    fn fetch_twice(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, reader, 0);
+        rt.send();
+        tick_until_read_again(&mut rt, &mut src, reader, Duration::hours(24).num_seconds());
+        rt.send();
+        transport
+    }
+
+    /// Scenario: 除外した訪問は取得のたびに数え直されない
+    #[test]
+    fn history_exclusion_is_not_recounted_each_fetch() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let transport = fetch_twice(&cfg, &reader);
+        let counted: u64 = excluded_records(&transport)
+            .iter()
+            .map(|r| r["payload"]["excluded_count"].as_u64().unwrap())
+            .sum();
+        assert_eq!(counted, 1, "2 回目の取得で数え直した");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 題名の部分一致の登録はページの題名に当たる
+    #[test]
+    fn history_exclusion_title_matches_page_title() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"title-contains","value":"シークレット"}]"#,
+        );
+        let reader = FakeReader::new(vec![
+            read_visit(1, "シークレットの頁"),
+            read_visit(2, "普通"),
+        ]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        assert!(!all.contains("example.test/1") && !all.contains("シークレットの頁"));
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: URL の部分一致の登録は履歴にも効く
+    #[test]
+    fn history_exclusion_url_matches_history() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "b")]);
+        let (transport, all) = fetch_and_send(&cfg, &reader);
+        assert!(!all.contains("example.test/1"));
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: プロファイルを指す登録はそのプロファイルの履歴だけを除く
+    #[test]
+    fn history_exclusion_profile_is_specific() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"browser-profile","browser":"chrome","profile":"Default"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        with_other_profile(&reader, "Profile 2", vec![read_visit(2, "b")]);
+        let (transport, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(
+            history_urls_of_kind(&transport, "visit"),
+            vec!["https://example.test/2"]
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 取得をやり直しても除外の件数は増えない
+    #[test]
+    fn history_exclusion_retry_counts_once() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"match":"process-name","value":"chrome.exe"}]"#);
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_read(&mut rt, &mut src, &reader, 0);
+        drop(rt);
+        // 除外の記録を積んだ後・取得の成功を書く前に止まった（帳面は書く前のまま）。起動し直してやり直す
+        std::fs::remove_dir_all(cfg.state_dir.join("browser-history")).unwrap();
+        let mut again = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let before = reader.reads();
+        for sec in 1000..3000 {
+            again.tick_at(&mut src, t(sec), t(sec));
+            if reader.reads() > before && !again.history.as_ref().unwrap().is_reading() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        again.send();
+        assert!(reader.reads() > before, "やり直しの取得が走らなかった");
+        let records = excluded_records(&transport);
+        assert_eq!(records.len(), 2, "やり直しの取得で除外が積まれなかった");
+        let mut ids: Vec<_> = records
+            .iter()
+            .map(|r| r["external_id"].as_str().unwrap().to_string())
+            .collect();
+        ids.dedup();
+        assert_eq!(ids.len(), 1, "やり直しで別の識別子になった");
+        assert!(records.iter().all(|r| r["payload"]["excluded_count"] == 1));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 登録を後から足すと、既に送った訪問の変わった内容は送られない
+    #[test]
+    fn history_exclusion_added_later() {
+        let cfg = cfg();
+        let reader = FakeReader::new(vec![read_visit(1, "元の題名")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(history_urls_of_kind(&first, "visit").len(), 1);
+
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        reader.visits.lock().unwrap()[0].title = Some("変わった題名".into());
+        let second = fetch_twice_from_second(&cfg, &reader);
+        let all = second
+            .bodies
+            .borrow()
+            .iter()
+            .map(|(_, b)| b.clone())
+            .collect::<String>();
+        assert!(!all.contains("変わった題名"), "登録の後の内容が送られた");
+        assert!(history_urls_of_kind(&second, "visit").is_empty());
+        // 既に格納された訪問は、除外されても消えた（vanished）ことにはならない
+        assert!(
+            history_records(&second)
+                .iter()
+                .all(|r| r["payload"]["kind"] != "vanished"),
+            "除外した訪問が履歴から消えたものとして送られた"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// URL で除外した訪問が URL の行を失っても、URL 無しの訪問として送られない（除外を引き継ぐ。D11 / deep.md 第 4 回 Q8）。
+    #[test]
+    fn history_exclusion_survives_lost_url_row() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/2"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a"), read_visit(2, "伏せた")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert_eq!(history_urls_of_kind(&first, "visit").len(), 1);
+        {
+            let mut visits = reader.visits.lock().unwrap();
+            visits[1].url = None;
+            visits[1].title = None;
+        }
+        let second = fetch_twice_from_second(&cfg, &reader);
+        assert!(
+            history_records(&second)
+                .iter()
+                .all(|r| r["payload"]["visit_id"] != 2),
+            "除外した訪問が URL を失って送られた"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 前回の成功を 1 日前に置いて、同じ状態の置き場でもう 1 回取得する。
+    fn fetch_twice_from_second(cfg: &Config, reader: &Arc<FakeReader>) -> AcceptAll {
+        write_last_success(cfg, t(0) - Duration::hours(24));
+        fetch_and_send(cfg, reader).0
+    }
+
+    /// Scenario: 登録を外すと、まだ履歴にある除外済みの訪問が次の取得で送られる
+    #[test]
+    fn history_exclusion_removed_later() {
+        let cfg = cfg();
+        write_rules(
+            &cfg,
+            r#"[{"match":"url-contains","value":"example.test/1"}]"#,
+        );
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let (first, _) = fetch_and_send(&cfg, &reader);
+        assert!(history_urls_of_kind(&first, "visit").is_empty());
+
+        write_rules(&cfg, "[]");
+        let second = fetch_twice_from_second(&cfg, &reader);
+        assert_eq!(
+            history_urls_of_kind(&second, "visit"),
+            vec!["https://example.test/1"]
+        );
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 }

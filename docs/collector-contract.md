@@ -383,6 +383,27 @@ PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomatio
 > **C-02 は 400 の本文も読む**（`ureq` の既定は 400 で本文を捨てる）。
 > 1 件ごとの結果の件数が送った件数と合わない応答では、**何も取り除かない**。
 
+## C-02（`c02-browser-history`）が送る `payload` の形（ST08 / design D4 / D5 / D6 / D15）
+
+`kind` は `visit`（訪問 1 件）/ `vanished`（消えた訪問のまとまり）/ `excluded`（除外した数）/ `profiles`（ディレクトリ名と表示名の対応）の 4 つ。
+どれも `at`（出来事の時刻。UTC・**マイクロ秒**。`event_time` と同じ値）、`browser`（`chrome` / `edge` / `brave` / `vivaldi` / `opera` / `firefox`）、
+`family`（`chromium` / `firefox`）、`tz_basis: "collected-at"` を持つ。`visit` / `vanished` / `excluded` は `profile_dir`（ディレクトリ名。
+**表示名は載せない** —— 改名で全訪問が「内容が変わった」にならないため）も持つ。
+
+`visit` はさらに `visit_id` / `visit_time_raw`（DB の値そのまま）・`url` / `title`（DB の文字列そのまま。題名が NULL なら欄を省く）・
+`transition` / `transition_core`・`from_visit` / `opener_visit`（0 は省く）を持ち、Chromium だけ `visit_duration_us` / `is_known_to_sync`、
+他の端末から同期で入った訪問だけ `originator_cache_guid` / `originator_visit_id` を持つ。
+**URL の行が見つからない訪問は `url` と `title` を省く**（時刻・遷移・滞在時間は持つ。捨てない —— ST08 deep.md 第 4 回 Q8）。
+`tz_id` / `tz_offset_min` は**その内容を読んだ取得のときの PC のもの**で、`tz_basis` がそれを示す。
+
+`external_id` は `v1:<kind>:<sha256 の 16 進 64 桁>`。`visit` は `family` / `browser` / `profile_dir` / `visit_id` / `visit_time_raw` / `url` の組を
+区切り `\x1f` で繋いだ全体のハッシュ（URL の無い訪問は `url` を組から省く）で、**識別子から URL・訪問時刻・プロファイルを読めない**（本文を消しても識別子は残るため）。
+`vanished` / `excluded` / `profiles` は中身（整列した識別子・対応表）から決まり、取得の時刻と `device_id` を入れない
+（やり直しで同じ事実が 2 件にならず、設定の打ち直しで読み直した 90 日ぶんが二重にならない）。
+
+履歴は**その内容を読んだ時刻**を `source_updated_at` に置く。履歴 DB は更新時刻を持たないが、読んだ時刻は同じ訪問について単調に進む版として働き、
+未送信の再送で古い題名の到着が新しい題名を書き戻すのを防ぐ（持たないと取り込み口は「届いた順」で当てる）。
+
 ---
 
 # 生存信号の送信契約（ST02 / FR-78）

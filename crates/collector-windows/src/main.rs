@@ -102,7 +102,7 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
         uptime.clone(),
     ));
     let time_sync = std::sync::Arc::new(c02::time_sync::ProcessTimeSync::new());
-    let mut rt = c02::runtime::Runtime::new(
+    let rt = c02::runtime::Runtime::new(
         &cfg,
         zone,
         engine,
@@ -114,6 +114,11 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
         },
         Utc::now(),
     )?;
+    let rt = match c02::history::collect::FsHistoryReader::from_env() {
+        Some(reader) => rt.with_history(std::sync::Arc::new(reader)),
+        None => rt,
+    };
+    let mut rt = rt;
     let mut source = c02::platform::WindowsSource::open();
     if !source.focus_events() {
         tracing::info!(
