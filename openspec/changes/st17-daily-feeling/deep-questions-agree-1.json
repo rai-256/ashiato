@@ -1,4 +1,1 @@
-{"title": "ST17 の仕様への合意", "subtitle": "毎日 30 秒で「その日どう感じたか」を残す",
- "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
-                "doc": "docs/briefs/ST17-spec.html",
-                "question": "この読み物の内容で作ってよいですか。違和感があれば、どこがどう違うかを補足に書いてください。"}]}
+{"title": "ST17 の仕様への合意", "subtitle": "毎日 30 秒で「その日どう感じたか」を残す", "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement", "doc": "docs/briefs/ST17-spec.html", "question": "この GO 資料と GO 用 proto のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
