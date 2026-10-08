@@ -1821,6 +1821,63 @@ async fn archive_flow_confirming_a_shape_ingests_a_mixed_archive() {
     assert_eq!(inbox.ledger_rows("read").await, 1);
 }
 
+/// Scenario: 知らない製品があっても同じ書庫の他のファイルは格納される
+#[tokio::test]
+async fn archive_flow_confirming_some_shapes_ingests_them_while_the_rest_waits() {
+    // 確認バッチ 20261006-0754 の ST12 13.1（本物の Takeout）: 最初の走査では印の要る中身が
+    // **全部**確認待ちになる。本人が印を置いた形だけが入り、置いていない形は待ち続けること。
+    let inbox = Inbox::new("archive-confirm-some").await;
+    let chrome = r#"{"Browser History":[{"time_usec":1789185600000000,"title":"x","url":"https://example.com/"}]}"#;
+    let activity = myactivity("Discover");
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[
+            ("Takeout/Chrome/History.json", chrome.as_bytes()),
+            (
+                "Takeout/My Activity/Discover/活動.json",
+                activity.as_bytes(),
+            ),
+        ],
+    );
+    inbox.spawn(true);
+    let pending = || async {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1",
+        )
+        .bind(inbox.user)
+        .fetch_one(&inbox.pool)
+        .await
+        .unwrap();
+        n
+    };
+    inbox
+        .until("2 つとも確認待ちにならない", || async {
+            pending().await == 2
+        })
+        .await;
+
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::ChromeHistory,
+            chrome.as_bytes(),
+        )
+        .await;
+
+    inbox
+        .until(
+            "印を置いた形が、印の無い形と同じ書庫にあるせいで格納されない",
+            || async { inbox.events("c03-chrome-history").await == 1 },
+        )
+        .await;
+    assert_eq!(pending().await, 1, "印の無い形が確認待ちから外れた");
+    assert_eq!(inbox.events("c03-myactivity-discover").await, 0);
+    assert_eq!(
+        inbox.status().await.latest_archive.map(|l| l.outcome),
+        Some("read".to_owned()),
+        "直近の書庫が「形の確認を待っています」のまま"
+    );
+}
+
 /// Scenario: マイアクティビティの製品ごとに論理ソースが分かれる
 #[tokio::test]
 async fn archive_flow_myactivity_display_name_uses_the_product() {
