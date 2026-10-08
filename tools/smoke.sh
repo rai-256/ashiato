@@ -12,10 +12,21 @@ export DATABASE_OWNER_URL="$(ashiato_db_url "${DATABASE_OWNER_URL:?.env を読�
 export BIND="127.0.0.1:${ASHIATO_HTTP_PORT}"   # port は worktree ごと（.env の BIND の port より優先。ST05）
 export API_TOKEN="${API_TOKEN:-smoke-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
+ARCHIVE_USER="00000000-0000-0000-0000-000000000000"
+ARCHIVE_ROOT=$(mktemp -d)
+export ASHIATO_ARCHIVE_USER_ID="$ARCHIVE_USER"
+export ASHIATO_INBOX_DIR="$ARCHIVE_ROOT/inbox"
+export ASHIATO_DOWNLOADS_DIR="$ARCHIVE_ROOT/downloads"
+export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_ROOT/copies"
+export ASHIATO_ARCHIVE_SCAN_SEC=1
+mkdir -p "$ASHIATO_INBOX_DIR" "$ASHIATO_DOWNLOADS_DIR" "$ASHIATO_ARCHIVE_COPY_DIR"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
+# `archive-shape.sh` は差し替えずに呼ぶ —— 手元に `psql` が無ければ道具自身が開発用コンテナの
+# `psql` へ回す（code-verify R68。前は smoke だけが差し替えて緑になり、本人の機械では止まっていた）。
+
 # SRV が無いときに kill "${SRV:-0}" とすると kill 0 = プロセスグループ全体（呼び出し元の verify-run ごと）を止める
-cleanup() { if [ -n "${SRV:-}" ]; then kill "$SRV" 2>/dev/null || true; fi; docker compose down -v >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "${SRV:-}" ]; then kill "$SRV" 2>/dev/null || true; fi; docker compose down -v >/dev/null 2>&1 || true; rm -rf "$ARCHIVE_ROOT"; }
 trap cleanup EXIT
 
 echo "== 1. DB を起動（**まっさらにしてから**）"
@@ -129,6 +140,54 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 [ "$code" = "401" ] || { echo "違う合言葉で $code"; exit 1; }
 [ "$(curl -sf "${AUTH[@]}" "http://$BIND/events" | grep -o '"id"' | wc -l)" -eq 1 ] \
   || { echo "断ったはずの要求で行が増えている"; exit 1; }
+
+# ------------------------------------------------------------------ ST12（書庫の実経路）
+
+# Scenario: 最終日はいちばん新しい出来事の日
+# Scenario: 印を置くと確認待ちの書庫が格納される
+# Scenario: 同じ書庫をもう一度置いても行が増えない
+echo "== 9b. 合成の Takeout を形の確認後に読み、別名の再配置では増やさない（ST12）"
+ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
+mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
+printf '%s' '[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke"}]' \
+  > "$ARCHIVE_FIXTURE/Takeout/YouTube/watch-history.json"
+# **同じ形のファイルを 2 つ**（分割書庫の別の場所にある視聴履歴）。印が形ごとに 1 行であることを見る（R49）
+mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube 2"
+printf '%s' '[{"time":"2026-09-11T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke2"}]' \
+  > "$ARCHIVE_FIXTURE/Takeout/YouTube 2/watch-history.json"
+(cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
+for _ in $(seq 1 15); do
+  SHAPE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
+    -c "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$ARCHIVE_USER'::uuid LIMIT 1")
+  [ -n "$SHAPE" ] && break
+  sleep 1
+done
+[ -n "${SHAPE:-}" ] || { echo "書庫の形が確認待ちにならない"; exit 1; }
+# Scenario: 形の確認の出力に見分けた中身と製品の名前と件数が出る
+# 引数なしの一覧（本人が最初に叩く形）。`-c` で渡していたときは必ず構文エラーで落ちた（R49）
+listing=$(tools/archive-shape.sh) || { echo "形の一覧が落ちる"; exit 1; }
+printf '%s' "$listing" | grep -q "$SHAPE" || { echo "形の一覧に確認待ちの形が出ない: $listing"; exit 1; }
+printf '%s' "$listing" | grep -q 'YouTubeWatch' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
+tools/archive-shape.sh --confirm "$SHAPE"
+marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
+  -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid AND shape_hash = '$SHAPE'")
+[ "$marks" = "1" ] || { echo "同じ形の印が $marks 行ある（確認待ちのファイルの数だけ積まれている）"; exit 1; }
+# 画面と同じく `user_id` を付けずに読む（R47。必須にしていたときは 400 だった）
+curl -sf "${AUTH[@]}" "http://$BIND/archives/status" >/dev/null \
+  || { echo "/archives/status が user_id 無しで読めない（画面の箱が必ず失敗になる）"; exit 1; }
+for _ in $(seq 1 15); do
+  status=$(curl -sf "${AUTH[@]}" "http://$BIND/archives/status?user_id=$ARCHIVE_USER")
+  if printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null; then break; fi
+  sleep 1
+done
+printf '%s' "$status" | jq -e '.sources[] | select(.logical_source == "c03-youtube-watch") | .last_event_on == "2026-09-12"' >/dev/null \
+  || { echo "書庫の最終日が /archives/status に出ない: $status"; exit 1; }
+before=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+cp "$ASHIATO_INBOX_DIR/取り込み済み/takeout-smoke.zip" "$ASHIATO_INBOX_DIR/takeout-smoke-again.zip"
+sleep 3
+after=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
+[ "$before" = "$after" ] || { echo "別名の同じ書庫で稼働状況の件数が増えた: $before -> $after"; exit 1; }
+echo "   → 最終日 2026-09-12 / 件数 $after（別名でも不変）"
 
 
 
@@ -524,8 +583,9 @@ echo "   → c01-photo 2026-03-01 = $state"
 # 位置は同じ日に記録があるので①
 [ "$(printf '%s' "$cov" | jq -r '.[]|select(.logical_source=="c01-location")|.days[0].state')" = "recorded" ] \
   || { echo "位置が①でない"; exit 1; }
-# **5 ソースすべてが返る**（画面は 5 本の格子を並べる）
-[ "$(printf '%s' "$cov" | jq 'length')" = "5" ] || { echo "5 ソースが返っていない"; exit 1; }
+# **Must の 5 ソースすべてが返る**（書庫のソースが追加されてもこの約束は変わらない）
+[ "$(printf '%s' "$cov" | jq '[.[] | select(.logical_source == "c01-location" or .logical_source == "c01-app-usage" or .logical_source == "c01-photo" or .logical_source == "c02-window" or .logical_source == "c02-browser-history")] | length')" = "5" ] \
+  || { echo "Must の 5 ソースが返っていない"; exit 1; }
 
 echo "== 27. 達成日数と分母、確定か暫定かが返る（NFR-13 / 第 7 回 Q27）"
 ach=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage/achievement")

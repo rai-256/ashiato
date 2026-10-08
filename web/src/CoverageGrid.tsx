@@ -22,7 +22,7 @@ import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, ton
  * - **セルは表示専用。選ぶ単位は週**（NFR-19 の 24 × 24 px を割らないため）
  * - 格子のセルが担うのは **3 段**。8 状態の区別は**週を選んだときの文字**
  */
-export function CoverageGrid({ source }: { source: SourceCoverage }): React.ReactElement {
+export function CoverageGrid({ source, annotation }: { source: SourceCoverage; annotation?: string }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   // **退役したソースは既定で畳む**（ST03 の R63 / 第 8 回 Q30）—— 退役は 1 本きりではなく
@@ -53,6 +53,11 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
       {/* **ソース名の文字**。色を意味の担い手にしない（ui-direction の宿題 1 / 第 4 回 Q15） */}
       <h2 style={{ color: tone(TEXT.normal), font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
         {source.display_name}
+        {annotation !== undefined && (
+          <span data-testid={`archive-note-${source.logical_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
+            {` — ${annotation}`}
+          </span>
+        )}
         {/* **乗り換えが起きたことを文字で出す**（review/code-r2.md の I3）。
             名指しした名前と先端が違うのに黙っていると、本人には
             「c02-window が消えて知らない名前が増えた」ようにしか見えない */}

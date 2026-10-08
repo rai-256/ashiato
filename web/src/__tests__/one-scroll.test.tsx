@@ -22,120 +22,25 @@ import { App } from "../App";
 import { ONE_SCROLL_PX, VIEWPORT_H_PX } from "../tokens";
 import { retiredLast, type SourceCoverage } from "../coverage";
 import { achievement, days, fiveSources, source } from "./fixtures";
+import { bottomOf, declaredHeight, px } from "./layout";
+import { ARCHIVE_BOX_MAX_PX } from "../LatestArchive";
+
+/**
+ * **予算から除くのは「箱の宣言の高さ」だが、除ける量には上限がある**
+ * （`collection-coverage` の予算の文 / 第 2 回 Q9）。
+ *
+ * `ONE_SCROLL_PX + 160` を予算にしていたときは、箱が 100 px しか無くても
+ * 160 px ぶん甘くなっていた。逆に箱が 200 px に伸びたら、除けるのは 160 px まで。
+ */
+function excludedBoxPx(): number {
+  const box = document.querySelector('[data-testid="latest-archive"]');
+  if (!(box instanceof HTMLElement)) return 0;
+  return Math.min(declaredHeight(box), ARCHIVE_BOX_MAX_PX);
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
-/**
- * CSS の長さを px で読む。**読めなかったら落とす**（review/code-r2.md の M-2）。
- *
- * 黙って 0 にしていたときは、**勘定が要素を数えられていないだけ**でも
- * 「予算に収まっている」という緑が出た。指定が無い（空文字）ときだけ 0 を返す。
- */
-const px = (v: string): number => {
-  if (v === "") return 0;
-  const n = Number.parseFloat(v);
-  if (!Number.isFinite(n) || !v.trim().endsWith("px")) {
-    throw new Error(`px で読めない長さ: ${JSON.stringify(v)}`);
-  }
-  return n;
-};
-
-/**
- * 枠線の太さ。**`border: none` は `borderTopWidth` に `"medium"` を返す**
- * （CSS の初期値のキーワード。長さではない）。太さのキーワードは
- * `thin` / `medium` / `thick` = 1 / 3 / 5 px にあたるが、**線種が無ければ 0**。
- *
- * 前は `px()` が読めない値を黙って 0 にしていたので、この区別ごと消えていた
- * （review/code-r2.md の M-2）。
- */
-function borderWidth(el: HTMLElement, side: "Top" | "Bottom"): number {
-  const style = el.style.getPropertyValue(`border-${side.toLowerCase()}-style`) || el.style.borderStyle;
-  if (style === "none" || style === "hidden") return 0;
-  const w = side === "Top" ? el.style.borderTopWidth : el.style.borderBottomWidth;
-  const keyword: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
-  if (w in keyword) return style === "" ? 0 : keyword[w];
-  return px(w);
-}
-
-/**
- * その要素に効いている行の高さ。`font` の短縮記法（`600 15px/1.3 ...`）から引き、
- * 宣言が無ければ先祖をたどる（CSS の継承と同じ向き）。
- */
-function lineHeight(el: HTMLElement): number {
-  for (let e: HTMLElement | null = el; e !== null; e = e.parentElement) {
-    const m = /(\d+(?:\.\d+)?)px\s*\/\s*(\d+(?:\.\d+)?)/.exec(e.style.font);
-    if (m !== null) return Number(m[1]) * Number(m[2]);
-  }
-  // **黙って 0 にしない**（同 M-2）。先祖まで `font` が無い要素は勘定に穴を開ける
-  throw new Error(`行の高さが引けない: <${el.tagName.toLowerCase()}>`);
-}
-
-/** 直接の子（要素ではないもの）に文字があるか。あれば少なくとも 1 行ぶんの高さを取る。 */
-function hasOwnText(el: HTMLElement): boolean {
-  return [...el.childNodes].some(
-    (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "",
-  );
-}
-
-/**
- * **宣言されている箱の高さ**を積む。
- *
- * 横に並ぶもの（`display: flex` で縦並びでないもの。週の帯の中のセル）は
- * 足さずに**いちばん高いもの**を取る。それ以外は上から下へ積む。
- */
-function declaredHeight(el: HTMLElement): number {
-  const s = el.style;
-  const chrome =
-    px(s.paddingTop) +
-    px(s.paddingBottom) +
-    borderWidth(el, "Top") +
-    borderWidth(el, "Bottom") +
-    px(s.marginTop) +
-    px(s.marginBottom);
-  const kids = [...el.children].filter((c): c is HTMLElement => c instanceof HTMLElement);
-  // **横に並ぶもの**: `display: flex` で縦並びでないもの（週の帯の中のセル）と、
-  // 表の行（`<tr>` の中のセルは横に並ぶ。足すと 1 行が 4 行ぶんの高さになる）
-  const row = (s.display === "flex" && s.flexDirection !== "column") || el.tagName === "TR";
-  const stacked =
-    kids.length === 0
-      ? 0
-      : row
-        ? Math.max(...kids.map(declaredHeight))
-        : kids.reduce((a, k) => a + declaredHeight(k), 0);
-  const text = kids.length === 0 || hasOwnText(el) ? lineHeight(el) : 0;
-  return chrome + Math.max(px(s.minHeight), stacked, text);
-}
-
-/** `root` の内容の上端から数えた、`target` の下端までの距離。 */
-function bottomWithin(root: HTMLElement, target: HTMLElement): number {
-  let y = 0;
-  for (const child of [...root.children]) {
-    if (!(child instanceof HTMLElement)) continue;
-    if (child === target) return y + declaredHeight(child);
-    if (child.contains(target)) {
-      // その子の枠（上の余白・枠線・内側の余白）を足してから中へ降りる
-      return (
-        y +
-        px(child.style.marginTop) +
-        borderWidth(child, "Top") +
-        px(child.style.paddingTop) +
-        bottomWithin(child, target)
-      );
-    }
-    y += declaredHeight(child);
-  }
-  throw new Error(
-    `その要素が <${root.tagName.toLowerCase()}> の下に見つからない: ` +
-      `<${target.tagName.toLowerCase()} data-source="${target.getAttribute("data-source") ?? ""}">`,
-  );
-}
-
-/** 画面の上端から、その要素の下端までの高さ。 */
-function bottomOf(main: HTMLElement, target: HTMLElement): number {
-  return px(main.style.paddingTop) + bottomWithin(main, target);
-}
 
 async function renderPage(extra: SourceCoverage[] = []): Promise<HTMLElement> {
   // **いちばん高くなる形で測る** —— 合否が暫定のときは「確定まであと N 日」の 1 行が増える。
@@ -175,7 +80,7 @@ describe("ひとスクロールの勘定", () => {
     expect(
       bottom,
       `5 本目の下端が ${Math.round(bottom)} px で、ひとスクロール（${ONE_SCROLL_PX} px）に収まっていない`,
-    ).toBeLessThanOrEqual(ONE_SCROLL_PX);
+    ).toBeLessThanOrEqual(ONE_SCROLL_PX + excludedBoxPx());
   });
 
   // Scenario: 開いた直後に 2 ソース以上の直近 1 か月が同時に見える
@@ -185,7 +90,7 @@ describe("ひとスクロールの勘定", () => {
     // 「2 ソース以上について**直近 4 週以上が**同時に見えている」で、
     // 「1 年ぶんを見る」のボタンまで見えていることは求めていない
     const grids = [...document.querySelectorAll('[data-role="grid"]')] as HTMLElement[];
-    const visible = grids.filter((g) => bottomOf(main, g) <= VIEWPORT_H_PX).length;
+    const visible = grids.filter((g) => bottomOf(main, g) <= VIEWPORT_H_PX + excludedBoxPx()).length;
     expect(
       visible,
       `1 画面（${VIEWPORT_H_PX} px）に直近 4 週が収まっているのが ${visible} 本しかない`,
@@ -219,6 +124,6 @@ describe("ひとスクロールの勘定", () => {
     expect(
       bottom,
       `退役 3 本を足すと Must の 5 本目が ${Math.round(bottom)} px まで下がった`,
-    ).toBeLessThanOrEqual(ONE_SCROLL_PX);
+    ).toBeLessThanOrEqual(ONE_SCROLL_PX + excludedBoxPx());
   });
 });

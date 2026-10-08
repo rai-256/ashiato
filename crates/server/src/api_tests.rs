@@ -734,8 +734,8 @@ async fn coverage_endpoint_returns_five_sources() {
     // 両辺が同じ定数から来るので、`DEVICE_SUBJECT` を逆順にしても通った。
     let names: Vec<&str> = got.iter().map(|s| s.logical_source.as_str()).collect();
     assert_eq!(
-        names,
-        vec![
+        &names[..5],
+        [
             "c01-location",
             "c01-app-usage",
             "c01-photo",
@@ -743,6 +743,8 @@ async fn coverage_endpoint_returns_five_sources() {
             "c02-browser-history",
         ]
     );
+    assert!(names[5..].iter().all(|name| name.starts_with("c03-")));
+    assert!(names[5..].contains(&"c03-youtube-watch"));
     assert!(got.iter().all(|s| s.days.len() == 7), "7 日ぶん返る");
     // 各格子にソース名の文字を添えられるだけの材料が返っている（第 4 回 Q15）
     assert!(got.iter().all(|s| !s.display_name.is_empty()));

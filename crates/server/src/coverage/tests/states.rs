@@ -135,8 +135,9 @@ async fn coverage_state_is_deterministic() {
 ///
 /// Scenario: 想定間隔を超えない空白の日は途絶にならない
 /// Scenario: 前後に何も無い空白の日は途絶になる
+/// Scenario: 書き出しを忘れると書庫のソースは途絶になる
 #[tokio::test]
-async fn outage_respects_expected_gap() {
+async fn archive_source_outage_respects_expected_gap() {
     let pool = testdb::pool().await;
     // 想定間隔 60 日。前後に記録がある 1 日の空白は途絶にならない
     let (s, u) = src(&pool, "gap60", SIXTY_DAYS, Some("2026-05-01")).await;
