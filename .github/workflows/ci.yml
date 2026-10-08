@@ -27,7 +27,7 @@ jobs:
       windows: ${{ steps.f.outputs.windows }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - id: f
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -63,6 +63,7 @@ jobs:
     # job 開始時に立つ `services` の env（`env` コンテキストが使えない）へは渡せない。
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db
       - run: ./tools/db-roles.sh
@@ -91,6 +92,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: { targets: x86_64-pc-windows-gnu, components: clippy }
       # **型だけでなく lint も当てる**（review/code.md B-5 / R34）。ubuntu の clippy は
@@ -109,6 +111,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
@@ -128,6 +131,7 @@ jobs:
     defaults: { run: { working-directory: web } }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: "24" }
       - run: npm ci
@@ -151,6 +155,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - run: ./tools/ci-db-env.sh   # 合言葉は job の中で乱数から作る（tools/stack.sh が役割まで作る）
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -179,6 +184,7 @@ jobs:
     defaults: { run: { working-directory: collector-android } }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
@@ -197,6 +203,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
       - name: KVM を使えるようにする
@@ -234,6 +241,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       - run: ./tools/ci-db-env.sh   # 合言葉は job の中で乱数から作る（tools/smoke.sh が役割まで作る）
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       # 縦串。A で決めたもの同士が噛み合うかを見るのはこの 1 本だけ。
@@ -248,10 +256,11 @@ jobs:
   # **無ければ warning で素通りする** —— ローカルの scripts/merge_gate.sh が同じ検査を必ず走らせる。
   chain:
     runs-on: ubuntu-24.04
-    env:
-      HARNESS2_TOKEN: ${{ secrets.HARNESS2_TOKEN }}
+    # token は job の env に置かない（同じ job の check-*.sh など PR 側のスクリプトから見えるため）。
+    # 有無の判定と checkout の 2 か所だけに渡す。
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false }
       # 網の名前・私設 IP が入っていないこと。**何が変わっても必ず見る** ——
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
@@ -263,12 +272,16 @@ jobs:
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db
       - run: ./tools/check-db-secret.sh
-      - if: env.HARNESS2_TOKEN == ''
+      - id: harness2
+        env: { HARNESS2_TOKEN: "${{ secrets.HARNESS2_TOKEN }}" }
+        run: echo "available=$([ -n "$HARNESS2_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.harness2.outputs.available != 'true'
         run: echo "::warning::secrets.HARNESS2_TOKEN が無いので check_chain を飛ばす（merge_gate がローカルで見る）"
-      - if: env.HARNESS2_TOKEN != ''
+      - if: steps.harness2.outputs.available == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2 }
-      - if: env.HARNESS2_TOKEN != ''
+        # persist-credentials: false で token を harness2/.git/config に残さない（後続の check_chain.py から読めないように）
+        with: { repository: rai-256/harness2, token: "${{ secrets.HARNESS2_TOKEN }}", path: harness2, persist-credentials: false }
+      - if: steps.harness2.outputs.available == 'true'
         run: |
           ln -sfn "$PWD/harness2" .harness2      # scripts → .harness2/scripts（checkout ごとのリンク。runner には無い）
           python3 scripts/check_chain.py .
