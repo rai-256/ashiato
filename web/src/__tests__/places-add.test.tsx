@@ -7,13 +7,19 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlacesView } from "../PlacesView";
 import type { Candidate } from "../places";
+import { Gate } from "../session";
 
 const json = (status: number, body: unknown): Response =>
   ({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) }) as Response;
 const HOURS = Array.from({ length: 24 }, () => 0);
 const accepted = (n: number): Response =>
   json(200, Array.from({ length: n }, () => ({ id: "x", duplicate: false, accepted: true, error: null })));
-const refused = (kind: string): Response => json(400, [{ id: null, duplicate: false, accepted: false, error: kind }]);
+/** 送った `n` 件のうち先頭だけが断られた応答（サーバは 1 件ごとに 1 結果を返す。R21） */
+const refused = (kind: string, n = 1): Response =>
+  json(n > 1 ? 200 : 400, [
+    { id: null, duplicate: false, accepted: false, error: kind },
+    ...Array.from({ length: n - 1 }, () => ({ id: "x", duplicate: false, accepted: true, error: null })),
+  ]);
 
 function cand(i: number): Candidate {
   return {
@@ -151,6 +157,7 @@ describe("places-add: 名前を付けるフォーム", () => {
 
   it("登録は器 → 記録の束の順。座標は居た所の中心・広さは選んだ値・補足は入れたときだけ", async () => {
     candidates = [cand(0), cand(1)];
+    ingestReplies = [accepted(4)];
     const form = await openForm(1);
     fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "スーパー" } });
     fireEvent.click(within(form).getByRole("radio", { name: "200 m" }));
@@ -319,7 +326,7 @@ describe("places-add: 名前を付けるフォーム", () => {
 
   it("断られると種別ごとの文が出て、入れた広さと補足が残る", async () => {
     candidates = [cand(0)];
-    ingestReplies = [refused("invalid_place_name")];
+    ingestReplies = [refused("invalid_place_name", 4)];
     const form = await openForm();
     // 空の名前は押せない（D13（仮））。断られる応答は差し替えで作る
     fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
@@ -333,7 +340,13 @@ describe("places-add: 名前を付けるフォーム", () => {
 
   it("一部だけ断られた束も断られたものの理由を出す。5xx と 401 は届かなかった", async () => {
     candidates = [cand(0)];
-    ingestReplies = [json(200, [{ id: "a", accepted: true, error: null }, { id: "b", accepted: false, error: "invalid_radius" }])];
+    ingestReplies = [
+      json(200, [
+        { id: "a", accepted: true, error: null },
+        { id: "b", accepted: true, error: null },
+        { id: "c", accepted: false, error: "invalid_radius" },
+      ]),
+    ];
     const form = await openForm();
     fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
@@ -341,6 +354,54 @@ describe("places-add: 名前を付けるフォーム", () => {
     ingestReplies = [json(401, {})];
     fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
     await waitFor(() => expect(screen.getByTestId("place-problem").textContent).toContain("届きませんでした"));
+  });
+
+  it("結果の件数が送った件数と違えば届かなかったにして入力を残す（R21）", async () => {
+    candidates = [cand(0)];
+    // 4 件（名前・座標・広さ・補足）を送り、1 件分の結果（受理）だけが返る —— 途中の経路が本文を切った
+    ingestReplies = [accepted(1), accepted(4)];
+    const form = await openForm();
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "駅" } });
+    fireEvent.change(within(form).getByLabelText("補足"), { target: { value: "メモ" } });
+    fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
+    expect((await screen.findByTestId("place-problem")).textContent).toBe("サーバに届きませんでした。入力はそのまま残っています");
+    expect((records(posts("/api/ingest")[0]) as unknown[]).length).toBe(4);
+    expect(screen.getByTestId("place-add-form")).toBeTruthy();
+    expect((within(form).getByLabelText("名前") as HTMLInputElement).value).toBe("駅");
+    expect((within(form).getByLabelText("補足") as HTMLInputElement).value).toBe("メモ");
+    // 押し直しは同じ原文（冪等）。件数が揃えば受理で閉じる
+    fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
+    await waitFor(() => expect(screen.queryByTestId("place-add-form")).toBeNull());
+    expect(posts("/api/ingest")[1].body).toEqual(posts("/api/ingest")[0].body);
+  });
+
+  it("Gate の中で 401 が返ると画面全体がログインに戻り、開いていたフォームの入力は消える（R20 / D13（仮））", async () => {
+    candidates = [cand(0)];
+    containerReplies = [json(401, { error: "unavailable" })];
+    const inner = vi.mocked(fetch);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/session") return json(200, { signed_in: true });
+        return inner(url, init);
+      }),
+    );
+    render(
+      <Gate>
+        <PlacesView scheme="dark" />
+      </Gate>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "場所を足す" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "名前を付ける" }))[0]);
+    const form = await screen.findByTestId("place-add-form");
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "実家" } });
+    fireEvent.change(within(form).getByLabelText("補足"), { target: { value: "メモ" } });
+    fireEvent.click(within(form).getByRole("button", { name: "登録する" }));
+    // ST28 の Gate が中身を外してログインを出す。打った名前・補足は残らない（反転条件は D13（仮））
+    expect(await screen.findByTestId("login")).toBeTruthy();
+    expect(screen.queryByTestId("place-add-form")).toBeNull();
+    expect(document.body.textContent).not.toContain("実家");
+    expect(posts("/api/ingest")).toHaveLength(0);
   });
 
   it("操作できるものは 24 px 以上でフォーカスの印が付く", async () => {

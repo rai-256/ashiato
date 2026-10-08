@@ -973,12 +973,24 @@ fi
 got=$(psql -c "SELECT payload->>'lat' FROM core.event WHERE id='$PA';")
 [ "$got" = "35.0" ] || { echo "  NG 拒まれたのに緯度が変わっている: $got"; fail=1; }
 
-# Scenario: 場所の記録の書いた日時は書き換えられない / 場所の記録の利用者は書き換えられない
-for set in "event_time='2000-01-01T00:00:00Z'" "user_id='11111111-1111-4111-8111-111111111111'"; do
-  if psql -c "UPDATE core.event SET $set WHERE id='$PA';" >/dev/null 2>&1; then
-    echo "  NG 場所の記録の列が書き換えられた: $set"; fail=1
+place_update_rejected() {   # $1=SET 句 $2=OK の行に出す名前
+  if psql -c "UPDATE core.event SET $1 WHERE id='$PA';" >/dev/null 2>&1; then
+    echo "  NG 場所の記録の列が書き換えられた: $1"; fail=1
+  else
+    echo "  OK place 場所の記録の$2は書き換えられない"
   fi
-done
+}
+
+# Scenario: 場所の記録の書いた日時は書き換えられない
+place_update_rejected "event_time='2000-01-01T00:00:00Z'" "書いた日時"
+
+# Scenario: 場所の記録の利用者は書き換えられない
+place_update_rejected "user_id='11111111-1111-4111-8111-111111111111'" "利用者"
+
+# 要件「場所の記録は書き換えられない」の外部識別子（`external_ref`）と論理ソース（外への付け替え）。
+# `external_ref` は消去の後も残る座標の印（D4）で、外への付け替えは「別のソースへ移してから行ごと消す」を止める唯一の枝。
+place_update_rejected "external_ref='forged-ref'" "外部識別子（external_ref）"
+place_update_rejected "logical_source='immutable-check'" "論理ソース（外への付け替え）"
 
 # Scenario: 場所の記録の行は削除できない
 if psql -c "DELETE FROM core.event WHERE id='$PA';" >/dev/null 2>&1; then

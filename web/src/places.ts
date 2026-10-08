@@ -326,9 +326,13 @@ export function outcomeMessage(outcome: Exclude<SendOutcome, { at: "accepted" }>
 /**
  * 記録の束への応答を読む（D13）。**200 でも 400 でも本文の 1 件ごとの結果を読む**。
  * 1 件でも受理されなかったものがあれば、その理由を返す（束は冪等なので、押し直しで受理済みは畳まれる）。
- * 本文が読めない・5xx・401 だけが「届かなかった」。
+ * 本文が読めない・5xx・401、**結果の件数が送った件数（`sent`）と違う**ときは「届かなかった」。
+ * サーバは 1 件ごとに 1 結果を送った順に返すので、件数が違うのは途中の経路が本文を切ったときだけ
+ * —— 受理と読むと、返らなかった項目が送れていないかもしれないまま入力を捨てる（R21）。
+ * 401 を「届かなかった」と読むのは Gate の外の話で、実際の組み立てでは ST28 の Gate が先に
+ * 画面全体をログインへ戻し、開いていたフォームの入力は消える（design D13（仮））。
  */
-export async function readPlaceIngestResponse(res: Response): Promise<SendOutcome> {
+export async function readPlaceIngestResponse(res: Response, sent: number): Promise<SendOutcome> {
   if (res.status >= 500 || res.status === 401) return { at: "unreachable" };
   let body: unknown;
   try {
@@ -338,6 +342,7 @@ export async function readPlaceIngestResponse(res: Response): Promise<SendOutcom
   }
   if (!Array.isArray(body)) return { at: "unreachable" };
   if (body.length === 0) return { at: "rejected", kind: "unknown" };
+  if (body.length !== sent) return { at: "unreachable" };
   const refused = (body as { accepted?: unknown; error?: unknown }[]).find((r) => r.accepted !== true);
   if (refused === undefined) return { at: "accepted" };
   return { at: "rejected", kind: typeof refused.error === "string" ? refused.error : "unknown" };
@@ -350,7 +355,7 @@ export async function sendPlaceRecords(records: BuiltPlaceRecord[]): Promise<Sen
     headers: { "content-type": "application/json" },
     body: JSON.stringify(records.map((r) => ingestPlaceItem(r))),
   });
-  return readPlaceIngestResponse(res);
+  return readPlaceIngestResponse(res, records.length);
 }
 
 /** 器を作る（`POST /api/places`。同じ利用者の同じ識別子は 200）。 */

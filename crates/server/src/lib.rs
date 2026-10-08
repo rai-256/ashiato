@@ -2240,7 +2240,7 @@ pub struct PlacesQuery {
 
 /// 場所のいまの値と前の値・座標の版を返す（design D6 / D7 / D15）。
 #[utoipa::path(get, path = "/places", params(PlacesQuery),
-    responses((status = 200, body = places::PlacesView), (status = 401)))]
+    responses((status = 200, body = places::PlacesView), (status = 401), (status = 500)))]
 pub async fn places_get(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2255,7 +2255,7 @@ pub async fn places_get(
 
 /// 名前の無い、よく居た所を全部返す（design D10 / D15）。上位で切るのは画面。
 #[utoipa::path(get, path = "/places/candidates", params(PlacesQuery),
-    responses((status = 200, body = places::CandidatesView), (status = 401)))]
+    responses((status = 200, body = places::CandidatesView), (status = 401), (status = 500)))]
 pub async fn place_candidates_get(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2333,25 +2333,33 @@ pub async fn attributes_kind_name_post(
 #[utoipa::path(post, path = "/places",
     request_body = places::PlaceCreateRequest,
     responses((status = 200, body = places::PlaceCreated),
-              (status = 400, body = places::PlaceErrorBody), (status = 401)))]
+              (status = 400, body = places::PlaceErrorBody),
+              (status = 401, body = places::PlaceUnavailableBody),
+              (status = 500, body = places::PlaceUnavailableBody)))]
 pub async fn places_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(req): Json<places::PlaceCreateRequest>,
-) -> Result<Json<places::PlaceCreated>, (StatusCode, Json<places::PlaceErrorBody>)> {
-    let body = |code: StatusCode, error| (code, Json(places::PlaceErrorBody { error }));
+) -> Result<Json<places::PlaceCreated>, axum::response::Response> {
+    use axum::response::IntoResponse as _;
+    let unavailable = |code: StatusCode| {
+        let error = places::PlaceUnavailable::Unavailable;
+        (code, Json(places::PlaceUnavailableBody { error })).into_response()
+    };
     authorize(&app, &headers)
         .await
-        .map_err(|(code, _)| body(code, places::PlaceError::Unavailable))?;
+        .map_err(|(code, _)| unavailable(code))?;
     let user_id = req.user_id.unwrap_or_default();
     match places::create_place(&app.pool, user_id, req.id)
         .await
-        .map_err(|e| {
-            let (code, _) = internal_at("places.create", e);
-            body(code, places::PlaceError::Unavailable)
-        })? {
+        .map_err(|e| unavailable(internal_at("places.create", e).0))?
+    {
         Ok(created) => Ok(Json(created)),
-        Err(why) => Err(body(StatusCode::BAD_REQUEST, why)),
+        Err(error) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(places::PlaceErrorBody { error }),
+        )
+            .into_response()),
     }
 }
 
@@ -2628,6 +2636,8 @@ pub async fn run() -> anyhow::Result<()> {
         places::PlaceCreated,
         places::PlaceError,
         places::PlaceErrorBody,
+        places::PlaceUnavailable,
+        places::PlaceUnavailableBody,
         places::PlacesView,
         places::CandidatesView,
         places::Candidate,

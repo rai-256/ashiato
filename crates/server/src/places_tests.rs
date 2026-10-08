@@ -332,6 +332,134 @@ async fn place_lock_rejects_rewriting_the_user() {
     assert_eq!(kept, user);
 }
 
+/// 文が**場所の記録の錠の、その枝で**拒まれることを見る（R18）。
+/// 他の錠や制約で落ちても通ってしまわないよう、枝ごとの文言で確かめる。
+async fn assert_place_lock_rejects(pool: &sqlx::PgPool, sql: &str, id: Uuid, needle: &str) {
+    let err = sqlx::query(sql)
+        .bind(id)
+        .execute(pool)
+        .await
+        .expect_err(&format!("拒まれるはずの文が通った: {sql}"))
+        .to_string();
+    assert!(
+        err.contains(needle),
+        "場所の記録の錠の「{needle}」の枝で拒まれていない: {err}"
+    );
+}
+
+// 要件「場所の記録は書き換えられない」の論理ソース（外への付け替え）
+#[tokio::test]
+async fn place_lock_rejects_moving_to_another_source() {
+    let pool = testdb::pool().await;
+    // 移す先は登録簿に在るソースにする（無いと外部キーで落ち、錠の枝を外しても緑のまま）
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+         VALUES ('place-lock-elsewhere', '場所の錠の付け替え先', 21600, 'none')
+         ON CONFLICT DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let id = put_place_record(&pool, testdb::user()).await;
+    assert_place_lock_rejects(
+        &pool,
+        "UPDATE core.event SET logical_source = 'place-lock-elsewhere' WHERE id = $1",
+        id,
+        "場所の記録の論理ソースは書き換えられない",
+    )
+    .await;
+}
+
+// 要件「場所の記録は書き換えられない」の由来
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_origin() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    assert_place_lock_rejects(
+        &pool,
+        "UPDATE core.event SET origin = 'derived' WHERE id = $1",
+        id,
+        "場所の記録の由来は書き換えられない",
+    )
+    .await;
+}
+
+// 要件「場所の記録は書き換えられない」の識別子
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_id() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    assert_place_lock_rejects(
+        &pool,
+        "UPDATE core.event SET id = gen_random_uuid() WHERE id = $1",
+        id,
+        "場所の記録の識別子は書き換えられない",
+    )
+    .await;
+}
+
+// 要件「場所の記録は書き換えられない」の書いた日時の地域
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_time_zone() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    for sql in [
+        "UPDATE core.event SET tz_offset_min = 0 WHERE id = $1",
+        "UPDATE core.event SET tz_id = 'UTC' WHERE id = $1",
+    ] {
+        assert_place_lock_rejects(
+            &pool,
+            sql,
+            id,
+            "場所の記録を書いた日時の地域は書き換えられない",
+        )
+        .await;
+    }
+}
+
+// 要件「場所の記録は書き換えられない」の外部識別子（`external_ref` は消去の後も残る座標の印。D4）
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_external_ref() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    for sql in [
+        "UPDATE core.event SET external_ref = 'forged-ref' WHERE id = $1",
+        "UPDATE core.event SET external_id = 'forged-id' WHERE id = $1",
+    ] {
+        assert_place_lock_rejects(&pool, sql, id, "場所の記録の外部識別子は書き換えられない").await;
+    }
+}
+
+// 要件「場所の記録は書き換えられない」の端末識別子
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_device_id() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    assert_place_lock_rejects(
+        &pool,
+        "UPDATE core.event SET device_id = 'forged-device' WHERE id = $1",
+        id,
+        "場所の記録の端末識別子は書き換えられない",
+    )
+    .await;
+}
+
+// 要件「場所の記録は書き換えられない」のエンベロープ
+#[tokio::test]
+async fn place_lock_rejects_rewriting_the_envelope() {
+    let pool = testdb::pool().await;
+    let id = put_place_record(&pool, testdb::user()).await;
+    for sql in [
+        "UPDATE core.event SET schema_version = 2 WHERE id = $1",
+        "UPDATE core.event SET unit_system = 'imperial' WHERE id = $1",
+        "UPDATE core.event SET crs = 'EPSG:3857' WHERE id = $1",
+        "UPDATE core.event SET source_updated_at = now() WHERE id = $1",
+    ] {
+        assert_place_lock_rejects(&pool, sql, id, "場所の記録のエンベロープは書き換えられない")
+            .await;
+    }
+}
+
 // Scenario: 場所の記録の行は削除できない
 #[tokio::test]
 async fn place_lock_rejects_deleting_the_row() {
@@ -587,29 +715,48 @@ mod container_endpoint {
         let _ = places_post(State(app.clone()), auth(), req(id, a))
             .await
             .expect("A の器");
-        let (code, Json(body)) = places_post(State(app.clone()), auth(), req(id, b))
+        let res = places_post(State(app.clone()), auth(), req(id, b))
             .await
             .expect_err("別の利用者の識別子で作れた");
+        let (code, body) = error_of(res).await;
         assert_eq!(code, StatusCode::BAD_REQUEST);
-        assert_eq!(body.error, PlaceError::PlaceIdTaken);
         assert_eq!(
-            serde_json::to_value(&body).unwrap(),
-            serde_json::json!({ "error": "place_id_taken" })
+            body,
+            serde_json::to_value(crate::places::PlaceErrorBody {
+                error: PlaceError::PlaceIdTaken
+            })
+            .unwrap()
         );
+        assert_eq!(body, serde_json::json!({ "error": "place_id_taken" }));
         assert_eq!(rows_of(&app, id).await, vec![a], "行は A の 1 つのまま");
+    }
+
+    /// 断った応答の状態符号と本文（JSON）。
+    async fn error_of(res: axum::response::Response) -> (StatusCode, serde_json::Value) {
+        let code = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        (code, serde_json::from_slice(&bytes).unwrap())
     }
 
     #[tokio::test]
     async fn place_container_endpoint_requires_the_token() {
         let app = app().await;
-        let (code, _) = places_post(
-            State(app),
+        let id = Uuid::new_v4();
+        let res = places_post(
+            State(app.clone()),
             HeaderMap::new(),
-            req(Uuid::new_v4(), testdb::user()),
+            req(id, testdb::user()),
         )
         .await
         .expect_err("資格情報なしで器が作れた");
+        let (code, body) = error_of(res).await;
         assert_eq!(code, StatusCode::UNAUTHORIZED);
+        assert_eq!(body, serde_json::json!({ "error": "unavailable" }));
+        // R14: 401 では器の行を作らない（資格情報を見る前に INSERT しない）
+        assert!(
+            rows_of(&app, id).await.is_empty(),
+            "401 なのに器の行ができた"
+        );
     }
 }
 
@@ -2225,6 +2372,38 @@ mod view_unit {
     }
 
     #[test]
+    fn place_view_unit_a_root_fixed_through_a_losing_sibling_points_at_the_winning_fix() {
+        // R16: f を直す兄弟 a・b のうち、先に書いた a をさらに c が直す（連鎖の兄弟）。版になるのは c だけ。
+        // f を直接直した最後の fix は b（負け）だが、f の fixed_by は版になった c を指す
+        let p = Uuid::new_v4();
+        let f = first(p, 35.0, "2026-09-01T09:00:00+09:00");
+        let a = fix(p, 35.1, &f, "2026-09-02T09:00:00+09:00");
+        let b = fix(p, 35.2, &f, "2026-09-03T09:00:00+09:00");
+        let c = fix(p, 35.3, &a, "2026-09-04T09:00:00+09:00");
+        let recs = vec![
+            name(p, "n", "2026-09-01T09:00:00+09:00", 1),
+            f.clone(),
+            a.clone(),
+            b.clone(),
+            c.clone(),
+        ];
+        let v = view(&[p], &recs, today("2026-10-01"));
+        let out = &v.places[0];
+        assert_eq!(out.coord.record_id, c.record.id, "いまの座標は c");
+        let state = |id: Uuid| {
+            let c = out
+                .previous_coords
+                .iter()
+                .find(|c| c.record_id == id)
+                .unwrap();
+            (c.state.as_str(), c.fixed_by)
+        };
+        assert_eq!(state(f.record.id), ("fixed", Some(c.record.id)));
+        assert_eq!(state(a.record.id), ("fixed", Some(c.record.id)));
+        assert_eq!(state(b.record.id), ("fixed", Some(c.record.id)));
+    }
+
+    #[test]
     fn place_window_unit_a_fix_whose_target_is_unusable_stands_on_its_own_position() {
         let p = Uuid::new_v4();
         let gone = first(p, 35.0, "2026-09-01T09:00:00+09:00"); // 渡さない（消えた記録）
@@ -3344,10 +3523,12 @@ mod view_endpoint {
     async fn place_candidates_ties_break_by_the_larger_total() {
         let app = at_now(app().await, NOW);
         let user = testdb::user();
+        // **end を揃える**（R14）。揃えないと最後に居た時刻だけで並びが決まり、合計の比較を消しても通る。
+        // 小さいほうを南（緯度の小さい側）に置き、最後の決着（緯度の順）とは逆の並びを求める
         stay_min(
             &app,
             user,
-            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T11:00:00+09:00",
             30,
             north(LAT, 1000.0),
         )
@@ -3361,7 +3542,9 @@ mod view_endpoint {
         )
         .await;
         let c = candidates(&app, user).await;
+        assert_eq!(c.len(), 2);
         assert_eq!(c[0]["stays"]["minutes"], 90);
+        assert_eq!(c[1]["stays"]["minutes"], 30);
     }
 
     // Scenario: 直すと全期間が新しい座標で照らされる
@@ -3720,6 +3903,145 @@ mod view_endpoint {
                 &serde_json::json!(a),
                 &serde_json::json!(c)
             ]
+        );
+    }
+}
+
+// ---------------------------------------------------------------- 照合と合計の純粋な関数の端（R14 / Task 5 の F3）
+
+mod match_unit {
+    use crate::places::{assign, candidates, MatchPlace, StayPoint, Window};
+    use chrono::{DateTime, Utc};
+    use uuid::Uuid;
+
+    fn t(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    fn sp(start: &str, end: &str, lat: f64, lon: f64) -> StayPoint {
+        StayPoint {
+            start: t(start),
+            end: t(end),
+            lat: Some(lat),
+            lon: Some(lon),
+        }
+    }
+
+    fn place(radius_m: i64, windows: Vec<Window>) -> MatchPlace {
+        MatchPlace {
+            id: Uuid::new_v4(),
+            radius_m,
+            windows,
+        }
+    }
+
+    fn window(lat: f64, start: Option<&str>, end: Option<&str>) -> Window {
+        Window {
+            id: Uuid::new_v4(),
+            lat,
+            lon: 139.0,
+            start: start.map(t),
+            end: end.map(t),
+        }
+    }
+
+    #[test]
+    fn place_assign_unit_a_stay_exactly_at_the_radius_is_assigned() {
+        // 距離 == 広さ（0 m == 0 m）は当たる（`<=`）。少しでも離れれば当たらない
+        let p = place(0, vec![window(35.0, None, None)]);
+        let at = sp(
+            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T11:00:00+09:00",
+            35.0,
+            139.0,
+        );
+        let off = sp(
+            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T11:00:00+09:00",
+            35.0001,
+            139.0,
+        );
+        assert_eq!(
+            assign(&[at, off], std::slice::from_ref(&p)),
+            vec![Some(p.id), None]
+        );
+    }
+
+    #[test]
+    fn place_assign_unit_window_edges_take_the_start_and_leave_the_end() {
+        // 版の期間は [始まり, 終わり)。滞在の始まりがちょうど始まりなら当たり、ちょうど終わりなら当たらない
+        let (from, until) = ("2026-04-01T00:00:00+09:00", "2026-05-01T00:00:00+09:00");
+        let p = place(100, vec![window(35.0, Some(from), Some(until))]);
+        let on_start = sp(from, "2026-04-01T01:00:00+09:00", 35.0, 139.0);
+        let before = sp("2026-03-31T23:59:59+09:00", from, 35.0, 139.0);
+        let on_end = sp(until, "2026-05-01T01:00:00+09:00", 35.0, 139.0);
+        assert_eq!(
+            assign(&[on_start, before, on_end], std::slice::from_ref(&p)),
+            vec![Some(p.id), None, None]
+        );
+    }
+
+    #[test]
+    fn place_candidates_unit_same_last_end_ties_break_by_the_larger_total() {
+        // 最後に居た時刻が同じ 2 つ。合計の大きい順（緯度の順なら逆になる並びに置く）
+        let small = sp(
+            "2026-09-10T11:00:00+09:00",
+            "2026-09-10T11:30:00+09:00",
+            35.0,
+            139.0,
+        );
+        let large = sp(
+            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T11:30:00+09:00",
+            35.1,
+            139.0,
+        );
+        let c = candidates(&[small, large]);
+        assert_eq!(
+            c.iter().map(|c| c.stays.minutes).collect::<Vec<_>>(),
+            vec![90, 30]
+        );
+    }
+
+    #[test]
+    fn place_candidates_unit_a_zero_length_stay_counts_without_minutes() {
+        // end == start の滞在は 1 件に数え、分も帯も足さない
+        let c = candidates(&[sp(
+            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T10:00:00+09:00",
+            35.0,
+            139.0,
+        )]);
+        assert_eq!(c.len(), 1);
+        assert_eq!((c[0].stays.count, c[0].stays.minutes), (1, 0));
+        assert!(c[0].stays.hours.iter().all(|m| *m == 0));
+    }
+
+    #[test]
+    fn place_candidates_unit_hours_split_exactly_on_the_hour() {
+        // 時間の境目ちょうどに始まり・終わる滞在は、その 1 時間だけに入る（前後の帯に漏れない）
+        let on = sp(
+            "2026-09-10T10:00:00+09:00",
+            "2026-09-10T11:00:00+09:00",
+            35.0,
+            139.0,
+        );
+        // 日をまたぐ滞在は 23 時と 0 時に分かれ、最初の日と最後の日が別になる
+        let across = sp(
+            "2026-09-10T23:30:00+09:00",
+            "2026-09-11T00:30:00+09:00",
+            35.0,
+            139.0,
+        );
+        let c = candidates(&[on]);
+        let h = &c[0].stays.hours;
+        assert_eq!((h[9], h[10], h[11]), (0, 60, 0));
+        let c = candidates(&[across]);
+        let s = &c[0].stays;
+        assert_eq!((s.hours[23], s.hours[0], s.minutes), (30, 30, 60));
+        assert_eq!(
+            (s.first_day.as_str(), s.last_day.as_str()),
+            ("2026-09-10", "2026-09-11")
         );
     }
 }

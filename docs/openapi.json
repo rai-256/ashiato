@@ -445,6 +445,9 @@
           },
           "401": {
             "description": ""
+          },
+          "500": {
+            "description": ""
           }
         }
       },
@@ -484,7 +487,24 @@
             }
           },
           "401": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceUnavailableBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceUnavailableBody"
+                }
+              }
+            }
           }
         }
       }
@@ -520,6 +540,9 @@
             }
           },
           "401": {
+            "description": ""
+          },
+          "500": {
             "description": ""
           }
         }
@@ -2073,10 +2096,9 @@
       },
       "PlaceError": {
         "type": "string",
-        "description": "器を断った理由。",
+        "description": "器を断った理由（400 だけ）。",
         "enum": [
-          "place_id_taken",
-          "unavailable"
+          "place_id_taken"
         ]
       },
       "PlaceErrorBody": {
@@ -2177,6 +2199,24 @@
           "minutes": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "PlaceUnavailable": {
+        "type": "string",
+        "description": "器を作れなかった理由のうち、本文の中身に依らないもの（401 資格情報 / 500 DB の失敗）。\n本文の形を 400 と揃える（`{\"error\": ...}`）が、400 の enum には混ぜない（review/code.md R12）。",
+        "enum": [
+          "unavailable"
+        ]
+      },
+      "PlaceUnavailableBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PlaceUnavailable"
           }
         }
       },

@@ -364,9 +364,10 @@ export function ChangeForm({
   const options = candidates.at === "ok" ? candidates.value.filter((cand) => !registered.some((r) => sameCoord(r, cand))) : [];
   const { shown, rest, showAll } = useTop(options);
 
-  // **いまと同じ値のうちは送らない**（同じ値の記録が増え、「前の名前: <いまと同じ名前>」が出る）
+  // **いまと同じ値のうちは送らない**（同じ値の記録が増え、「前の名前: <いまと同じ名前>」が出る）。
+  // 名前が空・空白だけのうちも送らない（登録と同じ。サーバに断らせて打ち直させない。R17）
   let spec: PlaceField | null;
-  if (kind === "name") spec = name === place.name ? null : { field: "name", name };
+  if (kind === "name") spec = name === place.name || name.trim() === "" ? null : { field: "name", name };
   else if (kind === "radius") spec = radius === place.radius_m ? null : { field: "radius", radius_m: radius };
   else if (pick === null || how === null) spec = null;
   else if (how === "fix") spec = { field: "coord", lat: pick.lat, lon: pick.lon, change: "fix", supersedes: place.coord.record_id };

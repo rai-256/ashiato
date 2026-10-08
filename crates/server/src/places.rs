@@ -378,19 +378,30 @@ pub struct PlaceCreated {
     pub id: Uuid,
 }
 
-/// 器を断った理由。
+/// 器を断った理由（400 だけ）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlaceError {
     /// その識別子はほかの利用者の器が持っている
     PlaceIdTaken,
-    /// 資格情報・DB の失敗（本文の形を 400 と揃えるための値。状態符号は 401 / 500）
-    Unavailable,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PlaceErrorBody {
     pub error: PlaceError,
+}
+
+/// 器を作れなかった理由のうち、本文の中身に依らないもの（401 資格情報 / 500 DB の失敗）。
+/// 本文の形を 400 と揃える（`{"error": ...}`）が、400 の enum には混ぜない（review/code.md R12）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaceUnavailable {
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PlaceUnavailableBody {
+    pub error: PlaceUnavailable,
 }
 
 /// 器を作る。同じ利用者の同じ識別子は何度でも `Ok`（押し直しで 2 つにしない）。
@@ -850,6 +861,31 @@ fn place_out(
     // 前の座標: いまの座標の版以外の座標の記録。書いた順
     let version_ids: std::collections::HashSet<Uuid> =
         vs.iter().map(|v| v.record.record.id).collect();
+    // 版ごとに、直す先を辿った記録の集まり（版そのものを含む）。連鎖の兄弟で、直接直した fix が
+    // 負けて版にならなかったときに、勝った版を指すのに使う（review/code.md R16）
+    let chains: Vec<(Uuid, std::collections::HashSet<Uuid>)> = vs
+        .iter()
+        .map(|v| {
+            let mut ids = std::collections::HashSet::new();
+            let mut cur = v.record;
+            while ids.insert(cur.record.id) {
+                let Some((_, _, CoordChange::Fix, _, Some(target))) = coord_of(cur) else {
+                    break;
+                };
+                let Some(next) = ordered.iter().find(|r| r.record.id == target) else {
+                    break;
+                };
+                cur = next;
+            }
+            (v.record.record.id, ids)
+        })
+        .collect();
+    let winning_version_through = |id: Uuid| {
+        chains
+            .iter()
+            .find(|(_, ids)| ids.contains(&id))
+            .map(|(v, _)| *v)
+    };
     let previous_coords = ordered
         .iter()
         .filter(|r| r.record.id != current.record.record.id)
@@ -867,19 +903,24 @@ fn place_out(
                 }
             } else {
                 // 使える fix に直された記録。最後に書いた fix を直した記録とする（兄弟の fix は D7（仮））。
+                // ただしその fix が版の連鎖に無い（兄弟に負けた）なら、この記録を辿る版を直した記録とする（R16）。
                 // 直す fix が無いのは兄弟に負けた fix —— 勝った版を直した記録とする
-                let fixer = ordered
+                let direct = ordered
                     .iter()
                     .rev()
                     .find(|f| {
                         matches!(coord_of(f), Some((_, _, CoordChange::Fix, _, Some(t))) if t == r.record.id)
                     })
-                    .map(|f| f.record.id)
-                    .or_else(|| {
-                        vs.iter()
-                            .find(|v| v.siblings.contains(&r.record.id))
-                            .map(|v| v.record.record.id)
-                    });
+                    .map(|f| f.record.id);
+                let fixer = match direct {
+                    Some(d) if winning_version_through(d).is_some() => Some(d),
+                    _ => winning_version_through(r.record.id).or(direct),
+                }
+                .or_else(|| {
+                    vs.iter()
+                        .find(|v| v.siblings.contains(&r.record.id))
+                        .map(|v| v.record.record.id)
+                });
                 (PreviousCoordState::Fixed, fixer)
             };
             let (written_at, ingested_at) = times(r);
@@ -1039,6 +1080,9 @@ pub struct CandidatesView {
 struct Cluster<'a> {
     lat: f64,
     lon: f64,
+    /// 属する代表点の緯度・経度の合計（足した順）。中心を取り直すたびに全点をなめないため（R15）
+    sum_lat: f64,
+    sum_lon: f64,
     stays: Vec<&'a StayPoint>,
 }
 
@@ -1063,15 +1107,18 @@ pub fn candidates(stays: &[StayPoint]) -> Vec<Candidate> {
         match near {
             Some(c) => {
                 c.stays.push(s);
+                c.sum_lat += lat;
+                c.sum_lon += lon;
                 let n = c.stays.len() as f64;
-                let pts = c.stays.iter().filter_map(|p| p.lat.zip(p.lon));
-                let (sl, so) = pts.fold((0.0, 0.0), |(a, b), (la, lo)| (a + la, b + lo));
-                c.lat = sl / n;
-                c.lon = so / n;
+                c.lat = c.sum_lat / n;
+                c.lon = c.sum_lon / n;
             }
             None => clusters.push(Cluster {
                 lat,
                 lon,
+                // 0.0 から足した値（全点を畳んだ前の実装と同じ順の足し算で、同じ浮動小数になる）
+                sum_lat: 0.0 + lat,
+                sum_lon: 0.0 + lon,
                 stays: vec![s],
             }),
         }

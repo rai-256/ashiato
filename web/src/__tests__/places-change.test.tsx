@@ -129,11 +129,27 @@ describe("places-change: 名前を変える", () => {
   });
 
   it("断られると種別の文が出て入力が残る", async () => {
+    // 空白だけの名前は押せない（R17）ので、サーバが断る場合を応答で作る
     ingestReplies = [refused("invalid_place_name")];
     const form = await open("名前を変える");
-    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "" } });
+    fireEvent.change(within(form).getByLabelText("名前"), { target: { value: "本社" } });
     fireEvent.click(send(form));
     expect((await screen.findByTestId("place-problem")).textContent).toBe("名前が空です。名前を入れてください");
+    expect((within(form).getByLabelText("名前") as HTMLInputElement).value).toBe("本社");
+  });
+
+  it("名前が空・空白だけのうちは「変える」を押せない（R17。登録と同じ）", async () => {
+    const form = await open("名前を変える");
+    const name = within(form).getByLabelText("名前");
+    for (const blank of ["", "   ", "\u3000"]) {
+      fireEvent.change(name, { target: { value: blank } });
+      expect(send(form).disabled, JSON.stringify(blank)).toBe(true);
+    }
+    fireEvent.change(name, { target: { value: " 本社 " } });
+    expect(send(form).disabled).toBe(false);
+    fireEvent.change(name, { target: { value: "   " } });
+    fireEvent.click(send(form));
+    expect(ingests()).toHaveLength(0);
   });
 
   it("D13 の表: 種別ごとに文が違い、知らない種別は種別の名前つき", async () => {

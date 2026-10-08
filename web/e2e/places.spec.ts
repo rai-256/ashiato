@@ -277,8 +277,13 @@ const failWith = async (page: Page, path: string, status: number): Promise<void>
   await page.route(isPath(path), (route) => route.request().method() === "GET" ? route.fulfill({ status, body: "boom" }) : route.fallback());
 };
 
-const refusal = (error: string): { id: null; duplicate: boolean; accepted: boolean; error: string }[] => [
+/**
+ * 送った `sent` 件のうち先頭が断られた応答。**サーバは 1 件ごとに 1 結果を返す**ので件数を揃える
+ * （揃えないと画面は途中で本文が切れたと読み「届かなかった」にする。review/code.md R21）
+ */
+const refusal = (error: string, sent = 1): { id: string | null; duplicate: boolean; accepted: boolean; error: string | null }[] => [
   { id: null, duplicate: false, accepted: false, error },
+  ...Array.from({ length: sent - 1 }, () => ({ id: "x", duplicate: false, accepted: true, error: null })),
 ];
 
 /** 取り込みの求めを 1 回目だけ「届いたが応答が返らなかった」にする（サーバへ通してから応答を捨てる） */
@@ -799,7 +804,9 @@ test("名前が空だと断られたときと届かなかったときで文が�
   );
   let mode: "refuse" | "drop" = "refuse";
   await page.route("**/api/ingest", (route) =>
-    mode === "refuse" ? route.fulfill({ status: 400, json: refusal("invalid_place_name") }) : route.abort("failed"),
+    mode === "refuse"
+      ? route.fulfill({ status: 200, json: refusal("invalid_place_name", (route.request().postDataJSON() as unknown[]).length) })
+      : route.abort("failed"),
   );
   await openPlaces(page);
   // 名前が空白だけのうちは「登録する」を押せない（design D13（仮）。送ると名前だけ断られ、位置と補足が名前の無い器に残る）。
