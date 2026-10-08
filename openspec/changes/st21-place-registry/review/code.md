@@ -69,43 +69,43 @@ fix は 1 回（02193371..5ac5b4d、`.superpowers/sdd/tasks/final-fix-report.md`
 - 成果物: tools/check-immutable.sh
 - 根拠: Task 1 の F3。`python3 scripts/check_scenarios.py . st21-place-registry` の warn
 - kind: technical
-- 処置:
+- 処置: fixed 1.4 — 1 段 1 印にして `OK place …書いた日時…` / `…利用者…` を出す（7719b3ea）。check_scenarios.py の warn から消えた
 
 ## R12. OpenAPI の POST /places の 400 の enum に unavailable が入り、401 / 500（GET /places* の 401 も）の本文が宣言されていない
 - 成果物: docs/openapi.json
 - 根拠: crates/server/src/bin/openapi.rs（Task 2 の F1）
 - kind: technical
-- 処置:
+- 処置: fixed 7.1 — 400 の enum は `place_id_taken` だけ、401 / 500 は `PlaceUnavailableBody` として宣言し、GET /places* に 500 を足した。docs/openapi.json を再生成（7719b3ea）
 
 ## R13. 範囲外の共有の道具を変えている（server_startup.rs は port の規則の 3 つ目の写し、agent-env.sh は .env の合言葉を全 agent の環境へ export）
 - 成果物: crates/server/tests/server_startup.rs
 - 根拠: crates/server/tests/server_startup.rs:21-47、tools/agent-env.sh、tools/verify-env.sh
 - kind: technical
-- 処置:
+- 処置: rejected: tools/agent-env.sh と tools/verify-env.sh は `git diff HEAD origin/main -- tools/agent-env.sh tools/verify-env.sh` が空 —— main に同じ変更が入った（fd1d588a、PR #58）ので merge しても差分にならない。crates/server/tests/server_startup.rs:21-47 は worktree で 11.3 の `cargo test --workspace` を通すのに要る（`.env` の port は main の DB を指す）。規則は crates/server/src/testdb.rs:15-20 と同じで testdb.rs:423-425 の試験が固定している。integration test から testdb.rs は見えないので写しになる
 
 ## R14. 試験の細部が欠けている（合計の大きい順の決着・assign / summarize の境界・401 で行が作られないこと・「自分自身」を直す枝）
 - 成果物: crates/server/src/places_tests.rs
 - 根拠: Task 6 の F1、Task 5 の F3、Task 2 の F2、Task 3 の F3
 - kind: technical
-- 処置:
+- 処置: fixed 5.1 — 決着の順（end を揃える形に直した）・assign の境界（半径ちょうど・期間の端）・summarize の境界（長さ 0・時の境目・日またぎ）・401 で器の行が作られないことの試験を足した（7719b3ea）
 
 ## R15. candidates がまとまりに足すたびに全点の平均を取り直し O(n²)
 - 成果物: crates/server/src/places.rs
 - 根拠: crates/server/src/places.rs:1031-1037（Task 6 の F3）
 - kind: technical
-- 処置:
+- 処置: fixed 6.1 — 中心を緯度・経度の合計の持ち回しで出し O(n) にした（7719b3ea）
 
 ## R16. 連鎖の兄弟（負けた fix をさらに直す fix）で、根の fixed_by が版にならなかった負けの fix を指す（fix wave の re-review が出した新しい Minor）
 - 成果物: crates/server/src/places.rs
 - 根拠: places.rs の place_out の fixed_by（5ac5b4d）。表示は state=fixed のまま
 - kind: technical
-- 処置:
+- 処置: fixed D7 仮 — 直接直した fix が版にならなかったときは勝った版を `fixed_by` にする。試験は直す前に落ちることを確かめた（7719b3ea）
 
 ## R17. 「名前を変える」は空白だけの名前でも押せる（re-review の範囲外の観察）
 - 成果物: web/src/PlaceForms.tsx
 - 根拠: `.superpowers/sdd/tasks/final-re-review.md` の Out-of-Scope
 - kind: technical
-- 処置:
+- 処置: fixed 9.2 — 空・空白だけ（全角も）の名前では「変える」を押せない。vitest 1 本（7719b3ea）
 
 # code-verify（独立検証。HEAD a55de3e7。2026-10-08）
 
@@ -225,6 +225,7 @@ R11 の「書いた日時」「利用者」の段は OK の行こそ出さない
   `external_ref` は D4（仮）が「消去の後も残り、錠が凍結する」と書いた根拠そのもの（`has_coord_record` と、R3 で直した `coord_supersedes_is_valid` が読む）。外への付け替えは「別のソースへ移してから行ごと消す」を止める唯一の枝
 - kind: technical
 - 提案: `place_lock_` に列ごとの UPDATE が拒まれることを 1 列 1 本で見る試験を足す（`external_ref` と `logical_source` は `check-immutable.sh` の段にも）
+- 処置: fixed 1.3 — `place_lock_` に 7 枝を 1 列 1 本で足し、枝ごとの例外の文言まで見る。check-immutable.sh に external_ref と論理ソースの段。2 枝を外して cargo と check-immutable.sh が落ちることを確かめた（7719b3ea）
 
 ## R19. 「場所の画面は確定した色だけを使う」の検査は画面を描く 5 ファイルのうち 2 つしか見ず、帯の部品に `#ff0000` を書いても緑
 - 成果物: web/src/__tests__/places-colors.test.ts / web/src/PlaceBand.tsx / web/src/PlaceForms.tsx / web/src/controls.ts
@@ -232,6 +233,7 @@ R11 の「書いた日時」「利用者」の段は OK の行こそ出さない
   24 区分の帯（`PlaceBand.tsx:25-26`）とフォームの面（`PlaceForms.tsx:199,268,319`）は検査の外。なお名前付き色の正規表現は `PlaceForms.tsx:154` の `border: "none"` に当たるので、そのまま対象を広げると誤検出する
 - kind: technical
 - 提案: 対象を場所の画面の全ファイル（`Place*.tsx`・`controls.ts`）にし、`none` を名前付き色から外す
+- 処置: fixed 8.3 — 対象を場所の画面の 5 ファイルにし、none / transparent などを名前付き色から外した。PlaceBand.tsx に #ff0000 で落ちることを確かめた（7719b3ea）
 
 ## R20. 入力中に印が切れる（401）と、名前を付ける・変えるのフォームが入力ごと消える（D13 は「届かなかった・入力はそのまま残っています」と書いている）
 - 成果物: web/src/session.tsx / web/src/PlaceForms.tsx / web/src/places.ts / openspec/changes/st21-place-registry/design.md
@@ -240,6 +242,7 @@ R11 の「書いた日時」「利用者」の段は OK の行こそ出さない
   打った名前・補足は記録になる前に捨てられ、戻す元が無い。押し直し用の器の識別子（`last.current`）も消えるので、401 が取り込みの段で起きたときは前の器が名前の無いまま残る
 - kind: daily
 - 提案: 入力中のフォームがある間は 401 で中身を外さない（ログインを上に重ねる）か、D13 の 401 の行を実際の振る舞いに書き直して本人に見せる。どちらかを選んで `Gate` を含めた試験で固定する
+- 処置: fixed D13 仮 — Gate（ST28）は変えず、D13 で 401 を別行に分けて「画面全体がログインに戻り入力は消える」と書き、反転条件（ST28 の D10 を変えて重ねる形に）を足した。`<Gate>` の中の 401 で入力が消えることを vitest で固定（7719b3ea）
 
 ## R21. 取り込みの結果が送った件数より少なくても「受理」と読み、フォームを閉じて入力を捨てる
 - 成果物: web/src/places.ts
@@ -247,6 +250,7 @@ R11 の「書いた日時」「利用者」の段は OK の行こそ出さない
   受理でフォームが閉じる（D13）ので、返らなかった 3 件（名前・広さ・補足のどれか）は送れていないかもしれないまま入力が消える。サーバは 1 件ごとに 1 結果を返す契約（`lib.rs` の `IngestResult` の doc「送った順に並ぶ」）なので、件数が違うのは途中の経路が本文を切ったときだけ
 - kind: technical
 - 提案: 結果の件数が送った件数と違えば「届かなかった」にして入力を残す（同じ原文の送り直しは冪等）。vitest 1 本
+- 処置: fixed 9.1 — 結果の件数が送った件数と違えば「届かなかった」にして入力を残す。vitest は直す前に落ちることを確かめた（7719b3ea）。件数の合わない既存の固定（vitest 3 本・e2e 1 本）は契約どおりに直した
 
 ## R22. 名前・広さ・補足のいまの値は画面の時計の「書いた日時」の順で決まり、時計が遅れた端末から後で変えた名前は「前の名前」に回る
 - 成果物: crates/server/src/places.rs / web/src/PlaceForms.tsx / openspec/changes/st21-place-registry/design.md
@@ -255,6 +259,7 @@ R11 の「書いた日時」「利用者」の段は OK の行こそ出さない
   時計のずれを測る ST05 は C-01 / C-02 だけを対象にし（`docs/stories/ST05.md` の FR-7）、V-01 の時計を測る Story は無い。D-01 に入った時刻は残っているので、並べ直せば戻る（失うものは無い）
 - kind: daily
 - 提案: D6（仮）の反転条件に「端末の時計が遅れている」を足し、本人に聞くまでの既定を決める（例: 書いた日時が今の値より前の記録を受理したら画面がそれを出す、または同じ項目の並びを D-01 に入った時刻にする）
+- 処置: fixed D6 仮 — コードは変えず、D6 に「V-01 の時計のずれは測っていない・D-01 に入った時刻で並べ直せば戻る」と反転条件（同じ項目の並びを D-01 に入った時刻にする）を足した（7719b3ea）
 
 ## 実行したコマンド（抜粋）
 
