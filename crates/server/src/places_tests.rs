@@ -686,10 +686,8 @@ mod container_endpoint {
     async fn place_container_endpoint_creates_the_given_id() {
         let app = app().await;
         let (user, id) = (testdb::user(), Uuid::new_v4());
-        let Json(out) = places_post(State(app.clone()), auth(), req(id, user))
-            .await
-            .expect("器が作れる");
-        assert_eq!(out.id, id, "渡した識別子がそのまま返る");
+        let out = created(places_post(State(app.clone()), auth(), req(id, user)).await).await;
+        assert_eq!(out, id, "渡した識別子がそのまま返る");
         assert_eq!(rows_of(&app, id).await, vec![user]);
     }
 
@@ -699,10 +697,8 @@ mod container_endpoint {
         let app = app().await;
         let (user, id) = (testdb::user(), Uuid::new_v4());
         for _ in 0..2 {
-            let Json(out) = places_post(State(app.clone()), auth(), req(id, user))
-                .await
-                .expect("2 回とも受け付ける");
-            assert_eq!(out.id, id);
+            let out = created(places_post(State(app.clone()), auth(), req(id, user)).await).await;
+            assert_eq!(out, id);
         }
         assert_eq!(rows_of(&app, id).await.len(), 1);
     }
@@ -712,12 +708,8 @@ mod container_endpoint {
     async fn place_container_endpoint_rejects_another_users_id() {
         let app = app().await;
         let (a, b, id) = (testdb::user(), testdb::user(), Uuid::new_v4());
-        let _ = places_post(State(app.clone()), auth(), req(id, a))
-            .await
-            .expect("A の器");
-        let res = places_post(State(app.clone()), auth(), req(id, b))
-            .await
-            .expect_err("別の利用者の識別子で作れた");
+        let _ = created(places_post(State(app.clone()), auth(), req(id, a)).await).await;
+        let res = places_post(State(app.clone()), auth(), req(id, b)).await;
         let (code, body) = error_of(res).await;
         assert_eq!(code, StatusCode::BAD_REQUEST);
         assert_eq!(
@@ -729,6 +721,15 @@ mod container_endpoint {
         );
         assert_eq!(body, serde_json::json!({ "error": "place_id_taken" }));
         assert_eq!(rows_of(&app, id).await, vec![a], "行は A の 1 つのまま");
+    }
+
+    /// 器ができた応答（200）が返した識別子。200 でなければ落とす。
+    pub(super) async fn created(res: axum::response::Response) -> Uuid {
+        let code = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        assert_eq!(code, StatusCode::OK, "器が作れない: {bytes:?}");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        serde_json::from_value(body["id"].clone()).expect("id は UUID")
     }
 
     /// 断った応答の状態符号と本文（JSON）。
@@ -747,8 +748,7 @@ mod container_endpoint {
             HeaderMap::new(),
             req(id, testdb::user()),
         )
-        .await
-        .expect_err("資格情報なしで器が作れた");
+        .await;
         let (code, body) = error_of(res).await;
         assert_eq!(code, StatusCode::UNAUTHORIZED);
         assert_eq!(body, serde_json::json!({ "error": "unavailable" }));
@@ -792,7 +792,7 @@ mod ingest_endpoint {
     /// 器を作る（`POST /places`）
     pub(super) async fn container(app: &App, user: Uuid) -> Uuid {
         let id = Uuid::new_v4();
-        let _ = places_post(
+        let res = places_post(
             State(app.clone()),
             auth(),
             Json(PlaceCreateRequest {
@@ -800,8 +800,8 @@ mod ingest_endpoint {
                 user_id: Some(user),
             }),
         )
-        .await
-        .expect("器が作れる");
+        .await;
+        super::container_endpoint::created(res).await;
         id
     }
 

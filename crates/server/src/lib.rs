@@ -2340,26 +2340,26 @@ pub async fn places_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(req): Json<places::PlaceCreateRequest>,
-) -> Result<Json<places::PlaceCreated>, axum::response::Response> {
+) -> axum::response::Response {
+    // `Result<_, Response>` にしない。`Err` が 128 バイトを超えて clippy の
+    // `result_large_err` に当たる（CI の rust job）。応答はどの枝も `Response` で返す。
     use axum::response::IntoResponse as _;
     let unavailable = |code: StatusCode| {
         let error = places::PlaceUnavailable::Unavailable;
         (code, Json(places::PlaceUnavailableBody { error })).into_response()
     };
-    authorize(&app, &headers)
-        .await
-        .map_err(|(code, _)| unavailable(code))?;
+    if let Err((code, _)) = authorize(&app, &headers).await {
+        return unavailable(code);
+    }
     let user_id = req.user_id.unwrap_or_default();
-    match places::create_place(&app.pool, user_id, req.id)
-        .await
-        .map_err(|e| unavailable(internal_at("places.create", e).0))?
-    {
-        Ok(created) => Ok(Json(created)),
-        Err(error) => Err((
+    match places::create_place(&app.pool, user_id, req.id).await {
+        Err(e) => unavailable(internal_at("places.create", e).0),
+        Ok(Ok(created)) => Json(created).into_response(),
+        Ok(Err(error)) => (
             StatusCode::BAD_REQUEST,
             Json(places::PlaceErrorBody { error }),
         )
-            .into_response()),
+            .into_response(),
     }
 }
 
