@@ -6,7 +6,7 @@
 
 出すもの（ファイル名 = 操作盤に並ぶ順）:
     01-requirements.html   要件（tools/requirements_brief.py に任せる）
-    02-ui-direction.html   UI の方向（要点 + 全文）。playground も 02-ui-playground.html として添える
+    02-ui-direction.html   UI の方向（要点 + 全文）。playground も 02-ui-playground.html（表面の作り直しは 02-ui-surface-playground.html）として添える
     03-production-prep.html 製造準備（要点 + 全文）
     04-specs.html          openspec/specs/ の正典（capability ごとの要求の一覧。機械で引くだけ）
     05-handoff.html        凍結した Story への申し送り（全文を並べるだけ）
@@ -258,10 +258,14 @@ def build(outdir: Path) -> None:
     (outdir / "02-ui-direction.html").write_text(page(
         "UI の方向", "画面の骨格・主役・色と形をどう決めたか。要点つき",
         points(UI_POINTS) + '<p><a href="02-ui-playground.html">決めたときの playground（触れる見本）を開く</a></p>'
+        + '<p><a href="02-ui-surface-playground.html">表面（色・形・文字）を作り直す playground を開く（2026-10-11）</a></p>'
         + src("docs/ui-direction.md") + md_sections(ui)), encoding="utf-8")
     pg = ROOT / "docs/ui-direction-playground.html"
     if pg.exists():
         shutil.copyfile(pg, outdir / "02-ui-playground.html")
+    spg = ROOT / "docs/ui-surface-playground.html"
+    if spg.exists():
+        shutil.copyfile(spg, outdir / "02-ui-surface-playground.html")
 
     prep = (ROOT / "docs/production-prep.md").read_text(encoding="utf-8")
     (outdir / "03-production-prep.html").write_text(page(
