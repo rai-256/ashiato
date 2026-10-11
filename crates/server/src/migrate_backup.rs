@@ -92,9 +92,12 @@ pub fn backup_before_migrate(
         return Ok(None);
     }
     let t = dump_target(url)?;
-    std::fs::create_dir_all(&cfg.dir)
+    private_dir(&cfg.dir)
         .with_context(|| format!("退避の置き場を作れない: {}", cfg.dir.display()))?;
     let file = cfg.dir.join(format!("pre-migrate-{stamp}.dump"));
+    // 退避は実データの全部の写し。pg_dump が書く前に、本人だけが読める空のファイルを作っておく
+    // （pg_dump と tools/pg_dump-docker.sh は既にあるファイルへ書くので、権限はこのまま残る）
+    private_file(&file).with_context(|| format!("退避のファイルを作れない: {}", file.display()))?;
     let mut cmd = std::process::Command::new(&cfg.pg_dump);
     cmd.args([
         "--no-password",
@@ -124,6 +127,35 @@ pub fn backup_before_migrate(
         );
     }
     Ok(Some(file))
+}
+
+/// 置き場を本人だけが入れる形で作る（unix は 0700。既にあれば狭める）。Windows は利用者のプロファイルの ACL に従う。
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// 退避のファイルを本人だけが読める形で作る（unix は 0600）。
+fn private_file(file: &Path) -> std::io::Result<()> {
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    o.open(file)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn non_empty(p: &Path) -> bool {
@@ -189,6 +221,20 @@ mod tests {
         .unwrap();
         assert_eq!(f, d.join("out/pre-migrate-20261011T000000Z.dump"));
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "secret");
+        // 退避は実データの全部の写しなので、本人だけが読める
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(d.join("out"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
         let args = std::fs::read_to_string(d.join("args")).unwrap();
         assert!(!args.contains("secret"), "合言葉が引数に載っている: {args}");
         assert!(args.contains("--format=custom") && args.contains("--dbname a"));
