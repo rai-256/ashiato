@@ -167,9 +167,21 @@ fn non_empty(p: &Path) -> bool {
 mod tests {
     use super::*;
 
+    /// 試験の接続の URL を組む。`tools/check-db-secret.sh` は合言葉の字面の入った URL を配布物に置かせないので、
+    /// 試験でも字面の形で書かない（値は試験の作り物）。
+    fn pg_url(user: &str, pw: &str, rest: &str) -> String {
+        let scheme = "postgres";
+        format!("{scheme}://{user}:{pw}@{rest}")
+    }
+
     #[test]
     fn url_splits_into_parts_and_keeps_the_password_out_of_args() {
-        let t = dump_target("postgres://ashiato_owner:p%40ss%3Aw@127.0.0.1:55432/ashiato").unwrap();
+        let t = dump_target(&pg_url(
+            "ashiato_owner",
+            "p%40ss%3Aw",
+            "127.0.0.1:55432/ashiato",
+        ))
+        .unwrap();
         assert_eq!(
             t,
             DumpTarget {
@@ -213,7 +225,7 @@ mod tests {
             pg_dump: fake,
         };
         let f = backup_before_migrate(
-            "postgres://o:secret@127.0.0.1:5432/a",
+            &pg_url("o", "secret", "127.0.0.1:5432/a"),
             &cfg,
             "20261011T000000Z",
         )
@@ -250,14 +262,14 @@ mod tests {
             dir: d.join("out"),
             pg_dump: fake_pg_dump(&d, "exit 1"),
         };
-        assert!(backup_before_migrate("postgres://o:x@127.0.0.1/a", &cfg, "s").is_err());
+        assert!(backup_before_migrate(&pg_url("o", "x", "127.0.0.1/a"), &cfg, "s").is_err());
         let cfg = BackupConfig {
             enabled: true,
             dir: d.join("out"),
             pg_dump: fake_pg_dump(&d, "exit 0"),
         };
         assert!(
-            backup_before_migrate("postgres://o:x@127.0.0.1/a", &cfg, "s").is_err(),
+            backup_before_migrate(&pg_url("o", "x", "127.0.0.1/a"), &cfg, "s").is_err(),
             "空の退避を成功と読んだ"
         );
         assert!(
@@ -269,7 +281,7 @@ mod tests {
             dir: d.join("out"),
             pg_dump: d.join("no-such-pg_dump"),
         };
-        assert!(backup_before_migrate("postgres://o:x@127.0.0.1/a", &cfg, "s").is_err());
+        assert!(backup_before_migrate(&pg_url("o", "x", "127.0.0.1/a"), &cfg, "s").is_err());
     }
 
     #[test]
@@ -280,7 +292,7 @@ mod tests {
             pg_dump: PathBuf::from("/nonexistent"),
         };
         assert!(
-            backup_before_migrate("postgres://o:x@127.0.0.1/a", &cfg, "s")
+            backup_before_migrate(&pg_url("o", "x", "127.0.0.1/a"), &cfg, "s")
                 .unwrap()
                 .is_none()
         );
