@@ -260,7 +260,8 @@ jobs:
     # 有無の判定と checkout の 2 か所だけに渡す。
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { persist-credentials: false }
+        # fetch-depth: 0 —— check_chain の 10（judged の無い Story は git blame で推す）と 11（整合の確認の基準の commit を読む）が履歴を要る
+        with: { persist-credentials: false, fetch-depth: 0 }
       # 網の名前・私設 IP が入っていないこと。**何が変わっても必ず見る** ——
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
