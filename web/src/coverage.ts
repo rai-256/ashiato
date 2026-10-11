@@ -4,7 +4,7 @@
  * （契約は `docs/openapi.json`）。
  */
 import { msg } from "./messages";
-import { BAND, INITIAL_WEEKS, TEXT, YEAR_WEEKS } from "./tokens";
+import { BAND_NAMES, INITIAL_WEEKS, SCHEMES, YEAR_WEEKS, type Hsl, type Scheme } from "./tokens";
 
 const m = msg("grid");
 const LOCALE = msg("locale");
@@ -27,7 +27,7 @@ export type DayState =
 export const STATE_NAME: Record<DayState, string> = m.state;
 
 /** 格子のセルが担う 3 段。 */
-export type Band = keyof typeof BAND;
+export type Band = (typeof BAND_NAMES)[number];
 
 /**
  * 8 状態を 3 段へ畳む（design D10）。
@@ -69,13 +69,14 @@ export function hasDropMark(cell: DayCell): boolean {
 }
 
 /**
- * 印を描く明るさ（design D10（仮））。**段ごとに変える** —— 1 色だと「それ以外」の段の上で見えない。
+ * 印を描く色（design D10（仮））。**段ごとに変える** —— 1 色だと「それ以外」の段の上で見えない。
  *
- * 「記録あり」と「動いていた・記録なし」の上は最も暗い段、「それ以外」の上は控えめな文字の明るさ。
+ * 「記録あり」と「動いていた・記録なし」の上は「それ以外」の段の色、「それ以外」の上は控えめな文字の色。
  * **新しい色は足さない**（`tokens.ts` の既存の値だけを使う）。比は `drop-mark.test.tsx` が値から数える。
  */
-export function dropMarkLightness(band: Band): number {
-  return band === "other" ? TEXT.muted : BAND.other;
+export function dropMarkTone(band: Band, scheme: Scheme): Hsl {
+  const c = SCHEMES[scheme];
+  return band === "other" ? c.muted : c.cell.other;
 }
 
 /** 週の詳細に添える破棄の文字（design D10）。丸ごとの日は件数だけ、それ以外は区間ごとに「うち N 件を破棄（from〜to）」。 */

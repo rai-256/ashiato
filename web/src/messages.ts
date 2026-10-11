@@ -117,6 +117,8 @@ const ja = {
     restore: "戻す",
     move: (long: string): string => `移動 ${long}`,
     noRecord: (range: string): string => `記録なし ${range}`,
+    /** 種類のしるし（線の輪の中の記号）。**文字に添えるだけ**で、読み上げには出さない（2026-10-12） */
+    mark: { stay: "●", move: "➝", "no-record": "…", erased: "×" },
     detailLoading: "詳細を読み込み中…",
     detailFailed: (why: string): string => `詳細の読み出しに失敗しました（${why}）。`,
     detailCount: (name: string, count: number): string => `${name} ${count} 件`,
