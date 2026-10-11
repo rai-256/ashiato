@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState } from "react";
+import { msg } from "./messages";
 import { MIN_TARGET_PX, SURFACE, TEXT, tone } from "./tokens";
+
+const m = msg("session");
 
 /**
  * 画面のログイン（ST28 / design D10）。
@@ -63,9 +66,9 @@ export function Gate({ children }: { children: React.ReactNode }): React.ReactEl
               .catch(() => setLogoutFailed(true));
           }}
         >
-          ログアウト
+          {m.logout}
         </button>
-        {logoutFailed && <p role="alert">ログアウトできなかった。もう一度押してください。</p>}
+        {logoutFailed && <p role="alert">{m.logoutFailed}</p>}
       </header>
       {children}
     </>
@@ -81,11 +84,7 @@ const ground: React.CSSProperties = {
 /** ログインが通らなかった理由。401 だけが「合言葉が違う」（429 と 5xx・届かないは別。final review R13）。 */
 type Refusal = "wrong" | "throttled" | "unreachable";
 
-const REFUSAL_TEXT: Record<Refusal, string> = {
-  wrong: "合言葉が違います。",
-  throttled: "試しすぎで、しばらく受け付けません。1 分ほど待ってからもう一度。",
-  unreachable: "サーバに届かなかったか、サーバで失敗しました。もう一度試してください。",
-};
+const REFUSAL_TEXT: Record<Refusal, string> = m.refusal;
 
 function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
   const [password, setPassword] = useState("");
@@ -115,7 +114,7 @@ function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
   return (
     <main data-testid="login" style={{ ...ground, padding: 12, font: "400 16px/1.6 system-ui, sans-serif" }}>
       <form onSubmit={(e) => void submit(e)} style={{ display: "grid", gap: 12, maxWidth: 360 }}>
-        <label htmlFor="web-password">合言葉</label>
+        <label htmlFor="web-password">{m.password}</label>
         <input
           id="web-password"
           type="password"
@@ -125,7 +124,7 @@ function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
           style={{ ...INPUT_FLOOR }}
         />
         <button type="submit" disabled={sending} style={{ ...INPUT_FLOOR, minWidth: 44 }}>
-          ログイン
+          {m.login}
         </button>
         {refused && <p role="alert">{REFUSAL_TEXT[refused]}</p>}
       </form>

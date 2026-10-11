@@ -23,17 +23,21 @@ import {
   type Precision,
   type SendOutcome,
 } from "./attributes";
+import { msg } from "./messages";
 import { MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
+
+const m = msg("master");
+const common = msg("common");
 
 /** 読み出しの状態。**「読み込み中」「失敗」「まだ書いていない」を分ける**（spec）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
 
 /** 精度の選択肢。**先に選ぶ**（Q2。本人が proto で決めた）。 */
 const PRECISIONS: { value: Precision; label: string }[] = [
-  { value: "year", label: "年" },
-  { value: "month", label: "年月" },
-  { value: "day", label: "年月日" },
-  { value: "unknown", label: "分からない" },
+  { value: "year", label: m.precision.year },
+  { value: "month", label: m.precision.month },
+  { value: "day", label: m.precision.day },
+  { value: "unknown", label: m.precision.unknown },
 ];
 
 /**
@@ -93,16 +97,16 @@ export function MasterView(): React.ReactElement {
     >
       <nav style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={{ ...link(scheme) }}>
-          稼働状況へ
+          {common.toCoverage}
         </a>
       </nav>
-      <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>マスタ管理</h1>
+      <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>{m.title}</h1>
 
       {/*
         **タブは「個人属性」の 1 つだけ**（design D9）。押しても何も無いタブを置かない ——
         人物（ST20）と場所（ST21）が中身とともに足す。
       */}
-      <div role="tablist" aria-label="マスタ管理" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <div role="tablist" aria-label={m.title} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <button
           type="button"
           role="tab"
@@ -110,7 +114,7 @@ export function MasterView(): React.ReactElement {
           {...{ [FOCUS_ATTR]: "" }}
           style={{ ...control(scheme), background: tone(c.surface2) }}
         >
-          個人属性
+          {m.tabAttributes}
         </button>
       </div>
 
@@ -119,14 +123,14 @@ export function MasterView(): React.ReactElement {
           {stored}
         </p>
       )}
-      {data.at === "loading" && <p data-testid="master-loading">読み込み中…</p>}
+      {data.at === "loading" && <p data-testid="master-loading">{common.loading}</p>}
       {/*
         **読み出しの失敗と「まだ書いていない」を混ぜない**（spec）——
         混ぜると、サーバが落ちている間ずっと「属性が 1 つも無い」と読める。
       */}
       {data.at === "failed" && (
         <p role="alert" data-testid="master-failed">
-          個人属性を読み出せませんでした（{data.why}）。
+          {m.failed(data.why)}
         </p>
       )}
       {data.at === "ok" && (
@@ -137,7 +141,7 @@ export function MasterView(): React.ReactElement {
           <div style={{ marginTop: 12 }}>
             {adding ? (
               <NameForm
-                label="種類を足す"
+                label={m.addKind}
                 scheme={scheme}
                 onCancel={() => setAdding(false)}
                 onSubmit={async (name) => {
@@ -155,7 +159,7 @@ export function MasterView(): React.ReactElement {
               />
             ) : (
               <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => setAdding(true)}>
-                種類を足す
+                {m.addKind}
               </button>
             )}
           </div>
@@ -204,7 +208,7 @@ function KindCard({
       {/* 種類の名前。**押すと名前を変える欄が出る**（既定では出さない —— 書き換えの欄を常に置かない） */}
       {renaming ? (
         <NameForm
-          label={`「${kind.name}」の名前を変える`}
+          label={m.rename(kind.name)}
           scheme={scheme}
           initial={kind.name}
           onCancel={() => setRenaming(false)}
@@ -234,7 +238,7 @@ function KindCard({
 
       {/* いまの値。**「まだ書いていない」と「なし」を分ける**（深掘り C10） */}
       <div data-testid="current-value" style={{ font: "600 20px/1.4 system-ui, sans-serif", marginTop: 4 }}>
-        {kind.current === null ? "まだ書いていない" : valueLabel(kind.current.value)}
+        {kind.current === null ? m.notYet : valueLabel(kind.current.value)}
       </div>
       {kind.current !== null && (
         <div style={{ color: tone(c.muted), fontSize: 14 }}>{validFromLabel(kind.current.valid_from)}</div>
@@ -243,7 +247,7 @@ function KindCard({
       {/* 予定（「いつから」が今日より後。深掘り C6） */}
       {kind.upcoming.map((u) => (
         <div key={u.id} data-testid="upcoming" style={{ color: tone(c.muted), fontSize: 14, marginTop: 4 }}>
-          {valueLabel(u.value)}（予定）・{validFromLabel(u.valid_from)}
+          {m.upcoming(valueLabel(u.value), validFromLabel(u.valid_from))}
         </div>
       ))}
 
@@ -256,14 +260,14 @@ function KindCard({
             onDone={async () => {
               setWriting(false);
               // **受理の事実を先に立てる。** この後の読み直しが落ちても消さない
-              onStored(`「${kind.name}」に主張を積みました。`);
+              onStored(m.stored(kind.name));
               await onChanged();
             }}
             onCancel={() => setWriting(false)}
           />
         ) : (
           <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => setWriting(true)}>
-            書く
+            {m.write}
           </button>
         )}
       </div>
@@ -288,7 +292,7 @@ function KindCard({
             style={{ ...control(scheme), background: "transparent", color: tone(c.muted), fontSize: 14 }}
             onClick={() => setSupOpen((v) => !v)}
           >
-            訂正で取り消した {kind.superseded.length} 件
+            {m.supersededCount(kind.superseded.length)}
           </button>
           {supOpen && (
             <div data-testid="superseded">
@@ -345,14 +349,14 @@ function ClaimRow({
     >
       <span style={{ display: "block" }}>
         {valueLabel(claim.value)}
-        {superseded && <span style={{ color: tone(c.muted), fontSize: 13 }}>（訂正で取り消し）</span>}
-        {future && <span style={{ color: tone(c.muted), fontSize: 13 }}>（予定）</span>}
+        {superseded && <span style={{ color: tone(c.muted), fontSize: 13 }}>{m.supersededMark}</span>}
+        {future && <span style={{ color: tone(c.muted), fontSize: 13 }}>{m.upcomingMark}</span>}
       </span>
       <span style={{ display: "block", color: tone(c.muted), fontSize: 14 }}>{validFromLabel(claim.valid_from)}</span>
       {/* **補足は押さずに見える**（D13（仮）。本人が見た proto で行に常に出ていた） */}
       {claim.note !== null && (
         <span data-testid="claim-note" style={{ display: "block", color: tone(c.muted), fontSize: 14 }}>
-          補足: {claim.note}
+          {m.note(claim.note)}
         </span>
       )}
       {/* **書いた日時は押したときだけ**（Q2）。保存も読み出しも 2 つの時刻を別々に持つ（FR-45） */}
@@ -454,11 +458,11 @@ function WriteForm({
     <div data-testid="write-form" style={{ background: tone(c.surface2), borderRadius: 15, padding: 8 }}>
       {/* **開いてから「変わった / 間違っていた」を選ぶ**（Q2。入口はカードごとに 1 つ） */}
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 8px" }}>
-        <legend style={{ fontSize: 14, color: tone(c.muted) }}>何を書くか</legend>
+        <legend style={{ fontSize: 14, color: tone(c.muted) }}>{m.whatToWrite}</legend>
         {(
           [
-            ["change", "変わった"],
-            ["fix", "前の書き込みが間違っていた"],
+            ["change", m.modeChange],
+            ["fix", m.modeFix],
           ] as const
         ).map(([v, label]) => (
           <label key={v} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, minHeight: MIN_TARGET_PX }}>
@@ -478,9 +482,9 @@ function WriteForm({
       {/* **取り消す主張を指して積む**（深掘り C5）。指さずに積むと古い開始が導出に残り続ける */}
       {mode === "fix" && (
         <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
-          どの主張を取り消すか
+          {m.whichToSupersede}
           <select
-            aria-label="取り消す主張"
+            aria-label={m.supersedeTarget}
             value={target ?? ""}
             {...{ [FOCUS_ATTR]: "" }}
             style={field}
@@ -488,7 +492,7 @@ function WriteForm({
           >
             {kind.claims.map((x) => (
               <option key={x.id} value={x.id}>
-                {valueLabel(x.value)} ／ {validFromLabel(x.valid_from)}
+                {m.claimOption(valueLabel(x.value), validFromLabel(x.valid_from))}
               </option>
             ))}
           </select>
@@ -496,9 +500,9 @@ function WriteForm({
       )}
 
       <label style={{ display: "block", marginBottom: 4, fontSize: 14 }}>
-        値
+        {m.value}
         <input
-          aria-label="値"
+          aria-label={m.value}
           value={input.value ?? ""}
           disabled={isNone}
           {...{ [FOCUS_ATTR]: "" }}
@@ -515,7 +519,7 @@ function WriteForm({
           style={{ minWidth: MIN_TARGET_PX, minHeight: MIN_TARGET_PX }}
           onChange={(e) => setIsNone(e.target.checked)}
         />
-        なし（その属性が終わった）
+        {m.none}
       </label>
 
       {/* **精度を先に選ぶ**（Q2）。選んだ精度の欄だけを出す */}
@@ -524,7 +528,7 @@ function WriteForm({
         同じ「年」だと、読み上げでも検査でもどちらを指しているか決まらない。
       */}
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 4px" }}>
-        <legend style={{ fontSize: 14, color: tone(c.muted) }}>いつから</legend>
+        <legend style={{ fontSize: 14, color: tone(c.muted) }}>{m.validFrom}</legend>
         {PRECISIONS.map((p) => (
           <label key={p.value} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10, minHeight: MIN_TARGET_PX }}>
             <input
@@ -541,24 +545,24 @@ function WriteForm({
       </fieldset>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         {input.precision !== "unknown" && (
-          <input aria-label="いつから（年）" value={input.year} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 90 }} onChange={(e) => setInput({ ...input, year: e.target.value })} />
+          <input aria-label={m.validFromYear} value={input.year} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 90 }} onChange={(e) => setInput({ ...input, year: e.target.value })} />
         )}
         {(input.precision === "month" || input.precision === "day") && (
-          <input aria-label="いつから（月）" value={input.month} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 64 }} onChange={(e) => setInput({ ...input, month: e.target.value })} />
+          <input aria-label={m.validFromMonth} value={input.month} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 64 }} onChange={(e) => setInput({ ...input, month: e.target.value })} />
         )}
         {input.precision === "day" && (
-          <input aria-label="いつから（日）" value={input.day} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 64 }} onChange={(e) => setInput({ ...input, day: e.target.value })} />
+          <input aria-label={m.validFromDay} value={input.day} {...{ [FOCUS_ATTR]: "" }} style={{ ...control(scheme), width: 64 }} onChange={(e) => setInput({ ...input, day: e.target.value })} />
         )}
       </div>
 
       <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
-        補足（任意）
-        <input aria-label="補足" value={input.note} {...{ [FOCUS_ATTR]: "" }} style={field} onChange={(e) => setInput({ ...input, note: e.target.value })} />
+        {m.noteField}
+        <input aria-label={m.noteLabel} value={input.note} {...{ [FOCUS_ATTR]: "" }} style={field} onChange={(e) => setInput({ ...input, note: e.target.value })} />
       </label>
 
       {cannotSupersede && (
         <p role="alert" data-testid="write-problem" style={{ fontSize: 14, margin: "0 0 8px" }}>
-          取り消す主張を選んでください（この種類にはまだ主張がありません）
+          {m.noTarget}
         </p>
       )}
       {problem !== null && (
@@ -580,10 +584,10 @@ function WriteForm({
           style={control(scheme)}
           onClick={() => void submit()}
         >
-          積む
+          {m.submit}
         </button>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={onCancel}>
-          やめる
+          {common.cancel}
         </button>
       </div>
     </div>
@@ -632,10 +636,10 @@ function NameForm({
             .finally(() => setSending(false));
         }}
       >
-        決める
+        {m.decide}
       </button>
       <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={onCancel}>
-        やめる
+        {common.cancel}
       </button>
       {problem !== null && (
         <p role="alert" style={{ fontSize: 14, margin: 0, width: "100%" }}>

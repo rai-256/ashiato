@@ -4,7 +4,10 @@ import { App, todayInTz } from "./App";
 import { DayView } from "./DayView";
 import { MasterView } from "./MasterView";
 import { dayFromHash, isRealDate } from "./stays";
+import { msg } from "./messages";
 import { SCHEMES, tone } from "./tokens";
+
+const m = msg("root");
 
 /**
  * 画面の行き先を決める（ST16 / design D8）。**S-1（稼働状況）はルートのまま** ——
@@ -29,9 +32,9 @@ export function Root(): React.ReactElement {
         data-testid="day-invalid"
         style={{ background: tone(SCHEMES.dark.ground), color: tone(SCHEMES.dark.text), minHeight: "100vh", padding: 12 }}
       >
-        <p role="alert">アドレスの日付（{day}）を日付として読めません。</p>
+        <p role="alert">{m.invalidDate(day)}</p>
         <a href="#/day/" style={{ color: tone(SCHEMES.dark.text), minHeight: 24, minWidth: 24, display: "inline-flex", alignItems: "center" }}>
-          今日の一覧へ
+          {m.toToday}
         </a>
       </main>
     );

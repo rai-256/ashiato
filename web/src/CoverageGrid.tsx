@@ -12,7 +12,10 @@ import {
   type SourceCoverage,
   type Week,
 } from "./coverage";
+import { msg } from "./messages";
 import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
+
+const m = msg("grid");
 
 /**
  * ソース 1 本ぶんの格子（FR-54 / 深掘り Q6, 第 4 回 Q15, 第 5 回 Q20/Q21, 第 6 回 Q25, 第 7 回 Q28）。
@@ -58,12 +61,12 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
             「c02-window が消えて知らない名前が増えた」ようにしか見えない */}
         {source.named_source !== source.logical_source && (
           <span data-testid={`succeeded-${source.named_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
-            {` — ${source.named_source} を引き継ぎ`}
+            {m.succeeded(source.named_source)}
           </span>
         )}
         {retired && (
           <span data-testid={`retired-${source.logical_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
-            {` — ${source.retired_on} に退役`}
+            {m.retired(source.retired_on)}
           </span>
         )}
       </h2>
@@ -94,7 +97,7 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
           padding: "4px 12px",
         }}
       >
-        {expanded ? "直近だけにする" : retired ? "退役したソースを見る" : "1 年ぶんを見る"}
+        {expanded ? m.collapse : retired ? m.showRetired : m.expand}
       </button>
 
       {selectedWeek !== null && <WeekDetail week={selectedWeek} />}
@@ -127,7 +130,7 @@ function WeekRow({
     // 選択中であることが伝わらなくなっていた。行であることは `data-week` で足りる。
     <button
       type="button"
-      aria-label={`${week.start} の週`}
+      aria-label={m.week(week.start)}
       aria-pressed={selected}
       data-week={week.start}
       onClick={onSelect}

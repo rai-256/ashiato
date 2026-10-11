@@ -12,10 +12,14 @@ import {
   type DayEntry,
   type DayView as DayData,
 } from "./stays";
+import { msg } from "./messages";
 import { DESTRUCTIVE_TARGET_PX, MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
 
 /** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
+
+const m = msg("day");
+const common = msg("common");
 
 type StayDetailCount = { logical_source: string; display_name: string; count: number };
 type StayDetail = { stay_id: string; start: string; end: string; counts: StayDetailCount[] };
@@ -138,19 +142,19 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     >
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={{ ...control, background: "transparent", border: "none", display: "inline-flex", alignItems: "center" }}>
-          稼働状況へ
+          {common.toCoverage}
         </a>
       </nav>
       <h1 data-testid="day-title" style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
-        {dateLabel(date)}の滞在
+        {m.title(dateLabel(date))}
       </h1>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control} onClick={() => go(shiftDay(date, -1))}>
-          前の日
+          {m.prev}
         </button>
         <input
           type="date"
-          aria-label="日付を指定"
+          aria-label={m.pickDate}
           {...{ [FOCUS_ATTR]: "" }}
           value={date}
           style={control}
@@ -159,14 +163,14 @@ export function DayView({ date }: { date: string }): React.ReactElement {
           }}
         />
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control} onClick={() => go(shiftDay(date, 1))}>
-          次の日
+          {m.next}
         </button>
       </div>
 
-      {data.at === "loading" && <p data-testid="day-loading">読み込み中…</p>}
+      {data.at === "loading" && <p data-testid="day-loading">{common.loading}</p>}
       {data.at === "failed" && (
         <p role="alert" data-testid="day-error">
-          1 日の並びの読み出しに失敗しました（{data.why}）。滞在や記録が無いのではありません。
+          {m.failed(data.why)}
         </p>
       )}
       {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} reload={() => setReload((n) => n + 1)} />}
@@ -217,28 +221,28 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
         setDetail(null);
         reload();
       })
-      .catch(() => setActionError({ entryKey, message: "操作に失敗しました。もう一度お試しください。" }));
+      .catch(() => setActionError({ entryKey, message: m.actionFailed }));
   };
   return (
     <>
       {main !== undefined && (
         <p data-testid="criteria" style={{ color: tone(c.muted), margin: "0 0 8px" }}>
-          この一覧は {criteriaLabel(main)} で作った
-          {view.criteria.length > 1 && `（一部の滞在は ${view.criteria.slice(1).map(criteriaLabel).join("、")} で作った）`}
+          {m.criteria(criteriaLabel(main))}
+          {view.criteria.length > 1 && m.criteriaOthers(view.criteria.slice(1).map(criteriaLabel))}
         </p>
       )}
       {/* **まだ来ていない日に「滞在はありません」と言わない**（R45）—— 事実として読まれる */}
       {stays === 0 && future && (
         <p data-testid="day-future" style={{ margin: "0 0 8px" }}>
-          まだ来ていない日です。
+          {m.future}
         </p>
       )}
       {stays === 0 && !future && (
         <p data-testid="day-empty" style={{ margin: "0 0 8px" }}>
-          この日の滞在はありません。
+          {m.empty}
         </p>
       )}
-      <ol aria-label="1 日の並び" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      <ol aria-label={m.listLabel} style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {view.entries.map((e) => (
           <Row
             key={`${e.kind}-${e.start}`}
@@ -280,7 +284,7 @@ function Row({
   actionError: { entryKey: string; message: string } | null;
 }): React.ReactElement {
   const c = SCHEMES[scheme];
-  const range = `${clock(entry.start, viewing)} – ${clock(entry.end, viewing)}`;
+  const range = m.range(clock(entry.start, viewing), clock(entry.end, viewing));
   const long = duration(entry.start, entry.end);
   const base: React.CSSProperties = {
     borderLeft: `3px ${entry.kind === "no-record" ? "dashed" : "solid"} ${tone(c.muted)}`,
@@ -299,8 +303,8 @@ function Row({
           style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", color: "inherit", background: "transparent", border: 0 }}
         >
           <h2 style={{ font: "600 17px/1.4 system-ui, sans-serif", margin: 0 }}>{range}</h2>
-          <p style={{ margin: 0, color: tone(c.muted) }}>{long} ・ {range}</p>
-          {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{criteriaLabel(criteria)} で作った</p>}
+          <p style={{ margin: 0, color: tone(c.muted) }}>{m.lengthAndRange(long, range)}</p>
+          {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
         </button>
         {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
@@ -310,19 +314,18 @@ function Row({
   if (entry.kind === "erased") {
     return (
       <li data-testid="row-erased" data-kind="erased" style={{ ...base, color: tone(c.muted) }}>
-        消した {range}
+        {m.erased(range)}
         <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={{ ...controlStyle(c), marginLeft: 8 }}>
-          戻す
+          {m.restore}
         </button>
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
       </li>
     );
   }
-  const word = entry.kind === "move" ? "移動" : "記録なし";
   return (
     <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, color: tone(c.muted) }}>
-      {entry.kind === "move" ? `${word} ${long}` : `${word} ${range}`}
-      {entry.kind === "move" && <span> ・ {range}</span>}
+      {entry.kind === "move" ? m.move(long) : m.noRecord(range)}
+      {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
     </li>
   );
 }
@@ -336,18 +339,18 @@ function StayDetailView({ entry, detail, onAction, scheme }: { entry: DayEntry; 
   const counts = detail?.at === "ok" ? detail.value.counts : [];
   return (
     <div data-testid="stay-detail" style={{ marginTop: 8 }}>
-      {detail?.at === "loading" && <p>詳細を読み込み中…</p>}
-      {detail?.at === "failed" && <p role="alert">詳細の読み出しに失敗しました（{detail.why}）。</p>}
-      {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{count.display_name} {count.count} 件</p>)}</div>}
+      {detail?.at === "loading" && <p>{m.detailLoading}</p>}
+      {detail?.at === "failed" && <p role="alert">{m.detailFailed(detail.why)}</p>}
+      {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{m.detailCount(count.display_name, count.count)}</p>)}</div>}
       {detail?.at === "ok" && !confirming ? (
         <button type="button" onClick={() => setConfirming(true)} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginTop: 8 }}>
-          この滞在を消す
+          {m.erase}
         </button>
       ) : detail?.at === "ok" && confirming ? (
         <div data-testid="erase-confirm" style={{ marginTop: 8 }}>
-          <p>この滞在と一緒に消える位置の記録 {counts.find((count) => count.logical_source === "c01-location")?.count ?? 0} 件です。消しますか？</p>
-          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES[scheme])}>やめる</button>
-          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>消す</button>
+          <p>{m.eraseConfirm(counts.find((count) => count.logical_source === "c01-location")?.count ?? 0)}</p>
+          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES[scheme])}>{common.cancel}</button>
+          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>{m.eraseYes}</button>
         </div>
       ) : null}
     </div>

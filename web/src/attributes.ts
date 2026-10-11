@@ -6,6 +6,10 @@
  * サーバが乱数を足すと原文が変わって「1 バイトも変わらずに残る」が成り立たない。
  */
 
+import { msg } from "./messages";
+
+const M = msg("master");
+
 export type Precision = "year" | "month" | "day" | "unknown";
 
 export interface ValidFrom {
@@ -79,30 +83,30 @@ function isClaim(v: unknown): boolean {
 
 /** 「いつから」を読める文にする。**精度を丸めない**（深掘り C3）—— 年だけの主張を「1 月 1 日」と書かない。 */
 export function validFromLabel(vf: ValidFrom): string {
-  if (vf.precision === "unknown" || vf.date === null) return "いつからかは分からない";
+  if (vf.precision === "unknown" || vf.date === null) return M.validFromUnknown;
   const [y, m, d] = vf.date.split("-").map(Number);
-  if (vf.precision === "year") return `${y} 年から`;
-  if (vf.precision === "month") return `${y} 年 ${m} 月から`;
-  return `${y} 年 ${m} 月 ${d} 日から`;
+  if (vf.precision === "year") return M.validFromYearLabel(y);
+  if (vf.precision === "month") return M.validFromMonthLabel(y, m);
+  return M.validFromDayLabel(y, m, d);
 }
 
 /** 「書いた日時」を読める文にする。**押したときだけ出る**（Q2）。 */
 export function assertedAtLabel(iso: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
-  const f = new Intl.DateTimeFormat("ja-JP", {
+  const f = new Intl.DateTimeFormat(msg("locale"), {
     year: "numeric",
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-  return `${f.format(at)} に書いた`;
+  return M.assertedAt(f.format(at));
 }
 
 /** 値の書き方。`null`（「なし」）を「まだ書いていない」と混ぜない。 */
 export function valueLabel(value: string | null): string {
-  return value === null ? "なし" : value;
+  return value === null ? M.noneValue : value;
 }
 
 /**
@@ -242,15 +246,12 @@ export async function readIngestResponse(res: Response): Promise<SendOutcome> {
 export function rejectionMessage(kind: string): string {
   switch (kind) {
     case "invalid_claim_value":
-      return "値が空です。値を入れるか「なし」を選んでください";
     case "invalid_valid_from":
-      return "「いつから」の日付が読めません";
     case "unknown_attribute_kind":
-      return "この種類が見つかりません。画面を読み直してください";
     case "invalid_supersedes":
-      return "取り消す主張が見つかりません。画面を読み直してください";
+      return M.rejection[kind];
     default:
-      return `受け付けられませんでした（${kind}）`;
+      return M.rejectedOther(kind);
   }
 }
 
@@ -277,21 +278,19 @@ export async function readKindResponse(res: Response): Promise<SendOutcome> {
 /** 種類の口が断った理由を、本人に読める文にする（review/code.md R9）。 */
 export function kindRejectionMessage(kind: string): string {
   switch (kind) {
+    // `unknown_kind` に「重なっています」と出さない —— 本当の理由は種類が無いことなので、
+    // 名前を変え続けても一生通らない（文は「見つかりません」。`messages.ts` の `kindRejection`）
     case "empty_name":
-      return "名前を入れてください";
     case "duplicate_name":
-      return "その名前は、いまある種類と重なっています";
     case "unknown_kind":
-      // **「重なっています」と出さない** —— 本当の理由は種類が無いことなので、
-      // 名前を変え続けても一生通らない
-      return "この種類が見つかりません。画面を読み直してください";
+      return M.kindRejection[kind];
     default:
-      return `受け付けられませんでした（${kind}）`;
+      return M.rejectedOther(kind);
   }
 }
 
 /** サーバに届かなかったときの文。**断られたときの文と違うもの**（spec）。 */
-export const UNREACHABLE_MESSAGE = "サーバに届きませんでした。入力はそのまま残っています";
+export const UNREACHABLE_MESSAGE = M.unreachable;
 
 /** 「書く」の初期値。 */
 export function emptyInput(kind: string): ClaimInput {
