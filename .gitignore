@@ -36,3 +36,6 @@ web/.playwright/
 
 # harness2（scripts/init.py が足した）
 /.harness2
+
+# 移行の前の退避（ashiato-server migrate。実データの写しなので commit しない・拠点の外へ出さない）
+backups/
