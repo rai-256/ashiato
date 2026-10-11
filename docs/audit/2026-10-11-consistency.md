@@ -421,3 +421,16 @@
 - `docs/requirements.md` の ★ のうち、ここで見たのは `default_sensitivity`（`lib.rs:567` = 1 / `attributes.rs:22` = 2 / `migrations/202609081618_envelope.sql:28` の DEFAULT 1 / `default_sensitivity_matches_the_column` 試験）、束ねた形の `max(sensitivity)`（`202609120943_version_and_ledger.sql:105`）、`Asia/Tokyo`（`coverage.rs:14`）、`expected_gap_sec / 86400`（`coverage.rs:991`）、C-02 が `/healthz` を叩くこと（`clock.rs:204`）。**どれも本当だった**。PERM-2 / FR-24 / FR-92 / 扉 #13 は「未実装」と正直に書かれていて、食い違いではない。それ以外の ★ のコードへの言及は見ていない
 - 正典の spec は、印があることだけを全件で見た。印の先の試験が Scenario を本当に観測しているかは、record-deletion の「二度目の消す求め」（`deletion.rs:273-291` が `deleted_at IS NULL` で絞る）と personal-entities の既定の感度でだけ確かめた
 - `docs/collector-contract.md` の C-02 の payload の欄（`contract.rs` の `WindowPayload`）と、C-01 の app-usage / clock の欄を 1 つずつ突き合わせることはしていない
+
+---
+
+## /stories の結果（2026-10-11）
+
+`/stories` の列は、次のとおり Story に入れた（`docs/stories/stories.json` と `INDEX.md` の 2026-10-11 の訂正）。独立レビュー（高 5・中 7・低 6）を反映済み。
+
+- 書き直し: ST20（人物の感度の判定を外す）・ST24（記録ごとの「出さない」の印。C1 / C12）・ST27（AI の 2 つの衛星。C3）・ST29（衛星の登録と資格情報。まだ何も読み書きできない。C2）
+- 新しい Story: ST37 書き手（C7 / C24 / K4）・ST38 種類と承認・ST39 衛星の書き込み・ST40 モノの台帳・ST41 終わりの時刻・ST42 API の版（C19）・
+  ST43 拡張性の試験（C22）・ST44 収集アプリの資格情報（K5 / PERM-10 の宛先）・ST45 読み出しの門と台帳（C6 / K3 / C21）・ST46 衛星の保管場所
+- INDEX: capability `satellite-platform` を新設（C13）、着手前の扉の表（C14）、表を stories.json から貼り直し（C31）、訂正の注記を対象外の節から分けた（C32 の回避）
+- 申し送り: `handoff/ST38.md`（C11。ST12 の問いの新しい宛先）・`handoff/ST17.md`（主観の感度の読み替え）
+- 未処理（harness2 の仕組みの工程で扱う）: C32 の check_chain の穴そのもの、`make_story.py` が FR-88 の表と★を引用から落とすこと
