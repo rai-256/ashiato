@@ -8,8 +8,8 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | 実行体 | 単体 | 本物を使う結合 | 実行時（OS を触る） | 縦串・検査 |
 |---|---|---|---|---|
-| server（Rust） | `ingest.rs` / `heartbeat.rs` の `#[cfg(test)]` | `api_tests.rs` / `dedup_tests.rs` / `coverage/tests.rs` / `registry_tests.rs`（**本物の PostgreSQL**。`testdb.rs`） | — | `tools/smoke.sh`（curl で外から）/ `tools/check-*.sh` |
-| collector-windows（Rust） | 各モジュールの `#[cfg(test)]`（ubuntu で走る 86 本） | — | `tests/runtime_windows.rs`（**Windows の上でだけ**。テストが自分で窓を作る） | — |
+| server（Rust） | `ingest.rs` / `heartbeat.rs` の `#[cfg(test)]` | 同じ `src/` の `*_tests.rs` と `coverage/tests/`（**本物の PostgreSQL**。`testdb.rs`。★ 2026-10-11: ファイルの列挙をやめた。Story ごとに増えて古くなる —— 2026-10-11 の整合の確認） | — | `tools/smoke.sh`（curl で外から）/ `tools/check-*.sh` |
+| collector-windows（Rust） | 各モジュールの `#[cfg(test)]`（ubuntu で走る。~~86 本~~ ★ 2026-10-11: 本数は書かない。2026-10-11 の整合の確認で数えたら 133 本だった） | — | `tests/runtime_windows.rs`（**Windows の上でだけ**。テストが自分で窓を作る） | — |
 | collector-android（Kotlin） | `src/test`（JUnit4 + Robolectric） | — | `src/androidTest`（エミュレータでも実機でも同じ） | — |
 | web（React） | `src/__tests__`（vitest + jsdom） | — | **`web/e2e`（playwright + 本物の Chromium）**。実寸・スクロール・フォーカスはここ | `tools/stack.sh up`（DB → サーバ → 偽データ → 画面。確認バッチの `run.sh` と**同じもの**） |
 
@@ -24,10 +24,23 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 > ST06 の PR #65 は `docs/` と `openspec/` だけでコードを 1 行も触っていないのに **9 job 全部が走った**。
 > 上流の PR は毎回これになる。**docs だけの PR は 52 分 → 0.5 分。**
 
-**CI が走らせる job**: `rust`（fmt / clippy / test + 検査 4 本）/ `collector-windows`（cross の clippy）/
-`collector-windows-runtime`（windows-latest）/ `web` / **`e2e`（playwright + 本物の Chromium）** /
-`android`（単体）/ `android-instrumented`（エミュレータ）/
-`smoke`（縦串 + panic-log + immutable）/ `chain`（token があるとき）。
+**CI が走らせる job**（正本は `.github/workflows/ci.yml`）:
+
+| job | 走るとき | 中身 |
+|---|---|---|
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 9 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2） |
+| `collector-windows` | `code` | windows 向けクロスの clippy |
+| `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
+| `web` | `code` | licenses / tsc / lint / vitest / build |
+| **`e2e`** | `code` | playwright + 本物の Chromium（`STACK_RESET=1`） |
+| `android` | `android` | assembleDebug / 単体 |
+| `android-instrumented` | `android` | エミュレータ |
+| `smoke` | `code` | 縦串 + panic-log + immutable |
+| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
+
+> ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。従来は 1 行で「`rust`（… + 検査 4 本）」「`chain`（token があるとき）」と
+> 書いていた。rust の検査は 9 本に増えていて、chain は token が無くても毎回走り、私的データの検査（網の名前・ログ・
+> DB の合言葉）を持っている。「token が無いから chain は飛ぶ」と読むと、これらの検査も飛ぶと読み違える。
 
 ## 2. テストは spec の Scenario から生まれる
 
@@ -127,11 +140,21 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 
 ## 8. 送る前に走らせるもの（CI と同じ）
 
+> ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。従来の手順は `db.sh up` の直後に `cargo test` を走らせていたが、
+> DB の役割が無いと `testdb.rs` が「`tools/db-roles.sh` を先に実行する」で落ちる（ST28 で役割を分けた）。
+> CI の rust / chain job が走らせているのにここに無かった検査（offsite ×2・exposure・private ×2・log-private ×2・
+> no-time-server ×2・db-secret）も足した。正本は `.github/workflows/ci.yml` の `run:` 行。
+
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-./tools/db.sh up -d --wait db && cargo test --workspace          # 本物の DB（ポートは worktree ごと。tools/ports.sh）
+./tools/db.sh up -d --wait db && ./tools/db-roles.sh && cargo test --workspace   # 本物の DB（ポートは worktree ごと。tools/ports.sh）。役割を整えてから
 ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
+./tools/check-offsite.sh --self-test && ./tools/check-offsite.sh && ./tools/check-exposure.sh --self-test
+./tools/check-private.sh --self-test && ./tools/check-private.sh
+./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
+./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
+./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
 (cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest)

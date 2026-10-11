@@ -1,6 +1,6 @@
 # Story 一覧
 
-- 要件 `docs/requirements.md` から分解。**Story 36 本 / capability 13 本**
+- 要件 `docs/requirements.md` から分解。**Story 46 本 / capability 14 本**（2026-10-11 に衛星の基盤の改訂で 10 本足し、4 本を書き直した）
 - `layer` は `requires` の DAG の深さ。**layer 0 は依存なし＝すぐ着手できる**
 - `doors` と逐語引用は `scripts/make_story.py` が要件本文から機械的に埋めている（手で写していない）
 - **判断（表題・価値・壊してはいけないもの・完了の判定）の単一情報源は `stories.json`。** `ST<NN>.md` は生成物で、
@@ -9,18 +9,18 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST33
-- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST21, ST22
-- **layer 3**: ST06, ST09, ST12, ST18, ST23, ST25, ST26, ST34
-- **layer 4**: ST10, ST13, ST24, ST30, ST35, ST36
-- **layer 5**: ST27, ST29, ST31
-- **layer 6**: ST32
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST33, ST41, ST42
+- **layer 2**: ST04, ST14, ST15, ST17, ST20, ST21, ST22, ST29, ST44
+- **layer 3**: ST06, ST09, ST12, ST18, ST23, ST24, ST25, ST26, ST34, ST37, ST38
+- **layer 4**: ST10, ST13, ST30, ST35, ST36, ST39, ST45
+- **layer 5**: ST27, ST31, ST40, ST46
+- **layer 6**: ST32, ST43
 
 ## 一覧
 
 | id | 表題 | layer | satisfies | requires | doors |
 |---|---|---|---|---|---|
-| [ST01](ST01.md) | 位置の記録が端末から自宅 PC へ届き、原文ごと残る | 0 | FR-1, FR-10, FR-18, FR-19, FR-20, FR-21, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-61, PERM-1, NFR-1 | — | 6, 7, 8, 9, 10, 11, 13, 16 |
+| [ST01](ST01.md) | 位置の記録が端末から自宅 PC へ届き、原文ごと残る | 0 | FR-1, FR-10, FR-18, FR-19, FR-20, FR-21, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-61, PERM-1, PERM-10, NFR-1 | — | 6, 7, 8, 9, 10, 11, 13, 14, 16 |
 | [ST02](ST02.md) | 収集が動いていたかが日単位で見える | 1 | FR-33, FR-54, FR-78, FR-79, FR-80, NFR-13 | ST01 | 14 |
 | [ST03](ST03.md) | 同じ記録を何度送っても増えない | 1 | FR-22, FR-23 | ST01 | 12 |
 | [ST04](ST04.md) | 圏外でも記録が失われない | 2 | FR-8, FR-9, NFR-7 | ST02, ST03 | 14 |
@@ -33,22 +33,22 @@
 | [ST11](ST11.md) | 健康データの履歴権限を初回起動で要求する | 1 | FR-11 | ST01 | 21 |
 | [ST12](ST12.md) | 書庫を置くだけで過去のデータが入る | 3 | FR-14, FR-16, FR-17, FR-55 | ST03, ST04 | — |
 | [ST13](ST13.md) | アカウント系のソースを定期取得する | 4 | FR-15, NFR-3, NFR-12 | ST12 | — |
-| [ST14](ST14.md) | 収集が途切れたら気づける | 2 | FR-35 | ST02 | — |
+| [ST14](ST14.md) | 収集が途切れたら気づける | 2 | FR-35 | ST02 | 14 |
 | [ST15](ST15.md) | 収集をソース単位・期間指定で止められる | 2 | FR-34, FR-53 | ST02 | 14 |
 | [ST16](ST16.md) | 位置から滞在を作り、派生を作り直せる | 1 | FR-31, FR-76 | ST01 | 7 |
 | [ST17](ST17.md) | 毎日 30 秒で「その日どう感じたか」を残す | 2 | FR-36, FR-37, FR-39, FR-40, FR-41, FR-42, FR-43, FR-57 | ST16 | 1, 2 |
 | [ST18](ST18.md) | 主観の紐づけ先を後から増やせる | 3 | FR-38 | ST17 | 2 |
 | [ST19](ST19.md) | 個人属性を上書きせず履歴で残す | 1 | FR-44, FR-45 | ST01 | 3 |
-| [ST20](ST20.md) | 人物を登録して滞在に紐づける | 2 | FR-46, FR-47, PERM-5 | ST16 | 4 |
+| [ST20](ST20.md) | 人物を登録して滞在に紐づける | 2 | FR-46, FR-47 | ST16 | 4 |
 | [ST21](ST21.md) | 場所を登録し、識別子を変えない | 2 | FR-48, FR-49 | ST01, ST16 | 17 |
-| [ST22](ST22.md) | 記録を消したことにできる | 2 | FR-50 | ST01, ST16 | — |
-| [ST23](ST23.md) | 本文を本当に消せる | 3 | FR-51, FR-52 | ST22 | — |
-| [ST24](ST24.md) | 記録に感度を持たせ、既定で守る | 4 | PERM-2, PERM-3, PERM-4, PERM-6, PERM-9 | ST09, ST17 | 15 |
-| [ST25](ST25.md) | 1 日を時刻順に見る | 3 | FR-56 | ST01, ST22 | — |
+| [ST22](ST22.md) | 記録を消したことにできる | 2 | FR-50 | ST01, ST16 | 3 |
+| [ST23](ST23.md) | 本文を本当に消せる | 3 | FR-51, FR-52 | ST22 | 3, 7 |
+| [ST24](ST24.md) | 記録ごとに「どの衛星にも出さない」の印を付けられる | 3 | PERM-2, PERM-9 | ST22 | 15 |
+| [ST25](ST25.md) | 1 日を時刻順に見る | 3 | FR-56, NFR-17, NFR-18, NFR-19, NFR-20, NFR-21, NFR-22, NFR-23 | ST01, ST22 | — |
 | [ST26](ST26.md) | 語で探す | 3 | FR-58, NFR-4 | ST17 | — |
-| [ST27](ST27.md) | AI から MCP で問い合わせる | 5 | FR-59, FR-60, NFR-14 | ST24, ST26 | 15, 26 |
+| [ST27](ST27.md) | AI（外部 AI・ローカル AI の 2 つの衛星）から MCP で問い合わせる | 5 | FR-59, FR-60, NFR-14, PERM-3, PERM-4, PERM-5, PERM-6 | ST45, ST26 | 4, 15, 26 |
 | [ST28](ST28.md) | 外からは許可した私設網の内側でしか届かない | 1 | PERM-7, NFR-15 | ST01 | 23 |
-| [ST29](ST29.md) | プラグインを登録し、承認して初めて読ませる | 5 | FR-62, FR-63, FR-64, FR-65, PERM-8 | ST24 | 15 |
+| [ST29](ST29.md) | 衛星を登録すると、衛星ごとの資格情報が発行される（まだ何も読み書きできない） | 2 | FR-77, FR-90, FR-101, PERM-8, PERM-10, PERM-14 | ST28 | 13, 15, 30 |
 | [ST30](ST30.md) | 毎日と毎週のバックアップが回る | 4 | FR-66, FR-67, FR-70, NFR-5 | ST09 | 20, 23 |
 | [ST31](ST31.md) | 暗号化した写しを拠点外へ送る | 5 | FR-68, FR-69, NFR-9 | ST30 | 23, 24 |
 | [ST32](ST32.md) | 復元テストを促す | 6 | FR-71, NFR-10 | ST31 | — |
@@ -56,6 +56,16 @@
 | [ST34](ST34.md) | 健康データを取り込む | 3 | FR-73, NFR-2 | ST11, ST04 | 21 |
 | [ST35](ST35.md) | 画面を一定間隔で取る | 4 | FR-74 | ST09 | 22, 25 |
 | [ST36](ST36.md) | 意味で探す | 4 | FR-75 | ST26 | — |
+| [ST37](ST37.md) | 誰が書いたかが記録に残る | 3 | FR-24, FR-92 | ST29 | 13 |
+| [ST38](ST38.md) | 衛星ごとに、読む種類と書く種類を承認できる | 3 | FR-62, FR-88, FR-97, FR-102, PERM-9, PERM-11, PERM-12 | ST29 | 15 |
+| [ST39](ST39.md) | 衛星が記録を書き、自分の書いたものだけを直せる | 4 | FR-25, FR-64, FR-65, FR-94, FR-96, FR-98, FR-99 | ST37, ST38, ST41 | 8, 15 |
+| [ST40](ST40.md) | 衛星が持ち込むモノを汎用の台帳に入れられる | 5 | FR-86, FR-93 | ST39 | — |
+| [ST41](ST41.md) | 幅のある出来事に終わりの時刻を持たせる | 1 | FR-91 | ST01 | 28 |
+| [ST42](ST42.md) | 衛星向けの API に版が付き、壊す変更を機械が止める | 1 | FR-89, FR-95 | ST01 | — |
+| [ST43](ST43.md) | 衛星が増えても本体の表が変わらないことを確かめる | 6 | NFR-24 | ST40, ST41, ST46 | 28 |
+| [ST44](ST44.md) | 収集アプリと画面の資格情報が読める範囲を締める | 2 | PERM-10 | ST28 | 13 |
+| [ST45](ST45.md) | 承認した種類だけを衛星が読め、読んだ記録が残る | 4 | FR-63, FR-100, PERM-13, PERM-15 | ST38, ST24 | 15, 27 |
+| [ST46](ST46.md) | 衛星の都合のデータを取っておける | 5 | FR-87 | ST39 | 29 |
 
 ## capability（仕様の置き場）
 
@@ -65,19 +75,34 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 | capability | 何の能力か | 積む Story |
 |---|---|---|
-| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約 | ST01, ST03 |
-| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35 |
-| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08 |
+| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42 |
+| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35, ST44 |
+| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15, **ST12** |
-| `derived-records` | 派生（滞在） | ST16 |
-| `subjective-log` | 主観・感情の記録 | ST17, ST18 |
-| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15, **ST12**, ST39 |
+| `derived-records` | 派生（滞在） | ST16, ST24 |
+| `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
+| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
 | `record-deletion` | 削除 | ST22, ST23 |
-| `data-sensitivity` | 感度・アクセス制御・プラグイン権限 | ST24, ST28, ST29 |
-| `browsing-views` | 閲覧と検索 | **ST16**, **ST22**, ST25, ST26, ST36 |
+| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
+| `browsing-views` | 閲覧と検索 | **ST16**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
+| `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
+
+> **訂正（2026-10-11、衛星の基盤の改訂）**
+>
+> - `satellite-platform` を新しく立てた。衛星の承認・印・読み出しの記録は「アクセス制御」なので `data-sensitivity` に積み、
+>   書き手と終わりの時刻は記録の骨格なので `record-envelope` に積んだ
+> - **ST24 は 6 つの capability を MODIFIED する**（`data-sensitivity` のほか、4 段階の既定の値を Scenario に固定している
+>   `record-envelope` / `derived-records` / `desktop-collection` / `personal-entities` / `subjective-log`（上流の ST17 が主観の感度を決めている））。
+>   走っている ST08 / ST17 / ST21 と重なるので、admission はそれらの archive を待たせる。正典に残る「第三者製プラグイン」の言い回し（C27）もこのとき直す
+> - 依存の順（独立レビューで直した）: ST29（登録と資格情報。まだ何も読み書きできない）→ ST38（種類と承認）→ ST45（読み出しの門と台帳）→ ST27（AI）。
+>   書き込みは ST37（書き手）・ST38・ST41（終わりの時刻）の後の ST39。扉 #13 / #27 / #28 の期限を requires で守る
+> - 宛先: 収集アプリの資格情報（PERM-10★ / `handoff/ST29.md` の Q4）は ST44。K3（素の表を引かせない強制）と C21（`data-sensitivity` の Purpose と NFR-15 の写し）は ST45 の上流で扱う。
+>   C34（日の境界のタイムゾーン）は ST41 の上流で決める（計算し直せる B 段）。検索・視聴の履歴の承認（FR-88 の未決）は `handoff/ST38.md`
+> - 下の 2026-09 の訂正の表で PERM-3 / PERM-4 の担い手を ST24 としている行は、2026-10-11 から ST27（AI の衛星の最初の承認）と ST38（承認）に移った
+> - 経緯は `docs/audit/2026-10-09-satellite-foundation.md` と `docs/audit/2026-10-11-consistency.md`
 
 > **訂正（2026-09-08、ST01 の上流工程と実装後の検証で判明）**
 >
@@ -256,14 +281,18 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 ## どの Story にも拾われていない要件
 
 **NFR-8（開発費 月 2,000 円以内）と NFR-11（開発に充てられる時間 週 15 時間）の 2 件。**
-これは実装する対象ではなく**プロジェクトの制約**なので、意図的にどの Story にも割り当てていない。
-`python3 scripts/check_chain.py` はこの 2 件を「未回収」として FAIL を返し続ける。**これは正しい状態**。
+これは実装する対象ではなく**プロジェクトの制約**なので、意図的にどの Story にも割り当てていない（下の「Story の対象外」で外している）。
+2026-10-11 の改訂で足した要件（FR-86〜FR-102 / NFR-24 / PERM-11〜PERM-15）は ST24 / ST27 / ST29 / ST37〜ST46 が拾った。
 
 ## 着手前に閉じる必要がある扉
 
 | 扉 | 期限 | 効く Story |
 |---|---|---|
-| #26 成功条件 2 の質問セット 10 問 | `/stories` 着手前（**現在未了**） | ST27 |
+| #26 成功条件 2 の質問セット 10 問 | 決定済（2026-09-07 に固定）。★ 2026-10-11: 「現在未了」は古かった | ST27 |
+| #13 書き手（provenance）を持つか | 衛星が書き始める日（ST39 の前に ST37） | ST37, ST39 |
+| #27 衛星が何を読んだかを記録するか | 衛星が読み始める日（ST45 が読み出しと同時に入れる） | ST45, ST27 |
+| #28 幅のある出来事の終わりの時刻 | 幅のある出来事を書く衛星が書き始める日（ST39 の requires に ST41） | ST41, ST39, ST43 |
+| #30 衛星が登録する名前の形 | 衛星の登録を作る Story の深掘り（最初の衛星が書き始める前） | ST29 |
 | #24 バックアップ暗号鍵の保管方式 | 初回バックアップの実行前 | ST31 |
 | #25 画面キャプチャの保持期間と文字抽出エンジン | 画面キャプチャの収集開始前 | ST35 |
 
@@ -274,6 +303,10 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 - NFR-8: 開発費は月 2,000 円以内
 - NFR-11: 開発に充てられる時間は週 15 時間
+
+## 訂正の記録
+
+（`check_chain.py` が「Story の対象外」の節を後ろまで読むので、訂正の注記はこの節に分けた。★ 2026-10-11）
 
 > **訂正（2026-09-29、ST05 の上流工程 spec）**
 >

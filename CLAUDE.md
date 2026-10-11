@@ -14,7 +14,7 @@
 
 | パス | 何が置かれているか | テストの置き場 |
 |---|---|---|
-| `crates/server` | S-01 バックエンド（Rust）。API・取り込み（`ingest.rs`）・滞在（`stay*.rs`）・稼働状況（`coverage*`）・属性・削除（`drops.rs`）。`src/lib.rs` が router と **`MIGRATIONS` 配列（適用順の正本）** を持つ。`src/bin/openapi.rs` が API 契約を生成する | 同じ `src/` の `*_tests.rs`（`testdb.rs` がテスト用 DB） |
+| `crates/server` | S-01 バックエンド（Rust）。API・取り込み（`ingest.rs`）・滞在（`stay*.rs`）・稼働状況（`coverage*`）・属性・削除（`deletion.rs`）・破棄の報告（`drops.rs`。ST04）・画面のログイン（`web_session.rs`）・読み出しの記録（`access_log.rs`）・待ち受けと DB の接続先の検査（`net_guard.rs`）。`src/lib.rs` が router と **`MIGRATIONS` 配列（適用順の正本）** を持つ。`src/bin/openapi.rs` が API 契約を生成する | 同じ `src/` の `*_tests.rs`（`testdb.rs` がテスト用 DB） |
 | `crates/collector-windows` | C-02 PC の収集アプリ（Rust）。前景の窓・入力・ブラウザのアドレスバー（`platform.rs` `browsers.rs`）→ `engine.rs` → 送信（`outbox.rs` `sender.rs`）。`runtime.rs` が組み立て | 各モジュールの `#[cfg(test)]`、本物の Windows で走る `tests/runtime_windows.rs` |
 | `collector-android` | C-01 携帯の収集アプリ（Kotlin / Android）。`app/src/main/kotlin/dev/ashiato/collector/` | `app/src/test`（JUnit4 + Robolectric）、`app/src/androidTest`（エミュレータ・実機の計測テスト） |
 | `migrations` | D-01 PostgreSQL の移行。`YYYYMMDDHHMM_<slug>.sql` と `.down.sql` の対。足したら `crates/server/src/lib.rs` の `MIGRATIONS` の末尾へ | `tools/check-migrations.sh`・`tools/check-immutable.sh` |
