@@ -106,6 +106,12 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
 .pv .lnk{min-height:24px;min-width:24px;padding:2px 8px;border:0;background:transparent;color:var(--htx);font:inherit;font-size:var(--cap);cursor:pointer;border-radius:4px}
 .pv .lnk2{display:inline-flex;align-items:center;min-height:24px;min-width:24px;color:var(--lnk);text-decoration:underline;text-underline-offset:3px;font-size:var(--cap);border-radius:4px}
 .pv .page{padding:var(--pad);max-width:900px;margin:0 auto}
+.pv h1,.pv h2,.pv h3,.pv .kname,.pv .cur{font-family:var(--hfont)}
+.pv .nv{font-variant-numeric:tabular-nums}
+.pv.emph .nv{font-size:1.4em;font-weight:700;line-height:1.1;font-family:var(--font)}
+.pv.emph .nu{font-size:max(12px,.82em);color:var(--mu);font-weight:400}
+.pv.emph .nv{color:var(--tx)}
+.pv .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--spd);margin-right:6px;vertical-align:.1em}
 .pv h1{font-size:var(--h1);font-weight:var(--fw);line-height:1.3;margin:0 0 calc(var(--gap)*.35);color:var(--ttl)}
 .pv h2{font-size:var(--h2);font-weight:var(--fw);line-height:1.35;margin:0}
 .pv h3{font-size:var(--body);font-weight:var(--fw);margin:0}
@@ -115,10 +121,13 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
 .pv .num{font-variant-numeric:tabular-nums}
 .pv .tools{display:flex;gap:var(--tgap);flex-wrap:wrap;align-items:center;margin-bottom:calc(var(--gap)*.5)}
 .pv .btn{min-height:24px;min-width:24px;padding:4px 10px;font:inherit;font-size:var(--cap);cursor:pointer;
- color:var(--tx);background:var(--btn);border:1px solid var(--mu);border-radius:var(--rb);box-shadow:var(--sh)}
+ color:var(--tx);background:var(--sbg);border:1px solid var(--sbd);border-radius:var(--rb);box-shadow:var(--sh)}
+.pv .row .btn,.pv .sec .btn{background:var(--sbg-s1)}
+.pv .detail .btn{background:var(--sbg-sub)}
+.pv .sec.deep .btn{background:var(--sbg-sec2)}
 .pv .btn.pri{background:var(--pbg);color:var(--ptx);border-color:var(--pbd)}
 .pv .btn.ghost{background:transparent;color:var(--mu);border-color:transparent;box-shadow:none}
-.pv .btn.big{min-height:44px;min-width:44px;padding:8px 14px}
+.pv .btn.big{min-height:44px;min-width:44px;padding:8px 14px;border-color:var(--mu)}
 .pv ol{list-style:none;margin:0;padding:0}
 .pv .row{margin:0 0 6px;padding:var(--rpv) var(--rph);border-radius:var(--rr);display:flex;gap:calc(var(--gap)*.45);align-items:flex-start}
 .pv .row.stay{background:var(--s1);border:var(--bd);box-shadow:var(--sh)}
@@ -151,7 +160,7 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
 .pv .b0{background:var(--c0);box-shadow:inset 0 0 0 1px var(--mu)}.pv .b1{background:var(--c1)}.pv .b2{background:var(--c2)}
 .pv .wd{margin:2px 0 8px;font-size:var(--cap)}
 .pv .wd div{display:flex;gap:10px}.pv .wd dt{color:var(--mu)}.pv .wd dd{margin:0}
-.pv .tab{display:inline-flex;align-items:center;min-height:24px;padding:2px 6px;border:0;border-bottom:2px solid var(--ac);background:transparent;color:var(--lnk);font:inherit;font-weight:var(--fw);font-size:var(--cap);cursor:pointer}
+.pv .tab{display:inline-flex;align-items:center;min-height:24px;padding:2px 6px;border:0;border-bottom:3px solid var(--ac);background:transparent;color:var(--lnk);font:inherit;font-weight:var(--fw);font-size:var(--cap);cursor:pointer}
 .pv .kname{min-height:24px;padding:0;border:0;background:transparent;color:var(--tx);font:inherit;font-size:var(--h2);font-weight:var(--fw);cursor:pointer;border-radius:4px}
 .pv .claim{display:block;width:100%;text-align:left;min-height:24px;padding:4px 0;border:0;border-bottom:var(--bdt);background:transparent;color:var(--tx);font:inherit;cursor:pointer}
 .pv .cur{font-size:calc(var(--h2)*1.15);font-weight:var(--fw);margin:2px 0 0}
@@ -191,6 +200,9 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
  <div class="g"><label for="surfSat">面の色み <span class="v" id="v-surfSat"></span></label>
   <input type="range" id="surfSat" min="0" max="40" step="1">
   <div class="n">0 に近いほど白・灰に近い地。上げるほど地そのものが色を帯びる。文字の色みもこれに従う（今の実装と同じ）。</div></div>
+ <div class="g"><div class="lbl" id="l-accMode">アクセントの扱い <span class="v" id="v-accMode"></span></div>
+  <div class="cards" id="accMode" role="group" aria-labelledby="l-accMode"></div>
+  <div class="n">「墨」にすると、題・選択・格子・しるし・塗りが無彩の濃い色（ダークでは白に近い色）になり、色は差し色だけに残る。</div></div>
  <div class="g"><label for="accHue">アクセントの色相 <span class="v" id="v-accHue"></span></label>
   <input type="range" id="accHue" class="huebar" min="0" max="359" step="1">
   <div class="n">見出し・選択・リンク・塗りのボタン・稼働状況の格子・しるしに使う「はっきりした色」。</div></div>
@@ -224,6 +236,17 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
  <div class="g"><div class="lbl" id="l-marks">種類のしるし <span class="v" id="v-marks"></span></div>
   <div class="cards" id="marks" role="group" aria-labelledby="l-marks"></div>
   <div class="n">しるしは文字（滞在・移動・記録なし）に<b>添える</b>だけ。色だけで種類を区別しない（宿題 1）。</div></div>
+ <div class="g"><div class="lbl" id="l-pbtn">主ボタンの色 <span class="v" id="v-pbtn"></span></div>
+  <div class="cards" id="pbtn" role="group" aria-labelledby="l-pbtn"></div>
+  <div class="n">主な操作「書く」「積む」「ログイン」。「墨」は本文の色で塗り、地の色の文字（ダークでは反転）。</div></div>
+ <div class="g"><div class="lbl" id="l-btnShape">ボタンの形 <span class="v" id="v-btnShape"></span></div>
+  <div class="cards" id="btnShape" role="group" aria-labelledby="l-btnShape"></div></div>
+ <div class="g"><div class="lbl" id="l-secBtn">副ボタンの示し方 <span class="v" id="v-secBtn"></span></div>
+  <div class="cards" id="secBtn" role="group" aria-labelledby="l-secBtn"></div>
+  <div class="n">前の日・次の日・戻す・やめる など。「薄い面」は枠を引かず、地より少し濃い面だけで示す。</div></div>
+ <div class="g"><div class="lbl" id="l-rowRound">行の角 <span class="v" id="v-rowRound"></span></div>
+  <div class="cards" id="rowRound" role="group" aria-labelledby="l-rowRound"></div></div>
+
 
  <div class="gh">文字</div>
  <div class="g"><label for="font">書体 <span class="v" id="v-font"></span></label>
@@ -244,6 +267,13 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
   <div class="n">見出し = 本文 × 比、題 = 本文 × 比²、注記 = 本文 ÷ 比（12px を下回らない）。</div></div>
  <div class="g"><div class="lbl" id="l-fw">見出しの太さ <span class="v" id="v-fw"></span></div>
   <div class="cards" id="fw" role="group" aria-labelledby="l-fw"></div></div>
+ <div class="g"><div class="lbl" id="l-headFont">見出しの書体 <span class="v" id="v-headFont"></span></div>
+  <div class="cards" id="headFont" role="group" aria-labelledby="l-headFont"></div>
+  <div class="n">明朝は端末にあれば効く（無ければ端末の明朝か角ゴシック）。</div></div>
+ <div class="g"><div class="lbl" id="l-numEmph">数字の強調 <span class="v" id="v-numEmph"></span></div>
+  <div class="cards" id="numEmph" role="group" aria-labelledby="l-numEmph"></div>
+  <div class="n">「大きく太く」は長さ・件数・日数の数字を大きく太く、単位（時間・分・日）を細く小さく控えめな色にする。</div></div>
+
 
  <div class="gh">密度</div>
  <div class="g"><label for="density">ゆったり ⇄ 詰める <span class="v" id="v-density"></span></label>
@@ -261,6 +291,10 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
   <div class="g"><label for="sparkHue">差し色の色相 <span class="v" id="v-sparkHue"></span></label>
    <input type="range" id="sparkHue" class="huebar" min="0" max="359" step="1">
    <div class="n">「確定まであと N 日」のような目を引く小さな文字と、移動のしるしに使う。アクセントと同じ色相にすれば差し色は無いのと同じ。</div></div>
+ <div class="g"><div class="lbl" id="l-sparkUse">差し色の使い方 <span class="v" id="v-sparkUse"></span></div>
+  <div class="cards" id="sparkUse" role="group" aria-labelledby="l-sparkUse"></div>
+  <div class="n">「点だけ」は文字を本文の色に戻し、差し色を小さな丸い点（通知の点のような印）にだけ使う。</div></div>
+
  </details>
 
  <details class="adv">
@@ -300,7 +334,7 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
   <div id="warn" aria-live="polite"></div>
   <details class="tbl"><summary>測った組み合わせの全表（ライト・ダーク）</summary><div id="pairs"></div></details>
   <details class="tbl"><summary>可動域を総当たりで検算する（どれを選んでも下限を割らないか）</summary>
-   <p style="font-size:11.5px;color:#a3a5ae;margin:6px 0 0">色に効く 11 軸を格子で走らせ、各組み合わせでライト・ダークの全ての対を測る。色相 5° 刻み・面の色み 5% 刻み、ほかは両端（段差は最大の 10 —— 帯の端に最も早く届く側）。文字の大きさ・角・密度は色に効かないので含めない（触れる大きさは CSS の下限で固定）。</p>
+   <p style="font-size:11.5px;color:#a3a5ae;margin:6px 0 0">色に効く 13 軸を格子で走らせ、各組み合わせでライト・ダークの全ての対を測る。色相 10° 刻み・面の色み 10% 刻み、アクセントの扱い（色 / 墨）・差し色の使い方（文字 / 点）、ほかは両端（段差は最大の 10 —— 帯の端に最も早く届く側）。文字の大きさ・角・密度は色に効かないので含めない（触れる大きさは CSS の下限で固定）。</p>
    <button id="sweep" type="button">総当たりを始める</button> <span id="sweepOut" style="font-size:12px"></span>
   </details>
  </section>
@@ -316,27 +350,50 @@ table.pairs td.num{font-family:ui-monospace,Menlo,Consolas,monospace;text-align:
 <script>
 "use strict";
 /* ---------------------------------------------------------------- 状態 */
+const NEWK = { accMode:"color", pbtn:"surface", btnShape:"round", numEmph:"none", sparkUse:"text", headFont:"same", rowRound:"follow", secBtn:"line" };
 const PRESETS = {
   "0908": { name: "9/8 の決定（今のまま）", note: "苔の緑・沈んだ地・境界線。落ち着いてゆったり（本人の言葉「落ち着いていてゆったりと見れる」）。",
     v: { hue:132, surfSat:30, accHue:132, accSat:30, accAmt:"quiet", sparkHue:132, lightG:96, lightMode:"sink",
          darkG:12, steps:3, stepLight:5, stepDark:6, radius:15, border:true, shadow:0, marks:"none",
-         font:"kaku", body:16, lh:1.65, ratio:1.15, fw:600, density:75 } },
-  "friendly": { name: "明るく親しみやすい", note: "本人の言葉: 明るく親しみやすい（白地・はっきりした色・アウトドアの雰囲気）。AI の解釈: 白い地に淡い灰の面・若葉の緑の帯・橙の差し色・色の丸のしるし・丸ゴシック。",
+         font:"kaku", body:16, lh:1.65, ratio:1.15, fw:600, density:75, ...NEWK } },
+  "mono": { name: "白黒＋差し色 1 点", note: "本人が見せた実物の型（2026-10-11）: 色を足さず抜く。白い地・墨の文字と楕円の主ボタン・大きく丸い灰の箱・数字を大きく太く。色は赤い点 1 つだけ。ダークでは白黒が反転する。",
+    v: { hue:220, surfSat:0, accHue:0, accSat:55, accAmt:"quiet", sparkHue:2, lightG:100, lightMode:"sink",
+         darkG:6, steps:3, stepLight:4, stepDark:7, radius:22, border:false, shadow:0, marks:"shape",
+         font:"kaku", body:16, lh:1.7, ratio:1.25, fw:700, density:80,
+         accMode:"ink", pbtn:"ink", btnShape:"pill", numEmph:"bold", sparkUse:"dot", headFont:"same", rowRound:"same", secBtn:"fill" } },
+  "leaf": { name: "若葉の帯（色を足す解釈）", note: "本人の言葉「明るく親しみやすい」を、色を足す側に解釈した AI の案。本人が見せた実物（色を抜く型）とは逆向き。若葉の緑の帯・橙の差し色・色の丸のしるし・丸ゴシック。",
     v: { hue:145, surfSat:10, accHue:148, accSat:52, accAmt:"band", sparkHue:28, lightG:100, lightMode:"sink",
          darkG:14, steps:3, stepLight:4, stepDark:6, radius:12, border:false, shadow:1, marks:"chip",
-         font:"maru", body:16, lh:1.7, ratio:1.22, fw:700, density:62 } },
+         font:"maru", body:16, lh:1.7, ratio:1.22, fw:700, density:62, ...NEWK, pbtn:"accent" } },
+  "paper": { name: "紙の手帳", note: "AI の案。生成りの地・罫線・明朝の見出し・藍のインク。書き付けた記録を読み返す静けさ。",
+    v: { hue:40, surfSat:30, accHue:240, accSat:45, accAmt:"quiet", sparkHue:240, lightG:95, lightMode:"sink",
+         darkG:10, steps:2, stepLight:4, stepDark:6, radius:4, border:true, shadow:0, marks:"none",
+         font:"kaku", body:16, lh:1.85, ratio:1.2, fw:600, density:70, ...NEWK, headFont:"mincho" } },
+  "map": { name: "水辺の淡い青緑", note: "AI の案（地図を主役にする案ではない。色だけ）。淡い青緑の地に白い面が浮く・楕円のボタン・数字を太く・橙の点。外を歩いた日を眺める軽さ。",
+    v: { hue:178, surfSat:22, accHue:190, accSat:48, accAmt:"heading", sparkHue:30, lightG:96, lightMode:"float",
+         darkG:11, steps:3, stepLight:4, stepDark:6, radius:14, border:false, shadow:1, marks:"chip",
+         font:"kaku", body:15.5, lh:1.65, ratio:1.2, fw:700, density:60,
+         ...NEWK, pbtn:"accent", btnShape:"pill", numEmph:"bold", sparkUse:"dot" } },
+  "public": { name: "窓口のようにはっきり", note: "AI の案。行政の案内画面の考え方: 白い地・青・UD 書体・はっきりした枠・太い見出し。誰が見ても迷わない。",
+    v: { hue:220, surfSat:6, accHue:220, accSat:55, accAmt:"heading", sparkHue:220, lightG:100, lightMode:"sink",
+         darkG:9, steps:2, stepLight:4, stepDark:8, radius:6, border:true, shadow:0, marks:"shape",
+         font:"ud", body:16, lh:1.7, ratio:1.2, fw:700, density:55, ...NEWK, pbtn:"accent" } },
+  "night": { name: "夜に静か", note: "AI の案。夜に開く人向け。深い藍の地・低い彩度・細めの見出し・琥珀の点。ライトも灰に沈めて眩しくしない。",
+    v: { hue:235, surfSat:14, accHue:250, accSat:22, accAmt:"quiet", sparkHue:40, lightG:90, lightMode:"sink",
+         darkG:4, steps:3, stepLight:3, stepDark:4, radius:12, border:false, shadow:0, marks:"none",
+         font:"kaku", body:15.5, lh:1.75, ratio:1.12, fw:500, density:70, ...NEWK, sparkUse:"dot" } },
   "morning": { name: "朝の森（中間）", note: "AI の案。白地に淡い緑。色は見出しまで。線で区切る静かな明るさ。",
     v: { hue:140, surfSat:18, accHue:150, accSat:42, accAmt:"heading", sparkHue:150, lightG:99, lightMode:"sink",
          darkG:13, steps:3, stepLight:4, stepDark:6, radius:12, border:true, shadow:0, marks:"shape",
-         font:"kaku", body:15.5, lh:1.7, ratio:1.18, fw:600, density:66 } },
+         font:"kaku", body:15.5, lh:1.7, ratio:1.18, fw:600, density:66, ...NEWK, pbtn:"accent" } },
   "survey": { name: "くっきり見渡す", note: "AI の案。道具寄り。詰めた密度・小さい角・境界線。たくさん並べて比べる向け。",
     v: { hue:200, surfSat:10, accHue:205, accSat:45, accAmt:"quiet", sparkHue:205, lightG:100, lightMode:"sink",
          darkG:8, steps:2, stepLight:4, stepDark:7, radius:6, border:true, shadow:0, marks:"shape",
-         font:"ud", body:14, lh:1.55, ratio:1.1, fw:700, density:25 } },
+         font:"ud", body:14, lh:1.55, ratio:1.1, fw:700, density:25, ...NEWK } },
   "hut": { name: "温かく静か", note: "AI の案。本人の 7/24 の形容詞「暖かい」の側。琥珀の地・丸い角・やわらかい影。",
     v: { hue:34, surfSat:24, accHue:24, accSat:40, accAmt:"heading", sparkHue:150, lightG:95, lightMode:"float",
          darkG:10, steps:3, stepLight:4, stepDark:6, radius:20, border:false, shadow:2, marks:"none",
-         font:"maru", body:16, lh:1.8, ratio:1.15, fw:600, density:82 } },
+         font:"maru", body:16, lh:1.8, ratio:1.15, fw:600, density:82, ...NEWK, pbtn:"accent" } },
 };
 const DEFAULTS = PRESETS["0908"].v;
 const state = Object.assign({}, DEFAULTS);
@@ -441,43 +498,56 @@ function buildTones(st, sch) {
   const S = surfaceLs(st, sch).map((l) => [st.hue, st.surfSat, l]);
   const at = (i) => S[Math.min(i, S.length - 1)];
   const uniq = []; for (const s of S) if (!uniq.some((u) => u[2] === s[2])) uniq.push(s);
+  // 副ボタンの薄い面（「副ボタン＝面」のとき）。帯の中に置き、文字の走査対象に入れる
+  const sbf = [st.hue, st.surfSat, dark ? Math.min(darkTop(st.hue, st.surfSat), S[Math.min(1, S.length - 1)][2] + 8)
+    : Math.max(lightFloor(st.hue, st.surfSat), S[Math.min(1, S.length - 1)][2] - 7)];
+  sbf[2] = Math.round(sbf[2] * 10) / 10;
+  const names = uniq.map((_, i) => (i === 0 ? "地" : `面 ${i}`));
+  // 描くときだけ測る面に入れる（「枠」のときに描かない面に合わせて色が動かないように。USR-36）
+  if (st.secBtn === "fill" && !uniq.some((u) => u[2] === sbf[2])) { uniq.push(sbf); names.push("副ボタンの面"); }
   const tsat = st.surfSat;   // 文字の彩度は面の色みと同じ（tokens.ts の tone() と同じ。USR-2）
   const moves = [];
   const note = (label, r) => { if (Math.abs(r.moved) >= 0.5) moves.push({ label, sch, from: r.pref ?? null, to: (r.t || r.fill)[2] }); };
 
   const tx = seek(st.hue, tsat, dark ? 92 : 14, uniq, 4.5, toward); note("本文", tx);
   const mu = seek(st.hue, tsat, dark ? 72 : 30, uniq, 4.5, toward); note("控えめな文字", mu);
-  const ac = seek(st.accHue, st.accSat, dark ? 70 : 36, uniq, 4.5, toward); note("アクセントの文字", ac);
+  // アクセントを「墨」にすると、アクセントは本文と同じ無彩の濃い色になる（色は差し色だけに残る）
+  const ink = st.accMode === "ink";
+  const aH = ink ? st.hue : st.accHue, aS = ink ? 0 : st.accSat;
+  const ac = seek(aH, aS, ink ? (dark ? 92 : 14) : (dark ? 70 : 36), uniq, 4.5, toward); if (!ink) note("アクセントの文字", ac);
   const sp = seek(st.sparkHue, st.accSat, dark ? 72 : 40, uniq, 4.5, toward); note("差し色の文字", sp);
+  // 差し色の点（非テキスト。面の全段に 3:1）
+  const spd = chip(st.sparkHue, st.accSat, dark ? 64 : 46, uniq, toward);
   const dg = seek(8, 50, dark ? 74 : 40, uniq, 4.5, toward); note("注意の文字", dg);
-  const af = fillWithText(st.accHue, st.accSat, dark ? 32 : 38, 4.5);
+  const af = fillWithText(aH, aS, ink ? (dark ? 90 : 12) : (dark ? 32 : 38), 4.5);
   if (Math.abs(af.moved) >= 0.5) moves.push({ label: "アクセントの塗り", sch, from: af.pref, to: af.fill[2] });
 
   // しるし（面の全段に 3:1。NFR-23）
-  const k1 = chip(st.accHue, st.accSat, dark ? 62 : 44, uniq, toward);
-  const k2 = chip(st.sparkHue, st.accSat, dark ? 66 : 46, uniq, toward);
+  const k1 = chip(aH, aS, dark ? 62 : 44, uniq, toward);
+  const dot = st.sparkUse === "dot";   // 差し色を点だけに使うなら、移動のしるしは差し色にしない
+  const k2 = chip(dot ? aH : st.sparkHue, dot ? aS : st.accSat, dark ? 66 : 46, uniq, toward);
   const k3 = chip(st.hue, Math.min(st.surfSat, 14), dark ? 60 : 46, uniq, toward);
 
   // 稼働状況の格子の 3 段（隣どうし 3:1。NFR-23 / tokens.ts の BAND と同じ考え方。その他はダーク 9・ライト 95）
-  const cs = Math.max(st.accSat, 18);
-  const other = [st.accHue, cs, dark ? 9 : 95];
+  const cs = ink ? 0 : Math.max(st.accSat, 18);
+  const other = [aH, cs, dark ? 9 : 95];
   let recL = dark ? 92 : 22, best = null;
   for (let tries = 0; tries < 40; tries++) {
-    const rec = [st.accHue, cs, recL];
+    const rec = [aH, cs, recL];
     // 中の段は両端の輝度の幾何平均が最も両側に余裕を持つ。明るさに対して輝度は単調なので二分探索
     const want = Math.sqrt((lum(rec) + 0.05) * (lum(other) + 0.05)) - 0.05;
     let lo = 0, hi = 100;
-    for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (lum([st.accHue, cs, mid]) < want) lo = mid; else hi = mid; }
+    for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (lum([aH, cs, mid]) < want) lo = mid; else hi = mid; }
     best = null;
     for (const l of [Math.floor(lo * 2) / 2, Math.ceil(lo * 2) / 2]) {
-      const al = [st.accHue, cs, l];
+      const al = [aH, cs, l];
       const m = Math.min(cr(al, other), cr(rec, al));
       if (!best || m > best.m) best = { m, al };
     }
     if (best.m >= 3) break;
     recL = dark ? Math.min(100, recL + 1) : Math.max(0, recL - 1);
   }
-  const cells = { c0: other, c1: best.al, c2: [st.accHue, cs, recL] };
+  const cells = { c0: other, c1: best.al, c2: [aH, cs, recL] };
 
   // 区切りの線（装飾。意味は担わせない —— 意味を担う縁は控えめな文字の色 mu で引く。USR-4）
   const line = [st.hue, Math.min(st.surfSat, 20), dark ? clamp(at(1)[2] + 12, 0, 100) : clamp(at(1)[2] - 13, 0, 100)];
@@ -490,13 +560,14 @@ function buildTones(st, sch) {
     g: S[0], s1: at(1), sub: at(2), sec2, btn, line,
     tx: tx.t, mu: mu.t, ac: ac.t, sp: sp.t, dg: dg.t,
     acf: af.fill, onac: af.on, ring: tx.t,   // フォーカスの輪は本文の色（実装の DayView と同じ。USR-2）
+    spd: spd.fill, sbf,
     mk1: k1.fill, onmk1: k1.on, mk2: k2.fill, onmk2: k2.on, mk3: k3.fill, onmk3: k3.on,
     ...cells,
   };
 
   // 測る対。名前は T のキー
   const P = [];
-  const nm = (i) => (i === 0 ? "地" : `面 ${i}`);
+  const nm = (i) => names[i];
   const each = (fg, label, need, nfr) => uniq.forEach((s, i) => P.push({ label, fg: T[fg], bg: s, bgName: nm(i), need, nfr }));
   each("tx", "本文", 4.5, "NFR-18");
   each("mu", "控えめな文字", 4.5, "NFR-18");
@@ -504,6 +575,8 @@ function buildTones(st, sch) {
   each("sp", "差し色の文字", 4.5, "NFR-18");
   each("dg", "注意の文字", 4.5, "NFR-18");
   P.push({ label: "塗りの上の文字", fg: T.onac, bg: T.acf, bgName: "アクセントの塗り", need: 4.5, nfr: "NFR-18" });
+  P.push({ label: "墨のボタンの文字", fg: T.g, bg: T.tx, bgName: "墨の塗り（本文の色）", need: 4.5, nfr: "NFR-18" });
+  each("spd", "差し色の点", 3, "NFR-23");
   each("ring", "フォーカスの輪", 3, "NFR-22");
   P.push({ label: "フォーカスの輪（帯の上）", fg: T.onac, bg: T.acf, bgName: "アクセントの塗り", need: 3, nfr: "NFR-22" });
   P.push({ label: "格子 記録あり ↔ 動いていた", fg: T.c2, bg: T.c1, bgName: "格子", need: 3, nfr: "NFR-23" });
@@ -531,7 +604,7 @@ const FONTS = {
 };
 function sizes(st) {
   const gap = 6 + st.density * 0.24;
-  const rr = Math.max(4, Math.round(st.radius * 0.55));          // 行の角（実装は 行 8 : 節 15 の比）
+  const rr = st.rowRound === "same" ? st.radius : Math.max(4, Math.round(st.radius * 0.55));   // 行の角（実装は 行 8 : 節 15 の比。「節と同じ」も選べる）
   return { gap, pad: Math.max(12, gap * 0.8), h2: st.body * st.ratio, h1: st.body * st.ratio * st.ratio,
     cap: Math.max(12, st.body / st.ratio), rr,
     // 内側の余白は角の丸みより細くしない（中身が角丸の外へ出ないように。USR-11）
@@ -556,14 +629,23 @@ function varsFor(st, sch, built) {
   v["--hring"] = band ? css(T.onac) : css(T.ring);
   v["--ttl"] = st.accAmt === "quiet" ? css(T.tx) : css(T.ac);
   v["--lnk"] = st.accAmt === "quiet" ? css(T.tx) : css(T.ac);
-  v["--pbg"] = st.accAmt === "quiet" ? css(T.btn) : css(T.acf);
-  v["--ptx"] = st.accAmt === "quiet" ? css(T.tx) : css(T.onac);
-  v["--pbd"] = st.accAmt === "quiet" ? css(T.mu) : "transparent";
+  // 主ボタン: 面（今の実装。面と枠）/ アクセントの塗り / 墨（本文の色で塗り、地の色の文字）
+  v["--pbg"] = { surface: css(T.btn), accent: css(T.acf), ink: css(T.tx) }[st.pbtn];
+  v["--ptx"] = { surface: css(T.tx), accent: css(T.onac), ink: css(T.g) }[st.pbtn];
+  v["--pbd"] = st.pbtn === "surface" ? css(T.mu) : "transparent";
+  // 副ボタン: 枠（今の実装）/ 薄い面（枠なし）
+  v["--sbg"] = st.secBtn === "fill" ? css(T.sbf) : css(T.btn);
+  // 面の上に乗る薄い面のボタンは、地の色と sbf のうち、その面との差が大きいほうで塗る（USR-35）
+  const pick = (X) => (cr(T.g, X) >= cr(T.sbf, X) ? T.g : T.sbf);
+  if (st.secBtn === "fill") { v["--sbg-s1"] = css(pick(T.s1)); v["--sbg-sub"] = css(pick(T.sub)); v["--sbg-sec2"] = css(pick(T.sec2)); }
+  else { v["--sbg-s1"] = v["--sbg-sub"] = v["--sbg-sec2"] = css(T.btn); }
+  v["--sbd"] = st.secBtn === "fill" ? "transparent" : css(T.mu);
   v["--bd"] = st.border ? `1px solid ${css(T.line)}` : "1px solid transparent";
   v["--bdt"] = `1px solid ${css(T.line)}`;
   v["--sh"] = SHADOW[st.shadow](dark);
   v["--r"] = st.radius + "px"; v["--rr"] = z.rr + "px";
-  v["--rb"] = Math.max(4, Math.min(st.radius, 22) * 0.55) + "px";
+  v["--rb"] = st.btnShape === "pill" ? "999px" : Math.max(4, Math.min(st.radius, 22) * 0.55) + "px";
+  v["--hfont"] = st.headFont === "mincho" ? '"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP","Noto Serif CJK JP",serif' : FONTS[st.font];
   v["--font"] = FONTS[st.font];
   v["--body"] = st.body + "px"; v["--lh"] = st.lh; v["--fw"] = st.fw;
   v["--h1"] = z.h1.toFixed(1) + "px"; v["--h2"] = z.h2.toFixed(1) + "px"; v["--cap"] = z.cap.toFixed(1) + "px";
@@ -586,6 +668,8 @@ function mark(kind, st) {
   const c = { stay: "c1", move: "c2", gap: "c3", erased: "c3" }[kind];
   return `<span class="mk ${c}" aria-hidden="true">${g}</span>`;
 }
+/* 数字と単位を分けて包む（「数字の強調」で数字を大きく太く、単位を細く控えめにするため） */
+const nf = (t) => String(t).replace(/(\d[\d.,:~]*)|([^\d]+)/g, (m, d, o) => d ? `<span class="nv">${d}</span>` : `<span class="nu">${o}</span>`);
 const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} 時間 ${m % 60} 分` : `${m} 分`);
 const clk = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 /* 通常: 滞在 9 件（seed の normal）。[種類, 始まり(分), 終わり(分), 場所の名前] */
@@ -623,7 +707,7 @@ function dayScreen(st) {
           const det = open ? `<div class="detail"><p>携帯端末の位置 225 件</p><p>携帯端末のアプリ利用 41 件</p><p>端末に保存された写真 2 件</p>
             <button class="btn big" data-t data-destructive type="button" style="margin-top:8px">この滞在を消す</button></div>` : "";
           return `<li class="row stay">${mark("stay", st)}<div class="rbody"><button class="rbtn" data-t type="button" aria-expanded="${!!open}">
-            <h2>${esc(head)}</h2><p class="mu num">${dur(e - s)} ・ ${range}</p></button>${det}</div></li>`;
+            <h2>${esc(head)}</h2><p class="mu num">${nf(dur(e - s))} ・ ${range}</p></button>${det}</div></li>`;
         }
         if (k === "move") return `<li class="row thin">${mark("move", st)}<span class="num">移動 ${dur(e - s)}<span> ・ ${range}</span></span></li>`;
         if (k === "gap") return `<li class="row thin">${mark("gap", st)}<span class="num">記録なし ${range}</span></li>`;
@@ -653,9 +737,9 @@ function covScreen(st) {
     grid = `<p class="alert" role="alert">稼働状況の読み出しに失敗しました（status_502）。収集が止まったのではありません。</p>`;
   } else if (ctx.st === "empty") { ach = ""; grid = `<p>ソースが 1 本も返りませんでした（登録簿を確認してください）。</p>`; }
   else {
-    const rows = SOURCES.map((s) => `<tr><td>${s.n}</td><td class="n">${s.a}</td><td class="n">${s.d}</td><td class="n">${(s.d * 0.95).toFixed(2)}</td></tr>`).join("");
+    const rows = SOURCES.map((s) => `<tr><td>${s.n}</td><td class="n">${nf(s.a)}</td><td class="n">${nf(s.d)}</td><td class="n">${nf((s.d * 0.95).toFixed(2))}</td></tr>`).join("");
     ach = `<section class="sec deep" aria-label="成功条件 1 の達成"><h2>収集が動いていた日数</h2>
-      <p class="mu" style="margin:4px 0 0">分母の 95 % に届かないソースがある — 暫定</p><p class="sp num" style="margin:0 0 6px">確定まであと 12 日</p>
+      <p class="mu" style="margin:4px 0 0">分母の 95 % に届かないソースがある — 暫定</p>${st.sparkUse === "dot" ? `<p class="num" style="margin:0 0 6px"><span class="dot" aria-hidden="true"></span>確定まであと <span class="nv">12</span><span class="nu"> 日</span></p>` : `<p class="sp num" style="margin:0 0 6px">確定まであと <span class="nv">12</span><span class="nu"> 日</span></p>`}
       <table><thead><tr><th>ソース</th><th>達成日数</th><th>分母</th><th>線</th></tr></thead><tbody class="num">${rows}</tbody></table></section>`;
     grid = `<div class="two">` + SOURCES.map((s, si) => {
       const wk = s.w.map((w, wi) => {
@@ -733,7 +817,7 @@ function render() {
     const f = document.createElement("div"); f.className = "frame"; f.style.width = ctx.width + "px";
     const cap = document.createElement("div"); cap.className = "fcap";
     cap.textContent = `${sch === "light" ? "ライト" : "ダーク"} ・ 幅 ${ctx.width}px`;
-    const pv = document.createElement("div"); pv.className = "pv" + (ctx.width >= 900 ? " wide" : "");
+    const pv = document.createElement("div"); pv.className = "pv" + (ctx.width >= 900 ? " wide" : "") + (state.numEmph === "bold" ? " emph" : "");
     const v = varsFor(state, sch, ev[sch]);
     for (const k in v) pv.style.setProperty(k, v[k]);
     pv.innerHTML = html;
@@ -811,7 +895,7 @@ function radiusWord(r) { return r <= 6 ? "ほぼ角に近い" : r <= 11 ? "小�
 function densityWord(d) { return d < 30 ? "詰めた" : d < 55 ? "ふつうの" : d < 78 ? "ゆったりした" : "かなりゆったりした"; }
 function lhWord(l) { return l < 1.6 ? "詰めた" : l < 1.75 ? "ほどよい" : "広い"; }
 function ratioWord(r) { return r < 1.08 ? "ほぼ平ら" : r < 1.17 ? "控えめ" : r < 1.3 ? "はっきり" : "強い"; }
-const AMT = { quiet: "控えめ（アクセントは選択・格子・しるしだけに使い、題やリンクは本文の色）", heading: "見出しまで（題・リンク・主なボタンの塗りもアクセント）", band: "はっきり（さらに、ログアウトのある上の細い帯をアクセントで塗る）" };
+const AMT = { quiet: "控えめ（アクセントは選択・格子・しるしだけに使い、題やリンクは本文の色）", heading: "見出しまで（題・リンクもアクセント）", band: "はっきり（さらに、ログアウトのある上の細い帯をアクセントで塗る）" };
 const MARKS = { none: "付けない（今の左の細い線だけ）", shape: "小さな形（線の輪の中に記号）", chip: "色の丸に記号（文字に添える）" };
 const LMODE = { sink: "地がいちばん明るく、行・カードは地より少し沈む", float: "地を淡くし、行・カードは白く浮かせ、その中の詳細は地の色に戻す" };
 const FONTN = { kaku: "角ゴシック", maru: "丸ゴシック（端末にあれば）", ud: "UD ゴシック（端末にあれば）" };
@@ -821,12 +905,12 @@ function amount(d) { const a = Math.abs(d); return a <= 2 ? "わずかに" : a <
 function renderPrompt(ev) {
   const d = DEFAULTS, s = state, ch = [];
   const pres = Object.entries(PRESETS).find(([, p]) => Object.keys(p.v).every((k) => p.v[k] === s[k]));
-  const colorChanged = ["hue", "surfSat", "accHue", "accSat", "sparkHue"].some((k) => s[k] !== d[k]);
+  const colorChanged = ["hue", "surfSat", "accHue", "accSat", "sparkHue", "accMode", "sparkUse"].some((k) => s[k] !== d[k]);
   // 色相と彩度は 3 本ずつに分けたので、どれか 1 本でも変えたら 3 本とも書く（USR-5）
   if (colorChanged) {
-    const spark = s.sparkHue === s.accHue ? "差し色は持たない（アクセントと同じ）" : `差し色は ${hueName(s.sparkHue)}（${s.sparkHue}°）で、「確定まであと N 日」のような小さな注意と移動のしるしにだけ使う`;
+    const spark = s.sparkHue === s.accHue && s.accMode !== "ink" ? "差し色は持たない（アクセントと同じ）" : s.sparkUse === "dot" ? `差し色は ${hueName(s.sparkHue)}（${s.sparkHue}°・彩度 ${s.accSat}%）で、小さな点（通知の点・印）にだけ使う` : `差し色は ${hueName(s.sparkHue)}（${s.sparkHue}°）で、「確定まであと N 日」のような小さな注意と移動のしるしにだけ使う`;
     ch.push(`色は 3 本に分ける —— 地と面と文字の色みは ${hueName(s.hue)}（色相 ${s.hue}°・${satWord(s.surfSat)} ${s.surfSat}%。文字の色みも同じ彩度）、` +
-      `アクセントは ${satWord(s.accSat)}${hueName(s.accHue)}（色相 ${s.accHue}°・彩度 ${s.accSat}%）、${spark}。9/8 は 1 本（色相 132°・彩度 30%）だった。`);
+      (s.accMode === "ink" ? `アクセントは墨（無彩）、` : `アクセントは ${satWord(s.accSat)}${hueName(s.accHue)}（色相 ${s.accHue}°・彩度 ${s.accSat}%）、`) + `${spark}。9/8 は 1 本（色相 132°・彩度 30%）だった。`);
   }
   if (s.accAmt !== d.accAmt) ch.push(`アクセントの量は${AMT[s.accAmt]}。${s.accAmt === "band" ? "帯の上の文字は白か墨のうち読めるほう。" : ""}`);
   if (s.lightG !== d.lightG) ch.push(`ライトの地は${s.lightG >= 99 ? "ほぼ真っ白" : s.lightG > d.lightG ? `${amount(s.lightG - d.lightG)}明るく` : `${amount(s.lightG - d.lightG)}暗く`}（明るさ ${d.lightG} → ${s.lightG}）。`);
@@ -843,6 +927,14 @@ function renderPrompt(ev) {
   if (s.body !== d.body) ch.push(`本文は${amount((s.body - d.body) * 2)}${s.body > d.body ? "大きく" : "小さく"}（${d.body}px → ${s.body}px）。`);
   if (s.lh !== d.lh) ch.push(`行間は${lhWord(s.lh)}（${s.lh.toFixed(2)}）。`);
   if (s.ratio !== d.ratio) ch.push(`見出しと本文の差は${ratioWord(s.ratio)}（比 ${s.ratio.toFixed(2)}）。`);
+  if (s.accMode !== d.accMode) ch.push(s.accMode === "ink" ? "アクセントは色を使わず墨（ライトでは黒に近い色、ダークでは白に近い色）にする。題・選択・格子・しるしは無彩で、色は差し色だけに残す。部品に色を足して明るくするのではなく、色を抜いて白黒の明快さで明るくする。" : "アクセントは色で持つ。");
+  if (s.pbtn !== d.pbtn) ch.push({ surface: "主ボタンは面と枠で示す（今の実装と同じ）。", accent: "主ボタン（書く・積む・ログイン）はアクセントで塗る。", ink: "主ボタン（書く・積む・ログイン）は墨で塗り、文字は地の色（ダークでは白黒が反転する）。" }[s.pbtn]);
+  if (s.secBtn !== d.secBtn) ch.push(s.secBtn === "fill" ? "副ボタン（前の日・次の日・戻す・やめる・種類を足す など）は枠を引かず、薄い面で示す。地の上では地より少し濃い（ダークでは少し明るい）面、行や箱の上では地の色の面にして、乗っている面と必ず差を付ける。取り返しの付かない操作（この滞在を消す）だけは枠を残す。" : "副ボタンは枠で示す（今の実装と同じ）。");
+  if (s.rowRound !== d.rowRound) ch.push(s.rowRound === "same" ? `行・詳細・数値の箱の角も節と同じ大きさ（半径 ${s.radius}px）に丸める。` : "行の角は節の角の 0.55 倍。");
+  if (s.btnShape !== d.btnShape) ch.push(s.btnShape === "pill" ? "ボタンと入力欄（日付の欄・値の欄）は端まで丸い楕円にする。" : "ボタンの角は面の角に合わせて丸める。");
+  if (s.headFont !== d.headFont) ch.push(s.headFont === "mincho" ? `見出し（題・場所の名前・種類の名前）は明朝。端末に無ければ端末の明朝か角ゴシックに落ちてよい。本文は${FONTN[s.font]}のまま。` : "見出しは本文と同じ書体。");
+  if (s.numEmph !== d.numEmph) ch.push(s.numEmph === "bold" ? "長さ・件数・日数の数字は大きく太く（本文の約 1.4 倍）、単位（時間・分・日）は細く小さく控えめな色にする。" : "数字は本文と同じ扱い。");
+  if (s.sparkUse !== d.sparkUse) ch.push(s.sparkUse === "dot" ? "差し色は文字に使わず、小さな丸い点（通知の点・印）にだけ使う。点の意味は必ず隣の文字が持つ。" : "差し色は小さな注意の文字にも使う。");
   if (s.fw !== d.fw) ch.push(`見出しの太さは ${s.fw}（${s.fw >= 700 ? "太く" : s.fw <= 500 ? "細く" : "中ほど"}）。`);
   if (s.density !== d.density) ch.push(`密度は${densityWord(s.density)}側（${d.density} → ${s.density}。余白と行の間隔をまとめて比例で。ただし横に並ぶ操作の間は 8px を下回らない）。`);
 
@@ -889,6 +981,9 @@ function syncControls() {
   pressed("lightMode", state.lightMode); document.getElementById("v-lightMode").textContent = state.lightMode === "sink" ? "沈む" : "浮く";
   pressed("marks", state.marks); document.getElementById("v-marks").textContent = { none: "付けない", shape: "形", chip: "色の丸" }[state.marks];
   pressed("fw", state.fw); document.getElementById("v-fw").textContent = state.fw;
+  const LBL = { accMode: { color: "色", ink: "墨" }, pbtn: { surface: "面", accent: "アクセント", ink: "墨" }, btnShape: { round: "角丸", pill: "楕円" },
+    headFont: { same: "本文と同じ", mincho: "明朝" }, numEmph: { none: "なし", bold: "大きく太く" }, sparkUse: { text: "文字にも", dot: "点だけ" }, secBtn: { line: "枠", fill: "薄い面" }, rowRound: { follow: "控えめ", same: "節と同じ" } };
+  for (const k in LBL) { pressed(k, state[k]); document.getElementById("v-" + k).textContent = LBL[k][state[k]]; }
   pressed("ctx-scheme", ctx.scheme); pressed("ctx-screen", ctx.screen); pressed("ctx-state", ctx.st); pressed("ctx-names", ctx.names);
   pressed("ctx-width", ctx.width);
   document.getElementById("width").value = ctx.width; document.getElementById("v-width").textContent = ctx.width + "px";
@@ -900,10 +995,18 @@ function init() {
   document.getElementById("border").addEventListener("change", (e) => { state.border = e.target.checked; render(); });
   document.getElementById("font").addEventListener("change", (e) => { state.font = e.target.value; render(); });
   document.getElementById("width").addEventListener("input", (e) => { ctx.width = +e.target.value; render(); });
-  cardGroup("accAmt", "accAmt", [["quiet", "控えめ", "選択・格子・しるしだけ"], ["heading", "見出しまで", "＋題・リンク・塗りのボタン"], ["band", "はっきり", "＋上の細い帯も塗る"]]);
+  cardGroup("accAmt", "accAmt", [["quiet", "控えめ", "選択・格子・しるしだけ"], ["heading", "見出しまで", "＋題・リンク"], ["band", "はっきり", "＋上の細い帯も塗る"]]);
   cardGroup("lightMode", "lightMode", [["sink", "面が沈む", "白い地に灰の面"], ["float", "面が浮く", "淡い地に白い面。詳細は地の色に戻る"]]);
   cardGroup("marks", "marks", [["none", "付けない", "左の細い線"], ["shape", "形", "線の輪に記号"], ["chip", "色の丸", "塗りの丸に記号"]]);
   cardGroup("fw", "fw", [["500", "500", "細め"], ["600", "600", "中ほど"], ["700", "700", "太め"]]);
+  cardGroup("accMode", "accMode", [["color", "色", "色相と彩度で"], ["ink", "墨", "無彩の濃い色"]]);
+  cardGroup("pbtn", "pbtn", [["surface", "面", "面と枠（今）"], ["accent", "アクセント", "塗り"], ["ink", "墨", "黒に近い塗り"]]);
+  cardGroup("btnShape", "btnShape", [["round", "角丸", "角に合わせる"], ["pill", "楕円", "端まで丸い"]]);
+  cardGroup("secBtn", "secBtn", [["line", "枠", "今の実装"], ["fill", "薄い面", "枠なし"]]);
+  cardGroup("rowRound", "rowRound", [["follow", "控えめ", "節の 0.55 倍"], ["same", "節と同じ", "大きく丸い箱"]]);
+  cardGroup("headFont", "headFont", [["same", "本文と同じ", ""], ["mincho", "明朝", "端末にあれば"]]);
+  cardGroup("numEmph", "numEmph", [["none", "なし", "本文と同じ"], ["bold", "大きく太く", "単位は細く"]]);
+  cardGroup("sparkUse", "sparkUse", [["text", "文字にも", "小さな注意の文字"], ["dot", "点だけ", "通知の点・印"]]);
   ctxGroup("ctx-scheme", "scheme", [["light", "ライト"], ["dark", "ダーク"], ["both", "両方"]]);
   ctxGroup("ctx-width", "width", [["360", "スマホ 360"], ["390", "390"], ["768", "768"], ["1280", "PC 1280"]]);
   ctxGroup("ctx-screen", "screen", [["day", "S-2 1 日の滞在"], ["cov", "S-1 稼働状況"], ["master", "S-6 マスタ管理"], ["login", "S-8 ログイン"]]);
@@ -935,9 +1038,12 @@ function sweep() {
   const btn = document.getElementById("sweep"), out = document.getElementById("sweepOut");
   btn.disabled = true;
   const G = {
-    // 色相は 5° 刻み（USR-1: 45° 刻みでは黄の帯 54〜86° を踏まなかった）。面の色みは 5% 刻み
-    hue: Array.from({ length: 72 }, (_, i) => i * 5), surfSat: [0, 5, 10, 15, 20, 25, 30, 35, 40], accHue: [0, 60, 120, 180, 240, 300],
-    accSat: [10, 55], sparkHue: [30, 210], lightG: [86, 100], darkG: [3, 24], steps: [2, 4], lightMode: ["sink", "float"],
+    // 色相は 10° 刻み（USR-1: 45° 刻みでは黄の帯 54〜86° を踏まなかった。10° なら 60・70・80 を踏む）。面の色みは 10% 刻み
+    hue: Array.from({ length: 36 }, (_, i) => i * 10), surfSat: [0, 10, 20, 30, 40], accHue: [0, 60, 120, 180, 240, 300],
+    accSat: [10, 55], sparkHue: [0, 210], lightG: [86, 100], darkG: [3, 24], steps: [2, 4], lightMode: ["sink", "float"],
+    accMode: ["color", "ink"], sparkUse: ["text", "dot"],
+    // 副ボタンは「薄い面」で固定: 測る面が「枠」のときの上位集合になるので、こちらで満たせば「枠」でも満たす
+    secBtn: ["fill"],
     stepLight: [10], stepDark: [10],
   };
   const keys = Object.keys(G), idx = keys.map(() => 0), total = keys.reduce((n, k) => n * G[k].length, 1);
