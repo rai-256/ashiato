@@ -1,0 +1,622 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ArgumentListWrapping:AgeClock.kt$AgeClock$( p[0].toLong(), p[1].toLong(), p[2].toLong(), p.getOrNull(3)?.takeIf { it != "-" }?.toInt(), // ST06 より前に書かれたファイルには「数えなかった分」が無い（0 から数え直す） p.getOrNull(4)?.toLong() ?: 0, )</ID>
+    <ID>ArgumentListWrapping:AppLabelsTest.kt$AppLabelsTest$("任意のパッケージの可視性が宣言されていない", permissions.orEmpty().contains("android.permission.QUERY_ALL_PACKAGES"))</ID>
+    <ID>ArgumentListWrapping:AppUsageRollupSourceAdapter.kt$AppUsageRollupSourceAdapter$( newId(), user, deviceId, collectedIn, granularity, labels.label(rollup.packageName), )</ID>
+    <ID>ArgumentListWrapping:ClockReferences.kt$ClockReferences$(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE, r.date, r.host)</ID>
+    <ID>ArgumentListWrapping:ClockReferences.kt$ClockReferences$(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null, r.date, r.host)</ID>
+    <ID>ArgumentListWrapping:ClockReferencesTest.kt$ClockReferencesTest$(ClockReferences(FakeSources(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 }), ResponseDateCache()).readAll())</ID>
+    <ID>ArgumentListWrapping:ClockReferencesTest.kt$ClockReferencesTest$(FakeSources(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 }), ResponseDateCache())</ID>
+    <ID>ArgumentListWrapping:ClockReferencesTest.kt$ClockReferencesTest$(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 })</ID>
+    <ID>ArgumentListWrapping:ClockSkewMeasurerTest.kt$ClockSkewMeasurerTest$(ResponseDateCache.Received(date, monoBeforeMs = 100, monoAfterMs = 100, wallAfterMs = dateMs + 300_000 + 700))</ID>
+    <ID>ArgumentListWrapping:ClockSkewMeasurerTest.kt$ClockSkewMeasurerTest$(date, monoBeforeMs = 100, monoAfterMs = 100, wallAfterMs = dateMs + 300_000 + 700)</ID>
+    <ID>ArgumentListWrapping:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$("Fri, 15 Jan 2027 07:55:00 GMT", 100, 410, 1_800_000_000_456, "s01.lan:8787")</ID>
+    <ID>ArgumentListWrapping:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$(ResponseDateCache.Received("Fri, 15 Jan 2027 07:55:00 GMT", 100, 410, 1_800_000_000_456, "s01.lan:8787"))</ID>
+    <ID>ArgumentListWrapping:DrainTest.kt$DrainTest$(HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-06-01T00:00:00Z", true, emptyList(), 1, 1, "{}"))</ID>
+    <ID>ArgumentListWrapping:DropReport.kt$DropLedger$("drop_report_waiting", source = null, count = drafts.size, error = "no_user_id")</ID>
+    <ID>ArgumentListWrapping:DropReport.kt$DropLedger$(Telemetry.line("drop_report_waiting", source = null, count = drafts.size, error = "no_user_id"))</ID>
+    <ID>ArgumentListWrapping:DropReport.kt$DropLedger$(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))</ID>
+    <ID>ArgumentListWrapping:DropReport.kt$DropLedger$(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName)</ID>
+    <ID>ArgumentListWrapping:DropReportContractTest.kt$DropReportContractTest$("a", LOGICAL_SOURCE, "unreadable", "2026-09-14T00:00:00Z", count = 2)</ID>
+    <ID>ArgumentListWrapping:DropReportContractTest.kt$DropReportContractTest$("user-1", "device-1")</ID>
+    <ID>ArgumentListWrapping:DropReportContractTest.kt$DropReportContractTest$(DropReport.serializer(), r)</ID>
+    <ID>ArgumentListWrapping:DropReportContractTest.kt$DropReportContractTest$(ingestJson.encodeToString(DropReport.serializer(), r))</ID>
+    <ID>ArgumentListWrapping:DropReportSendTest.kt$DropReportSendTest$(File(st.dir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportSendTest.kt$DropReportSendTest$(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportSendTest.kt$DropReportSendTest$(st.dir, "drops-open.json")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("${h.hour} が範囲 [${r.rangeStart}, ${r.rangeEnd}) と重ならない", hs.isBefore(end) &amp;&amp; hs.plusSeconds(3600).isAfter(start))</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("2026-06-01T09:59:59Z", "2026-06-01T10:00:00Z", "2026-06-01T10:45:00Z", "2026-06-01T11:30:00Z")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("2026-06-01T10:00:00Z")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("2026-06-01T11:00:00Z")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("35.681236", "139.767125", "lat", "lon", "acc_m", req("r0", "2026-06-01T10:00:00Z").raw)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$("r0", "2026-06-01T10:00:00Z")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(30)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(50)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(60L * it)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z").plusSeconds(60L * it))</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T11:00:00Z").plusSeconds(60L * it))</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(SegmentStore(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(blocked, "drops")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(maxBytes = st.records.bytes() / 4)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(setOf("id", "user_id", "logical_source", "device_id", "reason", "created_at", "range_start", "range_end", "count", "hourly"), raw.keys)</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(st.dir, "blank-user.json")</ID>
+    <ID>ArgumentListWrapping:DropReportTest.kt$DropReportTest$(st.records, st.ledger, st.age::now, policy = { RetentionPolicy(maxBytes = st.records.bytes() / 4) })</ID>
+    <ID>ArgumentListWrapping:FixCollectorTest.kt$FixCollectorTest$("\"lat\":35.681236", "\"lon\":139.767125", "\"acc_m\":12.5", "\"device_time\":\"2026-09-08T02:00:00Z\"", "\"device_id\":\"device-1\"")</ID>
+    <ID>ArgumentListWrapping:FixCollectorTest.kt$FixCollectorTest$("\"received_device_time\":", "\"fix_elapsed_ns\":", "\"received_elapsed_ms\":", "\"boot_count\":")</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$( clock, SourceCadence.APP_USAGE, FileCounterStore(counterStoreFile(dir, SourceCadence.APP_USAGE.logicalSource), SourceCadence.APP_USAGE.logicalSource) {}, )</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$( clock, SourceCadence.LOCATION, FileCounterStore(counterStoreFile(dir, SourceCadence.LOCATION.logicalSource), SourceCadence.LOCATION.logicalSource) {}, )</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$(counterStoreFile(dir, SourceCadence.APP_USAGE.logicalSource), SourceCadence.APP_USAGE.logicalSource)</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$(counterStoreFile(dir, SourceCadence.LOCATION.logicalSource), SourceCadence.LOCATION.logicalSource)</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$(dir, SourceCadence.APP_USAGE.logicalSource)</ID>
+    <ID>ArgumentListWrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$(dir, SourceCadence.LOCATION.logicalSource)</ID>
+    <ID>ArgumentListWrapping:HeartbeatTest.kt$HeartbeatTest$("2026-05-01T00:00:00Z")</ID>
+    <ID>ArgumentListWrapping:HeartbeatTest.kt$HeartbeatTest$(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS)</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$(date = null, monoBeforeMs = 0, monoAfterMs = 0, wallAfterMs = 0, host = null)</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$(200, """[{"id":null,"duplicate":false,"accepted":true,"error":null}]""")</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$(400, """[{"accepted":false,"error":"malformed"}]""")</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$(Outcome.Responded(200, """[{"id":null,"duplicate":false,"accepted":true,"error":null}]"""), outcome.withoutClockFields())</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$(Outcome.Responded(400, """[{"accepted":false,"error":"malformed"}]"""), outcome.withoutClockFields())</ID>
+    <ID>ArgumentListWrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$(":", limit = 2)</ID>
+    <ID>ArgumentListWrapping:LocationFixClockFieldsTest.kt$LocationFixClockFieldsTest$( latitude = 35.68, longitude = 139.76, accuracyMeters = 10f, at = fixTime, receivedDeviceTime = fixTime.plusSeconds(1), fixElapsedNs = 5L, receivedElapsedMs = 6L, bootCount = 7, )</ID>
+    <ID>ArgumentListWrapping:LocationFixTest.kt$LocationFixTest$(latitude = 35.681236, longitude = 139.767125, accuracyMeters = accuracy, at = at, receivedDeviceTime = Instant.parse("2026-09-08T02:00:01.500Z"), fixElapsedNs = 1_000L, receivedElapsedMs = 2L, bootCount = 3, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( File(filesDir, "heartbeat.jsonl"), heartbeatOutbox, HeartbeatRequest.serializer(), store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( File(filesDir, "outbox.jsonl"), outbox, IngestRequest.serializer(), store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) }, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) }, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( store("records"), IngestRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) }, )</ID>
+    <ID>ArgumentListWrapping:LocationService.kt$LocationService$( usageWindowFile(filesDir, APP_USAGE_LOGICAL_SOURCE), APP_USAGE_LOGICAL_SOURCE, logW, )</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$("2026-09-08T02:00:00Z")</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$("start", "time_set", "hourly", "retry")</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(Instant.parse("2026-09-08T02:00:00Z"))</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(LocationResult.create(listOf(location(Instant.parse("2026-09-08T02:00:00Z")))))</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(lines.none { it.contains("35.68") || it.contains("139.76") || it.contains("boom") || Regex("20\\d\\d-\\d\\d").containsMatchIn(it) })</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(listOf("start", "time_set", "hourly", "retry"), clockRecords(s).map { it.payload["trigger"]!!.jsonPrimitive.content })</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(listOf(location(Instant.parse("2026-09-08T02:00:00Z"))))</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(location(Instant.parse("2026-09-08T02:00:00Z")))</ID>
+    <ID>ArgumentListWrapping:LocationServiceClockTest.kt$LocationServiceClockTest$(s)</ID>
+    <ID>ArgumentListWrapping:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$(client.setMockMode(true), 10, TimeUnit.SECONDS)</ID>
+    <ID>ArgumentListWrapping:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$(true)</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$("90 日を超えた記録を送っている", service.posted.any { it.first == "/ingest" &amp;&amp; it.second.contains("\"old\"") })</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$("legacy")</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$("new-1", "new-2")</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$("survivor")</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$("断られた破棄の報告が取り除かれた", 1, service.dropsOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE })</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$(app.filesDir, "outbox.jsonl")</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$(ingestJson.encodeToString(IngestRequest.serializer(), fix("legacy")) + "\n")</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$(listOf("legacy"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$(listOf("new-1", "new-2"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>ArgumentListWrapping:LocationServiceTest.kt$LocationServiceTest$(listOf("survivor"), reborn.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>ArgumentListWrapping:MainActivityTest.kt$MainActivityTest$(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)</ID>
+    <ID>ArgumentListWrapping:MainActivityTest.kt$MainActivityTest$(app)</ID>
+    <ID>ArgumentListWrapping:OutboxStoreTest.kt$OutboxStoreTest$(".jsonl")</ID>
+    <ID>ArgumentListWrapping:OutboxStoreTest.kt$OutboxStoreTest$("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") || it.contains("kind=outbox_list_failed") })</ID>
+    <ID>ArgumentListWrapping:OutboxStoreTest.kt$OutboxStoreTest$(dir, "segments")</ID>
+    <ID>ArgumentListWrapping:ResponseDateCacheTest.kt$ResponseDateCacheTest$("[]")</ID>
+    <ID>ArgumentListWrapping:ResponseDateCacheTest.kt$ResponseDateCacheTest$("content-length:")</ID>
+    <ID>ArgumentListWrapping:ResponseDateCacheTest.kt$ResponseDateCacheTest$(baseUrl, "t", monoClock = { 1L }, wallClock = { 2L })</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("Asia/Tokyo")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("ConnectException")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("backlog-$i", start.plusSeconds(60L * i))</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("bulk", Instant.now().minusSeconds(3600))</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("http://127.0.0.1:${fake.port}", "t", path)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$("http://127.0.0.1:${fake.port}", "test-token-0123456789abcdef", "00000000-0000-0000-0000-000000000000")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(35.681236, 139.767125, 10f, at)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(3600)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(60L * i)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {}, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {})</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(IngestRequest.serializer(), fix("backlog-$i", start.plusSeconds(60L * i)))</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(IngestRequest.serializer(), fix("bulk", Instant.now().minusSeconds(3600)))</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(LocationServices.getFusedLocationProviderClient(context).setMockMode(false), 5, TimeUnit.SECONDS)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(SegmentStore(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {}), age::now)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(b, k * line.size)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(body)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(context)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(dir, "drops-open.json")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(dir, "heartbeats")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(false)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(id, "00000000-0000-0000-0000-000000000000", "device-1", ZoneId.of("Asia/Tokyo"))</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$(perSegment * line.size)</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$(",", "[", "]")</ID>
+    <ID>ArgumentListWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())</ID>
+    <ID>ArgumentListWrapping:RetentionNotifierTest.kt$RetentionNotifierTest$( st.records, st.age::now, AndroidRetentionAlerts(service) { android.app.Notification.Builder(service, LocationService.CHANNEL).build() }, File(st.dir, "blocked-mark"), base, log = { lines += it }, )</ID>
+    <ID>ArgumentListWrapping:RetentionNotifierTest.kt$RetentionNotifierTest$(HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-06-01T00:00:00Z", true, emptyList(), 1, 1, "{}"))</ID>
+    <ID>ArgumentListWrapping:RetentionNotifierTest.kt$RetentionNotifierTest$(service)</ID>
+    <ID>ArgumentListWrapping:RetentionNotifierTest.kt$RetentionNotifierTest$(service, LocationService.CHANNEL)</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$("2026-06-02T00:00:00Z")</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$(60L * i)</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$(blocked, "drops-open.json")</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$(id, Instant.parse("2026-06-02T00:00:00Z").minusSeconds(60L * i).toString())</ID>
+    <ID>ArgumentListWrapping:RetentionTest.kt$RetentionTest$(req(id, Instant.parse("2026-06-02T00:00:00Z").minusSeconds(60L * i).toString()))</ID>
+    <ID>ArgumentListWrapping:RollupImportTest.kt$RollupImportTest$(usageRollupProgressFile(env.dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE), APP_USAGE_ROLLUP_LOGICAL_SOURCE, {})</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$( legacy, st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log, )</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$("")</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$("a", "b", "c")</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log)</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(blocked, "records")</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(files, "outbox.jsonl.tmp")</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(ingestJson.encodeToString(IngestRequest.serializer(), req("rescued")) + "\n")</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(legacy, broken, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(legacy, st.beats, HeartbeatRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(listOf("a", "b", "c").joinToString("") { ingestJson.encodeToString(IngestRequest.serializer(), req(it)) + "\n" })</ID>
+    <ID>ArgumentListWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$(st.dir, "salvaged")</ID>
+    <ID>ArgumentListWrapping:SegmentStore.kt$SegmentStore$("outbox_shrink_failed", source = null, count = keys.size, error = e.javaClass.simpleName)</ID>
+    <ID>ArgumentListWrapping:SegmentStore.kt$SegmentStore$(Telemetry.line("outbox_shrink_failed", source = null, count = keys.size, error = e.javaClass.simpleName))</ID>
+    <ID>ArgumentListWrapping:SegmentStore.kt$SegmentStore$(ingestJson.decodeFromJsonElement(serializer, item), enq)</ID>
+    <ID>ArgumentListWrapping:SegmentStore.kt$SegmentStore$(serializer, item)</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$("")</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(".jsonl")</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$("SHA-256")</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), { lines += it }, segmentBytes)</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(dir, "records")</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(dir, "unreadable.jsonl")</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(f.readBytes())</ID>
+    <ID>ArgumentListWrapping:SegmentStoreTest.kt$SegmentStoreTest$(it)</ID>
+    <ID>ArgumentListWrapping:Sender.kt$Sender$("dropped_item", source = batch[it].logicalSource, error = batch[it].id)</ID>
+    <ID>ArgumentListWrapping:Sender.kt$Sender$(Telemetry.line("dropped_item", source = batch[it].logicalSource, error = batch[it].id))</ID>
+    <ID>ArgumentListWrapping:Sender.kt$Sender$(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs, outcome.host)</ID>
+    <ID>ArgumentListWrapping:SenderTest.kt$SenderTest$(listOf("id-$MAX_BATCH", "id-${MAX_BATCH + 1}", "id-${MAX_BATCH + 2}"), outbox.snapshot().map { it.id })</ID>
+    <ID>ArgumentListWrapping:SourceAttributionTest.kt$SourceAttributionTest$( File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "d" }, st.log, LOGICAL_SOURCE, )</ID>
+    <ID>ArgumentListWrapping:TestFix.kt$(latitude, longitude, accuracyMeters, at, receivedDeviceTime, fixElapsedNs, receivedElapsedMs, bootCount)</ID>
+    <ID>ArgumentListWrapping:TestOutbox.kt$TestStores$(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { now }, { "r${nextId++}" }, log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:TestOutbox.kt$TestStores$(dir, "drops-open.json")</ID>
+    <ID>ArgumentListWrapping:TestOutbox.kt$TestStores$(recordsDir, IngestRequest.serializer(), unreadable, log, segmentBytes)</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$( File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { st.ledger.unreadable(LOGICAL_SOURCE, it) }, 0L, st.log, )</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(10)</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(LOGICAL_SOURCE, it)</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(SegmentStore(st.recordsDir, IngestRequest.serializer(), st.unreadable, st.log) { seen += it }, st.age::now)</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(files, "outbox.jsonl")</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(st.dir, "salvaged")</ID>
+    <ID>ArgumentListWrapping:UnreadableLineTest.kt$UnreadableLineTest$(st.recordsDir, IngestRequest.serializer(), st.unreadable, st.log)</ID>
+    <ID>ArgumentListWrapping:UsageRetentionTest.kt$UsageRetentionTest$(now, it)</ID>
+    <ID>ArgumentListWrapping:UsageWindowClockTest.kt$UsageWindowClockTest$(listOf("2026-05-21T12:00:00Z"), env.records().filter { it.rawText("kind") != USAGE_GAP_KIND }.map { it.eventTime })</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$("2026-06-01T00:00:00Z")</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$("Asia/Tokyo")</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$("first", "second")</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$("r$it", Instant.parse("2026-06-01T00:00:00Z").plusSeconds(3600L * it).toString())</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(300)</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(35.68, 139.76, 10f, Instant.parse(time))</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(3600L * it)</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(blockedDir, "drops-open.json")</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(dir, IngestRequest.serializer(), st.unreadable, st.log)</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(listOf("first", "second"), SegmentStore(dir, IngestRequest.serializer(), st.unreadable, st.log).readAll().map { it.id })</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(req("r$it", Instant.parse("2026-06-01T00:00:00Z").plusSeconds(3600L * it).toString()))</ID>
+    <ID>ArgumentListWrapping:WriteFailedTest.kt$WriteFailedTest$(time)</ID>
+    <ID>CommentSpacing:HeartbeatCountersTest.kt$HeartbeatCountersTest$/// Scenario: 取得の試行と成功の数が信号に載る</ID>
+    <ID>CommentSpacing:HeartbeatCountersTest.kt$HeartbeatCountersTest$/// Scenario: 数えは信号を送るたびに戻る</ID>
+    <ID>CommentSpacing:HeartbeatOutboxTest.kt$HeartbeatOutboxTest$/// Scenario: 送信に失敗した生存信号は再送される</ID>
+    <ID>CommentSpacing:HeartbeatTest.kt$HeartbeatTest$/// Scenario: 権限が無い状態が信号に載る</ID>
+    <ID>CommentSpacing:HeartbeatWithoutRecordsTest.kt$HeartbeatWithoutRecordsTest$/// Scenario: 記録が無くても生存信号が届く</ID>
+    <ID>ComplexCondition:DropReport.kt$DropLedger$d.startMs != null &amp;&amp; d.endMs != null &amp;&amp; (t &lt; d.startMs || t - d.endMs &gt; HOUR_MS)</ID>
+    <ID>ComplexCondition:DropReport.kt$DropLedger$r != null &amp;&amp; r &gt; last &amp;&amp; r - last &lt;= HOUR_MS &amp;&amp; r &gt; (d.endMs ?: 0)</ID>
+    <ID>CyclomaticComplexMethod:AppUsageRollupSourceAdapter.kt$AppUsageRollupSourceAdapter$@Synchronized override fun collect(window: CollectionWindow): CollectionResult</ID>
+    <ID>CyclomaticComplexMethod:LegacyOutbox.kt$fun &lt;T : Outboxable&gt; migrateLegacyOutbox( legacy: File, into: Outbox&lt;T&gt;, serializer: KSerializer&lt;T&gt;, unreadable: File, salvaged: File, /** ST01 が退けたファイルの行数を報告に足す。**足せたか**（足せなければ移さずに次の起動でもう一度数える） */ recordSalvaged: (Int) -&gt; Boolean, enqAgeMs: Long, log: (String) -&gt; Unit, ): LegacyMigration</ID>
+    <ID>CyclomaticComplexMethod:Retention.kt$RetentionNotifier$@Synchronized fun update()</ID>
+    <ID>CyclomaticComplexMethod:SegmentStore.kt$SegmentStore$fun appendAll(items: List&lt;T&gt;, enqAgeMs: Long): Boolean</ID>
+    <ID>CyclomaticComplexMethod:SegmentStore.kt$SegmentStore$private fun forEachLine(s: Segment, visit: (lineNo: Int, bytes: Int, entry: Stored&lt;T&gt;?) -&gt; Boolean): Read</ID>
+    <ID>CyclomaticComplexMethod:Sender.kt$Sender$private fun verdictOf(batch: List&lt;T&gt;, res: Outcome.Responded): Verdict</ID>
+    <ID>Filename:LegacyOutbox.kt$dev.ashiato.collector.LegacyOutbox.kt</ID>
+    <ID>FinalNewline:HeartbeatOutboxTest.kt$dev.ashiato.collector.HeartbeatOutboxTest.kt</ID>
+    <ID>FinalNewline:HttpTransportTest.kt$dev.ashiato.collector.HttpTransportTest.kt</ID>
+    <ID>ImportOrdering:AppUsageCollectorTest.kt$import android.app.Application import android.app.usage.UsageEvents import android.app.usage.UsageStatsManager import android.content.res.Configuration import android.os.PersistableBundle import android.os.UserManager import androidx.test.core.app.ApplicationProvider import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertArrayEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNotNull import org.junit.Assert.assertNull import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner import org.robolectric.Shadows import org.robolectric.shadows.ShadowUsageStatsManager</ID>
+    <ID>ImportOrdering:AppUsagePayloadShapeTest.kt$import android.content.res.Configuration import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive import org.junit.Assert.assertEquals import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:AppUsageRecord.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:AppUsageRollupRecord.kt$import java.time.ZoneId import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:ClockReferencesTest.kt$import java.time.DateTimeException import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertNotEquals import org.junit.Assert.assertNull import org.junit.Test</ID>
+    <ID>ImportOrdering:ClockSkewInstrumentedTest.kt$import android.Manifest import android.content.Context import android.content.Intent import androidx.test.core.app.ActivityScenario import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import androidx.test.rule.GrantPermissionRule import java.io.File import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Rule import org.junit.Test import org.junit.runner.RunWith import kotlinx.serialization.json.JsonArray import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive</ID>
+    <ID>ImportOrdering:ClockSkewMeasurer.kt$import java.time.ZoneId import java.time.ZoneOffset import java.time.format.DateTimeFormatter import kotlinx.serialization.json.JsonArray import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:ClockSkewMeasurerTest.kt$import java.time.DateTimeException import java.time.ZoneId import kotlinx.serialization.json.Json import kotlinx.serialization.json.JsonArray import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.boolean import kotlinx.serialization.json.int import kotlinx.serialization.json.jsonArray import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import kotlinx.serialization.json.long import org.junit.Assert.assertEquals import org.junit.Assert.assertNotEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:ClockSkewPayloadShapeTest.kt$import java.time.DateTimeException import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Test</ID>
+    <ID>ImportOrdering:ClockSkewSchedulerTest.kt$import java.time.DateTimeException import java.time.ZoneId import kotlinx.serialization.json.boolean import kotlinx.serialization.json.jsonPrimitive import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNull import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:CollectionSourceTest.kt$import android.app.Application import androidx.test.core.app.ApplicationProvider import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertSame import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:CollectorContractFixture.kt$import java.io.File import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive import kotlinx.serialization.json.longOrNull import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNotNull import org.junit.Assert.assertTrue</ID>
+    <ID>ImportOrdering:DrainTest.kt$import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:DropReport.kt$import java.io.File import java.io.IOException import java.io.RandomAccessFile import java.time.Instant import kotlinx.serialization.SerialName import kotlinx.serialization.Serializable import kotlinx.serialization.SerializationException import kotlinx.serialization.builtins.ListSerializer import kotlinx.serialization.json.JsonArray import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:DropReportSendTest.kt$import java.io.File import java.time.Instant import org.junit.Assert.assertArrayEquals import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:DropReportTest.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.Json import kotlinx.serialization.json.jsonObject import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:ElapsedClockTest.kt$import java.io.File import java.nio.file.Files import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:FixCollectorTest.kt$import android.location.Location import com.google.android.gms.location.LocationResult import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:ForegroundServiceTypeInstrumentedTest.kt$import android.Manifest import android.content.Context import android.content.Intent import android.content.pm.PackageManager import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import java.io.FileInputStream import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:Heartbeat.kt$import java.time.Instant import kotlinx.serialization.SerialName import kotlinx.serialization.Serializable import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:HeartbeatCountersTest.kt$import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertNotEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:HeartbeatOutboxTest.kt$import java.io.File import java.nio.file.Files import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertNotEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:HeartbeatTest.kt$import java.time.Instant import kotlinx.serialization.json.Json import kotlinx.serialization.json.jsonPrimitive import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNotNull import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:HeartbeatWithoutRecordsTest.kt$import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:HttpTransportInstrumentedTest.kt$import androidx.test.ext.junit.runners.AndroidJUnit4 import java.io.BufferedReader import java.net.ServerSocket import java.util.concurrent.CountDownLatch import java.util.concurrent.TimeUnit import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:HttpTransportTest.kt$import java.io.BufferedReader import java.io.InputStreamReader import java.net.ServerSocket import java.net.Socket import kotlin.concurrent.thread import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:LegacyOutbox.kt$import java.io.File import java.io.IOException import kotlinx.serialization.KSerializer import kotlinx.serialization.SerializationException</ID>
+    <ID>ImportOrdering:LocationFix.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonPrimitive</ID>
+    <ID>ImportOrdering:LocationFixClockFieldsTest.kt$import android.location.Location import com.google.android.gms.location.LocationResult import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.Json import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:LocationFixTest.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.Json import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import org.junit.Assert.assertEquals import org.junit.Assert.assertNotNull import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:LocationServiceClockTest.kt$import android.app.Application import android.content.Intent import android.location.Location import androidx.test.core.app.ApplicationProvider import com.google.android.gms.location.LocationCallback import com.google.android.gms.location.LocationResult import java.time.DateTimeException import java.time.Instant import kotlinx.serialization.json.jsonPrimitive import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.Robolectric import org.robolectric.RobolectricTestRunner import org.robolectric.shadows.ShadowLog</ID>
+    <ID>ImportOrdering:LocationServiceInstrumentedTest.kt$import android.Manifest import android.content.Context import android.content.Intent import android.location.Location import android.os.SystemClock import androidx.test.core.app.ActivityScenario import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import androidx.test.rule.GrantPermissionRule import com.google.android.gms.location.FusedLocationProviderClient import com.google.android.gms.location.LocationServices import com.google.android.gms.tasks.Tasks import java.io.File import java.util.concurrent.TimeUnit import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Rule import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:LocationServiceTest.kt$import android.app.Application import android.app.Service import android.content.Intent import androidx.test.core.app.ApplicationProvider import com.google.android.gms.location.LocationCallback import java.io.File import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.Robolectric import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:Outbox.kt$import java.io.File import kotlinx.serialization.KSerializer</ID>
+    <ID>ImportOrdering:OutboxStoreTest.kt$import java.io.File import java.nio.file.Files import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:OutboxTest.kt$import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Test</ID>
+    <ID>ImportOrdering:PermissionDeniedInstrumentedTest.kt$import android.Manifest import android.content.Context import android.app.NotificationManager import android.content.Intent import android.content.pm.PackageManager import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import androidx.test.uiautomator.By import androidx.test.uiautomator.UiDevice import androidx.test.uiautomator.Until import java.io.FileInputStream import java.util.regex.Pattern import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:ResponseDateCacheTest.kt$import java.io.BufferedReader import java.io.InputStreamReader import java.net.InetAddress import java.net.ServerSocket import kotlin.concurrent.thread import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertNull import org.junit.Before import org.junit.Test</ID>
+    <ID>ImportOrdering:RetentionInstrumentedTest.kt$import android.Manifest import android.content.Context import android.content.Intent import android.location.Location import android.os.SystemClock import androidx.test.core.app.ActivityScenario import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import androidx.test.rule.GrantPermissionRule import com.google.android.gms.location.LocationServices import com.google.android.gms.tasks.Tasks import java.io.BufferedReader import java.io.File import java.net.ServerSocket import java.net.Socket import java.time.Instant import java.time.ZoneId import java.util.Collections import java.util.concurrent.TimeUnit import java.util.concurrent.atomic.AtomicInteger import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Rule import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:RetentionNotifierTest.kt$import android.app.Application import android.app.NotificationManager import android.app.Service import android.content.Intent import androidx.test.core.app.ApplicationProvider import java.io.File import java.time.Instant import java.time.ZoneId import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.Robolectric import org.robolectric.RobolectricTestRunner import org.robolectric.Shadows.shadowOf</ID>
+    <ID>ImportOrdering:RetentionTest.kt$import java.io.File import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:RollupImportTest.kt$import java.io.File import java.nio.file.Files import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNotEquals import org.junit.Assert.assertNotNull import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:RollupPayloadShapeTest.kt$import java.time.ZoneId import kotlinx.serialization.json.JsonObject import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:SegmentMigrationTest.kt$import java.io.File import java.nio.file.Files import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:SegmentStore.kt$import java.io.ByteArrayOutputStream import java.io.File import java.io.FileOutputStream import java.io.IOException import java.io.RandomAccessFile import kotlinx.serialization.KSerializer import kotlinx.serialization.SerializationException import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import kotlinx.serialization.json.longOrNull</ID>
+    <ID>ImportOrdering:SegmentStoreTest.kt$import java.io.File import java.nio.file.Files import java.security.MessageDigest import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:SenderTest.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.Json import kotlinx.serialization.json.JsonArray import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:SourceAttributionTest.kt$import android.app.Application import android.content.Intent import androidx.test.core.app.ApplicationProvider import java.io.File import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNull import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.Robolectric import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:SourceIndependenceTest.kt$import android.app.Application import android.app.NotificationManager import android.app.Service import android.content.Intent import androidx.test.core.app.ApplicationProvider import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.Robolectric import org.robolectric.RobolectricTestRunner import org.robolectric.Shadows.shadowOf import org.robolectric.android.controller.ServiceController import org.robolectric.shadows.ShadowLog</ID>
+    <ID>ImportOrdering:TelemetryTest.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.JsonObject import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:UnavailableLogGateTest.kt$import java.util.concurrent.CountDownLatch import java.util.concurrent.Executors import java.util.concurrent.TimeUnit import java.util.concurrent.atomic.AtomicInteger import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:UnreadableLineTest.kt$import java.io.File import java.nio.file.Files import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:UsageGapTest.kt$import java.time.Instant import java.time.ZoneId import kotlinx.serialization.json.JsonObject import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:UsageRetentionTest.kt$import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>ImportOrdering:UsageSourceTest.kt$import android.app.Application import android.app.usage.UsageStatsManager import androidx.test.core.app.ApplicationProvider import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:UsageVolumeInstrumentedTest.kt$import androidx.test.core.app.ApplicationProvider import androidx.test.ext.junit.runners.AndroidJUnit4 import androidx.test.platform.app.InstrumentationRegistry import java.time.Instant import java.time.ZoneId import java.util.UUID import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith</ID>
+    <ID>ImportOrdering:UsageWindowClockTest.kt$import java.time.Instant import org.junit.Assert.assertEquals import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:UsageWindowTest.kt$import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertNotNull import org.junit.Assert.assertTrue import org.junit.Test import org.junit.runner.RunWith import org.robolectric.RobolectricTestRunner</ID>
+    <ID>ImportOrdering:WriteFailedTest.kt$import java.io.File import java.time.Instant import java.time.ZoneId import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertTrue import org.junit.Test</ID>
+    <ID>Indentation:FixCollectorTest.kt$FixCollectorTest$ </ID>
+    <ID>LongMethod:AppUsageRollupSourceAdapter.kt$AppUsageRollupSourceAdapter$@Synchronized override fun collect(window: CollectionWindow): CollectionResult</ID>
+    <ID>LongMethod:LegacyOutbox.kt$fun &lt;T : Outboxable&gt; migrateLegacyOutbox( legacy: File, into: Outbox&lt;T&gt;, serializer: KSerializer&lt;T&gt;, unreadable: File, salvaged: File, /** ST01 が退けたファイルの行数を報告に足す。**足せたか**（足せなければ移さずに次の起動でもう一度数える） */ recordSalvaged: (Int) -&gt; Boolean, enqAgeMs: Long, log: (String) -&gt; Unit, ): LegacyMigration</ID>
+    <ID>LongMethod:LocationService.kt$LocationService$private fun buildSources(): List&lt;Running&gt;</ID>
+    <ID>LongParameterList:AppUsageRecord.kt$( id: String, userId: String, deviceId: String, zone: ZoneId, /** 期間の始まり＝既に取れているところ（重ねた幅ぶん手前ではない） */ begin: Instant, /** 期間の終わり＝見込みの下限と「返った最古のイベント」の早いほう */ end: Instant, reason: String = USAGE_GAP_REASON_RETENTION, )</ID>
+    <ID>LongParameterList:AppUsageRollupRecord.kt$( id: String, userId: String, deviceId: String, zone: ZoneId, granularity: UsageGranularity, appLabel: String?, )</ID>
+    <ID>LongParameterList:AppUsageRollupSourceAdapter.kt$AppUsageRollupSourceAdapter$( private val source: UsageSource, /** 記録の未送信。**位置とイベントと同じもの**（C11） */ private val outbox: Outbox&lt;IngestRequest&gt;, private val progressStore: UsageRollupProgressStore, /** * 既に積んだ集計の台帳（独立レビュー R3）。**窓を切り詰める代わりにここで止める** —— * 日ごとの箱は 10 日ぶんが 6 時間ごとに毎回まるごと返るので、覚えていないと * 同じ 1 件が寿命のあいだに約 40 回、位置と同じ置き場へ積まれる。 */ private val seenStore: UsageRollupSeenStore, private val labels: AppLabels, private val userId: () -&gt; String, private val deviceId: String, /** 取得時点の端末の地域（C12 / design D7（仮））。**契機ごとに読む** */ private val zone: () -&gt; ZoneId, private val newId: () -&gt; String, /** いま取得できる状態か。**本物の判定は tasks 5.2** —— ここは口を埋めるだけ */ private val capabilityOf: (Context) -&gt; Capability, private val log: (String) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$( events: List&lt;UsageEventSnapshot&gt;, /** 既に取れているところ（保存した終わりを、取得元がいま使っている時刻の軸へ写したもの） */ coveredThrough: Instant?, gapReason: String, at: Instant, ageMs: Long, discarded: Long, )</ID>
+    <ID>LongParameterList:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$( events: List&lt;UsageEventSnapshot&gt;, coveredThrough: Instant?, /** なぜ取れなかったか。**諦めた期間と「取得元に無かった」期間を混ぜない**（code-verify R26） */ reason: String, at: Instant, zone: ZoneId, user: String, )</ID>
+    <ID>LongParameterList:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$( private val source: UsageSource, /** 記録の未送信。**位置と同じもの**（C11）—— 分けると保持の上限の意味が変わる */ private val outbox: Outbox&lt;IngestRequest&gt;, private val windowStore: UsageWindowStore, private val labels: AppLabels, private val userId: () -&gt; String, private val deviceId: String, /** 取得時点の端末の地域（design D7（仮））。**契機ごとに読む** —— 引っ越しても次の記録から追う */ private val zone: () -&gt; ZoneId, /** 単調な経過（[AgeClock.now]。ST04）。**新しい時計を足さない** */ private val age: () -&gt; Long, /** * 経過が**数えなかった前進**の累計（[AgeClock.discardedMs]）。 * **[age] と同じ時計の 2 つ目の口**で、[age] を呼んだ後に読む（落ちた分はそこで数えられる）。 */ private val discardedMs: () -&gt; Long, private val newId: () -&gt; String, /** * いま取得できる状態か。**本物の判定（`PACKAGE_USAGE_STATS` の付与状態）は tasks 5.2** —— * ここは口を埋めるだけで、既定は置かない（既定を置くと、名乗り忘れが「取れている」に化ける）。 */ private val capabilityOf: (Context) -&gt; Capability, private val log: (String) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:DropReport.kt$DropLedger$( private val openFile: File, private val frozen: Outbox&lt;DropReport&gt;, private val userId: () -&gt; String, private val deviceId: String, private val now: () -&gt; Instant, private val newId: () -&gt; String, private val log: (String) -&gt; Unit, /** * 下書きの**ファイルごと**読めなくなったときに名乗らせる名前（tasks 5.1 / 独立レビュー R10）。 * * 中に何本のソースの下書きが入っていたかは、読めない以上もう分からない。 * それでも**報告は落とせない**（扉 #14 の証拠）ので、どれか 1 つを名乗るしかない —— * **どれを名乗るかはここで決めない**。焼き込むと、位置を持たない収集アプリが * 位置の破棄を報告する日が来る（`LocationService` が渡す）。 */ private val unattributedSource: String, )</ID>
+    <ID>LongParameterList:FixCollector.kt$FixCollector$( private val outbox: Outbox&lt;IngestRequest&gt;, private val deviceId: String, private val userId: String, private val zone: ZoneId, private val newId: () -&gt; String, /** 受け取ったときの端末の時計（ST05 / design D6）。試験だけが差し替える */ private val clock: DeviceClock, private val log: (String) -&gt; Unit = {}, /** * 取得できた契機を数える口（第 5 回 Q17）。**既定は何もしない** —— * 数えは生存信号のためだけのもので、記録の生成はこれに依存しない。 */ private val onFix: () -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:Heartbeat.kt$HeartbeatEmitter$( private val outbox: Outbox&lt;HeartbeatRequest&gt;, private val counters: AttemptCounters, private val userId: String, private val deviceId: String, private val logicalSource: String, private val capability: () -&gt; Capability, private val now: () -&gt; Instant, private val newId: () -&gt; String, private val log: (String) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:LegacyOutbox.kt$( legacy: File, into: Outbox&lt;T&gt;, serializer: KSerializer&lt;T&gt;, unreadable: File, salvaged: File, /** ST01 が退けたファイルの行数を報告に足す。**足せたか**（足せなければ移さずに次の起動でもう一度数える） */ recordSalvaged: (Int) -&gt; Boolean, enqAgeMs: Long, log: (String) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Retention.kt$Drainer$( private val records: Sender&lt;IngestRequest&gt;, private val recordsOutbox: Outbox&lt;IngestRequest&gt;, private val beats: Sender&lt;HeartbeatRequest&gt;, private val drops: Sender&lt;DropReport&gt;, private val ledger: DropLedger, /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */ private val maintenance: () -&gt; Unit = {}, private val log: (String) -&gt; Unit = {}, /** 続けて送る回数の上限（止まらない不具合から端末を守るだけ。90 日ぶんは 648 回） */ private val maxRounds: Int = 100_000, )</ID>
+    <ID>LongParameterList:Retention.kt$RetentionNotifier$( private val records: Outbox&lt;*&gt;, private val age: () -&gt; Long, private val alerts: RetentionAlerts, private val mark: File, /** * 常駐の通知の本文（tasks 5.4 / 独立レビュー R10）。**既定を置かない** —— * 置くと「位置を記録しています」の決め打ちが名乗り忘れの形で戻る。組み立ては [ongoingBaseText]。 */ private val baseText: String, private val policy: () -&gt; RetentionPolicy = { RetentionPolicy.current }, private val log: (String) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:TestFix.kt$( latitude: Double, longitude: Double, accuracyMeters: Float, at: Instant, receivedDeviceTime: Instant = at, fixElapsedNs: Long = 0L, receivedElapsedMs: Long = 0L, bootCount: Int? = null, )</ID>
+    <ID>LoopWithTooManyJumpStatements:AppUsageRollupSourceAdapter.kt$UsageRollupSeenStore$for</ID>
+    <ID>LoopWithTooManyJumpStatements:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$while</ID>
+    <ID>LoopWithTooManyJumpStatements:LegacyOutbox.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SegmentStore.kt$SegmentStore$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SegmentStore.kt$SegmentStore$while</ID>
+    <ID>MagicNumber:AgeClock.kt$AgeClock$3</ID>
+    <ID>MagicNumber:AgeClock.kt$AgeClock$4</ID>
+    <ID>MagicNumber:AppUsageRollupSourceAdapter.kt$16</ID>
+    <ID>MagicNumber:DropReport.kt$WriteFailedLedger$1000</ID>
+    <ID>MagicNumber:DropReport.kt$WriteFailedLedger$4</ID>
+    <ID>MagicNumber:HttpTransport.kt$HttpTransport$15_000</ID>
+    <ID>MagicNumber:HttpTransport.kt$HttpTransport$200</ID>
+    <ID>MagicNumber:HttpTransport.kt$HttpTransport$299</ID>
+    <ID>MagicNumber:LocationFix.kt$60</ID>
+    <ID>MagicNumber:LocationService.kt$AndroidRetentionAlerts$33</ID>
+    <ID>MagicNumber:Outbox.kt$JvmDeviceClock$1_000_000</ID>
+    <ID>MagicNumber:Retention.kt$RetentionPolicy$1024</ID>
+    <ID>MagicNumber:Retention.kt$RetentionPolicy$83</ID>
+    <ID>MagicNumber:Retention.kt$RetentionPolicy$90</ID>
+    <ID>MagicNumber:SegmentStore.kt$SegmentStore$256</ID>
+    <ID>MagicNumber:Sender.kt$Sender$200</ID>
+    <ID>MagicNumber:Sender.kt$Sender$400</ID>
+    <ID>MagicNumber:Sender.kt$Sender$401</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$10</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$30</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$365</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$4</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$6</ID>
+    <ID>MagicNumber:UsageRetention.kt$UsageRetention$7</ID>
+    <ID>MatchingDeclarationName:AppUsageFixtures.kt$UsageTestEnv</ID>
+    <ID>MatchingDeclarationName:CollectorContractFixture.kt$PayloadContractField</ID>
+    <ID>MatchingDeclarationName:DeviceId.kt$IdStore</ID>
+    <ID>MaxLineLength:ClockReferences.kt$ClockReferences$ClockReading(SOURCE_S01_DATE, null, null, r.monoBeforeMs, r.monoAfterMs, REASON_UNREADABLE, r.date, r.host)</ID>
+    <ID>MaxLineLength:ClockReferences.kt$ClockReferences$ClockReading(SOURCE_S01_DATE, time, r.wallAfterMs - time, r.monoBeforeMs, r.monoAfterMs, null, r.date, r.host)</ID>
+    <ID>MaxLineLength:ClockReferencesTest.kt$ClockReferencesTest$val r = byName(ClockReferences(FakeSources(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 }), ResponseDateCache()).readAll())</ID>
+    <ID>MaxLineLength:ClockSkewInstrumentedTest.kt$ClockSkewInstrumentedTest$val</ID>
+    <ID>MaxLineLength:ClockSkewMeasurerTest.kt$ClockSkewMeasurerTest$cache.put(ResponseDateCache.Received(date, monoBeforeMs = 100, monoAfterMs = 100, wallAfterMs = dateMs + 300_000 + 700))</ID>
+    <ID>MaxLineLength:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$"""{"source":"gnss","time":"2027-01-15T07:55:00.090Z","skew_ms":300033,"mono_before_ms":500,"mono_after_ms":500},"""</ID>
+    <ID>MaxLineLength:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$"""{"source":"network","time":"2027-01-15T07:55:00.100Z","skew_ms":300023,"mono_before_ms":500,"mono_after_ms":500},"""</ID>
+    <ID>MaxLineLength:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$"""{"source":"s01-date","time":"2027-01-15T07:55:00.000Z","skew_ms":300456,"mono_before_ms":100,"mono_after_ms":410,"""</ID>
+    <ID>MaxLineLength:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$cache.put(ResponseDateCache.Received("Fri, 15 Jan 2027 07:55:00 GMT", 100, 410, 1_800_000_000_456, "s01.lan:8787"))</ID>
+    <ID>MaxLineLength:DrainTest.kt$DrainTest$st.beats.add(HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-06-01T00:00:00Z", true, emptyList(), 1, 1, "{}"))</ID>
+    <ID>MaxLineLength:DropReport.kt$DropDraft$"hourly" to JsonArray(hours.map { JsonObject(mapOf("hour" to JsonPrimitive(it.hour), "count" to JsonPrimitive(it.count))) })</ID>
+    <ID>MaxLineLength:DropReport.kt$DropLedger$drafts += DropDraft(newId(), source, DropReason.WRITE_FAILED.wire, now().toString(), count = overflow, closed = true)</ID>
+    <ID>MaxLineLength:DropReport.kt$DropLedger$if (!blankUserLogged) log(Telemetry.line("drop_report_waiting", source = null, count = drafts.size, error = "no_user_id"))</ID>
+    <ID>MaxLineLength:DropReport.kt$DropLedger$log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))</ID>
+    <ID>MaxLineLength:DropReportContractTest.kt$DropReportContractTest$private fun keys(r: DropReport)</ID>
+    <ID>MaxLineLength:DropReportContractTest.kt$DropReportContractTest$val r = DropDraft("a", LOGICAL_SOURCE, "unreadable", "2026-09-14T00:00:00Z", count = 2).toReport("user-1", "device-1")</ID>
+    <ID>MaxLineLength:DropReportSendTest.kt$DropReportSendTest$val reborn = DropLedger(File(st.dir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportSendTest.kt$DropReportSendTest$val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$Retention(st.records, st.ledger, st.age::now, policy = { RetentionPolicy(maxBytes = st.records.bytes() / 4) }).enforce()</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$assertEquals(setOf("id", "user_id", "logical_source", "device_id", "reason", "created_at", "range_start", "range_end", "count", "hourly"), raw.keys)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$assertTrue("${h.hour} が範囲 [${r.rangeStart}, ${r.rangeEnd}) と重ならない", hs.isBefore(end) &amp;&amp; hs.plusSeconds(3600).isAfter(start))</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$for</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$repeat(30) { st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T11:00:00Z").plusSeconds(60L * it)) }</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$repeat(50) { st.ledger.dropped(LOGICAL_SOURCE, DropReason.AGE, at("2026-06-01T10:00:00Z").plusSeconds(60L * it)) }</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val failing = Outbox(SegmentStore(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val ledger = DropLedger(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val ledger = DropLedger(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val ledger = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:DropReportTest.kt$DropReportTest$val times = listOf("2026-06-01T09:59:59Z", "2026-06-01T10:00:00Z", "2026-06-01T10:45:00Z", "2026-06-01T11:30:00Z")</ID>
+    <ID>MaxLineLength:HeartbeatCountersTest.kt$HeartbeatCountersTest$FileCounterStore(counterStoreFile(dir, SourceCadence.APP_USAGE.logicalSource), SourceCadence.APP_USAGE.logicalSource) {}</ID>
+    <ID>MaxLineLength:HeartbeatCountersTest.kt$HeartbeatCountersTest$FileCounterStore(counterStoreFile(dir, SourceCadence.LOCATION.logicalSource), SourceCadence.LOCATION.logicalSource) {}</ID>
+    <ID>MaxLineLength:HeartbeatTest.kt$HeartbeatTest$counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS)</ID>
+    <ID>MaxLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$assertEquals(Outcome.Responded(200, """[{"id":null,"duplicate":false,"accepted":true,"error":null}]"""), outcome.withoutClockFields())</ID>
+    <ID>MaxLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$assertEquals(Outcome.Responded(400, """[{"accepted":false,"error":"malformed"}]"""), outcome.withoutClockFields())</ID>
+    <ID>MaxLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$("HTTP/1.1 $status OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")</ID>
+    <ID>MaxLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$val (k, v) = line.split(":", limit = 2).let { it[0].trim().lowercase() to it.getOrElse(1) { "" }.trim() }</ID>
+    <ID>MaxLineLength:HttpTransportInstrumentedTest.kt$if (this is Outcome.Responded) copy(date = null, monoBeforeMs = 0, monoAfterMs = 0, wallAfterMs = 0, host = null) else this</ID>
+    <ID>MaxLineLength:LocationService.kt$LocationService$Log.w(TAG, Telemetry.line("clock_skew_crashed", source = CLOCK_LOGICAL_SOURCE, error = it.javaClass.simpleName))</ID>
+    <ID>MaxLineLength:LocationServiceClockTest.kt$LocationServiceClockTest$assertEquals(listOf("start", "time_set", "hourly", "retry"), clockRecords(s).map { it.payload["trigger"]!!.jsonPrimitive.content })</ID>
+    <ID>MaxLineLength:LocationServiceClockTest.kt$LocationServiceClockTest$assertTrue(lines.none { it.contains("35.68") || it.contains("139.76") || it.contains("boom") || Regex("20\\d\\d-\\d\\d").containsMatchIn(it) })</ID>
+    <ID>MaxLineLength:LocationServiceClockTest.kt$LocationServiceClockTest$private</ID>
+    <ID>MaxLineLength:LocationServiceClockTest.kt$LocationServiceClockTest$s.fixes.callback!!.onLocationResult(LocationResult.create(listOf(location(Instant.parse("2026-09-08T02:00:00Z")))))</ID>
+    <ID>MaxLineLength:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$if (runCatching { Tasks.await(client.setMockMode(true), 10, TimeUnit.SECONDS) }.onFailure { lastError = it }.isSuccess) return</ID>
+    <ID>MaxLineLength:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$stored</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$File(app.filesDir, "outbox.jsonl").writeText(ingestJson.encodeToString(IngestRequest.serializer(), fix("legacy")) + "\n")</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$Outcome.Responded(400, (1..n).joinToString(",", "[", "]") { """{"accepted":false,"error":"malformed"}""" })</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$assertEquals("断られた破棄の報告が取り除かれた", 1, service.dropsOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE })</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$assertEquals(listOf("legacy"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$assertEquals(listOf("new-1", "new-2"), service.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$assertEquals(listOf("survivor"), reborn.outboxForTest.snapshot().filter { it.logicalSource == LOGICAL_SOURCE }.map { it.id })</ID>
+    <ID>MaxLineLength:LocationServiceTest.kt$LocationServiceTest$assertFalse("90 日を超えた記録を送っている", service.posted.any { it.first == "/ingest" &amp;&amp; it.second.contains("\"old\"") })</ID>
+    <ID>MaxLineLength:MainActivityTest.kt$MainActivityTest$grant(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)</ID>
+    <ID>MaxLineLength:MainActivityTest.kt$MainActivityTest$shadowOf(app).getNextStartedActivity()?.takeIf { it.action == android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS }</ID>
+    <ID>MaxLineLength:OutboxStoreTest.kt$OutboxStoreTest$assertTrue("黙って失敗している", lines.any { it.contains("kind=outbox_append_failed") || it.contains("kind=outbox_list_failed") })</ID>
+    <ID>MaxLineLength:OutboxStoreTest.kt$OutboxStoreTest$private fun segments()</ID>
+    <ID>MaxLineLength:ResponseDateCache.kt$ResponseDateCache.Received$data</ID>
+    <ID>MaxLineLength:ResponseDateCacheTest.kt$ResponseDateCacheTest$if (h.lowercase().startsWith("content-length:")) length = h.substringAfter(':').trim().toInt()</ID>
+    <ID>MaxLineLength:ResponseDateCacheTest.kt$ResponseDateCacheTest$val outcome = HttpTransport(baseUrl, "t", monoClock = { 1L }, wallClock = { 2L }).post("[]") as Outcome.Responded</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$Config.overrideForTest("http://127.0.0.1:${fake.port}", "test-token-0123456789abcdef", "00000000-0000-0000-0000-000000000000")</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$Tasks.await(LocationServices.getFusedLocationProviderClient(context).setMockMode(false), 5, TimeUnit.SECONDS)</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$if (reachable) HttpTransport("http://127.0.0.1:${fake.port}", "t", path).post(body) else Outcome.Unreachable("ConnectException")</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$testFix(35.681236, 139.767125, 10f, at).toIngestRequest(id, "00000000-0000-0000-0000-000000000000", "device-1", ZoneId.of("Asia/Tokyo"))</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val beats = Outbox(SegmentStore(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {}), age::now)</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val block = ByteArray(perSegment * line.size).also { b -&gt; for (k in 0 until perSegment) line.copyInto(b, k * line.size) }</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val last = File(outboxDir, "records").listFiles { f -&gt; f.name.endsWith(".jsonl") }?.maxByOrNull { it.name } ?: return false</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {}, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val line = "{\"enq\":0,\"item\":${ingestJson.encodeToString(IngestRequest.serializer(), fix("backlog-$i", start.plusSeconds(60L * i)))}}\n"</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$val</ID>
+    <ID>MaxLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${reply.size}\r\nConnection: close\r\n\r\n".toByteArray())</ID>
+    <ID>MaxLineLength:RetentionNotifierTest.kt$RetentionNotifierTest$AndroidRetentionAlerts(service) { android.app.Notification.Builder(service, LocationService.CHANNEL).build() }</ID>
+    <ID>MaxLineLength:RetentionNotifierTest.kt$RetentionNotifierTest$st.beats.add(HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-06-01T00:00:00Z", true, emptyList(), 1, 1, "{}"))</ID>
+    <ID>MaxLineLength:RetentionTest.kt$RetentionTest$HeartbeatRequest(id, "user-1", LOGICAL_SOURCE, "device-1", "2026-05-01T00:00:00Z", true, emptyList(), 1, 1, "{}")</ID>
+    <ID>MaxLineLength:RetentionTest.kt$RetentionTest$ids.forEachIndexed { i, id -&gt; st.records.add(req(id, Instant.parse("2026-06-02T00:00:00Z").minusSeconds(60L * i).toString())) }</ID>
+    <ID>MaxLineLength:RetentionTest.kt$RetentionTest$val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$File(files, "outbox.jsonl.tmp").writeText(ingestJson.encodeToString(IngestRequest.serializer(), req("rescued")) + "\n")</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$legacy.writeText(listOf("a", "b", "c").joinToString("") { ingestJson.encodeToString(IngestRequest.serializer(), req(it)) + "\n" })</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$migrateLegacyOutbox(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$val beat = HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-05-01T00:00:00Z", true, emptyList(), 360, 230, "{}")</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$val failing = Outbox(SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$val first = migrateLegacyOutbox(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$val got = migrateLegacyOutbox(legacy, broken, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>MaxLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$val got = migrateLegacyOutbox(legacy, st.beats, HeartbeatRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>MaxLineLength:SegmentStore.kt$SegmentStore$if (enq == null || item !is JsonObject) null else Stored(ingestJson.decodeFromJsonElement(serializer, item), enq)</ID>
+    <ID>MaxLineLength:SegmentStore.kt$SegmentStore$log(Telemetry.line("outbox_shrink_failed", source = null, count = keys.size, error = e.javaClass.simpleName))</ID>
+    <ID>MaxLineLength:SegmentStoreTest.kt$SegmentStoreTest$SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), { lines += it }, segmentBytes)</ID>
+    <ID>MaxLineLength:SegmentStoreTest.kt$SegmentStoreTest$private fun segmentFiles()</ID>
+    <ID>MaxLineLength:SegmentStoreTest.kt$SegmentStoreTest$private fun sha(f: File)</ID>
+    <ID>MaxLineLength:Sender.kt$Sender$ResponseDateCache.Received(outcome.date, outcome.monoBeforeMs, outcome.monoAfterMs, outcome.wallAfterMs, outcome.host)</ID>
+    <ID>MaxLineLength:Sender.kt$Sender$idx.forEach { log(Telemetry.line("dropped_item", source = batch[it].logicalSource, error = batch[it].id)) }</ID>
+    <ID>MaxLineLength:SourceIndependenceTest.kt$SourceIndependenceTest$service.posted.any { (path, body) -&gt; path == "/heartbeat" &amp;&amp; body.contains("\"logical_source\":\"$location\"") }</ID>
+    <ID>MaxLineLength:TestFix.kt$)</ID>
+    <ID>MaxLineLength:TestOutbox.kt$TestStores$val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { now }, { "r${nextId++}" }, log, LOGICAL_SOURCE)</ID>
+    <ID>MaxLineLength:TestOutbox.kt$TestStores$val recordStore = SegmentStore(recordsDir, IngestRequest.serializer(), unreadable, log, segmentBytes) { unreadableSeen += it }</ID>
+    <ID>MaxLineLength:UnreadableLineTest.kt$UnreadableLineTest$File(files, "outbox.jsonl")</ID>
+    <ID>MaxLineLength:UnreadableLineTest.kt$UnreadableLineTest$Outbox(SegmentStore(st.recordsDir, IngestRequest.serializer(), st.unreadable, st.log) { seen += it }, st.age::now).head(10)</ID>
+    <ID>MaxLineLength:UsageRetentionTest.kt$UsageRetentionTest$val floors = UsageGranularity.entries.associateWith { UsageRetention.rollupFloor(now, it).gapEndWhenNothingReturned() }</ID>
+    <ID>MaxLineLength:WriteFailedTest.kt$WriteFailedTest$assertEquals(listOf("first", "second"), SegmentStore(dir, IngestRequest.serializer(), st.unreadable, st.log).readAll().map { it.id })</ID>
+    <ID>MaxLineLength:WriteFailedTest.kt$WriteFailedTest$repeat(300) { outbox.add(req("r$it", Instant.parse("2026-06-01T00:00:00Z").plusSeconds(3600L * it).toString())) }</ID>
+    <ID>MaxLineLength:WriteFailedTest.kt$WriteFailedTest$testFix(35.68, 139.76, 10f, Instant.parse(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))</ID>
+    <ID>MaxLineLength:WriteFailedTest.kt$WriteFailedTest$val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>MaximumLineLength:ClockReferences.kt$ClockReferences$ </ID>
+    <ID>MaximumLineLength:ClockReferencesTest.kt$ClockReferencesTest$ </ID>
+    <ID>MaximumLineLength:ClockSkewInstrumentedTest.kt$ClockSkewInstrumentedTest$ </ID>
+    <ID>MaximumLineLength:ClockSkewMeasurerTest.kt$ClockSkewMeasurerTest$ </ID>
+    <ID>MaximumLineLength:ClockSkewPayloadShapeTest.kt$ClockSkewPayloadShapeTest$ </ID>
+    <ID>MaximumLineLength:DrainTest.kt$DrainTest$ </ID>
+    <ID>MaximumLineLength:DropReport.kt$DropDraft$ </ID>
+    <ID>MaximumLineLength:DropReport.kt$DropLedger$ </ID>
+    <ID>MaximumLineLength:DropReportContractTest.kt$DropReportContractTest$ </ID>
+    <ID>MaximumLineLength:DropReportSendTest.kt$DropReportSendTest$ </ID>
+    <ID>MaximumLineLength:DropReportTest.kt$DropReportTest$ </ID>
+    <ID>MaximumLineLength:HeartbeatCountersTest.kt$HeartbeatCountersTest$ </ID>
+    <ID>MaximumLineLength:HeartbeatTest.kt$HeartbeatTest$ </ID>
+    <ID>MaximumLineLength:HttpTransportInstrumentedTest.kt$ </ID>
+    <ID>MaximumLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest$ </ID>
+    <ID>MaximumLineLength:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$ </ID>
+    <ID>MaximumLineLength:LocationService.kt$LocationService$ </ID>
+    <ID>MaximumLineLength:LocationServiceClockTest.kt$LocationServiceClockTest$ </ID>
+    <ID>MaximumLineLength:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$ </ID>
+    <ID>MaximumLineLength:LocationServiceTest.kt$LocationServiceTest$ </ID>
+    <ID>MaximumLineLength:MainActivityTest.kt$MainActivityTest$ </ID>
+    <ID>MaximumLineLength:OutboxStoreTest.kt$OutboxStoreTest$ </ID>
+    <ID>MaximumLineLength:ResponseDateCache.kt$ResponseDateCache.Received$ </ID>
+    <ID>MaximumLineLength:ResponseDateCacheTest.kt$ResponseDateCacheTest$ </ID>
+    <ID>MaximumLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$ </ID>
+    <ID>MaximumLineLength:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$ </ID>
+    <ID>MaximumLineLength:RetentionNotifierTest.kt$RetentionNotifierTest$ </ID>
+    <ID>MaximumLineLength:RetentionTest.kt$RetentionTest$ </ID>
+    <ID>MaximumLineLength:SegmentMigrationTest.kt$SegmentMigrationTest$ </ID>
+    <ID>MaximumLineLength:SegmentStore.kt$SegmentStore$ </ID>
+    <ID>MaximumLineLength:SegmentStoreTest.kt$SegmentStoreTest$ </ID>
+    <ID>MaximumLineLength:Sender.kt$Sender$ </ID>
+    <ID>MaximumLineLength:SourceIndependenceTest.kt$SourceIndependenceTest$ </ID>
+    <ID>MaximumLineLength:TestFix.kt$)</ID>
+    <ID>MaximumLineLength:TestOutbox.kt$TestStores$ </ID>
+    <ID>MaximumLineLength:UnreadableLineTest.kt$UnreadableLineTest$ </ID>
+    <ID>MaximumLineLength:UsageRetentionTest.kt$UsageRetentionTest$ </ID>
+    <ID>MaximumLineLength:WriteFailedTest.kt$WriteFailedTest$ </ID>
+    <ID>MultiLineIfElse:SenderTest.kt$SenderTest$"""{"accepted":false,"error":"$e"}"""</ID>
+    <ID>MultiLineIfElse:SenderTest.kt$SenderTest$"""{"accepted":true}"""</ID>
+    <ID>MultiLineIfElse:SenderTest.kt$SenderTest$"""{"id":null,"duplicate":false,"accepted":false,"error":"malformed"}"""</ID>
+    <ID>MultiLineIfElse:SenderTest.kt$SenderTest$"""{"id":null,"duplicate":false,"accepted":true,"error":null}"""</ID>
+    <ID>MultiLineIfElse:UsageSourceTest.kt$UsageSourceTest$builder.setExtras(android.os.PersistableBundle().apply { putString(UsageStatsManager.EXTRA_EVENT_ACTION, "open") putString(UsageStatsManager.EXTRA_EVENT_CATEGORY, "reader") })</ID>
+    <ID>NestedBlockDepth:AppUsageRollupSourceAdapter.kt$AppUsageRollupSourceAdapter$@Synchronized override fun collect(window: CollectionWindow): CollectionResult</ID>
+    <ID>NestedBlockDepth:AppUsageRollupSourceAdapter.kt$UsageRollupSeenStore$fun load(): MutableMap&lt;String, Instant&gt;</ID>
+    <ID>NestedBlockDepth:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$@Synchronized override fun collect(window: CollectionWindow): CollectionResult</ID>
+    <ID>NestedBlockDepth:DropReport.kt$WriteFailedLedger$private fun write(): Boolean</ID>
+    <ID>NestedBlockDepth:LocationService.kt$LocationService$private fun reportUnreadable()</ID>
+    <ID>NestedBlockDepth:Retention.kt$RetentionNotifier$@Synchronized fun update()</ID>
+    <ID>NestedBlockDepth:SegmentStore.kt$SegmentStore$private fun forEachLine(s: Segment, visit: (lineNo: Int, bytes: Int, entry: Stored&lt;T&gt;?) -&gt; Boolean): Read</ID>
+    <ID>NewLineAtEndOfFile:HeartbeatOutboxTest.kt$dev.ashiato.collector.HeartbeatOutboxTest.kt</ID>
+    <ID>NewLineAtEndOfFile:HttpTransportTest.kt$dev.ashiato.collector.HttpTransportTest.kt</ID>
+    <ID>NoBlankLineBeforeRbrace:Retention.kt$RetentionNotifier$ </ID>
+    <ID>NoMultipleSpaces:ElapsedClockTest.kt$ElapsedClockTest$ </ID>
+    <ID>NoMultipleSpaces:IngestRequest.kt$ </ID>
+    <ID>NoMultipleSpaces:LocationFixTest.kt$LocationFixTest$ </ID>
+    <ID>NoMultipleSpaces:LocationServiceTest.kt$LocationServiceTest$ </ID>
+    <ID>NoMultipleSpaces:OutboxStoreTest.kt$OutboxStoreTest$ </ID>
+    <ID>NoMultipleSpaces:OutboxTest.kt$OutboxTest$ </ID>
+    <ID>NoMultipleSpaces:SegmentStoreTest.kt$SegmentStoreTest$ </ID>
+    <ID>NoMultipleSpaces:SenderTest.kt$SenderTest$ </ID>
+    <ID>NoMultipleSpaces:TelemetryTest.kt$TelemetryTest$ </ID>
+    <ID>NoMultipleSpaces:UnreadableLineTest.kt$UnreadableLineTest$ </ID>
+    <ID>NoMultipleSpaces:UsageWindowClockTest.kt$UsageWindowClockTest$ </ID>
+    <ID>NoMultipleSpaces:UsageWindowTest.kt$UsageWindowTest$ </ID>
+    <ID>ParameterListWrapping:ResponseDateCache.kt$ResponseDateCache.Received$(val date: String?, val monoBeforeMs: Long, val monoAfterMs: Long, val wallAfterMs: Long, val host: String? = null)</ID>
+    <ID>ParameterWrapping:HeartbeatTest.kt$HeartbeatTest$counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS)</ID>
+    <ID>PropertyWrapping:ClockReferencesTest.kt$ClockReferencesTest$val r = byName(ClockReferences(FakeSources(sdkInt = 30, network = { 990_000 }, gnss = { 1_000_500 }), ResponseDateCache()).readAll())</ID>
+    <ID>PropertyWrapping:DropReportSendTest.kt$DropReportSendTest$val reborn = DropLedger(File(st.dir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportSendTest.kt$DropReportSendTest$val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "x" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val failing = Outbox(SegmentStore(java.io.File(blocked, "drops"), DropReport.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val ledger = DropLedger(java.io.File(st.dir, "blank-user.json"), st.drops, { user }, "device-1", { st.now }, { "b" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val ledger = DropLedger(openFile, failing, { "user-1" }, "device-1", { st.now }, { "k" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val ledger = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "u" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val reborn = DropLedger(openFile, st.drops, { "user-1" }, "device-1", { st.now }, { "z" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:DropReportTest.kt$DropReportTest$val times = listOf("2026-06-01T09:59:59Z", "2026-06-01T10:00:00Z", "2026-06-01T10:45:00Z", "2026-06-01T11:30:00Z")</ID>
+    <ID>PropertyWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val beats = Outbox(SegmentStore(File(dir, "heartbeats"), HeartbeatRequest.serializer(), unreadable, {}), age::now)</ID>
+    <ID>PropertyWrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { Instant.now() }, { java.util.UUID.randomUUID().toString() }, {}, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:RetentionTest.kt$RetentionTest$val ledger = DropLedger(File(blocked, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "n" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$val beat = HeartbeatRequest("h1", "user-1", LOGICAL_SOURCE, "device-1", "2026-05-01T00:00:00Z", true, emptyList(), 360, 230, "{}")</ID>
+    <ID>PropertyWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$val failing = Outbox(SegmentStore(File(blocked, "records"), IngestRequest.serializer(), st.unreadable, st.log), st.age::now)</ID>
+    <ID>PropertyWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$val first = migrateLegacyOutbox(legacy, failing, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>PropertyWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$val got = migrateLegacyOutbox(legacy, broken, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>PropertyWrapping:SegmentMigrationTest.kt$SegmentMigrationTest$val got = migrateLegacyOutbox(legacy, st.beats, HeartbeatRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { true }, 0L, st.log)</ID>
+    <ID>PropertyWrapping:TestOutbox.kt$TestStores$val ledger = DropLedger(File(dir, "drops-open.json"), drops, { "user-1" }, "device-1", { now }, { "r${nextId++}" }, log, LOGICAL_SOURCE)</ID>
+    <ID>PropertyWrapping:TestOutbox.kt$TestStores$val recordStore = SegmentStore(recordsDir, IngestRequest.serializer(), unreadable, log, segmentBytes) { unreadableSeen += it }</ID>
+    <ID>PropertyWrapping:WriteFailedTest.kt$WriteFailedTest$val ledger = DropLedger(File(blockedDir, "drops-open.json"), st.drops, { "user-1" }, "device-1", { st.now }, { "w" }, st.log, LOGICAL_SOURCE)</ID>
+    <ID>ReturnCount:AndroidCapability.kt$private fun hasNetwork(context: Context): Boolean</ID>
+    <ID>ReturnCount:AndroidCapability.kt$private fun hasUsageAccess(context: Context): Boolean</ID>
+    <ID>ReturnCount:AppLabels.kt$PackageManagerAppLabels$override fun label(packageName: String?): String?</ID>
+    <ID>ReturnCount:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$@Synchronized override fun collect(window: CollectionWindow): CollectionResult</ID>
+    <ID>ReturnCount:AppUsageSourceAdapter.kt$AppUsageSourceAdapter$private fun gapOf( events: List&lt;UsageEventSnapshot&gt;, coveredThrough: Instant?, /** なぜ取れなかったか。**諦めた期間と「取得元に無かった」期間を混ぜない**（code-verify R26） */ reason: String, at: Instant, zone: ZoneId, user: String, ): List&lt;IngestRequest&gt;</ID>
+    <ID>ReturnCount:ClockSkewScheduler.kt$ClockSkewScheduler$private fun measureLocked(trigger: String)</ID>
+    <ID>ReturnCount:DropReport.kt$DropLedger$@Synchronized fun endBatch(source: String, reason: DropReason, remainingOldest: Instant?): Boolean</ID>
+    <ID>ReturnCount:DropReport.kt$DropLedger$@Synchronized fun freeze(): Boolean</ID>
+    <ID>ReturnCount:DropReport.kt$DropLedger$@Synchronized fun unreadable(counts: Map&lt;String, Int&gt;): Boolean</ID>
+    <ID>ReturnCount:DropReport.kt$DropLedger$private fun load()</ID>
+    <ID>ReturnCount:FakeUsageSource.kt$FakeUsageSource$override fun events(window: CollectionWindow): EventsResult</ID>
+    <ID>ReturnCount:FakeUsageSource.kt$FakeUsageSource$override fun rollups(granularity: UsageGranularity, window: CollectionWindow): RollupsResult</ID>
+    <ID>ReturnCount:LocationService.kt$AndroidRetentionAlerts$override fun alert(days: Int): Boolean</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$fun appendAll(items: List&lt;T&gt;, enqAgeMs: Long): Boolean</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$fun dropHead( shouldDrop: (Stored&lt;T&gt;) -&gt; Boolean, commit: (List&lt;Stored&lt;T&gt;&gt;) -&gt; Boolean, rollback: (List&lt;Stored&lt;T&gt;&gt;) -&gt; Unit, ): Int</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$fun dropUntilBytes( maxBytes: Long, commit: (List&lt;Stored&lt;T&gt;&gt;) -&gt; Boolean, rollback: (List&lt;Stored&lt;T&gt;&gt;) -&gt; Unit, ): Int</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$fun remove(ids: Collection&lt;String&gt;): Boolean</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$private fun ack(s: Segment, keys: List&lt;Pair&lt;Int, Int&gt;&gt;): Boolean</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$private fun forEachLine(s: Segment, visit: (lineNo: Int, bytes: Int, entry: Stored&lt;T&gt;?) -&gt; Boolean): Read</ID>
+    <ID>ReturnCount:SegmentStore.kt$SegmentStore$private fun list(): Boolean</ID>
+    <ID>ReturnCount:Sender.kt$Sender$fun flush(): Flushed</ID>
+    <ID>ReturnCount:Sender.kt$Sender$private fun verdictOf(batch: List&lt;T&gt;, res: Outcome.Responded): Verdict</ID>
+    <ID>ReturnCount:UsageSource.kt$UsageStatsSource$override fun events(window: CollectionWindow): EventsResult</ID>
+    <ID>ReturnCount:UsageSource.kt$UsageStatsSource$override fun rollups(granularity: UsageGranularity, window: CollectionWindow): RollupsResult</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:AppUsageFixtures.kt$UsageTestEnv$/** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:Sender.kt$Sender$// **捨てるのは、許可リストに載った種別だけ**（R107）。</ID>
+    <ID>SwallowedException:AppLabels.kt$PackageManagerAppLabels$e: PackageManager.NameNotFoundException</ID>
+    <ID>SwallowedException:ClockReferences.kt$ClockReferences$e: DateTimeException</ID>
+    <ID>SwallowedException:ClockReferences.kt$ClockReferences$e: Exception</ID>
+    <ID>SwallowedException:CollectionSourceTest.kt$CollectionSourceTest$e: IllegalArgumentException</ID>
+    <ID>SwallowedException:CollectionSourceTest.kt$CollectionSourceTest$e: SecurityException</ID>
+    <ID>SwallowedException:HeartbeatCountersTest.kt$HeartbeatCountersTest$e: IllegalArgumentException</ID>
+    <ID>SwallowedException:LegacyOutbox.kt$e: IllegalArgumentException</ID>
+    <ID>SwallowedException:LegacyOutbox.kt$e: SerializationException</ID>
+    <ID>SwallowedException:SegmentStore.kt$SegmentStore$e: IllegalArgumentException</ID>
+    <ID>SwallowedException:SegmentStore.kt$SegmentStore$e: SerializationException</ID>
+    <ID>TooGenericExceptionCaught:AgeClock.kt$AgeClock$e: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:AppUsageRollupSourceAdapter.kt$UsageRollupProgressStore$e: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:AppUsageRollupSourceAdapter.kt$UsageRollupSeenStore$e: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:ClockReferences.kt$ClockReferences$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:Heartbeat.kt$FileCounterStore$e: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:UsageWindow.kt$UsageWindowStore$e: RuntimeException</ID>
+    <ID>TooManyFunctions:DropReport.kt$DropLedger</ID>
+    <ID>TooManyFunctions:LocationService.kt$LocationService : Service</ID>
+    <ID>TooManyFunctions:Outbox.kt$Outbox&lt;T : Outboxable&gt;</ID>
+    <ID>TooManyFunctions:SegmentStore.kt$SegmentStore&lt;T : Outboxable&gt;</ID>
+    <ID>UnusedPrivateProperty:AppUsageCollectorTest.kt$AppUsageCollectorTest$private val t0 = "2026-05-20T09:00:00Z"</ID>
+    <ID>UnusedPrivateProperty:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$attempt</ID>
+    <ID>UnusedPrivateProperty:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$attempt</ID>
+    <ID>UseCheckOrError:LocationServiceClockTest.kt$ScriptedSources$throw IllegalStateException("boom")</ID>
+    <ID>Wrapping:AppLabelsTest.kt$AppLabelsTest$(</ID>
+    <ID>Wrapping:AppUsageFixtures.kt$(</ID>
+    <ID>Wrapping:ClockReferencesTest.kt$ClockReferencesTest$1_000_500</ID>
+    <ID>Wrapping:ClockReferencesTest.kt$ClockReferencesTest$990_000</ID>
+    <ID>Wrapping:DrainTest.kt$DrainTest$;</ID>
+    <ID>Wrapping:DropReport.kt$DropDraft$JsonObject(mapOf("hour" to JsonPrimitive(it.hour), "count" to JsonPrimitive(it.count)))</ID>
+    <ID>Wrapping:DropReport.kt$WriteFailedLedger$;</ID>
+    <ID>Wrapping:DropReportSendTest.kt$DropReportSendTest$"user-1"</ID>
+    <ID>Wrapping:DropReportSendTest.kt$DropReportSendTest$"x"</ID>
+    <ID>Wrapping:DropReportSendTest.kt$DropReportSendTest$st.now</ID>
+    <ID>Wrapping:DropReportTest.kt$DropReportTest$"b"</ID>
+    <ID>Wrapping:DropReportTest.kt$DropReportTest$st.now</ID>
+    <ID>Wrapping:DropReportTest.kt$DropReportTest$user</ID>
+    <ID>Wrapping:FixCollectorTest.kt$FixCollectorTest$(</ID>
+    <ID>Wrapping:HeartbeatCountersTest.kt$HeartbeatCountersTest$</ID>
+    <ID>Wrapping:HeartbeatTest.kt$HeartbeatTest$Instant.parse("2026-05-01T00:00:00Z")</ID>
+    <ID>Wrapping:HttpTransportInstrumentedTest.kt$HttpTransportInstrumentedTest.OneShotServer$;</ID>
+    <ID>Wrapping:HttpTransportTest.kt$HttpTransportTest$(</ID>
+    <ID>Wrapping:LocationFixTest.kt$LocationFixTest$(</ID>
+    <ID>Wrapping:LocationServiceClockTest.kt$LocationServiceClockTest$</ID>
+    <ID>Wrapping:LocationServiceClockTest.kt$LocationServiceClockTest$it.contains("35.68") || it.contains("139.76") || it.contains("boom") || Regex("20\\d\\d-\\d\\d").containsMatchIn(it)</ID>
+    <ID>Wrapping:LocationServiceClockTest.kt$LocationServiceClockTest$it.payload["trigger"]!!.jsonPrimitive.content</ID>
+    <ID>Wrapping:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$Tasks.await(client.setMockMode(true), 10, TimeUnit.SECONDS)</ID>
+    <ID>Wrapping:LocationServiceInstrumentedTest.kt$LocationServiceInstrumentedTest$lastError = it</ID>
+    <ID>Wrapping:LocationServiceTest.kt$LocationServiceTest$it.id</ID>
+    <ID>Wrapping:LocationServiceTest.kt$LocationServiceTest$it.logicalSource == LOGICAL_SOURCE</ID>
+    <ID>Wrapping:OutboxStoreTest.kt$OutboxStoreTest$it.contains("kind=outbox_append_failed") || it.contains("kind=outbox_list_failed")</ID>
+    <ID>Wrapping:OutboxStoreTest.kt$OutboxStoreTest$it.name</ID>
+    <ID>Wrapping:ResponseDateCacheTest.kt$ResponseDateCacheTest$;</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$"user-1"</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$Instant.now()</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$it.name</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest$java.util.UUID.randomUUID().toString()</ID>
+    <ID>Wrapping:RetentionInstrumentedTest.kt$RetentionInstrumentedTest.FakeServer$;</ID>
+    <ID>Wrapping:RetentionNotifierTest.kt$RetentionNotifierTest$;</ID>
+    <ID>Wrapping:RetentionTest.kt$RetentionTest$"n"</ID>
+    <ID>Wrapping:RetentionTest.kt$RetentionTest$"user-1"</ID>
+    <ID>Wrapping:RetentionTest.kt$RetentionTest$st.now</ID>
+    <ID>Wrapping:RollupImportTest.kt$RollupImportTest$(</ID>
+    <ID>Wrapping:SegmentMigrationTest.kt$SegmentMigrationTest$ingestJson.encodeToString(IngestRequest.serializer(), req(it)) + "\n"</ID>
+    <ID>Wrapping:SegmentMigrationTest.kt$SegmentMigrationTest$true</ID>
+    <ID>Wrapping:SegmentStore.kt$SegmentStore$;</ID>
+    <ID>Wrapping:SegmentStoreTest.kt$SegmentStoreTest$"%02x".format(it)</ID>
+    <ID>Wrapping:SegmentStoreTest.kt$SegmentStoreTest$;</ID>
+    <ID>Wrapping:SegmentStoreTest.kt$SegmentStoreTest$it.name</ID>
+    <ID>Wrapping:SegmentStoreTest.kt$SegmentStoreTest$lines += it</ID>
+    <ID>Wrapping:SenderTest.kt$SenderTest$(</ID>
+    <ID>Wrapping:TestOutbox.kt$TestStores$"r${nextId++}"</ID>
+    <ID>Wrapping:TestOutbox.kt$TestStores$"user-1"</ID>
+    <ID>Wrapping:TestOutbox.kt$TestStores$now</ID>
+    <ID>Wrapping:TestOutbox.kt$TestStores$unreadableSeen += it</ID>
+    <ID>Wrapping:UnreadableLineTest.kt$UnreadableLineTest$seen += it</ID>
+    <ID>Wrapping:UnreadableLineTest.kt$UnreadableLineTest$st.ledger.unreadable(LOGICAL_SOURCE, it)</ID>
+    <ID>Wrapping:UsageSourceTest.kt$UsageSourceTest$(</ID>
+    <ID>Wrapping:UsageWindowClockTest.kt$UsageWindowClockTest$(</ID>
+    <ID>Wrapping:WriteFailedTest.kt$WriteFailedTest$"user-1"</ID>
+    <ID>Wrapping:WriteFailedTest.kt$WriteFailedTest$"w"</ID>
+    <ID>Wrapping:WriteFailedTest.kt$WriteFailedTest$it.id</ID>
+    <ID>Wrapping:WriteFailedTest.kt$WriteFailedTest$st.now</ID>
+  </CurrentIssues>
+</SmellBaseline>

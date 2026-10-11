@@ -142,6 +142,7 @@ block_c: done
 | build（Web） | `npm run build` → `dist/` 生成 | **0** |
 | 型検査（Web） | `npx tsc -b` | **0** |
 | lint（Web） | `npm run lint`（`--max-warnings 0`） | **0** |
+| lint（Android / Kotlin） | ★ 2026-10-11: `./gradlew detekt`（detekt の既定 + formatting = ktlint。今ある違反は `collector-android/config/detekt-baseline.xml` に凍結し、新しい違反だけで落とす。CI の android job） | **0** |
 | CI の骨格 | `.github/workflows/ci.yml`（rust / web / smoke の 3 job）。**ローカルで同じコマンドが 0 で通ることを確認済み。GitHub 上での実行は push 後** | — |
 | 起動スクリプト | `./tools/dev.sh` → API が `ok` を返し、画面が HTTP 200 | **0** |
 | **最短の縦串** | `./tools/smoke.sh`（9 手順。★ 2026-10-11: 2026-09-08 の時点の数。いまの手順は「縦串が実際に確かめていること」の注） | **0** |
