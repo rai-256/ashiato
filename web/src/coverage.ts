@@ -3,7 +3,11 @@
  * 稼働状況の型と、状態の読み方。**形は `crates/server/src/coverage.rs` が正典**
  * （契約は `docs/openapi.json`）。
  */
+import { msg } from "./messages";
 import { BAND, INITIAL_WEEKS, TEXT, YEAR_WEEKS } from "./tokens";
+
+const m = msg("grid");
+const LOCALE = msg("locale");
 
 /** ソース × 日 の 8 状態（FR-54）。⑧「退役」は ST03 の差し戻し（R55 / R56）。 */
 export type DayState =
@@ -20,16 +24,7 @@ export type DayState =
  * 8 状態の名前。**週を選んだときにこの文字が出る**（深掘り 第 5 回 Q20 / Q21）——
  * 格子は 3 段しか担わないので、**区別の担い手はここ**。
  */
-export const STATE_NAME: Record<DayState, string> = {
-  recorded: "記録あり",
-  alive_no_record: "動いていた・記録なし",
-  alive_not_capturable: "動いていたが取れない状態だった",
-  stopped: "意図的な停止",
-  dropped: "破棄された期間",
-  outage: "途絶",
-  before_start: "導入前",
-  retired: "退役",
-};
+export const STATE_NAME: Record<DayState, string> = m.state;
 
 /** 格子のセルが担う 3 段。 */
 export type Band = keyof typeof BAND;
@@ -87,13 +82,13 @@ export function dropMarkLightness(band: Band): number {
 export function dropNotes(cell: DayCell): string[] {
   const count = cell.dropped_count ?? 0;
   if (cell.state === "dropped") {
-    return count > 0 ? [`— ${count.toLocaleString("ja-JP")} 件`] : [];
+    return count > 0 ? [m.droppedCount(count.toLocaleString(LOCALE))] : [];
   }
   // 件数を持たない区間（時間ごとの件数が無い範囲・前の区間に数えた時間）は件数を添えない（design D19）
   return (cell.dropped_ranges ?? []).map((r) =>
     r.count > 0
-      ? `うち ${r.count.toLocaleString("ja-JP")} 件を破棄（${r.from}〜${r.to}）`
-      : `破棄（${r.from}〜${r.to}）`,
+      ? m.droppedRange(r.count.toLocaleString(LOCALE), r.from, r.to)
+      : m.droppedRangeNoCount(r.from, r.to),
   );
 }
 

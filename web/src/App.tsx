@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
 import { retiredLast, type Achievement, type SourceCoverage } from "./coverage";
+import { msg } from "./messages";
 import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
 
 /**
@@ -43,6 +44,8 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
  * 開いた直後は各ソースの直近 4〜5 週だけが出る（第 7 回 Q28）。
  */
 export function App(): React.ReactElement {
+  const m = msg("coverage");
+  const common = msg("common");
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
 
@@ -83,7 +86,7 @@ export function App(): React.ReactElement {
           ひとスクロールの勘定（one-scroll.test.tsx）に効く */}
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
         <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 16px" }}>
-          収集が動いていたか
+          {m.title}
         </h1>
         <a
           href="#/day/"
@@ -97,7 +100,7 @@ export function App(): React.ReactElement {
             alignItems: "center",
           }}
         >
-          1 日の滞在へ
+          {m.toDay}
         </a>
         {/* **マスタ管理への入口**（ST19 / design D9。仮 —— 入口の置き場を決め直すのは ST25） */}
         <a
@@ -112,25 +115,25 @@ export function App(): React.ReactElement {
             alignItems: "center",
           }}
         >
-          マスタ管理へ
+          {m.toMaster}
         </a>
       </header>
-      {achievement.at === "loading" && <p data-testid="achievement-loading">読み込み中…</p>}
+      {achievement.at === "loading" && <p data-testid="achievement-loading">{common.loading}</p>}
       {achievement.at === "failed" && (
         <p role="alert" data-testid="achievement-error">
-          達成の読み出しに失敗しました（{achievement.why}）。達成日数が 0 なのではありません。
+          {m.achievementFailed(achievement.why)}
         </p>
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
 
-      {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
+      {sources.at === "loading" && <p data-testid="coverage-loading">{common.loading}</p>}
       {sources.at === "failed" && (
         <p role="alert" data-testid="coverage-error">
-          稼働状況の読み出しに失敗しました（{sources.why}）。収集が止まったのではありません。
+          {m.coverageFailed(sources.why)}
         </p>
       )}
       {sources.at === "ok" && sources.value.length === 0 && (
-        <p data-testid="coverage-empty">ソースが 1 本も返りませんでした（登録簿を確認してください）。</p>
+        <p data-testid="coverage-empty">{m.empty}</p>
       )}
       {/* **退役したソースは後ろ**（ST03 の R63）—— Must の 5 本を 1 画面から押し出さない */}
       {sources.at === "ok" &&
