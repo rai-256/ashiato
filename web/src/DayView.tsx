@@ -13,7 +13,12 @@ import {
   type DayView as DayData,
 } from "./stays";
 import { msg } from "./messages";
-import { DESTRUCTIVE_TARGET_PX, MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
+import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
+import { controlStyle as control, destructiveStyle, inputStyle, linkStyle, markStyle, pageStyle, titleStyle } from "./surface";
+import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, type SchemeColors } from "./tokens";
+
+// 明暗とフォーカスの輪郭は `scheme.ts` に移した（S-1 も使う）。ここから引いていた部品とテストのために同じ名前で出す
+export { FOCUS_ATTR, focusRule, useFocusRule, useScheme } from "./scheme";
 
 /** 読み出しの状態。**「読み込み中」「失敗」「滞在が無い」を分ける**（spec「読み出しの失敗と『滞在が無い』を区別する」）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
@@ -38,46 +43,6 @@ function isStayDetail(v: unknown): v is StayDetail {
       return typeof c.logical_source === "string" && typeof c.display_name === "string" && typeof c.count === "number";
     })
   );
-}
-
-/** OS の明暗の設定。**取得できないときはダーク**（NFR-17）。 */
-export function useScheme(): Scheme {
-  const query = (): Scheme =>
-    typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  const [scheme, setScheme] = useState<Scheme>(query);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    const on = (): void => setScheme(query());
-    mq.addEventListener?.("change", on);
-    return () => mq.removeEventListener?.("change", on);
-  }, []);
-  return scheme;
-}
-
-/** 操作できるもの（日の移動・日付の指定・画面の行き来）に付ける印。フォーカスの輪郭はこの印に掛ける。 */
-export const FOCUS_ATTR = "data-focus-ring";
-
-/** フォーカスの輪郭（NFR-22）。**`:focus-visible` は style 属性に書けない**ので、印に掛ける規則を 1 つ置く。 */
-export function focusRule(scheme: Scheme): string {
-  return `[${FOCUS_ATTR}]:focus-visible { outline: 3px solid ${tone(SCHEMES[scheme].text)}; outline-offset: 2px; }`;
-}
-
-/**
- * 輪郭の規則を文書に当てる。**`<style>` 要素は使わない** —— 画面の CSP（`default-src 'self'`。ST28 / D10）が
- * 要素として埋め込んだ style を止める。CSSOM で足した規則（構成可能スタイルシート）は止められない。
- */
-export function useFocusRule(scheme: Scheme): void {
-  useEffect(() => {
-    // 構成可能スタイルシートを持たない環境（jsdom）では当てない。ブラウザは全部持つ（Chromium / Firefox 101+ / Safari 16.4+）
-    if (!("adoptedStyleSheets" in document)) return;
-    const sheet = new CSSStyleSheet();
-    sheet.replaceSync(focusRule(scheme));
-    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-    return () => {
-      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
-    };
-  }, [scheme]);
 }
 
 /**
@@ -110,17 +75,6 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     };
   }, [date, reload]);
 
-  const control: React.CSSProperties = {
-    minHeight: MIN_TARGET_PX,
-    minWidth: MIN_TARGET_PX,
-    padding: "4px 10px",
-    font: "400 15px/1.6 system-ui, sans-serif",
-    color: tone(c.text),
-    background: tone(c.surface2),
-    border: `1px solid ${tone(c.muted)}`,
-    borderRadius: 8,
-    boxSizing: "border-box",
-  };
   const go = (next: string): void => {
     window.location.hash = `#/day/${next}`;
   };
@@ -129,27 +83,18 @@ export function DayView({ date }: { date: string }): React.ReactElement {
     <main
       data-testid="day-view"
       data-scheme={scheme}
-      style={{
-        background: tone(c.ground),
-        color: tone(c.text),
-        font: "400 16px/1.65 system-ui, sans-serif",
-        minHeight: "100vh",
-        maxWidth: "100%",
-        overflowX: "hidden",
-        padding: 12,
-        boxSizing: "border-box",
-      }}
+      style={pageStyle(c)}
     >
-      <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={{ ...control, background: "transparent", border: "none", display: "inline-flex", alignItems: "center" }}>
+      <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: SPACE.targetGap, marginBottom: round1(SPACE.gap * 0.3) }}>
+        <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
           {common.toCoverage}
         </a>
       </nav>
-      <h1 data-testid="day-title" style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
+      <h1 data-testid="day-title" style={titleStyle(c)}>
         {m.title(dateLabel(date))}
       </h1>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-        <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control} onClick={() => go(shiftDay(date, -1))}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
+        <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(c)} onClick={() => go(shiftDay(date, -1))}>
           {m.prev}
         </button>
         <input
@@ -157,12 +102,12 @@ export function DayView({ date }: { date: string }): React.ReactElement {
           aria-label={m.pickDate}
           {...{ [FOCUS_ATTR]: "" }}
           value={date}
-          style={control}
+          style={{ ...inputStyle(c), font: font(TYPE.caption) }}
           onChange={(e) => {
             if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go(e.target.value);
           }}
         />
-        <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control} onClick={() => go(shiftDay(date, 1))}>
+        <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(c)} onClick={() => go(shiftDay(date, 1))}>
           {m.next}
         </button>
       </div>
@@ -286,71 +231,86 @@ function Row({
   const c = SCHEMES[scheme];
   const range = m.range(clock(entry.start, viewing), clock(entry.end, viewing));
   const long = duration(entry.start, entry.end);
+  // **種類は文字で区別し、しるし（線の輪の中に記号）は添えるだけ**（design D8 / 本人の決定 2026-10-12）。
+  // 移動のしるしだけ差し色（本人の決定）。どのしるしも面の 3 段すべてに 3:1 以上（NFR-23）
+  const mark = <span data-mark={entry.kind} aria-hidden="true" style={markStyle(entry.kind === "move" ? c.spark : c.muted)}>{m.mark[entry.kind]}</span>;
   const base: React.CSSProperties = {
-    borderLeft: `3px ${entry.kind === "no-record" ? "dashed" : "solid"} ${tone(c.muted)}`,
-    padding: "6px 10px",
-    margin: "0 0 6px",
+    display: "flex",
+    alignItems: "center",
+    gap: SPACE.targetGap,
+    minHeight: MIN_TARGET_PX,
+    padding: `${SPACE.rowY}px ${SPACE.rowX}px`,
+    margin: `0 0 ${SPACE.rowGap}px`,
+    borderRadius: RADIUS.row,
   };
   const entryKey = entry.id ?? entry.stay_ids?.join(",") ?? "";
   if (entry.kind === "stay") {
     return (
-      <li data-testid="row-stay" data-kind="stay" style={{ ...base, background: tone(c.surface1), borderRadius: 8 }}>
+      <li data-testid="row-stay" data-kind="stay" style={{ ...base, alignItems: "flex-start", gap: SPACE.inRow, background: tone(c.surface1), border: `1px solid ${tone(c.line)}` }}>
+        {mark}
+        <div style={{ flex: 1, minWidth: 0 }}>
         <button
           type="button"
           aria-expanded={open}
           {...{ [FOCUS_ATTR]: "" }}
           onClick={onOpen}
-          style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", color: "inherit", background: "transparent", border: 0 }}
+          style={{ display: "block", width: "100%", minHeight: MIN_TARGET_PX, padding: 0, textAlign: "left", color: "inherit", font: "inherit", background: "transparent", border: 0 }}
         >
-          <h2 style={{ font: "600 17px/1.4 system-ui, sans-serif", margin: 0 }}>{range}</h2>
+          <h2 style={{ font: font(TYPE.h2, 600, 1.35), margin: 0 }}>{range}</h2>
           <p style={{ margin: 0, color: tone(c.muted) }}>{m.lengthAndRange(long, range)}</p>
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
         </button>
         {open && <StayDetailView entry={entry} detail={detail} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
+        </div>
       </li>
     );
   }
   if (entry.kind === "erased") {
     return (
-      <li data-testid="row-erased" data-kind="erased" style={{ ...base, color: tone(c.muted) }}>
-        {m.erased(range)}
-        <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={{ ...controlStyle(c), marginLeft: 8 }}>
+      <li data-testid="row-erased" data-kind="erased" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
+        {mark}
+        <span>{m.erased(range)}</span>
+        <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={control(c)}>
           {m.restore}
         </button>
-        {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
+        {actionError?.entryKey === entryKey && <p role="alert" style={{ width: "100%", margin: 0 }}>{actionError.message}</p>}
       </li>
     );
   }
   return (
     <li data-testid={`row-${entry.kind}`} data-kind={entry.kind} style={{ ...base, color: tone(c.muted) }}>
-      {entry.kind === "move" ? m.move(long) : m.noRecord(range)}
-      {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
+      {mark}
+      <span>
+        {entry.kind === "move" ? m.move(long) : m.noRecord(range)}
+        {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
+      </span>
     </li>
   );
 }
 
-function controlStyle(c: (typeof SCHEMES)[Scheme]): React.CSSProperties {
-  return { minHeight: MIN_TARGET_PX, minWidth: MIN_TARGET_PX, padding: "4px 10px", color: tone(c.text), background: tone(c.surface2), border: `1px solid ${tone(c.muted)}`, borderRadius: 8 };
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 function StayDetailView({ entry, detail, onAction, scheme }: { entry: DayEntry; detail: Load<StayDetail> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
   const [confirming, setConfirming] = useState(false);
   const counts = detail?.at === "ok" ? detail.value.counts : [];
+  const c: SchemeColors = SCHEMES[scheme];
   return (
-    <div data-testid="stay-detail" style={{ marginTop: 8 }}>
+    <div data-testid="stay-detail" style={{ marginTop: 8, padding: `${SPACE.rowY}px ${SPACE.rowX}px`, background: tone(c.surface2), borderRadius: RADIUS.row }}>
       {detail?.at === "loading" && <p>{m.detailLoading}</p>}
       {detail?.at === "failed" && <p role="alert">{m.detailFailed(detail.why)}</p>}
       {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{m.detailCount(count.display_name, count.count)}</p>)}</div>}
       {detail?.at === "ok" && !confirming ? (
-        <button type="button" onClick={() => setConfirming(true)} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginTop: 8 }}>
+        <button type="button" onClick={() => setConfirming(true)} style={{ ...destructiveStyle(c), marginTop: 8 }}>
           {m.erase}
         </button>
       ) : detail?.at === "ok" && confirming ? (
         <div data-testid="erase-confirm" style={{ marginTop: 8 }}>
           <p>{m.eraseConfirm(counts.find((count) => count.logical_source === "c01-location")?.count ?? 0)}</p>
-          <button type="button" onClick={() => setConfirming(false)} style={controlStyle(SCHEMES[scheme])}>{common.cancel}</button>
-          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...controlStyle(SCHEMES[scheme]), minHeight: DESTRUCTIVE_TARGET_PX, minWidth: DESTRUCTIVE_TARGET_PX, marginLeft: 8 }}>{m.eraseYes}</button>
+          <button type="button" onClick={() => setConfirming(false)} style={control(c)}>{common.cancel}</button>
+          <button type="button" onClick={() => onAction("/api/stays/erase", { stay_id: entry.id }, entry.id ?? "")} style={{ ...destructiveStyle(c), marginLeft: SPACE.targetGap }}>{m.eraseYes}</button>
         </div>
       ) : null}
     </div>

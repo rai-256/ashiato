@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Achievement } from "./coverage";
 import { msg } from "./messages";
-import { SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
+import { useScheme } from "./scheme";
+import { sectionStyle } from "./surface";
+import { font, SCHEMES, TYPE, tone } from "./tokens";
 
 /**
  * 成功条件 1 の達成（NFR-13 / 深掘り 第 4 回 Q9, 第 5 回 Q18, 第 7 回 Q27）。
@@ -13,21 +15,19 @@ import { SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
  */
 export function AchievementPanel({ data }: { data: Achievement }): React.ReactElement {
   const m = msg("achievement");
+  const c = SCHEMES[useScheme()];
   return (
     <section
       aria-label={m.label}
       data-testid="achievement"
       style={{
-        background: tone(SURFACE.surface2),
-        borderRadius: 15,
         // **ひとスクロールの勘定に効く**（第 8 回 Q30）
-        padding: SECTION_PAD_PX,
-        marginBottom: SECTION_GAP_PX,
-        color: tone(TEXT.normal),
-        font: "400 13px/1.4 system-ui, sans-serif",
+        ...sectionStyle(c, c.surface2),
+        color: tone(c.text),
+        font: font(TYPE.caption, 400, 1.4),
       }}
     >
-      <h2 style={{ font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
+      <h2 style={{ font: font(TYPE.body, 600, 1.3), margin: "0 0 8px" }}>
         {m.title}
       </h2>
 
@@ -40,7 +40,8 @@ export function AchievementPanel({ data }: { data: Achievement }): React.ReactEl
       </p>
 
       {!data.confirmed && (
-        <p data-testid="until-confirmed" style={{ color: tone(TEXT.muted), margin: "0 0 8px" }}>
+        // **差し色は「確定まであと N 日」のような小さな注意にだけ**（本人の決定 2026-10-12）
+        <p data-testid="until-confirmed" style={{ color: tone(c.spark), margin: "0 0 8px" }}>
           {data.days_until_confirmed === null
             ? // 確定する日が定まらない理由を出す（残り日数の代わり）
               m.undecided(data.not_started)
@@ -50,7 +51,7 @@ export function AchievementPanel({ data }: { data: Achievement }): React.ReactEl
 
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
         <thead>
-          <tr style={{ color: tone(TEXT.muted), textAlign: "left" }}>
+          <tr style={{ color: tone(c.muted), textAlign: "left" }}>
             <th scope="col">{m.colSource}</th>
             <th scope="col">{m.colAchieved}</th>
             <th scope="col">{m.colDenominator}</th>
@@ -65,7 +66,7 @@ export function AchievementPanel({ data }: { data: Achievement }): React.ReactEl
               </th>
               <td data-testid={`achieved-${s.logical_source}`}>{s.achieved_days}</td>
               <td data-testid={`denominator-${s.logical_source}`}>{s.denominator}</td>
-              <td style={{ color: tone(TEXT.muted) }}>
+              <td style={{ color: tone(c.muted) }}>
                 {s.collection_started_on === null ? m.notStarted : s.threshold.toFixed(2)}
               </td>
             </tr>

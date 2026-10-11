@@ -4,7 +4,9 @@ import { AchievementPanel } from "./AchievementPanel";
 import { CoverageGrid } from "./CoverageGrid";
 import { retiredLast, type Achievement, type SourceCoverage } from "./coverage";
 import { msg } from "./messages";
-import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
+import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
+import { linkStyle, pageStyle, titleStyle } from "./surface";
+import { DAY_TZ, SCHEMES, SPACE, YEAR_WEEKS } from "./tokens";
 
 /**
  * `Asia/Tokyo` の「今日」（`YYYY-MM-DD`）。**`toISOString()` は UTC の日**なので使わない。
@@ -46,6 +48,10 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
 export function App(): React.ReactElement {
   const m = msg("coverage");
   const common = msg("common");
+  // **OS の明暗に追従する**（NFR-17。2026-10-12 まで S-1 はダークしか無かった）
+  const scheme = useScheme();
+  useFocusRule(scheme);
+  const c = SCHEMES[scheme];
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
 
@@ -70,35 +76,19 @@ export function App(): React.ReactElement {
   }, []);
 
   return (
-    <main
-      style={{
-        background: tone(SURFACE.ground),
-        color: tone(TEXT.normal),
-        font: "400 14px/1.6 system-ui, sans-serif",
-        minHeight: "100vh",
-        // **横スクロールを出さない**（NFR-19 / 完了の判定）。縦長の格子は幅いっぱいに収まる
-        maxWidth: "100%",
-        overflowX: "hidden",
-        padding: 12,
-      }}
-    >
+    // **横スクロールを出さない**（NFR-19 / 完了の判定）。縦長の格子は幅いっぱいに収まる
+    <main data-testid="coverage-view" data-scheme={scheme} style={pageStyle(c)}>
       {/* **1 日の一覧への行き先は見出しと同じ行に置く**（ST16 / design D8）。行を増やすと、
           ひとスクロールの勘定（one-scroll.test.tsx）に効く */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 16px" }}>
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
+        <h1 style={{ ...titleStyle(c), margin: 0, marginRight: "auto" }}>
           {m.title}
         </h1>
         <a
           href="#/day/"
           data-testid="to-day"
-          style={{
-            color: tone(TEXT.normal),
-            font: "400 14px/1.6 system-ui, sans-serif",
-            minHeight: MIN_TARGET_PX,
-            minWidth: MIN_TARGET_PX,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={linkStyle(c)}
         >
           {m.toDay}
         </a>
@@ -106,14 +96,8 @@ export function App(): React.ReactElement {
         <a
           href="#/master"
           data-testid="to-master"
-          style={{
-            color: tone(TEXT.normal),
-            font: "400 14px/1.6 system-ui, sans-serif",
-            minHeight: MIN_TARGET_PX,
-            minWidth: MIN_TARGET_PX,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={linkStyle(c)}
         >
           {m.toMaster}
         </a>

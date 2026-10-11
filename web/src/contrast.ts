@@ -40,3 +40,8 @@ export function contrastRatio(a: number, b: number): number {
   const lo = Math.min(a, b);
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/** 2 つの色（`[色相, 彩度, 明るさ]`。`tokens.ts` の `Hsl`）の対比比。描くのと同じ値をそのまま渡す。 */
+export function toneContrast(a: readonly [number, number, number], b: readonly [number, number, number]): number {
+  return contrastRatio(relativeLuminance(...a), relativeLuminance(...b));
+}
