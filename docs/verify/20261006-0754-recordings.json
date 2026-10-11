@@ -1,0 +1,24 @@
+{
+  "tag": "20261006-0754",
+  "run_id": "20261006-075514-2867478",
+  "commit": "28674787d099df8d9657f5518bf5c348dbef9e92",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261006-075514-2867478",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261006-075514-2867478",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST12-archive",
+      "story": "ST12",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST12-archive/video.webm",
+      "trace": "scenarios/ST12-archive/trace.zip"
+    }
+  ]
+}
