@@ -41,7 +41,9 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 must_use_candidate = "allow"
 # **まだ直していないだけ**（main と走っている ST08・ST12・ST21 のブランチで違反があるもの）。
-# 直したら行を消す。全部直すのは ST12・ST21 の merge 後に fix/ で（同じファイルを触っているので今は衝突する）
+# 直したら行を消す。CI の Rust は stable を追う（ci.yml）ので、clippy の版が上がって pedantic に規則が増えると main が落ちる
+# —— そのときは増えた規則をここへ足すか直す（2026-10-11 実測: 1.99 で assert_is_empty が増えた）。全部直すのは ST12・ST21 の merge 後に fix/ で（同じファイルを触っているので今は衝突する）
+assert_is_empty = "allow"
 assigning_clones = "allow"
 case_sensitive_file_extension_comparisons = "allow"
 cast_lossless = "allow"
