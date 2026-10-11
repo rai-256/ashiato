@@ -187,6 +187,9 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
+      # lint（2026-10-11）: detekt の既定 + formatting（ktlint）。今ある違反は config/detekt-baseline.xml に
+      # 凍結してあり、**新しい違反だけ**で落ちる（設定は config/detekt.yml）。
+      - run: ./gradlew detekt
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug
       # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。

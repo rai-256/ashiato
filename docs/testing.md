@@ -33,7 +33,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
 | **`e2e`** | `code` | playwright + 本物の Chromium（`STACK_RESET=1`） |
-| `android` | `android` | assembleDebug / 単体 |
+| `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
 | `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
@@ -157,7 +157,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
-(cd collector-android && ./gradlew :app:assembleDebug :app:testDebugUnitTest)
+(cd collector-android && ./gradlew detekt :app:assembleDebug :app:testDebugUnitTest)   # ★ 2026-10-11: detekt（formatting = ktlint を含む）を足した
 cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 ./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh
 # Windows の上で:  cargo test -p ashiato-collector-windows

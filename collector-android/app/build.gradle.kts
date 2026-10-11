@@ -3,6 +3,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("io.gitlab.arturbosch.detekt")
 }
 
 android {
@@ -128,7 +129,27 @@ kotlin {
     }
 }
 
+// lint（2026-10-11）: detekt の既定 + formatting（ktlint）。**今ある違反は baseline に凍結し、新しい違反だけで落とす**
+// （1.7 万行を一度に直さない）。baseline を作り直すのは `./gradlew detektBaseline` —— 違反を直したら作り直して縮める。
+// `./gradlew detekt` が CI（android job）で走る。`check` にも繋がっている。
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.file("config/detekt.yml"))
+    baseline = rootProject.file("config/detekt-baseline.xml")
+    source.setFrom("src/main/kotlin", "src/test/kotlin", "src/androidTest/kotlin")
+    parallel = true
+}
+
+// detekt 1.23.x は Kotlin 1.9 で作られている。detekt 自身の classpath の kotlin を
+// プロジェクトの 2.2 へ引き上げられると起動時に落ちるので、detekt の構成だけ元の版に固定する。
+configurations.matching { it.name == "detekt" }.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin") useVersion(io.gitlab.arturbosch.detekt.getSupportedKotlinVersion())
+    }
+}
+
 dependencies {
+    detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.8")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
