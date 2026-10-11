@@ -54,7 +54,8 @@ C-02 の `ASHIATO_BASE_URL` は loopback のままでよい。
 
 実データの入った DB に触るので、**退避を先に**。この順で行う:
 
-1. `pg_dump` で退避する（`tools/db-roles.sh` は所有を移すだけで行を変えないが、実データの DB に対する初めての操作なので）
+1. `pg_dump` で退避する（`tools/db-roles.sh` は所有を移すだけで行を変えないが、実データの DB に対する初めての操作なので）。
+   ★ 2026-10-11: 3 の `ashiato-server migrate` も当てる前に自動で退避する（`MIGRATE_BACKUP_DIR`。手元に `pg_dump` が無ければ `PG_DUMP` で場所を指す）。1 は `db-roles.sh` の前の退避として残す
 2. `.env` に 4 つの秘密（`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` / `WEB_PASSWORD`。`openssl rand -hex 24`）を足し、
    `DATABASE_URL` をアプリの役割に、`DATABASE_OWNER_URL` を足す（`.env.example` を見る）
 3. `tools/db-roles.sh` → `ashiato-server migrate` → サーバ

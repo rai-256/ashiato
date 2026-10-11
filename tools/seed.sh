@@ -2,10 +2,12 @@
 # 開発用の偽データ生成器（製造準備 A-4）。**全 Story がこれを使う。**
 # Story ごとに fixture を作らせると、各自バラバラのデータで動作確認することになる。
 #
-#   ./tools/seed.sh [normal|max|empty]
+#   ./tools/seed.sh [normal|max|empty|error]
 #     normal  滞在 9 件ぶんに相当する 1 日（UI の方向が前提にしている通常の量）
 #     max     要件上限の 15 件（FR-76 は 1 日 5〜15 件。1 画面に収まらない側の確認用）
 #     empty   ソースは登録するがデータを入れない（欠損の意味を確かめる）
+#     error   normal の 1 日に加え、翌日（2026-09-08）は端末が動いていたのに位置を取れなかった（権限が外れた）1 日。
+#             稼働状況の「動いていたが取れない状態だった」（FR-54 の ③）を出す材料（製造準備 A-4 の「取得エラー」。整合の確認 K7）
 #
 # normal / max は、2026-09-07（Asia/Tokyo）の端末の位置（`c01-location`）を 60 秒ごとに入れる（ST16 / tasks 7.1）。
 # 既定の基準（100 m / 10 分）で滞在が 9 件 / 15 件になり、最後の滞在の後に 30 分の記録の欠けが 1 つある。
@@ -22,7 +24,8 @@ case "$MODE" in
   normal) N=9  ;;
   max)    N=15 ;;
   empty)  N=0  ;;
-  *) echo "使い方: $0 [normal|max|empty]"; exit 2 ;;
+  error)  N=9  ;;
+  *) echo "使い方: $0 [normal|max|empty|error]"; exit 2 ;;
 esac
 
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
@@ -188,6 +191,30 @@ echo "$MODE: 破棄の報告を 3 件入れた（2026-09-07 の一部 180 件 / 
 #   - 種類は、いまの名前で既にあれば足さない（台帳は追記のみなので、足すと名前が増え続ける）
 #   - 主張は固定の識別子・固定の乱数・固定の主張した日時で送る。原文が 1 バイトも変わらないので、
 #     2 回目は内容の鍵で畳まれて `duplicate` になる（FR-22 / 深掘り C2）
+# ------------------------------------------------------------------ 取得エラーの 1 日（error。整合の確認 K7）
+#
+# 2026-09-08（Asia/Tokyo）の 1 時間ごとに、位置のソースの生存信号を「取得できない（位置の権限が無い）」で送る。
+# 記録は入れない —— 「動きが無かった」でも「壊れていた」でもなく「動いていたが取れない状態だった」になる（FR-78 / FR-54）。
+if [ "$MODE" = "error" ]; then
+  python3 - > "$work/heartbeats.json" <<'PY'
+import json, uuid
+from datetime import datetime, timedelta, timezone
+JST = timezone(timedelta(hours=9))
+out = []
+for h in range(24):
+    t = datetime(2026, 9, 8, h, 0, tzinfo=JST)
+    out.append({"id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"seed-error/heartbeat/{h}")),
+                "user_id": "00000000-0000-0000-0000-000000000000", "logical_source": "c01-location",
+                "device_id": "seed-error", "emitted_at": t.isoformat(), "capturable": False,
+                "blockers": ["location_permission"], "attempts": 60, "successes": 0,
+                "raw": json.dumps({"capturable": False, "blockers": ["location_permission"]})})
+print(json.dumps(out))
+PY
+  got=$(curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/heartbeat" --data-binary @"$work/heartbeats.json" | jq '[.[] | select(.accepted or .duplicate)] | length')
+  [ "$got" -eq 24 ] || { echo "error: 生存信号 24 件のうち $got 件しか受け入れられなかった"; exit 1; }
+  echo "error: 2026-09-08 の位置の生存信号を 24 件入れた（動いていたが取れない状態の 1 日）"
+fi
+
 [ "$MODE" = "normal" ] || exit 0
 
 attrs_get() { curl -sf "${AUTH[@]}" "http://$BIND/attributes"; }
