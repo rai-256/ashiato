@@ -2,10 +2,11 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 /**
- * 日本語の文字（ひらがな・カタカナ・漢字・全角の記号・CJK の句読点）と、文言に使う記号（– — …）。
+ * ASCII の外の文字（日本語の文字・全角の記号・「※」「→」「×」「①」「—」「…」など）。
  * 画面の文言はここに引っかかる。識別子・API の語彙（`"stay"` など）・CSS は ASCII なので引っかからない。
+ * ★ 2026-10-11 レビューで広げた（日本語の範囲だけだと「※」「→」「×」が通った）。
  */
-const UI_TEXT = "/[–—…　-〿぀-ヿ㐀-鿿＀-￯]/";
+const UI_TEXT = "/[^\\x00-\\x7F]/";
 
 export default tseslint.config(
   { ignores: ["dist"] },
