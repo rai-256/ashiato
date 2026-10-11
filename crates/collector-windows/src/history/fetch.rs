@@ -307,6 +307,7 @@ mod schedule_tests {
         assert!(schedule.due(at(86_400 + Duration::days(1).num_seconds())));
     }
 
+    // Scenario: 前回の成功が今より先にあれば 24 時間を待たずに取得する
     #[test]
     fn history_schedule_fetches_at_once_when_last_success_is_ahead() {
         // 1 年先の成功の後に時計が戻っても、365 日待たない（deep.md 第 4 回 Q7。R56）

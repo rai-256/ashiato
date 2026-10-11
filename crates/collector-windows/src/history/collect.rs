@@ -233,6 +233,9 @@ pub struct HistoryCollector {
     probe: Option<HistoryWorker<Vec<ProfileHealth>>>,
     /// 終わったが、生存信号の数えへまだ渡していない取得の結果
     report: Option<FetchReport>,
+    /// 直近に終わった取得が送る準備を終えられなかったか。**起動をまたいで残す**（印のファイル [`NOT_QUEUED_MARK`]）。
+    /// 確かめは開けるかしか見ないので、これと合わせて「取得できる」を決める（2026-10-12 の整合の確認 K1。Q10）
+    last_not_queued: bool,
     /// まだログに出していない、飛ばした行の数（R59）
     skipped_rows: usize,
     /// まだログに出していない、壊れていて退避した帳面の数（R63）
@@ -247,6 +250,9 @@ impl std::fmt::Debug for HistoryCollector {
     }
 }
 
+/// 直近の取得が送る準備を終えられなかった印。在れば「取得できない」（中身は持たない）。
+const NOT_QUEUED_MARK: &str = "last_not_queued";
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct LastSuccess {
     last_success: DateTime<Utc>,
@@ -260,6 +266,7 @@ impl HistoryCollector {
             .ok()
             .and_then(|b| serde_json::from_slice::<LastSuccess>(&b).ok())
             .map(|l| l.last_success);
+        let last_not_queued = dir.join(NOT_QUEUED_MARK).exists();
         Self {
             reader,
             dir,
@@ -268,6 +275,7 @@ impl HistoryCollector {
             stage: Stage::Idle,
             probe: None,
             report: None,
+            last_not_queued,
             skipped_rows: 0,
             quarantined: 0,
         }
@@ -315,6 +323,11 @@ impl HistoryCollector {
         }
     }
 
+    /// 直近に終わった取得が送る準備まで済んだか（前のプロセスの取得も含む）。取得がまだ 1 回も無ければ真。
+    pub fn last_fetch_queued(&self) -> bool {
+        !self.last_not_queued
+    }
+
     pub fn is_probing(&self) -> bool {
         self.probe.is_some()
     }
@@ -351,11 +364,9 @@ impl HistoryCollector {
             };
             let fetched = match worker.join() {
                 Ok(f) => f,
-                // 読みそのものが落ちた（thread の panic）。読めたプロファイルが分からないので数えない
-                Err(e) => {
-                    self.schedule.failed(wall);
-                    return Some(Err(e));
-                }
+                // 読みそのものが落ちた（thread の panic）。読めたプロファイルは分からないが、
+                // 送る準備を終えられなかった取得として数える（確かめの「開ける」で取得できるにしない。K4）
+                Err(e) => return Some(self.finish(wall, None, Vec::new(), Err(e))),
             };
             self.skipped_rows += fetched.skipped;
             self.quarantined += fetched.quarantined;
@@ -432,11 +443,26 @@ impl HistoryCollector {
             (Ok(_), Some(at)) => self.schedule.succeeded(at),
             _ => self.schedule.failed(wall),
         }
+        self.remember_queued(queued);
         self.report = Some(FetchReport {
             profiles: health,
             queued,
         });
         result
+    }
+
+    /// 送る準備まで済んだかを印のファイルに残す。書けなくても（置き場に書けないことこそ失敗の理由でありうる）
+    /// このプロセスの間は覚えている。
+    fn remember_queued(&mut self, queued: bool) {
+        self.last_not_queued = !queued;
+        let mark = self.dir.join(NOT_QUEUED_MARK);
+        if queued {
+            std::fs::remove_file(&mark).ok();
+        } else {
+            std::fs::create_dir_all(&self.dir)
+                .and_then(|()| std::fs::write(&mark, b""))
+                .ok();
+        }
     }
 }
 

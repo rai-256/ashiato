@@ -170,7 +170,8 @@ impl HistoryBeat {
     /// 種別だけを満たされていないものに載せる（deep.md 第 5 回 Q10）。
     fn record(&mut self, profiles: &[ProfileHealth], queued: bool) {
         self.read_seen = true;
-        if profiles.is_empty() {
+        // 積めなかった取得の空は「見つからない」と言えない（読みのスレッドが落ちた。K4）
+        if profiles.is_empty() && queued {
             self.blockers
                 .insert(heartbeat::history_blocker::NONE_FOUND.to_string());
         }
@@ -668,7 +669,8 @@ impl<'a> Runtime<'a> {
             let Some(profiles) = history.poll_probe() else {
                 return self.save_history_counters_if(counted);
             };
-            beat.record(&profiles, true);
+            // 開けても、直近の取得が積めなかったなら取得できるにしない（起動直後の信号も。K1）
+            beat.record(&profiles, history.last_fetch_queued());
         } else if !beat.schedule.due(mono) {
             return self.save_history_counters_if(counted);
         } else if !beat.read_seen {
@@ -1943,6 +1945,8 @@ mod tests {
         profile: Mutex<ProfileState>,
         /// ほかのプロファイル（ブラウザ・ディレクトリ名・訪問）。除外の写像を見るためのもの
         others: Mutex<Vec<(Browser, String, Vec<ReadVisit>)>>,
+        /// 読みのスレッドが落ちる（panic）を再現する
+        panics: Mutex<bool>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1962,6 +1966,7 @@ mod tests {
                 reads: Mutex::new(0),
                 profile: Mutex::new(ProfileState::Readable),
                 others: Mutex::new(Vec::new()),
+                panics: Mutex::new(false),
             })
         }
 
@@ -1973,12 +1978,17 @@ mod tests {
                 reads: Mutex::new(0),
                 profile: Mutex::new(ProfileState::Readable),
                 others: Mutex::new(Vec::new()),
+                panics: Mutex::new(false),
             });
             (reader, tx)
         }
 
         fn reads(&self) -> usize {
             *self.reads.lock().unwrap()
+        }
+
+        fn panic_on_read(&self) {
+            *self.panics.lock().unwrap() = true;
         }
     }
 
@@ -1988,6 +1998,7 @@ mod tests {
                 gate.lock().unwrap().recv().ok();
             }
             *self.reads.lock().unwrap() += 1;
+            assert!(!*self.panics.lock().unwrap(), "読みのスレッドが落ちた");
             let visits = match *self.profile.lock().unwrap() {
                 ProfileState::Gone | ProfileState::Missing => {
                     return Ok(ReadOutcome::default());
@@ -2482,6 +2493,8 @@ mod tests {
 
     /// URL の行を失った訪問は、URL と題名を省いた `visit` として送られ、「消えた」に出ない
     /// （deep.md 第 4 回 Q8 / design D2 / D10。R57）。時刻・滞在時間・遷移の種類は残る。
+    ///
+    /// Scenario: URL の行だけを失った訪問は「消えた」にならない
     #[test]
     fn history_visit_whose_url_row_is_missing_is_sent_without_url_and_not_vanished() {
         let mut lost = read_visit(2, "消える題名");
@@ -2518,6 +2531,8 @@ mod tests {
     }
 
     /// 初めて読んだ時点で URL の行が無い訪問も、捨てずに URL 無しで入る（deep.md 第 4 回 Q8。R57）。
+    ///
+    /// Scenario: URL の行が無い訪問は URL と題名の無い記録として入る
     #[test]
     fn history_visit_without_url_row_is_sent_on_first_fetch() {
         let cfg = cfg();
@@ -2959,6 +2974,74 @@ mod tests {
             assert!(beat["successes"].as_i64() < beat["attempts"].as_i64());
             assert!(!beat["raw"].as_str().unwrap().contains("example.test"));
         }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 前のプロセスの最後の取得が積めなかったなら、起動し直した直後の生存信号（確かめで出るもの）も
+    /// 「取得できない」を報告する。毎晩切る PC では毎日の信号が起動直後の 1 本になる（2026-10-12 の整合の確認 K1。Q10）。
+    ///
+    /// Scenario: 前の起動の取得が送る準備を終えられなかったなら、起動直後の生存信号も取得できない
+    #[test]
+    fn history_heartbeat_at_startup_reports_previous_not_queued() {
+        let cfg = cfg();
+        write_rules(&cfg, r#"[{"kind":"no-such-kind","value":"x"}]"#);
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        {
+            let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+            let mut src = FakeSource::new("editor");
+            rt.start_at(&src, t(0), t(0));
+            tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+            tick_until_read(&mut rt, &mut src, &reader, 0);
+            // 前のプロセスの区間の信号まで送り切る（次のプロセスが送り残しを送ると、見たい信号と混ざる）
+            rt.send();
+        }
+        // 起動し直す。読みは確かめより後に終わる（本物の読みは全行、確かめは開けるかまで）
+        let (gated, release) = FakeReader::gated(vec![read_visit(1, "a")]);
+        let transport = AcceptAll::default();
+        let mut rt = history_runtime(&cfg, &transport, &reference, gated);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(60), t(60));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 60, 1);
+        let beats = history_beats(&transport);
+        assert_eq!(
+            beats[0]["capturable"], false,
+            "前の取得が積めなかったのに、起動直後に取得できるとした: {}",
+            beats[0]
+        );
+        assert_eq!(
+            beats[0]["blockers"],
+            serde_json::json!(["history-not-queued"])
+        );
+        release.send(()).ok();
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 読み（と積む分の組み立て）のスレッドが落ちた取得も「取得できない」に数え、
+    /// 確かめの「開ける」で取得できるにしない（2026-10-12 の整合の確認 K4。Q10）。
+    ///
+    /// Scenario: 送る準備を終えられない取得は取得できないとして報告される
+    #[test]
+    fn history_heartbeat_counts_panicked_read_as_not_queued() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        reader.panic_on_read();
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        // 区間の間に落ちた読みを経てから、次の信号を待つ
+        let day = 86_400;
+        for sec in (60..day).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        tick_until_history_beats(&mut rt, &mut src, &transport, day, 2);
+        assert!(reader.reads() >= 1, "読みが走っていない");
+        let beat = &history_beats(&transport)[1];
+        assert_eq!(beat["capturable"], false, "落ちた読みを数えない: {beat}");
+        assert_eq!(beat["blockers"], serde_json::json!(["history-not-queued"]));
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 

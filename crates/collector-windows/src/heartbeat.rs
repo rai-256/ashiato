@@ -13,7 +13,7 @@ use chrono::{DateTime, Duration, Utc};
 use crate::contract::{rfc3339, HeartbeatRequest};
 use crate::{EXPECTED_GAP_SEC, LOGICAL_SOURCE};
 
-/// 満たされていないものの名前（design D4）。**PC 側は 3 つ。**
+/// 満たされていないものの名前（design D4）。**ウィンドウのソースは 3 つ**（履歴のソースは [`history_blocker`]）。
 pub mod blocker {
     /// 前景のウィンドウが読めない
     pub const FOREGROUND: &str = "foreground";
