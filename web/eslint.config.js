@@ -11,7 +11,32 @@ const UI_TEXT = "/[^\\x00-\\x7F]/";
 export default tseslint.config(
   { ignores: ["dist"] },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  // 一段厳しく（2026-10-11。本人「lint を厳しく」）: 型の情報を使う strict と stylistic。
+  ...tseslint.configs.strictTypeChecked,
+  ...tseslint.configs.stylisticTypeChecked,
+  { languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } } },
+  {
+    // **まだ直していないだけ**（main と走っている ST08・ST12・ST21 のブランチで違反があるもの）。
+    // 直したら行を消す。全部直すのは ST12・ST21 の merge 後に fix/ で（同じファイルを触っているので今は衝突する）
+    rules: {
+      "@typescript-eslint/consistent-type-definitions": "off",
+      "@typescript-eslint/no-base-to-string": "off",
+      "@typescript-eslint/no-confusing-void-expression": "off",
+      "@typescript-eslint/no-deprecated": "off",
+      "@typescript-eslint/no-empty-function": "off",
+      "@typescript-eslint/no-misused-spread": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-unnecessary-condition": "off",
+      "@typescript-eslint/no-unnecessary-type-assertion": "off",
+      "@typescript-eslint/non-nullable-type-assertion-style": "off",
+      "@typescript-eslint/prefer-includes": "off",
+      "@typescript-eslint/prefer-nullish-coalescing": "off",
+      "@typescript-eslint/prefer-optional-chain": "off",
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/restrict-template-expressions": "off",
+      "@typescript-eslint/unbound-method": "off",
+    },
+  },
   {
     rules: {
       // 既定より一段厳しくする（製造準備 C）。フレームワーク既定のままにしない。
