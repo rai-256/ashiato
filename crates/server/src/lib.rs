@@ -2396,8 +2396,7 @@ pub async fn run() -> anyhow::Result<()> {
     )),
     info(
         title = "ashiato S-01",
-        version = "0.1.0",
-        description = "書き込みは 1 本の取り込み口に集約する。読みは PostgREST が別に自動生成する。"
+        description = "本体の収集アプリと画面のための内部の口（衛星向けの契約は別に出す。要件 FR-103）。書き込みは 1 本の取り込み口に集約し、読み出しも自前の口で返す。"
     )
 )]
 pub struct ApiDoc;

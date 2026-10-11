@@ -32,7 +32,7 @@ impl Zone {
 /// 送信先と資格情報。**環境変数から読む**（`ASHIATO_` 接頭辞）。
 #[derive(Clone)]
 pub struct Config {
-    /// 取り込み口の基点（`http://127.0.0.1:8787`）
+    /// 取り込み口の基点（`http://127.0.0.1:18787`）
     pub base_url: String,
     /// 合言葉（PERM-8。**ログにも `Debug` にも出さない**）
     pub api_token: String,
