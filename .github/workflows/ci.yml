@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
+      # 単体 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
       # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
       - shell: pwsh

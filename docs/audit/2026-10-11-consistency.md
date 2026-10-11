@@ -439,3 +439,11 @@
 - INDEX: capability `satellite-platform` を新設（C13）、着手前の扉の表（C14）、表を stories.json から貼り直し（C31）、訂正の注記を対象外の節から分けた（C32 の回避）
 - 申し送り: `handoff/ST38.md`（C11。ST12 の問いの新しい宛先）・`handoff/ST17.md`（主観の感度の読み替え）
 - 未処理（harness2 の仕組みの工程で扱う）: C32 の check_chain の穴そのもの、`make_story.py` が FR-88 の表と★を引用から落とすこと
+
+## コードの fix の結果（2026-10-11、fix/doc-code-drift）
+
+- K1: OpenAPI の説明文から PostgREST を消し、内部の口の契約だと書いた（`docs/openapi.json` を作り直した）
+- K12: サーバの既定の待ち受けと C-02 の起動例を `.env.example` の `18787` に揃え、一致を試験で固定した（`net_guard::tests::default_bind_matches_the_env_example`）
+- K13: OpenAPI の版の手書きを外した（utoipa が `Cargo.toml` の版を引く）
+- K15: `ci.yml` の「単体 86 本」の注記を外した
+- 残り: K2（移行の前の退避）・K7（偽データの取得エラー）は次の fix。K8（文言の分離の範囲）は本人に問う
