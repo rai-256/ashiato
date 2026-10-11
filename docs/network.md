@@ -5,13 +5,11 @@
 
 ## 1. 口を出す（`tailscale serve` の HTTPS）
 
-画面と API の 2 本。サーバは `BIND`（~~既定~~ `.env.example` の値 `127.0.0.1:18787`）、画面は `WEB_PORT`（既定 `5180`）。
+画面と API の 2 本。サーバは `BIND`（既定 `127.0.0.1:18787`）、画面は `WEB_PORT`（既定 `5180`）。
 
-> ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。`18787` は**雛形（`.env.example`）の値**で、コードの既定ではない。
-> `BIND` を設定しないとサーバは `127.0.0.1:8787` で待ち受ける（`crates/server/src/net_guard.rs` の `DEFAULT_BIND`）。
-> C-02 の起動例（`crates/collector-windows/README.md`）も `8787` を指すので、`.env` どおり 18787 で立てたサーバに
-> README どおりの C-02 は繋がらない。**この食い違いは fix で直す（コードの既定と雛形のどちらに揃えるかは fix で決める）。**
-> この手順書は `.env` から立てる前提なので、下の口は 18787 のまま。
+> ★ 2026-10-11 訂正（2026-10-11 の整合の確認 K12）。コードの既定（`crates/server/src/net_guard.rs` の `DEFAULT_BIND`）が `8787` で、
+> `.env.example` の `18787` と食い違い、README どおりの C-02 が繋がらなかった。**コードの既定と C-02 の起動例を `18787` に揃えた**
+> （`tools/ports.sh` と Android の計測テストが既に `18787` を使っていたので、そちらに寄せた）。
 
 ```bash
 tailscale serve --bg --https=18787 http://127.0.0.1:18787   # API

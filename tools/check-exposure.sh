@@ -6,7 +6,7 @@
 #   tools/check-exposure.sh --self-test  # fixture で 10 個を撃つ
 #
 # (a) `ss -ltnH` の待ち受けのうち、BIND の port・WEB_PORT・DEV_WEB_PORT（既定 5173）・DB の port が loopback。
-#     BIND / WEB_PORT / DEV_WEB_PORT は、渡されていなければ .env から補う（無ければサーバの既定 127.0.0.1:8787）。
+#     BIND / WEB_PORT / DEV_WEB_PORT は、渡されていなければ .env から補う（無ければサーバの既定 127.0.0.1:18787）。
 #     DB の port は `docker compose config` の公開の設定から取る。**取れなければ落ちる**（code-verify R17）。
 # (b) `tailscale serve status --json`（あれば）: 網の外への公開（AllowFunnel）が無い・本システムの口を
 #     平文で網へ出していない・開発用の画面の口を網へ出していない。**読めなければ落ちる**。
@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 
 fx=tools/fixtures/exposure
 run_check() {
-  local bind="${BIND:-127.0.0.1:8787}"
+  local bind="${BIND:-127.0.0.1:18787}"
   local ports="${bind##*:} ${WEB_PORT:-5180} ${DEV_WEB_PORT:-5173} ${DB_PORT:?}"
   local ng=0
 

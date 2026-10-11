@@ -2,7 +2,7 @@
 //! C-02 Windows 収集の入口。**規則は lib 側**（`ashiato_collector_windows`）にある。
 //!
 //! ```text
-//! ASHIATO_BASE_URL=http://127.0.0.1:8787 ASHIATO_API_TOKEN=… \
+//! ASHIATO_BASE_URL=http://127.0.0.1:18787 ASHIATO_API_TOKEN=… \
 //! ASHIATO_USER_ID=… ASHIATO_DEVICE_ID=pc-01 ASHIATO_STATE_DIR=C:\Users\me\AppData\Roaming\ashiato \
 //!   ashiato-collector-windows
 //! ```
