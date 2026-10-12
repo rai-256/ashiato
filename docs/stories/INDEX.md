@@ -86,7 +86,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
 | `record-deletion` | 削除 | ST22, ST23 |
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
-| `browsing-views` | 閲覧と検索 | **ST16**, **ST22**, ST25, ST26, ST36, ST37 |
+| `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | ST10, ST30, ST31, ST32, ST33 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
@@ -101,7 +101,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - 依存の順（独立レビューで直した）: ST29（登録と資格情報。まだ何も読み書きできない）→ ST38（種類と承認）→ ST45（読み出しの門と台帳）→ ST27（AI）。
 >   書き込みは ST37（書き手）・ST38・ST41（終わりの時刻）の後の ST39。扉 #13 / #27 / #28 の期限を requires で守る
 > - 宛先: 収集アプリの資格情報（PERM-10★ / `handoff/ST29.md` の Q4）は ST44。K3（素の表を引かせない強制）と C21（`data-sensitivity` の Purpose と NFR-15 の写し）は ST45 の上流で扱う。
->   C34（日の境界のタイムゾーン）は ST41 の上流で決める（計算し直せる B 段）。検索・視聴の履歴の承認（FR-88 の未決）は `handoff/ST38.md`
+>   C34（日の境界のタイムゾーン）は ST41 の上流で決める（計算し直せる B 段）。ただし主観の「日」の記録の出来事の時刻は FR-41 ★ 2026-10-07 で Asia/Tokyo に凍結済み（変えると全行の書き直し。docs/audit/2026-10-12-st17-consistency.md C8）。検索・視聴の履歴の承認（FR-88 の未決）は `handoff/ST38.md`
 > - 下の 2026-09 の訂正の表で PERM-3 / PERM-4 の担い手を ST24 としている行は、2026-10-11 から ST27（AI の衛星の最初の承認）と ST38（承認）に移った
 > - 経緯は `docs/audit/2026-10-09-satellite-foundation.md` と `docs/audit/2026-10-11-consistency.md`
 
@@ -329,3 +329,25 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >
 > - ST25 の `browsing-views` の delta は **ADDED と、ST22 が触らない「日を移れる」の置き換えだけ**で、ST22 の MODIFIED と要件の名前が重ならない（archive の順で正典の文は壊れない）
 > - **satisfies の NFR-20（44 px）は、ST22 の消す操作の上に時刻順の記録を足しても 44 px を保つ形で満たす**（spec の Scenario `時刻順の記録を足しても消す操作は 44 px を下回らない`）。止める操作（FR-53）は ST15
+
+> **訂正（2026-10-07、ST17 の上流工程 record）**
+>
+> ST17 を `subjective-log` だけでなく **`browsing-views` にも割り当てた**。本人が深掘り Q1 の proto で、
+> 主観の無い日（FR-57）を **1 日の画面（S-2）の頭と S-3 の暦の両方**に出す形を選んだ（`openspec/changes/st17-daily-feeling/deep.md`）。
+> S-2 は `browsing-views` なので、ST17 は 1 日の画面に「気分 未記入 — 書く」を足す。滞在ごとの気分を書く口は S-3 に置いた（Q1 の軸 5）ので、S-2 の滞在の行には触れない。
+>
+> - **代償: `browsing-views` を触る ST22・ST25 が走っている間、ST17 は `衝突待ち`**（問いの context に書いたうえで本人が選んだ）
+>
+> **追記（2026-10-07、ST17 の上流工程 spec）** —— S-2 の滞在の行にも、その滞在の気分を 1 行添える。ST16 の深掘り Q4 で本人が決めた
+> 「S-2 の 1 行は主観の本文を行の中に出す。置き場を作るのは ST17 / ST20」（`docs/ui-direction.md` ★ 2026-09-13）は、ST17 の Q1（書く口は S-3）で取り消されていない（spec-review R1）。
+> 上の「S-2 の滞在の行には触れない」は**書く口**についての文として読む。
+>
+> **要件の側で、satisfies に無い条項を ST17 が満たす**（ST19 と同じ扱い。本体の Story は変えず、**主観と S-3 の条項だけ**）:
+>
+> | 要件 | 本体の Story | ST17 が満たす条項 |
+> |---|---|---|
+> | PERM-4（主観の既定の感度） | ST27 / ST38（2026-10-11 から。それまでは ST24） | 主観の記録に 4 段階の 2（ローカル AI まで）を書く（C6）。承認への読み替えは ST24 / ST38。主観の錠が「出さない」の印を通すことは `docs/handoff/ST24.md`（docs/audit/2026-10-12-st17-consistency.md C4） |
+> | FR-50（削除） | ST22 | 主観の行の錠が削除の印を通し、読み出しが削除の印を効かせる（C2）。主観を消す操作は作らない |
+> | FR-51（本文の物理削除） | ST23 | 主観の行の錠が、その記録の台帳の行があるときだけ消去を通し、読み出しが消去した記録を出さない（C2）。消す操作は ST23 |
+> | FR-35（途絶の通知） | ST14 | 主観のソースを途絶の判定に入れない（★ 2026-10-07。C7）。判定を作るのは ST14。`docs/handoff/ST14.md` |
+> | NFR-17〜NFR-19 / NFR-22 / NFR-23（画面の下限） | ST25 | S-3 と、S-2 に足す気分の欄がこの下限を満たす |
