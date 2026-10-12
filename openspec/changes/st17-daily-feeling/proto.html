@@ -49,8 +49,11 @@
   {"id": "offline", "name": "サーバに届かない",
    "hint": "「条件: サーバに届かない」が入っています。ひとことが入った状態で快–不快を押すと、届かなかった文が出て、選んだ値とひとことは残ります。「もう一度送る」は同じ原文を送ります（条件を外してから押すと 1 件だけ入る）。下の通知の時刻を保存しても、入れた値は残ります。",
    "scenarios": ["届かなかった記録は同じ原文で送り直す", "届かなかったとき選んだ値とひとことが残る", "通知の時刻を保存できなかったとき入れた値が残る"]},
-  {"id": "reject", "name": "ひとことが長すぎて断られる",
-   "hint": "ひとことに 2,001 文字が入っています。快–不快を押すと断られ、理由の文が出て、ひとことは残ります（切り詰めて入れることはしない）。",
+  {"id": "toolong", "name": "ひとことが長すぎる（送る前に知らせる）",
+   "hint": "ひとことに絵文字が 2,001 個入っています（数えるのは NFC にしたコードポイント。絵文字 1 個 = 1 文字）。欄のすぐ下に「2,001 / 2,000 文字 · 長すぎます」が出ています。1 個消すと消え、もう 1 個足すとまた出ます（打っている間に変わる）。超えている間は、快–不快・元気さを押しても、欄の外を押しても、「ひとことを残す」を押しても送らず、上に「保存していません」が出ます。押した値もひとことも消えません（切り詰めない）。右下に記録が増えないことを確かめてください。",
+   "scenarios": ["長すぎるひとことは送る前に知らせる", "長すぎるひとことのまま押しても送らない"]},
+  {"id": "reject", "name": "それでもサーバに断られたとき（最後の守り）",
+   "hint": "画面とサーバの数え方がずれていた場合の守りです。「条件: サーバがひとことを断る」が入っています。ひとことが入った状態で快–不快を押すと断られ、理由の文が出て、選んだ値とひとことは残ります。",
    "scenarios": ["断られたとき理由の文が出る"]},
   {"id": "feelfail", "name": "気分の読み出しに失敗",
    "hint": "読み出しの失敗を「未記入」と取り違えさせません。暦に「未」は出ず、S-2 の頭も「未記入」と出しません。",
@@ -138,6 +141,7 @@
   .app .lbl { font-size: 13px; margin: 10px 0 4px; display: block; }
   .msg { border: 1px solid var(--ln); border-radius: 6px; padding: 7px 10px; font-size: 13px; margin: 0 0 8px; background: var(--s2); }
   .msg.bad { border-style: dashed; border-width: 2px; }
+  .over { margin: 4px 0 0; border: 2px dashed var(--t); border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 600; }
   .other { font-size: 13px; color: var(--m); margin: 6px 0 0; }
   .linkish { background: none !important; border: none !important; color: var(--t) !important; text-decoration: underline; padding: 0 2px !important; font-size: 13px !important; }
   .hist { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
@@ -209,7 +213,8 @@ const head = d => `${Number(d.slice(5,7))} 月 ${Number(d.slice(8,10))} 日（${
 const fmt = t => `${md(t.slice(0,10))} ${Number(t.slice(11,13))}:${t.slice(14,16)}`;
 const hm = t => `${Number(t.slice(11,13))}:${t.slice(14,16)}`;
 const addMin = (t, m) => new Date(new Date(t + ":00Z").getTime() + m * 60000).toISOString().slice(0, 16);
-const cps = s => [...s].length;
+const cps = s => [...s.normalize("NFC")].length;   // 画面とサーバで同じ数え方（NFC にしてコードポイント）
+const NOTE_MAX = 2000;
 const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 
 // ---------- 滞在（偽物）。毎日 4 つ。夜の滞在は翌朝まで続く ----------
@@ -290,7 +295,8 @@ const SETUP = {
   stayonly: { now:"2026-10-08T21:30", addr:"#/feel/2026-10-06", s2d:"2026-10-06" },
   before:   { now:"2026-10-08T21:30", addr:"#/feel", s2d:"2026-09-11" },
   offline:  { now:"2026-10-08T21:30", addr:"#/feel", flags:{offline:true}, draft:"散歩した" },
-  reject:   { now:"2026-10-08T21:30", addr:"#/feel", draft:"あ".repeat(2001) },
+  toolong:  { now:"2026-10-08T21:30", addr:"#/feel", draft:"😀".repeat(2001) },
+  reject:   { now:"2026-10-08T21:30", addr:"#/feel", flags:{noteReject:true}, draft:"散歩した" },
   feelfail: { now:"2026-10-08T21:30", addr:"#/feel", flags:{feelFail:true} },
   stayfail: { now:"2026-10-08T21:30", addr:"#/feel", flags:{stayFail:true} },
   nostay:   { now:"2026-10-08T21:30", addr:"#/feel/2026-09-30" },
@@ -328,7 +334,7 @@ const PRESETS = [
 ];
 const AX = {}; for (const k in AXES) AX[k] = GO ? CHOSEN[k] : AXES[k].def;
 
-const FLAGS = [["offline","サーバに届かない"],["feelFail","気分の読み出しに失敗"],["stayFail","滞在の読み出しに失敗"]];
+const FLAGS = [["offline","サーバに届かない"],["noteReject","サーバがひとことを断る"],["feelFail","気分の読み出しに失敗"],["stayFail","滞在の読み出しに失敗"]];
 const VIEW = { scheme: "dark", width: 360 };
 if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) VIEW.scheme = "light";
 
@@ -336,7 +342,7 @@ function load(id) {
   const st = STATES.find(s => s.id === id) || STATES[0];
   S = { now: st.now, records: baseRecords(), deleted: new Set(["L|2026-10-07"]), absorbed: { "C|2026-10-07": "A|2026-10-07" }, notifTime: "21:00" };
   if (st.setup) st.setup();
-  U = { state: st.id, flags: Object.assign({ offline:false, feelFail:false, stayFail:false }, st.flags || {}), notif: !!st.notif,
+  U = { state: st.id, flags: Object.assign({ offline:false, noteReject:false, feelFail:false, stayFail:false }, st.flags || {}), notif: !!st.notif,
         drafts: {}, pick: null, eLocal: null, msg: null, pend: null, hist: {}, stayPick: {}, notifDraft: null, notifMsg: null,
         log: [], mine: new Set(), open: false };
   setAddr(st.addr);
@@ -362,7 +368,7 @@ function send(raw, resend) {
   const what = raw.kind === "day" ? `日 ${md(raw.day)}` : `滞在 ${hm(raw.stay.start)}–${hm(raw.stay.end)}`;
   if (U.flags.offline) { U.pend = raw; U.msg = { bad:true, text:"サーバに届きませんでした。選んだ値とひとことはそのまま残っています" };
     log(`${resend ? "送り直したが" : ""}届かなかった（原文 ${raw.id} を画面が持っておく）`); return; }
-  if (cps(raw.note) > 2000) { U.msg = { bad:true, text:"ひとことが長すぎます（2,000 文字まで）" }; U.pend = null;
+  if (cps(raw.note) > NOTE_MAX || (U.flags.noteReject && raw.note)) { U.msg = { bad:true, text:"ひとことが長すぎます（2,000 文字まで）" }; U.pend = null;
     log(`断られた（invalid_note。${cps(raw.note).toLocaleString()} 文字）。記録は入らない`); return; }
   if (!S.records.some(r => r.id === raw.id)) { S.records.push(raw); U.mine.add(raw.id); }
   log(`${resend ? `同じ原文 ${raw.id} を送り直した → ` : ""}記録 ${raw.id} が入った（${what}・${sign(raw.v)}${raw.e !== null ? `・元気さ ${sign(raw.e)}` : ""}${raw.note ? `・ひとこと「${esc(raw.note.slice(0,12))}${cps(raw.note) > 12 ? "…" : ""}」` : ""}・${side(raw)}）`);
@@ -371,10 +377,17 @@ function send(raw, resend) {
   S.now = addMin(S.now, 1);
 }
 const noteOf = t => (U.drafts[t] ?? "").trim();
+const overOf = t => cps(U.drafts[t] ?? "") > NOTE_MAX;
+function holdLong(t, v, e) {   // 上限を超えている間は送らない。押した値もひとことも残す
+  if (v !== null) U.pick = { v, e };
+  U.msg = { bad:true, text:"ひとことが長すぎるので保存していません（2,000 文字まで）" }; U.pend = null;
+  log(`送らなかった（ひとことが ${cps(U.drafts[t]).toLocaleString()} 文字。上限 2,000）。記録は増えない`); render();
+}
 const selDay = t => latest(dayRecs(t).filter(r => side(r) === curSide(t)));
 const curV = t => U.pick ? U.pick.v : (U.flags.feelFail ? null : selDay(t)?.v ?? null);
 const curE = t => U.pick && U.pick.e !== undefined ? U.pick.e : (U.eLocal ?? (U.flags.feelFail ? null : selDay(t)?.e ?? null));
 function pressV(t, v) {
+  if (overOf(t)) return holdLong(t, v, curE(t));
   U.pick = { v, e: curE(t) };
   if (AX.save === "confirm") { render(); return; }          // 相談の軸「選んで保存」: 選ぶだけ
   send(rec("day", t, v, U.pick.e, noteOf(t), S.now)); render();
@@ -382,6 +395,7 @@ function pressV(t, v) {
 function pressE(t, e) {
   const v = curV(t);
   if (v === null) { U.eLocal = e; log("元気さを押したが、快–不快が無いので送らない（画面の状態だけ）"); render(); return; }
+  if (overOf(t)) return holdLong(t, v, e);
   U.pick = { v, e };
   if (AX.save === "confirm") { render(); return; }
   send(rec("day", t, v, e, noteOf(t), S.now)); render();
@@ -392,6 +406,7 @@ function leaveNote(t) {
   if (note === last) return;
   const v = curV(t);
   if (v === null) { log("ひとことを持っておく（快–不快を押したときに一緒に送る）"); render(); return; }
+  if (overOf(t)) return holdLong(t, v, curE(t));
   U.pick = { v, e: curE(t) }; send(rec("day", t, v, curE(t), note, S.now)); render();
 }
 function pressStay(id, v) { U.stayPick[id] = v; send(rec("stay", id, v, null, "", S.now)); render(); }
@@ -400,6 +415,12 @@ function pressStay(id, v) { U.stayPick[id] = v; send(rec("stay", id, v, null, ""
 function btns(sel, attr, small, extra) {
   return `<div class="scale ${small ? "small" : ""}" role="group">` + VAL.map(x =>
     `<button type="button" ${attr}="${x.v}" ${extra || ""} aria-pressed="${sel === x.v}" aria-label="${sign(x.v)} ${x.w}"><b>${sign(x.v)}</b>${small ? "" : x.w}</button>`).join("") + `</div>`;
+}
+const overHtml = n => `<p class="over" id="note-over" role="status">${n.toLocaleString()} / 2,000 文字 · 長すぎます</p>`;
+function syncOver(ta) {   // 打っている間に数え直す（描き直すとフォーカスが外れるので、欄の次だけを差し替える）
+  const n = cps(ta.value), cur = ta.nextElementSibling && ta.nextElementSibling.id === "note-over" ? ta.nextElementSibling : null;
+  if (n > NOTE_MAX) { if (cur) cur.textContent = `${n.toLocaleString()} / 2,000 文字 · 長すぎます`; else ta.insertAdjacentHTML("afterend", overHtml(n)); }
+  else if (cur) cur.remove();
 }
 function stayRange(s, d) { return `${s.start.slice(0,10) < d ? md(s.start.slice(0,10)) + " " : ""}${hm(s.start)} – ${s.end.slice(0,10) > d ? "翌 " : ""}${hm(s.end)}`; }
 function renderS3() {
@@ -434,7 +455,8 @@ function renderS3() {
   if (!showExtra) h += `<button type="button" data-openx="1" style="width:100%;margin-top:8px;min-height:40px">ひとこと・ほかの尺度を書く</button>`;
   if (showExtra) {
     const draft = U.drafts[t] ?? (fail ? "" : selDay(t)?.note ?? "");
-    h += `<label class="lbl" for="note">ひとこと（任意）</label><textarea id="note" rows="2" placeholder="例: 久しぶりに走った">${esc(draft)}</textarea>`;
+    h += `<label class="lbl" for="note">ひとこと（任意）</label><textarea id="note" rows="2" placeholder="例: 久しぶりに走った" aria-describedby="note-over">${esc(draft)}</textarea>`;
+    if (cps(draft) > NOTE_MAX) h += overHtml(cps(draft));
     if (AX.save === "tap") h += `<div style="text-align:right;margin-top:4px"><button type="button" data-keep="1" style="padding:0 10px;min-height:32px;font-size:13px">ひとことを残す</button></div>`;
     h += `<span class="lbl">元気さ（任意）</span>` + btns(e, "data-e", true);
   }
@@ -496,7 +518,7 @@ function renderS3() {
   const ox = el.querySelector("[data-openx]"); if (ox) ox.onclick = () => { U.open = true; render(); };
   const ta = el.querySelector("#note");
   if (ta) {
-    ta.oninput = () => { U.drafts[t] = ta.value; };
+    ta.oninput = () => { U.drafts[t] = ta.value; syncOver(ta); };
     ta.onblur = () => { U.drafts[t] = ta.value; LATER = true; leaveNote(t); LATER = false; };
     const kp = el.querySelector("[data-keep]"); if (kp) kp.onclick = () => { U.drafts[t] = ta.value; leaveNote(t); };
   }
