@@ -151,20 +151,23 @@
 
 <script type="application/json" id="proto-go">
 {
- "chosen": "spec の形: 押す前にソースごとの件数と期間・押すと確認なしでその場に進み具合・前回の書き出し（時刻・行の数・大きさ・置き場のパス）を常に出す・書き出した後に消しても知らせない（深掘り第 1 回の Q3。第 2 回の答えとの食い違いは GO 資料の「未解決」）",
+ "chosen": "深掘り Q3 第 2 回の答えの形: 押す前にソースごとの件数・期間と「入らないもの」（件数なし）・押すとその場に確認（見込み・この PC のフォルダ・前回のフォルダが消えること）をはさんでから進み具合・前回の書き出し（時刻・行の数・大きさ・置き場のパス）を常に出し、後に消した記録があれば件数を出す",
  "requirements": ["設定画面に全記録の書き出しの節がある"],
  "states": [
-  {"id": "first", "name": "初めて開く（まだ書き出していない）", "hint": "S-1 の見出しの行の「設定」から開いたところ。件数は書き出すのと同じ範囲（本人が消した場面を除く）で数える",
-   "scenarios": ["設定画面に全記録の書き出しの節がある", "押す前にソースごとの件数と期間が出る", "まだ書き出していなければそう出る"]},
-  {"id": "running", "name": "押した直後（書き出し中）", "hint": "確認をはさまずに始まり、その場に「書き出し中 N / M 行」が出る",
-   "scenarios": ["押すとその場で進み具合が出る"]},
+  {"id": "first", "name": "初めて開く（まだ書き出していない）", "hint": "S-1 の見出しの行の「設定」から開いたところ。件数は書き出すのと同じ範囲（本人が消した場面を除く）で数える。押すと出る確認に「前回のフォルダが消える」の文は無い",
+   "scenarios": ["設定画面に全記録の書き出しの節がある", "押す前にソースごとの件数と期間が出る", "押す前に入らないものの一覧が出る", "まだ書き出していなければそう出る"]},
+  {"id": "confirm", "name": "押した直後（確認）", "hint": "まだ始まっていない。見込みと、書き終えると前回のフォルダが消えること。「書き出す」で始まり、「やめる」で押す前に戻る",
+   "scenarios": ["押すとその場に確認が出て、書き出すを選ぶと進み具合が出る", "確認でやめると書き出しは始まらない"]},
+  {"id": "running", "name": "書き出し中", "hint": "確認で「書き出す」を選んだ後。その場に「書き出し中 N / M 行」", "scenarios": []},
   {"id": "away", "name": "書き出し中に画面を離れる → 戻る", "hint": "いまは稼働状況（S-1）にいる。「設定」を押して戻ると、進み具合が出ている",
    "scenarios": ["画面を離れて戻っても進み具合が出る"]},
-  {"id": "done", "name": "書き終えた", "hint": "前回の書き出しの欄に時刻・行の数・大きさ・置き場のパス。ファイルは画面からは受け取れない",
+  {"id": "done", "name": "書き終えた", "hint": "前回の書き出しの欄に時刻・行の数・大きさ・置き場のパス。置き場には書き終えた 1 つだけが残る。ファイルは画面からは受け取れない",
    "scenarios": ["書き終えると前回の書き出しが新しくなる", "設定画面は 360 px の幅で横にスクロールしない"]},
-  {"id": "erased", "name": "書き終えた後に滞在を消した", "hint": "上の「書き出しの後に滞在を 1 件消す」を何度押しても、前回の書き出しの欄は変わらない（ファイルの中には残っている）",
-   "scenarios": ["書き出した後に記録を消しても画面は知らせない"]},
-  {"id": "failed", "name": "最後の書き出しが失敗した", "hint": "節に 1 行出て、押し直せる。前回の書き出しの値は失敗の前のまま",
+  {"id": "erased", "name": "書き終えた後に滞在を消した", "hint": "上の「書き出しの後に滞在を 1 件消す」を押すと件数が増える。もう一度書き出すと消える",
+   "scenarios": ["書き出した後に記録を消すと、前回の書き出しの欄に件数が出る"]},
+  {"id": "cleanup", "name": "前の書き出しのフォルダを消せなかった", "hint": "新しい書き出しは書き終えている。消せなかったフォルダのパスと、次の書き出しで消し直すことが 1 行",
+   "scenarios": ["前の書き出しのフォルダを消せなかったら節に出る"]},
+  {"id": "failed", "name": "最後の書き出しが失敗した", "hint": "節に 1 行出て、押し直せる。前回の書き出しの値と前回のフォルダは失敗の前のまま",
    "scenarios": ["失敗した書き出しと途中で止まった書き出しは節に出て、押し直せる"]},
   {"id": "interrupted", "name": "前の書き出しが途中で止まった（サーバが止まった）", "hint": "失敗と同じ Scenario の後半。節に 1 行出て、押し直せる", "scenarios": []}
  ],
@@ -207,7 +210,7 @@ const PER_DAY=[
   ["滞在",9],["写真のメタ",5.5],["個人属性",0.05],["稼働の信号",13],
 ];
 const DEFAULTS={before:"inout",run:"confirm",stale:"count",dest:"folder",span:"y1"}; // 深掘り Q3 第 2 回の答え（軸 1〜3 を本人が動かした形）
-const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false};
+const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false,goLeft:false};
 // GO view: 相談の軸を出さず、spec で決まった形（DEFAULTS の軸）を状態の一覧から開く。既定（無指定）は相談の view
 const GO_VIEW=window.PROTO_VIEW==="go"||/(^|[#&])view=go(&|$)/.test(location.hash.slice(1));
 const PRESETS=[
@@ -287,10 +290,11 @@ function renderScreen(){
 
   if(GO_VIEW&&state.phase==="idle"&&state.goFail) h+=`<p role="status" style="margin:0 0 8px">書き出しに失敗しました（io）。</p>`;
   if(GO_VIEW&&state.phase==="idle"&&state.goIntr) h+=`<p role="status" style="margin:0 0 8px">前の書き出しは途中で止まりました（2026-09-29 14:05）。</p>`;
+  if(GO_VIEW&&state.phase==="idle"&&state.goLeft) h+=`<p role="status" style="margin:0 0 8px;word-break:break-all">前の書き出しのフォルダを消せませんでした（%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260928-090512\\）。次の書き出しでもう一度消します。</p>`;
   if(state.phase==="idle"){
     h+=`<button data-f id="go" style="${btn}">全記録を書き出す</button>`;
   }else if(state.phase==="confirm"){
-    h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。書き終えると前回の書き出しのフォルダは消えます。":"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
+    h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。"+(state.done||!GO_VIEW?"書き終えると前回の書き出しのフォルダは消えます。":""):"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
     h+=`<div style="display:flex;gap:8px"><button data-f id="yes" style="${btn}">書き出す</button><button data-f id="no" style="${ghost}">やめる</button></div></div>`;
   }else if(state.phase==="running"){
     if(state.run==="quiet") h+=`<p role="status" style="margin:0">書き出しを始めました。終わると下の「前回の書き出し」が新しくなります。</p>`;
@@ -331,9 +335,9 @@ function renderScreen(){
   scr.innerHTML=h;
 
   const s1=scr.querySelector("#toS1"); if(s1&&GO_VIEW) s1.onclick=e=>{e.preventDefault();state.away=true;renderScreen();};
-  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ state.goFail=false; state.goIntr=false; if(!GO_VIEW&&state.run==="confirm"){state.phase="confirm";renderScreen();} else start(); };
-  const yes=scr.querySelector("#yes"); if(yes) yes.onclick=start;
-  const no=scr.querySelector("#no"); if(no) no.onclick=()=>{state.phase="idle";renderScreen();};
+  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ if(state.run==="confirm"){state.phase="confirm";renderScreen();scr.querySelector("#yes")?.focus();} else start(); };
+  const yes=scr.querySelector("#yes"); if(yes) yes.onclick=()=>{state.goFail=false;state.goIntr=false;state.goLeft=false;start();};
+  const no=scr.querySelector("#no"); if(no) no.onclick=()=>{state.phase="idle";renderScreen();scr.querySelector("#go")?.focus();};
 
   document.getElementById("mRows").textContent=`${fmt(n)} 行`;
   document.getElementById("mSize").textContent=`${mb(n)} / 約 ${secs(n)} 秒`;
@@ -384,12 +388,14 @@ const GO_MAN=JSON.parse(document.getElementById("proto-go").textContent);
 const DONE={at:"2026-09-29 14:12",n:0};
 function goState(id){
   clearInterval(timer);
-  Object.assign(state,DEFAULTS,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false,away:false,goFail:false,goIntr:false});
+  Object.assign(state,DEFAULTS,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false,away:false,goFail:false,goIntr:false,goLeft:false});
   const prev=()=>({...DONE,n:total()});
-  if(id==="running"){ start(); }
-  else if(id==="away"){ start(); state.away=true; }
+  if(id==="running"){ state.done=prev(); start(); }
+  else if(id==="away"){ state.done=prev(); start(); state.away=true; }
   else if(id==="done"){ state.done=prev(); }
+  else if(id==="confirm"){ state.done=prev(); state.phase="confirm"; }
   else if(id==="erased"){ state.done=prev(); state.erasedAfter=121; }
+  else if(id==="cleanup"){ state.done=prev(); state.goLeft=true; }
   else if(id==="failed"){ state.done=prev(); state.goFail=true; }
   else if(id==="interrupted"){ state.done=prev(); state.goIntr=true; }
   history.replaceState(null,"","#view=go&state="+id);
@@ -406,9 +412,6 @@ function renderGoStates(cur){
 }
 if(GO_VIEW){
   document.querySelector(".out").style.display="none";
-  const note=document.createElement("div"); note.className="gonote";
-  note.innerHTML="この GO view は <b>spec の形</b>（深掘り第 1 回の Q3）。第 2 回の貼り戻しの Q3（押す前に「入らないもの」・確認をはさむ・後に消した件数を出す）は <b>spec にまだ入っていない</b> —— GO 資料の「未解決」の 1 件目。";
-  document.querySelector(".stage").prepend(note);
   const m=location.hash.match(/state=([\w-]+)/);
   goState(m&&GO_MAN.states.some(s=>s.id===m[1])?m[1]:"first");
   addEventListener("hashchange",()=>{const k=location.hash.match(/state=([\w-]+)/); if(k&&GO_MAN.states.some(s=>s.id===k[1])&&!document.querySelector(`[data-st="${k[1]}"].on`)) goState(k[1]);});
