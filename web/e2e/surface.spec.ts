@@ -24,8 +24,9 @@ const DAY = "2026-09-07";
 const SCHEMES = ["light", "dark"] as const;
 
 const SCREENS = [
-  { name: "稼働状況", url: "/", root: "coverage-view", ready: "coverage-loading" },
-  { name: "1 日の滞在", url: `/#/day/${DAY}`, root: "day-view", ready: "day-loading" },
+  // ルートは 1 日の画面。稼働状況は専用のアドレス（ST25 / design D12）
+  { name: "稼働状況", url: "/#/coverage", root: "coverage-view", ready: "coverage-loading" },
+  { name: "1 日の画面", url: `/#/day/${DAY}`, root: "day-view", ready: "day-loading" },
   { name: "マスタ管理", url: "/#/master", root: "master-view", ready: "master-loading" },
 ] as const;
 
@@ -198,7 +199,7 @@ for (const width of [360, 1280] as const) {
 test("稼働状況の週の帯にも、Tab で本文の色・3 px の輪郭が出る（選択中でも消えない）", async ({ page }) => {
   for (const scheme of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
-    await open(page, "/", "coverage-loading");
+    await open(page, "/#/coverage", "coverage-loading");
     // 選んだ週は内側の影で示す。**style 属性の outline でフォーカスの輪郭を消さない**
     const week = page.locator("[data-week]").first();
     await week.click();
