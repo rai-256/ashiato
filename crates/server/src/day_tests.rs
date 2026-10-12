@@ -708,13 +708,39 @@ async fn st25_other_erased_time_gets_an_other_row() {
     assert_eq!(records.len(), 30);
 }
 
-// 前提の食い違い（deep.md Q7）の回答待ち。既定の gap_minutes（10 分）では末尾は記録なしの行になるので、
-// この試験は 3 時間にしたときだけ通る。回答が出るまで Scenario の印は付けない。
+// Scenario: 今日の最後の位置の後の記録は記録なしの行に出る
 #[tokio::test]
 async fn st25_other_after_the_last_location_today() {
     let pool = testdb::pool().await;
     let u = testdb::user();
-    // 記録なしとみなす間隔を 3 時間にして、13:00 – 14:30 が「記録なし」の行にならないようにする
+    locations(
+        &pool,
+        u,
+        "2026-09-07T12:00:00+09:00",
+        "2026-09-07T13:00:00+09:00",
+        5,
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-07T13:10:00+09:00", "Code").await;
+
+    let now = t("2026-09-07T14:30:00+09:00");
+    let v = view(&pool, u, DATE, now).await;
+    let last = v.entries.last().unwrap();
+    // 既定の間隔（10 分）では day_view が末尾を記録なしにする。ほかの記録の行は足さない（Q7）
+    assert_eq!(last.kind, RowKind::NoRecord, "{:?}", v.entries);
+    assert!(v.entries.iter().all(|r| r.kind != RowKind::Other));
+    assert_eq!(
+        (last.start, last.end),
+        (t("2026-09-07T13:00:00+09:00"), now)
+    );
+    assert_eq!(pc_secs(last, "Code"), 80 * 60);
+}
+
+// 記録なしとみなす間隔を 3 時間にして day_view が末尾を覆わないときだけ、ほかの記録の行が出る
+#[tokio::test]
+async fn st25_other_after_the_last_location_with_a_long_gap() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
     crate::stay_store::set_criteria(&pool, u, None, None, Some(180))
         .await
         .unwrap();
@@ -732,10 +758,6 @@ async fn st25_other_after_the_last_location_today() {
     let v = view(&pool, u, DATE, now).await;
     let last = v.entries.last().unwrap();
     assert_eq!(last.kind, RowKind::Other, "{:?}", v.entries);
-    assert_eq!(
-        (last.start, last.end),
-        (t("2026-09-07T13:00:00+09:00"), now)
-    );
     assert_eq!(pc_secs(last, "Code"), 80 * 60);
 }
 
