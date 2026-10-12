@@ -473,6 +473,11 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/** 件数の題。**位置の記録は「場所」**（D23（仮））—— ソースの表示名（`携帯端末の位置`）は出さない。 */
+function countTitle(count: StayDetailCount): string {
+  return count.logical_source === "c01-location" ? m.locationTitle : count.display_name;
+}
+
 function StayDetailView({ entry, viewing, detail, records, onAction, scheme }: { entry: DayEntry; viewing: string; detail: Load<StayDetail> | null; records: Load<DayRecord[]> | null; onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void; scheme: Scheme }): React.ReactElement {
   const [confirming, setConfirming] = useState(false);
   const counts = detail?.at === "ok" ? detail.value.counts : [];
@@ -482,7 +487,7 @@ function StayDetailView({ entry, viewing, detail, records, onAction, scheme }: {
       <RecordsView load={records} viewing={viewing} scheme={scheme} />
       {detail?.at === "loading" && <p>{m.detailLoading}</p>}
       {detail?.at === "failed" && <p role="alert">{m.detailFailed(detail.why)}</p>}
-      {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{m.detailCount(count.display_name, count.count)}</p>)}</div>}
+      {detail?.at === "ok" && <div>{counts.map((count) => <p key={count.logical_source} style={{ margin: 0 }}>{m.detailCount(countTitle(count), count.count)}</p>)}</div>}
       {detail?.at === "ok" && !confirming ? (
         <button type="button" onClick={() => setConfirming(true)} style={{ ...destructiveStyle(c), marginTop: 8 }}>
           {m.erase}

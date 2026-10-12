@@ -129,6 +129,8 @@ const ja = {
     recordsLoading: "記録を読み込み中…",
     recordsFailed: (why: string): string => `記録の読み出しに失敗しました（${why}）。`,
     recordsLabel: "開いた行の記録",
+    /** 位置の記録の題（ST25 / D23（仮））。ソースの表示名（`携帯端末の位置`）ではなく「場所」と出す */
+    locationTitle: "場所",
     detailLoading: "詳細を読み込み中…",
     detailFailed: (why: string): string => `詳細の読み出しに失敗しました（${why}）。`,
     detailCount: (name: string, count: number): string => `${name} ${count} 件`,

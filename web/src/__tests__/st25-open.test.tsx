@@ -19,7 +19,8 @@ const move = { kind: "move", start: at("12:00"), end: at("12:42") };
 
 let calls: string[] = [];
 let recordsFor: (path: string) => unknown[] = () => [];
-const counts: unknown[] = [{ logical_source: "c01-location", display_name: "場所", count: 120 }];
+// 表示名は本物の登録簿の値（`core.source`）。画面は位置の記録を「場所」と出す（D23（仮））
+const counts: unknown[] = [{ logical_source: "c01-location", display_name: "携帯端末の位置", count: 120 }];
 
 async function show(entries: unknown[]): Promise<HTMLElement> {
   calls = [];

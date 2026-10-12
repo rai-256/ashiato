@@ -280,6 +280,14 @@ ST25 は取り返しの付かない操作を足さない（Q6）が、ST22 の�
 tasks.md 10.4 は `colorScheme: "no-preference"` で作るとしたが、Chromium は no-preference を light と同じに `matchMedia` へ出す（実測 2026-10-02）ので、`DayView` の `typeof matchMedia` の分岐を通らない。e2e は `addInitScript` で `window.matchMedia` を無くして同じ分岐を通す。
 **反転条件**: Chromium が no-preference を「取得できない」として出すようになったら、10.4 の文言どおり `emulateMedia` に戻す（e2e 1 本の作り方だけ。製品コードは不変）
 
+### D23（仮）. 位置の記録の題は「場所」と出す
+
+滞在の詳細の件数で、位置の記録（`c01-location`）の題はソースの表示名（登録簿の `携帯端末の位置`）ではなく
+「場所」と出す（spec の Scenario「位置の点は件数で出る」の THEN「場所 120 件」。final review R4）。
+ほかのソースは表示名のまま。文言は `web/src/messages.ts` の `day.locationTitle`。
+
+- **反転条件**: 本人がソースの表示名を出したいと言ったら（ほかのソースと同じく）`display_name` に戻す
+
 ## Risks / Trade-offs
 
 - **ST06 / ST08 / ST12 の記録の形がまだ main に無い** → D2 の表を 1 か所に置き、試験は表の行ごとに偽の記録で持つ。各下流が merge された後、契約と表がずれていれば表を直す（ST25 の下流の開始時に `docs/collector-contract.md` を読む。Task 1）
