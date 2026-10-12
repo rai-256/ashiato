@@ -196,10 +196,10 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 検査。検証: `python3 scripts/check_scenarios.py . st25-day-timeline` rc=0、`python3 scripts/review_triage.py . st25-day-timeline` rc=0、`python3 scripts/check_chain.py .` rc=0
-- [ ] 11.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
+- [x] 11.1 検査。検証: `python3 scripts/check_scenarios.py . st25-day-timeline` rc=0、`python3 scripts/review_triage.py . st25-day-timeline` rc=0、`python3 scripts/check_chain.py .` rc=0
+- [x] 11.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
   `cd web && npm run lint && npm run test && npm run build && npm run test:e2e` / `tools/check-openapi.sh` / `tools/smoke.sh` が全部 rc=0
-- [ ] 11.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。読んだ結果（ST25 宛ての申し送りの有無と処置）を `review/handoff.md` に書く
+- [x] 11.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。読んだ結果（ST25 宛ての申し送りの有無と処置）を `review/handoff.md` に書く
   （無ければ「無し」と、読んだ日時と `git log -1 --format=%h -- docs/handoff` を書く）。
   検証: `bash -c 'test -s openspec/changes/st25-day-timeline/review/handoff.md && grep -q "$(git log -1 --format=%h -- docs/handoff)" openspec/changes/st25-day-timeline/review/handoff.md'`
 
