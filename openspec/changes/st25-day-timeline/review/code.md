@@ -191,7 +191,7 @@ Q6（消す口を足さない）は「しない」で、固定する試験は無
 - kind: technical
 - 提案: 6.1 の検証を `plan_fix.py` で直す（`. tools/ports.sh` の後の `127.0.0.1:$ASHIATO_HTTP_PORT` を撃ち、`seed.sh` にも同じ `BIND` を渡す）。
   `seed.sh` が `.env` の `BIND` を worktree の口より優先する順は ST05（ports.sh）の側の事なので `docs/handoff/` に書く
-- 処置: escalated —— 6.1 の検証コマンドは凍結した tasks.md の中にあり、直すには `plan_fix.py` と人間の承認が要る（deep.md Q9。`docs/briefs/ST25-deep-r4.html`）。再現: 18787 は ashiato2-integ のサーバのまま。`seed.sh` の口の順（`.env` の BIND が worktree の口より先）は ST05 の ports の割り当ての後続（被らない割り当ての fix）で拾うものとして Q9 の「効く先」に書いた
+- 処置: fixed 6.1 —— deep.md Q9 の答え（plan_fix.py で直す）のとおり。旧コマンドを verify-run 6.1 で FAIL（rc=22。5180 は ashiato2-integ の確認バッチが持つので WEB_PORT=5230 を環境で渡した）と記録してから、`plan_fix.py` で入口を `tools/st25-seed-check.sh` に直した（`plan_fix.py` は新しい入口に repo の実行ファイルを求める。中身は原文と同じ手順で、`. tools/ports.sh` の後に `BIND=127.0.0.1:$ASHIATO_HTTP_PORT` を seed と curl に渡すだけ）。新しい入口で verify-run 6.1 PASS（rc=0）。記録は `plan-corrections.md`。`seed.sh` の口の順と WEB_PORT 5180 の取り合いは ST05 の ports の被らない割り当ての fix で拾う（Q9 の「効く先」）。scoped re-review: 判定は旧コマンドと逐語・終了コードの経路も問題なし。Minor 1 件（台本のコメントの因果と、初版の rc=143 の FAIL が記録に無い）→ コメントを直し、plan-corrections.md に補足を足して走らせ直し PASS
 
 ## R21. 日付をまたいだ「いま離席中」が、今日にも前の日にも行として出ない
 - 成果物: crates/server/src/day_records.rs:415-430（`normalize_all` の `open` の条件）
