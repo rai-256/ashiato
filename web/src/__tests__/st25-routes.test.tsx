@@ -36,7 +36,8 @@ describe("ルートと行き先", () => {
     render(<Root />);
     await waitFor(() => expect(screen.getByTestId("day-view")).toBeTruthy());
     expect(screen.queryByTestId("coverage-loading")).toBeNull();
-    expect(screen.getByTestId("day-title").textContent).toContain("日");
+    const [y, m, d] = today().split("-").map(Number);
+    expect(screen.getByTestId("day-title").textContent).toBe(`${y} 年 ${m} 月 ${d} 日`);
     await waitFor(() => expect(calls).toContain(`/api/day?date=${today()}`));
   });
 
@@ -96,15 +97,19 @@ describe("見出し", () => {
 });
 
 describe("暦に無い日付", () => {
-  it("暦に無い日付の画面は OS の明暗に追従する（C10）", () => {
-    vi.stubGlobal("matchMedia", (q: string) => ({
-      matches: q.includes("light"),
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }));
-    window.location.hash = "#/day/2026-13-45";
-    render(<Root />);
-    const el = screen.getByTestId("day-invalid");
-    expect(el.getAttribute("data-scheme")).toBe("light");
-  });
+  // ライトとダークの両方を見る（片方だけだと、明暗を直書きしても緑になる）
+  for (const scheme of ["light", "dark"] as const) {
+    it(`暦に無い日付の画面は OS の明暗に追従する（C10。${scheme}）`, () => {
+      vi.stubGlobal("matchMedia", (q: string) => ({
+        matches: q.includes(scheme),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+      window.location.hash = "#/day/2026-13-45";
+      const { unmount } = render(<Root />);
+      const el = screen.getByTestId("day-invalid");
+      expect(el.getAttribute("data-scheme")).toBe(scheme);
+      unmount();
+    });
+  }
 });

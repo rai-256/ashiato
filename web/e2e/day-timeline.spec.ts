@@ -64,13 +64,35 @@ const hasFolded = (records: Locator) =>
     .count()
     .then((c) => c > 0);
 
+type Rec = { kind: string; source: string; title?: string };
+
+/** その日の記録（`GET /day/records`）。**画面の中から**画面と同じ口で読む（ログインの印と送り元は画面のもの）。 */
+async function dayRecords(page: Page): Promise<Rec[]> {
+  const got = await page.evaluate(async (day) => {
+    const res = await fetch(`/api/day/records?date=${day}`);
+    return { status: res.status, body: res.ok ? ((await res.json()) as unknown) : null };
+  }, DAY);
+  expect(got.status, "/api/day/records の応答").toBe(200);
+  return got.body as Rec[];
+}
+
+// spec の「PC の記録が 1,000 件以上ある日」（リテラルで持つ）
+const PREMISE_PC_RECORDS = 1000;
+
 // Scenario: 閉じた画面に記録 1 件ごとの行は出ない
 test("閉じた画面に PC の前景の題名が出ず、行は 100 未満", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDay(page);
-  // 偽データの前景の題名は「<アプリ名> — <数>」
+  // 前提: PC の記録が 1,000 件以上ある日（偽データがそうでなくなったら、この試験は何も確かめていない）
+  const records = await dayRecords(page);
+  const pc = records.filter((r) => r.source === "pc");
+  expect(pc.length, "PC の記録が 1,000 件に届かない（Scenario の前提が崩れている）").toBeGreaterThanOrEqual(PREMISE_PC_RECORDS);
+  // 題名は偽データの形に頼らず、サーバが返した前景の題名そのものを探す
+  const titles = [...new Set(pc.filter((r) => r.kind === "foreground").map((r) => r.title ?? ""))].filter((t) => t.length >= 3);
+  expect(titles.length, "前景の題名が 1 つも無い").toBeGreaterThan(0);
   const text = await page.getByTestId("day-view").innerText();
-  expect(text).not.toMatch(/ — \d+/);
+  const shown = titles.filter((t) => text.includes(t));
+  expect(shown, "閉じた画面に前景の題名が出ている").toEqual([]);
   const n = await rows(page).count();
   expect(n, "行が 1 つも無い").toBeGreaterThan(0);
   expect(n).toBeLessThan(100);
@@ -164,6 +186,7 @@ test("時刻順の記録が 100 件以上ある滞在でも「この滞在を消
   expect(box?.width ?? 0).toBeGreaterThanOrEqual(DESTRUCTIVE_PX);
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(DESTRUCTIVE_PX);
 });
+
 // Scenario: 1 日の画面から稼働状況へ移れる
 test("稼働状況への行き先で #/coverage になり、稼働状況の画面が出る", async ({
   page,
@@ -229,13 +252,15 @@ async function openByKeyboard(page: Page) {
 }
 
 // Scenario: 畳んだ行はキーボードで開ける
-test("Tab → Enter で畳んだ行を開くと、その中の全件が出る", async ({ page }) => {
+test("Tab → Enter で畳んだ行を開くと、畳んだ件数と同じ数の記録が出る", async ({ page }) => {
   await openDay(page);
   const { target } = await openByKeyboard(page);
   await expect(target.getByTestId("fold-records")).toBeVisible();
-  expect(
-    await target.getByTestId("fold-records").locator("li").count(),
-  ).toBeGreaterThan(1);
+  // 畳んだ行の文字の末尾は「<件数> 件」
+  const label = await target.getByTestId("records").getByRole("button", { expanded: true }).first().innerText();
+  const folded = Number(/(\d+) 件\s*$/.exec(label)?.[1] ?? NaN);
+  expect(folded, `畳んだ行の件数を読めない: ${label}`).toBeGreaterThan(1);
+  expect(await target.getByTestId("fold-records").locator("li").count()).toBe(folded);
 });
 
 // Scenario: キーボードで行を開くとフォーカスの位置が見える
