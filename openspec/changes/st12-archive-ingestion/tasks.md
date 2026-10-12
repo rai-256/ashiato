@@ -253,7 +253,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 **機械で確かめられないのは「違和感」と、本物の Google の書き出しだけ**（2026-09-14 の決定）。正しさは 11 章までのテストが持つ。
 
-- [ ] 13.1 本物の Takeout の書庫（YouTube・マイアクティビティ・Chrome を JSON で）と、端末から書き出した `Timeline.json` を専用のフォルダに置き、
+- [x] 13.1 本物の Takeout の書庫（YouTube・マイアクティビティ・Chrome を JSON で）と、端末から書き出した `Timeline.json` を専用のフォルダに置き、 （確認 2026-10-12 verify-20261006-0754）
   稼働状況の「直近に置いた書庫」で**読めなかった 0**、各ソースの見出しに最終日が出るか（合成の書庫は Google の実物の形の揺れを再現できない。design D3 / D2）。
   置いた後に箱に出る「形の確認待ち」に対して `tools/archive-shape.sh` の出力（値を含まない）を見て、マイアクティビティの `products` の値と見分け方を確かめてから `--confirm` で印を置く。
   あわせてマイアクティビティ・YouTube の視聴・YouTube の検索の形の `field_names` に `locationInfos` があるかを見る（あれば位置を持つ項目が消した時間帯で印の対象になる。design D22-b / D22-d / 第 5 回 Q14・第 6 回 Q15）
