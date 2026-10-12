@@ -1,11 +1,9 @@
 {
-  "status": "rejected",
-  "digest": "059edbd3986c95d344921565078cae2b248d2032ef2ce1071e524708f310eed9",
-  "head": "1da8293c52e5300a70beffc85b8ae177b9b32c0d",
-  "answers": "deep-answers-3.txt",
-  "picked": "違和感がある",
-  "notes": [
-    "補足: 未解決のことのところは解決する必要があるのではないですか？"
-  ],
-  "at": "2026-10-12T01:55:39Z"
+  "status": "accepted",
+  "digest": "6ade929010571daeb65f4a8d376efcec3cf3722e78a6355cf81fac1459ad7208",
+  "head": "e52dcf1db65b66769675533a569d29432591529a",
+  "answers": "deep-answers-4.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-12T11:48:40Z"
 }
