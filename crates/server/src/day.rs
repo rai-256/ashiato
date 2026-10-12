@@ -530,13 +530,7 @@ async fn browser_through(
     date: NaiveDate,
     upper: DateTime<Utc>,
 ) -> sqlx::Result<Option<DateTime<Utc>>> {
-    let started: Option<NaiveDate> = sqlx::query_scalar(
-        "SELECT collection_started_on FROM core.source WHERE logical_source = $1",
-    )
-    .bind(BROWSER_SOURCE)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
+    let started = collection_started_on(pool, BROWSER_SOURCE).await?;
     if started.is_none_or(|d| d > date) {
         return Ok(None);
     }
@@ -550,24 +544,30 @@ async fn browser_through(
 
 // ------------------------------------------------------------------ 記録なしの事情（D11）
 
+/// 論理ソースの収集を始めた日（登録簿。無ければ `None`）。
+async fn collection_started_on(pool: &PgPool, source: &str) -> sqlx::Result<Option<NaiveDate>> {
+    Ok(sqlx::query_scalar(
+        "SELECT collection_started_on FROM core.source WHERE logical_source = $1",
+    )
+    .bind(source)
+    .fetch_optional(pool)
+    .await?
+    .flatten())
+}
+
 /// 記録なしの行 `[start, end)` の事情。**行の範囲は変えない**（添えるだけ）。
 /// 稼働状況（`coverage.rs`）は呼ばず、同じ表を別に読む。
+/// `location_started` は位置の収集を始めた日（`collection_started_on`。呼ぶ側が 1 回だけ読む）。
 async fn reasons(
     pool: &PgPool,
     user: Uuid,
+    location_started: Option<NaiveDate>,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> sqlx::Result<Vec<Reason>> {
     let mut out = Vec::new();
 
-    let started: Option<NaiveDate> = sqlx::query_scalar(
-        "SELECT collection_started_on FROM core.source WHERE logical_source = $1",
-    )
-    .bind(LOCATION_SOURCE)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
-    if started.is_some_and(|d| jst_date(start) < d) {
+    if location_started.is_some_and(|d| jst_date(start) < d) {
         out.push(Reason {
             kind: ReasonKind::BeforeStart,
             count: None,
@@ -658,7 +658,9 @@ pub async fn day(
     let upper = d1.min(now).max(d0);
     let others = other_candidates(&view.entries, d0, upper);
 
-    // 全部の行の記録を 1 回で読む。前景は同じ日の前から続くので、窓は最も早い始まりのその日の頭から。
+    // 全部の行の記録を 1 回で読む。前景は前の記録から続くので、窓は最も早い始まりの**前の日の頭**から
+    // （前の日 23:50 から続く前景を今日 0:00 からの行に数える。final review R10）。
+    // 前の日の頭より前に始まった前景は読まない（その前景の終わりは次の前景の変化か、その前景の日の終わり）。
     let spans = view
         .entries
         .iter()
@@ -667,7 +669,10 @@ pub async fn day(
         .chain(others.iter().copied());
     // 取れていない時間（D9）は行に覆われない日にもあるので、窓はその日の全体を含める。
     let (from, to) = spans.fold((d0, d1), |(ws, we), (s, e)| (ws.min(s), we.max(e)));
-    let norms = day_records::read(pool, user, day_bounds(jst_date(from)).0, to, now).await?;
+    let lookback = day_bounds(jst_date(from) - chrono::Days::new(1)).0;
+    let norms = day_records::read(pool, user, lookback, to, now).await?;
+    // 位置の収集を始めた日は行ごとに変わらないので 1 回だけ読む（R7）
+    let location_started = collection_started_on(pool, LOCATION_SOURCE).await?;
     let segs = usage_segments(&norms, now);
 
     let mut entries: Vec<DayRow> = Vec::new();
@@ -676,7 +681,7 @@ pub async fn day(
             summary: (e.kind != EntryKind::Erased)
                 .then(|| summarize(&norms, &segs, e.start, e.end)),
             reasons: if e.kind == EntryKind::NoRecord {
-                reasons(pool, user, e.start, e.end).await?
+                reasons(pool, user, location_started, e.start, e.end).await?
             } else {
                 Vec::new()
             },

@@ -174,6 +174,36 @@ async fn st25_usage_away_is_not_counted() {
     assert_eq!(pc_secs(row_of(&v, RowKind::Stay), "VS Code"), 25 * 60);
 }
 
+// 前の日 23:50 から続く PC の前景は、今日 0:00 から始まる行の使った時間に数える（final review R10）。
+// 読む窓が今日の頭から始まっても、窓より前に始まった前景を読む
+#[tokio::test]
+async fn st25_usage_foreground_from_the_previous_day_counts_from_midnight() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    stay(
+        &pool,
+        u,
+        "2026-09-07T00:00:00+09:00",
+        "2026-09-07T01:00:00+09:00",
+    )
+    .await;
+    pc_foreground(&pool, u, "2026-09-06T23:50:00+09:00", "VS Code").await;
+    pc_foreground(&pool, u, "2026-09-07T00:20:00+09:00", "Slack").await;
+    pc_excluded(
+        &pool,
+        u,
+        "2026-09-07T00:30:00+09:00",
+        "2026-09-07T00:31:00+09:00",
+    )
+    .await;
+
+    let v = view(&pool, u, DATE, later()).await;
+    let r = row_of(&v, RowKind::Stay);
+    assert_eq!(r.start, t("2026-09-07T00:00:00+09:00"));
+    assert_eq!(pc_secs(r, "VS Code"), 20 * 60);
+    assert_eq!(pc_secs(r, "Slack"), 10 * 60);
+}
+
 // Scenario: 10 分に満たない離席も使った時間から差し引く
 #[tokio::test]
 async fn st25_usage_short_away_is_subtracted_too() {
