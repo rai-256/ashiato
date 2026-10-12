@@ -110,12 +110,14 @@ export function tone([h, s, l]: Hsl): string {
 /**
  * 文字（本人の決定 2026-10-12）。本文 15.5 px・行間 1.70・見出しと本文の比 1.18・太さ 600。
  * 書体は 9/8 から変えていない（角ゴシック。端末にあるものだけを使う —— 外から読み込まない）。
+ * `Noto Sans CJK JP` は `Noto Sans JP` と同じ書体の、Linux・Android（と CI の e2e）での名前。
+ * 無いと system-ui に落ちて欧文が DejaVu Sans になり、要約が折り返して行が伸びる（ST25 design D24（仮））。
  */
 const BODY_PX = 15.5;
 const RATIO = 1.18;
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 export const TYPE = {
-  family: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, system-ui, sans-serif',
+  family: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", Meiryo, system-ui, sans-serif',
   body: BODY_PX,
   lineHeight: 1.7,
   ratio: RATIO,

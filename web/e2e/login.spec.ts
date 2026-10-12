@@ -48,7 +48,7 @@ test("ログインしていないブラウザには合言葉の入力欄が出�
 
 test("合言葉でログインすると画面が記録を読める", async ({ page }) => {
   // Scenario: 合言葉でログインすると画面が記録を読める
-  await page.goto("/");
+  await page.goto("/#/coverage");
   await loginByForm(page, process.env.WEB_PASSWORD);
   await expect(page.getByTestId("coverage-loading")).toBeHidden({ timeout: 15_000 });
   await expect(page.locator('[data-testid^="grid-"]').first()).toBeVisible();
@@ -58,7 +58,7 @@ test("合言葉でログインすると画面が記録を読める", async ({ pa
 
 test("違う合言葉を入れても画面は記録を出さない", async ({ page }) => {
   // Scenario: 違う合言葉を入れても画面は記録を出さない
-  await page.goto("/");
+  await page.goto("/#/coverage");
   await loginByForm(page, `違う-${Math.random().toString(36).slice(2)}`);
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByLabel("合言葉")).toBeVisible();
@@ -68,7 +68,7 @@ test("違う合言葉を入れても画面は記録を出さない", async ({ pa
 test("ログアウトすると記録が読めなくなる", async ({ page }) => {
   // Scenario: ログアウトすると記録が読めなくなる
   // 共有のログイン（storageState）を失効させないよう、この試験は自分でログインする
-  await page.goto("/");
+  await page.goto("/#/coverage");
   await loginByForm(page, process.env.WEB_PASSWORD);
   await expect(page.locator('[data-testid^="grid-"]').first()).toBeVisible();
   await page.getByRole("button", { name: "ログアウト" }).click();
@@ -92,7 +92,7 @@ test("画面を配る側は合言葉を付け足さない", async ({ request }) 
 
 test("ログインの印はスクリプトから読めない", async ({ page }) => {
   // Scenario: ログインの印はスクリプトから読めない
-  await page.goto("/");
+  await page.goto("/#/coverage");
   await loginByForm(page, process.env.WEB_PASSWORD);
   await expect(page.locator('[data-testid^="grid-"]').first()).toBeVisible();
   // 印は本当にブラウザにある（HttpOnly で、スクリプトから見えないだけ）

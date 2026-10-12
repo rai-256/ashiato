@@ -209,6 +209,7 @@ describe("個人属性の画面", () => {
       }
       return Promise.resolve(ok([]));
     });
+    window.location.hash = "#/coverage";
     render(<Root />);
     const to = await screen.findByTestId("to-master");
     expect(to.getAttribute("href")).toBe("#/master");

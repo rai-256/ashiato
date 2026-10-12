@@ -116,7 +116,7 @@ export function App(): React.ReactElement {
         >
           {m.toDay}
         </a>
-        {/* **マスタ管理への入口**（ST19 / design D9。仮 —— 入口の置き場を決め直すのは ST25） */}
+        {/* **マスタ管理への入口**（ST19 / design D9。ST25 でも残す） */}
         <a
           href="#/master"
           data-testid="to-master"
