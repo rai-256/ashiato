@@ -3764,9 +3764,9 @@ async fn archive_erased_youtube_cascade() {
 
 /// 位置を持つ 1 件と持たない 1 件の Chrome の履歴（時刻は 2026-09-12T03:32Z / 03:42Z。消す滞在の 03:00〜04:00 の中）。
 const LOCATED_CHROME: &str = r#"{"Browser History":[
-  {"title":"位置ありを開きました","url":"https://example.com/a","time_usec":13433657520000000,"page_transition":"LINK","client_id":"c",
+  {"title":"位置ありを開きました","url":"https://example.com/a","time_usec":1789183920000000,"page_transition":"LINK","client_id":"c",
    "locationInfos":[{"name":"この付近","url":"https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12","source":"もとの場所"}]},
-  {"title":"位置なしを開きました","url":"https://example.com/b","time_usec":13433658120000000,"page_transition":"LINK","client_id":"c"}
+  {"title":"位置なしを開きました","url":"https://example.com/b","time_usec":1789184520000000,"page_transition":"LINK","client_id":"c"}
  ]}"#;
 
 impl Inbox {
