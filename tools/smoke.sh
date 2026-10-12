@@ -43,7 +43,7 @@ echo "== 2. 移行を当ててからサーバを起動（サーバは移行を�
 # （実測: GitHub Actions で curl exit 7 / run 34209473342）。
 # 生成物を直接起動するので、trap の kill が確実にサーバへ届く利点もある。
 cargo build -q -p ashiato-server --bin ashiato-server
-./target/debug/ashiato-server migrate
+MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate   # 縦串の DB は毎回作り直す使い捨て（退避しない）
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null

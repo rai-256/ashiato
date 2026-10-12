@@ -59,6 +59,16 @@
       ]
     },
     {
+      "id": "ST12-archive",
+      "story": "ST12",
+      "spec": "tools/recording/st12/st12-archive.rec.ts",
+      "requires": [
+        "web/e2e/latest-archive.spec.ts",
+        "web/e2e/global-setup.ts",
+        "crates/server/src/archive/config.rs"
+      ]
+    },
+    {
       "id": "ST05-clock-skew",
       "story": "ST05",
       "platform": "android",

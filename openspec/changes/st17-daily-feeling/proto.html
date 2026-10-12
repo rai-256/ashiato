@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST17 proto — その日どう感じたか（S-3 主観入力 / 主観の無い日）</title>
+<!--
+  1 つのソースに 2 つの view（2026-10-08）。
+  - 相談の view（既定）: 深掘り Q1 で形を選ぶための軸・プリセット・「指示をコピー」
+  - GO view（window.PROTO_VIEW = "go"、または #view=go）: Q1 で本人が選んだ形を初期表示にし、軸の代わりに
+    状態の一覧を出す。GO 資料（go_brief.py）が <ST>-proto-go.html として書き出す
+  状態と Scenario の対応は下の目録（id="proto-go"）が正本。go_brief.py が spec と照合する。
+-->
+<script type="application/json" id="proto-go">
+{
+ "chosen": "押したら保存（1 タップ）・ひとことと元気さはいつも出しておく・見出しの日付＋前の日へ・主観の無い日は S-2 の頭と S-3 の暦の両方・滞在ごとの気分は S-3 の下（深掘り Q1 の答え）",
+ "requirements": ["主観入力の画面で、押した瞬間に保存する", "主観入力の画面で、その日の滞在ごとの気分を書く",
+                  "主観入力の画面に 1 か月の暦を出し、主観の無い日を区別する", "通知の時刻を画面で変えられる",
+                  "主観入力の画面の読み出しの失敗と下限",
+                  "1 日の画面の頭に、その日の気分か「未記入」が出る", "1 日の画面の滞在の行に、その滞在の気分が出る"],
+ "states": [
+  {"id": "notif", "name": "通知から開いた今日（まだ書いていない）",
+   "hint": "押した瞬間に保存されます（確定の操作は無い）。続けてひとことを入れて欄の外を押す・元気さを押す、と試すと、そのたびに記録が 1 件ずつ積まれるのが右下で見えます。快–不快を押す前に元気さだけ押しても何も送りません。S-2 の「書く」や暦の日を押すと、その日へ移ります。",
+   "scenarios": ["通知から開いて 1 回押すと保存される", "保存したら対象の日が出る", "快不快のボタンは数値と言葉を持つ", "ひとことと元気さは押さずに見える", "ひとことを足すと記録がもう 1 件積まれる", "元気さを押すと今の快不快と一緒に積まれる", "快不快を選ぶ前は元気さだけを送らない", "前後を選ぶ操作が無い", "その日の滞在が始まりの順に並ぶ", "滞在の行を押すとその滞在に保存される", "暦に未記入の日が破線と未で出る", "暦に記入ありの日の値が出る", "暦は対象の日で終わる 30 日", "暦の日を押すとその日を書ける", "書いていない日の 1 日の画面の頭に未記入が出る", "書いた日の 1 日の画面の頭に気分が出る", "1 日の画面の書くから主観入力の画面が開く", "気分の無い滞在の行には何も添えない", "日を移ると気分の欄もその日のものになる"]},
+  {"id": "three", "name": "今日 3 回書いた後（書き直した履歴）",
+   "hint": "「快」→ ひとこと →「元気さ +2」の 1 回の入力で 3 件。開くと最新（3 件目）が選ばれた状態です。「書き直した履歴 3 件」を開いても、書き換え・削除の操作はありません。",
+   "scenarios": ["開くと最新の記録の値が選ばれている", "書き直した履歴を開くと全部が出る", "主観を書き換える操作が無い"]},
+  {"id": "yday", "name": "翌朝 8:10、昨日の分を開く",
+   "hint": "10/7 には当日の夜 21:30 に書いた「前」の +2 だけがあります。いまは 10/7 が終わった後なので、ここで押すと「後」の記録になります。だからボタンはどれも押されておらず、「前に書いた: +2」が 1 行添えてあります。今日（10/8）からは見出しの ‹ 1 回でここに来られます。",
+   "scenarios": ["もう一方の前後の最新は 1 行で添えられる", "昨日の分は前の日へ 1 回で書ける"]},
+  {"id": "midnight", "name": "夜中 0:30 に日付なしのアドレスで開く",
+   "hint": "夜中でも前の日（10/8）にせず、暦の今日（10/9）を開きます。昨日の分は ‹ で。",
+   "scenarios": ["日付の無いアドレスは夜中も暦の今日を開く"]},
+  {"id": "future", "name": "未来の日に書く",
+   "hint": "› で今日より先へも進めて、未来の日に書けます。今日より後の日は、暦でも S-2 でも「未記入」になりません。ここで書くと「前」の記録になります。",
+   "scenarios": ["次の日へ移って未来の日に書ける", "これからの日は暦で未記入と出ない", "これからの日の 1 日の画面に未記入と出ない"]},
+  {"id": "overnight", "name": "朝、前の日から続く滞在に書く",
+   "hint": "一番上の「前の日から」の行（10/7 23:10 – 7:30。寝ていた自宅）で押してみてください。行には値が出ますが、記録は 10/7 に数えるので、暦の今日（10/8）と S-2 の頭は「未記入」のままです。",
+   "scenarios": ["前の日から続く滞在の行は前の日からと出る", "前の日から続く滞在に書いた気分はその行に出る"]},
+  {"id": "deleted", "name": "消した滞在・吸収された滞在がある日",
+   "hint": "10/7 の昼の滞在（12:10–12:50）は本人が消しました。そこに書いた気分は行と一緒に隠れ、件数だけが出ます（記録そのものは消えていない）。18:40–18:55 の滞在に書いた +2 は、作り直しで 13:00–18:30 の滞在に吸収されたので、その行に出ます。S-2 の滞在の行にも「気分 …」が 1 行添わります。",
+   "scenarios": ["消した滞在は気分の行に並ばない", "消した滞在の気分は数だけ出る", "吸収された滞在の気分は吸収先の行に出る", "1 日の画面で吸収された滞在の気分は吸収先の行に出る", "滞在の行に最新の気分が出る", "気分を書いた滞在の行に気分が出る"]},
+  {"id": "stayonly", "name": "滞在にだけ書いた日・前と後がある日",
+   "hint": "10/6 は日の気分が無く、2 つの滞在に 3 件だけ。それでも「記入あり」で、暦は「滞」、S-2 の頭は「滞在ごとに 2 件」（同じ滞在の書き直しは 1 と数える）。S-2 の ‹ で 10/5 へ: 前の +2 と後の -1 がある日は、頭も行も暦も後の -1 を出します。",
+   "scenarios": ["滞在にだけ書いた日は未記入と出ない", "同じ滞在の書き直しは 1 と数える", "前と後がある日の暦は後の値を出す", "滞在の行は後の気分を前より先に出す", "滞在の書き直した履歴を開ける"]},
+  {"id": "before", "name": "使い始める前の日",
+   "hint": "最初の記録は 9/12。それより前の日（暦の 9/9〜9/11、S-2 の 9/11）は「未記入」ではなく「使い始める前」です。暦の 9/10 を押して 1 件書くと境目が前に動き、9/10〜9/11 の間が「未記入」に変わるのが見えます。",
+   "scenarios": ["使い始める前の日は未記入と出ない", "使い始める前の日の 1 日の画面に未記入と出ない"]},
+  {"id": "offline", "name": "サーバに届かない",
+   "hint": "「条件: サーバに届かない」が入っています。ひとことが入った状態で快–不快を押すと、届かなかった文が出て、選んだ値とひとことは残ります。「もう一度送る」は同じ原文を送ります（条件を外してから押すと 1 件だけ入る）。下の通知の時刻を保存しても、入れた値は残ります。",
+   "scenarios": ["届かなかった記録は同じ原文で送り直す", "届かなかったとき選んだ値とひとことが残る", "通知の時刻を保存できなかったとき入れた値が残る"]},
+  {"id": "toolong", "name": "ひとことが長すぎる（送る前に知らせる）",
+   "hint": "ひとことに絵文字が 2,001 個入っています（数えるのは NFC にしたコードポイント。絵文字 1 個 = 1 文字）。欄のすぐ下に「2,001 / 2,000 文字 · 長すぎます」が出ています。1 個消すと消え、もう 1 個足すとまた出ます（打っている間に変わる）。超えている間は、快–不快・元気さを押しても、欄の外を押しても、「ひとことを残す」を押しても送らず、上に「保存していません」が出ます。押した値もひとことも消えません（切り詰めない）。右下に記録が増えないことを確かめてください。",
+   "scenarios": ["長すぎるひとことは送る前に知らせる", "長すぎるひとことのまま押しても送らない"]},
+  {"id": "reject", "name": "それでもサーバに断られたとき（最後の守り）",
+   "hint": "画面とサーバの数え方がずれていた場合の守りです。「条件: サーバがひとことを断る」が入っています。ひとことが入った状態で快–不快を押すと断られ、理由の文が出て、選んだ値とひとことは残ります。",
+   "scenarios": ["断られたとき理由の文が出る"]},
+  {"id": "feelfail", "name": "気分の読み出しに失敗",
+   "hint": "読み出しの失敗を「未記入」と取り違えさせません。暦に「未」は出ず、S-2 の頭も「未記入」と出しません。",
+   "scenarios": ["読み出しの失敗と未記入を区別する", "気分の読み出しの失敗は未記入と出ない"]},
+  {"id": "stayfail", "name": "滞在の読み出しに失敗",
+   "hint": "「滞在が無い」とは出さず、読み出せなかったことを出します。",
+   "scenarios": ["滞在の読み出しの失敗は滞在が無いと出ない"]},
+  {"id": "nostay", "name": "滞在が 1 件も無い日",
+   "hint": "滞在が無い日は、無いことを文で出します。",
+   "scenarios": ["滞在の無い日は滞在が無いと出る"]},
+  {"id": "badaddr", "name": "日付の読めないアドレス",
+   "hint": "日付が読めないことと、今日への入口だけ。書く操作は出しません。",
+   "scenarios": ["暦に無い日付のアドレスは書く操作を出さない"]},
+  {"id": "time", "name": "通知の時刻を変える",
+   "hint": "画面の下の「通知の時刻」を 22:30 にして保存すると、携帯が次に聞いたときから 22:30 が返ります（右下）。携帯は毎日 12:00 の後に読み直すので、12:00 より後に早めた分は翌日から効きます。",
+   "scenarios": ["画面で通知の時刻を変えられる", "画面で変えた通知の時刻が通知の判断に効く"]}
+ ],
+ "always": ["快不快のボタンは高さ 64 px 以上", "快不快のボタンは 1 列に並ぶ", "幅 360 px で横のスクロールが出ない", "主観入力の画面は触れる対象の下限を満たす", "主観入力の画面は文字のコントラストの下限を満たす", "押された状態と未記入の破線は 3:1 以上", "主観入力の画面はフォーカスの輪郭が見える", "主観入力の画面は OS の明暗に追従する", "主観入力の画面は確定した色だけを使う", "気分の欄は 1 行で 40 px 以下"]
+}
+</script>
+<style>
+  :root { --bg:#f3f5f3; --fg:#17201a; --mut:#4a564d; --line:#9aa79d; --card:#fff; --acc:#1f5e33; --on:#dfeee3; --warn:#7a3d00; --wbg:#fff2e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#15181a; --fg:#e6e8e6; --mut:#b4beb6; --line:#3f4842; --card:#1d2220; --acc:#9fd3ad; --on:#24302a; --warn:#ffc58a; --wbg:#3a2a14; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .wrap { display: grid; grid-template-columns: 330px 1fr; min-height: 100vh; }
+  @media (max-width: 960px) { .wrap { grid-template-columns: 1fr; } }
+  .ctl { padding: 14px 16px; border-right: 1px solid var(--line); overflow: auto; }
+  .ctl h1 { font-size: 16px; margin: 0 0 4px; line-height: 1.4; }
+  .lead { font-size: 12.5px; color: var(--mut); margin: 0 0 10px; }
+  .ctl h2 { font-size: 12.5px; color: var(--mut); margin: 14px 0 6px; }
+  .st, .card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line);
+        border-radius: 6px; padding: 7px 9px; margin: 0 0 5px; cursor: pointer; min-height: 32px; }
+  .st[aria-pressed="true"], .card[aria-pressed="true"] { border-color: var(--acc); background: var(--on); }
+  .st b { font-size: 13px; }
+  .st .sc, .card small { display: block; color: var(--mut); font-size: 11px; margin-top: 3px; line-height: 1.45; }
+  .tg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tg button { font: inherit; font-size: 12.5px; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; min-height: 30px; cursor: pointer; }
+  .tg button[aria-pressed="true"] { border-color: var(--acc); background: var(--on); }
+  .always { font-size: 11.5px; color: var(--mut); border: 1px dashed var(--line); border-radius: 6px; padding: 8px; margin-top: 12px; }
+  button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .main { padding: 14px 16px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .hint { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--acc); border-radius: 6px; padding: 8px 12px; font-size: 13.5px; }
+  .stage { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .phone { border: 1px solid var(--line); border-radius: 14px; padding: 8px; background: #0f1112; max-width: 100%; }
+  .cap { font-size: 11.5px; color: #c9cec9; margin: 0 0 6px; font-family: ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .screen { overflow: auto; border-radius: 8px; height: 680px; max-width: 100%; }
+  .os-notif { background: #2a2f2c; color: #eef1ee; border-radius: 10px; padding: 8px 10px; font-size: 13px; margin: 0 0 8px; }
+  .os-notif small { display: block; color: #c9cec9; font-size: 11.5px; }
+  .back, .out { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .back h3 { font-size: 13.5px; margin: 0 0 4px; }
+  .back .note { color: var(--mut); font-size: 12px; margin: 0 0 6px; }
+  .back table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .back th, .back td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+  .back .tw { overflow-x: auto; }
+  .back ol { margin: 6px 0 0; padding-left: 1.3rem; font-size: 12.5px; }
+  .back tr.new td { background: var(--on); }
+  .out pre { white-space: pre-wrap; user-select: text; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; margin: 0 0 8px; line-height: 1.55; }
+  .copy { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--acc); background: var(--on); color: inherit; cursor: pointer; min-height: 32px; }
+
+  /* ---- 製品側。tokens.ts の確定値: 色相 132 / 彩度 30% / 面 3 段 ---- */
+  .app { font-size: 15px; min-height: 100%; padding: 12px; }
+  .app.dark  { --g: hsl(132 30% 12%); --s1: hsl(132 30% 18%); --s2: hsl(132 30% 24%); --t: hsl(132 30% 92%); --m: hsl(132 30% 72%); --ln: hsl(132 30% 40%); }
+  .app.light { --g: hsl(132 30% 96%); --s1: hsl(132 30% 91%); --s2: hsl(132 30% 86%); --t: hsl(132 30% 14%); --m: hsl(132 30% 30%); --ln: hsl(132 30% 45%); }
+  .app { background: var(--g); color: var(--t); }
+  .app h3 { font-size: 17px; margin: 0; }
+  .app .sub { color: var(--m); font-size: 13px; margin: 0 0 8px; }
+  .app .panel { background: var(--s1); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
+  .app .ptitle { font-size: 13px; margin: 0 0 6px; }
+  .app button, .app a.btn { font: inherit; color: var(--t); background: var(--s2); border: 1px solid var(--ln); border-radius: 6px;
+       min-height: 24px; min-width: 24px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  .app button:focus-visible, .app a.btn:focus-visible, .app textarea:focus-visible, .app input:focus-visible { outline: 3px solid var(--t); outline-offset: 2px; }
+  .app button[aria-pressed="true"] { background: var(--t); color: var(--g); border-color: var(--t); }
+  .daybar { display: flex; gap: 6px; align-items: center; justify-content: space-between; margin: 0 0 6px; }
+  .daybar button { padding: 0 12px; min-height: 36px; }
+  .scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .scale button { flex-direction: column; min-height: 64px; padding: 6px 2px; font-size: 12.5px; line-height: 1.25; }
+  .scale button b { font-size: 18px; }
+  .scale.small button { min-height: 44px; }
+  .scale.small button b { font-size: 15px; }
+  .strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 0 0 10px; }
+  .strip button { flex-direction: column; min-height: 52px; font-size: 12px; padding: 4px 0; line-height: 1.25; }
+  .strip button.miss { background: var(--g); border: 1px dashed var(--t); }
+  .app textarea { width: 100%; font: inherit; color: var(--t); background: var(--g); border: 1px solid var(--ln); border-radius: 6px; padding: 6px; min-height: 44px; }
+  .app .lbl { font-size: 13px; margin: 10px 0 4px; display: block; }
+  .msg { border: 1px solid var(--ln); border-radius: 6px; padding: 7px 10px; font-size: 13px; margin: 0 0 8px; background: var(--s2); }
+  .msg.bad { border-style: dashed; border-width: 2px; }
+  .over { margin: 4px 0 0; border: 2px dashed var(--t); border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 600; }
+  .other { font-size: 13px; color: var(--m); margin: 6px 0 0; }
+  .linkish { background: none !important; border: none !important; color: var(--t) !important; text-decoration: underline; padding: 0 2px !important; font-size: 13px !important; }
+  .hist { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+  .hist li { border-top: 1px solid var(--ln); padding: 4px 0; }
+  .stay { border-top: 1px solid var(--ln); padding: 8px 0; }
+  .stay:first-of-type { border-top: none; }
+  .stay .tm { font-size: 13.5px; }
+  .stay .from { font-size: 12px; border: 1px solid var(--ln); border-radius: 10px; padding: 0 7px; margin-left: 6px; }
+  .month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; font-size: 11.5px; }
+  .month .wd { color: var(--m); text-align: center; min-height: 18px; }
+  .month button { flex-direction: column; min-height: 38px; padding: 1px 0; line-height: 1.2; font-size: 11.5px; background: var(--s2); }
+  .month button.miss { background: var(--g); border: 1px dashed var(--t); }
+  .month button.plain { background: transparent; border-color: transparent; color: var(--m); }
+  .month button.cur { outline: 2px solid var(--t); outline-offset: 1px; }
+  .time { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .time input { font: inherit; color: var(--t); background: var(--g); border: 1px solid var(--ln); border-radius: 6px; padding: 4px 6px; min-height: 36px; }
+  .time button { padding: 0 12px; min-height: 36px; }
+  .s2head { background: var(--s1); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+  .feelrow { display: flex; gap: 8px; align-items: center; max-height: 40px; margin-top: 6px; }
+  .badge { display: inline-flex; align-items: center; border: 1px solid var(--ln); border-radius: 12px; padding: 1px 10px; font-size: 13px; min-height: 28px; white-space: nowrap; }
+  .badge.miss { border-style: dashed; border-color: var(--t); }
+  .feelrow a.btn { padding: 0 10px; min-height: 28px; font-size: 13px; }
+  .s2stay { background: var(--s1); border-radius: 8px; padding: 7px 10px; margin: 0 0 6px; font-size: 14px; }
+  .s2stay .fl { font-size: 13px; margin-top: 2px; }
+  .s2stay .m { color: var(--m); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside class="ctl" aria-label="操作">
+  <div id="ctl"></div>
+  <h2>条件（どの状態にも重ねられる）</h2>
+  <div class="tg" id="flags"></div>
+  <h2>見え方</h2>
+  <div class="tg" id="view"></div>
+  <div class="always" id="alwaysbox"><b>どの状態でも成り立つ（数値は本物のブラウザの e2e が測る）</b><br><span id="always"></span></div>
+  <p class="lead" style="margin-top:10px">滞在の行は時刻の範囲だけを出します（場所の名前は ST21）。S-2 の滞在の行の中身は簡略です（実物は ST25 の行）。データは偽物で、今日は 2026-10-08（木）、最初の記録は 9/12。</p>
+</aside>
+
+<main class="main">
+  <div class="hint" id="hint" aria-live="polite"></div>
+  <div class="stage">
+    <div class="phone"><p class="cap" id="cap3"></p><div id="notif"></div><div class="screen" id="s3"></div></div>
+    <div class="phone"><p class="cap" id="cap2"></p><div class="screen" id="s2"></div></div>
+  </div>
+  <div class="back">
+    <h3>裏で積まれた記録（画面には出ません）</h3>
+    <p class="note">対象の日（<span id="bday"></span>）に数える記録の全部。新しいものが上で、この画面で入れたものは色付き。書き換え・削除はされず、増えるだけです。前/後は記録に持たず、読むたびに時刻から計算します。</p>
+    <div class="tw"><table><thead><tr><th>記録</th><th>紐づけ先</th><th>快–不快 / 元気さ / ひとこと</th><th>記入の日時</th><th>出来事の時刻</th><th>前/後</th></tr></thead><tbody id="btab"></tbody></table></div>
+    <ol id="blog"></ol>
+  </div>
+  <div class="out" id="outbox"><pre id="prompt"></pre><button class="copy" id="copy" type="button">指示をコピー</button> <span id="copied"></span></div>
+</main>
+</div>
+
+<script>
+const MAN = JSON.parse(document.getElementById("proto-go").textContent);
+const GO = window.PROTO_VIEW === "go" || /(^|[#&])view=go/.test(location.hash);
+
+// ---------- 値と日付 ----------
+const VAL = [{v:-2,w:"とても不快"},{v:-1,w:"不快"},{v:0,w:"どちらでもない"},{v:1,w:"快"},{v:2,w:"とても快"}];
+const sign = v => (v > 0 ? "+" + v : String(v));
+const word = v => VAL.find(x => x.v === v).w;
+const WD = ["日","月","火","水","木","金","土"];
+const addD = (d, n) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const dow = d => new Date(d + "T12:00:00Z").getUTCDay();
+const md = d => `${Number(d.slice(5,7))}/${Number(d.slice(8,10))}`;
+const head = d => `${Number(d.slice(5,7))} 月 ${Number(d.slice(8,10))} 日（${WD[dow(d)]}）`;
+const fmt = t => `${md(t.slice(0,10))} ${Number(t.slice(11,13))}:${t.slice(14,16)}`;
+const hm = t => `${Number(t.slice(11,13))}:${t.slice(14,16)}`;
+const addMin = (t, m) => new Date(new Date(t + ":00Z").getTime() + m * 60000).toISOString().slice(0, 16);
+const cps = s => [...s.normalize("NFC")].length;   // 画面とサーバで同じ数え方（NFC にしてコードポイント）
+const NOTE_MAX = 2000;
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+// ---------- 滞在（偽物）。毎日 4 つ。夜の滞在は翌朝まで続く ----------
+const NOSTAY = new Set(["2026-09-30"]);
+const EXTRA = { "C|2026-10-07": { id: "C|2026-10-07", start: "2026-10-07T18:40", end: "2026-10-07T18:55" } };
+function defs(d) {
+  if (NOSTAY.has(d)) return [];
+  const a = [["W","08:30","12:00"],["L","12:10","12:50"],["A","13:00","18:30"]].map(([k,s,e]) => ({ id: `${k}|${d}`, start: `${d}T${s}`, end: `${d}T${e}` }));
+  a.push({ id: `N|${d}`, start: `${d}T23:10`, end: `${addD(d,1)}T07:30` });
+  for (const x of Object.values(EXTRA)) if (x.start.slice(0,10) === d) a.push(x);
+  return a;
+}
+const stayById = id => EXTRA[id] || defs(id.split("|")[1]).find(s => s.id === id);
+
+// ---------- 記録（偽物） ----------
+let S, U, SEQ;
+function rec(kind, tgt, v, e, note, w) {
+  const r = { id: "r" + (++SEQ), kind, v, e: e ?? null, note: note || "", w, seq: SEQ };
+  if (kind === "day") r.day = tgt; else { const s = stayById(tgt); r.stay = { id: s.id, start: s.start, end: s.end }; }
+  return r;
+}
+function baseRecords() {
+  SEQ = 0; const R = [];
+  const miss = new Set(["2026-09-14","2026-09-20","2026-09-21","2026-09-27","2026-10-01","2026-10-02"]);
+  const seq = [1,0,2,-1,1,0,1,1,-2,0,1,2,0,-1,1,0,1,2,1,0,-1,1,0];
+  let i = 0;
+  for (let d = "2026-09-12"; d <= "2026-10-04"; d = addD(d, 1), i++) if (!miss.has(d)) R.push(rec("day", d, seq[i % seq.length], null, "", `${d}T21:30`));
+  R.push(rec("day", "2026-10-05", 2, null, "", "2026-10-05T21:30"));        // 10/5: 日に前 +2・後 -1、滞在にも前 +2・後 -1
+  R.push(rec("day", "2026-10-05", -1, null, "", "2026-10-06T08:00"));
+  R.push(rec("stay", "W|2026-10-05", 2, null, "", "2026-10-05T10:00"));
+  R.push(rec("stay", "W|2026-10-05", -1, null, "", "2026-10-05T20:00"));
+  R.push(rec("stay", "W|2026-10-06", 1, null, "", "2026-10-06T12:30"));     // 10/6: 滞在にだけ（W に 2 件・A に 1 件）
+  R.push(rec("stay", "W|2026-10-06", 0, null, "", "2026-10-06T20:00"));
+  R.push(rec("stay", "A|2026-10-06", 1, null, "", "2026-10-06T19:00"));
+  R.push(rec("day", "2026-10-07", 2, null, "", "2026-10-07T21:30"));        // 10/7: 日に前 +2。W に -2、L（後で消す）に +1、C（後で A に吸収）に +2
+  R.push(rec("stay", "W|2026-10-07", -2, null, "", "2026-10-07T12:20"));
+  R.push(rec("stay", "L|2026-10-07", 1, null, "", "2026-10-07T13:00"));
+  R.push(rec("stay", "C|2026-10-07", 2, null, "", "2026-10-07T19:00"));
+  return R;
+}
+
+// ---------- 仕様の規則（spec の Requirement と同じ） ----------
+const evDay = r => r.kind === "day" ? r.day : r.stay.start.slice(0, 10);       // 日をまたぐ滞在は始まりの日
+const evTime = r => r.kind === "day" ? `${r.day}T00:00` : r.stay.start;        // 出来事の時刻は対象の時刻
+const endOf = r => r.kind === "day" ? `${addD(r.day, 1)}T00:00` : r.stay.end;
+const side = r => r.w < endOf(r) ? "前" : "後";                                  // 記録に持たず毎回計算
+const latest = L => L.reduce((a, b) => (!a || b.w > a.w || (b.w === a.w && b.seq > a.seq)) ? b : a, null);
+const shown = L => latest(L.filter(r => side(r) === "後")) || latest(L.filter(r => side(r) === "前"));
+const today = () => S.now.slice(0, 10);
+function resolve(id) { let c = id, n = 0; while (S.absorbed[c] && n < 16) { c = S.absorbed[c]; n++; } return S.deleted.has(c) ? null : c; }
+const dayRecs = d => S.records.filter(r => r.kind === "day" && r.day === d);
+const stayRecs = id => S.records.filter(r => r.kind === "stay" && resolve(r.stay.id) === id);
+function dayState(d) {
+  if (d > today()) return "future";
+  if (!S.records.length) return "before";
+  if (d < S.records.map(evDay).sort()[0]) return "before";
+  return S.records.some(r => evDay(r) === d) ? "filled" : "missing";
+}
+function staysOf(d) {
+  if (NOSTAY.has(d)) return [];
+  return [...defs(addD(d, -1)), ...defs(d)]
+    .filter(s => s.start < `${addD(d,1)}T00:00` && s.end > `${d}T00:00` && s.end <= S.now && !S.deleted.has(s.id) && !S.absorbed[s.id])
+    .sort((a, b) => a.start < b.start ? -1 : 1);
+}
+const hiddenCount = d => S.records.filter(r => r.kind === "stay" && evDay(r) === d && resolve(r.stay.id) === null).length;
+const stayCount = d => new Set(S.records.filter(r => r.kind === "stay" && evDay(r) === d).map(r => resolve(r.stay.id) ?? "del:" + r.stay.id)).size;
+const curSide = t => S.now < `${addD(t,1)}T00:00` ? "前" : "後";
+
+// ---------- 状態（目録の id に、データの組み立てだけを足す） ----------
+const SETUP = {
+  notif:    { now:"2026-10-08T21:30", addr:"#/feel", notif:true },
+  three:    { now:"2026-10-08T21:33", addr:"#/feel", setup:()=>{ S.records.push(rec("day","2026-10-08",1,null,"","2026-10-08T21:30"), rec("day","2026-10-08",1,null,"散歩した","2026-10-08T21:31"), rec("day","2026-10-08",1,2,"散歩した","2026-10-08T21:32")); } },
+  yday:     { now:"2026-10-08T08:10", addr:"#/feel/2026-10-07" },
+  midnight: { now:"2026-10-09T00:30", addr:"#/feel" },
+  future:   { now:"2026-10-08T21:30", addr:"#/feel/2026-10-11", s2d:"2026-10-11" },
+  overnight:{ now:"2026-10-08T08:10", addr:"#/feel" },
+  deleted:  { now:"2026-10-08T21:30", addr:"#/feel/2026-10-07", s2d:"2026-10-07" },
+  stayonly: { now:"2026-10-08T21:30", addr:"#/feel/2026-10-06", s2d:"2026-10-06" },
+  before:   { now:"2026-10-08T21:30", addr:"#/feel", s2d:"2026-09-11" },
+  offline:  { now:"2026-10-08T21:30", addr:"#/feel", flags:{offline:true}, draft:"散歩した" },
+  toolong:  { now:"2026-10-08T21:30", addr:"#/feel", draft:"😀".repeat(2001) },
+  reject:   { now:"2026-10-08T21:30", addr:"#/feel", flags:{noteReject:true}, draft:"散歩した" },
+  feelfail: { now:"2026-10-08T21:30", addr:"#/feel", flags:{feelFail:true} },
+  stayfail: { now:"2026-10-08T21:30", addr:"#/feel", flags:{stayFail:true} },
+  nostay:   { now:"2026-10-08T21:30", addr:"#/feel/2026-09-30" },
+  badaddr:  { now:"2026-10-08T21:30", addr:"#/feel/2026-13-45" },
+  time:     { now:"2026-10-08T09:00", addr:"#/feel" },
+};
+const STATES = MAN.states.map(s => Object.assign({}, s, SETUP[s.id] || SETUP.notif));
+
+// ---------- 相談の軸（Q1 で選ぶとき）。GO view は目録の chosen に固定 ----------
+const AXES = {
+  save: { def: "tap", opts: [
+    ["tap", "押したら保存（1 タップ）", "快–不快を押した瞬間に保存。補足は保存の後に足せる。押し間違いは押し直すと新しい記録が積まれる"],
+    ["confirm", "選んで「保存」を押す（2 タップ）", "選び直してから確定できる。保存の前に補足・尺度も同じ画面で書ける"]]},
+  extra: { def: "after", opts: [
+    ["after", "畳んでおき、開くと出る", "「ひとこと・ほかの尺度を書く」を開くと、補足 1 欄と元気さが出る"],
+    ["open", "いつも出しておく", "5 つのボタンの下に補足の欄と元気さが常に並ぶ"]]},
+  date: { def: "head", opts: [
+    ["head", "見出しの日付＋前の日へ", "見出しの左右に ‹ › 。昨日の分は ‹ を 1 回"],
+    ["strip", "直近 7 日の帯から選ぶ", "見出しの下に 7 日の帯。未記入の日は破線と「未記入」。押すとその日を書く"]]},
+  miss: { def: "both", opts: [
+    ["s2", "1 日の画面（S-2）の頭に「気分 未記入」", "1 日の画面の頭に、その日の気分か「未記入 — 書く」"],
+    ["s3", "S-3 に 1 か月の暦", "S-3 の下に暦。未記入の日は破線と「未」。S-2 には出さない"],
+    ["both", "両方", "S-2 の頭にも、S-3 の暦にも出す"]]},
+  stay: { def: "s3", opts: [
+    ["s3", "S-3 の下に、その日の滞在を並べて書く", "日の気分の下に滞在を並べ、各行に小さい 5 つのボタン"],
+    ["s2", "1 日の画面（S-2）の滞在の行の中で書く", "ui-direction.md の置き場どおり。S-3 は日の気分だけ"]]},
+};
+const AX_NAME = { save:"保存の仕方", extra:"補足と尺度", date:"対象の日", miss:"主観の無い日", stay:"滞在の置き場" };
+const CHOSEN = { save:"tap", extra:"open", date:"head", miss:"both", stay:"s3" };   // 目録の chosen と同じ（深掘り Q1 の答え）
+const PRESETS = [
+  ["最短", { save:"tap", extra:"after", date:"head", miss:"s2", stay:"s3" }],
+  ["書き足せる", { save:"tap", extra:"after", date:"head", miss:"both", stay:"s3" }],
+  ["じっくり", { save:"confirm", extra:"open", date:"strip", miss:"both", stay:"s2" }],
+  ["振り返り重視", { save:"confirm", extra:"after", date:"strip", miss:"s3", stay:"s3" }],
+];
+const AX = {}; for (const k in AXES) AX[k] = GO ? CHOSEN[k] : AXES[k].def;
+
+const FLAGS = [["offline","サーバに届かない"],["noteReject","サーバがひとことを断る"],["feelFail","気分の読み出しに失敗"],["stayFail","滞在の読み出しに失敗"]];
+const VIEW = { scheme: "dark", width: 360 };
+if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) VIEW.scheme = "light";
+
+function load(id) {
+  const st = STATES.find(s => s.id === id) || STATES[0];
+  S = { now: st.now, records: baseRecords(), deleted: new Set(["L|2026-10-07"]), absorbed: { "C|2026-10-07": "A|2026-10-07" }, notifTime: "21:00" };
+  if (st.setup) st.setup();
+  U = { state: st.id, flags: Object.assign({ offline:false, noteReject:false, feelFail:false, stayFail:false }, st.flags || {}), notif: !!st.notif,
+        drafts: {}, pick: null, eLocal: null, msg: null, pend: null, hist: {}, stayPick: {}, notifDraft: null, notifMsg: null,
+        log: [], mine: new Set(), open: false };
+  setAddr(st.addr);
+  U.s2d = st.s2d || (U.target || today());
+  if (st.draft) U.drafts[U.target] = st.draft;
+  if (GO) { try { history.replaceState(null, "", "#view=go&state=" + st.id); } catch (e) {} }
+  render();
+  for (const id of ["s3","s2"]) document.getElementById(id).scrollTop = 0;
+}
+function setAddr(a) {
+  U.addr = a; U.invalid = null;
+  const m = a.match(/^#\/feel(?:\/(.+))?$/);
+  if (m && m[1]) {
+    const d = m[1], x = new Date(d + "T12:00:00Z"), ok = /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(x) && x.toISOString().slice(0,10) === d;
+    if (ok) U.target = d; else { U.invalid = d; U.target = null; }
+  } else U.target = today();
+}
+function goTarget(d) { setAddr("#/feel/" + d); U.pick = null; U.eLocal = null; U.msg = null; U.pend = null; U.notif = false; }
+function log(s) { U.log.unshift(`${fmt(S.now)} ${s}`); U.log = U.log.slice(0, 8); }
+
+// ---------- 送る ----------
+function send(raw, resend) {
+  const what = raw.kind === "day" ? `日 ${md(raw.day)}` : `滞在 ${hm(raw.stay.start)}–${hm(raw.stay.end)}`;
+  if (U.flags.offline) { U.pend = raw; U.msg = { bad:true, text:"サーバに届きませんでした。選んだ値とひとことはそのまま残っています" };
+    log(`${resend ? "送り直したが" : ""}届かなかった（原文 ${raw.id} を画面が持っておく）`); return; }
+  if (cps(raw.note) > NOTE_MAX || (U.flags.noteReject && raw.note)) { U.msg = { bad:true, text:"ひとことが長すぎます（2,000 文字まで）" }; U.pend = null;
+    log(`断られた（invalid_note。${cps(raw.note).toLocaleString()} 文字）。記録は入らない`); return; }
+  if (!S.records.some(r => r.id === raw.id)) { S.records.push(raw); U.mine.add(raw.id); }
+  log(`${resend ? `同じ原文 ${raw.id} を送り直した → ` : ""}記録 ${raw.id} が入った（${what}・${sign(raw.v)}${raw.e !== null ? `・元気さ ${sign(raw.e)}` : ""}${raw.note ? `・ひとこと「${esc(raw.note.slice(0,12))}${cps(raw.note) > 12 ? "…" : ""}」` : ""}・${side(raw)}）`);
+  U.msg = { text:`保存しました: ${sign(raw.v)} ${word(raw.v)} · 記入 ${fmt(raw.w)}（対象の日 ${md(evDay(raw))}）` };
+  U.pend = null; U.pick = null; U.stayPick = {};
+  S.now = addMin(S.now, 1);
+}
+const noteOf = t => (U.drafts[t] ?? "").trim();
+const overOf = t => cps(U.drafts[t] ?? "") > NOTE_MAX;
+function holdLong(t, v, e) {   // 上限を超えている間は送らない。押した値もひとことも残す
+  if (v !== null) U.pick = { v, e };
+  U.msg = { bad:true, text:"ひとことが長すぎるので保存していません（2,000 文字まで）" }; U.pend = null;
+  log(`送らなかった（ひとことが ${cps(U.drafts[t]).toLocaleString()} 文字。上限 2,000）。記録は増えない`); render();
+}
+const selDay = t => latest(dayRecs(t).filter(r => side(r) === curSide(t)));
+const curV = t => U.pick ? U.pick.v : (U.flags.feelFail ? null : selDay(t)?.v ?? null);
+const curE = t => U.pick && U.pick.e !== undefined ? U.pick.e : (U.eLocal ?? (U.flags.feelFail ? null : selDay(t)?.e ?? null));
+function pressV(t, v) {
+  if (overOf(t)) return holdLong(t, v, curE(t));
+  U.pick = { v, e: curE(t) };
+  if (AX.save === "confirm") { render(); return; }          // 相談の軸「選んで保存」: 選ぶだけ
+  send(rec("day", t, v, U.pick.e, noteOf(t), S.now)); render();
+}
+function pressE(t, e) {
+  const v = curV(t);
+  if (v === null) { U.eLocal = e; log("元気さを押したが、快–不快が無いので送らない（画面の状態だけ）"); render(); return; }
+  if (overOf(t)) return holdLong(t, v, e);
+  U.pick = { v, e };
+  if (AX.save === "confirm") { render(); return; }
+  send(rec("day", t, v, e, noteOf(t), S.now)); render();
+}
+function leaveNote(t) {
+  if (AX.save === "confirm") return;
+  const note = noteOf(t), last = U.flags.feelFail ? "" : (selDay(t)?.note ?? "");
+  if (note === last) return;
+  const v = curV(t);
+  if (v === null) { log("ひとことを持っておく（快–不快を押したときに一緒に送る）"); render(); return; }
+  if (overOf(t)) return holdLong(t, v, curE(t));
+  U.pick = { v, e: curE(t) }; send(rec("day", t, v, curE(t), note, S.now)); render();
+}
+function pressStay(id, v) { U.stayPick[id] = v; send(rec("stay", id, v, null, "", S.now)); render(); }
+
+// ---------- 描く: S-3 ----------
+function btns(sel, attr, small, extra) {
+  return `<div class="scale ${small ? "small" : ""}" role="group">` + VAL.map(x =>
+    `<button type="button" ${attr}="${x.v}" ${extra || ""} aria-pressed="${sel === x.v}" aria-label="${sign(x.v)} ${x.w}"><b>${sign(x.v)}</b>${small ? "" : x.w}</button>`).join("") + `</div>`;
+}
+const overHtml = n => `<p class="over" id="note-over" role="status">${n.toLocaleString()} / 2,000 文字 · 長すぎます</p>`;
+function syncOver(ta) {   // 打っている間に数え直す（描き直すとフォーカスが外れるので、欄の次だけを差し替える）
+  const n = cps(ta.value), cur = ta.nextElementSibling && ta.nextElementSibling.id === "note-over" ? ta.nextElementSibling : null;
+  if (n > NOTE_MAX) { if (cur) cur.textContent = `${n.toLocaleString()} / 2,000 文字 · 長すぎます`; else ta.insertAdjacentHTML("afterend", overHtml(n)); }
+  else if (cur) cur.remove();
+}
+function stayRange(s, d) { return `${s.start.slice(0,10) < d ? md(s.start.slice(0,10)) + " " : ""}${hm(s.start)} – ${s.end.slice(0,10) > d ? "翌 " : ""}${hm(s.end)}`; }
+function renderS3() {
+  const el = document.getElementById("s3"); el.style.width = VIEW.width + "px";
+  document.getElementById("cap3").textContent = `S-3 主観入力 · ${U.addr} · いま ${fmt(S.now)}`;
+  document.getElementById("notif").innerHTML = U.notif ? `<div class="os-notif"><small>携帯の通知 · あしあと · ${hm(S.now)}</small><b>今日はどうでしたか</b><br>気分を残す<small>（押して開いたのが下の画面。文面に値・ひとことは載らない）</small></div>` : "";
+  let h = `<div class="app ${VIEW.scheme}">`;
+  if (U.invalid !== null) {
+    el.innerHTML = h + `<div class="panel"><p>日付が読めません（${esc(U.invalid)}）。</p><a class="btn" href="#" data-today="1" style="padding:0 12px;min-height:40px">今日の気分を書く</a></div></div>`;
+    el.querySelector("[data-today]").onclick = ev => { ev.preventDefault(); setAddr("#/feel"); render(); }; return;
+  }
+  const t = U.target, fail = U.flags.feelFail;
+  h += AX.date === "head"
+    ? `<div class="daybar"><button type="button" data-shift="-1" aria-label="前の日">‹</button><h3>${head(t)}</h3><button type="button" data-shift="1" aria-label="次の日">›</button></div>`
+    : `<h3 style="margin:0 0 6px">${head(t)}</h3>`;
+  if (AX.date === "strip") {
+    h += `<div class="strip">`;
+    for (let d = addD(today(), -6); d <= today(); d = addD(d, 1)) {
+      const st = fail ? "" : dayState(d), x = shown(dayRecs(d));
+      h += `<button type="button" data-day="${d}" class="${st === "missing" ? "miss" : ""}" aria-pressed="${d === t}">${md(d)}<span>${WD[dow(d)]}</span><span>${st === "missing" ? "未記入" : st === "filled" ? (x ? sign(x.v) : "滞") : ""}</span></button>`;
+    }
+    h += `</div>`;
+  }
+  h += `<p class="sub">この日はどう感じましたか（快–不快）</p>`;
+  if (U.msg) h += `<div class="msg ${U.msg.bad ? "bad" : ""}" role="status">${U.msg.text}${U.pend ? ` <button type="button" data-resend="1" style="margin-left:6px;padding:0 10px;min-height:32px">もう一度送る</button>` : ""}</div>`;
+  if (fail) h += `<div class="msg bad" role="status">気分を読み出せませんでした（書いていない、という意味ではありません）</div>`;
+  const v = curV(t), e = curE(t);
+  const other = fail ? null : latest(dayRecs(t).filter(r => side(r) !== curSide(t)));
+  h += `<div class="panel">` + btns(v, "data-v", false);
+  if (other) h += `<p class="other">${side(other)}に書いた: ${sign(other.v)} ${word(other.v)}</p>`;
+  const showExtra = AX.extra === "open" || U.open;
+  if (!showExtra) h += `<button type="button" data-openx="1" style="width:100%;margin-top:8px;min-height:40px">ひとこと・ほかの尺度を書く</button>`;
+  if (showExtra) {
+    const draft = U.drafts[t] ?? (fail ? "" : selDay(t)?.note ?? "");
+    h += `<label class="lbl" for="note">ひとこと（任意）</label><textarea id="note" rows="2" placeholder="例: 久しぶりに走った" aria-describedby="note-over">${esc(draft)}</textarea>`;
+    if (cps(draft) > NOTE_MAX) h += overHtml(cps(draft));
+    if (AX.save === "tap") h += `<div style="text-align:right;margin-top:4px"><button type="button" data-keep="1" style="padding:0 10px;min-height:32px;font-size:13px">ひとことを残す</button></div>`;
+    h += `<span class="lbl">元気さ（任意）</span>` + btns(e, "data-e", true);
+  }
+  if (AX.save === "confirm") h += `<button type="button" data-save="1" style="width:100%;margin-top:8px;min-height:48px;font-weight:600" ${U.pick ? "" : "disabled"}>保存</button>`;
+  const all = fail ? [] : dayRecs(t).slice().sort((a, b) => (b.w > a.w || (b.w === a.w && b.seq > a.seq)) ? 1 : -1);
+  if (all.length >= 2) {
+    h += `<div style="margin-top:8px"><button type="button" class="linkish" data-hist="day">書き直した履歴 ${all.length} 件</button></div>`;
+    if (U.hist.day) h += `<ul class="hist">` + all.map(r => `<li>${sign(r.v)} ${word(r.v)}${r.e !== null ? ` · 元気さ ${sign(r.e)}` : ""}${r.note ? ` · 「${esc(r.note.length > 20 ? r.note.slice(0,20) + "…" : r.note)}」` : ""} · 記入 ${fmt(r.w)} · ${side(r)}</li>`).join("") + `</ul>`;
+  }
+  h += `</div>`;
+  if (AX.stay === "s3") {
+    h += `<div class="panel"><p class="ptitle">この日の滞在ごと（任意）</p>`;
+    if (U.flags.stayFail) h += `<p class="msg bad">滞在を読み出せませんでした</p>`;
+    else {
+      const ss = staysOf(t);
+      if (!ss.length) h += `<p class="sub" style="margin:0">この日の滞在はありません</p>`;
+      for (const s of ss) {
+        const L = fail ? [] : stayRecs(s.id), cur = U.stayPick[s.id] ?? shown(L)?.v ?? null;
+        h += `<div class="stay"><div class="tm">${stayRange(s, t)}${s.start.slice(0,10) < t ? `<span class="from">前の日から</span>` : ""}</div><div style="margin-top:4px">${btns(cur, "data-sv", true, `data-sid="${s.id}"`)}</div>`;
+        if (L.length >= 2) { h += `<button type="button" class="linkish" data-hist="${s.id}">書き直した履歴 ${L.length} 件</button>`;
+          if (U.hist[s.id]) h += `<ul class="hist">` + L.slice().sort((a,b)=> b.w > a.w ? 1 : -1).map(r => `<li>${sign(r.v)} ${word(r.v)} · 記入 ${fmt(r.w)} · ${side(r)}</li>`).join("") + `</ul>`; }
+        h += `</div>`;
+      }
+      const hc = fail ? 0 : hiddenCount(t);
+      if (hc) h += `<p class="sub" style="margin:6px 0 0">消した滞在の気分 ${hc} 件（ここには出しません）</p>`;
+    }
+    h += `</div>`;
+  }
+  if (AX.miss !== "s2") {
+    const first = addD(t, -29);
+    h += `<div class="panel"><p class="ptitle">${head(first).replace(/（.）/,"")}〜${head(t).replace(/（.）/,"")}</p>`;
+    if (fail) h += `<p class="msg bad" style="margin:0">気分を読み出せませんでした（暦を出せません）</p>`;
+    else {
+      h += `<div class="month">` + WD.map(w => `<div class="wd">${w}</div>`).join("");
+      for (let i = 0; i < dow(first); i++) h += `<div></div>`;
+      for (let d = first; d <= t; d = addD(d, 1)) {
+        const st = dayState(d); let cls = "", lab = "";
+        if (st === "filled") { const x = shown(dayRecs(d)); lab = x ? sign(x.v) : "滞"; }
+        else if (st === "missing") { cls = "miss"; lab = "未"; }
+        else cls = "plain";
+        h += `<button type="button" data-day="${d}" class="${cls} ${d === t ? "cur" : ""}" aria-label="${head(d)} ${st === "missing" ? "未記入" : st === "before" ? "使い始める前" : st === "future" ? "これから" : lab}"><span>${Number(d.slice(8,10))}</span><span>${lab || "&nbsp;"}</span></button>`;
+      }
+      h += `</div>`;
+    }
+    h += `</div>`;
+  }
+  const nd = U.notifDraft ?? S.notifTime;
+  h += `<div class="panel"><p class="ptitle">通知の時刻（いま ${S.notifTime}）</p><div class="time"><input type="time" id="ntime" value="${nd}" aria-label="通知の時刻"><button type="button" data-nsave="1">保存</button></div>`;
+  if (U.notifMsg) h += `<p class="msg ${U.notifMsg.bad ? "bad" : ""}" style="margin:8px 0 0" role="status">${U.notifMsg.text}</p>`;
+  h += `<p class="sub" style="margin:6px 0 0;font-size:12px">（この欄の置き場は spec が決めていない。下流が決める）</p></div></div>`;
+  el.innerHTML = h;
+
+  el.querySelectorAll("[data-shift]").forEach(b => b.onclick = () => { goTarget(addD(t, Number(b.dataset.shift))); render(); });
+  el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { goTarget(b.dataset.day); render(); });
+  el.querySelectorAll("[data-v]").forEach(b => b.onclick = () => pressV(t, Number(b.dataset.v)));
+  el.querySelectorAll("[data-e]").forEach(b => b.onclick = () => pressE(t, Number(b.dataset.e)));
+  el.querySelectorAll("[data-sv]").forEach(b => b.onclick = () => pressStay(b.dataset.sid, Number(b.dataset.sv)));
+  el.querySelectorAll("[data-hist]").forEach(b => b.onclick = () => { U.hist[b.dataset.hist] = !U.hist[b.dataset.hist]; render(); });
+  const ox = el.querySelector("[data-openx]"); if (ox) ox.onclick = () => { U.open = true; render(); };
+  const ta = el.querySelector("#note");
+  if (ta) {
+    ta.oninput = () => { U.drafts[t] = ta.value; syncOver(ta); };
+    ta.onblur = () => { U.drafts[t] = ta.value; LATER = true; leaveNote(t); LATER = false; };
+    const kp = el.querySelector("[data-keep]"); if (kp) kp.onclick = () => { U.drafts[t] = ta.value; leaveNote(t); };
+  }
+  const sv = el.querySelector("[data-save]"); if (sv) sv.onclick = () => { if (U.pick) { send(rec("day", t, U.pick.v, U.pick.e, noteOf(t), S.now)); render(); } };
+  const rs = el.querySelector("[data-resend]"); if (rs) rs.onclick = () => { send(U.pend, true); render(); };
+  const ni = el.querySelector("#ntime"); ni.oninput = () => { U.notifDraft = ni.value; };
+  el.querySelector("[data-nsave]").onclick = () => {
+    U.notifDraft = ni.value;
+    if (U.flags.offline) { U.notifMsg = { bad:true, text:"通知の時刻を保存できませんでした（サーバに届きません）" }; log(`通知の時刻 ${ni.value} を保存できなかった`); }
+    else if (!/^\d{2}:\d{2}$/.test(ni.value)) U.notifMsg = { bad:true, text:"時刻が読めません" };
+    else { const before = S.notifTime; S.notifTime = ni.value; U.notifDraft = null; U.notifMsg = { text:`通知の時刻を ${ni.value} にしました` };
+      log(`通知の時刻の台帳に 1 行（${before} → ${ni.value}）。携帯が次に聞くと ${ni.value} が返る`); }
+    render();
+  };
+}
+
+// ---------- 描く: S-2 ----------
+function renderS2() {
+  const el = document.getElementById("s2"); el.style.width = VIEW.width + "px";
+  const d = U.s2d; document.getElementById("cap2").textContent = `S-2 1 日の画面 · ${md(d)}`;
+  const fail = U.flags.feelFail, st = dayState(d);
+  let line = "";
+  if (AX.miss === "s3") line = `<span class="sub" style="margin:0">（S-2 には気分を出さない）</span>`;
+  else if (fail) line = `<span class="badge">気分を読み出せませんでした</span>`;
+  else if (st === "filled") { const x = shown(dayRecs(d)); line = x ? `<span class="badge">気分 ${sign(x.v)} ${word(x.v)}</span>` : `<span class="badge">気分 滞在ごとに ${stayCount(d)} 件</span>`; }
+  else if (st === "missing") line = `<span class="badge miss">気分 未記入</span>`;
+  else if (st === "before") line = `<span class="badge">気分 使い始める前</span>`;
+  let h = `<div class="app ${VIEW.scheme}"><div class="s2head"><div class="daybar"><button type="button" data-s2="-1" aria-label="前の日">‹</button><h3>${head(d)}</h3><button type="button" data-s2="1" aria-label="次の日">›</button></div>`;
+  if (AX.miss !== "s3") h += `<div class="feelrow">${line}<a class="btn" href="#" data-write="1">書く</a></div>`;
+  else h += line;
+  h += `</div>`;
+  const ss = staysOf(d);
+  if (!ss.length) h += `<p class="sub">（この日の並びは空）</p>`;
+  for (const s of ss) {
+    const x = fail ? null : shown(stayRecs(s.id));
+    h += `<div class="s2stay"><b>${stayRange(s, d)}</b> <span class="m">滞在</span>`;
+    if (AX.stay === "s2") h += `<div style="margin-top:4px">${btns(U.stayPick[s.id] ?? x?.v ?? null, "data-sv", true, `data-sid="${s.id}"`)}</div>`;
+    else if (x) h += `<div class="fl">気分 ${sign(x.v)} ${word(x.v)}</div>`;
+    h += `</div>`;
+  }
+  h += `<p class="sub" style="font-size:12px">（行の中身は簡略。実物は ST25 の行に「気分 …」の 1 行が添わる。ひとことは行に出さない）</p></div>`;
+  el.innerHTML = h;
+  el.querySelectorAll("[data-s2]").forEach(b => b.onclick = () => { U.s2d = addD(d, Number(b.dataset.s2)); render(); });
+  const w = el.querySelector("[data-write]"); if (w) w.onclick = ev => { ev.preventDefault(); goTarget(d); render(); };
+  el.querySelectorAll("[data-sv]").forEach(b => b.onclick = () => pressStay(b.dataset.sid, Number(b.dataset.sv)));
+}
+
+// ---------- 描く: 裏 ----------
+function renderBack() {
+  const t = U.target; document.getElementById("bday").textContent = t ? md(t) : "—";
+  const L = t ? S.records.filter(r => evDay(r) === t).sort((a, b) => b.seq - a.seq) : [];
+  document.getElementById("btab").innerHTML = L.length ? L.map(r => `<tr class="${U.mine.has(r.id) ? "new" : ""}"><td>${r.id}</td><td>${r.kind === "day" ? `日 ${md(r.day)}` : `滞在 ${md(r.stay.start.slice(0,10))} ${hm(r.stay.start)}–${hm(r.stay.end)}${resolve(r.stay.id) === null ? "（消した滞在）" : resolve(r.stay.id) !== r.stay.id ? "（吸収された）" : ""}`}</td><td>${sign(r.v)}${r.e !== null ? ` / ${sign(r.e)}` : " / —"}${r.note ? ` / 「${esc(r.note.length > 14 ? r.note.slice(0,14) + "…" : r.note)}」` : ""}</td><td>${fmt(r.w)}</td><td>${fmt(evTime(r))}</td><td>${side(r)}</td></tr>`).join("")
+    : `<tr><td colspan="6">この日に数える記録はありません</td></tr>`;
+  document.getElementById("blog").innerHTML = U.log.map(s => `<li>${s}</li>`).join("");
+}
+
+// ---------- 左 ----------
+function renderCtl() {
+  const c = document.getElementById("ctl");
+  if (GO) {
+    c.innerHTML = `<h1>ST17 GO 用 proto<br><span style="font-weight:400">決まった形で触る</span></h1>
+      <p class="lead">本人が選んだ形（${esc(MAN.chosen)}）が最初から出ています。選び直す軸はありません。左の状態を押すとその場面になり、どの状態でも実際に押せます。灰色の文字は、その画面を確かめる Scenario の名前（spec と一字一句同じ）。</p>`
+      + STATES.map(s => `<button type="button" class="st" data-st="${s.id}" aria-pressed="${U.state === s.id}"><b>${esc(s.name)}</b><span class="sc">${s.scenarios.map(esc).join(" ／ ")}</span></button>`).join("");
+    c.querySelectorAll("[data-st]").forEach(b => b.onclick = () => load(b.dataset.st));
+    document.getElementById("hint").innerHTML = esc(STATES.find(s => s.id === U.state).hint);
+  } else {
+    c.innerHTML = `<h1>ST17 — その日どう感じたか<br><span style="font-weight:400">相談の view（Q1 で形を選ぶ）</span></h1>
+      <p class="lead">S-3（主観入力）の形と、主観の無い日（FR-57）の出し方を触って選びます。右の 2 台は S-3 と 1 日の画面（S-2）。決まった形は GO view（#view=go）で見られます。</p>`
+      + Object.entries(AXES).map(([k, ax]) => `<h2>${AX_NAME[k]}</h2>` + ax.opts.map(o => `<button type="button" class="card" data-ax="${k}" data-v="${o[0]}" aria-pressed="${AX[k] === o[0]}">${o[1]}<small>${o[2]}</small></button>`).join("")).join("")
+      + `<h2>文脈</h2><div class="tg">` + [["notif","今日 21:30 の通知から開く"],["overnight","翌朝 8:10 に自分で開く"]].map(([id, l]) => `<button type="button" data-ctx="${id}" aria-pressed="${U.state === id}">${l}</button>`).join("") + `</div>`
+      + `<h2>プリセット（性格）</h2><div class="tg">` + PRESETS.map(([n], i) => `<button type="button" data-pre="${i}">${n}</button>`).join("") + `</div>`;
+    c.querySelectorAll("[data-ax]").forEach(b => b.onclick = () => { AX[b.dataset.ax] = b.dataset.v; U.pick = null; U.open = false; render(); });
+    c.querySelectorAll("[data-ctx]").forEach(b => b.onclick = () => load(b.dataset.ctx));
+    c.querySelectorAll("[data-pre]").forEach(b => b.onclick = () => { Object.assign(AX, PRESETS[Number(b.dataset.pre)][1]); U.pick = null; U.open = false; render(); });
+    document.getElementById("hint").textContent = `保存までの最短: ${AX.save === "confirm" ? 3 : 2} タップ（通知を押す → ${AX.save === "confirm" ? "選ぶ → 保存" : "押す"}）。昨日の分は ${AX.date === "head" ? "‹" : "帯の日"} で +1。`;
+  }
+  document.getElementById("flags").innerHTML = FLAGS.map(([k, l]) => `<button type="button" data-flag="${k}" aria-pressed="${U.flags[k]}">${l}</button>`).join("");
+  document.querySelectorAll("[data-flag]").forEach(b => b.onclick = () => { U.flags[b.dataset.flag] = !U.flags[b.dataset.flag]; render(); });
+  document.getElementById("view").innerHTML = [["scheme","dark","ダーク"],["scheme","light","ライト"],["width",360,"幅 360 px"],["width",420,"幅 420 px"]]
+    .map(([k, v, l]) => `<button type="button" data-vk="${k}" data-vv="${v}" aria-pressed="${String(VIEW[k]) === String(v)}">${l}</button>`).join("");
+  document.querySelectorAll("[data-vk]").forEach(b => b.onclick = () => { const k = b.dataset.vk; VIEW[k] = k === "width" ? Number(b.dataset.vv) : b.dataset.vv; render(); });
+  document.getElementById("always").textContent = MAN.always.join(" ／ ");
+  document.getElementById("alwaysbox").style.display = GO ? "" : "none";
+  document.getElementById("outbox").style.display = GO ? "none" : "";
+  if (!GO) {
+    const lbl = k => AXES[k].opts.find(o => o[0] === AX[k])[1];
+    const diff = Object.keys(AXES).filter(k => AX[k] !== AXES[k].def);
+    document.getElementById("prompt").textContent = [
+      "ST17 の S-3（主観入力）と主観の無い日の出し方を、次の形で作る。",
+      `- 保存の仕方: ${lbl("save")}${AX.save === "tap" ? "。押し直しは新しい記録として積み、最新を出す" : "。保存の前に選び直せる"}`,
+      `- 補足（ひとこと）と追加の尺度: ${lbl("extra")}`,
+      `- 対象の日の選び方: ${lbl("date")}`,
+      `- 主観の無い日（FR-57）: ${lbl("miss")}。どこでも色ではなく破線と文字「未記入」で区別する`,
+      `- 滞在ごとの気分の置き場: ${lbl("stay")}`,
+      diff.length ? `（初期値から動かした軸: ${diff.map(k => AX_NAME[k]).join("・")}）` : "（すべて初期値のまま）",
+      `見て確かめた文脈: ${VIEW.scheme === "dark" ? "ダーク" : "ライト"} / 幅 ${VIEW.width} px。保存までの最短 ${AX.save === "confirm" ? 3 : 2} タップ。`].join("\n");
+  }
+}
+// 欄を離れた（blur）直後に描き直すと、その指で押したボタンが消えて押せなくなる。押している間は描き直しを押した後へ回す
+let DOWN = false, NEED = false, LATER = false;
+document.addEventListener("pointerdown", () => { DOWN = true; }, true);
+document.addEventListener("click", () => { DOWN = false; if (NEED) { NEED = false; setTimeout(render, 0); } });
+document.addEventListener("pointercancel", () => { DOWN = false; if (NEED) { NEED = false; render(); } });
+function render() {
+  if (LATER && DOWN) { NEED = true; renderBack(); return; }
+  renderCtl(); renderS3(); renderS2(); renderBack();
+}
+document.getElementById("copy").onclick = () => {
+  const text = document.getElementById("prompt").textContent, c = document.getElementById("copied");
+  if (!navigator.clipboard) { c.textContent = "コピーできない。上の欄を長押しして選んでください"; return; }
+  navigator.clipboard.writeText(text).then(() => { c.textContent = "コピーしました"; setTimeout(() => c.textContent = "", 1500); })
+    .catch(() => { c.textContent = "コピーできない。上の欄を長押しして選んでください"; });
+};
+const m0 = location.hash.match(/state=([\w-]+)/);
+load(m0 ? m0[1] : "notif");
+window.addEventListener("hashchange", () => { const m2 = location.hash.match(/state=([\w-]+)/); if (m2 && m2[1] !== U.state) load(m2[1]); });
+</script>
+</body>
+</html>

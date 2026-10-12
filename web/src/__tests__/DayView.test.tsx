@@ -111,8 +111,13 @@ describe("1 日の一覧", () => {
     render(<Root />);
     await waitFor(() => expect(screen.getByTestId("row-no-record")).toBeTruthy());
     const row = screen.getByTestId("row-no-record");
-    expect(row.textContent).toBe("記録なし 8:20 – 16:40");
-    expect(row.textContent).not.toContain("移動");
+    // しるし（線の輪の中の記号）は文字に添えるだけで、読み上げには出さない（2026-10-12）。
+    // **区別の担い手は文字**なので、しるしを除いた文字で比べる
+    const mark = row.querySelector("[data-mark]");
+    expect(mark?.getAttribute("aria-hidden"), "しるしが読み上げに出ている").toBe("true");
+    const text = [...row.childNodes].filter((n) => n !== mark).map((n) => n.textContent).join("");
+    expect(text).toBe("記録なし 8:20 – 16:40");
+    expect(text).not.toContain("移動");
     // 滞在が無いことは文字で出す（読み込み中や失敗と同じ顔にしない）
     expect(screen.getByTestId("day-empty")).toBeTruthy();
   });

@@ -1,0 +1,209 @@
+<title>ashiato ライセンスの地図</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 1 段組の読み物。論点はカード、決まっている事実は表、境界は 3 列の図 */
+:root{
+  --bg:#f5f7f8; --surface:#ffffff; --fg:#1b2429; --muted:#5b6a72; --line:#d6dee2;
+  --accent:#1f6f6b; --accent-soft:#e1efee;
+  --agpl:#3b5bab; --agpl-soft:#e6ebf7; --free:#2f7d4f; --free-soft:#e3f2e8;
+  --open:#b26a00; --open-soft:#fbefd9; --risk:#b3372f; --risk-soft:#f8e3e1;
+  --display:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",sans-serif;
+  --body:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12181b; --surface:#1a2226; --fg:#e3eaed; --muted:#9aa9b0; --line:#2c383d;
+  --accent:#5fc0b8; --accent-soft:#1c3533;
+  --agpl:#8ea8ec; --agpl-soft:#1f2740; --free:#6fcf97; --free-soft:#18301f;
+  --open:#f0b04a; --open-soft:#3a2c12; --risk:#f08a80; --risk-soft:#3d1d1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12181b; --surface:#1a2226; --fg:#e3eaed; --muted:#9aa9b0; --line:#2c383d;
+  --accent:#5fc0b8; --accent-soft:#1c3533;
+  --agpl:#8ea8ec; --agpl-soft:#1f2740; --free:#6fcf97; --free-soft:#18301f;
+  --open:#f0b04a; --open-soft:#3a2c12; --risk:#f08a80; --risk-soft:#3d1d1a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.8;margin:0}
+.wrap{max-width:760px;margin:0 auto;padding-inline:16px;padding-block:32px 64px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.4}
+h1{font-size:1.75rem;margin:0 0 .4em}
+h2{font-size:1.25rem;margin:2.4em 0 .6em;padding-bottom:.3em;border-bottom:1px solid var(--line)}
+h3{font-size:1.05rem;margin:0 0 .4em}
+p{margin:.5em 0}
+.lead{color:var(--muted)}
+.note{font-size:.85rem;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:16px}
+code,.mono{font-family:var(--mono);font-size:.86em}
+code{background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:.9rem;background:var(--surface)}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{font-weight:700;color:var(--muted);font-size:.8rem;letter-spacing:.04em}
+.chip{display:inline-block;font-size:.75rem;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.c-done{background:var(--free-soft);color:var(--free)}
+.c-open{background:var(--open-soft);color:var(--open)}
+.c-risk{background:var(--risk-soft);color:var(--risk)}
+.c-agpl{background:var(--agpl-soft);color:var(--agpl)}
+/* 境界の図 */
+.map{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:stretch;margin:16px 0}
+.zone{border-radius:10px;padding:12px 14px;min-width:0}
+.zone h3{font-size:.95rem;margin-bottom:.3em}
+.zone ul{margin:0;padding-left:1.1em;font-size:.88rem}
+.z-core{background:var(--agpl-soft);border:1px solid var(--agpl)}
+.z-sat{background:var(--free-soft);border:1px solid var(--free)}
+.z-mid{background:var(--open-soft);border:1px dashed var(--open);grid-column:1 / -1}
+.wall{display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--mono);font-size:.75rem;color:var(--muted);writing-mode:vertical-rl;padding:4px;border-left:3px double var(--line);border-right:3px double var(--line)}
+@media (max-width:560px){.map{grid-template-columns:1fr}.wall{writing-mode:horizontal-tb;border:0;border-top:3px double var(--line);border-bottom:3px double var(--line);padding:6px}}
+/* 論点 */
+.issue{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0}
+.issue header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.issue .id{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+.issue dl{display:grid;grid-template-columns:7em 1fr;gap:4px 12px;margin:10px 0 0;font-size:.92rem}
+.issue dt{color:var(--muted);font-weight:700;font-size:.82rem;padding-top:2px}
+.issue dd{margin:0;min-width:0}
+@media (max-width:560px){.issue dl{grid-template-columns:1fr}.issue dt{padding-top:8px}}
+.rec{border-left:3px solid var(--accent);padding-left:10px}
+ol.todo{padding-left:1.4em}
+ol.todo li{margin:.5em 0}
+.gloss{display:grid;grid-template-columns:9em 1fr;gap:6px 14px;font-size:.9rem}
+.gloss dt{font-weight:700}
+.gloss dd{margin:0;color:var(--muted)}
+@media (max-width:560px){.gloss{grid-template-columns:1fr}.gloss dd{margin-bottom:8px}}
+a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+<h1>ashiato ライセンスの地図</h1>
+<p class="lead">本体・衛星アプリ・友人との共同開発で、誰のコードがどの条件で配られるかを並べ、決めることを順番に置いたページです。2026-10-09 時点のリポジトリの事実をもとにしています。</p>
+<p class="note">法律の助言ではありません。仕組みと選択肢の整理です。特に L3（V-02 の共同開発の取り決め）は、お金が動く前に専門家に一度見てもらう価値があります。</p>
+
+<h2>いま決まっていること</h2>
+<div class="tbl"><table>
+<thead><tr><th>項目</th><th>いまの状態</th><th>どこにあるか</th></tr></thead>
+<tbody>
+<tr><td>本体のライセンス</td><td><span class="chip c-done">決定・実施済</span> AGPL-3.0。リポジトリは<b>既に公開</b>されている</td><td class="mono">LICENSE</td></tr>
+<tr><td>貢献の受け入れ条件</td><td><span class="chip c-done">雛形あり</span> 許諾型の CLA。著作権は貢献者に残し、AGPL 以外でのライセンスを許してもらう</td><td class="mono">docs/CLA.md, CONTRIBUTING.md</td></tr>
+<tr><td>本体と外の境界</td><td><span class="chip c-done">要件で固定</span> 別プロセスで HTTP 越しにだけやり取りする（FR-77）</td><td class="mono">requirements.md FR-77</td></tr>
+<tr><td>依存の検査</td><td><span class="chip c-done">CI にある</span> Rust 237 件・Node 170 件を「AGPL で配れるか」で検査</td><td class="mono">tools/check-licenses.sh</td></tr>
+<tr><td>Android の依存</td><td><span class="chip c-risk">未決</span> 検査の対象外。<code>play-services-location</code> はプロプライエタリで、AGPL での公開と噛み合うかが決まっていない</td><td class="mono">check-licenses.sh の末尾（design D15）</td></tr>
+<tr><td>衛星の SDK・API 定義のライセンス</td><td><span class="chip c-open">未決</span> 何も書かれていない</td><td>—</td></tr>
+<tr><td>V-02 の著作権と取り決め</td><td><span class="chip c-open">未決</span> 何も書かれていない</td><td>—</td></tr>
+</tbody></table></div>
+
+<h2>誰のコードが、どの条件か</h2>
+<div class="map">
+  <div class="zone z-core">
+    <h3>本体 <span class="chip c-agpl">AGPL-3.0</span></h3>
+    <ul>
+      <li>S-01 サーバ・D-01 のスキーマ</li>
+      <li>収集アプリ C-01 / C-02</li>
+      <li>画面 V-01・MCP（A-01）</li>
+      <li>貢献は CLA を通してだけ受け入れる</li>
+    </ul>
+  </div>
+  <div class="wall">HTTP API ／ 別プロセス</div>
+  <div class="zone z-sat">
+    <h3>衛星アプリ <span class="chip c-done">自由に決められる</span></h3>
+    <ul>
+      <li>V-02 旅行（友人と共同）</li>
+      <li>読書・家計簿・睡眠など</li>
+      <li>有料・非公開でもよい</li>
+      <li>本体の派生物にならないことが前提</li>
+    </ul>
+  </div>
+  <div class="zone z-mid">
+    <h3>境界に置くもの <span class="chip c-open">未決</span></h3>
+    <ul>
+      <li>API の定義（OpenAPI の <code>docs/openapi.json</code>）・封筒の型・クライアントの SDK</li>
+      <li>衛星の作り手が<b>自分のコードに取り込む</b>ものなので、ここを AGPL にすると衛星まで AGPL になりうる</li>
+    </ul>
+  </div>
+</div>
+
+<h2>論点</h2>
+
+<article class="issue">
+<header><span class="id">L1</span><h3>衛星が本体の派生物にならない条件</h3><span class="chip c-done">ほぼ決着</span></header>
+<p>AGPL の義務が及ぶのは、本体と「1 つのプログラム」とみなされるものです。別プロセスでネットワーク越しに話すだけなら、ふつうは別のプログラムとして扱われます。FR-77 がこれを要件として固定しています。</p>
+<dl>
+<dt>崩れる場合</dt><dd>本体の内部のデータ構造をそのままやり取りするほど密につながると、1 つのプログラムとみなされる余地が出ます（FSF の FAQ の立場）。DB を直接読む衛星もこの方向です。</dd>
+<dt>守り方</dt><dd class="rec">衛星には<b>公開した汎用の API だけ</b>を使わせる。画面用の内部 API（<code>/stays/*</code> など）を衛星の契約にしない。監査の「汎用の読み出し API」「API の版管理」と同じ作業で守れます。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L2</span><h3>SDK・API 定義・型をどの条件で出すか</h3><span class="chip c-open">未決</span></header>
+<p>衛星の作り手は、API の定義から型を生成したり、SDK をアプリに組み込んだりします。これが AGPL だと、組み込んだ衛星も AGPL で公開する義務を負う可能性があります。有料の衛星という方針と衝突します。</p>
+<dl>
+<dt>選択肢</dt><dd>(a) <b>Apache-2.0</b>（特許の許諾が付く）<br>(b) <b>MIT</b>（最も短い）<br>(c) AGPL のまま（衛星も公開を強いる）</dd>
+<dt>推奨</dt><dd class="rec">(a) Apache-2.0。<code>docs/openapi.json</code> と、将来の SDK のフォルダにだけ別の LICENSE を置く。本体のコードは AGPL のまま。自分が全部の著作権を持っているいまなら、ファイル 1 枚で済みます。</dd>
+<dt>急ぎ度</dt><dd>友人が V-02 で API を使い始める前。後から緩めることはできますが、それまで友人は条件が分からないまま作ることになります。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L3</span><h3>V-02 の著作権（友人との共同開発）</h3><span class="chip c-risk">最優先</span></header>
+<p>2 人で一緒に書いたコードは、日本の著作権法では<b>共同著作物</b>になりえます（2 条 1 項 12 号）。共同著作物の権利は、<b>全員の合意がないと使えません</b>（65 条）。有料で売る、ライセンスを変える、片方が抜けた後も続ける、のどれにも相手の同意が要ります。著作者人格権は譲れない（59 条）ので、「行使しない」という合意で扱います。</p>
+<dl>
+<dt>起きやすいこと</dt><dd>取り決めないまま書き始め、後で「売りたい／売りたくない」「抜けたい」で止まる。書いた後に合意を取るのは、書く前よりずっと難しくなります。</dd>
+<dt>選択肢</dt><dd>(a) <b>共有のまま</b>、収益配分・意思決定・離脱時の扱いを書面で決める<br>(b) <b>片方に権利を集め</b>（譲渡か独占的な許諾）、もう片方には収益配分で報いる<br>(c) <b>V-02 をオープンソースにする</b>（売るなら別の価値で売る）</dd>
+<dt>推奨</dt><dd class="rec">友人がコードを書く前に、(a) か (b) を短い書面にする。最低限決めるのは「誰が権利を持つか・収益の分け方・抜けたらどうするか・人格権を行使しないこと」の 4 つ。</dd>
+<dt>失われるもの</dt><dd>合意なしで書き進めた分は、後から一方的には使えなくなる可能性があります。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L4</span><h3>友人が本体に手を入れるとき</h3><span class="chip c-done">仕組みはある</span></header>
+<p>友人が V-02 のために本体（S-01 など）を直して PR を出すことは起こりえます。<code>docs/CLA.md</code> があるので、PR 本文の 1 行で同意を取れます。</p>
+<dl>
+<dt>注意</dt><dd>DCO（「自分が書いた」と署名するだけの方式）では足りません。DCO は AGPL で出す権利しか確認しないので、デュアルライセンスの道が閉じます。CLA の 1 行を<b>毎回</b>確かめることです。</dd>
+<dt>推奨</dt><dd class="rec">友人の最初の PR の前に CONTRIBUTING.md を一緒に読む。機械で止めたいなら、CI で PR 本文の同意の行を検査する（いまは無い）。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L5</span><h3>友人が自分の本体を動かすとき</h3><span class="chip c-done">義務は小さい</span></header>
+<p>友人は「別の D-01 を持つ別の利用者」という想定です。公開されている本体をそのまま動かすだけなら、友人に特別な義務はありません。</p>
+<dl>
+<dt>義務が出る場合</dt><dd>友人が本体を<b>改造して</b>、他人にネットワーク越しに使わせる場合だけ、その相手に改造後のソースを出す義務が生じます（AGPL 13 条）。自分 1 人で使うなら実質的に関係ありません。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L6</span><h3>商用ライセンスを売る道を残すには</h3><span class="chip c-open">穴が 2 つ</span></header>
+<p>本体を AGPL 以外の条件で売る（デュアルライセンス）には、本体の<b>すべての部分</b>について自分が別条件で許諾できなければなりません。CLA はそのための仕組みですが、依存ライブラリにも同じことが言えます。</p>
+<dl>
+<dt>穴 1</dt><dd><code>check-licenses.sh</code> は「AGPL で配れるか」を見ています。許可一覧に <code>AGPL-3.0-only</code> が入っているので、AGPL の依存が入っても通ります。AGPL では配れても、その依存がある限り<b>商用ライセンスでは売れません</b>。いま該当する依存があるかは確かめていません。</dd>
+<dt>穴 2</dt><dd>Android の依存は検査の対象外です。<code>play-services-location</code>（プロプライエタリ）を AGPL のアプリに入れて配れるかが未決のままです。リポジトリは既に公開されています。</dd>
+<dt>推奨</dt><dd class="rec">検査を 2 段にする。「AGPL で配れるか」に加えて、「商用ライセンスでも配れるか」（コピーレフトの依存を警告）を見る。Android は公開版の配布の前に D15 を決める。</dd>
+</dl>
+</article>
+
+<article class="issue">
+<header><span class="id">L7</span><h3>データはライセンスの外にある</h3><span class="chip c-done">方針は決まった</span></header>
+<p>ライセンスが決めるのは<b>コード</b>の扱いです。衛星が読む記録（位置や家計簿の中身）は、利用者が衛星に何を許したかで決まります。これはスマホの権限のような承認の仕組みで扱う、と 2026-10-09 に決めました（許可された情報は持ち出してよい）。</p>
+<dl>
+<dt>残ること</dt><dd>V-02 が友人どうしで旅程を共有するために<b>共有のサーバ</b>を持つなら、その運営者（あなたか友人）は他人の位置を預かる立場になります。そのときはライセンスではなく、プライバシーポリシーと利用規約が要ります。</dd>
+</dl>
+</article>
+
+<h2>決める順番</h2>
+<ol class="todo">
+<li><b>L3 V-02 の取り決め</b>：友人がコードを書く前。4 項目（権利の持ち主・収益配分・離脱時・人格権）。<span class="chip c-risk">取り返せない</span></li>
+<li><b>L2 SDK と API 定義のライセンス</b>：友人が API を使い始める前。推奨は Apache-2.0 で、ファイル 1 枚。</li>
+<li><b>L4 友人の PR の扱い</b>：最初の PR の前。CLA の 1 行を確かめる。</li>
+<li><b>L6 依存の検査を 2 段に</b>：商用ライセンスを売る前ならいつでもよいが、依存は増えるほど洗い直しが重くなります。</li>
+<li><b>L6 Android の D15</b>：公開版の配布の前。</li>
+</ol>
+<p>このうち要件に書くのは L2（境界に置くもののライセンス）と L3 の存在だけです。取り決めの中身は友人との間の話なので、リポジトリには置きません。</p>
+
+<h2>用語</h2>
+<dl class="gloss">
+<dt>AGPL-3.0</dt><dd>改造して配るときと、改造してネットワーク越しに使わせるときに、ソースの公開を求めるライセンス。</dd>
+<dt>派生物</dt><dd>本体を元に作られ、本体と一体とみなされるもの。AGPL の義務が及ぶ。</dd>
+<dt>許諾型</dt><dd>MIT や Apache-2.0。表示さえすれば、非公開・有料の製品に組み込んでよい。</dd>
+<dt>デュアルライセンス</dt><dd>同じコードを、公開版は AGPL、ソースを出せない相手には有料の別条件、の 2 通りで出すこと。</dd>
+<dt>CLA</dt><dd>貢献者がプロジェクトに広い許諾を与える同意書。ashiato のものは著作権を譲らない許諾型。</dd>
+<dt>DCO</dt><dd>「自分が書いたものをプロジェクトのライセンスで出す」と署名するだけの方式。別条件での許諾は含まない。</dd>
+<dt>共同著作物</dt><dd>2 人以上で作り、各人の寄与を分けて使えない著作物。権利は全員の合意で使う。</dd>
+</dl>
+</div>

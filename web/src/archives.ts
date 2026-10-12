@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { msg } from "./messages";
 import { DAY_TZ } from "./tokens";
 import { isRetired, type SourceCoverage } from "./coverage";
 
@@ -48,13 +49,8 @@ export const INBOX_STALE_DAYS = 3;
 
 /** 読めなかった理由の種別を、本人の言葉にする（D7 の 4 つ）。 */
 export function unreadableKindLabel(kind: string | null): string {
-  const names: Record<string, string> = {
-    unsupported_format: "扱えない形式",
-    broken_zip: "書庫が壊れている",
-    html_only: "HTML しか入っていない",
-    no_known_content: "読める中身が 1 つも無い",
-  };
-  return kind === null ? "理由は不明" : (names[kind] ?? kind);
+  const m = msg("archive");
+  return kind === null ? m.unknownReason : (m.unreadableKind[kind] ?? kind);
 }
 
 /** `Asia/Tokyo` の「YYYY-MM-DD HH:MM」。時刻は画面でも日本時間で揃える。 */
@@ -97,7 +93,7 @@ export function archiveLastEventLabel(lastEventOn: string, now: Date): string {
   const days = Math.round(
     (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastEventOn}T00:00:00Z`)) / 86_400_000,
   );
-  return `${lastEventOn} まで（${days} 日前）`;
+  return msg("archive").lastEvent(lastEventOn, days);
 }
 
 /** Must の順序を崩さず、書庫のソースを退役済みの前に置く。 */

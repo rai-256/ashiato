@@ -5,6 +5,7 @@
  * **並び（滞在・移動・記録なし）はサーバが組む** —— 「記録なし」を出すには位置の記録の間隔を見る必要があり、
  * 画面に位置を 1,440 件送らない。画面は受け取った順に描くだけ。
  */
+import { msg } from "./messages";
 import { DAY_TZ } from "./tokens";
 
 export type EntryKind = "stay" | "move" | "no-record" | "erased";
@@ -102,16 +103,16 @@ export function duration(startIso: string, endIso: string): string {
   const minutes = Math.round((Date.parse(endIso) - Date.parse(startIso)) / 60_000);
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return h === 0 ? `${m} 分` : `${h} 時間 ${m} 分`;
+  return h === 0 ? msg("day").minutes(m) : msg("day").hoursMinutes(h, m);
 }
 
 /** 基準を `半径 100 m / 10 分` で書く。 */
 export function criteriaLabel(c: CriteriaTag): string {
-  return `半径 ${c.radius_m} m / ${c.min_minutes} 分`;
+  return msg("day").criteriaLabel(c.radius_m, c.min_minutes);
 }
 
 /** `2026 年 9 月 12 日` */
 export function dateLabel(date: string): string {
   const [y, mo, d] = date.split("-").map(Number);
-  return `${y} 年 ${mo} 月 ${d} 日`;
+  return msg("day").dateLabel(y, mo, d);
 }

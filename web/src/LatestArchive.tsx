@@ -6,7 +6,11 @@ import {
   unreadableKindLabel,
   type ArchivesStatus,
 } from "./archives";
-import { TEXT, tone } from "./tokens";
+import { msg } from "./messages";
+import { useScheme } from "./scheme";
+import { font, SCHEMES, tone, TYPE } from "./tokens";
+
+const m = msg("archive");
 
 /**
  * **箱の高さの上限**（design D12。**仮**）。
@@ -16,8 +20,9 @@ import { TEXT, tone } from "./tokens";
  */
 export const ARCHIVE_BOX_MAX_PX = 160;
 
-const FONT = "400 14px/1.6 system-ui, sans-serif";
-const LINE_PX = 14 * 1.6;
+const LINE_HEIGHT = 1.6;
+const FONT = font(TYPE.body, 400, LINE_HEIGHT);
+const LINE_PX = TYPE.body * LINE_HEIGHT;
 const PAD_PX = 8;
 const BORDER_PX = 1;
 const MARGIN_BOTTOM_PX = 12;
@@ -67,36 +72,32 @@ export function archiveBoxRows(
   // **「読み出せていない」と「置かれていない」を混ぜない**（ST02 の R19 と同じ型。R12）。
   // 混ぜると、API が落ちているだけのときに「置いた書庫が無い」と断言してしまう。
   if (failed) {
-    return [{ key: "failed", text: "書庫の状態を読み出せませんでした（置いた書庫が無いのではありません）" }];
+    return [{ key: "failed", text: m.failed }];
   }
-  if (status === null) return [{ key: "loading", text: "書庫の状態を読み込み中…" }];
+  if (status === null) return [{ key: "loading", text: m.loading }];
 
   const reading = status.reading;
   if (reading !== undefined && reading !== null) {
     rows.push({
       key: "reading",
-      text: `読んでいます: ${reading.file_name} ${reading.inner_path} ${reading.items_read.toLocaleString("en-US")} 件まで（${jstMoment(reading.started_at)} から）`,
+      text: m.reading(reading.file_name, reading.inner_path, reading.items_read.toLocaleString("en-US"), jstMoment(reading.started_at)),
     });
   }
 
   const inbox = status.inbox;
   if (inbox !== undefined && inbox !== null && !inbox.capturable) {
-    const places: Record<string, string> = {
-      dedicated_inbox_unreadable: "専用のフォルダ",
-      downloads_unreadable: "ダウンロードのフォルダ",
-    };
-    const named = inbox.blockers.map((b) => places[b] ?? b);
+    const named = inbox.blockers.map((b) => m.place[b] ?? b);
     rows.push({
       key: "inbox-unreadable",
-      text: `${named.length === 0 ? "置き場" : named.join("・")} が読めません`,
+      text: m.unreadablePlaces(named.length === 0 ? m.anyPlace : named.join(m.placeSeparator)),
     });
   }
   if (inbox === undefined || inbox === null) {
-    rows.push({ key: "inbox-never", text: "取り込み器はまだ一度も動いていません" });
+    rows.push({ key: "inbox-never", text: m.inboxNever });
   } else {
     const ago = daysAgo(inbox.emitted_at, now);
     if (ago > INBOX_STALE_DAYS) {
-      rows.push({ key: "inbox-stale", text: `取り込み器の最後の確認: ${ago} 日前` });
+      rows.push({ key: "inbox-stale", text: m.inboxStale(ago) });
     }
   }
 
@@ -104,48 +105,48 @@ export function archiveBoxRows(
   if (pending !== undefined && pending !== null) {
     rows.push({
       key: "pending-shape",
-      text: `形の確認を待っている書庫が ${pending.archives} 冊あります（tools/archive-shape.sh で形を見て印を置く）`,
+      text: m.pendingShape(pending.archives),
     });
   }
 
   const latest = status.latest_archive;
   if (latest === undefined || latest === null) {
-    rows.push({ key: "empty", text: "まだ書庫が置かれていません" });
+    rows.push({ key: "empty", text: m.empty });
     return rows;
   }
-  const name = latest.file_name ?? "名前の分からない書庫";
+  const name = latest.file_name ?? m.unnamed;
   const seen = jstMoment(latest.first_seen_at);
   switch (latest.outcome) {
     case "unreadable":
       rows.push({
         key: "latest",
         pinned: true,
-        text: `${name}（${seen}）— 読めなかった書庫です（${unreadableKindLabel(latest.unreadable_kind)}）`,
+        text: m.unreadable(name, seen, unreadableKindLabel(latest.unreadable_kind)),
       });
       break;
     case "store_failed":
       rows.push({
         key: "latest",
         pinned: true,
-        text: `${name}（${seen}）— 格納に失敗しています（1 時間ごとに読み直します）`,
+        text: m.storeFailed(name, seen),
       });
       break;
     case "already_read":
       rows.push({
         key: "latest",
-        text: `${name}（${seen}）— 既に読んだ書庫です（${latest.previously_read_at === null ? "前に読んだ時刻が分かりません" : `${jstMoment(latest.previously_read_at)} に読んだものと同じ中身`}）`,
+        text: m.alreadyRead(name, seen, latest.previously_read_at === null ? null : jstMoment(latest.previously_read_at)),
       });
       break;
     case "pending_shape":
       rows.push({
         key: "latest",
-        text: `${name}（${seen}）— 形の確認を待っています`,
+        text: m.pendingLatest(name, seen),
       });
       break;
     default:
       rows.push({
         key: "latest",
-        text: `${name}（${seen}）— 入った ${latest.inserted} · 既にあった ${latest.duplicate} · 読めなかった ${latest.unreadable}`,
+        text: m.read(name, seen, latest.inserted, latest.duplicate, latest.unreadable),
       });
   }
   return rows;
@@ -173,6 +174,8 @@ export function LatestArchive({
   now?: Date;
   failed?: boolean;
 }): React.ReactElement {
+  // **OS の明暗に追従する**（NFR-17）
+  const c = SCHEMES[useScheme()];
   const { shown, hidden } = fitRows(archiveBoxRows(status, now, failed));
   return (
     <section
@@ -184,7 +187,8 @@ export function LatestArchive({
         maxHeight: ARCHIVE_BOX_MAX_PX,
         overflow: "hidden",
         borderStyle: "solid",
-        borderColor: tone(TEXT.muted),
+        color: tone(c.text),
+        borderColor: tone(c.muted),
         borderTopWidth: BORDER_PX,
         borderBottomWidth: BORDER_PX,
         borderLeftWidth: BORDER_PX,
@@ -196,7 +200,7 @@ export function LatestArchive({
         marginBottom: MARGIN_BOTTOM_PX,
       }}
     >
-      <strong style={{ ...ONE_LINE, display: "block" }}>直近に置いた書庫</strong>
+      <strong style={{ ...ONE_LINE, display: "block" }}>{m.title}</strong>
       {shown.map((row) => (
         <p
           key={row.key}
@@ -209,7 +213,7 @@ export function LatestArchive({
       ))}
       {hidden > 0 && (
         <p data-testid="archive-row-more" style={ONE_LINE}>
-          ほか {hidden} 件
+          {m.more(hidden)}
         </p>
       )}
     </section>
