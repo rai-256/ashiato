@@ -301,6 +301,24 @@ tasks.md 10.4 は `colorScheme: "no-preference"` で作るとしたが、Chromiu
 
 - **反転条件**: 本人がソースの表示名を出したいと言ったら（ほかのソースと同じく）`display_name` に戻す
 
+### D24（仮）. 閉じた行の要約はしるしの欄の下まで広げ、書体の並びに `Noto Sans CJK JP` を足す
+
+merge gate の CI（2026-10-12 の e2e）で「幅 360 px で開いてすぐ 6 行以上見える」が 5 行で落ちた。手元は Windows の書体
+（Yu Gothic UI）で描いて通っていたが、`TYPE.family` の並びのどれも無い端末（CI の ubuntu・Android）では `system-ui` に落ちる。
+CI と同じ書体（DejaVu Sans ＋ Noto Sans CJK JP）を手元で再現すると、要約が幅 249 px の欄で 2 行に折り返し、6 行目の下端が
+657.7 px になった。**書体を Noto Sans CJK JP にしても同じ 657.7 px** —— Android の端末でも 6 行に届いていなかった。
+
+- 要約（`summary`）は、しるしとその右の間（`MARK_PX` ＋ 行の中の間）だけ左へ広げ、しるしの欄の下まで使う
+  （D15 の反転条件に挙げた「しるしの欄を外して要約を行の幅いっぱいにする」）。しるしは行の頭の 1 行目の横にだけあるので、
+  要約（見出しと「長さ ・ 範囲」の行の下）とは重ならない。測り直し: 6 行目の下端 619.7 px（Noto・Yu Gothic UI とも）、
+  長い滞在の行 166.3 → 147.3 px
+- `TYPE.family` に `Noto Sans CJK JP` を足す（`Noto Sans JP` と同じ書体の、Linux・Android での名前。書体は変えていない）。
+  CI の e2e は `fonts-noto-cjk` を入れて、Android と同じ書体で実寸を測る
+- 「折り返しを詰める（行間）」「要約を 1 ソース 1 行で打ち切る」は採らない —— 行間は `docs/ui-direction.md` の下限ちょうど（D15）、
+  打ち切ると本人の決めた「上位 3」が閉じた行で見えなくなる
+- **反転条件**: 本人が要約をしるしの欄の右に揃えたいと言ったら、`marginLeft` を外して、6 行に届かせる別の手（題の上の余白・
+  基準の行の位置）を問う
+
 ## Risks / Trade-offs
 
 - **ST06 / ST08 / ST12 の記録の形がまだ main に無い** → D2 の表を 1 か所に置き、試験は表の行ごとに偽の記録で持つ。各下流が merge された後、契約と表がずれていれば表を直す（ST25 の下流の開始時に `docs/collector-contract.md` を読む。Task 1）

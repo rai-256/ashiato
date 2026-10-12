@@ -34,7 +34,7 @@ import {
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle as control, destructiveStyle, inputStyle, linkStyle, markStyle, pageStyle, titleStyle } from "./surface";
-import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, type SchemeColors } from "./tokens";
+import { font, MARK_PX, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, type SchemeColors } from "./tokens";
 
 // 明暗とフォーカスの輪郭は `scheme.ts` に移した（S-1 も使う）。ここから引いていた部品とテストのために同じ名前で出す
 export { FOCUS_ATTR, focusRule, useFocusRule, useScheme } from "./scheme";
@@ -55,13 +55,14 @@ function paint(c: SchemeColors, role: TimelineRole): React.CSSProperties {
 }
 
 /** 要約（ソースごとに 1 行。種類の文字で始まる）。消した行・要約の無い行には出ない。 */
-function SummaryView({ summary, role, scheme }: { summary: Summary | undefined; role: TimelineRole; scheme: Scheme }): React.ReactElement | null {
+function SummaryView({ summary, role, scheme, under }: { summary: Summary | undefined; role: TimelineRole; scheme: Scheme; under: number }): React.ReactElement | null {
   if (summary === undefined) return null;
   const lines = summaryLines(summary);
   if (lines.length === 0) return null;
   return (
     // 要約と事情は添える文字の大きさ（閉じた行を 240 px 以下・開いてすぐ 6 行に収める。spec の 1 日の画面の下限）
-    <div data-testid="summary" style={{ font: font(TYPE.caption, 400, SUMMARY_LINE), ...paint(SCHEMES[scheme], role) }}>
+    // しるしの欄の下まで広げる（`under` = しるしとその右の間。幅 360 px で折り返しを減らす。design D24（仮））
+    <div data-testid="summary" style={{ marginLeft: -under, font: font(TYPE.caption, 400, SUMMARY_LINE), ...paint(SCHEMES[scheme], role) }}>
       {lines.map((l) => (
         <p key={l.key} data-testid={`summary-${l.key.split("-")[0]}`} style={{ margin: 0 }}>
           {l.text}
@@ -366,7 +367,7 @@ function Row({
           <h2 style={{ font: font(TYPE.h2, 600, 1.35), margin: 0 }}>{range}</h2>
           <p style={{ margin: 0, color: tone(c.muted) }}>{m.lengthAndRange(long, range)}</p>
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
-          <SummaryView summary={entry.summary} role="summaryOnStay" scheme={scheme} />
+          <SummaryView summary={entry.summary} role="summaryOnStay" scheme={scheme} under={MARK_PX + SPACE.inRow} />
         </button>
         {open && <StayDetailView entry={entry} viewing={viewing} detail={detail} records={records} onAction={onAction} scheme={scheme} />}
         {actionError?.entryKey === entryKey && <p role="alert">{actionError.message}</p>}
@@ -400,7 +401,7 @@ function Row({
           {entry.kind === "move" ? m.move(long) : entry.kind === "other" ? m.other(range) : m.noRecord(range)}
           {entry.kind === "move" && <span>{m.alsoRange(range)}</span>}
         </button>
-        <SummaryView summary={entry.summary} role="summaryOnGround" scheme={scheme} />
+        <SummaryView summary={entry.summary} role="summaryOnGround" scheme={scheme} under={MARK_PX + SPACE.targetGap} />
         <ReasonsView reasons={entry.reasons} scheme={scheme} />
         {open && <RecordsView load={records} viewing={viewing} scheme={scheme} />}
       </div>
