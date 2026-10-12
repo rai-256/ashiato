@@ -11,7 +11,7 @@
     "Android: `dist/verify-20261006-0754/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261006-0754/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
     "時計のずれの測り直し（`c01-clock`）: 数えていない（DB を起動できない、または core.event がまだ無い）。run.sh の後に次で数える: `docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select coalesce(sum((payload->>'trigger'='retry')::int),0) as retry, coalesce(sum((payload->>'trigger'='hourly')::int),0) as hourly from core.event where logical_source='c01-clock' and payload->>'kind'='clock-skew' and event_time > now() - interval '7 days'\"`",
     "成果物: `dist/verify-20261006-0754/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
-    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261006-075514-2867478（全体 ok / 片付け ok）"
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261008-192124-57db9ed（全体 ok / 片付け ok）"
   ],
   "questions": [
     {
@@ -42,7 +42,7 @@
       "kind": "check",
       "question": "ST12「書庫を置くだけで過去のデータが入る」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
-      "context": "画面: S-1 稼働状況: `/`（画面を開いた最初の状態。まだ入口の付け替え（ST25）をしていないので、ここがルート）\n`SEED=normal` の稼働状況で、達成の下・Must の 5 本の前の「直近に置いた書庫」の箱・Must の後ろの書庫のソースの格子・見出しの「まで（N 日前）」\n録画 ▶ ST12-archive（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261006-075514-2867478\\scenarios\\ST12-archive\\video.webm",
+      "context": "画面: S-1 稼働状況: `/`（画面を開いた最初の状態。まだ入口の付け替え（ST25）をしていないので、ここがルート）\n`SEED=normal` の稼働状況で、達成の下・Must の 5 本の前の「直近に置いた書庫」の箱・Must の後ろの書庫のソースの格子・見出しの「まで（N 日前）」\n録画 ▶ ST12-archive（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261008-192124-57db9ed\\scenarios\\ST12-archive\\video.webm",
       "options": [
         {
           "label": "通った",

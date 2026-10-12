@@ -1,12 +1,12 @@
 {
   "tag": "20261006-0754",
-  "run_id": "20261006-075514-2867478",
-  "commit": "28674787d099df8d9657f5518bf5c348dbef9e92",
+  "run_id": "20261008-192124-57db9ed",
+  "commit": "57db9ed9451dcdb71f3bcf8f5bc8b64a2ad57798",
   "overall": "ok",
   "cleanup": "ok",
   "failed_step": "",
-  "folder": "/mnt/c/dev/ashiato2-recordings/20261006-075514-2867478",
-  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261006-075514-2867478",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261008-192124-57db9ed",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261008-192124-57db9ed",
   "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
   "scenarios": [
     {
