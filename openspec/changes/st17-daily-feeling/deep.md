@@ -8,6 +8,10 @@
 ## この Story に宛てられたもの
 
 `docs/handoff/ST17.md` は無い。`deferred ST17` の処置も無い（`python3 scripts/story_brief.py ST17` の「宛てられたもの」も空）。
+
+> ★ 2026-10-12（docs/audit/2026-10-12-st17-consistency.md C3）: 上の「無い」は 2026-10-07 の時点のこと。main の 2026-10-11 の改訂が `docs/handoff/ST17.md` を置いた（主観の「ローカル AI まで」は記録の値ではなく承認になる。ST17 の tasks は変えなくてよく、書いた値は ST24 / ST38 が読み替える）。
+> **失われるもの（A）は無い**（外へ出す経路がまだ無い）ので問いは立てない。spec の「主観の既定の感度」の導出元（PERM-4 / PERM-2）は 2026-10-11 より前の文を指している —— 合意済みの仕様なので直さず、読み替えは ST24 の MODIFIED で。
+> 同じ申し送りの末尾に、rebase の後の整合の確認から下流への注意（C6・K1・K2・C11・C12）を足した。
 他の change の文書が ST17 を名指ししたものは次のとおり:
 
 - **ST16**（`openspec/changes/archive/2026-09-15-st16-stay-derivation/design.md` の D3 と Non-Goals）——
