@@ -56,6 +56,8 @@ export interface Gap {
   end: string;
   count?: number;
   reason?: string;
+  /** どの端末の時間か（行の鍵。2 台の PC が同じ時刻に離席しても重ならない） */
+  device_id?: string;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
@@ -93,7 +95,8 @@ export const isGaps = (v: unknown): v is Gap[] =>
       typeof g.start === "string" &&
       typeof g.end === "string" &&
       (g.count === undefined || isNum(g.count)) &&
-      (g.reason === undefined || typeof g.reason === "string"),
+      (g.reason === undefined || typeof g.reason === "string") &&
+      (g.device_id === undefined || typeof g.device_id === "string"),
   );
 
 /** 並びの 1 つ。滞在・移動・記録なし・消した・ほかの記録の行か、取れていない時間の行。 */

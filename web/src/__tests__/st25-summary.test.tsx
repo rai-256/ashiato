@@ -160,6 +160,14 @@ describe("要約の文字", () => {
     expect(within(list).queryByTestId("row-other")).toBeNull();
   });
 
+  // 合計と上位の各アプリは同じ丸め（切り捨て）。1 つのアプリだけの行で合計と内訳が食い違わない（R12(b)）
+  it("165 分 30 秒は合計も内訳も 2 時間 45 分", () => {
+    const [line] = summaryLines({ pc: { seconds: 9930, top: [{ app: "VS Code", seconds: 9930 }] } });
+    expect(line.text).toBe("PC 2 時間 45 分 — VS Code 2:45");
+    const [short] = summaryLines({ phone: { seconds: 59, top: [{ app: "LINE", seconds: 59 }] } });
+    expect(short.text).toBe("スマホ 0 分 — LINE 0:00");
+  });
+
   it("形が違う応答は失敗として出す", async () => {
     serve([stay({ pc: { seconds: "x", top: [] } })]);
     render(<DayView date={DATE} />);

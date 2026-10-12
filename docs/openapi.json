@@ -1760,6 +1760,13 @@
             "format": "int64",
             "description": "除外した変化の件数（`excluded` だけ。本文は持たない）。"
           },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "どの端末の時間か。2 台の PC が同じ時刻に離席しても行を取り違えない（画面の行の鍵）。"
+          },
           "end": {
             "type": "string",
             "format": "date-time"

@@ -888,6 +888,25 @@ fn st25_gaprow_away_minimum_is_pinned_to_ten_minutes() {
     assert_eq!(AWAY_ROW_MIN_MINUTES, 10);
 }
 
+// 2 台の PC が同じ時刻に離席すると、種類と時刻だけでは 2 つの行を区別できない。端末を持たせる（R12(d)）
+#[tokio::test]
+async fn st25_gaprow_carries_the_device() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    for device in ["pc-1", "pc-2"] {
+        let (from, to) = ("2026-09-07T10:15:00+09:00", "2026-09-07T10:45:00+09:00");
+        let p = json!({"kind": "idle", "transition": "leave", "at": from, "range_end": to});
+        put(&pool, u, "c02-window", device, from, p).await;
+    }
+    let v = view(&pool, u, DATE, later()).await;
+    let mut devices: Vec<Option<&str>> = gaps_of(&v, GapKind::Away)
+        .iter()
+        .map(|g| g.device_id.as_deref())
+        .collect();
+    devices.sort();
+    assert_eq!(devices, [Some("pc-1"), Some("pc-2")], "{:?}", v.gaps);
+}
+
 #[tokio::test]
 async fn st25_gaprow_ten_minute_away_is_a_row() {
     // Scenario: 10 分以上の離席は行になる

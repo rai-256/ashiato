@@ -91,9 +91,9 @@ function GapRow({ gap, viewing, scheme }: { gap: Gap; viewing: string; scheme: S
   );
 }
 
-/** 取れていない時間の行の鍵。 */
+/** 取れていない時間の行の鍵。**端末も入れる** —— 2 台の PC が同じ時刻に離席すると種類と始まりだけでは重なる。 */
 function gapKey(g: Gap): string {
-  return `gap-${g.kind}-${g.start}`;
+  return `gap-${g.kind}-${g.device_id ?? ""}-${g.start}-${g.end}`;
 }
 
 type StayDetailCount = { logical_source: string; display_name: string; count: number };

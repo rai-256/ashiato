@@ -161,6 +161,9 @@ pub struct Gap {
     /// スマホの取れていない理由（`unavailable` だけ。`retention` / `clock_skew_abandoned`）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// どの端末の時間か。2 台の PC が同じ時刻に離席しても行を取り違えない（画面の行の鍵）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
 }
 
 /// `GET /day` の応答。
@@ -445,7 +448,7 @@ fn clip(
 /// 前景を挟まず、前の `range_end` までに始まる記録は同じ塊（送る契機の区間切り。数えが 0 の続きは記録にならない）。
 fn excluded_gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> Vec<Gap> {
     let mut out = Vec::new();
-    for list in by_device(norms, Origin::Pc).values() {
+    for (device, list) in by_device(norms, Origin::Pc) {
         // (始まり, range_end の最大, 件数)
         let mut groups: Vec<(DateTime<Utc>, DateTime<Utc>, i64)> = Vec::new();
         for (i, n) in list.iter().enumerate() {
@@ -480,6 +483,7 @@ fn excluded_gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> Vec
                     end: e,
                     count: Some(count),
                     reason: None,
+                    device_id: device.map(str::to_owned),
                 });
             }
         }
@@ -508,6 +512,7 @@ pub(crate) fn gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> V
                 end,
                 count: None,
                 reason,
+                device_id: n.device_id.clone(),
             });
         }
     }

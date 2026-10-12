@@ -46,6 +46,19 @@ describe("取れていない時間の行の文字", () => {
     expect(texts(list)).toContain("離席 10:15 – 10:25");
   });
 
+  // 2 台の PC が同じ時刻に離席しても行の鍵が重ならない（端末で分ける。R12(d)）
+  it("同じ時刻の 2 台の離席は 2 行で、React の鍵の重なりの警告が出ない", async () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const away = { kind: "away", start: at("10:15"), end: at("10:45") };
+    const list = await show([stay], [
+      { ...away, device_id: "pc-1" },
+      { ...away, device_id: "pc-2" },
+    ]);
+    expect(texts(list).filter((t) => t === "離席 10:15 – 10:45")).toHaveLength(2);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+    warn.mockRestore();
+  });
+
   // Scenario: 10 分に満たない離席は行にならない
   it("9 分 59 秒の離席は行にならない", async () => {
     const list = await show([stay], [{ kind: "away", start: atS("11:00:00"), end: atS("11:09:59") }]);
