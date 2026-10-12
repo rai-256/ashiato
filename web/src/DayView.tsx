@@ -60,7 +60,7 @@ function SummaryView({ summary, role, scheme }: { summary: Summary | undefined; 
   const lines = summaryLines(summary);
   if (lines.length === 0) return null;
   return (
-    // 要約と事情は添える文字の大きさ（閉じた行を 200 px 以下・開いてすぐ 6 行に収める。spec の 1 日の画面の下限）
+    // 要約と事情は添える文字の大きさ（閉じた行を 240 px 以下・開いてすぐ 6 行に収める。spec の 1 日の画面の下限）
     <div data-testid="summary" style={{ font: font(TYPE.caption, 400, SUMMARY_LINE), ...paint(SCHEMES[scheme], role) }}>
       {lines.map((l) => (
         <p key={l.key} data-testid={`summary-${l.key.split("-")[0]}`} style={{ margin: 0 }}>

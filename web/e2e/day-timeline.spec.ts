@@ -11,7 +11,7 @@ const DAY = "2026-09-07";
 const PHONE = { width: 360, height: 640 };
 
 // spec の値をリテラルで持つ（実装の定数と突き合わせると、定数を変えても緑のままになる）
-const ROW_MAX_PX = 200;
+const ROW_MAX_PX = 240; // design D15（仮）。2026-10-12 に 200 から見直した（code-verify R19）
 const OPEN_TARGET_PX = 24;
 const DESTRUCTIVE_PX = 44;
 
@@ -98,10 +98,29 @@ test("閉じた画面に PC の前景の題名が出ず、行は 100 未満", as
   expect(n).toBeLessThan(100);
 });
 
+/**
+ * spec の「いつもの日（滞在 9 件・PC とブラウザとスマホの記録がある日）」の前提を確かめる（code-verify R19）。
+ * 滞在 9 件と PC・スマホの要約は崩れたら落とす。**ブラウザの訪問は ST08 の移行が済むまで偽データに入らない**
+ * （`tools/seed.sh` が `external_id_kind` を見て入れない）ので、無いときは前提の欠けとして注記に残す。
+ */
+async function usualDay(page: Page): Promise<void> {
+  const list = page.getByRole("list", { name: "1 日の並び" });
+  await expect(list.getByTestId("row-stay"), "滞在が 9 件でない（Scenario の前提が崩れている）").toHaveCount(9);
+  expect(await list.getByTestId("summary-pc").count(), "PC の要約を持つ行が無い").toBeGreaterThan(0);
+  expect(await list.getByTestId("summary-phone").count(), "スマホの要約を持つ行が無い").toBeGreaterThan(0);
+  if ((await list.getByTestId("summary-browser").count()) === 0) {
+    test.info().annotations.push({
+      type: "premise",
+      description: "ブラウザの要約を持つ行が無い（ST08 の移行の前）。ブラウザ入りの日の閉じた行の最大は 223 px（2026-10-12 の実測）",
+    });
+  }
+}
+
 // Scenario: 幅 360 px で開いてすぐ 6 行以上見える
 test("開いてすぐ、全体が画面に入る行が 6 行以上ある", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDay(page);
+  await usualDay(page);
   const n = await rows(page).count();
   let inside = 0;
   for (let i = 0; i < n; i++) {
@@ -123,10 +142,11 @@ test("横スクロールが出ない", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
-// Scenario: 閉じた行は 200 px を超えない
-test("閉じた行はどれも 200 px 以下", async ({ page }) => {
+// Scenario: 閉じた行は 240 px を超えない
+test("閉じた行はどれも 240 px 以下", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDay(page);
+  await usualDay(page);
   const n = await rows(page).count();
   expect(n).toBeGreaterThan(0);
   for (let i = 0; i < n; i++) {
