@@ -60,6 +60,11 @@
   button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
        font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
   button.copy:hover{filter:brightness(1.08)}
+  /* ---- GO view（PROTO_VIEW="go"）: 決まった形と状態の一覧 ---- */
+  .gostates{display:grid;gap:6px}
+  .gostates .card .sc{color:var(--ui-dim);font-size:10.5px;margin-top:4px}
+  .gonote{width:100%;max-width:520px;background:#2a2418;border:1px solid #5c4a24;color:#e8d9b5;border-radius:8px;
+          padding:8px 10px;font-size:12px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -144,6 +149,28 @@
 </div>
 </div>
 
+<script type="application/json" id="proto-go">
+{
+ "chosen": "spec の形: 押す前にソースごとの件数と期間・押すと確認なしでその場に進み具合・前回の書き出し（時刻・行の数・大きさ・置き場のパス）を常に出す・書き出した後に消しても知らせない（深掘り第 1 回の Q3。第 2 回の答えとの食い違いは GO 資料の「未解決」）",
+ "requirements": ["設定画面に全記録の書き出しの節がある"],
+ "states": [
+  {"id": "first", "name": "初めて開く（まだ書き出していない）", "hint": "S-1 の見出しの行の「設定」から開いたところ。件数は書き出すのと同じ範囲（本人が消した場面を除く）で数える",
+   "scenarios": ["設定画面に全記録の書き出しの節がある", "押す前にソースごとの件数と期間が出る", "まだ書き出していなければそう出る"]},
+  {"id": "running", "name": "押した直後（書き出し中）", "hint": "確認をはさまずに始まり、その場に「書き出し中 N / M 行」が出る",
+   "scenarios": ["押すとその場で進み具合が出る"]},
+  {"id": "away", "name": "書き出し中に画面を離れる → 戻る", "hint": "いまは稼働状況（S-1）にいる。「設定」を押して戻ると、進み具合が出ている",
+   "scenarios": ["画面を離れて戻っても進み具合が出る"]},
+  {"id": "done", "name": "書き終えた", "hint": "前回の書き出しの欄に時刻・行の数・大きさ・置き場のパス。ファイルは画面からは受け取れない",
+   "scenarios": ["書き終えると前回の書き出しが新しくなる", "設定画面は 360 px の幅で横にスクロールしない"]},
+  {"id": "erased", "name": "書き終えた後に滞在を消した", "hint": "上の「書き出しの後に滞在を 1 件消す」を何度押しても、前回の書き出しの欄は変わらない（ファイルの中には残っている）",
+   "scenarios": ["書き出した後に記録を消しても画面は知らせない"]},
+  {"id": "failed", "name": "最後の書き出しが失敗した", "hint": "節に 1 行出て、押し直せる。前回の書き出しの値は失敗の前のまま",
+   "scenarios": ["失敗した書き出しと途中で止まった書き出しは節に出て、押し直せる"]},
+  {"id": "interrupted", "name": "前の書き出しが途中で止まった（サーバが止まった）", "hint": "失敗と同じ Scenario の後半。節に 1 行出て、押し直せる", "scenarios": []}
+ ],
+ "always": ["画面から書き出したファイルを受け取る操作は無い", "書き出すの操作は 24 px を下回らない", "キーボードで書き出すを押せてフォーカスの位置が見える", "設定画面の文字はライトでもダークでも 4.5:1 を下回らない"]
+}
+</script>
 <script>
 const HUE=132, SAT=30;
 const SCHEMES={dark:{ground:12,s1:18,s2:24,text:92,muted:72},light:{ground:96,s1:91,s2:86,text:14,muted:30}};
@@ -180,7 +207,9 @@ const PER_DAY=[
   ["滞在",9],["写真のメタ",5.5],["個人属性",0.05],["稼働の信号",13],
 ];
 const DEFAULTS={before:"counts",run:"inline",stale:"none",dest:"folder",span:"y1"};
-const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false};
+const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false};
+// GO view: 相談の軸を出さず、spec で決まった形（DEFAULTS の軸）を状態の一覧から開く。既定（無指定）は相談の view
+const GO_VIEW=window.PROTO_VIEW==="go"||/(^|[#&])view=go(&|$)/.test(location.hash.slice(1));
 const PRESETS=[
   {n:"初期値",s:{before:"counts",run:"inline",stale:"none"}},
   {n:"最小",s:{before:"button",run:"quiet",stale:"none"}},
@@ -223,8 +252,16 @@ function renderScreen(){
   const muted=`color:${tone(c.muted)}`;
   const focus=`<style>#screen [data-f]:focus-visible{outline:3px solid ${tone(c.text)};outline-offset:2px}</style>`;
   let h=focus+`<div style="padding:12px">`;
+  if(GO_VIEW&&state.away){
+    h+=`<header style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h1 style="font:600 18px/1.3 system-ui,sans-serif;margin:0 0 16px">稼働状況</h1>`;
+    h+=`<a data-f id="toSettings" href="#" style="color:${tone(c.text)};font-size:14px;min-height:24px;display:inline-flex;align-items:center">設定</a></header>`;
+    h+=`<p style="${muted};font-size:13.5px">（S-1 の中身は省略。書き出しはこの間も背景で続いている）</p></div>`;
+    scr.innerHTML=h;
+    scr.querySelector("#toSettings").onclick=e=>{e.preventDefault();state.away=false;renderScreen();};
+    return;
+  }
   h+=`<header style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h1 style="font:600 18px/1.3 system-ui,sans-serif;margin:0 0 16px">設定</h1>`;
-  h+=`<a data-f href="#" onclick="return false" style="color:${tone(c.text)};font-size:14px;min-height:24px;display:inline-flex;align-items:center">稼働状況へ</a></header>`;
+  h+=`<a data-f id="toS1" href="#" onclick="return false" style="color:${tone(c.text)};font-size:14px;min-height:24px;display:inline-flex;align-items:center">稼働状況へ</a></header>`;
 
   h+=`<section style="background:${tone(c.s1)};border-radius:10px;padding:12px">`;
   h+=`<h2 style="font:600 16px/1.3 system-ui,sans-serif;margin:0 0 8px">全記録の書き出し</h2>`;
@@ -233,7 +270,7 @@ function renderScreen(){
   const n=total();
   if(state.before!=="button"){
     h+=`<dl style="display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:0 0 8px;font-size:13.5px">`;
-    rows().filter(([,v])=>v>0).forEach(([k,v])=>{h+=`<dt style="${muted}">${k}</dt><dd style="margin:0;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)} 件</dd>`;});
+    rows().filter(([k,v])=>v>0&&!(GO_VIEW&&k==="稼働の信号")).forEach(([k,v])=>{h+=`<dt style="${muted}">${k}</dt><dd style="margin:0;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)} 件</dd>`;});
     h+=`</dl>`;
     h+=`<p style="margin:0 0 8px;font-size:13.5px">期間 ${firstDay()} 〜 2026-09-29 ・ 約 ${mb(n)}</p>`;
     if(state.before==="inout"){
@@ -248,6 +285,8 @@ function renderScreen(){
     h+=`<p style="margin:0 0 8px;${muted};font-size:12.5px">忘れると、このファイルは誰にも開けません。</p>`;
   }
 
+  if(GO_VIEW&&state.phase==="idle"&&state.goFail) h+=`<p role="status" style="margin:0 0 8px">書き出しに失敗しました（io）。</p>`;
+  if(GO_VIEW&&state.phase==="idle"&&state.goIntr) h+=`<p role="status" style="margin:0 0 8px">前の書き出しは途中で止まりました（2026-09-29 14:05）。</p>`;
   if(state.phase==="idle"){
     h+=`<button data-f id="go" style="${btn}">全記録を書き出す</button>`;
   }else if(state.phase==="confirm"){
@@ -262,7 +301,7 @@ function renderScreen(){
       h+=`<p style="margin:6px 0 0;${muted};font-size:12.5px">画面を離れても書き出しは続きます。</p>`;
     }
   }
-  if(state.done && state.phase==="idle" && state.justDone){
+  if(!GO_VIEW && state.done && state.phase==="idle" && state.justDone){
     if(state.dest==="folder") h+=`<p role="status" style="margin:10px 0 0">書き出しました。</p>`;
     else h+=`<p role="status" style="margin:10px 0 0">書き出しました。端末の保存の画面で置き場を選んでください。</p>`;
   }
@@ -276,7 +315,7 @@ function renderScreen(){
     h+=`<p style="margin:0 0 4px">${state.done.at} ・ ${fmt(state.done.n)} 行 ・ 約 ${mb(state.done.n)}</p>`;
     if(state.dest==="folder"){
       h+=`<p style="margin:0 0 2px;${muted};font-size:13px">置き場（この PC）</p>`;
-      h+=`<p style="margin:0;font:13px/1.5 ui-monospace,Menlo,monospace;word-break:break-all">%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260929-1412\\</p>`;
+      h+=`<p style="margin:0;font:13px/1.5 ui-monospace,Menlo,monospace;word-break:break-all">%LOCALAPPDATA%\\ashiato\\export\\${GO_VIEW?"ashiato-export-20260929-141203":"ashiato-export-20260929-1412"}\\</p>`;
       h+=`<p style="margin:4px 0 0;${muted};font-size:12.5px">中の README.txt に、ファイルごとの列の意味があります。</p>`;
     }else{
       h+=`<p style="margin:0;${muted};font-size:13px">この画面を見ていた端末に保存しました（どこに置いたかは、このシステムには分かりません）。</p>`;
@@ -291,7 +330,8 @@ function renderScreen(){
   h+=`</div>`;
   scr.innerHTML=h;
 
-  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ if(state.run==="confirm"){state.phase="confirm";renderScreen();} else start(); };
+  const s1=scr.querySelector("#toS1"); if(s1&&GO_VIEW) s1.onclick=e=>{e.preventDefault();state.away=true;renderScreen();};
+  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ state.goFail=false; state.goIntr=false; if(!GO_VIEW&&state.run==="confirm"){state.phase="confirm";renderScreen();} else start(); };
   const yes=scr.querySelector("#yes"); if(yes) yes.onclick=start;
   const no=scr.querySelector("#no"); if(no) no.onclick=()=>{state.phase="idle";renderScreen();};
 
@@ -304,12 +344,12 @@ let timer=null;
 function start(){
   clearInterval(timer);
   state.phase="running"; state.progress=0; state.justDone=false; renderScreen();
-  const dur=Math.min(6000,Math.max(1500,secs(total())*100)); const t0=Date.now();
+  const dur=GO_VIEW?20000:Math.min(6000,Math.max(1500,secs(total())*100)); const t0=Date.now();
   timer=setInterval(()=>{
     state.progress=Math.min(1,(Date.now()-t0)/dur);
     if(state.progress>=1){clearInterval(timer); state.phase="idle"; state.justDone=true; state.erasedAfter=0;
       state.done={at:"2026-09-29 14:12",n:total()};}
-    renderScreen(); updatePrompt();
+    renderScreen(); if(!GO_VIEW) updatePrompt();
   },120);
 }
 
@@ -329,7 +369,7 @@ function updatePrompt(){
 function updateAll(){renderControls();renderScreen();updatePrompt();}
 
 document.getElementById("schemeBtn").onclick=()=>{state.scheme=state.scheme==="dark"?"light":"dark";document.getElementById("schemeBtn").textContent="明暗: "+(state.scheme==="dark"?"ダーク":"ライト");renderScreen();};
-document.getElementById("resetBtn").onclick=()=>{clearInterval(timer);Object.assign(state,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false});updateAll();};
+document.getElementById("resetBtn").onclick=()=>{if(GO_VIEW){goState("first");return;}clearInterval(timer);Object.assign(state,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false});updateAll();};
 document.getElementById("eraseBtn").onclick=()=>{ if(!state.done){document.getElementById("copyNote").textContent="先に書き出してください";return;} state.erasedAfter+=1+120; renderScreen(); };
 document.getElementById("copyBtn").onclick=()=>{
   const t=document.getElementById("prompt").textContent, note=document.getElementById("copyNote");
@@ -338,7 +378,41 @@ document.getElementById("copyBtn").onclick=()=>{
   else fallback();
 };
 if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches){state.scheme="light";document.getElementById("schemeBtn").textContent="明暗: ライト";}
-updateAll();
+
+// ---- GO view ----
+const GO_MAN=JSON.parse(document.getElementById("proto-go").textContent);
+const DONE={at:"2026-09-29 14:12",n:0};
+function goState(id){
+  clearInterval(timer);
+  Object.assign(state,DEFAULTS,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false,away:false,goFail:false,goIntr:false});
+  const prev=()=>({...DONE,n:total()});
+  if(id==="running"){ start(); }
+  else if(id==="away"){ start(); state.away=true; }
+  else if(id==="done"){ state.done=prev(); }
+  else if(id==="erased"){ state.done=prev(); state.erasedAfter=121; }
+  else if(id==="failed"){ state.done=prev(); state.goFail=true; }
+  else if(id==="interrupted"){ state.done=prev(); state.goIntr=true; }
+  history.replaceState(null,"","#view=go&state="+id);
+  renderGoStates(id); renderScreen();
+}
+function renderGoStates(cur){
+  const el=document.querySelector(".controls");
+  let h=`<h1>ST33 — S-7 設定「全記録の書き出し」（GO 用）</h1><p class="sub">${GO_MAN.chosen}</p>`;
+  h+=`<div class="grp"><div class="lbl">状態の一覧（押すとその場面を開く。開いた後も実際に押せる）</div><div class="gostates">`;
+  GO_MAN.states.forEach(s=>{h+=`<button type="button" class="card${s.id===cur?" on":""}" data-st="${s.id}"><div class="t">${s.name}</div><div class="d">${s.hint}</div>${s.scenarios.length?`<div class="sc">Scenario: ${s.scenarios.join(" ／ ")}</div>`:""}</button>`;});
+  h+=`</div></div><div class="grp"><div class="lbl">どの状態でも</div><div class="fixed">${GO_MAN.always.join("<br>")}</div></div>`;
+  el.innerHTML=h;
+  el.querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>goState(b.dataset.st));
+}
+if(GO_VIEW){
+  document.querySelector(".out").style.display="none";
+  const note=document.createElement("div"); note.className="gonote";
+  note.innerHTML="この GO view は <b>spec の形</b>（深掘り第 1 回の Q3）。第 2 回の貼り戻しの Q3（押す前に「入らないもの」・確認をはさむ・後に消した件数を出す）は <b>spec にまだ入っていない</b> —— GO 資料の「未解決」の 1 件目。";
+  document.querySelector(".stage").prepend(note);
+  const m=location.hash.match(/state=([\w-]+)/);
+  goState(m&&GO_MAN.states.some(s=>s.id===m[1])?m[1]:"first");
+  addEventListener("hashchange",()=>{const k=location.hash.match(/state=([\w-]+)/); if(k&&GO_MAN.states.some(s=>s.id===k[1])&&!document.querySelector(`[data-st="${k[1]}"].on`)) goState(k[1]);});
+}else updateAll();
 </script>
 </body>
 </html>

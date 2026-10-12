@@ -1,0 +1,4 @@
+{"title": "ST33 の仕様への合意", "subtitle": "全記録を外部の道具で読める形に書き出す",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/ST33-spec.html",
+                "question": "この GO 資料と GO 用 proto のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
