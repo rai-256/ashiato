@@ -14,7 +14,7 @@
 
 ## Goals / Non-Goals
 
-**Goals**: specs の 14 の Requirement（第 4 回 Q13 で 1 つ足し、第 5 回 Q14・第 6 回 Q15 でその対象を広げた。D22 / D22-b / D22-d）。
+**Goals**: specs の 15 の Requirement（第 4 回 Q13 で 1 つ足し、第 5 回 Q14・第 6 回 Q15 でその対象を広げた。D22 / D22-b / D22-d）。
 **Non-Goals**:
 - 書庫の記録から滞在を作る（ST16 は `c01-location` だけ）。同じ出来事が 2 経路で入る組の読み方（ST25 / ST27 へ）
 - 途絶の通知（ST14）・感度の操作（ST24）・写しの消去（ST23）
