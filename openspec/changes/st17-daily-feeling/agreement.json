@@ -1,12 +1,9 @@
 {
-  "status": "rejected",
-  "digest": "aca717499e0f4730b6812112a09690935f9c2ca04970e135d67fcedeafebd889",
-  "head": "1425c7c8cdbeeb32e8566b45b2b18e678d106676",
-  "answers": "deep-answers-2.txt",
-  "picked": "違和感がある",
-  "notes": [
-    "補足: ひとことが長すぎて断られるですが、プロトタイプだとエラー画面が出ませんが、どうなってますか？",
-    "ほかは全て問題ないです。"
-  ],
-  "at": "2026-10-12T01:46:56Z"
+  "status": "accepted",
+  "digest": "39d8cdfdfd52ab533d4d2b3e3753c766a14342d287bc06aa60aebe5c4a3f4a98",
+  "head": "c87e5199b5b15b1e9b1db5c0780903bb9c186cc1",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-12T02:05:43Z"
 }
