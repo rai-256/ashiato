@@ -12,7 +12,7 @@
 - **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST33, ST41
 - **layer 2**: ST04, ST14, ST15, ST17, ST20, ST21, ST22, ST29, ST44
 - **layer 3**: ST06, ST09, ST12, ST18, ST23, ST24, ST25, ST26, ST34, ST37, ST42
-- **layer 4**: ST10, ST13, ST30, ST35, ST36, ST38
+- **layer 4**: ST10, ST13, ST30, ST35, ST36, ST38, ST47
 - **layer 5**: ST31, ST39, ST45
 - **layer 6**: ST27, ST32, ST40, ST46
 - **layer 7**: ST43
@@ -67,6 +67,7 @@
 | [ST44](ST44.md) | 収集アプリと画面の資格情報が読める範囲を締める | 2 | PERM-10 | ST28 | 13 |
 | [ST45](ST45.md) | 承認した種類だけを衛星が読め、読んだ記録が残る | 5 | FR-63, FR-100, PERM-13, PERM-15 | ST38, ST24, ST42 | 15, 27 |
 | [ST46](ST46.md) | 衛星の都合のデータを取っておける | 6 | FR-87 | ST39 | 29 |
+| [ST47](ST47.md) | YouTube のマイアクティビティを視聴・検索・その他に分けて取り込む | 4 | FR-14, FR-16, FR-17 | ST12 | — |
 
 ## capability（仕様の置き場）
 
@@ -79,7 +80,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42 |
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35, ST44 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
-| `external-ingestion` | 外部サービスからの取り込み | ST12, ST13 |
+| `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15, **ST12**, ST39 |
 | `derived-records` | 派生（滞在） | ST16, ST24 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
