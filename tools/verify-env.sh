@@ -9,6 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . tools/ports.sh
+tools/env-init.sh     # `.env` が無い worktree（下流で新しく作ったもの）でも DB を起動できるように
 docker compose up -d --wait db >/dev/null
 # --wait は healthcheck を待つ。テストが繋ぐのと同じ口（127.0.0.1:<ポート>）で受け付けるまで確かめる
 for _ in $(seq 1 30); do
