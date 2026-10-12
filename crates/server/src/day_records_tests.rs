@@ -180,6 +180,32 @@ fn st25_allow_row_pc_foreground() {
     );
 }
 
+/// http / https でない URL（`about:blank`・`chrome://newtab` など）はサイトではない —— ドメインを持たない（R9）
+#[test]
+fn st25_allow_row_non_http_url_has_no_domain() {
+    for url in [
+        "about:blank",
+        "chrome://newtab/",
+        "edge://settings",
+        "file:///C:/a.txt",
+        "chrome-extension://abc/p.html",
+        "example.com/no-scheme",
+    ] {
+        let n = norm_of(
+            "c02-browser-history",
+            json!({"kind":"visit","browser":"chrome","title":"t","url": url}),
+        )
+        .unwrap();
+        assert_eq!(n.domain, None, "{url}");
+    }
+    let n = norm_of(
+        "c02-browser-history",
+        json!({"kind":"visit","browser":"chrome","title":"t","url":"HTTP://Example.net/a"}),
+    )
+    .unwrap();
+    assert_eq!(n.domain.as_deref(), Some("example.net"));
+}
+
 #[test]
 fn st25_allow_row_pc_away_is_leave_only() {
     let leave = json!({"kind":"idle","transition":"leave","range_end":"2026-09-07T01:30:00Z"});

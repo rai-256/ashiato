@@ -184,8 +184,13 @@ fn event_type_in(v: &Value, types: &[i64]) -> bool {
 }
 
 /// URL のホスト。ユーザ情報・ポート・パスを落とし、小文字にする。
+/// **http / https の URL だけ**がサイトを持つ —— `about:blank`・`chrome://newtab`・`file://` などは
+/// ドメインを持たない（サイトの上位に "about" や "newtab" を混ぜない。final review R9）。
 fn host_of(url: &str) -> Option<String> {
-    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let (scheme, rest) = url.split_once("://")?;
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
+        return None;
+    }
     let authority = rest.split(['/', '?', '#']).next()?;
     let host = authority.rsplit('@').next()?;
     let host = match host.strip_prefix('[') {

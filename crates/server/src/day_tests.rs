@@ -423,6 +423,43 @@ async fn st25_summary_ties_are_in_name_order() {
     assert_eq!(names, ["Mail", "Slack"]);
 }
 
+// `about:blank` や `chrome://newtab` はサイトの上位に混ざらない（件数には数える。R9）
+#[tokio::test]
+async fn st25_summary_non_http_pages_are_not_top_domains() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    stay(
+        &pool,
+        u,
+        "2026-09-07T09:00:00+09:00",
+        "2026-09-07T12:00:00+09:00",
+    )
+    .await;
+    for (i, url) in [
+        "about:blank",
+        "about:blank#2",
+        "chrome://newtab/",
+        "chrome://newtab/?2",
+        "https://example.com/a",
+    ]
+    .iter()
+    .enumerate()
+    {
+        visit(&pool, u, &format!("2026-09-07T10:0{i}:00+09:00"), url).await;
+    }
+
+    let v = view(&pool, u, DATE, later()).await;
+    let b = row_of(&v, RowKind::Stay)
+        .summary
+        .clone()
+        .unwrap()
+        .browser
+        .unwrap();
+    assert_eq!(b.count, 5);
+    let domains: Vec<&str> = b.top.iter().map(|d| d.domain.as_str()).collect();
+    assert_eq!(domains, ["example.com"]);
+}
+
 // Scenario: ドメインは www を外して小文字で束ねる
 #[tokio::test]
 async fn st25_summary_domains_are_bundled_without_www() {
