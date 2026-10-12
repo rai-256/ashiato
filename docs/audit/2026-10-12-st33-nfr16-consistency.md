@@ -1,11 +1,8 @@
 # 整合の確認 — NFR-16 ★ 2026-10-12 追加（ST33 の深掘り第 2 回 Q6〜Q8）
 
-- 基準: `f8fcd356762fd5c017949443994f35f2fd0a468c`..`18e6a60cfdedbebc439dcc8b37bd6dec2ec5ab2b`
+- 基準: `f8fcd356762fd5c017949443994f35f2fd0a468c`..`e44c267f6b6544bfcfd4f6754d4f8c7a334e6999`
 
-> 基準の head（`18e6a60c…`）は、改訂がまだ commit されていなかったので、作業ツリーの改訂を `git stash create` で
-> 固めた commit（どの ref からも指されていない）にした。その木の `docs/requirements.md` は改訂後のものと一致する。
-> 改訂を commit したら、この行の head をその commit の 40 桁に置き換える（置き換えないと、この object を持たない clone
-> （CI）では鮮度が warn に落ちて判定されない）。
+> 基準の head は改訂を入れた commit `e44c267f`（監査を書いた時点では未 commit だったので `git stash create` の object を置き、commit 後に差し替えた）。
 
 機械の入力（写し）:
 
