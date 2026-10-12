@@ -181,3 +181,199 @@
 観点 5: 該当なし（確かめた範囲: `check_chain.py` が観点 8 を含めて OK。ST33.md の価値と完了の判定は、NFR-16 ★ 2026-09-29 訂正の本文（docs/requirements.md:898-）を逐語で写していて、deep の Q1 / Q5 と矛盾しない。`requires: [ST01, ST22]` は deep.md:175 の記録と一致する。specs が満たすのは NFR-16 だけで、NFR-17〜19 は画面の下限として引いていて別の要件を前倒しで満たしてはいない。capability `data-durability` は proposal.md:73・specs のディレクトリ・INDEX.md:80 の 3 か所で一致し、前倒しは無い）
 
 観点 1 のうち、指摘しなかったもの（確かめた範囲）: Q1（spec.md:9-51、画面の spec.md:344・spec.md:387-390）、Q2（D7（仮）と反転条件）、Q3（spec.md:336-410。24 px・4.5:1・360 px の数値と文言「書き出し中 N / M 行」「まだ書き出していません。」は Scenario にある）、Q4（spec.md:28-31・D16（仮）。覆した後の内容だけが残っている）、Q5（spec.md:108-161。NFR-16 に ★ 2026-09-29 がある）、C1〜C8 / C10 / C11 / C13〜C15 / C18 は Scenario か D 番号にある。C9 / C16 / C17 は R11 / R7 / R18 で挙げた。
+
+---
+
+## 第 2 巡（2026-10-12）
+
+対象: `git diff HEAD -- openspec/changes/st33-data-export/`（未 commit。deep.md の「仕様への違和感（第 1 回の合意）」の 6 件の `→ 対応` と C19〜C21）。
+`go.json` と proto の GO view は reading の段の持ち物なので見ていない。
+
+### 機械の検査（2026-10-12 実行）
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st33-data-export --strict` | `Change 'st33-data-export' is valid`（rc=0） |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 2 件)`。warn は ST14（FR-35）と ST24（PERM-2〜4）の判断の日で、NFR-16 とは別 |
+| `python3 scripts/check_scenarios.py . st33-data-export` | `FAIL (担保なし 82 件)`。82 本すべてがこの change の Scenario で、テストが未実装のため。spec の数え上げ（Requirement ごと 12 / 10 / 16 / 5 / 4 / 3 / 2 / 4 / 10 / 16 = 82、画面の Requirement が 16）と、tasks.md:18 の「82 本（サーバ 66・画面 16）」は合う |
+| `python3 scripts/review_triage.py . st33-data-export` | `triage: OK`（指摘 31 件。この節を足す前） |
+
+Scenario 名の突き合わせ（spec の `#### Scenario:` 82 本を tasks.md の各 `- [ ]` の中の backtick と空白を除いて比べた）: 82 本とも一字一句ある。
+`CT` / `ET` の下限は、どの項目もその項目の Scenario の本数以上（2.1=2 / 2.2=3 / 2.3=2 / 3.2=2 / 5.1=10 / 5.2=5 / 5.3=4 / 5.4=18 / 5.5=3 / 6.1=4 / 6.2=4≥3 / 6.3=9≥8 / 6.4=3 / 1.2=1 / 9.2=7 / 9.3=3 / 9.4=1 / 9.5=5）。
+
+### 6 件の `→ 対応` が閉じているか（観点 1）
+
+第 1 回の形の残骸（「知らせない」「確認なし」「確認をはさまず」「別のフォルダ」「状態は変わらない」）を proposal / spec / design / tasks で grep した: proposal.md:54 と design.md:336 の「第 1 回は「毎回別のフォルダに残す」」（経緯の注記）だけで、効いている文には無い。
+proto.html の残りは GO view（:154 :159 :166 :410。対象外）と、相談の view の `PRESETS`（R37）。
+
+| # | 判定 |
+|---|---|
+| 1 Q3 第 2 回 | 閉じている（spec.md:465-473・Scenario 493-526、design D13、tasks 8.2 / 9.2〜9.4、proto の `DEFAULTS`）。残る穴は R30（フォーカス）/ R31（確認の置き場の文が Scenario に無い）/ R32（初回の確認の文） |
+| 2 Q4 第 2 回 | spec.md:13-16 と D16 に入っている。消す処理の安全性と順に穴（R23 / R24）、Task の順に穴（R35） |
+| 3 Q6 の幅 | spec.md:160-164・D5b で閉じている。前の版の (c) が曖昧（R33）、`c01-app-usage` を点にした根拠が C21 と合わない（R34） |
+| 4 Q8 の判定式 | (2) は閉じている（PostgreSQL 17 で design の例を当て直して同じ結果）。**(3) は閉じていない** —— plus code が design の前処理で必ず外れる（R20）、よくある形を読み落とす（R21） |
+| 5 Q6〜Q8 の導出元 | 閉じている（tasks.md:3 / :34-36 / :73-78、design.md:5 / :31、proposal.md:17 / :45-60、spec.md:173） |
+| 6 C19 | spec.md:159・Scenario 206-209・D5 `erased_spans`（design.md:114-119）で閉じている |
+
+## R20. D5a (3) は URL の符号化を戻すときに `+` を空白にするので、plus code の形が必ず外れる（design の「例はすべて t」は成り立たない）
+- 成果物: openspec/changes/st33-data-export/design.md
+- 根拠: design.md:174「原文を小文字にし、URL の符号化を戻してから（`%2c` → `,`、`%20` と `+` → 空白、`%c2%b0` → `°`）、次のどれかに当たれば」、design.md:181 の plus code の式は `\+` を要る。design.md:183「上の例はすべて t」。
+  PostgreSQL 17（`ashiato2-integ-db-1`）で design の式をそのまま当てた: `lower('MQ7X+2V 千代田区')` → t、`replace(lower('MQ7X+2V 千代田区'),'+',' ')` → **f**。`8Q7XMQ7X+2V` も同じ（t → f）。`https://plus.codes/8Q7XMQ7X%2B2V` は `%2b` を戻さないので前後とも f。
+  spec.md:248 の Scenario「短い小数・符号化した区切り・度分秒・plus code の座標も…」は `MQ7X+2V 千代田区` を持つので、design のとおりに作ると 5.4 が赤になり、implementer は design から外れて直すことになる
+- kind: technical
+- 提案: (3) を「符号化を戻した文字列」と「小文字にしただけの文字列」の両方に当てる（plus code は後者、`+` 区切りの数の組は前者）と書く。`%2b` → `+` も戻す。design.md:183 の確かめを、この前処理を通した結果で取り直す
+- 処置: fixed D5 — （D5a）plus code だけ符号化を戻す前の文字列 `l` に当てる形にし、PostgreSQL 17 で `MQ7X+2V` が t になることを確かめた
+
+## R21. D5a (3) の数の組は「緯度が先・区切りは `,` か空白」だけで、地図の URL でよく使う形を読み落とす
+- 成果物: openspec/changes/st33-data-export/design.md、openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: design.md:178 の式 `(^|[^0-9.])-?\d{1,2}\.\d+\s*°?\s*[, ]\s*-?\d{1,3}\.\d+`。PostgreSQL 17 で design の前処理の後に当てて f だったもの:
+  `https://www.openstreetmap.org/#map=15/35.6812/139.7671`（区切りが `/`）、`https://map.yahoo.co.jp/place?lat=35.6812&lon=139.7671`（名前つき）、`{"coordinates":[139.7671,35.6812]}`（経度が先。最初の数が 3 桁なので `\d{1,2}` に当たらない —— 日本の経度は 100 を超えるので経度が先の並びはすべて外れる）、
+  `https://www.bing.com/maps?cp=35.6812~139.7671`（`~`）、`lat:35.6812 lng:139.7671`、`35.6812N 139.7671E`。
+  spec.md:169 は (3) を「小数の桁の数を問わない数の組」と書くので、経度が先の組は spec の文にも当たるのに式が外す。C20（deep.md:172）は「形を足すのは下流で決めてよい」だが、Scenario（spec.md:241-249）がこれらを持たないので、下流が足す契機が無い。読み落とした行は消した場面の座標として外へ出て戻らない
+- kind: technical
+- 提案: D5a の表に「区切りに `/` と `~`」「`lat=`/`lon=`/`lng=` の名前つき（URL の引数と `lat:` の形）」「経度が先（最初の数が 3 桁まで）」「`N`/`E` の付いた小数」を足し、spec の Scenario（spec.md:246-249）の例に OSM の `#map=` と経度が先の組を足す。広げる向きなので C20 のとおり本人に返さずに決めてよい
+- 処置: fixed D5 — （D5a）数の組の最初の数を 3 桁まで・区切りに `/` `~` を足し（経度が先・OSM・Bing）、`lat=`/`lon=` の鍵と値の形を足した。PostgreSQL 17 で全例 t・版番号・金額・日付は f。spec の (3) の文と Scenario「短い小数・符号化した区切り・度分秒・plus code の座標も…」の WHEN に 3 形を足した
+
+## R22. D5 は消した区間を一時表に置くと書くが、D4 の写しは `READ ONLY` のトランザクションで、一時表を作れない
+- 成果物: openspec/changes/st33-data-export/design.md、openspec/changes/st33-data-export/tasks.md
+- 根拠: design.md:95「tx = begin isolation level repeatable read, read only」、design.md:138「`erased_spans` を写しの初めに一時表（`ON COMMIT DROP`）へ置き、`EXISTS` を行ごとに当てる」、tasks.md:128「除く判定の `EXISTS` が 1 年分で 5 分を超えたら消した区間を一時表に置く」。
+  PostgreSQL 17 で `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL TimeZone = 'UTC'; CREATE TEMP TABLE erased_spans_t (a int) ON COMMIT DROP;` → `ERROR: cannot execute CREATE TABLE in a read-only transaction`
+- kind: technical
+- 提案: `erased_spans` を `WITH … AS MATERIALIZED` の CTE（各 SELECT の中で）にするか、`READ ONLY` を外して一時表にする（外すなら「写しの中で書かない」を別の手段で守ると書く）。tasks 5.6 の逃げ道も同じ形に直す
+- 処置: fixed D5 — `erased_spans` を各問い合わせの `WITH … AS MATERIALIZED` に置く形にし、一時表をやめた。tasks 3.1 / 5.6
+
+## R23. D16 はフォルダごと消すので、本人がその中に置いたファイルも消え、目録の `export_id` の照合は中身の差し替えを見分けない
+- 成果物: openspec/changes/st33-data-export/design.md（D16 / D11）、openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: design.md:339「そのフォルダの `manifest.json` の `export_id` が台帳の行と同じときだけ消す（本人が同じ名前で置いた・中身を差し替えたフォルダを消さない）」、design.md:343「消すのはファイルシステムの削除（ごみ箱を通さない）」。
+  照合するのは `manifest.json` の 1 項目だけなので、本人が `events.jsonl` を編集した・メモのファイルを足したフォルダは目録が同じまま消える（「中身を差し替えたフォルダを消さない」は成り立たない）。
+  逆に目録が読めない・違うフォルダは消さないが、D11 の `leftover`（design.md:292「台帳の `done` の行の `folder` のうち…まだ置き場にあるもの」）には毎回出続け、画面は「次の書き出しでもう一度消します。」（design.md:312）と出し続ける —— 次でも消さないので文が偽になり、spec.md:13 の「1 つだけ残す」も永久に満たされない。
+  ごみ箱を通さないこと・目録の照合は spec に無い（spec.md:13-16 は「このシステムが書き終えたと書き出しの台帳が記録していないフォルダ…を消さない」だけ）
+- kind: technical
+- 提案: 消すのは目録が列挙したファイル（と `manifest.json` / `README.txt`）だけにし、残りがあればフォルダを残して「本人のファイルがあるので残した」として `leftover` から外す（または別の 1 行で出す）。この振る舞いと「ごみ箱を通さない」を spec の Requirement と Scenario に置く。
+  loss は付けない —— 「捨てるより残す」の既定で閉じられるので本人に返す必要は無い。フォルダごと消す形を残すなら、本人のファイルが失われる（discarded）ので本人に返す
+- 処置: fixed D16 仮 — 消すのは目録が挙げるファイルと説明書と目録だけ、空ならフォルダを消す。本人が置いたファイルとフォルダは残す。`export_id` が合わないフォルダは触らず leftover にも出さない。spec の Requirement と Scenario「前の書き出しのフォルダに本人が置いたファイルは消さない」を足した
+
+## R24. D16 の順（`rename` → 前を消す → 台帳の `finish`）では、間でサーバが止まると、書き終えたフォルダが台帳に `done` として残らず、二度と消されない
+- 成果物: openspec/changes/st33-data-export/design.md（D16 / D10 / D11）
+- 根拠: design.md:338「順: 新しい書き出しを `.partial-…` に書く → `rename` → **前のフォルダを消す** → 台帳の `finish`（D10）」。spec.md:15「このシステムが書き終えたと書き出しの台帳が記録していないフォルダ…を消さない」、design.md:340「台帳に無いフォルダ…は消さない」。
+  `rename` の後・`finish` の前で止まると、(1) 書き終えた新しいフォルダは台帳に `done` が無いので以後どの書き出しも消さず、`erased_after`（D17 は `last` だけを見る）も数えない、(2) 前のフォルダを消した後なら、状態の `last`（design.md:287）は消えたフォルダを指し、画面は「途中で止まりました」と出す。
+  `leftover` は置き場にあるかどうかで決まる（design.md:292）ので、消せなかったことを `finish` の `reason` に書かなくても状態は作れる
+- kind: technical
+- 提案: 順を「`rename` → 台帳の `finish`（`done`）→ 前のフォルダを消す」にする（消せなかったものは `leftover` が置き場から拾う）。加えて、終わりの無い `start` の行の `folder`（D10 は start の時点で決めた名前を持つ）が置き場にあり目録の `export_id` が合うものも、次の書き出しが消す対象に入れる
+- 処置: fixed D16 仮 — 順を rename → finish(done) → 前を消す にし、消す対象を台帳の start の行のフォルダ（目録の export_id が合うもの）にした。消せなかったものは台帳に書かず leftover（ファイルシステム）で出す
+
+## R25. D17 の近似は向きが書かれておらず、少なく数える経路がある（画面が「残っている」を言わない）
+- 成果物: openspec/changes/st33-data-export/design.md（D17）
+- 根拠: design.md:353-359 は「写しの時点では印が無かった」を `e.deleted_at IS NULL OR e.deleted_at > T`、写しの時点の消した滞在を `deleted_at <= T` で読む。`deleted_at` は消す側のトランザクションの `now()`（トランザクションの開始時刻。crates/server/src/deletion.rs:274 / :282 の `deleted_at = now()`）で、写しの時点 `T` は `transaction_timestamp()`（design.md:97）。
+  消すトランザクションが `T` より前に始まり、写しのスナップショットより後にコミットすると、ファイルにはその記録が入るのに `deleted_at <= T` なので数えない。
+  もう 1 つ: 写しの後に外部の更新で座標が外れた記録は、ファイルには座標つきで入っているが、いまの内容で判定し（design.md:366）、前の版は数えない（design.md:365）ので数えない。
+  反転条件（design.md:370「前回のフォルダを読んで数えた数が食い違う実例が出たら」）は、フォルダを読んで数える係がいないので発火しない
+- kind: technical
+- 提案: D17 に「近似は多めに数える側に倒す」と書き、印の有無を時刻でなく可視性で読む —— 始まりの行か目録に `pg_current_snapshot()` を残し、削除の台帳の `txid`（migrations/202609271716_deletion_ledger.sql:14）が写しに見えていたかを `pg_visible_in_snapshot` で判定する。前の版がいま除かれる親も数える。反転条件は機械で観測できるもの（量のテストで数え直す等）にする
+- 処置: fixed D17 仮 — 写しの時点を deleted_at と比べる形をやめ、書いた記録の id のブルームフィルタを台帳の finish に残して当てる形にした（多く数える側にしかずれない）。spec に「落とす側に数えない」を足した。D10 の列と tasks 1.1 / 6.3
+
+## R26. 作り直しの印では「後に消した記録」を増やさない、は design と tasks にだけあり、spec の定義と食い違う
+- 成果物: openspec/changes/st33-data-export/design.md（D17）、openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/tasks.md
+- 根拠: design.md:357-362「作り直しが付けた印 `rebuild:%` は数えない」「作り直しが滞在を置き換えても N は増えない」、tasks.md:145「**作り直しの印（`rebuild:`）では増えない**ことも 1 本」。
+  spec.md:404 は「いまは本人が消した場面に当たる記録の件数」で、「本人が消した場面」は spec.md:157 / :465 で「削除の印の付いた記録」を含むと書く —— 作り直しの印（`rebuild:absorbed` など）も削除の印なので、spec の文面では数える側に読める。観測できる振る舞い（N の値）が design にしか無く、tasks 6.3 のそのテストは spec の Scenario を持たない
+- kind: technical
+- 提案: spec.md:404 に「本人の削除の印（作り直しが付けた印を除く）」と書き、Scenario「作り直しで滞在が置き換わっても後に消した記録の件数は増えない」を足す（tasks 6.3 の CT の下限も 1 増やす）
+- 処置: fixed specs/data-durability/spec.md — Requirement に「作り直しが置き換えた滞在は数えない」と Scenario「作り直しで置き換わった滞在は後に消した記録に数えない」を足した。tasks 6.3
+
+## R27. 除く判定が利用者を問わない（Q7）ので、「テストは利用者で隔離する」の規律では隔離できない
+- 成果物: openspec/changes/st33-data-export/tasks.md（Global Constraints / 5.4 / 6.3）
+- 根拠: tasks.md:26-28「テストは利用者で隔離する…そのテストの利用者の行だけを見る」。spec.md:158 と design.md:112 は消した滞在の時間を**利用者を問わず**当てる。
+  テスト用 DB は worktree ごとに 1 つで持続し（crates/server/src/testdb.rs:14-20）、`core.event` は削除を拒む（migrations/202609120944_gates.sql:250-252 の `event_no_delete`）ので、消した滞在は走らせるたびに積もる。ST22 のテストは決まった時刻の滞在を消している（crates/server/src/deletion_tests.rs:190-191 の 2026-09-28 10:00〜11:00 +09:00、:323-324 の 2026-09-20）。
+  そのため、別のテスト（ST22 のもの・ST33 自身の他のテスト）の消した滞在と時刻が重なると、「出る」側の Scenario（spec.md:201-204 の 00:10、:221-229、:216-219 のいまの版）が外れ、6.3 の後に消した記録の件数（全利用者を数える）と 5.4 の「件数と行の数の一致」（`GET /export/summary` は全利用者の和で、写しとは別の時点）が他のテストの行で揺れる。`EXPORT_SERIAL` は書き出しのテストだけを直列にし、ST22 の削除のテストとは並列に走る
+- kind: technical
+- 提案: Global Constraints に「除く判定は利用者を問わないので、各テストは他のどのテストも使わない日付で滞在を消し記録を置く（例: 利用者の uuid から日を決める）」を足す。件数の比較は、そのテストの日付の範囲に絞った値（断片に範囲を渡すテスト用の口）か、目録の `rows` との比較にする
+- 処置: fixed tasks.md — Global Constraints に時刻での隔離（`testdb::unique_day()`。テストごとに他のテストが使わない日）を足した
+
+## R28. Scenario「書き出した後に記録を消すと、状態に後に消した記録の件数が出る」の THEN が Requirement より狭く、正しい実装でも偽になりうる
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: spec.md:450「後に消した記録の件数として、消した滞在とそれに連鎖して削除の印が付いた記録を合わせた数が返る」。Requirement（spec.md:404）は「いまは本人が消した場面に当たる記録の件数」で、Q5 の規則で除かれる印の無い行（別のソース・別の利用者（Q7）・前の版の広い時間（C19））も数える（design.md:359 `or excluded_now(e)`）。
+  WHEN（spec.md:449）はその時間に他の緯度経度つきの記録が無いことを言っていないので、そういう行があれば THEN は偽になる
+- kind: technical
+- 提案: WHEN に「その時間に、連鎖で印が付く位置のほかに緯度経度を持つ記録が無い状態で」を足すか、Scenario を 2 本に分け、2 本目で印の無い別のソースの行も数に入ることを確かめる
+- 処置: fixed specs/data-durability/spec.md — WHEN に「連鎖で印が付く位置のほかに緯度経度を持つ記録が無い」を足し、印の無い別のソースの行も数える Scenario を別に足した。tasks 6.3
+
+## R29. Scenario「除いた行の件数はどこにも出ない」の THEN が、今回足した `erased_after`（消した記録の件数）と字面でぶつかる
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: spec.md:280「説明書・目録・応答のどこにも、除いた行や消した記録の件数が書かれていない」。spec.md:265 と :404 は書き出しの状態の応答に「後に消した記録の件数」を出す（design.md:51 の `last.erased_after`）。WHEN（spec.md:279）の状態の読み出しは `erased_after` を含むので、THEN の「消した記録の件数」が字面どおりなら偽、例外なら何をどう測るかが書かれていない（tasks.md:151 も「応答の側」とだけ）
+- kind: technical
+- 提案: THEN を「写しの時点で除いた行の件数」に絞り、「応答で件数を持つ項目は後に消した記録の件数だけで、この状態では 0 である」と測り方を書く
+- 処置: fixed specs/data-durability/spec.md — THEN を「写しの時点で除いた行の件数が無く、件数を持つ項目は後に消した記録の件数だけで 0」にした
+
+## R30. design D13 は確認が出たらフォーカスを「書き出す」へ移すが、Scenario と tasks 9.5 は「書き出す」へ Tab で移るので、「やめる」が押される
+- 成果物: openspec/changes/st33-data-export/design.md（D13）、openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/tasks.md
+- 根拠: design.md:307「確認が出たら「書き出す」にフォーカスを移す」。spec.md:550「出た確認の「書き出す」へ Tab キーで移って Enter を押す」、tasks.md:197「確認の「書き出す」へ Tab で移って輪郭が見え、Enter で進み具合が出る」。
+  フォーカスが「書き出す」にある状態で Tab を押すと次の「やめる」へ移り、Enter で書き出しは始まらない（THEN「確認の「書き出す」を押すと進み具合が出る」が偽）。フォーカスの移り先は観測できる振る舞いで、design にだけある
+- kind: technical
+- 提案: どちらかに揃える。D13 を採るなら Scenario を「確認が出るとフォーカスが「書き出す」にあって輪郭が見え、Enter で進み具合が出る」にし、フォーカスの移り先を spec の Requirement（spec.md:475）に置く
+- 処置: fixed specs/data-durability/spec.md — Requirement に「フォーカスを確認の「書き出す」に移す」を足し、キーボードの Scenario を Enter 2 回の形にした。tasks 9.5
+
+## R31. Requirement の本文だけが言い、Scenario が測らないもの（第 2 巡で足した文）
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠:
+  (1) spec.md:466 の確認は「置き場がこの PC のフォルダであること」を含むが、Scenario の THEN（spec.md:501）は見込みと「前回の書き出しのフォルダが消えること」だけ。Q1 の答えを確認で示す文なので、落ちても緑のまま。
+  (2) spec.md:16「次の書き出しを書き終えたときにもう一度消す」は Scenario の THEN（spec.md:53）に無い（tasks.md:147 の括弧書きにだけある）。
+  (3) spec.md:501 の THEN は「押した時点で始まらない」「見込み」「前のフォルダが消える」「進み具合」「離れても続く」の 5 つを 1 本に束ねている
+- kind: technical
+- 提案: (1) を spec.md:501 の THEN に足す。(2) は spec.md:50-53 の WHEN に「続けてもう 1 度書き出す」、THEN に「消せなかったフォルダが無くなる」を足すか 1 本足す。(3) は「押しても始まらず確認が出る」と「書き出すを選ぶと進み具合が出る」の 2 本に分ける（tasks 9.2 の ET の下限も合わせる）
+- 処置: fixed specs/data-durability/spec.md — 確認の Scenario の THEN に「置き場がこの PC のフォルダ」、消せなかったフォルダの Requirement と Scenario に「次の書き出しでもう一度消す」を足した。tasks 9.2 / 9.3
+
+## R32. 初めて書き出すときも、確認が「書き終えると前回の書き出しのフォルダは消えます」と出す
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/design.md（D13）
+- 根拠: spec.md:466 は確認に「書き終えると前回の書き出しのフォルダが消えること」を条件なしで置く。design.md:306 の文面も同じ、proto.html:293 も `state.dest==="folder"` だけで出す。前回が無い（`last: null`。spec.md:518-521 の状態）ときに押すと、消えるものが無いのに消えると出る
+- kind: daily
+- 提案: spec.md:466 を「前回の書き出しがあれば、書き終えるとそのフォルダが消えること」にし、前回が無いときの確認に出ないことを Scenario か tasks 9.3（`last: null` の差し替え）で確かめる
+- 処置: fixed D13 仮 — 前回の書き出しがあるときだけ「前回のフォルダは消えます」を出す。spec の Requirement と Scenario「まだ書き出していなければそう出る」の THEN に足した。tasks 9.3
+
+## R33. 前の版の幅の (c)「親と同じ並びから引く」が読み分けられない。前の版の表は端末の列を持たない
+- 成果物: openspec/changes/st33-data-export/design.md（D5）
+- 根拠: design.md:132「`v` の幅は D5b を `v` の `payload` と `event_time` で読む（(c) の次の記録は親と同じ並びから引く）」。`core.event_version` は `device_id` を持たない（migrations/202609120943_version_and_ledger.sql:17-40）ので、並びの鍵は親から取るしかない。
+  「親の次の記録」（親のいまの時刻の次）と「`v.event_time` の次の生きている記録」は、外部の更新で時刻が動いた版では違い、前者だと前の版の幅が消した時間をまたいでも点や別の幅で読まれる
+- kind: technical
+- 提案: 「`v.event_time` より後で、親と同じ `user_id`・`logical_source`・`device_id` を持つ `core.event_live` の最初の記録の時刻（無ければ写しの時点）」と書く
+- 処置: fixed D5 — 前の版の (c) を「v.event_time より後で、親と同じ user_id・logical_source・device_id の core.event_live の最初の記録（無ければ写しの時点）」と書いた
+
+## R34. D5b は `c01-app-usage` を「時刻 1 点」にしたが、Android の使用イベントは前景の切り替わりで、C21 の理由（次の変化まで続く）がそのまま当たる
+- 成果物: openspec/changes/st33-data-export/design.md（D5b）
+- 根拠: design.md:151「`c01-app-usage`（1 つの出来事。収集側の型 `AppUsageRecord` が時刻を 1 つだけ持つ）」。collector-android/app/src/main/kotlin/dev/ashiato/collector/AppUsageRecord.kt:27 は `event_type`（`getEventType()`）を持ち、1 イベント = 1 記録（同 :12）。前景に来た・離れたの切り替わりで、時刻が 1 つなのは PC の前景のウィンドウ（(c) に置いた。design.md:150）と同じ。
+  C21（deep.md:173）は「時刻 1 点と決まったソースだけ点」、D5b（design.md:153）は点へ移すのを狭める側として扱う。いまは (1) の一覧にもあるので効くのは原文に座標の並びがあるときだけで、実害は小さい
+- kind: technical
+- 提案: `c01-app-usage` を `Point` から外して既定の (c) に置く（広げる側なので本人に返さなくてよい）。点にするなら「切り替わりでなく 1 点の出来事」を確かめた根拠を書く
+- 処置: fixed D5 — （D5b）`c01-app-usage` を時刻 1 点から外し (c) 次の記録までにした。tasks 3.1
+
+## R35. Task 5.2 が使う「台帳の `done` の行」は Task 6.2 が書くので、依存の順が逆
+- 成果物: openspec/changes/st33-data-export/tasks.md
+- 根拠: tasks.md:104「`rename` の後で、台帳の `done` の行の `folder` のうち今回以外で残っていて…を消す」、Scenario `書き終えると前の書き出しのフォルダは消え、1 つだけ残る`（1 回目が `done` を書いていないと 2 回目が消すものが無い）と `このシステムが書き出していないフォルダは消さない`。台帳に `start` / `finish` を書くのは tasks.md:137 の 6.2。Task 1 は表を作るだけ。Task は 1 本ずつ別の agent が回すので、5.2 の agent は無い書き手を前提にする（第 1 巡 R14 と同じ型）
+- kind: technical
+- 提案: 台帳の `start` / `finish` を書く部分を 5.2 の前（Task 5 の先頭か Task 2）へ移すか、5.2 の前のフォルダを消す部分と 2 本の Scenario を 6.2 の後へ移す
+- 処置: fixed 6.2 — 前のフォルダを消す Scenario 4 本を 5.2 から 6.2（台帳を書く Task）へ移した。5.2 は CT 2、6.2 は CT 7
+
+## R36. 量のテスト（5.6）は手元で 35 万行を消せない共有の DB に積み、以後のすべての書き出しのテストが全利用者を読む
+- 成果物: openspec/changes/st33-data-export/tasks.md（5.6）
+- 根拠: tasks.md:127-128「テストで 1 利用者に 35 万行…件数を減らす環境変数で CI では 2 万行」—— 既定（手元）が 35 万行。テスト用 DB は worktree ごとに持続し（testdb.rs:14-20）、`core.event` は削除を拒む（gates.sql:250-252）。書き出しは全利用者を読む（design.md:296）ので、手元で 1 回走らせるごとに、以後の書き出しのテスト（tasks の CT の合計で 60 本以上）がそれぞれ 35 万行ずつ多く読む
+- kind: technical
+- 提案: 既定を小さい件数にし、35 万行は環境変数を渡したときだけにする（`#[ignore]` にしない規律は保てる）。量のテストを別の DB で走らせる案もある
+- 処置: fixed 5.6 — 既定（手元・CI）は 2 万行。1 年分は環境変数を渡したときだけ使い捨ての database で走らせる
+
+## R37. 古い指示が残っている（deep.md の「次の spec の段で直す」、proto の相談の view の「初期値」）
+- 成果物: openspec/changes/st33-data-export/deep.md、openspec/changes/st33-data-export/proto.html
+- 根拠: deep.md:126「design D11・D13（第 1 回の「確認なし」「知らせない」で書いてあるので直す）」、deep.md:226「次の spec の段で直す。」、deep.md:251-252「次の spec の段で…直す」—— 直した後も指示の形のまま、直したことへの参照が無い（tasks.md:3 は deep.md を最優先で読めと書く）。
+  proto.html:213-217 の `PRESETS` の「初期値」は `{before:"counts",run:"inline",stale:"none"}`（第 1 回の形）のままで、`DEFAULTS`（proto.html:209）は第 2 回の形になった。「初期値」を押すと proto.html:364 の計算で「動かした軸: 軸 1・軸 2・軸 3」と出る
+- kind: technical
+- 提案: deep.md の 3 か所に「→ 2026-10-12 に直した（仕様への違和感の 1 / 2 / 3〜5）」を足す。`PRESETS` の「初期値」を `DEFAULTS` に揃えるか、名前を「第 1 回の答え」にする
+
+---
+
+観点 3（C19〜C21 を C にしたこと）: 妥当と判断した（確かめた範囲: deep.md:171-173・spec.md:159-178・design D5 / D5a / D5b）。
+3 つとも除く側へ広げる既定で、除き過ぎは書き出し直せば戻り（ファイルは D-01 から作り直せる）、読むのは消した滞在の時刻だけ（C19。design.md:119）なので、失われるもの（uncaptured / discarded / exported / rewrite-all）を名付けられない。
+狭める向きの決め方（C20 の「狭めるのは本人に返す」）も書かれている。R34 は C21 の内側の不整合で、A ではない。
+この節の指摘で loss を名付けられるのは R23 だけで、それも「本人のファイルを残す」既定で閉じられるので loss を付けなかった。
+なお C19〜C21 は本人に C の一覧として見せていない（proposal.md:20「C1〜C18 に本人の異論は無かった」）。次の GO 資料の C の一覧に入るかは reading の段の持ち物なので、ここでは指摘にしない。
+
+観点 5: 該当なし（確かめた範囲: `check_chain.py` が観点 8 を含めて OK。docs/stories/ST33.md の価値・完了の判定・`requires: [ST01, ST22]` は deep の Q1〜Q8 と矛盾しない。Q3 / Q4 の第 2 回の答えは Story の判断（表題・価値・完了の判定）に触れない。capability `data-durability` は proposal.md:67・specs のディレクトリ・INDEX.md:80 で一致し、前倒しは無い）
+- 処置: fixed deep.md — 「次の spec の段で直す」を直した後の記述に改め、proto の PRESETS を「第 1 回の答え」と「初期値（第 2 回の答え）」に直した
+

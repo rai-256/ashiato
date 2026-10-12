@@ -206,14 +206,14 @@ const PER_DAY=[
   ["携帯端末の位置",960],["PC のウィンドウ",2000],["PC のブラウザ履歴",100],["携帯端末のアプリ利用",150],
   ["滞在",9],["写真のメタ",5.5],["個人属性",0.05],["稼働の信号",13],
 ];
-const DEFAULTS={before:"counts",run:"inline",stale:"none",dest:"folder",span:"y1"};
+const DEFAULTS={before:"inout",run:"confirm",stale:"count",dest:"folder",span:"y1"}; // 深掘り Q3 第 2 回の答え（軸 1〜3 を本人が動かした形）
 const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false};
 // GO view: 相談の軸を出さず、spec で決まった形（DEFAULTS の軸）を状態の一覧から開く。既定（無指定）は相談の view
 const GO_VIEW=window.PROTO_VIEW==="go"||/(^|[#&])view=go(&|$)/.test(location.hash.slice(1));
 const PRESETS=[
-  {n:"初期値",s:{before:"counts",run:"inline",stale:"none"}},
+  {n:"第 1 回の答え",s:{before:"counts",run:"inline",stale:"none"}},
   {n:"最小",s:{before:"button",run:"quiet",stale:"none"}},
-  {n:"入るもの・入らないものを見て押す",s:{before:"inout",run:"confirm",stale:"count"}},
+  {n:"初期値（第 2 回の答え）",s:{before:"inout",run:"confirm",stale:"count"}},
 ];
 
 function rows(){
@@ -275,7 +275,7 @@ function renderScreen(){
     h+=`<p style="margin:0 0 8px;font-size:13.5px">期間 ${firstDay()} 〜 2026-09-29 ・ 約 ${mb(n)}</p>`;
     if(state.before==="inout"){
       h+=`<p style="margin:0 0 4px;font-size:13.5px">入らないもの</p><ul style="margin:0 0 10px;padding-left:18px;${muted};font-size:13.5px">`;
-      h+=`<li>削除の印の付いた記録（とその前の版）</li><li>削除と消去の台帳</li><li>写真・動画の原本（D-02。記録のメタは入る）</li></ul>`;
+      h+=`<li>本人が消した場面（削除の印の付いた記録と、消した滞在の時間に入る緯度経度を持つ記録。前の版を含む）</li><li>削除と消去の台帳</li><li>写真・動画の原本（D-02。記録のメタは入る）</li></ul>`;
     }
   }
   if(state.dest==="encrypted" && state.phase==="idle"){
@@ -290,7 +290,7 @@ function renderScreen(){
   if(state.phase==="idle"){
     h+=`<button data-f id="go" style="${btn}">全記録を書き出す</button>`;
   }else if(state.phase==="confirm"){
-    h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。":"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
+    h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。書き終えると前回の書き出しのフォルダは消えます。":"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
     h+=`<div style="display:flex;gap:8px"><button data-f id="yes" style="${btn}">書き出す</button><button data-f id="no" style="${ghost}">やめる</button></div></div>`;
   }else if(state.phase==="running"){
     if(state.run==="quiet") h+=`<p role="status" style="margin:0">書き出しを始めました。終わると下の「前回の書き出し」が新しくなります。</p>`;
