@@ -142,7 +142,7 @@ describe("取れていない時間の行の文字", () => {
     expect(kinds).toEqual(["gap:08:00", "stay", "erased", "gap:11:10", "gap:11:30", "stay"]);
   });
 
-  // Scenario: 「消した」の行の直後に「ほかの記録」の行がある
+  // 「消した」の行の直後に「ほかの記録」の行がある（D19（仮）。spec の Scenario ではない並びの確かめ）
   it("消した行の中に始まる離席は、同じ範囲のほかの記録の行の直後に並ぶ", () => {
     const entries: DayEntry[] = [
       { kind: "erased", start: at("10:00"), end: at("11:00") },
