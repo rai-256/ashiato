@@ -35,6 +35,15 @@ async fn ensure_source(pool: &PgPool, name: &str) {
     .unwrap();
 }
 
+/// 登録簿の表示名。書庫のソースは ST12 の移行が本物の名前で置くので、試験は決め打ちしない。
+async fn display_name(pool: &PgPool, name: &str) -> String {
+    sqlx::query_scalar("SELECT display_name FROM core.source WHERE logical_source = $1")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 /// 記録 1 件の置き方。既定は内容ごとに別のハッシュ・`Asia/Tokyo`・感度 1・外部識別子なし。
 struct Put<'a> {
     user: Uuid,
@@ -600,7 +609,10 @@ async fn st25_fold_archive_and_local_are_both_returned() {
     let got = listed(&pool, u).await;
     assert_eq!(got.len(), 2);
     let a = got.iter().find(|n| n.origin == Origin::Archive).unwrap();
-    assert_eq!(a.source_label.as_deref(), Some("表示名 c03-chrome-history"));
+    assert_eq!(
+        a.source_label.as_deref(),
+        Some(display_name(&pool, "c03-chrome-history").await.as_str())
+    );
     assert!(got.iter().any(|n| n.origin == Origin::Browser));
 }
 
@@ -621,10 +633,12 @@ async fn st25_fold_archives_with_same_event_are_both_returned() {
     assert_eq!(got.len(), 2);
     let mut labels: Vec<_> = got.iter().filter_map(|n| n.source_label.clone()).collect();
     labels.sort();
-    assert_eq!(
-        labels,
-        ["表示名 c03-myactivity-youtube", "表示名 c03-youtube-watch"]
-    );
+    let mut want = vec![
+        display_name(&pool, "c03-myactivity-youtube").await,
+        display_name(&pool, "c03-youtube-watch").await,
+    ];
+    want.sort();
+    assert_eq!(labels, want);
 }
 
 // ------------------------------------------------------------------ 1.4 日の範囲

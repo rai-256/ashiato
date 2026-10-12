@@ -71,6 +71,10 @@ fn url_from_env(name: &str) -> String {
 
 /// 接続済みのプールを返す。初回だけマイグレーションを当てる。
 /// **所有者（`DATABASE_OWNER_URL`）で繋ぐ。** 門はトリガで効くので、所有者でも止まることを既存の試験が見る。
+///
+/// **プールは試験ごとに持つ。** 1 本を共有すると、背景の取り込み器を起こす結合
+/// 試験どうしが同じ接続を奪い合って全体が止まる（実測）。そのぶん PostgreSQL 側の
+/// 接続の上限を上げてある（`docker-compose.yml` の `max_connections`）。
 pub async fn pool() -> sqlx::PgPool {
     let url = url();
     let pool = PgPoolOptions::new()

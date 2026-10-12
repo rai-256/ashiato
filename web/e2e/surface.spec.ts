@@ -205,6 +205,9 @@ test("稼働状況の週の帯にも、Tab で本文の色・3 px の輪郭が�
     await week.click();
     await expect(week).toHaveAttribute("aria-pressed", "true");
     await week.blur();
+    // Tab は見出しの行から始める。blur の後は選んだ週の次から進むので、書庫のソース（ST12）で
+    // 格子が増えると 40 回で一周せず、選んだ週へ戻ってこなかった
+    await page.getByTestId("to-day").focus();
     let ring = 0;
     for (let i = 0; i < 40 && ring === 0; i++) {
       await page.keyboard.press("Tab");

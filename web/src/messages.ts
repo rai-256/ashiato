@@ -71,10 +71,53 @@ const ja = {
     notStarted: "未開始",
   },
 
+  /** 直近に置いた書庫の箱と、書庫のソースの最終日（LatestArchive.tsx / archives.ts。ST12） */
+  archive: {
+    title: "直近に置いた書庫",
+    failed: "書庫の状態を読み出せませんでした（置いた書庫が無いのではありません）",
+    loading: "書庫の状態を読み込み中…",
+    reading: (file: string, inner: string, items: string, since: string): string =>
+      `読んでいます: ${file} ${inner} ${items} 件まで（${since} から）`,
+    place: {
+      dedicated_inbox_unreadable: "専用のフォルダ",
+      downloads_unreadable: "ダウンロードのフォルダ",
+    } as Record<string, string>,
+    anyPlace: "置き場",
+    placeSeparator: "・",
+    unreadablePlaces: (places: string): string => `${places} が読めません`,
+    inboxNever: "取り込み器はまだ一度も動いていません",
+    inboxStale: (days: number): string => `取り込み器の最後の確認: ${days} 日前`,
+    pendingShape: (archives: number): string =>
+      `形の確認を待っている書庫が ${archives} 冊あります（tools/archive-shape.sh で形を見て印を置く）`,
+    empty: "まだ書庫が置かれていません",
+    unnamed: "名前の分からない書庫",
+    unreadable: (name: string, seen: string, why: string): string => `${name}（${seen}）— 読めなかった書庫です（${why}）`,
+    storeFailed: (name: string, seen: string): string =>
+      `${name}（${seen}）— 格納に失敗しています（1 時間ごとに読み直します）`,
+    alreadyRead: (name: string, seen: string, previously: string | null): string =>
+      `${name}（${seen}）— 既に読んだ書庫です（${previously === null ? "前に読んだ時刻が分かりません" : `${previously} に読んだものと同じ中身`}）`,
+    pendingLatest: (name: string, seen: string): string => `${name}（${seen}）— 形の確認を待っています`,
+    read: (name: string, seen: string, inserted: number, duplicate: number, unreadable: number): string =>
+      `${name}（${seen}）— 入った ${inserted} · 既にあった ${duplicate} · 読めなかった ${unreadable}`,
+    more: (hidden: number): string => `ほか ${hidden} 件`,
+    /** 読めなかった理由の種別（design D7 の 4 つ） */
+    unreadableKind: {
+      unsupported_format: "扱えない形式",
+      broken_zip: "書庫が壊れている",
+      html_only: "HTML しか入っていない",
+      no_known_content: "読める中身が 1 つも無い",
+    } as Record<string, string>,
+    unknownReason: "理由は不明",
+    notYet: "まだ無い",
+    lastEvent: (day: string, days: number): string => `${day} まで（${days} 日前）`,
+  },
+
   /** ソースごとの格子（CoverageGrid.tsx / coverage.ts） */
   grid: {
     succeeded: (named: string): string => ` — ${named} を引き継ぎ`,
     retired: (on: string | null): string => ` — ${on} に退役`,
+    /** 書庫のソースの見出しに添える注記（ST12 / design D12） */
+    archiveNote: (note: string): string => ` — ${note}`,
     collapse: "直近だけにする",
     showRetired: "退役したソースを見る",
     expand: "1 年ぶんを見る",

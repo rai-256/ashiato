@@ -37,6 +37,8 @@ ALLOWED = {
     # 件数・所要時間・深さ
     "count", "sent", "accepted", "read", "dropped", "successors", "versions", "took_ms", "depth",
     "days", "days_done", "stays_before", "stays_after",
+    # 書庫（ST12）: 読み直せない書庫の冊数・見分けた／飛ばした／読めなかったファイルの数（usize。名前も中身も出ない）
+    "archives", "known", "skipped", "unreadable",
     # ソース名（cycle_at は引き継ぎの鎖が輪になった所のソース名）・真偽
     "logical_source", "cycle_at", "credential_present", "has_external_id",
     # コードの位置（panic の file:line）

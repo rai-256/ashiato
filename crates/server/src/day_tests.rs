@@ -35,6 +35,15 @@ async fn ensure_source(pool: &PgPool, name: &str) {
     .unwrap();
 }
 
+/// 登録簿の表示名。書庫のソースは ST12 の移行が本物の名前で置くので、試験は決め打ちしない。
+async fn display_name(pool: &PgPool, name: &str) -> String {
+    sqlx::query_scalar("SELECT display_name FROM core.source WHERE logical_source = $1")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 /// 記録 1 件を直に置く。内容ごとに別のハッシュ。
 async fn put(pool: &PgPool, user: Uuid, source: &str, device: &str, at: &str, payload: Value) {
     ensure_source(pool, source).await;
@@ -625,7 +634,10 @@ async fn st25_summary_archive_counts_by_display_name() {
     let s = row_of(&v, RowKind::Stay).summary.clone().unwrap();
     let a = s.archive.unwrap();
     assert_eq!(a.len(), 1);
-    assert_eq!(a[0].display_name, "表示名 c03-chrome-history");
+    assert_eq!(
+        a[0].display_name,
+        display_name(&pool, "c03-chrome-history").await
+    );
     assert_eq!(a[0].count, 12);
 }
 
