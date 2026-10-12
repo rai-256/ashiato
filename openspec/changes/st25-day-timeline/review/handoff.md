@@ -1,7 +1,7 @@
 # docs/handoff/ を PR の前に読んだ結果（2 回目）
 
 - 読んだ日時: 2026-10-02 13:12（JST）
-- `git log -1 --format=%h -- docs/handoff`: 7438f23
+- `git log -1 --format=%h -- docs/handoff`: 7438f23e
 - ST25 に触れる申し送り: `docs/handoff/ST25.md`・`ST12.md`・`ST14.md`
 
 ## 処置
