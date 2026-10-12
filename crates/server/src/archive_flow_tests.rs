@@ -1863,10 +1863,12 @@ async fn archive_flow_confirming_some_shapes_ingests_them_while_the_rest_waits()
         )
         .await;
 
+    // 格納と確認待ちの行を外すのは同じ瞬間ではないので、両方が揃うまで待つ（CI で格納の直後に
+    // 確認待ちを 2 と読んで落ちた）。印の無い形が外れたら 0 になって待ちが終わらず、ここで落ちる
     inbox
         .until(
             "印を置いた形が、印の無い形と同じ書庫にあるせいで格納されない",
-            || async { inbox.events("c03-chrome-history").await == 1 },
+            || async { inbox.events("c03-chrome-history").await == 1 && pending().await == 1 },
         )
         .await;
     assert_eq!(pending().await, 1, "印の無い形が確認待ちから外れた");
