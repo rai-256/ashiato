@@ -517,6 +517,11 @@ pub(crate) fn gaps(norms: &[Norm], d0: DateTime<Utc>, upper: DateTime<Utc>) -> V
 
 // ------------------------------------------------------------------ ブラウザの最後に届いた時刻（D10（仮））
 
+/// ブラウザ履歴が最後に届いた時刻。`event_by_user_source_ingest` の末尾を 1 つ読むだけにする
+/// （索引が無いと利用者のブラウザ履歴の全行を読む。10 万行で 21〜23 ms の実測。final review R6）。
+pub(crate) const BROWSER_THROUGH_SQL: &str =
+    "SELECT max(ingest_time) FROM core.event WHERE user_id = $1 AND logical_source = $2";
+
 /// `c02-browser-history` の `ingest_time` の最大（削除済みを含む）を、「まだ届いていない」を出すべきときだけ返す。
 /// 収集を始めた日より前の日と、その日の終わり（今日はいま）以後に届いている日には出さない。
 async fn browser_through(
@@ -535,13 +540,11 @@ async fn browser_through(
     if started.is_none_or(|d| d > date) {
         return Ok(None);
     }
-    let through: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "SELECT max(ingest_time) FROM core.event WHERE user_id = $1 AND logical_source = $2",
-    )
-    .bind(user)
-    .bind(BROWSER_SOURCE)
-    .fetch_one(pool)
-    .await?;
+    let through: Option<DateTime<Utc>> = sqlx::query_scalar(BROWSER_THROUGH_SQL)
+        .bind(user)
+        .bind(BROWSER_SOURCE)
+        .fetch_one(pool)
+        .await?;
     Ok(through.filter(|t| *t < upper))
 }
 

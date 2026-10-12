@@ -1533,3 +1533,24 @@ async fn st25_nostay_archive_locations_make_no_stay() {
         v.entries
     );
 }
+
+/// 「最後に届いた時刻」の SQL は利用者とソースと `ingest_time` の索引の末尾を読む（R6）。
+/// 試験の DB は小さく計画が表の走査に寄るので、トランザクションの中で走査を止めて、索引で引けることだけを見る。
+#[tokio::test]
+async fn st25_browser_through_sql_uses_ingest_index() {
+    let pool = testdb::pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL enable_seqscan = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN {}", day::BROWSER_THROUGH_SQL))
+        .bind(testdb::user())
+        .bind("c02-browser-history")
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    let plan = plan.into_iter().map(|r| r.0).collect::<Vec<_>>().join("\n");
+    assert!(plan.contains("event_by_user_source_ingest"), "{plan}");
+    assert!(plan.contains("Index Only Scan Backward"), "{plan}");
+}
