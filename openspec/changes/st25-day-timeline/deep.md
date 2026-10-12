@@ -1,6 +1,6 @@
 # ST25 の深掘り — 1 日を時刻順に見る
 
-> 状態: **第 1 回の答えを記録した（2026-10-01。`deep-answers-1.txt`）。未回答は無い。**
+> 状態: **第 1 回の答えを記録した（2026-10-01。`deep-answers-1.txt`）。下流が返した Q7（第 2 回）・Q8（第 3 回）の答えを記録した（2026-10-12。`deep-answers-2.txt`）。未回答は無い。**
 > 問いは `deep-questions.json`（6 件。A 1 件 / B 5 件）、渡した形は `docs/briefs/ST25-deep.html`。
 > 面は S-2（1 日を見る）なので、問いより先に `proto.html` を作り、Q1 に埋め込んだ。
 > 独立レビューは `review/deep.md`（13 件。問いの前提・範囲を直した 6（R2・R3・R4・R9・R10・R13）/ proto を直した 4（R1・R6・R7・R8）/ 聞かないで決める C を足した・直した 3（R5・R11・R12））。
@@ -135,7 +135,11 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
 
 ### Q7. 今日の最後の位置の後の「ほかの記録」の行は、いつ出るか（A / premise）
 
-- **本人の答え**: (未回答)
+- **本人の答え**: 「記録なしの行の中に事情として添える」（`deep-answers-2.txt` の第 2 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: 今日の最後の位置からいままでが `gap_minutes` 以上なら、`day_view`（ST22 の契約）のまま**記録なしの行**にする。
+  その時間に位置以外の記録があれば、記録なしの行に要約（reasons か summary）として添える。`day_view` の末尾の判定には手を入れない。
+  spec の Scenario「今日の最後の位置の後の記録はほかの記録の行に出る」は「記録なしの行に PC の要約が出る」形へ直し、D7 もそれに合わせる。
+  試験の基準（`gap_minutes`）を変えて通す形は採らない
 - **何が崩れたか**: D7 / spec は、今日の最後の位置からいままでに位置以外の記録があれば「ほかの記録」の行に出すと置いた。
   実際の `stay_store::day_view` は、その間隔が `gap_minutes`（既定 10 分）以上なら**記録なしの行**にする（`stay_store.rs` の day_view の説明）。
   既定のままでは「ほかの記録」の行は出ない（Task 3 の review F1）
@@ -163,7 +167,10 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
 
 ### Q8. REMOVED した Scenario が正典に残る間、11.1 の `check_scenarios.py` をどう通すか（A / premise）
 
-- **本人の答え**: (未回答)
+- **本人の答え**: 「検査の側を直す（REMOVED の Scenario を担保の対象から外す）」（`deep-answers-2.txt` の第 3 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: harness2 の `check_scenarios.py` が change の `## REMOVED Requirements` の Scenario 名を読み、担保の対象から外す（他の Story の REMOVED にも効く）。
+  11.1 の検証コマンドは変えない。嘘の印は置かない（Task 7.1 の `! grep` と Global Constraints のまま）。
+  直す場所は harness2 側で、この repo の `scripts/` は symlink なので ashiato2 の change では書かない
 - **何が崩れたか**: 11.1 は `python3 scripts/check_scenarios.py . st25-day-timeline` が rc=0 であることを求める。ところが `check_scenarios.py` は REMOVED を読まず、
   正典 `openspec/specs/browsing-views/spec.md:148` に残る Scenario `稼働状況の画面の入口は変わらない`（この change が REMOVED する）を「担保の無い Scenario」として FAIL にする
   （`scenarios: FAIL (担保なし 1 件)`。他の FAIL は無い）。印を足せば通るが、Task 7.1 の検証（`! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates`）と
