@@ -55,6 +55,7 @@ describe("開いた行の中身", () => {
       r("c", "pc", "09:20", { app: "Chrome", title: "docs" }),
     ];
     const list = await show([stay, move]);
+    const before = window.location.hash;
     fireEvent.click(toggle(within(list).getByTestId("row-stay")));
     await screen.findByTestId("records");
     const t = detailTexts();
@@ -65,7 +66,7 @@ describe("開いた行の中身", () => {
     expect(calls.filter((c) => c.startsWith("/api/day/records"))).toEqual([
       `/api/day/records?date=${DATE}&from=${encodeURIComponent(at("09:00"))}&to=${encodeURIComponent(at("12:00"))}`,
     ]);
-    expect(window.location.hash).not.toContain("records");
+    expect(window.location.hash, "開いてもアドレスは変わらない").toBe(before);
   });
 
   // 日をまたぐ行は、その日の端で切らずに行の実際の始まりと終わりで読む（design D7）

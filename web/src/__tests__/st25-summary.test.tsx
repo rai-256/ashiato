@@ -174,3 +174,65 @@ describe("要約の文字", () => {
     await waitFor(() => expect(screen.getByTestId("day-error").textContent).toContain("unexpected_shape"));
   });
 });
+
+// サーバの試験（`crates/server/src/day_tests.rs` の同じ Scenario）が返す値をそのまま描き、画面の文字を確かめる（code-verify R25）
+describe("サーバが数えた要約を画面の文字にする", () => {
+  const pcLine = async (summary: unknown): Promise<string> => {
+    serve([stay(summary)]);
+    const list = await rows();
+    return within(list).getByTestId("summary-pc").textContent ?? "";
+  };
+
+  // Scenario: 離席の時間はアプリを使った時間に数えない
+  it("10:00 の VS Code が 10:15〜10:40 の離席を除いて 25 分", async () => {
+    const line = await pcLine({ pc: { seconds: 1500 + 4200, top: [{ app: "Slack", seconds: 4200 }, { app: "VS Code", seconds: 1500 }] } });
+    expect(line).toContain("VS Code 0:25");
+  });
+
+  // Scenario: 10 分に満たない離席も使った時間から差し引く
+  it("10:00 の VS Code が 10:20〜10:26 の離席を除いて 24 分", async () => {
+    const line = await pcLine({ pc: { seconds: 1440 + 5400, top: [{ app: "Slack", seconds: 5400 }, { app: "VS Code", seconds: 1440 }] } });
+    expect(line).toContain("VS Code 0:24");
+  });
+
+  // Scenario: スマホの使った時間は 1 回 10 分で打ち切る
+  it("22:00 の地図は 10 分で打ち切られて 0:10", async () => {
+    serve([stay({ phone: { seconds: 1200, top: [{ app: "地図", seconds: 600 }, { app: "メール", seconds: 600 }] } })]);
+    const list = await rows();
+    const line = within(list).getByTestId("summary-phone").textContent ?? "";
+    expect(line).toBe("スマホ 20 分 — 地図 0:10 · メール 0:10");
+  });
+
+  // Scenario: 同じ時間のアプリは名前の順に並ぶ
+  it("Mail と Slack が同じ 20 分なら Mail · Slack の順", async () => {
+    const line = await pcLine({ pc: { seconds: 2400, top: [{ app: "Mail", seconds: 1200 }, { app: "Slack", seconds: 1200 }] } });
+    expect(line).toBe("PC 40 分 — Mail 0:20 · Slack 0:20");
+  });
+
+  // Scenario: ドメインは www を外して小文字で束ねる
+  it("WWW.Example.com と example.com は example.com 2 の 1 つ", async () => {
+    serve([stay({ browser: { count: 2, top: [{ domain: "example.com", count: 2 }] } })]);
+    const list = await rows();
+    expect(within(list).getByTestId("summary-browser").textContent).toBe("ブラウザ 2 件 — example.com 2");
+  });
+
+  // Scenario: 日付をまたぐ行の要約は両方の日で同じ
+  it("23:00〜翌 2:00 の滞在は、前の日の画面でも次の日の画面でも同じ要約の文字", async () => {
+    const summary = { pc: { seconds: 7200, top: [{ app: "Code", seconds: 7200 }] } };
+    const across = { kind: "stay", start: at("23:00"), end: "2026-09-08T02:00:00+09:00", id: "s1", criteria_id: 1, summary };
+    const texts: string[] = [];
+    for (const date of [DATE, "2026-09-08"]) {
+      vi.stubGlobal("fetch", (path: string) =>
+        path.startsWith("/api/day")
+          ? Promise.resolve(ok({ date, criteria: [], entries: [across], gaps: [] }))
+          : new Promise<Response>(() => {}),
+      );
+      const { unmount } = render(<DayView date={date} />);
+      const list = await screen.findByRole("list", { name: "1 日の並び" });
+      texts.push(within(list).getByTestId("summary-pc").textContent ?? "");
+      unmount();
+    }
+    expect(texts[0]).toBe("PC 2 時間 0 分 — Code 2:00");
+    expect(texts[1]).toBe(texts[0]);
+  });
+});
