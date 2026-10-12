@@ -122,3 +122,123 @@ S-2 の見出しの `fix/` は PR 本文の「後続」に挙げる条件をま�
 - 根拠: scoped re-review
 - kind: technical
 - 処置: rejected: 読みは D3 の日付で先に絞る SQL と `event_by_source_time` の索引に乗るので、1 日分が 2 日分になるだけで全件は読まない。e2e（PC 1,000 件以上の日）で `/day` を開く試験が 49 本とも通っている
+
+## code-verify（HEAD e9d3a0bd）
+
+席: code-verify（申告と実態のずれ）。最後の証跡（evidence.jsonl）は 1ec0a53e で、その後の 12 commit（28c714c0〜e9d3a0bd）は
+サーバと画面のコードを変えている。**全項目の検証コマンドを HEAD で走らせ直した。**
+
+申告: **30/30**（`- [x]` 30・`- [ ]` 0）。
+
+| 項目 | 検証コマンド（tasks.md の本文どおり） | 実測（HEAD） | 一致 |
+|---|---|---|---|
+| 1.1 | `story_deps.py included ST25 ST22` ・ `test -f deletion.rs && grep "erased" stays.ts` ・ `CT st25_allow_registry_covers_archive` | rc=0 / rc=0 / 1 本 passed | 一致 |
+| 1.2〜1.4 | `CT st25_allow_` / `st25_fold_` / `st25_range_` | 18 / 5 / 4 本（`-- --list`）、`cargo test st25_` 全体で 88 passed・0 failed | 一致 |
+| 2.1 / 2.2 | `CT st25_api_records_`・`tools/check-openapi.sh` / `CT st25_api_unchanged_` | 6 本 / rc=0 / 1 本 | 一致 |
+| 3.1〜3.4 | `CT st25_usage_` / `st25_summary_` / `st25_other_` / `st25_api_day_`・check-openapi | 7 / 12 / 4 / 3 本・rc=0 | 一致 |
+| 4.1 / 4.2 | `CT st25_gaprow_` / `st25_browser_` | 12 / 6 本 | 一致 |
+| 5.1 / 5.2 | `CT st25_reasons_` / `st25_nostay_` | 8 / 1 本 | 一致 |
+| **6.1** | `stack.sh up` → `seed.sh normal` ×2 → `curl $BIND/day?date=2026-09-07 \| jq -e …` | **rc=22**（R20）。口を 19050 に直すと seed 2 回とも rc=0・jq true | **不一致** |
+| 7.1 | `VT st25-routes.test.tsx`・`! grep "Scenario: 稼働状況の画面の入口は変わらない"` | 9 passed / rc=0 | 一致 |
+| 7.2 | `npx vitest run`・`! grep "api/stays?date" DayView.tsx` | 30 files・235 passed / rc=0 | 一致 |
+| 7.3 | `grep "#/coverage" docs/screens.md`・`ET stack.spec.ts`・`ET coverage-year.spec.ts` | rc=0 / e2e 全体の中で通過 | 一致 |
+| 8.1〜8.3 | `VT st25-summary` / `st25-gaps` / `st25-contrast` | 13 / 25 / 1 passed | 一致 |
+| 9.1 / 9.2 | `VT st25-open` / `st25-fold` | 8 / 4 passed | 一致 |
+| 10.1〜10.4 | `ET day-timeline.spec.ts`・`grep -c "^test(" … \| xargs test 14 -le` | e2e 49 passed（`WEB_PORT=5925 CI=1 STACK_RESET=1`。5180 は ashiato2-integ の vite が持っていて、既定のままだと別の画面へログインして 401）/ 14 | 一致（ただし R19） |
+| 11.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | rc=0 / rc=0 / rc=0（この change の 86 Scenario はすべて印あり） | 一致 |
+| 11.2 | fmt / clippy -D warnings / `cargo test --workspace` / `npm run lint && test && build` / check-openapi / `tools/smoke.sh` | rc=0 / rc=0 / 639 passed / rc=0・235 passed・rc=0 / rc=0 / 「縦串 OK」 | 一致 |
+| 11.3 | `test -s review/handoff.md && grep $(git log -1 --format=%h -- docs/handoff)` | rc=0 | 一致 |
+
+手 1（固定値の再計算）: 該当なし。確かめた範囲: (a) `TIMELINE_PAIRS` の 6 組をトークンの HSL から python（`colorsys`・WCAG の式・8 bit に丸め）で計算し直した ——
+ライト 6.88 / 7.44 / 12.41 / 6.31、ダーク 6.58 / 8.31 / 8.03 / 5.09。どれも 4.5 以上で、`toneContrast` の判定と一致する。
+(b) `st25_api_unchanged_events_and_stays_shapes` の鍵の直書きを、変更前（11b7d1f4）の `docs/openapi.json` から取り直した ——
+`/events` は `event_time,id,logical_source,origin,raw,tz_id`、`/stays` は `criteria,date,entries` で一致する（`stay_store.rs` は origin/main との差分 0）。
+
+手 2（ガードを壊す）: 該当なし。確かめた範囲（複製した worktree で 1 か所ずつ壊して戻した）: `from >= to` の 400 を `>` にすると `st25_api_records_empty_range_is_400` が落ちる /
+`fold_visits` を外すと `st25_fold_same_visit_from_two_pcs_is_one` が落ちる / spec の印を 1 つ消すと `check_scenarios.py` が `FAIL (担保なし 1 件)`・rc=1 /
+ルートの既定を稼働状況に戻すと vitest が 5 本落ちる。
+
+手 4（本人の決定）: Q1 の値は落ちる。`SUMMARY_TOP` 3→4（サーバ 4 本・画面 4 本が落ちる）、`AWAY_ROW_MIN_MINUTES` 10→9（サーバ 2 本・画面 2 本）、
+`>=` → `>`（サーバ・画面とも「ちょうど 10 分」の 1 本）、画面の離席の絞り込みを外す（1 本）、上位の `slice` を外す（2 本）、
+`PHONE_USE_CAP_MINUTES` 10→15（2 本）。Q2 の（4）・Q4 のルートは手 2 のとおり。値で落ちないのは D5（仮）の 40 日だけ（R24）。
+Q6（消す口を足さない）は「しない」で、固定する試験は無い（Non-Goals のため指摘にしない）。
+
+手 6（隙間）: この Story は読むだけで、書く・捨てる経路が無い（`stay_store.rs` は main との差分 0。D14）。「捨てたものは復元できない」型は無い。
+見つかったのは表示の欠け（R21・R24）と、検証の台本が別の DB へ書きにいく経路（R20）。
+
+## R19. 「閉じた行は 200 px を超えない」「開いてすぐ 6 行以上」は、spec の「いつもの日」の前提（ブラウザの記録がある）を欠いた偽データで緑になっている。ブラウザの訪問が入ると 204.3 px で落ちる
+- 成果物: web/e2e/day-timeline.spec.ts:102・127 / tools/seed.sh:319-324 / web/src/DayView.tsx（要約の行）
+- 根拠: spec.md:495「いつもの日（滞在 9 件・PC とブラウザとスマホの記録がある日）」。HEAD の偽データの 2026-09-07 は `seed.sh` が
+  「ブラウザの訪問は入れない（external_id_kind が 'none'）」で、`/day` の entries のうち `summary.browser` を持つ行は **0**（stay 9・move 9・no-record 2）。
+  e2e は PC の 1,000 件の前提だけを確かめ（:93）、ブラウザの前提は見ていない。
+  (1) 複製の木で `/api/day` に滞在の行だけブラウザの要約（github.com 18・docs.rs 7・example.com 5）を足して測った: 全体が入る行 **6 → 4**、最も高い行 **166.3 → 204.3 px**。
+  (2) ST25 の使い捨て DB で `c02-browser-history` の `external_id_kind` を `record`（ST08 の移行後の値）にして `seed.sh normal` を入れ直した（訪問 179 件、要約に出る行 12）:
+  `npx playwright test e2e/day-timeline.spec.ts` → **13 passed / 1 failed**、`閉じた行はどれも 200 px 以下` が `Expected: <= 200 / Received: 204.296875`。
+  **ST08 の移行が main に入った時点で、この e2e は main で赤になる**（feat/st08-browser-history は走っている）
+- kind: technical
+- 提案: e2e に PC と同じ形で前提を足す（ブラウザの要約を持つ行が 1 つ以上・滞在 9 件。満たさなければ前提の崩れとして落とす）。
+  そのうえで、ブラウザの要約が入った行が 200 px に収まるよう行の組み方を直すか、spec の数値をどう扱うかを決める。6 行の側は余裕が 0（いまちょうど 6）
+- 処置: fixed D15 仮 —— 反転条件どおり上限を 200 → 240 px に見直した（726ac79b。spec の Requirement と Scenario 名・design D15 の ★ 2026-10-12・tasks 10.x の Scenario 名）。`external_id_kind` を `record` にして `seed.sh normal` を入れた ST25 の DB で、滞在の行の最大は 223.3 px（要約の欄 249 px で PC・ブラウザが各 3 行に折り返す）。行間は UIR-25 の下限ちょうど（R17）、見出しと「長さ ・ 範囲」は ST22 の正典の Scenario なので「詰める」は採らなかった。6 行以上は変えていない。e2e は滞在 9 件・PC とスマホの要約を前提として落とし、ブラウザの要約が無い（ST08 の移行の前）ときは注記に残す。ブラウザ入りの DB で `day-timeline.spec.ts` 14 passed、作り直した DB（`CI=1 STACK_RESET=1`）で e2e 全体 49 passed
+
+## R20. 6.1 の検証コマンドは Story の worktree で別のサーバを叩き、HEAD で rc=22 になる。`seed.sh` も同じ口へ書きにいく
+- 成果物: openspec/changes/st25-day-timeline/tasks.md（6.1）/ tools/seed.sh:19 / tools/ports.sh
+- 根拠: 6.1 は `. ./.env` の後に `curl "http://$BIND/day…"` を撃つ。`.env` の `BIND` は 127.0.0.1:18787、`stack.sh` は `tools/ports.sh` で
+  この worktree の口（19000+2×25 = **19050**）に差し替えて立てる（`stack.sh:25`）。`seed.sh:19` の `BIND="${BIND:-…}"` は `.env` の 18787 を優先する。
+  HEAD で tasks の本文どおりに走らせて **rc=22**（`seed.sh` の最初の `curl -f` で止まる）。このとき 127.0.0.1:18787 には ashiato2-integ のサーバ（pid 845459、cwd `/home/yosis/dev/ashiato2-integ`）が
+  待ち受けていて `/events` が 401 だったので書き込まれなかった。**API_TOKEN が同じなら、ST25 の偽データ 1,937 件がほかの worktree の DB に入る。**
+  `BIND=127.0.0.1:19050` を渡すと seed 2 回とも rc=0・`jq -e` が true（中身は合っている）。
+  6.1 の PASS の証跡は 8fcde699（2026-10-02）だけで、`tools/ports.sh` の導入（430196c9、2026-10-05）より前
+- kind: technical
+- 提案: 6.1 の検証を `plan_fix.py` で直す（`. tools/ports.sh` の後の `127.0.0.1:$ASHIATO_HTTP_PORT` を撃ち、`seed.sh` にも同じ `BIND` を渡す）。
+  `seed.sh` が `.env` の `BIND` を worktree の口より優先する順は ST05（ports.sh）の側の事なので `docs/handoff/` に書く
+- 処置: escalated —— 6.1 の検証コマンドは凍結した tasks.md の中にあり、直すには `plan_fix.py` と人間の承認が要る（deep.md Q9。`docs/briefs/ST25-deep-r4.html`）。再現: 18787 は ashiato2-integ のサーバのまま。`seed.sh` の口の順（`.env` の BIND が worktree の口より先）は ST05 の ports の割り当ての後続（被らない割り当ての fix）で拾うものとして Q9 の「効く先」に書いた
+
+## R21. 日付をまたいだ「いま離席中」が、今日にも前の日にも行として出ない
+- 成果物: crates/server/src/day_records.rs:415-430（`normalize_all` の `open` の条件）
+- 根拠: 複製の木に探りの試験を足して実行した —— 2026-09-06 23:50 の `idle enter`（leave なし）、いま = 2026-09-07 00:30 で
+  `GET /day?date=2026-09-07` の離席の行 **0**、`date=2026-09-06` も **0**。条件 `jst_date(row.event_time) == jst_date(now)` が、前の日に始まった離席を今日の側で落とす。
+  spec.md:363 は「今日の画面では、いまの時刻より後を取れていない時間の行にしない」だけで、日をまたぐ場合を除いていない。
+  FR-83 の本文（何も無い時間を「PC を使っていなかった」と読ませない）が、0 時を挟んで離席している間だけ崩れる。leave が届けば戻る（記録は失われない）
+- kind: technical
+- 提案: `open` を「leave が無く、enter が今日の終わりより前で、いまが enter より後」にし、今日の範囲は日の端で切る。
+  前の日 23:50 の enter と 0:30 のいまで、今日に「離席 0:00 – 0:30」が出る試験を足す
+- 処置: fixed 4.1 —— leave の無い enter は今日か前の日に始まったものをいままでの離席にし、行は日の端で切る（4221f2e2。`st25_gaprow_away_now_from_the_previous_day_is_a_row_on_both_days`: 前の日 23:50 の enter・いま 0:30 で、今日に 0:00 – 0:30、前の日に 23:50 – 24:00。単体の `st25_allow_row_open_enter_is_away_until_now_from_today_or_the_previous_day`）。古い条件に戻すと 2 本が落ちる。2 日前より前の enter は従来どおりいままでにしない（leave の届かなかった古い enter を毎日の離席にしない）
+
+## R22. tasks.md の 3.3 と 8.1 が、Q7 で名前を変えた Scenario を古い名前のまま挙げている
+- 成果物: openspec/changes/st25-day-timeline/tasks.md:86・152
+- 根拠: `grep -rn "今日の最後の位置の後の記録はほかの記録の行に出る"` → tasks.md:86・152（と evidence.jsonl の古い警告）だけ。spec.md:272 の名前は「…記録なしの行に出る」で、
+  試験の印（day_tests.rs・st25-summary.test.tsx）は新しい名前。3.3 の本文も「今日の最後の位置からいままで」に `kind: "other"` の行を足すと書き、Q7 の決定（足さない）と逆
+- kind: technical
+- 提案: `plan_fix.py` で 3.3・8.1 の Scenario 名と 3.3 の本文を Q7 に合わせる
+- 処置: fixed 3.3 —— tasks 3.3・8.1 の Scenario 名を「…記録なしの行に出る」に、3.3 の本文を Q7（今日の最後の位置からいままでは記録なしの行に要約を添える）に揃えた（726ac79b）。検証コマンドは変えていない
+
+## R23. 「行を開くとその時間の記録が時刻順に出る」の「アドレスは変わらない」を試験が観測していない
+- 成果物: web/src/__tests__/st25-open.test.tsx:68
+- 根拠: 試験は `expect(window.location.hash).not.toContain("records")` だけ。複製の木で行を開く処理（DayView.tsx:229）に
+  `window.history.replaceState(null, "", "#/day/x/open")` を足しても `npx vitest run src/__tests__/st25-open.test.tsx` → **8 passed**
+- kind: technical
+- 提案: 開く前の `location.hash` を取っておき、開いた後に等しいことを確かめる
+- 処置: fixed 9.1 —— 開く前の `location.hash` を取り、開いた後に等しいことを確かめる（c8ea9a1b）。DayView.tsx:229 に `replaceState(null, "", "#/day/x/open")` を足すと `st25-open.test.tsx` が 1 本落ちる
+
+## R24. D5（仮）の 40 日を 1 日にしても全部の試験が通る
+- 成果物: crates/server/src/day_records.rs:23（`RANGE_MARGIN_DAYS`）/ day_records_tests.rs（`st25_range_`）
+- 根拠: 複製の木で 40 → 1 にして `cargo test -p ashiato-server st25_` → **88 passed / 0 failed**。区間の記録はスマホの取りこぼし（`gap`）が `event_time` を終わりに置き（`Span::BeginEnd`）、
+  PC の停止は始まりに置く（`Span::EndKey`）ので、幅が足りないと日の外から続く区間が黙って消える。いまの試験の区間は最長でも前の日 23:40 からで、1 日の幅に収まる
+- kind: technical
+- 提案: 終わりが 2 日以上先のスマホの取りこぼしと、始まりが 2 日以上前の PC の停止がその日に出る試験を 1 本ずつ足し、`RANGE_MARGIN_DAYS` を名指しで固定する
+- 処置: fixed 1.4 —— `RANGE_MARGIN_DAYS` を名指しで 40 と固定し、39 日前に始まる PC の停止と 39 日後に終わるスマホの取りこぼしがその日に出る試験を足した（4221f2e2。`st25_range_long_intervals_within_the_margin_are_returned`）。2 日にすると落ちる
+
+## R25. 画面の文字を言う Scenario のうち 6 本が、サーバの試験（JSON）だけで担保されている
+- 成果物: crates/server/src/day_tests.rs / web/src/__tests__/st25-summary.test.tsx
+- 根拠: 印の置き場を全 86 本について grep した。「離席の時間はアプリを使った時間に数えない」「10 分に満たない離席も使った時間から差し引く」
+  「スマホの使った時間は 1 回 10 分で打ち切る」「同じ時間のアプリは名前の順に並ぶ」「ドメインは www を外して小文字で束ねる」「日付をまたぐ行の要約は両方の日で同じ」は
+  THEN が「その行の要約に…出る」（画面の文字）なのに、印は `day_tests.rs` だけ。Global Constraints は「画面の文字を言う Scenario は、サーバの試験と jsdom の両方に印」。
+  tasks 8.1 の Scenario の一覧がこの 6 本を落としていて、計画の段で抜けた
+- kind: technical
+- 提案: st25-summary.test.tsx に、サーバの試験と同じ値の `/api/day` を描いて「VS Code 25 分」「Mail · Slack の順」「example.com 2」を確かめる試験を足し、印を置く
+- 処置: fixed 8.1 —— 6 本の Scenario に、サーバの試験と同じ値の `/api/day` を描いて画面の文字を確かめる jsdom の試験と印を足した（c8ea9a1b。「VS Code 0:25」「VS Code 0:24」「地図 0:10」「Mail 0:20 · Slack 0:20」「example.com 2」・日をまたぐ滞在を両方の日で描いて同じ文字）。tasks 8.1 の Scenario の一覧にも足した（726ac79b）
+
+## scoped re-review（e9d3a0b..726ac79）: R19・R21〜R25 は ADDRESSED、R20 は deep.md Q9 に積んだ（escalated）。新たな Critical / Important なし
+
+残りの Minor は 2 件。tasks 10.1 の本文に「200 以下」が残っていた件は、R19 の直しの書き換え漏れなので、同じ直しの中で 240 に揃えた。
+design D15 の「200 px は ST16 の実測…」の件は、直後の ★ 2026-10-12 の注記で経緯として読めるので残した（指摘にしない）。

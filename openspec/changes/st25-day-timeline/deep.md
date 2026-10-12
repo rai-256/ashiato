@@ -160,6 +160,21 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
   (b) 11.1 の検証を「FAIL の担保なしが REMOVED の 1 件だけ」を見るコマンドに `plan_fix.py` で直す
 - **効く先**: tasks.md 11.1 / `.harness2/scripts/check_scenarios.py`
 
+### Q9. 6.1 の検証コマンドが Story の worktree で別のサーバを叩く（A / premise。code-verify R20）
+
+- **本人の答え**: (未回答)
+- **何が崩れたか**: 6.1 の検証は `. ./.env` の後に `tools/seed.sh normal` を 2 回と `curl "http://$BIND/day…"` を撃つ。書いた時点（2026-10-02）は
+  `.env` の `BIND`（127.0.0.1:18787）が自分のサーバだった。その後 `tools/ports.sh`（430196c9、2026-10-05。ST05）が入り、`stack.sh` は
+  worktree の口（`-st25` なら 19000+2×25 = 19050）でサーバを立てるようになった。`seed.sh:19` の `BIND="${BIND:-…}"` は `.env` の 18787 を優先し、
+  curl も 18787 を撃つ。**18787 には ashiato2-integ のサーバが待ち受けていて、HEAD で rc=22**（seed の最初の `curl -f` が 401 で止まる）。
+  API_TOKEN が同じなら、ST25 の偽データがほかの worktree の DB に入る
+- **実証**: code-verify が HEAD e9d3a0bd で tasks の本文どおりに走らせて rc=22。`BIND=127.0.0.1:19050` を渡すと seed 2 回とも rc=0・`jq -e` が true（中身は合っている）。
+  6.1 の PASS の証跡は 8fcde699（2026-10-02）だけで、`ports.sh` の導入より前。main の checkout と CI（名前が `-stNN` で終わらない）では 18787 が自分のサーバなので通る
+- **提案する正式な入口**: (a) 6.1 の検証を `plan_fix.py` で直す —— `. tools/ports.sh` の後に `BIND=127.0.0.1:$ASHIATO_HTTP_PORT` を `seed.sh` と curl の両方に渡す（中身の判定は変えない）。
+  `plan_fix.py` は旧コマンドの FAIL の証跡を要るので、承認の後に `scripts/verify-run 6.1` で FAIL を記録してから直す /
+  (b) 直さない（main と CI では通る）。Story の worktree で 6.1 を走らせ直す人は `BIND` を渡す
+- **効く先**: tasks.md 6.1 / `tools/seed.sh:19`（`.env` の `BIND` を worktree の口より優先する順は ST05 の ports の割り当ての後続 —— 被らない割り当ての fix で拾う）
+
 ## 要件へ戻すもの
 
 - **FR-56** —— 「その日の記録を時刻順に表示する」の形を Q1 で本人が決めた。1 行の単位は滞在（と移動・記録なし・取れていない時間）、
