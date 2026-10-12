@@ -10,7 +10,7 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 ## Global Constraints
 
 - **ST17 は ST16 の滞在と ST22 の削除の上に積み、ST25 の 1 日の画面に差す。** `/stays` と `core.stay_absorbed` は読むだけ。**`browsing-views` は ST25 が走っている間は触らない**
-  （admission が ST25 の archive を待つ）。Task 1.1 が ST25 の archive を確かめる。無ければ始めない
+  （ST25 は `requires` にある。下流の入口が ST25 の gate を通った実装を取り込むまで始まらない —— archive は待たない。2026-10-12 の訂正）。Task 1.1 が ST25 の実装が**作業ブランチにある**ことを確かめる（`deps.json` に記録した SHA が HEAD に含まれる）。無ければ始めない
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript / Kotlin はコメント（`// Scenario: 快–不快だけで記録が 1 件入る`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
 - **この change の Scenario は全部 ADDED**（`subjective-log` と `browsing-views`）。全部をこのファイルのどこかの Task が名指しする
@@ -46,8 +46,8 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 
 `migrations/YYYYMMDDHHMM_subjective_log.sql` と `.down.sql`（作成時刻）、`crates/server/src/lib.rs` の `MIGRATIONS` の末尾、`grants.sql`。試験は `crates/server/src/feelings_tests.rs`（新規）。design D2 / D9 / D15 / D16。
 
-- [ ] 1.1 前提を確かめる: ST25 が archive 済み、ST22 の `deletion.rs` と `core.stay_absorbed` がある。
-  検証: `bash -c 'ls -d openspec/changes/archive/*-st25-day-timeline && test -f crates/server/src/deletion.rs && grep -q stay_absorbed migrations/*_stays.sql'`
+- [ ] 1.1 前提を確かめる: ST25 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含む）、ST22 の `deletion.rs` と `core.stay_absorbed` がある。
+  検証: `bash -c 'python3 scripts/story_deps.py included ST17 ST25 && test -f crates/server/src/deletion.rs && grep -q stay_absorbed migrations/*_stays.sql'`
 - [ ] 1.2 移行を書く: 登録簿 `('s01-feeling','主観',86400,'none')`、`core.feeling_target_kind`（日・滞在の 2 行。追記のみ）、`core.feeling_reminder`（追記のみ）、
   主観の行の 3 つの錠（`core.reject_feeling_rewrite` / `core.require_feeling_erasure_ledger` / `core.reject_feeling_delete`）。当て直せる形。`.down.sql` は行が残っていれば表と登録簿を残す。
   Scenario: `主観の値を書き換える文は拒まれる` / `主観の紐づけ先は書き換えられない` / `主観の出来事の時刻は書き換えられない` / `主観の行は削除できない` /
