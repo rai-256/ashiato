@@ -8,7 +8,7 @@
 ## 動かす
 
 ```powershell
-$env:ASHIATO_BASE_URL  = "http://127.0.0.1:8787"
+$env:ASHIATO_BASE_URL  = "http://127.0.0.1:18787"
 $env:ASHIATO_API_TOKEN = "<合言葉>"
 $env:ASHIATO_USER_ID   = "<uuid>"
 $env:ASHIATO_DEVICE_ID = "pc-01"

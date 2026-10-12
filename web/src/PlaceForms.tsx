@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UNREACHABLE_MESSAGE, emptyInput, validFromOf, type ClaimInput, type Precision, type SendOutcome } from "./attributes";
-import { FOCUS_ATTR } from "./DayView";
-import { control } from "./controls";
+import { control, primary } from "./controls";
+import { msg } from "./messages";
 import { Band } from "./PlaceBand";
 import {
   CANDIDATE_TOP,
@@ -23,16 +23,22 @@ import {
   type PlaceField,
   type Registration,
 } from "./places";
-import { MIN_TARGET_PX, SCHEMES, tone, type Scheme } from "./tokens";
+import { FOCUS_ATTR } from "./scheme";
+import { inputStyle } from "./surface";
+import { MIN_TARGET_PX, RADIUS, SCHEMES, SECTION_PAD_PX, SPACE, TYPE, tone, type Scheme } from "./tokens";
+
+const m = msg("master");
+const t = m.places;
+const common = msg("common");
 
 /** 読み出しの状態。**「読み込み中」「失敗」「居た所が無い」を分ける**（spec）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
 
 const PRECISIONS: { value: Precision; label: string }[] = [
-  { value: "year", label: "年" },
-  { value: "month", label: "年月" },
-  { value: "day", label: "年月日" },
-  { value: "unknown", label: "分からない" },
+  { value: "year", label: m.precision.year },
+  { value: "month", label: m.precision.month },
+  { value: "day", label: m.precision.day },
+  { value: "unknown", label: m.precision.unknown },
 ];
 
 const focus = { [FOCUS_ATTR]: "" };
@@ -67,15 +73,15 @@ export function useCandidates(active: boolean, reloadKey: number): Load<Candidat
 
 /** 読み出し中・失敗・居た所が無い、の表示。出すものが無ければ `null`。 */
 function CandidatesNote({ state, shown }: { state: Load<Candidate[]>; shown: number }): React.ReactElement | null {
-  if (state.at === "loading") return <p data-testid="candidates-loading">読み込み中…</p>;
+  if (state.at === "loading") return <p data-testid="candidates-loading">{common.loading}</p>;
   if (state.at === "failed") {
     return (
       <p role="alert" data-testid="candidates-failed">
-        居た所を読み出せませんでした（{state.why}）。
+        {t.candidatesFailed(state.why)}
       </p>
     );
   }
-  return shown === 0 ? <p data-testid="candidates-empty">居た所がまだありません。</p> : null;
+  return shown === 0 ? <p data-testid="candidates-empty">{t.candidatesEmpty}</p> : null;
 }
 
 /** 上位 10 件と「残り N か所」。押すと全部出る。 */
@@ -89,7 +95,7 @@ function useTop<T>(items: T[]): { shown: T[]; rest: number; showAll: () => void 
 function RestButton({ rest, onClick, scheme }: { rest: number; onClick: () => void; scheme: Scheme }): React.ReactElement | null {
   return rest > 0 ? (
     <button type="button" {...focus} style={control(scheme)} onClick={onClick}>
-      残り {rest} か所
+      {t.rest(rest)}
     </button>
   ) : null;
 }
@@ -124,7 +130,7 @@ function useSender(onDone: () => Promise<void>): {
 
 function Problem({ text }: { text: string | null }): React.ReactElement | null {
   return text === null ? null : (
-    <p role="alert" data-testid="place-problem" style={{ fontSize: 14, margin: "0 0 8px" }}>
+    <p role="alert" data-testid="place-problem" style={{ fontSize: TYPE.caption, margin: "0 0 8px" }}>
       {text}
     </p>
   );
@@ -152,9 +158,9 @@ function Radio({
 function RadiusChoice({ name, value, onChange }: { name: string; value: number; onChange: (m: number) => void }): React.ReactElement {
   return (
     <fieldset style={{ border: "none", padding: 0, margin: "0 0 8px" }}>
-      <legend style={{ fontSize: 14 }}>広さ</legend>
-      {RADIUS_CHOICES.map((m) => (
-        <Radio key={m} name={name} label={`${m} m`} checked={value === m} onChange={() => onChange(m)} />
+      <legend style={{ fontSize: TYPE.caption }}>{t.radiusLegend}</legend>
+      {RADIUS_CHOICES.map((r) => (
+        <Radio key={r} name={name} label={t.meters(r)} checked={value === r} onChange={() => onChange(r)} />
       ))}
     </fieldset>
   );
@@ -193,19 +199,19 @@ export function AddPanel({
   const list = state.at === "ok" ? state.value : [];
   const { shown, rest, showAll } = useTop(list);
   return (
-    <div data-testid="place-add-panel" style={{ marginBottom: 8 }}>
+    <div data-testid="place-add-panel" style={{ marginBottom: SPACE.underTools }}>
       <CandidatesNote state={state} shown={list.length} />
       {shown.map((cand) => (
-        <div key={`${cand.lat},${cand.lon}`} data-testid="place-candidate" style={{ background: tone(c.surface1), borderRadius: 8, padding: 8, marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <div key={`${cand.lat},${cand.lon}`} data-testid="place-candidate" style={{ background: tone(c.surface1), borderRadius: RADIUS.section, padding: SECTION_PAD_PX, marginBottom: SPACE.underTools }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: SPACE.targetGap }}>
             <span data-testid="candidate-total">{durationLabel(cand.stays.minutes)}</span>
-            <span data-testid="candidate-coord" style={{ fontSize: 14, color: tone(c.muted) }}>
+            <span data-testid="candidate-coord" style={{ fontSize: TYPE.caption, color: tone(c.muted) }}>
               {coordLabel(cand.lat, cand.lon)}
             </span>
           </div>
           <Band hours={cand.stays.hours} scheme={scheme} />
-          <p data-testid="candidate-meta" style={{ margin: "0 0 4px", fontSize: 14, color: tone(c.muted) }}>
-            {cand.stays.count} 件 · {cand.stays.first_day} 〜 {cand.stays.last_day}
+          <p data-testid="candidate-meta" style={{ margin: "0 0 4px", fontSize: TYPE.caption, color: tone(c.muted) }}>
+            {t.candidateMeta(cand.stays.count, cand.stays.first_day, cand.stays.last_day)}
           </p>
           {chosen !== null && sameCoord(chosen, cand) ? (
             <AddForm
@@ -219,7 +225,7 @@ export function AddPanel({
             />
           ) : (
             <button type="button" {...focus} style={control(scheme)} onClick={() => setChosen(cand)}>
-              名前を付ける
+              {t.giveName}
             </button>
           )}
         </div>
@@ -263,31 +269,31 @@ function AddForm({
       return sendPlaceRecords(reg.records);
     });
 
-  const field = { ...control(scheme), width: "100%", boxSizing: "border-box" as const };
+  const field = { ...inputStyle(c), width: "100%", boxSizing: "border-box" as const };
   return (
-    <div data-testid="place-add-form" style={{ background: tone(c.surface2), borderRadius: 8, padding: 8 }}>
-      <label style={{ display: "block", marginBottom: 4, fontSize: 14 }}>
-        名前
-        <input aria-label="名前" value={name} {...focus} style={field} onChange={(e) => setName(e.target.value)} />
+    <div data-testid="place-add-form" style={{ background: tone(c.surface2), borderRadius: RADIUS.control, padding: SECTION_PAD_PX }}>
+      <label style={{ display: "block", marginBottom: 4, fontSize: TYPE.caption }}>
+        {t.name}
+        <input aria-label={t.name} value={name} {...focus} style={field} onChange={(e) => setName(e.target.value)} />
       </label>
       {/* 座標は居た所の中心。**書き換えられない**ので入力欄にしない */}
-      <p data-testid="place-add-coord" style={{ margin: "0 0 8px", fontSize: 14 }}>
+      <p data-testid="place-add-coord" style={{ margin: "0 0 8px", fontSize: TYPE.caption }}>
         {coordLabel(candidate.lat, candidate.lon)}
       </p>
       <RadiusChoice name="add-radius" value={radius} onChange={setRadius} />
-      <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
-        補足（任意）
-        <input aria-label="補足" value={note} {...focus} style={field} onChange={(e) => setNote(e.target.value)} />
+      <label style={{ display: "block", marginBottom: 8, fontSize: TYPE.caption }}>
+        {t.noteField}
+        <input aria-label={t.noteLabel} value={note} {...focus} style={field} onChange={(e) => setNote(e.target.value)} />
       </label>
       <Problem text={problem} />
       <div style={{ display: "flex", gap: 8 }}>
         {/* **送っている間は押せなくする**（押せると同じ場所が 2 つになる）。**名前が空白だけのうちも送らない**
             （名前だけ断られて、位置と補足の記録が名前の無い器に残る。D13（仮）） */}
-        <button type="button" disabled={sending || blank} {...focus} style={control(scheme)} onClick={() => void submit()}>
-          登録する
+        <button type="button" disabled={sending || blank} {...focus} style={primary(scheme)} onClick={() => void submit()}>
+          {t.register}
         </button>
         <button type="button" {...focus} style={control(scheme)} onClick={onCancel}>
-          やめる
+          {common.cancel}
         </button>
       </div>
     </div>
@@ -316,15 +322,15 @@ function ChangeFrame({
 }): React.ReactElement {
   const c = SCHEMES[scheme];
   return (
-    <div data-testid="place-change-form" style={{ background: tone(c.surface2), borderRadius: 8, padding: 8, marginTop: 4 }}>
+    <div data-testid="place-change-form" style={{ background: tone(c.surface2), borderRadius: RADIUS.control, padding: SECTION_PAD_PX, marginTop: 4 }}>
       {children}
       <Problem text={problem} />
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" disabled={disabled || sending} {...focus} style={control(scheme)} onClick={onSend}>
-          変える
+        <button type="button" disabled={disabled || sending} {...focus} style={primary(scheme)} onClick={onSend}>
+          {t.change}
         </button>
         <button type="button" {...focus} style={control(scheme)} onClick={onCancel}>
-          やめる
+          {common.cancel}
         </button>
       </div>
     </div>
@@ -381,20 +387,20 @@ export function ChangeForm({
       return sendPlaceRecords([record]);
     });
 
-  const field = { ...control(scheme), width: "100%", boxSizing: "border-box" as const };
+  const field = { ...inputStyle(SCHEMES[scheme]), width: "100%", boxSizing: "border-box" as const };
   return (
     <ChangeFrame scheme={scheme} disabled={spec === null} sending={sending} problem={problem} onSend={() => void submit()} onCancel={onCancel}>
       {kind === "name" && (
-        <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>
-          名前
-          <input aria-label="名前" value={name} {...focus} style={field} onChange={(e) => setName(e.target.value)} />
+        <label style={{ display: "block", marginBottom: 8, fontSize: TYPE.caption }}>
+          {t.name}
+          <input aria-label={t.name} value={name} {...focus} style={field} onChange={(e) => setName(e.target.value)} />
         </label>
       )}
       {kind === "radius" && <RadiusChoice name={`radius-${place.id}`} value={radius} onChange={setRadius} />}
       {kind === "coord" && (
         <>
           <fieldset style={{ border: "none", padding: 0, margin: "0 0 8px" }}>
-            <legend style={{ fontSize: 14 }}>新しい座標（名前の無い居た所から）</legend>
+            <legend style={{ fontSize: TYPE.caption }}>{t.newCoord}</legend>
             <CandidatesNote state={candidates} shown={options.length} />
             {shown.map((cand) => (
               <label
@@ -410,16 +416,16 @@ export function ChangeForm({
                   style={{ minWidth: MIN_TARGET_PX, minHeight: MIN_TARGET_PX }}
                   onChange={() => setPick(cand)}
                 />
-                {coordLabel(cand.lat, cand.lon)} · {durationLabel(cand.stays.minutes)} · 最後に居た日 {cand.stays.last_day}
+                {t.coordOption(coordLabel(cand.lat, cand.lon), durationLabel(cand.stays.minutes), cand.stays.last_day)}
               </label>
             ))}
             <RestButton rest={rest} onClick={showAll} scheme={scheme} />
           </fieldset>
           {/* **どちらも選ばないうちは送らせない**（FR-49。直すか移ったかの区別を残す） */}
           <fieldset style={{ border: "none", padding: 0, margin: "0 0 8px" }}>
-            <legend style={{ fontSize: 14 }}>座標を変える理由</legend>
-            <Radio name={`how-${place.id}`} label="前の座標が間違っていた" checked={how === "fix"} onChange={() => setHow("fix")} />
-            <Radio name={`how-${place.id}`} label="この場所が移った" checked={how === "move"} onChange={() => setHow("move")} />
+            <legend style={{ fontSize: TYPE.caption }}>{t.coordReason}</legend>
+            <Radio name={`how-${place.id}`} label={t.coordFix} checked={how === "fix"} onChange={() => setHow("fix")} />
+            <Radio name={`how-${place.id}`} label={t.coordMove} checked={how === "move"} onChange={() => setHow("move")} />
           </fieldset>
           {how === "move" && <MoveWhen scheme={scheme} placeName={place.name} placeId={place.id} value={when} onChange={setWhen} />}
         </>
@@ -442,27 +448,28 @@ function MoveWhen({
   value: ClaimInput;
   onChange: (v: ClaimInput) => void;
 }): React.ReactElement {
+  const c = SCHEMES[scheme];
   return (
     <>
       <fieldset style={{ border: "none", padding: 0, margin: "0 0 4px" }}>
-        <legend style={{ fontSize: 14 }}>いつから</legend>
+        <legend style={{ fontSize: TYPE.caption }}>{t.validFrom}</legend>
         {PRECISIONS.map((p) => (
           <Radio key={p.value} name={`precision-${placeId}`} label={p.label} checked={value.precision === p.value} onChange={() => onChange({ ...value, precision: p.value })} />
         ))}
       </fieldset>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         {value.precision !== "unknown" && (
-          <input aria-label="いつから（年）" value={value.year} {...focus} style={{ ...control(scheme), width: 90 }} onChange={(e) => onChange({ ...value, year: e.target.value })} />
+          <input aria-label={m.validFromYear} value={value.year} {...focus} style={{ ...inputStyle(c), width: 90 }} onChange={(e) => onChange({ ...value, year: e.target.value })} />
         )}
         {(value.precision === "month" || value.precision === "day") && (
-          <input aria-label="いつから（月）" value={value.month} {...focus} style={{ ...control(scheme), width: 64 }} onChange={(e) => onChange({ ...value, month: e.target.value })} />
+          <input aria-label={m.validFromMonth} value={value.month} {...focus} style={{ ...inputStyle(c), width: 64 }} onChange={(e) => onChange({ ...value, month: e.target.value })} />
         )}
         {value.precision === "day" && (
-          <input aria-label="いつから（日）" value={value.day} {...focus} style={{ ...control(scheme), width: 64 }} onChange={(e) => onChange({ ...value, day: e.target.value })} />
+          <input aria-label={m.validFromDay} value={value.day} {...focus} style={{ ...inputStyle(c), width: 64 }} onChange={(e) => onChange({ ...value, day: e.target.value })} />
         )}
       </div>
-      <p data-testid="move-note" style={{ margin: "0 0 8px", fontSize: 14 }}>
-        前の座標で居た時間も「{placeName}」のまま
+      <p data-testid="move-note" style={{ margin: "0 0 8px", fontSize: TYPE.caption }}>
+        {t.moveNote(placeName)}
       </p>
     </>
   );

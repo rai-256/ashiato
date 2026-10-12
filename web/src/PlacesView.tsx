@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useCallback, useEffect, useState } from "react";
-import { FOCUS_ATTR } from "./DayView";
 import { control } from "./controls";
+import { msg } from "./messages";
 import { Band } from "./PlaceBand";
 import { AddPanel, ChangeForm, useChangeOpen, type ChangeKind } from "./PlaceForms";
 import {
@@ -12,7 +12,12 @@ import {
   type Place,
   type PlacesData,
 } from "./places";
-import { SCHEMES, tone, type Scheme } from "./tokens";
+import { FOCUS_ATTR } from "./scheme";
+import { sectionStyle } from "./surface";
+import { font, SCHEMES, SPACE, TYPE, tone, type Scheme } from "./tokens";
+
+const m = msg("master").places;
+const common = msg("common");
 
 /** 読み出しの状態。**「読み込み中」「失敗」「場所がまだ無い」を分ける**（spec）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
@@ -53,21 +58,21 @@ export function PlacesView({ scheme }: { scheme: Scheme }): React.ReactElement {
 
   const registered = data.at === "ok" ? data.value.places.map((p) => p.coord) : [];
   return (
-    <section data-testid="places-view" aria-label="場所">
-      <div style={{ marginBottom: 8 }}>
+    <section data-testid="places-view" aria-label={m.section}>
+      <div style={{ marginBottom: SPACE.underTools }}>
         <button type="button" aria-expanded={adding} {...{ [FOCUS_ATTR]: "" }} style={control(scheme)} onClick={() => setAdding(!adding)}>
-          場所を足す
+          {m.add}
         </button>
       </div>
       {adding && <AddPanel scheme={scheme} reloadKey={reloadKey} onDone={reload} />}
-      {data.at === "loading" && <p data-testid="places-loading">読み込み中…</p>}
+      {data.at === "loading" && <p data-testid="places-loading">{common.loading}</p>}
       {/* **読み出しの失敗と「場所がまだ無い」を混ぜない**（spec）。混ぜるとサーバが落ちている間ずっと「場所が無い」と読める */}
       {data.at === "failed" && (
         <p role="alert" data-testid="places-failed">
-          場所を読み出せませんでした（{data.why}）。
+          {m.failed(data.why)}
         </p>
       )}
-      {data.at === "ok" && data.value.places.length === 0 && <p data-testid="places-empty">場所がまだありません。</p>}
+      {data.at === "ok" && data.value.places.length === 0 && <p data-testid="places-empty">{m.empty}</p>}
       {data.at === "ok" &&
         data.value.places.map((p) => (
           <PlaceCard key={p.id} place={p} registered={registered} scheme={scheme} reloadKey={reloadKey} onDone={reload} />
@@ -77,9 +82,9 @@ export function PlacesView({ scheme }: { scheme: Scheme }): React.ReactElement {
 }
 
 const CHANGES: [ChangeKind, string][] = [
-  ["name", "名前を変える"],
-  ["radius", "広さを変える"],
-  ["coord", "座標を変える"],
+  ["name", m.changeName],
+  ["radius", m.changeRadius],
+  ["coord", m.changeCoord],
 ];
 
 /** 場所 1 つぶんのカード。 */
@@ -104,19 +109,21 @@ function PlaceCard({
   return (
     <article
       data-testid="place-card"
-      style={{ background: tone(c.surface1), borderRadius: 8, padding: 8, marginBottom: 8 }}
+      style={sectionStyle(c, c.surface1)}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <h2 data-testid="place-name" style={{ font: "600 16px/1.4 system-ui, sans-serif", margin: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: SPACE.targetGap }}>
+        <h2 data-testid="place-name" style={{ font: font(TYPE.h2, 600, 1.3), margin: 0 }}>
           {place.name}
         </h2>
         <span data-testid="place-total">{durationLabel(stays.minutes)}</span>
       </div>
-      <p data-testid="place-meta" style={{ margin: 0, fontSize: 14, color: tone(c.muted) }}>
-        {stays.last_day === null ? "まだ居たことが無い" : `最後に居た日 ${stays.last_day}`} · 広さ {place.radius_m} m
+      <p data-testid="place-meta" style={{ margin: 0, fontSize: TYPE.caption, color: tone(c.muted) }}>
+        {stays.last_day === null ? m.neverStayed : m.lastDay(stays.last_day)}
+        {m.sep}
+        {m.radius(place.radius_m)}
       </p>
       <Band hours={stays.hours} scheme={scheme} />
-      <p data-testid="place-coord" style={{ margin: 0, fontSize: 14, color: tone(c.muted) }}>
+      <p data-testid="place-coord" style={{ margin: 0, fontSize: TYPE.caption, color: tone(c.muted) }}>
         {coordLabel(place.coord.lat, place.coord.lon)}
       </p>
       {previousCount > 0 && (
@@ -128,18 +135,20 @@ function PlaceCard({
             style={control(scheme)}
             onClick={() => setOpen(!open)}
           >
-            前の名前・座標 {previousCount} {open ? "▾" : "▸"}
+            {m.previous(previousCount, open)}
           </button>
           {open && (
-            <ul data-testid="place-previous" style={{ margin: "4px 0 0", paddingLeft: 20, fontSize: 14 }}>
+            <ul data-testid="place-previous" style={{ margin: "4px 0 0", paddingLeft: 20, fontSize: TYPE.caption }}>
               {place.previous_names.map((n) => (
                 <li key={n.record_id} data-testid="previous-name">
-                  前の名前: {n.name}
+                  {m.previousName(n.name)}
                 </li>
               ))}
               {place.previous_coords.map((k) => (
                 <li key={k.record_id} data-testid="previous-coord">
-                  {coordLabel(k.lat, k.lon)} · {previousCoordLabel(k, place)}
+                  {coordLabel(k.lat, k.lon)}
+                  {m.sep}
+                  {previousCoordLabel(k, place)}
                 </li>
               ))}
             </ul>
@@ -154,7 +163,7 @@ function PlaceCard({
             type="button"
             aria-expanded={change.open === kind}
             {...{ [FOCUS_ATTR]: "" }}
-            style={{ ...control(scheme), font: "400 14px/1.6 system-ui, sans-serif", padding: "4px 4px", flex: "1 1 auto" }}
+            style={{ ...control(scheme), padding: "4px 4px", flex: "1 1 auto" }}
             onClick={() => change.toggle(kind)}
           >
             {label}

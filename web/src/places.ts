@@ -13,6 +13,9 @@ import {
   type SendOutcome,
   type ValidFrom,
 } from "./attributes";
+import { msg } from "./messages";
+
+const t = msg("master").places;
 
 /** 場所の記録の 2 つの時刻。RFC 3339（地域のずれつき / UTC）。 */
 export interface RecordTimes {
@@ -165,7 +168,7 @@ export function isCandidatesView(v: unknown): v is CandidatesView {
 
 /** 合計の書き方。1 時間以上は「N 時間」（切り捨て）、未満は「N 分」。 */
 export function durationLabel(minutes: number): string {
-  return minutes >= 60 ? `${Math.floor(minutes / 60)} 時間` : `${minutes} 分`;
+  return minutes >= 60 ? t.hours(Math.floor(minutes / 60)) : t.minutes(minutes);
 }
 
 /** 座標の書き方。小数 4 桁（表示だけ。送る値は変えない）。 */
@@ -186,10 +189,10 @@ export function hourLevels(hours: number[]): number[] {
  * （応答は移る前の座標自身には移った日を持たない）。分からないときは日付を足さない。
  */
 export function previousCoordLabel(prev: PreviousCoord, place: Place): string {
-  if (prev.state === "fixed") return "直した";
+  if (prev.state === "fixed") return t.fixed;
   if (prev.state === "upcoming") {
     const date = prev.valid_from?.date;
-    return date ? `予定（${date} から）` : "予定";
+    return date ? t.upcomingFrom(date) : t.upcoming;
   }
   // サーバは前の座標を書いた順に返す。ここで「いつから」（valid_from）の順に並べ直して、直後の移転を引く
   const from = prev.valid_from?.date ?? "";
@@ -197,7 +200,7 @@ export function previousCoordLabel(prev: PreviousCoord, place: Place): string {
     .filter((c) => c.change === "move" && c.valid_from?.date && c.valid_from.date > from)
     .sort((a, b) => (a.valid_from?.date ?? "").localeCompare(b.valid_from?.date ?? ""))[0];
   const date = next?.valid_from?.date;
-  return date ? `移る前（〜${date}）` : "移る前";
+  return date ? t.beforeMoveUntil(date) : t.beforeMove;
 }
 
 /** 書く 1 項目（D2。1 記録 1 項目）。 */
@@ -292,29 +295,22 @@ export const DEFAULT_RADIUS_M = 100;
 export const CANDIDATE_TOP = 10;
 
 /** 器を作る求めの断り。押し直しで識別子を作り直す印（D13） */
-export const PLACE_ID_TAKEN = "place_id_taken";
+export const PLACE_ID_TAKEN = "place_id_taken" as const;
 
 /** 断られた理由を、本人に読める文にする（design D13 の表。種別ごとに文を分ける）。 */
 export function placeRejectionMessage(kind: string): string {
   switch (kind) {
     case "invalid_place_name":
-      return "名前が空です。名前を入れてください";
     case "invalid_radius":
-      return "広さが範囲の外です";
     case "invalid_valid_from":
-      return "「いつから」の日付が読めません";
     case "unknown_place":
-      return "この場所が見つかりません。画面を読み直してください";
     case "invalid_coord_supersedes":
-      return "直す座標が見つかりません。画面を読み直してください";
     case "invalid_coord_change":
-      return "この場所の座標の変え方が合いません。画面を読み直してください";
     case "invalid_coordinate":
-      return "座標が読めません";
     case PLACE_ID_TAKEN:
-      return "場所を作れませんでした。もう一度「登録する」を押してください";
+      return t.rejection[kind];
     default:
-      return `受け付けられませんでした（${kind}）`;
+      return t.rejectedOther(kind);
   }
 }
 

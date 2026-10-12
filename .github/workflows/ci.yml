@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      # 単体 86 本 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
+      # 単体 + 実行時テスト。前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
       # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
       - shell: pwsh
@@ -187,6 +187,9 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with: { distribution: temurin, java-version: "21" }
+      # lint（2026-10-11）: detekt の既定 + formatting（ktlint）。今ある違反は config/detekt-baseline.xml に
+      # 凍結してあり、**新しい違反だけ**で落ちる（設定は config/detekt.yml）。
+      - run: ./gradlew detekt
       # ubuntu ランナーには Android SDK が入っている。ローカルと同じ wrapper を使う。
       - run: ./gradlew :app:assembleDebug
       # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。
@@ -260,7 +263,8 @@ jobs:
     # 有無の判定と checkout の 2 か所だけに渡す。
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with: { persist-credentials: false }
+        # fetch-depth: 0 —— check_chain の 10（judged の無い Story は git blame で推す）と 11（整合の確認の基準の commit を読む）が履歴を要る
+        with: { persist-credentials: false, fetch-depth: 0 }
       # 網の名前・私設 IP が入っていないこと。**何が変わっても必ず見る** ——
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。

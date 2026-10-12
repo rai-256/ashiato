@@ -7,6 +7,10 @@
 
 画面と API の 2 本。サーバは `BIND`（既定 `127.0.0.1:18787`）、画面は `WEB_PORT`（既定 `5180`）。
 
+> ★ 2026-10-11 訂正（2026-10-11 の整合の確認 K12）。コードの既定（`crates/server/src/net_guard.rs` の `DEFAULT_BIND`）が `8787` で、
+> `.env.example` の `18787` と食い違い、README どおりの C-02 が繋がらなかった。**コードの既定と C-02 の起動例を `18787` に揃えた**
+> （`tools/ports.sh` と Android の計測テストが既に `18787` を使っていたので、そちらに寄せた）。
+
 ```bash
 tailscale serve --bg --https=18787 http://127.0.0.1:18787   # API
 tailscale serve --bg --https=5180  http://127.0.0.1:5180    # 画面
@@ -30,7 +34,7 @@ C-02 の `ASHIATO_BASE_URL` は loopback のままでよい。
 
 ## 4. 電話を落としたとき
 
-収集側の合言葉（`API_TOKEN`）は ST29 まで全読みのまま（Q4）。落とした電話・古い APK の合言葉で読まれた記録は戻らない。次の順で締め出す:
+収集側の合言葉（`API_TOKEN`）は ST29 まで全読みのまま（Q4）。★ 2026-10-11（2026-10-11 の整合の確認）: 要件の改訂で ST29 の範囲が変わる（資格情報は衛星ごと。PERM-10★ / PERM-14）。中身はそのまま有効。収集アプリは衛星ではないので（要件 §1.3）、宛先の「ST29」をどの Story に付け替えるかは `/stories` で決める。落とした電話・古い APK の合言葉で読まれた記録は戻らない。次の順で締め出す:
 
 1. 網（管理画面）から**その電話のノードを外す**
 2. `.env` の `API_TOKEN` を変えて、APK と C-02 を入れ直す
@@ -48,7 +52,8 @@ C-02 の `ASHIATO_BASE_URL` は loopback のままでよい。
 
 実データの入った DB に触るので、**退避を先に**。この順で行う:
 
-1. `pg_dump` で退避する（`tools/db-roles.sh` は所有を移すだけで行を変えないが、実データの DB に対する初めての操作なので）
+1. `pg_dump` で退避する（`tools/db-roles.sh` は所有を移すだけで行を変えないが、実データの DB に対する初めての操作なので）。
+   ★ 2026-10-11: 3 の `ashiato-server migrate` も当てる前に自動で退避する（`MIGRATE_BACKUP_DIR`。手元に `pg_dump` が無ければ `PG_DUMP` で場所を指す）。1 は `db-roles.sh` の前の退避として残す
 2. `.env` に 4 つの秘密（`POSTGRES_PASSWORD` / `OWNER_DB_PASSWORD` / `APP_DB_PASSWORD` / `WEB_PASSWORD`。`openssl rand -hex 24`）を足し、
    `DATABASE_URL` をアプリの役割に、`DATABASE_OWNER_URL` を足す（`.env.example` を見る）
 3. `tools/db-roles.sh` → `ashiato-server migrate` → サーバ

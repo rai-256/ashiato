@@ -1256,6 +1256,68 @@ async fn stay_day_query_uses_index() {
     );
 }
 
+/// 消すときの連鎖の重なりの判定（`overlaps_erased_sql`）が、基準のソースを始まりの時刻の上下限で
+/// 索引から引く（final review 第 2 回 R73）。終わりで重なりを見る式だけにしていたときは、索引が上側しか
+/// 絞れず、基準のソースの全履歴の payload を読んでいた。
+#[tokio::test]
+async fn stay_erase_overlap_bounds_the_base_source_by_index() {
+    let (fresh, drop) = fresh_db().await;
+    let got = async {
+        for (_, sql) in crate::MIGRATIONS {
+            sqlx::raw_sql(sql).execute(&fresh).await?;
+        }
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, device_id, origin, event_time,
+                tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+             SELECT gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'c01-location', 'd',
+                    'collected', '2026-08-01T00:00:00+09:00'::timestamptz + make_interval(mins => i),
+                    540, 'Asia/Tokyo', 1, gen_random_uuid()::text,
+                    '{\"lat\":35.68,\"lon\":139.76}', '{\"lat\":35.68,\"lon\":139.76}'
+               FROM generate_series(0, 14 * 1440 - 1) AS i",
+        )
+        .execute(&fresh)
+        .await?;
+        sqlx::raw_sql("ANALYZE core.event").execute(&fresh).await?;
+        let sources =
+            stay_store::with_archive_sources(&crate::stay::Criteria::default_values().sources);
+        let (points, intervals) = stay_store::split_by_span(&sources);
+        let array = |v: &[String]| format!("'{{{}}}'::text[]", v.join(","));
+        let sql = format!(
+            "SELECT id FROM core.event WHERE user_id = $1 AND {} AND deleted_at IS NULL",
+            stay_store::overlaps_erased_sql("core.event", "$2", "$5", "$3", "$4")
+        )
+        .replace("$1", "'00000000-0000-0000-0000-000000000000'::uuid")
+        .replace("$2", &array(&points))
+        .replace("$3", "'2026-08-07T12:00:00+09:00'::timestamptz")
+        .replace("$4", "'2026-08-07T13:00:00+09:00'::timestamptz")
+        .replace("$5", &array(&intervals));
+        let plan: Vec<(String,)> = sqlx::query_as(&format!("EXPLAIN {sql}"))
+            .fetch_all(&fresh)
+            .await?;
+        Ok::<_, sqlx::Error>((
+            points,
+            plan.into_iter().map(|(l,)| l).collect::<Vec<_>>().join("\n"),
+        ))
+    }
+    .await;
+    drop.await;
+    let (points, plan) = got.unwrap();
+    assert!(points.contains(&"c01-location".to_owned()));
+    assert!(
+        !plan.contains("Seq Scan on event"),
+        "連鎖の重なりの判定が全走査になる:\n{plan}"
+    );
+    assert!(
+        // どの索引に乗るか（`event_by_source_time` か `event_by_user_time_live`）は統計で変わる。
+        // 見るのは、始まりの時刻の下限と上限の両方が索引の条件に入っていること。
+        plan.lines().any(|line| line.contains("Index Cond")
+            && line.contains("event_time >=")
+            && line.contains("event_time <=")),
+        "基準のソースが始まりの時刻の上下限で索引から引かれない:\n{plan}"
+    );
+}
+
 /// 使い捨ての DB を作る。**戻り値の 2 つ目を必ず待つ**（接続を閉じて DB を消す）。
 async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
     let admin = testdb::pool().await;

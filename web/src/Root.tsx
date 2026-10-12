@@ -4,7 +4,12 @@ import { App, todayInTz } from "./App";
 import { DayView } from "./DayView";
 import { MasterView } from "./MasterView";
 import { dayFromHash, isRealDate } from "./stays";
-import { SCHEMES, tone } from "./tokens";
+import { msg } from "./messages";
+import { useScheme } from "./scheme";
+import { linkStyle, pageStyle } from "./surface";
+import { SCHEMES } from "./tokens";
+
+const m = msg("root");
 
 /**
  * 画面の行き先を決める（ST16 / design D8）。**S-1（稼働状況）はルートのまま** ——
@@ -13,6 +18,7 @@ import { SCHEMES, tone } from "./tokens";
  */
 export function Root(): React.ReactElement {
   const [hash, setHash] = useState(() => window.location.hash);
+  const c = SCHEMES[useScheme()];
   useEffect(() => {
     const on = (): void => setHash(window.location.hash);
     window.addEventListener("hashchange", on);
@@ -28,11 +34,11 @@ export function Root(): React.ReactElement {
     return (
       <main
         data-testid="day-invalid"
-        style={{ background: tone(SCHEMES.dark.ground), color: tone(SCHEMES.dark.text), minHeight: "100vh", padding: 12 }}
+        style={pageStyle(c)}
       >
-        <p role="alert">アドレスの日付（{day}）を日付として読めません。</p>
-        <a href="#/day/" style={{ color: tone(SCHEMES.dark.text), minHeight: 24, minWidth: 24, display: "inline-flex", alignItems: "center" }}>
-          今日の一覧へ
+        <p role="alert">{m.invalidDate(day)}</p>
+        <a href="#/day/" style={linkStyle(c)}>
+          {m.toToday}
         </a>
       </main>
     );

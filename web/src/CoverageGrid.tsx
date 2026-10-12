@@ -2,7 +2,7 @@
 import { useState } from "react";
 import {
   bandOf,
-  dropMarkLightness,
+  dropMarkTone,
   dropNotes,
   foldIntoWeeks,
   hasDropMark,
@@ -12,7 +12,12 @@ import {
   type SourceCoverage,
   type Week,
 } from "./coverage";
-import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, tone } from "./tokens";
+import { msg } from "./messages";
+import { FOCUS_ATTR, useScheme } from "./scheme";
+import { controlStyle, sectionStyle } from "./surface";
+import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SPACE, TYPE, tone, type Scheme, type SchemeColors } from "./tokens";
+
+const m = msg("grid");
 
 /**
  * ソース 1 本ぶんの格子（FR-54 / 深掘り Q6, 第 4 回 Q15, 第 5 回 Q20/Q21, 第 6 回 Q25, 第 7 回 Q28）。
@@ -22,7 +27,10 @@ import { BAND, MIN_TARGET_PX, SECTION_GAP_PX, SECTION_PAD_PX, SURFACE, TEXT, ton
  * - **セルは表示専用。選ぶ単位は週**（NFR-19 の 24 × 24 px を割らないため）
  * - 格子のセルが担うのは **3 段**。8 状態の区別は**週を選んだときの文字**
  */
-export function CoverageGrid({ source }: { source: SourceCoverage }): React.ReactElement {
+export function CoverageGrid({ source, annotation }: { source: SourceCoverage; annotation?: string }): React.ReactElement {
+  // **OS の明暗に追従する**（NFR-17。2026-10-12 まで S-1 はダークしか無かった）
+  const scheme = useScheme();
+  const c = SCHEMES[scheme];
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   // **退役したソースは既定で畳む**（ST03 の R63 / 第 8 回 Q30）—— 退役は 1 本きりではなく
@@ -41,29 +49,29 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
       aria-label={source.display_name}
       data-source={source.logical_source}
       data-retired={source.retired_on ?? ""}
-      style={{
-        background: tone(SURFACE.surface2),
-        borderRadius: 15,
-        // **ひとスクロールの勘定に効く**（第 8 回 Q30）。`one-scroll.test.tsx` が
-        // ここに宣言されている値を DOM から積んで、固定の予算と突き合わせる
-        padding: SECTION_PAD_PX,
-        marginBottom: SECTION_GAP_PX,
-      }}
+      // **ひとスクロールの勘定に効く**（第 8 回 Q30）。`one-scroll.test.tsx` が
+      // ここに宣言されている値（余白・枠線）を DOM から積んで、固定の予算と突き合わせる
+      style={sectionStyle(c, c.surface2)}
     >
       {/* **ソース名の文字**。色を意味の担い手にしない（ui-direction の宿題 1 / 第 4 回 Q15） */}
-      <h2 style={{ color: tone(TEXT.normal), font: "600 15px/1.3 system-ui, sans-serif", margin: "0 0 8px" }}>
+      <h2 style={{ color: tone(c.text), font: font(TYPE.body, 600, 1.3), margin: "0 0 8px" }}>
         {source.display_name}
+        {annotation !== undefined && (
+          <span data-testid={`archive-note-${source.logical_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
+            {m.archiveNote(annotation)}
+          </span>
+        )}
         {/* **乗り換えが起きたことを文字で出す**（review/code-r2.md の I3）。
             名指しした名前と先端が違うのに黙っていると、本人には
             「c02-window が消えて知らない名前が増えた」ようにしか見えない */}
         {source.named_source !== source.logical_source && (
-          <span data-testid={`succeeded-${source.named_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
-            {` — ${source.named_source} を引き継ぎ`}
+          <span data-testid={`succeeded-${source.named_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
+            {m.succeeded(source.named_source)}
           </span>
         )}
         {retired && (
-          <span data-testid={`retired-${source.logical_source}`} style={{ color: tone(TEXT.muted), font: "400 13px/1.3 system-ui, sans-serif" }}>
-            {` — ${source.retired_on} に退役`}
+          <span data-testid={`retired-${source.logical_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
+            {m.retired(source.retired_on)}
           </span>
         )}
       </h2>
@@ -74,6 +82,7 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
             key={week.start}
             week={week}
             selected={week.start === selected}
+            scheme={scheme}
             onSelect={() => setSelected(week.start === selected ? null : week.start)}
           />
         ))}
@@ -81,23 +90,14 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
 
       <button
         type="button"
+        {...{ [FOCUS_ATTR]: "" }}
         onClick={() => setExpanded(!expanded)}
-        style={{
-          minHeight: MIN_TARGET_PX,
-          minWidth: MIN_TARGET_PX,
-          marginTop: 8,
-          background: "transparent",
-          border: `1px solid ${tone(TEXT.muted)}`,
-          borderRadius: 8,
-          color: tone(TEXT.normal),
-          font: "400 13px/1.4 system-ui, sans-serif",
-          padding: "4px 12px",
-        }}
+        style={{ ...controlStyle(c), font: font(TYPE.caption, 400, 1.4), marginTop: 8 }}
       >
-        {expanded ? "直近だけにする" : retired ? "退役したソースを見る" : "1 年ぶんを見る"}
+        {expanded ? m.collapse : retired ? m.showRetired : m.expand}
       </button>
 
-      {selectedWeek !== null && <WeekDetail week={selectedWeek} />}
+      {selectedWeek !== null && <WeekDetail week={selectedWeek} c={c} />}
     </section>
   );
 }
@@ -114,12 +114,15 @@ const DROP_MARK_PX = 12;
 function WeekRow({
   week,
   selected,
+  scheme,
   onSelect,
 }: {
   week: Week;
   selected: boolean;
+  scheme: Scheme;
   onSelect: () => void;
 }): React.ReactElement {
+  const c = SCHEMES[scheme];
   return (
     // **`role="row"` を付けない**（review/code.md の R35 / I6）。`<button>` に付けると
     // 暗黙の button ロールを上書きし、**この画面で唯一の操作対象が支援技術から消える**。
@@ -127,9 +130,10 @@ function WeekRow({
     // 選択中であることが伝わらなくなっていた。行であることは `data-week` で足りる。
     <button
       type="button"
-      aria-label={`${week.start} の週`}
+      aria-label={m.week(week.start)}
       aria-pressed={selected}
       data-week={week.start}
+      {...{ [FOCUS_ATTR]: "" }}
       onClick={onSelect}
       style={{
         display: "flex",
@@ -141,14 +145,17 @@ function WeekRow({
         // **余白はここに置かない**（第 8 回 Q30 の勘定）。セルどうしの間は `gap` が担い、
         // 行どうしの間は取らない —— 行 1 本あたり 2 px でも 5 ソース × 4 行で 40 px になる
         padding: 0,
+        // 帯は文字を持たない。地の本文の行の高さ（15.5 px × 1.7 = 26.35 px）を継がせると、
+        // 空のセルの箱が 24 px より高く積まれる（ひとスクロールの勘定。第 8 回 Q30）
+        font: font(TYPE.caption, 400, 1),
         // **選択を面の明るさで表さない**（review/code.md の R34 / I5 / F12）。
-        // `surface1`(18%) の上だと、いちばん暗い段（9%）との比が **1.422:1** に落ちて
-        // **いちばん見たい週で格子がいちばん読めなくなる**。輪郭なら段の色に触らない
-        // （`muted` は surface2 の上で 5.195:1）。
+        // 面を変えると、いちばん見たい週で格子がいちばん読めなくなる。輪郭なら段の色に触らない
+        // （`muted` は面の 3 段すべてに 4.5:1 以上）。
+        // **輪郭は内側の影で描く**（2026-10-12）。`outline` に書くと、フォーカスの輪郭
+        // （`[data-focus-ring]:focus-visible` の outline）を style 属性が上書きして消す（NFR-22）
         background: "transparent",
         border: "none",
-        outline: selected ? `2px solid ${tone(TEXT.muted)}` : "none",
-        outlineOffset: -2,
+        boxShadow: selected ? `inset 0 0 0 2px ${tone(c.muted)}` : "none",
         borderRadius: 4,
         cursor: "pointer",
       }}
@@ -165,11 +172,13 @@ function WeekRow({
             flex: 1,
             // **セルは表示専用**（Q16）。高さは帯に従い、幅は 7 等分
             minHeight: MIN_TARGET_PX,
-            borderRadius: 2,
+            borderRadius: RADIUS.cell,
             // 印を右下に置くための基準（セルの大きさは変えない）
             position: "relative",
             overflow: "hidden",
-            background: cell === null ? "transparent" : tone(BAND[bandOf(cell.state)]),
+            background: cell === null ? "transparent" : tone(c.cell[bandOf(cell.state)]),
+            // 「それ以外」の段は節の面に近いので、控えめな文字の色の縁で広がりを読ませる（NFR-23）
+            boxShadow: cell !== null && bandOf(cell.state) === "other" ? `inset 0 0 0 1px ${tone(c.muted)}` : "none",
           }}
         >
           {cell !== null && hasDropMark(cell) && (
@@ -186,7 +195,7 @@ function WeekRow({
                 height: 0,
                 borderStyle: "solid",
                 borderWidth: `0 0 ${DROP_MARK_PX}px ${DROP_MARK_PX}px`,
-                borderColor: `transparent transparent ${tone(dropMarkLightness(bandOf(cell.state)))} transparent`,
+                borderColor: `transparent transparent ${tone(dropMarkTone(bandOf(cell.state), scheme))} transparent`,
               }}
             />
           )}
@@ -203,13 +212,13 @@ function WeekRow({
  * 明度だけでは 7 段を分けられない（3^6 = 729:1 > sRGB の 21:1）ので、
  * 区別の担い手はこの文字。
  */
-function WeekDetail({ week }: { week: Week }): React.ReactElement {
+function WeekDetail({ week, c }: { week: Week; c: SchemeColors }): React.ReactElement {
   return (
     <dl
       data-testid="week-detail"
       style={{
-        color: tone(TEXT.normal),
-        font: "400 13px/1.6 system-ui, sans-serif",
+        color: tone(c.text),
+        font: font(TYPE.caption, 400, 1.6),
         margin: "12px 0 0",
       }}
     >
@@ -217,8 +226,8 @@ function WeekDetail({ week }: { week: Week }): React.ReactElement {
       {week.days
         .filter((cell): cell is NonNullable<typeof cell> => cell !== null)
         .map((cell) => (
-          <div key={cell.day} style={{ display: "flex", gap: 8 }}>
-            <dt style={{ color: tone(TEXT.muted), minWidth: "6.5em" }}>{cell.day}</dt>
+          <div key={cell.day} style={{ display: "flex", gap: SPACE.targetGap }}>
+            <dt style={{ color: tone(c.muted), minWidth: "6.5em" }}>{cell.day}</dt>
             <dd style={{ margin: 0 }} data-state={cell.state}>
               {STATE_NAME[cell.state]}
               {/* **期間と件数はここだけに書く**（ST04 / 深掘り Q3）。一覧は作らない */}

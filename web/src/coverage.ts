@@ -3,7 +3,11 @@
  * 稼働状況の型と、状態の読み方。**形は `crates/server/src/coverage.rs` が正典**
  * （契約は `docs/openapi.json`）。
  */
-import { BAND, INITIAL_WEEKS, TEXT, YEAR_WEEKS } from "./tokens";
+import { msg } from "./messages";
+import { BAND_NAMES, INITIAL_WEEKS, SCHEMES, YEAR_WEEKS, type Hsl, type Scheme } from "./tokens";
+
+const m = msg("grid");
+const LOCALE = msg("locale");
 
 /** ソース × 日 の 8 状態（FR-54）。⑧「退役」は ST03 の差し戻し（R55 / R56）。 */
 export type DayState =
@@ -20,19 +24,10 @@ export type DayState =
  * 8 状態の名前。**週を選んだときにこの文字が出る**（深掘り 第 5 回 Q20 / Q21）——
  * 格子は 3 段しか担わないので、**区別の担い手はここ**。
  */
-export const STATE_NAME: Record<DayState, string> = {
-  recorded: "記録あり",
-  alive_no_record: "動いていた・記録なし",
-  alive_not_capturable: "動いていたが取れない状態だった",
-  stopped: "意図的な停止",
-  dropped: "破棄された期間",
-  outage: "途絶",
-  before_start: "導入前",
-  retired: "退役",
-};
+export const STATE_NAME: Record<DayState, string> = m.state;
 
 /** 格子のセルが担う 3 段。 */
-export type Band = keyof typeof BAND;
+export type Band = (typeof BAND_NAMES)[number];
 
 /**
  * 8 状態を 3 段へ畳む（design D10）。
@@ -74,26 +69,27 @@ export function hasDropMark(cell: DayCell): boolean {
 }
 
 /**
- * 印を描く明るさ（design D10（仮））。**段ごとに変える** —— 1 色だと「それ以外」の段の上で見えない。
+ * 印を描く色（design D10（仮））。**段ごとに変える** —— 1 色だと「それ以外」の段の上で見えない。
  *
- * 「記録あり」と「動いていた・記録なし」の上は最も暗い段、「それ以外」の上は控えめな文字の明るさ。
+ * 「記録あり」と「動いていた・記録なし」の上は「それ以外」の段の色、「それ以外」の上は控えめな文字の色。
  * **新しい色は足さない**（`tokens.ts` の既存の値だけを使う）。比は `drop-mark.test.tsx` が値から数える。
  */
-export function dropMarkLightness(band: Band): number {
-  return band === "other" ? TEXT.muted : BAND.other;
+export function dropMarkTone(band: Band, scheme: Scheme): Hsl {
+  const c = SCHEMES[scheme];
+  return band === "other" ? c.muted : c.cell.other;
 }
 
 /** 週の詳細に添える破棄の文字（design D10）。丸ごとの日は件数だけ、それ以外は区間ごとに「うち N 件を破棄（from〜to）」。 */
 export function dropNotes(cell: DayCell): string[] {
   const count = cell.dropped_count ?? 0;
   if (cell.state === "dropped") {
-    return count > 0 ? [`— ${count.toLocaleString("ja-JP")} 件`] : [];
+    return count > 0 ? [m.droppedCount(count.toLocaleString(LOCALE))] : [];
   }
   // 件数を持たない区間（時間ごとの件数が無い範囲・前の区間に数えた時間）は件数を添えない（design D19）
   return (cell.dropped_ranges ?? []).map((r) =>
     r.count > 0
-      ? `うち ${r.count.toLocaleString("ja-JP")} 件を破棄（${r.from}〜${r.to}）`
-      : `破棄（${r.from}〜${r.to}）`,
+      ? m.droppedRange(r.count.toLocaleString(LOCALE), r.from, r.to)
+      : m.droppedRangeNoCount(r.from, r.to),
   );
 }
 

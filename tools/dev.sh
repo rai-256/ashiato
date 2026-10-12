@@ -18,7 +18,8 @@ cargo fetch -q
 echo "== DB を起動"
 docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
-echo "== 移行（所有者の接続）"
+echo "== 移行（所有者の接続。当てる前に退避する。手元に pg_dump が無ければ db のコンテナの中の pg_dump）"
+command -v pg_dump >/dev/null 2>&1 || export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
 cargo run -q -p ashiato-server --bin ashiato-server -- migrate
 
 echo "== サーバと画面を起動（Ctrl-C で両方止まる）"
