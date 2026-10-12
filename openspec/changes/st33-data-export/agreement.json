@@ -1,9 +1,11 @@
 {
-  "status": "accepted",
+  "status": "rejected",
   "digest": "6ade929010571daeb65f4a8d376efcec3cf3722e78a6355cf81fac1459ad7208",
-  "head": "e52dcf1db65b66769675533a569d29432591529a",
-  "answers": "deep-answers-4.txt",
-  "picked": "合意する",
-  "notes": [],
-  "at": "2026-10-12T11:48:40Z"
+  "head": "02c209146337af9758947bbda3deba953c820f4f",
+  "answers": "st33-agree-return.txt",
+  "picked": "違和感がある",
+  "notes": [
+    "補足: 2026-10-13 本人の決定「spec の段からやり直す」。深掘り第 3 回 Q9（合言葉で暗号化した 1 つのファイル）と、main に入った ST12（書庫の位置にも削除の印が付く）が spec・design・tasks に写っていない（docs/audit/2026-10-13-st33-merge-consistency.md の C1 / C2 / K1 / K2）。写した後の GO 資料で合意を取り直す"
+  ],
+  "at": "2026-10-12T23:56:55Z"
 }
