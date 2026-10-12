@@ -162,7 +162,11 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
 
 ### Q9. 6.1 の検証コマンドが Story の worktree で別のサーバを叩く（A / premise。code-verify R20）
 
-- **本人の答え**: (未回答)
+- **本人の答え**: 「6.1 の検証コマンドを plan_fix.py で直す」（`deep-answers-3.txt` の第 4 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: 6.1 の検証コマンドを `plan_fix.py` で直す。`. tools/ports.sh` の後に `BIND=127.0.0.1:$ASHIATO_HTTP_PORT` を `seed.sh` と curl の両方に渡し、
+  判定の中身（seed 2 回・`jq -e`）は変えない。手順は、先に旧コマンドのまま `scripts/verify-run 6.1` で FAIL を記録し、その証跡を添えて `plan_fix.py` で直してから
+  新しいコマンドで `scripts/verify-run 6.1` を PASS にする。`tools/seed.sh:19` の口の優先順（`.env` の `BIND` が worktree の口より先）はこの Story では直さず、
+  ports の被らない割り当ての fix で拾う（ST05 の後続）
 - **何が崩れたか**: 6.1 の検証は `. ./.env` の後に `tools/seed.sh normal` を 2 回と `curl "http://$BIND/day…"` を撃つ。書いた時点（2026-10-02）は
   `.env` の `BIND`（127.0.0.1:18787）が自分のサーバだった。その後 `tools/ports.sh`（430196c9、2026-10-05。ST05）が入り、`stack.sh` は
   worktree の口（`-st25` なら 19000+2×25 = 19050）でサーバを立てるようになった。`seed.sh:19` の `BIND="${BIND:-…}"` は `.env` の 18787 を優先し、
