@@ -354,7 +354,7 @@ fn st25_allow_row_unlisted_sources_are_not_normalized() {
 }
 
 #[test]
-fn st25_allow_row_open_enter_is_away_until_now_only_today() {
+fn st25_allow_row_open_enter_is_away_until_now_from_today_or_the_previous_day() {
     let now: DateTime<Utc> = "2026-09-07T05:00:00Z".parse().unwrap();
     let enter = |at: &str| {
         row(
@@ -376,7 +376,10 @@ fn st25_allow_row_open_enter_is_away_until_now_only_today() {
     let out = normalize_all(&[enter("2026-09-07T04:00:00Z"), leave], now);
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].end, Some("2026-09-07T04:20:00Z".parse().unwrap()));
-    // 今日でない enter はいままでにしない
+    // 前の日に始まった enter も、0 時をまたいでいままでの離席にする（R21）
+    let out = normalize_all(&[enter("2026-09-06T14:50:00Z")], now);
+    assert_eq!((out.len(), out[0].end), (1, Some(now)));
+    // 前の日より前の enter はいままでにしない（leave の届かなかった古い enter を毎日の離席にしない）
     assert!(normalize_all(&[enter("2026-09-05T04:00:00Z")], now).is_empty());
 }
 
@@ -660,6 +663,30 @@ async fn st25_range_interval_from_previous_day_is_returned() {
         .await
         .unwrap();
     assert_eq!(prev.len(), 1);
+}
+
+/// 区間の記録は、`event_time` が日から `RANGE_MARGIN_DAYS`（D5（仮）の 40 日）以内なら日の外からでも返る。
+/// PC の停止は始まりに、スマホの取りこぼしは終わりに `event_time` を置く（code-verify R24）。
+#[tokio::test]
+async fn st25_range_long_intervals_within_the_margin_are_returned() {
+    assert_eq!(RANGE_MARGIN_DAYS, 40, "D5（仮）の幅");
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let d0: DateTime<Utc> = "2026-09-06T15:00:00Z".parse().unwrap(); // 9 月 7 日 0:00（JST）
+    let iso = |t: DateTime<Utc>| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    // 39 日前に始まり、9 月 7 日の 1:00 まで続く PC の停止
+    let start = iso(d0 - Duration::days(RANGE_MARGIN_DAYS - 1));
+    let end = iso(d0 + Duration::hours(1));
+    let p = json!({"kind":"powered-off","at":start,"range_end":end});
+    Put::new(u, "c02-window", &start, p).run(&pool).await;
+    // 9 月 7 日の 5:00 に始まり、39 日後に終わるスマホの取りこぼし
+    let begin = iso(d0 + Duration::hours(5));
+    let until = iso(d0 + Duration::days(RANGE_MARGIN_DAYS - 1));
+    let p = json!({"kind":"gap","begin":begin,"end":until,"reason":"retention"});
+    Put::new(u, "c01-app-usage", &until, p).run(&pool).await;
+    let mut kinds: Vec<Kind> = listed(&pool, u).await.iter().map(|n| n.kind).collect();
+    kinds.sort_by_key(|k| k.as_str());
+    assert_eq!(kinds, vec![Kind::Stopped, Kind::Unavailable]);
 }
 
 // Scenario: 他の日の記録は返らない

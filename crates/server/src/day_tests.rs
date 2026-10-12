@@ -970,6 +970,42 @@ async fn st25_gaprow_away_now_is_a_row_today() {
 }
 
 #[tokio::test]
+async fn st25_gaprow_away_now_from_the_previous_day_is_a_row_on_both_days() {
+    // Scenario: いま離席中の時間は今日の行になる
+    // 0 時をまたいで離席している間も、今日の側に 0:00 からいままでの行が出る（code-verify R21）
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let enter = json!({"kind": "idle", "transition": "enter", "at": "2026-09-06T23:50:00+09:00"});
+    put(
+        &pool,
+        u,
+        "c02-window",
+        "pc-1",
+        "2026-09-06T23:50:00+09:00",
+        enter,
+    )
+    .await;
+    let now = t("2026-09-07T00:30:00+09:00");
+    let v = view(&pool, u, DATE, now).await;
+    let today = gaps_of(&v, GapKind::Away);
+    assert_eq!(today.len(), 1, "{today:?}");
+    assert_eq!(
+        (today[0].start, today[0].end),
+        (t("2026-09-07T00:00:00+09:00"), now)
+    );
+    let v = view(&pool, u, "2026-09-06", now).await;
+    let before = gaps_of(&v, GapKind::Away);
+    assert_eq!(before.len(), 1, "{before:?}");
+    assert_eq!(
+        (before[0].start, before[0].end),
+        (
+            t("2026-09-06T23:50:00+09:00"),
+            t("2026-09-07T00:00:00+09:00")
+        )
+    );
+}
+
+#[tokio::test]
 async fn st25_gaprow_stopped_is_clipped_to_the_day_end() {
     // Scenario: PC の停止は行になる
     let pool = testdb::pool().await;

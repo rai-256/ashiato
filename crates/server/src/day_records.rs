@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::stay_store::{day_bounds, jst_date};
 
 /// 区間の記録の始まり・終わりを、`event_time` の置き方がソースで違っても拾える幅（D5）。
-const RANGE_MARGIN_DAYS: i64 = 40;
+pub(crate) const RANGE_MARGIN_DAYS: i64 = 40;
 
 /// 記録の種類（D2 の表の「種類」）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -410,7 +410,8 @@ fn is_leave(row: &StoredEvent) -> bool {
 /// 行の並びを正規化する（`now` は離席中の判定用）。
 ///
 /// 離席は leave の記録だけを使う（区間は leave が持つ）。leave の無い enter は、
-/// **今日に限り** enter の時刻からいままでの離席にする。leave は enter と同じ時刻・同じ端末に積まれる
+/// **今日か前の日に始まったものに限り** enter の時刻からいままでの離席にする（0 時をまたいで離席している間も
+/// 今日の側に出す。日の端で切るのは行を作る側。code-verify R21）。leave は enter と同じ時刻・同じ端末に積まれる
 /// （`engine.rs` の `leave_record(since, …)`）ので、その組で対にする。
 pub(crate) fn normalize_all(rows: &[StoredEvent], now: DateTime<Utc>) -> Vec<Norm> {
     let left: HashSet<(Option<&str>, DateTime<Utc>)> = rows
@@ -423,7 +424,7 @@ pub(crate) fn normalize_all(rows: &[StoredEvent], now: DateTime<Utc>) -> Vec<Nor
         if is_enter(row) {
             let open = !left.contains(&(row.device_id.as_deref(), row.event_time))
                 && row.event_time <= now
-                && jst_date(row.event_time) == jst_date(now);
+                && jst_date(now) - jst_date(row.event_time) <= Duration::days(1);
             if open {
                 out.push(Norm {
                     id: row.id,
