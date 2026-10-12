@@ -145,17 +145,19 @@ describe("要約の文字", () => {
     expect(within(items[1]).getByTestId("summary-pc").textContent).toContain("PC 30 分");
   });
 
-  // Scenario: 今日の最後の位置の後の記録はほかの記録の行に出る
-  it("並びの終わりにほかの記録の行が出る", async () => {
+  // Scenario: 今日の最後の位置の後の記録は記録なしの行に出る
+  it("並びの終わりの記録なしの行に PC の要約が出て、ほかの記録の行は無い", async () => {
     serve([
       stay(),
-      { kind: "other", start: at("13:00"), end: at("14:30"), summary: { pc: { seconds: 600, top: [{ app: "VS Code", seconds: 600 }] } } },
+      { kind: "no-record", start: at("13:00"), end: at("14:30"), summary: { pc: { seconds: 600, top: [{ app: "VS Code", seconds: 600 }] } } },
     ]);
     const list = await rows();
     const items = within(list).getAllByRole("listitem");
     const last = items[items.length - 1];
-    expect(last.textContent).toContain("ほかの記録 13:00 – 14:30");
-    expect(within(last).getByTestId("summary-pc")).toBeTruthy();
+    expect(last.getAttribute("data-kind")).toBe("no-record");
+    expect(last.textContent).toContain("記録なし 13:00 – 14:30");
+    expect(within(last).getByTestId("summary-pc").textContent).toContain("PC");
+    expect(within(list).queryByTestId("row-other")).toBeNull();
   });
 
   it("形が違う応答は失敗として出す", async () => {
