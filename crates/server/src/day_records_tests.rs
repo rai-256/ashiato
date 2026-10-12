@@ -841,6 +841,65 @@ async fn st25_api_records_range_returns_overlapping_only() {
     assert_eq!(rows[1]["start"], "2026-09-07T01:30:00Z");
 }
 
+// 日をまたぐ行（09-07 23:00 – 09-08 02:00 JST の滞在）を 09-08 の画面から開くと、前の日の側の記録も出る。
+// **明示の `from` / `to` は日の端で切らない**（design D7。行の範囲は行の実際の始まりから終わりまで）
+#[tokio::test]
+async fn st25_api_records_explicit_range_is_not_clamped_to_the_date() {
+    let app = app().await;
+    let pool = &app.pool;
+    let u = testdb::user();
+    // 09-07 23:30 JST = 14:30Z（前の日の側）と 09-08 01:00 JST = 16:00Z（その日の側）
+    for at in ["2026-09-07T14:30:00Z", "2026-09-07T16:00:00Z"] {
+        Put::new(u, "c02-window", at, foreground(at, "Code"))
+            .run(pool)
+            .await;
+    }
+    let got = call(
+        &app,
+        auth(),
+        u,
+        "2026-09-08",
+        Some(("2026-09-07T14:00:00Z", "2026-09-07T17:00:00Z")),
+    )
+    .await
+    .unwrap();
+    let starts: Vec<&str> = got
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["start"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        starts,
+        ["2026-09-07T14:30:00Z", "2026-09-07T16:00:00Z"],
+        "{got}"
+    );
+    // 範囲を省けば日の端（09-08 の 0:00 から）のまま
+    let got = call(&app, auth(), u, "2026-09-08", None).await.unwrap();
+    let starts: Vec<&str> = got
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["start"].as_str().unwrap())
+        .collect();
+    assert_eq!(starts, ["2026-09-07T16:00:00Z"], "{got}");
+}
+
+// 始まりが終わり以後の範囲は、黙って空を返さず断る
+#[tokio::test]
+async fn st25_api_records_empty_range_is_400() {
+    let app = app().await;
+    for range in [
+        ("2026-09-07T02:00:00Z", "2026-09-07T01:00:00Z"),
+        ("2026-09-07T01:00:00Z", "2026-09-07T01:00:00Z"),
+    ] {
+        let err = call(&app, auth(), testdb::user(), "2026-09-07", Some(range))
+            .await
+            .unwrap_err();
+        assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST, "{range:?}");
+    }
+}
+
 // Scenario: 日付として読めない求めは断られる
 #[tokio::test]
 async fn st25_api_records_invalid_date_is_400() {

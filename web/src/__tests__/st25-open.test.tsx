@@ -67,6 +67,18 @@ describe("開いた行の中身", () => {
     expect(window.location.hash).not.toContain("records");
   });
 
+  // 日をまたぐ行は、その日の端で切らずに行の実際の始まりと終わりで読む（design D7）
+  it("前の日 23:00 から続く滞在を開くと、from は前の日の 23:00 のまま", async () => {
+    recordsFor = () => [];
+    const across = { kind: "stay", start: "2026-09-06T23:00:00+09:00", end: at("02:00"), id: "s1", criteria_id: 1 };
+    const list = await show([across]);
+    fireEvent.click(toggle(within(list).getByTestId("row-stay")));
+    await screen.findByTestId("records");
+    expect(calls.filter((c) => c.startsWith("/api/day/records"))).toEqual([
+      `/api/day/records?date=${DATE}&from=${encodeURIComponent("2026-09-06T23:00:00+09:00")}&to=${encodeURIComponent(at("02:00"))}`,
+    ]);
+  });
+
   // Scenario: 位置の点は件数で出る
   // Scenario: 滞在の詳細の消す操作は残る
   it("位置は 1 件ずつの行にならず「場所 120 件」。「この滞在を消す」は末尾に残る", async () => {

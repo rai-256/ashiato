@@ -1783,9 +1783,9 @@ pub async fn day_get(
 pub struct DayRecordsQuery {
     /// `YYYY-MM-DD`（Asia/Tokyo の日）
     date: String,
-    /// この時刻以後（RFC 3339）。省くと日の始まり。
+    /// この時刻以後（RFC 3339）。省くと日の始まり。**日の端では切らない**（日をまたぐ行の前の日の側も出す）。
     from: Option<String>,
-    /// この時刻より前（RFC 3339）。省くと日の終わり。
+    /// この時刻より前（RFC 3339）。省くと日の終わり。**日の端では切らない**。`from` 以前なら 400。
     to: Option<String>,
     user_id: Option<uuid::Uuid>,
 }
@@ -1811,6 +1811,11 @@ pub async fn day_records_get(
             .transpose()
     };
     let (from, to) = (instant(&q.from)?, instant(&q.to)?);
+    // 空の範囲を黙って空の一覧にしない（画面の取り違えを 200 で隠さない）。省いた側は日の端
+    let (d0, d1) = stay_store::day_bounds(date);
+    if from.unwrap_or(d0) >= to.unwrap_or(d1) {
+        return Err((StatusCode::BAD_REQUEST, "invalid_range".to_string()));
+    }
     day_records::records(
         &app.pool,
         q.user_id.unwrap_or_default(),

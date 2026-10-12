@@ -588,7 +588,10 @@ impl From<Norm> for DayRecord {
     }
 }
 
-/// `[from, to)` を `Asia/Tokyo` のその日に収めて、`/day/records` の形で返す。`from` / `to` を省くと日の端。
+/// `[from, to)` の記録を `/day/records` の形で返す。`from` / `to` を省くと `Asia/Tokyo` のその日の端。
+///
+/// **明示の `from` / `to` は日の端で切らない**（design D7）。日をまたぐ行は行の実際の範囲で開くので、
+/// 前の日の側の記録も出す（日付は省いたときの既定を決めるだけ）。`from >= to` は呼ぶ側が断る。
 pub async fn records(
     pool: &PgPool,
     user: Uuid,
@@ -598,8 +601,8 @@ pub async fn records(
     now: DateTime<Utc>,
 ) -> Result<Vec<DayRecord>, sqlx::Error> {
     let (d0, d1) = day_bounds(day);
-    let from = from.map_or(d0, |f| f.max(d0));
-    let to = to.map_or(d1, |t| t.min(d1));
+    let from = from.unwrap_or(d0);
+    let to = to.unwrap_or(d1);
     Ok(read(pool, user, from, to, now)
         .await?
         .into_iter()
