@@ -137,15 +137,19 @@ test("箱が低いときと上限まで埋めたときで、Must の格子が押
 });
 
 // Scenario: 書庫のソースを足しても Must の 5 本はひとスクロール以内
-// Scenario: 箱が上限の高さのとき 5 ソースが 1,440 px に収まる
-test("箱を上限まで埋めても、Must の 5 本目の格子の下端は 1,440 px 以内", async ({ page }) => {
+// Scenario: 箱が上限の高さのとき Must の 5 ソースは箱のぶんしか下がらない
+// 画面の上端からの絶対値（1,440 px）では見ない（design D23（仮））—— 土台の 1,280 px は画面の表面（2026-10-12）で
+// 既に超えていて、箱の側では直せない。ST12 が足す量（箱の高さ）だけを見る
+test("箱を上限まで埋めても、Must の 5 本目の格子は箱の上限ぶんしか下がらない", async ({ page }) => {
+  await openWith(page, quiet);
+  const low = await gridBottom(page, 4);
   await openWith(page, (b) => crowded(b, "unreadable"));
   // 書庫のソースは Must の後ろに積まれる。最初の 5 本の格子が Must
   const sources = await page.locator("[data-role=grid]").evaluateAll((els) =>
     els.slice(0, 5).map((e) => e.closest("section")?.getAttribute("data-source") ?? ""),
   );
   expect(sources.some((s) => s.startsWith("c03-")), `Must の前に書庫のソースがある: ${sources}`).toBe(false);
-  expect(await gridBottom(page, 4)).toBeLessThanOrEqual(1_440);
+  expect(await gridBottom(page, 4), "箱が最も低いときの下端 + 160 px").toBeLessThanOrEqual(low + BOX_MAX_PX);
 });
 
 // Scenario: 箱が上限の高さのとき 2 ソースが 800 px に収まる

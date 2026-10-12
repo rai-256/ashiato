@@ -132,6 +132,7 @@ impl std::fmt::Debug for Runtime<'_> {
 }
 
 fn info(line: String) {
+    // log-ok: 呼び出し元は telemetry::line の行だけを渡す（件数・所要時間・種別しか受け取らない組み立て）
     tracing::info!("{line}");
 }
 

@@ -8,12 +8,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CoverageGrid } from "../CoverageGrid";
-import { contrastRatio, relativeLuminance } from "../contrast";
-import { bandOf, dropMarkLightness, type DayCell, type DayState } from "../coverage";
-import { BAND, HUE, SAT } from "../tokens";
+import { toneContrast } from "../contrast";
+import { bandOf, dropMarkTone, type DayCell, type DayState } from "../coverage";
+import { BAND_NAMES, SCHEMES, tone, type Scheme } from "../tokens";
 import { days, source } from "./fixtures";
 
-const lum = (l: number): number => relativeLuminance(HUE, SAT, l);
 
 function withDrop(cell: DayCell, count: number): DayCell {
   return {
@@ -86,9 +85,12 @@ describe("破棄の印", () => {
 
   // Scenario: 印はどの段の上でも 3:1 以上
   it("印とセルの相対輝度比が、3 段のどの上でも 3:1 以上", () => {
-    for (const band of Object.keys(BAND) as (keyof typeof BAND)[]) {
-      const r = contrastRatio(lum(dropMarkLightness(band)), lum(BAND[band]));
-      expect(r, `${band} の上の印の比が ${r.toFixed(3)}`).toBeGreaterThanOrEqual(3);
+    // **ライトとダークの両方**（NFR-17 / NFR-23）
+    for (const scheme of Object.keys(SCHEMES) as Scheme[]) {
+      for (const band of BAND_NAMES) {
+        const r = toneContrast(dropMarkTone(band, scheme), SCHEMES[scheme].cell[band]);
+        expect(r, `${scheme} の ${band} の上の印の比が ${r.toFixed(3)}`).toBeGreaterThanOrEqual(3);
+      }
     }
   });
 
@@ -100,7 +102,8 @@ describe("破棄の印", () => {
       const { unmount } = render(<CoverageGrid source={source("c01-location", "携帯端末の位置", cells)} />);
       const mark = markOf("2026-05-03") as HTMLElement;
       const probe = document.createElement("span");
-      probe.style.color = `hsl(${HUE} ${SAT}% ${dropMarkLightness(bandOf(state))}%)`;
+      // jsdom は明暗を取れないのでダーク（NFR-17 の「取得できないときはダーク」）
+      probe.style.color = tone(dropMarkTone(bandOf(state), "dark"));
       expect(mark.style.borderBottomColor, state).toBe(probe.style.color);
       unmount();
     }

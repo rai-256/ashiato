@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# detekt の設定（2026-10-11）。**既定（buildUponDefaultConfig = true）から変えたところだけ**を書く。
+# 緩めるときは理由をコメントで書く。今ある違反は config/detekt-baseline.xml に凍結してある（新しい違反だけ落ちる）。
+
+config:
+  # 書き間違えた設定キーを黙って無視しない
+  validation: true
+
+formatting:
+  # ktlint（detekt-formatting）。Android のコードなので Android Studio の流儀で読む
+  android: true
+  # 検査で直さない。直すのは手で `./gradlew detekt --auto-correct`
+  autoCorrect: false

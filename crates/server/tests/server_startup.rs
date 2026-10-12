@@ -137,6 +137,7 @@ fn migrate_as_owner() {
         .arg("migrate")
         .env_clear()
         .env("DATABASE_OWNER_URL", env("DATABASE_OWNER_URL"))
+        .env("MIGRATE_BACKUP", "off") // 試験の DB は使い捨て（移行の前の退避は migrate_backup の単体試験が見る）
         .output()
         .unwrap();
     assert!(m.status.success(), "migrate が失敗した");

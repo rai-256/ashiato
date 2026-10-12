@@ -27,7 +27,8 @@ impl BindRefusal {
 }
 
 /// `BIND` が無いときの待ち受け（design D7。loopback）。
-pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
+/// **`.env.example` の `BIND` と同じ値**（2026-10-11 の整合の確認 K12。8787 と食い違い、README どおりの C-02 が繋がらなかった）。
+pub const DEFAULT_BIND: &str = "127.0.0.1:18787";
 
 /// 待ち受けてよいのは loopback（`127.0.0.0/8` / `::1`）だけ。
 pub fn bind_allowed(addr: &SocketAddr) -> Result<(), BindRefusal> {
@@ -73,6 +74,7 @@ pub fn db_host_is_local(url: &str) -> bool {
 /// 拒否を出して終了コード 2 で終わる。値は出さず種別だけ。
 pub fn refuse(kind: &'static str) -> ! {
     tracing::error!(kind = kind, "起動しない");
+    // log-ok: kind は &'static str の種別の名前。起動前の拒否を端末にも出す
     eprintln!("error: kind={kind}");
     std::process::exit(2);
 }
@@ -81,6 +83,18 @@ pub fn refuse(kind: &'static str) -> ! {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// 既定の待ち受けは雛形（`.env.example`）の `BIND` と同じ。食い違うと、雛形どおりの収集アプリが既定のサーバに繋がらない
+    /// （2026-10-11 の整合の確認 K12: コードは 8787、雛形と手順書は 18787 だった）。
+    #[test]
+    fn default_bind_matches_the_env_example() {
+        let example = include_str!("../../../.env.example");
+        let bind = example
+            .lines()
+            .find_map(|l| l.strip_prefix("BIND="))
+            .unwrap();
+        assert_eq!(bind.trim(), DEFAULT_BIND);
+    }
 
     fn sa(s: &str) -> SocketAddr {
         s.parse().unwrap()

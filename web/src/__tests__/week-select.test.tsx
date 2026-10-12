@@ -89,8 +89,9 @@ describe("週を選ぶ", () => {
     const before = row.style.background;
     fireEvent.click(row);
     expect(row.style.background, "選択で面の明るさが変わっている").toBe(before);
-    // 選択の印は輪郭で表す（段の色に触らない）
-    expect(row.style.outline, "選択の印が無い").not.toBe("");
+    // 選択の印は輪郭（内側の影）で表す（段の色に触らない）。`outline` はフォーカスの輪郭に空けておく（NFR-22）
+    expect(row.style.boxShadow, "選択の印が無い").toMatch(/inset/);
+    expect(row.style.outline, "style 属性の outline がフォーカスの輪郭を消している").toBe("");
     expect(row.getAttribute("aria-pressed")).toBe("true");
   });
 

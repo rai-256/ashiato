@@ -186,7 +186,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   **既存の `web/src/__tests__/one-scroll.test.tsx` の勘定から `min(箱の宣言の高さ, 160)` を引く**（予算の定数は変えない。既存の印は残す）。
   Scenario: `書庫のソースを足しても Must の 5 本はひとスクロール以内` / `書庫のソースの格子は 360 px に収まる` / `書庫のソースの週の帯は 24 px 以上` /
   `開いた直後に 2 ソース以上の直近 1 か月が同時に見える` / `ひとスクロールで 5 ソースすべてが見える` /
-  `箱が上限の高さのとき 2 ソースが 800 px に収まる` / `箱が上限の高さのとき 5 ソースが 1,440 px に収まる` / `箱の高さを除く量は 160 px を超えない`。
+  `箱が上限の高さのとき 2 ソースが 800 px に収まる` / `箱が上限の高さのとき Must の 5 ソースは箱のぶんしか下がらない` / `箱の高さを除く量は 160 px を超えない`。
   検証: `VT one-scroll.test.tsx`、`VT archive-one-scroll.test.tsx`（書庫のソース 12 本（固定の 10 本 + マイアクティビティ 2 本）と高さ 160 px の箱で Must の最後の格子の下端 ≤ 1,440 px・2 本目の直近 4 週 ≤ 800 px・横スクロール無し・週の帯 ≥ 24 px / 箱を 200 px にしても除く量は 160 px）、
   予算の定数が変わっていないこと `grep -q 'export const VIEWPORT_H_PX = 640;' web/src/tokens.ts && grep -q 'export const ONE_SCROLL_PX = VIEWPORT_H_PX \* 2;' web/src/tokens.ts` rc=0、
   `git diff --exit-code origin/main -- web/src/__tests__/target-size.test.tsx` rc=0

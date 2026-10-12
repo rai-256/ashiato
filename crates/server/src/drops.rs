@@ -244,6 +244,7 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
         }
     };
     if let Err(invalid) = req.validate() {
+        // log-ok: Invalid は値を持たない enum（Raw / Reason / … の種別の名前だけが出る）
         tracing::warn!(kind = "drop_invalid", error = ?invalid, "破棄の報告を断った");
         return Ok(rejected(Some(req.id), invalid.into()));
     }

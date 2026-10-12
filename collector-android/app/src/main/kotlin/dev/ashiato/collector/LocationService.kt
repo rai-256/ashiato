@@ -351,9 +351,8 @@ open class LocationService : Service() {
             ticks = newClockScheduler(),
             log = { Log.i(TAG, it) },
             onCrash = {
-                // 測定のログは測定記録の論理ソースで出す（review R7）。`Telemetry.line` の source は位置の論理ソースに
-                // 固定なので、`ClockSkewScheduler` の測定のログと同じく種別だけを並べる（値を渡す口は作らない）
-                Log.w(TAG, "kind=clock_skew_crashed source=$CLOCK_LOGICAL_SOURCE error=${it.javaClass.simpleName}")
+                // 測定のログは測定記録の論理ソースで出す（review R7）
+                Log.w(TAG, Telemetry.line("clock_skew_crashed", source = CLOCK_LOGICAL_SOURCE, error = it.javaClass.simpleName))
             },
         ).also { it.start() }
     }

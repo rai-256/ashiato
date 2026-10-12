@@ -69,6 +69,10 @@ fi
 echo "== DB"; docker compose up -d --wait db >/dev/null
 # 役割 → 移行 → サーバの順（volume を消すと役割も消える。design D5 / review R17）
 ./tools/db-roles.sh
+# 移行の前の退避（ashiato-server migrate が取る。製造準備 A-2）。作り直した DB は使い捨てなので退避しない。
+# 残す DB は退避する —— 手元に pg_dump が無ければ db のコンテナの中の pg_dump を使う
+if [ "${STACK_RESET:-}" = "1" ]; then export MIGRATE_BACKUP=off
+elif ! command -v pg_dump >/dev/null 2>&1; then export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"; fi
 echo "== 移行（所有者の接続。サーバは移行を当てない）"; "$server" migrate
 trap 'kill 0' EXIT
 # サーバの環境から管理者と所有者の秘密を外す（.env の全部を export しているので。design D5）

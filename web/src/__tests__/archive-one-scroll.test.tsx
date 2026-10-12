@@ -12,7 +12,7 @@
 // Scenario: 書庫のソースの格子は 360 px に収まる
 // Scenario: 書庫のソースの週の帯は 24 px 以上
 // Scenario: 箱が上限の高さのとき 2 ソースが 800 px に収まる
-// Scenario: 箱が上限の高さのとき 5 ソースが 1,440 px に収まる
+// Scenario: 箱が上限の高さのとき Must の 5 ソースは箱のぶんしか下がらない
 // Scenario: 箱の高さを除く量は 160 px を超えない
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

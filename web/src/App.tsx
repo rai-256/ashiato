@@ -6,7 +6,10 @@ import { type Achievement, type SourceCoverage } from "./coverage";
 import { archiveLastEventLabel, orderCoverageWithArchives } from "./archives";
 import { type ArchivesStatus } from "./archives";
 import { LatestArchive } from "./LatestArchive";
-import { DAY_TZ, MIN_TARGET_PX, SURFACE, TEXT, tone, YEAR_WEEKS } from "./tokens";
+import { msg } from "./messages";
+import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
+import { linkStyle, pageStyle, titleStyle } from "./surface";
+import { DAY_TZ, SCHEMES, SPACE, YEAR_WEEKS } from "./tokens";
 
 /**
  * `Asia/Tokyo` の「今日」（`YYYY-MM-DD`）。**`toISOString()` は UTC の日**なので使わない。
@@ -50,7 +53,7 @@ export function archiveAnnotation(
 ): string | undefined {
   if (!logicalSource.startsWith("c03-") || archives.at !== "ok") return undefined;
   const found = archives.value.sources.find((s) => s.logical_source === logicalSource);
-  if (found === undefined || found.last_event_on === null) return "まだ無い";
+  if (found === undefined || found.last_event_on === null) return msg("archive").notYet;
   return archiveLastEventLabel(found.last_event_on, now);
 }
 
@@ -63,6 +66,12 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
  * 開いた直後は各ソースの直近 4〜5 週だけが出る（第 7 回 Q28）。
  */
 export function App(): React.ReactElement {
+  const m = msg("coverage");
+  const common = msg("common");
+  // **OS の明暗に追従する**（NFR-17。2026-10-12 まで S-1 はダークしか無かった）
+  const scheme = useScheme();
+  useFocusRule(scheme);
+  const c = SCHEMES[scheme];
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
   const [archives, setArchives] = useState<Load<ArchivesStatus>>({ at: "loading" });
@@ -91,58 +100,36 @@ export function App(): React.ReactElement {
   }, []);
 
   return (
-    <main
-      style={{
-        background: tone(SURFACE.ground),
-        color: tone(TEXT.normal),
-        font: "400 14px/1.6 system-ui, sans-serif",
-        minHeight: "100vh",
-        // **横スクロールを出さない**（NFR-19 / 完了の判定）。縦長の格子は幅いっぱいに収まる
-        maxWidth: "100%",
-        overflowX: "hidden",
-        padding: 12,
-      }}
-    >
+    // **横スクロールを出さない**（NFR-19 / 完了の判定）。縦長の格子は幅いっぱいに収まる
+    <main data-testid="coverage-view" data-scheme={scheme} style={pageStyle(c)}>
       {/* **1 日の一覧への行き先は見出しと同じ行に置く**（ST16 / design D8）。行を増やすと、
           ひとスクロールの勘定（one-scroll.test.tsx）に効く */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <h1 style={{ font: "600 18px/1.3 system-ui, sans-serif", margin: "0 0 16px" }}>
-          収集が動いていたか
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
+        <h1 style={{ ...titleStyle(c), margin: 0, marginRight: "auto" }}>
+          {m.title}
         </h1>
         <a
           href="#/day/"
           data-testid="to-day"
-          style={{
-            color: tone(TEXT.normal),
-            font: "400 14px/1.6 system-ui, sans-serif",
-            minHeight: MIN_TARGET_PX,
-            minWidth: MIN_TARGET_PX,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={linkStyle(c)}
         >
-          1 日の滞在へ
+          {m.toDay}
         </a>
         {/* **マスタ管理への入口**（ST19 / design D9。仮 —— 入口の置き場を決め直すのは ST25） */}
         <a
           href="#/master"
           data-testid="to-master"
-          style={{
-            color: tone(TEXT.normal),
-            font: "400 14px/1.6 system-ui, sans-serif",
-            minHeight: MIN_TARGET_PX,
-            minWidth: MIN_TARGET_PX,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={linkStyle(c)}
         >
-          マスタ管理へ
+          {m.toMaster}
         </a>
       </header>
-      {achievement.at === "loading" && <p data-testid="achievement-loading">読み込み中…</p>}
+      {achievement.at === "loading" && <p data-testid="achievement-loading">{common.loading}</p>}
       {achievement.at === "failed" && (
         <p role="alert" data-testid="achievement-error">
-          達成の読み出しに失敗しました（{achievement.why}）。達成日数が 0 なのではありません。
+          {m.achievementFailed(achievement.why)}
         </p>
       )}
       {achievement.at === "ok" && <AchievementPanel data={achievement.value} />}
@@ -152,14 +139,14 @@ export function App(): React.ReactElement {
         failed={archives.at === "failed"}
       />
 
-      {sources.at === "loading" && <p data-testid="coverage-loading">読み込み中…</p>}
+      {sources.at === "loading" && <p data-testid="coverage-loading">{common.loading}</p>}
       {sources.at === "failed" && (
         <p role="alert" data-testid="coverage-error">
-          稼働状況の読み出しに失敗しました（{sources.why}）。収集が止まったのではありません。
+          {m.coverageFailed(sources.why)}
         </p>
       )}
       {sources.at === "ok" && sources.value.length === 0 && (
-        <p data-testid="coverage-empty">ソースが 1 本も返りませんでした（登録簿を確認してください）。</p>
+        <p data-testid="coverage-empty">{m.empty}</p>
       )}
       {/* **退役したソースは後ろ**（ST03 の R63）—— Must の 5 本を 1 画面から押し出さない */}
       {sources.at === "ok" &&

@@ -10,3 +10,9 @@ set -euo pipefail
 if [[ "${HARNESS_ALLOW_PRIVATE_NAMES:-}" != "1" ]] && [ -x tools/check-private.sh ]; then
   tools/check-private.sh --staged >/dev/null || { tools/check-private.sh --staged || true; exit 1; }
 fi
+
+# ログに私的データを出せる書き方を**入る前に**止める（製造準備 A-2。一度出たログは消せない）。
+# 追跡ファイル全体を見る（1 秒かからない）。
+if [ -x tools/check-log-private.sh ]; then
+  tools/check-log-private.sh >/dev/null || { tools/check-log-private.sh || true; exit 1; }
+fi

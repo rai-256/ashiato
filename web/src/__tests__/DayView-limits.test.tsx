@@ -9,15 +9,14 @@ import { captureAdoptedRules } from "./focus-rule";
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DayView, FOCUS_ATTR, focusRule } from "../DayView";
-import { contrastRatio, relativeLuminance } from "../contrast";
-import { HUE, SAT, SCHEMES } from "../tokens";
+import { toneContrast } from "../contrast";
+import { SCHEMES } from "../tokens";
 
 /** NFR-18 / NFR-19 の数値を**リテラルで持つ**（トークンと一緒に動かない。ST02 の review R4）。 */
 const NFR18_TEXT = 4.5;
 const NFR19_MIN_PX = 24;
 const NFR23_NON_TEXT = 3;
 
-const lum = (l: number): number => relativeLuminance(HUE, SAT, l);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,7 +41,7 @@ describe("一覧の下限", () => {
     for (const [scheme, c] of Object.entries(SCHEMES)) {
       for (const [face, bg] of [["ground", c.ground], ["surface1", c.surface1], ["surface2", c.surface2]] as const) {
         for (const [kind, fg] of [["text", c.text], ["muted", c.muted]] as const) {
-          const r = contrastRatio(lum(fg), lum(bg));
+          const r = toneContrast(fg, bg);
           expect(r, `${scheme} の ${kind} が ${face} の上で ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(NFR18_TEXT);
         }
       }
@@ -96,7 +95,7 @@ describe("一覧の下限", () => {
         expect((el as HTMLElement).style.outline, `${el.textContent} が輪郭を消している`).toBe("");
       }
       const c = SCHEMES[scheme];
-      const r = contrastRatio(lum(c.text), lum(c.ground));
+      const r = toneContrast(c.text, c.ground);
       expect(r, `${scheme} の輪郭が地に対して ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(NFR23_NON_TEXT);
       unmount();
     }

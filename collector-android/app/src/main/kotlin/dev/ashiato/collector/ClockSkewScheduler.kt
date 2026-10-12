@@ -70,6 +70,7 @@ class ClockSkewScheduler(
         val available = record.payload["available"]!!.jsonPrimitive.boolean
         if (!available && trigger == TRIGGER_RETRY) return
         emit(record)
+        // log-ok: available は真偽（測れたか）。Telemetry.line にこの項目の口が無いので手で並べる
         log("kind=clock_skew_measured source=$CLOCK_LOGICAL_SOURCE count=1 available=$available")
         when {
             available -> stopRetrying()

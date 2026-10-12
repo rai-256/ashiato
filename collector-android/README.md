@@ -22,6 +22,7 @@ ST04 / ST06 / ST09 / ST11 で足す。
 条件分岐を置くと、CI では一度も通らない経路ができる。
 
 ```bash
+./gradlew detekt                      # lint（detekt + ktlint）。新しい違反だけ落ちる（既存は config/detekt-baseline.xml）。CI でも走る
 ./gradlew :app:testDebugUnitTest      # JVM の単体（Robolectric）。CI でも走る
 ../tools/android-emulator.sh          # エミュレータを立てて計測テスト（src/androidTest）を走らせる。CI でも走る
 ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787   # 実機を adb で繋いだときも同じ

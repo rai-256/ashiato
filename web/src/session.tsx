@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState } from "react";
-import { MIN_TARGET_PX, SURFACE, TEXT, tone } from "./tokens";
+import { msg } from "./messages";
+import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
+import { inputStyle, primaryStyle } from "./surface";
+import { font, MIN_TARGET_PX, SCHEMES, TYPE, tone, type SchemeColors } from "./tokens";
+
+const m = msg("session");
 
 /**
  * 画面のログイン（ST28 / design D10）。
@@ -34,6 +39,8 @@ function watchUnauthorized(onUnauthorized: () => void): () => void {
 export function Gate({ children }: { children: React.ReactNode }): React.ReactElement {
   const [state, setState] = useState<State>("checking");
   const [logoutFailed, setLogoutFailed] = useState(false);
+  const c = SCHEMES[useScheme()];
+  const ground = groundStyle(c);
 
   useEffect(() => {
     let live = true;
@@ -54,7 +61,18 @@ export function Gate({ children }: { children: React.ReactNode }): React.ReactEl
       <header style={{ ...ground, minHeight: 0, padding: "4px 12px", textAlign: "right" }}>
         <button
           type="button"
-          style={{ minHeight: MIN_TARGET_PX, minWidth: MIN_TARGET_PX, font: "400 14px/1.6 system-ui, sans-serif" }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={{
+            minHeight: MIN_TARGET_PX,
+            minWidth: MIN_TARGET_PX,
+            padding: "2px 8px",
+            font: font(TYPE.caption),
+            color: tone(c.text),
+            background: "transparent",
+            border: 0,
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
           onClick={() => {
             // 失敗（届かない・5xx）をログアウトしたように見せない —— 印はまだ生きている
             setLogoutFailed(false);
@@ -63,34 +81,31 @@ export function Gate({ children }: { children: React.ReactNode }): React.ReactEl
               .catch(() => setLogoutFailed(true));
           }}
         >
-          ログアウト
+          {m.logout}
         </button>
-        {logoutFailed && <p role="alert">ログアウトできなかった。もう一度押してください。</p>}
+        {logoutFailed && <p role="alert">{m.logoutFailed}</p>}
       </header>
       {children}
     </>
   );
 }
 
-const ground: React.CSSProperties = {
-  background: tone(SURFACE.ground),
-  color: tone(TEXT.normal),
-  minHeight: "100vh",
-};
+function groundStyle(c: SchemeColors): React.CSSProperties {
+  return { background: tone(c.ground), color: tone(c.text), minHeight: "100vh" };
+}
 
 /** ログインが通らなかった理由。401 だけが「合言葉が違う」（429 と 5xx・届かないは別。final review R13）。 */
 type Refusal = "wrong" | "throttled" | "unreachable";
 
-const REFUSAL_TEXT: Record<Refusal, string> = {
-  wrong: "合言葉が違います。",
-  throttled: "試しすぎで、しばらく受け付けません。1 分ほど待ってからもう一度。",
-  unreachable: "サーバに届かなかったか、サーバで失敗しました。もう一度試してください。",
-};
+const REFUSAL_TEXT: Record<Refusal, string> = m.refusal;
 
 function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
   const [password, setPassword] = useState("");
   const [refused, setRefused] = useState<Refusal | null>(null);
   const [sending, setSending] = useState(false);
+  const scheme = useScheme();
+  useFocusRule(scheme);
+  const c = SCHEMES[scheme];
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -113,19 +128,21 @@ function LoginForm({ onDone }: { onDone: () => void }): React.ReactElement {
   };
 
   return (
-    <main data-testid="login" style={{ ...ground, padding: 12, font: "400 16px/1.6 system-ui, sans-serif" }}>
+    <main data-testid="login" data-scheme={scheme} style={{ ...groundStyle(c), padding: 12, font: font(TYPE.body) }}>
       <form onSubmit={(e) => void submit(e)} style={{ display: "grid", gap: 12, maxWidth: 360 }}>
-        <label htmlFor="web-password">合言葉</label>
+        <label htmlFor="web-password">{m.password}</label>
         <input
           id="web-password"
           type="password"
           autoComplete="off"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ ...INPUT_FLOOR }}
+          {...{ [FOCUS_ATTR]: "" }}
+          style={{ ...inputStyle(c), ...INPUT_FLOOR }}
         />
-        <button type="submit" disabled={sending} style={{ ...INPUT_FLOOR, minWidth: 44 }}>
-          ログイン
+        {/* **主ボタンはアクセントで塗る**（本人の決定 2026-10-12） */}
+        <button type="submit" disabled={sending} {...{ [FOCUS_ATTR]: "" }} style={{ ...primaryStyle(c), ...INPUT_FLOOR, minWidth: 44 }}>
+          {m.login}
         </button>
         {refused && <p role="alert">{REFUSAL_TEXT[refused]}</p>}
       </form>
