@@ -1179,12 +1179,15 @@ async fn archive_myactivity_source_is_registered_with_sixty_days() {
 }
 
 #[test]
-fn archive_parse_chrome_time_usec_is_converted_from_windows_epoch_to_utc() {
+fn archive_parse_chrome_time_usec_is_unix_epoch_microseconds() {
+    // 確認バッチ 20261006-0754: 本物の Takeout の `Chrome/履歴.json` の `time_usec` は Unix epoch の
+    // マイクロ秒だった（端末の `History` の SQLite の 1601 年起点ではない）。1601 年起点で読んでいたときは
+    // 33,259 件が全部 1656〜1657 年に入った。値は本物の書庫の最小値の形（2025-10-06）。
     assert_eq!(
-        crate::archive::chrome::time_usec_to_utc(11644473600000000)
+        crate::archive::chrome::time_usec_to_utc(1759754623061818)
             .unwrap()
             .to_rfc3339(),
-        "1970-01-01T00:00:00+00:00"
+        "2025-10-06T12:43:43.061818+00:00"
     );
 }
 
@@ -1641,7 +1644,7 @@ fn archive_end_to_end_builds_requests_for_every_supported_content() {
         ),
         (
             crate::archive::classify::KnownKind::ChromeHistory,
-            r#"{"Browser History":[{"time_usec":13222310400000000}]}"#,
+            r#"{"Browser History":[{"time_usec":1577836800000000}]}"#,
         ),
     ];
     for (kind, bytes) in fixtures {
@@ -1970,7 +1973,7 @@ fn archive_payload_carries_the_design_d6_fields() {
     let chrome = crate::archive::worker::requests_for_file(
         crate::archive::classify::KnownKind::ChromeHistory,
         "Takeout/Chrome/History.json",
-        r#"{"Browser History":[{"title":"ある頁","url":"https://example.com/","page_transition":"LINK","client_id":"c1","time_usec":13370000000000000}]}"#.as_bytes(),
+        r#"{"Browser History":[{"title":"ある頁","url":"https://example.com/","page_transition":"LINK","client_id":"c1","time_usec":1725526400000000}]}"#.as_bytes(),
         user,
         "f".repeat(64),
     )
@@ -2003,7 +2006,7 @@ fn archive_raw_is_sliced_for_every_kind() {
     let cases: [(crate::archive::classify::KnownKind, &str); 4] = [
         (
             crate::archive::classify::KnownKind::ChromeHistory,
-            r#"{"Browser History": [ {"url":"https://example.com/",  "time_usec":13370000000000000, "zz":1.0e2} ]}"#,
+            r#"{"Browser History": [ {"url":"https://example.com/",  "time_usec":1725526400000000, "zz":1.0e2} ]}"#,
         ),
         (
             crate::archive::classify::KnownKind::Records,

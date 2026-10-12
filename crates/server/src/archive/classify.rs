@@ -141,7 +141,7 @@ mod tests {
                     {"activitySegment":{"duration":{"startTimestamp":"2026-01-01T01:00:00Z","endTimestamp":"2026-01-01T02:00:00Z"}}}]}"#
             }
             KnownKind::ChromeHistory => {
-                r#"{"Browser History":[{"time_usec":13222310400000000,"title":"x","url":"https://example.com/"}]}"#
+                r#"{"Browser History":[{"time_usec":1577836800000000,"title":"x","url":"https://example.com/"}]}"#
             }
         }
     }
