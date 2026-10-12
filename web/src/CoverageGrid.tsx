@@ -27,7 +27,7 @@ const m = msg("grid");
  * - **セルは表示専用。選ぶ単位は週**（NFR-19 の 24 × 24 px を割らないため）
  * - 格子のセルが担うのは **3 段**。8 状態の区別は**週を選んだときの文字**
  */
-export function CoverageGrid({ source }: { source: SourceCoverage }): React.ReactElement {
+export function CoverageGrid({ source, annotation }: { source: SourceCoverage; annotation?: string }): React.ReactElement {
   // **OS の明暗に追従する**（NFR-17。2026-10-12 まで S-1 はダークしか無かった）
   const scheme = useScheme();
   const c = SCHEMES[scheme];
@@ -56,6 +56,11 @@ export function CoverageGrid({ source }: { source: SourceCoverage }): React.Reac
       {/* **ソース名の文字**。色を意味の担い手にしない（ui-direction の宿題 1 / 第 4 回 Q15） */}
       <h2 style={{ color: tone(c.text), font: font(TYPE.body, 600, 1.3), margin: "0 0 8px" }}>
         {source.display_name}
+        {annotation !== undefined && (
+          <span data-testid={`archive-note-${source.logical_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
+            {m.archiveNote(annotation)}
+          </span>
+        )}
         {/* **乗り換えが起きたことを文字で出す**（review/code-r2.md の I3）。
             名指しした名前と先端が違うのに黙っていると、本人には
             「c02-window が消えて知らない名前が増えた」ようにしか見えない */}
