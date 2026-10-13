@@ -468,6 +468,28 @@
         }
       }
     },
+    "/export/summary": {
+      "get": {
+        "tags": [],
+        "summary": "書き出す前の件数（ソースごと・全利用者の和）と見込み（ST33 / design D1 / D12 / D18）。\n本人が消した場面を除いた残りを数える（書き出しと同じ式。D5）。応答に記録の値は載せない。",
+        "operationId": "export_summary_get",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/feelings": {
       "get": {
         "tags": [],
@@ -2364,6 +2386,32 @@
           }
         }
       },
+      "Estimate": {
+        "type": "object",
+        "description": "書き出しの見込み（D18）。",
+        "required": [
+          "rows",
+          "bytes",
+          "seconds"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "圧縮した後の zip の大きさの見込み（バイト）。"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int64",
+            "description": "ソースごとの件数の和（記録の行の数。前の版と辞書の行は含めない）。"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "かかる時間の見込み（秒。1 未満は 1）。"
+          }
+        }
+      },
       "EventRow": {
         "type": "object",
         "required": [
@@ -3950,46 +3998,53 @@
       },
       "Summary": {
         "type": "object",
-        "description": "行の `[start, end)` の要約。**記録の無いソースは鍵ごと出さない。**",
+        "required": [
+          "sources",
+          "estimate"
+        ],
         "properties": {
-          "archive": {
-            "type": [
-              "array",
-              "null"
-            ],
+          "estimate": {
+            "$ref": "#/components/schemas/Estimate"
+          },
+          "sources": {
+            "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ArchiveCount"
+              "$ref": "#/components/schemas/SummarySource"
             }
+          }
+        }
+      },
+      "SummarySource": {
+        "type": "object",
+        "description": "ソースごとの件数。件数 0 のソースは出さない。",
+        "required": [
+          "logical_source",
+          "display_name",
+          "count",
+          "first",
+          "last"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
           },
-          "browser": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BrowserSummary"
-              }
-            ]
+          "display_name": {
+            "type": "string",
+            "description": "登録簿の表示名。登録簿に無ければソース名。"
           },
-          "pc": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AppSummary"
-              }
-            ]
+          "first": {
+            "type": "string",
+            "format": "date-time",
+            "description": "いちばん古い記録の時刻。"
           },
-          "phone": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AppSummary"
-              }
-            ]
+          "last": {
+            "type": "string",
+            "format": "date-time",
+            "description": "いちばん新しい記録の時刻。"
+          },
+          "logical_source": {
+            "type": "string"
           }
         }
       },

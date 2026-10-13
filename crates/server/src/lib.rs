@@ -62,6 +62,9 @@ pub mod drops;
 mod drops_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
+/// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。
+#[cfg(test)]
+mod export_excluded_tests;
 /// 書き出しの台帳の移行と錠（ST33 / design D10）。
 #[cfg(test)]
 mod export_ledger_tests;
@@ -2035,6 +2038,24 @@ pub async fn stays_criteria_get(
         .map_err(|e| internal_at("stays.criteria", e))
 }
 
+/// 書き出す前の件数（ソースごと・全利用者の和）と見込み（ST33 / design D1 / D12 / D18）。
+/// 本人が消した場面を除いた残りを数える（書き出しと同じ式。D5）。応答に記録の値は載せない。
+#[utoipa::path(get, path = "/export/summary",
+    responses((status = 200, body = export::Summary), (status = 401)))]
+pub async fn export_summary_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<export::Summary>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    export::read_summary(&app.pool)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!(kind = e.kind.as_str(), "書き出す前の件数を数えられない");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+        })
+}
+
 /// `GET /stays` の絞り込み。**日付は文字列で受けて自分で読む** —— 読めない日付を 400 で断る経路をここに持つ。
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct StaysQuery {
@@ -3169,6 +3190,7 @@ pub fn router(app: App) -> Router {
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
         .route("/places/candidates", get(place_candidates_get))
+        .route("/export/summary", get(export_summary_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -3320,6 +3342,7 @@ pub async fn run() -> anyhow::Result<()> {
         stays_restore,
         stays_rebuild,
         stays_criteria_get,
+        export_summary_get,
         attributes_get,
         attributes_kind_post,
         attributes_kind_name_post,
@@ -3366,6 +3389,9 @@ pub async fn run() -> anyhow::Result<()> {
         RestoreRequest,
         RestoreResponse,
         RestoredCounts,
+        export::Summary,
+        export::SummarySource,
+        export::Estimate,
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,

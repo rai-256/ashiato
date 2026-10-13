@@ -16,6 +16,12 @@ use std::time::Duration;
 
 use zeroize::Zeroizing;
 
+mod excluded;
+mod summary;
+
+pub use excluded::*;
+pub use summary::*;
+
 /// 合言葉。本体の引数にだけ渡し、どこにも置かない。`Debug` では伏せ、捨てるとき上書きする（Q9）。
 pub struct Passphrase(Zeroizing<String>);
 
