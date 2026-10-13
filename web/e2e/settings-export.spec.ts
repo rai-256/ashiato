@@ -14,7 +14,14 @@ const PW = "e2e-passphrase-0123";
 const DAY = "2026-09-07";
 const STORAGE_STATE = "./e2e/.auth/state.json";
 
-type Last = { rows: number; file: string; erased_after: number };
+type Last = { rows: number; bytes: number; file: string; erased_after: number };
+
+/** 画面の大きさの書き方（`web/src/export.ts` の `sizeLabel` と同じ 1000 刻み）。 */
+function sizeText(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(bytes >= 1e7 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+}
 type StatusBody = { running?: unknown; last?: Last | null; leftover: string[] };
 
 /**
@@ -66,14 +73,25 @@ test.beforeAll(async ({ browser, baseURL }) => {
   await settle();
   const res = await call("POST", "/api/export", { password: PW });
   expect(res.ok, `POST /api/export は ${res.status}`).toBe(true);
-  const s = await status();
-  if (s.running === undefined || s.running === null) {
+  // running は POST の中で写しより前に置かれるので、見えただけでは遅延の証拠にならない。
+  // 表ごとの 400 ms は書き込みの段にだけ掛かる —— 行の総数が出てから running が消えるまでの時間で確かめる
+  const started = Date.now();
+  let sawTotal = false;
+  for (;;) {
+    const s = await status();
+    const running = s.running as { total?: number } | undefined | null;
+    if (running === undefined || running === null) break;
+    if ((running.total ?? 0) > 0) sawTotal = true;
+    if (Date.now() - started > 90_000) throw new Error("書き出しが 90 秒で終わらない");
+    await probe.waitForTimeout(100);
+  }
+  const elapsed = Date.now() - started;
+  if (!sawTotal || elapsed < 800) {
     throw new Error(
-      "書き出しの遅延（ASHIATO_EXPORT_SELFTEST_DELAY_MS=400）が効いていない。手元の run.sh の stack を使い回している可能性がある" +
-        " —— run.sh を止めるか CI=1 で走らせる（spec-review R19）",
+      `書き出しの遅延（ASHIATO_EXPORT_SELFTEST_DELAY_MS=400）が効いていない（running は ${elapsed} ms、行の総数を見た=${sawTotal}）。` +
+        "手元の run.sh の stack を使い回している可能性がある —— run.sh を止めるか CI=1 で走らせる（spec-review R19）",
     );
   }
-  await settle();
 });
 
 test.afterAll(async () => {
@@ -272,14 +290,18 @@ test("Scenario 9.2: 別の画面へ移って戻っても進み具合が出る", 
 
 // Scenario: 書き終えると前回の書き出しが新しくなる
 test("Scenario 9.2: 書き終えると前回の書き出しの行の数が GET /api/export と一致する", async ({ page }) => {
+  const before = (await status()).last;
   await openSettings(page);
   await startExport(page);
   await expect(page.getByTestId("export-progress")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("export-progress")).toBeHidden({ timeout: 90_000 });
   const last = (await status()).last;
   expect(last).toBeTruthy();
+  // 前回のままではなく新しくなっている
+  expect((last as Last).file, "前回の書き出しが新しくなっていない").not.toBe(before?.file);
   const box = page.getByTestId("export-last");
   await expect(box).toContainText(`${(last as Last).rows.toLocaleString("ja-JP")} 行`);
+  await expect(box).toContainText(sizeText((last as Last).bytes));
   await expect(box).toContainText((last as Last).file);
   await expect(box).toContainText(/\d{4}\/\d+\/\d+ \d{2}:\d{2}/);
 });
