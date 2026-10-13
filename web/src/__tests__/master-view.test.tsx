@@ -176,15 +176,12 @@ describe("個人属性の画面", () => {
     expect(within(card("副業")).getByTestId("current-value").textContent).toBe("なし");
   });
 
-  // Scenario: 人物と場所のタブは無い
-  /** **押しても何も無いタブを置かない** —— 人物（ST20）と場所（ST21）が中身とともに足す。 */
-  it("タブは「個人属性」の 1 つだけ", async () => {
+  /** ST21: タブは個人属性と場所の 2 つ。**人物（ST20）は中身とともに足す**ので、押しても何も無いタブは置かない。 */
+  it("タブは「個人属性」と「場所」の 2 つで、人物のタブは無い", async () => {
     await open(eightClaims());
     const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0].textContent).toBe("個人属性");
+    expect(tabs.map((t) => t.textContent)).toEqual(["個人属性", "場所"]);
     expect(screen.queryByRole("tab", { name: "人物" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "場所" })).toBeNull();
   });
 
   // Scenario: 編集する操作が無い
