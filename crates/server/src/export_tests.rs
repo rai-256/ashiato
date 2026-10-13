@@ -84,7 +84,7 @@ fn export_dir_order_is_env_then_localappdata_then_xdg_then_home() {
 
 // Scenario: 置き場を環境で指定すればそこに書く
 #[tokio::test]
-async fn export_writes_under_the_chosen_dir() {
+async fn export_dir_writes_under_the_chosen_dir() {
     let _g = EXPORT_SERIAL.lock().await;
     let pool = testdb::pool().await;
     let dir = tmp_dir("chosen");
@@ -135,7 +135,7 @@ async fn export_dir_and_file_are_owner_only_on_unix() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn existing_dir_keeps_its_permissions() {
+async fn export_dir_keeps_existing_permissions() {
     use std::os::unix::fs::PermissionsExt;
     let _g = EXPORT_SERIAL.lock().await;
     let pool = testdb::pool().await;
@@ -168,7 +168,7 @@ async fn no_dir_fails_with_io() {
 
 // Scenario: いまの記録の schema の表と列はすべて分類されている
 #[tokio::test]
-async fn every_table_and_column_is_classified() {
+async fn export_catalog_every_table_and_column_is_classified() {
     let pool = testdb::pool().await;
     let inv = export::read_inventory(&pool).await.unwrap();
     assert!(!inv.tables.is_empty());
@@ -177,7 +177,7 @@ async fn every_table_and_column_is_classified() {
 }
 
 #[test]
-fn catalog_excludes_archive_tables_and_ledgers() {
+fn export_catalog_excludes_archive_tables_and_ledgers() {
     for t in [
         "coverage",
         "erasure_ledger",
@@ -222,7 +222,7 @@ async fn run_with_inventory(
 
 // Scenario: 分類の無い表があると書き出しは始まらない
 #[tokio::test]
-async fn unclassified_table_stops_the_export() {
+async fn export_catalog_unclassified_table_stops_the_export() {
     let (e, dir) = run_with_inventory(|inv| inv.tables.push("x".into())).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(e.reason.contains('x'), "{}", e.reason);
@@ -231,7 +231,7 @@ async fn unclassified_table_stops_the_export() {
 
 // Scenario: 分類の無い列があると書き出しは始まらない
 #[tokio::test]
-async fn unclassified_column_stops_the_export() {
+async fn export_catalog_unclassified_column_stops_the_export() {
     let (e, dir) = run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(
@@ -243,7 +243,7 @@ async fn unclassified_column_stops_the_export() {
 }
 
 #[test]
-fn unclassified_names_the_table_and_the_column() {
+fn export_catalog_unclassified_names_table_and_column() {
     let mut inv = Inventory::default();
     inv.tables.push("x".into());
     inv.columns.push(("source".into(), "zzz".into()));
@@ -257,7 +257,7 @@ fn unclassified_names_the_table_and_the_column() {
 
 // Scenario: いまの記録の表の列はすべて読み出しにある
 #[tokio::test]
-async fn every_exported_column_is_in_the_live_view() {
+async fn export_view_columns_every_exported_column_is_in_the_live_view() {
     let pool = testdb::pool().await;
     let inv = export::read_inventory(&pool).await.unwrap();
     let missing = export::missing_view_columns(&inv);
@@ -270,7 +270,7 @@ async fn every_exported_column_is_in_the_live_view() {
 
 // Scenario: 読み出しに欠けた列があると書き出しは失敗する
 #[tokio::test]
-async fn missing_view_column_stops_the_export() {
+async fn export_view_columns_missing_column_stops_the_export() {
     for (view, col) in [("event_live", "tz_id"), ("event_version_live", "raw")] {
         let (e, dir) = run_with_inventory(move |inv| {
             inv.columns.retain(|(t, c)| !(t == view && c == col));
