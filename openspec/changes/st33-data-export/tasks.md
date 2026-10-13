@@ -48,12 +48,12 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 1: 移行 —— 書き出しの台帳（design D10）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_export_ledger.sql` と `.down.sql` を足す —— `core.export_ledger`（D10 の列と CHECK）、索引 1 本、
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_export_ledger.sql` と `.down.sql` を足す —— `core.export_ledger`（D10 の列と CHECK）、索引 1 本、
   UPDATE / DELETE を拒む行トリガと TRUNCATE を拒む文トリガ（**この移行専用の関数** `core.reject_export_ledger_change()`）。当て直せる形（`IF NOT EXISTS`）。
   `route` は `pc-encrypted-zip` だけ、パスの列は `file`（終わりの行は実際に付けた名前）、`finish`（`done`）の行は zip の SHA-256 の `digest` も持つ。`finish` の行の `written`（記録の id のブルームフィルタ。design D17）も持つ。**合言葉とそのハッシュの列を持たない**。`MIGRATIONS` 配列の末尾に足す。検証: `tools/check-migrations.sh` rc=0、`CT export_ledger_migration 1`（全版を 2 回当てて落ちないテスト `export_ledger_migration_applies_twice`）
-- [ ] 1.2 台帳が追記のみであることのテスト。
+- [x] 1.2 台帳が追記のみであることのテスト。
   Scenario: `書き出しの台帳の行は書き換えも削除もできない`。検証: `CT export_ledger_is_append_only 1`
-- [ ] 1.3 `tools/check-immutable.sh` に足す —— (a) `core.export_ledger` への UPDATE / DELETE / TRUNCATE が psql から拒まれること、
+- [x] 1.3 `tools/check-immutable.sh` に足す —— (a) `core.export_ledger` への UPDATE / DELETE / TRUNCATE が psql から拒まれること、
   (b) `…_export_ledger.down.sql` を戻しの逆順の先頭で当てて、当て直せること。
   検証: `bash -o pipefail -c 'tools/check-immutable.sh | tee /tmp/ci.log' && grep -q export_ledger /tmp/ci.log`
 
