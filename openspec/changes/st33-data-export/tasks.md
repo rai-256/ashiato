@@ -62,7 +62,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 書き出しは新しいモジュール `crates/server/src/export.rs`（分類・SQL・ファイル・本体）に置く。テストは `crates/server/src/export_tests.rs`。
 **後の Task が使う差し替え口はここで作る**（spec-review R14）。
 
-- [ ] 2.1 本体が受ける設定の型（置き場・遅延・**段ごとの差し替え口**: 分類の段に渡す表と列の一覧、段の前後で呼ぶ関数、失敗の差し込み）と、
+- [x] 2.1 本体が受ける設定の型（置き場・遅延・**段ごとの差し替え口**: 分類の段に渡す表と列の一覧、段の前後で呼ぶ関数、失敗の差し込み）と、
   置き場の決め方（`ASHIATO_EXPORT_DIR` → `LOCALAPPDATA` → `XDG_DATA_HOME` → `HOME`。環境を引数で受ける純関数）。
   本体はこの Task では「分類 → 列の突き合わせ → 空の zip を `.partial-….zip` に 0600 で作り `rename`」まで（中身は Task 5）。置き場が無ければ 0700 で作る（Unix。既にある置き場の権限は変えない。design D3）。
   合言葉は本体の引数（`Zeroizing<String>`。`Debug` で伏せる）として受ける。
@@ -70,13 +70,13 @@ DB を使う検査は `docker compose up -d db` が前提。
   `置き場を環境で指定すればそこに書く`（一時フォルダを指定して本体を走らせ、その下にファイルができる） /
   `Unix では置き場と書き出しのファイルは持ち主だけが読み書きできる`（`#[cfg(unix)]`。まだ無い置き場を指して走らせ、`metadata().permissions().mode() & 0o777` が 0o700 と 0o600）。
   検証: `CT export_dir 3`
-- [ ] 2.2 `export::CATALOG` —— core のすべての表を `Include { file, view, excluded_columns, columns: [(名前, 意味)] }` か `Exclude { reason }` に分ける（design D7 の表と D8 の `Exclude` の一覧）。
+- [x] 2.2 `export::CATALOG` —— core のすべての表を `Include { file, view, excluded_columns, columns: [(名前, 意味)] }` か `Exclude { reason }` に分ける（design D7 の表と D8 の `Exclude` の一覧）。
   `Exclude` には ST12 の `archive_*` の 8 表も入れる（design D8）。`information_schema` を読んで、分類の無い表と、`Include` の表で分類の無い列を返す。
   Scenario: `いまの記録の schema の表と列はすべて分類されている`（いまの DB で 0 個） /
   `分類の無い表があると書き出しは始まらない` / `分類の無い列があると書き出しは始まらない`（**2.1 の差し替え口で、分類の段に分類の無い表 `x` / 列 `y` を足した一覧を渡して本体を走らせ**、
   失敗で終わること・`.` で始まらないファイルが無いこと・`.partial-…` も残らないこと・失敗の理由（台帳の `reason` は Task 6 で足す。ここでは本体の返す失敗）に名前があることを確かめる。共有のテスト DB に表を足さない）。
   検証: `CT export_catalog 3`
-- [ ] 2.3 列の突き合わせ（D9）—— `core.event` の出す列が `core.event_live` に、`core.event_version` の出す列が `core.event_version_live` に全部あるか。欠けていれば種別 `missing_column` と列の名前。
+- [x] 2.3 列の突き合わせ（D9）—— `core.event` の出す列が `core.event_live` に、`core.event_version` の出す列が `core.event_version_live` に全部あるか。欠けていれば種別 `missing_column` と列の名前。
   Scenario: `いまの記録の表の列はすべて読み出しにある`（いまの DB で 0 個） / `読み出しに欠けた列があると書き出しは失敗する`（2.2 と同じく差し替え口で読み出しの列の一覧から 1 つ抜いて本体を走らせ、THEN を全部確かめる）。
   検証: `CT export_view_columns 2`
 
