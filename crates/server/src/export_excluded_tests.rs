@@ -300,16 +300,17 @@ async fn export_excluded_sql_record_without_end_runs_to_the_next_record() {
 #[tokio::test]
 async fn export_excluded_sql_wider_earlier_version_of_the_erased_stay_counts() {
     let w = World::new().await;
+    // 消した滞在は DB に残り続ける。広い前の版が他のテストの帯（00:00〜05:00 台）に被らないよう昼に置く
     w.erased_stay(
-        &w.at("01:00"),
-        &w.at("02:00"),
-        &[(&w.at("00:00"), &w.at("02:00"))],
+        &w.at("13:00"),
+        &w.at("14:00"),
+        &[(&w.at("12:00"), &w.at("14:00"))],
     )
     .await;
     let photo = w
         .put(
             "c01-photo",
-            &w.at("00:30"),
+            &w.at("12:30"),
             json!({"lat": 35.0, "lon": 139.0}),
             "{}",
         )
