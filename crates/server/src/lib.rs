@@ -68,6 +68,9 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
+/// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
+#[cfg(test)]
+mod feelings_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
