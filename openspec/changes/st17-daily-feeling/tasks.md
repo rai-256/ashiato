@@ -46,15 +46,15 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 
 `migrations/YYYYMMDDHHMM_subjective_log.sql` と `.down.sql`（作成時刻）、`crates/server/src/lib.rs` の `MIGRATIONS` の末尾、`grants.sql`。試験は `crates/server/src/feelings_tests.rs`（新規）。design D2 / D9 / D15 / D16。
 
-- [ ] 1.1 前提を確かめる: ST25 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含む）、ST22 の `deletion.rs` と `core.stay_absorbed` がある。
+- [x] 1.1 前提を確かめる: ST25 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含む）、ST22 の `deletion.rs` と `core.stay_absorbed` がある。
   検証: `bash -c 'python3 scripts/story_deps.py included ST17 ST25 && test -f crates/server/src/deletion.rs && grep -q stay_absorbed migrations/*_stays.sql'`
-- [ ] 1.2 移行を書く: 登録簿 `('s01-feeling','主観',86400,'none')`、`core.feeling_target_kind`（日・滞在の 2 行。追記のみ）、`core.feeling_reminder`（追記のみ）、
+- [x] 1.2 移行を書く: 登録簿 `('s01-feeling','主観',86400,'none')`、`core.feeling_target_kind`（日・滞在の 2 行。追記のみ）、`core.feeling_reminder`（追記のみ）、
   主観の行の 3 つの錠（`core.reject_feeling_rewrite` / `core.require_feeling_erasure_ledger` / `core.reject_feeling_delete`）。当て直せる形。`.down.sql` は行が残っていれば表と登録簿を残す。
   Scenario: `主観の値を書き換える文は拒まれる` / `主観の紐づけ先は書き換えられない` / `主観の出来事の時刻は書き換えられない` / `主観の行は削除できない` /
   `他の記録を主観へ付け替えられない` / `主観に削除の印を付けられる` / `主観の感度を変えられる` / `台帳のある主観の消去は通る` / `台帳の無い主観の消去は拒まれる` /
   `別の記録の台帳の行では主観の消去は通らない` / `台帳の行があっても消去の形でない主観の書き換えは拒まれる` / `主観以外の本人が書いた記録は従来どおりの規則で扱われる`。
   検証: `tools/check-migrations.sh` rc=0、`CT st17_lock_`（全版を 2 回当てて落ちない試験・2 つの台帳が追記のみの試験・`.down.sql` が行を残す試験を含む）
-- [ ] 1.3 `tools/check-immutable.sh` に主観の節を足す（1.2 の Scenario を psql で 1 本ずつ。`echo "Scenario: …"`）。既存の `immutable-check` の段は変えず、主観の行がある DB で通ることを確かめる。
+- [x] 1.3 `tools/check-immutable.sh` に主観の節を足す（1.2 の Scenario を psql で 1 本ずつ。`echo "Scenario: …"`）。既存の `immutable-check` の段は変えず、主観の行がある DB で通ることを確かめる。
   検証: `tools/check-immutable.sh` rc=0
 
 ## Task 2: 主観を積む（取り込み口の解釈・感度・乱数・稼働状況の外）
