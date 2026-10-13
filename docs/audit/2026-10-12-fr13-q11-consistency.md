@@ -1,6 +1,7 @@
 # 整合の確認（2026-10-12・FR-13 の追加（ST08 の深掘り第 6 回 Q11））
 
-- 基準: `ebe5e85e22444941374f526440ee2846286251db`..`4a1461e313e59e249c0284a2f180f63a296a1d40`
+- 基準: `09ef3fb9106d1c29703c3970108746285f218b7d`..`393c4c2838ff1708951c0e38b7da1ef2233e600b`
+（基準は、もとの `ebe5e85e`..`4a1461e3` を graph の prepare と merge gate のための rebase で origin/main に載せ直したときの、同じ commit。もとの 2 つは rebase で枝から外れ、CI が読めない。`docs/requirements.md` の範囲の差分は載せ直す前と同じ）
 
 対象: `docs/requirements.md` の FR-13 に足した ★ 2026-10-12 追加（Q11）「PC の時計が戻った後に書き換わった題名・滞在時間も、
 その訪問について前に送った版より新しい版として届け、取りこぼさない」。本人の決定は `openspec/changes/st08-browser-history/deep.md` の第 6 回。
