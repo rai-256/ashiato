@@ -43,7 +43,7 @@ const ja = {
   /** S-1 稼働状況（App.tsx） */
   coverage: {
     title: "収集が動いていたか",
-    toDay: "1 日の滞在へ",
+    toDay: "1 日の画面へ",
     toMaster: "マスタ管理へ",
     achievementFailed: (why: string): string =>
       `達成の読み出しに失敗しました（${why}）。達成日数が 0 なのではありません。`,
@@ -138,9 +138,12 @@ const ja = {
     droppedRangeNoCount: (from: string, to: string): string => `破棄（${from}〜${to}）`,
   },
 
-  /** S-2 1 日の滞在（DayView.tsx / stays.ts） */
+  /** S-2 1 日の画面（DayView.tsx / stays.ts） */
   day: {
-    title: (dateLabel: string): string => `${dateLabel}の滞在`,
+    /** 題は日付だけ（ST25。滞在だけの一覧ではなくなった） */
+    title: (dateLabel: string): string => dateLabel,
+    toCoverage: "稼働状況",
+    toMaster: "マスタ管理",
     prev: "前の日",
     next: "次の日",
     pickDate: "日付を指定",
@@ -160,8 +163,17 @@ const ja = {
     restore: "戻す",
     move: (long: string): string => `移動 ${long}`,
     noRecord: (range: string): string => `記録なし ${range}`,
+    /** どの行にも入らない時間の記録の行（ST25 / D19（仮）） */
+    other: (range: string): string => `ほかの記録 ${range}`,
     /** 種類のしるし（線の輪の中の記号）。**文字に添えるだけ**で、読み上げには出さない（2026-10-12） */
-    mark: { stay: "●", move: "➝", "no-record": "…", erased: "×" },
+    mark: { stay: "●", move: "➝", "no-record": "…", erased: "×", other: "◦" },
+    /** ブラウザ履歴がまだ届いていない（ST25 / D10） */
+    browserPending: (through: string): string => `ブラウザ 最後に届いたのは ${through}。それより後の訪問はまだ届いていない`,
+    recordsLoading: "記録を読み込み中…",
+    recordsFailed: (why: string): string => `記録の読み出しに失敗しました（${why}）。`,
+    recordsLabel: "開いた行の記録",
+    /** 位置の記録の題（ST25 / D23（仮））。ソースの表示名（`携帯端末の位置`）ではなく「場所」と出す */
+    locationTitle: "場所",
     detailLoading: "詳細を読み込み中…",
     detailFailed: (why: string): string => `詳細の読み出しに失敗しました（${why}）。`,
     detailCount: (name: string, count: number): string => `${name} ${count} 件`,
@@ -177,10 +189,49 @@ const ja = {
     dateLabel: (y: number, mo: number, d: number): string => `${y} 年 ${mo} 月 ${d} 日`,
   },
 
+  /** 1 日の画面の要約・取れていない時間・記録なしの事情・開いた中身（timeline.ts。ST25） */
+  timeline: {
+    /** 区切り */
+    sep: " ・ ",
+    topSep: " · ",
+    lead: " — ",
+    pc: "PC",
+    phone: "スマホ",
+    browser: "ブラウザ",
+    archive: (name: string): string => `書庫: ${name}`,
+    /** 要約のブラウザの行の頭（`ブラウザ 12 件`） */
+    browserCount: (count: number): string => `ブラウザ ${count} 件`,
+    archiveCount: (name: string, count: number): string => `書庫: ${name} ${count} 件`,
+    reason: {
+      before_start: "位置の収集を始める前",
+      stopped: "止めていた",
+      dropped: (n: number): string => `端末が破棄 ${n} 件`,
+      archive: (n: number): string => `書庫に位置 ${n} 件`,
+    },
+    gap: {
+      away: (range: string): string => `離席 ${range}`,
+      stopped: (range: string): string => `PC 停止 ${range}`,
+      excluded: (range: string, n: number): string => `除外 ${range}（${n} 件。本文なし）`,
+      clockSkew: (range: string): string => `スマホ 時計のずれで取れていない ${range}`,
+      retention: (range: string): string => `スマホ 取得元に残っていない ${range}`,
+    },
+    record: {
+      away: "離席",
+      stopped: "PC 停止",
+      excluded: (n: number): string => `除外（${n} 件。本文なし）`,
+      unavailable: (source: string): string => `${source} 取れていない`,
+    },
+    /** 地域の時刻（`（London 8:02）`） */
+    region: (name: string, time: string): string => `（${name} ${time}）`,
+    /** 畳んだ行の件数 */
+    count: (n: number): string => `${n} 件`,
+  },
+
   /** S-6 マスタ管理（MasterView.tsx / attributes.ts） */
   master: {
     title: "マスタ管理",
     tabAttributes: "個人属性",
+    tabPlaces: "場所",
     failed: (why: string): string => `個人属性を読み出せませんでした（${why}）。`,
     addKind: "種類を足す",
     rename: (name: string): string => `「${name}」の名前を変える`,
@@ -231,6 +282,61 @@ const ja = {
     },
     rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,
     unreachable: "サーバに届きませんでした。入力はそのまま残っています",
+    /** 場所（ST21。PlacesView.tsx / PlaceForms.tsx / PlaceBand.tsx / places.ts） */
+    places: {
+      section: "場所",
+      add: "場所を足す",
+      failed: (why: string): string => `場所を読み出せませんでした（${why}）。`,
+      empty: "場所がまだありません。",
+      changeName: "名前を変える",
+      changeRadius: "広さを変える",
+      changeCoord: "座標を変える",
+      neverStayed: "まだ居たことが無い",
+      lastDay: (day: string): string => `最後に居た日 ${day}`,
+      radius: (m: number): string => `広さ ${m} m`,
+      /** 1 行に並べる項目の区切り */
+      sep: " · ",
+      previous: (n: number, open: boolean): string => `前の名前・座標 ${n} ${open ? "▾" : "▸"}`,
+      previousName: (name: string): string => `前の名前: ${name}`,
+      band: "24 区分の帯（0 時台から 23 時台）",
+      candidatesFailed: (why: string): string => `居た所を読み出せませんでした（${why}）。`,
+      candidatesEmpty: "居た所がまだありません。",
+      rest: (n: number): string => `残り ${n} か所`,
+      radiusLegend: "広さ",
+      meters: (m: number): string => `${m} m`,
+      candidateMeta: (count: number, first: string, last: string): string => `${count} 件 · ${first} 〜 ${last}`,
+      giveName: "名前を付ける",
+      name: "名前",
+      noteField: "補足（任意）",
+      noteLabel: "補足",
+      register: "登録する",
+      change: "変える",
+      newCoord: "新しい座標（名前の無い居た所から）",
+      coordOption: (coord: string, total: string, last: string): string => `${coord} · ${total} · 最後に居た日 ${last}`,
+      coordReason: "座標を変える理由",
+      coordFix: "前の座標が間違っていた",
+      coordMove: "この場所が移った",
+      validFrom: "いつから",
+      moveNote: (name: string): string => `前の座標で居た時間も「${name}」のまま`,
+      hours: (n: number): string => `${n} 時間`,
+      minutes: (n: number): string => `${n} 分`,
+      fixed: "直した",
+      upcoming: "予定",
+      upcomingFrom: (date: string): string => `予定（${date} から）`,
+      beforeMove: "移る前",
+      beforeMoveUntil: (date: string): string => `移る前（〜${date}）`,
+      rejection: {
+        invalid_place_name: "名前が空です。名前を入れてください",
+        invalid_radius: "広さが範囲の外です",
+        invalid_valid_from: "「いつから」の日付が読めません",
+        unknown_place: "この場所が見つかりません。画面を読み直してください",
+        invalid_coord_supersedes: "直す座標が見つかりません。画面を読み直してください",
+        invalid_coord_change: "この場所の座標の変え方が合いません。画面を読み直してください",
+        invalid_coordinate: "座標が読めません",
+        place_id_taken: "場所を作れませんでした。もう一度「登録する」を押してください",
+      },
+      rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,
+    },
   },
 };
 

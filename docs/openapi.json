@@ -266,6 +266,129 @@
         }
       }
     },
+    "/day": {
+      "get": {
+        "tags": [],
+        "summary": "1 日の並び（`/stays` と同じ行）に、行ごとの要約とほかの記録の行を足して返す（ST25 design D1）。",
+        "operationId": "day_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/day/records": {
+      "get": {
+        "tags": [],
+        "summary": "その日の記録を、出来事の時刻順に 1 件ずつ返す（ST25 design D1）。",
+        "operationId": "day_records_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "この時刻以後（RFC 3339）。省くと日の始まり。**日の端では切らない**（日をまたぐ行の前の日の側も出す）。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "この時刻より前（RFC 3339）。省くと日の終わり。**日の端では切らない**。`from` 以前なら 400。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DayRecord"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/drops": {
       "post": {
         "tags": [
@@ -444,6 +567,141 @@
             }
           },
           "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/places": {
+      "get": {
+        "tags": [],
+        "summary": "場所のいまの値と前の値・座標の版を返す（design D6 / D7 / D15）。",
+        "operationId": "places_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlacesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "summary": "場所の器を作る（ST21 / design D1）。識別子は画面が決めて渡す。\n同じ利用者の同じ識別子は 200（押し直しで器を 2 つにしない）、別の利用者の識別子は 400。",
+        "operationId": "places_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceUnavailableBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceUnavailableBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/places/candidates": {
+      "get": {
+        "tags": [],
+        "summary": "名前の無い、よく居た所を全部返す（design D10 / D15）。上位で切るのは画面。",
+        "operationId": "place_candidates_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidatesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "500": {
             "description": ""
           }
         }
@@ -817,6 +1075,59 @@
           }
         }
       },
+      "AppSeconds": {
+        "type": "object",
+        "description": "アプリ 1 つの使った時間。",
+        "required": [
+          "app",
+          "seconds"
+        ],
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AppSummary": {
+        "type": "object",
+        "description": "PC / スマホの要約。`seconds` は全アプリの合計、`top` は長い順に最大 `SUMMARY_TOP`。",
+        "required": [
+          "seconds",
+          "top"
+        ],
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppSeconds"
+            }
+          }
+        }
+      },
+      "ArchiveCount": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
       "ArchiveSourceStatus": {
         "type": "object",
         "description": "書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。",
@@ -928,6 +1239,101 @@
           "other"
         ]
       },
+      "BrowserSummary": {
+        "type": "object",
+        "description": "ブラウザの要約。`count` は訪問の総数、`top` はドメインごとの件数の多い順。",
+        "required": [
+          "count",
+          "top"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainCount"
+            }
+          }
+        }
+      },
+      "Candidate": {
+        "type": "object",
+        "description": "名前の無い、よく居た所 1 つ（D10。保存しない）。",
+        "required": [
+          "lat",
+          "lon",
+          "stays"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double",
+            "description": "属する滞在の代表点の単純平均"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "stays": {
+            "$ref": "#/components/schemas/CandidateStays"
+          }
+        }
+      },
+      "CandidateStays": {
+        "type": "object",
+        "description": "名前の無い所の滞在の項。",
+        "required": [
+          "count",
+          "minutes",
+          "first_day",
+          "last_day",
+          "hours"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_day": {
+            "type": "string",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）。最初に居た日"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "時間帯（0〜23 時）ごとの分"
+          },
+          "last_day": {
+            "type": "string",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）。最後に居た日"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CandidatesView": {
+        "type": "object",
+        "description": "`GET /places/candidates` の中身（D15）。",
+        "required": [
+          "candidates"
+        ],
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            }
+          }
+        }
+      },
       "ClaimOut": {
         "type": "object",
         "description": "読み出しが返す 1 件（design D8）。",
@@ -980,6 +1386,67 @@
               "null"
             ],
             "description": "`null` が「なし」"
+          }
+        }
+      },
+      "CoordChange": {
+        "type": "string",
+        "description": "座標の変え方（FR-49 ★ / 深掘り Q2）。",
+        "enum": [
+          "first",
+          "fix",
+          "move"
+        ]
+      },
+      "CoordOut": {
+        "type": "object",
+        "description": "いまの座標の記録の読み出し。",
+        "required": [
+          "record_id",
+          "lat",
+          "lon",
+          "change",
+          "written_at",
+          "ingested_at"
+        ],
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/CoordChange"
+          },
+          "ingested_at": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "record_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "valid_from": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ValidFrom"
+              }
+            ]
+          },
+          "written_at": {
+            "type": "string"
           }
         }
       },
@@ -1162,6 +1629,185 @@
           }
         }
       },
+      "DayRecord": {
+        "type": "object",
+        "description": "`GET /day/records` の 1 件（D1）。記録の値（題名・URL）はそのまま持つが、**ログには出さない**。",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "start",
+          "tz_id"
+        ],
+        "properties": {
+          "app": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "アプリ名。ブラウザの訪問ではブラウザ名、マイアクティビティでは製品名。"
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ）。"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "書庫のときだけ、登録簿の表示名（画面は「書庫: <表示名>」と書く）。"
+          },
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "区間の記録だけ。"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`foreground` / `away` / `stopped` / `excluded` / `visit` / `unavailable` / `archive`"
+          },
+          "source": {
+            "type": "string",
+            "description": "`pc` / `phone` / `browser` / `archive`"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tz_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DayResponse": {
+        "type": "object",
+        "description": "`GET /day` の応答。",
+        "required": [
+          "date",
+          "criteria",
+          "entries",
+          "gaps"
+        ],
+        "properties": {
+          "browser_through": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "ブラウザ履歴が最後に届いた時刻。**「まだ届いていない」を出すべきときだけ**ある（D10）。"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriteriaTag"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayRow"
+            }
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            }
+          }
+        }
+      },
+      "DayRow": {
+        "type": "object",
+        "description": "並びの 1 行。`day_view` の行の欄に `summary` を足したもの（「消した」の行には付けない）。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RowKind"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "description": "「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stay_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Summary"
+              }
+            ]
+          }
+        }
+      },
       "DayState": {
         "type": "string",
         "description": "ソース × 日 の状態（FR-54）。**8 つのいずれか 1 つに決まる。**\n\n⑧「退役」は ST03 の深掘りが差し戻したもの（R55 / R56）—— ソースを分けて\n古い名前を退役させる運用が通常になったため、**退役した後の空白日**を\n⑥「途絶」と区別できないと、退役したソースが毎日「壊れている」ように見える。",
@@ -1202,6 +1848,22 @@
               "$ref": "#/components/schemas/DayEntry"
             },
             "description": "始まりの時刻順"
+          }
+        }
+      },
+      "DomainCount": {
+        "type": "object",
+        "required": [
+          "domain",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "domain": {
+            "type": "string"
           }
         }
       },
@@ -1470,6 +2132,60 @@
           }
         }
       },
+      "Gap": {
+        "type": "object",
+        "description": "取れていない時間 1 つ。置く位置は画面が決める（D9）。日の端といまで切ってある。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ。本文は持たない）。"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "どの端末の時間か。2 台の PC が同じ時刻に離席しても行を取り違えない（画面の行の鍵）。"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GapKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "スマホの取れていない理由（`unavailable` だけ。`retention` / `clock_skew_abandoned`）。"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GapKind": {
+        "type": "string",
+        "description": "取れていない時間の種類（D9）。",
+        "enum": [
+          "away",
+          "stopped",
+          "excluded",
+          "unavailable"
+        ]
+      },
       "HeartbeatError": {
         "type": "string",
         "description": "生存信号を断った理由。**受け取った値は載せない**（`IngestError` と同じ向き）。",
@@ -1621,7 +2337,16 @@
           "unknown_attribute_kind",
           "invalid_claim_value",
           "invalid_valid_from",
-          "invalid_supersedes"
+          "invalid_supersedes",
+          "malformed_place_record",
+          "place_record_not_authored",
+          "place_record_has_external_id",
+          "unknown_place",
+          "invalid_place_name",
+          "invalid_coordinate",
+          "invalid_coord_change",
+          "invalid_coord_supersedes",
+          "invalid_radius"
         ]
       },
       "IngestRequest": {
@@ -1952,6 +2677,29 @@
           }
         }
       },
+      "NameRecordOut": {
+        "type": "object",
+        "description": "名前の記録の読み出し（2 つの時刻つき）。",
+        "required": [
+          "record_id",
+          "written_at",
+          "ingested_at"
+        ],
+        "properties": {
+          "ingested_at": {
+            "type": "string",
+            "description": "RFC 3339"
+          },
+          "record_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "written_at": {
+            "type": "string",
+            "description": "RFC 3339（地域のずれつき）"
+          }
+        }
+      },
       "PendingShapeStatus": {
         "type": "object",
         "description": "形の確認を待っている書庫とファイルの数（D16）。",
@@ -1970,6 +2718,186 @@
           }
         }
       },
+      "PlaceCreateRequest": {
+        "type": "object",
+        "description": "`POST /places` の本文。",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "省けば nil UUID（ほかの口と同じ。ST29 まで利用者は名乗り）"
+          }
+        }
+      },
+      "PlaceCreated": {
+        "type": "object",
+        "description": "器を作った結果。",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PlaceError": {
+        "type": "string",
+        "description": "器を断った理由（400 だけ）。",
+        "enum": [
+          "place_id_taken"
+        ]
+      },
+      "PlaceErrorBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PlaceError"
+          }
+        }
+      },
+      "PlaceOut": {
+        "type": "object",
+        "description": "場所 1 つぶんの読み出し（D15）。",
+        "required": [
+          "id",
+          "name",
+          "radius_m",
+          "name_record",
+          "coord",
+          "stays",
+          "previous_names",
+          "previous_coords"
+        ],
+        "properties": {
+          "coord": {
+            "$ref": "#/components/schemas/CoordOut"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "name_record": {
+            "$ref": "#/components/schemas/NameRecordOut"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_coords": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviousCoordOut"
+            },
+            "description": "いまの座標の版以外の座標の記録。書いた順"
+          },
+          "previous_names": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviousNameOut"
+            },
+            "description": "いまの名前以外の名前の記録。書いた日時の新しい順"
+          },
+          "radius_m": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stays": {
+            "$ref": "#/components/schemas/PlaceStays"
+          }
+        }
+      },
+      "PlaceStays": {
+        "type": "object",
+        "description": "場所の滞在の項（D9）。当たった滞在が無ければ 0 と `null`。",
+        "required": [
+          "count",
+          "minutes",
+          "hours"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "時間帯（0〜23 時）ごとの分"
+          },
+          "last_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）。居たことが無ければ `null`"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PlaceUnavailable": {
+        "type": "string",
+        "description": "器を作れなかった理由のうち、本文の中身に依らないもの（401 資格情報 / 500 DB の失敗）。\n本文の形を 400 と揃える（`{\"error\": ...}`）が、400 の enum には混ぜない（review/code.md R12）。",
+        "enum": [
+          "unavailable"
+        ]
+      },
+      "PlaceUnavailableBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PlaceUnavailable"
+          }
+        }
+      },
+      "PlacesView": {
+        "type": "object",
+        "description": "`GET /places` の中身（D15）。",
+        "required": [
+          "today",
+          "places"
+        ],
+        "properties": {
+          "places": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaceOut"
+            }
+          },
+          "today": {
+            "type": "string",
+            "description": "`Asia/Tokyo` の今日"
+          }
+        }
+      },
       "Precision": {
         "type": "string",
         "description": "「いつから」の精度（深掘り C3）。**丸めない** ——\n2019 年とだけ分かっている値を 2019-01-01 にすると、丸めたことが後から分からない。",
@@ -1979,6 +2907,102 @@
           "day",
           "unknown"
         ]
+      },
+      "PreviousCoordOut": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "lat",
+          "lon",
+          "change",
+          "state",
+          "written_at",
+          "ingested_at"
+        ],
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/CoordChange"
+          },
+          "fixed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "直された座標を直した記録（`state = fixed` のときだけ）"
+          },
+          "ingested_at": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "record_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PreviousCoordState"
+          },
+          "supersedes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "valid_from": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ValidFrom"
+              }
+            ]
+          },
+          "written_at": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviousCoordState": {
+        "type": "string",
+        "description": "前の座標の状態（D15）。",
+        "enum": [
+          "fixed",
+          "before_move",
+          "upcoming"
+        ]
+      },
+      "PreviousNameOut": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "name",
+          "written_at",
+          "ingested_at"
+        ],
+        "properties": {
+          "ingested_at": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "written_at": {
+            "type": "string"
+          }
+        }
       },
       "Reading": {
         "type": "object",
@@ -2005,6 +3029,35 @@
             "format": "date-time"
           }
         }
+      },
+      "Reason": {
+        "type": "object",
+        "description": "記録なしの事情 1 つ。`count` は `dropped` と `archive` だけ。",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReasonKind"
+          }
+        }
+      },
+      "ReasonKind": {
+        "type": "string",
+        "description": "記録なしの事情の種類。宣言の順が並び（D11（仮））。",
+        "enum": [
+          "before_start",
+          "stopped",
+          "dropped",
+          "archive"
+        ]
       },
       "RebuildRequest": {
         "type": "object",
@@ -2137,6 +3190,17 @@
             "minimum": 0
           }
         }
+      },
+      "RowKind": {
+        "type": "string",
+        "description": "並びの 1 行の種類。`day_view` の種類に「ほかの記録」を足したもの（並びは `day_view` の順のまま）。",
+        "enum": [
+          "stay",
+          "move",
+          "no-record",
+          "erased",
+          "other"
+        ]
       },
       "SessionState": {
         "type": "object",
@@ -2328,6 +3392,51 @@
           "device",
           "usage"
         ]
+      },
+      "Summary": {
+        "type": "object",
+        "description": "行の `[start, end)` の要約。**記録の無いソースは鍵ごと出さない。**",
+        "properties": {
+          "archive": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ArchiveCount"
+            }
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserSummary"
+              }
+            ]
+          },
+          "pc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          },
+          "phone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          }
+        }
       },
       "ValidFrom": {
         "type": "object",

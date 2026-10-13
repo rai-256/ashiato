@@ -1,0 +1,32 @@
+{
+  "title": "ST25 の深掘り（第 3 回）",
+  "subtitle": "REMOVED した Scenario と Scenario の検査",
+  "note": "下流の Task 11 で見つかった前提の食い違いが 1 件あります。選んで「回答をコピー」を押し、貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q8",
+      "topic": "REMOVED した Scenario が正典に残る間、11.1 の Scenario の検査をどう通すか",
+      "kind": "premise",
+      "question": "`check_scenarios.py` は REMOVED を読まず、この change が REMOVED する `稼働状況の画面の入口は変わらない` を「担保なし」で FAIL にします。11.1（rc=0）をどう成立させますか。",
+      "why": "印を足せば通るが、Task 7.1 の検証と Global Constraints（印を残すと嘘の試験が残る）に反する。この Scenario は archive で正典から消える。他の FAIL は無い。",
+      "context": "現在の HEAD で `scripts/verify-run 11.1` が FAIL（rc=1）。review_triage と check_chain は PASS。",
+      "allow_free": true,
+      "multi": false,
+      "options": [
+        {
+          "label": "検査の側を直す（REMOVED の Scenario を担保の対象から外す）",
+          "detail": "harness2 の check_scenarios.py が `## REMOVED Requirements` の Scenario 名を読む。11.1 のコマンドは変えない。他の Story の REMOVED にも効く",
+          "recommended": true
+        },
+        {
+          "label": "11.1 の検証コマンドを plan_fix.py で直す",
+          "detail": "FAIL の担保なしが REMOVED の 1 件だけであることを見るコマンドにする。harness2 は触らない。archive の gate では結局 REMOVED が残る"
+        },
+        {
+          "label": "嘘の印を一時的に置く",
+          "detail": "7.1 と衝突する。推奨しない"
+        }
+      ]
+    }
+  ]
+}

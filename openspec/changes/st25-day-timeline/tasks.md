@@ -13,7 +13,8 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 ## Global Constraints
 
 - **ST25 は ST22 の上に積む**（`requires: [ST01, ST22]`）。ST25 の画面は ST22 の「開ける行」（`DayView.tsx` の `openId`・`GET /stays/detail`・「この滞在を消す」）を広げる。
-  Task 1.1 が ST22 のコードが main にあることを確かめる。無ければ始めない
+  Task 1.1 が ST22 の実装が**作業ブランチにある**ことを確かめる（`deps.json` に記録した SHA が HEAD に含まれる）。無ければ始めない。
+  ST22 の main への merge・人間の確認・archive は待たない —— gate を通った ST22 の実装を `scripts/story_deps.py take` で取り込んで使う（2026-10-02）
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 10 分以上の離席は行になる`）、bash は `echo`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
 - **この change の Scenario は 86 本**（`browsing-views` の ADDED のみ。うち 2 本 —— `日付を含むアドレスでその日の一覧が開く` / `前の日へ移ると前の日の滞在が出る` —— は ST16 の印がそのまま使える）。
@@ -42,17 +43,17 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 
 `crates/server/src/day_records.rs`（新規）。試験は `crates/server/src/day_records_tests.rs`。design D2 / D3 / D4 / D5。
 
-- [ ] 1.1 前提を確かめる: ST22 のコードが main にある。ST06 / ST08 / ST12 のうち main に入ったものは、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
+- [x] 1.1 前提を確かめる: ST22 の実装が作業ブランチにある（`deps.json` に記録した SHA を HEAD が含み、そのコードがある）。ST06 / ST08 / ST12 のうち作業ブランチに入ったもの（main か、取り込んだ確認バッチから）は、`docs/collector-contract.md` の payload の鍵名を design D2 の表と突き合わせ、違えば D2 の表を直してから進む。
   あわせて、**登録簿に実在する `c03-%` の論理ソースがどれも D2（活動）か D11（位置の点）の表にある**ことを試験にする（表に無い名前を列挙して落ちる）。
-  検証: `bash -c 'test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'`、`CT st25_allow_registry_covers_archive`
-- [ ] 1.2 許可リスト（D2 の表）を 1 つの定数の表にし、`core.event` の行を 2 段で正規化する（1 段目はスマホの `background` を持つ内部の形、2 段目が `/day/records` に出す形）。
+  検証: `bash -c 'python3 scripts/story_deps.py included ST25 ST22 && test -f crates/server/src/deletion.rs && grep -q "\"erased\"" web/src/stays.ts'`、`CT st25_allow_registry_covers_archive`
+- [x] 1.2 許可リスト（D2 の表）を 1 つの定数の表にし、`core.event` の行を 2 段で正規化する（1 段目はスマホの `background` を持つ内部の形、2 段目が `/day/records` に出す形）。
   除外は本文を写さない。離席は leave だけ（今日に限り、leave の無い enter をいままでの離席にする）。感度で外さない。表の行ごとに試験を置く（偽の記録を 1 件ずつ）。
   Scenario: `許可リストに無い種別の記録は返らない` / `除外の記録は件数を持つ` / `除外の記録は本文を持たない` / `地域の違う記録はその地域を持って返る` / `感度の高い記録も返る`。
   検証: `CT st25_allow_`
-- [ ] 1.3 読み出しの SQL（D3）: `core.event_live` を日付で先に絞り、`DISTINCT ON (logical_source, content_hash)` を `ingest_time, id` の順で畳む。続けて訪問を `(event_time, url)` で畳む（D4）。
+- [x] 1.3 読み出しの SQL（D3）: `core.event_live` を日付で先に絞り、`DISTINCT ON (logical_source, content_hash)` を `ingest_time, id` の順で畳む。続けて訪問を `(event_time, url)` で畳む（D4）。
   Scenario: `削除済みの記録は返らない` / `内容が同じ記録は 1 件として返る` / `2 台の PC から届いた同じ訪問は 1 件になる` / `書庫と手元の同じ出来事は両方返る` / `書庫どうしの同じ出来事も両方返る`。
   検証: `CT st25_fold_`
-- [ ] 1.4 日の範囲（D5）: 点は出来事の時刻、区間は重なりで判定（SQL は ±40 日で索引に当て、重なりは Rust）。`from` / `to` も同じ判定。
+- [x] 1.4 日の範囲（D5）: 点は出来事の時刻、区間は重なりで判定（SQL は ±40 日で索引に当て、重なりは Rust）。`from` / `to` も同じ判定。
   Scenario: `日の区切りは Asia/Tokyo で決まる` / `前の日から続く区間はその日にも返る` / `他の日の記録は返らない`。
   検証: `CT st25_range_`
 
@@ -60,43 +61,44 @@ DB を使う検査は `docker compose up -d --wait db` が前提（ST28 が merg
 
 design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 
-- [ ] 2.1 `GET /day/records?date=&from=&to=&user_id=` を足す。出来事の時刻順。認証・利用者・日付の解釈は `/stays` と同じ。OpenAPI に足す（`utoipa`）。
+- [x] 2.1 `GET /day/records?date=&from=&to=&user_id=` を足す。出来事の時刻順。認証・利用者・日付の解釈は `/stays` と同じ。OpenAPI に足す（`utoipa`）。
   Scenario: `その日の記録が出来事の時刻順に 1 件ずつ返る` / `時刻の範囲を指定するとその範囲の記録だけが返る`（範囲の外から始まって中で終わる離席を含める） /
   `日付として読めない求めは断られる` / `資格情報の無い 1 日の記録の求めは断られる`。
   検証: `CT st25_api_records_`、`tools/check-openapi.sh` rc=0
-- [ ] 2.2 既存の口の形が変わらないこと。`/events` と `/stays` の応答の鍵の集合と並びを、口を足す前と同じ入力で固定する（`/events` は `payload` を返さないまま）。
+- [x] 2.2 既存の口の形が変わらないこと。`/events` と `/stays` の応答の鍵の集合と並びを、口を足す前と同じ入力で固定する（`/events` は `payload` を返さないまま）。
   Scenario: `記録の読み出しの形は変わらない`。検証: `CT st25_api_unchanged_`
 
 ## Task 3: 使った時間・要約・ほかの記録の行と、`GET /day`
 
 `crates/server/src/day.rs`（新規）。試験は `crates/server/src/day_tests.rs`。design D1 / D6 / D7。
 
-- [ ] 3.1 使った時間（D6）: PC は次の前景の変化（次の前景・除外の始まり）まで、間の離席（10 分未満も）・除外・停止を差し引く。
+- [x] 3.1 使った時間（D6）: PC は次の前景の変化（次の前景・除外の始まり）まで、間の離席（10 分未満も）・除外・停止を差し引く。
   スマホは次の別のアプリの前景か同じアプリの `background` まで、1 回 10 分で打ち切る。行の範囲の外は数えない。
   Scenario: `離席の時間はアプリを使った時間に数えない` / `10 分に満たない離席も使った時間から差し引く` / `スマホの使った時間は 1 回 10 分で打ち切る`。
   検証: `CT st25_usage_`
-- [ ] 3.2 要約（D7）: 行の `[start, end)` ごとに PC / スマホ（時間と上位 3）・ブラウザ（件数とドメインの上位 3）・書庫（表示名ごとの件数）。同点は名前の昇順、ドメインは小文字で `www.` を外す。
+- [x] 3.2 要約（D7）: 行の `[start, end)` ごとに PC / スマホ（時間と上位 3）・ブラウザ（件数とドメインの上位 3）・書庫（表示名ごとの件数）。同点は名前の昇順、ドメインは小文字で `www.` を外す。
   記録の無いソースは鍵ごと省く。「消した」の行には付けない。`SUMMARY_TOP` を名指しで固定する試験を置く。
   Scenario（サーバ側の数）: `滞在の行に PC のアプリの上位 3 つと時間が出る` / `同じ時間のアプリは名前の順に並ぶ` / `ドメインは www を外して小文字で束ねる` /
   `ブラウザは見たサイトのドメインの上位 3 つと件数が出る` / `スマホのアプリの上位 3 つと時間が出る` / `書庫の記録は表示名ごとの件数で出る` /
   `記録の無いソースの要約は出ない` / `記録なしの行にもその時間の要約が出る` / `消した行には要約が出ない` / `日付をまたぐ行の要約は両方の日で同じ`。
   検証: `CT st25_summary_`
-- [ ] 3.3 ほかの記録の行（D7）: `day_view` の行の隙間（消した時間・今日の最後の位置からいままで）に位置以外の記録があれば `kind: "other"` の行を足し、要約を付ける。`day_view` は変えない。
-  Scenario（サーバ側）: `どの行にも入らない時間の記録はほかの記録の行に出る` / `今日の最後の位置の後の記録はほかの記録の行に出る`。
+- [x] 3.3 ほかの記録の行（D7）: `day_view` の行の隙間（消した時間）に位置以外の記録があれば `kind: "other"` の行を足し、要約を付ける。`day_view` は変えない。
+  今日の最後の位置からいままでは `day_view` の記録なしの行のまま、その行に要約を添える（deep.md Q7。★ 2026-10-12 に Q7 の決定へ本文を揃えた。code-verify R22）。
+  Scenario（サーバ側）: `どの行にも入らない時間の記録はほかの記録の行に出る` / `今日の最後の位置の後の記録は記録なしの行に出る`。
   検証: `CT st25_other_`
-- [ ] 3.4 `GET /day?date=&user_id=` を足す。`entries` は `stay_store::day_view` の結果（ST22 の「消した」を含む）に `summary` とほかの記録の行を足したもの。OpenAPI にも足す。
+- [x] 3.4 `GET /day?date=&user_id=` を足す。`entries` は `stay_store::day_view` の結果（ST22 の「消した」を含む）に `summary` とほかの記録の行を足したもの。OpenAPI にも足す。
   検証: `CT st25_api_day_`、`tools/check-openapi.sh` rc=0
 
 ## Task 4: 取れていない時間とブラウザの「最後に届いた時刻」
 
 `day.rs`。design D9 / D10。
 
-- [ ] 4.1 `gaps`: 離席（`AWAY_ROW_MIN_MINUTES` 以上だけ。定数を名指しで固定する試験と、ちょうど 10 分・9 分 59 秒の境界の試験を置く。今日はいま離席中も）・PC の停止・
+- [x] 4.1 `gaps`: 離席（`AWAY_ROW_MIN_MINUTES` 以上だけ。定数を名指しで固定する試験と、ちょうど 10 分・9 分 59 秒の境界の試験を置く。今日はいま離席中も）・PC の停止・
   除外（次の前景の記録まで。続く除外の記録を 1 行にまとめて件数を足す）・スマホ（`reason` を写す）。日の端といまで切る。
   Scenario（サーバ側）: `10 分以上の離席は行になる` / `10 分に満たない離席は行にならない` / `いま離席中の時間は今日の行になる` / `PC の停止は行になる` /
   `除外は件数だけの行になる` / `送る契機で区切られた除外は 1 行にまとまる` / `スマホの取得元に残っていなかった期間は行になる` / `時計のずれで取り直さなかった期間は別の文字の行になる`。
   検証: `CT st25_gaprow_`
-- [ ] 4.2 `browser_through`（D10）: `c02-browser-history` の `ingest_time` の最大（削除済みを含む）。生存信号は使わない。収集を始めた日より前の日には出さない。
+- [x] 4.2 `browser_through`（D10）: `c02-browser-history` の `ingest_time` の最大（削除済みを含む）。生存信号は使わない。収集を始めた日より前の日には出さない。
   Scenario（サーバ側）: `まだ届いていないブラウザ履歴は行になる` / `届いた日にはまだ届いていない行は出ない` / `ブラウザ履歴を集めていない日にはまだ届いていない行は出ない`。
   検証: `CT st25_browser_`
 
@@ -104,51 +106,56 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 
 `day.rs`。design D11。**`coverage.rs` を呼ばない・書き換えない**（読む SQL を別に書く）。
 
-- [ ] 5.1 記録なしの行ごとに `reasons`（導入前・止めていた・破棄（件数）・書庫に位置（件数。タイムラインと移行前の両方を数える））を D11 の順で付ける。行の始まりと終わりは変えない。
+- [x] 5.1 記録なしの行ごとに `reasons`（導入前・止めていた・破棄（件数）・書庫に位置（件数。タイムラインと移行前の両方を数える））を D11 の順で付ける。行の始まりと終わりは変えない。
   止めていた時間は `core.coverage_span` に試験から直接行を入れて確かめる（`testdb.rs` と同じ）。
   Scenario（サーバ側）: `収集を始める前の日の記録なしにはそう添えられる` / `端末が破棄した時間の記録なしには件数が添えられる` /
   `書庫に位置がある時間の記録なしには件数が添えられる` / `本人が止めていた時間の記録なしにはそう添えられる` /
   `事情が重なると並べて添えられる` / `事情の無い記録なしには何も添えない` / `事情は記録なしの行の範囲を変えない`。
   検証: `CT st25_reasons_`
-- [ ] 5.2 書庫の位置から滞在を作らないことを固定する（書庫の位置の点だけがある時間に、`/stays` の滞在が増えない）。
+- [x] 5.2 書庫の位置から滞在を作らないことを固定する（書庫の位置の点だけがある時間に、`/stays` の滞在が増えない）。
   Scenario: `書庫の位置からは滞在を作らない`。検証: `CT st25_nostay_`
 
 ## Task 6: 偽データ
 
 `tools/seed.sh`。design D13。
 
-- [ ] 6.1 `normal` の 2026-09-07 に、PC の前景（同じアプリの連続を含む）・離席 4 回（うち 1 回は 10 分未満）・除外 1 回（件数 3）・PC の停止 23:40〜・スマホの前景と後ろに下がったイベントを足す。
+- [x] 6.1 `normal` の 2026-09-07 に、PC の前景（同じアプリの連続を含む）・離席 4 回（うち 1 回は 10 分未満）・除外 1 回（件数 3）・PC の停止 23:40〜・スマホの前景と後ろに下がったイベントを足す。
   ブラウザの訪問（2 台目の PC からの同じ訪問を含む）は、**`c02-browser-history` の `external_id_kind` が `record` のとき（ST08 の移行が済んでいるとき）だけ**入れ、そうでなければ入れないと出して続ける（design D13。spec-review R18）。
   書庫は入れない。登録簿に無い論理ソースは先頭で `ON CONFLICT DO NOTHING` で足す。固定の乱数で作り、2 回入れても件数が変わらない（再送として畳まれる）。
-  検証: `bash -c 'tools/stack.sh up && tools/seed.sh normal && tools/seed.sh normal'`、
-  `bash -c 'set -a; . ./.env 2>/dev/null; set +a; curl -sf -H "authorization: Bearer ${API_TOKEN:-dev-token-0123456789abcdef}" "http://127.0.0.1:18787/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"'`
+  （2026-10-02 に検証の形を直した。`tools/stack.sh up` は前景で待ち、終わるとサーバごと止めるので、`stack.sh up && …` と
+  2 本目の `curl` は先へ進めなかった。確かめる中身 —— 作り直した DB に 2 回入れても畳まれ、2026-09-07 の `/day` が離席 3・除外 1・
+  PC とスマホの要約を持つ —— は変えていない）
+  検証: `tools/st25-seed-check.sh`
 
+  （訂正 2026-10-12: 検証の入口を「bash -c 'set -a; . ./.env; set +a; STACK_RESET=1 setsid tools/stack.sh up >/tmp/st25-6.1-stack.log 2>&1 & s=$!; trap "kill -- -$s 2>/dev/null; wait $s 2>/dev/null" EXIT; for i in $(seq 1 1800); do grep -q "^画面:" /tmp/st25-6.1-stack.log && break; kill -0 $s 2>/dev/null || break; sleep 1; done; grep -q "^画面:" /tmp/st25-6.1-stack.log || { tail -20 /tmp/st25-6.1-stack.log; exit 1; }; tools/seed.sh normal && tools/seed.sh normal && curl -sf -H "authorization: Bearer $API_TOKEN" "http://$BIND/day?date=2026-09-07" | jq -e "([.gaps[] | select(.kind==\"away\")] | length) == 3 and ([.gaps[] | select(.kind==\"excluded\")] | length) == 1 and ([.entries[] | select(.summary.pc != null)] | length) >= 1 and ([.entries[] | select(.summary.phone != null)] | length) >= 1"'」から上の入口に。受け入れ条件は変えない。理由: 旧コマンドは .env の BIND（127.0.0.1:18787）を seed.sh と curl に渡すが、tools/ports.sh（430196c9、ST05）以降 stack.sh は Story の worktree の口（-st25 は 127.0.0.1:19050）でサーバを立てる。18787 には ashiato2-integ のサーバが待ち受けていて、seed の最初の curl -f が 401 で止まる（verify-run 6.1 で rc=22。5180 を ashiato2-integ の確認バッチが持っていたので WEB_PORT=5230 を環境で渡して走らせた）。新しい入口 tools/st25-seed-check.sh は同じ手順で、. tools/ports.sh の後に BIND=127.0.0.1:$ASHIATO_HTTP_PORT を seed.sh と curl の両方に渡す。判定の中身（作り直した DB・seed 2 回・jq -e）は変えない。台本に移したのは plan_fix.py が新しい入口に repo の実行ファイルを求めるため 実証: evidence.jsonl 2026-10-12T11:56:53+00:00 FAIL。承認: deep.md Q9（深掘り第 4 回、deep-answers-3.txt。本人の答え「6.1 の検証コマンドを plan_fix.py で直す」。記録 32383664、2026-10-12）。記録: plan-corrections.md）
 ## Task 7: 画面 —— ルート・行き先・明暗
 
 `web/src/Root.tsx` / `App.tsx` / `DayView.tsx`（`nav` と見出し）/ `docs/screens.md`。design D12。
 
-- [ ] 7.1 ルート（空・`#/`・解釈できないアドレス）を今日の 1 日の画面に、`#/coverage` を稼働状況にする。1 日の画面の上に「稼働状況」「マスタ管理」の行き先、稼働状況に「1 日の画面へ」とマスタ管理への行き先。見出しを日付にする。
+- [x] 7.1 ルート（空・`#/`・解釈できないアドレス）を今日の 1 日の画面に、`#/coverage` を稼働状況にする。1 日の画面の上に「稼働状況」「マスタ管理」の行き先、稼働状況に「1 日の画面へ」とマスタ管理への行き先。見出しを日付にする。
   REMOVED した Scenario の試験（`DayView.test.tsx` の `稼働状況の画面の入口は変わらない`）を直す。
   Scenario: `ルートを開くと今日の 1 日の画面が出る` / `稼働状況は専用のアドレスで開く` / `稼働状況から 1 日の画面へ移れる` /
   `解釈できないアドレスでは今日の 1 日の画面が出る` / `1 日の画面の見出しは日付`。
   検証: `VT st25-routes.test.tsx`、`bash -c '! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates'`
-- [ ] 7.2 `DayView` の読み出し先を `/api/stays` から `/api/day` へ付け替え、**`/api/stays?date=` の呼び出しを固定している既存の試験**（ST22 の後の `DayView.test.tsx` / `DayView-erase-erased-row-keyboard.test.tsx` など）を
+- [x] 7.2 `DayView` の読み出し先を `/api/stays` から `/api/day` へ付け替え、**`/api/stays?date=` の呼び出しを固定している既存の試験**（ST22 の後の `DayView.test.tsx` / `DayView-erase-erased-row-keyboard.test.tsx` など）を
   `/api/day` に付け替える（ST16 / ST22 の印は残す）。暦に無い日付の画面を `useScheme()` にする（C10）。
   検証: `bash -c 'cd web && npx vitest run'`（既存の試験が全部緑）、`bash -c '! grep -rn "api/stays?date" web/src/DayView.tsx'`
-- [ ] 7.3 `docs/screens.md` の表を直す（S-1 は `/#/coverage`、S-2 は `/`）。`web/e2e/stack.spec.ts` と `coverage-year.spec.ts` は `/#/coverage` を開く。
+- [x] 7.3 `docs/screens.md` の表を直す（S-1 は `/#/coverage`、S-2 は `/`）。`web/e2e/stack.spec.ts` と `coverage-year.spec.ts` は `/#/coverage` を開く。
   検証: `bash -c 'grep -q "#/coverage" docs/screens.md'`、`ET stack.spec.ts`、`ET coverage-year.spec.ts`
 
 ## Task 8: 画面 —— 要約・取れていない時間の行・記録なしの事情・ほかの記録の行
 
 `web/src/DayView.tsx` / `web/src/timeline.ts`（新規。型・形の検査・`placeGaps`）。design D7 / D9 / D11。
 
-- [ ] 8.1 各行に要約を文字で出す（「PC 2 時間 45 分 — VS Code 1:30 · …」「ブラウザ 32 件 — github.com 18 · …」「書庫: <表示名> 12 件」）。ほかの記録の行（「ほかの記録 始まり – 終わり」）を描く。
+- [x] 8.1 各行に要約を文字で出す（「PC 2 時間 45 分 — VS Code 1:30 · …」「ブラウザ 32 件 — github.com 18 · …」「書庫: <表示名> 12 件」）。ほかの記録の行（「ほかの記録 始まり – 終わり」）を描く。
   形が違う応答は失敗として出す（`isDayView` と同じ規律）。固定の `/api/day` の応答を描いて文字列を確かめる。
   Scenario（画面の文字）: `滞在の行に PC のアプリの上位 3 つと時間が出る` / `ブラウザは見たサイトのドメインの上位 3 つと件数が出る` / `スマホのアプリの上位 3 つと時間が出る` /
   `書庫の記録は表示名ごとの件数で出る` / `記録の無いソースの要約は出ない` / `記録なしの行にもその時間の要約が出る` / `ソースの種類は文字で出る` / `消した行には要約が出ない` /
-  `どの行にも入らない時間の記録はほかの記録の行に出る` / `今日の最後の位置の後の記録はほかの記録の行に出る`。
+  `どの行にも入らない時間の記録はほかの記録の行に出る` / `今日の最後の位置の後の記録は記録なしの行に出る`（★ 2026-10-12 に Q7 の名前へ揃えた。code-verify R22）。
+  サーバの試験だけに印があった画面の文字の Scenario（`離席の時間はアプリを使った時間に数えない` / `10 分に満たない離席も使った時間から差し引く` /
+  `スマホの使った時間は 1 回 10 分で打ち切る` / `同じ時間のアプリは名前の順に並ぶ` / `ドメインは www を外して小文字で束ねる` / `日付をまたぐ行の要約は両方の日で同じ`）にも jsdom の印を置く（★ 2026-10-12。code-verify R25）。
   検証: `VT st25-summary.test.tsx`
-- [ ] 8.2 取れていない時間の行と事情: `placeGaps`（D9）で `gaps` を始まりを含む行の直後に始まりの時刻順で差し込む（どれにも入らなければ始まりより前で最も近い行の直後。ブラウザの行は並びの先頭）。
+- [x] 8.2 取れていない時間の行と事情: `placeGaps`（D9）で `gaps` を始まりを含む行の直後に始まりの時刻順で差し込む（どれにも入らなければ始まりより前で最も近い行の直後。ブラウザの行は並びの先頭）。
   行の文字（「離席」「PC 停止」「除外 …（N 件。本文なし）」「スマホ 取得元に残っていない」「スマホ 時計のずれで取れていない」「ブラウザ …」）と、記録なしの事情の文字を描く。
   画面側の `AWAY_ROW_MIN_MINUTES` を名指しで固定する。
   Scenario（画面の文字と位置）: `10 分以上の離席は行になる` / `10 分に満たない離席は行にならない` / `いま離席中の時間は今日の行になる` / `PC の停止は行になる` /
@@ -158,19 +165,19 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
   `収集を始める前の日の記録なしにはそう添えられる` / `端末が破棄した時間の記録なしには件数が添えられる` / `書庫に位置がある時間の記録なしには件数が添えられる` /
   `本人が止めていた時間の記録なしにはそう添えられる` / `事情が重なると並べて添えられる` / `事情の無い記録なしには何も添えない` / `事情は記録なしの行の範囲を変えない`。
   検証: `VT st25-gaps.test.tsx`
-- [ ] 8.3 新しく使う文字と背景の色の組を、ライトとダークの両方で 4.5:1 以上に固定する（`web/src/contrast.ts` と同じ形）。行の種類を枠や線の色で担わせない。
+- [x] 8.3 新しく使う文字と背景の色の組を、ライトとダークの両方で 4.5:1 以上に固定する（`web/src/contrast.ts` と同じ形）。行の種類を枠や線の色で担わせない。
   Scenario: `要約と中身の文字はライトでもダークでも 4.5:1 を下回らない`。検証: `VT st25-contrast.test.ts`
 
 ## Task 9: 画面 —— 開いた中身と畳み
 
 `web/src/DayView.tsx` / `web/src/timeline.ts`（`foldRuns`）。design D8。
 
-- [ ] 9.1 滞在・移動・記録なし・ほかの記録の行を開ける行にする（ST22 の `openId` 1 つのまま。一度に 1 つ）。開くと `/api/day/records?date=&from=&to=` を 1 回読み、時刻順に出す。
+- [x] 9.1 滞在・移動・記録なし・ほかの記録の行を開ける行にする（ST22 の `openId` 1 つのまま。一度に 1 つ）。開くと `/api/day/records?date=&from=&to=` を 1 回読み、時刻順に出す。
   滞在の行は ST22 の件数（場所 N 件）と「この滞在を消す」を末尾に残す。地域が Asia/Tokyo でない記録に地域の時刻を添える。
   Scenario: `行を開くとその時間の記録が時刻順に出る` / `位置の点は件数で出る` / `地域の違う記録にはその地域の時刻が添えられる` /
   `開ける行は一度に 1 つ` / `滞在の詳細の消す操作は残る`。
   検証: `VT st25-open.test.tsx`
-- [ ] 9.2 `foldRuns`: 同じ `source` の同じアプリ（ブラウザは同じ `browser`）の連続を 1 行に畳み、始まり・終わり・件数。取れていない時間は畳まない。畳んだ行は一度に 1 つ開く。
+- [x] 9.2 `foldRuns`: 同じ `source` の同じアプリ（ブラウザは同じ `browser`）の連続を 1 行に畳み、始まり・終わり・件数。取れていない時間は畳まない。畳んだ行は一度に 1 つ開く。
   Scenario: `同じアプリの連続は 1 行に畳まれる` / `別のアプリが挟まると別の行になる` / `畳んだ行を開くと中の全件が時刻順に出る` / `畳んだ行も一度に 1 つ`。
   検証: `VT st25-fold.test.ts`
 
@@ -179,24 +186,24 @@ design D1。ハンドラは `lib.rs`、組み立ては `day_records.rs`。
 偽データ（`SEED=normal`）の `#/day/2026-09-07` を使う。**アサートするのは数値と経路**（実寸・可視・フォーカス・URL・背景の色）。スクリーンショット比較は使わない。
 各 Scenario は別の `test(...)` にし、`ET day-timeline.spec.ts` の通った件数がこの Task の Scenario の数（14）以上であることを見る。
 
-- [ ] 10.1 幅 360 × 高さ 640: 閉じた画面に PC の前景の題名が 1 つも出ず行の数が 100 未満 / 画面の中に全体が入る行が 6 行以上 / 横スクロールが無い / 閉じた行の高さがどれも 200 以下。
-  Scenario: `閉じた画面に記録 1 件ごとの行は出ない` / `幅 360 px で開いてすぐ 6 行以上見える` / `幅 360 px で横にはみ出さない` / `閉じた行は 200 px を超えない`。
-- [ ] 10.2 行を開く操作・畳んだ行を開く操作・「稼働状況」「マスタ管理」の行き先の `boundingBox` が 24 以上。行き先を押すと URL が `#/coverage` / `#/master` になり、その画面が出る。
+- [x] 10.1 幅 360 × 高さ 640: 閉じた画面に PC の前景の題名が 1 つも出ず行の数が 100 未満 / 画面の中に全体が入る行が 6 行以上 / 横スクロールが無い / 閉じた行の高さがどれも 240 以下（★ 2026-10-12 に 200 から見直した。design D15（仮）・code-verify R19）。
+  Scenario: `閉じた画面に記録 1 件ごとの行は出ない` / `幅 360 px で開いてすぐ 6 行以上見える` / `幅 360 px で横にはみ出さない` / `閉じた行は 240 px を超えない`（★ 2026-10-12 に 200 px から改名。design D15（仮）・code-verify R19）。
+- [x] 10.2 行を開く操作・畳んだ行を開く操作・「稼働状況」「マスタ管理」の行き先の `boundingBox` が 24 以上。行き先を押すと URL が `#/coverage` / `#/master` になり、その画面が出る。
   時刻順の記録が 100 件以上ある滞在の行を開いて「この滞在を消す」が 44 以上。
   Scenario: `開く操作と行き先は 24 px を下回らない` / `1 日の画面から稼働状況へ移れる` / `1 日の画面からマスタ管理へ移れる` / `時刻順の記録を足しても消す操作は 44 px を下回らない`。
-- [ ] 10.3 Tab で滞在の行へ移って Enter → 中の畳んだ行へ Tab → Enter で全件が出る。そのたびに `activeElement` に輪郭（`outline-style` が `none` でない）。
+- [x] 10.3 Tab で滞在の行へ移って Enter → 中の畳んだ行へ Tab → Enter で全件が出る。そのたびに `activeElement` に輪郭（`outline-style` が `none` でない）。
   Scenario: `畳んだ行はキーボードで開ける` / `キーボードで行を開くとフォーカスの位置が見える`。
-- [ ] 10.4 明暗: `emulateMedia` でダーク → ライト → ダーク と切り替え、1 日の画面の背景の輝度が上がって戻る。`colorScheme: "no-preference"` で背景がダークの色。
+- [x] 10.4 明暗: `emulateMedia` でダーク → ライト → ダーク と切り替え、1 日の画面の背景の輝度が上がって戻る。`colorScheme: "no-preference"` で背景がダークの色。
   `colorScheme: "light"` で `#/day/2026-13-45` の画面の背景がライトの色。
   Scenario: `OS をライトに切り替えると 1 日の画面が明るくなる` / `OS の明暗が取得できないときはダーク` / `暦に無い日付の画面も OS の明暗に追従する`。
 - 検証（10.1〜10.4 共通）: `ET day-timeline.spec.ts`、`bash -c 'grep -c "^test(" web/e2e/day-timeline.spec.ts | xargs test 14 -le'`
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 検査。検証: `python3 scripts/check_scenarios.py . st25-day-timeline` rc=0、`python3 scripts/review_triage.py . st25-day-timeline` rc=0、`python3 scripts/check_chain.py .` rc=0
-- [ ] 11.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
+- [x] 11.1 検査。検証: `python3 scripts/check_scenarios.py . st25-day-timeline` rc=0、`python3 scripts/review_triage.py . st25-day-timeline` rc=0、`python3 scripts/check_chain.py .` rc=0
+- [x] 11.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
   `cd web && npm run lint && npm run test && npm run build && npm run test:e2e` / `tools/check-openapi.sh` / `tools/smoke.sh` が全部 rc=0
-- [ ] 11.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。読んだ結果（ST25 宛ての申し送りの有無と処置）を `review/handoff.md` に書く
+- [x] 11.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。読んだ結果（ST25 宛ての申し送りの有無と処置）を `review/handoff.md` に書く
   （無ければ「無し」と、読んだ日時と `git log -1 --format=%h -- docs/handoff` を書く）。
   検証: `bash -c 'test -s openspec/changes/st25-day-timeline/review/handoff.md && grep -q "$(git log -1 --format=%h -- docs/handoff)" openspec/changes/st25-day-timeline/review/handoff.md'`
 

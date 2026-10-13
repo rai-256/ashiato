@@ -1,0 +1,10 @@
+{
+  "ST22": {
+    "sha": "f8251fd6ff3ff2673909d3357789db0c78f6ee88",
+    "pr": 19,
+    "branch": "feat/st22-record-deletion",
+    "via": "23938e74399795ae0ef21f97e20cb9273b93903e",
+    "via_ref": "23938e74399795ae0ef21f97e20cb9273b93903e",
+    "at": "2026-10-02T01:37:41+00:00"
+  }
+}

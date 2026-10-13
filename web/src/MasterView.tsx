@@ -23,8 +23,10 @@ import {
   type Precision,
   type SendOutcome,
 } from "./attributes";
+import { control, primary } from "./controls";
 import { msg } from "./messages";
-import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
+import { PlacesView } from "./PlacesView";
+import { inputStyle, linkStyle, pageStyle, sectionStyle, titleStyle } from "./surface";
 import { font, MIN_TARGET_PX, RADIUS, SCHEMES, SECTION_GAP_PX, SPACE, TYPE, tone, type Scheme } from "./tokens";
 
 const m = msg("master");
@@ -32,6 +34,13 @@ const common = msg("common");
 
 /** 読み出しの状態。**「読み込み中」「失敗」「まだ書いていない」を分ける**（spec）。 */
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why: string };
+
+export type MasterTab = "attributes" | "places";
+
+const TABS: { id: MasterTab; label: string; hash: string }[] = [
+  { id: "attributes", label: m.tabAttributes, hash: "#/master" },
+  { id: "places", label: m.tabPlaces, hash: "#/master/places" },
+];
 
 /** 精度の選択肢。**先に選ぶ**（Q2。本人が proto で決めた）。 */
 const PRECISIONS: { value: Precision; label: string }[] = [
@@ -51,7 +60,7 @@ const PRECISIONS: { value: Precision; label: string }[] = [
  *
  * **画面が長い（10 年後の量で 4.3 画面）のは本人が承知で選んだ。畳む形に戻さない。**
  */
-export function MasterView(): React.ReactElement {
+export function MasterView({ tab = "attributes" }: { tab?: MasterTab } = {}): React.ReactElement {
   const scheme = useScheme();
   useFocusRule(scheme);
   const c = SCHEMES[scheme];
@@ -78,8 +87,8 @@ export function MasterView(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (tab === "attributes") void load();
+  }, [tab, load]);
 
   return (
     <main
@@ -88,55 +97,62 @@ export function MasterView(): React.ReactElement {
       style={pageStyle(c)}
     >
       <nav style={{ display: "flex", gap: SPACE.targetGap, marginBottom: 8 }}>
-        <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
+        <a href="#/coverage" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
           {common.toCoverage}
         </a>
       </nav>
       <h1 style={titleStyle(c)}>{m.title}</h1>
 
       {/*
-        **タブは「個人属性」の 1 つだけ**（design D9）。押しても何も無いタブを置かない ——
-        人物（ST20）と場所（ST21）が中身とともに足す。
+        タブは「個人属性」（`#/master`）と「場所」（`#/master/places`）の 2 つ（ST21 / design D12）。
+        人物（ST20）は中身とともに足す。押しても何も無いタブを置かない（ST19 / design D9）
       */}
       <div role="tablist" aria-label={m.title} style={{ display: "flex", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
         {/* 選んでいるタブはアクセントの下線（色だけに頼らず線の形で示す） */}
-        <button
-          type="button"
-          role="tab"
-          aria-selected="true"
-          {...{ [FOCUS_ATTR]: "" }}
-          style={{
-            minHeight: MIN_TARGET_PX,
-            minWidth: MIN_TARGET_PX,
-            padding: "2px 6px",
-            font: font(TYPE.caption, 600),
-            color: tone(c.accent),
-            background: "transparent",
-            border: 0,
-            borderBottom: `3px solid ${tone(c.accent)}`,
-            boxSizing: "border-box",
-          }}
-        >
-          {m.tabAttributes}
-        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            {...{ [FOCUS_ATTR]: "" }}
+            style={{
+              minHeight: MIN_TARGET_PX,
+              minWidth: MIN_TARGET_PX,
+              padding: "2px 6px",
+              font: font(TYPE.caption, tab === t.id ? 600 : 400),
+              color: tone(tab === t.id ? c.accent : c.text),
+              background: "transparent",
+              border: 0,
+              borderBottom: `3px solid ${tab === t.id ? tone(c.accent) : "transparent"}`,
+              boxSizing: "border-box",
+            }}
+            onClick={() => {
+              window.location.hash = t.hash;
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {stored !== null && (
+      {tab === "places" && <PlacesView scheme={scheme} />}
+      {tab === "attributes" && stored !== null && (
         <p role="status" data-testid="master-stored" style={{ fontSize: TYPE.caption }}>
           {stored}
         </p>
       )}
-      {data.at === "loading" && <p data-testid="master-loading">{common.loading}</p>}
+      {tab === "attributes" && data.at === "loading" && <p data-testid="master-loading">{common.loading}</p>}
       {/*
         **読み出しの失敗と「まだ書いていない」を混ぜない**（spec）——
         混ぜると、サーバが落ちている間ずっと「属性が 1 つも無い」と読める。
       */}
-      {data.at === "failed" && (
+      {tab === "attributes" && data.at === "failed" && (
         <p role="alert" data-testid="master-failed">
           {m.failed(data.why)}
         </p>
       )}
-      {data.at === "ok" && (
+      {tab === "attributes" && data.at === "ok" && (
         <>
           {data.value.kinds.map((k) => (
             <KindCard key={k.id} kind={k} scheme={scheme} onChanged={load} onStored={setStored} />
@@ -647,14 +663,4 @@ function NameForm({
       )}
     </div>
   );
-}
-
-/** 操作できるものの見た目。**24 × 24 CSS px 以上**（NFR-19）。色は `tokens.ts` からだけ引く（形は `surface.ts`）。 */
-function control(scheme: Scheme): React.CSSProperties {
-  return controlStyle(SCHEMES[scheme]);
-}
-
-/** 主ボタン（書く・積む）。**アクセントで塗る**（本人の決定 2026-10-12）。 */
-function primary(scheme: Scheme): React.CSSProperties {
-  return primaryStyle(SCHEMES[scheme]);
 }

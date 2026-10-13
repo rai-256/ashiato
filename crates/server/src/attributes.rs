@@ -80,8 +80,24 @@ impl ValidFrom {
         }
     }
 
+    /// 原文の `{"precision": …, "date": …}` を読む。**形だけ**を見る（欄が無い・型が違うは `Malformed`）。
+    /// 精度と日付が合うかは `is_well_formed`（場所の記録も同じ規則を呼ぶ。ST21 / design D2）。
+    pub(crate) fn from_json(vf: &serde_json::Value) -> Result<Self, ClaimInvalid> {
+        let precision = vf
+            .get("precision")
+            .and_then(|x| x.as_str())
+            .and_then(Precision::from_str)
+            .ok_or(ClaimInvalid::Malformed)?;
+        let date = match vf.get("date") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(_) => return Err(ClaimInvalid::Malformed),
+        };
+        Ok(Self { precision, date })
+    }
+
     /// 精度と日付の組が合っているか、暦にある日付か（spec「形の合わない主張は受け付けない」）。
-    fn is_well_formed(&self) -> bool {
+    pub(crate) fn is_well_formed(&self) -> bool {
         let Some(date) = self.date.as_deref() else {
             // 日付を持たないのは「分からない」のときだけ
             return self.precision == Precision::Unknown;
@@ -185,17 +201,7 @@ pub fn parse_claim(raw: &str, id: uuid::Uuid) -> Result<Claim, ClaimInvalid> {
     };
 
     let vf = obj.get("valid_from").ok_or(ClaimInvalid::Malformed)?;
-    let precision = vf
-        .get("precision")
-        .and_then(|x| x.as_str())
-        .and_then(Precision::from_str)
-        .ok_or(ClaimInvalid::Malformed)?;
-    let date = match vf.get("date") {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::String(s)) => Some(s.clone()),
-        Some(_) => return Err(ClaimInvalid::Malformed),
-    };
-    let valid_from = ValidFrom { precision, date };
+    let valid_from = ValidFrom::from_json(vf)?;
 
     let supersedes = match obj.get("supersedes") {
         None | Some(serde_json::Value::Null) => None,

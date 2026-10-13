@@ -77,6 +77,25 @@
       "requires": [
         "collector-android/app/src/main/kotlin/dev/ashiato/collector/ClockSkewMeasurer.kt"
       ]
+    },
+    {
+      "id": "ST25-day-timeline",
+      "story": "ST25",
+      "spec": "tools/recording/st25/st25-day-timeline.rec.ts",
+      "requires": [
+        "web/e2e/day-timeline.spec.ts",
+        "web/e2e/global-setup.ts"
+      ]
+    },
+    {
+      "id": "ST21-places",
+      "story": "ST21",
+      "spec": "tools/recording/st21/st21-places.rec.ts",
+      "requires": [
+        "web/e2e/places.spec.ts",
+        "web/e2e/global-setup.ts",
+        "web/src/PlacesView.tsx"
+      ]
     }
   ],
   "android": {
