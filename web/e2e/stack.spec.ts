@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
  * ここが落ちたら、壊れているのは画面ではなく縦串（DB → サーバ → 偽データ → 画面）。
  */
 test("縦串が立って、S-1 稼働状況が本物のブラウザで開く", async ({ page }) => {
-  const res = await page.goto("/");
+  const res = await page.goto("/#/coverage");
   expect(res?.ok()).toBe(true);
   await expect(page).toHaveTitle("あしあと。");
 

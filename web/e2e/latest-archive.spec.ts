@@ -15,7 +15,7 @@ const SEEDED_ARCHIVE = "takeout-20260919T000000Z-001.zip";
 
 // Scenario: 直近に置いた書庫の結果が箱に出る
 test("直近に置いた書庫の名前と件数が箱に出る（読み出しに失敗していない）", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#/coverage");
   const box = page.getByTestId("latest-archive");
   await expect(box).toBeVisible();
   // 読み込み中のまま止まらず、失敗の文にもならない
@@ -30,7 +30,7 @@ test("直近に置いた書庫の名前と件数が箱に出る（読み出し�
 
 // Scenario: 直近に置いた書庫の箱は Must の前にある
 test("箱は成功条件 1 の達成の下、最初の格子の上に描かれている", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#/coverage");
   const box = page.getByTestId("latest-archive");
   const achievement = page.getByTestId("achievement");
   const firstGrid = page.locator("[data-role=grid]").first();

@@ -31,6 +31,13 @@ esac
 docker compose exec -T db psql -q -U ashiato -d ashiato -c \
   "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
    VALUES ('seed-location','偽データ（位置）',21600,'none') ON CONFLICT DO NOTHING;"
+# 1 日の並び（ST25 / design D13）が読む論理ソース。登録簿に無いときだけ足す（移行が入れたものは動かさない）。
+# **`c02-browser-history` はここで足さない** —— 先に行を作ると、ST08 の移行（`external_id_kind = 'record'`。
+# 記録が 0 件のときだけ当たる）の前提が崩れる（spec-review R18）。登録簿に無いならサーバの移行が先に入れる。
+docker compose exec -T db psql -q -U ashiato -d ashiato -c \
+  "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
+   VALUES ('c02-window','PC のウィンドウ',21600,'none'),
+          ('c01-app-usage','携帯端末のアプリ利用',21600,'none') ON CONFLICT DO NOTHING;"
 
 # **原文は text で送る**（design D16）。JSON の値ではなく文字列にくるむ。
 # 「収集した」記録には device_id が要る（design D19）。
@@ -179,6 +186,144 @@ curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/ingest" -d '{"id":"04040404-5eed-
 got=$(curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/drops" --data-binary @"$work/drops.json" | jq '[.[] | select(.accepted)] | length')
 [ "$got" -eq 3 ] || { echo "$MODE: 破棄の報告 3 件のうち $got 件しか受け入れられなかった"; exit 1; }
 echo "$MODE: 破棄の報告を 3 件入れた（2026-09-07 の一部 180 件 / 2026-09-05 を 2 本で丸ごと 1,440 件）"
+
+# ------------------------------------------------------------------ 1 日の並び（ST25 / design D13）
+#
+# 2026-09-07 の位置以外の記録。e2e と確認バッチが同じ「いつもの日」を見る（製造準備 A-4）。
+#   - PC の前景 約 1,500 件（同じアプリの連続を含む）/ 離席 4 回（うち 1 回は 10 分未満）/ 除外 1 回（件数 3）/ PC の停止 23:40〜
+#   - スマホの前景 約 220 件と、後ろに下がったイベント
+#   - ブラウザの訪問 約 190 件（2 台目の PC からの同じ訪問を含む）—— **登録簿の `external_id_kind` が `record` のときだけ**
+# **書庫は入れない**（書庫を置いた日は開いてすぐ見える行が減り、いつもの日の基準に置けない。jsdom と Rust の試験が持つ）。
+# 原文は固定の乱数で作り、時刻を本文に含める —— 何度入れても同じ本文で、再送として畳まれる（FR-22）。
+if [ "$MODE" = "normal" ]; then
+python3 - > "$work/day-pc.jsonl" <<'PY'
+import json, random, uuid
+from datetime import datetime, timedelta, timezone
+
+USER = "00000000-0000-0000-0000-000000000000"
+NS = uuid.UUID("25252525-0000-4000-8000-000000000025")
+rnd = random.Random("20260907/day-timeline")
+JST = timezone(timedelta(hours=9))
+day0 = datetime(2026, 9, 7, tzinfo=JST)
+
+def at(h, m=0, s=0):
+    return day0 + timedelta(hours=h, minutes=m, seconds=s)
+
+def z(t):
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def emit(source, device, when, payload, external_id=None):
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    print(json.dumps({
+        "id": str(uuid.uuid5(NS, f"{source}/{device}/{external_id or z(when)}/{raw}")),
+        "user_id": USER, "logical_source": source, "external_id": external_id, "device_id": device,
+        "origin": "collected", "event_time": z(when), "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
+        "schema_version": 1, "raw": raw, "payload": payload,
+    }, ensure_ascii=False))
+
+# --- PC（離席 4 回のうち 1 回は 10 分未満。除外 1 回・件数 3。23:40 から停止）
+PC = "seed-pc-1"
+away = [(at(12, 0), at(12, 45)), (at(15, 10), at(15, 19)), (at(17, 30), at(17, 50)), (at(20, 0), at(20, 25))]
+excluded = (at(18, 30), at(18, 34))
+stop = at(23, 40)
+for a, b in away:
+    emit("c02-window", PC, a, {"kind": "idle", "transition": "leave", "at": z(a), "range_end": z(b)})
+emit("c02-window", PC, excluded[0],
+     {"kind": "excluded", "at": z(excluded[0]), "range_end": z(excluded[1]), "excluded_count": 3})
+emit("c02-window", PC, stop,
+     {"kind": "powered-off", "at": z(stop), "range_end": z(at(24, 0) + timedelta(hours=8, minutes=30))})
+
+apps = [("Code.exe", "Visual Studio Code"), ("chrome.exe", "Google Chrome"), ("WindowsTerminal.exe", "Windows Terminal"),
+        ("slack.exe", "Slack"), ("explorer.exe", "エクスプローラー"), ("EXCEL.EXE", "Microsoft Excel")]
+weights = [5, 4, 3, 2, 1, 1]
+blocked = [(a, b) for a, b in away] + [excluded]
+t, cur, pc_count = at(8, 30), None, 0
+while t < stop:
+    hit = next((b for a, b in blocked if a <= t < b), None)
+    if hit:
+        t = hit            # 離席・除外が明けた最初の前景は、明けた時刻に置く
+        cur = None
+        continue
+    # 同じアプリの連続を含める（4 割は前と同じアプリのまま）
+    if cur is None or rnd.random() > 0.4:
+        cur = rnd.choices(apps, weights)[0]
+    emit("c02-window", PC, t, {"kind": "foreground", "at": z(t), "app_name": cur[1], "process_name": cur[0],
+                              "title": f"{cur[1]} — {rnd.randint(1, 999)}"})
+    pc_count += 1
+    t += timedelta(seconds=rnd.randint(20, 45))
+
+# --- スマホ（前景 約 220 件。各前景のあと 20〜300 秒で後ろに下がる）
+PHONE = "seed-phone"
+papps = [("jp.co.line", "LINE"), ("com.twitter", "X"), ("com.google.android.youtube", "YouTube"),
+         ("com.google.android.apps.maps", "マップ"), ("com.android.chrome", "Chrome")]
+t = at(7, 0)
+for _ in range(220):
+    pkg, label = rnd.choice(papps)
+    emit("c01-app-usage", PHONE, t, {"event_type": 1, "package": pkg, "app_label": label, "at": z(t)})
+    back = t + timedelta(seconds=rnd.randint(20, 300))
+    emit("c01-app-usage", PHONE, back, {"event_type": 2, "package": pkg, "at": z(back)})
+    t = back + timedelta(seconds=rnd.randint(30, 200))
+    if t > at(23, 30):
+        break
+PY
+python3 - > "$work/day-browser.jsonl" <<'PY'
+import hashlib, json, random, uuid
+from datetime import datetime, timedelta, timezone
+
+USER = "00000000-0000-0000-0000-000000000000"
+NS = uuid.UUID("25252525-0000-4000-8000-000000000026")
+rnd = random.Random("20260907/day-timeline/browser")
+JST = timezone(timedelta(hours=9))
+day0 = datetime(2026, 9, 7, tzinfo=JST)
+z = lambda t: t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+sites = ["github.com", "docs.rs", "stackoverflow.com", "news.ycombinator.com", "developer.mozilla.org", "example.com"]
+away = [(12, 0, 12, 45), (15, 10, 15, 19), (17, 30, 17, 50), (20, 0, 20, 25)]
+
+def emit(device, when, url, title):
+    payload = {"kind": "visit", "at": z(when), "browser": "Chrome", "title": title, "url": url}
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    # 識別子は端末ごとに違う（プロファイルの場所が違う）。同じ訪問でも 2 台目は別の行になり、一覧で畳まれる（D4）
+    ext = "v1:visit:" + hashlib.sha256(f"{device}\x1f{z(when)}\x1f{url}".encode()).hexdigest()
+    print(json.dumps({
+        "id": str(uuid.uuid5(NS, ext)), "user_id": USER, "logical_source": "c02-browser-history",
+        "external_id": ext, "device_id": device, "origin": "collected", "event_time": z(when),
+        "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": raw, "payload": payload,
+    }, ensure_ascii=False))
+
+for i in range(190):
+    when = day0 + timedelta(hours=8, minutes=40) + timedelta(seconds=i * 280 + rnd.randint(0, 120))
+    if any(day0 + timedelta(hours=a, minutes=b) <= when < day0 + timedelta(hours=c, minutes=d) for a, b, c, d in away):
+        continue
+    site = rnd.choice(sites)
+    url, title = f"https://{site}/p/{rnd.randint(1, 500)}", f"{site} のページ {i}"
+    emit("seed-pc-1", when, url, title)
+    if i % 17 == 0:                     # 2 台目の PC からの同じ訪問
+        emit("seed-pc-2", when, url, title)
+PY
+send_lines() {   # $1: JSON Lines。200 件ずつ送り、受け入れた件数を数える（R51）
+  local file="$1" total accepted=0 got
+  total=$(wc -l < "$file"); [ "$total" -gt 0 ] || { echo 0; return; }
+  rm -f "$file".part.*; split -l 200 "$file" "$file.part."
+  for part in "$file".part.*; do
+    got=$(jq -s -c . "$part" | curl -sS -f "${AUTH[@]}" -X POST "http://$BIND/ingest" --data-binary @- \
+          | jq '[.[] | select(.accepted)] | length') || { echo "normal: $file の送信に失敗した" >&2; exit 1; }
+    accepted=$((accepted + got))
+  done
+  [ "$accepted" -eq "$total" ] || { echo "normal: $file $total 件のうち $accepted 件しか受け入れられなかった" >&2; exit 1; }
+  echo "$total"
+}
+pc_total=$(send_lines "$work/day-pc.jsonl")
+echo "normal: 2026-09-07 の PC・スマホの記録を $pc_total 件入れた（離席 4 回・除外 1 回・PC の停止 23:40〜）"
+# **ブラウザの訪問は、ST08 の移行が済んでいるときだけ入れる**（R18）。済んでいなければ入れずに続ける
+kind=$(docker compose exec -T db psql -qtAX -U ashiato -d ashiato -c \
+  "SELECT external_id_kind FROM core.source WHERE logical_source = 'c02-browser-history';" | tr -d '[:space:]')
+if [ "$kind" = "record" ]; then
+  browser_total=$(send_lines "$work/day-browser.jsonl")
+  echo "normal: 2026-09-07 のブラウザの訪問を $browser_total 件入れた（2 台目の PC からの同じ訪問を含む）"
+else
+  echo "normal: ブラウザの訪問は入れない（c02-browser-history の external_id_kind が '${kind:-未登録}'。ST08 の移行が済むと入る）"
+fi
+fi
 
 # ------------------------------------------------------------------ 個人属性の主張（ST19）
 #
