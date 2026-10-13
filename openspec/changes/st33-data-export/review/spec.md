@@ -377,3 +377,178 @@ proto.html の残りは GO view（:154 :159 :166 :410。対象外）と、相談
 観点 5: 該当なし（確かめた範囲: `check_chain.py` が観点 8 を含めて OK。docs/stories/ST33.md の価値・完了の判定・`requires: [ST01, ST22]` は deep の Q1〜Q8 と矛盾しない。Q3 / Q4 の第 2 回の答えは Story の判断（表題・価値・完了の判定）に触れない。capability `data-durability` は proposal.md:67・specs のディレクトリ・INDEX.md:80 で一致し、前倒しは無い）
 - 処置: fixed deep.md — 「次の spec の段で直す」を直した後の記述に改め、proto の PRESETS を「第 1 回の答え」と「初期値（第 2 回の答え）」に直した
 
+
+---
+
+## 第 3 巡（2026-10-13）
+
+対象: `git diff HEAD -- openspec/changes/st33-data-export docs/handoff/ST33.md`（未 commit。深掘り第 3 回 Q9 と C22〜C25・design D19 の写し、ST12 の archive に合わせた C1 / C2 / K1 / K2 の直し）。
+コードは `crates/server/src/stay_store.rs`（`rebuild_day` / `with_archive_sources` / `event_end_sql` / `mark_late_arrivals`）・`deletion.rs`・`archive/mod.rs`、`zip` crate は `~/.cargo/registry/src/*/zip-2.4.2` を読んだ。
+`go.json` と proto の GO view は reading の段の持ち物なので見ていない。
+
+### 機械の検査（2026-10-13 実行）
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st33-data-export --strict` | `Change 'st33-data-export' is valid`（rc=0） |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（rc=0。再生成との一致を含む） |
+| `python3 scripts/check_scenarios.py . st33-data-export` | `FAIL (担保なし 93 件)`。93 本すべてがこの change の Scenario で、テストが未実装のため。spec の数え上げ（Requirement ごと 18 / 10 / 17 / 5 / 4 / 3 / 2 / 4 / 12 / 18 = 93、画面が 18・サーバが 75）と tasks.md:18 の「93 本（サーバ 75・画面 18）」は合う。閉じるのは Task 10.1 |
+| `python3 scripts/review_triage.py . st33-data-export` | `triage: OK`（指摘 49 件 / 仮決め 4 件 / 要件へ戻すもの 1 件。この節を足す前） |
+
+Scenario 名の突き合わせ（spec の `#### Scenario:` 93 本を tasks.md の各 `- [ ]` の backtick と空白を除いて比べた）: 93 本とも一字一句ある。
+`CT` / `ET` の下限は、どの項目もその項目の Scenario の本数以上（1.2=1 / 2.1=3 / 2.2=3 / 2.3=2 / 3.1=19 / 3.2=2 / 5.1=10 / 5.2=4 / 5.3=4 / 5.4=19 / 5.5=3 / 6.1=5 / 6.2=7 / 6.3=10 / 6.4=4 / 9.2=9 / 9.3=3 / 9.4=1 / 9.5=5）。
+
+「フォルダ」の残り（`フォルダ|folder|目録の export_id`）を proposal / spec / design / tasks で grep した: 置き場を指す「決まったフォルダ」「一時フォルダ」と、経緯の注記（proposal.md:57・design.md:378・design.md:392）だけで、効いている文には無い。
+
+ST12 の後のコードとの前提（観点 3 の 3）: 連鎖は `deletion.rs:274-279` で基準のソース ∪ 書庫の位置 7 本 ∪ 位置の欄を持つ項目、同じ `user_id` だけ。`c01-photo` は登録簿にある（`migrations/202609111111_coverage_rebuild.sql:130`）が、滞在の基準の既定のソースは `c01-location` だけ（`stay.rs:31`）なので連鎖の外 —— spec の材料の差し替え（C2）は成り立つ。
+`event_end_sql`（`stay_store.rs:633-641`）と D5b (a) は同じ読み方。PostgreSQL 17 で `pg_input_is_valid('1789182000000','timestamptz')` は f（ミリ秒の 13 桁は `try_timestamptz` で NULL になり、数字の枝へ進む）。残る食い違いは R42。
+
+## R38. `zip` 2.4.2 は 20 バイト以上の項目を AE-1 で書き、平文の CRC-32 と元の大きさを暗号化しない中央ディレクトリに置く。「AE-2」と「zip の外から見えるもの」が事実と違う
+- 成果物: openspec/changes/st33-data-export/design.md（D7 / D19 / Risks）、openspec/changes/st33-data-export/deep.md（C23）、openspec/changes/st33-data-export/tasks.md（人間の確認待ち）
+- 根拠: `zip-2.4.2/src/write.rs:1083-1098`「We prefer using AE-1 which provides an extra CRC check, but for small files we switch to AE-2」—— `bytes_written < 20` のときだけ AE-2 で CRC を 0 にし、それ以外は AE-1 で平文の CRC-32 を書く。中央ディレクトリの塊は `crc32` と `uncompressed_size` を持つ（`src/types.rs:838-845`）。書き手にこれを切り替える口は無い（`FileOptions::with_aes_encryption(mode, password)` だけ。`src/write.rs:502`）。
+  一方 design.md:241「AES-256（WinZip AE-2。`zip::AesMode::Aes256`）」、design.md:415 の見出し「zip の AES-256（WinZip AE-2）」、deep.md:181 C23「AES-256（WinZip AE-2）」、tasks.md:248「同じ形式（WinZip AE-2）の読み手が開けることで担保する」。
+  design.md:446 の「zip の外から見えるもの」は「項目の名前（固定）・項目ごとの圧縮後の大きさ・zip の注記・ファイルの更新時刻」で、**元の大きさ（バイト単位で正確）と平文の CRC-32** が無い。C22 が説明書を zip の中に入れた理由は「説明書の行の数は書き出しの量を表す」（deep.md:180、spec.md:350）で、`events.jsonl` の元の大きさはその量をバイト単位で外に出す。CRC-32 は中身の推測を合言葉なしで確かめる手がかりになる（中身がほぼ決まった小さい項目ほど効く）
+- kind: technical
+- 重大度: 中
+- 提案: design D7 / D19・deep C23・tasks の「AE-2」を「`zip` crate が選ぶ AE-1 / AE-2（20 バイト以上は AE-1。平文の CRC-32 を持つ）」に直し、design の Risks の「zip の外から見えるもの」に元の大きさと CRC-32 を足して、C22 の理由に照らして許すかを書く。
+  許さないなら AE-2 を書ける手段（crate を替える・自前で書く）を D19 に置く。どちらでも 7-Zip などは AE-1 / AE-2 の両方を開ける
+- 処置: fixed D19 — 「AE-2」を「WinZip AES（`zip` crate が 20 バイト以上を AE-1 で書く）」に直し、平文の CRC-32 と元の大きさが外に残ることと、そこから戻るのは量（説明書と目録の数）までで記録の値ではないことを書いた。AE-2 を書く手段は採らない（得るのは量の秘匿だけ）。Risks の「zip の外から見えるもの」と deep.md C22 の理由（量を隠すを外した）・C23・design D7 も直した
+
+## R39. spec は AES-256 を Requirement でだけ言い、Scenario が方式を測らない。ZipCrypto で書いても全 Scenario が緑になる
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/tasks.md（5.2）
+- 根拠: spec.md:13「AES-256 で暗号化する」。Scenario「合言葉が無ければ zip の中身を読めない」（spec.md:44-47）は「合言葉なし・違う合言葉で読めない」と「名前と注記に記録の値が無い」だけを見る。ZipCrypto でもどちらも成り立つ。tasks.md:123 の測り方も `by_index` の誤りと `by_name_decrypt` の誤りだけ。
+  C23 は ZipCrypto を「既知の平文で破れる」として退けた（deep.md:181、design.md:419）—— 説明書の文面（design.md:271-284）と目録の鍵の名前は既知の平文そのもの。方式は読み手で測れる: `ZipArchive::get_aes_verification_key_and_salt(i)` が AES でなければ `None`、AES なら `AesInfo { aes_mode }`（`zip-2.4.2/src/read.rs:725-735`、`:1219-1223`）。
+  あわせて、この Scenario の THEN は「読めない」と「名前と注記に値が無い」の 2 つの主張を束ねている
+- kind: technical
+- 重大度: 中
+- 提案: Scenario を 1 本足す: 「書き出した zip のすべての項目は AES-256 で暗号化されている」（THEN: どの項目も AES の情報を持ち、その方式が AES-256）。束ねた THEN は 2 本に分けてよい。tasks 5.2 にその Scenario を足し、`CT export_zip` の下限を 5 に上げる
+- 処置: fixed specs/data-durability/spec.md — Scenario「書き出した zip のすべての項目は AES-256 で暗号化されている」を足し、tasks 5.2 に `get_aes_verification_key_and_salt` での測り方を書いて `CT export_zip 5` にした
+
+## R40. D16 は zip の注記だけで「このシステムが書いたその物か」を見分けるが、注記は既存の zip に項目を足しても残る。本人が前のファイルに足した項目ごと消える
+- 成果物: openspec/changes/st33-data-export/design.md（D16）、openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: design.md:383「消す対象: … zip の注記が `ashiato-export <その行の export_id>` のもの」、design.md:392-393「1 つのファイルでは中に本人の物が入らないので、見分けるのは『このシステムが書いたその物か』だけになった。注記は本人が 7-Zip で書き換えられるが、そうしたファイルは消さない側に倒れる」。
+  しかし zip の道具は既存の書庫に項目を足すとき注記を引き継ぐ —— 同じ `zip` crate の追記の書き手も `comment: shared.comment` で注記を保つ（`zip-2.4.2/src/write.rs:630-647`）。本人が前の書き出しを開いて自分のメモの項目を足す・項目を消すと、ファイルの中身は本人の物になったのに注記は合ったまま、次の書き出しで消える（ごみ箱を通さない。design.md:390）。
+  spec.md:20 は「このシステムが書いた後に本人が置き換えたファイルを消さない」と言うが、Scenario（spec.md:79-82）と tasks 6.2（tasks.md:163）の材料は「注記の違う zip で置き換える」だけで、この形を測らない。第 2 巡 R23（フォルダに本人が足したファイル）と同じ型で、失われるもの（本人が足した項目。discarded）があるが、「捨てるより残す」の既定で閉じられる
+- kind: technical
+- 重大度: 中
+- 提案: `finish`（`done`）の行に zip ファイルの暗号文のハッシュ（SHA-256。合言葉にも平文にも依らない）を持たせ（`bytes` は既にある）、消すのは注記・大きさ・ハッシュが台帳と合うものだけにする。`start` だけの行（rename の後に止まった書き出し。R24）はハッシュが無いので、消さずに `interrupted` の側で見せるか、注記と大きさの一致で消すかを D16 に書く。
+  spec の Scenario を 1 本足す: 「前の書き出しのファイルに本人が項目を足していれば消さない」（材料: 1 回目の zip に追記の書き手で項目を 1 つ足してから 2 回目）
+- 処置: fixed D16 — 終わりの行に zip の SHA-256（`digest`。D10）を持たせ、大きさ・ハッシュ・注記がすべて合うものだけを消す形にした。`finish` を持たない止まった書き出しのファイルは消さず `interrupted.file` で見せる。spec の Requirement に「中身を変えた（項目を足した・除いた）ファイルを消さない」と Scenario「前の書き出しのファイルに本人が項目を足していれば消さない」を足し、tasks 6.2 を `CT export_ledger_rows 8` にした
+
+## R41. `leftover` の定義が「D16 の消す対象のうち残っているもの」で、読み出しの時点には「今回」が無い。rename の後に止まった書き出しのファイルを「消せなかった」と出す
+- 成果物: openspec/changes/st33-data-export/design.md（D11 / D16）、openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: design.md:325「`leftover`: D16 の消す対象のうち、まだ残っているファイル（D16 で消せなかったもの）」、design.md:383「消す対象: 台帳の `start` の行の `file` のうち**今回のもの以外**で…」、design.md:384（終わりの無い `start` のファイルも対象）。
+  書き出し A が `done`、次の B が `rename` の後・`finish` の前に止まった状態で `GET /export` を読むと、`last` は A、B は `interrupted`。「今回」を `last`（A）と読めば B が `leftover` に出て、画面は「前の書き出しのファイルを消せませんでした（B）。次の書き出しでもう一度消します。」（design.md:352）と出す —— 誰も B を消そうとしておらず、B は A より新しい。「今回」を最後の `start`（B）と読めば、誰も消そうとしていない A が出る。
+  spec.md:452 / :531 は「前の書き出しのファイルを消せなかった」ときにだけ出すと言うので、どちらの読みでも spec の文と食い違う
+- kind: technical
+- 重大度: 低
+- 提案: D11 の `leftover` を「`last` の `start` より前の `start` の行のファイルで、消す条件に合い、まだ残っているもの」と書き、`last` より後の `start` の行のファイル（rename の後に止まったもの）は `interrupted` の側にパスとして出す。spec の「途中で止まった書き出しはそう返り…」の Scenario に、rename の後に止まった材料で `leftover` に出ないことを足す
+- 処置: fixed D11 — `leftover` を「`last` の `start` より前の `done` の書き出しのファイル」と定義し、`last` より後の止まった書き出しのファイルは `interrupted.file` に出す。spec の状態の Requirement に「途中で止まった書き出しのファイルを消せなかったものとして返さず、消さない」を足し、Scenario「途中で止まった書き出しはそう返り…」の材料を rename の後に止まった形にした（tasks 6.3）
+
+## R42. D6 は遅着の印の範囲の下端を「消した滞在の最小の始まり」にするので、それより前に始まり消した時間にかかる書庫の区間（訪問・移動）に印が付かず、「作り直しと同じ判定」にならない
+- 成果物: openspec/changes/st33-data-export/design.md（D6）、openspec/changes/st33-data-export/tasks.md（4.1）
+- 根拠: design.md:215「`mark_late_arrivals` を、`rebuild_day` と同じ並び `with_archive_sources(&c.sources)` を渡して、本人が消した滞在の最小の始まり〜（最大の終わり＋1 マイクロ秒）の範囲で 1 回呼ぶ」。
+  `mark_late_arrivals` は候補を**始まりの時刻**で範囲に絞り（`stay_store.rs:827` `e.event_time >= $3 AND e.event_time < $4`）、重なりは終わりで見る（`stay_store.rs:824` `{end} >= s.event_time`。区間のソースは `archive/mod.rs:41-46` の 4 本）。
+  `rebuild_day` は 1 日の範囲（`stay_store.rs:567-568` `day_bounds(day)`）を渡すので、同じ日に始まる区間は候補に入るが、D6 の範囲では 00:30 に始まり 03:00 に終わる書庫の訪問（消した滞在 01:00〜02:00）は候補に入らない。
+  spec.md:210 は「作り直しと同じ判定で印を付ける」と言い、書庫の位置を対象に挙げる。D5 は時間で除くのでファイルには出ない（外へ出るものは無い）が、印と読み出しが食い違う（K2 で直した型の残り）。tasks.md:105 の材料（`c03-timeline-visit`）は始まりが消した時間の中にあるかが書かれていない
+- kind: technical
+- 重大度: 低
+- 提案: D6 の範囲の下端を、区間を含む形にする（例: 消した滞在それぞれの Asia/Tokyo の日の始まり、または下端を置かない）。tasks 4.1 の材料に「消した滞在より前に始まり、終わりが消した時間に入る `c03-timeline-visit`」を 1 本足す（`CT mark_late_for_user` の下限を 5 に）
+- 処置: fixed D6 — 範囲の下端を「消した滞在の最小の始まりの日（Asia/Tokyo）の始まり」にした（`rebuild_day` の 1 日の範囲と同じく、前に始まる区間を候補に入れる）。tasks 4.1 に材料を 1 本足して `CT mark_late_for_user 5`
+
+## R43. 確認の合言葉の入力に `autocomplete="new-password"` を付けるので、ブラウザが合言葉の生成と保存を促す。保存された合言葉は spec の「ブラウザの保存領域」の Scenario では測られない
+- 成果物: openspec/changes/st33-data-export/design.md（D13）、openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: design.md:343「『合言葉』と『もう一度』の `type="password"` の入力 2 つ（`autocomplete="new-password"`…）」。`new-password` は、ブラウザに新しいパスワードの生成と保存を促す値。
+  spec.md:526「合言葉を…画面の記憶（URL・ブラウザの保存領域）に残さない」、Scenario spec.md:568-571 が測るのは入力・URL・`localStorage`・`sessionStorage` だけで、ブラウザのパスワードの保管庫は入らない（tasks.md:214 も同じ）。
+  Q9 で暗号化した理由は「本人と同じ利用者で動く衛星は、ファイルの権限を越えて読める」（deep.md:310-313）で、同じ利用者のブラウザの保管庫も同じ利用者の権限で読める側にある。画面は携帯から開くことが多い（deep.md:27）ので、携帯の保管庫と同期に乗る経路もある。
+  Q9 の答えは「合言葉は保存しない」で、画面がその保存を促す形になっている
+- kind: technical
+- 重大度: 中
+- 提案: D13 から `autocomplete="new-password"` を外し、ブラウザに保存を促さない形（`autocomplete="off"`、パスワードの保管庫が拾う `<form>` の送信を経ない等）にする。完全には止められないことを design の Risks に書く。
+  spec の画面の Requirement に「合言葉の入力は、ブラウザに合言葉の生成や保存を促さない」を足し、Scenario（2 つの入力の `autocomplete` が `new-password` / `current-password` でない）を tasks 9.2 に足す。既定は厳しい側なので本人に返さなくてよい
+- 処置: fixed D13 — 入力を `autocomplete="off"` にし、`new-password` / `current-password` を付けないと書いた。spec の画面の Requirement に「保存を促す指定を付けず、送信でページを移らない」と Scenario「合言葉の入力はブラウザに保存を促さない」を足し、tasks 9.2（`ET 10`）と Global Constraints に入れた。保管庫が拾うのを完全には止められないことは、指定と送信の形（ページを移らない）で既定を厳しい側に置くことで閉じた
+
+## R44. 「12 文字」の数え方が spec に無く、口は Unicode のスカラー値で数えるが画面は決まっていない。画面が UTF-16 で数えると「書き出す」が押せるのに口が 400 を返す
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/design.md（D1 / D13 / D19）
+- 根拠: spec.md:17 と :524 はどちらも「12 文字に満たない」とだけ言う。design.md:62 と :422 は口の側を「Unicode のスカラー値（`chars().count()`）」とし、画面の側（design.md:343「12 文字未満・不一致の間は『書き出す』を `disabled`」）は数え方を書かない。
+  ブラウザの文字列の `length` は UTF-16 の単位で数えるので、基本多言語面の外の文字（絵文字など）6 つは画面で 12、口で 6 になる。画面は押せる形にし、口は `password_too_short` で 400 を返すが、画面が 400 をどう出すかも spec に無い（R45）
+- kind: technical
+- 重大度: 低
+- 提案: spec の 2 か所に「文字は Unicode の符号位置で数える」を足し、D13 に画面も同じ数え方（`Array.from(s).length` など）と書く。tasks 8.2 の単体テストに、基本多言語面の外の文字で 11 / 12 の境界を 1 本足す。あわせて C23 の「強さの規則を置かない」を、tasks 6.1 の 12 文字ちょうどの材料を同じ文字の並びにして固定する
+- 処置: fixed specs/data-durability/spec.md — 2 か所に「Unicode の符号位置で数える」を足し、design D1 / D13 に口は `chars().count()`、画面は `Array.from(value).length` と書いた。tasks 6.1 と 8.2 に基本多言語面の外の文字の 11 / 12 の境界を足した。deep.md C23 にも書いた
+
+## R45. 書き出しの求めが断られたとき（409 / 400 / 通信）と、書き出しが走っている間の「全記録を書き出す」を画面がどう出すかが spec に無い
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md、openspec/changes/st33-data-export/design.md（D13）、openspec/changes/st33-data-export/tasks.md（9.1）
+- 根拠: 口は走っている間の求めを 409 で断る（spec.md:28）が、画面の Requirement（spec.md:521-536）には、走っている間に「全記録を書き出す」を押せるか、`POST` が 409 / 400 / 通信の失敗で返ったときに何を出すかが無い。design.md:348 は「`POST` の失敗（400 / 409 / 通信）でも入力は空に戻す」とだけ書き、何を出すかを書かない。
+  別のタブや携帯から押した書き出しが走っている間に設定画面で押す場面は日常にある。
+  tasks.md:205-206 の 9.1 は `beforeAll` で本物の書き出しを始め（遅延 400 ms × 項目 12 個で 5 秒前後走る）、終わるまで待つことを書いていないので、続く 9.2 の「押す」テストが 409 に当たりうる
+- kind: technical
+- 重大度: 低
+- 提案: spec の画面の Requirement に「書き出しが走っている間は『全記録を書き出す』を押せない形にし、進み具合を出す」「書き出しの求めが断られたら、そのことを 1 行で出し、押す前の形に戻す」を足し、Scenario を 1〜2 本置く（e2e は `page.route` で 409 を返す）。tasks 9.1 の `beforeAll` は `running` が消えるまで待つと書く
+- 処置: fixed specs/data-durability/spec.md — 画面の Requirement に「走っている間は全記録を書き出すを押せない」「求めが断られたら 1 行で出して押す前の形に戻す」を足し、Scenario を 2 本足した（tasks 9.3 で `page.route`。`ET 5`）。design D13 に文面、tasks 8.2 に単体テスト、tasks 9.1 の `beforeAll` に `running` が消えるまで待つことを書いた
+
+## R46. D3 はファイル名を「写しの時点」で決めると書くが、D4 / D10 はその名前を写しより前に書く始まりの行に持たせる
+- 成果物: openspec/changes/st33-data-export/design.md（D3 / D4 / D10）
+- 根拠: design.md:90「ファイル名は `ashiato-export-YYYYMMDD-HHMMSS.zip`（Asia/Tokyo の写しの時点…）」。design.md:104-106 と :121-122 は始まりの行を写し（と遅着の印）より前にコミットし、「写しの時点は始まりの行に書けない」と書く。design.md:295 は `file` を「start の時点で決めた名前」とする。写しの時点は始まりの行を書いた後にしか決まらないので、3 つは同時には成り立たない。
+  あわせて、名前の重なりは始まりの時点で確かめる（design.md:90「同じ名前があれば `-2`…」）が、`rename`（design.md:91）は書き終えるまでの間にできた同じ名前のファイルを置き換える
+- kind: technical
+- 重大度: 低
+- 提案: D3 を「始まりの行を書く時点（Asia/Tokyo）」に直す。`rename` の直前に同じ名前が無いことを確かめ直し、あれば次の番号を付けて始まりの行と違う名前で書いたことを終わりの行に残す（または置き換えない `rename` を使う）と書く
+- 処置: fixed D3 — 名前は始まりの行を書く時点で決めるとし、`rename` の直前に同じ名前を確かめ直して、あれば次の番号を付け、実際の名前を終わりの行の `file` に書く（D10。読む側は終わりの行を優先）。tasks 5.2
+
+## R47. D13（仮）の反転条件が、spec が SHALL で固定した振る舞い（確かめの再入力・文面）を下流だけで替えてよいと書く
+- 成果物: openspec/changes/st33-data-export/design.md（D13）、openspec/changes/st33-data-export/deep.md
+- 根拠: design.md:358-359「確認・入らないもの・後に消した件数・消せなかったファイル・合言葉の案内の文面と、確かめの再入力も仮。…再入力は、本人が二度打つのが煩わしいと言えば『表示する』の切り替えに替えてよい」、deep.md:321「確かめの再入力は design D13（仮。B…）」。
+  一方 spec.md:523-524 は確かめの再入力を SHALL で置き、Scenario「合言葉が短いか確かめと一致しなければ書き出すを押せない」（spec.md:563-566）と「キーボードで…」（spec.md:618-621）が再入力を前提にする。文面も spec.md:530 / :591 / :596 で逐語に固定している。
+  反転条件のとおりに design だけを替えると spec の Scenario が赤になり、archive の後は正典と食い違う
+- kind: technical
+- 重大度: 低
+- 提案: D13 の反転条件に「替えるときは spec の Requirement と Scenario も直す（archive 後は MODIFIED）」と書く。または再入力と文面を spec から外して design の（仮）だけに置く（その場合は Scenario を形に依らない言い方にする）
+- 処置: fixed D13 — 反転条件に「再入力と文面は spec にも書いてある。替えるときは spec も直す（archive の後は MODIFIED）」を足した
+
+## R48. C24 を design と tasks は「ディスクに 1 バイトも書かない」と書くが、`event_time, id` の並べ替えは PostgreSQL の一時ファイルに溢れうる。tasks 5.2 の測り方は設定で渡した一時フォルダしか見ない
+- 成果物: openspec/changes/st33-data-export/design.md（Goals / D5 / D7）、openspec/changes/st33-data-export/tasks.md（Global Constraints / 5.2）
+- 根拠: design.md:38「暗号化しない記録の値を、ディスクに 1 バイトも書かない（C24）」、tasks.md:37「暗号化しない記録の値をディスクに書かない」。
+  design.md:248 は記録と前の版を `event_time, id` の順に並べ、design.md:156 は `lead(event_time) OVER (PARTITION BY user_id, logical_source, device_id ORDER BY event_time, id)` を引く。`core.event` の索引は `(logical_source, event_time)`・`(user_id, event_time)` などで、`(event_time, id)` も窓の並びも無い（`migrations/` の `ON core.event (` を grep）。1 年目で約 120 万行・約 1 GB（deep.md:44）の並べ替えは既定の `work_mem` を超え、原文を含む行が PostgreSQL の一時ファイルに書かれうる。
+  spec.md:16 は「置き場にも一時フォルダにも書かない」で、こちらは成り立つ。tasks.md:124 は「`TMPDIR` を本体の設定で差し替える」ので、本体が設定を経ずに `std::env::temp_dir()` に書いても測られない
+- kind: technical
+- 重大度: 低
+- 提案: design の Goals と tasks の Global Constraints の文を spec.md:16 の範囲（このシステムが書くファイル: 置き場と一時フォルダ）に揃え、PostgreSQL の一時ファイルは D-01 と同じ置き場にある（平文の D-01 そのものと同じ扱い）と Risks に書く。
+  tasks 5.2 の測り方に、プロセスの一時フォルダ（`std::env::temp_dir()`）で書き出しの前後に増えたファイルにも目印が無いことを足す（書き出しのテストは直列なので測れる）
+- 処置: fixed D4 — design の Goals と tasks の Global Constraints を spec の範囲（このシステムが書くファイル: 置き場と一時フォルダ）に揃え、PostgreSQL の一時ファイルは D-01 と同じ置き場にあることを Risks に書いた。tasks 5.2 に `std::env::temp_dir()` の前後の差分の測り方を足した
+
+## R49. D18 の見込みの大きさが、前回が無いときは平文の 1 行 900 バイト、前回があるときは zip（圧縮後）の大きさから出るので、同じ量でも初回と 2 回目以降で見込みが桁で違う
+- 成果物: openspec/changes/st33-data-export/design.md（D18）
+- 根拠: design.md:429「`bytes`: 前回の書き出しの `bytes / rows` × `rows`。前回が無ければ 1 行 900 バイト（deep.md 手順 4 の見積もり）」。前回の `bytes` は zip ファイルの大きさ（spec.md:477「大きさ（zip ファイルの大きさ）」、design.md:299）で、Q9 の後は Deflate で圧縮した後の値。deep.md:44 の 900 バイトは圧縮前の JSON の行。
+  確認の「約 N MB」（design.md:340）は初回だけ数倍大きく出て、反転条件（design.md:432「実際と 2 倍以上ずれる」）が初回で当たる
+- kind: daily
+- 重大度: 低
+- 提案: 初回の係数を圧縮後の 1 行あたりの値にする（Task 5.6 の量のテストの実測から取る）か、見込みの大きさは圧縮後の zip の大きさだと D18 に書いて初回の値を揃える。（仮）のまま
+- 処置: fixed D18 仮 — 見込みの大きさを「圧縮した後の zip の大きさ」と定め、前回が無いときの係数を 1 行 180 バイト（平文 900 バイト × 仮の圧縮率 0.2）にした。Task 5.6 の実測で置き換える。（仮）のまま
+
+## R50. C22「zip の外に平文を置かない」が spec の Scenario に無い。置き場に zip と並べて平文の説明書を置いても緑になる
+- 成果物: openspec/changes/st33-data-export/specs/data-durability/spec.md
+- 根拠: deep.md:180 C22「すべて zip の中で暗号化する。zip の外に平文を置かない」、design.md:241 同。spec.md:13 は「zip の中のすべての項目を…暗号化する」、spec.md:16 は「記録の値を暗号化しないまま置き場…に書かない」—— 行の数や列の説明は記録の値ではないので、zip の横の平文の `README.txt` はどちらにも当たらない。
+  Scenario「書き出すと置き場の下に日時つきの zip ファイルが 1 つできる」（spec.md:39-42）の THEN は「zip ファイルが 1 つだけあり」で、zip でないファイルが並ぶことを否定しない。C22 の理由（説明書の行の数が書き出しの量を表す。spec.md:350）を守るのは Requirement の文だけ
+- kind: technical
+- 重大度: 低
+- 提案: spec.md:42 の THEN に「置き場の下には、その zip ファイルの他にファイルが無い」を足すか、Requirement に「置き場に zip の他のファイルを書かない」と 1 文足して Scenario で測る（tasks 5.2）
+- 処置: fixed specs/data-durability/spec.md — Requirement に「置き場に zip の他のファイルを書かない」を足し、Scenario「書き出すと置き場の下に日時つきの zip ファイルが 1 つできる」の THEN に「その他のファイルは無い」を足した（tasks 5.2）
+
+## R51. tasks 10.3 が、申し送りに無い節（「2026-10-13 の整合の確認」）を読めと書く
+- 成果物: openspec/changes/st33-data-export/tasks.md（10.3）
+- 根拠: tasks.md:240「`docs/handoff/ST33.md` の**全部の節**（R2・2026-10-11・2026-10-12 の整合の確認・2026-10-13 の整合の確認）を読む」。`docs/handoff/ST33.md` の見出しは :6（R2）・:21（2026-10-11）・:39（2026-10-12 の監査）とその下の C1 / C3 / C9 / C5 だけで、2026-10-13 の監査（`docs/audit/2026-10-13-st33-merge-consistency.md`）は申し送りに節を持たない（C1 / C2 / K1 / K2 は spec・design・tasks に直接写した。deep.md:329-345）
+- kind: technical
+- 重大度: 低
+- 提案: 10.3 の括弧を「R2・2026-10-11・2026-10-12 の整合の確認（C1 / C3 / C9 / C5）」に直す。2026-10-13 の監査を読ませたいなら、申し送りではなく `docs/audit/2026-10-13-st33-merge-consistency.md` を名指しする
+- 処置: fixed 10.3 — 括弧を申し送りの実在の節（R2・2026-10-11・2026-10-12 の C1 / C3 / C9 / C5）にし、2026-10-13 の監査は `docs/audit/2026-10-13-st33-merge-consistency.md` を名指しした
+
+---
+
+観点 1（Q9 と C22〜C25 の写し）: Q9 は spec.md:11-37（1 つの zip・AES-256・合言葉を保存しない・平文を書かない・12 文字未満は 400）と画面の spec.md:523-526・Scenario 5 本、design D1 / D2 / D3 / D7 / D10 / D13 / D15 / D16 / D19、tasks の Global Constraints（tasks.md:35-37・:40-42）にある。NFR-16 に ★ 2026-10-12 の Q9 の文がある（docs/requirements.md:1142-1146）。
+C22 は R50（zip の外の平文が Scenario に無い）、C23 は R38（AE-2 の記述）と R39（方式が Scenario に無い）、C24 は R48（文の範囲と測り方）。C25 は spec.md:26 と Scenario spec.md:109-112・tasks 2.1 で閉じている。数値（12 文字・0700 / 0600・24 px・4.5:1・360 px）はどれも Scenario にある。
+
+観点 6（失われるものを問わずに決めたもの）: 名付けられるのは R40 の discarded（本人が前の書き出しに足した項目）だけで、「捨てるより残す」（ハッシュが合うものだけ消す）で閉じられるので loss を付けなかった。
+C22〜C25 はどれも緩めると外へ出るものが増える側の既定で、緩める向きは本人に返すと書かれている（deep.md:180-183・:347）。R43 は既定を厳しい側へ直す指摘で、本人に返さなくてよい。
+
+観点 5: 該当なし（確かめた範囲: `check_chain.py` が観点 8 を含めて OK。docs/stories/ST33.md の価値・完了の判定「全記録を書き出し、このシステムを使わずに中身を読める」は、NFR-16 ★ 2026-10-12 の「合言葉を入れれば外部の道具で開ける形」で読めば Q9 と矛盾しない。`requires: [ST01, ST22]` は deep.md:204 と一致。capability `data-durability` は proposal.md:72・specs のディレクトリ・INDEX.md:92 で一致し、前倒しは無い）
