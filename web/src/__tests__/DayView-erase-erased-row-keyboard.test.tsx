@@ -22,9 +22,10 @@ beforeEach(() => {
   day = { date: "2026-09-29", criteria: [], entries: [stay("stay-1"), stay("stay-2", "2026-09-29T02:00:00Z", "2026-09-29T03:00:00Z")] };
   vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
     calls.push(`${init?.method ?? "GET"} ${input}`);
+    if (input.includes("/day/records")) return Promise.resolve(response([]));
     if (input.includes("/detail")) {
       return Promise.resolve(response({ stay_id: "stay-1", start: day.entries[0].start, end: day.entries[0].end, counts: [
-        { logical_source: "c01-location", display_name: "位置", count: 12 },
+        { logical_source: "c01-location", display_name: "携帯端末の位置", count: 12 },
         { logical_source: "c02-window", display_name: "PC のウィンドウ", count: 3 },
       ] }));
     }
@@ -75,10 +76,11 @@ describe("滞在の詳細", () => {
     });
     vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? "GET"} ${input}`);
+      if (input.includes("/day/records")) return Promise.resolve(response([]));
       if (input.includes("/detail?stay_id=stay-1")) return firstDetail;
       if (input.includes("/detail?stay_id=stay-2")) {
         return Promise.resolve(response({ stay_id: "stay-2", start: day.entries[1].start, end: day.entries[1].end, counts: [
-          { logical_source: "c01-location", display_name: "位置", count: 2 },
+          { logical_source: "c01-location", display_name: "携帯端末の位置", count: 2 },
         ] }));
       }
       return Promise.resolve(response(day));
@@ -88,13 +90,13 @@ describe("滞在の詳細", () => {
     const rows = screen.getAllByTestId("row-stay");
     fireEvent.click(within(rows[0]).getByRole("button"));
     fireEvent.click(within(rows[1]).getByRole("button"));
-    await waitFor(() => expect(within(rows[1]).getByText("位置 2 件")).toBeTruthy());
+    await waitFor(() => expect(within(rows[1]).getByText("場所 2 件")).toBeTruthy());
     resolveFirst(response({ stay_id: "stay-1", start: day.entries[0].start, end: day.entries[0].end, counts: [
-      { logical_source: "c01-location", display_name: "位置", count: 99 },
+      { logical_source: "c01-location", display_name: "携帯端末の位置", count: 99 },
     ] }));
     await Promise.resolve();
-    expect(within(rows[1]).getByText("位置 2 件")).toBeTruthy();
-    expect(within(rows[1]).queryByText("位置 99 件")).toBeNull();
+    expect(within(rows[1]).getByText("場所 2 件")).toBeTruthy();
+    expect(within(rows[1]).queryByText("場所 99 件")).toBeNull();
   });
 
   // Scenario: 詳細にその時間の記録の件数がソースごとに出る
@@ -103,7 +105,7 @@ describe("滞在の詳細", () => {
     await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
     fireEvent.click(within(screen.getAllByTestId("row-stay")[0]).getByRole("button"));
     const detail = await screen.findByTestId("stay-detail");
-    expect(detail.textContent).toContain("位置 12 件");
+    expect(detail.textContent).toContain("場所 12 件");
     expect(detail.textContent).toContain("PC のウィンドウ 3 件");
   });
 });

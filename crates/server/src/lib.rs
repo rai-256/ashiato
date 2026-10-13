@@ -42,6 +42,14 @@ mod attributes_tests;
 #[cfg(test)]
 mod clock_tests;
 pub mod coverage;
+/// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
+pub mod day;
+/// 1 日の記録の読み出し（ST25 / 許可リスト・畳み・日の範囲）。
+pub mod day_records;
+#[cfg(test)]
+mod day_records_tests;
+#[cfg(test)]
+mod day_tests;
 /// 冪等の判定・更新と履歴・削除済みの保護（ST03）。
 #[cfg(test)]
 mod dedup_tests;
@@ -79,7 +87,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 22] = [
+pub const MIGRATIONS: [(&str, &str); 23] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -181,6 +189,11 @@ pub const MIGRATIONS: [(&str, &str); 22] = [
     (
         "202610051730_archive_reread_failure",
         include_str!("../../../migrations/202610051730_archive_reread_failure.sql"),
+    ),
+    // ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
+    (
+        "202610121040_event_by_user_source_ingest",
+        include_str!("../../../migrations/202610121040_event_by_user_source_ingest.sql"),
     ),
 ];
 
@@ -1878,6 +1891,87 @@ pub async fn stays_get(
     .map_err(|e| internal_at("stays.day", e))
 }
 
+/// `GET /day` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DayQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 1 日の並び（`/stays` と同じ行）に、行ごとの要約とほかの記録の行を足して返す（ST25 design D1）。
+#[utoipa::path(get, path = "/day", params(DayQuery),
+    responses((status = 200, body = day::DayResponse), (status = 400), (status = 401)))]
+pub async fn day_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<DayQuery>,
+) -> Result<Json<day::DayResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    day::day(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        date,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("day.day", e))
+}
+
+/// `GET /day/records` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DayRecordsQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    /// この時刻以後（RFC 3339）。省くと日の始まり。**日の端では切らない**（日をまたぐ行の前の日の側も出す）。
+    from: Option<String>,
+    /// この時刻より前（RFC 3339）。省くと日の終わり。**日の端では切らない**。`from` 以前なら 400。
+    to: Option<String>,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// その日の記録を、出来事の時刻順に 1 件ずつ返す（ST25 design D1）。
+#[utoipa::path(get, path = "/day/records", params(DayRecordsQuery),
+    responses((status = 200, body = Vec<day_records::DayRecord>), (status = 400), (status = 401)))]
+pub async fn day_records_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<DayRecordsQuery>,
+) -> Result<Json<Vec<day_records::DayRecord>>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    let instant = |v: &Option<String>| -> Result<Option<chrono::DateTime<chrono::Utc>>, _> {
+        v.as_deref()
+            .map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .map(|t| t.with_timezone(&chrono::Utc))
+                    .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_range".to_string()))
+            })
+            .transpose()
+    };
+    let (from, to) = (instant(&q.from)?, instant(&q.to)?);
+    // 空の範囲を黙って空の一覧にしない（画面の取り違えを 200 で隠さない）。省いた側は日の端
+    let (d0, d1) = stay_store::day_bounds(date);
+    if from.unwrap_or(d0) >= to.unwrap_or(d1) {
+        return Err((StatusCode::BAD_REQUEST, "invalid_range".to_string()));
+    }
+    day_records::records(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        date,
+        from,
+        to,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("day.records", e))
+}
+
 /// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
 #[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
     responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
@@ -2622,6 +2716,8 @@ pub fn router(app: App) -> Router {
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
         .route("/stays", get(stays_get))
+        .route("/day", get(day_get))
+        .route("/day/records", get(day_records_get))
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
@@ -2756,6 +2852,8 @@ pub async fn run() -> anyhow::Result<()> {
         achievement_get,
         archives_status_get,
         stays_get,
+        day_get,
+        day_records_get,
         stays_detail_get,
         stays_erase,
         stays_restore,
@@ -2805,6 +2903,18 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::DayEntry,
         stay_store::EntryKind,
         stay_store::CriteriaTag,
+        day_records::DayRecord,
+        day::DayResponse,
+        day::DayRow,
+        day::Gap,
+        day::GapKind,
+        day::RowKind,
+        day::Summary,
+        day::AppSummary,
+        day::AppSeconds,
+        day::BrowserSummary,
+        day::DomainCount,
+        day::ArchiveCount,
         attributes::AttributesView,
         attributes::KindView,
         attributes::ClaimOut,

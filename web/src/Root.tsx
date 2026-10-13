@@ -12,27 +12,31 @@ import { SCHEMES } from "./tokens";
 const m = msg("root");
 
 /**
- * 画面の行き先を決める（ST16 / design D8）。**S-1（稼働状況）はルートのまま** ——
- * 入口を決め直すのは ST25。1 日の一覧は `#/day/YYYY-MM-DD`（日付を省けば今日）、
- * マスタ管理は `#/master`（ST19 / design D9）。
+ * 画面の行き先を決める（ST16 / design D8、ST25 / design D12）。**ルートは今日の 1 日の画面。**
+ * 稼働状況は `#/coverage`、1 日の画面は `#/day/YYYY-MM-DD`（日付を省けば今日）、マスタ管理は `#/master`
+ * （ST19 / design D9）。解釈できないアドレスも今日の 1 日の画面。
  */
 export function Root(): React.ReactElement {
   const [hash, setHash] = useState(() => window.location.hash);
-  const c = SCHEMES[useScheme()];
+  const scheme = useScheme();
+  const c = SCHEMES[scheme];
   useEffect(() => {
     const on = (): void => setHash(window.location.hash);
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  // **S-6 マスタ管理**（ST19 / design D9）。`#/day/…` とルート（S-1）は変えない
+  // **S-6 マスタ管理**（ST19 / design D9）
   if (/^#\/master\/?$/.test(hash)) return <MasterView />;
-  const day = dayFromHash(hash);
-  if (day === undefined) return <App />;
+  // **S-1 稼働状況**（ST25 / design D12）。ルートではなく専用のアドレス
+  if (/^#\/coverage\/?$/.test(hash)) return <App />;
+  // 空・`#/`・解釈できないアドレスは今日の 1 日の画面
+  const day = dayFromHash(hash) ?? null;
   // **暦に無い日付は、そう出す**（R47）。そのまま一覧を開くと見出しが「13 月 45 日」になり、前後の日へ移るボタンが黙って効かない
   if (day !== null && !isRealDate(day)) {
     return (
       <main
         data-testid="day-invalid"
+        data-scheme={scheme}
         style={pageStyle(c)}
       >
         <p role="alert">{m.invalidDate(day)}</p>

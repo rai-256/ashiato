@@ -1,6 +1,6 @@
 # ST25 の深掘り — 1 日を時刻順に見る
 
-> 状態: **第 1 回の答えを記録した（2026-10-01。`deep-answers-1.txt`）。未回答は無い。**
+> 状態: **第 1 回の答えを記録した（2026-10-01。`deep-answers-1.txt`）。下流が返した Q7（第 2 回）・Q8（第 3 回）の答えを記録した（2026-10-12。`deep-answers-2.txt`）。未回答は無い。**
 > 問いは `deep-questions.json`（6 件。A 1 件 / B 5 件）、渡した形は `docs/briefs/ST25-deep.html`。
 > 面は S-2（1 日を見る）なので、問いより先に `proto.html` を作り、Q1 に埋め込んだ。
 > 独立レビューは `review/deep.md`（13 件。問いの前提・範囲を直した 6（R2・R3・R4・R9・R10・R13）/ proto を直した 4（R1・R6・R7・R8）/ 聞かないで決める C を足した・直した 3（R5・R11・R12））。
@@ -132,6 +132,52 @@ Q2〜Q6 は推奨と同じ選択肢を**本人が選んだ**もので、推奨�
 - **読み方**: 消す口は ST22 の滞在と位置のまま。1 件ずつ消す口は、ソースごとの副作用を決める別の Story か fix で足す。第 2 回の A の問いは立たない。
   この Story の画面に取り返しの付かない操作は増えないので、NFR-20（44 px）が新たに効く対象は無い（ST22 の「この滞在を消す」は ST22 の側）
 - **効く先**: proposal の Non-Goals
+
+### Q7. 今日の最後の位置の後の「ほかの記録」の行は、いつ出るか（A / premise）
+
+- **本人の答え**: 「記録なしの行の中に事情として添える」（`deep-answers-2.txt` の第 2 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: 今日の最後の位置からいままでが `gap_minutes` 以上なら、`day_view`（ST22 の契約）のまま**記録なしの行**にする。
+  その時間に位置以外の記録があれば、記録なしの行に要約（reasons か summary）として添える。`day_view` の末尾の判定には手を入れない。
+  spec の Scenario「今日の最後の位置の後の記録はほかの記録の行に出る」は「記録なしの行に PC の要約が出る」形へ直し、D7 もそれに合わせる。
+  試験の基準（`gap_minutes`）を変えて通す形は採らない
+- **何が崩れたか**: D7 / spec は、今日の最後の位置からいままでに位置以外の記録があれば「ほかの記録」の行に出すと置いた。
+  実際の `stay_store::day_view` は、その間隔が `gap_minutes`（既定 10 分）以上なら**記録なしの行**にする（`stay_store.rs` の day_view の説明）。
+  既定のままでは「ほかの記録」の行は出ない（Task 3 の review F1）
+- **効く先**: spec の Scenario「今日の最後の位置の後の記録はほかの記録の行に出る」/ design D7 / `crates/server/src/day_tests.rs`
+
+### Q8. REMOVED した Scenario が正典に残る間、11.1 の `check_scenarios.py` をどう通すか（A / premise）
+
+- **本人の答え**: 「検査の側を直す（REMOVED の Scenario を担保の対象から外す）」（`deep-answers-2.txt` の第 3 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: harness2 の `check_scenarios.py` が change の `## REMOVED Requirements` の Scenario 名を読み、担保の対象から外す（他の Story の REMOVED にも効く）。
+  11.1 の検証コマンドは変えない。嘘の印は置かない（Task 7.1 の `! grep` と Global Constraints のまま）。
+  直す場所は harness2 側で、この repo の `scripts/` は symlink なので ashiato2 の change では書かない
+- **何が崩れたか**: 11.1 は `python3 scripts/check_scenarios.py . st25-day-timeline` が rc=0 であることを求める。ところが `check_scenarios.py` は REMOVED を読まず、
+  正典 `openspec/specs/browsing-views/spec.md:148` に残る Scenario `稼働状況の画面の入口は変わらない`（この change が REMOVED する）を「担保の無い Scenario」として FAIL にする
+  （`scenarios: FAIL (担保なし 1 件)`。他の FAIL は無い）。印を足せば通るが、Task 7.1 の検証（`! grep -rn "Scenario: 稼働状況の画面の入口は変わらない" web crates`）と
+  Global Constraints（印を残すと嘘の試験が残る）に反する。この Scenario は archive で正典から消えるので、**archive 後は自然に解消する**
+- **実証**: 現在の HEAD（11.2 が全部 PASS の木）で `scripts/verify-run 11.1` が FAIL（evidence.jsonl の 11.1、rc=1）
+- **提案する正式な入口**: (a) `check_scenarios.py` が change の `## REMOVED Requirements` の Scenario 名を担保の対象から外す（harness2 側の直し。11.1 のコマンドは変えない）/
+  (b) 11.1 の検証を「FAIL の担保なしが REMOVED の 1 件だけ」を見るコマンドに `plan_fix.py` で直す
+- **効く先**: tasks.md 11.1 / `.harness2/scripts/check_scenarios.py`
+
+### Q9. 6.1 の検証コマンドが Story の worktree で別のサーバを叩く（A / premise。code-verify R20）
+
+- **本人の答え**: 「6.1 の検証コマンドを plan_fix.py で直す」（`deep-answers-3.txt` の第 4 回。推奨と同じものを本人が選んだ。補足なし）
+- **読み方**: 6.1 の検証コマンドを `plan_fix.py` で直す。`. tools/ports.sh` の後に `BIND=127.0.0.1:$ASHIATO_HTTP_PORT` を `seed.sh` と curl の両方に渡し、
+  判定の中身（seed 2 回・`jq -e`）は変えない。手順は、先に旧コマンドのまま `scripts/verify-run 6.1` で FAIL を記録し、その証跡を添えて `plan_fix.py` で直してから
+  新しいコマンドで `scripts/verify-run 6.1` を PASS にする。`tools/seed.sh:19` の口の優先順（`.env` の `BIND` が worktree の口より先）はこの Story では直さず、
+  ports の被らない割り当ての fix で拾う（ST05 の後続）
+- **何が崩れたか**: 6.1 の検証は `. ./.env` の後に `tools/seed.sh normal` を 2 回と `curl "http://$BIND/day…"` を撃つ。書いた時点（2026-10-02）は
+  `.env` の `BIND`（127.0.0.1:18787）が自分のサーバだった。その後 `tools/ports.sh`（430196c9、2026-10-05。ST05）が入り、`stack.sh` は
+  worktree の口（`-st25` なら 19000+2×25 = 19050）でサーバを立てるようになった。`seed.sh:19` の `BIND="${BIND:-…}"` は `.env` の 18787 を優先し、
+  curl も 18787 を撃つ。**18787 には ashiato2-integ のサーバが待ち受けていて、HEAD で rc=22**（seed の最初の `curl -f` が 401 で止まる）。
+  API_TOKEN が同じなら、ST25 の偽データがほかの worktree の DB に入る
+- **実証**: code-verify が HEAD e9d3a0bd で tasks の本文どおりに走らせて rc=22。`BIND=127.0.0.1:19050` を渡すと seed 2 回とも rc=0・`jq -e` が true（中身は合っている）。
+  6.1 の PASS の証跡は 8fcde699（2026-10-02）だけで、`ports.sh` の導入より前。main の checkout と CI（名前が `-stNN` で終わらない）では 18787 が自分のサーバなので通る
+- **提案する正式な入口**: (a) 6.1 の検証を `plan_fix.py` で直す —— `. tools/ports.sh` の後に `BIND=127.0.0.1:$ASHIATO_HTTP_PORT` を `seed.sh` と curl の両方に渡す（中身の判定は変えない）。
+  `plan_fix.py` は旧コマンドの FAIL の証跡を要るので、承認の後に `scripts/verify-run 6.1` で FAIL を記録してから直す /
+  (b) 直さない（main と CI では通る）。Story の worktree で 6.1 を走らせ直す人は `BIND` を渡す
+- **効く先**: tasks.md 6.1 / `tools/seed.sh:19`（`.env` の `BIND` を worktree の口より優先する順は ST05 の ports の割り当ての後続 —— 被らない割り当ての fix で拾う）
 
 ## 要件へ戻すもの
 

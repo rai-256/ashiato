@@ -165,6 +165,9 @@ jobs:
         working-directory: web
       - run: npx playwright install --with-deps chromium
         working-directory: web
+      # 実寸（開いてすぐ 6 行・1 行 240 px）は書体で変わる。Android と同じ Noto Sans CJK JP で測る
+      # （無いと欧文が DejaVu Sans に落ちて折り返しが増える。ST25 design D24（仮））
+      - run: sudo apt-get install -y --no-install-recommends fonts-noto-cjk
       - run: npm run build
         working-directory: web
       - run: npm run test:e2e

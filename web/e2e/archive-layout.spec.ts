@@ -75,7 +75,7 @@ async function openWith(page: Page, patch: (base: Status) => Status): Promise<vo
     const base = (await res.json()) as Status;
     await route.fulfill({ response: res, json: patch(base) });
   });
-  await page.goto("/");
+  await page.goto("/#/coverage");
   // 読み込み中の 1 行が消えるまで待つ（直近の書庫の行は、溢れると「ほか N 件」に畳まれることがある）
   const box = page.getByTestId("latest-archive");
   await expect(box).toBeVisible();

@@ -63,20 +63,21 @@ describe("一覧の下限", () => {
   });
 
   // Scenario: 日を移る操作は 24 px を下回らない
-  it("前の日・次の日・日付の指定・稼働状況へは 24 × 24 CSS px 以上を要求している", () => {
+  it("前の日・次の日・日付の指定・稼働状況・マスタ管理は 24 × 24 CSS px 以上を要求している", () => {
     stubScheme(false);
     render(<DayView date="2026-07-01" />);
     const targets = [
       screen.getByRole("button", { name: "前の日" }),
       screen.getByRole("button", { name: "次の日" }),
       screen.getByLabelText("日付を指定"),
-      screen.getByRole("link", { name: "稼働状況へ" }),
+      screen.getByRole("link", { name: "稼働状況" }),
+      screen.getByRole("link", { name: "マスタ管理" }),
     ];
     for (const t of targets) {
       expect(parseFloat(t.style.minHeight), `${t.textContent} の高さ`).toBeGreaterThanOrEqual(NFR19_MIN_PX);
       expect(parseFloat(t.style.minWidth), `${t.textContent} の幅`).toBeGreaterThanOrEqual(NFR19_MIN_PX);
     }
-    // 操作できるものは上の 4 つだけ（数え漏れで緑にしない）
+    // 操作できるものは上の 6 つだけ（数え漏れで緑にしない）
     expect(document.querySelectorAll("button, a, input")).toHaveLength(targets.length);
   });
 

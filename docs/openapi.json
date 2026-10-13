@@ -266,6 +266,129 @@
         }
       }
     },
+    "/day": {
+      "get": {
+        "tags": [],
+        "summary": "1 日の並び（`/stays` と同じ行）に、行ごとの要約とほかの記録の行を足して返す（ST25 design D1）。",
+        "operationId": "day_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/day/records": {
+      "get": {
+        "tags": [],
+        "summary": "その日の記録を、出来事の時刻順に 1 件ずつ返す（ST25 design D1）。",
+        "operationId": "day_records_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "この時刻以後（RFC 3339）。省くと日の始まり。**日の端では切らない**（日をまたぐ行の前の日の側も出す）。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "この時刻より前（RFC 3339）。省くと日の終わり。**日の端では切らない**。`from` 以前なら 400。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DayRecord"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/drops": {
       "post": {
         "tags": [
@@ -817,6 +940,59 @@
           }
         }
       },
+      "AppSeconds": {
+        "type": "object",
+        "description": "アプリ 1 つの使った時間。",
+        "required": [
+          "app",
+          "seconds"
+        ],
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AppSummary": {
+        "type": "object",
+        "description": "PC / スマホの要約。`seconds` は全アプリの合計、`top` は長い順に最大 `SUMMARY_TOP`。",
+        "required": [
+          "seconds",
+          "top"
+        ],
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppSeconds"
+            }
+          }
+        }
+      },
+      "ArchiveCount": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        }
+      },
       "ArchiveSourceStatus": {
         "type": "object",
         "description": "書庫から入るソースの最終日。イベント表ではなく、追記のみの台帳から導く。",
@@ -927,6 +1103,26 @@
           "alive_no_record",
           "other"
         ]
+      },
+      "BrowserSummary": {
+        "type": "object",
+        "description": "ブラウザの要約。`count` は訪問の総数、`top` はドメインごとの件数の多い順。",
+        "required": [
+          "count",
+          "top"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DomainCount"
+            }
+          }
+        }
       },
       "ClaimOut": {
         "type": "object",
@@ -1162,6 +1358,185 @@
           }
         }
       },
+      "DayRecord": {
+        "type": "object",
+        "description": "`GET /day/records` の 1 件（D1）。記録の値（題名・URL）はそのまま持つが、**ログには出さない**。",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "start",
+          "tz_id"
+        ],
+        "properties": {
+          "app": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "アプリ名。ブラウザの訪問ではブラウザ名、マイアクティビティでは製品名。"
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ）。"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "書庫のときだけ、登録簿の表示名（画面は「書庫: <表示名>」と書く）。"
+          },
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "区間の記録だけ。"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`foreground` / `away` / `stopped` / `excluded` / `visit` / `unavailable` / `archive`"
+          },
+          "source": {
+            "type": "string",
+            "description": "`pc` / `phone` / `browser` / `archive`"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tz_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DayResponse": {
+        "type": "object",
+        "description": "`GET /day` の応答。",
+        "required": [
+          "date",
+          "criteria",
+          "entries",
+          "gaps"
+        ],
+        "properties": {
+          "browser_through": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "ブラウザ履歴が最後に届いた時刻。**「まだ届いていない」を出すべきときだけ**ある（D10）。"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CriteriaTag"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayRow"
+            }
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            }
+          }
+        }
+      },
+      "DayRow": {
+        "type": "object",
+        "description": "並びの 1 行。`day_view` の行の欄に `summary` を足したもの（「消した」の行には付けない）。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "criteria_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RowKind"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "description": "「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stay_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Summary"
+              }
+            ]
+          }
+        }
+      },
       "DayState": {
         "type": "string",
         "description": "ソース × 日 の状態（FR-54）。**8 つのいずれか 1 つに決まる。**\n\n⑧「退役」は ST03 の深掘りが差し戻したもの（R55 / R56）—— ソースを分けて\n古い名前を退役させる運用が通常になったため、**退役した後の空白日**を\n⑥「途絶」と区別できないと、退役したソースが毎日「壊れている」ように見える。",
@@ -1202,6 +1577,22 @@
               "$ref": "#/components/schemas/DayEntry"
             },
             "description": "始まりの時刻順"
+          }
+        }
+      },
+      "DomainCount": {
+        "type": "object",
+        "required": [
+          "domain",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "domain": {
+            "type": "string"
           }
         }
       },
@@ -1469,6 +1860,60 @@
             "type": "string"
           }
         }
+      },
+      "Gap": {
+        "type": "object",
+        "description": "取れていない時間 1 つ。置く位置は画面が決める（D9）。日の端といまで切ってある。",
+        "required": [
+          "kind",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "除外した変化の件数（`excluded` だけ。本文は持たない）。"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "どの端末の時間か。2 台の PC が同じ時刻に離席しても行を取り違えない（画面の行の鍵）。"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GapKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "スマホの取れていない理由（`unavailable` だけ。`retention` / `clock_skew_abandoned`）。"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GapKind": {
+        "type": "string",
+        "description": "取れていない時間の種類（D9）。",
+        "enum": [
+          "away",
+          "stopped",
+          "excluded",
+          "unavailable"
+        ]
       },
       "HeartbeatError": {
         "type": "string",
@@ -2006,6 +2451,35 @@
           }
         }
       },
+      "Reason": {
+        "type": "object",
+        "description": "記録なしの事情 1 つ。`count` は `dropped` と `archive` だけ。",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReasonKind"
+          }
+        }
+      },
+      "ReasonKind": {
+        "type": "string",
+        "description": "記録なしの事情の種類。宣言の順が並び（D11（仮））。",
+        "enum": [
+          "before_start",
+          "stopped",
+          "dropped",
+          "archive"
+        ]
+      },
       "RebuildRequest": {
         "type": "object",
         "description": "`POST /stays/rebuild` の本文。**すべて省ける**（省いた基準はいまの値のまま）。",
@@ -2137,6 +2611,17 @@
             "minimum": 0
           }
         }
+      },
+      "RowKind": {
+        "type": "string",
+        "description": "並びの 1 行の種類。`day_view` の種類に「ほかの記録」を足したもの（並びは `day_view` の順のまま）。",
+        "enum": [
+          "stay",
+          "move",
+          "no-record",
+          "erased",
+          "other"
+        ]
       },
       "SessionState": {
         "type": "object",
@@ -2328,6 +2813,51 @@
           "device",
           "usage"
         ]
+      },
+      "Summary": {
+        "type": "object",
+        "description": "行の `[start, end)` の要約。**記録の無いソースは鍵ごと出さない。**",
+        "properties": {
+          "archive": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ArchiveCount"
+            }
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserSummary"
+              }
+            ]
+          },
+          "pc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          },
+          "phone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          }
+        }
       },
       "ValidFrom": {
         "type": "object",

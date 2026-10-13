@@ -1,0 +1,28 @@
+{
+  "title": "ST25 の深掘り（第 4 回）",
+  "subtitle": "6.1 の検証コマンドが Story の worktree で別のサーバを叩く",
+  "note": "finish（code-verify の処置）で見つかった前提の食い違いが 1 件あります。選んで「回答をコピー」を押し、貼り戻してください。",
+  "questions": [
+    {
+      "id": "Q9",
+      "topic": "6.1 の検証コマンドの口（code-verify R20）",
+      "kind": "premise",
+      "question": "6.1 の検証は `.env` の BIND（18787）へ seed と curl を撃ちます。`tools/ports.sh`（ST05）が入ってから、Story の worktree のサーバは 19050 で立つので、HEAD では別の worktree のサーバに当たって rc=22 になります。どうしますか。",
+      "why": "検証コマンドは凍結した tasks.md の中にあり、直すには plan_fix.py と人間の承認が要る。放っておくと、Story の worktree で 6.1 を走らせ直したときに偽データが別の worktree の DB に入りうる（API_TOKEN が同じとき）。",
+      "context": "BIND=127.0.0.1:19050 を渡すと seed 2 回とも rc=0・jq が true（中身は合っている）。main の checkout と CI では 18787 が自分のサーバなので通る。最後の PASS は ports.sh の導入より前の 8fcde699。",
+      "allow_free": true,
+      "multi": false,
+      "options": [
+        {
+          "label": "6.1 の検証コマンドを plan_fix.py で直す",
+          "detail": "`. tools/ports.sh` の後に BIND=127.0.0.1:$ASHIATO_HTTP_PORT を seed.sh と curl の両方に渡す。判定の中身は変えない。承認の後に verify-run 6.1 で旧コマンドの FAIL を記録してから直す",
+          "recommended": true
+        },
+        {
+          "label": "直さない（main と CI では通る）",
+          "detail": "Story の worktree で走らせ直す人が BIND を渡す。seed.sh の口の順は ports の割り当ての fix で拾う"
+        }
+      ]
+    }
+  ]
+}

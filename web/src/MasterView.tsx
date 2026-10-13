@@ -88,7 +88,7 @@ export function MasterView(): React.ReactElement {
       style={pageStyle(c)}
     >
       <nav style={{ display: "flex", gap: SPACE.targetGap, marginBottom: 8 }}>
-        <a href="#/" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
+        <a href="#/coverage" {...{ [FOCUS_ATTR]: "" }} style={linkStyle(c)}>
           {common.toCoverage}
         </a>
       </nav>

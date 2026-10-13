@@ -43,7 +43,7 @@ const ja = {
   /** S-1 稼働状況（App.tsx） */
   coverage: {
     title: "収集が動いていたか",
-    toDay: "1 日の滞在へ",
+    toDay: "1 日の画面へ",
     toMaster: "マスタ管理へ",
     achievementFailed: (why: string): string =>
       `達成の読み出しに失敗しました（${why}）。達成日数が 0 なのではありません。`,
@@ -138,9 +138,12 @@ const ja = {
     droppedRangeNoCount: (from: string, to: string): string => `破棄（${from}〜${to}）`,
   },
 
-  /** S-2 1 日の滞在（DayView.tsx / stays.ts） */
+  /** S-2 1 日の画面（DayView.tsx / stays.ts） */
   day: {
-    title: (dateLabel: string): string => `${dateLabel}の滞在`,
+    /** 題は日付だけ（ST25。滞在だけの一覧ではなくなった） */
+    title: (dateLabel: string): string => dateLabel,
+    toCoverage: "稼働状況",
+    toMaster: "マスタ管理",
     prev: "前の日",
     next: "次の日",
     pickDate: "日付を指定",
@@ -160,8 +163,17 @@ const ja = {
     restore: "戻す",
     move: (long: string): string => `移動 ${long}`,
     noRecord: (range: string): string => `記録なし ${range}`,
+    /** どの行にも入らない時間の記録の行（ST25 / D19（仮）） */
+    other: (range: string): string => `ほかの記録 ${range}`,
     /** 種類のしるし（線の輪の中の記号）。**文字に添えるだけ**で、読み上げには出さない（2026-10-12） */
-    mark: { stay: "●", move: "➝", "no-record": "…", erased: "×" },
+    mark: { stay: "●", move: "➝", "no-record": "…", erased: "×", other: "◦" },
+    /** ブラウザ履歴がまだ届いていない（ST25 / D10） */
+    browserPending: (through: string): string => `ブラウザ 最後に届いたのは ${through}。それより後の訪問はまだ届いていない`,
+    recordsLoading: "記録を読み込み中…",
+    recordsFailed: (why: string): string => `記録の読み出しに失敗しました（${why}）。`,
+    recordsLabel: "開いた行の記録",
+    /** 位置の記録の題（ST25 / D23（仮））。ソースの表示名（`携帯端末の位置`）ではなく「場所」と出す */
+    locationTitle: "場所",
     detailLoading: "詳細を読み込み中…",
     detailFailed: (why: string): string => `詳細の読み出しに失敗しました（${why}）。`,
     detailCount: (name: string, count: number): string => `${name} ${count} 件`,
@@ -175,6 +187,44 @@ const ja = {
     criteriaLabel: (radiusM: number, minMinutes: number): string => `半径 ${radiusM} m / ${minMinutes} 分`,
     /** 日付（`2026 年 9 月 12 日`） */
     dateLabel: (y: number, mo: number, d: number): string => `${y} 年 ${mo} 月 ${d} 日`,
+  },
+
+  /** 1 日の画面の要約・取れていない時間・記録なしの事情・開いた中身（timeline.ts。ST25） */
+  timeline: {
+    /** 区切り */
+    sep: " ・ ",
+    topSep: " · ",
+    lead: " — ",
+    pc: "PC",
+    phone: "スマホ",
+    browser: "ブラウザ",
+    archive: (name: string): string => `書庫: ${name}`,
+    /** 要約のブラウザの行の頭（`ブラウザ 12 件`） */
+    browserCount: (count: number): string => `ブラウザ ${count} 件`,
+    archiveCount: (name: string, count: number): string => `書庫: ${name} ${count} 件`,
+    reason: {
+      before_start: "位置の収集を始める前",
+      stopped: "止めていた",
+      dropped: (n: number): string => `端末が破棄 ${n} 件`,
+      archive: (n: number): string => `書庫に位置 ${n} 件`,
+    },
+    gap: {
+      away: (range: string): string => `離席 ${range}`,
+      stopped: (range: string): string => `PC 停止 ${range}`,
+      excluded: (range: string, n: number): string => `除外 ${range}（${n} 件。本文なし）`,
+      clockSkew: (range: string): string => `スマホ 時計のずれで取れていない ${range}`,
+      retention: (range: string): string => `スマホ 取得元に残っていない ${range}`,
+    },
+    record: {
+      away: "離席",
+      stopped: "PC 停止",
+      excluded: (n: number): string => `除外（${n} 件。本文なし）`,
+      unavailable: (source: string): string => `${source} 取れていない`,
+    },
+    /** 地域の時刻（`（London 8:02）`） */
+    region: (name: string, time: string): string => `（${name} ${time}）`,
+    /** 畳んだ行の件数 */
+    count: (n: number): string => `${n} 件`,
   },
 
   /** S-6 マスタ管理（MasterView.tsx / attributes.ts） */
