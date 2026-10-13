@@ -60,6 +60,9 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+/// 書き出しの台帳の移行と錠（ST33 / design D10）。
+#[cfg(test)]
+mod export_ledger_tests;
 pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]

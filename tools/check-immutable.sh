@@ -851,6 +851,25 @@ left=$(psql -c "SELECT count(*) FROM core.deletion_ledger WHERE event_id='$DELET
   && echo "  OK deletion_ledger は UPDATE / DELETE / TRUNCATE を拒む" \
   || { echo "  NG deletion_ledger が $left 行になっている（1 行のはず）"; fail=1; }
 
+# --- ST33: 書き出しの台帳は追記のみ（design D10）
+# Scenario: 書き出しの台帳の行は書き換えも削除もできない
+echo "== ST33: export_ledger の錠"
+EXPORT_ID='14141414-1414-4414-8414-141414141414'
+psql -c "INSERT INTO core.export_ledger (export_id, kind, route, file)
+         VALUES ('$EXPORT_ID','start','pc-encrypted-zip','/immutable-check.zip');" >/dev/null
+for stmt in \
+  "UPDATE core.export_ledger SET file='forged' WHERE export_id='$EXPORT_ID';" \
+  "DELETE FROM core.export_ledger WHERE export_id='$EXPORT_ID';" \
+  "TRUNCATE core.export_ledger;"; do
+  if psql -c "$stmt" >/dev/null 2>&1; then
+    echo "  NG export_ledger を変更できた: $stmt"; fail=1
+  fi
+done
+left=$(psql -c "SELECT count(*) FROM core.export_ledger WHERE export_id='$EXPORT_ID';")
+[ "$left" = "1" ] \
+  && echo "  OK export_ledger は UPDATE / DELETE / TRUNCATE を拒む" \
+  || { echo "  NG export_ledger が $left 行になっている（1 行のはず）"; fail=1; }
+
 
 # --- **後から足した列が、黙って書き換えられる側に入らないこと**
 #
@@ -1336,7 +1355,16 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
-# **ST17 の主観の版をいちばん先に戻す**（最後に足した版）。主観の行は 0 件 —— 2 表と登録簿の行も落ちる側を通る。
+# **ST33 の書き出しの台帳をいちばん先に戻す**（最後に足した版。まっさらな schema なので行は無い）。
+psql < "migrations/202610131200_export_ledger.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610131200_export_ledger.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.export_ledger') IS NULL AND to_regprocedure('core.reject_export_ledger_change()') IS NULL;")" = "t" ] \
+  || { echo "  NG export_ledger の戻しで表・関数が残っている"; fail=1; down_fail=1; }
+psql < "migrations/202610131200_export_ledger.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610131200_export_ledger.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202610131200_export_ledger.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610131200_export_ledger.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
+# **ST17 の主観の版をその次に戻す**。主観の行は 0 件 —— 2 表と登録簿の行も落ちる側を通る。
 # 戻して進め直せること、2 回目の戻しも当たることまで見る
 psql < "migrations/202610141000_subjective_log.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610141000_subjective_log.down.sql が当たらない"; fail=1; down_fail=1; }
@@ -1346,7 +1374,7 @@ psql < "migrations/202610141000_subjective_log.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610141000_subjective_log.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
 psql < "migrations/202610141000_subjective_log.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610141000_subjective_log.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
-# **ST21 の場所の版を次に戻す**（最後に足した版）。場所の行は 0 件 —— 器の表と登録簿の行も落ちる側を通る。
+# **ST21 の場所の版をその次に戻す**。場所の行は 0 件 —— 器の表と登録簿の行も落ちる側を通る。
 # 戻して進め直せること、2 回目の戻しも当たることまで見る
 psql < "migrations/202610020030_places.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610020030_places.down.sql が当たらない"; fail=1; down_fail=1; }
@@ -1411,7 +1439,7 @@ for ((i=${#ST03_UP[@]}-1; i>=0; i--)); do
   psql < "migrations/$m.down.sql" >/dev/null 2>&1 \
     || { echo "  NG $m.down.sql が当たらない"; fail=1; down_fail=1; }
 done
-[ "$down_fail" -eq 0 ] && echo "  OK ST17 の 1 本・ST21 の 1 本・ST22 の 1 本・ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
+[ "$down_fail" -eq 0 ] && echo "  OK ST33 の 1 本・ST17 の 1 本・ST21 の 1 本・ST22 の 1 本・ST19 の 1 本・ST04 の 1 本・ST16 の 1 本・ST03 の 5 本とも当たる"
 # 当て直せること（前進のみの版を戻してから進める運用が成り立つ）
 for m in "${ST03_UP[@]}"; do
   psql < "migrations/$m.sql" >/dev/null 2>&1 \
