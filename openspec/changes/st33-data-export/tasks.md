@@ -100,7 +100,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 4: 遅れて届いた位置の印（design D6。`stay_store`）
 
-- [ ] 4.1 `stay_store::mark_late_for_user(pool, user)` を足す —— トランザクション → `lock(LOCK_KEY, user)` → 基準を読む →
+- [x] 4.1 `stay_store::mark_late_for_user(pool, user)` を足す —— トランザクション → `lock(LOCK_KEY, user)` → 基準を読む →
   既存の `mark_late_arrivals` を、**`rebuild_day` と同じ並び `with_archive_sources(&c.sources)`** を渡して、本人が消した滞在の最小の始まり〜（最大の終わり＋1 マイクロ秒）で 1 回呼ぶ（design D6。整合の確認 2026-10-13 の K2）。
   本人が消した滞在が無ければ何もしない。何度走っても印と台帳の行は増えない。
   範囲の下端は消した滞在の最小の始まりの日（Asia/Tokyo）の始まり（design D6）。
