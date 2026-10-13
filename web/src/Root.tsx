@@ -5,6 +5,7 @@ import { DayView } from "./DayView";
 import { FeelInvalid, FeelView } from "./FeelView";
 import { feelDateFromHash } from "./feelings";
 import { MasterView } from "./MasterView";
+import { SettingsView } from "./SettingsView";
 import { dayFromHash, isRealDate } from "./stays";
 import { msg } from "./messages";
 import { useScheme } from "./scheme";
@@ -36,6 +37,8 @@ export function Root(): React.ReactElement {
     if ("invalid" in feel) return <FeelInvalid raw={feel.invalid} />;
     return <FeelView key={feel.date ?? "today"} date={feel.date} />;
   }
+  // **S-7 設定**（ST33 / design D13）。入口は S-1 の見出しの行。入口を決め直すのは ST25
+  if (/^#\/settings\/?$/.test(hash)) return <SettingsView />;
   // **S-1 稼働状況**（ST25 / design D12）。ルートではなく専用のアドレス
   if (/^#\/coverage\/?$/.test(hash)) return <App />;
   // 空・`#/`・解釈できないアドレスは今日の 1 日の画面

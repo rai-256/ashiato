@@ -40,11 +40,59 @@ const ja = {
     toToday: "今日の一覧へ",
   },
 
+  /** S-7 設定（SettingsView.tsx。ST33 / design D13）。文面は仮（D13 の反転条件） */
+  settings: {
+    title: "設定",
+    sectionTitle: "全記録の書き出し",
+    lead: "集めた記録を、外の道具で読める形にして、この PC のフォルダに書き出します。",
+    sourcesTitle: "ソースごとの件数と期間",
+    sourceRow: (name: string, count: string, first: string, last: string): string =>
+      `${name}: ${count} 件（${first} 〜 ${last}）`,
+    summaryFailed: "件数を読み出せませんでした。",
+    excludedTitle: "入らないもの",
+    excluded: [
+      "本人が消した場面（削除の印の付いた記録と、消した滞在の時間に入る緯度経度を持つ記録。前の版を含む）",
+      "削除と消去の台帳",
+      "写真・動画の原本（D-02。記録のメタは入る）",
+    ],
+    start: "全記録を書き出す",
+    running: (written: string, total: string): string => `書き出し中です（${written} / ${total} 行）。画面を離れても続きます。`,
+    statusFailed: "書き出しの状態を読み出せませんでした。",
+    lastTitle: "前回の書き出し",
+    last: (at: string, rows: string, size: string): string => `${at}・${rows} 行・${size}`,
+    lastFile: (file: string): string => `ファイル: ${file}`,
+    lastNone: "まだ書き出していません。",
+    erasedAfter: (n: string): string => `この書き出しの後に消した記録が ${n} 件あります。書き出したファイルの中には残っています。`,
+    failure: (kind: string): string => `書き出しに失敗しました（${kind}）`,
+    interrupted: (at: string): string => `前の書き出しは途中で止まりました（${at}）`,
+    interruptedFile: (at: string, file: string): string => `前の書き出しは途中で止まりました（${at}）。${file} が残っています。`,
+    leftover: (file: string): string => `前の書き出しのファイルを消せませんでした（${file}）。次の書き出しでもう一度消します。`,
+    refused: {
+      export_running: "書き出しを始められませんでした（すでに書き出し中です）",
+      password_too_short: "書き出しを始められませんでした（合言葉が短すぎます）",
+      unreachable: "書き出しを始められませんでした（通信できませんでした）",
+      other: "書き出しを始められませんでした",
+    },
+    confirmTitle: "書き出しの確認",
+    confirmEstimate: (rows: string, size: string, seconds: string): string =>
+      `約 ${rows} 行・約 ${size}・約 ${seconds} 秒。この PC のフォルダに、合言葉で暗号化した 1 つのファイルとして書き出します。`,
+    confirmPassword: "合言葉は保存しません。忘れると開けません（書き出し直せば新しい合言葉で作れます）。7-Zip などの AES に対応した道具で開けます。",
+    confirmReplace: "書き終えると前回の書き出しのファイルは消えます。",
+    password: "合言葉",
+    again: "もう一度",
+    tooShort: (min: number): string => `合言葉は ${min} 文字以上にしてください。`,
+    mismatch: "2 つの入力が一致していません。",
+    ready: "合言葉が一致しています。",
+    confirmGo: "書き出す",
+    next: "ほかの設定は、ここに足していきます。",
+  },
+
   /** S-1 稼働状況（App.tsx） */
   coverage: {
     title: "収集が動いていたか",
     toDay: "1 日の画面へ",
     toMaster: "マスタ管理へ",
+    toSettings: "設定",
     achievementFailed: (why: string): string =>
       `達成の読み出しに失敗しました（${why}）。達成日数が 0 なのではありません。`,
     coverageFailed: (why: string): string =>
