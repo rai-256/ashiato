@@ -190,15 +190,15 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 8: 画面（design D13。`web/src/`。jsdom で測れるもの）
 
-- [ ] 8.1 `export.ts` —— 3 本の口の応答の型と読み手（**形が違えば失敗として出す**。`stays.ts` と同じ形）と、`POST /export` に本体 `{"password"}` を送る関数（合言葉を URL・保存領域に載せない）。
+- [x] 8.1 `export.ts` —— 3 本の口の応答の型と読み手（**形が違えば失敗として出す**。`stays.ts` と同じ形）と、`POST /export` に本体 `{"password"}` を送る関数（合言葉を URL・保存領域に載せない）。
   検証: `cd web && npm run test -- export`（正しい応答を通し、壊れた応答を弾く単体テスト）
-- [ ] 8.2 `SettingsView.tsx` と `Root.tsx` の `#/settings`、`App.tsx` の見出しの行に「設定」のリンク。
+- [x] 8.2 `SettingsView.tsx` と `Root.tsx` の `#/settings`、`App.tsx` の見出しの行に「設定」のリンク。
   節の並びは D13（**Q3 第 2 回: 件数・期間 ＋「入らないもの」/ 確認をはさむ / 後に消した記録が N 件**）。開いたときに summary と状態を 1 回ずつ読み、`running` の間は 1 秒ごとに状態を読み直す。
   押すとその場に確認（見込み・暗号化した 1 つのファイル・合言葉は保存しない・AES の zip を開ける道具・「書き終えると前回の書き出しのファイルは消えます」、合言葉と「もう一度」の入力、「書き出す」「やめる」。design D13）。失敗・途中で止まった・消せなかったファイルは節の中に 1 行。
   ダウンロード・保存・`file://` のリンクを置かない。合言葉は state にだけ持ち、送ったら（失敗でも）空にして入力ごと外す。入力は `autocomplete="off"`、文字数は `Array.from(value).length`。
   `running` の間は「全記録を書き出す」を `disabled`。`POST` が 409 / 400 / 通信の失敗なら節に 1 行出して押す前の形に戻す。
   検証: `cd web && npm run test -- SettingsView`（件数と期間と入らないものの表示・押しただけでは `POST` しない・11 文字と不一致では「書き出す」が `disabled` で理由が出る・絵文字 11 個では `disabled`、12 個では押せる・409 で 1 行が出て入力が消える・`running` の間は押せない・12 文字の一致で「書き出す」を押すと本体に合言葉を持つ `POST` が 1 回だけ・「やめる」で `POST` しない・送った後に入力が無く `localStorage` / `sessionStorage` / `location.href` に合言葉が無い・`running` が消えたら読み直しが止まる・失敗と途中で止まったものと消せなかったファイルの 1 行・`erased_after` が 0 なら注記を出さず 1 以上なら出す）
-- [ ] 8.3 色は `tokens.ts` の値だけを使い、ライト / ダークのコントラスト比を `web/src/contrast.ts` で単体テストに固定する（画面の Scenario の印は 9.5 の e2e に置く）。
+- [x] 8.3 色は `tokens.ts` の値だけを使い、ライト / ダークのコントラスト比を `web/src/contrast.ts` で単体テストに固定する（画面の Scenario の印は 9.5 の e2e に置く）。
   検証: `cd web && npm run test -- settings-contrast`
 
 ## Task 9: e2e（本物のブラウザ。`web/e2e/settings-export.spec.ts`）
