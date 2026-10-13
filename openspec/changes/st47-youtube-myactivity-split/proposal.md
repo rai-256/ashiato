@@ -22,10 +22,10 @@ ST12 の見分け（`URL を持つ最初の項目`）が `watch?v=` を見つけ
   4. `results?search_query=` の URL を持つ項目 → 検索 `c03-youtube-search`
   5. それ以外 → その他 `c03-myactivity-youtube`（他の製品のマイアクティビティと同じ名付け。見出し「マイアクティビティ: YouTube」。Q2）
 - **形の確認**: YouTube の種類の形の同一性に**製品の名前**と**評価の決まり文句が当たった言語**を入れる（Q4・Q6）。
-  表が 1 件も当たらない言語のファイルは、印を置き直すまで確認待ちに戻る。YouTube 以外の種類の形の同一性は変えない（印は効いたまま）
+  表が 1 件も当たらない言語のファイルは確認待ちに戻り、その形には印を置かせない（表に言語を足して版を上げるまで入らない）。YouTube 以外の種類の形の同一性は変えない（印は効いたまま）
 - **形の確認の一覧に行き先ごとの件数**（視聴 / 検索 / その他。その他のうち広告・評価）を出す。値は出さない（C3）
 - **その他のソース `c03-myactivity-youtube` を移行で登録簿に足す**（想定間隔 60 日・粒度 `none`。C2）
-- **解析器の版を上げる**（C4）。確認待ちの書庫は写しから読み直す。読み終えた書庫を読み直しても、YouTube 以外の論理ソースの行は増えない（同じソースの中の内容の鍵）
+- **解析器の版を上げる**（C4）。確認待ちの書庫は写しから形を取り直し、読み終えた書庫の新しい形に印の無いファイルは黙って飛ばさず確認待ちにする。旧い形の印では新しい分類器の読みを通さない。読み直しても YouTube 以外の論理ソースの行は増えない（同じソースの中の内容の鍵）
 - **見分け方を変える前の YouTube の形（`{"kind":"YouTubeWatch","products":[]}`）に置いた印は、新しい形に引き継がない**（C6。印の表は追記のみのまま）
 - **試験の材料を本物の形に合わせる**（C5。「URL を持たない視聴＝削除された動画」の材料。本物では URL の無い視聴は全部が広告）
 
@@ -62,7 +62,7 @@ ST12 の見分け（`URL を持つ最初の項目`）が `watch?v=` を見つけ
 
 - **コード**: `crates/server/src/archive/classify.rs`（種類の見分け）・`archive/worker.rs`（`takeout_items` の行き先・`shape_for_file` / `hash_shape`）・`archive/youtube.rs`（決まり文句の表）・`archive/mod.rs`（`PARSER_VERSION`）
 - **移行**: 1 本（`c03-myactivity-youtube` の登録。名前は作成時刻）
-- **試験と道具**: `archive_tests.rs` / `archive_flow_tests.rs` の YouTube の材料、`tools/smoke.sh` の形の一覧の照合（`YouTubeWatch` の文字列）、`docs/archive-inbox.md` の手順
+- **試験と道具**: `archive_tests.rs` / `archive_flow_tests.rs` の YouTube の材料、`tools/archive-shape.sh` の `--confirm`（言語の当たらない YouTube の形を断る）、`tools/smoke.sh` の形の一覧の照合（`YouTubeWatch` の文字列）と材料の題名、`docs/archive-inbox.md` の手順
 - **走っている Story との重なり**（差し戻さない）:
   - **ST25**（`st25-day-timeline`。下流）: design と spec の Scenario（`書庫の YouTube の視聴履歴とマイアクティビティの YouTube に、同じ時刻の同じ動画の記録がある日の記録を求める`）は、2 経路が別々のソースに入る ST12 D3 を前提にしている。
     この Story の後は、マイアクティビティの YouTube の視聴も `c03-youtube-watch` に入る。原文が違えば同じソースの中に 2 行になり、ST25 の「論理ソースが違えば 2 件」の規則には当たらない。
