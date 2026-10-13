@@ -60,6 +60,13 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+pub mod feelings;
+/// 主観の記録の取り込み口（ST17 / Task 2）。
+#[cfg(test)]
+mod feelings_ingest_tests;
+/// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
+#[cfg(test)]
+mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod migrate_backup;
@@ -68,9 +75,6 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
-/// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
-#[cfg(test)]
-mod feelings_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -519,6 +523,35 @@ pub enum IngestError {
     InvalidCoordSupersedes,
     /// 広さが整数でない・範囲の外
     InvalidRadius,
+
+    // --- 主観の記録だけに当たる 6 種別（ST17 / design D5。spec「形の合わない主観の記録は受け付けない」）
+    //
+    // **置き場は spec の表**。ここは写しで、当たる条件は spec が持つ。
+    /// 原文が JSON でない / 必須の欄が欠ける / 識別子が違う / 乱数が 128 bit に満たない /
+    /// 記入の日時が読めない / 記録の地域が `Asia/Tokyo`（+9:00）でない
+    MalformedFeeling,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    FeelingNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    FeelingHasExternalId,
+    /// 快–不快が無い / 値が -2〜+2 の整数でない / 知らない尺度 / 同じ尺度が 2 つ
+    InvalidScale,
+    /// ひとことが NFC にして 2,000 文字を超える
+    InvalidNote,
+    /// 紐づけ先が合わない
+    InvalidFeelingTarget,
+}
+
+impl From<feelings::FeelingInvalid> for IngestError {
+    fn from(v: feelings::FeelingInvalid) -> Self {
+        use feelings::FeelingInvalid as Bad;
+        match v {
+            Bad::Malformed => Self::MalformedFeeling,
+            Bad::Scale => Self::InvalidScale,
+            Bad::Note => Self::InvalidNote,
+            Bad::Target => Self::InvalidFeelingTarget,
+        }
+    }
 }
 
 impl From<places::PlaceRecordInvalid> for IngestError {
@@ -571,7 +604,10 @@ pub const DEFAULT_SENSITIVITY: i32 = 1;
 /// **反転条件**: ST24 が登録簿に「ソースごとの既定の感度」を持たせたとき、
 /// この分岐を登録簿の値へ移す（個人属性の値は 2 のまま）。
 fn default_sensitivity(logical_source: &str) -> i32 {
-    if logical_source == attributes::SOURCE {
+    if logical_source == feelings::SOURCE {
+        // 主観の記録は「ローカル AI まで」（design D3（仮））
+        feelings::DEFAULT_SENSITIVITY
+    } else if logical_source == attributes::SOURCE {
         // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
         attributes::DEFAULT_SENSITIVITY
     } else if logical_source == places::SOURCE {
@@ -932,6 +968,33 @@ async fn ingest_request(
         None
     };
 
+    // **主観の記録も同じ向きで、ここで形を確かめる**（ST17 / design D5）。
+    // 順は spec の表の上から（形 → 由来と端末 → 外部識別子 → 尺度 → ひとこと → 紐づけ先の形）。
+    // 一般の検査（`validate`）より先に見る理由は主張と同じ。
+    let feeling = if req.logical_source == feelings::SOURCE {
+        let parsed = feelings::parse_feeling(&req.raw, req.id);
+        let reject = |why: IngestError| Ok(IngestResult::rejected(Some(req.id), why));
+        if matches!(parsed, Err(feelings::FeelingInvalid::Malformed))
+            // 記録の地域は `Asia/Tokyo`（+9:00）に揃える（対象は Asia/Tokyo の日で区切る。D1）
+            || req.tz_id != feelings::TARGET_TZ
+            || req.tz_offset_min != feelings::TARGET_TZ_OFFSET_MIN
+        {
+            return reject(IngestError::MalformedFeeling);
+        }
+        if req.origin != "authored" || req.device_id.is_some() {
+            return reject(IngestError::FeelingNotAuthored);
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return reject(IngestError::FeelingHasExternalId);
+        }
+        match parsed {
+            Ok(f) => Some(f),
+            Err(why) => return reject(why.into()),
+        }
+    } else {
+        None
+    };
+
     // **場所の記録も同じ向きで、ここで形を確かめる**（ST21 / design D4（仮））。
     // 順は 形 → 由来と端末 → 外部識別子 → 地域のずれ → 名前 / 座標 / 「いつから」/ 広さの値 →
     // 座標系 で、**DB を見る 3 つ（器・座標の変え方・直す先）は記録を入れるのと同じまとまりの中**（下）。
@@ -1016,10 +1079,13 @@ async fn ingest_request(
     //
     // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
     // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
-    let payload = match (&claim, &place_record) {
-        (Some(c), _) => c.payload.clone(),
-        (None, Some(p)) => p.payload.clone(),
-        (None, None) => ingest::to_nfc(&req.payload),
+    //
+    // **主観も同じ**（ST17 / design D1 / D4）。組み直した値に `nonce` は入っていない。
+    let payload = match (&claim, &place_record, &feeling) {
+        (Some(c), _, _) => c.payload.clone(),
+        (None, Some(p), _) => p.payload.clone(),
+        (None, None, Some(f)) => f.payload.clone(),
+        (None, None, None) => ingest::to_nfc(&req.payload),
     };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。

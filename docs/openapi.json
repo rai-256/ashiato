@@ -2346,7 +2346,13 @@
           "invalid_coordinate",
           "invalid_coord_change",
           "invalid_coord_supersedes",
-          "invalid_radius"
+          "invalid_radius",
+          "malformed_feeling",
+          "feeling_not_authored",
+          "feeling_has_external_id",
+          "invalid_scale",
+          "invalid_note",
+          "invalid_feeling_target"
         ]
       },
       "IngestRequest": {
