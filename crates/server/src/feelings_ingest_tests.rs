@@ -153,6 +153,56 @@ fn scale_value(p: &serde_json::Value, id: &str) -> Option<i64> {
 
 // Scenario: 快–不快だけで記録が 1 件入る
 #[tokio::test]
+async fn st17_ingest_control_char_in_written_tz_rejects_only_that_item() {
+    let app = app().await;
+    let user = testdb::user();
+    let bad_id = uuid::Uuid::new_v4();
+    let bad_raw = day_raw(
+        bad_id,
+        "2026-10-07",
+        "2026-10-07T21:30:05+09:00",
+        valence(1),
+        None,
+        &nonce_for(bad_id),
+    )
+    .replace("Asia/Tokyo", "\\u0000");
+    assert!(bad_raw.contains("\\u0000"));
+    let good_id = uuid::Uuid::new_v4();
+    let good_raw = day_raw(
+        good_id,
+        "2026-10-07",
+        "2026-10-07T21:30:05+09:00",
+        valence(1),
+        None,
+        &nonce_for(good_id),
+    );
+    let items = serde_json::json!([
+        item(
+            bad_id,
+            user,
+            "2026-10-07T00:00:00+09:00",
+            &bad_raw,
+            serde_json::json!({})
+        ),
+        item(
+            good_id,
+            user,
+            "2026-10-07T00:00:00+09:00",
+            &good_raw,
+            serde_json::json!({})
+        ),
+    ]);
+    let (_, Json(res)) = ingest(State(app.clone()), auth(), Json(items))
+        .await
+        .expect("まとめ送りは落ちない");
+    assert!(
+        !res[0].accepted && res[0].error.is_some(),
+        "制御文字は 1 件の拒否"
+    );
+    assert!(res[1].accepted, "同じ束の他の 1 件は入る");
+}
+
+#[tokio::test]
 async fn st17_ingest_valence_only_is_stored() {
     let app = app().await;
     let user = testdb::user();

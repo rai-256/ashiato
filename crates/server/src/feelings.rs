@@ -110,6 +110,10 @@ pub fn parse_feeling(raw: &str, id: uuid::Uuid) -> Result<Feeling, FeelingInvali
         .get("written_tz")
         .and_then(|x| x.as_str())
         .ok_or(Malformed)?;
+    // 解析済み（`jsonb`）に入る欄なので、`\u0000` などの制御文字は INSERT を落とす前に断る（ひとこと・:150 と同じ穴）
+    if written_tz.chars().any(char::is_control) {
+        return Err(Malformed);
+    }
     let scales_raw = obj
         .get("scales")
         .and_then(|x| x.as_array())
