@@ -649,6 +649,18 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
     tx.commit().await
 }
 
+/// 本人が消した滞在を持つ利用者（書き出しが利用者ごとに遅着の印を付ける対象。ST33 design D6）。
+pub(crate) async fn users_with_erased_stays(pool: &PgPool) -> sqlx::Result<Vec<uuid::Uuid>> {
+    sqlx::query_scalar(&format!(
+        "SELECT DISTINCT s.user_id FROM core.event s WHERE {erased} ORDER BY s.user_id",
+        erased = user_erased_stay_sql("s", 1, 2)
+    ))
+    .bind(stay::SOURCE)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_all(pool)
+    .await
+}
+
 /// 基準のソースに書庫の位置の論理ソースを足した集合（design D22）。滞在の判定（`Criteria::sources`）は変えない。
 pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
     let mut all = base.to_vec();

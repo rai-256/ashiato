@@ -15,7 +15,8 @@ use zip::{AesMode, CompressionMethod, ZipWriter};
 
 use super::doc::{self, FileStat};
 use super::{
-    excluded_sql, Class, ExcludedSql, ExportConfig, ExportError, FailKind, Passphrase, CATALOG,
+    excluded_sql, Bloom, Class, ExcludedSql, ExportConfig, ExportError, FailKind, Passphrase,
+    CATALOG,
 };
 
 const TIME_FORMAT: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"";
@@ -25,6 +26,8 @@ const TIME_FORMAT: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"";
 pub struct Dumped {
     pub snapshot_at: chrono::DateTime<chrono::Utc>,
     pub files: Vec<FileStat>,
+    /// 記録のファイルに書いた `id` のブルームフィルタ（台帳の `written`。D17）。
+    pub written: Vec<u8>,
 }
 
 /// 時刻の書き方（マイクロ秒・`Z`）。目録・説明書の時刻もこれで書く。
@@ -161,14 +164,16 @@ pub(super) async fn dump(
             .large_file(true)
     };
     let mut stats = Vec::new();
+    let mut written = Bloom::with_capacity(event_total.max(0).cast_unsigned());
     for p in &plans {
         (cfg.hooks.before_file)(p.file).await;
         zip.start_file(p.file, options())
             .map_err(|e| zip_error("項目を始められない", &e))?;
         let (mut rows, mut bytes) = (0u64, 0u64);
         {
-            let mut stream = sqlx::query_scalar::<_, String>(&p.select).fetch(&mut *tx);
-            while let Some(line) = stream
+            let mut stream =
+                sqlx::query_as::<_, (String, Option<uuid::Uuid>)>(&p.select).fetch(&mut *tx);
+            while let Some((line, id)) = stream
                 .try_next()
                 .await
                 .map_err(|e| db_error("行を読めない", &e))?
@@ -176,6 +181,9 @@ pub(super) async fn dump(
                 zip.write_all(line.as_bytes())
                     .map_err(|e| io_error("書けない", &e))?;
                 zip.write_all(b"\n").map_err(|e| io_error("書けない", &e))?;
+                if let (true, Some(id)) = (p.file == "events.jsonl", id) {
+                    written.insert(id);
+                }
                 rows += 1;
                 bytes += line.len() as u64 + 1;
                 cfg.progress.written.fetch_add(1, Ordering::Relaxed);
@@ -217,6 +225,7 @@ pub(super) async fn dump(
         Dumped {
             snapshot_at,
             files: stats,
+            written: written.to_bytes(),
         },
     ))
 }
@@ -251,7 +260,7 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
         let (select, count) = match *file {
             "events.jsonl" => (
                 format!(
-                    "WITH {} SELECT {obj} FROM core.{view} t WHERE {} ORDER BY {}",
+                    "WITH {} SELECT {obj}, t.id FROM core.{view} t WHERE {} ORDER BY {}",
                     ex.ctes(),
                     ex.event_kept("t"),
                     order_sql(file)
@@ -260,7 +269,7 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
             ),
             "event_versions.jsonl" => (
                 format!(
-                    "WITH {} SELECT {obj} FROM core.{view} t WHERE {} ORDER BY {}",
+                    "WITH {} SELECT {obj}, NULL::uuid FROM core.{view} t WHERE {} ORDER BY {}",
                     ex.ctes(),
                     ex.version_kept("t"),
                     order_sql(file)
@@ -269,7 +278,7 @@ fn plans(ex: &ExcludedSql, types: &BTreeMap<(String, String), String>) -> Vec<Pl
             ),
             _ => (
                 format!(
-                    "SELECT {obj} FROM core.{view} t ORDER BY {}",
+                    "SELECT {obj}, NULL::uuid FROM core.{view} t ORDER BY {}",
                     order_sql(file)
                 ),
                 Some(format!("SELECT count(*) FROM core.{view}")),

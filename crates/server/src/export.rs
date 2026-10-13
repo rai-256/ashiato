@@ -17,15 +17,24 @@ use std::time::Duration;
 
 use zeroize::Zeroizing;
 
+mod bloom;
 mod doc;
 mod dump;
 mod excluded;
+mod job;
+mod ledger;
 mod summary;
 
+pub use bloom::Bloom;
 pub use doc::*;
 pub use dump::{format_time, Dumped};
 pub use excluded::*;
+pub use job::*;
+pub use ledger::*;
 pub use summary::*;
+
+/// 合言葉の下限（Unicode の符号位置。C23。上げるのはよいが、下げるのは本人に返す）。
+pub const MIN_PASSPHRASE_CHARS: usize = 12;
 
 /// 合言葉。本体の引数にだけ渡し、どこにも置かない。`Debug` では伏せ、捨てるとき上書きする（Q9）。
 pub struct Passphrase(Zeroizing<String>);
@@ -56,6 +65,8 @@ pub enum FailKind {
     MissingColumn,
     Io,
     Db,
+    /// 遅れて届いた位置の印を付ける段（D6）で失敗した。
+    LateMark,
 }
 
 impl FailKind {
@@ -65,6 +76,7 @@ impl FailKind {
             Self::MissingColumn => "missing_column",
             Self::Io => "io",
             Self::Db => "db",
+            Self::LateMark => "late_mark",
         }
     }
 }
@@ -542,6 +554,12 @@ pub enum Stage {
     Columns,
     /// zip を作って `rename` する。
     Write,
+    /// 遅れて届いた位置の印（D6）。写しの前。
+    LateMark,
+    /// 台帳の終わりの行を書く（D10）。
+    Finish,
+    /// 前の書き出しのファイルを消す（D16）。
+    DeletePrevious,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -557,6 +575,7 @@ type InventoryHook = Arc<dyn Fn(&mut Inventory) + Send + Sync>;
 type AroundHook = Arc<dyn Fn(Stage, Phase) -> HookFuture + Send + Sync>;
 type FailHook = Arc<dyn Fn(Stage) -> Option<ExportError> + Send + Sync>;
 type FileHook = Arc<dyn Fn(&'static str) -> HookFuture + Send + Sync>;
+type HaltHook = Arc<dyn Fn(Stage) -> bool + Send + Sync>;
 
 /// 段ごとの差し替え口（`StayRebuilder::from_fn` と同じ考え方）。
 /// 表の権限を剥がす・名前を変えるやり方で失敗させない（共有の開発 DB を壊すため）。
@@ -566,6 +585,7 @@ pub struct Hooks {
     around: AroundHook,
     fail: FailHook,
     before_file: FileHook,
+    halt: HaltHook,
 }
 
 impl Hooks {
@@ -576,6 +596,7 @@ impl Hooks {
             around: Arc::new(|_, _| Box::pin(async {})),
             fail: Arc::new(|_| None),
             before_file: Arc::new(|_| Box::pin(async {})),
+            halt: Arc::new(|_| false),
         }
     }
 
@@ -623,6 +644,18 @@ impl Hooks {
     ) -> Self {
         Self {
             before_file: Arc::new(f),
+            ..self
+        }
+    }
+}
+
+impl Hooks {
+    /// その段の前でサーバが止まった状態を作る（台帳に何も書かずに本体を打ち切る）。
+    /// 台帳の終わりの行を書く前に止まった書き出しを、新しい `App` で読むために使う。
+    #[must_use]
+    pub fn with_halt(self, f: impl Fn(Stage) -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            halt: Arc::new(f),
             ..self
         }
     }
@@ -738,6 +771,24 @@ pub async fn run_as(
     passphrase: Passphrase,
     export_id: uuid::Uuid,
 ) -> Result<Written, ExportError> {
+    run_named(pool, cfg, passphrase, export_id, &name_stamp()).await
+}
+
+/// 名前の日時（`YYYYMMDD-HHMMSS`。Asia/Tokyo）。Asia/Tokyo は夏時間の無い +09:00 なので、9 時間足して字面を取れば足りる。
+pub(crate) fn name_stamp() -> String {
+    (chrono::Utc::now() + chrono::Duration::hours(9))
+        .format("%Y%m%d-%H%M%S")
+        .to_string()
+}
+
+/// 名前の日時を呼び出し側が決める本体（台帳の始まりの行に書いた名前と、書き出すファイルの名前を揃えるため）。
+pub(crate) async fn run_named(
+    pool: &sqlx::PgPool,
+    cfg: &ExportConfig,
+    passphrase: Passphrase,
+    export_id: uuid::Uuid,
+    stamp: &str,
+) -> Result<Written, ExportError> {
     // 分類・列の突き合わせ・写しは同じトランザクションの中で行う（D4 / D9）。
     let mut tx = dump::begin(pool).await?;
     let inv = stage(cfg, Stage::Catalog, async {
@@ -775,7 +826,7 @@ pub async fn run_as(
             .dir
             .as_deref()
             .ok_or_else(|| ExportError::new(FailKind::Io, "置き場が決まらない"))?;
-        write_zip(tx, cfg, &passphrase, export_id, dir).await
+        write_zip(tx, cfg, &passphrase, export_id, dir, stamp).await
     })
     .await
 }
@@ -788,12 +839,9 @@ async fn write_zip(
     passphrase: &Passphrase,
     export_id: uuid::Uuid,
     dir: &Path,
+    stamp: &str,
 ) -> Result<Written, ExportError> {
     ensure_dir(dir)?;
-    // Asia/Tokyo は夏時間の無い +09:00 なので、9 時間足して時刻の字面を取れば足りる。
-    let stamp = (chrono::Utc::now() + chrono::Duration::hours(9))
-        .format("%Y%m%d-%H%M%S")
-        .to_string();
     let partial = dir.join(format!(
         ".partial-ashiato-export-{stamp}-{}.zip",
         &uuid::Uuid::new_v4().simple().to_string()[..8]
@@ -805,7 +853,7 @@ async fn write_zip(
             .map_err(|e| ExportError::io("同期できない", &e))?;
         drop(file);
         // rename は同じ名前を置き換えるので、直前に空きを確かめ直す。
-        let target = free_name(dir, &stamp);
+        let target = free_name(dir, stamp);
         std::fs::rename(&partial, &target)
             .map_err(|e| ExportError::io("名前を付けられない", &e))?;
         Ok(Written {

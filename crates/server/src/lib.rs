@@ -5,6 +5,7 @@
 //! この 1 か所を必ず通る。Kotlin と Rust の 2 実装が同じ口を叩くため、
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
+use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -69,6 +70,8 @@ mod export_excluded_tests;
 /// 書き出しの中身（zip・説明書・除く範囲のファイル・写しの時点。ST33 / design D4 / D7 / D9 / D19）。
 #[cfg(test)]
 mod export_file_tests;
+#[cfg(test)]
+mod export_job_tests;
 #[cfg(test)]
 mod export_ledger_tests;
 #[cfg(test)]
@@ -272,6 +275,10 @@ pub struct App {
     started_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
     warmup: std::time::Duration,
+    /// 書き出しの設定と差し替え口（ST33 / design D2）。
+    export: export::ExportConfig,
+    /// 走っている書き出し（同時に 1 本。ST33 / design D2）。
+    exports: export::ExportJobs,
 }
 
 impl App {
@@ -295,12 +302,20 @@ impl App {
             #[cfg(test)]
             started_at: None,
             warmup: outage::OUTAGE_WARMUP,
+            export: export::ExportConfig::from_env(),
+            exports: export::ExportJobs::default(),
         }
     }
 
     /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
     pub fn with_warmup(self, warmup: std::time::Duration) -> Self {
         Self { warmup, ..self }
+    }
+
+    /// 書き出しの置き場・遅延・差し替え口を差し替えた複製（試験。ST33 design D2）。
+    #[cfg(test)]
+    pub(crate) fn with_export(self, export: export::ExportConfig) -> Self {
+        Self { export, ..self }
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -2059,6 +2074,71 @@ pub async fn export_summary_get(
         })
 }
 
+/// 書き出しの求めを断る。本体は種別だけ（受け取った値は載せない。ST33 design D1）。
+fn export_refusal(status: StatusCode, error: &'static str) -> axum::response::Response {
+    (status, Json(serde_json::json!({ "error": error }))).into_response()
+}
+
+/// 全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{"password": "<合言葉>"}` だけ。
+/// 範囲を指す引数や他の鍵は 400。走っていれば 409。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。
+/// 本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。
+pub async fn export_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    if let Err(e) = authorize(&app, &headers).await {
+        return e.into_response();
+    }
+    if uri.query().is_some_and(|q| !q.is_empty()) {
+        return export_refusal(StatusCode::BAD_REQUEST, "unexpected_field");
+    }
+    let mut fields = match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => return export_refusal(StatusCode::BAD_REQUEST, "password_missing"),
+    };
+    let password = fields.remove("password");
+    if !fields.is_empty() {
+        return export_refusal(StatusCode::BAD_REQUEST, "unexpected_field");
+    }
+    let Some(serde_json::Value::String(password)) = password else {
+        return export_refusal(StatusCode::BAD_REQUEST, "password_missing");
+    };
+    // Unicode の符号位置で数える。前後の空白を削らない（本人が打ったものがそのまま鍵になる）。
+    if password.chars().count() < export::MIN_PASSPHRASE_CHARS {
+        return export_refusal(StatusCode::BAD_REQUEST, "password_too_short");
+    }
+    match export::spawn(
+        app.pool.clone(),
+        &app.exports,
+        &app.export,
+        export::Passphrase::new(password),
+    ) {
+        Some(export_id) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "export_id": export_id })),
+        )
+            .into_response(),
+        None => export_refusal(StatusCode::CONFLICT, "export_running"),
+    }
+}
+
+/// 書き出しの状態（ST33 / design D1 / D11）。進み具合・前回・失敗・止まったもの・消せなかったファイル。記録の値は返さない。
+pub async fn export_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<export::Status>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    export::read_status(&app.pool, &app.exports)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!(kind = e.kind.as_str(), "書き出しの状態を読めない");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+        })
+}
+
 /// `GET /stays` の絞り込み。**日付は文字列で受けて自分で読む** —— 読めない日付を 400 で断る経路をここに持つ。
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct StaysQuery {
@@ -3193,6 +3273,7 @@ pub fn router(app: App) -> Router {
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
         .route("/places/candidates", get(place_candidates_get))
+        .route("/export", post(export_post).get(export_get))
         .route("/export/summary", get(export_summary_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
