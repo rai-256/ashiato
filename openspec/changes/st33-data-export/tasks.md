@@ -184,8 +184,8 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 7: OpenAPI と画面の在り処
 
-- [ ] 7.1 3 本の口を `#[utoipa::path]` と `ApiDoc` の `paths` / `components` に足し、`docs/openapi.json` を作り直す。検証: `tools/check-openapi.sh` rc=0
-- [ ] 7.2 `docs/screens.md` の表に `S-7 設定 | /#/settings | S-1 の見出しの行の「設定」` を 1 行足し、末尾の「まだ実装が無い面」から S-7 を外す。
+- [x] 7.1 3 本の口を `#[utoipa::path]` と `ApiDoc` の `paths` / `components` に足し、`docs/openapi.json` を作り直す。検証: `tools/check-openapi.sh` rc=0
+- [x] 7.2 `docs/screens.md` の表に `S-7 設定 | /#/settings | S-1 の見出しの行の「設定」` を 1 行足し、末尾の「まだ実装が無い面」から S-7 を外す。
   検証: `grep -q '#/settings' docs/screens.md`
 
 ## Task 8: 画面（design D13。`web/src/`。jsdom で測れるもの）
