@@ -2079,9 +2079,31 @@ fn export_refusal(status: StatusCode, error: &'static str) -> axum::response::Re
     (status, Json(serde_json::json!({ "error": error }))).into_response()
 }
 
+/// `POST /export` の本体。**これ以外の鍵は 400**（範囲を指す引数は無い）。契約のための型で、口は本体を自前で読む。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportRequest {
+    /// 書き出しの zip を暗号化する合言葉（12 文字以上。どこにも残さない）。
+    password: String,
+}
+
+/// `POST /export` の 202。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportStarted {
+    export_id: uuid::Uuid,
+}
+
+/// 書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running`）。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportRefused {
+    error: String,
+}
+
 /// 全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{"password": "<合言葉>"}` だけ。
 /// 範囲を指す引数や他の鍵は 400。走っていれば 409。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。
 /// 本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。
+#[utoipa::path(post, path = "/export", request_body = ExportRequest,
+    responses((status = 202, body = ExportStarted), (status = 400, body = ExportRefused),
+        (status = 401), (status = 409, body = ExportRefused)))]
 pub async fn export_post(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2125,6 +2147,8 @@ pub async fn export_post(
 }
 
 /// 書き出しの状態（ST33 / design D1 / D11）。進み具合・前回・失敗・止まったもの・消せなかったファイル。記録の値は返さない。
+#[utoipa::path(get, path = "/export",
+    responses((status = 200, body = export::Status), (status = 401)))]
 pub async fn export_get(
     State(app): State<App>,
     headers: HeaderMap,
@@ -3427,6 +3451,8 @@ pub async fn run() -> anyhow::Result<()> {
         stays_rebuild,
         stays_criteria_get,
         export_summary_get,
+        export_post,
+        export_get,
         attributes_get,
         attributes_kind_post,
         attributes_kind_name_post,
@@ -3473,6 +3499,14 @@ pub async fn run() -> anyhow::Result<()> {
         RestoreRequest,
         RestoreResponse,
         RestoredCounts,
+        ExportRequest,
+        ExportStarted,
+        ExportRefused,
+        export::Status,
+        export::RunningView,
+        export::LastView,
+        export::FailureView,
+        export::InterruptedView,
         export::Summary,
         export::SummarySource,
         export::Estimate,
