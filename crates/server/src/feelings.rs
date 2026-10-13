@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! 主観の記録の原文の解釈（ST17 / FR-36 / FR-37。design D1 / D4 / D5）。**DB に触らない。**
+//! 主観の記録の原文の解釈（ST17 / FR-36 / FR-37。design D1 / D4 / D5）。
+//! `parse_feeling` は**DB に触らない**。DB を見る紐づけ先の検査は末尾の `target_state_error`。
 //!
 //! 取り込み口（`ingest_request`）は、`logical_source = 's01-feeling'` のときだけここを通す
 //! （ST19 の `attributes::parse_claim` と同じ差し込み方）。
@@ -221,4 +222,88 @@ pub fn parse_feeling(raw: &str, id: uuid::Uuid) -> Result<Feeling, FeelingInvali
             "note": note,
         }),
     })
+}
+
+/// 同じ記録（内容の一致）が既に入っているか。再送は紐づけ先の検査をやり直さない
+/// （後から滞在が消えても、受理した記録を「断られた」に変えない）。
+pub async fn is_resend(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: uuid::Uuid,
+    content_hash: &str,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM core.event
+          WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3)",
+    )
+    .bind(user_id)
+    .bind(SOURCE)
+    .bind(content_hash)
+    .fetch_one(&mut **tx)
+    .await
+}
+
+/// 紐づけ先の DB を見る検査（design D5。順は 登録簿 → 滞在 → 区間の重なり → 出来事の時刻）。
+/// 当たれば `Some(FeelingInvalid::Target)`。**削除の印は見ない**（消した滞在・吸収された滞在も通す）。
+/// 暦と形は `parse_feeling` が済ませてある。
+pub async fn target_state_error(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: uuid::Uuid,
+    target: &Target,
+    event_time: DateTime<chrono::Utc>,
+) -> sqlx::Result<Option<FeelingInvalid>> {
+    let bad = Some(FeelingInvalid::Target);
+    let kind = match target {
+        Target::Day { .. } => "day",
+        Target::Stay { .. } => "stay",
+    };
+    // 登録簿に行があり、かつコードがその種類の検査を持つ（上の 2 種類）ときだけ受ける
+    let registered: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM core.feeling_target_kind WHERE kind = $1)",
+    )
+    .bind(kind)
+    .fetch_one(&mut **tx)
+    .await?;
+    if !registered {
+        return Ok(bad);
+    }
+    match target {
+        Target::Day { date } => {
+            // 日の鍵は `Asia/Tokyo` のその日の 0 時
+            let tz = FixedOffset::east_opt(TARGET_TZ_OFFSET_MIN * 60).expect("+09:00");
+            let midnight = date
+                .and_hms_opt(0, 0, 0)
+                .and_then(|t| t.and_local_timezone(tz).single());
+            if midnight.map(|m| m.with_timezone(&chrono::Utc)) != Some(event_time) {
+                return Ok(bad);
+            }
+        }
+        Target::Stay { stay, start, end } => {
+            let row: Option<(DateTime<chrono::Utc>, serde_json::Value)> = sqlx::query_as(
+                "SELECT event_time, payload FROM core.event
+                  WHERE id = $1 AND user_id = $2 AND logical_source = 's01-stay'",
+            )
+            .bind(stay)
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            let Some((stay_start, payload)) = row else {
+                return Ok(bad);
+            };
+            let stay_end = payload
+                .get("end")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map_or(stay_start, |t| t.with_timezone(&chrono::Utc));
+            // 区間が重なる（端が触れるのも重なり）。一致までは求めない
+            if start.with_timezone(&chrono::Utc) > stay_end
+                || stay_start > end.with_timezone(&chrono::Utc)
+            {
+                return Ok(bad);
+            }
+            if start.with_timezone(&chrono::Utc) != event_time {
+                return Ok(bad);
+            }
+        }
+    }
+    Ok(None)
 }

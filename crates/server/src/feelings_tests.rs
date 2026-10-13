@@ -79,7 +79,10 @@ async fn st17_lock_migration_applies_twice() {
 
     let (n, kind, gap, name, kinds) = applied.unwrap();
     assert_eq!(n, 1, "2 回当てると s01-feeling が二重になる");
-    assert_eq!((kind.as_str(), gap, name.as_str()), ("none", 86_400, "主観"));
+    assert_eq!(
+        (kind.as_str(), gap, name.as_str()),
+        ("none", 86_400, "主観")
+    );
     assert_eq!(
         kinds,
         vec![
@@ -99,7 +102,10 @@ async fn st17_lock_migration_applies_twice() {
         .iter()
         .position(|n| n.ends_with("_gates"))
         .expect("ST03 の門の版が MIGRATIONS に無い");
-    assert!(mine > gates, "主観の移行が、前提にしている門の版より前にある");
+    assert!(
+        mine > gates,
+        "主観の移行が、前提にしている門の版より前にある"
+    );
     assert_eq!(mine, names.len() - 1, "主観の移行は MIGRATIONS の末尾");
 }
 
@@ -352,7 +358,11 @@ async fn st17_lock_rejects_rewriting_the_target() {
         id,
     )
     .await;
-    assert_eq!(raw_of(&pool, id).await, RAW, "拒まれたのに原文が変わっている");
+    assert_eq!(
+        raw_of(&pool, id).await,
+        RAW,
+        "拒まれたのに原文が変わっている"
+    );
 }
 
 // Scenario: 主観の出来事の時刻は書き換えられない
@@ -377,7 +387,10 @@ async fn st17_lock_rejects_rewriting_the_event_time() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert!(t.starts_with("2026-09-15"), "拒まれたのに時刻が変わっている: {t}");
+    assert!(
+        t.starts_with("2026-09-15"),
+        "拒まれたのに時刻が変わっている: {t}"
+    );
 }
 
 #[tokio::test]

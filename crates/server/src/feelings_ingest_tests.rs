@@ -12,15 +12,15 @@ use crate::feelings;
 use crate::testdb;
 use chrono::{DateTime, Utc};
 
-const TOKEN: &str = "test-token-0123456789abcdef";
+pub(crate) const TOKEN: &str = "test-token-0123456789abcdef";
 /// 22 文字以上の base64url。値を固定にして、写っていないことを文字列で探せるようにする
 const NONCE: &str = "Qk9YLVNFQ1JFVC1OT05DRS0wMQ";
 
-async fn app() -> App {
+pub(crate) async fn app() -> App {
     App::for_test(testdb::pool().await, TOKEN)
 }
 
-fn auth() -> HeaderMap {
+pub(crate) fn auth() -> HeaderMap {
     let mut h = HeaderMap::new();
     h.insert(
         "authorization",
@@ -29,12 +29,12 @@ fn auth() -> HeaderMap {
     h
 }
 
-fn t(s: &str) -> DateTime<Utc> {
+pub(crate) fn t(s: &str) -> DateTime<Utc> {
     s.parse().unwrap()
 }
 
 /// 日の記録の原文（画面の `feelings.ts` と同じ形。design D1）。
-fn day_raw(
+pub(crate) fn day_raw(
     id: uuid::Uuid,
     date: &str,
     written_at: &str,
@@ -51,12 +51,12 @@ fn day_raw(
     .to_string()
 }
 
-fn valence(v: i64) -> serde_json::Value {
+pub(crate) fn valence(v: i64) -> serde_json::Value {
     serde_json::json!([{"id": "valence", "version": 1, "value": v}])
 }
 
 /// 取り込み口へ送る 1 件。**由来は「本人が書いた」・端末と外部識別子なし**
-fn item(
+pub(crate) fn item(
     id: uuid::Uuid,
     user: uuid::Uuid,
     event_time: &str,
@@ -71,7 +71,7 @@ fn item(
     })
 }
 
-async fn send(app: &App, item: serde_json::Value) -> IngestResult {
+pub(crate) async fn send(app: &App, item: serde_json::Value) -> IngestResult {
     let (_, Json(mut res)) = ingest(State(app.clone()), auth(), Json(serde_json::json!([item])))
         .await
         .expect("取り込み口");
@@ -79,7 +79,7 @@ async fn send(app: &App, item: serde_json::Value) -> IngestResult {
 }
 
 /// 日の記録を 1 件書く。`(識別子, 結果)`。
-async fn write_day(
+pub(crate) async fn write_day(
     app: &App,
     user: uuid::Uuid,
     date: &str,
@@ -104,18 +104,18 @@ async fn write_day(
 }
 
 /// 記録ごとに違う乱数（22 文字以上の base64url）
-fn nonce_for(id: uuid::Uuid) -> String {
+pub(crate) fn nonce_for(id: uuid::Uuid) -> String {
     format!("{}{}", id.simple(), "AAAAAAAAAAAAAAAAAAAAAA")
 }
 
-struct Stored {
-    event_time: DateTime<Utc>,
-    sensitivity: i32,
-    raw: String,
-    payload: serde_json::Value,
+pub(crate) struct Stored {
+    pub(crate) event_time: DateTime<Utc>,
+    pub(crate) sensitivity: i32,
+    pub(crate) raw: String,
+    pub(crate) payload: serde_json::Value,
 }
 
-async fn stored(app: &App, id: uuid::Uuid) -> Stored {
+pub(crate) async fn stored(app: &App, id: uuid::Uuid) -> Stored {
     let (event_time, sensitivity, raw, payload): (DateTime<Utc>, i16, String, serde_json::Value) =
         sqlx::query_as(
             "SELECT event_time, sensitivity, raw, payload FROM core.event WHERE id = $1",
@@ -132,13 +132,37 @@ async fn stored(app: &App, id: uuid::Uuid) -> Stored {
     }
 }
 
-async fn count(app: &App, user: uuid::Uuid) -> i64 {
+pub(crate) async fn count(app: &App, user: uuid::Uuid) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = $2")
         .bind(user)
         .bind(feelings::SOURCE)
         .fetch_one(&app.pool)
         .await
         .unwrap()
+}
+
+/// 紐づけ先にする滞在の行を置く（`core.event` の `s01-stay`。ST16 の形）。
+pub(crate) async fn put_stay(
+    app: &App,
+    user: uuid::Uuid,
+    stay: uuid::Uuid,
+    start: &str,
+    end: &str,
+) {
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'s01-stay',$3,'derived',$4,540,'Asia/Tokyo',1,$3,'{}',$5)",
+    )
+    .bind(stay)
+    .bind(user)
+    .bind(stay.to_string())
+    .bind(t(start))
+    .bind(serde_json::json!({ "end": end }))
+    .execute(&app.pool)
+    .await
+    .unwrap();
 }
 
 fn scale_value(p: &serde_json::Value, id: &str) -> Option<i64> {
@@ -325,6 +349,7 @@ async fn st17_ingest_stay_event_time_is_the_start_when_written() {
     let user = testdb::user();
     let (id, stay) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
     let (start, end) = ("2026-10-07T09:12:00+09:00", "2026-10-07T11:40:00+09:00");
+    put_stay(&app, user, stay, start, end).await;
     let raw = serde_json::json!({
         "feeling": id, "nonce": nonce_for(id),
         "target": {"kind": "stay", "stay": stay, "start": start, "end": end},
@@ -354,6 +379,7 @@ async fn st17_ingest_stay_time_move_does_not_move_the_record() {
     let user = testdb::user();
     let (id, stay) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
     let (start, end) = ("2026-10-07T09:12:00+09:00", "2026-10-07T11:40:00+09:00");
+    put_stay(&app, user, stay, start, end).await;
     let raw = serde_json::json!({
         "feeling": id, "nonce": nonce_for(id),
         "target": {"kind": "stay", "stay": stay, "start": start, "end": end},
@@ -365,19 +391,6 @@ async fn st17_ingest_stay_time_move_does_not_move_the_record() {
     assert!(r.accepted, "{r:?}");
     let before = stored(&app, id).await;
     // 作り直しで同じ識別子の滞在の始まりが動く（滞在の行は作り直しで書き換わる）
-    sqlx::query(
-        "INSERT INTO core.event
-           (id, user_id, logical_source, external_id, origin, event_time,
-            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
-         VALUES ($1,$2,'s01-stay',$3,'derived',$4,540,'Asia/Tokyo',1,$3,'{}','{}')",
-    )
-    .bind(stay)
-    .bind(user)
-    .bind(stay.to_string())
-    .bind(t("2026-10-07T00:12:00Z"))
-    .execute(&app.pool)
-    .await
-    .unwrap();
     sqlx::query("UPDATE core.event SET event_time = $2 WHERE id = $1")
         .bind(stay)
         .bind(t("2026-10-07T00:30:00Z"))

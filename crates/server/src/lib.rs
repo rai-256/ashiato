@@ -64,6 +64,9 @@ pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]
 mod feelings_ingest_tests;
+/// 形の合わない主観を断る（ST17 / Task 3）。
+#[cfg(test)]
+mod feelings_reject_tests;
 /// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
 #[cfg(test)]
 mod feelings_tests;
@@ -1120,6 +1123,23 @@ async fn ingest_request(
                     Some(req.id),
                     IngestError::InvalidSupersedes,
                 ));
+            }
+        }
+    }
+
+    // **主観の紐づけ先の DB を見る検査も、記録を入れるのと同じまとまりの中**（ST17 / design D5）。
+    // 再送は検査し直さない（受理した記録を後から断らない）。
+    if let Some(f) = &feeling {
+        if !feelings::is_resend(&mut tx, req.user_id, &hash)
+            .await
+            .map_err(|e| internal_at("ingest.feeling_resend", e))?
+        {
+            if let Some(why) =
+                feelings::target_state_error(&mut tx, req.user_id, &f.target, req.event_time)
+                    .await
+                    .map_err(|e| internal_at("ingest.feeling_target", e))?
+            {
+                return Ok(IngestResult::rejected(Some(req.id), why.into()));
             }
         }
     }
