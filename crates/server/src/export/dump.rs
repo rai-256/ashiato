@@ -97,14 +97,8 @@ struct Plan {
     count: Option<String>,
 }
 
-/// 写しを読んで zip（`file`）に書き、閉じて返す。合言葉は項目ごとの暗号化にだけ渡す。
-pub(super) async fn dump(
-    pool: &PgPool,
-    cfg: &ExportConfig,
-    passphrase: &Passphrase,
-    export_id: &str,
-    file: std::fs::File,
-) -> Result<(std::fs::File, Dumped), ExportError> {
+/// 写しのトランザクションを始める（D4）。分類・列の突き合わせもこの中で読み、検査と写しの間に表の形が変わっても気づく。
+pub(super) async fn begin(pool: &PgPool) -> Result<Tx, ExportError> {
     let mut tx = pool
         .begin()
         .await
@@ -117,6 +111,19 @@ pub(super) async fn dump(
         .execute(&mut *tx)
         .await
         .map_err(|e| db_error("写しを始められない", &e))?;
+    Ok(tx)
+}
+
+pub(super) type Tx = sqlx::Transaction<'static, sqlx::Postgres>;
+
+/// 写し（`tx`）を読んで zip（`file`）に書き、閉じて返す。合言葉は項目ごとの暗号化にだけ渡す。
+pub(super) async fn dump(
+    mut tx: Tx,
+    cfg: &ExportConfig,
+    passphrase: &Passphrase,
+    export_id: &str,
+    file: std::fs::File,
+) -> Result<(std::fs::File, Dumped), ExportError> {
     let snapshot_at: chrono::DateTime<chrono::Utc> =
         sqlx::query_scalar("SELECT transaction_timestamp()")
             .fetch_one(&mut *tx)

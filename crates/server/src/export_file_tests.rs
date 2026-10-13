@@ -593,6 +593,26 @@ fn files_with(dir: &Path, mark: &[u8], newer_than: Option<std::time::SystemTime>
     hits
 }
 
+/// `TMPDIR` をテストの間だけ差し替え、落ちても元に戻す。書き出しは `EXPORT_SERIAL` で直列。
+struct TmpdirGuard(Option<std::ffi::OsString>);
+
+impl TmpdirGuard {
+    fn point_at(dir: &Path) -> Self {
+        let old = std::env::var_os("TMPDIR");
+        std::env::set_var("TMPDIR", dir);
+        Self(old)
+    }
+}
+
+impl Drop for TmpdirGuard {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(v) => std::env::set_var("TMPDIR", v),
+            None => std::env::remove_var("TMPDIR"),
+        }
+    }
+}
+
 // Scenario: 書き出しの途中で記録の値を暗号化しないまま書かない
 #[tokio::test]
 async fn export_zip_never_writes_record_values_unencrypted_midway() {
@@ -608,20 +628,28 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
     .await;
     let dir = tmp_dir("plain");
     let started = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
+    // 一時フォルダをこのテストだけの空のフォルダに向ける（書き出しは直列なので他の書き出しは混ざらない）。
+    // 向ける前のプロセスの一時フォルダは「設定を経ずに書く経路」を捕まえるために、新しいファイルだけを見る。
+    let process_tmp = std::env::temp_dir();
+    let own_tmp = tmp_dir("own-tmp");
+    let _tmpdir = TmpdirGuard::point_at(&own_tmp);
     type Seen = Vec<(String, Vec<PathBuf>)>;
     let found: Arc<Mutex<Seen>> = Arc::default();
     let (sink, d, m) = (found.clone(), dir.clone(), mark.clone());
+    let (own, proc_tmp) = (own_tmp.clone(), process_tmp.clone());
     let mut cfg = ExportConfig::with_dir(dir.clone());
     cfg.hooks = Hooks::none().with_before_file(move |name| {
         let (sink, d, m) = (sink.clone(), d.clone(), m.clone());
+        let (own_tmp, process_tmp) = (own.clone(), proc_tmp.clone());
         Box::pin(async move {
             // 記録のファイルを書いた後（2 つ目以降の項目の前）に、置き場と一時フォルダの中身を読む
             if name != "events.jsonl" {
                 let mut hits = files_with(&d, m.as_bytes(), None);
+                hits.extend(files_with(&own_tmp, m.as_bytes(), None));
                 hits.extend(
-                    files_with(&std::env::temp_dir(), m.as_bytes(), Some(started))
+                    files_with(&process_tmp, m.as_bytes(), Some(started))
                         .into_iter()
-                        .filter(|p| !p.starts_with(&d)),
+                        .filter(|p| !p.starts_with(&d) && !p.starts_with(&own_tmp)),
                 );
                 sink.lock().unwrap().push((name.to_string(), hits));
             }
@@ -635,7 +663,8 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
     }
     // 書き終えた後も、置き場とこのプロセスの一時フォルダの新しいファイルに平文が無い
     assert!(files_with(&dir, mark.as_bytes(), None).is_empty());
-    assert!(files_with(&std::env::temp_dir(), mark.as_bytes(), Some(started)).is_empty());
+    assert!(files_with(&own_tmp, mark.as_bytes(), None).is_empty());
+    assert!(files_with(&process_tmp, mark.as_bytes(), Some(started)).is_empty());
     assert_eq!(names(&dir).len(), 1);
 }
 
@@ -1295,6 +1324,28 @@ where
     })
 }
 
+/// 取り込みの口（`/ingest`）を通して記録を 1 件入れ、受理されたことを確かめて id を返す。
+async fn ingest_through_the_door(w: &World, hhmm: &str) -> Uuid {
+    const TOKEN: &str = "test-token-0123456789abcdef";
+    let app = crate::App::for_test(w.pool.clone(), TOKEN);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+    let id = Uuid::new_v4();
+    let body = json!([{
+        "id": id, "user_id": w.user, "logical_source": "c02-window", "external_id": null,
+        "device_id": "pc", "origin": "collected", "event_time": w.at(hhmm),
+        "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
+        "raw": "late", "payload": {"t": "late"},
+    }]);
+    let (code, axum::Json(res)) =
+        crate::ingest(axum::extract::State(app), headers, axum::Json(body))
+            .await
+            .expect("取り込み口");
+    assert_eq!(code, axum::http::StatusCode::OK);
+    assert!(res.len() == 1 && res[0].accepted, "取り込みは受理される");
+    id
+}
+
 // Scenario: 書き出しの途中で届いた記録はその書き出しに入らない
 #[tokio::test]
 async fn export_snapshot_record_arriving_midway_is_not_in_this_export() {
@@ -1306,10 +1357,7 @@ async fn export_snapshot_record_arriving_midway_is_not_in_this_export() {
     cfg.hooks = at_first_file(move || {
         let (w, slot) = (w2.clone(), slot.clone());
         async move {
-            let id = w
-                .put("c02-window", &w.at("05:00"), json!({"t": "late"}), "late")
-                .await;
-            *slot.lock().unwrap() = Some(id);
+            *slot.lock().unwrap() = Some(ingest_through_the_door(&w, "05:00").await);
         }
     });
     let first = export_into(&w.pool, cfg).await;
@@ -1423,19 +1471,23 @@ async fn export_volume_one_run_reports_time_and_memory() {
         .unwrap_or(20_000);
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
-    // 消した滞在が 1 件あり、記録は座標を持たないソースなので除かれない
+    // 消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
+    // その 3 分の 2 が消した時間より前に始まり、除く判定の重い経路（次の記録を引く幅・重なり）を通る。
+    // 座標を持つ行は共有の DB に残り、以後のすべての書き出しが判定し直すので、割合は小さく保つ。
     w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
     sqlx::query(
         "INSERT INTO core.event
            (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
             schema_version, content_hash, raw, payload)
          SELECT gen_random_uuid(), $1, 'c02-window', 'pc', 'collected',
-                $2::timestamptz + g * interval '1 second', 540, 'Asia/Tokyo', 1,
-                md5(g::text || $1::text), 'volume row ' || g, jsonb_build_object('i', g)
+                $2::timestamptz + (g % 10800) * interval '1 second', 540, 'Asia/Tokyo', 1,
+                md5(g::text || $1::text), 'volume row ' || g,
+                CASE WHEN g % 100 = 0 THEN jsonb_build_object('i', g, 'lat', 35.0, 'lon', 139.0)
+                     ELSE jsonb_build_object('i', g) END
            FROM generate_series(1, $3::bigint) g",
     )
     .bind(w.user)
-    .bind(w.at("03:00"))
+    .bind(w.at("00:00"))
     .bind(rows)
     .execute(&w.pool)
     .await
@@ -1454,5 +1506,14 @@ async fn export_volume_one_run_reports_time_and_memory() {
         "書き出しの量"
     );
     eprintln!("kind=export rows={rows} seconds={seconds:.1} max_rss_kib={rss}");
-    assert_eq!(mine, rows, "座標を持たない記録は消した滞在の時間でも残る");
+    // 落ちるのは座標を持つ行（100 に 1 つ）のうち消した時間に重なるものだけ。座標を持たない行は残る
+    let with_coords = rows / 100;
+    assert!(
+        mine < rows,
+        "消した時間の中の座標の行が残っている: {mine}/{rows}"
+    );
+    assert!(
+        mine > rows - with_coords,
+        "座標を持たない行が落ちている: {mine}/{rows}"
+    );
 }

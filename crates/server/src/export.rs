@@ -449,14 +449,22 @@ impl std::fmt::Display for Unclassified {
 
 /// `core` の表と列を読む。分類と突き合わせの両方が同じ一覧を使う（同じトランザクションで読む）。
 pub async fn read_inventory(pool: &sqlx::PgPool) -> Result<Inventory, ExportError> {
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| ExportError::new(FailKind::Db, format!("一覧を読めない: {e}")))?;
+    read_inventory_in(&mut conn).await
+}
+
+/// 渡された接続（写しのトランザクションなど）で読む。
+async fn read_inventory_in(conn: &mut sqlx::PgConnection) -> Result<Inventory, ExportError> {
     let db = |e: sqlx::Error| ExportError::new(FailKind::Db, format!("一覧を読めない: {e}"));
-    let mut tx = pool.begin().await.map_err(db)?;
     let tables: Vec<(String,)> = sqlx::query_as(
         "SELECT table_name::text FROM information_schema.tables
           WHERE table_schema = 'core' AND table_type = 'BASE TABLE'
           ORDER BY table_name",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
     let columns: Vec<(String, String)> = sqlx::query_as(
@@ -464,10 +472,9 @@ pub async fn read_inventory(pool: &sqlx::PgPool) -> Result<Inventory, ExportErro
           WHERE table_schema = 'core'
           ORDER BY table_name, ordinal_position",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
-    tx.commit().await.map_err(db)?;
     Ok(Inventory {
         tables: tables.into_iter().map(|(t,)| t).collect(),
         columns,
@@ -731,8 +738,10 @@ pub async fn run_as(
     passphrase: Passphrase,
     export_id: uuid::Uuid,
 ) -> Result<Written, ExportError> {
+    // 分類・列の突き合わせ・写しは同じトランザクションの中で行う（D4 / D9）。
+    let mut tx = dump::begin(pool).await?;
     let inv = stage(cfg, Stage::Catalog, async {
-        let mut inv = read_inventory(pool).await?;
+        let mut inv = read_inventory_in(&mut tx).await?;
         (cfg.hooks.inventory)(&mut inv);
         let bad = unclassified(&inv);
         if bad.is_empty() {
@@ -766,7 +775,7 @@ pub async fn run_as(
             .dir
             .as_deref()
             .ok_or_else(|| ExportError::new(FailKind::Io, "置き場が決まらない"))?;
-        write_zip(pool, cfg, &passphrase, export_id, dir).await
+        write_zip(tx, cfg, &passphrase, export_id, dir).await
     })
     .await
 }
@@ -774,7 +783,7 @@ pub async fn run_as(
 /// 置き場を（無ければ 0700 で）作り、`.partial-….zip`（0600）に書いて閉じ、本来の名前へ `rename` する。
 /// `.` で始まる名前は書き終えるまで。失敗したら消す。
 async fn write_zip(
-    pool: &sqlx::PgPool,
+    tx: dump::Tx,
     cfg: &ExportConfig,
     passphrase: &Passphrase,
     export_id: uuid::Uuid,
@@ -791,8 +800,7 @@ async fn write_zip(
     ));
     let file = create_private_file(&partial)?;
     let result = async {
-        let (file, dumped) =
-            dump::dump(pool, cfg, passphrase, &export_id.to_string(), file).await?;
+        let (file, dumped) = dump::dump(tx, cfg, passphrase, &export_id.to_string(), file).await?;
         file.sync_all()
             .map_err(|e| ExportError::io("同期できない", &e))?;
         drop(file);
