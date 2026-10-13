@@ -91,9 +91,9 @@ NFR-13 の本文（2026-09-18 と ST07 の但し書き）に実装を合わせ�
 - **画面**（`web/src`）: 週の文字に取りこぼしの理由と期間（`coverage.ts` の `DayCell` に `gaps`、`messages.ts` の文言）、集計の格子の行と並び（`archives.ts` の `orderCoverageWithArchives`）。明暗はコードを変えない
 - **偽データ**（`tools/seed.sh`）: 取りこぼしの期間・時計の測定・集計の記録を足す（e2e の基準）
 - **並走している Story との重なり**（`openspec/changes/st*-*/`。差し戻さない）
-  - **ST08（下流。`desktop-collection`）が `crates/collector-windows` を書き換えている**（ブラウザ履歴の取得・`c02-browser-history` の生存信号）。
-    ST14 が足すのは新しいモジュール（通知の口）と `runtime.rs` の契機の 1 か所と `Cargo.toml` の依存で、ST08 の触るファイルとは `runtime.rs` だけが重なる。
-    後から merge する側が rebase で追従する。`c02-browser-history` の取得できない状態（プロファイルが 1 つ読めない）でも鳴ることは design D8（仮）
+  - **ST08（下流。`desktop-collection`）が `crates/collector-windows` を書き換えている**（ブラウザ履歴の取得・`c02-browser-history` の生存信号。`feat/st08-browser-history` で 20 ファイル）。
+    ST14 が触るファイルのうち `Cargo.toml`（依存）・`src/lib.rs`（モジュールの宣言）・`src/contract.rs`（端末識別子を読む）・`src/sender.rs`（`HttpTransport` を使う）・`src/runtime.rs`（契機）・`tests/runtime_windows.rs`（実行時テスト）が重なる。
+    後から merge する側が rebase で追従する（ST08 が先なら、契機の場所は ST08 の後の `runtime.rs` で読み直す。design D11）。`c02-browser-history` の取得できない状態（プロファイルが 1 つ読めない）でも鳴ることは design D8（仮）
   - **ST17（下流。`subjective-log` / `browsing-views`）が `collector-android` に通知を足している**（チャネル `feeling`・`AlarmManager`・`RECEIVE_BOOT_COMPLETED`）。
     ST14 はチャネルを別にし（`outage`）、`AlarmManager` を使わない（生存信号の契機に相乗り）。重なるのは `LocationService.kt` の起動の周りとマニフェストだけ。
     ST17 の主観のソース（`s01-feeling`）は記録の出どころ（authored）で判定から外れる。ST17 が `GET /feelings/reminder` を足しても、`GET /outages` とは別の口

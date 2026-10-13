@@ -79,7 +79,9 @@ outage::judge(&[SourceInput], now) -> Vec<Outage>             // 純粋。DB を
 
 ### D3. 「本人が書いた・導出した記録のソース」は記録の出どころから引く（C1。整合の確認 C3）
 
-登録簿に出どころの列は無いので、`inputs` の SQL で `EXISTS (SELECT 1 FROM core.event e WHERE e.logical_source = s.logical_source AND e.origin <> 'collected')` を引き、`has_non_collected` にする。
+登録簿に出どころの列は無いので、`inputs` の SQL で「収集した記録を持つか」（`EXISTS … origin = 'collected'`）と「本人が書いた・導出した記録を持つか」（`EXISTS … origin <> 'collected'`）の 2 つを引き、
+**収集した記録が 1 件も無く、本人が書いた・導出した記録があるときだけ**外す（`has_collected` / `has_non_collected`）。
+「1 件でも本人が書いた記録があれば外す」は採らない —— `/ingest` はどのソースにも `authored` を受け付ける（`ingest.rs:505-516`）ので、収集のソースに 1 件混ざると、記録は書き換えも削除もできないまま永久に鳴らなくなる（spec-review R2）。
 **記録が 1 件も無いソースは収集開始日も無い**ので、出どころが分からない間に鳴ることは無い（spec の (4)）。
 衛星が本人の代わりに書く記録（FR-25 ★ 2026-10-11）も `authored` で入るので、ST39 が何もしなくても外れる。
 
@@ -96,13 +98,17 @@ outage::judge(&[SourceInput], now) -> Vec<Outage>             // 純粋。DB を
   - 途切れ: 格子の 2 つ ＋ `("c02-window", "idle")`・`("c02-window", "powered-off")`・`("c02-window", "excluded")`
   - 引き継ぎの鎖で名前が変わったときは、同じ組を新しい名前にも足す（試験 `st14_nonobs_registry` が、`c02-%` と `c01-app-usage%` の登録簿の名前がこの表で扱われているかを見る）
 - **未来の時刻**: `event_time > now` の記録・`emitted_at > now` の生存信号は、`ingest_time` / `received_at` で数える（spec。Scenario `未来の時刻の記録は途切れを隠さない`）
-- 引き継ぎの鎖（`succeeds`）: 判定はソースの名前ごとで、鎖をたどらない。退役した名前は (3) で外れ、後継は自分の記録で判定する（後継の収集開始日は鎖の根から継ぐので、後継が 1 件も届かないうちも開始済みとして判定される —— 名前を分けた直後に後継が届かなければ鳴る。厳しい側）
+- 引き継ぎの鎖（`succeeds`）: 判定はソースの名前ごとで、鎖をたどらない。退役した名前は (3) で外れ、後継は自分の記録で判定する。後継の収集開始日は鎖の根から継ぐので、後継が 1 件も届かないうちも開始済みとして判定し、
+  **最後に生きていた時刻の下限を後継の `registered_at`** にする（名前を分けた直後に鳴らず、後継が想定間隔の 3 倍届かなければ鳴る。spec の Scenario `引き継いだソースは届く前から判定の対象になる`）
+- 破棄の報告（`core.drop_report`）は材料に入れない（C8。spec）
+- 書庫: そのソースを運んだ `read` の台帳が 1 件も無く記録はあるとき、そのソースの記録の `max(ingest_time)` を代わりにする（spec。台帳より前の取り込み・台帳の行を残せなかった経路 `worker.rs:2240-2252`）。
+  `archive_ledger_source` は格納を試みた記録からしか立たない（`worker.rs:286-310`）ので、項目が 0 件のファイルだけの書庫は「運んだ」に入らない（D24（仮））
 - 読み出しは `core.event`（削除済みも含む。削除は観測の事実を消さない —— `record-deletion` の「稼働状況は削除済みの記録も数える」と同じ）
 - **時刻の索引**: `core.event` の `(logical_source, event_time)` の索引を `ORDER BY event_time DESC` で後ろから読み、観測ではない種類を飛ばす（PC の時計の測定は 1 日 24 件なので、飛ばす量は小さい）。足りなければ D 番号を足して部分索引を検討する
 
 ### D5. 起動直後は 30 分判定しない（C7。仮）
 
-**D5（仮）**: サーバのプロセスが起動してから `OUTAGE_WARMUP = 30 分` の間、`GET /outages` は `{"status":"warming_up"}` を返し、台帳に書かない。
+**D5（仮）**: サーバのプロセスが起動してから `OUTAGE_WARMUP = 30 分` の間、`GET /outages` は `{"status":"warming_up"}` を返し、台帳に書かない（spec の Scenario `判定を待つ間は台帳に書かない`）。
 携帯は到達できれば 5 分ごとに未送信を送る（FR-10）ので、30 分あれば溜まった分が届く。
 起動時刻はプロセスの単調時計で持ち（`AppState.started`）、試験では差し替えられるようにする（`Clock` の口）。
 
@@ -166,14 +172,17 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 「`c01-app-usage` の隣（Must の 2 本目と 3 本目の間）」は採らない —— Must の 5 本の連なりが割れ、ひとスクロールの予算（Must の最後の格子の下端）が集計の格子の高さぶん下がる。
 
 - **反転条件**: 本人が GO 資料か確認バッチで、集計はアプリ利用の隣にあるほうが読みやすいと言ったとき（予算の数を置き直す判断と一緒に）
+- 正典 `external-ingestion` の並びの条項（:676 / :709-712。Must・書庫・退役の順）は集計を名指ししていない。画面の並びと既存の試験は壊れない（食い違うのは正典の文だけ）ので、`docs/handoff/ST47.md` の R17 に置いた
 
 ### D11. PC の通知は Windows のトースト。差出人（AUMID）は利用者の登録簿に置く
 
-- 依存: `windows` crate（`cfg(windows)`。機能 `UI_Notifications`・`Data_Xml_Dom`・`Foundation`・`Win32_System_Registry`）
+- 依存: `windows` crate（`cfg(windows)`。機能は `UI_Notifications`・`Data_Xml_Dom`・`Foundation` の 3 つだけ —— 全機能の `windows` crate はコンパイルが OOM する（`crates/collector-windows/Cargo.toml` の注記））と、登録簿の書き込みに `winreg` crate。
+  **作業場は `unsafe_code = "forbid"`**（`Cargo.toml:27`）なので、`unsafe fn` の Win32 の登録簿の関数を直に呼ばない（spec-review R4）。WinRT の通知の呼び出しは safe
 - **差出人の登録**: 起動時に `HKCU\Software\Classes\AppUserModelId\dev.ashiato.collector` に `DisplayName = "ashiato"` を書く（管理者権限は要らない。未パッケージの exe がスタートアップのフォルダから起動しても通知を出せる）。書けなければ警告を出して通知だけを諦め、収集は止めない
-- **出し方**: `ToastNotificationManager::CreateToastNotifierWithId("dev.ashiato.collector")` で、`Tag = "outage"`・`Group = "ashiato"` のトーストを出す。音を鳴らさないときは `<audio silent="true"/>`。差し替えは同じ `Tag` / `Group` で出し直す（Windows は前のものを置き換える）。消すのは `ToastNotificationManager::History()?.RemoveGroupedTagWithId("outage", "ashiato", AUMID)`
+- **出し方**: `ToastNotificationManager::CreateToastNotifierWithId("dev.ashiato.collector")` で、`Tag = "outage"`・`Group = "ashiato"` のトーストを出す。音を鳴らさないときは `<audio silent="true"/>` **と `SuppressPopup = true`**（画面の端に出さず、通知の一覧の中身だけを差し替える。spec-review R5 —— `audio silent` が止めるのは音だけで、PC は 1 時間ごとに問い合わせるので毎時表示される）。差し替えは同じ `Tag` / `Group` で出し直す（Windows は前のものを置き換える）。消すのは `ToastNotificationManager::History()?.RemoveGroupedTagWithId("outage", "ashiato", AUMID)`
 - **モジュール**: `outage_notice.rs`（純粋。D13 の決め方。ubuntu でも走る）と `toast.rs`（`cfg(windows)`。OS の口）。`runtime.rs` は `maybe_measure_skew` の契機で `OutagePoller` を 1 回呼ぶ（別スレッド。応答 10 秒で打ち切り。時計の測定と同じ `ClockWorker` の型に倣う）
-- **鳴らした途切れの覚え**: `outage-notice.json`（収集アプリの状態の置き場。未送信の箱と同じディレクトリ）に、鳴らした途切れの識別子の集合を書く。起動し直しても同じ途切れで鳴らない
+- **鳴らした途切れの覚え**: `outage-notice.json`（収集アプリの状態の置き場。未送信の箱と同じディレクトリ）に、鳴らした途切れの識別子の集合を書く。起動し直しても同じ途切れで鳴らない（spec の Scenario `収集アプリを起動し直しても同じ途切れでは鳴らない`）。書けなければ通知の振る舞いだけを諦め、収集は止めない
+- **ST08 との重なり**: `feat/st08-browser-history` は `Cargo.toml`（`rusqlite`）・`src/lib.rs`（モジュール）・`src/contract.rs`・`src/sender.rs`・`src/runtime.rs`（+1,645 行）・`tests/runtime_windows.rs` を変えている（spec-review R15）。ST08 が先に merge されていれば、契機の場所は ST08 の後の `runtime.rs` で読み直す
 - **確かめ方**: 決め方は単体（ubuntu）。トーストは `tests/runtime_windows.rs` で、`toast.rs` に出させてから `History().GetHistoryWithId(AUMID)` の件数と `Tag` を読む。音そのものは物理（確認バッチ）
 
 > 採らなかった案: スタートメニューにショートカットを作って AUMID を持たせる。ファイルを本人の置き場に足すことになり、消し忘れが残る。登録簿の 1 鍵なら `HKCU` の中で閉じる。
@@ -181,7 +190,9 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 ### D12. 携帯の通知はチャネル `outage`。生存信号の契機に相乗りする（C11）
 
 - `OutageNotice.kt`（純粋。D13 の決め方）・`OutagePoller.kt`（`GET /outages` を 1 回。10 秒で打ち切り。既存の `HttpTransport`）・`OutageNotifier.kt`（チャネル `outage`「収集の途切れ」IMPORTANCE_DEFAULT、通知 ID は既存の 1・2 と重ならない定数 `OUTAGE_NOTIFICATION_ID = 3`）
-- 契機: `LocationService.kt` の生存信号のスケジューラ（`every(cadence.heartbeatIntervalMs)`）で `emitter.emit()` の後に `outagePoller.poll()` を呼ぶ 1 行。起動時の 1 発の後にも呼ぶ。**`AlarmManager` と WorkManager を使わない**（ST17 の `AlarmManager` と重ならない）
+- 契機: 生存信号のスケジューラは**ソースごとに**ある（`LocationService.kt:795-819` の `for (running in sources)`）ので、**位置（`c01-location`）のスケジューラにだけ** `outagePoller.poll()` を足す（起動時の 1 発の後も位置の分だけ）。
+  `poll` → `decide` → 通知 → `sounded` の書き込みは、`OutagePoller` が持つ単一スレッドの executor で直列にする（spec-review R3。ソースごとに呼ぶと並行に走り、どれも「まだ鳴らしていない」を読んで 2 回以上鳴る）。**`AlarmManager` と WorkManager を使わない**（ST17 の `AlarmManager` と重ならない）。
+  位置の収集を止めている間は問い合わせない（位置のスケジューラが動かない）—— 携帯の収集アプリは位置の前景サービスとして動くので、位置を止めれば他のソースも止まっている
 - 音を鳴らさない差し替え: `NotificationCompat.Builder.setSilent(true)`。鳴らすときは `setSilent(false)` で出し直す。`setOnlyAlertOnce` は使わない（新しく途切れたソースが増えたときに鳴らなくなる）
 - 鳴らした途切れの覚え: `SharedPreferences`（`outage_notice`）に識別子の集合
 - `POST_NOTIFICATIONS` が無いときは出さずにログに残す（既存の保持の通知と同じ振る舞い）。権限を求め直す画面は足さない
@@ -245,6 +256,38 @@ e2e の基準にするため、`SEED=normal` に足す: アプリ利用の取り
 ST47（上流。`external-ingestion` を触っている）が走っている間は ST14 が MODIFIED にできない（同じ capability を 2 本が同時に触らない）ので、`docs/handoff/ST47.md` に置いた。
 ST14 の spec は `collection-coverage` の側で「通知は最後の書庫から 75 日・格子は最後の記録から 60 日」と書く（Requirement「書庫のソースは最後の書庫から登録簿の日数で途切れとする」）。
 
+### D22（仮）. 格子では離席・止まっていた期間・除外の印を今までどおり数える（申し送り ST02 の st07 R38 / spec-review R1）
+
+格子で数えない記録は FR-54 ★ の列挙（`gap` と `clock-skew`）だけにし、`idle` / `powered-off` / `excluded` は格子の「記録あり」に数え続ける。途切れの判定（FR-35 の列挙）では 5 つとも数えない。
+3 つは PC の収集がその日に動いていた証拠（離席の出入りは入力を見ている収集が書き、`powered-off` の `event_time` は止まる前のまだ動いていた時刻、`excluded` は前景を読んだ上で外したもの）で、
+ST02 への申し送り R38 が心配した「PC を開かなかった日に①が立つ」は、`powered-off` の始まりが前夜に落ちる日（前夜は実際に動いていた）か、離席の区間を閉じた日（入力を見ていた）で、事実と食い違わない。
+**R38 の「達成日数が動くので本人に問う」は、いまは当たらない** —— `c02-window` の達成日は NFR-13 ★ 2026-09-12 で「取得できる状態の生存信号があった日」（`coverage.rs:1123-1126` の `Subject::Usage`）になっていて、格子の①に依らない。
+格子の見え方だけの導出の規則なので、記録の種類が残っていれば引き直せる（B）。
+この範囲（`NON_OBSERVATION_GRID`）は①「記録あり」と⑥「途絶」の前後の記録の両方に効く（MODIFIED「記録も生存信号も来ない期間は途絶として残る」。spec-review R7）—— 時計の測定が毎時届いても、前景も生存信号も無い PC の日は途絶になる。
+
+- **反転条件**: 前景が読めなくなった PC の日が、離席の出入りだけで①に見えて本人が壊れに気づけなかったと分かったとき —— `NON_OBSERVATION_GRID` に `idle` / `powered-off` を足す（`excluded` は前景を読んでいるので残す）
+
+### D23（仮）. 取りこぼしの理由の文言は 1 日の画面（ST25）にそろえる（spec-review R16）
+
+「取得元に残っていない（期間）」「時計のずれで取れていない（期間）」。ST25 の 1 日の画面（`openspec/changes/st25-day-timeline/specs/browsing-views/spec.md:354-355`）と同じ言葉にし、同じ取りこぼしが S-1 と 1 日の画面で別の言葉にならないようにする。
+期間の区切りは S-1 の破棄の文字（`（10:00〜13:00）`）にそろえて `〜`。ST25 には差し戻さない。文言は `messages.ts` の 1 か所。
+
+- **反転条件**: 本人が GO 資料か確認バッチで、S-1 の文字は理由（「問い合わせなかった」）まで書いたほうが分かると言ったとき
+
+### D24（仮）. 項目が 0 件の書庫は「運んだ」に数えない（spec-review R9）
+
+`archive_ledger_source` は格納を試みた記録からしか立たないので、製品のファイルがあっても項目が 0 件の書庫ではそのソースの「最後の書庫」は進まない。書き出しの範囲の誤りで中身が空の書庫を「書き出した」と数えない厳しい側。
+取り込み器（`external-ingestion`）の台帳の作り方は変えない。
+
+- **反転条件**: 本当に使わなかった製品の書庫（項目 0 件）で 75 日ごとに鳴り、本人が煩わしいと言ったとき —— 取り込み器が製品のファイルを見つけたソースに 0 件の行を足す（`external-ingestion` の変更。その時点で触っている Story と相談する）
+
+### D25（仮）. PC の音なしの差し替えは画面の端に出さない（Q4 / spec-review R5）
+
+続く途切れの差し替えは `SuppressPopup = true` で通知の一覧の中身だけを替える（D11）。音つきで出すとき（新しい途切れ）だけ画面の端に出る。
+PC は 1 時間ごとに問い合わせるので、毎回画面の端に出すと途切れが続く間は毎時表示され、Q4 の「続く間は音の無い通知を残す」が「鳴り続ける通知」と同じになる。
+
+- **反転条件**: 本人が、通知の一覧に残っているだけでは途切れが続いていることに気づけないと言ったとき（1 日 1 回だけ画面の端に出す、などに変える）
+
 ### D21. 明暗はコードを変えず、試験で固定する（C10 / st25 Q5）
 
 S-1 は既に `useScheme` で追従している。spec の Requirement「稼働状況の画面は OS の明暗に追従する」の Scenario を、`web/e2e/coverage-scheme.spec.ts`（新規）で `emulateMedia({ colorScheme: 'light' | 'dark' | 'no-preference' })` の 3 通りの背景色と、ライトの 3 段・印・本文の比を測って固定する。
@@ -261,7 +304,7 @@ S-1 は既に `useScheme` で追従している。spec の Requirement「稼働�
 | C5 | 文面 | D6 / D14（仮） |
 | C6 | 台帳 | D7 |
 | C7 | 起動直後 | D5（仮） |
-| C8 | 破棄の報告では鳴らさない | D1（判定の材料に `drop_report` を入れない） |
+| C8 | 破棄の報告では鳴らさない | D4（材料に入れない。spec に Scenario） |
 | C9 | 観測でない記録 | D4 / D15 |
 | C10 | 申し送りの引き受け | D15 / D16 / D17 / D19 / D21 |
 | C11 | 問い合わせの間隔 | D11 / D12 |
