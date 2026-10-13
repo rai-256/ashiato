@@ -151,25 +151,30 @@
 
 <script type="application/json" id="proto-go">
 {
- "chosen": "深掘り Q3 第 2 回の答えの形: 押す前にソースごとの件数・期間と「入らないもの」（件数なし）・押すとその場に確認（見込み・この PC のフォルダ・前回のフォルダが消えること）をはさんでから進み具合・前回の書き出し（時刻・行の数・大きさ・置き場のパス）を常に出し、後に消した記録があれば件数を出す",
+ "chosen": "深掘り Q3 第 2 回と Q9 の答えの形: 押す前にソースごとの件数・期間と「入らないもの」（件数なし）・押すとその場に確認（見込み・合言葉で暗号化した 1 つのファイルとしてこの PC のフォルダに置くこと・合言葉は保存しないこと・前回のファイルが消えること）と合言葉の 2 つの入力をはさんでから進み具合・前回の書き出し（時刻・行の数・大きさ・ファイルのパス）を常に出し、後に消した記録があれば件数を出す",
  "requirements": ["設定画面に全記録の書き出しの節がある"],
  "states": [
-  {"id": "first", "name": "初めて開く（まだ書き出していない）", "hint": "S-1 の見出しの行の「設定」から開いたところ。件数は書き出すのと同じ範囲（本人が消した場面を除く）で数える。押すと出る確認に「前回のフォルダが消える」の文は無い",
+  {"id": "first", "name": "初めて開く（まだ書き出していない）", "hint": "S-1 の見出しの行の「設定」から開いたところ。件数は書き出すのと同じ範囲（本人が消した場面を除く）で数える。押すと出る確認に「前回のファイルが消える」の文は無い",
    "scenarios": ["設定画面に全記録の書き出しの節がある", "押す前にソースごとの件数と期間が出る", "押す前に入らないものの一覧が出る", "まだ書き出していなければそう出る"]},
-  {"id": "confirm", "name": "押した直後（確認）", "hint": "まだ始まっていない。見込みと、書き終えると前回のフォルダが消えること。「書き出す」で始まり、「やめる」で押す前に戻る",
-   "scenarios": ["押すとその場に確認が出て、書き出すを選ぶと進み具合が出る", "確認でやめると書き出しは始まらない"]},
-  {"id": "running", "name": "書き出し中", "hint": "確認で「書き出す」を選んだ後。その場に「書き出し中 N / M 行」", "scenarios": []},
+  {"id": "confirm", "name": "押した直後（確認と合言葉）", "hint": "まだ始まっていない。見込み・暗号化した 1 つのファイル・合言葉は保存しない・AES に対応した道具で開く・前回のファイルが消えること。フォーカスは合言葉の入力。12 文字以上を 2 回入れると「書き出す」が押せる（例: correct horse 1）",
+   "scenarios": ["押すとその場に確認が出て、合言葉を入れて書き出すを選ぶと進み具合が出る", "確認でやめると書き出しは始まらない", "合言葉の入力はブラウザに保存を促さない"]},
+  {"id": "confirm-short", "name": "合言葉が短い・一致しない", "hint": "11 文字を入れたところ。「書き出す」は押せず、理由が 1 行。入力を直すとその場で押せるようになる",
+   "scenarios": ["合言葉が短いか確かめと一致しなければ書き出すを押せない"]},
+  {"id": "running", "name": "書き出し中", "hint": "確認で「書き出す」を選んだ後。合言葉の入力は消え、その場に「書き出し中 N / M 行」。「全記録を書き出す」は押せない",
+   "scenarios": ["書き出しを始めると合言葉は画面に残らない", "書き出しが走っている間は全記録を書き出すを押せない"]},
   {"id": "away", "name": "書き出し中に画面を離れる → 戻る", "hint": "いまは稼働状況（S-1）にいる。「設定」を押して戻ると、進み具合が出ている",
    "scenarios": ["画面を離れて戻っても進み具合が出る"]},
-  {"id": "done", "name": "書き終えた", "hint": "前回の書き出しの欄に時刻・行の数・大きさ・置き場のパス。置き場には書き終えた 1 つだけが残る。ファイルは画面からは受け取れない",
+  {"id": "done", "name": "書き終えた", "hint": "前回の書き出しの欄に時刻・行の数・大きさ・ファイルのパス。置き場には書き終えた zip が 1 つだけ残る。ファイルは画面からは受け取れない",
    "scenarios": ["書き終えると前回の書き出しが新しくなる", "設定画面は 360 px の幅で横にスクロールしない"]},
   {"id": "erased", "name": "書き終えた後に滞在を消した", "hint": "上の「書き出しの後に滞在を 1 件消す」を押すと件数が増える。もう一度書き出すと消える",
    "scenarios": ["書き出した後に記録を消すと、前回の書き出しの欄に件数が出る"]},
-  {"id": "cleanup", "name": "前の書き出しのフォルダを消せなかった", "hint": "新しい書き出しは書き終えている。消せなかったフォルダのパスと、次の書き出しで消し直すことが 1 行",
-   "scenarios": ["前の書き出しのフォルダを消せなかったら節に出る"]},
-  {"id": "failed", "name": "最後の書き出しが失敗した", "hint": "節に 1 行出て、押し直せる。前回の書き出しの値と前回のフォルダは失敗の前のまま",
+  {"id": "rejected", "name": "書き出しの求めが断られた", "hint": "確認で「書き出す」を選んだが、別のタブで書き出しが走っていて 409 で断られた。1 行出て、合言葉は消え、押す前の形に戻る",
+   "scenarios": ["書き出しの求めが断られたらそのことが出て押す前の形に戻る"]},
+  {"id": "cleanup", "name": "前の書き出しのファイルを消せなかった", "hint": "新しい書き出しは書き終えている。消せなかったファイルのパスと、次の書き出しで消し直すことが 1 行",
+   "scenarios": ["前の書き出しのファイルを消せなかったら節に出る"]},
+  {"id": "failed", "name": "最後の書き出しが失敗した", "hint": "節に 1 行出て、押し直せる。前回の書き出しの値と前回のファイルは失敗の前のまま",
    "scenarios": ["失敗した書き出しと途中で止まった書き出しは節に出て、押し直せる"]},
-  {"id": "interrupted", "name": "前の書き出しが途中で止まった（サーバが止まった）", "hint": "失敗と同じ Scenario の後半。節に 1 行出て、押し直せる", "scenarios": []}
+  {"id": "interrupted", "name": "前の書き出しが途中で止まった（サーバが止まった）", "hint": "失敗と同じ Scenario の後半。節に 1 行（残ったファイルのパスつき）出て、押し直せる。残ったファイルは消さない", "scenarios": []}
  ],
  "always": ["画面から書き出したファイルを受け取る操作は無い", "書き出すの操作は 24 px を下回らない", "キーボードで書き出すを押せてフォーカスの位置が見える", "設定画面の文字はライトでもダークでも 4.5:1 を下回らない"]
 }
@@ -210,7 +215,7 @@ const PER_DAY=[
   ["滞在",9],["写真のメタ",5.5],["個人属性",0.05],["稼働の信号",13],
 ];
 const DEFAULTS={before:"inout",run:"confirm",stale:"count",dest:"folder",span:"y1"}; // 深掘り Q3 第 2 回の答え（軸 1〜3 を本人が動かした形）
-const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false,goLeft:false};
+const state={...DEFAULTS,scheme:"dark",phase:"idle",progress:0,done:null,erasedAfter:0,pw:false,away:false,goFail:false,goIntr:false,goLeft:false,goRej:false,pw1:"",pw2:""};
 // GO view: 相談の軸を出さず、spec で決まった形（DEFAULTS の軸）を状態の一覧から開く。既定（無指定）は相談の view
 const GO_VIEW=window.PROTO_VIEW==="go"||/(^|[#&])view=go(&|$)/.test(location.hash.slice(1));
 const PRESETS=[
@@ -225,7 +230,7 @@ function rows(){
 }
 const total=()=>rows().reduce((a,[,c])=>a+c,0);
 const fmt=n=>n.toLocaleString("ja-JP");
-const mb=n=>{const m=n*0.9/1024; return m>=1024?`${(m/1024).toFixed(1)} GB`:`${Math.max(1,Math.round(m))} MB`;};
+const mb=n=>{const m=n*(GO_VIEW?0.18:0.9)/1024; return m>=1024?`${(m/1024).toFixed(1)} GB`:`${Math.max(1,Math.round(m))} MB`;};
 const secs=n=>Math.max(1,Math.round(n/20000));
 function firstDay(){const d=new Date("2026-09-29");d.setDate(d.getDate()-SPAN.find(x=>x.v===state.span).days+1);return d.toISOString().slice(0,10);}
 
@@ -268,7 +273,7 @@ function renderScreen(){
 
   h+=`<section style="background:${tone(c.s1)};border-radius:10px;padding:12px">`;
   h+=`<h2 style="font:600 16px/1.3 system-ui,sans-serif;margin:0 0 8px">全記録の書き出し</h2>`;
-  h+=`<p style="margin:0 0 10px;${muted};font-size:13.5px">このシステムを使わずに読める形（表ごとのファイルと説明書）で、全期間・全ソースを書き出します。</p>`;
+  h+=`<p style="margin:0 0 10px;${muted};font-size:13.5px">このシステムを使わずに読める形（表ごとのファイルと説明書）で、全期間・全ソースを書き出します。${GO_VIEW?"合言葉で暗号化した 1 つのファイルになります。":""}</p>`;
 
   const n=total();
   if(state.before!=="button"){
@@ -289,10 +294,25 @@ function renderScreen(){
   }
 
   if(GO_VIEW&&state.phase==="idle"&&state.goFail) h+=`<p role="status" style="margin:0 0 8px">書き出しに失敗しました（io）。</p>`;
-  if(GO_VIEW&&state.phase==="idle"&&state.goIntr) h+=`<p role="status" style="margin:0 0 8px">前の書き出しは途中で止まりました（2026-09-29 14:05）。</p>`;
-  if(GO_VIEW&&state.phase==="idle"&&state.goLeft) h+=`<p role="status" style="margin:0 0 8px;word-break:break-all">前の書き出しのフォルダを消せませんでした（%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260928-090512\\）。次の書き出しでもう一度消します。</p>`;
+  if(GO_VIEW&&state.phase==="idle"&&state.goIntr) h+=`<p role="status" style="margin:0 0 8px;word-break:break-all">前の書き出しは途中で止まりました（2026-09-29 14:05）。%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260929-140512.zip が残っています。</p>`;
+  if(GO_VIEW&&state.phase==="idle"&&state.goLeft) h+=`<p role="status" style="margin:0 0 8px;word-break:break-all">前の書き出しのファイルを消せませんでした（%LOCALAPPDATA%\\ashiato\\export\\ashiato-export-20260928-090512.zip）。次の書き出しでもう一度消します。</p>`;
+  if(GO_VIEW&&state.phase==="idle"&&state.goRej) h+=`<p role="status" style="margin:0 0 8px">書き出しを始められませんでした（すでに書き出し中です）。</p>`;
   if(state.phase==="idle"){
     h+=`<button data-f id="go" style="${btn}">全記録を書き出す</button>`;
+  }else if(GO_VIEW&&state.phase==="confirm"){
+    const len=Array.from(state.pw1).length, ok=len>=12&&state.pw1===state.pw2;
+    const why=len<12?`合言葉は 12 文字以上にしてください（いま ${len} 文字）。`:state.pw1!==state.pw2?"2 つの合言葉が一致しません。":"";
+    const inp=`width:100%;min-height:32px;margin:0 0 6px;background:${tone(c.ground)};color:${tone(c.text)};border:1px solid ${tone(c.muted)};border-radius:8px;padding:4px 8px;font:15px/1.4 system-ui,sans-serif`;
+    h+=`<div role="dialog" aria-label="書き出しの確認" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px">`;
+    h+=`<p style="margin:0 0 6px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。この PC のフォルダに、合言葉で暗号化した 1 つのファイルとして書き出します。</p>`;
+    h+=`<p style="margin:0 0 6px;font-size:13.5px">合言葉は保存しません。忘れると開けません（書き出し直せば新しい合言葉で作れます）。7-Zip などの AES に対応した道具で開けます。</p>`;
+    if(state.done) h+=`<p style="margin:0 0 6px;font-size:13.5px">書き終えると前回の書き出しのファイルは消えます。</p>`;
+    h+=`<form id="pwForm" style="margin:8px 0 0"><label for="pw1" style="display:block;font-size:13.5px">合言葉（12 文字以上）</label>`;
+    h+=`<input data-f id="pw1" type="password" autocomplete="off" value="${state.pw1.replace(/"/g,"&quot;")}" style="${inp}">`;
+    h+=`<label for="pw2" style="display:block;font-size:13.5px">もう一度</label>`;
+    h+=`<input data-f id="pw2" type="password" autocomplete="off" value="${state.pw2.replace(/"/g,"&quot;")}" style="${inp}">`;
+    h+=`<p id="pwWhy" aria-live="polite" style="margin:0 0 8px;${muted};font-size:12.5px;min-height:1.6em">${why}</p>`;
+    h+=`<div style="display:flex;gap:8px"><button data-f id="yes" type="submit" ${ok?"":"disabled"} style="${btn}${ok?"":";opacity:.45;cursor:not-allowed"}">書き出す</button><button data-f id="no" type="button" style="${ghost}">やめる</button></div></form></div>`;
   }else if(state.phase==="confirm"){
     h+=`<div role="dialog" style="background:${tone(c.s2)};border-radius:8px;padding:10px;margin-top:4px"><p style="margin:0 0 8px">約 ${fmt(n)} 行・約 ${mb(n)}・約 ${secs(n)} 秒。${state.dest==="folder"?"この PC のフォルダに書き出しますか。"+(state.done||!GO_VIEW?"書き終えると前回の書き出しのフォルダは消えます。":""):"<b>全記録（全感度）が、いま見ている端末に入ります。</b>書き出しますか。"}</p>`;
     h+=`<div style="display:flex;gap:8px"><button data-f id="yes" style="${btn}">書き出す</button><button data-f id="no" style="${ghost}">やめる</button></div></div>`;
@@ -303,6 +323,7 @@ function renderScreen(){
       h+=`<p role="status" style="margin:0 0 6px">書き出し中 ${fmt(done)} / ${fmt(n)} 行</p>`;
       h+=`<div style="height:8px;border-radius:4px;background:${tone(c.s2)}"><div style="height:8px;border-radius:4px;width:${Math.round(state.progress*100)}%;background:${tone(c.muted)}"></div></div>`;
       h+=`<p style="margin:6px 0 0;${muted};font-size:12.5px">画面を離れても書き出しは続きます。</p>`;
+      if(GO_VIEW) h+=`<button data-f disabled style="${btn};margin-top:8px;opacity:.45;cursor:not-allowed">全記録を書き出す</button>`;
     }
   }
   if(!GO_VIEW && state.done && state.phase==="idle" && state.justDone){
@@ -318,9 +339,9 @@ function renderScreen(){
   else{
     h+=`<p style="margin:0 0 4px">${state.done.at} ・ ${fmt(state.done.n)} 行 ・ 約 ${mb(state.done.n)}</p>`;
     if(state.dest==="folder"){
-      h+=`<p style="margin:0 0 2px;${muted};font-size:13px">置き場（この PC）</p>`;
-      h+=`<p style="margin:0;font:13px/1.5 ui-monospace,Menlo,monospace;word-break:break-all">%LOCALAPPDATA%\\ashiato\\export\\${GO_VIEW?"ashiato-export-20260929-141203":"ashiato-export-20260929-1412"}\\</p>`;
-      h+=`<p style="margin:4px 0 0;${muted};font-size:12.5px">中の README.txt に、ファイルごとの列の意味があります。</p>`;
+      h+=`<p style="margin:0 0 2px;${muted};font-size:13px">${GO_VIEW?"ファイル（この PC）":"置き場（この PC）"}</p>`;
+      h+=`<p style="margin:0;font:13px/1.5 ui-monospace,Menlo,monospace;word-break:break-all">%LOCALAPPDATA%\\ashiato\\export\\${GO_VIEW?"ashiato-export-20260929-141203.zip":"ashiato-export-20260929-1412\\"}</p>`;
+      h+=`<p style="margin:4px 0 0;${muted};font-size:12.5px">${GO_VIEW?"合言葉で開くと、中の README.txt に、ファイルごとの列の意味があります。":"中の README.txt に、ファイルごとの列の意味があります。"}</p>`;
     }else{
       h+=`<p style="margin:0;${muted};font-size:13px">この画面を見ていた端末に保存しました（どこに置いたかは、このシステムには分かりません）。</p>`;
     }
@@ -335,9 +356,18 @@ function renderScreen(){
   scr.innerHTML=h;
 
   const s1=scr.querySelector("#toS1"); if(s1&&GO_VIEW) s1.onclick=e=>{e.preventDefault();state.away=true;renderScreen();};
-  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ if(state.run==="confirm"){state.phase="confirm";renderScreen();scr.querySelector("#yes")?.focus();} else start(); };
-  const yes=scr.querySelector("#yes"); if(yes) yes.onclick=()=>{state.goFail=false;state.goIntr=false;state.goLeft=false;start();};
-  const no=scr.querySelector("#no"); if(no) no.onclick=()=>{state.phase="idle";renderScreen();scr.querySelector("#go")?.focus();};
+  const go=scr.querySelector("#go"); if(go) go.onclick=()=>{ if(state.run==="confirm"){state.phase="confirm";state.pw1="";state.pw2="";renderScreen();(GO_VIEW?scr.querySelector("#pw1"):scr.querySelector("#yes"))?.focus();} else start(); };
+  const clearPw=()=>{state.pw1="";state.pw2="";};
+  const pwForm=scr.querySelector("#pwForm");
+  if(pwForm){
+    pwForm.onsubmit=e=>{e.preventDefault(); const len=Array.from(state.pw1).length; if(len<12||state.pw1!==state.pw2) return;
+      clearPw(); state.goFail=false;state.goIntr=false;state.goLeft=false;
+      if(state.goRejNext){state.goRejNext=false;state.goRej=true;state.phase="idle";renderScreen();scr.querySelector("#go")?.focus();return;}
+      state.goRej=false; start();};
+    ["pw1","pw2"].forEach(id=>{const el=scr.querySelector("#"+id); el.oninput=()=>{state[id]=el.value; const pos=el.selectionStart; renderScreen(); const again=scr.querySelector("#"+id); again.focus(); try{again.setSelectionRange(pos,pos);}catch(_){}};});
+  }
+  const yes=scr.querySelector("#yes"); if(yes&&!pwForm) yes.onclick=()=>{state.goFail=false;state.goIntr=false;state.goLeft=false;start();};
+  const no=scr.querySelector("#no"); if(no) no.onclick=()=>{clearPw();state.phase="idle";renderScreen();scr.querySelector("#go")?.focus();};
 
   document.getElementById("mRows").textContent=`${fmt(n)} 行`;
   document.getElementById("mSize").textContent=`${mb(n)} / 約 ${secs(n)} 秒`;
@@ -388,18 +418,21 @@ const GO_MAN=JSON.parse(document.getElementById("proto-go").textContent);
 const DONE={at:"2026-09-29 14:12",n:0};
 function goState(id){
   clearInterval(timer);
-  Object.assign(state,DEFAULTS,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false,away:false,goFail:false,goIntr:false,goLeft:false});
+  Object.assign(state,DEFAULTS,{phase:"idle",progress:0,done:null,erasedAfter:0,justDone:false,away:false,goFail:false,goIntr:false,goLeft:false,goRej:false,goRejNext:false,pw1:"",pw2:""});
   const prev=()=>({...DONE,n:total()});
   if(id==="running"){ state.done=prev(); start(); }
   else if(id==="away"){ state.done=prev(); start(); state.away=true; }
   else if(id==="done"){ state.done=prev(); }
   else if(id==="confirm"){ state.done=prev(); state.phase="confirm"; }
+  else if(id==="confirm-short"){ state.done=prev(); state.phase="confirm"; state.pw1="abcdefghijk"; state.pw2="abcdefghijk"; }
+  else if(id==="rejected"){ state.done=prev(); state.goRej=true; }
   else if(id==="erased"){ state.done=prev(); state.erasedAfter=121; }
   else if(id==="cleanup"){ state.done=prev(); state.goLeft=true; }
   else if(id==="failed"){ state.done=prev(); state.goFail=true; }
   else if(id==="interrupted"){ state.done=prev(); state.goIntr=true; }
   history.replaceState(null,"","#view=go&state="+id);
   renderGoStates(id); renderScreen();
+  if(id==="confirm"||id==="confirm-short") document.getElementById("pw1")?.focus();
 }
 function renderGoStates(cur){
   const el=document.querySelector(".controls");
@@ -407,7 +440,9 @@ function renderGoStates(cur){
   h+=`<div class="grp"><div class="lbl">状態の一覧（押すとその場面を開く。開いた後も実際に押せる）</div><div class="gostates">`;
   GO_MAN.states.forEach(s=>{h+=`<button type="button" class="card${s.id===cur?" on":""}" data-st="${s.id}"><div class="t">${s.name}</div><div class="d">${s.hint}</div>${s.scenarios.length?`<div class="sc">Scenario: ${s.scenarios.join(" ／ ")}</div>`:""}</button>`;});
   h+=`</div></div><div class="grp"><div class="lbl">どの状態でも</div><div class="fixed">${GO_MAN.always.join("<br>")}</div></div>`;
+  h+=`<div class="grp"><div class="lbl">試す</div><button type="button" class="card" id="rejNext"><div class="t">次の「書き出す」を 409 で断らせる</div><div class="d">別のタブで書き出しが走っているときの形。押してから確認で書き出す</div></button></div>`;
   el.innerHTML=h;
+  el.querySelector("#rejNext").onclick=()=>{state.goRejNext=true; el.querySelector("#rejNext .t").textContent="次の「書き出す」は断られる";};
   el.querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>goState(b.dataset.st));
 }
 if(GO_VIEW){
