@@ -126,6 +126,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "futures-util",
  "hmac",
  "http-body-util",
  "rand",

@@ -66,6 +66,9 @@ pub mod export;
 #[cfg(test)]
 mod export_excluded_tests;
 /// 書き出しの台帳の移行と錠（ST33 / design D10）。
+/// 書き出しの中身（zip・説明書・除く範囲のファイル・写しの時点。ST33 / design D4 / D7 / D9 / D19）。
+#[cfg(test)]
+mod export_file_tests;
 #[cfg(test)]
 mod export_ledger_tests;
 #[cfg(test)]

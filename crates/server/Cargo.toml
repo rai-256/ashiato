@@ -28,6 +28,7 @@ utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
 tower-http = { version = "0.7.1", features = ["set-header"] }
 zip = "2"
 zeroize = "1"
+futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

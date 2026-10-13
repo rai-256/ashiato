@@ -11,20 +11,20 @@ use crate::export::{
 use crate::testdb;
 
 /// 書き出しの台帳・状態・置き場は全利用者で 1 つなので、走らせるテストは直列にする（spec-review R16）。
-static EXPORT_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static EXPORT_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn tmp_dir(name: &str) -> PathBuf {
+pub(crate) fn tmp_dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("ashiato-export-{name}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
 
-fn pass() -> Passphrase {
+pub(crate) fn pass() -> Passphrase {
     Passphrase::new("pw-for-test-0123456789".to_string())
 }
 
 /// 置き場の下のファイルの名前（無ければ空）。
-fn names(dir: &Path) -> Vec<String> {
+pub(crate) fn names(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir)
         .map(|rd| {
             rd.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -97,7 +97,7 @@ async fn export_dir_writes_under_the_chosen_dir() {
     assert!(!left[0].starts_with('.'));
     // 閉じた zip として読める
     let z = zip::ZipArchive::new(std::fs::File::open(&file).unwrap()).unwrap();
-    assert_eq!(z.len(), 0);
+    assert_eq!(z.len(), 12); // 表のファイル 10 本と説明書と目録（D7）
 }
 
 #[test]

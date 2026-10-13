@@ -17,14 +17,14 @@ use crate::testdb;
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
-struct World {
-    pool: sqlx::PgPool,
-    day: chrono::NaiveDate,
-    user: Uuid,
+pub(crate) struct World {
+    pub(crate) pool: sqlx::PgPool,
+    pub(crate) day: chrono::NaiveDate,
+    pub(crate) user: Uuid,
 }
 
 impl World {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         Self {
             pool: testdb::pool().await,
             day: testdb::unique_day(),
@@ -33,16 +33,16 @@ impl World {
     }
 
     /// その日の `HH:MM`（UTC）。
-    fn at(&self, hhmm: &str) -> String {
+    pub(crate) fn at(&self, hhmm: &str) -> String {
         format!("{}T{hhmm}:00Z", self.day)
     }
 
     /// 前の日の `HH:MM`。
-    fn before(&self, hhmm: &str) -> String {
+    pub(crate) fn before(&self, hhmm: &str) -> String {
         format!("{}T{hhmm}:00Z", self.day.pred_opt().unwrap())
     }
 
-    async fn put_as(
+    pub(crate) async fn put_as(
         &self,
         user: Uuid,
         source: &str,
@@ -77,12 +77,12 @@ impl World {
         id
     }
 
-    async fn put(&self, source: &str, at: &str, payload: Value, raw: &str) -> Uuid {
+    pub(crate) async fn put(&self, source: &str, at: &str, payload: Value, raw: &str) -> Uuid {
         self.put_as(self.user, source, "pc", at, payload, raw).await
     }
 
     /// 前の版を 1 つ足す（番号は呼ぶ順）。
-    async fn put_version(&self, event: Uuid, no: i32, at: &str, payload: Value) -> Uuid {
+    pub(crate) async fn put_version(&self, event: Uuid, no: i32, at: &str, payload: Value) -> Uuid {
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO core.event_version
@@ -103,7 +103,7 @@ impl World {
     }
 
     /// 滞在を 1 件置く（`end` と緯度経度を持つ）。
-    async fn stay(&self, start: &str, end: &str) -> Uuid {
+    pub(crate) async fn stay(&self, start: &str, end: &str) -> Uuid {
         self.put_as(
             self.user,
             "s01-stay",
@@ -116,7 +116,12 @@ impl World {
     }
 
     /// 本人が消した滞在を置く。`versions` は前の版の `(始まり, 終わり)`。
-    async fn erased_stay(&self, start: &str, end: &str, versions: &[(&str, &str)]) -> Uuid {
+    pub(crate) async fn erased_stay(
+        &self,
+        start: &str,
+        end: &str,
+        versions: &[(&str, &str)],
+    ) -> Uuid {
         let id = self.stay(start, end).await;
         for (no, (s, e)) in versions.iter().enumerate() {
             self.put_version(
@@ -131,7 +136,7 @@ impl World {
         id
     }
 
-    async fn mark_deleted(&self, id: Uuid, by: &str) {
+    pub(crate) async fn mark_deleted(&self, id: Uuid, by: &str) {
         sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
             .bind(id)
             .bind(by)

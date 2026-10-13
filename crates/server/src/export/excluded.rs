@@ -123,7 +123,6 @@ pub fn excluded_sql(snapshot_at: &str, erased_as_of: Option<&str>) -> ExcludedSq
         snapshot_at,
     );
     let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
-    let coord = has_coordinates_sql("o.logical_source", "o.payload", "o.raw");
     let ctes = format!(
         "erased_spans AS MATERIALIZED (
            SELECT s.start_at, s.end_at
@@ -137,11 +136,11 @@ pub fn excluded_sql(snapshot_at: &str, erased_as_of: Option<&str>) -> ExcludedSq
          ),
          overlap_event AS MATERIALIZED ({overlap_event}),
          {EXCLUDED_EVENT} AS MATERIALIZED (
-           SELECT o.id FROM overlap_event o WHERE {coord}
+           SELECT o.id FROM overlap_event o
          ),
          overlap_version AS MATERIALIZED ({overlap_version}),
          {EXCLUDED_VERSION} AS MATERIALIZED (
-           SELECT o.id FROM overlap_version o WHERE {coord}
+           SELECT o.id FROM overlap_version o
          )"
     );
     ExcludedSql { ctes }
@@ -164,29 +163,38 @@ fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
         .map(|(s, _)| format!("'{s}'"))
         .collect::<Vec<_>>()
         .join(", ");
+    let coord = has_coordinates_sql("r.logical_source", "r.payload", "r.raw");
+    // 幅の計算（次の記録の引き）は行ごとに 1 回だけ。内側の副問い合わせは `OFFSET 0` で畳み込みを止める
+    // （畳むと重なりの判定のたびに、消した時間の数だけ次の記録を引き直す）。緯度経度を持たない行は幅を求めずに落とす。
     format!(
-        "SELECT r.id, r.logical_source, r.payload, r.raw
-           FROM {rows} r
-          CROSS JOIN LATERAL (SELECT coalesce({ends}) AS t) ka
-          CROSS JOIN LATERAL (SELECT CASE WHEN ka.t >= r.event_time THEN ka.t END AS t) a
-          CROSS JOIN LATERAL (SELECT coalesce({durs}) AS t) b
-          CROSS JOIN LATERAL (
-            SELECT CASE
-                     WHEN a.t IS NOT NULL OR b.t IS NOT NULL THEN NULL
-                     WHEN r.logical_source IN ({points}) THEN r.event_time
-                     ELSE coalesce(
-                       (SELECT n.event_time FROM core.event_live n
-                         WHERE n.user_id = r.user_id AND n.logical_source = r.logical_source
-                           AND n.device_id IS NOT DISTINCT FROM r.device_id
-                           AND {next_after}
-                         ORDER BY n.event_time, n.id LIMIT 1),
-                       {snapshot_at})
-                   END AS t
-          ) c
-          WHERE r.event_time <= (SELECT max(end_at) FROM erased_spans)
-            AND EXISTS (SELECT 1 FROM erased_spans s
-                         WHERE s.start_at <= coalesce(a.t, b.t, c.t)
-                           AND s.end_at >= r.event_time)",
+        "SELECT w.id, w.logical_source, w.payload, w.raw
+           FROM (
+             SELECT r.id, r.logical_source, r.payload, r.raw, r.event_time,
+                    coalesce(a.t, b.t, c.t) AS width_end
+               FROM {rows} r
+              CROSS JOIN LATERAL (SELECT coalesce({ends}) AS t) ka
+              CROSS JOIN LATERAL (SELECT CASE WHEN ka.t >= r.event_time THEN ka.t END AS t) a
+              CROSS JOIN LATERAL (SELECT coalesce({durs}) AS t) b
+              CROSS JOIN LATERAL (
+                SELECT CASE
+                         WHEN a.t IS NOT NULL OR b.t IS NOT NULL THEN NULL
+                         WHEN r.logical_source IN ({points}) THEN r.event_time
+                         ELSE coalesce(
+                           (SELECT n.event_time FROM core.event_live n
+                             WHERE n.user_id = r.user_id AND n.logical_source = r.logical_source
+                               AND n.device_id IS NOT DISTINCT FROM r.device_id
+                               AND {next_after}
+                             ORDER BY n.event_time, n.id LIMIT 1),
+                           {snapshot_at})
+                       END AS t
+              ) c
+              WHERE r.event_time <= (SELECT max(end_at) FROM erased_spans)
+                AND {coord}
+             OFFSET 0
+           ) w
+          WHERE EXISTS (SELECT 1 FROM erased_spans s
+                         WHERE s.start_at <= w.width_end
+                           AND s.end_at >= w.event_time)",
         ends = end_keys.join(", "),
         durs = dur_keys.join(", "),
     )

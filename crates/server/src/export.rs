@@ -11,14 +11,19 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
 use zeroize::Zeroizing;
 
+mod doc;
+mod dump;
 mod excluded;
 mod summary;
 
+pub use doc::*;
+pub use dump::{format_time, Dumped};
 pub use excluded::*;
 pub use summary::*;
 
@@ -544,6 +549,7 @@ pub type HookFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type InventoryHook = Arc<dyn Fn(&mut Inventory) + Send + Sync>;
 type AroundHook = Arc<dyn Fn(Stage, Phase) -> HookFuture + Send + Sync>;
 type FailHook = Arc<dyn Fn(Stage) -> Option<ExportError> + Send + Sync>;
+type FileHook = Arc<dyn Fn(&'static str) -> HookFuture + Send + Sync>;
 
 /// 段ごとの差し替え口（`StayRebuilder::from_fn` と同じ考え方）。
 /// 表の権限を剥がす・名前を変えるやり方で失敗させない（共有の開発 DB を壊すため）。
@@ -552,6 +558,7 @@ pub struct Hooks {
     inventory: InventoryHook,
     around: AroundHook,
     fail: FailHook,
+    before_file: FileHook,
 }
 
 impl Hooks {
@@ -561,6 +568,7 @@ impl Hooks {
             inventory: Arc::new(|_| {}),
             around: Arc::new(|_, _| Box::pin(async {})),
             fail: Arc::new(|_| None),
+            before_file: Arc::new(|_| Box::pin(async {})),
         }
     }
 
@@ -598,6 +606,21 @@ impl Hooks {
     }
 }
 
+impl Hooks {
+    /// 写しを読み始めた後、zip の項目（ファイル）を 1 つ書き始める前に呼ぶ。引数はその項目の名前。
+    /// 「書く途中」で止める・記録を取り込む・滞在を消すのに使う。
+    #[must_use]
+    pub fn with_before_file(
+        self,
+        f: impl Fn(&'static str) -> HookFuture + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            before_file: Arc::new(f),
+            ..self
+        }
+    }
+}
+
 impl std::fmt::Debug for Hooks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Hooks")
@@ -612,6 +635,15 @@ pub struct ExportConfig {
     /// 自己試験の遅延。zip の中のファイル 1 つを書くごとに待つ（e2e が「書き出し中」を観測するため）。
     pub delay: Duration,
     pub hooks: Hooks,
+    /// 進み具合（書く行の数と書いた行の数）。本体が更新し、読む側が持つ。
+    pub progress: Arc<Progress>,
+}
+
+/// 進み具合。`total` は写しの時点で数えた書く行の数（D4）、`written` は書いた行の数。
+#[derive(Debug, Default)]
+pub struct Progress {
+    pub total: AtomicU64,
+    pub written: AtomicU64,
 }
 
 impl ExportConfig {
@@ -625,6 +657,7 @@ impl ExportConfig {
             dir: export_dir(|k| std::env::var(k).ok()),
             delay: Duration::from_millis(delay_ms),
             hooks: Hooks::none(),
+            progress: Arc::default(),
         }
     }
 
@@ -634,6 +667,7 @@ impl ExportConfig {
             dir: Some(dir),
             delay: Duration::ZERO,
             hooks: Hooks::none(),
+            progress: Arc::default(),
         }
     }
 
@@ -643,6 +677,7 @@ impl ExportConfig {
             dir: None,
             delay: Duration::ZERO,
             hooks: Hooks::none(),
+            progress: Arc::default(),
         }
     }
 }
@@ -666,15 +701,36 @@ async fn stage<T>(
     Ok(v)
 }
 
+/// 書き終えた書き出し。
+#[derive(Debug, Clone)]
+pub struct Written {
+    /// 書き終えたファイル（置き場の下の絶対のパス）。
+    pub file: PathBuf,
+    pub export_id: uuid::Uuid,
+    pub dumped: Dumped,
+}
+
 /// 書き出しの本体。成功すれば書き終えたファイルの絶対のパスを返す。
-///
-/// いまは「分類 → 列の突き合わせ → 空の zip」まで。合言葉は引数として受け、ここでは使わない
-/// （中身を暗号化して書く段が使う）。失敗したら `.partial-…` を残さない。
 pub async fn run(
     pool: &sqlx::PgPool,
     cfg: &ExportConfig,
-    _passphrase: Passphrase,
+    passphrase: Passphrase,
 ) -> Result<PathBuf, ExportError> {
+    run_as(pool, cfg, passphrase, uuid::Uuid::new_v4())
+        .await
+        .map(|w| w.file)
+}
+
+/// 書き出しの識別子を呼び出し側が決める本体（注記 `ashiato-export <export_id>` になる）。
+///
+/// 分類 → 列の突き合わせ → 写しを zip に暗号化して流す → `rename`。合言葉は項目の暗号化にだけ使う。
+/// 失敗したら `.partial-…` を残さない。
+pub async fn run_as(
+    pool: &sqlx::PgPool,
+    cfg: &ExportConfig,
+    passphrase: Passphrase,
+    export_id: uuid::Uuid,
+) -> Result<Written, ExportError> {
     let inv = stage(cfg, Stage::Catalog, async {
         let mut inv = read_inventory(pool).await?;
         (cfg.hooks.inventory)(&mut inv);
@@ -710,35 +766,47 @@ pub async fn run(
             .dir
             .as_deref()
             .ok_or_else(|| ExportError::new(FailKind::Io, "置き場が決まらない"))?;
-        write_empty_zip(dir, chrono::Utc::now())
+        write_zip(pool, cfg, &passphrase, export_id, dir).await
     })
     .await
 }
 
-/// 置き場を（無ければ 0700 で）作り、空の zip を `.partial-….zip`（0600）に作って閉じ、本来の名前へ `rename` する。
-fn write_empty_zip(dir: &Path, now: chrono::DateTime<chrono::Utc>) -> Result<PathBuf, ExportError> {
+/// 置き場を（無ければ 0700 で）作り、`.partial-….zip`（0600）に書いて閉じ、本来の名前へ `rename` する。
+/// `.` で始まる名前は書き終えるまで。失敗したら消す。
+async fn write_zip(
+    pool: &sqlx::PgPool,
+    cfg: &ExportConfig,
+    passphrase: &Passphrase,
+    export_id: uuid::Uuid,
+    dir: &Path,
+) -> Result<Written, ExportError> {
     ensure_dir(dir)?;
     // Asia/Tokyo は夏時間の無い +09:00 なので、9 時間足して時刻の字面を取れば足りる。
-    let stamp = (now + chrono::Duration::hours(9))
+    let stamp = (chrono::Utc::now() + chrono::Duration::hours(9))
         .format("%Y%m%d-%H%M%S")
         .to_string();
     let partial = dir.join(format!(
         ".partial-ashiato-export-{stamp}-{}.zip",
         &uuid::Uuid::new_v4().simple().to_string()[..8]
     ));
-    let result = (|| {
-        let file = create_private_file(&partial)?;
-        let file = zip::ZipWriter::new(file)
-            .finish()
-            .map_err(|e| ExportError::new(FailKind::Io, format!("zip を閉じられない: {e}")))?;
+    let file = create_private_file(&partial)?;
+    let result = async {
+        let (file, dumped) =
+            dump::dump(pool, cfg, passphrase, &export_id.to_string(), file).await?;
         file.sync_all()
             .map_err(|e| ExportError::io("同期できない", &e))?;
+        drop(file);
         // rename は同じ名前を置き換えるので、直前に空きを確かめ直す。
         let target = free_name(dir, &stamp);
         std::fs::rename(&partial, &target)
             .map_err(|e| ExportError::io("名前を付けられない", &e))?;
-        Ok(target)
-    })();
+        Ok(Written {
+            file: target,
+            export_id,
+            dumped,
+        })
+    }
+    .await;
     if result.is_err() {
         let _ = std::fs::remove_file(&partial);
     }
