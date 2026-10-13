@@ -205,7 +205,7 @@ async fn delete_previous(pool: &sqlx::PgPool, current: Uuid) -> Result<(), Expor
     let rows = ledger::read_ledger(pool).await?;
     let _ = tokio::task::spawn_blocking(move || {
         for r in ledger::removable_previous(&rows, Some(current)) {
-            if let Err(e) = std::fs::remove_file(&r.file) {
+            if let Err(_) = std::fs::remove_file(&r.file) {
                 tracing::warn!(kind = "io", "前の書き出しのファイルを消せない");
             }
         }
