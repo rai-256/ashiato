@@ -82,7 +82,7 @@ DB を使う検査は `docker compose up -d db` が前提。
 
 ## Task 3: 除く範囲と、書き出す前の件数と見込み（design D5 / D5a / D5b / D12 / D18。`GET /export/summary`）
 
-- [ ] 3.1 除く範囲の SQL 断片（D5）—— **Q5〜Q8 と C19〜C21 を名指しで固定する**:
+- [x] 3.1 除く範囲の SQL 断片（D5）—— **Q5〜Q8 と C19〜C21 を名指しで固定する**:
   - 消した時間 `erased_spans`: `core.stay_erased` から `Mark::of` と同じ読み方で、**利用者を問わずに**（Q7）引いたいまの版の時間と、その滞在の `core.event_version` の各版の時間（C19。読むのは `event_time` と `payload->>'end'` だけ。緯度経度を読まない）
   - 時刻の幅（D5b。Q6 / C21）: `END_KEYS`（`range_end` を含む。`end_time` の数字だけの値はミリ秒の UNIX 時刻 —— `stay_store::event_end_sql` と同じ。読めた終わりが `event_time` より前なら次の順へ）→ `DURATION_KEYS`（`visit_duration_us` ほか。`elapsed_ms` は入れない）→ `SPAN_RULES` の `Point`（`c01-location` / `c01-photo` / `c01-clock` / `s01-attribute`）なら点、それ以外（`c01-app-usage` を含む）は同じ `user_id`・`logical_source`・`device_id` の次の記録まで（無ければ写しの時点まで）。前の版の次の記録は design D5 の 3 の読み方
   - `erased_spans` は各問い合わせの `WITH … AS MATERIALIZED` に置く（写しは `READ ONLY` で一時表を作れない。design D5）
@@ -94,7 +94,7 @@ DB を使う検査は `docker compose up -d db` が前提。
   加えて、(2) の式が数の値・配列・文字列だけの内容でエラーにならないこと、(3) の式が design D5a の表の例すべてに当たり `Chrome 128.0.6613.84`・`price 1,234.50 yen`・`2026/09/07 12:30` に当たらないことを DB で当てる。
   加えて、終わりが始まりより前の `end_time` を持つ行が (c) の幅で読まれることを 1 本で固定する。
   検証: `CT export_excluded_sql 19`（spec の「書き出しは本人が消した場面を出さない」の遅着を除く 16 本と同じ形を件数で 1 本ずつ ＋ (2)(3) の式の 2 本 ＋ 終わりが前の 1 本）
-- [ ] 3.2 `GET /export/summary` —— ソースごとの件数・いちばん古い時刻・いちばん新しい時刻（3.1 の断片で除いた残り。全利用者の和。件数 0 のソースは出さない）、登録簿の表示名、見込み `estimate`（D18）。資格情報なしは 401。
+- [x] 3.2 `GET /export/summary` —— ソースごとの件数・いちばん古い時刻・いちばん新しい時刻（3.1 の断片で除いた残り。全利用者の和。件数 0 のソースは出さない）、登録簿の表示名、見込み `estimate`（D18）。資格情報なしは 401。
   Scenario: `書き出しの見込みの行の数は件数の和と一致する` / `資格情報の無い件数と状態の求めは断られる`（件数の側。状態の側は 6.4）。検証: `CT export_summary 2`
   （`書き出す前の件数は書き出した行の数と一致する` は書き出しの本体が要るので 5.4）
 
