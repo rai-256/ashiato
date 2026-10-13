@@ -1,0 +1,35 @@
+{
+  "tag": "20261013-1031",
+  "run_id": "20261013-193656-24ee45e",
+  "commit": "24ee45ec9548e790aa52684837a5d8cdbe5411a0",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261013-193656-24ee45e",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261013-193656-24ee45e",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST25-day-timeline",
+      "story": "ST25",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST25-day-timeline/video.webm",
+      "trace": "scenarios/ST25-day-timeline/trace.zip"
+    },
+    {
+      "id": "ST21-places",
+      "story": "ST21",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST21-places/video.webm",
+      "trace": "scenarios/ST21-places/trace.zip"
+    }
+  ]
+}

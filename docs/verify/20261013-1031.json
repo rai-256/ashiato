@@ -10,7 +10,8 @@
     "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
     "Android: `dist/verify-20261013-1031/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261013-1031/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
     "時計のずれの測り直し（`c01-clock`）: 数えていない（DB を起動できない、または core.event がまだ無い）。run.sh の後に次で数える: `docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select coalesce(sum((payload->>'trigger'='retry')::int),0) as retry, coalesce(sum((payload->>'trigger'='hourly')::int),0) as hourly from core.event where logical_source='c01-clock' and payload->>'kind'='clock-skew' and event_time > now() - interval '7 days'\"`",
-    "成果物: `dist/verify-20261013-1031/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。"
+    "成果物: `dist/verify-20261013-1031/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261013-193656-24ee45e（全体 ok / 片付け ok）"
   ],
   "questions": [
     {
@@ -19,7 +20,7 @@
       "kind": "check",
       "question": "ST25「1 日を時刻順に見る」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
-      "context": "画面: S-2 主表現（1 日を見る）: `/`（画面を開いた最初の状態（今日）。日を指すなら `/#/day/2026-09-07`（`#/day/<YYYY-MM-DD>`。日付を省く `#/day/` も今日）。解釈できないアドレスも今日）",
+      "context": "画面: S-2 主表現（1 日を見る）: `/`（画面を開いた最初の状態（今日）。日を指すなら `/#/day/2026-09-07`（`#/day/<YYYY-MM-DD>`。日付を省く `#/day/` も今日）。解釈できないアドレスも今日）\n録画 ▶ ST25-day-timeline（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261013-193656-24ee45e\\scenarios\\ST25-day-timeline\\video.webm",
       "options": [
         {
           "label": "通った",
@@ -37,7 +38,7 @@
       "kind": "check",
       "question": "ST21「場所を登録し、識別子を変えない」を触ってみて、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」だけ",
-      "context": "画面: S-6 マスタ管理: `/#/master`（アドレスに `#/master` を足す）",
+      "context": "画面: S-6 マスタ管理: `/#/master`（アドレスに `#/master` を足す）\n録画 ▶ ST21-places（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261013-193656-24ee45e\\scenarios\\ST21-places\\video.webm",
       "options": [
         {
           "label": "通った",
