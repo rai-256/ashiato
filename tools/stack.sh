@@ -11,6 +11,7 @@
 #   SEED          normal（既定）/ max / empty
 #   STACK_RESET=1 起動の前に DB を作り直す（e2e のように毎回同じ状態から始めたいとき）
 #   HARNESS_VERIFY=1  ハーネスの verify-run が渡す。STACK_RESET=1 と同じに扱う（証跡を溜まった DB に頼らせない）
+#   ASHIATO_EXPORT_DIR  書き出しの置き場（既定 <repo>/.export。gitignore 済み。ST33）
 #   BIND / WEB_PORT / DATABASE_URL / API_TOKEN
 #
 # 呼び出し元は 2 つある。**分けない** —— 分けると「e2e は緑なのに人間が見る画面は違う」が起きる。
@@ -31,6 +32,7 @@ export DATABASE_OWNER_URL="$(ashiato_db_url "${DATABASE_OWNER_URL:?.env を読�
 export BIND="127.0.0.1:${ASHIATO_HTTP_PORT}"   # port は worktree ごと（.env の BIND の port より優先。ST05）
 export API_TOKEN="${API_TOKEN:-dev-token-0123456789abcdef}"
 export WEB_PASSWORD="${WEB_PASSWORD:?.env を読み込む（set -a; . ./.env; set +a）か WEB_PASSWORD を渡す}"
+export ASHIATO_EXPORT_DIR="${ASHIATO_EXPORT_DIR:-$PWD/.export}"   # 書き出しの置き場は worktree の中（ホームの実データの置き場を汚さない。ST33）
 export WEB_PORT="${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない
 
 if [ "$cmd" = "down" ]; then

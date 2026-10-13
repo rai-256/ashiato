@@ -39,3 +39,6 @@ web/.playwright/
 
 # 移行の前の退避（ashiato-server migrate。実データの写しなので commit しない・拠点の外へ出さない）
 backups/
+
+# 書き出しの置き場（tools/stack.sh。ST33）
+/.export/

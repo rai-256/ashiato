@@ -3,10 +3,15 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * 画面は外部の資源を読まず、端末に記録の写しを置かない（ST28 / design D10）。
- * ログイン済み（既定の `storageState`）で稼働状況・1 日を見る・マスタ管理を順に開く。
+ * ログイン済み（既定の `storageState`）で稼働状況・1 日を見る・マスタ管理・設定（ST33）を順に開く。
  */
-const VIEWS = ["/#/coverage", "/#/day/2026-09-07", "/#/master"] as const;
-const READY = ['[data-testid^="grid-"]', '[data-testid="day-view"]', '[data-testid="master-view"]'] as const;
+const VIEWS = ["/#/coverage", "/#/day/2026-09-07", "/#/master", "/#/settings"] as const;
+const READY = [
+  '[data-testid^="grid-"]',
+  '[data-testid="day-view"]',
+  '[data-testid="master-view"]',
+  '[data-testid="settings-view"]',
+] as const;
 
 async function openAll(page: Page): Promise<void> {
   for (const [i, path] of VIEWS.entries()) {
