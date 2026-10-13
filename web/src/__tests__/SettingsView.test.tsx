@@ -216,6 +216,28 @@ describe("設定の書き出しの節", () => {
     expect((screen.getByTestId("export-start") as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("読み直しの GET が失敗しても前の進み具合を残し、読み直しを続ける", async () => {
+    status = { leftover: [], running: { export_id: "u", started_at: "2026-10-13T00:00:00Z", written: 10, total: 100 } };
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<Root />);
+    await waitFor(() => expect(screen.getByTestId("export-progress")).toBeTruthy());
+    const get = globalThis.fetch;
+    vi.stubGlobal("fetch", (path: string, init?: RequestInit) =>
+      path === "/api/export" && init?.method !== "POST" ? Promise.reject(new Error("down")) : get(path, init),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(screen.getByTestId("export-progress")).toBeTruthy();
+    expect((screen.getByTestId("export-start") as HTMLButtonElement).disabled).toBe(true);
+    vi.stubGlobal("fetch", get);
+    status = { leftover: [], last: LAST };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    await waitFor(() => expect(screen.queryByTestId("export-progress")).toBeNull());
+  });
+
   it("失敗・途中で止まった・消せなかったファイルは 1 行ずつ、押し直せる", async () => {
     status = {
       leftover: ["/data/export/old.zip"],

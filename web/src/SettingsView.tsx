@@ -48,6 +48,7 @@ export function SettingsView(): React.ReactElement {
   const c = SCHEMES[scheme];
   const [summary, setSummary] = useState<Load<Summary>>({ at: "loading" });
   const [status, setStatus] = useState<Load<ExportStatus>>({ at: "loading" });
+  const [statusStale, setStatusStale] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pw, setPw] = useState("");
   const [again, setAgain] = useState("");
@@ -58,8 +59,11 @@ export function SettingsView(): React.ReactElement {
   const loadStatus = useCallback(async (): Promise<void> => {
     try {
       setStatus({ at: "ok", value: await read("/api/export", isExportStatus) });
+      setStatusStale(false);
     } catch {
-      setStatus({ at: "failed" });
+      // 読み直しの失敗では前の値を残す（running が消えて読み直しが止まらないように）
+      setStatus((prev) => (prev.at === "ok" ? prev : { at: "failed" }));
+      setStatusStale(true);
     }
   }, []);
 
@@ -169,7 +173,7 @@ export function SettingsView(): React.ReactElement {
             {m.running(num(runningView.written), num(runningView.total))}
           </p>
         )}
-        {status.at === "failed" && <p role="alert">{m.statusFailed}</p>}
+        {(status.at === "failed" || statusStale) && <p role="alert">{m.statusFailed}</p>}
         {refusal !== null && (
           <p data-testid="export-refusal" role="alert" style={{ wordBreak: "break-all" }}>
             {refusal}
