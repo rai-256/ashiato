@@ -628,25 +628,14 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
     let mut tx = pool.begin().await?;
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
-    let span: (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(
+    let span: (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(&format!(
         "SELECT min(s.event_time),
                 max(coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time))
            FROM core.event s
           WHERE s.user_id = $1
-            AND s.logical_source = $2
-            AND s.origin = 'derived'
-            AND s.deleted_at IS NOT NULL
-            AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $3)
-            AND EXISTS (
-              SELECT 1 FROM core.deletion_ledger d
-               WHERE d.event_id = s.id
-                 AND d.action = 'erase'
-                 AND d.seq = (
-                   SELECT max(last.seq) FROM core.deletion_ledger last
-                    WHERE last.event_id = s.id
-                 )
-            )",
-    )
+            AND {erased}",
+        erased = user_erased_stay_sql("s", 2, 3)
+    ))
     .bind(user)
     .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
@@ -669,6 +658,28 @@ pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
         }
     }
     all
+}
+
+/// 「本人が消した滞在」の SQL 条件（`alias` は core.event の別名、`source` / `prefix` は滞在の論理ソースと
+/// 作り直しの印の接頭辞を束ねる `$n` の番号）。`mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
+/// 台帳の最新の行が erase で、かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない。
+fn user_erased_stay_sql(alias: &str, source: u8, prefix: u8) -> String {
+    format!(
+        "{a}.logical_source = ${source}
+            AND {a}.origin = 'derived'
+            AND {a}.deleted_at IS NOT NULL
+            AND ({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = {a}.id
+                 AND d.action = 'erase'
+                 AND d.seq = (
+                   SELECT max(last.seq) FROM core.deletion_ledger last
+                    WHERE last.event_id = {a}.id
+                 )
+            )",
+        a = alias
+    )
 }
 
 /// 記録の終わりの SQL 式。区間の記録（`end_time`）は終わりを、点は始まりを返す
@@ -850,19 +861,7 @@ async fn mark_late_arrivals(
            FROM core.event e
            JOIN core.event s
              ON s.user_id = e.user_id
-            AND s.logical_source = $5
-            AND s.origin = 'derived'
-            AND s.deleted_at IS NOT NULL
-            AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $6)
-            AND EXISTS (
-              SELECT 1 FROM core.deletion_ledger d
-               WHERE d.event_id = s.id
-                 AND d.action = 'erase'
-                 AND d.seq = (
-                   SELECT max(last.seq) FROM core.deletion_ledger last
-                    WHERE last.event_id = s.id
-                 )
-            )
+            AND {erased}
             AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
             AND {end} >= s.event_time
           WHERE e.user_id = $1
@@ -871,6 +870,7 @@ async fn mark_late_arrivals(
             AND e.deleted_at IS NULL
             AND {located}
           ORDER BY e.id, s.event_time, s.id",
+        erased = user_erased_stay_sql("s", 5, 6),
         end = event_end_sql("e"),
         located = item_located_sql("e")
     ))
