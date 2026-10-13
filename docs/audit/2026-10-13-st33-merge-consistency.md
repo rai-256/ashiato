@@ -1,6 +1,7 @@
 # 整合の確認（2026-10-13・ST33 の NFR-16 の改訂を、main（ST12 の archive・ST47）を取り込んだ木で）
 
-- 基準: `32bd8ec337a0e578ada98b0ec77320dba4feb5b3`..`02c209146337af9758947bbda3deba953c820f4f`
+- 基準: `32bd8ec337a0e578ada98b0ec77320dba4feb5b3`..`a7a8c70100f778af5a25bbb56a1ae5b1245140bf`
+（基準の head は、main を取り込んだ merge commit `02c20914` を graph の prepare が rebase で一直線にしたときに同じ木になった commit。`02c20914` は rebase で origin から消え、CI が読めなかった）
 
 対象は `git diff 32bd8ec3..02c20914 -- docs/requirements.md` の 2 項目。
 ST33 の深掘りが戻した NFR-16 の改訂（★ 2026-09-29 訂正・★ 2026-10-12 の Q6〜Q8・★ 2026-10-12 の Q9「合言葉で暗号化した 1 つのファイル」）と、
