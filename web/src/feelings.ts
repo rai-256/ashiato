@@ -7,6 +7,7 @@
  */
 
 import { msg } from "./messages";
+import { isRealDate } from "./stays";
 
 const M = msg("feel");
 
@@ -152,4 +153,101 @@ export function dayMark(status: DayStatus, latestValence: number | null): string
   if (status === "missing") return M.markMissing;
   if (status === "recorded") return latestValence === null ? M.markStayOnly : signed(latestValence);
   return "";
+}
+
+// ---- 読み出し（GET /feelings）と送る 1 件（S-3。design D12） ----
+
+/** 1 日の分（S-3 が使う部分）。`day` は「日」を紐づけ先にする記録。 */
+export interface DayBucket {
+  latest: Latest;
+  /** 記入の日時の新しい順 */
+  records: Feeling[];
+}
+
+export interface FeelingsDay {
+  date: string;
+  day: DayBucket;
+}
+
+export interface FeelingsView {
+  today: string;
+  days: FeelingsDay[];
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+
+function isFeelingShape(v: unknown): v is Feeling {
+  if (!isObj(v)) return false;
+  return (
+    typeof v.id === "string" &&
+    Array.isArray(v.scales) &&
+    v.scales.every((s) => isObj(s) && typeof s.id === "string" && typeof s.value === "number") &&
+    (v.note === null || typeof v.note === "string") &&
+    typeof v.written_at === "string" &&
+    (v.phase === "before" || v.phase === "after")
+  );
+}
+
+const isFeelingOrNull = (v: unknown): boolean => v === null || isFeelingShape(v);
+
+/** 応答が読める形か。**形が違えば失敗として出す**（型の宣言だけで通すと描画で落ちる）。 */
+export function isFeelingsView(v: unknown): v is FeelingsView {
+  if (!isObj(v) || typeof v.today !== "string" || !Array.isArray(v.days)) return false;
+  return v.days.every((d) => {
+    if (!isObj(d) || typeof d.date !== "string" || !isObj(d.day)) return false;
+    const b = d.day;
+    return (
+      isObj(b.latest) &&
+      isFeelingOrNull(b.latest.before) &&
+      isFeelingOrNull(b.latest.after) &&
+      Array.isArray(b.records) &&
+      b.records.every(isFeelingShape)
+    );
+  });
+}
+
+/** 記録の中の尺度の値。無ければ `null`。 */
+export function scaleValue(f: Feeling | null, id: string): number | null {
+  return f?.scales.find((s) => s.id === id)?.value ?? null;
+}
+
+/** 取り込み口へ送る 1 件（`POST /api/ingest` の本文の要素）。 */
+export function ingestFeelingItem(built: BuiltFeeling): unknown {
+  return {
+    id: built.id,
+    user_id: "00000000-0000-0000-0000-000000000000",
+    logical_source: "s01-feeling",
+    external_id: null,
+    device_id: null,
+    origin: "authored",
+    event_time: built.eventTime,
+    tz_offset_min: built.tzOffsetMin,
+    tz_id: built.tzId,
+    schema_version: 1,
+    raw: built.raw,
+    payload: {},
+  };
+}
+
+/** 記入の日時の表示（`M 月 D 日 H:MM`。`Asia/Tokyo`）。 */
+export function atLabel(at: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TARGET_TZ,
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? "";
+  return M.at(Number(get("month")), Number(get("day")), `${get("hour")}:${get("minute")}`);
+}
+
+/** `#/feel` の日付の部分。`null` = 日付なし（暦の今日）、`"invalid"` = 暦に無い。 */
+export function feelDateFromHash(hash: string): { date: string | null } | { invalid: string } | undefined {
+  const m = /^#\/feel(?:\/([^/]*))?\/?$/.exec(hash);
+  if (m === null) return undefined;
+  const raw = m[1] ?? "";
+  if (raw === "") return { date: null };
+  return isRealDate(raw) ? { date: raw } : { invalid: raw };
 }
