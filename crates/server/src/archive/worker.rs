@@ -1125,6 +1125,8 @@ pub async fn confirmed_pending_copies(
           WHERE p.user_id = $1
             AND EXISTS (SELECT 1 FROM core.archive_shape_confirmation c
                          WHERE c.user_id = p.user_id AND c.shape_hash = p.shape_hash)
+            -- 印で読めない形（`is_unconfirmable_shape`）は、印があっても拾わない（D6）。
+            AND NOT (p.shape->>'kind' = 'YouTube' AND p.shape->'languages' = '[]'::jsonb)
           ORDER BY p.sha256, p.inner_path",
     )
     .bind(user_id)
@@ -1284,6 +1286,29 @@ fn path_shape(inner_path: &str) -> String {
         .and_then(|extension| extension.to_str())
         .unwrap_or("");
     format!("depth={depth};ext={extension}")
+}
+
+/// 決まり文句が 1 つも当たらない YouTube の形（`languages: []`）か。
+/// この形には印があっても読まない（deep.md 第 2 回 Q7 / design D6。`tools/archive-shape.sh --confirm`
+/// の断りと二重。ハッシュを一覧の外で知って先に印を置かれても、表に無い言語のファイルを通さない）。
+pub fn is_unconfirmable_shape(shape: &serde_json::Value) -> bool {
+    shape.get("kind").and_then(serde_json::Value::as_str) == Some("YouTube")
+        && shape
+            .get("languages")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(Vec::is_empty)
+}
+
+/// ファイルの形に印があり、その形が印で読めるものか（`is_unconfirmable_shape` は常に「印なし」）。
+pub async fn is_file_shape_confirmed(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    shape: &serde_json::Value,
+) -> Result<bool, sqlx::Error> {
+    if is_unconfirmable_shape(shape) {
+        return Ok(false);
+    }
+    is_shape_confirmed(pool, user_id, &hash_shape(shape)).await
 }
 
 pub async fn is_shape_confirmed(
@@ -1583,7 +1608,7 @@ async fn reread_archive(
         };
         if require_confirmed && requires_shape_confirmation(known.kind) {
             let shape = shape_for_file(known.kind, inner_path, &file.bytes)?;
-            if !is_shape_confirmed(pool, user_id, &hash_shape(&shape)).await? {
+            if !is_file_shape_confirmed(pool, user_id, &shape).await? {
                 // 印の無いファイルは黙って飛ばさず、新しい形で確認待ちに積む（ST47 / D9 の 3）。
                 tracing::warn!(
                     kind = "archive_reparse_unconfirmed",
@@ -2180,8 +2205,7 @@ pub fn spawn_inspecting(
                                     continue;
                                 }
                             };
-                            let shape_hash = hash_shape(&shape);
-                            match is_shape_confirmed(&pool, user_id, &shape_hash).await {
+                            match is_file_shape_confirmed(&pool, user_id, &shape).await {
                                 Ok(true) => {
                                     if remove_pending_shape(&pool, user_id, &sha256, &file.path)
                                         .await

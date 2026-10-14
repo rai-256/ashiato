@@ -1573,14 +1573,14 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         &inbox.join("takeout-20260912.zip"),
         &[(
             "Takeout/YouTube/watch-history.json",
-            br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+            br#"[{"time":"2026-09-12T03:00:00Z","title":"Watched x","titleUrl":"https://youtube.com/watch?v=x"}]"#,
         )],
     );
     let user = testdb::user();
     let shape = crate::archive::worker::shape_for_file(
         crate::archive::classify::KnownKind::YouTube,
         "Takeout/fixture.json",
-        br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
+        br#"[{"time":"2026-09-12T03:00:00Z","title":"Watched x","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
     .unwrap();
     sqlx::query("INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape) VALUES ($1, $2, $3)")
