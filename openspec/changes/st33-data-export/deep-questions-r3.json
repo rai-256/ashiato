@@ -1,0 +1,36 @@
+{
+  "title": "ST33 の深掘り 第 4 回",
+  "subtitle": "Task 10 の検証コマンドが成立しない 2 件（premise）",
+  "note": ["Task 10 の fix round で、tasks.md の検証コマンド 2 本が原理的に通らないと分かりました。Task agent は tasks.md も既存の期待も直せないので、直し方をここで選んでください。", "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。"],
+  "questions": [
+    {
+      "id": "Q10",
+      "topic": "10.2 の連鎖が ST12 のテストの後始末と食い違う",
+      "kind": "premise",
+      "question": "cargo test の後の同じ DB で e2e が落ちる件（archive-layout.spec.ts:166。ST33 と無関係）をどう閉じますか。",
+      "why": "10.2 は 1 本の連鎖で、cargo test が足した当日始まりの c03 ソースが e2e の格子の期待を満たさない。作り直した DB では 65 passed。",
+      "context": "原因は ST12 の archive_tests / archive_flow_tests が登録簿へソースを足すこと。ST33 は触っていない。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {"label": "10.2 の検証コマンドを、e2e の前に DB を作り直す形に plan_fix で直す", "detail": "受け入れ条件は変えず、ST33 の外を触らない", "irreversible": "", "recommended": true},
+        {"label": "ST12 側を fix/ か handoff で直し、10.2 はそれを待つ", "detail": "根本は直るが ST33 の merge が遅れる", "irreversible": ""},
+        {"label": "明示の処置（既知の外因）を付けて通す", "detail": "10.2 の e2e は緑にならないまま残る", "irreversible": ""}
+      ]
+    },
+    {
+      "id": "Q11",
+      "topic": "10.3 の検証コマンドの置き場の誤り",
+      "kind": "premise",
+      "question": "10.3 の検証コマンドを export_file_tests.rs の印に合わせ、backtick で名指しする形に plan_fix で直してよいですか。",
+      "why": "印は export_file_tests.rs:854 にあり export_tests.rs には無い。本文に backtick のコマンドが無く verify-run が記録を拒む。",
+      "context": "印を二重に置かない規律のため、テスト側は動かさない。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {"label": "直してよい", "detail": "grep の 2 本を backtick で名指しする。受け入れ条件は変えない", "irreversible": "", "recommended": true},
+        {"label": "直さず、明示の処置で通す", "detail": "10.3 は機械の証跡が残らない", "irreversible": ""}
+      ]
+    }
+  ]
+}

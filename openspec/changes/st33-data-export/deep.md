@@ -345,3 +345,16 @@ merge gate が origin/main への rebase の衝突で落ち、衝突を解くと
 
 監査の C3（NFR-16 の Q8 と FR-50 ★ 2026-10-13 の「位置を持つ」の広さの違い）は除く側に広いだけで外へ出るものが増えないので留めた（監査の行き先のとおり）。C4 は ST47 へ申し送り済み。
 人間に返す問い（A）は作らなかった —— 4 件とも、本人の答え（Q9）を写すことか、ST12 の事実に材料と読み方を合わせることで決まった。Q9 の形で spec の段が決めたもの（C22〜C25）はどれも緩めると外へ出るものが増える側の既定（既定は厳しい側）で、緩めるのは本人に返す。
+
+### Q10. 10.2 の連鎖（cargo test → 同じ DB で e2e）が ST33 と無関係に成立しない（premise。A / premise。推奨: 連鎖の順を入れ替えず、e2e を作り直した DB で走らせる検証コマンドに正式に直す）
+
+- **事実**: `cargo test --workspace` の後の同じ DB で `npm run test:e2e` を走らせると、`web/e2e/archive-layout.spec.ts:166` だけが 3 回続けて FAIL する（証跡は `evidence.jsonl` の 10.2。`heights.length` が 0）。作り直した DB では通る（65 passed）。
+  原因: ST12 の既存テスト（`archive_tests.rs` / `archive_flow_tests.rs`）が `c03-myactivity-u<hash>` を登録簿へ足し、その日に始まったソースは格子の子が 0 になる。e2e は `section[data-source^='c03-'] [data-role=grid]` の全部に子を求める。ST33 は両方とも触っていない
+- **なぜ人間の判断か**: 直し方が 3 通りあり、どれも ST33 の外（ST12 の既存テストと既存 Scenario の期待）に触れるか、tasks 10.2 の検証コマンドを直す（plan_fix。承認が要る）。Task agent は既存の期待を書き換えない（`check_agreed_tests.py`）
+- **選択肢**: (a) 10.2 の検証コマンドを「e2e の前に DB を作り直す」形に plan_fix で直す。(b) ST12 側を `fix/` か handoff で直し、10.2 はそれを待つ。(c) この項目に明示の処置（既知の外因）を付けて通す
+
+### Q11. 10.3 の検証コマンドが成立しない（premise。A / premise。推奨: export_file_tests.rs に直す）
+
+- **事実**: 10.3 の `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_tests.rs` は 0 を返す。印は `export_file_tests.rs:854`（Task 5 の側）にあり、印を二重に置かない規律なので動かしていない。
+  さらに 10.3 の本文は検証コマンドを backtick で名指ししていないため、`scripts/verify-run 10.3` は「本文に検証コマンドが無い」で記録を拒む（rc=2）。`--command` での FAIL の実証も取れない
+- **提案する正式な入口**: `scripts/plan_fix.py st33-data-export 10.3` で、検証コマンドを `grep -c 'st22-record-deletion' docs/handoff/ST33.md` と `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_file_tests.rs` の 2 本の backtick つきに直す（受け入れ条件は変えない）
