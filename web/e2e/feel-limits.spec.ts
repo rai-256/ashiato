@@ -156,8 +156,7 @@ test("明と暗のそれぞれで、本文と補助の文字は背景に対し�
   }
 });
 
-// 未決（deep.md「押された面の 3:1」）: spec は押された「面」を 3:1 と書くが、暗の面は 1.38:1 で満たさない。
-// ここは縁と破線を測る。spec が面のまま答えが出るまで、Scenario の印は付けない。
+// Scenario: 押された状態と未記入の破線は 3:1 以上
 test("明と暗のそれぞれで、押された快–不快のボタンの縁と未記入の日の破線は、隣の面に対して 3:1 以上", async ({ page }) => {
   for (const scheme of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
