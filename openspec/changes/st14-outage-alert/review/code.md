@@ -305,3 +305,11 @@ R13 の携帯の試験は**問い合わせの文字列を作る関数**だけを
   `Notifications\Settings\<AUMID>` の `Enabled = 0` を登録簿に書く実行時テストを Windows 側の cargo で走らせた —— (1) 一度も出していない差出人は `Setting()` 自体が `Err` を返す（足した形のままだと初めての通知が出なくなる）、
   (2) 一度出した後に `Enabled = 0` を書いても `Setting()` は `Enabled`（`NotificationSetting(0)`）のままで `Show` は `Ok`。通知基盤は登録簿を同期で読まず、「本人がこの差出人を切った」状態を試験から作れない。
   試験で固定できない変更は入れない（変更は戻した。試験の差出人の登録簿の鍵も消した）。`cargo test --test runtime_windows outage` は戻した木で 1 passed
+
+## scoped re-review（122502c..0dcbe8f。code-verify の R17・R18）
+
+席: 独立の re-reviewer（SDD の `re-review-prompt.md`。fix の文脈を持たない）。review package `.superpowers/sdd/tasks/review-122502c7..0dcbe8f6.diff`。
+- R17 —— ADDRESSED（`newOutageQuery` は `private`、試験が差し替えるのは `newOutageGet` だけ。新しい試験が実際に打たれた文字列の `&user_id=<設定の利用者>` を見る。override は finally で戻す）
+- R18 携帯 —— ADDRESSED（`canPost()` がチャネルの NONE を見る。未作成（null）は出せる扱いで初回は止まらない）
+- R18 PC —— park は根拠つきで妥当（`Setting()` が未表示の差出人で Err・登録簿の `Enabled = 0` が反映されない。反転条件が Ruling にある）
+- 新しい壊れ: なし / 範囲外の所見: なし
