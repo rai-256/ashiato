@@ -1288,3 +1288,78 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 - 根拠: `history_not_queued_writes_no_ledger_and_is_reported` は最初のまとまりで落とすので、「最初のまとまりの後で帳面を書く」誤りでも通る。`Plan::save` の `store.save()` の失敗で `queued=false` になることも固定していない
 - kind: technical
 - 提案: 2,001 件以上で 2 回目の `queue` を失敗させるテストと、帳面の置き場を書けなくするテストを足す
+
+## final review（e32f33a..72fce58）
+
+前回の whole-branch review（`bd2084f8`）の後の 15 commit を重点に、ブランチ全体を見直した。R1〜R76 と重なるものは出していない。
+
+## R77. 深掘り第 6 回 Q11（前に送った版より前にしない）がコードにも spec / design D15 / 送信契約 / proposal にも入っていない
+
+- 成果物: crates/collector-windows/src/history/contract.rs / crates/collector-windows/src/history/ledger.rs / openspec/changes/st08-browser-history/specs/desktop-collection/spec.md / design.md D15 / docs/collector-contract.md / proposal.md
+- 根拠: `history/contract.rs:330` は `source_updated_at: Some(micros(collected_at))` のまま。`LedgerVisit` に前に送った版が無い。`docs/audit/2026-10-12-fr13-q11-consistency.md` の C1・C2・C3・C5・K1 は「行き先: fix（ST08 自身の下流の回し直し。このブランチ）」、C4 は「D15 で扱いを決める。閉じられなければ ask」。時計が戻った後の更新が届くことを見る Scenario もテストも無い
+- kind: technical
+- loss: uncaptured
+- 提案: 帳面の訪問に前に送った版を持ち、`source_updated_at` = max(読んだ時刻, 前の版 + 1µs)。古い帳面は `#[serde(default)]` で読む。Runtime の層のテストに Scenario の印。C4 は帳面を退避しても残るプロファイルごとの送った版の最大値で閉じる（仮）
+
+## R78. `check_chain.py` が HEAD で FAIL する（CI の `chain` job も赤）
+
+- 成果物: docs/audit/
+- 根拠: `python3 scripts/check_chain.py .` → `[FAIL] 整合の確認: 整合の確認の後に要件が変わった（この監査を名指ししない改訂）: FR-13`。`consistency_triage.py` の `latest()` は基準の head が最も新しい監査を見る。rebase で入った main の `2026-10-14-st14-merge-consistency.md` の基準は ST08 の FR-13 ★ 2026-10-12 を持たない。11.3 の証跡は rebase と Task 10 より前
+- kind: technical
+- 提案: R77 を直した後、その commit を基準にした ST08 の整合の確認を `docs/audit/` に足す
+
+## R79. CI は HEAD を一度も走らせていない（最新の run は `d6ed9406`）
+
+- 成果物: .github/workflows/ci.yml
+- 根拠: 1bd54906 の下限 `-lt 13` は CI で未検証。d6ed9406 では runtime job が 13 本・`-lt 10` で緑
+- kind: technical
+- 処置: rejected: push と CI はこのセッションの外（グラフの publish → gate）。`merge_gate.sh` がその head の CI を見る（.harness2/docs/flow-gates.md の「関門の 3 段」）
+
+## R80. 2a030d89 が凍結された tasks.md の 10.1 / 10.2 の検証コマンドを書き換えた
+
+- 成果物: openspec/changes/st08-browser-history/tasks.md
+- 根拠: `git show 2a030d89 -- openspec/changes/st08-browser-history/tasks.md`。本文に「★ 2026-10-14 本人の指示で訂正」。commit のメッセージは gate が 859 周したことを理由に挙げる
+- kind: technical
+- 提案: PR 本文で、merge のときに人間が確かめる点として挙げる
+
+## R81. Minor: proposal の「第 3〜5 回」の表の後ろに第 2 回の Q4 / Q5 の行が続いている
+
+- 成果物: openspec/changes/st08-browser-history/proposal.md
+- 根拠: `proposal.md:47-57`
+- kind: technical
+- 提案: Q6〜Q10 の行を Q5 の行の後ろへ動かす
+
+## R82. Minor: `remember_queued` の印の削除の失敗が無言で、古い印が残ると起動直後の信号が「取得できない」のままになる
+
+- 成果物: crates/collector-windows/src/runtime.rs
+- 根拠: `remove_file(...).ok()`（`runtime.rs` の `remember_queued`）
+- kind: technical
+- 提案: 失敗をログに出す
+
+## R83. Minor: 印がある状態で起動すると、起動直後の確かめが取得より先に終わり、直った後の最初の信号も「取得できない」になる
+
+- 成果物: crates/collector-windows/src/runtime.rs:668-673
+- 根拠: 印があれば取得はすぐ始まるが、確かめのほうが先に終わる。正しい値になるのは 1 区間遅れる（安全側）
+- kind: technical
+- 処置: followup ST08 — Minor（安全側に 1 区間遅れるだけで失うものは無い）。docs/handoff/ST08.md
+
+## R84. Minor: `history_heartbeat_counts_panicked_read_as_not_queued` が panic の出力を stderr に出す
+
+- 成果物: crates/collector-windows/src/runtime.rs（tests）
+- 根拠: やり直しのたびに panic の既定の出力が出る（ノイズだけ）
+- kind: technical
+- 処置: followup ST08 — Minor（テストの出力のノイズだけ）。docs/handoff/ST08.md
+
+## R85. Minor: Task 10 の F2〜F4（ブラウザが動いていることの固定・stderr の継ぎ方・Chrome のユーザ単位の置き場）が開いたまま
+
+- 成果物: crates/collector-windows/tests/runtime_windows.rs
+- 根拠: `.superpowers/sdd/st08-task-10/task-10-findings.md` の F2〜F4
+- kind: technical
+- 処置: followup ST08 — Minor（実行時テストの堅さ。いまの 13 本は Windows で緑）。docs/handoff/ST08.md
+
+## R86. Minor: `tools/st12_delta_diff.py` の warn 行に `f` 接頭辞が無い（main 由来）
+
+- 成果物: tools/st12_delta_diff.py
+- 根拠: 0f3df8c9（main）。`{len(new_names)}本（許したのは{NEW_SCENARIOS}本）` が字面のまま出る
+- kind: defer
+- 処置: rejected: ST08 の変更ではない（`git log e32f33a..HEAD -- tools/st12_delta_diff.py` が空。main の 0f3df8c9）。main 側の `fix/` で拾う
