@@ -315,6 +315,18 @@ Q2 は「知らせる —— 取得できる状態の生存信号だけを生き
 
 - **反転条件**: 本人が、一度も取得できる状態にならなかった収集（最初から権限の無いもの）は途切れとして鳴らさなくてよいと言ったとき（開始日を「取得できる状態の材料が初めて届いた日」に絞る、などに変える）
 
+### D27（仮）. `has_non_collected` を部分索引で支える（D4 / review/code.md R3）
+
+`core.event` の索引には `origin` を含むものが無く、`outage_store::inputs` の `EXISTS (… AND e.origin <> 'collected')` は、
+収集した記録しか持たないソース（位置は年に数十万行）では一致が無いので、問い合わせのたびに利用者 × ソースの全行を読む。
+収集アプリは 10 秒で打ち切るので、遅くなると届かない扱いになり通知が変わらなくなる（黙って止まる）。D4 の「足りなければ部分索引」をここで足す:
+まだ merge していない同じ移行（`202610141130_outage_alert.sql`）に `core.event (user_id, logical_source) WHERE origin <> 'collected'` の部分索引
+`event_non_collected_by_source` を `IF NOT EXISTS` で置く（戻しは `.down.sql` で落とす）。収集した記録は索引に入らないので小さい。
+試験は `outage_registry_tests::st14_reg_event_has_non_collected_partial_index`（索引の定義を見る）。
+
+- **反転条件**: `has_non_collected` を判定の材料から外すとき（出どころでの除外をやめる、登録簿の印だけにする）、または
+  本人が書いた・導出した記録が収集した記録に近い量になり、部分索引が大きくなって書き込みが重くなったとき（登録簿に出どころの事実を持たせる、などに変える）
+
 ## C と D の対応
 
 | C | 何を | D |
