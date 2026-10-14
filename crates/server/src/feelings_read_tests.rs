@@ -821,13 +821,87 @@ async fn st17_read_api_today_and_first_day_are_returned() {
     let (id, _) = write_day(
         &app,
         user,
-        "2030-01-10",
+        "2100-01-10",
         "2026-10-14T12:00:00+09:00",
         valence(1),
         None,
     )
     .await;
-    let day = read_day(&app, user, "2030-01-10").await;
+    let day = read_day(&app, user, "2100-01-10").await;
     assert_eq!(day["status"], "future");
     assert_eq!(id_of(&day["day"]["latest"]["before"]), id.to_string());
+}
+
+/// 試験の間だけ `tracing` の出力を集める（このスレッドだけ。`#[tokio::test]` は 1 本のスレッドで回る）
+#[derive(Clone, Default)]
+struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+// 解析済みの形が読めない行は読み飛ばし、捨てた件数だけを記録に残す（値・本文は出さない。whole-branch review R7）
+#[tokio::test]
+async fn st17_read_api_unreadable_row_is_dropped_with_a_count_in_the_log() {
+    let app = app().await;
+    let user = testdb::user();
+    let (good, _) = write_day(
+        &app,
+        user,
+        "2026-10-07",
+        "2026-10-07T21:00:00+09:00",
+        valence(1),
+        Some("ひみつのひとこと"),
+    )
+    .await;
+    // 取り込み口を通らずに置いた、解析済みに記入の日時の無い行
+    let broken = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id, schema_version,
+            content_hash, raw, payload)
+         VALUES ($1,$2,'s01-feeling','authored',$3,540,'Asia/Tokyo',1,$4,'{\"note\":\"ひみつのひとこと\"}',$5)",
+    )
+    .bind(broken)
+    .bind(user)
+    .bind(t("2026-10-07T00:00:00+09:00"))
+    .bind(broken.to_string())
+    .bind(serde_json::json!({ "note": "ひみつのひとこと" }))
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let captured = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .finish();
+    let day = {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        read_day(&app, user, "2026-10-07").await
+    };
+    let records = day["day"]["records"].as_array().unwrap();
+    assert_eq!(records.len(), 1, "読める行だけが出る");
+    assert_eq!(id_of(&records[0]), good.to_string());
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("feeling_unreadable"), "{log}");
+    assert!(log.contains("dropped=1"), "{log}");
+    assert!(!log.contains("ひみつ"), "本文を出さない: {log}");
+    assert!(
+        !log.contains(&broken.to_string()),
+        "識別子も出さない: {log}"
+    );
 }

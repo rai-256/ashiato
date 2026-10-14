@@ -677,6 +677,9 @@ pub async fn load_response(
         }
     }
 
+    // 解析済みの形が読めない行（取り込み口の検査を通ったものなので、本来は無い）は読み飛ばす。
+    // 黙って捨てると画面の「未記入」や件数が静かにずれるので、捨てた件数だけを記録に残す（値・本文は出さない）
+    let total = rows.len();
     let records: Vec<Record> = rows
         .into_iter()
         .filter_map(|(id, event_time, ingested_at, p)| {
@@ -713,6 +716,14 @@ pub async fn load_response(
             })
         })
         .collect();
+    let dropped = total - records.len();
+    if dropped > 0 {
+        tracing::warn!(
+            kind = "feeling_unreadable",
+            dropped,
+            "解析済みの形が読めない主観の行を読み出しから外した"
+        );
+    }
 
     let today = jst_date(now);
     let first_day = first.map(jst_date);
