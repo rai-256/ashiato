@@ -44,7 +44,8 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 試験は `crates/server/src/outage_registry_tests.rs`（新規）。design D2 / D7。
 
 - [ ] 1.1 前提を確かめる: `crates/server/src/coverage.rs` に `DEVICE_SUBJECT` があり、`core.source` に `outage_target` / `alert_after_days` / `started_on_from` の列がまだ無い。`core.archive_ledger` と `core.archive_ledger_source` がある（ST12 が main にある）。
-  検証: `bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && ! grep -rq "outage_target" migrations/ && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` rc=0
+  検証: `bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` rc=0
+  ★ 2026-10-14 訂正: `outage_target` の否定を外した。受け入れ条件は変えない。理由: 着手前の確認（移行に outage_target が無い）なので、1.2 で移行を書いた後は必ず FAIL する（evidence.jsonl 1.1 の FAIL。head b2dfc1a1）。旧コマンドは bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && ! grep -rq "outage_target" migrations/ && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'。新しい入口の最初の語が repo の実行ファイルでないので plan_fix.py を通さず手で直した。承認: 2026-10-14 本人（deep-answers-3.txt の Q-T1「承認する」）。記録: plan-corrections.md
 - [ ] 1.2 移行を書く: 3 列（`outage_target boolean NOT NULL DEFAULT true` / `alert_after_days integer NULL CHECK (> 0)` / `started_on_from text NULL REFERENCES core.source` と自己参照を断る `CHECK`）、
   印（`c01-clock` / `c01-app-usage-rollup` / `s01-stay` / `s01-attribute` / `s01-feeling` / `s01-place` を `false`。無い名前は何もしない）、`c03-%` の `alert_after_days = 75`（`IS NULL` のときだけ）、
   集計の `started_on_from = 'c01-app-usage'` と `collection_started_on` の直し、台帳 `core.outage_ledger`（D7 の列・`CHECK`・一意索引 2 本・追記のみのトリガ）。`.down.sql` は台帳と 3 列を落とす。

@@ -134,7 +134,14 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 
 ## 下流 Task 1 で積んだ A（premise: 検証コマンドが成立しない。2026-10-14）
 
-### Q-T1 [Task 1 の検証コマンド 3 本が書かれたままでは原理的に通らない] -> (未回答)
+### Q-T1 [Task 1 の検証コマンド 3 本が書かれたままでは原理的に通らない] -> 承認する
+
+- **答え（2026-10-14。`deep-answers-3.txt`。本人の選択。推奨と同じ）**: 承認する
+  - 補足（逐語）: quiet-run の件（Q-T1 の Task 2〜7 と Q-T11）は harness2 #73 で解消済み
+- **当てたもの**: 1.1 だけを直した（`outage_target` の否定を外す。`plan_fix.py` は新しい入口が `bash -c` で通らないので、9.3 と同じく手で直し `plan-corrections.md` に記録）。
+  直した後の `scripts/verify-run 1.1` は PASS。
+- **直さないもの**: 1.2 / 1.3 と、下の Task 2〜7 の `CT` コマンド。harness2 #73（`verify-run` が検証コマンドの `quiet-run` の包みを外して走らせる）で、書かれたままのコマンドが成立するようになった（本人の補足）。tasks.md は変えない。
+
 
 - **1.2 / 1.3**: `scripts/quiet-run ct -- cargo test … | tee /tmp/ct.log` は成功時に末尾 5 行しか返さず、残るのは doc-test の `0 passed; N filtered out` だけ。`grep 'test result: ok. [1-9]… passed'` が通らない。試験は 8 本（1.3 は 1 本）通っている（rc=0・ログ `.superpowers/sdd/logs/*-ct.log`）。FAIL の証跡は evidence.jsonl。提案: `quiet-run ct --` を外し、ST17 と同じ `cargo test -p ashiato-server <名前> 2>&1 | tee /tmp/ct.log`。
 - **1.1**: 着手前の確認（`! grep -rq outage_target migrations/`）で、移行を書いた後は必ず FAIL。提案: 検証を「書く前に成り立っていた」前提の確認ではなく、`bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` に直す（`outage_target` の否定を外す）。
@@ -157,7 +164,11 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 
 ## 下流 Task 11 で積んだ A（premise: 11.3 の `cargo test --workspace` を `quiet-run` に包んだ検証コマンドが PASS にならない。2026-10-14）
 
-### Q-T11 [11.3 の検証コマンドは試験が通っても FAIL になる] -> (未回答)
+### Q-T11 [11.3 の検証コマンドは試験が通っても FAIL になる] -> 解消（訂正しない）
+
+- **答え（2026-10-14。`deep-answers-3.txt` の Q-T1 の補足、逐語）**: quiet-run の件（Q-T1 の Task 2〜7 と Q-T11）は harness2 #73 で解消済み
+- 11.3 の検証コマンドは変えない。`verify-run` が `quiet-run` の包みを外して走らせるので、書かれたままで成立する。
+
 
 - **原因**: Q-T1 と同じ型。`scripts/quiet-run all -- cargo test --workspace` は末尾しかログに出さず、`evidence.py` の `ran_no_tests` が見る「passed の和」が末尾の doc-test の `0 passed` だけになり、rc=0 でも `FAIL（試験が 1 本も走っていない）`になる。
   実際の全文（`.superpowers/sdd/logs/20261014-190528-all.log`）では `151 + 891 + 7 passed; 0 failed`、fmt・clippy も rc=0。FAIL の実証は evidence.jsonl の 11.3（`status: FAIL, rc=0`）。
