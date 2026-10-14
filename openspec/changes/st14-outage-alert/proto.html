@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ST14 proto — 稼働状況（S-1）と途切れの通知</title>
+<!--
+  ST14 の proto。1 枚の HTML、サーバ無し。
+  - 既定（無指定）は相談の view。ST14 の questions の段は「面が無い」として進んだので、軸を選ぶ相談の view は持たない
+    （2026-10-13 の整合の確認 C7 で S-1 を変える Story に移った。構造は変えないので問いにしなかった）。決まった形を状態の一覧なしで出す
+  - window.PROTO_VIEW === "go"（か #view=go）で GO view。左に状態の一覧、#state=<id> でその状態を開く
+  - 色は web/src/tokens.ts の SCHEMES の値（HSL）を写した。文言は web/src/messages.ts と spec の Scenario の逐語
+-->
+<script type="application/json" id="proto-go">
+{
+ "chosen": "S-1 の構造は変えない。Must の 5 本の後ろ・書庫の前にアプリ利用の集計の格子が 1 本増え、週を選ぶと取りこぼしの日に理由と期間の文字が出る。明暗は OS に追従する。途切れは画面ではなく、携帯と PC の OS の通知で知らせる",
+ "requirements": [
+  "取りこぼしの期間は週の文字に理由と期間で出る",
+  "アプリ利用の集計は格子に出る",
+  "稼働状況の画面は OS の明暗に追従する"
+ ],
+ "states": [
+  {"id": "normal", "name": "開いた直後（決まった形）", "hint": "上から 達成 → Must の 5 本 → 集計 → 書庫。集計は押さなくても直近 4 週が出ている。達成の表に集計は無い",
+   "scenarios": ["集計の格子が Must の後ろで書庫の前に出る", "集計は達成に数えられない", "集計の格子は開いた直後から直近 4 週を出す"]},
+  {"id": "gap-retention", "name": "取得元に残っていない期間", "hint": "アプリ利用の 08-30 の週を選んだところ。09-01〜09-03 が③になり、理由と期間が出る",
+   "scenarios": ["取得元に残っていない期間が週の文字に出る"]},
+  {"id": "gap-skew", "name": "時計のずれで取れていない期間", "hint": "同じ期間でも理由が違うと文字が違う。「取得元に残っていない」は出ない",
+   "scenarios": ["時計のずれで取れていない期間は別の文字で出る"]},
+  {"id": "gap-both", "name": "2 つの理由が同じ日に重なる", "hint": "09-03 に 2 つの文字が 1 つずつ出る（畳まない）",
+   "scenarios": ["2 つの理由が同じ日に重なると 2 つとも出る"]},
+  {"id": "gap-unknown", "name": "知らない理由の取りこぼし", "hint": "理由の文字を付けず「取りこぼし（…）」",
+   "scenarios": ["知らない理由の取りこぼしは理由の文字を付けずに出る"]},
+  {"id": "gap-boundary", "name": "終わりの時刻ちょうどの日", "hint": "09-03 00:00（日本時間）に終わる期間は 09-03 に出ない。09-05 00:00Z（日本時間 09:00）に終わる期間は 09-05 に出る",
+   "scenarios": ["終わりの時刻ちょうどの日には重ならない", "UTC の真夜中に終わる取りこぼしは日本時間のその日に重なる"]},
+  {"id": "pc-clock-only", "name": "PC の時計の測定しか無い日", "hint": "ウィンドウの 09-13 の週を選んだところ。09-06 の週の 09-10 は時計の測定と「取れない状態」の生存信号だけ → ③。09-15〜09-17 は時計の測定だけ → ⑥。以前はどちらも①だった",
+   "scenarios": []},
+  {"id": "notify-sim", "name": "途切れの通知（携帯と PC）", "hint": "問い合わせの結果を押すと、携帯と PC の通知がどう変わるかが出る。画面 S-1 には出ない",
+   "scenarios": []},
+  {"id": "light", "name": "OS がライト", "hint": "背景はライトの面の色",
+   "scenarios": ["OS がライトなら稼働状況もライトで出る"]},
+  {"id": "dark", "name": "OS がダーク", "hint": "背景はダークの面の色",
+   "scenarios": ["OS がダークなら稼働状況もダークで出る"]},
+  {"id": "nopref", "name": "明暗の設定が取れない", "hint": "取れなければダーク",
+   "scenarios": ["明暗の設定が取れなければダークで出る"]}
+ ],
+ "always": [
+  "集計の格子を足しても Must の 5 本はひとスクロール以内",
+  "ライトでも格子の 3 段と印と文字が下限を満たす",
+  "稼働状況の応答の日が取りこぼしの期間と理由を持つ"
+ ]
+}
+</script>
+<style>
+  :root { --font: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15.5px/1.7 var(--font); background: var(--ground); color: var(--text); }
+  .layout { display: flex; gap: 0; min-height: 100vh; }
+  nav.states { width: 17rem; flex: none; border-right: 1px solid var(--line); background: var(--surface1); padding: 12px; position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow: auto; }
+  nav.states h1 { font-size: 14px; margin: 0 0 4px; }
+  nav.states p.chosen { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; line-height: 1.5; }
+  nav.states button { display: block; width: 100%; text-align: left; min-height: 32px; margin: 0 0 4px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface2); color: var(--text); font: 13px/1.4 var(--font); cursor: pointer; }
+  nav.states button[aria-current="true"] { outline: 2px solid var(--muted); font-weight: 600; }
+  .hint { border: 1px dashed var(--muted); border-radius: 8px; padding: 6px 10px; margin: 0 0 12px; font-size: 13px; background: var(--surface1); }
+  .hint b { display: block; }
+  main { flex: 1; min-width: 0; padding: 12px; max-width: 46rem; }
+  header.page h1 { font-size: 19px; margin: 0 0 4px; }
+  header.page .links { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  section.box { background: var(--surface2); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+  section.box h2 { font-size: 15.5px; font-weight: 600; margin: 0 0 8px; line-height: 1.3; }
+  section.box h2 small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  .grid button.week { display: flex; gap: 2px; width: 100%; min-height: 24px; padding: 0; border: none; background: transparent; border-radius: 4px; cursor: pointer; margin: 0; }
+  .grid button.week[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--muted); }
+  .cell { flex: 1; min-height: 24px; border-radius: 3px; display: block; }
+  .cell.empty { background: transparent; }
+  .cell.recorded { background: var(--c-recorded); }
+  .cell.alive_no_record { background: var(--c-alive); }
+  .cell.other { background: var(--c-other); box-shadow: inset 0 0 0 1px var(--muted); }
+  .more { margin-top: 8px; min-height: 28px; font: 12.5px/1.4 var(--font); border: 1px solid var(--line); background: var(--surface1); color: var(--text); border-radius: 6px; padding: 2px 10px; }
+  dl.detail { font-size: 12.5px; line-height: 1.6; margin: 12px 0 0; }
+  dl.detail div { display: flex; gap: 8px; }
+  dl.detail dt { color: var(--muted); min-width: 6.5em; flex: none; }
+  dl.detail dd { margin: 0; }
+  dl.detail .gap { font-weight: 600; }
+  table.ach { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.ach th, table.ach td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; }
+  .note { font-size: 12.5px; color: var(--muted); }
+  /* 通知のシミュレーション */
+  .sim { display: none; }
+  body.sim-on .sim { display: block; }
+  .sim .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+  .sim .btns button { min-height: 32px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface1); color: var(--text); font: 13px/1.3 var(--font); padding: 4px 8px; cursor: pointer; }
+  .devices { display: flex; flex-wrap: wrap; gap: 12px; }
+  .dev { flex: 1 1 16rem; border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--surface1); }
+  .dev h3 { margin: 0 0 6px; font-size: 13.5px; }
+  .notif { border-radius: 10px; padding: 8px 10px; background: var(--ground); border: 1px solid var(--line); font-size: 13px; }
+  .notif .t { font-weight: 600; }
+  .notif .src { color: var(--muted); font-size: 11.5px; }
+  .badge { display: inline-block; font-size: 11.5px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--muted); margin: 6px 4px 0 0; }
+  .badge.loud { font-weight: 700; }
+  .empty-n { color: var(--muted); font-size: 13px; }
+  ol.log { font-size: 12.5px; color: var(--muted); padding-left: 1.2rem; }
+  @media (max-width: 720px) {
+    .layout { flex-direction: column; }
+    nav.states { width: auto; position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="states" id="states" hidden>
+    <h1>ST14 の GO 用 proto</h1>
+    <p class="chosen" id="chosen"></p>
+    <div id="state-list"></div>
+  </nav>
+  <main>
+    <div class="hint" id="hint" hidden></div>
+    <div id="consult-note" class="hint" hidden>
+      <b>相談の view は無い</b>
+      ST14 は questions の段で「画面を持たない」として進んだ（S-1 を変える Story に移ったのは答えの後の整合の確認）。構造を変えないので、軸を選ぶ問いは立てていない。下は決まった形。
+    </div>
+
+    <div id="page">
+      <header class="page">
+        <h1>収集が動いていたか</h1>
+        <div class="links">1 日の滞在へ ・ マスタ管理へ</div>
+      </header>
+
+      <section class="box" aria-label="成功条件 1 の達成" id="achievement">
+        <h2>収集が動いていた日数 <small>— 成功条件 1 の達成（暫定）</small></h2>
+        <table class="ach">
+          <tr><th>ソース</th><th>達成日数</th><th>分母</th><th>線</th></tr>
+          <tr><td>携帯端末の位置</td><td>28</td><td>28</td><td>26.6</td></tr>
+          <tr><td>携帯端末のアプリ利用</td><td>28</td><td>28</td><td>26.6</td></tr>
+          <tr><td>端末に保存された写真</td><td>28</td><td>28</td><td>26.6</td></tr>
+          <tr><td>PC のウィンドウ</td><td>24</td><td>25</td><td>23.75</td></tr>
+          <tr><td>PC のブラウザ履歴</td><td>28</td><td>28</td><td>26.6</td></tr>
+        </table>
+        <p class="note" style="margin:6px 0 0">集計（携帯端末のアプリ利用（集計））はこの 5 本に入らない。数字は proto の例（08-23〜09-19 の 28 日）。</p>
+      </section>
+
+      <div id="grids"></div>
+    </div>
+
+    <section class="sim box" aria-label="途切れの通知" id="sim">
+      <h2>途切れの通知（携帯と PC）<small> — 画面 S-1 には出ない。OS の通知</small></h2>
+      <p class="note" style="margin:0">問い合わせの結果を押すと、両方の端末が同じ表で決める。携帯は 6 時間ごと、PC は 1 時間ごとに問い合わせる。</p>
+      <div class="btns" id="sim-btns"></div>
+      <div class="devices">
+        <div class="dev"><h3>携帯（チャネル「収集の途切れ」）</h3><div id="dev-phone"></div></div>
+        <div class="dev"><h3>PC（Windows の通知）</h3><div id="dev-pc"></div></div>
+      </div>
+      <ol class="log" id="sim-log"></ol>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var MAN = JSON.parse(document.getElementById("proto-go").textContent);
+  var hashParams = function () {
+    var o = {};
+    location.hash.replace(/^#/, "").split("&").forEach(function (kv) {
+      if (!kv) return;
+      var i = kv.indexOf("=");
+      o[decodeURIComponent(i < 0 ? kv : kv.slice(0, i))] = i < 0 ? "" : decodeURIComponent(kv.slice(i + 1));
+    });
+    return o;
+  };
+  var GO = window.PROTO_VIEW === "go" || hashParams().view === "go";
+
+  // ---- 色（web/src/tokens.ts の SCHEMES を写した）
+  var sf = function (l) { return "hsl(140 18% " + l + "%)"; };
+  var ac = function (l) { return "hsl(307 42% " + l + "%)"; };
+  var SCHEMES = {
+    light: { ground: sf(99), surface1: sf(95), surface2: sf(91), line: sf(82), text: sf(14), muted: sf(30),
+             recorded: ac(22), alive: ac(56), other: ac(95) },
+    dark:  { ground: sf(13), surface1: sf(19), surface2: sf(25), line: sf(31), text: sf(92), muted: sf(72),
+             recorded: ac(92), alive: ac(49.5), other: ac(9) }
+  };
+  function applyScheme(override) {
+    var name;
+    if (override === "light" || override === "dark") name = override;
+    else if (override === "nopref") name = "dark";                 // 取れなければダーク
+    else name = window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    var c = SCHEMES[name], r = document.documentElement.style;
+    ["ground", "surface1", "surface2", "line", "text", "muted"].forEach(function (k) { r.setProperty("--" + k, c[k]); });
+    r.setProperty("--c-recorded", c.recorded); r.setProperty("--c-alive", c.alive); r.setProperty("--c-other", c.other);
+    document.documentElement.dataset.scheme = name;
+  }
+
+  // ---- 8 状態と 3 段（web/src/messages.ts の state）
+  var NAME = { recorded: "記録あり", alive_no_record: "動いていた・記録なし", alive_not_capturable: "動いていたが取れない状態だった",
+               stopped: "意図的な停止", dropped: "破棄された期間", outage: "途絶", before_start: "導入前", retired: "退役" };
+  var band = function (s) { return s === "recorded" ? "recorded" : s === "alive_no_record" ? "alive_no_record" : "other"; };
+
+  // 今日は 2026-09-19（土）。週は日曜はじまり、新しい週が上
+  var WEEKS = ["2026-09-13", "2026-09-06", "2026-08-30", "2026-08-23"];
+  var TODAY = "2026-09-19";
+  function addDays(d, n) { var t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
+  function daysOf(week) { var a = []; for (var i = 0; i < 7; i++) a.push(addDays(week, i)); return a; }
+
+  // 取りこぼしの期間（日本時間で書く。[始まり, 終わり)）
+  var GAPSETS = {
+    retention: [{ reason: "retention", b: "2026-09-01 08:00", e: "2026-09-03 08:00" }],
+    skew:      [{ reason: "clock_skew_abandoned", b: "2026-09-01 08:00", e: "2026-09-03 08:00" }],
+    both:      [{ reason: "retention", b: "2026-09-01 08:00", e: "2026-09-03 08:00" },
+                { reason: "clock_skew_abandoned", b: "2026-09-03 06:00", e: "2026-09-04 12:00" }],
+    unknown:   [{ reason: "unknown_reason", b: "2026-09-01 08:00", e: "2026-09-03 08:00" }],
+    boundary:  [{ reason: "retention", b: "2026-09-01 08:00", e: "2026-09-03 00:00" },
+                { reason: "retention", b: "2026-09-04 08:00", e: "2026-09-05 09:00", note: "2026-09-05T00:00Z" }]
+  };
+  function gapLabel(g) {
+    var span = "（" + g.b + "〜" + g.e + "）";
+    if (g.reason === "retention") return "取得元に残っていない" + span;
+    if (g.reason === "clock_skew_abandoned") return "時計のずれで取れていない" + span;
+    return "取りこぼし" + span;
+  }
+  // その日 [d 00:00, d+1 00:00) に [b, e) が重なるか（日本時間の文字列どうしで比べる）
+  function overlaps(g, d) { return g.b < addDays(d, 1) + " 00:00" && g.e > d + " 00:00"; }
+
+  function sources(st) {
+    var gapKey = { "gap-skew": "skew", "gap-both": "both", "gap-unknown": "unknown", "gap-boundary": "boundary" }[st] || "retention";
+    var gaps = GAPSETS[gapKey];
+    var all = function (fn) { return function (d) { return d > TODAY ? null : fn(d); }; };
+    return [
+      { id: "c01-location", name: "携帯端末の位置", day: all(function () { return "recorded"; }) },
+      { id: "c01-app-usage", name: "携帯端末のアプリ利用", gaps: gaps, day: all(function (d) {
+          if (gaps.some(function (g) { return overlaps(g, d); })) return "alive_not_capturable";
+          return d === "2026-09-12" ? "alive_no_record" : "recorded"; }) },
+      { id: "c01-photo", name: "端末に保存された写真", day: all(function (d) { return ["2026-09-02", "2026-09-09", "2026-09-16"].indexOf(d) >= 0 ? "recorded" : "alive_no_record"; }) },
+      { id: "c02-window", name: "PC のウィンドウ", day: all(function (d) {
+          if (d === "2026-09-10") return "alive_not_capturable";              // 時計の測定と、取れない状態の生存信号だけ
+          if (d >= "2026-09-15" && d <= "2026-09-17") return "outage";        // 時計の測定だけ（生存信号なし）
+          return new Date(d + "T00:00:00Z").getUTCDay() === 0 ? "alive_no_record" : "recorded"; }) },
+      { id: "c02-browser-history", name: "PC のブラウザ履歴", day: all(function (d) { return d >= "2026-09-15" && d <= "2026-09-17" ? "alive_no_record" : "recorded"; }) },
+      { id: "c01-app-usage-rollup", name: "携帯端末のアプリ利用（集計）", rollup: true, day: all(function (d) { return d < "2026-08-25" ? "before_start" : "recorded"; }) },
+      { id: "c03-youtube-watch", name: "YouTube の視聴履歴", day: all(function (d) { return d === "2026-08-28" ? "recorded" : "alive_no_record"; }) },
+      { id: "c03-chrome-history", name: "Chrome の履歴", day: all(function (d) { return d < "2026-09-01" ? "recorded" : "alive_no_record"; }) }
+    ];
+  }
+
+  var SELECT = {   // 状態ごとに、どの格子のどの週を選んだところを見せるか
+    "gap-retention": ["c01-app-usage", "2026-08-30"], "gap-skew": ["c01-app-usage", "2026-08-30"],
+    "gap-both": ["c01-app-usage", "2026-08-30"], "gap-unknown": ["c01-app-usage", "2026-08-30"],
+    "gap-boundary": ["c01-app-usage", "2026-08-30"], "pc-clock-only": ["c02-window", "2026-09-13"]
+  };
+  var selected = {};
+
+  function renderGrids(st) {
+    var host = document.getElementById("grids");
+    host.innerHTML = "";
+    sources(st).forEach(function (s) {
+      var sec = document.createElement("section");
+      sec.className = "box"; sec.setAttribute("aria-label", s.name); sec.dataset.source = s.id;
+      var h = document.createElement("h2"); h.textContent = s.name;
+      if (s.rollup) { var sm = document.createElement("small"); sm.textContent = " — 集計（達成には数えない）"; h.appendChild(sm); }
+      sec.appendChild(h);
+      var g = document.createElement("div"); g.className = "grid";
+      WEEKS.forEach(function (w) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "week"; b.setAttribute("aria-label", w + " の週");
+        b.setAttribute("aria-pressed", String(selected[s.id] === w));
+        daysOf(w).forEach(function (d) {
+          var c = document.createElement("span"), state = s.day(d);
+          c.className = "cell " + (state ? band(state) : "empty");
+          b.appendChild(c);
+        });
+        b.onclick = function () { selected[s.id] = selected[s.id] === w ? null : w; renderGrids(st); };
+        g.appendChild(b);
+      });
+      sec.appendChild(g);
+      var more = document.createElement("button"); more.type = "button"; more.className = "more"; more.textContent = "1 年ぶんを見る";
+      sec.appendChild(more);
+      if (selected[s.id]) {
+        var dl = document.createElement("dl"); dl.className = "detail";
+        daysOf(selected[s.id]).forEach(function (d) {
+          var state = s.day(d); if (!state) return;
+          var row = document.createElement("div"), dt = document.createElement("dt"), dd = document.createElement("dd");
+          dt.textContent = d; dd.textContent = NAME[state];
+          (s.gaps || []).filter(function (gp) { return overlaps(gp, d); }).forEach(function (gp) {
+            var sp = document.createElement("span"); sp.className = "gap"; sp.textContent = " " + gapLabel(gp); dd.appendChild(sp);
+          });
+          if (s.id === "c02-window" && (d === "2026-09-10" || (d >= "2026-09-15" && d <= "2026-09-17"))) {
+            var n = document.createElement("span"); n.className = "note"; n.textContent = "　（proto の注記: 時計の測定 24 件は格子では数えない）"; dd.appendChild(n);
+          }
+          row.appendChild(dt); row.appendChild(dd); dl.appendChild(row);
+        });
+        sec.appendChild(dl);
+      }
+      host.appendChild(sec);
+    });
+  }
+
+  // ---- 通知の決め方（design D13 の表。携帯と PC で同じ）
+  var DEV = { phone: { sounded: [], shown: null }, pc: { sounded: [], shown: null } };
+  var EP = { loc: { id: 101, name: "携帯端末の位置", last: "10/12 08:15" }, photo: { id: 102, name: "端末に保存された写真", last: "10/11 22:00" } };
+  var RESULTS = [
+    { label: "位置が途切れた", r: { ready: [EP.loc] } },
+    { label: "位置と写真が途切れた", r: { ready: [EP.loc, EP.photo] } },
+    { label: "写真だけ途切れている", r: { ready: [EP.photo] } },
+    { label: "途切れが無い", r: { ready: [] } },
+    { label: "サーバに届かない", r: { unreachable: true } },
+    { label: "判定を待っている（起動して 30 分）", r: { warming: true } },
+    { label: "収集アプリを起動し直す", restart: true }
+  ];
+  function decide(dev, r) {
+    if (r.unreachable || r.warming) return "何も変えない";
+    var xs = r.ready;
+    if (xs.length === 0) { var was = !!dev.shown; dev.shown = null; dev.sounded = []; return was ? "黙って消した" : "何もしない"; }
+    var fresh = xs.some(function (x) { return dev.sounded.indexOf(x.id) < 0; });
+    dev.shown = { items: xs, loud: fresh };
+    dev.sounded = xs.map(function (x) { return x.id; });
+    return fresh ? "音つきで出した" : "音なしで差し替えた";
+  }
+  function drawDev(key, isPc) {
+    var host = document.getElementById("dev-" + key), d = DEV[key];
+    if (!d.shown) { host.innerHTML = '<p class="empty-n">通知は出ていない</p>'; return; }
+    var body = d.shown.items.map(function (x) { return x.name + "（最後 " + x.last + "）"; }).join("、");
+    host.innerHTML = '<div class="notif"><div class="src">ashiato</div><div class="t">収集が途切れています</div><div>' + body + "</div></div>"
+      + '<span class="badge' + (d.shown.loud ? " loud" : "") + '">' + (d.shown.loud ? "♪ 音が鳴った" : "音なし") + "</span>"
+      + (isPc ? '<span class="badge">' + (d.shown.loud ? "画面の端に出た" : "画面の端に出ない（通知の一覧だけ）") + "</span>" : "")
+      + '<span class="badge">押しても画面は開かない</span>';
+  }
+  function setupSim() {
+    var host = document.getElementById("sim-btns"), log = document.getElementById("sim-log");
+    RESULTS.forEach(function (x) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = x.label;
+      b.onclick = function () {
+        var li = document.createElement("li");
+        if (x.restart) {
+          li.textContent = "起動し直した —— 鳴らした途切れは端末に覚えてあるので、同じ途切れではもう鳴らない";
+        } else {
+          var a = decide(DEV.phone, x.r), p = decide(DEV.pc, x.r);
+          li.textContent = x.label + " → 携帯: " + a + " ／ PC: " + p;
+        }
+        log.insertBefore(li, log.firstChild);
+        drawDev("phone", false); drawDev("pc", true);
+      };
+      host.appendChild(b);
+    });
+    drawDev("phone", false); drawDev("pc", true);
+  }
+
+  // ---- 状態の切り替え
+  var cur = null;
+  function open(st) {
+    if (!MAN.states.some(function (s) { return s.id === st; })) st = "normal";
+    cur = st;
+    selected = {};
+    if (SELECT[st]) selected[SELECT[st][0]] = SELECT[st][1];
+    applyScheme(st === "light" || st === "dark" || st === "nopref" ? st : null);
+    document.body.classList.toggle("sim-on", st === "notify-sim");
+    document.getElementById("page").hidden = st === "notify-sim";
+    renderGrids(st);
+    if (GO) {
+      var s = MAN.states.filter(function (x) { return x.id === st; })[0];
+      var hint = document.getElementById("hint");
+      hint.hidden = false;
+      hint.innerHTML = "<b></b><span></span>";
+      hint.firstChild.textContent = s.name; hint.lastChild.textContent = s.hint;
+      Array.prototype.forEach.call(document.querySelectorAll("#state-list button"), function (b) {
+        b.setAttribute("aria-current", String(b.dataset.state === st));
+      });
+    }
+  }
+
+  if (GO) {
+    document.getElementById("states").hidden = false;
+    document.getElementById("chosen").textContent = MAN.chosen;
+    var list = document.getElementById("state-list");
+    MAN.states.forEach(function (s) {
+      var b = document.createElement("button"); b.type = "button"; b.dataset.state = s.id; b.textContent = s.name;
+      b.onclick = function () { history.replaceState(null, "", "#view=go&state=" + encodeURIComponent(s.id)); open(s.id); };
+      list.appendChild(b);
+    });
+    addEventListener("hashchange", function () { var h = hashParams(); if (h.state && h.state !== cur) open(h.state); });
+  } else {
+    document.getElementById("consult-note").hidden = false;
+  }
+  if (window.matchMedia) matchMedia("(prefers-color-scheme: light)").addEventListener("change", function () { if (cur) open(cur); });
+  setupSim();
+  open(hashParams().state || "normal");
+})();
+</script>
+</body>
+</html>
