@@ -213,10 +213,10 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 ## Task 11: 縦串と全体の検査
 
-- [ ] 11.1 縦串（`tools/smoke.sh`）に `GET /outages` を 1 本足す（起動直後は `warming_up`、`OUTAGE_WARMUP` を環境変数で 0 にした起動では `ready`）。値の待ち時間は既定のまま、試験だけが短くする口を持つ。
+- [x] 11.1 縦串（`tools/smoke.sh`）に `GET /outages` を 1 本足す（起動直後は `warming_up`、`OUTAGE_WARMUP` を環境変数で 0 にした起動では `ready`）。値の待ち時間は既定のまま、試験だけが短くする口を持つ。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0
-- [ ] 11.2 Scenario の担保: `python3 scripts/check_scenarios.py . st14-outage-alert` rc=0（担保なし 0・名無しの確認待ち 0）
-- [ ] 11.3 全体: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` rc=0、
+- [x] 11.2 Scenario の担保: `python3 scripts/check_scenarios.py . st14-outage-alert` rc=0（担保なし 0・名無しの確認待ち 0）
+- [x] 11.3 全体: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && scripts/quiet-run all -- cargo test --workspace'` rc=0、
   `tools/check-openapi.sh` / `tools/check-migrations.sh` / `tools/check-immutable.sh` / `tools/check-log-private.sh` rc=0
 
 ## 人間の確認待ち（物理だけ）
