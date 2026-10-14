@@ -186,6 +186,63 @@ impl World {
 
 const MAP: &str = "https://www.google.com/maps/@35.6812,139.7671,15z";
 
+/// 登録簿の全ソースが、緯度経度を「持つ / 持たない」のちょうど一方と、幅の読み方（点 / 次の記録まで）の
+/// ちょうど一方に**名前で**置かれている（R7 / handoff C1）。SQL は一覧に無いソースを厳しい側に倒すが、
+/// それに頼って新しいソースが黙って通らないよう、足した Story がここで名前つきで落ちる。
+///
+/// 読むのは**全移行だけを当てたまっさらな DB** の `core.source`（共有の DB には他のテストや台本が足した行が混ざる）。
+/// 書庫が製品ごとに実行時に足す `c03-myactivity-<製品>` は前置きで置き、その形もここで確かめる。
+#[tokio::test]
+async fn export_excluded_sql_every_registered_source_is_classified_by_name() {
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    let sources = async {
+        for (label, sql) in crate::MIGRATIONS {
+            sqlx::raw_sql(sql)
+                .execute(&fresh)
+                .await
+                .map_err(|e| format!("{label}: {e}"))?;
+        }
+        sqlx::query_scalar::<_, String>("SELECT logical_source FROM core.source ORDER BY 1")
+            .fetch_all(&fresh)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    drop.await;
+    let mut sources = sources.unwrap();
+    assert!(sources.len() >= 20, "登録簿が読めていない: {sources:?}");
+    sources.push(format!("{}youtube", export::ARCHIVE_PRODUCT_PREFIX));
+
+    let points: Vec<&str> = export::SPAN_RULES.iter().map(|(s, _)| *s).collect();
+    let mut bad = Vec::new();
+    for s in &sources {
+        let coord = (
+            export::listed(&export::NO_COORD_SOURCES, s),
+            export::listed(export::COORD_SOURCES, s),
+        );
+        if coord.0 == coord.1 {
+            bad.push(format!(
+                "{s}: 緯度経度（持たない {} / 持つ {}）",
+                coord.0, coord.1
+            ));
+        }
+        let span = (
+            export::listed(&points, s),
+            export::listed(export::SPAN_NEXT_SOURCES, s),
+        );
+        if span.0 == span.1 {
+            bad.push(format!(
+                "{s}: 幅（点 {} / 次の記録まで {}）",
+                span.0, span.1
+            ));
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "一覧のちょうど一方に置かれていないソース: {bad:#?}"
+    );
+}
+
 #[tokio::test]
 async fn export_excluded_sql_marked_records_are_not_live() {
     let w = World::new().await;

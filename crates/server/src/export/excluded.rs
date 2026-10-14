@@ -55,6 +55,40 @@ pub const SPAN_RULES: &[(&str, SpanRule)] = &[
     ("s01-attribute", SpanRule::Point),
 ];
 
+/// 幅を「次の記録まで」（(c)。(a)(b) の鍵を持てばそちらが先に効く）と**決めた**ソース。
+/// **SQL はこれを読まない** —— `SPAN_RULES` に無いソースは (c) にする既定（C21。厳しい側）のまま。
+/// 登録簿の全ソースが `SPAN_RULES` かこれのちょうど一方に置かれていることを試験が DB と突き合わせ（R7 / handoff C1）、
+/// 一覧に無いソースが足されたら名前つきで落ちる。末尾が `-` のものは前置き（`ARCHIVE_PRODUCT_PREFIX`）。
+pub const SPAN_NEXT_SOURCES: &[&str] = &[
+    // 前景のアプリの切り替わり（次の変化まで続く。spec-review R34）と、その日ごとの集計（`end` で (a)）
+    "c01-app-usage",
+    "c01-app-usage-rollup",
+    // 前景のウィンドウ（`range_end` を持つものは (a)）とブラウザの履歴（`visit_duration_us` を持つものは (b)）
+    "c02-window",
+    "c02-browser-history",
+    // 滞在（`end` で (a)）
+    "s01-stay",
+    // 書庫の取り込み口の印（記録を持たない）
+    "s01-archive-inbox",
+    // 書庫の区間（`end_time` で (a)。`archive::INTERVAL_SOURCES`）
+    "c03-timeline-visit",
+    "c03-timeline-move",
+    "c03-legacy-visit",
+    "c03-legacy-activity",
+    // 書庫の位置の点と項目。ST12 の解析器の型で出来事 1 点と確かめていないので (c) のまま（D5b）
+    "c03-timeline-route",
+    "c03-timeline-signal",
+    "c03-legacy-location",
+    "c03-youtube-watch",
+    "c03-youtube-search",
+    "c03-chrome-history",
+    ARCHIVE_PRODUCT_PREFIX,
+];
+
+/// 書庫がマイアクティビティの製品ごとに登録簿へ足すソースの前置き（`archive/myactivity.rs`）。
+/// 名前が書庫ごとに増えるので、一覧には前置きで置く。
+pub const ARCHIVE_PRODUCT_PREFIX: &str = "c03-myactivity-";
+
 /// 緯度経度を持たないと決まったソース（D5a (1)）。**ここに無いソースは緯度経度を持つとみなす**（既定は厳しい側）。
 /// 足すのは、そのソースの payload に座標の項目が無いことを収集側の型で確かめた Story だけ（理由を隣に書く）。
 /// `c01-location` / `s01-stay` / `c01-photo` / `c03-*` / `s01-place` は入れない。
@@ -71,6 +105,37 @@ pub const NO_COORD_SOURCES: [&str; 6] = [
     // 個人属性（本人が書いた時点と値）
     "s01-attribute",
 ];
+
+/// 緯度経度を持つと**決めた**ソース（D5a (1) の反対側）。**SQL はこれを読まない** —— `NO_COORD_SOURCES` に無い
+/// ソースは持つとみなす既定（厳しい側）のまま。登録簿の全ソースが `NO_COORD_SOURCES` かこれのちょうど一方に
+/// 置かれていることを試験が DB と突き合わせ（R7 / handoff C1）、一覧に無いソースが足されたら名前つきで落ちる。
+pub const COORD_SOURCES: &[&str] = &[
+    // 位置の 1 点・写真の位置・滞在（payload に緯度経度）
+    "c01-location",
+    "c01-photo",
+    "s01-stay",
+    // 書庫の取り込み口の印（記録を持たない。確かめた Story が無いので持つ側）
+    "s01-archive-inbox",
+    // 書庫の位置と区間（`archive::LOCATION_SOURCES`）
+    "c03-timeline-visit",
+    "c03-timeline-move",
+    "c03-timeline-route",
+    "c03-timeline-signal",
+    "c03-legacy-location",
+    "c03-legacy-visit",
+    "c03-legacy-activity",
+    // 書庫の項目（`locationInfos` と URL の中の座標。FR-50 ★ 2026-10-13）
+    "c03-youtube-watch",
+    "c03-youtube-search",
+    "c03-chrome-history",
+    ARCHIVE_PRODUCT_PREFIX,
+];
+
+/// `list` の名前か前置き（末尾が `-`）に `source` が当たるか。
+pub fn listed(list: &[&str], source: &str) -> bool {
+    list.iter()
+        .any(|l| *l == source || (l.ends_with('-') && source.starts_with(l)))
+}
 
 /// 除く範囲の断片。
 #[derive(Debug, Clone)]
