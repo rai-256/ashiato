@@ -66,6 +66,9 @@ pub mod migrate_backup;
 pub mod net_guard;
 /// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
 pub mod outage;
+/// `GET /outages` と台帳を本物の DB で見る（ST14 Task 7）。
+#[cfg(test)]
+mod outage_api_tests;
 /// 途切れの通知の登録簿と台帳（ST14 / design D2 / D7）。
 #[cfg(test)]
 mod outage_registry_tests;
@@ -352,6 +355,8 @@ pub struct App {
     /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
     /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
     reading: archive::worker::ReadingState,
+    /// サーバを起こした時刻（途切れの判定を待つ間の起点。ST14 / design D5）。試験は差し込める。
+    started_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl App {
@@ -371,6 +376,7 @@ impl App {
             #[cfg(test)]
             now: None,
             reading: archive::worker::ReadingState::default(),
+            started_at: chrono::Utc::now(),
         }
     }
 
@@ -411,6 +417,12 @@ impl App {
             access: access_log::AccessLog::new(sink),
             ..self
         }
+    }
+
+    /// サーバを起こした時刻を差し込んだ複製（途切れの判定を待つ間の試験。design D5）。
+    #[cfg(test)]
+    pub(crate) fn started(self, started_at: chrono::DateTime<chrono::Utc>) -> Self {
+        Self { started_at, ..self }
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -2643,6 +2655,91 @@ pub async fn archives_status_get(
         .map_err(|error| internal_at("archives.status", error))
 }
 
+// ------------------------------------------------------------------ 途切れ（ST14）
+
+/// `GET /outages` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct OutagesQuery {
+    /// 端末識別子。**あれば**「この端末に返した」を台帳に残す（収集アプリは必ず付ける）。
+    device_id: Option<String>,
+    /// 利用者。省略すると既定の利用者（ほかの読み出しと同じ）
+    user_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OutagesStatus {
+    /// 判定した。`outages` が付く
+    Ready,
+    /// 起動してから `OUTAGE_WARMUP` の間。判定も台帳への書き込みもしない
+    WarmingUp,
+}
+
+/// 途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutageItem {
+    /// 途切れの識別子。続く間は同じ・戻ってまた途切れたら別
+    pub episode_id: i64,
+    pub logical_source: String,
+    pub display_name: String,
+    pub last_alive_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutagesResponse {
+    pub status: OutagesStatus,
+    pub judged_at: chrono::DateTime<chrono::Utc>,
+    /// `status = ready` のときだけ。表示名の昇順（同じなら論理ソース名）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outages: Option<Vec<OutageItem>>,
+}
+
+/// 収集が途切れているソースと、端末に返したことの台帳（ST14 / design D5・D6・D7）。
+#[utoipa::path(get, path = "/outages", params(OutagesQuery),
+    responses((status = 200, body = OutagesResponse), (status = 401)))]
+pub async fn outages_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<OutagesQuery>,
+) -> Result<Json<OutagesResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let now = app.now();
+    let warmup = chrono::Duration::from_std(outage::OUTAGE_WARMUP).unwrap_or(chrono::Duration::MAX);
+    if now - app.started_at < warmup {
+        return Ok(Json(OutagesResponse {
+            status: OutagesStatus::WarmingUp,
+            judged_at: now,
+            outages: None,
+        }));
+    }
+    let user = q.user_id.unwrap_or_default();
+    let inputs = outage_store::inputs(&app.pool, user, now)
+        .await
+        .map_err(|e| internal_at("outages.inputs", e))?;
+    let mut found = outage::judge(&inputs, now);
+    found.sort_by(|a, b| {
+        (&a.display_name, &a.logical_source).cmp(&(&b.display_name, &b.logical_source))
+    });
+    let episodes = outage_store::record(&app.pool, user, now, found, q.device_id.as_deref())
+        .await
+        .map_err(|e| internal_at("outages.record", e))?;
+    Ok(Json(OutagesResponse {
+        status: OutagesStatus::Ready,
+        judged_at: now,
+        outages: Some(
+            episodes
+                .into_iter()
+                .map(|e| OutageItem {
+                    episode_id: e.episode_id,
+                    logical_source: e.outage.logical_source,
+                    display_name: e.outage.display_name,
+                    last_alive_at: e.outage.last_alive_at,
+                })
+                .collect(),
+        ),
+    }))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -2966,6 +3063,7 @@ pub fn router(app: App) -> Router {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
+        .route("/outages", get(outages_get))
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
@@ -3104,6 +3202,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         archives_status_get,
+        outages_get,
         stays_get,
         day_get,
         day_records_get,
@@ -3143,6 +3242,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Band,
         coverage::Subject,
         coverage::Achievement,
+        OutagesResponse,
+        OutagesStatus,
+        OutageItem,
         ArchivesStatus,
         ArchiveSourceStatus,
         LatestArchiveStatus,

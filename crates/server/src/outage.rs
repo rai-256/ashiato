@@ -11,6 +11,9 @@ pub const ALERT_GAP_FACTOR: i64 = 3;
 /// サーバ自身が生存信号を出すソース（取り込み器）。記録を持たず、取得できる状態の生存信号だけで測る（design D1）。
 pub const SERVER_HEARTBEAT_SOURCES: [&str; 1] = ["s01-archive-inbox"];
 
+/// サーバを起こしてから途切れを判定しない間（D5（仮））。携帯が溜めた未送信が届くのを待つ。
+pub const OUTAGE_WARMUP: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// 最後に生きていた時刻に数えない記録。`(logical_source, payload->>'kind')` の組（design D4）。
 ///
 /// 格子（`coverage::NON_OBSERVATION_GRID`）の 2 つ ＋ 離席・PC が止まっていた期間・除外の印。
