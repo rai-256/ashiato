@@ -562,7 +562,7 @@ mod tests {
             r#"{"kind":"profiles","at":"2026-09-13T01:02:03.456789Z","browser":"chrome","family":"chromium","tz_basis":"collected-at","profiles":{"Default":{"name":"個人"},"Profile 1":{}}}"#
         );
 
-        // 要求の組み立て: 識別子は external_id に、読んだ時刻は source_updated_at に載る（D15）
+        // 要求の組み立て: 識別子は external_id に、渡した版は source_updated_at に載る（D15）
         let zone = crate::config::Zone {
             id: "Asia/Tokyo".into(),
             offset_min: 540,
