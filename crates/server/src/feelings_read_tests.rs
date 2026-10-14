@@ -120,6 +120,20 @@ fn st17_read_rules_after_the_stay_ended_is_after() {
 
 // Scenario: 日付が変わった直後に書いた前の日の記録は後
 #[test]
+fn st17_read_rules_exactly_at_the_end_is_after() {
+    // 記入の日時 = 対象の終わり ちょうどは後、1 ミリ秒前は前（spec「対象の終わりより前なら前」。code-verify R18）
+    assert_eq!(
+        phase_of_day("2026-10-07", "2026-10-08T00:00:00+09:00"),
+        Phase::After
+    );
+    assert_eq!(
+        phase_of_day("2026-10-07", "2026-10-07T23:59:59.999+09:00"),
+        Phase::Before
+    );
+}
+
+// Scenario: 日付が変わった直後に書いた前の日の記録は後
+#[test]
 fn st17_read_rules_just_after_midnight_is_after() {
     assert_eq!(
         phase_of_day("2026-10-07", "2026-10-08T00:00:30+09:00"),

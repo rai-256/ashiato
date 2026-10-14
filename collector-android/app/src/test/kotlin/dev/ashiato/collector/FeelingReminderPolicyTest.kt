@@ -22,6 +22,7 @@ class FeelingReminderPolicyTest {
         assertEquals(LocalTime.of(12, 0), REMINDER_REFRESH_AT)
         assertEquals(15 * 60 * 1000L, REMINDER_WINDOW_MS)
         assertEquals(tokyo, REMINDER_ZONE)
+        assertEquals(10_000, HttpReminderSource.TIMEOUT_MS)
     }
 
     @Test

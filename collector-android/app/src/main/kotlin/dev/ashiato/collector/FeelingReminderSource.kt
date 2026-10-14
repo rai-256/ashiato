@@ -72,8 +72,9 @@ class HttpReminderSource(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /** 接続から読み終わりまでの合計（design D10）。試験が名指しで固定する。 */
         const val TIMEOUT_MS = 10_000
-        val JSON = Json { ignoreUnknownKeys = true }
+        private val JSON = Json { ignoreUnknownKeys = true }
     }
 }

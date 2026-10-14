@@ -95,6 +95,52 @@ async fn st17_reject_shape_valence_out_of_range() {
     expect_shape(|r| r["scales"] = valence(3), "invalid_scale").await;
 }
 
+// Scenario: 範囲の外の快–不快は受け付けない
+#[tokio::test]
+async fn st17_reject_shape_valence_below_the_minimum() {
+    // 尺度の下限 -2 を固定する（code-verify R17。上限の側は上の試験）
+    expect_shape(|r| r["scales"] = valence(-3), "invalid_scale").await;
+}
+
+// Scenario: 範囲の外の快–不快は受け付けない
+#[tokio::test]
+async fn st17_reject_shape_energy_out_of_range() {
+    for v in [-3, 3] {
+        expect_shape(
+            |r| {
+                r["scales"] = serde_json::json!([
+                    {"id": "valence", "version": 1, "value": 0},
+                    {"id": "energy", "version": 1, "value": v},
+                ])
+            },
+            "invalid_scale",
+        )
+        .await;
+    }
+}
+
+// Scenario: 範囲の外の快–不快は受け付けない
+#[tokio::test]
+async fn st17_reject_shape_scale_ends_are_accepted() {
+    // 両端 -2 / +2 は受ける（範囲の外を断る試験の裏側。両方の尺度で）
+    let app = app().await;
+    let user = testdb::user();
+    for v in [-2, 2] {
+        let id = uuid::Uuid::new_v4();
+        let mut raw = day(id);
+        raw["scales"] = serde_json::json!([
+            {"id": "valence", "version": 1, "value": v},
+            {"id": "energy", "version": 1, "value": v},
+        ]);
+        assert_eq!(
+            reject_kind(&app, user, id, DAY_TIME, &raw).await,
+            None,
+            "{v}"
+        );
+    }
+    assert_eq!(count(&app, user).await, 2);
+}
+
 // Scenario: 整数でない尺度の値は受け付けない
 #[tokio::test]
 async fn st17_reject_shape_non_integer_scale() {
@@ -228,6 +274,25 @@ async fn st17_reject_shape_short_nonce() {
         "malformed_feeling",
     )
     .await;
+}
+
+// Scenario: 乱数が短い主観は受け付けない
+#[tokio::test]
+async fn st17_reject_shape_nonce_boundary() {
+    // 128 bit を base64url で書いた 22 文字が境界（design D4。code-verify R16）。21 文字は断り、22 文字は受ける
+    assert_eq!(crate::feelings::NONCE_MIN_CHARS, 22);
+    expect_shape(
+        |r| r["nonce"] = serde_json::json!(nonce_for(uuid::Uuid::new_v4())[..21]),
+        "malformed_feeling",
+    )
+    .await;
+    let app = app().await;
+    let user = testdb::user();
+    let id = uuid::Uuid::new_v4();
+    let mut raw = day(id);
+    raw["nonce"] = serde_json::json!(nonce_for(id)[..22]);
+    assert_eq!(reject_kind(&app, user, id, DAY_TIME, &raw).await, None);
+    assert_eq!(count(&app, user).await, 1);
 }
 
 async fn send_with(edit: impl FnOnce(&mut serde_json::Value)) -> (IngestResult, i64) {
