@@ -1529,3 +1529,55 @@ V4 のガード自体は効いている: `plan` の `Err` は `finish`（`collec
 - kind: technical
 - 提案: Runtime の層に 2 本足す —— (a) `browser-history/sent_version.json` を書けない（同名のディレクトリを置く等）と、その取得は積まず生存信号が `history-not-queued` になる / (b) `sent_version.json` を消して時計を戻すと、帳面の前の版より新しい版で届く。
 - 処置: fixed D16 —— `runtime::tests::history_heartbeat_counts_unwritable_sent_version_as_not_queued`（a）と `history_runtime_clock_back_update_without_sent_version_has_newer_version`（b）。V4 で (a)、V3 で (b) がそれぞれ FAILED になることを作業ツリーで確かめた（`collect.rs` は戻した）
+
+## R92. 深掘り第 8 回 Q13 の答えと、その整合の確認の「行き先: fix」7 件（C1〜C7・K1）が未着手
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`read_sent_version`）/ crates/collector-windows/src/heartbeat.rs / crates/collector-windows/src/runtime.rs / openspec/changes/st08-browser-history/specs/desktop-collection/spec.md / design.md / proposal.md / docs/collector-contract.md / docs/handoff/ST08.md
+- 根拠: `docs/audit/2026-10-14-st08-fr13-q13-consistency.md` の C1〜C7・K1 は「行き先: fix（このブランチ）」。R90 の処置は「退避と種別は答えの記録の後の fix で入れる」。HEAD `5f5f5754` ではどれも入っていない（C8・C9 は `113dde5b` で要件を直し済み）
+- kind: technical
+- 提案: 監査の「直すところ」どおり。C7（読めなかった信号を「取得できない」にするか）は B なので design に D（仮）と反転条件
+- 処置: fixed D17 仮 —— a420ab63。K1: `read_sent_version` がファイルのあるのに読めない最大値を `sent_version.broken.json` へ退避し（退避できなければ送る準備の失敗）、`history-sent-version-unreadable` を生存信号に載せる。`runtime::tests::history_heartbeat_reports_unreadable_sent_version`（種別の印・退避のどちらを外しても FAILED を作業ツリーで確かめた）。D16 の書けないテストは仕掛けを `sent_version.tmp` に替えた（本体と同名のディレクトリは読めないとして退避されるため）/ C1 spec の SHALL の括弧・導出元・理由に Q13 / C2 生存信号の SHALL と Scenario / C3 design D12・D16・Context・Open Questions / C4 送信契約の語彙と例外 / C5 proposal の第 8 回の表と FR-13 / C6 handoff R87 / C7 design D17（仮。「取得できない」にする。反転条件つき）。collector 264 passed、clippy（Linux・windows-gnu）・fmt・`openspec validate --strict`・`check_scenarios.py`・`check_chain.py` rc=0
+
+## scoped re-review（a420ab63）
+
+監査の C1〜C7・K1 はすべて入っている。フラグの受け渡し（plan の失敗・Queueing / Saving の失敗・取得をまたぐ漏れ）も正しい。Critical / Important なし。Minor 5 件（R93〜R97）。fix は 1 回の規則なので申し送りに回す。
+
+## R93. Minor: NotFound 以外の一時的な読みのエラーでも、正しい最大値を壊れたとして退避する
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`read_sent_version` の `Err(_) => None`）
+- 根拠: re-review。ウイルス対策ソフトが一瞬握るなどで read だけが失敗すると、正しい床が `sent_version.broken.json` へ動く。帳面の各訪問の前の版は残るので、取りこぼすのは帳面も失われた場合だけ（Q13 の例外の内）
+- kind: technical
+- 提案: 退避はパース失敗に限り、io エラーは帳面（`ledger.rs`）と同じく送る準備の失敗にして次の取得でやり直す。D16 に一言
+- 処置: followup ST08 — Minor（床は帳面にも残り、失うのは Q13 の例外の内だけ。信号は「取得できない」に出る）。docs/handoff/ST08.md
+
+## R94. Minor: 2 度目の退避が前の `sent_version.broken.json` を置き換える
+
+- 成果物: crates/collector-windows/src/history/collect.rs（`read_sent_version` の rename）
+- 根拠: re-review。`std::fs::rename` は退避先を置き換える。帳面の `*.broken.ledger` と同じ作り
+- kind: technical
+- 提案: design D16 に「退避先は直近 1 つ」と書くか、時刻つきの名前にする
+- 処置: followup ST08 — Minor（壊れた中身は版の床にしか使えず、退避の後は読まない）。docs/handoff/ST08.md
+
+## R95. Minor: 退避の後に読みの thread が panic すると、読めなかった種別が出ない
+
+- 成果物: crates/collector-windows/src/history/collect.rs（Reading の join の `Err`）
+- 根拠: re-review。印は thread の中で消え、次の取得は NotFound になる。その信号は `history-not-queued` で「取得できない」にはなる
+- kind: technical
+- 提案: 受け入れるならコメントに書く。拾うなら印を `Arc<AtomicBool>` で共有する
+- 処置: followup ST08 — Minor（状態は「取得できない」で正しい。種別が 1 つ欠けるだけで、条件は退避と panic の重なり）。docs/handoff/ST08.md
+
+## R96. Minor: 新しいテストの「次の取得（ファイルが無いだけ）」の説明が事実と違う
+
+- 成果物: crates/collector-windows/src/runtime.rs（`history_heartbeat_reports_unreadable_sent_version`）
+- 根拠: re-review。1 回目の取得が `sent_version.json` を書き直すので、2 回目は「読めるファイルがある」場合。NotFound で載せないことは、ほかの履歴テストの初回の信号が担保している
+- kind: technical
+- 提案: コメントを「次の取得（書き直されたファイルを読める）では載せない」に直す
+- 処置: followup ST08 — Minor（コメントの字面だけ。守りに穴は無い）。docs/handoff/ST08.md
+
+## R97. Minor: 「退避できなければ送る準備の失敗」の経路にテストが無い
+
+- 成果物: crates/collector-windows/src/history/collect.rs（rename 失敗の分岐）/ design.md D16
+- 根拠: re-review。`.context(...)?` を `.ok()` にしても 264 本が通ると見られる。spec の Scenario ではなく design の文
+- kind: technical
+- 提案: 退避先に空でないディレクトリを置き本体を `{broken` にして、記録が送られず `history-not-queued` と `history-sent-version-unreadable` が載り、本体が上書きされないことを見る 1 本
+- 処置: followup ST08 — Minor（外しても退避しないまま低い版で上書きするだけで、R90 の前の状態に戻る。Q13 の例外の内）。docs/handoff/ST08.md
