@@ -357,6 +357,8 @@ pub struct App {
     reading: archive::worker::ReadingState,
     /// サーバを起こした時刻（途切れの判定を待つ間の起点。ST14 / design D5）。試験は差し込める。
     started_at: chrono::DateTime<chrono::Utc>,
+    /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
+    warmup: std::time::Duration,
 }
 
 impl App {
@@ -377,7 +379,13 @@ impl App {
             now: None,
             reading: archive::worker::ReadingState::default(),
             started_at: chrono::Utc::now(),
+            warmup: outage::OUTAGE_WARMUP,
         }
+    }
+
+    /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
+    pub fn with_warmup(self, warmup: std::time::Duration) -> Self {
+        Self { warmup, ..self }
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -2704,7 +2712,7 @@ pub async fn outages_get(
 ) -> Result<Json<OutagesResponse>, (StatusCode, String)> {
     authorize(&app, &headers).await?;
     let now = app.now();
-    let warmup = chrono::Duration::from_std(outage::OUTAGE_WARMUP).unwrap_or(chrono::Duration::MAX);
+    let warmup = chrono::Duration::from_std(app.warmup).unwrap_or(chrono::Duration::MAX);
     if now - app.started_at < warmup {
         return Ok(Json(OutagesResponse {
             status: OutagesStatus::WarmingUp,
@@ -3175,8 +3183,18 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
 
-    let mut app =
-        router(App::new(pool, token, &web_password, session_max_age_days).with_reading(reading));
+    // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
+    let warmup = match std::env::var("OUTAGE_WARMUP_SEC") {
+        Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
+            anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
+        })?),
+        Err(_) => outage::OUTAGE_WARMUP,
+    };
+    let mut app = router(
+        App::new(pool, token, &web_password, session_max_age_days)
+            .with_reading(reading)
+            .with_warmup(warmup),
+    );
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。

@@ -1088,4 +1088,18 @@ seed_cands=$(curl -fsS "${AUTH[@]}" "http://$BIND/places/candidates")
 [ "$(printf '%s' "$seed_cands" | jq '.candidates | length')" -ge 1 ] || { echo "名前の無い居た所が無い: $seed_cands"; exit 1; }
 echo "OK seed places"
 
+# ================================================================ 収集の途切れ（ST14 / tasks 11.1）
+echo "== 45. GET /outages は起動直後 warming_up、待ちを 0 にした起動では ready（design D5 / D6）"
+out=$(curl -fsS "${AUTH[@]}" "http://$BIND/outages")
+printf '%s' "$out" | jq -e '.status == "warming_up" and (has("outages") | not)' >/dev/null \
+  || { echo "起動直後が warming_up でない: $out"; exit 1; }
+kill "$SRV"; wait "$SRV" 2>/dev/null || true
+# 待ち時間の値（既定 30 分）は変えない。この起動だけが環境変数で 0 にする
+OUTAGE_WARMUP_SEC=0 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
+for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
+out=$(curl -fsS "${AUTH[@]}" "http://$BIND/outages?device_id=smoke-dev")
+printf '%s' "$out" | jq -e '.status == "ready" and (.outages | type == "array")' >/dev/null \
+  || { echo "待ちを 0 にした起動が ready でない: $out"; exit 1; }
+echo "OK outages warming_up -> ready"
+
 echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張・ST21 の場所まで）"

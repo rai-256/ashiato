@@ -218,6 +218,18 @@ async fn st14_api_outages_warming_up() {
     assert!(v.get("outages").is_none(), "一覧が返った: {body}");
 }
 
+// 試験だけが待ちを縮める口（縦串 `tools/smoke.sh`。既定は `OUTAGE_WARMUP` のまま）
+#[tokio::test]
+async fn st14_api_outages_warmup_override_is_zero() {
+    let now = Utc::now();
+    let app = app_at(now)
+        .await
+        .started(now)
+        .with_warmup(std::time::Duration::ZERO);
+    let (_, body) = get(&app, &uri(testdb::user(), Some("dev-a"))).await;
+    assert_eq!(json(&body)["status"], "ready", "{body}");
+}
+
 // Scenario: 起動して 30 分が経つと判定が返る
 #[tokio::test]
 async fn st14_api_outages_after_warmup() {
