@@ -221,19 +221,20 @@ async fn st14_grid_nonobs_a_gap_claim_alone_is_not_recorded() {
     let pool = testdb::pool().await;
     let u = testdb::user();
     let s = row(USAGE, SIX_HOURS, "2026-05-01");
-    // 取りこぼしの期間は 06-08〜06-09 の朝。06-10 には重ならない
+    // 取りこぼしの期間は 06-10 の始まりで終わる（`[begin, end)`）ので 06-10 には重ならない。主張の記録は 06-10 にある
     put_gap(
         &pool,
         u,
         "2026-06-08T08:00:00+09:00",
-        "2026-06-09T08:00:00+09:00",
+        "2026-06-10T00:00:00+09:00",
         "retention",
     )
     .await;
     testdb::put_heartbeat(&pool, u, USAGE, "2026-06-10T03:00:00Z", true).await;
-    // 主張の記録は出来事の時刻（= 終わり）の日 06-09 にあるが、その日の格子には数えない
+    // 主張の記録は出来事の時刻（= 終わり）の日 06-10 にあるが、その日の格子には数えない
     let c = cell(&pool, u, &s, "2026-06-10").await;
     assert_eq!(c.state, DayState::AliveNoRecord);
+    assert_eq!(c.event_count, 0);
     assert!(c.gaps.is_empty());
 }
 
@@ -380,4 +381,23 @@ async fn st14_grid_gap_day_carries_span_and_reason() {
     assert_eq!(g.reason, "retention");
     assert_eq!(g.begin.to_rfc3339(), "2026-08-31T23:00:00+00:00");
     assert_eq!(g.end.to_rfc3339(), "2026-09-03T00:00:00+00:00");
+}
+
+// 壊れた begin（存在しない日付）が 1 件あっても稼働状況ぜんぶは落ちず、その 1 件は配られない
+#[tokio::test]
+async fn st14_grid_gap_unreadable_begin_is_skipped() {
+    let pool = testdb::pool().await;
+    let u = testdb::user();
+    let s = row(USAGE, SIX_HOURS, "2026-05-01");
+    put_gap(
+        &pool,
+        u,
+        "2026-02-30T08:00:00+09:00",
+        "2026-06-10T08:00:00+09:00",
+        "retention",
+    )
+    .await;
+    testdb::put_heartbeat(&pool, u, USAGE, "2026-06-10T03:00:00Z", true).await;
+    let c = cell(&pool, u, &s, "2026-06-10").await;
+    assert!(c.gaps.is_empty());
 }

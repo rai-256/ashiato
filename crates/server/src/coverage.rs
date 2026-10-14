@@ -819,21 +819,22 @@ async fn gaps_by_day(
     to: chrono::NaiveDate,
 ) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>>, sqlx::Error> {
     let sql = format!(
-        "WITH g AS (SELECT (payload->>'begin')::timestamptz AS b,
+        "WITH g AS (SELECT CASE WHEN pg_input_is_valid(payload->>'begin', 'timestamptz')
+                                  THEN (payload->>'begin')::timestamptz END AS b,
                            event_time AS e,
                            coalesce(payload->>'reason', '') AS reason
                       FROM core.event
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
                        AND logical_source LIKE '{prefix}%'
                        AND payload->>'kind' = 'gap'
-                       -- 取り込み口は gap の中身を検めない。読めない begin は飛ばす（キャストの失敗で稼働状況ぜんぶを落とさない）
-                       AND payload->>'begin' ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9:.]+(Z|[+-][0-9]{{2}}:[0-9]{{2}})$'
-                       AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
-                       AND (payload->>'begin')::timestamptz < (($4::date + 1)::timestamp AT TIME ZONE '{tz}')),
+                       AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')),
               d AS (SELECT generate_series($3::date, $4::date, '1 day')::date AS day)
          SELECT d.day, g.reason, g.b, g.e
            FROM d JOIN g
-             ON g.b < ((d.day + 1)::timestamp AT TIME ZONE '{tz}')
+             -- 取り込み口は gap の中身を検めない。読めない begin は b が NULL になり、ここで落ちる
+             -- （キャストの失敗で稼働状況ぜんぶを落とさない。CASE が評価の順を保証する）
+             ON g.b IS NOT NULL
+            AND g.b < ((d.day + 1)::timestamp AT TIME ZONE '{tz}')
             AND g.e > (d.day::timestamp AT TIME ZONE '{tz}')
           ORDER BY d.day, g.b, g.e",
         tz = DAY_TZ,
