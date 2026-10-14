@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- ST17: 通知を押して開かれるアドレスを受け取るだけの受け皿（FeelingReminderInstrumentedTest）。
+             自分専用の scheme にしてあるので、ブラウザは候補に入らない -->
+        <activity
+            android:name="dev.ashiato.collector.FeelProbeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ashiato-feel-test" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
