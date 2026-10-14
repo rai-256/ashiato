@@ -122,13 +122,13 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 `outage.rs` / `outage_store.rs`。試験は同じファイル。design D1 / D4。
 
-- [ ] 6.1 `Archive` の最後に生きていた時刻（`outcome = 'read'` の台帳 × `archive_ledger_source` の `max(coalesce(created_at, discovered_at))`）と、`alert_after_days` の閾値。
+- [x] 6.1 `Archive` の最後に生きていた時刻（`outcome = 'read'` の台帳 × `archive_ledger_source` の `max(coalesce(created_at, discovered_at))`）と、`alert_after_days` の閾値。
   `ServerHeartbeat`（`s01-archive-inbox`）は取得できる状態の生存信号だけで測る。
   Scenario: `最後の書庫から 75 日を過ぎると書庫のソースが途切れになる` / `2 か月ごとの書き出しでは書庫のソースは途切れにならない` / `新しい行の無い書庫でも最後の書庫は進む` /
   `後の書庫が古い出来事を運ばなくても最後の書庫で測る` / `形の確認を待っている書庫は最後の書庫に数えない` / `取り込み器は生存信号から 3 日で途切れになる` /
   `作られた時刻の無い書庫は見つけた時刻で測る` / `項目が 0 件の書庫では最後の書庫は進まない` / `運んだ書庫が台帳に無いソースは届いた時刻で測る` / `使わなかった製品は途切れにならない`。
   検証: `CT st14_judge_archive`、`CT st14_inputs_archive`
-- [ ] 6.2 格子と通知の測り方の違いを固定する（同じ入力で `GET /coverage` の 61 日目が「途絶」。判定の側は 6.1）。
+- [x] 6.2 格子と通知の測り方の違いを固定する（同じ入力で `GET /coverage` の 61 日目が「途絶」。判定の側は 6.1）。
   Scenario: `使わなかった製品は格子では途絶に見える`。
   検証: `CT st14_inputs_archive_grid`
 
