@@ -4253,7 +4253,7 @@ async fn archive_youtube_route_a_liked_video_does_not_go_to_watch() {
     let body = serde_json::json!([
         yt_item(
             "YouTube",
-            "ある動画 を高く評価しました",
+            "高く評価しました ある動画",
             Some(YT_WATCH_URL),
             None
         ),
@@ -4572,7 +4572,7 @@ fn archive_youtube_shape_shows_counts_by_destination() {
     ));
     items.push(yt_item(
         "YouTube",
-        "好きな動画 を高く評価しました",
+        "高く評価しました 好きな動画",
         Some(YT_WATCH_URL),
         None,
     ));
@@ -4761,7 +4761,7 @@ async fn archive_youtube_shape_seals_of_other_kinds_still_hold() {
 async fn archive_youtube_shape_a_japanese_file_without_ratings_rides_the_japanese_seal() {
     let sealed = serde_json::json!([
         yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
-        yt_item("YouTube", "b を高く評価しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "高く評価しました b", Some(YT_WATCH_URL), None),
     ]);
     let no_ratings = serde_json::json!([
         yt_item("YouTube", "c を視聴しました", Some(YT_WATCH_URL), None),
@@ -4783,7 +4783,7 @@ async fn archive_youtube_shape_changed_counts_alone_do_not_wait() {
     let sealed = serde_json::json!([
         yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
         yt_item("YouTube", "b を視聴しました", Some(YT_WATCH_URL), None),
-        yt_item("YouTube", "c を高く評価しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "高く評価しました c", Some(YT_WATCH_URL), None),
     ]);
     let fewer = ja_youtube(1);
     let a = crate::archive::worker::shape_for_file(

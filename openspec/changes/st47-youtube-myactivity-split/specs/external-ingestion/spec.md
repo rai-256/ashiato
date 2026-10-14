@@ -57,7 +57,7 @@ THE SYSTEM SHALL `c03-myactivity-youtube` を、登録簿に想定間隔 60 日�
 
 #### Scenario: 高く評価した動画は視聴に入らない
 
-- **WHEN** 形の確認の印を置いた後に、`watch?v=` の URL と題名「ある動画 を高く評価しました」を持つ YouTube の項目を含む書庫を置く
+- **WHEN** 形の確認の印を置いた後に、`watch?v=` の URL と題名「高く評価しました ある動画」を持つ YouTube の項目を含む書庫を置く
 - **THEN** その項目は `c03-myactivity-youtube` に格納され、`c03-youtube-watch` には入らない
 
 #### Scenario: 英語の書き出しの評価も視聴に入らない

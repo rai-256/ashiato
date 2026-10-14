@@ -43,43 +43,63 @@ pub fn percent_decode(input: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// 言語ごとの決まり文句の表（ST47 / D4（仮））。比べ方は日本語が**末尾**、英語が**先頭**
-/// （動画名の途中に決まり文句が含まれても当たらないように）。
+/// 決まり文句を題名のどちら側で比べるか。
+#[derive(Clone, Copy)]
+enum At {
+    Start,
+    End,
+}
+
+/// 決まり文句の組。比べる向きは組ごとに持つ
+/// （日本語は評価が**先頭**・視聴と検索が**末尾**、英語はどれも**先頭**。deep.md 第 2 回 Q9 の前提の訂正）。
+/// 頭か尾に固定で付く形だけを見るのは、動画名の途中に決まり文句が含まれても当たらないように。
+struct Group {
+    at: At,
+    phrases: &'static [&'static str],
+}
+
+impl Group {
+    fn matches(&self, title: &str) -> bool {
+        self.phrases.iter().any(|phrase| match self.at {
+            At::Start => title.starts_with(phrase),
+            At::End => title.ends_with(phrase),
+        })
+    }
+}
+
+/// 言語ごとの決まり文句の表（ST47 / D4（仮））。
 struct Phrases {
     language: &'static str,
-    ends_with: bool,
-    rating: &'static [&'static str],
+    rating: Group,
     /// 言語の見分けだけに使う。評価の無いファイルでも言語が分かるように。
-    recognition: &'static [&'static str],
+    recognition: Group,
 }
 
 /// 上から順に当たりを見る（`languages` が題名を最初に当たった言語だけに数える。順は日本語が先）。
 const PHRASES: [Phrases; 2] = [
     Phrases {
         language: "ja",
-        ends_with: true,
-        rating: &["を高く評価しました", "を低く評価しました"],
-        recognition: &["を視聴しました", "を検索しました"],
+        rating: Group {
+            at: At::Start,
+            phrases: &["高く評価しました ", "低く評価しました "],
+        },
+        recognition: Group {
+            at: At::End,
+            phrases: &["を視聴しました", "を検索しました"],
+        },
     },
     Phrases {
         language: "en",
-        ends_with: false,
-        rating: &["Liked ", "Disliked "],
-        recognition: &["Watched ", "Searched for "],
+        rating: Group {
+            at: At::Start,
+            phrases: &["Liked ", "Disliked "],
+        },
+        recognition: Group {
+            at: At::Start,
+            phrases: &["Watched ", "Searched for "],
+        },
     },
 ];
-
-impl Phrases {
-    fn matches(&self, title: &str, phrases: &[&str]) -> bool {
-        phrases.iter().any(|phrase| {
-            if self.ends_with {
-                title.ends_with(phrase)
-            } else {
-                title.starts_with(phrase)
-            }
-        })
-    }
-}
 
 /// ファイルの題名から「当たった言語」（並べて重複を除いたもの）を返す。
 /// 題名は表の上から順に最初に当たった言語にだけ数える
@@ -87,9 +107,10 @@ impl Phrases {
 pub fn languages<'a>(titles: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
     let mut found: Vec<&'static str> = Vec::new();
     for title in titles {
-        if let Some(phrases) = PHRASES.iter().find(|phrases| {
-            phrases.matches(title, phrases.rating) || phrases.matches(title, phrases.recognition)
-        }) {
+        if let Some(phrases) = PHRASES
+            .iter()
+            .find(|phrases| phrases.rating.matches(title) || phrases.recognition.matches(title))
+        {
             found.push(phrases.language);
         }
     }
@@ -103,5 +124,5 @@ pub fn is_rating(title: &str, languages: &[&str]) -> bool {
     PHRASES
         .iter()
         .filter(|phrases| languages.contains(&phrases.language))
-        .any(|phrases| phrases.matches(title, phrases.rating))
+        .any(|phrases| phrases.rating.matches(title))
 }

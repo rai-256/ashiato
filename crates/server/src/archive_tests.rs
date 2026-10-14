@@ -2194,13 +2194,33 @@ fn archive_youtube_kind_of_a_file_without_products_but_with_a_watch_url_is_youtu
 fn archive_youtube_phrase_japanese_ratings_match() {
     let ja = ["ja"];
     assert!(crate::archive::youtube::is_rating(
-        "ある動画 を高く評価しました",
+        "高く評価しました ある動画",
         &ja
     ));
     assert!(crate::archive::youtube::is_rating(
+        "低く評価しました ある動画",
+        &ja
+    ));
+}
+
+/// 日本語の評価は題名の**先頭**の決まり文句で見る（deep.md 第 2 回 Q9 の前提の訂正）。
+/// 末尾の「を高く評価しました」は本物ではコミュニティ投稿の 1 件だけで、評価に数えない。
+#[test]
+fn archive_youtube_phrase_japanese_rating_is_a_prefix_not_a_suffix() {
+    let ja = ["ja"];
+    assert!(!crate::archive::youtube::is_rating(
+        "ある動画 を高く評価しました",
+        &ja
+    ));
+    assert!(!crate::archive::youtube::is_rating(
         "ある動画 を低く評価しました",
         &ja
     ));
+    assert_eq!(
+        crate::archive::youtube::languages(["高く評価しました ある動画"]),
+        ["ja"],
+        "先頭の評価の決まり文句でも日本語が当たる"
+    );
 }
 
 #[test]
