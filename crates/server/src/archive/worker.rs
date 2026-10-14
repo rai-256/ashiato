@@ -747,7 +747,31 @@ fn legacy_items<'a>(
 enum Route {
     Watch,
     Search,
+    /// 広告（`details` の欄を持つ）。その他に入る
+    Ad,
+    /// 評価（決まり文句の表に当たる）。その他に入る
+    Rating,
+    /// 視聴でも検索でも広告でも評価でもないもの
     Other,
+}
+
+/// YouTube の項目の行き先を spec の順で決める（ST47 / D3）。取り込みと形の一覧が同じ判定を使う。
+fn youtube_route(row: &serde_json::Value, languages: &[&str]) -> Route {
+    if row.get("details").is_some() {
+        return Route::Ad;
+    }
+    let title = text(row, &["title"]);
+    match text(row, &["titleUrl"]) {
+        Some(url)
+            if url.contains("watch?v=")
+                && title.is_some_and(|title| super::youtube::is_rating(title, languages)) =>
+        {
+            Route::Rating
+        }
+        Some(url) if url.contains("watch?v=") => Route::Watch,
+        Some(url) if url.contains("results?search_query=") => Route::Search,
+        _ => Route::Other,
+    }
 }
 
 /// YouTube の視聴・検索、マイアクティビティ、Chrome の履歴（D6）。
@@ -779,24 +803,7 @@ fn takeout_items<'a>(
         let (source, when) = match kind {
             KnownKind::YouTube => {
                 // 項目ごとに spec の順で行き先を決める（ST47 / D3）。
-                let title = text(row, &["title"]);
-                let route = if row.get("details").is_some() {
-                    Route::Other
-                } else {
-                    match url {
-                        Some(url)
-                            if url.contains("watch?v=")
-                                && title.is_some_and(|title| {
-                                    super::youtube::is_rating(title, &languages)
-                                }) =>
-                        {
-                            Route::Other
-                        }
-                        Some(url) if url.contains("watch?v=") => Route::Watch,
-                        Some(url) if url.contains("results?search_query=") => Route::Search,
-                        _ => Route::Other,
-                    }
-                };
+                let route = youtube_route(row, &languages);
                 match route {
                     Route::Watch => {
                         put(&mut fields, "title", cloned(row.get("title")));
@@ -821,7 +828,7 @@ fn takeout_items<'a>(
                             .map(super::youtube::percent_decode);
                         put(&mut fields, "query", query.map(serde_json::Value::String));
                     }
-                    Route::Other => {
+                    Route::Ad | Route::Rating | Route::Other => {
                         fields.insert("product".into(), serde_json::json!("YouTube"));
                         put(&mut fields, "title", cloned(row.get("title")));
                         put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
@@ -832,7 +839,9 @@ fn takeout_items<'a>(
                     match route {
                         Route::Watch => "c03-youtube-watch".to_owned(),
                         Route::Search => "c03-youtube-search".to_owned(),
-                        Route::Other => super::myactivity::source_name("YouTube"),
+                        Route::Ad | Route::Rating | Route::Other => {
+                            super::myactivity::source_name("YouTube")
+                        }
                     },
                     when_text(text(row, &["time"]), None),
                 )
@@ -1174,23 +1183,51 @@ pub fn shape_for_file(
     // **製品の名前は集合**（design D16）。項目ごとに積むと、同じ製品でも件数が
     // 変われば形が変わり、**2 か月ごとの書き出しのたびに確認待ちになる**
     // （本人が第 3 回 Q12 で「ならない」と決めた型。R7）。並びにも依存させない。
-    let products: Vec<String> = if kind == super::classify::KnownKind::MyActivity {
-        let mut names: Vec<String> = value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row.get("products"))
-            .filter_map(serde_json::Value::as_array)
-            .filter_map(|products| products.first())
-            .filter_map(serde_json::Value::as_str)
+    use super::classify::KnownKind;
+    let rows: &[serde_json::Value] = value.as_array().map_or(&[], Vec::as_slice);
+    let first_product = |row: &serde_json::Value| {
+        row.get("products")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|products| products.first())
+            .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
-            .collect();
+    };
+    let products: Vec<String> = if matches!(kind, KnownKind::MyActivity | KnownKind::YouTube) {
+        let mut names: Vec<String> = rows.iter().filter_map(first_product).collect();
         names.sort();
         names.dedup();
         names
     } else {
         Vec::new()
     };
+    // 行き先ごとの件数（ST47 / D7）。件数は書き出しのたびに変わるので `hash_shape` は見ない。
+    // 値（題名・URL・検索語）は出さず、数だけ。
+    let mut languages: Option<Vec<&'static str>> = None;
+    let mut destinations: Option<serde_json::Value> = None;
+    if kind == KnownKind::YouTube {
+        let found = super::youtube::languages(rows.iter().filter_map(|row| text(row, &["title"])));
+        let (mut watch, mut search, mut ad, mut rating, mut other) = (0, 0, 0, 0, 0);
+        for row in rows {
+            match youtube_route(row, &found) {
+                Route::Watch => watch += 1,
+                Route::Search => search += 1,
+                Route::Ad => (ad, other) = (ad + 1, other + 1),
+                Route::Rating => (rating, other) = (rating + 1, other + 1),
+                Route::Other => other += 1,
+            }
+        }
+        destinations = Some(serde_json::json!({
+            "watch": watch, "search": search, "other": other, "ad": ad, "rating": rating,
+        }));
+        languages = Some(found);
+    } else if products.iter().any(|name| name == "YouTube") {
+        // 混ざったファイルの YouTube の項目はすべてその他へ入る（D2）。
+        let other = rows
+            .iter()
+            .filter(|row| first_product(row).as_deref() == Some("YouTube"))
+            .count();
+        destinations = Some(serde_json::json!({ "other": other }));
+    }
     let (top_level_keys, field_names) = match &value {
         serde_json::Value::Object(object) => {
             (object.keys().cloned().collect::<Vec<_>>(), Vec::new())
@@ -1221,14 +1258,21 @@ pub fn shape_for_file(
             .unwrap_or(0),
         _ => 0,
     };
-    Ok(serde_json::json!({
+    let mut shape = serde_json::json!({
         "kind": format!("{kind:?}"),
         "products": products,
         "top_level_keys": top_level_keys,
         "field_names": field_names,
         "items": items,
         "path_shape": path_shape(inner_path),
-    }))
+    });
+    if let Some(languages) = languages {
+        shape["languages"] = serde_json::json!(languages);
+    }
+    if let Some(destinations) = destinations {
+        shape["destinations"] = destinations;
+    }
+    Ok(shape)
 }
 
 /// 書庫の中のパスを**型**にする。名前そのものは訳で変わるので形に入れない
@@ -1438,10 +1482,20 @@ pub fn hash_shape(shape: &serde_json::Value) -> String {
     use sha2::Digest as _;
     // 確認を要するのは論理ソース名を決める種類と製品名だけ。欄の追加や
     // パスの翻訳で、既に確認した書庫まで止めない。
-    let identity = serde_json::json!({
-        "kind": shape.get("kind"),
-        "products": shape.get("products"),
-    });
+    // YouTube の種類だけ、当たった言語も入れる（ST47 / D5）。ほかの種類はいまと同じバイト列。
+    // `destinations` は入れない（件数の変化では確認待ちにしない。D7）。
+    let identity = if shape.get("kind").and_then(serde_json::Value::as_str) == Some("YouTube") {
+        serde_json::json!({
+            "kind": shape.get("kind"),
+            "products": shape.get("products"),
+            "languages": shape.get("languages"),
+        })
+    } else {
+        serde_json::json!({
+            "kind": shape.get("kind"),
+            "products": shape.get("products"),
+        })
+    };
     let encoded = serde_json::to_vec(&identity).expect("形はJSON");
     format!("{:x}", sha2::Sha256::digest(encoded))
 }

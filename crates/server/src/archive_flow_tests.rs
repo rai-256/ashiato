@@ -4461,3 +4461,371 @@ async fn archive_youtube_route_a_mixed_file_goes_by_product() {
     assert_eq!(inbox.events("c03-youtube-watch").await, 0);
     assert_eq!(inbox.events("c03-youtube-search").await, 0);
 }
+
+// ---- ST47: 形の同一性・形の一覧の行き先ごとの件数（design D5 / D7） ----
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
+/// 手で組んだ形ではなく、**ファイルのバイト列から分類・形・ハッシュまで通す**。
+fn shape_hash_of_bytes(path: &str, bytes: &[u8]) -> String {
+    let files = [crate::archive::open::ArchiveFile {
+        path: path.to_owned(),
+        bytes: bytes.to_vec(),
+    }];
+    let classified = crate::archive::classify::classify_files(&files);
+    assert_eq!(classified.known.len(), 1, "分類されない: {path}");
+    let shape =
+        crate::archive::worker::shape_for_file(classified.known[0].kind, path, bytes).unwrap();
+    crate::archive::worker::hash_shape(&shape)
+}
+
+/// 印の表へ、形のハッシュを直に入れる（旧い版・ST12 の版の形の印を作る）。
+async fn confirm_hash(inbox: &Inbox, hash: &str) {
+    sqlx::query(
+        "INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape)
+         VALUES ($1, $2, '{}'::jsonb)",
+    )
+    .bind(inbox.user)
+    .bind(hash)
+    .execute(&inbox.pool)
+    .await
+    .unwrap();
+}
+
+async fn pending_files(inbox: &Inbox) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1")
+        .bind(inbox.user)
+        .fetch_one(&inbox.pool)
+        .await
+        .unwrap()
+}
+
+/// 印を置いた後に `files` を置き、確認待ちが 1 件になるまで待つ（格納された記録は無いはず）。
+async fn yt_pending(
+    name: &str,
+    confirm: impl AsyncFnOnce(&Inbox),
+    files: &[(&str, &serde_json::Value)],
+) -> Inbox {
+    let inbox = Inbox::new(name).await;
+    confirm(&inbox).await;
+    let bodies: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(path, body)| (*path, body.to_string().into_bytes()))
+        .collect();
+    let entries: Vec<(&str, &[u8])> = bodies
+        .iter()
+        .map(|(path, bytes)| (*path, bytes.as_slice()))
+        .collect();
+    inbox.put("takeout-20260912-000000.zip", &entries);
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちにならない", || async {
+            pending_files(&inbox).await == 1
+        })
+        .await;
+    inbox
+}
+
+fn ja_youtube(watches: usize) -> serde_json::Value {
+    serde_json::Value::Array(
+        (0..watches)
+            .map(|i| {
+                yt_item(
+                    "YouTube",
+                    &format!("動画{i} を視聴しました"),
+                    Some(YT_WATCH_URL),
+                    None,
+                )
+            })
+            .collect(),
+    )
+}
+
+// Scenario: 形の確認の出力に YouTube の行き先ごとの件数が出る
+#[test]
+fn archive_youtube_shape_shows_counts_by_destination() {
+    let mut items = Vec::new();
+    for i in 0..3 {
+        items.push(yt_item(
+            "YouTube",
+            &format!("秘密の動画{i} を視聴しました"),
+            Some(YT_WATCH_URL),
+            None,
+        ));
+    }
+    for _ in 0..2 {
+        items.push(yt_item(
+            "YouTube",
+            "秘密の語 を検索しました",
+            Some(YT_SEARCH_URL),
+            None,
+        ));
+    }
+    items.push(yt_item(
+        "YouTube",
+        "広告 を視聴しました",
+        Some(YT_WATCH_URL),
+        Some(serde_json::json!([{"name": "Google 広告"}])),
+    ));
+    items.push(yt_item(
+        "YouTube",
+        "好きな動画 を高く評価しました",
+        Some(YT_WATCH_URL),
+        None,
+    ));
+    items.push(yt_item("YouTube", "投票しました", Some(YT_POST_URL), None));
+    let body = serde_json::Value::Array(items).to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["watch"], 3);
+    assert_eq!(shape["destinations"]["search"], 2);
+    assert_eq!(shape["destinations"]["other"], 3);
+    assert_eq!(shape["destinations"]["ad"], 1);
+    assert_eq!(shape["destinations"]["rating"], 1);
+    assert_eq!(shape["languages"], serde_json::json!(["ja"]));
+    assert_eq!(shape["products"], serde_json::json!(["YouTube"]));
+    let printed = serde_json::to_string(&shape).unwrap();
+    for value in [
+        "秘密の動画",
+        "秘密の語",
+        "watch?v=abc",
+        "search_query",
+        "Google 広告",
+    ] {
+        assert!(
+            !printed.contains(value),
+            "値「{value}」が出ている: {printed}"
+        );
+    }
+}
+
+// Scenario: YouTube の項目を含むマイアクティビティの形の出力にその他へ入る件数が出る
+#[test]
+fn archive_youtube_shape_a_mixed_file_shows_the_youtube_items_going_to_other() {
+    let body = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "b を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item(
+            "検索",
+            "x を検索しました",
+            Some("https://www.google.com/search?q=x"),
+            None
+        ),
+    ])
+    .to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::MyActivity,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["other"], 2);
+    // 混ざったファイルの同一性は、いまと同じ種類と製品の名前だけ。
+    assert!(shape.get("languages").is_none());
+}
+
+// Scenario: 決まり文句の表が当たらない YouTube のファイルはまた確認待ちになる
+#[tokio::test]
+async fn archive_youtube_shape_a_file_without_phrase_hits_waits_again() {
+    let known = ja_youtube(2);
+    let unknown = serde_json::json!([yt_item("YouTube", "Look at this", Some(YT_WATCH_URL), None)]);
+    let inbox = yt_pending(
+        "yt-no-phrase",
+        async |inbox: &Inbox| {
+            inbox
+                .confirm(
+                    crate::archive::classify::KnownKind::YouTube,
+                    known.to_string().as_bytes(),
+                )
+                .await
+        },
+        &[(MY_ACTIVITY_PATH, &unknown)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+}
+
+// Scenario: 他の製品のファイルは YouTube の形の印では格納されない
+#[tokio::test]
+async fn archive_youtube_shape_another_product_does_not_ride_the_youtube_seal() {
+    let known = ja_youtube(2);
+    let other = serde_json::json!([yt_item(
+        "検索",
+        "動画の検索 を視聴しました",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let inbox = yt_pending(
+        "yt-other-product-seal",
+        async |inbox: &Inbox| {
+            inbox
+                .confirm(
+                    crate::archive::classify::KnownKind::YouTube,
+                    known.to_string().as_bytes(),
+                )
+                .await
+        },
+        &[("Takeout/My Activity/Search/MyActivity.json", &other)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+}
+
+// Scenario: 見分け方を変える前の YouTube の形に置いた印は効かない
+#[tokio::test]
+async fn archive_youtube_shape_the_old_youtube_seal_does_not_hold() {
+    let body = ja_youtube(2);
+    let inbox = yt_pending(
+        "yt-old-seal",
+        async |inbox: &Inbox| {
+            confirm_hash(
+                inbox,
+                &sha256_hex(br#"{"kind":"YouTubeWatch","products":[]}"#),
+            )
+            .await
+        },
+        &[(WATCH_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+// Scenario: YouTube 以外の形に置いた印は効いたままになる
+#[tokio::test]
+async fn archive_youtube_shape_seals_of_other_kinds_still_hold() {
+    let my_activity = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    let chrome = serde_json::json!({"Browser History": [{
+        "title": "t", "url": "https://example.com/", "page_transition": "LINK",
+        "client_id": "c", "time_usec": 13_370_000_000_000_000_i64,
+    }]})
+    .to_string();
+    // ST12 の版の形のバイト列の sha256 と、ファイルから通した結果が一致する。
+    let st12_my_activity = sha256_hex(r#"{"kind":"MyActivity","products":["検索"]}"#.as_bytes());
+    let st12_chrome = sha256_hex(br#"{"kind":"ChromeHistory","products":[]}"#);
+    assert_eq!(
+        shape_hash_of_bytes(
+            "Takeout/My Activity/Search/MyActivity.json",
+            my_activity.as_bytes()
+        ),
+        st12_my_activity
+    );
+    assert_eq!(
+        shape_hash_of_bytes("Takeout/Chrome/History.json", chrome.as_bytes()),
+        st12_chrome
+    );
+
+    let inbox = Inbox::new("yt-other-kind-seals").await;
+    confirm_hash(&inbox, &st12_my_activity).await;
+    confirm_hash(&inbox, &st12_chrome).await;
+    inbox.put(
+        "takeout-20260912-000000.zip",
+        &[
+            (
+                "Takeout/My Activity/Search/MyActivity.json",
+                my_activity.as_bytes(),
+            ),
+            ("Takeout/Chrome/History.json", chrome.as_bytes()),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(
+        inbox
+            .events(&crate::archive::myactivity::source_name("検索"))
+            .await,
+        1
+    );
+    assert_eq!(inbox.events("c03-chrome-history").await, 1);
+}
+
+// Scenario: 評価を持たない日本語の YouTube のファイルは日本語の形の印で格納される
+#[tokio::test]
+async fn archive_youtube_shape_a_japanese_file_without_ratings_rides_the_japanese_seal() {
+    let sealed = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "b を高く評価しました", Some(YT_WATCH_URL), None),
+    ]);
+    let no_ratings = serde_json::json!([
+        yt_item("YouTube", "c を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "d を検索しました", Some(YT_SEARCH_URL), None),
+    ]);
+    let inbox = yt_store(
+        "yt-ja-no-rating",
+        &[(crate::archive::classify::KnownKind::YouTube, &sealed)],
+        &[(MY_ACTIVITY_PATH, &no_ratings)],
+    )
+    .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(yt_counts(&inbox).await, (1, 1, 0));
+}
+
+// Scenario: 行き先ごとの件数が変わっただけでは YouTube のファイルは確認待ちにならない
+#[tokio::test]
+async fn archive_youtube_shape_changed_counts_alone_do_not_wait() {
+    let sealed = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "b を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "c を高く評価しました", Some(YT_WATCH_URL), None),
+    ]);
+    let fewer = ja_youtube(1);
+    let a = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        sealed.to_string().as_bytes(),
+    )
+    .unwrap();
+    let b = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        fewer.to_string().as_bytes(),
+    )
+    .unwrap();
+    assert_ne!(a["destinations"], b["destinations"]);
+    assert_eq!(
+        crate::archive::worker::hash_shape(&a),
+        crate::archive::worker::hash_shape(&b),
+        "件数だけが違う形の同一性が違う"
+    );
+    let inbox = yt_store(
+        "yt-counts-only",
+        &[(crate::archive::classify::KnownKind::YouTube, &sealed)],
+        &[(MY_ACTIVITY_PATH, &fewer)],
+    )
+    .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(yt_counts(&inbox).await, (1, 0, 0));
+}
+
+#[test]
+fn archive_youtube_shape_identity_carries_languages_only_for_youtube() {
+    let ja = shape_hash_of_bytes(MY_ACTIVITY_PATH, ja_youtube(1).to_string().as_bytes());
+    let none = shape_hash_of_bytes(
+        MY_ACTIVITY_PATH,
+        serde_json::json!([yt_item("YouTube", "Look", Some(YT_WATCH_URL), None)])
+            .to_string()
+            .as_bytes(),
+    );
+    assert_ne!(ja, none, "言語が同一性に入っていない");
+    assert_eq!(
+        ja,
+        sha256_hex(br#"{"kind":"YouTube","languages":["ja"],"products":["YouTube"]}"#)
+    );
+}
