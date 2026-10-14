@@ -1179,8 +1179,16 @@ impl HistoryBrowser {
              user_pref(\"browser.startup.page\", 0);\n",
         )
         .unwrap();
+        // `-wait-for-browser`: Windows の firefox.exe は本体を別のプロセスで起こしてすぐ終わる（launcher process）。
+        // 待たせないと `child` が先に消え、Drop の taskkill /T が本体に届かずに Firefox が残る
+        // （CI で 25 分の打ち切りまで残り、手元でも 1 本ごとに本体と子 8 つが残った。実測 2026-10-14）
         let child = Command::new(exe)
-            .args(["-no-remote", "-new-instance", "-profile"])
+            .args([
+                "-no-remote",
+                "-new-instance",
+                "-wait-for-browser",
+                "-profile",
+            ])
             .arg(&profile)
             .args(urls)
             .spawn()
@@ -1328,12 +1336,17 @@ fn browser_history_chrome() {
 // Scenario: ブラウザが動いている間も取得できる
 #[test]
 fn browser_history_firefox() {
+    // 管理者権限なしで入れた Firefox は `%LOCALAPPDATA%\Mozilla Firefox` に入る（手元の PC。実測 2026-10-14）
+    let user_install = std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join(r"Mozilla Firefox\firefox.exe"));
     let exe = [
-        r"C:\Program Files\Mozilla Firefox\firefox.exe",
-        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+        std::path::PathBuf::from(r"C:\Program Files\Mozilla Firefox\firefox.exe"),
+        std::path::PathBuf::from(r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe"),
     ]
     .into_iter()
-    .find(|p| std::path::Path::new(p).is_file())
+    .chain(user_install)
+    .find(|p| p.is_file())
     .expect("Firefox が無い（runner に入れる。飛ばさない: design D14）");
+    let exe = exe.to_str().expect("Firefox のパスが UTF-8 でない");
     history_roundtrip(|urls| HistoryBrowser::firefox(exe, urls), "firefox");
 }

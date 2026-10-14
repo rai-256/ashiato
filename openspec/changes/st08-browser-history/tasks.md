@@ -178,9 +178,15 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 - [ ] 10.1 Edge を一時プロファイルで開いてページを 2 つ訪問し、**Edge を開いたまま**本物の置き場探し・写し・読み手・取得を通して、
   2 つの訪問が URL と訪問時刻つきの記録として積まれる（取得契機は注入した時計で起こす）。
   Scenario: `ブラウザが動いている間も取得できる`。
-  検証: Windows で `cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running` が rc=0
+  ★ 2026-10-14 本人の指示で訂正: 検証は WSL から Windows 側の cargo を呼ぶ形にする（ST05 9.3 と同じ）。
+  「Windows で `cargo test …`」の形では証跡が Linux で走り、0 本で FAIL になって gate が 859 周した。
+  置き場は Story ごとに分ける（`C:\dev\ashiato2-rt-st08`）。
+  検証: `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running -- --test-threads=1"'` rc=0
 - [ ] 10.2 Chrome と Firefox でも同じことを確かめる。
-  検証: Windows で `... --test runtime_windows browser_history_chrome` rc=0 / `... --test runtime_windows browser_history_firefox` rc=0
+  ★ 2026-10-14 訂正: 10.1 と同じく WSL から Windows 側の cargo を呼ぶ形。Firefox は起動の入口のプロセスがすぐ終わるので
+  `-wait-for-browser` で待たせる（待たせないと後片付けが本体に届かず、Firefox が残って CI が 25 分で打ち切られた）。
+  検証: `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_chrome -- --test-threads=1"'` rc=0 /
+  `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_firefox -- --test-threads=1"'` rc=0
 - [x] 10.3 「前日に見たページが翌日の取得で入っている」を取り込み口まで通して見る: 10.1 の記録を smoke と同じ手順でサーバへ送り、
   psql で URL と訪問時刻の行があることを見る（Windows の job ではサーバを立てないので、`tools/smoke.sh` の側で
   履歴 DB を読んで取得契機を 1 日進める形にする）。

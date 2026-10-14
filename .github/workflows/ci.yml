@@ -125,11 +125,13 @@ jobs:
       # 前景は 1 つしか無いので実行時テストは直列にする
       - run: cargo test -p ashiato-collector-windows --lib
       # **走った本数を確かめる**（review/code-r2.md R8）—— テストが丸ごと消えても `running 0 tests` で緑になる
+      # 出力は**流しながら**ファイルにも残す。変数に溜めて最後に出すと、固まって打ち切られたときに
+      # どのテストで止まったかがログに 1 行も残らない（実測 2026-10-14: 18 分の無言の後に打ち切り）
       - shell: pwsh
         run: |
-          $out = cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1 2>&1 | Tee-Object -Variable log | Out-String
-          Write-Host $out
+          cargo test -p ashiato-collector-windows --test runtime_windows -- --test-threads=1 2>&1 | Tee-Object -FilePath runtime.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $out = Get-Content runtime.log -Raw
           if ($out -notmatch 'test result: ok\. (\d+) passed') { Write-Error "結果の行が無い"; exit 1 }
           if ([int]$Matches[1] -lt 10) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（10 本のはず）"; exit 1 }
 
