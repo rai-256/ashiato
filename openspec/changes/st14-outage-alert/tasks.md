@@ -186,7 +186,8 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
   `windows` crate の機能は `UI_Notifications`・`Data_Xml_Dom`・`Foundation` の 3 つだけ（design D11）。登録簿に書けなければ警告だけで収集を止めない。
   実行時テストで、出した後に `History().GetHistoryWithId(AUMID)` に 1 件・差し替えた後も 1 件で `SuppressPopup` が真・消した後に 0 件を見る。
   Scenario: `PC の途切れの通知は Windows の通知として出る` / `PC の音なしの差し替えは画面の端に出ない`。
-  検証: Windows の上で `cargo test -p ashiato-collector-windows --test runtime_windows outage -- --test-threads=1` rc=0（`-- --list` で 1 本以上。CI の `collector-windows-runtime` job。手元は WSL から Windows 側の cargo）
+  検証: `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st14/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st14 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows outage -- --test-threads=1"'` rc=0（`-- --list` で 1 本以上。CI の `collector-windows-runtime` job。手元は WSL から Windows 側の cargo）
+  ★ 2026-10-14 訂正: WSL から Windows 側の cargo を呼ぶ形（ST08 の 10.1 / 10.2 と同じ）。受け入れ条件は変えない。理由: runtime_windows.rs は Windows でしかコンパイルされず、WSL の cargo では試験が 0 本で FAIL になる（evidence.jsonl 9.3 の fp=e49719f9f0 が 2 回）。旧コマンドは cargo test -p ashiato-collector-windows --test runtime_windows outage -- --test-threads=1。新しい入口の最初の語が repo の実行ファイルでないので plan_fix.py を通さず手で直した。承認: 2026-10-14 本人（会話で「st14 は直して良い」）。記録: plan-corrections.md
 
 ## Task 10: 画面（取りこぼしの週の文字・集計の格子・明暗）と偽データ
 
