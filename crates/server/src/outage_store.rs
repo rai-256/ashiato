@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! 途切れの判定の材料を引く SQL（ST14 / design D1・D4）。判定そのものは `outage::judge`。
+//! 途切れの判定の材料を引く SQL と台帳（ST14 / design D1・D4・D7）。判定そのものは `outage::judge`。
 //!
 //! 読むのは `core.event`（削除済みも含む。削除は観測の事実を消さない）・`core.heartbeat`・
 //! `core.coverage_span`（停止）。**破棄の報告（`core.drop_report`）は材料に入れない**（C8）。
-use crate::outage::{Outage, SourceInput, SourceKind, NON_OBSERVATION_ALERT};
+use crate::outage::{judge, Outage, SourceInput, SourceKind, NON_OBSERVATION_ALERT};
 use chrono::{DateTime, NaiveDate, Utc};
 
 /// `NOT ((logical_source, kind) IN (…))` の括弧の中。定数から組み立てる（値は定数だけなので埋め込んでよい）。
@@ -42,8 +42,8 @@ type Row = (
 /// - 引き継いだソースは、行ができた時刻を最後に生きていた時刻の下限にする
 /// - 書庫（日数を持つソース）: 読み終えた台帳で、そのソースを運んだ最後の書庫の作られた時刻（無ければ置き場で見つけた時刻）。
 ///   台帳が 1 件も無ければ記録の届いた最後の時刻。形の確認待ち・項目が 0 件の書庫は台帳の側で数えない
-pub async fn inputs(
-    pool: &sqlx::PgPool,
+pub async fn inputs<'e>(
+    db: impl sqlx::PgExecutor<'e>,
     user: uuid::Uuid,
     now: DateTime<Utc>,
 ) -> Result<Vec<SourceInput>, sqlx::Error> {
@@ -112,7 +112,7 @@ pub async fn inputs(
     let rows: Vec<Row> = sqlx::query_as(&sql)
         .bind(user)
         .bind(now)
-        .fetch_all(pool)
+        .fetch_all(db)
         .await?;
     Ok(rows
         .into_iter()
@@ -162,15 +162,16 @@ pub struct Episode {
     pub outage: Outage,
 }
 
-/// 判定を台帳に書く（design D7）。**1 回の取引**:
-/// 助言ロック → 開いている途切れ（`closed` の無い `opened`）を読む → 判定と突き合わせ、
+/// 判定して台帳に書く（design D7）。**1 回の取引**:
+/// 助言ロック → **判定の材料を読んで判定する**（`inputs` → `outage::judge`。表示名の順に並べる）→
+/// 開いている途切れ（`closed` の無い `opened`）を読む → 判定と突き合わせ、
 /// 新しい途切れに `opened`・戻ったものに `closed` → `device_id` があれば `delivered`（端末ごとに 1 行）。
-/// 同時に 2 本が走っても、ロックで直列になるので `opened` は 1 行。返すのは判定どおりの途切れと識別子。
-pub async fn record(
+/// 同時に 2 本が走っても、ロックで直列になるので `opened` は 1 行。材料もロックの後に読むので、
+/// 先に抜けた問い合わせが書いた「戻った」を古い判定で開き直さない（review/code.md R2）。返すのは判定どおりの途切れと識別子。
+pub async fn judge_and_record(
     pool: &sqlx::PgPool,
     user: uuid::Uuid,
     now: DateTime<Utc>,
-    outages: Vec<Outage>,
     device_id: Option<&str>,
 ) -> Result<Vec<Episode>, sqlx::Error> {
     let mut tx = pool.begin().await?;
@@ -178,6 +179,11 @@ pub async fn record(
         .bind(user)
         .execute(&mut *tx)
         .await?;
+    let found = inputs(&mut *tx, user, now).await?;
+    let mut outages = judge(&found, now);
+    outages.sort_by(|a, b| {
+        (&a.display_name, &a.logical_source).cmp(&(&b.display_name, &b.logical_source))
+    });
     let open: Vec<(i64, String)> = sqlx::query_as(
         "SELECT o.id, o.logical_source FROM core.outage_ledger o
           WHERE o.user_id = $1 AND o.kind = 'opened'

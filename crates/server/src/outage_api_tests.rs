@@ -347,6 +347,87 @@ async fn st14_ledger_concurrent_opens_once() {
     assert_eq!(id(&ba), id(&bb));
 }
 
+// 判定の材料は台帳の助言ロックを取った後に読む（review/code.md R2）。
+// 別の問い合わせ（B）がロックを持つ間に A が待ち、その間に B が「戻った」を書いて抜ける。
+// A がロックの前に材料を読んでいたら、古い「途切れ」で新しい `opened` を作り、識別子が変わって端末で再び鳴る
+#[tokio::test]
+async fn st14_ledger_judges_inside_the_lock() {
+    let (now, pool) = (Utc::now(), testdb::pool().await);
+    let (user, name) = broken_location(&pool, now).await;
+    let app = app_at(now).await;
+    let (_, first) = get(&app, &uri(user, Some("dev-a"))).await;
+    let episode = item_of(&first, &name).unwrap()["episode_id"]
+        .as_i64()
+        .unwrap();
+    // B: ロックを取ったまま
+    let mut held = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('outage_ledger:' || $1::text, 0))")
+        .bind(user)
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    // A: ロックで待つまで進める
+    let a = tokio::spawn({
+        let (app, uri) = (app.clone(), uri(user, Some("dev-a")));
+        async move { get(&app, &uri).await }
+    });
+    let mut waited = false;
+    for _ in 0..200 {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+              WHERE wait_event_type = 'Lock' AND wait_event = 'advisory'
+                AND query LIKE '%outage_ledger:%' AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if n > 0 {
+            waited = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(waited, "A が台帳のロックで待たなかった");
+    // B: 位置が戻った（1 分前の記録）と判定して `closed` を書き、抜ける
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time, ingest_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,$3,'test','collected',$4,$4,540,'Asia/Tokyo',1,$5,'{}','{}')",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(user)
+    .bind(&name)
+    .bind(now - Duration::minutes(1))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .execute(&mut *held)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.outage_ledger (user_id, logical_source, kind, episode_id, judged_at)
+         VALUES ($1, $2, 'closed', $3, $4)",
+    )
+    .bind(user)
+    .bind(&name)
+    .bind(episode)
+    .bind(now)
+    .execute(&mut *held)
+    .await
+    .unwrap();
+    held.commit().await.unwrap();
+    let (status, body) = a.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        item_of(&body, &name).is_none(),
+        "戻った後に古い判定で途切れを返した: {body}"
+    );
+    assert_eq!(
+        ledger_count(&pool, user, &name, "opened", None).await,
+        1,
+        "古い判定で途切れが開き直された"
+    );
+}
+
 // Scenario: 戻ると台帳に戻りが 1 行残る
 // Scenario: 戻ったソースは応答の一覧から消える
 #[tokio::test]
