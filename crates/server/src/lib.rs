@@ -2737,16 +2737,10 @@ pub async fn outages_get(
         }));
     }
     let user = q.user_id.unwrap_or_default();
-    let inputs = outage_store::inputs(&app.pool, user, now)
+    // 材料を読むのも判定も台帳の助言ロックの中（review/code.md R2）
+    let episodes = outage_store::judge_and_record(&app.pool, user, now, q.device_id.as_deref())
         .await
-        .map_err(|e| internal_at("outages.inputs", e))?;
-    let mut found = outage::judge(&inputs, now);
-    found.sort_by(|a, b| {
-        (&a.display_name, &a.logical_source).cmp(&(&b.display_name, &b.logical_source))
-    });
-    let episodes = outage_store::record(&app.pool, user, now, found, q.device_id.as_deref())
-        .await
-        .map_err(|e| internal_at("outages.record", e))?;
+        .map_err(|e| internal_at("outages.judge", e))?;
     Ok(Json(OutagesResponse {
         status: OutagesStatus::Ready,
         judged_at: now,

@@ -150,7 +150,7 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 - 一意索引: `(episode_id) WHERE kind = 'closed'`、`(episode_id, device_id) WHERE kind = 'delivered'`
 - 追記のみ: `UPDATE` / `DELETE` / `TRUNCATE` を断るトリガ。**関数は台帳専用の `core.reject_outage_ledger_change()`**（書庫の台帳と同じ形で、共有しない）。
   共有すると ST12 の `202609181600_archive_ingestion.down.sql:21`（`CASCADE` なし）が依存で落ちて戻せなくなる（申し送り `docs/handoff/ST14.md` K3。ST16 / ST19 / ST21 も同じ理由で共有していない）
-- **書き込みは `GET /outages` の中で 1 回の取引**: `pg_advisory_xact_lock(<利用者から決めた鍵>)` → 開いている途切れ（`opened` のうち `closed` の無いもの）を読む → 判定と突き合わせ、新しい途切れに `opened`、戻ったものに `closed` → `device_id` があれば `delivered`（`ON CONFLICT DO NOTHING`）。同時に 2 台が問い合わせても `opened` は 1 行
+- **書き込みは `GET /outages` の中で 1 回の取引**: `pg_advisory_xact_lock(<利用者から決めた鍵>)` → **判定の材料を読んで判定する**（`outage_store::inputs` → `outage::judge`。ロックの前に読むと、先に抜けた問い合わせが書いた戻りを古い判定で開き直す。review/code.md R2）→ 開いている途切れ（`opened` のうち `closed` の無いもの）を読む → 判定と突き合わせ、新しい途切れに `opened`、戻ったものに `closed` → `device_id` があれば `delivered`（`ON CONFLICT DO NOTHING`）。同時に 2 台が問い合わせても `opened` は 1 行
 - 記録の本文・座標・原文の列を持たない
 
 ### D8（仮）. 通知に使う「取得できない」を blockers の種類で絞らない（整合の確認 C14）
