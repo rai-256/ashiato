@@ -116,8 +116,7 @@ pub async fn execute(
         Ok(w) => finish_done(pool, cfg, export_id, w).await,
         Err(e) => {
             tracing::warn!(kind = e.kind.as_str(), "書き出しに失敗した");
-            if let Err(e2) = ledger::insert_failed(pool, export_id, &planned, &e.to_string()).await
-            {
+            if let Err(e2) = ledger::insert_failed(pool, export_id, &planned, &e).await {
                 tracing::error!(kind = e2.kind.as_str(), "台帳に失敗を書けない");
             }
         }
@@ -149,18 +148,39 @@ async fn late_mark(pool: &sqlx::PgPool) -> Result<(), ExportError> {
 
 async fn finish_done(pool: &sqlx::PgPool, cfg: &ExportConfig, export_id: Uuid, w: super::Written) {
     let file = w.file.clone();
-    let measured = tokio::task::spawn_blocking(move || {
-        let bytes = std::fs::metadata(&file)?.len();
-        ledger::sha256_of(&file).map(|d| (bytes, d))
+    let measured = stage(cfg, Stage::Measure, async move {
+        tokio::task::spawn_blocking(move || {
+            let bytes = std::fs::metadata(&file)?.len();
+            ledger::sha256_of(&file).map(|d| (bytes, d))
+        })
+        .await
+        .map_err(|_| ExportError::new(FailKind::Io, "書いたファイルを読む仕事が終わらない"))?
+        .map_err(|e| {
+            ExportError::new(
+                FailKind::Io,
+                format!("書いたファイルを読めない: {:?}", e.kind()),
+            )
+        })
     })
     .await;
     let (bytes, digest) = match measured {
-        Ok(Ok(v)) => v,
-        _ => {
-            tracing::error!(kind = "io", "書いたファイルの大きさとハッシュを取れない");
-            let reason = format!("{}: 書いたファイルを読めない", FailKind::Io.as_str());
-            let _ =
-                ledger::insert_failed(pool, export_id, &w.file.to_string_lossy(), &reason).await;
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                kind = e.kind.as_str(),
+                "書いたファイルの大きさとハッシュを取れない"
+            );
+            // 大きさとハッシュの無いファイルは `done` にならず、前のファイルとしても止まったものとしても
+            // 見えない。名前を付けたまま残すと「1 つだけ置く」（Q4）が黙って崩れるので、失敗と同じく消す。
+            let file = w.file.clone();
+            let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(&file)).await;
+            if !matches!(removed, Ok(Ok(()))) {
+                tracing::warn!(
+                    kind = "io",
+                    "大きさを取れなかった書き出しのファイルを消せない"
+                );
+            }
+            write_failed(pool, export_id, &w.file.to_string_lossy(), &e).await;
             return;
         }
     };
@@ -191,19 +211,31 @@ async fn finish_done(pool: &sqlx::PgPool, cfg: &ExportConfig, export_id: Uuid, w
     .await;
     if let Err(e) = wrote {
         tracing::error!(kind = e.kind.as_str(), "台帳に終わりを書けない");
-        let reason = e.to_string();
-        let _ = ledger::insert_failed(pool, export_id, &file, &reason).await;
+        write_failed(pool, export_id, &file, &e).await;
         return;
     }
     // 終わりの行を書いた後に前のファイルを消す（消している間に止まっても、書き終えたことは台帳に残る。D16）。
-    let _ = stage(cfg, Stage::DeletePrevious, delete_previous(pool, export_id)).await;
+    // 消せなかったものは状態の `leftover` に出て、次の書き出しがもう一度消す。
+    if let Err(e) = stage(cfg, Stage::DeletePrevious, delete_previous(pool, export_id)).await {
+        tracing::warn!(
+            kind = e.kind.as_str(),
+            "前の書き出しのファイルを消す段が落ちた"
+        );
+    }
+}
+
+/// 失敗の終わりの行を書く。書けなければログに種別だけを残す（値・パス・合言葉は載せない）。
+async fn write_failed(pool: &sqlx::PgPool, export_id: Uuid, file: &str, e: &ExportError) {
+    if let Err(e2) = ledger::insert_failed(pool, export_id, file, e).await {
+        tracing::error!(kind = e2.kind.as_str(), "台帳に失敗を書けない");
+    }
 }
 
 /// 台帳で `done` の他の書き出しのファイルのうち、書いたその物のままのものを消す。消せなくても続ける
 /// （残ったものは状態の `leftover` に出て、次の書き出しがもう一度消す）。
 async fn delete_previous(pool: &sqlx::PgPool, current: Uuid) -> Result<(), ExportError> {
     let rows = ledger::read_ledger(pool).await?;
-    let _ = tokio::task::spawn_blocking(move || {
+    let joined = tokio::task::spawn_blocking(move || {
         for r in ledger::removable_previous(&rows, Some(current)) {
             if std::fs::remove_file(&r.file).is_err() {
                 tracing::warn!(kind = "io", "前の書き出しのファイルを消せない");
@@ -211,6 +243,9 @@ async fn delete_previous(pool: &sqlx::PgPool, current: Uuid) -> Result<(), Expor
         }
     })
     .await;
+    if joined.is_err() {
+        tracing::warn!(kind = "io", "前の書き出しのファイルを消す仕事が終わらない");
+    }
     Ok(())
 }
 

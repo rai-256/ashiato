@@ -71,6 +71,14 @@ pub enum FailKind {
 }
 
 impl FailKind {
+    pub const ALL: [Self; 5] = [
+        Self::UnclassifiedTable,
+        Self::MissingColumn,
+        Self::Io,
+        Self::Db,
+        Self::LateMark,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::UnclassifiedTable => "unclassified_table",
@@ -79,6 +87,16 @@ impl FailKind {
             Self::Db => "db",
             Self::LateMark => "late_mark",
         }
+    }
+
+    /// 台帳の `reason`（`ExportError` の `Display` = `<種別>: <理由>`）から種別を戻す。
+    /// 書く側（`ledger::insert_failed` が `ExportError` から作る）と同じ形だけを読み、種別で始まらなければ `None`。
+    pub fn of_reason(reason: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| {
+            reason
+                .strip_prefix(k.as_str())
+                .is_some_and(|rest| rest.starts_with(':'))
+        })
     }
 }
 
@@ -555,6 +573,8 @@ pub enum Stage {
     Columns,
     /// zip を作って `rename` する。
     Write,
+    /// 書き終えたファイルの大きさと SHA-256 を取る（台帳の終わりの行の `bytes` / `digest`。D16）。
+    Measure,
     /// 遅れて届いた位置の印（D6）。写しの前。
     LateMark,
     /// 台帳の終わりの行を書く（D10）。

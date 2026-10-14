@@ -592,6 +592,27 @@ async fn export_ledger_rows_a_failed_export_keeps_the_previous_file() {
     assert_eq!(zips(&dir), vec![first]);
 }
 
+/// 書き終えたファイルの大きさかハッシュを取れなければ、名前を付けたファイルを残さずに失敗にする（R2）。
+/// 残すと `done` でないので前のファイルにも止まったものにも出ず、「1 つだけ置く」（Q4）が黙って崩れる。
+#[tokio::test]
+async fn export_ledger_rows_a_file_that_cannot_be_measured_is_not_left() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("unmeasured");
+    let pool = testdb::pool().await;
+    let ok = app_with(&pool, &dir, Hooks::none());
+    export_and_wait(&ok, PASS).await;
+    let first = zips(&dir).pop().unwrap();
+
+    let failing = app_with(&pool, &dir, fail_at(Stage::Measure, FailKind::Io));
+    let id = export_and_wait(&failing, PASS).await;
+    let rows = ledger_of(&pool, id).await;
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[1].result.as_deref(), Some("failed"));
+    assert!(rows[1].reason.as_deref().unwrap().starts_with("io:"));
+    assert_eq!(zips(&dir), vec![first], "名前の付いたファイルが残った");
+    assert_eq!(get_status(&failing).await["last_failure"]["kind"], "io");
+}
+
 // Scenario: このシステムが書き出していないファイルは消さない
 #[tokio::test]
 async fn export_ledger_rows_files_the_system_did_not_write_are_kept() {
@@ -777,6 +798,38 @@ fn export_status_never_exported_is_reported_by_the_pure_function() {
     assert!(status.last.is_none() && status.last_failure.is_none());
     assert!(status.interrupted.is_none() && status.running.is_none());
     assert!(status.leftover.is_empty());
+}
+
+/// 失敗の種別は台帳の `reason` を作る側と同じ形から戻す（R14）。種別で始まらない `reason` の文字を種別として出さない。
+#[test]
+fn export_status_failure_kind_is_read_back_from_the_reason_by_its_structure() {
+    let failed = |seq: i64, reason: &str| export::LedgerRow {
+        seq,
+        export_id: Uuid::new_v4(),
+        kind: "finish".into(),
+        at: chrono::Utc::now(),
+        file: String::new(),
+        result: Some("failed".into()),
+        rows: None,
+        bytes: None,
+        digest: None,
+        reason: Some(reason.into()),
+    };
+    for kind in export::FailKind::ALL {
+        let reason = ExportError::new(kind, "表 a: 列 b").to_string();
+        let st =
+            export::derive(&[failed(1, &reason)], None).into_status(None, 0, |_| true, |_| true);
+        assert_eq!(st.last_failure.unwrap().kind, kind.as_str(), "{reason}");
+    }
+    for reason in [
+        "C:\\Users\\me\\export: 読めない",
+        "書き出しに失敗",
+        "iox: 1",
+    ] {
+        let st =
+            export::derive(&[failed(1, reason)], None).into_status(None, 0, |_| true, |_| true);
+        assert_eq!(st.last_failure.unwrap().kind, "unknown", "{reason}");
+    }
 }
 
 // Scenario: 失敗しても前回の書き出しの値は変わらない

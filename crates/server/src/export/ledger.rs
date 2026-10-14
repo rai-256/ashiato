@@ -132,13 +132,15 @@ pub async fn insert_done(
     .map_err(|e| db("台帳に終わりを書けない", &e))
 }
 
-/// 失敗した書き出しの終わりの行。`reason` は種別と表・列・段の名前だけ。
+/// 失敗した書き出しの終わりの行。`reason` は `ExportError` の `Display`（種別と表・列・段の名前だけ）。
+/// 状態はこれを `FailKind::of_reason` で種別に戻す（作る側と読む側が同じ形を使う）。
 pub async fn insert_failed(
     pool: &sqlx::PgPool,
     export_id: Uuid,
     file: &str,
-    reason: &str,
+    error: &ExportError,
 ) -> Result<(), ExportError> {
+    let reason = error.to_string();
     sqlx::query(
         "INSERT INTO core.export_ledger (export_id, kind, route, file, result, reason)
          VALUES ($1, 'finish', $2, $3, 'failed', $4)",
@@ -146,7 +148,7 @@ pub async fn insert_failed(
     .bind(export_id)
     .bind(ROUTE)
     .bind(file)
-    .bind(reason)
+    .bind(&reason)
     .execute(pool)
     .await
     .map(|_| ())
@@ -287,9 +289,8 @@ pub fn derive(rows: &[LedgerRow], running: Option<Uuid>) -> Derived {
             kind: f
                 .reason
                 .as_deref()
-                .and_then(|r| r.split(':').next())
-                .unwrap_or("unknown")
-                .trim()
+                .and_then(FailKind::of_reason)
+                .map_or("unknown", FailKind::as_str)
                 .to_string(),
         });
     let interrupted = rows
