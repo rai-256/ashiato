@@ -37,7 +37,9 @@ export default defineConfig({
   webServer: {
     command: "bash ../tools/stack.sh up",
     url: `http://127.0.0.1:${PORT}/`,
-    reuseExistingServer: !process.env.CI, // 手元で run.sh を立てたままでも走らせられる
+    // 手元で run.sh を立てたままでも走らせられる。CI とハーネスの検証（HARNESS_VERIFY）は毎回 stack.sh から
+    // 立てる —— 立っているものを使うと、DB を作り直さずに溜まった状態で測ってしまう
+    reuseExistingServer: !process.env.CI && !process.env.HARNESS_VERIFY,
     timeout: 10 * 60 * 1000, // 初回は cargo build --release が入る
     stdout: "pipe",
     stderr: "pipe",

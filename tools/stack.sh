@@ -10,6 +10,7 @@
 #   WEB_DIST      画面の build 済みディレクトリ（既定 web/dist。無ければ build する）
 #   SEED          normal（既定）/ max / empty
 #   STACK_RESET=1 起動の前に DB を作り直す（e2e のように毎回同じ状態から始めたいとき）
+#   HARNESS_VERIFY=1  ハーネスの verify-run が渡す。STACK_RESET=1 と同じに扱う（証跡を溜まった DB に頼らせない）
 #   BIND / WEB_PORT / DATABASE_URL / API_TOKEN
 #
 # 呼び出し元は 2 つある。**分けない** —— 分けると「e2e は緑なのに人間が見る画面は違う」が起きる。
@@ -18,6 +19,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cmd="${1:-up}"
+# 実測 2026-10-14 ST33 10.2: verify-run の e2e が前の実行の DB を使い回し、CI では通る e2e が FAIL と記録された
+if [ "${HARNESS_VERIFY:-}" = "1" ]; then STACK_RESET=1; fi
 check_only=0; [ "${2:-}" = "--check-only" ] && check_only=1
 
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
