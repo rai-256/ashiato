@@ -146,7 +146,8 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 
 - `CHECK` で種類ごとの列の有無を縛る（`opened` は `episode_id IS NULL`、それ以外は NOT NULL、`delivered` だけ `device_id` NOT NULL）
 - 一意索引: `(episode_id) WHERE kind = 'closed'`、`(episode_id, device_id) WHERE kind = 'delivered'`
-- 追記のみ: `UPDATE` / `DELETE` を断るトリガ（既存の台帳と同じ関数を使う。`archive_ledger` の :142）
+- 追記のみ: `UPDATE` / `DELETE` / `TRUNCATE` を断るトリガ。**関数は台帳専用の `core.reject_outage_ledger_change()`**（書庫の台帳と同じ形で、共有しない）。
+  共有すると ST12 の `202609181600_archive_ingestion.down.sql:21`（`CASCADE` なし）が依存で落ちて戻せなくなる（申し送り `docs/handoff/ST14.md` K3。ST16 / ST19 / ST21 も同じ理由で共有していない）
 - **書き込みは `GET /outages` の中で 1 回の取引**: `pg_advisory_xact_lock(<利用者から決めた鍵>)` → 開いている途切れ（`opened` のうち `closed` の無いもの）を読む → 判定と突き合わせ、新しい途切れに `opened`、戻ったものに `closed` → `device_id` があれば `delivered`（`ON CONFLICT DO NOTHING`）。同時に 2 台が問い合わせても `opened` は 1 行
 - 記録の本文・座標・原文の列を持たない
 
@@ -292,6 +293,13 @@ PC は 1 時間ごとに問い合わせるので、毎回画面の端に出す�
 
 S-1 は既に `useScheme` で追従している。spec の Requirement「稼働状況の画面は OS の明暗に追従する」の Scenario を、`web/e2e/coverage-scheme.spec.ts`（新規）で `emulateMedia({ colorScheme: 'light' | 'dark' | 'no-preference' })` の 3 通りの背景色と、ライトの 3 段・印・本文の比を測って固定する。
 `surface.spec.ts` の既存の測りは残す（印を足すだけにしない —— Scenario ごとに何を測るかを 1 本ずつ明示する）。
+
+**no-preference の読み替え**（Task 10 F3。`.superpowers/sdd/st14-task-10/task-10-findings.md`）: Scenario「明暗の設定が取れなければダークで出る」の
+「取れない」は **`window.matchMedia` が無いこと**として固定する（`addInitScript` で消して、`emulateMedia` の値に従わずダークになるのを測る）。
+`no-preference` は「取れない」に当てない —— Chromium は `no-preference` のとき `(prefers-color-scheme: light)` に合うと答えるので、
+画面は取得できたライトに従う。この振る舞いはコードを変えずに e2e で記録する（3 通りのうち no-preference は「取れない」の代わりではなく、記録の 1 本）。
+
+- **反転条件**: Chromium が `no-preference` で `(prefers-color-scheme: light)` に合わないと答えるようになったとき（その試験が落ちる。画面がダークに出るのは「取れない」と同じ側なので、試験の期待をそちらへ直す）
 
 ## C と D の対応
 
