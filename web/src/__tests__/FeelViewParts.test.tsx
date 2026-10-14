@@ -47,6 +47,7 @@ interface DaySpec {
 let entries: DayEntry[];
 let days: Record<string, DaySpec>;
 let staysFail: boolean;
+let ingestFails: boolean;
 let feelingsFail: boolean;
 let reminderAt: string;
 let reminderPostFails: boolean;
@@ -76,6 +77,7 @@ beforeEach(() => {
   entries = [];
   days = {};
   staysFail = false;
+  ingestFails = false;
   feelingsFail = false;
   reminderAt = "21:00";
   reminderPostFails = false;
@@ -95,6 +97,7 @@ beforeEach(() => {
           return Promise.resolve(json(200, { at }));
         }
         const item = (JSON.parse(init.body as string) as Record<string, unknown>[])[0];
+        if (ingestFails) return Promise.resolve(json(503, null));
         posts.push({ path: url, body: JSON.parse(item.raw as string) as Record<string, unknown> });
         return Promise.resolve(json(200, [{ id: "x", duplicate: false, accepted: true, error: null }]));
       }
@@ -154,6 +157,25 @@ describe("滞在の行", () => {
     expect(posts[0].body.scales).toEqual([{ id: "valence", version: 1, value: 1 }]);
     expect(screen.getByTestId("stay-s2-1").getAttribute("aria-pressed")).toBe("true");
     expect((await screen.findByTestId("feel-notice-ok")).textContent).toContain("滞在 11:00 – 12:00");
+  });
+
+  // Scenario: 届かなかった記録は同じ原文で送り直す
+  it("「日」が届かないまま滞在の行を押しても、送り直しで「日」の 1 件も滞在の 1 件も送られる", async () => {
+    entries = three();
+    ingestFails = true;
+    await open();
+    fireEvent.click(screen.getByTestId("valence-1"));
+    await screen.findByTestId("feel-resend");
+    fireEvent.click(screen.getByTestId("stay-s2-1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("stay-s2-1").getAttribute("aria-pressed")).toBe("true");
+    });
+    ingestFails = false;
+    fireEvent.click(await screen.findByTestId("feel-resend"));
+    await waitFor(() => {
+      expect(posts).toHaveLength(2);
+    });
+    expect(posts.map((p) => (p.body.target as { kind: string }).kind).sort()).toEqual(["day", "stay"]);
   });
 
   // Scenario: 滞在の行に最新の気分が出る

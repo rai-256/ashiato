@@ -41,6 +41,8 @@ interface Pick {
 
 /** 届かなかった 1 件。**送り直しは組み直さずこの原文を送る**（乱数が変わると 2 件になる）。 */
 interface Pending {
+  /** 対象の鍵。日の記録は "day"、滞在の行は滞在の id。対象ごとに 1 件だけ持つ */
+  key: string;
   built: BuiltFeeling;
   v: number;
   note: string;
@@ -55,6 +57,12 @@ interface Notice {
 }
 
 const EMPTY_DAY: DayBucket = { latest: { before: null, after: null }, records: [] };
+
+const without = (all: Record<string, Pending>, key: string): Record<string, Pending> => {
+  const rest = { ...all };
+  delete rest[key];
+  return rest;
+};
 
 /** 空白だけのひとことは「無い」と同じ（原文の組み立てと同じ規則）。 */
 const norm = (note: string): string => (note.trim() === "" ? "" : note);
@@ -93,7 +101,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   const [pick, setPick] = useState<Pick | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [pending, setPending] = useState<Record<string, Pending>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarLoad>({ at: "loading" });
   /** 滞在の行で押した値（読み出した最新より優先する） */
@@ -236,7 +244,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       });
       const outcome = await readIngestResponse(res);
       if (outcome.at === "accepted") {
-        setPending(null);
+        setPending((all) => without(all, p.key));
         const value = `${signed(p.v)} ${valenceWord(p.v)}`;
         setNotice({
           bad: false,
@@ -247,7 +255,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       }
       sentNote.current = restoreNote;
       if (outcome.at === "rejected") {
-        setPending(null);
+        setPending((all) => without(all, p.key));
         const kind = outcome.kind;
         setNotice({
           bad: true,
@@ -260,11 +268,11 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
         });
         return;
       }
-      setPending(p);
+      setPending((all) => ({ ...all, [p.key]: p }));
       setNotice({ bad: true, text: m.unreachable });
     } catch {
       sentNote.current = restoreNote;
-      setPending(p);
+      setPending((all) => ({ ...all, [p.key]: p }));
       setNotice({ bad: true, text: m.unreachable });
     }
   };
@@ -277,13 +285,13 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     const built = buildFeeling(dayTarget, scales, note, at);
     const previous = sentNote.current;
     sentNote.current = note;
-    void post({ built, v, note, at }, previous);
+    void post({ key: "day", built, v, note, at }, previous);
   };
 
   /** 上限を超えている間は送らない。押した値もひとことも残す（切り詰めない）。 */
   const hold = (v: number | null, e: number | null): void => {
     if (v !== null || e !== null) setPick({ v, e });
-    setPending(null);
+    setPending((all) => without(all, "day"));
     setNotice({ bad: true, text: m.held(numberText(NOTE_MAX_CHARS)) });
   };
 
@@ -292,7 +300,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     const at = new Date();
     const built = buildFeeling({ kind: "stay", stay: row.id, start: row.start, end: row.end }, [{ id: "valence", version: 1, value: v }], null, at);
     setStayPicks((p) => ({ ...p, [row.id]: v }));
-    void post({ built, v, note: "", at, stayRange: m.stayRange(clock(row.start, target), clock(row.end, target)) }, sentNote.current);
+    void post({ key: row.id, built, v, note: "", at, stayRange: m.stayRange(clock(row.start, target), clock(row.end, target)) }, sentNote.current);
   };
 
   const pressValence = (v: number): void => {
@@ -330,7 +338,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
         {notice !== null && (
           <p data-testid={notice.bad ? "feel-notice-bad" : "feel-notice-ok"} style={{ margin: "0 0 8px", fontWeight: 600 }}>
             {notice.text}
-            {pending !== null && (
+            {Object.keys(pending).length > 0 && (
               <button
                 type="button"
                 data-testid="feel-resend"
@@ -339,7 +347,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
                 onMouseDown={keepFocus}
                 onClick={() => {
                   setHistoryOpen(false);
-                  void post(pending, sentNote.current);
+                  void (async () => {
+                    for (const p of Object.values(pending)) await post(p, sentNote.current);
+                  })();
                 }}
               >
                 {m.resend}
