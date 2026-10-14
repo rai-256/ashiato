@@ -66,12 +66,13 @@ pub mod export;
 /// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。
 #[cfg(test)]
 mod export_excluded_tests;
-/// 書き出しの台帳の移行と錠（ST33 / design D10）。
 /// 書き出しの中身（zip・説明書・除く範囲のファイル・写しの時点。ST33 / design D4 / D7 / D9 / D19）。
 #[cfg(test)]
 mod export_file_tests;
+/// 書き出しの口と背景の仕事と状態（ST33 / design D1 / D2 / D10 / D11 / D16 / D17）。
 #[cfg(test)]
 mod export_job_tests;
+/// 書き出しの台帳の移行と錠（ST33 / design D10）。
 #[cfg(test)]
 mod export_ledger_tests;
 #[cfg(test)]

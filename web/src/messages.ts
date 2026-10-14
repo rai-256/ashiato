@@ -45,7 +45,6 @@ const ja = {
     title: "設定",
     sectionTitle: "全記録の書き出し",
     lead: "集めた記録を、外の道具で読める形にして、この PC のフォルダに書き出します。",
-    sourcesTitle: "ソースごとの件数と期間",
     sourceRow: (name: string, count: string, first: string, last: string): string =>
       `${name}: ${count} 件（${first} 〜 ${last}）`,
     summaryFailed: "件数を読み出せませんでした。",

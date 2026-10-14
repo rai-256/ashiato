@@ -147,7 +147,7 @@ impl World {
 
     /// 断片を通して残った記録の id（`ids` のうち）。
     async fn kept(&self, ids: &[Uuid]) -> BTreeSet<Uuid> {
-        let x = export::excluded_sql("now()", None);
+        let x = export::excluded_sql("now()");
         let sql = format!(
             "WITH {} SELECT e.id FROM core.event_live e WHERE e.id = ANY($1) AND {}",
             x.ctes(),
@@ -163,7 +163,7 @@ impl World {
 
     /// 断片を通して残った前の版の id（`ids` のうち）。
     async fn kept_versions(&self, ids: &[Uuid]) -> BTreeSet<Uuid> {
-        let x = export::excluded_sql("now()", None);
+        let x = export::excluded_sql("now()");
         let sql = format!(
             "WITH {} SELECT v.id FROM core.event_version_live v WHERE v.id = ANY($1) AND {}",
             x.ctes(),

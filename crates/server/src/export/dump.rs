@@ -134,7 +134,7 @@ pub(super) async fn dump(
             .map_err(|e| db_error("写しの時点を読めない", &e))?;
 
     let types = column_types(&mut tx).await?;
-    let ex = excluded_sql("transaction_timestamp()", None);
+    let ex = excluded_sql("transaction_timestamp()");
     let plans = plans(&ex, &types);
 
     // 表ごとの件数（進み具合の分母）。記録と前の版は除く範囲の CTE を 1 回で済ませる。

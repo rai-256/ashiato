@@ -370,7 +370,7 @@ pub async fn erased_after(pool: &sqlx::PgPool, last: Uuid) -> Result<i64, Export
     let Some(bloom) = written.as_deref().and_then(Bloom::from_bytes) else {
         return Ok(0);
     };
-    let x = excluded_sql("now()", None);
+    let x = excluded_sql("now()");
     let sql = format!(
         "WITH {ctes}
          SELECT id FROM (

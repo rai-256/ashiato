@@ -87,7 +87,7 @@ fn db(op: &str, e: &sqlx::Error) -> ExportError {
 
 /// 書き出す前の件数と見込みを読む。
 pub async fn read_summary(pool: &sqlx::PgPool) -> Result<Summary, ExportError> {
-    let x = excluded_sql("now()", None);
+    let x = excluded_sql("now()");
     let sql = format!(
         "WITH {ctes}
          SELECT e.logical_source,

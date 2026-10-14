@@ -101,13 +101,9 @@ impl ExcludedSql {
 
 /// 除く範囲の断片を組む。
 ///
-/// - `snapshot_at`: 次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`$1::timestamptz`）。
-/// - `erased_as_of`: 消した滞在を集める時点の SQL の式。`Some` なら `deleted_at` がその時点以前のものだけ
-///   （D17 が写しの時点 `T` で使う）。`None` なら、いま消してあるもの全部。
-pub fn excluded_sql(snapshot_at: &str, erased_as_of: Option<&str>) -> ExcludedSql {
-    let as_of = erased_as_of
-        .map(|t| format!("AND s.deleted_at <= {t}"))
-        .unwrap_or_default();
+/// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
+/// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
     let user_deleted = format!(
         "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
         crate::stay_store::REBUILD_PREFIX
@@ -127,12 +123,12 @@ pub fn excluded_sql(snapshot_at: &str, erased_as_of: Option<&str>) -> ExcludedSq
         "erased_spans AS MATERIALIZED (
            SELECT s.start_at, s.end_at
              FROM core.stay_erased s
-            WHERE {user_deleted} {as_of}
+            WHERE {user_deleted}
            UNION ALL
            SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
              FROM core.stay_erased s
              JOIN core.event_version v ON v.event_id = s.id
-            WHERE {user_deleted} {as_of}
+            WHERE {user_deleted}
          ),
          overlap_event AS MATERIALIZED ({overlap_event}),
          {EXCLUDED_EVENT} AS MATERIALIZED (
