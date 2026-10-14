@@ -249,7 +249,8 @@ async fn st14_inputs_device_future_event_time_does_not_hide_outage() {
     assert!(outage_of(&pool, u, now, &name2, None).await.is_none());
 }
 
-// 未来の発信時刻の生存信号は受け取った時刻で数える（Scenario: 未来の時刻の記録は途切れを隠さない の生存信号の側）
+// 未来の発信時刻の生存信号は受け取った時刻で数える（下の Scenario の生存信号の側）
+// Scenario: 未来の時刻の記録は途切れを隠さない
 #[tokio::test]
 async fn st14_inputs_device_future_heartbeat_uses_received_at() {
     let pool = testdb::pool().await;
@@ -419,7 +420,8 @@ async fn st14_inputs_device_stop_covering_now_and_last_stop_end() {
     let s = input_of(&pool, u, now, &name, None).await;
     assert!(s.stopped_now);
     assert!(judge(&[s], now).is_empty());
-    // 停止が 2 時間前に終わった（Scenario: 停止が終わった時刻から数え直す）
+    // 停止が 2 時間前に終わった
+    // Scenario: 停止が終わった時刻から数え直す
     let name2 = location(&pool).await;
     put_collected(&pool, u, &name2, &rfc(now, Duration::days(3)), json!({})).await;
     testdb::put_span(
