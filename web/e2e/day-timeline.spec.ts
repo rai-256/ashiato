@@ -18,9 +18,9 @@ const DESTRUCTIVE_PX = 44;
 async function openDay(page: Page, day = DAY) {
   await page.goto(`/#/day/${day}`);
   await page.reload();
+  await expect(page.getByTestId("day-view")).toBeVisible({ timeout: 15_000 }); // 画面が出てから（surface.spec.ts の open と同じ理由）
   await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
   await expect(page.getByTestId("day-error")).toHaveCount(0);
-  await expect(page.getByTestId("day-view")).toBeVisible();
 }
 
 const rows = (page: Page) =>

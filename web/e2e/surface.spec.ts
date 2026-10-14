@@ -30,9 +30,13 @@ const SCREENS = [
   { name: "マスタ管理", url: "/#/master", root: "master-view", ready: "master-loading" },
 ] as const;
 
-async function open(page: Page, url: string, ready: string): Promise<void> {
+async function open(page: Page, url: string, root: string, ready: string): Promise<void> {
   await page.goto(url);
   await page.reload(); // ハッシュだけの遷移では読み直さない（day-stays.spec.ts と同じ）
+  // **画面が出てから**「読み込み中」が消えるのを待つ。toBeHidden は要素がまだ無いときも即座に通るので、
+  // 画面が描かれる前に通って「読み込み中…」だけの画面を測っていた（2026-10-14 実測: マスタ管理 360 px light）。
+  // 「読み込み中」は画面と同じ描画で出るので、画面が見えた後なら消えたことを待てる（places.spec.ts と同じ順）
+  await expect(page.getByTestId(root)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId(ready)).toBeHidden({ timeout: 15_000 });
 }
 
@@ -149,7 +153,7 @@ for (const width of [360, 1280] as const) {
         // Scenario: 一覧の文字はライトでもダークでも 4.5:1 を下回らない
         test(`${screen.name}（${scheme}）: 明暗に追従し、文字 4.5:1・しるしと段 3:1・操作 24 px・横に溢れない`, async ({ page }) => {
           await page.emulateMedia({ colorScheme: scheme });
-          await open(page, screen.url, screen.ready);
+          await open(page, screen.url, screen.root, screen.ready);
           if (screen.root === "day-view") {
             // 詳細を開いて、消す操作（NFR-20）と詳細の面まで出す
             const row = page.getByTestId("row-stay").first();
@@ -199,7 +203,7 @@ for (const width of [360, 1280] as const) {
 test("稼働状況の週の帯にも、Tab で本文の色・3 px の輪郭が出る（選択中でも消えない）", async ({ page }) => {
   for (const scheme of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
-    await open(page, "/#/coverage", "coverage-loading");
+    await open(page, "/#/coverage", "coverage-view", "coverage-loading");
     // 選んだ週は内側の影で示す。**style 属性の outline でフォーカスの輪郭を消さない**
     const week = page.locator("[data-week]").first();
     await week.click();

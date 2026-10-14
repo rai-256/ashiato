@@ -7,9 +7,9 @@ const DAY_URL = `/#/day/${DAY}`;
 async function openDay(page: Page): Promise<void> {
   await page.goto(DAY_URL);
   await page.reload();
+  await expect(page.getByTestId("day-view")).toBeVisible({ timeout: 15_000 }); // 画面が出てから（surface.spec.ts の open と同じ理由）
   await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
   await expect(page.getByTestId("day-error")).toHaveCount(0);
-  await expect(page.getByTestId("day-view")).toBeVisible();
 }
 
 async function openFirstStay(page: Page): Promise<{ row: Locator; range: string }> {

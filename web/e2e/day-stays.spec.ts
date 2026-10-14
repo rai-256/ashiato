@@ -34,9 +34,9 @@ async function openDay(page: Page) {
   // 作り直しの後に開き直しても古い応答のままになる（2026-09-22 に踏んだ）。
   await page.goto(`/#/day/${DAY}`);
   await page.reload();
+  await expect(page.getByTestId("day-view")).toBeVisible({ timeout: 15_000 }); // 画面が出てから（surface.spec.ts の open と同じ理由）
   await expect(page.getByTestId("day-loading")).toBeHidden({ timeout: 15_000 });
   await expect(page.getByTestId("day-error")).toHaveCount(0);
-  await expect(page.getByTestId("day-view")).toBeVisible();
 }
 
 // Scenario: 記録が欠けた時間は記録なしとして出る
