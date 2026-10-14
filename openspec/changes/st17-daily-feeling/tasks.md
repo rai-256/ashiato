@@ -190,19 +190,19 @@ jsdom は `web/src/__tests__/DayFeeling.test.tsx`、e2e は `web/e2e/day-feeling
 
 `collector-android` の新しいファイル（design D10 の表）。単体は `app/src/test/.../FeelingReminderPolicyTest.kt`・`FeelingReminderReceiverTest.kt`（Robolectric）、計測は `app/src/androidTest/.../FeelingReminderInstrumentedTest.kt`。design D10 / D11。
 
-- [ ] 11.1 `FeelingReminderPolicy.decide`（純粋。時計と応答を差し替える）。`Asia/Tokyo` の日、1 日 1 回、時刻より前は待つ、得られなければ通知、時刻の後に起きたらその日のうちに通知、
+- [x] 11.1 `FeelingReminderPolicy.decide`（純粋。時計と応答を差し替える）。`Asia/Tokyo` の日、1 日 1 回、時刻より前は待つ、得られなければ通知、時刻の後に起きたらその日のうちに通知、
   最後に得た時刻を使う、12:00 の読み直しでその日の時刻を変える。`DEFAULT_REMINDER_AT` と `REMINDER_REFRESH_AT` を名指しで固定。
   Scenario: `書いていない日は通知の時刻に通知が出る` / `書いた日は通知が出ない` / `網に届かないときは通知が出る` / `同じ日に 2 回は通知しない` /
   `通知の時刻より前には通知しない` / `通知の時刻はサーバの設定に従う` / `午前に早めた通知の時刻はその日から効く` / `届かないときは最後に得た通知の時刻を使う`。
   検証: `GT FeelingReminderPolicyTest`
-- [ ] 11.2 予約・受け手・再起動の受け手・通知（Robolectric）: 偽の HTTP で応答を差し替え、`AlarmManager` に `REMINDER_WINDOW`（15 分）の不正確な窓で予約されること・
+- [x] 11.2 予約・受け手・再起動の受け手・通知（Robolectric）: 偽の HTTP で応答を差し替え、`AlarmManager` に `REMINDER_WINDOW`（15 分）の不正確な窓で予約されること・
   `BOOT_COMPLETED` で予約し直し、時刻を過ぎていれば判断すること・通知の題と本文が定数で値を含まないこと・`Intent` が `<webUrl>/#/feel/<その日>` を開くこと・
   `webUrl` が空のビルドでは `Intent` を付けずに通知を出すこと・受け手が起きた前後で位置の記録の生成と送信の試験（既存の `LocationService` まわり）が緑のまま。
   マニフェストに正確な時刻の権限が無く、`RECEIVE_BOOT_COMPLETED` があることを試験で読む。**gradle でビルドを止めない**（CI・計測テスト・確認バッチは `ashiato.webUrl` を渡さない）。
   Scenario: `通知は 15 分の窓で予約される` / `通知の時刻の後に再起動した端末はその日のうちに通知する` / `通知の文面に主観の中身が出ない` / `通知の仕組みは正確な時刻の権限を求めない` /
   `通知を押すと今日の主観入力の画面が開く` / `画面のアドレスを持たないビルドでも通知は出る` / `通知の仕組みは位置の送信を止めない`。
   検証: `GT FeelingReminderReceiverTest`、`scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest` rc=0（既存の単体が全部緑）
-- [ ] 11.3 計測テスト（エミュレータ）: 本物の通知の仕組みで、記録の無い日に受け手を起こすと通知が 1 件出て、押すと `ACTION_VIEW` の URI が S-3 のアドレスであること。記録のある日は出ないこと。
+- [x] 11.3 計測テスト（エミュレータ）: 本物の通知の仕組みで、記録の無い日に受け手を起こすと通知が 1 件出て、押すと `ACTION_VIEW` の URI が S-3 のアドレスであること。記録のある日は出ないこと。
   `BOOT_COMPLETED` を送って予約が戻ること。
   Scenario: `通知を押すと今日の主観入力の画面が開く` / `書いていない日は通知の時刻に通知が出る` / `書いた日は通知が出ない` / `通知の時刻の後に再起動した端末はその日のうちに通知する`。
   検証: `AT FeelingReminderInstrumentedTest`
