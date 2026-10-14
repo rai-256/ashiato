@@ -300,6 +300,37 @@ async fn injected_failure_leaves_no_partial_file() {
     assert_nothing_written(&dir);
 }
 
+/// 写しを流している途中（`.partial-…` に前の項目を書いた後）で落ちても、`.partial-…` を残さない（R6）。
+#[tokio::test]
+async fn failure_in_the_middle_of_the_stream_leaves_no_partial_file() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let pool = testdb::pool().await;
+    let dir = tmp_dir("inject-mid");
+    let items = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let partial_seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut cfg = ExportConfig::with_dir(dir.clone());
+    let (n, seen, d) = (items.clone(), partial_seen.clone(), dir.clone());
+    cfg.hooks = Hooks::none().with_fail(move |s| {
+        if s != Stage::Item {
+            return None;
+        }
+        // 3 つ目の項目の手前 = 記録と前の版を `.partial-…` に書いた後
+        if n.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 2 {
+            let partial = names(&d).into_iter().any(|f| f.starts_with(".partial-"));
+            seen.store(partial, std::sync::atomic::Ordering::SeqCst);
+            return Some(ExportError::new(FailKind::Io, "差し込んだ途中の失敗"));
+        }
+        None
+    });
+    let e = export::run(&pool, &cfg, pass()).await.unwrap_err();
+    assert_eq!(e.kind, FailKind::Io);
+    assert!(
+        partial_seen.load(std::sync::atomic::Ordering::SeqCst),
+        "前提: 落とした時点で .partial- がある"
+    );
+    assert_nothing_written(&dir);
+}
+
 #[tokio::test]
 async fn hooks_run_around_each_stage_in_order() {
     let _g = EXPORT_SERIAL.lock().await;

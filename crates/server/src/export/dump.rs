@@ -167,6 +167,9 @@ pub(super) async fn dump(
     let mut written = Bloom::with_capacity(event_total.max(0).cast_unsigned());
     for p in &plans {
         (cfg.hooks.before_file)(p.file).await;
+        if let Some(e) = (cfg.hooks.fail)(super::Stage::Item) {
+            return Err(e);
+        }
         zip.start_file(p.file, options())
             .map_err(|e| zip_error("項目を始められない", &e))?;
         let (mut rows, mut bytes) = (0u64, 0u64);

@@ -573,6 +573,9 @@ pub enum Stage {
     Columns,
     /// zip を作って `rename` する。
     Write,
+    /// zip の項目（ファイル）を 1 つ書き始める。項目ごとに `fail` だけを呼ぶ（`around` は呼ばない）。
+    /// 写しを流している途中（`.partial-…` に書きかけ）の失敗を差し込むのに使う。
+    Item,
     /// 書き終えたファイルの大きさと SHA-256 を取る（台帳の終わりの行の `bytes` / `digest`。D16）。
     Measure,
     /// 遅れて届いた位置の印（D6）。写しの前。
