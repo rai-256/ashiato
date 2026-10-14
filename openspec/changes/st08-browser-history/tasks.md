@@ -175,14 +175,14 @@ DB を使う検査は `docker compose up -d db` と `tools/seed.sh` が前提。
 `crates/collector-windows/tests/runtime_windows.rs` に足す。**一時プロファイル**で開き、本人の実物のプロファイルは使わない。
 **Chrome と Firefox も飛ばさない**（runner に無ければ job で入れる。R10）。
 
-- [ ] 10.1 Edge を一時プロファイルで開いてページを 2 つ訪問し、**Edge を開いたまま**本物の置き場探し・写し・読み手・取得を通して、
+- [x] 10.1 Edge を一時プロファイルで開いてページを 2 つ訪問し、**Edge を開いたまま**本物の置き場探し・写し・読み手・取得を通して、
   2 つの訪問が URL と訪問時刻つきの記録として積まれる（取得契機は注入した時計で起こす）。
   Scenario: `ブラウザが動いている間も取得できる`。
   ★ 2026-10-14 本人の指示で訂正: 検証は WSL から Windows 側の cargo を呼ぶ形にする（ST05 9.3 と同じ）。
   「Windows で `cargo test …`」の形では証跡が Linux で走り、0 本で FAIL になって gate が 859 周した。
   置き場は Story ごとに分ける（`C:\dev\ashiato2-rt-st08`）。
   検証: `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_while_running -- --test-threads=1"'` rc=0
-- [ ] 10.2 Chrome と Firefox でも同じことを確かめる。
+- [x] 10.2 Chrome と Firefox でも同じことを確かめる。
   ★ 2026-10-14 訂正: 10.1 と同じく WSL から Windows 側の cargo を呼ぶ形。Firefox は起動の入口のプロセスがすぐ終わるので
   `-wait-for-browser` で待たせる（待たせないと後片付けが本体に届かず、Firefox が残って CI が 25 分で打ち切られた）。
   検証: `bash -c 'rsync -a --delete --exclude target --exclude .git --exclude node_modules ./ /mnt/c/dev/ashiato2-rt-st08/ && /mnt/c/Windows/System32/cmd.exe /c "cd /d C:\dev\ashiato2-rt-st08 && set PATH=%USERPROFILE%\.cargo\bin;%PATH% && cargo test -p ashiato-collector-windows --test runtime_windows browser_history_chrome -- --test-threads=1"'` rc=0 /
