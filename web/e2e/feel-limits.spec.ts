@@ -161,9 +161,13 @@ test("明と暗のそれぞれで、押された快–不快のボタンの縁�
   for (const scheme of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
 
+    // 日の快–不快が押された状態で出るのは、いま書けば付く前/後（D7）に記録がある日だけ。偽データの 09-15 の「日」は
+    // 当日 21:05 に書いた 0（前）なので、時計を 09-15 の夜に置くと 0 のボタンが押された状態で出る（seed.sh が読み戻しで確かめる）
+    await page.clock.setFixedTime(new Date(`${STAYS_DAY}T22:00:00+09:00`));
     await open(page, STAYS_DAY);
-    const pressed = page.locator('[data-testid="feel-stay-row"] [data-testid^="stay-"][aria-pressed="true"]').first();
-    await expect(pressed).toBeVisible();
+    const pressed = page.locator('[data-testid^="valence-"][aria-pressed="true"]');
+    await expect(pressed).toHaveCount(1);
+    await expect(pressed).toHaveAttribute("data-testid", "valence-0");
     // 押された状態の目印は 2 px のアクセントの縁（面の塗りは文字の 4.5:1 を優先した暗い紫で、暗では隣の面と 3:1 にならない）
     const [edge, beside] = await pressed.evaluate((el, chain) => {
       const bgOf = eval(chain) as (e: Element | null) => string[];
@@ -210,7 +214,7 @@ test("明と暗のそれぞれで、Tab で快–不快のボタンに移すと�
 // Scenario: 主観入力の画面は OS の明暗に追従する
 test("OS の明暗を明にすると明の面で、設定が取得できないときは暗の面で描かれる", async ({ page }) => {
   const surface = async (): Promise<number> => {
-    const bgs = await page.getByTestId("feel-view").evaluate(new Function("el", `return (${bgChain})(el)`) as (el: Element) => string[]);
+    const bgs = await page.getByTestId("feel-view").evaluate((el, chain) => (eval(chain) as (e: Element | null) => string[])(el), bgChain);
     return luminance(composite(bgs));
   };
 
