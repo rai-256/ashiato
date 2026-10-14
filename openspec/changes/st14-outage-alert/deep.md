@@ -154,7 +154,13 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 
 ## 下流 Task 10 で積んだ A（premise: 10.1 の検証コマンドが成立しない。2026-10-14）
 
-### Q-T10 [10.1 の検証コマンドは書かれたままでは終わらない] -> (未回答)
+### Q-T10 [10.1 の検証コマンドは書かれたままでは終わらない] -> 1 コマンドの入口に直す
+
+- **答え（2026-10-14。`deep-answers-4.txt`。本人の選択。推奨と同じ。補足なし）**: 1 コマンドの入口に直す
+- **当てたもの**: 10.1 の検証コマンドだけを直した。スタックを裏で起こし（setsid）→ 「画面: http」の行を待つ → `tools/ports.sh` の `ASHIATO_HTTP_PORT` を curl → プロセスグループごと止める、までを 1 本の `bash -c` にし、その後に同じ `jq -e`。受け入れ条件（jq の判定）は変えない。提案の形に、`tools/ports.sh` の source（`ASHIATO_HTTP_PORT` は stack.sh の中でしか決まらない）と、スタックが落ちたら待たずに抜ける `kill -0` を足した。`plan_fix.py` は新しい入口が `bash -c` で通らないので、1.1 / 9.3 と同じく手で直し `plan-corrections.md` に記録。
+- **併せて外したもの**: 10.1 の本文の `（… ポートは \`tools/stack.sh\` が出す値に読み替える。spec-review R13）` の backtick。`verify-run` は「検証:」の後ろの backtick をすべて検証コマンドとして拾うので、`tools/stack.sh`（= `up`、前景で待つ）も走らせていた。9 分以上返らなかった原因の 1 つ。
+- **確かめたこと**: 直した後の `scripts/verify-run 10.1` は PASS（rc=0・28 秒。スタックを作り直して起動し、jq の判定は `true`、止めた後に 19028 の待ち受けは残らない）。evidence.jsonl にはその前に **3 秒の PASS が 1 行ある（無効）**: 1 回目の verify-run が R13 の `tools/stack.sh` を拾って起こしたスタックが残っていて、新しいスタックは「19028 は使用中」で落ち、curl は残っていたサーバを読んだ。残りを止めてから取り直したのが 28 秒の PASS。
+
 
 - **原因**: `tools/stack.sh up >/dev/null && curl …` の `stack.sh up` は前景で待つ（`wait`。Ctrl-C で止まる）ので終了せず、`&&` の後ろの `curl` に着かない。`scripts/verify-run 10.1` は 9 分以上返らず、私が止めた（`evidence.py` に timeout は無い）ので FAIL の証跡は残せていない。
   もう 1 つ: 読み先の既定が `${ASHIATO_PORT:-18787}`。`ASHIATO_PORT` という変数は無く（`tools/ports.sh` が出すのは `ASHIATO_HTTP_PORT`。この worktree は 19028）、既定の 18787 は main の本番のサーバ。
