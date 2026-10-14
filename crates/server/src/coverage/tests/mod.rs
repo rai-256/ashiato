@@ -10,6 +10,7 @@ use crate::testdb;
 
 mod achievement;
 mod drops;
+mod nonobs;
 mod retired;
 mod spans;
 mod started_on;
