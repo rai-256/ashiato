@@ -81,6 +81,21 @@ class FeelingReminderReceiverTest {
         .single { shadowOf(it.operation).savedIntent.action == action }
 
     @Test
+    fun `起動の予約は網の問い合わせ中の錠を主糸で待たない`() {
+        // Scenario: 通知の仕組みは位置の送信を止めない
+        val queued = mutableListOf<() -> Unit>()
+        FeelingReminderWiring.async = { queued += it }
+
+        FeelingReminderWiring.ensureScheduled(app)
+
+        // 主糸では何も回さず、作業は別の糸へ渡されただけ
+        assertEquals(1, queued.size)
+        assertTrue(shadowOf(alarms).scheduledAlarms.isEmpty())
+        queued.single()()
+        assertEquals(2, shadowOf(alarms).scheduledAlarms.size)
+    }
+
+    @Test
     fun `通知は 15 分の窓で予約される`() {
         // Scenario: 通知は 15 分の窓で予約される
         wake()

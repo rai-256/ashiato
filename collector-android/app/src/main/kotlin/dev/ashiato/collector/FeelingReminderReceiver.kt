@@ -109,11 +109,17 @@ internal object FeelingReminderWiring {
         }
     }
 
-    /** `LocationService` の起動から。 */
+    /**
+     * `LocationService` の起動から。主糸では待たない —— 錠は `wake()` が網の問い合わせの間ずっと持つので、
+     * 同じ糸で取ると 21:00 の起床と重なったとき収集サービスの起動が止まる（D10: 位置の送信を止めない）。
+     */
     fun ensureScheduled(context: Context) {
-        runCatching { synchronized(lock) { runner(context.applicationContext).ensureScheduled() } }
-            // log-ok: 例外の型名だけ（メッセージは出さない）
-            .onFailure { Log.w(TAG, "kind=feeling_reminder_failed type=${it.javaClass.simpleName}") }
+        val app = context.applicationContext
+        async {
+            runCatching { synchronized(lock) { runner(app).ensureScheduled() } }
+                // log-ok: 例外の型名だけ（メッセージは出さない）
+                .onFailure { Log.w(TAG, "kind=feeling_reminder_failed type=${it.javaClass.simpleName}") }
+        }
     }
 
     private const val TAG = "AshiatoFeeling"
