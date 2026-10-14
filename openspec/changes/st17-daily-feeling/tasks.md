@@ -132,7 +132,7 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 
 `web/src/feelings.ts`（新規）。試験は `web/src/__tests__/feelings.test.ts`。design D4 / D12 / D14。
 
-- [ ] 7.1 型・原文の組み立て（`buildFeeling(target, scales, note, now)`。識別子・乱数・記入の日時と地域を決める）・ひとことの数え方（`countNoteChars`。NFC にしてからコードポイント。絵文字 2,000 個が 2,000・NFD の「が」（2 コードポイント）が 1・2,001 個が上限超え、を名指しで固定する）・前/後の判定（いま書けば付くほう）・
+- [x] 7.1 型・原文の組み立て（`buildFeeling(target, scales, note, now)`。識別子・乱数・記入の日時と地域を決める）・ひとことの数え方（`countNoteChars`。NFC にしてからコードポイント。絵文字 2,000 個が 2,000・NFD の「が」（2 コードポイント）が 1・2,001 個が上限超え、を名指しで固定する）・前/後の判定（いま書けば付くほう）・
   日の状態の表示の文字・暦の 30 日の並び・定数（`NOTE_MAX_CHARS` / `CALENDAR_DAYS` など）。
   Scenario: `同じ内容の 2 つの主観は別々の乱数を持つ`（乱数が 128 bit・識別子と一致しない・同じ入力でも異なる）。
   検証: `VT feelings.test.ts`、`cd web && npm run lint` rc=0
