@@ -144,3 +144,13 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 - **Task 5 の 5.1 / 5.2 の `CT` コマンドも同じ欠陥**（試験は `st14_judge_` 18 本・`st14_inputs_device` 13 本・`st14_inputs_nonobs_registry` 1 本が `quiet-run` を外した `cargo test` で通っている）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
 - **Task 6 の 6.1 / 6.2 の `CT` コマンドも同じ欠陥**（試験は `st14_judge_archive` 4 本・`st14_inputs_archive` 10 本（`st14_inputs_archive_grid` 1 本を含む）が `quiet-run` を外した `cargo test` で通っている）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
 - **Task 7 の 7.1 / 7.2 の `CT` コマンドも同じ欠陥**（試験は `st14_api_outages_` 10 本・`st14_ledger_` 8 本が `quiet-run` を外した `cargo test` で通っている。`tools/check-openapi.sh` は PASS）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
+
+## 下流 Task 10 で積んだ A（premise: 10.1 の検証コマンドが成立しない。2026-10-14）
+
+### Q-T10 [10.1 の検証コマンドは書かれたままでは終わらない] -> (未回答)
+
+- **原因**: `tools/stack.sh up >/dev/null && curl …` の `stack.sh up` は前景で待つ（`wait`。Ctrl-C で止まる）ので終了せず、`&&` の後ろの `curl` に着かない。`scripts/verify-run 10.1` は 9 分以上返らず、私が止めた（`evidence.py` に timeout は無い）ので FAIL の証跡は残せていない。
+  もう 1 つ: 読み先の既定が `${ASHIATO_PORT:-18787}`。`ASHIATO_PORT` という変数は無く（`tools/ports.sh` が出すのは `ASHIATO_HTTP_PORT`。この worktree は 19028）、既定の 18787 は main の本番のサーバ。
+- **成り立つことの確認（手で）**: `.env` を読んで `STACK_RESET=1 tools/stack.sh up` を別のプロセスグループで起こし、`curl http://127.0.0.1:19028/coverage?from=2026-08-01&to=2026-09-30` → 検証コマンドの `jq -e …` は `true`（rc=0）。アプリ利用 `2026-09-01〜04` の 4 日が `alive_not_capturable` で gaps を持ち、集計は 1 本（開始日 2026-08-31）。
+- **提案する正式な入口**: スタックを起こし・読み・止めるまでを 1 コマンドにする（例: `bash -c 'set -a; . ./.env; set +a; (STACK_RESET=1 setsid tools/stack.sh up >/tmp/stack.log 2>&1 & echo $! >/tmp/stack.pid); for i in $(seq 1 180); do grep -q "^画面: http" /tmp/stack.log && break; sleep 2; done; curl -sf -H "authorization: Bearer ${API_TOKEN}" "http://127.0.0.1:${ASHIATO_HTTP_PORT}/coverage?from=2026-08-01&to=2026-09-30" > /tmp/cov.json; rc=$?; kill -- -$(cat /tmp/stack.pid); exit $rc'` の後に同じ `jq -e …`）。または e2e が偽データを見る形（Task 10.2〜10.4 の `ET`）で代える。
+
