@@ -121,11 +121,11 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 
 `tools/seed.sh`・`tools/smoke.sh`。**画面の Task より先に置く**（e2e の見え方の assert はこの日を使う）。
 
-- [ ] 6.1 `tools/seed.sh` の `normal` に、固定の 30 日（2026-09-04〜10-03）のうち 9 日が未記入の主観（日・滞在・前・後を含む。1 日は 3 回書き直し・1 日は前と後の両方）と、
+- [x] 6.1 `tools/seed.sh` の `normal` に、固定の 30 日（2026-09-04〜10-03）のうち 9 日が未記入の主観（日・滞在・前・後を含む。1 日は 3 回書き直し・1 日は前と後の両方）と、
   前の日から続く滞在・吸収された滞在・本人が消した滞在に付いた気分を足す（proto の量）。滞在のために要る位置の記録と作り直しも足す。
   **原文を固定し**（識別子・乱数・記入の日時を定数にする）、2 回流しても主観が増えない（冪等で畳まれる）ことを `tools/seed.sh` 自身が数えて確かめ、違えば非 0 で終える。
   検証: `bash -c 'tools/seed.sh normal && tools/seed.sh normal'` rc=0
-- [ ] 6.2 `tools/smoke.sh` に、取り込み口から主観を 1 件入れて `GET /feelings` と `GET /feelings/reminder` で読む段を足す（`echo "Scenario: 快–不快だけで記録が 1 件入る"`）。
+- [x] 6.2 `tools/smoke.sh` に、取り込み口から主観を 1 件入れて `GET /feelings` と `GET /feelings/reminder` で読む段を足す（`echo "Scenario: 快–不快だけで記録が 1 件入る"`）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0
 
 ## Task 7: 画面の型と原文の組み立て（`feelings.ts`）
