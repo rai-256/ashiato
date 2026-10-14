@@ -205,6 +205,7 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
 - kind: premise
 - 提案: まず C6 の理由を言い直す（`delivered` は「返した」で、「気づけた」とは読まない）。「いつ気づけたか」を数える必要が残るなら、端末が通知を出せたことを別の行（例: `shown`）で返す口を足すかを design に D<n>（仮）で書く
 - 処置: escalated —— 端末で出せたかどうかは追記のみの台帳に後から足せない（`uncaptured`）。deep.md の「下流 finish で積んだ A」Q-R16（`deep-questions-r3.json` / `docs/briefs/ST14-deep-r3.html`）
+  → 答え（2026-10-15。`deep-answers-6.txt`）: C6 の理由を言い直す（返したことだけ残す）。deep.md の C6 は record の段が言い直した。残っていた同じ言い回し 2 か所（`specs/collection-coverage/spec.md:362` の本文・`go.json:469`）を final の段で「いつ端末に返したか」へ言い直した。Requirement の SHALL と Scenario・コードは変えない（既に「返した」で一致）。端末で出せたかは残さない（`uncaptured` を受け入れた）
 
 ## scoped re-review（5589c6d..0c60901。code-verify の R11〜R15）
 
@@ -213,3 +214,12 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
 Minor 2 件（`warming_up` / `after_warmup` が実時間の経過で境界から揺れる）は当たらない —— 試験の App は `.at(now)` で時刻を固定し、
 `uptime()` は `cfg(test)` で `now - started_at` を返す（`crates/server/src/lib.rs:445-449`）ので、29 分 59 秒・30 分ちょうどはそのまま比べられる。
 R16 は escalated（deep.md Q-R16）で対象外。
+
+## final review（6613ee6..f8aa9d0。Q-R16 の答えの後）: 指摘なし
+
+前回の final review（e32f33a..078d803）・code-verify（5589c6d4）・scoped re-review（5589c6d..0c60901）の後、ブランチは main（#91 `fix/verify-worktree-ports`）の上へ rebase された。
+rebase 前の 0c609019 と HEAD の差は、#91 が持ち込んだ `tools/ports.sh`・`tools/verify-prep.sh`・`crates/server/src/testdb.rs` と、
+`openspec/` `docs/` の記録（evidence・答え・deep.md・PR 本文）だけで、**この Story のコードは前回の review と re-review が見たものと同じ**
+（`git diff --stat 0c609019 HEAD -- . ':!openspec' ':!docs' ':!tools/ports.sh' ':!tools/verify-prep.sh' ':!crates/server/src/testdb.rs'` が空）。
+同じ範囲に whole-branch review を重ねない。この段でやったのは R16 の答えを spec の本文と go.json に写すことだけ（上の R16 の処置）。
+申し送り（`docs/handoff/ST14.md`）は前回の final から増えていない（最後の変更は 00398a42）。合意（`agreement.json`）は下流の design の書き戻し（R4 など）で既に stale で、下流の gate はそれを見ない。
