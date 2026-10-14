@@ -79,13 +79,13 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 `crates/server/src/coverage.rs` の登録簿の読み出し・`resolve_chain` の後・`touch_started_on`・`coverage_get` の名前の並び。試験は `crates/server/src/coverage/tests/rollup.rs`（新規）。design D10（仮）/ D16。
 
-- [ ] 3.1 `started_on_from` を持つソースは借り先（の鎖の根）の収集開始日を自分のものとして返す。`touch_started_on` は `started_on_from` を持つソースの記録では何もしない（重複の到着も）。
+- [x] 3.1 `started_on_from` を持つソースは借り先（の鎖の根）の収集開始日を自分のものとして返す。`touch_started_on` は `started_on_from` を持つソースの記録では何もしない（重複の到着も）。
   Scenario: `集計の開始日はアプリ利用の開始日になる` / `集計の記録を送り直しても開始日は戻らない` / `アプリ利用の開始日が遡ると集計の開始日も遡る`。
   検証: `CT st14_rollup_started`
-- [ ] 3.2 `GET /coverage` の並びを「Must の 5 本 → `c01-app-usage-rollup` → `c03-%`」にする。達成（`must_sources()`）には入れない。
+- [x] 3.2 `GET /coverage` の並びを「Must の 5 本 → `c01-app-usage-rollup` → `c03-%`」にする。達成（`must_sources()`）には入れない。
   Scenario: `集計の格子が Must の後ろで書庫の前に出る`（サーバの並び。画面は Task 10）/ `集計は達成に数えられない`。
   検証: `CT st14_rollup_order`
-- [ ] 3.3 正典に元からある `開始日` の Scenario の試験が緑のまま通る（印は `coverage/tests/*.rs` と `api_tests.rs` にある）。検証: `CT coverage::tests::`、`CT api_tests`（どちらも `-- --list` で 1 本以上）
+- [x] 3.3 正典に元からある `開始日` の Scenario の試験が緑のまま通る（印は `coverage/tests/*.rs` と `api_tests.rs` にある）。検証: `CT coverage::tests::`、`CT api_tests`（どちらも `-- --list` で 1 本以上）
 
 ## Task 4: 達成の主語と PC の分母
 
