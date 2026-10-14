@@ -246,12 +246,19 @@ async fn st14_api_outages_after_warmup() {
 // Scenario: 途切れが無ければ空の一覧が返る
 #[tokio::test]
 async fn st14_api_outages_empty() {
-    // 登録簿は他の試験と共有で、引き継ぎ先のソースは登録した時刻（2000 年）から途切れとして数えられる。
-    // 一覧が空になる時刻（その 9 時間後）で問い合わせて、共有の行を判定から外す。
-    let (now, pool) = (
-        "2000-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-        testdb::pool().await,
-    );
+    // 登録簿は他の試験と共有で、どのソースも収集開始日の 0 時（D26（仮））か引き継いだ時刻から途切れとして数えられる。
+    // 共有の行のどれよりも前の時刻で問い合わせて、共有の行を判定から外す（その時刻より後に生きていたことになる）
+    let pool = testdb::pool().await;
+    let earliest: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT least(min(collection_started_on::timestamp AT TIME ZONE 'Asia/Tokyo'),
+                      min(registered_at) FILTER (WHERE succeeds IS NOT NULL))
+           FROM core.source",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let cap = "2000-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+    let now = earliest.map_or(cap, |e| (e - Duration::days(1)).min(cap));
     let (user, name) = (testdb::user(), source(&pool, "位置").await);
     put_located(&pool, user, &name, now - Duration::hours(1)).await;
     let (_, body) = get(&app_at(now).await, &uri(user, Some("dev-a"))).await;
