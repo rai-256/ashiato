@@ -156,13 +156,14 @@ test("明と暗のそれぞれで、本文と補助の文字は背景に対し�
   }
 });
 
-// Scenario: 押された状態と未記入の破線は 3:1 以上
+// 未決（deep.md「押された面の 3:1」）: spec は押された「面」を 3:1 と書くが、暗の面は 1.38:1 で満たさない。
+// ここは縁と破線を測る。spec が面のまま答えが出るまで、Scenario の印は付けない。
 test("明と暗のそれぞれで、押された快–不快のボタンの縁と未記入の日の破線は、隣の面に対して 3:1 以上", async ({ page }) => {
   for (const scheme of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
 
     await open(page, STAYS_DAY);
-    const pressed = page.locator('[data-testid^="valence-"][aria-pressed="true"], [data-testid="feel-stay-row"] button[aria-pressed="true"]').first();
+    const pressed = page.locator('[data-testid^="valence-"][aria-pressed="true"]').first();
     await expect(pressed).toBeVisible();
     // 押された状態の目印は 2 px のアクセントの縁（面の塗りは文字の 4.5:1 を優先した暗い紫で、暗では隣の面と 3:1 にならない）
     const [edge, beside] = await pressed.evaluate((el, chain) => {
