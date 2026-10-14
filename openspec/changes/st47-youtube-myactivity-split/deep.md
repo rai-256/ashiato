@@ -160,3 +160,4 @@ design.md の D 番号に写す。
   新しい入口は、`verify-run` の記録本文（quiet-run の末尾）で件数が 0 と読まれない形であることを、適用の前に確かめる（上の提案は未検証）。
   harness2 の `ran_no_tests` は直さない（別案は採らなかった）
 - **要件・Story へ戻すもの**: なし（検証の入口の訂正で、要件の本文も Story の表題・価値・完了の判定も変わらない）
+- **後の経緯**（2026-10-14）: 原因はハーネス側（verify-run の中の quiet-run が末尾しか残さない）だったので harness2 で直した（harness2 PR #73。verify-run が `scripts/quiet-run <名前> --` を外して走らせる）。**`plan_fix.py` は適用しない** —— 7.1 の検証コマンドは tasks.md のままで、いまの木で `scripts/verify-run 7.1` が PASS（133 + 833 + 7 本。evidence.jsonl）
