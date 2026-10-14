@@ -236,8 +236,11 @@ pub struct App {
     /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
     /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
     reading: archive::worker::ReadingState,
-    /// サーバを起こした時刻（途切れの判定を待つ間の起点。ST14 / design D5）。試験は差し込める。
-    started_at: chrono::DateTime<chrono::Utc>,
+    /// サーバを起こした単調時計の時点（途切れの判定を待つ間の起点。ST14 / design D5）。壁時計の変更に左右されない。
+    started: std::time::Instant,
+    /// 試験が差し込む起動時刻（`now` と同じ壁時計で経過を測る）。本番は常に `None`。
+    #[cfg(test)]
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
     warmup: std::time::Duration,
 }
@@ -259,7 +262,9 @@ impl App {
             #[cfg(test)]
             now: None,
             reading: archive::worker::ReadingState::default(),
-            started_at: chrono::Utc::now(),
+            started: std::time::Instant::now(),
+            #[cfg(test)]
+            started_at: None,
             warmup: outage::OUTAGE_WARMUP,
         }
     }
@@ -311,7 +316,19 @@ impl App {
     /// サーバを起こした時刻を差し込んだ複製（途切れの判定を待つ間の試験。design D5）。
     #[cfg(test)]
     pub(crate) fn started(self, started_at: chrono::DateTime<chrono::Utc>) -> Self {
-        Self { started_at, ..self }
+        Self {
+            started_at: Some(started_at),
+            ..self
+        }
+    }
+
+    /// 起動してからの経過（単調時計。試験で起動時刻が差し込まれていれば `now()` との差）。
+    fn uptime(&self) -> std::time::Duration {
+        #[cfg(test)]
+        if let (Some(at), Some(now)) = (self.started_at, self.now) {
+            return (now - at).to_std().unwrap_or_default();
+        }
+        self.started.elapsed()
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -2593,8 +2610,7 @@ pub async fn outages_get(
 ) -> Result<Json<OutagesResponse>, (StatusCode, String)> {
     authorize(&app, &headers).await?;
     let now = app.now();
-    let warmup = chrono::Duration::from_std(app.warmup).unwrap_or(chrono::Duration::MAX);
-    if now - app.started_at < warmup {
+    if app.uptime() < app.warmup {
         return Ok(Json(OutagesResponse {
             status: OutagesStatus::WarmingUp,
             judged_at: now,
