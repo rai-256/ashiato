@@ -1125,7 +1125,7 @@ mod outage_toast {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    use ashiato_collector_windows::outage_notice::toast_xml;
+    use ashiato_collector_windows::outage_notice::{toast_xml, Toaster};
     use ashiato_collector_windows::outage_notice::{
         NoticeStore, Outage, OutagePoller, OutageQuery, OutageResult,
     };
@@ -1143,6 +1143,24 @@ mod outage_toast {
     impl OutageQuery for Scripted {
         fn fetch(&self, _device_id: &str) -> OutageResult {
             self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// `WindowsToaster` に渡った `sound` を控える（`SuppressPopup` は履歴から読み戻せないため）。
+    #[derive(Debug)]
+    struct Recording {
+        inner: WindowsToaster,
+        sounds: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl Toaster for Recording {
+        fn show(&self, xml: &str, sound: bool) -> anyhow::Result<()> {
+            self.sounds.lock().unwrap().push(sound);
+            self.inner.show(xml, sound)
+        }
+
+        fn dismiss(&self) -> anyhow::Result<()> {
+            self.inner.dismiss()
         }
     }
 
@@ -1196,7 +1214,11 @@ mod outage_toast {
     fn outage_toast_is_shown_replaced_silently_and_removed() {
         let _g = super::desktop();
         let state = std::env::temp_dir().join(format!("ashiato-toast-{}", uuid::Uuid::new_v4()));
-        let toaster = WindowsToaster::register_as(TEST_AUMID).unwrap();
+        let sounds = Arc::new(Mutex::new(Vec::new()));
+        let toaster = Recording {
+            inner: WindowsToaster::register_as(TEST_AUMID).unwrap(),
+            sounds: sounds.clone(),
+        };
         clear();
         let query = Arc::new(Scripted(Mutex::new(location_outage())));
         let mut poller = OutagePoller::new(
@@ -1234,7 +1256,9 @@ mod outage_toast {
             content(&h[0]).contains(r#"<audio silent="true"/>"#),
             "中身が音なしに差し替わった"
         );
-        // `SuppressPopup` は履歴から読み戻すと常に偽（実測 2026-10-14）。出す側が立てたことを組んだ通知で見る
+        // `SuppressPopup` は履歴から読み戻すと常に偽（実測 2026-10-14）。
+        // 実際に出した 2 回目が音なしで渡ったことと、音なしで組んだ通知が立てることの両方で見る
+        assert_eq!(*sounds.lock().unwrap(), vec![true, false], "出した音の指定");
         assert!(
             build_toast(&silent_xml, false)
                 .unwrap()
