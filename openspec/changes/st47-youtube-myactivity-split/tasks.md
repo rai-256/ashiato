@@ -36,11 +36,11 @@
 
 ## Task 2: YouTube のファイルの見分けと、項目の行き先（design D1 / D2 / D3 / D4 / D10）
 
-- [ ] 2.1 `KnownKind::YouTubeWatch` / `YouTubeSearch` を `KnownKind::YouTube` の 1 つにし、`classify.rs` の `kind_of` を design D1 の順（最初の製品の名前の集合がちょうど `{"YouTube"}` → `YouTube` / 製品の名前を持つ項目があれば `MyActivity` / 製品の名前を持つ項目が無く視聴・検索の URL があれば `YouTube`）にする。
+- [x] 2.1 `KnownKind::YouTubeWatch` / `YouTubeSearch` を `KnownKind::YouTube` の 1 つにし、`classify.rs` の `kind_of` を design D1 の順（最初の製品の名前の集合がちょうど `{"YouTube"}` → `YouTube` / 製品の名前を持つ項目があれば `MyActivity` / 製品の名前を持つ項目が無く視聴・検索の URL があれば `YouTube`）にする。
   `requires_shape_confirmation` と見張り（`every_archive_logical_source_is_classified_as_location_or_item`）の材料を新しい種類に合わせ、見張りの材料が 3 つの行き先（視聴・検索・`c03-myactivity-youtube`）をすべて通るようにする（design D11）。
   検証: `CT archive_youtube_kind_of (≥4)`（`kind_of` の単体試験: 先頭が `watch?v=` の製品「検索」のファイルが `MyActivity` / 製品「YouTube」だけのファイルが `YouTube` / 製品が混ざったファイルが `MyActivity` / 製品の名前を持たず `watch?v=` を持つファイルが `YouTube`）、
   `CT every_archive_logical_source_is_classified_as_location_or_item (≥1)`
-- [ ] 2.2 `archive/youtube.rs` に決まり文句の表（design D4（仮）: 日本語は末尾、英語は先頭の一致。評価と、言語の見分けだけに使う視聴・検索）と、ファイルの題名から「当たった言語」を、項目の題名と当たった言語から「評価か」を返す関数を置く（評価は当たった言語の表だけで見る）。
+- [x] 2.2 `archive/youtube.rs` に決まり文句の表（design D4（仮）: 日本語は末尾、英語は先頭の一致。評価と、言語の見分けだけに使う視聴・検索）と、ファイルの題名から「当たった言語」を、項目の題名と当たった言語から「評価か」を返す関数を置く（評価は当たった言語の表だけで見る）。
   `worker.rs` の `takeout_items` の `YouTube` の枝を、項目ごとに spec の順（`details` の欄の有無 → `watch?v=` かつ評価 → `watch?v=` → `results?search_query=` → その他）で行き先を決める形に書き直す。
   その他は `c03-myactivity-youtube` で、payload は ST12 のマイアクティビティと同じ欄（`product` / `title` / `url` / `details`）。視聴・検索の payload は ST12 のまま（design D3）。
   `archive_tests.rs` の「URL を持たない＝削除された動画」を視聴に入れる材料と試験（`archive_classify_skips_items_without_a_title_url` ほか）を、本物の形（URL の無い項目はその他）に書き直す（design D10 / C5）。
