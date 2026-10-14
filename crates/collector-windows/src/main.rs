@@ -120,6 +120,7 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
             std::sync::Arc::new(c02::sender::HttpOutageQuery::new(
                 &cfg.base_url,
                 &cfg.api_token,
+                cfg.user_id,
             )),
             std::sync::Arc::new(toaster),
             c02::outage_notice::NoticeStore::new(&cfg.state_dir),
