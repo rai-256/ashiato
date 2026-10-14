@@ -13,6 +13,27 @@ use serde::Serialize;
 /// プレースホルダを取れない。値はここ 1 か所だけに置く。
 pub const DAY_TZ: &str = "Asia/Tokyo";
 
+/// 格子の「記録あり」に数えない記録。`(logical_source, payload->>'kind')` の組（ST14 / design D4・D15）。
+///
+/// 取りこぼしの主張（`gap`）は「取れなかった」と言う記録で、時計の測定（`clock-skew`）は収集の観測ではない。
+/// どちらも**格納はされ、読み出せ、稼働記録の件数（`core.coverage`）にも入る** —— 外すのは格子の数えだけ。
+/// 引き継ぎで名前が変わったら、同じ組を新しい名前にも足す。
+pub const NON_OBSERVATION_GRID: [(&str, &str); 2] =
+    [("c01-app-usage", "gap"), ("c02-window", "clock-skew")];
+
+/// 取りこぼしの期間を持つソースの名前の頭（引き継ぎの鎖の名前を含む。design D15）。
+const GAP_SOURCE_PREFIX: &str = "c01-app-usage";
+
+/// SQL の `NOT ((logical_source, payload->>'kind') IN (…))` の括弧の中。定数から組み立てる
+/// （リテラルを SQL に散らさない）。値は定数だけなので埋め込んでよい。
+fn non_observation_grid_sql() -> String {
+    NON_OBSERVATION_GRID
+        .iter()
+        .map(|(s, k)| format!("('{s}', '{k}')"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// NFR-13 の窓の長さ。**そのソースの収集開始日から 365 日**（第 6 回 Q23）。
 pub const WINDOW_DAYS: i64 = 365;
 
@@ -120,6 +141,17 @@ pub struct DayCell {
     pub dropped_count: i64,
     /// その日に重なる破棄の範囲を、**端が接するもの・重なるものでつないでから**その日で切った区間（design D8 / D9）
     pub dropped_ranges: Vec<DroppedRange>,
+    /// その日に重なる、端末が取りこぼしとして残した期間（ST14 / design D15）。
+    /// **状態に関わらず返る**（「記録あり」の日にも、重なっていれば持つ）
+    pub gaps: Vec<GapSpan>,
+}
+
+/// 取りこぼしの期間 `[begin, end)` と理由。`end` ちょうどの日には重ならない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct GapSpan {
+    pub reason: String,
+    pub begin: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
 }
 
 /// その日の中で切った破棄の区間（design D9）。画面の「うち N 件を破棄（from〜to）」の材料。
@@ -205,6 +237,8 @@ struct DayFacts {
     /// **丸ごと覆わない範囲は状態を決めない**（design D7 / 深掘り Q3 と同じ粒度）
     dropped_full: bool,
     stopped_full: bool,
+    /// その日に重なる取りこぼしの期間（D15）
+    gaps: Vec<GapSpan>,
 }
 
 /// 収集開始日を動かしにきたものが、記録か生存信号か（第 9 回 Q32）。
@@ -630,6 +664,8 @@ async fn facts(
                            count(*)::int AS event_count
                       FROM core.event
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       -- 取りこぼしの主張と時計の測定は数えない（D15）。稼働記録の件数には入る
+                       AND NOT ((logical_source, coalesce(payload->>'kind', '')) IN ({non_obs}))
                        AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
                        AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
                      GROUP BY 1),
@@ -678,6 +714,7 @@ async fn facts(
            LEFT JOIN b ON b.day = d.day
           ORDER BY d.day",
         tz = DAY_TZ,
+        non_obs = non_observation_grid_sql(),
         islands = drop_islands_cte(DAY_TZ)
     );
     let rows: Vec<FactRow> = sqlx::query_as(&sql)
@@ -687,6 +724,7 @@ async fn facts(
         .bind(to)
         .fetch_all(pool)
         .await?;
+    let mut gaps = gaps_by_day(pool, user, sources, from, to).await?;
     Ok(rows
         .into_iter()
         .map(
@@ -709,10 +747,65 @@ async fn facts(
                     blockers,
                     dropped_full,
                     stopped_full,
+                    gaps: gaps.remove(&day).unwrap_or_default(),
                 }
             },
         )
         .collect())
+}
+
+/// 取りこぼしの期間を、重なる日（`Asia/Tokyo`）へ配る（D15）。
+///
+/// 期間は `[begin, end)`。出来事の時刻は `end` なので、`event_time >= from` で終わりを、
+/// `begin < to + 1 日` で始まりを絞る。**終わりちょうどの日には重ならない**（`end > 日の始まり`）。
+/// 日の区切りは SQL の `AT TIME ZONE` に任せる（D1）。読むのは `core.event`（削除済みも含む。
+/// 削除は取りこぼしの事実を消さない）。
+async fn gaps_by_day(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    sources: &[String],
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>>, sqlx::Error> {
+    let sql = format!(
+        "WITH g AS (SELECT (payload->>'begin')::timestamptz AS b,
+                           event_time AS e,
+                           coalesce(payload->>'reason', '') AS reason
+                      FROM core.event
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       AND logical_source LIKE '{prefix}%'
+                       AND payload->>'kind' = 'gap'
+                       AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
+                       AND (payload->>'begin')::timestamptz < (($4::date + 1)::timestamp AT TIME ZONE '{tz}')),
+              d AS (SELECT generate_series($3::date, $4::date, '1 day')::date AS day)
+         SELECT d.day, g.reason, g.b, g.e
+           FROM d JOIN g
+             ON g.b < ((d.day + 1)::timestamp AT TIME ZONE '{tz}')
+            AND g.e > (d.day::timestamp AT TIME ZONE '{tz}')
+          ORDER BY d.day, g.b, g.e",
+        tz = DAY_TZ,
+        prefix = GAP_SOURCE_PREFIX
+    );
+    let rows: Vec<(
+        chrono::NaiveDate,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(&sql)
+        .bind(user)
+        .bind(sources)
+        .bind(from)
+        .bind(to)
+        .fetch_all(pool)
+        .await?;
+    let mut out: std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>> =
+        std::collections::HashMap::new();
+    for (day, reason, begin, end) in rows {
+        out.entry(day)
+            .or_default()
+            .push(GapSpan { reason, begin, end });
+    }
+    Ok(out)
 }
 
 /// 日ごとの破棄の件数と区間（design D9 / spec「稼働状況の応答は日ごとの破棄の件数と時刻の範囲を持つ」）。
@@ -902,6 +995,7 @@ async fn active_days(
         "SELECT day FROM (
            SELECT (event_time AT TIME ZONE '{tz}')::date AS day FROM core.event
             WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+              AND NOT ((logical_source, coalesce(payload->>'kind', '')) IN ({non_obs}))
               AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
               AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
            UNION
@@ -910,7 +1004,8 @@ async fn active_days(
               AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
               AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
          ) t ORDER BY day",
-        tz = DAY_TZ
+        tz = DAY_TZ,
+        non_obs = non_observation_grid_sql()
     );
     let rows: Vec<(chrono::NaiveDate,)> = sqlx::query_as(&sql)
         .bind(user)
@@ -960,6 +1055,11 @@ fn decide(
     }
     if facts.event_count > 0 {
         return DayState::Recorded;
+    }
+    // (6) 端末が取りこぼしとして残した期間が重なる日は、取得できる状態の信号より先に③
+    // （ST14 の深掘り Q7。OS が履歴を消した日を「使っていなかった」と区別する）
+    if !facts.gaps.is_empty() {
+        return DayState::AliveNotCapturable;
     }
     match facts.capturable {
         Some(true) => return DayState::AliveNoRecord,
@@ -1013,6 +1113,7 @@ pub async fn of_source(
             intervals: by_day.remove(&f.day).unwrap_or_default(),
             dropped_count: drops.get(&f.day).map_or(0, |d| d.count),
             dropped_ranges: drops.remove(&f.day).map(|d| d.ranges).unwrap_or_default(),
+            gaps: f.gaps.clone(),
         })
         .collect();
     Ok(SourceCoverage {

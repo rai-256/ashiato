@@ -3010,6 +3010,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::DayCell,
         coverage::Interval,
         coverage::DroppedRange,
+        coverage::GapSpan,
         coverage::DayState,
         coverage::Band,
         coverage::Subject,

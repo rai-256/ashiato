@@ -1523,7 +1523,8 @@
           "blockers",
           "intervals",
           "dropped_count",
-          "dropped_ranges"
+          "dropped_ranges",
+          "gaps"
         ],
         "properties": {
           "attempts": {
@@ -1560,6 +1561,13 @@
           "event_count": {
             "type": "integer",
             "format": "int32"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GapSpan"
+            },
+            "description": "その日に重なる、端末が取りこぼしとして残した期間（ST14 / design D15）。\n**状態に関わらず返る**（「記録あり」の日にも、重なっていれば持つ）"
           },
           "intervals": {
             "type": "array",
@@ -2185,6 +2193,28 @@
           "excluded",
           "unavailable"
         ]
+      },
+      "GapSpan": {
+        "type": "object",
+        "description": "取りこぼしの期間 `[begin, end)` と理由。`end` ちょうどの日には重ならない。",
+        "required": [
+          "reason",
+          "begin",
+          "end"
+        ],
+        "properties": {
+          "begin": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "HeartbeatError": {
         "type": "string",
