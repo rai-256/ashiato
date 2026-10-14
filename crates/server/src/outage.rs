@@ -8,6 +8,9 @@ use chrono::{DateTime, Duration, FixedOffset, NaiveDate, Utc};
 /// 途切れの閾値の倍率。**最後に生きていた時刻から想定間隔の 3 倍を超えたら**途切れ（Q2）。
 pub const ALERT_GAP_FACTOR: i64 = 3;
 
+/// サーバ自身が生存信号を出すソース（取り込み器）。記録を持たず、取得できる状態の生存信号だけで測る（design D1）。
+pub const SERVER_HEARTBEAT_SOURCES: [&str; 1] = ["s01-archive-inbox"];
+
 /// 最後に生きていた時刻に数えない記録。`(logical_source, payload->>'kind')` の組（design D4）。
 ///
 /// 格子（`coverage::NON_OBSERVATION_GRID`）の 2 つ ＋ 離席・PC が止まっていた期間・除外の印。
@@ -21,6 +24,27 @@ pub const NON_OBSERVATION_ALERT: [(&str, &str); 5] = [
     ("c02-window", "excluded"),
 ];
 
+/// 判定の種類（design D1）。`Archive` は最後の書庫から日数、それ以外は想定間隔の 3 倍。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceKind {
+    Device,
+    Archive,
+    ServerHeartbeat,
+}
+
+impl SourceKind {
+    /// 日数を持つ → 書庫、サーバ自身の生存信号のソース → 取り込み器、それ以外 → 端末。
+    pub fn of(logical_source: &str, alert_after_days: Option<i32>) -> Self {
+        if alert_after_days.is_some() {
+            Self::Archive
+        } else if SERVER_HEARTBEAT_SOURCES.contains(&logical_source) {
+            Self::ServerHeartbeat
+        } else {
+            Self::Device
+        }
+    }
+}
+
 /// 途切れの判定の材料 1 行（ソースの名前ごと。引き継ぎの鎖はたどらない。design D4）。
 /// 真偽値は SQL が引く事実をそのまま持つ（D1）。状態機械にすると判定の分岐が材料の側へ漏れる。
 #[allow(clippy::struct_excessive_bools)]
@@ -29,6 +53,9 @@ pub struct SourceInput {
     pub logical_source: String,
     pub display_name: String,
     pub expected_gap_sec: i32,
+    /// 書庫の通知までの日数（登録簿。`None` なら書庫ではない）
+    pub alert_after_days: Option<i32>,
+    pub kind: SourceKind,
     /// 登録簿の「判定の対象か」の印（既定は対象）
     pub target: bool,
     /// 出どころが「収集した」の記録を 1 件でも持つか
@@ -46,6 +73,8 @@ pub struct SourceInput {
     pub last_record_at: Option<DateTime<Utc>>,
     /// 取得できる状態の生存信号の最後の時刻（未来のものは受け取った時刻）
     pub last_capturable_heartbeat_at: Option<DateTime<Utc>>,
+    /// 書庫が最後に運ばれた時刻（読み終えた台帳の `coalesce(created_at, discovered_at)`。台帳が無ければ記録の届いた最後の時刻）
+    pub last_archive_at: Option<DateTime<Utc>>,
     /// 引き継いだソースの、引き継いだ日（登録簿に行ができた時刻）。最後に生きていた時刻の下限
     pub alive_floor: Option<DateTime<Utc>>,
 }
@@ -83,18 +112,28 @@ fn is_target(s: &SourceInput, now: DateTime<Utc>) -> bool {
     !s.stopped_now
 }
 
-/// 最後に生きていた時刻。観測の記録・取得できる状態の生存信号・最後に終わった停止の終わり・引き継いだ日のうち遅いもの。
-/// 取得できない状態の生存信号は blockers を問わず入らない（D8（仮））。
+/// 最後に生きていた時刻。種類ごとの本体（端末は観測の記録と生存信号・書庫は最後の書庫・取り込み器は生存信号）と、
+/// 最後に終わった停止の終わり・引き継いだ日のうち遅いもの。
+/// 取得できない状態の生存信号は blockers を問わず入らない（D8（仮））。書庫は最後の記録の出来事の時刻で測らない
+/// （使わなかった製品を途切れにしない）。
 fn last_alive(s: &SourceInput) -> Option<DateTime<Utc>> {
-    [
-        s.last_record_at,
-        s.last_capturable_heartbeat_at,
-        s.last_stop_end,
-        s.alive_floor,
-    ]
-    .into_iter()
-    .flatten()
-    .max()
+    let body = match s.kind {
+        SourceKind::Device => [s.last_record_at, s.last_capturable_heartbeat_at],
+        SourceKind::Archive => [s.last_archive_at, None],
+        SourceKind::ServerHeartbeat => [s.last_capturable_heartbeat_at, None],
+    };
+    body.into_iter()
+        .chain([s.last_stop_end, s.alive_floor])
+        .flatten()
+        .max()
+}
+
+/// 閾値。書庫は登録簿の日数、それ以外は想定間隔の 3 倍。
+fn limit_of(s: &SourceInput) -> Duration {
+    match (s.kind, s.alert_after_days) {
+        (SourceKind::Archive, Some(days)) => Duration::days(i64::from(days)),
+        _ => Duration::seconds(i64::from(s.expected_gap_sec) * ALERT_GAP_FACTOR),
+    }
 }
 
 /// 途切れているソースを返す。**「超える」は厳密な `>`**（ちょうど 3 倍は途切れではない）。
@@ -104,8 +143,7 @@ pub fn judge(inputs: &[SourceInput], now: DateTime<Utc>) -> Vec<Outage> {
         .filter(|s| is_target(s, now))
         .filter_map(|s| {
             let alive = last_alive(s)?;
-            let limit = Duration::seconds(i64::from(s.expected_gap_sec) * ALERT_GAP_FACTOR);
-            (now - alive > limit).then(|| Outage {
+            (now - alive > limit_of(s)).then(|| Outage {
                 logical_source: s.logical_source.clone(),
                 display_name: s.display_name.clone(),
                 last_alive_at: alive,
@@ -135,6 +173,8 @@ mod tests {
             logical_source: "c01-location".into(),
             display_name: "位置".into(),
             expected_gap_sec: SIX_HOURS,
+            alert_after_days: None,
+            kind: SourceKind::Device,
             target: true,
             has_collected: true,
             has_non_collected: false,
@@ -144,6 +184,7 @@ mod tests {
             last_stop_end: None,
             last_record_at: None,
             last_capturable_heartbeat_at: None,
+            last_archive_at: None,
             alive_floor: None,
         }
     }
@@ -387,5 +428,74 @@ mod tests {
             ..base()
         };
         assert_eq!(last_alive(&s), ago(Duration::hours(25)));
+    }
+
+    fn archive(last: Option<Duration>) -> SourceInput {
+        SourceInput {
+            logical_source: "c03-youtube-watch".into(),
+            display_name: "視聴履歴".into(),
+            expected_gap_sec: 5_184_000,
+            alert_after_days: Some(75),
+            kind: SourceKind::Archive,
+            last_archive_at: last.and_then(ago),
+            ..base()
+        }
+    }
+
+    #[test]
+    fn st14_judge_kind_is_decided_by_days_then_server_heartbeat_name() {
+        assert_eq!(SourceKind::of("c03-x", Some(75)), SourceKind::Archive);
+        assert_eq!(
+            SourceKind::of("s01-archive-inbox", None),
+            SourceKind::ServerHeartbeat
+        );
+        assert_eq!(SourceKind::of("c01-location", None), SourceKind::Device);
+    }
+
+    // Scenario: 最後の書庫から 75 日を過ぎると書庫のソースが途切れになる
+    #[test]
+    fn st14_judge_archive_over_75_days_is_outage() {
+        let over = Duration::days(75) + Duration::hours(1);
+        assert!(outage_of(archive(Some(over))));
+        // ちょうど 75 日は途切れではない（厳密な >）
+        assert!(!outage_of(archive(Some(Duration::days(75)))));
+    }
+
+    // Scenario: 2 か月ごとの書き出しでは書庫のソースは途切れにならない
+    #[test]
+    fn st14_judge_archive_every_two_months_is_not_outage() {
+        assert!(!outage_of(archive(Some(Duration::days(60)))));
+    }
+
+    // Scenario: 使わなかった製品は途切れにならない
+    #[test]
+    fn st14_judge_archive_unused_product_is_not_outage() {
+        let s = SourceInput {
+            last_record_at: ago(Duration::days(70)),
+            ..archive(Some(Duration::days(5)))
+        };
+        assert!(!outage_of(s));
+        // 記録の時刻が新しくても、書庫が 75 日を過ぎていれば途切れ（書庫は最後の書庫だけで測る）
+        let s = SourceInput {
+            last_record_at: ago(Duration::days(1)),
+            ..archive(Some(Duration::days(76)))
+        };
+        assert!(outage_of(s));
+    }
+
+    // Scenario: 取り込み器は生存信号から 3 日で途切れになる
+    #[test]
+    fn st14_judge_archive_inbox_over_3_days_from_heartbeat_is_outage() {
+        let inbox = |ago_d: Duration| SourceInput {
+            logical_source: "s01-archive-inbox".into(),
+            expected_gap_sec: 86_400,
+            kind: SourceKind::ServerHeartbeat,
+            has_collected: false,
+            last_capturable_heartbeat_at: ago(ago_d),
+            ..base()
+        };
+        assert!(outage_of(inbox(Duration::days(3) + Duration::minutes(1))));
+        assert!(!outage_of(inbox(Duration::days(3))));
+        assert!(!outage_of(inbox(Duration::hours(1))));
     }
 }

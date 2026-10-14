@@ -489,3 +489,254 @@ async fn st14_inputs_nonobs_registry() {
         assert!(!(handled && exempt), "{name} が両方にある");
     }
 }
+
+// ---- 書庫（Task 6）。台帳は追記だけなので、試験ごとに固有の利用者・固有のソースに置く ----
+
+const ARCHIVE_DAYS: i32 = 75;
+const SIXTY_DAYS: i32 = 5_184_000;
+
+/// 書庫のソース（日数 75・収集開始済み）。
+async fn archive_source(pool: &sqlx::PgPool) -> String {
+    let name = testdb::source(pool, "outage-arc", SIXTY_DAYS).await;
+    sqlx::query("UPDATE core.source SET alert_after_days = $2 WHERE logical_source = $1")
+        .bind(&name)
+        .bind(ARCHIVE_DAYS)
+        .execute(pool)
+        .await
+        .unwrap();
+    testdb::set_started_on(pool, &name, "2025-01-01").await;
+    name
+}
+
+/// 台帳に書庫を 1 件置く。`created` / `discovered` は何日前か。`sources` の各ソースに `(入った件数, 既にあった件数)` を立てる
+/// （項目が 0 件の書庫は `archive_ledger_source` の行が立たない）。
+async fn ledger(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    outcome: &str,
+    created: Option<Duration>,
+    discovered: Duration,
+    sources: &[(&str, i32, i32, Option<Duration>)],
+) {
+    let now = Utc::now();
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, created_at, discovered_at)
+         VALUES ($1, $2, 'v1', $3, $4::timestamptz, $5::timestamptz) RETURNING id",
+    )
+    .bind(user)
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(outcome)
+    .bind(created.map(|d| rfc(now, d)))
+    .bind(rfc(now, discovered))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    for (src, inserted, dup, max_event) in sources {
+        sqlx::query(
+            "INSERT INTO core.archive_ledger_source
+               (ledger_id, logical_source, inserted_count, duplicate_count, max_event_at)
+             VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind(id)
+        .bind(src)
+        .bind(inserted)
+        .bind(dup)
+        .bind(max_event.map(|d| rfc(now, d)))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+async fn archive_outage(pool: &sqlx::PgPool, user: uuid::Uuid, name: &str) -> Option<Outage> {
+    outage_of(pool, user, Utc::now(), name, None).await
+}
+
+// Scenario: 最後の書庫から 75 日を過ぎると書庫のソースが途切れになる
+#[tokio::test]
+async fn st14_inputs_archive_over_75_days_is_outage() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let age = Duration::days(75) + Duration::hours(1);
+    ledger(&pool, u, "read", Some(age), age, &[(&name, 10, 0, None)]).await;
+    let o = archive_outage(&pool, u, &name).await.expect("途切れ");
+    assert_eq!(o.logical_source, name);
+}
+
+// Scenario: 2 か月ごとの書き出しでは書庫のソースは途切れにならない
+#[tokio::test]
+async fn st14_inputs_archive_every_two_months_is_not_outage() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    for d in [180, 120, 60] {
+        let a = Duration::days(d);
+        ledger(&pool, u, "read", Some(a), a, &[(&name, 10, 0, None)]).await;
+    }
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+}
+
+// Scenario: 新しい行の無い書庫でも最後の書庫は進む
+#[tokio::test]
+async fn st14_inputs_archive_ledger_without_new_rows_still_advances() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let (old, new) = (Duration::days(80), Duration::days(10));
+    ledger(&pool, u, "read", Some(old), old, &[(&name, 10, 0, None)]).await;
+    // 入った記録は 0 件、既にあった記録だけ
+    ledger(&pool, u, "read", Some(new), new, &[(&name, 0, 25, None)]).await;
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+}
+
+// Scenario: 後の書庫が古い出来事を運ばなくても最後の書庫で測る
+#[tokio::test]
+async fn st14_inputs_archive_later_archive_with_older_events_still_counts() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let (old, new) = (Duration::days(80), Duration::days(10));
+    ledger(
+        &pool,
+        u,
+        "read",
+        Some(old),
+        old,
+        &[(&name, 10, 0, Some(old))],
+    )
+    .await;
+    // 後の書庫が運んだ出来事は、もっと古い期間だけ
+    ledger(
+        &pool,
+        u,
+        "read",
+        Some(new),
+        new,
+        &[(&name, 5, 0, Some(Duration::days(400)))],
+    )
+    .await;
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+}
+
+// Scenario: 形の確認を待っている書庫は最後の書庫に数えない
+#[tokio::test]
+async fn st14_inputs_archive_pending_shape_is_not_counted() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let old = Duration::days(76);
+    ledger(&pool, u, "read", Some(old), old, &[(&name, 10, 0, None)]).await;
+    let new = Duration::days(5);
+    ledger(
+        &pool,
+        u,
+        "pending_shape",
+        Some(new),
+        new,
+        &[(&name, 3, 0, None)],
+    )
+    .await;
+    assert!(archive_outage(&pool, u, &name).await.is_some());
+}
+
+// Scenario: 作られた時刻の無い書庫は見つけた時刻で測る
+#[tokio::test]
+async fn st14_inputs_archive_without_created_at_uses_discovered_at() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    ledger(
+        &pool,
+        u,
+        "read",
+        None,
+        Duration::days(76),
+        &[(&name, 10, 0, None)],
+    )
+    .await;
+    assert!(archive_outage(&pool, u, &name).await.is_some());
+}
+
+// Scenario: 項目が 0 件の書庫では最後の書庫は進まない
+#[tokio::test]
+async fn st14_inputs_archive_zero_item_archive_does_not_advance() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let old = Duration::days(76);
+    ledger(&pool, u, "read", Some(old), old, &[(&name, 10, 0, None)]).await;
+    // ファイルは読めたが、このソースの項目が 0 件なので archive_ledger_source の行が立たない
+    let new = Duration::days(5);
+    ledger(&pool, u, "read", Some(new), new, &[]).await;
+    assert!(archive_outage(&pool, u, &name).await.is_some());
+}
+
+// Scenario: 運んだ書庫が台帳に無いソースは届いた時刻で測る
+#[tokio::test]
+async fn st14_inputs_archive_without_ledger_uses_ingest_time() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let now = Utc::now();
+    put(
+        &pool,
+        u,
+        &name,
+        "collected",
+        &rfc(now, Duration::days(300)),
+        Some(&rfc(now, Duration::days(10))),
+        json!({}),
+    )
+    .await;
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+    // 80 日前に届いたきりなら途切れ
+    let (u2, name2) = (testdb::user(), archive_source(&pool).await);
+    put(
+        &pool,
+        u2,
+        &name2,
+        "collected",
+        &rfc(now, Duration::days(300)),
+        Some(&rfc(now, Duration::days(80))),
+        json!({}),
+    )
+    .await;
+    assert!(archive_outage(&pool, u2, &name2).await.is_some());
+}
+
+// Scenario: 使わなかった製品は途切れにならない
+#[tokio::test]
+async fn st14_inputs_archive_unused_product_is_not_outage() {
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let now = Utc::now();
+    put_collected(&pool, u, &name, &rfc(now, Duration::days(70)), json!({})).await;
+    let new = Duration::days(5);
+    ledger(&pool, u, "read", Some(new), new, &[(&name, 0, 0, None)]).await;
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+}
+
+// Scenario: 使わなかった製品は格子では途絶に見える
+#[tokio::test]
+async fn st14_inputs_archive_grid_shows_unused_product_as_outage() {
+    use crate::coverage::{of_source, DayState, SourceRow};
+    let pool = testdb::pool().await;
+    let (u, name) = (testdb::user(), archive_source(&pool).await);
+    let now = Utc::now();
+    let last = now - Duration::days(70);
+    put_collected(&pool, u, &name, &last.to_rfc3339(), json!({})).await;
+    let new = Duration::days(5);
+    ledger(&pool, u, "read", Some(new), new, &[(&name, 0, 0, None)]).await;
+    // 判定の側（通知）は途切れにしない
+    assert!(archive_outage(&pool, u, &name).await.is_none());
+    // 格子は最後の記録から 61 日目の日を「途絶」と見る（想定間隔 60 日）
+    let tokyo = chrono::FixedOffset::east_opt(9 * 3600).unwrap();
+    let day = last.with_timezone(&tokyo).date_naive() + Duration::days(61);
+    let src = SourceRow {
+        logical_source: name.clone(),
+        named_source: name.clone(),
+        display_name: name.clone(),
+        expected_gap_sec: SIXTY_DAYS,
+        collection_started_on: Some(testdb::date("2025-01-01")),
+        retired_on: None,
+        chain: vec![name.clone()],
+    };
+    let cells = of_source(&pool, Some(u), &src, day, day)
+        .await
+        .unwrap()
+        .days;
+    assert_eq!(cells[0].state, DayState::Outage);
+}
