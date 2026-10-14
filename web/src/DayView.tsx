@@ -46,6 +46,9 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
 const m = msg("day");
 const common = msg("common");
 
+/** 日の移動の下の余白。気分の欄（24 px）が入っても開いてすぐ 6 行見えるよう、元の余白（`SPACE.underTools`）から詰める（ST25 の e2e が見る） */
+const CONTROLS_BELOW_PX = 5;
+
 /** 要約・事情の行間（添える文字。本文の 1.70 より詰める） */
 const SUMMARY_LINE = 1.45;
 
@@ -169,7 +172,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
       <h1 data-testid="day-title" style={titleStyle(c)}>
         {m.title(dateLabel(date))}
       </h1>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SPACE.targetGap, marginBottom: CONTROLS_BELOW_PX }}>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(c)} onClick={() => go(shiftDay(date, -1))}>
           {m.prev}
         </button>

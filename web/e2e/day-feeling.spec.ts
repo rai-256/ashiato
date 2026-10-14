@@ -72,7 +72,7 @@ test("「未記入」の日は破線の枠と「気分 未記入」と「書く�
   await open(page, "2026-09-08");
   await expect(head(page)).toContainText("気分 未記入");
   await expect(head(page).getByRole("link", { name: "書く" })).toBeVisible();
-  await expect(head(page)).toHaveCSS("border-top-style", "dashed");
+  await expect(head(page)).toHaveCSS("outline-style", "dashed");
   // 枠の色は背景と 3:1 以上（色だけで区別しない。文字も出ている）
   const ratio = await page.evaluate(() => {
     const el = document.querySelector('[data-testid="day-feeling"]') as HTMLElement;
@@ -83,7 +83,7 @@ test("「未記入」の日は破線の枠と「気分 未記入」と「書く�
       }) as [number, number, number];
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
-    const a = lum(getComputedStyle(el).borderTopColor);
+    const a = lum(getComputedStyle(el).outlineColor);
     const b = lum(getComputedStyle(document.querySelector('[data-testid="day-view"]') as HTMLElement).backgroundColor);
     return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   });
@@ -128,7 +128,7 @@ test("最初の記録より前の日は「気分 使い始める前」で、「�
   await open(page, "2026-09-04");
   await expect(head(page)).toContainText("気分 使い始める前");
   await expect(head(page)).not.toContainText("未記入");
-  await expect(head(page)).not.toHaveCSS("border-top-style", "dashed");
+  await expect(head(page)).not.toHaveCSS("outline-style", "dashed");
 });
 
 // Scenario: これからの日の 1 日の画面に未記入と出ない
@@ -136,7 +136,7 @@ test("これからの日は「未記入」が出ず「書く」が出る", async
   await open(page, "2099-01-01");
   await expect(head(page)).not.toContainText("未記入");
   await expect(head(page).getByRole("link", { name: "書く" })).toBeVisible();
-  await expect(head(page)).not.toHaveCSS("border-top-style", "dashed");
+  await expect(head(page)).not.toHaveCSS("outline-style", "dashed");
 });
 
 // Scenario: 気分の読み出しの失敗は未記入と出ない

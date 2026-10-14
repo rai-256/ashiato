@@ -107,7 +107,7 @@ describe("頭の欄", () => {
     await openDay("2026-10-01");
     await headText("気分 未記入");
     const box = screen.getByTestId("day-feeling");
-    expect(box.style.border).toContain("dashed");
+    expect(box.style.outline).toContain("dashed");
     expect(within(box).getByRole("link", { name: "書く" })).toBeTruthy();
   });
 
@@ -148,7 +148,7 @@ describe("頭の欄", () => {
     await openDay("2026-09-04");
     await headText("気分 使い始める前");
     expect(screen.getByTestId("day-feeling").textContent).not.toContain("未記入");
-    expect(screen.getByTestId("day-feeling").style.border).not.toContain("dashed");
+    expect(screen.getByTestId("day-feeling").style.outline).not.toContain("dashed");
   });
 
   // Scenario: これからの日の 1 日の画面に未記入と出ない

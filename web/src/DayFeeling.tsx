@@ -4,9 +4,12 @@ import { isFeelingsView, scaleValue, signed, valenceWord, type FeelingsDay, type
 import { msg } from "./messages";
 import { FOCUS_ATTR } from "./scheme";
 import { linkStyle } from "./surface";
-import { font, SCHEMES, SPACE, TYPE, tone, type Scheme } from "./tokens";
+import { font, MIN_TARGET_PX, SCHEMES, SPACE, TYPE, tone, type Scheme } from "./tokens";
 
 const m = msg("feel");
+
+/** 欄の高さ。「書く」の操作対象の最小（NFR-19）に揃える。上限 40 px の内側 */
+const HEAD_PX = MIN_TARGET_PX;
 
 /**
  * 1 日の画面（S-2）が読む、その日の気分（`GET /feelings` の 1 日分。design D14 / D20）。
@@ -88,13 +91,16 @@ export function DayFeeling({ date, load, scheme }: { date: string; load: DayFeel
         flexWrap: "nowrap",
         gap: SPACE.targetGap,
         boxSizing: "border-box",
+        // 高さは「書く」の操作対象（24 px）だけ。枠は線で足さず（高さを増やさない）、内側に描く —— 開いてすぐ見える行を減らさない
+        height: HEAD_PX,
         maxHeight: 40,
         overflow: "hidden",
-        marginBottom: SPACE.underTools,
         padding: "0 8px",
         font: font(TYPE.caption),
         color: tone(c.text),
-        border: missing ? `2px dashed ${tone(c.muted)}` : `1px solid ${tone(c.line)}`,
+        ...(missing
+          ? { outline: `2px dashed ${tone(c.muted)}`, outlineOffset: -2 }
+          : { boxShadow: `inset 0 0 0 1px ${tone(c.line)}` }),
         borderRadius: 8,
       }}
     >
