@@ -136,13 +136,13 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 `crates/server/src/lib.rs`（ハンドラと router）と `outage_store.rs`（台帳の取引）。試験は `crates/server/src/outage_api_tests.rs`（新規）。design D5（仮）/ D6 / D7。
 
-- [ ] 7.1 `GET /outages?device_id=&user_id=` を足す。認証は `authorize()`。起動から `OUTAGE_WARMUP` の間は `warming_up`（起動時刻は `AppState` の差し替えられる時計）。応答の型を OpenAPI に出す。
+- [x] 7.1 `GET /outages?device_id=&user_id=` を足す。認証は `authorize()`。起動から `OUTAGE_WARMUP` の間は `warming_up`（起動時刻は `AppState` の差し替えられる時計）。応答の型を OpenAPI に出す。
   Scenario: `途切れたソースの表示名と最後に生きていた時刻が返る` / `途切れの応答に記録の中身が含まれない`（応答の JSON に緯度・経度・`payload`・`raw` の鍵も値も無いことを文字列で見る）/
   `収集アプリの資格情報で途切れの判定が読める`（Bearer の `API_TOKEN` で 200。**ST44 が締めたら落ちる試験** —— 名前は `st14_api_outages_bearer`）/ `画面の資格情報で途切れの判定が読める`（ログインの cookie で 200）/
   `資格情報の無い途切れの問い合わせは断られる` / `起動して 30 分の間は判定を待っていると返る` / `起動して 30 分が経つと判定が返る` / `途切れが無ければ空の一覧が返る` /
   `端末識別子の無い問い合わせにも判定が返る` / `途切れの一覧は表示名の順に返る`。
   検証: `CT st14_api_outages_`、`tools/check-openapi.sh` rc=0
-- [ ] 7.2 台帳への追記を 1 回の取引で書く（助言ロック → 開いている途切れ → `opened` / `closed` → `delivered`）。2 本の問い合わせを同時に走らせて `opened` が 1 行であることも見る。
+- [x] 7.2 台帳への追記を 1 回の取引で書く（助言ロック → 開いている途切れ → `opened` / `closed` → `delivered`）。2 本の問い合わせを同時に走らせて `opened` が 1 行であることも見る。
   Scenario: `途切れが続く間は同じ識別子が返る` / `新しく途切れると台帳に始まりが 1 行残る` / `戻ると台帳に戻りが 1 行残る` / `戻った後にまた途切れると別の識別子になる` /
   `端末に初めて返した途切れが台帳に残る` / `同じ途切れでも端末ごとに 1 回鳴る`（サーバの側: 2 つの端末識別子にそれぞれ `delivered` が 1 行）/ `戻ったソースは応答の一覧から消える` /
   `端末識別子の無い問い合わせは届けたことを残さない` / `判定を待つ間は台帳に書かない`。
