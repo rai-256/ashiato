@@ -352,9 +352,13 @@ merge gate が origin/main への rebase の衝突で落ち、衝突を解くと
   原因: ST12 の既存テスト（`archive_tests.rs` / `archive_flow_tests.rs`）が `c03-myactivity-u<hash>` を登録簿へ足し、その日に始まったソースは格子の子が 0 になる。e2e は `section[data-source^='c03-'] [data-role=grid]` の全部に子を求める。ST33 は両方とも触っていない
 - **なぜ人間の判断か**: 直し方が 3 通りあり、どれも ST33 の外（ST12 の既存テストと既存 Scenario の期待）に触れるか、tasks 10.2 の検証コマンドを直す（plan_fix。承認が要る）。Task agent は既存の期待を書き換えない（`check_agreed_tests.py`）
 - **選択肢**: (a) 10.2 の検証コマンドを「e2e の前に DB を作り直す」形に plan_fix で直す。(b) ST12 側を `fix/` か handoff で直し、10.2 はそれを待つ。(c) この項目に明示の処置（既知の外因）を付けて通す
+- **本人の答え**: (a) 10.2 の検証コマンドを、e2e の前に DB を作り直す形に plan_fix で直す（推奨と同じ。補足なし。2026-10-14、`deep-answers-6.txt`）
+- **写したもの**: `plan_fix.py` で 10.2 の web の連鎖を `tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e` に（`plan-corrections.md`）。ST12 のテストの後始末そのものは ST33 では直さない
 
 ### Q11. 10.3 の検証コマンドが成立しない（premise。A / premise。推奨: export_file_tests.rs に直す）
 
 - **事実**: 10.3 の `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_tests.rs` は 0 を返す。印は `export_file_tests.rs:854`（Task 5 の側）にあり、印を二重に置かない規律なので動かしていない。
   さらに 10.3 の本文は検証コマンドを backtick で名指ししていないため、`scripts/verify-run 10.3` は「本文に検証コマンドが無い」で記録を拒む（rc=2）。`--command` での FAIL の実証も取れない
 - **提案する正式な入口**: `scripts/plan_fix.py st33-data-export 10.3` で、検証コマンドを `grep -c 'st22-record-deletion' docs/handoff/ST33.md` と `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_file_tests.rs` の 2 本の backtick つきに直す（受け入れ条件は変えない）
+- **本人の答え**: 直してよい（推奨と同じ。補足なし。2026-10-14、`deep-answers-6.txt`）
+- **写したもの**: 10.3 の grep の先を `export_file_tests.rs` に手で直した（grep は検証コマンドとして抽出されないので plan_fix.py の対象外。`plan-corrections.md`）
