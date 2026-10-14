@@ -67,22 +67,27 @@ fn st14_ach_constants_are_pinned() {
     );
 }
 
-/// Scenario: アプリ利用は取得できる状態の信号で数える
-#[tokio::test]
-async fn st14_ach_app_usage_counts_capturable_signal() {
+/// アプリ利用を、与えた日々の入力で 2026-01-01〜02 の 2 日を窓に数える（利用者は固有）。
+async fn app_usage_two_days(
+    day1_capturable_signal: bool,
+    day2_event_with_uncapturable_signal: bool,
+) -> SourceAchievement {
     let pool = testdb::pool().await;
     let u = testdb::user();
     let name = "c01-app-usage";
-    // 1 日目: イベント 0 件・取得できる状態の信号。2 日目: イベントあり・取得できない状態の信号のみ
-    testdb::put_heartbeat(&pool, u, name, "2026-01-01T03:00:00Z", true).await;
-    testdb::put_coverage(&pool, u, name, "2026-01-02", 1).await;
-    testdb::put_heartbeat(&pool, u, name, "2026-01-02T03:00:00Z", false).await;
+    if day1_capturable_signal {
+        testdb::put_heartbeat(&pool, u, name, "2026-01-01T03:00:00Z", true).await;
+    }
+    if day2_event_with_uncapturable_signal {
+        testdb::put_coverage(&pool, u, name, "2026-01-02", 1).await;
+        testdb::put_heartbeat(&pool, u, name, "2026-01-02T03:00:00Z", false).await;
+    }
     let subject = must_sources()
         .into_iter()
         .find(|(n, _)| n == name)
         .unwrap()
         .1;
-    let got = achieve_one(
+    achieve_one(
         &pool,
         Some(u),
         testdb::date("2026-01-03"),
@@ -91,9 +96,28 @@ async fn st14_ach_app_usage_counts_capturable_signal() {
         &row(name, "2026-01-01"),
     )
     .await
-    .unwrap();
-    assert_eq!(got.achieved_days, 1, "前者だけが達成日。後者は数えない");
-    assert_eq!(got.denominator, 2);
+    .unwrap()
+}
+
+/// Scenario: アプリ利用は取得できる状態の信号で数える
+#[tokio::test]
+async fn st14_ach_app_usage_counts_capturable_signal() {
+    // 両方ある日々: 前者だけが達成日。後者は数えない
+    let both = app_usage_two_days(true, true).await;
+    assert_eq!(both.achieved_days, 1);
+    assert_eq!(both.denominator, 2);
+    // 主張ごとに別々に: 取得できる状態の信号だけの日は達成日に数える
+    let capturable_only = app_usage_two_days(true, false).await;
+    assert_eq!(
+        capturable_only.achieved_days, 1,
+        "取得できる状態の信号は数える"
+    );
+    // イベントがあっても取得できない状態の信号のみの日は数えない（旧い主語 event_count>0 なら 1 になる）
+    let uncapturable_only = app_usage_two_days(false, true).await;
+    assert_eq!(
+        uncapturable_only.achieved_days, 0,
+        "イベントがあっても取得できない状態の信号のみの日は数えない"
+    );
 }
 
 /// Scenario: PC のソースは生存信号の届いた日だけを分母に数える
