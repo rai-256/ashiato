@@ -345,9 +345,11 @@ emit("c01-app-usage", PHONE, "2026-09-04T06:00:00Z",
      {"kind": "gap", "begin": "2026-09-04T00:00:00Z", "end": "2026-09-04T06:00:00Z", "reason": "clock_skew_abandoned"})
 # ウィンドウの時計の測定だけの日（2026-09-06）。観測ではないので「記録あり」に数えない
 emit("c02-window", "seed-pc-1", "2026-09-06T01:00:00Z",
-     {"kind": "clock-skew", "trigger": "hourly", "available": False, "device_time": "2026-09-06T01:00:00.000Z",
-      "elapsed_ms": 3600000, "boot_count": None, "references": [], "unavailable": [{"source": "network", "reason": "not_available"}]})
-# 集計。1 件目はアプリ利用の開始日（2026-09-07）より前の箱
+     {"kind": "clock-skew", "at": "2026-09-06T01:00:00.000Z", "boot_at": "2026-09-06T00:00:00.000Z",
+      "clock_trigger": "hourly", "clock_available": False, "uptime_ms": 3600000, "clock_references": [],
+      "clock_unavailable": [{"source": "s01-date", "reason": "timeout"},
+                            {"source": "windows-time-sync", "reason": "timeout"}]})
+# 集計。1 件目はアプリ利用の開始日（2026-08-31）より前の箱
 for begin, end, pkg, ms in [("2026-08-24T00:00:00Z", "2026-08-25T00:00:00Z", "jp.co.line", 1800000),
                             ("2026-09-06T00:00:00Z", "2026-09-07T00:00:00Z", "jp.co.line", 2400000),
                             ("2026-09-06T00:00:00Z", "2026-09-07T00:00:00Z", "com.twitter", 900000)]:
