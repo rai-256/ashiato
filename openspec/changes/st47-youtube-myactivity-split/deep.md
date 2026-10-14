@@ -143,3 +143,13 @@ design.md の D 番号に写す。
 なし（第 2 回の答えでも変わらない。Q7〜Q10 は振り分けの細部で、要件の本文は名指ししていない）。
 
 （理由: 満たす要件 3 件の本文は論理ソースの名前も振り分けの規則も名指ししていない。取り込みの要件の「振り分けの規則が本物の書庫で外れていると、既に入った行は直せない」は、Q4・Q6 の答え（外れたら確認待ちに戻す）と同じ向き。Story の表題・価値・完了の判定も変わらないので `stories.json` は直さない。）
+
+### Q11. Task 7.1 の検証コマンドが `verify-run` の判定で通らない（A / premise。下流の Task 7）
+
+- **出所**: 下流 Task 7。`scripts/verify-run 7.1` が `scripts/quiet-run test -- cargo test --workspace` を FAIL（「rc=0 だが試験が 1 本も走っていない」）と記録した
+- **実証**: 内側の `cargo test --workspace` は rc=0・server 833 本 + collector 133 本 + 起動試験 7 本が通過（全文 `.superpowers/sdd/logs/20261014-173530-test.log`）。
+  `scripts/evidence.py` の `ran_no_tests` は `verify-run` の記録本文（quiet-run が返す末尾 5 行）の `test result: ok. N passed` の和を見るが、末尾は最後の Doc-tests の `0 passed` だけで和が 0 になる。環境は揃っていて、同じ木で何度走らせても FAIL
+- **提案する正式な入口**: 旧 `scripts/quiet-run test -- cargo test --workspace` →
+  新 `scripts/quiet-run test -- bash -o pipefail -c 'cargo test --workspace 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
+  （要は全 binary の件数をログから見る。ただし記録本文の末尾に件数の行が残るかは承認後に確かめる。別案: harness2 の `ran_no_tests` が quiet-run の全文ログ（`[quiet-run] … 全文:` のパス）を読むよう直す）
+- **本人の答え**: (未回答)
