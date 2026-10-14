@@ -54,7 +54,7 @@
 
 ## Task 3: 形の同一性、形の一覧の行き先ごとの件数、印の断り（design D2 / D5 / D6 / D7）
 
-- [ ] 3.1 `shape_for_file` が `YouTube` の種類にも `products`（最初の製品の名前の集合）を入れ、`languages`（design D4 の当たった言語の集合）と `destinations`（`watch` / `search` / `other` と、`other` のうち `ad` / `rating` の件数）を足す。
+- [x] 3.1 `shape_for_file` が `YouTube` の種類にも `products`（最初の製品の名前の集合）を入れ、`languages`（design D4 の当たった言語の集合）と `destinations`（`watch` / `search` / `other` と、`other` のうち `ad` / `rating` の件数）を足す。
   `products` に「YouTube」を含む `MyActivity` の形には、YouTube の項目の `other` の件数を `destinations` に出す（design D2 / D7）。
   `hash_shape` は `YouTube` の種類だけ `{"kind","products","languages"}` を同一性にし、それ以外の種類はいまと同じバイト列の `{"kind","products"}` のままにする（`destinations` はハッシュに入れない）。
   Scenario: `形の確認の出力に YouTube の行き先ごとの件数が出る` / `YouTube の項目を含むマイアクティビティの形の出力にその他へ入る件数が出る` / `決まり文句の表が当たらない YouTube のファイルはまた確認待ちになる` /
@@ -62,7 +62,7 @@
   `評価を持たない日本語の YouTube のファイルは日本語の形の印で格納される` / `行き先ごとの件数が変わっただけでは YouTube のファイルは確認待ちにならない`。
   検証: `CT archive_youtube_shape (≥8)`（Scenario ごとに 1 本以上。旧い形・ST12 の版の形の印は、試験の中に文字列で書いたバイト列の sha256 を直に印の表へ入れる。
   `YouTube 以外の形に置いた印は効いたままになる` の試験は、手で組んだ形ではなく**ファイルのバイト列から分類・形・ハッシュまで通した**結果がその sha256 と一致することを見る）
-- [ ] 3.2 `tools/archive-shape.sh --confirm` が、確認待ちの形が `kind` = `YouTube` で `languages` が空のとき、印を置かずに 0 以外で終わり、理由を stderr に出す（design D6）。
+- [x] 3.2 `tools/archive-shape.sh --confirm` が、確認待ちの形が `kind` = `YouTube` で `languages` が空のとき、印を置かずに 0 以外で終わり、理由を stderr に出す（design D6）。
   Scenario: `決まり文句の当たらない YouTube の形には印を置けない`。
   検証: `tools/smoke.sh` に、言語の当たらない YouTube の確認待ちの形へ `--confirm` を当てて rc が 0 以外・印の表の行が増えないことを見る段を足し（`echo "== Scenario: 決まり文句の当たらない YouTube の形には印を置けない"`）、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0
 
