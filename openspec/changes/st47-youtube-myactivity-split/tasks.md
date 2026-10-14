@@ -93,9 +93,9 @@
 
 ## Task 7: まとめの検査
 
-- [ ] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` rc=0、`scripts/quiet-run test -- cargo test --workspace` rc=0
-- [ ] 7.2 検証: `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` rc=0（この change の全 Scenario に印）
-- [ ] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st47-youtube-myactivity-split --strict` rc=0、
+- [x] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` rc=0、`scripts/quiet-run test -- cargo test --workspace` rc=0
+- [x] 7.2 検証: `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` rc=0（この change の全 Scenario に印）
+- [x] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st47-youtube-myactivity-split --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
 - [ ] 7.4 PR 本文に **仮決め（D2 / D4）と反転条件**、**確認バッチの DB の印を確かめる手順**（design の Risks の 1 つ目）を列挙する。
   検証: `body=$(gh pr view --json body -q .body); for d in 2 4; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q 'f3e578ff' <<<"$body"` rc=0
