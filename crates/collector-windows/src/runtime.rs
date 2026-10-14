@@ -663,6 +663,11 @@ impl<'a> Runtime<'a> {
         let mut counted = false;
         if let Some(report) = history.take_report() {
             beat.record(&report.profiles, report.queued);
+            // 読めた訪問は送れているので成功の数えは変えず、種別だけを載せる（「取得できない」になる。D17（仮））
+            if report.sent_version_unreadable {
+                beat.blockers
+                    .insert(heartbeat::history_blocker::SENT_VERSION_UNREADABLE.to_string());
+            }
             counted = true;
         }
         if history.is_probing() {
@@ -3103,8 +3108,9 @@ mod tests {
     #[test]
     fn history_heartbeat_counts_unwritable_sent_version_as_not_queued() {
         let cfg = cfg();
-        // 同名のディレクトリがあると、送った版の最大値のファイルを書けない
-        std::fs::create_dir_all(cfg.state_dir.join("browser-history/sent_version.json")).unwrap();
+        // 一時ファイルと同名のディレクトリがあると、送った版の最大値のファイルを書けない
+        // （本体と同名だと読めないファイルとして退避される。deep.md 第 8 回 Q13）
+        std::fs::create_dir_all(cfg.state_dir.join("browser-history/sent_version.tmp")).unwrap();
         let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
         let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
@@ -3129,6 +3135,65 @@ mod tests {
             "書けないのに取得できるとした: {beat}"
         );
         assert_eq!(beat["blockers"], serde_json::json!(["history-not-queued"]));
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 送った版の最大値のファイルがあるのに読めなければ、低い版で上書きせずに退避し、その区間の生存信号に
+    /// 種別を載せる（「取得できない」。D17（仮））。読めた訪問は送る。次の取得はファイルが無いだけなので載せない
+    /// （deep.md 第 8 回 Q13。review/code.md R90）。
+    ///
+    /// Scenario: 送った版の最大値が読めなかった取得は、生存信号に種別で報告される
+    #[test]
+    fn history_heartbeat_reports_unreadable_sent_version() {
+        let cfg = cfg();
+        let dir = cfg.state_dir.join("browser-history");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sent_version.json"), b"{broken").unwrap();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let day = 86_400;
+        for sec in (60..day).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        tick_until_history_beats(&mut rt, &mut src, &transport, day, 2);
+        rt.send();
+        assert_eq!(history_records(&transport).len(), 1, "読めた訪問を送らない");
+        assert_eq!(
+            std::fs::read(dir.join("sent_version.broken.json")).unwrap(),
+            b"{broken",
+            "読めないファイルを退避せずに上書きした"
+        );
+        let beat = &history_beats(&transport)[1];
+        assert_eq!(
+            beat["capturable"], false,
+            "読めないのに取得できるとした: {beat}"
+        );
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!(["history-sent-version-unreadable"])
+        );
+        assert!(
+            !beat.to_string().contains("sent_version.json"),
+            "パスを載せた: {beat}"
+        );
+        // 次の取得（ファイルが無いだけ）では載せない
+        tick_until_read_again(&mut rt, &mut src, &reader, 2 * day + 10);
+        for sec in (2 * day + 10..3 * day).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        tick_until_history_beats(&mut rt, &mut src, &transport, 3 * day, 3);
+        let beat = &history_beats(&transport)[2];
+        assert_eq!(
+            beat["blockers"],
+            serde_json::json!([]),
+            "無いだけで載せた: {beat}"
+        );
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 

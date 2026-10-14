@@ -29,6 +29,9 @@ pub mod history_blocker {
     /// 読めたが送る準備（除外の登録を読む・未送信に積む・帳面と前回の成功を書く）を終えられなかった。
     /// 種別だけで、URL・パスは載せない（deep.md 第 5 回 Q10）
     pub const NOT_QUEUED: &str = "history-not-queued";
+    /// 送った版の最大値のファイルがあるのに読めず、退避した（時計が戻った後の更新を取りこぼしうる。
+    /// deep.md 第 8 回 Q13）。種別だけで、パスは載せない
+    pub const SENT_VERSION_UNREADABLE: &str = "history-sent-version-unreadable";
     pub fn unreadable(browser: &str, profile: &str) -> String {
         format!("history-unreadable:{browser}:{profile}")
     }

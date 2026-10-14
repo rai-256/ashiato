@@ -190,6 +190,8 @@ pub struct FetchReport {
     pub profiles: Vec<ProfileHealth>,
     /// 送る準備（除外の登録を読む・未送信に積む・帳面と前回の成功を書く）まで済んだか（deep.md 第 5 回 Q10）
     pub queued: bool,
+    /// 送った版の最大値のファイルがあるのに読めず、退避したか（deep.md 第 8 回 Q13）
+    pub sent_version_unreadable: bool,
 }
 
 /// 読んだ後、見回りが未送信に積む分と、積み終えてから書く帳面。
@@ -210,6 +212,7 @@ struct Fetched {
     health: Vec<ProfileHealth>,
     skipped: usize,
     quarantined: usize,
+    sent_version_unreadable: bool,
     plan: anyhow::Result<Plan>,
 }
 
@@ -245,6 +248,8 @@ pub struct HistoryCollector {
     /// まだログに出していない、「送る準備を終えられなかった」の印を消せなかった数（R82）。
     /// 消せない印が残ると、次の起動の直後の生存信号が「取得できない」のままになる
     mark_remove_failed: usize,
+    /// 終わっていない取得で、送った版の最大値が読めなかったか（[`FetchReport`] へ渡す）
+    sent_version_unreadable: bool,
 }
 
 impl std::fmt::Debug for HistoryCollector {
@@ -266,12 +271,28 @@ struct SentVersion {
     sent_version: DateTime<Utc>,
 }
 
-/// 送った版の最大値を読む。無い・読めないなら `None`（帳面の各訪問の前の版と読んだ時刻で決める）。
-fn read_sent_version(dir: &Path) -> Option<DateTime<Utc>> {
-    let bytes = std::fs::read(dir.join(SENT_VERSION)).ok()?;
-    serde_json::from_slice::<SentVersion>(&bytes)
-        .ok()
-        .map(|s| s.sent_version)
+/// 読めなかった送った版の最大値の退避先。上書きせずに中身を残す（deep.md 第 8 回 Q13）。
+const SENT_VERSION_BROKEN: &str = "sent_version.broken.json";
+
+/// 送った版の最大値を読む。無ければ `None`（初回・保存場所ごと消えた後。帳面の各訪問の前の版と読んだ時刻で決める）。
+///
+/// ファイルがあるのに読めなければ、低い版で上書きしないよう [`SENT_VERSION_BROKEN`] へ退避して `None` を返し、
+/// `unreadable` を立てる（生存信号に種別で載せる。deep.md 第 8 回 Q13 / D17（仮））。退避できなければ
+/// 送る準備の失敗にする（読めないファイルの上に書くことになる。D16 の「書けなければ」と同じ）。
+fn read_sent_version(dir: &Path, unreadable: &Cell<bool>) -> anyhow::Result<Option<DateTime<Utc>>> {
+    let path = dir.join(SENT_VERSION);
+    let parsed = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<SentVersion>(&bytes).ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => None,
+    };
+    if let Some(s) = parsed {
+        return Ok(Some(s.sent_version));
+    }
+    unreadable.set(true);
+    std::fs::rename(&path, dir.join(SENT_VERSION_BROKEN))
+        .context("読めない送った版の最大値を退避できない")?;
+    Ok(None)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -300,6 +321,7 @@ impl HistoryCollector {
             skipped_rows: 0,
             quarantined: 0,
             mark_remove_failed: 0,
+            sent_version_unreadable: false,
         }
     }
 
@@ -396,6 +418,7 @@ impl HistoryCollector {
             };
             self.skipped_rows += fetched.skipped;
             self.quarantined += fetched.quarantined;
+            self.sent_version_unreadable = fetched.sent_version_unreadable;
             match fetched.plan {
                 Ok(plan) => self.stage = Stage::Queueing(plan, fetched.health),
                 Err(e) => return Some(self.finish(wall, None, fetched.health, Err(e))),
@@ -447,6 +470,7 @@ impl HistoryCollector {
                 dir: self.dir.clone(),
                 exclusions_path: self.exclusions_path.clone(),
                 quarantined: Cell::new(0),
+                sent_version_unreadable: Cell::new(false),
             };
             self.stage = Stage::Reading(HistoryWorker::spawn(move || planner.fetch(wall)));
         }
@@ -473,6 +497,7 @@ impl HistoryCollector {
         self.report = Some(FetchReport {
             profiles: health,
             queued,
+            sent_version_unreadable: std::mem::take(&mut self.sent_version_unreadable),
         });
         result
     }
@@ -522,6 +547,7 @@ struct Planner {
     dir: PathBuf,
     exclusions_path: PathBuf,
     quarantined: Cell<usize>,
+    sent_version_unreadable: Cell<bool>,
 }
 
 impl Planner {
@@ -547,6 +573,7 @@ impl Planner {
             health,
             skipped,
             quarantined: self.quarantined.get(),
+            sent_version_unreadable: self.sent_version_unreadable.get(),
             plan,
         })
     }
@@ -643,7 +670,7 @@ impl Planner {
         wall: DateTime<Utc>,
         any: bool,
     ) -> anyhow::Result<DateTime<Utc>> {
-        let floor = read_sent_version(&self.dir);
+        let floor = read_sent_version(&self.dir, &self.sent_version_unreadable)?;
         let previous = stores
             .values()
             .flat_map(|s| s.ledger().visits.values().filter_map(|v| v.sent_version));
