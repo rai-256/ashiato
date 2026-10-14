@@ -375,11 +375,11 @@ const ja = {
     noteOver: (n: string, max: string): string => `${n} / ${max} 文字 · 長すぎます`,
     resend: "もう一度送る",
     saved: (value: string, at: string, date: string): string => `保存しました: ${value} · 記入 ${at}（対象の日 ${date}）`,
-    savedNoteOnly: (at: string, date: string): string => `保存しました: ${at}（対象の日 ${date}）`,
     held: (max: string): string => `ひとことが長すぎるので保存していません（${max} 文字まで）`,
     unreachable: "サーバに届きませんでした。選んだ値とひとことはそのまま残っています",
     rejection: {
       invalid_note: (max: string): string => `ひとことが長すぎます（${max} 文字まで）`,
+      invalid_note_control: "ひとことに使えない文字（制御文字）が入っています。その文字を消してください",
       invalid_feeling_target: "この日（滞在）には書けませんでした。画面を読み直してください",
     },
     rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,

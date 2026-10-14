@@ -7,6 +7,7 @@ import {
   buildFeeling,
   calendarDays,
   countNoteChars,
+  hasControlChar,
   ingestFeelingItem,
   isFeelingsView,
   NOTE_MAX_CHARS,
@@ -243,6 +244,8 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       const outcome = await readIngestResponse(res);
       if (outcome.at === "accepted") {
         setPending((all) => without(all, p.key));
+        // 送り直しで届いた「日」の記録のひとことも、送ったものとして覚える（覚えないと欄を離れたときに同じひとことをもう一度送る）
+        if (p.key === "day") sentNote.current = p.note;
         const value = `${signed(p.v)} ${valenceWord(p.v)}`;
         setNotice({
           bad: false,
@@ -259,7 +262,10 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
           bad: true,
           text:
             kind === "invalid_note"
-              ? m.rejection.invalid_note(numberText(NOTE_MAX_CHARS))
+              ? // サーバは長すぎるのも制御文字も同じ種別で断る。送ったひとことで選び分ける（design D22（仮））
+                hasControlChar(p.note)
+                ? m.rejection.invalid_note_control
+                : m.rejection.invalid_note(numberText(NOTE_MAX_CHARS))
               : kind === "invalid_feeling_target"
                 ? m.rejection.invalid_feeling_target
                 : m.rejectedOther(kind),

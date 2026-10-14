@@ -11,6 +11,7 @@ import {
   CALENDAR_DAYS,
   calendarDays,
   countNoteChars,
+  hasControlChar,
   dayMark,
   NOTE_MAX_CHARS,
   phaseOf,
@@ -79,6 +80,9 @@ describe("ひとことの数え方", () => {
   });
   it("NFD の「が」（2 コードポイント）は NFC にして 1", () => {
     expect(countNoteChars("\u304B\u3099")).toBe(1);
+  });  it("サーバと同じく、改行とタブを除く制御文字（C0・DEL・C1）だけを制御文字と読む", () => {
+    for (const ch of ["\u0000", "\u0007", "\r", "\u007F", "\u0085", "\u009F"]) expect(hasControlChar(`a${ch}b`), JSON.stringify(ch)).toBe(true);
+    for (const ch of ["\n", "\t", " ", "\u3000", "\u200B", "😀"]) expect(hasControlChar(`a${ch}b`), JSON.stringify(ch)).toBe(false);
   });
 });
 

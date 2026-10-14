@@ -69,6 +69,14 @@ function newNonce(): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/**
+ * ひとことにサーバが断る制御文字（改行とタブを除く Unicode の Cc）があるか。サーバの `char::is_control` と同じ範囲。
+ * サーバはこれも長すぎるのと同じ `invalid_note` で断るので、画面が文を選び分けるのに使う（design D22（仮））。
+ */
+export function hasControlChar(note: string): boolean {
+  return [...note].some((ch) => ch !== "\n" && ch !== "\t" && /\p{Cc}/u.test(ch));
+}
+
 /** ひとことの長さ。サーバと同じ数え方（NFC にしてからコードポイント。`maxLength` は UTF-16 なので使わない）。 */
 export function countNoteChars(note: string): number {
   return [...note.normalize("NFC")].length;

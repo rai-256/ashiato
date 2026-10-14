@@ -286,6 +286,24 @@ describe("送れなかったとき", () => {
     expect(posts).toHaveLength(2);
   });
 
+  // Scenario: 届かなかった記録は同じ原文で送り直す
+  it("ひとこと付きの記録を送り直して届いた後に欄を離れても、同じひとことをもう一度送らない", async () => {
+    ingest = () => json(503, null);
+    await open();
+    typeNote("雨だった");
+    press("valence-1");
+    await sent(1);
+    const resend = await screen.findByTestId("feel-resend");
+    ingest = accepted;
+    fireEvent.click(resend);
+    await sent(2);
+    await screen.findByTestId("feel-notice-ok");
+    fireEvent.blur(note());
+    fireEvent.click(screen.getByTestId("feel-keep-note"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts).toHaveLength(2);
+  });
+
   // Scenario: 届かなかったとき選んだ値とひとことが残る
   it("ひとことを入れて、サーバに届かない状態で快–不快を押すと、届かなかった文が出て値とひとことが残る", async () => {
     await open();
@@ -312,6 +330,20 @@ describe("送れなかったとき", () => {
     expect(bad.textContent).not.toContain("サーバに届きませんでした");
     expect(note().value).toBe("断られる");
     expect(screen.queryByTestId("feel-resend")).toBeNull();
+  });
+});
+
+describe("断られた理由の文", () => {
+  // Scenario: 断られたとき理由の文が出る
+  it("制御文字の入ったひとことが断られると、長すぎるとは言わず使えない文字が入っていると出る", async () => {
+    ingest = () => json(400, [{ id: null, duplicate: false, accepted: false, error: "invalid_note" }]);
+    await open();
+    typeNote("ベル\u0007の音");
+    press("valence-1");
+    const bad = await screen.findByTestId("feel-notice-bad");
+    expect(bad.textContent).toContain("使えない文字（制御文字）");
+    expect(bad.textContent).not.toContain("長すぎ");
+    expect(note().value).toBe("ベル\u0007の音");
   });
 });
 
