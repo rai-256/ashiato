@@ -176,6 +176,8 @@ export interface FeelingsDay {
   status: DayStatus;
   day: DayBucket;
   stays: StayBucket[];
+  /** 記録のある滞在の数（書き直しは 1。消した滞在も数える） */
+  stays_with_records: number;
   /** 表示しない滞在（消した・たどれない）の記録の件数 */
   hidden_stay_records: number;
 }
@@ -215,7 +217,7 @@ export function isFeelingsView(v: unknown): v is FeelingsView {
   return v.days.every((d) => {
     if (!isObj(d) || typeof d.date !== "string" || !isObj(d.day)) return false;
     if (!DAY_STATUSES.includes(d.status as DayStatus)) return false;
-    if (typeof d.hidden_stay_records !== "number") return false;
+    if (typeof d.hidden_stay_records !== "number" || typeof d.stays_with_records !== "number") return false;
     if (!Array.isArray(d.stays) || !d.stays.every(isStayBucket)) return false;
     const b = d.day;
     return (

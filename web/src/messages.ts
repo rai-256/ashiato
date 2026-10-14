@@ -405,6 +405,18 @@ const ja = {
     hiddenStays: (n: number): string => `消した滞在の気分 ${n} 件（ここには出しません）`,
     savedStay: (value: string, at: string, range: string): string => `保存しました: ${value} · 記入 ${at}（滞在 ${range}）`,
 
+    /** 1 日の画面（S-2）の頭の欄と滞在の行（DayFeeling.tsx。design D14 / D20） */
+    dayLabel: (value: string): string => `気分 ${value}`,
+    dayValue: (signed: string, word: string): string => `${signed} ${word}`,
+    dayStays: (n: number): string => `滞在ごとに ${n} 件`,
+    dayNoValence: "記入あり",
+    dayMissing: "未記入",
+    dayBeforeStart: "使い始める前",
+    dayFuture: "これから",
+    dayLoading: "読み込み中…",
+    dayFailed: "気分を読み出せませんでした",
+    dayWrite: "書く",
+
     /** 暦（design D14） */
     calendarHeading: "この 30 日",
     calendarFailed: "暦を読み出せませんでした（未記入、という意味ではありません）",
