@@ -17,6 +17,7 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
   spec の (4) は開始日の無いものだけを外し、この場合は書いていない。実装が D 番号なしで決めていた
 - kind: conflict
 - 提案: 収集開始日の Asia/Tokyo の 0 時を「最後に生きていた時刻」の下限に足し（`alive_floor` と同じ形）、design に D<n>（仮）と反転条件を書く
+- 処置: fixed D26 仮 —— 収集開始日の Asia/Tokyo の 0 時を下限に足した（c210c161 / 59121b30 / 08b820ee。`outage::tests::st14_judge_started_day_is_alive_floor`）。巻き込まれた `st14_api_outages_empty` / `st14_api_outages_no_record_content` を直した（後者は `raw` の文字を応答全体では見なくなった）
 
 ## R2. 判定の材料を台帳の助言ロックの外で読んでいるので、同時の問い合わせで途切れが開き直され、もう一度鳴る
 - 成果物: crates/server/src/lib.rs:2740-2748（`outages_get`）・crates/server/src/outage_store.rs:169-177（`record` の `pg_advisory_xact_lock`）
@@ -24,6 +25,7 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
   識別子が変わり端末で再び鳴る（Q4「途切れ 1 回につき端末ごとに 1 回」に反する）。`st14_ledger_concurrent_opens_once` は単一スレッドの `join!` で重なりを保証しない（Task 7 F1 / F2）
 - kind: technical
 - 提案: ロックを取った同じ取引の中で `inputs` を読み `judge` する（`inputs` が取引を受ける）
+- 処置: fixed D7 —— `outage_store::judge_and_record` が助言ロックの後の同じ取引で inputs → judge → 台帳（7ee76c12。`outage_api_tests::st14_ledger_judges_inside_the_lock` が別接続のロックで重なりを作る。旧コードで落ちるのを確認）
 
 ## R3. `has_non_collected` を支える索引が無く、記録が増えると問い合わせが遅くなり通知が黙って止まる
 - 成果物: crates/server/src/outage_store.rs（`EXISTS (... AND e.origin <> 'collected')`）・migrations/202610141130_outage_alert.sql
@@ -31,6 +33,7 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
   収集アプリは 10 秒で打ち切るので遅くなると Unreachable →「通知が変わらない」（Task 5 F1）。design D4 は「足りなければ D 番号を足して部分索引」
 - kind: technical
 - 提案: まだ merge していない同じ移行に `(user_id, logical_source) WHERE origin <> 'collected'` の部分索引を足し、D<n>（仮）を書く
+- 処置: fixed D27 仮 —— 同じ移行に部分索引 `event_non_collected_by_source`（9c424f6f。`st14_reg_event_has_non_collected_partial_index`）
 
 ## R4. design.md が実装に合わせて書き戻されていない（D7 の追記のみの関数・D21 の no-preference）
 - 成果物: openspec/changes/st14-outage-alert/design.md（D7 / D21）
@@ -38,18 +41,21 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
   D21 の no-preference の読み替え（Task 10 F3）も書かれていない
 - kind: technical
 - 提案: D7 と D21 を実装の形に直す
+- 処置: fixed D7 —— D7 を専用関数と K3 の理由に、D21 に no-preference の読み替えを書いた（21a6dce6）
 
 ## R5. Scenario の印を括弧の中に書いていて、`check_scenarios.py` が `）` まで名前として拾う
 - 成果物: crates/server/src/outage_tests.rs:422
 - 根拠: `（Scenario: 停止が終わった時刻から数え直す）` —— 印の名前が `停止が終わった時刻から数え直す）` になり warn
 - kind: technical
 - 提案: 印を独立した行の `// Scenario: <名前>` にする
+- 処置: fixed 5.1 —— :422 と同じ形の :252 も独立した行にした（56fb0def。`check_scenarios.py` OK）
 
 ## R6. 台帳の形の `CHECK` が `opened` に `last_alive_at` を求めていない
 - 成果物: migrations/202610141130_outage_alert.sql（`outage_ledger_shape`）
 - 根拠: design D7 は「`last_alive_at` は `opened` だけが持つ」。いまの CHECK は `opened` で NULL を許す
 - kind: technical
 - 提案: `opened` のとき `last_alive_at IS NOT NULL` を CHECK に足し、試験で固定する
+- 処置: fixed D7 —— 別名の CHECK `outage_ledger_opened_has_last_alive`（shape の差し替えは DROP CONSTRAINT になり check-migrations が断る。既存 DB へは NOT VALID）（21ac16ff。`st14_reg_ledger_opened_requires_last_alive_at`）
 
 ## R7. 偽データの clock-skew の payload の鍵が契約と違い、コメントの開始日が古い
 - 成果物: tools/seed.sh（`c02-window` の `kind = clock-skew`）
@@ -57,21 +63,30 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
   サーバは `kind` しか読まないのでいまは害が無い。コメントの「開始日（2026-09-07）」も古い（Task 10 F1）
 - kind: technical
 - 提案: 契約の鍵にそろえ、コメントを直す
+- 処置: fixed D18 —— 鍵を契約（`crates/collector-windows/src/contract.rs:502`。根拠の行のパスは誤り）にそろえ、コメントの開始日を 2026-08-31 に（afb2f363）
 
 ## R8. 達成日（NFR-13）は取りこぼしの日でも取得できる状態の信号があれば数え、格子は同じ日を③に塗る
 - 成果物: crates/server/src/coverage.rs（`achieve_one` は `decide` を通らない）
 - 根拠: 格子は C9 / D 番号どおり取りこぼしの日を③にするが、達成の数えは生存信号の `capturable` を見るだけ。spec は達成の側の扱いを書いていない
 - kind: conflict
 - 提案: いまの振る舞いを D<n>（仮）として書き、反転条件（達成も格子の状態から数える）を付ける
+- 処置: fixed D28 仮 —— いまの振る舞いと反転条件を design に書いた（eb6fa85b。コードは変えない）
 
 ## R9. Android の問い合わせは位置のスケジューラにだけ乗っている
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/OutagePoller.kt・LocationService.kt
 - 根拠: 位置の収集が動いていない構成では、アプリ利用の途切れも携帯に届かない
 - kind: technical
 - 提案: 注記のみ（final reviewer も「D12 の設計どおり」としている）
+- 処置: rejected: design.md:193 の D12「生存信号の契機に相乗りする」どおり。問い合わせは `LocationService.kt:840` / `:845` の `if (isLocation) outagePoller.poll()` で位置の契機に乗せると決めている。位置の収集が止まった構成ではアプリ利用の途切れも届かないことを、この行に注記として残す
 
 ## R10. 取りこぼしの理由の文言を、端末から来た文字で `messages` のオブジェクトから直に引いている
 - 成果物: web/src/CoverageGrid.tsx（`m.gapReason[g.reason]`）
 - 根拠: `reason` は端末から来る値で、`constructor` などは prototype を引く（Task 10 F2）
 - kind: technical
 - 提案: `Object.hasOwn` で確かめ、無ければ既定の文言にする
+- 処置: fixed 10.2 —— 実際の場所は `web/src/coverage.ts` の `gapNotes`。`Object.hasOwn` で確かめ、無ければ `gapUnknown`（59330af1。`coverage-gaps.test.ts` の it.each 5 件）
+
+## scoped re-review（e2f245c..08b820e）
+
+席: `re-review-prompt.md`。package は `.superpowers/sdd/tasks/review-e2f245c5..08b820ee.diff`（11 commit）、fix の報告は
+`.superpowers/sdd/st14-final-fix-report.md`。R1〜R8・R10 はすべて ADDRESSED、fix による新しい破損なし、範囲外の観察なし。
