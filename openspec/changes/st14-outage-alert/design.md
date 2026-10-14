@@ -341,7 +341,8 @@ Q2 は「知らせる —— 取得できる状態の生存信号だけを生き
 
 `GET /outages` は `user_id` を省略すると既定の利用者（nil。ほかの読み出しと同じ）で判定する。収集アプリが付けないと、
 利用者 ID が nil でない構成（録画の環境 `tools/record-env.sh` は乱数で作る）では、記録が届いているソースまで「途切れ」で返る。
-**携帯（`outageQueryString`）も PC（`HttpOutageQuery`）も、設定の利用者 ID を `user_id=` に付ける**（`OutagePollerTest` /
+**携帯（`outageQueryString`）も PC（`HttpOutageQuery`）も、設定の利用者 ID を `user_id=` に付ける**（`OutagePollerTest`
+「収集アプリが打つ問い合わせに設定の利用者が付く」—— `LocationService` の組み立てを通し、差し替えるのは `newOutageGet` だけ（review/code.md R17）/
 `sender::tests::outage_query_sends_device_and_user`）。サーバの省略時の扱いは変えない（`/coverage` の「省略すると絞らない」は
 読むだけの格子で、台帳に `delivered` を書く判定とは役が違うので揃えない）。
 

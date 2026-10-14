@@ -136,11 +136,11 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
         reply(path, body.split("\"id\":").size - 1)
     }
 
-    /** 途切れの問い合わせ（ST14）。**打った端末識別子を覚え**、答えは試験が決める（既定は届かない）。 */
+    /** 途切れの問い合わせ（ST14）。**打った問い合わせの文字列を覚え**、答えは試験が決める（既定は届かない）。 */
     val outageQueries = mutableListOf<String>()
     var outageReply: Outcome = Outcome.Unreachable("test")
-    override fun newOutageQuery(): OutageQuery = OutageQuery { id ->
-        outageQueries += id
+    override fun newOutageGet(): (String) -> Outcome = { query ->
+        outageQueries += query
         outageReply
     }
 

@@ -223,3 +223,85 @@ rebase 前の 0c609019 と HEAD の差は、#91 が持ち込んだ `tools/ports.
 （`git diff --stat 0c609019 HEAD -- . ':!openspec' ':!docs' ':!tools/ports.sh' ':!tools/verify-prep.sh' ':!crates/server/src/testdb.rs'` が空）。
 同じ範囲に whole-branch review を重ねない。この段でやったのは R16 の答えを spec の本文と go.json に写すことだけ（上の R16 の処置）。
 申し送り（`docs/handoff/ST14.md`）は前回の final から増えていない（最後の変更は 00398a42）。合意（`agreement.json`）は下流の design の書き戻し（R4 など）で既に stale で、下流の gate はそれを見ない。
+
+## code-verify（HEAD 122502c7。rebase と R11〜R15 の修正の後）
+
+席: code-verify（申告と実態のずれ）。前回の code-verify（5589c6d4）の後、R11〜R15 の修正（9cd3ce35 / 93385838）が入り、ブランチは main（#91）の上へ rebase された。
+evidence.jsonl の最後の行は 0c609019（rebase 前。HEAD の祖先ではない）なので、**全項目の検証コマンドを HEAD 122502c7 で走らせ直した**。
+`git diff --stat 0c609019 HEAD -- . ':!openspec' ':!docs' ':!tools/ports.sh' ':!tools/verify-prep.sh' ':!crates/server/src/testdb.rs'` は空（rc=0）で、この Story のコードは 0c609019 と同じ。
+#91 が変えた `tools/ports.sh` は 10.1・e2e・smoke の入口なので、それらは走らせ直さないと分からない。
+変異は作業ツリーの外の複製（`~/dev/.st14cv2/mut-st14`。独立した git。名前の末尾が `-st14` なので、`testdb.rs` の規則でこの worktree の DB 55514 に繋ぐ。main の DB には繋がない）で 1 か所ずつ当てて戻した。本体のコードは触っていない。複製は確かめの後に消した。
+
+申告: **31/31**（`- [x]` 31・`- [ ]` 0）。
+
+| 項目 | 検証コマンド（tasks.md の本文どおり） | 実測（HEAD 122502c7） | 一致 |
+|---|---|---|---|
+| 1.1 | `bash -c 'grep -q DEVICE_SUBJECT … && grep -q archive_ledger_source …'` | rc=0 | 一致 |
+| 1.2 / 1.3 | `CT st14_reg_` / `CT st14_reg_default`・`check-migrations.sh`・`check-immutable.sh` | 10 本 / 1 本（`-- --list`）・rc=0・rc=0 | 一致 |
+| 2.1〜2.3 | `CT st14_grid_nonobs` / `st14_grid_gap`・`check-openapi.sh` / `coverage::tests::`・`st14_grid_` | 7 / 7 本・rc=0 / 93 / 14 本 | 一致 |
+| 3.1〜3.3 | `CT st14_rollup_started` / `st14_rollup_order` / `coverage::tests::`・`api_tests` | 4 / 2 / 93・46 本 | 一致 |
+| 4.1 / 4.2 | `CT st14_ach_` / `coverage::tests::`・`npx vitest run` | 5 本 / 93 本・41 files 352 passed | 一致 |
+| 5.1 / 5.2 | `CT st14_judge_` / `st14_inputs_device`・`st14_inputs_nonobs_registry` | 24 / 13・1 本 | 一致 |
+| 6.1 / 6.2 | `CT st14_judge_archive`・`st14_inputs_archive` / `st14_inputs_archive_grid` | 4・10 / 1 本 | 一致 |
+| 7.1 / 7.2 | `CT st14_api_outages_`・`check-openapi.sh` / `CT st14_ledger_` | 11 本・rc=0 / 9 本 | 一致 |
+| 8.1〜8.3 | `KT OutageNoticeTest` / `OutageNotifierTest` / `OutagePollerTest`・grep・`detekt :app:assembleDebug` | 12 / 7 / 7 testcase・failures 0（`LocationServiceTest` 26 も 0）・rc=0・rc=0 | 一致 |
+| 9.1 / 9.2 | `WU outage_notice_` / `WU outage_notice_poll`・windows 向け clippy | 18 / 4 本（lib 全体 152 passed）・rc=0 | 一致 |
+| 9.3 | rsync → `cmd.exe … cargo test --test runtime_windows outage` | `outage_toast_is_shown_replaced_silently_and_removed` 1 passed・rc=0 | 一致 |
+| 10.1 | stack を setsid で起こす → `/coverage` → `jq -e` | `true`・rc=0（環境の上書きなし。`ports.sh` が API 19028 を割り当てた） | 一致 |
+| 10.2〜10.4 | `VT coverage-gaps.test.ts`・`ET coverage-gaps` / `coverage-rollup`・`archive-layout` / `coverage-scheme`・`surface` | 10 tests / 4・3・6・5・15 passed（いずれも rc=0。前回要った `CI=1 STACK_RESET=1 WEB_PORT=5914` は無しで通った） | 一致 |
+| 10.5 | `npm run lint && tsc --noEmit && vitest run && build` | rc=0 | 一致 |
+| 11.1 | `scripts/quiet-run smoke -- tools/smoke.sh` | rc=0（「OK outages warming_up -> ready」） | 一致 |
+| 11.2 | `check_scenarios.py . st14-outage-alert` | `scenarios: OK`・rc=0 | 一致 |
+| 11.3 | fmt / clippy -D warnings / `cargo test --workspace` / check-openapi・migrations・immutable・log-private | rc=0 / rc=0 / 152 + 896 + 7 passed・rc=0 / rc=0 ×4 | 一致 |
+
+Global Constraints の形: `git diff --stat main...HEAD -- migrations/` は `202610141130_outage_alert.sql` と `.down.sql` の 2 ファイルだけ。`git diff --name-only main...HEAD -- openspec/ | grep -v st14-outage-alert` は空（正典と並走中の change には触っていない）。
+
+**手 1（固定値の再計算）: 該当なし。** 確かめた範囲: 前回の後に増えた固定値だけ。R13 の `outageQueryString("dev a", "6f1c2a4e-…")` の期待値 `?device_id=dev+a&user_id=6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c` を
+python の `urllib.parse.urlencode` で計算し直して一致した。R11 の境界（29 分 59 秒 = 1799 秒・30 分 = 1800 秒）も `datetime.timedelta` で一致。前回より前の固定値は前回の手 1 のとおり。
+
+**手 2（ガードを壊す）:** R15 の処置の主張を複製で確かめた。移行から `CREATE TRIGGER outage_no_truncate …` の 2 行を外す（`DROP TRIGGER IF EXISTS` は残す）→ `CT st14_reg_` が
+**9 passed / 1 failed（`st14_reg_ledger_rows_are_append_only`）**。戻した移行で走らせ直して 10 passed（トリガは元どおり作られる）。
+
+**手 3（Scenario と test）:** `scenarios: OK`。前回の後に足された試験について、試験が見ているものを読んだ。R12 の試験は「通知 0・覚えが空 → 権限を戻すと音つき」を観測している。
+R13 の携帯の試験は**問い合わせの文字列を作る関数**だけを見ていて、収集アプリが実際に組み立てる問い合わせは見ていない（R17）。
+
+**手 4（本人の決定が試験で固定されているか）:** 前回の「落ちない」2 件（R11・R12）の処置を複製で確かめた。
+- `OUTAGE_WARMUP` 30→29 分 → `st14_api_outages_warming_up` が落ちる（10 passed / 1 failed）。30→31 分 → `warming_up` と `after_warmup` の 2 本が落ちる。
+- 携帯の `if (delivered) notice.save(…)` → `notice.save(…)` → `OutageNotifierTest`「通知を出せなかったら覚えを進めず、権限が戻った次の契機で音つきで出る」が落ちる（rc=1）。
+- R14: `LocationService.kt` に `import android.app.AlarmManager` を足す → `OutagePollerTest`「収集アプリの本体は AlarmManager も WorkManager も使わない」が落ちる（rc=1）。
+- R13（PC）: `sender.rs:289` の `.query("user_id", …)` を消す → `sender::tests::outage_query_sends_device_and_user` が落ちる（151 passed / 1 failed）。PC の呼び出し側（`main.rs:120`）は `HttpOutageQuery::new` の引数が `uuid::Uuid` なので、付け忘れは型で止まる。
+- **R13（携帯）: 呼び出し側の付け忘れは落ちない（R17）。**
+
+**手 5（`[x]` と実体）:** 31 件すべて、本文の検証コマンドが実在し HEAD で rc=0（上の表）。`CT` / `WU` の絞り込みは全部 `-- --list` で 1 本以上。`--test runtime_windows` は `crates/collector-windows/tests/runtime_windows.rs` が実在する。
+
+**手 6（隙間）:** R12 は「権限が無い」の 1 か所だけを塞いでいて、別の経路から同じ型（出せていないのに覚えが進み、Q4 の 1 回の音が鳴らないまま使われる）が残っていた（R18）。
+
+## R17. 携帯が問い合わせに利用者を付けることを試験が見ていない。呼び出し側を R13 の前の形に戻しても全部緑
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt:199-202（`newOutageQuery()`）/ app/src/test/kotlin/dev/ashiato/collector/OutagePollerTest.kt:93-97 / LocationServiceTest.kt:142-145
+- 根拠: 複製で `LocationService.kt:201` の `transport.get(outageQueryString(id, Config.userId))` を R13 の前の形 `transport.get("?device_id=" + id)` に戻して
+  `gradlew :app:testDebugUnitTest --tests '*Outage*' --tests '*LocationServiceTest*'` → **BUILD SUCCESSFUL・rc=0**（OutageNoticeTest 12・OutageNotifierTest 7・OutagePollerTest 7・LocationServiceTest 26、failures 0）。
+  試験「問い合わせは端末と自分の利用者を付ける」は `outageQueryString` という関数の戻り値だけを比べ（:95-96）、`LocationServiceTest` は `newOutageQuery()` を丸ごと差し替えている（:142）ので、
+  本物の組み立て（`HttpTransport` + `outageQueryString` + `Config.userId`）はどの試験も通らない。`androidTest` には outage の試験が無い（`grep -rl outage` 0 件）。
+  PC は同じ変異で `sender::tests::outage_query_sends_device_and_user` が落ちる（本物の HTTP の要求行を見る）ので、塞がっているのは PC だけ。R13 の処置と design.md:344 の D29（仮）は「携帯（`outageQueryString`）も PC（`HttpOutageQuery`）も、設定の利用者 ID を `user_id=` に付ける（`OutagePollerTest` / …）」と、携帯の担保に `OutagePollerTest` を挙げている —— 挙げられた試験は関数の戻り値しか見ず、「設定の利用者 ID を付ける」は観測していない
+- kind: technical
+- 提案: `newOutageQuery()` の組み立てを `outageQuery(transport, userId)` のような関数へ出して、偽の `Transport` で `get` に渡る文字列に `user_id=<Config.userId>` が入ることを見る（PC の試験と同じ階層）
+- 処置: fixed D29 仮 —— `LocationService.newOutageQuery()` を差し替えられない `private` にし、試験が差し替えるのは打つ口 `newOutageGet(): (String) -> Outcome` だけにした（`TestableLocationService` は打った問い合わせの文字列を覚える）。
+  `OutagePollerTest`「収集アプリが打つ問い合わせに設定の利用者が付く」が `Config.overrideForTest(userId = …)` で起動し、打たれた文字列が `?device_id=<空でない>` で始まり `&user_id=<設定の利用者>` で終わることを見る。
+  変異 `get(outageQueryString(id, Config.userId))` → `get("?device_id=" + id)`（R13 の前の形）→ この試験が FAILED（rc=1）。D29（仮）の担保の名前を言い直した
+
+## R18. 携帯は「途切れ」のチャネルだけを切られても「出せた」と返して覚えを進めるので、チャネルを戻した後も同じ途切れは鳴らない
+- 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/OutageNotifier.kt:27-42・:49-56（`canPost()` は権限とアプリ全体の `areNotificationsEnabled()` だけ）/ OutagePoller.kt:64-70
+- 根拠: 複製に探りの Robolectric 試験を足して実行した —— 権限を与え、`outage` のチャネルを `IMPORTANCE_NONE`（本人が設定でこのチャネルだけを切った状態）で作ってから `OutageNotifier.show(…, sound = true)` →
+  出力 `appEnabled=true channelImportance=0 showReturned=true posted=1`（rc=0）。アプリの `createNotificationChannel(…IMPORTANCE_DEFAULT)` は切られたチャネルを戻さない（show の後も importance 0）。
+  `show` が true を返すので `OutagePoller.kt:70` の `if (delivered) notice.save(decision.next)` が覚えを進める。Android は importance が NONE のチャネルの通知を出さない（Android の仕様。探りでは確かめていない —— Robolectric はチャネルによる抑止を真似せず `posted=1` を返した）ので、実機では何も出ていないのに覚えだけが進む。
+  本人がチャネルを戻した次の契機では、同じ途切れは「続く途切れ」として音なしで出る —— R12 で塞いだのと同じ「Q4 の 1 回の音が鳴らないまま使われる」が、権限ではなくチャネルの設定から起きる。
+  チャネルはアプリが既定で作るので、本人が「収集の途切れ」だけを切るのは通知の設定画面の 1 操作で起きる
+- kind: technical
+- 提案: `canPost()` で `manager.getNotificationChannel(CHANNEL)?.importance == IMPORTANCE_NONE` も「出せない」に数え（R12 と同じく覚えを進めない）、いまの探りと同じ形の試験で固定する。PC の `toast.rs` にも同じ型の確かめ（`ToastNotifier::Setting()`）が要るかを見る（PC 側は実行していない）
+- 処置: fixed 8.2 —— 携帯: `OutageNotifier.canPost()` が `outage` のチャネルの importance が `IMPORTANCE_NONE` なら「出せない」に数える（権限・アプリ全体の通知と並べた 1 式）。
+  `OutageNotifierTest`「途切れのチャネルだけが切られていたら出せなかった扱いで覚えを進めない」—— 権限を与え、チャネルを NONE で作って `OutagePoller.poll()` → 通知 0・覚えは空、チャネルを消した次の契機は音つき。
+  変異 `canPost` の最後を `return true` 相当（チャネルを見ない）→ この試験が FAILED（rc=1）。
+  PC: **直していない（parked。`.superpowers/sdd/st14-task-9/progress.md` の Ruling）**。`toast.rs` の `show` に `ToastNotifier::Setting()` が `Enabled` でなければ `Err` を足し、
+  `Notifications\Settings\<AUMID>` の `Enabled = 0` を登録簿に書く実行時テストを Windows 側の cargo で走らせた —— (1) 一度も出していない差出人は `Setting()` 自体が `Err` を返す（足した形のままだと初めての通知が出なくなる）、
+  (2) 一度出した後に `Enabled = 0` を書いても `Setting()` は `Enabled`（`NotificationSetting(0)`）のままで `Show` は `Ok`。通知基盤は登録簿を同期で読まず、「本人がこの差出人を切った」状態を試験から作れない。
+  試験で固定できない変更は入れない（変更は戻した。試験の差出人の登録簿の鍵も消した）。`cargo test --test runtime_windows outage` は戻した木で 1 passed

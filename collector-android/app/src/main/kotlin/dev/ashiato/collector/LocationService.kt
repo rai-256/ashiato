@@ -195,11 +195,18 @@ open class LocationService : Service() {
     /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
     protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
 
-    /** 途切れの問い合わせ（`GET /outages?device_id=&user_id=`）。**試験だけが差し替える**（ST14 / design D12）。 */
-    protected open fun newOutageQuery(): OutageQuery {
-        val transport = HttpTransport(Config.baseUrl, Config.apiToken, "/outages")
-        return OutageQuery { id -> transport.get(outageQueryString(id, Config.userId)) }
+    /**
+     * 途切れの問い合わせ（`GET /outages?device_id=&user_id=`。ST14 / design D12・D29（仮））。
+     * **差し替えない** —— 設定の利用者を付ける組み立てを試験が通るように、差し替えるのは [newOutageGet] だけ（review/code.md R17）。
+     */
+    private fun newOutageQuery(): OutageQuery {
+        val get = newOutageGet()
+        return OutageQuery { id -> get(outageQueryString(id, Config.userId)) }
     }
+
+    /** `GET /outages` に問い合わせの文字列を付けて打つ口。**試験だけが差し替える**。 */
+    protected open fun newOutageGet(): (String) -> Outcome =
+        HttpTransport(Config.baseUrl, Config.apiToken, "/outages")::get
 
     /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */
     protected open fun newOutageExecutor(): ExecutorService = Executors.newSingleThreadExecutor()
