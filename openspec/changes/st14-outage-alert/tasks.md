@@ -91,11 +91,11 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 `crates/server/src/coverage.rs` の `DEVICE_SUBJECT` / `USAGE_SUBJECT` / `PC_SOURCES` / `must_sources()` / 達成の数え。試験は `crates/server/src/coverage/tests/achievement_subject.rs`（新規）。design D17。
 
-- [ ] 4.1 アプリ利用を利用が主語へ移す。`must_sources()` の並び（位置・アプリ利用・写真・ウィンドウ・ブラウザ履歴）は変えない（主語と並びを別の定数にする）。
+- [x] 4.1 アプリ利用を利用が主語へ移す。`must_sources()` の並び（位置・アプリ利用・写真・ウィンドウ・ブラウザ履歴）は変えない（主語と並びを別の定数にする）。
   `PC_SOURCES` の分母を「停止と退役を除いた日のうち、生存信号が 1 件でも届いた日」にする。値は名指しで固定する。
   Scenario: `アプリ利用は取得できる状態の信号で数える` / `PC のソースは生存信号の届いた日だけを分母に数える` / `携帯のソースは生存信号が届かない日も分母に数える`。
   検証: `CT st14_ach_`
-- [ ] 4.2 正典に元からある `達成` の Scenario の試験を、主語の変更に合わせて直す（アプリ利用を端末が主語として固定していた試験があれば、`アプリ利用は取得できる状態の信号で数える` に合わせる。印は残す）。
+- [x] 4.2 正典に元からある `達成` の Scenario の試験を、主語の変更に合わせて直す（アプリ利用を端末が主語として固定していた試験があれば、`アプリ利用は取得できる状態の信号で数える` に合わせる。印は残す）。
   検証: `CT coverage::tests::`（`achievement.rs` / `retired.rs` / `states.rs` の `達成` の印を含む。`-- --list` で 1 本以上）、`web` の `AchievementPanel` の単体（`cd web && npx vitest run` rc=0）
 
 ## Task 5: 途切れの判定 —— 対象と端末のソース
