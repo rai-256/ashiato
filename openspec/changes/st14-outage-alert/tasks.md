@@ -63,16 +63,16 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 
 `crates/server/src/coverage.rs` の `facts()` / `active_days` / `DayFacts` / `decide()` / `DayCell`。試験は `crates/server/src/coverage/tests/nonobs.rs`（新規）。design D4 / D15。
 
-- [ ] 2.1 `NON_OBSERVATION_GRID`（`("c01-app-usage","gap")`・`("c02-window","clock-skew")`）を定数にし、`facts()` の記録の数えと `active_days` から除く。稼働記録の件数（`core.coverage`）は変えない。
+- [x] 2.1 `NON_OBSERVATION_GRID`（`("c01-app-usage","gap")`・`("c02-window","clock-skew")`）を定数にし、`facts()` の記録の数えと `active_days` から除く。稼働記録の件数（`core.coverage`）は変えない。
   Scenario: `時計の測定しか無い日は記録ありにならない` / `時計の測定しか無く生存信号も無い日は途絶になりうる` / `前景の記録がある日は時計の測定があっても記録あり` /
   `格子で数えない記録も読み出せる` / `格子で数えない記録も稼働記録の件数には入る` / `取りこぼしの期間を主張する 1 件だけでは記録ありにならない` / `時計の測定だけが届く期間も途絶になる`（MODIFIED「途絶」）。
   検証: `CT st14_grid_nonobs`
-- [ ] 2.2 取りこぼしの期間を `c01-app-usage`（とその鎖の名前）の `kind = 'gap'` の記録から `[begin, end)` で取り、`Asia/Tokyo` の日に配る（D15 の SQL）。`DayFacts.gaps` と `DayCell.gaps`（`{reason, begin, end}`）を足し、OpenAPI に出す。
+- [x] 2.2 取りこぼしの期間を `c01-app-usage`（とその鎖の名前）の `kind = 'gap'` の記録から `[begin, end)` で取り、`Asia/Tokyo` の日に配る（D15 の SQL）。`DayFacts.gaps` と `DayCell.gaps`（`{reason, begin, end}`）を足し、OpenAPI に出す。
   `decide()` の (5) の後に「重なる取りこぼしがあれば③」を足す（spec の評価の順 (1)〜(10)）。
   Scenario: `取りこぼしの期間の日は取得できる状態の信号があっても取れない状態になる` / `イベントの記録がある日は取りこぼしの期間が重なっても記録あり` /
   `取りこぼしの期間より停止が優先される` / `終わりの時刻ちょうどの日には重ならない` / `UTC の真夜中に終わる取りこぼしは日本時間のその日に重なる` / `稼働状況の応答の日が取りこぼしの期間と理由を持つ`。
   検証: `CT st14_grid_gap`、`tools/check-openapi.sh` rc=0
-- [ ] 2.3 正典に元からある `途絶` / `ソース × 日` の Scenario の試験が、評価の順を変えた後も緑のまま通る（印は `coverage/tests/{states,retired,drops,spans}.rs` などに散っている。spec-review R12）。
+- [x] 2.3 正典に元からある `途絶` / `ソース × 日` の Scenario の試験が、評価の順を変えた後も緑のまま通る（印は `coverage/tests/{states,retired,drops,spans}.rs` などに散っている。spec-review R12）。
   検証: `CT coverage::tests::`（`-- --list` で 1 本以上）、`CT st14_grid_`
 
 ## Task 3: 集計の開始日と格子の並び（サーバ）
