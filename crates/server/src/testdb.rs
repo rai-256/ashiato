@@ -12,9 +12,13 @@
 use sqlx::postgres::PgPoolOptions;
 
 /// worktree の名前から開発用 DB のポートを決める（`tools/ports.sh` と同じ規則。変えるなら両方を変える）。
-/// `-st<NN>` で終わる Story の worktree は 55500+NN、それ以外（main など）は 55432。
+/// `-st<NN>` で終わる Story の worktree は 55500+NN、`-verify` で終わる確認バッチの作業ツリーは 55499、
+/// それ以外（main など）は 55432。
 /// 並行して走る Story のテストが、別の Story の DB に繋がらないようにする（2026-09-30）。
 pub fn worktree_db_port(name: &str) -> u16 {
+    if name.ends_with("-verify") {
+        return 55499;
+    }
     name.rsplit_once("-st")
         .and_then(|(_, n)| n.parse::<u16>().ok())
         .map_or(55432, |n| 55500 + n)
@@ -428,4 +432,5 @@ fn each_story_worktree_has_its_own_db_port() {
     assert_eq!(worktree_db_port("ashiato2-up-st22"), 55522);
     assert_eq!(worktree_db_port("ashiato2-st06-t7"), 55432); // 名前の末尾が -st<NN> でないものは main と同じ
     assert_eq!(worktree_db_port("ashiato2-rt"), 55432);
+    assert_eq!(worktree_db_port("ashiato2-verify"), 55499); // 確認バッチの作業ツリーは main の DB と被らない
 }

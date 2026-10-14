@@ -17,6 +17,19 @@ out="dist/verify-$tag"
 mkdir -p "$out"
 note() { echo "  $*"; }
 
+# 確認バッチの作業ツリー（`<repo>-verify`。2026-10-14 から main の checkout と別）には `.env` が無い。
+# main の checkout の `.env` を写す —— 画面の合言葉と API の合言葉が、人間と端末が知っているもののまま。
+# DB の port は tools/ports.sh が作業ツリーごとに差し替える（.env の値はそのまま使える）。main にも無ければ作る
+if [ ! -f .env ]; then
+  main_root="$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
+  if [ "$main_root" != "$PWD" ] && [ -f "$main_root/.env" ]; then
+    (umask 077; cp "$main_root/.env" .env)
+    echo "== .env を main の checkout から写した"
+  else
+    ./tools/env-init.sh
+  fi
+fi
+
 echo "== サーバ（release）"
 cargo build -q --release -p ashiato-server --bin ashiato-server
 cp target/release/ashiato-server "$out/ashiato-server"
