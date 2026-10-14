@@ -43,10 +43,10 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 `migrations/YYYYMMDDHHMM_outage_alert.sql`（新規）と `.down.sql`、`crates/server/src/lib.rs` の `MIGRATIONS`、`crates/server/src/archive/worker.rs` の `ensure_myactivity_source`。
 試験は `crates/server/src/outage_registry_tests.rs`（新規）。design D2 / D7。
 
-- [ ] 1.1 前提を確かめる: `crates/server/src/coverage.rs` に `DEVICE_SUBJECT` があり、`core.source` に `outage_target` / `alert_after_days` / `started_on_from` の列がまだ無い。`core.archive_ledger` と `core.archive_ledger_source` がある（ST12 が main にある）。
+- [x] 1.1 前提を確かめる: `crates/server/src/coverage.rs` に `DEVICE_SUBJECT` があり、`core.source` に `outage_target` / `alert_after_days` / `started_on_from` の列がまだ無い。`core.archive_ledger` と `core.archive_ledger_source` がある（ST12 が main にある）。
   検証: `bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` rc=0
   ★ 2026-10-14 訂正: `outage_target` の否定を外した。受け入れ条件は変えない。理由: 着手前の確認（移行に outage_target が無い）なので、1.2 で移行を書いた後は必ず FAIL する（evidence.jsonl 1.1 の FAIL。head b2dfc1a1）。旧コマンドは bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && ! grep -rq "outage_target" migrations/ && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'。新しい入口の最初の語が repo の実行ファイルでないので plan_fix.py を通さず手で直した。承認: 2026-10-14 本人（deep-answers-3.txt の Q-T1「承認する」）。記録: plan-corrections.md
-- [ ] 1.2 移行を書く: 3 列（`outage_target boolean NOT NULL DEFAULT true` / `alert_after_days integer NULL CHECK (> 0)` / `started_on_from text NULL REFERENCES core.source` と自己参照を断る `CHECK`）、
+- [x] 1.2 移行を書く: 3 列（`outage_target boolean NOT NULL DEFAULT true` / `alert_after_days integer NULL CHECK (> 0)` / `started_on_from text NULL REFERENCES core.source` と自己参照を断る `CHECK`）、
   印（`c01-clock` / `c01-app-usage-rollup` / `s01-stay` / `s01-attribute` / `s01-feeling` / `s01-place` を `false`。無い名前は何もしない）、`c03-%` の `alert_after_days = 75`（`IS NULL` のときだけ）、
   集計の `started_on_from = 'c01-app-usage'` と `collection_started_on` の直し、台帳 `core.outage_ledger`（D7 の列・`CHECK`・一意索引 2 本・追記のみのトリガ）。`.down.sql` は台帳と 3 列を落とす。
   `ensure_myactivity_source` の `INSERT` に `alert_after_days = ARCHIVE_ALERT_AFTER_DAYS` を足す。
@@ -55,7 +55,7 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
   `実行時に足された製品のソースも 75 日で登録される`（取り込み器の `ensure_myactivity_source` を通して足した行を読む）。
   `ARCHIVE_ALERT_AFTER_DAYS == 75` と移行の 75 が一致することを試験で突き合わせる。
   検証: `CT st14_reg_`、`tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0
-- [ ] 1.3 新しく登録したソースの既定が「対象」であること（移行の後に `testdb::source` で足した行の `outage_target` が `true`）。
+- [x] 1.3 新しく登録したソースの既定が「対象」であること（移行の後に `testdb::source` で足した行の `outage_target` が `true`）。
   Scenario: `新しく登録したソースは判定の対象になる`（登録簿の側。判定の側は Task 5）。
   検証: `CT st14_reg_default`
 
