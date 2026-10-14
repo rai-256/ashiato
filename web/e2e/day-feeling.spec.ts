@@ -39,6 +39,7 @@ interface StayBucket {
   latest: { before: unknown; after: unknown };
 }
 interface FeelingsDay {
+  date: string;
   status: string;
   day: { latest: { before: unknown; after: unknown }; records: unknown[] };
   stays: StayBucket[];
@@ -178,9 +179,21 @@ test("滞在に書いた日は、その滞在の行に「気分 …」が 1 行�
   await expect(rows.first().getByTestId("stay-detail")).toBeVisible();
 });
 
+// Scenario: 気分を書いた滞在の行に気分が出る
+test("前の日（09-10）から続く滞在の行にも、その滞在に書いた気分が出る", async ({ page }) => {
+  // 偽データ: 09-10 19:00 〜 09-11 06:30 の滞在に +1（記録は滞在の始まりの日 09-10 に数える）
+  await open(page, "2026-09-11");
+  const first = page.getByTestId("row-stay").first();
+  await expect(first.getByTestId("row-feeling")).toHaveText("気分 +1 快");
+  // 頭はその日の分（09-11 の「日」0）だけで決める
+  await expect(head(page)).toContainText("気分 0 どちらでもない");
+});
+
 // Scenario: 滞在の行は後の気分を前より先に出す
 test("前（+2）と後（-1）がある滞在の行は「気分 -1 不快」", async ({ page }) => {
   await rewriteFeelings(page, (d) => {
+    // 1 日の画面はその日で終わる 30 日を読む。書き換えるのは 09-15 の分だけ
+    if (d.date !== "2026-09-15") return;
     const first = d.stays[0];
     if (first === undefined) throw new Error("09-15 に滞在の気分が無い（偽データの前提が崩れている）");
     first.latest = { before: feeling(2, "before", 0), after: feeling(-1, "after", 1) };

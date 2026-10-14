@@ -65,8 +65,15 @@ beforeEach(() => {
   vi.stubGlobal("fetch", (path: string) => {
     if (path.startsWith("/api/feelings")) {
       if (feelingsFail) return Promise.resolve({ ok: false, status: 500 } as Response);
-      const date = /from=(\d{4}-\d{2}-\d{2})/.exec(path)?.[1] ?? "";
-      return Promise.resolve(ok({ today: "2026-10-03", first_day: "2026-09-06", days: [feelingsDay(date, feelingsByDate[date] ?? {})] }));
+      // 本物と同じく from〜to の毎日を返す（1 日の画面はその日で終わる 30 日を読む）
+      const from = /from=(\d{4}-\d{2}-\d{2})/.exec(path)?.[1] ?? "";
+      const to = /to=(\d{4}-\d{2}-\d{2})/.exec(path)?.[1] ?? from;
+      const days: FeelingsDay[] = [];
+      for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
+        const date = new Date(t).toISOString().slice(0, 10);
+        days.push(feelingsDay(date, feelingsByDate[date] ?? {}));
+      }
+      return Promise.resolve(ok({ today: "2026-10-03", first_day: "2026-09-06", days }));
     }
     const date = /date=(\d{4}-\d{2}-\d{2})/.exec(path)?.[1] ?? "";
     return Promise.resolve(ok({ date, criteria: [{ criteria_id: 1, radius_m: 100, min_minutes: 10 }], entries: entriesByDate[date] ?? [] }));
@@ -207,6 +214,16 @@ describe("滞在の行", () => {
     await openDay("2026-10-02");
     await waitFor(() => expect(screen.getAllByTestId("row-stay")).toHaveLength(2));
     await waitFor(() => expect(within(screen.getAllByTestId("row-stay")[0]!).getByTestId("row-feeling").textContent).toBe("気分 -1 不快"));
+  });
+
+  // Scenario: 気分を書いた滞在の行に気分が出る
+  it("前の日から続く滞在の行にも、前の日に数えた記録の気分が添えてある（頭はその日の分だけで決める）", async () => {
+    // 記録は滞在の始まりの日（10-01）に数える。10-02 の並びには前の日から続く滞在として出る
+    entriesByDate["2026-10-02"] = [{ kind: "stay", start: at("2026-10-01", "19:00"), end: at("2026-10-02", "06:30"), id: "carry", criteria_id: 1 }];
+    feelingsByDate["2026-10-01"] = { stays: { carry: [feeling(1)] } };
+    await openDay("2026-10-02");
+    await headText("気分 未記入");
+    await waitFor(() => expect(within(screen.getByTestId("row-stay")).getByTestId("row-feeling").textContent).toBe("気分 +1 快"));
   });
 
   // Scenario: 滞在の行は後の気分を前より先に出す

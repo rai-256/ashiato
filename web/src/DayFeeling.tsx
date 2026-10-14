@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState } from "react";
-import { isFeelingsView, scaleValue, signed, valenceWord, type FeelingsDay, type Latest } from "./feelings";
+import { calendarDays, isFeelingsView, scaleValue, signed, valenceWord, type Feeling, type FeelingsDay, type Latest } from "./feelings";
 import { msg } from "./messages";
 import { FOCUS_ATTR } from "./scheme";
 import { linkStyle } from "./surface";
@@ -12,26 +12,31 @@ const m = msg("feel");
 const HEAD_PX = MIN_TARGET_PX;
 
 /**
- * 1 日の画面（S-2）が読む、その日の気分（`GET /feelings` の 1 日分。design D14 / D20）。
+ * 1 日の画面（S-2）が読む、その日の気分（`GET /feelings`。design D14 / D20）。
  * **並びの読み出しとは別に読む** —— 片方の失敗が他方を巻き込まない。`date` を持ち、日を移った直後に前の日のものを出さない。
+ *
+ * 頭の欄はその日の分（`day`）だけで決める。滞在の行は、主観入力の画面の `stayRows` と同じく
+ * **その日で終わる `CALENDAR_DAYS` 日（`days`）から滞在の識別子で集める** —— 記録は滞在の始まりの日に数えるので、
+ * 前の日から続く滞在の記録は前の日にある。
  */
-export type DayFeelingLoad = { at: "loading" } | { at: "ok"; date: string; day: FeelingsDay } | { at: "failed" };
+export type DayFeelingLoad = { at: "loading" } | { at: "ok"; date: string; day: FeelingsDay; days: FeelingsDay[] } | { at: "failed" };
 
 export function useDayFeelings(date: string): DayFeelingLoad {
   const [load, setLoad] = useState<DayFeelingLoad>({ at: "loading" });
   useEffect(() => {
     let live = true;
     setLoad({ at: "loading" });
-    fetch(`/api/feelings?from=${date}&to=${date}`)
+    const from = calendarDays(date)[0] ?? date;
+    fetch(`/api/feelings?from=${from}&to=${date}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`status_${res.status}`);
         const body: unknown = await res.json();
         if (!isFeelingsView(body)) throw new Error("unexpected_shape");
         const day = body.days.find((d) => d.date === date);
         if (day === undefined) throw new Error("unexpected_shape");
-        return day;
+        return { day, days: body.days };
       })
-      .then((day) => live && setLoad({ at: "ok", date, day }))
+      .then(({ day, days }) => live && setLoad({ at: "ok", date, day, days }))
       .catch(() => live && setLoad({ at: "failed" }));
     return () => {
       live = false;
@@ -47,11 +52,20 @@ function latestValence(latest: Latest): string | null {
   return v === null ? null : m.dayValue(signed(v), valenceWord(v));
 }
 
-/** 滞在の行に添える「気分 -1 不快」。記録の無い滞在には `null`（「未記入」とは出さない）。 */
+/**
+ * 滞在の行に添える「気分 -1 不快」。記録の無い滞在には `null`（「未記入」とは出さない）。
+ * 記録は読んだ全部の日の滞在の分から識別子で集める（前の日から続く滞在の記録は前の日にある。`stayRows` と同じ）。
+ */
 export function stayFeelingText(load: DayFeelingLoad, stayId: string): string | null {
   if (load.at !== "ok") return null;
-  const bucket = load.day.stays.find((s) => s.stay === stayId);
-  const value = bucket === undefined ? null : latestValence(bucket.latest);
+  const buckets = load.days.flatMap((d) => d.stays.filter((s) => s.stay === stayId));
+  if (buckets.length === 0) return null;
+  const newest = (p: "before" | "after"): Feeling | null =>
+    buckets
+      .map((b) => b.latest[p])
+      .filter((f): f is Feeling => f !== null)
+      .sort((a, b) => Date.parse(b.written_at) - Date.parse(a.written_at))[0] ?? null;
+  const value = latestValence({ before: newest("before"), after: newest("after") });
   return value === null ? null : m.dayLabel(value);
 }
 
