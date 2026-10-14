@@ -18,6 +18,10 @@ pub struct LedgerVisit {
     /// 「消えた」にしないための照合に使う（deep.md 第 4 回 Q8）。前の版の帳面には無い
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<String>,
+    /// この訪問について前に送った版（`source_updated_at`。マイクロ秒）。次に送る版はこれより前にしない
+    /// （deep.md 第 6 回 Q11 / design D15）。前の版の帳面には無い
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_version: Option<DateTime<Utc>>,
 }
 
 /// プロファイル単位で永続化する比較状態。
@@ -49,6 +53,7 @@ impl Ledger {
                 foreign,
                 excluded,
                 slot: None,
+                sent_version: None,
             },
         );
     }
@@ -151,6 +156,27 @@ mod tests {
             std::fs::read(path.with_extension("broken.ledger")).unwrap(),
             b"{broken"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 前に送った版の欄を持たない前の形式の帳面も読め、壊れたとして退避しない（Q11 で欄を足した後方互換）。
+    #[test]
+    fn history_ledger_reads_format_without_sent_version() {
+        let dir = temp_dir();
+        let path = dir.join("chrome/Default.ledger");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            br#"{"visits":{"v1:visit:a":{"content_hash":"h","at":"2026-09-13T00:00:00Z","foreign":false,"excluded":false,"slot":"s"}},"max_visit_id":3,"visit_sequence":3,"profile_names":{"Default":null}}"#,
+        )
+        .unwrap();
+        let store = LedgerStore::open(path.clone()).unwrap();
+        assert!(!store.quarantined(), "前の形式の帳面を壊れたとして退避した");
+        assert!(path.exists());
+        let visit = &store.ledger().visits["v1:visit:a"];
+        assert_eq!(visit.content_hash, "h");
+        assert_eq!(visit.sent_version, None);
+        assert_eq!(store.ledger().max_visit_id, Some(3));
         std::fs::remove_dir_all(dir).ok();
     }
 

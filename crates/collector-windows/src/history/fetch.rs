@@ -140,8 +140,13 @@ pub fn still_present(ledger: &Ledger, visits: &[Visit]) -> Vec<String> {
         .collect()
 }
 
-/// 帳面に 1 件書く。訪問時刻と組のハッシュは `Visit` から取る。
+/// 帳面に 1 件書く。訪問時刻と組のハッシュは `Visit` から取る。前に送った版は引き継ぐ
+/// （除外を挟んでも、次に送る版を前に送った版より前にしない。deep.md 第 6 回 Q11）。
 fn record(ledger: &mut Ledger, visit: &Visit, excluded: bool) {
+    let sent_version = ledger
+        .visits
+        .get(&visit.external_id)
+        .and_then(|saved| saved.sent_version);
     ledger.record_visit(
         &visit.external_id,
         &content_hash(visit),
@@ -151,6 +156,7 @@ fn record(ledger: &mut Ledger, visit: &Visit, excluded: bool) {
     );
     if let Some(saved) = ledger.visits.get_mut(&visit.external_id) {
         saved.slot = Some(slot(visit));
+        saved.sent_version = sent_version;
     }
 }
 
@@ -280,6 +286,34 @@ pub fn select_new_or_changed(ledger: &Ledger, visits: &[Visit]) -> Vec<Visit> {
 pub fn mark_queued(ledger: &mut Ledger, visits: &[Visit]) {
     for visit in visits {
         record(ledger, visit, false);
+    }
+}
+
+/// 今回の取得で載せる版（`source_updated_at`）。読んだ時刻をマイクロ秒に丸め、`sent`（前に送った版）の
+/// どれよりも 1 マイクロ秒以上後にする（deep.md 第 6 回 Q11 / design D15・D16（仮））。
+///
+/// 時計が戻らない限り読んだ時刻のまま。戻ったときは前に送った版 + 1 マイクロ秒になり、取り込み口は
+/// 前の到着より新しい版として当てる（同じ時刻は当てる側。`incoming < known` だけを捨てる）。
+pub fn next_version(
+    read_at: chrono::DateTime<chrono::Utc>,
+    sent: impl IntoIterator<Item = chrono::DateTime<chrono::Utc>>,
+) -> chrono::DateTime<chrono::Utc> {
+    use chrono::SubsecRound as _;
+    sent.into_iter()
+        .map(|v| v.trunc_subsecs(6) + chrono::Duration::microseconds(1))
+        .fold(read_at.trunc_subsecs(6), std::cmp::max)
+}
+
+/// 積んだ訪問に、載せた版を前に送った版として記録する（[`mark_queued`] の後に呼ぶ）。
+pub fn mark_sent_version(
+    ledger: &mut Ledger,
+    external_ids: &[String],
+    version: chrono::DateTime<chrono::Utc>,
+) {
+    for id in external_ids {
+        if let Some(saved) = ledger.visits.get_mut(id) {
+            saved.sent_version = Some(version);
+        }
     }
 }
 
@@ -595,5 +629,50 @@ mod tests {
             select_new_or_changed(&ledger, &[changed.clone()]),
             vec![changed]
         );
+    }
+
+    fn utc(at: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(at)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    // 印は Runtime を通す `runtime::tests::history_runtime_clock_back_update_has_newer_version` が持つ。
+    /// 版は読んだ時刻（マイクロ秒に丸める）。前に送った版があれば、それより 1 マイクロ秒以上後（Q11）。
+    #[test]
+    fn history_version_is_read_time_but_not_before_sent() {
+        let read = utc("2026-09-13T00:00:00.123456789Z");
+        assert_eq!(next_version(read, None), utc("2026-09-13T00:00:00.123456Z"));
+        assert_eq!(
+            next_version(read, [utc("2026-09-12T00:00:00Z")]),
+            utc("2026-09-13T00:00:00.123456Z"),
+            "時計が戻っていないのに読んだ時刻から動かした"
+        );
+        assert_eq!(
+            next_version(
+                read,
+                [utc("2027-01-01T00:00:00Z"), utc("2026-01-01T00:00:00Z")]
+            ),
+            utc("2027-01-01T00:00:00.000001Z")
+        );
+    }
+
+    /// 除外を挟んで帳面を書き直しても、前に送った版は消えない。
+    #[test]
+    fn history_sent_version_survives_exclusion_rewrite() {
+        let v = visit(1, "2026-09-01T00:00:00Z", "private");
+        let mut ledger = Ledger::default();
+        mark_queued(&mut ledger, std::slice::from_ref(&v));
+        let sent = utc("2027-01-01T00:00:00Z");
+        mark_sent_version(&mut ledger, std::slice::from_ref(&v.external_id), sent);
+        let rules = crate::exclusion::Exclusions {
+            rules: vec![crate::exclusion::Rule::TitleContains {
+                value: "private".into(),
+            }],
+        };
+        apply_history_exclusions(&mut ledger, &rules, std::slice::from_ref(&v));
+        assert_eq!(ledger.visits[&v.external_id].sent_version, Some(sent));
+        mark_queued(&mut ledger, std::slice::from_ref(&v));
+        assert_eq!(ledger.visits[&v.external_id].sent_version, Some(sent));
     }
 }

@@ -312,7 +312,8 @@ pub struct IngestRequest {
     pub tz_offset_min: i32,
     pub tz_id: String,
     pub schema_version: i32,
-    /// 取得元の内容を読んだ時刻。履歴の再送で新しい版を書き戻さないために使う。
+    /// 取得元の内容の版。履歴は読んだ時刻で、ただしその訪問について前に送った版より前にしない（ST08 design D15 / Q11）。
+    /// 履歴の再送で新しい版を書き戻さず、時計が戻った後の更新も古い到着にしないために使う。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_updated_at: Option<String>,
     /// 原文。**収集側が組んだ JSON を文字列のまま**送る（design D1）

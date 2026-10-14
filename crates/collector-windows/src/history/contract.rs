@@ -307,13 +307,14 @@ pub(crate) fn sample_visit(id: i64, at: DateTime<Utc>, url: &str, title: &str) -
 impl IngestRequest {
     /// 履歴 1 件を契約の形にする（design D13。ウィンドウの `of` とは別の組み立て）。
     ///
-    /// `source_updated_at` には**その内容を読んだ時刻**を載せる（design D15）。履歴 DB は更新時刻を持たないが、
-    /// 読んだ時刻は同じ訪問について単調に進む版として働き、未送信の再送が新しい題名を書き戻すのを防ぐ。
+    /// `source_updated_at` には `version` を載せる —— **その内容を読んだ時刻。ただし、その訪問について前に送った版より
+    /// 前にしない**（design D15 / deep.md 第 6 回 Q11。決めるのは `fetch::next_version`）。履歴 DB は更新時刻を持たないので、
+    /// この版が未送信の再送で古い題名が新しい題名を書き戻すのを防ぎ、時計が戻った後の更新も古い到着にしない。
     pub fn of_visit(
         visit: &Visit,
         user_id: uuid::Uuid,
         device_id: &str,
-        collected_at: DateTime<Utc>,
+        version: DateTime<Utc>,
         zone: &crate::config::Zone,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -327,7 +328,7 @@ impl IngestRequest {
             tz_offset_min: zone.offset_min,
             tz_id: zone.id.clone(),
             schema_version: crate::contract::SCHEMA_VERSION,
-            source_updated_at: Some(micros(collected_at)),
+            source_updated_at: Some(micros(version)),
             raw: visit.raw.clone(),
             payload: serde_json::to_value(&visit.payload)?,
         })

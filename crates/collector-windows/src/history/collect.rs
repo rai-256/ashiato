@@ -16,8 +16,8 @@ use crate::exclusion::Exclusions;
 use crate::history::contract::Visit;
 use crate::history::fetch::{
     apply_history_exclusions, apply_vanished, detect_vanished_if_readable, mark_queued,
-    select_new_or_changed, still_present, vanished_chunks, HistorySchedule, HistoryWorker,
-    VanishedVisit,
+    mark_sent_version, next_version, select_new_or_changed, still_present, vanished_chunks,
+    HistorySchedule, HistoryWorker, VanishedVisit,
 };
 use crate::history::ledger::LedgerStore;
 use crate::history::locate::{self, Browser};
@@ -181,7 +181,7 @@ impl std::fmt::Display for UnreadableProfiles {
 
 impl std::error::Error for UnreadableProfiles {}
 
-/// 訪問をまとめて未送信へ積む口（2 つめの引数は読んだ時刻。design D15）。
+/// 訪問をまとめて未送信へ積む口（2 つめの引数は載せる版 = `source_updated_at`。design D15 / D16（仮））。
 pub type QueueVisits<'q> = dyn FnMut(&[Visit], DateTime<Utc>) -> anyhow::Result<()> + 'q;
 
 /// 取得 1 回の、生存信号の数えへ渡す結果（design D12）。
@@ -198,8 +198,10 @@ struct Plan {
     /// 積み終える前に書くと、落ちたときに積んでいない訪問を「送った」と読む
     stores: Vec<LedgerStore>,
     unreadable: usize,
-    /// 読んだ時刻（`source_updated_at` と前回の成功。design D15）
+    /// 読んだ時刻（前回の成功）
     read_at: DateTime<Utc>,
+    /// 載せる版（`source_updated_at`）。読んだ時刻。ただし前に送った版より前にしない（deep.md 第 6 回 Q11 / D15・D16（仮））
+    version: DateTime<Utc>,
     queued: usize,
 }
 
@@ -252,6 +254,22 @@ impl std::fmt::Debug for HistoryCollector {
 
 /// 直近の取得が送る準備を終えられなかった印。在れば「取得できない」（中身は持たない）。
 const NOT_QUEUED_MARK: &str = "last_not_queued";
+
+/// 送った版の最大値の置き場（design D16（仮））。**帳面とは別のファイル** —— 帳面を退避しても消えない。
+const SENT_VERSION: &str = "sent_version.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SentVersion {
+    sent_version: DateTime<Utc>,
+}
+
+/// 送った版の最大値を読む。無い・読めないなら `None`（帳面の各訪問の前の版と読んだ時刻で決める）。
+fn read_sent_version(dir: &Path) -> Option<DateTime<Utc>> {
+    let bytes = std::fs::read(dir.join(SENT_VERSION)).ok()?;
+    serde_json::from_slice::<SentVersion>(&bytes)
+        .ok()
+        .map(|s| s.sent_version)
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct LastSuccess {
@@ -381,7 +399,7 @@ impl HistoryCollector {
             let queued = if chunk.is_empty() {
                 Ok(())
             } else {
-                queue(&chunk, plan.read_at)
+                queue(&chunk, plan.version)
             };
             let more = !plan.items.is_empty();
             let Stage::Queueing(plan, health) = std::mem::replace(&mut self.stage, Stage::Idle)
@@ -527,6 +545,8 @@ impl Planner {
         let mut items = Vec::new();
         let mut stores = BTreeMap::new();
         let mut unreadable = 0;
+        // 積む訪問の識別子（帳面ごと）。版が決まってから前に送った版として記録する
+        let mut sent: Vec<(Browser, String, Vec<String>)> = Vec::new();
         for profile in &outcome.profiles {
             let Ok(read) = &profile.visits else {
                 unreadable += 1;
@@ -576,19 +596,62 @@ impl Planner {
             ledger.max_visit_id = max_visit_id.or(ledger.max_visit_id);
             ledger.visit_sequence = read.sequence.or(ledger.visit_sequence);
             mark_queued(ledger, &fresh);
+            sent.push((
+                profile.browser,
+                profile.directory.clone(),
+                fresh.iter().map(|v| v.external_id.clone()).collect(),
+            ));
             items.extend(fresh);
         }
         self.queue_gone_profiles(&mut stores, &outcome.profiles, wall, &mut items)?;
         for (browser, current) in &outcome.names {
             self.queue_profiles(&mut stores, *browser, current, wall, &mut items)?;
         }
+        let version = self.version(&mut stores, &sent, wall, !items.is_empty())?;
         Ok(Plan {
             queued: items.len(),
             items: items.into(),
             stores: stores.into_values().collect(),
             unreadable,
             read_at: wall,
+            version,
         })
+    }
+
+    /// 今回載せる版を決め、積む訪問の帳面に前に送った版として記録する（deep.md 第 6 回 Q11 / D15）。
+    ///
+    /// 版は読んだ時刻。ただし、送った版の最大値（[`SENT_VERSION`]。D16（仮））と、開いた帳面にある前に送った版の
+    /// どれよりも前にしない。最大値は**積む前に**書く —— 積んだ後・帳面を書く前に落ちても、次の取得の版は
+    /// 落ちる前に積んだ版より前にならない（大きすぎる版は失うものが無く、小さすぎる版は取り込み口で捨てられる）。
+    fn version(
+        &self,
+        stores: &mut BTreeMap<PathBuf, LedgerStore>,
+        sent: &[(Browser, String, Vec<String>)],
+        wall: DateTime<Utc>,
+        any: bool,
+    ) -> anyhow::Result<DateTime<Utc>> {
+        let floor = read_sent_version(&self.dir);
+        let previous = stores
+            .values()
+            .flat_map(|s| s.ledger().visits.values().filter_map(|v| v.sent_version));
+        let version = next_version(wall, floor.into_iter().chain(previous));
+        for (browser, directory, ids) in sent {
+            mark_sent_version(
+                self.ledger(stores, *browser, directory)?.ledger_mut(),
+                ids,
+                version,
+            );
+        }
+        if any && floor.is_none_or(|f| f < version) {
+            crate::fsutil::atomic_write(
+                &self.dir.join(SENT_VERSION),
+                &serde_json::to_vec(&SentVersion {
+                    sent_version: version,
+                })?,
+            )
+            .context("送った版の最大値を書けない")?;
+        }
+        Ok(version)
     }
 
     /// 帳面があるのに今回見つからず、ディレクトリそのものが無いと確かめられたものを消えたとする。

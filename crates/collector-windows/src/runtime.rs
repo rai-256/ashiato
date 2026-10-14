@@ -624,11 +624,12 @@ impl<'a> Runtime<'a> {
         };
         let (user_id, device_id, zone, events) =
             (self.user_id, &self.device_id, &self.zone, &mut self.events);
-        // まとめて積み、同期は 1 回（見回りを止めない。deep.md 第 5 回 Q9）。`source_updated_at` は読んだ時刻（D15）
-        let mut queue = |visits: &[Visit], read_at: DateTime<Utc>| {
+        // まとめて積み、同期は 1 回（見回りを止めない。deep.md 第 5 回 Q9）。`source_updated_at` は読んだ時刻。
+        // ただし前に送った版より前にしない（D15 / 第 6 回 Q11。決めるのは取得の側）
+        let mut queue = |visits: &[Visit], version: DateTime<Utc>| {
             let reqs = visits
                 .iter()
-                .map(|v| IngestRequest::of_visit(v, user_id, device_id, read_at, zone))
+                .map(|v| IngestRequest::of_visit(v, user_id, device_id, version, zone))
                 .collect::<anyhow::Result<Vec<_>>>()?;
             events.add_many(reqs)
         };
@@ -2374,6 +2375,71 @@ mod tests {
         rt.send();
         assert_eq!(history_records(&transport).len(), 3);
         std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 題名 `title` の訪問の記録が載せた版（`source_updated_at`）。
+    fn history_version_of(t: &AcceptAll, title: &str) -> DateTime<Utc> {
+        let record = history_records(t)
+            .into_iter()
+            .find(|r| r["payload"]["title"] == title)
+            .unwrap_or_else(|| panic!("題名 {title} の訪問が届いていない"));
+        DateTime::parse_from_rfc3339(record["source_updated_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    /// 時計が先に進んだ時刻で 1 回送り、時計を戻して題名を変えた訪問を取得する（`break_ledger` なら間に帳面を壊す）。
+    /// 返すのは（前に送った版, 戻った後に送った版）。
+    fn history_versions_across_clock_back(break_ledger: bool) -> (DateTime<Utc>, DateTime<Utc>) {
+        let cfg = cfg();
+        let ahead = Duration::days(400).num_seconds();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(ahead)));
+        let reader = FakeReader::new(vec![read_visit(1, "前")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(ahead), t(ahead));
+        tick_until_read(&mut rt, &mut src, &reader, ahead);
+        rt.send();
+        let before = history_version_of(&transport, "前");
+        if break_ledger {
+            std::fs::write(
+                cfg.state_dir.join("browser-history/chrome/Default.ledger"),
+                b"{broken",
+            )
+            .unwrap();
+        }
+        *reader.visits.lock().unwrap() = vec![read_visit(1, "後")];
+        // 前回の成功が今より先なので、24 時間を待たずに取得する（Q7）
+        tick_until_read_again(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let after = history_version_of(&transport, "後");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+        (before, after)
+    }
+
+    /// 時計が戻った後に書き換わった題名も、前に送った版より新しい版で届く（取り込み口で古い到着として捨てられない）。
+    /// deep.md 第 6 回 Q11 / design D15。
+    ///
+    /// Scenario: 時計が戻った後に書き換わった題名も、前に送った版より新しい版で届く
+    #[test]
+    fn history_runtime_clock_back_update_has_newer_version() {
+        let (before, after) = history_versions_across_clock_back(false);
+        assert!(
+            after > before,
+            "戻った後の版 {after} が前に送った版 {before} より新しくない"
+        );
+    }
+
+    /// 帳面を壊して退避した後でも、前に送った版の最大値（退避で消えない）より前にしない（design D16（仮）。C4）。
+    ///
+    /// Scenario: 帳面を作り直した後も、時計が戻った後の更新は前に送った版より新しい版で届く
+    #[test]
+    fn history_runtime_clock_back_update_after_quarantine_has_newer_version() {
+        let (before, after) = history_versions_across_clock_back(true);
+        assert!(
+            after > before,
+            "帳面の退避の後、戻った後の版 {after} が前に送った版 {before} より新しくない"
+        );
     }
 
     fn history_urls(t: &AcceptAll) -> Vec<String> {
