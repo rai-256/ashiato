@@ -398,7 +398,14 @@ async fn st14_grid_gap_unreadable_begin_is_skipped() {
     )
     .await;
     // `infinity` は読めるが有限でない（sqlx が chrono へ読めず 500 になる）
-    put_gap(&pool, u, "infinity", "2026-06-10T09:00:00+09:00", "retention").await;
+    put_gap(
+        &pool,
+        u,
+        "infinity",
+        "2026-06-10T09:00:00+09:00",
+        "retention",
+    )
+    .await;
     testdb::put_heartbeat(&pool, u, USAGE, "2026-06-10T03:00:00Z", true).await;
     let c = cell(&pool, u, &s, "2026-06-10").await;
     assert!(c.gaps.is_empty());
