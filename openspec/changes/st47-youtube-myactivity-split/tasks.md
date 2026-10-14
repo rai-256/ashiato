@@ -28,7 +28,7 @@
 
 ## Task 1: その他のソースを登録する移行（design D8）
 
-- [ ] 1.1 移行 1 本で `core.source` に `('c03-myactivity-youtube', 'マイアクティビティ: YouTube', 5184000, 'none')` を `ON CONFLICT (logical_source) DO NOTHING` で足し、`MIGRATIONS` の末尾に載せる。
+- [x] 1.1 移行 1 本で `core.source` に `('c03-myactivity-youtube', 'マイアクティビティ: YouTube', 5184000, 'none')` を `ON CONFLICT (logical_source) DO NOTHING` で足し、`MIGRATIONS` の末尾に載せる。
   down は `c03-myactivity-youtube` の記録が 1 件も無いときだけ登録を消す。見出しの文字列は `worker::ensure_myactivity_source` が作るものと同じにする。
   Scenario: `その他のソースは 60 日で登録されている`。
   検証: `tools/check-migrations.sh` rc=0、`CT archive_youtube_other_source_registered (≥1)`（移行を当てた DB で書庫を置かずに登録簿を読み、見出し・`expected_gap_sec = 5184000`・`external_id_kind = 'none'` を見る。
