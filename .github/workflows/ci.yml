@@ -133,7 +133,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $out = Get-Content runtime.log -Raw
           if ($out -notmatch 'test result: ok\. (\d+) passed') { Write-Error "結果の行が無い"; exit 1 }
-          if ([int]$Matches[1] -lt 10) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（10 本のはず）"; exit 1 }
+          if ([int]$Matches[1] -lt 13) { Write-Error "実行時テストが $($Matches[1]) 本しか走っていない（13 本のはず）"; exit 1 }
 
   web:
     needs: changes
