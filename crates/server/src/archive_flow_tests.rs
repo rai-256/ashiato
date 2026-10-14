@@ -4971,6 +4971,11 @@ async fn archive_youtube_reparse_old_mark_does_not_read_a_pending_file() {
         .await
         .unwrap();
     assert_eq!(early, 0);
+    // その呼び出しが書く pending_shape の行も、元の読みの名前と置き場を失わない。
+    let rows = inbox.ledger_at_current(&sha, "pending_shape").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0.as_deref(), Some("takeout-old.zip"));
+    assert_eq!(rows[0].2, "downloads");
     crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
         .await
         .unwrap();

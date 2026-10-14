@@ -1744,14 +1744,8 @@ pub async fn ingest_confirmed_pending(
             if reread_throttled(pool, user_id, &archive_sha256).await? {
                 return anyhow::Ok(Vec::new());
             }
-            let meta = ledger_meta(
-                pool,
-                user_id,
-                &archive_sha256,
-                Some(super::PARSER_VERSION),
-                "pending_shape",
-            )
-            .await?;
+            // 版は問わない: 取り直しが済む前は v2 の行が無く、既定値で `read` を固定してしまう。
+            let meta = ledger_meta(pool, user_id, &archive_sha256, None, "pending_shape").await?;
             let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, true).await?;
             for inner_path in &done {
                 remove_pending_shape(pool, user_id, &archive_sha256, inner_path).await?;
