@@ -2656,6 +2656,8 @@ pub async fn coverage_get(
         .into_iter()
         .map(|(n, _)| n)
         .collect();
+    // 集計は Must の 5 本の直後・書庫の前（D10（仮））。達成（`must_sources()`）には入れない
+    names.push(coverage::ROLLUP_SOURCE.to_string());
     let archive_names: Vec<String> = sqlx::query_scalar(
         "SELECT logical_source FROM core.source
           WHERE logical_source LIKE 'c03-%' ORDER BY display_name, logical_source",
