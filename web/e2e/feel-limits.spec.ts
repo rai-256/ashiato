@@ -162,7 +162,7 @@ test("明と暗のそれぞれで、押された快–不快のボタンの縁�
     await page.emulateMedia({ colorScheme: scheme });
 
     await open(page, STAYS_DAY);
-    const pressed = page.locator('[data-testid^="valence-"][aria-pressed="true"]').first();
+    const pressed = page.locator('[data-testid="feel-stay-row"] [data-testid^="stay-"][aria-pressed="true"]').first();
     await expect(pressed).toBeVisible();
     // 押された状態の目印は 2 px のアクセントの縁（面の塗りは文字の 4.5:1 を優先した暗い紫で、暗では隣の面と 3:1 にならない）
     const [edge, beside] = await pressed.evaluate((el, chain) => {
