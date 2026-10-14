@@ -2388,9 +2388,11 @@ mod tests {
             .with_timezone(&Utc)
     }
 
-    /// 時計が先に進んだ時刻で 1 回送り、時計を戻して題名を変えた訪問を取得する（`break_ledger` なら間に帳面を壊す）。
-    /// 返すのは（前に送った版, 戻った後に送った版）。
-    fn history_versions_across_clock_back(break_ledger: bool) -> (DateTime<Utc>, DateTime<Utc>) {
+    /// 時計が先に進んだ時刻で 1 回送り、時計を戻して題名を変えた訪問を取得する（間に `damage` が
+    /// `state_dir/browser-history/` を傷める）。返すのは（前に送った版, 戻った後に送った版）。
+    fn history_versions_across_clock_back(
+        damage: impl FnOnce(&std::path::Path),
+    ) -> (DateTime<Utc>, DateTime<Utc>) {
         let cfg = cfg();
         let ahead = Duration::days(400).num_seconds();
         let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(ahead)));
@@ -2401,13 +2403,7 @@ mod tests {
         tick_until_read(&mut rt, &mut src, &reader, ahead);
         rt.send();
         let before = history_version_of(&transport, "前");
-        if break_ledger {
-            std::fs::write(
-                cfg.state_dir.join("browser-history/chrome/Default.ledger"),
-                b"{broken",
-            )
-            .unwrap();
-        }
+        damage(&cfg.state_dir.join("browser-history"));
         *reader.visits.lock().unwrap() = vec![read_visit(1, "後")];
         // 前回の成功が今より先なので、24 時間を待たずに取得する（Q7）
         tick_until_read_again(&mut rt, &mut src, &reader, 0);
@@ -2423,7 +2419,7 @@ mod tests {
     /// Scenario: 時計が戻った後に書き換わった題名も、前に送った版より新しい版で届く
     #[test]
     fn history_runtime_clock_back_update_has_newer_version() {
-        let (before, after) = history_versions_across_clock_back(false);
+        let (before, after) = history_versions_across_clock_back(|_| {});
         assert!(
             after > before,
             "戻った後の版 {after} が前に送った版 {before} より新しくない"
@@ -2435,10 +2431,27 @@ mod tests {
     /// Scenario: 帳面を作り直した後も、時計が戻った後の更新は前に送った版より新しい版で届く
     #[test]
     fn history_runtime_clock_back_update_after_quarantine_has_newer_version() {
-        let (before, after) = history_versions_across_clock_back(true);
+        let (before, after) = history_versions_across_clock_back(|dir| {
+            std::fs::write(dir.join("chrome/Default.ledger"), b"{broken").unwrap();
+        });
         assert!(
             after > before,
             "帳面の退避の後、戻った後の版 {after} が前に送った版 {before} より新しくない"
+        );
+    }
+
+    /// 送った版の最大値が失われても、帳面の各訪問にある前に送った版より前にしない（deep.md 第 6 回 Q11 の
+    /// 「帳面の各訪問に前に送った版を持つ」。review/code.md R91）。
+    ///
+    /// Scenario: 時計が戻った後に書き換わった題名も、前に送った版より新しい版で届く
+    #[test]
+    fn history_runtime_clock_back_update_without_sent_version_has_newer_version() {
+        let (before, after) = history_versions_across_clock_back(|dir| {
+            std::fs::remove_file(dir.join("sent_version.json")).unwrap();
+        });
+        assert!(
+            after > before,
+            "送った版の最大値を失った後、戻った後の版 {after} が前に送った版 {before} より新しくない"
         );
     }
 
@@ -3080,6 +3093,42 @@ mod tests {
             serde_json::json!(["history-not-queued"])
         );
         release.send(()).ok();
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 送った版の最大値を書けない取得は積まず、「取得できない」に数える（design D16（仮）の「書けなければ
+    /// 送る準備の失敗にする」。review/code.md R91）。
+    ///
+    /// Scenario: 送る準備を終えられない取得は取得できないとして報告される
+    #[test]
+    fn history_heartbeat_counts_unwritable_sent_version_as_not_queued() {
+        let cfg = cfg();
+        // 同名のディレクトリがあると、送った版の最大値のファイルを書けない
+        std::fs::create_dir_all(cfg.state_dir.join("browser-history/sent_version.json")).unwrap();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let reader = FakeReader::new(vec![read_visit(1, "a")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        tick_until_history_beats(&mut rt, &mut src, &transport, 0, 1);
+        let day = 86_400;
+        for sec in (60..day).step_by(600) {
+            rt.tick_at(&mut src, t(sec), t(sec));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        tick_until_history_beats(&mut rt, &mut src, &transport, day, 2);
+        rt.send();
+        assert!(reader.reads() >= 1, "読みが走っていない");
+        assert!(
+            history_records(&transport).is_empty(),
+            "送った版の最大値を書けないのに送った"
+        );
+        let beat = &history_beats(&transport)[1];
+        assert_eq!(
+            beat["capturable"], false,
+            "書けないのに取得できるとした: {beat}"
+        );
+        assert_eq!(beat["blockers"], serde_json::json!(["history-not-queued"]));
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 

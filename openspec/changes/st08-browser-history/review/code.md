@@ -1396,3 +1396,136 @@ R77・R78・R81・R82 は ADDRESSED。新しい Minor 2 件（R87）と、範囲
 - kind: irreversible
 - loss: uncaptured
 - 提案: 要件に例外を書く（推奨）か、取り込み口から訪問ごとの版を引く
+
+## code-verify（4 回目。HEAD `e1ea86b2`）
+
+対象: worktree `/home/yosis/dev/ashiato2-st08`（`feat/st08-browser-history` / HEAD `e1ea86b2`。`origin` より 14 commit 先）。作業ツリーは検証の前後とも clean。
+前回（3 回目・`291b271`）の後に入った Q9・Q10（第 5 回）・Q11（第 6 回。D15 / D16（仮））・Q12（第 7 回。要件の例外）を重点に見た。
+DB はこの worktree の `ashiato2-st08-db-1`（55508）。ガードの変異・一時テストは **HEAD を `git archive HEAD` で書き出した複製**（`/home/yosis/dev/.st08-verify4`）で走らせ、1 件ごとに原状へ戻した（複製は検証の後に消した）。
+Windows の実測は tasks 10.1 / 10.2 の検証コマンドをそのまま（rsync → `C:\dev\ashiato2-rt-st08` → Windows 側の cargo）走らせた。
+
+### 申告と実測
+
+申告: tasks.md は `- [x]` 38 件 / `- [ ]` 0 件。`review_triage.py` は指摘 118 件すべてに処置あり。
+
+| 走らせたもの | 実測 | 申告との一致 |
+|---|---|---|
+| `cargo test --workspace`（.env ＋ `tools/ports.sh` の DB） | rc=0（collector lib 261 本 / server 801 本 + 7 本。`runtime_windows` は Linux では 0 本） | 一致 |
+| `cargo clippy --workspace --all-targets -- -D warnings` / `cargo fmt --all --check`（11.6） | rc=0 / rc=0 | 一致 |
+| `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings`（1.2） | rc=0 | 一致 |
+| `openspec validate st08-browser-history --strict`（11.1） | rc=0 | 一致 |
+| `python3 scripts/check_scenarios.py .` / `… . st08-browser-history`（11.2） | rc=0 / rc=0（全体 1067/1067。ST08 の delta は `#### Scenario:` **83 本**。tasks 11.2・:20・:212 の「75 本」は凍結時の数） | 一致（本数の字面だけ古い。中身は手 3） |
+| `python3 scripts/check_chain.py .`（11.3） | rc=0（`chain: OK`） | 一致。**ただし Q12 の整合の確認の行き先 fix 6 件は未着手のまま通る**（R89） |
+| `python3 scripts/review_triage.py . st08-browser-history`（11.4） | rc=0（指摘 118 件 / 仮決め 5 件 / 要件へ戻すもの 3 件） | 一致 |
+| `tools/smoke.sh`（5.3 / 5.5 / 6.3 / 9.1 / 10.3 / 11.5） | rc=0（ST08 の 8 節とも通る。「取得契機を 1 日進めて… psql で行を見る」を含む） | 一致 |
+| `tools/check-immutable.sh` / `check-migrations.sh` / `check-licenses.sh`（11.5） | rc=0 / rc=0 / rc=0（Android は「対象外」と明示） | 一致 |
+| tasks に名前のある `cargo test <名前> -- --list` 36 種（collector 34・server 2） | すべて 1 本以上（`history_vanished` 26 / `history_exclusion` 15 / `history_heartbeat` 13 / `history_schedule` 10 / `history_locate` 6 / `browser_history_update` 5 ほか）。`tests/runtime_windows.rs` は実在 | 一致 |
+| 10.1 / 10.2 の検証コマンド（Windows 側の cargo）3 本 | `browser_history_while_running` / `browser_history_chrome` / `browser_history_firefox` とも rc=0・`1 passed`（前回 Firefox が無くて落ちた PC で、今回は通る） | 一致 |
+| 10.4 `.github/workflows/ci.yml` の下限 / job が緑 | 下限は `-lt 13`。**HEAD は未 push で CI は未実行** | 前半は一致。後半は R79（rejected）と同じ状態なので新しい R にしない |
+| 固定値の独立再計算（python `hashlib` / `datetime`） | 識別子 3 つ・版 2 つ・smoke の手組み時刻 2 つ、すべて一致 | 手 1 |
+| ガードの変異 11 件（Q11 / D16 7 件・Q9 / Q10 4 件） | 9 件はどれかのテストが落ちる / **2 件は 261 本全部緑** | 手 2・R91 |
+| 一時テスト: `sent_version.json` と帳面の両方が壊れた後に時計を戻す | **戻った後の版が前に送った版より 400 日古い**。床のファイルも低い値で上書きされる | 手 6・R90 |
+
+### 手 1: 固定値を独立に再計算する
+
+python の `hashlib.sha256`（`\x1f` 区切り）と `datetime` で計算し直した。**どれも一致**:
+
+| テスト | 入力 | python | テストの期待値 |
+|---|---|---|---|
+| `visit_external_id_is_pinned`（visit） | `chromium·chrome·Default·7·13402627200000001·https://example.test/a?q=x` | `981e93fe…79ecefa1` | 一致 |
+| 同上（vanished / excluded） | `chrome·Default·v1:visit:a·v1:visit:b` | `1803175b…7fd469d8` | 一致 |
+| 同上（profiles） | `chrome·Default\x1e個人·Profile 1` | `5c4f4852…74b8e8db` | 一致 |
+| `history_version_is_read_time_but_not_before_sent` | `2026-09-13T00:00:00.123456789` をマイクロ秒に切り捨て / `2027-01-01` + 1µs | `…00.123456` / `2027-01-01T00:00:00.000001` | 一致 |
+| smoke の手組み（前回 R73 の fix） | `13433306400000000` / `13433310000000000`（1601 年起点 µs） | `2026-09-08 02:00` / `03:00` | `at` と一致（R73 の fix を独立に確かめた） |
+
++1µs が取り込み口で「新しい」になるかも見た: 列は `timestamptz`（`migrations/202609120941_event_columns.sql:10`）、比較は `chrono::DateTime` どうしの `incoming < known`（`crates/server/src/lib.rs:1529`）で、ミリ秒へ落ちる経路は無い。
+
+### 手 2: ガードをわざと壊す
+
+複製で 1 件ずつ書き換え、`cargo test -p ashiato-collector-windows --lib` を走らせた（原状は 261 passed）。
+
+| # | 壊したもの | 結果 |
+|---|---|---|
+| V1 | `next_version` の `+ 1µs` を外す | 3 本 FAILED（`history_version_is_read_time_but_not_before_sent`・Runtime の `history_runtime_clock_back_update_*` 2 本） |
+| V2 | 送った版の最大値（`sent_version.json`）を読まない | 1 本 FAILED（`…_after_quarantine_has_newer_version`） |
+| **V3** | 開いた帳面の各訪問の `sent_version` を床に入れない（`collect.rs:647-649`） | **261 本全部 ok**（R91） |
+| **V4** | `sent_version.json` を書けないとき `.context(…)?` → `.ok()`（D16「書けなければ送る準備の失敗にする」を外す） | **261 本全部 ok**（R91） |
+| V5 | `sent_version.json` を書かない | 1 本 FAILED |
+| V6 | 帳面を書き直すとき（`fetch.rs` の `record`）前の `sent_version` を引き継がない | 1 本 FAILED（`history_sent_version_survives_exclusion_rewrite`） |
+| V7 | 版を読んだ時刻のままにする | 2 本 FAILED |
+| Q10a | 積めない取得でも読めたプロファイルを成功に数える | 1 本 FAILED |
+| Q10b | `history-not-queued` を載せない | 3 本 FAILED |
+| Q10c | 「送る準備を終えられなかった」の印を書かない | 1 本 FAILED（`history_heartbeat_at_startup_reports_previous_not_queued`） |
+| Q9 | `QUEUE_PER_TICK` を 2,000 → 200,000（1 回の見回りで全部積む） | 1 本 FAILED（`history_large_fetch_keeps_observing_foreground`） |
+
+V4 のガード自体は効いている: `plan` の `Err` は `finish`（`collect.rs:463-466`）で `UnreadableProfiles` でなければ `queued=false` → `remember_queued(false)` → 生存信号に `history-not-queued`。固定するテストが無いだけ。
+
+### 手 3: Scenario と test
+
+`check_scenarios.py` は rc=0。前回の後に増えた Scenario 8 本の印の先を見た:
+
+- `時計が戻った後に書き換わった題名も、前に送った版より新しい版で届く` / `帳面を作り直した後も、…` → `runtime::tests::history_runtime_clock_back_update_*`。
+  THEN は「記録の更新時刻が前に送った記録の更新時刻より新しい」で、テストは `Runtime` から送った 2 件の `source_updated_at` を比べる。主張と同じ階層。
+  取り込み口で捨てられないことは、サーバの `incoming < known` と列の型（手 1）から導ける（smoke は時計を戻さない）
+- `訪問の多い取得でも前景の観測は止まらない` → `history_large_fetch_keeps_observing_foreground`。見回り 1 回の実時間（`< POLL_INTERVAL_SEC`）と、積んでいる途中の前景の切り替えが履歴の後ろに積まれることを見る。主張と同じ階層
+- `送る準備を終えられない取得は…` / `前の起動の取得が…` → Runtime の生存信号の `capturable` / `blockers` を見る。主張と同じ階層
+- `前回の成功が今より先にあれば…` / URL の行の 2 本 → 前回 M01・M03〜M06 で固定済み（印の先は変わっていない）
+- **spec の識別子の Requirement の SHALL（:169-170）は条件なしで「前に送った版より前にしない」と言うが、要件は Q12 で例外を持ち、コードはその場合も R90 の場合も満たさない** → R89 / R90
+
+### 手 4: 本人の決定が test で固定されているか
+
+- Q11（前に送った版より前にしない・+1µs）: V1・V7 で落ちる。**固定されている**
+- Q11 の「帳面の各訪問に前に送った版を持つ」: V6（引き継ぎ）は落ちるが、**V3（その値を床に使う）は落ちない**。`sent_version.json` が残っている限り床が隠すため。帳面だけが残る場合（`sent_version.json` だけ失った）は一時テストで正しく動く（後の版 `2027-10-18 00:00:00.000001` > 前の版）が、テストは無い → R91
+- Q9（見回りを止めない）・Q10（積めない取得は取得できない・種別を付ける）: Q9・Q10a〜c で落ちる。**固定されている**
+- Q12（保存場所ごと消えたときは取りこぼしてよい）: 作りを変えない決定なので固定する値は無い。ただし文書に写っていない → R89
+- Q1〜Q8・24 時間・1 分・1 時間・1,000 件・86,400 秒は前回 M01〜M23 で固定済み（今回の差分はそれらの定数を触っていない: `git diff 291b271..HEAD` で確認）
+
+### 手 5: tasks の `[x]` と実体
+
+`[x]` 38 件の検証コマンドはすべて実在し rc=0（上の表）。10.1 / 10.2 は本文どおりのコマンドで Windows 側で 3 本とも `1 passed`。10.4 の「job が緑」は R79（rejected）のまま。11.2 の「75 本」は字面が古い（実数 83 本、全部に印）が、コマンドは rc=0。新しい R にしない。
+
+### 手 6: 隙間
+
+`sent_version.json` が読めないときの扱い（R90）を実測した。保存場所ごと消える（Q12 の例外）のとは違い、保存場所は残っている。
+同じ関数の「読めない」は無言（`.ok()?`）で、次の取得で低い値に上書きされるので、壊れていた痕跡も残らない。
+
+---
+
+## R89. Q12 の例外が spec・design D16・送信契約・proposal・申し送りのどれにも入っておらず、整合の確認の「行き先: fix」6 件が未着手のまま全検査が通る
+
+- 成果物: openspec/changes/st08-browser-history/specs/desktop-collection/spec.md:169-170 / openspec/changes/st08-browser-history/design.md:319・334-335・361 / docs/collector-contract.md:425-426 / openspec/changes/st08-browser-history/proposal.md / docs/handoff/ST08.md:43-45 / docs/audit/2026-10-14-st08-fr13-q12-consistency.md
+- 根拠:
+  - `grep -c 'Q12\|2026-10-14'` → spec.md 0 / design.md 0 / proposal.md 0 / `docs/collector-contract.md` 0 / `docs/handoff/ST08.md` 0。要件 `docs/requirements.md:228` には「ただし、収集アプリの保存場所ごと消えた・入れ直した後で…取りこぼしてよい」（★ 2026-10-14 訂正）がある
+  - spec :169「THE SYSTEM SHALL その更新時刻を、その訪問について前に送った版より前にしない（…手元の帳面を作り直した後も、前に送った版より新しい版として届ける）」は条件なし。design :319 は `D16.（仮）` のまま、:334「閉じないもの」は本人の決定（Q12）として書かれていない
+  - 整合の確認 `docs/audit/2026-10-14-st08-fr13-q12-consistency.md` の C1〜C5・K1 は全部「行き先: fix（ST08 自身の下流の回し直し。このブランチ）」。その監査を入れた e1ea86b2 が HEAD で、後に fix の commit は無い
+  - `check_chain.py` rc=0 / `review_triage.py` rc=0。`scripts/consistency_triage.py:33` は行き先の**値の形**（`fix` など）だけを見て、fix が済んだかは見ない。この状態で archive すると、条件なしの SHALL が `desktop-collection` の正典になる
+- kind: technical
+- 提案: 監査の C1〜C5 の「直すところ」どおりに spec の SHALL と導出元・design D16（Q12 を本人の決定として、「保存場所」=「置き場（`state_dir`）」を結ぶ）・契約・proposal・handoff の R87 を直す。K1 は R90 で扱う。
+- 処置: fixed D16 —— C1 spec の SHALL の括弧に保存場所ごと消えた後の例外・導出元と理由の段落に第 7 回 Q12 / C2 design の Context・D16 の「閉じないもの」（本人の決定。保存場所 = 置き場（`state_dir`））・Open Questions / C3 `docs/collector-contract.md` の `source_updated_at` に例外 / C4 proposal に第 7 回の表と FR-13 ★ 2026-10-14 / C5 handoff R87 の 1 文に例外の括弧。K1 は R90
+
+## R90. 保存場所が残っていても、`sent_version.json` が読めず帳面も退避されると、時計が戻った後の版が前に送った版より古くなり（実測 400 日）、床のファイルも低い値で上書きされる —— Q12 の例外の外で取りこぼす
+
+- 成果物: crates/collector-windows/src/history/collect.rs:270-275（`read_sent_version` の `.ok()?` / `.ok()`）・:646-667（`version`）/ design.md D16 :328・:334 / docs/requirements.md:228
+- 根拠:
+  - 複製の `runtime::tests::history_versions_across_clock_back` に、帳面を壊す直後で `sent_version.json` を `{broken` にする分岐を一時的に足して走らせた（400 日先で 1 回送る → 壊す → 時計を戻して題名を変えて取得）:
+    - 帳面だけ壊す（今のテスト）: `before=2027-10-18 00:00:00` / `after=2027-10-18 00:00:00.000001`（新しい）
+    - `sent_version.json` だけ壊す: `after=2027-10-18 00:00:00.000001`（帳面の前の版が床になり新しい）
+    - **両方壊す: `before=2027-10-18 00:00:00` / `after=2026-09-13 00:00:00`**（`assert!(after > before)` で FAILED）。**取得の後の `sent_version.json` は `{"sent_version":"2026-09-13T00:00:00Z"}`** —— 壊れていた床を、前に送った版より 400 日古い値で上書きした
+  - 取り込み口は `incoming < known` を `SkippedStale` にする（`crates/server/src/lib.rs:1529-1530`。`browser_history_update_stale_does_not_rewind` が固定）。帳面は積んだ時点で内容のハッシュを持つので、同じ内容は送り直されない（D15）。Chromium は 90 日を過ぎた訪問を手元から消す
+  - 読めないことは数えも記録もされない（`read_sent_version` の `.ok()?` と `serde_json::from_slice(...).ok()`）。生存信号も `capturable=true` のまま
+  - 要件の例外は「収集アプリの保存場所ごと消えた・入れ直した後」に限る（`docs/requirements.md:228`）。この経路は保存場所が残っている。design D16 :328「読めなければ無いものとして、帳面の前の版と読んだ時刻で決める」は扱いを書くが、:334「閉じないもの」に入っていない（監査の K1。机上の指摘を実測で確かめた）
+- kind: irreversible
+- loss: uncaptured （時計が戻った後の題名・滞在時間の更新が取り込み口で捨てられ、二度と送られない）
+- 提案: 読めない `sent_version.json` を上書きせず `.broken` に退避し、読めなかったことを数えて生存信号の `blockers` に種別を載せる（Q10 と同じ「厳しい側」）。
+  それでも床は失われるので、「保存場所が残っていても、送った版の手がかりがすべて失われたとき」を Q12 の例外に含めるかは本人に返す（含めないなら取り込み口から版を引く D16 の反転条件 (2)）。Runtime の層の一時テストと同じ形を常設する。
+- 処置: escalated — deep.md 第 8 回 Q13（`deep-questions-r8.json` → `docs/briefs/ST08-deep-r8.html`）。読めない `sent_version.json` の退避と生存信号の種別は、どちらの答えでも答えの記録の後の fix で入れる（Q13 の「何が変わるか」。答えの前には足さない）
+
+## R91. D16 のガード 2 つが、壊しても collector の 261 本が全部緑のまま（送った版を書けない失敗を無視する / 帳面の各訪問の前の版を床に使わない）
+
+- 成果物: crates/collector-windows/src/history/collect.rs:646-667（`Planner::version`）/ crates/collector-windows/src/runtime.rs（tests の `history_versions_across_clock_back`）
+- 根拠: 手 2 の V3 / V4。複製で 1 件ずつ書き換えて `cargo test -p ashiato-collector-windows --lib` → 2 件とも `261 passed; 0 failed`。
+  - V4（`.context("送った版の最大値を書けない")?` → `.ok()`）: design D16 :328「書けなければ送る準備の失敗にする（D12 / 第 5 回 Q10 の『取得できない』）」の担保が無い。外すと床が残らないまま送り、帳面が退避されると R90 と同じく取りこぼす
+  - V3（開いた帳面の `sent_version` を床に入れない）: Q11 の答え「帳面の各訪問に前に送った版を持つ」の、その値を使う側の担保が無い。`sent_version.json` が残っている限り床が隠すので、既存の 2 本は通る。`sent_version.json` だけが失われた場合（R90 の一時テストの 2 つ目）は正しく動くが、それを見るテストが無い
+- kind: technical
+- 提案: Runtime の層に 2 本足す —— (a) `browser-history/sent_version.json` を書けない（同名のディレクトリを置く等）と、その取得は積まず生存信号が `history-not-queued` になる / (b) `sent_version.json` を消して時計を戻すと、帳面の前の版より新しい版で届く。
+- 処置: fixed D16 —— `runtime::tests::history_heartbeat_counts_unwritable_sent_version_as_not_queued`（a）と `history_runtime_clock_back_update_without_sent_version_has_newer_version`（b）。V4 で (a)、V3 で (b) がそれぞれ FAILED になることを作業ツリーで確かめた（`collect.rs` は戻した）
