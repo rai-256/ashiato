@@ -147,10 +147,38 @@ async fn st14_api_outages_no_record_content() {
     let (now, pool) = (Utc::now(), testdb::pool().await);
     let (user, name) = broken_location(&pool, now).await;
     let (_, body) = get(&app_at(now).await, &uri(user, Some("dev-a"))).await;
-    assert!(item_of(&body, &name).is_some(), "途切れが返っていない");
-    for needle in ["35.681234", "139.767125", "lat", "lon", "payload", "raw"] {
-        assert!(!body.contains(needle), "応答に {needle} が含まれる: {body}");
+    let item = item_of(&body, &name).expect("途切れが返っていない");
+    // 共有の登録簿の他の試験のソース（名前に raw などを含む）も途切れとして並ぶので、文字列ではなく欄の形で見る
+    let keys = |v: &serde_json::Value| {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    assert_eq!(
+        keys(&json(&body)),
+        ["judged_at", "outages", "status"],
+        "{body}"
+    );
+    for o in items(&body) {
+        assert_eq!(
+            keys(&o),
+            [
+                "display_name",
+                "episode_id",
+                "last_alive_at",
+                "logical_source"
+            ],
+            "{o}"
+        );
     }
+    let mine = item.to_string();
+    for needle in ["35.681234", "139.767125", "lat", "lon", "payload", "raw"] {
+        assert!(!mine.contains(needle), "応答に {needle} が含まれる: {mine}");
+    }
+    assert!(
+        !body.contains("35.681234") && !body.contains("139.767125"),
+        "{body}"
+    );
 }
 
 // Scenario: 収集アプリの資格情報で途切れの判定が読める
