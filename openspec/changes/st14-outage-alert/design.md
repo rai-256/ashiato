@@ -144,7 +144,9 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 | `last_alive_at` | `timestamptz NULL` | `opened` だけが持つ（書庫なら最後の書庫の時刻） |
 | `judged_at` | `timestamptz NOT NULL DEFAULT now()` | |
 
-- `CHECK` で種類ごとの列の有無を縛る（`opened` は `episode_id IS NULL`、それ以外は NOT NULL、`delivered` だけ `device_id` NOT NULL）
+- `CHECK` で種類ごとの列の有無を縛る（`opened` は `episode_id IS NULL`、それ以外は NOT NULL、`delivered` だけ `device_id` NOT NULL）。
+  `opened` が `last_alive_at` を必ず持つことは別の名前の `CHECK`（`outage_ledger_opened_has_last_alive`）で縛る —— 表を先に作った開発中の DB にも
+  `ALTER TABLE … ADD CONSTRAINT … NOT VALID` で足せるように分けた（形の `CHECK` を差し替えると前進側に `DROP` が入る。review/code.md R6）
 - 一意索引: `(episode_id) WHERE kind = 'closed'`、`(episode_id, device_id) WHERE kind = 'delivered'`
 - 追記のみ: `UPDATE` / `DELETE` / `TRUNCATE` を断るトリガ。**関数は台帳専用の `core.reject_outage_ledger_change()`**（書庫の台帳と同じ形で、共有しない）。
   共有すると ST12 の `202609181600_archive_ingestion.down.sql:21`（`CASCADE` なし）が依存で落ちて戻せなくなる（申し送り `docs/handoff/ST14.md` K3。ST16 / ST19 / ST21 も同じ理由で共有していない）

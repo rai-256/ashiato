@@ -203,6 +203,43 @@ async fn st14_reg_ledger_rows_are_append_only() {
     assert!(delete.is_err(), "削除が通った");
 }
 
+/// 途切れの始まり（`opened`）は最後に生きていた時刻を必ず持つ（design D7 / review/code.md R6）。
+/// 戻り・届けたことは持たない
+#[tokio::test]
+async fn st14_reg_ledger_opened_requires_last_alive_at() {
+    let pool = testdb::pool().await;
+    let source = testdb::source(&pool, "st14-ledger-shape", 3600).await;
+    let opened = sqlx::query(
+        "INSERT INTO core.outage_ledger (user_id, logical_source, kind, last_alive_at)
+         VALUES ($1, $2, 'opened', NULL)",
+    )
+    .bind(testdb::user())
+    .bind(&source)
+    .execute(&pool)
+    .await;
+    let err = opened.expect_err("最後に生きていた時刻の無い opened が通った");
+    assert!(
+        err.to_string()
+            .contains("outage_ledger_opened_has_last_alive"),
+        "{err}"
+    );
+    let id = ledger_row(&pool).await;
+    for (kind, device) in [("closed", None), ("delivered", Some("dev-a"))] {
+        let with_alive = sqlx::query(
+            "INSERT INTO core.outage_ledger (user_id, logical_source, kind, episode_id, device_id, last_alive_at)
+             VALUES ($1, $2, $3, $4, $5, now())",
+        )
+        .bind(testdb::user())
+        .bind(&source)
+        .bind(kind)
+        .bind(id)
+        .bind(device)
+        .execute(&pool)
+        .await;
+        assert!(with_alive.is_err(), "{kind} が最後に生きていた時刻を持てた");
+    }
+}
+
 /// Scenario: 途切れの台帳に記録の中身が載らない
 #[tokio::test]
 async fn st14_reg_ledger_has_no_record_content_columns() {
