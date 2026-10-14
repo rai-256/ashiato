@@ -111,7 +111,8 @@ export function dropNotes(cell: DayCell): string[] {
 export function gapNotes(cell: DayCell): string[] {
   return (cell.gaps ?? []).map((g) => {
     const span = m.gapSpan(jstMoment(g.begin), jstMoment(g.end));
-    const label = m.gapReason[g.reason];
+    // 理由は端末から来る文字。`constructor` などで prototype を引かないよう、表が自分で持つ名前だけを引く
+    const label = Object.hasOwn(m.gapReason, g.reason) ? m.gapReason[g.reason] : undefined;
     return label === undefined ? m.gapUnknown(span) : label(span);
   });
 }

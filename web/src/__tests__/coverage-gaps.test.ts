@@ -50,6 +50,14 @@ describe("取りこぼしの文字", () => {
     expect(notes).toEqual([`取りこぼし（${SPAN}）`]);
   });
 
+  // 理由は端末から来る文字。文言の表のオブジェクトが prototype から引く名前でも、知らない理由として扱う（review/code.md R10）
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"])(
+    "理由 %s は prototype の名前でも知らない理由として「取りこぼし（期間）」で出る",
+    (reason) => {
+      expect(gapNotes(cellWith([{ reason, begin: BEGIN, end: END }]))).toEqual([`取りこぼし（${SPAN}）`]);
+    },
+  );
+
   it("取りこぼしが無い日・欄を返さないサーバでは何も出ない", () => {
     expect(gapNotes(cellWith([]))).toEqual([]);
     const old = { ...cellWith([]) } as Partial<DayCell>;
