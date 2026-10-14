@@ -40,6 +40,7 @@ FIX_BASE = 4258bfe6。RED のログは `.superpowers/sdd/logs/`（下の表）�
 - **D13（仮）の反転条件に当たった**（`GET /export/summary` の数えが 35 万行で 6.5 秒 > 3 秒）。判定を design に書いただけで、形は替えていない（controller の判断）
 
 - R16: serde_json はエスケープを含む文字列を内部の作業領域に写すので、その写しは消せない。`Bytes` が共有されていれば 0 で埋められない（「できる範囲」）
+- R1 の鍵の根拠として、版を書かない内容の更新が無いことを `UPDATE core.event` と `ON CONFLICT … DO UPDATE` で洗い、D17 に書いた（`collected` は門が版を強制、`derived` は `push_version`、`authored` は書き換えの経路が無い）
 - R1 の前提: 始まりが未来の消した滞在があると、鍵が動かないまま時間の経過で数が増えうる（D17 に前提として書いた。時計の狂った端末からしか起きない）
 
 ## 検証
@@ -57,4 +58,4 @@ FIX_BASE = 4258bfe6。RED のログは `.superpowers/sdd/logs/`（下の表）�
 | `tools/check-log-private.sh` | 0 | 1s |
 | `tools/smoke.sh` | 0 | 34s |
 
-ほかに `tools/check-openapi.sh` も OK（API の契約は変わっていない）。`cargo test` に時間がかかるのは、Task 5 の測りで座標つきの行が足されたままのこのワークツリーの DB で走らせたため（verify の後半の `db.sh down -v` で作り直された）。
+ほかに `python3 scripts/check_scenarios.py . st33-data-export` が `scenarios: OK`（rc=0）、`tools/check-openapi.sh` も OK（API の契約は変わっていない）。`cargo test` に時間がかかるのは、Task 5 の測りで座標つきの行が足されたままのこのワークツリーの DB で走らせたため（verify の後半の `db.sh down -v` で作り直された）。
