@@ -232,3 +232,14 @@ GO 資料（`docs/briefs/ST17-spec.html`）と GO 用 proto を読んだ本人�
     面の色（`accentFill`）とトークンは変えない（文字の 4.5:1 を優先した値のまま）。直した後で e2e の印を戻す。
   - 要件へ戻すもの: 無し。NFR-23 は「意味を担う非テキスト」を隣と 3:1 と書くだけで、面か縁かを決めていない ——
     押された状態を担う非テキストが縁なら、縁が 3:1 を満たせば NFR-23 を満たす。`docs/ui-direction.md` のトークンも変えない
+
+## 11.3 の検証コマンドが成立しない（whole-branch review R1。premise）
+
+- **QR1 [11.3 の検証コマンド] -> (未回答)**（問い: `deep-questions-r13.json`、HTML: `docs/briefs/ST17-deep-r13.html`）
+  - 事実: tasks.md 11.3 の検証 `AT FeelingReminderInstrumentedTest` は、ハーネスが走らせられない。evidence.jsonl に 11.3 の行は 0 件のまま `[x]` になっていた（review/code.md R1）。
+    - 略記 `AT` の展開先は `find …` の 1 行だけで、`evidence.py` の `CMD_LIKE` に当たらず `declared()` が空（`scripts/verify-run 11.3` は rc=2「本文に検証コマンドが無い」。2026-10-14 実測）
+    - glob `TEST-*FeelingReminderInstrumentedTest*.xml` は実名 `TEST-ashiato-api35(AVD) - 15-_app-.xml`（端末ごと 1 ファイル）に合わない
+    - `tools/android-emulator.sh` は 2 段目が同じ名前の結果を上書きする
+  - 計測テストそのものは今日 10:50 の手の実行で 3 本・失敗 0 だが、R11 の直しの前のコードで、完了の証跡にはならない
+  - `plan_fix.py` は旧コマンドが `declared()` にあり FAIL の証跡があることを要求するので、どちらの答えでも harness2 側の直しが要る
+  - loss: 無し（検証の入口の話。データは失われない）
