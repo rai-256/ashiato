@@ -64,6 +64,9 @@ pub mod heartbeat;
 pub mod ingest;
 pub mod migrate_backup;
 pub mod net_guard;
+/// 途切れの通知の登録簿と台帳（ST14 / design D2 / D7）。
+#[cfg(test)]
+mod outage_registry_tests;
 pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
