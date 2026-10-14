@@ -314,6 +314,50 @@ send_lines() {   # $1: JSON Lines。200 件ずつ送り、受け入れた件数�
 }
 pc_total=$(send_lines "$work/day-pc.jsonl")
 echo "normal: 2026-09-07 の PC・スマホの記録を $pc_total 件入れた（離席 4 回・除外 1 回・PC の停止 23:40〜）"
+python3 - > "$work/st14.jsonl" <<'PY'
+# ST14 / design D18。取りこぼしの期間 2 本（理由が違う。同じ週）・ウィンドウの時計の測定だけの日・集計の記録。
+# 取りこぼしの出来事の時刻は期間の終わり（docs/collector-contract.md）。固定の値なので何度入れても再送として畳まれる（FR-22）
+import json, uuid
+USER = "00000000-0000-0000-0000-000000000000"
+NS = uuid.UUID("14141414-0000-4000-8000-000000000014")
+
+def emit(source, device, when, payload):
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    print(json.dumps({
+        "id": str(uuid.uuid5(NS, f"{source}/{device}/{when}/{raw}")),
+        "user_id": USER, "logical_source": source, "external_id": None, "device_id": device,
+        "origin": "collected", "event_time": when, "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
+        "schema_version": 1, "raw": raw, "payload": payload,
+    }, ensure_ascii=False))
+
+PHONE = "seed-phone"
+# アプリ利用の収集の開始日を 2026-08-31 にする（取りこぼしの期間より前。無いと取りこぼしの終わりの日が開始日になり、
+# 期間の前半の日が導入前になる）
+emit("c01-app-usage", PHONE, "2026-08-31T01:00:00Z",
+     {"event_type": 1, "package": "jp.co.line", "app_label": "LINE", "at": "2026-08-31T01:00:00Z"})
+emit("c01-app-usage", PHONE, "2026-08-31T01:03:00Z",
+     {"event_type": 2, "package": "jp.co.line", "at": "2026-08-31T01:03:00Z"})
+# 2026-09-01 08:00〜09-03 08:00（+09:00）。取得元に残っていなかった
+emit("c01-app-usage", PHONE, "2026-09-02T23:00:00Z",
+     {"kind": "gap", "begin": "2026-08-31T23:00:00Z", "end": "2026-09-02T23:00:00Z", "reason": "retention"})
+# 同じ週（2026-08-30〜09-05）の別の日。時計のずれで問い合わせを諦めた
+emit("c01-app-usage", PHONE, "2026-09-04T06:00:00Z",
+     {"kind": "gap", "begin": "2026-09-04T00:00:00Z", "end": "2026-09-04T06:00:00Z", "reason": "clock_skew_abandoned"})
+# ウィンドウの時計の測定だけの日（2026-09-06）。観測ではないので「記録あり」に数えない
+emit("c02-window", "seed-pc-1", "2026-09-06T01:00:00Z",
+     {"kind": "clock-skew", "trigger": "hourly", "available": False, "device_time": "2026-09-06T01:00:00.000Z",
+      "elapsed_ms": 3600000, "boot_count": None, "references": [], "unavailable": [{"source": "network", "reason": "not_available"}]})
+# 集計。1 件目はアプリ利用の開始日（2026-09-07）より前の箱
+for begin, end, pkg, ms in [("2026-08-24T00:00:00Z", "2026-08-25T00:00:00Z", "jp.co.line", 1800000),
+                            ("2026-09-06T00:00:00Z", "2026-09-07T00:00:00Z", "jp.co.line", 2400000),
+                            ("2026-09-06T00:00:00Z", "2026-09-07T00:00:00Z", "com.twitter", 900000)]:
+    emit("c01-app-usage-rollup", PHONE, end,
+         {"granularity": "daily", "package": pkg, "begin": begin, "end": end, "last_used": end, "last_visible": end,
+          "last_foreground_service_used": begin, "total_foreground_ms": ms, "total_visible_ms": ms,
+          "total_foreground_service_ms": 0})
+PY
+st14_total=$(send_lines "$work/st14.jsonl")
+echo "normal: ST14 の取りこぼしの期間 2 本・ウィンドウの時計の測定 1 件・集計 3 件・開始日を決める利用 2 件を含む $st14_total 件を入れた"
 # **ブラウザの訪問は、ST08 の移行が済んでいるときだけ入れる**（R18）。済んでいなければ入れずに続ける
 kind=$(docker compose exec -T db psql -qtAX -U ashiato -d ashiato -c \
   "SELECT external_id_kind FROM core.source WHERE logical_source = 'c02-browser-history';" | tr -d '[:space:]')
