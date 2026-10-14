@@ -70,6 +70,9 @@ mod feelings_read_tests;
 /// 形の合わない主観を断る（ST17 / Task 3）。
 #[cfg(test)]
 mod feelings_reject_tests;
+/// 通知の時刻の台帳と通知の判断の口（ST17 / Task 5）。
+#[cfg(test)]
+mod feelings_remind_tests;
 /// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
 #[cfg(test)]
 mod feelings_tests;
@@ -2152,6 +2155,56 @@ pub async fn feelings_get(
     .map_err(|e| internal_at("feelings.read", e))
 }
 
+/// `GET /feelings/reminder` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ReminderQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 通知の判断に要る 2 欄（通知の時刻・その日の記録の有無）だけを返す（ST17 design D9）。**主観の中身は返さない。**
+#[utoipa::path(get, path = "/feelings/reminder", params(ReminderQuery),
+    responses((status = 200, body = feelings::ReminderDecision), (status = 400), (status = 401)))]
+pub async fn feelings_reminder_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<ReminderQuery>,
+) -> Result<Json<feelings::ReminderDecision>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    feelings::reminder_decision(&app.pool, q.user_id.unwrap_or_default(), date)
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("feelings.reminder_read", e))
+}
+
+/// `POST /feelings/reminder` の本文。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ReminderSetRequest {
+    user_id: Option<uuid::Uuid>,
+    /// `HH:MM`（秒は持たない）
+    at: String,
+}
+
+/// 通知の時刻を変える。台帳に 1 行足し、次の判断から効く（ST17 design D9）。
+#[utoipa::path(post, path = "/feelings/reminder", request_body = ReminderSetRequest,
+    responses((status = 200, body = feelings::ReminderSet), (status = 400), (status = 401)))]
+pub async fn feelings_reminder_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<ReminderSetRequest>,
+) -> Result<Json<feelings::ReminderSet>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let at = feelings::parse_reminder_at(&req.at)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "invalid_time".to_string()))?;
+    feelings::set_reminder(&app.pool, req.user_id.unwrap_or_default(), at)
+        .await
+        .map_err(|e| internal_at("feelings.reminder_set", e))?;
+    Ok(Json(feelings::ReminderSet { at: req.at }))
+}
+
 /// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
 #[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
     responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
@@ -2970,6 +3023,10 @@ pub fn router(app: App) -> Router {
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
         .route("/feelings", get(feelings_get))
+        .route(
+            "/feelings/reminder",
+            get(feelings_reminder_get).post(feelings_reminder_post),
+        )
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
@@ -3109,6 +3166,8 @@ pub async fn run() -> anyhow::Result<()> {
         day_get,
         day_records_get,
         feelings_get,
+        feelings_reminder_get,
+        feelings_reminder_post,
         stays_detail_get,
         stays_erase,
         stays_restore,
@@ -3171,6 +3230,9 @@ pub async fn run() -> anyhow::Result<()> {
         feelings::FeelingOut,
         feelings::ScaleOut,
         feelings::Phase,
+        feelings::ReminderDecision,
+        feelings::ReminderSet,
+        ReminderSetRequest,
         day::DayResponse,
         day::DayRow,
         day::Gap,

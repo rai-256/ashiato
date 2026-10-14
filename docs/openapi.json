@@ -525,6 +525,87 @@
         }
       }
     },
+    "/feelings/reminder": {
+      "get": {
+        "tags": [],
+        "summary": "通知の判断に要る 2 欄（通知の時刻・その日の記録の有無）だけを返す（ST17 design D9）。**主観の中身は返さない。**",
+        "operationId": "feelings_reminder_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "summary": "通知の時刻を変える。台帳に 1 行足し、次の判断から効く（ST17 design D9）。",
+        "operationId": "feelings_reminder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderSet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/heartbeat": {
       "post": {
         "tags": [],
@@ -3373,6 +3454,56 @@
           "took_ms": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "ReminderDecision": {
+        "type": "object",
+        "description": "通知の判断に要るもの。**この 2 欄だけ**（主観の中身を返さない。design D9）。",
+        "required": [
+          "at",
+          "recorded"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "通知の時刻（`HH:MM`）"
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "その日に紐づく記録が 1 件以上あるか（削除の印・消去を除く）"
+          }
+        }
+      },
+      "ReminderSet": {
+        "type": "object",
+        "description": "台帳に 1 行足した結果。",
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          }
+        }
+      },
+      "ReminderSetRequest": {
+        "type": "object",
+        "description": "`POST /feelings/reminder` の本文。",
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "`HH:MM`（秒は持たない）"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },

@@ -733,3 +733,80 @@ fn stay_of(payload: &serde_json::Value) -> Option<(uuid::Uuid, DateTime<Utc>)> {
     let end = DateTime::parse_from_rfc3339(t.get("end")?.as_str()?).ok()?;
     Some((stay, end.with_timezone(&Utc)))
 }
+
+// ================================================================ 通知の時刻と通知の判断（design D9）
+
+/// 通知の時刻の既定（`HH:MM`。Q7）。台帳に行が無い利用者はこれ。
+pub const DEFAULT_REMINDER_AT: &str = "21:00";
+
+/// `"HH:MM"` を時刻にする。秒は持たない（design D9）。`24:10`・`9:05`・`21:00:00` は読めない。
+pub fn parse_reminder_at(s: &str) -> Option<chrono::NaiveTime> {
+    let b = s.as_bytes();
+    let digits = |i: usize| b[i].is_ascii_digit();
+    if b.len() != 5 || b[2] != b':' || !(digits(0) && digits(1) && digits(3) && digits(4)) {
+        return None;
+    }
+    chrono::NaiveTime::parse_from_str(s, "%H:%M").ok()
+}
+
+/// 通知の判断に要るもの。**この 2 欄だけ**（主観の中身を返さない。design D9）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct ReminderDecision {
+    /// 通知の時刻（`HH:MM`）
+    pub at: String,
+    /// その日に紐づく記録が 1 件以上あるか（削除の印・消去を除く）
+    pub recorded: bool,
+}
+
+/// 台帳に 1 行足した結果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct ReminderSet {
+    pub at: String,
+}
+
+/// 通知の時刻を台帳に 1 行足す（追記のみ）。
+pub async fn set_reminder(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    at: chrono::NaiveTime,
+) -> sqlx::Result<()> {
+    sqlx::query("INSERT INTO core.feeling_reminder (user_id, at) VALUES ($1, $2)")
+        .bind(user_id)
+        .bind(at)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// いまの通知の時刻（利用者ごとに `id` が最大の行。無ければ既定）と、その日の記録の有無。
+pub async fn reminder_decision(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    date: NaiveDate,
+) -> sqlx::Result<ReminderDecision> {
+    let at: Option<chrono::NaiveTime> = sqlx::query_scalar(
+        "SELECT at FROM core.feeling_reminder WHERE user_id = $1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    let (lo, hi) = crate::stay_store::day_bounds(date);
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM core.event_live
+          WHERE user_id = $1 AND logical_source = $2 AND raw <> ''
+            AND event_time >= $3 AND event_time < $4)",
+    )
+    .bind(user_id)
+    .bind(SOURCE)
+    .bind(lo)
+    .bind(hi)
+    .fetch_one(pool)
+    .await?;
+    Ok(ReminderDecision {
+        at: at.map_or_else(
+            || DEFAULT_REMINDER_AT.to_string(),
+            |t| t.format("%H:%M").to_string(),
+        ),
+        recorded,
+    })
+}
