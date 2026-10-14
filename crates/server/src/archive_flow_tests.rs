@@ -4196,12 +4196,22 @@ async fn archive_youtube_route_a_community_post_vote_goes_to_other() {
 /// Scenario: 広告は視聴に入らない
 #[tokio::test]
 async fn archive_youtube_route_an_ad_does_not_go_to_watch() {
-    let body = serde_json::json!([yt_item(
+    let mut watch = yt_item(
         "YouTube",
-        "ある広告 を視聴しました",
+        "ある動画 を視聴しました",
         Some(YT_WATCH_URL),
-        Some(serde_json::json!([{"name": "Google 広告から"}]))
-    )]);
+        None,
+    );
+    watch["subtitles"] = serde_json::json!([{"name": "あるチャンネル", "url": "https://www.youtube.com/channel/UCx"}]);
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "ある広告 を視聴しました",
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "Google 広告から"}]))
+        ),
+        watch,
+    ]);
     let inbox = yt_store(
         "yt-ad",
         &[(crate::archive::classify::KnownKind::YouTube, &body)],
@@ -4209,7 +4219,41 @@ async fn archive_youtube_route_an_ad_does_not_go_to_watch() {
     )
     .await;
     assert_eq!(inbox.events(YT_OTHER).await, 1);
-    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+    // 行き先ごとの payload の欄（design D3 の表。code-verify R7）。
+    let ad = yt_payload(&inbox, YT_OTHER).await;
+    assert_eq!(ad["product"], "YouTube");
+    assert_eq!(ad["title"], "ある広告 を視聴しました");
+    assert_eq!(ad["url"], YT_WATCH_URL);
+    assert_eq!(
+        ad["details"],
+        serde_json::json!([{"name": "Google 広告から"}])
+    );
+    let watched = yt_payload(&inbox, "c03-youtube-watch").await;
+    assert_eq!(watched["title"], "ある動画 を視聴しました");
+    assert_eq!(watched["url"], YT_WATCH_URL);
+    assert_eq!(watched["channel_name"], "あるチャンネル");
+    assert_eq!(
+        watched["channel_url"],
+        "https://www.youtube.com/channel/UCx"
+    );
+    assert!(
+        watched.get("details").is_none(),
+        "視聴の payload に details がある: {watched}"
+    );
+}
+
+/// その論理ソースに格納された 1 件の payload。
+async fn yt_payload(inbox: &Inbox, logical_source: &str) -> serde_json::Value {
+    sqlx::query_scalar(
+        "SELECT payload FROM core.event
+          WHERE user_id = $1 AND logical_source = $2 AND deleted_at IS NULL",
+    )
+    .bind(inbox.user)
+    .bind(logical_source)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap()
 }
 
 /// Scenario: 値の違う details の欄を持つ項目も広告に数える
@@ -4586,6 +4630,13 @@ fn archive_youtube_shape_shows_counts_by_destination() {
         Some(YT_WATCH_URL),
         None,
     ));
+    // 広告の欄と評価の決まり文句を両方持つ項目は、広告に数える（deep Q3 の順。code-verify R6）。
+    items.push(yt_item(
+        "YouTube",
+        "高く評価しました 広告の動画",
+        Some(YT_WATCH_URL),
+        Some(serde_json::json!([{"name": "Google 広告"}])),
+    ));
     items.push(yt_item("YouTube", "投票しました", Some(YT_POST_URL), None));
     let body = serde_json::Value::Array(items).to_string();
     let shape = crate::archive::worker::shape_for_file(
@@ -4596,8 +4647,8 @@ fn archive_youtube_shape_shows_counts_by_destination() {
     .unwrap();
     assert_eq!(shape["destinations"]["watch"], 3);
     assert_eq!(shape["destinations"]["search"], 2);
-    assert_eq!(shape["destinations"]["other"], 3);
-    assert_eq!(shape["destinations"]["ad"], 1);
+    assert_eq!(shape["destinations"]["other"], 4);
+    assert_eq!(shape["destinations"]["ad"], 2);
     assert_eq!(shape["destinations"]["rating"], 1);
     assert_eq!(shape["languages"], serde_json::json!(["ja"]));
     assert_eq!(shape["products"], serde_json::json!(["YouTube"]));
@@ -4996,6 +5047,14 @@ async fn archive_youtube_shape_a_mark_on_an_unrecognized_language_does_not_store
     )
     .await;
     assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    // 断りの SQL 側: 印があっても、読み直す写しの一覧に出さない（D6。code-verify R8）。
+    assert!(
+        crate::archive::worker::confirmed_pending_copies(&inbox.pool, inbox.user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "言語の当たらない形の写しが、印のある確認待ちとして拾われる"
+    );
     // 確認待ちを写しから読み直す経路でも、その印では読まない。
     let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
         .await
@@ -5036,6 +5095,43 @@ async fn archive_youtube_reparse_old_mark_does_not_read_a_pending_file() {
     assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
     assert_eq!(pending_files(&inbox).await, 1);
     assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+}
+
+// Scenario: 解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る
+/// WHEN（版を上げて**走査が来る**）を、走査の輪（`spawn_inspecting`）の上で見る（code-verify R5）。
+/// 旧い形の印は置かない —— 置くと `ingest_confirmed_pending` の読み直しも形を書き換えるので、
+/// 輪の `refresh_pending_shapes` が外れても通ってしまう。
+#[tokio::test]
+async fn archive_youtube_reparse_the_scan_loop_refreshes_pending_shapes() {
+    let inbox = Inbox::new("yt-reparse-loop").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    let new_hash = new_yt_hash(&body);
+
+    inbox.spawn(true);
+    inbox
+        .until("走査が確認待ちの形を取り直さない", || async {
+            inbox.pending_hashes().await == vec![new_hash.clone()]
+        })
+        .await;
+    // 印が無いので読まない。周を重ねても pending_shape の行は 1 つ。
+    tokio::time::sleep(std::time::Duration::from_millis(2_500)).await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1
+    );
+
+    // 新しい形に印を置くと、次の走査で読む。
+    confirm_hash(&inbox, &new_hash).await;
+    inbox
+        .until("新しい形の印で読まれない", || async {
+            yt_counts(&inbox).await == (2, 0, 0)
+        })
+        .await;
+    assert_eq!(pending_files(&inbox).await, 0);
 }
 
 // Scenario: 読み終えた書庫の新しい形に印の無いファイルは版の上げで確認待ちになる
