@@ -211,6 +211,8 @@ EOF
     echo "BASE_URL=http://127.0.0.1:$web"
     # 画面のログインが無い木（ST28 より前）では渡さない
     if grep -q '^WEB_PASSWORD=' .env; then echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"; fi
+    # 録画の spec が画面の外から `/api` を直に読む（書いた件数を数える）ときの Bearer。e2e と同じ名前で渡す
+    echo "PASS_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
     # 録画の間（各工程の後の停止 / 操作の間隔）。録画用の spec と設定が読む。変えるなら呼ぶ側で REC_HOLD_MS / REC_SLOWMO_MS
     echo "PASS_REC_HOLD_MS=${REC_HOLD_MS:-1200}"; echo "INFO_rec_hold_ms=${REC_HOLD_MS:-1200}"
     echo "PASS_REC_SLOWMO_MS=${REC_SLOWMO_MS:-250}"; echo "INFO_rec_slowmo_ms=${REC_SLOWMO_MS:-250}"

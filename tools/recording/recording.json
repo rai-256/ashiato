@@ -96,6 +96,29 @@
         "web/e2e/global-setup.ts",
         "web/src/PlacesView.tsx"
       ]
+    },
+    {
+      "id": "ST17-feel",
+      "story": "ST17",
+      "spec": "tools/recording/st17/st17-feel.rec.ts",
+      "requires": [
+        "web/e2e/feel.spec.ts",
+        "web/e2e/feel-parts.spec.ts",
+        "web/e2e/day-feeling.spec.ts",
+        "web/e2e/global-setup.ts",
+        "web/src/FeelView.tsx"
+      ]
+    },
+    {
+      "id": "ST17-reminder",
+      "story": "ST17",
+      "platform": "android",
+      "spec": "tools/recording/st17/St17RecordingTest.kt",
+      "test_class": "dev.ashiato.collector.St17RecordingTest",
+      "requires": [
+        "collector-android/app/src/main/kotlin/dev/ashiato/collector/FeelingReminderReceiver.kt",
+        "collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/FeelingReminderInstrumentedTest.kt"
+      ]
     }
   ],
   "android": {
