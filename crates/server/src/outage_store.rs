@@ -3,7 +3,7 @@
 //!
 //! 読むのは `core.event`（削除済みも含む。削除は観測の事実を消さない）・`core.heartbeat`・
 //! `core.coverage_span`（停止）。**破棄の報告（`core.drop_report`）は材料に入れない**（C8）。
-use crate::outage::{SourceInput, SourceKind, NON_OBSERVATION_ALERT};
+use crate::outage::{Outage, SourceInput, SourceKind, NON_OBSERVATION_ALERT};
 use chrono::{DateTime, NaiveDate, Utc};
 
 /// `NOT ((logical_source, kind) IN (…))` の括弧の中。定数から組み立てる（値は定数だけなので埋め込んでよい）。
@@ -153,4 +153,88 @@ pub async fn inputs(
             },
         )
         .collect())
+}
+
+/// 台帳に残った途切れ 1 件（応答の 1 行。識別子は `opened` の行の `id`）。
+#[derive(Debug, Clone)]
+pub struct Episode {
+    pub episode_id: i64,
+    pub outage: Outage,
+}
+
+/// 判定を台帳に書く（design D7）。**1 回の取引**:
+/// 助言ロック → 開いている途切れ（`closed` の無い `opened`）を読む → 判定と突き合わせ、
+/// 新しい途切れに `opened`・戻ったものに `closed` → `device_id` があれば `delivered`（端末ごとに 1 行）。
+/// 同時に 2 本が走っても、ロックで直列になるので `opened` は 1 行。返すのは判定どおりの途切れと識別子。
+pub async fn record(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    now: DateTime<Utc>,
+    outages: Vec<Outage>,
+    device_id: Option<&str>,
+) -> Result<Vec<Episode>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('outage_ledger:' || $1::text, 0))")
+        .bind(user)
+        .execute(&mut *tx)
+        .await?;
+    let open: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT o.id, o.logical_source FROM core.outage_ledger o
+          WHERE o.user_id = $1 AND o.kind = 'opened'
+            AND NOT EXISTS (SELECT 1 FROM core.outage_ledger c
+                             WHERE c.kind = 'closed' AND c.episode_id = o.id)
+          ORDER BY o.id",
+    )
+    .bind(user)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id, source) in &open {
+        if outages.iter().all(|o| &o.logical_source != source) {
+            sqlx::query(
+                "INSERT INTO core.outage_ledger (user_id, logical_source, kind, episode_id, judged_at)
+                 VALUES ($1, $2, 'closed', $3, $4)",
+            )
+            .bind(user)
+            .bind(source)
+            .bind(id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    let mut episodes = Vec::with_capacity(outages.len());
+    for outage in outages {
+        let episode_id = match open.iter().find(|(_, s)| *s == outage.logical_source) {
+            Some((id, _)) => *id,
+            None => {
+                sqlx::query_scalar(
+                    "INSERT INTO core.outage_ledger (user_id, logical_source, kind, last_alive_at, judged_at)
+                     VALUES ($1, $2, 'opened', $3, $4) RETURNING id",
+                )
+                .bind(user)
+                .bind(&outage.logical_source)
+                .bind(outage.last_alive_at)
+                .bind(now)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
+        if let Some(device) = device_id {
+            sqlx::query(
+                "INSERT INTO core.outage_ledger (user_id, logical_source, kind, episode_id, device_id, judged_at)
+                 VALUES ($1, $2, 'delivered', $3, $4, $5)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(user)
+            .bind(&outage.logical_source)
+            .bind(episode_id)
+            .bind(device)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+        episodes.push(Episode { episode_id, outage });
+    }
+    tx.commit().await?;
+    Ok(episodes)
 }
