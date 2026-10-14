@@ -338,6 +338,21 @@ const ja = {
       rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,
     },
   },
+
+  /** 毎日の気分（feelings.ts / FeelView.tsx。ST17） */
+  feel: {
+    /** 快–不快の言葉（-2〜+2）。色で分けず、数値と言葉で出す（深掘り C1） */
+    valenceWord: {
+      "-2": "とても不快",
+      "-1": "不快",
+      "0": "どちらでもない",
+      "1": "快",
+      "2": "とても快",
+    } as Record<string, string>,
+    /** 暦の記入あり（日の記録が無く滞在にだけある日）/ 未記入の印 */
+    markStayOnly: "滞",
+    markMissing: "未",
+  },
 };
 
 /** 文言の表の形。言語を足すときはこの形を満たす表を作る。 */
