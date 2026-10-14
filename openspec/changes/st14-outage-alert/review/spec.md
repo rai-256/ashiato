@@ -163,7 +163,7 @@
 - 根拠: openspec/specs/external-ingestion/spec.md:676（書庫のソースの格子は「Must の 5 ソースより後ろ、退役したソースより前」）・:709-712（Scenario「格子は上から Must の 5 ソース・書庫のソース・退役したソースの順に並ぶ」）/ ST14 は Must と書庫の間に集計を置く（spec.md:509、D10）/ docs/stories/INDEX.md:202（「collection-coverage の画面の Requirement を後から書き換える Story（ST14 / ST15 など）は、external-ingestion の並びの条項も見る」）—— proposal・design・ST47 への申し送りのどこにもこの条項への言及が無い。いまの `orderCoverageWithArchives` と `archive-order.test.tsx` は集計を入れても壊れない（`archives.ts:100-107`）ので、食い違うのは正典の文だけ
 - kind: defer —— 他 Story の担当（ST47）
 - 提案: `docs/handoff/ST47.md` の D20 の項に「書庫のソースの並びの Scenario に、Must と書庫の間に集計（`collection-coverage`）が入ることを書き足す」を加える。D10（仮）にこの条項を確かめた旨を 1 行書く
-- 処置: deferred ST47 —— `docs/handoff/ST47.md` に R17 の項を足した（並びの文と Scenario に集計を書き足す）。design D10（仮）にこの条項を確かめた旨を書いた
+- 処置: followup ST47 —— ST47 は tasks.md がある（凍結）ので差し戻さず、`docs/handoff/ST47.md` に R17 の項を足した（並びの文と Scenario に集計を書き足す）。design D10（仮）にこの条項を確かめた旨を書いた
 
 ---
 

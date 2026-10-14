@@ -180,3 +180,16 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
   実際の全文（`.superpowers/sdd/logs/20261014-190528-all.log`）では `151 + 891 + 7 passed; 0 failed`、fmt・clippy も rc=0。FAIL の実証は evidence.jsonl の 11.3（`status: FAIL, rc=0`）。
 - **提案する正式な入口**: `quiet-run` を外した `cargo test --workspace`（Q-T1 の提案と同じ）。
 - 11.1（smoke）・11.2（check_scenarios）・11.3 の `check-openapi` / `check-migrations` / `check-immutable` / `check-log-private` は PASS。
+
+## 下流 finish で積んだ A（premise: C6 の理由と台帳の `delivered` が合っていない。2026-10-15。review/code.md R16）
+
+### Q-R16 [台帳の delivered は何を残すか（C6 の理由）] -> (未回答)
+
+- **loss**: `uncaptured` —— 端末が通知を出せたかどうか。台帳は追記のみなので、残すと決めるまでの分は後から作れない
+- **事実**: サーバは応答を返す前の取引で `delivered` を書く（`crates/server/src/outage_store.rs` の `judge_and_record`。`st14_ledger_delivered_per_device`）。
+  携帯は問い合わせの後に通知を出し、権限が無ければ出さない（`OutageNotifierTest` の「通知を出せなくても収集は止まらない」）。端末が 10 秒で打ち切ったときも同じ。
+  このとき台帳は「端末に届けた」、端末には何も出ていない
+- **崩れた前提**: C6「鳴らしたこと・戻ったことを追記のみの表に残す —— 後から『いつ気づけたか』を数えられる」。`delivered` は「返した」で、「気づけた」の材料にならない。
+  spec の Scenario は「返した」と書いているので、実装は spec とは合っている
+- **選択肢**: (1) C6 の理由を言い直す（`delivered` は「返した」。コードは変えない。推奨）/ (2) 端末が「出せた」を返す口（`shown`）を足す（API と 2 つの収集アプリ。別の Story か fix/）
+- 問いの HTML: `docs/briefs/ST14-deep-r3.html`（`deep-questions-r3.json`）
