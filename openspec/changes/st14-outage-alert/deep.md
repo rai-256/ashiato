@@ -131,3 +131,10 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
   ウィンドウの URL の経路が応答しないだけで鳴る。通知に使う「取得できない」を blockers の種類で絞るかを `design.md` の D（仮）にし、反転条件を書く（ST08 には差し戻さない）
 - **未確認（spec / tasks で確かめる）**: 形の確認を待つ書庫（`pending_shape`）が `archive_ledger_source` に行を持つか（持たないなら「最後の書庫」が進まず 75 日で鳴る）/
   Takeout の Chrome の履歴の実際の保持（本物の書庫で測る。FR-35 ★ の C8）/ ST17 の通知と同じ Android のファイルに当たるか / C-02 が未パッケージの exe のまま Windows の通知を出せるか（AUMID）
+
+## 下流 Task 1 で積んだ A（premise: 検証コマンドが成立しない。2026-10-14）
+
+### Q-T1 [Task 1 の検証コマンド 3 本が書かれたままでは原理的に通らない] -> (未回答)
+
+- **1.2 / 1.3**: `scripts/quiet-run ct -- cargo test … | tee /tmp/ct.log` は成功時に末尾 5 行しか返さず、残るのは doc-test の `0 passed; N filtered out` だけ。`grep 'test result: ok. [1-9]… passed'` が通らない。試験は 8 本（1.3 は 1 本）通っている（rc=0・ログ `.superpowers/sdd/logs/*-ct.log`）。FAIL の証跡は evidence.jsonl。提案: `quiet-run ct --` を外し、ST17 と同じ `cargo test -p ashiato-server <名前> 2>&1 | tee /tmp/ct.log`。
+- **1.1**: 着手前の確認（`! grep -rq outage_target migrations/`）で、移行を書いた後は必ず FAIL。提案: 検証を「書く前に成り立っていた」前提の確認ではなく、`bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` に直す（`outage_target` の否定を外す）。
