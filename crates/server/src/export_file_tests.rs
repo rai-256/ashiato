@@ -1468,6 +1468,10 @@ async fn export_volume_one_run_reports_time_and_memory() {
     .execute(&w.pool)
     .await
     .unwrap();
+    // 件数の数え（`GET /export/summary`。D13 の反転条件「3 秒以上」）も同じ断片を通るので、同じ量で測る
+    let counted = std::time::Instant::now();
+    export::read_summary(&w.pool).await.unwrap();
+    let summary_seconds = counted.elapsed().as_secs_f64();
     let started = std::time::Instant::now();
     let path = export_into(&w.pool, ExportConfig::with_dir(tmp_dir("volume"))).await;
     let seconds = started.elapsed().as_secs_f64();
@@ -1478,10 +1482,13 @@ async fn export_volume_one_run_reports_time_and_memory() {
         kind = "export",
         rows,
         seconds,
+        summary_seconds,
         max_rss_kib = rss,
         "書き出しの量"
     );
-    eprintln!("kind=export rows={rows} seconds={seconds:.1} max_rss_kib={rss}");
+    eprintln!(
+        "kind=export rows={rows} seconds={seconds:.1} summary_seconds={summary_seconds:.1} max_rss_kib={rss}"
+    );
     // 落ちるのは座標を持つ行（100 に 1 つ）のうち消した時間に重なるものだけ。座標を持たない行は残る
     let with_coords = rows / 100;
     assert!(
