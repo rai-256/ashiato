@@ -7,7 +7,7 @@
  */
 
 import { msg } from "./messages";
-import { isRealDate } from "./stays";
+import { isRealDate, type DayEntry } from "./stays";
 
 const M = msg("feel");
 
@@ -164,9 +164,20 @@ export interface DayBucket {
   records: Feeling[];
 }
 
+/** 1 つの滞在の分（サーバが吸収を解決済み）。 */
+export interface StayBucket {
+  stay: string;
+  latest: Latest;
+  records: Feeling[];
+}
+
 export interface FeelingsDay {
   date: string;
+  status: DayStatus;
   day: DayBucket;
+  stays: StayBucket[];
+  /** 表示しない滞在（消した・たどれない）の記録の件数 */
+  hidden_stay_records: number;
 }
 
 export interface FeelingsView {
@@ -190,11 +201,22 @@ function isFeelingShape(v: unknown): v is Feeling {
 
 const isFeelingOrNull = (v: unknown): boolean => v === null || isFeelingShape(v);
 
+const DAY_STATUSES: readonly string[] = ["recorded", "missing", "before_start", "future"];
+
+const isLatest = (v: unknown): boolean => isObj(v) && isFeelingOrNull(v.before) && isFeelingOrNull(v.after);
+
+function isStayBucket(v: unknown): v is StayBucket {
+  return isObj(v) && typeof v.stay === "string" && isLatest(v.latest) && Array.isArray(v.records) && v.records.every(isFeelingShape);
+}
+
 /** 応答が読める形か。**形が違えば失敗として出す**（型の宣言だけで通すと描画で落ちる）。 */
 export function isFeelingsView(v: unknown): v is FeelingsView {
   if (!isObj(v) || typeof v.today !== "string" || !Array.isArray(v.days)) return false;
   return v.days.every((d) => {
     if (!isObj(d) || typeof d.date !== "string" || !isObj(d.day)) return false;
+    if (!DAY_STATUSES.includes(d.status as DayStatus)) return false;
+    if (typeof d.hidden_stay_records !== "number") return false;
+    if (!Array.isArray(d.stays) || !d.stays.every(isStayBucket)) return false;
     const b = d.day;
     return (
       isObj(b.latest) &&
@@ -250,4 +272,60 @@ export function feelDateFromHash(hash: string): { date: string | null } | { inva
   const raw = m[1] ?? "";
   if (raw === "") return { date: null };
   return isRealDate(raw) ? { date: raw } : { invalid: raw };
+}
+
+/** 滞在の行（S-3。design D13）。 */
+export interface StayRow {
+  id: string;
+  /** `/stays` の区間の値（送る原文の `start` / `end`） */
+  start: string;
+  end: string;
+  /** 始まりが対象の日より前（その行で書いた記録は前の日に数える） */
+  carried: boolean;
+  /** 記入の日時の新しい順 */
+  records: Feeling[];
+  /** 後の最新があれば後、無ければ前の最新 */
+  latest: Feeling | null;
+}
+
+const writtenMs = (f: Feeling): number => Date.parse(f.written_at);
+
+/**
+ * 対象の日の滞在の行を作る。並びは `/stays` の `kind: "stay"`（消した・吸収された滞在は既に出ない）の始まりの順。
+ * 各行の記録は、読んだ日の全部の滞在の分から識別子で集める（前の日から続く滞在の記録は前の日にある）。
+ */
+export function stayRows(entries: DayEntry[], days: FeelingsDay[], target: string): StayRow[] {
+  const dayStart = Date.parse(`${target}T00:00:00${TARGET_OFFSET}`);
+  return entries
+    .filter((e): e is DayEntry & { id: string } => e.kind === "stay" && e.id !== undefined)
+    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
+    .map((e) => {
+      const records = days
+        .flatMap((d) => d.stays.filter((s) => s.stay === e.id).flatMap((s) => s.records))
+        .sort((a, b) => writtenMs(b) - writtenMs(a));
+      const phased = (p: Phase): Feeling | null => records.find((r) => r.phase === p) ?? null;
+      return {
+        id: e.id,
+        start: e.start,
+        end: e.end,
+        carried: Date.parse(e.start) < dayStart,
+        records,
+        latest: phased("after") ?? phased("before"),
+      };
+    });
+}
+
+const REMINDER_AT = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** 通知の時刻（`GET /feelings/reminder` の使う欄）。 */
+export function isReminder(v: unknown): v is { at: string } {
+  return isObj(v) && typeof v.at === "string" && REMINDER_AT.test(v.at);
+}
+
+/** 時刻の欄の値が `HH:MM` として読めるか（サーバと同じ形）。 */
+export const isReminderTime = (s: string): boolean => REMINDER_AT.test(s);
+
+/** 暦の先頭の日の曜日（0 = 日曜）。 */
+export function weekdayOf(date: string): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
 }

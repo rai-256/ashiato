@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { todayInTz } from "./App";
 import { readIngestResponse } from "./attributes";
 import {
   atLabel,
   buildFeeling,
+  calendarDays,
   countNoteChars,
   ingestFeelingItem,
   isFeelingsView,
@@ -12,23 +13,23 @@ import {
   phaseOf,
   scaleValue,
   signed,
+  stayRows,
   valenceWord,
   type BuiltFeeling,
   type DayBucket,
   type Feeling,
   type FeelingsView,
   type Scale,
+  type StayRow,
 } from "./feelings";
+import { Calendar, historyLine, keepFocus, ReminderSetting, ScaleRow, StayRows, type CalendarLoad, type StaysLoad } from "./FeelParts";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
-import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
-import { dateLabel, shiftDay } from "./stays";
-import { font, MIN_TARGET_PX, SCHEMES, SPACE, TYPE, tone } from "./tokens";
+import { controlStyle, inputStyle, linkStyle, pageStyle, sectionStyle, titleStyle } from "./surface";
+import { clock, dateLabel, isDayView, shiftDay, type DayEntry } from "./stays";
+import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
 
 const m = msg("feel");
-
-/** 尺度の並び（-2〜+2）。 */
-const LEVELS = [-2, -1, 0, 1, 2] as const;
 
 type Load = { at: "loading" } | { at: "ok"; value: FeelingsView } | { at: "failed" };
 
@@ -44,6 +45,8 @@ interface Pending {
   v: number;
   note: string;
   at: Date;
+  /** 滞在の行で押した 1 件の、時刻の範囲（保存の知らせに出す）。日の記録には無い */
+  stayRange?: string;
 }
 
 interface Notice {
@@ -58,15 +61,6 @@ const norm = (note: string): string => (note.trim() === "" ? "" : note);
 
 const numberText = (n: number): string => n.toLocaleString("en-US");
 
-/**
- * 押しても欄のフォーカスを奪わない。奪うと「欄を離れた」で先に 1 件送られ、その知らせが出て
- * 画面が下へずれ、押したはずのボタンに指が届かない（押し込みと離しが別の要素になって押しが消える）。
- * 押した値はその操作が、ひとことは同じ記録に一緒に載せて送る。
- */
-const keepFocus = (e: React.MouseEvent): void => {
-  e.preventDefault();
-};
-
 /** 暦に無い日付のアドレス。**書く操作は出さない**。 */
 export function FeelInvalid({ raw }: { raw: string }): React.ReactElement {
   const scheme = useScheme();
@@ -78,60 +72,6 @@ export function FeelInvalid({ raw }: { raw: string }): React.ReactElement {
         {m.toToday}
       </a>
     </main>
-  );
-}
-
-function ScaleRow({
-  group,
-  pressed,
-  label,
-  onPress,
-  withWords,
-  testid,
-}: {
-  group: string;
-  pressed: number | null;
-  label: (value: number) => string;
-  onPress: (value: number) => void;
-  withWords: boolean;
-  testid: string;
-}): React.ReactElement {
-  const scheme = useScheme();
-  const c = SCHEMES[scheme];
-  return (
-    <div role="group" aria-label={group} style={{ display: "flex", gap: 4 }}>
-      {LEVELS.map((value) => {
-        const on = pressed === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            data-testid={`${testid}-${value}`}
-            aria-pressed={on}
-            aria-label={label(value)}
-            {...{ [FOCUS_ATTR]: "" }}
-            onMouseDown={keepFocus}
-            onClick={() => onPress(value)}
-            style={{
-              ...(on ? primaryStyle(c) : controlStyle(c)),
-              flex: 1,
-              minWidth: 0,
-              minHeight: withWords ? 56 : MIN_TARGET_PX + 8,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: on ? 600 : 400,
-              border: on ? `2px solid ${tone(c.accent)}` : `1px solid ${tone(c.muted)}`,
-              overflowWrap: "anywhere",
-            }}
-          >
-            <b>{signed(value)}</b>
-            {withWords && <span style={{ font: font(TYPE.caption * 0.9) }}>{valenceWord(value)}</span>}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -155,6 +95,10 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   const [notice, setNotice] = useState<Notice | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [calendar, setCalendar] = useState<CalendarLoad>({ at: "loading" });
+  /** 滞在の行で押した値（読み出した最新より優先する） */
+  const [stayPicks, setStayPicks] = useState<Record<string, number>>({});
+  const days = calendarDays(target);
   /** 最後に送った（送ろうとした）ひとこと。欄を離れたとき、これと違えば送る。`null` = まだ送っていない */
   const sentNote = useRef<string | null>(null);
 
@@ -179,6 +123,51 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       live = false;
     };
   }, [target, tick]);
+
+  /** 暦と滞在の行の元（対象の日で終わる 30 日）。日の読み出しとは別に読み、片方の失敗が他方を巻き込まない。 */
+  const first = days[0] ?? target;
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/feelings?from=${first}&to=${target}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        const body: unknown = await res.json();
+        if (!isFeelingsView(body)) throw new Error("unexpected_shape");
+        return body;
+      })
+      .then((value) => live && setCalendar({ at: "ok", days: value.days }))
+      .catch(() => live && setCalendar({ at: "failed" }));
+    return () => {
+      live = false;
+    };
+  }, [first, target, tick]);
+
+  /** 対象の日の滞在（`kind: "stay"`）。消した・吸収された滞在は `/stays` に出ない。 */
+  const [staysRaw, setStaysRaw] = useState<{ at: "loading" } | { at: "ok"; entries: DayEntry[] } | { at: "failed" }>({ at: "loading" });
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/stays?date=${target}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        const body: unknown = await res.json();
+        if (!isDayView(body)) throw new Error("unexpected_shape");
+        return body;
+      })
+      .then((value) => live && setStaysRaw({ at: "ok", entries: value.entries }))
+      .catch(() => live && setStaysRaw({ at: "failed" }));
+    return () => {
+      live = false;
+    };
+  }, [target]);
+
+  const stays = useMemo<StaysLoad>(() => {
+    if (staysRaw.at !== "ok") return staysRaw;
+    if (calendar.at === "loading") return { at: "loading" };
+    // 記録の読み出しに失敗しても、滞在の行そのものは出す（押された状態が無いだけ）
+    const feelingDays = calendar.at === "ok" ? calendar.days : [];
+    const hidden = feelingDays.find((d) => d.date === target)?.hidden_stay_records ?? 0;
+    return { at: "ok", rows: stayRows(staysRaw.entries, feelingDays, target), hidden };
+  }, [staysRaw, calendar, target]);
 
   const goto = (to: string): void => {
     window.location.hash = `#/feel/${to}`;
@@ -248,7 +237,11 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       const outcome = await readIngestResponse(res);
       if (outcome.at === "accepted") {
         setPending(null);
-        setNotice({ bad: false, text: m.saved(`${signed(p.v)} ${valenceWord(p.v)}`, atLabel(p.at), target) });
+        const value = `${signed(p.v)} ${valenceWord(p.v)}`;
+        setNotice({
+          bad: false,
+          text: p.stayRange === undefined ? m.saved(value, atLabel(p.at), target) : m.savedStay(value, atLabel(p.at), p.stayRange),
+        });
         setTick((t) => t + 1);
         return;
       }
@@ -292,6 +285,14 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     if (v !== null || e !== null) setPick({ v, e });
     setPending(null);
     setNotice({ bad: true, text: m.held(numberText(NOTE_MAX_CHARS)) });
+  };
+
+  /** 滞在の行を押す。送る原文の始まり・終わりは `/stays` の区間の値。ひとことは持たない。 */
+  const pressStay = (row: StayRow, v: number): void => {
+    const at = new Date();
+    const built = buildFeeling({ kind: "stay", stay: row.id, start: row.start, end: row.end }, [{ id: "valence", version: 1, value: v }], null, at);
+    setStayPicks((p) => ({ ...p, [row.id]: v }));
+    void post({ built, v, note: "", at, stayRange: m.stayRange(clock(row.start, target), clock(row.end, target)) }, sentNote.current);
   };
 
   const pressValence = (v: number): void => {
@@ -435,20 +436,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
           </div>
         )}
       </section>
+      <StayRows target={target} load={stays} picks={stayPicks} onPress={pressStay} />
+      <Calendar dates={days} target={target} load={calendar} onPick={goto} />
+      <ReminderSetting date={target} />
     </main>
   );
-}
-
-/** 書き直した履歴の 1 行（値・ひとこと・記入の日時・前/後）。読むだけ。 */
-function historyLine(r: Feeling): string {
-  const v = scaleValue(r, "valence");
-  const e = scaleValue(r, "energy");
-  const parts = [
-    v === null ? "" : `${signed(v)} ${valenceWord(v)}`,
-    e === null ? "" : m.historyRow.energy(signed(e)),
-    r.note === null || r.note === "" ? "" : m.historyRow.note([...r.note].slice(0, 20).join(""), [...r.note].length > 20),
-    m.historyRow.writtenAt(atLabel(new Date(r.written_at))),
-    m.phaseWord[r.phase] ?? "",
-  ];
-  return parts.filter((p) => p !== "").join(m.historySeparator);
 }

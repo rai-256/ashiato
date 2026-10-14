@@ -393,6 +393,38 @@ const ja = {
     },
     historySeparator: " · ",
     at: (mo: number, d: number, hm: string): string => `${mo} 月 ${d} 日 ${hm}`,
+
+    /** 滞在の行（FeelParts.tsx。design D13） */
+    staysHeading: "滞在ごとの気分",
+    staysLoading: "滞在を読み込み中…",
+    staysNone: "この日の滞在はありません",
+    staysFailed: "滞在を読み出せませんでした（滞在が無い、という意味ではありません）",
+    stayRange: (from: string, to: string): string => `${from} – ${to}`,
+    stayGroup: (range: string): string => `滞在 ${range} の快–不快`,
+    carriedFrom: "前の日から",
+    hiddenStays: (n: number): string => `消した滞在の気分 ${n} 件（ここには出しません）`,
+    savedStay: (value: string, at: string, range: string): string => `保存しました: ${value} · 記入 ${at}（滞在 ${range}）`,
+
+    /** 暦（design D14） */
+    calendarHeading: "この 30 日",
+    calendarFailed: "暦を読み出せませんでした（未記入、という意味ではありません）",
+    weekdays: ["日", "月", "火", "水", "木", "金", "土"] as readonly string[],
+    calendarDay: (date: string, state: string): string => (state === "" ? date : `${date} ${state}`),
+    calendarState: {
+      recorded: "記入あり",
+      missing: "未記入",
+      before_start: "使い始める前",
+      future: "これから",
+    } as Record<string, string>,
+
+    /** 通知の時刻（design D10） */
+    reminderHeading: "通知の時刻",
+    reminderCurrent: (at: string): string => `いまの通知の時刻: ${at}`,
+    reminderUnknown: "いまの通知の時刻を読み出せませんでした",
+    reminderLabel: "時刻（時:分）",
+    reminderSave: "通知の時刻を保存",
+    reminderSaved: (at: string): string => `通知の時刻を ${at} にしました`,
+    reminderNotSaved: "通知の時刻を保存できませんでした。入れた時刻はそのまま残っています",
   },
 };
 

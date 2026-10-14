@@ -39,7 +39,7 @@ function view(date: string, records: Feeling[]): unknown {
   return {
     today: "2026-10-08",
     first_day: null,
-    days: [{ date, status: "recorded", day: { latest: { before: first("before"), after: first("after") }, records }, stays: [] }],
+    days: [{ date, status: "recorded", day: { latest: { before: first("before"), after: first("after") }, records }, stays: [], stays_with_records: 0, hidden_stay_records: 0 }],
   };
 }
 
@@ -67,6 +67,8 @@ beforeEach(() => {
           return r;
         });
       }
+      if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: [] }));
+      if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: "21:00", recorded: false }));
       gets.push(url);
       const date = /from=([\d-]+)/.exec(url)?.[1] ?? "";
       return Promise.resolve(json(200, view(date, records)));
