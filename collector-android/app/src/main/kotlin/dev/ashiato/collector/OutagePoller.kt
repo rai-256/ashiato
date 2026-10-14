@@ -4,6 +4,7 @@ package dev.ashiato.collector
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.net.URLEncoder
 import java.time.OffsetDateTime
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -12,6 +13,13 @@ import java.util.concurrent.Executors
 fun interface OutageQuery {
     fun fetch(deviceId: String): Outcome
 }
+
+/**
+ * `GET /outages` に付ける問い合わせの文字列。**自分の利用者で判定させる** —— 付けないとサーバは既定の利用者で
+ * 判定し、記録が届いているソースまで途切れで返る（review/code.md R13 / design D29（仮））。
+ */
+internal fun outageQueryString(deviceId: String, userId: String): String =
+    "?device_id=" + URLEncoder.encode(deviceId, "UTF-8") + "&user_id=" + URLEncoder.encode(userId, "UTF-8")
 
 @Serializable
 private data class OutageItemDto(

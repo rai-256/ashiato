@@ -238,7 +238,14 @@ async fn st14_api_outages_unauthorized() {
 async fn st14_api_outages_warming_up() {
     let (now, pool) = (Utc::now(), testdb::pool().await);
     let (user, _) = broken_location(&pool, now).await;
-    let app = app_at(now).await.started(now - Duration::minutes(10));
+    // 30 分の 1 秒前まで待つ（D5（仮）の値は名指しで固定する。review/code.md R11）
+    assert_eq!(
+        outage::OUTAGE_WARMUP,
+        std::time::Duration::from_secs(30 * 60)
+    );
+    let app = app_at(now)
+        .await
+        .started(now - Duration::minutes(30) + Duration::seconds(1));
     let (status, body) = get(&app, &uri(user, Some("dev-a"))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let v = json(&body);
@@ -263,7 +270,9 @@ async fn st14_api_outages_warmup_override_is_zero() {
 async fn st14_api_outages_after_warmup() {
     let (now, pool) = (Utc::now(), testdb::pool().await);
     let (user, name) = broken_location(&pool, now).await;
-    let (_, body) = get(&app_at(now).await, &uri(user, Some("dev-a"))).await;
+    // 30 分ちょうどで待ちが明ける（review/code.md R11）
+    let app = app_at(now).await.started(now - Duration::minutes(30));
+    let (_, body) = get(&app, &uri(user, Some("dev-a"))).await;
     assert_eq!(json(&body)["status"], "ready");
     assert!(
         item_of(&body, &name).is_some(),

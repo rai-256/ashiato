@@ -201,6 +201,15 @@ async fn st14_reg_ledger_rows_are_append_only() {
         .execute(&pool)
         .await;
     assert!(delete.is_err(), "削除が通った");
+    // 所有者の接続でも全行の切り捨ては拒まれる（文トリガ。review/code.md R15）。
+    // 拒まれなかったときに共有の試験 DB を空にしないよう、取引の中で撃って戻す
+    let mut tx = pool.begin().await.unwrap();
+    let truncate = sqlx::query("TRUNCATE core.outage_ledger")
+        .execute(&mut *tx)
+        .await;
+    tx.rollback().await.unwrap();
+    let err = truncate.expect_err("切り捨てが通った").to_string();
+    assert!(err.contains("追記のみ"), "{err}");
 }
 
 /// 途切れの始まり（`opened`）は最後に生きていた時刻を必ず持つ（design D7 / review/code.md R6）。

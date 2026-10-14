@@ -18,7 +18,6 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import java.io.File
-import java.net.URLEncoder
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
@@ -196,10 +195,10 @@ open class LocationService : Service() {
     /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
     protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
 
-    /** 途切れの問い合わせ（`GET /outages?device_id=`）。**試験だけが差し替える**（ST14 / design D12）。 */
+    /** 途切れの問い合わせ（`GET /outages?device_id=&user_id=`）。**試験だけが差し替える**（ST14 / design D12）。 */
     protected open fun newOutageQuery(): OutageQuery {
         val transport = HttpTransport(Config.baseUrl, Config.apiToken, "/outages")
-        return OutageQuery { id -> transport.get("?device_id=" + URLEncoder.encode(id, "UTF-8")) }
+        return OutageQuery { id -> transport.get(outageQueryString(id, Config.userId)) }
     }
 
     /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */

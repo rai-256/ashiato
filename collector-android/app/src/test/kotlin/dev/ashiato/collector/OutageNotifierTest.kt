@@ -125,6 +125,22 @@ class OutageNotifierTest {
         assertEquals(1, running.outboxForTest.snapshot().count { it.id == "kept" })
     }
 
+    @Test
+    fun `通知を出せなかったら覚えを進めず、権限が戻った次の契機で音つきで出る`() {
+        // Q4「途切れ 1 回につき音は 1 回」の 1 回を、出せなかった契機で使わない（review/code.md R12。PC は outage_notice.rs の同じ試験）
+        shadowOf(app).denyPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        val notice = OutageNotice(app.getSharedPreferences("outage_notice_r12", android.content.Context.MODE_PRIVATE))
+        val poller = OutagePoller(OutageQuery { readyBody() }, notice, notifier, { "dev" }, executor = DirectExecutorService())
+        poller.poll()
+
+        assertNull("通知は出ない", posted())
+        assertEquals("覚えは空のまま", NoticeState(sounded = emptySet(), shown = false), notice.load())
+
+        grant()
+        poller.poll()
+        assertFalse("権限が戻った次の契機は音つき", silent(posted()!!))
+    }
+
     private fun record(id: String) =
         testFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "u", "d", java.time.ZoneId.of("Asia/Tokyo"))

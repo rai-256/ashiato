@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -86,6 +87,24 @@ class OutagePollerTest {
         service.beatScheduler.fire()
 
         assertNotNull(shadowOf(manager).getNotification(OutageNotifier.OUTAGE_NOTIFICATION_ID))
+    }
+
+    @Test
+    fun `問い合わせは端末と自分の利用者を付ける`() {
+        // review/code.md R13 / design D29（仮）
+        val q = outageQueryString("dev a", "6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c")
+        assertEquals("?device_id=dev+a&user_id=6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c", q)
+    }
+
+    @Test
+    fun `収集アプリの本体は AlarmManager も WorkManager も使わない`() {
+        // 問い合わせを配線する LocationService も含め、本体のソース全体を見る（review/code.md R14）
+        val main = java.io.File("src/main")
+        assertTrue("本体のソースが見つからない: ${main.absolutePath}", main.isDirectory)
+        val hits = main.walkTopDown().filter { it.isFile && it.extension in setOf("kt", "java", "xml") }
+            .filter { f -> f.readText().let { "AlarmManager" in it || "WorkManager" in it } }
+            .map { it.path }.toList()
+        assertEquals(emptyList<String>(), hits)
     }
 
     @Test
