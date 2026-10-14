@@ -85,7 +85,7 @@
 
 ## Task 6: 縦串の道具と本人の手順書（design D6 / D10）
 
-- [ ] 6.1 `tools/smoke.sh` の形の一覧の照合 `grep -q 'YouTubeWatch'` を `grep -Eq '"kind": ?"YouTube"'` に変え、smoke の `watch-history.json` の項目に日本語の決まり文句の題名と `products: ["YouTube"]` を付ける（言語の当たらない形には印を置けない）。
+- [x] 6.1 `tools/smoke.sh` の形の一覧の照合 `grep -q 'YouTubeWatch'` を `grep -Eq '"kind": ?"YouTube"'` に変え、smoke の `watch-history.json` の項目に日本語の決まり文句の題名と `products: ["YouTube"]` を付ける（言語の当たらない形には印を置けない）。
   印を置いた後に `c03-youtube-watch` の最終日が出ることを見る照合はそのまま残す。
   `docs/archive-inbox.md` の手順に、YouTube の形の一覧の読み方（`products`・`languages`・`destinations`。`languages` が空なら印を置けないこと、`rating` が 0 なら表が外れている合図）を足す。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0、`grep -qF '"kind": ?"YouTube"' tools/smoke.sh && ! grep -q 'YouTubeWatch' tools/smoke.sh` rc=0、
