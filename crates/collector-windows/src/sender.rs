@@ -239,6 +239,60 @@ impl Transport for HttpTransport {
     }
 }
 
+/// 途切れの問い合わせの打ち切り。**通知の遅れは収集を止めない**ので短い（design D11）。
+pub const OUTAGE_QUERY_TIMEOUT_SEC: u64 = 10;
+
+/// `GET /outages?device_id=`（ST14 / design D6）。届かない・読めないは `Unreachable`。
+pub struct HttpOutageQuery {
+    base_url: String,
+    token: String,
+    agent: ureq::Agent,
+}
+
+/// **合言葉を出さない**（R11）。
+impl std::fmt::Debug for HttpOutageQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpOutageQuery")
+            .field("base_url", &self.base_url)
+            .field("token", &"***")
+            .finish()
+    }
+}
+
+impl HttpOutageQuery {
+    pub fn new(base_url: &str, token: &str) -> Self {
+        let agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(
+                OUTAGE_QUERY_TIMEOUT_SEC,
+            )))
+            .build()
+            .new_agent();
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token: token.to_string(),
+            agent,
+        }
+    }
+}
+
+impl crate::outage_notice::OutageQuery for HttpOutageQuery {
+    fn fetch(&self, device_id: &str) -> crate::outage_notice::OutageResult {
+        let sent = self
+            .agent
+            .get(&format!("{}/outages", self.base_url))
+            .query("device_id", device_id)
+            .header("authorization", &format!("Bearer {}", self.token))
+            .call();
+        let Ok(mut res) = sent else {
+            return crate::outage_notice::OutageResult::Unreachable;
+        };
+        let status = res.status().as_u16();
+        let body = res.body_mut().read_to_string().unwrap_or_default();
+        crate::outage_notice::parse_reply(&Reply { status, body })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
