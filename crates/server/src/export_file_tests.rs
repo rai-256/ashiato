@@ -593,26 +593,6 @@ fn files_with(dir: &Path, mark: &[u8], newer_than: Option<std::time::SystemTime>
     hits
 }
 
-/// `TMPDIR` をテストの間だけ差し替え、落ちても元に戻す。書き出しは `EXPORT_SERIAL` で直列。
-struct TmpdirGuard(Option<std::ffi::OsString>);
-
-impl TmpdirGuard {
-    fn point_at(dir: &Path) -> Self {
-        let old = std::env::var_os("TMPDIR");
-        std::env::set_var("TMPDIR", dir);
-        Self(old)
-    }
-}
-
-impl Drop for TmpdirGuard {
-    fn drop(&mut self) {
-        match self.0.take() {
-            Some(v) => std::env::set_var("TMPDIR", v),
-            None => std::env::remove_var("TMPDIR"),
-        }
-    }
-}
-
 // Scenario: 書き出しの途中で記録の値を暗号化しないまま書かない
 #[tokio::test]
 async fn export_zip_never_writes_record_values_unencrypted_midway() {
@@ -628,28 +608,25 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
     .await;
     let dir = tmp_dir("plain");
     let started = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
-    // 一時フォルダをこのテストだけの空のフォルダに向ける（書き出しは直列なので他の書き出しは混ざらない）。
-    // 向ける前のプロセスの一時フォルダは「設定を経ずに書く経路」を捕まえるために、新しいファイルだけを見る。
+    // プロセスの一時フォルダ（`TMPDIR` は差し替えない —— 並んで走る他のテストも見る環境なので。R10）に
+    // このテストが始まってから新しくできたファイルを見る。置き場（`dir`）もその下にあるので、置き場は別に数える。
     let process_tmp = std::env::temp_dir();
-    let own_tmp = tmp_dir("own-tmp");
-    let _tmpdir = TmpdirGuard::point_at(&own_tmp);
     type Seen = Vec<(String, Vec<PathBuf>)>;
     let found: Arc<Mutex<Seen>> = Arc::default();
     let (sink, d, m) = (found.clone(), dir.clone(), mark.clone());
-    let (own, proc_tmp) = (own_tmp.clone(), process_tmp.clone());
+    let proc_tmp = process_tmp.clone();
     let mut cfg = ExportConfig::with_dir(dir.clone());
     cfg.hooks = Hooks::none().with_before_file(move |name| {
         let (sink, d, m) = (sink.clone(), d.clone(), m.clone());
-        let (own_tmp, process_tmp) = (own.clone(), proc_tmp.clone());
+        let process_tmp = proc_tmp.clone();
         Box::pin(async move {
             // 記録のファイルを書いた後（2 つ目以降の項目の前）に、置き場と一時フォルダの中身を読む
             if name != "events.jsonl" {
                 let mut hits = files_with(&d, m.as_bytes(), None);
-                hits.extend(files_with(&own_tmp, m.as_bytes(), None));
                 hits.extend(
                     files_with(&process_tmp, m.as_bytes(), Some(started))
                         .into_iter()
-                        .filter(|p| !p.starts_with(&d) && !p.starts_with(&own_tmp)),
+                        .filter(|p| !p.starts_with(&d)),
                 );
                 sink.lock().unwrap().push((name.to_string(), hits));
             }
@@ -663,7 +640,6 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
     }
     // 書き終えた後も、置き場とこのプロセスの一時フォルダの新しいファイルに平文が無い
     assert!(files_with(&dir, mark.as_bytes(), None).is_empty());
-    assert!(files_with(&own_tmp, mark.as_bytes(), None).is_empty());
     assert!(files_with(&process_tmp, mark.as_bytes(), Some(started)).is_empty());
     assert_eq!(names(&dir).len(), 1);
 }
