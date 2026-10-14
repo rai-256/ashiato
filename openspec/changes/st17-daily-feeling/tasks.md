@@ -211,11 +211,11 @@ jsdom は `web/src/__tests__/DayFeeling.test.tsx`、e2e は `web/e2e/day-feeling
 
 e2e は `web/e2e/feel-limits.spec.ts`（新規）。
 
-- [ ] 12.1 e2e で S-3 の下限を測る（明と暗のそれぞれ。幅 360 px）。コントラストは計算した比、実寸は `getBoundingClientRect`、フォーカスは `Tab` で移して輪郭の色。
+- [x] 12.1 e2e で S-3 の下限を測る（明と暗のそれぞれ。幅 360 px）。コントラストは計算した比、実寸は `getBoundingClientRect`、フォーカスは `Tab` で移して輪郭の色。
   色の出所は、`tokens.ts` 以外の色の文字列が `FeelView.tsx` / `DayFeeling.tsx` に無いことを jsdom 側でも固定する。
   Scenario: `快不快のボタンは高さ 64 px 以上` / `快不快のボタンは 1 列に並ぶ` / `幅 360 px で横のスクロールが出ない` / `主観入力の画面は触れる対象の下限を満たす` /
   `主観入力の画面は文字のコントラストの下限を満たす` / `押された状態と未記入の破線は 3:1 以上` / `主観入力の画面はフォーカスの輪郭が見える` /
   `主観入力の画面は OS の明暗に追従する` / `主観入力の画面は確定した色だけを使う`。
   検証: `ET feel-limits.spec.ts`、`VT FeelViewParts.test.tsx`
-- [ ] 12.2 全体の検査: `python3 scripts/check_scenarios.py . st17-daily-feeling` rc=0（担保なし 0）、`tools/check-log-private.sh` rc=0、`tools/check-openapi.sh` rc=0、
+- [x] 12.2 全体の検査: `python3 scripts/check_scenarios.py . st17-daily-feeling` rc=0（担保なし 0）、`tools/check-log-private.sh` rc=0、`tools/check-openapi.sh` rc=0、
   `bash -c '! cargo test -p ashiato-server st17_ -- --list 2>/dev/null | grep ": test$" | grep -vq "st17_"'` rc=0（`st17_` で絞った一覧にこの change 以外の試験が出ない）
