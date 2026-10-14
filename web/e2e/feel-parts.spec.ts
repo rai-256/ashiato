@@ -5,7 +5,7 @@ import { expect, test, type Locator, type Page, type Response } from "@playwrigh
  *
  * 見え方（暦・滞在の行の最新・前の日から・消した滞在・吸収）は**偽データの固定の日**（`tools/seed.sh normal` の主観の節。
  * 2026-09-04〜10-03）に対してだけ assert し、書かない。書く検査（滞在の行を押す・前の日から続く滞在に書く）は、
- * 実行ごとに乱数で選んだ 2030 年以降の日に、偽データの「前の日から続く滞在」と同じ形の位置の記録を足して作る
+ * 実行ごとに乱数で選んだ 2100 年以降の日に、偽データの「前の日から続く滞在」と同じ形の位置の記録を足して作る
  * （主観の行は DB の錠で消せない。件数は書く前との差分で数える）。
  */
 
@@ -24,9 +24,9 @@ const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const jstDate = (d: Date): string => new Date(d.getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
 
-/** 2030-01-01 から約 8 年の中の、実行ごとに違う日。 */
+/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（実際の今日がいつになっても「これから」の側に残る十分先）。 */
 function freshDay(): string {
-  return shift("2030-01-01", Math.floor(Math.random() * 3000));
+  return shift("2100-01-01", Math.floor(Math.random() * 3000));
 }
 
 async function openOn(page: Page, hash: string): Promise<void> {
@@ -180,7 +180,7 @@ test("主観の読み出しが 500 のとき、失敗が出て、暦に「未」
   }
 });
 
-// ---------------------------------------------------------------- 書く（2030 年以降の日に、前の日から続く滞在などを作る）
+// ---------------------------------------------------------------- 書く（2100 年以降の日に、前の日から続く滞在などを作る）
 
 interface Placed {
   /** 対象の日 */

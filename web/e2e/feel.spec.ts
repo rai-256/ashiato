@@ -4,7 +4,7 @@ import { expect, test, type Page, type Request, type Response } from "@playwrigh
 /**
  * S-3 主観入力の画面（ST17 / tasks 8.2 / design D12）—— **押した瞬間に保存する**。本物のブラウザ・本物のサーバ。
  *
- * **主観の行は DB の錠で消せない**ので、書く検査は実行ごとに乱数で選んだ 2030 年以降の日を `page.clock` の
+ * **主観の行は DB の錠で消せない**ので、書く検査は実行ごとに乱数で選んだ 2100 年以降の日を `page.clock` の
  * 「今日」にして書き、件数は書く前との差分で数える（偽データの日には書かない）。
  */
 
@@ -20,9 +20,9 @@ const DAY_MS = 86_400_000;
 const isIngest = (r: Response): boolean => r.url().includes("/api/ingest") && r.request().method() === "POST";
 const isIngestReq = (r: Request): boolean => r.url().includes("/api/ingest") && r.method() === "POST";
 
-/** 2030-01-01 から約 8 年の中の、実行ごとに違う日。 */
+/** 2100-01-01 から約 8 年の中の、実行ごとに違う日（実際の今日がいつになっても「これから」の側に残る十分先）。 */
 function freshDay(): string {
-  return new Date(Date.UTC(2030, 0, 1) + Math.floor(Math.random() * 3000) * DAY_MS).toISOString().slice(0, 10);
+  return new Date(Date.UTC(2100, 0, 1) + Math.floor(Math.random() * 3000) * DAY_MS).toISOString().slice(0, 10);
 }
 const shift = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const at = (day: string, hm: string): Date => new Date(`${day}T${hm}:00+09:00`);
