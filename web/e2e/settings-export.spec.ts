@@ -331,14 +331,14 @@ test("Scenario 9.3: まだ書き出していなければそう出て、確認に
 test("Scenario 9.3: 失敗と途中で止まった書き出しは節に出て、押し直せる", async ({ page }) => {
   await stubStatus(page, { last_failure: { at: STARTED, kind: "disk_full" }, leftover: [] });
   await openSettings(page);
-  await expect(page.getByTestId("export-line")).toContainText("書き出しに失敗しました");
+  await expect(page.getByTestId("export-section").getByTestId("export-line")).toContainText("書き出しに失敗しました");
   await expect(startButton(page)).toBeEnabled();
 
   await page.unroute("**/api/export");
   await stubStatus(page, { interrupted: { started_at: STARTED, file: "/data/export/ashiato-partial.zip" }, leftover: [] });
   await openSettings(page);
-  await expect(page.getByTestId("export-line")).toContainText("途中で止まりました");
-  await expect(page.getByTestId("export-line")).toContainText("/data/export/ashiato-partial.zip");
+  await expect(page.getByTestId("export-section").getByTestId("export-line")).toContainText("途中で止まりました");
+  await expect(page.getByTestId("export-section").getByTestId("export-line")).toContainText("/data/export/ashiato-partial.zip");
   await expect(startButton(page)).toBeEnabled();
 });
 
@@ -346,7 +346,7 @@ test("Scenario 9.3: 失敗と途中で止まった書き出しは節に出て、
 test("Scenario 9.3: 消せなかったファイルのパスと、次の書き出しで消すことが出る", async ({ page }) => {
   await stubStatus(page, { leftover: ["/data/export/ashiato-old.zip"] });
   await openSettings(page);
-  const line = page.getByTestId("export-line");
+  const line = page.getByTestId("export-section").getByTestId("export-line");
   await expect(line).toContainText("消せませんでした");
   await expect(line).toContainText("/data/export/ashiato-old.zip");
   await expect(line).toContainText("次の書き出しでもう一度消します");

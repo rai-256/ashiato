@@ -3,7 +3,7 @@
  * 設定画面の「全記録の書き出し」の節（ST33 / tasks 8.2 / design D13）。
  * 応答を固定して描画と操作を見る。何を返すかは Rust の結合テストが見る。
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Root } from "../Root";
 import type { ExportStatus, Summary } from "../export";
@@ -216,6 +216,35 @@ describe("設定の書き出しの節", () => {
     expect((screen.getByTestId("export-start") as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("読み直しは前の応答を待ってから次を読む（重ねて読まない。R1）", async () => {
+    status = { leftover: [], running: { export_id: "u", started_at: "2026-10-13T00:00:00Z", written: 10, total: 100 } };
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<Root />);
+    await waitFor(() => expect(screen.getByTestId("export-progress")).toBeTruthy());
+    const get = globalThis.fetch;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    vi.stubGlobal("fetch", (path: string, init?: RequestInit) => {
+      if (path === "/api/export" && init?.method !== "POST") {
+        calls.push({ path, init });
+        return held.then(() => res(200, status));
+      }
+      return get(path, init);
+    });
+    const n0 = gets("/api/export").length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5500);
+    });
+    expect(gets("/api/export").length).toBe(n0 + 1);
+    release();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(gets("/api/export").length).toBe(n0 + 2);
+  });
+
   it("読み直しの GET が失敗しても前の進み具合を残し、読み直しを続ける", async () => {
     status = { leftover: [], running: { export_id: "u", started_at: "2026-10-13T00:00:00Z", written: 10, total: 100 } };
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -245,7 +274,11 @@ describe("設定の書き出しの節", () => {
       interrupted: { started_at: "2026-10-02T00:00:00Z", file: "/data/export/part.zip" },
     };
     await open();
-    const lines = screen.getAllByTestId("export-line").map((l) => l.textContent);
+    // 「書き出しの節に」出す（spec / D13。前回の書き出しの節ではない。R3）
+    expect(within(screen.getByTestId("export-last")).queryAllByTestId("export-line")).toHaveLength(0);
+    const lines = within(screen.getByTestId("export-section"))
+      .getAllByTestId("export-line")
+      .map((l) => l.textContent);
     expect(lines).toHaveLength(3);
     expect(lines.join("\n")).toContain("書き出しに失敗しました（io）");
     expect(lines.join("\n")).toContain("/data/export/part.zip が残っています");

@@ -21,7 +21,7 @@ const m = msg("settings");
 const common = msg("common");
 const LOCALE = msg("locale");
 
-/** 走っている間、状態を読み直す間隔（design D13 の仮）。 */
+/** 走っている間、状態を読み直す間隔（design D13 の仮）。前の応答が返ってから数える（重ねて読まない）。 */
 const POLL_MS = 1000;
 
 type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed" };
@@ -84,8 +84,19 @@ export function SettingsView(): React.ReactElement {
   const running = runningView !== undefined;
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => void loadStatus(), POLL_MS);
-    return () => clearInterval(id);
+    // `setInterval` は前の応答を待たずに重ねて読む（遅い応答が DB の接続を奪い合う。R1）。
+    // 応答が返ってから次を予約する連鎖にし、画面を離れるか running が消えたら止める。
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async (): Promise<void> => {
+      await loadStatus();
+      if (!stopped) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    timer = setTimeout(() => void tick(), POLL_MS);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
   }, [running, loadStatus]);
 
   useEffect(() => {
@@ -179,6 +190,12 @@ export function SettingsView(): React.ReactElement {
             {refusal}
           </p>
         )}
+        {/* 失敗・途中で止まった・消せなかったファイルは「書き出しの節に」1 行ずつ（spec / D13） */}
+        {lines.map((l) => (
+          <p key={l.key} data-testid="export-line" style={{ margin: "0 0 4px", wordBreak: "break-all", color: tone(c.text) }}>
+            {l.text}
+          </p>
+        ))}
 
         {!confirming && (
           <button
@@ -261,11 +278,6 @@ export function SettingsView(): React.ReactElement {
             )}
           </>
         )}
-        {lines.map((l) => (
-          <p key={l.key} data-testid="export-line" style={{ margin: "0 0 4px", wordBreak: "break-all", color: tone(c.text) }}>
-            {l.text}
-          </p>
-        ))}
       </section>
 
       <p style={{ font: font(TYPE.caption), color: tone(c.muted) }}>{m.next}</p>
