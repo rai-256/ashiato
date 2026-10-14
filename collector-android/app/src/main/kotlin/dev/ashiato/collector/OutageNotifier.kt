@@ -23,7 +23,10 @@ import java.time.format.DateTimeFormatter
 class OutageNotifier(private val context: Context, private val log: (String) -> Unit = {}) {
     private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
 
-    /** 出せたら true。権限が無いときは出さずに false（呼び出し側は覚えを書き換えない）。 */
+    /**
+     * 出せたら true。権限が無い・通知が切られている・このチャネルだけが切られているときは出さずに false
+     * （呼び出し側は覚えを書き換えない。review/code.md R12・R18）。
+     */
     fun show(outages: List<Outage>, sound: Boolean): Boolean {
         if (!canPost()) {
             log(Telemetry.line("outage_notice_skipped", source = null))
@@ -48,12 +51,11 @@ class OutageNotifier(private val context: Context, private val log: (String) -> 
     }
 
     private fun canPost(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
-        return manager.areNotificationsEnabled()
+        val permitted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        // 本人が設定で「収集の途切れ」だけを切ると、アプリが作り直しても戻らず、notify しても出ない（review/code.md R18）
+        val channelOn = manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        return permitted && manager.areNotificationsEnabled() && channelOn
     }
 
     companion object {

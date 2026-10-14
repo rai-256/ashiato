@@ -147,6 +147,32 @@ class OutageNotifierTest {
         assertFalse("権限が戻った次の契機は音つき", silent(posted()!!))
     }
 
+    @Test
+    fun `途切れのチャネルだけが切られていたら出せなかった扱いで覚えを進めない`() {
+        // 権限とアプリ全体の通知は有効で、本人が「収集の途切れ」のチャネルだけを切った（review/code.md R18）
+        grant()
+        manager.createNotificationChannel(
+            android.app.NotificationChannel(OutageNotifier.CHANNEL, "収集の途切れ", NotificationManager.IMPORTANCE_NONE),
+        )
+        val notice = OutageNotice(app.getSharedPreferences("outage_notice_r18", android.content.Context.MODE_PRIVATE))
+        val poller = OutagePoller(
+            query = OutageQuery { readyBody() },
+            notice = notice,
+            notifier = notifier,
+            deviceId = { "dev" },
+            executor = DirectExecutorService(),
+        )
+        poller.poll()
+
+        assertNull("通知は出ない", posted())
+        assertEquals("覚えは空のまま", NoticeState(sounded = emptySet(), shown = false), notice.load())
+
+        // 本人がチャネルを戻した次の契機は音つき
+        manager.deleteNotificationChannel(OutageNotifier.CHANNEL)
+        poller.poll()
+        assertFalse("チャネルが戻った次の契機は音つき", silent(posted()!!))
+    }
+
     private fun record(id: String) =
         testFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "u", "d", java.time.ZoneId.of("Asia/Tokyo"))

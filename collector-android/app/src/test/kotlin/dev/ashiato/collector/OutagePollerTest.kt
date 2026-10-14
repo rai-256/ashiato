@@ -43,7 +43,7 @@ class OutagePollerTest {
         service.beatScheduler.fire()
 
         assertEquals("契機ごとに 1 回", afterStart + 1, service.outageQueries.size)
-        assertEquals("端末識別子が付く", setOf(service.outageQueries.first()), service.outageQueries.toSet())
+        assertEquals("同じ問い合わせを打つ", setOf(service.outageQueries.first()), service.outageQueries.toSet())
         assert(service.outageQueries.first().isNotBlank())
     }
 
@@ -94,6 +94,20 @@ class OutagePollerTest {
         // review/code.md R13 / design D29（仮）
         val q = outageQueryString("dev a", "6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c")
         assertEquals("?device_id=dev+a&user_id=6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c", q)
+    }
+
+    @Test
+    fun `収集アプリが打つ問い合わせに設定の利用者が付く`() {
+        // 関数だけでなく LocationService の組み立てを通す（review/code.md R17）
+        val user = "6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c"
+        Config.overrideForTest(baseUrl = "http://127.0.0.1:1", apiToken = "t", userId = user)
+        try {
+            val query = start().outageQueries.first()
+            assertTrue("端末識別子が付く: $query", query.startsWith("?device_id=") && !query.startsWith("?device_id=&"))
+            assertTrue("設定の利用者が付く: $query", query.endsWith("&user_id=$user"))
+        } finally {
+            Config.clearOverrideForTest()
+        }
     }
 
     @Test
