@@ -775,6 +775,8 @@ async fn gaps_by_day(
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
                        AND logical_source LIKE '{prefix}%'
                        AND payload->>'kind' = 'gap'
+                       -- 取り込み口は gap の中身を検めない。読めない begin は飛ばす（キャストの失敗で稼働状況ぜんぶを落とさない）
+                       AND payload->>'begin' ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9:.]+(Z|[+-][0-9]{{2}}:[0-9]{{2}})$'
                        AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
                        AND (payload->>'begin')::timestamptz < (($4::date + 1)::timestamp AT TIME ZONE '{tz}')),
               d AS (SELECT generate_series($3::date, $4::date, '1 day')::date AS day)
