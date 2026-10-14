@@ -242,13 +242,13 @@ e2e の合言葉は spec ファイルの中の固定の 12 文字以上の文字
 
 ## Task 10: 仕上げ
 
-- [ ] 10.1 検査 3 本。検証: `python3 scripts/check_scenarios.py . st33-data-export` rc=0、
+- [x] 10.1 検査 3 本。検証: `python3 scripts/check_scenarios.py . st33-data-export` rc=0、
   `python3 scripts/review_triage.py . st33-data-export` rc=0、`python3 scripts/check_chain.py .` rc=0
-- [ ] 10.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` /
+- [x] 10.2 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` /
   `cargo test --workspace` / `tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e` /
   `tools/check-immutable.sh` / `tools/check-offsite.sh` / `tools/check-log-private.sh` / `tools/smoke.sh` が全部 rc=0
   （訂正 2026-10-14: 検証の入口を「cd web && npm run lint && npm run test && npm run build && npm run test:e2e」から上の入口に。受け入れ条件は変えない。理由: cargo test --workspace の後の同じ DB では、ST12 の既存テストが残す c03-myactivity-u<hash>（その日に始まり格子の子が 0）で web/e2e/archive-layout.spec.ts:166 が ST33 と無関係に落ちる。CI と同じく e2e の前に DB を作り直す（stack.sh の STACK_RESET=1）。 実証: evidence.jsonl 2026-10-13T23:57:38+00:00 FAIL。承認: 2026-10-14 本人の回答（深掘り Q10: 10.2 の検証コマンドを、e2e の前に DB を作り直す形に plan_fix で直す。deep-answers-6.txt）。記録: plan-corrections.md）
-- [ ] 10.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。`docs/handoff/ST33.md` の**全部の節**（R2・2026-10-11・2026-10-12 の整合の確認（C1 / C3 / C9 / C5））と、`docs/audit/2026-10-13-st33-merge-consistency.md`（C1 / C2 / K1 / K2 は spec・design・tasks に直接写した）を読む。ST33 宛ての st22-record-deletion R2 が、
+- [x] 10.3 `docs/handoff/` を PR の前にもう一度読む（開始時と合わせて 2 回）。`docs/handoff/ST33.md` の**全部の節**（R2・2026-10-11・2026-10-12 の整合の確認（C1 / C3 / C9 / C5））と、`docs/audit/2026-10-13-st33-merge-consistency.md`（C1 / C2 / K1 / K2 は spec・design・tasks に直接写した）を読む。ST33 宛ての st22-record-deletion R2 が、
   5.4 の Scenario（`削除の印の付いた記録は出ない` ほか）で閉じていることを確かめる。
   検証: `grep -c 'st22-record-deletion' docs/handoff/ST33.md` が 1 以上、かつ `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_file_tests.rs` が 1 以上
   （訂正 2026-10-14: grep の先を export_tests.rs から export_file_tests.rs に。受け入れ条件は変えない。理由: 印は Task 5 の側の export_file_tests.rs:854 にあり、旧の先では必ず 0 になる（task-10 review 1 の F2）。検証コマンドとして抽出されない形（grep）なので plan_fix.py を通さず手で直した。承認: 2026-10-14 本人の回答（深掘り Q11。deep-answers-6.txt）。記録: plan-corrections.md）
