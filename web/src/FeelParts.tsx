@@ -19,7 +19,7 @@ import {
 } from "./feelings";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useScheme } from "./scheme";
-import { controlStyle, inputStyle, linkStyle, primaryStyle, sectionStyle } from "./surface";
+import { controlStyle, inputStyle, linkButtonStyle, primaryStyle, sectionStyle } from "./surface";
 import { clock } from "./stays";
 import { font, MIN_TARGET_PX, SCHEMES, TYPE, tone } from "./tokens";
 
@@ -171,7 +171,7 @@ export function StayRows({
                       data-testid="feel-stay-history-toggle"
                       aria-expanded={opened === row.id}
                       {...{ [FOCUS_ATTR]: "" }}
-                      style={{ ...linkStyle(c), background: "transparent", border: "none" }}
+                      style={linkButtonStyle(c)}
                       onClick={() => setOpened(opened === row.id ? null : row.id)}
                     >
                       {m.history(row.records.length)}
