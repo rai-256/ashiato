@@ -102,6 +102,7 @@ class OutageNotifierTest {
             .buildService(TestableLocationService::class.java, android.content.Intent())
             .create().startCommand(0, 1).get()
         running.outageReply = readyBody()
+        running.outboxForTest.add(record("kept"))
         val before = running.heartbeatOutboxForTest.snapshot().size
         running.beatScheduler.fire()
 
@@ -110,8 +111,23 @@ class OutageNotifierTest {
         val expected = Telemetry.line("outage_notice_skipped", source = null)
         val skipped = org.robolectric.shadows.ShadowLog.getLogs().filter { it.msg == expected }
         assertEquals("通知を諦めたことがログに 1 行", 1, skipped.size)
-        assertTrue("生存信号の送信の箱に記録が残る", running.heartbeatOutboxForTest.snapshot().size > before)
+        val afterFirst = running.heartbeatOutboxForTest.snapshot().size
+        assertTrue("通知を諦めた後も生存信号が積まれた", afterFirst > before)
+        assertEquals(
+            "送信の箱に記録が残る",
+            listOf("kept"),
+            running.outboxForTest.snapshot().filter { it.logicalSource == "c01-location" }.map { it.id },
+        )
+
+        // 通知の経路が失敗した後も次の契機で送信が続く（emit は poll より先に走るので 1 回目だけでは区別できない）
+        running.beatScheduler.fire()
+        assertTrue("2 回目の契機でも生存信号が積まれる", running.heartbeatOutboxForTest.snapshot().size > afterFirst)
+        assertEquals(1, running.outboxForTest.snapshot().count { it.id == "kept" })
     }
+
+    private fun record(id: String) =
+        testFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))
+            .toIngestRequest(id, "u", "d", java.time.ZoneId.of("Asia/Tokyo"))
 
     private fun readyBody() = Outcome.Responded(200, OutageFixtures.READY_LOCATION)
 }
