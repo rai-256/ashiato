@@ -138,3 +138,4 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 
 - **1.2 / 1.3**: `scripts/quiet-run ct -- cargo test … | tee /tmp/ct.log` は成功時に末尾 5 行しか返さず、残るのは doc-test の `0 passed; N filtered out` だけ。`grep 'test result: ok. [1-9]… passed'` が通らない。試験は 8 本（1.3 は 1 本）通っている（rc=0・ログ `.superpowers/sdd/logs/*-ct.log`）。FAIL の証跡は evidence.jsonl。提案: `quiet-run ct --` を外し、ST17 と同じ `cargo test -p ashiato-server <名前> 2>&1 | tee /tmp/ct.log`。
 - **1.1**: 着手前の確認（`! grep -rq outage_target migrations/`）で、移行を書いた後は必ず FAIL。提案: 検証を「書く前に成り立っていた」前提の確認ではなく、`bash -c 'grep -q "DEVICE_SUBJECT" crates/server/src/coverage.rs && grep -q "archive_ledger_source" migrations/202609181600_archive_ingestion.sql'` に直す（`outage_target` の否定を外す）。
+- **Task 2 の 2.1 / 2.2 / 2.3 の `CT` コマンドも同じ欠陥**（`quiet-run ct --` を `tee` に通す形。試験は `st14_grid_` 13 本・`coverage::tests::` 81 本が通っている）。提案は Q-T1 と同じ: `quiet-run ct --` を外した形を正式な入口にする（`plan_fix.py` で 2.1 / 2.2 / 2.3 の旧コマンドを直す）。FAIL の実証は evidence.jsonl（head f23f611d）。
