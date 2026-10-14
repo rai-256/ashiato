@@ -676,7 +676,7 @@ async fn achievement_endpoint() {
         got.sources.iter().map(|s| s.subject).collect::<Vec<_>>(),
         vec![
             coverage::Subject::Device,
-            coverage::Subject::Device,
+            coverage::Subject::Usage,
             coverage::Subject::Usage,
             coverage::Subject::Usage,
             coverage::Subject::Usage,

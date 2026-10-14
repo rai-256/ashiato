@@ -531,7 +531,7 @@ fn must_sources_are_the_five_of_nfr13() {
         must_sources(),
         vec![
             ("c01-location".to_string(), Subject::Device),
-            ("c01-app-usage".to_string(), Subject::Device),
+            ("c01-app-usage".to_string(), Subject::Usage),
             ("c01-photo".to_string(), Subject::Usage),
             ("c02-window".to_string(), Subject::Usage),
             ("c02-browser-history".to_string(), Subject::Usage),

@@ -9,6 +9,7 @@ use super::*;
 use crate::testdb;
 
 mod achievement;
+mod achievement_subject;
 mod drops;
 mod nonobs;
 mod retired;
