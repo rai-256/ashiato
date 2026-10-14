@@ -112,7 +112,7 @@ DB を使う検査は `docker compose up -d --wait db` と `.env`（ST28 の `to
 
 `feelings.rs` と `lib.rs`。design D9。
 
-- [ ] 5.1 `POST /feelings/reminder`（台帳に 1 行）と `GET /feelings/reminder?date=`（`at` と `recorded` の 2 欄だけ）。`DEFAULT_REMINDER_AT = 21:00` を名指しで固定。応答の鍵の集合を固定する試験を置く。OpenAPI に足す。
+- [x] 5.1 `POST /feelings/reminder`（台帳に 1 行）と `GET /feelings/reminder?date=`（`at` と `recorded` の 2 欄だけ）。`DEFAULT_REMINDER_AT = 21:00` を名指しで固定。応答の鍵の集合を固定する試験を置く。OpenAPI に足す。
   Scenario: `通知の時刻の既定は 21 時` / `通知の時刻を変えると次の判断から効く` / `通知の時刻の変更は台帳に積まれる` / `書いた日の判断は記録ありになる` /
   `書いていない日の判断は記録なしになる` / `通知の判断は主観の中身を返さない` / `時刻でない通知の時刻は断られる`。
   検証: `CT st17_remind_`、`tools/check-openapi.sh` rc=0
