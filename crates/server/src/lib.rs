@@ -3065,12 +3065,13 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
-    let warmup = match std::env::var("OUTAGE_WARMUP_SEC") {
-        Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
-            anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
-        })?),
-        Err(_) => outage::OUTAGE_WARMUP,
-    };
+    let warmup =
+        match std::env::var("OUTAGE_WARMUP_SEC") {
+            Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
+                anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
+            })?),
+            Err(_) => outage::OUTAGE_WARMUP,
+        };
     let mut app = router(
         App::new(pool, token, &web_password, session_max_age_days)
             .with_reading(reading)
