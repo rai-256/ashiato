@@ -1337,7 +1337,9 @@ pub async fn record_pending_file(
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (user_id, sha256, inner_path) DO UPDATE
            SET file_sha256 = COALESCE(EXCLUDED.file_sha256, core.archive_pending_shape.file_sha256),
-               made_copy = core.archive_pending_shape.made_copy OR EXCLUDED.made_copy",
+               made_copy = core.archive_pending_shape.made_copy OR EXCLUDED.made_copy,
+               shape_hash = EXCLUDED.shape_hash,
+               shape = EXCLUDED.shape",
     )
     .bind(user_id)
     .bind(archive_sha256)
@@ -1582,10 +1584,33 @@ async fn reread_archive(
         if require_confirmed && requires_shape_confirmation(known.kind) {
             let shape = shape_for_file(known.kind, inner_path, &file.bytes)?;
             if !is_shape_confirmed(pool, user_id, &hash_shape(&shape)).await? {
+                // 印の無いファイルは黙って飛ばさず、新しい形で確認待ちに積む（ST47 / D9 の 3）。
                 tracing::warn!(
                     kind = "archive_reparse_unconfirmed",
-                    "形の印が無い写しは読み直さない"
+                    "形の印が無い写しは読み直さず確認待ちにする"
                 );
+                let file_sha256 = std::path::Path::new(stored_path)
+                    .file_name()
+                    .and_then(|name| name.to_str());
+                record_pending_file(
+                    pool,
+                    user_id,
+                    archive_sha256,
+                    inner_path,
+                    &shape,
+                    file_sha256,
+                    false,
+                )
+                .await?;
+                record_pending_ledger_at(
+                    pool,
+                    user_id,
+                    archive_sha256.to_owned(),
+                    meta.file_name.clone(),
+                    meta.created_at,
+                    &meta.inbox_kind,
+                )
+                .await?;
                 continue;
             }
         }
@@ -1727,7 +1752,7 @@ pub async fn ingest_confirmed_pending(
                 "pending_shape",
             )
             .await?;
-            let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, false).await?;
+            let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, true).await?;
             for inner_path in &done {
                 remove_pending_shape(pool, user_id, &archive_sha256, inner_path).await?;
             }
@@ -1767,6 +1792,99 @@ pub async fn ingest_confirmed_pending(
         }
     }
     Ok(ingested)
+}
+
+/// 解析器の版が上がったとき、確認待ちの書庫の形を**写しから**取り直す（ST47 / D9 の 1）。
+///
+/// 見分けは台帳の `pending_shape` の行の版: いまの版の行が無い書庫が対象。形を置き換え、
+/// 元の読みの名前・作られた時刻・置き場の種類を写した、いまの版の行を 1 つ足す
+/// （印を置いた後の `read` の行がそこから引き継ぐ。FR-16 / final review R58）。
+/// 写しを読めないファイルがあれば行を足さず、次の走査でやり直す。
+pub async fn refresh_pending_shapes(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> anyhow::Result<usize> {
+    let archives: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT p.sha256 FROM core.archive_pending_shape p
+          WHERE p.user_id = $1
+            AND NOT EXISTS (SELECT 1 FROM core.archive_ledger l
+                             WHERE l.user_id = p.user_id AND l.sha256 = p.sha256
+                               AND l.parser_version = $2 AND l.outcome = 'pending_shape')
+          ORDER BY p.sha256",
+    )
+    .bind(user_id)
+    .bind(super::PARSER_VERSION)
+    .fetch_all(pool)
+    .await?;
+    let mut refreshed = 0;
+    for archive_sha256 in archives {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT p.inner_path, f.stored_path
+               FROM core.archive_pending_shape p
+               JOIN core.archive_file f
+                 ON f.user_id = p.user_id
+                AND (f.sha256 = p.file_sha256
+                     OR (p.file_sha256 IS NULL
+                         AND f.archive_sha256 = p.sha256
+                         AND f.inner_path = p.inner_path))
+              WHERE p.user_id = $1 AND p.sha256 = $2
+              ORDER BY p.inner_path",
+        )
+        .bind(user_id)
+        .bind(&archive_sha256)
+        .fetch_all(pool)
+        .await?;
+        let mut complete = !rows.is_empty();
+        for (inner_path, stored_path) in &rows {
+            let Ok(bytes) = std::fs::read(stored_path) else {
+                tracing::warn!(kind = "archive_reparse_copy", "書庫の写しを読めない");
+                complete = false;
+                continue;
+            };
+            let file = super::open::ArchiveFile {
+                path: inner_path.clone(),
+                bytes,
+            };
+            let classified = super::classify::classify_files(std::slice::from_ref(&file));
+            let Some(known) = classified.known.first() else {
+                complete = false;
+                continue;
+            };
+            if !requires_shape_confirmation(known.kind) {
+                continue;
+            }
+            let Ok(shape) = shape_for_file(known.kind, inner_path, &file.bytes) else {
+                complete = false;
+                continue;
+            };
+            sqlx::query(
+                "UPDATE core.archive_pending_shape SET shape_hash = $4, shape = $5
+                  WHERE user_id = $1 AND sha256 = $2 AND inner_path = $3",
+            )
+            .bind(user_id)
+            .bind(&archive_sha256)
+            .bind(inner_path)
+            .bind(hash_shape(&shape))
+            .bind(&shape)
+            .execute(pool)
+            .await?;
+        }
+        if !complete {
+            continue;
+        }
+        let meta = ledger_meta(pool, user_id, &archive_sha256, None, "pending_shape").await?;
+        record_pending_ledger_at(
+            pool,
+            user_id,
+            archive_sha256,
+            meta.file_name,
+            meta.created_at,
+            &meta.inbox_kind,
+        )
+        .await?;
+        refreshed += 1;
+    }
+    Ok(refreshed)
 }
 
 /// 解析器の版が上がったとき、前の版で読んだ書庫を**写しから**読み直す（D8。final review R53）。
@@ -1908,6 +2026,10 @@ pub fn spawn_inspecting(
             // 同じ書庫を走査が「読む」へ回しても読み手が既読として捨てる。
             if let Err(error) = reparse_older_versions(&scan_pool, user_id).await {
                 tracing::warn!(kind = "archive_reparse_version", error = %error, "前の版で読んだ書庫を読み直せない");
+            }
+            // 確認待ちの形の取り直しは、印のある確認待ちを読む前に回す（ST47 / D9 の 2）。
+            if let Err(error) = refresh_pending_shapes(&scan_pool, user_id).await {
+                tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの形を取り直せない");
             }
             if let Err(error) =
                 ingest_confirmed_pending(&scan_pool, user_id, config.keep_copies).await

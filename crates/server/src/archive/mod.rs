@@ -46,7 +46,7 @@ pub const INTERVAL_SOURCES: [&str; 4] = [
 ];
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
-pub const PARSER_VERSION: &str = "1";
+pub const PARSER_VERSION: &str = "2";
 
 #[cfg(test)]
 mod tests {

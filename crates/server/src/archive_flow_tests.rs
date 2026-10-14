@@ -4829,3 +4829,290 @@ fn archive_youtube_shape_identity_carries_languages_only_for_youtube() {
         sha256_hex(br#"{"kind":"YouTube","languages":["ja"],"products":["YouTube"]}"#)
     );
 }
+
+// ---- ST47: 解析器の版を上げ、確認待ちと読み終えた書庫の形を取り直す（design D9） ----
+
+/// 旧い版（ST12 / 視聴だけを見分けた形）の YouTube の形。
+const OLD_YT_SHAPE: &str = r#"{"kind":"YouTubeWatch","products":[]}"#;
+
+fn old_yt_hash() -> String {
+    crate::archive::worker::hash_shape(&serde_json::from_str(OLD_YT_SHAPE).unwrap())
+}
+
+fn new_yt_hash(body: &serde_json::Value) -> String {
+    shape_hash_of_bytes(MY_ACTIVITY_PATH, body.to_string().as_bytes())
+}
+
+impl Inbox {
+    /// 書庫のファイルを写しに残し、書庫の `sha256` を返す（版を上げる前に取り込み器が残した状態）。
+    async fn seed_copies(&self, files: &[(&str, &[u8])]) -> String {
+        let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+        std::fs::create_dir_all(&self.copies).unwrap();
+        for (path, bytes) in files {
+            let stored = crate::archive::worker::copy_known_file(&self.copies, bytes).unwrap();
+            crate::archive::worker::record_copy(
+                &self.pool,
+                self.user,
+                stored.file_name().unwrap().to_str().unwrap().to_owned(),
+                path,
+                &stored,
+                &archive_sha,
+            )
+            .await
+            .unwrap();
+        }
+        archive_sha
+    }
+
+    /// 旧い版（`'1'`）の台帳の行。名前と作られた時刻と置き場の種類を持つ。
+    async fn old_ledger(&self, archive_sha: &str, outcome: &str) {
+        sqlx::query(
+            "INSERT INTO core.archive_ledger
+               (user_id, sha256, parser_version, outcome, file_name, created_at, inbox_kind)
+             VALUES ($1, $2, '1', $3, 'takeout-old.zip', '2026-08-01T00:00:00Z', 'downloads')",
+        )
+        .bind(self.user)
+        .bind(archive_sha)
+        .bind(outcome)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
+
+    /// 旧い版の確認待ちの行（旧い形）を置く。
+    async fn old_pending(&self, archive_sha: &str, path: &str, bytes: &[u8]) {
+        let file_sha = sha256_hex(bytes);
+        crate::archive::worker::record_pending_file(
+            &self.pool,
+            self.user,
+            archive_sha,
+            path,
+            &serde_json::from_str(OLD_YT_SHAPE).unwrap(),
+            Some(&file_sha),
+            false,
+        )
+        .await
+        .unwrap();
+        self.old_ledger(archive_sha, "pending_shape").await;
+    }
+
+    async fn pending_hashes(&self) -> Vec<String> {
+        sqlx::query_scalar(
+            "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = $1 ORDER BY 1",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn ledger_at_current(
+        &self,
+        archive_sha: &str,
+        outcome: &str,
+    ) -> Vec<(Option<String>, Option<String>, String)> {
+        sqlx::query_as(
+            "SELECT file_name, created_at::text, inbox_kind FROM core.archive_ledger
+              WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3 AND outcome = $4",
+        )
+        .bind(self.user)
+        .bind(archive_sha)
+        .bind(crate::archive::PARSER_VERSION)
+        .bind(outcome)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る
+#[tokio::test]
+async fn archive_youtube_reparse_pending_file_shows_the_new_shape() {
+    let inbox = Inbox::new("yt-reparse-pending").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    assert_eq!(inbox.pending_hashes().await, vec![old_yt_hash()]);
+
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+    let shape: serde_json::Value =
+        sqlx::query_scalar("SELECT shape FROM core.archive_pending_shape WHERE user_id = $1")
+            .bind(inbox.user)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
+    assert_eq!(shape["kind"], "YouTube");
+    assert_eq!(shape["products"], serde_json::json!(["YouTube"]));
+    assert_eq!(shape["languages"], serde_json::json!(["ja"]));
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1,
+        "いまの版の pending_shape の行が 1 つ足されない"
+    );
+}
+
+// Scenario: 旧い形の印があっても確認待ちの YouTube のファイルは版の上げの後に新しい形の印を待つ
+#[tokio::test]
+async fn archive_youtube_reparse_old_mark_does_not_read_a_pending_file() {
+    let inbox = Inbox::new("yt-reparse-old-mark").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    confirm_hash(&inbox, &old_yt_hash()).await;
+
+    // 取り直しの前でも、読む直前に新しい形のハッシュで印を照らして読まない。
+    let early = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+    assert_eq!(early, 0);
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+
+    assert_eq!(ingested, 0);
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+}
+
+// Scenario: 読み終えた書庫の新しい形に印の無いファイルは版の上げで確認待ちになる
+#[tokio::test]
+async fn archive_youtube_reparse_read_archive_waits_for_the_new_mark() {
+    let inbox = Inbox::new("yt-reparse-read").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &old_yt_hash()).await;
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert!(inbox.ledger_at_current(&sha, "read").await.is_empty());
+    // 周を重ねても記録は増えず、新しい形に印を置くまで待つ。
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+}
+
+// Scenario: 版の上げの後に印を置いて読み直した台帳の行は元の書庫の名前と作られた時刻を持つ
+#[tokio::test]
+async fn archive_youtube_reparse_ledger_row_keeps_the_archive_name_and_time() {
+    let inbox = Inbox::new("yt-reparse-ledger").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    confirm_hash(&inbox, &new_yt_hash(&body)).await;
+    let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+
+    assert_eq!(ingested, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 2);
+    let rows = inbox.ledger_at_current(&sha, "read").await;
+    assert_eq!(rows.len(), 1);
+    let (file_name, created_at, inbox_kind) = &rows[0];
+    assert_eq!(file_name.as_deref(), Some("takeout-old.zip"));
+    assert!(
+        created_at
+            .as_deref()
+            .is_some_and(|at| at.starts_with("2026-08-01 00:00:00")),
+        "作られた時刻が元の読みと違う: {created_at:?}"
+    );
+    assert_eq!(inbox_kind, "downloads");
+}
+
+// Scenario: 読み直しても YouTube 以外の論理ソースの行は増えない
+#[tokio::test]
+async fn archive_youtube_reparse_other_sources_do_not_grow() {
+    use crate::archive::classify::KnownKind;
+    let search = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    let files: [(KnownKind, &str, &[u8]); 3] = [
+        (
+            KnownKind::MyActivity,
+            "Takeout/My Activity/Search/MyActivity.json",
+            search.as_bytes(),
+        ),
+        (
+            KnownKind::ChromeHistory,
+            "Takeout/Chrome/History.json",
+            LOCATED_CHROME.as_bytes(),
+        ),
+        (
+            KnownKind::Timeline,
+            "Timeline.json",
+            ERASE_TIMELINE.as_bytes(),
+        ),
+    ];
+    let inbox = Inbox::new("yt-reparse-others").await;
+    let plain: Vec<(&str, &[u8])> = files.iter().map(|(_, p, b)| (*p, *b)).collect();
+    let sha = inbox.seed_copies(&plain).await;
+    inbox
+        .confirm(KnownKind::MyActivity, search.as_bytes())
+        .await;
+    // 旧い版が読み終えた状態: 記録を格納し、旧い版の `read` の行を残す。
+    let sink = crate::PgSink::new(inbox.pool.clone());
+    for (kind, path, bytes) in &files {
+        let requests =
+            crate::archive::worker::requests_for_file(*kind, path, bytes, inbox.user, sha.clone())
+                .unwrap();
+        crate::archive::worker::store_requests(&sink, requests)
+            .await
+            .unwrap();
+    }
+    inbox.old_ledger(&sha, "read").await;
+    async fn per_source(inbox: &Inbox) -> Vec<(String, i64)> {
+        sqlx::query_as(
+            "SELECT logical_source, count(*) FROM core.event WHERE user_id = $1
+              GROUP BY logical_source ORDER BY 1",
+        )
+        .bind(inbox.user)
+        .fetch_all(&inbox.pool)
+        .await
+        .unwrap()
+    }
+    let before = per_source(&inbox).await;
+    assert!(
+        before.len() >= 3,
+        "材料が 3 つの論理ソースに入っていない: {before:?}"
+    );
+
+    let reread = crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(reread, 1, "読み直されていない");
+    assert_eq!(per_source(&inbox).await, before);
+    assert_eq!(inbox.ledger_at_current(&sha, "read").await.len(), 1);
+}
