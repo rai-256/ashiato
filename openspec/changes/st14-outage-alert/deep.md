@@ -142,3 +142,4 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 - **Task 3 の 3.1 / 3.2 / 3.3 の `CT` コマンドも同じ欠陥**（試験は `st14_rollup_started` 4 本・`st14_rollup_order` 2 本・`coverage::tests::` 87 本・`api_tests` 26 本が `quiet-run` を外した `cargo test` で通っている）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
 - **Task 4 の 4.1 / 4.2 の `CT` コマンドも同じ欠陥**（試験は `st14_ach_` 5 本・`coverage::tests::` 92 本・`api_tests` 26 本が `quiet-run` を外した `cargo test` で通っている。vitest は `npm ci` の後 342 本通過）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
 - **Task 5 の 5.1 / 5.2 の `CT` コマンドも同じ欠陥**（試験は `st14_judge_` 18 本・`st14_inputs_device` 13 本・`st14_inputs_nonobs_registry` 1 本が `quiet-run` を外した `cargo test` で通っている）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
+- **Task 6 の 6.1 / 6.2 の `CT` コマンドも同じ欠陥**（試験は `st14_judge_archive` 4 本・`st14_inputs_archive` 10 本（`st14_inputs_archive_grid` 1 本を含む）が `quiet-run` を外した `cargo test` で通っている）。提案は Q-T1 と同じ。FAIL の実証は evidence.jsonl。
