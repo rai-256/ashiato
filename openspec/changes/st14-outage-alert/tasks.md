@@ -173,16 +173,16 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 `crates/collector-windows/src/outage_notice.rs`（新規。純粋。ubuntu でも走る）・`toast.rs`（新規。`cfg(windows)`）・`runtime.rs` の契機・`Cargo.toml` の `windows` 依存。
 試験は `outage_notice.rs` の `#[cfg(test)]` と `tests/runtime_windows.rs`。design D11 / D13 / D14（仮）。
 
-- [ ] 9.1 `outage_notice::decide` を D13 の表のとおりに書く（Kotlin と同じ表・同じ Scenario の印）。鳴らした途切れの覚えは `outage-notice.json`（状態の置き場）に書き、読み直せることも見る。
+- [x] 9.1 `outage_notice::decide` を D13 の表のとおりに書く（Kotlin と同じ表・同じ Scenario の印）。鳴らした途切れの覚えは `outage-notice.json`（状態の置き場）に書き、読み直せることも見る。
   Scenario: `新しい途切れで音つきの通知が 1 通出る` / `続く途切れでは音を鳴らさずに通知が残る` / `同時に途切れたソースは 1 通にまとまる` / `新しく途切れたソースが増えたときだけまた鳴る` /
   `途切れたソースが減ると音を鳴らさずに差し替わる` / `戻ると通知が黙って消える` / `サーバに届かない間は通知が変わらない` / `判定を待っている間は通知が変わらない` /
   `同じ途切れでも端末ごとに 1 回鳴る` / `途切れの通知に記録の中身が載らない`（トーストの XML の文字列を組んで見る。音なしのときは `<audio silent="true"/>` を持つ）/
   `収集アプリを起動し直しても同じ途切れでは鳴らない`（`outage-notice.json` を書いた後に読み直す）/ `通知を出せなくても収集は止まらない`（通知の口が失敗を返す偽物で、決め方と送信の契機が続くことを見る）。
   検証: `WU outage_notice_`
-- [ ] 9.2 `runtime.rs` の `maybe_measure_skew` の契機で `GET /outages?device_id=` を 1 回呼ぶ（別スレッド・10 秒で打ち切り）。偽の transport と単調時計で、契機ごとに 1 回・端末識別子つきで出ることを見る。
+- [x] 9.2 `runtime.rs` の `maybe_measure_skew` の契機で `GET /outages?device_id=` を 1 回呼ぶ（別スレッド・10 秒で打ち切り）。偽の transport と単調時計で、契機ごとに 1 回・端末識別子つきで出ることを見る。
   Scenario: `PC は時計の測定の契機で問い合わせる`。
   検証: `WU outage_notice_poll`、`cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0（CI の `collector-windows` job と同じ）
-- [ ] 9.3 `toast.rs`: AUMID を `HKCU\Software\Classes\AppUserModelId\dev.ashiato.collector` に `winreg` で登録し（unsafe を書かない。作業場は `unsafe_code = "forbid"`）、`Tag = "outage"`・`Group = "ashiato"` で出す・差し替える（音なしは `SuppressPopup = true`）・消す。
+- [x] 9.3 `toast.rs`: AUMID を `HKCU\Software\Classes\AppUserModelId\dev.ashiato.collector` に `winreg` で登録し（unsafe を書かない。作業場は `unsafe_code = "forbid"`）、`Tag = "outage"`・`Group = "ashiato"` で出す・差し替える（音なしは `SuppressPopup = true`）・消す。
   `windows` crate の機能は `UI_Notifications`・`Data_Xml_Dom`・`Foundation` の 3 つだけ（design D11）。登録簿に書けなければ警告だけで収集を止めない。
   実行時テストで、出した後に `History().GetHistoryWithId(AUMID)` に 1 件・差し替えた後も 1 件で `SuppressPopup` が真・消した後に 0 件を見る。
   Scenario: `PC の途切れの通知は Windows の通知として出る` / `PC の音なしの差し替えは画面の端に出ない`。
