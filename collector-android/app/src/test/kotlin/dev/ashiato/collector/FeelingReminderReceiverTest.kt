@@ -334,6 +334,45 @@ class FeelingReminderReceiverTest {
     }
 
     @Test
+    fun `問い合わせは接続から読み終わりまでの合計で打ち切る`() {
+        // 見出しはすぐ返し、本文を 1 バイトずつ 200 ms おきに送る（1 回の読みの上限には掛からない。合計は 6 秒を超える）
+        val socket = ServerSocket(0, 0, InetAddress.getLoopbackAddress())
+        Thread {
+            runCatching {
+                socket.accept().use { c ->
+                    val reader = c.getInputStream().bufferedReader()
+                    generateSequence { reader.readLine() }.takeWhile { it.isNotEmpty() }.toList()
+                    val body = """{"at":"21:00","recorded":false}""".toByteArray()
+                    val out = c.getOutputStream()
+                    val head = "HTTP/1.1 200 X\r\ncontent-length: ${body.size}\r\n" +
+                        "connection: close\r\n\r\n"
+                    out.write(head.toByteArray())
+                    out.flush()
+                    for (b in body) {
+                        Thread.sleep(200)
+                        out.write(b.toInt())
+                        out.flush()
+                    }
+                }
+            }
+        }.also { it.isDaemon = true }.start()
+        socket.use {
+            val started = System.nanoTime()
+            val source = HttpReminderSource(
+                "http://127.0.0.1:${socket.localPort}",
+                "tok",
+                "u",
+                timeoutMs = 1_000,
+            )
+            val got = source.fetch(day)
+            val tookMs = (System.nanoTime() - started) / 1_000_000
+
+            assertNull(got)
+            assertTrue("合計 1 秒で打ち切る（$tookMs ms）", tookMs < 3_000)
+        }
+    }
+
+    @Test
     fun `網に届かないときは通知が出る`() {
         // Scenario: 網に届かないときは通知が出る
         answer = null

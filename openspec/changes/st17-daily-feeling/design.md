@@ -173,8 +173,8 @@ core.feeling_reminder (id bigint IDENTITY PK, user_id uuid NOT NULL, at time NOT
 |---|---|
 | `FeelingReminderPolicy.kt` | 純粋な判断 `decide(now, at, lastNotifiedDate, recorded: Boolean?) -> Notify / Skip / WaitUntil(t)`。`Asia/Tokyo` の日、1 日 1 回、`recorded == null`（得られない）なら Notify |
 | `FeelingReminderScheduler.kt` | `AlarmManager.setWindow(RTC_WAKEUP, at, 15 分, …)` で次の時刻を、同じ形で毎日 12:00 の読み直しを予約する。**正確な時刻の権限は求めない**（C8）。窓の値は定数 `REMINDER_WINDOW = 15 分` |
-| `FeelingReminderReceiver.kt` | 起きたら `GET /feelings/reminder?date=` を 1 回（10 秒で打ち切り）→ `decide` → 通知 → 次を予約。12:00 の起床では時刻を読み直して予約し直すだけ。得た `at` と通知した日を `SharedPreferences` に残す |
-| `FeelingReminderBootReceiver.kt` | `BOOT_COMPLETED` で予約し直し、時刻を過ぎていれば判断する（`RECEIVE_BOOT_COMPLETED` を足す。実行時の確認の要らない権限） |
+| `FeelingReminderSource.kt` | `GET /feelings/reminder?date=` を 1 回聞く口（`HttpReminderSource`）。**接続から読み終わりまでの合計で 10 秒**で打ち切る（期限に見張りを置いて接続を切る。`connectTimeout` / `readTimeout` は 1 回の待ちの上限なので、それだけでは合計 20 秒・少しずつ届く応答なら際限なく延びる。whole-branch review R11）。得られなければ `null` |
+| `FeelingReminderReceiver.kt` | 受け手 `FeelingReminderReceiver`: 起きたら聞く口を 1 回 → `decide` → 通知 → 次を予約。12:00 の起床では時刻を読み直して予約し直すだけ。得た `at` と通知した日を `SharedPreferences` に残す（`FeelingReminderState`）。判断と予約の流れは `FeelingReminderRunner`。<br>再起動の受け手 `FeelingReminderBootReceiver` も同じファイル: `BOOT_COMPLETED` で予約し直し、時刻を過ぎていれば判断する（`RECEIVE_BOOT_COMPLETED` を足す。実行時の確認の要らない権限） |
 | `FeelingNotification.kt` | チャネル `feeling`（IMPORTANCE_DEFAULT）。題「今日はどうでしたか」、本文「気分を残す」。押すと `ACTION_VIEW` で `<webUrl>/#/feel/<その日>` |
 
 - **予約の契機**: 端末の再起動（`BOOT_COMPLETED`）・`LocationService` の起動・受け手が起きるたび。時刻を過ぎていてその日まだ通知していなければ、すぐに判断する。
