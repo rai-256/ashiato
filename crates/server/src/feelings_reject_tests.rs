@@ -446,3 +446,44 @@ async fn st17_reject_target_absorbed_stay_is_accepted() {
     assert_eq!(reject_kind(&app, user, id, STAY_START, &raw).await, None);
     assert_eq!(count(&app, user).await, 1);
 }
+
+// design D21: 再送（同じ原文の 2 回目）は紐づけ先の検査をやり直さない。
+// 1 回目を受けた後に滞在が作り直しで別の区間へ動いても、同じ原文の再送は断らずに畳む（受理した記録を後から断らない）。
+// 新しい原文（別の識別子・乱数）で同じ紐づけ先を送ると断られることを並べて見て、検査が飛ばされたのは再送だけだと確かめる。
+#[tokio::test]
+async fn st17_reject_target_resend_skips_the_target_check() {
+    use crate::feelings_ingest_tests::t;
+    let app = app().await;
+    let user = testdb::user();
+    let (id, stay) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    put_stay(&app, user, stay, STAY_START, STAY_END).await;
+    let raw = stay_raw(id, stay, STAY_START, STAY_END).to_string();
+    let it = item(id, user, STAY_START, &raw, serde_json::json!({}));
+    let first = send(&app, it.clone()).await;
+    assert!(first.accepted && !first.duplicate, "{first:?}");
+
+    // 滞在が作り直しで重ならない区間へ動いた（いま検査すれば断る）
+    sqlx::query("UPDATE core.event SET event_time = $2, payload = $3 WHERE id = $1")
+        .bind(stay)
+        .bind(t("2020-01-01T00:00:00Z"))
+        .bind(serde_json::json!({ "end": "2020-01-01T01:00:00Z" }))
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    let again = send(&app, it).await;
+    assert!(
+        again.accepted && again.duplicate,
+        "再送は断らず畳む: {again:?}"
+    );
+    assert_eq!(count(&app, user).await, 1, "再送で増えない");
+
+    let other = uuid::Uuid::new_v4();
+    let fresh = stay_raw(other, stay, STAY_START, STAY_END);
+    assert_eq!(
+        reject_kind(&app, user, other, STAY_START, &fresh).await,
+        Some("invalid_feeling_target".to_string()),
+        "新しい原文は検査される"
+    );
+    assert_eq!(count(&app, user).await, 1);
+}
