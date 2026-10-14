@@ -64,6 +64,9 @@ pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]
 mod feelings_ingest_tests;
+/// 主観の読み出し（ST17 / Task 4）。
+#[cfg(test)]
+mod feelings_read_tests;
 /// 形の合わない主観を断る（ST17 / Task 3）。
 #[cfg(test)]
 mod feelings_reject_tests;
@@ -2110,6 +2113,45 @@ pub async fn day_records_get(
     .map_err(|e| internal_at("day.records", e))
 }
 
+/// `GET /feelings` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct FeelingsQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日。含む）
+    from: String,
+    /// `YYYY-MM-DD`（Asia/Tokyo の日。含む）。`from` から最大 62 日
+    to: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 日ごとの主観を、対象（日・滞在）ごとの最新と履歴で返す（ST17 design D8）。**感度では絞らない。**
+#[utoipa::path(get, path = "/feelings", params(FeelingsQuery),
+    responses((status = 200, body = feelings::FeelingsResponse), (status = 400), (status = 401)))]
+pub async fn feelings_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<FeelingsQuery>,
+) -> Result<Json<feelings::FeelingsResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = |s: &str| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))
+    };
+    let (from, to) = (date(&q.from)?, date(&q.to)?);
+    if to < from || (to - from).num_days() + 1 > feelings::RANGE_MAX_DAYS {
+        return Err((StatusCode::BAD_REQUEST, "invalid_range".to_string()));
+    }
+    feelings::load_response(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        from,
+        to,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("feelings.read", e))
+}
+
 /// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
 #[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
     responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
@@ -2927,6 +2969,7 @@ pub fn router(app: App) -> Router {
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
+        .route("/feelings", get(feelings_get))
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
@@ -3065,6 +3108,7 @@ pub async fn run() -> anyhow::Result<()> {
         stays_get,
         day_get,
         day_records_get,
+        feelings_get,
         stays_detail_get,
         stays_erase,
         stays_restore,
@@ -3118,6 +3162,15 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::EntryKind,
         stay_store::CriteriaTag,
         day_records::DayRecord,
+        feelings::FeelingsResponse,
+        feelings::DayFeelings,
+        feelings::DayStatus,
+        feelings::Bucket,
+        feelings::StayBucket,
+        feelings::Latest,
+        feelings::FeelingOut,
+        feelings::ScaleOut,
+        feelings::Phase,
         day::DayResponse,
         day::DayRow,
         day::Gap,

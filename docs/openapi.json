@@ -468,6 +468,63 @@
         }
       }
     },
+    "/feelings": {
+      "get": {
+        "tags": [],
+        "summary": "日ごとの主観を、対象（日・滞在）ごとの最新と履歴で返す（ST17 design D8）。**感度では絞らない。**",
+        "operationId": "feelings_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日。含む）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日。含む）。`from` から最大 62 日",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeelingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/heartbeat": {
       "post": {
         "tags": [],
@@ -1259,6 +1316,25 @@
           }
         }
       },
+      "Bucket": {
+        "type": "object",
+        "required": [
+          "latest",
+          "records"
+        ],
+        "properties": {
+          "latest": {
+            "$ref": "#/components/schemas/Latest"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeelingOut"
+            },
+            "description": "記入の日時の新しい順"
+          }
+        }
+      },
       "Candidate": {
         "type": "object",
         "description": "名前の無い、よく居た所 1 つ（D10。保存しない）。",
@@ -1629,6 +1705,48 @@
           }
         }
       },
+      "DayFeelings": {
+        "type": "object",
+        "required": [
+          "date",
+          "status",
+          "day",
+          "stays",
+          "stays_with_records",
+          "hidden_stay_records"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "day": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "hidden_stay_records": {
+            "type": "integer",
+            "format": "int32",
+            "description": "表示しない滞在の記録の件数",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/DayStatus"
+          },
+          "stays": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StayBucket"
+            },
+            "description": "記録のある滞在だけ（表示しない側は含まない）"
+          },
+          "stays_with_records": {
+            "type": "integer",
+            "format": "int32",
+            "description": "記録のある滞在の数（書き直しは 1。表示しない滞在も数える）",
+            "minimum": 0
+          }
+        }
+      },
       "DayRecord": {
         "type": "object",
         "description": "`GET /day/records` の 1 件（D1）。記録の値（題名・URL）はそのまま持つが、**ログには出さない**。",
@@ -1820,6 +1938,16 @@
           "outage",
           "before_start",
           "retired"
+        ]
+      },
+      "DayStatus": {
+        "type": "string",
+        "description": "日の状態（design D7 / D8）。",
+        "enum": [
+          "recorded",
+          "missing",
+          "before_start",
+          "future"
         ]
       },
       "DayView": {
@@ -2129,6 +2257,80 @@
           },
           "tz_id": {
             "type": "string"
+          }
+        }
+      },
+      "FeelingOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "scales",
+          "written_at",
+          "ingested_at",
+          "phase"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingested_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "D-01 に入った時刻"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "scales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScaleOut"
+            }
+          },
+          "target_stay": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "吸収された滞在に書いた記録のとき、元の滞在"
+          },
+          "written_at": {
+            "type": "string",
+            "description": "記入の日時（RFC 3339。地域のずれつき）"
+          }
+        }
+      },
+      "FeelingsResponse": {
+        "type": "object",
+        "required": [
+          "today",
+          "days"
+        ],
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayFeelings"
+            }
+          },
+          "first_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "today": {
+            "type": "string",
+            "format": "date"
           }
         }
       },
@@ -2617,6 +2819,31 @@
           }
         }
       },
+      "Latest": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeelingOut"
+              }
+            ]
+          },
+          "before": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeelingOut"
+              }
+            ]
+          }
+        }
+      },
       "LatestArchiveStatus": {
         "type": "object",
         "description": "直近に置いた書庫の結果。台帳の追記行からのみ導く。",
@@ -2723,6 +2950,14 @@
             "format": "int64"
           }
         }
+      },
+      "Phase": {
+        "type": "string",
+        "description": "前に書いたか後に書いたか。**保存せず、読むたびに計算する**（FR-37 / design D7）。",
+        "enum": [
+          "before",
+          "after"
+        ]
       },
       "PlaceCreateRequest": {
         "type": "object",
@@ -3208,6 +3443,27 @@
           "other"
         ]
       },
+      "ScaleOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "SessionState": {
         "type": "object",
         "description": "`GET /session` の応答。",
@@ -3337,6 +3593,29 @@
             ],
             "format": "date",
             "description": "退役した日（FR-61）。**この日より後が⑧**。まだ退役していなければ `None`"
+          }
+        }
+      },
+      "StayBucket": {
+        "type": "object",
+        "required": [
+          "stay",
+          "latest",
+          "records"
+        ],
+        "properties": {
+          "latest": {
+            "$ref": "#/components/schemas/Latest"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeelingOut"
+            }
+          },
+          "stay": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
