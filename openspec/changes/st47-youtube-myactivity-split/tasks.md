@@ -97,9 +97,9 @@
 - [x] 7.2 検証: `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` rc=0（この change の全 Scenario に印）
 - [x] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st47-youtube-myactivity-split --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
-- [ ] 7.4 PR 本文に **仮決め（D2 / D4）と反転条件**、**確認バッチの DB の印を確かめる手順**（design の Risks の 1 つ目）を列挙する。
+- [x] 7.4 PR 本文に **仮決め（D2 / D4）と反転条件**、**確認バッチの DB の印を確かめる手順**（design の Risks の 1 つ目）を列挙する。
   検証: `body=$(gh pr view --json body -q .body); for d in 2 4; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q 'f3e578ff' <<<"$body"` rc=0
-- [ ] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
+- [x] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
   検証: `test ! -f docs/handoff/ST47.md || { body=$(gh pr view --json body -q .body); grep -oE '^## [a-z0-9-]+ R[0-9]+' docs/handoff/ST47.md | sed 's/^## //' | sort -u | while read -r h; do grep -qF "$h" <<<"$body" || { echo "PR 本文に無い: $h"; exit 1; }; done; }` rc=0
 
 ## 人間の確認待ち
