@@ -5121,3 +5121,108 @@ async fn archive_youtube_reparse_other_sources_do_not_grow() {
     assert_eq!(per_source(&inbox).await, before);
     assert_eq!(inbox.ledger_at_current(&sha, "read").await.len(), 1);
 }
+
+/// 時刻と位置（`locationInfos`）を足した項目。消した滞在（03:00Z〜04:00Z）の中の時刻を渡す。
+fn yt_item_at(mut item: serde_json::Value, time: &str, located: bool) -> serde_json::Value {
+    item["time"] = time.into();
+    if located {
+        item["locationInfos"] = serde_json::json!([{
+            "name": "この付近",
+            "url": "https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12",
+            "source": "もとの場所",
+        }]);
+    }
+    item
+}
+
+/// Scenario: 消した滞在の時間帯の位置を持つ YouTube のその他の項目は削除済みになる
+#[tokio::test]
+async fn archive_youtube_location_marks_only_the_located_other_item() {
+    use crate::archive::classify::KnownKind;
+    let inbox = Inbox::new("yt-location").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let ad = |title: &str| {
+        yt_item(
+            "YouTube",
+            title,
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "Google 広告から"}])),
+        )
+    };
+    let body = serde_json::json!([
+        yt_item_at(ad("位置ありの広告"), "2026-09-12T03:30:00Z", true),
+        yt_item_at(ad("位置なしの広告"), "2026-09-12T03:40:00Z", false),
+    ]);
+    inbox
+        .confirm(KnownKind::YouTube, body.to_string().as_bytes())
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(MY_ACTIVITY_PATH, body.to_string().as_bytes())],
+    );
+    inbox.spawn(true);
+    let other_marks = || async {
+        sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT payload->>'title', deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source = $2 ORDER BY payload->>'title'",
+        )
+        .bind(inbox.user)
+        .bind(YT_OTHER)
+        .fetch_all(&inbox.pool)
+        .await
+        .unwrap()
+    };
+    let expected = vec![
+        ("位置ありの広告".to_owned(), Some("user:late".to_owned())),
+        ("位置なしの広告".to_owned(), None),
+    ];
+    inbox
+        .until(
+            "位置を持つその他の項目に後着の印が付かない",
+            || async { other_marks().await == expected },
+        )
+        .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+/// Scenario: 分けた論理ソースの最終日が稼働状況に出る
+#[tokio::test]
+async fn archive_youtube_last_event_is_reported_per_logical_source() {
+    use crate::archive::classify::KnownKind;
+    let at = |item: serde_json::Value, time: &str| yt_item_at(item, time, false);
+    let body = serde_json::json!([
+        at(
+            yt_item("YouTube", "動画 を視聴しました", Some(YT_WATCH_URL), None),
+            "2026-09-12T03:00:00Z"
+        ),
+        at(
+            yt_item("YouTube", "x を検索しました", Some(YT_SEARCH_URL), None),
+            "2026-09-10T03:00:00Z"
+        ),
+        at(
+            yt_item("YouTube", "投票しました", Some(YT_POST_URL), None),
+            "2026-09-11T03:00:00Z"
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-last-event",
+        &[(KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(
+        inbox.last_event_on("c03-youtube-watch").await.as_deref(),
+        Some("2026-09-12")
+    );
+    assert_eq!(
+        inbox.last_event_on("c03-youtube-search").await.as_deref(),
+        Some("2026-09-10")
+    );
+    assert_eq!(
+        inbox.last_event_on(YT_OTHER).await.as_deref(),
+        Some("2026-09-11")
+    );
+}
