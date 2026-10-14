@@ -128,3 +128,9 @@ fixer の申告: `cargo test -p ashiato-server` 835 passed / 0 failed（`drops_t
 - kind: daily
 - 提案: 確認バッチの準備（`tools/verify-prep.sh`）で本物の書庫の形の一覧を出して件数を手順書に載せておき、人間には稼働状況の格子の 3 本と「違和感」だけを見てもらう。D4（仮）の日本語の側の反転条件は、この実測で「当たっている」と PR 本文に書ける
 - 処置: fixed D4 仮 — design D4 の反転条件に本物の書庫での実測（`languages ["ja"]`・視聴 89,368・検索 5,643・広告 20,093・評価 196）を書き、日本語の側は機械で確かめ済みとした。PR 本文で「8.1 の件数の照合は済み、人間は格子の 3 本と違和感だけ」と挙げる。`tools/verify-prep.sh` に本物の書庫の形の一覧を出させる直しは、Story をまたぐ道具の変更なので ST47 では入れない（tasks は凍結）
+
+## fix wave（53af3084..）の scoped re-review（code-verify の R5〜R10）
+
+席: re-reviewer（SDD の `re-review-prompt.md`）。R5〜R8・R10 ADDRESSED、R9 は PR 本文（`docs/briefs/ST47-pr.md`）に 3 見出しが入ることを条件に ADDRESSED。
+fix の diff に新たな Critical / Important は無し（変更は試験・design・記録だけ）。範囲外の観察: `cargo test -p ashiato-server archive` の 1 回目で
+`archive_youtube_last_event_is_reported_per_logical_source` と `archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled` が落ち、単独と 2 回目の全体では通った（共有の開発 DB での時間の取り合いの疑い。flaky として記録に留める）。
