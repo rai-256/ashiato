@@ -152,4 +152,11 @@ design.md の D 番号に写す。
 - **提案する正式な入口**: 旧 `scripts/quiet-run test -- cargo test --workspace` →
   新 `scripts/quiet-run test -- bash -o pipefail -c 'cargo test --workspace 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [1-9][0-9]* passed' /tmp/ct.log`
   （要は全 binary の件数をログから見る。ただし記録本文の末尾に件数の行が残るかは承認後に確かめる。別案: harness2 の `ran_no_tests` が quiet-run の全文ログ（`[quiet-run] … 全文:` のパス）を読むよう直す）
-- **本人の答え**: (未回答)
+- **本人の答え**（第 3 回。`deep-answers-3.txt`。本人が選んだ —— 推奨の選択肢と同じ）: plan_fix.py で 7.1 の検証コマンドを、全 binary の passed をログから数える形に直す
+  - 選択肢の説明: tasks.md の検証コマンド 1 か所だけを直す。受け入れ条件は変えない
+  - 補足: なし
+- **これで決まること**: `.harness2/docs/flow-gates.md` の「凍結後に検証コマンドそのものが成立しないとき」の手順 3 の承認。
+  `scripts/plan_fix.py openspec/changes/st47-youtube-myactivity-split 7.1 --old 'scripts/quiet-run test -- cargo test --workspace' --new '<全 binary の passed をログから数える入口>' --approved 'deep.md Q11（deep-answers-3.txt）'` で 7.1 の検証コマンドだけを直す。
+  新しい入口は、`verify-run` の記録本文（quiet-run の末尾）で件数が 0 と読まれない形であることを、適用の前に確かめる（上の提案は未検証）。
+  harness2 の `ran_no_tests` は直さない（別案は採らなかった）
+- **要件・Story へ戻すもの**: なし（検証の入口の訂正で、要件の本文も Story の表題・価値・完了の判定も変わらない）
