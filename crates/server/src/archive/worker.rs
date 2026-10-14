@@ -7,8 +7,7 @@ use super::scan::ScanCandidate;
 pub fn requires_shape_confirmation(kind: super::classify::KnownKind) -> bool {
     matches!(
         kind,
-        super::classify::KnownKind::YouTubeWatch
-            | super::classify::KnownKind::YouTubeSearch
+        super::classify::KnownKind::YouTube
             | super::classify::KnownKind::MyActivity
             | super::classify::KnownKind::ChromeHistory
     )
@@ -743,6 +742,14 @@ fn legacy_items<'a>(
     items
 }
 
+/// YouTube の項目の行き先（ST47 / D3）。
+#[derive(Clone, Copy)]
+enum Route {
+    Watch,
+    Search,
+    Other,
+}
+
 /// YouTube の視聴・検索、マイアクティビティ、Chrome の履歴（D6）。
 fn takeout_items<'a>(
     kind: super::classify::KnownKind,
@@ -759,45 +766,73 @@ fn takeout_items<'a>(
         let raws = aligned(super::slice::array_elements(bytes).ok(), rows.len());
         (rows, raws)
     };
+    // 評価の判定は、そのファイルで当たった言語の表だけで行う（ST47 / D4（仮））。
+    let languages = if kind == KnownKind::YouTube {
+        super::youtube::languages(rows.iter().filter_map(|row| text(row, &["title"])))
+    } else {
+        Vec::new()
+    };
     let mut items = Vec::new();
     for (row, raw) in rows.iter().zip(raws) {
         let mut fields = serde_json::Map::new();
         let url = text(row, &["titleUrl"]);
         let (source, when) = match kind {
-            KnownKind::YouTubeWatch | KnownKind::YouTubeSearch => {
-                // **見分けた種類を既定にする。** 削除済みの動画は `titleUrl` を持たない。
-                // URL が無ければ検索へ回していたときは、視聴が検索のソースに入り、
-                // 検索履歴が先に書いた台帳の行と衝突して読み直しが止まった（final review R50）。
-                let search = match url {
-                    Some(url) if url.contains("watch?v=") => false,
-                    Some(url) if url.contains("search_query=") => true,
-                    _ => kind == KnownKind::YouTubeSearch,
-                };
-                put(&mut fields, "title", cloned(row.get("title")));
-                put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
-                if search {
-                    let query = url
-                        .and_then(|url| url.split("search_query=").nth(1))
-                        .map(|encoded| encoded.split('&').next().unwrap_or(encoded))
-                        .map(super::youtube::percent_decode);
-                    put(&mut fields, "query", query.map(serde_json::Value::String));
+            KnownKind::YouTube => {
+                // 項目ごとに spec の順で行き先を決める（ST47 / D3）。
+                let title = text(row, &["title"]);
+                let route = if row.get("details").is_some() {
+                    Route::Other
                 } else {
-                    put(
-                        &mut fields,
-                        "channel_name",
-                        cloned(first_subtitle(row, "name")),
-                    );
-                    put(
-                        &mut fields,
-                        "channel_url",
-                        cloned(first_subtitle(row, "url")),
-                    );
+                    match url {
+                        Some(url)
+                            if url.contains("watch?v=")
+                                && title.is_some_and(|title| {
+                                    super::youtube::is_rating(title, &languages)
+                                }) =>
+                        {
+                            Route::Other
+                        }
+                        Some(url) if url.contains("watch?v=") => Route::Watch,
+                        Some(url) if url.contains("results?search_query=") => Route::Search,
+                        _ => Route::Other,
+                    }
+                };
+                match route {
+                    Route::Watch => {
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        put(
+                            &mut fields,
+                            "channel_name",
+                            cloned(first_subtitle(row, "name")),
+                        );
+                        put(
+                            &mut fields,
+                            "channel_url",
+                            cloned(first_subtitle(row, "url")),
+                        );
+                    }
+                    Route::Search => {
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        let query = url
+                            .and_then(|url| url.split("search_query=").nth(1))
+                            .map(|encoded| encoded.split('&').next().unwrap_or(encoded))
+                            .map(super::youtube::percent_decode);
+                        put(&mut fields, "query", query.map(serde_json::Value::String));
+                    }
+                    Route::Other => {
+                        fields.insert("product".into(), serde_json::json!("YouTube"));
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        put(&mut fields, "details", cloned(row.get("details")));
+                    }
                 }
                 (
-                    if search {
-                        "c03-youtube-search".to_owned()
-                    } else {
-                        "c03-youtube-watch".to_owned()
+                    match route {
+                        Route::Watch => "c03-youtube-watch".to_owned(),
+                        Route::Search => "c03-youtube-search".to_owned(),
+                        Route::Other => super::myactivity::source_name("YouTube"),
                     },
                     when_text(text(row, &["time"]), None),
                 )

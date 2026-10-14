@@ -707,7 +707,7 @@ fn archive_parse_youtube_separates_watch_and_decodes_search_query() {
 #[test]
 fn archive_requests_keep_archive_hash_and_inner_path_in_payload() {
     let requests = crate::archive::worker::requests_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/watch-history.json",
         br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
         uuid::Uuid::nil(),
@@ -971,13 +971,13 @@ fn archive_shape_for_myactivity_uses_product_names_without_activity_values() {
 #[test]
 fn archive_shape_identity_ignores_observational_field_names() {
     let first = crate::archive::worker::shape_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/fixture.json",
         br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
     .unwrap();
     let later = crate::archive::worker::shape_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/fixture.json",
         r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x","new_field":"京都"}]"#.as_bytes(),
     )
@@ -996,7 +996,7 @@ fn archive_shape_identity_ignores_observational_field_names() {
 fn archive_shape_confirmation_is_required_only_for_takeout_contents() {
     use crate::archive::classify::KnownKind;
     assert!(crate::archive::worker::requires_shape_confirmation(
-        KnownKind::YouTubeWatch
+        KnownKind::YouTube
     ));
     assert!(crate::archive::worker::requires_shape_confirmation(
         KnownKind::MyActivity
@@ -1035,7 +1035,7 @@ async fn archive_shape_confirm_makes_a_pending_shape_readable() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     let shape = crate::archive::worker::shape_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/fixture.json",
         br#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
@@ -1076,7 +1076,7 @@ async fn archive_shape_confirm_makes_a_pending_shape_readable() {
 async fn archive_shape_confirm_removes_consumed_pending_file() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let shape = serde_json::json!({"kind":"YouTubeWatch", "products": []});
+    let shape = serde_json::json!({"kind":"YouTube", "products": []});
     crate::archive::worker::record_pending_shape(
         &pool,
         user,
@@ -1578,7 +1578,7 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     );
     let user = testdb::user();
     let shape = crate::archive::worker::shape_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/fixture.json",
         br#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
     )
@@ -1676,11 +1676,11 @@ fn archive_end_to_end_builds_requests_for_every_supported_content() {
             r#"{"locations":[{"timestamp":"2026-01-01T00:00:00Z"}]}"#,
         ),
         (
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/watch?v=x"}]"#,
         ),
         (
-            crate::archive::classify::KnownKind::YouTubeSearch,
+            crate::archive::classify::KnownKind::YouTube,
             r#"[{"time":"2026-01-01T00:00:00Z","titleUrl":"https://youtube.com/results?search_query=x"}]"#,
         ),
         (
@@ -1987,7 +1987,7 @@ fn archive_payload_carries_the_design_d6_fields() {
     assert_eq!(timeline[6].payload["signal_kind"], "activityRecord");
 
     let watch = crate::archive::worker::requests_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/watch-history.json",
         r#"[{"header":"YouTube","title":"ある動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc","subtitles":[{"name":"あるチャンネル","url":"https://www.youtube.com/channel/x"}],"time":"2026-09-12T03:00:00.000Z","products":["YouTube"]}]"#.as_bytes(),
         user,
@@ -2006,7 +2006,7 @@ fn archive_payload_carries_the_design_d6_fields() {
     assert_eq!(payload["channel_url"], "https://www.youtube.com/channel/x");
 
     let search = crate::archive::worker::requests_for_file(
-        crate::archive::classify::KnownKind::YouTubeSearch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/search-history.json",
         r#"[{"title":"京都 を検索しました","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD&sp=x","time":"2026-09-12T03:00:00Z"}]"#.as_bytes(),
         user,
@@ -2085,8 +2085,8 @@ fn archive_raw_is_sliced_for_every_kind() {
 
 /// Scenario: 6 つの中身がそれぞれ読まれる
 ///
-/// 削除済みの動画は `titleUrl` を持たない。先頭がそれだとファイルごと「読まなかった」に
-/// なっていた（final review R57）。視聴の項目は検索のソースへ回さない（R50）。
+/// 本物の形（ST47 / D10 / C5）: URL の無い項目はその他へ入る（本物では URL の無い「視聴」は全部が広告）。
+/// 先頭が URL の無い項目でも、ファイルは製品の名前で見分けるので読まれる（final review R57）。
 #[test]
 fn archive_classify_skips_items_without_a_title_url() {
     let body = r#"[{"header":"YouTube","title":"削除された動画を視聴しました","time":"2026-09-12T02:00:00Z","products":["YouTube"]},{"header":"YouTube","title":"ある動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc","time":"2026-09-12T03:00:00Z","products":["YouTube"]}]"#.as_bytes();
@@ -2097,11 +2097,11 @@ fn archive_classify_skips_items_without_a_title_url() {
     let classified = crate::archive::classify::classify_files(&files);
     assert_eq!(
         classified.known.first().map(|k| k.kind),
-        Some(crate::archive::classify::KnownKind::YouTubeWatch),
+        Some(crate::archive::classify::KnownKind::YouTube),
         "先頭が削除済みの動画の視聴履歴を見分けられない"
     );
     let requests = crate::archive::worker::requests_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/watch-history.json",
         body,
         uuid::Uuid::nil(),
@@ -2113,7 +2113,130 @@ fn archive_classify_skips_items_without_a_title_url() {
             .iter()
             .map(|r| r.logical_source.as_str())
             .collect::<Vec<_>>(),
-        ["c03-youtube-watch", "c03-youtube-watch"],
-        "削除済みの動画の視聴が検索のソースへ回っている"
+        ["c03-myactivity-youtube", "c03-youtube-watch"],
+        "URL の無い項目がその他へ、URL を持つ視聴が視聴へ入っていない"
     );
+}
+
+fn kind_of_body(body: &str) -> Option<crate::archive::classify::KnownKind> {
+    let files = [crate::archive::open::ArchiveFile {
+        path: "Takeout/x.json".into(),
+        bytes: body.as_bytes().to_vec(),
+    }];
+    crate::archive::classify::classify_files(&files)
+        .known
+        .first()
+        .map(|known| known.kind)
+}
+
+fn kind_item(product: &str, url: &str) -> String {
+    format!(
+        r#"{{"header":"{product}","title":"x","time":"2026-09-12T03:00:00Z","products":["{product}"],"titleUrl":"{url}"}}"#
+    )
+}
+
+#[test]
+fn archive_youtube_kind_of_a_search_product_file_starting_with_a_watch_url_is_myactivity() {
+    let body = format!(
+        "[{}]",
+        kind_item("検索", "https://www.youtube.com/watch?v=x")
+    );
+    assert_eq!(
+        kind_of_body(&body),
+        Some(crate::archive::classify::KnownKind::MyActivity)
+    );
+}
+
+#[test]
+fn archive_youtube_kind_of_a_youtube_only_file_is_youtube() {
+    let body = format!(
+        "[{},{}]",
+        kind_item("YouTube", "https://www.youtube.com/watch?v=x"),
+        kind_item("YouTube", "https://www.youtube.com/post/y")
+    );
+    assert_eq!(
+        kind_of_body(&body),
+        Some(crate::archive::classify::KnownKind::YouTube)
+    );
+}
+
+#[test]
+fn archive_youtube_kind_of_a_mixed_file_is_myactivity_in_either_order() {
+    for order in [["YouTube", "検索"], ["検索", "YouTube"]] {
+        let body = format!(
+            "[{},{}]",
+            kind_item(order[0], "https://www.youtube.com/watch?v=x"),
+            kind_item(order[1], "https://www.google.com/search?q=x")
+        );
+        assert_eq!(
+            kind_of_body(&body),
+            Some(crate::archive::classify::KnownKind::MyActivity),
+            "{order:?}"
+        );
+    }
+}
+
+#[test]
+fn archive_youtube_kind_of_a_file_without_products_but_with_a_watch_url_is_youtube() {
+    let body = r#"[{"time":"2026-09-12T03:00:00Z","title":"x","titleUrl":"https://www.youtube.com/watch?v=x"}]"#;
+    assert_eq!(
+        kind_of_body(body),
+        Some(crate::archive::classify::KnownKind::YouTube)
+    );
+    let search = r#"[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://www.youtube.com/results?search_query=x"}]"#;
+    assert_eq!(
+        kind_of_body(search),
+        Some(crate::archive::classify::KnownKind::YouTube)
+    );
+}
+
+#[test]
+fn archive_youtube_phrase_japanese_ratings_match() {
+    let ja = ["ja"];
+    assert!(crate::archive::youtube::is_rating(
+        "ある動画 を高く評価しました",
+        &ja
+    ));
+    assert!(crate::archive::youtube::is_rating(
+        "ある動画 を低く評価しました",
+        &ja
+    ));
+}
+
+#[test]
+fn archive_youtube_phrase_english_ratings_match() {
+    let en = ["en"];
+    assert!(crate::archive::youtube::is_rating("Liked a video", &en));
+    assert!(crate::archive::youtube::is_rating("Disliked a video", &en));
+}
+
+#[test]
+fn archive_youtube_phrase_a_phrase_inside_a_video_name_does_not_match() {
+    let ja = ["ja"];
+    assert!(!crate::archive::youtube::is_rating(
+        "動画名を高く評価しましたの切り抜き を視聴しました",
+        &ja
+    ));
+}
+
+#[test]
+fn archive_youtube_phrase_a_japanese_file_does_not_take_english_rating_phrases() {
+    assert!(!crate::archive::youtube::is_rating(
+        "Liked by the Sea を視聴しました",
+        &["ja"]
+    ));
+}
+
+#[test]
+fn archive_youtube_phrase_languages_are_the_ones_whose_table_matched() {
+    use crate::archive::youtube::languages;
+    assert_eq!(languages(["x を視聴しました", "y を検索しました"]), ["ja"]);
+    assert_eq!(languages(["Watched x", "Searched for y"]), ["en"]);
+    assert_eq!(languages(["Watched x", "y を視聴しました"]), ["en", "ja"]);
+    assert_eq!(
+        languages(["Liked by the Sea を視聴しました"]),
+        ["ja"],
+        "題名は最初に当たった言語にだけ数える"
+    );
+    assert!(languages(["何でもない題名"]).is_empty());
 }
