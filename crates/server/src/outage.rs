@@ -66,7 +66,7 @@ pub struct SourceInput {
     /// 出どころが「収集した」ではない（本人が書いた・導出した）記録を 1 件でも持つか
     pub has_non_collected: bool,
     pub retired_on: Option<NaiveDate>,
-    /// 引き継ぎの鎖の根から継いだ収集開始日
+    /// 引き継ぎの鎖の根から継いだ収集開始日。その日の Asia/Tokyo の 0 時が最後に生きていた時刻の下限（D26（仮））
     pub collection_started_on: Option<NaiveDate>,
     /// いまを覆う意図的な停止があるか
     pub stopped_now: bool,
@@ -96,6 +96,15 @@ fn day_of(now: DateTime<Utc>) -> NaiveDate {
     now.with_timezone(&tokyo).date_naive()
 }
 
+/// 収集開始日の Asia/Tokyo の 0 時（D26（仮））。開始日しか無いソースも、ここから数えて途切れを判定する。
+fn started_floor(s: &SourceInput) -> Option<DateTime<Utc>> {
+    let tokyo = FixedOffset::east_opt(9 * 3600).expect("+09:00");
+    s.collection_started_on
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .and_then(|t| t.and_local_timezone(tokyo).single())
+        .map(|t| t.with_timezone(&Utc))
+}
+
 /// 判定の対象か。**対象の判定（印・出どころ・退役・開始日・いまの停止）を 5 つ全部通ったもの。**
 fn is_target(s: &SourceInput, now: DateTime<Utc>) -> bool {
     if !s.target {
@@ -116,7 +125,7 @@ fn is_target(s: &SourceInput, now: DateTime<Utc>) -> bool {
 }
 
 /// 最後に生きていた時刻。種類ごとの本体（端末は観測の記録と生存信号・書庫は最後の書庫・取り込み器は生存信号）と、
-/// 最後に終わった停止の終わり・引き継いだ日のうち遅いもの。
+/// 最後に終わった停止の終わり・引き継いだ日・収集開始日の 0 時（D26（仮））のうち遅いもの。
 /// 取得できない状態の生存信号は blockers を問わず入らない（D8（仮））。書庫は最後の記録の出来事の時刻で測らない
 /// （使わなかった製品を途切れにしない）。
 fn last_alive(s: &SourceInput) -> Option<DateTime<Utc>> {
@@ -126,7 +135,7 @@ fn last_alive(s: &SourceInput) -> Option<DateTime<Utc>> {
         SourceKind::ServerHeartbeat => [s.last_capturable_heartbeat_at, None],
     };
     body.into_iter()
-        .chain([s.last_stop_end, s.alive_floor])
+        .chain([s.last_stop_end, s.alive_floor, started_floor(s)])
         .flatten()
         .max()
 }
@@ -170,7 +179,7 @@ mod tests {
         Some(now() - d)
     }
 
-    /// 対象で、収集を始めていて、何も届いていない位置。
+    /// 対象で、収集を始めていて、何も届いていない位置。開始日は十分に古い（下限が判定に効かない。D26（仮））。
     fn base() -> SourceInput {
         SourceInput {
             logical_source: "c01-location".into(),
@@ -182,7 +191,7 @@ mod tests {
             has_collected: true,
             has_non_collected: false,
             retired_on: None,
-            collection_started_on: NaiveDate::from_ymd_opt(2026, 5, 1),
+            collection_started_on: NaiveDate::from_ymd_opt(2026, 1, 1),
             stopped_now: false,
             last_stop_end: None,
             last_record_at: None,
@@ -316,8 +325,43 @@ mod tests {
             collection_started_on: None,
             ..stale(Duration::days(30))
         }));
-        // 開始日があっても、生きていた時刻の材料が何も無ければ判定できない
-        assert!(!outage_of(base()));
+    }
+
+    // 開始日はあるが、記録も取得できる状態の生存信号も 1 つも無い（最初から権限の無い写真・取れない状態の生存信号だけの PC）。
+    // 収集開始日の Asia/Tokyo の 0 時を最後に生きていた時刻の下限にして、そこから 3 倍を超えれば途切れ（D26（仮）/ review/code.md R1）
+    #[test]
+    fn st14_judge_started_day_is_alive_floor() {
+        let s = SourceInput {
+            collection_started_on: NaiveDate::from_ymd_opt(2026, 6, 9),
+            ..base()
+        };
+        let out = judge(std::slice::from_ref(&s), now());
+        assert_eq!(out.len(), 1, "開始日しか無いソースが判定から外れた");
+        // 2026-06-09 00:00 +09:00 = 2026-06-08T15:00:00Z
+        let floor: DateTime<Utc> = "2026-06-08T15:00:00Z".parse().unwrap();
+        assert_eq!(out[0].last_alive_at, floor);
+        // 開始日の 0 時から 3 倍（18 時間）ちょうどでは鳴らず、1 秒超えれば鳴る
+        let started_today = SourceInput {
+            collection_started_on: NaiveDate::from_ymd_opt(2026, 6, 10),
+            ..base()
+        };
+        let midnight: DateTime<Utc> = "2026-06-09T15:00:00Z".parse().unwrap();
+        let at = midnight + Duration::hours(18);
+        assert!(judge(std::slice::from_ref(&started_today), at).is_empty());
+        assert_eq!(
+            judge(
+                std::slice::from_ref(&started_today),
+                at + Duration::seconds(1)
+            )
+            .len(),
+            1
+        );
+        // 下限なので、それより新しい材料があればそちらを使う
+        let alive = SourceInput {
+            last_record_at: ago(Duration::hours(1)),
+            ..s
+        };
+        assert!(!outage_of(alive));
     }
 
     // Scenario: 停止している間は途切れにならない
