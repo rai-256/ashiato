@@ -242,6 +242,9 @@ pub struct HistoryCollector {
     skipped_rows: usize,
     /// まだログに出していない、壊れていて退避した帳面の数（R63）
     quarantined: usize,
+    /// まだログに出していない、「送る準備を終えられなかった」の印を消せなかった数（R82）。
+    /// 消せない印が残ると、次の起動の直後の生存信号が「取得できない」のままになる
+    mark_remove_failed: usize,
 }
 
 impl std::fmt::Debug for HistoryCollector {
@@ -296,6 +299,7 @@ impl HistoryCollector {
             last_not_queued,
             skipped_rows: 0,
             quarantined: 0,
+            mark_remove_failed: 0,
         }
     }
 
@@ -322,6 +326,10 @@ impl HistoryCollector {
                 std::mem::take(&mut self.quarantined),
             ),
             ("history_copy_cleanup_failed", read::take_cleanup_failures()),
+            (
+                "history_not_queued_mark_remove_failed",
+                std::mem::take(&mut self.mark_remove_failed),
+            ),
         ]
         .into_iter()
         .filter(|(_, n)| *n > 0)
@@ -475,7 +483,12 @@ impl HistoryCollector {
         self.last_not_queued = !queued;
         let mark = self.dir.join(NOT_QUEUED_MARK);
         if queued {
-            std::fs::remove_file(&mark).ok();
+            // 印が無いのは普通（直近の取得も済んでいた）。それ以外の失敗は件数だけログへ（R82）
+            if let Err(e) = std::fs::remove_file(&mark) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    self.mark_remove_failed += 1;
+                }
+            }
         } else {
             std::fs::create_dir_all(&self.dir)
                 .and_then(|()| std::fs::write(&mark, b""))
@@ -956,6 +969,26 @@ mod tests {
         std::fs::create_dir_all(root.join("local")).unwrap();
         std::fs::create_dir_all(root.join("roaming")).unwrap();
         root
+    }
+
+    /// 送る準備が済んだのに「済まなかった」の印を消せないときは、件数だけログへ渡す（印が無いのは失敗にしない。R82）。
+    #[test]
+    fn history_not_queued_mark_remove_failure_is_counted() {
+        let fx = Fixture::new("");
+        let mut collector = fx.collector();
+        collector.remember_queued(true);
+        assert!(
+            collector.take_log_counts().is_empty(),
+            "印が無いのを失敗に数えた"
+        );
+        let mark = fx.state().join("browser-history").join(NOT_QUEUED_MARK);
+        std::fs::create_dir_all(mark.join("busy")).unwrap();
+        collector.remember_queued(true);
+        assert_eq!(
+            collector.take_log_counts(),
+            vec![("history_not_queued_mark_remove_failed", 1)]
+        );
+        assert!(collector.last_fetch_queued());
     }
 
     /// Opera の主プロファイル（置き場の直下を `Default` と読む）は、置き場が在れば無くなっていない（R71）。
