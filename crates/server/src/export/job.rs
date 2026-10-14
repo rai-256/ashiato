@@ -5,12 +5,16 @@
 //! 台帳の終わりの行 → 前のファイルを消す」。どの段で落ちても始まりと終わりの 2 行が残る（`halt` で止めたときを除く）。
 //! 合言葉はこの仕事の引数にだけ渡り、`Running` にも台帳にも置かない。
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use super::ledger::{self, Done, LedgerRow, RunningView};
+use super::ledger::{self, Done, ErasedKey, LedgerRow, RunningView};
 use super::{
     free_name, name_stamp, run_named, stage, ExportConfig, ExportError, FailKind, Passphrase,
     Progress, Stage,
@@ -24,13 +28,71 @@ struct Running {
     progress: Arc<Progress>,
 }
 
-/// 走っている書き出し（同時に 1 本。D2）。`App` が持つ。
+/// 走っている書き出し（同時に 1 本。D2）と、状態を読むたびに数え直さないための覚え（D17 / D11）。`App` が持つ。
 #[derive(Debug, Clone, Default)]
-pub struct ExportJobs(Arc<Mutex<Option<Running>>>);
+pub struct ExportJobs {
+    running: Arc<Mutex<Option<Running>>>,
+    memo: Arc<Mutex<Memo>>,
+    /// 後に消した記録の件数を実際に数えた回数（試験が「覚えた値を使ったか」を見る）。
+    erased_counts: Arc<AtomicU64>,
+}
+
+/// 状態の読み出しの覚え。どちらも**結果を変えうるものを鍵に持ち**、鍵が同じときだけ使う。
+#[derive(Debug, Default)]
+struct Memo {
+    /// 後に消した記録の件数（D17）。鍵は `ledger::ErasedKey`。
+    erased: Option<(ErasedKey, i64)>,
+    /// 置き場のファイルの SHA-256（`leftover` の見分け。D16）。鍵は（パス・大きさ・更新時刻）。
+    digests: HashMap<PathBuf, (u64, SystemTime, String)>,
+}
 
 impl ExportJobs {
     fn slot(&self) -> MutexGuard<'_, Option<Running>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.running.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn memo(&self) -> MutexGuard<'_, Memo> {
+        self.memo.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// 後に消した記録の件数を実際に数えた回数。
+    pub fn erased_counts(&self) -> u64 {
+        self.erased_counts.load(Ordering::Relaxed)
+    }
+
+    /// 後に消した記録の件数。鍵が覚えたものと同じなら覚えた値、違えば数え直して覚える。
+    /// **鍵は数える前に読む** —— 数えている間に入った書き込みは、次の読み出しで鍵が変わって数え直される。
+    async fn erased_after(&self, pool: &sqlx::PgPool, last: Uuid) -> Result<i64, ExportError> {
+        let key = ledger::erased_key(pool, last).await?;
+        if let Some((k, n)) = &self.memo().erased {
+            if *k == key {
+                return Ok(*n);
+            }
+        }
+        let n = ledger::erased_after(pool, last).await?;
+        self.erased_counts.fetch_add(1, Ordering::Relaxed);
+        self.memo().erased = Some((key, n));
+        Ok(n)
+    }
+
+    /// ファイルの SHA-256。（パス・大きさ・更新時刻）が覚えたものと同じなら覚えた値を使う。
+    /// 更新時刻を読めなければ覚えない（毎回計算する）。
+    fn digest(&self, path: &Path, meta: &std::fs::Metadata) -> Option<String> {
+        let modified = meta.modified().ok();
+        if let Some(m) = modified {
+            if let Some((len, t, d)) = self.memo().digests.get(path) {
+                if *len == meta.len() && *t == m {
+                    return Some(d.clone());
+                }
+            }
+        }
+        let d = ledger::sha256_of(path).ok()?;
+        if let Some(m) = modified {
+            self.memo()
+                .digests
+                .insert(path.to_path_buf(), (meta.len(), m, d.clone()));
+        }
+        Some(d)
     }
 
     /// 走っているものがあれば、その進み具合。
@@ -258,15 +320,17 @@ pub async fn read_status(
     let rows = ledger::read_ledger(pool).await?;
     let derived = ledger::derive(&rows, running.as_ref().map(|r| r.export_id));
     let erased = match &derived.last {
-        Some(l) => ledger::erased_after(pool, l.export_id).await?,
+        Some(l) => jobs.erased_after(pool, l.export_id).await?,
         None => 0,
     };
+    let jobs = jobs.clone();
     tokio::task::spawn_blocking(move || {
         derived.into_status(
             running,
             erased,
             |f| std::path::Path::new(f).is_file(),
-            |r: &LedgerRow| ledger::is_untouched(r),
+            // 消す側（`removable_previous`）は毎回計算する。覚えた値を使うのは見せるだけの `leftover`（R13）
+            |r: &LedgerRow| ledger::is_untouched_with(r, |p, m| jobs.digest(p, m)),
         )
     })
     .await

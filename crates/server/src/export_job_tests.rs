@@ -24,6 +24,7 @@ use crate::{testdb, App};
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 const PASS: &str = "job-test-passphrase-0123";
+const MAP: &str = "https://www.google.com/maps/@35.6812,139.7671,15z";
 
 // ---------------------------------------------------------------------------
 // 道具
@@ -999,6 +1000,90 @@ async fn export_status_rebuild_replacements_are_not_counted_as_erased() {
     );
 }
 
+/// 取り込みの内容の更新と同じ形（前の版を同じまとまりで積んでから本表を書き換える）で、記録の内容を変える。
+async fn update_content(pool: &sqlx::PgPool, id: Uuid, payload: Value, raw: &str) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash,
+            raw, payload, source_updated_at, external_ref,
+            tz_offset_min, tz_id, schema_version, unit_system, crs)
+         SELECT e.id, e.user_id, e.logical_source,
+                coalesce((SELECT max(v.version_no) FROM core.event_version v WHERE v.event_id = e.id), 0) + 1,
+                e.event_time, e.content_hash, e.raw, e.payload, e.source_updated_at, e.external_ref,
+                e.tz_offset_min, e.tz_id, e.schema_version, e.unit_system, e.crs
+           FROM core.event e WHERE e.id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.event SET raw = $2, payload = $3, content_hash = $4 WHERE id = $1")
+        .bind(id)
+        .bind(raw)
+        .bind(payload)
+        .bind(Uuid::new_v4().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+}
+
+/// 後に消した記録の件数は覚えて使い回すが（R1）、結果を変えうる書き込み（ここでは記録の内容の更新）の後は
+/// 覚えた値を使わずに数え直す。変わっていなければ数え直さない。
+#[tokio::test]
+async fn export_status_erased_count_is_remembered_but_recounted_after_a_content_update() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("erased-memo");
+    let w = World::new().await;
+    let stay = w.stay(&w.at("10:00"), &w.at("11:00")).await;
+    // 緯度経度を持たないソースの、座標を含まない題名（書き出した時点でも、滞在を消した後も、除かれない）
+    let win = w
+        .put(
+            "c02-window",
+            &w.at("10:30"),
+            json!({"title": "plain"}),
+            r#"{"title":"plain"}"#,
+        )
+        .await;
+    let app = app_with(&w.pool, &dir, Hooks::none());
+    let id = export_and_wait(&app, PASS).await;
+    erase(&app, stay).await;
+    let before = get_status(&app).await;
+
+    // 何も変わっていなければ数え直さない（並んで走る他のテストが台帳を足したときは確かめ直す）
+    let mut reused = false;
+    for _ in 0..5 {
+        let key = export::erased_key(&w.pool, id).await.unwrap();
+        let n = app.exports.erased_counts();
+        let again = get_status(&app).await;
+        if export::erased_key(&w.pool, id).await.unwrap() == key {
+            assert_eq!(app.exports.erased_counts(), n, "鍵が同じなのに数え直した");
+            assert_eq!(
+                again["last"]["erased_after"],
+                before["last"]["erased_after"]
+            );
+            reused = true;
+            break;
+        }
+    }
+    assert!(
+        reused,
+        "鍵が落ち着かず、覚えた値を使う経路を確かめられなかった"
+    );
+
+    // 書き出した後に、題名が地図の URL に変わった（座標を持つ）→ 消した滞在の時間に入るので、いまは除かれる
+    let map = format!(r#"{{"title":"{MAP}"}}"#);
+    update_content(&w.pool, win, json!({ "title": MAP }), &map).await;
+    let after = get_status(&app).await;
+    let delta = after["last"]["erased_after"].as_i64().unwrap()
+        - before["last"]["erased_after"].as_i64().unwrap();
+    assert_eq!(
+        delta, 1,
+        "内容の更新で除かれるようになった記録を数え直していない"
+    );
+}
+
 // Scenario: 書き出し直すと後に消した記録の件数は 0 に戻る
 #[tokio::test]
 async fn export_status_exporting_again_resets_the_erased_count() {
@@ -1038,6 +1123,35 @@ async fn export_status_a_previous_file_that_cannot_be_deleted_is_listed() {
     assert!(!first.exists(), "次の書き出しで消える");
     assert_eq!(get_status(&ok).await["leftover"], json!([]));
     assert_eq!(zips(&dir).len(), 1);
+}
+
+/// 消せなかったファイルのハッシュは（パス・大きさ・更新時刻）で覚えるが（R13）、本人が中身を変えたら覚えた値を使わず、
+/// このシステムの書き出しではなくなったものとして `leftover` から外す。
+#[tokio::test]
+async fn export_status_leftover_digest_is_not_reused_after_the_file_changes() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("leftover-memo");
+    let pool = testdb::pool().await;
+    export_and_wait(&app_with(&pool, &dir, Hooks::none()), PASS).await;
+    let first = zips(&dir).pop().unwrap();
+    let stuck = app_with(&pool, &dir, fail_at(Stage::DeletePrevious, FailKind::Io));
+    export_and_wait(&stuck, PASS).await;
+    assert_eq!(
+        get_status(&stuck).await["leftover"],
+        json!([first.to_str().unwrap()])
+    );
+    assert_eq!(
+        get_status(&stuck).await["leftover"],
+        json!([first.to_str().unwrap()])
+    );
+
+    // 大きさを変えずに 1 バイト書き換える（更新時刻は変わる）
+    let mut bytes = std::fs::read(&first).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0xff;
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&first, &bytes).unwrap();
+    assert_eq!(get_status(&stuck).await["leftover"], json!([]));
 }
 
 // ---------------------------------------------------------------------------

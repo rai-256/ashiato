@@ -163,6 +163,14 @@ pub async fn insert_failed(
 /// 大きさ → zip の注記 `ashiato-export <export_id>` → SHA-256（`digest`）の順に確かめ、
 /// どれかが合わない・zip として読めない・無いなら `false`（消さない側に倒す）。
 pub fn is_untouched(row: &LedgerRow) -> bool {
+    is_untouched_with(row, |p, _| sha256_of(p).ok())
+}
+
+/// `is_untouched` の SHA-256 の取り方を受けるもの（状態の読み出しが（パス・大きさ・更新時刻）で覚えた値を使う。R13）。
+pub fn is_untouched_with(
+    row: &LedgerRow,
+    digest_of: impl Fn(&Path, &std::fs::Metadata) -> Option<String>,
+) -> bool {
     let (Some(bytes), Some(digest)) = (row.bytes, row.digest.as_deref()) else {
         return false;
     };
@@ -182,7 +190,7 @@ pub fn is_untouched(row: &LedgerRow) -> bool {
     if zip.comment() != format!("ashiato-export {}", row.export_id).as_bytes() {
         return false;
     }
-    sha256_of(path).is_ok_and(|d| d == digest)
+    digest_of(path, &meta).is_some_and(|d| d == digest)
 }
 
 /// ファイルの SHA-256（16 進）。
@@ -354,6 +362,43 @@ impl Derived {
                 .collect(),
         }
     }
+}
+
+/// 後に消した記録の件数の鍵（D17 / R1）。**件数を増やしうる書き込みは、どれもここのどれかを動かす**:
+///
+/// - 前回の書き出し（`last`）が変わる → `last`
+/// - 本人の削除の印（消す・連鎖・遅着の印）と戻す → `core.deletion_ledger` に同じまとまりで 1 行（`deletion.rs` / `stay_store::mark_late_arrivals`）
+/// - 記録の内容・時刻の更新（取り込みの更新・滞在の作り直しの `push_version`）→ `core.event_version` に 1 行
+/// - 作り直しの吸収（`rebuild:absorbed`）→ `core.stay_absorbed` に 1 行
+///
+/// 3 つの表はどれも追記のみ（行の書き換え・削除をトリガが断る）なので、件数は新しい行がコミットされるたびに必ず増える
+/// （`max(seq)` は、先に番号を取って後にコミットした行を見落としうるので使わない）。
+/// 鍵に無い書き込み —— 新しい記録の取り込み（次の記録が手前に来て幅が縮む）、作り直しが付ける `rebuild:erased-range`
+/// の印（`s01-stay` だけで、滞在は `end` で幅を読むので他の行の幅を延ばさない）、消去（本文を空にする）—— は件数を減らす側か
+/// 動かさない側にしか働かず、覚えた値は多く数える側にだけずれる（D17「誤りは多く数える側にしか出ない」）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErasedKey {
+    last: Uuid,
+    deletions: i64,
+    versions: i64,
+    absorbed: i64,
+}
+
+pub async fn erased_key(pool: &sqlx::PgPool, last: Uuid) -> Result<ErasedKey, ExportError> {
+    let (deletions, versions, absorbed): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core.deletion_ledger),
+                (SELECT count(*) FROM core.event_version),
+                (SELECT count(*) FROM core.stay_absorbed)",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| db("後に消した記録の鍵を読めない", &e))?;
+    Ok(ErasedKey {
+        last,
+        deletions,
+        versions,
+        absorbed,
+    })
 }
 
 /// 後に消した記録の件数（D17）。前回の記録のファイルに書いた `id` のうち、いま除かれるもの。
