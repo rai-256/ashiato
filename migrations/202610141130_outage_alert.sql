@@ -56,8 +56,21 @@ CREATE TABLE IF NOT EXISTS core.outage_ledger (
     (kind = 'opened' AND episode_id IS NULL AND device_id IS NULL)
     OR (kind = 'closed' AND episode_id IS NOT NULL AND device_id IS NULL AND last_alive_at IS NULL)
     OR (kind = 'delivered' AND episode_id IS NOT NULL AND device_id IS NOT NULL AND last_alive_at IS NULL)
-  )
+  ),
+  CONSTRAINT outage_ledger_opened_has_last_alive CHECK (kind <> 'opened' OR last_alive_at IS NOT NULL)
 );
+-- 途切れの始まりは最後に生きていた時刻を必ず持つ（D7）。形の CHECK とは別の名前で持ち、この CHECK より前に表を作った DB にも足す。
+-- 先に書いた行は検めない（NOT VALID）—— 台帳は追記のみで直せず、新しい行はこの CHECK が縛る
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname = 'outage_ledger_opened_has_last_alive'
+                    AND conrelid = 'core.outage_ledger'::regclass) THEN
+    ALTER TABLE core.outage_ledger ADD CONSTRAINT outage_ledger_opened_has_last_alive
+      CHECK (kind <> 'opened' OR last_alive_at IS NOT NULL) NOT VALID;
+  END IF;
+END
+$$;
 CREATE UNIQUE INDEX IF NOT EXISTS outage_ledger_closed_once
   ON core.outage_ledger (episode_id) WHERE kind = 'closed';
 CREATE UNIQUE INDEX IF NOT EXISTS outage_ledger_delivered_once
