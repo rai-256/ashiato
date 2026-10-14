@@ -105,21 +105,23 @@ async fn st14_reg_archive_sources_are_75_days() {
 #[tokio::test]
 async fn st14_reg_user_changed_days_survive_remigration() {
     let pool = testdb::pool().await;
+    // 他の試験と共有する本物の行は取引の外で書き換えない: 取引の中で当てて戻す
+    let mut tx = pool.begin().await.unwrap();
     sqlx::query(
         "UPDATE core.source SET alert_after_days = 60 WHERE logical_source = 'c03-youtube-watch'",
     )
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::raw_sql(data_part()).execute(&pool).await.unwrap();
-    assert_eq!(days_of(&pool, "c03-youtube-watch").await, Some(60));
-    // 後始末（他の試験が 75 を期待する）
-    sqlx::query(
-        "UPDATE core.source SET alert_after_days = 75 WHERE logical_source = 'c03-youtube-watch'",
+    sqlx::raw_sql(data_part()).execute(&mut *tx).await.unwrap();
+    let days: Option<i32> = sqlx::query_scalar(
+        "SELECT alert_after_days FROM core.source WHERE logical_source = 'c03-youtube-watch'",
     )
-    .execute(&pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap();
+    tx.rollback().await.unwrap();
+    assert_eq!(days, Some(60));
 }
 
 /// Scenario: 汚れた集計の開始日は移行で直る
