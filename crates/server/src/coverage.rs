@@ -820,6 +820,7 @@ async fn gaps_by_day(
 ) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>>, sqlx::Error> {
     let sql = format!(
         "WITH g AS (SELECT CASE WHEN pg_input_is_valid(payload->>'begin', 'timestamptz')
+                                  AND isfinite((payload->>'begin')::timestamptz)
                                   THEN (payload->>'begin')::timestamptz END AS b,
                            event_time AS e,
                            coalesce(payload->>'reason', '') AS reason
