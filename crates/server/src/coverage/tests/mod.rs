@@ -12,6 +12,7 @@ mod achievement;
 mod drops;
 mod nonobs;
 mod retired;
+mod rollup;
 mod spans;
 mod started_on;
 mod states;

@@ -34,6 +34,9 @@ fn non_observation_grid_sql() -> String {
         .join(", ")
 }
 
+/// アプリ利用の集計の論理ソース。格子には出すが達成には数えない（D10（仮））。
+pub const ROLLUP_SOURCE: &str = "c01-app-usage-rollup";
+
 /// NFR-13 の窓の長さ。**そのソースの収集開始日から 365 日**（第 6 回 Q23）。
 pub const WINDOW_DAYS: i64 = 365;
 
@@ -300,6 +303,7 @@ where
             WHERE logical_source = $1
               AND (collection_started_on IS NULL
                    OR collection_started_on > ($2 AT TIME ZONE '{tz}')::date)
+              AND started_on_from IS NULL
               AND {gate}
             RETURNING 1
          )
@@ -337,6 +341,8 @@ struct RawSource {
     own_started_on: Option<chrono::NaiveDate>,
     retired_on: Option<chrono::NaiveDate>,
     succeeds: Option<String>,
+    /// 収集開始日を借りる先（D16）。持つソースは自分では開始日を動かさない
+    started_on_from: Option<String>,
 }
 
 /// 引き継ぎの鎖をたどる深さの上限。**輪になったときに回り続けないため**。
@@ -357,10 +363,11 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
         Option<chrono::NaiveDate>,
         Option<chrono::NaiveDate>,
         Option<String>,
+        Option<String>,
     );
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT logical_source, display_name, expected_gap_sec,
-                collection_started_on, retired_on, succeeds
+                collection_started_on, retired_on, succeeds, started_on_from
            FROM core.source ORDER BY logical_source",
     )
     .fetch_all(pool)
@@ -375,6 +382,7 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
                 own_started_on,
                 retired_on,
                 succeeds,
+                started_on_from,
             )| {
                 RawSource {
                     logical_source,
@@ -383,6 +391,7 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
                     own_started_on,
                     retired_on,
                     succeeds,
+                    started_on_from,
                 }
             },
         )
@@ -405,6 +414,16 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
 /// 分母は鎖の根から数えるのに分子は切り替え後の記録しか拾わず、
 /// **名前を分けた翌日に成功条件 1 が 0 % に落ちる** —— spec が防ぐと書いている当のもの。
 fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str) -> Chain {
+    resolve_chain_borrowing(reg, base, 0)
+}
+
+/// `resolve_chain` の本体。`borrow_depth` は開始日を借りる先をたどった回数
+/// （借り先どうしが輪になっても止まるため。上限は `CHAIN_MAX_DEPTH`）。
+fn resolve_chain_borrowing(
+    reg: &std::collections::HashMap<String, RawSource>,
+    base: &str,
+    borrow_depth: usize,
+) -> Chain {
     // 後継を引くための逆引き。登録簿の一意索引が枝分かれを塞いでいるが、
     // **その索引は作れないことがある**（既に枝分かれのある DB では作成に失敗し、
     // 起動を止めないよう WARNING にしてある）。たどる側でも受ける ——
@@ -502,10 +521,22 @@ fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str)
         tip = next;
     }
 
-    let started_on = names
+    let mut started_on = names
         .iter()
         .filter_map(|n| reg.get(n).and_then(|r| r.own_started_on))
         .min();
+    // 開始日を借りるソースは、借り先の鎖の根から引いた開始日を自分のものとして返す（D16）
+    if let Some(lender) = reg.get(base).and_then(|r| r.started_on_from.as_deref()) {
+        if borrow_depth < CHAIN_MAX_DEPTH {
+            started_on = resolve_chain_borrowing(reg, lender, borrow_depth + 1).started_on;
+        } else {
+            tracing::warn!(
+                kind = "started_on_from_too_deep",
+                logical_source = %base, depth = CHAIN_MAX_DEPTH,
+                "開始日を借りる先をたどる深さが上限に達した。自分の開始日を返す"
+            );
+        }
+    }
     let head = reg.get(&tip);
     Chain {
         names,
