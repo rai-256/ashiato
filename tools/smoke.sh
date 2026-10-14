@@ -149,11 +149,12 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 echo "== 9b. 合成の Takeout を形の確認後に読み、別名の再配置では増やさない（ST12）"
 ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
-printf '%s' '[{"time":"2026-09-12T03:00:00Z","title":"smoke を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke"}]' \
+printf '%s' '[{"time":"2026-09-12T03:00:00Z","title":"smoke を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke","products":["YouTube"]}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube/watch-history.json"
+# 題名は日本語の決まり文句（視聴しました）、`products` は YouTube。言語の当たらない形には印を置けない（ST47 / D6・D10）。
 # **同じ形のファイルを 2 つ**（分割書庫の別の場所にある視聴履歴）。印が形ごとに 1 行であることを見る（R49）
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube 2"
-printf '%s' '[{"time":"2026-09-11T03:00:00Z","title":"smoke2 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke2"}]' \
+printf '%s' '[{"time":"2026-09-11T03:00:00Z","title":"smoke2 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke2","products":["YouTube"]}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube 2/watch-history.json"
 (cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
 for _ in $(seq 1 15); do
@@ -167,7 +168,7 @@ done
 # 引数なしの一覧（本人が最初に叩く形）。`-c` で渡していたときは必ず構文エラーで落ちた（R49）
 listing=$(tools/archive-shape.sh) || { echo "形の一覧が落ちる"; exit 1; }
 printf '%s' "$listing" | grep -q "$SHAPE" || { echo "形の一覧に確認待ちの形が出ない: $listing"; exit 1; }
-printf '%s' "$listing" | grep -q '"kind": "YouTube"' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
+printf '%s' "$listing" | grep -Eq '"kind": ?"YouTube"' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
 tools/archive-shape.sh --confirm "$SHAPE"
 marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
   -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid AND shape_hash = '$SHAPE'")
