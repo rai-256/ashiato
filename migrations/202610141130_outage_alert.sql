@@ -42,6 +42,12 @@ UPDATE core.source SET collection_started_on =
    AND collection_started_on IS DISTINCT FROM
          (SELECT collection_started_on FROM core.source WHERE logical_source = 'c01-app-usage');
 
+-- 判定の材料の「本人が書いた・導出した記録を持つか」（has_non_collected）を引く部分索引（D27（仮））。
+-- 収集した記録しか持たないソースでは一致が無く、索引が無いと問い合わせのたびに利用者 × ソースの全行を読む。
+-- 収集した記録は索引に入らないので小さい
+CREATE INDEX IF NOT EXISTS event_non_collected_by_source
+  ON core.event (user_id, logical_source) WHERE origin <> 'collected';
+
 -- 途切れと戻りと届けたことの台帳（D7。追記のみ。記録の本文・座標・原文の列は持たない）
 CREATE TABLE IF NOT EXISTS core.outage_ledger (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

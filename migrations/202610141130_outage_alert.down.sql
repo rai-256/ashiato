@@ -1,5 +1,6 @@
 -- 戻し手順。台帳は判定の材料ではないので、落としても判定は戻る。3 列を落とす（印と日数は失われるが移行で再び入る）。
 DROP TABLE IF EXISTS core.outage_ledger;
+DROP INDEX IF EXISTS core.event_non_collected_by_source;
 DROP FUNCTION IF EXISTS core.reject_outage_ledger_change();
 ALTER TABLE core.source DROP CONSTRAINT IF EXISTS source_started_on_from_not_self;
 ALTER TABLE core.source DROP CONSTRAINT IF EXISTS source_started_on_from_fk;

@@ -240,6 +240,23 @@ async fn st14_reg_ledger_opened_requires_last_alive_at() {
     }
 }
 
+/// 「本人が書いた・導出した記録を持つか」（`has_non_collected`）を引く部分索引がある（design D27（仮）/ review/code.md R3）。
+/// 収集した記録しか持たないソースで一致が無いとき、利用者 × ソースの全行を読まないため
+#[tokio::test]
+async fn st14_reg_event_has_non_collected_partial_index() {
+    let pool = testdb::pool().await;
+    let def: Option<String> = sqlx::query_scalar(
+        "SELECT indexdef FROM pg_indexes
+          WHERE schemaname = 'core' AND tablename = 'event' AND indexname = 'event_non_collected_by_source'",
+    )
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    let def = def.expect("部分索引 event_non_collected_by_source が無い");
+    assert!(def.contains("(user_id, logical_source)"), "{def}");
+    assert!(def.contains("WHERE (origin <> 'collected'::text)"), "{def}");
+}
+
 /// Scenario: 途切れの台帳に記録の中身が載らない
 #[tokio::test]
 async fn st14_reg_ledger_has_no_record_content_columns() {
