@@ -59,9 +59,7 @@ interface Notice {
 const EMPTY_DAY: DayBucket = { latest: { before: null, after: null }, records: [] };
 
 const without = (all: Record<string, Pending>, key: string): Record<string, Pending> => {
-  const rest = { ...all };
-  delete rest[key];
-  return rest;
+  return Object.fromEntries(Object.entries(all).filter(([k]) => k !== key));
 };
 
 /** 空白だけのひとことは「無い」と同じ（原文の組み立てと同じ規則）。 */
