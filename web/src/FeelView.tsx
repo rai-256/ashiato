@@ -335,6 +335,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
                 data-testid="feel-resend"
                 {...{ [FOCUS_ATTR]: "" }}
                 style={{ ...controlStyle(c), marginLeft: 8 }}
+                onMouseDown={keepFocus}
                 onClick={() => {
                   setHistoryOpen(false);
                   void post(pending, sentNote.current);

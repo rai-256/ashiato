@@ -265,6 +265,25 @@ describe("送れなかったとき", () => {
     await screen.findByTestId("feel-notice-ok");
   });
 
+  // Scenario: 届かなかった記録は同じ原文で送り直す
+  it("ひとことを入れて届かなかった後に「もう一度送る」を押しても、欄のフォーカスを奪わず同じ原文が送られる", async () => {
+    ingest = () => json(503, null);
+    await open();
+    typeNote("雨だった");
+    note().focus();
+    press("valence-1");
+    await sent(1);
+    const resend = await screen.findByTestId("feel-resend");
+    // 押し込みでフォーカスが移ると欄の blur で別の原文が先に送られる。それを止めているか
+    expect(fireEvent.mouseDown(resend)).toBe(false);
+    ingest = accepted;
+    fireEvent.click(resend);
+    await sent(2);
+    expect(posts[1].raw).toBe(posts[0].raw);
+    await screen.findByTestId("feel-notice-ok");
+    expect(posts).toHaveLength(2);
+  });
+
   // Scenario: 届かなかったとき選んだ値とひとことが残る
   it("ひとことを入れて、サーバに届かない状態で快–不快を押すと、届かなかった文が出て値とひとことが残る", async () => {
     await open();
