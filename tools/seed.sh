@@ -65,7 +65,8 @@ docker compose exec -T db psql -q -U ashiato -d ashiato -c \
       SET deleted_at = CASE WHEN device_id = 'seed-$MODE' THEN NULL ELSE coalesce(deleted_at, now()) END,
           deleted_by = CASE WHEN device_id = 'seed-$MODE' THEN NULL ELSE 'seed' END
     WHERE logical_source = 'c01-location' AND device_id LIKE 'seed-%'
-      AND user_id = '00000000-0000-0000-0000-000000000000';" >/dev/null
+      AND user_id = '00000000-0000-0000-0000-000000000000'
+      AND device_id <> 'seed-feeling';" >/dev/null   # seed-feeling は主観の滞在のための別の日の位置（並びに依らず残す。下の「主観」）
 [ "$N" -eq 0 ] && exit 0
 
 # **組み立ては python に任せる**（1,440 点の揺れと移動の補間を bash で書くと読めない）。
@@ -495,7 +496,7 @@ echo "normal: 個人属性の主張を $claims_total 件入れ、同じ数を読
 #
 # 確認バッチの画面（S-6 マスタ管理の「場所」タブ）の材料。**滞在 9 件のうち 2 か所に名前を付ける**:
 # 1 つ目（東京駅の周り）は名前を 1 回変えてある（前の名前が「前の値」に出る）、2 つ目は名前を変えていない。
-# 残りの 7 か所は名前の無い居た所（`/places/candidates`）として残る。
+# 残りは名前の無い居た所（`/places/candidates`）として残る。
 #
 # **何度当てても同じ結果にする**: 器の識別子・記録の識別子・乱数・「書いた日時」は固定。
 # 器は同じ利用者なら何度作っても同じ（`POST /places`）、記録は原文が 1 バイトも変わらないので内容の鍵で畳まれる（FR-22）。
