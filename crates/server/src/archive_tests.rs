@@ -830,6 +830,51 @@ async fn archive_parse_myactivity_registers_a_source_once() {
     assert_eq!(count, 1);
 }
 
+/// Scenario: その他のソースは 60 日で登録されている
+#[tokio::test]
+async fn archive_youtube_other_source_registered() {
+    let pool = testdb::pool().await;
+    let read = |pool: sqlx::PgPool| async move {
+        sqlx::query_as::<_, (String, i32, String)>(
+            "SELECT display_name, expected_gap_sec, external_id_kind
+             FROM core.source WHERE logical_source = 'c03-myactivity-youtube'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    // 書庫を置かずに、移行だけで登録されている
+    assert_eq!(
+        read(pool.clone()).await,
+        (
+            "マイアクティビティ: YouTube".to_string(),
+            5_184_000,
+            "none".to_string()
+        )
+    );
+    // 本人が想定間隔を変えたあとに移行を当て直しても、戻さない
+    sqlx::query(
+        "UPDATE core.source SET expected_gap_sec = 2592000 WHERE logical_source = 'c03-myactivity-youtube'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // 全版の当て直し（`migrate`）は他の試験の DDL と錠を取り合うので、この移行だけを当て直す
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/202610141700_youtube_myactivity_source.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(read(pool.clone()).await.1, 2_592_000);
+    sqlx::query(
+        "UPDATE core.source SET expected_gap_sec = 5184000 WHERE logical_source = 'c03-myactivity-youtube'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
 /// Scenario: 専用のフォルダの書庫は取り込み済みへ移る
 /// Scenario: 取り込み済みに同じ名前があっても上書きしない
 #[test]
