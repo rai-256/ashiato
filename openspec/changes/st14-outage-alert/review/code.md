@@ -205,3 +205,11 @@ C1（`export::CATALOG`）は base にも main にも無いので ST33 の下流�
 - kind: premise
 - 提案: まず C6 の理由を言い直す（`delivered` は「返した」で、「気づけた」とは読まない）。「いつ気づけたか」を数える必要が残るなら、端末が通知を出せたことを別の行（例: `shown`）で返す口を足すかを design に D<n>（仮）で書く
 - 処置: escalated —— 端末で出せたかどうかは追記のみの台帳に後から足せない（`uncaptured`）。deep.md の「下流 finish で積んだ A」Q-R16（`deep-questions-r3.json` / `docs/briefs/ST14-deep-r3.html`）
+
+## scoped re-review（5589c6d..0c60901。code-verify の R11〜R15）
+
+席: `re-review-prompt.md`。package は `.superpowers/sdd/tasks/review-5589c6d4..0c609019.diff`（2 commit）、fix の報告は
+`.superpowers/sdd/st14-final-fix-report.md` の末尾。R11〜R15 はすべて ADDRESSED、Critical / Important の新しい破損なし、範囲外の観察なし。
+Minor 2 件（`warming_up` / `after_warmup` が実時間の経過で境界から揺れる）は当たらない —— 試験の App は `.at(now)` で時刻を固定し、
+`uptime()` は `cfg(test)` で `now - started_at` を返す（`crates/server/src/lib.rs:445-449`）ので、29 分 59 秒・30 分ちょうどはそのまま比べられる。
+R16 は escalated（deep.md Q-R16）で対象外。
