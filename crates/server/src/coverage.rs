@@ -49,30 +49,50 @@ pub const ACHIEVE_RATIO: f64 = 0.95;
 /// **DB の列にしない。** 行を 1 つ更新するだけで判定式が動いてしまう。
 /// 定数なら変更が diff に出て、CI とレビューを通る。
 /// 論理ソース名は登録簿（`migrations/0005`）の名前と同じでなければならない。
-pub const DEVICE_SUBJECT: [&str; 2] = ["c01-location", "c01-app-usage"];
+pub const DEVICE_SUBJECT: [&str; 1] = ["c01-location"];
 /// 同上。**利用が主語**は「取得できる状態の生存信号があった日」で数える（第 4 回 Q7 / Q8）。
-pub const USAGE_SUBJECT: [&str; 3] = ["c01-photo", "c02-window", "c02-browser-history"];
+/// アプリ利用はここ —— 記録の 0 件が「使っていない」と「取れていない」を分けられないため（Q2 / D17）。
+pub const USAGE_SUBJECT: [&str; 4] = [
+    "c01-app-usage",
+    "c01-photo",
+    "c02-window",
+    "c02-browser-history",
+];
+/// 画面の並び（NFR-13 / design D19）。**主語の定数とは別**に持つ —— アプリ利用を利用が主語へ移しても
+/// 位置・アプリ利用・写真・ウィンドウ・ブラウザ履歴 の並びは変えない（D17）。
+const MUST_ORDER: [&str; 5] = [
+    "c01-location",
+    "c01-app-usage",
+    "c01-photo",
+    "c02-window",
+    "c02-browser-history",
+];
+/// PC のソース。達成の分母を**生存信号が 1 件でも届いた日**に絞る（D17）。
+/// PC は電源が切れる日が普通にあり、携帯のように毎日動き続けないため。
+pub const PC_SOURCES: [&str; 2] = ["c02-window", "c02-browser-history"];
 
 /// 達成日の数え方。ソースの**主語**で分かれる（第 4 回 Q8）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Subject {
-    /// 端末が主語（位置・アプリ利用）。**記録が 1 件以上ある日**
+    /// 端末が主語（位置）。**記録が 1 件以上ある日**
     Device,
-    /// 利用が主語（写真・ウィンドウ・ブラウザ履歴）。**取得できる状態の生存信号があった日**
+    /// 利用が主語（アプリ利用・写真・ウィンドウ・ブラウザ履歴）。**取得できる状態の生存信号があった日**
     Usage,
 }
 
-/// NFR-13 の 5 ソースを主語つきで並べる。**この順が画面にも出る。**
+/// NFR-13 の 5 ソースを主語つきで並べる。**この順が画面にも出る**（`MUST_ORDER`）。
 pub fn must_sources() -> Vec<(String, Subject)> {
-    DEVICE_SUBJECT
+    MUST_ORDER
         .iter()
-        .map(|s| ((*s).to_string(), Subject::Device))
-        .chain(
-            USAGE_SUBJECT
-                .iter()
-                .map(|s| ((*s).to_string(), Subject::Usage)),
-        )
+        .map(|s| {
+            let subject = if DEVICE_SUBJECT.contains(s) {
+                Subject::Device
+            } else {
+                Subject::Usage
+            };
+            ((*s).to_string(), subject)
+        })
         .collect()
 }
 
@@ -1204,6 +1224,76 @@ pub struct Achievement {
     pub not_started: Vec<String>,
 }
 
+/// ソース 1 本ぶんの達成を数える。`named_source` は定数が名指しする名前（`PC_SOURCES` の判定に使う）。
+async fn achieve_one(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    today: chrono::NaiveDate,
+    named_source: &str,
+    subject: Subject,
+    src: &SourceRow,
+) -> Result<SourceAchievement, sqlx::Error> {
+    let name = &src.logical_source;
+    let display_name = src.display_name.clone();
+    let started_on = src.collection_started_on;
+    let retired_on = src.retired_on;
+    let window_closes_on = started_on.map(|s| s + chrono::Duration::days(WINDOW_DAYS));
+    let window_closed = window_closes_on.is_some_and(|c| today >= c);
+
+    // **数えるのは終わった日だけ**（design D15）。今日はまだ終わっていないので分母に入れない。
+    // 収集開始日から 200 日なら分母は 200 日になる（specs の固定値がこの数え方を指している）。
+    let (achieved_days, denominator) = match started_on {
+        None => (0, 0),
+        Some(start) => {
+            let last_of_window = start + chrono::Duration::days(WINDOW_DAYS - 1);
+            let last_counted = (today - chrono::Duration::days(1)).min(last_of_window);
+            if last_counted < start {
+                (0, 0)
+            } else {
+                let f = facts(pool, user, &src.chain, start, last_counted).await?;
+                // **分母から抜けた日は達成日にも数えない**（2 巡目 R4）——
+                // 達成日数が分母を超えるのを防ぐ。
+                //
+                // **退役した日より後も分母に入れない**（ST03 の R64 / 第 8 回 Q31）。
+                // 入れたままだと、退役してから窓が閉じるまでの日が毎日「未達」として
+                // 積まれ、**名前を分けただけで成功条件 1 が落ちる**。
+                //
+                // **PC のソースは生存信号の届いた日だけを分母にする**（D17）。
+                // 取得できない状態の信号も「届いた」に数える。
+                let is_pc = PC_SOURCES.contains(&named_source);
+                let live = f
+                    .iter()
+                    .filter(|d| !d.stopped_full)
+                    .filter(|d| !retired_on.is_some_and(|r| d.day >= r))
+                    .filter(|d| !is_pc || d.capturable.is_some());
+                let denom = live.clone().count() as i64;
+                let hit = live
+                    .filter(|d| match subject {
+                        Subject::Device => d.event_count > 0,
+                        Subject::Usage => d.capturable == Some(true),
+                    })
+                    .count() as i64;
+                (hit, denom)
+            }
+        }
+    };
+    let threshold = denominator as f64 * ACHIEVE_RATIO;
+    let met = started_on.is_some() && denominator > 0 && achieved_days as f64 >= threshold;
+    Ok(SourceAchievement {
+        logical_source: name.clone(),
+        named_source: named_source.to_string(),
+        display_name,
+        subject,
+        collection_started_on: started_on,
+        achieved_days,
+        denominator,
+        threshold,
+        met,
+        window_closed,
+        window_closes_on,
+    })
+}
+
 /// 達成日数と合否を数える。
 ///
 /// **`today` を引数に取る**のは、判定が「いつ引いたか」に依存するため（窓の開閉・暫定/確定）。
@@ -1224,60 +1314,7 @@ pub async fn achievement(
 
     let mut out = Vec::with_capacity(targets.len());
     for ((named_source, subject), src) in targets.iter().zip(rows.iter()) {
-        let name = &src.logical_source;
-        let display_name = src.display_name.clone();
-        let started_on = src.collection_started_on;
-        let retired_on = src.retired_on;
-        let window_closes_on = started_on.map(|s| s + chrono::Duration::days(WINDOW_DAYS));
-        let window_closed = window_closes_on.is_some_and(|c| today >= c);
-
-        // **数えるのは終わった日だけ**（design D15）。今日はまだ終わっていないので分母に入れない。
-        // 収集開始日から 200 日なら分母は 200 日になる（specs の固定値がこの数え方を指している）。
-        let (achieved_days, denominator) = match started_on {
-            None => (0, 0),
-            Some(start) => {
-                let last_of_window = start + chrono::Duration::days(WINDOW_DAYS - 1);
-                let last_counted = (today - chrono::Duration::days(1)).min(last_of_window);
-                if last_counted < start {
-                    (0, 0)
-                } else {
-                    let f = facts(pool, user, &src.chain, start, last_counted).await?;
-                    // **分母から抜けた日は達成日にも数えない**（2 巡目 R4）——
-                    // 達成日数が分母を超えるのを防ぐ。
-                    //
-                    // **退役した日より後も分母に入れない**（ST03 の R64 / 第 8 回 Q31）。
-                    // 入れたままだと、退役してから窓が閉じるまでの日が毎日「未達」として
-                    // 積まれ、**名前を分けただけで成功条件 1 が落ちる**。
-                    let live = f
-                        .iter()
-                        .filter(|d| !d.stopped_full)
-                        .filter(|d| !retired_on.is_some_and(|r| d.day >= r));
-                    let denom = live.clone().count() as i64;
-                    let hit = live
-                        .filter(|d| match subject {
-                            Subject::Device => d.event_count > 0,
-                            Subject::Usage => d.capturable == Some(true),
-                        })
-                        .count() as i64;
-                    (hit, denom)
-                }
-            }
-        };
-        let threshold = denominator as f64 * ACHIEVE_RATIO;
-        let met = started_on.is_some() && denominator > 0 && achieved_days as f64 >= threshold;
-        out.push(SourceAchievement {
-            logical_source: name.clone(),
-            named_source: named_source.clone(),
-            display_name,
-            subject: *subject,
-            collection_started_on: started_on,
-            achieved_days,
-            denominator,
-            threshold,
-            met,
-            window_closed,
-            window_closes_on,
-        });
+        out.push(achieve_one(pool, user, today, named_source, *subject, src).await?);
     }
 
     let failing: Vec<String> = out
