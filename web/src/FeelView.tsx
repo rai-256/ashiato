@@ -427,7 +427,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
               data-testid="feel-history-toggle"
               aria-expanded={historyOpen}
               {...{ [FOCUS_ATTR]: "" }}
-              style={linkStyle(c)}
+              style={{ ...linkStyle(c), background: "transparent", border: "none" }}
               onClick={() => setHistoryOpen((o) => !o)}
             >
               {m.history(records.length)}

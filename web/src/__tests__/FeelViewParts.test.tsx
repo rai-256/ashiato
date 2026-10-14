@@ -7,6 +7,9 @@
  */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import dayFeelingSource from "../DayFeeling.tsx?raw";
+import feelPartsSource from "../FeelParts.tsx?raw";
+import feelViewSource from "../FeelView.tsx?raw";
 import { FeelView } from "../FeelView";
 import { calendarDays, type DayStatus, type Feeling, type StayBucket } from "../feelings";
 import { Root } from "../Root";
@@ -432,5 +435,35 @@ describe("読み出しの失敗", () => {
     expect(screen.getByTestId("feel-notice").textContent).toContain("気分を読み出せませんでした");
     for (const e of screen.getAllByTestId("cal-mark")) expect(e.textContent).toBe("");
     expect(screen.getAllByTestId(/^cal-\d{4}-/).every((e) => !e.style.border.includes("dashed"))).toBe(true);
+  });
+});
+
+describe("色の出所と下限", () => {
+  // Scenario: 主観入力の画面は確定した色だけを使う
+  it("`FeelView.tsx` / `FeelParts.tsx` / `DayFeeling.tsx` に色の直書きが無く、色は `tone` と `SCHEMES` からだけ引く", () => {
+    // 新しい色関数も網に入れる（`MasterView` の同じ検査と同じ式）。名前付き色は `transparent` だけ許す
+    for (const [name, source] of [
+      ["FeelView.tsx", feelViewSource],
+      ["FeelParts.tsx", feelPartsSource],
+      ["DayFeeling.tsx", dayFeelingSource],
+    ] as const) {
+      const literals = source.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/g) ?? [];
+      expect(literals, `${name} に色が直書きされている: ${literals.join(" / ")}`).toHaveLength(0);
+      const named = source.match(/\b(?:background|color|outline|fill|stroke)\s*:\s*"(?!transparent")[a-zA-Z]+"/g) ?? [];
+      expect(named, `${name} に名前付き色が直書きされている: ${named.join(" / ")}`).toHaveLength(0);
+    }
+    expect(feelPartsSource).toContain('from "./tokens"');
+    expect(feelPartsSource).toContain("tone(");
+    expect(feelViewSource).toContain('from "./tokens"');
+    expect(feelViewSource).toContain("tone(");
+  });
+
+  // Scenario: 快不快のボタンは高さ 64 px 以上
+  it("快–不快の 5 つのボタンは高さ 64 px 以上を指定している（実寸は e2e が測る）", async () => {
+    render(<FeelView date={TARGET} />);
+    for (let v = -2; v <= 2; v++) {
+      const b = await screen.findByTestId(`valence-${v}`);
+      expect(Number.parseFloat(b.style.minHeight), `valence-${v}`).toBeGreaterThanOrEqual(64);
+    }
   });
 });

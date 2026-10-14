@@ -55,7 +55,7 @@ export function ScaleRow({
   onPress: (value: number) => void;
   withWords: boolean;
   testid: string;
-  /** 既定は言葉つき 56 / 数値だけ `MIN_TARGET_PX + 8` */
+  /** 既定は言葉つき 64（NFR-19 の下限 24 とは別に、親指で外さない高さ。深掘り Q1）/ 数値だけ `MIN_TARGET_PX + 8` */
   height?: number;
 }): React.ReactElement {
   const scheme = useScheme();
@@ -78,7 +78,7 @@ export function ScaleRow({
               ...(on ? primaryStyle(c) : controlStyle(c)),
               flex: 1,
               minWidth: 0,
-              minHeight: height ?? (withWords ? 56 : MIN_TARGET_PX + 8),
+              minHeight: height ?? (withWords ? 64 : MIN_TARGET_PX + 8),
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -171,7 +171,7 @@ export function StayRows({
                       data-testid="feel-stay-history-toggle"
                       aria-expanded={opened === row.id}
                       {...{ [FOCUS_ATTR]: "" }}
-                      style={linkStyle(c)}
+                      style={{ ...linkStyle(c), background: "transparent", border: "none" }}
                       onClick={() => setOpened(opened === row.id ? null : row.id)}
                     >
                       {m.history(row.records.length)}
