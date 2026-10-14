@@ -68,7 +68,7 @@
 
 ## Task 4: 解析器の版を上げ、確認待ちと読み終えた書庫の形を取り直す（design D9）
 
-- [ ] 4.1 `archive::PARSER_VERSION` を `"2"` にする。design D9 の 1〜3 を入れる: (1) いまの版の `pending_shape` の行を持たない確認待ちの書庫の形を写しから取り直し、`archive_pending_shape` の `shape_hash` / `shape` を置き換え（`record_pending_file` の `ON CONFLICT` も更新する）、
+- [x] 4.1 `archive::PARSER_VERSION` を `"2"` にする。design D9 の 1〜3 を入れる: (1) いまの版の `pending_shape` の行を持たない確認待ちの書庫の形を写しから取り直し、`archive_pending_shape` の `shape_hash` / `shape` を置き換え（`record_pending_file` の `ON CONFLICT` も更新する）、
   元の読みの名前・作られた時刻・置き場の種類を写した、いまの版の `pending_shape` の行を 1 つ足す / (2) 走査の輪でこの取り直しを `ingest_confirmed_pending` より先に回し、`ingest_confirmed_pending` は読む直前にいまの形のハッシュで印を照らす /
   (3) `reread_archive` の読み直しで、新しい版の形に印の無いファイルを飛ばさず確認待ちに積む。移行は足さない。
   Scenario: `解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る` / `旧い形の印があっても確認待ちの YouTube のファイルは版の上げの後に新しい形の印を待つ` /
