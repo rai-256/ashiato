@@ -235,7 +235,7 @@ GO 資料（`docs/briefs/ST17-spec.html`）と GO 用 proto を読んだ本人�
 
 ## 11.3 の検証コマンドが成立しない（whole-branch review R1。premise）
 
-- **QR1 [11.3 の検証コマンド] -> (未回答)**（問い: `deep-questions-r13.json`、HTML: `docs/briefs/ST17-deep-r13.html`）
+- **QR1 [11.3 の検証コマンド] -> 段ごとに結果を残し、クラス名で数える**（本人の選択。推奨と同じ。`deep-answers-5.txt`。問い: `deep-questions-r13.json`、HTML: `docs/briefs/ST17-deep-r13.html`）
   - 事実: tasks.md 11.3 の検証 `AT FeelingReminderInstrumentedTest` は、ハーネスが走らせられない。evidence.jsonl に 11.3 の行は 0 件のまま `[x]` になっていた（review/code.md R1）。
     - 略記 `AT` の展開先は `find …` の 1 行だけで、`evidence.py` の `CMD_LIKE` に当たらず `declared()` が空（`scripts/verify-run 11.3` は rc=2「本文に検証コマンドが無い」。2026-10-14 実測）
     - glob `TEST-*FeelingReminderInstrumentedTest*.xml` は実名 `TEST-ashiato-api35(AVD) - 15-_app-.xml`（端末ごと 1 ファイル）に合わない
@@ -243,3 +243,9 @@ GO 資料（`docs/briefs/ST17-spec.html`）と GO 用 proto を読んだ本人�
   - 計測テストそのものは今日 10:50 の手の実行で 3 本・失敗 0 だが、R11 の直しの前のコードで、完了の証跡にはならない
   - `plan_fix.py` は旧コマンドが `declared()` にあり FAIL の証跡があることを要求するので、どちらの答えでも harness2 側の直しが要る
   - loss: 無し（検証の入口の話。データは失われない）
+  - 決定: `tools/android-emulator.sh` が 1 段目の結果の XML を別の名前で残すように直す（2 段目に上書きさせない）。
+    11.3 の検証は「`tools/android-emulator.sh` rc=0 かつ、残した XML に
+    `classname="dev.ashiato.collector.FeelingReminderInstrumentedTest"` の testcase が 1 本以上」にする（0 本では通らない守りを残す）。
+    harness2 側は、`declared()` が空の項目を `plan_fix.py` が受けられるようにする（本人がこの選択で承認した直し）。
+  - 退けた案: `tools/android-emulator.sh` の rc=0 だけにする（道具は変えないが、クラスが走ったかを見ず 0 本でも通る）
+  - 要件へ戻すもの: 無し（検証の入口の話で、要件・Story の振る舞いは変わらない）
