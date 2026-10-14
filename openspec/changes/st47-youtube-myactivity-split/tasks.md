@@ -78,7 +78,7 @@
 
 ## Task 5: 位置の印と稼働状況の最終日（design D11）
 
-- [ ] 5.1 `c03-myactivity-youtube` が位置の印付け（`stay_store` の登録済みの `c03-myactivity-*`）の対象に入っていること、分けた 3 つの論理ソースの最終日が `/archives/status` の `sources` に出ることを試験で固定する（コードを足す必要が無ければ足さない）。
+- [x] 5.1 `c03-myactivity-youtube` が位置の印付け（`stay_store` の登録済みの `c03-myactivity-*`）の対象に入っていること、分けた 3 つの論理ソースの最終日が `/archives/status` の `sources` に出ることを試験で固定する（コードを足す必要が無ければ足さない）。
   Scenario: `消した滞在の時間帯の位置を持つ YouTube のその他の項目は削除済みになる` / `分けた論理ソースの最終日が稼働状況に出る`。
   検証: `CT archive_youtube_location (≥1)`（滞在を消してから、同じ時間帯の時刻で `locationInfos` を持つ広告と持たない広告を含む合成の YouTube のマイアクティビティを印を置いて格納し、前者だけに `deleted_by = 'user:late'`）、
   `CT archive_youtube_last_event (≥1)`（`last_event_on` が 3 つの論理ソースでそれぞれ spec の日付）
