@@ -2117,16 +2117,14 @@ pub async fn export_post(
     if uri.query().is_some_and(|q| !q.is_empty()) {
         return export_refusal(StatusCode::BAD_REQUEST, "unexpected_field");
     }
-    let mut fields = match serde_json::from_slice::<serde_json::Value>(&body) {
-        Ok(serde_json::Value::Object(m)) => m,
-        _ => return export_refusal(StatusCode::BAD_REQUEST, "password_missing"),
-    };
-    let password = fields.remove("password");
-    if !fields.is_empty() {
-        return export_refusal(StatusCode::BAD_REQUEST, "unexpected_field");
+    let parsed = export_body(&body);
+    // 本体の写し（`Bytes`）は、ほかに持ち主がいなければ読んだ後に 0 で埋める（できる範囲。共有されていれば消せない）。
+    if let Ok(mut owned) = body.try_into_mut() {
+        zeroize::Zeroize::zeroize(&mut owned[..]);
     }
-    let Some(serde_json::Value::String(password)) = password else {
-        return export_refusal(StatusCode::BAD_REQUEST, "password_missing");
+    let password = match parsed {
+        Ok(p) => p,
+        Err(kind) => return export_refusal(StatusCode::BAD_REQUEST, kind),
     };
     // Unicode の符号位置で数える。前後の空白を削らない（本人が打ったものがそのまま鍵になる）。
     if password.chars().count() < export::MIN_PASSPHRASE_CHARS {
@@ -2136,7 +2134,7 @@ pub async fn export_post(
         app.pool.clone(),
         &app.exports,
         &app.export,
-        export::Passphrase::new(password),
+        export::Passphrase::from_zeroizing(password),
     ) {
         Some(export_id) => (
             StatusCode::ACCEPTED,
@@ -2144,6 +2142,147 @@ pub async fn export_post(
         )
             .into_response(),
         None => export_refusal(StatusCode::CONFLICT, "export_running"),
+    }
+}
+
+/// `POST /export` の本体を読む（ST33 / design D1）。`{"password": "<文字列>"}` だけを受ける。
+///
+/// **`serde_json::Value` を経ずに、合言葉を `Zeroizing<String>` へ直に読む**（R16。`Value` の木に残った写しは消せない）。
+/// 拒否は種別だけを返し、本体の断片を載せない（axum の `Json` の既定の拒否は本体の断片を出しうるので使わない）。
+/// `password` 以外の鍵があれば `unexpected_field`、本体が読めない・オブジェクトでない・`password` が無いか文字列でなければ `password_missing`。
+fn export_body(body: &[u8]) -> Result<zeroize::Zeroizing<String>, &'static str> {
+    use serde::de::{Deserializer as _, IgnoredAny, MapAccess, Visitor};
+
+    /// `password` の値。文字列なら合言葉、それ以外は捨てる。
+    struct Secret(Option<zeroize::Zeroizing<String>>);
+
+    impl<'de> serde::Deserialize<'de> for Secret {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Secret;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("文字列")
+                }
+                fn visit_str<E>(self, v: &str) -> Result<Secret, E> {
+                    Ok(Secret(Some(zeroize::Zeroizing::new(v.to_owned()))))
+                }
+                fn visit_string<E>(self, v: String) -> Result<Secret, E> {
+                    Ok(Secret(Some(zeroize::Zeroizing::new(v))))
+                }
+                fn visit_bool<E>(self, _: bool) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_i64<E>(self, _: i64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_u64<E>(self, _: u64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_f64<E>(self, _: f64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_unit<E>(self) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                    self,
+                    mut a: A,
+                ) -> Result<Secret, A::Error> {
+                    while a.next_element::<IgnoredAny>()?.is_some() {}
+                    Ok(Secret(None))
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Secret, A::Error> {
+                    while a.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                    Ok(Secret(None))
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+
+    /// 本体のオブジェクト。`password` 以外の鍵があったかだけを覚える（値は読まずに捨てる）。
+    struct Fields {
+        password: Option<zeroize::Zeroizing<String>>,
+        extra: bool,
+    }
+
+    struct FieldsVisitor;
+    impl<'de> Visitor<'de> for FieldsVisitor {
+        type Value = Fields;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("オブジェクト")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Fields, A::Error> {
+            let mut out = Fields {
+                password: None,
+                extra: false,
+            };
+            while let Some(key) = a.next_key::<std::borrow::Cow<'de, str>>()? {
+                if key == "password" {
+                    out.password = a.next_value::<Secret>()?.0;
+                } else {
+                    out.extra = true;
+                    a.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(out)
+        }
+    }
+
+    let mut de = serde_json::Deserializer::from_slice(body);
+    let fields = de
+        .deserialize_map(FieldsVisitor)
+        .and_then(|f| de.end().map(|()| f))
+        .map_err(|_| "password_missing")?;
+    if fields.extra {
+        return Err("unexpected_field");
+    }
+    fields.password.ok_or("password_missing")
+}
+
+#[cfg(test)]
+mod export_body_tests {
+    use super::export_body;
+
+    #[test]
+    fn export_body_reads_the_password_and_refuses_by_kind_only() {
+        assert_eq!(
+            export_body(br#"{"password":"a\"b-0123456789"}"#)
+                .as_deref()
+                .map(String::as_str),
+            Ok("a\"b-0123456789")
+        );
+        for (body, kind) in [
+            (&b""[..], "password_missing"),
+            (b"[]", "password_missing"),
+            (b"\"pw\"", "password_missing"),
+            (b"{}", "password_missing"),
+            (br#"{"password":null}"#, "password_missing"),
+            (br#"{"password":123456789012}"#, "password_missing"),
+            (br#"{"password":{"a":"0123456789ab"}}"#, "password_missing"),
+            (br#"{"password":["0123456789ab"]}"#, "password_missing"),
+            (
+                br#"{"password":"0123456789ab"} trailing"#,
+                "password_missing",
+            ),
+            (
+                br#"{"password":"0123456789ab","from":"2020-01-01"}"#,
+                "unexpected_field",
+            ),
+            (
+                br#"{"from":{"x":[1,2]},"password":"0123456789ab"}"#,
+                "unexpected_field",
+            ),
+            (br#"{"source":1}"#, "unexpected_field"),
+        ] {
+            assert_eq!(
+                export_body(body).err(),
+                Some(kind),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
     }
 }
 

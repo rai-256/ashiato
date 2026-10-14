@@ -45,6 +45,11 @@ impl Passphrase {
         Self(Zeroizing::new(phrase))
     }
 
+    /// 既に `Zeroizing` に包んだ合言葉を受ける（口が本体から直に読んだもの。写しを作らない）。
+    pub fn from_zeroizing(phrase: Zeroizing<String>) -> Self {
+        Self(phrase)
+    }
+
     /// 暗号化に渡すときだけ読む。
     pub fn expose(&self) -> &str {
         &self.0
