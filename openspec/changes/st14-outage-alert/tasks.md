@@ -152,16 +152,16 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 `collector-android/app/src/main/kotlin/dev/ashiato/collector/` に `OutageNotice.kt`（純粋な決め方）・`OutagePoller.kt`・`OutageNotifier.kt`（新規）、`LocationService.kt` は契機に 1 行。
 試験は `app/src/test` の `OutageNoticeTest.kt` / `OutageNotifierTest.kt` / `OutagePollerTest.kt`（新規。JUnit4 + Robolectric）。design D12 / D13 / D14（仮）。
 
-- [ ] 8.1 `OutageNotice.decide(state, result)` を design D13 の表のとおりに書く（`Unreachable` / `WarmingUp` / `Ready`）。鳴らした途切れの覚えは `SharedPreferences`。
+- [x] 8.1 `OutageNotice.decide(state, result)` を design D13 の表のとおりに書く（`Unreachable` / `WarmingUp` / `Ready`）。鳴らした途切れの覚えは `SharedPreferences`。
   Scenario: `新しい途切れで音つきの通知が 1 通出る` / `続く途切れでは音を鳴らさずに通知が残る` / `同時に途切れたソースは 1 通にまとまる` / `新しく途切れたソースが増えたときだけまた鳴る` /
   `途切れたソースが減ると音を鳴らさずに差し替わる` / `戻ると通知が黙って消える` / `サーバに届かない間は通知が変わらない` / `判定を待っている間は通知が変わらない` / `同じ途切れでも端末ごとに 1 回鳴る`（端末の側: 前の状態が空なら必ず鳴る）/
   `収集アプリを起動し直しても同じ途切れでは鳴らない`（`SharedPreferences` に書いた後、新しい `OutageNotice` で読み直す）。
   検証: `KT OutageNoticeTest`
-- [ ] 8.2 `OutageNotifier`: チャネル `outage`（IMPORTANCE_DEFAULT）、`OUTAGE_NOTIFICATION_ID = 3`、音なしは `setSilent(true)`、文面は D14（仮）。Robolectric の `ShadowNotificationManager` でチャネル・ID・音の有無・本文を見る。
+- [x] 8.2 `OutageNotifier`: チャネル `outage`（IMPORTANCE_DEFAULT）、`OUTAGE_NOTIFICATION_ID = 3`、音なしは `setSilent(true)`、文面は D14（仮）。Robolectric の `ShadowNotificationManager` でチャネル・ID・音の有無・本文を見る。
   Scenario: `携帯の途切れの通知は専用のチャネルで出る`（`location` とも `retention` とも違う）/ `途切れの通知に記録の中身が載らない`（本文が表示名・日時・定まった文言だけ）/ `新しい途切れで音つきの通知が 1 通出る`（OS の側）/ `戻ると通知が黙って消える`（OS の側）/
   `通知を出せなくても収集は止まらない`（`POST_NOTIFICATIONS` を外した Robolectric で、通知が 0 件・ログが 1 行・送信の箱に記録が残る）。
   検証: `KT OutageNotifierTest`
-- [ ] 8.3 `OutagePoller`: `GET /outages?device_id=` を 1 回（10 秒で打ち切り。既存の `HttpTransport`）。**位置**の生存信号のスケジューラだけで `emit()` の後と起動時の 1 発の後に呼び、`poll` → 決め方 → 通知 → 覚えの書き込みを単一スレッドの executor で直列にする（design D12）。
+- [x] 8.3 `OutagePoller`: `GET /outages?device_id=` を 1 回（10 秒で打ち切り。既存の `HttpTransport`）。**位置**の生存信号のスケジューラだけで `emit()` の後と起動時の 1 発の後に呼び、`poll` → 決め方 → 通知 → 覚えの書き込みを単一スレッドの executor で直列にする（design D12）。
   偽の transport とスケジューラで、契機ごとに 1 回出ること・端末識別子が付くこと・位置・アプリ利用・写真の 3 ソースが同時に動く構成でも 1 回であることを見る。
   `AlarmManager` / WorkManager を使っていないことを `grep` で確かめる。
   Scenario: `携帯は生存信号の契機で問い合わせる` / `ソースが複数あっても携帯の問い合わせは契機ごとに 1 回`。
