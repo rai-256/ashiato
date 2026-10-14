@@ -130,7 +130,13 @@ class OutageNotifierTest {
         // Q4「途切れ 1 回につき音は 1 回」の 1 回を、出せなかった契機で使わない（review/code.md R12。PC は outage_notice.rs の同じ試験）
         shadowOf(app).denyPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
         val notice = OutageNotice(app.getSharedPreferences("outage_notice_r12", android.content.Context.MODE_PRIVATE))
-        val poller = OutagePoller(OutageQuery { readyBody() }, notice, notifier, { "dev" }, executor = DirectExecutorService())
+        val poller = OutagePoller(
+            query = OutageQuery { readyBody() },
+            notice = notice,
+            notifier = notifier,
+            deviceId = { "dev" },
+            executor = DirectExecutorService(),
+        )
         poller.poll()
 
         assertNull("通知は出ない", posted())
