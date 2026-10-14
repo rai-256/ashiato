@@ -1295,6 +1295,8 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 
 ## R77. 深掘り第 6 回 Q11（前に送った版より前にしない）がコードにも spec / design D15 / 送信契約 / proposal にも入っていない
 
+- 処置: fixed D15 / D16 仮 — 9f0e4f37・714c626e・1244318a（`history/fetch.rs` の `next_version` / `mark_sent_version`、`history/ledger.rs` の `sent_version`、`history/contract.rs:331`、spec の Scenario 2 本と `runtime::tests::history_runtime_clock_back_update_*`）。D16 でも閉じない「置き場ごと消えた」場合は R88 で本人に返す
+
 - 成果物: crates/collector-windows/src/history/contract.rs / crates/collector-windows/src/history/ledger.rs / openspec/changes/st08-browser-history/specs/desktop-collection/spec.md / design.md D15 / docs/collector-contract.md / proposal.md
 - 根拠: `history/contract.rs:330` は `source_updated_at: Some(micros(collected_at))` のまま。`LedgerVisit` に前に送った版が無い。`docs/audit/2026-10-12-fr13-q11-consistency.md` の C1・C2・C3・C5・K1 は「行き先: fix（ST08 自身の下流の回し直し。このブランチ）」、C4 は「D15 で扱いを決める。閉じられなければ ask」。時計が戻った後の更新が届くことを見る Scenario もテストも無い
 - kind: technical
@@ -1302,6 +1304,8 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 - 提案: 帳面の訪問に前に送った版を持ち、`source_updated_at` = max(読んだ時刻, 前の版 + 1µs)。古い帳面は `#[serde(default)]` で読む。Runtime の層のテストに Scenario の印。C4 は帳面を退避しても残るプロファイルごとの送った版の最大値で閉じる（仮）
 
 ## R78. `check_chain.py` が HEAD で FAIL する（CI の `chain` job も赤）
+
+- 処置: fixed D16 仮 — 52ca7049（`docs/audit/2026-10-14-st08-fr13-q11-recheck-consistency.md`、基準 e32f33a9..1244318a）。`python3 scripts/check_chain.py .` → `chain: OK`
 
 - 成果物: docs/audit/
 - 根拠: `python3 scripts/check_chain.py .` → `[FAIL] 整合の確認: 整合の確認の後に要件が変わった（この監査を名指ししない改訂）: FR-13`。`consistency_triage.py` の `latest()` は基準の head が最も新しい監査を見る。rebase で入った main の `2026-10-14-st14-merge-consistency.md` の基準は ST08 の FR-13 ★ 2026-10-12 を持たない。11.3 の証跡は rebase と Task 10 より前
@@ -1324,12 +1328,16 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 
 ## R81. Minor: proposal の「第 3〜5 回」の表の後ろに第 2 回の Q4 / Q5 の行が続いている
 
+- 処置: fixed D15 — 714c626e（第 2 回の Q4 / Q5 を第 1 回の表の Q3 の後ろへ）
+
 - 成果物: openspec/changes/st08-browser-history/proposal.md
 - 根拠: `proposal.md:47-57`
 - kind: technical
 - 提案: Q6〜Q10 の行を Q5 の行の後ろへ動かす
 
 ## R82. Minor: `remember_queued` の印の削除の失敗が無言で、古い印が残ると起動直後の信号が「取得できない」のままになる
+
+- 処置: fixed D12 — df3fe8c5（`remember_queued` の削除の失敗を `history_not_queued_mark_remove_failed` に数える。`history::collect::tests::history_not_queued_mark_remove_failure_is_counted`）
 
 - 成果物: crates/collector-windows/src/runtime.rs
 - 根拠: `remove_file(...).ok()`（`runtime.rs` の `remember_queued`）
@@ -1363,3 +1371,26 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 - 根拠: 0f3df8c9（main）。`{len(new_names)}本（許したのは{NEW_SCENARIOS}本）` が字面のまま出る
 - kind: defer
 - 処置: rejected: ST08 の変更ではない（`git log e32f33a..HEAD -- tools/st12_delta_diff.py` が空。main の 0f3df8c9）。main 側の `fix/` で拾う
+
+## scoped re-review（44a19526..52ca7049）
+
+R77・R78・R81・R82 は ADDRESSED。新しい Minor 2 件（R87）と、範囲外の観察 2 件（R88 と「取り込み口に通していない」—— 監査の「未確認」に既にある）。
+
+## R87. Minor: spec の SHALL が「更新時刻として、その内容を読んだ時刻を載せ」のまま、印を書く側の失敗も無言
+
+- 処置: followup ST08 — Minor（直後の SHALL と Scenario 2 本が Q11 を持ち、振る舞いは固定済み。印を書く側はプロセスの間は覚えているので失うものは無い）。docs/handoff/ST08.md
+
+- 成果物: openspec/changes/st08-browser-history/specs/desktop-collection/spec.md:168-169 / crates/collector-windows/src/history/collect.rs（`remember_queued`）
+- 根拠: re-review。SHALL の言い切りと導出の段落「更新時刻に読んだ時刻を載せるのは」が残る。印を書く `write(...).ok()` は無言
+- kind: technical
+- 提案: 「読んだ時刻を基に、ただし前に送った版より前にしない」の 1 文にまとめる / 書く側の失敗も数える
+
+## R88. 置き場（`state_dir`）ごと消えた・入れ直した後に時計が戻っていると、D16 でも更新を取りこぼす
+
+- 処置: escalated — deep.md 第 7 回 Q12（`deep-questions-r7.json` → `docs/briefs/ST08-deep-r7.html`）
+
+- 成果物: openspec/changes/st08-browser-history/design.md D16 / docs/requirements.md FR-13
+- 根拠: `docs/audit/2026-10-14-st08-fr13-q11-recheck-consistency.md` の C1（行き先: ask）。design D16「閉じないもの」
+- kind: irreversible
+- loss: uncaptured
+- 提案: 要件に例外を書く（推奨）か、取り込み口から訪問ごとの版を引く
