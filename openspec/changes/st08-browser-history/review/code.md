@@ -1295,7 +1295,7 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 
 ## R77. 深掘り第 6 回 Q11（前に送った版より前にしない）がコードにも spec / design D15 / 送信契約 / proposal にも入っていない
 
-- 処置: fixed D15 / D16 仮 — 9f0e4f37・714c626e・1244318a（`history/fetch.rs` の `next_version` / `mark_sent_version`、`history/ledger.rs` の `sent_version`、`history/contract.rs:331`、spec の Scenario 2 本と `runtime::tests::history_runtime_clock_back_update_*`）。D16 でも閉じない「置き場ごと消えた」場合は R88 で本人に返す
+- 処置: escalated — deep.md 第 6 回 Q11 で回答済み（前に送った版より前にしない）。答えどおりに 9f0e4f37・714c626e・1244318a で実装した（`history/fetch.rs` の `next_version` / `mark_sent_version`、`history/ledger.rs` の `sent_version`、`history/contract.rs:331`、D15 / D16（仮）、spec の Scenario 2 本と `runtime::tests::history_runtime_clock_back_update_*`）。D16 でも閉じない「置き場ごと消えた」場合は R88 → deep.md 第 7 回 Q12
 
 - 成果物: crates/collector-windows/src/history/contract.rs / crates/collector-windows/src/history/ledger.rs / openspec/changes/st08-browser-history/specs/desktop-collection/spec.md / design.md D15 / docs/collector-contract.md / proposal.md
 - 根拠: `history/contract.rs:330` は `source_updated_at: Some(micros(collected_at))` のまま。`LedgerVisit` に前に送った版が無い。`docs/audit/2026-10-12-fr13-q11-consistency.md` の C1・C2・C3・C5・K1 は「行き先: fix（ST08 自身の下流の回し直し。このブランチ）」、C4 は「D15 で扱いを決める。閉じられなければ ask」。時計が戻った後の更新が届くことを見る Scenario もテストも無い
@@ -1320,6 +1320,8 @@ Minor 5 件は fix を 1 回で終える規則（SDD）に従って直さず、�
 - 処置: rejected: push と CI はこのセッションの外（グラフの publish → gate）。`merge_gate.sh` がその head の CI を見る（.harness2/docs/flow-gates.md の「関門の 3 段」）
 
 ## R80. 2a030d89 が凍結された tasks.md の 10.1 / 10.2 の検証コマンドを書き換えた
+
+- 処置: rejected: 本人の指示による訂正（`tasks.md:181` の ★ 2026-10-14「本人の指示で訂正」、2a030d89。10.1 は「Windows で cargo test」の形だと証跡が Linux で 0 本の FAIL になり gate が 859 周した）。PR 本文で merge のときに人間が確かめる点として挙げる
 
 - 成果物: openspec/changes/st08-browser-history/tasks.md
 - 根拠: `git show 2a030d89 -- openspec/changes/st08-browser-history/tasks.md`。本文に「★ 2026-10-14 本人の指示で訂正」。commit のメッセージは gate が 859 周したことを理由に挙げる
