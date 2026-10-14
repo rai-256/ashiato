@@ -154,3 +154,12 @@ FR-35 / FR-9 / FR-54 の ★ と EXT-E の影響に入れた。次の `spec` が
 - **成り立つことの確認（手で）**: `.env` を読んで `STACK_RESET=1 tools/stack.sh up` を別のプロセスグループで起こし、`curl http://127.0.0.1:19028/coverage?from=2026-08-01&to=2026-09-30` → 検証コマンドの `jq -e …` は `true`（rc=0）。アプリ利用 `2026-09-01〜04` の 4 日が `alive_not_capturable` で gaps を持ち、集計は 1 本（開始日 2026-08-31）。
 - **提案する正式な入口**: スタックを起こし・読み・止めるまでを 1 コマンドにする（例: `bash -c 'set -a; . ./.env; set +a; (STACK_RESET=1 setsid tools/stack.sh up >/tmp/stack.log 2>&1 & echo $! >/tmp/stack.pid); for i in $(seq 1 180); do grep -q "^画面: http" /tmp/stack.log && break; sleep 2; done; curl -sf -H "authorization: Bearer ${API_TOKEN}" "http://127.0.0.1:${ASHIATO_HTTP_PORT}/coverage?from=2026-08-01&to=2026-09-30" > /tmp/cov.json; rc=$?; kill -- -$(cat /tmp/stack.pid); exit $rc'` の後に同じ `jq -e …`）。または e2e が偽データを見る形（Task 10.2〜10.4 の `ET`）で代える。
 
+
+## 下流 Task 11 で積んだ A（premise: 11.3 の `cargo test --workspace` を `quiet-run` に包んだ検証コマンドが PASS にならない。2026-10-14）
+
+### Q-T11 [11.3 の検証コマンドは試験が通っても FAIL になる] -> (未回答)
+
+- **原因**: Q-T1 と同じ型。`scripts/quiet-run all -- cargo test --workspace` は末尾しかログに出さず、`evidence.py` の `ran_no_tests` が見る「passed の和」が末尾の doc-test の `0 passed` だけになり、rc=0 でも `FAIL（試験が 1 本も走っていない）`になる。
+  実際の全文（`.superpowers/sdd/logs/20261014-190528-all.log`）では `151 + 891 + 7 passed; 0 failed`、fmt・clippy も rc=0。FAIL の実証は evidence.jsonl の 11.3（`status: FAIL, rc=0`）。
+- **提案する正式な入口**: `quiet-run` を外した `cargo test --workspace`（Q-T1 の提案と同じ）。
+- 11.1（smoke）・11.2（check_scenarios）・11.3 の `check-openapi` / `check-migrations` / `check-immutable` / `check-log-private` は PASS。
