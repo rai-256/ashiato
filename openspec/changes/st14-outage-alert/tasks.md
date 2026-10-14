@@ -195,21 +195,21 @@ DB を使う検査は `./tools/db.sh up -d --wait db && ./tools/db-roles.sh` が
 `web/src/coverage.ts`（`DayCell.gaps`・文字の組み立て）・`messages.ts`（文言）・`CoverageGrid.tsx`（`WeekDetail`）・`archives.ts`（並び）・`tools/seed.sh`。
 試験は `web/src/__tests__/coverage-gaps.test.ts`（新規。jsdom）と `web/e2e/coverage-gaps.spec.ts` / `coverage-rollup.spec.ts` / `coverage-scheme.spec.ts`（新規。本物の Chromium）。design D10（仮）/ D18 / D21。
 
-- [ ] 10.1 偽データ（D18）: `SEED=normal` に取りこぼしの期間 2 本（理由が違う。`2026-09-01T08:00+09:00〜2026-09-03T08:00+09:00` と同じ週の別の日）・ウィンドウの時計の測定だけの日・集計の記録（開始日より前の箱を含む）を足す。
+- [x] 10.1 偽データ（D18）: `SEED=normal` に取りこぼしの期間 2 本（理由が違う。`2026-09-01T08:00+09:00〜2026-09-03T08:00+09:00` と同じ週の別の日）・ウィンドウの時計の測定だけの日・集計の記録（開始日より前の箱を含む）を足す。
   検証: `bash -c 'set -a; . ./.env; set +a; . tools/ports.sh; rm -f /tmp/st14-stack.log /tmp/cov.json; STACK_RESET=1 setsid tools/stack.sh up >/tmp/st14-stack.log 2>&1 & pid=$!; for i in $(seq 1 300); do grep -q "^画面: http" /tmp/st14-stack.log && break; kill -0 $pid 2>/dev/null || break; sleep 2; done; curl -sf -H "authorization: Bearer ${API_TOKEN}" "http://127.0.0.1:${ASHIATO_HTTP_PORT}/coverage?from=2026-08-01&to=2026-09-30" > /tmp/cov.json; rc=$?; kill -- -$pid 2>/dev/null; wait $pid 2>/dev/null; exit $rc' && jq -e '(map(select(.logical_source=="c01-app-usage-rollup")) | length == 1) and ([.[].days[]? | select((.gaps // []) | length > 0)] | length > 0)' /tmp/cov.json` rc=0
   ★ 2026-10-14 訂正: スタックを裏で起こし（setsid）→ 起動を待つ → ASHIATO_HTTP_PORT を読む → 止める、までを 1 本の bash -c にした。受け入れ条件（jq の判定）は変えない。理由: tools/stack.sh up は前景で待つので && の後ろの curl に着かず（verify-run が 9 分以上返らなかった）、読み先の ${ASHIATO_PORT:-18787} は存在しない変数で、既定の 18787 は main の本番のサーバ。旧コマンドは bash -c 'set -a; . ./.env; set +a; tools/stack.sh up >/dev/null && curl -sf -H "authorization: Bearer ${API_TOKEN}" "http://127.0.0.1:${ASHIATO_PORT:-18787}/coverage?from=2026-08-01&to=2026-09-30" > /tmp/cov.json'（その後に同じ jq -e）。新しい入口の最初の語が repo の実行ファイルでないので plan_fix.py を通さず手で直した。承認: 2026-10-14 本人（deep-answers-4.txt の Q-T10「1 コマンドの入口に直す」）。記録: plan-corrections.md
   （応答の鍵の名前は Task 2.2 で決めた `DayCell` に、ポートは tools/stack.sh が出す値に読み替える。spec-review R13。★ 2026-10-14: 訂正後のコマンドは ASHIATO_HTTP_PORT を読むので読み替えは要らない。tools/stack.sh の backtick は verify-run が検証コマンドとして拾い前景で走らせるので外した）
-- [ ] 10.2 週の文字: 取りこぼしの期間が重なる日に、理由ごとに「取得元に残っていない（期間）」「時計のずれで取れていない（期間）」、知らない理由は「取りこぼし（期間）」（design D23（仮））。期間は `YYYY-MM-DD HH:MM〜YYYY-MM-DD HH:MM`（`Asia/Tokyo`）。文言は `messages.ts`。
+- [x] 10.2 週の文字: 取りこぼしの期間が重なる日に、理由ごとに「取得元に残っていない（期間）」「時計のずれで取れていない（期間）」、知らない理由は「取りこぼし（期間）」（design D23（仮））。期間は `YYYY-MM-DD HH:MM〜YYYY-MM-DD HH:MM`（`Asia/Tokyo`）。文言は `messages.ts`。
   jsdom で文字の組み立てを、e2e で本物の画面の文字を見る。
   Scenario: `取得元に残っていない期間が週の文字に出る` / `時計のずれで取れていない期間は別の文字で出る` / `2 つの理由が同じ日に重なると 2 つとも出る` / `知らない理由の取りこぼしは理由の文字を付けずに出る`。
   検証: `VT coverage-gaps.test.ts`、`ET coverage-gaps.spec.ts`
-- [ ] 10.3 集計の格子: サーバの並び（Task 3）のまま Must の後ろ・書庫の前に出し、開いた直後から直近 4 週を出す。360 × 640 で Must の最後の格子の下端が押し下がらないことを測る（`archive-layout.spec.ts` と同じ測り方）。
+- [x] 10.3 集計の格子: サーバの並び（Task 3）のまま Must の後ろ・書庫の前に出し、開いた直後から直近 4 週を出す。360 × 640 で Must の最後の格子の下端が押し下がらないことを測る（`archive-layout.spec.ts` と同じ測り方）。
   Scenario: `集計の格子が Must の後ろで書庫の前に出る` / `集計の格子を足しても Must の 5 本はひとスクロール以内` / `集計の格子は開いた直後から直近 4 週を出す`。
   検証: `ET coverage-rollup.spec.ts`、`ET archive-layout.spec.ts`（既存。緑のまま）
-- [ ] 10.4 明暗（コードは変えない）: `emulateMedia({ colorScheme })` の `light` / `dark` / `no-preference` で背景色を測り、ライトで 3 段・破棄の印・本文の比を測る（比の下限はリテラルで持つ）。
+- [x] 10.4 明暗（コードは変えない）: `emulateMedia({ colorScheme })` の `light` / `dark` / `no-preference` で背景色を測り、ライトで 3 段・破棄の印・本文の比を測る（比の下限はリテラルで持つ）。
   Scenario: `OS がライトなら稼働状況もライトで出る` / `OS がダークなら稼働状況もダークで出る` / `明暗の設定が取れなければダークで出る` / `ライトでも格子の 3 段と印と文字が下限を満たす`。
   検証: `ET coverage-scheme.spec.ts`、`ET surface.spec.ts`（既存。緑のまま）
-- [ ] 10.5 画面の検査一式。検証: `bash -c 'cd web && npm run lint && npx tsc --noEmit && npx vitest run && npm run build'` rc=0
+- [x] 10.5 画面の検査一式。検証: `bash -c 'cd web && npm run lint && npx tsc --noEmit && npx vitest run && npm run build'` rc=0
 
 ## Task 11: 縦串と全体の検査
 
