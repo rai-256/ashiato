@@ -64,6 +64,9 @@ pub mod heartbeat;
 pub mod ingest;
 pub mod migrate_backup;
 pub mod net_guard;
+/// 途切れの通知の登録簿と台帳（ST14 / design D2 / D7）。
+#[cfg(test)]
+mod outage_registry_tests;
 pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
@@ -91,7 +94,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 24] = [
+pub const MIGRATIONS: [(&str, &str); 25] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -204,6 +207,11 @@ pub const MIGRATIONS: [(&str, &str); 24] = [
     (
         "202610121040_event_by_user_source_ingest",
         include_str!("../../../migrations/202610121040_event_by_user_source_ingest.sql"),
+    ),
+    // 途切れの通知：判定の対象の印・通知までの日数・開始日を借りる先・台帳（ST14 / design D2 / D7）
+    (
+        "202610141130_outage_alert",
+        include_str!("../../../migrations/202610141130_outage_alert.sql"),
     ),
 ];
 

@@ -946,11 +946,13 @@ pub async fn ensure_myactivity_source(
     product: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
-         VALUES ($1, $2, 5184000, 'none') ON CONFLICT (logical_source) DO NOTHING",
+        "INSERT INTO core.source
+           (logical_source, display_name, expected_gap_sec, external_id_kind, alert_after_days)
+         VALUES ($1, $2, 5184000, 'none', $3) ON CONFLICT (logical_source) DO NOTHING",
     )
     .bind(logical_source)
     .bind(format!("マイアクティビティ: {product}"))
+    .bind(super::ARCHIVE_ALERT_AFTER_DAYS)
     .execute(pool)
     .await?;
     Ok(())
