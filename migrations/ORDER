@@ -44,3 +44,6 @@
 202610020030_places
 # ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
 202610121040_event_by_user_source_ingest
+# 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17 / design D2 / D9 / D15 / D16）。
+# 主観の記録そのものは `core.event` に入る
+202610141000_subjective_log
