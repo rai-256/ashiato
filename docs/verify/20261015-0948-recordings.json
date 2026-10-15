@@ -1,0 +1,36 @@
+{
+  "tag": "20261015-0948",
+  "run_id": "20261015-094953-b6e2bbe",
+  "commit": "b6e2bbed8af656eb26a2a0dd4cdafa4cc2f9b629",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261015-094953-b6e2bbe",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261015-094953-b6e2bbe",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST14-coverage",
+      "story": "ST14",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 8 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST14-coverage/video.webm",
+      "trace": "scenarios/ST14-coverage/trace.zip"
+    },
+    {
+      "id": "ST14-outage-notice",
+      "story": "ST14",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Android の工程が止まった: エミュレータの起動が終わらない（logs/android-emulator.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    }
+  ],
+  "uncovered_stories": []
+}
