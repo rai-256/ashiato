@@ -96,6 +96,30 @@
         "web/e2e/global-setup.ts",
         "web/src/PlacesView.tsx"
       ]
+    },
+    {
+      "id": "ST14-coverage",
+      "story": "ST14",
+      "spec": "tools/recording/st14/st14-coverage.rec.ts",
+      "with": [
+        "e2e/coverage-gaps.spec.ts",
+        "e2e/coverage-rollup.spec.ts"
+      ],
+      "requires": [
+        "web/e2e/coverage-gaps.spec.ts",
+        "web/e2e/coverage-rollup.spec.ts",
+        "web/e2e/global-setup.ts"
+      ]
+    },
+    {
+      "id": "ST14-outage-notice",
+      "story": "ST14",
+      "platform": "android",
+      "spec": "tools/recording/st14/St14RecordingTest.kt",
+      "test_class": "dev.ashiato.collector.St14RecordingTest",
+      "requires": [
+        "collector-android/app/src/main/kotlin/dev/ashiato/collector/OutagePoller.kt"
+      ]
     }
   ],
   "android": {
