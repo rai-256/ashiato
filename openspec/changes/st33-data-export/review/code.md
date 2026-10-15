@@ -140,3 +140,8 @@ Task の ⚠️ のうち T2（`App::with_export`）・T4（LateMark の結線�
 - 根拠: scoped re-review（4258bfe..0f2aff9）の範囲外の観察。`insert_done` が落ちると `write_failed` だけを書き、`rename` 済みの zip を消さない。その zip は `done` でないので `removable_previous` / `leftover` に出ず、`finish` を持つので `interrupted` にも出ない
 - kind: technical
 - 提案: R2 と同じく、zip を消してから失敗の行を書く。`Stage::Finish` の差し込みで落とし、ファイルが残らないことを確かめる試験を 1 本
+
+## final review（6d7d65f..dc61bd6）: 新しい指摘なし（再入）
+- 前回の final review（6d7d65f..b74736b）・fix wave（4258bfe..0f2aff9）・scoped re-review の後に増えたのは `evidence.jsonl` の 3 行（dc61bd6。Task 10 の証跡の取り直し）だけで、コードと文書の差分は 0（`git diff --stat bdc229b dc61bd6`）。base も同じ 6d7d65f。同じ木を 2 度目の whole-branch review にかけない（final は 1 回）
+- `docs/handoff/ST33.md` は開始時から増えていない（最終の変更は daa4ed7）
+- R1〜R16 の処置はそのまま。**R17 は処置が無いまま finish に渡す**
