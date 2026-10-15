@@ -267,3 +267,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
 - kind: technical
 - 提案: 受け手を `tracing::subscriber::set_global_default`（試験のプロセスで 1 回）にする。あるいは `tracing_subscriber::fmt().with_writer(…)` を `Dispatch` にして `spawn_blocking` の中でも `dispatcher::with_default` が効く形にし、blocking の中で出したログを拾えることを正の対照として 1 行確かめる
 - 処置: fixed D15 — 受け手を試験のプロセス全体の口（`archive_flow_tests::captured_log`。`set_global_default`）に替え、`spawn_blocking` の中で出したログが届くことを正の対照として先に確かめる
+
+## scoped re-review（a0a07b5..13b123b。code-verify の fix wave）
+- 席: 独立の re-reviewer（SDD の `re-review-prompt.md`）。R17 / R18 / R19 / R21 / R22 / R24 は ADDRESSED、R20 は escalated（Q12 未回答・コードは先取りしていない）、R23 は deferred（`docs/handoff/ST30.md`）で妥当。fix diff の新しい壊れ: なし
+- R18 は提案より狭い（止まったものが複数なら新しい 1 件・`.partial-…` は出ない・止まった zip の中の後に消した場面は数えない）。PR 本文の申し送りに残す
