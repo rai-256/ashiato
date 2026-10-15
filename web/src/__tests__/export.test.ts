@@ -30,6 +30,9 @@ describe("export の読み手", () => {
     expect(isExportStatus({})).toBe(false);
     expect(isExportStatus({ leftover: [], running: { export_id: "u" } })).toBe(false);
     expect(isExportStatus({ leftover: [], last: { finished_at: "t", rows: "1", bytes: 2, file: "f", erased_after: 0 } })).toBe(false);
+    // erased_after の null は「数えられない」（deep Q12）。欠けているのは壊れた形
+    expect(isExportStatus({ leftover: [], last: { finished_at: "t", rows: 1, bytes: 2, file: "f", erased_after: null } })).toBe(true);
+    expect(isExportStatus({ leftover: [], last: { finished_at: "t", rows: 1, bytes: 2, file: "f" } })).toBe(false);
     expect(isExportStatus({ leftover: [1] })).toBe(false);
   });
 

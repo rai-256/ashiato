@@ -239,8 +239,8 @@ pub struct LastView {
     pub rows: i64,
     pub bytes: i64,
     pub file: String,
-    /// 後に消した記録の件数（D17）。
-    pub erased_after: i64,
+    /// 後に消した記録の件数（D17）。`null` は数えられない —— 台帳の書いた記録が読めない形だった（deep Q12）。
+    pub erased_after: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
@@ -339,7 +339,7 @@ impl Derived {
     pub fn into_status(
         self,
         running: Option<RunningView>,
-        erased_after: i64,
+        erased_after: Option<i64>,
         file_exists: impl Fn(&str) -> bool,
         untouched: impl Fn(&LedgerRow) -> bool,
     ) -> Status {
@@ -414,7 +414,8 @@ pub async fn erased_key(pool: &sqlx::PgPool, last: Uuid) -> Result<ErasedKey, Ex
 
 /// 後に消した記録の件数（D17）。前回の記録のファイルに書いた `id` のうち、いま除かれるもの。
 /// いま除かれる = 本人の削除の印がある（作り直しの印は除く）か、D5 の範囲に当たる。偽陽性は多く数える側にだけ出る。
-pub async fn erased_after(pool: &sqlx::PgPool, last: Uuid) -> Result<i64, ExportError> {
+/// 書いた記録が無い・読めない形（知らない版）なら `None`（数えられない）。0 にすると少なく数える側に倒れる（deep Q12 / R20）。
+pub async fn erased_after(pool: &sqlx::PgPool, last: Uuid) -> Result<Option<i64>, ExportError> {
     let written: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT written FROM core.export_ledger
           WHERE export_id = $1 AND kind = 'finish' AND result = 'done'",
@@ -425,7 +426,7 @@ pub async fn erased_after(pool: &sqlx::PgPool, last: Uuid) -> Result<i64, Export
     .map_err(|e| db("書いた記録を読めない", &e))?
     .flatten();
     let Some(bloom) = written.as_deref().and_then(Bloom::from_bytes) else {
-        return Ok(0);
+        return Ok(None);
     };
     let x = excluded_sql("now()");
     let sql = format!(
@@ -452,5 +453,5 @@ pub async fn erased_after(pool: &sqlx::PgPool, last: Uuid) -> Result<i64, Export
             n += 1;
         }
     }
-    Ok(n)
+    Ok(Some(n))
 }

@@ -836,7 +836,7 @@ async fn export_status_last_export_is_readable_after_it_finishes() {
 // Scenario: 1 度も書き出していなければそう返る
 #[test]
 fn export_status_never_exported_is_reported_by_the_pure_function() {
-    let status = export::derive(&[], None).into_status(None, 0, |_| true, |_| true);
+    let status = export::derive(&[], None).into_status(None, Some(0), |_| true, |_| true);
     assert!(status.last.is_none() && status.last_failure.is_none());
     assert!(status.interrupted.is_none() && status.running.is_none());
     assert!(status.leftover.is_empty());
@@ -859,8 +859,12 @@ fn export_status_failure_kind_is_read_back_from_the_reason_by_its_structure() {
     };
     for kind in export::FailKind::ALL {
         let reason = ExportError::new(kind, "表 a: 列 b").to_string();
-        let st =
-            export::derive(&[failed(1, &reason)], None).into_status(None, 0, |_| true, |_| true);
+        let st = export::derive(&[failed(1, &reason)], None).into_status(
+            None,
+            Some(0),
+            |_| true,
+            |_| true,
+        );
         assert_eq!(st.last_failure.unwrap().kind, kind.as_str(), "{reason}");
     }
     for reason in [
@@ -868,8 +872,12 @@ fn export_status_failure_kind_is_read_back_from_the_reason_by_its_structure() {
         "書き出しに失敗",
         "iox: 1",
     ] {
-        let st =
-            export::derive(&[failed(1, reason)], None).into_status(None, 0, |_| true, |_| true);
+        let st = export::derive(&[failed(1, reason)], None).into_status(
+            None,
+            Some(0),
+            |_| true,
+            |_| true,
+        );
         assert_eq!(st.last_failure.unwrap().kind, "unknown", "{reason}");
     }
 }
@@ -1187,6 +1195,41 @@ async fn export_status_exporting_again_resets_the_erased_count() {
     erase(&e.app, e.stay).await;
     export_and_wait(&e.app, PASS).await;
     assert_eq!(get_status(&e.app).await["last"]["erased_after"], 0);
+}
+
+// 台帳の書いた記録が読めない形（知らない版）なら、後に消した記録は 0 件でなく「数えられない」（null）と返る（deep Q12 / R20）
+#[tokio::test]
+async fn export_status_an_unreadable_written_filter_is_reported_as_uncountable() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let w = World::new().await;
+    location_at(&w, "09:00").await;
+    let dir = tmp_dir("uncountable");
+    let app = app_in(&dir).await;
+    export_and_wait(&app, PASS).await;
+    assert!(get_status(&app).await["last"]["erased_after"].is_i64());
+
+    // 後の版のサーバが読むときに当たる形: 先頭の版のバイトが知らない値
+    let id = Uuid::new_v4();
+    let file = dir.join("ashiato-export-unknown-shape.zip");
+    let file = file.to_str().unwrap();
+    let at = chrono::Utc::now();
+    export::insert_start(&w.pool, id, file, at).await.unwrap();
+    let done = export::Done {
+        file,
+        snapshot_at: at,
+        rows: json!({}),
+        bytes: 0,
+        written: &[9, 20, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+        digest: "0",
+    };
+    export::insert_done(&w.pool, id, &done).await.unwrap();
+
+    let last = &get_status(&app_in(&dir).await).await["last"];
+    assert_eq!(last["file"], file);
+    assert!(
+        last["erased_after"].is_null(),
+        "読めない形を 0 件と読んだ（少なく数える側）: {last}"
+    );
 }
 
 // Scenario: 前のファイルを消せなければ、書き出しは書き終えたまま、状態にそのファイルが出る

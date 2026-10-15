@@ -62,6 +62,8 @@ const ja = {
     lastFile: (file: string): string => `ファイル: ${file}`,
     lastNone: "まだ書き出していません。",
     erasedAfter: (n: string): string => `この書き出しの後に消した記録が ${n} 件あります。書き出したファイルの中には残っています。`,
+    erasedUncountable:
+      "この書き出しの後に消した記録の件数を数えられません（書き出しの記録が読めない形でした）。書き出したファイルの中には、その後に消した記録が残っているかもしれません。",
     failure: (kind: string): string => `書き出しに失敗しました（${kind}）`,
     interrupted: (at: string): string => `前の書き出しは途中で止まりました（${at}）`,
     interruptedFile: (at: string, file: string): string => `前の書き出しは途中で止まりました（${at}）。${file} が残っています。`,

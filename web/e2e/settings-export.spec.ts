@@ -14,7 +14,7 @@ const PW = "e2e-passphrase-0123";
 const DAY = "2026-09-07";
 const STORAGE_STATE = "./e2e/.auth/state.json";
 
-type Last = { rows: number; bytes: number; file: string; erased_after: number };
+type Last = { rows: number; bytes: number; file: string; erased_after: number | null };
 
 /** 画面の大きさの書き方（`web/src/export.ts` の `sizeLabel` と同じ 1000 刻み）。 */
 function sizeText(bytes: number): string {

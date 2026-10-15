@@ -271,9 +271,9 @@ export function SettingsView(): React.ReactElement {
               {m.last(momentLabel(last.finished_at), num(last.rows), sizeLabel(last.bytes))}
             </p>
             <p style={{ margin: "0 0 4px", wordBreak: "break-all" }}>{m.lastFile(last.file)}</p>
-            {last.erased_after >= 1 && (
+            {(last.erased_after === null || last.erased_after >= 1) && (
               <p role="note" data-testid="export-erased-after" style={{ margin: "0 0 4px" }}>
-                {m.erasedAfter(num(last.erased_after))}
+                {last.erased_after === null ? m.erasedUncountable : m.erasedAfter(num(last.erased_after))}
               </p>
             )}
           </>

@@ -4,6 +4,10 @@
 //! 台帳の `written` に置く。記録の値も `id` そのものも取り出せない。偽陽性は 10⁻⁶ 程度で、
 //! **入っていたものを落とさない**（誤りは多く数える側にしか出ない）。ハッシュは `sha2` で固定する
 //! （標準のハッシャは版で変わりうるが、台帳に置いたフィルタは後の版のサーバが読む）。
+//!
+//! **形は凍結する**（deep Q12 / R20）。台帳は追記のみで `written` を書き直せないので、位置の取り方・形を変えると
+//! 前に書いた行を読めなくなる。試験 `the_frozen_shape_is_kept` が別の実装で作ったバイト列を期待値に持つ。
+//! 読めない形の行は 0 件ではなく「数えられない」になる（`ledger::erased_after`）。
 
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
@@ -86,6 +90,29 @@ mod tests {
             .filter(|_| back.contains(Uuid::new_v4()))
             .count();
         assert!(false_hits <= 2, "偽陽性が多い: {false_hits}");
+    }
+
+    /// 形の凍結（deep Q12 / R20）。期待値は `bloom.rs` を使わずに作った（Python の `hashlib` で同じ形を書いた別の実装）。
+    /// 位置の取り方・ハッシュの数・大きさの決め方・先頭の 2 バイトのどれを変えても落ちる。変えるなら `VERSION` を上げ、
+    /// 前の版の行を読む口を残す（読めない行は「数えられない」になる）。
+    #[test]
+    fn the_frozen_shape_is_kept() {
+        let ids = [
+            "00000000-0000-0000-0000-000000000001",
+            "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5",
+            "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        ]
+        .map(|s| Uuid::parse_str(s).unwrap());
+        let mut b = Bloom::with_capacity(ids.len() as u64);
+        for id in ids {
+            b.insert(id);
+        }
+        let frozen: [u8; 13] = [
+            0x01, 0x14, 0x4c, 0x90, 0x53, 0x4d, 0x27, 0x95, 0x7a, 0x8c, 0xa9, 0xf6, 0x2a,
+        ];
+        assert_eq!(b.to_bytes(), frozen);
+        let back = Bloom::from_bytes(&frozen).unwrap();
+        assert!(ids.iter().all(|id| back.contains(*id)));
     }
 
     #[test]

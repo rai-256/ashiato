@@ -42,7 +42,8 @@ export interface LastView {
   rows: number;
   bytes: number;
   file: string;
-  erased_after: number;
+  /** 後に消した記録の件数。`null` は数えられない（台帳の書いた記録が読めない形。deep Q12）。 */
+  erased_after: number | null;
 }
 
 export interface FailureView {
@@ -89,7 +90,7 @@ export function isExportStatus(v: unknown): v is ExportStatus {
     orNone(v.running, (x) => isObj(x) && isStr(x.export_id) && isStr(x.started_at) && isNum(x.written) && isNum(x.total)) &&
     orNone(
       v.last,
-      (x) => isObj(x) && isStr(x.finished_at) && isNum(x.rows) && isNum(x.bytes) && isStr(x.file) && isNum(x.erased_after),
+      (x) => isObj(x) && isStr(x.finished_at) && isNum(x.rows) && isNum(x.bytes) && isStr(x.file) && (isNum(x.erased_after) || x.erased_after === null),
     ) &&
     orNone(v.last_failure, (x) => isObj(x) && isStr(x.at) && isStr(x.kind)) &&
     orNone(v.interrupted, (x) => isObj(x) && isStr(x.started_at) && orNone(x.file, isStr))

@@ -41,7 +41,7 @@ pub struct ExportJobs {
 #[derive(Debug, Default)]
 struct Memo {
     /// 後に消した記録の件数（D17）。鍵は `ledger::ErasedKey`。
-    erased: Option<(ErasedKey, i64)>,
+    erased: Option<(ErasedKey, Option<i64>)>,
     /// 置き場のファイルの SHA-256（`leftover` の見分け。D16）。鍵は（パス・大きさ・更新時刻）。
     digests: HashMap<PathBuf, (u64, SystemTime, String)>,
 }
@@ -62,7 +62,11 @@ impl ExportJobs {
 
     /// 後に消した記録の件数。鍵が覚えたものと同じなら覚えた値、違えば数え直して覚える。
     /// **鍵は数える前に読む** —— 数えている間に入った書き込みは、次の読み出しで鍵が変わって数え直される。
-    async fn erased_after(&self, pool: &sqlx::PgPool, last: Uuid) -> Result<i64, ExportError> {
+    async fn erased_after(
+        &self,
+        pool: &sqlx::PgPool,
+        last: Uuid,
+    ) -> Result<Option<i64>, ExportError> {
         let key = ledger::erased_key(pool, last).await?;
         if let Some((k, n)) = &self.memo().erased {
             if *k == key {
@@ -348,7 +352,7 @@ pub async fn read_status(
     let derived = ledger::derive(&rows, running.as_ref().map(|r| r.export_id));
     let erased = match &derived.last {
         Some(l) => jobs.erased_after(pool, l.export_id).await?,
-        None => 0,
+        None => Some(0),
     };
     let jobs = jobs.clone();
     tokio::task::spawn_blocking(move || {

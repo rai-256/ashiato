@@ -3189,8 +3189,7 @@
           "finished_at",
           "rows",
           "bytes",
-          "file",
-          "erased_after"
+          "file"
         ],
         "properties": {
           "bytes": {
@@ -3198,9 +3197,12 @@
             "format": "int64"
           },
           "erased_after": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
-            "description": "後に消した記録の件数（D17）。"
+            "description": "後に消した記録の件数（D17）。`null` は数えられない —— 台帳の書いた記録が読めない形だった（deep Q12）。"
           },
           "file": {
             "type": "string"

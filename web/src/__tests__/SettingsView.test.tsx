@@ -296,4 +296,12 @@ describe("設定の書き出しの節", () => {
     render(<Root />);
     await waitFor(() => expect(screen.getByRole("note").textContent).toContain("消した記録が 3 件"));
   });
+
+  it("erased_after が null（数えられない）なら 0 件と出さず、数えられないと role=note で出す", async () => {
+    status = { leftover: [], last: { ...LAST, erased_after: null } };
+    await open();
+    const note = await screen.findByRole("note");
+    expect(note.textContent).toContain("数えられません");
+    expect(note.textContent).not.toContain("0 件");
+  });
 });
