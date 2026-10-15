@@ -45,11 +45,11 @@ parked: なし。
 
 1.1（`tools/check-migrations.sh`）/ 3.2（`tools/smoke.sh`）/ 6.1 / 7.1（fmt・clippy `-D warnings`・`cargo test --workspace`）/ 7.2（`check_scenarios.py`）/
 7.3（`check_chain.py`・`openspec validate --strict`・`check-migrations` / `check-openapi` / `check-boundaries` / `check-immutable` / `check-licenses`）—— どれも PASS（exit 0）。
-3.2・6.1・7.1 の最新の PASS は cf8597e9（main #97 への rebase の後。`cargo test --workspace` は server 836 本ほか全緑）、7.2・7.3 は d51755c。7.3 の FAIL の 1 行と 7.1 の FAIL の行は、同じ head で取り直して PASS。
+**7.1 の最新の PASS は 72005b0c**（finish の fix の後。`cargo test --workspace` は server 840 本・collector-windows 133 本ほか全緑）。3.2・6.1 は cf8597e9、7.2・7.3 は d51755c。7.3 の FAIL の 1 行と 7.1 の FAIL の行は、同じ head で取り直して PASS。
+3.2・6.1（smoke）は 72005b0c で取り直していない —— finish の fix は Rust の読み直しの経路と試験だけで、smoke が見る道具・移行・API の出力は変わっていない。
 
-`CT` 型（2.1・2.2・3.1・4.1・5.1）は evidence に行が無い。code-verify が HEAD 53af3084 で全部走らせ、`-- --list` の本数が下限以上で通ることを確かめた（`review/code.md` の表）。
-この段（code-verify の処置）の後: `cargo test -p ashiato-server archive_youtube` 43 passed、`cargo test -p ashiato-server archive` 184 passed（1 回目は時間の取り合いで 2 本落ち、単独と 2 回目で通過 —— 下の「申し送り」）、
-`cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0、`check_scenarios.py` OK。
+`CT` 型（2.1・2.2・3.1・4.1・5.1）は evidence に行が無い。code-verify 第 2 回が HEAD 6e3b0adf で全部走らせ、`-- --list` の本数が下限以上で通ることを確かめた（`review/code.md` の表）。
+finish の fix の後: `cargo test -p ashiato-server archive` 188 passed、`cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0、`review_triage.py` OK。
 
 ## レビュー
 
@@ -57,6 +57,12 @@ parked: なし。
 - whole-branch review: R1〜R4。fixed 4（R1 日本語の評価は先頭一致 / R2 申し送りの D20・R17 を delta に / R3 言語の当たらない形は印があっても読まない / R4 design の決定の一覧）
 - code-verify: R5〜R10。fixed 6（R5 走査の輪の上の取り直し / R6 広告を評価より先に見る順 / R7 行き先ごとの payload / R8 SQL 側の断り / R9 この本文の申し送りの見出し / R10 D4 仮の実測）。
   R5〜R8 は、生き残っていた変異（M06・M08・M17・M02）を作業ツリーで当てて新しい試験が落ちる（rc=101）ことを確かめた
+- rebase 後の whole-branch review: R11〜R16（`review/code.md`）
+- code-verify 第 2 回: R17〜R20。
+  - **R17 fixed（コードの直し）**: 版の読み直しが確認待ちを含む書庫の途中で落ちると、輪の中で先に書いた確認待ちの台帳の行が書庫を次の周の対象から外し、二度と読み直されず失敗も数えられなかった。台帳の行を成功の経路の末尾で書くよう直し、再現を試験にした
+  - R19・R20 fixed（試験の追加）: 版の読み直しの経路の言語の断り / 最初の製品の名前 / 評価は `watch?v=` を持つものだけ / 英語の `Searched for `。変異 N11・N18・N22・N23 と R17 を戻す変異で、新しい試験がどれも rc=101
+  - R18 rejected: PR の head と本文が古いのはブランチの欠陥でなく、`publish` がこの本文と HEAD で書き直す
+  - fix の後の scoped re-review: 全件 ADDRESSED、新しい破損なし
 
 ## 申し送り（`docs/handoff/ST47.md`。3 本とも処置済み）
 
