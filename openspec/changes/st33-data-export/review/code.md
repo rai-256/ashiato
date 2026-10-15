@@ -145,3 +145,117 @@ Task の ⚠️ のうち T2（`App::with_export`）・T4（LateMark の結線�
 - 前回の final review（6d7d65f..b74736b）・fix wave（4258bfe..0f2aff9）・scoped re-review の後に増えたのは `evidence.jsonl` の 3 行（dc61bd6。Task 10 の証跡の取り直し）だけで、コードと文書の差分は 0（`git diff --stat bdc229b dc61bd6`）。base も同じ 6d7d65f。同じ木を 2 度目の whole-branch review にかけない（final は 1 回）
 - `docs/handoff/ST33.md` は開始時から増えていない（最終の変更は daa4ed7）
 - R1〜R16 の処置はそのまま。**R17 は処置が無いまま finish に渡す**
+
+## code-verify（d81e27a。独立検証 2026-10-15）
+
+席: `code-verify`。読んだ印象ではなく、走らせた結果だけを書く。値を変えて試すもの（変異）と観測用の試験は使い捨ての worktree（`/tmp/cv33-mut`。終わったら消した）と別の database（`cv33mut`）でやり、作業ツリーのコードは触っていない。
+DB はこの worktree の `ashiato2-st33`（`127.0.0.1:55533`）。origin/main はこの branch より 169 commit 先にある（移行 `202610121040_*` などを含む）。ここでの検証は branch の HEAD のまま。
+
+**申告: 32/32 `[x]`**（`grep -c '^- \[x\]'` = 32、`- [ ]` = 0）。検証コマンドは tasks.md の各項目の本文に書かれているもの。
+
+| 項目 | 実行したコマンド（要点） | 実測 |
+|---|---|---|
+| 1.1 | `tools/check-migrations.sh` / `CT export_ledger_migration 1` | 一致（rc=0 / 1 本 ok） |
+| 1.2〜6.4 の CT 19 本 | `cargo test --workspace` を 1 回走らせ、ログの `test … ok` を絞り込みごとに数えた（`export_dir` 5 ≥ 3、`export_excluded_sql` 20 ≥ 19、`export_file_excludes` 19 ≥ 19、`export_status` 13 ≥ 10、`mark_late_for_user` 6 ≥ 5、`late_arrival_is_marked` 2 ≥ 1 ほか全部が下限以上。FAILED 0） | 一致 |
+| 1.3 | `bash -o pipefail -c 'tools/check-immutable.sh \| tee /tmp/ci.log' && grep -q export_ledger` | 一致（rc=0。`OK export_ledger は UPDATE / DELETE / TRUNCATE を拒む`）。**注**: 終わりに `down -v` で DB を消す |
+| 7.1 | `tools/check-openapi.sh` | 一致（rc=0） |
+| 7.2 | `grep -q '#/settings' docs/screens.md` | 一致（rc=0） |
+| 8.1〜8.3 | `npm run test -- export` / `-- SettingsView` / `-- settings-contrast` | 一致（5 / 15 / 5 passed） |
+| 9.1〜9.5 | 10.2 の e2e の中で（65 passed）。`ET` の `--list` は 9.2 = 10・9.3 = 5・9.4 = 1・9.5 = 6 | 一致 |
+| 10.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | **不一致**: `review_triage.py` が **rc=1**（`[FAIL] code.md R17: 処置が無い`）。他の 2 本は rc=0。evidence の最新（bdc229b）も FAIL のまま。R17 に処置が付くまで merge_gate はここで落ちる |
+| 10.2 | `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` / `tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e` / `check-immutable` / `check-offsite` / `check-log-private` / `smoke` | 一致（全部 rc=0。`cargo test --workspace` は lib 676 + collector 133 + `server_startup` 7 = 816 passed。証跡の 7edd504 のログも sha256 が記録と同じで 816 passed。7edd504 から HEAD までコードの差分は 0）。**注**: 最初の 1 回は `.env` を素のまま読んだので `server_startup` の 2 本が `migrate が失敗した`（URL の port が 55432）。`ashiato_db_url` で port を直して `--test server_startup` を走らせ直すと 7 passed |
+| 10.3 | `grep -c 'st22-record-deletion' docs/handoff/ST33.md` / `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_file_tests.rs` | 一致（4 / 1） |
+
+**手 1（固定値を独立に計算し直す）: 不一致は無かった。** e2e が書いた最後の zip（`.export/ashiato-export-20261015-231915.zip`）を、`zip` crate を通さない自作の読み手（Python の `zipfile` で中央ディレクトリを読み、PBKDF2-HMAC-SHA1 1,000 回・AES-CTR・HMAC-SHA1 の 10 バイト・raw deflate を自分で組んだもの）で開いた:
+- 12 項目すべてが `compress_type 99`・`0x9901` の strength 3（AES-256）。20 バイト以上は AE-1（CRC-32 も平文と一致）、空の 2 項目は AE-2。違う合言葉は `password verification mismatch` で開かない
+- `sha256sum` と大きさが台帳の `digest` / `bytes` と一致（`59b7637b…856f` / 157123）。注記は `ashiato-export <その export_id>`
+- 全 10 ファイルで目録の `rows` と行の数が一致。2,985 個の時刻の値がすべて `YYYY-MM-DDTHH:MM:SS.ffffffZ`
+- `events.jsonl` の 1,451 行の `raw` の UTF-8 の SHA-256 と `event_time` が、DB の `core.event_live` の同じ id の値と 1,451 件すべて一致。列は `core.event` の 21 列と同じ
+- 台帳の `written` を自作のブルームフィルタの読み手（`bloom.rs` の形を写したもの）で読むと、1,451 件すべてが入り、無作為の 20,000 件は 0 件当たった。1 要素 28.76 ビット・ハッシュ 20 個は `-ln(10⁻⁶)/(ln 2)²` = 28.755・`28.755 × ln 2` = 19.93 と一致
+- README の畳む規則は `pg_get_viewdef('core.event_folded')` の `GROUP BY user_id, logical_source, content_hash` と各列の取り方に一致
+- つまり Scenario「このシステムを使わずに中身を読める」は、試験の読み手（書き手と同じ `zip` crate）より外側でも成り立った
+
+**手 2（守りをわざと壊す）**: 次の 5 つは、守りを潰すと実際に落ちた。
+- 移行の行トリガを `BEFORE UPDATE` だけにする（DELETE を通す）→ `check-immutable.sh` が rc=1（`NG export_ledger を変更できた: DELETE …`）
+- `export_file_tests.rs` の `// Scenario: 削除の印の付いた記録は出ない` を消す → `check_scenarios.py` が rc=1（`担保の無い Scenario`）
+- 差し替え口ではなく本物の DB に `CREATE TABLE core.cv_zzz` と `ALTER TABLE core.heartbeat ADD COLUMN cv_extra` を置く → `export_catalog_every_table_and_column_is_classified` ほか 3 本が FAILED
+- spec の Scenario 98 本は、それぞれ印がちょうど 1 つ（`書き出しの台帳の行は書き換えも削除もできない` だけ Rust と `check-immutable.sh` の 2 つ）
+- 合言葉をログに出す変異（非同期の仕事の中で `tracing::info!`）→ `export_responses_never_keep_the_passphrase` が FAILED。ただし受け手の外側があった（R24）
+
+**手 4（本人の決定が test で固定されているか）**: 1 つずつ書き換えて、対応する絞り込みを走らせた。
+
+| 変異 | 結果 |
+|---|---|
+| `MIN_PASSPHRASE_CHARS` 12→11（Q9 / C23） | FAILED 2 本 |
+| web の `MIN_PASSWORD_CHARS` 12→11 | vitest 2 本が FAILED |
+| `AesMode::Aes256` → `Aes128`（Q9 / D19） | FAILED 1 本 |
+| `0o700` / `0o600` → `0o755` / `0o644`（C25） | FAILED 1 本 |
+| 前のファイルを消さない（Q4） | FAILED 4 本 |
+| `SPAN_RULES` から `c01-photo` を外す（C21） | FAILED 3 本 |
+| plus code の形を抜く（C20 / Q8） | FAILED 3 本 |
+| 消した滞在の前の版の時間を数えない（C19） | FAILED 2 本 |
+| `POLL_MS` 1000→2000 / →300（D13 仮） | vitest 2 本 / 1 本が FAILED |
+| 見込みの既定 180 バイト・20,000 行/秒を変える（D18 仮） | FAILED 2 本 |
+| D17 の鍵から `deletion_ledger` / `event_version` を外す | FAILED 2 本 / 1 本 |
+| **D17 の鍵から `stay_absorbed` を外す** | **全部通る**（R21） |
+| **後に消した記録の数えで、作り直しの印（`rebuild:`）も数える** | **全部通る**（R19） |
+| **ブルームフィルタの位置の取り方を変える（`digest[0..8]` → `[16..24]`）** | **全部通る**（R20） |
+
+Q7（利用者を問わない）は変異にかけていない（SQL の形を大きく変えないと書けないため）。
+
+**手 6（隙間）**: 次の 4 つを実行で観測した。R17（終わりの行を書けなかった zip が残る）も実行で再現した —— 1 回目を書き終えた後、2 回目を `fail(Stage::Finish)` で落とすと置き場に zip が 2 つ。状態は `last_failure: db`・`leftover: []`。3 回目を書き終えても 2 つのままで、状態は `last_failure: null`・`leftover: []`・`interrupted: null` になる（どこにも出ない）。
+
+## R18. 途中で止まった書き出しは、次の書き出しが書き終えると状態から消える。ファイルは残るのに、どの欄にも出ない（spec の「始まりの行だけがあれば止まったと返す」と食い違う）
+- 成果物: crates/server/src/export/ledger.rs:304-313（`derive` の `interrupted` が `rfind(is_start)` で**最後の**始まりの行しか見ない）/ crates/server/src/export_job_tests.rs:902（`assert!(st["interrupted"].is_null())` が食い違ったほうを固定している）/ crates/server/src/export/ledger.rs:406-416（`erased_after` は `last` の 1 件の `written` しか読まない）/ specs/data-durability/spec.md:460-461
+- 根拠: 使い捨ての試験 `cv_probe_interrupted_vanishes_after_the_next_export` で、1 回目を書き終え、2 回目を `with_halt(Stage::Finish)` で止め（`rename` の後）、新しい `App` で 3 回目を書き終えた。止めた直後の状態は `interrupted.file = …-223749.zip`。3 回目の後は置き場に `…-223749.zip` と `…-223749-2.zip` の 2 つがあり、台帳にはこの置き場の「始まりの行だけ」の書き出しが 1 件ある（SQL で数えて 1）。それでも状態は `interrupted: null`・`leftover: []` になる。
+  spec 460 は「台帳に始まりの行だけがあり、その書き出しが走っていない」なら止まったことを返すと定めている。止まったのが最後の書き出しかどうかは条件にない。
+  さらに、止まった zip は全記録の写しなので、その後に消した場面も中に残る。けれども `erased_after` は `last` しか数えないので、件数にも出ない。Q4「1 つだけ置く」が見えないまま崩れる。
+  同じ型が `.partial-…` にもある。D3 は「止まったときの `.partial-…` は残る」と決めているが、状態にも画面にも一度も出ない。この worktree の `.export/` には `.partial-ashiato-export-20261013-223426-56d89ba2.zip`（9.6 MB）など 4 つが残っていた（R23 の観測と同じ場所）
+- kind: technical
+- 提案: `interrupted` を「`finish` の無い始まりの行（走っているものを除く）すべて」の配列にし、名前のファイルか `.partial-…` が残っているものを返す。画面はそれを 1 行ずつ出す。902 行の `is_null` は、3 回目の後も止まったファイルが出ていることの確認に替える。spec 461 の「消さない」はそのままでよい
+
+## R19. Scenario「作り直しで置き換わった滞在は後に消した記録に数えない」の試験は、R1 で足した覚え（memo）越しにしか観測しておらず、数え方を壊しても通る
+- 成果物: crates/server/src/export_job_tests.rs:984-1001 / crates/server/src/export/ledger.rs:420-428（`erased_after` の `deleted_by NOT LIKE 'rebuild:%'`）/ crates/server/src/export/job.rs:65-76（覚え）
+- 根拠: 変異 M6（`erased_after` の作り直しの印を除く条件を外し、`rebuild:` の印も数える）で `export_status` の 13 本が全部 ok。試験は同じ `App` で前と後を読む。`mark_deleted(…, "rebuild:test")` は削除の台帳・前の版・吸収の台帳のどれにも行を足さないので、鍵（D17）が変わらず、2 回目は覚えた値が返る。
+  同じ試験の読み手だけを新しい `App`（覚えが空）に替えると、変異なしでは ok、M6 では `export_job_tests.rs:997` で FAILED になった。つまりこの Scenario が主張する「数えない」を観測しているのは、覚えの側の振る舞いだけ（主張の層は数え方、試験の層は覚え）。
+  本物の作り直し（`POST /stays/rebuild`）が吸収の台帳を書いて鍵を動かした後や、サーバを起動し直した後に数え違えても、どの試験も落ちない
+- kind: technical
+- 提案: 後の読み出しを新しい `App` で行うか、`ExportJobs::erased_counts()` が 1 増えたこと（実際に数えたこと）を確かめてから値を比べる。覚えの振る舞いは既存の `export_status_erased_count_is_remembered_but_recounted_after_a_content_update` が見ている
+
+## R20. ブルームフィルタの位置の取り方（`written` の形）がどの試験にも固定されておらず、変えると前に書いた台帳の行が 0 件と読まれる
+- 成果物: crates/server/src/export/bloom.rs:1-6（「台帳に置いたフィルタは後の版のサーバが読む」）, 34-40（`positions`）/ crates/server/src/export/bloom.rs:76-96（試験は同じ版で書いて同じ版で読む往復だけ）
+- 根拠: 変異 M4（`h1` を `digest[0..8]` から `digest[16..24]` へ）で `bloom` の 2 本と `export_status` の 13 本が全部 ok。
+  実物で効き目を測るため、e2e が書いた書き出し（`d7bf7676-…`）の `written` を、`bloom.rs` の位置の決め方を写した自作の読み手で読んだ。元の形では `events.jsonl` の 1,451 件すべてが入る。変異の形で読むと 0 件になる（`contained=0`）。
+  台帳は追記のみで `written` を書き直せないので、位置の取り方・形の版を変えた後のサーバは、前回の書き出しの「後に消した記録」を 0 と出す。D17 が言う「少なく数える経路が無い」が、版をまたぐと崩れる。`VERSION` の 1 バイトはあるが、読む側は形が違えば `None` → 0 件と扱う（ledger.rs:416-418。数え落とす側）
+- kind: irreversible
+- loss: rewrite-all
+- 提案: 固定の UUID 数個を入れたフィルタのバイト列（か、その SHA-256）を期待値として直書きする試験を 1 本置く。期待値はこの節の自作の読み手と同じように別の実装で作る。`from_bytes` が知らない版を読んだときは、0 ではなく「数えられない」を状態に出す（少なく数える側に倒さない）
+
+## R21. D17 の鍵の 3 つ目（`core.stay_absorbed` の行の数）は、外しても全部の試験が通る
+- 成果物: crates/server/src/export/ledger.rs:387-402（`erased_key`）/ design.md D17（鍵は 3 つの表の行の数）
+- 根拠: 変異 M5（`(SELECT count(*) FROM core.stay_absorbed)` → `0`）で `export_status` の 13 本が全部 ok。比べると、`deletion_ledger` を外すと 2 本、`event_version` を外すと 1 本が FAILED になった（この 2 つは固定されている）。
+  D17 は吸収（`rebuild:absorbed`）を「件数を増やしうる書き込み」として鍵に入れた。外しても見張る試験が無いので、吸収の後に覚えた古い値を出し続けても気づかない
+- kind: technical
+- 提案: 書き出し → 状態を 1 回読む（覚える）→ 作り直しで滞在を吸収させる（`stay_absorbed` に 1 行）→ 状態を読み、`erased_counts()` が増えた（数え直した）ことを確かめる試験を 1 本足す
+
+## R22. 台帳に始まりの行を書けないと、`POST /export` は 202 を返したまま何も残さず、状態にも画面にも失敗が出ない
+- 成果物: crates/server/src/export/job.rs:168-171（`insert_start` が落ちるとログを 1 行出して `return`）/ web/src/SettingsView.tsx（`started` なら何も出さない）
+- 根拠: 使い捨ての database で `ALTER TABLE core.export_ledger ADD CONSTRAINT cv_reject CHECK (false) NOT VALID` を置き、観測用の試験 `cv_probe_start_row_failure_is_silent` を走らせた。`POST` は `202 {"export_id": "cb783064-…"}`、仕事が終わった後の状態は `last_failure` が前後とも `null`、`last` は前と同じ、置き場のファイルは 0。
+  画面は `running` が一度出て消えるか、一度も出ないまま元の形に戻る。押した本人には「書き出した」とも「失敗した」とも出ない。spec の「失敗した書き出しも台帳に残る」は台帳が書ける前提で、その外側にあたる
+- kind: daily
+- 提案: 始まりの行を `spawn` の前（`POST` の中）で書き、書けなければ 500（種別だけ）を返す。そうすれば画面の既存の「書き出しを始められませんでした」の 1 行に乗る。あるいは失敗をメモリの `ExportJobs` に 1 件持ち、`last_failure` に出す
+
+## R23. 台帳が失われる（DB を作り直す・戻す）と、置き場にある前の書き出しは二度と消えず、どこにも出ない。この worktree の置き場には書き出しが 12 個たまっていた
+- 成果物: crates/server/src/export/ledger.rs:217-221（`removable_previous` は台帳の `done` の行しか見ない）/ design.md D16（「台帳に無いパスには触らない」）/ docs/stories/ST30.md・ST32.md
+- 根拠: e2e（`STACK_RESET=1`）の後の `ls -la .export/` には `ashiato-export-*.zip` が 12 個あった（`20261014-053428` 〜 `20261015-231915`。3.1 MB と 5.9 MB のものを含む）。加えて `.partial-…` が 4 個あった。その時点の台帳（18 行）にあったのは `20261015-2318xx` / `2319xx` の 4 回分だけで、残りの 11 個の名前は台帳に無い。
+  D16 は本人の置いたファイルを守るため、台帳に無いパスを消さない。DB を作り直す・バックアップから戻すたびに、それより前の書き出しは「このシステムが書いていないもの」になる。それらは消えず、`leftover` にも出ず、その後に消した場面を含んだまま積み上がる。本番では、バックアップ（ST30）から D-01 を戻したとき（復元テストの ST32 を含む）に同じことが起きる。
+  `docs/stories/ST30.md`・`ST32.md` に「書き出し」「export」は 0 件で、この申し送りを持つ Story が無い（隙間に落ちている）
+- kind: defer
+- 提案: `docs/handoff/ST30.md`（か ST32）に「戻した後は、置き場の `ashiato-export-*.zip` のうち台帳に無いものを本人に見せる（消すかは本人）」を書く。ST33 の側では、台帳に無い `ashiato-export-*.zip` / `.partial-…` の名前を状態に「見覚えの無い書き出しのファイル」として出す（消さない）だけで扉は開いたまま残る。確認バッチの `run.sh` と e2e の置き場は、走らせるたびに空にしてよい
+
+## R24. Scenario「合言葉はどこにも残らない」のログの受け手は試験のスレッドの上だけで、`spawn_blocking` の中のログは素通りする
+- 成果物: crates/server/src/export_job_tests.rs:1218-1223（`tracing::subscriber::set_default`。スレッドごとの既定）/ crates/server/src/export/job.rs:214, 238, 300, 327（`spawn_blocking` の中で `tracing::warn!` を出す経路）
+- 根拠: 変異 M11（非同期の仕事の中で合言葉を `tracing::info!`）は FAILED になった。一方、変異 M11b（同じ値を `spawn_blocking` の中で `tracing::warn!`）では `export_responses_never_keep_the_passphrase` が ok のまま。
+  いまの本体は合言葉を blocking のスレッドへ渡していない（`dump` は同期で書く）ので、いま漏れているわけではない。ただ、書き込みを blocking に移す変更（`dump` が runtime のスレッドを塞いでいるので、ありうる変更）を入れても、この試験は守らない
+- kind: technical
+- 提案: 受け手を `tracing::subscriber::set_global_default`（試験のプロセスで 1 回）にする。あるいは `tracing_subscriber::fmt().with_writer(…)` を `Dispatch` にして `spawn_blocking` の中でも `dispatcher::with_default` が効く形にし、blocking の中で出したログを拾えることを正の対照として 1 行確かめる
