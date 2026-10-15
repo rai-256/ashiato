@@ -1,0 +1,13 @@
+[
+  {
+    "id": "ST33-export",
+    "story": "ST33",
+    "spec": "tools/recording/st33/st33-export.rec.ts",
+    "requires": [
+      "web/e2e/settings-export.spec.ts",
+      "web/e2e/global-setup.ts",
+      "web/src/SettingsView.tsx"
+    ],
+    "note": "ST33（全記録の書き出し）: 稼働状況の「設定」→ 設定画面（ソースごとの件数と期間・入らないもの・まだ書き出していない）→ 確認（目安・置き場・暗号化。短い合言葉と不一致では押せない → やめる）→ 合言葉を入れて書き出す → 前回の書き出しが新しくなる（受け取る操作は無い）→ 滞在を 1 件消すと前回の書き出しの欄に件数が出る → 戻す → 幅 360 px・ダーク（はみ出さない・Tab の輪郭）。進み具合は録画の環境に遅延が無く一瞬で終わるので主張しない（`web/e2e/settings-export.spec.ts` が持つ）。書き出したファイルを開く（復号する）ところは画面に無いので撮らない"
+  }
+]
