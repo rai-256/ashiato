@@ -19,6 +19,12 @@ object Config {
     val apiToken: String get() = override?.second ?: BuildConfig.API_TOKEN
     val userId: String get() = override?.third ?: BuildConfig.USER_ID
 
+    /** 試験だけが差し替える（通知の開く先）。 */
+    private var webUrlOverride: String? = null
+
+    /** Web の画面のアドレス（通知が開く先。ST17 design D10）。**空でもビルドは止まらない** —— 通知は出て、押しても開かない。 */
+    val webUrl: String get() = webUrlOverride ?: BuildConfig.WEB_URL
+
     val isComplete: Boolean
         get() = baseUrl.isNotBlank() && apiToken.isNotBlank() && userId.isNotBlank()
 
@@ -26,7 +32,12 @@ object Config {
         override = Triple(baseUrl, apiToken, userId)
     }
 
+    internal fun overrideWebUrlForTest(webUrl: String?) {
+        webUrlOverride = webUrl
+    }
+
     internal fun clearOverrideForTest() {
         override = null
+        webUrlOverride = null
     }
 }
