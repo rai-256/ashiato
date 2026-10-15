@@ -1,0 +1,14 @@
+[
+  {
+    "id": "ST07-window",
+    "story": "ST07",
+    "platform": "windows",
+    "desktop": "tools/recording/st07/st07-desktop.ps1",
+    "spec": "tools/recording/st07/st07-result.rec.ts",
+    "requires": [
+      "crates/collector-windows/src/platform.rs",
+      "web/e2e/global-setup.ts",
+      "web/src/DayView.tsx"
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "ST08-history",
+    "story": "ST08",
+    "platform": "windows",
+    "desktop": "tools/recording/st08/st08-desktop.ps1",
+    "spec": "tools/recording/st08/st08-result.rec.ts",
+    "requires": [
+      "crates/collector-windows/src/history/collect.rs",
+      "web/e2e/global-setup.ts",
+      "web/src/DayView.tsx"
+    ]
+  }
+]
