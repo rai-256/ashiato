@@ -142,7 +142,7 @@ async function startExport(page: Page): Promise<void> {
 
 // Scenario: 設定画面に全記録の書き出しの節がある
 test("Scenario 9.2: 稼働状況のリンクから設定画面が開き、最初の節は「全記録の書き出し」", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#/coverage");
   await page.reload();
   await page.getByTestId("to-settings").click();
   await expect(page).toHaveURL(/#\/settings$/);

@@ -93,7 +93,7 @@ describe("設定の書き出しの節", () => {
   });
 
   it("S-1 の見出しの行から「設定」へ行ける", async () => {
-    window.location.hash = "";
+    window.location.hash = "#/coverage"; // S-1 はルートでなく #/coverage（ST25 / design D12）
     vi.stubGlobal("fetch", () => Promise.resolve(res(200, [])));
     render(<Root />);
     expect((screen.getByTestId("to-settings") as HTMLAnchorElement).getAttribute("href")).toBe("#/settings");

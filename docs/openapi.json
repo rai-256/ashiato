@@ -561,7 +561,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Summary"
+                  "$ref": "#/components/schemas/ExportSummary"
                 }
               }
             }
@@ -2530,7 +2530,7 @@
       },
       "ExportRefused": {
         "type": "object",
-        "description": "書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running`）。",
+        "description": "書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running` /\n`ledger_unavailable`）。",
         "required": [
           "error"
         ],
@@ -2563,6 +2563,25 @@
           "export_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ExportSummary": {
+        "type": "object",
+        "description": "契約での名前は `ExportSummary`（`day::Summary` と同じ名前だと片方が黙って上書きされる）。",
+        "required": [
+          "sources",
+          "estimate"
+        ],
+        "properties": {
+          "estimate": {
+            "$ref": "#/components/schemas/Estimate"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SummarySource"
+            }
           }
         }
       },
@@ -4273,19 +4292,46 @@
       },
       "Summary": {
         "type": "object",
-        "required": [
-          "sources",
-          "estimate"
-        ],
+        "description": "行の `[start, end)` の要約。**記録の無いソースは鍵ごと出さない。**",
         "properties": {
-          "estimate": {
-            "$ref": "#/components/schemas/Estimate"
-          },
-          "sources": {
-            "type": "array",
+          "archive": {
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
-              "$ref": "#/components/schemas/SummarySource"
+              "$ref": "#/components/schemas/ArchiveCount"
             }
+          },
+          "browser": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowserSummary"
+              }
+            ]
+          },
+          "pc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
+          },
+          "phone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppSummary"
+              }
+            ]
           }
         }
       },

@@ -33,7 +33,9 @@ pub struct Estimate {
     pub seconds: i64,
 }
 
+/// 契約での名前は `ExportSummary`（`day::Summary` と同じ名前だと片方が黙って上書きされる）。
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[schema(as = ExportSummary)]
 pub struct Summary {
     pub sources: Vec<SummarySource>,
     pub estimate: Estimate,
