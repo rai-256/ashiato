@@ -4667,6 +4667,27 @@ fn archive_youtube_shape_shows_counts_by_destination() {
     }
 }
 
+/// 評価に数えるのは `watch?v=` の URL を持つ項目だけ（spec の (2)。code-verify R20）。
+/// 評価の決まり文句で始まってもコミュニティ投稿の URL ならその他に数える。
+#[test]
+fn archive_youtube_shape_a_rating_phrase_without_a_watch_url_is_not_a_rating() {
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "高く評価しました ある投稿",
+        Some(YT_POST_URL),
+        None
+    )])
+    .to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["rating"], 0);
+    assert_eq!(shape["destinations"]["other"], 1);
+}
+
 // Scenario: YouTube の項目を含むマイアクティビティの形の出力にその他へ入る件数が出る
 #[test]
 fn archive_youtube_shape_a_mixed_file_shows_the_youtube_items_going_to_other() {
@@ -5162,6 +5183,92 @@ async fn archive_youtube_reparse_read_archive_waits_for_the_new_mark() {
         .await
         .unwrap();
     assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+}
+
+/// 版の読み直しの経路でも、決まり文句の表に当たる言語が無い YouTube の形の印では格納しない
+/// （design D6 の「3 経路とも」。code-verify R19）。
+#[tokio::test]
+async fn archive_youtube_reparse_a_mark_on_an_unrecognized_language_does_not_store() {
+    let inbox = Inbox::new("yt-reparse-unknown-lang").await;
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "Vu: une vidéo",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &shape_hash_of_bytes(MY_ACTIVITY_PATH, &bytes)).await;
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+    assert!(inbox.ledger_at_current(&sha, "read").await.is_empty());
+}
+
+/// 版の読み直しが確認待ちを含む書庫の途中で落ちても、次の周で読み直す（code-verify R17）。
+/// 確認待ちの台帳の行を先に書くと、書庫が読み直しの対象から外れて二度と読まれなかった。
+#[tokio::test]
+async fn archive_youtube_reparse_a_failed_reread_with_pending_files_is_retried() {
+    let inbox = Inbox::new("yt-reparse-retry").await;
+    let search_path = "Takeout/My Activity/Search/MyActivity.json";
+    let search = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    // 確認待ちになる YouTube のファイルを、検索のファイルより先に読む位置に置く。
+    let youtube_path = "Takeout/A/YouTube/MyActivity.json";
+    let youtube = ja_youtube(1).to_string();
+    let sha = inbox
+        .seed_copies(&[
+            (search_path, search.as_bytes()),
+            (youtube_path, youtube.as_bytes()),
+        ])
+        .await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &shape_hash_of_bytes(search_path, search.as_bytes())).await;
+
+    let fault = LateMarkFault::install_store(&inbox).await;
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    let fired = fault.fired().await;
+    fault.remove().await;
+    assert_eq!(fired, 1, "格納が落ちていない");
+    assert!(inbox
+        .ledger_at_current(&sha, "pending_shape")
+        .await
+        .is_empty());
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    let stored: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event WHERE user_id = $1 AND payload->>'title' = $2",
+    )
+    .bind(inbox.user)
+    .bind("x を検索しました")
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored, 1,
+        "落ちた次の周で検索のファイルが読み直されていない"
+    );
+    assert_eq!(inbox.ledger_at_current(&sha, "read").await.len(), 1);
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1
+    );
     assert_eq!(pending_files(&inbox).await, 1);
 }
 

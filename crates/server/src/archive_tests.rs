@@ -2190,6 +2190,25 @@ fn archive_youtube_kind_of_a_file_without_products_but_with_a_watch_url_is_youtu
     );
 }
 
+/// 見分けは項目の**最初の**製品の名前で見る（code-verify R20）。2 つ目の製品の名前は見ない。
+#[test]
+fn archive_youtube_kind_of_only_the_first_product_counts() {
+    use crate::archive::classify::KnownKind;
+    let item = |products: &str| {
+        format!(
+            r#"[{{"header":"x","title":"x","time":"2026-09-12T03:00:00Z","products":{products},"titleUrl":"https://www.youtube.com/watch?v=x"}}]"#
+        )
+    };
+    assert_eq!(
+        kind_of_body(&item(r#"["YouTube","検索"]"#)),
+        Some(KnownKind::YouTube)
+    );
+    assert_eq!(
+        kind_of_body(&item(r#"["検索","YouTube"]"#)),
+        Some(KnownKind::MyActivity)
+    );
+}
+
 #[test]
 fn archive_youtube_phrase_japanese_ratings_match() {
     let ja = ["ja"];
@@ -2252,6 +2271,8 @@ fn archive_youtube_phrase_languages_are_the_ones_whose_table_matched() {
     use crate::archive::youtube::languages;
     assert_eq!(languages(["x を視聴しました", "y を検索しました"]), ["ja"]);
     assert_eq!(languages(["Watched x", "Searched for y"]), ["en"]);
+    // 英語の検索の決まり文句だけのファイルも英語が当たる（code-verify R20）。
+    assert_eq!(languages(["Searched for y"]), ["en"]);
     assert_eq!(languages(["Watched x", "y を視聴しました"]), ["en", "ja"]);
     assert_eq!(
         languages(["Liked by the Sea を視聴しました"]),

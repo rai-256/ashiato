@@ -1589,6 +1589,10 @@ async fn reread_archive(
     let mut stored_outcomes = Vec::new();
     let mut unreadable = Vec::new();
     let mut done = Vec::new();
+    // 確認待ちの台帳の行は輪の中で書かず、成功の経路の末尾で書く（code-verify R17）。輪の中で書くと、
+    // 後ろのファイルの格納が落ちたときにその行が `reparse_older_versions` の `NOT EXISTS` に当たり、
+    // 書庫が次の周の読み直しから外れていた。
+    let mut pending = false;
     for (inner_path, stored_path) in files {
         let Ok(bytes) = std::fs::read(stored_path) else {
             tracing::warn!(kind = "archive_reparse_copy", "書庫の写しを読めない");
@@ -1627,15 +1631,7 @@ async fn reread_archive(
                     false,
                 )
                 .await?;
-                record_pending_ledger_at(
-                    pool,
-                    user_id,
-                    archive_sha256.to_owned(),
-                    meta.file_name.clone(),
-                    meta.created_at,
-                    &meta.inbox_kind,
-                )
-                .await?;
+                pending = true;
                 continue;
             }
         }
@@ -1680,6 +1676,9 @@ async fn reread_archive(
         done.push(inner_path.clone());
     }
     if done.is_empty() {
+        if pending {
+            record_pending_ledger_meta(pool, user_id, archive_sha256, meta).await?;
+        }
         return Ok(done);
     }
     // **`read` の台帳の行より先に印を付ける**（final review 第 2 回 R72）。落ちたら Err で返し、いまの版の
@@ -1729,12 +1728,32 @@ async fn reread_archive(
         }
     };
     record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
+    if pending {
+        record_pending_ledger_meta(pool, user_id, archive_sha256, meta).await?;
+    }
     sqlx::query("DELETE FROM core.archive_reread_failure WHERE user_id = $1 AND sha256 = $2")
         .bind(user_id)
         .bind(archive_sha256)
         .execute(pool)
         .await?;
     Ok(done)
+}
+
+async fn record_pending_ledger_meta(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    archive_sha256: &str,
+    meta: &LedgerMeta,
+) -> Result<(), sqlx::Error> {
+    record_pending_ledger_at(
+        pool,
+        user_id,
+        archive_sha256.to_owned(),
+        meta.file_name.clone(),
+        meta.created_at,
+        &meta.inbox_kind,
+    )
+    .await
 }
 
 /// 印が置かれた後に、確認待ちだったファイルを**写しから**読み直して格納する（D16）。
