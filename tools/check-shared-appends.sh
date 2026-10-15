@@ -12,7 +12,7 @@
 #
 # 本体の途中の節を直すのは通す（ST47 が書庫の節に自分の検査を足す、など。毎回は衝突しない）。落とすのは
 #   - smoke.sh / check-immutable.sh / seed.sh の末尾（本体の最後の空でない行より後ろ。Story ごとの節を読む口を含む）に触れた変更
-#   - recording.json にシナリオの id か waive の鍵を足した変更
+#   - recording.json にシナリオの id か waive の鍵を足した変更・tools/recording/README.md のシナリオの表に行を足した変更
 #   - migrations/ORDER の途中を変えた・消した変更（末尾への追記だけ通す）
 #
 #   tools/check-shared-appends.sh [<branch>]   既定は GITHUB_HEAD_REF、無ければ今のブランチ。比べる先は origin/main との分岐点
@@ -22,6 +22,7 @@ set -euo pipefail
 
 SCRIPTS=(tools/smoke.sh tools/check-immutable.sh tools/seed.sh)
 REC=tools/recording/recording.json
+RECMD=tools/recording/README.md
 ORDER=migrations/ORDER
 MARK='Story ごとの節（tools/'   # 本体の末尾の「Story ごとの節を読む口」の見出し
 
@@ -64,6 +65,10 @@ PY
       echo "  NG $REC にシナリオか waive を足した（$grew）—— tools/recording/scenarios.d/YYYYMMDDHHMM_st<NN>.json に置く"
       bad=1
     fi
+  fi
+  if git diff -U0 "$mb" HEAD -- "$RECMD" | grep -qE '^\+\| `st'; then
+    echo "  NG $RECMD のシナリオの表に行を足した —— 説明は scenarios.d のシナリオの note に置く"
+    bad=1
   fi
   if git cat-file -e "$mb:$ORDER" 2>/dev/null; then
     local old new
@@ -119,6 +124,9 @@ self_test() {
     git checkout -q main && git checkout -qb feat/st07-waive \
       && echo '{"scenarios": [{"id": "A"}], "waive": {"ST07": "x"}, "web_dir": "web"}' > "$REC" && git commit -qam waive
     expect 1 "recording.json に waive を足すと落とす" feat/st07-waive
+    git checkout -q main && git checkout -qb feat/st09-readme && echo '| `st09/x.rec.ts` | ST09 |' >> "$RECMD" && git add -A \
+      && git commit -qm readme
+    expect 1 "録画の README の表に行を足すと落とす" feat/st09-readme
     git checkout -q main && git checkout -qb chore/fix-smoke && echo more >> tools/smoke.sh && git commit -qam chore
     expect 0 "chore のブランチは本体を直してよい" chore/fix-smoke
   )

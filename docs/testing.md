@@ -92,7 +92,7 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   | 偽データの節 | `tools/seed.d/*.sh` | `tools/seed.sh` の末尾が同じく（MODE=normal のときだけ届く） |
   | 録画のシナリオ・waive | `tools/recording/scenarios.d/*.json` | ハーネスの `record_summarize.py` が `recording.json` の後ろへ足す |
 
-  `feat/st*` の PR が台本の本体の末尾（最後の節の後ろ）に書き足すか、`recording.json` にシナリオ・waive を足すか、
+  `feat/st*` の PR が台本の本体の末尾（最後の節の後ろ）に書き足すか、`recording.json` にシナリオ・waive を、`tools/recording/README.md` の表に行を足すか、
   `migrations/ORDER` の途中を変えると、CI の `tools/check-shared-appends.sh` が落とす。本体の途中の既存の節を直すのは通す
 - **画面（jsdom）は実寸を測れない。が、機械が測れないのではない**（2026-09-18）。
   「指定と勘定」は jsdom（`web/src/__tests__`）で固定し、**実寸・スクロール量・フォーカスの位置・
