@@ -81,6 +81,19 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   模擬すると「3 手の迂回」の型の穴が残る。接続できなければ**落ちる**（飛ばすと DB の無い環境で全部緑になる）
 - テストどうしの隔離は `logical_source` の接頭辞で取る（`testdb::source`）。表を作り直さない
 - **`cargo test` と `tools/smoke.sh` を並列に走らせない。** smoke は先頭で `docker compose down -v` する
+- **Story は共有の台本の本体に書き足さない**（2026-10-15）。並走する Story がみな同じ末尾を取り合い、open の 4 本がどの 2 本を合わせても
+  衝突して確認バッチに 1 本ずつしか入らなかった。書き足す先は Story ごとの新しいファイル（名前は作成時刻 `YYYYMMDDHHMM_st<NN>-<slug>`）:
+
+  | 足すもの | 置き場 | 読み方 |
+  |---|---|---|
+  | 移行の順 | `migrations/ORDER` の末尾に 1 行 | `crates/server/build.rs` が `MIGRATIONS` に組む（`merge=union`。ORDER に無い版はビルドが落ちる） |
+  | 縦串の節 | `tools/smoke.d/*.sh` | `tools/smoke.sh` の末尾が名前の順に `.` で読む |
+  | 書き換え禁止の節 | `tools/check-immutable.d/*.sh` | `tools/check-immutable.sh` の末尾が同じく |
+  | 偽データの節 | `tools/seed.d/*.sh` | `tools/seed.sh` の末尾が同じく（MODE=normal のときだけ届く） |
+  | 録画のシナリオ・waive | `tools/recording/scenarios.d/*.json` | ハーネスの `record_summarize.py` が `recording.json` の後ろへ足す |
+
+  `feat/st*` の PR が台本の本体の末尾（最後の節の後ろ）に書き足すか、`recording.json` にシナリオ・waive を、`tools/recording/README.md` の表に行を足すか、
+  `migrations/ORDER` の途中を変えると、CI の `tools/check-shared-appends.sh` が落とす。本体の途中の既存の節を直すのは通す
 - **画面（jsdom）は実寸を測れない。が、機械が測れないのではない**（2026-09-18）。
   「指定と勘定」は jsdom（`web/src/__tests__`）で固定し、**実寸・スクロール量・フォーカスの位置・
   横溢れは `web/e2e` の本物のブラウザ**が測る。「画面が見えるか」を人間へ回さない ——

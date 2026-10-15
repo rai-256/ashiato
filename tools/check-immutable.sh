@@ -13,13 +13,12 @@ trap cleanup EXIT
 psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
 
 echo "== DB を起動してマイグレーションを当てる"
-# **当てる版と順は `crates/server/src/lib.rs` の `MIGRATIONS` 配列から引く**
-# （2026-09-12 / ST03）。手で並べていたときは ST02 の `202609112113_source_lifecycle` が
-# **この検査にだけ入っておらず**、本番と違う schema を検査していた。
+# **当てる版と順は `migrations/ORDER`（適用順の正本。サーバの `MIGRATIONS` も build.rs がここから組む）から引く**
+# （2026-09-12 / ST03。2026-10-15 に lib.rs の配列から ORDER へ移した）。手で並べていたときは ST02 の
+# `202609112113_source_lifecycle` が**この検査にだけ入っておらず**、本番と違う schema を検査していた。
 # 版を足してここへ足し忘れる、が構造として起きない形にする。
-mapfile -t MIGS < <(grep -oE 'migrations/[0-9]{12}_[a-z_]+\.sql' crates/server/src/lib.rs \
-                    | sed 's|migrations/||; s|\.sql$||')
-[ "${#MIGS[@]}" -ge 12 ] || { echo "  NG lib.rs から版を引けない（${#MIGS[@]} 件）"; exit 1; }
+mapfile -t MIGS < <(grep -vE '^[[:space:]]*(#|$)' migrations/ORDER | sed 's/[[:space:]]//g')
+[ "${#MIGS[@]}" -ge 12 ] || { echo "  NG migrations/ORDER から版を引けない（${#MIGS[@]} 件）"; exit 1; }
 docker compose up -d --wait db >/dev/null
 for m in "${MIGS[@]}"; do
   psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m が当たらない"; exit 1; }
@@ -1289,6 +1288,18 @@ for op in "session_replication_role:SET session_replication_role = replica" \
   else
     echo "  NG app-role $name が権限の不足以外で落ちた"; fail=1
   fi
+done
+
+# ================================================================ Story ごとの節（tools/check-immutable.d/）
+# **Story の節はこのファイルに書き足さない。** `tools/check-immutable.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
+# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・psql・fail（NG なら fail=1）はそのまま使える）。
+# このファイルの末尾を並走する Story が取り合い、どの 2 本を合わせても衝突していた（2026-10-15 実測）。
+# feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
+for part in tools/check-immutable.d/*.sh; do
+  [ -e "$part" ] || continue
+  echo "== 書き換え禁止の節: $(basename "$part" .sh)"
+  # shellcheck source=/dev/null
+  . "$part"
 done
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }

@@ -13,10 +13,10 @@
 
 | パス | 何が置かれているか | テストの置き場 |
 |---|---|---|
-| `crates/server` | S-01 バックエンド（Rust）。API・取り込み（`ingest.rs`）・滞在（`stay*.rs`）・稼働状況（`coverage*`）・属性・削除（`deletion.rs`）・破棄の報告（`drops.rs`。ST04）・画面のログイン（`web_session.rs`）・読み出しの記録（`access_log.rs`）・待ち受けと DB の接続先の検査（`net_guard.rs`）。`src/lib.rs` が router と **`MIGRATIONS` 配列（適用順の正本）** を持つ。`src/bin/openapi.rs` が API 契約を生成する | 同じ `src/` の `*_tests.rs`（`testdb.rs` がテスト用 DB） |
+| `crates/server` | S-01 バックエンド（Rust）。API・取り込み（`ingest.rs`）・滞在（`stay*.rs`）・稼働状況（`coverage*`）・属性・削除（`deletion.rs`）・破棄の報告（`drops.rs`。ST04）・画面のログイン（`web_session.rs`）・読み出しの記録（`access_log.rs`）・待ち受けと DB の接続先の検査（`net_guard.rs`）。`src/lib.rs` が router を持ち、`MIGRATIONS`（当てる版の配列）は `build.rs` が `migrations/ORDER` から組む。`src/bin/openapi.rs` が API 契約を生成する | 同じ `src/` の `*_tests.rs`（`testdb.rs` がテスト用 DB） |
 | `crates/collector-windows` | C-02 PC の収集アプリ（Rust）。前景の窓・入力・ブラウザのアドレスバー（`platform.rs` `browsers.rs`）→ `engine.rs` → 送信（`outbox.rs` `sender.rs`）。`runtime.rs` が組み立て | 各モジュールの `#[cfg(test)]`、本物の Windows で走る `tests/runtime_windows.rs` |
 | `collector-android` | C-01 携帯の収集アプリ（Kotlin / Android）。`app/src/main/kotlin/dev/ashiato/collector/` | `app/src/test`（JUnit4 + Robolectric）、`app/src/androidTest`（エミュレータ・実機の計測テスト） |
-| `migrations` | D-01 PostgreSQL の移行。`YYYYMMDDHHMM_<slug>.sql` と `.down.sql` の対。足したら `crates/server/src/lib.rs` の `MIGRATIONS` の末尾へ | `tools/check-migrations.sh`・`tools/check-immutable.sh` |
+| `migrations` | D-01 PostgreSQL の移行。`YYYYMMDDHHMM_<slug>.sql` と `.down.sql` の対。足したら **`migrations/ORDER`（適用順の正本）の末尾へ 1 行** | `tools/check-migrations.sh`・`tools/check-immutable.sh` |
 | `web/src` | V-01 画面（TypeScript + React + vite）。`App.tsx` が並び、画面の部品は `*View.tsx` / `*Panel.tsx` / `CoverageGrid.tsx`、API の型と文字列は `stays.ts` `coverage.ts` `attributes.ts` | `web/src/__tests__`（vitest + jsdom。指定と勘定まで） |
 | `web/e2e` | 画面の e2e（playwright + 本物の Chromium）。`*.spec.ts` に `// Scenario: <名前>` の印。**画面の Scenario はここが担保する** | 走らせ方は `docs/testing.md` §4.5 |
 | `tools` | プロジェクトの道具。縦串（`stack.sh` `smoke.sh` `dev.sh` `seed.sh`）・検査（`check-*.sh`）・Android（`android-env.sh` `android-emulator.sh`）・ハーネスの差し込み口（`agent-env.sh` `verify-prep.sh` `pre-commit.sh`） | — |

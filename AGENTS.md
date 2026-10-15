@@ -22,10 +22,13 @@ Claude Code は `CLAUDE.md` の末尾の import でこのファイルを読み�
   走らせ方は `docs/testing.md` §4.5（`cd web && npm run test:e2e`）
 - `// Scenario: <名前>` の印は、Rust / Kotlin / TypeScript のテストのコメント、bash は echo か `#`
 - `cargo test <名前>` 型は `-- --list` で 1 本以上あることも確かめる（0 本でも rc=0）
+- **縦串・書き換え禁止・偽データ・録画のシナリオは、共有の台本に書き足さず Story ごとの新しいファイルに置く**
+  （`tools/smoke.d/` `tools/check-immutable.d/` `tools/seed.d/` `tools/recording/scenarios.d/`。表は `docs/testing.md` §4）。
+  並走する Story が同じ末尾を取り合って衝突する。`feat/st*` が本体の末尾に書き足すと CI（`tools/check-shared-appends.sh`）が落とす
 
 ### 移行
 <!-- harness2:migrations -->
-- 移行の名前は `YYYYMMDDHHMM_<slug>.sql`（と `.down.sql`）、`migrations/` に置き、`crates/server/src/lib.rs` の `MIGRATIONS` の末尾へ。
+- 移行の名前は `YYYYMMDDHHMM_<slug>.sql`（と `.down.sql`）、`migrations/` に置き、**`migrations/ORDER` の末尾へ 1 行**（`crates/server/build.rs` がここから `MIGRATIONS` を組む。ORDER に無い版はビルドが落ちる）。
   連番にしない（並走する Story が番号を取り合う）。`tools/check-migrations.sh` が形を見る
 
 ### 長いコマンド

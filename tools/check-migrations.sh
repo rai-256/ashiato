@@ -18,7 +18,8 @@ for f in migrations/*.sql; do
   d="${f%.sql}.down.sql"
   # 名前は作成時刻（YYYYMMDDHHMM_<slug>.sql）。連番にしない ——
   # 並走する Story が番号を取り合う（実測 2026-09-11: ST02 が 0007 を取り、ST03 が 0008 へずらす PR を出した）。
-  # 適用の順は crates/server/src/lib.rs の MIGRATIONS 配列が持つので、名前は衝突しないことだけが要る。
+  # 適用の順は migrations/ORDER が持つ（末尾に 1 行足す。merge=union で並走する Story の追記は衝突しない）ので、
+  # 名前は衝突しないことだけが要る。ORDER に無い版・ファイルの無い版は crates/server/build.rs がビルドで落とす。
   case "$(basename "$f")" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
     *) echo "  NG $f: 名前が YYYYMMDDHHMM_<slug>.sql でない（連番は並走する Story が取り合う）"; bad=1;;
