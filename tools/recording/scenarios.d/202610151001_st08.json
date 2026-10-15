@@ -1,0 +1,15 @@
+[
+  {
+    "id": "ST08-history",
+    "story": "ST08",
+    "platform": "windows",
+    "desktop": "tools/recording/st08/st08-desktop.ps1",
+    "spec": "tools/recording/st08/st08-result.rec.ts",
+    "requires": [
+      "crates/collector-windows/src/history/collect.rs",
+      "web/e2e/global-setup.ts",
+      "web/src/DayView.tsx"
+    ],
+    "note": "ST08（ブラウザ履歴。`platform: windows`）: **前半**はページ A → B を見て、ページ C を新しいタブで開いてすぐ閉じ、ブラウザを閉じてから収集アプリを起こす → 初回の取得で訪問が積まれる。**後半**は 1 日の画面で、ブラウザの訪問として A・B・C が 1 件ずつ出るところ（C は一瞬しか開いていない）。「消えた訪問」は 24 時間後の取得でしか起きないので撮らない"
+  }
+]

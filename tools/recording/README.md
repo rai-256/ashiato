@@ -5,7 +5,8 @@
 
 | ファイル | 役目 |
 |---|---|
-| `recording.json` | 置き場（`C:\dev\ashiato2-recordings`）・Playwright の設定・環境の台本・シナリオの一覧 |
+| `recording.json` | 置き場（`C:\dev\ashiato2-recordings`）・Playwright の設定・環境の台本・古いシナリオの一覧 |
+| `scenarios.d/*.json` | **Story ごとのシナリオ**（1 Story 1 ファイル。説明は各シナリオの `note`）。下の表は scenarios.d より前からあるシナリオだけ —— **この表に行を足さない**（並走する Story が表の末尾を取り合う） |
 | `playwright.recording.config.ts` | 録画用の Playwright の設定（video・trace on、操作の注釈と工程の見出しを焼き込む、`retries: 0`、`forbidOnly`）。録画のたびに対象コミットの `web/` へ写される |
 | `st22/st22-erase-reload.rec.ts` | ST22「記録の削除」（PC の幅・ライト）: 稼働状況（消す前）→ 削除前 → 確認で「やめる」と消えない（確認文に位置の件数）→ 削除 → 削除後 → 再読み込み後も消えている → 稼働状況は消す前と同じ → 後始末で戻す。アサーションは `web/e2e/day-erase.spec.ts` の写しに spec の同名の Scenario を足したもの。`day-erase.spec.ts` の 3 本も一緒に撮る |
 | `st22/st22-phone-dark.rec.ts` | ST22（スマホの幅 390 px・ダーク）: 開く → 消す → 消した行 → 戻す。横にはみ出さないことも見る |
@@ -23,10 +24,19 @@ scripts/record-run run 23938e7           # 手で 1 回撮る（コミットを�
 
 確認バッチ（`scripts/hx verify`）は、束ねた Story にシナリオがあれば自動で撮り、手順書の「違和感」の問いに動画の場所を添える。
 
+PC（Windows）のシナリオは、**本人の画面では撮らない** —— ハーネスが毎回まっさらな Windows Sandbox を起こし、中のデスクトップを
+ffmpeg で撮る（Sandbox は管理者の PowerShell で `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`
+→ 再起動。ffmpeg は `recording.json` の `windows.ffmpeg` に Windows の `ffmpeg.exe`）。画面の下端の帯が工程の見出しで、前景は取らないので記録には出ない。
+Sandbox の網は切ってあり、収集アプリは送れずに未送信に積む。閉じた後に `record-env.sh after-windows` が未送信を録画用のサーバへ送り、
+その時間に 1 か所の位置を置いて滞在を作る（1 日の画面は PC の記録を滞在の中に出す）。PC の収集アプリは `up` が Windows 側の cargo で
+release に組む（写しと target は `C:\dev\ashiato2-rec-build` に道具のキャッシュとして残る）。
+`crates/collector-windows/src/` を変えた Story は、merge gate がこの面のシナリオを求める（`windows.src_dir`）。
+
 Android のシナリオは `-e recording 1` のときだけ走る計測テストで、各工程の見出しは Toast、
 アプリに画面が無いところは**結果の札**（録画のテストが出す「【録画の結果】」の通知。中身はアプリの未送信の置き場を読んだもの）で見せる。
 送信は 5 分ごとなので、動画の間にサーバへは届かない（届くことは計測テストと `tools/smoke.sh` が持つ）。
 
-シナリオを足すとき: `recording.json` の `scenarios` に 1 行（`id` / `story` / `spec` / 一緒に走らせる既存のテスト `with` /
-対象コミットに要るファイル `requires`）、`tools/recording/st<NN>/` に `.rec.ts`。**アサーションは既存の e2e から写して弱めない**。
+シナリオを足すとき: `scenarios.d/<YYYYMMDDHHMM>_st<NN>.json` を新しく置く（中身は `recording.json` の `scenarios` と同じ形の配列で、
+`id` / `story` / `spec` / 一緒に走らせる既存のテスト `with` / 対象コミットに要るファイル `requires` / 説明 `note`）。`tools/recording/st<NN>/` に
+`.rec.ts`。**`recording.json` とこの README の表には書き足さない**。**アサーションは既存の e2e から写して弱めない**。
 見るための停止は `test.step` の見出しと短い `waitForTimeout` だけにする。
