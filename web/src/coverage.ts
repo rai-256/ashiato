@@ -3,6 +3,7 @@
  * 稼働状況の型と、状態の読み方。**形は `crates/server/src/coverage.rs` が正典**
  * （契約は `docs/openapi.json`）。
  */
+import { jstMoment } from "./archives";
 import { msg } from "./messages";
 import { BAND_NAMES, INITIAL_WEEKS, SCHEMES, YEAR_WEEKS, type Hsl, type Scheme } from "./tokens";
 
@@ -46,6 +47,13 @@ export type DroppedRange = {
   count: number;
 };
 
+/** 端末が取りこぼしとして残した期間 `[begin, end)`（ST14 / design D15）。時刻は RFC3339（UTC）。 */
+export type GapSpan = {
+  reason: string;
+  begin: string;
+  end: string;
+};
+
 export type DayCell = {
   day: string;
   state: DayState;
@@ -56,6 +64,8 @@ export type DayCell = {
   dropped_count: number;
   /** その日に重なる破棄の区間（つないでからその日で切ったもの） */
   dropped_ranges: DroppedRange[];
+  /** その日に重なる取りこぼしの期間（ST14）。状態に関わらず持つ */
+  gaps: GapSpan[];
 };
 
 /**
@@ -91,6 +101,20 @@ export function dropNotes(cell: DayCell): string[] {
       ? m.droppedRange(r.count.toLocaleString(LOCALE), r.from, r.to)
       : m.droppedRangeNoCount(r.from, r.to),
   );
+}
+
+/**
+ * 週の詳細に添える取りこぼしの文字（ST14 / design D23（仮））。**理由ごとに別の文字**で、畳まない。
+ * 知らない理由は理由の文字を付けずに「取りこぼし（期間）」。期間は `Asia/Tokyo` の `YYYY-MM-DD HH:MM〜YYYY-MM-DD HH:MM`。
+ * **欄を返さないサーバでも落ちない**（`dropNotes` と同じ理由）。
+ */
+export function gapNotes(cell: DayCell): string[] {
+  return (cell.gaps ?? []).map((g) => {
+    const span = m.gapSpan(jstMoment(g.begin), jstMoment(g.end));
+    // 理由は端末から来る文字。`constructor` などで prototype を引かないよう、表が自分で持つ名前だけを引く
+    const label = Object.hasOwn(m.gapReason, g.reason) ? m.gapReason[g.reason] : undefined;
+    return label === undefined ? m.gapUnknown(span) : label(span);
+  });
 }
 
 export type SourceCoverage = {

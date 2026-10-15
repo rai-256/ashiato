@@ -1117,3 +1117,163 @@ fn clock_time_sync_is_readable() {
         out.stdout.len()
     );
 }
+
+// ---------------------------------------------------------------------------
+// 途切れの通知（ST14 / design D11）。本物の Windows の通知の履歴を読む。
+
+mod outage_toast {
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use ashiato_collector_windows::outage_notice::{toast_xml, Toaster};
+    use ashiato_collector_windows::outage_notice::{
+        NoticeStore, Outage, OutagePoller, OutageQuery, OutageResult,
+    };
+    use ashiato_collector_windows::toast::{build_toast, WindowsToaster, GROUP, TAG};
+    use chrono::Utc;
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+
+    /// 試験専用の差出人。本物の `dev.ashiato.collector` の通知と混ざらない。
+    const TEST_AUMID: &str = "dev.ashiato.collector.runtime-test";
+
+    #[derive(Debug)]
+    struct Scripted(Mutex<OutageResult>);
+
+    impl OutageQuery for Scripted {
+        fn fetch(&self, _device_id: &str) -> OutageResult {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// `WindowsToaster` に渡った `sound` を控える（`SuppressPopup` は履歴から読み戻せないため）。
+    #[derive(Debug)]
+    struct Recording {
+        inner: WindowsToaster,
+        sounds: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl Toaster for Recording {
+        fn show(&self, xml: &str, sound: bool) -> anyhow::Result<()> {
+            self.sounds.lock().unwrap().push(sound);
+            self.inner.show(xml, sound)
+        }
+
+        fn dismiss(&self) -> anyhow::Result<()> {
+            self.inner.dismiss()
+        }
+    }
+
+    fn location_outage() -> OutageResult {
+        OutageResult::Ready(vec![Outage {
+            episode_id: 1,
+            logical_source: "c01-location".into(),
+            display_name: "位置".into(),
+            last_alive_at: Utc::now(),
+        }])
+    }
+
+    fn history() -> Vec<ToastNotification> {
+        let view = ToastNotificationManager::History()
+            .unwrap()
+            .GetHistoryWithId(&HSTRING::from(TEST_AUMID))
+            .unwrap();
+        (0..view.Size().unwrap())
+            .map(|i| view.GetAt(i).unwrap())
+            .collect()
+    }
+
+    fn clear() {
+        ToastNotificationManager::History()
+            .unwrap()
+            .ClearWithId(&HSTRING::from(TEST_AUMID))
+            .unwrap();
+    }
+
+    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。
+    fn wait_history(want: impl Fn(&[ToastNotification]) -> bool) -> Vec<ToastNotification> {
+        let end = Instant::now() + Duration::from_secs(10);
+        loop {
+            let h = history();
+            if want(&h) || Instant::now() > end {
+                return h;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// 契機ごとに 1 回、問い合わせ係を動かす。前の問い合わせが終わるまで待ってから呼ぶ。
+    fn trigger(poller: &mut OutagePoller) {
+        std::thread::sleep(Duration::from_millis(500));
+        poller.poll("dev-1");
+    }
+
+    // Scenario: PC の途切れの通知は Windows の通知として出る
+    // Scenario: PC の音なしの差し替えは画面の端に出ない
+    #[test]
+    fn outage_toast_is_shown_replaced_silently_and_removed() {
+        let _g = super::desktop();
+        let state = std::env::temp_dir().join(format!("ashiato-toast-{}", uuid::Uuid::new_v4()));
+        let sounds = Arc::new(Mutex::new(Vec::new()));
+        let toaster = Recording {
+            inner: WindowsToaster::register_as(TEST_AUMID).unwrap(),
+            sounds: sounds.clone(),
+        };
+        clear();
+        let query = Arc::new(Scripted(Mutex::new(location_outage())));
+        let mut poller = OutagePoller::new(
+            query.clone(),
+            Arc::new(toaster),
+            NoticeStore::new(&state),
+            |_| {},
+        );
+
+        let outages = match location_outage() {
+            OutageResult::Ready(v) => v,
+            _ => unreachable!(),
+        };
+        let sounded_xml = toast_xml(&outages, true);
+        let silent_xml = toast_xml(&outages, false);
+        // 初回: 位置の途切れの通知が 1 件。音つきなので画面の端にも出す
+        poller.poll("dev-1");
+        let h = wait_history(|h| h.len() == 1);
+        assert_eq!(h.len(), 1, "通知の履歴に 1 件");
+        assert_eq!(h[0].Tag().unwrap().to_string(), TAG);
+        assert_eq!(h[0].Group().unwrap().to_string(), GROUP);
+        let content = |n: &ToastNotification| n.Content().unwrap().GetXml().unwrap().to_string();
+        assert!(content(&h[0]).contains("位置"), "位置の表示名を持つ");
+        assert!(!content(&h[0]).contains("silent"), "初回は音つき");
+        assert!(!build_toast(&sounded_xml, true)
+            .unwrap()
+            .SuppressPopup()
+            .unwrap());
+
+        // 次の契機: 同じ途切れ。履歴は 1 件のまま差し替わり、画面の端には出さない
+        trigger(&mut poller);
+        let h = wait_history(|h| h.len() == 1 && content(&h[0]).contains("silent"));
+        assert_eq!(h.len(), 1, "差し替えても 1 件");
+        assert!(
+            content(&h[0]).contains(r#"<audio silent="true"/>"#),
+            "中身が音なしに差し替わった"
+        );
+        // `SuppressPopup` は履歴から読み戻すと常に偽（実測 2026-10-14）。
+        // 実際に出した 2 回目が音なしで渡ったことと、音なしで組んだ通知が立てることの両方で見る
+        assert_eq!(*sounds.lock().unwrap(), vec![true, false], "出した音の指定");
+        assert!(
+            build_toast(&silent_xml, false)
+                .unwrap()
+                .SuppressPopup()
+                .unwrap(),
+            "音なしの差し替えは画面の端に出ない設定"
+        );
+
+        // 戻った: 黙って消える
+        *query.0.lock().unwrap() = OutageResult::Ready(vec![]);
+        trigger(&mut poller);
+        let h = wait_history(|h| h.is_empty());
+        assert_eq!(h.len(), 0, "戻ると履歴から消える");
+
+        clear();
+        std::fs::remove_dir_all(&state).ok();
+    }
+}

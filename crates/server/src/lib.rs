@@ -64,6 +64,19 @@ pub mod heartbeat;
 pub mod ingest;
 pub mod migrate_backup;
 pub mod net_guard;
+/// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
+pub mod outage;
+/// `GET /outages` と台帳を本物の DB で見る（ST14 Task 7）。
+#[cfg(test)]
+mod outage_api_tests;
+/// 途切れの通知の登録簿と台帳（ST14 / design D2 / D7）。
+#[cfg(test)]
+mod outage_registry_tests;
+/// 途切れの判定の材料を引く SQL（ST14 / design D1 / D4）。
+pub mod outage_store;
+/// 途切れの判定の材料の SQL を本物の DB で見る（ST14 Task 5）。
+#[cfg(test)]
+mod outage_tests;
 pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
@@ -91,7 +104,7 @@ use ingest::{content_hash, IngestRequest};
 /// 当てる版と、その中身。**足したらここへ 1 行足す** ——
 /// 当て忘れると、不変条件が本番だけ効いていない状態になる。
 /// `run()` もテストも同じ並びを使う（テストだけ古い schema、が起きないようにする）。
-pub const MIGRATIONS: [(&str, &str); 24] = [
+pub const MIGRATIONS: [(&str, &str); 25] = [
     (
         "202609081618_envelope",
         include_str!("../../../migrations/202609081618_envelope.sql"),
@@ -204,6 +217,11 @@ pub const MIGRATIONS: [(&str, &str); 24] = [
     (
         "202610121040_event_by_user_source_ingest",
         include_str!("../../../migrations/202610121040_event_by_user_source_ingest.sql"),
+    ),
+    // 途切れの通知：判定の対象の印・通知までの日数・開始日を借りる先・台帳（ST14 / design D2 / D7）
+    (
+        "202610141130_outage_alert",
+        include_str!("../../../migrations/202610141130_outage_alert.sql"),
     ),
 ];
 
@@ -337,6 +355,13 @@ pub struct App {
     /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
     /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
     reading: archive::worker::ReadingState,
+    /// サーバを起こした単調時計の時点（途切れの判定を待つ間の起点。ST14 / design D5）。壁時計の変更に左右されない。
+    started: std::time::Instant,
+    /// 試験が差し込む起動時刻（`now` と同じ壁時計で経過を測る）。本番は常に `None`。
+    #[cfg(test)]
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
+    warmup: std::time::Duration,
 }
 
 impl App {
@@ -356,7 +381,16 @@ impl App {
             #[cfg(test)]
             now: None,
             reading: archive::worker::ReadingState::default(),
+            started: std::time::Instant::now(),
+            #[cfg(test)]
+            started_at: None,
+            warmup: outage::OUTAGE_WARMUP,
         }
+    }
+
+    /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
+    pub fn with_warmup(self, warmup: std::time::Duration) -> Self {
+        Self { warmup, ..self }
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -396,6 +430,24 @@ impl App {
             access: access_log::AccessLog::new(sink),
             ..self
         }
+    }
+
+    /// サーバを起こした時刻を差し込んだ複製（途切れの判定を待つ間の試験。design D5）。
+    #[cfg(test)]
+    pub(crate) fn started(self, started_at: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            started_at: Some(started_at),
+            ..self
+        }
+    }
+
+    /// 起動してからの経過（単調時計。試験で起動時刻が差し込まれていれば `now()` との差）。
+    fn uptime(&self) -> std::time::Duration {
+        #[cfg(test)]
+        if let (Some(at), Some(now)) = (self.started_at, self.now) {
+            return (now - at).to_std().unwrap_or_default();
+        }
+        self.started.elapsed()
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -2628,6 +2680,84 @@ pub async fn archives_status_get(
         .map_err(|error| internal_at("archives.status", error))
 }
 
+// ------------------------------------------------------------------ 途切れ（ST14）
+
+/// `GET /outages` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct OutagesQuery {
+    /// 端末識別子。**あれば**「この端末に返した」を台帳に残す（収集アプリは必ず付ける）。
+    device_id: Option<String>,
+    /// 利用者。省略すると既定の利用者（ほかの読み出しと同じ）
+    user_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OutagesStatus {
+    /// 判定した。`outages` が付く
+    Ready,
+    /// 起動してから `OUTAGE_WARMUP` の間。判定も台帳への書き込みもしない
+    WarmingUp,
+}
+
+/// 途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutageItem {
+    /// 途切れの識別子。続く間は同じ・戻ってまた途切れたら別
+    pub episode_id: i64,
+    pub logical_source: String,
+    pub display_name: String,
+    pub last_alive_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutagesResponse {
+    pub status: OutagesStatus,
+    pub judged_at: chrono::DateTime<chrono::Utc>,
+    /// `status = ready` のときだけ。表示名の昇順（同じなら論理ソース名）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outages: Option<Vec<OutageItem>>,
+}
+
+/// 収集が途切れているソースと、端末に返したことの台帳（ST14 / design D5・D6・D7）。
+#[utoipa::path(get, path = "/outages", params(OutagesQuery),
+    responses((status = 200, body = OutagesResponse), (status = 401)))]
+pub async fn outages_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<OutagesQuery>,
+) -> Result<Json<OutagesResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let now = app.now();
+    if app.uptime() < app.warmup {
+        return Ok(Json(OutagesResponse {
+            status: OutagesStatus::WarmingUp,
+            judged_at: now,
+            outages: None,
+        }));
+    }
+    let user = q.user_id.unwrap_or_default();
+    // 材料を読むのも判定も台帳の助言ロックの中（review/code.md R2）
+    let episodes = outage_store::judge_and_record(&app.pool, user, now, q.device_id.as_deref())
+        .await
+        .map_err(|e| internal_at("outages.judge", e))?;
+    Ok(Json(OutagesResponse {
+        status: OutagesStatus::Ready,
+        judged_at: now,
+        outages: Some(
+            episodes
+                .into_iter()
+                .map(|e| OutageItem {
+                    episode_id: e.episode_id,
+                    logical_source: e.outage.logical_source,
+                    display_name: e.outage.display_name,
+                    last_alive_at: e.outage.last_alive_at,
+                })
+                .collect(),
+        ),
+    }))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -2648,6 +2778,8 @@ pub async fn coverage_get(
         .into_iter()
         .map(|(n, _)| n)
         .collect();
+    // 集計は Must の 5 本の直後・書庫の前（D10（仮））。達成（`must_sources()`）には入れない
+    names.push(coverage::ROLLUP_SOURCE.to_string());
     let archive_names: Vec<String> = sqlx::query_scalar(
         "SELECT logical_source FROM core.source
           WHERE logical_source LIKE 'c03-%' ORDER BY display_name, logical_source",
@@ -2949,6 +3081,7 @@ pub fn router(app: App) -> Router {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
+        .route("/outages", get(outages_get))
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
@@ -3060,8 +3193,19 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
 
-    let mut app =
-        router(App::new(pool, token, &web_password, session_max_age_days).with_reading(reading));
+    // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
+    let warmup =
+        match std::env::var("OUTAGE_WARMUP_SEC") {
+            Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
+                anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
+            })?),
+            Err(_) => outage::OUTAGE_WARMUP,
+        };
+    let mut app = router(
+        App::new(pool, token, &web_password, session_max_age_days)
+            .with_reading(reading)
+            .with_warmup(warmup),
+    );
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -3087,6 +3231,7 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         archives_status_get,
+        outages_get,
         stays_get,
         day_get,
         day_records_get,
@@ -3121,10 +3266,14 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::DayCell,
         coverage::Interval,
         coverage::DroppedRange,
+        coverage::GapSpan,
         coverage::DayState,
         coverage::Band,
         coverage::Subject,
         coverage::Achievement,
+        OutagesResponse,
+        OutagesStatus,
+        OutageItem,
         ArchivesStatus,
         ArchiveSourceStatus,
         LatestArchiveStatus,
