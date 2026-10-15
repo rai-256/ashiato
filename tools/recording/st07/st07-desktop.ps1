@@ -1,6 +1,7 @@
 ﻿# SPDX-License-Identifier: AGPL-3.0-only
 # 録画専用・前半（ハーネスの record-run が Windows Sandbox の中で走らせる。デスクトップ全体が撮られている）。
-# ST07「PC のアクティブウィンドウを集める」: 収集アプリを起こす → メモ帳 → ブラウザでページ A → ページ B → メモ帳へ戻る。
+# ST07「PC のアクティブウィンドウを集める」: 収集アプリを起こす → フォルダ「メモ A」→ ブラウザでページ A → ページ B →
+# フォルダへ戻る（Sandbox（24H2）にはメモ帳が無いので、どの Windows にもあるエクスプローラーの窓を使う。2026-10-15 実測）。
 # 切り替えるたびに 1 件ずつ記録が積まれる（FR-12）ことを、収集アプリの未送信の置き場で確かめる。
 # Sandbox の網は切ってあるので記録は送れずに積まれ、閉じた後に tools/record-env.sh after-windows がサーバへ送る。
 # 後半（st07-result.rec.ts）が、届いた記録を 1 日の画面で見せる。
@@ -18,7 +19,7 @@ function Front([string]$Title) {
   throw "「$Title」の窓を前景にできない"
 }
 
-# 用意: ページ 2 枚とメモ。ブラウザの初回の案内は出さない（Sandbox は毎回まっさらなので、出ると画面が案内で埋まる）
+# 用意: ページ 2 枚とフォルダ。ブラウザの初回の案内は出さない（Sandbox は毎回まっさらなので、出ると画面が案内で埋まる）
 $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
 New-Item -Path $edge -Force | Out-Null
 Set-ItemProperty -Path $edge -Name HideFirstRunExperience -Value 1 -Type DWord
@@ -28,8 +29,9 @@ foreach ($p in @(@('page-a', 'ページ A'), @('page-b', 'ページ B'))) {
           "<body style='font:64px sans-serif;margin:80px'>$($p[1])<p style='font-size:28px'>ST07 の録画用のページ</p>"
   [System.IO.File]::WriteAllText((Join-Path $work "$($p[0]).html"), $html, (New-Object System.Text.UTF8Encoding($false)))
 }
-$memo = Join-Path $work 'メモ A.txt'
-[System.IO.File]::WriteAllText($memo, "ST07 の録画`r`nこの窓を前景に置いている間は、メモ帳の記録が 1 件。", (New-Object System.Text.UTF8Encoding($true)))
+$memo = Join-Path $work 'メモ A'
+New-Item -ItemType Directory -Path $memo -Force | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $memo 'ST07 の録画.txt'), "この窓を前景に置いている間は、エクスプローラーの記録が 1 件。", (New-Object System.Text.UTF8Encoding($true)))
 
 Show-RecCaption '1. PC の収集アプリを起こす（画面は無い。裏で前景の窓を読む）'
 $exe = Join-Path $env:REC_PAYLOAD 'ashiato-collector-windows.exe'
@@ -37,8 +39,8 @@ $collector = Start-Process $exe -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 4
 if ($collector.HasExited) { throw "収集アプリがすぐ終わった（rc=$($collector.ExitCode)。$state\collector.log）" }
 
-Show-RecCaption '2. メモ帳を開く（題名「メモ A.txt」）'
-Start-Process notepad.exe -ArgumentList "`"$memo`""
+Show-RecCaption '2. エクスプローラーでフォルダ「メモ A」を開く'
+Start-Process explorer.exe -ArgumentList "`"$memo`""
 Front 'メモ A'
 Start-Sleep -Seconds $hold
 
@@ -52,7 +54,7 @@ Start-Process msedge.exe -ArgumentList @(('file:///' + ($work -replace '\\', '/'
 Front 'ページ B'
 Start-Sleep -Seconds $hold
 
-Show-RecCaption '5. メモ帳へ戻る'
+Show-RecCaption '5. フォルダ「メモ A」へ戻る'
 Front 'メモ A'
 Start-Sleep -Seconds $hold
 

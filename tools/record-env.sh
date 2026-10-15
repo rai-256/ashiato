@@ -173,13 +173,14 @@ EOF
   local windows_ok=""
   if [[ " ${REC_PLATFORMS:-} " == *" windows "* ]]; then
     # PC の収集アプリは Windows の上でだけ組める。木を C: に写して Windows 側の cargo で組む（\\wsl$ 越しは遅い）。
-    # 写し先と target は録画の道具のキャッシュとして残す（record-run が同時に 2 本走らせないので共有してよい）
+    # 写し先と target は録画の道具のキャッシュとして残す（record-run が同時に 2 本走らせないので共有してよい）。
+    # C ランタイムは静的に入れる（まっさらな Sandbox には VC++ の再頒布物が無く、VCRUNTIME140.dll が無いで起動しない。2026-10-15 実測）
     echo "== PC の収集アプリ（Windows の cargo。release）"
     local wb=/mnt/c/dev/ashiato2-rec-build
     mkdir -p "$wb/src" "$STATE/windows-payload" \
       && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin "$WT/" "$wb/src/" \
       && (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c \
-            "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
+            "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& set RUSTFLAGS=-C target-feature=+crt-static&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
             </dev/null) \
       && cp "$wb/target/release/ashiato-collector-windows.exe" "$STATE/windows-payload/" \
       && windows_ok=1
