@@ -233,7 +233,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
 - kind: irreversible
 - loss: rewrite-all
 - 提案: 固定の UUID 数個を入れたフィルタのバイト列（か、その SHA-256）を期待値として直書きする試験を 1 本置く。期待値はこの節の自作の読み手と同じように別の実装で作る。`from_bytes` が知らない版を読んだときは、0 ではなく「数えられない」を状態に出す（少なく数える側に倒さない）
-- 処置: fixed D17 — `deep.md` Q12（第 5 回）で本人が (a) いまの形で凍結する を選んだ（2026-10-16、`deep-answers-7.txt`）。固定の 3 つの UUID を入れたフィルタのバイト列を Python の `hashlib` の別の実装で作って直書きした試験 `export::bloom::tests::the_frozen_shape_is_kept`（変異 `digest[0..8]` → `[16..24]` で FAILED を確かめた）。読めない形・知らない版の `written` は `last.erased_after: null`（数えられない）で返し、画面は「数えられません」の 1 行を出す（試験 `export_status_an_unreadable_written_filter_is_reported_as_uncountable`。変異 `Ok(None)` → `Ok(Some(0))` で FAILED を確かめた。vitest 2 本）。`docs/openapi.json` を更新
+- 処置: escalated — `deep.md` Q12（第 5 回）。本人が (a) いまの形で凍結する を選んだ（2026-10-16、`deep-answers-7.txt`）ので、答えの効く先を design D17 に書いて入れた: 固定の 3 つの UUID を入れたフィルタのバイト列を Python の `hashlib` の別の実装で作って直書きした試験 `export::bloom::tests::the_frozen_shape_is_kept`（変異 `digest[0..8]` → `[16..24]` で FAILED を確かめた）。読めない形・知らない版の `written` は `last.erased_after: null`（数えられない）で返し、画面は「数えられません」の 1 行を出す（試験 `export_status_an_unreadable_written_filter_is_reported_as_uncountable`。変異 `Ok(None)` → `Ok(Some(0))` で FAILED を確かめた。vitest 2 本）。`docs/openapi.json` を更新
 
 ## R21. D17 の鍵の 3 つ目（`core.stay_absorbed` の行の数）は、外しても全部の試験が通る
 - 成果物: crates/server/src/export/ledger.rs:387-402（`erased_key`）/ design.md D17（鍵は 3 つの表の行の数）
@@ -271,3 +271,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
 ## scoped re-review（a0a07b5..13b123b。code-verify の fix wave）
 - 席: 独立の re-reviewer（SDD の `re-review-prompt.md`）。R17 / R18 / R19 / R21 / R22 / R24 は ADDRESSED、R20 は escalated（Q12 未回答・コードは先取りしていない）、R23 は deferred（`docs/handoff/ST30.md`）で妥当。fix diff の新しい壊れ: なし
 - R18 は提案より狭い（止まったものが複数なら新しい 1 件・`.partial-…` は出ない・止まった zip の中の後に消した場面は数えない）。PR 本文の申し送りに残す
+
+## scoped re-review（085b6f7..4a7af06。Q12 の答えの後の R20）
+- 席: 独立の re-reviewer（SDD の `re-review-prompt.md`）。R20 は ADDRESSED（`bloom.rs` の `the_frozen_shape_is_kept`・`ledger.rs` の `erased_after` が読めない形で `None`・画面の「数えられません」）。fix diff の新しい壊れ: なし
+- 挙動の変化（指摘ではない）: `done` の行に `written` が無いときも 0 件でなく null になる。`insert_done` は常に `written` を書くので通常は起きず、少なく数える側に倒さない方針と合う
