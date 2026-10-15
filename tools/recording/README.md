@@ -14,6 +14,8 @@
 | `st06/St06RecordingTest.kt` | ST06（Android）: 入れたばかりのアプリを初めて起動 → 位置（使用時のみ → 常に）→ 通知 → 利用状況へのアクセス → 常駐の通知 → もう一度開いても設定画面へ送られない → **結果の札**（端末に集まったアプリ利用） |
 | `st06/St06LaterGrantRecordingTest.kt` | ST06（Android）: 位置を許可しない・利用状況へのアクセスを許さずに戻る → それでも収集は始まる → 後から常駐の通知をたどって許可 → 次の契機（開き直し）からアプリ利用が集まる（結果の札） |
 | `st05/St05RecordingTest.kt` | ST05（Android）: 収集を始めるとその場で測る（結果の札）→ 端末の時計を 5 分進める → その場で測り直す（差が約 +300000 ms。結果の札）→ 時計を戻す。PC の時計は動かさない（Windows の実行時テストに任せる） |
+| `st07/st07-desktop.ps1` + `st07/st07-result.rec.ts` | ST07（PC のアクティブウィンドウ。`platform: windows`）: **前半**は Windows Sandbox の中で、収集アプリを起こす → メモ帳 → ブラウザでページ A → ページ B → メモ帳へ戻る（収集アプリの未送信に 3 つの題名が積まれたことまで確かめる）。**後半**は今日の 1 日の画面で、前半の時間の滞在を開き、PC の記録としてメモ帳とページ A / B が並ぶところ |
+| `st08/st08-desktop.ps1` + `st08/st08-result.rec.ts` | ST08（ブラウザ履歴。`platform: windows`）: **前半**はページ A → B を見て、ページ C を新しいタブで開いてすぐ閉じ、ブラウザを閉じてから収集アプリを起こす → 初回の取得で訪問が積まれる。**後半**は 1 日の画面で、ブラウザの訪問として A・B・C が 1 件ずつ出るところ（C は一瞬しか開いていない）。「消えた訪問」は 24 時間後の取得でしか起きないので撮らない |
 | `../record-env.sh` | 専用環境。`up` は対象コミットのコードをビルドし、専用の compose project・空いている port・乱数の合言葉・作り直した偽データで `tools/stack.sh up` を立てる。Android のシナリオがあれば、録画用のサーバへ送る APK（接続先は端末の中の `127.0.0.1:18787`。ハーネスが `adb reverse` で API へ渡す）も作る。`down` はその compose project だけを volume ごと消し、残りがあれば rc=1 |
 
 ```bash
@@ -22,6 +24,14 @@ scripts/record-run run 23938e7           # 手で 1 回撮る（コミットを�
 ```
 
 確認バッチ（`scripts/hx verify`）は、束ねた Story にシナリオがあれば自動で撮り、手順書の「違和感」の問いに動画の場所を添える。
+
+PC（Windows）のシナリオは、**本人の画面では撮らない** —— ハーネスが毎回まっさらな Windows Sandbox を起こし、中のデスクトップを
+ffmpeg で撮る（Sandbox は管理者の PowerShell で `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All`
+→ 再起動。ffmpeg は `recording.json` の `windows.ffmpeg` に Windows の `ffmpeg.exe`）。画面の下端の帯が工程の見出しで、前景は取らないので記録には出ない。
+Sandbox の網は切ってあり、収集アプリは送れずに未送信に積む。閉じた後に `record-env.sh after-windows` が未送信を録画用のサーバへ送り、
+その時間に 1 か所の位置を置いて滞在を作る（1 日の画面は PC の記録を滞在の中に出す）。PC の収集アプリは `up` が Windows 側の cargo で
+release に組む（写しと target は `C:\dev\ashiato2-rec-build` に道具のキャッシュとして残る）。
+`crates/collector-windows/src/` を変えた Story は、merge gate がこの面のシナリオを求める（`windows.src_dir`）。
 
 Android のシナリオは `-e recording 1` のときだけ走る計測テストで、各工程の見出しは Toast、
 アプリに画面が無いところは**結果の札**（録画のテストが出す「【録画の結果】」の通知。中身はアプリの未送信の置き場を読んだもの）で見せる。

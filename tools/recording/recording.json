@@ -3,7 +3,7 @@
   "web_dir": "web",
   "playwright_config": "tools/recording/playwright.recording.config.ts",
   "env_hook": "tools/record-env.sh",
-  "ready_timeout_s": 900,
+  "ready_timeout_s": 1500,
   "scenarios": [
     {
       "id": "ST22-erase-reload",
@@ -96,6 +96,30 @@
         "web/e2e/global-setup.ts",
         "web/src/PlacesView.tsx"
       ]
+    },
+    {
+      "id": "ST07-window",
+      "story": "ST07",
+      "platform": "windows",
+      "desktop": "tools/recording/st07/st07-desktop.ps1",
+      "spec": "tools/recording/st07/st07-result.rec.ts",
+      "requires": [
+        "crates/collector-windows/src/platform.rs",
+        "web/e2e/global-setup.ts",
+        "web/src/DayView.tsx"
+      ]
+    },
+    {
+      "id": "ST08-history",
+      "story": "ST08",
+      "platform": "windows",
+      "desktop": "tools/recording/st08/st08-desktop.ps1",
+      "spec": "tools/recording/st08/st08-result.rec.ts",
+      "requires": [
+        "crates/collector-windows/src/history/collect.rs",
+        "web/e2e/global-setup.ts",
+        "web/src/DayView.tsx"
+      ]
     }
   ],
   "android": {
@@ -108,5 +132,12 @@
     "package": "dev.ashiato.collector",
     "test_package": "dev.ashiato.collector.test",
     "runner": "androidx.test.runner.AndroidJUnitRunner"
+  },
+  "windows": {
+    "src_dir": "crates/collector-windows/src/",
+    "ffmpeg": "C:\\dev\\tools\\ffmpeg\\bin\\ffmpeg.exe",
+    "networking": "disable",
+    "timeout_s": 600,
+    "after_hook": true
   }
 }

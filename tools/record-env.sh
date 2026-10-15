@@ -3,6 +3,9 @@
 #
 #   tools/record-env.sh up   <worktree> <state>   <worktree> のコードをビルドし、専用の DB で縦串を立てて**前景で待つ**
 #   tools/record-env.sh down <worktree> <state>   up が作ったもの（DB のコンテナ・volume・網）を片付け、残りがあれば rc=1
+#   tools/record-env.sh after-windows <worktree> <state> <out>
+#                                                 Windows Sandbox を閉じた後（<out> は Sandbox の C:\rec\out）。中の収集アプリの未送信を
+#                                                 録画用のサーバへ送り、その時間に滞在ができるよう位置を置く（下の after_windows）
 #
 # up は用意ができたら <state>/ready に次を書く（record-run が読む）:
 #   BASE_URL=…                 画面
@@ -10,6 +13,8 @@
 #   INFO_<名前>=…              記録に残す値（ビルドの sha256・compose project・port）
 #   ANDROID_APK= / ANDROID_TEST_APK=   REC_PLATFORMS に android があるとき。録画用のサーバ向けに作った APK
 #   ANDROID_REVERSE=18787:<API の port>   端末の中の 127.0.0.1:18787（APK の接続先）を録画用のサーバへ
+#   WINDOWS_PAYLOAD= / WINDOWS_ENV_<名前>=   REC_PLATFORMS に windows があるとき。Sandbox へ渡す PC の収集アプリ（release）と、
+#                              Sandbox の中で収集アプリに渡す値（接続先・合言葉・利用者・端末・置き場）
 #
 # 専用にするもの: compose project（<state> の名前から。ashiato2rec<数字>）・port（空いている番号。Windows 側で
 # 待ち受けのある番号 REC_AVOID_PORTS も避ける）・合言葉（毎回乱数）・偽データ（STACK_RESET=1 SEED=normal）。
@@ -165,6 +170,22 @@ EOF
     [ -n "$android_ok" ] || echo "warn: APK のビルドが落ちた。Android のシナリオは撮らない" >&2
   fi
 
+  local windows_ok=""
+  if [[ " ${REC_PLATFORMS:-} " == *" windows "* ]]; then
+    # PC の収集アプリは Windows の上でだけ組める。木を C: に写して Windows 側の cargo で組む（\\wsl$ 越しは遅い）。
+    # 写し先と target は録画の道具のキャッシュとして残す（record-run が同時に 2 本走らせないので共有してよい）
+    echo "== PC の収集アプリ（Windows の cargo。release）"
+    local wb=/mnt/c/dev/ashiato2-rec-build
+    mkdir -p "$wb/src" "$STATE/windows-payload" \
+      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin "$WT/" "$wb/src/" \
+      && (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c \
+            "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
+            </dev/null) \
+      && cp "$wb/target/release/ashiato-collector-windows.exe" "$STATE/windows-payload/" \
+      && windows_ok=1
+    [ -n "$windows_ok" ] || echo "warn: PC の収集アプリのビルドが落ちた。Windows のシナリオは撮らない" >&2
+  fi
+
   echo "== 起動: DB $db / API $api / 画面 $web（compose project $PROJECT）"
   SERVER_BIN="$WT/.rec-bin/ashiato-server" WEB_DIST="$WT/web/dist" WEB_PORT="$web" STACK_RESET=1 SEED=normal \
     ./tools/stack.sh up &
@@ -207,6 +228,17 @@ EOF
       echo "INFO_apk_sha256=$(sha256sum "$apk" | cut -d' ' -f1)"
       echo "INFO_test_apk_sha256=$(sha256sum "$tapk" | cut -d' ' -f1)"
     fi
+    if [ -n "$windows_ok" ]; then
+      # Sandbox の網は切ってある（windows.networking）。収集アプリは送れずに未送信に積み、閉じた後に after-windows が送る。
+      # 接続先は Sandbox の中で誰も待ち受けていない loopback。置き場は Sandbox の書く側（閉じた後に読める）
+      echo "WINDOWS_PAYLOAD=$STATE/windows-payload"
+      echo "WINDOWS_ENV_ASHIATO_BASE_URL=http://127.0.0.1:9"
+      echo "WINDOWS_ENV_ASHIATO_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
+      echo "WINDOWS_ENV_ASHIATO_USER_ID=00000000-0000-0000-0000-000000000000"
+      echo "WINDOWS_ENV_ASHIATO_DEVICE_ID=pc-rec"
+      echo "WINDOWS_ENV_ASHIATO_STATE_DIR=C:\\rec\\out\\state"
+      echo "INFO_collector_windows_sha256=$(sha256sum "$STATE/windows-payload/ashiato-collector-windows.exe" | cut -d' ' -f1)"
+    fi
   } >"$tmp" && mv "$tmp" "$STATE/ready"
   echo "== 用意ができた: http://127.0.0.1:$web"
   wait "$stack"
@@ -232,8 +264,71 @@ down() {
   echo "残りなし（compose project $PROJECT）"
 }
 
+# Windows Sandbox の後（record-run の windows.after_hook）。Sandbox の網は切ってあるので、中の収集アプリが積んだ未送信
+# （C:\rec\out\state\outbox.jsonl / heartbeat.jsonl。1 行が 1 件、送る本文はその配列）をここで録画用のサーバへ送る。
+# 1 日の画面は PC の記録を**滞在の中**に出すので、Sandbox が動いていた時間（result.json の started〜finished）を
+# 前後 10 分ずつ広げて 1 か所の位置を 60 秒ごとに置き、滞在を 1 つ作る（偽データの seed と同じ形。端末は rec-phone）。
+# 受け入れられなかった件があれば rc=1（record-run が Windows のシナリオを「撮れなかった」にする）
+after_windows() {
+  local out="$1" api token
+  api="$(awk '{print $2}' "$STATE/ports")"; token="$(sed -n 's/^API_TOKEN=//p' "$WT/.env")"
+  [ -n "$api" ] && [ -n "$token" ] || { echo "error: API の port か合言葉が分からない" >&2; return 1; }
+  REC_API="http://127.0.0.1:$api" REC_TOKEN="$token" python3 - "$out" <<'PY'
+import json, os, re, sys, uuid, urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+out = Path(sys.argv[1]); api = os.environ["REC_API"]; token = os.environ["REC_TOKEN"]
+
+def post(path, items):
+    req = urllib.request.Request(api + path, data=json.dumps(items).encode(), method="POST",
+                                 headers={"authorization": f"Bearer {token}", "content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        res = json.loads(r.read())
+    if len(res) != len(items):
+        sys.exit(f"error: {path} の応答の件数が合わない（{len(items)} 件に {len(res)} 件）")
+    return sum(1 for x in res if x.get("accepted"))
+
+def send(path, items, what):
+    ok = sum(post(path, items[i:i + 200]) for i in range(0, len(items), 200))   # 収集アプリと同じ 200 件ずつ
+    print(f"{what}: {len(items)} 件のうち {ok} 件を受け入れた")
+    if ok != len(items):
+        sys.exit(f"error: {what} に受け入れられなかった件がある")
+
+def lines(p):
+    if not p.is_file():
+        return []
+    return [json.loads(l) for l in p.read_text(encoding="utf-8-sig").splitlines() if l.strip()]
+
+rec = lines(out / "state/outbox.jsonl")
+if not rec:
+    sys.exit("error: 収集アプリの未送信が空（Sandbox の out の state/outbox.jsonl）。Sandbox の中で何も記録していない")
+send("/ingest", rec, "PC の記録")
+hb = lines(out / "state/heartbeat.jsonl")
+if hb:
+    send("/heartbeat", hb, "生存信号")
+
+r = json.loads((out / "result.json").read_text(encoding="utf-8-sig"))
+def at(s):   # PowerShell の ToString('o') は小数が 7 桁（2026-10-15T20:01:02.1234567+09:00）。6 桁に落として読む
+    return datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", s))
+t0 = at(r["started"]) - timedelta(minutes=10)
+t1 = at(r["finished"]) + timedelta(minutes=10)
+t0 = t0.astimezone(timezone.utc).replace(second=0, microsecond=0)
+pts, t = [], t0
+while t <= t1:
+    when = t.strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = {"lat": 35.6812, "lon": 139.7671, "acc_m": 12}
+    pts.append({"id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ashiato-rec-windows/{when}")),
+                "user_id": "00000000-0000-0000-0000-000000000000", "logical_source": "c01-location", "external_id": None,
+                "device_id": "rec-phone", "origin": "collected", "event_time": when, "tz_offset_min": 540,
+                "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": json.dumps(body, separators=(",", ":")), "payload": body})
+    t += timedelta(minutes=1)
+send("/ingest", pts, "滞在を作る位置")
+PY
+}
+
 case "$cmd" in
   up) up ;;
   down) down ;;
+  after-windows) after_windows "${4:?after-windows には Sandbox の out が要る}" ;;
   *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac
