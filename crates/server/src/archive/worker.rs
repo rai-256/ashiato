@@ -1930,6 +1930,9 @@ pub async fn reparse_older_versions(
     .await?;
     let mut reread = 0;
     let mut without_copies = 0;
+    // 写しはあるのに格納まで進んだファイルが 1 つも無かった書庫（全部が確認待ちに回った・写しを読めない・
+    // 見分けられない）。「写しが無い」と混ぜて数えると、確認待ちに積んだ書庫が写しの欠けに見える。
+    let mut nothing_stored = 0;
     for archive_sha256 in archives {
         // 印付けが 3 回続けて落ちた書庫は 1 時間に 1 回へ落とす（R82。design D22-a）。
         if reread_throttled(pool, user_id, &archive_sha256).await? {
@@ -1958,7 +1961,7 @@ pub async fn reparse_older_versions(
         .await;
         match read {
             Ok(done) if !done.is_empty() => reread += 1,
-            Ok(_) => without_copies += 1,
+            Ok(_) => nothing_stored += 1,
             Err(error) => {
                 tracing::warn!(kind = "archive_reparse_version", error = %error, "前の版で読んだ書庫を読み直せない");
             }
@@ -1969,6 +1972,13 @@ pub async fn reparse_older_versions(
             kind = "archive_reparse_no_copy",
             archives = without_copies,
             "写しが無いので前の版の書庫を読み直さない"
+        );
+    }
+    if nothing_stored > 0 {
+        tracing::debug!(
+            kind = "archive_reparse_nothing_stored",
+            archives = nothing_stored,
+            "前の版の書庫の写しを読み直したが、格納まで進んだファイルが無い（確認待ちに回った・写しを読めない）"
         );
     }
     Ok(reread)

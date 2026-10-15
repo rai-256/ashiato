@@ -205,10 +205,13 @@ for _ in $(seq 1 15); do
 done
 [ -n "${NOPHRASE:-}" ] || { echo "言語の当たらない YouTube の形が確認待ちにならない"; exit 1; }
 marks_before=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM core.archive_shape_confirmation")
-if tools/archive-shape.sh --confirm "$NOPHRASE" 2>/tmp/smoke-nophrase.err; then
+# 理由の控えは worktree ごとに別の場所へ（固定の /tmp だと並走する worktree の smoke と取り合う）。
+# $ARCHIVE_ROOT は mktemp -d で、cleanup が消す。
+NOPHRASE_ERR="$ARCHIVE_ROOT/nophrase.err"
+if tools/archive-shape.sh --confirm "$NOPHRASE" 2>"$NOPHRASE_ERR"; then
   echo "言語の当たらない YouTube の形に印が置けてしまう"; exit 1
 fi
-grep -q '決まり文句' /tmp/smoke-nophrase.err || { echo "断る理由が出ない: $(cat /tmp/smoke-nophrase.err)"; exit 1; }
+grep -q '決まり文句' "$NOPHRASE_ERR" || { echo "断る理由が出ない: $(cat "$NOPHRASE_ERR")"; exit 1; }
 marks_after=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM core.archive_shape_confirmation")
 [ "$marks_before" = "$marks_after" ] || { echo "断ったのに印の表の行が増えた: $marks_before -> $marks_after"; exit 1; }
 tools/archive-shape.sh | grep -q "$NOPHRASE" || { echo "断った形が確認待ちから消えた"; exit 1; }
