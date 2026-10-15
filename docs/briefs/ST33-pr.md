@@ -1,59 +1,58 @@
-# ST33 全記録を外部の道具で読める形に書き出す（上流）
+# ST33 全記録を外部の道具で読める形に書き出す（下流・実装）
 
-change: `openspec/changes/st33-data-export/`（proposal / specs / design / tasks）。capability `data-durability` を新しく作る（前倒しなし。INDEX の割当のとおり）。
+change: `openspec/changes/st33-data-export/`。capability `data-durability`（新規）。
+S-7（`#/settings`）の書き出しの節から、全記録を合言葉で暗号化した 1 つの zip（AES-256）として自宅 PC の決まったフォルダへ書き出す。
 
-## 深掘りで本人が決めたこと（A と B。全文は `deep.md`）
+## 未決（A）—— 本人の答えを待っている
 
-第 1 回 5 問（2026-09-29）・spec のレビューから escalated した第 2 回 3 問（2026-10-12）・rebase の後の整合の確認から立てた第 3 回 1 問（2026-10-12）。未回答 0。
-**第 2 回の貼り戻しで Q3 と Q4 の答えが第 1 回と変わり、新しい答えをいまの答えとした。**
+- **Q12（code-verify R20。irreversible / loss: rewrite-all）**: 台帳に置く「書いた記録」のフィルタ（`written`）の形を、いまの版で凍結するか。
+  形を変えた後のサーバは、それより前の書き出しの「後に消した記録の件数」を 0 と出す（少なく数える側）。台帳は追記のみなので行を書き直せない。
+  推奨は「いまの形で凍結し、読めない形の行は『数えられない』と出す」。問いは `docs/briefs/ST33-deep-r4.html`（`deep-questions-r4.json`）、本文は `deep.md` の第 5 回。
+  答えの後に、固定の期待値の試験と「数えられない」の表示を入れる
 
-| # | 決めたこと | 段 |
-|---|---|---|
-| Q1 | 書き出したファイルは自宅 PC の決まったフォルダにだけ置く（画面から端末へ渡さない） | A |
-| Q2 | 形式は JSON Lines（1 行 1 件）＋ 説明書 | B |
-| Q3 | S-7 の書き出しの節（第 2 回）: 件数・期間 ＋「入らないもの」/ 確認をはさんでからその場で進み具合 / 前回の書き出しの欄に「この書き出しの後に消した記録が N 件」 | A（画面） |
-| Q4 | 前の書き出しは新しい書き出しで置き換える（1 つだけ置く。第 2 回。推奨） | B |
-| Q5 | 消した滞在の時間に入る、緯度経度を持つ行も除く（前の版を含む） | A |
-| Q6 | 消した時間をまたぐ幅を持つ記録は、幅で重ねて除く | A |
-| Q7 | 別の利用者の識別子で入った記録も、利用者を問わず除く | A |
-| Q8 | URL や題名の中の座標も緯度経度に数えて除く | A |
-| Q9 | 書き出しは押すときに本人が入れる合言葉で暗号化した 1 つのファイルにする（合言葉は保存しない） | A |
+## 仮決め（B）と Ruling
 
-要件への戻し: NFR-16 ★ 2026-09-29 訂正・★ 2026-10-12 追加（Q6〜Q8・Q9）。Story の `requires` に ST22。
-
-## 仮決め（B。`design.md` の（仮）と反転条件）
+全 Task の ledger（`.superpowers/sdd/st33-task-*/progress.md`）に `Ruling:` の行は **0 件**（ledger のファイル自体が無い。Task の判断は `design.md` の（仮）と各 Task の findings に残っている）。
+`design.md` の（仮）と反転条件:
 
 - D2 書き出しは同時に 1 本だけ（2 本目は 409）
 - D3 ファイル名の形と、失敗した `.partial-…` を消すこと
 - D7 zip の中に JSON Lines（Q2）
-- D13 状態を 1 秒ごとに読む・件数を開くたびに数える・確認や注記や合言葉の案内の文面・確かめの再入力
-- D16 置き場には書き終えた書き出しを 1 つだけ置く（Q4）。消すのは、大きさ・SHA-256・zip の注記が台帳と合うファイルだけ
-- D17 後に消した記録の件数は、書いた記録の id のブルームフィルタで数える（数え違えるなら多く数える側）
-- D18 確認に出す見込み（行・圧縮後の大きさ・時間）の出し方
+- D13 状態を 1 秒ごとに読む（応答を待つ `setTimeout` の連鎖）・件数を開くたびに数える・確認の文面。
+  **判定（final review R4）**: 35 万行（1 年分）で件数の数え 1 回 6.5 秒。D13 の反転条件（3 秒）に当たるが、開いたときに 1 回だけ数えるので形は替えなかった。本人に見てほしい点
+- D16 置き場には書き終えた書き出しを 1 つだけ置く（Q4）。`done` にできなかった zip は消す（R2 / R17）
+- D17 後に消した記録の件数はブルームフィルタで数え、（`last`・削除の台帳・前の版・吸収の台帳の行数）の鍵で覚える（R1）
+- D18 確認に出す見込み（行・大きさ・時間）
+- **D20（新）** 台帳の始まりの行は `POST /export` の求めの中で書き、書けなければ 500 `ledger_unavailable`（code-verify R22）。反転条件: `POST` の応答が 1 秒を超えるなら背景で書き、失敗をメモリに持って `last_failure` に出す
 
-聞かずに決めた既定（C）は C1〜C25。spec の段が足したもの:
-C19 消した滞在の前の版の広い時間も数える / C20 原文の座標の並びは拾う側に倒す（狭めるのは本人に返す）/ C21 幅の読めない記録は次の記録まで /
-**C22 説明書と目録も zip の中（zip の外に平文を置かない）/ C23 合言葉は 12 文字以上・AES-256（下げるのは本人に返す）/ C24 平文の一時ファイルを作らない / C25 Unix では置き場 0700・ファイル 0600**（Q9 の形。design D19 ほか）
+## Task
 
-## 仕様への合意の差し戻し（2026-10-13）への対応
+10 Task（32 項目）すべて `[x]`。残した Task は無い（`ci` / `human` の残りも無し）。Scenario 98 本（サーバ 77 は Rust、画面 21 は `web/e2e`）。
 
-本人の決定で、第 2 回の合意（accepted）を差し戻し、spec の段からやり直した。理由は 2 つ:
-Q9 の答えが spec / design / tasks に写っていなかったことと、main に入った ST12（書庫の位置にも削除の印が付く）が前提に反映されていなかったこと（`docs/audit/2026-10-13-st33-merge-consistency.md` の C1 / C2 / K1 / K2）。
-4 件とも直した（`deep.md` の「仕様への違和感（2026-10-13 の差し戻し）」の `→ 対応`）。人間に返す新しい問い（A）は無い。
+## 検証（`evidence.jsonl`。項目ごとに最新）
 
-- **Q9**: 書き出しを 1 つの zip（AES-256）にし、合言葉は DB・ログ・台帳・応答・画面のどこにも残さない。画面の確認に合言葉と確かめの入力を置く
-- **ST12**: 「印の無い別のソース」の材料を写真の位置に差し替え、遅着の印は `rebuild_day` と同じ並び（書庫の位置を含む）で付け、移行前の書庫のミリ秒の終わりを読む
+| 項目 | コマンド | 結果 | head |
+|---|---|---|---|
+| 1.1 | `tools/check-migrations.sh` | PASS | 6d7d65f |
+| 1.3 | `tools/check-immutable.sh`（export_ledger） | PASS | 6d7d65f |
+| 7.1 | `tools/check-openapi.sh` | PASS | b647afd |
+| 8.1〜8.3 | `npm run test -- export` / `SettingsView` / `settings-contrast` | PASS | cf115de |
+| 9.1 | `npm run test:e2e -- offsite` | PASS | cbaf400 |
+| 10.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | PASS（rc=0） | cf643f1 |
+| 10.2 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace`（816 passed）/ web の lint・test・build・e2e（65 passed）/ `check-immutable` / `check-offsite` / `check-log-private` / `smoke` | PASS（rc=0） | 7edd504 |
 
-**合意をもう一度聞く**（次の reading の段が GO 資料を作り直す）。
+**10.2 の証跡は code-verify の fix（13b123b）より前の木。** fix の後に走らせたのは `cargo test -p ashiato-server --lib export`（129 passed / 0 failed）・`cargo fmt` / `clippy -D warnings`（rc=0）・`tools/check-openapi.sh`（rc=0）。web のコードは変えていない。gate の前に 10.2 を取り直す必要がある。
 
-## tasks とレビュー
+## レビュー
 
-- tasks: 10 Task。Scenario 98 本（サーバ 77 は Rust のテスト、画面 21 は `web/e2e`）。人間の確認待ちは無し
-- spec-review: 第 1 巡 19 件（R1〜R19）・第 2 巡 18 件（R20〜R37）・第 3 巡 14 件（R38〜R51）
-  - 第 3 巡の処置: fixed 14（spec・D3 / D4 / D6 / D11 / D13 / D16 / D18（仮）/ D19・tasks 10.3）。escalated 0・deferred 0・rejected 0
-  - 第 3 巡で直した主なもの: `zip` crate は AE-1 で書き、元の大きさと平文の CRC-32 が外に残る（量は隠せないと明記）/ 方式を測る Scenario / 本人が項目を足したファイルを消さない（SHA-256 で見分ける）/ ブラウザに合言葉の保存を促さない
-- 整合の確認: `docs/audit/2026-10-12-st33-nfr16-consistency.md`・`docs/audit/2026-10-12-st33-consistency.md`・`docs/audit/2026-10-13-st33-merge-consistency.md`
+- final review（6d7d65f..b74736b）: Important 4 / Minor 12（R1〜R16）。R11（`drops_tests` の deadlock）は rejected（この branch の差分の外・再現せず）、他は fixed
+- code-verify（d81e27a）: R17〜R24。fixed 6（R17 / R18 / R19 / R21 / R22 / R24）・escalated 1（R20 → Q12）・deferred 1（R23 → ST30）。scoped re-review は全部 ADDRESSED・新しい壊れ無し
 
-## 走っている Story との重なり（差し戻さない）
+## 申し送り（未処置）
 
-ST08（訪問の長さ `visit_duration_us` を ST33 が読む）・ST17（`s01-feeling` の分類。`docs/handoff/ST33.md` の C1）・ST21・ST25。ST12 は archive 済み。詳細は proposal の Impact。
+- **R18 の残り**: 途中で止まった書き出しが 2 つ以上残るときは新しい 1 件だけ状態に出る。`.partial-…` は状態に出ない。止まった zip の中の、後に消した場面は数えない
+- **R23 → ST30**: D-01 を戻した後、台帳に無い前の書き出しが置き場に残り続ける（`docs/handoff/ST30.md`）
+- **ST17**: `s01-feeling` を書き出しの分類（`NO_COORD_SOURCES`）に足すのは後から archive される側（`docs/handoff/ST17.md` / `ST33.md` の C1）
+- R11: `drops_tests::drops_api_idempotent` が共有 DB で `40P01 deadlock` を出したことがある（ST33 の差分の外）
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
