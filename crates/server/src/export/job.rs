@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! 書き出しの背景の仕事（ST33 / design D2 / D4 / D10 / D16）。
 //!
-//! `POST /export` が `spawn` で 1 本だけ走らせる。順は「台帳の始まりの行 → 遅着の印 → 写し（`run_named`）→
+//! `POST /export` が `spawn` で 1 本だけ走らせる。順は「台帳の始まりの行（求めの中で）→ 遅着の印 → 写し（`run_named`）→
 //! 台帳の終わりの行 → 前のファイルを消す」。どの段で落ちても始まりと終わりの 2 行が残る（`halt` で止めたときを除く）。
 //! 合言葉はこの仕事の引数にだけ渡り、`Running` にも台帳にも置かない。
 
@@ -138,47 +138,69 @@ impl Drop for ClearOnDrop {
     }
 }
 
-/// 書き出しを始める。走っているものがあれば `None`。合言葉はこの仕事の中でだけ持つ。
-pub fn spawn(
+/// `spawn` の結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Spawned {
+    /// 台帳に始まりの行を書き、背景の仕事を走らせた。
+    Started(Uuid),
+    /// 走っているものがある（409）。
+    Running,
+    /// 台帳に始まりの行を書けなかった。何も走らせていない（500。R22）。
+    Unrecorded,
+}
+
+/// 書き出しを始める。**台帳の始まりの行は求めの中で書く** —— 書けなければ何も走らせず `Unrecorded` を返す
+/// （背景で書くと、書けなかったことが状態にも画面にも出ないまま 202 になる。R22）。合言葉はこの仕事の中でだけ持つ。
+pub async fn spawn(
     pool: sqlx::PgPool,
     jobs: &ExportJobs,
     cfg: &ExportConfig,
     passphrase: Passphrase,
-) -> Option<Uuid> {
-    let (export_id, cfg) = jobs.try_start(cfg)?;
+) -> Spawned {
+    let Some((export_id, cfg)) = jobs.try_start(cfg) else {
+        return Spawned::Running;
+    };
     let guard = ClearOnDrop(jobs.clone());
-    tokio::spawn(async move {
-        let _guard = guard;
-        execute(&pool, &cfg, passphrase, export_id).await;
-    });
-    Some(export_id)
-}
-
-/// 台帳つきの書き出し 1 回。失敗は台帳の終わりの行に残し、ここでは返さない。
-pub async fn execute(
-    pool: &sqlx::PgPool,
-    cfg: &ExportConfig,
-    passphrase: Passphrase,
-    export_id: Uuid,
-) {
     let stamp = name_stamp();
     let planned = cfg.dir.as_deref().map_or_else(String::new, |d| {
         free_name(d, &stamp).to_string_lossy().into_owned()
     });
-    if let Err(e) = ledger::insert_start(pool, export_id, &planned, Utc::now()).await {
+    let started = stage(
+        &cfg,
+        Stage::Start,
+        ledger::insert_start(&pool, export_id, &planned, Utc::now()),
+    )
+    .await;
+    if let Err(e) = started {
         tracing::error!(kind = e.kind.as_str(), "台帳に始まりを書けない");
-        return;
+        return Spawned::Unrecorded;
     }
+    tokio::spawn(async move {
+        let _guard = guard;
+        execute(&pool, &cfg, passphrase, export_id, &stamp, &planned).await;
+    });
+    Spawned::Started(export_id)
+}
+
+/// 台帳つきの書き出し 1 回（始まりの行は `spawn` が書いた後）。失敗は台帳の終わりの行に残し、ここでは返さない。
+async fn execute(
+    pool: &sqlx::PgPool,
+    cfg: &ExportConfig,
+    passphrase: Passphrase,
+    export_id: Uuid,
+    stamp: &str,
+    planned: &str,
+) {
     let outcome = async {
         stage(cfg, Stage::LateMark, late_mark(pool)).await?;
-        run_named(pool, cfg, passphrase, export_id, &stamp).await
+        run_named(pool, cfg, passphrase, export_id, stamp).await
     }
     .await;
     match outcome {
         Ok(w) => finish_done(pool, cfg, export_id, w).await,
         Err(e) => {
             tracing::warn!(kind = e.kind.as_str(), "書き出しに失敗した");
-            if let Err(e2) = ledger::insert_failed(pool, export_id, &planned, &e).await {
+            if let Err(e2) = ledger::insert_failed(pool, export_id, planned, &e).await {
                 tracing::error!(kind = e2.kind.as_str(), "台帳に失敗を書けない");
             }
         }
@@ -232,16 +254,7 @@ async fn finish_done(pool: &sqlx::PgPool, cfg: &ExportConfig, export_id: Uuid, w
                 kind = e.kind.as_str(),
                 "書いたファイルの大きさとハッシュを取れない"
             );
-            // 大きさとハッシュの無いファイルは `done` にならず、前のファイルとしても止まったものとしても
-            // 見えない。名前を付けたまま残すと「1 つだけ置く」（Q4）が黙って崩れるので、失敗と同じく消す。
-            let file = w.file.clone();
-            let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(&file)).await;
-            if !matches!(removed, Ok(Ok(()))) {
-                tracing::warn!(
-                    kind = "io",
-                    "大きさを取れなかった書き出しのファイルを消せない"
-                );
-            }
+            remove_unfinished(&w.file).await;
             write_failed(pool, export_id, &w.file.to_string_lossy(), &e).await;
             return;
         }
@@ -273,6 +286,7 @@ async fn finish_done(pool: &sqlx::PgPool, cfg: &ExportConfig, export_id: Uuid, w
     .await;
     if let Err(e) = wrote {
         tracing::error!(kind = e.kind.as_str(), "台帳に終わりを書けない");
+        remove_unfinished(&w.file).await;
         write_failed(pool, export_id, &file, &e).await;
         return;
     }
@@ -282,6 +296,19 @@ async fn finish_done(pool: &sqlx::PgPool, cfg: &ExportConfig, export_id: Uuid, w
         tracing::warn!(
             kind = e.kind.as_str(),
             "前の書き出しのファイルを消す段が落ちた"
+        );
+    }
+}
+
+/// 名前を付けた後に `done` にできなかったファイルを消す（R2 / R17）。`done` でないファイルは前のファイルとしても
+/// 止まったものとしても見えないので、名前を付けたまま残すと「1 つだけ置く」（Q4）が黙って崩れる。失敗と同じく消す。
+async fn remove_unfinished(file: &Path) {
+    let file = file.to_path_buf();
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(&file)).await;
+    if !matches!(removed, Ok(Ok(()))) {
+        tracing::warn!(
+            kind = "io",
+            "done にできなかった書き出しのファイルを消せない"
         );
     }
 }

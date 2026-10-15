@@ -1102,7 +1102,7 @@ async fn archive_flow_a_day_without_records_uses_the_same_judgement() {
 /// `tracing` の出力をそのまま集める試験用の層。**書き出しの文字列を丸ごと持つ**ので、
 /// 欄の名前でも本文でも、検索語が 1 度でも出れば捕まる。
 #[derive(Clone, Default)]
-struct CapturedLog(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+pub(crate) struct CapturedLog(pub(crate) std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
 
 impl std::io::Write for CapturedLog {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -1123,14 +1123,14 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
     }
 }
 
-/// 試験バイナリ全体のログを集める口。
+/// 試験バイナリ全体のログを集める口（書き出しの「合言葉はどこにも残らない」も使う）。
 ///
 /// **スレッド局所の `set_default` では足りない**（実測: 並列で走らせると、背景の
 /// 取り込み器が出すログを 1 行も拾えなかった）。取り込み器は別の task で動くので、
 /// 「この試験のスレッドだけ」に仕掛けると、見ていないのに緑になる。
 static CAPTURED: std::sync::OnceLock<CapturedLog> = std::sync::OnceLock::new();
 
-fn captured_log() -> &'static CapturedLog {
+pub(crate) fn captured_log() -> &'static CapturedLog {
     CAPTURED.get_or_init(|| {
         use tracing_subscriber::layer::SubscriberExt as _;
         let captured = CapturedLog::default();

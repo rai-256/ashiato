@@ -140,6 +140,7 @@ Task の ⚠️ のうち T2（`App::with_export`）・T4（LateMark の結線�
 - 根拠: scoped re-review（4258bfe..0f2aff9）の範囲外の観察。`insert_done` が落ちると `write_failed` だけを書き、`rename` 済みの zip を消さない。その zip は `done` でないので `removable_previous` / `leftover` に出ず、`finish` を持つので `interrupted` にも出ない
 - kind: technical
 - 提案: R2 と同じく、zip を消してから失敗の行を書く。`Stage::Finish` の差し込みで落とし、ファイルが残らないことを確かめる試験を 1 本
+- 処置: fixed D16 — `Stage::Finish` で落ちたら、R2 と同じ `remove_unfinished` で zip を消してから失敗の行を書く。試験 `export_ledger_rows_a_file_whose_finish_row_cannot_be_written_is_not_left`
 
 ## final review（6d7d65f..dc61bd6）: 新しい指摘なし（再入）
 - 前回の final review（6d7d65f..b74736b）・fix wave（4258bfe..0f2aff9）・scoped re-review の後に増えたのは `evidence.jsonl` の 3 行（dc61bd6。Task 10 の証跡の取り直し）だけで、コードと文書の差分は 0（`git diff --stat bdc229b dc61bd6`）。base も同じ 6d7d65f。同じ木を 2 度目の whole-branch review にかけない（final は 1 回）
@@ -213,6 +214,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   同じ型が `.partial-…` にもある。D3 は「止まったときの `.partial-…` は残る」と決めているが、状態にも画面にも一度も出ない。この worktree の `.export/` には `.partial-ashiato-export-20261013-223426-56d89ba2.zip`（9.6 MB）など 4 つが残っていた（R23 の観測と同じ場所）
 - kind: technical
 - 提案: `interrupted` を「`finish` の無い始まりの行（走っているものを除く）すべて」の配列にし、名前のファイルか `.partial-…` が残っているものを返す。画面はそれを 1 行ずつ出す。902 行の `is_null` は、3 回目の後も止まったファイルが出ていることの確認に替える。spec 461 の「消さない」はそのままでよい
+- 処置: fixed D11 — `interrupted` は終わりの行の無い始まりの行を新しい順に見て、最後の始まりの行か、名前のファイルが残っているものを返す（形は 1 件のまま）。902 行の `is_null` を「3 回目の後も止まったファイルが出る」と「本人が片付ければ出ない」に替えた。止まったものが 2 つ以上残るときは新しい 1 つだけ出る・`.partial-…` を状態に出さない・止まった zip の中の後に消した場面を数えない、の 3 つは直していない（PR 本文の申し送り）
 
 ## R19. Scenario「作り直しで置き換わった滞在は後に消した記録に数えない」の試験は、R1 で足した覚え（memo）越しにしか観測しておらず、数え方を壊しても通る
 - 成果物: crates/server/src/export_job_tests.rs:984-1001 / crates/server/src/export/ledger.rs:420-428（`erased_after` の `deleted_by NOT LIKE 'rebuild:%'`）/ crates/server/src/export/job.rs:65-76（覚え）
@@ -221,6 +223,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   本物の作り直し（`POST /stays/rebuild`）が吸収の台帳を書いて鍵を動かした後や、サーバを起動し直した後に数え違えても、どの試験も落ちない
 - kind: technical
 - 提案: 後の読み出しを新しい `App` で行うか、`ExportJobs::erased_counts()` が 1 増えたこと（実際に数えたこと）を確かめてから値を比べる。覚えの振る舞いは既存の `export_status_erased_count_is_remembered_but_recounted_after_a_content_update` が見ている
+- 処置: fixed D17 — 後の読み出しを覚えの空の新しい `App` で行い、`erased_counts() == 1`（実際に数えた）を確かめる。変異（`rebuild:` の印も数える）で FAILED を確かめた
 
 ## R20. ブルームフィルタの位置の取り方（`written` の形）がどの試験にも固定されておらず、変えると前に書いた台帳の行が 0 件と読まれる
 - 成果物: crates/server/src/export/bloom.rs:1-6（「台帳に置いたフィルタは後の版のサーバが読む」）, 34-40（`positions`）/ crates/server/src/export/bloom.rs:76-96（試験は同じ版で書いて同じ版で読む往復だけ）
@@ -230,6 +233,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
 - kind: irreversible
 - loss: rewrite-all
 - 提案: 固定の UUID 数個を入れたフィルタのバイト列（か、その SHA-256）を期待値として直書きする試験を 1 本置く。期待値はこの節の自作の読み手と同じように別の実装で作る。`from_bytes` が知らない版を読んだときは、0 ではなく「数えられない」を状態に出す（少なく数える側に倒さない）
+- 処置: escalated — `deep.md` Q12（第 5 回。`deep-questions-r4.json` / `docs/briefs/ST33-deep-r4.html`）。固定の期待値の試験と「数えられない」の表示は、答えを待ってから入れる
 
 ## R21. D17 の鍵の 3 つ目（`core.stay_absorbed` の行の数）は、外しても全部の試験が通る
 - 成果物: crates/server/src/export/ledger.rs:387-402（`erased_key`）/ design.md D17（鍵は 3 つの表の行の数）
@@ -237,6 +241,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   D17 は吸収（`rebuild:absorbed`）を「件数を増やしうる書き込み」として鍵に入れた。外しても見張る試験が無いので、吸収の後に覚えた古い値を出し続けても気づかない
 - kind: technical
 - 提案: 書き出し → 状態を 1 回読む（覚える）→ 作り直しで滞在を吸収させる（`stay_absorbed` に 1 行）→ 状態を読み、`erased_counts()` が増えた（数え直した）ことを確かめる試験を 1 本足す
+- 処置: fixed D17 — 試験 `export_status_erased_count_is_recounted_after_a_stay_is_absorbed`（吸収の 1 行で `erased_counts()` が増える）。変異（鍵の `stay_absorbed` を 0 に）で FAILED を確かめた
 
 ## R22. 台帳に始まりの行を書けないと、`POST /export` は 202 を返したまま何も残さず、状態にも画面にも失敗が出ない
 - 成果物: crates/server/src/export/job.rs:168-171（`insert_start` が落ちるとログを 1 行出して `return`）/ web/src/SettingsView.tsx（`started` なら何も出さない）
@@ -244,6 +249,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   画面は `running` が一度出て消えるか、一度も出ないまま元の形に戻る。押した本人には「書き出した」とも「失敗した」とも出ない。spec の「失敗した書き出しも台帳に残る」は台帳が書ける前提で、その外側にあたる
 - kind: daily
 - 提案: 始まりの行を `spawn` の前（`POST` の中）で書き、書けなければ 500（種別だけ）を返す。そうすれば画面の既存の「書き出しを始められませんでした」の 1 行に乗る。あるいは失敗をメモリの `ExportJobs` に 1 件持ち、`last_failure` に出す
+- 処置: fixed D20 仮 — 始まりの行を `spawn` の中（背景の仕事を起こす前）で書き、書けなければ印を外して `500 {"error": "ledger_unavailable"}`。差し込み口 `Stage::Start`、試験 `export_ledger_rows_a_start_row_that_cannot_be_written_is_refused`。画面は既存の `refused.other` に乗る。`docs/openapi.json` を更新
 
 ## R23. 台帳が失われる（DB を作り直す・戻す）と、置き場にある前の書き出しは二度と消えず、どこにも出ない。この worktree の置き場には書き出しが 12 個たまっていた
 - 成果物: crates/server/src/export/ledger.rs:217-221（`removable_previous` は台帳の `done` の行しか見ない）/ design.md D16（「台帳に無いパスには触らない」）/ docs/stories/ST30.md・ST32.md
@@ -252,6 +258,7 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   `docs/stories/ST30.md`・`ST32.md` に「書き出し」「export」は 0 件で、この申し送りを持つ Story が無い（隙間に落ちている）
 - kind: defer
 - 提案: `docs/handoff/ST30.md`（か ST32）に「戻した後は、置き場の `ashiato-export-*.zip` のうち台帳に無いものを本人に見せる（消すかは本人）」を書く。ST33 の側では、台帳に無い `ashiato-export-*.zip` / `.partial-…` の名前を状態に「見覚えの無い書き出しのファイル」として出す（消さない）だけで扉は開いたまま残る。確認バッチの `run.sh` と e2e の置き場は、走らせるたびに空にしてよい
+- 処置: deferred ST30 — `docs/handoff/ST30.md` に書いた（ST30 は change が無い）。ST33 の側で台帳に無い書き出しのファイルを状態に出す案は入れていない（PR 本文の申し送り）
 
 ## R24. Scenario「合言葉はどこにも残らない」のログの受け手は試験のスレッドの上だけで、`spawn_blocking` の中のログは素通りする
 - 成果物: crates/server/src/export_job_tests.rs:1218-1223（`tracing::subscriber::set_default`。スレッドごとの既定）/ crates/server/src/export/job.rs:214, 238, 300, 327（`spawn_blocking` の中で `tracing::warn!` を出す経路）
@@ -259,3 +266,4 @@ Q7（利用者を問わない）は変異にかけていない（SQL の形を�
   いまの本体は合言葉を blocking のスレッドへ渡していない（`dump` は同期で書く）ので、いま漏れているわけではない。ただ、書き込みを blocking に移す変更（`dump` が runtime のスレッドを塞いでいるので、ありうる変更）を入れても、この試験は守らない
 - kind: technical
 - 提案: 受け手を `tracing::subscriber::set_global_default`（試験のプロセスで 1 回）にする。あるいは `tracing_subscriber::fmt().with_writer(…)` を `Dispatch` にして `spawn_blocking` の中でも `dispatcher::with_default` が効く形にし、blocking の中で出したログを拾えることを正の対照として 1 行確かめる
+- 処置: fixed D15 — 受け手を試験のプロセス全体の口（`archive_flow_tests::captured_log`。`set_global_default`）に替え、`spawn_blocking` の中で出したログが届くことを正の対照として先に確かめる

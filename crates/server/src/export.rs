@@ -572,6 +572,8 @@ pub fn missing_view_columns(inv: &Inventory) -> Vec<(String, String)> {
 /// 本体の段。後の Task が段を足す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
+    /// 台帳の始まりの行を書く（D10。`POST /export` の求めの中。R22）。
+    Start,
     /// 表と列の分類（D8）。
     Catalog,
     /// 列の突き合わせ（D9）。

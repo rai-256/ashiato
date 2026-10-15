@@ -2093,18 +2093,19 @@ pub struct ExportStarted {
     export_id: uuid::Uuid,
 }
 
-/// 書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running`）。
+/// 書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running` /
+/// `ledger_unavailable`）。
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ExportRefused {
     error: String,
 }
 
 /// 全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{"password": "<合言葉>"}` だけ。
-/// 範囲を指す引数や他の鍵は 400。走っていれば 409。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。
+/// 範囲を指す引数や他の鍵は 400。走っていれば 409。台帳に始まりの行を書けなければ 500（何も走らせない）。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。
 /// 本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。
 #[utoipa::path(post, path = "/export", request_body = ExportRequest,
     responses((status = 202, body = ExportStarted), (status = 400, body = ExportRefused),
-        (status = 401), (status = 409, body = ExportRefused)))]
+        (status = 401), (status = 409, body = ExportRefused), (status = 500, body = ExportRefused)))]
 pub async fn export_post(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2135,13 +2136,18 @@ pub async fn export_post(
         &app.exports,
         &app.export,
         export::Passphrase::from_zeroizing(password),
-    ) {
-        Some(export_id) => (
+    )
+    .await
+    {
+        export::Spawned::Started(export_id) => (
             StatusCode::ACCEPTED,
             Json(serde_json::json!({ "export_id": export_id })),
         )
             .into_response(),
-        None => export_refusal(StatusCode::CONFLICT, "export_running"),
+        export::Spawned::Running => export_refusal(StatusCode::CONFLICT, "export_running"),
+        export::Spawned::Unrecorded => {
+            export_refusal(StatusCode::INTERNAL_SERVER_ERROR, "ledger_unavailable")
+        }
     }
 }
 

@@ -491,7 +491,7 @@
       },
       "post": {
         "tags": [],
-        "summary": "全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{\"password\": \"<合言葉>\"}` だけ。\n範囲を指す引数や他の鍵は 400。走っていれば 409。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。\n本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。",
+        "summary": "全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{\"password\": \"<合言葉>\"}` だけ。\n範囲を指す引数や他の鍵は 400。走っていれば 409。台帳に始まりの行を書けなければ 500（何も走らせない）。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。\n本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。",
         "operationId": "export_post",
         "requestBody": {
           "content": {
@@ -528,6 +528,16 @@
             "description": ""
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportRefused"
+                }
+              }
+            }
+          },
+          "500": {
             "description": "",
             "content": {
               "application/json": {

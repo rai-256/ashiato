@@ -274,8 +274,8 @@ pub struct Derived {
     /// 最後の `done` の終わりの行。
     pub last: Option<LedgerRow>,
     last_failure: Option<FailureView>,
-    /// 最後の始まりの行で、終わりの行が無く、走ってもいないもの。
-    interrupted: Option<(DateTime<Utc>, String)>,
+    /// 終わりの行が無く、走ってもいない始まりの行（新しい順）と、それが最後の始まりの行か。
+    interrupted: Vec<(DateTime<Utc>, String, bool)>,
     /// `last` の始まりより前に始まった、`done` の書き出しの終わりの行（`leftover` の候補）。
     earlier_done: Vec<LedgerRow>,
 }
@@ -301,16 +301,19 @@ pub fn derive(rows: &[LedgerRow], running: Option<Uuid>) -> Derived {
                 .map_or("unknown", FailKind::as_str)
                 .to_string(),
         });
+    let latest_start = rows.iter().rfind(|r| r.is_start()).map(|r| r.seq);
     let interrupted = rows
         .iter()
-        .rfind(|r| r.is_start())
+        .rev()
         .filter(|s| {
-            Some(s.export_id) != running
+            s.is_start()
+                && Some(s.export_id) != running
                 && !rows
                     .iter()
                     .any(|r| r.kind == "finish" && r.export_id == s.export_id)
         })
-        .map(|s| (s.at, s.file.clone()));
+        .map(|s| (s.at, s.file.clone(), Some(s.seq) == latest_start))
+        .collect();
     let earlier_done = match last.as_ref().and_then(|l| start_seq(l.export_id)) {
         Some(last_start) => rows
             .iter()
@@ -350,10 +353,18 @@ impl Derived {
                 erased_after,
             }),
             last_failure: self.last_failure,
-            interrupted: self.interrupted.map(|(started_at, file)| InterruptedView {
-                started_at,
-                file: file_exists(&file).then_some(file),
-            }),
+            // 最後の始まりの行なら、ファイルが無くても止まったと返す。それより前に止まったものは、名前のファイルが
+            // 残っている間だけ返す（次の書き出しが書き終えても、置き場に残るファイルを状態から消さない。R18）。
+            interrupted: self
+                .interrupted
+                .into_iter()
+                .find_map(|(started_at, file, latest)| {
+                    let exists = file_exists(&file);
+                    (latest || exists).then(|| InterruptedView {
+                        started_at,
+                        file: exists.then_some(file),
+                    })
+                }),
             leftover: self
                 .earlier_done
                 .iter()

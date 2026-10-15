@@ -8,7 +8,7 @@
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
@@ -614,6 +614,47 @@ async fn export_ledger_rows_a_file_that_cannot_be_measured_is_not_left() {
     assert_eq!(get_status(&failing).await["last_failure"]["kind"], "io");
 }
 
+/// 台帳に終わりの行を書けなければ、名前を付けたファイルを残さずに失敗にする（R17。R2 と同じ型）。
+#[tokio::test]
+async fn export_ledger_rows_a_file_whose_finish_row_cannot_be_written_is_not_left() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("unfinished");
+    let pool = testdb::pool().await;
+    export_and_wait(&app_with(&pool, &dir, Hooks::none()), PASS).await;
+    let first = zips(&dir).pop().unwrap();
+
+    let failing = app_with(&pool, &dir, fail_at(Stage::Finish, FailKind::Db));
+    let id = export_and_wait(&failing, PASS).await;
+    let rows = ledger_of(&pool, id).await;
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[1].result.as_deref(), Some("failed"));
+    assert_eq!(zips(&dir), vec![first], "名前の付いたファイルが残った");
+    let st = get_status(&failing).await;
+    assert_eq!(st["last_failure"]["kind"], "db");
+    assert!(st["interrupted"].is_null());
+}
+
+/// 台帳に始まりの行を書けなければ、何も走らせずに 500（種別だけ）を返す（R22）。202 を返して黙らない。
+#[tokio::test]
+async fn export_ledger_rows_a_start_row_that_cannot_be_written_is_refused() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("unstarted");
+    let pool = testdb::pool().await;
+    let app = app_with(&pool, &dir, fail_at(Stage::Start, FailKind::Db));
+    let (code, body) = post_status(&app, PASS).await;
+    assert_eq!(code, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap(),
+        json!({"error": "ledger_unavailable"})
+    );
+    assert!(app.exports.running_view().is_none(), "走っている印が残った");
+    assert!(zips(&dir).is_empty());
+    // 走っている印が残っていないので、次の求めは 409 にならない
+    let ok = app_with(&pool, &dir, Hooks::none());
+    export_and_wait(&ok, PASS).await;
+    assert_eq!(zips(&dir).len(), 1);
+}
+
 // Scenario: このシステムが書き出していないファイルは消さない
 #[tokio::test]
 async fn export_ledger_rows_files_the_system_did_not_write_are_kept() {
@@ -898,6 +939,19 @@ async fn export_status_an_interrupted_export_is_reported_and_the_next_can_start(
         !first.exists(),
         "書き終えた 1 回目のファイルは次の書き出しが消す"
     );
+    // 止まったファイルが残っている間は、次の書き出しが書き終えても止まったと返す（R18）
+    let st = get_status(&fresh).await;
+    assert_eq!(st["interrupted"]["file"], stopped.to_str().unwrap());
+    assert!(
+        !st["leftover"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == stopped.to_str().unwrap()),
+        "止まったファイルが消せなかったファイルに出た"
+    );
+    // 本人がそのファイルを片付ければ、最後の始まりの行ではない止まった書き出しは返らない
+    std::fs::remove_file(&stopped).unwrap();
     let st = get_status(&fresh).await;
     assert!(st["interrupted"].is_null());
 }
@@ -993,7 +1047,14 @@ async fn export_status_rebuild_replacements_are_not_counted_as_erased() {
         &format!("{}test", crate::stay_store::REBUILD_PREFIX),
     )
     .await;
-    let after = get_status(&e.app).await;
+    // 覚え（D17）越しでなく数え方を見るため、覚えの空の新しい App で読む（R19）
+    let fresh = app_with(&e.w.pool, &dir, Hooks::none());
+    let after = get_status(&fresh).await;
+    assert_eq!(
+        fresh.exports.erased_counts(),
+        1,
+        "覚えの無い App が実際に数えた"
+    );
     assert_eq!(
         after["last"]["erased_after"],
         e.before["last"]["erased_after"]
@@ -1084,6 +1145,39 @@ async fn export_status_erased_count_is_remembered_but_recounted_after_a_content_
     );
 }
 
+/// D17 の鍵の 3 つ目（`core.stay_absorbed` の行の数）。作り直しの吸収の 1 行で、覚えた値を使わずに数え直す（R21）。
+#[tokio::test]
+async fn export_status_erased_count_is_recounted_after_a_stay_is_absorbed() {
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tmp_dir("erased-absorbed");
+    let (e, _) = exported_stay_world(&dir, false).await;
+    let n = e.app.exports.erased_counts();
+    assert!(n >= 1, "前提: 書き出した後に 1 回数えて覚えている");
+    let cid: i64 = sqlx::query_scalar(
+        "INSERT INTO core.stay_criteria (user_id, radius_m, min_minutes, gap_minutes, sources)
+         VALUES ($1, 100, 10, 10, ARRAY['c01-location']) RETURNING id",
+    )
+    .bind(e.w.user)
+    .fetch_one(&e.w.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core.stay_absorbed (event_id, user_id, into_event_id, criteria_id)
+         VALUES ($1, $2, NULL, $3)",
+    )
+    .bind(e.stay)
+    .bind(e.w.user)
+    .bind(cid)
+    .execute(&e.w.pool)
+    .await
+    .unwrap();
+    get_status(&e.app).await;
+    assert!(
+        e.app.exports.erased_counts() > n,
+        "吸収の行が増えたのに覚えた値を使った"
+    );
+}
+
 // Scenario: 書き出し直すと後に消した記録の件数は 0 に戻る
 #[tokio::test]
 async fn export_status_exporting_again_resets_the_erased_count() {
@@ -1158,19 +1252,6 @@ async fn export_status_leftover_digest_is_not_reused_after_the_file_changes() {
 // 6.4 応答・合言葉・資格情報
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for Captured {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 // Scenario: 書き出しの口は記録の中身を返さない
 #[tokio::test]
 async fn export_responses_carry_no_record_content() {
@@ -1213,14 +1294,18 @@ async fn export_responses_never_keep_the_passphrase() {
     let phrase = format!("SECRET-{}", Uuid::new_v4());
     let short = &phrase[..11];
 
-    let captured = Captured::default();
-    let sink = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(move || sink.clone())
-        .with_ansi(false)
-        .without_time()
-        .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
+    // 受け手はプロセス全体（R24）。スレッド局所の `set_default` だと `spawn_blocking` の中のログを拾わない。
+    // 正の対照: blocking のスレッドで出したログが届くことを先に確かめる
+    let captured = crate::archive_flow_tests::captured_log().clone();
+    let probe = format!("PROBE-{}", Uuid::new_v4());
+    let p = probe.clone();
+    tokio::task::spawn_blocking(move || tracing::warn!(probe = %p, "受け手の確認"))
+        .await
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&captured.0.lock().unwrap()).contains(&probe),
+        "blocking のスレッドのログが受け手に届かない"
+    );
 
     let mut bodies = Vec::new();
     let (code, body) = post_status(&app, short).await; // 400 の応答
@@ -1237,7 +1322,6 @@ async fn export_responses_never_keep_the_passphrase() {
         bodies.push(call(&app, request(Method::GET, uri, true, None)).await.1);
     }
     wait_idle(&app).await;
-    drop(guard);
 
     let ledger: Vec<String> =
         sqlx::query_scalar("SELECT l::text FROM core.export_ledger l ORDER BY seq DESC LIMIT 50")
