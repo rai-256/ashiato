@@ -134,3 +134,59 @@ fixer の申告: `cargo test -p ashiato-server` 835 passed / 0 failed（`drops_t
 席: re-reviewer（SDD の `re-review-prompt.md`）。R5〜R8・R10 ADDRESSED、R9 は PR 本文（`docs/briefs/ST47-pr.md`）に 3 見出しが入ることを条件に ADDRESSED。
 fix の diff に新たな Critical / Important は無し（変更は試験・design・記録だけ）。範囲外の観察: `cargo test -p ashiato-server archive` の 1 回目で
 `archive_youtube_last_event_is_reported_per_logical_source` と `archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled` が落ち、単独と 2 回目の全体では通った（共有の開発 DB での時間の取り合いの疑い。flaky として記録に留める）。
+
+## final review（c6109b7..89d5728。main #97 への rebase の後）
+
+席: final reviewer（`superpowers:requesting-code-review` の `code-reviewer.md`）。入力は review package
+`.superpowers/sdd/tasks/review-c6109b7f..89d57287.diff`、上の R1〜R10 とその処置、`docs/handoff/ST47.md`（開始時から増えた項目なし）。
+Task ごとの ledger と指摘の記録は既に片付いていて、その Minor / ⚠️ は前回の final review が見ている。
+判定: **With fixes**。R1〜R10 の処置は妥当で蒸し返さない。#97 への移し替えは正しい（`migrations/ORDER` の末尾に 1 行・重複なし、
+`lib.rs` / `build.rs` は差分なし、waive は `tools/recording/scenarios.d/202610141700_st47.json`、`tools/check-shared-appends.sh` rc=0）。
+main との衝突の解き方に誤りなし。推奨（必須でない）: smoke の「決まり文句の当たらない形の断り」の節を `tools/smoke.d/` へ移す —— 検査は本体の途中の書庫の節を許しているので、ST47 では動かさない。
+
+## R11. rebase 後の HEAD で DB を使う試験と smoke が走っていない
+- 成果物: evidence.jsonl（最新の PASS は rebase 前の a63f638 / d51755c）/ migrations/ORDER・crates/server/build.rs（#97 の当て方）
+- 根拠: rebase で移行の当て方（`MIGRATIONS` の配列 → ORDER + `build.rs`）と smoke.sh の末尾が変わったが、まっさらな DB に ORDER の順で当てて `c03-myactivity-youtube` が 60 日で登録されることを、この HEAD では誰も見ていない
+- kind: technical
+- 提案: HEAD で `cargo test --workspace` と `tools/smoke.sh` を 1 回ずつ
+- 処置: fixed 7.1 / 3.2 / 6.1 — 3f2eb3ce。DB を `docs/testing.md` §8 で起こし、HEAD cf8597e9 で `scripts/verify-run 7.1`（server 836 / server_startup 7 / collector-windows 133 passed、失敗 0）・`3.2`・`6.1` すべて rc=0、evidence.jsonl に記録
+
+## R12. PR 本文の「## Task」の数が古い（11/14、残り 7.4・7.5・8.1）
+- 成果物: docs/briefs/ST47-pr.md
+- 根拠: 770f9074 で 7.4 / 7.5 は `[x]`。いまは 13/14
+- kind: technical
+- 提案: 13/14・残り 8.1 に
+- 処置: fixed 7.4 — c783872d
+
+## R13. tasks.md 1.1 の「`MIGRATIONS` の末尾に載せる」が #97 の後の置き場と合わない
+- 成果物: tasks.md 1.1（凍結）/ docs/briefs/ST47-pr.md
+- 根拠: #97 の後は `migrations/ORDER` の末尾に 1 行（89d57287 で移した）
+- kind: technical
+- 提案: tasks は触らず、PR 本文の「2.2 の本文が古い」の並びに 1 行
+- 処置: fixed 7.4 — c783872d。PR 本文に 1 行足した（tasks は凍結のため直さない）
+
+## R14. `reparse_older_versions` が、全ファイルが確認待ちに回った書庫を「写しが無いので読み直さない」と数える
+- 成果物: crates/server/src/archive/worker.rs（`reparse_older_versions` の `Ok(_) => without_copies += 1`）
+- 根拠: v1 で読み終えた YouTube だけの書庫は、版の上げの後 `done` が空になる。写しはあり確認待ちに積んでいるのに、debug ログが逆のことを言う。振る舞いへの害は無い
+- kind: technical
+- 提案: 数えを分ける
+- 処置: fixed D9 — cf8597e9。`nothing_stored` に分け、ログ kind `archive_reparse_nothing_stored` を別にした。振る舞いは不変（fmt / clippy `-D warnings` rc=0）
+
+## R15. smoke が断りの理由を固定の `/tmp/smoke-nophrase.err` に書く
+- 成果物: tools/smoke.sh:208
+- 根拠: 複数の worktree で smoke を並走させると同じファイルを取り合う
+- kind: technical
+- 提案: `mktemp`
+- 処置: fixed 3.2 — cf8597e9。`"$ARCHIVE_ROOT/nophrase.err"`（既存の `mktemp -d`、`cleanup` の trap が消す）へ。`tools/check-shared-appends.sh` rc=0
+
+## R16. `refresh_pending_shapes` が、確認を要さない種類に変わったファイルの確認待ちの行を古い形のまま残しうる
+- 成果物: crates/server/src/archive/worker.rs（`refresh_pending_shapes` の `continue` と `complete`）
+- 根拠: 見分けた種類が確認を要さないものに変わると `continue` し、`complete` は真のまま v2 の行が書かれる
+- kind: technical
+- 提案: 今後、種類を消す変更をするときの注意として残す
+- 処置: rejected: いまの見分け方では起きない —— 確認待ちに入るのは確認を要する種類だけで、ST47 はその中で種類を変えた（`YouTubeWatch` → `YouTube`）だけ。reviewer 自身も「今後の注意」とした。種類を確認不要へ移す Story が出たときにその Story の design で扱う
+
+## fix wave（89d5728..c783872）の scoped re-review
+
+席: re-reviewer（SDD の `re-review-prompt.md`）。入力は `.superpowers/sdd/tasks/review-89d57287..c783872d.diff` と
+`.superpowers/sdd/tasks/st47-final-fix3-report.md`。R11〜R15 すべて ADDRESSED、fix の diff に新たな破損なし、範囲外の観察なし。
