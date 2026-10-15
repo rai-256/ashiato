@@ -272,6 +272,11 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      # Story の PR が共有の本体（smoke.sh など）に書き足していないこと・移行の順は末尾への追記だけ（2026-10-15）
+      - run: ./tools/check-shared-appends.sh --self-test
+      - if: github.event_name == 'pull_request'
+        env: { HEAD_REF: "${{ github.head_ref }}", BASE_REF: "origin/${{ github.base_ref }}" }
+        run: ./tools/check-shared-appends.sh "$HEAD_REF"
       # ログに私的データを出せる書き方が無いこと（製造準備 A-2。一度出たログは消せない）
       - run: ./tools/check-log-private.sh --self-test
       - run: ./tools/check-log-private.sh

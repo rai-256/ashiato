@@ -1088,4 +1088,16 @@ seed_cands=$(curl -fsS "${AUTH[@]}" "http://$BIND/places/candidates")
 [ "$(printf '%s' "$seed_cands" | jq '.candidates | length')" -ge 1 ] || { echo "名前の無い居た所が無い: $seed_cands"; exit 1; }
 echo "OK seed places"
 
-echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張・ST21 の場所まで）"
+# ================================================================ Story ごとの節（tools/smoke.d/）
+# **Story の節はこのファイルに書き足さない。** `tools/smoke.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
+# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・変数と関数（post / psql / AUTH / BIND / SRV …）・起動中のサーバはそのまま使える）。
+# このファイルの末尾を並走する Story が取り合い、どの 2 本を合わせても衝突していた（2026-10-15 実測）。
+# feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
+for part in tools/smoke.d/*.sh; do
+  [ -e "$part" ] || continue
+  echo "== 縦串の節: $(basename "$part" .sh)"
+  # shellcheck source=/dev/null
+  . "$part"
+done
+
+echo "縦串 OK（実データ経路・稼働状況・ST03 の冪等と門・ST07 の PC 側・ST16 の滞在・ST04 の破棄の報告・ST19 の主張・ST21 の場所と、tools/smoke.d/ の節）"

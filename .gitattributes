@@ -1,0 +1,2 @@
+# 追記だけの一覧は、並走する Story の追記を両方残す（衝突させない）。並べ替え・途中への差し込みはしない
+migrations/ORDER merge=union
