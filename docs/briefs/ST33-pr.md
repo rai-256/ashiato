@@ -13,7 +13,14 @@ S-7（`#/settings`）の書き出しの節から、全記録を合言葉で暗�
 
 ## 仮決め（B）と Ruling
 
-全 Task の ledger（`.superpowers/sdd/st33-task-*/progress.md`）に `Ruling:` の行は **0 件**（ledger のファイル自体が無い。Task の判断は `design.md` の（仮）と各 Task の findings に残っている）。
+全 Task の ledger（`.superpowers/sdd/st33-task-*/progress.md`）のファイルは無い。`Ruling:` の行は Task 3 の報告（`task-3-report.md`）に 4 件あり、ここへ逐語で写した（workspace はこの後に消す）:
+
+- Ruling: 見込みの `bytes/rows` の rows は前回 finish の `rows->>'events.jsonl'` — D18 の rows が記録の行だけだから — 違えば見込みの係数がずれるだけ
+- Ruling: `seconds` は切り上げて 1 未満は 1 — 見込みは長めが安全 — 表示が 1 秒ずれるだけ
+- Ruling: 書庫のソースを `Point` に足さない — ST12 の型で出来事 1 点と確かめていない — 除き過ぎの側（戻る）
+- Ruling: (a) は「最初に読めた鍵」を使い、それが始まりより前なら (b) へ（次の鍵は試さない）— design 文言どおり
+
+Task の他の判断は `design.md` の（仮）と各 Task の findings に残っている。
 `design.md` の（仮）と反転条件:
 
 - D2 書き出しは同時に 1 本だけ（2 本目は 409）
@@ -37,16 +44,17 @@ S-7（`#/settings`）の書き出しの節から、全記録を合言葉で暗�
 | 1.1 | `tools/check-migrations.sh` | PASS | 6d7d65f |
 | 1.3 | `tools/check-immutable.sh`（export_ledger） | PASS | 6d7d65f |
 | 7.1 | `tools/check-openapi.sh` | PASS | b647afd |
-| 8.1〜8.3 | `npm run test -- export` / `SettingsView` / `settings-contrast` | PASS | cf115de |
+| 8.1〜8.3 | `npm run test -- export` / `SettingsView` / `settings-contrast` | PASS | 8b92ef2 |
 | 9.1 | `npm run test:e2e -- offsite` | PASS | cbaf400 |
-| 10.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | PASS（rc=0） | cf643f1 |
-| 10.2 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace`（816 passed）/ web の lint・test・build・e2e（65 passed）/ `check-immutable` / `check-offsite` / `check-log-private` / `smoke` | PASS（rc=0） | 7edd504 |
+| 10.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | PASS（rc=0） | 8b92ef2 |
+| 10.2 | `cargo fmt --check` / `clippy -D warnings` / web の lint・test・build・e2e（`STACK_RESET=1`）/ `check-immutable` / `check-offsite` / `check-log-private` / `smoke` | PASS（rc=0） | 8b92ef2 |
+| 10.2 | `cargo test --workspace` | **FAIL（rc=101）** —— lib 681 passed・`server_startup` 7 本中 2 本 FAILED（`migrate が失敗した`） | 8b92ef2 |
 
-**10.2 の証跡は code-verify の fix（13b123b）と R20 の fix（4a7af06）より前の木。** 後に走らせたのは:
-- 13b123b: `cargo test -p ashiato-server --lib export`（129 passed / 0 failed）・`cargo fmt` / `clippy -D warnings`（rc=0）・`tools/check-openapi.sh`（rc=0）
-- 4a7af06（R20。サーバと画面の両方を変えた）: `cargo test -p ashiato-server -- export:: bloom export_status export_ledger export_responses export_endpoint`（44 passed）・`clippy -D warnings`（rc=0）・`tools/check-openapi.sh`（rc=0）・vitest `export` / `SettingsView`（21 passed）・`tsc --noEmit`（rc=0）。変異 2 種で新しい試験が落ちることを確かめた
-
-gate の前に 8.x と 10.2 を取り直す必要がある（e2e を含む）。
+**10.2 の `cargo test --workspace` の FAIL は ST33 の差分の外**（R20 の fix 4a7af06 の後に、いまの木で取り直した）:
+- この branch の `crates/server/tests/server_startup.rs` は `.env` の `DATABASE_OWNER_URL` の port（55432 = main の DB）へそのまま繋ぐ。この worktree の DB は 55533（`tools/ports.sh`）。55432 に DB が無いと `migrate` が `pool timed out` で落ちる
+- main は ST21 の `a9b84803`（起動の統合試験も DB の port を worktree の規則に合わせる）で直している。ST33 はこのファイルを触っていない
+- 確かめたこと: port だけを 55533 に替えて（`tools/db-roles.sh` で役割を整えた後）`cargo test -p ashiato-server --test server_startup` → **7 passed / 0 failed**
+- gate が origin/main に載せた木で 10.2 を取り直せば通るはず（載せていない木では、手で繋ぎ先を替えないかぎり落ちる）
 
 ## レビュー
 
