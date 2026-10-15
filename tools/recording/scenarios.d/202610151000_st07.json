@@ -9,6 +9,7 @@
       "crates/collector-windows/src/platform.rs",
       "web/e2e/global-setup.ts",
       "web/src/DayView.tsx"
-    ]
+    ],
+    "note": "ST07（PC のアクティブウィンドウ。`platform: windows`）: **前半**は Windows Sandbox の中で、収集アプリを起こす → エクスプローラーでフォルダ「メモ A」→ ブラウザでページ A → ページ B → フォルダへ戻る（Sandbox にメモ帳は無い）（収集アプリの未送信に 3 つの題名が積まれたことまで確かめる）。**後半**は今日の 1 日の画面で、前半の時間の滞在を開き、PC の記録としてフォルダ「メモ A」とページ A / B が並ぶところ"
   }
 ]
