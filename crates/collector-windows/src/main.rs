@@ -114,6 +114,29 @@ fn run(cfg: c02::config::Config) -> anyhow::Result<()> {
         },
         Utc::now(),
     )?;
+    // 途切れの通知（ST14）。差出人を登録できなければ警告だけで通知を諦め、収集は止めない
+    match c02::toast::WindowsToaster::register() {
+        Ok(toaster) => rt.set_outage_poller(c02::outage_notice::OutagePoller::new(
+            std::sync::Arc::new(c02::sender::HttpOutageQuery::new(
+                &cfg.base_url,
+                &cfg.api_token,
+                cfg.user_id,
+            )),
+            std::sync::Arc::new(toaster),
+            c02::outage_notice::NoticeStore::new(&cfg.state_dir),
+            // log-ok: 渡されるのは telemetry::line の行だけ（件数・種別しか受け取らない組み立て）
+            |line| tracing::warn!("{line}"),
+        )),
+        Err(e) => tracing::warn!(
+            "{}",
+            c02::telemetry::line(
+                "outage_notice_unavailable",
+                None,
+                None,
+                Some(c02::telemetry::error_kind(&e))
+            )
+        ),
+    }
     let mut source = c02::platform::WindowsSource::open();
     if !source.focus_events() {
         tracing::info!(

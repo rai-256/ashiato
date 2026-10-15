@@ -1,55 +1,69 @@
-# ST14 収集が途切れたら気づける（上流: deep → proposal → specs → design → tasks）
+# ST14 収集が途切れたら気づける（下流: 実装）
 
-change: `openspec/changes/st14-outage-alert/`。capability は **`collection-coverage` だけ**（前倒し無し。INDEX の割当「収集の稼働状況・通知・停止」どおり）。
+change: `openspec/changes/st14-outage-alert/`。capability は `collection-coverage` だけ。
 
-## 深掘りで本人が決めたこと（A / B。2026-10-13・1 巡・9 問。未回答 0・推奨のまま 0）
+## `deep.md` に積んだ未決（A）—— **なし**
 
-| # | 決めたこと | 段 |
-|---|---|---|
-| **Q9** | **書庫のソースは最後の書庫（そのソースを運んだ書庫の作られた時刻）から 75 日で鳴らす**。登録簿にソースごとの日数を持つ | **A**（uncaptured） |
-| Q1 | 携帯と PC の両方の収集アプリが `GET /outages` を問い合わせて OS の通知を出す。外の push は作らない | B |
-| Q2 | 取得できる状態の生存信号だけを「生きている」と数える | B |
-| Q3 | 端末のソースは端末で作られた時刻、書庫は運んだ最後の書庫の時刻で測る | B |
-| Q4 | 端末ごとに途切れ 1 回につき音は 1 回、続く間は音なし、戻ったら黙って消す | B |
-| Q5 | 同時の途切れは 1 通にまとめ、新しく途切れたソースが増えたときだけ鳴る | B |
-| Q6 | `c01-clock` は判定に入れない | B |
-| Q7 | 端末が取りこぼしとして残した期間の日は③、週の文字に理由を分けて期間と出す | B |
-| Q8 | アプリ利用の集計を格子に出し、開始日は `c01-app-usage` にそろえる | B |
-
-聞かずに決めた既定は C1〜C13（`deep.md`。design の末尾の表で D に写した）。
+下流で積んだ Q-R16（途切れの台帳の `delivered` は「サーバが端末に返した」で、端末で出せたかは残らない。loss `uncaptured`）は
+**2026-10-15 に本人が答えた**（`deep-answers-6.txt`）: C6 の理由を「いつ端末に返したか」へ言い直す。端末で出せたかは残さない（`uncaptured` を受け入れた）。
+deep.md の C6・`specs/collection-coverage/spec.md` の本文・`go.json` を言い直した。Requirement の SHALL・Scenario・コードは変えていない。
 
 ## 仮決め（B。`design.md` の D（仮）と反転条件）
 
+上流で決めた D5 / D8 / D9 / D10 / D14 / D22〜D25（仮）はそのまま。**下流で足した仮決め**:
+
 | D | 何を仮で決めたか | 反転条件 |
 |---|---|---|
-| **D5（仮）** | サーバの起動から 30 分は判定しない（`warming_up`。台帳にも書かない） | 起動し直した後、溜まった分が届く前に鳴ったと台帳で分かったとき |
-| **D8（仮）** | 通知に使う「取得できない」を blockers の種類で絞らない（ブラウザのプロファイル 1 つ・URL の経路でも鳴る） | 本人が直す必要の無い理由で繰り返し鳴ると分かったとき |
-| **D9（仮）** | 集計・滞在・個人属性にも「対象外」の印（`c01-clock` は Q6） | 集計の取り込みだけが止まって気づけなかったとき |
-| **D10（仮）** | 集計の格子は Must の 5 本の直後・書庫の前 | 本人がアプリ利用の隣のほうが読みやすいと言ったとき |
-| **D14（仮）** | 通知の文面（題「収集が途切れています」・本文「位置（最後 10/12 08:15）、…」）。押しても画面を開かない | 通知から稼働状況へ辿れないと言われたとき |
-| **D22（仮）** | 格子では離席・止まっていた期間・除外の印を今までどおり「記録あり」に数える（`gap` と `clock-skew` だけ外す） | 前景が読めない PC の日が離席だけで①に見えて気づけなかったとき |
-| **D23（仮）** | 取りこぼしの文言は 1 日の画面（ST25）にそろえる「取得元に残っていない」「時計のずれで取れていない」 | S-1 では理由まで書いたほうが分かると言われたとき |
-| **D24（仮）** | 項目が 0 件の書庫は「運んだ書庫」に数えない | 使わなかった製品で 75 日ごとに鳴って煩わしいとき |
-| **D25（仮）** | PC の音なしの差し替えは画面の端に出さない（通知の一覧だけ替える） | 一覧に残るだけでは続いていることに気づけないと言われたとき |
+| **D26（仮）** | 収集開始日の Asia/Tokyo の 0 時を「最後に生きていた時刻」の下限にする（材料が 1 つも無いソースが永久に判定から外れないように。review/code.md R1） | 最初から権限の無い収集は途切れとして鳴らさなくてよいと言われたとき（開始日を「取得できる状態の材料が初めて届いた日」に絞る） |
+| **D27（仮）** | `has_non_collected` を部分索引 `event_non_collected_by_source` で支える（R3） | `has_non_collected` を判定の材料から外すとき、または本人が書いた・導出した記録が増えて索引の書き込みが重くなったとき |
+| **D28（仮）** | 達成日（NFR-13）は、取りこぼしの日でも取得できる状態の信号があれば数える。格子では同じ日が③になる（R8） | 格子で③に見える日が達成に数えられるのはおかしいと言われたとき（達成も格子の状態から数える） |
+| **D29（仮）** | 携帯も PC も、自分の利用者 ID を `user_id=` に付けて `GET /outages` を問い合わせる。サーバは省略時に既定の利用者のまま（R13。携帯の組み立ては R17 で試験に通した） | 1 つのサーバに複数の利用者を置くとき（省略を 400 で断る） |
 
-## BREAKING
+## Ruling（全 Task の ledger と report から）
 
-成功条件 1 の達成日の数え方を NFR-13 の本文に合わせる（申し送り st06 R6 / ST02 の st07 R10）: アプリ利用を「利用が主語」へ、PC の 2 ソースの分母を「生存信号が届いた日」だけに。まだどの窓も閉じていない（暫定）。
+- Task 1: 台帳の追記のみトリガは `core.reject_outage_ledger_change()`（この台帳専用）を使う — 書庫の移行が `reject_archive_ledger_change` と `archive_append_only` を落とすので、共有すると `check-immutable.sh` の書庫の戻しが落ちる（D7 は「同じ関数」としていたが、同じ形の別の関数にした。final review の R4 で D7 をこの形に書き直した）— 間違っていたときの費用は小さい（関数名だけ）
 
-## 申し送りの引き受け（`docs/handoff/ST14.md` ほか）
+- Task 9（**parked**。review/code.md R18 の PC 側）: PC の `toast.rs` には `ToastNotifier.Setting()` の確かめを足さない —— 本人が設定で差出人の通知を切っていても `Show` は `Ok` を返し、覚えが進む疑いがある。
+  ただし試験で「切られた」状態を作れない（登録簿の `Enabled = 0` は `Setting()` に反映されず、一度も出していない差出人では `Setting()` が `Err`。Windows 側の cargo で実測 2026-10-15）。
+  足した形は初めての通知を止める危険があり、試験で固定できない。反転条件: `Setting()` が `Disabled*` を返す状態を試験（または確認バッチの実機）で作れる手段が見つかったとき。携帯側（チャネル）は 8.2 で直した
 
-st06 R5 / R6 / R7 / R26 / R31、st05 R6 / R24、st25 Q5、st17 R4 と ★ 2026-10-12、ST02 の st07 R10 / R38 をこの Story で持つ（`deep.md`「この Story に宛てられたもの」）。R31（実機の未送信の量）は確認バッチの物理の手順。
-**出した申し送り**: `docs/handoff/ST47.md`（正典 `external-ingestion` の 60 日の文・格子の並びの条項。D20 / R17）。`docs/handoff/ST44.md` の `GET /outages` の例外は record の段で置き済み。
+ほかの Task の ledger に `Ruling:` と `parked` はない。
 
 ## tasks
 
-**11 Task**（`## Task 1`〜`## Task 11`）と、人間の確認待ち 2 件（物理: device —— 通知の音、実機の未送信の量）。
-Scenario 153 本（ADDED 97 / MODIFIED 56）。新しい 109 本はどれも Task が名指ししている（`check_scenarios.py` の担保なし 109 件が上流の正常値）。
+**11 Task すべて埋めた**（`- [x]` 31 / `- [ ]` 0）。残した Task はない。人間の確認待ち 2 件（物理: 通知の音・実機の未送信の量。st06 R31）は確認バッチの手順に置く。
+
+## 検証（`evidence.jsonl` と code-verify の走らせ直し）
+
+最後の fix（0dcbe8f6）が触ったのは携帯（8.x）だけなので、8.1〜8.3 を `scripts/verify-run` で HEAD 0dcbe8f6 で走らせ直した。
+ほかの項目は code-verify が HEAD 122502c7（main #91 の上へ rebase した後）で全項目を走らせ直した結果（review/code.md の表。31/31 一致・すべて rc=0）。
+
+| 項目 | コマンド | 終了コード |
+|---|---|---|
+| 1.x〜7.x | `CT st14_*`・`coverage::tests::`・`api_tests`・check-openapi / migrations / immutable・vitest | すべて 0（122502c7） |
+| 8.1〜8.3 | gradle `OutageNoticeTest` / `OutageNotifierTest` / `OutagePollerTest`・`AlarmManager|WorkManager` の grep・`detekt :app:assembleDebug` | すべて 0（**0dcbe8f6**。単体 448 本・failures 0） |
+| 9.1 / 9.2 | `cargo test -p ashiato-collector-windows outage_notice_*`・windows 向け clippy `-D warnings` | 0 / 0（122502c7） |
+| 9.3 | rsync → `cmd.exe` で Windows 側の `cargo test --test runtime_windows outage`（本物のトースト） | 0（122502c7。PC のコードは 0dcbe8f6 でも同じで、2026-10-15 に再度 1 passed） |
+| 10.1〜10.5 | stack → `/coverage` の `jq -e`・vitest・e2e（本物の Chromium）・lint / tsc / build | すべて 0（122502c7） |
+| 11.1 | `scripts/quiet-run smoke -- tools/smoke.sh` | 0（122502c7） |
+| 11.2 | `python3 scripts/check_scenarios.py . st14-outage-alert` | 0（122502c7） |
+| 11.3 | fmt・clippy `-D warnings`・`cargo test --workspace`・check-openapi / migrations / immutable / log-private | すべて 0（122502c7） |
 
 ## レビュー
 
-- `deep-review`（問い）: 8 件 —— 処置は `review/deep.md`
-- `spec-review`（この段）: **17 件** —— `fixed` 16 件（うち仮決め 4 件: R1 → D22 / R5 → D25 / R7 → D22 / R9 → D24、R16 → D23 を含め B は 5 件）・`deferred ST47` 1 件（R17）。escalated 0 件（R1 は premise → conflict、R2 の loss は欠陥の結果でレビュー役が取り下げた）。`review_triage.py` OK
-- 整合の確認（`docs/audit/2026-10-13-st14-consistency.md`）: 16 件。spec の段へ渡された C1 / C2 / C5 / C6 / C7 / C14 はこの成果物で受けた
+- **whole-branch review**（`code-reviewer.md`）: With fixes（Critical 0 / Important 3 / Minor 6）→ R1〜R10。fixed 9 件（仮決め D26 / D27 / D28）・rejected 1 件（R9: D12 の設計どおり、問い合わせは位置の契機に乗る）。scoped re-review では全部 ADDRESSED
+- **code-verify**: R11〜R16。申告 31/31 は HEAD で一致。壊しても緑のまま通っていた値と経路を試験で固定した（R11 `OUTAGE_WARMUP` の 30 分 / R12 携帯の「出せなかったら覚えを進めない」/ R14 本体全体で AlarmManager を使わない / R15 台帳の TRUNCATE の拒否）。
+  **R13 は欠陥だった**: 収集アプリが `user_id` を付けていなかったので、利用者 ID が nil でない構成（録画の環境）では、記録が届いているソースまで「途切れ」で返っていた → D29（仮）で直した。R16 は escalated → 答え済み（上の Q-R16）。scoped re-review では R11〜R15 が全部 ADDRESSED
+- **code-verify（rebase 後・HEAD 122502c7）**: R17・R18。申告 31/31 は一致。
+  **R17**: 携帯が問い合わせに利用者を付ける組み立てを、どの試験も通っていなかった → 差し替える口を打つ関数だけに狭め、実際に打たれた文字列を見る試験で固定（D29（仮））。
+  **R18 は欠陥だった**: 本人が「収集の途切れ」のチャネルだけを切ると、携帯は何も出さずに「出せた」と返し、Q4 の 1 回の音を使い切っていた → チャネルが切られていたら出せなかった扱い（8.2）。PC 側は上の Task 9 の Ruling で park。
+  scoped re-review では R17・R18（携帯）が ADDRESSED、PC の park は根拠つきで妥当
+- `review_triage.py . st14-outage-alert`: OK（指摘 43 件・仮決め 11 件・要件へ戻すもの 4 件）
+
+## 申し送り
+
+- **出した**: `docs/handoff/ST47.md` —— D20（正典 `external-ingestion` の 60 日の文）と spec-review R17（書庫の格子の並びの条項に、集計が Must と書庫の間に入ることを書き足す）。ST47 は凍結されているので `followup ST47`
+- C1（`export::CATALOG`）は base にも main にも無いので、ST33 の下流が受ける
+- 未処置の申し送りはない（`docs/handoff/ST14.md` は開始時から増えていない）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

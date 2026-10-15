@@ -32,6 +32,7 @@ use crate::contract::{ClockTrigger, HeartbeatRequest, IngestRequest, WindowPaylo
 use crate::engine::{Engine, EngineState, IdleRead, Observation, UrlRead};
 use crate::heartbeat::{self, blocker, Capability, CounterStore, Counters};
 use crate::marker::{self, Marker, TOUCH_INTERVAL_SEC};
+use crate::outage_notice::OutagePoller;
 use crate::outbox::Outbox;
 use crate::sender::{Sender, Transport};
 use crate::telemetry;
@@ -96,6 +97,8 @@ pub struct Runtime<'a> {
     skew_trigger: ClockTrigger,
     /// 基準を読んでいる作業スレッド。**走っている間は次の測定を始めない**（design D7）
     clock_worker: Option<ClockWorker>,
+    /// 途切れの問い合わせ係。**時計の測定の契機で 1 回呼ぶ**（ST14 / design D11）。通知を出せない構成では持たない
+    outage: Option<OutagePoller>,
     /// 試験用: 起こした作業スレッドをその場で待つ（結果は次の見回りで拾う。既定は待つ）
     #[cfg(test)]
     settle_clock_worker: bool,
@@ -191,6 +194,7 @@ impl<'a> Runtime<'a> {
             uptime,
             skew_trigger: ClockTrigger::Start,
             clock_worker: None,
+            outage: None,
             #[cfg(test)]
             settle_clock_worker: true,
             marker: Marker::new(&cfg.state_dir),
@@ -208,6 +212,11 @@ impl<'a> Runtime<'a> {
             anchor: None,
             log: info,
         })
+    }
+
+    /// 途切れの問い合わせ係を付ける。**付けなければ問い合わせない**（通知を出せない構成）。
+    pub fn set_outage_poller(&mut self, poller: OutagePoller) {
+        self.outage = Some(poller);
     }
 
     /// 起動時にやること（壁時計と単調時計は今の値）。
@@ -448,6 +457,7 @@ impl<'a> Runtime<'a> {
         }
         if self.clock_worker.is_none() && self.skew_schedule.due(mono) {
             self.skew_trigger = self.skew_schedule.begin(mono);
+            self.poll_outages();
             self.clock_worker = Some(ClockWorker::spawn(
                 Arc::clone(&self.reference),
                 Arc::clone(&self.time_sync),
@@ -460,6 +470,18 @@ impl<'a> Runtime<'a> {
                     w.settle();
                 }
             }
+        }
+    }
+
+    /// 時計の測定の契機で途切れを問い合わせる（測り直しは契機ではない）。待たない。
+    fn poll_outages(&mut self) {
+        if self.skew_trigger == ClockTrigger::Retry {
+            return;
+        }
+        if let Some(poller) = self.outage.as_mut() {
+            poller.poll(&self.device_id);
+            #[cfg(test)]
+            poller.wait();
         }
     }
 
@@ -952,6 +974,151 @@ mod tests {
         );
         assert_eq!(of_kind(&transport, "foreground").len(), 1);
         assert_eq!(rt.pending(), (0, 0), "受理された分が取り除かれていない");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 偽の途切れの問い合わせ。呼ばれた端末識別子を覚え、いつも位置の途切れを返す。
+    #[derive(Debug, Default)]
+    struct AskedOutages(std::sync::Mutex<Vec<String>>);
+
+    impl crate::outage_notice::OutageQuery for AskedOutages {
+        fn fetch(&self, device_id: &str) -> crate::outage_notice::OutageResult {
+            self.0.lock().unwrap().push(device_id.into());
+            crate::outage_notice::OutageResult::Ready(vec![crate::outage_notice::Outage {
+                episode_id: 1,
+                logical_source: "c01-location".into(),
+                display_name: "位置".into(),
+                last_alive_at: t(0),
+            }])
+        }
+    }
+
+    /// 偽の通知の口。`ok = false` は出せない。
+    #[derive(Debug)]
+    struct CountingToaster {
+        ok: bool,
+        shown: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::outage_notice::Toaster for CountingToaster {
+        fn show(&self, _xml: &str, _sound: bool) -> anyhow::Result<()> {
+            self.shown
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.ok {
+                Ok(())
+            } else {
+                anyhow::bail!("unreachable: 通知を出せない")
+            }
+        }
+        fn dismiss(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn with_outage_poller(
+        rt: &mut Runtime,
+        cfg: &Config,
+        ok: bool,
+    ) -> (Arc<AskedOutages>, Arc<CountingToaster>) {
+        let query = Arc::new(AskedOutages::default());
+        let toaster = Arc::new(CountingToaster {
+            ok,
+            shown: std::sync::atomic::AtomicUsize::new(0),
+        });
+        rt.set_outage_poller(OutagePoller::new(
+            query.clone(),
+            toaster.clone(),
+            crate::outage_notice::NoticeStore::new(&cfg.state_dir),
+            |_| {},
+        ));
+        (query, toaster)
+    }
+
+    /// Scenario: PC は時計の測定の契機で問い合わせる
+    #[test]
+    fn outage_notice_poll_runs_once_per_clock_trigger_with_the_device_id() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let (query, _) = with_outage_poller(&mut rt, &cfg, true);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 86_399, 10);
+        let asked = query.0.lock().unwrap().clone();
+        assert_eq!(
+            of_kind(&transport, "clock-skew").len(),
+            24,
+            "測定の契機は 1 時間ごと"
+        );
+        assert_eq!(asked, vec!["dev-1"; 24], "契機ごとに 1 回・端末識別子つき");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 測り直し（60 秒後）は契機ではない。
+    #[test]
+    fn outage_notice_poll_is_not_repeated_by_clock_retries() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut rt = runtime_with(
+            &cfg,
+            &transport,
+            Arc::new(BrokenReference {
+                panics: false,
+                calls,
+            }),
+        );
+        let (query, _) = with_outage_poller(&mut rt, &cfg, true);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 3_000, 10);
+        assert_eq!(
+            query.0.lock().unwrap().len(),
+            1,
+            "測り直しでは問い合わせない"
+        );
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// Scenario: 通知を出せなくても収集は止まらない
+    #[test]
+    fn outage_notice_poll_with_a_failing_toaster_keeps_collecting() {
+        let cfg = cfg();
+        let transport = AcceptAll::default();
+        let reference = FixedReference::new(t(0));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        let (query, toaster) = with_outage_poller(&mut rt, &cfg, false);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 86_399, 10);
+        assert_eq!(
+            query.0.lock().unwrap().len(),
+            24,
+            "問い合わせは契機ごとに続く"
+        );
+        assert_eq!(
+            toaster.shown.load(std::sync::atomic::Ordering::Relaxed),
+            24,
+            "出せないので覚えが進まず、契機ごとに出し直そうとする"
+        );
+        assert_eq!(
+            sent(&transport, "/heartbeat").len(),
+            4,
+            "生存信号の送信は続く"
+        );
+        assert_eq!(of_kind(&transport, "clock-skew").len(), 24);
+        assert_eq!(rt.pending(), (0, 0), "記録の送信は続く");
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
