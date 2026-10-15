@@ -1197,8 +1197,18 @@ async fn export_status_exporting_again_resets_the_erased_count() {
     let dir = tmp_dir("reset");
     let (e, _) = exported_stay_world(&dir, false).await;
     erase(&e.app, e.stay).await;
-    export_and_wait(&e.app, PASS).await;
-    assert_eq!(get_status(&e.app).await["last"]["erased_after"], 0);
+    // 共有の DB では、並んで走る他の試験（削除・場所など）が書き出しの後に自分の記録を消すと、その分も正しく数えられる。
+    // 書き出し直した直後に 0 が 1 回でも読めれば、この試験の消した滞在は数えなくなっている（戻らない実装は毎回 1 以上）
+    let mut seen = Vec::new();
+    for _ in 0..5 {
+        export_and_wait(&e.app, PASS).await;
+        let n = get_status(&e.app).await["last"]["erased_after"].clone();
+        if n == 0 {
+            return;
+        }
+        seen.push(n);
+    }
+    panic!("書き出し直しても後に消した件数が 0 に戻らない: {seen:?}");
 }
 
 // 台帳の書いた記録が読めない形（知らない版）なら、後に消した記録は 0 件でなく「数えられない」（null）と返る（deep Q12 / R20）
