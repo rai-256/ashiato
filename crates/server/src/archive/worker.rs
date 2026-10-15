@@ -7,8 +7,7 @@ use super::scan::ScanCandidate;
 pub fn requires_shape_confirmation(kind: super::classify::KnownKind) -> bool {
     matches!(
         kind,
-        super::classify::KnownKind::YouTubeWatch
-            | super::classify::KnownKind::YouTubeSearch
+        super::classify::KnownKind::YouTube
             | super::classify::KnownKind::MyActivity
             | super::classify::KnownKind::ChromeHistory
     )
@@ -743,6 +742,38 @@ fn legacy_items<'a>(
     items
 }
 
+/// YouTube の項目の行き先（ST47 / D3）。
+#[derive(Clone, Copy)]
+enum Route {
+    Watch,
+    Search,
+    /// 広告（`details` の欄を持つ）。その他に入る
+    Ad,
+    /// 評価（決まり文句の表に当たる）。その他に入る
+    Rating,
+    /// 視聴でも検索でも広告でも評価でもないもの
+    Other,
+}
+
+/// YouTube の項目の行き先を spec の順で決める（ST47 / D3）。取り込みと形の一覧が同じ判定を使う。
+fn youtube_route(row: &serde_json::Value, languages: &[&str]) -> Route {
+    if row.get("details").is_some() {
+        return Route::Ad;
+    }
+    let title = text(row, &["title"]);
+    match text(row, &["titleUrl"]) {
+        Some(url)
+            if url.contains("watch?v=")
+                && title.is_some_and(|title| super::youtube::is_rating(title, languages)) =>
+        {
+            Route::Rating
+        }
+        Some(url) if url.contains("watch?v=") => Route::Watch,
+        Some(url) if url.contains("results?search_query=") => Route::Search,
+        _ => Route::Other,
+    }
+}
+
 /// YouTube の視聴・検索、マイアクティビティ、Chrome の履歴（D6）。
 fn takeout_items<'a>(
     kind: super::classify::KnownKind,
@@ -759,45 +790,58 @@ fn takeout_items<'a>(
         let raws = aligned(super::slice::array_elements(bytes).ok(), rows.len());
         (rows, raws)
     };
+    // 評価の判定は、そのファイルで当たった言語の表だけで行う（ST47 / D4（仮））。
+    let languages = if kind == KnownKind::YouTube {
+        super::youtube::languages(rows.iter().filter_map(|row| text(row, &["title"])))
+    } else {
+        Vec::new()
+    };
     let mut items = Vec::new();
     for (row, raw) in rows.iter().zip(raws) {
         let mut fields = serde_json::Map::new();
         let url = text(row, &["titleUrl"]);
         let (source, when) = match kind {
-            KnownKind::YouTubeWatch | KnownKind::YouTubeSearch => {
-                // **見分けた種類を既定にする。** 削除済みの動画は `titleUrl` を持たない。
-                // URL が無ければ検索へ回していたときは、視聴が検索のソースに入り、
-                // 検索履歴が先に書いた台帳の行と衝突して読み直しが止まった（final review R50）。
-                let search = match url {
-                    Some(url) if url.contains("watch?v=") => false,
-                    Some(url) if url.contains("search_query=") => true,
-                    _ => kind == KnownKind::YouTubeSearch,
-                };
-                put(&mut fields, "title", cloned(row.get("title")));
-                put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
-                if search {
-                    let query = url
-                        .and_then(|url| url.split("search_query=").nth(1))
-                        .map(|encoded| encoded.split('&').next().unwrap_or(encoded))
-                        .map(super::youtube::percent_decode);
-                    put(&mut fields, "query", query.map(serde_json::Value::String));
-                } else {
-                    put(
-                        &mut fields,
-                        "channel_name",
-                        cloned(first_subtitle(row, "name")),
-                    );
-                    put(
-                        &mut fields,
-                        "channel_url",
-                        cloned(first_subtitle(row, "url")),
-                    );
+            KnownKind::YouTube => {
+                // 項目ごとに spec の順で行き先を決める（ST47 / D3）。
+                let route = youtube_route(row, &languages);
+                match route {
+                    Route::Watch => {
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        put(
+                            &mut fields,
+                            "channel_name",
+                            cloned(first_subtitle(row, "name")),
+                        );
+                        put(
+                            &mut fields,
+                            "channel_url",
+                            cloned(first_subtitle(row, "url")),
+                        );
+                    }
+                    Route::Search => {
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        let query = url
+                            .and_then(|url| url.split("search_query=").nth(1))
+                            .map(|encoded| encoded.split('&').next().unwrap_or(encoded))
+                            .map(super::youtube::percent_decode);
+                        put(&mut fields, "query", query.map(serde_json::Value::String));
+                    }
+                    Route::Ad | Route::Rating | Route::Other => {
+                        fields.insert("product".into(), serde_json::json!("YouTube"));
+                        put(&mut fields, "title", cloned(row.get("title")));
+                        put(&mut fields, "url", url.map(|url| serde_json::json!(url)));
+                        put(&mut fields, "details", cloned(row.get("details")));
+                    }
                 }
                 (
-                    if search {
-                        "c03-youtube-search".to_owned()
-                    } else {
-                        "c03-youtube-watch".to_owned()
+                    match route {
+                        Route::Watch => "c03-youtube-watch".to_owned(),
+                        Route::Search => "c03-youtube-search".to_owned(),
+                        Route::Ad | Route::Rating | Route::Other => {
+                            super::myactivity::source_name("YouTube")
+                        }
                     },
                     when_text(text(row, &["time"]), None),
                 )
@@ -1083,6 +1127,8 @@ pub async fn confirmed_pending_copies(
           WHERE p.user_id = $1
             AND EXISTS (SELECT 1 FROM core.archive_shape_confirmation c
                          WHERE c.user_id = p.user_id AND c.shape_hash = p.shape_hash)
+            -- 印で読めない形（`is_unconfirmable_shape`）は、印があっても拾わない（D6）。
+            AND NOT (p.shape->>'kind' = 'YouTube' AND p.shape->'languages' = '[]'::jsonb)
           ORDER BY p.sha256, p.inner_path",
     )
     .bind(user_id)
@@ -1141,23 +1187,51 @@ pub fn shape_for_file(
     // **製品の名前は集合**（design D16）。項目ごとに積むと、同じ製品でも件数が
     // 変われば形が変わり、**2 か月ごとの書き出しのたびに確認待ちになる**
     // （本人が第 3 回 Q12 で「ならない」と決めた型。R7）。並びにも依存させない。
-    let products: Vec<String> = if kind == super::classify::KnownKind::MyActivity {
-        let mut names: Vec<String> = value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row.get("products"))
-            .filter_map(serde_json::Value::as_array)
-            .filter_map(|products| products.first())
-            .filter_map(serde_json::Value::as_str)
+    use super::classify::KnownKind;
+    let rows: &[serde_json::Value] = value.as_array().map_or(&[], Vec::as_slice);
+    let first_product = |row: &serde_json::Value| {
+        row.get("products")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|products| products.first())
+            .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
-            .collect();
+    };
+    let products: Vec<String> = if matches!(kind, KnownKind::MyActivity | KnownKind::YouTube) {
+        let mut names: Vec<String> = rows.iter().filter_map(first_product).collect();
         names.sort();
         names.dedup();
         names
     } else {
         Vec::new()
     };
+    // 行き先ごとの件数（ST47 / D7）。件数は書き出しのたびに変わるので `hash_shape` は見ない。
+    // 値（題名・URL・検索語）は出さず、数だけ。
+    let mut languages: Option<Vec<&'static str>> = None;
+    let mut destinations: Option<serde_json::Value> = None;
+    if kind == KnownKind::YouTube {
+        let found = super::youtube::languages(rows.iter().filter_map(|row| text(row, &["title"])));
+        let (mut watch, mut search, mut ad, mut rating, mut other) = (0, 0, 0, 0, 0);
+        for row in rows {
+            match youtube_route(row, &found) {
+                Route::Watch => watch += 1,
+                Route::Search => search += 1,
+                Route::Ad => (ad, other) = (ad + 1, other + 1),
+                Route::Rating => (rating, other) = (rating + 1, other + 1),
+                Route::Other => other += 1,
+            }
+        }
+        destinations = Some(serde_json::json!({
+            "watch": watch, "search": search, "other": other, "ad": ad, "rating": rating,
+        }));
+        languages = Some(found);
+    } else if products.iter().any(|name| name == "YouTube") {
+        // 混ざったファイルの YouTube の項目はすべてその他へ入る（D2）。
+        let other = rows
+            .iter()
+            .filter(|row| first_product(row).as_deref() == Some("YouTube"))
+            .count();
+        destinations = Some(serde_json::json!({ "other": other }));
+    }
     let (top_level_keys, field_names) = match &value {
         serde_json::Value::Object(object) => {
             (object.keys().cloned().collect::<Vec<_>>(), Vec::new())
@@ -1188,14 +1262,21 @@ pub fn shape_for_file(
             .unwrap_or(0),
         _ => 0,
     };
-    Ok(serde_json::json!({
+    let mut shape = serde_json::json!({
         "kind": format!("{kind:?}"),
         "products": products,
         "top_level_keys": top_level_keys,
         "field_names": field_names,
         "items": items,
         "path_shape": path_shape(inner_path),
-    }))
+    });
+    if let Some(languages) = languages {
+        shape["languages"] = serde_json::json!(languages);
+    }
+    if let Some(destinations) = destinations {
+        shape["destinations"] = destinations;
+    }
+    Ok(shape)
 }
 
 /// 書庫の中のパスを**型**にする。名前そのものは訳で変わるので形に入れない
@@ -1207,6 +1288,29 @@ fn path_shape(inner_path: &str) -> String {
         .and_then(|extension| extension.to_str())
         .unwrap_or("");
     format!("depth={depth};ext={extension}")
+}
+
+/// 決まり文句が 1 つも当たらない YouTube の形（`languages: []`）か。
+/// この形には印があっても読まない（deep.md 第 2 回 Q7 / design D6。`tools/archive-shape.sh --confirm`
+/// の断りと二重。ハッシュを一覧の外で知って先に印を置かれても、表に無い言語のファイルを通さない）。
+pub fn is_unconfirmable_shape(shape: &serde_json::Value) -> bool {
+    shape.get("kind").and_then(serde_json::Value::as_str) == Some("YouTube")
+        && shape
+            .get("languages")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(Vec::is_empty)
+}
+
+/// ファイルの形に印があり、その形が印で読めるものか（`is_unconfirmable_shape` は常に「印なし」）。
+pub async fn is_file_shape_confirmed(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    shape: &serde_json::Value,
+) -> Result<bool, sqlx::Error> {
+    if is_unconfirmable_shape(shape) {
+        return Ok(false);
+    }
+    is_shape_confirmed(pool, user_id, &hash_shape(shape)).await
 }
 
 pub async fn is_shape_confirmed(
@@ -1260,7 +1364,9 @@ pub async fn record_pending_file(
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (user_id, sha256, inner_path) DO UPDATE
            SET file_sha256 = COALESCE(EXCLUDED.file_sha256, core.archive_pending_shape.file_sha256),
-               made_copy = core.archive_pending_shape.made_copy OR EXCLUDED.made_copy",
+               made_copy = core.archive_pending_shape.made_copy OR EXCLUDED.made_copy,
+               shape_hash = EXCLUDED.shape_hash,
+               shape = EXCLUDED.shape",
     )
     .bind(user_id)
     .bind(archive_sha256)
@@ -1405,10 +1511,20 @@ pub fn hash_shape(shape: &serde_json::Value) -> String {
     use sha2::Digest as _;
     // 確認を要するのは論理ソース名を決める種類と製品名だけ。欄の追加や
     // パスの翻訳で、既に確認した書庫まで止めない。
-    let identity = serde_json::json!({
-        "kind": shape.get("kind"),
-        "products": shape.get("products"),
-    });
+    // YouTube の種類だけ、当たった言語も入れる（ST47 / D5）。ほかの種類はいまと同じバイト列。
+    // `destinations` は入れない（件数の変化では確認待ちにしない。D7）。
+    let identity = if shape.get("kind").and_then(serde_json::Value::as_str) == Some("YouTube") {
+        serde_json::json!({
+            "kind": shape.get("kind"),
+            "products": shape.get("products"),
+            "languages": shape.get("languages"),
+        })
+    } else {
+        serde_json::json!({
+            "kind": shape.get("kind"),
+            "products": shape.get("products"),
+        })
+    };
     let encoded = serde_json::to_vec(&identity).expect("形はJSON");
     format!("{:x}", sha2::Sha256::digest(encoded))
 }
@@ -1494,11 +1610,34 @@ async fn reread_archive(
         };
         if require_confirmed && requires_shape_confirmation(known.kind) {
             let shape = shape_for_file(known.kind, inner_path, &file.bytes)?;
-            if !is_shape_confirmed(pool, user_id, &hash_shape(&shape)).await? {
+            if !is_file_shape_confirmed(pool, user_id, &shape).await? {
+                // 印の無いファイルは黙って飛ばさず、新しい形で確認待ちに積む（ST47 / D9 の 3）。
                 tracing::warn!(
                     kind = "archive_reparse_unconfirmed",
-                    "形の印が無い写しは読み直さない"
+                    "形の印が無い写しは読み直さず確認待ちにする"
                 );
+                let file_sha256 = std::path::Path::new(stored_path)
+                    .file_name()
+                    .and_then(|name| name.to_str());
+                record_pending_file(
+                    pool,
+                    user_id,
+                    archive_sha256,
+                    inner_path,
+                    &shape,
+                    file_sha256,
+                    false,
+                )
+                .await?;
+                record_pending_ledger_at(
+                    pool,
+                    user_id,
+                    archive_sha256.to_owned(),
+                    meta.file_name.clone(),
+                    meta.created_at,
+                    &meta.inbox_kind,
+                )
+                .await?;
                 continue;
             }
         }
@@ -1632,15 +1771,9 @@ pub async fn ingest_confirmed_pending(
             if reread_throttled(pool, user_id, &archive_sha256).await? {
                 return anyhow::Ok(Vec::new());
             }
-            let meta = ledger_meta(
-                pool,
-                user_id,
-                &archive_sha256,
-                Some(super::PARSER_VERSION),
-                "pending_shape",
-            )
-            .await?;
-            let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, false).await?;
+            // 版は問わない: 取り直しが済む前は v2 の行が無く、既定値で `read` を固定してしまう。
+            let meta = ledger_meta(pool, user_id, &archive_sha256, None, "pending_shape").await?;
+            let done = reread_archive(pool, user_id, &archive_sha256, &files, &meta, true).await?;
             for inner_path in &done {
                 remove_pending_shape(pool, user_id, &archive_sha256, inner_path).await?;
             }
@@ -1680,6 +1813,99 @@ pub async fn ingest_confirmed_pending(
         }
     }
     Ok(ingested)
+}
+
+/// 解析器の版が上がったとき、確認待ちの書庫の形を**写しから**取り直す（ST47 / D9 の 1）。
+///
+/// 見分けは台帳の `pending_shape` の行の版: いまの版の行が無い書庫が対象。形を置き換え、
+/// 元の読みの名前・作られた時刻・置き場の種類を写した、いまの版の行を 1 つ足す
+/// （印を置いた後の `read` の行がそこから引き継ぐ。FR-16 / final review R58）。
+/// 写しを読めないファイルがあれば行を足さず、次の走査でやり直す。
+pub async fn refresh_pending_shapes(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+) -> anyhow::Result<usize> {
+    let archives: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT p.sha256 FROM core.archive_pending_shape p
+          WHERE p.user_id = $1
+            AND NOT EXISTS (SELECT 1 FROM core.archive_ledger l
+                             WHERE l.user_id = p.user_id AND l.sha256 = p.sha256
+                               AND l.parser_version = $2 AND l.outcome = 'pending_shape')
+          ORDER BY p.sha256",
+    )
+    .bind(user_id)
+    .bind(super::PARSER_VERSION)
+    .fetch_all(pool)
+    .await?;
+    let mut refreshed = 0;
+    for archive_sha256 in archives {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT p.inner_path, f.stored_path
+               FROM core.archive_pending_shape p
+               JOIN core.archive_file f
+                 ON f.user_id = p.user_id
+                AND (f.sha256 = p.file_sha256
+                     OR (p.file_sha256 IS NULL
+                         AND f.archive_sha256 = p.sha256
+                         AND f.inner_path = p.inner_path))
+              WHERE p.user_id = $1 AND p.sha256 = $2
+              ORDER BY p.inner_path",
+        )
+        .bind(user_id)
+        .bind(&archive_sha256)
+        .fetch_all(pool)
+        .await?;
+        let mut complete = !rows.is_empty();
+        for (inner_path, stored_path) in &rows {
+            let Ok(bytes) = std::fs::read(stored_path) else {
+                tracing::warn!(kind = "archive_reparse_copy", "書庫の写しを読めない");
+                complete = false;
+                continue;
+            };
+            let file = super::open::ArchiveFile {
+                path: inner_path.clone(),
+                bytes,
+            };
+            let classified = super::classify::classify_files(std::slice::from_ref(&file));
+            let Some(known) = classified.known.first() else {
+                complete = false;
+                continue;
+            };
+            if !requires_shape_confirmation(known.kind) {
+                continue;
+            }
+            let Ok(shape) = shape_for_file(known.kind, inner_path, &file.bytes) else {
+                complete = false;
+                continue;
+            };
+            sqlx::query(
+                "UPDATE core.archive_pending_shape SET shape_hash = $4, shape = $5
+                  WHERE user_id = $1 AND sha256 = $2 AND inner_path = $3",
+            )
+            .bind(user_id)
+            .bind(&archive_sha256)
+            .bind(inner_path)
+            .bind(hash_shape(&shape))
+            .bind(&shape)
+            .execute(pool)
+            .await?;
+        }
+        if !complete {
+            continue;
+        }
+        let meta = ledger_meta(pool, user_id, &archive_sha256, None, "pending_shape").await?;
+        record_pending_ledger_at(
+            pool,
+            user_id,
+            archive_sha256,
+            meta.file_name,
+            meta.created_at,
+            &meta.inbox_kind,
+        )
+        .await?;
+        refreshed += 1;
+    }
+    Ok(refreshed)
 }
 
 /// 解析器の版が上がったとき、前の版で読んだ書庫を**写しから**読み直す（D8。final review R53）。
@@ -1821,6 +2047,10 @@ pub fn spawn_inspecting(
             // 同じ書庫を走査が「読む」へ回しても読み手が既読として捨てる。
             if let Err(error) = reparse_older_versions(&scan_pool, user_id).await {
                 tracing::warn!(kind = "archive_reparse_version", error = %error, "前の版で読んだ書庫を読み直せない");
+            }
+            // 確認待ちの形の取り直しは、印のある確認待ちを読む前に回す（ST47 / D9 の 2）。
+            if let Err(error) = refresh_pending_shapes(&scan_pool, user_id).await {
+                tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの形を取り直せない");
             }
             if let Err(error) =
                 ingest_confirmed_pending(&scan_pool, user_id, config.keep_copies).await
@@ -1977,8 +2207,7 @@ pub fn spawn_inspecting(
                                     continue;
                                 }
                             };
-                            let shape_hash = hash_shape(&shape);
-                            match is_shape_confirmed(&pool, user_id, &shape_hash).await {
+                            match is_file_shape_confirmed(&pool, user_id, &shape).await {
                                 Ok(true) => {
                                     if remove_pending_shape(&pool, user_id, &sha256, &file.path)
                                         .await

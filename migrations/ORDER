@@ -46,3 +46,5 @@
 202610121040_event_by_user_source_ingest
 # 途切れの通知：判定の対象の印・通知までの日数・開始日を借りる先・台帳（ST14 / design D2 / D7）
 202610141130_outage_alert
+# YouTube のマイアクティビティの「その他」の行き先を、書庫を置く前から登録する（ST47 / design D8）
+202610141700_youtube_myactivity_source
