@@ -97,7 +97,7 @@ async fn export_dir_writes_under_the_chosen_dir() {
     assert!(!left[0].starts_with('.'));
     // 閉じた zip として読める
     let z = zip::ZipArchive::new(std::fs::File::open(&file).unwrap()).unwrap();
-    assert_eq!(z.len(), 12); // 表のファイル 10 本と説明書と目録（D7）
+    assert_eq!(z.len(), 13); // 表のファイル 11 本と説明書と目録（D7）
 }
 
 #[test]
