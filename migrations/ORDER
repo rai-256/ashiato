@@ -44,3 +44,5 @@
 202610020030_places
 # ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
 202610121040_event_by_user_source_ingest
+# 途切れの通知：判定の対象の印・通知までの日数・開始日を借りる先・台帳（ST14 / design D2 / D7）
+202610141130_outage_alert
