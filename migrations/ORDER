@@ -44,3 +44,5 @@
 202610020030_places
 # ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
 202610121040_event_by_user_source_ingest
+# YouTube のマイアクティビティの「その他」の行き先を、書庫を置く前から登録する（ST47 / design D8）
+202610141700_youtube_myactivity_source
