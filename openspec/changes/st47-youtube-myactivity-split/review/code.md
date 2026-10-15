@@ -262,6 +262,7 @@ DB は この worktree の `tools/db.sh up` で起こした**まっさらな** D
   ST47 の移行そのものでは、読み直されないファイルの行は v1 で既に入っていて内容の鍵で同じ行に当たるので、**記録は失われない**。失われるのは読み直しの再試行（消した滞在の時間帯の印付けのやり直しを含む）と、次に論理ソースを変える版の上げでの読み直し。既存の `archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled` は Timeline だけの書庫で、確認待ちを含む書庫の失敗を見ていない
 - kind: technical
 - 提案: `record_pending_ledger_at` を輪の外へ出し、`read` の行を書くのと同じ成功の経路の末尾で書く（確認待ちの行 `record_pending_file` は `ON CONFLICT` で冪等なので、輪の中に残してよい）。上の再現を試験にして、YouTube の確認待ちを含む書庫でも落ちた次の周で読み直されることを固定する
+- 処置: fixed D9 — 確認待ちの台帳の行（`record_pending_ledger_at`）を輪の外へ出し、`read` の行と同じ成功の経路の末尾（と、読んだファイルが 0 のときの早い戻り）で書く。再現を試験 `archive_youtube_reparse_a_failed_reread_with_pending_files_is_retried` にした（格納を 1 回落とした後の周で検索の 1 件・v2 の `read` 1・`pending_shape` 1）。輪の中へ戻す変異でこの試験が rc=101
 
 ## R18. PR #93 の head と本文が、検証した HEAD より 4 commit 古い（draft でない）
 - 成果物: PR #93 / docs/briefs/ST47-pr.md / crates/server/src/archive/worker.rs・tools/smoke.sh（cf8597e9）
@@ -269,6 +270,7 @@ DB は この worktree の `tools/db.sh up` で起こした**まっさらな** D
   `gh pr view --json body` と `docs/briefs/ST47-pr.md` の diff: GitHub の本文は「14 項目のうち 11 項目が `[x]`」「7.1 の最新の PASS は a63f638」のままで、R13 の 1 行（tasks 1.1 の本文が古い）が無い。7.4・7.5 の検証は rc=0 だがこの古い本文に対して
 - kind: daily
 - 提案: merge の前に HEAD を push し、`docs/briefs/ST47-pr.md` を PR 本文へ写す（`gh pr edit` は Projects の GraphQL で落ちるので REST の PATCH）。そのうえで 7.4・7.5 を取り直す
+- 処置: rejected: ブランチの成果物の欠陥でない —— PR の head と本文は、グラフの `publish` が HEAD と `docs/briefs/ST47-pr.md` から書き直す（このセッションは push しない）。`docs/briefs/ST47-pr.md` はこの段の HEAD に合わせて書き直した。7.4・7.5 は publish の後の gate で取り直される
 
 ## R19. design D6 の「断りは 3 経路とも」のうち、`reread_archive`（版の読み直し）側は外しても試験が通る
 - 成果物: crates/server/src/archive/worker.rs:1611（`reread_archive` の `is_file_shape_confirmed`）/ design D6 の「置き場の走査・写しからの読み直し・確認待ちの読み直しの 3 経路とも」
@@ -276,6 +278,7 @@ DB は この worktree の `tools/db.sh up` で起こした**まっさらな** D
   起きるのは、v1 で読み終えた書庫の YouTube のファイルが表に無い言語で、`3374…`（`languages: []`）に印がある場合（道具は断るので、ハッシュを一覧の外で知って印を置いたときだけ）
 - kind: technical
 - 提案: `archive_youtube_reparse_read_archive_waits_for_the_new_mark` と同じ組み立てで、決まり文句の当たらない YouTube のファイルの写し + v1 の `read` の行 + `languages: []` の形の印を置き、`reparse_older_versions` の後も視聴・検索・その他が 0 で確認待ちに積まれることを見る試験を 1 本足す
+- 処置: fixed D6 — 試験 `archive_youtube_reparse_a_mark_on_an_unrecognized_language_does_not_store` を足した（決まり文句の当たらない YouTube の写し + v1 の `read` + `languages: []` の形の印 → 版の読み直しの後も 3 ソース 0・確認待ち 1・v2 の `read` 0）。N11 でこの試験が rc=101
 
 ## R20. spec の細部 3 つが、値を変えても全部の試験を通る（最初の製品・評価は `watch?v=` を持つものだけ・英語の検索の決まり文句）
 - 成果物: crates/server/src/archive/classify.rs:93（`kind_of` の `products.first()`）/ worker.rs:767（`youtube_route` の `url.contains("watch?v=") && is_rating`）/ youtube.rs（`en` の `recognition` の `"Searched for "`）/ spec の「項目の最初の製品の名前がどれも「YouTube」」「(2) `watch?v=` の URL を持ち、題名が…評価の決まり文句」/ design D4 の表
@@ -284,3 +287,11 @@ DB は この worktree の `tools/db.sh up` で起こした**まっさらな** D
   N18 が入ると、2 つ目に「YouTube」を持つ他の製品のファイルの見分けが変わる。N22 は行き先が同じ `c03-myactivity-youtube` なので形の一覧の `rating` の内訳だけが変わる。N23 は英語の検索だけのファイルが `languages: []` になって印を置けなくなる（失うものは無い側）
 - kind: technical
 - 提案: `kind_of` の単体試験に `products: ["検索", "YouTube"]` の項目だけのファイルが `MyActivity` になる材料を 1 つ、route の試験に「`高く評価しました ` で始まりコミュニティ投稿の URL を持つ項目は `rating` に数えない」を 1 件、phrase の試験に `Searched for x` だけのファイルが `["en"]` になる assert を 1 つ足す
+- 処置: fixed D4 — （D1 の最初の製品・D3 の評価の条件も同じ commit）3 本を固定した。`archive_youtube_kind_of_only_the_first_product_counts`（`["YouTube","検索"]` は YouTube、`["検索","YouTube"]` は MyActivity）/ `archive_youtube_shape_a_rating_phrase_without_a_watch_url_is_not_a_rating`（コミュニティ投稿の URL の「高く評価しました …」は `rating` 0・`other` 1）/ `archive_youtube_phrase_languages_are_the_ones_whose_table_matched` に `Searched for y` だけで `["en"]`。N18・N22・N23 でそれぞれ rc=101（N18 は最初の材料の向きでは生き残ったので、向きを足して取り直した）
+
+
+## scoped re-review（finish の fix。06859865..89b27f63）
+
+席: re-reviewer（SDD の `re-review-prompt.md`）。入力は `.superpowers/sdd/tasks/review-06859865..89b27f63.diff` と
+`.superpowers/sdd/tasks/st47-final-fix4-report.md`。R17・R19・R20 は ADDRESSED、R18 の rejected の理由は成り立つ。fix の diff に Critical / Important の破損なし。
+Minor の観察 1 つ: `read` の行を書いた後に `record_ledger_sources` が落ちると確認待ちの台帳の行が無いまま残るが、`refresh_pending_shapes` が「いまの版の `pending_shape` の台帳の行が無い書庫」を拾って書き直すので自己修復する（処置不要）。範囲外の観察なし。
