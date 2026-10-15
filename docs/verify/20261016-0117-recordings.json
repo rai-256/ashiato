@@ -1,0 +1,60 @@
+{
+  "tag": "20261016-0117",
+  "run_id": "20261016-011835-2ffdb69",
+  "commit": "2ffdb6966eb31c75baab35daad73e605317a4cb8",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261016-011835-2ffdb69",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261016-011835-2ffdb69",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST17-feel",
+      "story": "ST17",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST17-feel/video.webm",
+      "trace": "scenarios/ST17-feel/trace.zip"
+    },
+    {
+      "id": "ST17-reminder",
+      "story": "ST17",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Android の工程が止まった: エミュレータの起動が終わらない（logs/android-emulator.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    },
+    {
+      "id": "ST14-coverage",
+      "story": "ST14",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 8 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST14-coverage/video.webm",
+      "trace": "scenarios/ST14-coverage/trace.zip"
+    },
+    {
+      "id": "ST14-outage-notice",
+      "story": "ST14",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Android の工程が止まった: エミュレータの起動が終わらない（logs/android-emulator.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    }
+  ],
+  "uncovered_stories": [
+    "ST47"
+  ]
+}
