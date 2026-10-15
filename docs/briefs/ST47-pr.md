@@ -45,7 +45,7 @@ parked: なし。
 
 1.1（`tools/check-migrations.sh`）/ 3.2（`tools/smoke.sh`）/ 6.1 / 7.1（fmt・clippy `-D warnings`・`cargo test --workspace`）/ 7.2（`check_scenarios.py`）/
 7.3（`check_chain.py`・`openspec validate --strict`・`check-migrations` / `check-openapi` / `check-boundaries` / `check-immutable` / `check-licenses`）—— どれも PASS（exit 0）。
-7.1 の最新の PASS は a63f638、7.2・7.3 は d51755c。7.3 の FAIL の 1 行と 7.1 の FAIL の行は、同じ head で取り直して PASS。
+3.2・6.1・7.1 の最新の PASS は cf8597e9（main #97 への rebase の後。`cargo test --workspace` は server 836 本ほか全緑）、7.2・7.3 は d51755c。7.3 の FAIL の 1 行と 7.1 の FAIL の行は、同じ head で取り直して PASS。
 
 `CT` 型（2.1・2.2・3.1・4.1・5.1）は evidence に行が無い。code-verify が HEAD 53af3084 で全部走らせ、`-- --list` の本数が下限以上で通ることを確かめた（`review/code.md` の表）。
 この段（code-verify の処置）の後: `cargo test -p ashiato-server archive_youtube` 43 passed、`cargo test -p ashiato-server archive` 184 passed（1 回目は時間の取り合いで 2 本落ち、単独と 2 回目で通過 —— 下の「申し送り」）、
