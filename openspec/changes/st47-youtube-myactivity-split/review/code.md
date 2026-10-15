@@ -190,3 +190,97 @@ main との衝突の解き方に誤りなし。推奨（必須でない）: smok
 
 席: re-reviewer（SDD の `re-review-prompt.md`）。入力は `.superpowers/sdd/tasks/review-89d57287..c783872d.diff` と
 `.superpowers/sdd/tasks/st47-final-fix3-report.md`。R11〜R15 すべて ADDRESSED、fix の diff に新たな破損なし、範囲外の観察なし。
+
+## code-verify 第 2 回（HEAD 6e3b0adf。独立検証）
+
+席: code-verify。入力は deep / specs / design / tasks と HEAD 6e3b0adf の作業ツリー。コードは触っていない（変異と再現の試験は `/tmp/st47mut`（`git archive HEAD` の複製）でだけ走らせた）。
+DB は この worktree の `tools/db.sh up` で起こした**まっさらな** DB（port 55547。移行 ORDER の全版を当てたもの）。
+
+**検証した木と merge される木が違う**: PR #93 の head は `89d57287`、手元の HEAD は `6e3b0adf`（4 commit 先。push されていない）。差にはコードの fix（cf8597e9: R14・R15）が入る → R18。
+
+### 申告: 13/14（`[x]` 13。残りは 8.1 の realdata）・検証コマンド一覧
+
+| 項目 | 検証コマンド（tasks の本文） | 実測（HEAD 6e3b0adf） | 一致 |
+|---|---|---|---|
+| 1.1 | `tools/check-migrations.sh` / `CT archive_youtube_other_source_registered (≥1)` | rc=0 / `--list` 1 本・まっさらな DB で通過。登録簿は `c03-myactivity-youtube｜5184000｜none｜マイアクティビティ: YouTube` | 一致（本文の「`MIGRATIONS` の末尾」は ORDER に移った後で古い。R13 のとおり） |
+| 2.1 | `CT archive_youtube_kind_of (≥4)` / `CT every_archive_…_or_item (≥1)` | 4 本 / 1 本・通過 | 一致 |
+| 2.2 | `CT archive_youtube_route (≥14)` / `CT archive_youtube_phrase (≥5)` / `CT archive_ (≥1)` | 14 / 6 / 180 本・通過 | 一致（本文の「日本語は末尾」は R1 のとおり古い） |
+| 3.1 | `CT archive_youtube_shape (≥8)` | 10 本・通過 | 一致 |
+| 3.2 | `scripts/quiet-run smoke -- tools/smoke.sh` | rc=0（47 秒。`.superpowers/sdd/logs/20261016-011133-smoke.log` :101-103 に該当の段） | 一致 |
+| 4.1 | `CT archive_youtube_reparse (≥5)` / `CT archive_flow_ (≥1)` | 6 / 102 本・通過 | 一致（ただし R17） |
+| 5.1 | `CT archive_youtube_location (≥1)` / `CT archive_youtube_last_event (≥1)` | 1 / 1 本・通過 | 一致 |
+| 6.1 | smoke rc=0 / `grep -qF '"kind": ?"YouTube"' tools/smoke.sh && ! grep -q YouTubeWatch …` / docs の grep | rc=0 / rc=0 / rc=0 | 一致 |
+| 7.1 | fmt + clippy `-D warnings` / `scripts/quiet-run test -- cargo test --workspace` | rc=0 / rc=0 / rc=0（collector-windows 133 + server 836 + 起動試験 7 本・失敗 0。`.superpowers/sdd/logs/20261016-013026-test.log`。1 回目は rc=101 —— 直前に走らせた `tools/check-immutable.sh` が DB を下ろしたまま走らせた私の手順の誤りで、DB を起こし直した 2 回目で rc=0） | 一致 |
+| 7.2 | `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` | rc=0（Scenario 1028・担保あり 1028。`[warn]` 8 件の名前は `git diff c6109b7f HEAD` の追加行のコードに無い（evidence.jsonl の記録にだけ出る）＝merge-base 由来） | 一致 |
+| 7.3 | check_chain / `openspec validate --strict` / check-migrations・openapi・boundaries・immutable・licenses | すべて rc=0（check-immutable も 1 回目で rc=0）。`tools/check-shared-appends.sh` も rc=0 | 一致 |
+| 7.4 | `gh pr view` の本文に `D2（仮）`・`D4（仮）`・`f3e578ff` | rc=0 —— **ただし GitHub の本文は `docs/briefs/ST47-pr.md` より古い**（「11 項目が `[x]`」「7.1 の最新の PASS は a63f638」のまま）。R18 | 一致（古い本文に対して） |
+| 7.5 | 申し送りの `R<n>` の見出しが PR 本文にある | rc=0。3 見出し（D20・R17・C4）とも本文にある | 一致（古い本文に対して） |
+
+`server` の全試験（`cargo test -p ashiato-server`）: 836 + 起動試験 7 本・失敗 0（`.superpowers/sdd/logs/20261016-005323-test.log`）。clippy は rc=0。
+
+### 手 1: 固定値の独立の再計算 —— 一致
+- python の `hashlib.sha256`（`json.dumps(sort_keys=True, separators=(',',':'), ensure_ascii=False)`）で同一性のバイト列を計算:
+  `{"kind":"YouTubeWatch","products":[]}` = `f3e578ff3482bbe4…`（deep.md の値）/ `{"kind":"MyActivity","products":["検索"]}` = `32613b640eda7cb9…` /
+  `{"kind":"ChromeHistory","products":[]}` = `4e6a8512cfc92210…` / `{"kind":"YouTube","languages":["ja"],"products":["YouTube"]}` = `e130f952ea541094…` /
+  `{"kind":"YouTube","languages":[],"products":["YouTube"]}` = `3374525440cd5509…`。試験の直書き（`archive_flow_tests.rs:4751・4777-4778・4890` の `sha256_hex(br#"…"#)`）は仕様のバイト列そのもので、試験はファイルのバイト列から分類・形・ハッシュまで通した値と突き合わせている（実装の出力の写しではない）
+- 本物の書庫（`/mnt/c/Users/yosis/Downloads/Takeout`。件数だけを出した）を python で D1・D3・D4 を書き直したもの（`/tmp/st47v/count.py`）に通した: YouTube のファイルは 1 つ・118,895 件・`languages ["ja"]`・watch 89,368 / search 5,643 / ad 20,093 / rating 196 / その他（広告・評価以外）3,595。design D4 の実測（code-verify R10）と一致。広告と評価を両方持つ項目 0・題名の無い項目 0・英語の決まり文句で始まる題名 0
+- v1 の見分け方（URL を持つ最初の項目）を python で当て直すと、`YouTubeWatch` と見分けられていたのは YouTube のファイル 1 つだけ（`watch?v=` を持つ他の製品のファイル 3 つは、最初の URL が YouTube でなく v1 でも `MyActivity`）。旧い印 `f3e578ff…` が他の製品のファイルを通していた経路は、本物の書庫には無い
+
+### 手 2: ガードをわざと壊す（複製で 18 変異。`cargo test -p ashiato-server archive`（184 本）を走らせた）
+- 落ちた（守られている）: N01 製品の名前を持たないファイルの枝を消す（21 本落ちる）/ N02 空の `details` を広告に数えない / N03 日本語の評価を末尾一致に戻す（R1 の退行）/ N04 YouTube の同一性から `products` を外す /
+  N05 混ざったファイルの `destinations` を消す / N06 読み直しで確認待ちの台帳の行を書かない / N07 読み直しで黙って飛ばす（D9 の 3 を戻す）/ N08 確認待ちの読み直しの `ledger_meta` を版で絞る /
+  N10 走査の経路で `languages: []` の断りを外す / N14 URL の無い「〜を視聴しました」を視聴へ（C5 を戻す）/ N17 YouTube 以外の同一性に `languages` を足す / N21 走査の輪から `refresh_pending_shapes` を外す /
+  N24 日本語の検索の決まり文句を落とす / N25 英語の `Watched ` を落とす / N26 英語の `Disliked ` を落とす
+- **生き残った**: N11（`reread_archive` の断り）→ R19 / N18（最初の製品 → 全製品）・N22（評価の判定から `watch?v=` の条件を外す）・N23（英語の `Searched for ` を落とす）→ R20
+- `tools/archive-shape.sh --confirm`: まっさらな DB に `languages: []` の YouTube の確認待ち（`3374…`）を 1 行入れて道具を当てると rc=1・stderr に「決まり文句の表に当たる言語が無い」・印 0 行。断りの節を消した複製（`/tmp/st47v/tools/archive-shape.sh`）は rc=0 で印を 1 行置く —— smoke の該当の段は rc と印の行数を見ているので、この複製では落ちる形
+- 移行の down: まっさらな scratch DB（`st47_down`。ORDER の全版を当てた）で down を当てると `c03-myactivity-youtube` が消え（0 行）、記録のある試験 DB では `NOTICE` を出して残る（1 行）。`core.source` を参照する外部キーは 7 表すべて `NO ACTION`。down の規則を固定する試験は無い（`registry_tests.rs` / `clock_tests.rs` / `places_tests.rs` は自分の down を試験している）が、拒みは外部キーが持つので R にはしない
+
+### 手 3: Scenario と test —— 印は全部ある（rc=0）
+- この change の Scenario 31 本の印の先を確かめた範囲: 変異で落ちた試験（N01〜N26 の失敗の一覧に出たもの）は、落ちたこと自体で THEN の主張を観測している。変異で落ちなかった Scenario の試験は本文を読んだ —— `2 経路の同じ視聴は…`（同じ時刻で 3 ソースとも数える）/ `先頭が YouTube の動画の他の製品…`（製品「検索」のソースの件数と YouTube の 3 ソース 0）/ `評価を持たない日本語の…`・`行き先ごとの件数が変わっただけでは…`（確認待ち 0・件数）/ `決まり文句の表が当たらない…`・`他の製品のファイルは YouTube の形の印では…`・`見分け方を変える前の…`（`yt_pending` が確認待ち 1 を待ってから件数 0）/ `YouTube 以外の形に置いた印は効いたまま`（バイト列の sha256）/ `分けた論理ソースの最終日…`（`status()` の `sources`）/ `消した滞在の時間帯の位置…`（`deleted_by`）/ `版の上げの後に…台帳の行は…`（`file_name`・`created_at`・`inbox_kind`）/ `読み直しても YouTube 以外…`（ソースごとの件数の前後）/ `その他のソースは 60 日…`。どれも THEN を観測している。弱いのは `他の製品のファイルは YouTube の形の印では格納されない` で、製品の名前が同一性に入るので見分けを誤っても確認待ちになり、見分けの誤りはこの試験では落ちない（見分けは `先頭が YouTube の動画の他の製品…` の route の試験と `kind_of` の単体試験が持つので R にはしない）
+- `形の確認の出力に YouTube の行き先ごとの件数が出る` は `shape_for_file` の JSON の層で見ている（道具の出力の層ではない）。道具の一覧は `archive_pending_shape.shape` を jsonb のまま出すので内容は同じだが、`destinations` が一覧に出ることを道具の出力まで見た試験は無い（smoke の一覧の照合は `"kind": "YouTube"` だけ）。等価なので R にはしない
+- 版の上げの 3 本（`…新しい形で一覧に出る` ほか）は前回の R5 の処置で走査の輪の試験（`archive_youtube_reparse_the_scan_loop_refreshes_pending_shapes`）を持ち、N21 で落ちる
+
+### 手 4: 本人の決定が test で固定されているか
+- 固定されている（値を変えると落ちる）: Q1 製品側にも同じ分け方（N14 で `…product_side_history_is_split_the_same_way` が落ちる）/ Q2 その他の名前（route 14 本）/ Q3 `details` の有無・空の配列（N02）/
+  Q4・Q9 日本語の評価は先頭（N03）・英語の評価 2 種（N26）・英語の視聴（N25）・日本語の検索（N24）/ Q6 同一性に製品の名前（N04）/ Q7 印を置けない（smoke の段・N10）/
+  Q8 どちらも新しい形の印を待つ（N06・N07・N08・N21）/ Q10 混ざったファイルの件数（N05）/ C2 60 日（まっさらな DB で `archive_youtube_other_source_registered` が 5184000 を見る）/ C6 旧い形の印（手 1 のバイト列）
+- **固定されていない**: Q6 の「**最初の**製品の名前」（N18）・spec (2) の「`watch?v=` の URL を持ち」（N22）・D4 の英語の検索の決まり文句（N23）→ R20。D6 の「3 経路とも」の 1 つ（N11）→ R19
+
+### 手 5: tasks の `[x]` と実体 —— 該当なし（確かめた範囲: `[x]` 13 項目の検証コマンドを HEAD で全部走らせ、CT は `-- --list` で本数を数えた。`cargo test --test` 型は無い。7.4・7.5 の rc=0 は GitHub の古い本文に対してのもの（R18））
+
+### 手 6: 隙間
+- 版の上げの読み直しが書庫の途中で落ちると、YouTube の確認待ちを含む書庫は二度と読み直されず、失敗も数えられない → R17（複製で再現）
+- 写しの後始末（`ingest_confirmed_pending` の `remove_file`）は `made_copy` の行だけを消す。D9 の 3 が積む確認待ちは `made_copy = false` なので、写しを残さない設定でもその写しは消えない（`worker.rs:1792-1805` と `record_pending_file(..., false)` を読んだ。ほかに写しを消す経路は `grep remove_file` で無い）
+- 写しが読めない・見分けられないファイルがあると `refresh_pending_shapes` は v2 の行を足さずに次の周でやり直す（`complete = false`）。失うものは無い
+
+## R17. 版の上げの読み直しが書庫の途中で落ちると、YouTube の確認待ちを含む書庫は二度と読み直されず、失敗も無言になる
+- 成果物: crates/server/src/archive/worker.rs:1630（`reread_archive` の輪の中の `record_pending_ledger_at`）/ worker.rs:1924（`reparse_older_versions` の `NOT EXISTS … outcome IN ('read','unreadable','pending_shape')`）/ worker.rs:1686 の `reread_archive` の注記「落ちたら Err で返し、いまの版の `read` の行を書かないので、版の読み直しは次の周の対象に残り」
+- 根拠: 複製（`/tmp/st47mut`）に再現の試験 `st47v_reparse_retry_after_failure` を足して実行。v1 の `read` の行と写しを持つ書庫に、検索のマイアクティビティ（印あり）を置き、`core.event` の BEFORE INSERT トリガでその 1 行の格納を 1 回だけ落とし、トリガを外して `reparse_older_versions` をもう 1 周回した。
+  YouTube のファイルを**含まない**書庫は `(格納 1, v2 の read 1, v2 の pending_shape 0)` —— 次の周で読み直された。YouTube のファイル（v2 では確認待ち）を**含む**書庫は `(0, 0, 1)` —— 輪の中で先に書いた v2 の `pending_shape` の行が `NOT EXISTS` に当たり、次の周の対象から外れた。
+  さらに新しい YouTube の形に印を置いて `reparse_older_versions` / `refresh_pending_shapes` / `ingest_confirmed_pending` を 2 周回すと、視聴 1 件が入り v2 の `read` の行ができる（`(0, 1, 1)`）が、検索のファイルは読まれないまま「v2 で読んだ」書庫になる（`ingest_confirmed_pending` は確認待ちの写しだけを渡す）。
+  `count_reread_failure` は 1 回目で止まり 3 回目の `store_failed` に届かないので、稼働状況の箱にも出ない。プロセスが輪の途中で落ちたとき（再起動）も同じ状態になる。
+  ST47 の移行そのものでは、読み直されないファイルの行は v1 で既に入っていて内容の鍵で同じ行に当たるので、**記録は失われない**。失われるのは読み直しの再試行（消した滞在の時間帯の印付けのやり直しを含む）と、次に論理ソースを変える版の上げでの読み直し。既存の `archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled` は Timeline だけの書庫で、確認待ちを含む書庫の失敗を見ていない
+- kind: technical
+- 提案: `record_pending_ledger_at` を輪の外へ出し、`read` の行を書くのと同じ成功の経路の末尾で書く（確認待ちの行 `record_pending_file` は `ON CONFLICT` で冪等なので、輪の中に残してよい）。上の再現を試験にして、YouTube の確認待ちを含む書庫でも落ちた次の周で読み直されることを固定する
+
+## R18. PR #93 の head と本文が、検証した HEAD より 4 commit 古い（draft でない）
+- 成果物: PR #93 / docs/briefs/ST47-pr.md / crates/server/src/archive/worker.rs・tools/smoke.sh（cf8597e9）
+- 根拠: `gh pr list --head feat/st47-youtube-myactivity-split` → `headRefOid 89d57287…`・`isDraft false`。`git rev-list --count 89d57287..HEAD` = 4（cf8597e9 R14・R15 のコードの fix、3f2eb3ce evidence、c783872d・6e3b0adf の記録）。
+  `gh pr view --json body` と `docs/briefs/ST47-pr.md` の diff: GitHub の本文は「14 項目のうち 11 項目が `[x]`」「7.1 の最新の PASS は a63f638」のままで、R13 の 1 行（tasks 1.1 の本文が古い）が無い。7.4・7.5 の検証は rc=0 だがこの古い本文に対して
+- kind: daily
+- 提案: merge の前に HEAD を push し、`docs/briefs/ST47-pr.md` を PR 本文へ写す（`gh pr edit` は Projects の GraphQL で落ちるので REST の PATCH）。そのうえで 7.4・7.5 を取り直す
+
+## R19. design D6 の「断りは 3 経路とも」のうち、`reread_archive`（版の読み直し）側は外しても試験が通る
+- 成果物: crates/server/src/archive/worker.rs:1611（`reread_archive` の `is_file_shape_confirmed`）/ design D6 の「置き場の走査・写しからの読み直し・確認待ちの読み直しの 3 経路とも」
+- 根拠: 複製で `is_file_shape_confirmed(pool, user_id, &shape)` を `is_shape_confirmed(pool, user_id, &hash_shape(&shape))` に戻した変異 N11 で `cargo test -p ashiato-server archive` が 184 passed / 0 failed。確認待ちの読み直しは SQL 側（`confirmed_pending_copies` の `AND NOT …`）が二重に守るが、`reparse_older_versions` → `reread_archive(..., true)` の経路は N11 だけが守っていて、その試験が無い（`archive_youtube_shape_a_mark_on_an_unrecognized_language_does_not_store` は走査の経路だけ。N10 で落ちる）。
+  起きるのは、v1 で読み終えた書庫の YouTube のファイルが表に無い言語で、`3374…`（`languages: []`）に印がある場合（道具は断るので、ハッシュを一覧の外で知って印を置いたときだけ）
+- kind: technical
+- 提案: `archive_youtube_reparse_read_archive_waits_for_the_new_mark` と同じ組み立てで、決まり文句の当たらない YouTube のファイルの写し + v1 の `read` の行 + `languages: []` の形の印を置き、`reparse_older_versions` の後も視聴・検索・その他が 0 で確認待ちに積まれることを見る試験を 1 本足す
+
+## R20. spec の細部 3 つが、値を変えても全部の試験を通る（最初の製品・評価は `watch?v=` を持つものだけ・英語の検索の決まり文句）
+- 成果物: crates/server/src/archive/classify.rs:93（`kind_of` の `products.first()`）/ worker.rs:767（`youtube_route` の `url.contains("watch?v=") && is_rating`）/ youtube.rs（`en` の `recognition` の `"Searched for "`）/ spec の「項目の最初の製品の名前がどれも「YouTube」」「(2) `watch?v=` の URL を持ち、題名が…評価の決まり文句」/ design D4 の表
+- 根拠: 複製の変異で、どれも `cargo test -p ashiato-server archive` 184 passed / 0 failed —— N18（`kind_of` が項目の**全部の**製品の名前を集める）/ N22（評価の判定から `watch?v=` の条件を外す）/ N23（英語の認識から `Searched for ` を落とす）。
+  本物の書庫での影響を数えた（`/tmp/st47v/multi.py`）: 製品の名前を 2 つ以上持つ項目は全ファイルで 0 件、`watch?v=` を持たずに評価の決まり文句で始まる題名は 0 件。英語は本物で確かめていない（D4（仮））。
+  N18 が入ると、2 つ目に「YouTube」を持つ他の製品のファイルの見分けが変わる。N22 は行き先が同じ `c03-myactivity-youtube` なので形の一覧の `rating` の内訳だけが変わる。N23 は英語の検索だけのファイルが `languages: []` になって印を置けなくなる（失うものは無い側）
+- kind: technical
+- 提案: `kind_of` の単体試験に `products: ["検索", "YouTube"]` の項目だけのファイルが `MyActivity` になる材料を 1 つ、route の試験に「`高く評価しました ` で始まりコミュニティ投稿の URL を持つ項目は `rating` に数えない」を 1 件、phrase の試験に `Searched for x` だけのファイルが `["en"]` になる assert を 1 つ足す
