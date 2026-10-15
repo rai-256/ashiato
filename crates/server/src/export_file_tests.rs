@@ -23,13 +23,14 @@ use crate::testdb;
 /// 書き出しに渡す合言葉（`export_tests::pass()` と同じ）。テストの中だけに置く。
 const PASS: &str = "pw-for-test-0123456789";
 
-/// D7 の 12 個の項目。
-const ENTRIES: [&str; 12] = [
+/// D7 の 13 個の項目。
+const ENTRIES: [&str; 13] = [
     "events.jsonl",
     "event_versions.jsonl",
     "sources.jsonl",
     "attribute_kinds.jsonl",
     "attribute_kind_names.jsonl",
+    "places.jsonl",
     "stay_criteria.jsonl",
     "heartbeats.jsonl",
     "coverage_spans.jsonl",
@@ -404,6 +405,7 @@ async fn export_file_rows_dictionaries_and_coverage_sources_are_present() {
     for file in [
         "attribute_kinds.jsonl",
         "attribute_kind_names.jsonl",
+        "places.jsonl",
         "stay_criteria.jsonl",
         "drop_report_hours.jsonl",
     ] {
@@ -490,7 +492,7 @@ async fn export_zip_every_entry_is_aes_256() {
     let pool = testdb::pool().await;
     let file = export_into(&pool, ExportConfig::with_dir(tmp_dir("aes"))).await;
     let mut z = open(&file);
-    assert_eq!(z.len(), 12);
+    assert_eq!(z.len(), ENTRIES.len());
     for i in 0..z.len() {
         let info = z
             .get_aes_verification_key_and_salt(i)
@@ -663,7 +665,7 @@ async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
     let readme = text(&path, "README.txt");
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let files = manifest["files"].as_array().unwrap();
-    assert_eq!(files.len(), 10);
+    assert_eq!(files.len(), ENTRIES.len() - 2); // README.txt と manifest.json の 2 つを除く
     for f in files {
         let name = f["name"].as_str().unwrap();
         assert!(readme.contains(name), "{name} が説明書に無い");

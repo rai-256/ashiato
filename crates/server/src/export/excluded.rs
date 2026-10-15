@@ -68,6 +68,8 @@ pub const SPAN_NEXT_SOURCES: &[&str] = &[
     "c02-browser-history",
     // 滞在（`end` で (a)）
     "s01-stay",
+    // 場所の記録（ST21）。本人が書いた時点の 1 点だと収集側の型で確かめていないので (c) のまま
+    "s01-place",
     // 書庫の取り込み口の印（記録を持たない）
     "s01-archive-inbox",
     // 書庫の区間（`end_time` で (a)。`archive::INTERVAL_SOURCES`）
@@ -114,6 +116,8 @@ pub const COORD_SOURCES: &[&str] = &[
     "c01-location",
     "c01-photo",
     "s01-stay",
+    // 場所の記録（ST21。payload に場所の中心の緯度経度）
+    "s01-place",
     // 書庫の取り込み口の印（記録を持たない。確かめた Story が無いので持つ側）
     "s01-archive-inbox",
     // 書庫の位置と区間（`archive::LOCATION_SOURCES`）

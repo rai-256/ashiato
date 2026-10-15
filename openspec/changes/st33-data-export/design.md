@@ -27,6 +27,7 @@
 **main に入ったもの**: ST12（`c03-*` の論理ソースと `core.archive_*` の 8 表。2026-10-13 に archive）。分類は D8 に足した。
 **まだ main に無いもの**: ST21（`core.place`・`s01-place`）、ST17（`s01-feeling`）、ST25。
 下流が始まる時点で入っていれば、D8 の分類の検査が名前を挙げて落ちるので、そこで分類を足す（分類の規則は D8 にある。`s01-feeling` の扱いは `docs/handoff/ST33.md` の C1）。
+★ 2026-10-16（下流・merge gate の rebase）: ST21 が main に入り、分類の検査が `core.place` と `s01-place` を名前で挙げて落ちた。`core.place` は `Include`（`places.jsonl`。D7）、`s01-place` は緯度経度を持つ側（D5a。payload に `lat` / `lon`）・幅は既定の (c)（D5b。1 点と確かめていない）に置いた。
 
 ## Goals / Non-Goals
 
@@ -241,6 +242,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `event_versions.jsonl` | `core.event_version_live`（D5 で除いた残り） | `txid`（DB の内部の値。ビューにも無い）。ビューが足す親の `sensitivity` / `origin` / `external_id` も出さない（表の列ではない。親は `events.jsonl` にある。spec-review R10） |
 | `sources.jsonl` | `core.source` | なし |
 | `attribute_kinds.jsonl` / `attribute_kind_names.jsonl` | `core.attribute_kind` / `core.attribute_kind_name` | なし |
+| `places.jsonl` | `core.place`（場所の器。★ 2026-10-16 下流: main に入った ST21 の表を D8 の規則で足した。`attribute_kind` と同じく記録を束ねる器で、座標と名前は `events.jsonl` の `s01-place` にある） | なし |
 | `stay_criteria.jsonl` | `core.stay_criteria` | なし |
 | `heartbeats.jsonl` | `core.heartbeat` | `attempts` / `successes` / `raw` / `content_hash`（C15。`content_hash` は回数を含む原文のハッシュなので一緒に外す） |
 | `coverage_spans.jsonl` | `core.coverage_span` | なし |
@@ -248,7 +250,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `README.txt` | 説明書（D9） | —— |
 | `manifest.json` | 目録（D9） | —— |
 
-上の 12 個の項目は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
+上の 13 個の項目（★ 2026-10-16: ST21 の `places.jsonl` で 12 → 13）は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
 項目の名前は上の固定の名前だけ（記録の値を含まない）。zip の注記は `ashiato-export <export_id>` だけ（D16 が前のファイルを見分けるのに読む。暗号化されない）。
 `events.jsonl` は 4 GiB を超えうる（3 年・上限で 17 GB 前後。deep.md 手順 4）ので、項目は `large_file(true)`（ZIP64）で書く。
 

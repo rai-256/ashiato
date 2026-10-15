@@ -446,7 +446,11 @@ async fn export_ledger_rows_start_and_finish_are_appended() {
         "始まりの行の名前は実際に付けた名前と同じ"
     );
     let sizes = finish.rows.as_ref().unwrap().as_object().unwrap();
-    assert_eq!(sizes.len(), 10, "表ごとの行の数: {sizes:?}");
+    let included = export::CATALOG
+        .iter()
+        .filter(|(_, c)| matches!(c, export::Class::Include { .. }))
+        .count();
+    assert_eq!(sizes.len(), included, "表ごとの行の数: {sizes:?}");
     assert_eq!(
         finish.bytes,
         Some(std::fs::metadata(&file).unwrap().len() as i64)

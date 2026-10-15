@@ -238,6 +238,14 @@ const ATTRIBUTE_KIND_COLUMNS: &[(&str, &str)] = &[
     ("created_at", "作った時刻（UTC）"),
 ];
 
+/// 場所の器（ST21）。座標も名前も持たない —— 場所の名前と座標は場所の記録（`events.jsonl` の `s01-place`）にある。
+const PLACE_COLUMNS: &[(&str, &str)] = &[
+    ("id", "場所の識別子（場所の記録が指す）"),
+    ("seq", "作った順の番号"),
+    ("user_id", "利用者の識別子"),
+    ("created_at", "作った時刻（UTC）"),
+];
+
 const ATTRIBUTE_KIND_NAME_COLUMNS: &[(&str, &str)] = &[
     ("id", "名前の識別子"),
     ("kind_id", "属性の種類の識別子"),
@@ -345,6 +353,15 @@ pub const CATALOG: &[(&str, Class)] = &[
             view: "attribute_kind_name",
             excluded_columns: &[],
             columns: ATTRIBUTE_KIND_NAME_COLUMNS,
+        },
+    ),
+    (
+        "place",
+        Class::Include {
+            file: "places.jsonl",
+            view: "place",
+            excluded_columns: &[],
+            columns: PLACE_COLUMNS,
         },
     ),
     (
