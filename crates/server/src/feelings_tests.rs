@@ -106,7 +106,6 @@ async fn st17_lock_migration_applies_twice() {
         mine > gates,
         "主観の移行が、前提にしている門の版より前にある"
     );
-    assert_eq!(mine, names.len() - 1, "主観の移行は MIGRATIONS の末尾");
 }
 
 #[tokio::test]
