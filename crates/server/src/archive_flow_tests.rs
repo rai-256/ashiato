@@ -5145,14 +5145,20 @@ async fn archive_youtube_reparse_the_scan_loop_refreshes_pending_shapes() {
         1
     );
 
-    // 新しい形に印を置くと、次の走査で読む。
+    // 新しい形に印を置くと、次の走査で読む。確認待ちから外すのは格納の commit の後の
+    // 別の文なので、件数が揃っただけでは外し終えていない（CI run 38982662263 で 1 が残った）。
     confirm_hash(&inbox, &new_hash).await;
     inbox
         .until("新しい形の印で読まれない", || async {
             yt_counts(&inbox).await == (2, 0, 0)
         })
         .await;
-    assert_eq!(pending_files(&inbox).await, 0);
+    inbox
+        .until(
+            "読み終えたファイルが確認待ちから外れない",
+            || async { pending_files(&inbox).await == 0 },
+        )
+        .await;
 }
 
 // Scenario: 読み終えた書庫の新しい形に印の無いファイルは版の上げで確認待ちになる
