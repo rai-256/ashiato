@@ -149,11 +149,12 @@ code=$(curl -s -H "authorization: Bearer wrong-token-0123456789abcdef" \
 echo "== 9b. 合成の Takeout を形の確認後に読み、別名の再配置では増やさない（ST12）"
 ARCHIVE_FIXTURE="$ARCHIVE_ROOT/fixture"
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube"
-printf '%s' '[{"time":"2026-09-12T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke"}]' \
+printf '%s' '[{"time":"2026-09-12T03:00:00Z","title":"smoke を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke","products":["YouTube"]}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube/watch-history.json"
+# 題名は日本語の決まり文句（視聴しました）、`products` は YouTube。言語の当たらない形には印を置けない（ST47 / D6・D10）。
 # **同じ形のファイルを 2 つ**（分割書庫の別の場所にある視聴履歴）。印が形ごとに 1 行であることを見る（R49）
 mkdir -p "$ARCHIVE_FIXTURE/Takeout/YouTube 2"
-printf '%s' '[{"time":"2026-09-11T03:00:00Z","titleUrl":"https://www.youtube.com/watch?v=smoke2"}]' \
+printf '%s' '[{"time":"2026-09-11T03:00:00Z","title":"smoke2 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=smoke2","products":["YouTube"]}]' \
   > "$ARCHIVE_FIXTURE/Takeout/YouTube 2/watch-history.json"
 (cd "$ARCHIVE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-smoke.zip" Takeout)
 for _ in $(seq 1 15); do
@@ -167,7 +168,7 @@ done
 # 引数なしの一覧（本人が最初に叩く形）。`-c` で渡していたときは必ず構文エラーで落ちた（R49）
 listing=$(tools/archive-shape.sh) || { echo "形の一覧が落ちる"; exit 1; }
 printf '%s' "$listing" | grep -q "$SHAPE" || { echo "形の一覧に確認待ちの形が出ない: $listing"; exit 1; }
-printf '%s' "$listing" | grep -q 'YouTubeWatch' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
+printf '%s' "$listing" | grep -Eq '"kind": ?"YouTube"' || { echo "形の一覧に見分けた中身が出ない: $listing"; exit 1; }
 tools/archive-shape.sh --confirm "$SHAPE"
 marks=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
   -c "SELECT count(*) FROM core.archive_shape_confirmation WHERE user_id = '$ARCHIVE_USER'::uuid AND shape_hash = '$SHAPE'")
@@ -188,6 +189,33 @@ sleep 3
 after=$(curl -sf "${AUTH[@]}" "http://$BIND/coverage?from=2026-09-12&to=2026-09-12&user_id=$ARCHIVE_USER" | jq '[.[] | .days[] | .event_count] | add')
 [ "$before" = "$after" ] || { echo "別名の同じ書庫で稼働状況の件数が増えた: $before -> $after"; exit 1; }
 echo "   → 最終日 2026-09-12 / 件数 $after（別名でも不変）"
+
+# Scenario: 決まり文句の当たらない YouTube の形には印を置けない
+echo "== Scenario: 決まり文句の当たらない YouTube の形には印を置けない"
+NOPHRASE_FIXTURE="$ARCHIVE_ROOT/fixture-nophrase"
+mkdir -p "$NOPHRASE_FIXTURE/Takeout/YouTube"
+printf '%s' '[{"time":"2026-09-10T03:00:00Z","title":"Look at this","titleUrl":"https://www.youtube.com/watch?v=nophrase"}]' \
+  > "$NOPHRASE_FIXTURE/Takeout/YouTube/watch-history.json"
+(cd "$NOPHRASE_FIXTURE" && zip -q -r "$ASHIATO_INBOX_DIR/takeout-nophrase.zip" Takeout)
+for _ in $(seq 1 15); do
+  NOPHRASE=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato \
+    -c "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = '$ARCHIVE_USER'::uuid AND shape->'languages' = '[]'::jsonb LIMIT 1")
+  [ -n "$NOPHRASE" ] && break
+  sleep 1
+done
+[ -n "${NOPHRASE:-}" ] || { echo "言語の当たらない YouTube の形が確認待ちにならない"; exit 1; }
+marks_before=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM core.archive_shape_confirmation")
+# 理由の控えは worktree ごとに別の場所へ（固定の /tmp だと並走する worktree の smoke と取り合う）。
+# $ARCHIVE_ROOT は mktemp -d で、cleanup が消す。
+NOPHRASE_ERR="$ARCHIVE_ROOT/nophrase.err"
+if tools/archive-shape.sh --confirm "$NOPHRASE" 2>"$NOPHRASE_ERR"; then
+  echo "言語の当たらない YouTube の形に印が置けてしまう"; exit 1
+fi
+grep -q '決まり文句' "$NOPHRASE_ERR" || { echo "断る理由が出ない: $(cat "$NOPHRASE_ERR")"; exit 1; }
+marks_after=$(docker compose exec -T db psql -qtA -U ashiato -d ashiato -c "SELECT count(*) FROM core.archive_shape_confirmation")
+[ "$marks_before" = "$marks_after" ] || { echo "断ったのに印の表の行が増えた: $marks_before -> $marks_after"; exit 1; }
+tools/archive-shape.sh | grep -q "$NOPHRASE" || { echo "断った形が確認待ちから消えた"; exit 1; }
+echo "   → 印を置かずに断り、確認待ちのまま"
 
 
 
