@@ -84,7 +84,7 @@
 
 | Story | 状態 | 重なり | 扱い |
 |---|---|---|---|
-| ST25（`browsing-views`） | 下流が走っている | **同じ capability**。1 日の画面（`web/src/DayView.tsx` まわり）を ST25 が組み替える | ST17 の `browsing-views` は ADDED 1 本で ST25 の要件を名指ししない（頭の欄は並びの外に置く）。**ST17 の下流は admission が ST25 の archive を待つ**（`INDEX.md` の訂正 2026-10-07）。走っている ST25 へは差し戻さない |
+| ST25（`browsing-views`） | 下流が走っている | **同じ capability**。1 日の画面（`web/src/DayView.tsx` まわり）を ST25 が組み替える | ST17 の `browsing-views` は ADDED 1 本で ST25 の要件を名指ししない（頭の欄は並びの外に置く）。**ST17 の下流は ST25 の gate を通った実装を取り込んでから始める**（`requires` に ST25。archive は待たない。`INDEX.md` の訂正 2026-10-12）。走っている ST25 へは差し戻さない |
 | ST21（`personal-entities`） | 下流が走っている | capability は重ならない。同じファイルに追記する: `crates/server/src/lib.rs`（`MIGRATIONS` と route）/ `docs/openapi.json` / `web/src/Root.tsx` / `tools/*.sh` | 移行の名前は作成時刻で取り合わない。追記どうしなので、後から merge する側が追従する |
 | ST08（`desktop-collection`）/ ST12（`external-ingestion`, `collection-coverage`） | 下流が走っている | capability は重ならない。`lib.rs` / `docs/openapi.json` / 登録簿の行の追記だけ | 同上 |
 | ST18 / ST24 / ST26 | 待ち（requires に ST17） | この Story の器・感度・ひとことに積む | 上の「後続へ」 |

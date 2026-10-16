@@ -28,6 +28,9 @@
          打ち切られたときの備えは LocationService.onTimeout（畳んで落ちない）。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ST17: 再起動の後に通知の予約を戻す（実行時の確認の要らない権限）。
+         **正確な時刻の権限（SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM）は宣言しない** —— 15 分の窓で足りる（design D10） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- FR-2 アプリ利用。**特別なアクセス**（設定アプリで本人が許す）なので、
          宣言しただけでは付かない —— 宣言が無いと設定画面の一覧にすら出ない -->
@@ -73,5 +76,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="continuous personal life-log collection (FR-1 / FR-2)" />
         </service>
+
+        <!-- ST17 design D10: 毎日の気分の通知。収集の経路（LocationService）とは別の受け手 -->
+        <receiver
+            android:name=".FeelingReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".FeelingReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

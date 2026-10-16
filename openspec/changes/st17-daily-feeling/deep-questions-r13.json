@@ -1,0 +1,21 @@
+{
+  "title": "ST17 whole-branch review の深掘り",
+  "subtitle": "11.3（通知の計測テスト）の検証コマンドが成立しない",
+  "note": "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。",
+  "questions": [
+    {
+      "id": "QR1",
+      "topic": "11.3 の検証コマンド",
+      "kind": "premise",
+      "question": "tasks.md 11.3 の検証「AT FeelingReminderInstrumentedTest」は、ハーネスが走らせられない形でした。11.3 はこれまで証跡 0 件のまま [x] になっています。検証コマンドをどう直しますか。",
+      "why": "既決の前提（tasks.md の検証コマンドがそのまま走る）が事実と違った。証跡 0 件の [x] を Task gate・mark・evidence check --story のどれも止めていない。",
+      "context": "原因は 3 つ。(1) 略記 AT の展開先は find で始まる 1 行だけで、evidence.py はそれを検証コマンドと認めない（declared が空。verify-run 11.3 は rc=2「本文に検証コマンドが無い」）。(2) find の名前の型 TEST-*FeelingReminderInstrumentedTest*.xml は、実際の結果ファイル名 TEST-ashiato-api35(AVD) - 15-_app-.xml（端末ごとの 1 ファイルで、クラス名を持たない）に合わない。(3) tools/android-emulator.sh は 2 段目が同じ名前の結果ファイルを上書きするので、全体を走らせた後の XML には 1 段目のクラスが残らない。計測テストそのものは通っている（今日 10:50 に Task 11 が手で絞って走らせた結果: 3 本・失敗 0）が、R11 でタイムアウトを直す前のコードで、過去の測定値なので完了の証跡にはならない。どちらを選んでも plan_fix.py は、旧コマンドが declared に入っていて FAIL の証跡があることを要求するので、そのままでは使えない。harness2 側の直しも合わせて承認してもらうことになる。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {"label": "段ごとに結果を残し、クラス名で数える", "detail": "tools/android-emulator.sh が 1 段目の結果の XML を別の名前で残すように直す。11.3 の検証は「tools/android-emulator.sh rc=0 かつ、残した XML に classname=\"dev.ashiato.collector.FeelingReminderInstrumentedTest\" の testcase が 1 本以上」にする。0 本では通らない守りが残る。harness2 は、declared が空の項目を plan_fix が受けられるようにする", "recommended": true},
+        {"label": "tools/android-emulator.sh の rc=0 だけにする", "detail": "全体の計測テストが緑なら通す。道具は変えない。0 本でも通る（クラスが走ったかは見ない）"}
+      ]
+    }
+  ]
+}
