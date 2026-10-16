@@ -65,16 +65,20 @@ NFR-12 が「収集に手作業を要さない」と定めているので既定�
   "rules": [
     { "match": "process-name",   "value": "1password.exe" },
     { "match": "exe-path",       "value": "C:\\Program Files\\KeePassXC\\KeePassXC.exe" },
-    { "match": "title-contains", "value": "シークレット" }
+    { "match": "title-contains", "value": "シークレット" },
+    { "match": "url-contains", "value": "accounts.example.test" },
+    { "match": "browser-profile", "browser": "chrome", "profile": "Profile 1" }
   ]
 }
 ```
 
 | `match` | 当たり方 |
 |---|---|
-| `exe-path` | 実行ファイルのパスの完全一致（大文字小文字を無視） |
+| `exe-path` | 実行ファイルのパスの完全一致（大文字小文字を無視）。ブラウザ履歴には**ファイル名部分**（`chrome.exe` など）で当たり、そのブラウザの全プロファイルを除外する |
 | `process-name` | プロセス名の完全一致（同上） |
 | `title-contains` | ウィンドウ題名の部分一致（同じソフトの中の一部の窓だけ落とす） |
+| `url-contains` | URL の部分一致。前景では題名なども含めてその変化全体を除外し、履歴にも効く |
+| `browser-profile` | ブラウザ履歴の指定ブラウザ・プロファイルだけを除外（前景には当てない）。`browser` は `chrome` / `edge` / `brave` / `vivaldi` / `opera` / `firefox`、`profile` は**プロファイルのディレクトリ名**（Chromium 系は `Default` / `Profile 1` など、Firefox は `Profiles` の下の `xxxxxxxx.default-release` など）。ブラウザの画面に出る表示名（「仕事」など）では当たらない |
 
 除外された間は**アプリ名も題名も URL も記録されず、取り込み口へも送られない**。
 残るのは「除外が起きたこと」と**その件数**だけ（`kind: "excluded"`）——
