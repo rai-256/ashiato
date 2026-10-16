@@ -229,6 +229,12 @@ const SOURCE_COLUMNS: &[(&str, &str)] = &[
     ("retired_on", "収集をやめた日"),
     ("succeeds", "引き継ぎ元のソース"),
     ("external_id_kind", "外部の識別子の種類"),
+    ("outage_target", "収集の途切れを判定する対象か"),
+    (
+        "alert_after_days",
+        "途切れを知らせるまでの日数（空なら想定される最大の無通信間隔の 3 倍）",
+    ),
+    ("started_on_from", "収集を始めた日を借りる先のソース"),
 ];
 
 const ATTRIBUTE_KIND_COLUMNS: &[(&str, &str)] = &[
@@ -244,6 +250,21 @@ const PLACE_COLUMNS: &[(&str, &str)] = &[
     ("seq", "作った順の番号"),
     ("user_id", "利用者の識別子"),
     ("created_at", "作った時刻（UTC）"),
+];
+
+/// 主観の記録の紐づけ先の種類の登録簿（ST17）。主観の記録そのものは `events.jsonl` の `s01-feeling` にある。
+const FEELING_TARGET_KIND_COLUMNS: &[(&str, &str)] = &[
+    ("kind", "紐づけ先の種類の名前（主観の記録の `target.kind`）"),
+    ("label", "表示名"),
+    ("created_at", "登録した時刻（UTC）"),
+];
+
+/// 主観の記録を促す通知の時刻（ST17）。追記のみで、利用者ごとに `id` が最大の行がいまの時刻。
+const FEELING_REMINDER_COLUMNS: &[(&str, &str)] = &[
+    ("id", "通知の時刻の識別子（大きいほど新しい）"),
+    ("user_id", "利用者の識別子"),
+    ("at", "通知を出す時刻（時:分:秒。日付と時差は持たない）"),
+    ("created_at", "決めた時刻（UTC）"),
 ];
 
 const ATTRIBUTE_KIND_NAME_COLUMNS: &[(&str, &str)] = &[
@@ -365,6 +386,24 @@ pub const CATALOG: &[(&str, Class)] = &[
         },
     ),
     (
+        "feeling_target_kind",
+        Class::Include {
+            file: "feeling_target_kinds.jsonl",
+            view: "feeling_target_kind",
+            excluded_columns: &[],
+            columns: FEELING_TARGET_KIND_COLUMNS,
+        },
+    ),
+    (
+        "feeling_reminder",
+        Class::Include {
+            file: "feeling_reminders.jsonl",
+            view: "feeling_reminder",
+            excluded_columns: &[],
+            columns: FEELING_REMINDER_COLUMNS,
+        },
+    ),
+    (
         "stay_criteria",
         Class::Include {
             file: "stay_criteria.jsonl",
@@ -413,6 +452,12 @@ pub const CATALOG: &[(&str, Class)] = &[
         "coverage",
         Class::Exclude {
             reason: "稼働状況の導出（削除済みの記録も数えているため）",
+        },
+    ),
+    (
+        "outage_ledger",
+        Class::Exclude {
+            reason: "収集の途切れの判定と通知の台帳（稼働の信号からの導出）",
         },
     ),
     (

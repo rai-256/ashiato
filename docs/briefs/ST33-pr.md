@@ -42,6 +42,16 @@ gate の rebase が `crates/server/src/lib.rs`（`MIGRATIONS`）と `tools/check
 - **ST25 の画面**: ルートが 1 日の画面になり S-1 は `#/coverage` へ移った。設定への入口（S-1 の見出しの行）を見る e2e と単体試験を `#/coverage` から開くようにした。`Root.tsx` の振り分けに `#/settings` を残した
 - **契約の名前**: `export::Summary` が ST25 の `day::Summary` と同じ名前で、openapi では片方が黙って上書きされる。`ExportSummary` にして `docs/openapi.json` を生成し直した
 
+## main への rebase（2026-10-17。merge gate が衝突で落ちた 2 回目）
+
+main に ST17（主観）・ST14（途切れの通知）・ST08・ST47 が入り、gate の rebase が `crates/server/src/lib.rs` と `tools/check-immutable.sh` で衝突した。rebase して解き、合わさって初めて出た食い違いを直した:
+
+- **衝突**: `lib.rs` は mod の並びと `App` の欄（ST14 の `started` / `warmup` と ST33 の `export` / `exports`）を両方残した。`check-immutable.sh` の戻しの検査は ORDER の逆順に ST33 → ST17 → ST21 と戻す（本体の途中の既存の節）。`docs/openapi.json` は衝突のたびに生成し直した。`Root.tsx` は `#/feel` と `#/settings` の両方を残した
+- **ST17・ST14 の表と列**: 書き出しが「分類の無いもの: 表 feeling_reminder, 表 feeling_target_kind, 表 outage_ledger, 列 source.outage_target, 列 source.alert_after_days, 列 source.started_on_from」で全部落ちた（D8 の検査が狙いどおり名前を挙げた）。`feeling_target_kind`（紐づけ先の種類の登録簿）と `feeling_reminder`（本人が決めた通知の時刻）は `Include`（`feeling_target_kinds.jsonl`・`feeling_reminders.jsonl`。D7 の項目は 13 → 15）、`outage_ledger`（途切れの判定と通知の台帳。稼働の信号からの導出）は `coverage` と同じく `Exclude`、`source` の 3 列は `sources.jsonl` に出す
+- **`s01-feeling`（handoff C1）**: 緯度経度を持たない側（D5a）に置いた。幅は紐づけ先で読む規則を足さず既定の (c)（D5b）のまま —— 幅が効くのはひとことに座標の並びを書いた行だけで、(c) は除き過ぎの側（C21。書き出し直せば戻る）。**本人に見てほしい点**（紐づけ先で読む規則にするなら `SpanRule` に変種を足す）
+- 項目数を `13` の固定値で持っていた `export_dir_writes_under_the_chosen_dir` は `CATALOG` の `Include` から数える形にした
+- まっさらな DB で `cargo test -p ashiato-server` rc=0（1210 本）。ただし 59 分かかった —— 書き出しの量の試験（2 万行）の行が共有の DB に残り、後に走る書き出しの試験が毎回それを判定し直すため（前からある形）
+
 ## Task
 
 10 Task（32 項目）すべて `[x]`。残した Task は無い（`ci` / `human` の残りも無し）。Scenario 98 本（サーバ 77 は Rust、画面 21 は `web/e2e`）。

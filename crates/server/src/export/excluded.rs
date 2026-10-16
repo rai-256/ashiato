@@ -70,6 +70,9 @@ pub const SPAN_NEXT_SOURCES: &[&str] = &[
     "s01-stay",
     // 場所の記録（ST21）。本人が書いた時点の 1 点だと収集側の型で確かめていないので (c) のまま
     "s01-place",
+    // 主観の記録（ST17）。紐づけ先（日・滞在）で幅を読む規則は持たず (c) のまま（handoff C1。緯度経度を持たない側なので、
+    // 幅が効くのはひとことに座標の並びを書いた行だけ。除き過ぎの側）
+    "s01-feeling",
     // 書庫の取り込み口の印（記録を持たない）
     "s01-archive-inbox",
     // 書庫の区間（`end_time` で (a)。`archive::INTERVAL_SOURCES`）
@@ -94,7 +97,7 @@ pub const ARCHIVE_PRODUCT_PREFIX: &str = "c03-myactivity-";
 /// 緯度経度を持たないと決まったソース（D5a (1)）。**ここに無いソースは緯度経度を持つとみなす**（既定は厳しい側）。
 /// 足すのは、そのソースの payload に座標の項目が無いことを収集側の型で確かめた Story だけ（理由を隣に書く）。
 /// `c01-location` / `s01-stay` / `c01-photo` / `c03-*` / `s01-place` は入れない。
-pub const NO_COORD_SOURCES: [&str; 6] = [
+pub const NO_COORD_SOURCES: [&str; 7] = [
     // 前景のアプリの名前と時間だけ
     "c01-app-usage",
     "c01-app-usage-rollup",
@@ -106,6 +109,8 @@ pub const NO_COORD_SOURCES: [&str; 6] = [
     "c02-browser-history",
     // 個人属性（本人が書いた時点と値）
     "s01-attribute",
+    // 主観の記録（ST17。`feelings::parse_feeling` の内容は尺度・紐づけ先・ひとことだけ。ひとことの中の座標は D5a (3) が拾う）
+    "s01-feeling",
 ];
 
 /// 緯度経度を持つと**決めた**ソース（D5a (1) の反対側）。**SQL はこれを読まない** —— `NO_COORD_SOURCES` に無い

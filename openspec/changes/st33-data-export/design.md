@@ -28,6 +28,7 @@
 **まだ main に無いもの**: ST21（`core.place`・`s01-place`）、ST17（`s01-feeling`）、ST25。
 下流が始まる時点で入っていれば、D8 の分類の検査が名前を挙げて落ちるので、そこで分類を足す（分類の規則は D8 にある。`s01-feeling` の扱いは `docs/handoff/ST33.md` の C1）。
 ★ 2026-10-16（下流・merge gate の rebase）: ST21 が main に入り、分類の検査が `core.place` と `s01-place` を名前で挙げて落ちた。`core.place` は `Include`（`places.jsonl`。D7）、`s01-place` は緯度経度を持つ側（D5a。payload に `lat` / `lon`）・幅は既定の (c)（D5b。1 点と確かめていない）に置いた。
+★ 2026-10-17（下流・merge gate の rebase）: ST17・ST14 が main に入り、分類の検査が `core.feeling_target_kind`・`core.feeling_reminder`・`core.outage_ledger` と `core.source` の 3 列（`outage_target`・`alert_after_days`・`started_on_from`）を名前で挙げて落ちた。`feeling_target_kind`（紐づけ先の種類の登録簿）は `attribute_kind` と同じく、`feeling_reminder`（本人が決めた通知の時刻）は `stay_criteria` と同じく `Include`（D7 の `feeling_target_kinds.jsonl`・`feeling_reminders.jsonl`）、`outage_ledger`（途切れの判定と通知の台帳。稼働の信号からの導出）は `coverage` と同じく `Exclude`、`source` の 3 列は `sources.jsonl` に出す。`s01-feeling` は handoff C1 のとおり緯度経度を持たない側（D5a。内容は尺度・紐づけ先・ひとことだけ）に置いた。幅は紐づけ先で読む規則を足さず既定の (c)（D5b）のまま —— 緯度経度を持たない側なので幅が効くのはひとことに座標の並びを書いた行だけで、(c) は除き過ぎの側（C21。書き出し直せば戻る）。
 
 ## Goals / Non-Goals
 
@@ -243,6 +244,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `sources.jsonl` | `core.source` | なし |
 | `attribute_kinds.jsonl` / `attribute_kind_names.jsonl` | `core.attribute_kind` / `core.attribute_kind_name` | なし |
 | `places.jsonl` | `core.place`（場所の器。★ 2026-10-16 下流: main に入った ST21 の表を D8 の規則で足した。`attribute_kind` と同じく記録を束ねる器で、座標と名前は `events.jsonl` の `s01-place` にある） | なし |
+| `feeling_target_kinds.jsonl` / `feeling_reminders.jsonl` | `core.feeling_target_kind` / `core.feeling_reminder`（★ 2026-10-17 下流: main に入った ST17 の表を D8 の規則で足した。主観の記録そのものは `events.jsonl` の `s01-feeling`） | なし |
 | `stay_criteria.jsonl` | `core.stay_criteria` | なし |
 | `heartbeats.jsonl` | `core.heartbeat` | `attempts` / `successes` / `raw` / `content_hash`（C15。`content_hash` は回数を含む原文のハッシュなので一緒に外す） |
 | `coverage_spans.jsonl` | `core.coverage_span` | なし |
@@ -250,7 +252,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `README.txt` | 説明書（D9） | —— |
 | `manifest.json` | 目録（D9） | —— |
 
-上の 13 個の項目（★ 2026-10-16: ST21 の `places.jsonl` で 12 → 13）は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
+上の 15 個の項目（★ 2026-10-16: ST21 の `places.jsonl` で 12 → 13。★ 2026-10-17: ST17 の `feeling_target_kinds.jsonl`・`feeling_reminders.jsonl` で 13 → 15）は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
 項目の名前は上の固定の名前だけ（記録の値を含まない）。zip の注記は `ashiato-export <export_id>` だけ（D16 が前のファイルを見分けるのに読む。暗号化されない）。
 `events.jsonl` は 4 GiB を超えうる（3 年・上限で 17 GB 前後。deep.md 手順 4）ので、項目は `large_file(true)`（ZIP64）で書く。
 
@@ -267,7 +269,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 
 `export::CATALOG`: core の**すべての表**について `Include { file, view, excluded_columns, columns: [(name, 意味)] }` か `Exclude { reason }` のどちらか。
 
-- `Exclude` にするもの: `coverage`（削除済みも数える）/ `erasure_ledger` / `deletion_ledger` / `export_ledger`（D10）/ `access_log` / `web_session` / `stay_absorbed`（C6）/
+- `Exclude` にするもの: `coverage`（削除済みも数える）/ `erasure_ledger` / `deletion_ledger` / `export_ledger`（D10）/ `access_log` / `web_session` / `stay_absorbed`（C6）/ `outage_ledger`（★ 2026-10-17。ST14 の途切れの判定と通知の台帳。稼働の信号からの導出）/
   ST12 の書庫の内部の 8 表 `archive_ledger` / `archive_ledger_source` / `archive_file` / `archive_shape_confirmation` / `archive_sighting` / `archive_scan_counter` / `archive_pending_shape` / `archive_reread_failure`（取り込みの内部。書庫から入れた記録は `core.event` にあり、写しのファイルは DB の外。C6）
 - 書き出しの始めに `information_schema.tables`（core・BASE TABLE）と `information_schema.columns` を読み、
   **分類の無い表・`Include` の表で `columns` にも `excluded_columns` にも無い列**があれば失敗（spec）

@@ -88,6 +88,7 @@ fn order_sql(file: &str) -> &'static str {
         "events.jsonl" | "event_versions.jsonl" => "t.event_time, t.id",
         "sources.jsonl" => "t.logical_source",
         "drop_report_hours.jsonl" => "t.report_id, t.hour",
+        "feeling_target_kinds.jsonl" => "t.kind",
         _ => "t.id",
     }
 }

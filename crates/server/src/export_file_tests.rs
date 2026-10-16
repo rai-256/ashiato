@@ -23,14 +23,16 @@ use crate::testdb;
 /// 書き出しに渡す合言葉（`export_tests::pass()` と同じ）。テストの中だけに置く。
 const PASS: &str = "pw-for-test-0123456789";
 
-/// D7 の 13 個の項目。
-const ENTRIES: [&str; 13] = [
+/// D7 の 15 個の項目。
+const ENTRIES: [&str; 15] = [
     "events.jsonl",
     "event_versions.jsonl",
     "sources.jsonl",
     "attribute_kinds.jsonl",
     "attribute_kind_names.jsonl",
     "places.jsonl",
+    "feeling_target_kinds.jsonl",
+    "feeling_reminders.jsonl",
     "stay_criteria.jsonl",
     "heartbeats.jsonl",
     "coverage_spans.jsonl",
@@ -406,6 +408,8 @@ async fn export_file_rows_dictionaries_and_coverage_sources_are_present() {
         "attribute_kinds.jsonl",
         "attribute_kind_names.jsonl",
         "places.jsonl",
+        "feeling_target_kinds.jsonl",
+        "feeling_reminders.jsonl",
         "stay_criteria.jsonl",
         "drop_report_hours.jsonl",
     ] {
