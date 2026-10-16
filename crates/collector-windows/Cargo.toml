@@ -38,3 +38,12 @@ uiautomation = { version = "0.25", features = ["event"] }
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 # 窓を閉じられた・Ctrl-C で止められたときに、手元の数えを吐き出してから終わる（R13 / B-4）
 ctrlc = { version = "3", features = ["termination"] }
+# 通知の差出人（AUMID）を利用者の登録簿に書く（design D11）
+winreg = "0.56"
+# 途切れの通知（ST14 / design D11）。**機能は 3 つだけ**（全機能の `windows` crate はコンパイルが OOM する）。
+# 差出人（AUMID）の登録は `winreg`（unsafe を書かない。作業場は `unsafe_code = "forbid"`）
+windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# 実行時テストが通知の履歴の件数（`IVectorView::Size`）を読むため。本体の機能は増やさない
+windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation", "Foundation_Collections"] }

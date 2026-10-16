@@ -136,6 +136,15 @@ const ja = {
     droppedCount: (count: string): string => `— ${count} 件`,
     droppedRange: (count: string, from: string, to: string): string => `うち ${count} 件を破棄（${from}〜${to}）`,
     droppedRangeNoCount: (from: string, to: string): string => `破棄（${from}〜${to}）`,
+    /** 取りこぼしの期間の理由ごとの文字（ST14 / design D23（仮））。1 日の画面（ST25）と同じ言葉 */
+    gapReason: {
+      retention: (span: string): string => `取得元に残っていない（${span}）`,
+      clock_skew_abandoned: (span: string): string => `時計のずれで取れていない（${span}）`,
+    } as Record<string, ((span: string) => string) | undefined>,
+    /** 期間の書き方（破棄の `from〜to` と同じ区切り） */
+    gapSpan: (from: string, to: string): string => `${from}〜${to}`,
+    /** 知らない理由は理由の文字を付けない */
+    gapUnknown: (span: string): string => `取りこぼし（${span}）`,
   },
 
   /** S-2 1 日の画面（DayView.tsx / stays.ts） */

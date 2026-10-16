@@ -15,6 +15,7 @@ export function days(from: string, n: number, states: DayState[]): DayCell[] {
       successes: null,
       dropped_count: 0,
       dropped_ranges: [],
+      gaps: [],
     });
     d.setUTCDate(d.getUTCDate() + 1);
   }

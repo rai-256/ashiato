@@ -239,6 +239,65 @@ impl Transport for HttpTransport {
     }
 }
 
+/// 途切れの問い合わせの打ち切り。**通知の遅れは収集を止めない**ので短い（design D11）。
+pub const OUTAGE_QUERY_TIMEOUT_SEC: u64 = 10;
+
+/// `GET /outages?device_id=&user_id=`（ST14 / design D6・D29（仮））。届かない・読めないは `Unreachable`。
+/// 利用者を付けないとサーバは既定の利用者で判定する（review/code.md R13）。
+pub struct HttpOutageQuery {
+    base_url: String,
+    token: String,
+    user_id: uuid::Uuid,
+    agent: ureq::Agent,
+}
+
+/// **合言葉を出さない**（R11）。
+impl std::fmt::Debug for HttpOutageQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpOutageQuery")
+            .field("base_url", &self.base_url)
+            .field("token", &"***")
+            .field("user_id", &self.user_id)
+            .finish()
+    }
+}
+
+impl HttpOutageQuery {
+    pub fn new(base_url: &str, token: &str, user_id: uuid::Uuid) -> Self {
+        let agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(
+                OUTAGE_QUERY_TIMEOUT_SEC,
+            )))
+            .build()
+            .new_agent();
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token: token.to_string(),
+            user_id,
+            agent,
+        }
+    }
+}
+
+impl crate::outage_notice::OutageQuery for HttpOutageQuery {
+    fn fetch(&self, device_id: &str) -> crate::outage_notice::OutageResult {
+        let sent = self
+            .agent
+            .get(&format!("{}/outages", self.base_url))
+            .query("device_id", device_id)
+            .query("user_id", self.user_id.to_string())
+            .header("authorization", &format!("Bearer {}", self.token))
+            .call();
+        let Ok(mut res) = sent else {
+            return crate::outage_notice::OutageResult::Unreachable;
+        };
+        let status = res.status().as_u16();
+        let body = res.body_mut().read_to_string().unwrap_or_default();
+        crate::outage_notice::parse_reply(&Reply { status, body })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -490,6 +549,31 @@ mod tests {
             String::from_utf8_lossy(&buf).to_string()
         });
         (addr, h)
+    }
+
+    /// 途切れの問い合わせは**自分の利用者**で判定させる（review/code.md R13 / design D29（仮））。
+    /// 付けないとサーバは既定の利用者で判定し、記録が届いているソースまで途切れで返る。
+    #[test]
+    fn outage_query_sends_device_and_user() {
+        use crate::outage_notice::OutageQuery as _;
+        let user = uuid::Uuid::parse_str("6f1c2a4e-0b7d-4e8a-9c3f-1d2e3f4a5b6c").unwrap();
+        let body = serde_json::json!({"status": "warming_up", "judged_at": "2026-10-15T00:00:00Z"})
+            .to_string();
+        let (base, server) = one_shot_server("200 OK", body);
+        let q = HttpOutageQuery::new(&base, "secret-token-0123456789", user);
+        let _ = q.fetch("pc-1");
+        let seen = server.join().unwrap();
+        let line = seen.lines().next().unwrap_or_default();
+
+        assert!(line.starts_with("GET /outages?"), "{line}");
+        assert!(
+            line.contains("device_id=pc-1"),
+            "端末が付いていない: {line}"
+        );
+        assert!(
+            line.contains(&format!("user_id={user}")),
+            "利用者が付いていない: {line}"
+        );
     }
 
     /// **本物の HTTP で合言葉を送り、400 の本文を読む**（R5 / R22）。
