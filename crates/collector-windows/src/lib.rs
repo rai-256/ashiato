@@ -29,6 +29,7 @@ pub mod exclusion;
 pub mod fsutil;
 pub mod heartbeat;
 pub mod marker;
+pub mod outage_notice;
 pub mod outbox;
 #[cfg(windows)]
 pub mod platform;
@@ -36,6 +37,8 @@ pub mod runtime;
 pub mod sender;
 pub mod telemetry;
 pub mod time_sync;
+#[cfg(windows)]
+pub mod toast;
 pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**

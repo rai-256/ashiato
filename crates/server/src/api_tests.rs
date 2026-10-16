@@ -676,7 +676,7 @@ async fn achievement_endpoint() {
         got.sources.iter().map(|s| s.subject).collect::<Vec<_>>(),
         vec![
             coverage::Subject::Device,
-            coverage::Subject::Device,
+            coverage::Subject::Usage,
             coverage::Subject::Usage,
             coverage::Subject::Usage,
             coverage::Subject::Usage,
@@ -743,8 +743,10 @@ async fn coverage_endpoint_returns_five_sources() {
             "c02-browser-history",
         ]
     );
-    assert!(names[5..].iter().all(|name| name.starts_with("c03-")));
-    assert!(names[5..].contains(&"c03-youtube-watch"));
+    // 6 本目は集計（ST14 / D10（仮））。その後ろが書庫
+    assert_eq!(names[5], "c01-app-usage-rollup");
+    assert!(names[6..].iter().all(|name| name.starts_with("c03-")));
+    assert!(names[6..].contains(&"c03-youtube-watch"));
     assert!(got.iter().all(|s| s.days.len() == 7), "7 日ぶん返る");
     // 各格子にソース名の文字を添えられるだけの材料が返っている（第 4 回 Q15）
     assert!(got.iter().all(|s| !s.display_name.is_empty()));
