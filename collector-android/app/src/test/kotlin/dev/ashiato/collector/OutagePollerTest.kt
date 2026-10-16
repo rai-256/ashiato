@@ -116,7 +116,8 @@ class OutagePollerTest {
         // 本体全体ではない: ST17 の催促は AlarmManager で起きる（design D「ST17 の AlarmManager と重ならない」）
         val main = java.io.File("src/main/kotlin/dev/ashiato/collector")
         assertTrue("本体のソースが見つからない: ${main.absolutePath}", main.isDirectory)
-        val path = main.listFiles().orEmpty().filter { it.isFile && (it.name.startsWith("Outage") || it.name == "LocationService.kt") }
+        val path = main.listFiles().orEmpty()
+            .filter { it.isFile && (it.name.startsWith("Outage") || it.name == "LocationService.kt") }
         assertTrue("途切れの経路のソースが見つからない: $path", path.size >= 4)
         val hits = path.filter { f -> f.readText().let { "AlarmManager" in it || "WorkManager" in it } }
             .map { it.path }.toList()
