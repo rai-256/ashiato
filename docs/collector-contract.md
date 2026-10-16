@@ -395,8 +395,43 @@ PC 側の `blockers` は **`foreground`（前景が読めない）/ `uiautomatio
 **信号を出す瞬間ではなく、前回の信号からの区間に一度でも欠けたもの**を挙げる。
 端末側の `permission` / `sensor` / `network` とは別の語彙。
 
+ブラウザ履歴のソース（`c02-browser-history`）の生存信号の `blockers` は、ウィンドウの 3 つと混ぜない別の語彙（ST08 design D12）:
+**`history-none-found`（履歴が 1 つも見つからない）/ `history-unreadable:<browser>:<profile_dir>`（そのプロファイルの履歴を読めない）/
+`history-not-queued`（読めたが、送る準備 —— 除外の登録を読む・未送信に積む・手元の帳面に書く —— を終えられなかった。ST08 deep.md 第 5 回 Q10）/
+`history-sent-version-unreadable`（送った版の最大値のファイルがあるのに読めず、上書きせずに退避した。時計が戻った後の更新を取りこぼしうる。
+ST08 deep.md 第 8 回 Q13）**。どれを載せた信号も `capturable=false`（`history-sent-version-unreadable` は ST08 design D17（仮））。
+**種別だけを載せ、URL もパスも載せない**（FR-13 ★ 2026-10-05）。区間に読みが無ければ開けるかを確かめ、その結果と直近の取得
+（前の起動のものを含む）が送る準備を終えられたかで決める（docs/audit/2026-10-12-consistency.md K1）。
+
 > **C-02 は 400 の本文も読む**（`ureq` の既定は 400 で本文を捨てる）。
 > 1 件ごとの結果の件数が送った件数と合わない応答では、**何も取り除かない**。
+
+## C-02（`c02-browser-history`）が送る `payload` の形（ST08 / design D4 / D5 / D6 / D15）
+
+`kind` は `visit`（訪問 1 件）/ `vanished`（消えた訪問のまとまり）/ `excluded`（除外した数）/ `profiles`（ディレクトリ名と表示名の対応）の 4 つ。
+どれも `at`（出来事の時刻。UTC・**マイクロ秒**。`event_time` と同じ値）、`browser`（`chrome` / `edge` / `brave` / `vivaldi` / `opera` / `firefox`）、
+`family`（`chromium` / `firefox`）、`tz_basis: "collected-at"` を持つ。`visit` / `vanished` / `excluded` は `profile_dir`（ディレクトリ名。
+**表示名は載せない** —— 改名で全訪問が「内容が変わった」にならないため）も持つ。
+
+`visit` はさらに `visit_id` / `visit_time_raw`（DB の値そのまま）・`url` / `title`（DB の文字列そのまま。題名が NULL なら欄を省く）・
+`transition` / `transition_core`・`from_visit` / `opener_visit`（0 は省く）を持ち、Chromium だけ `visit_duration_us` / `is_known_to_sync`、
+他の端末から同期で入った訪問だけ `originator_cache_guid` / `originator_visit_id` を持つ。
+**URL の行が見つからない訪問は `url` と `title` を省く**（時刻・遷移・滞在時間は持つ。捨てない —— ST08 deep.md 第 4 回 Q8）。
+`tz_id` / `tz_offset_min` は**その内容を読んだ取得のときの PC のもの**で、`tz_basis` がそれを示す。
+
+`external_id` は `v1:<kind>:<sha256 の 16 進 64 桁>`。`visit` は `family` / `browser` / `profile_dir` / `visit_id` / `visit_time_raw` / `url` の組を
+区切り `\x1f` で繋いだ全体のハッシュ（URL の無い訪問は `url` を組から省く）で、**識別子から URL・訪問時刻・プロファイルを読めない**（本文を消しても識別子は残るため）。
+`vanished` / `excluded` / `profiles` は中身（整列した識別子・対応表）から決まり、取得の時刻と `device_id` を入れない
+（やり直しで同じ事実が 2 件にならず、設定の打ち直しで読み直した 90 日ぶんが二重にならない）。
+
+履歴は**その内容を読んだ時刻。ただし、その訪問について前に送った版より前にしない（前の版 + 1 マイクロ秒）**を `source_updated_at` に置く
+（ST08 deep.md 第 6 回 Q11 / design D15。帳面を作り直した後も、収集アプリが持つ送った版の最大値より前にしない —— design D16（仮））。
+**例外**: 前に送った版の記録（送った版の最大値と帳面）がどちらも失われた（無い・読めない）後は前に送った版を持たないので、
+前に届いた版より前になりうる（取り込み口はその到着を古いとして捨てる）。収集アプリの保存場所（`state_dir`）ごと消えた・入れ直した場合を含む
+（ST08 deep.md 第 7 回 Q12 / 第 8 回 Q13）。
+履歴 DB は更新時刻を持たないので収集側が版を決め、未送信の再送で古い題名の到着が新しい題名を書き戻すのを防ぐ（持たないと取り込み口は「届いた順」で当てる）。
+**読んだ時刻そのものではない** —— PC の時計が戻った後は読んだ時刻より先の値になる（戻った後の題名・滞在時間の更新を古い到着として捨てさせないため）。
+読む側は、この値を「いつ読んだか」として使わない（届いた時刻は `ingest_time`）。
 
 ---
 

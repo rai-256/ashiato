@@ -51,3 +51,5 @@
 # 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17 / design D2 / D9 / D15 / D16）。
 # 主観の記録そのものは `core.event` に入る
 202610141000_subjective_log
+# ST08: c02-browser-history を訪問ごとの識別子で受ける
+202609211400_browser_history_record_id
