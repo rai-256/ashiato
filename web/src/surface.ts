@@ -57,6 +57,11 @@ export function linkStyle(c: SchemeColors): CSSProperties {
   };
 }
 
+/** リンクの見た目の `<button>`（その画面の中で開く・閉じる）。button の既定の面と枠を消す。 */
+export function linkButtonStyle(c: SchemeColors): CSSProperties {
+  return { ...linkStyle(c), background: "transparent", border: "none" };
+}
+
 /** 副ボタン（面と枠）。**24 × 24 CSS px 以上**（NFR-19）。 */
 export function controlStyle(c: SchemeColors): CSSProperties {
   return {

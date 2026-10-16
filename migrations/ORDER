@@ -44,3 +44,12 @@
 202610020030_places
 # ブラウザ履歴が最後に届いた時刻を索引で引く（ST25 / design D10（仮）。final review R6）
 202610121040_event_by_user_source_ingest
+# 途切れの通知：判定の対象の印・通知までの日数・開始日を借りる先・台帳（ST14 / design D2 / D7）
+202610141130_outage_alert
+# YouTube のマイアクティビティの「その他」の行き先を、書庫を置く前から登録する（ST47 / design D8）
+202610141700_youtube_myactivity_source
+# 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17 / design D2 / D9 / D15 / D16）。
+# 主観の記録そのものは `core.event` に入る
+202610141000_subjective_log
+# ST08: c02-browser-history を訪問ごとの識別子で受ける
+202609211400_browser_history_record_id

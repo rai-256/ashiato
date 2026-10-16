@@ -7,8 +7,7 @@ use super::open::ArchiveFile;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(strum::EnumIter))]
 pub enum KnownKind {
-    YouTubeWatch,
-    YouTubeSearch,
+    YouTube,
     MyActivity,
     Timeline,
     Records,
@@ -78,34 +77,46 @@ fn kind_of(value: serde_json::Value) -> Option<KnownKind> {
             return Some(KnownKind::ChromeHistory);
         }
     }
-    // **先頭 1 件だけで決めない**（final review R57）。削除済みの動画は `titleUrl` を持たないので、
-    // 先頭がそれだと視聴履歴がファイルごと「読まなかった」になった。URL を持つ最初の項目で決める。
+    // 配列のファイルは製品の名前で見分ける（ST47 / D1。ファイル名・フォルダ名は訳されるので見ない）。
     let items: Vec<&serde_json::Map<String, serde_json::Value>> = value
         .as_array()?
         .iter()
         .filter_map(serde_json::Value::as_object)
         .collect();
-    if let Some(url) = items
-        .iter()
-        .find_map(|item| item.get("titleUrl").and_then(serde_json::Value::as_str))
-    {
-        if url.contains("watch?v=") {
-            return Some(KnownKind::YouTubeWatch);
-        }
-        if url.contains("results?search_query=") {
-            return Some(KnownKind::YouTubeSearch);
+    let mut has_products = false;
+    let mut first_products = std::collections::BTreeSet::new();
+    for item in &items {
+        if let Some(products) = item.get("products") {
+            has_products = true;
+            if let Some(name) = products
+                .as_array()
+                .and_then(|products| products.first())
+                .and_then(serde_json::Value::as_str)
+            {
+                first_products.insert(name);
+            }
         }
     }
+    if has_products {
+        // 最初の製品の名前の集合がちょうど「YouTube」。混ざったファイルは `MyActivity`（D2）。
+        if first_products.len() == 1 && first_products.contains("YouTube") {
+            return Some(KnownKind::YouTube);
+        }
+        return items
+            .iter()
+            .any(|item| {
+                item.contains_key("products")
+                    && item.contains_key("header")
+                    && item.contains_key("time")
+            })
+            .then_some(KnownKind::MyActivity);
+    }
+    // 製品の名前を持つ項目が無い製品側の履歴の古い形（D2）。
     items
         .iter()
-        .find(|item| item.contains_key("titleUrl"))
-        .or_else(|| items.first())
-        .filter(|item| {
-            item.contains_key("products")
-                && item.contains_key("header")
-                && item.contains_key("time")
-        })
-        .map(|_| KnownKind::MyActivity)
+        .filter_map(|item| item.get("titleUrl").and_then(serde_json::Value::as_str))
+        .any(|url| url.contains("watch?v=") || url.contains("results?search_query="))
+        .then_some(KnownKind::YouTube)
 }
 
 #[cfg(test)]
@@ -117,11 +128,11 @@ mod tests {
     /// （種類を足すと、ここに材料を書くまでコンパイルで落ちる）。
     fn fixture(kind: KnownKind) -> &'static str {
         match kind {
-            KnownKind::YouTubeWatch => {
-                r#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/watch?v=x"}]"#
-            }
-            KnownKind::YouTubeSearch => {
-                r#"[{"header":"YouTube","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/results?search_query=x"}]"#
+            // 3 つの行き先（視聴・検索・その他）をすべて通す（ST47 / D11）。
+            KnownKind::YouTube => {
+                r#"[{"header":"YouTube","title":"x を視聴しました","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/watch?v=x"},
+                    {"header":"YouTube","title":"x を検索しました","time":"2026-01-01T00:00:00Z","products":["YouTube"],"titleUrl":"https://www.youtube.com/results?search_query=x"},
+                    {"header":"YouTube","title":"x","time":"2026-01-01T00:00:00Z","products":["YouTube"]}]"#
             }
             KnownKind::MyActivity => {
                 r#"[{"header":"検索","time":"2026-01-01T00:00:00Z","products":["検索"],"title":"x"}]"#

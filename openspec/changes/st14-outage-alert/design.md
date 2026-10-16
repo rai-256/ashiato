@@ -144,10 +144,13 @@ GET /outages?device_id=<端末識別子>&user_id=<任意>
 | `last_alive_at` | `timestamptz NULL` | `opened` だけが持つ（書庫なら最後の書庫の時刻） |
 | `judged_at` | `timestamptz NOT NULL DEFAULT now()` | |
 
-- `CHECK` で種類ごとの列の有無を縛る（`opened` は `episode_id IS NULL`、それ以外は NOT NULL、`delivered` だけ `device_id` NOT NULL）
+- `CHECK` で種類ごとの列の有無を縛る（`opened` は `episode_id IS NULL`、それ以外は NOT NULL、`delivered` だけ `device_id` NOT NULL）。
+  `opened` が `last_alive_at` を必ず持つことは別の名前の `CHECK`（`outage_ledger_opened_has_last_alive`）で縛る —— 表を先に作った開発中の DB にも
+  `ALTER TABLE … ADD CONSTRAINT … NOT VALID` で足せるように分けた（形の `CHECK` を差し替えると前進側に `DROP` が入る。review/code.md R6）
 - 一意索引: `(episode_id) WHERE kind = 'closed'`、`(episode_id, device_id) WHERE kind = 'delivered'`
-- 追記のみ: `UPDATE` / `DELETE` を断るトリガ（既存の台帳と同じ関数を使う。`archive_ledger` の :142）
-- **書き込みは `GET /outages` の中で 1 回の取引**: `pg_advisory_xact_lock(<利用者から決めた鍵>)` → 開いている途切れ（`opened` のうち `closed` の無いもの）を読む → 判定と突き合わせ、新しい途切れに `opened`、戻ったものに `closed` → `device_id` があれば `delivered`（`ON CONFLICT DO NOTHING`）。同時に 2 台が問い合わせても `opened` は 1 行
+- 追記のみ: `UPDATE` / `DELETE` / `TRUNCATE` を断るトリガ。**関数は台帳専用の `core.reject_outage_ledger_change()`**（書庫の台帳と同じ形で、共有しない）。
+  共有すると ST12 の `202609181600_archive_ingestion.down.sql:21`（`CASCADE` なし）が依存で落ちて戻せなくなる（申し送り `docs/handoff/ST14.md` K3。ST16 / ST19 / ST21 も同じ理由で共有していない）
+- **書き込みは `GET /outages` の中で 1 回の取引**: `pg_advisory_xact_lock(<利用者から決めた鍵>)` → **判定の材料を読んで判定する**（`outage_store::inputs` → `outage::judge`。ロックの前に読むと、先に抜けた問い合わせが書いた戻りを古い判定で開き直す。review/code.md R2）→ 開いている途切れ（`opened` のうち `closed` の無いもの）を読む → 判定と突き合わせ、新しい途切れに `opened`、戻ったものに `closed` → `device_id` があれば `delivered`（`ON CONFLICT DO NOTHING`）。同時に 2 台が問い合わせても `opened` は 1 行
 - 記録の本文・座標・原文の列を持たない
 
 ### D8（仮）. 通知に使う「取得できない」を blockers の種類で絞らない（整合の確認 C14）
@@ -292,6 +295,59 @@ PC は 1 時間ごとに問い合わせるので、毎回画面の端に出す�
 
 S-1 は既に `useScheme` で追従している。spec の Requirement「稼働状況の画面は OS の明暗に追従する」の Scenario を、`web/e2e/coverage-scheme.spec.ts`（新規）で `emulateMedia({ colorScheme: 'light' | 'dark' | 'no-preference' })` の 3 通りの背景色と、ライトの 3 段・印・本文の比を測って固定する。
 `surface.spec.ts` の既存の測りは残す（印を足すだけにしない —— Scenario ごとに何を測るかを 1 本ずつ明示する）。
+
+**no-preference の読み替え**（Task 10 F3。`.superpowers/sdd/st14-task-10/task-10-findings.md`）: Scenario「明暗の設定が取れなければダークで出る」の
+「取れない」は **`window.matchMedia` が無いこと**として固定する（`addInitScript` で消して、`emulateMedia` の値に従わずダークになるのを測る）。
+`no-preference` は「取れない」に当てない —— Chromium は `no-preference` のとき `(prefers-color-scheme: light)` に合うと答えるので、
+画面は取得できたライトに従う。この振る舞いはコードを変えずに e2e で記録する（3 通りのうち no-preference は「取れない」の代わりではなく、記録の 1 本）。
+
+- **反転条件**: Chromium が `no-preference` で `(prefers-color-scheme: light)` に合わないと答えるようになったとき（その試験が落ちる。画面がダークに出るのは「取れない」と同じ側なので、試験の期待をそちらへ直す）
+
+### D26（仮）. 収集開始日の 0 時を「最後に生きていた時刻」の下限に足す（Q2 / C2 / review/code.md R1）
+
+`outage::last_alive` は、種類ごとの本体（記録・取得できる状態の生存信号・最後の書庫）と、最後に終わった停止の終わり・引き継いだ日に加えて、
+**収集開始日の Asia/Tokyo の 0 時**のうち遅いものを最後に生きていた時刻にする（端末・書庫・取り込み器のどれにも同じ位置で効く）。
+取得できない状態の生存信号も収集開始日を立てる（`heartbeat_one` の `touch_started_on`）ので、最初から権限の無い写真・ブラウザ履歴や、
+窓を一度も読めず時計の測定しか届かない PC は、開始日を持って判定の対象なのに材料が 1 つも無く、黙って判定から外れていた。
+Q2 は「知らせる —— 取得できる状態の生存信号だけを生きていると数える」、C2 が鳴らさないとしたのは開始日の無い（一度も届かない）収集だけなので、
+開始日から想定間隔の 3 倍（書庫は登録簿の日数）を超えれば途切れにする。下限なので、それより新しい材料があればそちらを使う。
+試験は `outage::tests::st14_judge_started_day_is_alive_floor`。
+
+- **反転条件**: 本人が、一度も取得できる状態にならなかった収集（最初から権限の無いもの）は途切れとして鳴らさなくてよいと言ったとき（開始日を「取得できる状態の材料が初めて届いた日」に絞る、などに変える）
+
+### D27（仮）. `has_non_collected` を部分索引で支える（D4 / review/code.md R3）
+
+`core.event` の索引には `origin` を含むものが無く、`outage_store::inputs` の `EXISTS (… AND e.origin <> 'collected')` は、
+収集した記録しか持たないソース（位置は年に数十万行）では一致が無いので、問い合わせのたびに利用者 × ソースの全行を読む。
+収集アプリは 10 秒で打ち切るので、遅くなると届かない扱いになり通知が変わらなくなる（黙って止まる）。D4 の「足りなければ部分索引」をここで足す:
+まだ merge していない同じ移行（`202610141130_outage_alert.sql`）に `core.event (user_id, logical_source) WHERE origin <> 'collected'` の部分索引
+`event_non_collected_by_source` を `IF NOT EXISTS` で置く（戻しは `.down.sql` で落とす）。収集した記録は索引に入らないので小さい。
+試験は `outage_registry_tests::st14_reg_event_has_non_collected_partial_index`（索引の定義を見る）。
+
+- **反転条件**: `has_non_collected` を判定の材料から外すとき（出どころでの除外をやめる、登録簿の印だけにする）、または
+  本人が書いた・導出した記録が収集した記録に近い量になり、部分索引が大きくなって書き込みが重くなったとき（登録簿に出どころの事実を持たせる、などに変える）
+
+### D28（仮）. 達成日は取りこぼしの日でも取得できる状態の信号があれば数える（格子は③。D15 / D17 / review/code.md R8）
+
+格子は D15 どおり、端末が取りこぼしとして残した期間（`gap`）が重なる日を、取得できる状態の信号より先に③（動いていた・取得できない）に塗る。
+達成（NFR-13）の数え（`coverage::achieve_one`）は `decide()` を通らず、利用が主語のソースはその日の生存信号の `capturable` だけを見るので、
+**取りこぼしの日でも取得できる状態の信号があれば達成日に数える**。同じ日が格子では③、達成では「達成」になる。コードは変えず、いまの振る舞いをここに置く
+（spec は達成の側の扱いを書いていない）。端末が主語のソースは D17 どおり記録の有無で数え、取りこぼしの期間の影響を受けない。
+
+- **反転条件**: 本人が、格子で③に見える日が達成日に数えられているのはおかしいと言ったとき、または達成の数えを格子の状態から引くことにしたとき
+  （達成も `decide()` の状態から数える —— 利用が主語なら②だけを達成にし、取りこぼしの重なる③は達成にしない）
+
+### D29（仮）. 収集アプリは自分の利用者を付けて問い合わせる。省略時は既定の利用者のまま（D6 / review/code.md R13）
+
+`GET /outages` は `user_id` を省略すると既定の利用者（nil。ほかの読み出しと同じ）で判定する。収集アプリが付けないと、
+利用者 ID が nil でない構成（録画の環境 `tools/record-env.sh` は乱数で作る）では、記録が届いているソースまで「途切れ」で返る。
+**携帯（`outageQueryString`）も PC（`HttpOutageQuery`）も、設定の利用者 ID を `user_id=` に付ける**（`OutagePollerTest`
+「収集アプリが打つ問い合わせに設定の利用者が付く」—— `LocationService` の組み立てを通し、差し替えるのは `newOutageGet` だけ（review/code.md R17）/
+`sender::tests::outage_query_sends_device_and_user`）。サーバの省略時の扱いは変えない（`/coverage` の「省略すると絞らない」は
+読むだけの格子で、台帳に `delivered` を書く判定とは役が違うので揃えない）。
+
+- **反転条件**: 複数の利用者を 1 つのサーバに置く構成を始めるとき、または省略した問い合わせが誤りで来る経路が見つかったとき
+  （省略を 400 で断る）
 
 ## C と D の対応
 

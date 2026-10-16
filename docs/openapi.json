@@ -468,6 +468,144 @@
         }
       }
     },
+    "/feelings": {
+      "get": {
+        "tags": [],
+        "summary": "日ごとの主観を、対象（日・滞在）ごとの最新と履歴で返す（ST17 design D8）。**感度では絞らない。**",
+        "operationId": "feelings_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日。含む）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日。含む）。`from` から最大 62 日",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeelingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/feelings/reminder": {
+      "get": {
+        "tags": [],
+        "summary": "通知の判断に要る 2 欄（通知の時刻・その日の記録の有無）だけを返す（ST17 design D9）。**主観の中身は返さない。**",
+        "operationId": "feelings_reminder_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "description": "`YYYY-MM-DD`（Asia/Tokyo の日）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "summary": "通知の時刻を変える。台帳に 1 行足し、次の判断から効く（ST17 design D9）。",
+        "operationId": "feelings_reminder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderSet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/heartbeat": {
       "post": {
         "tags": [],
@@ -562,6 +700,55 @@
                   "items": {
                     "$ref": "#/components/schemas/IngestResult"
                   }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/outages": {
+      "get": {
+        "tags": [],
+        "summary": "収集が途切れているソースと、端末に返したことの台帳（ST14 / design D5・D6・D7）。",
+        "operationId": "outages_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "description": "端末識別子。**あれば**「この端末に返した」を台帳に残す（収集アプリは必ず付ける）。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者。省略すると既定の利用者（ほかの読み出しと同じ）",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutagesResponse"
                 }
               }
             }
@@ -1259,6 +1446,25 @@
           }
         }
       },
+      "Bucket": {
+        "type": "object",
+        "required": [
+          "latest",
+          "records"
+        ],
+        "properties": {
+          "latest": {
+            "$ref": "#/components/schemas/Latest"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeelingOut"
+            },
+            "description": "記入の日時の新しい順"
+          }
+        }
+      },
       "Candidate": {
         "type": "object",
         "description": "名前の無い、よく居た所 1 つ（D10。保存しない）。",
@@ -1523,7 +1729,8 @@
           "blockers",
           "intervals",
           "dropped_count",
-          "dropped_ranges"
+          "dropped_ranges",
+          "gaps"
         ],
         "properties": {
           "attempts": {
@@ -1560,6 +1767,13 @@
           "event_count": {
             "type": "integer",
             "format": "int32"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GapSpan"
+            },
+            "description": "その日に重なる、端末が取りこぼしとして残した期間（ST14 / design D15）。\n**状態に関わらず返る**（「記録あり」の日にも、重なっていれば持つ）"
           },
           "intervals": {
             "type": "array",
@@ -1626,6 +1840,48 @@
               "format": "uuid"
             },
             "description": "この「消した」区間から戻せる、本人が消した滞在の識別子"
+          }
+        }
+      },
+      "DayFeelings": {
+        "type": "object",
+        "required": [
+          "date",
+          "status",
+          "day",
+          "stays",
+          "stays_with_records",
+          "hidden_stay_records"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "day": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "hidden_stay_records": {
+            "type": "integer",
+            "format": "int32",
+            "description": "表示しない滞在の記録の件数",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/DayStatus"
+          },
+          "stays": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StayBucket"
+            },
+            "description": "記録のある滞在だけ（表示しない側は含まない）"
+          },
+          "stays_with_records": {
+            "type": "integer",
+            "format": "int32",
+            "description": "記録のある滞在の数（書き直しは 1。表示しない滞在も数える）",
+            "minimum": 0
           }
         }
       },
@@ -1820,6 +2076,16 @@
           "outage",
           "before_start",
           "retired"
+        ]
+      },
+      "DayStatus": {
+        "type": "string",
+        "description": "日の状態（design D7 / D8）。",
+        "enum": [
+          "recorded",
+          "missing",
+          "before_start",
+          "future"
         ]
       },
       "DayView": {
@@ -2132,6 +2398,80 @@
           }
         }
       },
+      "FeelingOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "scales",
+          "written_at",
+          "ingested_at",
+          "phase"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ingested_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "D-01 に入った時刻"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "scales": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScaleOut"
+            }
+          },
+          "target_stay": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "吸収された滞在に書いた記録のとき、元の滞在"
+          },
+          "written_at": {
+            "type": "string",
+            "description": "記入の日時（RFC 3339。地域のずれつき）"
+          }
+        }
+      },
+      "FeelingsResponse": {
+        "type": "object",
+        "required": [
+          "today",
+          "days"
+        ],
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayFeelings"
+            }
+          },
+          "first_day": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "today": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
       "Gap": {
         "type": "object",
         "description": "取れていない時間 1 つ。置く位置は画面が決める（D9）。日の端といまで切ってある。",
@@ -2185,6 +2525,28 @@
           "excluded",
           "unavailable"
         ]
+      },
+      "GapSpan": {
+        "type": "object",
+        "description": "取りこぼしの期間 `[begin, end)` と理由。`end` ちょうどの日には重ならない。",
+        "required": [
+          "reason",
+          "begin",
+          "end"
+        ],
+        "properties": {
+          "begin": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "HeartbeatError": {
         "type": "string",
@@ -2346,7 +2708,13 @@
           "invalid_coordinate",
           "invalid_coord_change",
           "invalid_coord_supersedes",
-          "invalid_radius"
+          "invalid_radius",
+          "malformed_feeling",
+          "feeling_not_authored",
+          "feeling_has_external_id",
+          "invalid_scale",
+          "invalid_note",
+          "invalid_feeling_target"
         ]
       },
       "IngestRequest": {
@@ -2611,6 +2979,31 @@
           }
         }
       },
+      "Latest": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeelingOut"
+              }
+            ]
+          },
+          "before": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeelingOut"
+              }
+            ]
+          }
+        }
+      },
       "LatestArchiveStatus": {
         "type": "object",
         "description": "直近に置いた書庫の結果。台帳の追記行からのみ導く。",
@@ -2700,6 +3093,66 @@
           }
         }
       },
+      "OutageItem": {
+        "type": "object",
+        "description": "途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**",
+        "required": [
+          "episode_id",
+          "logical_source",
+          "display_name",
+          "last_alive_at"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "episode_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "途切れの識別子。続く間は同じ・戻ってまた途切れたら別"
+          },
+          "last_alive_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "OutagesResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "judged_at"
+        ],
+        "properties": {
+          "judged_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outages": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OutageItem"
+            },
+            "description": "`status = ready` のときだけ。表示名の昇順（同じなら論理ソース名）"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OutagesStatus"
+          }
+        }
+      },
+      "OutagesStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "warming_up"
+        ]
+      },
       "PendingShapeStatus": {
         "type": "object",
         "description": "形の確認を待っている書庫とファイルの数（D16）。",
@@ -2717,6 +3170,14 @@
             "format": "int64"
           }
         }
+      },
+      "Phase": {
+        "type": "string",
+        "description": "前に書いたか後に書いたか。**保存せず、読むたびに計算する**（FR-37 / design D7）。",
+        "enum": [
+          "before",
+          "after"
+        ]
       },
       "PlaceCreateRequest": {
         "type": "object",
@@ -3135,6 +3596,56 @@
           }
         }
       },
+      "ReminderDecision": {
+        "type": "object",
+        "description": "通知の判断に要るもの。**この 2 欄だけ**（主観の中身を返さない。design D9）。",
+        "required": [
+          "at",
+          "recorded"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "通知の時刻（`HH:MM`）"
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "その日に紐づく記録が 1 件以上あるか（削除の印・消去を除く）"
+          }
+        }
+      },
+      "ReminderSet": {
+        "type": "object",
+        "description": "台帳に 1 行足した結果。",
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          }
+        }
+      },
+      "ReminderSetRequest": {
+        "type": "object",
+        "description": "`POST /feelings/reminder` の本文。",
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "`HH:MM`（秒は持たない）"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "RestoreRequest": {
         "type": "object",
         "description": "`POST /stays/restore` の本文。全件を一つの transaction で戻す。",
@@ -3201,6 +3712,27 @@
           "erased",
           "other"
         ]
+      },
+      "ScaleOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "SessionState": {
         "type": "object",
@@ -3331,6 +3863,29 @@
             ],
             "format": "date",
             "description": "退役した日（FR-61）。**この日より後が⑧**。まだ退役していなければ `None`"
+          }
+        }
+      },
+      "StayBucket": {
+        "type": "object",
+        "required": [
+          "stay",
+          "latest",
+          "records"
+        ],
+        "properties": {
+          "latest": {
+            "$ref": "#/components/schemas/Latest"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeelingOut"
+            }
+          },
+          "stay": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

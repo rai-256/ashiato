@@ -28,7 +28,10 @@ pub mod engine;
 pub mod exclusion;
 pub mod fsutil;
 pub mod heartbeat;
+/// ブラウザ履歴の発見・読取り・契約・帳面・取得（ST08）。
+pub mod history;
 pub mod marker;
+pub mod outage_notice;
 pub mod outbox;
 #[cfg(windows)]
 pub mod platform;
@@ -36,6 +39,8 @@ pub mod runtime;
 pub mod sender;
 pub mod telemetry;
 pub mod time_sync;
+#[cfg(windows)]
+pub mod toast;
 pub mod winrules;
 
 /// 登録簿（`core.source`）にある論理ソース名。**ここにしか書かない。**

@@ -29,11 +29,12 @@ use ashiato_collector_windows::config::Config;
 use ashiato_collector_windows::contract::{RecordKind, Transition, WindowPayload};
 use ashiato_collector_windows::engine::{Engine, Foreground, Observation, UrlRead};
 use ashiato_collector_windows::exclusion::{Exclusions, Rule};
+use ashiato_collector_windows::history::collect::{FsHistoryReader, HistoryCollector};
 use ashiato_collector_windows::marker::Marker;
 use ashiato_collector_windows::platform::WindowsSource;
 use ashiato_collector_windows::runtime::{Runtime, Source};
 use ashiato_collector_windows::sender::{Reply, Transport};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use uiautomation::controls::ControlType;
 use uiautomation::types::Handle;
 use uiautomation::UIAutomation;
@@ -1116,4 +1117,395 @@ fn clock_time_sync_is_readable() {
         "最後に同期した時刻も同期元も解析できない（見出しの言語が想定外か）: {} バイト",
         out.stdout.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// 途切れの通知（ST14 / design D11）。本物の Windows の通知の履歴を読む。
+
+mod outage_toast {
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use ashiato_collector_windows::outage_notice::{toast_xml, Toaster};
+    use ashiato_collector_windows::outage_notice::{
+        NoticeStore, Outage, OutagePoller, OutageQuery, OutageResult,
+    };
+    use ashiato_collector_windows::toast::{build_toast, WindowsToaster, GROUP, TAG};
+    use chrono::Utc;
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+
+    /// 試験専用の差出人。本物の `dev.ashiato.collector` の通知と混ざらない。
+    const TEST_AUMID: &str = "dev.ashiato.collector.runtime-test";
+
+    #[derive(Debug)]
+    struct Scripted(Mutex<OutageResult>);
+
+    impl OutageQuery for Scripted {
+        fn fetch(&self, _device_id: &str) -> OutageResult {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// `WindowsToaster` に渡った `sound` を控える（`SuppressPopup` は履歴から読み戻せないため）。
+    #[derive(Debug)]
+    struct Recording {
+        inner: WindowsToaster,
+        sounds: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl Toaster for Recording {
+        fn show(&self, xml: &str, sound: bool) -> anyhow::Result<()> {
+            self.sounds.lock().unwrap().push(sound);
+            self.inner.show(xml, sound)
+        }
+
+        fn dismiss(&self) -> anyhow::Result<()> {
+            self.inner.dismiss()
+        }
+    }
+
+    fn location_outage() -> OutageResult {
+        OutageResult::Ready(vec![Outage {
+            episode_id: 1,
+            logical_source: "c01-location".into(),
+            display_name: "位置".into(),
+            last_alive_at: Utc::now(),
+        }])
+    }
+
+    fn history() -> Vec<ToastNotification> {
+        let view = ToastNotificationManager::History()
+            .unwrap()
+            .GetHistoryWithId(&HSTRING::from(TEST_AUMID))
+            .unwrap();
+        (0..view.Size().unwrap())
+            .map(|i| view.GetAt(i).unwrap())
+            .collect()
+    }
+
+    fn clear() {
+        ToastNotificationManager::History()
+            .unwrap()
+            .ClearWithId(&HSTRING::from(TEST_AUMID))
+            .unwrap();
+    }
+
+    /// 履歴が `want` を満たすまで待つ（問い合わせは別スレッド）。
+    fn wait_history(want: impl Fn(&[ToastNotification]) -> bool) -> Vec<ToastNotification> {
+        let end = Instant::now() + Duration::from_secs(10);
+        loop {
+            let h = history();
+            if want(&h) || Instant::now() > end {
+                return h;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// 契機ごとに 1 回、問い合わせ係を動かす。前の問い合わせが終わるまで待ってから呼ぶ。
+    fn trigger(poller: &mut OutagePoller) {
+        std::thread::sleep(Duration::from_millis(500));
+        poller.poll("dev-1");
+    }
+
+    // Scenario: PC の途切れの通知は Windows の通知として出る
+    // Scenario: PC の音なしの差し替えは画面の端に出ない
+    #[test]
+    fn outage_toast_is_shown_replaced_silently_and_removed() {
+        let _g = super::desktop();
+        let state = std::env::temp_dir().join(format!("ashiato-toast-{}", uuid::Uuid::new_v4()));
+        let sounds = Arc::new(Mutex::new(Vec::new()));
+        let toaster = Recording {
+            inner: WindowsToaster::register_as(TEST_AUMID).unwrap(),
+            sounds: sounds.clone(),
+        };
+        clear();
+        let query = Arc::new(Scripted(Mutex::new(location_outage())));
+        let mut poller = OutagePoller::new(
+            query.clone(),
+            Arc::new(toaster),
+            NoticeStore::new(&state),
+            |_| {},
+        );
+
+        let outages = match location_outage() {
+            OutageResult::Ready(v) => v,
+            _ => unreachable!(),
+        };
+        let sounded_xml = toast_xml(&outages, true);
+        let silent_xml = toast_xml(&outages, false);
+        // 初回: 位置の途切れの通知が 1 件。音つきなので画面の端にも出す
+        poller.poll("dev-1");
+        let h = wait_history(|h| h.len() == 1);
+        assert_eq!(h.len(), 1, "通知の履歴に 1 件");
+        assert_eq!(h[0].Tag().unwrap().to_string(), TAG);
+        assert_eq!(h[0].Group().unwrap().to_string(), GROUP);
+        let content = |n: &ToastNotification| n.Content().unwrap().GetXml().unwrap().to_string();
+        assert!(content(&h[0]).contains("位置"), "位置の表示名を持つ");
+        assert!(!content(&h[0]).contains("silent"), "初回は音つき");
+        assert!(!build_toast(&sounded_xml, true)
+            .unwrap()
+            .SuppressPopup()
+            .unwrap());
+
+        // 次の契機: 同じ途切れ。履歴は 1 件のまま差し替わり、画面の端には出さない
+        trigger(&mut poller);
+        let h = wait_history(|h| h.len() == 1 && content(&h[0]).contains("silent"));
+        assert_eq!(h.len(), 1, "差し替えても 1 件");
+        assert!(
+            content(&h[0]).contains(r#"<audio silent="true"/>"#),
+            "中身が音なしに差し替わった"
+        );
+        // `SuppressPopup` は履歴から読み戻すと常に偽（実測 2026-10-14）。
+        // 実際に出した 2 回目が音なしで渡ったことと、音なしで組んだ通知が立てることの両方で見る
+        assert_eq!(*sounds.lock().unwrap(), vec![true, false], "出した音の指定");
+        assert!(
+            build_toast(&silent_xml, false)
+                .unwrap()
+                .SuppressPopup()
+                .unwrap(),
+            "音なしの差し替えは画面の端に出ない設定"
+        );
+
+        // 戻った: 黙って消える
+        *query.0.lock().unwrap() = OutageResult::Ready(vec![]);
+        trigger(&mut poller);
+        let h = wait_history(|h| h.is_empty());
+        assert_eq!(h.len(), 0, "戻ると履歴から消える");
+
+        clear();
+        std::fs::remove_dir_all(&state).ok();
+    }
+}
+
+// ブラウザ履歴（ST08 design D14）。**一時プロファイル**で開くので、本人の実物のプロファイルは使わない。
+// 本物の置き場探し・写し・読み手・取得（`FsHistoryReader` → `HistoryCollector`）を、
+// **ブラウザを開いたまま**通す。取得契機は注入した時計で起こす（24 時間を待たない）。
+
+/// 履歴の検査で開いたブラウザ 1 つ。一時の置き場（`LOCALAPPDATA` と `APPDATA` の代わり）を持つ。
+struct HistoryBrowser {
+    child: Child,
+    local: std::path::PathBuf,
+    roaming: std::path::PathBuf,
+}
+
+impl HistoryBrowser {
+    fn temp_roots() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("ashiato-rt-history-{}", uuid::Uuid::new_v4()));
+        let (local, roaming) = (root.join("local"), root.join("roaming"));
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir_all(&roaming).unwrap();
+        (local, roaming)
+    }
+
+    /// Chromium 系。`user_data` は `FsHistoryReader` が見つける置き場（`<local>/<社名>/<製品>/User Data`）と同じ形。
+    fn chromium(exe: &str, user_data_under_local: &str, urls: &[String]) -> Self {
+        let (local, roaming) = Self::temp_roots();
+        let user_data = local.join(user_data_under_local);
+        let child = Command::new(exe)
+            .arg(format!("--user-data-dir={}", user_data.display()))
+            .args([
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-sync",
+                "--disable-features=msEdgeFirstRunExperience,msImplicitSignin",
+                "--new-window",
+                "--window-size=900,600",
+            ])
+            .args(urls)
+            .spawn()
+            .unwrap_or_else(|e| panic!("{exe} が起動しない: {e}"));
+        Self {
+            child,
+            local,
+            roaming,
+        }
+    }
+
+    fn firefox(exe: &str, urls: &[String]) -> Self {
+        let (local, roaming) = Self::temp_roots();
+        let profile = roaming.join("Mozilla/Firefox/Profiles/ashiato-rt.default");
+        std::fs::create_dir_all(&profile).unwrap();
+        // 初回の案内を出さない（出ると最初の頁が開かない）
+        std::fs::write(
+            profile.join("user.js"),
+            "user_pref(\"browser.shell.checkDefaultBrowser\", false);\n\
+             user_pref(\"browser.aboutwelcome.enabled\", false);\n\
+             user_pref(\"startup.homepage_welcome_url\", \"\");\n\
+             user_pref(\"datareporting.policy.dataSubmissionEnabled\", false);\n\
+             user_pref(\"browser.startup.page\", 0);\n",
+        )
+        .unwrap();
+        // `-wait-for-browser`: Windows の firefox.exe は本体を別のプロセスで起こしてすぐ終わる（launcher process）。
+        // 待たせないと `child` が先に消え、Drop の taskkill /T が本体に届かずに Firefox が残る
+        // （CI で 25 分の打ち切りまで残り、手元でも 1 本ごとに本体と子 8 つが残った。実測 2026-10-14）
+        let child = Command::new(exe)
+            .args([
+                "-no-remote",
+                "-new-instance",
+                "-wait-for-browser",
+                "-profile",
+            ])
+            .arg(&profile)
+            .args(urls)
+            .spawn()
+            .unwrap_or_else(|e| panic!("{exe} が起動しない: {e}"));
+        Self {
+            child,
+            local,
+            roaming,
+        }
+    }
+}
+
+impl Drop for HistoryBrowser {
+    fn drop(&mut self) {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &self.child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = self.child.wait();
+        std::thread::sleep(Duration::from_millis(500));
+        if let Some(root) = self.local.parent() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+}
+
+/// 一時の置き場から取得契機を起こし、`want` の URL が全部**訪問時刻つきの記録**として積まれるまで繰り返す。
+///
+/// ブラウザは履歴を少し遅れて書く。読んだ時点で無ければ、時計を 25 時間進めて次の取得契機を起こす
+/// （帳面があるので、先の回で積んだものは重ならない）。
+fn fetch_history_until(
+    browser: &HistoryBrowser,
+    expected_browser: &str,
+    want: &[&str],
+) -> Vec<(String, String)> {
+    let state = std::env::temp_dir().join(format!("ashiato-rt-state-{}", uuid::Uuid::new_v4()));
+    let reader = FsHistoryReader::new(browser.local.clone(), browser.roaming.clone());
+    let mut collector = HistoryCollector::new(std::sync::Arc::new(reader), &state);
+    let mut got: Vec<(String, String)> = Vec::new();
+    let mut wall = Utc::now();
+    let start = Instant::now();
+    let mut last_error = String::new();
+    while start.elapsed() < Duration::from_secs(90) {
+        // 取得契機に達してから、読みが終わって積むまで
+        let mut queue = |visits: &[ashiato_collector_windows::history::contract::Visit],
+                         _read_at: chrono::DateTime<Utc>| {
+            for v in visits.iter().filter(|v| v.payload.kind == "visit") {
+                assert_eq!(v.payload.browser, expected_browser, "ブラウザの名前");
+                got.push((
+                    v.payload.url.clone().unwrap_or_default(),
+                    v.payload.at.clone(),
+                ));
+            }
+            Ok(())
+        };
+        let finished = loop {
+            if let Some(r) = collector.tick(wall, &mut queue) {
+                break r;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(90),
+                "読みが終わらない"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        if let Err(e) = finished {
+            last_error = format!("{e:#}");
+        }
+        if want.iter().all(|w| got.iter().any(|(u, _)| u.contains(w))) {
+            let _ = std::fs::remove_dir_all(&state);
+            return got;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+        wall += chrono::Duration::hours(25);
+    }
+    panic!(
+        "期待した訪問が積まれていない（最後の読みの失敗: {last_error:?}）。積まれたもの: {got:?}"
+    );
+}
+
+/// 2 つの訪問が URL と訪問時刻つきで積まれていること。
+fn assert_two_visits(got: &[(String, String)], before: DateTime<Utc>, marks: [&str; 2]) {
+    for mark in marks {
+        let (url, at) = got
+            .iter()
+            .find(|(u, _)| u.contains(mark))
+            .unwrap_or_else(|| panic!("{mark} の訪問が無い: {got:?}"));
+        let at = DateTime::parse_from_rfc3339(at)
+            .unwrap_or_else(|e| panic!("訪問時刻が読めない {at}: {e}"))
+            .with_timezone(&Utc);
+        // 訪問時刻は「今」の近く（記録の時刻でなく、ブラウザが書いた訪問の時刻）
+        assert!(
+            at >= before - chrono::Duration::minutes(1)
+                && at <= Utc::now() + chrono::Duration::minutes(1),
+            "訪問時刻が訪問した頃ではない: {url} {at}"
+        );
+    }
+}
+
+fn history_pages(pages: &Pages) -> [String; 2] {
+    let port = pages.port;
+    [
+        format!("http://127.0.0.1:{port}/history-one"),
+        format!("http://127.0.0.1:{port}/history-two"),
+    ]
+}
+
+fn history_roundtrip(open: impl FnOnce(&[String]) -> HistoryBrowser, expected: &str) {
+    let _g = desktop();
+    let pages = Pages::serve();
+    let urls = history_pages(&pages);
+    let before = Utc::now();
+    let browser = open(&urls);
+    let got = fetch_history_until(&browser, expected, &["/history-one", "/history-two"]);
+    assert_two_visits(&got, before, ["/history-one", "/history-two"]);
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_while_running() {
+    let exe = Edge::exe().expect("Edge が無い");
+    history_roundtrip(
+        |urls| HistoryBrowser::chromium(exe, "Microsoft/Edge/User Data", urls),
+        "edge",
+    );
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_chrome() {
+    let exe = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    .into_iter()
+    .find(|p| std::path::Path::new(p).is_file())
+    .expect("Chrome が無い（runner に入れる。飛ばさない: design D14）");
+    history_roundtrip(
+        |urls| HistoryBrowser::chromium(exe, "Google/Chrome/User Data", urls),
+        "chrome",
+    );
+}
+
+// Scenario: ブラウザが動いている間も取得できる
+#[test]
+fn browser_history_firefox() {
+    // 管理者権限なしで入れた Firefox は `%LOCALAPPDATA%\Mozilla Firefox` に入る（手元の PC。実測 2026-10-14）
+    let user_install = std::env::var_os("LOCALAPPDATA")
+        .map(|d| std::path::PathBuf::from(d).join(r"Mozilla Firefox\firefox.exe"));
+    let exe = [
+        std::path::PathBuf::from(r"C:\Program Files\Mozilla Firefox\firefox.exe"),
+        std::path::PathBuf::from(r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe"),
+    ]
+    .into_iter()
+    .chain(user_install)
+    .find(|p| p.is_file())
+    .expect("Firefox が無い（runner に入れる。飛ばさない: design D14）");
+    let exe = exe.to_str().expect("Firefox のパスが UTF-8 でない");
+    history_roundtrip(|urls| HistoryBrowser::firefox(exe, urls), "firefox");
 }

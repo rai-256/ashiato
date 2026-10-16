@@ -14,6 +14,9 @@ pub mod timezone;
 pub mod worker;
 pub mod youtube;
 
+/// 書庫のソースが「最後の書庫から何日で途切れとするか」（ST14 Q9。移行の 75 と試験で突き合わせる）。
+pub const ARCHIVE_ALERT_AFTER_DAYS: i32 = 75;
+
 /// 書庫が位置を入れる論理ソース 7 本の並び（design D22）。**滞在の判定には使わない**。
 /// 滞在の削除（`deletion::erase` の連鎖と `stay_store::mark_late_arrivals`）が基準のソースと合わせて読む。
 pub const LOCATION_SOURCES: [&str; 7] = [
@@ -46,7 +49,7 @@ pub const INTERVAL_SOURCES: [&str; 4] = [
 ];
 
 /// 読み方を変えたとき、同じ書庫を再び読むための版。
-pub const PARSER_VERSION: &str = "1";
+pub const PARSER_VERSION: &str = "2";
 
 #[cfg(test)]
 mod tests {

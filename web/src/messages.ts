@@ -136,6 +136,15 @@ const ja = {
     droppedCount: (count: string): string => `— ${count} 件`,
     droppedRange: (count: string, from: string, to: string): string => `うち ${count} 件を破棄（${from}〜${to}）`,
     droppedRangeNoCount: (from: string, to: string): string => `破棄（${from}〜${to}）`,
+    /** 取りこぼしの期間の理由ごとの文字（ST14 / design D23（仮））。1 日の画面（ST25）と同じ言葉 */
+    gapReason: {
+      retention: (span: string): string => `取得元に残っていない（${span}）`,
+      clock_skew_abandoned: (span: string): string => `時計のずれで取れていない（${span}）`,
+    } as Record<string, ((span: string) => string) | undefined>,
+    /** 期間の書き方（破棄の `from〜to` と同じ区切り） */
+    gapSpan: (from: string, to: string): string => `${from}〜${to}`,
+    /** 知らない理由は理由の文字を付けない */
+    gapUnknown: (span: string): string => `取りこぼし（${span}）`,
   },
 
   /** S-2 1 日の画面（DayView.tsx / stays.ts） */
@@ -337,6 +346,106 @@ const ja = {
       },
       rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,
     },
+  },
+
+  /** 毎日の気分（feelings.ts / FeelView.tsx。ST17） */
+  feel: {
+    /** 快–不快の言葉（-2〜+2）。色で分けず、数値と言葉で出す（深掘り C1） */
+    valenceWord: {
+      "-2": "とても不快",
+      "-1": "不快",
+      "0": "どちらでもない",
+      "1": "快",
+      "2": "とても快",
+    } as Record<string, string>,
+    /** 暦の記入あり（日の記録が無く滞在にだけある日）/ 未記入の印 */
+    markStayOnly: "滞",
+    markMissing: "未",
+
+    /** S-3 主観入力の画面（FeelView.tsx。design D12） */
+    title: (dateLabel: string): string => dateLabel,
+    prevMark: "‹",
+    nextMark: "›",
+    prevDay: "前の日へ",
+    nextDay: "次の日へ",
+    loading: "読み込み中…",
+    loadFailed: "気分を読み出せませんでした（書いていない、という意味ではありません）",
+    invalidDate: (raw: string): string => `日付が読めません（${raw}）。`,
+    toToday: "今日の気分を書く",
+    valenceQuestion: "この日はどう感じましたか（快–不快）",
+    valenceGroup: "快–不快",
+    valenceButton: (signed: string, word: string): string => `${signed} ${word}`,
+    energyLabel: "元気さ（任意）",
+    energyGroup: "元気さ",
+    energyButton: (signed: string): string => `元気さ ${signed}`,
+    noteLabel: "ひとこと（任意）",
+    notePlaceholder: "例: 久しぶりに走った",
+    keepNote: "ひとことを残す",
+    noteOver: (n: string, max: string): string => `${n} / ${max} 文字 · 長すぎます`,
+    resend: "もう一度送る",
+    saved: (value: string, at: string, date: string): string => `保存しました: ${value} · 記入 ${at}（対象の日 ${date}）`,
+    held: (max: string): string => `ひとことが長すぎるので保存していません（${max} 文字まで）`,
+    unreachable: "サーバに届きませんでした。選んだ値とひとことはそのまま残っています",
+    rejection: {
+      invalid_note: (max: string): string => `ひとことが長すぎます（${max} 文字まで）`,
+      invalid_note_control: "ひとことに使えない文字（制御文字）が入っています。その文字を消してください",
+      invalid_feeling_target: "この日（滞在）には書けませんでした。画面を読み直してください",
+    },
+    rejectedOther: (kind: string): string => `受け付けられませんでした（${kind}）`,
+    otherSide: (phase: string, value: string): string => `${phase}に書いた: ${value}`,
+    phaseWord: { before: "前", after: "後" } as Record<string, string>,
+    history: (n: number): string => `書き直した履歴 ${n} 件`,
+    historyRow: {
+      energy: (signed: string): string => `元気さ ${signed}`,
+      note: (note: string, cut: boolean): string => `「${note}${cut ? "…" : ""}」`,
+      writtenAt: (at: string): string => `記入 ${at}`,
+    },
+    historySeparator: " · ",
+    at: (mo: number, d: number, hm: string): string => `${mo} 月 ${d} 日 ${hm}`,
+
+    /** 滞在の行（FeelParts.tsx。design D13） */
+    staysHeading: "滞在ごとの気分",
+    staysLoading: "滞在を読み込み中…",
+    staysNone: "この日の滞在はありません",
+    staysFailed: "滞在を読み出せませんでした（滞在が無い、という意味ではありません）",
+    stayRange: (from: string, to: string): string => `${from} – ${to}`,
+    stayGroup: (range: string): string => `滞在 ${range} の快–不快`,
+    carriedFrom: "前の日から",
+    hiddenStays: (n: number): string => `消した滞在の気分 ${n} 件（ここには出しません）`,
+    savedStay: (value: string, at: string, range: string): string => `保存しました: ${value} · 記入 ${at}（滞在 ${range}）`,
+
+    /** 1 日の画面（S-2）の頭の欄と滞在の行（DayFeeling.tsx。design D14 / D20） */
+    dayLabel: (value: string): string => `気分 ${value}`,
+    dayValue: (signed: string, word: string): string => `${signed} ${word}`,
+    dayStays: (n: number): string => `滞在ごとに ${n} 件`,
+    dayNoValence: "記入あり",
+    dayMissing: "未記入",
+    dayBeforeStart: "使い始める前",
+    dayFuture: "これから",
+    dayLoading: "読み込み中…",
+    dayFailed: "気分を読み出せませんでした",
+    dayWrite: "書く",
+
+    /** 暦（design D14） */
+    calendarHeading: "この 30 日",
+    calendarFailed: "暦を読み出せませんでした（未記入、という意味ではありません）",
+    weekdays: ["日", "月", "火", "水", "木", "金", "土"] as readonly string[],
+    calendarDay: (date: string, state: string): string => (state === "" ? date : `${date} ${state}`),
+    calendarState: {
+      recorded: "記入あり",
+      missing: "未記入",
+      before_start: "使い始める前",
+      future: "これから",
+    } as Record<string, string>,
+
+    /** 通知の時刻（design D10） */
+    reminderHeading: "通知の時刻",
+    reminderCurrent: (at: string): string => `いまの通知の時刻: ${at}`,
+    reminderUnknown: "いまの通知の時刻を読み出せませんでした",
+    reminderLabel: "時刻（時:分）",
+    reminderSave: "通知の時刻を保存",
+    reminderSaved: (at: string): string => `通知の時刻を ${at} にしました`,
+    reminderNotSaved: "通知の時刻を保存できませんでした。入れた時刻はそのまま残っています",
   },
 };
 

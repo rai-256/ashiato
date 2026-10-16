@@ -86,6 +86,18 @@ open class LocationService : Service() {
      */
     private lateinit var sources: List<Running>
     private lateinit var deviceId: String
+
+    /** 途切れの問い合わせ（ST14）。**位置の生存信号の契機だけ**が呼ぶ。最初に使うまで作らない */
+    private val outagePoller: OutagePoller by lazy {
+        OutagePoller(
+            query = newOutageQuery(),
+            notice = OutageNotice(getSharedPreferences(OutageNotice.PREFS, MODE_PRIVATE)),
+            notifier = OutageNotifier(this) { Log.w(TAG, it) },
+            deviceId = { deviceId },
+            log = { Log.w(TAG, it) },
+            executor = newOutageExecutor(),
+        )
+    }
     private var flusher: FlushScheduler? = null
 
     private lateinit var callback: FixCollector
@@ -182,6 +194,22 @@ open class LocationService : Service() {
 
     /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
     protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
+
+    /**
+     * 途切れの問い合わせ（`GET /outages?device_id=&user_id=`。ST14 / design D12・D29（仮））。
+     * **差し替えない** —— 設定の利用者を付ける組み立てを試験が通るように、差し替えるのは [newOutageGet] だけ（review/code.md R17）。
+     */
+    private fun newOutageQuery(): OutageQuery {
+        val get = newOutageGet()
+        return OutageQuery { id -> get(outageQueryString(id, Config.userId)) }
+    }
+
+    /** `GET /outages` に問い合わせの文字列を付けて打つ口。**試験だけが差し替える**。 */
+    protected open fun newOutageGet(): (String) -> Outcome =
+        HttpTransport(Config.baseUrl, Config.apiToken, "/outages")::get
+
+    /** 問い合わせ → 決め方 → 通知 → 覚えを直列にする糸（1 本）。同上。 */
+    protected open fun newOutageExecutor(): ExecutorService = Executors.newSingleThreadExecutor()
 
     /** 送信の刻み。同上。1 本の糸で回す —— 送信が重なると同じ記録を 2 回送る。 */
     protected open fun newScheduler(): FlushScheduler = ExecutorFlushScheduler()
@@ -644,6 +672,7 @@ open class LocationService : Service() {
         startBeating()
         startTicking()
         startClockSkew()
+        FeelingReminderWiring.ensureScheduled(applicationContext)
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
     }
@@ -810,17 +839,24 @@ open class LocationService : Service() {
             // ここが裸だと `onStartCommand` を貫通してプロセスごと落ち、
             // START_STICKY と合わさってクラッシュループになる ——
             // このファイル自身が権限拒否のところで立てた規律（**落とさずに何もしない**）と食い違う。
+            // 途切れの問い合わせは**位置のスケジューラにだけ**足す（ソースごとに呼ぶと 1 契機で複数回出る。ST14 / D12）
+            val isLocation = running.cadence == SourceCadence.LOCATION
             runCatching { emitter.emit() }.onFailure {
                 Log.w(TAG, Telemetry.line("heartbeat_crashed", source = null, error = it.javaClass.simpleName))
             }
+            if (isLocation) outagePoller.poll()
             // **登録簿の想定間隔に合わせる**（tasks 7.1 / 本人の決定 C8）。ずらすと正常な運用が途絶に見える
             running.beater = newHeartbeatScheduler(running.cadence.logicalSource).also { scheduler ->
-                scheduler.every(running.cadence.heartbeatIntervalMs) { emitter.emit() }
+                scheduler.every(running.cadence.heartbeatIntervalMs) {
+                    emitter.emit()
+                    if (isLocation) outagePoller.poll()
+                }
             }
         }
     }
 
     override fun onDestroy() {
+        outagePoller.shutdown()
         if (::sources.isInitialized) {
             for (running in sources) {
                 running.source.stop()

@@ -60,10 +60,39 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+pub mod feelings;
+/// 主観の記録の取り込み口（ST17 / Task 2）。
+#[cfg(test)]
+mod feelings_ingest_tests;
+/// 主観の読み出し（ST17 / Task 4）。
+#[cfg(test)]
+mod feelings_read_tests;
+/// 形の合わない主観を断る（ST17 / Task 3）。
+#[cfg(test)]
+mod feelings_reject_tests;
+/// 通知の時刻の台帳と通知の判断の口（ST17 / Task 5）。
+#[cfg(test)]
+mod feelings_remind_tests;
+/// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
+#[cfg(test)]
+mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod migrate_backup;
 pub mod net_guard;
+/// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
+pub mod outage;
+/// `GET /outages` と台帳を本物の DB で見る（ST14 Task 7）。
+#[cfg(test)]
+mod outage_api_tests;
+/// 途切れの通知の登録簿と台帳（ST14 / design D2 / D7）。
+#[cfg(test)]
+mod outage_registry_tests;
+/// 途切れの判定の材料を引く SQL（ST14 / design D1 / D4）。
+pub mod outage_store;
+/// 途切れの判定の材料の SQL を本物の DB で見る（ST14 Task 5）。
+#[cfg(test)]
+mod outage_tests;
 pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
@@ -223,6 +252,13 @@ pub struct App {
     /// 取り込み器が「いま読んでいる書庫」を書く場所（ST12 / design D12）。
     /// **台帳からは出ない**ので、読み手と同じ実体をここで持つ。
     reading: archive::worker::ReadingState,
+    /// サーバを起こした単調時計の時点（途切れの判定を待つ間の起点。ST14 / design D5）。壁時計の変更に左右されない。
+    started: std::time::Instant,
+    /// 試験が差し込む起動時刻（`now` と同じ壁時計で経過を測る）。本番は常に `None`。
+    #[cfg(test)]
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
+    warmup: std::time::Duration,
 }
 
 impl App {
@@ -242,7 +278,16 @@ impl App {
             #[cfg(test)]
             now: None,
             reading: archive::worker::ReadingState::default(),
+            started: std::time::Instant::now(),
+            #[cfg(test)]
+            started_at: None,
+            warmup: outage::OUTAGE_WARMUP,
         }
+    }
+
+    /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
+    pub fn with_warmup(self, warmup: std::time::Duration) -> Self {
+        Self { warmup, ..self }
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -282,6 +327,24 @@ impl App {
             access: access_log::AccessLog::new(sink),
             ..self
         }
+    }
+
+    /// サーバを起こした時刻を差し込んだ複製（途切れの判定を待つ間の試験。design D5）。
+    #[cfg(test)]
+    pub(crate) fn started(self, started_at: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            started_at: Some(started_at),
+            ..self
+        }
+    }
+
+    /// 起動してからの経過（単調時計。試験で起動時刻が差し込まれていれば `now()` との差）。
+    fn uptime(&self) -> std::time::Duration {
+        #[cfg(test)]
+        if let (Some(at), Some(now)) = (self.started_at, self.now) {
+            return (now - at).to_std().unwrap_or_default();
+        }
+        self.started.elapsed()
     }
 
     /// 時刻を差し込んだ複製（tasks 2.4）。
@@ -516,6 +579,35 @@ pub enum IngestError {
     InvalidCoordSupersedes,
     /// 広さが整数でない・範囲の外
     InvalidRadius,
+
+    // --- 主観の記録だけに当たる 6 種別（ST17 / design D5。spec「形の合わない主観の記録は受け付けない」）
+    //
+    // **置き場は spec の表**。ここは写しで、当たる条件は spec が持つ。
+    /// 原文が JSON でない / 必須の欄が欠ける / 識別子が違う / 乱数が 128 bit に満たない /
+    /// 記入の日時が読めない / 記録の地域が `Asia/Tokyo`（+9:00）でない
+    MalformedFeeling,
+    /// 由来が「本人が書いた」でない / 端末識別子を持つ
+    FeelingNotAuthored,
+    /// 外部サービス上の識別子か対象の識別子を持つ
+    FeelingHasExternalId,
+    /// 快–不快が無い / 値が -2〜+2 の整数でない / 知らない尺度 / 同じ尺度が 2 つ
+    InvalidScale,
+    /// ひとことが NFC にして 2,000 文字を超える
+    InvalidNote,
+    /// 紐づけ先が合わない
+    InvalidFeelingTarget,
+}
+
+impl From<feelings::FeelingInvalid> for IngestError {
+    fn from(v: feelings::FeelingInvalid) -> Self {
+        use feelings::FeelingInvalid as Bad;
+        match v {
+            Bad::Malformed => Self::MalformedFeeling,
+            Bad::Scale => Self::InvalidScale,
+            Bad::Note => Self::InvalidNote,
+            Bad::Target => Self::InvalidFeelingTarget,
+        }
+    }
 }
 
 impl From<places::PlaceRecordInvalid> for IngestError {
@@ -568,7 +660,10 @@ pub const DEFAULT_SENSITIVITY: i32 = 1;
 /// **反転条件**: ST24 が登録簿に「ソースごとの既定の感度」を持たせたとき、
 /// この分岐を登録簿の値へ移す（個人属性の値は 2 のまま）。
 fn default_sensitivity(logical_source: &str) -> i32 {
-    if logical_source == attributes::SOURCE {
+    if logical_source == feelings::SOURCE {
+        // 主観の記録は「ローカル AI まで」（design D3（仮））
+        feelings::DEFAULT_SENSITIVITY
+    } else if logical_source == attributes::SOURCE {
         // 個人属性の主張は「ローカル AI まで」（PERM-4 / 深掘り Q3）。主観・感情と同じ側
         attributes::DEFAULT_SENSITIVITY
     } else if logical_source == places::SOURCE {
@@ -929,6 +1024,33 @@ async fn ingest_request(
         None
     };
 
+    // **主観の記録も同じ向きで、ここで形を確かめる**（ST17 / design D5）。
+    // 順は spec の表の上から（形 → 由来と端末 → 外部識別子 → 尺度 → ひとこと → 紐づけ先の形）。
+    // 一般の検査（`validate`）より先に見る理由は主張と同じ。
+    let feeling = if req.logical_source == feelings::SOURCE {
+        let parsed = feelings::parse_feeling(&req.raw, req.id);
+        let reject = |why: IngestError| Ok(IngestResult::rejected(Some(req.id), why));
+        if matches!(parsed, Err(feelings::FeelingInvalid::Malformed))
+            // 記録の地域は `Asia/Tokyo`（+9:00）に揃える（対象は Asia/Tokyo の日で区切る。D1）
+            || req.tz_id != feelings::TARGET_TZ
+            || req.tz_offset_min != feelings::TARGET_TZ_OFFSET_MIN
+        {
+            return reject(IngestError::MalformedFeeling);
+        }
+        if req.origin != "authored" || req.device_id.is_some() {
+            return reject(IngestError::FeelingNotAuthored);
+        }
+        if req.external_id.is_some() || req.external_ref.is_some() {
+            return reject(IngestError::FeelingHasExternalId);
+        }
+        match parsed {
+            Ok(f) => Some(f),
+            Err(why) => return reject(why.into()),
+        }
+    } else {
+        None
+    };
+
     // **場所の記録も同じ向きで、ここで形を確かめる**（ST21 / design D4（仮））。
     // 順は 形 → 由来と端末 → 外部識別子 → 地域のずれ → 名前 / 座標 / 「いつから」/ 広さの値 →
     // 座標系 で、**DB を見る 3 つ（器・座標の変え方・直す先）は記録を入れるのと同じまとまりの中**（下）。
@@ -1013,10 +1135,13 @@ async fn ingest_request(
     //
     // **主張は送り主の解析済みを使わず、原文から組み直した値を入れる**（ST19 / design D1 / D4）——
     // 原文と解析済みがずれる経路を作らない。組み直した値に `nonce` は入っていない。
-    let payload = match (&claim, &place_record) {
-        (Some(c), _) => c.payload.clone(),
-        (None, Some(p)) => p.payload.clone(),
-        (None, None) => ingest::to_nfc(&req.payload),
+    //
+    // **主観も同じ**（ST17 / design D1 / D4）。組み直した値に `nonce` は入っていない。
+    let payload = match (&claim, &place_record, &feeling) {
+        (Some(c), _, _) => c.payload.clone(),
+        (None, Some(p), _) => p.payload.clone(),
+        (None, None, Some(f)) => f.payload.clone(),
+        (None, None, None) => ingest::to_nfc(&req.payload),
     };
 
     // **3 本を 1 トランザクションにまとめる**（review/code.md の R2）。
@@ -1051,6 +1176,23 @@ async fn ingest_request(
                     Some(req.id),
                     IngestError::InvalidSupersedes,
                 ));
+            }
+        }
+    }
+
+    // **主観の紐づけ先の DB を見る検査も、記録を入れるのと同じまとまりの中**（ST17 / design D5）。
+    // 再送は検査し直さない（受理した記録を後から断らない）。
+    if let Some(f) = &feeling {
+        if !feelings::is_resend(&mut tx, req.user_id, &hash)
+            .await
+            .map_err(|e| internal_at("ingest.feeling_resend", e))?
+        {
+            if let Some(why) =
+                feelings::target_state_error(&mut tx, req.user_id, &f.target, req.event_time)
+                    .await
+                    .map_err(|e| internal_at("ingest.feeling_target", e))?
+            {
+                return Ok(IngestResult::rejected(Some(req.id), why.into()));
             }
         }
     }
@@ -2021,6 +2163,95 @@ pub async fn day_records_get(
     .map_err(|e| internal_at("day.records", e))
 }
 
+/// `GET /feelings` の絞り込み。日付は `/stays` と同じく文字列で受けて自分で読む。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct FeelingsQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日。含む）
+    from: String,
+    /// `YYYY-MM-DD`（Asia/Tokyo の日。含む）。`from` から最大 62 日
+    to: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 日ごとの主観を、対象（日・滞在）ごとの最新と履歴で返す（ST17 design D8）。**感度では絞らない。**
+#[utoipa::path(get, path = "/feelings", params(FeelingsQuery),
+    responses((status = 200, body = feelings::FeelingsResponse), (status = 400), (status = 401)))]
+pub async fn feelings_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<FeelingsQuery>,
+) -> Result<Json<feelings::FeelingsResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = |s: &str| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))
+    };
+    let (from, to) = (date(&q.from)?, date(&q.to)?);
+    if to < from || (to - from).num_days() + 1 > feelings::RANGE_MAX_DAYS {
+        return Err((StatusCode::BAD_REQUEST, "invalid_range".to_string()));
+    }
+    feelings::load_response(
+        &app.pool,
+        q.user_id.unwrap_or_default(),
+        from,
+        to,
+        chrono::Utc::now(),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| internal_at("feelings.read", e))
+}
+
+/// `GET /feelings/reminder` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ReminderQuery {
+    /// `YYYY-MM-DD`（Asia/Tokyo の日）
+    date: String,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 通知の判断に要る 2 欄（通知の時刻・その日の記録の有無）だけを返す（ST17 design D9）。**主観の中身は返さない。**
+#[utoipa::path(get, path = "/feelings/reminder", params(ReminderQuery),
+    responses((status = 200, body = feelings::ReminderDecision), (status = 400), (status = 401)))]
+pub async fn feelings_reminder_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<ReminderQuery>,
+) -> Result<Json<feelings::ReminderDecision>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let date = chrono::NaiveDate::parse_from_str(&q.date, "%Y-%m-%d")
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_date".to_string()))?;
+    feelings::reminder_decision(&app.pool, q.user_id.unwrap_or_default(), date)
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("feelings.reminder_read", e))
+}
+
+/// `POST /feelings/reminder` の本文。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ReminderSetRequest {
+    user_id: Option<uuid::Uuid>,
+    /// `HH:MM`（秒は持たない）
+    at: String,
+}
+
+/// 通知の時刻を変える。台帳に 1 行足し、次の判断から効く（ST17 design D9）。
+#[utoipa::path(post, path = "/feelings/reminder", request_body = ReminderSetRequest,
+    responses((status = 200, body = feelings::ReminderSet), (status = 400), (status = 401)))]
+pub async fn feelings_reminder_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<ReminderSetRequest>,
+) -> Result<Json<feelings::ReminderSet>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let at = feelings::parse_reminder_at(&req.at)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "invalid_time".to_string()))?;
+    feelings::set_reminder(&app.pool, req.user_id.unwrap_or_default(), at)
+        .await
+        .map_err(|e| internal_at("feelings.reminder_set", e))?;
+    Ok(Json(feelings::ReminderSet { at: req.at }))
+}
+
 /// 滞在の時間に重なる、読み出し中の記録を論理ソースごとに数える。
 #[utoipa::path(get, path = "/stays/detail", params(StaysDetailQuery),
     responses((status = 200, body = StayDetail), (status = 401), (status = 404)))]
@@ -2514,6 +2745,84 @@ pub async fn archives_status_get(
         .map_err(|error| internal_at("archives.status", error))
 }
 
+// ------------------------------------------------------------------ 途切れ（ST14）
+
+/// `GET /outages` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct OutagesQuery {
+    /// 端末識別子。**あれば**「この端末に返した」を台帳に残す（収集アプリは必ず付ける）。
+    device_id: Option<String>,
+    /// 利用者。省略すると既定の利用者（ほかの読み出しと同じ）
+    user_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OutagesStatus {
+    /// 判定した。`outages` が付く
+    Ready,
+    /// 起動してから `OUTAGE_WARMUP` の間。判定も台帳への書き込みもしない
+    WarmingUp,
+}
+
+/// 途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutageItem {
+    /// 途切れの識別子。続く間は同じ・戻ってまた途切れたら別
+    pub episode_id: i64,
+    pub logical_source: String,
+    pub display_name: String,
+    pub last_alive_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OutagesResponse {
+    pub status: OutagesStatus,
+    pub judged_at: chrono::DateTime<chrono::Utc>,
+    /// `status = ready` のときだけ。表示名の昇順（同じなら論理ソース名）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outages: Option<Vec<OutageItem>>,
+}
+
+/// 収集が途切れているソースと、端末に返したことの台帳（ST14 / design D5・D6・D7）。
+#[utoipa::path(get, path = "/outages", params(OutagesQuery),
+    responses((status = 200, body = OutagesResponse), (status = 401)))]
+pub async fn outages_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<OutagesQuery>,
+) -> Result<Json<OutagesResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    let now = app.now();
+    if app.uptime() < app.warmup {
+        return Ok(Json(OutagesResponse {
+            status: OutagesStatus::WarmingUp,
+            judged_at: now,
+            outages: None,
+        }));
+    }
+    let user = q.user_id.unwrap_or_default();
+    // 材料を読むのも判定も台帳の助言ロックの中（review/code.md R2）
+    let episodes = outage_store::judge_and_record(&app.pool, user, now, q.device_id.as_deref())
+        .await
+        .map_err(|e| internal_at("outages.judge", e))?;
+    Ok(Json(OutagesResponse {
+        status: OutagesStatus::Ready,
+        judged_at: now,
+        outages: Some(
+            episodes
+                .into_iter()
+                .map(|e| OutageItem {
+                    episode_id: e.episode_id,
+                    logical_source: e.outage.logical_source,
+                    display_name: e.outage.display_name,
+                    last_alive_at: e.outage.last_alive_at,
+                })
+                .collect(),
+        ),
+    }))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -2534,6 +2843,8 @@ pub async fn coverage_get(
         .into_iter()
         .map(|(n, _)| n)
         .collect();
+    // 集計は Must の 5 本の直後・書庫の前（D10（仮））。達成（`must_sources()`）には入れない
+    names.push(coverage::ROLLUP_SOURCE.to_string());
     let archive_names: Vec<String> = sqlx::query_scalar(
         "SELECT logical_source FROM core.source
           WHERE logical_source LIKE 'c03-%' ORDER BY display_name, logical_source",
@@ -2835,9 +3146,15 @@ pub fn router(app: App) -> Router {
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
+        .route("/outages", get(outages_get))
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
+        .route("/feelings", get(feelings_get))
+        .route(
+            "/feelings/reminder",
+            get(feelings_reminder_get).post(feelings_reminder_post),
+        )
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
@@ -2946,8 +3263,19 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
 
-    let mut app =
-        router(App::new(pool, token, &web_password, session_max_age_days).with_reading(reading));
+    // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
+    let warmup =
+        match std::env::var("OUTAGE_WARMUP_SEC") {
+            Ok(v) => std::time::Duration::from_secs(v.parse().map_err(|_| {
+                anyhow::anyhow!("OUTAGE_WARMUP_SEC は 0 以上の整数（秒）で指定する")
+            })?),
+            Err(_) => outage::OUTAGE_WARMUP,
+        };
+    let mut app = router(
+        App::new(pool, token, &web_password, session_max_age_days)
+            .with_reading(reading)
+            .with_warmup(warmup),
+    );
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -2973,9 +3301,13 @@ pub async fn run() -> anyhow::Result<()> {
         coverage_get,
         achievement_get,
         archives_status_get,
+        outages_get,
         stays_get,
         day_get,
         day_records_get,
+        feelings_get,
+        feelings_reminder_get,
+        feelings_reminder_post,
         stays_detail_get,
         stays_erase,
         stays_restore,
@@ -3007,10 +3339,14 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::DayCell,
         coverage::Interval,
         coverage::DroppedRange,
+        coverage::GapSpan,
         coverage::DayState,
         coverage::Band,
         coverage::Subject,
         coverage::Achievement,
+        OutagesResponse,
+        OutagesStatus,
+        OutageItem,
         ArchivesStatus,
         ArchiveSourceStatus,
         LatestArchiveStatus,
@@ -3029,6 +3365,18 @@ pub async fn run() -> anyhow::Result<()> {
         stay_store::EntryKind,
         stay_store::CriteriaTag,
         day_records::DayRecord,
+        feelings::FeelingsResponse,
+        feelings::DayFeelings,
+        feelings::DayStatus,
+        feelings::Bucket,
+        feelings::StayBucket,
+        feelings::Latest,
+        feelings::FeelingOut,
+        feelings::ScaleOut,
+        feelings::Phase,
+        feelings::ReminderDecision,
+        feelings::ReminderSet,
+        ReminderSetRequest,
         day::DayResponse,
         day::DayRow,
         day::Gap,

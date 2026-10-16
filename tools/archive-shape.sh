@@ -33,6 +33,23 @@ run_psql() {
 if [[ "${1:-}" == "--confirm" ]]; then
   shift
   [[ $# -gt 0 ]] || { echo "確認する形のハッシュが必要です" >&2; exit 2; }
+  # **言語の当たらない YouTube の形には印を置かせない**（ST47 / D6）。表に無い言語はどれも同じ
+  # `languages: []` のハッシュになるので、1 回置くと後から来た別の言語のファイルも通り、その言語の
+  # 評価が視聴に凍結される。どれか 1 つでも該当すれば、1 行も置かずに断る。
+  for shape in "$@"; do
+    refused=$(run_psql -tA -v ON_ERROR_STOP=1 -v user="$ASHIATO_ARCHIVE_USER_ID" -v shape="$shape" <<'SQL'
+SELECT count(*) FROM core.archive_pending_shape
+WHERE user_id = :'user'::uuid AND shape_hash = :'shape'
+  AND shape->>'kind' = 'YouTube'
+  AND jsonb_array_length(COALESCE(shape->'languages', '[]'::jsonb)) = 0;
+SQL
+)
+    if [[ "$(printf '%s' "$refused" | tr -d '[:space:]')" != "0" ]]; then
+      echo "形 ${shape} には印を置けません: 決まり文句の表に当たる言語が無いので、評価を視聴から外せません。" \
+           "表にその言語を足して解析器の版を上げると、新しい言語の形に印を置けます" >&2
+      exit 1
+    fi
+  done
   # **印は形ごとに 1 行**（追記のみの表で一意制約が無い）。確認待ちのファイルの数だけ
   # 足していたときは、同じ形の印が何行も積まれた（R49）。
   for shape in "$@"; do
