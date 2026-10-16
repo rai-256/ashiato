@@ -1,0 +1,71 @@
+{
+  "tag": "20261016-1547",
+  "run_id": "20261016-154843-a660cee",
+  "commit": "a660cee50b04cf0a482fa3d811aa11d7517591e6",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261016-154843-a660cee",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261016-154843-a660cee",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST17-feel",
+      "story": "ST17",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST17-feel/video.webm",
+      "trace": "scenarios/ST17-feel/trace.zip"
+    },
+    {
+      "id": "ST17-reminder",
+      "story": "ST17",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST17-reminder/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST14-coverage",
+      "story": "ST14",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 8 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST14-coverage/video.webm",
+      "trace": "scenarios/ST14-coverage/trace.zip"
+    },
+    {
+      "id": "ST14-outage-notice",
+      "story": "ST14",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST14-outage-notice/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST08-history",
+      "story": "ST08",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "前半（Sandbox の操作）passed。後半: passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST08-history/video.webm",
+      "trace": "scenarios/ST08-history/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "ST47"
+  ]
+}
