@@ -220,3 +220,32 @@ GO 資料（`docs/briefs/ST17-spec.html`）と GO 用 proto を読んだ本人�
   - design D12（仮）に画面の文と反転条件（上限に近づいてから気づくのでは遅い → 1,800 から残りを出す / 快–不快だけでも残したい → ひとこと無しで送る）を書いた。D5 の該当文は spec と D12 を指すようにした
   - tasks 7.1（NFC にしてから数える）・8.1（Scenario 2 本）・8.2（e2e で知らせの位置と、押しても要求が 0 件であることを数える）
   - GO 用 proto の「ひとことが長すぎて断られる」の状態は、次の reading の段が新しい 2 本に合わせて作り直す（打っている間に欄の下へ出し、押しても送らない）
+
+## 押された面の 3:1（Task 12 の fix round 1。premise）
+
+- **QP1 [押された快–不快のボタンの面と隣の面の 3:1] -> spec を「縁」に直す**（本人の選択。推奨と同じ。`deep-answers-4.txt`）
+  - 事実: spec `押された状態と未記入の破線は 3:1 以上` は押された快–不快のボタンの「面」を隣の面と比べて 3:1 と書く。
+    暗では押された面（`accentFill`）と隣の面（`surface1`）が **1.38:1** で、文字の 4.5:1 を優先した値のため、トークンを変えない限り満たせない。
+  - Task 12 の e2e は 2 px のアクセントの縁を測って通していたが、それは spec の読み替えで、reviewer が差し戻した。印は外した。
+  - 決定: 押された状態の目印は **2 px のアクセントの縁**とし、spec の Requirement の文と Scenario
+    `押された状態と未記入の破線は 3:1 以上` の比べる対象を「押された快–不快のボタンの面」から「押された快–不快のボタンの縁」に直す。
+    面の色（`accentFill`）とトークンは変えない（文字の 4.5:1 を優先した値のまま）。直した後で e2e の印を戻す。
+  - 要件へ戻すもの: 無し。NFR-23 は「意味を担う非テキスト」を隣と 3:1 と書くだけで、面か縁かを決めていない ——
+    押された状態を担う非テキストが縁なら、縁が 3:1 を満たせば NFR-23 を満たす。`docs/ui-direction.md` のトークンも変えない
+
+## 11.3 の検証コマンドが成立しない（whole-branch review R1。premise）
+
+- **QR1 [11.3 の検証コマンド] -> 段ごとに結果を残し、クラス名で数える**（本人の選択。推奨と同じ。`deep-answers-5.txt`。問い: `deep-questions-r13.json`、HTML: `docs/briefs/ST17-deep-r13.html`）
+  - 事実: tasks.md 11.3 の検証 `AT FeelingReminderInstrumentedTest` は、ハーネスが走らせられない。evidence.jsonl に 11.3 の行は 0 件のまま `[x]` になっていた（review/code.md R1）。
+    - 略記 `AT` の展開先は `find …` の 1 行だけで、`evidence.py` の `CMD_LIKE` に当たらず `declared()` が空（`scripts/verify-run 11.3` は rc=2「本文に検証コマンドが無い」。2026-10-14 実測）
+    - glob `TEST-*FeelingReminderInstrumentedTest*.xml` は実名 `TEST-ashiato-api35(AVD) - 15-_app-.xml`（端末ごと 1 ファイル）に合わない
+    - `tools/android-emulator.sh` は 2 段目が同じ名前の結果を上書きする
+  - 計測テストそのものは今日 10:50 の手の実行で 3 本・失敗 0 だが、R11 の直しの前のコードで、完了の証跡にはならない
+  - `plan_fix.py` は旧コマンドが `declared()` にあり FAIL の証跡があることを要求するので、どちらの答えでも harness2 側の直しが要る
+  - loss: 無し（検証の入口の話。データは失われない）
+  - 決定: `tools/android-emulator.sh` が 1 段目の結果の XML を別の名前で残すように直す（2 段目に上書きさせない）。
+    11.3 の検証は「`tools/android-emulator.sh` rc=0 かつ、残した XML に
+    `classname="dev.ashiato.collector.FeelingReminderInstrumentedTest"` の testcase が 1 本以上」にする（0 本では通らない守りを残す）。
+    harness2 側は、`declared()` が空の項目を `plan_fix.py` が受けられるようにする（本人がこの選択で承認した直し）。
+  - 退けた案: `tools/android-emulator.sh` の rc=0 だけにする（道具は変えないが、クラスが走ったかを見ず 0 本でも通る）
+  - 要件へ戻すもの: 無し（検証の入口の話で、要件・Story の振る舞いは変わらない）

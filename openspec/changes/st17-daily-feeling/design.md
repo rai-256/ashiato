@@ -173,8 +173,8 @@ core.feeling_reminder (id bigint IDENTITY PK, user_id uuid NOT NULL, at time NOT
 |---|---|
 | `FeelingReminderPolicy.kt` | 純粋な判断 `decide(now, at, lastNotifiedDate, recorded: Boolean?) -> Notify / Skip / WaitUntil(t)`。`Asia/Tokyo` の日、1 日 1 回、`recorded == null`（得られない）なら Notify |
 | `FeelingReminderScheduler.kt` | `AlarmManager.setWindow(RTC_WAKEUP, at, 15 分, …)` で次の時刻を、同じ形で毎日 12:00 の読み直しを予約する。**正確な時刻の権限は求めない**（C8）。窓の値は定数 `REMINDER_WINDOW = 15 分` |
-| `FeelingReminderReceiver.kt` | 起きたら `GET /feelings/reminder?date=` を 1 回（10 秒で打ち切り）→ `decide` → 通知 → 次を予約。12:00 の起床では時刻を読み直して予約し直すだけ。得た `at` と通知した日を `SharedPreferences` に残す |
-| `FeelingReminderBootReceiver.kt` | `BOOT_COMPLETED` で予約し直し、時刻を過ぎていれば判断する（`RECEIVE_BOOT_COMPLETED` を足す。実行時の確認の要らない権限） |
+| `FeelingReminderSource.kt` | `GET /feelings/reminder?date=` を 1 回聞く口（`HttpReminderSource`）。**接続から読み終わりまでの合計で 10 秒**で打ち切る（期限に見張りを置いて接続を切る。`connectTimeout` / `readTimeout` は 1 回の待ちの上限なので、それだけでは合計 20 秒・少しずつ届く応答なら際限なく延びる。whole-branch review R11）。得られなければ `null` |
+| `FeelingReminderReceiver.kt` | 受け手 `FeelingReminderReceiver`: 起きたら聞く口を 1 回 → `decide` → 通知 → 次を予約。12:00 の起床では時刻を読み直して予約し直すだけ。得た `at` と通知した日を `SharedPreferences` に残す（`FeelingReminderState`）。判断と予約の流れは `FeelingReminderRunner`。<br>再起動の受け手 `FeelingReminderBootReceiver` も同じファイル: `BOOT_COMPLETED` で予約し直し、時刻を過ぎていれば判断する（`RECEIVE_BOOT_COMPLETED` を足す。実行時の確認の要らない権限） |
 | `FeelingNotification.kt` | チャネル `feeling`（IMPORTANCE_DEFAULT）。題「今日はどうでしたか」、本文「気分を残す」。押すと `ACTION_VIEW` で `<webUrl>/#/feel/<その日>` |
 
 - **予約の契機**: 端末の再起動（`BOOT_COMPLETED`）・`LocationService` の起動・受け手が起きるたび。時刻を過ぎていてその日まだ通知していなければ、すぐに判断する。
@@ -277,13 +277,42 @@ C7（本人は異論なし）を要件に戻した: FR-35 に「本人が書く�
 ### D20（仮）. S-2 の滞在の行に気分を 1 行添える
 
 ST16 の深掘り Q4 で本人が決めた「S-2 の 1 行は主観の本文を行の中に出す。置き場を作るのは ST17」（`docs/ui-direction.md` ★ 2026-09-13）を、ST17 の Q1（書く口は S-3）は取り消していない（spec-review R1。当初は Non-Goals に置いて落としていた）。
-`DayView.tsx` の滞在の行（ST25 の後の形）に「気分 -1 不快」を 1 行添える。読むのは頭の欄と同じ `GET /feelings` の 1 日分（`stays[]`）で、行の最新は D13 と同じ規則。ひとことは行に出さない（行の高さを増やさない）。
+`DayView.tsx` の滞在の行（ST25 の後の形）に「気分 -1 不快」を 1 行添える。読むのは頭の欄と同じ `GET /feelings` の 1 回で、**その日で終わる `CALENDAR_DAYS` 日**を読み、行の気分は全部の日の `stays[]` から滞在の識別子で集める
+（記録は滞在の始まりの日に数える（D7）ので、前の日から続く滞在の記録は前の日にある。S-3 の `stayRows` と同じ。whole-branch review R2）。頭の欄はその日の分だけで決める。行の最新は D13 と同じ規則。ひとことは行に出さない（行の高さを増やさない）。
 
 - **反転条件**: 行の高さが増えて開いてすぐ見える行が減ったと分かったとき / ひとことも行で読みたいと分かったとき。どれも表示だけ
 
+### D21. 再送は紐づけ先の検査をやり直さない
+
+取り込み口は、主観の記録の紐づけ先の DB を見る検査（D5。登録簿 → 滞在 → 区間の重なり → 出来事の時刻）の前に、
+**同じ利用者・同じソースに同じ内容の鍵（`content_hash`）の行が既にあるか**（`feelings::is_resend`）を見て、あれば検査を飛ばす（`crates/server/src/lib.rs` の取り込み）。
+再送は同じ原文の 2 回目なので、1 回目に通った検査をやり直さない —— 1 回目の後に滞在が作り直しで別の区間へ動くと、
+やり直した検査は応答を取り落とした端末の正常な再送を `invalid_feeling_target` で断り、端末はそれを恒久的な拒否として捨てる（受理した記録を後から断らない）。
+飛ばすのは検査だけで、再送はその後の識別子の照合で `duplicate` として畳まれ、行は増えない。
+新しい原文（識別子・乱数が違う）は内容の鍵が違うので、いつも検査される。試験 `st17_reject_target_resend_skips_the_target_check` が両方を固定する（whole-branch review R6）。
+
+### D22（仮）. ひとことの断りの文は、送ったひとことで選び分ける
+
+サーバは長すぎるひとことも制御文字（改行とタブを除く Unicode の Cc。`char::is_control`）を含むひとことも同じ `invalid_note` で断る（D5）。
+画面は `invalid_note` を一律に「長すぎます」と読んでいたので、制御文字を貼った人に長さを削らせていた（whole-branch review R9）。
+画面は**送ったひとことに制御文字があるか**（`feelings.ts` の `hasControlChar`。サーバと同じ範囲）で文を選ぶ:
+あれば「ひとことに使えない文字（制御文字）が入っています」、無ければ従来の「長すぎます（2,000 文字まで）」。文は `messages.ts`。
+サーバの理由の種別は増やさない（`invalid_note` は ST19 の口と同じ種別の値で、OpenAPI の列挙も変わらない）。
+
+- **反転条件**: サーバが制御文字を別の種別で断るようになったとき（画面は種別で読む側へ）/ サーバが制御文字の範囲を変えたとき（`hasControlChar` を合わせる）。どれも表示だけ
+
+### D23（仮）. 「確定した色だけを使う」はソースを読む静的な検査で担保し、e2e の印を置かない
+
+Global Constraints は「12.1 に挙げた画面の Scenario は全部 `web/e2e`」と書くが、`主観入力の画面は確定した色だけを使う` の WHEN は
+「画面の**コード**に書かれた色を集める」で、観測の階層はソースである。描いた後の計算済みの色は `tone()` の合成や `transparent`・継承の既定色を含み、
+`tokens.ts` の値の集合との一致では「コードに直書きが無い」を確かめられない。印は jsdom の `FeelViewParts.test.tsx` の静的な検査（色の直書きと名前付き色を集める）だけに置く。
+同じ型の Scenario は ST21（`places-colors.test.ts`）・個人属性（`master-view-limits.test.tsx`）も静的な検査で担保している（code-verify R21）。
+
+- **反転条件**: Scenario が描いた画面の色（計算済みの値）を観測する形に書き換えられたとき / 製造準備の lint が色の直書きを全画面で見るようになったとき（静的な検査をそちらへ移す）。どれも試験の置き場だけ
+
 ## Risks / Trade-offs
 
-- [ST25 の下流が `DayView.tsx` と `Root.tsx` を組み替えている] → ST17 の下流は admission が ST25 の archive を待つ（同じ `browsing-views`）。S-2 の頭は見出しの下に部品を 1 つ差すだけにして、並びの部品に手を入れない
+- [ST25 の下流が `DayView.tsx` と `Root.tsx` を組み替えている] → ST17 の `requires` に ST25 を入れ、下流は ST25 の gate を通った実装を取り込んでから始める（同じ `browsing-views`。archive は待たない。`INDEX.md` の訂正 2026-10-12）。S-2 の頭は見出しの下に部品を 1 つ差すだけにして、並びの部品に手を入れない
 - [ST29 までは収集側のトークンで主観の中身も読める（`/events` と `/feelings`）] → ST28 Q4 の本人の決定（ST29 まで全読み）のまま。読み出しの記録には残る。`docs/handoff/ST29.md` に口を足した
 - [記入の日時は画面の端末の時計] → ずれていると前/後がずれる。D-01 に入った時刻（サーバの時計）が別の欄に残るので後から突き合わせられる
 - [網に届かないと S-3 が開かない] → 本人が Q6 で承知して選んだ。後で過去の日として書ける（FR-42）

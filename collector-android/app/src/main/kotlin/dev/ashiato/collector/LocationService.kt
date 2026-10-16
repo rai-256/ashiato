@@ -672,6 +672,7 @@ open class LocationService : Service() {
         startBeating()
         startTicking()
         startClockSkew()
+        FeelingReminderWiring.ensureScheduled(applicationContext)
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
     }

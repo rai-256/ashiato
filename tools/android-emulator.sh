@@ -61,9 +61,15 @@ adb uninstall dev.ashiato.collector >/dev/null 2>&1 || true
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
    -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.UsageVolumeInstrumentedTest")
+# **1 段目の結果の XML を別の置き場に残す**（ST17 deep QR1）。結果のファイル名は端末ごとに 1 つ
+# （`TEST-<AVD>-_app-.xml`）で、2 段目が同じ名前で上書きする —— 1 段目のクラスが走ったかを後から数えられなかった。
+# 検証はクラス名（`classname="…"`）で数える
+STAGE1=collector-android/app/build/outputs/androidTest-results-stage1
+rm -rf "$STAGE1" && mkdir -p "$STAGE1"
+find collector-android/app/build/outputs/androidTest-results -name 'TEST-*.xml' -exec cp {} "$STAGE1"/ \;
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.annotation="$A")
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
-echo "== 結果: collector-android/app/build/reports/androidTests/connected/"
+echo "== 結果: collector-android/app/build/reports/androidTests/connected/（1 段目の XML は $STAGE1）"

@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { App, todayInTz } from "./App";
 import { DayView } from "./DayView";
+import { FeelInvalid, FeelView } from "./FeelView";
+import { feelDateFromHash } from "./feelings";
 import { MasterView } from "./MasterView";
 import { dayFromHash, isRealDate } from "./stays";
 import { msg } from "./messages";
@@ -28,6 +30,12 @@ export function Root(): React.ReactElement {
   // **S-6 マスタ管理**（ST19 / design D9、ST21 / design D12）
   if (/^#\/master\/?$/.test(hash)) return <MasterView tab="attributes" />;
   if (/^#\/master\/places\/?$/.test(hash)) return <MasterView tab="places" />;
+  // **S-3 主観入力**（ST17 / design D12）。日付を省けば暦の今日、暦に無い日付は書く操作を出さない
+  const feel = feelDateFromHash(hash);
+  if (feel !== undefined) {
+    if ("invalid" in feel) return <FeelInvalid raw={feel.invalid} />;
+    return <FeelView key={feel.date ?? "today"} date={feel.date} />;
+  }
   // **S-1 稼働状況**（ST25 / design D12）。ルートではなく専用のアドレス
   if (/^#\/coverage\/?$/.test(hash)) return <App />;
   // 空・`#/`・解釈できないアドレスは今日の 1 日の画面
