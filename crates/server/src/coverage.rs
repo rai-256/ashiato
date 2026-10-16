@@ -13,6 +13,30 @@ use serde::Serialize;
 /// プレースホルダを取れない。値はここ 1 か所だけに置く。
 pub const DAY_TZ: &str = "Asia/Tokyo";
 
+/// 格子の「記録あり」に数えない記録。`(logical_source, payload->>'kind')` の組（ST14 / design D4・D15）。
+///
+/// 取りこぼしの主張（`gap`）は「取れなかった」と言う記録で、時計の測定（`clock-skew`）は収集の観測ではない。
+/// どちらも**格納はされ、読み出せ、稼働記録の件数（`core.coverage`）にも入る** —— 外すのは格子の数えだけ。
+/// 引き継ぎで名前が変わったら、同じ組を新しい名前にも足す。
+pub const NON_OBSERVATION_GRID: [(&str, &str); 2] =
+    [("c01-app-usage", "gap"), ("c02-window", "clock-skew")];
+
+/// 取りこぼしの期間を持つソースの名前の頭（引き継ぎの鎖の名前を含む。design D15）。
+const GAP_SOURCE_PREFIX: &str = "c01-app-usage";
+
+/// SQL の `NOT ((logical_source, payload->>'kind') IN (…))` の括弧の中。定数から組み立てる
+/// （リテラルを SQL に散らさない）。値は定数だけなので埋め込んでよい。
+fn non_observation_grid_sql() -> String {
+    NON_OBSERVATION_GRID
+        .iter()
+        .map(|(s, k)| format!("('{s}', '{k}')"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// アプリ利用の集計の論理ソース。格子には出すが達成には数えない（D10（仮））。
+pub const ROLLUP_SOURCE: &str = "c01-app-usage-rollup";
+
 /// NFR-13 の窓の長さ。**そのソースの収集開始日から 365 日**（第 6 回 Q23）。
 pub const WINDOW_DAYS: i64 = 365;
 
@@ -25,30 +49,50 @@ pub const ACHIEVE_RATIO: f64 = 0.95;
 /// **DB の列にしない。** 行を 1 つ更新するだけで判定式が動いてしまう。
 /// 定数なら変更が diff に出て、CI とレビューを通る。
 /// 論理ソース名は登録簿（`migrations/0005`）の名前と同じでなければならない。
-pub const DEVICE_SUBJECT: [&str; 2] = ["c01-location", "c01-app-usage"];
+pub const DEVICE_SUBJECT: [&str; 1] = ["c01-location"];
 /// 同上。**利用が主語**は「取得できる状態の生存信号があった日」で数える（第 4 回 Q7 / Q8）。
-pub const USAGE_SUBJECT: [&str; 3] = ["c01-photo", "c02-window", "c02-browser-history"];
+/// アプリ利用はここ —— 記録の 0 件が「使っていない」と「取れていない」を分けられないため（Q2 / D17）。
+pub const USAGE_SUBJECT: [&str; 4] = [
+    "c01-app-usage",
+    "c01-photo",
+    "c02-window",
+    "c02-browser-history",
+];
+/// 画面の並び（NFR-13 / design D19）。**主語の定数とは別**に持つ —— アプリ利用を利用が主語へ移しても
+/// 位置・アプリ利用・写真・ウィンドウ・ブラウザ履歴 の並びは変えない（D17）。
+const MUST_ORDER: [&str; 5] = [
+    "c01-location",
+    "c01-app-usage",
+    "c01-photo",
+    "c02-window",
+    "c02-browser-history",
+];
+/// PC のソース。達成の分母を**生存信号が 1 件でも届いた日**に絞る（D17）。
+/// PC は電源が切れる日が普通にあり、携帯のように毎日動き続けないため。
+pub const PC_SOURCES: [&str; 2] = ["c02-window", "c02-browser-history"];
 
 /// 達成日の数え方。ソースの**主語**で分かれる（第 4 回 Q8）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Subject {
-    /// 端末が主語（位置・アプリ利用）。**記録が 1 件以上ある日**
+    /// 端末が主語（位置）。**記録が 1 件以上ある日**
     Device,
-    /// 利用が主語（写真・ウィンドウ・ブラウザ履歴）。**取得できる状態の生存信号があった日**
+    /// 利用が主語（アプリ利用・写真・ウィンドウ・ブラウザ履歴）。**取得できる状態の生存信号があった日**
     Usage,
 }
 
-/// NFR-13 の 5 ソースを主語つきで並べる。**この順が画面にも出る。**
+/// NFR-13 の 5 ソースを主語つきで並べる。**この順が画面にも出る**（`MUST_ORDER`）。
 pub fn must_sources() -> Vec<(String, Subject)> {
-    DEVICE_SUBJECT
+    MUST_ORDER
         .iter()
-        .map(|s| ((*s).to_string(), Subject::Device))
-        .chain(
-            USAGE_SUBJECT
-                .iter()
-                .map(|s| ((*s).to_string(), Subject::Usage)),
-        )
+        .map(|s| {
+            let subject = if DEVICE_SUBJECT.contains(s) {
+                Subject::Device
+            } else {
+                Subject::Usage
+            };
+            ((*s).to_string(), subject)
+        })
         .collect()
 }
 
@@ -120,6 +164,17 @@ pub struct DayCell {
     pub dropped_count: i64,
     /// その日に重なる破棄の範囲を、**端が接するもの・重なるものでつないでから**その日で切った区間（design D8 / D9）
     pub dropped_ranges: Vec<DroppedRange>,
+    /// その日に重なる、端末が取りこぼしとして残した期間（ST14 / design D15）。
+    /// **状態に関わらず返る**（「記録あり」の日にも、重なっていれば持つ）
+    pub gaps: Vec<GapSpan>,
+}
+
+/// 取りこぼしの期間 `[begin, end)` と理由。`end` ちょうどの日には重ならない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct GapSpan {
+    pub reason: String,
+    pub begin: chrono::DateTime<chrono::Utc>,
+    pub end: chrono::DateTime<chrono::Utc>,
 }
 
 /// その日の中で切った破棄の区間（design D9）。画面の「うち N 件を破棄（from〜to）」の材料。
@@ -205,6 +260,8 @@ struct DayFacts {
     /// **丸ごと覆わない範囲は状態を決めない**（design D7 / 深掘り Q3 と同じ粒度）
     dropped_full: bool,
     stopped_full: bool,
+    /// その日に重なる取りこぼしの期間（D15）
+    gaps: Vec<GapSpan>,
 }
 
 /// 収集開始日を動かしにきたものが、記録か生存信号か（第 9 回 Q32）。
@@ -266,6 +323,7 @@ where
             WHERE logical_source = $1
               AND (collection_started_on IS NULL
                    OR collection_started_on > ($2 AT TIME ZONE '{tz}')::date)
+              AND started_on_from IS NULL
               AND {gate}
             RETURNING 1
          )
@@ -303,6 +361,8 @@ struct RawSource {
     own_started_on: Option<chrono::NaiveDate>,
     retired_on: Option<chrono::NaiveDate>,
     succeeds: Option<String>,
+    /// 収集開始日を借りる先（D16）。持つソースは自分では開始日を動かさない
+    started_on_from: Option<String>,
 }
 
 /// 引き継ぎの鎖をたどる深さの上限。**輪になったときに回り続けないため**。
@@ -323,10 +383,11 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
         Option<chrono::NaiveDate>,
         Option<chrono::NaiveDate>,
         Option<String>,
+        Option<String>,
     );
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT logical_source, display_name, expected_gap_sec,
-                collection_started_on, retired_on, succeeds
+                collection_started_on, retired_on, succeeds, started_on_from
            FROM core.source ORDER BY logical_source",
     )
     .fetch_all(pool)
@@ -341,6 +402,7 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
                 own_started_on,
                 retired_on,
                 succeeds,
+                started_on_from,
             )| {
                 RawSource {
                     logical_source,
@@ -349,6 +411,7 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
                     own_started_on,
                     retired_on,
                     succeeds,
+                    started_on_from,
                 }
             },
         )
@@ -371,6 +434,16 @@ async fn registry(pool: &sqlx::PgPool) -> Result<Vec<RawSource>, sqlx::Error> {
 /// 分母は鎖の根から数えるのに分子は切り替え後の記録しか拾わず、
 /// **名前を分けた翌日に成功条件 1 が 0 % に落ちる** —— spec が防ぐと書いている当のもの。
 fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str) -> Chain {
+    resolve_chain_borrowing(reg, base, 0)
+}
+
+/// `resolve_chain` の本体。`borrow_depth` は開始日を借りる先をたどった回数
+/// （借り先どうしが輪になっても止まるため。上限は `CHAIN_MAX_DEPTH`）。
+fn resolve_chain_borrowing(
+    reg: &std::collections::HashMap<String, RawSource>,
+    base: &str,
+    borrow_depth: usize,
+) -> Chain {
     // 後継を引くための逆引き。登録簿の一意索引が枝分かれを塞いでいるが、
     // **その索引は作れないことがある**（既に枝分かれのある DB では作成に失敗し、
     // 起動を止めないよう WARNING にしてある）。たどる側でも受ける ——
@@ -468,10 +541,22 @@ fn resolve_chain(reg: &std::collections::HashMap<String, RawSource>, base: &str)
         tip = next;
     }
 
-    let started_on = names
+    let mut started_on = names
         .iter()
         .filter_map(|n| reg.get(n).and_then(|r| r.own_started_on))
         .min();
+    // 開始日を借りるソースは、借り先の鎖の根から引いた開始日を自分のものとして返す（D16）
+    if let Some(lender) = reg.get(base).and_then(|r| r.started_on_from.as_deref()) {
+        if borrow_depth < CHAIN_MAX_DEPTH {
+            started_on = resolve_chain_borrowing(reg, lender, borrow_depth + 1).started_on;
+        } else {
+            tracing::warn!(
+                kind = "started_on_from_too_deep",
+                logical_source = %base, depth = CHAIN_MAX_DEPTH,
+                "開始日を借りる先をたどる深さが上限に達した。自分の開始日を返す"
+            );
+        }
+    }
     let head = reg.get(&tip);
     Chain {
         names,
@@ -630,6 +715,8 @@ async fn facts(
                            count(*)::int AS event_count
                       FROM core.event
                      WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       -- 取りこぼしの主張と時計の測定は数えない（D15）。稼働記録の件数には入る
+                       AND NOT ((logical_source, coalesce(payload->>'kind', '')) IN ({non_obs}))
                        AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
                        AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
                      GROUP BY 1),
@@ -678,6 +765,7 @@ async fn facts(
            LEFT JOIN b ON b.day = d.day
           ORDER BY d.day",
         tz = DAY_TZ,
+        non_obs = non_observation_grid_sql(),
         islands = drop_islands_cte(DAY_TZ)
     );
     let rows: Vec<FactRow> = sqlx::query_as(&sql)
@@ -687,6 +775,7 @@ async fn facts(
         .bind(to)
         .fetch_all(pool)
         .await?;
+    let mut gaps = gaps_by_day(pool, user, sources, from, to).await?;
     Ok(rows
         .into_iter()
         .map(
@@ -709,10 +798,69 @@ async fn facts(
                     blockers,
                     dropped_full,
                     stopped_full,
+                    gaps: gaps.remove(&day).unwrap_or_default(),
                 }
             },
         )
         .collect())
+}
+
+/// 取りこぼしの期間を、重なる日（`Asia/Tokyo`）へ配る（D15）。
+///
+/// 期間は `[begin, end)`。出来事の時刻は `end` なので、`event_time >= from` で終わりを、
+/// `begin < to + 1 日` で始まりを絞る。**終わりちょうどの日には重ならない**（`end > 日の始まり`）。
+/// 日の区切りは SQL の `AT TIME ZONE` に任せる（D1）。読むのは `core.event`（削除済みも含む。
+/// 削除は取りこぼしの事実を消さない）。
+async fn gaps_by_day(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    sources: &[String],
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> Result<std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>>, sqlx::Error> {
+    let sql = format!(
+        "WITH g AS (SELECT CASE WHEN pg_input_is_valid(payload->>'begin', 'timestamptz')
+                                  AND isfinite((payload->>'begin')::timestamptz)
+                                  THEN (payload->>'begin')::timestamptz END AS b,
+                           event_time AS e,
+                           coalesce(payload->>'reason', '') AS reason
+                      FROM core.event
+                     WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+                       AND logical_source LIKE '{prefix}%'
+                       AND payload->>'kind' = 'gap'
+                       AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')),
+              d AS (SELECT generate_series($3::date, $4::date, '1 day')::date AS day)
+         SELECT d.day, g.reason, g.b, g.e
+           FROM d JOIN g
+             -- 取り込み口は gap の中身を検めない。読めない begin は b が NULL になり、ここで落ちる
+             -- （キャストの失敗で稼働状況ぜんぶを落とさない。CASE が評価の順を保証する）
+             ON g.b IS NOT NULL
+            AND g.b < ((d.day + 1)::timestamp AT TIME ZONE '{tz}')
+            AND g.e > (d.day::timestamp AT TIME ZONE '{tz}')
+          ORDER BY d.day, g.b, g.e",
+        tz = DAY_TZ,
+        prefix = GAP_SOURCE_PREFIX
+    );
+    let rows: Vec<(
+        chrono::NaiveDate,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(&sql)
+        .bind(user)
+        .bind(sources)
+        .bind(from)
+        .bind(to)
+        .fetch_all(pool)
+        .await?;
+    let mut out: std::collections::HashMap<chrono::NaiveDate, Vec<GapSpan>> =
+        std::collections::HashMap::new();
+    for (day, reason, begin, end) in rows {
+        out.entry(day)
+            .or_default()
+            .push(GapSpan { reason, begin, end });
+    }
+    Ok(out)
 }
 
 /// 日ごとの破棄の件数と区間（design D9 / spec「稼働状況の応答は日ごとの破棄の件数と時刻の範囲を持つ」）。
@@ -902,6 +1050,7 @@ async fn active_days(
         "SELECT day FROM (
            SELECT (event_time AT TIME ZONE '{tz}')::date AS day FROM core.event
             WHERE ($1::uuid IS NULL OR user_id = $1) AND logical_source = ANY($2)
+              AND NOT ((logical_source, coalesce(payload->>'kind', '')) IN ({non_obs}))
               AND event_time >= ($3::date::timestamp AT TIME ZONE '{tz}')
               AND event_time <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
            UNION
@@ -910,7 +1059,8 @@ async fn active_days(
               AND emitted_at >= ($3::date::timestamp AT TIME ZONE '{tz}')
               AND emitted_at <  (($4::date + 1)::timestamp AT TIME ZONE '{tz}')
          ) t ORDER BY day",
-        tz = DAY_TZ
+        tz = DAY_TZ,
+        non_obs = non_observation_grid_sql()
     );
     let rows: Vec<(chrono::NaiveDate,)> = sqlx::query_as(&sql)
         .bind(user)
@@ -960,6 +1110,11 @@ fn decide(
     }
     if facts.event_count > 0 {
         return DayState::Recorded;
+    }
+    // (6) 端末が取りこぼしとして残した期間が重なる日は、取得できる状態の信号より先に③
+    // （ST14 の深掘り Q7。OS が履歴を消した日を「使っていなかった」と区別する）
+    if !facts.gaps.is_empty() {
+        return DayState::AliveNotCapturable;
     }
     match facts.capturable {
         Some(true) => return DayState::AliveNoRecord,
@@ -1013,6 +1168,7 @@ pub async fn of_source(
             intervals: by_day.remove(&f.day).unwrap_or_default(),
             dropped_count: drops.get(&f.day).map_or(0, |d| d.count),
             dropped_ranges: drops.remove(&f.day).map(|d| d.ranges).unwrap_or_default(),
+            gaps: f.gaps.clone(),
         })
         .collect();
     Ok(SourceCoverage {
@@ -1070,6 +1226,76 @@ pub struct Achievement {
     pub not_started: Vec<String>,
 }
 
+/// ソース 1 本ぶんの達成を数える。`named_source` は定数が名指しする名前（`PC_SOURCES` の判定に使う）。
+async fn achieve_one(
+    pool: &sqlx::PgPool,
+    user: Option<uuid::Uuid>,
+    today: chrono::NaiveDate,
+    named_source: &str,
+    subject: Subject,
+    src: &SourceRow,
+) -> Result<SourceAchievement, sqlx::Error> {
+    let name = &src.logical_source;
+    let display_name = src.display_name.clone();
+    let started_on = src.collection_started_on;
+    let retired_on = src.retired_on;
+    let window_closes_on = started_on.map(|s| s + chrono::Duration::days(WINDOW_DAYS));
+    let window_closed = window_closes_on.is_some_and(|c| today >= c);
+
+    // **数えるのは終わった日だけ**（design D15）。今日はまだ終わっていないので分母に入れない。
+    // 収集開始日から 200 日なら分母は 200 日になる（specs の固定値がこの数え方を指している）。
+    let (achieved_days, denominator) = match started_on {
+        None => (0, 0),
+        Some(start) => {
+            let last_of_window = start + chrono::Duration::days(WINDOW_DAYS - 1);
+            let last_counted = (today - chrono::Duration::days(1)).min(last_of_window);
+            if last_counted < start {
+                (0, 0)
+            } else {
+                let f = facts(pool, user, &src.chain, start, last_counted).await?;
+                // **分母から抜けた日は達成日にも数えない**（2 巡目 R4）——
+                // 達成日数が分母を超えるのを防ぐ。
+                //
+                // **退役した日より後も分母に入れない**（ST03 の R64 / 第 8 回 Q31）。
+                // 入れたままだと、退役してから窓が閉じるまでの日が毎日「未達」として
+                // 積まれ、**名前を分けただけで成功条件 1 が落ちる**。
+                //
+                // **PC のソースは生存信号の届いた日だけを分母にする**（D17）。
+                // 取得できない状態の信号も「届いた」に数える。
+                let is_pc = PC_SOURCES.contains(&named_source);
+                let live = f
+                    .iter()
+                    .filter(|d| !d.stopped_full)
+                    .filter(|d| !retired_on.is_some_and(|r| d.day >= r))
+                    .filter(|d| !is_pc || d.capturable.is_some());
+                let denom = live.clone().count() as i64;
+                let hit = live
+                    .filter(|d| match subject {
+                        Subject::Device => d.event_count > 0,
+                        Subject::Usage => d.capturable == Some(true),
+                    })
+                    .count() as i64;
+                (hit, denom)
+            }
+        }
+    };
+    let threshold = denominator as f64 * ACHIEVE_RATIO;
+    let met = started_on.is_some() && denominator > 0 && achieved_days as f64 >= threshold;
+    Ok(SourceAchievement {
+        logical_source: name.clone(),
+        named_source: named_source.to_string(),
+        display_name,
+        subject,
+        collection_started_on: started_on,
+        achieved_days,
+        denominator,
+        threshold,
+        met,
+        window_closed,
+        window_closes_on,
+    })
+}
+
 /// 達成日数と合否を数える。
 ///
 /// **`today` を引数に取る**のは、判定が「いつ引いたか」に依存するため（窓の開閉・暫定/確定）。
@@ -1090,60 +1316,7 @@ pub async fn achievement(
 
     let mut out = Vec::with_capacity(targets.len());
     for ((named_source, subject), src) in targets.iter().zip(rows.iter()) {
-        let name = &src.logical_source;
-        let display_name = src.display_name.clone();
-        let started_on = src.collection_started_on;
-        let retired_on = src.retired_on;
-        let window_closes_on = started_on.map(|s| s + chrono::Duration::days(WINDOW_DAYS));
-        let window_closed = window_closes_on.is_some_and(|c| today >= c);
-
-        // **数えるのは終わった日だけ**（design D15）。今日はまだ終わっていないので分母に入れない。
-        // 収集開始日から 200 日なら分母は 200 日になる（specs の固定値がこの数え方を指している）。
-        let (achieved_days, denominator) = match started_on {
-            None => (0, 0),
-            Some(start) => {
-                let last_of_window = start + chrono::Duration::days(WINDOW_DAYS - 1);
-                let last_counted = (today - chrono::Duration::days(1)).min(last_of_window);
-                if last_counted < start {
-                    (0, 0)
-                } else {
-                    let f = facts(pool, user, &src.chain, start, last_counted).await?;
-                    // **分母から抜けた日は達成日にも数えない**（2 巡目 R4）——
-                    // 達成日数が分母を超えるのを防ぐ。
-                    //
-                    // **退役した日より後も分母に入れない**（ST03 の R64 / 第 8 回 Q31）。
-                    // 入れたままだと、退役してから窓が閉じるまでの日が毎日「未達」として
-                    // 積まれ、**名前を分けただけで成功条件 1 が落ちる**。
-                    let live = f
-                        .iter()
-                        .filter(|d| !d.stopped_full)
-                        .filter(|d| !retired_on.is_some_and(|r| d.day >= r));
-                    let denom = live.clone().count() as i64;
-                    let hit = live
-                        .filter(|d| match subject {
-                            Subject::Device => d.event_count > 0,
-                            Subject::Usage => d.capturable == Some(true),
-                        })
-                        .count() as i64;
-                    (hit, denom)
-                }
-            }
-        };
-        let threshold = denominator as f64 * ACHIEVE_RATIO;
-        let met = started_on.is_some() && denominator > 0 && achieved_days as f64 >= threshold;
-        out.push(SourceAchievement {
-            logical_source: name.clone(),
-            named_source: named_source.clone(),
-            display_name,
-            subject: *subject,
-            collection_started_on: started_on,
-            achieved_days,
-            denominator,
-            threshold,
-            met,
-            window_closed,
-            window_closes_on,
-        });
+        out.push(achieve_one(pool, user, today, named_source, *subject, src).await?);
     }
 
     let failing: Vec<String> = out

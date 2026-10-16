@@ -64,4 +64,31 @@ class HttpTransport(
             conn?.disconnect()
         }
     }
+
+    /**
+     * `GET`（途切れの問い合わせ。ST14 / design D12）。10 秒で打ち切る。
+     * `path` に続けて `query`（`?device_id=…`）を付ける。時計の測定には使わないので値は載せない。
+     */
+    fun get(query: String): Outcome {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL("$baseUrl$path$query").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = GET_TIMEOUT_MS
+                readTimeout = GET_TIMEOUT_MS
+                setRequestProperty("authorization", "Bearer $token")
+            }
+            val status = conn.responseCode
+            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+            Outcome.Responded(status, stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "")
+        } catch (e: IOException) {
+            Outcome.Unreachable(e.javaClass.simpleName)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private companion object {
+        const val GET_TIMEOUT_MS = 10_000
+    }
 }

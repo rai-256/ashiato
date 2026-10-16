@@ -136,6 +136,17 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
         reply(path, body.split("\"id\":").size - 1)
     }
 
+    /** 途切れの問い合わせ（ST14）。**打った問い合わせの文字列を覚え**、答えは試験が決める（既定は届かない）。 */
+    val outageQueries = mutableListOf<String>()
+    var outageReply: Outcome = Outcome.Unreachable("test")
+    override fun newOutageGet(): (String) -> Outcome = { query ->
+        outageQueries += query
+        outageReply
+    }
+
+    /** 問い合わせを呼んだ糸でそのまま回す（本番は専用の 1 本）。直列であることは `OutagePollerTest` が見る */
+    override fun newOutageExecutor(): java.util.concurrent.ExecutorService = DirectExecutorService()
+
     /** 時計を試験から進める（ST04）。 */
     val clock = FakeDeviceClock()
     override fun newDeviceClock(): DeviceClock = clock
@@ -568,4 +579,17 @@ class LocationServiceTest {
         assertEquals(1, service.ledgerForTest.drafts().single { it.source == LOGICAL_SOURCE }.count)
         assertEquals("生存信号を捨てた", beatsBefore, service.heartbeatOutboxForTest.size())
     }
+}
+
+/** その場で回す executor。試験だけが使う。 */
+class DirectExecutorService : java.util.concurrent.AbstractExecutorService() {
+    private var down = false
+    override fun execute(command: Runnable) = command.run()
+    override fun shutdown() {
+        down = true
+    }
+    override fun shutdownNow(): MutableList<Runnable> = mutableListOf<Runnable>().also { down = true }
+    override fun isShutdown() = down
+    override fun isTerminated() = down
+    override fun awaitTermination(timeout: Long, unit: java.util.concurrent.TimeUnit) = true
 }
