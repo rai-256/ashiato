@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "ST47": "画面を変えていない（design の Non-Goals）。web の差分は vitest の単体試験 1 本（archive-order.test.tsx）だけで、書庫のソースの格子に YouTube の行が増えるのは ST12 の格子の規則のまま。ST12-archive のシナリオが同じ格子を撮る"
+  }
+}

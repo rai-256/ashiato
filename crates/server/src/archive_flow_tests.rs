@@ -13,10 +13,11 @@ use std::path::{Path, PathBuf};
 const WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// 合成の視聴履歴 1 件。**時刻と題名だけを変えられる**ようにして、
-/// 「同じ視聴の内容が違う」を作れるようにする。
+/// 「同じ視聴の内容が違う」を作れるようにする。題名は本物の形（末尾の「を視聴しました」）にする ——
+/// 決まり文句の当たらない YouTube の形は印で読めない（ST47 / D6）。
 fn watch(time: &str, title: &str) -> String {
     format!(
-        r#"[{{"time":"{time}","title":"{title}","titleUrl":"https://www.youtube.com/watch?v=abc"}}]"#
+        r#"[{{"time":"{time}","title":"{title} を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc"}}]"#
     )
 }
 
@@ -180,7 +181,7 @@ async fn archive_flow_reads_takeout_from_the_downloads_folder() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -333,7 +334,7 @@ async fn archive_flow_skipped_files_are_counted_in_the_ledger() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -392,7 +393,7 @@ async fn archive_flow_an_unknown_product_waits_while_the_rest_is_stored() {
     let unknown = myactivity("Discover");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             watch_body.as_bytes(),
         )
         .await;
@@ -450,7 +451,7 @@ async fn archive_flow_an_unknown_product_waits_while_the_rest_is_stored() {
 fn archive_flow_shape_never_carries_a_search_query() {
     let body = r#"[{"time":"2026-09-12T03:00:00Z","title":"京都 旅館 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E4%BA%AC%E9%83%BD+%E6%97%85%E9%A4%A8"}]"#;
     let shape = crate::archive::worker::shape_for_file(
-        crate::archive::classify::KnownKind::YouTubeSearch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/search-history.json",
         body.as_bytes(),
     )
@@ -501,7 +502,7 @@ async fn archive_flow_unread_products_are_never_copied() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -548,7 +549,7 @@ async fn archive_flow_turning_copies_off_keeps_records_and_old_copies() {
     let second = watch("2026-09-13T03:00:00Z", "別の動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             first.as_bytes(),
         )
         .await;
@@ -603,7 +604,7 @@ async fn archive_flow_an_older_archive_never_rewinds_records_or_the_last_day() {
     for body in [&newest, &older, &ancient] {
         inbox
             .confirm(
-                crate::archive::classify::KnownKind::YouTubeWatch,
+                crate::archive::classify::KnownKind::YouTube,
                 body.as_bytes(),
             )
             .await;
@@ -700,7 +701,7 @@ async fn archive_flow_deleting_the_record_never_rewinds_the_last_day() {
     let body = watch("2026-09-10T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -745,7 +746,7 @@ async fn archive_flow_a_deleted_record_never_returns_from_another_archive() {
     for content in [&body, &other] {
         inbox
             .confirm(
-                crate::archive::classify::KnownKind::YouTubeWatch,
+                crate::archive::classify::KnownKind::YouTube,
                 content.as_bytes(),
             )
             .await;
@@ -777,7 +778,7 @@ async fn archive_flow_a_deleted_record_never_returns_from_another_archive() {
     );
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             mixed.as_bytes(),
         )
         .await;
@@ -805,19 +806,19 @@ async fn archive_flow_one_broken_item_does_not_stop_the_rest() {
     let mut items: Vec<String> = (0..9)
         .map(|n| {
             format!(
-                r#"{{"time":"2026-09-1{n}T03:00:00Z","title":"動画{n}","titleUrl":"https://www.youtube.com/watch?v=v{n}"}}"#
+                r#"{{"time":"2026-09-1{n}T03:00:00Z","title":"動画{n} を視聴しました","titleUrl":"https://www.youtube.com/watch?v=v{n}"}}"#
             )
         })
         .collect();
     // 10 件目だけ時刻が壊れている。
     items.push(
-        r#"{"time":"こわれた","title":"動画9","titleUrl":"https://www.youtube.com/watch?v=v9"}"#
+        r#"{"time":"こわれた","title":"動画9 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=v9"}"#
             .to_owned(),
     );
     let body = format!("[{}]", items.join(","));
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -857,7 +858,7 @@ async fn archive_flow_region_is_never_inferred_from_a_location() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -891,7 +892,7 @@ async fn archive_flow_replacing_the_same_name_adds_one_row_and_moves_the_file() 
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -1156,7 +1157,7 @@ async fn archive_flow_the_log_never_carries_a_search_query() {
     let timeline = r#"{"semanticSegments":[{"startTime":"2026-09-12T03:00:00Z","endTime":"2026-09-12T04:00:00Z","visit":{"topCandidate":{"placeLocation":{"latLng":"35.0116°, 135.7681°"}}}}]}"#;
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeSearch,
+            crate::archive::classify::KnownKind::YouTube,
             search.as_bytes(),
         )
         .await;
@@ -1366,10 +1367,10 @@ async fn archive_flow_keeps_the_offset_the_source_declared() {
     let inbox = Inbox::new("archive-offset").await;
     // **取得元が `+09:00` で書き出した**視聴履歴。地域は位置から推定しないが、
     // 取得元が示したずれは残す（C2）。
-    let with_offset = r#"[{"time":"2026-09-12T12:00:00+09:00","title":"ある動画","titleUrl":"https://www.youtube.com/watch?v=abc"}]"#;
+    let with_offset = r#"[{"time":"2026-09-12T12:00:00+09:00","title":"ある動画 を視聴しました","titleUrl":"https://www.youtube.com/watch?v=abc"}]"#;
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             with_offset.as_bytes(),
         )
         .await;
@@ -1472,10 +1473,10 @@ async fn archive_flow_raw_is_a_slice_of_the_archive_bytes() {
     let inbox = Inbox::new("archive-raw-slice").await;
     // **わざと「書き戻すと変わる」形にする** —— 欄の並びが辞書順でなく、
     // 空白が入っていて、数値が指数表記。解釈して書き戻すとどれも変わる。
-    let body = r#"[ {"titleUrl":"https://www.youtube.com/watch?v=abc",  "time":"2026-09-12T03:00:00Z", "zzz":1.0e2, "title":"ある動画"} ]"#;
+    let body = r#"[ {"titleUrl":"https://www.youtube.com/watch?v=abc",  "time":"2026-09-12T03:00:00Z", "zzz":1.0e2, "title":"ある動画 を視聴しました"} ]"#;
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -1571,10 +1572,10 @@ async fn archive_flow_no_ledger_column_carries_a_record_body() {
     let inbox = Inbox::new("archive-ledger-private").await;
     // **実際に読ませる。** 台帳へ空の行を入れて検索語を探しても、検索語がどこにも
     // 無いので落ちようがない（review R13）。読めない項目も混ぜて、場所の列も見る。
-    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"白川郷 民宿 を検索","titleUrl":"https://www.youtube.com/results?search_query=%E7%99%BD%E5%B7%9D%E9%83%B7"},{"time":"こわれた","titleUrl":"https://www.youtube.com/results?search_query=x"}]"#;
+    let search = r#"[{"time":"2026-09-12T03:00:00Z","title":"白川郷 民宿 を検索しました","titleUrl":"https://www.youtube.com/results?search_query=%E7%99%BD%E5%B7%9D%E9%83%B7"},{"time":"こわれた","titleUrl":"https://www.youtube.com/results?search_query=x"}]"#;
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeSearch,
+            crate::archive::classify::KnownKind::YouTube,
             search.as_bytes(),
         )
         .await;
@@ -1978,7 +1979,7 @@ async fn archive_flow_stored_payload_marks_a_utc_only_time() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -2126,7 +2127,7 @@ async fn archive_flow_a_second_archive_with_the_same_file_is_read_after_confirmi
     let second_watch = watch("2026-09-11T03:00:00Z", "二冊目");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             first_watch.as_bytes(),
         )
         .await;
@@ -2317,7 +2318,7 @@ async fn archive_flow_a_parser_version_bump_rereads_from_the_copies() {
     let body = watch("2026-09-12T03:00:00Z", "ある動画");
     inbox
         .confirm(
-            crate::archive::classify::KnownKind::YouTubeWatch,
+            crate::archive::classify::KnownKind::YouTube,
             body.as_bytes(),
         )
         .await;
@@ -3350,7 +3351,7 @@ async fn archive_erased_legacy_millisecond_spans_follow_the_erased_stay() {
 async fn archive_marking_skips_an_archive_without_locations() {
     let inbox = Inbox::new("archive-mark-skip").await;
     let requests = crate::archive::worker::requests_for_file(
-        crate::archive::classify::KnownKind::YouTubeWatch,
+        crate::archive::classify::KnownKind::YouTube,
         "Takeout/YouTube/watch-history.json",
         watch("2026-09-12T03:00:00Z", "ある動画").as_bytes(),
         inbox.user,
@@ -3633,12 +3634,12 @@ impl Inbox {
         use crate::archive::classify::KnownKind;
         for (kind, name, body) in [
             (
-                KnownKind::YouTubeWatch,
+                KnownKind::YouTube,
                 "Takeout/YouTube/watch-history.json",
                 LOCATED_YOUTUBE_WATCH,
             ),
             (
-                KnownKind::YouTubeSearch,
+                KnownKind::YouTube,
                 "Takeout/YouTube/search-history.json",
                 LOCATED_YOUTUBE_SEARCH,
             ),
@@ -3676,10 +3677,10 @@ async fn archive_erased_youtube_window() {
         .await
         .unwrap();
     inbox
-        .confirm(KnownKind::YouTubeWatch, LOCATED_YOUTUBE_WATCH.as_bytes())
+        .confirm(KnownKind::YouTube, LOCATED_YOUTUBE_WATCH.as_bytes())
         .await;
     inbox
-        .confirm(KnownKind::YouTubeSearch, LOCATED_YOUTUBE_SEARCH.as_bytes())
+        .confirm(KnownKind::YouTube, LOCATED_YOUTUBE_SEARCH.as_bytes())
         .await;
     inbox.put(
         "takeout-20260912T000000Z-001.zip",
@@ -4064,4 +4065,1427 @@ async fn archive_myactivity_location_rust_and_sql_agree() {
             .unwrap();
         assert!(other, "項目のソースでない行を落とした: {raw}");
     }
+}
+
+// ---- ST47: YouTube のファイルの項目は、視聴・検索・その他に 1 件ずつ分かれる ----
+
+/// 本物の形（`header` / `title` / `titleUrl` / `time` / `products`、広告は `details`）の項目 1 件。
+fn yt_item(
+    product: &str,
+    title: &str,
+    url: Option<&str>,
+    details: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut item = serde_json::json!({
+        "header": product,
+        "title": title,
+        "time": "2026-09-12T03:00:00Z",
+        "products": [product],
+    });
+    if let Some(url) = url {
+        item["titleUrl"] = url.into();
+    }
+    if let Some(details) = details {
+        item["details"] = details;
+    }
+    item
+}
+
+const YT_WATCH_URL: &str = "https://www.youtube.com/watch?v=abc";
+const YT_SEARCH_URL: &str = "https://www.youtube.com/results?search_query=x";
+const YT_POST_URL: &str = "https://www.youtube.com/post/Ugkx";
+const YT_OTHER: &str = "c03-myactivity-youtube";
+
+/// 形の印を置いてから、`files` を 1 つの書庫に置き、読み終わるまで待つ。
+async fn yt_store(
+    name: &str,
+    confirms: &[(crate::archive::classify::KnownKind, &serde_json::Value)],
+    files: &[(&str, &serde_json::Value)],
+) -> Inbox {
+    let inbox = Inbox::new(name).await;
+    for (kind, body) in confirms {
+        inbox.confirm(*kind, body.to_string().as_bytes()).await;
+    }
+    let bodies: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(path, body)| (*path, body.to_string().into_bytes()))
+        .collect();
+    let entries: Vec<(&str, &[u8])> = bodies
+        .iter()
+        .map(|(path, bytes)| (*path, bytes.as_slice()))
+        .collect();
+    inbox.put("takeout-20260912-000000.zip", &entries);
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+    inbox
+}
+
+async fn yt_counts(inbox: &Inbox) -> (i64, i64, i64) {
+    (
+        inbox.events("c03-youtube-watch").await,
+        inbox.events("c03-youtube-search").await,
+        inbox.events(YT_OTHER).await,
+    )
+}
+
+const MY_ACTIVITY_PATH: &str = "Takeout/My Activity/YouTube/MyActivity.json";
+const WATCH_PATH: &str = "Takeout/YouTube/watch-history.json";
+
+/// Scenario: マイアクティビティの YouTube の視聴は視聴のソースに入る
+#[tokio::test]
+async fn archive_youtube_route_myactivity_watch_goes_to_watch() {
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "ある動画 を視聴しました",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let inbox = yt_store(
+        "yt-watch",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (1, 0, 0));
+}
+
+/// Scenario: マイアクティビティの YouTube の検索は検索のソースに入る
+#[tokio::test]
+async fn archive_youtube_route_myactivity_search_goes_to_search() {
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "x を検索しました",
+        Some(YT_SEARCH_URL),
+        None
+    )]);
+    let inbox = yt_store(
+        "yt-search",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 1, 0));
+}
+
+/// Scenario: 視聴でも検索でもない YouTube の項目はマイアクティビティの YouTube に入る
+#[tokio::test]
+async fn archive_youtube_route_a_community_post_vote_goes_to_other() {
+    // 視聴の 1 件は、ファイルの言語を当てるため（言語の当たらない形は印で読めない。D6）。
+    let body = serde_json::json!([
+        yt_item("YouTube", "投票しました", Some(YT_POST_URL), None),
+        yt_item(
+            "YouTube",
+            "ある動画 を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-vote",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (1, 0, 1));
+}
+
+/// Scenario: 広告は視聴に入らない
+#[tokio::test]
+async fn archive_youtube_route_an_ad_does_not_go_to_watch() {
+    let mut watch = yt_item(
+        "YouTube",
+        "ある動画 を視聴しました",
+        Some(YT_WATCH_URL),
+        None,
+    );
+    watch["subtitles"] = serde_json::json!([{"name": "あるチャンネル", "url": "https://www.youtube.com/channel/UCx"}]);
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "ある広告 を視聴しました",
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "Google 広告から"}]))
+        ),
+        watch,
+    ]);
+    let inbox = yt_store(
+        "yt-ad",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+    // 行き先ごとの payload の欄（design D3 の表。code-verify R7）。
+    let ad = yt_payload(&inbox, YT_OTHER).await;
+    assert_eq!(ad["product"], "YouTube");
+    assert_eq!(ad["title"], "ある広告 を視聴しました");
+    assert_eq!(ad["url"], YT_WATCH_URL);
+    assert_eq!(
+        ad["details"],
+        serde_json::json!([{"name": "Google 広告から"}])
+    );
+    let watched = yt_payload(&inbox, "c03-youtube-watch").await;
+    assert_eq!(watched["title"], "ある動画 を視聴しました");
+    assert_eq!(watched["url"], YT_WATCH_URL);
+    assert_eq!(watched["channel_name"], "あるチャンネル");
+    assert_eq!(
+        watched["channel_url"],
+        "https://www.youtube.com/channel/UCx"
+    );
+    assert!(
+        watched.get("details").is_none(),
+        "視聴の payload に details がある: {watched}"
+    );
+}
+
+/// その論理ソースに格納された 1 件の payload。
+async fn yt_payload(inbox: &Inbox, logical_source: &str) -> serde_json::Value {
+    sqlx::query_scalar(
+        "SELECT payload FROM core.event
+          WHERE user_id = $1 AND logical_source = $2 AND deleted_at IS NULL",
+    )
+    .bind(inbox.user)
+    .bind(logical_source)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap()
+}
+
+/// Scenario: 値の違う details の欄を持つ項目も広告に数える
+#[tokio::test]
+async fn archive_youtube_route_any_details_field_counts_as_an_ad() {
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "広告 A を視聴しました",
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "From Google Ads"}]))
+        ),
+        yt_item(
+            "YouTube",
+            "広告 B を視聴しました",
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([]))
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-details",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 2);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+/// Scenario: URL の無い広告もその他に入る
+#[tokio::test]
+async fn archive_youtube_route_an_ad_without_a_url_goes_to_other() {
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "ある広告 を視聴しました",
+        None,
+        Some(serde_json::json!([{"name": "Google 広告から"}]))
+    )]);
+    let inbox = yt_store(
+        "yt-ad-nourl",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+}
+
+/// Scenario: 高く評価した動画は視聴に入らない
+#[tokio::test]
+async fn archive_youtube_route_a_liked_video_does_not_go_to_watch() {
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "高く評価しました ある動画",
+            Some(YT_WATCH_URL),
+            None
+        ),
+        yt_item(
+            "YouTube",
+            "別の動画 を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-rating",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+}
+
+/// Scenario: 英語の書き出しの評価も視聴に入らない
+#[tokio::test]
+async fn archive_youtube_route_an_english_rating_does_not_go_to_watch() {
+    let body = serde_json::json!([
+        yt_item("YouTube", "Liked a video", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "Watched a video", Some(YT_WATCH_URL), None),
+    ]);
+    let inbox = yt_store(
+        "yt-rating-en",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+}
+
+/// Scenario: 日本語の書き出しで英語の評価の決まり文句で始まる題名の視聴は視聴に入る
+#[tokio::test]
+async fn archive_youtube_route_a_japanese_export_ignores_english_rating_phrases() {
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "別の動画 を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+        yt_item(
+            "YouTube",
+            "Liked by the Sea を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-ja-liked",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (2, 0, 0));
+}
+
+/// Scenario: URL の無い YouTube の項目はその他に入る
+#[tokio::test]
+async fn archive_youtube_route_an_item_without_a_url_goes_to_other() {
+    let body = serde_json::json!([yt_item("YouTube", "ある動画 を視聴しました", None, None)]);
+    let inbox = yt_store(
+        "yt-nourl",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+/// Scenario: 製品側の視聴履歴にも同じ分け方が当たる
+#[tokio::test]
+async fn archive_youtube_route_the_product_side_history_is_split_the_same_way() {
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "ある動画 を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+        yt_item(
+            "YouTube",
+            "ある広告 を視聴しました",
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "Google 広告から"}]))
+        ),
+        yt_item("YouTube", "削除された動画を視聴しました", None, None),
+    ]);
+    let inbox = yt_store(
+        "yt-product-side",
+        &[(crate::archive::classify::KnownKind::YouTube, &body)],
+        &[(WATCH_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 1);
+    assert_eq!(inbox.events(YT_OTHER).await, 2);
+}
+
+/// Scenario: 2 経路の同じ視聴は同じ視聴のソースに入る
+#[tokio::test]
+async fn archive_youtube_route_both_paths_share_the_watch_source() {
+    // 原文の違う 2 件（題名が違う）。時刻は同じ。
+    let myactivity = serde_json::json!([yt_item(
+        "YouTube",
+        "ある動画 を視聴しました",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let product_side = serde_json::json!([yt_item(
+        "YouTube",
+        "ある動画を視聴しました",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let inbox = yt_store(
+        "yt-two-paths",
+        &[(crate::archive::classify::KnownKind::YouTube, &myactivity)],
+        &[(MY_ACTIVITY_PATH, &myactivity), (WATCH_PATH, &product_side)],
+    )
+    .await;
+    let at: chrono::DateTime<chrono::Utc> = "2026-09-12T03:00:00Z".parse().unwrap();
+    for (source, expected) in [
+        ("c03-youtube-watch", 2_i64),
+        (YT_OTHER, 0),
+        ("c03-youtube-search", 0),
+    ] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event
+              WHERE user_id = $1 AND logical_source = $2 AND event_time = $3",
+        )
+        .bind(inbox.user)
+        .bind(source)
+        .bind(at)
+        .fetch_one(&inbox.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, expected, "{source}");
+    }
+}
+
+/// Scenario: 先頭が YouTube の動画の他の製品のファイルは YouTube に入らない
+#[tokio::test]
+async fn archive_youtube_route_another_product_with_a_watch_url_first_is_not_youtube() {
+    let body = serde_json::json!([
+        yt_item("検索", "動画の検索", Some(YT_WATCH_URL), None),
+        yt_item(
+            "検索",
+            "x を検索しました",
+            Some("https://www.google.com/search?q=x"),
+            None
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-other-product",
+        &[(crate::archive::classify::KnownKind::MyActivity, &body)],
+        &[("Takeout/My Activity/Search/MyActivity.json", &body)],
+    )
+    .await;
+    assert_eq!(
+        inbox
+            .events(&crate::archive::myactivity::source_name("検索"))
+            .await,
+        2
+    );
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+}
+
+/// Scenario: YouTube と他の製品が混ざったファイルは製品ごとのソースに入る
+#[tokio::test]
+async fn archive_youtube_route_a_mixed_file_goes_by_product() {
+    let body = serde_json::json!([
+        yt_item(
+            "YouTube",
+            "ある動画 を視聴しました",
+            Some(YT_WATCH_URL),
+            None
+        ),
+        yt_item(
+            "検索",
+            "x を検索しました",
+            Some("https://www.google.com/search?q=x"),
+            None
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-mixed",
+        &[(crate::archive::classify::KnownKind::MyActivity, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events(YT_OTHER).await, 1);
+    assert_eq!(
+        inbox
+            .events(&crate::archive::myactivity::source_name("検索"))
+            .await,
+        1
+    );
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+    assert_eq!(inbox.events("c03-youtube-search").await, 0);
+}
+
+// ---- ST47: 形の同一性・形の一覧の行き先ごとの件数（design D5 / D7） ----
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
+/// 手で組んだ形ではなく、**ファイルのバイト列から分類・形・ハッシュまで通す**。
+fn shape_hash_of_bytes(path: &str, bytes: &[u8]) -> String {
+    let files = [crate::archive::open::ArchiveFile {
+        path: path.to_owned(),
+        bytes: bytes.to_vec(),
+    }];
+    let classified = crate::archive::classify::classify_files(&files);
+    assert_eq!(classified.known.len(), 1, "分類されない: {path}");
+    let shape =
+        crate::archive::worker::shape_for_file(classified.known[0].kind, path, bytes).unwrap();
+    crate::archive::worker::hash_shape(&shape)
+}
+
+/// 印の表へ、形のハッシュを直に入れる（旧い版・ST12 の版の形の印を作る）。
+async fn confirm_hash(inbox: &Inbox, hash: &str) {
+    sqlx::query(
+        "INSERT INTO core.archive_shape_confirmation (user_id, shape_hash, shape)
+         VALUES ($1, $2, '{}'::jsonb)",
+    )
+    .bind(inbox.user)
+    .bind(hash)
+    .execute(&inbox.pool)
+    .await
+    .unwrap();
+}
+
+async fn pending_files(inbox: &Inbox) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM core.archive_pending_shape WHERE user_id = $1")
+        .bind(inbox.user)
+        .fetch_one(&inbox.pool)
+        .await
+        .unwrap()
+}
+
+/// 印を置いた後に `files` を置き、確認待ちが 1 件になるまで待つ（格納された記録は無いはず）。
+async fn yt_pending(
+    name: &str,
+    confirm: impl AsyncFnOnce(&Inbox),
+    files: &[(&str, &serde_json::Value)],
+) -> Inbox {
+    let inbox = Inbox::new(name).await;
+    confirm(&inbox).await;
+    let bodies: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(path, body)| (*path, body.to_string().into_bytes()))
+        .collect();
+    let entries: Vec<(&str, &[u8])> = bodies
+        .iter()
+        .map(|(path, bytes)| (*path, bytes.as_slice()))
+        .collect();
+    inbox.put("takeout-20260912-000000.zip", &entries);
+    inbox.spawn(true);
+    inbox
+        .until("確認待ちにならない", || async {
+            pending_files(&inbox).await == 1
+        })
+        .await;
+    inbox
+}
+
+fn ja_youtube(watches: usize) -> serde_json::Value {
+    serde_json::Value::Array(
+        (0..watches)
+            .map(|i| {
+                yt_item(
+                    "YouTube",
+                    &format!("動画{i} を視聴しました"),
+                    Some(YT_WATCH_URL),
+                    None,
+                )
+            })
+            .collect(),
+    )
+}
+
+// Scenario: 形の確認の出力に YouTube の行き先ごとの件数が出る
+#[test]
+fn archive_youtube_shape_shows_counts_by_destination() {
+    let mut items = Vec::new();
+    for i in 0..3 {
+        items.push(yt_item(
+            "YouTube",
+            &format!("秘密の動画{i} を視聴しました"),
+            Some(YT_WATCH_URL),
+            None,
+        ));
+    }
+    for _ in 0..2 {
+        items.push(yt_item(
+            "YouTube",
+            "秘密の語 を検索しました",
+            Some(YT_SEARCH_URL),
+            None,
+        ));
+    }
+    items.push(yt_item(
+        "YouTube",
+        "広告 を視聴しました",
+        Some(YT_WATCH_URL),
+        Some(serde_json::json!([{"name": "Google 広告"}])),
+    ));
+    items.push(yt_item(
+        "YouTube",
+        "高く評価しました 好きな動画",
+        Some(YT_WATCH_URL),
+        None,
+    ));
+    // 広告の欄と評価の決まり文句を両方持つ項目は、広告に数える（deep Q3 の順。code-verify R6）。
+    items.push(yt_item(
+        "YouTube",
+        "高く評価しました 広告の動画",
+        Some(YT_WATCH_URL),
+        Some(serde_json::json!([{"name": "Google 広告"}])),
+    ));
+    items.push(yt_item("YouTube", "投票しました", Some(YT_POST_URL), None));
+    let body = serde_json::Value::Array(items).to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["watch"], 3);
+    assert_eq!(shape["destinations"]["search"], 2);
+    assert_eq!(shape["destinations"]["other"], 4);
+    assert_eq!(shape["destinations"]["ad"], 2);
+    assert_eq!(shape["destinations"]["rating"], 1);
+    assert_eq!(shape["languages"], serde_json::json!(["ja"]));
+    assert_eq!(shape["products"], serde_json::json!(["YouTube"]));
+    let printed = serde_json::to_string(&shape).unwrap();
+    for value in [
+        "秘密の動画",
+        "秘密の語",
+        "watch?v=abc",
+        "search_query",
+        "Google 広告",
+    ] {
+        assert!(
+            !printed.contains(value),
+            "値「{value}」が出ている: {printed}"
+        );
+    }
+}
+
+/// 評価に数えるのは `watch?v=` の URL を持つ項目だけ（spec の (2)。code-verify R20）。
+/// 評価の決まり文句で始まってもコミュニティ投稿の URL ならその他に数える。
+#[test]
+fn archive_youtube_shape_a_rating_phrase_without_a_watch_url_is_not_a_rating() {
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "高く評価しました ある投稿",
+        Some(YT_POST_URL),
+        None
+    )])
+    .to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["rating"], 0);
+    assert_eq!(shape["destinations"]["other"], 1);
+}
+
+// Scenario: YouTube の項目を含むマイアクティビティの形の出力にその他へ入る件数が出る
+#[test]
+fn archive_youtube_shape_a_mixed_file_shows_the_youtube_items_going_to_other() {
+    let body = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "b を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item(
+            "検索",
+            "x を検索しました",
+            Some("https://www.google.com/search?q=x"),
+            None
+        ),
+    ])
+    .to_string();
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::MyActivity,
+        MY_ACTIVITY_PATH,
+        body.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["destinations"]["other"], 2);
+    // 混ざったファイルの同一性は、いまと同じ種類と製品の名前だけ。
+    assert!(shape.get("languages").is_none());
+}
+
+// Scenario: 決まり文句の表が当たらない YouTube のファイルはまた確認待ちになる
+#[tokio::test]
+async fn archive_youtube_shape_a_file_without_phrase_hits_waits_again() {
+    let known = ja_youtube(2);
+    let unknown = serde_json::json!([yt_item("YouTube", "Look at this", Some(YT_WATCH_URL), None)]);
+    let inbox = yt_pending(
+        "yt-no-phrase",
+        async |inbox: &Inbox| {
+            inbox
+                .confirm(
+                    crate::archive::classify::KnownKind::YouTube,
+                    known.to_string().as_bytes(),
+                )
+                .await
+        },
+        &[(MY_ACTIVITY_PATH, &unknown)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+}
+
+// Scenario: 他の製品のファイルは YouTube の形の印では格納されない
+#[tokio::test]
+async fn archive_youtube_shape_another_product_does_not_ride_the_youtube_seal() {
+    let known = ja_youtube(2);
+    let other = serde_json::json!([yt_item(
+        "検索",
+        "動画の検索 を視聴しました",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let inbox = yt_pending(
+        "yt-other-product-seal",
+        async |inbox: &Inbox| {
+            inbox
+                .confirm(
+                    crate::archive::classify::KnownKind::YouTube,
+                    known.to_string().as_bytes(),
+                )
+                .await
+        },
+        &[("Takeout/My Activity/Search/MyActivity.json", &other)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+}
+
+// Scenario: 見分け方を変える前の YouTube の形に置いた印は効かない
+#[tokio::test]
+async fn archive_youtube_shape_the_old_youtube_seal_does_not_hold() {
+    let body = ja_youtube(2);
+    let inbox = yt_pending(
+        "yt-old-seal",
+        async |inbox: &Inbox| {
+            confirm_hash(
+                inbox,
+                &sha256_hex(br#"{"kind":"YouTubeWatch","products":[]}"#),
+            )
+            .await
+        },
+        &[(WATCH_PATH, &body)],
+    )
+    .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+// Scenario: YouTube 以外の形に置いた印は効いたままになる
+#[tokio::test]
+async fn archive_youtube_shape_seals_of_other_kinds_still_hold() {
+    let my_activity = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    let chrome = serde_json::json!({"Browser History": [{
+        "title": "t", "url": "https://example.com/", "page_transition": "LINK",
+        "client_id": "c", "time_usec": 13_370_000_000_000_000_i64,
+    }]})
+    .to_string();
+    // ST12 の版の形のバイト列の sha256 と、ファイルから通した結果が一致する。
+    let st12_my_activity = sha256_hex(r#"{"kind":"MyActivity","products":["検索"]}"#.as_bytes());
+    let st12_chrome = sha256_hex(br#"{"kind":"ChromeHistory","products":[]}"#);
+    assert_eq!(
+        shape_hash_of_bytes(
+            "Takeout/My Activity/Search/MyActivity.json",
+            my_activity.as_bytes()
+        ),
+        st12_my_activity
+    );
+    assert_eq!(
+        shape_hash_of_bytes("Takeout/Chrome/History.json", chrome.as_bytes()),
+        st12_chrome
+    );
+
+    let inbox = Inbox::new("yt-other-kind-seals").await;
+    confirm_hash(&inbox, &st12_my_activity).await;
+    confirm_hash(&inbox, &st12_chrome).await;
+    inbox.put(
+        "takeout-20260912-000000.zip",
+        &[
+            (
+                "Takeout/My Activity/Search/MyActivity.json",
+                my_activity.as_bytes(),
+            ),
+            ("Takeout/Chrome/History.json", chrome.as_bytes()),
+        ],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("書庫が読まれない", || async {
+            inbox.ledger_rows("read").await == 1
+        })
+        .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(
+        inbox
+            .events(&crate::archive::myactivity::source_name("検索"))
+            .await,
+        1
+    );
+    assert_eq!(inbox.events("c03-chrome-history").await, 1);
+}
+
+// Scenario: 評価を持たない日本語の YouTube のファイルは日本語の形の印で格納される
+#[tokio::test]
+async fn archive_youtube_shape_a_japanese_file_without_ratings_rides_the_japanese_seal() {
+    let sealed = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "高く評価しました b", Some(YT_WATCH_URL), None),
+    ]);
+    let no_ratings = serde_json::json!([
+        yt_item("YouTube", "c を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "d を検索しました", Some(YT_SEARCH_URL), None),
+    ]);
+    let inbox = yt_store(
+        "yt-ja-no-rating",
+        &[(crate::archive::classify::KnownKind::YouTube, &sealed)],
+        &[(MY_ACTIVITY_PATH, &no_ratings)],
+    )
+    .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(yt_counts(&inbox).await, (1, 1, 0));
+}
+
+// Scenario: 行き先ごとの件数が変わっただけでは YouTube のファイルは確認待ちにならない
+#[tokio::test]
+async fn archive_youtube_shape_changed_counts_alone_do_not_wait() {
+    let sealed = serde_json::json!([
+        yt_item("YouTube", "a を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "b を視聴しました", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "高く評価しました c", Some(YT_WATCH_URL), None),
+    ]);
+    let fewer = ja_youtube(1);
+    let a = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        sealed.to_string().as_bytes(),
+    )
+    .unwrap();
+    let b = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        fewer.to_string().as_bytes(),
+    )
+    .unwrap();
+    assert_ne!(a["destinations"], b["destinations"]);
+    assert_eq!(
+        crate::archive::worker::hash_shape(&a),
+        crate::archive::worker::hash_shape(&b),
+        "件数だけが違う形の同一性が違う"
+    );
+    let inbox = yt_store(
+        "yt-counts-only",
+        &[(crate::archive::classify::KnownKind::YouTube, &sealed)],
+        &[(MY_ACTIVITY_PATH, &fewer)],
+    )
+    .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+    assert_eq!(yt_counts(&inbox).await, (1, 0, 0));
+}
+
+#[test]
+fn archive_youtube_shape_identity_carries_languages_only_for_youtube() {
+    let ja = shape_hash_of_bytes(MY_ACTIVITY_PATH, ja_youtube(1).to_string().as_bytes());
+    let none = shape_hash_of_bytes(
+        MY_ACTIVITY_PATH,
+        serde_json::json!([yt_item("YouTube", "Look", Some(YT_WATCH_URL), None)])
+            .to_string()
+            .as_bytes(),
+    );
+    assert_ne!(ja, none, "言語が同一性に入っていない");
+    assert_eq!(
+        ja,
+        sha256_hex(br#"{"kind":"YouTube","languages":["ja"],"products":["YouTube"]}"#)
+    );
+}
+
+// ---- ST47: 解析器の版を上げ、確認待ちと読み終えた書庫の形を取り直す（design D9） ----
+
+/// 旧い版（ST12 / 視聴だけを見分けた形）の YouTube の形。
+const OLD_YT_SHAPE: &str = r#"{"kind":"YouTubeWatch","products":[]}"#;
+
+fn old_yt_hash() -> String {
+    crate::archive::worker::hash_shape(&serde_json::from_str(OLD_YT_SHAPE).unwrap())
+}
+
+fn new_yt_hash(body: &serde_json::Value) -> String {
+    shape_hash_of_bytes(MY_ACTIVITY_PATH, body.to_string().as_bytes())
+}
+
+impl Inbox {
+    /// 書庫のファイルを写しに残し、書庫の `sha256` を返す（版を上げる前に取り込み器が残した状態）。
+    async fn seed_copies(&self, files: &[(&str, &[u8])]) -> String {
+        let archive_sha = format!("{:064x}", uuid::Uuid::new_v4().as_u128());
+        std::fs::create_dir_all(&self.copies).unwrap();
+        for (path, bytes) in files {
+            let stored = crate::archive::worker::copy_known_file(&self.copies, bytes).unwrap();
+            crate::archive::worker::record_copy(
+                &self.pool,
+                self.user,
+                stored.file_name().unwrap().to_str().unwrap().to_owned(),
+                path,
+                &stored,
+                &archive_sha,
+            )
+            .await
+            .unwrap();
+        }
+        archive_sha
+    }
+
+    /// 旧い版（`'1'`）の台帳の行。名前と作られた時刻と置き場の種類を持つ。
+    async fn old_ledger(&self, archive_sha: &str, outcome: &str) {
+        sqlx::query(
+            "INSERT INTO core.archive_ledger
+               (user_id, sha256, parser_version, outcome, file_name, created_at, inbox_kind)
+             VALUES ($1, $2, '1', $3, 'takeout-old.zip', '2026-08-01T00:00:00Z', 'downloads')",
+        )
+        .bind(self.user)
+        .bind(archive_sha)
+        .bind(outcome)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
+
+    /// 旧い版の確認待ちの行（旧い形）を置く。
+    async fn old_pending(&self, archive_sha: &str, path: &str, bytes: &[u8]) {
+        let file_sha = sha256_hex(bytes);
+        crate::archive::worker::record_pending_file(
+            &self.pool,
+            self.user,
+            archive_sha,
+            path,
+            &serde_json::from_str(OLD_YT_SHAPE).unwrap(),
+            Some(&file_sha),
+            false,
+        )
+        .await
+        .unwrap();
+        self.old_ledger(archive_sha, "pending_shape").await;
+    }
+
+    async fn pending_hashes(&self) -> Vec<String> {
+        sqlx::query_scalar(
+            "SELECT shape_hash FROM core.archive_pending_shape WHERE user_id = $1 ORDER BY 1",
+        )
+        .bind(self.user)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+
+    async fn ledger_at_current(
+        &self,
+        archive_sha: &str,
+        outcome: &str,
+    ) -> Vec<(Option<String>, Option<String>, String)> {
+        sqlx::query_as(
+            "SELECT file_name, created_at::text, inbox_kind FROM core.archive_ledger
+              WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3 AND outcome = $4",
+        )
+        .bind(self.user)
+        .bind(archive_sha)
+        .bind(crate::archive::PARSER_VERSION)
+        .bind(outcome)
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る
+#[tokio::test]
+async fn archive_youtube_reparse_pending_file_shows_the_new_shape() {
+    let inbox = Inbox::new("yt-reparse-pending").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    assert_eq!(inbox.pending_hashes().await, vec![old_yt_hash()]);
+
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+    let shape: serde_json::Value =
+        sqlx::query_scalar("SELECT shape FROM core.archive_pending_shape WHERE user_id = $1")
+            .bind(inbox.user)
+            .fetch_one(&inbox.pool)
+            .await
+            .unwrap();
+    assert_eq!(shape["kind"], "YouTube");
+    assert_eq!(shape["products"], serde_json::json!(["YouTube"]));
+    assert_eq!(shape["languages"], serde_json::json!(["ja"]));
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1,
+        "いまの版の pending_shape の行が 1 つ足されない"
+    );
+}
+
+/// 決まり文句が 1 つも当たらない YouTube の形（`languages: []`）は、印があっても格納しない
+/// （deep.md 第 2 回 Q7 / design D6。`tools/archive-shape.sh --confirm` の断りと二重。final review R3）。
+/// ハッシュを一覧の外で知って先に印を置かれても、表に無い言語のファイルが以後その印で通らない。
+#[tokio::test]
+async fn archive_youtube_shape_a_mark_on_an_unrecognized_language_does_not_store() {
+    let body = serde_json::json!([
+        yt_item("YouTube", "Ha visto un vídeo", Some(YT_WATCH_URL), None),
+        yt_item("YouTube", "Ha buscado algo", Some(YT_SEARCH_URL), None),
+    ]);
+    let shape = crate::archive::worker::shape_for_file(
+        crate::archive::classify::KnownKind::YouTube,
+        MY_ACTIVITY_PATH,
+        body.to_string().as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(shape["languages"], serde_json::json!([]));
+    let inbox = yt_pending(
+        "yt-no-language-mark",
+        async |inbox: &Inbox| {
+            inbox
+                .confirm(
+                    crate::archive::classify::KnownKind::YouTube,
+                    body.to_string().as_bytes(),
+                )
+                .await
+        },
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    // 断りの SQL 側: 印があっても、読み直す写しの一覧に出さない（D6。code-verify R8）。
+    assert!(
+        crate::archive::worker::confirmed_pending_copies(&inbox.pool, inbox.user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "言語の当たらない形の写しが、印のある確認待ちとして拾われる"
+    );
+    // 確認待ちを写しから読み直す経路でも、その印では読まない。
+    let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+    assert_eq!(ingested, 0);
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+}
+
+// Scenario: 旧い形の印があっても確認待ちの YouTube のファイルは版の上げの後に新しい形の印を待つ
+#[tokio::test]
+async fn archive_youtube_reparse_old_mark_does_not_read_a_pending_file() {
+    let inbox = Inbox::new("yt-reparse-old-mark").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    confirm_hash(&inbox, &old_yt_hash()).await;
+
+    // 取り直しの前でも、読む直前に新しい形のハッシュで印を照らして読まない。
+    let early = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+    assert_eq!(early, 0);
+    // その呼び出しが書く pending_shape の行も、元の読みの名前と置き場を失わない。
+    let rows = inbox.ledger_at_current(&sha, "pending_shape").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0.as_deref(), Some("takeout-old.zip"));
+    assert_eq!(rows[0].2, "downloads");
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+
+    assert_eq!(ingested, 0);
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+}
+
+// Scenario: 解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る
+/// WHEN（版を上げて**走査が来る**）を、走査の輪（`spawn_inspecting`）の上で見る（code-verify R5）。
+/// 旧い形の印は置かない —— 置くと `ingest_confirmed_pending` の読み直しも形を書き換えるので、
+/// 輪の `refresh_pending_shapes` が外れても通ってしまう。
+#[tokio::test]
+async fn archive_youtube_reparse_the_scan_loop_refreshes_pending_shapes() {
+    let inbox = Inbox::new("yt-reparse-loop").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+    let new_hash = new_yt_hash(&body);
+
+    inbox.spawn(true);
+    inbox
+        .until("走査が確認待ちの形を取り直さない", || async {
+            inbox.pending_hashes().await == vec![new_hash.clone()]
+        })
+        .await;
+    // 印が無いので読まない。周を重ねても pending_shape の行は 1 つ。
+    tokio::time::sleep(std::time::Duration::from_millis(2_500)).await;
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1
+    );
+
+    // 新しい形に印を置くと、次の走査で読む。
+    confirm_hash(&inbox, &new_hash).await;
+    inbox
+        .until("新しい形の印で読まれない", || async {
+            yt_counts(&inbox).await == (2, 0, 0)
+        })
+        .await;
+    assert_eq!(pending_files(&inbox).await, 0);
+}
+
+// Scenario: 読み終えた書庫の新しい形に印の無いファイルは版の上げで確認待ちになる
+#[tokio::test]
+async fn archive_youtube_reparse_read_archive_waits_for_the_new_mark() {
+    let inbox = Inbox::new("yt-reparse-read").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &old_yt_hash()).await;
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(inbox.pending_hashes().await, vec![new_yt_hash(&body)]);
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert!(inbox.ledger_at_current(&sha, "read").await.is_empty());
+    // 周を重ねても記録は増えず、新しい形に印を置くまで待つ。
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+}
+
+/// 版の読み直しの経路でも、決まり文句の表に当たる言語が無い YouTube の形の印では格納しない
+/// （design D6 の「3 経路とも」。code-verify R19）。
+#[tokio::test]
+async fn archive_youtube_reparse_a_mark_on_an_unrecognized_language_does_not_store() {
+    let inbox = Inbox::new("yt-reparse-unknown-lang").await;
+    let body = serde_json::json!([yt_item(
+        "YouTube",
+        "Vu: une vidéo",
+        Some(YT_WATCH_URL),
+        None
+    )]);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &shape_hash_of_bytes(MY_ACTIVITY_PATH, &bytes)).await;
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(yt_counts(&inbox).await, (0, 0, 0));
+    assert_eq!(pending_files(&inbox).await, 1);
+    assert!(inbox.ledger_at_current(&sha, "read").await.is_empty());
+}
+
+/// 版の読み直しが確認待ちを含む書庫の途中で落ちても、次の周で読み直す（code-verify R17）。
+/// 確認待ちの台帳の行を先に書くと、書庫が読み直しの対象から外れて二度と読まれなかった。
+#[tokio::test]
+async fn archive_youtube_reparse_a_failed_reread_with_pending_files_is_retried() {
+    let inbox = Inbox::new("yt-reparse-retry").await;
+    let search_path = "Takeout/My Activity/Search/MyActivity.json";
+    let search = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    // 確認待ちになる YouTube のファイルを、検索のファイルより先に読む位置に置く。
+    let youtube_path = "Takeout/A/YouTube/MyActivity.json";
+    let youtube = ja_youtube(1).to_string();
+    let sha = inbox
+        .seed_copies(&[
+            (search_path, search.as_bytes()),
+            (youtube_path, youtube.as_bytes()),
+        ])
+        .await;
+    inbox.old_ledger(&sha, "read").await;
+    confirm_hash(&inbox, &shape_hash_of_bytes(search_path, search.as_bytes())).await;
+
+    let fault = LateMarkFault::install_store(&inbox).await;
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    let fired = fault.fired().await;
+    fault.remove().await;
+    assert_eq!(fired, 1, "格納が落ちていない");
+    assert!(inbox
+        .ledger_at_current(&sha, "pending_shape")
+        .await
+        .is_empty());
+
+    crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    let stored: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event WHERE user_id = $1 AND payload->>'title' = $2",
+    )
+    .bind(inbox.user)
+    .bind("x を検索しました")
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored, 1,
+        "落ちた次の周で検索のファイルが読み直されていない"
+    );
+    assert_eq!(inbox.ledger_at_current(&sha, "read").await.len(), 1);
+    assert_eq!(
+        inbox.ledger_at_current(&sha, "pending_shape").await.len(),
+        1
+    );
+    assert_eq!(pending_files(&inbox).await, 1);
+}
+
+// Scenario: 版の上げの後に印を置いて読み直した台帳の行は元の書庫の名前と作られた時刻を持つ
+#[tokio::test]
+async fn archive_youtube_reparse_ledger_row_keeps_the_archive_name_and_time() {
+    let inbox = Inbox::new("yt-reparse-ledger").await;
+    let body = ja_youtube(2);
+    let bytes = body.to_string().into_bytes();
+    let sha = inbox.seed_copies(&[(MY_ACTIVITY_PATH, &bytes)]).await;
+    inbox.old_pending(&sha, MY_ACTIVITY_PATH, &bytes).await;
+
+    crate::archive::worker::refresh_pending_shapes(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+    confirm_hash(&inbox, &new_yt_hash(&body)).await;
+    let ingested = crate::archive::worker::ingest_confirmed_pending(&inbox.pool, inbox.user, true)
+        .await
+        .unwrap();
+
+    assert_eq!(ingested, 1);
+    assert_eq!(inbox.events("c03-youtube-watch").await, 2);
+    let rows = inbox.ledger_at_current(&sha, "read").await;
+    assert_eq!(rows.len(), 1);
+    let (file_name, created_at, inbox_kind) = &rows[0];
+    assert_eq!(file_name.as_deref(), Some("takeout-old.zip"));
+    assert!(
+        created_at
+            .as_deref()
+            .is_some_and(|at| at.starts_with("2026-08-01 00:00:00")),
+        "作られた時刻が元の読みと違う: {created_at:?}"
+    );
+    assert_eq!(inbox_kind, "downloads");
+}
+
+// Scenario: 読み直しても YouTube 以外の論理ソースの行は増えない
+#[tokio::test]
+async fn archive_youtube_reparse_other_sources_do_not_grow() {
+    use crate::archive::classify::KnownKind;
+    let search = serde_json::json!([yt_item(
+        "検索",
+        "x を検索しました",
+        Some("https://www.google.com/search?q=x"),
+        None
+    )])
+    .to_string();
+    let files: [(KnownKind, &str, &[u8]); 3] = [
+        (
+            KnownKind::MyActivity,
+            "Takeout/My Activity/Search/MyActivity.json",
+            search.as_bytes(),
+        ),
+        (
+            KnownKind::ChromeHistory,
+            "Takeout/Chrome/History.json",
+            LOCATED_CHROME.as_bytes(),
+        ),
+        (
+            KnownKind::Timeline,
+            "Timeline.json",
+            ERASE_TIMELINE.as_bytes(),
+        ),
+    ];
+    let inbox = Inbox::new("yt-reparse-others").await;
+    let plain: Vec<(&str, &[u8])> = files.iter().map(|(_, p, b)| (*p, *b)).collect();
+    let sha = inbox.seed_copies(&plain).await;
+    inbox
+        .confirm(KnownKind::MyActivity, search.as_bytes())
+        .await;
+    // 旧い版が読み終えた状態: 記録を格納し、旧い版の `read` の行を残す。
+    let sink = crate::PgSink::new(inbox.pool.clone());
+    for (kind, path, bytes) in &files {
+        let requests =
+            crate::archive::worker::requests_for_file(*kind, path, bytes, inbox.user, sha.clone())
+                .unwrap();
+        crate::archive::worker::store_requests(&sink, requests)
+            .await
+            .unwrap();
+    }
+    inbox.old_ledger(&sha, "read").await;
+    async fn per_source(inbox: &Inbox) -> Vec<(String, i64)> {
+        sqlx::query_as(
+            "SELECT logical_source, count(*) FROM core.event WHERE user_id = $1
+              GROUP BY logical_source ORDER BY 1",
+        )
+        .bind(inbox.user)
+        .fetch_all(&inbox.pool)
+        .await
+        .unwrap()
+    }
+    let before = per_source(&inbox).await;
+    assert!(
+        before.len() >= 3,
+        "材料が 3 つの論理ソースに入っていない: {before:?}"
+    );
+
+    let reread = crate::archive::worker::reparse_older_versions(&inbox.pool, inbox.user)
+        .await
+        .unwrap();
+
+    assert_eq!(reread, 1, "読み直されていない");
+    assert_eq!(per_source(&inbox).await, before);
+    assert_eq!(inbox.ledger_at_current(&sha, "read").await.len(), 1);
+}
+
+/// 時刻と位置（`locationInfos`）を足した項目。消した滞在（03:00Z〜04:00Z）の中の時刻を渡す。
+fn yt_item_at(mut item: serde_json::Value, time: &str, located: bool) -> serde_json::Value {
+    item["time"] = time.into();
+    if located {
+        item["locationInfos"] = serde_json::json!([{
+            "name": "この付近",
+            "url": "https://www.google.com/maps/@?api=1&map_action=map&center=35.658,139.745&zoom=12",
+            "source": "もとの場所",
+        }]);
+    }
+    item
+}
+
+/// Scenario: 消した滞在の時間帯の位置を持つ YouTube のその他の項目は削除済みになる
+#[tokio::test]
+async fn archive_youtube_location_marks_only_the_located_other_item() {
+    use crate::archive::classify::KnownKind;
+    let inbox = Inbox::new("yt-location").await;
+    let stay = inbox.put_stay().await;
+    crate::deletion::erase(&inbox.pool, stay, None)
+        .await
+        .unwrap();
+    let ad = |title: &str| {
+        yt_item(
+            "YouTube",
+            title,
+            Some(YT_WATCH_URL),
+            Some(serde_json::json!([{"name": "Google 広告から"}])),
+        )
+    };
+    let body = serde_json::json!([
+        yt_item_at(
+            ad("位置ありの広告 を視聴しました"),
+            "2026-09-12T03:30:00Z",
+            true
+        ),
+        yt_item_at(
+            ad("位置なしの広告 を視聴しました"),
+            "2026-09-12T03:40:00Z",
+            false
+        ),
+    ]);
+    inbox
+        .confirm(KnownKind::YouTube, body.to_string().as_bytes())
+        .await;
+    inbox.put(
+        "takeout-20260912T000000Z-001.zip",
+        &[(MY_ACTIVITY_PATH, body.to_string().as_bytes())],
+    );
+    inbox.spawn(true);
+    let other_marks = || async {
+        sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT payload->>'title', deleted_by FROM core.event
+              WHERE user_id = $1 AND logical_source = $2 ORDER BY payload->>'title'",
+        )
+        .bind(inbox.user)
+        .bind(YT_OTHER)
+        .fetch_all(&inbox.pool)
+        .await
+        .unwrap()
+    };
+    let expected = vec![
+        (
+            "位置ありの広告 を視聴しました".to_owned(),
+            Some("user:late".to_owned()),
+        ),
+        ("位置なしの広告 を視聴しました".to_owned(), None),
+    ];
+    inbox
+        .until(
+            "位置を持つその他の項目に後着の印が付かない",
+            || async { other_marks().await == expected },
+        )
+        .await;
+    assert_eq!(inbox.events("c03-youtube-watch").await, 0);
+}
+
+/// Scenario: 分けた論理ソースの最終日が稼働状況に出る
+#[tokio::test]
+async fn archive_youtube_last_event_is_reported_per_logical_source() {
+    use crate::archive::classify::KnownKind;
+    let at = |item: serde_json::Value, time: &str| yt_item_at(item, time, false);
+    let body = serde_json::json!([
+        at(
+            yt_item("YouTube", "動画 を視聴しました", Some(YT_WATCH_URL), None),
+            "2026-09-12T03:00:00Z"
+        ),
+        at(
+            yt_item("YouTube", "x を検索しました", Some(YT_SEARCH_URL), None),
+            "2026-09-10T03:00:00Z"
+        ),
+        at(
+            yt_item("YouTube", "投票しました", Some(YT_POST_URL), None),
+            "2026-09-11T03:00:00Z"
+        ),
+    ]);
+    let inbox = yt_store(
+        "yt-last-event",
+        &[(KnownKind::YouTube, &body)],
+        &[(MY_ACTIVITY_PATH, &body)],
+    )
+    .await;
+    assert_eq!(
+        inbox.last_event_on("c03-youtube-watch").await.as_deref(),
+        Some("2026-09-12")
+    );
+    assert_eq!(
+        inbox.last_event_on("c03-youtube-search").await.as_deref(),
+        Some("2026-09-10")
+    );
+    assert_eq!(
+        inbox.last_event_on(YT_OTHER).await.as_deref(),
+        Some("2026-09-11")
+    );
 }
