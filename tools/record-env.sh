@@ -159,12 +159,17 @@ EOF
       # shellcheck disable=SC1091
       . ./tools/android-env.sh >/dev/null 2>&1
       set -u
-      # トークンはコマンド行（ps に見える）に出さず、Gradle のプロジェクト属性の環境変数で渡す。
+      # トークンはコマンド行（ps に見える）に出さず、この一時 worktree の gradle.properties に足して渡し、ビルドの後に戻す。
+      # 環境変数（ORG_GRADLE_PROJECT_ashiato.apiToken）では届かない —— 名前に「.」があり、gradlew（sh）が子へ渡さない
+      # （実測 2026-10-14: APK のトークンと利用者が空で、ST17-reminder が接続先の無い APK で落ちた）。
       # daemon は使わない（片付けがこの環境のプロセスグループを止めるとき、他のビルドが使う daemon を巻き込まない）
-      env "ORG_GRADLE_PROJECT_ashiato.apiToken=$(sed -n 's/^API_TOKEN=//p' .env)" \
-          "ORG_GRADLE_PROJECT_ashiato.userId=$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" \
-        ./collector-android/gradlew -q --no-daemon -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
-          -Pashiato.baseUrl=http://127.0.0.1:18787
+      printf '\nashiato.apiToken=%s\nashiato.userId=%s\n' \
+        "$(sed -n 's/^API_TOKEN=//p' .env)" "$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" >>collector-android/gradle.properties
+      rc=0
+      ./collector-android/gradlew -q --no-daemon -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
+        -Pashiato.baseUrl=http://127.0.0.1:18787 || rc=$?
+      git checkout -q -- collector-android/gradle.properties || rc=1
+      exit "$rc"
     ) && android_ok=1
     # APK が作れなくても画面のシナリオは撮る（Android のシナリオだけが「撮れなかった」になる）
     [ -n "$android_ok" ] || echo "warn: APK のビルドが落ちた。Android のシナリオは撮らない" >&2
@@ -211,6 +216,8 @@ EOF
     echo "BASE_URL=http://127.0.0.1:$web"
     # 画面のログインが無い木（ST28 より前）では渡さない
     if grep -q '^WEB_PASSWORD=' .env; then echo "PASS_WEB_PASSWORD=$(sed -n 's/^WEB_PASSWORD=//p' .env)"; fi
+    # 録画の spec が画面の外から `/api` を直に読む（書いた件数を数える）ときの Bearer。e2e と同じ名前で渡す
+    echo "PASS_API_TOKEN=$(sed -n 's/^API_TOKEN=//p' .env)"
     # 録画の間（各工程の後の停止 / 操作の間隔）。録画用の spec と設定が読む。変えるなら呼ぶ側で REC_HOLD_MS / REC_SLOWMO_MS
     echo "PASS_REC_HOLD_MS=${REC_HOLD_MS:-1200}"; echo "INFO_rec_hold_ms=${REC_HOLD_MS:-1200}"
     echo "PASS_REC_SLOWMO_MS=${REC_SLOWMO_MS:-250}"; echo "INFO_rec_slowmo_ms=${REC_SLOWMO_MS:-250}"

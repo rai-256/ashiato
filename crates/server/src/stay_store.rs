@@ -255,7 +255,7 @@ pub(crate) enum Mark {
 }
 
 impl Mark {
-    fn of(deleted_at: Option<DateTime<Utc>>, deleted_by: Option<&str>) -> Self {
+    pub(crate) fn of(deleted_at: Option<DateTime<Utc>>, deleted_by: Option<&str>) -> Self {
         match (deleted_at, deleted_by) {
             (None, _) => Self::Live,
             (Some(_), Some(ERASED_RANGE)) => Self::ErasedRange,
