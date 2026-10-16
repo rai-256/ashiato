@@ -36,7 +36,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
-| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
+| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
 
 > ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。従来は 1 行で「`rust`（… + 検査 4 本）」「`chain`（token があるとき）」と
 > 書いていた。rust の検査は 9 本に増えていて、chain は token が無くても毎回走り、私的データの検査（網の名前・ログ・
@@ -165,6 +165,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
 ./tools/check-offsite.sh --self-test && ./tools/check-offsite.sh && ./tools/check-exposure.sh --self-test
 ./tools/check-private.sh --self-test && ./tools/check-private.sh
+./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
 ./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
