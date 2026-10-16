@@ -693,6 +693,7 @@ fn decide_follows_the_order_of_d7() {
             blockers: vec![],
             dropped_full,
             stopped_full,
+            gaps: vec![],
         }
     }
     let start = Some(testdb::date("2026-05-01"));

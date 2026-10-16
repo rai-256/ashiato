@@ -5,6 +5,7 @@ import {
   dropMarkTone,
   dropNotes,
   foldIntoWeeks,
+  gapNotes,
   hasDropMark,
   isRetired,
   STATE_NAME,
@@ -233,6 +234,10 @@ function WeekDetail({ week, c }: { week: Week; c: SchemeColors }): React.ReactEl
               {/* **期間と件数はここだけに書く**（ST04 / 深掘り Q3）。一覧は作らない */}
               {dropNotes(cell).map((note, i) => (
                 <span key={`${i}-${note}`} data-drop-note="true">{` ${note}`}</span>
+              ))}
+              {/* **取りこぼしの期間は理由ごとに別の文字**（ST14 / design D23（仮））。状態の名前に添える */}
+              {gapNotes(cell).map((note, i) => (
+                <span key={`${i}-${note}`} data-gap-note="true">{` ${note}`}</span>
               ))}
             </dd>
           </div>

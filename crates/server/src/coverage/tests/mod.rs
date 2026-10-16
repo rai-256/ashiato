@@ -9,8 +9,11 @@ use super::*;
 use crate::testdb;
 
 mod achievement;
+mod achievement_subject;
 mod drops;
+mod nonobs;
 mod retired;
+mod rollup;
 mod spans;
 mod started_on;
 mod states;

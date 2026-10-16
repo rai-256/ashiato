@@ -572,6 +572,55 @@
         }
       }
     },
+    "/outages": {
+      "get": {
+        "tags": [],
+        "summary": "収集が途切れているソースと、端末に返したことの台帳（ST14 / design D5・D6・D7）。",
+        "operationId": "outages_get",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "query",
+            "description": "端末識別子。**あれば**「この端末に返した」を台帳に残す（収集アプリは必ず付ける）。",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者。省略すると既定の利用者（ほかの読み出しと同じ）",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutagesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/places": {
       "get": {
         "tags": [],
@@ -1523,7 +1572,8 @@
           "blockers",
           "intervals",
           "dropped_count",
-          "dropped_ranges"
+          "dropped_ranges",
+          "gaps"
         ],
         "properties": {
           "attempts": {
@@ -1560,6 +1610,13 @@
           "event_count": {
             "type": "integer",
             "format": "int32"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GapSpan"
+            },
+            "description": "その日に重なる、端末が取りこぼしとして残した期間（ST14 / design D15）。\n**状態に関わらず返る**（「記録あり」の日にも、重なっていれば持つ）"
           },
           "intervals": {
             "type": "array",
@@ -2186,6 +2243,28 @@
           "unavailable"
         ]
       },
+      "GapSpan": {
+        "type": "object",
+        "description": "取りこぼしの期間 `[begin, end)` と理由。`end` ちょうどの日には重ならない。",
+        "required": [
+          "reason",
+          "begin",
+          "end"
+        ],
+        "properties": {
+          "begin": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "HeartbeatError": {
         "type": "string",
         "description": "生存信号を断った理由。**受け取った値は載せない**（`IngestError` と同じ向き）。",
@@ -2699,6 +2778,66 @@
             "description": "RFC 3339（地域のずれつき）"
           }
         }
+      },
+      "OutageItem": {
+        "type": "object",
+        "description": "途切れているソース 1 つ。**記録の中身（座標・題名・原文）は持たない。**",
+        "required": [
+          "episode_id",
+          "logical_source",
+          "display_name",
+          "last_alive_at"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "episode_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "途切れの識別子。続く間は同じ・戻ってまた途切れたら別"
+          },
+          "last_alive_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "OutagesResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "judged_at"
+        ],
+        "properties": {
+          "judged_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outages": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OutageItem"
+            },
+            "description": "`status = ready` のときだけ。表示名の昇順（同じなら論理ソース名）"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OutagesStatus"
+          }
+        }
+      },
+      "OutagesStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "warming_up"
+        ]
       },
       "PendingShapeStatus": {
         "type": "object",

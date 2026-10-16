@@ -1,0 +1,10 @@
+{"title":"ST14 Task 10 の検証コマンド","subtitle":"10.1 が書かれたままでは終わらない","note":"選んで「回答をコピー」。",
+"questions":[{"id":"Q-T10","topic":"10.1 の検証コマンドの訂正","kind":"premise",
+"question":"10.1（偽データ）の検証コマンドを、どの形に直しますか。",
+"why":"`tools/stack.sh up` は前景で待ち続けるので `&&` の後ろの `curl` に着かない（verify-run は 9 分以上返らなかった）。さらに読み先の `${ASHIATO_PORT:-18787}` は存在しない変数で、既定の 18787 は main の本番のサーバ。手で起こして読むと jq の判定は true（アプリ利用 2026-09-01〜04 に gaps、集計は 1 本）。受け入れ条件は変えない。",
+"context":"deep.md の「下流 Task 10 で積んだ A」（Q-T10）を参照。",
+"multi":false,"allow_free":true,
+"options":[
+{"label":"1 コマンドの入口に直す","detail":"スタックを裏で起こし（setsid）→ 起動を待つ → `ASHIATO_HTTP_PORT` を curl → 止める、までを 1 本の bash -c にし、その後に同じ jq -e。plan_fix で 10.1 の検証コマンドだけを直す","recommended":true},
+{"label":"e2e で代える","detail":"10.1 の検証を 10.2〜10.4 の e2e（偽データを本物のブラウザで見る）に任せ、10.1 自体の curl 検証は外す"},
+{"label":"承認しない","detail":"別の入口を補足に書く"}]}]}
