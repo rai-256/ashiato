@@ -28,7 +28,7 @@
 
 ## Task 1: その他のソースを登録する移行（design D8）
 
-- [ ] 1.1 移行 1 本で `core.source` に `('c03-myactivity-youtube', 'マイアクティビティ: YouTube', 5184000, 'none')` を `ON CONFLICT (logical_source) DO NOTHING` で足し、`MIGRATIONS` の末尾に載せる。
+- [x] 1.1 移行 1 本で `core.source` に `('c03-myactivity-youtube', 'マイアクティビティ: YouTube', 5184000, 'none')` を `ON CONFLICT (logical_source) DO NOTHING` で足し、`MIGRATIONS` の末尾に載せる。
   down は `c03-myactivity-youtube` の記録が 1 件も無いときだけ登録を消す。見出しの文字列は `worker::ensure_myactivity_source` が作るものと同じにする。
   Scenario: `その他のソースは 60 日で登録されている`。
   検証: `tools/check-migrations.sh` rc=0、`CT archive_youtube_other_source_registered (≥1)`（移行を当てた DB で書庫を置かずに登録簿を読み、見出し・`expected_gap_sec = 5184000`・`external_id_kind = 'none'` を見る。
@@ -36,11 +36,11 @@
 
 ## Task 2: YouTube のファイルの見分けと、項目の行き先（design D1 / D2 / D3 / D4 / D10）
 
-- [ ] 2.1 `KnownKind::YouTubeWatch` / `YouTubeSearch` を `KnownKind::YouTube` の 1 つにし、`classify.rs` の `kind_of` を design D1 の順（最初の製品の名前の集合がちょうど `{"YouTube"}` → `YouTube` / 製品の名前を持つ項目があれば `MyActivity` / 製品の名前を持つ項目が無く視聴・検索の URL があれば `YouTube`）にする。
+- [x] 2.1 `KnownKind::YouTubeWatch` / `YouTubeSearch` を `KnownKind::YouTube` の 1 つにし、`classify.rs` の `kind_of` を design D1 の順（最初の製品の名前の集合がちょうど `{"YouTube"}` → `YouTube` / 製品の名前を持つ項目があれば `MyActivity` / 製品の名前を持つ項目が無く視聴・検索の URL があれば `YouTube`）にする。
   `requires_shape_confirmation` と見張り（`every_archive_logical_source_is_classified_as_location_or_item`）の材料を新しい種類に合わせ、見張りの材料が 3 つの行き先（視聴・検索・`c03-myactivity-youtube`）をすべて通るようにする（design D11）。
   検証: `CT archive_youtube_kind_of (≥4)`（`kind_of` の単体試験: 先頭が `watch?v=` の製品「検索」のファイルが `MyActivity` / 製品「YouTube」だけのファイルが `YouTube` / 製品が混ざったファイルが `MyActivity` / 製品の名前を持たず `watch?v=` を持つファイルが `YouTube`）、
   `CT every_archive_logical_source_is_classified_as_location_or_item (≥1)`
-- [ ] 2.2 `archive/youtube.rs` に決まり文句の表（design D4（仮）: 日本語は末尾、英語は先頭の一致。評価と、言語の見分けだけに使う視聴・検索）と、ファイルの題名から「当たった言語」を、項目の題名と当たった言語から「評価か」を返す関数を置く（評価は当たった言語の表だけで見る）。
+- [x] 2.2 `archive/youtube.rs` に決まり文句の表（design D4（仮）: 日本語は末尾、英語は先頭の一致。評価と、言語の見分けだけに使う視聴・検索）と、ファイルの題名から「当たった言語」を、項目の題名と当たった言語から「評価か」を返す関数を置く（評価は当たった言語の表だけで見る）。
   `worker.rs` の `takeout_items` の `YouTube` の枝を、項目ごとに spec の順（`details` の欄の有無 → `watch?v=` かつ評価 → `watch?v=` → `results?search_query=` → その他）で行き先を決める形に書き直す。
   その他は `c03-myactivity-youtube` で、payload は ST12 のマイアクティビティと同じ欄（`product` / `title` / `url` / `details`）。視聴・検索の payload は ST12 のまま（design D3）。
   `archive_tests.rs` の「URL を持たない＝削除された動画」を視聴に入れる材料と試験（`archive_classify_skips_items_without_a_title_url` ほか）を、本物の形（URL の無い項目はその他）に書き直す（design D10 / C5）。
@@ -54,7 +54,7 @@
 
 ## Task 3: 形の同一性、形の一覧の行き先ごとの件数、印の断り（design D2 / D5 / D6 / D7）
 
-- [ ] 3.1 `shape_for_file` が `YouTube` の種類にも `products`（最初の製品の名前の集合）を入れ、`languages`（design D4 の当たった言語の集合）と `destinations`（`watch` / `search` / `other` と、`other` のうち `ad` / `rating` の件数）を足す。
+- [x] 3.1 `shape_for_file` が `YouTube` の種類にも `products`（最初の製品の名前の集合）を入れ、`languages`（design D4 の当たった言語の集合）と `destinations`（`watch` / `search` / `other` と、`other` のうち `ad` / `rating` の件数）を足す。
   `products` に「YouTube」を含む `MyActivity` の形には、YouTube の項目の `other` の件数を `destinations` に出す（design D2 / D7）。
   `hash_shape` は `YouTube` の種類だけ `{"kind","products","languages"}` を同一性にし、それ以外の種類はいまと同じバイト列の `{"kind","products"}` のままにする（`destinations` はハッシュに入れない）。
   Scenario: `形の確認の出力に YouTube の行き先ごとの件数が出る` / `YouTube の項目を含むマイアクティビティの形の出力にその他へ入る件数が出る` / `決まり文句の表が当たらない YouTube のファイルはまた確認待ちになる` /
@@ -62,13 +62,13 @@
   `評価を持たない日本語の YouTube のファイルは日本語の形の印で格納される` / `行き先ごとの件数が変わっただけでは YouTube のファイルは確認待ちにならない`。
   検証: `CT archive_youtube_shape (≥8)`（Scenario ごとに 1 本以上。旧い形・ST12 の版の形の印は、試験の中に文字列で書いたバイト列の sha256 を直に印の表へ入れる。
   `YouTube 以外の形に置いた印は効いたままになる` の試験は、手で組んだ形ではなく**ファイルのバイト列から分類・形・ハッシュまで通した**結果がその sha256 と一致することを見る）
-- [ ] 3.2 `tools/archive-shape.sh --confirm` が、確認待ちの形が `kind` = `YouTube` で `languages` が空のとき、印を置かずに 0 以外で終わり、理由を stderr に出す（design D6）。
+- [x] 3.2 `tools/archive-shape.sh --confirm` が、確認待ちの形が `kind` = `YouTube` で `languages` が空のとき、印を置かずに 0 以外で終わり、理由を stderr に出す（design D6）。
   Scenario: `決まり文句の当たらない YouTube の形には印を置けない`。
   検証: `tools/smoke.sh` に、言語の当たらない YouTube の確認待ちの形へ `--confirm` を当てて rc が 0 以外・印の表の行が増えないことを見る段を足し（`echo "== Scenario: 決まり文句の当たらない YouTube の形には印を置けない"`）、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0
 
 ## Task 4: 解析器の版を上げ、確認待ちと読み終えた書庫の形を取り直す（design D9）
 
-- [ ] 4.1 `archive::PARSER_VERSION` を `"2"` にする。design D9 の 1〜3 を入れる: (1) いまの版の `pending_shape` の行を持たない確認待ちの書庫の形を写しから取り直し、`archive_pending_shape` の `shape_hash` / `shape` を置き換え（`record_pending_file` の `ON CONFLICT` も更新する）、
+- [x] 4.1 `archive::PARSER_VERSION` を `"2"` にする。design D9 の 1〜3 を入れる: (1) いまの版の `pending_shape` の行を持たない確認待ちの書庫の形を写しから取り直し、`archive_pending_shape` の `shape_hash` / `shape` を置き換え（`record_pending_file` の `ON CONFLICT` も更新する）、
   元の読みの名前・作られた時刻・置き場の種類を写した、いまの版の `pending_shape` の行を 1 つ足す / (2) 走査の輪でこの取り直しを `ingest_confirmed_pending` より先に回し、`ingest_confirmed_pending` は読む直前にいまの形のハッシュで印を照らす /
   (3) `reread_archive` の読み直しで、新しい版の形に印の無いファイルを飛ばさず確認待ちに積む。移行は足さない。
   Scenario: `解析器の版が上がると確認待ちのファイルは新しい形で一覧に出る` / `旧い形の印があっても確認待ちの YouTube のファイルは版の上げの後に新しい形の印を待つ` /
@@ -78,14 +78,14 @@
 
 ## Task 5: 位置の印と稼働状況の最終日（design D11）
 
-- [ ] 5.1 `c03-myactivity-youtube` が位置の印付け（`stay_store` の登録済みの `c03-myactivity-*`）の対象に入っていること、分けた 3 つの論理ソースの最終日が `/archives/status` の `sources` に出ることを試験で固定する（コードを足す必要が無ければ足さない）。
+- [x] 5.1 `c03-myactivity-youtube` が位置の印付け（`stay_store` の登録済みの `c03-myactivity-*`）の対象に入っていること、分けた 3 つの論理ソースの最終日が `/archives/status` の `sources` に出ることを試験で固定する（コードを足す必要が無ければ足さない）。
   Scenario: `消した滞在の時間帯の位置を持つ YouTube のその他の項目は削除済みになる` / `分けた論理ソースの最終日が稼働状況に出る`。
   検証: `CT archive_youtube_location (≥1)`（滞在を消してから、同じ時間帯の時刻で `locationInfos` を持つ広告と持たない広告を含む合成の YouTube のマイアクティビティを印を置いて格納し、前者だけに `deleted_by = 'user:late'`）、
   `CT archive_youtube_last_event (≥1)`（`last_event_on` が 3 つの論理ソースでそれぞれ spec の日付）
 
 ## Task 6: 縦串の道具と本人の手順書（design D6 / D10）
 
-- [ ] 6.1 `tools/smoke.sh` の形の一覧の照合 `grep -q 'YouTubeWatch'` を `grep -Eq '"kind": ?"YouTube"'` に変え、smoke の `watch-history.json` の項目に日本語の決まり文句の題名と `products: ["YouTube"]` を付ける（言語の当たらない形には印を置けない）。
+- [x] 6.1 `tools/smoke.sh` の形の一覧の照合 `grep -q 'YouTubeWatch'` を `grep -Eq '"kind": ?"YouTube"'` に変え、smoke の `watch-history.json` の項目に日本語の決まり文句の題名と `products: ["YouTube"]` を付ける（言語の当たらない形には印を置けない）。
   印を置いた後に `c03-youtube-watch` の最終日が出ることを見る照合はそのまま残す。
   `docs/archive-inbox.md` の手順に、YouTube の形の一覧の読み方（`products`・`languages`・`destinations`。`languages` が空なら印を置けないこと、`rating` が 0 なら表が外れている合図）を足す。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0、`grep -qF '"kind": ?"YouTube"' tools/smoke.sh && ! grep -q 'YouTubeWatch' tools/smoke.sh` rc=0、
@@ -93,13 +93,13 @@
 
 ## Task 7: まとめの検査
 
-- [ ] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` rc=0、`scripts/quiet-run test -- cargo test --workspace` rc=0
-- [ ] 7.2 検証: `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` rc=0（この change の全 Scenario に印）
-- [ ] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st47-youtube-myactivity-split --strict` rc=0、
+- [x] 7.1 検証: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` rc=0、`scripts/quiet-run test -- cargo test --workspace` rc=0
+- [x] 7.2 検証: `python3 scripts/check_scenarios.py . st47-youtube-myactivity-split` rc=0（この change の全 Scenario に印）
+- [x] 7.3 検証: `python3 scripts/check_chain.py .` rc=0、`openspec validate st47-youtube-myactivity-split --strict` rc=0、
   `tools/check-migrations.sh` / `tools/check-openapi.sh` / `tools/check-boundaries.sh` / `tools/check-immutable.sh` / `tools/check-licenses.sh` がすべて rc=0
-- [ ] 7.4 PR 本文に **仮決め（D2 / D4）と反転条件**、**確認バッチの DB の印を確かめる手順**（design の Risks の 1 つ目）を列挙する。
+- [x] 7.4 PR 本文に **仮決め（D2 / D4）と反転条件**、**確認バッチの DB の印を確かめる手順**（design の Risks の 1 つ目）を列挙する。
   検証: `body=$(gh pr view --json body -q .body); for d in 2 4; do grep -q "D${d}（仮）" <<<"$body" || { echo "D${d} が無い"; exit 1; }; done; grep -q 'f3e578ff' <<<"$body"` rc=0
-- [ ] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
+- [x] 7.5 `docs/handoff/` を読み直す（開始時と PR 前の 2 回）。
   検証: `test ! -f docs/handoff/ST47.md || { body=$(gh pr view --json body -q .body); grep -oE '^## [a-z0-9-]+ R[0-9]+' docs/handoff/ST47.md | sed 's/^## //' | sort -u | while read -r h; do grep -qF "$h" <<<"$body" || { echo "PR 本文に無い: $h"; exit 1; }; done; }` rc=0
 
 ## 人間の確認待ち
