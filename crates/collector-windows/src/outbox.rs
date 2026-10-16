@@ -79,8 +79,21 @@ impl<T: Outboxable> Outbox<T> {
 
     /// 積む。**件数でも内容でもふるい落とさない。**
     pub fn add(&mut self, item: T) -> anyhow::Result<()> {
-        let line = serde_json::to_string(&item)?;
-        self.pending.push(item);
+        self.add_many(vec![item])
+    }
+
+    /// まとめて積む。**追記をまとめ、同期は 1 回** —— 1 件ごとに同期すると、履歴の大きな取り込みの間
+    /// 見回りが戻らない（deep.md 第 5 回 Q9。Windows 実機で 1 件約 1 ms）。
+    /// 書けなかったものは溜まっているものに入れない（積み直す側が持つ）。
+    pub fn add_many(&mut self, items: Vec<T>) -> anyhow::Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut text = String::new();
+        for item in &items {
+            text.push_str(&serde_json::to_string(item)?);
+            text.push('\n');
+        }
         // **追記する** —— 全件書き直しは未送信が伸びたときに書き込みを焼く
         use std::io::Write as _;
         let mut f = std::fs::OpenOptions::new()
@@ -88,9 +101,11 @@ impl<T: Outboxable> Outbox<T> {
             .append(true)
             .open(&self.path)
             .context("置き場を開けない")?;
-        writeln!(f, "{line}").context("置き場へ書けない")?;
+        f.write_all(text.as_bytes()).context("置き場へ書けない")?;
         // **同期する**（電源断で最後の追記が消えないように。R31）
-        f.sync_data().context("置き場を同期できない")
+        f.sync_data().context("置き場を同期できない")?;
+        self.pending.extend(items);
+        Ok(())
     }
 
     /// いま溜まっているもの。
@@ -210,6 +225,24 @@ mod tests {
             broken.contains("書きかけ") && broken.contains("二つ目"),
             "前回退避した行が消えた: {broken}"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// まとめて積んだものは、1 件ずつ積んだものと同じく起動をまたいで残り、順も保つ（Q9）。
+    #[test]
+    fn add_many_survives_restart_in_order() {
+        let dir = tmp_dir();
+        let path = dir.join("outbox.jsonl");
+        let items: Vec<_> = (1..=3).map(req).collect();
+        {
+            let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
+            o.add(req(0)).unwrap();
+            o.add_many(items.clone()).unwrap();
+            o.add_many(Vec::new()).unwrap();
+            assert_eq!(o.len(), 4);
+        }
+        let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
+        assert_eq!(o.snapshot()[1..], items[..]);
         std::fs::remove_dir_all(&dir).ok();
     }
 
