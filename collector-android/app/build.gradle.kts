@@ -24,6 +24,10 @@ android {
             "\"${project.findProperty("ashiato.apiToken") ?: ""}\"")
         buildConfigField("String", "USER_ID",
             "\"${project.findProperty("ashiato.userId") ?: ""}\"")
+        // 通知が開く Web の画面のアドレス（ST17 design D10）。BASE_URL（サーバの API）とは別の値。
+        // **空のままでもビルドを止めない** —— CI・計測テスト・確認バッチは渡さない。空なら通知は出て、押しても開かない
+        buildConfigField("String", "WEB_URL",
+            "\"${project.findProperty("ashiato.webUrl") ?: ""}\"")
         // 計測テスト（src/androidTest）。エミュレータでも実機でも同じものが走る（2026-09-14）
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
