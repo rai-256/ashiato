@@ -14,4 +14,10 @@ describe("orderCoverageWithArchives", () => {
       source("c03-youtube-watch"), source("c01-photo"), source("old", "2026-01-01"), source("c01-location"),
     ]).map((item) => item.logical_source)).toEqual(["c01-photo", "c01-location", "c03-youtube-watch", "old"]);
   });
+
+  it("集計は Must と書庫の間に入る", () => {
+    expect(orderCoverageWithArchives([
+      source("c03-youtube-watch"), source("c01-photo"), source("old", "2026-01-01"), source("c01-app-usage-rollup"),
+    ]).map((item) => item.logical_source)).toEqual(["c01-photo", "c01-app-usage-rollup", "c03-youtube-watch", "old"]);
+  });
 });
