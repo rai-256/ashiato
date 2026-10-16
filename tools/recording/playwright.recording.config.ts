@@ -10,6 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   REC_BASE_URL    tools/record-env.sh が立てた画面
  *   REC_OUT / REC_REPORT  記録フォルダの中の出力先
  *   WEB_PASSWORD    ログインの合言葉（tools/record-env.sh が乱数で作る。global-setup が読む）
+ *   API_TOKEN       画面の外から `/api` を直に読む spec の Bearer（tools/record-env.sh の .env の値）
  * 起動はしない（画面とサーバは tools/record-env.sh が立てている）。
  * 合否はアサーションが決める。動画と trace は見るための材料で、比較には使わない。
  */

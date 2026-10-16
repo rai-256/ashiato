@@ -31,6 +31,7 @@ import {
   type Summary,
   type TimelineRole,
 } from "./timeline";
+import { DayFeeling, stayFeelingText, useDayFeelings, type DayFeelingLoad } from "./DayFeeling";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle as control, destructiveStyle, inputStyle, linkStyle, markStyle, pageStyle, titleStyle } from "./surface";
@@ -44,6 +45,9 @@ type Load<T> = { at: "loading" } | { at: "ok"; value: T } | { at: "failed"; why:
 
 const m = msg("day");
 const common = msg("common");
+
+/** 日の移動の下の余白。気分の欄（24 px）が入っても開いてすぐ 6 行見えるよう、元の余白（`SPACE.underTools`）から詰める（ST25 の e2e が見る） */
+const CONTROLS_BELOW_PX = 5;
 
 /** 要約・事情の行間（添える文字。本文の 1.70 より詰める） */
 const SUMMARY_LINE = 1.45;
@@ -128,6 +132,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
   const c = SCHEMES[scheme];
   const [data, setData] = useState<Load<DayData>>({ at: "loading" });
   const [reload, setReload] = useState(0);
+  const feelings = useDayFeelings(date);
 
   useEffect(() => {
     let live = true;
@@ -167,7 +172,7 @@ export function DayView({ date }: { date: string }): React.ReactElement {
       <h1 data-testid="day-title" style={titleStyle(c)}>
         {m.title(dateLabel(date))}
       </h1>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SPACE.targetGap, marginBottom: SPACE.underTools }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: SPACE.targetGap, marginBottom: CONTROLS_BELOW_PX }}>
         <button type="button" {...{ [FOCUS_ATTR]: "" }} style={control(c)} onClick={() => go(shiftDay(date, -1))}>
           {m.prev}
         </button>
@@ -186,18 +191,20 @@ export function DayView({ date }: { date: string }): React.ReactElement {
         </button>
       </div>
 
+      <DayFeeling date={date} load={feelings} scheme={scheme} />
+
       {data.at === "loading" && <p data-testid="day-loading">{common.loading}</p>}
       {data.at === "failed" && (
         <p role="alert" data-testid="day-error">
           {m.failed(data.why)}
         </p>
       )}
-      {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} reload={() => setReload((n) => n + 1)} />}
+      {data.at === "ok" && <Entries view={data.value} scheme={scheme} future={date > todayInTz(new Date())} feelings={feelings} reload={() => setReload((n) => n + 1)} />}
     </main>
   );
 }
 
-function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Scheme; future: boolean; reload: () => void }): React.ReactElement {
+function Entries({ view, scheme, future, feelings, reload }: { view: DayData; scheme: Scheme; future: boolean; feelings: DayFeelingLoad; reload: () => void }): React.ReactElement {
   const c = SCHEMES[scheme];
   const main = view.criteria[0];
   const byId = new Map<number, CriteriaTag>(view.criteria.map((t) => [t.criteria_id, t]));
@@ -298,6 +305,7 @@ function Entries({ view, scheme, future, reload }: { view: DayData; scheme: Sche
               entry={e}
               viewing={view.date}
               scheme={scheme}
+              feeling={e.kind === "stay" && e.id !== undefined ? stayFeelingText(feelings, e.id) : null}
               criteria={e.criteria_id !== undefined && main !== undefined && e.criteria_id !== main.criteria_id ? byId.get(e.criteria_id) : undefined}
               open={openId === rowKey(e)}
               detail={openId === rowKey(e) ? detail : null}
@@ -317,6 +325,7 @@ function Row({
   entry,
   viewing,
   scheme,
+  feeling,
   criteria,
   open,
   detail,
@@ -328,6 +337,8 @@ function Row({
   entry: DayEntry;
   viewing: string;
   scheme: Scheme;
+  /** 滞在の行に添える「気分 -1 不快」（無ければ `null`。design D20） */
+  feeling: string | null;
   criteria: CriteriaTag | undefined;
   open: boolean;
   detail: Load<StayDetail> | null;
@@ -367,6 +378,7 @@ function Row({
           <h2 style={{ font: font(TYPE.h2, 600, 1.35), margin: 0 }}>{range}</h2>
           <p style={{ margin: 0, color: tone(c.muted) }}>{m.lengthAndRange(long, range)}</p>
           {criteria !== undefined && <p data-testid="row-criteria" style={{ margin: 0, color: tone(c.muted) }}>{m.rowCriteria(criteriaLabel(criteria))}</p>}
+          {feeling !== null && <p data-testid="row-feeling" style={{ margin: 0, color: tone(c.muted) }}>{feeling}</p>}
           <SummaryView summary={entry.summary} role="summaryOnStay" scheme={scheme} under={MARK_PX + SPACE.inRow} />
         </button>
         {open && <StayDetailView entry={entry} viewing={viewing} detail={detail} records={records} onAction={onAction} scheme={scheme} />}
