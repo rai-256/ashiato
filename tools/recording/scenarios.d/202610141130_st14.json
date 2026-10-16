@@ -1,0 +1,28 @@
+[
+  {
+    "id": "ST14-coverage",
+    "story": "ST14",
+    "spec": "tools/recording/st14/st14-coverage.rec.ts",
+    "with": [
+      "e2e/coverage-gaps.spec.ts",
+      "e2e/coverage-rollup.spec.ts"
+    ],
+    "requires": [
+      "web/e2e/coverage-gaps.spec.ts",
+      "web/e2e/coverage-rollup.spec.ts",
+      "web/e2e/global-setup.ts"
+    ],
+    "note": "ST14（稼働状況）: 格子の並び（Must の 5 本 → アプリ利用の集計 → 書庫）→ 集計の格子は開いた直後から直近 4 週 → アプリ利用の 2026-08-30 の週を開く → 取りこぼしの期間が理由ごとに別の文字（取得元に残っていない・時計のずれ）→ OS をダークにすると稼働状況もダーク。偽データは `SEED=normal` の ST14 の段（応答の差し替えは使わない）。`coverage-gaps.spec.ts` と `coverage-rollup.spec.ts` も一緒に撮る"
+  },
+  {
+    "id": "ST14-outage-notice",
+    "story": "ST14",
+    "platform": "android",
+    "spec": "tools/recording/st14/St14RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St14RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/OutagePoller.kt"
+    ],
+    "note": "ST14（Android）: 位置が途切れる → 「収集が途切れています」の通知（表示名と最後の日時）→ 写真も途切れて 2 つ並ぶ通知に差し替わる → 全部戻ると黙って消える。**サーバの判定は撮らない**（入れたばかりの端末は録画の数分では途切れない）—— `GET /outages` の応答を返す偽の問い合わせを、アプリと同じ `OutagePoller` → `OutageNotice` → `OutageNotifier` に通す"
+  }
+]
