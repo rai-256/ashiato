@@ -1,0 +1,26 @@
+{
+ "Q-T1": {
+  "stage": "spec-review",
+  "why": "1.2 / 1.3 は quiet-run が末尾 5 行しか返さず grep が通らない、1.1 は移行を書いた後に必ず FAIL する前提確認の否定を検証にしていた——凍結前に走らせていなかった。",
+  "prevention": "検証コマンドは凍結前に「実装後の状態」を想定して verify-run で空走させ、着手前の前提確認（否定の grep）を完了の検証に混ぜない。",
+  "family": "検証コマンドが成立しない"
+ },
+ "Q-T10": {
+  "stage": "spec-review",
+  "why": "10.1 の `tools/stack.sh up && curl` は stack.sh が前景で待つため終わらず、読み先の ASHIATO_PORT は存在しない変数で既定 18787 は main の本番サーバだった。",
+  "prevention": "サーバを起こす検証は「起こす→待つ→読む→止める」を 1 コマンドにし、存在しない環境変数・本番ポートの既定値を lint で落とす。",
+  "family": "検証コマンドが成立しない"
+ },
+ "Q-T11": {
+  "stage": "spec-review",
+  "why": "11.3 の `quiet-run all -- cargo test --workspace` は末尾の doc-test 0 passed だけが判定に使われ、全緑でも FAIL になることを凍結前に確かめていなかった（harness2 #73 で解消）。",
+  "prevention": "quiet-run で包んだ cargo test の検証は、判定が全文ログの passed 合計を見ることを確かめてから凍結する（ハーネス側の既知の落とし穴を tasks の規約に書く）。",
+  "family": "検証コマンドが成立しない"
+ },
+ "Q-R16": {
+  "stage": "spec-review",
+  "why": "既定 C6 の理由「いつ気づけたか」と、spec の Scenario が定義した delivered（サーバが返した）が別の事実を指していることを、spec-review が決定の理由と Scenario の意味の対応として見ていなかった。",
+  "prevention": "追記のみの台帳に残す欄は、決定の理由（何を後から数えたいか）と記録する瞬間が一致しているかを spec-review の観点に入れる。",
+  "family": "記録が目的の事実を表していない"
+ }
+}
