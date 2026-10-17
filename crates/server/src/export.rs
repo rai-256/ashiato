@@ -235,6 +235,10 @@ const SOURCE_COLUMNS: &[(&str, &str)] = &[
         "途切れを知らせるまでの日数（空なら想定される最大の無通信間隔の 3 倍）",
     ),
     ("started_on_from", "収集を始めた日を借りる先のソース"),
+    (
+        "started_on_basis",
+        "収集を始めた日を何から決めるか（record: 記録 / heartbeat: 生存信号）",
+    ),
 ];
 
 const ATTRIBUTE_KIND_COLUMNS: &[(&str, &str)] = &[
@@ -294,6 +298,10 @@ const HEARTBEAT_COLUMNS: &[(&str, &str)] = &[
     ("received_at", "受け取った時刻（UTC）"),
     ("capturable", "取得できる状態だったか"),
     ("blockers", "満たされていなかったもの"),
+    (
+        "network",
+        "送る契機の時点で接続があったか（空なら分からない）",
+    ),
 ];
 
 const COVERAGE_SPAN_COLUMNS: &[(&str, &str)] = &[
@@ -476,6 +484,24 @@ pub const CATALOG: &[(&str, Class)] = &[
         "export_ledger",
         Class::Exclude {
             reason: "書き出しの台帳（内部の記録）",
+        },
+    ),
+    (
+        "media_original",
+        Class::Exclude {
+            reason: "画像の原本の受け取りの台帳（原本のファイルは書き出しに入らない。ST09）",
+        },
+    ),
+    (
+        "media_missing",
+        Class::Exclude {
+            reason: "原本の欠けの台帳（内部の記録。ST09）",
+        },
+    ),
+    (
+        "text_extraction",
+        Class::Exclude {
+            reason: "文字抽出の結果の表（ST35 が書き出しの形を決めるまで入れない。ST09）",
         },
     ),
     (

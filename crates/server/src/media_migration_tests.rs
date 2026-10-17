@@ -105,9 +105,8 @@ async fn st09_mig_media_sources_reject_records_without_external_id() {
         "tz_id": "Asia/Tokyo", "schema_version": 1, "raw": raw,
         "payload": serde_json::from_str::<serde_json::Value>(raw).unwrap(),
     }]);
-    let (_, Json(results)): (_, Json<Vec<IngestResult>>) = ingest(State(app), h, Json(body))
-        .await
-        .expect("取り込み口");
+    let (_, Json(results)): (_, Json<Vec<IngestResult>>) =
+        ingest(State(app), h, Json(body)).await.expect("取り込み口");
     assert!(!results[0].accepted, "識別子なしの写真を受け付けた");
     assert!(
         matches!(
@@ -232,26 +231,11 @@ async fn st09_mig_media_missing_row_cannot_be_rewritten() {
     .await;
 }
 
-/// 受け取りの行も追記のみ。アプリの役割は 3 表へ SELECT / INSERT だけを持つ（D15 の 4）。
+/// アプリの役割の接続でも、3 表は書き込み（INSERT）だけが通り、書き換え・削除は門が断る（D15 の 4）。
+/// 権限は `grants.sql` が全表に同じ付与をするので、書き換え禁止はトリガが持つ。
 #[tokio::test]
-async fn st09_mig_app_role_has_select_and_insert_only() {
-    let pool = testdb::pool().await;
-    for table in ["media_original", "media_missing", "text_extraction"] {
-        for (op, want) in [
-            ("SELECT", true),
-            ("INSERT", true),
-            ("UPDATE", false),
-            ("DELETE", false),
-            ("TRUNCATE", false),
-        ] {
-            let got = scalar_bool(
-                &pool,
-                &format!("SELECT has_table_privilege('ashiato_app', 'core.{table}', '{op}')"),
-            )
-            .await;
-            assert_eq!(got, want, "ashiato_app の {op} on {table}");
-        }
-    }
+async fn st09_mig_app_role_can_only_append_to_media_tables() {
+    let pool = testdb::app_pool().await;
     let id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await.unwrap();
     sqlx::query(
@@ -262,11 +246,21 @@ async fn st09_mig_app_role_has_select_and_insert_only() {
     .execute(&mut *tx)
     .await
     .unwrap();
-    let err = sqlx::query("UPDATE core.media_original SET size_bytes = 11")
-        .execute(&mut *tx)
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("追記のみ"), "{err}");
+    for stmt in [
+        "UPDATE core.media_original SET size_bytes = 11",
+        "DELETE FROM core.media_original",
+    ] {
+        sqlx::query("SAVEPOINT attempt")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let err = sqlx::query(stmt).execute(&mut *tx).await.unwrap_err();
+        assert!(err.to_string().contains("追記のみ"), "{stmt}: {err}");
+        sqlx::query("ROLLBACK TO attempt")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
     tx.rollback().await.unwrap();
 }
 
@@ -280,7 +274,14 @@ async fn st09_mig_heartbeat_network_is_nullable_and_row_stays_locked() {
           WHERE table_schema='core' AND table_name='heartbeat' AND column_name='network'",
     )
     .await;
-    testdb::put_heartbeat(&fresh, testdb::user(), "c01-photo", "2026-10-20T03:00:00Z", true).await;
+    testdb::put_heartbeat(
+        &fresh,
+        testdb::user(),
+        "c01-photo",
+        "2026-10-20T03:00:00Z",
+        true,
+    )
+    .await;
     let net: Option<bool> = sqlx::query_scalar("SELECT network FROM core.heartbeat")
         .fetch_one(&fresh)
         .await
@@ -310,11 +311,12 @@ async fn st09_mig_polluted_photo_started_on_is_repaired() {
     testdb::set_started_on(&fresh, "c01-photo", "2021-10-20").await;
     // 他のソース（印が record）は触らない
     testdb::set_started_on(&fresh, "c02-window", "2021-10-20").await;
-    let before: (i64, String) =
-        sqlx::query_as("SELECT count(*), min(content_hash) FROM core.event WHERE logical_source = 'c01-photo'")
-            .fetch_one(&fresh)
-            .await
-            .unwrap();
+    let before: (i64, String) = sqlx::query_as(
+        "SELECT count(*), min(content_hash) FROM core.event WHERE logical_source = 'c01-photo'",
+    )
+    .fetch_one(&fresh)
+    .await
+    .unwrap();
 
     sqlx::raw_sql(media_sql()).execute(&fresh).await.unwrap();
 
@@ -333,16 +335,21 @@ async fn st09_mig_polluted_photo_started_on_is_repaired() {
     let photo = started("c01-photo").await;
     let video = started("c01-video").await;
     let window = started("c02-window").await;
-    let after: (i64, String) =
-        sqlx::query_as("SELECT count(*), min(content_hash) FROM core.event WHERE logical_source = 'c01-photo'")
-            .fetch_one(&fresh)
-            .await
-            .unwrap();
+    let after: (i64, String) = sqlx::query_as(
+        "SELECT count(*), min(content_hash) FROM core.event WHERE logical_source = 'c01-photo'",
+    )
+    .fetch_one(&fresh)
+    .await
+    .unwrap();
     drop.await;
 
     assert_eq!(photo, Some(testdb::date("2026-10-20")));
     assert_eq!(video, None, "生存信号の無いソースは NULL");
-    assert_eq!(window, Some(testdb::date("2021-10-20")), "印が record のソースを動かした");
+    assert_eq!(
+        window,
+        Some(testdb::date("2021-10-20")),
+        "印が record のソースを動かした"
+    );
     assert_eq!(before, after, "写真の記録が変わっている");
 }
 
@@ -350,10 +357,12 @@ async fn st09_mig_polluted_photo_started_on_is_repaired() {
 #[tokio::test]
 async fn st09_mig_basis_reset_to_record_survives_reapply() {
     let (fresh, drop) = migrated_db().await;
-    sqlx::query("UPDATE core.source SET started_on_basis = 'record' WHERE logical_source = 'c01-image'")
-        .execute(&fresh)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE core.source SET started_on_basis = 'record' WHERE logical_source = 'c01-image'",
+    )
+    .execute(&fresh)
+    .await
+    .unwrap();
     sqlx::raw_sql(media_sql()).execute(&fresh).await.unwrap();
     let basis: String = sqlx::query_scalar(
         "SELECT started_on_basis FROM core.source WHERE logical_source = 'c01-image'",

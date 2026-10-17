@@ -14,6 +14,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ashiato_owner IN SCHEMA core
   GRANT USAGE, SELECT ON SEQUENCES TO ashiato_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE ashiato_owner IN SCHEMA core
   GRANT EXECUTE ON FUNCTIONS TO ashiato_app;
-
--- ST09: 原本の受け取り・原本の欠け・文字抽出の表は追記のみ（SELECT / INSERT だけ。書き換え禁止の門と二重に塞ぐ）。
-REVOKE UPDATE, DELETE ON core.media_original, core.media_missing, core.text_extraction FROM ashiato_app;
