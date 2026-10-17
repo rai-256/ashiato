@@ -27,7 +27,7 @@
 
 | パス | 何か | 書き込み |
 |---|---|---|
-| `docs/` | フローが作る成果物 | する |
+| `docs/` | フローが作る成果物（`docs/changes/CH<NN>.md` は change の依頼と完了の判定。`hx change` が置く） | する |
 | `openspec/` | Story ごとの設計と正典（`openspec` CLI が管理） | する |
 | `.harness2` | harness2 を指す唯一のリンク（gitignore。`init.py` / `prepare.sh` が張る） | 作らない |
 | `scripts` `.claude/skills` `.claude/agents` `.agents/skills` `openspec/schemas/story` `.githooks/*` | `.harness2/…` への symlink | harness2 側で直す |
@@ -40,6 +40,8 @@
 
 - **正式な実行経路は LangGraph のグラフ（`scripts/hx`）だけ。** Story を手動のセッションで進めない。
   操作: `scripts/hx dev` / `start ST<NN>` / `status` / `answer ST<NN> <file>` / `poke` / `retry ST<NN>` / `verify`
+- **要件から来ない作業（作り直し・lint・道具・画面の表面・見つかった不具合）も change としてグラフに流す。**
+  `scripts/hx change "<題>" --text "<依頼>"`（操作盤の「change を始める」）。`CH<NN>` が付き、Story と同じ流れを通る
 - **`deep`（深掘り）は人間に問う工程。AI が代わりに決めない。** 問い方の規範は `grilling` skill
 - **機械が判定できることは機械に決めさせる。** 規約に書く・人間に聞くで代替しない
 - 人間が止める場所は 3 つだけ: 深掘りの答え、merge、確認バッチ。人間は draft でない PR だけを merge する
@@ -49,7 +51,7 @@
 ## git
 
 `main` / `develop` で commit しない（`.githooks/pre-commit` が止める。clone 後に `git config core.hooksPath .githooks`）。
-Story は `feat/st<NN>-<slug>` で PR にする。コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」。
+Story は `feat/st<NN>-<slug>`、change は `feat/ch<NN>-<slug>` で PR にする（どちらもグラフが作る）。コミットは `feat:` / `fix:` / `docs:` / `chore:` + 日本語 1 行、本文に「なぜ」。
 
 ## agent への指示（プロジェクト固有）
 

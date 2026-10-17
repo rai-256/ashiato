@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Story の PR（feat/st*）が、並走する Story と取り合う共有の本体に書き足していないことを見る（2026-10-15）。
+# Story の PR（feat/st*）と change の PR（feat/ch*）が、並走する Story と取り合う共有の本体に書き足していないことを見る（2026-10-15）。
 #
 # 実測 2026-10-15: open の ST08・ST14・ST17・ST47 は main とは衝突しないのに、**どの 2 本を合わせても衝突**し、
 # 確認バッチに 1 本ずつしか入らなかった。どれも「同じファイルの末尾に 1 節（1 行）足す」衝突だった:
@@ -17,7 +17,7 @@
 #
 #   tools/check-shared-appends.sh [<branch>]   既定は GITHUB_HEAD_REF、無ければ今のブランチ。比べる先は origin/main との分岐点
 #   tools/check-shared-appends.sh --self-test  わざと書き足した木で NG になることを確かめる
-# rc: 0 = 守っている（feat/st* でなければ何も見ない）/ 1 = 書き足した / 2 = 比べられない
+# rc: 0 = 守っている（feat/st* / feat/ch* でなければ何も見ない）/ 1 = 書き足した / 2 = 比べられない
 set -euo pipefail
 
 SCRIPTS=(tools/smoke.sh tools/check-immutable.sh tools/seed.sh)
@@ -42,7 +42,8 @@ tail_touched() {   # tail_touched <base> <file> → 0 = 末尾に触れた
 
 check() {   # check <branch> <base-ref>
   local branch="$1" base="$2" mb bad=0 f
-  case "$branch" in feat/st[0-9][0-9]*) ;; *) echo "共有の本体: $branch は Story のブランチでないので見ない"; return 0;; esac
+  # Story（feat/st<NN>-）と change（feat/ch<NN>-。harness2 の scripts/sid.py）。どちらも並走して同じ末尾を取り合う
+  case "$branch" in feat/st[0-9][0-9]*|feat/ch[0-9][0-9]*) ;; *) echo "共有の本体: $branch は Story / change のブランチでないので見ない"; return 0;; esac
   mb="$(git merge-base "$base" HEAD 2>/dev/null)" || { echo "  NG $base との分岐点が無い（比べられない）"; return 2; }
   for f in "${SCRIPTS[@]}"; do
     if tail_touched "$mb" "$f"; then
@@ -113,6 +114,8 @@ self_test() {
     expect 1 "読む口の直前（末尾）に節を足すと落とす" feat/st03-tail
     git checkout -q main && git checkout -qb feat/st04-end && echo more >> tools/seed.sh && git commit -qam end
     expect 1 "ファイルの最後に書き足すと落とす" feat/st04-end
+    git checkout -q main && git checkout -qb feat/ch01-end && echo more >> tools/seed.sh && git commit -qam end
+    expect 1 "change のブランチ（feat/ch*）が書き足しても落とす" feat/ch01-end
     git checkout -q main && git checkout -qb feat/st08-after-last && sed -i '/^echo b$/a echo 足した節' tools/check-immutable.sh \
       && git commit -qam after
     expect 1 "最後の節の直後（空行の手前）に足しても落とす" feat/st08-after-last
