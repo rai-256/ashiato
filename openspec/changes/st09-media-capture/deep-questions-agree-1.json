@@ -1,0 +1,4 @@
+{"title": "ST09 の仕様への合意", "subtitle": "写真と動画をメタごと取り込み、写真は原本も置く",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/ST09-spec.html",
+                "question": "この GO 資料のとおりに作ってよいですか（画面を持たない Story なので GO 用 proto はありません）。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
