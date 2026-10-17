@@ -114,6 +114,9 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
+/// 写真と動画の移行（ST09 / design D7 / D13 / D15 / D17）。
+#[cfg(test)]
+mod media_migration_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;

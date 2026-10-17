@@ -55,3 +55,5 @@
 202609211400_browser_history_record_id
 # 書き出しの台帳。1 回 2 行（始まりと終わり）で追記のみ（ST33 / design D10）
 202610131200_export_ledger
+# ST09: 写真と動画の取り込み。3 つのソース・収集開始日の印・生存信号の接続・3 つの表（design D15）
+202610181200_media_capture
