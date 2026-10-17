@@ -1,0 +1,8 @@
+{
+ "Q11": {
+  "stage": "spec-review",
+  "why": "7.1 の `cargo test --workspace` を quiet-run の末尾 5 行で判定する evidence.py の ran_no_tests により全緑でも FAIL になる既知の型（ST14 Q-T11 と同型）を、凍結前に確かめていなかった。",
+  "prevention": "同じ型の検証の不成立が一度出たら、走っている全 change の tasks を grep で横展開して直す（ハーネスか規約のどちらかで根を断つ）。",
+  "family": "検証コマンドが成立しない"
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "Q13": {
+  "stage": "questions",
+  "why": "ST22 からの申し送り（docs/handoff/ST12.md の st22-record-deletion R6）をこの change はどこにも受けておらず（deep/design/tasks に ST22 が 0 件）、12.5 の検査も R 番号の部分一致で素通りしていた。",
+  "prevention": "深掘りの「この Story に宛てられたもの」で docs/handoff/ST<NN>.md の全項目 ID を見出し単位で deep.md に突き合わせ、未処置を機械で FAIL にする。",
+  "family": "申し送りの取りこぼし"
+ },
+ "Q14": {
+  "stage": "premises",
+  "why": "Q13 を「書庫が位置を入れるのは 7 本」という前提で決め、マイアクティビティの項目が locationInfos を持ちうることを本物の Takeout で確かめていなかった。",
+  "prevention": "位置など機微な欄の扱いを決めるときは、ソース名でなく実物の全ファイルの欄名（field_names）を走査して対象を列挙する。",
+  "family": "実物の形式・環境が未確認"
+ },
+ "Q15": {
+  "stage": "premises",
+  "why": "Q14 で対象をマイアクティビティに限ったが、YouTube の履歴も同じ JSON 形で位置の欄を持ちうることを実物で確かめず、ソース単位の列挙をもう一度繰り返した。",
+  "prevention": "ある欄を持つものの洗い出しは「形（スキーマ）が同じものすべて」で行い、1 件見つかったら同形のソースを機械で横展開する。",
+  "family": "実物の形式・環境が未確認"
+ }
+}

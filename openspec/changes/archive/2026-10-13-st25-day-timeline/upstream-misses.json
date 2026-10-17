@@ -1,0 +1,20 @@
+{
+ "Q7": {
+  "stage": "spec",
+  "why": "design D7 / Scenario「最後の位置以後の記録はほかの記録の行に出る」を、既存の day_view が gap_minutes 以上を記録なしの行にする振る舞いを読まずに置いた（既定 10 分では Scenario が成り立たない）。",
+  "prevention": "既存関数の出力に乗せる Scenario は、書く時点でその関数の既定パラメータのまま例を通して（試験か手実行で）成り立つことを確かめる。",
+  "family": "既存コードの振る舞いを確かめずに置いた"
+ },
+ "Q8": {
+  "stage": "spec-review",
+  "why": "11.1 の検証（check_scenarios.py）が REMOVED の Scenario を読まず「担保なし」で FAIL にすることを、REMOVED を含む change で凍結前に走らせていなかった。",
+  "prevention": "REMOVED / MODIFIED を含む change では、Scenario の担保の検査を凍結前に一度走らせ、道具が delta の種類を扱えるかを確かめる。",
+  "family": "検証コマンドが成立しない"
+ },
+ "Q9": {
+  "stage": "spec",
+  "why": "6.1 の検証コマンドが .env の BIND（18787）を直書きしており、ST05 の tools/ports.sh 導入後は Story の worktree で別のサーバに当たる（環境の後からの変化）。",
+  "prevention": "検証コマンドにポート・接続先を直書きせず、tools/ports.sh の変数を使う形を tasks の規約にし、数値リテラルのポートを lint で落とす。",
+  "family": "検証コマンドが成立しない"
+ }
+}
