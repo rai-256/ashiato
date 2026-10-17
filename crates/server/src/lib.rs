@@ -5,6 +5,7 @@
 //! この 1 か所を必ず通る。Kotlin と Rust の 2 実装が同じ口を叩くため、
 //! 不変条件をサーバ側に置かないと守れない。
 use anyhow::Context as _;
+use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -60,6 +61,22 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+/// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
+pub mod export;
+/// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。
+#[cfg(test)]
+mod export_excluded_tests;
+/// 書き出しの中身（zip・説明書・除く範囲のファイル・写しの時点。ST33 / design D4 / D7 / D9 / D19）。
+#[cfg(test)]
+mod export_file_tests;
+/// 書き出しの口と背景の仕事と状態（ST33 / design D1 / D2 / D10 / D11 / D16 / D17）。
+#[cfg(test)]
+mod export_job_tests;
+/// 書き出しの台帳の移行と錠（ST33 / design D10）。
+#[cfg(test)]
+mod export_ledger_tests;
+#[cfg(test)]
+mod export_tests;
 pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]
@@ -259,6 +276,10 @@ pub struct App {
     started_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 起動してから途切れを判定しない間。既定は `outage::OUTAGE_WARMUP`（縦串の試験だけが縮める）。
     warmup: std::time::Duration,
+    /// 書き出しの設定と差し替え口（ST33 / design D2）。
+    export: export::ExportConfig,
+    /// 走っている書き出し（同時に 1 本。ST33 / design D2）。
+    exports: export::ExportJobs,
 }
 
 impl App {
@@ -282,12 +303,20 @@ impl App {
             #[cfg(test)]
             started_at: None,
             warmup: outage::OUTAGE_WARMUP,
+            export: export::ExportConfig::from_env(),
+            exports: export::ExportJobs::default(),
         }
     }
 
     /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
     pub fn with_warmup(self, warmup: std::time::Duration) -> Self {
         Self { warmup, ..self }
+    }
+
+    /// 書き出しの置き場・遅延・差し替え口を差し替えた複製（試験。ST33 design D2）。
+    #[cfg(test)]
+    pub(crate) fn with_export(self, export: export::ExportConfig) -> Self {
+        Self { export, ..self }
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -2028,6 +2057,258 @@ pub async fn stays_criteria_get(
         .map_err(|e| internal_at("stays.criteria", e))
 }
 
+/// 書き出す前の件数（ソースごと・全利用者の和）と見込み（ST33 / design D1 / D12 / D18）。
+/// 本人が消した場面を除いた残りを数える（書き出しと同じ式。D5）。応答に記録の値は載せない。
+#[utoipa::path(get, path = "/export/summary",
+    responses((status = 200, body = export::Summary), (status = 401)))]
+pub async fn export_summary_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<export::Summary>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    export::read_summary(&app.pool)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!(kind = e.kind.as_str(), "書き出す前の件数を数えられない");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+        })
+}
+
+/// 書き出しの求めを断る。本体は種別だけ（受け取った値は載せない。ST33 design D1）。
+fn export_refusal(status: StatusCode, error: &'static str) -> axum::response::Response {
+    (status, Json(serde_json::json!({ "error": error }))).into_response()
+}
+
+/// `POST /export` の本体。**これ以外の鍵は 400**（範囲を指す引数は無い）。契約のための型で、口は本体を自前で読む。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportRequest {
+    /// 書き出しの zip を暗号化する合言葉（12 文字以上。どこにも残さない）。
+    password: String,
+}
+
+/// `POST /export` の 202。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportStarted {
+    export_id: uuid::Uuid,
+}
+
+/// 書き出しの求めを断る本体。種別だけ（`password_missing` / `password_too_short` / `unexpected_field` / `export_running` /
+/// `ledger_unavailable`）。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExportRefused {
+    error: String,
+}
+
+/// 全記録の書き出しを始める（ST33 / design D1 / D2）。本体は `{"password": "<合言葉>"}` だけ。
+/// 範囲を指す引数や他の鍵は 400。走っていれば 409。台帳に始まりの行を書けなければ 500（何も走らせない）。合言葉は背景の仕事の引数にだけ渡し、応答・ログ・台帳に出さない。
+/// 本体は自前で読む（`Json` の既定の拒否は本体の断片を出しうる）。
+#[utoipa::path(post, path = "/export", request_body = ExportRequest,
+    responses((status = 202, body = ExportStarted), (status = 400, body = ExportRefused),
+        (status = 401), (status = 409, body = ExportRefused), (status = 500, body = ExportRefused)))]
+pub async fn export_post(
+    State(app): State<App>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    if let Err(e) = authorize(&app, &headers).await {
+        return e.into_response();
+    }
+    if uri.query().is_some_and(|q| !q.is_empty()) {
+        return export_refusal(StatusCode::BAD_REQUEST, "unexpected_field");
+    }
+    let parsed = export_body(&body);
+    // 本体の写し（`Bytes`）は、ほかに持ち主がいなければ読んだ後に 0 で埋める（できる範囲。共有されていれば消せない）。
+    if let Ok(mut owned) = body.try_into_mut() {
+        zeroize::Zeroize::zeroize(&mut owned[..]);
+    }
+    let password = match parsed {
+        Ok(p) => p,
+        Err(kind) => return export_refusal(StatusCode::BAD_REQUEST, kind),
+    };
+    // Unicode の符号位置で数える。前後の空白を削らない（本人が打ったものがそのまま鍵になる）。
+    if password.chars().count() < export::MIN_PASSPHRASE_CHARS {
+        return export_refusal(StatusCode::BAD_REQUEST, "password_too_short");
+    }
+    match export::spawn(
+        app.pool.clone(),
+        &app.exports,
+        &app.export,
+        export::Passphrase::from_zeroizing(password),
+    )
+    .await
+    {
+        export::Spawned::Started(export_id) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "export_id": export_id })),
+        )
+            .into_response(),
+        export::Spawned::Running => export_refusal(StatusCode::CONFLICT, "export_running"),
+        export::Spawned::Unrecorded => {
+            export_refusal(StatusCode::INTERNAL_SERVER_ERROR, "ledger_unavailable")
+        }
+    }
+}
+
+/// `POST /export` の本体を読む（ST33 / design D1）。`{"password": "<文字列>"}` だけを受ける。
+///
+/// **`serde_json::Value` を経ずに、合言葉を `Zeroizing<String>` へ直に読む**（R16。`Value` の木に残った写しは消せない）。
+/// 拒否は種別だけを返し、本体の断片を載せない（axum の `Json` の既定の拒否は本体の断片を出しうるので使わない）。
+/// `password` 以外の鍵があれば `unexpected_field`、本体が読めない・オブジェクトでない・`password` が無いか文字列でなければ `password_missing`。
+fn export_body(body: &[u8]) -> Result<zeroize::Zeroizing<String>, &'static str> {
+    use serde::de::{Deserializer as _, IgnoredAny, MapAccess, Visitor};
+
+    /// `password` の値。文字列なら合言葉、それ以外は捨てる。
+    struct Secret(Option<zeroize::Zeroizing<String>>);
+
+    impl<'de> serde::Deserialize<'de> for Secret {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Secret;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("文字列")
+                }
+                fn visit_str<E>(self, v: &str) -> Result<Secret, E> {
+                    Ok(Secret(Some(zeroize::Zeroizing::new(v.to_owned()))))
+                }
+                fn visit_string<E>(self, v: String) -> Result<Secret, E> {
+                    Ok(Secret(Some(zeroize::Zeroizing::new(v))))
+                }
+                fn visit_bool<E>(self, _: bool) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_i64<E>(self, _: i64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_u64<E>(self, _: u64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_f64<E>(self, _: f64) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_unit<E>(self) -> Result<Secret, E> {
+                    Ok(Secret(None))
+                }
+                fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                    self,
+                    mut a: A,
+                ) -> Result<Secret, A::Error> {
+                    while a.next_element::<IgnoredAny>()?.is_some() {}
+                    Ok(Secret(None))
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Secret, A::Error> {
+                    while a.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                    Ok(Secret(None))
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+
+    /// 本体のオブジェクト。`password` 以外の鍵があったかだけを覚える（値は読まずに捨てる）。
+    struct Fields {
+        password: Option<zeroize::Zeroizing<String>>,
+        extra: bool,
+    }
+
+    struct FieldsVisitor;
+    impl<'de> Visitor<'de> for FieldsVisitor {
+        type Value = Fields;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("オブジェクト")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Fields, A::Error> {
+            let mut out = Fields {
+                password: None,
+                extra: false,
+            };
+            while let Some(key) = a.next_key::<std::borrow::Cow<'de, str>>()? {
+                if key == "password" {
+                    out.password = a.next_value::<Secret>()?.0;
+                } else {
+                    out.extra = true;
+                    a.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(out)
+        }
+    }
+
+    let mut de = serde_json::Deserializer::from_slice(body);
+    let fields = de
+        .deserialize_map(FieldsVisitor)
+        .and_then(|f| de.end().map(|()| f))
+        .map_err(|_| "password_missing")?;
+    if fields.extra {
+        return Err("unexpected_field");
+    }
+    fields.password.ok_or("password_missing")
+}
+
+#[cfg(test)]
+mod export_body_tests {
+    use super::export_body;
+
+    #[test]
+    fn export_body_reads_the_password_and_refuses_by_kind_only() {
+        assert_eq!(
+            export_body(br#"{"password":"a\"b-0123456789"}"#)
+                .as_deref()
+                .map(String::as_str),
+            Ok("a\"b-0123456789")
+        );
+        for (body, kind) in [
+            (&b""[..], "password_missing"),
+            (b"[]", "password_missing"),
+            (b"\"pw\"", "password_missing"),
+            (b"{}", "password_missing"),
+            (br#"{"password":null}"#, "password_missing"),
+            (br#"{"password":123456789012}"#, "password_missing"),
+            (br#"{"password":{"a":"0123456789ab"}}"#, "password_missing"),
+            (br#"{"password":["0123456789ab"]}"#, "password_missing"),
+            (
+                br#"{"password":"0123456789ab"} trailing"#,
+                "password_missing",
+            ),
+            (
+                br#"{"password":"0123456789ab","from":"2020-01-01"}"#,
+                "unexpected_field",
+            ),
+            (
+                br#"{"from":{"x":[1,2]},"password":"0123456789ab"}"#,
+                "unexpected_field",
+            ),
+            (br#"{"source":1}"#, "unexpected_field"),
+        ] {
+            assert_eq!(
+                export_body(body).err(),
+                Some(kind),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
+    }
+}
+
+/// 書き出しの状態（ST33 / design D1 / D11）。進み具合・前回・失敗・止まったもの・消せなかったファイル。記録の値は返さない。
+#[utoipa::path(get, path = "/export",
+    responses((status = 200, body = export::Status), (status = 401)))]
+pub async fn export_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<export::Status>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    export::read_status(&app.pool, &app.exports)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!(kind = e.kind.as_str(), "書き出しの状態を読めない");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+        })
+}
+
 /// `GET /stays` の絞り込み。**日付は文字列で受けて自分で読む** —— 読めない日付を 400 で断る経路をここに持つ。
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct StaysQuery {
@@ -3162,6 +3443,8 @@ pub fn router(app: App) -> Router {
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
         .route("/places/candidates", get(place_candidates_get))
+        .route("/export", post(export_post).get(export_get))
+        .route("/export/summary", get(export_summary_get))
         .route("/attributes", get(attributes_get))
         .route("/attributes/kinds", post(attributes_kind_post))
         .route(
@@ -3313,6 +3596,9 @@ pub async fn run() -> anyhow::Result<()> {
         stays_restore,
         stays_rebuild,
         stays_criteria_get,
+        export_summary_get,
+        export_post,
+        export_get,
         attributes_get,
         attributes_kind_post,
         attributes_kind_name_post,
@@ -3359,6 +3645,17 @@ pub async fn run() -> anyhow::Result<()> {
         RestoreRequest,
         RestoreResponse,
         RestoredCounts,
+        ExportRequest,
+        ExportStarted,
+        ExportRefused,
+        export::Status,
+        export::RunningView,
+        export::LastView,
+        export::FailureView,
+        export::InterruptedView,
+        export::Summary,
+        export::SummarySource,
+        export::Estimate,
         stay_store::CriteriaVersion,
         stay_store::DayView,
         stay_store::DayEntry,

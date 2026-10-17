@@ -345,3 +345,36 @@ merge gate が origin/main への rebase の衝突で落ち、衝突を解くと
 
 監査の C3（NFR-16 の Q8 と FR-50 ★ 2026-10-13 の「位置を持つ」の広さの違い）は除く側に広いだけで外へ出るものが増えないので留めた（監査の行き先のとおり）。C4 は ST47 へ申し送り済み。
 人間に返す問い（A）は作らなかった —— 4 件とも、本人の答え（Q9）を写すことか、ST12 の事実に材料と読み方を合わせることで決まった。Q9 の形で spec の段が決めたもの（C22〜C25）はどれも緩めると外へ出るものが増える側の既定（既定は厳しい側）で、緩めるのは本人に返す。
+
+### Q10. 10.2 の連鎖（cargo test → 同じ DB で e2e）が ST33 と無関係に成立しない（premise。A / premise。推奨: 連鎖の順を入れ替えず、e2e を作り直した DB で走らせる検証コマンドに正式に直す）
+
+- **事実**: `cargo test --workspace` の後の同じ DB で `npm run test:e2e` を走らせると、`web/e2e/archive-layout.spec.ts:166` だけが 3 回続けて FAIL する（証跡は `evidence.jsonl` の 10.2。`heights.length` が 0）。作り直した DB では通る（65 passed）。
+  原因: ST12 の既存テスト（`archive_tests.rs` / `archive_flow_tests.rs`）が `c03-myactivity-u<hash>` を登録簿へ足し、その日に始まったソースは格子の子が 0 になる。e2e は `section[data-source^='c03-'] [data-role=grid]` の全部に子を求める。ST33 は両方とも触っていない
+- **なぜ人間の判断か**: 直し方が 3 通りあり、どれも ST33 の外（ST12 の既存テストと既存 Scenario の期待）に触れるか、tasks 10.2 の検証コマンドを直す（plan_fix。承認が要る）。Task agent は既存の期待を書き換えない（`check_agreed_tests.py`）
+- **選択肢**: (a) 10.2 の検証コマンドを「e2e の前に DB を作り直す」形に plan_fix で直す。(b) ST12 側を `fix/` か handoff で直し、10.2 はそれを待つ。(c) この項目に明示の処置（既知の外因）を付けて通す
+- **本人の答え**: (a) 10.2 の検証コマンドを、e2e の前に DB を作り直す形に plan_fix で直す（推奨と同じ。補足なし。2026-10-14、`deep-answers-6.txt`）
+- **写したもの**: `plan_fix.py` で 10.2 の web の連鎖を `tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e` に（`plan-corrections.md`）。ST12 のテストの後始末そのものは ST33 では直さない
+
+### Q11. 10.3 の検証コマンドが成立しない（premise。A / premise。推奨: export_file_tests.rs に直す）
+
+- **事実**: 10.3 の `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_tests.rs` は 0 を返す。印は `export_file_tests.rs:854`（Task 5 の側）にあり、印を二重に置かない規律なので動かしていない。
+  さらに 10.3 の本文は検証コマンドを backtick で名指ししていないため、`scripts/verify-run 10.3` は「本文に検証コマンドが無い」で記録を拒む（rc=2）。`--command` での FAIL の実証も取れない
+- **提案する正式な入口**: `scripts/plan_fix.py st33-data-export 10.3` で、検証コマンドを `grep -c 'st22-record-deletion' docs/handoff/ST33.md` と `grep -c 'Scenario: 削除の印の付いた記録は出ない' crates/server/src/export_file_tests.rs` の 2 本の backtick つきに直す（受け入れ条件は変えない）
+- **本人の答え**: 直してよい（推奨と同じ。補足なし。2026-10-14、`deep-answers-6.txt`）
+- **写したもの**: 10.3 の grep の先を `export_file_tests.rs` に手で直した（grep は検証コマンドとして抽出されないので plan_fix.py の対象外。`plan-corrections.md`）
+
+## 問うた項目（第 5 回。code-verify から escalated。2026-10-15）
+
+### Q12. 台帳に置く「書いた記録」の形を、いまの版で凍結するか（code-verify R20。A / irreversible / loss: rewrite-all。推奨: 凍結し、読めない形は「数えられない」と出す）
+
+- **事実**: 書き出しの台帳の終わりの行の `written`（ブルームフィルタ。「後に消した記録の件数」を後から数える材料）は、位置の取り方（`bloom.rs` の `positions`）が試験に固定されていない。
+  code-verify が位置の取り方を変えた変異（`digest[0..8]` → `[16..24]`）では全部の試験が通り、e2e が書いた実物の `written` を変異の形で読むと 1,451 件が 0 件になった。
+  台帳は追記のみで `written` を書き直せないので、形を変えた後のサーバは、それより前の書き出しの「後に消した記録」を 0 と出す（少なく数える側。spec「数え違えるなら多く数える側」と逆）。読む側は版の違う形を `None` → 0 件と扱う（`ledger.rs` の `erased_after`）
+- **なぜ人間の判断か**: 一度書いた台帳の行は書き直せない（`rewrite-all`）。形を凍結するか、変えたときに前の行をどう見せるかは、前回の書き出しの件数の見え方を後から変えられない側の決定
+- **選択肢**: (a) いまの形で凍結する —— 固定の UUID を入れたフィルタのバイト列を期待値に直書きする試験を置き（期待値は別の実装で作る）、知らない版の行は 0 ではなく「数えられない」と状態に出す。
+  (b) 凍結しない —— 形を変えたら前の行は 0 と出る（いまのまま）。(c) フィルタをやめ、書いた `id` の一覧そのものを台帳に置く（形は自明だが、1 年分で数 MB の行になる）
+- **本人の答え**: (a) いまの形で凍結する。読めない形の行は「数えられない」と出す（推奨と同じ。補足なし。2026-10-16、`deep-answers-7.txt`）
+- **効く先**: R20 の提案のとおり —— 固定の UUID を入れたフィルタのバイト列（か、その SHA-256）を期待値として直書きする試験を置く（期待値は `bloom.rs` と別の実装で作る）。
+  読む側（`ledger.rs` の `erased_after`）は知らない版・読めない形の `written` を 0 件にせず、状態に「数えられない」と出す（少なく数える経路を無くす）
+- **要件へ戻すもの**: なし（NFR-16 の本文は台帳の形に触れていない。「数え違えるなら多く数える側」は spec のまま）。Story の判断も変わらない
+- 出典: `review/code.md` R20

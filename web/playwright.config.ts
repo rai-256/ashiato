@@ -40,6 +40,8 @@ export default defineConfig({
     // 手元で run.sh を立てたままでも走らせられる。CI とハーネスの検証（HARNESS_VERIFY）は毎回 stack.sh から
     // 立てる —— 立っているものを使うと、DB を作り直さずに溜まった状態で測ってしまう
     reuseExistingServer: !process.env.CI && !process.env.HARNESS_VERIFY,
+    // 書き出しの進み具合の Scenario が見えるよう、表ごとに 400 ms 待たせる（e2e だけ。確認バッチの run.sh には渡さない。ST33 R19）
+    env: { ASHIATO_EXPORT_SELFTEST_DELAY_MS: "400" },
     timeout: 10 * 60 * 1000, // 初回は cargo build --release が入る
     stdout: "pipe",
     stderr: "pipe",

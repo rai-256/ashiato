@@ -53,3 +53,5 @@
 202610141000_subjective_log
 # ST08: c02-browser-history を訪問ごとの識別子で受ける
 202609211400_browser_history_record_id
+# 書き出しの台帳。1 回 2 行（始まりと終わり）で追記のみ（ST33 / design D10）
+202610131200_export_ledger

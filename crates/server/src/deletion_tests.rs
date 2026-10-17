@@ -1368,3 +1368,165 @@ async fn ingest_response_unchanged_after_erase() {
     );
     assert_eq!(mark(&app.pool, id).await.1.as_deref(), Some("user:late"));
 }
+
+/// 区間の書庫の記録（`end_time` を持つ）を直に置く。
+async fn put_visit(pool: &sqlx::PgPool, user: uuid::Uuid, start: &str, end: &str) -> uuid::Uuid {
+    let id = uuid::Uuid::new_v4();
+    let payload = serde_json::json!({ "end_time": t(end).to_rfc3339() }).to_string();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'c03-timeline-visit','test','collected',$3,540,'Asia/Tokyo',1,$4,$5,$5::jsonb)",
+    )
+    .bind(id)
+    .bind(user)
+    .bind(t(start))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(payload)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn erased_app_with_stay(day: &str, from: &str, to: &str) -> (crate::App, uuid::Uuid) {
+    let app = crate::App {
+        stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+        ..crate::App::for_test(testdb::pool().await, TOKEN)
+    };
+    let user = testdb::user();
+    let stay = put_stay(
+        &app.pool,
+        user,
+        &format!("{day}T{from}+09:00"),
+        &format!("{day}T{to}+09:00"),
+    )
+    .await;
+    erase(&app, stay, None).await.unwrap();
+    (app, user)
+}
+
+#[tokio::test]
+async fn mark_late_for_user_marks_late_location() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let late = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-12T10:30:00+09:00"),
+    )
+    .await;
+    let outside = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-12T11:00:01+09:00"),
+    )
+    .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, late).await.1.as_deref(), Some("user:late"));
+    assert_eq!(mark(&app.pool, outside).await, (None, None));
+}
+
+#[tokio::test]
+async fn mark_late_for_user_marks_point_at_last_erased_end() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let at_end = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-12T11:00:00+09:00"),
+    )
+    .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        mark(&app.pool, at_end).await.1.as_deref(),
+        Some("user:late")
+    );
+}
+
+#[tokio::test]
+async fn mark_late_for_user_marks_unmarked_archive_location() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let archive = put_event(
+        &app.pool,
+        user,
+        "c03-timeline-visit",
+        t("2026-09-12T10:30:00+09:00"),
+    )
+    .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        mark(&app.pool, archive).await.1.as_deref(),
+        Some("user:late")
+    );
+}
+
+#[tokio::test]
+async fn mark_late_for_user_marks_visit_starting_before_erased_stay() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let visit = put_visit(
+        &app.pool,
+        user,
+        "2026-09-12T09:30:00+09:00",
+        "2026-09-12T10:20:00+09:00",
+    )
+    .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, visit).await.1.as_deref(), Some("user:late"));
+}
+
+#[tokio::test]
+async fn mark_late_for_user_is_idempotent() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let late = put_event(
+        &app.pool,
+        user,
+        "c01-location",
+        t("2026-09-12T10:30:00+09:00"),
+    )
+    .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    let ledger: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.deletion_ledger WHERE event_id = $1")
+            .bind(late)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger, 1, "2 回目で台帳が増えた");
+}
+
+#[tokio::test]
+async fn mark_late_for_user_without_erased_stay_does_nothing() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let live = put_event(&pool, user, "c01-location", t("2026-09-13T10:30:00+09:00")).await;
+
+    stay_store::mark_late_for_user(&pool, user).await.unwrap();
+
+    assert_eq!(mark(&pool, live).await, (None, None));
+}

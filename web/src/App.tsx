@@ -125,6 +125,15 @@ export function App(): React.ReactElement {
         >
           {m.toMaster}
         </a>
+        {/* **設定への入口**（ST33 / design D13。仮 —— 入口を決め直すのは ST25） */}
+        <a
+          href="#/settings"
+          data-testid="to-settings"
+          {...{ [FOCUS_ATTR]: "" }}
+          style={linkStyle(c)}
+        >
+          {m.toSettings}
+        </a>
       </header>
       {achievement.at === "loading" && <p data-testid="achievement-loading">{common.loading}</p>}
       {achievement.at === "failed" && (

@@ -1606,7 +1606,8 @@ mod tests {
         assert!(locked.capturable, "ロック中を取れないと報告した");
     }
 
-    /// 基準を読むのに `gate` が開くまで（最長 5 秒）かかる偽物。
+    /// 基準を読むのに `gate` が閉じるまで（最長 60 秒）かかる偽物。打ち切りを長く取るのは、
+    /// 見回りが読み取りを待ったときの経過（60 秒以上）と、混んだ runner の遅さ（数秒）を取り違えないため。
     #[derive(Debug)]
     struct SlowReference(std::sync::Mutex<std::sync::mpsc::Receiver<()>>);
 
@@ -1616,7 +1617,7 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
-                .recv_timeout(std::time::Duration::from_secs(5));
+                .recv_timeout(std::time::Duration::from_secs(60));
             anyhow::bail!("打ち切られた")
         }
         fn source(&self) -> String {
@@ -1731,7 +1732,7 @@ mod tests {
         src.app = "browser".into();
         run(&mut rt, &mut src, 4, 8, 1);
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < std::time::Duration::from_secs(30),
             "見回りが読み取りを待っている"
         );
         assert!(

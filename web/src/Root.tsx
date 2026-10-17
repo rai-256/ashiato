@@ -5,6 +5,7 @@ import { DayView } from "./DayView";
 import { FeelInvalid, FeelView } from "./FeelView";
 import { feelDateFromHash } from "./feelings";
 import { MasterView } from "./MasterView";
+import { SettingsView } from "./SettingsView";
 import { dayFromHash, isRealDate } from "./stays";
 import { msg } from "./messages";
 import { useScheme } from "./scheme";
@@ -16,7 +17,8 @@ const m = msg("root");
 /**
  * 画面の行き先を決める（ST16 / design D8、ST25 / design D12）。**ルートは今日の 1 日の画面。**
  * 稼働状況は `#/coverage`、1 日の画面は `#/day/YYYY-MM-DD`（日付を省けば今日）、マスタ管理は `#/master`
- * （個人属性。ST19 / design D9）と `#/master/places`（場所。ST21 / design D12）。解釈できないアドレスも今日の 1 日の画面。
+ * （個人属性。ST19 / design D9）と `#/master/places`（場所。ST21 / design D12）、設定は `#/settings`（ST33 / design D13）。
+ * 解釈できないアドレスも今日の 1 日の画面。
  */
 export function Root(): React.ReactElement {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -36,6 +38,8 @@ export function Root(): React.ReactElement {
     if ("invalid" in feel) return <FeelInvalid raw={feel.invalid} />;
     return <FeelView key={feel.date ?? "today"} date={feel.date} />;
   }
+  // **S-7 設定**（ST33 / design D13）。入口は S-1 の見出しの行。入口を決め直すのは ST25
+  if (/^#\/settings\/?$/.test(hash)) return <SettingsView />;
   // **S-1 稼働状況**（ST25 / design D12）。ルートではなく専用のアドレス
   if (/^#\/coverage\/?$/.test(hash)) return <App />;
   // 空・`#/`・解釈できないアドレスは今日の 1 日の画面

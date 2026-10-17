@@ -1319,7 +1319,7 @@ async fn stay_erase_overlap_bounds_the_base_source_by_index() {
 }
 
 /// 使い捨ての DB を作る。**戻り値の 2 つ目を必ず待つ**（接続を閉じて DB を消す）。
-async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
+pub(crate) async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
     let admin = testdb::pool().await;
     let name = format!("st16_tmp_{}", uuid::Uuid::new_v4().simple());
     sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
