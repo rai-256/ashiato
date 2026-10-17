@@ -1,0 +1,25 @@
+{
+  "tag": "20261017-0912",
+  "run_id": "20261017-091321-042e02d",
+  "commit": "042e02d04696061a173df92320dad07699c780e4",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261017-091321-042e02d",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261017-091321-042e02d",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST33-export",
+      "story": "ST33",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST33-export/video.webm",
+      "trace": "scenarios/ST33-export/trace.zip"
+    }
+  ],
+  "uncovered_stories": []
+}

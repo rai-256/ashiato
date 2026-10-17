@@ -1,59 +1,90 @@
-# ST33 全記録を外部の道具で読める形に書き出す（上流）
+# ST33 全記録を外部の道具で読める形に書き出す（下流・実装）
 
-change: `openspec/changes/st33-data-export/`（proposal / specs / design / tasks）。capability `data-durability` を新しく作る（前倒しなし。INDEX の割当のとおり）。
+change: `openspec/changes/st33-data-export/`。capability `data-durability`（新規）。
+S-7（`#/settings`）の書き出しの節から、全記録を合言葉で暗号化した 1 つの zip（AES-256）として自宅 PC の決まったフォルダへ書き出す。
 
-## 深掘りで本人が決めたこと（A と B。全文は `deep.md`）
+## 未決（A）
 
-第 1 回 5 問（2026-09-29）・spec のレビューから escalated した第 2 回 3 問（2026-10-12）・rebase の後の整合の確認から立てた第 3 回 1 問（2026-10-12）。未回答 0。
-**第 2 回の貼り戻しで Q3 と Q4 の答えが第 1 回と変わり、新しい答えをいまの答えとした。**
+なし。
 
-| # | 決めたこと | 段 |
-|---|---|---|
-| Q1 | 書き出したファイルは自宅 PC の決まったフォルダにだけ置く（画面から端末へ渡さない） | A |
-| Q2 | 形式は JSON Lines（1 行 1 件）＋ 説明書 | B |
-| Q3 | S-7 の書き出しの節（第 2 回）: 件数・期間 ＋「入らないもの」/ 確認をはさんでからその場で進み具合 / 前回の書き出しの欄に「この書き出しの後に消した記録が N 件」 | A（画面） |
-| Q4 | 前の書き出しは新しい書き出しで置き換える（1 つだけ置く。第 2 回。推奨） | B |
-| Q5 | 消した滞在の時間に入る、緯度経度を持つ行も除く（前の版を含む） | A |
-| Q6 | 消した時間をまたぐ幅を持つ記録は、幅で重ねて除く | A |
-| Q7 | 別の利用者の識別子で入った記録も、利用者を問わず除く | A |
-| Q8 | URL や題名の中の座標も緯度経度に数えて除く | A |
-| Q9 | 書き出しは押すときに本人が入れる合言葉で暗号化した 1 つのファイルにする（合言葉は保存しない） | A |
+- **Q12（code-verify R20。irreversible / loss: rewrite-all）は答えが出た**（2026-10-16、`deep-answers-7.txt`）: (a) いまの形で凍結する・読めない形の行は「数えられない」と出す（推奨と同じ）。
+  入れたもの（4a7af06）: 固定の 3 つの UUID を入れたフィルタのバイト列を別の実装（Python の `hashlib`）で作って直書きした試験 `export::bloom::tests::the_frozen_shape_is_kept`。
+  読めない形・知らない版の `written` は `last.erased_after: null` で返し、画面は「件数を数えられません」の 1 行を出す（`docs/openapi.json` の `erased_after` は `integer | null` になった）。design D11 / D17 に書いた
 
-要件への戻し: NFR-16 ★ 2026-09-29 訂正・★ 2026-10-12 追加（Q6〜Q8・Q9）。Story の `requires` に ST22。
+## 仮決め（B）と Ruling
 
-## 仮決め（B。`design.md` の（仮）と反転条件）
+全 Task の ledger（`.superpowers/sdd/st33-task-*/progress.md`）のファイルは無い。`Ruling:` の行は Task 3 の報告（`task-3-report.md`）に 4 件あり、ここへ逐語で写した（workspace はこの後に消す）:
+
+- Ruling: 見込みの `bytes/rows` の rows は前回 finish の `rows->>'events.jsonl'` — D18 の rows が記録の行だけだから — 違えば見込みの係数がずれるだけ
+- Ruling: `seconds` は切り上げて 1 未満は 1 — 見込みは長めが安全 — 表示が 1 秒ずれるだけ
+- Ruling: 書庫のソースを `Point` に足さない — ST12 の型で出来事 1 点と確かめていない — 除き過ぎの側（戻る）
+- Ruling: (a) は「最初に読めた鍵」を使い、それが始まりより前なら (b) へ（次の鍵は試さない）— design 文言どおり
+
+Task の他の判断は `design.md` の（仮）と各 Task の findings に残っている。
+`design.md` の（仮）と反転条件:
 
 - D2 書き出しは同時に 1 本だけ（2 本目は 409）
 - D3 ファイル名の形と、失敗した `.partial-…` を消すこと
 - D7 zip の中に JSON Lines（Q2）
-- D13 状態を 1 秒ごとに読む・件数を開くたびに数える・確認や注記や合言葉の案内の文面・確かめの再入力
-- D16 置き場には書き終えた書き出しを 1 つだけ置く（Q4）。消すのは、大きさ・SHA-256・zip の注記が台帳と合うファイルだけ
-- D17 後に消した記録の件数は、書いた記録の id のブルームフィルタで数える（数え違えるなら多く数える側）
-- D18 確認に出す見込み（行・圧縮後の大きさ・時間）の出し方
+- D13 状態を 1 秒ごとに読む（応答を待つ `setTimeout` の連鎖）・件数を開くたびに数える・確認の文面。
+  **判定（final review R4）**: 35 万行（1 年分）で件数の数え 1 回 6.5 秒。D13 の反転条件（3 秒）に当たるが、開いたときに 1 回だけ数えるので形は替えなかった。本人に見てほしい点
+- D16 置き場には書き終えた書き出しを 1 つだけ置く（Q4）。`done` にできなかった zip は消す（R2 / R17）
+- D17 後に消した記録の件数はブルームフィルタで数え、（`last`・削除の台帳・前の版・吸収の台帳の行数）の鍵で覚える（R1）。フィルタの形は凍結（Q12 で本人が決めた。仮ではない）
+- D18 確認に出す見込み（行・大きさ・時間）
+- **D20（新）** 台帳の始まりの行は `POST /export` の求めの中で書き、書けなければ 500 `ledger_unavailable`（code-verify R22）。反転条件: `POST` の応答が 1 秒を超えるなら背景で書き、失敗をメモリに持って `last_failure` に出す
 
-聞かずに決めた既定（C）は C1〜C25。spec の段が足したもの:
-C19 消した滞在の前の版の広い時間も数える / C20 原文の座標の並びは拾う側に倒す（狭めるのは本人に返す）/ C21 幅の読めない記録は次の記録まで /
-**C22 説明書と目録も zip の中（zip の外に平文を置かない）/ C23 合言葉は 12 文字以上・AES-256（下げるのは本人に返す）/ C24 平文の一時ファイルを作らない / C25 Unix では置き場 0700・ファイル 0600**（Q9 の形。design D19 ほか）
+## main への rebase（2026-10-16。merge gate が衝突で落ちた）
 
-## 仕様への合意の差し戻し（2026-10-13）への対応
+gate の rebase が `crates/server/src/lib.rs`（`MIGRATIONS`）と `tools/check-immutable.sh` で衝突した。rebase して解き、main と合わさって初めて出た食い違いを直した:
 
-本人の決定で、第 2 回の合意（accepted）を差し戻し、spec の段からやり直した。理由は 2 つ:
-Q9 の答えが spec / design / tasks に写っていなかったことと、main に入った ST12（書庫の位置にも削除の印が付く）が前提に反映されていなかったこと（`docs/audit/2026-10-13-st33-merge-consistency.md` の C1 / C2 / K1 / K2）。
-4 件とも直した（`deep.md` の「仕様への違和感（2026-10-13 の差し戻し）」の `→ 対応`）。人間に返す新しい問い（A）は無い。
+- **移行の順**: main（#97）で `migrations/ORDER` に移ったので、`202610131200_export_ledger` を ORDER の末尾へ 1 行。`check-immutable.sh` の戻しの検査は ST21 の場所の版より先に ST33 を戻す順（本体の途中の既存の節。`tools/check-shared-appends.sh` は OK）
+- **ST21 の場所**: 書き出しが「分類の無いもの: 表 place」で全部落ちた（D8 の検査が狙いどおり名前を挙げた）。design の「下流が始まる時点で入っていれば、そこで分類を足す」に従い、`core.place`（記録を束ねる器。座標も名前も持たない）を `attribute_kind` と同じく `Include`（`places.jsonl`。D7 の項目は 12 → 13）、`s01-place` を緯度経度を持つ側（D5a）・幅は既定の (c)（D5b）に置いた。design D7 と冒頭の「まだ main に無いもの」に ★ 2026-10-16 で書いた。tasks.md 5.2 の Scenario の注記「D7 の 12 個」（123 行）は凍結のため直していない（試験は `ENTRIES` から数える）
+- **ST25 の画面**: ルートが 1 日の画面になり S-1 は `#/coverage` へ移った。設定への入口（S-1 の見出しの行）を見る e2e と単体試験を `#/coverage` から開くようにした。`Root.tsx` の振り分けに `#/settings` を残した
+- **契約の名前**: `export::Summary` が ST25 の `day::Summary` と同じ名前で、openapi では片方が黙って上書きされる。`ExportSummary` にして `docs/openapi.json` を生成し直した
 
-- **Q9**: 書き出しを 1 つの zip（AES-256）にし、合言葉は DB・ログ・台帳・応答・画面のどこにも残さない。画面の確認に合言葉と確かめの入力を置く
-- **ST12**: 「印の無い別のソース」の材料を写真の位置に差し替え、遅着の印は `rebuild_day` と同じ並び（書庫の位置を含む）で付け、移行前の書庫のミリ秒の終わりを読む
+## main への rebase（2026-10-17。merge gate が衝突で落ちた 2 回目）
 
-**合意をもう一度聞く**（次の reading の段が GO 資料を作り直す）。
+main に ST17（主観）・ST14（途切れの通知）・ST08・ST47 が入り、gate の rebase が `crates/server/src/lib.rs` と `tools/check-immutable.sh` で衝突した。rebase して解き、合わさって初めて出た食い違いを直した:
 
-## tasks とレビュー
+- **衝突**: `lib.rs` は mod の並びと `App` の欄（ST14 の `started` / `warmup` と ST33 の `export` / `exports`）を両方残した。`check-immutable.sh` の戻しの検査は ORDER の逆順に ST33 → ST17 → ST21 と戻す（本体の途中の既存の節）。`docs/openapi.json` は衝突のたびに生成し直した。`Root.tsx` は `#/feel` と `#/settings` の両方を残した
+- **ST17・ST14 の表と列**: 書き出しが「分類の無いもの: 表 feeling_reminder, 表 feeling_target_kind, 表 outage_ledger, 列 source.outage_target, 列 source.alert_after_days, 列 source.started_on_from」で全部落ちた（D8 の検査が狙いどおり名前を挙げた）。`feeling_target_kind`（紐づけ先の種類の登録簿）と `feeling_reminder`（本人が決めた通知の時刻）は `Include`（`feeling_target_kinds.jsonl`・`feeling_reminders.jsonl`。D7 の項目は 13 → 15）、`outage_ledger`（途切れの判定と通知の台帳。稼働の信号からの導出）は `coverage` と同じく `Exclude`、`source` の 3 列は `sources.jsonl` に出す
+- **`s01-feeling`（handoff C1）**: 緯度経度を持たない側（D5a）に置いた。幅は紐づけ先で読む規則を足さず既定の (c)（D5b）のまま —— 幅が効くのはひとことに座標の並びを書いた行だけで、(c) は除き過ぎの側（C21。書き出し直せば戻る）。**本人に見てほしい点**（紐づけ先で読む規則にするなら `SpanRule` に変種を足す）
+- 項目数を `13` の固定値で持っていた `export_dir_writes_under_the_chosen_dir` は `CATALOG` の `Include` から数える形にした
+- まっさらな DB で `cargo test -p ashiato-server` rc=0（1210 本）。ただし 59 分かかった —— 書き出しの量の試験（2 万行）の行が共有の DB に残り、後に走る書き出しの試験が毎回それを判定し直すため（前からある形）
 
-- tasks: 10 Task。Scenario 98 本（サーバ 77 は Rust のテスト、画面 21 は `web/e2e`）。人間の確認待ちは無し
-- spec-review: 第 1 巡 19 件（R1〜R19）・第 2 巡 18 件（R20〜R37）・第 3 巡 14 件（R38〜R51）
-  - 第 3 巡の処置: fixed 14（spec・D3 / D4 / D6 / D11 / D13 / D16 / D18（仮）/ D19・tasks 10.3）。escalated 0・deferred 0・rejected 0
-  - 第 3 巡で直した主なもの: `zip` crate は AE-1 で書き、元の大きさと平文の CRC-32 が外に残る（量は隠せないと明記）/ 方式を測る Scenario / 本人が項目を足したファイルを消さない（SHA-256 で見分ける）/ ブラウザに合言葉の保存を促さない
-- 整合の確認: `docs/audit/2026-10-12-st33-nfr16-consistency.md`・`docs/audit/2026-10-12-st33-consistency.md`・`docs/audit/2026-10-13-st33-merge-consistency.md`
+## Task
 
-## 走っている Story との重なり（差し戻さない）
+10 Task（32 項目）すべて `[x]`。残した Task は無い（`ci` / `human` の残りも無し）。Scenario 98 本（サーバ 77 は Rust、画面 21 は `web/e2e`）。
 
-ST08（訪問の長さ `visit_duration_us` を ST33 が読む）・ST17（`s01-feeling` の分類。`docs/handoff/ST33.md` の C1）・ST21・ST25。ST12 は archive 済み。詳細は proposal の Impact。
+## 検証（`evidence.jsonl`。項目ごとに最新）
+
+| 項目 | コマンド | 結果 | head |
+|---|---|---|---|
+| 1.1 | `tools/check-migrations.sh` | PASS | ebf910b |
+| 1.3 | `tools/check-immutable.sh`（export_ledger） | PASS | ebf910b |
+| 7.1 | `tools/check-openapi.sh` | PASS | ebf910b |
+| 8.1〜8.3 | `npm run test -- export` / `SettingsView` / `settings-contrast` | PASS | ebf910b |
+| 9.1 | `npm run test:e2e -- offsite` | PASS | ebf910b |
+| 10.1 | `check_scenarios.py` / `review_triage.py` / `check_chain.py` | PASS（rc=0） | ebf910b |
+| 10.2 | `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace` / web の lint・test・build・e2e（`STACK_RESET=1`）/ `check-immutable` / `check-offsite` / `check-log-private` / `smoke` | PASS（rc=0。`cargo test` は 929 本） | ebf910b |
+
+origin/main（c6109b7）に rebase した木で取り直した。前の版にあった「`cargo test --workspace` の `server_startup` が繋ぎ先の port で落ちる」は、main の ST21 `a9b84803` を取り込んで消えた。
+取り直しの途中で `cargo test` が 2 回落ちた原因（どちらも直した、または ST33 のコードの外）:
+- 1 回目: 止めたはずの前の `cargo test` の実行が残り、同じ DB を取り合った（7 本。単独では全部通った）。うち 1 本（`export_dir_writes_under_the_chosen_dir`）は本当に項目数 12 の固定値で落ちていたので 13 に直した（d31fedc）
+- 2 回目: `export_status_exporting_again_resets_the_erased_count` だけが `erased_after = 11` で落ちた。後に消した件数は DB 全体を数えるので、並んで走る試験の消去が入る。絶対値の 0 を 1 回だけ見ていたのを、5 回まで書き出し直して 0 が読めれば通す形にした（ebf910b）
+- e2e の 1 回目は、`tools/stack.sh` が rebase 前に作った `target/release/ashiato-server` をそのまま使い、seed が `/places` で 404 になった（作り直して通った。`stack.sh` は実体があれば作り直さない）
+
+## レビュー
+
+- final review（6d7d65f..b74736b）: Important 4 / Minor 12（R1〜R16）。R11（`drops_tests` の deadlock）は rejected（この branch の差分の外・再現せず）、他は fixed
+- code-verify（d81e27a）: R17〜R24。fixed 6（R17 / R18 / R19 / R21 / R22 / R24）・escalated 1（R20 → Q12。答えの後に入れた）・deferred 1（R23 → ST30）。scoped re-review は全部 ADDRESSED・新しい壊れ無し
+- R20 の fix（085b6f7..4a7af06）の scoped re-review: ADDRESSED・新しい壊れ無し
+
+## 申し送り（未処置）
+
+- **R18 の残り**: 途中で止まった書き出しが 2 つ以上残るときは新しい 1 件だけ状態に出る。`.partial-…` は状態に出ない。止まった zip の中の、後に消した場面は数えない
+- **R23 → ST30**: D-01 を戻した後、台帳に無い前の書き出しが置き場に残り続ける（`docs/handoff/ST30.md`）
+- **ST17**: `s01-feeling` を書き出しの分類（`NO_COORD_SOURCES`）に足すのは後から archive される側（`docs/handoff/ST17.md` / `ST33.md` の C1）
+- R11: `drops_tests::drops_api_idempotent` が共有 DB で `40P01 deadlock` を出したことがある（ST33 の差分の外）
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

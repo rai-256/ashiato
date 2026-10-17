@@ -212,6 +212,19 @@ pub async fn set_succeeds(pool: &sqlx::PgPool, source: &str, predecessor: &str) 
         .unwrap();
 }
 
+/// テストごとに他のテストが使わない日（2000 年代の前半から）。書き出しは除く判定が**利用者を問わない**ので、
+/// 消した滞在の時間は全テストで共有される。書き出しのテストの記録と消す滞在は、この日に置いて時刻でも隔離する
+/// （ST33 / spec-review R27）。1 回の実行の中では重ならず、実行どうしは乱数の起点でずらす。
+pub fn unique_day() -> chrono::NaiveDate {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    // 2000-01-01 から 5 年ぶん（1827 日）。37 は 1827 と互いに素なので、起点からの 1827 回は重ならない。
+    const SPAN: u32 = 1827;
+    static NEXT: std::sync::OnceLock<AtomicU32> = std::sync::OnceLock::new();
+    let next = NEXT.get_or_init(|| AtomicU32::new(uuid::Uuid::new_v4().as_u128() as u32 % SPAN));
+    let offset = next.fetch_add(37, Ordering::Relaxed) % SPAN;
+    chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap() + chrono::Duration::days(i64::from(offset))
+}
+
 /// テストごとに固有の利用者。稼働記録・生存信号は利用者でも分かれる（FR-29）。
 pub fn user() -> uuid::Uuid {
     uuid::Uuid::new_v4()

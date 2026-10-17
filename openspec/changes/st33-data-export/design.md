@@ -27,6 +27,8 @@
 **main に入ったもの**: ST12（`c03-*` の論理ソースと `core.archive_*` の 8 表。2026-10-13 に archive）。分類は D8 に足した。
 **まだ main に無いもの**: ST21（`core.place`・`s01-place`）、ST17（`s01-feeling`）、ST25。
 下流が始まる時点で入っていれば、D8 の分類の検査が名前を挙げて落ちるので、そこで分類を足す（分類の規則は D8 にある。`s01-feeling` の扱いは `docs/handoff/ST33.md` の C1）。
+★ 2026-10-16（下流・merge gate の rebase）: ST21 が main に入り、分類の検査が `core.place` と `s01-place` を名前で挙げて落ちた。`core.place` は `Include`（`places.jsonl`。D7）、`s01-place` は緯度経度を持つ側（D5a。payload に `lat` / `lon`）・幅は既定の (c)（D5b。1 点と確かめていない）に置いた。
+★ 2026-10-17（下流・merge gate の rebase）: ST17・ST14 が main に入り、分類の検査が `core.feeling_target_kind`・`core.feeling_reminder`・`core.outage_ledger` と `core.source` の 3 列（`outage_target`・`alert_after_days`・`started_on_from`）を名前で挙げて落ちた。`feeling_target_kind`（紐づけ先の種類の登録簿）は `attribute_kind` と同じく、`feeling_reminder`（本人が決めた通知の時刻）は `stay_criteria` と同じく `Include`（D7 の `feeling_target_kinds.jsonl`・`feeling_reminders.jsonl`）、`outage_ledger`（途切れの判定と通知の台帳。稼働の信号からの導出）は `coverage` と同じく `Exclude`、`source` の 3 列は `sources.jsonl` に出す。`s01-feeling` は handoff C1 のとおり緯度経度を持たない側（D5a。内容は尺度・紐づけ先・ひとことだけ）に置いた。幅は紐づけ先で読む規則を足さず既定の (c)（D5b）のまま —— 緯度経度を持たない側なので幅が効くのはひとことに座標の並びを書いた行だけで、(c) は除き過ぎの側（C21。書き出し直せば戻る）。
 
 ## Goals / Non-Goals
 
@@ -90,6 +92,7 @@
 - 1 回ごとのファイル名は **`ashiato-export-YYYYMMDD-HHMMSS.zip`**（Asia/Tokyo の、台帳の始まりの行を書く時点。写しの時点はその後に決まるので名前には使わない —— spec-review R46。proto の `ashiato-export-20260929-1412` に秒を足した）。同じ名前があれば `-2`, `-3` … を付ける。
   `std::fs::rename` は同じ名前のファイルを置き換えるので、`rename` の直前に同じ名前が無いことを確かめ直し、あれば次の番号の名前にする。実際に付けた名前は終わりの行の `file` に書く（D10。始まりの行と違ってよい）
 - 書いている間は **`.partial-ashiato-export-….zip`** に書き、README と目録まで書いて zip を閉じてから `rename` で本来の名前にする（spec「書き終えていないファイルは書き出しの名前を持たない」）。
+  実装の名前は **`.partial-ashiato-export-<YYYYMMDD-HHMMSS>-<8 桁の 16 進>.zip`**（16 進は書き出しごとの乱数。同じ秒に始まった 2 つの書きかけが同じ名前を取り合わないため。final review R8）
   `rename` の後で前の書き出しのファイルを消す（D16）。失敗したら `.partial-…` を消し、前のファイルには触らない。サーバが途中で止まったときの `.partial-…` は残る（D11。暗号化されているので中身は読めない）
 - **権限**（C25。`docs/handoff/ST33.md` の C3）: Unix では、置き場が無ければ `DirBuilder::mode(0o700)` で作り、zip は `OpenOptions::mode(0o600)` で作る（`migrate_backup.rs` の退避と同じ形）。
   `ASHIATO_EXPORT_DIR` で本人が指した**既にある**フォルダの権限は変えない（本人の持ち物）。ファイルは常に 0600。Windows は利用者のプロファイルの既定の ACL に任せる（`%LOCALAPPDATA%`）
@@ -154,7 +157,11 @@ zip.set_comment("ashiato-export <export_id>") → zip.finish() → fsync → ren
 - `core.stay_erased` を使うので、除く判定のために消した滞在の緯度経度を読まない（ST22 D12 の規律）
 - 消した滞在の数は数十件の桁で、書き出しの記録は約 120 万行。`erased_spans` は各問い合わせの `WITH erased_spans AS MATERIALIZED (…)` に置き、`EXISTS` を行ごとに当てる。
   **一時表にしない** —— 写し（D4）は `READ ONLY` のトランザクションで、`CREATE TEMP TABLE` は `cannot execute CREATE TABLE in a read-only transaction` で落ちる（spec-review R22）。
-  (c) の次の記録は `lead(event_time) OVER (PARTITION BY user_id, logical_source, device_id ORDER BY event_time, id)` を `core.event_live` の上で引く（削除済みの行を間に挟まない —— 幅が長くなる側。C21）。
+  (c) の次の記録は `core.event_live` の上で、同じ `user_id`・`logical_source`・`device_id` の中で `(event_time, id)` が次の行を引く（削除済みの行を間に挟まない —— 幅が長くなる側。C21）。
+  **実装は `lead()` の窓関数ではなく、行ごとの相関副問い合わせ（`ORDER BY event_time, id LIMIT 1` の LATERAL）**（final review R8 / Task 3 F3）。並びと同じ時刻の決め方は `lead(event_time) OVER (PARTITION BY user_id, logical_source, device_id ORDER BY event_time, id)` と同じで、結果は変わらない。
+  替えた理由: `lead()` は窓を作るために `core.event_live` の全行を並べ替えてから絞ることになるが、相関副問い合わせなら「消した時間の終わりより前に始まり、緯度経度を持つ行」に先に絞ってから、その行にだけ次の記録を引ける。
+  前の版の次の記録も `core.event_live` から引く（前の版どうしの窓ではない）ので、同じ形で書ける。
+  その代わり、消した滞在が最近だと絞り込みがほぼ全行を通し、座標を持つ行の数だけ索引を引く（Task 5 の測りで座標つき 1 行約 8ms。量は R4 の 35 万行の測りを見る）。
   かかる時間は Task 5 の量のテスト（1 年分の偽データ）で測る
 
 #### D5b. 時刻の幅の読み方（spec の (a)〜(d)。Q6 / C21）
@@ -174,6 +181,8 @@ zip.set_comment("ashiato-export <export_id>") → zip.finish() → fsync → ren
   それ以外の書庫のソース（位置の点 3 本・項目）は既定の (c)。ST12 は archive 済みで `SPAN_RULES` に足す係がいないので、**(d) に移すかは ST33 の下流が決めてよい** ——
   ST12 の解析器の型（`archive/timeline.rs` ほか）で出来事 1 点と確かめたソースだけを `Point` に足し、理由を定数の隣に書く。足さなければ (c) のまま（除き過ぎの側）
 - 幅を持つソースを足す Story は、終わりや長さの鍵が一覧に無ければ足す。足し忘れても (c) で次の記録までの幅になり、**点として抜けることは無い**（Risks の除き過ぎ）
+- (c) と決めたソースも `export::SPAN_NEXT_SOURCES` に名前で置く（SQL は読まない —— 一覧に無いソースは (c) の既定のまま）。登録簿の全ソースが `SPAN_RULES` の `Point` か `SPAN_NEXT_SOURCES` のちょうど一方にあることを、
+  全移行を当てたまっさらな DB の `core.source` と突き合わせる試験が見る（final review R7 / handoff C1）。ソースを足す Story はどちらかに足さないとその試験で落ちる。書庫が実行時に足す `c03-myactivity-<製品>` は前置きで置く
 - 終わりが始まりより前の値（読み違え・壊れた値）を点にしないのは、点にすると幅が縮んで消した時間と重ならなくなる側に倒れるため（既定は厳しい側）
 
 #### D5a. 「緯度経度を持つ」の判定（spec の (1)〜(3)。Q8 / C20）
@@ -181,6 +190,7 @@ zip.set_comment("ashiato-export <export_id>") → zip.finish() → fsync → ren
 (1) **緯度経度を持たないと決まったソースの一覧**: `c01-app-usage` / `c01-app-usage-rollup` / `c01-clock` / `c02-window` / `c02-browser-history` / `s01-attribute`。
 **一覧に無いソースは緯度経度を持つとみなす**（既定は厳しい側）。`c01-location` / `s01-stay` / `c01-photo` / `c03-*`（書庫の位置と項目。マイアクティビティ・YouTube・Chrome の項目は URL にだけ座標を持つことがある —— FR-50 ★ 2026-10-13）/ これから入る `s01-place` は一覧に入れない。
 一覧は Rust の定数（`export::NO_COORD_SOURCES`）。足すのは、そのソースの payload に座標の項目が無いことを収集側の型で確かめた Story（理由を定数の隣にコメントで書く）。
+持つ側も `export::COORD_SOURCES` に名前で置く（SQL は読まない —— 既定は持つ側のまま）。登録簿の全ソースがどちらか一方にだけあることを D5b の同じ試験が見る（final review R7 / handoff C1）。
 
 (2) **内容の項目名**: オブジェクトに絞ってから `keyvalue()` を当てる（K1。スカラーや配列に `keyvalue()` を当てると DB がエラーにする）:
 
@@ -233,6 +243,8 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `event_versions.jsonl` | `core.event_version_live`（D5 で除いた残り） | `txid`（DB の内部の値。ビューにも無い）。ビューが足す親の `sensitivity` / `origin` / `external_id` も出さない（表の列ではない。親は `events.jsonl` にある。spec-review R10） |
 | `sources.jsonl` | `core.source` | なし |
 | `attribute_kinds.jsonl` / `attribute_kind_names.jsonl` | `core.attribute_kind` / `core.attribute_kind_name` | なし |
+| `places.jsonl` | `core.place`（場所の器。★ 2026-10-16 下流: main に入った ST21 の表を D8 の規則で足した。`attribute_kind` と同じく記録を束ねる器で、座標と名前は `events.jsonl` の `s01-place` にある） | なし |
+| `feeling_target_kinds.jsonl` / `feeling_reminders.jsonl` | `core.feeling_target_kind` / `core.feeling_reminder`（★ 2026-10-17 下流: main に入った ST17 の表を D8 の規則で足した。主観の記録そのものは `events.jsonl` の `s01-feeling`） | なし |
 | `stay_criteria.jsonl` | `core.stay_criteria` | なし |
 | `heartbeats.jsonl` | `core.heartbeat` | `attempts` / `successes` / `raw` / `content_hash`（C15。`content_hash` は回数を含む原文のハッシュなので一緒に外す） |
 | `coverage_spans.jsonl` | `core.coverage_span` | なし |
@@ -240,7 +252,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 | `README.txt` | 説明書（D9） | —— |
 | `manifest.json` | 目録（D9） | —— |
 
-上の 12 個の項目は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
+上の 15 個の項目（★ 2026-10-16: ST21 の `places.jsonl` で 12 → 13。★ 2026-10-17: ST17 の `feeling_target_kinds.jsonl`・`feeling_reminders.jsonl` で 13 → 15）は**すべて zip の中**に置き、すべてを同じ合言葉で AES-256（WinZip AES。`zip::AesMode::Aes256`。`zip` crate は 20 バイト以上の項目を AE-1、それ未満を AE-2 で書く）・Deflate で暗号化する（C22）。zip の外（置き場）に平文のファイルを置かない。
 項目の名前は上の固定の名前だけ（記録の値を含まない）。zip の注記は `ashiato-export <export_id>` だけ（D16 が前のファイルを見分けるのに読む。暗号化されない）。
 `events.jsonl` は 4 GiB を超えうる（3 年・上限で 17 GB 前後。deep.md 手順 4）ので、項目は `large_file(true)`（ZIP64）で書く。
 
@@ -257,7 +269,7 @@ PostgreSQL 17 で確かめた（2026-10-12）: 上の例はすべて t、`Chrome
 
 `export::CATALOG`: core の**すべての表**について `Include { file, view, excluded_columns, columns: [(name, 意味)] }` か `Exclude { reason }` のどちらか。
 
-- `Exclude` にするもの: `coverage`（削除済みも数える）/ `erasure_ledger` / `deletion_ledger` / `export_ledger`（D10）/ `access_log` / `web_session` / `stay_absorbed`（C6）/
+- `Exclude` にするもの: `coverage`（削除済みも数える）/ `erasure_ledger` / `deletion_ledger` / `export_ledger`（D10）/ `access_log` / `web_session` / `stay_absorbed`（C6）/ `outage_ledger`（★ 2026-10-17。ST14 の途切れの判定と通知の台帳。稼働の信号からの導出）/
   ST12 の書庫の内部の 8 表 `archive_ledger` / `archive_ledger_source` / `archive_file` / `archive_shape_confirmation` / `archive_sighting` / `archive_scan_counter` / `archive_pending_shape` / `archive_reread_failure`（取り込みの内部。書庫から入れた記録は `core.event` にあり、写しのファイルは DB の外。C6）
 - 書き出しの始めに `information_schema.tables`（core・BASE TABLE）と `information_schema.columns` を読み、
   **分類の無い表・`Include` の表で `columns` にも `excluded_columns` にも無い列**があれば失敗（spec）
@@ -323,9 +335,10 @@ UPDATE / DELETE / TRUNCATE を拒むトリガを**この移行専用の関数**�
 - `running`: `App.exports` にあれば
 - `last`: 台帳の最後の `finish` かつ `result = 'done'` の行
 - `last_failure`: `last` より新しい `finish` かつ `failed` の行（種別だけ）
-- `interrupted`: 最後の `start` に対応する `finish` が無く、`running` でもない（サーバが途中で止まった）。`{"started_at", "file"}` で、`file` はその書き出しの名前のファイルがあるときだけ（`rename` の後に止まったもの）。新しい書き出しはそのまま受け付ける（spec）。
+- `interrupted`: `finish` が無く、`running` でもない `start`（サーバが途中で止まった）のうち新しいもの 1 つ。`{"started_at", "file"}` で、`file` はその書き出しの名前のファイルがあるときだけ（`rename` の後に止まったもの）。新しい書き出しはそのまま受け付ける（spec）。
+  最後の `start` なら名前のファイルが無くても返す。**それより前に止まったものは、名前のファイルが残っている間だけ返す** —— 次の書き出しが書き終えても、置き場に残る止まったファイルを状態から消さない（code-verify R18。前は最後の `start` しか見ず、3 回目を書き終えると止まった zip がどこにも出なくなった）。止まったものが 2 つ以上残っていても返すのは新しい 1 つ（片付ければ次が出る）。`.partial-…` は状態に出さない（R18 の残り。PR 本文の申し送り）
   残った `.partial-…` も、書き出しの名前のファイルも消さない（書き終えたことを台帳で確かめられない。D16。`.partial-…` は書き出しの名前ではない。どちらも暗号化されている）
-- `last.erased_after`: 後に消した記録の件数（D17）。`last` があるときだけ数える
+- `last.erased_after`: 後に消した記録の件数（D17）。`last` があるときだけ数える。台帳の書いた記録が読めない形なら `null`（数えられない。deep Q12）
 - `leftover`: `last` の `start` より前の、`finish`（`done`）を持つ書き出しのファイルのうち、D16 の消す条件に合い、まだ残っているもの（D16 で消せなかったもの）。`last` より後の止まった書き出しのファイルは入れない（`interrupted` の側。spec-review R41）。無ければ空の配列
 
 ### D12. 全利用者を 1 つのファイルに書く
@@ -354,15 +367,20 @@ D-01 の全記録（NFR-16）なので利用者で分けない（1 つの zip）
   `<form>` は `action` を持たず `onSubmit` で `preventDefault` する（URL のクエリに載らず、ページを移らない —— 保管庫が「送信」として拾いにくくする）
 - `running` がある間は「全記録を書き出す」を `disabled` にする（spec。別の端末やタブで始めた書き出しを含む）
 - 途中で止まった書き出しの 1 行は、`interrupted.file` があればパスも出す（「前の書き出しは途中で止まりました（<始めた時刻>）。<ファイルのパス> が残っています。」）
-- 開いたときに `GET /export/summary` と `GET /export` を 1 回ずつ。`running` があれば 1 秒ごとに `GET /export` を読み直し、無くなったら止める（画面を離れると止まり、戻ると開いたときの読み出しで再開する）
+- 開いたときに `GET /export/summary` と `GET /export` を 1 回ずつ。`running` があれば 1 秒ごとに `GET /export` を読み直し、無くなったら止める（画面を離れると止まり、戻ると開いたときの読み出しで再開する）。
+  **読み直しは前の応答が返ってから 1 秒後に次を読む**（`setTimeout` の連鎖。`setInterval` は前の応答を待たずに重ねて読み、遅い応答が DB の接続を奪い合う。final review R1）
 - 前回の書き出しの欄: `last.erased_after` が 1 以上なら「この書き出しの後に消した記録が N 件あります。書き出したファイルの中には残っています。」を `role="note"` で 1 行（Q3 第 2 回の proto の文面のまま）
-- 失敗は節の中に 1 行（「書き出しに失敗しました（<種別>）」）、途中で止まったものも 1 行（「前の書き出しは途中で止まりました（<始めた時刻>）」）、
+- 失敗は**書き出しの節**（「全記録の書き出し」。「前回の書き出し」の節ではない。final review R3）の中に 1 行（「書き出しに失敗しました（<種別>）」）、途中で止まったものも 1 行（「前の書き出しは途中で止まりました（<始めた時刻>）」）、
   消せなかった前のファイルも 1 行（「前の書き出しのファイルを消せませんでした（<ファイルのパス>）。次の書き出しでもう一度消します。」）。どれも「全記録を書き出す」を押し直せる（spec）
 - `MIN_TARGET_PX`（24）・ライト / ダークの `tokens.ts`・フォーカスの輪郭は既存の画面と同じものを使う（合言葉の入力 2 つも 24 px 以上）。ファイルのパスは `word-break: break-all`（360 px で横にはみ出さない）
 - ダウンロード・保存・`file://` のリンクを置かない（Q1）
 
 > **（仮）**: 1 秒ごとに読む間隔と、件数を開くたびに数える形（D1 の `GET /export/summary`）。**反転条件** —— 件数の数えに 3 秒以上かかる量になったら（書庫で百万件級を入れた後など）、
 > 件数を前回の書き出しの目録から出して「いまの件数」は押したときにだけ数える。間隔は、読み出しの記録（access_log）が 1 回の書き出しで数百行増えるのが困るなら伸ばす。
+> **判定（2026-10-14。final review R1 / R4）: 件数の数えの反転条件に当たる。** 使い捨ての DB に 1 年分（35 万行の `c02-window`、100 に 1 つが座標つき、消した滞在 1 件）を置いた測り
+> （`export_volume_one_run_reports_time_and_memory`）で、`GET /export/summary` の数え 1 回が **6.5 秒**（書き出し全体は 42.8 秒）。3 秒を超えるので「件数を前回の書き出しの目録から出し、
+> いまの件数は押したときにだけ数える」形へ替える条件を満たした。**この fix wave では替えていない**（替えるかは本人か controller が決める。開いたときに 1 回だけ読むので、繰り返しの負荷ではない）。
+> 1 秒ごとの読み出し（`GET /export`）の側は D17 の鍵つきの覚えと、応答を待ってから次を読む形で、数え直しを書き込みのあったときだけにした。
 > 確認・入らないもの・後に消した件数・消せなかったファイル・合言葉の案内の文面と、確かめの再入力も仮。**反転条件** —— 本人が確認バッチで読みにくいと言えば文面を変える（出す・出さないは Q3 / Q9 の答えなので変えない）。
 > 再入力は、本人が二度打つのが煩わしいと言えば「表示する」の切り替えに替えてよい（打ち間違えたまま書き出しても、書き出し直せば戻る）。
 > **再入力と文面は spec の Requirement と Scenario にも書いてある** —— 替えるときは spec も直す（archive の後は `MODIFIED`。spec-review R47）。
@@ -416,11 +434,31 @@ D-01 の全記録（NFR-16）なので利用者で分けない（1 つの zip）
 - 作り直し（`POST /stays/rebuild`）が付けた印（`rebuild:`）は数えない —— 本人が消していないものを「消した」と出さない（spec）
 - 数えるのは記録（`events.jsonl`）の行だけ。前の版は数えない（前の版は親と一緒に出入りする —— D5 の前の版の 2）
 - 書き出し直すと `last` が新しくなり、0 に戻る（spec）
-- いま除かれる記録の数は削除の件数の桁（数千〜数万）で、1 秒ごとの読み出しで毎回数えても軽い。重くなれば（`last` の `export_id`・削除の台帳の最後の行）で結果を覚える
+- **数えた結果は鍵つきで覚え、鍵が同じなら数え直さない**（final review R1）。「1 秒ごとの読み出しで毎回数えても軽い」は成り立たなかった ——
+  数えるのは「いま除かれる記録」だが、それを決める D5 の断片は `core.event_live` の全行に座標の判定と (c) の次の記録の引きを当てるので、
+  共有の開発 DB で 1 回約 10 秒かかった（Task 3）。画面は前の応答を待ってから次を読む（D13）。
+  鍵（`export::ErasedKey`）は `last` の `export_id` と、`core.deletion_ledger`・`core.event_version`・`core.stay_absorbed` の**行の数**:
+  - 本人の削除の印（消す・連鎖・遅着の印）と戻すは削除の台帳に、記録の内容・時刻の更新（取り込みの更新・作り直しの `push_version`）は前の版に、作り直しの吸収は吸収の台帳に、同じまとまりで 1 行を足す
+  - 版を書かない内容の更新は無い（2026-10-14 に `UPDATE core.event` と `ON CONFLICT … DO UPDATE` を洗った）: `collected` は門（`require_version_or_ledger`）が同じまとまりの版を強制し、
+    `derived` の滞在は作り直しが `push_version` してから書き換え（中身が同じで印だけ変えるときは版を書かないが、それは `rebuild:` の印）、`authored` の行は書き換える経路が無い。
+    `ON CONFLICT … DO UPDATE` は書庫の表（`core.archive_*`）だけ
+  - 3 つの表は追記のみ（書き換えと削除をトリガが断る）なので、行の数はコミットのたびに必ず増える。最後の `seq` は、先に番号を取って後にコミットした行を見落としうるので使わない
+  - 鍵に無い書き込みは数を減らす側か動かさない側にしか働かない: 新しい記録の取り込み（次の記録が手前に来て幅が縮む）・作り直しの `rebuild:erased-range`（`s01-stay` の行だけで、滞在は `end` で幅を読むので他の行の幅を延ばさない）・消去（本文を空にする）。
+    覚えた値はこの場合に**多く数える側にだけ**ずれ、上の「誤りは多く数える側にしか出ない」を保つ
+  - 鍵は数える前に読む（数えている間に入った書き込みは次の読み出しで鍵を変える）
+  - 量の目安: 同じ断片を通る `GET /export/summary` の数えが 1 年分（35 万行）で 6.5 秒（D13 の判定）。数え直しはこの桁になる
+  - 前提: 消した滞在の時間は過去にある。(c) の幅の終わりの「写しの時点」は数える時刻（`now()`）なので、始まりが未来の消した滞在があると、時間が経つだけで重なりが増えうる（鍵は動かない）。
+    滞在は届いた位置から作る派生なので、未来の滞在は時計の狂った端末からしか生じない
+- **`written` の形は凍結する**（deep Q12。code-verify R20）。台帳は追記のみで `written` を書き直せないので、位置の取り方・ハッシュの数・大きさの決め方・先頭の 2 バイト（版・ハッシュの数）を変えると、前に書いた行の `id` が入っていないと読まれる（変異で 1,451 件 → 0 件を実測）。
+  固定の 3 つの UUID を入れたバイト列を、`bloom.rs` を使わない別の実装（Python の `hashlib`）で作って期待値に直書きした試験（`export::bloom::tests::the_frozen_shape_is_kept`）が形を固定する。
+  形を変えるなら `VERSION` を上げ、前の版を読む口を残す
+- **読めない形の `written`（知らない版・空）は 0 件と読まない**: `last.erased_after` を `null`（数えられない）で返し、画面は「件数を数えられません。ファイルの中に後に消した記録が残っているかもしれません」と 1 行出す（deep Q12）。0 と出すと少なく数える側に倒れ、上の「少なく数えて残っていないと思わせる経路が無い」が崩れる
 - 件数は `GET /export` の応答と画面にだけ出し、ファイル・目録には書かない（C8）
 - **ST23 が D-01 から記録を本当に消す**（FR-51）と、その記録はいま除かれる記録の一覧から消え、数に入らなくなる（ファイルには残っている）→ ST23 が入るときに、消した `id` を同じ数え方に足すかを ST23 が決める（下流の PR の前に `docs/handoff/ST23.md` に書く）
 
 > **反転条件** —— 偽陽性で 0 にならない実例が出たら偽陽性の率を下げる。前の版も数えたほうが分かりやすいと本人が言えば、前の版の `id` も同じ形で覚える。
+> 覚えた値を使う形は、鍵に無い書き込みで数が増える経路が見つかったら（新しい種類の印や、台帳を書かずに `deleted_at` を付ける書き手を足したとき）その表を鍵に足す。
+> 鍵が変わるたびに数え直す 1 回が重すぎる（書き出しの間の画面が数十秒待つ）なら、件数を書き出しの直後と削除の操作の直後にだけ数えて台帳の外（メモリ）に置く形に替える。
 
 ### D19. 暗号は zip の AES-256（WinZip AES）。合言葉は 12 文字以上（Q9 / C22 / C23）
 
@@ -443,6 +481,13 @@ D-01 の全記録（NFR-16）なので利用者で分けない（1 つの zip）
 - `seconds`: 前回の書き出しの（`finish.at` − `start.at`）/ `rows` × `rows`。前回が無ければ 20,000 行 / 秒（proto の見積もり）。1 未満は 1
 
 > **反転条件** —— 確認の見込みが実際と 2 倍以上ずれると本人が言えば、前の版と辞書の行を足す・書き出しの量のテスト（Task 5.6）の実測から係数を取る。
+
+### D20（仮）. 台帳の始まりの行は `POST /export` の求めの中で書く。書けなければ 500（code-verify R22）
+
+- `spawn` が走っている印を置いた後、背景の仕事を起こす**前に** `insert_start` を書く。書けなければ印を外し、何も走らせず `500 {"error": "ledger_unavailable"}`（種別だけ）。画面は既存の「書き出しを始められませんでした」の 1 行に乗る
+- 前は背景の仕事の中で書いていたので、書けないとログ 1 行だけで終わり、`202` を返したまま状態にも画面にも何も出なかった（spec「失敗した書き出しも台帳に残る」の外側）
+- 試験の差し込み口は `Stage::Start`
+- **反転条件**: 求めの中で DB を待つ時間が画面の押した感触を損なう（`POST` の応答が 1 秒を超える）なら、背景で書いたまま失敗をメモリの `ExportJobs` に 1 件持ち、`last_failure` に出す形に替える
 
 ## Risks / Trade-offs
 

@@ -617,6 +617,50 @@ pub async fn rebuild_day(
     Ok(out)
 }
 
+/// 本人が消した滞在のある利用者に、遅れて届いた位置の印を付ける（ST33 design D6）。
+///
+/// `rebuild_day` と同じ順（transaction → 錠 → 基準）で、`mark_late_arrivals` を `rebuild_day` と同じ並びで 1 回呼ぶだけ
+/// （判定は書き写さない）。範囲は本人が消した滞在の最小の始まりの日（`Asia/Tokyo`）の始まり〜（最大の終わり＋1 マイクロ秒）。
+/// 下端を日の始まりにするのは、消した滞在より前に始まって消した時間にかかる書庫の区間を候補に入れるため
+/// （`rebuild_day` が 1 日の範囲を渡すのと同じ）。上端を足すのは `mark_late_arrivals` が終わりを含まないため。
+/// 本人が消した滞在が無ければ何もしない。何度呼んでも印と台帳の行は増えない。
+pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    lock(&mut tx, user).await?;
+    let c = ensure_criteria(&mut tx, user).await?;
+    let span: (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(&format!(
+        "SELECT min(s.event_time),
+                max(coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time))
+           FROM core.event s
+          WHERE s.user_id = $1
+            AND {erased}",
+        erased = user_erased_stay_sql("s", 2, 3)
+    ))
+    .bind(user)
+    .bind(stay::SOURCE)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_one(&mut *tx)
+    .await?;
+    if let (Some(first), Some(last)) = span {
+        let from = day_bounds(jst_date(first)).0;
+        let to = last + Duration::microseconds(1);
+        mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), (from, to)).await?;
+    }
+    tx.commit().await
+}
+
+/// 本人が消した滞在を持つ利用者（書き出しが利用者ごとに遅着の印を付ける対象。ST33 design D6）。
+pub(crate) async fn users_with_erased_stays(pool: &PgPool) -> sqlx::Result<Vec<uuid::Uuid>> {
+    sqlx::query_scalar(&format!(
+        "SELECT DISTINCT s.user_id FROM core.event s WHERE {erased} ORDER BY s.user_id",
+        erased = user_erased_stay_sql("s", 1, 2)
+    ))
+    .bind(stay::SOURCE)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_all(pool)
+    .await
+}
+
 /// 基準のソースに書庫の位置の論理ソースを足した集合（design D22）。滞在の判定（`Criteria::sources`）は変えない。
 pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
     let mut all = base.to_vec();
@@ -626,6 +670,28 @@ pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
         }
     }
     all
+}
+
+/// 「本人が消した滞在」の SQL 条件（`alias` は core.event の別名、`source` / `prefix` は滞在の論理ソースと
+/// 作り直しの印の接頭辞を束ねる `$n` の番号）。`mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
+/// 台帳の最新の行が erase で、かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない。
+fn user_erased_stay_sql(alias: &str, source: u8, prefix: u8) -> String {
+    format!(
+        "{a}.logical_source = ${source}
+            AND {a}.origin = 'derived'
+            AND {a}.deleted_at IS NOT NULL
+            AND ({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = {a}.id
+                 AND d.action = 'erase'
+                 AND d.seq = (
+                   SELECT max(last.seq) FROM core.deletion_ledger last
+                    WHERE last.event_id = {a}.id
+                 )
+            )",
+        a = alias
+    )
 }
 
 /// 記録の終わりの SQL 式。区間の記録（`end_time`）は終わりを、点は始まりを返す
@@ -807,19 +873,7 @@ async fn mark_late_arrivals(
            FROM core.event e
            JOIN core.event s
              ON s.user_id = e.user_id
-            AND s.logical_source = $5
-            AND s.origin = 'derived'
-            AND s.deleted_at IS NOT NULL
-            AND (s.deleted_by IS NULL OR s.deleted_by NOT LIKE $6)
-            AND EXISTS (
-              SELECT 1 FROM core.deletion_ledger d
-               WHERE d.event_id = s.id
-                 AND d.action = 'erase'
-                 AND d.seq = (
-                   SELECT max(last.seq) FROM core.deletion_ledger last
-                    WHERE last.event_id = s.id
-                 )
-            )
+            AND {erased}
             AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
             AND {end} >= s.event_time
           WHERE e.user_id = $1
@@ -828,6 +882,7 @@ async fn mark_late_arrivals(
             AND e.deleted_at IS NULL
             AND {located}
           ORDER BY e.id, s.event_time, s.id",
+        erased = user_erased_stay_sql("s", 5, 6),
         end = event_end_sql("e"),
         located = item_located_sql("e")
     ))

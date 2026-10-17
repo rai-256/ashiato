@@ -1102,7 +1102,7 @@ async fn archive_flow_a_day_without_records_uses_the_same_judgement() {
 /// `tracing` の出力をそのまま集める試験用の層。**書き出しの文字列を丸ごと持つ**ので、
 /// 欄の名前でも本文でも、検索語が 1 度でも出れば捕まる。
 #[derive(Clone, Default)]
-struct CapturedLog(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+pub(crate) struct CapturedLog(pub(crate) std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
 
 impl std::io::Write for CapturedLog {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -1123,14 +1123,14 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
     }
 }
 
-/// 試験バイナリ全体のログを集める口。
+/// 試験バイナリ全体のログを集める口（書き出しの「合言葉はどこにも残らない」も使う）。
 ///
 /// **スレッド局所の `set_default` では足りない**（実測: 並列で走らせると、背景の
 /// 取り込み器が出すログを 1 行も拾えなかった）。取り込み器は別の task で動くので、
 /// 「この試験のスレッドだけ」に仕掛けると、見ていないのに緑になる。
 static CAPTURED: std::sync::OnceLock<CapturedLog> = std::sync::OnceLock::new();
 
-fn captured_log() -> &'static CapturedLog {
+pub(crate) fn captured_log() -> &'static CapturedLog {
     CAPTURED.get_or_init(|| {
         use tracing_subscriber::layer::SubscriberExt as _;
         let captured = CapturedLog::default();
@@ -5145,14 +5145,20 @@ async fn archive_youtube_reparse_the_scan_loop_refreshes_pending_shapes() {
         1
     );
 
-    // 新しい形に印を置くと、次の走査で読む。
+    // 新しい形に印を置くと、次の走査で読む。確認待ちから外すのは格納の commit の後の
+    // 別の文なので、件数が揃っただけでは外し終えていない（CI run 38982662263 で 1 が残った）。
     confirm_hash(&inbox, &new_hash).await;
     inbox
         .until("新しい形の印で読まれない", || async {
             yt_counts(&inbox).await == (2, 0, 0)
         })
         .await;
-    assert_eq!(pending_files(&inbox).await, 0);
+    inbox
+        .until(
+            "読み終えたファイルが確認待ちから外れない",
+            || async { pending_files(&inbox).await == 0 },
+        )
+        .await;
 }
 
 // Scenario: 読み終えた書庫の新しい形に印の無いファイルは版の上げで確認待ちになる
