@@ -263,3 +263,19 @@ FR-88 —— 動画の撮影位置を「写真の位置」に（C16）、カメ�
 - **ST23（R8）** —— 本文の消去（FR-51）を D-02 の原本へどう及ぼすか: 原本を指す記録が全部消去されたら D-02 のファイルを消すか / 同じ原本を指す記録の一部だけが消去されたとき / 日ごとの増分バックアップ（FR-66）に残った写し / DB と同じまとまりにできないファイルの消去を台帳とどう合わせるか
 - ST38 / ST45 —— C16 の「渡すときに撮影位置を抜く」場所（解析した値の欄・原文の EXIF・D-02 の原本の EXIF）。Q16 で消した場面の写真も記録に残るので、消した時間の撮影位置は渡さない（FR-50 の★ 2026-10-17。`docs/handoff/ST45.md`。整合の確認 C2）
 - ST22 の画面 —— Q16 で、消した時間の写真が日の画面に残る。表示は ST09 の spec の段で決める（ST22 は archive 済み。走っている Story へ差し戻さない）
+
+## spec の段で受けたところ（2026-10-17。「spec の段へ渡すもの」と「答えの読み方」の行き先）
+
+spec の段の独立レビュー（`review/spec.md` R21 / R22）を受けて、上の指示をどこで受けたかを書く:
+
+- **`collection-coverage` の MODIFIED（C3 / C5 / K1）** → `specs/collection-coverage/spec.md` の「ソースごとに収集を開始した日が残る」「ソース × 日 の状態は 8 つのいずれかに決まる」。design D13 / D14
+- **取得可否の MODIFIED（C7 / K2）** → `specs/device-collection/spec.md` の「端末は想定間隔ごとに生存信号を送る」と `specs/collection-coverage/spec.md` の生存信号の Requirement。design D7。送信契約は tasks 10.1
+- **登録簿に足すソースの種類（C11）** → **Scenario にしなかった。** 登録簿に種類の欄がまだ無く、欄を作ると ST38 の承認の器を先に決めることになる（design D19）。
+  割当ては `docs/handoff/ST38.md`（st09-media-capture R21）に送り、Scenario は ST38 が欄を作るときに置く
+- **原本の量を出す（C8）** → `specs/device-collection/spec.md` の「写真と画像の量と原本の進みを読み出せる」（`GET /media/summary`。画面は持たない。design D12）
+- **FR-50 の Scenario（Q16 / Q17）** → `specs/device-collection/spec.md` の「滞在を消しても、写真と画像と動画の記録と原本は消えない」と、`specs/data-durability/spec.md` の書き出しの Scenario。
+  **衛星・AI の読み出しに出さないことは Scenario にしなかった** —— 読み出しの経路（ST45）がまだ無く、検証できない。`docs/handoff/ST45.md`（C2 と、動画を足した st09-media-capture R3）が受ける
+- **Q16 の差を GO 資料で本人に見せる**（上の「答えの読み方」Q16）→ reading の段の GO 資料に「直感注意」として出す
+  （滞在を消しても ashiato の中の写真・動画は消えないが、書き出しからは消した時間の撮影位置つきの行が除かれ、衛星と AI にも渡さない）。design の Open Questions にも書いた
+- **ST22 の画面 —— 消した時間の写真の表示**（「後続へ送るもの」）→ ST09 は写真を画面に出さない（design の Non-Goals）。写真を見る画面は Q17 の新しい Story が持つ
+
