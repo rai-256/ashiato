@@ -16,3 +16,9 @@ fi
 if [ -x tools/check-log-private.sh ]; then
   tools/check-log-private.sh >/dev/null || { tools/check-log-private.sh || true; exit 1; }
 fi
+
+# 秘密（API キー・token・秘密鍵など、gitleaks の既定の規則の形）を**入る前に**止める。staged だけ見る（1 秒かからない）。
+# 誤検知は行末の `gitleaks:allow` か `.gitleaksignore`（tools/check-secrets.sh の冒頭）。
+if [ -x tools/check-secrets.sh ]; then
+  tools/check-secrets.sh --staged
+fi

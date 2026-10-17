@@ -1,0 +1,13 @@
+# gitleaks の誤検知を fingerprint で除く（tools/check-secrets.sh）。値はここに書かない。
+# 2026-10-17 の初回の全履歴の走査で出た 11 件。どれもテストの固定値（0123456789ab / tok-0123456789）と、smoke.sh の curl の content-type。
+17cc044cd5b5dd40b6c615bf3bfcdff97cc57ae7:crates/server/src/lib.rs:generic-api-key:2266
+17cc044cd5b5dd40b6c615bf3bfcdff97cc57ae7:crates/server/src/lib.rs:generic-api-key:2270
+17cc044cd5b5dd40b6c615bf3bfcdff97cc57ae7:crates/server/src/lib.rs:generic-api-key:2274
+29d46dc8c5e798ae8496ae3398c2c321998d082d:crates/server/src/lib.rs:generic-api-key:2124
+29d46dc8c5e798ae8496ae3398c2c321998d082d:crates/server/src/lib.rs:generic-api-key:2128
+29d46dc8c5e798ae8496ae3398c2c321998d082d:crates/server/src/lib.rs:generic-api-key:2132
+5a5e7d4caed202e0217e050b8c0ed1a377ac8825:crates/collector-windows/src/autostart.rs:generic-api-key:78
+de128a16d6993cadd8affb23310618122990f8b1:tools/smoke.sh:curl-auth-header:79
+e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2067
+e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2071
+e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2075

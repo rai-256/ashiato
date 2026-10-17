@@ -283,6 +283,14 @@ jobs:
       # 漏れたのは code ではなく `docs/` と `openspec/` の文書だった（2026-09-19）。
       # この job は出し分けの対象外で 0.2 分なので、全 PR に掛けても費用にならない。
       - run: ./tools/check-private.sh
+      # 秘密（API キー・token・秘密鍵など）が入っていないこと（gitleaks。版と sha256 は check-secrets.sh が固定）。
+      # PR は足した commit だけ、main への push は履歴全体（約 2 秒）
+      - run: ./tools/check-secrets.sh --self-test
+      - if: github.event_name == 'pull_request'
+        env: { RANGE: "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" }
+        run: ./tools/check-secrets.sh --range "$RANGE"
+      - if: github.event_name != 'pull_request'
+        run: ./tools/check-secrets.sh
       # Story の PR が共有の本体（smoke.sh など）に書き足していないこと・移行の順は末尾への追記だけ（2026-10-15）
       - run: ./tools/check-shared-appends.sh --self-test
       - if: github.event_name == 'pull_request'
