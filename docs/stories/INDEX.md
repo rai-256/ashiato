@@ -81,7 +81,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35, ST44 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, ST14, ST15, **ST12**, ST39 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39 |
 | `derived-records` | 派生（滞在） | ST16, ST24 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
@@ -89,7 +89,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
 
 > **訂正（2026-10-11、衛星の基盤の改訂）**
@@ -372,3 +372,21 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > `browsing-views` を ST25 の上に積む（`tasks.md` の Global Constraints・10.2）。依存を tasks の文にだけ書いて `requires` に入れていなかったので、
 > 下流の入口（`deps` / `story_deps.py`）が ST25 を見ず、Task 1.1 が「ST25 の archive」を待つ形になっていた。依存の実装は
 > 下流が gate を通った SHA を取り込めば使える（2026-10-02 の決定。archive は待たない）ので、前例（2026-10-01 の ST25 → ST22）と同じく requires に入れる。
+
+> **訂正（2026-10-17、ST09 の上流工程 record）**
+>
+> ST09 を `device-collection` だけでなく **`collection-coverage` と `data-durability` にも割り当てた**（整合の確認 `docs/audit/2026-10-17-st09-consistency.md` の C12）。
+> ST09 の深掘りの答えが、稼働状況の条項（Q10 の写真の取得可否・Q13 の写真の収集開始日・登録簿に足すソース）と、書き出しの分類（C15。足すソースと文字抽出の表）に手を入れる。
+>
+> - ST09 が `collection-coverage` に足すのは **写真と画像のソースの取得可否・収集開始日・格子の見え方**だけ。`data-durability` に足すのは **書き出しの分類に載せる表とソース**だけ
+> - **代償: ST09 が走っている間、ST15（`collection-coverage`）と ST10 / ST30 / ST31 / ST32（`data-durability`）は `衝突待ち`**
+> - `record-deletion` には割り当てない —— Q16 の答え（滞在を消しても写真に印を付けない）は、正典の「位置以外の記録には印を付けない」のままで成り立つ
+>
+> **要件の側でも、satisfies に無い条項を ST09 が満たす**（ST09 の深掘りが要件に ★ を足したもの）。本体の Story は変えない:
+>
+> | 要件 | 本体の Story | ST09 が満たす条項 |
+> |---|---|---|
+> | FR-50（削除） | ST22 | 写真と画像は撮影位置を持っていても「その時間の位置の記録」に含めない（★ 2026-10-17。Q16） |
+> | FR-78（生存信号） | ST02 | 写真と動画の取得可否に接続を含めず、接続の有無は別に残す（★ 2026-10-17。Q10 / C7） |
+> | FR-79（収集開始日） | ST02 | 写真と画像は最初の生存信号の日を収集開始日にし、それより前の記録のある日は格子に「記録あり」と出す（★ 2026-10-17。Q13 / C3 / C4） |
+> | FR-88（種類） | ST38 | 動画の撮影位置を「写真の位置」に、カメラ以外の画像を「写真」に属させる（★ 2026-10-17。C16 / C11） |
