@@ -444,7 +444,9 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
                 "emitted_at",
                 "received_at",
                 "capturable",
-                "blockers"
+                "blockers",
+                // ST09 D7: 接続の有無は出す列（回数と原文は今までどおり出ない）
+                "network"
             ]
             .map(String::from)
         )
