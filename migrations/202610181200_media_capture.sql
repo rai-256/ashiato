@@ -120,7 +120,8 @@ CREATE TRIGGER text_extraction_no_truncate
   BEFORE TRUNCATE ON core.text_extraction
   FOR EACH STATEMENT EXECUTE FUNCTION core.reject_media_change();
 
--- アプリの役割への権限は crates/server/src/grants.sql が持つ（毎回当てる。3 表は SELECT / INSERT だけ）。
+-- アプリの役割への権限は crates/server/src/grants.sql が持つ（毎回当てる。全表に UPDATE / DELETE も付く）。
+-- 3 表の書き換え禁止は上のトリガだけが持つ（権限では絞っていない。D15 の 4 の扱いは人間の判断待ち）。
 
 -- ------------------------------------------------------------------ 5. 収集開始日の当て直し（D13）
 -- 印が `heartbeat` のソースは、登録日以降でいちばん古い生存信号の日、無ければ NULL。
