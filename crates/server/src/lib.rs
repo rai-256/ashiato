@@ -95,6 +95,9 @@ mod feelings_remind_tests;
 mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
+/// 写真と動画の見分け（ST09 tasks 3.2）。
+#[cfg(test)]
+mod media_ident_tests;
 /// 写真と動画の移行（ST09 / design D7 / D13 / D15 / D17）。
 #[cfg(test)]
 mod media_migration_tests;
