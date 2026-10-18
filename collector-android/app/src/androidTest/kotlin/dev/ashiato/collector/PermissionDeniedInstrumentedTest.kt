@@ -66,6 +66,9 @@ class PermissionDeniedInstrumentedTest {
             PackageManager.PERMISSION_DENIED,
             context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION),
         )
+        // 前の試験が残した前景サービスがあると onCreate が走り直さず、起動の行が出ない
+        context.stopService(Intent(context, LocationService::class.java))
+        Thread.sleep(1_000)
         shell("logcat -c")
     }
 
@@ -100,23 +103,12 @@ class PermissionDeniedInstrumentedTest {
         )
 
         // ---- 2. **位置を拒否した後も通知の権限を求める**（独立レビュー I1）。
-        //
         // ここが本丸。求めないと、Android 13 以降は**前景サービスが立っても通知が表示されず**、
         // design D6 の「以後は常駐の通知から利用状況へのアクセスの設定画面へたどれる」が
         // その本人にだけ効かない（自動で送るのは 1 度だけなので**戻る道が消える**）。
         // **ダイアログが出ないとここで落ちる** —— 通知を見る前に、求めたこと自体を見る
-        val allowNotifications = device.wait(
-            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow_button"))),
-            DIALOG_TIMEOUT_MS,
-        ) ?: device.wait(
-            Until.findObject(By.text(Pattern.compile("(?i)(許可|allow)"))),
-            DIALOG_TIMEOUT_MS,
-        )
-        assertTrue(
-            "位置を拒否した端末に通知の権限のダイアログが出ない（前面: ${device.currentPackageName}）",
-            allowNotifications != null,
-        )
-        allowNotifications!!.click()
+        allowNotificationDialog()
+        denyMediaDialog()
 
         // ---- 3. 収集は始まっている（**前景サービスの通知が出る**）。**欠けたソースだけが止まる**
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -154,10 +146,48 @@ class PermissionDeniedInstrumentedTest {
         )
     }
 
+    /** 通知の権限のダイアログで「許可」を押す。出なければ落とす。 */
+    private fun allowNotificationDialog() {
+        val allowNotifications = device.wait(
+            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow_button"))),
+            DIALOG_TIMEOUT_MS,
+        ) ?: device.wait(
+            Until.findObject(By.text(Pattern.compile("(?i)(許可|allow)"))),
+            DIALOG_TIMEOUT_MS,
+        )
+        assertTrue(
+            "位置を拒否した端末に通知の権限のダイアログが出ない（前面: ${device.currentPackageName}）",
+            allowNotifications != null,
+        )
+        allowNotifications!!.click()
+    }
+
+    // Scenario: 初回の起動で写真と動画と写真の位置の権限を求める
+    //
+    // 位置・通知の次に、写真と動画の権限を求める画面が出る。断っても収集は始まる（続きの検証が見る）。
+    // **同じ 2 段目の先に走る `MediaPremisesInstrumentedTest` が写真の権限を付け外しする**ので、ここへ来たときには
+    // 決まっていて画面が出ないことがある（そのときは断る相手が無いだけで、収集が始まることは続きが見る）。
+    private fun denyMediaDialog() {
+        val shown = device.wait(
+            Until.findObject(By.text(Pattern.compile("(?is).*(photo|video|media|写真|動画|画像|メディア).*"))),
+            DIALOG_TIMEOUT_MS,
+        ) ?: return
+        assertTrue("写真と動画の権限の画面なのに本文が写真・動画を言わない: ${shown.text}", shown.text.isNotEmpty())
+        val deny = device.wait(
+            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny_button"))),
+            DIALOG_TIMEOUT_MS,
+        ) ?: device.wait(
+            Until.findObject(By.text(Pattern.compile("(?i)(許可しない|拒否|don.t allow|deny)"))),
+            DIALOG_TIMEOUT_MS,
+        )
+        assertTrue("写真と動画の権限の拒否ボタンが見つからない", deny != null)
+        deny!!.click()
+    }
+
     private fun waitForLog(needle: String, filter: String = "ashiato:W"): Boolean {
         val deadline = System.currentTimeMillis() + LOG_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
-            if (shell("logcat -d -s $filter -t 400").contains(needle)) return true
+            if (shell("logcat -d -s $filter -t 20000").contains(needle)) return true
             Thread.sleep(250)
         }
         return false
