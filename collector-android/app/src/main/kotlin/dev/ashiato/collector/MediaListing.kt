@@ -57,14 +57,31 @@ interface MediaListing {
 
     /** その番号の行がいま一覧にあるか（ごみ箱を含む） */
     fun contains(volume: String, mediaId: Long): Boolean
+
+    /** 画像と動画の表に知らせを張る。外すときは戻り値を呼ぶ。偽物は何もしない（既定）。 */
+    fun observe(onChange: () -> Unit): () -> Unit = {}
 }
 
 /** ファイルを開いて読んだ結果。 */
 class MediaFileContent(val sha256: String, val meta: MediaFileMeta)
 
+/** ファイルを 1 件読んだ結果。 */
+sealed interface MediaFileAttempt {
+    class Opened(val content: MediaFileContent) : MediaFileAttempt
+
+    class Failed(val stage: MediaStage) : MediaFileAttempt
+}
+
 /** ファイルを開く口。**位置の権限が無い間は呼ばない**（Q15。呼び手が門を持つ）。読めなければ null。 */
 interface MediaFileReader {
     fun read(item: MediaListed): MediaFileContent?
+
+    /**
+     * 読んだ結果を、失敗した段つきで返す（C19）。既定は [read] の null を「開けない」とする。
+     * 実物は開けない（[MediaStage.READ]）と、開けたのにハッシュを計算できない（[MediaStage.HASH]）を分ける。
+     */
+    fun attempt(item: MediaListed): MediaFileAttempt =
+        read(item)?.let { MediaFileAttempt.Opened(it) } ?: MediaFileAttempt.Failed(MediaStage.READ)
 }
 
 private const val MEDIA_TYPE_IMAGE = MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
@@ -114,7 +131,7 @@ class ContentResolverMediaListing(private val context: Context) : MediaListing {
     }
 
     /** 画像と動画の表に知らせを張る。外すときは戻り値を呼ぶ。 */
-    fun observe(onChange: () -> Unit): () -> Unit {
+    override fun observe(onChange: () -> Unit): () -> Unit {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) = onChange()
         }
@@ -159,28 +176,40 @@ class ContentResolverMediaListing(private val context: Context) : MediaListing {
  * **呼ぶのは位置の権限があるときだけ**（Q15。[MediaScanner] が門を持つ）。
  */
 class ContentResolverMediaFileReader(private val context: Context) : MediaFileReader {
-    override fun read(item: MediaListed): MediaFileContent? = try {
+    override fun read(item: MediaListed): MediaFileContent? = (attempt(item) as? MediaFileAttempt.Opened)?.content
+
+    override fun attempt(item: MediaListed): MediaFileAttempt = try {
         open(item)
     } catch (_: java.io.IOException) {
-        null
+        MediaFileAttempt.Failed(MediaStage.READ)
     } catch (_: IllegalArgumentException) {
-        null
+        MediaFileAttempt.Failed(MediaStage.READ)
     } catch (_: SecurityException) {
-        null
+        MediaFileAttempt.Failed(MediaStage.READ)
     } catch (_: UnsupportedOperationException) {
-        null
+        MediaFileAttempt.Failed(MediaStage.READ)
     }
 
-    private fun open(item: MediaListed): MediaFileContent? {
+    private fun open(item: MediaListed): MediaFileAttempt {
         val base = if (item.kind == MediaKind.VIDEO) {
             MediaStore.Video.Media.getContentUri(item.row.volume)
         } else {
             MediaStore.Images.Media.getContentUri(item.row.volume)
         }
         val uri: Uri = MediaStore.setRequireOriginal(ContentUris.withAppendedId(base, item.row.mediaId))
-        val sha = context.contentResolver.openInputStream(uri)?.use { sha256Hex(it) }
+        // 開けない（READ）と、開けたのに計算できない（HASH）は別の段（C19）
+        val stream = context.contentResolver.openInputStream(uri) ?: return MediaFileAttempt.Failed(MediaStage.READ)
+        val sha = try {
+            stream.use { sha256Hex(it) }
+        } catch (_: java.io.IOException) {
+            null
+        }
         val meta = if (sha == null) null else metaOf(item.kind, uri)
-        return if (sha == null || meta == null) null else MediaFileContent(sha, meta)
+        return when {
+            sha == null -> MediaFileAttempt.Failed(MediaStage.HASH)
+            meta == null -> MediaFileAttempt.Failed(MediaStage.READ)
+            else -> MediaFileAttempt.Opened(MediaFileContent(sha, meta))
+        }
     }
 
     private fun metaOf(kind: MediaKind, uri: Uri): MediaFileMeta? =

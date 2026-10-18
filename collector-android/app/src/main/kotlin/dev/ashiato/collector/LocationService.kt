@@ -85,6 +85,9 @@ open class LocationService : Service() {
      * 窓も取り込み済みの粒度も積んだ原文の指紋も、**全部ソースの中**にある。
      */
     private lateinit var sources: List<Running>
+
+    /** 写真・スクリーンショット・画像・動画の読み手（4 つのソースで 1 本。design D1 / D22） */
+    private lateinit var mediaCapture: MediaCapture
     private lateinit var deviceId: String
 
     /** 途切れの問い合わせ（ST14）。**位置の生存信号の契機だけ**が呼ぶ。最初に使うまで作らない */
@@ -120,6 +123,8 @@ open class LocationService : Service() {
          * `10 / 10` で「取得率 100 %」になる。それは見分けたかった当の区間。
          */
         val counters: AttemptCounters,
+        /** メディアのソースだけが持つ、生存信号の 1 区間ぶんの失敗の段（design D22）。無ければ接続の欄も載せない（D7） */
+        val stages: MediaStageLog? = null,
     ) {
         /**
          * 取得元が契機を**自分で配っている**（位置。[CollectionResult.Streaming]）。
@@ -168,6 +173,20 @@ open class LocationService : Service() {
      * `UsageStatsManager` に溜まった統計は単体では作れないので、単体はこの口の偽物に当たる。
      */
     protected open fun newUsageSource(): UsageSource = UsageStatsSource(this)
+
+    /**
+     * 端末の写真と動画の一覧・ファイルを開く口・読み手の刻み・権限の読み取り。**試験だけが差し替える**
+     * （実物の一覧は Robolectric では作れない。実物は計測テストが見る）。
+     */
+    protected open fun newMediaListing(): MediaListing = ContentResolverMediaListing(this)
+
+    protected open fun newMediaFiles(): MediaFileReader = ContentResolverMediaFileReader(this)
+
+    /** 位置の収集とは別の糸（位置の 60 秒の取得を止めない。design D1） */
+    protected open fun newMediaTimer(): MediaScanTimer =
+        ExecutorMediaScanTimer(Executors.newSingleThreadScheduledExecutor())
+
+    protected open fun readMediaPermissions(): MediaPermissionState = mediaPermissionState(this)
 
     /** 取得時点のアプリの表示名。同上（端末に触らずに記録の組み立てを試験するため）。 */
     protected open fun newAppLabels(): AppLabels = PackageManagerAppLabels(this)
@@ -453,20 +472,69 @@ open class LocationService : Service() {
                 log = logI,
             ),
         )
-        return built.map { source ->
+        val running = built.map { source ->
             // **刻みはソースが名乗る名前から引く**（親がリテラルで持たない）。
             // `SourceCadence` の `init` が「生存信号の区間 ≥ 取得契機の間隔」を守っている
             val cadence = SourceCadence.entries.first { it.logicalSource == source.logicalSource }
+            Running(cadence = cadence, source = source, counters = newCounters(cadence))
+        }
+        return running + buildMediaSources(zone, newId, user, logW)
+    }
+
+    /**
+     * 数え。**満点の刻みはそのソースの取得間隔**（design D5 / 独立レビュー R10）。
+     * **置き場もソースごと**（2 本目が同じ名前を開くと互いに潰し合う）。
+     */
+    private fun newCounters(cadence: SourceCadence) = AttemptCounters(
+        now = { Instant.now() },
+        intervalMs = cadence.intervalMs,
+        store = newCounterStore(cadence.logicalSource),
+    )
+
+    /**
+     * メディアの 4 本（design D1 / D22）。読み手は 1 本で、1 回の契機を 4 つのソースのそれぞれに 1 試行と数える。
+     * 取得の契機は読み手が自分で配る（親の `collect()` は何も積まない）。
+     */
+    private fun buildMediaSources(
+        zone: () -> ZoneId,
+        newId: () -> String,
+        user: () -> String,
+        logW: (String) -> Unit,
+    ): List<Running> {
+        val channels = MEDIA_CADENCES.map { MediaChannel(it, newCounters(it)) }
+        val listing = newMediaListing()
+        val notifier = MediaNotifier(this, logW)
+        mediaCapture = MediaCapture(
+            channels = channels,
+            permissions = ::readMediaPermissions,
+            notice = notifier::update,
+            listing = listing,
+            driver = { onOutcome ->
+                val scanner = MediaScanner(
+                    listing = listing,
+                    files = newMediaFiles(),
+                    outbox = outbox,
+                    store = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW),
+                    env = MediaScanEnvironment(
+                        access = { readMediaPermissions().forScanner() },
+                        now = { Instant.now() },
+                        zone = zone,
+                        userId = user,
+                        deviceId = deviceId,
+                        newId = newId,
+                    ),
+                    log = { Log.i(TAG, it) },
+                )
+                MediaScanDriver(scanner, newMediaTimer(), onOutcome = onOutcome)
+            },
+            log = logW,
+        )
+        return channels.map { channel ->
             Running(
-                cadence = cadence,
-                source = source,
-                counters = AttemptCounters(
-                    now = { Instant.now() },
-                    // **満点の刻みはそのソースの取得間隔**（design D5 / 独立レビュー R10）
-                    intervalMs = cadence.intervalMs,
-                    // **数えの置き場もソースごと**（2 本目が同じ名前を開くと互いに潰し合う）
-                    store = newCounterStore(cadence.logicalSource),
-                ),
+                cadence = channel.cadence,
+                source = MediaSourceAdapter(channel.cadence, mediaCapture::capability),
+                counters = channel.counters,
+                stages = channel.stages,
             )
         }
     }
@@ -672,6 +740,7 @@ open class LocationService : Service() {
         startBeating()
         startTicking()
         startClockSkew()
+        startMediaCapture()
         FeelingReminderWiring.ensureScheduled(applicationContext)
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
@@ -758,6 +827,17 @@ open class LocationService : Service() {
         }
     }
 
+    /**
+     * 写真と動画の読み手を始める。**取得条件を見ずに始める** —— 読む前に権限を見るのは読み手の門（Q15）で、
+     * 後から許可されたら次の契機で戻る。**落ちても他を止めない**（本人の決定 Q7）。
+     */
+    private fun startMediaCapture() {
+        if (!::mediaCapture.isInitialized) return
+        runCatching { mediaCapture.start() }.onFailure {
+            Log.w(TAG, Telemetry.line("media_start_crashed", source = null, error = it.javaClass.simpleName))
+        }
+    }
+
     /** 5 分ごとにその時点の未送信をまとめて送る（design D9）。 */
     private fun startFlushing() {
         if (flusher != null) return
@@ -833,6 +913,9 @@ open class LocationService : Service() {
                 now = { Instant.now() },
                 newId = { UUID.randomUUID().toString() },
                 log = { Log.i(TAG, it) },
+                // 接続の有無はメディアだけ別の欄に載せる（D7）。取得可否には含めない
+                network = running.stages?.let { { hasNetwork(this) } },
+                onStored = { running.stages?.reset() },
             )
             // **起動時の 1 発も守る**（review/code.md の R36 / I7）。
             // `readCapability()`（端末を読む）も `outbox.add()`（filesDir への追記）も投げうる。
@@ -857,6 +940,7 @@ open class LocationService : Service() {
 
     override fun onDestroy() {
         outagePoller.shutdown()
+        if (::mediaCapture.isInitialized) mediaCapture.stop()
         if (::sources.isInitialized) {
             for (running in sources) {
                 running.source.stop()

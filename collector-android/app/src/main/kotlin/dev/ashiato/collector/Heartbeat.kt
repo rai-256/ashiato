@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Instant
 
 /**
  * 生存信号の間隔。**登録簿の想定間隔（FR-35 の初期値 = 位置 6 時間）に合わせる**（tasks 7.1）。
@@ -44,6 +46,13 @@ data class HeartbeatRequest(
     val successes: Int,
     /** 原文。**素通しで残る**ので、同じ 1 件は毎回同じ文字列でなければならない */
     val raw: String,
+    /**
+     * 送る契機の時点で接続があったか（メディアのソースだけ。任意の欄。D7）。無い要求は「分からない」。
+     * **無いときは欄ごと送らない**（`NEVER`）—— 位置・アプリ利用・集計・時計の信号の形は今のまま。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val network: Boolean? = null,
 ) : Outboxable
 
 /**
@@ -141,11 +150,24 @@ class AttemptCounters(
     private var since: Instant = restored?.first ?: now()
     private var successes: Int = restored?.second ?: 0
 
+    /**
+     * 契機が来たのに取れなかった数（メディア。design D22）。位置とアプリ利用は契機が呼ばれない／読めなかった契機を
+     * 数えない作りなので使わない。**端末の保存領域には置かない** —— 立て直しで失うのは、その区間の試行の過少な数え
+     * （経過時間から引く満点を下回らない）だけで、成功が試行を超えることにはならない。
+     */
+    private var failures: Int = 0
+
     /** 取得できた。**契機ごとに 1 回**呼ぶ。 */
     @Synchronized
     fun recordSuccess() {
         successes++
         store.save(since, successes)
+    }
+
+    /** 契機が来たが取れなかった。**試行に数える**（成功には数えない）。 */
+    @Synchronized
+    fun recordFailure() {
+        failures++
     }
 
     /** いまの数え。**読むだけでは戻さない**（信号を組み立てられなかったときに数えが消える）。 */
@@ -172,6 +194,7 @@ class AttemptCounters(
         if (stored) {
             since = now()
             successes = 0
+            failures = 0
             store.save(since, successes)
         }
         return stored to value
@@ -182,6 +205,7 @@ class AttemptCounters(
         val got = Counts(attemptsNow(), successes)
         since = now()
         successes = 0
+        failures = 0
         store.save(since, successes)
         return got
     }
@@ -193,7 +217,7 @@ class AttemptCounters(
     private fun attemptsNow(): Int {
         val elapsedMs = java.time.Duration.between(since, now()).toMillis()
         val expected = if (elapsedMs <= 0) 0 else (elapsedMs / intervalMs).toInt()
-        return maxOf(expected, successes)
+        return maxOf(expected, successes + failures)
     }
 }
 
@@ -289,6 +313,9 @@ fun migrateLegacyCounters(dir: java.io.File, logicalSource: String): java.io.Fil
  *
  * **記録の生成に相乗りさせない**（tasks 7.4）—— 記録が 1 件も生成されない期間に
  * 稼働を残すことが FR-78 の目的そのものなので、記録の契機から呼ぶと意味が消える。
+ *
+ * [network] は送る契機の時点で接続があったか（メディアだけ。D7）—— 無ければ欄ごと載せない
+ * （位置・アプリ利用・集計・時計は今のまま）。[onStored] は信号を積めて数えを戻したあとに呼ぶ（区間の記憶を戻す）。
  */
 class HeartbeatEmitter(
     private val outbox: Outbox<HeartbeatRequest>,
@@ -300,6 +327,8 @@ class HeartbeatEmitter(
     private val now: () -> Instant,
     private val newId: () -> String,
     private val log: (String) -> Unit = {},
+    private val network: (() -> Boolean)? = null,
+    private val onStored: () -> Unit = {},
 ) {
     /** 1 件を積む。積めたかを返す。 */
     fun emit(): Boolean {
@@ -310,13 +339,15 @@ class HeartbeatEmitter(
         val (stored, _) = counters.takeAfter { counts ->
             buildAndStore(cap, at, counts.attempts, counts.successes) to Unit
         }
+        if (stored) onStored()
         return stored
     }
 
     private fun buildAndStore(cap: Capability, at: Instant, attempts: Int, successes: Int): Boolean {
+        val connected = network?.let { runCatching(it).getOrDefault(false) }
         // **原文は組み立てた値そのもの。** 素通しで残るので、同じ 1 件は毎回同じ文字列になる
         // （冪等キーがこの文字列から作られる）。
-        val fields = mapOf(
+        val fields = linkedMapOf<String, kotlinx.serialization.json.JsonElement>(
             "alive" to JsonPrimitive(true),
             "capturable" to JsonPrimitive(cap.capturable),
             "blockers" to JsonPrimitive(cap.blockers.joinToString(",")),
@@ -325,6 +356,7 @@ class HeartbeatEmitter(
             "emitted_at" to JsonPrimitive(at.toString()),
             "device_id" to JsonPrimitive(deviceId),
         )
+        if (connected != null) fields["network"] = JsonPrimitive(connected)
         val request = HeartbeatRequest(
             id = newId(),
             userId = userId,
@@ -335,6 +367,7 @@ class HeartbeatEmitter(
             blockers = cap.blockers,
             attempts = attempts,
             successes = successes,
+            network = connected,
             raw = ingestJson.encodeToString(JsonObject(fields)),
         )
         val stored = outbox.add(request)

@@ -43,6 +43,13 @@ sealed interface MediaScanResult {
     data class Held(val enqueued: Int) : MediaScanResult
 }
 
+/**
+ * 1 回の契機の結果を、4 つのソースへ配る形（design D22）。
+ * [unavailable] があれば何も読んでいない（権限が無い）。[failedStages] は、そのソースの項目のどれかが失敗した最後の段。
+ * 失敗の無いソース（0 件のソースを含む）が成功。
+ */
+class MediaScanOutcome(val unavailable: String?, val failedStages: Map<String, MediaStage>)
+
 /** 読み手が端末と利用者について聞く口（時計・地域・利用者・端末・記録の識別子・アクセスの状態）。 */
 class MediaScanEnvironment(
     /** 写真の位置の権限が無ければ [MediaAccess.NO_LOCATION]（Q15）。それ以外の状態より先に答える */
@@ -72,20 +79,31 @@ class MediaScanner(
     private val env: MediaScanEnvironment,
     private val log: (String) -> Unit = {},
 ) {
-    /** 読み進めた印の保存や台帳の更新が重ならないよう 1 本ずつ。 */
+    /**
+     * 読み進めた印の保存や台帳の更新が重ならないよう 1 本ずつ。
+     * [onOutcome] は 1 回の契機ごとの結果の宛先（生存信号の数えと取得可否。D22）。
+     */
     @Synchronized
-    fun scan(): MediaScanResult {
+    fun scan(onOutcome: (MediaScanOutcome) -> Unit = {}): MediaScanResult {
         val level = env.access()
         val blocked = when (level) {
             MediaAccess.NONE -> REASON_NO_ACCESS
             MediaAccess.NO_LOCATION -> REASON_NO_LOCATION
             else -> null
         }
-        if (blocked != null) return MediaScanResult.Unavailable(blocked)
+        if (blocked != null) {
+            onOutcome(MediaScanOutcome(blocked, emptyMap()))
+            return MediaScanResult.Unavailable(blocked)
+        }
         val pass = Pass(level, env.now(), store.loadCursor(), listing.volumes())
         pass.run()
         log(Telemetry.line("media_scan", source = null, count = pass.enqueued))
-        return if (pass.held || pass.unreadable.isNotEmpty()) MediaScanResult.Held(pass.enqueued) else MediaScanResult.Scanned(pass.enqueued, pass.full)
+        onOutcome(MediaScanOutcome(null, pass.failedStages))
+        return if (pass.held || pass.unreadable.isNotEmpty()) {
+            MediaScanResult.Held(pass.enqueued)
+        } else {
+            MediaScanResult.Scanned(pass.enqueued, pass.full)
+        }
     }
 
     /** 1 回の呼びの作業場。 */
@@ -96,11 +114,16 @@ class MediaScanner(
         val volumes: Set<String>,
     ) {
         var enqueued = 0
+
         /** 積めなかった・書けなかった。消えた事実の判定も全部の突き合わせの印も止める */
         var held = false
 
         /** 開けなかった項目がある置き場。その置き場の世代の印だけ進めず、次の契機に取り直す（台帳と版は進める） */
         val unreadable = HashSet<String>()
+
+        /** 失敗した段（ソースごとに最後のもの。C19）と、この契機で一覧に見えたソース */
+        val failedStages = LinkedHashMap<String, MediaStage>()
+        private val listedSources = LinkedHashSet<String>()
         val full: Boolean = fullReconcileDue(
             cursor,
             at,
@@ -154,17 +177,24 @@ class MediaScanner(
                 page = listing.page(volume, afterId, since, SCAN_BATCH)
                 page.forEach { handle(volume, it) }
                 if (page.isNotEmpty()) {
-                    if (!store.saveLedger(volume, persistedEntries(volume))) markHeld(volume)
+                    saveLedger(volume) { page.map { sourceOf(it, null) } }
                     afterId = page.last().row.mediaId
                 }
                 if (page.size < SCAN_BATCH) break
             }
         }
 
-        /** 保存する台帳: この契機で結んだ行 + 作り直しで番号を信じていない古い行（結び直しの完了までディスクに残す） */
-        private fun persistedEntries(volume: String): List<LedgerEntry> {
+        /**
+         * 台帳を書く。保存するのは、この契機で結んだ行 + 作り直しで番号を信じていない古い行（結び直しの完了までディスクに残す）。
+         * 書けなければ印を進めず、[failedSources] が挙げるソースの失敗（LEDGER）にする。
+         */
+        private fun saveLedger(volume: String, failedSources: (List<LedgerEntry>) -> Collection<String>) {
             val current = ledgers.getValue(volume)
-            return current.values + stale.filter { it.volume == volume && it.entry.mediaId !in current }.map { it.entry }
+            val old = stale.filter { it.volume == volume && it.entry.mediaId !in current }
+            val entries = current.values + old.map { it.entry }
+            if (store.saveLedger(volume, entries)) return
+            markHeld(volume)
+            failedSources(entries).forEach { failedStages[it] = MediaStage.LEDGER }
         }
 
         private fun markHeld(volume: String) {
@@ -177,8 +207,14 @@ class MediaScanner(
             seen += volume to id
             val entry = if (volume in untrusted) null else ledgers.getValue(volume)[id]
             if (entry != null && unchanged(entry, item)) return
-            val content = files.read(item)
-            if (content == null) unreadable += volume else record(volume, item, entry, content)
+            listedSources += sourceOf(item, entry)
+            when (val attempt = files.attempt(item)) {
+                is MediaFileAttempt.Failed -> {
+                    unreadable += volume
+                    failedStages[sourceOf(item, entry)] = attempt.stage
+                }
+                is MediaFileAttempt.Opened -> record(volume, item, entry, attempt.content)
+            }
         }
 
         /** 読めた項目 1 件を、記録にして積み、台帳を直す。積めなければ台帳は変えず、印も進めない。 */
@@ -189,6 +225,7 @@ class MediaScanner(
             if (request != null) enqueued++
             if (request != null && !outbox.add(request)) {
                 markHeld(volume)
+                failedStages[decision.source] = MediaStage.ENQUEUE
             } else {
                 decision.consumed?.let { slot ->
                     index.remove(slot.volume, slot.entry)
@@ -221,7 +258,9 @@ class MediaScanner(
             val twin = index.twinOf(sha, volume, item.row.mediaId)
             // 作り直しの途中で落ちた後: 前の契機が結んだ行（同じ番号・同じ中身）は同じ記録の続き
             val own = if (volume in untrusted) {
-                stale.firstOrNull { it.volume == volume && it.entry.mediaId == item.row.mediaId && it.entry.sha256 == sha }
+                stale.firstOrNull {
+                    it.volume == volume && it.entry.mediaId == item.row.mediaId && it.entry.sha256 == sha
+                }
             } else {
                 null
             }
@@ -264,14 +303,17 @@ class MediaScanner(
                     stale.remove(slot)
                 }
             }
-            for (volume in volumes) if (!store.saveLedger(volume, persistedEntries(volume))) markHeld(volume)
+            for (volume in volumes) saveLedger(volume) { entries -> entries.map { it.source } }
         }
 
-        private fun vanishedStored(slot: Slot): Boolean {
+        private val vanishedStored: (Slot) -> Boolean = { slot ->
             enqueued++
             val stored = outbox.add(vanishedRequest(slot.entry, slot.volume, at, env))
-            if (!stored) markHeld(slot.volume)
-            return stored
+            if (!stored) {
+                markHeld(slot.volume)
+                failedStages[slot.entry.source] = MediaStage.ENQUEUE
+            }
+            stored
         }
 
         /**
@@ -291,7 +333,10 @@ class MediaScanner(
                 next[volume] = VolumeCursor(generation, versions[volume])
             }
             val lastFull = if (full && !held) at.toString() else cursor.lastFullReconcile
-            if (!store.saveCursor(MediaCursor(next, lastFull))) held = true
+            if (!store.saveCursor(MediaCursor(next, lastFull))) {
+                held = true
+                listedSources.forEach { failedStages[it] = MediaStage.LEDGER }
+            }
         }
     }
 
@@ -302,6 +347,10 @@ class MediaScanner(
         const val REASON_NO_LOCATION = "no_location_permission"
     }
 }
+
+/** 項目のソース。台帳に結んだものがあればそれ（最初に決めたもので固定。D3）、無ければ保存先から決める */
+private fun sourceOf(item: MediaListed, entry: LedgerEntry?): String =
+    entry?.source ?: mediaLogicalSource(item.kind, item.row.relativePath)
 
 /** 送るか・どのソースか・何を台帳から外すかの判断。 */
 private class Decision(

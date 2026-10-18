@@ -89,12 +89,21 @@ class MediaListingTest {
         val provider = FakeMediaProvider()
         ShadowContentResolver.registerProviderInternal(MediaStore.AUTHORITY, provider)
         val listing = ContentResolverMediaListing(ApplicationProvider.getApplicationContext())
-        assertEquals(listOf(8L), listing.page(PRIMARY, afterId = 7, generationAfter = null, limit = 10).map { it.row.mediaId })
-        assertEquals(listOf(8L), listing.page(PRIMARY, afterId = 0, generationAfter = 9, limit = 10).map { it.row.mediaId })
+        assertEquals(
+            listOf(8L),
+            listing.page(PRIMARY, afterId = 7, generationAfter = null, limit = 10).map { it.row.mediaId },
+        )
+        assertEquals(
+            listOf(8L),
+            listing.page(PRIMARY, afterId = 0, generationAfter = 9, limit = 10).map { it.row.mediaId },
+        )
         assertTrue(checkNotNull(provider.lastSelection).contains("generation_modified > ?"))
         assertEquals(listOf("0", "9"), provider.lastValues)
         assertTrue(checkNotNull(provider.lastSelection).contains("media_type IN (1, 3)"))
-        assertEquals(listOf(7L), listing.page(PRIMARY, afterId = 0, generationAfter = null, limit = 1).map { it.row.mediaId })
+        assertEquals(
+            listOf(7L),
+            listing.page(PRIMARY, afterId = 0, generationAfter = null, limit = 1).map { it.row.mediaId },
+        )
         assertTrue(listing.contains(PRIMARY, 8))
         assertFalse(listing.contains(PRIMARY, 99))
         assertEquals(listOf("99"), provider.lastValues)

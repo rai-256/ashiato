@@ -26,6 +26,8 @@ class MediaScanDriver(
     private val timer: MediaScanTimer,
     private val debounceMs: Long = OBSERVER_DEBOUNCE_MS,
     private val reviewEveryMs: Long = REVIEW_EVERY_MS,
+    /** 1 回の契機ごとの結果の宛先（生存信号の数えと取得可否。D22） */
+    private val onOutcome: (MediaScanOutcome) -> Unit = {},
 ) {
     private var pendingChange: (() -> Unit)? = null
     private var cancelReview: (() -> Unit)? = null
@@ -54,12 +56,12 @@ class MediaScanDriver(
         pendingChange?.invoke()
         pendingChange = timer.after(debounceMs) {
             synchronized(this) { pendingChange = null }
-            scanner.scan()
+            scanner.scan(onOutcome)
         }
     }
 
     private fun review() {
-        scanner.scan()
+        scanner.scan(onOutcome)
         synchronized(this) {
             if (running) cancelReview = timer.after(reviewEveryMs) { review() }
         }

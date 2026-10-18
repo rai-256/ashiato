@@ -35,6 +35,16 @@ class FakeMediaListing : MediaListing {
         return out
     }
 
+    /** 保存の知らせの宛先（本物は `ContentObserver`）。`changed()` で知らせを 1 回届ける。 */
+    var onChange: (() -> Unit)? = null
+
+    override fun observe(onChange: () -> Unit): () -> Unit {
+        this.onChange = onChange
+        return { this.onChange = null }
+    }
+
+    fun changed() = onChange?.invoke()
+
     override fun contains(volume: String, mediaId: Long): Boolean {
         contains++
         return items[volume]?.containsKey(mediaId) == true
@@ -133,8 +143,17 @@ class FakeMediaFiles(private val listing: FakeMediaListing) : MediaFileReader {
     var unreadable = false
     val unreadableIds = mutableSetOf<Long>()
 
+    /** 開けるのにこの段で失敗する（C19。開けない READ とハッシュの計算の HASH を分けて作る） */
+    var failStage: MediaStage? = null
+
     /** 開こうとした回数（開けなかったものを含む） */
     var attempts = 0
+
+    override fun attempt(item: MediaListed): MediaFileAttempt {
+        val stage = failStage ?: return super.attempt(item)
+        attempts++
+        return MediaFileAttempt.Failed(stage)
+    }
 
     override fun read(item: MediaListed): MediaFileContent? {
         attempts++
