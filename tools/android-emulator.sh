@@ -42,6 +42,9 @@ adb shell settings put global window_animation_scale 0 >/dev/null
 adb shell settings put global transition_animation_scale 0 >/dev/null
 adb shell settings put global animator_duration_scale 0 >/dev/null
 
+echo "== 計測テストの写真と動画を入れる（別のアプリが入れたものとして。ST09）"
+./tools/android-media-fixtures.sh
+
 echo "== 計測テスト"
 # -Pashiato.baseUrl は平文 HTTP を 127.0.0.1（端末の中のテスト用サーバ）へ許すためだけ。送信先には使われない
 # **2 段に分ける。** 権限を拒否したときのテスト（@NeedsPristinePermissions）は「未許可・未要求」から

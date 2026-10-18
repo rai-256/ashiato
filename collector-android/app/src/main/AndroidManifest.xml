@@ -43,6 +43,9 @@
     <!-- FR-3 写真の位置。宣言しないと OS が EXIF の位置を落として返す（EXT-D） -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- ST09 Q6/Q5: 動画の一覧（メタだけ）を読む。Task 2 の計測テスト（P12: 動画の入れ物の位置）が先に要る。
+         ほかの権限（READ_MEDIA_VISUAL_USER_SELECTED など）と要求の流れは Task 4.1 が足す -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <!-- FR-11 健康データの履歴。**宣言しない期間の 30 日より前は永久に読めない**（EXT-C） -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
