@@ -131,9 +131,14 @@ class FakeMediaListing : MediaListing {
 class FakeMediaFiles(private val listing: FakeMediaListing) : MediaFileReader {
     var opened = 0
     var unreadable = false
+    val unreadableIds = mutableSetOf<Long>()
+
+    /** 開こうとした回数（開けなかったものを含む） */
+    var attempts = 0
 
     override fun read(item: MediaListed): MediaFileContent? {
-        if (unreadable) return null
+        attempts++
+        if (unreadable || item.row.mediaId in unreadableIds) return null
         opened++
         val bytes = listing.contents.getValue(item.row.volume to item.row.mediaId)
         return MediaFileContent(sha256Hex(ByteArrayInputStream(bytes)), MediaFileMeta(kind = item.kind))

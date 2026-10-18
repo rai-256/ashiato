@@ -48,6 +48,7 @@ class MediaScannerTest {
         val timer = VirtualTimer()
         val driver = MediaScanDriver(env.scanner, timer)
         driver.start()
+        timer.advance(0) // 最初の見直しは契機の口で走る（呼び手を塞がない）
         assertEquals(0, env.photos().size)
         env.camera(1, "just taken")
         driver.onMediaChanged()
@@ -64,6 +65,7 @@ class MediaScannerTest {
         val timer = VirtualTimer()
         val driver = MediaScanDriver(env.scanner, timer)
         driver.start()
+        timer.advance(0) // 最初の見直しは契機の口で走る（呼び手を塞がない）
         env.camera(1, "no notification")
         timer.advance(REVIEW_EVERY_MS - 1) { }
         assertEquals(0, env.photos().size)
@@ -208,6 +210,53 @@ class MediaScannerTest {
         env.files.unreadable = false
         env.scan()
         assertEquals(1, env.photos().size)
+    }
+
+    @Test
+    fun one_unopenable_file_does_not_make_every_later_scan_reopen_everything() {
+        val env = MediaScanEnv()
+        repeat(5) { env.camera(it + 1L, "photo $it") }
+        env.files.unreadableIds += 5L
+        assertTrue(env.scan() is MediaScanResult.Held)
+        assertEquals(4, env.photos().size)
+        env.files.attempts = 0
+        env.advanceHours(1)
+        env.scan()
+        assertEquals("開けない 1 枚だけを試す", 1, env.files.attempts)
+        env.files.unreadableIds.clear()
+        env.advanceHours(1)
+        env.scan()
+        assertEquals(5, env.photos().size)
+    }
+
+    @Test
+    fun an_unopenable_file_does_not_stop_the_vanished_judgement() {
+        val env = MediaScanEnv()
+        env.camera(1, "stays")
+        env.camera(2, "goes")
+        env.scan()
+        env.listing.remove(PRIMARY, 2)
+        env.camera(3, "stuck")
+        env.files.unreadableIds += 3L
+        env.advanceHours(25)
+        env.scan()
+        assertEquals(1, env.vanished().size)
+    }
+
+    @Test
+    fun a_rebuild_keeps_the_old_ledger_on_disk_until_it_is_matched_again() {
+        val env = MediaScanEnv()
+        repeat(3) { env.camera(it + 1L, "photo $it") }
+        env.scan()
+        env.listing.rebuild(PRIMARY, 100)
+        env.files.unreadableIds += 101L
+        assertTrue(env.scan() is MediaScanResult.Held)
+        env.scanner = env.newScanner() // 落ちて再び始める: ディスクの台帳だけが頼り
+        env.files.unreadableIds.clear()
+        env.advanceHours(1)
+        env.scan()
+        assertEquals("振り直されただけで記録は増えない", 3, env.photos().size)
+        assertEquals(0, env.vanished().size)
     }
 
     @Test

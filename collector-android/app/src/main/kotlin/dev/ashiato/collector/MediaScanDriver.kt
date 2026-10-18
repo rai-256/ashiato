@@ -31,11 +31,11 @@ class MediaScanDriver(
     private var cancelReview: (() -> Unit)? = null
     private var running = false
 
-    /** 始める: 1 度見直し、以降 6 時間ごとに見直す。 */
+    /** 始める: 1 度見直し、以降 6 時間ごとに見直す。最初の見直しも契機の口に渡す（呼び手のスレッドを塞がない。D1）。 */
     @Synchronized
     fun start() {
         running = true
-        review()
+        cancelReview = timer.after(0) { review() }
     }
 
     @Synchronized

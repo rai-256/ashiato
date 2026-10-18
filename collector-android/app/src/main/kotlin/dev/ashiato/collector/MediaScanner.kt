@@ -85,7 +85,7 @@ class MediaScanner(
         val pass = Pass(level, env.now(), store.loadCursor(), listing.volumes())
         pass.run()
         log(Telemetry.line("media_scan", source = null, count = pass.enqueued))
-        return if (pass.held) MediaScanResult.Held(pass.enqueued) else MediaScanResult.Scanned(pass.enqueued, pass.full)
+        return if (pass.held || pass.unreadable.isNotEmpty()) MediaScanResult.Held(pass.enqueued) else MediaScanResult.Scanned(pass.enqueued, pass.full)
     }
 
     /** 1 回の呼びの作業場。 */
@@ -96,7 +96,11 @@ class MediaScanner(
         val volumes: Set<String>,
     ) {
         var enqueued = 0
+        /** 積めなかった・書けなかった。消えた事実の判定も全部の突き合わせの印も止める */
         var held = false
+
+        /** 開けなかった項目がある置き場。その置き場の世代の印だけ進めず、次の契機に取り直す（台帳と版は進める） */
+        val unreadable = HashSet<String>()
         val full: Boolean = fullReconcileDue(
             cursor,
             at,
@@ -150,11 +154,17 @@ class MediaScanner(
                 page = listing.page(volume, afterId, since, SCAN_BATCH)
                 page.forEach { handle(volume, it) }
                 if (page.isNotEmpty()) {
-                    if (!store.saveLedger(volume, ledgers.getValue(volume).values)) markHeld(volume)
+                    if (!store.saveLedger(volume, persistedEntries(volume))) markHeld(volume)
                     afterId = page.last().row.mediaId
                 }
                 if (page.size < SCAN_BATCH) break
             }
+        }
+
+        /** 保存する台帳: この契機で結んだ行 + 作り直しで番号を信じていない古い行（結び直しの完了までディスクに残す） */
+        private fun persistedEntries(volume: String): List<LedgerEntry> {
+            val current = ledgers.getValue(volume)
+            return current.values + stale.filter { it.volume == volume && it.entry.mediaId !in current }.map { it.entry }
         }
 
         private fun markHeld(volume: String) {
@@ -168,7 +178,7 @@ class MediaScanner(
             val entry = if (volume in untrusted) null else ledgers.getValue(volume)[id]
             if (entry != null && unchanged(entry, item)) return
             val content = files.read(item)
-            if (content == null) markHeld(volume) else record(volume, item, entry, content)
+            if (content == null) unreadable += volume else record(volume, item, entry, content)
         }
 
         /** 読めた項目 1 件を、記録にして積み、台帳を直す。積めなければ台帳は変えず、印も進めない。 */
@@ -209,7 +219,14 @@ class MediaScanner(
             digest: String,
         ): Decision {
             val twin = index.twinOf(sha, volume, item.row.mediaId)
+            // 作り直しの途中で落ちた後: 前の契機が結んだ行（同じ番号・同じ中身）は同じ記録の続き
+            val own = if (volume in untrusted) {
+                stale.firstOrNull { it.volume == volume && it.entry.mediaId == item.row.mediaId && it.entry.sha256 == sha }
+            } else {
+                null
+            }
             return when {
+                entry == null && own != null -> Decision(own.entry.source, digest != own.entry.rawDigest, null, own)
                 entry != null && entry.sha256 == sha -> Decision(entry.source, digest != entry.rawDigest, null, null)
                 // 中身が変わった（Q7）。変わった後の中身がすでに別の項目として記録済みなら増やさない
                 entry != null -> Decision(entry.source, twin == null, entry.sha256, null)
@@ -238,14 +255,16 @@ class MediaScanner(
                     .map { Slot(v, it, stale = false, fresh = false) }
             }
             val liveHashes = index.hashesWhere { !it.stale && (it.fresh || (it.volume to it.entry.mediaId) in seen) }
-            for (slot in stale.toList() + unseen) {
+            // 開けなかった項目があると、古い行が「その開けない項目と同じ中身」かを決められないので古い行は判定しない
+            val staleSlots = if (unreadable.isEmpty()) stale.toList() else emptyList()
+            for (slot in staleSlots + unseen) {
                 val stored = slot.entry.sha256 in liveHashes || vanishedStored(slot)
                 if (stored) {
-                    ledgers[slot.volume]?.remove(slot.entry.mediaId)
+                    if (!slot.stale) ledgers[slot.volume]?.remove(slot.entry.mediaId)
                     stale.remove(slot)
                 }
             }
-            for (volume in volumes) if (!store.saveLedger(volume, ledgers.getValue(volume).values)) markHeld(volume)
+            for (volume in volumes) if (!store.saveLedger(volume, persistedEntries(volume))) markHeld(volume)
         }
 
         private fun vanishedStored(slot: Slot): Boolean {
@@ -255,11 +274,21 @@ class MediaScanner(
             return stored
         }
 
-        /** 置き場ごとに、積めなかったものが無い置き場だけ読み進めた印を進める。 */
+        /**
+         * 置き場ごとに、積めなかったものが無い置き場だけ印を進める。置き場の版は開けない項目と切り離して書く
+         * （書かないと次も「作り直された」と見て全部を開き直す）。開けない項目がある置き場は世代の数だけ据え置く。
+         * 古い行の判定が済んでいない置き場は版も据え置く。
+         */
         private fun advanceCursor() {
             val next = HashMap(cursor.volumes)
             for (volume in volumes) {
-                if (volume !in heldVolumes) next[volume] = VolumeCursor(generations.getValue(volume), versions[volume])
+                if (volume in heldVolumes || stale.any { it.volume == volume }) continue
+                val generation = if (volume in unreadable) {
+                    cursor.volumes[volume]?.generation ?: GENERATION_BEFORE_ALL
+                } else {
+                    generations.getValue(volume)
+                }
+                next[volume] = VolumeCursor(generation, versions[volume])
             }
             val lastFull = if (full && !held) at.toString() else cursor.lastFullReconcile
             if (!store.saveCursor(MediaCursor(next, lastFull))) held = true
@@ -267,6 +296,8 @@ class MediaScanner(
     }
 
     private companion object {
+        /** 世代の数の印がまだ無い置き場で、開けない項目があったとき。次は全行（`> -1`）を見直す */
+        const val GENERATION_BEFORE_ALL = -1L
         const val REASON_NO_ACCESS = "no_media_access"
         const val REASON_NO_LOCATION = "no_location_permission"
     }
