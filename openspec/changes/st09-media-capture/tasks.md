@@ -66,7 +66,7 @@
 **2.2 は「計測テストだけで閉じる Task を作らない」の例外**: 他のアプリの写真の位置が伏せられるかは本物の framework でしか確かめられない。
 手元で `BLOCKED_INFRA`（`/dev/kvm` を開けない）のときは、CI の `android-instrumented` の結果（`MediaPremisesInstrumentedTest` の XML）を証跡にして閉じ、Task 3 以降は 2.3 の `GT` の門だけで進めてよい。
 
-- [ ] 2.1 記録の組み立て（`MediaRecord`。design D4）を純粋な関数で作る: MediaStore の行と EXIF（`ExifInterface`）・入れ物のメタ（`MediaMetadataRetriever`）の値の写像から
+- [x] 2.1 記録の組み立て（`MediaRecord`。design D4）を純粋な関数で作る: MediaStore の行と EXIF（`ExifInterface`）・入れ物のメタ（`MediaMetadataRetriever`）の値の写像から
   `payload` と原文の文字列を組む。出来事の時刻（Q14）・地域（C7）・縮小画像とバイナリの塊の除き方・原文の上限（D4）・外部識別子（`sha256`）を含む。
   ハッシュはファイル全体を流して SHA-256（`MessageDigest`）。
   Scenario: `撮影時刻が記録の出来事の時刻になる` / `撮影時刻が無い画像は保存された時刻になる` / `2000 年より前の撮影時刻は採らない` /
@@ -77,12 +77,12 @@
   材料: `app/src/test/resources/media/` に、GPS・機種・`OffsetTimeOriginal`・縮小画像・`MakerNote` を持つ JPEG と、`OffsetTimeOriginal` の無い JPEG、
   位置つきの短い MP4 を置く（自作。ライセンスは `tools/check-licenses.sh` の対象外の自作物として README に書く）。
   検証: `GT MediaRecordTest`（16 本以上）
-- [ ] 2.2 計測テスト `MediaPremisesInstrumentedTest` を書き、エミュレータで前提を確かめる（確かさ 2 → 4）: (P1) `ACCESS_MEDIA_LOCATION` が無いと他のアプリの写真の
+- [x] 2.2 計測テスト `MediaPremisesInstrumentedTest` を書き、エミュレータで前提を確かめる（確かさ 2 → 4）: (P1) `ACCESS_MEDIA_LOCATION` が無いと他のアプリの写真の
   EXIF の位置が伏せられ、`setRequireOriginal` が例外になる / (P3) 写真を 1 枚足すと `getGeneration` が上がり、`GENERATION_MODIFIED` で拾える /
   (P12) 位置つきの動画の入れ物の位置が `ACCESS_MEDIA_LOCATION` の有無で変わるかを記録する（どちらでも落とさず、結果をテストの出力に残す）。
   写真は `MediaStore` に別のアプリとして入れる（位置を伏せるのは他のアプリの写真だけ。`adb shell content insert` か `adb push` + メディアの再走査を、`tools/android-emulator.sh` と CI の `android-instrumented` の `script` の両方の段に足す）。
   検証: `AT MediaPremisesInstrumentedTest`。結果（P1 / P3 / P12 の観測）を `premises.md` の表の「結果」「確かさ」に書き戻す
-- [ ] 2.3 **記録の大きさの門**（D20 / P13）: 2.1 の材料と、2.2 で入れた本物のカメラの形の写真 1 枚から作った記録の未送信の 1 行の大きさを測り、
+- [x] 2.3 **記録の大きさの門**（D20 / P13）: 2.1 の材料と、2.2 で入れた本物のカメラの形の写真 1 枚から作った記録の未送信の 1 行の大きさを測り、
   `RECORD_SIZE_GATE`（20 KiB = 1 万件で 200 MB = 2 GB の 1 割）以下であることを試験で固定する。**超えたら止めて、design D4 の原文の上限を本人に返す**（deep の問いにする）。
   検証: `GT MediaRecordSizeTest`（1 本以上。これだけで門を判定する）/ `AT MediaPremisesInstrumentedTest`（追加）
 
