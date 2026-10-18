@@ -68,28 +68,31 @@ fun readVideoMeta(retriever: MediaMetadataRetriever): MediaFileMeta {
 private const val MICRO = 1_000_000.0
 private const val MINUTES_PER_DEGREE = 60.0
 private const val SECONDS_PER_DEGREE = 3600.0
+private const val DMS_PARTS = 3
 
 /** 度分秒の有理数（`35/1,40/1,5232/100`）と N/S・E/W を、符号つきの十進の度にする（小数 6 桁。約 0.1 m）。 */
 internal fun gpsCoordinate(dms: String?, ref: String?): Double? {
-    if (dms == null) return null
-    val parts = dms.split(',').map { rational(it) ?: return null }
-    if (parts.size != 3) return null
-    val degrees = parts[0] + parts[1] / MINUTES_PER_DEGREE + parts[2] / SECONDS_PER_DEGREE
+    val parts = dms?.split(',')?.map { rational(it) }
+    if (parts == null || parts.size != DMS_PARTS || parts.any { it == null }) return null
+    val (deg, min, sec) = parts.filterNotNull()
+    val degrees = deg + min / MINUTES_PER_DEGREE + sec / SECONDS_PER_DEGREE
     val signed = if (ref == "S" || ref == "W") -degrees else degrees
     return (signed * MICRO).roundToLong() / MICRO
 }
 
 private fun rational(text: String): Double? {
-    val (n, d) = text.trim().split('/').let { it.getOrNull(0) to (it.getOrNull(1) ?: "1") }
-    val num = n?.toDoubleOrNull() ?: return null
-    val den = d.toDoubleOrNull() ?: return null
-    return if (den == 0.0) null else num / den
+    val halves = text.trim().split('/')
+    val num = halves.getOrNull(0)?.toDoubleOrNull()
+    val den = (halves.getOrNull(1) ?: "1").toDoubleOrNull()
+    return if (num == null || den == null || den == 0.0) null else num / den
 }
+
+private val ISO_6709 = Regex("^([+-]\\d+(?:\\.\\d+)?)([+-]\\d+(?:\\.\\d+)?)")
 
 /** ISO 6709 の `+35.6812+139.7671/`（高度が付くこともある）を（緯度, 経度）にする。 */
 internal fun parseIso6709(text: String): Pair<Double, Double>? {
-    val m = Regex("^([+-]\\d+(?:\\.\\d+)?)([+-]\\d+(?:\\.\\d+)?)").find(text.trim()) ?: return null
-    val lat = m.groupValues[1].toDoubleOrNull() ?: return null
-    val lon = m.groupValues[2].toDoubleOrNull() ?: return null
-    return lat to lon
+    val m = ISO_6709.find(text.trim())
+    val lat = m?.groupValues?.get(1)?.toDoubleOrNull()
+    val lon = m?.groupValues?.get(2)?.toDoubleOrNull()
+    return if (lat == null || lon == null) null else lat to lon
 }

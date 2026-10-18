@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.InputStream
 import java.security.MessageDigest
 import java.time.DateTimeException
@@ -10,12 +16,6 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 出来事の時刻に撮影時刻を採る下限（ST09 Q14）。これより前は「時計が狂っていた」とみなして採らない。
@@ -24,7 +24,9 @@ import kotlinx.serialization.json.JsonPrimitive
 val TAKEN_AT_FLOOR: Instant = Instant.parse("2000-01-02T00:00:00Z")
 
 /** 撮影時刻が端末に保存された時刻よりこれ以上後なら採らない（Q14。ちょうどを含む）。 */
-val TAKEN_AT_MAX_AHEAD: Duration = Duration.ofHours(24)
+val TAKEN_AT_MAX_AHEAD: Duration = Duration.ofHours(TAKEN_AT_MAX_AHEAD_HOURS)
+
+private const val TAKEN_AT_MAX_AHEAD_HOURS = 24L
 
 /** 型が UNDEFINED / BYTE のタグがこの長さを超えたら、値を原文に入れず名前だけ `omitted` に挙げる（design D4（仮））。 */
 const val OMIT_BINARY_OVER: Int = 256
@@ -100,47 +102,62 @@ data class MediaRecord(
  * 採れない（無い・読めない・2000-01-02 より前・保存より 24 時間以上後）ときは保存された時刻 + `time_basis = stored`。
  */
 fun buildMediaRecord(row: MediaStoreRow, meta: MediaFileMeta, sha256: String, zone: ZoneId): MediaRecord {
-    val added = Instant.ofEpochSecond(row.dateAddedSec)
-    val offset = meta.offsetRaw?.let(::parseOffset)
-    val taken = meta.takenAtRaw?.let { parseTakenAt(it, offset ?: zone) }
-    val useTaken = taken != null && taken >= TAKEN_AT_FLOOR && taken < added.plus(TAKEN_AT_MAX_AHEAD)
-    val eventTime = if (useTaken) checkNotNull(taken) else added
-    // 地域: 撮影時刻を採り、メタにずれがあればそれ。それ以外は端末の地域をその時刻に当てる（C7）
-    val fromExif = useTaken && offset != null
-    val tz: ZoneId = if (fromExif) checkNotNull(offset) else zone
-    val tzOffsetMin = tz.rules.getOffset(eventTime).totalSeconds / SECONDS_PER_MINUTE
-
-    val payload = buildMap<String, JsonElement> {
-        put("kind", JsonPrimitive("media"))
-        put("sha256", JsonPrimitive(sha256))
-        put("media_id", JsonPrimitive(row.mediaId))
-        put("volume", JsonPrimitive(row.volume))
-        meta.takenAtRaw?.let { put("taken_at_exif", JsonPrimitive(it)) }
-        meta.offsetRaw?.let { put("offset_exif", JsonPrimitive(it)) }
-        row.dateTakenMs?.let { put("date_taken_store", JsonPrimitive(Instant.ofEpochMilli(it).toString())) }
-        put("date_added", JsonPrimitive(added.toString()))
-        put("time_basis", JsonPrimitive(if (useTaken) "taken" else "stored"))
-        put("tz_basis", JsonPrimitive(if (fromExif) "exif" else "device"))
-        meta.latitude?.let { put("lat", JsonPrimitive(it)) }
-        meta.longitude?.let { put("lon", JsonPrimitive(it)) }
-        meta.exif["Make"]?.let { put("make", JsonPrimitive(it)) }
-        meta.exif["Model"]?.let { put("model", JsonPrimitive(it)) }
-        row.width?.let { put("width", JsonPrimitive(it)) }
-        row.height?.let { put("height", JsonPrimitive(it)) }
-        row.mimeType?.let { put("mime", JsonPrimitive(it)) }
-        row.sizeBytes?.let { put("size_bytes", JsonPrimitive(it)) }
-        meta.durationMs?.let { put("duration_ms", JsonPrimitive(it)) }
-        row.relativePath?.let { put("relative_path", JsonPrimitive(it)) }
-        row.displayName?.let { put("display_name", JsonPrimitive(it)) }
-    }
+    val timing = chooseTiming(row, meta, zone)
     return MediaRecord(
         sha256 = sha256,
-        eventTime = eventTime,
-        tzOffsetMin = tzOffsetMin,
-        tzId = tz.id,
-        payload = JsonObject(payload),
+        eventTime = timing.eventTime,
+        tzOffsetMin = timing.zone.rules.getOffset(timing.eventTime).totalSeconds / SECONDS_PER_MINUTE,
+        tzId = timing.zone.id,
+        payload = payloadOf(row, meta, sha256, timing),
         raw = rawText(row, meta),
     )
+}
+
+/** 出来事の時刻とその地域。[tookTaken] は撮影時刻を採ったか、[zoneFromExif] は地域がメタのずれか（C7）。 */
+private class Timing(val eventTime: Instant, val zone: ZoneId, val tookTaken: Boolean, val zoneFromExif: Boolean)
+
+private fun chooseTiming(row: MediaStoreRow, meta: MediaFileMeta, deviceZone: ZoneId): Timing {
+    val added = Instant.ofEpochSecond(row.dateAddedSec)
+    val offset = meta.offsetRaw?.let(::parseOffset)
+    val taken = meta.takenAtRaw?.let { parseTakenAt(it, offset ?: deviceZone) }
+    return if (taken != null && taken >= TAKEN_AT_FLOOR && taken < added.plus(TAKEN_AT_MAX_AHEAD)) {
+        Timing(taken, offset ?: deviceZone, tookTaken = true, zoneFromExif = offset != null)
+    } else {
+        Timing(added, deviceZone, tookTaken = false, zoneFromExif = false)
+    }
+}
+
+private fun payloadOf(row: MediaStoreRow, meta: MediaFileMeta, sha256: String, timing: Timing): JsonObject {
+    val fields = linkedMapOf<String, JsonElement>()
+    fun put(key: String, value: Any?) {
+        when (value) {
+            null -> Unit
+            is Number -> fields[key] = JsonPrimitive(value)
+            else -> fields[key] = JsonPrimitive(value.toString())
+        }
+    }
+    put("kind", "media")
+    put("sha256", sha256)
+    put("media_id", row.mediaId)
+    put("volume", row.volume)
+    put("taken_at_exif", meta.takenAtRaw)
+    put("offset_exif", meta.offsetRaw)
+    put("date_taken_store", row.dateTakenMs?.let { Instant.ofEpochMilli(it).toString() })
+    put("date_added", Instant.ofEpochSecond(row.dateAddedSec).toString())
+    put("time_basis", if (timing.tookTaken) "taken" else "stored")
+    put("tz_basis", if (timing.zoneFromExif) "exif" else "device")
+    put("lat", meta.latitude)
+    put("lon", meta.longitude)
+    put("make", meta.exif["Make"])
+    put("model", meta.exif["Model"])
+    put("width", row.width)
+    put("height", row.height)
+    put("mime", row.mimeType)
+    put("size_bytes", row.sizeBytes)
+    put("duration_ms", meta.durationMs)
+    put("relative_path", row.relativePath)
+    put("display_name", row.displayName)
+    return JsonObject(fields)
 }
 
 /** 取り込み口へ送る 1 件にする。外部識別子は内容ハッシュそのもの（`external_id_kind = record` の登録は移行にある）。 */
@@ -184,10 +201,21 @@ private const val SECONDS_PER_MINUTE = 60
 private const val THUMBNAIL_TAG = "ThumbnailImage"
 private val THUMBNAIL_POINTER_TAGS = setOf("JPEGInterchangeFormat", "JPEGInterchangeFormatLength")
 
-/** 型が UNDEFINED / BYTE のタグ。長さが [OMIT_BINARY_OVER] を超えたら値を持ち込まない。**文字のタグは長さで落とさない**（review R4） */
+/**
+ * 型が UNDEFINED / BYTE のタグ。長さが [OMIT_BINARY_OVER] を超えたら値を持ち込まない。
+ * **文字のタグは長さで落とさない**（review R4）。
+ */
 private val BINARY_TYPED_TAGS = setOf(
-    "MakerNote", "OECF", "SpatialFrequencyResponse", "DeviceSettingDescription", "CFAPattern", "Xmp",
+    "MakerNote",
+    "OECF",
+    "SpatialFrequencyResponse",
+    "DeviceSettingDescription",
+    "CFAPattern",
+    "Xmp",
 )
+
+private fun isOverBinaryLimit(meta: MediaFileMeta, name: String, value: String): Boolean =
+    (meta.exifBytes[name] ?: value.length) > OMIT_BINARY_OVER
 
 private val EXIF_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
 private val CONTAINER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss[.SSS]'Z'")
@@ -229,7 +257,7 @@ private fun rawText(row: MediaStoreRow, meta: MediaFileMeta): String {
             for ((name, value) in meta.exif) {
                 when {
                     name in THUMBNAIL_POINTER_TAGS -> omitted += name
-                    name in BINARY_TYPED_TAGS && (meta.exifBytes[name] ?: value.length) > OMIT_BINARY_OVER -> omitted += name
+                    name in BINARY_TYPED_TAGS && isOverBinaryLimit(meta, name, value) -> omitted += name
                     else -> kept[name] = JsonPrimitive(value)
                 }
             }

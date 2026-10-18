@@ -2,15 +2,15 @@
 package dev.ashiato.collector
 
 import android.media.ExifInterface
-import java.io.ByteArrayInputStream
-import java.io.File
-import java.nio.file.Files
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.nio.file.Files
+import java.time.ZoneId
 
 /**
  * **記録の大きさの門**（tasks 2.3 / design D20 / premises.md P13）。
@@ -29,9 +29,10 @@ class MediaRecordSizeTest {
     private fun unsentLineBytes(request: IngestRequest): Long {
         val dir = Files.createTempDirectory("media-size").toFile()
         try {
-            val store = SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
+            val records = File(dir, "records")
+            val store = SegmentStore(records, IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
             assertTrue(store.append(request, 0L))
-            return File(dir, "records").walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
+            return records.walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
         } finally {
             dir.deleteRecursively()
         }

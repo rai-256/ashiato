@@ -2,9 +2,6 @@
 package dev.ashiato.collector
 
 import android.media.ExifInterface
-import java.io.ByteArrayInputStream
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -22,6 +19,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.ByteArrayInputStream
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 写真・動画の記録の組み立て（tasks 2.1 / design D4）。材料は `src/test/resources/media/`（自作。README.md）。
@@ -292,8 +292,14 @@ class MediaRecordTest {
     @Test
     fun raw_is_the_same_string_whatever_order_the_inputs_arrive_in() {
         // 同じ項目は毎回同じ原文（冪等キーの材料）。入力の並びに依らない
-        val a = build(taken(null).copy(exif = linkedMapOf("Make" to "m", "Model" to "x")), row(extra = mapOf("a" to "1", "b" to null)))
-        val b = build(taken(null).copy(exif = linkedMapOf("Model" to "x", "Make" to "m")), row(extra = mapOf("b" to null, "a" to "1")))
+        val a = build(
+            taken(null).copy(exif = linkedMapOf("Make" to "m", "Model" to "x")),
+            row(extra = linkedMapOf("a" to "1", "b" to null)),
+        )
+        val b = build(
+            taken(null).copy(exif = linkedMapOf("Model" to "x", "Make" to "m")),
+            row(extra = linkedMapOf("b" to null, "a" to "1")),
+        )
         assertEquals(a.raw, b.raw)
         assertNull(a.rawJson()["store"]!!.jsonObject["b"]?.takeIf { it !is kotlinx.serialization.json.JsonNull })
     }

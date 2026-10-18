@@ -16,20 +16,18 @@ import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.nio.file.Files
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.FixMethodOrder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.nio.file.Files
+import java.time.ZoneId
 
 /**
  * **端末の前提を本物の Android で確かめる**（tasks 2.2 / 2.3。premises.md P1 / P3 / P12 / P13）。
@@ -62,13 +60,19 @@ class MediaPremisesInstrumentedTest {
         instrumentation.sendStatus(0, Bundle().apply { putString("stream", "$TAG: $line\n") })
     }
 
-    private fun find(collection: Uri, name: String): Uri {
+    private fun findOrNull(collection: Uri, name: String): Uri? {
         context.contentResolver.query(
-            collection, arrayOf(MediaStore.MediaColumns._ID), "${MediaStore.MediaColumns.DISPLAY_NAME} = ?", arrayOf(name), null,
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+            arrayOf(name),
+            null,
         )?.use { if (it.moveToFirst()) return ContentUris.withAppendedId(collection, it.getLong(0)) }
-        fail("$name が端末の一覧に無い。tools/android-emulator.sh（と CI の台本）が別のアプリとして入れる（adb push + 再走査）")
-        error("unreachable")
+        return null
     }
+
+    private fun find(collection: Uri, name: String): Uri = findOrNull(collection, name)
+        ?: error("$name が端末の一覧に無い。tools/android-emulator.sh（と CI の台本）が別のアプリとして入れる（adb push + 再走査）")
 
     private val images: Uri get() = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
     private val videos: Uri get() = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -139,14 +143,15 @@ class MediaPremisesInstrumentedTest {
 
     /** 動画の入れ物の `LOCATION` が見えたかを、権限の状態つきで残す。動画が一覧に無い・開けないときは理由を残す。 */
     private fun observeVideo(state: String): String {
-        val result = try {
-            val uri = find(videos, VIDEO_NAME)
-            val container = containerOf(uri)
-            if (container.container["LOCATION"] != null) "location=visible" else "location=hidden"
-        } catch (e: AssertionError) {
+        val uri = findOrNull(videos, VIDEO_NAME)
+        val result = if (uri == null) {
             "not_in_media_store"
-        } catch (e: RuntimeException) {
-            "unreadable:${e.javaClass.simpleName}"
+        } else {
+            try {
+                if (containerOf(uri).container["LOCATION"] != null) "location=visible" else "location=hidden"
+            } catch (e: RuntimeException) {
+                "unreadable:${e.javaClass.simpleName}"
+            }
         }
         observe("P12 $state video_$result")
         return result
@@ -164,8 +169,11 @@ class MediaPremisesInstrumentedTest {
             assertTrue("世代が上がらない: $before -> $after", after > before)
             val found = mutableListOf<Long>()
             context.contentResolver.query(
-                images, arrayOf(MediaStore.MediaColumns._ID), "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?",
-                arrayOf(before.toString()), null,
+                images,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?",
+                arrayOf(before.toString()),
+                null,
             )?.use { while (it.moveToNext()) found += it.getLong(0) }
             assertTrue("GENERATION_MODIFIED で拾えない", ContentUris.parseId(inserted) in found)
             observe("P3 generation_before_after_raised=true found_by_generation_modified=true")
@@ -197,17 +205,19 @@ class MediaPremisesInstrumentedTest {
         val uri = find(images, PHOTO_NAME)
         val row = rowOf(uri)
         val original = MediaStore.setRequireOriginal(uri)
-        val meta = checkNotNull(context.contentResolver.openInputStream(original)).use { readImageMeta(ExifInterface(it)) }
-        val sha = checkNotNull(context.contentResolver.openInputStream(original)).use { sha256Hex(it) }
+        val resolver = context.contentResolver
+        val meta = checkNotNull(resolver.openInputStream(original)).use { readImageMeta(ExifInterface(it)) }
+        val sha = checkNotNull(resolver.openInputStream(original)).use { sha256Hex(it) }
         val request = buildMediaRecord(row, meta, sha, ZoneId.systemDefault())
             .toIngestRequest("00000000-0000-4000-8000-000000000000", "user-1", "device-1", "c01-photo")
         assertNotNull(request.payload["lat"])
 
         val dir = Files.createTempDirectory("media-size").toFile()
         try {
-            val store = SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
+            val records = File(dir, "records")
+            val store = SegmentStore(records, IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
             assertTrue(store.append(request, 0L))
-            val bytes = File(dir, "records").walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
+            val bytes = records.walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
             observe("P13 unsent_line_bytes=$bytes columns=${row.columns.size} exif_tags=${meta.exif.size}")
             assertTrue("未送信の 1 行が $bytes バイト（門 $RECORD_SIZE_GATE）", bytes <= RECORD_SIZE_GATE)
         } finally {
