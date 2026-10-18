@@ -48,7 +48,7 @@
 
 ## Task 1: 移行 —— 登録簿・収集開始日の印・生存信号の接続の欄・3 つの表（design D7 / D13 / D15 / D17）
 
-- [ ] 1.1 移行 `YYYYMMDDHHMM_media_capture.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D15 の 1〜4:
+- [x] 1.1 移行 `YYYYMMDDHHMM_media_capture.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D15 の 1〜4:
   `c01-screenshot` / `c01-image` / `c01-video` を `c01-photo` と同じ値で足す・4 つの `external_id_kind` を記録が 0 件のときだけ `record` に・
   `core.source.started_on_basis`（4 つを `heartbeat`）・`core.heartbeat.network boolean NULL`・`core.media_original`・`core.media_missing`・`core.text_extraction`
   （それぞれ書き換え禁止の門とアプリの役割の `SELECT` / `INSERT`）・4 つの `collection_started_on` の当て直し（D13。記録は変えない）。
@@ -56,7 +56,7 @@
   Scenario: `4 つのソースが登録簿に 6 時間の間隔で並ぶ` / `メディアのソースは識別子を欠く記録を断る` / `文字抽出の版を入れる列がある` /
   `文字抽出の行は書き換えられない` / `原本の欠けは書き換えられない` / `汚れた写真の収集開始日は移行で直る`。
   検証: `CT st09_mig_`（`-- --list` で 6 本以上）/ `tools/check-migrations.sh` rc=0 / `scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0（既存が全部緑）
-- [ ] 1.2 `tools/check-immutable.d/<作成時刻>_st09-media-capture.sh` を足し、`core.media_original` / `core.media_missing` / `core.text_extraction` の `UPDATE` と `DELETE` が
+- [x] 1.2 `tools/check-immutable.d/<作成時刻>_st09-media-capture.sh` を足し、`core.media_original` / `core.media_missing` / `core.text_extraction` の `UPDATE` と `DELETE` が
   アプリの役割で断られることを psql で 1 本ずつ確かめる（`echo "Scenario: 原本の欠けは書き換えられない"` / `echo "Scenario: 文字抽出の行は書き換えられない"`）。
   検証: `tools/check-immutable.sh` rc=0 / `tools/check-shared-appends.sh` rc=0
 
