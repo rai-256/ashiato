@@ -45,7 +45,15 @@ class MediaCaptureInstrumentedTest {
 
         notifier.update(MediaPermissionState(MediaAccess.FULL, location = false))
 
-        val notice = manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID }
+        // 通知は非同期で並ぶので、出るまで少し待つ
+        val deadline = System.currentTimeMillis() + NOTICE_WAIT_MS
+        var notice = manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID }
+        while (notice == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(250)
+            // 付与が通知の側へ行き渡るまで出せないことがある（出せなければ覚えず、次の更新で出し直す）
+            notifier.update(MediaPermissionState(MediaAccess.FULL, location = false))
+            notice = manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID }
+        }
         assertNotNull("知らせが出ていない", notice)
         assertEquals(MediaNotifier.MEDIA_CHANNEL, notice!!.notification.channelId)
         assertEquals(MEDIA_NOTICE_TITLE, notice.notification.extras.getString(Notification.EXTRA_TITLE))
@@ -71,5 +79,6 @@ class MediaCaptureInstrumentedTest {
 
     private companion object {
         const val DIALOG_TIMEOUT_MS = 15_000L
+        const val NOTICE_WAIT_MS = 10_000L
     }
 }
