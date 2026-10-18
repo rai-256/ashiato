@@ -24,6 +24,7 @@ class MediaListingTest {
     private class FakeMediaProvider : ContentProvider() {
         var lastArgs: Bundle? = null
         var lastSelection: String? = null
+        var lastValues: List<String> = emptyList()
 
         class Row(val id: Long, val generation: Long, val values: Array<Any?>)
 
@@ -39,6 +40,7 @@ class MediaListingTest {
             val selection = args.getString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION).orEmpty()
             val values = args.getStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS).orEmpty()
             lastSelection = selection
+            lastValues = values.toList()
             // 実物の selection の形に従って絞る: `_id > ?`（頁送り）・`generation_modified > ?`・`_id = ?`（contains）
             val rows = rows.filter { row ->
                 when {
@@ -90,8 +92,11 @@ class MediaListingTest {
         assertEquals(listOf(8L), listing.page(PRIMARY, afterId = 7, generationAfter = null, limit = 10).map { it.row.mediaId })
         assertEquals(listOf(8L), listing.page(PRIMARY, afterId = 0, generationAfter = 9, limit = 10).map { it.row.mediaId })
         assertTrue(checkNotNull(provider.lastSelection).contains("generation_modified > ?"))
+        assertEquals(listOf("0", "9"), provider.lastValues)
+        assertTrue(checkNotNull(provider.lastSelection).contains("media_type IN (1, 3)"))
         assertEquals(listOf(7L), listing.page(PRIMARY, afterId = 0, generationAfter = null, limit = 1).map { it.row.mediaId })
         assertTrue(listing.contains(PRIMARY, 8))
         assertFalse(listing.contains(PRIMARY, 99))
+        assertEquals(listOf("99"), provider.lastValues)
     }
 }
