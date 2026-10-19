@@ -9,7 +9,7 @@ use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -95,12 +95,15 @@ mod feelings_remind_tests;
 mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
+pub mod media;
 /// 写真と動画の見分け（ST09 tasks 3.2）。
 #[cfg(test)]
 mod media_ident_tests;
 /// 写真と動画の移行（ST09 / design D7 / D13 / D15 / D17）。
 #[cfg(test)]
 mod media_migration_tests;
+#[cfg(test)]
+mod media_tests;
 pub mod migrate_backup;
 pub mod net_guard;
 /// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
@@ -286,6 +289,8 @@ pub struct App {
     export: export::ExportConfig,
     /// 走っている書き出し（同時に 1 本。ST33 / design D2）。
     exports: export::ExportJobs,
+    /// 原本の置き場 D-02 の設定（ST09 / design D10）。
+    media: media::MediaConfig,
 }
 
 impl App {
@@ -311,7 +316,13 @@ impl App {
             warmup: outage::OUTAGE_WARMUP,
             export: export::ExportConfig::from_env(),
             exports: export::ExportJobs::default(),
+            media: media::MediaConfig::none(),
         }
+    }
+
+    /// 原本の置き場を差し替えた複製（起動の環境変数と試験）。
+    pub fn with_media(self, media: media::MediaConfig) -> Self {
+        Self { media, ..self }
     }
 
     /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
@@ -3429,6 +3440,13 @@ pub fn router(app: App) -> Router {
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
         .route("/drops", post(drops::drops_post))
+        // この経路だけ本文の上限が 1 GiB（ほかの経路の 2 MB は変えない。design D10）
+        .route(
+            "/media/originals/{sha256}",
+            put(media::put_original)
+                .head(media::head_original)
+                .layer(axum::extract::DefaultBodyLimit::max(app.media.body_limit())),
+        )
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
@@ -3560,10 +3578,29 @@ pub async fn run() -> anyhow::Result<()> {
             })?),
             Err(_) => outage::OUTAGE_WARMUP,
         };
+    // 原本の置き場（D-02。design D10）。相対の場所なら起動しない。既定の置き場だけを作り、書きかけを消す
+    let media = match media::MediaConfig::from_env(|k| std::env::var(k).ok()) {
+        Ok(media) => media,
+        Err(refusal) => {
+            tracing::error!(kind = "media_dir_relative", "起動しない");
+            // log-ok: setting は自分で名付けた環境変数の名前（値の場所は出さない）。起動前の拒否を端末にも出す
+            eprintln!("error: kind=media_dir_relative setting={}", refusal.setting);
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = media.prepare() {
+        // 起動は続ける（ほかの経路は使える）。原本の受け口は書けない失敗を返す
+        tracing::error!(
+            kind = "media_dir_prepare",
+            reason = media::storage_kind(&e),
+            "原本の置き場を用意できない"
+        );
+    }
     let mut app = router(
         App::new(pool, token, &web_password, session_max_age_days)
             .with_reading(reading)
-            .with_warmup(warmup),
+            .with_warmup(warmup)
+            .with_media(media),
     );
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
