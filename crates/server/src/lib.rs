@@ -96,6 +96,8 @@ mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
 pub mod media;
+#[cfg(test)]
+mod media_coverage_tests;
 /// 写真と動画の見分け（ST09 tasks 3.2）。
 #[cfg(test)]
 mod media_ident_tests;
@@ -2715,8 +2717,8 @@ async fn heartbeat_one(
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.heartbeat
            (id, user_id, logical_source, device_id, emitted_at,
-            capturable, blockers, attempts, successes, content_hash, raw)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            capturable, blockers, attempts, successes, content_hash, raw, network)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (user_id, logical_source, content_hash) DO NOTHING
          RETURNING id",
     )
@@ -2731,6 +2733,7 @@ async fn heartbeat_one(
     .bind(req.successes)
     .bind(&hash)
     .bind(&req.raw)
+    .bind(req.network)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| internal_at("heartbeat.insert", e))?;
