@@ -168,11 +168,11 @@
 
 ## Task 7: 原本の欠けの受け口と量の読み出し（design D11 / D12）
 
-- [ ] 7.1 `POST /media/missing`（`/drops` と同じ形。1 件ごとの結果）と `core.media_missing`。冪等キーは `id`。破棄の報告と稼働状況の破棄の件数に載せない。
+- [x] 7.1 `POST /media/missing`（`/drops` と同じ形。1 件ごとの結果）と `core.media_missing`。冪等キーは `id`。破棄の報告と稼働状況の破棄の件数に載せない。
   Scenario: `送る前に端末から消えた写真の原本は欠けとして残る`（S-01 の側: 欠けが理由とハッシュつきで 1 件）/ `原本の欠けは破棄の報告に載らない` /
   `原本の欠けの報告を送り直しても 1 件のまま` / `資格情報の無い原本の欠けの報告は断られる`。
   検証: `CT st09_miss_`（`-- --list` で 4 本以上）
-- [ ] 7.2 `GET /media/summary`（D12）。記録の値を載せない。`docs/openapi.json` を `src/bin/openapi.rs` で再生成する（`PUT /media/originals/{sha256}`・`POST /media/missing`・
+- [x] 7.2 `GET /media/summary`（D12）。記録の値を載せない。`docs/openapi.json` を `src/bin/openapi.rs` で再生成する（`PUT /media/originals/{sha256}`・`POST /media/missing`・
   `/heartbeat` の `network` も入る）。
   Scenario: `記録の件数とバイトがソースごとに読める` / `置いた原本と待っている原本の件数が読める` / `原本の欠けが理由ごとに読める` / `量の読み出しに記録の値が出ない` /
   `書けなかった失敗は起動し直すまで読み出しに出る` / `資格情報の無い量の読み出しは断られる`。
