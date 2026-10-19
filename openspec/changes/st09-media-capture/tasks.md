@@ -148,12 +148,12 @@
 
 ## Task 6: S-01 の原本の受け口と D-02（design D10 / D10a。`crates/server/src/media.rs`）
 
-- [ ] 6.1 置き場の設定（`ASHIATO_MEDIA_DIR` → `LOCALAPPDATA\ashiato\media` → `XDG_DATA_HOME/ashiato/media` → `HOME/.local/share/ashiato/media`。書き出しの `export_dir` と同じ並び）。
+- [x] 6.1 置き場の設定（`ASHIATO_MEDIA_DIR` → `LOCALAPPDATA\ashiato\media` → `XDG_DATA_HOME/ashiato/media` → `HOME/.local/share/ashiato/media`。書き出しの `export_dir` と同じ並び）。
   相対の場所なら起動しない。既定の置き場だけは起動時に作り、設定された置き場は作らない。起動時に `.incoming/` の `.part` を消す。
   Scenario: `置き場の設定が無ければ既定の置き場になる` / `置き場を設定で変えられる` / `相対の置き場では起動しない` /
   `設定した置き場が無ければ作らずに書けない失敗にする` / `起動すると書きかけの一時のファイルが消える`。
   検証: `CT st09_up_dir_`（`-- --list` で 5 本以上）
-- [ ] 6.2 `PUT /media/originals/{sha256}`（この経路だけ `DefaultBodyLimit` 1 GiB。超えたら `413`）と `HEAD /media/originals/{sha256}`: 流しながら `.incoming/<uuid>.part` に書いてハッシュを計算し、D10 の順で判定して
+- [x] 6.2 `PUT /media/originals/{sha256}`（この経路だけ `DefaultBodyLimit` 1 GiB。超えたら `413`）と `HEAD /media/originals/{sha256}`: 流しながら `.incoming/<uuid>.part` に書いてハッシュを計算し、D10 の順で判定して
   `fsync` → 名前を変える → `core.media_original` に 1 行。並びと名前（D10 / D10a）。資格情報は `/ingest` と同じ。
   Scenario: `ハッシュの合う原本は受け取られる` / `ハッシュの合わない原本は置かれない` / `記録より先に届いた原本は送り直せる失敗になる` / `動画の原本は受け取られない` /
   `同じ原本が 2 度届いても 1 つだけ置かれる` / `書いている途中で止まっても壊れたファイルは並びに残らない` / `D-02 に書けなければ送り直せる失敗になり、端末に送り待ちが残る` /
@@ -162,7 +162,7 @@
   `1 GiB を超える原本は送り直せない失敗になる` / `中身が変わった写真は新旧どちらの原本も D-02 に残る`。
   置き場はテストごとの一時ディレクトリ。「書けない」は置き場を消した状態で作る。「途中で止まる」は本文の流れを途中で切る。
   検証: `CT st09_up_put_`（`-- --list` で 15 本以上）/ `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
-- [ ] 6.3 S-01 のログ（D21）: 受け口の失敗で種別だけを出す。`tools/check-log-private.sh` の対象に `media.rs` を入れる。
+- [x] 6.3 S-01 のログ（D21）: 受け口の失敗で種別だけを出す。`tools/check-log-private.sh` の対象に `media.rs` を入れる。
   Scenario: `原本の送信の失敗がログに出てもファイル名と位置は出ない`（S-01 の側）。
   検証: `CT st09_up_log_`（1 本以上）/ `tools/check-log-private.sh` rc=0
 
