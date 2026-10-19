@@ -42,7 +42,9 @@
   操作: `scripts/hx dev` / `start ST<NN>` / `status` / `answer ST<NN> <file>` / `poke` / `retry ST<NN>` / `verify`
 - **要件から来ない作業（作り直し・lint・道具・画面の表面・見つかった不具合）も change としてグラフに流す。**
   `scripts/hx change "<題>" --text "<依頼>"`（操作盤の「change を始める」）。`CH<NN>` が付き、Story と同じ流れを通る
-- **`deep`（深掘り）は人間に問う工程。AI が代わりに決めない。** 問い方の規範は `grilling` skill
+- **`deep`（深掘り）で人間に問うのは、失う側がある問い（A）だけ。** 失わない側が高くつかず・範囲を越えず・要件を変えないなら、
+  AI が仮で進む（P）。仮は台帳（`provisional.py`）に載り、別の席（deep-review）が確かめ、確認バッチで人間が見る。
+  規則の正本は `.harness2/docs/flow-gates.md`。問い方の規範は `grilling` skill
 - **機械が判定できることは機械に決めさせる。** 規約に書く・人間に聞くで代替しない
 - 人間が止める場所は 3 つだけ: 深掘りの答え、merge、確認バッチ。人間は draft でない PR だけを merge する
 - superpowers の規範より本プロジェクトの取り決めが優先する（採否と理由は `.harness2/CATALOG.md`）。
