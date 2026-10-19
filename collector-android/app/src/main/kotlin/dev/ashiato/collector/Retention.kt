@@ -52,6 +52,8 @@ class Retention<T : Retainable>(
     private val age: () -> Long,
     private val policy: () -> RetentionPolicy = { RetentionPolicy.current },
     private val log: (String) -> Unit = {},
+    /** 捨てた記録の宛先（ST09 / 原本の送り待ちが欠けになる。design D8）。**置き場から消えた後**に呼ぶ */
+    private val onDropped: (List<T>) -> Unit = {},
 ) {
     /** 上限をかける。捨てた件数を返す。 */
     @Synchronized
@@ -74,8 +76,10 @@ class Retention<T : Retainable>(
     ): Int {
         val touched = LinkedHashSet<String>()
         var before: List<DropDraft>? = null
+        var committed: List<Stored<T>> = emptyList()
         val n = run(
             { gone ->
+                committed = gone
                 // **証拠を先に書く**（review R26）。下書きに足して保存できたときだけ、置き場から消させる
                 before = ledger.record(reason, gone.map { it.item.logicalSource to instantOf(it.item.eventTime) })
                 if (before != null) gone.forEach { touched += it.item.logicalSource }
@@ -84,6 +88,9 @@ class Retention<T : Retainable>(
             { _ -> before?.let(ledger::restore) },
         )
         if (n > 0) {
+            runCatching { onDropped(committed.map { it.item }) }.onFailure {
+                log(Telemetry.line("retention_hook_crashed", source = null, error = it.javaClass.simpleName))
+            }
             for (source in touched) {
                 val remaining = records.oldest(source)?.item?.eventTime?.let(::instantOf)
                 ledger.endBatch(source, reason, remaining)
@@ -198,6 +205,10 @@ class Drainer(
     private val beats: Sender<HeartbeatRequest>,
     private val drops: Sender<DropReport>,
     private val ledger: DropLedger,
+    /** 原本の欠けの報告の送り手（ST09。D11）。**記録の上限の外の置き場**。無ければ送らない */
+    private val missing: Sender<MediaMissingReport>? = null,
+    /** 記録を送った後に呼ぶ（原本の送り手を起こす。ST09 / D9）。長くかかるので呼び先は自分の糸で走らせる */
+    private val afterRecords: () -> Unit = {},
     /** 上限の見回りと知らせ。**送る前に**呼ぶ（送れない理由を問わず上限をかける） */
     private val maintenance: () -> Unit = {},
     private val log: (String) -> Unit = {},
@@ -225,12 +236,18 @@ class Drainer(
             }.onFailure {
                 log(Telemetry.line("drops_flush_crashed", source = null, error = it.javaClass.simpleName))
             }
+            runCatching { missing?.flush() }.onFailure {
+                log(Telemetry.line("missing_flush_crashed", source = null, error = it.javaClass.simpleName))
+            }
             rounds++
             val keepGoing = flushed != null && flushed.responded && flushed.removed > 0 &&
                 rounds < maxRounds && recordsOutbox.hasMoreThan(MAX_BATCH)
             if (!keepGoing) break
         }
         if (rounds > 1) log(Telemetry.line("drained", source = null, count = rounds))
+        runCatching { afterRecords() }.onFailure {
+            log(Telemetry.line("originals_kick_crashed", source = null, error = it.javaClass.simpleName))
+        }
         return rounds
     }
 }

@@ -65,6 +65,12 @@ class Sender<T : Outboxable>(
     private val log: (String) -> Unit = {},
 ) {
     /**
+     * 受理された項目と、恒久的に断られて取り除く項目の宛先（ST09 / 原本の送り待ち。design D8）。
+     * **未送信から取り除く前に呼ぶ** —— 先に取り除いて落ちると、宛先は結果を知れない。落ちても送信は続ける。
+     */
+    var listener: SendListener<T>? = null
+
+    /**
      * 送った件数と受け付けられた件数。
      * `removed` は未送信から取り除いた件数、`responded` は受け口が約束どおり 200 か 400 で答えたか
      * （溜まっている間は続けて送るかの判断に使う。ST04 / design D12）。
@@ -184,6 +190,7 @@ class Sender<T : Outboxable>(
         }
         val responded = verdict.responded
 
+        notifyListener(batch, verdict)
         var removed = verdict.remove.size
         if (verdict.remove.isNotEmpty() && !outbox.remove(verdict.remove)) {
             // 受け付けられたが置き場へ書けなかった。**次の契機で再送になる**（重複は入らない）。
@@ -198,6 +205,16 @@ class Sender<T : Outboxable>(
         val ok = verdict.acceptedIds.toSet()
         logEachSource("accepted", batch.filter { it.id in ok }, sources = sourcesOf(batch))
         return Flushed(batch.size, verdict.accepted, removed, responded)
+    }
+
+    private fun notifyListener(batch: List<T>, verdict: Verdict) {
+        val target = listener ?: return
+        val ok = verdict.acceptedIds.toSet()
+        val gone = verdict.remove.toSet() - ok
+        runCatching {
+            if (ok.isNotEmpty()) target.accepted(batch.filter { it.id in ok })
+            if (gone.isNotEmpty()) target.rejectedForGood(batch.filter { it.id in gone })
+        }.onFailure { log(Telemetry.line("send_listener_crashed", source = null, error = it.javaClass.simpleName)) }
     }
 
     /**

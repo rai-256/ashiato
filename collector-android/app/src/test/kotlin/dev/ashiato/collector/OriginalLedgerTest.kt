@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+package dev.ashiato.collector
+
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * 原本の送り待ちの台帳（tasks 5.1。design D8）。保持の上限の側は `RetentionPolicy.overrideForTest` で 90 日と 2 GB を縮める。
+ */
+class OriginalLedgerTest {
+    private val day = AgeClock.DAY_MS
+
+    @After
+    fun resetPolicy() = RetentionPolicy.clearOverrideForTest()
+
+    private fun OriginalHarness.retention() =
+        Retention(st.records, st.ledger, st.age::now, onDropped = link::dropped)
+
+    // Scenario: 原本は未送信の置き場の大きさを増やさない
+    @Test
+    fun originals_do_not_grow_the_unsent_store() {
+        val h = OriginalHarness()
+        // 1 枚 3 MB の 100 枚を、試験の置き場を軽くするため 1 枚 300 KB で（比べるのは「原本の大きさに比例しない」こと）
+        val body = "p".repeat(300_000)
+        repeat(100) { h.photo(it + 1L, body + it) }
+        h.scan()
+        val originalsBytes = 100L * 300_000
+        assertEquals(100, h.st.records.size())
+        assertTrue("未送信が原本の大きさで増えた: ${h.st.records.bytes()}", h.st.records.bytes() < originalsBytes / 50)
+        assertEquals(100, h.env.originals.all().count { it.state == ORIGINAL_AWAITING_RECORD })
+        // 送り待ちの印は別のファイルにあり、未送信の置き場のバイトに数えられない
+        assertTrue(File(File(h.env.dir, MEDIA_LEDGER_DIR), ORIGINALS_FILE).exists())
+    }
+
+    // Scenario: 原本の送り待ちは 90 日を過ぎても捨てない
+    @Test
+    fun a_waiting_mark_survives_91_days_and_the_original_is_sent_when_reachable() {
+        RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day, maxBytes = 1_000))
+        val h = OriginalHarness()
+        h.photo(1, "waiting a long time")
+        h.scan()
+        h.acceptRecords()
+        // 到達できないまま 91 日。ほかの記録は上限で捨てられる
+        h.env.listing.dateAddedSec = h.now().epochSecond
+        h.photo(2, "recorded later")
+        h.scan()
+        h.st.clock.advance(91 * day)
+        assertEquals(1, h.retention().enforce())
+        assertEquals(1, h.env.originals.all().count { it.state == ORIGINAL_READY })
+        h.transport.unreachable = true
+        h.uploader.run()
+        assertEquals(1, h.env.originals.all().count { it.state == ORIGINAL_READY })
+        h.transport.unreachable = false
+        h.advanceMs(2 * 60_000)
+        assertEquals(1, h.uploader.run())
+        assertEquals(h.shaOf(1), h.transport.stored.keys.single())
+    }
+
+    // Scenario: 記録が未送信から破棄されると原本も欠けになる
+    @Test
+    fun a_dropped_record_turns_its_original_into_a_missing_original() {
+        RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
+        val h = OriginalHarness()
+        h.photo(1, "its record will be dropped")
+        h.scan()
+        val sha = h.shaOf(1)
+        h.st.clock.advance(91 * day)
+        assertEquals(1, h.retention().enforce())
+        val report = h.missingReports().single()
+        assertEquals("record_dropped", report.reason)
+        assertEquals(sha, report.sha256)
+        assertNull(h.env.originals.get(sha))
+    }
+
+    // Scenario: 恒久的に断られた記録の原本は欠けになる
+    @Test
+    fun a_permanently_rejected_record_turns_its_original_into_a_missing_original() {
+        val h = OriginalHarness()
+        h.photo(1, "its record is refused")
+        h.scan()
+        val sha = h.shaOf(1)
+        h.recordSender(rejectEverything).flush()
+        assertEquals(0, h.st.records.size())
+        val report = h.missingReports().single()
+        assertEquals("record_rejected", report.reason)
+        assertEquals(sha, report.sha256)
+        assertEquals(0, h.env.originals.all().size)
+    }
+
+    // Scenario: 原本の欠けの報告は上限を超えても捨てられない
+    @Test
+    fun a_missing_original_report_is_never_dropped_by_the_limits() {
+        RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day, maxBytes = 1_000))
+        val h = OriginalHarness()
+        h.photo(1, "vanishes")
+        h.scan()
+        h.env.listing.remove(PRIMARY, 1)
+        h.acceptRecords()
+        h.uploader.run()
+        val report = h.missingReports().single()
+        // 到達できないまま 91 日、未送信は上限を超える
+        repeat(20) { h.photo(100L + it, "filler $it") }
+        h.scan()
+        h.st.clock.advance(91 * day)
+        h.retention().enforce()
+        // 上限で捨てた記録の原本の欠け（record_dropped）が増えても、最初の報告は残っている
+        assertTrue(report.id in h.missingReports().map { it.id })
+        // 到達できるようになると送られる
+        val sent = mutableListOf<String>()
+        val sender = Sender(
+            h.missing,
+            Transport { body ->
+                sent += body
+                val n = ingestJson.decodeFromString<List<MediaMissingReport>>(body).size
+                Outcome.Responded(200, verdicts(n, """{"accepted":true}"""))
+            },
+            MediaMissingReport.serializer(),
+        )
+        assertTrue(sender.flush().removed >= 1)
+        assertTrue(sent.single().contains("\"reason\":\"vanished\""))
+        assertEquals(0, h.missing.size())
+    }
+
+    @Test
+    fun an_accepted_record_makes_the_original_ready_even_when_it_is_a_duplicate() {
+        val h = OriginalHarness()
+        h.photo(1, "accepted twice")
+        h.scan()
+        assertEquals(ORIGINAL_AWAITING_RECORD, h.env.originals.all().single().state)
+        h.acceptRecords()
+        assertEquals(ORIGINAL_READY, h.env.originals.all().single().state)
+    }
+
+    @Test
+    fun a_video_and_a_refused_record_of_a_resent_image_leave_the_ledger_alone() {
+        val h = OriginalHarness()
+        h.env.listing.putVideo(PRIMARY, 1, "DCIM/Camera/", "VID_1.mp4", "a video")
+        h.scan()
+        assertEquals(0, h.env.originals.all().size)
+        h.recordSender(rejectEverything).flush()
+        assertTrue(h.missingReports().isEmpty())
+    }
+
+    @Test
+    fun the_ledger_is_read_back_after_a_restart_and_a_failed_write_changes_nothing() {
+        val h = OriginalHarness()
+        h.photo(1, "persisted")
+        h.scan()
+        h.acceptRecords()
+        val file = File(File(h.env.dir, MEDIA_LEDGER_DIR), ORIGINALS_FILE)
+        val reread = OriginalLedger(file)
+        assertEquals(h.env.originals.all(), reread.all())
+        assertEquals(ORIGINAL_READY, reread.all().single().state)
+        // 書けない（置き場の場所がファイル）: 変更は戻り、メモリと台帳が食い違わない
+        val blocked = File(h.env.dir, "blocked").apply { writeText("x") }
+        val broken = OriginalLedger(File(blocked, "originals.jsonl"))
+        assertFalse(broken.queue(reread.all().single().copy(sha256 = "z")))
+        assertEquals(0, broken.all().size)
+    }
+}

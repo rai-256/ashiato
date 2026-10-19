@@ -18,6 +18,9 @@ class FakeMediaListing : MediaListing {
     private val versions = HashMap<String, String>()
     private val generations = HashMap<String, Long>()
     var biggestPage = 0
+
+    /** これから書く行の `DATE_ADDED`（秒）。既定は 3 年以上前（過去ぶん） */
+    var dateAddedSec: Long = 1_700_000_000L
     var contains = 0
 
     override fun volumes(): Set<String> = volumeSet.toSet()
@@ -82,7 +85,7 @@ class FakeMediaListing : MediaListing {
             mediaId = id,
             volume = volume,
             dateTakenMs = null,
-            dateAddedSec = 1_700_000_000L,
+            dateAddedSec = dateAddedSec,
             mimeType = if (stored.kind == MediaKind.VIDEO) "video/mp4" else "image/jpeg",
             sizeBytes = stored.body.length.toLong(),
             width = 10,
@@ -149,6 +152,9 @@ class FakeMediaFiles(private val listing: FakeMediaListing) : MediaFileReader {
     /** 開こうとした回数（開けなかったものを含む） */
     var attempts = 0
 
+    /** 読んだファイルのメタ。既定は何も持たない（撮影時刻も位置も無い） */
+    var metaOf: (MediaListed) -> MediaFileMeta = { MediaFileMeta(kind = it.kind) }
+
     override fun attempt(item: MediaListed): MediaFileAttempt {
         val stage = failStage ?: return super.attempt(item)
         attempts++
@@ -160,7 +166,7 @@ class FakeMediaFiles(private val listing: FakeMediaListing) : MediaFileReader {
         if (unreadable || item.row.mediaId in unreadableIds) return null
         opened++
         val bytes = listing.contents.getValue(item.row.volume to item.row.mediaId)
-        return MediaFileContent(sha256Hex(ByteArrayInputStream(bytes)), MediaFileMeta(kind = item.kind))
+        return MediaFileContent(sha256Hex(ByteArrayInputStream(bytes)), metaOf(item))
     }
 }
 
@@ -198,6 +204,8 @@ class MediaScanEnv {
     val files = FakeMediaFiles(listing)
     val lines = mutableListOf<String>()
     var outbox: Outbox<IngestRequest> = testOutbox()
+    val store = MediaLedgerStore(File(dir, MEDIA_LEDGER_DIR)) { lines += it }
+    val originals: OriginalLedger get() = store.originals
     var wall: Instant = Instant.parse("2026-10-01T00:00:00Z")
     var access = MediaAccess.FULL
     var location = true
@@ -207,7 +215,7 @@ class MediaScanEnv {
         listing = listing,
         files = files,
         outbox = outbox,
-        store = MediaLedgerStore(File(dir, MEDIA_LEDGER_DIR)) { lines += it },
+        store = store,
         env = MediaScanEnvironment(
             access = { if (!location) MediaAccess.NO_LOCATION else access },
             now = { wall },

@@ -230,9 +230,18 @@ class MediaScanner(
             val decision = decide(volume, item, entry, content.sha256, digest)
             val request = if (decision.send) requestFor(decision, item, content, env) else null
             if (request != null) enqueued++
-            if (request != null && !outbox.add(request)) {
+            val added = request == null || outbox.add(request)
+            // 画像の記録を積めたら、原本の送り待ちも足す（動画は足さない。D8）
+            val queued = !added || request == null || item.kind != MediaKind.IMAGE ||
+                store.originals.queue(originalEntry(item, content, decision.source, request, at))
+            if (!added) {
                 markHeld(volume)
                 failedStages[decision.source] = MediaStage.ENQUEUE
+            } else if (!queued) {
+                // 記録は積めたが、原本の送り待ちを書けなかった。印を進めず、次の契機に取り直す
+                // （記録は同じ外部識別子で畳まれる）
+                markHeld(volume)
+                failedStages[decision.source] = MediaStage.LEDGER
             } else {
                 decision.consumed?.let { slot ->
                     index.remove(slot.volume, slot.entry)
@@ -390,6 +399,26 @@ private fun requestFor(
     }
     return record.toIngestRequest(env.newId(), env.userId(), env.deviceId, decision.source)
 }
+
+/** 画像の記録を積んだら足す、原本の送り待ちの 1 行（`awaiting_record`。D8）。動画には足さない（Q6）。 */
+private fun originalEntry(
+    item: MediaListed,
+    content: MediaFileContent,
+    source: String,
+    request: IngestRequest,
+    at: Instant,
+) = OriginalEntry(
+    sha256 = content.sha256,
+    volume = item.row.volume,
+    mediaId = item.row.mediaId,
+    source = source,
+    size = item.row.sizeBytes ?: 0L,
+    backlog = !Instant.ofEpochSecond(item.row.dateAddedSec).isAfter(at.minus(BACKLOG_AGE)),
+    dateAdded = item.row.dateAddedSec,
+    queuedAt = at.toEpochMilli(),
+    state = ORIGINAL_AWAITING_RECORD,
+    recordId = request.id,
+)
 
 private fun unchanged(entry: LedgerEntry, item: MediaListed): Boolean =
     entry.size == (item.row.sizeBytes ?: 0L) &&

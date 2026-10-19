@@ -67,6 +67,9 @@ class MediaLedgerStore(private val dir: File, private val log: (String) -> Unit 
 
     private val cursorFile get() = File(dir, "cursor.json")
 
+    /** 画像の原本の送り待ち（`media/originals.jsonl`。design D8）。見分けの台帳と同じ置き場に置くが、読み手の印とは別のファイル */
+    val originals: OriginalLedger by lazy { OriginalLedger(File(dir, ORIGINALS_FILE), log) }
+
     fun loadLedger(volume: String): MutableMap<Long, LedgerEntry> {
         val out = LinkedHashMap<Long, LedgerEntry>()
         val file = ledgerFile(volume)

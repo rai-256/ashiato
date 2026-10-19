@@ -60,6 +60,13 @@ open class LocationService : Service() {
     private lateinit var outbox: Outbox<IngestRequest>
     private lateinit var heartbeatOutbox: Outbox<HeartbeatRequest>
     private lateinit var dropsOutbox: Outbox<DropReport>
+
+    /** 画像の原本の送り待ちと欠けの報告（上限の対象にしない。design D8 / D11） */
+    private lateinit var mediaStore: MediaLedgerStore
+    private lateinit var originalPipeline: OriginalPipeline
+
+    /** 原本の送り手の糸。**記録の送信の糸とは別**（数 GB を送る間、生存信号と破棄の報告を止めない）。使われるまで作らない */
+    private val originalThread: ExecutorService by lazy { Executors.newSingleThreadExecutor() }
     private lateinit var ageClock: AgeClock
     private lateinit var ledger: DropLedger
 
@@ -210,6 +217,14 @@ open class LocationService : Service() {
 
     /** 起動の契機の取得を回す糸（1 本）。**使われるまで糸は作られない。** */
     private val collectorThread: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** 原本の受け口（`HEAD` / `PUT`）と端末のファイル・通信の種類。**試験だけが差し替える** */
+    protected open fun newOriginalTransport(): OriginalTransport =
+        HttpOriginalTransport(Config.baseUrl, Config.apiToken) { Config.userId }
+
+    protected open fun newOriginalSource(): OriginalSource = ContentResolverOriginalSource(this)
+
+    protected open fun readUnmetered(): Boolean = isUnmetered(this)
 
     /** 受け口への POST。**試験だけが差し替える**（到達できない 1 時間・偽のサーバ。design D15）。 */
     protected open fun newTransport(path: String): Transport = HttpTransport(Config.baseUrl, Config.apiToken, path)
@@ -514,7 +529,7 @@ open class LocationService : Service() {
                     listing = listing,
                     files = newMediaFiles(),
                     outbox = outbox,
-                    store = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW),
+                    store = mediaStore,
                     env = MediaScanEnvironment(
                         access = { readMediaPermissions().forScanner() },
                         now = { Instant.now() },
@@ -587,7 +602,18 @@ open class LocationService : Service() {
             store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
         )
 
-        retention = Retention(outbox, ledger, ageClock::now, log = logI)
+        mediaStore = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW)
+        originalPipeline = OriginalPipeline(
+            mediaStore.originals,
+            Outbox(
+                SegmentStore(store("media-missing"), MediaMissingReport.serializer(), store(UNREADABLE), logW),
+                age = ageClock::now,
+            ),
+            { Config.userId },
+            deviceId,
+            logI,
+        )
+        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = originalPipeline.link::dropped)
         notifier = RetentionNotifier(
             outbox,
             ageClock::now,
@@ -854,7 +880,10 @@ open class LocationService : Service() {
             IngestRequest.serializer(),
             dropPermanentlyRejected = true,
             responseDates = responseDates,
-        ) { Log.i(TAG, it) }
+        ) { Log.i(TAG, it) }.also {
+            // 受理された画像の原本は送ってよくなり、断られた記録の原本は欠けになる（design D8）
+            it.listener = originalPipeline.link
+        }
         // **生存信号も同じ契機で送る**（specs「記録と同じ未送信の仕組みに乗せて再送する」）。
         // 別の刻みを立てると、送信の契機が 2 つになって電池と網の使い方が読めなくなる。
         val beatSender = Sender(
@@ -872,12 +901,26 @@ open class LocationService : Service() {
             dropPermanentlyRejected = false,
             responseDates = responseDates,
         ) { Log.i(TAG, it) }
+        val missingSender = originalPipeline.missingSender(newTransport("/media/missing"), responseDates) {
+            Log.i(TAG, it)
+        }
+        val uploader = originalPipeline.uploader(
+            newOriginalSource(),
+            newOriginalTransport(),
+            OriginalEnvironment(
+                access = { readMediaPermissions().forScanner() },
+                unmetered = ::readUnmetered,
+                now = { Instant.now() },
+            ),
+        ) { Log.i(TAG, it) }
         val drainer = Drainer(
             records = sender,
             recordsOutbox = outbox,
             beats = beatSender,
             drops = dropSender,
             ledger = ledger,
+            missing = missingSender,
+            afterRecords = { if (!uploader.busy) originalThread.execute { uploader.run() } },
             maintenance = { maintain(force = true) },
             log = { Log.i(TAG, it) },
         )
@@ -958,6 +1001,7 @@ open class LocationService : Service() {
         timeReceiver?.let { runCatching { unregisterReceiver(it) } }
         timeReceiver = null
         collectorThread.shutdownNow()
+        originalThread.shutdownNow()
         super.onDestroy()
     }
 
