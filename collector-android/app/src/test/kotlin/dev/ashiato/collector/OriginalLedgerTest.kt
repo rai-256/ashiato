@@ -92,6 +92,33 @@ class OriginalLedgerTest {
         assertEquals(0, h.env.originals.all().size)
     }
 
+    // Scenario: 記録が未送信から破棄されると原本も欠けになる
+    @Test
+    fun a_segment_the_drop_ledger_refused_keeps_its_record_and_its_original() {
+        RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
+        val h = OriginalHarness(TestStores(segmentBytes = 300))
+        repeat(4) { h.photo(it + 1L, "second segment is refused $it") }
+        h.scan()
+        h.st.clock.advance(91 * day)
+        // 破棄の下書きの 2 回目の保存（= 2 本目の区切り）だけが書けない
+        var saves = 0
+        val dir = object : File(h.st.dir, "flaky") {
+            override fun mkdirs(): Boolean {
+                if (++saves == 2) throw java.io.IOException("disk full")
+                return super.mkdirs()
+            }
+        }
+        val openFile = object : File(dir, "drops-open.json") {
+            override fun getParentFile(): File = dir
+        }
+        val ledger = DropLedger(openFile, h.st.drops, { "user-1" }, "device-1", { h.st.now }, { "r${saves}x" }, h.st.log, LOGICAL_SOURCE)
+        val dropped = Retention(h.st.records, ledger, h.st.age::now, onDropped = h.link::dropped).enforce()
+        assertTrue("1 本目の区切りは捨てられる: $dropped", dropped in 1..3)
+        assertEquals(4 - dropped, h.st.records.size())
+        assertEquals(dropped, h.missingReports().count { it.reason == "record_dropped" })
+        assertEquals(4 - dropped, h.env.originals.all().size)
+    }
+
     @Test
     fun an_accepted_record_stays_in_the_unsent_store_while_the_ledger_cannot_be_written() {
         val h = OriginalHarness()

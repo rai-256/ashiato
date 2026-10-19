@@ -82,10 +82,14 @@ class Retention<T : Retainable>(
         val n = run(
             { gone ->
                 confirmed += pending
-                pending = gone
+                pending = emptyList()
                 // **証拠を先に書く**（review R26）。下書きに足して保存できたときだけ、置き場から消させる
                 before = ledger.record(reason, gone.map { it.item.logicalSource to instantOf(it.item.eventTime) })
-                if (before != null) gone.forEach { touched += it.item.logicalSource }
+                if (before != null) {
+                    // 消すと約束した分だけ。断られた区切りの記録は残るので、宛先に渡さない
+                    pending = gone
+                    gone.forEach { touched += it.item.logicalSource }
+                }
                 before != null
             },
             { _ ->
