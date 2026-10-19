@@ -693,6 +693,10 @@ async fn st09_up_log_failures_show_kind_but_no_name_dir_or_hash() {
     let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
     assert!(log.contains("storage_unavailable"), "{log}");
     assert!(log.contains("hash_mismatch"), "{log}");
+    for kind in ["storage_unavailable", "hash_mismatch"] {
+        let line = log.lines().find(|l| l.contains(kind)).unwrap();
+        assert!(line.contains("count=1"), "件数が無い: {line}");
+    }
     for secret in [
         "SECRETNAME",
         "SECRETDIR",

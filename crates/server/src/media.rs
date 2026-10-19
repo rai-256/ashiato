@@ -368,6 +368,7 @@ pub async fn put_original(
                     tracing::error!(
                         kind = "storage_unavailable",
                         reason = *kind,
+                        count = 1_u32,
                         "原本を置けなかった"
                     );
                 }
@@ -376,6 +377,7 @@ pub async fn put_original(
                     tracing::warn!(
                         kind = "original_refused",
                         reason = other.reason(),
+                        count = 1_u32,
                         "原本を断った"
                     );
                 }
