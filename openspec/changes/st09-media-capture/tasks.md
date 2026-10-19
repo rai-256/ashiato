@@ -109,12 +109,12 @@
 
 ## Task 4: 権限・取得可否・知らせ・4 本の生存信号（design D6 / D7 / D22。`collector-android`）
 
-- [ ] 4.1 `AndroidManifest.xml` に `READ_MEDIA_VIDEO`・`READ_MEDIA_VISUAL_USER_SELECTED`・`READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）を足し、初回の起動で
+- [x] 4.1 `AndroidManifest.xml` に `READ_MEDIA_VIDEO`・`READ_MEDIA_VISUAL_USER_SELECTED`・`READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）を足し、初回の起動で
   位置の後に写真と動画と写真の位置の権限を求める（拒まれても収集は始める）。
   Scenario: `初回の起動で写真と動画と写真の位置の権限を求める` / `写真の権限が無くても位置は集まる`。
   権限を求める画面の計測テストは「未許可・未要求」から始めるので `@NeedsPristinePermissions` を付ける（CI の 2 段目で走る）。
   検証: `GT MediaPermissionTest`（2 本以上。マニフェストの権限を読む試験を含む）/ `AT MediaCaptureInstrumentedTest`
-- [ ] 4.2 メディアの取得可否（`mediaCapability`。D6 の語彙）と、`SourceCadence` の 4 つ（6 時間・6 時間）と、`network` を載せる生存信号（D7）と、試行と成功の数え方（D22）。
+- [x] 4.2 メディアの取得可否（`mediaCapability`。D6 の語彙）と、`SourceCadence` の 4 つ（6 時間・6 時間）と、`network` を載せる生存信号（D7）と、試行と成功の数え方（D22）。
   C19 の各段の失敗を数え、その区間のすべての試行が同じ段で失敗したらその段の語を載せる。写真の位置の権限が無い間は読み手がファイルを開かない（Q15）。
   Scenario: `写真の位置の権限が無ければ写真を 1 件も読まない` / `写真の位置の権限が無いと生存信号は取れない状態になる` / `権限が戻ると待っていた間の写真も取る` /
   `選んだ写真だけの許可では選んだものを取り、取れない状態と報告する` / `圏外でも写真の生存信号は取れる状態のまま接続が無かったことが載る` / `接続があれば接続ありが載る` /
@@ -122,7 +122,7 @@
   `メディアの 4 つのソースがそれぞれ生存信号を送る` / `メディアの生存信号の試行は見直しと知らせの回数で数える`。
   `HeartbeatCountersTest` の `どのソースも生存信号の区間に取得契機が 1 回以上入る` が 4 つのメディアのソースも数えるようにする（`SourceCadence` の全部を回す形なら、足すだけで入ることを確かめる）。
   検証: `GT MediaCapabilityTest`（11 本以上）/ `GT HeartbeatCountersTest` / 既存の `GT CollectionSourceTest` と `GT SourceIndependenceTest` が緑のまま
-- [ ] 4.3 知らせ（D6。チャンネル `media-capture`・文言は design の表のとおり・押すとアプリの設定）。権限が戻ったら消す。「選んだ写真だけ」では出さない。
+- [x] 4.3 知らせ（D6。チャンネル `media-capture`・文言は design の表のとおり・押すとアプリの設定）。権限が戻ったら消す。「選んだ写真だけ」では出さない。
   Scenario: `写真の位置の権限が無いと端末で知らせる` / `選んだ写真だけの許可では通知を出さない`。
   検証: `GT MediaNoticeTest`（3 本以上。出る・消える・選んだ写真だけでは出ない）/ `AT MediaCaptureInstrumentedTest`（通知が出て、その `PendingIntent` がアプリの設定を指す）
 
