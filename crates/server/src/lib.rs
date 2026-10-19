@@ -98,6 +98,9 @@ pub mod ingest;
 pub mod media;
 #[cfg(test)]
 mod media_coverage_tests;
+/// 写真と動画の書き出しの分類と、滞在を消したときの写真（ST09 tasks 9 / design D16 / D18 / D23）。
+#[cfg(test)]
+mod media_export_tests;
 /// 写真と動画の見分け（ST09 tasks 3.2）。
 #[cfg(test)]
 mod media_ident_tests;

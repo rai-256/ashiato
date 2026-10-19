@@ -54,7 +54,7 @@ async fn export_into(pool: &sqlx::PgPool, cfg: ExportConfig) -> PathBuf {
 }
 
 /// 新しい置き場に書き出す。錠はこの中で取る。
-async fn export_once(pool: &sqlx::PgPool) -> PathBuf {
+pub(crate) async fn export_once(pool: &sqlx::PgPool) -> PathBuf {
     let _g = EXPORT_SERIAL.lock().await;
     export_into(pool, ExportConfig::with_dir(tmp_dir("file"))).await
 }
@@ -64,7 +64,7 @@ fn open(path: &Path) -> ZipArchive<std::fs::File> {
 }
 
 /// 項目の全文（合言葉で開く）。
-fn text(path: &Path, name: &str) -> String {
+pub(crate) fn text(path: &Path, name: &str) -> String {
     let mut z = open(path);
     let mut f = z.by_name_decrypt(name, PASS.as_bytes()).unwrap();
     let mut s = String::new();
@@ -73,7 +73,7 @@ fn text(path: &Path, name: &str) -> String {
 }
 
 /// 項目の行のうち `needle` を含むものを JSON として読む（全行を読み込まない）。
-fn scan(path: &Path, name: &str, needle: &str) -> Vec<Value> {
+pub(crate) fn scan(path: &Path, name: &str, needle: &str) -> Vec<Value> {
     let mut z = open(path);
     let f = z.by_name_decrypt(name, PASS.as_bytes()).unwrap();
     BufReader::new(f)
@@ -90,7 +90,7 @@ fn all_rows(path: &Path, name: &str) -> Vec<Value> {
 }
 
 /// `ids` のうち、その項目の行の `id` に出るもの。
-fn present(path: &Path, name: &str, ids: &[Uuid]) -> BTreeSet<Uuid> {
+pub(crate) fn present(path: &Path, name: &str, ids: &[Uuid]) -> BTreeSet<Uuid> {
     let mut z = open(path);
     let f = z.by_name_decrypt(name, PASS.as_bytes()).unwrap();
     let wanted: Vec<(String, Uuid)> = ids.iter().map(|i| (i.to_string(), *i)).collect();

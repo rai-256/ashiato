@@ -22,7 +22,7 @@ impl std::io::Write for Captured {
     }
 }
 
-fn t(s: &str) -> DateTime<Utc> {
+pub(crate) fn t(s: &str) -> DateTime<Utc> {
     s.parse().unwrap()
 }
 
@@ -32,7 +32,7 @@ fn auth() -> axum::http::HeaderMap {
     headers
 }
 
-async fn app() -> crate::App {
+pub(crate) async fn app() -> crate::App {
     crate::App::for_test(testdb::pool().await, TOKEN)
 }
 
@@ -66,7 +66,12 @@ async fn put_event(
     id
 }
 
-async fn put_stay(pool: &sqlx::PgPool, user: uuid::Uuid, start: &str, end: &str) -> uuid::Uuid {
+pub(crate) async fn put_stay(
+    pool: &sqlx::PgPool,
+    user: uuid::Uuid,
+    start: &str,
+    end: &str,
+) -> uuid::Uuid {
     let id = uuid::Uuid::new_v4();
     let payload = serde_json::json!({
         "start": t(start).to_rfc3339(),
@@ -92,7 +97,7 @@ async fn put_stay(pool: &sqlx::PgPool, user: uuid::Uuid, start: &str, end: &str)
     id
 }
 
-async fn erase(
+pub(crate) async fn erase(
     app: &crate::App,
     stay_id: uuid::Uuid,
     user_id: Option<uuid::Uuid>,
