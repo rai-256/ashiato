@@ -100,12 +100,27 @@ async fn st09_miss_vanished_original_is_kept_with_reason_and_hash() {
     assert_eq!(row, ("vanished".into(), sha, "c01-photo".into()));
 }
 
+async fn photo(app: &App, user: uuid::Uuid) -> coverage::SourceCoverage {
+    let day = testdb::date("2026-10-01");
+    let src = coverage::SourceRow {
+        logical_source: "c01-photo".into(),
+        named_source: "c01-photo".into(),
+        display_name: "c01-photo".into(),
+        expected_gap_sec: 21_600,
+        collection_started_on: Some(testdb::date("2026-05-01")),
+        retired_on: None,
+        chain: vec!["c01-photo".into()],
+    };
+    coverage::of_source(&app.pool, Some(user), &src, day, day)
+        .await
+        .unwrap()
+}
+
 /// Scenario: 原本の欠けは破棄の報告に載らない
 #[tokio::test]
 async fn st09_miss_does_not_count_as_drop() {
     let app = app().await;
     let user = testdb::user();
-    let source = testdb::source(&app.pool, "miss-cov", 21_600).await;
     let (code, _) = post(
         &app,
         serde_json::json!([report(user, &sha(), "vanished")]),
@@ -119,19 +134,21 @@ async fn st09_miss_does_not_count_as_drop() {
         .await
         .unwrap();
     assert_eq!(drops, 0);
-    let day = testdb::date("2026-10-01");
-    let src = coverage::SourceRow {
-        logical_source: source.clone(),
-        named_source: source.clone(),
-        display_name: source.clone(),
-        expected_gap_sec: 21_600,
-        collection_started_on: Some(testdb::date("2026-05-01")),
-        retired_on: None,
-        chain: vec![source],
-    };
-    let got = coverage::of_source(&app.pool, Some(user), &src, day, day)
-        .await
-        .unwrap();
+    // 対照: 破棄の報告を入れた別のユーザーの写真は Dropped になる（読み出しが破棄を拾えている証）
+    let other = testdb::user();
+    testdb::put_drop(
+        &app.pool,
+        other,
+        "c01-photo",
+        Some(("2026-09-30T15:00:00Z", "2026-10-01T15:00:00Z")),
+        &[("2026-10-01T03:00:00Z", 3)],
+    )
+    .await;
+    let control = photo(&app, other).await;
+    assert_eq!(control.days[0].dropped_count, 3);
+    assert_eq!(control.days[0].state, coverage::DayState::Dropped);
+    // 欠けだけを報告したユーザーの写真は破棄に数えられない
+    let got = photo(&app, user).await;
     assert_eq!(got.days[0].dropped_count, 0);
     assert_ne!(got.days[0].state, coverage::DayState::Dropped);
 }
