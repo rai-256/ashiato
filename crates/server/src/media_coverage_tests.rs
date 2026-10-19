@@ -352,6 +352,25 @@ async fn st09_cov_state_photos_before_the_start_do_not_make_an_outage() {
     }
     assert!(
         got.days.iter().all(|c| c.state != DayState::Outage),
-        "見始めた日より前に始まる途絶の期間があってはならない"
+        "見始めた日より前の日が途絶の状態になってはならない"
+    );
+    // 途絶の期間の読み出し（台帳に書く判定）も、見始めた日（2026-10-20 の 0 時 JST）より前に始まらない
+    let now = chrono::DateTime::parse_from_rfc3339("2026-11-03T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let floor = chrono::DateTime::parse_from_rfc3339("2026-10-19T15:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let episodes = outage_store::judge_and_record(&pool, u, now, None)
+        .await
+        .unwrap();
+    let mine: Vec<_> = episodes
+        .iter()
+        .filter(|e| e.outage.logical_source == s)
+        .collect();
+    assert!(!mine.is_empty(), "対照: 見始めた後の空白は途絶の期間になる");
+    assert!(
+        mine.iter().all(|e| e.outage.last_alive_at >= floor),
+        "見始めた日より前に始まる途絶の期間があってはならない: {mine:?}"
     );
 }
