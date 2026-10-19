@@ -61,9 +61,12 @@ class MediaScanDriver(
     }
 
     private fun review() {
-        scanner.scan(onOutcome)
-        synchronized(this) {
-            if (running) cancelReview = timer.after(reviewEveryMs) { review() }
+        try {
+            scanner.scan(onOutcome)
+        } finally {
+            synchronized(this) {
+                if (running) cancelReview = timer.after(reviewEveryMs) { review() }
+            }
         }
     }
 }

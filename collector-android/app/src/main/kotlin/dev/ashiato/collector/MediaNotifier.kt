@@ -35,7 +35,8 @@ class MediaNotifier(private val context: Context, private val log: (String) -> U
         val text = mediaNoticeText(state)
         when {
             text == null -> {
-                if (shown != null) manager.cancel(MEDIA_NOTIFICATION_ID)
+                // shown はプロセスの中にしか無い。落ちて立ち直った後の古い知らせも消すので無条件に消す
+                manager.cancel(MEDIA_NOTIFICATION_ID)
                 shown = null
             }
             text == shown -> Unit

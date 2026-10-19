@@ -96,7 +96,14 @@ class MediaScanner(
             return MediaScanResult.Unavailable(blocked)
         }
         val pass = Pass(level, env.now(), store.loadCursor(), listing.volumes())
-        pass.run()
+        try {
+            pass.run()
+        } catch (e: Exception) {
+            // 例外で outcome が届かないと、失敗が試行にも段にも数えられず生存信号が成功のままになる（C19）
+            log(Telemetry.line("media_scan_crashed", source = null, error = e.javaClass.simpleName))
+            onOutcome(MediaScanOutcome(REASON_SCAN_FAILED, pass.failedStages))
+            return MediaScanResult.Unavailable(REASON_SCAN_FAILED)
+        }
         log(Telemetry.line("media_scan", source = null, count = pass.enqueued))
         onOutcome(MediaScanOutcome(null, pass.failedStages))
         return if (pass.held || pass.unreadable.isNotEmpty()) {
@@ -345,6 +352,7 @@ class MediaScanner(
         const val GENERATION_BEFORE_ALL = -1L
         const val REASON_NO_ACCESS = "no_media_access"
         const val REASON_NO_LOCATION = "no_location_permission"
+        const val REASON_SCAN_FAILED = "scan_failed"
     }
 }
 

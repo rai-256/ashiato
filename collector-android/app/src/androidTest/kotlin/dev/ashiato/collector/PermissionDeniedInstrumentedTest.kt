@@ -6,6 +6,7 @@ import android.content.Context
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -65,6 +66,18 @@ class PermissionDeniedInstrumentedTest {
                 "（tools/android-emulator.sh と CI がその順で走らせる）",
             PackageManager.PERMISSION_DENIED,
             context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION),
+        )
+        assertEquals(
+            "前提が作れていない。写真の権限が残っている（求める画面が出ず、求める処理を確かめられない）。" +
+                "上と同じく `pm reset-permissions` の後に単独で走らせる",
+            PackageManager.PERMISSION_DENIED,
+            context.checkSelfPermission(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                },
+            ),
         )
         // 前の試験が残した前景サービスがあると onCreate が走り直さず、起動の行が出ない
         context.stopService(Intent(context, LocationService::class.java))
@@ -165,22 +178,17 @@ class PermissionDeniedInstrumentedTest {
     // Scenario: 初回の起動で写真と動画と写真の位置の権限を求める
     //
     // 位置・通知の次に、写真と動画の権限を求める画面が出る。断っても収集は始まる（続きの検証が見る）。
-    // **同じ 2 段目の先に走る `MediaPremisesInstrumentedTest` が写真の権限を付け外しする**ので、ここへ来たときには
-    // 決まっていて画面が出ないことがある（そのときは断る相手が無いだけで、収集が始まることは続きが見る）。
+    // **画面が出なければ落とす。** 飛ばすと、求める処理が壊れていても緑になる。
+    // 写真の権限が未許可であることは `requirePristinePermissions` が先に確かめている（出ない言い訳を残さない）。
     private fun denyMediaDialog() {
-        val shown = device.wait(
-            Until.findObject(By.text(Pattern.compile("(?is).*(photo|video|media|写真|動画|画像|メディア).*"))),
-            DIALOG_TIMEOUT_MS,
-        ) ?: return
-        assertTrue("写真と動画の権限の画面なのに本文が写真・動画を言わない: ${shown.text}", shown.text.isNotEmpty())
         val deny = device.wait(
-            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny_button"))),
-            DIALOG_TIMEOUT_MS,
-        ) ?: device.wait(
-            Until.findObject(By.text(Pattern.compile("(?i)(許可しない|拒否|don.t allow|deny)"))),
+            Until.findObject(By.res(Pattern.compile(".*permissioncontroller:id/permission_deny_button"))),
             DIALOG_TIMEOUT_MS,
         )
-        assertTrue("写真と動画の権限の拒否ボタンが見つからない", deny != null)
+        assertTrue(
+            "写真と動画の権限の画面が出ない（前面: ${device.currentPackageName}）",
+            deny != null,
+        )
         deny!!.click()
     }
 
