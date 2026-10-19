@@ -613,7 +613,7 @@ open class LocationService : Service() {
             deviceId,
             logI,
         )
-        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = originalPipeline.link::dropped)
+        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = { originalPipeline.link.dropped(it) })
         notifier = RetentionNotifier(
             outbox,
             ageClock::now,
@@ -622,6 +622,13 @@ open class LocationService : Service() {
             baseText = ongoingText(),
             log = logI,
         )
+    }
+
+    /** 原本の送りを走らせる。糸の中の例外はプロセスを落とすので、種別だけ残して次の契機へ回す（design D26） */
+    private fun runUploader(uploader: OriginalUploader) {
+        runCatching { uploader.run() }.onFailure {
+            Log.i(TAG, Telemetry.line("original_upload_crashed", source = null, error = it.javaClass.simpleName))
+        }
     }
 
     /**
@@ -920,7 +927,7 @@ open class LocationService : Service() {
             drops = dropSender,
             ledger = ledger,
             missing = missingSender,
-            afterRecords = { if (!uploader.busy) originalThread.execute { uploader.run() } },
+            afterRecords = { if (!uploader.busy) originalThread.execute { runUploader(uploader) } },
             maintenance = { maintain(force = true) },
             log = { Log.i(TAG, it) },
         )

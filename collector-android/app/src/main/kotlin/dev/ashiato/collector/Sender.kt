@@ -190,13 +190,15 @@ class Sender<T : Outboxable>(
         }
         val responded = verdict.responded
 
-        notifyListener(batch, verdict)
-        var removed = verdict.remove.size
-        if (verdict.remove.isNotEmpty() && !outbox.remove(verdict.remove)) {
+        // 結びつきを台帳に書けなかった記録は取り除かない（次の契機で再び受理・拒否され、書き直せる）
+        val held = notifyListener(batch, verdict)
+        val toRemove = verdict.remove.filter { it !in held }
+        var removed = toRemove.size
+        if (toRemove.isNotEmpty() && !outbox.remove(toRemove)) {
             // 受け付けられたが置き場へ書けなかった。**次の契機で再送になる**（重複は入らない）。
             // **取り除けたと数えない**（review R5）—— 数えると、溜まっている間は続けて送る判定が真のままになり、
             // 同じ 200 件を 1 回の契機の中で送り続ける
-            val stuck = verdict.remove.toSet()
+            val stuck = toRemove.toSet()
             logEachSource("outbox_shrink_failed", batch.filter { it.id in stuck })
             removed = 0
         }
@@ -207,14 +209,23 @@ class Sender<T : Outboxable>(
         return Flushed(batch.size, verdict.accepted, removed, responded)
     }
 
-    private fun notifyListener(batch: List<T>, verdict: Verdict) {
-        val target = listener ?: return
+    /** listener に知らせる。**取り除かずに残す識別子**（listener が処理できなかった分）を返す。 */
+    private fun notifyListener(batch: List<T>, verdict: Verdict): Set<String> {
+        val target = listener ?: return emptySet()
         val ok = verdict.acceptedIds.toSet()
         val gone = verdict.remove.toSet() - ok
+        val held = HashSet<String>()
         runCatching {
-            if (ok.isNotEmpty()) target.accepted(batch.filter { it.id in ok })
-            if (gone.isNotEmpty()) target.rejectedForGood(batch.filter { it.id in gone })
+            if (ok.isNotEmpty()) {
+                val items = batch.filter { it.id in ok }
+                if (!target.accepted(items)) held += items.map { it.id }
+            }
+            if (gone.isNotEmpty()) {
+                val items = batch.filter { it.id in gone }
+                if (!target.rejectedForGood(items)) held += items.map { it.id }
+            }
         }.onFailure { log(Telemetry.line("send_listener_crashed", source = null, error = it.javaClass.simpleName)) }
+        return held
     }
 
     /**

@@ -76,19 +76,26 @@ class Retention<T : Retainable>(
     ): Int {
         val touched = LinkedHashSet<String>()
         var before: List<DropDraft>? = null
-        var committed: List<Stored<T>> = emptyList()
+        // 実際に置き場から消えた記録。区切りごとに commit が呼ばれるので、次の commit が来た（= 前の区切りの ack が通った）ときに確定する
+        val confirmed = ArrayList<Stored<T>>()
+        var pending: List<Stored<T>> = emptyList()
         val n = run(
             { gone ->
-                committed = gone
+                confirmed += pending
+                pending = gone
                 // **証拠を先に書く**（review R26）。下書きに足して保存できたときだけ、置き場から消させる
                 before = ledger.record(reason, gone.map { it.item.logicalSource to instantOf(it.item.eventTime) })
                 if (before != null) gone.forEach { touched += it.item.logicalSource }
                 before != null
             },
-            { _ -> before?.let(ledger::restore) },
+            { _ ->
+                pending = emptyList()
+                before?.let(ledger::restore)
+            },
         )
+        confirmed += pending
         if (n > 0) {
-            runCatching { onDropped(committed.map { it.item }) }.onFailure {
+            runCatching { onDropped(confirmed.map { it.item }) }.onFailure {
                 log(Telemetry.line("retention_hook_crashed", source = null, error = it.javaClass.simpleName))
             }
             for (source in touched) {

@@ -215,11 +215,11 @@ class OriginalMissingReporter(
 
 /** 記録の送信の結果を受ける口（`Sender`）。 */
 interface SendListener<T> {
-    /** 受理された（重複を含む）項目。未送信から取り除く前に呼ぶ */
-    fun accepted(items: List<T>)
+    /** 受理された（重複を含む）項目。未送信から取り除く前に呼ぶ。処理できなかったら false（`Sender` は取り除かず、次の契機で再び呼ぶ） */
+    fun accepted(items: List<T>): Boolean
 
-    /** 恒久的に断られて未送信から取り除く項目 */
-    fun rejectedForGood(items: List<T>)
+    /** 恒久的に断られて未送信から取り除く項目。処理できなかったら false（取り除かない） */
+    fun rejectedForGood(items: List<T>): Boolean
 }
 
 /**
@@ -236,9 +236,9 @@ class OriginalRecordLink(
     private val ledger: OriginalLedger,
     private val reporter: OriginalMissingReporter,
 ) : SendListener<IngestRequest> {
-    override fun accepted(items: List<IngestRequest>) {
+    override fun accepted(items: List<IngestRequest>): Boolean {
         val shas = items.mapNotNull(::imageSha)
-        if (shas.isNotEmpty()) ledger.markReady(shas)
+        return shas.isEmpty() || ledger.markReady(shas)
     }
 
     override fun rejectedForGood(items: List<IngestRequest>) = gone(items, OriginalMissingReason.RECORD_REJECTED)
@@ -246,12 +246,12 @@ class OriginalRecordLink(
     /** `Retention` が破棄した記録 */
     fun dropped(items: List<IngestRequest>) = gone(items, OriginalMissingReason.RECORD_DROPPED)
 
-    private fun gone(items: List<IngestRequest>, reason: OriginalMissingReason) {
+    private fun gone(items: List<IngestRequest>, reason: OriginalMissingReason): Boolean {
         val rows = items.mapNotNull { item ->
             imageSha(item)?.let(ledger::get)?.takeIf { it.state == ORIGINAL_AWAITING_RECORD && it.recordId == item.id }
         }
         rows.forEach { reporter.report(it, reason) }
-        if (rows.isNotEmpty()) ledger.removeAll(rows.map { it.sha256 })
+        return rows.isEmpty() || ledger.removeAll(rows.map { it.sha256 })
     }
 
     /** 画像の記録の内容ハッシュ。動画・消えた事実など、原本を持たない記録は null */

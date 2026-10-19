@@ -77,6 +77,38 @@ class OriginalLedgerTest {
         assertNull(h.env.originals.get(sha))
     }
 
+    // Scenario: 記録が未送信から破棄されると原本も欠けになる
+    @Test
+    fun records_dropped_across_several_segments_all_turn_their_originals_into_missing_originals() {
+        RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
+        val h = OriginalHarness(TestStores(segmentBytes = 300))
+        repeat(4) { h.photo(it + 1L, "dropped across segments $it") }
+        h.scan()
+        val segments = h.st.dir.walkTopDown().count { it.isFile && it.name.endsWith(".jsonl") && it.length() > 0 }
+        assertTrue("区切りが 2 本以上に分かれていない: $segments", segments >= 2)
+        h.st.clock.advance(91 * day)
+        assertEquals(4, h.retention().enforce())
+        assertEquals(4, h.missingReports().count { it.reason == "record_dropped" })
+        assertEquals(0, h.env.originals.all().size)
+    }
+
+    @Test
+    fun an_accepted_record_stays_in_the_unsent_store_while_the_ledger_cannot_be_written() {
+        val h = OriginalHarness()
+        h.photo(1, "ledger write fails once")
+        h.scan()
+        val sha = h.shaOf(1)
+        // 台帳の一時ファイルの場所をふさいで、書き込みを失敗させる
+        val tmp = File(File(h.env.dir, MEDIA_LEDGER_DIR), "$ORIGINALS_FILE.tmp").also { it.mkdirs() }
+        h.acceptRecords()
+        assertEquals(1, h.st.records.size())
+        assertEquals(ORIGINAL_AWAITING_RECORD, h.env.originals.get(sha)?.state)
+        tmp.delete()
+        h.acceptRecords()
+        assertEquals(0, h.st.records.size())
+        assertEquals(ORIGINAL_READY, h.env.originals.get(sha)?.state)
+    }
+
     // Scenario: 恒久的に断られた記録の原本は欠けになる
     @Test
     fun a_permanently_rejected_record_turns_its_original_into_a_missing_original() {
