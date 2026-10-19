@@ -17,19 +17,19 @@ use crate::{ingest, router, App};
 const TOKEN: &str = "test-token-0123456789abcdef";
 
 /// 一時の置き場。落とすと消す。
-struct Tmp(PathBuf);
+pub(crate) struct Tmp(PathBuf);
 
 impl Tmp {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("ashiato-media-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)
     }
     /// 置き場（箱の中の 1 段下。外に書かれたかを箱の直下で見られる）
-    fn root(&self) -> PathBuf {
+    pub(crate) fn root(&self) -> PathBuf {
         self.0.join("media")
     }
-    fn made(&self) -> PathBuf {
+    pub(crate) fn made(&self) -> PathBuf {
         let root = self.root();
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -42,20 +42,20 @@ impl Drop for Tmp {
     }
 }
 
-async fn app_with(root: PathBuf) -> App {
+pub(crate) async fn app_with(root: PathBuf) -> App {
     App::for_test(testdb::pool().await, TOKEN).with_media(MediaConfig::with_dir(root))
 }
 
-fn sha_of(bytes: &[u8]) -> String {
+pub(crate) fn sha_of(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
 /// 試験ごとに固有のバイト（記録の外部識別子が全体で一意なため）。
-fn unique_bytes(tag: &str) -> Vec<u8> {
+pub(crate) fn unique_bytes(tag: &str) -> Vec<u8> {
     format!("{tag}-{}", uuid::Uuid::new_v4()).into_bytes()
 }
 
-fn record(
+pub(crate) fn record(
     user: uuid::Uuid,
     source: &str,
     sha: &str,
@@ -78,7 +78,7 @@ fn record(
     })
 }
 
-async fn store(app: &App, items: Vec<serde_json::Value>) {
+pub(crate) async fn store(app: &App, items: Vec<serde_json::Value>) {
     let mut h = HeaderMap::new();
     h.insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
     let (_, Json(res)) = ingest(State(app.clone()), h, Json(serde_json::Value::Array(items)))
@@ -87,7 +87,13 @@ async fn store(app: &App, items: Vec<serde_json::Value>) {
     assert!(res.iter().all(|r| r.accepted), "断られた: {res:?}");
 }
 
-async fn photo(app: &App, user: uuid::Uuid, bytes: &[u8], name: &str, event_time: &str) -> String {
+pub(crate) async fn photo(
+    app: &App,
+    user: uuid::Uuid,
+    bytes: &[u8],
+    name: &str,
+    event_time: &str,
+) -> String {
     let sha = sha_of(bytes);
     store(
         app,
@@ -114,7 +120,12 @@ fn put_req(sha: &str, user: uuid::Uuid, body: Body, auth: bool) -> Request<Body>
     b.body(body).unwrap()
 }
 
-async fn put(app: &App, sha: &str, user: uuid::Uuid, bytes: &[u8]) -> (StatusCode, String) {
+pub(crate) async fn put(
+    app: &App,
+    sha: &str,
+    user: uuid::Uuid,
+    bytes: &[u8],
+) -> (StatusCode, String) {
     let res = router(app.clone())
         .oneshot(put_req(sha, user, Body::from(bytes.to_vec()), true))
         .await

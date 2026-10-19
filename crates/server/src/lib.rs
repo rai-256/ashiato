@@ -102,6 +102,12 @@ mod media_ident_tests;
 /// 写真と動画の移行（ST09 / design D7 / D13 / D15 / D17）。
 #[cfg(test)]
 mod media_migration_tests;
+pub mod media_missing;
+#[cfg(test)]
+mod media_missing_tests;
+pub mod media_summary;
+#[cfg(test)]
+mod media_summary_tests;
 #[cfg(test)]
 mod media_tests;
 pub mod migrate_backup;
@@ -3440,6 +3446,8 @@ pub fn router(app: App) -> Router {
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
         .route("/drops", post(drops::drops_post))
+        .route("/media/missing", post(media_missing::missing_post))
+        .route("/media/summary", get(media_summary::summary_get))
         // この経路だけ本文の上限が 1 GiB（ほかの経路の 2 MB は変えない。design D10）
         .route(
             "/media/originals/{sha256}",
@@ -3623,6 +3631,10 @@ pub async fn run() -> anyhow::Result<()> {
         ingest,
         heartbeat_post,
         drops::drops_post,
+        media::put_original,
+        media::head_original,
+        media_missing::missing_post,
+        media_summary::summary_get,
         events,
         coverage_get,
         achievement_get,
@@ -3664,6 +3676,14 @@ pub async fn run() -> anyhow::Result<()> {
         drops::DropHour,
         drops::DropResult,
         drops::DropError,
+        media_missing::MediaMissingRequest,
+        media_missing::MediaMissingResult,
+        media_missing::MediaMissingError,
+        media_summary::MediaSummary,
+        media_summary::MediaSourceSummary,
+        media_summary::CountBytes,
+        media_summary::MissingByReason,
+        media_summary::StorageErrorView,
         coverage::SourceCoverage,
         coverage::DayCell,
         coverage::Interval,

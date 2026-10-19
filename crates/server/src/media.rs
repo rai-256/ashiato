@@ -33,8 +33,8 @@ pub const HASH_SUFFIX_CHARS: usize = 8;
 pub const DIR_SETTING: &str = "ASHIATO_MEDIA_DIR";
 const INCOMING: &str = ".incoming";
 const PART_EXT: &str = "part";
-const IMAGE_SOURCES: [&str; 3] = ["c01-photo", "c01-screenshot", "c01-image"];
-const VIDEO_SOURCE: &str = "c01-video";
+pub(crate) const IMAGE_SOURCES: [&str; 3] = ["c01-photo", "c01-screenshot", "c01-image"];
+pub(crate) const VIDEO_SOURCE: &str = "c01-video";
 
 // ---------------------------------------------------------------------------
 // 置き場の設定
@@ -352,6 +352,12 @@ fn length_limit_hit(e: &axum::Error) -> bool {
 }
 
 /// 原本を受け取る。流しながら `.part` に書いてハッシュを取り、D10 の順で判定して置く。
+#[utoipa::path(put, path = "/media/originals/{sha256}",
+    params(("sha256" = String, Path, description = "原本の内容ハッシュ"),
+           ("user_id" = uuid::Uuid, Query, description = "利用者")),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+    responses((status = 201, description = "置いた"), (status = 200, description = "受け取り済み"),
+              (status = 400), (status = 401), (status = 409), (status = 413), (status = 422), (status = 503)))]
 pub async fn put_original(
     State(app): State<App>,
     UrlPath(sha256): UrlPath<String>,
@@ -617,6 +623,10 @@ async fn file_sha256(path: &Path) -> std::io::Result<String> {
 }
 
 /// 受け取り済みかを答える。受け取りの行があれば `200`、無ければ `404`（本文は受けない）。
+#[utoipa::path(head, path = "/media/originals/{sha256}",
+    params(("sha256" = String, Path, description = "原本の内容ハッシュ"),
+           ("user_id" = uuid::Uuid, Query, description = "利用者")),
+    responses((status = 200), (status = 404), (status = 400), (status = 401)))]
 pub async fn head_original(
     State(app): State<App>,
     UrlPath(sha256): UrlPath<String>,
