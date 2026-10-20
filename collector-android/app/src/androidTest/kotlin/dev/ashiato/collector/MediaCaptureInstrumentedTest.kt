@@ -15,11 +15,12 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -34,7 +35,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import java.util.regex.Pattern
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 写真と動画の権限の求め方と、取れていないことの知らせを**本物の端末（エミュレータ）**で確かめる（ST09 tasks 4.1 / 4.3）。
@@ -108,9 +108,15 @@ class MediaCaptureInstrumentedTest {
             Thread {
                 while (!socket.isClosed) {
                     val client = runCatching { socket.accept() }.getOrNull() ?: break
-                    Thread { client.use { serve(it) } }.apply { isDaemon = true; start() }
+                    Thread { client.use { serve(it) } }.apply {
+                        isDaemon = true
+                        start()
+                    }
                 }
-            }.apply { isDaemon = true; start() }
+            }.apply {
+                isDaemon = true
+                start()
+            }
         }
 
         private fun serve(client: java.net.Socket) {
@@ -138,7 +144,9 @@ class MediaCaptureInstrumentedTest {
             }
             val bytes = reply.toByteArray(Charsets.UTF_8)
             client.getOutputStream().apply {
-                write("HTTP/1.1 $status X\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                val head = "HTTP/1.1 $status X\r\nContent-Type: application/json\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                write(head.toByteArray())
                 if (method != "HEAD") write(bytes)
                 flush()
             }
@@ -151,13 +159,12 @@ class MediaCaptureInstrumentedTest {
                 if (b < 0) return null
                 out.write(b)
                 val s = out.toByteArray()
-                if (s.size >= 4 && s[s.size - 4] == '\r'.code.toByte() && s[s.size - 3] == '\n'.code.toByte() &&
-                    s[s.size - 2] == '\r'.code.toByte() && s[s.size - 1] == '\n'.code.toByte()
-                ) {
-                    return String(s, 0, s.size - 4, Charsets.ISO_8859_1)
-                }
+                if (endsWithBlankLine(s)) return String(s, 0, s.size - 4, Charsets.ISO_8859_1)
             }
         }
+
+        private fun endsWithBlankLine(s: ByteArray): Boolean =
+            s.size >= 4 && String(s, s.size - 4, 4, Charsets.ISO_8859_1) == "\r\n\r\n"
 
         override fun close() = socket.close()
     }
@@ -176,6 +183,61 @@ class MediaCaptureInstrumentedTest {
         return checkNotNull(context.contentResolver.openInputStream(uri)) { "$name を開けない" }.use { it.readBytes() }
     }
 
+    /** 端から端に要る道具一式（本物の読み手・未送信の置き場・送り手・原本の送り手）。 */
+    private inner class Rig(dir: File, baseUrl: String, user: String) {
+        val scanLog = StringBuffer()
+        private val outbox = Outbox(
+            SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {}),
+            age = { 0L },
+        )
+        private val ledgers = MediaLedgerStore(File(dir, "media"))
+        private val pipeline = OriginalPipeline(
+            ledgers.originals,
+            Outbox(
+                SegmentStore(
+                    File(dir, "missing"),
+                    MediaMissingReport.serializer(),
+                    File(dir, "unreadable2.jsonl"),
+                    {},
+                ),
+                age = { 0L },
+            ),
+            { user },
+            "e2e-device",
+            {},
+        )
+        val scanner = MediaScanner(
+            listing = ContentResolverMediaListing(context),
+            files = ContentResolverMediaFileReader(context),
+            outbox = outbox,
+            store = ledgers,
+            env = MediaScanEnvironment(
+                access = { mediaPermissionState(context).forScanner() },
+                now = { Instant.now() },
+                zone = { ZoneId.systemDefault() },
+                userId = { user },
+                deviceId = "e2e-device",
+                newId = { UUID.randomUUID().toString() },
+            ),
+            log = { scanLog.append(it).append('\n') },
+        )
+        val sender = Sender(
+            outbox,
+            HttpTransport(baseUrl, TOKEN, "/ingest"),
+            IngestRequest.serializer(),
+            dropPermanentlyRejected = true,
+        ).also { it.listener = pipeline.link }
+        val uploader = pipeline.uploader(
+            ContentResolverOriginalSource(context),
+            HttpOriginalTransport(baseUrl, TOKEN) { user },
+            OriginalEnvironment(
+                access = { mediaPermissionState(context).forScanner() },
+                unmetered = { true },
+                now = { Instant.now() },
+            ),
+        ) {}
+    }
+
     // Scenario: 写真を撮るとメタが D-01 に、原本が D-02 に入る
     // Scenario: 動画を撮るとメタだけが入り原本は送られない
     @Test
@@ -192,48 +254,11 @@ class MediaCaptureInstrumentedTest {
             try {
                 val baseUrl = "http://127.0.0.1:${receiver.port}"
                 val user = UUID.randomUUID().toString()
-                val outbox = Outbox(
-                    SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {}),
-                    age = { 0L },
-                )
-                val ledgers = MediaLedgerStore(File(dir, "media"))
-                val scanLog = StringBuffer()
-                val scanner = MediaScanner(
-                    listing = ContentResolverMediaListing(context),
-                    files = ContentResolverMediaFileReader(context),
-                    outbox = outbox,
-                    store = ledgers,
-                    env = MediaScanEnvironment(
-                        access = { mediaPermissionState(context).forScanner() },
-                        now = { Instant.now() },
-                        zone = { ZoneId.systemDefault() },
-                        userId = { user },
-                        deviceId = "e2e-device",
-                        newId = { UUID.randomUUID().toString() },
-                    ),
-                    log = { scanLog.append(it).append('\n') },
-                )
-                val pipeline = OriginalPipeline(
-                    ledgers.originals,
-                    Outbox(
-                        SegmentStore(File(dir, "missing"), MediaMissingReport.serializer(), File(dir, "unreadable2.jsonl"), {}),
-                        age = { 0L },
-                    ),
-                    { user },
-                    "e2e-device",
-                    {},
-                )
-                val sender = Sender(outbox, HttpTransport(baseUrl, TOKEN, "/ingest"), IngestRequest.serializer(), dropPermanentlyRejected = true)
-                    .also { it.listener = pipeline.link }
-                val uploader = pipeline.uploader(
-                    ContentResolverOriginalSource(context),
-                    HttpOriginalTransport(baseUrl, TOKEN) { user },
-                    OriginalEnvironment(
-                        access = { mediaPermissionState(context).forScanner() },
-                        unmetered = { true },
-                        now = { Instant.now() },
-                    ),
-                ) {}
+                val rig = Rig(dir, baseUrl, user)
+                val scanner = rig.scanner
+                val sender = rig.sender
+                val uploader = rig.uploader
+                val scanLog = rig.scanLog
 
                 val scanned = scanner.scan()
                 assertFalse("読み手が読めない: $scanned / $scanLog", scanned is MediaScanResult.Unavailable)
@@ -242,7 +267,8 @@ class MediaCaptureInstrumentedTest {
 
                 val records = receiver.requests.filter { it.path.startsWith("/ingest") }
                     .flatMap { ingestJson.decodeFromString<List<IngestRequest>>(String(it.body, Charsets.UTF_8)) }
-                fun recordOf(name: String) = records.filter { it.payload["display_name"]?.jsonPrimitive?.content == name }
+                fun recordOf(name: String) =
+                    records.filter { it.payload["display_name"]?.jsonPrimitive?.content == name }
                 val photoRecord = recordOf(PHOTO_NAME).single()
                 val videoRecord = recordOf(VIDEO_NAME).single()
                 // 材料は Pictures/ の下に入る（DCIM/ の外）ので画像のソース（design D3）。原本は写真と同じく送る
@@ -252,7 +278,8 @@ class MediaCaptureInstrumentedTest {
                 assertEquals(videoSha, videoRecord.payload["sha256"]?.jsonPrimitive?.content)
 
                 // 写真の原本の PUT が届き、バイトが端末のファイルと一致する
-                val photoPut = receiver.requests.single { it.method == "PUT" && it.path.startsWith("/media/originals/$photoSha") }
+                val photoPut = receiver.requests
+                    .single { it.method == "PUT" && it.path.startsWith("/media/originals/$photoSha") }
                 assertArrayEquals("原本のバイトが端末のファイルと違う", photoBytes, photoPut.body)
                 assertTrue(photoPut.path.contains("user_id=$user"))
                 // 動画の原本は問い合わせも PUT も届かない

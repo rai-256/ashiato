@@ -75,7 +75,7 @@ class HttpOriginalTransport(
             }
             send(conn)
             val status = conn.responseCode
-            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+            val stream = if (status in HTTP_OK) conn.inputStream else conn.errorStream
             Outcome.Responded(status, stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "")
         } catch (e: IOException) {
             Outcome.Unreachable(e.javaClass.simpleName)
@@ -87,5 +87,6 @@ class HttpOriginalTransport(
     private companion object {
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 120_000
+        val HTTP_OK = 200..299
     }
 }

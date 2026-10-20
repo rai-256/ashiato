@@ -95,12 +95,13 @@ class MediaScanner(
             onOutcome(MediaScanOutcome(blocked, emptyMap()))
             return MediaScanResult.Unavailable(blocked)
         }
+        return scanAllowed(level, onOutcome)
+    }
+
+    /** 権限の状態が許したあとの 1 回分。この前に一覧も印も開かない（Q15）。 */
+    private fun scanAllowed(level: MediaAccess, onOutcome: (MediaScanOutcome) -> Unit): MediaScanResult {
         val pass = Pass(level, env.now(), store.loadCursor(), listing.volumes())
-        try {
-            pass.run()
-        } catch (e: Exception) {
-            // 例外で outcome が届かないと、失敗が試行にも段にも数えられず生存信号が成功のままになる（C19）
-            log(Telemetry.line("media_scan_crashed", source = null, error = e.javaClass.simpleName))
+        if (!runPass(pass)) {
             onOutcome(MediaScanOutcome(REASON_SCAN_FAILED, pass.failedStages))
             return MediaScanResult.Unavailable(REASON_SCAN_FAILED)
         }
@@ -112,6 +113,17 @@ class MediaScanner(
             MediaScanResult.Scanned(pass.enqueued, pass.full)
         }
     }
+
+    /** 作業場を 1 回走らせる。落ちたら false（例外で outcome が届かないと生存信号が成功のままになる。C19）。 */
+    @Suppress("TooGenericExceptionCaught")
+    private fun runPass(pass: Pass): Boolean =
+        try {
+            pass.run()
+            true
+        } catch (e: Exception) {
+            log(Telemetry.line("media_scan_crashed", source = null, error = e.javaClass.simpleName))
+            false
+        }
 
     /** 1 回の呼びの作業場。 */
     private inner class Pass(

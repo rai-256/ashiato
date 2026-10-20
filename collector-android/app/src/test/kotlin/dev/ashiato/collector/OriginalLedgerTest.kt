@@ -111,7 +111,16 @@ class OriginalLedgerTest {
         val openFile = object : File(dir, "drops-open.json") {
             override fun getParentFile(): File = dir
         }
-        val ledger = DropLedger(openFile, h.st.drops, { "user-1" }, "device-1", { h.st.now }, { "r${saves}x" }, h.st.log, LOGICAL_SOURCE)
+        val ledger = DropLedger(
+            openFile,
+            h.st.drops,
+            { "user-1" },
+            "device-1",
+            { h.st.now },
+            { "r${saves}x" },
+            h.st.log,
+            LOGICAL_SOURCE,
+        )
         val dropped = Retention(h.st.records, ledger, h.st.age::now, onDropped = h.link::dropped).enforce()
         assertTrue("1 本目の区切りは捨てられる: $dropped", dropped in 1..3)
         assertEquals(4 - dropped, h.st.records.size())

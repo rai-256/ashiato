@@ -554,6 +554,21 @@ open class LocationService : Service() {
         }
     }
 
+    /** 写真・動画の台帳と原本の送り手の足場（未送信の置き場とは別。design D8）。 */
+    private fun openMediaStores(logW: (String) -> Unit, logI: (String) -> Unit) {
+        mediaStore = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW)
+        originalPipeline = OriginalPipeline(
+            mediaStore.originals,
+            Outbox(
+                SegmentStore(store("media-missing"), MediaMissingReport.serializer(), store(UNREADABLE), logW),
+                age = ageClock::now,
+            ),
+            { Config.userId },
+            deviceId,
+            logI,
+        )
+    }
+
     /**
      * 置き場を開く（ST04）。**上限・報告・知らせは記録の置き場の上に載る。**
      * ST01 / ST02 の 1 本の JSONL が残っていれば、ここで区切りへ取り込む（design D1 / D6）。
@@ -602,18 +617,8 @@ open class LocationService : Service() {
             store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
         )
 
-        mediaStore = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW)
-        originalPipeline = OriginalPipeline(
-            mediaStore.originals,
-            Outbox(
-                SegmentStore(store("media-missing"), MediaMissingReport.serializer(), store(UNREADABLE), logW),
-                age = ageClock::now,
-            ),
-            { Config.userId },
-            deviceId,
-            logI,
-        )
-        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = { originalPipeline.link.dropped(it) })
+        openMediaStores(logW, logI)
+        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = originalPipeline.link::dropped)
         notifier = RetentionNotifier(
             outbox,
             ageClock::now,
