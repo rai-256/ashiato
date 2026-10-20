@@ -146,9 +146,9 @@ Q1 の推奨では記録も前の版も「厳密に後の最初の記録」で�
 失うものは無い（重なれば gate の rebase で追従する）。反転条件: CH02 が走っている間に、別の Story / change が「書き出しは本人が消した場面を出さない」を MODIFIED する上流に入るなら、
 `capability: [data-durability]` を書いて admission に止めさせる。
 
-### D10（仮）. ST09 の export の試験は、一時の worktree で ST09 のブランチに CH02 を merge して走らせる
+### D10（仮）. ST09 の export の試験は、CH02 の下流の worktree で ST09 のブランチを一時に merge して走らせる
 
-依頼は「既存の export の試験（ST33・ST09）をすべて通す」。ST09 の試験は走っている `feat/st09-media-capture` にあり、main にはまだ無い。一時の worktree で merge して走らせ、push も commit もしない（tasks 6.2）。
+依頼は「既存の export の試験（ST33・ST09）をすべて通す」。ST09 の試験は走っている `feat/st09-media-capture` にあり、main にはまだ無い。CH02 の worktree の中で `git merge --no-commit` して走らせ、`git merge --abort` で戻す。push も commit もしない（tasks 6.2。素の worktree は `scripts/` の symlink と `.env` を持たず試験が走らない）。
 ST09 のコードを CH02 のブランチに取り込まない（確認前の実装を運ばない）。反転条件: ST09 が CH02 の下流より先に main に入っていれば、rebase 後の通常の `CT st09_exp_` で見て、一時の merge は要らない。
 
 ## 計測の記録（下流が Task 5 で書く）

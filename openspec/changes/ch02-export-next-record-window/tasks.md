@@ -114,10 +114,10 @@
 - [ ] 6.1 ST33 の export の試験を名前で全部走らせる。
   検証: `CT export_excluded` rc=0（`-- --list` で 24 本以上）/ `CT export_file` rc=0（`-- --list` で 43 本以上）/ `CT export_job` rc=0（`-- --list` で 38 本以上）/
   `CT export_ledger` rc=0（`-- --list` で 3 本以上）/ `CT export_tests` rc=0（`-- --list` で 18 本以上）/ `CT ch02_` rc=0（`-- --list` で 18 本以上）
-- [ ] 6.2 ST09 の export の試験を、CH02 の断片の上で走らせる（依頼「ST09 の試験も通す」）。一時の worktree で `feat/st09-media-capture` に CH02 のブランチを merge し（**push しない・commit を残さない**。
-  `git worktree add --detach /tmp/ch02-st09 feat/st09-media-capture && git -C /tmp/ch02-st09 merge --no-commit --no-ff <CH02 のブランチ>`）、そこで `CT st09_exp_` と `CT export_` を走らせて、
-  終わったら `git worktree remove --force /tmp/ch02-st09`。ST09 のブランチに `st09_exp_` の試験がまだ無ければ、その旨（`-- --list` の 0 本）を PR の本文に書いて `CT export_` だけを見る。
-  検証: `CT st09_exp_` rc=0（`-- --list` で、ST09 のブランチの本数以上）/ `CT export_` rc=0（`-- --list` で 126 本以上）
+- [ ] 6.2 ST09 の export の試験を、CH02 の断片の上で走らせる（依頼「ST09 の試験も通す」。design D10）。**CH02 の下流の worktree の中で**（`scripts/` の symlink・`.env`・port をそのまま使う）、
+  作業を commit してから `git merge --no-commit --no-ff feat/st09-media-capture` → `CT st09_exp_` / `CT export_` → `git merge --abort`（**commit も push もしない。ST09 のコードをブランチに残さない**）。
+  ST09 のブランチに `st09_exp_` の試験がまだ無ければ、その旨（`-- --list` の 0 本）を PR の本文に書いて `CT export_` だけを見る。終わった後に `git status --short` が空であることを確かめる。
+  検証: `CT st09_exp_` rc=0（`-- --list` で、ST09 のブランチの本数以上）/ `CT export_` rc=0（`-- --list` で 126 本以上）/ `git merge --abort` の後の `git status --short` が空
 - [ ] 6.3 crate 全体の試験と静的検査。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 /
   `scripts/quiet-run clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 / `python3 scripts/check_scenarios.py . ch02-export-next-record-window` rc=0
