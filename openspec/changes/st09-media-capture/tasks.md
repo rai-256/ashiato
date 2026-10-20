@@ -210,11 +210,11 @@
 
 ## Task 10: 契約・端から端・縦串（`docs/collector-contract.md` / `tools/smoke.d/`）
 
-- [ ] 10.1 `docs/collector-contract.md` に、C-01 の写真・画像・動画の `payload`（design D4 の表）・消えた事実・外部識別子・原本の受け口（D10 の応答の一覧）・
+- [x] 10.1 `docs/collector-contract.md` に、C-01 の写真・画像・動画の `payload`（design D4 の表）・消えた事実・外部識別子・原本の受け口（D10 の応答の一覧）・
   原本の欠け（D11）・生存信号の `network` とメディアの `blockers` の語彙（D6 / D7）を書く。取得可否の表（`capturable` / `blockers` の行）にメディアの例外を足す。
   検証: `grep -c "c01-video" docs/collector-contract.md` が 1 以上 / `grep -c "/media/originals" docs/collector-contract.md` が 1 以上 /
   `grep -c "media_location" docs/collector-contract.md` が 1 以上 / `python3 scripts/check_chain.py .` rc=0
-- [ ] 10.2 端から端: 計測テスト `MediaCaptureInstrumentedTest` が、エミュレータで写真を 1 枚と動画を 1 本 MediaStore に入れ、テストの中の HTTP の受け手（`MockWebServer`）に
+- [x] 10.2 端から端: 計測テスト `MediaCaptureInstrumentedTest` が、エミュレータで写真を 1 枚と動画を 1 本 MediaStore に入れ、テストの中の HTTP の受け手（`MockWebServer`）に
   （端末の中のテスト用の受け手。CI と同じく `-Pashiato.baseUrl=http://127.0.0.1:18787`）に、写真の記録・動画の記録・写真の原本の `PUT`（バイトが端末のファイルと一致）が届き、動画の原本の `PUT` が届かないことを確かめる。サーバの側は
   `tools/smoke.d/<作成時刻>_st09-media-capture.sh` が、本物のサーバに写真と動画の記録を `/ingest` で送り、写真の原本を `PUT` し、D-01 の行と D-02 のファイル（バイト一致）と、
   動画の原本の `PUT` が断られ D-02 に何も無いことを確かめる。
