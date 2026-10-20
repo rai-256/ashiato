@@ -30,7 +30,7 @@
 `tools/check-shared-appends.sh`（`tail_touched()` と `check()`、`--self-test`）。design D2。
 
 - [ ] 1.1 いまの self-test が通ることを確かめてから直す。検証: `tools/check-shared-appends.sh --self-test` rc=0（直す前）
-- [ ] 1.2 足した行が Story の節の見出し（`^# *[=-]{3,}.*ST[0-9]{2}` / `^echo "== (Scenario: )?ST[0-9]{2}`）なら本体のどこでも落とす。
+- [ ] 1.2 足した行が Story の節の見出し（design D2 の 3 つの型）で、その ST 番号が同じファイルの差分の `-` 行の見出しに出ていなければ、本体のどこでも落とす。
   守る末尾を「読む口の見出しの直前の空でない行から読む口のかたまりの `done` まで」と「ファイルの最後の空でない行より後ろ」にする。読む口のかたまりを一字一句そのまま動かすだけの変更は通す。
   `--self-test` に D2 の 6 件（途中に `# ==== ST99` → 落とす / 途中に `echo "== ST99:` → 落とす / 読む口をそのまま前へ動かす → 通す / 動かした後に読む口の直後へ節 → 落とす /
   動かした後にファイルの最後へ書き足す → 落とす / 動かした後に戻しの並びの途中を直す → 通す）を足す。
@@ -38,6 +38,8 @@
   検証: `tools/check-shared-appends.sh --self-test` rc=0 で、出力の `self-test ok:` が 21 行以上（既存 11 件＋10 件）。`shellcheck tools/check-shared-appends.sh` rc=0
 - [ ] 1.3 わざと壊して落ちることを見る: 1.2 の見出しの検査を一時的に外すと self-test が rc=1 になる（`sed` で検査の行を消した写しを `/tmp` に置いて `--self-test` を走らせる）。
   検証: 写しの `--self-test` rc=1 かつ出力に `self-test NG` がある。元の台本は変えない（写しを走らせる前と後で `git diff --stat` の出力が同じ）
+- [ ] 1.4 規則の文言を持つ文書（`AGENTS.md`・`docs/testing.md`・`tools/smoke.d/README.md`・`tools/seed.d/README.md`・`tools/check-immutable.d/README.md`）に「本体の途中に新しい節の見出しを足しても落とす」を書く。
+  `tools/smoke.sh` `tools/seed.sh` の読む口の中の注記は直さない（design D2）。検証: `grep -L '途中.*見出し' AGENTS.md docs/testing.md tools/smoke.d/README.md tools/seed.d/README.md tools/check-immutable.d/README.md` が空、`git diff --quiet origin/main -- tools/smoke.sh tools/seed.sh`
 
 ## Task 2: ST17 の錠の節を `tools/check-immutable.d/` へ移し、読む口を戻しの前へ動かす（Q1・指摘 2）
 
@@ -54,9 +56,9 @@
   `! grep -nE '^(fail|MIGS|ST03_UP|down_fail|AU)=' tools/check-immutable.d/*_st17-*.sh`（本体の変数を上書きしない）
 - [ ] 2.3 NG の後に OK が並ばないことを、わざと壊して見る: 一時 worktree（`git worktree add /tmp/ch01-break HEAD`）で `migrations/202610141000_subjective_log.down.sql` を
   「`DROP TRIGGER feeling_reminder_append_only ON core.feeling_reminder; DELETE FROM core.feeling_reminder;`」に差し替えて `tools/check-immutable.sh` を走らせる
-  （錠のトリガを先に外さないと DELETE が拒まれ、期待の NG が出ない。review/spec.md R4）。壊し方が効くことは、2.2 の前の木（`git stash` を使わず、2.1 の commit を worktree に取る）で同じ手順を走らせ、NG と OK が並ぶことで先に見る。検証: rc=1、出力に `NG 戻しで主観の行か台帳か登録簿の行が減った` があり、
+  （錠のトリガを先に外さないと DELETE が拒まれ、期待の NG が出ない。review/spec.md R4）。壊し方が効くことは、直す前の木（`git worktree add /tmp/ch01-break-base "$(git merge-base origin/main HEAD)"`）で同じ手順を走らせ、NG と OK が並ぶことで先に見る。検証: rc=1、出力に `NG 戻しで主観の行か台帳か登録簿の行が減った` があり、
   `OK feeling 主観が残っていれば、戻しても台帳と登録簿の行と主観の記録が残る` が無い。走らせた後に worktree を消す（`git worktree remove --force /tmp/ch01-break`）
-- [ ] 2.4 ST17 の印が移っていることを見る。検証: `diff <(git show <2.1 の commit>:tools/check-immutable.sh | grep -o '# Scenario: .*' | sort -u) <(cat tools/check-immutable.sh tools/check-immutable.d/*.sh | grep -o '# Scenario: .*' | sort -u)` が空
+- [ ] 2.4 ST17 の印が移っていることを見る。検証: `diff <(git show "$(git merge-base origin/main HEAD)":tools/check-immutable.sh | grep -o '# Scenario: .*' | sort -u) <(cat tools/check-immutable.sh tools/check-immutable.d/*.sh | grep -o '# Scenario: .*' | sort -u)` が空
   （`check_scenarios.py` の rc=0 は、この change の delta の印が揃う Task 9.1 で見る）。
   `tools/check-shared-appends.sh "$(git branch --show-current)"` rc=0（Task 1 の規則で、読む口の移動と ST17 の節を抜いたことが通る）
 
@@ -72,7 +74,7 @@
   `grep -rq 'ch01-probe' collector-android/app/build/generated/source/buildConfig/debug`。走らせた後に足した行を消す（`! grep -q ch01-probe collector-android/local.properties`）
 - [ ] 3.3 ビルドが KILL で止まってもトークンが追跡ファイルに残らないことを見る: 一時 worktree で `collector-android/gradlew` を「印のファイル（`/tmp/ch01-gradle-started`）を置いてから `sleep 300`」の stub に差し替え、
   `record-env.sh` の Android の段（`REC_PLATFORMS=android`）を後ろで走らせ、**印のファイルが現れてから**そのプロセスグループへ `kill -9` を送る（cargo と npm のビルドの最中に止めない。review/spec.md R6）。
-  壊し方が効くことは、直す前の木で同じ手順を走らせ、`collector-android/gradle.properties` にトークンが残る（下の検証が落ちる）ことで先に見る。
+  壊し方が効くことは、直す前の木（`$(git merge-base origin/main HEAD)` の worktree）で同じ手順を走らせ、`collector-android/gradle.properties` にトークンが残る（下の検証が落ちる）ことで先に見る。
   検証: `git -C <一時 worktree> status --porcelain -- collector-android/gradle.properties` が空、`git -C <一時 worktree> ls-files --others --exclude-standard` にトークンを持つファイルが無い
 
 ## Task 4: 取り込みの「人が書いた記録」の規則を 1 つにまとめる（Q7）
@@ -85,7 +87,7 @@
   `外部識別子を持ち地域のずれも範囲の外の主張は外部識別子の理由で断る` / `地域のずれが範囲の外で値も空の主張は地域の理由で断る` /
   `端末識別子と外部識別子を持つ場所の記録は由来の理由で断る` / `形が崩れて端末識別子も持つ場所の記録は形の理由で断る` / `地域のずれが範囲の外の場所の記録は断る` /
   `外部識別子を持ち地域のずれも範囲の外の場所の記録は外部識別子の理由で断る` / `地域のずれが範囲の外で名前も空の場所の記録は地域の理由で断る`。
-  検証: 直す前の木で `CT ch01_authored_`（`cargo test -p ashiato-server ch01_authored_ -- --list` で 14 本以上 = Scenario 11 本＋主観の組み合わせ 3 本）
+  検証: 共通の関数に寄せる前（4.2 の前）に `CT ch01_authored_`（`cargo test -p ashiato-server ch01_authored_ -- --list` で 14 本以上 = Scenario 11 本＋主観の組み合わせ 3 本）
 - [ ] 4.2 共通の関数にまとめ、3 か所から呼ぶ。主観の地域（`Asia/Tokyo` の +9:00）と、それを形と一緒に先に見る順は主観の側に残し、その理由（spec の決定・前提 7）をコメントに書く。
   検証: `CT ch01_authored_`、`CT st17_reject_`、`CT ingest_rejects_out_of_range_tz_offset`、`CT place_`（場所の既存の試験。`-- --list` で 1 本以上）、
   `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0、`grep -c 'origin != "authored"' crates/server/src/lib.rs` が 0
