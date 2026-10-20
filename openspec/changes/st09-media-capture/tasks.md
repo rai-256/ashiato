@@ -223,11 +223,11 @@
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 Scenario の印の突き合わせ・鎖・私的データの検査を通す。
+- [x] 11.1 Scenario の印の突き合わせ・鎖・私的データの検査を通す。
   検証: `python3 scripts/check_scenarios.py .` rc=0 / `python3 scripts/check_chain.py .` rc=0 / `tools/check-log-private.sh` rc=0 / `tools/check-private.sh` rc=0 /
   `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:testDebugUnitTest` rc=0 /
   `scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0 / `openspec validate st09-media-capture --strict` rc=0
-- [ ] 11.2 `premises.md` の P1 / P3 / P12 / P13 の確かさを 2.2 / 2.3 の結果で書き直す（種類の割当て（design D19）は上流で `docs/handoff/ST38.md` に送り済み。変えない）。
+- [x] 11.2 `premises.md` の P1 / P3 / P12 / P13 の確かさを 2.2 / 2.3 の結果で書き直す（種類の割当て（design D19）は上流で `docs/handoff/ST38.md` に送り済み。変えない）。
   検証: `for s in c01-photo c01-screenshot c01-image c01-video; do grep -q "$s" docs/handoff/ST38.md || exit 1; done` rc=0 / `grep -cE "^\| P(1|3|12|13) .*\| [45] \|$" openspec/changes/st09-media-capture/premises.md` が 4
 
 ## 人間の確認待ち
