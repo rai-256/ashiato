@@ -45,7 +45,7 @@
 - kind: conflict
 - loss: exported
 - 提案: Q1 に選択肢を 1 つ足す（あるいは A の問いとして別に立てる）。中身は「Takeout の予約エクスポートの届け先を Google ドライブにし、C-03 がドライブの API で新しい書庫を取りに行く（ダウンロードと 7 日の期限が消え、残る手作業はタイムラインの書き出しだけになる）」。その選択肢の不可逆の欄には次の 2 つを書く。(a) 位置を含みうる書庫の写しがドライブに残る。NFR-12 の ★ がタイムラインについて避けた理由と同じ型で、要件の文を変える。(b) ドライブを読める資格情報を自宅に置く。ドライブを読む scope の区分（restricted か）と、許可の寿命（R2）は premises.md に行を足して確かめてから書く
-- 処置: fixed Q1 —— 選択肢「Takeout の届け先をドライブにし、ドライブから定期取得する」を足した（loss の中身は irreversible の欄。Q1 は loss: uncaptured のまま A）。premises.md に Takeout の Add to Drive・`drive.readonly` が restricted・`drive.file` の範囲の行を足し、選んだら spec の前に第 2 回で実物を求めると書いた
+- 処置: escalated —— Q1 に選択肢「Takeout の届け先をドライブにし、ドライブから定期取得する」を足した（loss の中身は irreversible の欄。Q1 は loss: uncaptured のまま A）。premises.md に Takeout の Add to Drive・`drive.readonly` が restricted・`drive.file` の範囲の行を足し、選んだら spec の前に第 2 回で実物を求めると書いた
 
 ## R2. 「審査なしで使う形 = 同意画面がテスト = 7 日で切れる」と言い切っているが、本番のまま未審査で個人が使う形を確かめていない。Q1（loss あり）が載る前提はどれも確かさ 2 以下
 - 成果物: openspec/changes/st13-scheduled-account-fetch/premises.md / deep-questions.json の Q1 の context の (2)
@@ -60,28 +60,28 @@
 - kind: conflict
 - loss: uncaptured
 - 提案: A の問いを 1 つ足す。問うのは、ST13 が NFR-12 の後半（Google 以外の手作業ゼロ）まで持つかどうか。選択肢は次の 2 つ。(a) 持つ。手作業を棚卸しし、権限の自動剥奪を初回に 1 回だけ止める手（端末の「使っていないアプリを一時停止」の除外を案内する。収集アプリの側の作業）を足す。(b) 持たない。NFR-12 を満たす Story を /stories で付け直す。不可逆の欄には「剥がれてから本人が許可し直すまでの位置・アプリ利用は取れない（FR-35 の通知は 3 倍の間隔で鳴る）」を書く。収集アプリが長く操作されないと剥がされるのか（前景サービスが動いていても剥がされるのか）は、premises.md に行を足して確かめる
-- 処置: fixed Q4 —— A の問い（kind: premise / loss: uncaptured）として足した。休止の前提は Android の公式文書で確かめて premises.md に足した（前景サービスや予約の仕事は「使った」に数えない）
+- 処置: escalated —— Q4 を A の問い（kind: premise / loss: uncaptured）として足した。休止の前提は Android の公式文書で確かめて premises.md に足した（前景サービスや予約の仕事は「使った」に数えない）
 
 ## R4. 形の確認の印を置くのは CLI（`tools/archive-shape.sh`。`DATABASE_URL` と psql か docker が要る）だけなのに、完了の判定 2 の棚卸しに入っていない
 - 成果物: openspec/changes/st13-scheduled-account-fetch/deep-questions.json の Q2
 - 根拠: docs/requirements.md:300（FR-14: 印を置くまで格納しない）/ crates/server/src/archive/worker.rs:7-14（YouTube・マイアクティビティ・Chrome は確認が要る）/ worker.rs:1510-1530（製品の名前・言語が増えるとハッシュが変わり、また確認待ちになる）/ web/src/messages.ts:140（画面は「tools/archive-shape.sh で形を見て印を置く」と案内する）/ tools/archive-shape.sh:6-7（`DATABASE_URL` と `ASHIATO_ARCHIVE_USER_ID` が要る）/ ST12 deep.md 第 3 回 Q12（本人は「また確認待ち」を選んだ。頻度は「新しいサービスを使い始めた回・言語を変えた回」の見込み）
 - kind: daily
 - 提案: Q2 に選択肢を足すか、B の問いを 1 つ足して、形の確認を「2 か月に 1 回の手作業」の一部と数えてよいか、端末の上で済む形（画面に印を置く口を作る）にするかを問う。推奨（既定）も書く。確認待ちの中身は台帳と写しに残る（FR-14）ので、どちらを選んでも失うものは無い。完了の判定 2 を「確認の印は手作業に含む」と読むなら、そのことを deep.md の「確かめたが問わなかったこと」に残す
-- 処置: fixed Q5 —— B の問い（推奨: 手作業に含める・CLI のまま。反転条件付き）として足した
+- 処置: fixed D13 仮 —— Q5 を B の問い（推奨: 手作業に含める・CLI のまま。反転条件付き）として足した
 
 ## R5. FR-15 の「取得間隔」と FR-35 の「想定間隔」（`expected_gap_sec`）を同じ列にするか別の列にするかを決めていない。Q3 の「その場で変える」の意味がこれで変わる
 - 成果物: openspec/changes/st13-scheduled-account-fetch/deep-questions.json の Q1 の推奨・Q3
 - 根拠: docs/requirements.md:308-309（FR-15「取得間隔はソースごとに登録簿が持つ」）/ :431-432（FR-35「そのソースに登録された想定間隔」）/ migrations/202609081618_envelope.sql:9（列は `expected_gap_sec` だけ）/ s01-archive-inbox は想定間隔が 86400 秒で、見回りは 120 秒（migrations/202609181600_archive_ingestion.sql:159、config.rs:31）/ Q1 の推奨は「取得の間隔」を別の列で持たせる書き方
 - kind: technical
 - 提案: B の問いを足す（推奨も付ける）か、Q1 の推奨の本文に書く。書くことは次の 2 つ。(a) 別の列にするなら、取得間隔が想定間隔を超えたときに断るか（超えると FR-35 / FR-80 が偽の途絶を出す）。(b) 同じ列にするなら、画面から変えると過去の格子の判定が新しい値で引き直されること。どちらも判定の閾値なので、記録が残っていれば戻る（loss は付けない）
-- 処置: fixed Q1 —— 「聞かずに決める既定」に、取得の間隔は想定間隔と別の列・想定間隔より長い登録は断る、と書いた（C。spec の design に D で残す）
+- 処置: fixed D1 —— Q1 の「聞かずに決める既定」に、取得の間隔は想定間隔と別の列・想定間隔より長い登録は断る、と書いた（C。spec の design に D で残す）
 
 ## R6. Q1 の推奨にある「間隔が来たら走る枠」について、時計の族（前回が未来にある・止まっている間に契機を過ぎた・起動の直後）を 1 つも問うていない
 - 成果物: openspec/changes/st13-scheduled-account-fetch/deep-questions.json の Q1
 - 根拠: `scripts/upstream_misses.py report` の「最終成功時刻・間隔で動く判定には『前回が未来にある』場合を必ず問う」（ST08 Q7。ST02 Q29・ST05・ST06 Q9 も同じ型）/ worker.rs:2137（いまの見回りはプロセスの中で寝るだけで、前回の時刻を持たない）
 - kind: technical
 - 提案: B の問いを 1 つ足すか、Q1 の推奨の本文に既定として書く。既定の例は「前回の時刻を DB に持たず、起動した直後に 1 回回し、その後は単調な時計で間隔を待つ」。いまは取るソースが 0 本なので失うものは無い。ただ、後の Story が登録簿に 1 行足すだけで乗る設計なので、時計が戻ったときと止まっていた間の扱いは、ここで決めた既定がそのまま引き継がれる。その旨を書く
-- 処置: fixed Q1 —— 「聞かずに決める既定」に、前回の時刻を DB に持たず起動の直後に 1 回、その後は単調な時計で待つ、と書いた。後の Story が引き継ぐことも明記
+- 処置: fixed D5 —— Q1 の「聞かずに決める既定」に、前回の時刻を DB に持たず起動の直後に 1 回、その後は単調な時計で待つ、と書いた。後の Story が引き継ぐことも明記
 
 ## R7. proto の前提がコードと合わない: 見回りは「1 分ごと」と描いてあるが既定は 120 秒。「登録簿の 23 本を実物の数で」も、製品ごとに増えるマイアクティビティの行を数えていない
 - 成果物: openspec/changes/st13-scheduled-account-fetch/proto.html / deep-questions.json の Q3 の context
@@ -95,14 +95,14 @@
 - 根拠: Q3 の why 自身が「表示は後から変えられるが、『画面から間隔を変えられるか』は API と権限の形を決める」と書いている / proto.html:104 で編集できる行（`true`）は s01-archive-inbox の 1 本だけ / docs/ui-direction.md:23（S-7 の「ソース・停止」は ST13 と ST15 が分け合う。ST15 は未着手で、ソースごとの停止も同じ一覧に乗る見込み）
 - kind: technical
 - 提案: 「画面から変えるか」は proto から外し、B の文字の問いにする（推奨: 見せるだけ）。消えるものは無く、口は後から足せる。Q3 の proto に残すのは「どこに出すか・並べ方・書庫の行に何を出すか」の構造だけにする。S-7 のソースの一覧に ST15 の停止の操作が後から乗ることを context に一言書く
-- 処置: fixed Q3 / Q6 —— 「画面から変えるか」を proto から外して B の Q6（推奨: 見せるだけ）にした。Q3 の context に ST15 の停止が S-7 の一覧に乗る見込みを書いた
+- 処置: fixed deep-questions.json —— Q3 / Q6。「画面から変えるか」を proto から外して B の Q6（推奨: 見せるだけ）にした。Q3 の context に ST15 の停止が S-7 の一覧に乗る見込みを書いた
 
 ## R9. Q2 の推奨に入っている R25 の直しは、ST12 の design D4（本人の決定 Q6 / C10 の「1 件 1 トランザクション」の格納の関門）に触りうる。それを書かずに「仮でよい」としている
 - 成果物: openspec/changes/st13-scheduled-account-fetch/deep-questions.json の Q2
 - 根拠: docs/handoff/ST13.md:13（「括り直すと PgSink が持つ格納関門の境界（ST03 の本人の決定）に触る」）/ openspec/changes/archive/2026-10-13-st12-archive-ingestion/design.md:31（D4 の出所は「C10 / Q6（本人）」）・:67（移行前のロケーション履歴は 1 件 1 トランザクションで数十分〜1 時間）/ Q2 の context は R25 の中身しか書いていない
 - kind: premise
 - 提案: Q2 の context と推奨の detail に、R25 をどう直すかを書く。たとえば「記録は 1 件ずつのまま、`read` の行とソース別台帳だけを 1 つのトランザクションで書く（D4 に触らない）」。D4 に触る直し方（記録ごと括る）しか無いなら、本人の決定を変えることになり P の条件（要件と本人の決定を変えない）を外れるので、その選択肢を A として分ける
-- 処置: fixed Q2 —— context に R25 の直し方（記録は 1 件ずつのまま、`read` の行とソース別台帳だけを 1 つのトランザクションで書く。D4 に触らない）を書き、推奨の detail にも書いた
+- 処置: fixed D7 —— Q2 の context に R25 の直し方（記録は 1 件ずつのまま、`read` の行とソース別台帳だけを 1 つのトランザクションで書く。D4 に触らない）を書き、推奨の detail にも書いた
 
 ---
 

@@ -26,9 +26,9 @@
 | D | 何を | 出所 | 仮か |
 |---|---|---|---|
 | D1 | 登録簿に取り方・契機・取得の間隔の 3 列を足し、DB の制約で守る | Q1（推奨）と Q1 の「聞かずに決める既定」（想定間隔と別の列・長い間隔は断る） | — |
-| D2 | 取り方と契機を指定しない行は、名前の前置きから既定を入れる | 走っている ST09 の移行と `ensure_myactivity_source` が列を知らずに行を足すため | 仮 |
+| D2 | 取り方と契機を指定しない行は、名前の前置きから既定を入れる（前置きの分からない名前はサーバ・他の記録から導く） | 走っている ST09 の移行・`ensure_myactivity_source`・試験と道具の台本が列を知らずに行を足すため（spec-review R2 / R3） | 仮 |
 | D3 | 既存の 23 行の取り方・契機・間隔 | Q1（推奨）/ 収集側の定数 | — |
-| D4 | 見回りの間隔は走査の周ごとに登録簿から読み、環境変数は起動を断る | Q1（推奨） | — |
+| D4 | 見回りの間隔は 1 秒ずつ登録簿を読んで待ち、環境変数は起動を断る | Q1（推奨） | — |
 | D5 | 定期取得の枠: 起動の直後に 1 回、戻らない時計、前回の時刻を持たない | Q1 の「聞かずに決める既定」 | — |
 | D6 | 定期取得のソースの生存信号は枠に持たせない | AI が詰めた | 仮 |
 | D7 | R25: 台帳の行と論理ソースごとの行を 1 トランザクション。記録は 1 件ずつのまま | Q2（推奨）/ ST12 D4（本人の決定 Q6） | — |
@@ -41,6 +41,7 @@
 | D14 | 間隔は画面から変えない | Q6（推奨） | 仮 |
 | D15 | 定期取得するソースはいま無い。FR-15 の ★ は record の段 | Q1（推奨） | — |
 | D16 | 申し送りのうち直すのは R25・R34・M7・M8 だけ | Q2（推奨） | 仮 |
+| D17 | 取り込み器の起動時に専用のフォルダを作る | Q2（推奨: R34）を AI が詰めた（spec-review R4） | 仮 |
 
 ## D1. 登録簿に取り方・契機・取得の間隔の 3 列を足す（Q1 推奨・Q1 の既定）
 
@@ -61,17 +62,22 @@
 **なぜ別の列か**（Q1 の既定）: 想定間隔は FR-35 の途絶の判定の閾値で、過去の格子もこれで引く。同じ列にすると、見回りを速めただけで過去の途絶の判定が変わる。
 **なぜ DB の制約か**: 「断る」を画面の API に置くと、psql や移行から入った値が素通りする。変える口はいま登録簿（psql と移行）だけなので、断るのは DB の役目。
 
-本人が変えた値を戻さない: 埋める `UPDATE` は `WHERE acquisition IS NULL`（列を足した直後だけ当たる）。移行を当て直しても値を上書きしない。
+本人が変えた値を戻さない: 埋める `UPDATE` は `WHERE acquisition IS NULL`（列を足した直後だけ当たる）。D3 の表の値を入れた後に、表に無い行（ST09 が先に足した行など）を D2 の関数で埋め、最後に 2 列を `NOT NULL` にする。移行を当て直しても値を上書きしない。
 
 ## D2（仮）. 取り方と契機を指定しない行は、名前の前置きから既定を入れる
 
-`BEFORE INSERT` の trigger が、`acquisition` が NULL の行に前置きから取り方を入れ（`c01-` → `device` / `c02-` → `pc` / `c03-` → `archive` / `s01-` → `server`。それ以外は例外で断る）、
+関数 `core.source_acquisition_default(logical_source)` を 1 つ置き、`BEFORE INSERT` の trigger と、移行の既存の行を埋める `UPDATE` の両方がこれを使う。
+`acquisition` が NULL の行に前置きから取り方を入れ（`c01-` → `device` / `c02-` → `pc` / `c03-` → `archive` / `s01-` → `server`。**それ以外は `server`**）、
 `fetch_trigger` が NULL なら取り方ごとの既定（`device` / `pc` → `on_change`、`archive` → `manual`、`server` → `derived`）を入れる。`scheduled` は前置きから入れない。
 
-**なぜ**: 走っている ST09 の移行（`c01-screenshot` / `c01-image` / `c01-video`）と `ensure_myactivity_source`・`testdb::source` は、3 列を知らずに `INSERT` する。
-NOT NULL だけにすると、ST09 が後から merge したときにその移行が落ちる（merge の順序に依存させない）。ST09 の 3 本は「変わったとき」で合っている（保存の知らせで取る）。
+**前置きの分からない名前を断らない理由**（spec-review R2）: 試験の補助 `testdb::source` は `t-…` の名前で 150 か所から行を足し、`tools/seed.sh`（`seed-location`）・`tools/smoke.sh`（`smoke` / `smoke-ext`）・
+`tools/check-immutable.sh`（`ext-kind-check` ほか）も前置きの無い名前を足す。断ると、それらを全部書き換えることになり、この Story の範囲を越える。
+試験の行は S-7 の「サーバ」の節に出るが、本番の登録簿には無い。
 
-**反転条件**: 前置きの規則に当たらない論理ソースが出てきたら（`c04-` など）、その Story が規則を足す。既定が実態と違う行が出たら（間隔で取るのに `on_change`）、その行を足した Story が移行で値を指定する。
+**なぜ**: 走っている ST09 の移行（`c01-screenshot` / `c01-image` / `c01-video`）と `ensure_myactivity_source`・`testdb::source` は、3 列を知らずに `INSERT` する。
+NOT NULL だけにすると、ST09 が後から merge したときにその移行が落ちる。ST09 が先に merge したときは、その 3 行が D3 の表に無いまま列が足されるので、`UPDATE` も同じ関数で埋める（spec-review R3。merge の順序に依存させない）。ST09 の 3 本は「変わったとき」で合っている（保存の知らせで取る）。
+
+**反転条件**: 前置きの規則に当たらない本番の論理ソースが出てきたら（`c04-` など）、その Story が規則を足す。既定が実態と違う行が出たら（間隔で取るのに `on_change`）、その行を足した Story が移行で値を指定する。
 
 ## D3. 既存の行の値（Q1 推奨）
 
@@ -91,11 +97,13 @@ NOT NULL だけにすると、ST09 が後から merge したときにその移�
 
 端末と PC の値は収集側のコードの定数の写し（D9（仮））。下流は、写した値が収集側の定数と一致することを試験で確かめる（Rust の定数は `cargo test` で、Kotlin の定数は値を grep する台本で）。
 
-## D4. 見回りの間隔は走査の周ごとに登録簿から読む（Q1 推奨）
+## D4. 見回りの間隔は登録簿から読み、縮めると 1 秒以内に効く（Q1 推奨）
 
-`spawn_inspecting` の `sleep` の直前に `SELECT fetch_interval_sec FROM core.source WHERE logical_source = 's01-archive-inbox'` を読む（1 周 1 回。読めなければ前の値で寝て `warn` を出す）。
-`ArchiveConfig::scan_sec` は消す。試験は登録簿の値を `UPDATE` して縮める（`archive_flow_tests.rs` の 1 秒）。`tools/smoke.sh` の `export ASHIATO_ARCHIVE_SCAN_SEC=1` は、S-01 の起動後に登録簿を `UPDATE` する行に置き換える
-（共有の台本の**途中の行の書き換え**で、末尾への書き足しではない）。
+走査の後の待ちは、`tokio::time::sleep` を 1 秒ずつ刻み、刻むたびに登録簿の取得の間隔を読み、**前の走査からの経過（戻らない時計）が読んだ間隔以上になったら**次の走査に入る。
+読めなければ前の値を使い `warn` を出す。間隔を縮めると 1 秒以内に効く（spec「変わってから 1 秒以内」。spec-review R10: 寝る直前に 1 回読むだけだと、縮めても最大 120 秒は効かない）。
+読む行の名前は `spawn_inspecting` の引数で渡す（本番は `s01-archive-inbox`）。**試験は自分専用の行**（`acquisition = 'server'`・`fetch_trigger = 'interval'`・間隔 1 秒）を足して渡し、共有の `s01-archive-inbox` を書き換えない（登録簿は利用者で分かれていない。申し送り R35）。
+`ArchiveConfig::scan_sec` は消す。`tools/smoke.sh` と `tools/record-env.sh` の `ASHIATO_ARCHIVE_SCAN_SEC=1` は、S-01 の起動後（移行が当たった後）に `s01-archive-inbox` の間隔を 1 秒へ `UPDATE` する行に置き換える
+（共有の台本の**途中の行の書き換え**で、末尾への書き足しではない）。1 秒の刻みで読むので、`UPDATE` の後の待ちは長くて 1 秒。
 
 `config::from_values` は `ASHIATO_ARCHIVE_SCAN_SEC` があれば `bail!`（「見回りの間隔は登録簿の s01-archive-inbox の fetch_interval_sec で設定する」）。黙って無視すると、本人が値を変えたつもりで効かない。
 
@@ -115,7 +123,7 @@ NOT NULL だけにすると、ST09 が後から merge したときにその移�
 持たなければ、起動の直後の 1 回が追いつきの 1 回になる。取得元が「前回から」の新着を返す形なら、取る手が自分の取得済みの印を持つ（後の Story が決める）。
 
 **試験**: 本番の一覧は空なので、試験は取る手を差し込める `spawn_with(fetchers, …)` を使い、`tokio::time::pause` / `advance` で回数を数える。
-「壁時計が戻っても」は、(a) 枠のモジュールが壁時計を読まないことを `grep` で見る台本と、(b) 試験の中で壁時計を読む取る手が 1 時間戻った値を見ても回数が変わらないこと、の 2 つで確かめる。
+「壁時計が戻っても / 進んでも」の担保は、**枠のモジュールが壁時計を読まないことを `grep` で見る台本**（`tools/check-scheduled-clock.sh`）と、`tokio::time` だけで回数が決まることを見る試験の組（spec-review R11: 試験の中で壁時計を動かしても、枠が読まない限り回数は変わらないので、試験だけでは壁時計を読む実装を落とせない）。
 
 ## D6（仮）. 定期取得のソースの生存信号は枠に持たせない
 
@@ -157,8 +165,10 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
  "device_notice": {"unused_app_restrictions": "not_exempt"}}
 ```
 
-- `latest_at`: 書庫以外の論理ソースの `max(event_time)`（利用者で絞る。削除済みを含めない）。書庫は `final_day`（ST12 の取り込み済みの最終日）
-- `last_archive_on` / `alert_days_left`: `collection-coverage` の「書庫のソースは最後の書庫から登録簿の日数で途切れとする」と**同じ関数**で出す（`outage_store.rs` の最後の書庫の導き方を共有する。2 つ目の計算を書かない）。日は `Asia/Tokyo`。退役した行は `null`
+- `latest_at`: 書庫以外の論理ソースの `max(event_time)`（利用者で絞る。**削除した記録も数える** —— 書庫の最終日と揃える。`core.event` を引く。spec-review R17）。書庫は `final_day`（ST12 の取り込み済みの最終日）
+- `last_archive_on` / `alert_days_left` / `alert_passed` / `no_archive`: `collection-coverage` の「書庫のソースは最後の書庫から登録簿の日数で途切れとする」と**同じ関数**で最後の書庫の時刻を出し（`outage_store.rs` の導き方を共有する。2 つ目の計算を書かない）、
+  鳴る時刻 = 最後の書庫の時刻 + `alert_after_days` 日、`alert_days_left` = (鳴る時刻 − いま) を日に切り上げ、`alert_passed` = いまが鳴る時刻を過ぎた（途切れの判定の「超える」と同じ境目。spec-review R7）。
+  書庫も記録も無ければ `no_archive = true` で残り日数は `null`（spec-review R8）。退役した行は `null`。最後の書庫の日の表示は `Asia/Tokyo`
 - `device_notice`: 利用者の `c01-location` の最新の生存信号の `raw` の `unused_app_restrictions`（無ければ `null`）
 - 並びはサーバが決める（取り方の順 → `display_name`）。画面は受け取った順に、取り方ごとの見出しの下に並べる
 
@@ -170,17 +180,19 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
 
 ## D11（仮）. 間隔の書き方
 
-`fetch_interval_sec` が 3600 で割り切れれば「N 時間ごと」、60 で割り切れれば「N 分ごと」、それ以外は「N 秒ごと」。契機の文言は 変わったとき / 本人が書いたとき / 位置から導く（`derived`）/ 始めたときに 1 回 / 手作業・2 か月ごと（書庫）。
+`fetch_interval_sec` が 120 未満か 60 で割り切れなければ「N 秒ごと」、3600 で割り切れれば「N 時間ごと」、それ以外は「N 分ごと」（60 → 60 秒ごと / 120 → 2 分ごと / 1800 → 30 分ごと / 3600 → 1 時間ごと / 86400 → 24 時間ごと。spec-review R5: spec と proto は位置を「60 秒ごと」と書く）。契機の文言は 変わったとき / 本人が書いたとき / 位置から導く（`derived`）/ 始めたときに 1 回 / 手作業・2 か月ごと（書庫）。
 **反転条件**: 本人が GO 資料や確認バッチで読みにくいと言ったとき。
 
 ## D12（仮）. 休止の除外（Q4 推奨）
 
 - 読む: `androidx.core` の `PackageManagerCompat.getUnusedAppRestrictionsStatus`（`core-ktx 1.17.0` が持つ）。結果を 4 つに写す:
-  `DISABLED` → `exempt` / `API_30_BACKPORT`・`API_30`・`API_31` → `not_exempt` / `FEATURE_NOT_AVAILABLE` → `unsupported` / `ERROR` と例外 → `unknown`
+  `DISABLED` → `exempt` / `API_30_BACKPORT`・`API_30`・`API_31` → `not_exempt` / `FEATURE_NOT_AVAILABLE` → `unsupported` / `ERROR` と例外 → `unknown`。
+  `unknown` のときは頼まず、画面に「除外の状態を読めなかった」の 1 行を出す（S-7 には出さない。spec-review R13）
 - 頼む: `MainActivity` の初回の流れ（権限の要求の後）で `not_exempt` なら、説明のダイアログを出し、応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開く。
-  自動で出したことを `SharedPreferences` に 1 つの印で覚え、2 回目からは自動で出さない。`not_exempt` の間は `MainActivity` の画面に 1 行と「設定を開く」のボタン（24 dp 以上）
+  自動で出したことを `SharedPreferences` に 1 つの印で覚え、2 回目からは自動で出さない。前の版から更新した端末は印を持たないので、更新の後の最初の起動で 1 回出る（spec-review R14）。`not_exempt` の間は `MainActivity` の画面に 1 行と「設定を開く」のボタン（24 dp 以上）
 - 載せる: `c01-location` の生存信号の原文（`Heartbeat.kt` の `fields`）に `"unused_app_restrictions": "<4 つのどれか>"`。`capturable` と `blockers` は変えない（取得できる状態の条項は ST09 が書き換えている。欄を足すと `/heartbeat` の形も変わる）
-- ST09 も `MainActivity` の初回の流れに写真の権限を足す。下流は ST09 の gate 済みの SHA の `MainActivity` に継ぎ足す（`story_deps.py` は ST09 を requires に持たないので取り込まない。衝突は rebase で解く）
+- 契約 `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は S-7 のために読むだけ）を足す（spec-review R16。いまは「原文に載るのは稼働・取得可否・回数だけ」と書いている）
+- ST09 も `MainActivity` の初回の流れ（写真の権限）と `Heartbeat.kt`（接続の欄）を触る。ST13 は ST09 を requires に持たないので、**main の形で書き、ST09 が先に main に入ったら rebase で `Heartbeat.kt` の `fields` と `MainActivity` の初回の流れを解く**（spec-review R15。ST09 の未確認の実装を取り込まない）
 
 **反転条件**: 剥がれる仕組みが前提（`premises.md`。確かさ 2）と違うと分かったら（前景サービスで「使った」に数えるなど）、頼むのをやめて表示だけに。状態を画面のほかの場所（稼働状況）にも出したくなったら、生存信号の欄に上げる。
 **物理**: 「3 か月開かなくても剥がれない」はエミュレータで早送りできない（`adb shell cmd app_hibernation` は休止を手で入れるだけ）ので、確認待ちに置く。
@@ -205,9 +217,16 @@ Q1 で別の選択肢（ドライブ経由・Google 以外のサービス）が�
 R32・M2〜M6 は実物か規模を見てから、R35 は全 Story の前提、M9・M10 は移行の細部。`docs/handoff/ST13.md` に残す（消さない）。
 **反転条件**: 本人が Q2 で「移行の細部も」を選んだら M6・M9・M10 を足す。
 
+## D17（仮）. 取り込み器の起動時に専用のフォルダを作る
+
+R34 の「専用のフォルダが無い」を、本人がフォルダを作る手作業にしない（NFR-12）。作るのは起動のときだけで、走査のたびには作り直さない
+（起動の後に消されたら、生存信号の満たされていないものに出して本人に気づかせる。黙って作り直すと、置き場を移したつもりの本人の設定の誤りを隠す）。
+正典の Scenario「置き場が読めない日は取れない状態で残る」は、WHEN を「起動の後に消された」に直して MODIFIED した。
+**反転条件**: 起動の後に消える事故（掃除の道具など）が実際に起き、本人が自動で作り直してほしいと言ったら、走査のたびに作る。
+
 ## Risks / Trade-offs
 
-- [ST09 と `device-collection` / `MainActivity` を同時に触る] → ST09 の MODIFIED の Requirement には触らず、別の ADDED の Requirement と生存信号の原文で済ませた。INDEX に割当を足したので、ST09 が走っている間は ST13 の下流が `衝突待ち` になりうる
+- [ST09 と `device-collection` / `MainActivity` / `Heartbeat.kt` を同時に触る] → ST09 の MODIFIED の Requirement には触らず、別の ADDED の Requirement と生存信号の原文で済ませた。ST13 は既に上流にいるので、INDEX の割当で `衝突待ち` にはならない（`board.py` の `衝突待ち` は着手可の Story にだけ付く）。ファイルの衝突は後から merge する側が rebase で解く（D12）
 - [D2 の trigger が ST09 の行に誤った既定を入れる] → ST09 の 3 本は「変わったとき」で合う。合わない行は足した Story が値を指定する
 - [環境変数を断ると、古い起動の設定（サービスの定義）で S-01 が起動しない] → 断る文言に置き場（登録簿の列）を書く。`docs/archive-inbox.md` と `tools/smoke.sh` を同じ PR で直す
 - [`GET /sources` の `max(event_time)` が重い] → D10 の Risks のとおり `EXPLAIN` で確かめる
@@ -216,4 +235,4 @@ R32・M2〜M6 は実物か規模を見てから、R35 は全 Story の前提、M
 ## Migration Plan
 
 移行 1 本（列 3 つ・制約・trigger・既存の行を埋める `UPDATE`）。down は trigger・制約・列を落とす。
-展開: S-01 を止める → 環境変数 `ASHIATO_ARCHIVE_SCAN_SEC` を外す（値を変えていたなら、起動後に登録簿へ）→ 起動（移行が当たる）。携帯の収集アプリは更新して 1 回開く（除外の案内が出る）。
+展開: S-01 を止める → 環境変数 `ASHIATO_ARCHIVE_SCAN_SEC` を外す（`tools/record-env.sh`・`tools/smoke.sh` も同じ PR で外す）（値を変えていたなら、起動後に登録簿へ）→ 起動（移行が当たる）。携帯の収集アプリは更新して 1 回開く（除外の案内が出る）。

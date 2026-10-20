@@ -396,5 +396,5 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - `device-collection` に ST13 を足した。Q4（推奨: 携帯の収集アプリが休止の対象から外れるよう初回に 1 回頼む）の振る舞いは C-01 の中にあり、
 >   NFR-12 の後半（Google 系以外は手作業ゼロ）を満たす Story は ST13 だけ（上の NFR の表）。足すのは別の ADDED の Requirement で、
 >   ST09 が `MODIFIED` している「端末は想定間隔ごとに生存信号を送る」には触らない（状態は生存信号の原文に載せる）
-> - **代償: ST09 が走っている間、ST13 の下流は `衝突待ち`**（同じ capability を 2 本が同時に触らない）
+> - ST13 は既に上流にいるので、この割当で `衝突待ち` にはならない（`衝突待ち` は着手可の Story にだけ付く）。ST09 と同時に `device-collection` を触ることになるが、触る Requirement が別で、`MainActivity.kt` / `Heartbeat.kt` の衝突は後から merge する側が rebase で解く（ST13 design D12）
 > - Q4 で「別の Story に送る」「防がない」が選ばれたら、`spec --answers` がこの割当を外す

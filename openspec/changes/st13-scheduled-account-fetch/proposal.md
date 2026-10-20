@@ -51,7 +51,7 @@ ST12 の取り込み器が手作業を増やす・画面を誤らせる不具合
 ### Modified Capabilities
 
 - **`external-ingestion`** —— 登録簿の取り方と取得の間隔・見回りの間隔を登録簿から読むこと・定期取得の枠・Google 系の手作業の範囲・S-7 のソースの一覧を足し（ADDED）、
-  ST12 の Requirement のうち「取り込み待ち置き場に置かれた書庫を読む」（R34・M8）・「1 件が読めなくても書庫の残りを読む」（M7）・「置いた書庫ごとに追記のみの台帳が残る」（R25）を `MODIFIED` する
+  ST12 の Requirement のうち「取り込み待ち置き場に置かれた書庫を読む」（R34・M8）・「取り込み器は自分の論理ソースに 1 日 1 回の生存信号を送る」（R34。起動時にフォルダを作るので、読めない場合の Scenario の条件を直す）・「1 件が読めなくても書庫の残りを読む」（M7）・「置いた書庫ごとに追記のみの台帳が残る」（R25）を `MODIFIED` する
 - **`device-collection`** —— 携帯の収集アプリが休止の対象から外れるよう頼み、外れているかを生存信号の原文に載せる Requirement を足す（ADDED。Q4 推奨）
 
 **capability の割当を 1 本足す**: `docs/stories/INDEX.md` の表で ST13 は `external-ingestion` だけだったが、Q4（推奨）の振る舞いは C-01 の中にあり `device-collection` に属する。
@@ -69,13 +69,15 @@ S-7 のソースの一覧は全ソース（端末・PC を含む）を並べる�
 - `crates/server/src/`（定期取得の枠の新しいモジュール・`GET /sources` と OpenAPI・`lib.rs` の起動）
 - `web/src/`（`SettingsView.tsx` に「ソース」節・`sources.ts`・`messages.ts`）と `web/e2e/`（新しい spec）
 - `collector-android/`（休止の除外の状態を読み、初回に設定の画面へ案内し、生存信号の原文に載せる）
-- `docs/archive-inbox.md`（2 か月ごとの手作業の一覧と、見回りの間隔の置き場）
+- `docs/archive-inbox.md`（2 か月ごとの手作業の一覧と、見回りの間隔の置き場）・`docs/collector-contract.md`（生存信号の原文の除外の状態）
+- `tools/smoke.sh`・`tools/record-env.sh`（環境変数 `ASHIATO_ARCHIVE_SCAN_SEC` の行を、登録簿を書き換える行へ）
 
 ### 走っている Story との重なり
 
 - **ST09（`device-collection` / `collection-coverage` / `data-durability`。下流）**: ST09 は `device-collection` の「端末は想定間隔ごとに生存信号を送る」を `MODIFIED` している。
   ST13 はその Requirement を `MODIFIED` せず、**別の ADDED の Requirement** で休止の除外を足し、状態は生存信号の**原文**に載せる（`/heartbeat` の欄を足さない。ST09 は欄 `network` を足す）。
-  `MainActivity` の初回の流れは ST09 も権限の要求で触るので、下流は ST09 の gate 済みの SHA を見て継ぎ足す。INDEX に割当を足したので、ST09 が走っている間 ST13 の下流は `衝突待ち` になりうる
+  `MainActivity` の初回の流れと `Heartbeat.kt` は ST09 も触る。ST13 は main の形で書き、ST09 が先に main に入ったら rebase で解く（ST09 の未確認の実装を取り込まない。design D12）。
+  ST13 は既に上流にいるので、INDEX の割当を足しても `衝突待ち` にはならない
 - `collection-coverage` / `data-durability` には触らない（書き出しの分類に載る新しい表は無い。列は `core.source` に足すだけで、`core.source` の書き出しの扱いは変わらない）
 
 ### 触らないもの
