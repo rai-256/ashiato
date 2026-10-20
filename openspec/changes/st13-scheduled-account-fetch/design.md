@@ -165,7 +165,7 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
  "device_notice": {"unused_app_restrictions": "not_exempt"}}
 ```
 
-- `latest_at`: 書庫以外の論理ソースの `max(event_time)`（利用者で絞る。**削除した記録も数える** —— 書庫の最終日と揃える。`core.event` を引く。spec-review R17）。書庫は `final_day`（ST12 の取り込み済みの最終日）
+- `latest_at`: 書庫以外の論理ソースの `max(event_time)`（利用者で絞る。**削除した記録も数える** —— 書庫の最終日と揃える。`core.event_live` ではなく、削除済みを含む `core.event` を引く。spec-review R17）。書庫は `final_day`（ST12 の取り込み済みの最終日）
 - `last_archive_on` / `alert_days_left` / `alert_passed` / `no_archive`: `collection-coverage` の「書庫のソースは最後の書庫から登録簿の日数で途切れとする」と**同じ関数**で最後の書庫の時刻を出し（`outage_store.rs` の導き方を共有する。2 つ目の計算を書かない）、
   鳴る時刻 = 最後の書庫の時刻 + `alert_after_days` 日、`alert_days_left` = (鳴る時刻 − いま) を日に切り上げ、`alert_passed` = いまが鳴る時刻を過ぎた（途切れの判定の「超える」と同じ境目。spec-review R7）。
   書庫も記録も無ければ `no_archive = true` で残り日数は `null`（spec-review R8）。退役した行は `null`。最後の書庫の日の表示は `Asia/Tokyo`
