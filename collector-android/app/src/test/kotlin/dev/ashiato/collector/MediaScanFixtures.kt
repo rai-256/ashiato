@@ -23,7 +23,13 @@ class FakeMediaListing : MediaListing {
     var dateAddedSec: Long = 1_700_000_000L
     var contains = 0
 
-    override fun volumes(): Set<String> = volumeSet.toSet()
+    /** 置き場の一覧を聞くと落ちる（`MediaStore` が投げる） */
+    var failVolumes = false
+
+    override fun volumes(): Set<String> {
+        check(!failVolumes) { "volumes" }
+        return volumeSet.toSet()
+    }
 
     override fun version(volume: String): String? = versions[volume] ?: "v1"
 

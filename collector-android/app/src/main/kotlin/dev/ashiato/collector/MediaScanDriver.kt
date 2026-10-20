@@ -18,7 +18,13 @@ class ExecutorMediaScanTimer(private val executor: ScheduledExecutorService) : M
 }
 
 /**
- * 読み手の契機（design D1）: 保存の知らせ（10 秒まとめる）と 6 時間の見直し。
+ * 権限の見回りの間隔（位置の取得と同じ 60 秒）。実行時の許可ではプロセスが立て直されないので、見回らないと
+ * 次の 6 時間の見直しか新しい写真の知らせまで読み手も知らせも戻らない（R3）。見るのは権限の状態だけで、何も開かない。
+ */
+const val MEDIA_PERMISSION_POLL_MS: Long = 60_000L
+
+/**
+ * 読み手の契機（design D1）: 保存の知らせ（10 秒まとめる）と 6 時間の見直し、権限が変わったときの見直し。
  * 全部の突き合わせの契機（24 時間など）は [MediaScanner.scan] が自分で見る。
  */
 class MediaScanDriver(
@@ -31,6 +37,7 @@ class MediaScanDriver(
 ) {
     private var pendingChange: (() -> Unit)? = null
     private var cancelReview: (() -> Unit)? = null
+    private var cancelPoll: (() -> Unit)? = null
     private var running = false
 
     /** 始める: 1 度見直し、以降 6 時間ごとに見直す。最初の見直しも契機の口に渡す（呼び手のスレッドを塞がない。D1）。 */
@@ -40,6 +47,16 @@ class MediaScanDriver(
         cancelReview = timer.after(0) { review() }
     }
 
+    /**
+     * [MEDIA_PERMISSION_POLL_MS] ごとに [check] を呼ぶ（同じ読み手のスレッド）。[check] が真を返したら（権限が変わった）
+     * すぐ 1 回見直す。
+     */
+    @Synchronized
+    fun watch(pollMs: Long = MEDIA_PERMISSION_POLL_MS, check: () -> Boolean) {
+        if (!running) return
+        cancelPoll = timer.after(pollMs) { poll(pollMs, check) }
+    }
+
     @Synchronized
     fun stop() {
         running = false
@@ -47,6 +64,18 @@ class MediaScanDriver(
         pendingChange = null
         cancelReview?.invoke()
         cancelReview = null
+        cancelPoll?.invoke()
+        cancelPoll = null
+    }
+
+    private fun poll(pollMs: Long, check: () -> Boolean) {
+        try {
+            if (check()) scanner.scan(onOutcome)
+        } finally {
+            synchronized(this) {
+                if (running) cancelPoll = timer.after(pollMs) { poll(pollMs, check) }
+            }
+        }
     }
 
     /** 保存の知らせ。続けて来た知らせは 1 回にまとめる。 */

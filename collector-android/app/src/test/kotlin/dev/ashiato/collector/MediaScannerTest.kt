@@ -18,6 +18,36 @@ class MediaScannerTest {
     private fun MediaScanEnv.camera(id: Long, body: String, volume: String = PRIMARY) =
         listing.put(volume, id, "DCIM/Camera/", "IMG_$id.jpg", body)
 
+    // 記録を積んだ直後（読み手が原本の行を足す前）に送り手が受理しても、原本の行は `ready` になる（R1）
+    @Test
+    fun a_record_accepted_right_after_it_is_queued_still_makes_its_original_ready() {
+        val st = TestStores()
+        val env = MediaScanEnv()
+        val missing = Outbox(
+            SegmentStore(java.io.File(st.dir, "media-missing"), MediaMissingReport.serializer(), st.unreadable, st.log),
+            st.age::now,
+        )
+        val reporter = OriginalMissingReporter(missing, { "user-1" }, "device-1", { env.wall })
+        val link = OriginalRecordLink(env.originals, reporter)
+        val flushes = ArrayList<Sender.Flushed>()
+        lateinit var records: Outbox<IngestRequest>
+        // 積んだ直後に走る送り手（本番は別のスレッドの 5 分の刻み。ここでは `add` が返る前に受理まで済ませる）
+        records = Outbox(st.recordStore, st.age::now, afterAdd = {
+            val sender = Sender(records, acceptEverything, IngestRequest.serializer(), dropPermanentlyRejected = true)
+            sender.listener = link
+            flushes += sender.flush()
+        })
+        env.outbox = records
+        env.scanner = env.newScanner()
+        env.camera(1, "accepted at once")
+
+        env.scan()
+
+        assertEquals("送り手が受理していない", 1, flushes.sumOf { it.accepted })
+        assertEquals(0, records.size())
+        assertEquals(ORIGINAL_READY, env.originals.all().single().state)
+    }
+
     // Scenario: 導入した時点で端末にある過去の写真が取られる
     @Test
     fun a_photo_already_on_the_device_is_captured_on_first_scan() {

@@ -6,7 +6,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -53,10 +57,15 @@ data class OriginalEntry(
 /**
  * 原本の送り待ちの台帳（`media/originals.jsonl`。design D8）。
  *
- * - 画像の記録を未送信に積んだら `awaiting_record`、送信の結果で受理（重複を含む）と分かったら `ready`
+ * - 画像の記録を未送信に積む前に `awaiting_record`、送信の結果で受理（重複を含む）と分かったら `ready`
  * - **`Retention` の対象にしない** —— 記録の置き場とは別のファイルで、保持の上限をかけるコードがここを見ない
- * - 書くときは全体を書いてから差し替える（途中で落ちても前の版が残る）。書けなければメモリの変更を戻す
- * - 読めない行は捨てて続ける（失うのは 1 行の送り待ちで、写真そのものは端末にある）
+ * - **足す（[queue]）は 1 行の追記**、それ以外（`ready`・消す・409 の時刻）は全体を書いてから差し替える
+ *   （途中で落ちても前の版が残る）。書けなければメモリの変更を戻す。読み込みは後の行が勝つので、
+ *   追記で重なった古い版は次の全体の書き直しで消える。足すたびに全体を書き直すと、初回の 1 万枚で
+ *   書き込みが件数の 2 乗で増える（R6）
+ * - 読めない行は捨てて続ける（失うのは 1 行の送り待ちで、写真そのものは端末にある）。追記の途中で落ちて
+ *   切れた最後の行もここで捨てる —— 読み手は記録を積む前に行を足すので、切れた行の記録は積まれておらず、
+ *   印も進んでいない（次の契機で足し直す）
  *
  * 1 つの内容ハッシュに 1 行（同じ中身の別名は記録が 1 件のままなので、行も 1 つ）。
  */
@@ -100,17 +109,21 @@ class OriginalLedger(private val file: File, private val log: (String) -> Unit =
     fun ready(): List<OriginalEntry> = rows.values.filter { it.state == ORIGINAL_READY }
 
     /**
-     * 画像の記録を未送信に積んだ後に、原本の送り待ちを足す。保存できたか。
+     * 画像の記録を未送信に積む前に、原本の送り待ちを足す（1 行の追記）。保存できたか。
      * 同じ内容ハッシュの行がすでにあれば、新しい記録に付け替えるだけ（記録だけを送り直す更新。原本は 1 つ）。
      */
     @Synchronized
-    fun queue(entry: OriginalEntry): Boolean = change {
+    fun queue(entry: OriginalEntry): Boolean {
         val existing = rows[entry.sha256]
-        when {
-            existing == null -> rows[entry.sha256] = entry
-            existing.state == ORIGINAL_AWAITING_RECORD -> rows[entry.sha256] = existing.copy(recordId = entry.recordId)
-            else -> Unit
+        val next = when {
+            existing == null -> entry
+            existing.state == ORIGINAL_AWAITING_RECORD && existing.recordId != entry.recordId ->
+                existing.copy(recordId = entry.recordId)
+            else -> null
         }
+        val saved = next == null || write(added = next)
+        if (saved && next != null) rows[entry.sha256] = next
+        return saved
     }
 
     /** 受理された記録の原本を、送ってよい状態にする。保存できたか。 */
@@ -147,11 +160,24 @@ class OriginalLedger(private val file: File, private val log: (String) -> Unit =
         return saved
     }
 
-    private fun write(): Boolean = try {
+    /**
+     * [added] があれば 1 行の追記、無ければ全体を書いてから差し替える。追記は、前の追記が途中で切れていたら
+     * （最後に改行が無い）改行から始め、新しい行を切れた行に繋げない。
+     */
+    private fun write(added: OriginalEntry? = null): Boolean = try {
         file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeText(rows.values.joinToString("") { json.encodeToString(OriginalEntry.serializer(), it) + "\n" })
-        if (!tmp.renameTo(file)) throw IOException("rename")
+        if (added == null) {
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText(rows.values.joinToString("") { json.encodeToString(OriginalEntry.serializer(), it) + "\n" })
+            if (!tmp.renameTo(file)) throw IOException("rename")
+        } else {
+            val line = json.encodeToString(OriginalEntry.serializer(), added) + "\n"
+            val torn = file.isFile && file.length() > 0 && RandomAccessFile(file, "r").use { raf ->
+                raf.seek(raf.length() - 1)
+                raf.read() != '\n'.code
+            }
+            FileOutputStream(file, true).use { it.write((if (torn) "\n$line" else line).toByteArray(Charsets.UTF_8)) }
+        }
         true
     } catch (e: IOException) {
         log(Telemetry.line("original_ledger_write_failed", source = null, error = e.javaClass.simpleName))
@@ -192,17 +218,20 @@ class OriginalMissingReporter(
     private val userId: () -> String,
     private val deviceId: String,
     private val now: () -> Instant,
-    private val newId: () -> String,
     private val log: (String) -> Unit = {},
 ) {
     /**
      * 積む。積めなくても `Outbox.add` はメモリに持つので、呼び手は台帳の行を消してよい
      * （積めなかったことはログに種別だけ残す）。
+     *
+     * 識別子は利用者・ソース・内容ハッシュ・理由から決まる（[mediaMissingId]）。報告してから行を消せなかった回は
+     * 次の回に同じ報告を積み直すが、識別子が同じなので S-01 は重複として畳み、欠けを二重に数えない（R11）。
      */
     fun report(entry: OriginalEntry, reason: OriginalMissingReason) {
+        val user = userId()
         val report = MediaMissingReport(
-            id = newId(),
-            userId = userId(),
+            id = mediaMissingId(user, entry.source, entry.sha256, reason),
+            userId = user,
             deviceId = deviceId,
             logicalSource = entry.source,
             sha256 = entry.sha256,
@@ -211,6 +240,36 @@ class OriginalMissingReporter(
         )
         if (!outbox.add(report)) log(Telemetry.line("original_missing_not_persisted", source = entry.source, count = 1))
     }
+}
+
+/** 原本の欠けの報告の識別子の名前空間（UUID v5。値は変えない —— 変えると送り直しが重複として畳まれない）。 */
+val MEDIA_MISSING_ID_NAMESPACE: UUID = UUID.fromString("6f0d5c1e-3b8a-5d2f-9c41-7a2e8b9d0f13")
+
+private const val UUID_VERSION_5 = 0x50
+private const val UUID_VERSION_MASK = 0x0f
+private const val UUID_VARIANT_RFC4122 = 0x80
+private const val UUID_VARIANT_MASK = 0x3f
+private const val UUID_VERSION_BYTE = 6
+private const val UUID_VARIANT_BYTE = 8
+private const val UUID_BYTES = 16
+
+/**
+ * 原本の欠けの報告の識別子（UUID v5）。利用者・ソース・内容ハッシュ・理由が同じなら同じ値（S-01 の重複の判定と同じ欄）。
+ * 時刻と端末は入れない —— 入れると報告し直すたびに別の欠けとして数えられる。
+ */
+fun mediaMissingId(userId: String, logicalSource: String, sha256: String, reason: OriginalMissingReason): String {
+    val namespace = ByteBuffer.allocate(UUID_BYTES)
+        .putLong(MEDIA_MISSING_ID_NAMESPACE.mostSignificantBits)
+        .putLong(MEDIA_MISSING_ID_NAMESPACE.leastSignificantBits)
+        .array()
+    val digest = MessageDigest.getInstance("SHA-1")
+    digest.update(namespace)
+    digest.update("$userId\n$logicalSource\n$sha256\n${reason.wire}".toByteArray(Charsets.UTF_8))
+    val h = digest.digest()
+    h[UUID_VERSION_BYTE] = (h[UUID_VERSION_BYTE].toInt() and UUID_VERSION_MASK or UUID_VERSION_5).toByte()
+    h[UUID_VARIANT_BYTE] = (h[UUID_VARIANT_BYTE].toInt() and UUID_VARIANT_MASK or UUID_VARIANT_RFC4122).toByte()
+    val words = ByteBuffer.wrap(h, 0, UUID_BYTES)
+    return UUID(words.long, words.long).toString()
 }
 
 /** 記録の送信の結果を受ける口（`Sender`）。 */
@@ -278,7 +337,6 @@ class OriginalPipeline(
         userId,
         deviceId,
         now = { Instant.now() },
-        newId = { UUID.randomUUID().toString() },
         log = log,
     )
 

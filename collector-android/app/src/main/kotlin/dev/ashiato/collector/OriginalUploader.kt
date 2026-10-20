@@ -20,6 +20,13 @@ val UPLOAD_RETRY_MAX: Duration = Duration.ofHours(RETRY_MAX_HOURS)
 /** 最初の `409 record_missing` からこれだけ続いたら、原本の欠け `record_missing` にする（design D9（仮）/ R7）。 */
 val RECORD_MISSING_GIVE_UP: Duration = Duration.ofDays(GIVE_UP_DAYS)
 
+/**
+ * 原本の本文の上限（design D10（仮）。S-01 の `ORIGINAL_BODY_LIMIT` と同じ 1 GiB）。
+ * 超える原本は送らずに欠け `too_large` にする —— S-01 は長さを見て本文を読む前に `413` で閉じ、固定長の流し送りは
+ * 書き込みの途中の `IOException`（届かない）に畳まれるので、端末が先に決めないと 1 時間ごとに読み直し続ける（R4）。
+ */
+const val ORIGINAL_BODY_LIMIT: Long = 1L shl 30
+
 /** 原本の受け口（`HEAD` / `PUT /media/originals/{sha256}`）。試験では偽物に差し替える。 */
 interface OriginalTransport {
     /** 受け取り済みか。`200` なら済み、`404` なら未 */
@@ -57,6 +64,8 @@ class OriginalEnvironment(
     /** いまの通信が従量制でないか（`NET_CAPABILITY_NOT_METERED`） */
     val unmetered: () -> Boolean,
     val now: () -> Instant,
+    /** 送る本文の上限（[ORIGINAL_BODY_LIMIT]。試験だけが小さくする） */
+    val bodyLimit: Long = ORIGINAL_BODY_LIMIT,
 )
 
 /** 1 行の送りの結果。 */
@@ -98,7 +107,7 @@ class OriginalUploader(
     private val env: OriginalEnvironment,
     private val log: (String) -> Unit = {},
 ) {
-    private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now)
+    private val exchange = OriginalExchange(ledger, source, transport, reporter, env.now, env.bodyLimit)
     private val running = AtomicBoolean(false)
     private val backoff = HashMap<String, Backoff>()
 
@@ -204,6 +213,7 @@ private class OriginalExchange(
     private val transport: OriginalTransport,
     private val reporter: OriginalMissingReporter,
     private val now: () -> Instant,
+    private val bodyLimit: Long,
 ) {
     fun send(row: OriginalEntry): Step {
         headStep(row)?.let { return it }
@@ -224,18 +234,25 @@ private class OriginalExchange(
         }
     }
 
-    /** 1 回目の読み。ハッシュを確かめて、読んだバイト数を返す。 */
-    private fun hashFirst(row: OriginalEntry): First = when (val opened = source.open(row)) {
-        is OriginalOpen.Opened -> {
-            val (sha, length) = opened.input.use(::hashAndCount)
-            if (sha == row.sha256) {
-                First.Matched(length)
-            } else {
-                // 中身が変わった: 変わる前の記録の原本として送らない。新しい中身は読み手が次の記録にする
-                First.Stop(settle(row, OriginalMissingReason.CHANGED))
-            }
+    /** 1 回目の読み。ハッシュを確かめて、読んだバイト数を返す。上限を超えたらそこで読むのをやめる。 */
+    private fun hashFirst(row: OriginalEntry): First {
+        // 一覧の大きさが上限を超えていれば開かない（読み直しても受け取られない）
+        if (row.size > bodyLimit) return First.Stop(settle(row, OriginalMissingReason.TOO_LARGE))
+        return when (val opened = source.open(row)) {
+            is OriginalOpen.Opened -> firstRead(row, opened)
+            else -> First.Stop(unopened(row, opened))
         }
-        else -> First.Stop(unopened(row, opened))
+    }
+
+    private fun firstRead(row: OriginalEntry, opened: OriginalOpen.Opened): First {
+        val (sha, length) = opened.input.use { hashAndCount(it, bodyLimit) }
+        return when {
+            // 一覧の大きさより実物が大きかった。`PUT` しても受け取られない
+            length > bodyLimit -> First.Stop(settle(row, OriginalMissingReason.TOO_LARGE))
+            sha == row.sha256 -> First.Matched(length)
+            // 中身が変わった: 変わる前の記録の原本として送らない。新しい中身は読み手が次の記録にする
+            else -> First.Stop(settle(row, OriginalMissingReason.CHANGED))
+        }
     }
 
     /** 開けなかったときの扱い（1 回目も 2 回目も同じ）。 */
@@ -298,12 +315,15 @@ private class OriginalExchange(
 
 private const val HASH_BUFFER_BYTES = 64 * 1024
 
-/** 流して読み、内容ハッシュ（16 進の小文字）と読んだバイト数を返す。メモリに全体を載せない。 */
-private fun hashAndCount(input: InputStream): Pair<String, Long> {
+/**
+ * 流して読み、内容ハッシュ（16 進の小文字）と読んだバイト数を返す。メモリに全体を載せない。
+ * [limit] を超えたら読むのをやめる（返す長さが [limit] より大きければ、ハッシュは途中までのもの）。
+ */
+private fun hashAndCount(input: InputStream, limit: Long): Pair<String, Long> {
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(HASH_BUFFER_BYTES)
     var length = 0L
-    while (true) {
+    while (length <= limit) {
         val n = input.read(buffer)
         if (n < 0) break
         digest.update(buffer, 0, n)

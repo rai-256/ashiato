@@ -33,6 +33,10 @@ class MediaCapture(
     private var started = false
     private var unobserve: (() -> Unit)? = null
 
+    /** 最後に知らせに渡した権限の状態（見回りが「変わった」を見る元） */
+    @Volatile
+    private var lastState: MediaPermissionState? = null
+
     /** 始める。**呼ばれるたびに知らせは見直す**（権限が戻った後の開き直しで消す）。読み手の刻みは 1 度だけ。 */
     @Synchronized
     fun start() {
@@ -40,6 +44,7 @@ class MediaCapture(
         if (started) return
         started = true
         driver.start()
+        driver.watch(check = ::permissionsChanged)
         unobserve = runCatching { listing.observe(driver::onMediaChanged) }.getOrElse {
             log(Telemetry.line("media_observe_failed", source = null, error = it.javaClass.simpleName))
             null
@@ -61,9 +66,26 @@ class MediaCapture(
     }
 
     fun refreshNotice() {
-        runCatching { notice(permissions()) }.onFailure {
+        runCatching {
+            val state = permissions()
+            lastState = state
+            notice(state)
+        }.onFailure {
             log(Telemetry.line("media_notice_crashed", source = null, error = it.javaClass.simpleName))
         }
+    }
+
+    /**
+     * 権限の見回り（[MEDIA_PERMISSION_POLL_MS] ごと）。前に見た状態と違えば知らせを見直し、真を返す（読み手がすぐ見直す）。
+     * 許可にも取り消しにも同じく動く —— 読み手は読む前に自分で権限を見る（Q15）ので、取り消しで読み直しても何も開かない。
+     */
+    private fun permissionsChanged(): Boolean {
+        val state = runCatching { permissions() }.onFailure {
+            log(Telemetry.line("media_permission_unreadable", source = null, error = it.javaClass.simpleName))
+        }.getOrNull()
+        val changed = state != null && state != lastState
+        if (changed) refreshNotice()
+        return changed
     }
 
     private fun onOutcome(outcome: MediaScanOutcome) {

@@ -100,9 +100,11 @@ class MediaScanner(
 
     /** 権限の状態が許したあとの 1 回分。この前に一覧も印も開かない（Q15）。 */
     private fun scanAllowed(level: MediaAccess, onOutcome: (MediaScanOutcome) -> Unit): MediaScanResult {
-        val pass = Pass(level, env.now(), store.loadCursor(), listing.volumes())
-        if (!runPass(pass)) {
-            onOutcome(MediaScanOutcome(REASON_SCAN_FAILED, pass.failedStages))
+        val pass = openPass(level)
+        if (pass == null || !runPass(pass)) {
+            // 作業場を組めない（一覧の置き場・版を読めない）なら、4 つのソースとも読む段で失敗
+            val stages = pass?.failedStages ?: ALL_SOURCES.associateWith { MediaStage.READ }
+            onOutcome(MediaScanOutcome(REASON_SCAN_FAILED, stages))
             return MediaScanResult.Unavailable(REASON_SCAN_FAILED)
         }
         log(Telemetry.line("media_scan", source = null, count = pass.enqueued))
@@ -113,6 +115,19 @@ class MediaScanner(
             MediaScanResult.Scanned(pass.enqueued, pass.full)
         }
     }
+
+    /**
+     * 作業場を組む。組むときにも一覧（置き場・版）と印を読むので、ここで落ちても失敗の試行に数える
+     * （try の外で落ちると [onOutcome] が届かず、生存信号が成功のままになる。C19）。落ちたら null。
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun openPass(level: MediaAccess): Pass? =
+        try {
+            Pass(level, env.now(), store.loadCursor(), listing.volumes())
+        } catch (e: Exception) {
+            log(Telemetry.line("media_scan_crashed", source = null, error = e.javaClass.simpleName))
+            null
+        }
 
     /** 作業場を 1 回走らせる。落ちたら false（例外で outcome が届かないと生存信号が成功のままになる。C19）。 */
     @Suppress("TooGenericExceptionCaught")
@@ -242,18 +257,20 @@ class MediaScanner(
             val decision = decide(volume, item, entry, content.sha256, digest)
             val request = if (decision.send) requestFor(decision, item, content, env) else null
             if (request != null) enqueued++
-            val added = request == null || outbox.add(request)
-            // 画像の記録を積めたら、原本の送り待ちも足す（動画は足さない。D8）
-            val queued = !added || request == null || item.kind != MediaKind.IMAGE ||
+            // 画像の記録は、**原本の送り待ちを先に足してから**積む（動画は足さない。D8）。
+            // 積んだ直後に送り手が受理すると、後から足した行は `ready` にならず `awaiting_record` のまま固まる（R1）。
+            // 記録を積めなかったときも行は残す —— `Outbox.add` は書けなくてもメモリに持ち、後で送って受理されうる。
+            // 印を進めないので、次の契機は同じ行を新しい記録の識別子に付け替えて積み直す
+            val queued = request == null || item.kind != MediaKind.IMAGE ||
                 store.originals.queue(originalEntry(item, content, decision.source, request, at))
-            if (!added) {
-                markHeld(volume)
-                failedStages[decision.source] = MediaStage.ENQUEUE
-            } else if (!queued) {
-                // 記録は積めたが、原本の送り待ちを書けなかった。印を進めず、次の契機に取り直す
-                // （記録は同じ外部識別子で畳まれる）
+            val added = queued && (request == null || outbox.add(request))
+            if (!queued) {
+                // 原本の送り待ちを書けなかった。記録も積まず、印を進めず、次の契機に取り直す
                 markHeld(volume)
                 failedStages[decision.source] = MediaStage.LEDGER
+            } else if (!added) {
+                markHeld(volume)
+                failedStages[decision.source] = MediaStage.ENQUEUE
             } else {
                 decision.consumed?.let { slot ->
                     index.remove(slot.volume, slot.entry)
@@ -374,6 +391,7 @@ class MediaScanner(
         const val REASON_NO_ACCESS = "no_media_access"
         const val REASON_NO_LOCATION = "no_location_permission"
         const val REASON_SCAN_FAILED = "scan_failed"
+        val ALL_SOURCES = listOf(MEDIA_PHOTO_SOURCE, MEDIA_SCREENSHOT_SOURCE, MEDIA_IMAGE_SOURCE, MEDIA_VIDEO_SOURCE)
     }
 }
 
@@ -412,7 +430,7 @@ private fun requestFor(
     return record.toIngestRequest(env.newId(), env.userId(), env.deviceId, decision.source)
 }
 
-/** 画像の記録を積んだら足す、原本の送り待ちの 1 行（`awaiting_record`。D8）。動画には足さない（Q6）。 */
+/** 画像の記録を積む前に足す、原本の送り待ちの 1 行（`awaiting_record`。D8）。動画には足さない（Q6）。 */
 private fun originalEntry(
     item: MediaListed,
     content: MediaFileContent,

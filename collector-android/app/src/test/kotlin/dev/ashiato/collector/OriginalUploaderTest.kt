@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -228,6 +229,85 @@ class OriginalUploaderTest {
         h.uploader.run()
         assertEquals(listOf("too_large"), h.missingReports().map { it.reason })
         assertEquals(0, h.env.originals.all().size)
+    }
+
+    /** 本文の上限だけを小さくした送り手（1 GiB の原本は試験で作れない。S-01 の `with_body_limit` と同じ手） */
+    private fun OriginalHarness.uploaderWithLimit(limit: Long) = OriginalUploader(
+        env.originals,
+        source,
+        transport,
+        reporter,
+        OriginalEnvironment(access = { access }, unmetered = { unmetered }, now = { env.wall }, bodyLimit = limit),
+    )
+
+    // 本物の HTTP では 413 が届かない（S-01 は長さを見て閉じ、端末には書き込みの途中の IOException になる）。
+    // 一覧の大きさが上限を超えていれば、開かず PUT せず欠け `too_large` にする（R4）
+    @Test
+    fun an_original_listed_over_the_body_limit_is_missing_without_being_opened_or_put() {
+        assertEquals(1L shl 30, ORIGINAL_BODY_LIMIT)
+        val h = OriginalHarness()
+        h.photo(1, "twelve bytes")
+        h.scan()
+        h.acceptRecords()
+
+        assertEquals(0, h.uploaderWithLimit(limit = 11).run())
+
+        assertEquals(listOf("too_large"), h.missingReports().map { it.reason })
+        assertEquals("ファイルを開いた", 0, h.source.opens)
+        assertTrue(h.transport.puts.isEmpty())
+        assertEquals(0, h.env.originals.all().size)
+    }
+
+    // 一覧の大きさより実物が大きく、1 回目の読みの長さが上限を超えたら PUT しない（R4）
+    @Test
+    fun an_original_read_over_the_body_limit_is_missing_without_being_put() {
+        val h = OriginalHarness()
+        h.photo(1, "small")
+        h.scan()
+        h.acceptRecords()
+        h.env.listing.contents[PRIMARY to 1L] = "grew far beyond the listed size".toByteArray()
+
+        assertEquals(0, h.uploaderWithLimit(limit = 16).run())
+
+        assertEquals(listOf("too_large"), h.missingReports().map { it.reason })
+        assertEquals(1, h.source.opens)
+        assertTrue(h.transport.puts.isEmpty())
+        assertEquals(0, h.env.originals.all().size)
+    }
+
+    // 報告してから行を消せなかった回は次の回に報告し直す。識別子が同じなので S-01 は重複として畳む（R11）
+    @Test
+    fun a_missing_report_sent_again_after_a_failed_removal_keeps_the_same_id() {
+        val h = OriginalHarness()
+        h.photo(1, "short lived")
+        h.scan()
+        h.acceptRecords()
+        h.env.listing.remove(PRIMARY, 1)
+        // 台帳の一時ファイルの場所をふさいで、行を消す書き込みを失敗させる
+        val tmp = java.io.File(java.io.File(h.env.dir, MEDIA_LEDGER_DIR), "$ORIGINALS_FILE.tmp").also { it.mkdirs() }
+        h.uploader.run()
+        assertEquals(1, h.env.originals.all().size)
+        tmp.delete()
+        h.advanceMs(2 * minute)
+        h.uploader.run()
+
+        val reports = h.missingReports()
+        assertEquals(2, reports.size)
+        assertEquals("報告し直すたびに識別子が変わる", 1, reports.map { it.id }.distinct().size)
+        assertEquals(0, h.env.originals.all().size)
+        val id = java.util.UUID.fromString(reports.first().id)
+        assertEquals(5, id.version())
+        val sha = reports.first().sha256
+        fun idOf(
+            user: String = "user-1",
+            sha256: String = sha,
+            reason: OriginalMissingReason = OriginalMissingReason.VANISHED,
+        ) = mediaMissingId(user, MEDIA_PHOTO_SOURCE, sha256, reason)
+        assertEquals(idOf(), id.toString())
+        // 理由・利用者・内容ハッシュのどれかが違えば別の識別子
+        assertNotEquals(id.toString(), idOf(reason = OriginalMissingReason.UNREADABLE))
+        assertNotEquals(id.toString(), idOf(user = "user-2"))
+        assertNotEquals(id.toString(), idOf(sha256 = "0$sha".take(64)))
     }
 
     // Scenario: 保存から 24 時間たっていなければ過去ぶんにしない

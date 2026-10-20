@@ -148,6 +148,46 @@ class MediaCapabilityTest {
         assertNull("知らせが消えていない", mediaNoticeText(rig.notices.last()))
     }
 
+    // 実行時の許可ではプロセスが立て直されない。6 時間の見直しを待たず、権限の見回り（1 分）で読み手も知らせも戻る（R3）
+    @Test
+    fun a_permission_granted_at_runtime_brings_the_reader_and_the_notice_back_within_a_minute() {
+        assertEquals(60_000L, MEDIA_PERMISSION_POLL_MS)
+        val rig = Rig()
+        rig.permissions(MediaAccess.FULL, location = false)
+        rig.camera(1, "while waiting")
+        rig.begin()
+        val noticesBefore = rig.notices.size
+        rig.timer.advance(10 * MEDIA_PERMISSION_POLL_MS)
+        assertTrue(rig.env.sent().isEmpty())
+        assertEquals("権限が変わらないのに知らせを出し直した", noticesBefore, rig.notices.size)
+        assertEquals("権限が変わらないのに読み直した", 0, rig.env.files.attempts)
+
+        rig.permissions(MediaAccess.FULL, location = true)
+        rig.timer.advance(MEDIA_PERMISSION_POLL_MS)
+
+        assertEquals("1 分で待っていた写真が取られていない", 1, rig.env.photos().size)
+        assertNull("1 分で知らせが消えていない", mediaNoticeText(rig.notices.last()))
+        assertTrue(rig.beat().capturable)
+    }
+
+    // 置き場の一覧を聞くところで落ちても、4 つのソースとも失敗の試行と読む段に数える（R5 / C19）
+    @Test
+    fun a_listing_that_fails_before_the_pass_starts_counts_a_failure_with_the_read_stage() {
+        val rig = Rig()
+        rig.camera(1, "taken")
+        rig.env.listing.failVolumes = true
+
+        rig.begin()
+
+        for (cadence in MEDIA_CADENCES) {
+            val beat = rig.beat(cadence)
+            assertEquals("${cadence.logicalSource} の試行", 1, beat.attempts)
+            assertEquals("${cadence.logicalSource} の成功", 0, beat.successes)
+            assertEquals(listOf("stage_read"), beat.blockers)
+        }
+        assertTrue(rig.env.lines.any { it.contains("media_scan_crashed") })
+    }
+
     // Scenario: 選んだ写真だけの許可では選んだものを取り、取れない状態と報告する
     @Test
     fun a_selected_photos_only_grant_captures_the_selected_and_reports_partial() {

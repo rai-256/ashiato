@@ -93,13 +93,11 @@ class OriginalHarness(val st: TestStores = TestStores()) {
         SegmentStore(File(st.dir, "media-missing"), MediaMissingReport.serializer(), st.unreadable, st.log),
         st.age::now,
     )
-    private var seq = 0
     val reporter = OriginalMissingReporter(
         missing,
         { "user-1" },
         "device-1",
         { env.wall },
-        { "m${seq++}" },
         st.log,
     )
     val link = OriginalRecordLink(env.originals, reporter)

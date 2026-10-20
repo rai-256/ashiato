@@ -230,4 +230,46 @@ class OriginalLedgerTest {
         assertFalse(broken.queue(reread.all().single().copy(sha256 = "z")))
         assertEquals(0, broken.all().size)
     }
+
+    // 足すのは 1 行の追記（足すたびに全体を書き直さない。R6）。切れた最後の行は捨て、次の追記を繋げない
+    @Test
+    fun queueing_appends_one_line_and_a_torn_last_line_is_skipped_on_reload() {
+        val dir = java.nio.file.Files.createTempDirectory("originals").toFile()
+        val file = File(dir, ORIGINALS_FILE)
+        val ledger = OriginalLedger(file)
+        fun row(n: Int) = OriginalEntry(
+            sha256 = "%064d".format(n),
+            volume = PRIMARY,
+            mediaId = n.toLong(),
+            source = MEDIA_PHOTO_SOURCE,
+            size = 10,
+            backlog = false,
+            dateAdded = 0,
+            queuedAt = n.toLong(),
+            state = ORIGINAL_AWAITING_RECORD,
+            recordId = "r$n",
+        )
+        assertTrue(ledger.queue(row(1)))
+        val first = file.readText()
+        assertTrue(ledger.queue(row(2)))
+        assertTrue("前の行が書き直された", file.readText().startsWith(first))
+        assertEquals(2, file.readLines().count { it.isNotBlank() })
+        // 同じ行を同じ記録で足し直しても書かない
+        val before = file.length()
+        assertTrue(ledger.queue(row(2)))
+        assertEquals(before, file.length())
+        // 追記の途中で落ちた: 最後の行が改行なしで切れている
+        file.appendText("{\"sha256\":\"torn")
+        val reopened = OriginalLedger(file)
+        assertEquals(2, reopened.all().size)
+        assertTrue(reopened.queue(row(3)))
+        // 記録だけを送り直した版（行の付け替え）も追記で、読み直すと後の行が勝つ
+        assertTrue(reopened.queue(row(1).copy(recordId = "r1b")))
+        val again = OriginalLedger(file)
+        assertEquals(listOf("r1b", "r2", "r3"), again.all().map { it.recordId })
+        // 全体の書き直し（ready）で重なった古い版と切れた行が消える
+        assertTrue(again.markReady(listOf(row(1).sha256)))
+        assertEquals(3, file.readLines().count { it.isNotBlank() })
+        assertEquals(again.all(), OriginalLedger(file).all())
+    }
 }
