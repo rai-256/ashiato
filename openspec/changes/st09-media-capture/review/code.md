@@ -16,6 +16,7 @@ Task ごとの ⚠️ の確認の結果（問題なしとした分）は末尾�
 - 成果物: collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/MediaCaptureInstrumentedTest.kt
 - 根拠: 最後の全体の走行は `.superpowers/sdd/logs/20261020-101835-at.log`（6428315b）。その後 22bd6503（detekt の修正）で MediaCaptureInstrumentedTest.kt / PermissionDeniedInstrumentedTest.kt が書き換わった
 - kind: technical
+- 処置: fixed 10.2（HEAD 71f203b0 で `scripts/quiet-run instr -- tools/android-emulator.sh` rc=0・934 秒（`.superpowers/sdd/logs/20261020-184204-instr.log`、`set -euo pipefail` で 3 段とも gradle が通った）。`<testcase classname=…>` で数えて: 1 段目 17 本・失敗 0（うち MediaCaptureInstrumentedTest 2 本）、3 段目 MediaPremisesInstrumentedTest 3 本・失敗 0。2 段目（PermissionDeniedInstrumentedTest）の XML は 3 段目が同じ名前で上書きするので本数は数えられず、rc=0 だけが根拠（R14 / Task 10 F6）。evidence.jsonl への記録はハーネスの証跡の段に任せる）
 
 ## R3. 権限を許可しても、最大 6 時間は読み手も知らせも戻らない
 - 成果物: collector-android/app/src/main/kotlin/dev/ashiato/collector/MediaCapture.kt
