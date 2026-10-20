@@ -59,6 +59,12 @@ class MediaCapture(
         driver.stop()
     }
 
+    /** 止めて、読み手の糸も返す（サービスの終わり。review/code.md R27）。この後は使わない */
+    fun close() {
+        stop()
+        driver.close()
+    }
+
     /** そのソースのいまの取得可否（接続は含めない。D7）。 */
     fun capability(logicalSource: String): Capability {
         val stage = channels.firstOrNull { it.cadence.logicalSource == logicalSource }?.stages?.blockedStage()

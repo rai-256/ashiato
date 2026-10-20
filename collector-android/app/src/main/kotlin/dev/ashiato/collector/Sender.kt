@@ -209,22 +209,26 @@ class Sender<T : Outboxable>(
         return Flushed(batch.size, verdict.accepted, removed, responded)
     }
 
-    /** listener に知らせる。**取り除かずに残す識別子**（listener が処理できなかった分）を返す。 */
+    /**
+     * listener に知らせる。**取り除かずに残す識別子**（listener が処理できなかった分）を返す。
+     * listener が例外を投げたら、その知らせの分は処理できなかったとして残す（次の契機で再び知らせる。review/code.md R23）。
+     */
     private fun notifyListener(batch: List<T>, verdict: Verdict): Set<String> {
         val target = listener ?: return emptySet()
         val ok = verdict.acceptedIds.toSet()
         val gone = verdict.remove.toSet() - ok
         val held = HashSet<String>()
-        runCatching {
-            if (ok.isNotEmpty()) {
-                val items = batch.filter { it.id in ok }
-                if (!target.accepted(items)) held += items.map { it.id }
+        fun tell(ids: Set<String>, handle: (List<T>) -> Boolean) {
+            if (ids.isEmpty()) return
+            val items = batch.filter { it.id in ids }
+            val handled = runCatching { handle(items) }.getOrElse {
+                log(Telemetry.line("send_listener_crashed", source = null, error = it.javaClass.simpleName))
+                false
             }
-            if (gone.isNotEmpty()) {
-                val items = batch.filter { it.id in gone }
-                if (!target.rejectedForGood(items)) held += items.map { it.id }
-            }
-        }.onFailure { log(Telemetry.line("send_listener_crashed", source = null, error = it.javaClass.simpleName)) }
+            if (!handled) held += items.map { it.id }
+        }
+        tell(ok, target::accepted)
+        tell(gone, target::rejectedForGood)
         return held
     }
 

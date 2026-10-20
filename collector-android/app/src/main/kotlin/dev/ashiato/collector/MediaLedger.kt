@@ -60,7 +60,7 @@ data class MediaCursor(
  * 読めなければ空から始める（落とさない）—— 失うのは「どこまで見たか」だけで、
  * 写真そのものは端末にあり、S-01 は外部識別子（内容ハッシュ）で畳むので記録は増えない（D2）。
  */
-class MediaLedgerStore(private val dir: File, private val log: (String) -> Unit = {}) {
+open class MediaLedgerStore(private val dir: File, private val log: (String) -> Unit = {}) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun ledgerFile(volume: String) = File(dir, "ledger-${volume.replace(UNSAFE, "_")}.jsonl")
@@ -90,8 +90,8 @@ class MediaLedgerStore(private val dir: File, private val log: (String) -> Unit 
         return out
     }
 
-    /** 書けたか。書けなければ呼び手は読み進めた印を進めない。 */
-    fun saveLedger(volume: String, entries: Collection<LedgerEntry>): Boolean =
+    /** 書けたか。書けなければ呼び手は読み進めた印を進めない。**試験だけが差し替える**（書いた回数を数える） */
+    open fun saveLedger(volume: String, entries: Collection<LedgerEntry>): Boolean =
         write(ledgerFile(volume), entries.joinToString("") { json.encodeToString(LedgerEntry.serializer(), it) + "\n" })
 
     fun loadCursor(): MediaCursor = try {

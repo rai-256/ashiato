@@ -174,6 +174,64 @@ class OriginalUploaderTest {
         assertEquals(0, h.env.originals.all().size)
     }
 
+    /** 送る前に一覧が作り直されて番号が振り直されても、原本の行は新しい番号を読む（review/code.md R20）。 */
+    @Test
+    fun an_original_waiting_through_a_rebuilt_listing_is_read_under_its_new_number() {
+        val h = OriginalHarness()
+        h.photo(1, "renumbered")
+        h.scan()
+        val sha = h.shaOf(1)
+        h.acceptRecords()
+        h.env.listing.rebuild(PRIMARY, shift = 500)
+        h.advanceMs(3_600_000)
+        h.scan()
+        h.acceptRecords()
+        assertEquals(501L, h.env.originals.get(sha)?.mediaId)
+        assertEquals(1, h.uploader.run())
+        assertTrue("欠けにした: ${h.missingReports()}", h.missingReports().isEmpty())
+        assertArrayEquals(h.env.listing.contents.getValue(PRIMARY to 501L), h.transport.stored.getValue(sha))
+    }
+
+    /** 動かした写真（別のフォルダ・新しい番号）も、原本の行は動かした先を読む（review/code.md R20）。 */
+    @Test
+    fun an_original_waiting_through_a_move_is_read_where_it_moved() {
+        val h = OriginalHarness()
+        h.photo(1, "moved before sending")
+        h.scan()
+        val sha = h.shaOf(1)
+        h.acceptRecords()
+        h.env.listing.remove(PRIMARY, 1)
+        h.env.listing.put(PRIMARY, 77, "Pictures/Trip/", "IMG_1.jpg", "moved before sending")
+        h.env.advanceHours(25) // 全部の突き合わせまで
+        h.scan()
+        h.acceptRecords()
+        assertEquals(77L, h.env.originals.get(sha)?.mediaId)
+        assertEquals(1, h.uploader.run())
+        assertTrue("欠けにした: ${h.missingReports()}", h.missingReports().isEmpty())
+        assertTrue(sha in h.transport.stored)
+    }
+
+    /** 受理の知らせを受ける側が例外を投げたら、記録を未送信から取り除かず、次の契機で知らせ直す（review/code.md R23）。 */
+    @Test
+    fun a_listener_that_throws_keeps_the_record_until_it_is_handled() {
+        val h = OriginalHarness()
+        h.photo(1, "listener crashes")
+        h.scan()
+        val sha = h.shaOf(1)
+        val sender = h.recordSender(acceptEverything)
+        sender.listener = object : SendListener<IngestRequest> {
+            override fun accepted(items: List<IngestRequest>): Boolean = error("crashed")
+            override fun rejectedForGood(items: List<IngestRequest>): Boolean = true
+        }
+        sender.flush()
+        assertEquals("知らせを処理できないのに取り除いた", 1, h.st.records.snapshot().size)
+        assertEquals(ORIGINAL_AWAITING_RECORD, h.env.originals.get(sha)?.state)
+        sender.listener = h.link
+        sender.flush()
+        assertEquals(0, h.st.records.snapshot().size)
+        assertEquals(ORIGINAL_READY, h.env.originals.get(sha)?.state)
+    }
+
     // Scenario: 送る前に端末から消えた写真の原本は欠けとして残る
     @Test
     fun a_photo_deleted_before_it_could_be_sent_becomes_a_missing_original() {
@@ -406,6 +464,9 @@ class OriginalUploaderTest {
         h.scan()
         h.acceptRecords()
         h.transport.unreachable = true
+        // 最初の待ちは仮の値（D9）。書き換えたら気付くよう名指しで固定する（review/code.md R17）
+        assertEquals(Duration.ofMinutes(1), UPLOAD_RETRY_FIRST)
+        assertEquals(Duration.ofHours(1), UPLOAD_RETRY_MAX)
         var wait = UPLOAD_RETRY_FIRST.toMillis()
         repeat(10) {
             h.uploader.run()

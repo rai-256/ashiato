@@ -178,6 +178,13 @@ class FakeMediaFiles(private val listing: FakeMediaListing) : MediaFileReader {
 
 /** 仮想の時間で動く契機の口。 */
 class VirtualTimer : MediaScanTimer {
+    var closed = false
+        private set
+
+    override fun close() {
+        closed = true
+    }
+
     private class Job(val at: Long, val task: () -> Unit) {
         var cancelled = false
     }
@@ -204,13 +211,13 @@ class VirtualTimer : MediaScanTimer {
     }
 }
 
-class MediaScanEnv {
+class MediaScanEnv(newStore: (File, (String) -> Unit) -> MediaLedgerStore = ::MediaLedgerStore) {
     val dir: File = Files.createTempDirectory("st09-media").toFile()
     val listing = FakeMediaListing()
     val files = FakeMediaFiles(listing)
     val lines = mutableListOf<String>()
     var outbox: Outbox<IngestRequest> = testOutbox()
-    val store = MediaLedgerStore(File(dir, MEDIA_LEDGER_DIR)) { lines += it }
+    val store = newStore(File(dir, MEDIA_LEDGER_DIR)) { lines += it }
     val originals: OriginalLedger get() = store.originals
     var wall: Instant = Instant.parse("2026-10-01T00:00:00Z")
     var access = MediaAccess.FULL

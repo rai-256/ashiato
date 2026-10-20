@@ -111,15 +111,19 @@ class OriginalLedger(private val file: File, private val log: (String) -> Unit =
     /**
      * 画像の記録を未送信に積む前に、原本の送り待ちを足す（1 行の追記）。保存できたか。
      * 同じ内容ハッシュの行がすでにあれば、新しい記録に付け替えるだけ（記録だけを送り直す更新。原本は 1 つ）。
+     * 付け替えでは読む場所（`volume` / `media_id`）も新しい項目に移す —— 動かした・番号が振り直された後に古い番号を
+     * 開くと読めずに `vanished` になり、端末にある原本が二度と送られない（review/code.md R20）。
      */
     @Synchronized
     fun queue(entry: OriginalEntry): Boolean {
         val existing = rows[entry.sha256]
-        val next = when {
-            existing == null -> entry
-            existing.state == ORIGINAL_AWAITING_RECORD && existing.recordId != entry.recordId ->
-                existing.copy(recordId = entry.recordId)
-            else -> null
+        val next = when (existing) {
+            null -> entry
+            else -> existing.copy(
+                volume = entry.volume,
+                mediaId = entry.mediaId,
+                recordId = if (existing.state == ORIGINAL_AWAITING_RECORD) entry.recordId else existing.recordId,
+            ).takeIf { it != existing }
         }
         val saved = next == null || write(added = next)
         if (saved && next != null) rows[entry.sha256] = next
@@ -295,20 +299,50 @@ class OriginalRecordLink(
     private val ledger: OriginalLedger,
     private val reporter: OriginalMissingReporter,
 ) : SendListener<IngestRequest> {
+    /**
+     * 破棄を報告したが台帳に書けず消せなかった行（内容ハッシュ → その記録の識別子）。`Retention` は記録を捨て済みで
+     * 知らせ直さないので、次に何かを知らされたときに消し直す（review/code.md R25）。報告は id が同じなので出し直さない
+     */
+    private val unremoved = LinkedHashMap<String, String>()
+
+    @Synchronized
     override fun accepted(items: List<IngestRequest>): Boolean {
+        retryUnremoved()
         val shas = items.mapNotNull(::imageSha)
         return shas.isEmpty() || ledger.markReady(shas)
     }
 
-    override fun rejectedForGood(items: List<IngestRequest>) = gone(items, OriginalMissingReason.RECORD_REJECTED)
+    @Synchronized
+    override fun rejectedForGood(items: List<IngestRequest>): Boolean {
+        retryUnremoved()
+        return gone(items, OriginalMissingReason.RECORD_REJECTED)
+    }
 
-    /** `Retention` が破棄した記録 */
-    fun dropped(items: List<IngestRequest>) = gone(items, OriginalMissingReason.RECORD_DROPPED)
+    /** `Retention` が破棄した記録。消せなかった行は覚えておき、次の知らせで消し直す */
+    @Synchronized
+    fun dropped(items: List<IngestRequest>): Boolean {
+        retryUnremoved()
+        val rows = awaiting(items)
+        val removed = gone(items, OriginalMissingReason.RECORD_DROPPED)
+        if (!removed) rows.forEach { unremoved[it.sha256] = it.recordId }
+        return removed
+    }
+
+    private fun retryUnremoved() {
+        if (unremoved.isEmpty()) return
+        // その後に別の記録へ付け替わった行（同じ中身を送り直した）は消さない
+        val still = unremoved.filter { (sha, recordId) ->
+            ledger.get(sha)?.let { it.state == ORIGINAL_AWAITING_RECORD && it.recordId == recordId } == true
+        }
+        if (ledger.removeAll(still.keys)) unremoved.clear()
+    }
+
+    private fun awaiting(items: List<IngestRequest>): List<OriginalEntry> = items.mapNotNull { item ->
+        imageSha(item)?.let(ledger::get)?.takeIf { it.state == ORIGINAL_AWAITING_RECORD && it.recordId == item.id }
+    }
 
     private fun gone(items: List<IngestRequest>, reason: OriginalMissingReason): Boolean {
-        val rows = items.mapNotNull { item ->
-            imageSha(item)?.let(ledger::get)?.takeIf { it.state == ORIGINAL_AWAITING_RECORD && it.recordId == item.id }
-        }
+        val rows = awaiting(items)
         rows.forEach { reporter.report(it, reason) }
         return rows.isEmpty() || ledger.removeAll(rows.map { it.sha256 })
     }

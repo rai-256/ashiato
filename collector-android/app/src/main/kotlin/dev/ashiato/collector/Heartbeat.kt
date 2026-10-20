@@ -344,7 +344,8 @@ class HeartbeatEmitter(
     }
 
     private fun buildAndStore(cap: Capability, at: Instant, attempts: Int, successes: Int): Boolean {
-        val connected = network?.let { runCatching(it).getOrDefault(false) }
+        // 確かめられなければ欄ごと載せない（分からない = null。D7）。`false` にすると圏外に見える（review/code.md R29）
+        val connected = network?.let { runCatching(it).getOrNull() }
         // **原文は組み立てた値そのもの。** 素通しで残るので、同じ 1 件は毎回同じ文字列になる
         // （冪等キーがこの文字列から作られる）。
         val fields = linkedMapOf<String, kotlinx.serialization.json.JsonElement>(

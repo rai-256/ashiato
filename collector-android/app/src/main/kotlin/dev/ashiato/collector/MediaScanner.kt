@@ -207,14 +207,26 @@ class MediaScanner(
             val untouched = !full && previous != null && generations[volume] == previous.generation
             var afterId = 0L
             var page: List<MediaListed> = emptyList()
+            var pages = 0
+            val unsaved = ArrayList<MediaListed>()
             while (!untouched) {
                 page = listing.page(volume, afterId, since, SCAN_BATCH)
                 page.forEach { handle(volume, it) }
                 if (page.isNotEmpty()) {
-                    saveLedger(volume) { page.map { sourceOf(it, null) } }
+                    // 途中の保存（落ちた後にハッシュを計算し直さない）は 1・2・4・8… 頁目と最後の頁だけ。毎頁だと台帳の
+                    // 全体の書き直しが件数の 2 乗で増える（1 万枚の初回で約 25 万行）。こうすると書く量は件数に比例し、
+                    // 落ちても計算し直すのは読んだ分の半分まで（review/code.md R26）
+                    pages++
+                    unsaved += page
                     afterId = page.last().row.mediaId
                 }
-                if (page.size < SCAN_BATCH) break
+                val last = page.size < SCAN_BATCH
+                if (unsaved.isNotEmpty() && (last || pages and (pages - 1) == 0)) {
+                    val failed = unsaved.map { sourceOf(it, null) }
+                    saveLedger(volume) { failed }
+                    unsaved.clear()
+                }
+                if (last) break
             }
         }
 
@@ -261,8 +273,7 @@ class MediaScanner(
             // 積んだ直後に送り手が受理すると、後から足した行は `ready` にならず `awaiting_record` のまま固まる（R1）。
             // 記録を積めなかったときも行は残す —— `Outbox.add` は書けなくてもメモリに持ち、後で送って受理されうる。
             // 印を進めないので、次の契機は同じ行を新しい記録の識別子に付け替えて積み直す
-            val queued = request == null || item.kind != MediaKind.IMAGE ||
-                store.originals.queue(originalEntry(item, content, decision.source, request, at))
+            val queued = queueOriginal(store.originals, Placed(volume, item, content, at), decision, request)
             val added = queued && (request == null || outbox.add(request))
             if (!queued) {
                 // 原本の送り待ちを書けなかった。記録も積まず、印を進めず、次の契機に取り直す
@@ -431,6 +442,29 @@ private fun requestFor(
 }
 
 /** 画像の記録を積む前に足す、原本の送り待ちの 1 行（`awaiting_record`。D8）。動画には足さない（Q6）。 */
+/** 読めた項目 1 件と、その置き場・契機の時刻。 */
+private class Placed(val volume: String, val item: MediaListed, val content: MediaFileContent, val at: Instant)
+
+/**
+ * 画像の原本の送り待ちを足す・付け替える。保存できたか（動画と、何も変わらない項目は真）。
+ * 記録を送り直さない動き（番号だけが変わった）でも、原本の行の読む場所は新しい項目に移す（review/code.md R20）
+ */
+private fun queueOriginal(
+    originals: OriginalLedger,
+    placed: Placed,
+    decision: Decision,
+    request: IngestRequest?,
+): Boolean {
+    val (item, content) = placed.item to placed.content
+    return when {
+        item.kind != MediaKind.IMAGE -> true
+        request != null -> originals.queue(originalEntry(item, content, decision.source, request, placed.at))
+        decision.consumed != null -> originals.get(content.sha256)
+            ?.let { originals.queue(it.copy(volume = placed.volume, mediaId = item.row.mediaId)) } ?: true
+        else -> true
+    }
+}
+
 private fun originalEntry(
     item: MediaListed,
     content: MediaFileContent,

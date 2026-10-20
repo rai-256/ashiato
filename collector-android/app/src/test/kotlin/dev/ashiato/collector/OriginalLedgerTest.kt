@@ -77,6 +77,25 @@ class OriginalLedgerTest {
         assertNull(h.env.originals.get(sha))
     }
 
+    /** 破棄の後に台帳を書けず行を消せなかったら、次の知らせで消し直す（review/code.md R25）。 */
+    @Test
+    fun a_row_that_could_not_be_removed_after_a_drop_is_removed_on_the_next_notice() {
+        val h = OriginalHarness()
+        h.photo(1, "dropped while the ledger is unwritable")
+        h.scan()
+        val sha = h.shaOf(1)
+        val record = h.st.records.snapshot().single()
+        // 全体の書き直しの一時ファイルの場所をフォルダで塞ぐ（台帳に書けない）
+        val tmp = File(h.env.dir, "media/originals.jsonl.tmp").apply { mkdirs() }
+        assertTrue(tmp.isDirectory)
+        assertFalse(h.link.dropped(listOf(record)))
+        assertEquals(ORIGINAL_AWAITING_RECORD, h.env.originals.get(sha)?.state)
+        tmp.delete()
+        assertTrue(h.link.accepted(emptyList()))
+        assertNull("書けるようになっても行が残った", h.env.originals.get(sha))
+        assertEquals("報告は 1 回", 1, h.missingReports().count { it.reason == "record_dropped" })
+    }
+
     // Scenario: 記録が未送信から破棄されると原本も欠けになる
     @Test
     fun records_dropped_across_several_segments_all_turn_their_originals_into_missing_originals() {

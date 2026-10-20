@@ -7,6 +7,9 @@ import java.util.concurrent.TimeUnit
 /** 遅れて 1 回走らせる口。取り消しは戻り値。試験は仮想の時間を渡す。 */
 interface MediaScanTimer {
     fun after(delayMs: Long, task: () -> Unit): () -> Unit
+
+    /** 糸を返す（サービスの終わり）。この後は使わない */
+    fun close() {}
 }
 
 /** 1 本のスレッドで走る実物。**位置の収集とは別のスレッド**（位置の 60 秒の取得を止めない。D1）。 */
@@ -14,6 +17,11 @@ class ExecutorMediaScanTimer(private val executor: ScheduledExecutorService) : M
     override fun after(delayMs: Long, task: () -> Unit): () -> Unit {
         val future = executor.schedule({ task() }, delayMs, TimeUnit.MILLISECONDS)
         return { future.cancel(false) }
+    }
+
+    /** 予約の取り消しだけでは糸が残る（サービスが作り直されるたびに 1 本ずつ漏れる。review/code.md R27） */
+    override fun close() {
+        executor.shutdownNow()
     }
 }
 
@@ -55,6 +63,12 @@ class MediaScanDriver(
     fun watch(pollMs: Long = MEDIA_PERMISSION_POLL_MS, check: () -> Boolean) {
         if (!running) return
         cancelPoll = timer.after(pollMs) { poll(pollMs, check) }
+    }
+
+    /** 止めて、刻みの糸も返す（サービスの終わり）。この後は使わない */
+    fun close() {
+        stop()
+        timer.close()
     }
 
     @Synchronized

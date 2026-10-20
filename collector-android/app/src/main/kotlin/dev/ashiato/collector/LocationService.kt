@@ -995,7 +995,7 @@ open class LocationService : Service() {
 
     override fun onDestroy() {
         outagePoller.shutdown()
-        if (::mediaCapture.isInitialized) mediaCapture.stop()
+        if (::mediaCapture.isInitialized) mediaCapture.close()
         if (::sources.isInitialized) {
             for (running in sources) {
                 running.source.stop()

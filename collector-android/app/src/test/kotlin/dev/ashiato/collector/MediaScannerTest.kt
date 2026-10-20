@@ -289,6 +289,32 @@ class MediaScannerTest {
         assertEquals(0, env.vanished().size)
     }
 
+    /** 初回の全件の読みで、台帳の全体の書き直しは 1・2・4… 頁目と最後の頁だけ（件数の 2 乗にしない。review/code.md R26）。 */
+    @Test
+    fun the_first_full_read_rewrites_the_ledger_only_on_doubling_pages() {
+        val saves = ArrayList<Int>()
+        val env = MediaScanEnv { dir, log ->
+            object : MediaLedgerStore(dir, log) {
+                override fun saveLedger(volume: String, entries: Collection<LedgerEntry>): Boolean {
+                    saves += entries.size
+                    return super.saveLedger(volume, entries)
+                }
+            }
+        }
+        repeat(SCAN_BATCH * 5 + 1) {
+            env.listing.put(PRIMARY, it + 1L, "DCIM/Camera/", "IMG_$it.jpg", "page photo $it")
+        }
+        env.scan()
+        // 6 頁（200 × 5 + 1）: 1・2・4 頁目と最後の 6 頁目、契機の終わりの突き合わせで 1 回
+        assertEquals(listOf(200, 400, 800, 1001, 1001), saves)
+        // 書いた台帳から読み直しても計算し直さない
+        val opened = env.files.opened
+        env.scanner = env.newScanner()
+        env.advanceHours(25)
+        env.scan()
+        assertEquals("台帳に全部が残っていない", opened, env.files.opened)
+    }
+
     @Test
     fun the_constants_are_pinned() {
         assertEquals(200, SCAN_BATCH)

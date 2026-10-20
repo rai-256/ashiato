@@ -586,10 +586,40 @@ async fn st09_up_put_name_with_separators_stays_inside() {
     assert_eq!(media::sanitize_name("dir/"), "media");
     assert_eq!(media::sanitize_name("CON.txt"), "_CON.txt");
     assert_eq!(media::sanitize_name("a.jpg  "), "a.jpg");
-    let long = format!("{}.jpeg", "あ".repeat(300));
+    // 上限は本人の決定ではない仮の値（D10a）。書き換えたら気付くよう名指しで固定する（review/code.md R17）
+    assert_eq!(media::NAME_MAX_CHARS, 120);
+    assert_eq!(media::NAME_MAX_BYTES, 170);
+    let long = format!("{}.jpeg", "a".repeat(300));
     let cut = media::sanitize_name(&long);
     assert_eq!(cut.chars().count(), media::NAME_MAX_CHARS);
     assert!(cut.ends_with(".jpeg"));
+    // 日本語は文字数より先にバイト数で切れる（1 文字 3 バイト。review/code.md R21）
+    let wide = media::sanitize_name(&format!("{}.jpeg", "あ".repeat(300)));
+    assert!(wide.len() <= media::NAME_MAX_BYTES, "{}", wide.len());
+    assert_eq!(wide, format!("{}.jpeg", "あ".repeat(55)));
+}
+
+/// 日本語の長い名前でも、時刻とハッシュを足した名前がファイルの名前の上限（255 バイト）を超えず、置ける（review/code.md R21）。
+#[tokio::test]
+async fn st09_up_put_long_japanese_name_fits_the_file_name_limit() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let name = format!("{}.jpg", "写真".repeat(60));
+    let (a, b) = (unique_bytes("wide-a"), unique_bytes("wide-b"));
+    let sha_a = photo(&app, user, &a, &name, TAKEN).await;
+    let sha_b = photo(&app, user, &b, &name, TAKEN).await;
+    assert_eq!(put(&app, &sha_a, user, &a).await.0, StatusCode::CREATED);
+    assert_eq!(put(&app, &sha_b, user, &b).await.0, StatusCode::CREATED);
+    let files = placed(&root);
+    assert_eq!(files.len(), 2, "{files:?}");
+    for f in &files {
+        let file_name = f.rsplit('/').next().unwrap();
+        assert!(file_name.len() <= 255, "{}", file_name.len());
+        assert!(file_name.ends_with(".jpg"), "{file_name}");
+    }
+    assert_eq!(app.media.last_storage_error(), None);
 }
 
 /// 名前を決められない（どの名前も別の中身が取っている）のは行ごとの欠陥。`503` にせず `422 name_refused`、
@@ -610,13 +640,127 @@ async fn st09_up_put_name_taken_everywhere_is_refused_without_a_storage_error() 
         b"other 2",
     )
     .unwrap();
+    std::fs::write(
+        month.join(format!("20261017-143012_IMG_{sha}.jpg")),
+        b"other 3",
+    )
+    .unwrap();
     let (status, body) = put(&app, &sha, user, &bytes).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(body.contains("name_refused"), "{body}");
     assert_eq!(app.media.last_storage_error(), None);
     assert_eq!(receipts(&app, user).await, 0);
     assert_eq!(incoming_files(&root), 0);
-    assert_eq!(placed(&root).len(), 2);
+    assert_eq!(placed(&root).len(), 3);
+}
+
+/// 元の名前とハッシュの頭の名前の両方を別の中身が取っていても、全ハッシュの名前に置く
+/// （頭の 8 文字の重なり・手で置かれたファイルで、いつまでも `422` にしない。review/code.md R22）。
+#[tokio::test]
+async fn st09_up_put_both_names_taken_lands_under_the_full_hash_name() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let bytes = unique_bytes("taken-twice");
+    let sha = photo(&app, user, &bytes, "IMG.jpg", TAKEN).await;
+    let month = root.join("2026/10");
+    std::fs::create_dir_all(&month).unwrap();
+    std::fs::write(month.join("20261017-143012_IMG.jpg"), b"other 1").unwrap();
+    std::fs::write(
+        month.join(format!("20261017-143012_IMG_{}.jpg", &sha[..8])),
+        b"other 2",
+    )
+    .unwrap();
+    let (status, body) = put(&app, &sha, user, &bytes).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let full = month.join(format!("20261017-143012_IMG_{sha}.jpg"));
+    assert_eq!(std::fs::read(&full).unwrap(), bytes);
+    assert_eq!(receipts(&app, user).await, 1);
+}
+
+/// Scenario: 原本は形式を変えずに送られる
+/// D-02 の側: HEIC の原本は拡張子も中身のバイトも変えずに置かれる（review/code.md R16）。
+#[tokio::test]
+async fn st09_up_put_heic_original_keeps_its_format_and_bytes() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    // HEIC の頭（ftyp heic）に固有のバイトを足したもの
+    let mut bytes = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic".to_vec();
+    bytes.extend(unique_bytes("heic"));
+    let sha = photo(&app, user, &bytes, "IMG_0001.HEIC", TAKEN).await;
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::CREATED);
+    assert_eq!(placed(&root), ["2026/10/20261017-143012_IMG_0001.HEIC"]);
+    assert_eq!(
+        std::fs::read(root.join("2026/10/20261017-143012_IMG_0001.HEIC")).unwrap(),
+        bytes
+    );
+}
+
+/// D-02 のファイルが後から無くなった（本人が動かした・消した）なら、問い合わせは受け取っていないと答え、
+/// 送り直しで置き直す（受け取りの行は 1 つのまま。review/code.md R15 / D25（仮））。
+#[tokio::test]
+async fn st09_up_put_lost_original_is_asked_again_and_placed_again() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let bytes = unique_bytes("lost");
+    let sha = photo(&app, user, &bytes, "lost.jpg", TAKEN).await;
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::CREATED);
+    let file = root.join("2026/10/20261017-143012_lost.jpg");
+    assert_eq!(head(&app, &sha, user).await, StatusCode::OK);
+    std::fs::remove_file(&file).unwrap();
+    assert_eq!(head(&app, &sha, user).await, StatusCode::NOT_FOUND);
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::CREATED);
+    assert_eq!(std::fs::read(&file).unwrap(), bytes);
+    assert_eq!(head(&app, &sha, user).await, StatusCode::OK);
+    assert_eq!(receipts(&app, user).await, 1);
+    // 置いたままなら送り直しは置き直さない（同じ 1 つ）
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::OK);
+    assert_eq!(placed(&root).len(), 1);
+}
+
+/// 置いた原本（撮影位置を持つ）と作ったフォルダは持ち主だけが読める（Unix。review/code.md R19 / D26（仮））。
+#[cfg(unix)]
+#[tokio::test]
+async fn st09_up_put_original_is_readable_only_by_its_owner() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let bytes = unique_bytes("private");
+    let sha = photo(&app, user, &bytes, "private.jpg", TAKEN).await;
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::CREATED);
+    let mode = |p: PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(root.join("2026")), 0o700);
+    assert_eq!(mode(root.join("2026/10")), 0o700);
+    assert_eq!(mode(root.join(".incoming")), 0o700);
+    assert_eq!(mode(root.join("2026/10/20261017-143012_private.jpg")), 0o600);
+    // 既定の置き場（起動時に作る）も
+    let xdg = tmp.0.join("xdg");
+    let xdg_s = xdg.to_str().unwrap().to_string();
+    let config = MediaConfig::from_env(env_of(&[("XDG_DATA_HOME", xdg_s.as_str())])).unwrap();
+    config.prepare().unwrap();
+    assert_eq!(mode(xdg.join("ashiato/media")), 0o700);
+}
+
+/// 置き場が設定されていない（既定も決められない）ときも、書けない失敗を要約の直近の失敗に残す（review/code.md R24）。
+#[tokio::test]
+async fn st09_up_put_without_any_place_notes_the_storage_error() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_media(MediaConfig::none());
+    let user = testdb::user();
+    let bytes = unique_bytes("no-place");
+    let sha = photo(&app, user, &bytes, "a.jpg", TAKEN).await;
+    let (status, body) = put(&app, &sha, user, &bytes).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("storage_unavailable"), "{body}");
+    assert_eq!(app.media.last_storage_error().unwrap().kind, "dir_missing");
+    // 問い合わせは受け取っていないと答える（ファイルを確かめられない）
+    assert_eq!(head(&app, &sha, user).await, StatusCode::NOT_FOUND);
 }
 
 /// 経路の上限（1 GiB）が既定の 2 MB を上書きしている: 3 MB の本文が置かれる（R9）。

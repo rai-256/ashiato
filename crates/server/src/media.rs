@@ -26,12 +26,22 @@ use crate::{authorize, internal_at, App};
 pub const ORIGINAL_BODY_LIMIT: usize = 1 << 30;
 /// 置くファイルの名前の最大の文字数（拡張子を含む。D10a）。
 pub const NAME_MAX_CHARS: usize = 120;
+/// 整えた名前の最大のバイト数（UTF-8。拡張子を含む）。ext4 の名前の上限は 255 バイト、NTFS は 255 文字（UTF-16）で、
+/// 文字数だけで切ると日本語の名前が時刻とハッシュを足した後に超える（review/code.md R21）。
+/// 時刻の頭（`YYYYMMDD-HHMMSS_` 16 バイト）と全ハッシュ（`_` + 64 バイト）を足しても 255 に収まる値。
+pub const NAME_MAX_BYTES: usize = 170;
 /// 同じ名前の別の中身に足す内容ハッシュの頭の文字数（Q12）。
 pub const HASH_SUFFIX_CHARS: usize = 8;
 
 /// 置き場の設定の名前。
 pub const DIR_SETTING: &str = "ASHIATO_MEDIA_DIR";
 const INCOMING: &str = ".incoming";
+/// 作るフォルダとファイルの権限（Unix）。原本は撮影位置と時刻を持つので、持ち主だけが読める
+/// （書き出しの `ensure_dir` / `create_private_file` と同じ。既にあるものの権限は変えない。review/code.md R19）。
+#[cfg(unix)]
+const PRIVATE_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const PRIVATE_FILE_MODE: u32 = 0o600;
 const PART_EXT: &str = "part";
 pub(crate) const IMAGE_SOURCES: [&str; 3] = ["c01-photo", "c01-screenshot", "c01-image"];
 pub(crate) const VIDEO_SOURCE: &str = "c01-video";
@@ -151,7 +161,14 @@ impl MediaConfig {
     pub fn prepare(&self) -> std::io::Result<()> {
         let Some(dir) = &self.dir else { return Ok(()) };
         if self.is_default {
-            std::fs::create_dir_all(dir)?;
+            let mut b = std::fs::DirBuilder::new();
+            b.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                b.mode(PRIVATE_DIR_MODE);
+            }
+            b.create(dir)?;
         }
         let incoming = match std::fs::read_dir(dir.join(INCOMING)) {
             Ok(rd) => rd,
@@ -189,7 +206,8 @@ const RESERVED: [&str; 22] = [
 ];
 
 /// 元のファイル名を置き場に置ける名前に整える（D10a）。区切りの最後の後ろだけを取り、危ない文字を `_` にし、
-/// 末尾の `.` と空白を落とし、空・`.`・`..` は `media`、Windows の予約名は前に `_`、`NAME_MAX_CHARS` で切る（拡張子は残す）。
+/// 末尾の `.` と空白を落とし、空・`.`・`..` は `media`、Windows の予約名は前に `_`、`NAME_MAX_CHARS` 文字と
+/// `NAME_MAX_BYTES` バイトの両方に収まるよう切る（拡張子は残す）。
 pub fn sanitize_name(original: &str) -> String {
     let last = original.rsplit(['/', '\\']).next().unwrap_or_default();
     let cleaned: String = last
@@ -216,7 +234,7 @@ pub fn sanitize_name(original: &str) -> String {
     if RESERVED.contains(&base.as_str()) {
         name.insert(0, '_');
     }
-    truncate_keeping_ext(&name, NAME_MAX_CHARS)
+    truncate_keeping_ext(&name, NAME_MAX_CHARS, NAME_MAX_BYTES)
 }
 
 /// `(語幹, 拡張子（先頭の . を含む。無ければ空）)`。先頭だけの `.` は拡張子と見ない。
@@ -227,27 +245,40 @@ fn split_ext(name: &str) -> (&str, &str) {
     }
 }
 
-fn truncate_keeping_ext(name: &str, max: usize) -> String {
-    if name.chars().count() <= max {
+fn truncate_keeping_ext(name: &str, max_chars: usize, max_bytes: usize) -> String {
+    let fits = |chars: usize, bytes: usize| chars <= max_chars && bytes <= max_bytes;
+    if fits(name.chars().count(), name.len()) {
         return name.to_string();
     }
     let (stem, ext) = split_ext(name);
-    let ext_len = ext.chars().count();
-    if ext_len >= max {
-        return name.chars().take(max).collect();
+    let (head, tail) = if fits(ext.chars().count(), ext.len()) {
+        (stem, ext)
+    } else {
+        (name, "")
+    };
+    let (mut chars, mut bytes) = (tail.chars().count(), tail.len());
+    let mut kept = String::new();
+    for c in head.chars() {
+        if !fits(chars + 1, bytes + c.len_utf8()) {
+            break;
+        }
+        chars += 1;
+        bytes += c.len_utf8();
+        kept.push(c);
     }
-    let kept: String = stem.chars().take(max - ext_len).collect();
-    format!("{kept}{ext}")
+    format!("{kept}{tail}")
 }
 
-/// 置く名前の候補（`(フォルダ, 先に試す名前, ハッシュの頭を足した名前)`）。
+/// 置く名前の候補（`(フォルダ, [先に試す名前, ハッシュの頭を足した名前, 全ハッシュを足した名前])`）。
+/// 全ハッシュの名前は、頭の 8 文字まで重なる別の中身や手で置かれたファイルがあっても、名前を決められずに
+/// いつまでも断る（端末は `422` を試し直し続ける）ことにしないための最後の候補（review/code.md R22）。
 /// 時刻は記録の出来事の時刻を記録の地域のずれで読んだもの。
 fn layout(
     event_time: DateTime<Utc>,
     tz_offset_min: i32,
     display_name: &str,
     sha256: &str,
-) -> (PathBuf, String, String) {
+) -> (PathBuf, [String; 3]) {
     let offset =
         FixedOffset::east_opt(tz_offset_min.saturating_mul(60)).unwrap_or_else(|| Utc.fix());
     let local = event_time.with_timezone(&offset);
@@ -258,7 +289,8 @@ fn layout(
     let suffix: String = sha256.chars().take(HASH_SUFFIX_CHARS).collect();
     let plain = format!("{stamp}_{name}");
     let suffixed = format!("{stamp}_{stem}_{suffix}{ext}");
-    (folder, plain, suffixed)
+    let full = format!("{stamp}_{stem}_{sha256}{ext}");
+    (folder, [plain, suffixed, full])
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +339,15 @@ pub(crate) fn storage_kind(e: &std::io::Error) -> &'static str {
         std::io::ErrorKind::StorageFull => "disk_full",
         _ => "io",
     }
+}
+
+/// 持ち主だけが入れるフォルダを作る口（Unix は 0700）。
+fn private_dir_builder(recursive: bool) -> tokio::fs::DirBuilder {
+    let mut b = tokio::fs::DirBuilder::new();
+    b.recursive(recursive);
+    #[cfg(unix)]
+    b.mode(PRIVATE_DIR_MODE);
+    b
 }
 
 /// `?user_id=<uuid>`。
@@ -439,10 +480,14 @@ async fn put_inner(
     if declared.is_some_and(|n| n > limit as u64) {
         return Err(Failure::TooLarge);
     }
+    // 置き場が設定されていない（既定も決められなかった）のも書けない失敗。要約の直近の失敗に残す（review/code.md R24）
     let root = app
         .media
         .dir()
-        .ok_or(Failure::Storage("dir_missing"))?
+        .ok_or_else(|| {
+            app.media.note_storage_error("dir_missing", app.now());
+            Failure::Storage("dir_missing")
+        })?
         .to_path_buf();
     let stored = |e: &std::io::Error| {
         let kind = storage_kind(e);
@@ -452,15 +497,17 @@ async fn put_inner(
 
     // 置き場の直下にだけ `.incoming/` を作る。**置き場そのものは作らない**（無ければここで落ちる）
     let incoming = root.join(INCOMING);
-    match tokio::fs::create_dir(&incoming).await {
+    match private_dir_builder(false).create(&incoming).await {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(stored(&e)),
     }
     let part_path = incoming.join(format!("{}.{PART_EXT}", uuid::Uuid::new_v4()));
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(PRIVATE_FILE_MODE);
+    let mut file = options
         .open(&part_path)
         .await
         .map_err(|e| stored(&e))?;
@@ -507,8 +554,11 @@ async fn put_inner(
     };
 
     let _placing = app.media.place.lock().await;
-    if received(app, user_id, &sha256).await? {
-        return Ok(StatusCode::OK);
+    // 受け取りの行があっても、置いたファイルが無くなっていれば置き直す（行はそのまま。review/code.md R15）
+    if let Some(size) = received(app, user_id, &sha256).await? {
+        if on_disk(&root, &record, &sha256, size).await {
+            return Ok(StatusCode::OK);
+        }
     }
     file.sync_all().await.map_err(|e| stored(&e))?;
     drop(file);
@@ -571,16 +621,56 @@ async fn find_record(
     ))
 }
 
-async fn received(app: &App, user_id: uuid::Uuid, sha256: &str) -> Result<bool, Failure> {
-    sqlx::query_scalar::<_, i32>(
-        "SELECT 1 FROM core.media_original WHERE user_id = $1 AND sha256 = $2",
+/// 受け取りの行があれば、受け取った大きさ（バイト）。
+async fn received(app: &App, user_id: uuid::Uuid, sha256: &str) -> Result<Option<i64>, Failure> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT size_bytes FROM core.media_original WHERE user_id = $1 AND sha256 = $2",
     )
     .bind(user_id)
     .bind(sha256)
     .fetch_optional(&app.pool)
     .await
-    .map(|r| r.is_some())
     .map_err(|e| Failure::Internal(internal_at("media.received", e)))
+}
+
+/// 置いたファイルが、並びの規則の名前のどれかに、受け取った大きさのまま残っているか（D25（仮））。
+/// 本人が D-02 のフォルダを開いて動かした・消した原本を、端末にまだあるうちに置き直すため（review/code.md R15）。
+/// 中身のハッシュは計算し直さない（問い合わせのたびに最大 1 GiB を読まない）—— 大きさの一致で見る。
+async fn on_disk(root: &Path, record: &RecordRow, sha256: &str, size: i64) -> bool {
+    let (folder, names) = layout(
+        record.event_time,
+        record.tz_offset_min,
+        &record.display_name,
+        sha256,
+    );
+    for name in names {
+        if let Ok(meta) = tokio::fs::metadata(root.join(&folder).join(name)).await {
+            if meta.is_file() && i64::try_from(meta.len()).is_ok_and(|n| n == size) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 問い合わせの答え: 受け取りの行があり、置いたファイルも残っているか。
+/// 記録が消された（生きている記録が無い）ときは行だけで答える（置き直しの `PUT` は `409` になる）。
+/// 置き場が設定されていなければ、ファイルを確かめられないので受け取っていないと答える（端末は行を残して試し直す）。
+async fn received_and_on_disk(
+    app: &App,
+    user_id: uuid::Uuid,
+    sha256: &str,
+) -> Result<bool, Failure> {
+    let Some(size) = received(app, user_id, sha256).await? else {
+        return Ok(false);
+    };
+    let Some(root) = app.media.dir() else {
+        return Ok(false);
+    };
+    match find_record(app, user_id, sha256).await? {
+        Some(record) => Ok(on_disk(root, &record, sha256, size).await),
+        None => Ok(true),
+    }
 }
 
 /// 置けなかった理由。名前の側の欠陥（`422`）と、書けない（`503`）を分ける。
@@ -605,21 +695,21 @@ async fn place(
     record: &RecordRow,
     sha256: &str,
 ) -> Result<(), PlaceError> {
-    let (folder, plain, suffixed) = layout(
+    let (folder, names) = layout(
         record.event_time,
         record.tz_offset_min,
         &record.display_name,
         sha256,
     );
     let dir = root.join(&folder);
-    tokio::fs::create_dir_all(&dir).await?;
+    private_dir_builder(true).create(&dir).await?;
     // 正規化した道筋で、置き先が置き場の下にあることを確かめてから名前を変える
     let canon_dir = tokio::fs::canonicalize(&dir).await?;
     let canon_root = tokio::fs::canonicalize(root).await?;
     if !canon_dir.starts_with(&canon_root) {
         return Err(PlaceError::Name("outside_root"));
     }
-    for name in [plain, suffixed] {
+    for name in names {
         if Path::new(&name).file_name().and_then(|n| n.to_str()) != Some(name.as_str()) {
             return Err(PlaceError::Name("bad_name"));
         }
@@ -667,7 +757,7 @@ async fn file_sha256(path: &Path) -> std::io::Result<String> {
     }
 }
 
-/// 受け取り済みかを答える。受け取りの行があれば `200`、無ければ `404`（本文は受けない）。
+/// 受け取り済みかを答える。受け取りの行があり、置いたファイルも残っていれば `200`、どちらかが無ければ `404`（本文は受けない）。
 #[utoipa::path(head, path = "/media/originals/{sha256}",
     params(("sha256" = String, Path, description = "原本の内容ハッシュ"),
            ("user_id" = uuid::Uuid, Query, description = "利用者")),
@@ -682,7 +772,7 @@ pub async fn head_original(
         authorize(&app, &headers).await.map_err(Failure::Auth)?;
         let sha256 = parse_sha(&sha256)?;
         let user_id = q.user_id.ok_or(Failure::Malformed)?;
-        received(&app, user_id, &sha256).await
+        received_and_on_disk(&app, user_id, &sha256).await
     }
     .await;
     match result {

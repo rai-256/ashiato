@@ -29,6 +29,9 @@ class MediaCapabilityTest {
         val timer = VirtualTimer()
         val notices = mutableListOf<MediaPermissionState>()
         var network = true
+
+        /** 接続の確かめが例外を投げる */
+        var networkFails = false
         private var state = MediaPermissionState(MediaAccess.FULL, location = true)
 
         init {
@@ -84,7 +87,7 @@ class MediaCapabilityTest {
                 capability = { capture.capability(cadence.logicalSource) },
                 now = { env.wall },
                 newId = { "hb-1" },
-                network = { network },
+                network = { if (networkFails) throw SecurityException("no access") else network },
                 onStored = { channel.stages.reset() },
             ).emit()
             return out.snapshot().single()
@@ -232,6 +235,31 @@ class MediaCapabilityTest {
         assertTrue(beat.capturable)
         assertEquals(true, beat.network)
         assertTrue(beat.raw.contains("\"network\":true"))
+    }
+
+    /** 接続を確かめられなかったら、接続なし（false）にせず欄ごと載せない（分からない。D7 / review/code.md R29）。 */
+    @Test
+    fun a_connection_check_that_throws_leaves_the_network_field_out() {
+        val rig = Rig()
+        rig.camera(1, "taken")
+        rig.begin()
+        rig.networkFails = true
+
+        val beat = rig.beat()
+
+        assertNull(beat.network)
+        assertFalse("原文に接続の欄がある: ${beat.raw}", beat.raw.contains("\"network\""))
+    }
+
+    /** サービスの終わりには読み手の刻みの糸も返す（予約の取り消しだけでは糸が残る。review/code.md R27）。 */
+    @Test
+    fun closing_the_capture_closes_the_reader_timer() {
+        val rig = Rig()
+        rig.begin()
+        rig.capture.stop()
+        assertFalse("止めただけで糸を返した", rig.timer.closed)
+        rig.capture.close()
+        assertTrue(rig.timer.closed)
     }
 
     // Scenario: ハッシュの計算に失敗し続けると取れない状態になる
