@@ -198,13 +198,13 @@
 
 ## Task 9: 書き出しの分類と、滞在を消したときの写真（design D16 / D18 / D23）
 
-- [ ] 9.1 `export/excluded.rs` の `SPAN_RULES` と `COORD_SOURCES` に 3 つを足し、`CATALOG` に 3 つの表（入れない）と `core.heartbeat.network`（出す）を足し、
+- [x] 9.1 `export/excluded.rs` の `SPAN_RULES` と `COORD_SOURCES` に 3 つを足し、`CATALOG` に 3 つの表（入れない）と `core.heartbeat.network`（出す）を足し、
   説明書の「入らないもの」に表の名前を挙げる。
   Scenario: `消した滞在の時間に撮った撮影位置つきのスクリーンショットと画像は書き出しに出ない` / `消した時間の前に撮り始め、長さで重なる動画は書き出しに出ない` /
   `消した時間の後に撮った写真は書き出しに出る` / `生存信号の接続の有無は書き出しに出る` / `原本の台帳と原本の欠けと文字抽出の表は書き出しに入らない` /
   `ST09 が足したソースと表と列はすべて分類されている` / `説明書の入らないものに原本の台帳と欠けと文字抽出が挙がる`。書き出しのテストの規律は ST33 の tasks のとおり（`EXPORT_SERIAL` を取る・`unique_day()` の日に置く・その利用者の行だけを見る）。
   検証: `CT st09_exp_`（`-- --list` で 7 本以上）/ `scripts/quiet-run ct -- cargo test -p ashiato-server export` rc=0（既存の `いまの記録の schema の表と列はすべて分類されている` を含む）
-- [ ] 9.2 滞在を消しても写真・動画・スクリーンショットの記録に印が付かず、D-02 の原本が残ることを固定する（`deletion.rs` は変えない）。
+- [x] 9.2 滞在を消しても写真・動画・スクリーンショットの記録に印が付かず、D-02 の原本が残ることを固定する（`deletion.rs` は変えない）。
   Scenario: `滞在を消しても撮影位置つきの写真は読み出しに出る` / `滞在を消しても動画とスクリーンショットの記録は読み出しに出る` / `滞在を消しても D-02 の原本は残る`。
   検証: `CT st09_del_`（`-- --list` で 3 本以上）/ `git diff --quiet origin/main -- crates/server/src/deletion.rs` rc=0
 
