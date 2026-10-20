@@ -18,6 +18,19 @@ import java.time.Duration
 class OriginalUploaderTest {
     private val minute = 60_000L
 
+    // Scenario: 写真を撮るとメタが D-01 に、原本が D-02 に入る
+    @Test
+    fun a_new_photo_sends_its_record_and_then_its_original_byte_for_byte() {
+        val h = OriginalHarness()
+        h.photo(1, "a photo just taken", hoursAgo = 0)
+        h.scan()
+        assertEquals("記録が 1 件送られて受理される", 1, h.acceptRecords().accepted)
+        assertEquals(1, h.uploader.run())
+        val onDevice = h.env.listing.contents.getValue(PRIMARY to 1L)
+        assertArrayEquals(onDevice, h.transport.stored.getValue(sha256Of(onDevice)))
+        assertEquals(listOf(onDevice.size.toLong()), h.transport.lengths)
+    }
+
     // Scenario: 動画を撮るとメタだけが入り原本は送られない
     @Test
     fun a_video_leaves_only_its_record_and_the_original_is_never_sent() {

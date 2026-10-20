@@ -143,7 +143,12 @@ class ContentResolverMediaListing(private val context: Context) : MediaListing {
     private fun listedOf(volume: String, c: Cursor): MediaListed {
         val columns = LinkedHashMap<String, String?>()
         for (i in 0 until c.columnCount) {
-            columns[c.getColumnName(i)] = if (c.getType(i) == Cursor.FIELD_TYPE_NULL) null else c.getString(i)
+            // 値が BLOB の列（本物の端末の一覧にある）は `getString` で落ちる。中身は載せず大きさだけ（計測テストの rowOf と同じ）
+            columns[c.getColumnName(i)] = when (c.getType(i)) {
+                Cursor.FIELD_TYPE_NULL -> null
+                Cursor.FIELD_TYPE_BLOB -> "blob:${c.getBlob(i).size}"
+                else -> c.getString(i)
+            }
         }
         fun long(name: String): Long? = columns[name]?.toLongOrNull()
         val kind = if (long("media_type") == MEDIA_TYPE_VIDEO.toLong()) MediaKind.VIDEO else MediaKind.IMAGE
