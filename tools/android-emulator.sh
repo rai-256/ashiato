@@ -73,6 +73,13 @@ find collector-android/app/build/outputs/androidTest-results -name 'TEST-*.xml' 
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
-   -Pandroid.testInstrumentationRunnerArguments.annotation="$A")
+   -Pandroid.testInstrumentationRunnerArguments.annotation="$A" \
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.MediaPremisesInstrumentedTest")
+# MediaPremises は 1 本目が写真の権限を許可して残す。同じ run で後ろに並んだ PermissionDenied が「写真の権限が無い」前提を
+# 失うので、3 段目に分けて権限を戻してから単独で走らせる（クラスの並びは dex 次第で、クラスを足すと変わる）
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.MediaPremisesInstrumentedTest")
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
 echo "== 結果: collector-android/app/build/reports/androidTests/connected/（1 段目の XML は $STAGE1）"

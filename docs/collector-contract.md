@@ -560,7 +560,7 @@ FR-33 は**記録を生成したときにしか**稼働記録を書かないの�
 |---|---|---|
 | `emitted_at` | **信号を作った時刻**。受信時刻ではない | 形が解釈できない |
 | `capturable` | そのソースを**取得できる状態か**（権限・センサ・接続）。**例外: メディアの 4 つのソースは接続を含めない**（`network` に別に載せる）。語彙は上の「生存信号の語彙」 | — |
-| `blockers` | 満たされていないもの。`permission` / `sensor` / `network` | `capturable=false` なのに空（`missing_blockers`） |
+| `blockers` | 満たされていないもの。`permission` / `sensor` / `network`。**例外: メディアの 4 つのソースは `network` を `blockers` に入れない**（接続は `network` 欄に別に載せる）。語彙は上の「生存信号の語彙」 | `capturable=false` なのに空（`missing_blockers`） |
 | `network` | 任意。送る契機の時点で接続があったか（真偽値）。**メディアの 4 つのソースだけが載せる**。無ければ「分からない」（ST09 / design D7） | — |
 | `attempts` | 前回の信号からの**取得の試行回数** | 欄が無い（`malformed`）/ 負（`invalid_counts`） |
 | `successes` | そのうち成功した回数 | `attempts` を超える（`invalid_counts`） |

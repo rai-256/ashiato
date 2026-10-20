@@ -251,7 +251,10 @@ jobs:
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.UsageVolumeInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.MediaPremisesInstrumentedTest
             adb shell pm reset-permissions
 
   smoke:
