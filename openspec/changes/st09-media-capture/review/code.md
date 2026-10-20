@@ -338,7 +338,7 @@ tasks の Global Constraints の定数と、design の（仮）の値を書き�
 - 成果物: migrations/202610181200_media_capture.sql:130
 - 根拠: 本人が c01-screenshot に started_on_from を設定しても、S-01 を起動し直すたびに collection_started_on が生存信号から計算し直される。受け口側（touch_started_on）とは違う値になる。生存信号が数百万行あると、起動のたびに全件を走査する。（確かさ 2）
 - kind: technical
-- 処置: rejected: 「起動のたびに」は再現しない —— `migrate()` はサーバの起動（`run()`）では呼ばれず、`ashiato-server migrate` のときだけ当たる（lib.rs:165-166 の取り決め・main.rs:8）。`started_on_from` のあるソースは、自分の `collection_started_on` を使わず借り先の鎖から引いた日で置き換える（coverage.rs:561-563）ので、当て直しで自分の値が変わっても見える開始日は変わらない。借りを外したときは、生存信号から引いた自分の値の方が正しい。生存信号の走査は印が `heartbeat` の 4 ソースに限り、移行のときだけ
+- 処置: rejected: 「起動のたびに」は再現しない —— `migrate()` はサーバの起動（`run()`）では呼ばれず、`ashiato-server migrate` のときだけ当たる（lib.rs:165-166 の取り決め・main.rs:8）。`started_on_from` のあるソースは、自分の `collection_started_on` を使わず借り先の鎖から引いた日で置き換える（coverage.rs:561-563）ので、当て直しで自分の値が変わっても見える開始日は変わらない。借りを外したときは、生存信号から引いた自分の値の方が正しい。生存信号の走査は印が `heartbeat` のソースに限り（いまはメディアの 4 ソース）、移行のときだけ
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 
 ## R29. 接続を確かめる処理が例外を投げると、getOrDefault(false) で『接続なし』として送る。『無い欄は分からない（null）』という D7 の取り決めに反する。
@@ -347,3 +347,21 @@ tasks の Global Constraints の定数と、design の（仮）の値を書き�
 - kind: technical
 - 処置: fixed D7 仮 （再現: 読みで確かめた。`runCatching(it).getOrNull()` で、確かめられなければ欄ごと載せない（分からない = null）。GT MediaCapabilityTest.a_connection_check_that_throws_leaves_the_network_field_out）
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+
+## scoped re-review（7ec57aa..0f58c59。finish の fix の後）
+
+fix は 1 回（0f58c591）。再レビュー（pr-review-toolkit の code-reviewer。テストは走らせ直さず、fixer の証跡を読む）の判定:
+R15〜R27・R29 は ADDRESSED（R25 は「消し直しはメモリだけ」の穴つき）、R28 は REJECTION OK（「4 ソースに限り」の言い方だけを直した）。
+
+fix が持ち込んだ問題:
+- **Important（直した）**: R15 の `on_disk` が今の記録の名前・時刻だけで置き先を組んでいたので、置いた後に記録が更新されて名前が変わる（端末で名前を変えた）と
+  HEAD が 404 になり、同じ原本が D-02 に 2 つ目として置かれた（直す前は行だけで答えていたので起きなかった後退）。
+  そのハッシュを指す画像の記録の今の版と前の版（`core.event_version`）の全部から候補を組むようにした（場所は持たない。C2 のまま）。
+  CT st09_up_put_renamed_record_still_finds_the_placed_original。`cargo test -p ashiato-server st09_` 83 passed（`.superpowers/sdd/logs/20261021-010635-ct.log`。
+  途中でこの worktree のテスト用 DB（55509）の入れ物が外から消されていたので `tools/db.sh up -d --wait db` と `tools/db-roles.sh` で作り直した）
+- Minor 3（直した）: `ExecutorMediaScanTimer.close` を `shutdownNow` から `shutdown` に（走っている読みに割り込まない）
+- Minor 2（大きさだけで見る）・Minor 4（同じ例外を投げ続ける listener）・R25 のメモリだけの消し直し: ledger に Ruling つきで park（PR 本文の Ruling に写した）
+- check-log-private の語の一覧の誤検出の恐れ（`name` など）: いまのコードは rc=0。誤検出は `log-ok:` の印で逃がせる。直さない
+
+直した後の検証: clippy -D warnings rc=0 / gradle `detekt :app:assembleDebug :app:testDebugUnitTest` rc=0（615 本・失敗 0）/ `tools/smoke.sh` rc=0 /
+`tools/check-log-private.sh` rc=0 / `tools/check-openapi.sh` OK

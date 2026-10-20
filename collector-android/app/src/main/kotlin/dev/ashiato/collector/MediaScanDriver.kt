@@ -19,9 +19,12 @@ class ExecutorMediaScanTimer(private val executor: ScheduledExecutorService) : M
         return { future.cancel(false) }
     }
 
-    /** 予約の取り消しだけでは糸が残る（サービスが作り直されるたびに 1 本ずつ漏れる。review/code.md R27） */
+    /**
+     * 予約の取り消しだけでは糸が残る（サービスが作り直されるたびに 1 本ずつ漏れる。review/code.md R27）。
+     * 走っている読みには割り込まない（`shutdownNow` の割り込みは読みの途中を失敗にする）—— 終わったら糸が返る
+     */
     override fun close() {
-        executor.shutdownNow()
+        executor.shutdown()
     }
 }
 

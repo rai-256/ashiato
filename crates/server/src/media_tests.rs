@@ -723,6 +723,41 @@ async fn st09_up_put_lost_original_is_asked_again_and_placed_again() {
     assert_eq!(placed(&root).len(), 1);
 }
 
+/// 置いた後に記録が更新されて名前が変わっても（端末で名前を変えた）、置いた時の名前のファイルを見つけ、
+/// 同じ原本を 2 つ目として置かない（scoped re-review の後退の指摘）。
+#[tokio::test]
+async fn st09_up_put_renamed_record_still_finds_the_placed_original() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let bytes = unique_bytes("renamed");
+    let sha = photo(&app, user, &bytes, "IMG_1.jpg", TAKEN).await;
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::CREATED);
+    let mut renamed = record(
+        user,
+        "c01-photo",
+        &sha,
+        "trip.jpg",
+        TAKEN,
+        serde_json::json!({}),
+    );
+    renamed["raw"] = serde_json::json!(format!("{sha}-renamed"));
+    store(&app, vec![renamed]).await;
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT payload->>'display_name' FROM core.event WHERE user_id = $1 AND external_id = $2",
+    )
+    .bind(user)
+    .bind(&sha)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(names, ["trip.jpg"], "記録が更新されていない");
+    assert_eq!(head(&app, &sha, user).await, StatusCode::OK);
+    assert_eq!(put(&app, &sha, user, &bytes).await.0, StatusCode::OK);
+    assert_eq!(placed(&root), ["2026/10/20261017-143012_IMG_1.jpg"]);
+}
+
 /// 置いた原本（撮影位置を持つ）と作ったフォルダは持ち主だけが読める（Unix。review/code.md R19 / D26（仮））。
 #[cfg(unix)]
 #[tokio::test]
@@ -739,7 +774,10 @@ async fn st09_up_put_original_is_readable_only_by_its_owner() {
     assert_eq!(mode(root.join("2026")), 0o700);
     assert_eq!(mode(root.join("2026/10")), 0o700);
     assert_eq!(mode(root.join(".incoming")), 0o700);
-    assert_eq!(mode(root.join("2026/10/20261017-143012_private.jpg")), 0o600);
+    assert_eq!(
+        mode(root.join("2026/10/20261017-143012_private.jpg")),
+        0o600
+    );
     // 既定の置き場（起動時に作る）も
     let xdg = tmp.0.join("xdg");
     let xdg_s = xdg.to_str().unwrap().to_string();

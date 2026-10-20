@@ -507,10 +507,7 @@ async fn put_inner(
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(PRIVATE_FILE_MODE);
-    let mut file = options
-        .open(&part_path)
-        .await
-        .map_err(|e| stored(&e))?;
+    let mut file = options.open(&part_path).await.map_err(|e| stored(&e))?;
     let mut part = Part(Some(part_path.clone()));
 
     let mut hasher = Sha256::new();
@@ -556,7 +553,7 @@ async fn put_inner(
     let _placing = app.media.place.lock().await;
     // 受け取りの行があっても、置いたファイルが無くなっていれば置き直す（行はそのまま。review/code.md R15）
     if let Some(size) = received(app, user_id, &sha256).await? {
-        if on_disk(&root, &record, &sha256, size).await {
+        if on_disk(app, &root, user_id, &sha256, size).await? {
             return Ok(StatusCode::OK);
         }
     }
@@ -635,22 +632,44 @@ async fn received(app: &App, user_id: uuid::Uuid, sha256: &str) -> Result<Option
 
 /// 置いたファイルが、並びの規則の名前のどれかに、受け取った大きさのまま残っているか（D25（仮））。
 /// 本人が D-02 のフォルダを開いて動かした・消した原本を、端末にまだあるうちに置き直すため（review/code.md R15）。
+/// 名前の候補は、そのハッシュを指す画像の記録の**今の版と前の版の全部**（`core.event_version`）から組む ——
+/// 置いた後に記録が更新されて名前や時刻が変わっても、置いた時の名前で見つける（同じ原本を 2 つ目として置かない）。
 /// 中身のハッシュは計算し直さない（問い合わせのたびに最大 1 GiB を読まない）—— 大きさの一致で見る。
-async fn on_disk(root: &Path, record: &RecordRow, sha256: &str, size: i64) -> bool {
-    let (folder, names) = layout(
-        record.event_time,
-        record.tz_offset_min,
-        &record.display_name,
-        sha256,
-    );
-    for name in names {
-        if let Ok(meta) = tokio::fs::metadata(root.join(&folder).join(name)).await {
-            if meta.is_file() && i64::try_from(meta.len()).is_ok_and(|n| n == size) {
-                return true;
+async fn on_disk(
+    app: &App,
+    root: &Path,
+    user_id: uuid::Uuid,
+    sha256: &str,
+    size: i64,
+) -> Result<bool, Failure> {
+    let versions: Vec<(DateTime<Utc>, i32, Option<String>)> = sqlx::query_as(
+        "SELECT e.event_time, e.tz_offset_min, e.payload->>'display_name'
+           FROM core.event e
+          WHERE e.user_id = $1 AND e.external_id = $2
+            AND e.logical_source = ANY($3) AND e.payload->>'sha256' = $2
+         UNION
+         SELECT v.event_time, v.tz_offset_min, v.payload->>'display_name'
+           FROM core.event_version v JOIN core.event e ON e.id = v.event_id
+          WHERE e.user_id = $1 AND e.external_id = $2
+            AND e.logical_source = ANY($3) AND v.payload->>'sha256' = $2",
+    )
+    .bind(user_id)
+    .bind(sha256)
+    .bind(&IMAGE_SOURCES[..])
+    .fetch_all(&app.pool)
+    .await
+    .map_err(|e| Failure::Internal(internal_at("media.versions", e)))?;
+    for (event_time, tz_offset_min, name) in versions {
+        let (folder, names) = layout(event_time, tz_offset_min, &name.unwrap_or_default(), sha256);
+        for name in names {
+            if let Ok(meta) = tokio::fs::metadata(root.join(&folder).join(name)).await {
+                if meta.is_file() && i64::try_from(meta.len()).is_ok_and(|n| n == size) {
+                    return Ok(true);
+                }
             }
         }
     }
-    false
+    Ok(false)
 }
 
 /// 問い合わせの答え: 受け取りの行があり、置いたファイルも残っているか。
@@ -668,7 +687,7 @@ async fn received_and_on_disk(
         return Ok(false);
     };
     match find_record(app, user_id, sha256).await? {
-        Some(record) => Ok(on_disk(root, &record, sha256, size).await),
+        Some(_) => on_disk(app, root, user_id, sha256, size).await,
         None => Ok(true),
     }
 }
