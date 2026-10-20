@@ -46,6 +46,9 @@ class FakeOriginalTransport : OriginalTransport {
 
     /** 決めた応答を返す（`PUT`）。null なら実際に置く */
     var putStatus: Int? = null
+
+    /** [putStatus] と一緒に返す本文 */
+    var putBody: String = ""
     val lengths = ArrayList<Long>()
 
     override fun head(sha256: String): Outcome {
@@ -61,7 +64,7 @@ class FakeOriginalTransport : OriginalTransport {
         val bytes = body.readBytes()
         val intact = bytes.size.toLong() == length && sha256Of(bytes) == sha256
         if (putStatus == null && intact) stored[sha256] = bytes
-        return Outcome.Responded(putStatus ?: if (intact) 201 else 422, "")
+        return Outcome.Responded(putStatus ?: if (intact) 201 else 422, if (putStatus != null) putBody else "")
     }
 }
 

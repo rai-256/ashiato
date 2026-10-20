@@ -277,16 +277,20 @@ private class OriginalExchange(
     private fun put(row: OriginalEntry, length: Long): Step = when (val opened = source.open(row)) {
         is OriginalOpen.Opened -> when (val outcome = opened.input.use { transport.put(row.sha256, length, it) }) {
             is Outcome.Unreachable -> Step.Retry("unreachable", stop = true)
-            is Outcome.Responded -> putResult(row, outcome.status)
+            is Outcome.Responded -> putResult(row, outcome.status, outcome.body)
         }
         else -> unopened(row, opened)
     }
 
-    private fun putResult(row: OriginalEntry, status: Int): Step = when (status) {
+    private fun putResult(row: OriginalEntry, status: Int, body: String): Step = when (status) {
         HTTP_OK, HTTP_CREATED -> removed(row, Step.Sent)
         HTTP_CONFLICT -> recordMissing(row)
-        // 送っている途中で変わった。次の回の 1 回目で `changed` になる
-        HTTP_UNPROCESSABLE -> Step.Retry("hash_mismatch", stop = false)
+        // 送っている途中で変わった（次の回の 1 回目で `changed` になる）か、S-01 が名前を決められなかった
+        // （置き場の障害ではない）。どちらも欠けにせず行を残し、ほかの行は止めない
+        HTTP_UNPROCESSABLE -> {
+            val kind = if (body.contains(NAME_REFUSED)) NAME_REFUSED else "hash_mismatch"
+            Step.Retry(kind, stop = false)
+        }
         HTTP_TOO_LARGE -> settle(row, OriginalMissingReason.TOO_LARGE)
         // 503 storage_unavailable（D-02 に書けない）・そのほか: 行を残して試し直す
         else -> Step.Retry("server_$status", stop = true)
@@ -310,6 +314,9 @@ private class OriginalExchange(
         const val HTTP_CONFLICT = 409
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_LARGE = 413
+
+        /** `422` の本文の語（`crates/server` の `media.rs`） */
+        const val NAME_REFUSED = "name_refused"
     }
 }
 

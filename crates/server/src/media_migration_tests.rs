@@ -353,6 +353,56 @@ async fn st09_mig_polluted_photo_started_on_is_repaired() {
     assert_eq!(before, after, "写真の記録が変わっている");
 }
 
+/// 全版（`migrate()`）を当て直すと、古い版（`coverage_rebuild` など）が記録から収集開始日を撮影日まで遡らせる。
+/// ORDER で後ろにある ST09 の当て直し（section 5）が生存信号の日へ戻すことを、全版の順のまま固定する（R10）。
+#[tokio::test]
+async fn st09_mig_full_migrate_still_ends_with_the_heartbeat_started_on() {
+    let (fresh, drop) = migrated_db().await;
+    let u = testdb::user();
+    sqlx::query(
+        "UPDATE core.source SET registered_at = '2026-10-01T00:00:00+09' WHERE logical_source = 'c01-photo'",
+    )
+    .execute(&fresh)
+    .await
+    .unwrap();
+    testdb::put_event(&fresh, u, "c01-photo", "2021-10-20T12:00:00+09:00").await;
+    testdb::put_heartbeat(&fresh, u, "c01-photo", "2026-10-20T03:00:00Z", true).await;
+    let started = || {
+        let fresh = fresh.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<chrono::NaiveDate>>(
+                "SELECT collection_started_on FROM core.source WHERE logical_source = 'c01-photo'",
+            )
+            .fetch_one(&fresh)
+            .await
+            .unwrap()
+        }
+    };
+    // ST09 より前の版だけを当て直すと、写真の撮影日まで遡る（守る相手が本当にいる）
+    for (label, sql) in crate::MIGRATIONS
+        .iter()
+        .filter(|(name, _)| !name.ends_with("_media_capture"))
+    {
+        sqlx::raw_sql(sql)
+            .execute(&fresh)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: {e}"));
+    }
+    let polluted = started().await;
+
+    let migrated = crate::migrate(&fresh).await;
+    let repaired = started().await;
+    drop.await;
+
+    migrated.unwrap();
+    assert_eq!(
+        polluted,
+        Some(testdb::date("2021-10-20")),
+        "古い版が遡らせていない"
+    );
+    assert_eq!(repaired, Some(testdb::date("2026-10-20")));
+}
+
 /// 印は列を足した回だけ当てる。本人が `record` へ戻したものを、当て直しで撃ち戻さない（D13 の反転）。
 #[tokio::test]
 async fn st09_mig_basis_reset_to_record_survives_reapply() {

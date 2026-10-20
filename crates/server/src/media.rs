@@ -275,6 +275,9 @@ enum Failure {
     HashMismatch,
     VideoNotAccepted,
     RecordMissing,
+    /// 名前を決められない（置き場の外を指す・名前に区切りが残る・どの名前も別の中身が取っている）。
+    /// 行ごとの欠陥で置き場の障害ではないので `503` にせず、直近の失敗にも残さない（design Risks）。
+    NameRefused(&'static str),
     Storage(&'static str),
     Internal((StatusCode, String)),
 }
@@ -289,6 +292,7 @@ impl IntoResponse for Failure {
             Self::HashMismatch => (StatusCode::UNPROCESSABLE_ENTITY, "hash_mismatch"),
             Self::VideoNotAccepted => (StatusCode::UNPROCESSABLE_ENTITY, "video_not_accepted"),
             Self::RecordMissing => (StatusCode::CONFLICT, "record_missing"),
+            Self::NameRefused(_) => (StatusCode::UNPROCESSABLE_ENTITY, "name_refused"),
             Self::Storage(_) => (StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable"),
         };
         (status, Json(serde_json::json!({ "error": code }))).into_response()
@@ -402,7 +406,7 @@ impl Failure {
             Self::HashMismatch => "hash_mismatch",
             Self::VideoNotAccepted => "video_not_accepted",
             Self::RecordMissing => "record_missing",
-            Self::Storage(kind) => kind,
+            Self::NameRefused(kind) | Self::Storage(kind) => kind,
             Self::Auth(_) | Self::Internal(_) => "other",
         }
     }
@@ -510,7 +514,10 @@ async fn put_inner(
     drop(file);
     place(&root, &part_path, &record, &sha256)
         .await
-        .map_err(|e| stored(&e))?;
+        .map_err(|e| match e {
+            PlaceError::Name(kind) => Failure::NameRefused(kind),
+            PlaceError::Io(e) => stored(&e),
+        })?;
     part.keep();
     sqlx::query(
         "INSERT INTO core.media_original (user_id, sha256, logical_source, size_bytes)
@@ -576,9 +583,28 @@ async fn received(app: &App, user_id: uuid::Uuid, sha256: &str) -> Result<bool, 
     .map_err(|e| Failure::Internal(internal_at("media.received", e)))
 }
 
+/// 置けなかった理由。名前の側の欠陥（`422`）と、書けない（`503`）を分ける。
+#[derive(Debug)]
+enum PlaceError {
+    Name(&'static str),
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for PlaceError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
 /// 並びに置く。同じ名前に別の中身があれば、拡張子の前にハッシュの頭を足した名前に置く。
 /// 同じ中身がもう置かれていれば（名前を変えた後に行を積む前に止まった跡）、置き直さず `.part` を消す。
-async fn place(root: &Path, part: &Path, record: &RecordRow, sha256: &str) -> std::io::Result<()> {
+/// 名前を変えたら、置いたフォルダから置き場までを `fsync` する（電源断の後に「受け取りの行はあるがファイルが無い」を作らない）。
+async fn place(
+    root: &Path,
+    part: &Path,
+    record: &RecordRow,
+    sha256: &str,
+) -> Result<(), PlaceError> {
     let (folder, plain, suffixed) = layout(
         record.event_time,
         record.tz_offset_min,
@@ -589,23 +615,42 @@ async fn place(root: &Path, part: &Path, record: &RecordRow, sha256: &str) -> st
     tokio::fs::create_dir_all(&dir).await?;
     // 正規化した道筋で、置き先が置き場の下にあることを確かめてから名前を変える
     let canon_dir = tokio::fs::canonicalize(&dir).await?;
-    if !canon_dir.starts_with(tokio::fs::canonicalize(root).await?) {
-        return Err(std::io::Error::other("outside_root"));
+    let canon_root = tokio::fs::canonicalize(root).await?;
+    if !canon_dir.starts_with(&canon_root) {
+        return Err(PlaceError::Name("outside_root"));
     }
     for name in [plain, suffixed] {
         if Path::new(&name).file_name().and_then(|n| n.to_str()) != Some(name.as_str()) {
-            return Err(std::io::Error::other("bad_name"));
+            return Err(PlaceError::Name("bad_name"));
         }
         let target = canon_dir.join(&name);
         if tokio::fs::try_exists(&target).await? {
             if file_sha256(&target).await? == sha256 {
-                return tokio::fs::remove_file(part).await;
+                return Ok(tokio::fs::remove_file(part).await?);
             }
             continue;
         }
-        return tokio::fs::rename(part, target).await;
+        tokio::fs::rename(part, target).await?;
+        for d in canon_dir
+            .ancestors()
+            .take_while(|d| d.starts_with(&canon_root))
+        {
+            sync_dir(d).await?;
+        }
+        return Ok(());
     }
-    Err(std::io::Error::other("name_taken"))
+    Err(PlaceError::Name("name_taken"))
+}
+
+/// フォルダの項目（名前を変えた結果）をディスクに書く。Windows はフォルダを開いて `fsync` できないので何もしない。
+#[cfg(unix)]
+async fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    tokio::fs::File::open(dir).await?.sync_all().await
+}
+
+#[cfg(not(unix))]
+async fn sync_dir(_dir: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 async fn file_sha256(path: &Path) -> std::io::Result<String> {

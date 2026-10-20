@@ -275,6 +275,21 @@ class OriginalUploaderTest {
         assertEquals(0, h.env.originals.all().size)
     }
 
+    // S-01 が名前を決められない（422 name_refused）: 欠けにせず行を残し、種別は name_refused（R8）
+    @Test
+    fun a_name_the_server_refuses_keeps_the_mark_without_a_missing_report() {
+        val h = OriginalHarness()
+        h.photo(1, "odd name")
+        h.scan()
+        h.acceptRecords()
+        h.transport.putStatus = 422
+        h.transport.putBody = """{"error":"name_refused"}"""
+        assertEquals(0, h.uploader.run())
+        assertTrue(h.missingReports().isEmpty())
+        assertEquals(1, h.env.originals.all().size)
+        assertTrue(h.lines.any { it.contains("error=name_refused") })
+    }
+
     // 報告してから行を消せなかった回は次の回に報告し直す。識別子が同じなので S-01 は重複として畳む（R11）
     @Test
     fun a_missing_report_sent_again_after_a_failed_removal_keeps_the_same_id() {

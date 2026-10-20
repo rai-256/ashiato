@@ -52,7 +52,7 @@ Task ごとの ⚠️ の確認の結果（問題なしとした分）は末尾�
 - kind: technical
 
 ## R10. 全版を当てた後に収集開始日がメディアのソースで戻ることを固定する試験が無い
-- 成果物: crates/server/src/media_tests.rs
+- 成果物: crates/server/src/media_migration_tests.rs
 - 根拠: `st09_mig_polluted_photo_started_on_is_repaired` は `media_sql()` だけを当てる。ORDER の並びが変わったときに守れない
 - kind: technical
 

@@ -592,6 +592,51 @@ async fn st09_up_put_name_with_separators_stays_inside() {
     assert!(cut.ends_with(".jpeg"));
 }
 
+/// 名前を決められない（どの名前も別の中身が取っている）のは行ごとの欠陥。`503` にせず `422 name_refused`、
+/// 直近の書き込みの失敗にも残さない（design Risks「名前の整え方の取りこぼし」。R8）。
+#[tokio::test]
+async fn st09_up_put_name_taken_everywhere_is_refused_without_a_storage_error() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let bytes = unique_bytes("taken");
+    let sha = photo(&app, user, &bytes, "IMG.jpg", TAKEN).await;
+    let month = root.join("2026/10");
+    std::fs::create_dir_all(&month).unwrap();
+    std::fs::write(month.join("20261017-143012_IMG.jpg"), b"other 1").unwrap();
+    std::fs::write(
+        month.join(format!("20261017-143012_IMG_{}.jpg", &sha[..8])),
+        b"other 2",
+    )
+    .unwrap();
+    let (status, body) = put(&app, &sha, user, &bytes).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("name_refused"), "{body}");
+    assert_eq!(app.media.last_storage_error(), None);
+    assert_eq!(receipts(&app, user).await, 0);
+    assert_eq!(incoming_files(&root), 0);
+    assert_eq!(placed(&root).len(), 2);
+}
+
+/// 経路の上限（1 GiB）が既定の 2 MB を上書きしている: 3 MB の本文が置かれる（R9）。
+#[tokio::test]
+async fn st09_up_put_three_mb_body_passes_the_default_two_mb_limit() {
+    let tmp = Tmp::new();
+    let root = tmp.made();
+    let app = app_with(root.clone()).await;
+    let user = testdb::user();
+    let mut bytes = unique_bytes("three-mb");
+    bytes.resize(3 * 1024 * 1024, 0x5a);
+    let sha = photo(&app, user, &bytes, "big.jpg", TAKEN).await;
+    let (status, body) = put(&app, &sha, user, &bytes).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let files = placed(&root);
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(std::fs::read(root.join(&files[0])).unwrap(), bytes);
+    assert_eq!(receipts(&app, user).await, 1);
+}
+
 /// Scenario: 受け取り済みかを問い合わせられる
 #[tokio::test]
 async fn st09_up_put_head_asks_whether_received() {
