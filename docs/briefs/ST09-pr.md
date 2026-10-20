@@ -1,48 +1,61 @@
-# ST09 上流 — 写真と動画をメタごと取り込み、写真は原本も置く
+# ST09 — 写真と動画をメタごと取り込み、写真は原本も置く
 
-change: `openspec/changes/st09-media-capture/`（proposal / specs 3 本 / design / tasks / deep / premises / review）
+change: `openspec/changes/st09-media-capture/`（tasks 11 Task・28 項目。レビューの処置は `review/code.md`）
 
-## 深掘りで本人が決めたこと（2 回・17 問。推奨のまま 0 件）
+## 本人に戻したもの（A）
 
-| # | 決めたこと |
-|---|---|
-| Q1 / Q2（前提） | 端末の量は写真と動画を合わせて約 29 GB（内訳は不明）。「空き容量を増やす」でまとめて消すことがある |
-| Q3 | 端末にあるものは全部取り込む（過去のものも、見ていなかった間のものも） |
-| Q4 | 原本は端末に写しを作らず、送るときに端末の写真を読む（送る前に消えた原本は取れない） |
-| Q5 | 端末に保存される画像の全部（メタも原本も）。カメラ・スクリーンショット・それ以外で論理ソースを分ける |
-| **Q6** | **動画はメタだけ**（推奨の「代表の静止画を 1 枚」を退けた） |
-| Q7 | 中身が変わったら変わった後の版も取る（メタも原本も。前の版も残す） |
-| Q8 | 端末から消えた事実を記録する |
-| Q14 | 出来事の時刻は撮影時刻。無い・狂っているときは端末に保存された時刻 + 印 |
-| Q15 | 写真の位置の権限が戻るまで、写真も動画も取らずに待つ（端末で知らせる） |
-| **Q16** | **滞在を消しても写真・動画の記録は消えない**（推奨の「含める」を退けた）。書き出しからは消した時間の撮影位置つきの行を今のまま除く |
-| Q17（前提） | Q16 のまま。写真を見て 1 件消す口と画面は新しい Story で足す（ST09 には置かない） |
-| Q9〜Q13（B） | 新しいものはどの通信でも・過去ぶんは Wi-Fi / 接続は取得可否に含めない / 保存の知らせ + 6 時間 / 年/月のフォルダ / 収集開始日は見始めた日 |
+- **Q18（premise）: 計測テスト（AT）の本数の数え方が常に 0 本になる**（`review/code.md` R14）。
+  `tasks.md` の前置きの `AT <クラス>` は結果の XML をファイル名で探すが、本物の結果のファイル名（`TEST-ashiato-api35(AVD) - 15-_app-.xml`）はクラス名を含まない。
+  前置きの定義は `plan_fix.py` の対象外なので本人に戻した。問いは `deep-questions-r3.json`（HTML: `docs/briefs/ST09-deep-r3.html`）。
+  推奨は「`<testcase classname=…>` で数える定義に直し、2 段目の XML の上書きを段ごとに分ける」。
+  HEAD 71f203b0 の走行を `classname=` で数え直すと 1 段目 `MediaCaptureInstrumentedTest` 2 本・3 段目 `MediaPremisesInstrumentedTest` 3 本・失敗 0（final review R2・code-verify）
 
-## 仮決め（design の（仮）。反転条件は design.md）
+## 仮決め（B / P）と Ruling
 
-D1（知らせの 10 秒・1 回 200 件）/ D2（見分けの台帳と 1 日 1 回の突き合わせ）/ D3（保存先のフォルダで論理ソースを決める）/ D4（バイナリのタグ 256 バイト・`source_updated_at` を載せない）/
-D5（消えた事実は観測の記録に数える）/ D6（知らせの文言・「選んだ写真だけ」では知らせない）/ D7（生存信号の `network`）/ D8（過去ぶん = 保存から 24 時間）/
-D9（送る前の問い合わせ・2 回読み・409 は 7 日で欠け）/ D10（原本は 1 件 1 GiB まで）/ D12（`GET /media/summary`）/ D13（収集開始日の印）/
-D18（文字抽出と原本の 2 表を書き出しに入れない）/ D22（試行に保存の知らせを数える）/ D23（Q16）/ D24（成功条件 1 の写真は `c01-photo` だけ）
+design の（仮）（反転条件は design.md）: D3 / D5 / D6 / D7 / D8 / D9 / D12 / D13 / D18 / D22 / D23 / D24、
+**finish で足した P（失わない側の仮。`provisional.jsonl`）**:
+- **D25（仮）** 受け取り済みかは、行に加えて置いたファイルが残っているかで答える（R15）。本人が D-02 から動かした・消した原本を、端末にあるうちに置き直す。
+  名前の候補は記録の今の版と前の版の全部から組む（名前が変わっても 2 つ目を置かない）。反転条件: 本人が D-02 の中を手で並べ替える使い方をすると分かったとき
+- **D26（仮）** D-02 のフォルダは 0700・原本は 0600（Unix。R19）。反転条件: 本人が D-02 を別のアカウントと共有して読ませたいと言ったとき
 
-## capability
+ledger の Ruling（全 Task の `Ruling:` 行の写し）:
+- Task 1: D15 の 4 の「SELECT / INSERT だけ」は付与でなく書き換え禁止の門（トリガ）が担うと読む — grants.sql は全表一律で、絞ると app_role_tests の例外が要る — 間違っていたら grants.sql に 3 表の REVOKE UPDATE, DELETE を足す（移行は要らない）
+- Task 5: 受理の知らせを受ける側が同じ例外を投げ続ける記録は、未送信の上限（Retention）が捨てるまで残して送り直す — 取り除くと原本の行が awaiting のまま固まる（R23）。失わない側 — 間違っていたら 1 件ぶんの無駄な送信が毎回続く（scoped re-review Minor 4。parked）
+- Task 5: 破棄の後に消せなかった原本の行（R25）の消し直しはメモリにだけ覚える — 台帳に書けないときに別の台帳へ書いても同じく書けない — 間違っていたら、その間にプロセスが再起動すると行が awaiting のまま残る（送られず、欠けは報告済み。台帳の数百バイトが残るだけ）（parked）
+- Task 6: 受け取り済みの確かめ（D25 仮）は大きさの一致だけで見る（同じ大きさの別の中身が残った名前にあると置き直さない）— 問い合わせのたびに最大 1 GiB を読まない — 間違っていたら、本人が手で置き替えた名前の原本が置き直されず、ST10 の突き合わせで不一致として見つかる（scoped re-review Minor 2。parked）
 
-- `device-collection`（ADDED 16 本・MODIFIED 2 本）/ `collection-coverage`（MODIFIED 3 本）/ `data-durability`（ADDED 1 本）
-- **前倒しは無い。** `collection-coverage` と `data-durability` は record の段で INDEX に足した範囲（取得可否・収集開始日・格子の見え方 / 書き出しの分類）だけ。`record-deletion` には触らない
-- 種類（FR-88 / FR-102）の欄は作らず、割当てを `docs/handoff/ST38.md` に送った（design D19）。消した滞在の時間の動画の撮影位置を衛星と AI に渡さないことを `docs/handoff/ST45.md` に足した
+## Task
 
-## tasks
+**11 Task・28 項目を全部埋めた。** 残した Task は無い。人間の確認に残るのは本物のカメラで撮る 2 本（`物理: device`）だけ。
+AT（計測テスト）は CI の `android-instrumented` でも走る（数え方は上の Q18）。
 
-**11 Task**（移行 / 端末の前提と記録の形（記録の大きさの門）/ 読み手と見分けと消えた事実 / 権限・取得可否・知らせ・生存信号 / 原本の送り手 / 原本の受け口と D-02 /
-原本の欠けと量 / 生存信号の接続・収集開始日・状態 / 書き出しの分類と滞在の削除 / 契約・端から端・縦串 / 仕上げ）。
-Scenario は 183 本（ST09 で足したもの 136 本。すべて tasks が名指しする）。人間の確認待ちは本物のカメラで撮る 2 本（`物理: device`）だけ。
+## レビューの処置（`review/code.md`。`review_triage.py` rc=0）
 
-## レビュー
+- final review（R1〜R14）: fixed 12・rejected 1（R12）・escalated 1（R14 → Q18）
+- code-verify（R15〜R18）・security review（R19）・`/code-review`（R20〜R29）: fixed 14（うち P の仮 2: R15 → D25 / R19 → D26、B の仮 1: R29 → D7）・rejected 1（R28: 移行はサーバの起動では当たらず、借り先のあるソースは自分の開始日を使わない）。
+  R22 は筋書きが再現しなかったが、頭 8 文字の重なり・手で置かれたファイルで永久に 422 になる道を全ハッシュの名前の候補で潰した
+- scoped re-review（0f58c591）: fix が持ち込んだ Important 1（記録の名前が変わると原本が 2 つ目として置かれる）を直し、Minor 1 を直し、Minor 2 件と R25 の穴を Ruling で park
 
-- 深掘りの独立レビュー（`review/deep.md`）: 15 件（問いを足した 4・文面を直した 3・既定を足した 5 など。questions の段で処置済み）
-- 成果物の独立レビュー（`review/spec.md`）: **28 件** —— `fixed` 27 件（うち `fixed D<n> 仮` 4 件: R9 / R13 / R15 / R17）・`deferred ST45` 1 件（R3）。
-  失われるものの印が付いた 3 件（R1 / R3 / R4）は、どれも design の逸脱か後続への申し送りの不足で、直した後に失われるものが残らないので本人に返していない
-  （R1: design を Q14 の逐語に合わせた / R4: 原文の切り詰めを外した / R3: 衛星の経路がまだ無く、ST45 の申し送りに動画を足した）
+## 通した検証（終了コード）
+
+evidence.jsonl（Task gate の証跡）: 1.1〜11.1 の全項目が PASS・rc=0（最後の全体の走行は 22bd6503。`cargo test -p ashiato-server` 1276 本）。
+その後の HEAD での走行:
+- `cargo test -p ashiato-server`（全体）: 1279 passed / 0 failed・rc=0（7ec57aad。code-verify。作り直した DB）
+- `scripts/quiet-run instr -- tools/android-emulator.sh`: rc=0・934 秒（71f203b0。final review R2）
+- finish の fix の後（このブランチの HEAD）:
+  `cargo test -p ashiato-server st09_` 83 passed・rc=0 / `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 /
+  `./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:testDebugUnitTest` rc=0（615 本・失敗 0）/
+  `tools/smoke.sh` rc=0 / `tools/check-log-private.sh` rc=0（`--self-test` OK）/ `tools/check-openapi.sh` OK /
+  `check_scenarios.py . st09-media-capture` OK / `tools/check-private.sh` rc=0 / `tools/check-shared-appends.sh` rc=0 / `openspec validate st09-media-capture --strict` OK
+- finish の fix の後に `cargo test -p ashiato-server` の全体は走らせていない（変えたのは `media.rs` / `media_tests.rs` だけで、`st09_` の 83 本と smoke で見た）
+
+## 未処置の申し送り
+
+- ST10: 原本の欠け・Wi-Fi 待ちの過去ぶん・動画を不一致に数えない（`docs/handoff/ST10.md`）。D25 の大きさだけの確かめで見落とす置き替えは ST10 の突き合わせで見つかる
+- ST23: 本文の消去を D-02 の原本へどう及ぼすか（`docs/handoff/ST23.md`）
+- ST30 / ST31: 初回に過去ぶん（約 29 GB 以下）が一度に載る（`docs/handoff/ST31.md`）
+- ST38 / ST45: 種類の割当て・渡すときに撮影位置を抜く場所（`docs/handoff/ST38.md` / `ST45.md`）
+- 写真を見て 1 件消す口と画面（Q17）: 新しい Story として /requirements から足す
+- security review の範囲外の指摘（確かさ 2）: `AndroidManifest.xml` に `android:allowBackup` / `dataExtractionRules` が無く、既定の自動バックアップが有効のまま（差分の前からの仕組み。バックアップに実際に入るかは確かめていない）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
