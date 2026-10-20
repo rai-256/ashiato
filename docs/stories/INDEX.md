@@ -78,7 +78,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | capability | 何の能力か | 積む Story |
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42 |
-| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, ST34, ST35, ST44 |
+| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39 |
@@ -390,3 +390,11 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > | FR-78（生存信号） | ST02 | 写真と動画の取得可否に接続を含めず、接続の有無は別に残す（★ 2026-10-17。Q10 / C7） |
 > | FR-79（収集開始日） | ST02 | 写真と画像は最初の生存信号の日を収集開始日にし、それより前の記録のある日は格子に「記録あり」と出す（★ 2026-10-17。Q13 / C3 / C4） |
 > | FR-88（種類） | ST38 | 動画の撮影位置を「写真の位置」に、カメラ以外の画像を「写真」に属させる（★ 2026-10-17。C16 / C11） |
+
+> **訂正（2026-10-21、ST13 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `device-collection` に ST13 を足した。Q4（推奨: 携帯の収集アプリが休止の対象から外れるよう初回に 1 回頼む）の振る舞いは C-01 の中にあり、
+>   NFR-12 の後半（Google 系以外は手作業ゼロ）を満たす Story は ST13 だけ（上の NFR の表）。足すのは別の ADDED の Requirement で、
+>   ST09 が `MODIFIED` している「端末は想定間隔ごとに生存信号を送る」には触らない（状態は生存信号の原文に載せる）
+> - **代償: ST09 が走っている間、ST13 の下流は `衝突待ち`**（同じ capability を 2 本が同時に触らない）
+> - Q4 で「別の Story に送る」「防がない」が選ばれたら、`spec --answers` がこの割当を外す
