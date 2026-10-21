@@ -44,8 +44,13 @@ impl Drop for ScheduledHandle {
     }
 }
 
-/// 取る手の無い・間隔の読めない行で止めないための、間隔を読み直せないときの下限。
+/// 眠る間隔の下限。登録簿の取得の間隔が空・0・負のとき、0 秒の眠りで取得が間を置かずに
+/// 回り続けないよう、ここまで引き上げる（`interval_from`）。間隔の行を読めないときは下限でなく前の値を使う。
 const MIN_INTERVAL_SEC: u64 = 1;
+
+/// 起動時に登録簿の定期取得の行を読めなかったときに、読み直すまでの待ち（final review R4）。
+/// 1 回の失敗で諦めていたときは、DB が起動より遅れて立ち上がるだけで再起動まで取りに行かなかった。
+const REGISTRY_RETRY_SEC: u64 = 60;
 
 #[must_use = "落とすと定期取得が止まる。本番は握ったまま持つ"]
 pub fn spawn(pool: sqlx::PgPool, user_id: uuid::Uuid) -> ScheduledHandle {
@@ -60,18 +65,31 @@ pub fn spawn_with(
     user_id: uuid::Uuid,
 ) -> ScheduledHandle {
     let supervisor = tokio::spawn(async move {
-        let rows = match scheduled_rows(&pool).await {
-            Ok(rows) => rows,
-            Err(error) => {
-                tracing::warn!(kind = "scheduled_registry", error = %error, "定期取得の行を読めない");
-                return;
+        // 読めるまで読み直す。warn は読めなくなった 1 回だけ（ログは種別だけ。本文は出さない）。
+        let mut warned = false;
+        let rows = loop {
+            match scheduled_rows(&pool).await {
+                Ok(rows) => break rows,
+                Err(_) => {
+                    if !std::mem::replace(&mut warned, true) {
+                        tracing::warn!(
+                            kind = "scheduled_registry",
+                            "定期取得の行を読めない。読めるまで読み直す"
+                        );
+                    }
+                    tokio::time::sleep(Duration::from_secs(REGISTRY_RETRY_SEC)).await;
+                }
             }
         };
+        if warned {
+            tracing::info!(kind = "scheduled_registry", "定期取得の行を読めた");
+        }
         let mut fetchers: Vec<Option<std::sync::Arc<dyn Fetcher>>> = fetchers
             .into_iter()
             .map(|f| Some(std::sync::Arc::from(f)))
             .collect();
         let mut tasks = tokio::task::JoinSet::new();
+        let mut names = std::collections::HashMap::new();
         for (logical_source, interval_sec) in rows {
             let found = fetchers.iter_mut().find(|f| {
                 f.as_ref()
@@ -85,9 +103,26 @@ pub fn spawn_with(
                 );
                 continue;
             };
-            tasks.spawn(run_source(pool.clone(), user_id, fetcher, interval_sec));
+            let task = tasks.spawn(run_source(pool.clone(), user_id, fetcher, interval_sec));
+            names.insert(task.id(), logical_source);
         }
-        while tasks.join_next().await.is_some() {}
+        // ソースの task は終わらない。終わったなら取る手が panic した（か止められた）ので、
+        // 黙って捨てずに種別と論理ソースの名前を残す（final review R4）。
+        while let Some(joined) = tasks.join_next_with_id().await {
+            if let Err(error) = joined {
+                let logical_source = names.get(&error.id()).map_or("", String::as_str);
+                tracing::warn!(
+                    kind = "scheduled_task_ended",
+                    logical_source,
+                    failure = if error.is_panic() {
+                        "panic"
+                    } else {
+                        "cancelled"
+                    },
+                    "定期取得の task が止まった"
+                );
+            }
+        }
     });
     ScheduledHandle { supervisor }
 }
@@ -131,8 +166,12 @@ async fn run_source(
         }
         match read_interval(&pool, &source).await {
             Ok(sec) => interval_sec = sec,
-            Err(error) => {
-                tracing::warn!(kind = "scheduled_interval", logical_source = source, error = %error, "取得の間隔を読めない。前の値を使う");
+            Err(_) => {
+                tracing::warn!(
+                    kind = "scheduled_interval",
+                    logical_source = source,
+                    "取得の間隔を読めない。前の値を使う"
+                );
             }
         }
         tokio::time::sleep(Duration::from_secs(interval_sec)).await;

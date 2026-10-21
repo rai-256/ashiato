@@ -85,6 +85,15 @@ pub fn file_name_of(path: &std::path::Path) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// 台帳の行のうち、**同じ中身をもう読んだもの**として覚える行（`WHERE` に挟む断片）。
+///
+/// 読めた（`read`）・確認待ち（`pending_shape`）・中身が読めない形（`unreadable`）の行が当たる。
+/// **ファイルを読み出せなかった（`file_unreadable`）行は当たらない** —— 権限や I/O の問題で中身の問題ではないので、
+/// 覚えると画面の「置き直すか、ファイルの権限を確かめてください」に従っても二度と読まれない（design D20（仮））。
+/// 列名は修飾しないので、`NOT EXISTS (SELECT … FROM core.archive_ledger n WHERE …)` の内側でも内側の表を指す。
+pub(super) const REMEMBERED_OUTCOME: &str = "(outcome IN ('read', 'pending_shape')
+       OR (outcome = 'unreadable' AND unreadable_kind IS DISTINCT FROM 'file_unreadable'))";
+
 /// 既に読んだ書庫を置き直されたとき、台帳へ 1 行だけ足す。
 ///
 /// **走査のたびには足さない** —— 一意索引 `(user_id, sha256, parser_version, outcome)` と
@@ -96,10 +105,12 @@ pub async fn record_already_read(
     sha256: &str,
     file_name: Option<String>,
 ) -> Result<(), sqlx::Error> {
+    // 前に読んだ行は `read` と、中身が読めない形の `unreadable` だけ（読み出せなかった行は指さない。D20（仮））。
     let previous: Option<i64> = sqlx::query_scalar(
         "SELECT id FROM core.archive_ledger
           WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-            AND outcome IN ('read', 'unreadable')
+            AND (outcome = 'read'
+                 OR (outcome = 'unreadable' AND unreadable_kind IS DISTINCT FROM 'file_unreadable'))
           ORDER BY finished_at DESC, id DESC LIMIT 1",
     )
     .bind(user_id)
@@ -242,6 +253,11 @@ async fn reread_throttled(
 ///
 /// **黙って `return` しない。** Takeout の書き出しは約 7 日で失効するので、
 /// 置いたのに何も起きないまま気づけないと**取り直せない**（R4 / R6）。
+///
+/// 読み出せなかった（`file_unreadable`）ときは、台帳の鍵を中身の sha256 にせず `io_failure_key` にする
+/// （design D20（仮））。中身の sha256 のままだと、一意索引 `(user_id, sha256, parser_version, outcome)` で
+/// 読み出せるようになった後の同じ中身の「読めない形」の行が `ON CONFLICT DO NOTHING` に落ちる。
+/// 新しい行を足したときに `true` を返す（同じ失敗を走査のたびに足さない・ログも 1 回にする）。
 pub async fn record_unreadable(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
@@ -249,14 +265,64 @@ pub async fn record_unreadable(
     path: &std::path::Path,
     unreadable_kind: &str,
     from_downloads: bool,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<bool, sqlx::Error> {
+    let key = if unreadable_kind == super::open::FILE_UNREADABLE {
+        io_failure_key(Some(sha256), path)
+    } else {
+        sha256.to_owned()
+    };
+    insert_unreadable(pool, user_id, &key, path, unreadable_kind, from_downloads).await
+}
+
+/// 中身を読み出せず sha256 も取れなかったファイルを台帳へ 1 行残す（spec「開けない・読み出せない失敗を…台帳に残す」。
+/// final review R2）。鍵はパスから作るので、同じ場所で読めないままのファイルは何度走査しても 1 行（design D20（仮））。
+pub async fn record_unhashable(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    path: &std::path::Path,
+    from_downloads: bool,
+) -> Result<bool, sqlx::Error> {
+    insert_unreadable(
+        pool,
+        user_id,
+        &io_failure_key(None, path),
+        path,
+        super::open::FILE_UNREADABLE,
+        from_downloads,
+    )
+    .await
+}
+
+/// 読み出せなかった失敗の台帳の鍵（design D20（仮））。中身の sha256（16 進 64 文字）と決して一致しない形にする。
+///
+/// 中身が分かれば中身ごと（`file_unreadable:<sha256>`）、分からなければ置き場のパスごと
+/// （`file_unreadable-path:<パスの sha256>`。フォルダのパスそのものは台帳に持たない —— D7）。
+pub fn io_failure_key(content_sha256: Option<&str>, path: &std::path::Path) -> String {
+    use sha2::Digest as _;
+    match content_sha256 {
+        Some(sha256) => format!("file_unreadable:{sha256}"),
+        None => format!(
+            "file_unreadable-path:{:x}",
+            sha2::Sha256::digest(path.to_string_lossy().as_bytes())
+        ),
+    }
+}
+
+async fn insert_unreadable(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    key: &str,
+    path: &std::path::Path,
+    unreadable_kind: &str,
+    from_downloads: bool,
+) -> Result<bool, sqlx::Error> {
+    let inserted = sqlx::query(
         "INSERT INTO core.archive_ledger
            (user_id, sha256, parser_version, outcome, file_name, unreadable_kind, inbox_kind, created_at)
          VALUES ($1, $2, $3, 'unreadable', $4, $5, $6, $7) ON CONFLICT DO NOTHING",
     )
     .bind(user_id)
-    .bind(sha256)
+    .bind(key)
     .bind(super::PARSER_VERSION)
     .bind(file_name_of(path))
     .bind(unreadable_kind)
@@ -264,7 +330,43 @@ pub async fn record_unreadable(
     .bind(archive_created_at(path, chrono::Utc::now()))
     .execute(pool)
     .await?;
-    Ok(())
+    Ok(inserted.rows_affected() > 0)
+}
+
+/// 開けなかった書庫を台帳に残し、専用のフォルダのものは「取り込み済み」へ移す。
+///
+/// **読み出せなかった（`file_unreadable`）書庫は動かさない**（design D20（仮）。final review R1）。
+/// 置き場に残せば、本人が権限を直すか置き直した後の走査がそのまま読み直す。
+/// 動かすと、画面の「置き直すか、ファイルの権限を確かめてください」に従う先のファイルが置き場から消える。
+/// 残したファイルは走査のたびに開き直すが、台帳の行は一意索引で 1 行のまま、ログも最初の 1 回だけにする。
+/// **台帳に残せなければファイルを動かさない**（review I5）。動かすと、置き場からも台帳からも画面からも消える。
+async fn handle_open_failure(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    candidate: &ScanCandidate,
+    kind: &'static str,
+) {
+    let recorded = record_unreadable(
+        pool,
+        user_id,
+        &candidate.sha256,
+        &candidate.path,
+        kind,
+        candidate.from_downloads,
+    )
+    .await;
+    match recorded {
+        Ok(false) => {}
+        Ok(true) => tracing::warn!(kind, "書庫を開けない"),
+        Err(_) => tracing::warn!(
+            kind = "archive_ledger_unreadable",
+            failure = kind,
+            "書庫を開けず、台帳にも残せない"
+        ),
+    }
+    if recorded.is_ok() && !candidate.from_downloads && kind != super::open::FILE_UNREADABLE {
+        let _ = move_to_processed(&candidate.path);
+    }
 }
 
 /// 読み終えた台帳行へ、論理ソースごとの格納結果を追記する。
@@ -1940,15 +2042,15 @@ pub async fn reparse_older_versions(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
 ) -> anyhow::Result<usize> {
-    let archives: Vec<String> = sqlx::query_scalar(
+    let archives: Vec<String> = sqlx::query_scalar(&format!(
         "SELECT DISTINCT l.sha256 FROM core.archive_ledger l
           WHERE l.user_id = $1 AND l.outcome = 'read' AND l.parser_version <> $2
             AND NOT EXISTS (SELECT 1 FROM core.archive_ledger n
                              WHERE n.user_id = l.user_id AND n.sha256 = l.sha256
                                AND n.parser_version = $2
-                               AND n.outcome IN ('read', 'unreadable', 'pending_shape'))
+                               AND {REMEMBERED_OUTCOME})
           ORDER BY l.sha256",
-    )
+    ))
     .bind(user_id)
     .bind(super::PARSER_VERSION)
     .fetch_all(pool)
@@ -2079,13 +2181,33 @@ async fn read_scan_interval(pool: &sqlx::PgPool, source: &str) -> anyhow::Result
 /// 走査の後の待ち。1 秒ずつ刻み、刻むたびに登録簿の間隔を読み直し、前の走査の後からの経過
 /// （戻らない時計）が読んだ間隔以上になったら返す（design D4）。縮めた間隔が 1 秒以内に効く。
 /// 読めなければ前の値を使う。
-async fn wait_for_next_scan(pool: &sqlx::PgPool, source: &str, interval_sec: &mut u64) {
+///
+/// **読めない間の warn は、読めなくなった 1 回だけ**（final review R3）。`unreadable` は走査の task が
+/// 持ち回る「いま読めていないか」の印で、読めるようになったら info を 1 回出して戻す。
+/// 1 秒ごとに出していたときは、行が無いだけで 1 日 86400 行のログになった。
+async fn wait_for_next_scan(
+    pool: &sqlx::PgPool,
+    source: &str,
+    interval_sec: &mut u64,
+    unreadable: &mut bool,
+) {
     let waited_from = tokio::time::Instant::now();
     loop {
         match read_scan_interval(pool, source).await {
-            Ok(sec) => *interval_sec = sec,
+            Ok(sec) => {
+                *interval_sec = sec;
+                if std::mem::take(unreadable) {
+                    tracing::info!(
+                        kind = "archive_scan_interval",
+                        logical_source = source,
+                        "見回りの間隔を読めるようになった"
+                    );
+                }
+            }
             Err(error) => {
-                tracing::warn!(kind = "archive_scan_interval", logical_source = source, error = %error, "見回りの間隔を読めない。前の値を使う");
+                if !std::mem::replace(unreadable, true) {
+                    tracing::warn!(kind = "archive_scan_interval", logical_source = source, error = %error, "見回りの間隔を読めない。前の値を使う");
+                }
             }
         }
         if waited_from.elapsed() >= std::time::Duration::from_secs(*interval_sec) {
@@ -2115,6 +2237,7 @@ pub fn spawn_inspecting(
     }
     let scanning = tokio::spawn(async move {
         let mut interval_sec = DEFAULT_SCAN_INTERVAL_SEC;
+        let mut interval_unreadable = false;
         loop {
             // **印が置かれていないか、走査のたびに見る**（D16）。本人が
             // `tools/archive-shape.sh --confirm` を叩いた後に効く唯一の経路。
@@ -2174,7 +2297,13 @@ pub fn spawn_inspecting(
                     }
                 }
             }
-            wait_for_next_scan(&scan_pool, &interval_source, &mut interval_sec).await;
+            wait_for_next_scan(
+                &scan_pool,
+                &interval_source,
+                &mut interval_sec,
+                &mut interval_unreadable,
+            )
+            .await;
         }
     });
     let reading_task = tokio::spawn(read_in_order(receiver, move |candidate| {
@@ -2207,11 +2336,12 @@ pub fn spawn_inspecting(
             // 同じ書庫が 2 度積まれる。2 度目はファイルが「取り込み済み」へ移った後に
             // 開かれ、**読めた書庫に `unreadable` の行が付いて画面が嘘をつく**。
             // **確認待ちの書庫も「覚えている」**（D16。final review R52）。
-            match sqlx::query_scalar::<_, bool>(
+            // 読み出せなかった行（`file_unreadable`）は覚えない（design D20（仮）。`REMEMBERED_OUTCOME`）。
+            match sqlx::query_scalar::<_, bool>(&format!(
                 "SELECT EXISTS(SELECT 1 FROM core.archive_ledger
                    WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-                     AND outcome IN ('read', 'unreadable', 'pending_shape'))",
-            )
+                     AND {REMEMBERED_OUTCOME})"
+            ))
             .bind(user_id)
             .bind(&sha256)
             .bind(super::PARSER_VERSION)
@@ -2241,23 +2371,7 @@ pub fn spawn_inspecting(
                     let files = match super::open::open_archive(&candidate_for_read.path) {
                         Ok(files) => files,
                         Err(error) => {
-                            tracing::warn!(kind = error.kind(), "書庫を開けない");
-                            // **台帳に残せなければファイルを動かさない**（review I5）。
-                            // 動かすと、置き場からも台帳からも画面からも消える。
-                            if record_unreadable(
-                                &pool,
-                                user_id,
-                                &sha256,
-                                &candidate.path,
-                                error.kind(),
-                                candidate.from_downloads,
-                            )
-                            .await
-                            .is_ok()
-                                && !candidate.from_downloads
-                            {
-                                let _ = move_to_processed(&candidate.path);
-                            }
+                            handle_open_failure(&pool, user_id, &candidate, error.kind()).await;
                             return;
                         }
                     };
@@ -2521,8 +2635,10 @@ pub fn spawn_inspecting(
                     // 次の走査が読み直し（記録は内容の鍵で増えない）、最終日は論理ソースごとの行から出る。
                     // 記録の格納（`store_requests`）はこの外のまま —— 1 件 1 トランザクションの関門に触らない。
                     let sha256_for_ledger = sha256.clone();
-                    let ledger: Result<(), sqlx::Error> = async {
-                        let mut tx = pool.begin().await?;
+                    // 失敗は段ごとの種別を添えて返す（final review R6）。論理ソースごとの行の失敗を
+                    // 台帳の行の失敗と同じ `archive_ledger` で出していたときは、ログで原因を分けられなかった。
+                    let ledger: Result<(), (&'static str, sqlx::Error)> = async {
+                        let mut tx = pool.begin().await.map_err(|error| ("archive_ledger", error))?;
                         let ledger_id: i64 = sqlx::query_scalar(
                             "INSERT INTO core.archive_ledger
                                (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_at, skipped_file_count, file_name)
@@ -2539,8 +2655,11 @@ pub fn spawn_inspecting(
                         .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
                         .bind(file_name_of(&candidate.path))
                         .fetch_one(&mut *tx)
-                        .await?;
-                        record_ledger_sources(&mut tx, ledger_id, &stored_requests, &stored_outcomes).await?;
+                        .await
+                        .map_err(|error| ("archive_ledger", error))?;
+                        record_ledger_sources(&mut tx, ledger_id, &stored_requests, &stored_outcomes)
+                            .await
+                            .map_err(|error| ("archive_ledger_source", error))?;
                         // 読み終えたら、この場所の失敗の回数と 1 時間の待ちを戻す（design D8 / M7）。
                         // 戻さないと、読めた書庫の後の中断が前の中断の続きとして数えられる。
                         sqlx::query(
@@ -2551,8 +2670,9 @@ pub fn spawn_inspecting(
                         .bind(user_id)
                         .bind(candidate.path.to_string_lossy().as_ref())
                         .execute(&mut *tx)
-                        .await?;
-                        tx.commit().await
+                        .await
+                        .map_err(|error| ("archive_sighting_reset", error))?;
+                        tx.commit().await.map_err(|error| ("archive_ledger", error))
                     }
                     .await;
                     match ledger {
@@ -2573,27 +2693,13 @@ pub fn spawn_inspecting(
                                 "書庫を検査した"
                             );
                         }
-                        Err(error) => {
-                            tracing::warn!(kind = "archive_ledger", error = %error, "書庫の台帳を残せない")
+                        Err((kind, error)) => {
+                            tracing::warn!(kind, error = %error, "書庫の台帳を残せない")
                         }
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(kind = error.kind(), "書庫を開けない");
-                    if record_unreadable(
-                        &pool,
-                        user_id,
-                        &sha256,
-                        &candidate.path,
-                        error.kind(),
-                        candidate.from_downloads,
-                    )
-                    .await
-                    .is_ok()
-                        && !candidate.from_downloads
-                    {
-                        let _ = move_to_processed(&candidate.path);
-                    }
+                    handle_open_failure(&pool, user_id, &candidate, error.kind()).await;
                 }
             }
         }

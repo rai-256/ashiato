@@ -149,7 +149,7 @@ const ja = {
     read: (name: string, seen: string, inserted: number, duplicate: number, unreadable: number): string =>
       `${name}（${seen}）— 入った ${inserted} · 既にあった ${duplicate} · 読めなかった ${unreadable}`,
     more: (hidden: number): string => `ほか ${hidden} 件`,
-    /** 読めなかった理由の種別（design D7 の 4 つ） */
+    /** 読めなかった理由の種別（design D7 の 4 つと、D8 の M8 が足した `file_unreadable` の 5 つ） */
     unreadableKind: {
       unsupported_format: "扱えない形式",
       broken_zip: "書庫が壊れている",
@@ -186,6 +186,8 @@ const ja = {
       alertLeft: (days: string, on: string): string => `通知まで あと ${days} 日（最後の書庫 ${on} から）`,
       alertPassed: (on: string): string => `通知の日を過ぎた（最後の書庫 ${on} から）`,
       noArchive: "まだ書庫が無い",
+      /** 見出しの名前の後ろに添える形（「 — 」で始め、2 つ以上は「 · 」で繋ぐ） */
+      note: (...parts: string[]): string => ` — ${parts.join(" · ")}`,
     },
     collapse: "直近だけにする",
     showRetired: "退役したソースを見る",

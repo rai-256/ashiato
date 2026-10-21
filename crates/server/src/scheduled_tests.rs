@@ -406,3 +406,48 @@ async fn scheduled_failure_log_carries_no_error_text() {
         "失敗の文言は出さない: {line}"
     );
 }
+
+/// panic する取る手。
+struct PanickingFetcher(String);
+
+impl Fetcher for PanickingFetcher {
+    fn logical_source(&self) -> &str {
+        &self.0
+    }
+    fn fetch<'a>(&'a self, _pool: &'a sqlx::PgPool, _user_id: uuid::Uuid) -> FetchFuture<'a> {
+        Box::pin(async move { panic!("わざと panic する") })
+    }
+}
+
+/// final review R4: 取る手が panic して task が止まったら、黙って捨てずに種別と論理ソースの名前を残す。
+#[tokio::test]
+async fn scheduled_a_panicking_source_is_named_in_the_log() {
+    let _ = crate::archive_flow_tests::captured_log();
+    let pool = testdb::pool().await;
+    let name = add_row(&pool, 3600).await;
+    let handle = crate::scheduled::spawn_with(
+        vec![Box::new(PanickingFetcher(name.clone()))],
+        pool.clone(),
+        testdb::user(),
+    );
+    let mut line = None;
+    for _ in 0..200 {
+        line = log_text()
+            .lines()
+            .find(|l| l.contains("scheduled_task_ended") && l.contains(&name))
+            .map(str::to_owned);
+        if line.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    drop(handle);
+    drop_rows(&pool, &[&name]).await;
+
+    let line = line.expect("止まった task のログが出る");
+    assert!(line.contains("panic"), "種別が出る: {line}");
+    assert!(
+        !line.contains("わざと panic する"),
+        "panic の文言は出さない: {line}"
+    );
+}

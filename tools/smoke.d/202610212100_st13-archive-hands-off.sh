@@ -35,13 +35,20 @@ echo "== Scenario: 専用のフォルダを作らずに端末のタイムライ�
 # 専用のフォルダが無い状態で、もう 1 つの S-01 を起動する（別の利用者・別のフォルダ。DB は同じ）
 HANDS_USER="00000000-0000-0000-0000-0000000000a7"
 HANDS_ROOT="$ARCHIVE_ROOT/hands-off"
-HANDS_BIND="127.0.0.1:$((ASHIATO_HTTP_PORT + 100))"
+# port は tools/ports.sh の規則でこの worktree が持つ 2 つ目（サーバ +1）。ほかの worktree の port とは被らない
+# （+100 は worktree st(NN+50) のサーバと被っていた。final review R13）。+1 を使う tools/check-panic-log.sh とは
+# 同じ worktree で同時に走らない —— どちらも始めと終わりに同じ DB を docker compose down -v で落とす。
+HANDS_BIND="127.0.0.1:$((ASHIATO_HTTP_PORT + 1))"
 mkdir -p "$HANDS_ROOT/downloads" "$HANDS_ROOT/copies"
 [ ! -e "$HANDS_ROOT/inbox" ] || { echo "専用のフォルダが先にある"; exit 1; }
 HANDS_SRV=$(env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL \
   ASHIATO_ARCHIVE_USER_ID="$HANDS_USER" ASHIATO_INBOX_DIR="$HANDS_ROOT/inbox" \
   ASHIATO_DOWNLOADS_DIR="$HANDS_ROOT/downloads" ASHIATO_ARCHIVE_COPY_DIR="$HANDS_ROOT/copies" \
   BIND="$HANDS_BIND" bash -c './target/debug/ashiato-server >/dev/null 2>&1 & echo $!')
+# 途中で落ちても 2 つ目のサーバを残さない。tools/smoke.sh の後始末（cleanup）も続けて呼ぶ（final review R13）
+# HANDS_SRV が空のときに kill しない（kill 0 はプロセスグループ全体を止める。tools/smoke.sh と同じ）
+hands_cleanup() { if [ -n "${HANDS_SRV:-}" ]; then kill "$HANDS_SRV" 2>/dev/null || true; fi; cleanup; }
+trap hands_cleanup EXIT
 for _ in $(seq 1 60); do curl -sf "http://$HANDS_BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$HANDS_BIND/healthz" >/dev/null || { kill "$HANDS_SRV" 2>/dev/null || true; echo "2 つ目の S-01 が起動しない"; exit 1; }
 [ -d "$HANDS_ROOT/inbox" ] || { kill "$HANDS_SRV" 2>/dev/null || true; echo "起動しても専用のフォルダが作られない"; exit 1; }
@@ -54,5 +61,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 kill "$HANDS_SRV" 2>/dev/null || true
+HANDS_SRV=""
+trap cleanup EXIT
 [ "${tl:-0}" -ge 1 ] || { echo "端末のタイムラインが記録として入らない"; exit 1; }
 echo "   → フォルダを作らずにタイムラインの訪問が $tl 件入った"

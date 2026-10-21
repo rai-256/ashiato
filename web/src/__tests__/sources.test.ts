@@ -71,6 +71,13 @@ describe("見出しに添える文字", () => {
     expect(note).not.toMatch(/あと/);
   });
 
+  it("「あと 0 日」は出さず、過ぎた側で出す（D21（仮）。final review R9）", () => {
+    const r = resp([archive({ last_archive_on: "2026-08-28", alert_days_left: 0 })]);
+    const note = sourceNote("c03-youtube-watch", r)!;
+    expect(note).not.toMatch(/あと 0 日/);
+    expect(note).toBe(" — 手作業・2 か月ごと · 通知の日を過ぎた（最後の書庫 2026-08-28 から）");
+  });
+
   it("書庫も記録も無ければまだ書庫が無い", () => {
     const r = resp([archive({ no_archive: true })]);
     expect(sourceNote("c03-youtube-watch", r)).toBe(" — 手作業・2 か月ごと · まだ書庫が無い");

@@ -2,6 +2,7 @@
 //! 置き場の一覧と、2 回連続で変わらないファイルの選別（ST12 / D8）。
 
 use super::config::ArchiveConfig;
+use super::worker::{record_unhashable, REMEMBERED_OUTCOME};
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
@@ -64,12 +65,18 @@ pub async fn scan_once_with_hasher(
         (&config.downloads_dir, true, DOWNLOADS_UNREADABLE),
     ] {
         match list_dir(dir, from_downloads) {
-            Ok(files) => found.extend(files),
-            Err(ListError::Unreadable(error)) => {
+            Ok((files, failed)) => {
+                found.extend(files);
+                // **1 ファイルが読めなくても走査を止めない**（final review R2）。そのファイルだけを
+                // 台帳に残し、残りのファイルともう片方の置き場は読み続ける。
+                for path in failed {
+                    note_unhashable(pool, user_id, &path, from_downloads).await?;
+                }
+            }
+            Err(error) => {
                 tracing::warn!(kind = blocker, error = %error, "書庫の置き場を読めない");
                 unreadable.push(blocker);
             }
-            Err(ListError::Other(error)) => return Err(error),
         }
     }
     let paths: BTreeSet<String> = found
@@ -91,13 +98,23 @@ pub async fn scan_once_with_hasher(
         let stable = previous.as_ref().is_some_and(|(size, modified, _, _)| {
             *size == file.size_bytes && *modified == file.modified_at
         });
-        let hash = if stable {
-            match previous.as_ref().and_then(|(_, _, hash, _)| hash.clone()) {
-                Some(hash) => hash,
-                None => hash(&file.path)?,
-            }
+        let cached = if stable {
+            previous.as_ref().and_then(|(_, _, hash, _)| hash.clone())
         } else {
-            hash(&file.path)?
+            None
+        };
+        let hash = match cached {
+            Some(hash) => hash,
+            None => match hash(&file.path) {
+                Ok(hash) => hash,
+                // **読み出せない 1 ファイルで走査全体を落とさない**（final review R2）。中身の sha256 が
+                // 取れないので、台帳の鍵はパスから作る（design D20（仮））。sighting は書かない ——
+                // 読めるようになった次の走査が、初めて見たファイルとして 2 回の安定を待ち直す。
+                Err(_) => {
+                    note_unhashable(pool, user_id, &file.path, file.from_downloads).await?;
+                    continue;
+                }
+            },
         };
         // 同じ場所に中身の違う書庫が置き直されたら、前の書庫の失敗の回数と待ちを持ち越さない（design D8 / M7）。
         let replaced = previous
@@ -134,13 +151,14 @@ pub async fn scan_once_with_hasher(
         if stable {
             // **確認待ちの書庫も覚えている**（D16）。`read` の行を持たない確認待ちだけの書庫を
             // 読みへ回していたときは、120 秒ごとに書庫全体を展開し直していた（final review R52）。
-            let already_read: bool = sqlx::query_scalar(
+            // **読み出せなかった行（`file_unreadable`）は覚えない**（design D20（仮）。final review R1）。
+            let already_read: bool = sqlx::query_scalar(&format!(
                 "SELECT EXISTS(
                    SELECT 1 FROM core.archive_ledger
                     WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-                      AND outcome IN ('read', 'unreadable', 'pending_shape')
-                 )",
-            )
+                      AND {REMEMBERED_OUTCOME}
+                 )"
+            ))
             .bind(user_id)
             .bind(&hash)
             .bind(super::PARSER_VERSION)
@@ -179,47 +197,72 @@ pub async fn scan_once_with_hasher(
     Ok((candidates, unreadable))
 }
 
-/// 置き場そのものが読めない（一覧が取れない）と、中の 1 件が読めないを分ける。
-enum ListError {
-    Unreadable(std::io::Error),
-    Other(anyhow::Error),
-}
-
-impl<E: Into<anyhow::Error>> From<E> for ListError {
-    fn from(error: E) -> Self {
-        Self::Other(error.into())
-    }
-}
-
-fn list_dir(dir: &Path, from_downloads: bool) -> Result<Vec<FoundFile>, ListError> {
-    let entries = std::fs::read_dir(dir).map_err(ListError::Unreadable)?;
+/// 置き場を 1 つ一覧する。**置き場そのものが読めない（一覧が取れない）ときだけ `Err`**。
+///
+/// 中の 1 件が読めないときは、そのファイルを 2 つ目の戻り値に積んで残りを続ける（final review R2）。
+/// 包括の `From` で `?` を許していたときは、1 件の `metadata` の失敗が走査全体の失敗になり、
+/// もう片方の置き場まで止まっていた。名前も取れない項目（`read_dir` の項目そのものの失敗）は台帳に残せないのでログだけ。
+fn list_dir(
+    dir: &Path,
+    from_downloads: bool,
+) -> Result<(Vec<FoundFile>, Vec<PathBuf>), std::io::Error> {
+    let entries = std::fs::read_dir(dir)?;
     let mut found = Vec::new();
+    let mut failed = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let Ok(entry) = entry else {
+            tracing::warn!(kind = "archive_list_entry", "置き場の項目を読めない");
+            continue;
+        };
         let path = entry.path();
-        if !entry.file_type()?.is_file()
-            || is_temporary(&path)
-            || !is_candidate(&path, from_downloads)
-        {
+        if is_temporary(&path) || !is_candidate(&path, from_downloads) {
             continue;
         }
-        let metadata = entry.metadata()?;
-        // PostgreSQL の timestamptz はマイクロ秒精度。ここも同じ精度へ丸めないと、
-        // 同じファイルを毎回「更新された」と誤認する。
-        let modified: DateTime<Utc> = metadata.modified()?.into();
-        let modified_at = DateTime::from_timestamp_micros(modified.timestamp_micros())
-            .context("書庫の更新時刻が範囲外")
-            .map_err(ListError::Other)?;
-        found.push(FoundFile {
-            path,
-            from_downloads,
-            size_bytes: i64::try_from(metadata.len())
-                .context("書庫が大きすぎる")
-                .map_err(ListError::Other)?,
-            modified_at,
-        });
+        match entry.file_type() {
+            Ok(file_type) if !file_type.is_file() => continue,
+            Ok(_) => {}
+            Err(_) => {
+                failed.push(path);
+                continue;
+            }
+        }
+        match found_file(&entry, from_downloads) {
+            Ok(file) => found.push(file),
+            Err(_) => failed.push(path),
+        }
     }
-    Ok(found)
+    Ok((found, failed))
+}
+
+fn found_file(entry: &std::fs::DirEntry, from_downloads: bool) -> anyhow::Result<FoundFile> {
+    let metadata = entry.metadata()?;
+    // PostgreSQL の timestamptz はマイクロ秒精度。ここも同じ精度へ丸めないと、
+    // 同じファイルを毎回「更新された」と誤認する。
+    let modified: DateTime<Utc> = metadata.modified()?.into();
+    let modified_at = DateTime::from_timestamp_micros(modified.timestamp_micros())
+        .context("書庫の更新時刻が範囲外")?;
+    Ok(FoundFile {
+        path: entry.path(),
+        from_downloads,
+        size_bytes: i64::try_from(metadata.len()).context("書庫が大きすぎる")?,
+        modified_at,
+    })
+}
+
+/// 読み出せないファイルを台帳に残す。ログは台帳に新しく足した 1 回だけ（走査のたびに出さない）。
+async fn note_unhashable(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    path: &Path,
+    from_downloads: bool,
+) -> anyhow::Result<()> {
+    if record_unhashable(pool, user_id, path, from_downloads).await? {
+        tracing::warn!(
+            kind = super::open::FILE_UNREADABLE,
+            "置き場のファイルを読み出せない"
+        );
+    }
+    Ok(())
 }
 
 fn is_candidate(path: &Path, from_downloads: bool) -> bool {

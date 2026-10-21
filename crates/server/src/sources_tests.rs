@@ -165,7 +165,8 @@ async fn sources_archive_exactly_75_days_is_not_passed_like_outage() {
     ledger(&pool, user, &name, Duration::days(75)).await;
     let r = row_of(user, &name).await;
     assert_eq!(r["alert_passed"], false);
-    assert_eq!(r["alert_days_left"], 0);
+    // 鳴るちょうどの時刻は過ぎていないが「あと 0 日」は出さない（design D21（仮）。final review R9）。
+    assert_eq!(r["alert_days_left"], 1);
     assert!(
         !judged_outage(&pool, user, &name).await,
         "ちょうどは途切れでない"
@@ -194,6 +195,10 @@ async fn sources_retired_archive_has_no_days_left() {
     let r = row_of(user, &name).await;
     assert_eq!(r["retired_on"], "2026-09-01");
     assert!(r["alert_days_left"].is_null());
+    assert!(
+        r["last_archive_on"].is_null(),
+        "退役した行は起点の日も出さない"
+    );
     assert_eq!(r["alert_passed"], false);
     assert_eq!(r["no_archive"], false);
 }

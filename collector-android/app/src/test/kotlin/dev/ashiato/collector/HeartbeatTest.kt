@@ -23,6 +23,7 @@ class HeartbeatTest {
         counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS),
         now: () -> Instant = { Instant.parse("2026-05-01T06:00:00Z") },
         log: (String) -> Unit = {},
+        extraFields: () -> Map<String, kotlinx.serialization.json.JsonElement> = { emptyMap() },
     ) = HeartbeatEmitter(
         outbox = outbox,
         counters = counters,
@@ -33,6 +34,7 @@ class HeartbeatTest {
         now = now,
         newId = { "hb-1" },
         log = log,
+        extraFields = extraFields,
     )
 
     /// Scenario: 権限が無い状態が信号に載る
@@ -101,5 +103,28 @@ class HeartbeatTest {
         val outbox = testHeartbeatOutbox()
         emitter(outbox = outbox, now = { Instant.parse("2026-05-01T06:00:00Z") }).emit()
         assertEquals("2026-05-01T06:00:00Z", outbox.snapshot().single().emittedAt)
+    }
+
+    /** 足す欄は決まった欄（`capturable` `blockers`）を上書きできない。足すだけの欄は載る（final review R11）。 */
+    @Test
+    fun `足す欄は決まった欄を上書きできない`() {
+        val outbox = testHeartbeatOutbox()
+        emitter(
+            outbox = outbox,
+            capability = { Capability.of(permission = false, sensor = true, network = true) },
+            extraFields = {
+                mapOf(
+                    "capturable" to kotlinx.serialization.json.JsonPrimitive(true),
+                    "blockers" to kotlinx.serialization.json.JsonPrimitive(""),
+                    "unused_app_restrictions" to kotlinx.serialization.json.JsonPrimitive("exempt"),
+                )
+            },
+        ).emit()
+        val sent = outbox.snapshot().single()
+        val obj = Json.parseToJsonElement(sent.raw) as kotlinx.serialization.json.JsonObject
+        assertEquals("false", obj["capturable"]!!.jsonPrimitive.content)
+        assertEquals(Capability.PERMISSION, obj["blockers"]!!.jsonPrimitive.content)
+        assertEquals("exempt", obj["unused_app_restrictions"]!!.jsonPrimitive.content)
+        assertFalse(sent.capturable)
     }
 }

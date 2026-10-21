@@ -243,13 +243,21 @@ pub async fn fail_ledger_source_insert(pool: &sqlx::PgPool, sha256: &str) {
     assert!(sha256.chars().all(|c| c.is_ascii_hexdigit()));
     sqlx::query(&format!(
         // 試験は並走するので、関数も書庫ごとの名前にする（同じ名前の同時の作成は pg_proc の鍵で落ちる）。
-        "CREATE FUNCTION core.test_fail_ledger_source_{sha256}() RETURNS trigger AS $f$
+        // **冪等にする**（final review R5）: 前の回が `allow_ledger_source_insert` の前に落ちて
+        // 関数と trigger が残っていても、次の回の作成が落ちない。
+        "CREATE OR REPLACE FUNCTION core.test_fail_ledger_source_{sha256}() RETURNS trigger AS $f$
          BEGIN
            IF EXISTS (SELECT 1 FROM core.archive_ledger WHERE id = NEW.ledger_id AND sha256 = '{sha256}') THEN
              RAISE EXCEPTION 'test: archive_ledger_source への書き込みを失敗させる';
            END IF;
            RETURN NEW;
          END $f$ LANGUAGE plpgsql"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "DROP TRIGGER IF EXISTS test_fail_ledger_source_{sha256} ON core.archive_ledger_source"
     ))
     .execute(pool)
     .await

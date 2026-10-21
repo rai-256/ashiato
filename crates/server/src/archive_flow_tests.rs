@@ -1618,6 +1618,156 @@ async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_form
     assert_eq!(kind.as_deref(), Some("file_unreadable"));
 }
 
+/// 権限を落とすと読めなくなる実行者か（root は読めてしまうので、権限の試験は何も見ない）。
+#[cfg(unix)]
+fn permissions_bite(path: &Path) -> bool {
+    if std::fs::read(path).is_ok() {
+        eprintln!("権限を落としても読める実行者（root）なので、この試験は何も見ない");
+        return false;
+    }
+    true
+}
+
+/// final review R1 / design D20（仮）: 読み出せなかった書庫は「読んだもの」として覚えず、置き場にも残す。
+/// 画面の「置き直すか、ファイルの権限を確かめてください」に従って権限を直せば、同じ中身がそのまま読まれる。
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_a_file_unreadable_archive_is_read_once_readable_again() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-reread").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put(
+        name,
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    let path = inbox.inbox.join(name);
+    // 走査が見つけて安定を覚えた後で、読み出せない状態にする（中身の sha256 は覚えている）。
+    let config = inbox.config(true);
+    for _ in 0..2 {
+        crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
+            .await
+            .unwrap();
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !permissions_bite(&path) {
+        return;
+    }
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読み出せなかった書庫が台帳に残らない",
+            || async { inbox.ledger_rows("unreadable").await == 1 },
+        )
+        .await;
+    // 置いたまま何度走査しても、台帳は 1 行のまま・ファイルは置き場に残る。
+    let seen = inbox.counter().await.0;
+    inbox
+        .until("走査が回らない", || async {
+            inbox.counter().await.0 >= seen + 3
+        })
+        .await;
+    assert_eq!(
+        inbox.ledger_rows("unreadable").await,
+        1,
+        "走査のたびに台帳が増えた"
+    );
+    assert!(path.exists(), "読み出せなかった書庫が置き場から動かされた");
+    assert_eq!(inbox.ledger_rows("read").await, 0);
+
+    // 権限を直すと、同じ中身がそのまま読まれる。
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    inbox
+        .until("権限を直した書庫が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    inbox
+        .until(
+            "読めた書庫が取り込み済みへ移らない",
+            || async { !path.exists() },
+        )
+        .await;
+    assert_eq!(inbox.ledger_rows("read").await, 1);
+    assert_eq!(inbox.ledger_rows("already_read").await, 0);
+}
+
+/// final review R2 / design D20（仮）: 最初から読み出せない 1 ファイルがあっても、走査は止まらない。
+/// 同じ置き場の他のファイルも、もう片方の置き場も読まれ、そのファイルの失敗は台帳に 1 行だけ残る。
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_an_unhashable_file_does_not_stop_the_scan() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-unhashable").await;
+    let first = watch("2026-09-12T03:00:00Z", "ある動画");
+    let second = watch("2026-09-12T04:00:00Z", "別の動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    let blocked = inbox.inbox.join("Timeline.json");
+    std::fs::write(&blocked, b"[]").unwrap();
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !permissions_bite(&blocked) {
+        return;
+    }
+    inbox.put(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.put_downloads(
+        "takeout-20260914T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読み出せないファイルの隣の書庫・もう片方の置き場の書庫が読まれない",
+            || async { inbox.events("c03-youtube-watch").await == 2 },
+        )
+        .await;
+    let seen = inbox.counter().await.0;
+    inbox
+        .until("走査が回らない", || async {
+            inbox.counter().await.0 >= seen + 3
+        })
+        .await;
+    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT sha256, unreadable_kind, file_name FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'unreadable'",
+    )
+    .bind(inbox.user)
+    .fetch_all(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "読み出せないファイルの失敗が 1 行で残らない: {rows:?}"
+    );
+    assert_eq!(
+        rows[0].0,
+        crate::archive::worker::io_failure_key(None, &blocked)
+    );
+    assert_eq!(rows[0].1.as_deref(), Some("file_unreadable"));
+    assert_eq!(rows[0].2.as_deref(), Some("Timeline.json"));
+    // 置き場はどちらも読めたので、走査は成功に数えられ、満たされていないものは無い。
+    let (attempts, successes, blockers) = inbox.counter().await;
+    assert_eq!(
+        attempts, successes,
+        "1 ファイルの失敗で走査が失敗に数えられた"
+    );
+    assert!(blockers.is_empty(), "{blockers:?}");
+}
+
 /// Scenario: 原文は書庫のバイト列の一部と一致する
 #[tokio::test]
 async fn archive_flow_raw_is_a_slice_of_the_archive_bytes() {
@@ -5716,6 +5866,38 @@ async fn archive_ledger_atomic_failed_source_row_leaves_no_read_row() {
     assert_eq!(
         read_rows, 0,
         "論理ソースごとの行が無いのに読み終えた行が残っている"
+    );
+}
+
+/// final review R5 / R6: 失敗の trigger は作り直しても落ちない（前の回が外す前に落ちても次の回が動く）。
+/// 論理ソースごとの行の失敗は、台帳の行の失敗（`archive_ledger`）と別の種別でログに出る。
+#[tokio::test]
+async fn archive_ledger_atomic_source_row_failure_has_its_own_log_kind() {
+    let _ = captured_log();
+    let inbox = Inbox::new("archive-ledger-atomic-log").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 3").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+    let text = || String::from_utf8_lossy(&captured_log().0.lock().unwrap().clone()).into_owned();
+    let mut line = None;
+    for _ in 0..400 {
+        line = text()
+            .lines()
+            .find(|l| {
+                l.contains("書庫の台帳を残せない") && l.contains("test: archive_ledger_source")
+            })
+            .map(str::to_owned);
+        if line.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    let line = line.expect("論理ソースごとの行の失敗がログに出ない");
+    assert!(
+        line.contains(r#"kind="archive_ledger_source""#),
+        "論理ソースごとの行の失敗の種別: {line}"
     );
 }
 

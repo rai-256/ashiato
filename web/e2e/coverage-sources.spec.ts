@@ -112,7 +112,7 @@ test("PC のウィンドウは「変わったとき」、集計は「始めた�
 });
 
 // Scenario: 書庫のソースは手作業と起点つきの通知までの残り日数が出る
-test("視聴履歴は手作業・2 か月ごとと、通知まで 通知までの残り日数（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
+test("視聴履歴は手作業・2 か月ごとと、「通知まで あと N 日」（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
   await openCoverage(page);
   const note = await noteOf(page, "c03-youtube-watch");
   expect(note).toContain("手作業・2 か月ごと");

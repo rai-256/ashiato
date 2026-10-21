@@ -301,7 +301,10 @@ class HeartbeatEmitter(
     private val now: () -> Instant,
     private val newId: () -> String,
     private val log: (String) -> Unit = {},
-    /** 原文に足す欄（`c01-location` の `unused_app_restrictions`。契約）。`capturable` と `blockers` には触れない。 */
+    /**
+     * 原文に足す欄（`c01-location` の `unused_app_restrictions`。契約）。
+     * **決まった欄（`capturable` `blockers` など）と同じ名前は捨てる** —— 決まった欄が勝つ（final review R11）。
+     */
     private val extraFields: () -> Map<String, JsonElement> = { emptyMap() },
 ) {
     /** 1 件を積む。積めたかを返す。 */
@@ -319,7 +322,7 @@ class HeartbeatEmitter(
     private fun buildAndStore(cap: Capability, at: Instant, attempts: Int, successes: Int): Boolean {
         // **原文は組み立てた値そのもの。** 素通しで残るので、同じ 1 件は毎回同じ文字列になる
         // （冪等キーがこの文字列から作られる）。
-        val fields = mapOf(
+        val fixed = mapOf(
             "alive" to JsonPrimitive(true),
             "capturable" to JsonPrimitive(cap.capturable),
             "blockers" to JsonPrimitive(cap.blockers.joinToString(",")),
@@ -327,7 +330,9 @@ class HeartbeatEmitter(
             "successes" to JsonPrimitive(successes),
             "emitted_at" to JsonPrimitive(at.toString()),
             "device_id" to JsonPrimitive(deviceId),
-        ) + extraFields()
+        )
+        // 足す欄が決まった欄を上書きしない（原文の `capturable` と、要求の `capturable` が食い違わない）
+        val fields = fixed + extraFields().filterKeys { it !in fixed }
         val request = HeartbeatRequest(
             id = newId(),
             userId = userId,

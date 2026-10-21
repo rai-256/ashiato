@@ -57,8 +57,10 @@ pub fn alert_of(last_archive_at: DateTime<Utc>, days: i32, now: DateTime<Utc>) -
         };
     }
     let day_ms = Duration::days(1).num_milliseconds();
+    // **過ぎるまでは 1 日以上**（design D21（仮）。final review R9）。鳴るちょうどの時刻は「超える」の手前なので
+    // まだ過ぎていないが、切り上げだけだと「あと 0 日」が出る。最後の 1 日は過ぎるまで「あと 1 日」のまま。
     Alert {
-        days_left: Some((remaining.num_milliseconds() + day_ms - 1) / day_ms),
+        days_left: Some(((remaining.num_milliseconds() + day_ms - 1) / day_ms).max(1)),
         passed: false,
     }
 }
@@ -133,7 +135,11 @@ pub async fn read(
         device_notice: DeviceNotice {
             unused_app_restrictions: raw
                 .and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok())
-                .and_then(|v| v.get("unused_app_restrictions")?.as_str().map(str::to_owned)),
+                .and_then(|v| {
+                    v.get("unused_app_restrictions")?
+                        .as_str()
+                        .map(str::to_owned)
+                }),
         },
     })
 }

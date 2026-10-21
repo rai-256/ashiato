@@ -33,10 +33,14 @@ export function intervalLabel(sec: number): string {
   return m.every(String(sec / 60), m.unitMin);
 }
 
-/** 書庫の通知までの文字。起点（最後の書庫の日）を必ず添える。負の残り日数は出さない。 */
+/**
+ * 書庫の通知までの文字。起点（最後の書庫の日）を必ず添える。負の残り日数も「あと 0 日」も出さない。
+ * 取り込み器は過ぎるまで 1 日以上を返す（design D21（仮））。1 未満が来たら残り日数でなく過ぎた側で出す。
+ */
 export function archiveAlertLabel(row: SourceRow): string {
   if (row.no_archive || row.last_archive_on === null) return m.noArchive;
-  if (row.alert_passed || row.alert_days_left === null) return m.alertPassed(row.last_archive_on);
+  if (row.alert_passed || row.alert_days_left === null || row.alert_days_left < 1)
+    return m.alertPassed(row.last_archive_on);
   return m.alertLeft(String(row.alert_days_left), row.last_archive_on);
 }
 
@@ -54,14 +58,14 @@ export function sourceNote(
   const row = sources?.sources.find((s) => s.logical_source === logicalSource);
   if (sources === null || row === undefined || row.retired_on !== null) return undefined;
   if (logicalSource === "c01-location" && sources.device_notice?.unused_app_restrictions === "not_exempt") {
-    return ` — ${m.pausable}`;
+    return m.note(m.pausable);
   }
   if (row.acquisition === "archive") {
-    return ` — ${m.trigger.manual} · ${archiveAlertLabel(row)}`;
+    return m.note(m.trigger.manual ?? "", archiveAlertLabel(row));
   }
   if (row.fetch_trigger === "interval" && row.fetch_interval_sec !== null) {
-    return ` — ${intervalLabel(row.fetch_interval_sec)}`;
+    return m.note(intervalLabel(row.fetch_interval_sec));
   }
   const trigger = m.trigger[row.fetch_trigger];
-  return trigger === undefined ? undefined : ` — ${trigger}`;
+  return trigger === undefined ? undefined : m.note(trigger);
 }
