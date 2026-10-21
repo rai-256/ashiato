@@ -47,13 +47,23 @@ test("読み出せなかったファイルは「読み出せません」と出�
  * 期待する日付もいまから数える。「外れていない」版は本物の応答の `device_notice` だけ差し替える。
  */
 const PHONE = { width: 360, height: 640 };
-const DAY_MS = 86_400_000;
 
-/** `Asia/Tokyo` の `YYYY-MM-DD`（`days` 日前）。 */
-function jstDayAgo(days: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(
-    new Date(Date.now() - days * DAY_MS),
-  );
+type SourceApiRow = { logical_source: string; last_archive_on: string | null; alert_days_left: number | null; alert_passed: boolean };
+
+/**
+ * 本物の `/api/sources` の 1 行。書庫の経過は seed した時点の now() から置いてあるので、
+ * 走らせた時刻から期待値を数えると seed から時間が経つほどずれる —— 期待する日付と日数は応答の値から作る。
+ */
+async function sourceRow(page: Page, source: string): Promise<SourceApiRow> {
+  // 画面と同じ認証（cookie）で読むため、開いた後のページの中から読む
+  const body = await page.evaluate(async () => {
+    const res = await fetch("/api/sources");
+    if (!res.ok) throw new Error(`/api/sources ${res.status}`);
+    return (await res.json()) as { sources: SourceApiRow[] };
+  });
+  const row = body.sources.find((r) => r.logical_source === source);
+  expect(row, `${source} の行が /api/sources に無い`).toBeDefined();
+  return row!;
 }
 
 async function openCoverage(page: Page): Promise<void> {
@@ -102,11 +112,14 @@ test("PC のウィンドウは「変わったとき」、集計は「始めた�
 });
 
 // Scenario: 書庫のソースは手作業と起点つきの通知までの残り日数が出る
-test("視聴履歴は手作業・2 か月ごとと、通知まで あと 22 日（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
+test("視聴履歴は手作業・2 か月ごとと、通知まで 通知までの残り日数（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
   await openCoverage(page);
   const note = await noteOf(page, "c03-youtube-watch");
   expect(note).toContain("手作業・2 か月ごと");
-  expect(note).toContain(`通知まで あと 22 日（最後の書庫 ${jstDayAgo(53)} から）`);
+  const row = await sourceRow(page, "c03-youtube-watch");
+  expect(row.alert_passed).toBe(false);
+  expect(row.alert_days_left).toBeGreaterThan(0);
+  expect(note).toContain(`通知まで あと ${row.alert_days_left} 日（最後の書庫 ${row.last_archive_on} から）`);
   await expect(page.getByTestId("archive-note-c03-youtube-watch")).toContainText(/\d{4}-\d{2}-\d{2} まで（\d+ 日前）/);
 });
 
@@ -114,7 +127,9 @@ test("視聴履歴は手作業・2 か月ごとと、通知まで あと 22 日�
 test("80 日前の書庫は通知の日を過ぎたと最後の書庫の日つきで出て、負の日数は出ない", async ({ page }) => {
   await openCoverage(page);
   const note = await noteOf(page, "c03-youtube-search");
-  expect(note).toContain(`通知の日を過ぎた（最後の書庫 ${jstDayAgo(80)} から）`);
+  const row = await sourceRow(page, "c03-youtube-search");
+  expect(row.alert_passed).toBe(true);
+  expect(note).toContain(`通知の日を過ぎた（最後の書庫 ${row.last_archive_on} から）`);
   expect(note).not.toContain("あと");
   expect(note).not.toMatch(/-\d+ ?日/);
 });
@@ -123,8 +138,14 @@ test("80 日前の書庫は通知の日を過ぎたと最後の書庫の日つ�
 test("74 日 23 時間前の書庫は あと 1 日 で、過ぎたとは出ない", async ({ page }) => {
   await openCoverage(page);
   const note = await noteOf(page, "c03-timeline-visit");
-  expect(note).toContain("通知まで あと 1 日");
-  expect(note).not.toContain("過ぎた");
+  // seed から 1 時間以内なら あと 1 日。過ぎた後は応答が過ぎたと言うので、画面は応答に従っているかを見る
+  const row = await sourceRow(page, "c03-timeline-visit");
+  if (row.alert_passed) expect(note).toContain("通知の日を過ぎた");
+  else {
+    expect(row.alert_days_left).toBe(1);
+    expect(note).toContain("通知まで あと 1 日");
+    expect(note).not.toContain("過ぎた");
+  }
 });
 
 // Scenario: 通知が鳴った 1 時間後の書庫のソースは過ぎたと出る

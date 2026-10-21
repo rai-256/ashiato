@@ -2,7 +2,7 @@
 # ------------------------------------------------------------------ 稼働状況の格子の見出しに添える取り方と間隔（design D10）
 #
 # 書庫のソースの「最後の書庫」の経過を、**いまからの相対**で置く（通知は最後の書庫 + 75 日）。
-#   視聴履歴          53 日前        → あと 22 日
+#   視聴履歴          seed.sh（ST12）の書庫の行（2026-09-19）がそのまま持つ。e2e は応答の値から期待を作る
 #   検索履歴          80 日前        → 通知の日を過ぎた
 #   タイムラインの訪問 74 日 23 時間前 → あと 1 日（鳴る 1 時間前）
 #   タイムラインの移動 75 日 1 時間前  → 通知の日を過ぎた（鳴った 1 時間後）
@@ -13,7 +13,7 @@
 # 既定の now() にすると既存の e2e（latest-archive.spec）が見る書庫を奪う。
 if [ "$MODE" = "normal" ]; then
   docker compose exec -T db psql -q -U ashiato -d ashiato -v ON_ERROR_STOP=1 <<'SQL'
--- 視聴履歴（53 日前）は seed.sh（ST12）の書庫の行がそのまま持つ（台帳は追記のみで UPDATE できない）
+-- 視聴履歴は seed.sh（ST12）の書庫の行がそのまま持つ（台帳は追記のみで UPDATE できない。その場の書き換えもしない）
 WITH ledger AS (
   INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, created_at, file_name, inbox_kind, finished_at)
   SELECT '00000000-0000-0000-0000-000000000000', v.sha, 'seed', 'read', now() - v.age, v.name, 'inbox', now() - v.age

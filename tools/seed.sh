@@ -415,7 +415,7 @@ curl -sf "${AUTH[@]}" -X POST "http://$BIND/ingest" -d '{"id":"12121212-0000-400
 docker compose exec -T db psql -q -U ashiato -d ashiato -c "
 WITH ledger AS (
   INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome, created_at, file_name, inbox_kind)
-  VALUES ('00000000-0000-0000-0000-000000000000', repeat('1', 64), 'seed', 'read', now() - interval '53 days',
+  VALUES ('00000000-0000-0000-0000-000000000000', repeat('1', 64), 'seed', 'read', '2026-09-19T00:00:00Z',
           'takeout-20260919T000000Z-001.zip', 'inbox')
   ON CONFLICT DO NOTHING RETURNING id
 )
