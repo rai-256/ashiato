@@ -86,7 +86,7 @@
 
 ## Task 6: 読み終えた・中身の変わった書庫の失敗の回数を戻す（design D8。申し送り M7）
 
-- [ ] 6.1 読み手が台帳に `read` を書けたら、その `path` の `archive_sighting` の `consecutive_failures` と `retry_after` を戻す。`scan.rs` は同じ `path` の `sha256` が前回と違えば同じ 2 列を戻してから候補にする。
+- [x] 6.1 読み手が台帳に `read` を書けたら、その `path` の `archive_sighting` の `consecutive_failures` と `retry_after` を戻す。`scan.rs` は同じ `path` の `sha256` が前回と違えば同じ 2 列を戻してから候補にする。
   Scenario: `中断が続いた書庫を読み終えると回数が戻る` / `同じ場所に中身の違う書庫を置き直すと待たされない`。
   検証: `CT archive_failure_reset (≥2)`（中断は Task 4 の試験用の trigger か、ST12 の既存の失敗の差し込みで起こす）、`CT archive_ (≥1)`
 
