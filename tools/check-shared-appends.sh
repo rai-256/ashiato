@@ -36,7 +36,7 @@ mouth_span() {
     END { if (s && e) print s, e }'
 }
 
-# 読む口のかたまりの中身（見出しの行と、注記・空行でない行）。動かしただけかを比べる。注記の行は比べない
+# 読む口のかたまりの中身（見出しの行と、注記・空行でない行）。位置が変わった木で、動かしただけかを比べる。注記の行は比べない
 mouth_sig() {
   awk -v m="$MARK" '!s && index($0, m) { s = 1; print; next }
     s { if ($0 !~ /^[[:space:]]*(#|$)/) print
@@ -84,7 +84,9 @@ tail_touched_in() {   # tail_touched_in <作業の置き場> <base> <file>
   hs=""
   span="$(mouth_span < "$tmp/head")"
   [ -z "$span" ] || read -r hs he <<<"$span"
-  if [ -n "$hs" ] && [ "$(mouth_sig < "$tmp/base")" = "$(mouth_sig < "$tmp/head")" ]; then
+  # 位置が変わったときだけ注記を比べない（動かさずに注記を直すのは、読む口の中の変更として下の差分で見る）
+  if [ -n "$hs" ] && { [ "$hs" != "$s" ] || [ "$he" != "$e" ]; } \
+     && [ "$(mouth_sig < "$tmp/base")" = "$(mouth_sig < "$tmp/head")" ]; then
     awk -v s="$s" -v e="$e" 'NR < s || NR > e' "$tmp/base" > "$tmp/b"
     awk -v s="$hs" -v e="$he" 'NR < s || NR > e' "$tmp/head" > "$tmp/h"
     lo2="$(second_last_line < "$tmp/b")"
@@ -224,6 +226,8 @@ self_test() {
     expect 1 "動かした後の木でファイルの最後に書き足すと落とす" feat/st98-after-end
     git checkout -q main && git checkout -qb feat/st99-after-mid && sed -i 's/^echo a$/echo a2/' tools/check-immutable.sh && git commit -qam mid2
     expect 0 "動かした後の木で戻しの並びの途中の行を直すのは通す" feat/st99-after-mid
+    git checkout -q main && git checkout -qb feat/st90-note && sed -i 's/注記を直した/注記をまた直した/' tools/check-immutable.sh && git commit -qam note
+    expect 1 "読む口を動かさずに中の注記を直すと落とす" feat/st90-note
     git checkout -q main && git checkout -qb feat/ch02-after-gap && sed -i '/^echo b$/a echo 足した' tools/check-immutable.sh && git commit -qam ag
     expect 1 "動かした後の木で最後の検査と最後の判定の行の間に 1 行足すと落とす" feat/ch02-after-gap
   )
