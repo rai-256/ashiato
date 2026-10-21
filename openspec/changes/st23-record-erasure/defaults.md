@@ -25,3 +25,6 @@
 
 `record` の段へ: 独立検査（`review/deep.md`）の escalated（R1 / R3 / R7 / R9 / R10）は、問い（Q3 / Q4）と上の C13 で本人に見せた。
 `deep.md` にその R 番号を残す（`review_triage.py` が `deep.md` の R 番号を見る）。
+
+`record` の段へ（spec review R21）: 推奨が採られたときに要件へ戻すものは `proposal.md` の「推奨が採られたときに要件へ戻すもの」の 3 件（Q3: FR-50 ★・FR-52 / Q4: FR-51 / Q1: INDEX の宛先）。
+record は答えを書くとき、該当する Q の節に「要件へ戻すもの」の行を置く（`review_triage.py` が `deep.md` の「要件へ戻すもの」の節から FR を読み、requirements.md の ★ を確かめる）。

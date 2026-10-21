@@ -87,7 +87,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
 | `record-deletion` | 削除 | ST22, ST23 |
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
-| `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
+| `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
@@ -414,3 +414,13 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   ST09 が `MODIFIED` している「端末は想定間隔ごとに生存信号を送る」には触らない（状態は生存信号の原文に載せる）
 > - ST13 は既に上流にいるので、この割当で `衝突待ち` にはならない（`衝突待ち` は着手可の Story にだけ付く）。ST09 と同時に `device-collection` を触ることになるが、触る Requirement が別で、`MainActivity.kt` / `Heartbeat.kt` の衝突は後から merge する側が rebase で解く（ST13 design D12）
 > - Q4 で「別の Story に送る」「防がない」が選ばれたら、`spec --answers` がこの割当を外す
+
+> **訂正（2026-10-22、ST23 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `browsing-views` に ST23 を足した。ST22 が 1 日の一覧に置いた「消した」の行（と 1 日の並びの「消した」の区間）に、本文ごと消した印と「本文ごと消した 始まり – 終わり」の行を足す
+>   （深掘り Q5 の推奨・C2）。どちらも ST22 が `browsing-views` に MODIFIED した Requirement の続きで、置き場を分けると同じ行の形が 2 つの capability に割れる
+>   （`openspec/changes/st23-record-erasure` の spec review R18）
+> - ST23 は既に上流にいるので、この割当で `衝突待ち` にはならない。走っている ST17・ST25 とは触る Requirement が別（ST23 は ST22 の「1 日の並びを読み出せる」「日付を指定するとその日の滞在が時刻順に一覧で出る」だけを MODIFIED する）
+> - **要件の側でも、satisfies に無い条項を ST23 が満たす**: FR-50 ★ 2026-09-29（消した時間帯に後から届いた位置の印を、取り込みの直後に付け、作り直しの成否に依らせない）。
+>   本体は ST22 で、ST22 は作り直しの中で印を付けていた（申し送り `docs/handoff/ST23.md` の st22 R8）。Q3 の推奨が採られれば、record の段が FR-50 ★ と FR-52 の読み方を改訂する
+> - Q2 / Q5 で「本文ごと消した行を出さない」が選ばれたら、`spec --answers` がこの割当を外す
