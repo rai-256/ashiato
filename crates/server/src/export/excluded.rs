@@ -49,6 +49,10 @@ pub const SPAN_RULES: &[(&str, SpanRule)] = &[
     ("c01-location", SpanRule::Point),
     // 写真の位置・撮影の時刻（撮影は出来事 1 点）
     ("c01-photo", SpanRule::Point),
+    // スクリーンショット・画像・動画も同じ（撮影・保存の 1 点。動画の長さは `duration_ms` の (b) が先に効く）
+    ("c01-screenshot", SpanRule::Point),
+    ("c01-image", SpanRule::Point),
+    ("c01-video", SpanRule::Point),
     // 端末の時計の記録（読んだ時刻の 1 点）
     ("c01-clock", SpanRule::Point),
     // 個人属性（本人が書いた時点）
@@ -120,6 +124,9 @@ pub const COORD_SOURCES: &[&str] = &[
     // 位置の 1 点・写真の位置・滞在（payload に緯度経度）
     "c01-location",
     "c01-photo",
+    "c01-screenshot",
+    "c01-image",
+    "c01-video",
     "s01-stay",
     // 場所の記録（ST21。payload に場所の中心の緯度経度）
     "s01-place",

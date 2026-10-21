@@ -30,6 +30,8 @@ class MainActivityInstrumentedTest {
         Manifest.permission.ACCESS_COARSE_LOCATION,
         Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.POST_NOTIFICATIONS,
+        // 入口が位置の後に写真と動画の権限も求める（design D6）。この試験の関心の外なので許可済みにする
+        *mediaPermissionsToAsk(android.os.Build.VERSION.SDK_INT).toTypedArray(),
     )
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
