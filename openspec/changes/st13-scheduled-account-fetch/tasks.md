@@ -92,7 +92,7 @@
 
 ## Task 7: Google 系の手作業の範囲を縦串で固定する（spec「Google 系の手作業は…」。design D13）
 
-- [ ] 7.1 `archive_flow_tests.rs` の流れで 3 本の Scenario を試験にし、`tools/smoke.d/<時刻>_st13-archive-hands-off.sh`（新しいファイル）に、専用のフォルダの無い状態で S-01 を起動 → 作られたフォルダに `Timeline.json` を置く → ダウンロードのフォルダに合成の `takeout-*.zip` を落とす → 印を置いた形の 2 冊目を置く、を本物の S-01 で通す縦串を置く。
+- [x] 7.1 `archive_flow_tests.rs` の流れで 3 本の Scenario を試験にし、`tools/smoke.d/<時刻>_st13-archive-hands-off.sh`（新しいファイル）に、専用のフォルダの無い状態で S-01 を起動 → 作られたフォルダに `Timeline.json` を置く → ダウンロードのフォルダに合成の `takeout-*.zip` を落とす → 印を置いた形の 2 冊目を置く、を本物の S-01 で通す縦串を置く。
   `docs/archive-inbox.md` に 2 か月ごとの手作業の一覧（Takeout の書き出しとダウンロード・タイムラインの書き出しと運搬・年 1 回の予約のかけ直し・確認待ちが出たときだけ `tools/archive-shape.sh` で印）を書く。
   Scenario: `Takeout をダウンロードのフォルダに落とすだけで入る` / `同じ形の 2 回目の書庫は印を求めずに入る` / `専用のフォルダを作らずに端末のタイムラインが入る`。
   検証: `CT archive_hands_off (≥3)`、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0（新しいファイルの `echo "== Scenario: …"` が 3 本出る）、`bash tools/check-shared-appends.sh` rc=0
