@@ -1,0 +1,4 @@
+{"title": "CH02 の仕様への合意", "subtitle": "書き出しの「次の記録」の引きを行数の 2 乗で遅くならないようにする",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/CH02-spec.html",
+                "question": "この GO 資料のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
