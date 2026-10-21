@@ -109,11 +109,11 @@
 
 ## Task 9: 稼働状況の格子の見出しに取り方と間隔を添える・e2e（design D10 / D11 / D18 / D19。spec「稼働状況の各ソースの格子の見出しの行に…」）
 
-- [ ] 9.1 `web/src/sources.ts`（型・取得・間隔と契機の文言 D11・書庫の残り日数の文言 D10）を作り、稼働状況の画面が `/coverage` と並べて `/sources` を読み、`CoverageGrid.tsx` の見出しの `h2` に `<span data-testid="source-note-<logical_source>">` を 1 つ足す（`archiveNote` と同じ字の大きさ・色。入力とボタンを置かない）。
+- [x] 9.1 `web/src/sources.ts`（型・取得・間隔と契機の文言 D11・書庫の残り日数の文言 D10）を作り、稼働状況の画面が `/coverage` と並べて `/sources` を読み、`CoverageGrid.tsx` の見出しの `h2` に `<span data-testid="source-note-<logical_source>">` を 1 つ足す（`archiveNote` と同じ字の大きさ・色。入力とボタンを置かない）。
   `c01-location` で `device_notice.unused_app_restrictions` が `not_exempt` なら、同じ `span` の間隔の代わりに短い一時停止の知らせを出す（D10 の表）。退役した格子には `span` を出さない。`/sources` を読めない・行の無いソースは `span` を出さない。格子を持たないソースは出さない（D18（仮））。`SettingsView.tsx` には触らない。文言は `messages.ts` の `grid`。
   検証: `cd web && npx vitest run` rc=0（`web/src/__tests__/sources.test.ts`: D11 の間隔の文言の境目 59 → 「59 秒ごと」・60 → 「60 秒ごと」・90 → 「90 秒ごと」・120 → 「2 分ごと」・1800 → 「30 分ごと」・3600 → 「1 時間ごと」・86400 → 「24 時間ごと」、契機の文言、
   書庫の文言（あと 22 日・過ぎた・まだ書庫が無い・退役は残り日数なし）。既存の `one-scroll.test.tsx` も緑のまま）、`cd web && npx tsc --noEmit` rc=0
-- [ ] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・退役した移行前のロケーション履歴・
+- [x] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・退役した移行前のロケーション履歴・
   `c01-location` の生存信号の原文に `"unused_app_restrictions":"not_exempt"`（と、外れている状態に切り替える版）を入れる偽データを置き、`web/e2e/coverage-sources.spec.ts`（新しいファイル）で 16 本の Scenario を本物の Chromium で確かめる。
   Scenario: `間隔ごとのソースは格子の見出しに取得の間隔が出る` / `変わったときに取るソースは格子の見出しに契機が出る` / `書庫のソースは手作業と起点つきの通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` /
   `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` / `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `退役したソースは通知までの残り日数を出さない` /
