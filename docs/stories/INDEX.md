@@ -81,7 +81,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44 |
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41 |
 | `derived-records` | 派生（滞在） | ST16, ST24 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
@@ -89,7 +89,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
 
 > **訂正（2026-10-11、衛星の基盤の改訂）**
@@ -98,6 +98,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   （ST40 / ST46 の breaks は「ST33 の書き出し」を名指ししている）
 > - `satellite-platform` を新しく立てた。衛星の承認・印・読み出しの記録は「アクセス制御」なので `data-sensitivity` に積み、
 >   書き手と終わりの時刻は記録の骨格なので `record-envelope` に積んだ
+> - ST41 を `collection-coverage` と `data-durability` にも足した（★ 2026-10-22 ST41 の spec レビュー R13）—— 終わりの時刻を持つ記録を日ごとの件数で始まりの日に数えること（Q4。C34 の置き場）と、書き出しが終わりの列を内容の終わりより先に読むこと（申し送り C7）を、それぞれ ADDED で足す。後続の振る舞いの前倒しではない
 > - **ST24 は 7 つの capability を MODIFIED する**（`data-sensitivity` のほか、4 段階の既定の値を Scenario に固定している
 >   `record-envelope` / `derived-records` / `desktop-collection` / `personal-entities` / `subjective-log`（上流の ST17 が主観の感度を決めている）、
 >   書き出しが感度の段を Scenario に固定している `data-durability`（ST33。★ 2026-10-12 `docs/audit/2026-10-12-st33-consistency.md` C6））。
