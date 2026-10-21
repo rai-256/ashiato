@@ -332,3 +332,156 @@ pub fn coord_in_raw_sql(raw: &str) -> String {
           OR {l} ~ '(^|[^0-9a-z])[23456789cfghjmpqrvwx]{{4,8}}\+[23456789cfghjmpqrvwx]{{2,3}}($|[^0-9a-z])')"#
     )
 }
+
+/// CH02 の前の `excluded_sql` / `overlap_sql` の写し（試験専用）。新旧の除く集合を突き合わせるために残す（CH02 Q2）。
+///
+/// 写した日: 2026-10-21。元: `crates/server/src/export/excluded.rs` を最後に変えた commit
+/// `ab0806401572f3a46a8c7f73e0982f32ae4d33dd`（HEAD 43c330b1 の時点）。関数の本体は逐語。
+/// `excluded_sql_strict` だけ、記録の側の条件を引数にした `excluded_sql_with` を通して差し替える。
+#[cfg(test)]
+pub(crate) mod legacy {
+    use super::*;
+
+    /// 除く範囲の断片を組む。
+    ///
+    /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
+    /// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+    pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
+        let user_deleted = format!(
+            "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
+            crate::stay_store::REBUILD_PREFIX
+        );
+        let events = "core.event_live";
+        let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
+                                v.event_time, v.payload, v.raw
+                           FROM core.event_version_live v
+                           JOIN core.event_live e ON e.id = v.event_id)";
+        let overlap_event = overlap_sql(
+            events,
+            "(n.event_time, n.id) > (r.event_time, r.id)",
+            snapshot_at,
+        );
+        let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
+        let ctes = format!(
+            "erased_spans AS MATERIALIZED (
+               SELECT s.start_at, s.end_at
+                 FROM core.stay_erased s
+                WHERE {user_deleted}
+               UNION ALL
+               SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
+                 FROM core.stay_erased s
+                 JOIN core.event_version v ON v.event_id = s.id
+                WHERE {user_deleted}
+             ),
+             overlap_event AS MATERIALIZED ({overlap_event}),
+             {EXCLUDED_EVENT} AS MATERIALIZED (
+               SELECT o.id FROM overlap_event o
+             ),
+             overlap_version AS MATERIALIZED ({overlap_version}),
+             {EXCLUDED_VERSION} AS MATERIALIZED (
+               SELECT o.id FROM overlap_version o
+             )"
+        );
+        ExcludedSql { ctes }
+    }
+
+    /// `excluded_sql` の記録の側の条件だけを `n.event_time > r.event_time` にしたもの（同じ時刻の記録を飛ばす形。CH02 Q1）。
+    #[allow(dead_code)] // Task 3 以降の試験が使う
+    pub fn excluded_sql_strict(snapshot_at: &str) -> ExcludedSql {
+        excluded_sql_with(snapshot_at, "n.event_time > r.event_time")
+    }
+
+    /// 記録の側の「次の記録」の条件を差し替えられる形。
+    ///
+    /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
+    /// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+    #[allow(dead_code)]
+    fn excluded_sql_with(snapshot_at: &str, event_next_after: &str) -> ExcludedSql {
+        let user_deleted = format!(
+            "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
+            crate::stay_store::REBUILD_PREFIX
+        );
+        let events = "core.event_live";
+        let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
+                                v.event_time, v.payload, v.raw
+                           FROM core.event_version_live v
+                           JOIN core.event_live e ON e.id = v.event_id)";
+        let overlap_event = overlap_sql(events, event_next_after, snapshot_at);
+        let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
+        let ctes = format!(
+            "erased_spans AS MATERIALIZED (
+               SELECT s.start_at, s.end_at
+                 FROM core.stay_erased s
+                WHERE {user_deleted}
+               UNION ALL
+               SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
+                 FROM core.stay_erased s
+                 JOIN core.event_version v ON v.event_id = s.id
+                WHERE {user_deleted}
+             ),
+             overlap_event AS MATERIALIZED ({overlap_event}),
+             {EXCLUDED_EVENT} AS MATERIALIZED (
+               SELECT o.id FROM overlap_event o
+             ),
+             overlap_version AS MATERIALIZED ({overlap_version}),
+             {EXCLUDED_VERSION} AS MATERIALIZED (
+               SELECT o.id FROM overlap_version o
+             )"
+        );
+        ExcludedSql { ctes }
+    }
+
+    /// 行 `r`（`id` `user_id` `logical_source` `device_id` `event_time` `payload` `raw` を持つ）のうち、
+    /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
+    ///
+    /// 消した時間より後に始まる行は先に落とす（写しは約 120 万行で、次の記録の引きは重なりうる行にだけ要る）。
+    /// `next_after` は次の記録の条件（`n` が次の記録の候補、`r` が自分）。
+    fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
+        let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
+        let dur_keys: Vec<String> = DURATION_KEYS
+            .iter()
+            .map(|(k, us)| duration_key_sql(k, *us))
+            .collect();
+        let points = SPAN_RULES
+            .iter()
+            .filter(|(_, rule)| *rule == SpanRule::Point)
+            .map(|(s, _)| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let coord = has_coordinates_sql("r.logical_source", "r.payload", "r.raw");
+        // 幅の計算（次の記録の引き）は行ごとに 1 回だけ。内側の副問い合わせは `OFFSET 0` で畳み込みを止める
+        // （畳むと重なりの判定のたびに、消した時間の数だけ次の記録を引き直す）。緯度経度を持たない行は幅を求めずに落とす。
+        format!(
+            "SELECT w.id, w.logical_source, w.payload, w.raw
+               FROM (
+                 SELECT r.id, r.logical_source, r.payload, r.raw, r.event_time,
+                        coalesce(a.t, b.t, c.t) AS width_end
+                   FROM {rows} r
+                  CROSS JOIN LATERAL (SELECT coalesce({ends}) AS t) ka
+                  CROSS JOIN LATERAL (SELECT CASE WHEN ka.t >= r.event_time THEN ka.t END AS t) a
+                  CROSS JOIN LATERAL (SELECT coalesce({durs}) AS t) b
+                  CROSS JOIN LATERAL (
+                    SELECT CASE
+                             WHEN a.t IS NOT NULL OR b.t IS NOT NULL THEN NULL
+                             WHEN r.logical_source IN ({points}) THEN r.event_time
+                             ELSE coalesce(
+                               (SELECT n.event_time FROM core.event_live n
+                                 WHERE n.user_id = r.user_id AND n.logical_source = r.logical_source
+                                   AND n.device_id IS NOT DISTINCT FROM r.device_id
+                                   AND {next_after}
+                                 ORDER BY n.event_time, n.id LIMIT 1),
+                               {snapshot_at})
+                           END AS t
+                  ) c
+                  WHERE r.event_time <= (SELECT max(end_at) FROM erased_spans)
+                    AND {coord}
+                 OFFSET 0
+               ) w
+              WHERE EXISTS (SELECT 1 FROM erased_spans s
+                             WHERE s.start_at <= w.width_end
+                               AND s.end_at >= w.event_time)",
+            ends = end_keys.join(", "),
+            durs = dur_keys.join(", "),
+        )
+    }
+}
