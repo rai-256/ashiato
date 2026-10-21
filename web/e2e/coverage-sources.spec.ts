@@ -117,9 +117,12 @@ test("視聴履歴は手作業・2 か月ごとと、通知まで 通知まで�
   const note = await noteOf(page, "c03-youtube-watch");
   expect(note).toContain("手作業・2 か月ごと");
   const row = await sourceRow(page, "c03-youtube-watch");
-  expect(row.alert_passed).toBe(false);
-  expect(row.alert_days_left).toBeGreaterThan(0);
-  expect(note).toContain(`通知まで あと ${row.alert_days_left} 日（最後の書庫 ${row.last_archive_on} から）`);
+  // 通知の日は seed の書庫の日で決まり、過ぎれば応答が過ぎたと言う。画面は応答に従っているかを見る
+  if (row.alert_passed) expect(note).toContain(`通知の日を過ぎた（最後の書庫 ${row.last_archive_on} から）`);
+  else {
+    expect(row.alert_days_left).toBeGreaterThan(0);
+    expect(note).toContain(`通知まで あと ${row.alert_days_left} 日（最後の書庫 ${row.last_archive_on} から）`);
+  }
   await expect(page.getByTestId("archive-note-c03-youtube-watch")).toContainText(/\d{4}-\d{2}-\d{2} まで（\d+ 日前）/);
 });
 
