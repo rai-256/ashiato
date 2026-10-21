@@ -269,8 +269,10 @@ pub async fn record_unreadable(
 
 /// 読み終えた台帳行へ、論理ソースごとの格納結果を追記する。
 /// 台帳は更新できないため、格納の全結果を先に畳んでから 1 行ずつ INSERT する。
+/// 呼び出し側の接続（トランザクション）で書く: 台帳の `read` の行と同じ 1 トランザクションに
+/// 収め、論理ソースごとの行を書けなかった書庫に読み終えた行だけが残らないようにする（design D7）。
 pub async fn record_ledger_sources(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
     ledger_id: i64,
     requests: &[crate::IngestRequest],
     outcomes: &[crate::StoreOutcome],
@@ -326,7 +328,7 @@ pub async fn record_ledger_sources(
         .bind(counts.deleted)
         .bind(counts.rejected)
         .bind(counts.max_event_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         if inserted.rows_affected() == 0 {
             tracing::warn!(
@@ -1698,6 +1700,7 @@ async fn reread_archive(
     // **台帳の行は増やさない側に倒す**（`ON CONFLICT DO NOTHING`。design D18）。混在した書庫は
     // 1 回目の読みで既に `read` の行を持っている。名前・作られた時刻・置き場の種類は
     // 元の読みの行から引き継ぐ（NULL と既定の `inbox` で書いていた。final review R58）。
+    let mut tx = pool.begin().await?;
     let ledger: Option<i64> = sqlx::query_scalar(
         "INSERT INTO core.archive_ledger
            (user_id, sha256, parser_version, outcome, file_name, created_at, inbox_kind,
@@ -1712,7 +1715,7 @@ async fn reread_archive(
     .bind(&meta.inbox_kind)
     .bind(i32::try_from(unreadable.len()).unwrap_or(i32::MAX))
     .bind(unreadable_summary(&unreadable))
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
     let ledger_id = match ledger {
         Some(id) => id,
@@ -1725,11 +1728,12 @@ async fn reread_archive(
             .bind(user_id)
             .bind(archive_sha256)
             .bind(super::PARSER_VERSION)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await?
         }
     };
-    record_ledger_sources(pool, ledger_id, &stored_requests, &stored_outcomes).await?;
+    record_ledger_sources(&mut tx, ledger_id, &stored_requests, &stored_outcomes).await?;
+    tx.commit().await?;
     if pending {
         record_pending_ledger_meta(pool, user_id, archive_sha256, meta).await?;
     }
@@ -2515,41 +2519,36 @@ pub fn spawn_inspecting(
                         );
                         return;
                     }
-                    let ledger = sqlx::query_scalar(
-                    "INSERT INTO core.archive_ledger
-                       (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_at, skipped_file_count, file_name)
-                     VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8, $9)
-                     RETURNING id",
-                )
-                .bind(user_id)
-                .bind(sha256)
-                .bind(super::PARSER_VERSION)
-                .bind(archive_created_at(&candidate.path, chrono::Utc::now()))
-                .bind(inbox_kind)
-                .bind(i32::try_from(result.unreadable + unreadable_locations.len()).unwrap_or(i32::MAX))
-                .bind(unreadable_summary(&unreadable_locations))
-                .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
-                .bind(file_name_of(&candidate.path))
-                .fetch_one(&pool)
-                .await
-                ;
+                    // **台帳の `read` の行と論理ソースごとの行は 1 トランザクション**（design D7）。
+                    // 論理ソースごとの行を書けなかったときは `read` の行も残さず、書庫を置き場に残す。
+                    // 次の走査が読み直し（記録は内容の鍵で増えない）、最終日は論理ソースごとの行から出る。
+                    // 記録の格納（`store_requests`）はこの外のまま —— 1 件 1 トランザクションの関門に触らない。
+                    let sha256_for_ledger = sha256.clone();
+                    let ledger: Result<(), sqlx::Error> = async {
+                        let mut tx = pool.begin().await?;
+                        let ledger_id: i64 = sqlx::query_scalar(
+                            "INSERT INTO core.archive_ledger
+                               (user_id, sha256, parser_version, outcome, created_at, inbox_kind, unreadable_count, unreadable_at, skipped_file_count, file_name)
+                             VALUES ($1, $2, $3, 'read', $4, $5, $6, $7, $8, $9)
+                             RETURNING id",
+                        )
+                        .bind(user_id)
+                        .bind(sha256_for_ledger)
+                        .bind(super::PARSER_VERSION)
+                        .bind(archive_created_at(&candidate.path, chrono::Utc::now()))
+                        .bind(inbox_kind)
+                        .bind(i32::try_from(result.unreadable + unreadable_locations.len()).unwrap_or(i32::MAX))
+                        .bind(unreadable_summary(&unreadable_locations))
+                        .bind(i32::try_from(result.skipped).unwrap_or(i32::MAX))
+                        .bind(file_name_of(&candidate.path))
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        record_ledger_sources(&mut tx, ledger_id, &stored_requests, &stored_outcomes).await?;
+                        tx.commit().await
+                    }
+                    .await;
                     match ledger {
-                        Ok(ledger_id) => {
-                            if record_ledger_sources(
-                                &pool,
-                                ledger_id,
-                                &stored_requests,
-                                &stored_outcomes,
-                            )
-                            .await
-                            .is_err()
-                            {
-                                tracing::warn!(
-                                    kind = "archive_ledger_source",
-                                    "書庫のソース別台帳を残せない"
-                                );
-                                return;
-                            }
+                        Ok(()) => {
                             if !candidate.from_downloads
                                 && move_to_processed(&candidate.path).is_err()
                             {

@@ -156,7 +156,7 @@ async fn archive_ledger_sources_keep_per_source_store_outcomes() {
         .to_utc();
     let requests = vec![archive_request(user, r#"{"watch":"inserted"}"#), duplicate];
     crate::archive::worker::record_ledger_sources(
-        &pool,
+        &mut pool.acquire().await.unwrap(),
         ledger,
         &requests,
         &[

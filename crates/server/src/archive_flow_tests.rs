@@ -5503,3 +5503,87 @@ async fn archive_youtube_last_event_is_reported_per_logical_source() {
         Some("2026-09-11")
     );
 }
+
+/// 視聴履歴 1 件の書庫を置く。書庫の `sha256` を返す。
+async fn put_atomic_watch_archive(inbox: &Inbox, title: &str) -> String {
+    // 試験ごとに題名を変える（書庫の `sha256` が同じだと並走する試験の trigger が被る）。
+    let body = watch("2026-09-12T03:00:00Z", title);
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260914-041200.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    use sha2::Digest as _;
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(
+            std::fs::read(inbox.inbox.join("takeout-20260914-041200.zip")).unwrap()
+        )
+    )
+}
+
+/// Scenario: 論理ソースごとの行を書けなかった書庫は読み終えた行も残らない
+#[tokio::test]
+async fn archive_ledger_atomic_failed_source_row_leaves_no_read_row() {
+    let inbox = Inbox::new("archive-ledger-atomic-rollback").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 1").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("記録が格納されない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    // 書庫は置き場に残る。読み終えた行を書こうとした走査が少なくとも 1 回は失敗を見るまで待つ。
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let read_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_ledger WHERE user_id = $1 AND sha256 = $2 AND outcome = 'read'",
+    )
+    .bind(inbox.user)
+    .bind(&sha)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    assert_eq!(
+        read_rows, 0,
+        "論理ソースごとの行が無いのに読み終えた行が残っている"
+    );
+}
+
+/// Scenario: 台帳を書けなかった書庫は次の走査で読み直されて最終日が出る
+#[tokio::test]
+async fn archive_ledger_atomic_next_scan_rereads_and_shows_last_day() {
+    let inbox = Inbox::new("archive-ledger-atomic-reread").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 2").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("記録が格納されない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert_eq!(inbox.ledger_rows("read").await, 0);
+    assert_eq!(inbox.last_event_on("c03-youtube-watch").await, None);
+
+    // つながって次の走査が来る。
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox
+        .until("読み直されて最終日が出ない", || async {
+            inbox.last_event_on("c03-youtube-watch").await.as_deref() == Some("2026-09-12")
+        })
+        .await;
+    assert_eq!(
+        inbox.events("c03-youtube-watch").await,
+        1,
+        "読み直しで視聴履歴の記録が増えている（1 回だけ読んだときと同じはず）"
+    );
+}
