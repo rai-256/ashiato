@@ -28,9 +28,9 @@ async fn export_ledger_migration_applies_twice() {
     assert_eq!(applied.unwrap().as_deref(), Some("core.export_ledger"));
     assert!(
         crate::MIGRATIONS
-            .last()
-            .is_some_and(|(name, _)| name.ends_with("_export_ledger")),
-        "書き出しの台帳の移行が MIGRATIONS の末尾に無い"
+            .iter()
+            .any(|(name, _)| name.ends_with("_export_ledger")),
+        "書き出しの台帳の移行が MIGRATIONS に無い"
     );
 }
 

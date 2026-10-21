@@ -8,31 +8,25 @@ use sqlx::Row;
 
 const MIGRATION: &str = "_source_acquisition";
 
-fn migration(down: bool) -> &'static str {
-    let (name, up) = crate::MIGRATIONS
+fn this_migration() -> (usize, &'static str) {
+    let i = crate::MIGRATIONS
         .iter()
-        .find(|(n, _)| n.ends_with(MIGRATION))
+        .position(|(n, _)| n.ends_with(MIGRATION))
         .unwrap();
-    if down {
-        // 戻し手順は MIGRATIONS に無いので、ファイルから読む
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../migrations")
-            .join(format!("{name}.down.sql"));
-        Box::leak(std::fs::read_to_string(path).unwrap().into_boxed_str())
-    } else {
-        up
-    }
+    (i, crate::MIGRATIONS[i].1)
 }
 
-/// 移行を当て直す試験は DDL で表に排他の錠を取る。同じ試験どうし・別プロセスの移行と
-/// 錠を取り合って deadlock しないよう、testdb の移行と同じ助言ロックで直列にする。
-async fn ddl_tx(pool: &sqlx::PgPool) -> sqlx::Transaction<'_, sqlx::Postgres> {
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SELECT pg_advisory_xact_lock(4820251)")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    tx
+/// 使い捨ての DB に、この移行の前までの版を当てる。移行を当て直す試験は DDL で表に排他の錠を取るので、
+/// 共有の DB でなくここで行う（共有の DB で行うと、同時に走る書き出しの試験と錠を取り合って落ちる）。
+async fn fresh_before_this_migration() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
+    let (pool, drop) = crate::stay_tests::fresh_db().await;
+    for (label, sql) in &crate::MIGRATIONS[..this_migration().0] {
+        sqlx::raw_sql(sql)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: {e}"));
+    }
+    (pool, drop)
 }
 
 async fn read(pool: &sqlx::PgPool, source: &str) -> (String, String, Option<i32>) {
@@ -278,31 +272,22 @@ async fn source_with_unknown_prefix_is_server_derived() {
 // Scenario: 取り方を足す前に別の移行が足した行にも取り方が入る
 #[tokio::test]
 async fn row_added_before_the_migration_gets_acquisition() {
-    let pool = testdb::pool().await;
-    // この移行の前までの形に戻し（transaction の中だけ）、列を知らない INSERT をしてから当てる
-    let mut tx = ddl_tx(&pool).await;
-    sqlx::raw_sql(migration(true))
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    let (pool, drop) = fresh_before_this_migration().await;
+    // 取り方の列を知らない INSERT をしてから、この移行を当てる
     sqlx::query(
         "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind)
-         VALUES ('c01-example', 'x', 21600, 'none') ON CONFLICT (logical_source) DO NOTHING",
+         VALUES ('c01-example', 'x', 21600, 'none')",
     )
-    .execute(&mut *tx)
+    .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(migration(false))
-        .execute(&mut *tx)
+    sqlx::raw_sql(this_migration().1)
+        .execute(&pool)
         .await
         .unwrap();
-    let r = sqlx::query("SELECT acquisition, fetch_trigger, fetch_interval_sec FROM core.source WHERE logical_source = 'c01-example'")
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
-    assert_eq!(r.get::<String, _>(0), "device");
-    assert_eq!(r.get::<String, _>(1), "on_change");
-    assert_eq!(r.get::<Option<i32>, _>(2), None);
+    let got = read(&pool, "c01-example").await;
+    drop.await;
+    assert_eq!(got, ("device".into(), "on_change".into(), None));
 }
 
 // Scenario: 間隔ごとでない契機のソースに取得の間隔を持たせると断られる
@@ -343,23 +328,22 @@ async fn myactivity_source_is_archive_manual() {
 // Scenario: 本人が変えた取得の間隔は移行を当て直しても戻らない
 #[tokio::test]
 async fn changed_interval_survives_reapplying_the_migration() {
-    let pool = testdb::pool().await;
-    let mut tx = ddl_tx(&pool).await;
+    let (pool, drop) = fresh_before_this_migration().await;
+    sqlx::raw_sql(this_migration().1)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE core.source SET fetch_interval_sec = 60 WHERE logical_source = 's01-archive-inbox'",
     )
-    .execute(&mut *tx)
+    .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql(migration(false))
-        .execute(&mut *tx)
+    sqlx::raw_sql(this_migration().1)
+        .execute(&pool)
         .await
         .unwrap();
-    let v: Option<i32> = sqlx::query_scalar(
-        "SELECT fetch_interval_sec FROM core.source WHERE logical_source = 's01-archive-inbox'",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
-    assert_eq!(v, Some(60));
+    let got = read(&pool, "s01-archive-inbox").await;
+    drop.await;
+    assert_eq!(got, ("server".into(), "interval".into(), Some(60)));
 }
