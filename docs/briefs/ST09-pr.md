@@ -4,11 +4,10 @@ change: `openspec/changes/st09-media-capture/`（tasks 11 Task・28 項目。レ
 
 ## 本人に戻したもの（A）
 
-- **Q18（premise）: 計測テスト（AT）の本数の数え方が常に 0 本になる**（`review/code.md` R14）。
-  `tasks.md` の前置きの `AT <クラス>` は結果の XML をファイル名で探すが、本物の結果のファイル名（`TEST-ashiato-api35(AVD) - 15-_app-.xml`）はクラス名を含まない。
-  前置きの定義は `plan_fix.py` の対象外なので本人に戻した。問いは `deep-questions-r3.json`（HTML: `docs/briefs/ST09-deep-r3.html`）。
-  推奨は「`<testcase classname=…>` で数える定義に直し、2 段目の XML の上書きを段ごとに分ける」。
-  HEAD 71f203b0 の走行を `classname=` で数え直すと 1 段目 `MediaCaptureInstrumentedTest` 2 本・3 段目 `MediaPremisesInstrumentedTest` 3 本・失敗 0（final review R2・code-verify）
+なし。積んでいた **Q18（premise）: 計測テスト（AT）の本数の数え方が常に 0 本になる**（`review/code.md` R14）は第 3 回の深掘りで回答済み（2026-10-21）。
+答えどおりに `tasks.md` の Global Constraints の `AT <クラス>` を、結果の XML のファイル名でなく `androidTest-results-stage*/TEST-*.xml` の中の
+`<testcase classname="….<クラス>">` の数とする定義に直し、`tools/android-emulator.sh` が段ごとの XML を `androidTest-results-stage<N>` に残すようにした
+（これまで 2 段目の XML は 3 段目に上書きされていた）。前置きの定義は `plan_fix.py` の対象外なので、本人の答えを出所に直接直した。
 
 ## 仮決め（B / P）と Ruling
 
@@ -27,11 +26,11 @@ ledger の Ruling（全 Task の `Ruling:` 行の写し）:
 ## Task
 
 **11 Task・28 項目を全部埋めた。** 残した Task は無い。人間の確認に残るのは本物のカメラで撮る 2 本（`物理: device`）だけ。
-AT（計測テスト）は CI の `android-instrumented` でも走る（数え方は上の Q18）。
+AT（計測テスト）は CI の `android-instrumented` でも走る（数え方は上の Q18 の答えで直した定義）。
 
 ## レビューの処置（`review/code.md`。`review_triage.py` rc=0）
 
-- final review（R1〜R14）: fixed 12・rejected 1（R12）・escalated 1（R14 → Q18）
+- final review（R1〜R14）: fixed 12・rejected 1（R12）・escalated 1（R14 → Q18。回答済みで直した）
 - code-verify（R15〜R18）・security review（R19）・`/code-review`（R20〜R29）: fixed 14（うち P の仮 2: R15 → D25 / R19 → D26、B の仮 1: R29 → D7）・rejected 1（R28: 移行はサーバの起動では当たらず、借り先のあるソースは自分の開始日を使わない）。
   R22 は筋書きが再現しなかったが、頭 8 文字の重なり・手で置かれたファイルで永久に 422 になる道を全ハッシュの名前の候補で潰した
 - scoped re-review（0f58c591）: fix が持ち込んだ Important 1（記録の名前が変わると原本が 2 つ目として置かれる）を直し、Minor 1 を直し、Minor 2 件と R25 の穴を Ruling で park
@@ -42,6 +41,8 @@ evidence.jsonl（Task gate の証跡）: 1.1〜11.1 の全項目が PASS・rc=0�
 その後の HEAD での走行:
 - `cargo test -p ashiato-server`（全体）: 1279 passed / 0 failed・rc=0（7ec57aad。code-verify。作り直した DB）
 - `scripts/quiet-run instr -- tools/android-emulator.sh`: rc=0・934 秒（71f203b0。final review R2）
+- Q18 の直しの後（このブランチの HEAD）: `scripts/quiet-run instr -- tools/android-emulator.sh` rc=0・978 秒。新しい `AT` の定義で数えて
+  1 段目 17 本・2 段目 2 本・3 段目 3 本・失敗 0（`MediaCaptureInstrumentedTest` 2 本・`PermissionDeniedInstrumentedTest` 1 本・`MediaPremisesInstrumentedTest` 3 本）
 - finish の fix の後（このブランチの HEAD）:
   `cargo test -p ashiato-server st09_` 83 passed・rc=0 / `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 /
   `./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:testDebugUnitTest` rc=0（615 本・失敗 0）/

@@ -26,7 +26,9 @@
   `grep -ho 'tests="[0-9]*"' collector-android/app/build/test-results/testDebugUnitTest/TEST-*<クラス>*.xml | tr -dc '0-9\n' | awk '{s+=$1} END{print s+0}'` が
   その項目に書いた本数（`N 本以上`。書いていなければ 1）以上、
   **`AT <クラス>`** は `scripts/quiet-run instr -- tools/android-emulator.sh` rc=0 かつ
-  `find collector-android/app/build/outputs/androidTest-results -name 'TEST-*<クラス>*.xml' -exec grep -ho 'tests="[0-9]*"' {} + | tr -dc '0-9\n' | awk '{s+=$1} END{print s+0}'` が同じく本数以上
+  `cat collector-android/app/build/outputs/androidTest-results-stage*/TEST-*.xml | grep -o '<testcase [^>]*classname="[^"]*\.<クラス>"' | wc -l` が同じく本数以上
+  （結果のファイル名はクラス名を含まない（`TEST-<AVD>-_app-.xml`）ので、XML の中の `<testcase classname=…>` で数える。
+  `tools/android-emulator.sh` が段ごとの XML を `androidTest-results-stage<N>` に残す。deep.md Q18（2026-10-21 本人の答え。review/code.md R14））
   が rc=0 になることを指す（`cargo test` に絞り込みを 2 つ渡すと `unexpected argument` で落ちる。1 つずつ書く。0 本でも rc=0 になるので `-- --list` の下限を必ず見る）
 - **計測テスト（`AT`）だけで閉じる Task を作らない。** 手元の `/dev/kvm` が無いことがある（`scripts/verify-run` が `BLOCKED_INFRA` を返す）。
   `AT` を挙げた項目は、同じ振る舞いを `GT`（Robolectric の MediaStore と偽の読み手）でも確かめる。`AT` は CI の `android-instrumented` で必ず走る

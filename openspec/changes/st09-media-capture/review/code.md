@@ -88,7 +88,7 @@ Task ごとの ⚠️ の確認の結果（問題なしとした分）は末尾�
 - 成果物: openspec/changes/st09-media-capture/tasks.md
 - 根拠: 結果のファイル名は `TEST-ashiato-api35(AVD) - 15-_app-.xml` でクラス名を含まない（Task 2 ⚠️ / Task 10 F6）。Global Constraints の `AT <クラス>` の `find -name 'TEST-*<クラス>*.xml'` は `<testcase classname=…>` で数える定義でないと成立しない
 - kind: premise
-- 処置: escalated （deep.md Q18。tasks.md の前置きの `AT` の定義は項目の検証コマンドでなく `plan_fix.py` の対象外。`AT` の略記は `find` で始まり evidence.py の検証コマンドにも拾われていない（実測: `declared()` が 2.2 で `[]`）。数え方の直しを本人に戻した）
+- 処置: escalated （deep.md Q18。tasks.md の前置きの `AT` の定義は項目の検証コマンドでなく `plan_fix.py` の対象外。`AT` の略記は `find` で始まり evidence.py の検証コマンドにも拾われていない（実測: `declared()` が 2.2 で `[]`）。数え方の直しを本人に戻した）。deep.md 第 3 回 Q18 で回答済み（`classname=` で数える・段ごとに XML を残す。2026-10-21）。答えどおりに tasks.md の Global Constraints の `AT` の定義を `androidTest-results-stage*/TEST-*.xml` の `<testcase classname="….<クラス>">` の数に直し、`tools/android-emulator.sh` が各段の後に XML を `androidTest-results-stage<N>` へ写すようにした。`scripts/quiet-run instr -- tools/android-emulator.sh` rc=0・978 秒（`.superpowers/sdd/logs/20261021-155103-instr.log`）。新しい定義で 1 段目 17 本・2 段目 2 本・3 段目 3 本・失敗 0、`MediaCaptureInstrumentedTest` 2 本・`PermissionDeniedInstrumentedTest` 1 本・`MediaPremisesInstrumentedTest` 3 本（2 段目が初めて数えられた）
 
 ## scoped re-review（6e023e9..71f203b）
 
