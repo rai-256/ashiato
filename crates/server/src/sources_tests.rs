@@ -239,6 +239,28 @@ async fn sources_device_notice_reads_latest_location_heartbeat_raw() {
     assert_eq!(v["device_notice"]["unused_app_restrictions"], "not_exempt");
 }
 
+#[tokio::test]
+async fn sources_device_notice_is_null_when_latest_heartbeat_raw_is_not_json() {
+    let (pool, user) = (testdb::pool().await, testdb::user());
+    sqlx::query(
+        "INSERT INTO core.heartbeat
+           (id, user_id, logical_source, device_id, emitted_at, capturable, blockers,
+            attempts, successes, content_hash, raw)
+         VALUES ($1,$2,'c01-location','test','2026-10-21T03:00:00Z'::timestamptz,true,'{}',1,1,$3,'not json')",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(user)
+    .bind(uuid::Uuid::new_v4().to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (status, body) = call(&app().await, user, true).await;
+    assert_eq!(status, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(v["device_notice"]["unused_app_restrictions"].is_null());
+    assert!(v["sources"].as_array().is_some_and(|a| !a.is_empty()));
+}
+
 // Scenario: ソースの一覧は認証の無い要求には返らない
 #[tokio::test]
 async fn sources_without_credentials_is_401_without_list() {

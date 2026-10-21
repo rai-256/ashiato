@@ -119,8 +119,9 @@ pub async fn read(
             },
         )
         .collect();
-    let notice: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT raw::jsonb->>'unused_app_restrictions' FROM core.heartbeat
+    // 原文は text の素通しで JSON とは限らない。SQL で cast せず Rust で読み、読めなければ無しにする
+    let raw: Option<String> = sqlx::query_scalar(
+        "SELECT raw FROM core.heartbeat
           WHERE user_id = $1 AND logical_source = 'c01-location'
           ORDER BY emitted_at DESC LIMIT 1",
     )
@@ -130,7 +131,9 @@ pub async fn read(
     Ok(SourcesResponse {
         sources,
         device_notice: DeviceNotice {
-            unused_app_restrictions: notice.flatten(),
+            unused_app_restrictions: raw
+                .and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok())
+                .and_then(|v| v.get("unused_app_restrictions")?.as_str().map(str::to_owned)),
         },
     })
 }
