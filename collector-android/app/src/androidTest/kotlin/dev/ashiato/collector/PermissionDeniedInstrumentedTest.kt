@@ -16,6 +16,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -110,10 +111,11 @@ class PermissionDeniedInstrumentedTest {
         deny!!.click()
 
         // ---- 1. 約束どおりの経路で終わったか（結果コードではなく権限状態を見た証拠）
-        assertTrue(
-            "logcat に kind=permission_denied が出ない（別の経路で終わっている）",
-            waitForLog("kind=permission_denied"),
-        )
+        // **落ちたときに 3 つの見分けが付くように残す**（CI だけで 1 度落ち、手元の同じ順では再現しなかった。2026-10-21）:
+        // 押せていない（ダイアログが残る）/ 許可の側を押した（位置が許可になる）/ 行は出たが拾えていない
+        if (!waitForLog("kind=permission_denied")) {
+            fail("logcat に kind=permission_denied が出ない（別の経路で終わっている）: " + denyDiagnosis())
+        }
 
         // ---- 2. **位置を拒否した後も通知の権限を求める**（独立レビュー I1）。
         // ここが本丸。求めないと、Android 13 以降は**前景サービスが立っても通知が表示されず**、
@@ -157,6 +159,22 @@ class PermissionDeniedInstrumentedTest {
             PackageManager.PERMISSION_DENIED,
             context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION),
         )
+    }
+
+    /**
+     * `permission_denied` が出なかったときの見分けの材料。値は出さない（権限の状態と画面と自分の行だけ）。
+     * **見分けの要点は 1 行目に置く** —— CI のコンソールは失敗の 1 行目しか出さず、報告書も残らない。
+     */
+    private fun denyDiagnosis(): String {
+        val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        // ボタンの有無では見分けられない（次の通知のダイアログにも同じ id のボタンがある）。**どのダイアログか**を文言で残す
+        val dialog = device.findObject(By.res(Pattern.compile(".*:id/permission_message")))?.text ?: "なし"
+        // `-t` は絞る前の行数なので、`waitForLog` と同じだけ読んでから末尾を切る
+        val tail = shell("logcat -d -s ashiato:V -t 20000").lines().takeLast(DIAGNOSIS_LINES)
+        return "位置の権限: ${if (fine) "許可（押したのは許可の側）" else "拒否"} / " +
+            "前面: ${device.currentPackageName} / 出ているダイアログ: $dialog\n" +
+            "自分の行（末尾）:\n" + tail.joinToString("\n")
     }
 
     /** 通知の権限のダイアログで「許可」を押す。出なければ落とす。 */
@@ -210,6 +228,9 @@ class PermissionDeniedInstrumentedTest {
     private companion object {
         const val DIALOG_TIMEOUT_MS = 15_000L
         const val LOG_TIMEOUT_MS = 15_000L
+
+        /** 落ちたときに残す自分の行の数 */
+        const val DIAGNOSIS_LINES = 40
 
         /** 前景サービスの通知が出るまでの待ち */
         const val SETTLE_MS = 15_000L
