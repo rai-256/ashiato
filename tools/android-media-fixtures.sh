@@ -12,6 +12,14 @@ M=collector-android/app/src/test/resources/media
 PHOTO=/sdcard/Pictures/ashiato-premise-camera.jpg
 VIDEO=/sdcard/Movies/ashiato-premise-video.mp4
 
+# 起動の完了（sys.boot_completed）の直後は /sdcard がまだ繋がっていないことがある
+# （実測 2026-10-21 CI: `adb push` が `secure_mkdirs() failed: No such file or directory`）。置き先が作れるまで待つ
+for i in $(seq 1 90); do
+  adb shell 'mkdir -p /sdcard/Pictures /sdcard/Movies' >/dev/null 2>&1 && break
+  [ "$i" = 90 ] && { echo "error: 90 秒待っても /sdcard に置き先を作れない（外部の保存領域が繋がらない）" >&2; exit 1; }
+  sleep 1
+done
+
 adb push "$M/camera-gps.jpg" "$PHOTO" >/dev/null
 adb push "$M/video-gps.mp4" "$VIDEO" >/dev/null
 for f in "$PHOTO" "$VIDEO"; do
