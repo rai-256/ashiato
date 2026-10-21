@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ST13 — ソースの取り方と間隔（S-7 設定）</title>
+<style>
+:root{--bg:#14161a;--panel:#1c1f24;--line:#2e333b;--fg:#e8eaed;--mut:#a3a9b3;--acc:#7cb7ff;--warn:#f0b35a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+.wrap{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
+h1{font-size:1rem;margin:0 0 4px}
+.sub{color:var(--mut);font-size:.82rem;margin:0 0 12px}
+fieldset{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:8px 10px}
+legend{font-size:.85rem;color:var(--mut);padding:0 4px}
+label{display:flex;gap:8px;align-items:flex-start;min-height:24px;padding:3px 0;cursor:pointer;font-size:.9rem}
+input[type=radio]{width:18px;height:18px;margin-top:2px}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+button{min-height:28px;min-width:24px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:#262a31;color:var(--fg);font:inherit;font-size:.85rem;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.fixed{font-size:.78rem;color:var(--mut);border-top:1px solid var(--line);padding-top:8px}
+main{padding:16px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+.stage{border:1px solid var(--line);border-radius:10px;background:#0f1114;padding:12px;overflow:auto}
+.frame{margin:0 auto;background:#121417;border:1px solid var(--line);border-radius:8px;padding:12px}
+.frame h2{font-size:1.05rem;margin:0 0 4px}
+.frame .lead{color:var(--mut);font-size:.85rem;margin:0 0 10px}
+.grp{margin:12px 0 4px;font-size:.85rem;color:var(--mut);font-weight:600}
+.row{display:grid;gap:4px 10px;align-items:center;border-top:1px solid var(--line);padding:8px 0;min-height:24px}
+.row.wide{grid-template-columns:minmax(10em,1.4fr) 7em 9em 1fr}
+.row.narrow{grid-template-columns:1fr auto}
+.row .name{font-weight:600}
+.row .how{font-size:.8rem;color:var(--mut)}
+.row .last,.row .note{font-size:.85rem}
+.note.warn{color:var(--warn)}
+select{min-height:28px;background:#262a31;color:var(--fg);border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.85rem}
+.empty{border:1px dashed var(--line);border-radius:6px;padding:8px;color:var(--mut);font-size:.85rem}
+.cov{display:grid;grid-template-columns:11em 1fr;gap:6px;align-items:center;border-top:1px solid var(--line);padding:6px 0}
+.cells{display:flex;gap:2px}.cells i{width:9px;height:24px;background:#3a7a55;border-radius:2px}.cells i.n{background:#30343b}
+.cov .meta{grid-column:2;font-size:.78rem;color:var(--mut)}
+.out{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.out pre{white-space:pre-wrap;user-select:text;margin:8px 0 0;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+.copied{color:var(--acc);font-size:.85rem;margin-left:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside>
+  <h1>ソースの取り方と間隔</h1>
+  <p class="sub">S-7 設定（ST13）。登録簿の静的な 23 本と、マイアクティビティの製品ごとに増える行（例 4 本）を実物の数で並べる。間隔を画面から変えるかは Q6（ここでは変えない）。定期取得するソースは要件の中にまだ無い（Q1）。</p>
+  <div class="presets">
+    <button data-p="list">設定に一覧（読むだけ）</button>
+    <button data-p="flat">設定に一列</button>
+    <button data-p="cov">稼働状況の行に添える</button>
+  </div>
+  <fieldset><legend>どこに出すか</legend>
+    <label><input type="radio" name="where" value="settings" checked> S-7 設定の「ソース」節に一覧</label>
+    <label><input type="radio" name="where" value="coverage"> 稼働状況の格子の各行に添える（設定には出さない）</label>
+  </fieldset>
+  <fieldset><legend>書庫のソース（手作業で運ぶもの）</legend>
+    <label><input type="radio" name="arch" value="manual" checked> 間隔の代わりに「手作業・2 か月ごと」と、通知までの残り日数</label>
+    <label><input type="radio" name="arch" value="blank"> 間隔の欄は空ける（最終日だけ）</label>
+  </fieldset>
+  <fieldset><legend>並べ方</legend>
+    <label><input type="radio" name="group" value="how" checked> 取り方でまとめる（端末・PC・書庫・サーバ・定期取得）</label>
+    <label><input type="radio" name="group" value="flat"> 一列に並べる</label>
+  </fieldset>
+  <fieldset><legend>見る幅（判断ではない）</legend>
+    <label><input type="radio" name="w" value="360"> 360 px（携帯）</label>
+    <label><input type="radio" name="w" value="1024" checked> 1024 px（PC）</label>
+  </fieldset>
+  <p class="fixed">固定の前提: 触れる対象は 24 px 以上（NFR-19）・意味を担う色は 3:1 以上（NFR-23）・360 px 幅で横に溢れない・明暗は OS に従う（NFR-17。ここは暗い側で描く）。</p>
+</aside>
+<main>
+  <div class="stage"><div class="frame" id="frame"></div></div>
+  <div class="out"><strong>指示</strong><button id="copy" style="margin-left:8px">指示をコピー</button><span class="copied" id="copied"></span><pre id="prompt"></pre></div>
+</main>
+</div>
+<script>
+const SOURCES=[
+ ["端末","c01-location","携帯端末の位置","60 秒ごと",false,"今日 14:02"],
+ ["端末","c01-app-usage","携帯端末のアプリ利用","30 分ごと",false,"今日 13:30"],
+ ["端末","c01-app-usage-rollup","携帯端末のアプリ利用（集計）","始めたときに 1 回",false,"2026-09-18"],
+ ["端末","c01-photo","端末に保存された写真","保存されたとき",false,"昨日 19:44"],
+ ["端末","c01-clock","携帯端末の時計のずれ","1 時間ごと",false,"今日 14:00"],
+ ["PC","c02-window","PC のウィンドウ","変わったとき",false,"今日 14:05"],
+ ["PC","c02-browser-history","PC のブラウザ履歴","24 時間ごと",false,"今日 03:00"],
+ ["書庫","c03-timeline-visit","タイムラインの訪問","",false,"2026-09-02"],
+ ["書庫","c03-timeline-move","タイムラインの移動","",false,"2026-09-02"],
+ ["書庫","c03-timeline-route","タイムラインの経路","",false,"2026-09-01"],
+ ["書庫","c03-timeline-signal","タイムラインの生の信号","",false,"2026-09-02"],
+ ["書庫","c03-legacy-location","移行前のロケーション履歴","",false,"2024-06-30"],
+ ["書庫","c03-legacy-visit","移行前の訪問","",false,"2024-06-30"],
+ ["書庫","c03-legacy-activity","移行前の移動","",false,"2024-06-29"],
+ ["書庫","c03-youtube-watch","YouTube の視聴履歴","",false,"2026-08-28"],
+ ["書庫","c03-youtube-search","YouTube の検索履歴","",false,"2026-08-27"],
+ ["書庫","c03-myactivity-youtube","マイアクティビティ: YouTube","",false,"2026-08-28"],
+ ["書庫","c03-myactivity-u1","マイアクティビティ: 検索","",false,"2026-08-28"],
+ ["書庫","c03-myactivity-u2","マイアクティビティ: マップ","",false,"2026-08-27"],
+ ["書庫","c03-myactivity-u3","マイアクティビティ: Discover","",false,"2026-08-26"],
+ ["書庫","c03-myactivity-u4","マイアクティビティ: Google Play ストア","",false,"2026-08-20"],
+ ["書庫","c03-chrome-history","Chrome の履歴","",false,"2026-08-28"],
+ ["サーバ","s01-archive-inbox","取り込み器（置き場の見回り）","2 分ごと",false,"今日 14:05"],
+ ["サーバ","s01-stay","滞在","位置から導く",false,"今日 13:10"],
+ ["サーバ","s01-attribute","個人属性","本人が書いたとき",false,"2026-10-02"],
+ ["サーバ","s01-feeling","主観","本人が書いたとき",false,"昨日 22:15"],
+ ["サーバ","s01-place","場所","本人が書いたとき",false,"2026-10-11"],
+];
+const DEFAULTS={where:"settings",arch:"manual",group:"how",w:"1024"};
+const state={...DEFAULTS};
+const PRESETS={list:{where:"settings",group:"how",arch:"manual"},flat:{where:"settings",group:"flat"},cov:{where:"coverage"}};
+const GROUPS=["端末","PC","書庫","サーバ","定期取得"];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function interval(s){
+  const [g,,,iv]=s;
+  if(g==="書庫") return state.arch==="manual"?"手作業・2 か月ごと":"";
+  return esc(iv);
+}
+function note(s){
+  if(s[0]!=="書庫"||state.arch!=="manual") return "";
+  const left=s[1].startsWith("c03-legacy")?"":"通知まで あと 22 日（最後の書庫 2026-08-28）";
+  return left?`<span class="note warn">${left}</span>`:`<span class="note">移行前の分（増えない）</span>`;
+}
+function rowHTML(s){
+  const narrow=state.w==="360";
+  if(narrow) return `<div class="row narrow"><div><div class="name">${esc(s[2])}</div><div class="how">${interval(s)||"—"} · 最終 ${esc(s[5])}</div>${note(s)}</div></div>`;
+  return `<div class="row wide"><div class="name">${esc(s[2])}</div><div class="how">${interval(s)||"—"}</div><div class="last">最終 ${esc(s[5])}</div><div>${note(s)}</div></div>`;
+}
+function settingsView(){
+  let h=`<h2>設定 · ソース</h2><p class="lead">記録の出どころごとに、取り方・間隔・いちばん新しい記録。</p>`;
+  if(state.group==="how"){
+    for(const g of GROUPS){
+      h+=`<div class="grp">${g==="定期取得"?"定期取得（アカウント系）":g}</div>`;
+      const rows=SOURCES.filter(s=>s[0]===g);
+      h+=rows.length?rows.map(rowHTML).join(""):`<div class="empty">定期取得するソースはまだありません。Google 系は書庫（手作業・2 か月ごと）で入ります。</div>`;
+    }
+  } else h+=SOURCES.map(rowHTML).join("");
+  return h;
+}
+function coverageView(){
+  let h=`<h2>稼働状況</h2><p class="lead">格子の各行の下に、取り方と間隔を添える。</p>`;
+  const cells=n=>`<div class="cells">${Array.from({length:state.w==="360"?20:53},(_,i)=>`<i class="${i%n===0?"n":""}"></i>`).join("")}</div>`;
+  for(const s of SOURCES.filter(s=>s[0]!=="サーバ"||s[1]==="s01-archive-inbox")){
+    h+=`<div class="cov"><div class="name">${esc(s[2])}</div>${cells(s[0]==="書庫"?3:9)}<div class="meta">${interval(s)||"—"} · 最終 ${esc(s[5])} ${note(s)}</div></div>`;
+  }
+  return h;
+}
+function render(){
+  const f=document.getElementById("frame");
+  f.style.width=state.w+"px";
+  f.innerHTML=state.where==="settings"?settingsView():coverageView();
+  updatePrompt();
+}
+function updatePrompt(){
+  const p=[];
+  p.push(state.where==="settings"?"ソースの取り方と間隔は S-7 設定の「ソース」節に一覧で出す":"ソースの取り方と間隔は設定に出さず、稼働状況の格子の各行に添える");
+  p.push(state.arch==="manual"?"書庫のソースは間隔の代わりに「手作業・2 か月ごと」と通知までの残り日数を出す":"書庫のソースは間隔の欄を空け、最終日だけを出す");
+  if(state.where==="settings") p.push(state.group==="how"?"取り方（端末・PC・書庫・サーバ・定期取得）でまとめ、定期取得が無いことも空の節で見せる":"一列に並べる");
+  document.getElementById("prompt").textContent="ST13 の画面: "+p.join("。")+"。";
+}
+document.querySelectorAll("input[type=radio]").forEach(i=>{
+  i.checked=state[i.name]===i.value;
+  i.addEventListener("change",()=>{state[i.name]=i.value;render();});
+});
+document.querySelectorAll("[data-p]").forEach(b=>b.addEventListener("click",()=>{
+  Object.assign(state,PRESETS[b.dataset.p]);
+  document.querySelectorAll("input[type=radio]").forEach(i=>i.checked=state[i.name]===i.value);
+  render();
+}));
+document.getElementById("copy").addEventListener("click",()=>{
+  const t=document.getElementById("prompt").textContent,c=document.getElementById("copied");
+  const ok=()=>{c.textContent="コピーしました";setTimeout(()=>c.textContent="",1500)};
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok).catch(()=>{c.textContent="コピーできない。下の欄を長押し"});
+  else c.textContent="コピーできない。下の欄を長押し";
+});
+const GO_VIEW=window.PROTO_VIEW==="go"||/(^|[#&])view=go(&|$)/.test(location.hash.slice(1));
+if(!GO_VIEW) render();
+</script>
+<script type="application/json" id="proto-go">
+{"chosen":"取り方と間隔は S-7 設定に出さず、稼働状況の各ソースの格子の見出しの行（ソースの名前の行）に読むだけで添える。書庫のソースは間隔の代わりに「手作業・2 か月ごと」と、起点（最後の書庫の日）つきの通知までの残り日数を出す（Q3 の本人の答え）",
+ "requirements":["稼働状況の各ソースの格子の見出しの行に、取り方と取得の間隔が読むだけで添えられる"],
+ "not_screen":[{"name":"Google 系の手作業は、2 か月ごとの書き出しと置き場への運搬と、新しい形のときの印だけ","why":"画面には触れるだけで、振る舞いは置き場に落としたら入ること（取り込み器と縦串の試験が担保する）。残り日数の表示は格子の見出しの Requirement が持つ"}],
+ "states":[
+  {"id":"base","name":"いつもの稼働状況","hint":"移行を当てた登録簿。視聴履歴の最後の書庫は 53 日前。時計と見回りは格子が無いので出ない","scenarios":["間隔ごとのソースは格子の見出しに取得の間隔が出る","変わったときに取るソースは格子の見出しに契機が出る","書庫のソースは手作業と起点つきの通知までの残り日数が出る","格子を持たないソースの取り方と間隔は画面に出ない"]},
+  {"id":"passed","name":"通知の日を過ぎた","hint":"視聴履歴の最後の書庫が 80 日前","scenarios":["通知の日を過ぎた書庫のソースはそのことが出る"]},
+  {"id":"edge-before","name":"通知の 1 時間前","hint":"74 日と 23 時間前 → 残り 1 日（切り上げ）","scenarios":["通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る"]},
+  {"id":"edge-after","name":"通知の 1 時間後","hint":"75 日と 1 時間前 → 過ぎた","scenarios":["通知が鳴った 1 時間後の書庫のソースは過ぎたと出る"]},
+  {"id":"no-archive","name":"まだ書庫が無い","hint":"Chrome の履歴の書庫も記録も無い","scenarios":["書庫も記録も無い書庫のソースはまだ書庫が無いと出る"]},
+  {"id":"retired","name":"退役したソース","hint":"移行前のロケーション履歴が退役。取り方も残り日数も添えない（後ろに畳まれる）","scenarios":["退役したソースは通知までの残り日数を出さない"]},
+  {"id":"not-exempt","name":"携帯が一時停止の対象のまま","hint":"位置の直近の生存信号が「外れていない」→ 位置の見出しに間隔の代わりに出る","scenarios":["休止の対象から外れていないことが位置の格子の見出しに出る"]},
+  {"id":"sources-failed","name":"取り方と間隔を読めない","hint":"/sources が失敗。格子はそのまま、添える文字だけ出ない","scenarios":["取り方と間隔を読めなくても格子は出る"]},
+  {"id":"settings","name":"S-7 設定","hint":"ソースの節は無い。「全記録の書き出し」だけ（ST33）","scenarios":["S-7 設定にソースの取り方と間隔が出ない"]},
+  {"id":"unauth","name":"ログインしていない","hint":"取り方と間隔の読み出しの口は認証が要ると返す","scenarios":["ソースの一覧は認証の無い要求には返らない"]},
+  {"id":"android-first","name":"携帯: 初めて開いたとき","hint":"収集アプリが対象から外れていない端末。1 回だけ自動で案内","scenarios":[]},
+  {"id":"android-again","name":"携帯: 2 回目に開いたとき","hint":"案内は自動では出ず、画面に 1 行とボタン","scenarios":[]}
+ ],
+ "always":["添えた文字で Must の 5 ソースの見出しは折り返さない","格子に添えた取り方と間隔に変える操作は無い","360 px の幅で添えた文字が横に溢れない"]}
+</script>
+<style>
+.gsec{border:1px solid var(--line);border-radius:8px;background:#181b20;padding:10px;margin:0 0 10px}
+.gsec h2{font-size:16px;font-weight:600;line-height:1.3;margin:0 0 8px}
+.gsec h2 span{font-size:13px;font-weight:400;color:var(--mut)}
+.gsec h2 span.st13{color:var(--acc)}
+.gsec h2 span.st13.warn{color:var(--warn)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:0 0 2px}
+.wk i{height:24px;border-radius:2px;background:#3a7a55}.wk i.a{background:#4a5160}.wk i.o{background:#8a4b3a}
+.gsec .more{margin-top:8px}
+.check{font-size:.8rem;color:var(--mut);margin:0 0 8px}
+.check b{color:var(--fg)}
+#ghost{position:absolute;left:-99999px;top:0;visibility:hidden}
+</style>
+<script>
+(function(){
+if(!GO_VIEW) return;
+document.title="ST13 — 稼働状況の格子に添える取り方と間隔（GO 用）";
+const MAN=JSON.parse(document.getElementById("proto-go").textContent);
+const NOW=Date.UTC(2026,9,20,5,0); // 2026-10-20 14:00 JST
+const H=3600e3,D=24*H,ALERT=75;
+const jst=t=>new Date(t+9*H).toISOString().slice(0,10);
+const ago=t=>Math.floor((NOW-t)/D);
+// 稼働状況に格子を持つソース（coverage_get の順: Must の 5 本 → 集計 → 書庫）。時計・見回り・s01-* は格子が無い
+const MUST=[["c01-location","携帯端末の位置",{iv:"60 秒ごと"}],["c01-app-usage","携帯端末のアプリ利用",{iv:"30 分ごと"}],
+ ["c01-photo","端末に保存された写真",{iv:"変わったとき"}],["c02-window","PC のウィンドウ",{iv:"変わったとき"}],
+ ["c02-browser-history","PC のブラウザ履歴",{iv:"24 時間ごと"}]];
+const ROLLUP=["c01-app-usage-rollup","携帯端末のアプリ利用（集計）",{iv:"始めたときに 1 回"}];
+const ARCH=[["c03-timeline-visit","タイムラインの訪問","2026-09-02","2026-09-01"],["c03-timeline-move","タイムラインの移動","2026-09-02","2026-09-01"],
+ ["c03-timeline-route","タイムラインの経路","2026-09-02","2026-09-01"],["c03-timeline-signal","タイムラインの生の信号","2026-09-02","2026-09-01"],
+ ["c03-legacy-location","移行前のロケーション履歴","2026-09-02","2024-06-30"],["c03-legacy-visit","移行前の訪問","2026-09-02","2024-06-30"],
+ ["c03-legacy-activity","移行前の移動","2026-09-02","2024-06-29"],["c03-youtube-watch","YouTube の視聴履歴",null,null],
+ ["c03-youtube-search","YouTube の検索履歴","2026-08-28","2026-08-27"],["c03-myactivity-youtube","マイアクティビティ: YouTube","2026-08-28","2026-08-27"],
+ ["c03-myactivity-u1","マイアクティビティ: 検索","2026-08-28","2026-08-27"],["c03-myactivity-u2","マイアクティビティ: マップ","2026-08-28","2026-08-27"],
+ ["c03-myactivity-u3","マイアクティビティ: Discover","2026-08-28","2026-08-26"],["c03-myactivity-u4","マイアクティビティ: Google Play ストア","2026-08-28","2026-08-20"],
+ ["c03-chrome-history","Chrome の履歴","2026-08-28","2026-08-27"]];
+const PRE={base:{},passed:{yt:80*24},"edge-before":{yt:74*24+23},"edge-after":{yt:75*24+1},"no-archive":{chromeNone:true},retired:{retired:true},
+ "not-exempt":{notExempt:true},"sources-failed":{failed:true},settings:{screen:"settings"},unauth:{screen:"unauth"},
+ "android-first":{screen:"android",android:"first"},"android-again":{screen:"android",android:"again"}};
+const BASE={yt:53*24,chromeNone:false,retired:false,notExempt:false,failed:false,screen:"coverage",android:null};
+const g={...BASE,w:"360",cur:"base",showRetired:false};
+const day=s=>Date.parse(s+"T12:00:00+09:00");
+// 書庫の行の ST12 の注記（「YYYY-MM-DD まで（N 日前）」）と ST13 の添える文字
+function archiveBits(a){
+  const [id,,archOn,lastEv]=a;
+  if(id==="c03-chrome-history"&&g.chromeNone) return {st12:" — まだ無い",st13:" — 手作業・2 か月ごと · まだ書庫が無い",warn:false};
+  const lastArch=id==="c03-youtube-watch"?NOW-g.yt*H:day(archOn);
+  const lastEvMs=id==="c03-youtube-watch"?lastArch-D:day(lastEv);
+  const st12=` — ${jst(lastEvMs)} まで（${ago(lastEvMs)} 日前）`;
+  const due=lastArch+ALERT*D;
+  if(NOW>due) return {st12,st13:` — 手作業・2 か月ごと · 通知の日を過ぎた（最後の書庫 ${jst(lastArch)} から）`,warn:true};
+  return {st12,st13:` — 手作業・2 か月ごと · 通知まで あと ${Math.ceil((due-NOW)/D)} 日（最後の書庫 ${jst(lastArch)} から）`,warn:false};
+}
+function weeks(id,n){
+  let h="";for(let w=0;w<n;w++){h+=`<div class="wk">`;for(let d=0;d<7;d++){const k=(id.length*7+w*5+d*3)%17;h+=`<i class="${id.startsWith("c03")?(k<12?"a":""):(k===0?"o":k<3?"a":"")}"></i>`;}h+="</div>";}
+  return h;
+}
+function section(id,name,{st12="",st13="",warn=false,retiredOn=null}){
+  const folded=retiredOn&&!g.showRetired;
+  return `<section class="gsec" data-source="${id}"><h2>${esc(name)}${st12?`<span>${esc(st12)}</span>`:""}`+
+   (st13?`<span class="st13${warn?" warn":""}" data-st13="${id}">${esc(st13)}</span>`:"")+
+   (retiredOn?`<span> — ${retiredOn} に退役</span>`:"")+`</h2>`+
+   (folded?"":weeks(id,4))+`<button class="more" type="button" data-more="${retiredOn?"r":""}">${retiredOn?(g.showRetired?"直近だけにする":"退役したソースを見る"):"1 年ぶんを見る"}</button></section>`;
+}
+function coverage(withNotes){
+  const on=withNotes&&!g.failed;
+  let h=`<h2 style="font-size:1.05rem;margin:0 0 4px">稼働状況</h2><p class="lead">ソースごとの格子（1 行 = 1 週。直近 4 週）。</p><div id="mustcheck" class="check"></div>`;
+  for(const [id,name,o] of MUST){
+    let st13=on?` — ${o.iv}`:"",warn=false;
+    if(on&&id==="c01-location"&&g.notExempt){st13=" — 休止の対象（アプリで外す）";warn=true;}
+    h+=section(id,name,{st13,warn});
+  }
+  h+=section(ROLLUP[0],ROLLUP[1],{st13:on?` — ${ROLLUP[2].iv}`:""});
+  const live=[],ret=[];
+  for(const a of ARCH){
+    const b=archiveBits(a);
+    if(g.retired&&a[0]==="c03-legacy-location") ret.push(section(a[0],a[1],{st12:b.st12,retiredOn:"2026-10-01"}));
+    else live.push(section(a[0],a[1],{st12:b.st12,st13:on?b.st13:"",warn:b.warn}));
+  }
+  return h+live.join("")+ret.join("");
+}
+function settings(){
+  return `<h2 style="font-size:1.05rem;margin:0 0 4px">設定</h2><h3 style="font-size:1rem;margin:8px 0 2px">全記録の書き出し</h3><p class="lead">（ST33 の節。ここでは省略）</p>`+
+   `<div class="empty">ソースの取り方と間隔の節は置かない（稼働状況の格子の見出しに添える）。</div>`;
+}
+function unauth(){
+  return `<h2 style="font-size:1.05rem;margin:0 0 4px">ログイン</h2><p class="lead">合言葉でログインしてください。</p><div class="empty">取り方と間隔の読み出しの口（GET /sources）は、ログインも API の資格情報も無い要求には返さず「認証が要る」（401）と返す。</div>`;
+}
+function android(){
+  const first=g.android==="first";
+  return `<h2 style="font-size:1.05rem;margin:0 0 4px">足跡の収集</h2><p class="lead">位置・アプリ利用を集めています。</p>`+
+   (first?`<div class="empty" style="border-style:solid"><strong>使っていないアプリの一時停止から外してください</strong><p style="margin:6px 0">数か月この画面を開かないと、Android が位置などの権限を外します。外すと二度と取れない期間ができます。設定の画面で 1 回外せば続きます。</p><button>設定を開く</button> <button>あとで</button></div>`
+   :`<div class="row narrow"><div><div class="name note warn">一時停止の対象のままです</div><div class="how">数か月開かないと権限が外されます</div></div><button style="min-height:48px">設定を開く</button></div>`)+
+   `<p class="lead" style="margin-top:10px">${first?"自動で出すのはこの端末で 1 回だけ（更新した端末は更新の後の最初の 1 回）":"2 回目からは自動では案内しない"}</p>`;
+}
+// Must の 5 本の見出しが 1 行か・2 本目と 5 本目の下端が添える文字の無いときから動かないかを、その場で測る
+function measure(f){
+  const box=document.getElementById("mustcheck"); if(!box) return;
+  const ghost=document.getElementById("ghost"); ghost.style.width=f.style.width; ghost.className="frame"; ghost.innerHTML=coverage(false);
+  const bottoms=root=>{const ss=[...root.querySelectorAll("section.gsec")].slice(0,5),top=ss[0].getBoundingClientRect().top;return ss.map(s=>Math.round(s.getBoundingClientRect().bottom-top));};
+  const lines=[...f.querySelectorAll("section.gsec")].slice(0,5).map(s=>{const h2=s.querySelector("h2");return Math.round(h2.offsetHeight/(16*1.3));});
+  const a=bottoms(f),b=bottoms(ghost);
+  const d2=Math.abs(a[1]-b[1]),d5=Math.abs(a[4]-b[4]);
+  const ok=lines.every(n=>n<=1)&&d2<=1&&d5<=1;
+  box.innerHTML=`測った値: Must の 5 本の見出し <b>${lines.join(" / ")} 行</b> · 2 本目と 5 本目の下端の差 <b>${d2} / ${d5} px</b>（許容 1 px）${ok?" ✓":" ✗"}`;
+}
+function draw(){
+  const f=document.getElementById("frame");
+  f.style.width=(g.screen==="android"?360:+g.w)+"px";
+  f.innerHTML=g.screen==="settings"?settings():g.screen==="unauth"?unauth():g.screen==="android"?android():coverage(true);
+  f.querySelectorAll("[data-more=r]").forEach(b=>b.addEventListener("click",()=>{g.showRetired=!g.showRetired;draw();}));
+  if(g.screen==="coverage") measure(f);
+  document.querySelectorAll("#states button").forEach(b=>b.setAttribute("aria-current",b.dataset.s===g.cur?"true":"false"));
+  document.getElementById("yt").value=g.yt; document.getElementById("ytv").textContent=`${Math.floor(g.yt/24)} 日 ${g.yt%24} 時間前`;
+  for(const k of ["chromeNone","retired","notExempt","failed"]) document.getElementById("t-"+k).checked=g[k];
+}
+function open(id){
+  Object.assign(g,BASE,PRE[id]||{});
+  g.cur=id; g.showRetired=false; history.replaceState(null,"","#view=go&state="+id); draw();
+}
+const aside=document.querySelector("aside");
+aside.innerHTML=`<h1>格子の見出しに添える取り方と間隔（決まった形）</h1><p class="sub">${esc(MAN.chosen)}</p>
+<fieldset><legend>状態</legend><div id="states" style="display:flex;flex-direction:column;gap:4px">${MAN.states.map(s=>`<button data-s="${s.id}" style="text-align:left"><strong>${esc(s.name)}</strong><br><span style="color:var(--mut);font-size:.78rem">${esc(s.hint)}</span></button>`).join("")}</div></fieldset>
+<fieldset><legend>状況を動かす（画面の外の出来事）</legend>
+<label style="flex-direction:column">視聴履歴の最後の書庫 <input id="yt" type="range" min="0" max="2160" step="1" style="width:100%"><span id="ytv"></span></label>
+<label><input id="t-chromeNone" type="checkbox"> Chrome の履歴の書庫も記録も無い</label>
+<label><input id="t-retired" type="checkbox"> 移行前のロケーション履歴が退役</label>
+<label><input id="t-notExempt" type="checkbox"> 携帯が一時停止の対象のまま</label>
+<label><input id="t-failed" type="checkbox"> 取り方と間隔を読めない（/sources が失敗）</label></fieldset>
+<fieldset><legend>見る幅</legend><label><input type="radio" name="gw" value="360" checked> 360 px</label><label><input type="radio" name="gw" value="1024"> 1024 px</label></fieldset>
+<p class="fixed">どの状態でも: 見出しの行に入力・選択・ボタンは無い（変えるのは登録簿）・Must の 5 本の見出しは 360 px で 1 行のまま（格子の高さを増やさない）・360 px で横に溢れない。青い字がこの Story が足す文字、灰色は ST12 までの文字。いまは 2026-10-20 14:00 として描いている。PC のブラウザ履歴の 24 時間は仮置き（下流が収集アプリの定数を写す）。</p>`;
+document.querySelector(".out").style.display="none";
+document.body.insertAdjacentHTML("beforeend",`<div id="ghost"></div>`);
+aside.querySelectorAll("#states button").forEach(b=>b.addEventListener("click",()=>open(b.dataset.s)));
+document.getElementById("yt").addEventListener("input",e=>{g.yt=+e.target.value;g.screen="coverage";g.cur="";draw();});
+for(const k of ["chromeNone","retired","notExempt","failed"]) document.getElementById("t-"+k).addEventListener("change",e=>{g[k]=e.target.checked;g.screen="coverage";g.android=null;g.cur="";draw();});
+aside.querySelectorAll("input[name=gw]").forEach(i=>i.addEventListener("change",()=>{g.w=i.value;draw();}));
+const m=location.hash.match(/state=([\w-]+)/);
+open(m&&PRE[m[1]]?m[1]:"base");
+})();
+</script>
+</body>
+</html>
