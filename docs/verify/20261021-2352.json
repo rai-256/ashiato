@@ -1,0 +1,73 @@
+{
+  "title": "確認バッチ 20261021-2352",
+  "subtitle": "ST09 写真と動画をメタごと取り込み、写真は原本も置く",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261021-2352/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261021-2352/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261021-2352/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: この DB の直近 7 日は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（この DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "成果物: `dist/verify-20261021-2352/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261021-235353-f54aa37（全体 ng / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST09-PD25",
+      "topic": "ST09 仮D25",
+      "kind": "check",
+      "question": "ST09 の仮の決定 D25: D-02 の原本のファイルが後から失われたとき、受け取り済みと答えるか（行だけで答えると、端末は送り待ちを消し原本は二度と置かれない） →「行に加えて、並びの名前に受け取った大きさのファイルがあるかを見る。無ければ HEAD は 404、PUT は置き直す」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 端末にまだある原本を、D-02 から動かした・消した後でも置き直せる（捨てない）（失わない側の費用: HEAD と PUT の重複の判定でファイルの metadata を 3 回まで見る。本人が D-02 の中を並べ替えると同じ原本が 2 つになる）\n乗っている決定: D10, Q12\n出所: review/code.md#R15",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST09-PD26",
+      "topic": "ST09 仮D26",
+      "kind": "check",
+      "question": "ST09 の仮の決定 D26: D-02 の原本（撮影位置つき）とフォルダの権限 →「Unix では作るフォルダを 0700、原本を 0600 にする（書き出しと同じ。既存のものは変えない）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 同じ機械の別の利用者・プロセスに撮影位置と写真を読ませない（外へ出さない）（失わない側の費用: 本人が D-02 を別のアカウントと共有したいとき、権限を広げる設定が別に要る）\n乗っている決定: D10, Q12\n出所: review/code.md#R19",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST09-F",
+      "topic": "ST09 違和感",
+      "kind": "check",
+      "question": "ST09「写真と動画をメタごと取り込み、写真は原本も置く」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ ST09-media（AI の実行結果。人間の承認ではない）: 全体 ng / テスト failed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261021-235353-f54aa37\\scenarios\\ST09-media\\video.mp4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261021-2352/ST09-spec.html"
+    }
+  ]
+}
