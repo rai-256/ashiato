@@ -1,9 +1,9 @@
 {
   "status": "accepted",
-  "digest": "d67c83f70cd201a6453381764cc90aad68157c4b2184bbfacad5ece7462f71ef",
-  "head": "08494ec3f869e00f3491d230dacd2ed912808750",
-  "answers": "deep-answers-1.txt",
+  "digest": "c60f34dcbd7afd328ecf981ab89372458c9662cab54b73bb1c8c75d89d24597f",
+  "head": "eb7fab7799e0bd0b45b8fc352b4d4bc828c4e868",
+  "answers": "deep-answers-2.txt",
   "picked": "合意する",
   "notes": [],
-  "at": "2026-10-21T03:59:21Z"
+  "at": "2026-10-21T06:48:33Z"
 }
