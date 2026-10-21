@@ -3032,22 +3032,40 @@ struct LateMarkFault {
 
 impl LateMarkFault {
     async fn install(inbox: &Inbox) -> Self {
-        Self::install_on(inbox, "core.deletion_ledger", "AND NEW.mark = 'user:late'").await
+        Self::install_on(
+            inbox,
+            "core.deletion_ledger",
+            "AND NEW.mark = 'user:late'",
+            i64::MAX,
+        )
+        .await
     }
 
     /// 格納（`core.event` への書き込み）を落とす。`PgSink` は最初の失敗で止まるので、1 回の格納で 1 回だけ数える。
     async fn install_store(inbox: &Inbox) -> Self {
-        Self::install_on(inbox, "core.event", "").await
+        Self::install_on(inbox, "core.event", "", i64::MAX).await
     }
 
-    async fn install_on(inbox: &Inbox, table: &'static str, condition: &str) -> Self {
+    /// 格納を**最初の `times` 回だけ**落とす（その後は通る）。回数を試験の側で止めなくてよい。
+    async fn install_store_first(inbox: &Inbox, times: i64) -> Self {
+        Self::install_on(inbox, "core.event", "", times).await
+    }
+
+    async fn install_on(
+        inbox: &Inbox,
+        table: &'static str,
+        condition: &str,
+        fail_first: i64,
+    ) -> Self {
         let name = format!("st12_fault_{}", inbox.user.simple());
         sqlx::raw_sql(&format!(
             "CREATE SEQUENCE core.{name}_seq;
              CREATE FUNCTION core.{name}_fn() RETURNS trigger AS $fn$
              BEGIN
-               PERFORM nextval('core.{name}_seq');
-               RAISE EXCEPTION '試験の差し込み: 書き込みを落とす';
+               IF nextval('core.{name}_seq') <= {fail_first} THEN
+                 RAISE EXCEPTION '試験の差し込み: 書き込みを落とす';
+               END IF;
+               RETURN NEW;
              END;
              $fn$ LANGUAGE plpgsql;
              CREATE TRIGGER {name}_tg BEFORE INSERT ON {table}
@@ -5730,4 +5748,129 @@ async fn archive_ledger_atomic_next_scan_rereads_and_shows_last_day() {
         1,
         "読み直しで視聴履歴の記録が増えている（1 回だけ読んだときと同じはず）"
     );
+}
+
+impl Inbox {
+    /// 置き場の 1 冊の失敗の回数と、読み直しを再開するまでの分（待ちが無ければ `None`）。行が無ければ `None`。
+    async fn sighting_failure(&self, path: &Path) -> Option<(i32, Option<f64>)> {
+        sqlx::query_as(
+            "SELECT consecutive_failures,
+                    (extract(epoch FROM retry_after - now()) / 60)::float8
+               FROM core.archive_sighting WHERE user_id = $1 AND path = $2",
+        )
+        .bind(self.user)
+        .bind(path.to_string_lossy().as_ref())
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 中断が続いた書庫を読み終えると回数が戻る
+//
+// 格納が 2 回続けて落ち、3 回目で読み終える。読み終えた時点で回数は 0 に戻るので、その後の中断は 1 回目として数えられ、
+// 3 回目の扱い（`store_failed` の行と 1 時間の待ち）にならない。
+#[tokio::test]
+async fn archive_failure_reset_after_a_completed_read() {
+    let inbox = Inbox::new("archive-failure-reset-read").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    let path = inbox.downloads.join(name);
+    let fault = LateMarkFault::install_store_first(&inbox, 2).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("3 回目で読み終えない", || async {
+            inbox.read_rows_now(None).await == 1
+        })
+        .await;
+    assert!(
+        fault.fired().await >= 3,
+        "2 回落ちてから 3 回目で通っていない"
+    );
+    fault.remove().await;
+    assert_eq!(inbox.ledger_rows("store_failed").await, 0);
+    assert_eq!(
+        inbox.sighting_failure(&path).await,
+        Some((0, None)),
+        "読み終えても失敗の回数が戻らない"
+    );
+
+    // その後の中断は 1 回目。
+    let throttled = crate::archive::worker::record_store_failure(
+        &inbox.pool,
+        inbox.user,
+        &path,
+        "e".repeat(64),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !throttled,
+        "読み終えた後の 1 回の中断が 3 回目として数えられた"
+    );
+    assert_eq!(inbox.ledger_rows("store_failed").await, 0);
+    let (failures, wait) = inbox.sighting_failure(&path).await.unwrap();
+    assert_eq!(failures, 1);
+    assert_eq!(wait, None, "1 回の中断に 1 時間の待ちが付いた");
+}
+
+// Scenario: 同じ場所に中身の違う書庫を置き直すと待たされない
+//
+// 3 回続けて落ちて 1 時間に 1 回の制限が付いた書庫の場所へ、中身の違う書庫を置き直す。
+// 走査は同じ場所の `sha256` が前回と違うと見て回数と待ちを戻すので、1 時間を待たずに読まれる。
+#[tokio::test]
+async fn archive_failure_reset_when_the_archive_at_a_path_is_replaced() {
+    let inbox = Inbox::new("archive-failure-reset-replaced").await;
+    let before = watch("2026-09-12T03:00:00Z", "前の動画");
+    let after = watch("2026-09-12T04:00:00Z", "置き直した動画の題名は少し長い");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            before.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", before.as_bytes())],
+    );
+    let path = inbox.downloads.join(name);
+    let fault = LateMarkFault::install_store(&inbox).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("3 回落ちても store_failed の行が無い", || async {
+            inbox.ledger_rows("store_failed").await == 1
+        })
+        .await;
+    let (failures, wait) = inbox.sighting_failure(&path).await.unwrap();
+    assert_eq!(failures, 3);
+    assert!(
+        wait.is_some_and(|minutes| minutes > 50.0),
+        "1 時間の待ちが付いていない"
+    );
+    fault.remove().await;
+
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", after.as_bytes())],
+    );
+    inbox
+        .until(
+            "置き直した書庫が 1 時間を待たずに読まれない",
+            || async { inbox.read_rows_now(None).await == 1 },
+        )
+        .await;
+    assert_eq!(inbox.sighting_failure(&path).await, Some((0, None)));
 }

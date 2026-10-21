@@ -2541,6 +2541,17 @@ pub fn spawn_inspecting(
                         .fetch_one(&mut *tx)
                         .await?;
                         record_ledger_sources(&mut tx, ledger_id, &stored_requests, &stored_outcomes).await?;
+                        // 読み終えたら、この場所の失敗の回数と 1 時間の待ちを戻す（design D8 / M7）。
+                        // 戻さないと、読めた書庫の後の中断が前の中断の続きとして数えられる。
+                        sqlx::query(
+                            "UPDATE core.archive_sighting
+                                SET consecutive_failures = 0, retry_after = NULL
+                              WHERE user_id = $1 AND path = $2",
+                        )
+                        .bind(user_id)
+                        .bind(candidate.path.to_string_lossy().as_ref())
+                        .execute(&mut *tx)
+                        .await?;
                         tx.commit().await
                     }
                     .await;

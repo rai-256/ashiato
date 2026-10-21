@@ -99,24 +99,35 @@ pub async fn scan_once_with_hasher(
         } else {
             hash(&file.path)?
         };
+        // 同じ場所に中身の違う書庫が置き直されたら、前の書庫の失敗の回数と待ちを持ち越さない（design D8 / M7）。
+        let replaced = previous
+            .as_ref()
+            .and_then(|(_, _, previous_hash, _)| previous_hash.as_deref())
+            .is_some_and(|previous_hash| previous_hash != hash);
         sqlx::query(
             "INSERT INTO core.archive_sighting (user_id, path, size_bytes, modified_at, sha256)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, path) DO UPDATE
                SET size_bytes = EXCLUDED.size_bytes, modified_at = EXCLUDED.modified_at,
-                   sha256 = EXCLUDED.sha256, seen_at = now()",
+                   sha256 = EXCLUDED.sha256, seen_at = now(),
+                   consecutive_failures = CASE WHEN $6 THEN 0
+                                               ELSE core.archive_sighting.consecutive_failures END,
+                   retry_after = CASE WHEN $6 THEN NULL
+                                      ELSE core.archive_sighting.retry_after END",
         )
         .bind(user_id)
         .bind(&path)
         .bind(file.size_bytes)
         .bind(file.modified_at)
         .bind(&hash)
+        .bind(replaced)
         .execute(pool)
         .await?;
-        if previous
-            .as_ref()
-            .and_then(|(_, _, _, retry_after)| *retry_after)
-            .is_some_and(|retry_after| retry_after > Utc::now())
+        if !replaced
+            && previous
+                .as_ref()
+                .and_then(|(_, _, _, retry_after)| *retry_after)
+                .is_some_and(|retry_after| retry_after > Utc::now())
         {
             continue;
         }
