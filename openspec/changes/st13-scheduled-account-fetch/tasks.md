@@ -128,7 +128,7 @@
 
 ## Task 10: 携帯の収集アプリが休止の対象から外れるよう頼む（design D12。spec `device-collection`）
 
-- [ ] 10.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt`（新しいファイル）に、`PackageManagerCompat.getUnusedAppRestrictionsStatus` の結果を 4 つの状態に写す関数と、自動で頼んだかの印（`SharedPreferences`）を置く。
+- [x] 10.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt`（新しいファイル）に、`PackageManagerCompat.getUnusedAppRestrictionsStatus` の結果を 4 つの状態に写す関数と、自動で頼んだかの印（`SharedPreferences`）を置く。
   `MainActivity.kt` の初回の流れ（ST09 の権限の要求の後）で、`not_exempt` かつ印が無ければ説明のダイアログ → 応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開き、印を立てる。`not_exempt` の間は画面に 1 行と「設定を開く」のボタン（24 dp 以上）。
   `unknown` のときは頼まず、画面に「除外の状態を読めなかった」の 1 行。`Heartbeat.kt` の `c01-location` の原文に `unused_app_restrictions` を載せる（`capturable` と `blockers` は変えない）。
   `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は稼働状況の知らせのために読むだけ）を足す（design D12）。
