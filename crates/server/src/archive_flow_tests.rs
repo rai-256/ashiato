@@ -5885,3 +5885,110 @@ async fn archive_failure_reset_when_the_archive_at_a_path_is_replaced() {
         .await;
     assert_eq!(inbox.sighting_failure(&path).await, Some((0, None)));
 }
+
+/// Scenario: Takeout をダウンロードのフォルダに落とすだけで入る
+///
+/// 印を置いて 1 冊目を読ませた**同じ取り込み器のまま**（起こし直さず・登録簿も触らず）、
+/// 2 冊目をダウンロードのフォルダへ落とすだけで入る。
+#[tokio::test]
+async fn archive_hands_off_a_second_takeout_dropped_in_downloads_is_stored() {
+    let inbox = Inbox::new("archive-hands-off-downloads").await;
+    let first = watch("2026-07-12T03:00:00Z", "一冊目");
+    let second = watch("2026-09-12T03:00:00Z", "二冊目");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    inbox.put_downloads(
+        "takeout-20260713T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("1 冊目が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+
+    inbox.put_downloads(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox
+        .until("ダウンロードに落とした 2 冊目が入らない", || async {
+            inbox.events("c03-youtube-watch").await == 2
+        })
+        .await;
+}
+
+/// Scenario: 同じ形の 2 回目の書庫は印を求めずに入る
+#[tokio::test]
+async fn archive_hands_off_a_second_archive_of_the_same_shape_needs_no_mark() {
+    let inbox = Inbox::new("archive-hands-off-same-shape").await;
+    let first = watch("2026-07-12T03:00:00Z", "一回目");
+    let second = watch("2026-09-12T03:00:00Z", "二回目");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260713T000000Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("1 回目が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+
+    // 2 か月後に作られた、同じ製品・同じ言語の書庫。印は **置き足さない**。
+    inbox.put(
+        "takeout-20260913T000000Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox
+        .until("2 回目が印なしで入らない", || async {
+            inbox.events("c03-youtube-watch").await == 2
+        })
+        .await;
+    assert_eq!(
+        inbox.pending_files().await,
+        0,
+        "同じ形の 2 回目が確認待ちになった"
+    );
+}
+
+/// Scenario: 専用のフォルダを作らずに端末のタイムラインが入る
+#[tokio::test]
+async fn archive_hands_off_a_device_timeline_is_read_without_making_the_folder() {
+    let inbox = Inbox::new("archive-hands-off-timeline").await;
+    // 専用のフォルダが無い状態で起こす（本人は作らない。取り込み器が作る）
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.spawn(true);
+    assert!(
+        inbox.inbox.is_dir(),
+        "起こしただけで専用のフォルダが作られていない"
+    );
+
+    std::fs::write(
+        inbox.inbox.join("Timeline.json"),
+        crate::archive_tests::REAL_TIMELINE.as_bytes(),
+    )
+    .unwrap();
+    for (source, expected) in [
+        ("c03-timeline-visit", 1),
+        ("c03-timeline-move", 1),
+        ("c03-timeline-route", 2),
+    ] {
+        inbox
+            .until(&format!("{source} が {expected} 件入らない"), || async {
+                inbox.events(source).await == expected
+            })
+            .await;
+    }
+}
