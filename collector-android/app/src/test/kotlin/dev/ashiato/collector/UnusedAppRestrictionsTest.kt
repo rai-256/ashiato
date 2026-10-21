@@ -78,6 +78,10 @@ class UnusedAppRestrictionsTest {
 
     private fun dialogShown() = ShadowAlertDialog.getLatestAlertDialog()?.isShowing == true
 
+    private fun asked() =
+        app.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
+            .getBoolean(UnusedAppRestrictionsAsked.KEY, false)
+
     private val manageAction = "android.settings.APPLICATION_DETAILS_SETTINGS"
 
     // Scenario: 対象から外れていない端末で初めて開くと設定の画面へ案内される
@@ -113,6 +117,7 @@ class UnusedAppRestrictionsTest {
         assertNull(settingsIntent())
         assertFalse(texts(controller.get()).any { it.contains("一時停止") })
         assertTrue(controller.get().isFinishing)
+        assertFalse("頼んでいないのに印が立っている", asked())
     }
 
     // Scenario: 2 回目に開いたときは設定の画面を自動では開かず、画面に出し続ける
@@ -152,6 +157,7 @@ class UnusedAppRestrictionsTest {
         assertFalse(dialogShown())
         assertNull(settingsIntent())
         assertFalse(texts(controller.get()).any { it.contains("一時停止") })
+        assertFalse("頼んでいないのに印が立っている", asked())
     }
 
     // Scenario: 除外の状態を読めない端末では頼まず読めなかったことを出す
@@ -162,6 +168,7 @@ class UnusedAppRestrictionsTest {
         assertFalse("読めないのに案内が出ている", dialogShown())
         assertNull(settingsIntent())
         assertTrue(texts(controller.get()).contains(MainActivity.UNKNOWN_LINE))
+        assertFalse("頼んでいないのに印が立っている", asked())
     }
 
     @Test
