@@ -35,14 +35,14 @@
 
 ## Task 1: 登録簿に取り方・契機・取得の間隔を足す移行（design D1 / D2 / D3）
 
-- [ ] 1.1 移行 1 本で `core.source` に `acquisition` / `fetch_trigger` / `fetch_interval_sec` を足し、design D1 の名前付きの CHECK 制約 4 つ・D2 の `BEFORE INSERT` の trigger・D3 の既存の行の値（`WHERE acquisition IS NULL` の `UPDATE`）を入れ、最後に 2 列を `NOT NULL` にする。
+- [x] 1.1 移行 1 本で `core.source` に `acquisition` / `fetch_trigger` / `fetch_interval_sec` を足し、design D1 の名前付きの CHECK 制約 4 つ・D2 の `BEFORE INSERT` の trigger・D3 の既存の行の値（`WHERE acquisition IS NULL` の `UPDATE`）を入れ、最後に 2 列を `NOT NULL` にする。
   `c02-browser-history` の取得の間隔は `crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL` を写す。既存の行の `UPDATE` は D3 の表の後に、表に無い行を D2 の関数で埋める。`.down.sql` は trigger・関数・制約・列を落とす。`migrations/ORDER` の末尾へ 1 行。
   `worker::ensure_myactivity_source`・`testdb::source`・試験と道具の台本の `INSERT` は列を指定しないまま（D2 の trigger が入れる）。
   Scenario: `移行を当てると各ソースが取り方と契機を持つ` / `取り方の無いソースは登録簿に残らない` / `想定間隔より長い取得の間隔は断られる` / `想定間隔と同じ取得の間隔は受け付けられる` / `取り方を指定せずに足したソースは名前から取り方が入る` /
   `前置きの分からないソースはサーバの取り方で入る` / `取り方を足す前に別の移行が足した行にも取り方が入る` / `間隔ごとでない契機のソースに取得の間隔を持たせると断られる` / `製品ごとに増えるマイアクティビティのソースは書庫の取り方で入る` / `本人が変えた取得の間隔は移行を当て直しても戻らない`。
   検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0、`CT source_acquisition (≥10)`（新しい `source_acquisition_tests.rs`。Scenario 1 本に試験 1 本以上。断られる側は DB の制約違反のエラーと、値が元のままであることの両方を見る。
   「別の移行が足した行」は、この移行の前までを当てた DB に `c01-example` を足してからこの移行を当てる）、`scripts/quiet-run unit -- cargo test -p ashiato-server` rc=0（既存の全試験が trigger の後も通る）、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0
-- [ ] 1.2 登録簿の端末と PC の取得の間隔が収集側の定数と一致することを見る台本 `tools/check-source-intervals.sh` を置く（design D3 / D9）: Rust の定数（`crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL`）と Kotlin の定数（位置 60 秒・アプリ利用 30 分・時計 1 時間）を grep し、
+- [x] 1.2 登録簿の端末と PC の取得の間隔が収集側の定数と一致することを見る台本 `tools/check-source-intervals.sh` を置く（design D3 / D9）: Rust の定数（`crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL`）と Kotlin の定数（位置 60 秒・アプリ利用 30 分・時計 1 時間）を grep し、
   Task 1.1 の移行の SQL の値と比べる（DB を要しない。サーバの crate は collector-windows に依存しないので `cargo test` では比べない。spec-review R19）。
   検証: `bash tools/check-source-intervals.sh` rc=0、定数の 1 つをわざと変えた木で rc≠0（手で 1 回確かめ、結果を PR の本文に書く）
 
