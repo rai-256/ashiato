@@ -4,6 +4,7 @@ package dev.ashiato.collector
 import java.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -300,6 +301,8 @@ class HeartbeatEmitter(
     private val now: () -> Instant,
     private val newId: () -> String,
     private val log: (String) -> Unit = {},
+    /** 原文に足す欄（`c01-location` の `unused_app_restrictions`。契約）。`capturable` と `blockers` には触れない。 */
+    private val extraFields: () -> Map<String, JsonElement> = { emptyMap() },
 ) {
     /** 1 件を積む。積めたかを返す。 */
     fun emit(): Boolean {
@@ -324,7 +327,7 @@ class HeartbeatEmitter(
             "successes" to JsonPrimitive(successes),
             "emitted_at" to JsonPrimitive(at.toString()),
             "device_id" to JsonPrimitive(deviceId),
-        )
+        ) + extraFields()
         val request = HeartbeatRequest(
             id = newId(),
             userId = userId,

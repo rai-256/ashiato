@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * `source_unavailable` の重複抑止。
@@ -305,6 +306,10 @@ open class LocationService : Service() {
      */
     protected open fun newCounterStore(logicalSource: String): CounterStore =
         FileCounterStore(migrateLegacyCounters(filesDir, logicalSource), logicalSource) { Log.w(TAG, it) }
+
+    /** 休止の除外の状態（生存信号の原文に載せる）。試験が差し替える。 */
+    protected open fun readUnusedAppRestrictions(): UnusedAppRestrictionsState =
+        SystemUnusedAppRestrictionsReader.read(this)
 
     /**
      * いま取得できる状態か（深掘り Q5）。**試験だけが差し替える。**
@@ -833,6 +838,12 @@ open class LocationService : Service() {
                 now = { Instant.now() },
                 newId = { UUID.randomUUID().toString() },
                 log = { Log.i(TAG, it) },
+                // 位置だけ。稼働状況の知らせのために S-01 が原文を読む（判定には使わない。design D12）
+                extraFields = if (running.cadence == SourceCadence.LOCATION) {
+                    { mapOf("unused_app_restrictions" to JsonPrimitive(readUnusedAppRestrictions().wire)) }
+                } else {
+                    { emptyMap() }
+                },
             )
             // **起動時の 1 発も守る**（review/code.md の R36 / I7）。
             // `readCapability()`（端末を読む）も `outbox.add()`（filesDir への追記）も投げうる。

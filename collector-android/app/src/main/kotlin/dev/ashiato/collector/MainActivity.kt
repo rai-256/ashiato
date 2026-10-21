@@ -3,11 +3,17 @@ package dev.ashiato.collector
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 
 /**
  * 権限を順に求めてから収集を始める。**画面は持たない** —— 表示は V-01（web）の仕事。
@@ -153,7 +159,66 @@ open class MainActivity : Activity() {
         // 設定画面から戻ってこない本人の端末でも、収集はもう動いている
         startForegroundService(Intent(this, LocationService::class.java))
         sendToUsageAccessOnce()
-        finish()
+        val state = unusedAppRestrictionsReader().read(this)
+        if (state == UnusedAppRestrictionsState.NOT_EXEMPT || state == UnusedAppRestrictionsState.UNKNOWN) {
+            // 閉じない。画面に 1 行出し続ける（設定から戻れば onResume が読み直し、外れていれば閉じる）
+            showUnusedAppRestrictions(state)
+            if (state == UnusedAppRestrictionsState.NOT_EXEMPT) askToExemptOnce()
+        } else {
+            finish()
+        }
+    }
+
+    /**
+     * 「使っていないアプリの一時停止」の除外の状態の読み口。**試験だけが差し替える**
+     * （Robolectric は OS の除外の状態を持たない）。
+     */
+    protected open fun unusedAppRestrictionsReader(): UnusedAppRestrictionsReader = SystemUnusedAppRestrictionsReader
+
+    /**
+     * 対象から外れていないとき、説明のダイアログを**自動では 1 度だけ**出す（design D12（仮））。
+     * 印は先に立てる（応じなくても、閉じても、2 回目からは自動で出さない）。
+     */
+    private fun askToExemptOnce() {
+        val asked = UnusedAppRestrictionsAsked(getSharedPreferences(PREFS, MODE_PRIVATE))
+        if (asked.asked()) return
+        asked.mark()
+        AlertDialog.Builder(this)
+            .setMessage(UNUSED_APP_RESTRICTIONS_EXPLANATION)
+            .setPositiveButton(OPEN_SETTINGS_LABEL) { _, _ -> openUnusedAppRestrictionsSettings() }
+            .setNegativeButton(NOT_NOW_LABEL, null)
+            .show()
+    }
+
+    private fun openUnusedAppRestrictionsSettings() {
+        val opened = runCatching { startActivity(manageUnusedAppRestrictionsIntent(this)) }.isSuccess
+        if (!opened) Log.w(TAG, Telemetry.line("unused_app_restrictions_settings_missing", source = LOGICAL_SOURCE))
+    }
+
+    /** 画面に 1 行（外れていない / 読めなかった）。外れていないときだけ「設定を開く」を添える。 */
+    private fun showUnusedAppRestrictions(state: UnusedAppRestrictionsState) {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+        column.addView(
+            TextView(this).apply {
+                text = if (state == UnusedAppRestrictionsState.NOT_EXEMPT) NOT_EXEMPT_LINE else UNKNOWN_LINE
+            },
+        )
+        if (state == UnusedAppRestrictionsState.NOT_EXEMPT) {
+            column.addView(
+                Button(this).apply {
+                    text = OPEN_SETTINGS_LABEL
+                    // タップの的は 24 dp 以上（余裕を見て 48 dp）
+                    minimumHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+                    setOnClickListener { openUnusedAppRestrictionsSettings() }
+                },
+            )
+        }
+        setContentView(column)
     }
 
     /**
@@ -180,5 +245,12 @@ open class MainActivity : Activity() {
         /** 「1 度だけ」を端末に残す置き場（design D6（仮））。**試験も同じ名前を読む。** */
         const val PREFS = "collector"
         const val SENT_TO_USAGE_ACCESS = "sent_to_usage_access"
+
+        const val NOT_EXEMPT_LINE = "使っていないアプリの一時停止の対象になっています"
+        const val UNKNOWN_LINE = "使っていないアプリの一時停止の除外の状態を読めなかった"
+        const val OPEN_SETTINGS_LABEL = "設定を開く"
+        const val NOT_NOW_LABEL = "あとで"
+        const val UNUSED_APP_RESTRICTIONS_EXPLANATION =
+            "数か月開かないと、OS が権限を外し通知を止めます。足跡を取り続けるため、一時停止の対象から外す設定を開きますか。"
     }
 }
