@@ -55,3 +55,4 @@
 202609211400_browser_history_record_id
 # 書き出しの台帳。1 回 2 行（始まりと終わり）で追記のみ（ST33 / design D10）
 202610131200_export_ledger
+202610211000_source_acquisition

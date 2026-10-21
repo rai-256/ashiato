@@ -117,6 +117,9 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 登録簿の取り方・契機・取得の間隔（ST13）。
+#[cfg(test)]
+mod source_acquisition_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
