@@ -32,6 +32,8 @@ pub mod archive;
 #[cfg(test)]
 mod archive_flow_tests;
 #[cfg(test)]
+mod archive_scan_interval_tests;
+#[cfg(test)]
 mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
@@ -3541,6 +3543,7 @@ pub async fn run() -> anyhow::Result<()> {
             archive_config,
             user_id,
             reading.clone(),
+            "s01-archive-inbox",
         ));
     } else {
         tracing::info!(

@@ -2055,6 +2055,42 @@ impl Drop for WorkerHandle {
     }
 }
 
+/// 登録簿を一度も読めていないときの見回りの間隔（`s01-archive-inbox` の初期値と同じ）。
+const DEFAULT_SCAN_INTERVAL_SEC: u64 = 120;
+
+/// 登録簿の取得の間隔（秒）。契機が `interval` でない行・無い行は読めないものとして扱う。
+async fn read_scan_interval(pool: &sqlx::PgPool, source: &str) -> anyhow::Result<u64> {
+    let sec: Option<i32> = sqlx::query_scalar(
+        "SELECT fetch_interval_sec FROM core.source
+          WHERE logical_source = $1 AND fetch_trigger = 'interval'",
+    )
+    .bind(source)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    let sec = sec.ok_or_else(|| anyhow::anyhow!("取得の間隔の行が無い"))?;
+    u64::try_from(sec).map_err(|_| anyhow::anyhow!("取得の間隔が負"))
+}
+
+/// 走査の後の待ち。1 秒ずつ刻み、刻むたびに登録簿の間隔を読み直し、前の走査の後からの経過
+/// （戻らない時計）が読んだ間隔以上になったら返す（design D4）。縮めた間隔が 1 秒以内に効く。
+/// 読めなければ前の値を使う。
+async fn wait_for_next_scan(pool: &sqlx::PgPool, source: &str, interval_sec: &mut u64) {
+    let waited_from = tokio::time::Instant::now();
+    loop {
+        match read_scan_interval(pool, source).await {
+            Ok(sec) => *interval_sec = sec,
+            Err(error) => {
+                tracing::warn!(kind = "archive_scan_interval", logical_source = source, error = %error, "見回りの間隔を読めない。前の値を使う");
+            }
+        }
+        if waited_from.elapsed() >= std::time::Duration::from_secs(*interval_sec) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
 /// 走査と直列読み手を背景で起こす。利用者が未設定なら呼び出し側は起こさない。
 #[must_use = "落とすと取り込み器が止まる。本番は握ったまま持つ"]
 pub fn spawn_inspecting(
@@ -2062,11 +2098,14 @@ pub fn spawn_inspecting(
     config: super::config::ArchiveConfig,
     user_id: uuid::Uuid,
     reading: ReadingState,
+    interval_source: &str,
 ) -> WorkerHandle {
+    let interval_source = interval_source.to_owned();
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
     let scan_pool = pool.clone();
     let read_config = config.clone();
     let scanning = tokio::spawn(async move {
+        let mut interval_sec = DEFAULT_SCAN_INTERVAL_SEC;
         loop {
             // **印が置かれていないか、走査のたびに見る**（D16）。本人が
             // `tools/archive-shape.sh --confirm` を叩いた後に効く唯一の経路。
@@ -2134,7 +2173,7 @@ pub fn spawn_inspecting(
                     }
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(config.scan_sec)).await;
+            wait_for_next_scan(&scan_pool, &interval_source, &mut interval_sec).await;
         }
     });
     let reading_task = tokio::spawn(read_in_order(receiver, move |candidate| {
@@ -2163,7 +2202,7 @@ pub fn spawn_inspecting(
             }
             let sha256 = candidate.sha256.clone();
             // **列に並んでいる間に読み終えた書庫は捨てる。**
-            // 走査は読み手を待たないので（`scan_sec` ごとに回る）、1 冊に数分かかると
+            // 走査は読み手を待たないので（登録簿の間隔ごとに回る）、1 冊に数分かかると
             // 同じ書庫が 2 度積まれる。2 度目はファイルが「取り込み済み」へ移った後に
             // 開かれ、**読めた書庫に `unreadable` の行が付いて画面が嘘をつく**。
             // **確認待ちの書庫も「覚えている」**（D16。final review R52）。

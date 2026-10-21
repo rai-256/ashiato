@@ -31,6 +31,8 @@ struct Inbox {
     copies: PathBuf,
     pool: sqlx::PgPool,
     user: uuid::Uuid,
+    /// 見回りの間隔を読む、この足場専用の登録簿の行（間隔 1 秒）。
+    scan_row: &'static str,
 }
 
 impl Drop for Inbox {
@@ -53,6 +55,7 @@ impl Inbox {
             root,
             inbox,
             downloads,
+            scan_row: testdb::archive_scan_row(&pool).await,
             pool,
             user: testdb::user(),
         }
@@ -65,7 +68,6 @@ impl Inbox {
             copy_dir: self.copies.clone(),
             keep_copies,
             user_id: Some(self.user),
-            scan_sec: 1,
         }
     }
 
@@ -75,6 +77,7 @@ impl Inbox {
             self.config(keep_copies),
             self.user,
             crate::archive::worker::ReadingState::default(),
+            self.scan_row,
         );
         self.workers.lock().unwrap().push(handle);
     }
@@ -199,17 +202,22 @@ async fn archive_flow_reads_takeout_from_the_downloads_folder() {
 }
 
 /// Scenario: 既定の間隔でも置かれてから 10 分以内に読み始める
-#[test]
-fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
-    let home = std::collections::BTreeMap::from([("HOME".to_string(), "/home/me".to_string())]);
-    let config = crate::archive::config::from_values(&home).unwrap();
+#[tokio::test]
+async fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
+    let pool = testdb::pool().await;
+    // 共有の `s01-archive-inbox` は書き換えず、読むだけ（登録簿の値が既定の間隔）
+    let sec: i32 = sqlx::query_scalar(
+        "SELECT fetch_interval_sec FROM core.source WHERE logical_source = 's01-archive-inbox'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     // D8 は「2 回続けて大きさと更新時刻が変わらない」ことを読み始めの条件にしている。
     // 置いた直後の走査は 1 回目なので、読み始めるのは **2 回目**の走査。
-    const SCANS_BEFORE_READ: u64 = 2;
+    const SCANS_BEFORE_READ: i32 = 2;
     assert!(
-        config.scan_sec * SCANS_BEFORE_READ <= 600,
-        "既定の走査の間隔 {} 秒では、置いてから読み始めるまでに 10 分を超える",
-        config.scan_sec
+        sec * SCANS_BEFORE_READ <= 600,
+        "既定の走査の間隔 {sec} 秒では、置いてから読み始めるまでに 10 分を超える"
     );
 }
 

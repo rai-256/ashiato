@@ -220,6 +220,22 @@ pub fn unique_day() -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap() + chrono::Duration::days(i64::from(offset))
 }
 
+/// 取り込み器の試験が見回りの間隔を読む、自分専用の登録簿の行（間隔 1 秒）。
+/// 共有の `s01-archive-inbox` を書き換えない（登録簿は利用者で分かれていない。ST13 / design D4）。
+pub async fn archive_scan_row(pool: &sqlx::PgPool) -> &'static str {
+    const NAME: &str = "test-archive-scan-1s";
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind,
+                                  acquisition, fetch_trigger, fetch_interval_sec)
+         VALUES ($1, $1, 3600, 'none', 'server', 'interval', 1) ON CONFLICT DO NOTHING",
+    )
+    .bind(NAME)
+    .execute(pool)
+    .await
+    .unwrap();
+    NAME
+}
+
 /// テストごとに固有の利用者。稼働記録・生存信号は利用者でも分かれる（FR-29）。
 pub fn user() -> uuid::Uuid {
     uuid::Uuid::new_v4()

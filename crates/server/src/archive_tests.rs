@@ -1258,7 +1258,6 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(testdb::user()),
-        scan_sec: 120,
     };
     let user = config.user_id.unwrap();
 
@@ -1310,7 +1309,6 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
 
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
@@ -1352,7 +1350,6 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
@@ -1469,7 +1466,6 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
     let hashes = std::sync::atomic::AtomicUsize::new(0);
     let hash = |path: &Path| {
@@ -1598,10 +1594,10 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
             copy_dir: root.join("copies"),
             keep_copies: true,
             user_id: Some(user),
-            scan_sec: 1,
         },
         user,
         crate::archive::worker::ReadingState::default(),
+        testdb::archive_scan_row(&pool).await,
     );
 
     let recorded = tokio::time::timeout(WORKER_WAIT, async {
