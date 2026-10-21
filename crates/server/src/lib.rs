@@ -126,6 +126,10 @@ mod scheduled_tests;
 /// 登録簿の取り方・契機・取得の間隔（ST13）。
 #[cfg(test)]
 mod source_acquisition_tests;
+/// `GET /sources`（ST13 / design D10）。
+pub mod sources;
+#[cfg(test)]
+mod sources_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -3113,6 +3117,28 @@ pub async fn outages_get(
     }))
 }
 
+/// `GET /sources` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct SourcesQuery {
+    /// 利用者。省略すると既定の利用者（ほかの読み出しと同じ）
+    user_id: Option<uuid::Uuid>,
+}
+
+/// ソースの取り方・契機・取得の間隔と、書庫の通知までの残り日数（ST13 / design D10）。
+#[utoipa::path(get, path = "/sources", params(SourcesQuery),
+    responses((status = 200, body = sources::SourcesResponse), (status = 401)))]
+pub async fn sources_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<SourcesQuery>,
+) -> Result<Json<sources::SourcesResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    sources::read(&app.pool, q.user_id.unwrap_or_default(), app.now())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("sources.read", e))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -3437,6 +3463,7 @@ pub fn router(app: App) -> Router {
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
         .route("/outages", get(outages_get))
+        .route("/sources", get(sources_get))
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
@@ -3597,6 +3624,7 @@ pub async fn run() -> anyhow::Result<()> {
         achievement_get,
         archives_status_get,
         outages_get,
+        sources_get,
         stays_get,
         day_get,
         day_records_get,
@@ -3643,6 +3671,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Subject,
         coverage::Achievement,
         OutagesResponse,
+        sources::SourcesResponse,
+        sources::SourceRow,
+        sources::DeviceNotice,
         OutagesStatus,
         OutageItem,
         ArchivesStatus,

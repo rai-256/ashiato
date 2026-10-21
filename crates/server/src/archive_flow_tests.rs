@@ -5815,14 +5815,12 @@ async fn archive_failure_reset_after_a_completed_read() {
     );
     // 次の走査で読み直される（1 回落ちた後、待たずにもう一度読まれて通る）。
     inbox
-        .until("中断の後の次の走査で読み直されない", || async {
-            inbox.read_rows_now(None).await == 2
-        })
+        .until(
+            "中断の後の次の走査で読み直されない",
+            || async { inbox.read_rows_now(None).await == 2 },
+        )
         .await;
-    assert!(
-        fault.fired().await >= 2,
-        "1 回落ちた後に読み直されていない"
-    );
+    assert!(fault.fired().await >= 2, "1 回落ちた後に読み直されていない");
     fault.remove().await;
     assert_eq!(
         inbox.ledger_rows("store_failed").await,
@@ -5917,9 +5915,10 @@ async fn archive_hands_off_a_second_takeout_dropped_in_downloads_is_stored() {
         &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
     );
     inbox
-        .until("ダウンロードに落とした 2 冊目が入らない", || async {
-            inbox.events("c03-youtube-watch").await == 2
-        })
+        .until(
+            "ダウンロードに落とした 2 冊目が入らない",
+            || async { inbox.events("c03-youtube-watch").await == 2 },
+        )
         .await;
 }
 
