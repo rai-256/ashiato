@@ -87,12 +87,15 @@ class MediaCaptureInstrumentedTest {
         assertTrue("知らせを押してもアプリの設定が開かない（前面: ${device.currentPackageName}）", opened == true)
         device.pressBack()
 
-        // 権限が戻ったら消える
+        // 権限が戻ったら消える。消すのも出すのと同じく非同期なので、消えるまで少し待つ
         notifier.update(MediaPermissionState(MediaAccess.FULL, location = true))
-        assertNull(
-            "権限が戻ったのに知らせが残っている",
-            manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID },
-        )
+        val goneBy = System.currentTimeMillis() + NOTICE_WAIT_MS
+        var left = manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID }
+        while (left != null && System.currentTimeMillis() < goneBy) {
+            Thread.sleep(250)
+            left = manager.activeNotifications.firstOrNull { it.id == MediaNotifier.MEDIA_NOTIFICATION_ID }
+        }
+        assertNull("権限が戻ったのに知らせが残っている", left)
     }
 
     /** 受け取った要求 1 つ。本文はバイトのまま。 */
