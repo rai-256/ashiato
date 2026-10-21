@@ -8,7 +8,7 @@ use std::time::Duration;
 
 /// 止めた時計の上で使う接続の溜め。DB の応答を待つ間に時計が自動で進んでも、獲得の期限切れや
 /// 接続の点検で落ちないようにする（溜めの既定は期限が 30 秒）。接続は止める前に張っておく。
-async fn pool_for_paused_clock() -> sqlx::PgPool {
+pub(crate) async fn pool_for_paused_clock() -> sqlx::PgPool {
     testdb::pool().await; // 移行を当てる
     sqlx::postgres::PgPoolOptions::new()
         .min_connections(4)
@@ -83,7 +83,7 @@ fn config(root: &std::path::Path, user: uuid::Uuid) -> crate::archive::config::A
 
 /// `f` を待つ間、blocking の task を 1 つ走らせておく。tokio は blocking の task が残る間は止めた時計を
 /// 自動で進めないので、DB の応答を待つ間に時計が次の timer（120 秒の眠り）まで跳ばない。
-async fn hold_clock<F: std::future::Future>(f: F) -> F::Output {
+pub(crate) async fn hold_clock<F: std::future::Future>(f: F) -> F::Output {
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = stop.clone();
     let pin = tokio::task::spawn_blocking(move || {
@@ -146,7 +146,7 @@ async fn scans(pool: &sqlx::PgPool, user: uuid::Uuid) -> i64 {
 }
 
 /// 止めた時計の上で、取り込み器の DB の往復が終わるのを実時間で待つ（待つ間は時計が進まない）。
-async fn settle(millis: u64) {
+pub(crate) async fn settle(millis: u64) {
     tokio::task::spawn_blocking(move || std::thread::sleep(Duration::from_millis(millis)))
         .await
         .unwrap();
@@ -164,7 +164,7 @@ async fn wait_for_scans(pool: &sqlx::PgPool, user: uuid::Uuid, n: i64) {
 }
 
 /// 止めた時計を 1 秒ずつ進める。1 秒ごとに取り込み器が登録簿を読めるようにする。
-async fn advance_secs(secs: u64, settle_millis: u64) {
+pub(crate) async fn advance_secs(secs: u64, settle_millis: u64) {
     for _ in 0..secs {
         tokio::time::advance(Duration::from_secs(1)).await;
         settle(settle_millis).await;

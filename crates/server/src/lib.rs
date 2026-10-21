@@ -119,6 +119,10 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
+pub mod scheduled;
+#[cfg(test)]
+mod scheduled_tests;
 /// 登録簿の取り方・契機・取得の間隔（ST13）。
 #[cfg(test)]
 mod source_acquisition_tests;
@@ -3545,6 +3549,8 @@ pub async fn run() -> anyhow::Result<()> {
             reading.clone(),
             "s01-archive-inbox",
         ));
+        // 定期取得の枠も取り込み器の隣に握る（落とすと止まる）。同じ利用者
+        std::mem::forget(scheduled::spawn(pool.clone(), user_id));
     } else {
         tracing::info!(
             kind = "archive_disabled",
