@@ -83,7 +83,7 @@ ST29 はモノの台帳を作らない。モノの型の名前の形は ST40 の
 CREATE TABLE IF NOT EXISTS core.satellite (
   id            uuid        PRIMARY KEY,
   identifier    text        NOT NULL UNIQUE CHECK (identifier ~ '^[a-z0-9-]+(\.[a-z0-9-]+)+$' AND length(identifier) <= 64),
-  name          text        NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 40),
+  name          text        NOT NULL CHECK (name = btrim(name) AND length(name) BETWEEN 1 AND 40),
   builtin       boolean     NOT NULL DEFAULT false,
   registered_at timestamptz NOT NULL,
   removed_at    timestamptz,
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS core.satellite_credential (
   UPDATE は許す（`removed_at` `revoked_at` `last_used_at` `name` を書く）
 - 登録し直し（Q2）: 外した衛星と同じ識別子の登録は `UPDATE … SET removed_at = NULL, name = $2` で同じ行を戻す（`registered_at` は最初の登録の時刻のまま。番号が同じことが「続き」）。
   資格情報は外したときに全部 `revoked_at` が付いているので戻らない
-- 名前の重なり（D16（仮））は外していない衛星どうしの部分一意索引で見る（同時の登録の競合も DB が断る → 409）
+- 名前は口で前後の空白を除いてから保存する（`name` の CHECK は `name = btrim(name)` も見る）。名前の重なり（D16（仮））は外していない衛星どうしの部分一意索引で見る（保存した名前で比べるので、前後の空白だけ違う名前も重なる。同時の登録の競合も DB が断る → 409）
 - 移行の名前は作成時刻 `YYYYMMDDHHMM_satellite_credentials.sql`（と `.down.sql`）。`migrations/ORDER` の末尾へ 1 行
 
 ### D8. 判定: `Caller::Satellite` を足し、最も外側の判定と `authorize` の両方で閉じる
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS core.satellite_credential (
 - `web_session::Caller` に `Satellite { satellite: Uuid, credential: Uuid }` を足す（`Copy` のまま）。`as_str()` は `satellite`
 - `authorize_quiet`: `Bearer ` の値が `ashsat_` で始まれば D6 で引く。引けて、資格情報が取り消されておらず衛星が外されていなければ、
   同じ文で `last_used_at` を求めの時刻（`app.now()`）にして `Satellite` を返す（`UPDATE … FROM core.satellite … RETURNING`。1 求め 1 回）。
-  引けなければ今までどおり画面のログインの印を見る（取り消した値 + 有効な印は、印で通る。衛星は印を持たない）
+  `ashsat_` で始まる値が引けなければ（取り消した・外した衛星・知らない値）、印を見ずに 401（D19（仮））。`ashsat_` で始まらない `Bearer` は今までどおり
 - `Bearer` が衛星の値で、かつ有効な印も持つ求めは `Satellite`（`Bearer` を先に見るので自然にそうなる。D18（仮））。`refresh_cookie` は `WebSession` のときだけ印を出し直すので、衛星の求めには出さない
 - `authorize` は `Satellite` に `Err(403, "forbidden")` を返す（33 か所の呼び出し元は変えない）。middleware を通らない口（`GET /session`）もこれで閉じる
 - `access_log::middleware`: 判定が `Satellite` なら、route が何であれ（取り込みの口も）403 の行を書き、**ハンドラを呼ばずに** 403 を返す。
@@ -191,9 +191,11 @@ ALTER TABLE core.access_log ADD CONSTRAINT access_log_satellite_ids
 
 - **全 route の試験は router から route を取る**: `router()` が持つ route の一覧を手で書かない。`ApiDoc::openapi()` の paths と method を全部取り、
   path の `{…}` を形の合う値で埋めて、衛星の資格情報を付けて呼ぶ。資格情報の要らない口（`/healthz`・`POST /session`・`DELETE /session`）は除いて 403 を確かめる
-  - 契約に載らない route（`/selftest/panic` は既定の構成に無い）が漏れないよう、`lib.rs` の `.route("` の字面の数と、契約の path の数が合うことも同じ試験で確かめる（合わなければ、どの path が契約に無いかを出して落ちる）
+  - 契約に載らない route（`/selftest/panic` は既定の構成に無い）が漏れないよう、`lib.rs` から `\.route\(\s*"([^"]+)"`（複数行にまたがる形。rustfmt が path を次の行に送る口がある）で取った path の集合と、契約の path の集合が一致することも同じ試験で確かめる（差があれば、どの path かを出して落ちる）
+  - `lib.rs` に `.merge(` / `.nest(` / `.nest_service(` が現れたら同じ試験が落ちる（字面から見えない route ができる。足す Story は、この試験の抽出をその Router まで広げる）
   - 応答の番号と、読み出しの記録の行（資格情報の種類 `satellite`・結果 `forbidden`・403）の両方を見る
-- 衛星の試験は利用者でなく衛星で隔離する（識別子に試験ごとの接尾を付ける: `dev.test<乱数>.booklog`）。最初の 2 つを外す試験は 409 だけを見る（状態を変えない）
+- 衛星の試験は利用者でなく衛星で隔離する（識別子に試験ごとの接尾を付ける: `dev.test<乱数>.booklog`）。最初の 2 つを外す試験は 409 だけを見る（状態を変えない）。最初の 2 つに発行する試験は、同じ試験の中で取り消して閉じる（行は残るが一覧と判定には効かない）
+- 「移行は最初の 2 つに資格情報を入れない」は、試験の DB ではなく、その試験の中で作った空の schema に全版を当てて確かめる（共有の試験の DB には他の試験の行が残る）
 - 時刻を進める試験（400 日後）は `App` の時計の差し替え（ST28 の試験と同じ口）を使う
 
 ### D15（仮）. 名前と識別子の長さ: 識別子は 64 文字、名前の部分は 1〜64 文字、衛星の名前は 1〜40 文字、資格情報の名前は 40 文字まで
@@ -216,13 +218,32 @@ ALTER TABLE core.access_log ADD CONSTRAINT access_log_satellite_ids
 - 厳しい側。衛星のプロセスが本人のブラウザの印を持つことは無いはずで、両方あるのは取り違えか細工
 - **反転条件**: 本人の画面が衛星の資格情報を `Authorization` に付けて送る正当な場面ができたとき（ST27 の MCP の設定画面など）
 
+### D19（仮）. `ashsat_` で始まる値が引けない求めは、ログインの印を見ずに 401
+
+- 取り消した 1 本・外した衛星の 1 本・知らない値のどれでも、衛星の値を名乗る求めは印で通さない（厳しい側。有効な値 + 印を 403 にする D18 と揃える）
+- `ashsat_` で始まらない `Bearer` の扱いは変えない（ST44 の範囲）
+- **反転条件**: 本人の画面が、取り消した衛星の値を `Authorization` に付けたまま正当に動く場面ができたとき（D18 の反転条件と同じ場面）
+
+### D20（仮）. 衛星の登録と資格情報の発行は別の操作。登録しただけでは資格情報は 0 本
+
+- PERM-14 は「利用者が衛星の資格情報を発行する」を登録と別の操作として書いている。登録で 1 本を自動で発行すると、値を 1 回だけ見せる場面が登録の応答にも要り、名前の付け方も決まらない
+- Story の完了の判定「衛星を登録すると、その衛星の名前の付いた資格情報が発行される」は、登録した衛星を選んで発行でき、発行した 1 本にその衛星の名前が付くことで満たす（proposal の「完了の判定の読み方」。`review/spec.md` R15）
+- **反転条件**: 本人が確認バッチで「登録したら 1 本出てほしい」と返したとき（登録の応答に 1 本目の値を載せる。行の形は変わらない）
+
+### D21（仮）. 正典の書き出しのファイルの一覧の書き漏れ（ST17 / ST21 のファイル）を、同じ Scenario の MODIFIED で一緒に直す
+
+- ST29 は「台帳と導出の表は書き出しに入らない」の一覧（「それ以外のファイルは無い」）に衛星の登録簿を足すので、同じ Scenario を写す。正典の一覧が今の実装（`export_file_tests.rs` の `ENTRIES`）より少ないまま写すと、
+  archive の後も正典と実装が食い違う
+- ST29 の決定（Q / C）ではない訂正なので proposal の What Changes に 1 行書いた（`review/spec.md` R17）
+- **反転条件**: 走っている別の change が同じ Scenario を MODIFIED して、一覧の直し方がぶつかったとき（後から archive する側が、先の一覧に衛星の登録簿だけを足す形に戻す）
+
 ## Risks / Trade-offs
 
 - [衛星の求めごとに `last_used_at` を UPDATE する] → 衛星はまだ何も読めないので頻度は低い。ST45 で読み始めて重くなれば、1 分単位に丸めて同じ値なら書かない形にする
-- [取り消した値 + 有効なログインの印の求めが印で通る] → 衛星は印を持たない。今の「違う `Bearer` + 有効な印」と同じ扱い。厳しくするなら ST44 が収集アプリの合言葉と一緒に決める
+- [`ashsat_` で始まらない違う `Bearer` + 有効な印は、今までどおり印で通る] → 衛星の値でなければ ST29 は触らない。厳しくするなら ST44 が収集アプリの合言葉と一緒に決める
 - [全 route の試験が契約（OpenAPI）に依る] → 契約に載らない route は数の突き合わせで落ちる（D14）。契約に載せ忘れた口は `tools/check-openapi.sh` とこの試験の両方で見つかる
 - [Q1 が推奨と違う答えになる] → 識別子の形（D5・D7 の CHECK）・資格情報の値の形（D6）・登録の画面の欄の意味（D12）を書き直す。読み出しの記録には識別子を入れない（D4）ので、書き換えられない表は書き直さずに済む
-- [`ashsat_` の値がログに出る] → 値は応答に 1 回載るだけ。`tools/check-log-private.sh` にパターン `ashsat_[a-z0-9.-]+_[A-Za-z0-9_-]{43}` を足す
+- [`ashsat_` の値がログに出る] → 値は応答に 1 回載るだけ。`tools/check-log-private.sh` は書き方の静的な検査で実行時のログを見ないので、縦串（tasks 10.2）の終わりにサーバのログをパターン `ashsat_[a-z0-9.-]+_[A-Za-z0-9_-]{43}` で探して 0 件を確かめる
 
 ## Migration Plan
 
