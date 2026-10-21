@@ -89,8 +89,12 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
+
+> **訂正（2026-10-21、ST29 の spec）**: `data-durability` に ST29 を足した。ST29 は衛星の登録簿と資格情報の表を足し、書き出しは分類の無い表があると始まらない（正典）。
+> 登録簿を書き出しに入れるので、ST33 の Scenario「台帳と導出の表は書き出しに入らない」のファイルの一覧（「それ以外のファイルは無い」）を MODIFIED する
+> （`openspec/changes/st29-satellite-credentials/proposal.md`）。
 
 > **訂正（2026-10-11、衛星の基盤の改訂）**
 >
