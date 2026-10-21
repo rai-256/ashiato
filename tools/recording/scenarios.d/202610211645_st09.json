@@ -1,0 +1,16 @@
+[
+  {
+    "id": "ST09-media",
+    "story": "ST09",
+    "platform": "android",
+    "spec": "tools/recording/st09/St09RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St09RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MediaNotifier.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MediaCapture.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MediaScanner.kt"
+    ],
+    "note": "ST09（Android）: 初めて起動 → 位置は断る（位置の流れは ST06）→ 通知は許可 → 写真と動画と写真の位置をまとめて 1 度だけ求める画面で許可しない → 収集は始まり「写真と動画を取れていません」の知らせ（Q15）→ 知らせを押すとこのアプリの設定 → 権限 → 写真と動画を常にすべて許可 → 開き直すと知らせが消える → 写真を 1 枚入れる（カメラの代わり。撮影位置つき）→ 結果の札（未送信に積まれた写真の記録: 撮影時刻・撮影位置・ハッシュ）。録画が入れた写真は自分の項目なので位置は伏せられない —— 他のアプリの写真の位置は計測テスト（MediaPremisesInstrumentedTest）が持つ。送信は 5 分ごとなので動画の間にサーバへは届かない"
+  }
+]
