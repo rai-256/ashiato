@@ -48,12 +48,14 @@ impl OwnRow {
     }
 
     async fn set_interval(&self, interval_sec: i32) {
-        sqlx::query("UPDATE core.source SET fetch_interval_sec = $2 WHERE logical_source = $1")
-            .bind(&self.name)
-            .bind(interval_sec)
-            .execute(&self.pool)
-            .await
-            .unwrap();
+        hold_clock(
+            sqlx::query("UPDATE core.source SET fetch_interval_sec = $2 WHERE logical_source = $1")
+                .bind(&self.name)
+                .bind(interval_sec)
+                .execute(&self.pool),
+        )
+        .await
+        .unwrap();
     }
 
     async fn delete(self) {
@@ -79,13 +81,65 @@ fn config(root: &std::path::Path, user: uuid::Uuid) -> crate::archive::config::A
     }
 }
 
-/// 走査の回数（取り込み器が走査のたびに足す利用者ごとの数）。
-async fn scans(pool: &sqlx::PgPool, user: uuid::Uuid) -> i64 {
-    sqlx::query_scalar::<_, i32>(
-        "SELECT attempts FROM core.archive_scan_counter WHERE user_id = $1",
+/// `f` を待つ間、blocking の task を 1 つ走らせておく。tokio は blocking の task が残る間は止めた時計を
+/// 自動で進めないので、DB の応答を待つ間に時計が次の timer（120 秒の眠り）まで跳ばない。
+async fn hold_clock<F: std::future::Future>(f: F) -> F::Output {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stop.clone();
+    let pin = tokio::task::spawn_blocking(move || {
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    });
+    let out = f.await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    pin.await.unwrap();
+    out
+}
+
+/// その日の最初の走査は、生存信号を残した後で走査の回数を 0 へ戻す。数が戻らないよう、
+/// 今日の分の生存信号を先に置いておく（日が変わった直後でも試験が同じに動く）。
+async fn seed_today_heartbeat(pool: &sqlx::PgPool, user: uuid::Uuid) {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core.heartbeat
+          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
+            AND (emitted_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date)",
     )
     .bind(user)
-    .fetch_optional(pool)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    if exists {
+        return;
+    }
+    crate::store_heartbeat(
+        pool,
+        crate::heartbeat::HeartbeatRequest {
+            id: uuid::Uuid::new_v4(),
+            user_id: user,
+            logical_source: "s01-archive-inbox".into(),
+            device_id: Some("s01-c03".into()),
+            emitted_at: chrono::Utc::now(),
+            capturable: true,
+            blockers: Vec::new(),
+            attempts: 1,
+            successes: 1,
+            raw: "{}".into(),
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// 走査の回数（取り込み器が走査のたびに足す利用者ごとの数）。
+async fn scans(pool: &sqlx::PgPool, user: uuid::Uuid) -> i64 {
+    hold_clock(
+        sqlx::query_scalar::<_, i32>(
+            "SELECT attempts FROM core.archive_scan_counter WHERE user_id = $1",
+        )
+        .bind(user)
+        .fetch_optional(pool),
+    )
     .await
     .unwrap()
     .map_or(0, i64::from)
@@ -134,6 +188,7 @@ async fn archive_scan_interval_default_is_120_seconds() {
     let user = testdb::user();
     let root = std::env::temp_dir().join(format!("ashiato-scan-interval-{}", uuid::Uuid::new_v4()));
 
+    seed_today_heartbeat(&pool, user).await;
     tokio::time::pause();
     let worker = crate::archive::worker::spawn_inspecting(
         pool.clone(),
@@ -143,13 +198,20 @@ async fn archive_scan_interval_default_is_120_seconds() {
         &row.name,
     );
     wait_for_scans(&pool, user, 1).await;
+    let started = tokio::time::Instant::now();
     advance_secs(600, 25).await;
     let count = scans(&pool, user).await;
+    let elapsed = started.elapsed();
     drop(worker);
     tokio::time::resume();
     row.delete().await;
     let _ = std::fs::remove_dir_all(&root);
 
+    // 試験の外で時計が勝手に進んだ回数は数えない: 経過は advance した 600 秒ちょうど
+    assert!(
+        elapsed >= Duration::from_secs(600) && elapsed < Duration::from_secs(601),
+        "仮想時間の経過は 600 秒のはず: {elapsed:?}"
+    );
     assert!(
         (4..=6).contains(&count),
         "10 分の走査は 4 回以上 6 回以下のはず: {count}"
@@ -164,6 +226,7 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     let user = testdb::user();
     let root = std::env::temp_dir().join(format!("ashiato-scan-interval-{}", uuid::Uuid::new_v4()));
 
+    seed_today_heartbeat(&pool, user).await;
     tokio::time::pause();
     let worker = crate::archive::worker::spawn_inspecting(
         pool.clone(),
@@ -175,20 +238,30 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     wait_for_scans(&pool, user, 1).await;
     assert_eq!(scans(&pool, user).await, 1, "起動の直後に 1 回走査する");
 
-    // 走査の直後に 1 秒へ変え、そこから 10 秒待つ
+    // 走査の回数は待ちに入る前に増える。取り込み器が待ちの眠りに入るのを待ってから 1 秒へ変え、10 秒待つ
+    settle(500).await;
     row.set_interval(1).await;
     let before = scans(&pool, user).await;
+    let started = tokio::time::Instant::now();
     // 1 秒進めるごとに走査が 1 回入るのを待つ（変えた値が 1 秒以内に効く）
     for step in 1..=10 {
-        tokio::time::advance(Duration::from_secs(1)).await;
+        // 1 秒の眠りの期限は ms に切り上がるので、1 秒ちょうどでは届かない
+        tokio::time::advance(Duration::from_millis(1001)).await;
+        settle(25).await; // 眠りの timer を取り込み器に処理させる
         wait_for_scans(&pool, user, before + step).await;
     }
     let during = scans(&pool, user).await - before;
+    let elapsed = started.elapsed();
     drop(worker);
     tokio::time::resume();
     row.delete().await;
     let _ = std::fs::remove_dir_all(&root);
 
+    // 時計が自動で次の timer（120 秒）まで跳ぶと、古い間隔で眠る退行が緑になる。経過は 10 秒ちょうど
+    assert!(
+        elapsed >= Duration::from_secs(10) && elapsed < Duration::from_secs(11),
+        "仮想時間の経過は 10 秒のはず: {elapsed:?}"
+    );
     assert!(during >= 5, "10 秒の間の走査は 5 回以上のはず: {during}");
 }
 
