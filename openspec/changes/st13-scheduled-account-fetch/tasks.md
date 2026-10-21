@@ -74,13 +74,13 @@
 
 ## Task 5: 置き場を別々に読み、専用のフォルダを作り、I/O の失敗を別の種別にする（design D8。申し送り R34 / M8）
 
-- [ ] 5.1 `archive/scan.rs` の `scan_once_with_hasher` を、2 つの置き場を別々に読み、読めない置き場を返す形にし、`spawn_inspecting` は読めた置き場の候補を読み手へ送り、読めない置き場を生存信号の `blockers` に積む（成功回数の定義は変えない）。
+- [x] 5.1 `archive/scan.rs` の `scan_once_with_hasher` を、2 つの置き場を別々に読み、読めない置き場を返す形にし、`spawn_inspecting` は読めた置き場の候補を読み手へ送り、読めない置き場を生存信号の `blockers` に積む（成功回数の定義は変えない）。
   起動時に専用のフォルダが無ければ作る（ダウンロードのフォルダは作らない）。`archive/open.rs` の I/O の失敗を `file_unreadable` にし、台帳の理由の種別の CHECK に値があれば Task 1 の移行に足す。`web/src/messages.ts` に文言（design D8）を足す。
   既存の試験 `archive_flow_names_only_the_unreadable_inbox`（`archive_flow_tests.rs:1431`）を、起動の**後**に専用のフォルダを消す形に直す（正典の Scenario「置き場が読めない日は取れない状態で残る」の WHEN を直した。spec-review R4）。
   Scenario: `専用のフォルダが読めなくてもダウンロードのフォルダの書庫は読まれる` / `片方の置き場が読めない走査は成功に数えない` / `専用のフォルダが無ければ起動時に作られる` / `ダウンロードのフォルダは作られない` /
   `読み出せないファイルは形の対応と別の種別で台帳に残る` / `置き場が読めない日は取れない状態で残る`（既存の印。試験を直す）。
   検証: `CT archive_inbox_independent (≥5)`（読み出せないファイルは、見つけた後に権限を落とす（Unix の `chmod 000`）材料で作る）、`CT archive_flow_names_only_the_unreadable_inbox (≥1)`、`CT archive_ (≥1)`、`cd web && npx vitest run` rc=0
-- [ ] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/coverage-sources.spec.ts` に 1 本足す。
+- [x] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/coverage-sources.spec.ts` に 1 本足す。
   Scenario: `読み出せなかったファイルは稼働状況に形の問題と別の文字で出る`。
   検証: `cd web && npm run test:e2e -- coverage-sources` rc=0（箱の文字に「読み出せません」を含み、「形」の対応の文言を含まない）
 
