@@ -143,6 +143,7 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
 - 指定した滞在の印は `user` のまま。重なって一緒に本文を消した滞在（D2 の 3。作り直しの印）は **`user:purged`** に付け替え、削除の台帳に `erase` の行（原因 = 指定した滞在・`mark = 'user:purged'`）を積む
   （正典「消す・戻すは追記のみの台帳に 1 操作 1 行で残る」の「印を付ける」に当たる）。
   付け替えるのは、`rebuild:` の印のままだと、作り直しが「もう吸収されていない」と読んで印を外し、本文の空な滞在が一覧に戻るため。
+  `core.event.deleted_by` と `core.deletion_ledger.mark` は値を縛る CHECK を持たない（`migrations/202609081618_envelope.sql:34`・`migrations/202609271716_deletion_ledger.sql:12`）ので、移行で許す値を足す必要は無い。
   `user:purged` は ST33 の D17（後に消した記録の数）には削除の印として入る。**消した時間帯の窓（`core.stay_erased`・`user_erased_stay_sql`）には入れない**（D5 / D13）
 - `load_existing` は **`raw = ''` の滞在を一致の候補に入れない**。その時間はビューから `erased` の列に足すので、重なる新しい滞在は `rebuild:erased-range` で隠れる（FR-50 ★ 2026-09-13）
 - `deletion::restore` は、戻すことになる記録（指定した滞在と、それを原因に消えた記録のうち、**別の原因で消えたまま残るもの（いまの `blocked_by_other_cause`）を除いたもの**）に
