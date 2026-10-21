@@ -67,7 +67,7 @@
 
 ## Task 4: 台帳の行と論理ソースごとの行を 1 トランザクションで書く（design D7。申し送り R25）
 
-- [ ] 4.1 `archive/worker.rs` の読み手で、読み終えた後の台帳の行（`read` と、読めなかった項目を持つ行）と `archive_ledger_source` の行を 1 つの `sqlx::Transaction` で書く。`store_requests` は変えない。
+- [x] 4.1 `archive/worker.rs` の読み手で、読み終えた後の台帳の行（`read` と、読めなかった項目を持つ行）と `archive_ledger_source` の行を 1 つの `sqlx::Transaction` で書く。`store_requests` は変えない。
   `testdb.rs` に、指定した `sha256` の `archive_ledger_source` への `INSERT` で例外を投げる試験用の trigger を作る補助を足す（本番のコードに分岐を置かない）。
   Scenario: `論理ソースごとの行を書けなかった書庫は読み終えた行も残らない` / `台帳を書けなかった書庫は次の走査で読み直されて最終日が出る`。
   検証: `CT archive_ledger_atomic (≥2)`（2 本目は trigger を外して次の走査を回し、最終日が出ることと、視聴履歴の件数が 1 回だけ読んだ DB と同じことを見る）、`CT archive_ (≥1)`
