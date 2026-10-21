@@ -5806,23 +5806,34 @@ async fn archive_failure_reset_after_a_completed_read() {
         "読み終えても失敗の回数が戻らない"
     );
 
-    // その後の中断は 1 回目。
-    let throttled = crate::archive::worker::record_store_failure(
-        &inbox.pool,
-        inbox.user,
-        &path,
-        "e".repeat(64),
-    )
-    .await
-    .unwrap();
+    // その後の中断は 1 回目。中身の違う書庫を同じ場所に置き、格納を 1 回だけ落とす。
+    let after = watch("2026-09-12T04:00:00Z", "置き直した動画の題名は少し長い");
+    let fault = LateMarkFault::install_store_first(&inbox, 1).await;
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", after.as_bytes())],
+    );
+    // 次の走査で読み直される（1 回落ちた後、待たずにもう一度読まれて通る）。
+    inbox
+        .until("中断の後の次の走査で読み直されない", || async {
+            inbox.read_rows_now(None).await == 2
+        })
+        .await;
     assert!(
-        !throttled,
+        fault.fired().await >= 2,
+        "1 回落ちた後に読み直されていない"
+    );
+    fault.remove().await;
+    assert_eq!(
+        inbox.ledger_rows("store_failed").await,
+        0,
         "読み終えた後の 1 回の中断が 3 回目として数えられた"
     );
-    assert_eq!(inbox.ledger_rows("store_failed").await, 0);
-    let (failures, wait) = inbox.sighting_failure(&path).await.unwrap();
-    assert_eq!(failures, 1);
-    assert_eq!(wait, None, "1 回の中断に 1 時間の待ちが付いた");
+    assert_eq!(
+        inbox.sighting_failure(&path).await,
+        Some((0, None)),
+        "読み直しで通った後も回数か待ちが残っている"
+    );
 }
 
 // Scenario: 同じ場所に中身の違う書庫を置き直すと待たされない
