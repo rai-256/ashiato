@@ -177,3 +177,80 @@ MODIFIED の 3 本（「取り込み待ち置き場に置かれた書庫を読�
 - **観点 6**: 該当なし（`spec --answers` ではない）。
 - 処置: fixed specs/device-collection/spec.md —— 同じ端末の状態で除外の状態だけを変えた 2 つの生存信号を比べる形にした
 
+
+---
+
+# spec --answers Q3 の追記（2026-10-21。作業ツリーの未 commit の差分を読んだ）
+
+対象: `git diff`（specs/external-ingestion/spec.md・specs/device-collection/spec.md・design.md・tasks.md・proposal.md）と、`deep.md` の Q3・「spec --answers Q3 へ送るもの」、`docs/requirements.md` の FR-15 ★ 2026-10-21（追加・補強）、
+`docs/audit/2026-10-21-st13-consistency.md` の C1〜C9・K1、`docs/stories/ST13.md`。突き合わせたコード: `web/src/CoverageGrid.tsx`・`web/src/messages.ts`・`web/e2e/archive-layout.spec.ts`・`crates/server/src/coverage.rs`。
+go.json / proto.html の S-7 の記述は指摘しない（呼び出し元の指定。次の reading の段が直す）。観点 6 の判定は `review/answers.md`。
+
+## 機械の検査（この段）
+
+| コマンド | 結果 |
+|---|---|
+| `openspec validate st13-scheduled-account-fetch --strict` | `Change 'st13-scheduled-account-fetch' is valid`（rc=0） |
+| `python3 scripts/check_chain.py .` | `chain: OK (0 件 / 未回収 0 件 / warn 0 件)`（観点 8 の再生成との一致も通る） |
+| `python3 scripts/check_scenarios.py . st13-scheduled-account-fetch` | `scenarios: FAIL (担保なし 58 件 / 名無しの確認待ち 0 件)`。上流なので印が無いのは当然。**58 + `[wait]` 1 = 59** で、tasks.md:14 の「足す Scenario は 59 本」と一致する（格子の見出しの Requirement は 15 本。書き直す前の S-7 の Requirement も 15 本で、総数は変わっていない） |
+| `python3 scripts/review_triage.py . st13-scheduled-account-fetch` | `triage: OK`（指摘 29 件 / 仮決め 8 件 / 要件へ戻すもの 1 件） |
+
+## R21. 一時停止の知らせを Must の 1 本目（位置）の見出しに置き「1 行の条件から外す」ので、知らせが出ている間は Must の格子が押し下がる。spec:198 の「格子の高さを増やさない」と同じ文の中で食い違い、FR-15 ★ 補強と正典の予算にも無い切り欠き
+- 成果物: openspec/changes/st13-scheduled-account-fetch/specs/external-ingestion/spec.md:197-198, :255-258 / design.md:185, :210, :252 / tasks.md:123-124
+- 根拠: spec:198「折り返させず（360 px の幅で 1 行のまま。**一時停止の対象から外れていないことの知らせを出すときを除く**）、格子の高さを増やさない」—— 折り返しは許すのに高さは増やさない、と読める / design.md:185 の知らせの文言「 · 一時停止の対象のまま（収集アプリの画面から外す設定を開けます）」は 360 px の位置の見出しで 1 行に収まらない / design.md:252（D19 仮）「一時停止の知らせを出す状態は異常の知らせなので、1 行の条件から外す」は AI の決定で、Q4 の答え（「この Story で防ぐ（初回に 1 回、除外を頼む）」）は置き場を言っていない（deep.md の C9「Q4 の休止の表示の置き場も決め直す」）/ FR-15 ★ 補強（docs/requirements.md:315）「添える文字は Must の 5 ソースのひとスクロールの予算（FR-55）に数え、格子の高さを増やさない」に例外が無い / 正典 collection-coverage:753・:867-875（ひとスクロール・開いた直後の 2 ソース 640 px）。位置は Must の 1 本目なので、5 本すべてと 2 本目の下端が動く / Scenario :257 の WHEN は「外れている」状態に固定され、tasks.md:124 も 5 本目の下端だけを測るので、知らせが出ている状態の高さはどこでも測られない（K1 は「5 本目と 2 本目」を求めていた）/ 予算の数え方を変えた ST12 は、その分を collection-coverage の MODIFIED と INDEX の割当で受けた（docs/stories/INDEX.md:198）
+- kind: conflict
+- 提案: (a) 知らせを 1 行に収まる短い文（例「一時停止の対象のまま」だけ。外す操作の案内は収集アプリの画面）にして spec:198 の括弧を消し、Scenario :257 の WHEN を「外れていない」状態にも広げる（2 本目の下端も測る）か、(b) 予算から除く高さとして書くなら collection-coverage を MODIFIED して INDEX に ST13 を足し、本人に問う（予算に効くので A）。
+- 処置: fixed D19 仮 —— (a) を採った: 知らせは間隔の代わりに出す短い文字「休止の対象（アプリで外す）」にし、spec の 1 行の条件の例外を消した。Scenario「添えた文字で Must の 5 ソースの見出しは折り返さない」の WHEN を外れていない状態にも広げ、2 本目と 5 本目の下端を測る。D10 の表・tasks 9.1 / 9.2）
+
+## R22. 退役した書庫のソースに「手作業・2 か月ごと」を添えるかが spec で決まっていない。spec:192 を字どおり読むと、増えないソースに「2 か月ごとに運ぶ」が出る
+- 成果物: openspec/changes/st13-scheduled-account-fetch/specs/external-ingestion/spec.md:192, :196, :245-248
+- 根拠: spec:192「書庫の論理ソースの格子の見出しの行には、間隔の代わりに『手作業・2 か月ごと』と…」は退役を除いていない / spec:196 と Scenario :248 は退役した行から**残り日数だけ**を除く / 書き直す前の版は「増えないソースであることを出す」だった（`git diff` の削除行）/ design.md:184 も「退役した行は残り日数を出さない」だけ / 退役の文字は `web/src/messages.ts:167` の「 — YYYY-MM-DD に退役」で、同じ見出しに「手作業・2 か月ごと」と並ぶと逆のことを言う
+- kind: technical
+- 提案: spec:196 を「退役した論理ソースの格子には、取り方・契機・通知までの残り日数のどれも添えない」とし、Scenario :248 の THEN を「『手作業・2 か月ごと』も残り日数も出ず、退役したことの文字が出る」にする（Task 9.2 のアサートにも足す）。
+- 処置: fixed D10 仮 —— spec（退役した格子には取り方・契機・残り日数のどれも添えない。Scenario の THEN と tasks 9.2 のアサートに足した）
+
+## R23. 「`/sources` を読めない・行が無いソースは添えず、格子はそのまま」は観測できる振る舞いで design にしか無い。ST02 の格子を壊さないことの本体なのに Scenario が無く、Scenario :258 の比べる相手もこの振る舞いに依っている
+- 成果物: openspec/changes/st13-scheduled-account-fetch/design.md:188 / specs/external-ingestion/spec.md:188-203, :258
+- 根拠: design.md:188「`/sources` を読めない・行が無いソースは、添える文字を出さず格子はそのまま（格子の表示を `/sources` に依らせない）」/ spec の Requirement（:190-203）にこの文が無い / Scenario :258 の「取り方と間隔を 1 本も添えないとき」は tasks.md:124 で `page.route('**/api/sources', …)` が空の一覧を返す形で作るので、空のときに添えないことを spec が言っていなければ比べる相手が定まらない / `openspec archive` は main specs しか更新しないので、design に置くと正典から落ちる / ST13.md の「壊してはいけないもの」に ST02 / ST12 の稼働状況の画面がある
+- kind: technical
+- 提案: Requirement に「WHEN 添える値を読み出せない THE SYSTEM SHALL 添える文字を出さず、格子はそのまま出す」を足し、Scenario 1 本（`/sources` が 5xx を返しても Must の 5 本の格子と週の帯が出て、エラーで画面が止まらない）を Task 9.2 の e2e に置く。
+- 処置: fixed D10 仮 —— spec（WHEN 文と Scenario「取り方と間隔を読めなくても格子は出る」を足し、tasks 9.2 に 503 の経路を足した）
+
+## R24. Scenario「格子を持たないソースの取り方と間隔は画面に出ない」の THEN は「1 時間ごと」の字が稼働状況に無いことで測るが、同じ画面の「直近に置いた書庫」の箱が「1 時間ごとに読み直します」を出す
+- 成果物: openspec/changes/st13-scheduled-account-fetch/specs/external-ingestion/spec.md:260-263 / tasks.md:125
+- 根拠: spec:263「携帯端末の時計と取り込み器の見回りの取り方と間隔（『1 時間ごと』『2 分ごと』）は、どちらの画面にも出ない」/ tasks.md:125「稼働状況と S-7 設定の本文に『1 時間ごと』『2 分ごと』が無い（いまの登録簿でこの 2 つの文字を持つのは時計と見回りだけ）」/ `web/src/messages.ts:144-145` `storeFailed`「…— 格納に失敗しています（**1 時間ごと**に読み直します）」は稼働状況の箱に出る。Task 5.2 が同じ seed のファイル（tools/seed.d/<時刻>_st13-sources.sh）に足す `file_unreadable` は `unreadable` の文言（messages.ts:143）で今は当たらないが、同じ seed に格納の失敗の書庫を 1 冊足すだけで、時計の間隔と無関係にこの Scenario が偽になる
+- kind: technical
+- 提案: THEN を「時計と見回りの格子の見出しも、添える文字も無い」にし、e2e は `source-note-c01-clock` / `source-note-s01-archive-inbox` の不在と、文字の検査を各 `h2` の中に限る形にする（本文全体の grep を外す）。
+- 処置: fixed 9.2 —— 本文の字ではなく `source-note-c01-clock` / `source-note-s01-archive-inbox` の有無で測る。Scenario の THEN も文字で言わない形に直した）
+
+## R25. 集計（`c01-app-usage-rollup`）の格子に何が添うかが spec に無い
+- 成果物: openspec/changes/st13-scheduled-account-fetch/specs/external-ingestion/spec.md:190-191, :199 / design.md:92（D3）, :183
+- 根拠: 集計は格子を持つ（正典 collection-coverage:1736-1742「アプリ利用の集計は格子に出る」、`crates/server/src/coverage.rs:38` `ROLLUP_SOURCE`）ので spec:199 の「格子を持たないソース」には入らず、spec:190-191 が添える対象になる / D3 は `device` / `once`、design.md:183 は `once` →「 — 始めたときに 1 回」/ Scenario は位置・アプリ利用（:213）とウィンドウ（:218）だけで、`once` の契機と集計の格子を見る Scenario が無い。実装が集計に何を出しても（出さなくても）落ちない
+- kind: technical
+- 提案: 集計に添えるか添えないかを spec に 1 文で書き、Scenario 1 本（「アプリ利用（集計）の格子の見出しに『始めたときに 1 回』が出る」か「何も添わない」）を Task 9.2 に足す。
+- 処置: fixed D11 仮 —— spec（Scenario「変わったときに取るソースは格子の見出しに契機が出る」に集計の「始めたときに 1 回」を足し、tasks 9.2 のアサートに足した）
+
+## R26. Scenario「S-7 設定にソースの取り方と間隔が出ない」の THEN 後半「『全記録の書き出し』の節が ST33 のとおりに出る」は観測できる言葉でない
+- 成果物: openspec/changes/st13-scheduled-account-fetch/specs/external-ingestion/spec.md:265-268 / tasks.md:125
+- 根拠: spec:268「…節は無く、『全記録の書き出し』の節が ST33 のとおりに出る」—「ST33 のとおり」が何を指すか（見出し・並び・数）が書かれていない / tasks.md:125 のアサートは「『全記録の書き出し』の節がある」だけ / 既存の `web/e2e/settings-export.spec.ts:149` は「`settings-view` の最初の `h2` が『全記録の書き出し』」で測っている
+- kind: technical
+- 提案: THEN を「S-7 設定の節の見出しは『全記録の書き出し』だけで、時間の間隔の文字（『秒ごと』『分ごと』『時間ごと』『手作業・2 か月ごと』）が無い」のように数えられる形にする。
+- 処置: fixed 9.2 —— spec（THEN を「「全記録の書き出し」の節がある」に直した）
+
+## R27. Task 9.2 の「下端の差が 0 px」「`h2` の高さが `line-height` の 1 行ぶん以下」は許容差を持たず、字の大きさの違う `span` を同じ行に足すと、折り返さなくても端数で落ちうる（未実測）
+- 成果物: openspec/changes/st13-scheduled-account-fetch/tasks.md:123-124 / specs/external-ingestion/spec.md:258
+- 根拠: `web/src/CoverageGrid.tsx:58` の `h2` は `font(TYPE.body, 600, 1.3)`、添える `span` は `archiveNote` と同じ `font(TYPE.caption, 400, 1.3)`（:61。design.md:180 も同じ字の大きさ）。大きさの違う inline を同じ行に置くと、行の高さは基線合わせで `h2` の `line-height` を端数ぶん超えることがある / 既存の相対測定（`web/e2e/archive-layout.spec.ts:134`、:152）は `toBeLessThanOrEqual(low + BOX_MAX_PX)` で許容を持ち、差 0 で測るものは無い / 測ってはいない（360 px で何 px 伸びるかは整合の確認の「未確認」にも残っている）
+- kind: technical
+- 提案: 「1 行」は `h2` の高さ < 2 × `line-height` で、下端は差 < 1 px（`toBeLessThan(1)`）で測ると tasks に書く。spec:258 の「同じ位置」も「1 CSS px 未満の差」と数で書く。
+- 処置: fixed D19 仮 —— 9.2（`h2` の高さ < 1.5 × `line-height`、下端の差は 1 px 以内。spec の Scenario も「1 CSS px より大きくは動かない」と数で書いた。design D19）
+
+## 観点ごとの確かめ（この段）
+
+- **観点 1**: Q3 の答え（設定に出さない・格子の各行に添える・書庫は「手作業・2 か月ごと」と残り日数）は、spec:188-203 と Scenario :210-268 に写り、覆した S-7 の一覧（取り方ごとの見出し・定期取得の空の節・いちばん新しい記録の欄）の Scenario は残っていない（`grep -n "S-7\|端末の節\|いちばん新しい記録"` は spec:200・:262-268 の「出さない」側だけ）。
+  「各行」を週の行ではなく各ソースの見出しと読んだのは FR-15 ★ 補強（C2）に合わせたもの。FR-15 ★ 2026-10-21（追加・補強）は docs/requirements.md に入っている。数値（53 日 → 22 日・80 日・74 日 23 時間・75 日 1 時間・75 日・360 px・360 × 640）は Scenario にある。
+  deep.md の「spec --answers Q3 へ送るもの」: C1 / C2 → spec:198・:206・Scenario :255、C3 → spec:199・D18、C8 → spec:192・:194・:208、C9 → 差分全体、K1 → tasks.md:123-124・D19。K1 の「2 本目」と Q4 の置き場は R21。
+- **観点 2**: R22・R24・R25・R26。AND で束ねた THEN（:213・:223・:258・:278）は Global Constraints（tasks.md:15）が 1 つずつ assert すると定めている。
+- **観点 3**: R23。spec に関数名・列名は入っていない（`YYYY-MM-DD` の形と文言は画面の振る舞い）。proposal の Capabilities と `specs/` は一致し、collection-coverage を MODIFIED しない理由も proposal.md:60 にある（ただし R21 の (b) を採るなら要る）。
+- **観点 4**: R24・R27。Task 8 → Task 9 の順は API → 画面で逆転なし。Task 9.2 は既存の稼働状況の e2e（`archive-layout` `coverage-`）を走らせ直す検証を持つ（tasks.md:127）。人間の確認待ちの増減は無い。
+- **観点 5**: 該当なし（確かめた範囲: `check_chain.py` の観点 8 は OK。ST13.md の完了の判定 1「取り方と間隔は稼働状況の格子に読むだけで見える」は Q3 の答えと spec に合う。「壊してはいけないもの」の ST02 / ST12 の稼働状況の画面は tasks.md:32 と Scenario :255 が受ける（知らせの状態の穴は R21）。spec:205 の導出元の FR-55 / FR-54 は守る制約として引いており、満たす要件を増やしていない）。
+- **観点 6**: `review/answers.md`。Q3 は写った。答え以外の変更はある。

@@ -1,6 +1,6 @@
 ## Context
 
-動機は `proposal.md` の Why。**この版は深掘り第 1 回の推奨の答えで書いた**（`deep.md` は答え待ち）。いまのコードの形（深掘りの手順 5 と `review/deep.md`）:
+動機は `proposal.md` の Why。**深掘り第 1 回の答え（`deep.md`）で書いた**。推奨と違ったのは Q3（取り方と間隔は S-7 設定ではなく稼働状況の格子の見出しに添える）だけ。いまのコードの形（深掘りの手順 5 と `review/deep.md`）:
 
 - 登録簿 `core.source` は `expected_gap_sec`（FR-35 の想定間隔）・`alert_after_days`（ST14）・`retired_on` などを持つが、**取り方と取得の間隔を持たない**。静的な行は 23 本、ほかに `worker::ensure_myactivity_source` が製品ごとに `c03-myactivity-u*` を足す
 - 取り込み器の見回りの間隔は環境変数 `ASHIATO_ARCHIVE_SCAN_SEC`（既定 120 秒。`archive/config.rs`）。`tools/smoke.sh` が `1` を設定している。試験は `ArchiveConfig { scan_sec, .. }` を直接組む
@@ -8,11 +8,13 @@
 - 申し送り（`docs/handoff/ST13.md`）: R25 = 記録 → 台帳の `read` 行 → `archive_ledger_source` が別々の自動コミット / R34 = `scan.rs` が 2 つの置き場を `?` で直列に読み、専用のフォルダを作る処理が無い /
   M7 = `consecutive_failures` を 0 に戻す経路が無い（R89 で印付けの失敗もこの数に入る）/ M8 = `open.rs` が `.json` の I/O 失敗と zip を開けない I/O 失敗を `unsupported_format` / `broken_zip` と呼ぶ
 - 携帯の収集アプリは休止を防ぐ手を持たない（`AndroidCapability.kt` は剥がれた後を報告するだけ）。生存信号は `raw` に収集側の原文（JSON）を持ち、S-01 は素通しで残す
-- S-7 設定（`web/src/SettingsView.tsx`）は「全記録の書き出し」の節だけ（ST33）
+- S-7 設定（`web/src/SettingsView.tsx`）は「全記録の書き出し」の節だけ（ST33）。この Story は S-7 に足さない（Q3）
+- 稼働状況の格子（`web/src/CoverageGrid.tsx`）は 1 ソース 1 つの `<section>` で、見出しの `h2` にソースの名前と、書庫のソースなら「`YYYY-MM-DD` まで（N 日前）」（`archiveNote`）・乗り換え・退役の文字が並ぶ。格子に出すソースは Must の 5 本・集計・`c03-%` だけ（`lib.rs` の `coverage_get`）。
+  Must の 5 ソースのひとスクロールの予算は実寸で既に割れている（issue #75・ST12 の D20 / D23）。`web/e2e/archive-layout.spec.ts` は箱が足す量だけを相対で測る
 
 ## Goals / Non-Goals
 
-**Goals**: 登録簿が取り方と間隔を持ち、サーバが回すものはそれに従う。後のソースが登録簿の 1 行と取る手を足すだけで乗る定期取得の枠。NFR-12 を崩している 5 つ（R25・R34・M7・M8・休止）を直す。S-7 で全ソースの取り方と間隔を読める。
+**Goals**: 登録簿が取り方と間隔を持ち、サーバが回すものはそれに従う。後のソースが登録簿の 1 行と取る手を足すだけで乗る定期取得の枠。NFR-12 を崩している 5 つ（R25・R34・M7・M8・休止）を直す。格子を持つソースの取り方と間隔を、稼働状況の格子の見出しで読める。
 
 **Non-Goals**:
 - 定期取得するソースを足すこと（Q1 推奨: いま無い）。Google の API・ドライブ経由の取得
@@ -34,7 +36,7 @@
 | D7 | R25: 台帳の行と論理ソースごとの行を 1 トランザクション。記録は 1 件ずつのまま | Q2（推奨）/ ST12 D4（本人の決定 Q6） | — |
 | D8 | R34 / M7 / M8 の直し方 | Q2（推奨） | — |
 | D9 | 端末と PC の間隔は見せるための写し | AI が詰めた | 仮 |
-| D10 | `GET /sources` と S-7 の「ソース」節の形 | Q3（推奨の形）/ Q6（推奨） | 仮 |
+| D10 | `GET /sources` と稼働状況の格子の見出しへの添え方 | Q3（本人の答え）/ Q6 | 仮 |
 | D11 | 間隔の書き方（秒・分・時間） | AI が詰めた | 仮 |
 | D12 | 休止の除外の状態の読み方・頼み方・載せ方 | Q4（推奨） | 仮 |
 | D13 | 形の確認の印は CLI のまま | Q5（推奨） | 仮 |
@@ -42,6 +44,8 @@
 | D15 | 定期取得するソースはいま無い。FR-15 の ★ は record の段 | Q1（推奨） | — |
 | D16 | 申し送りのうち直すのは R25・R34・M7・M8 だけ | Q2（推奨） | 仮 |
 | D17 | 取り込み器の起動時に専用のフォルダを作る | Q2（推奨: R34）を AI が詰めた（spec-review R4） | 仮 |
+| D18 | 格子を持たないソースの取り方と間隔は画面に出さない | Q3（本人の答え）の帰結を AI が詰めた（整合の確認 C3） | 仮 |
+| D19 | Must の 5 ソースの見出しは 1 行のまま。予算は相対で測る | Q3 の帰結・FR-15 ★ 補強（整合の確認 C1 / K1） | 仮 |
 
 ## D1. 登録簿に取り方・契機・取得の間隔の 3 列を足す（Q1 推奨・Q1 の既定）
 
@@ -72,7 +76,7 @@
 
 **前置きの分からない名前を断らない理由**（spec-review R2）: 試験の補助 `testdb::source` は `t-…` の名前で 150 か所から行を足し、`tools/seed.sh`（`seed-location`）・`tools/smoke.sh`（`smoke` / `smoke-ext`）・
 `tools/check-immutable.sh`（`ext-kind-check` ほか）も前置きの無い名前を足す。断ると、それらを全部書き換えることになり、この Story の範囲を越える。
-試験の行は S-7 の「サーバ」の節に出るが、本番の登録簿には無い。
+試験の行は格子を持たないので画面に出ない（D18（仮））。本番の登録簿には無い。
 
 **なぜ**: 走っている ST09 の移行（`c01-screenshot` / `c01-image` / `c01-video`）と `ensure_myactivity_source`・`testdb::source` は、3 列を知らずに `INSERT` する。
 NOT NULL だけにすると、ST09 が後から merge したときにその移行が落ちる。ST09 が先に merge したときは、その 3 行が D3 の表に無いまま列が足されるので、`UPDATE` も同じ関数で埋める（spec-review R3。merge の順序に依存させない）。ST09 の 3 本は「変わったとき」で合っている（保存の知らせで取る）。
@@ -150,33 +154,42 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
 
 ## D9（仮）. 端末と PC の間隔は見せるための写し
 
-収集側（C-01 / C-02）は自分の定数で動き、登録簿の値を読まない。登録簿の値は S-7 に出すための写し。
+収集側（C-01 / C-02）は自分の定数で動き、登録簿の値を読まない。登録簿の値は稼働状況の格子の見出しに出すための写し。
 **反転条件**: 収集の間隔を本人が変えたくなったとき（電池・量）。そのときは登録簿を正本にして収集側へ配る口を作る（別の Story）。
 
-## D10（仮）. `GET /sources` と S-7 の「ソース」節
+## D10（仮）. `GET /sources` と稼働状況の格子の見出しへの添え方（Q3 本人の答え）
 
-読み出しの口 `GET /sources`（ほかの読み出しと同じ認証。`lib.rs` の `authorize`）。OpenAPI に載せる（`src/bin/openapi.rs`）。応答:
+読み出しの口 `GET /sources`（ほかの読み出しと同じ認証。`lib.rs` の `authorize`）。OpenAPI に載せる（`src/bin/openapi.rs`）。`/coverage` の形は変えない（Global Constraints）—— 稼働状況の画面は `/coverage` と並べて `/sources` を読み、`logical_source` で突き合わせる。応答:
 
 ```json
 {"sources": [{"logical_source": "c03-youtube-watch", "display_name": "YouTube の視聴履歴",
-  "acquisition": "archive", "fetch_trigger": "manual", "fetch_interval_sec": null,
-  "latest_at": null, "final_day": "2026-08-28", "retired_on": null,
-  "alert_after_days": 75, "last_archive_on": "2026-08-28", "alert_days_left": 22}],
+  "acquisition": "archive", "fetch_trigger": "manual", "fetch_interval_sec": null, "retired_on": null,
+  "alert_after_days": 75, "last_archive_on": "2026-08-28", "alert_days_left": 22, "alert_passed": false, "no_archive": false}],
  "device_notice": {"unused_app_restrictions": "not_exempt"}}
 ```
 
-- `latest_at`: 書庫以外の論理ソースの `max(event_time)`（利用者で絞る。**削除した記録も数える** —— 書庫の最終日と揃える。`core.event_live` ではなく、削除済みを含む `core.event` を引く。spec-review R17）。書庫は `final_day`（ST12 の取り込み済みの最終日）
+- 返すのは登録簿の全行（格子を持たない行も返す。出すかどうかは画面が決める —— D18（仮））
 - `last_archive_on` / `alert_days_left` / `alert_passed` / `no_archive`: `collection-coverage` の「書庫のソースは最後の書庫から登録簿の日数で途切れとする」と**同じ関数**で最後の書庫の時刻を出し（`outage_store.rs` の導き方を共有する。2 つ目の計算を書かない）、
   鳴る時刻 = 最後の書庫の時刻 + `alert_after_days` 日、`alert_days_left` = (鳴る時刻 − いま) を日に切り上げ、`alert_passed` = いまが鳴る時刻を過ぎた（途切れの判定の「超える」と同じ境目。spec-review R7）。
   書庫も記録も無ければ `no_archive = true` で残り日数は `null`（spec-review R8）。退役した行は `null`。最後の書庫の日の表示は `Asia/Tokyo`
 - `device_notice`: 利用者の `c01-location` の最新の生存信号の `raw` の `unused_app_restrictions`（無ければ `null`）
-- 並びはサーバが決める（取り方の順 → `display_name`）。画面は受け取った順に、取り方ごとの見出しの下に並べる
+- **いちばん新しい記録の時刻（前の版の `latest_at`）は返さない。** S-7 の一覧の各行が持っていた欄で、格子は週ごとの記録の有無をそのまま描くので重ねて出さない。見出しに足すと Must の 5 本の予算を食う
 
-画面（`web/src/SettingsView.tsx` に「ソース」節、`web/src/sources.ts` に型と取得、文言は `messages.ts`）: Q3 の推奨の形（`proto.html` の初期表示）。
-1024 px は 4 列（見出し・契機・最終・注記）、360 px は 2 段（見出し / 契機 · 最終 / 注記）。読むだけ（入力・ボタンを置かない）。書き出しの節の前に置く。
+画面（`web/src/CoverageGrid.tsx` の見出しの `h2` に `<span>` を 1 つ足す。型と取得と文言の組み立ては新しい `web/src/sources.ts`、文言は `messages.ts` の `grid`）:
 
-**反転条件**: Q3 で本人が別の形を選んだら、その形に。ST15 のソースごとの停止が乗るときは、行に操作が足される（ST15 が決める）。
-**Risks**: `max(event_time)` を論理ソースごとに引くのは、索引（`event_by_user_source_*`）の有無で重さが変わる。下流は `EXPLAIN` で索引が使われることを確かめ、使われなければ索引を足す移行を同じ移行に入れる。
+| ソース | 見出しに添える文字（`archiveNote` と同じ字の大きさ・`muted`） |
+|---|---|
+| 端末・PC（`interval`） | ` — 60 秒ごと`（D11） |
+| 端末・PC（`on_change` / `once`） | ` — 変わったとき` / ` — 始めたときに 1 回` |
+| 書庫（退役していない） | ` — 手作業・2 か月ごと · 通知まで あと 22 日（最後の書庫 2026-08-28 から）`。過ぎたら ` · 通知の日を過ぎた（最後の書庫 2026-08-28 から）`、書庫も記録も無ければ ` · まだ書庫が無い`。退役した行には何も添えない（R22）。既存の「`YYYY-MM-DD` まで（N 日前）」はその前にそのまま |
+| `c01-location` で `device_notice` が `not_exempt` | 間隔の代わりに ` — 休止の対象（アプリで外す）`（360 px で 1 行に収まる短さ。外す操作の案内は収集アプリの画面が持つ。spec-review R21） |
+
+- 端末・PC に取り方の語（端末・PC）を出さないのは、ソースの名前（携帯端末の位置・端末に保存された写真・PC のウィンドウ…）が言っているのと、Must の 5 本の見出しを 1 行に収めるため（D19（仮））
+- `/sources` を読めない・行が無いソースは、添える文字を出さず格子はそのまま（格子の表示を `/sources` に依らせない）
+- 読むだけ（`h2` の中に入力・ボタンを置かない）。S-7 設定には足さない
+
+**反転条件**: 本人が GO 資料か確認バッチで、見出しの文字が読みにくい・取り方の語も要ると言ったら、文言を変える（見出しの 1 行に収まらなければ D19 の予算と一緒に本人に問う）。ST15 のソースごとの停止は、置き場を ST15 が決める（S-7 の一覧は作らなくなった。`docs/ui-direction.md` は整合の確認 C6 で直してある）。
+**Risks**: 書庫の見出しは 360 px で 2〜3 行に折り返す（書庫のソースは Must の後ろで予算の外）。
 
 ## D11（仮）. 間隔の書き方
 
@@ -187,14 +200,15 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
 
 - 読む: `androidx.core` の `PackageManagerCompat.getUnusedAppRestrictionsStatus`（`core-ktx 1.17.0` が持つ）。結果を 4 つに写す:
   `DISABLED` → `exempt` / `API_30_BACKPORT`・`API_30`・`API_31` → `not_exempt` / `FEATURE_NOT_AVAILABLE` → `unsupported` / `ERROR` と例外 → `unknown`。
-  `unknown` のときは頼まず、画面に「除外の状態を読めなかった」の 1 行を出す（S-7 には出さない。spec-review R13）
+  `unknown` のときは頼まず、収集アプリの画面に「除外の状態を読めなかった」の 1 行を出す（稼働状況には出さない。spec-review R13）
 - 頼む: `MainActivity` の初回の流れ（権限の要求の後）で `not_exempt` なら、説明のダイアログを出し、応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開く。
   自動で出したことを `SharedPreferences` に 1 つの印で覚え、2 回目からは自動で出さない。前の版から更新した端末は印を持たないので、更新の後の最初の起動で 1 回出る（spec-review R14）。`not_exempt` の間は `MainActivity` の画面に 1 行と「設定を開く」のボタン（24 dp 以上）
 - 載せる: `c01-location` の生存信号の原文（`Heartbeat.kt` の `fields`）に `"unused_app_restrictions": "<4 つのどれか>"`。`capturable` と `blockers` は変えない（取得できる状態の条項は ST09 が書き換えている。欄を足すと `/heartbeat` の形も変わる）
-- 契約 `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は S-7 のために読むだけ）を足す（spec-review R16。いまは「原文に載るのは稼働・取得可否・回数だけ」と書いている）
+- 契約 `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は稼働状況の知らせのために読むだけ）を足す（spec-review R16。いまは「原文に載るのは稼働・取得可否・回数だけ」と書いている）
 - ST09 も `MainActivity` の初回の流れ（写真の権限）と `Heartbeat.kt`（接続の欄）を触る。ST13 は ST09 を requires に持たないので、**main の形で書き、ST09 が先に main に入ったら rebase で `Heartbeat.kt` の `fields` と `MainActivity` の初回の流れを解く**（spec-review R15。ST09 の未確認の実装を取り込まない）
 
-**反転条件**: 剥がれる仕組みが前提（`premises.md`。確かさ 2）と違うと分かったら（前景サービスで「使った」に数えるなど）、頼むのをやめて表示だけに。状態を画面のほかの場所（稼働状況）にも出したくなったら、生存信号の欄に上げる。
+**画面の知らせの置き場**（Q3 の帰結）: `not_exempt` は稼働状況の携帯端末の位置の格子の見出しに出す（D10（仮））。S-01 は生存信号の原文を読むだけ（`/heartbeat` の欄に上げない）。
+**反転条件**: 剥がれる仕組みが前提（`premises.md`。確かさ 2）と違うと分かったら（前景サービスで「使った」に数えるなど）、頼むのをやめて表示だけに。状態を判定にも使いたくなったら（取れない状態に数える）、生存信号の欄に上げる。
 **物理**: 「3 か月開かなくても剥がれない」はエミュレータで早送りできない（`adb shell cmd app_hibernation` は休止を手で入れるだけ）ので、確認待ちに置く。
 
 ## D13（仮）. 形の確認の印は CLI のまま（Q5 推奨）
@@ -204,7 +218,7 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
 
 ## D14（仮）. 間隔は画面から変えない（Q6 推奨）
 
-S-7 は読むだけ。変えるのは登録簿（psql）。
+格子の見出しは読むだけ。変えるのは登録簿（psql）。
 **反転条件**: 定期取得するソースが 2 本以上になり、本人が間隔を変えたくなったとき。画面の資格情報で登録簿を書く口と権限を足す。
 
 ## D15. 定期取得するソースはいま無い（Q1 推奨）
@@ -224,12 +238,25 @@ R34 の「専用のフォルダが無い」を、本人がフォルダを作る�
 正典の Scenario「置き場が読めない日は取れない状態で残る」は、WHEN を「起動の後に消された」に直して MODIFIED した。
 **反転条件**: 起動の後に消える事故（掃除の道具など）が実際に起き、本人が自動で作り直してほしいと言ったら、走査のたびに作る。
 
+## D18（仮）. 格子を持たないソースの取り方と間隔は画面に出さない
+
+格子に出るのは Must の 5 本・集計・書庫のソースだけ（`coverage_get`）。`c01-clock`・`s01-archive-inbox`（見回りの間隔）・`s01-stay`・`s01-attribute` / `s01-feeling` / `s01-place` と試験の行は、添える格子が無いので出さない。
+S-7 の一覧にあった「定期取得するソースはまだ無い」の文も出さない（書庫の見出しの「手作業・2 か月ごと」が、Google 系が書庫で入ることを言っている）。
+**なぜ**: 本人の答えは「設定に出さず、格子に添える」。格子の外に一覧を作り直すと、退けた形（S-7 の一覧）を別の場所に置くことになる。見回りの間隔を「直近に置いた書庫」の箱に足すと、箱の 160 px の上限（ST12 の D12）を食う。
+**反転条件**: 定期取得のソースを足す Story は、そのソースの格子を `coverage_get` に足す（足せば見出しに取り方と間隔が自動で添う）。本人が見回りの間隔を画面で見たいと言ったら、「直近に置いた書庫」の箱に 1 行足す（省く順位は最下位）。
+
+## D19（仮）. Must の 5 ソースの見出しは 1 行のまま。予算は相対で測る
+
+FR-15 ★ 補強の「添える文字は予算に数え、格子の高さを増やさない」を、**Must の 5 本の見出しの `h2` が 360 px で 1 行のまま**と読む。添える文字は `archiveNote` と同じ字の大きさ（`TYPE.caption`）にする。
+ひとスクロールの予算そのもの（640 / 1,280 CSS px）は issue #75 で既に割れているので、絶対値ではなく、**添える文字が無いとき（`/sources` が空の一覧）との差が 0 px** で測る（ST12 の D23 と同じ相対の測り方）。
+試験は `web/e2e`（本物の Chromium）に置く（整合の確認 K1。jsdom の勘定は字の折り返しを数えない）。一時停止の知らせも 1 行の条件に入れる（知らせは間隔の代わりに出す短い文字。spec-review R21）。比べるのは 2 本目と 5 本目の下端（K1）で、許容は 1 CSS px（字の大きさの違う span を同じ行に混ぜたときの端数。spec-review R27）。
+**反転条件**: 360 px で 1 行に収まらないソースの名前が出たら（ST09 の `c01-screenshot` などが Must に入る・名前を変える）、添える文字を見出しの下の 1 行にするかを本人に問う（予算を食うので A）。#75 が直ったら、絶対値の試験（`archive-layout.spec.ts` の `test.fail`）が見る。
+
 ## Risks / Trade-offs
 
 - [ST09 と `device-collection` / `MainActivity` / `Heartbeat.kt` を同時に触る] → ST09 の MODIFIED の Requirement には触らず、別の ADDED の Requirement と生存信号の原文で済ませた。ST13 は既に上流にいるので、INDEX の割当で `衝突待ち` にはならない（`board.py` の `衝突待ち` は着手可の Story にだけ付く）。ファイルの衝突は後から merge する側が rebase で解く（D12）
 - [D2 の trigger が ST09 の行に誤った既定を入れる] → ST09 の 3 本は「変わったとき」で合う。合わない行は足した Story が値を指定する
 - [環境変数を断ると、古い起動の設定（サービスの定義）で S-01 が起動しない] → 断る文言に置き場（登録簿の列）を書く。`docs/archive-inbox.md` と `tools/smoke.sh` を同じ PR で直す
-- [`GET /sources` の `max(event_time)` が重い] → D10 の Risks のとおり `EXPLAIN` で確かめる
 - [Q1 / Q4 の前提は確かさ 2 で止まっている] → どちらも推奨の側は前提が外れても失わない（`premises.md` の末尾）
 
 ## Migration Plan

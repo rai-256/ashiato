@@ -1,9 +1,9 @@
-# ST13 実装タスク — アカウント系のソースを定期取得する（登録簿の取り方と間隔・定期取得の枠・NFR-12 の直し）
+# ST13 実装タスク — ソースの取り方と取得の間隔を登録簿で持ち、定期取得の枠を置く（登録簿の取り方と間隔・定期取得の枠・NFR-12 の直し・稼働状況の格子に添える）
 
-読む順: `deep.md`（**最優先。本人が決めたこと**。この版は推奨の答えで書いた）→ このファイル → `specs/external-ingestion/spec.md` → `specs/device-collection/spec.md` → `design.md`
+読む順: `deep.md`（**最優先。本人が決めたこと**）→ このファイル → `specs/external-ingestion/spec.md` → `specs/device-collection/spec.md` → `design.md`
 → `docs/stories/ST13.md` → `docs/handoff/ST13.md`（開始時と PR 前の 2 回）→ `CLAUDE.md`。
 
-触るのは `migrations/`（1 本）・`crates/server/src/`（`archive/{config,scan,worker,open}.rs`・新しい `scheduled.rs`・`lib.rs`・`outage_store.rs`・`bin/openapi.rs`・試験）・`web/src/`（`SettingsView.tsx`・新しい `sources.ts`・`messages.ts`）・`web/e2e/`（新しい spec）・
+触るのは `migrations/`（1 本）・`crates/server/src/`（`archive/{config,scan,worker,open}.rs`・新しい `scheduled.rs`・`lib.rs`・`outage_store.rs`・`bin/openapi.rs`・試験）・`web/src/`（`CoverageGrid.tsx` と稼働状況の画面の読み出し・新しい `sources.ts`・`messages.ts`）・`web/e2e/`（新しい spec）・
 `collector-android/`（`MainActivity.kt`・`Heartbeat.kt`・新しい `UnusedAppRestrictions.kt`・試験）・`tools/`（`smoke.sh` と `record-env.sh` の 1 行・新しい `smoke.d/` `seed.d/` のファイル・新しい検査）・`docs/archive-inbox.md`・`docs/collector-contract.md`。
 検証は各タスクの本文に書いてある。「動いた」ではなくコマンドと終了コードで判定する。DB を使う検査は `docker compose up -d db` と `tools/db-roles.sh` が前提（`docs/testing.md` §8）。
 
@@ -11,16 +11,16 @@
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin / TypeScript はコメント（`// Scenario: 起動の直後に 1 回取りに行く`）、bash は `echo`。
   `scripts/check_scenarios.py . st13-scheduled-account-fetch` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は 59 本**（ADDED の Requirement の 41 本 + MODIFIED の 4 本に足した 10 本 + `device-collection` の 8 本。うち 1 本は人間の確認待ち）。MODIFIED で写した既存の 30 本は既存の印を生かす（名前を変えない。WHEN を直した「置き場が読めない日は取れない状態で残る」は試験の側を直す。Task 5）。
+- **この change が足す Scenario は 60 本**（ADDED の Requirement の 42 本 + MODIFIED の 4 本に足した 10 本 + `device-collection` の 8 本。うち 1 本は人間の確認待ち。Q3 の答えで格子の見出しの Requirement の 16 本に書き直した）。MODIFIED で写した既存の 30 本は既存の印を生かす（名前を変えない。WHEN を直した「置き場が読めない日は取れない状態で残る」は試験の側を直す。Task 5）。
   THEN に主張が 2 つ以上ある Scenario は、試験が主張を 1 つずつ assert する
 - **件数つき検証**: `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になる。このファイルで **`CT <絞り込み> (≥N)`** と書いたものは、
   `bash -o pipefail -c 'cargo test -p ashiato-server <絞り込み> 2>&1 | tee /tmp/ct.log' && grep -Eq 'test result: ok\. [0-9]+ passed' /tmp/ct.log && test "$(cargo test -p ashiato-server <絞り込み> -- --list 2>/dev/null | grep -c ': test$')" -ge N`
   が rc=0 になることを指す（N 本以上あり、すべて通る）。走らせるのは repo の根から `scripts/quiet-run`（AGENTS.md の「長いコマンド」）。
   **`GT <絞り込み> (≥N)`** は `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --tests '<絞り込み>'` が rc=0 で、`collector-android/app/build/test-results/testDebugUnitTest/` の該当する結果の `<testcase` が N 個以上あることを指す
-- **深掘りの答え（この版は推奨。答えが届いたら `deep.md` が正本）**: 定期取得するソースはいま無い・枠と登録簿の間隔だけ（Q1）/ 申し送りは R25・R34・M7・M8 だけ（Q2）/
-  S-7 設定の「ソース」節に取り方でまとめて読むだけ・書庫は手作業と通知までの残り日数（Q3）/ 携帯の収集アプリの休止を初回に 1 回頼んで防ぐ（Q4）/ 形の確認の印は CLI のまま（Q5）/ 間隔は画面から変えない（Q6）
+- **深掘りの答え（`deep.md` が正本）**: 定期取得するソースはいま無い・枠と登録簿の間隔だけ（Q1）/ 申し送りは R25・R34・M7・M8 だけ（Q2）/
+  **取り方と間隔は S-7 設定に出さず、稼働状況の各ソースの格子の見出しの行に読むだけで添える・書庫は「手作業・2 か月ごと」と起点つきの通知までの残り日数（Q3。本人が推奨と違う形を選んだ）** / 携帯の収集アプリの休止を初回に 1 回頼んで防ぐ（Q4）/ 形の確認の印は CLI のまま（Q5）/ 間隔は画面から変えない（Q6）
 - **聞かずに決めた既定（Q1 の context）と D の対応**: 取得の間隔は想定間隔と別の列・想定間隔より長い間隔は断る → D1 / 前回の時刻を持たず、起動の直後に 1 回、戻らない時計 → D5。
-  **D2 / D6 / D9〜D14 / D16 / D17 は（仮）決め。** 反転条件は `design.md`。変えたらその D 番号を書き直す
+  **D2 / D6 / D9〜D14 / D16〜D19 は（仮）決め。** 反転条件は `design.md`。変えたらその D 番号を書き直す
 - **ST12 の格納の関門に触らない**（design D7。ST12 の D4 / 本人の決定 Q6）。記録は 1 件 1 トランザクションのまま。トランザクションにまとめるのは台帳の行と論理ソースごとの行だけ
 - **`/ingest`・`/heartbeat`・`/archives/status`・`/coverage` の形を変えない。** 休止の除外の状態は生存信号の**原文**に載せる（design D12）。`device-collection` の「端末は想定間隔ごとに生存信号を送る」（ST09 が MODIFIED 中）の印を動かさない
 - **定期取得の枠は壁時計を読まない**（`Utc::now` / `SystemTime` / `chrono::Local`。design D5）
@@ -29,6 +29,7 @@
 - **縦串・偽データは Story ごとの新しいファイル**（`tools/smoke.d/<時刻>_st13-*.sh`・`tools/seed.d/<時刻>_st13-*.sh`）。共有の台本の末尾に書き足さない（`tools/check-shared-appends.sh`）。
   `tools/smoke.sh` の `export ASHIATO_ARCHIVE_SCAN_SEC=1` の 1 行は**その場で書き換える**（design D4）
 - **画面の Scenario は `web/e2e` で担保する**（`docs/testing.md` §4.5。`cd web && npm run test:e2e`）。アサートは数値と経路（`scrollWidth`・可視・要素の数）。スクリーンショット比較は使わない
+- **ST02 / ST12 の稼働状況の画面を壊さない**（`docs/stories/ST13.md` の「壊してはいけないもの」）。格子の見出しに文字を足しても、Must の 5 本の見出しは 360 px で 1 行のまま、5 本目の格子の下端は動かさない（design D19（仮））。既存の `web/e2e/archive-layout.spec.ts`・`coverage-*.spec.ts` と `web/src/__tests__/one-scroll.test.tsx` を緑のまま（`test.fail` のものは fail のまま）にする
 - **ST09 と同じファイル（`MainActivity.kt`・`Heartbeat.kt`）を触る。** ST09 を requires に持たないので、main の形で書く。ST09 が先に main に入ったら rebase で解き、ST09 の権限の要求の流れを壊さない（design D12）
 - **試験は共有の登録簿の行（`s01-archive-inbox` など）を書き換えない。** 見回りの間隔は自分専用の行を足して取り込み器に渡す（design D4）。登録簿は利用者で分かれていない（申し送り R35）
 
@@ -79,9 +80,9 @@
   Scenario: `専用のフォルダが読めなくてもダウンロードのフォルダの書庫は読まれる` / `片方の置き場が読めない走査は成功に数えない` / `専用のフォルダが無ければ起動時に作られる` / `ダウンロードのフォルダは作られない` /
   `読み出せないファイルは形の対応と別の種別で台帳に残る` / `置き場が読めない日は取れない状態で残る`（既存の印。試験を直す）。
   検証: `CT archive_inbox_independent (≥5)`（読み出せないファイルは、見つけた後に権限を落とす（Unix の `chmod 000`）材料で作る）、`CT archive_flow_names_only_the_unreadable_inbox (≥1)`、`CT archive_ (≥1)`、`cd web && npx vitest run` rc=0
-- [ ] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/settings-sources.spec.ts` に 1 本足す。
+- [ ] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/coverage-sources.spec.ts` に 1 本足す。
   Scenario: `読み出せなかったファイルは稼働状況に形の問題と別の文字で出る`。
-  検証: `cd web && npm run test:e2e -- settings-sources` rc=0（箱の文字に「読み出せません」を含み、「形」の対応の文言を含まない）
+  検証: `cd web && npm run test:e2e -- coverage-sources` rc=0（箱の文字に「読み出せません」を含み、「形」の対応の文言を含まない）
 
 ## Task 6: 読み終えた・中身の変わった書庫の失敗の回数を戻す（design D8。申し送り M7）
 
@@ -96,36 +97,41 @@
   Scenario: `Takeout をダウンロードのフォルダに落とすだけで入る` / `同じ形の 2 回目の書庫は印を求めずに入る` / `専用のフォルダを作らずに端末のタイムラインが入る`。
   検証: `CT archive_hands_off (≥3)`、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0（新しいファイルの `echo "== Scenario: …"` が 3 本出る）、`bash tools/check-shared-appends.sh` rc=0
 
-## Task 8: ソースの一覧の読み出しの口 `GET /sources`（design D10 / D11）
+## Task 8: ソースの取り方と間隔の読み出しの口 `GET /sources`（design D10 / D11）
 
-- [ ] 8.1 `lib.rs` に `GET /sources`（ほかの読み出しと同じ認証）を足し、design D10 の応答を返す。通知までの残り日数と最後の書庫は `outage_store.rs` の最後の書庫の導き方を関数に切り出して共有する（2 つ目の計算を書かない）。
-  `device_notice` は利用者の `c01-location` の最新の生存信号の原文の `unused_app_restrictions`。`src/bin/openapi.rs` に載せる。`latest_at` の問い合わせは `EXPLAIN` で索引が使われることを確かめ、使われなければ索引を足す移行を Task 1 の移行に入れる。
-  Scenario（API の側。画面の側は Task 9）: `書庫のソースは手作業と通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` / `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` /
-  `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `いちばん新しい記録を消してもその時刻が出る` / `退役したソースは通知までの残り日数を出さない` /
-  `記録がまだ無いソースは「まだ無い」と出る` / `休止の対象から外れていないことが端末の節に出る` / `ソースの一覧は認証の無い要求には返らない`。
-  検証: `CT sources_ (≥11)`（残り日数は最後の書庫を 53 日前・80 日前・74 日 23 時間前・75 日 1 時間前に置いた DB で `alert_days_left` / `alert_passed` を見る。
-  境目の 2 点では `outage_store` の途切れの判定と `alert_passed` が一致することを比べる。認証の無い要求は 401 で本文に一覧が無い）、`tools/check-openapi.sh` rc=0
+- [ ] 8.1 `lib.rs` に `GET /sources`（ほかの読み出しと同じ認証）を足し、design D10 の応答（登録簿の全行。いちばん新しい記録の時刻は返さない）を返す。通知までの残り日数と最後の書庫は `outage_store.rs` の最後の書庫の導き方を関数に切り出して共有する（2 つ目の計算を書かない）。
+  `device_notice` は利用者の `c01-location` の最新の生存信号の原文の `unused_app_restrictions`。`src/bin/openapi.rs` に載せる。`/coverage` の形は変えない。
+  Scenario（API の側。画面の側は Task 9）: `書庫のソースは手作業と起点つきの通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` / `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` /
+  `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `退役したソースは通知までの残り日数を出さない` /
+  `休止の対象から外れていないことが位置の格子の見出しに出る` / `ソースの一覧は認証の無い要求には返らない`。
+  検証: `CT sources_ (≥9)`（残り日数は最後の書庫を 53 日前・80 日前・74 日 23 時間前・75 日 1 時間前に置いた DB で `alert_days_left` / `alert_passed` / `last_archive_on` を見る。
+  境目の 2 点では `outage_store` の途切れの判定と `alert_passed` が一致することを比べる。`c01-location` の行が `acquisition = 'device'`・`fetch_interval_sec = 60` で返ることも 1 本。認証の無い要求は 401 で本文に一覧が無い）、`tools/check-openapi.sh` rc=0
 
-## Task 9: S-7 設定の「ソース」節と e2e（design D10 / D11。spec「S-7 設定の「ソース」の節に…」）
+## Task 9: 稼働状況の格子の見出しに取り方と間隔を添える・e2e（design D10 / D11 / D18 / D19。spec「稼働状況の各ソースの格子の見出しの行に…」）
 
-- [ ] 9.1 `web/src/sources.ts`（型・取得・間隔の文言 D11）と `SettingsView.tsx` の「ソース」節（書き出しの節の前。取り方の見出し 5 つ・行・注記・定期取得の空の文・端末の節の休止の注記。入力とボタンを置かない）を作る。文言は `messages.ts`。
-  `proto.html` の初期表示（Q3 の推奨の形）と同じ並び。1024 px は 4 列、360 px は 2 段。
-  検証: `cd web && npx vitest run` rc=0（`web/src/__tests__/sources.test.ts`: D11 の間隔の文言の境目 59 → 「59 秒ごと」・60 → 「60 秒ごと」・90 → 「90 秒ごと」・120 → 「2 分ごと」・1800 → 「30 分ごと」・3600 → 「1 時間ごと」・86400 → 「24 時間ごと」と、取り方の並びの順）、`cd web && npx tsc --noEmit` rc=0
-- [ ] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・記録の無いソース・退役した移行前のロケーション履歴・
-  いちばん新しい記録を削除した携帯端末の位置・`c01-location` の生存信号の原文に `"unused_app_restrictions":"not_exempt"` を入れる偽データを置き、`web/e2e/settings-sources.spec.ts`（新しいファイル）で 15 本の Scenario を本物の Chromium で確かめる。
-  Scenario: `全ソースが取り方ごとにまとまって並ぶ` / `間隔ごとのソースは取得の間隔が出る` / `書庫のソースは手作業と通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` /
-  `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` / `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `いちばん新しい記録を消してもその時刻が出る` /
-  `退役したソースは通知までの残り日数を出さない` / `記録がまだ無いソースは「まだ無い」と出る` / `定期取得するソースが無いことが文字で出る` / `休止の対象から外れていないことが端末の節に出る` /
-  `ソースの一覧に変える操作は無い` / `360 px の幅でソースの一覧が横に溢れない` / `ソースの一覧は認証の無い要求には返らない`。
-  アサート: 「ソース」の節が書き出しの節より上（`boundingBox().y`）/ 見出しの順と各見出しの下の行の数（登録簿の行数と一致し、重複が無い）と行の順（見出しの順）/ 行の文字 / 節の中の `input` `select` `button` `textarea` の数が 0 / 360 px で `document.documentElement.scrollWidth <= 360` と節の `scrollWidth <= clientWidth` / 認証の無い `request.get('/api/sources')` が 401。
-  検証: `cd web && npm run test:e2e -- settings-sources` rc=0（Task 5.2 の 1 本を含めて 16 本が passed）、`bash tools/check-shared-appends.sh` rc=0
+- [ ] 9.1 `web/src/sources.ts`（型・取得・間隔と契機の文言 D11・書庫の残り日数の文言 D10）を作り、稼働状況の画面が `/coverage` と並べて `/sources` を読み、`CoverageGrid.tsx` の見出しの `h2` に `<span data-testid="source-note-<logical_source>">` を 1 つ足す（`archiveNote` と同じ字の大きさ・色。入力とボタンを置かない）。
+  `c01-location` で `device_notice.unused_app_restrictions` が `not_exempt` なら、同じ `span` の間隔の代わりに短い一時停止の知らせを出す（D10 の表）。退役した格子には `span` を出さない。`/sources` を読めない・行の無いソースは `span` を出さない。格子を持たないソースは出さない（D18（仮））。`SettingsView.tsx` には触らない。文言は `messages.ts` の `grid`。
+  検証: `cd web && npx vitest run` rc=0（`web/src/__tests__/sources.test.ts`: D11 の間隔の文言の境目 59 → 「59 秒ごと」・60 → 「60 秒ごと」・90 → 「90 秒ごと」・120 → 「2 分ごと」・1800 → 「30 分ごと」・3600 → 「1 時間ごと」・86400 → 「24 時間ごと」、契機の文言、
+  書庫の文言（あと 22 日・過ぎた・まだ書庫が無い・退役は残り日数なし）。既存の `one-scroll.test.tsx` も緑のまま）、`cd web && npx tsc --noEmit` rc=0
+- [ ] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・退役した移行前のロケーション履歴・
+  `c01-location` の生存信号の原文に `"unused_app_restrictions":"not_exempt"`（と、外れている状態に切り替える版）を入れる偽データを置き、`web/e2e/coverage-sources.spec.ts`（新しいファイル）で 16 本の Scenario を本物の Chromium で確かめる。
+  Scenario: `間隔ごとのソースは格子の見出しに取得の間隔が出る` / `変わったときに取るソースは格子の見出しに契機が出る` / `書庫のソースは手作業と起点つきの通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` /
+  `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` / `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `退役したソースは通知までの残り日数を出さない` /
+  `休止の対象から外れていないことが位置の格子の見出しに出る` / `添えた文字で Must の 5 ソースの見出しは折り返さない` / `取り方と間隔を読めなくても格子は出る` / `格子を持たないソースの取り方と間隔は画面に出ない` / `S-7 設定にソースの取り方と間隔が出ない` /
+  `格子に添えた取り方と間隔に変える操作は無い` / `360 px の幅で添えた文字が横に溢れない` / `ソースの一覧は認証の無い要求には返らない`。
+  アサート: 各格子の `source-note-*` の文字（「60 秒ごと」「30 分ごと」「変わったとき」「手作業・2 か月ごと」「通知まで あと 22 日（最後の書庫 `YYYY-MM-DD` から）」と、同じ見出しに既存の「`YYYY-MM-DD` まで（N 日前）」が残ること）/
+  集計の格子に「始めたときに 1 回」/ 退役した格子に `source-note-*` が無い / **折り返さない**: 360 × 640 で、除外の状態が外れている版と外れていない版のそれぞれで、Must の 5 本の `h2` の高さが、その `h2` の計算済みの `line-height` の 1.5 倍未満（`getComputedStyle` で読む。2 行なら 2 倍になる）/
+  **予算は相対**: `page.route('**/api/sources', …)` で `{"sources": [], "device_notice": null}` を返したときと本物のときで、2 本目と 5 本目の Must の格子の下端（`boundingBox`）の差が 1 px 以内（design D19（仮）。絶対値の 640 / 1,280 px は #75 で割れているので見ない）/
+  `page.route` で `/api/sources` に 503 を返すと、格子の `section` の数が本物のときと同じで `source-note-*` が 0 個 / 稼働状況と S-7 設定に `source-note-c01-clock` と `source-note-s01-archive-inbox` が無い（本文の字では見ない —— 「直近に置いた書庫」の箱の文言が「1 時間ごと」を含む。spec-review R24） / S-7 設定に `source-note-*` と取り方の見出し（端末・PC・書庫・サーバ・定期取得）を持つ節が無く、「全記録の書き出し」の節がある /
+  各 `h2` の中の `input` `select` `button` `textarea` の数が 0 / 360 px で `document.documentElement.scrollWidth <= 360` と各 `h2` の `scrollWidth <= clientWidth` / 認証の無い `request.get('/api/sources')` が 401。
+  検証: `cd web && npm run test:e2e -- coverage-sources` rc=0（Task 5.2 の 1 本を含めて 17 本が passed）、`cd web && npm run test:e2e -- archive-layout coverage-` rc=0（既存の稼働状況の e2e が通る。`test.fail` のものは fail のまま）、`bash tools/check-shared-appends.sh` rc=0
 
 ## Task 10: 携帯の収集アプリが休止の対象から外れるよう頼む（design D12。spec `device-collection`）
 
 - [ ] 10.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt`（新しいファイル）に、`PackageManagerCompat.getUnusedAppRestrictionsStatus` の結果を 4 つの状態に写す関数と、自動で頼んだかの印（`SharedPreferences`）を置く。
   `MainActivity.kt` の初回の流れ（ST09 の権限の要求の後）で、`not_exempt` かつ印が無ければ説明のダイアログ → 応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開き、印を立てる。`not_exempt` の間は画面に 1 行と「設定を開く」のボタン（24 dp 以上）。
   `unknown` のときは頼まず、画面に「除外の状態を読めなかった」の 1 行。`Heartbeat.kt` の `c01-location` の原文に `unused_app_restrictions` を載せる（`capturable` と `blockers` は変えない）。
-  `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は S-7 のために読むだけ）を足す（design D12）。
+  `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は稼働状況の知らせのために読むだけ）を足す（design D12）。
   Scenario: `対象から外れていない端末で初めて開くと設定の画面へ案内される` / `対象から外れている端末では案内されない` / `2 回目に開いたときは設定の画面を自動では開かず、画面に出し続ける` /
   `仕組みを持たない端末では頼まない` / `除外の状態を読めない端末では頼まず読めなかったことを出す` / `位置の生存信号の原文に除外の状態が載る` / `外れていなくても取得できる状態は変わらない`。
   検証: `GT '*UnusedAppRestrictions*' (≥7)`（Robolectric。状態の読み口は差し替えられる形にし、4 つの状態ごとに案内の有無・開いた `Intent` の action・印・画面の文字を見る。「初めて開く」は印の無い状態（新しく入れた / 前の版から更新した）で見る。
