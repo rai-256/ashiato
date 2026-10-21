@@ -307,11 +307,15 @@
   写しがあれば解析器を直して読み直せる。写しを残すかは本人が設定で変えられる（本人の補足）。
 - **FR-15**: WHEN C-03 が各ソースに登録された取得契機に達する THE SYSTEM SHALL
   そのソースの新着を取得して記録を生成する。取得間隔はソースごとに登録簿が持つ。
-  **いま要件の中に、API で定期取得できるアカウント系のソースは無い**（Data Portability API は日本で提供されず、テストの OAuth は 7 日で切れ、
-  YouTube の視聴履歴の API は無い。ST13 の `premises.md`）。C-03 は定期取得の枠と取り込み器の見回りの間隔だけを持ち、後のソースは登録簿に 1 行足して乗る。
-  **ソースごとの取り方と取得の間隔は登録簿だけが持ち、画面からは変えない。画面では設定ではなく稼働状況の格子の各行に読むだけで添える**
-  （書庫のソースは間隔の代わりに「手作業・2 か月ごと」と通知までの残り日数）。
+  **いま要件の中に、API で定期取得できるアカウント系のソースは無い**（Data Portability API は日本で提供されず（§5 の EXT-N）、テストの OAuth は 7 日で切れる。
+  ST13 の `premises.md`）。C-03 は定期取得の枠と取り込み器の見回りの間隔だけを持ち、後のソースは登録簿に 1 行足して乗る。
+  **ソースごとの取り方と取得の間隔は登録簿が持ち、画面からは変えない。** サーバが回す取得（取り込み器の見回り・定期取得）は登録簿の間隔に従い、
+  端末と PC の取得の間隔（FR-1 / FR-2 / FR-13）は端末が決め、登録簿はそれを写して見せる。
+  **画面では設定ではなく稼働状況の格子に、読むだけで添える** —— 「各行」は週の行ではなく**各ソースの格子**（見出しの行）を指し、
+  添える文字は Must の 5 ソースのひとスクロールの予算（FR-55）に数え、格子の高さを増やさない（書庫のソースは間隔の代わりに「手作業・2 か月ごと」と通知までの残り日数）。
   ★ 2026-10-21 追加。ST13 の深掘り Q1 / Q3 / Q6 の決定（Q3 は proto で選んだ。本人の補足「取り方と間隔は設定に出さず、稼働状況の格子の各行に添える」）。
+  ★ 2026-10-21 補強。整合の確認（`docs/audit/2026-10-21-st13-consistency.md`）C1 / C2 / C4 / C7。「各行」を各ソースの格子と読み（週の行ごとに添えると本人の意図のソースごとと食い違う）、
+  予算を超えない側を既定にし（予算は issue #75 で既に割れている）、端末が決める間隔は登録簿が写すだけと書いた（「登録簿だけが持つ」は FR-1 / FR-2 / FR-13 とぶつかる）。Data Portability API の提供地域を §5 の EXT-N に置き、一次情報を取り直していない YouTube の視聴履歴の API の話は外した。
 - **FR-16**: THE SYSTEM SHALL 各ソースについて取り込み済みの最終日を保持する。
   **最終日は、入った記録のうちいちばん新しい出来事の日とする。** それを運んだ書庫の作られた時刻も併せて保持する。
   ★ 2026-09-15 訂正。ST12 の深掘り Q4 の決定。「最終日」には「書庫が作られた日」の読みもあるが、
@@ -1353,6 +1357,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | ID | 主張 | 一次情報 | 逐語 | 確認日 | 再確認期限 | 影響 |
 |---|---|---|---|---|---|---|
 | EXT-A | Google OAuth の同意画面が「テスト」の間、承認は 7 日で失効する | https://support.google.com/cloud/answer/15549945 | "Authorizations by a test user will expire seven days from the time of consent. If your OAuth client requests an offline access type and receives a refresh token, that token will also expire." | 2026-08-30 | 2027-02-28 | NFR-12, FR-15 |
+| EXT-N | Google の Data Portability API は EU 諸国・スイス・英国の利用者にだけ提供され、日本は対象外 | https://support.google.com/accounts/answer/14452558 | "is available in the following countries and regions: Austria, Belgium, … Switzerland, United Kingdom" | 2026-10-20 | 2027-04-20 | FR-15, NFR-12 |
 | EXT-B | Google Takeout の予約エクスポートは 2 か月ごと・1 年で停止・書庫は約 7 日で失効 | https://support.google.com/accounts/answer/3024190 | "Automatically create an archive of your selected data every 2 months for one year." / "Your archive expires in about 7 days." / "We only allow each archive to be downloaded 5 times" | 2026-08-30 | 2027-02-28 | NFR-3, NFR-12, FR-14 |
 | EXT-C | Health Connect は既定で権限付与時点の 30 日前までしか読めず、再インストールで起点が戻る | https://developer.android.com/health-and-fitness/health-connect/read-data | "By default, all applications can read data from Health Connect for up to 30 days prior to when any permission was first granted." / "If the user reinstalls your app and grants permission again, the same default restrictions apply" | 2026-08-30 | 2027-02-28 | FR-11, FR-73 |
 | EXT-D | 写真の EXIF 位置が読めるかは、撮影時期ではなく実行時点の権限状態で決まる | https://developer.android.com/training/data-storage/shared/media | "Because you request the `ACCESS_MEDIA_LOCATION` permission at runtime, there is no guarantee that your app has access to unredacted EXIF metadata from photos. Your app requires explicit user consent to gain access to this information." | 2026-09-07 | 2027-09-07 | FR-3, §5 の「扉ではないもの」 |
