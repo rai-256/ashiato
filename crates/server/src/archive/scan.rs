@@ -34,14 +34,19 @@ struct FoundFile {
 
 type PreviousSighting = (i64, DateTime<Utc>, Option<String>, Option<DateTime<Utc>>);
 
-/// 置き場を 1 回見て、前回から大きさと更新時刻が変わらないファイルだけ返す。
+/// 読めなかった置き場の、生存信号の `blockers` に載せる名前（D8 / R34）。
+pub const DEDICATED_INBOX_UNREADABLE: &str = "dedicated_inbox_unreadable";
+pub const DOWNLOADS_UNREADABLE: &str = "downloads_unreadable";
+
+/// 置き場を 1 回見て、前回から大きさと更新時刻が変わらないファイルと、読めなかった置き場を返す。
 ///
+/// **2 つの置き場を別々に読む**（D8）。片方が読めなくても、もう片方の候補は返す。
 /// sighting は書き換えてよいキャッシュなので、一覧から消えたファイルの行もここで消す。
 pub async fn scan_once(
     pool: &sqlx::PgPool,
     config: &ArchiveConfig,
     user_id: uuid::Uuid,
-) -> anyhow::Result<Vec<ScanCandidate>> {
+) -> anyhow::Result<(Vec<ScanCandidate>, Vec<&'static str>)> {
     scan_once_with_hasher(pool, config, user_id, &hash_file).await
 }
 
@@ -51,9 +56,22 @@ pub async fn scan_once_with_hasher(
     config: &ArchiveConfig,
     user_id: uuid::Uuid,
     hash: &impl Fn(&Path) -> anyhow::Result<String>,
-) -> anyhow::Result<Vec<ScanCandidate>> {
-    let mut found = list_dir(&config.inbox_dir, false)?;
-    found.extend(list_dir(&config.downloads_dir, true)?);
+) -> anyhow::Result<(Vec<ScanCandidate>, Vec<&'static str>)> {
+    let mut unreadable = Vec::new();
+    let mut found = Vec::new();
+    for (dir, from_downloads, blocker) in [
+        (&config.inbox_dir, false, DEDICATED_INBOX_UNREADABLE),
+        (&config.downloads_dir, true, DOWNLOADS_UNREADABLE),
+    ] {
+        match list_dir(dir, from_downloads) {
+            Ok(files) => found.extend(files),
+            Err(ListError::Unreadable(error)) => {
+                tracing::warn!(kind = blocker, error = %error, "書庫の置き場を読めない");
+                unreadable.push(blocker);
+            }
+            Err(ListError::Other(error)) => return Err(error),
+        }
+    }
     let paths: BTreeSet<String> = found
         .iter()
         .map(|file| file.path.to_string_lossy().into_owned())
@@ -130,7 +148,9 @@ pub async fn scan_once_with_hasher(
         }
     }
 
-    if paths.is_empty() {
+    if !unreadable.is_empty() {
+        // 読めなかった置き場の行まで消さない（読めるようになった日に覚えが残る）。
+    } else if paths.is_empty() {
         sqlx::query("DELETE FROM core.archive_sighting WHERE user_id = $1")
             .bind(user_id)
             .execute(pool)
@@ -145,12 +165,23 @@ pub async fn scan_once_with_hasher(
         .execute(pool)
         .await?;
     }
-    Ok(candidates)
+    Ok((candidates, unreadable))
 }
 
-fn list_dir(dir: &Path, from_downloads: bool) -> anyhow::Result<Vec<FoundFile>> {
-    let entries = std::fs::read_dir(dir)
-        .with_context(|| format!("書庫の置き場を読めない: {}", dir.display()))?;
+/// 置き場そのものが読めない（一覧が取れない）と、中の 1 件が読めないを分ける。
+enum ListError {
+    Unreadable(std::io::Error),
+    Other(anyhow::Error),
+}
+
+impl<E: Into<anyhow::Error>> From<E> for ListError {
+    fn from(error: E) -> Self {
+        Self::Other(error.into())
+    }
+}
+
+fn list_dir(dir: &Path, from_downloads: bool) -> Result<Vec<FoundFile>, ListError> {
+    let entries = std::fs::read_dir(dir).map_err(ListError::Unreadable)?;
     let mut found = Vec::new();
     for entry in entries {
         let entry = entry?;
@@ -166,11 +197,14 @@ fn list_dir(dir: &Path, from_downloads: bool) -> anyhow::Result<Vec<FoundFile>> 
         // 同じファイルを毎回「更新された」と誤認する。
         let modified: DateTime<Utc> = metadata.modified()?.into();
         let modified_at = DateTime::from_timestamp_micros(modified.timestamp_micros())
-            .context("書庫の更新時刻が範囲外")?;
+            .context("書庫の更新時刻が範囲外")
+            .map_err(ListError::Other)?;
         found.push(FoundFile {
             path,
             from_downloads,
-            size_bytes: i64::try_from(metadata.len()).context("書庫が大きすぎる")?,
+            size_bytes: i64::try_from(metadata.len())
+                .context("書庫が大きすぎる")
+                .map_err(ListError::Other)?,
             modified_at,
         });
     }

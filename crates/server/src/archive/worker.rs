@@ -2108,6 +2108,11 @@ pub fn spawn_inspecting(
     let (sender, receiver) = tokio::sync::mpsc::channel(32);
     let scan_pool = pool.clone();
     let read_config = config.clone();
+    // **専用のフォルダが無ければ作る**（D8）。ダウンロードのフォルダは本人の OS のものなので作らない。
+    // 作れなくても止めない —— 走査が読めない置き場として生存信号に出す。
+    if let Err(error) = std::fs::create_dir_all(&config.inbox_dir) {
+        tracing::warn!(kind = "archive_inbox_create", error = %error, "専用のフォルダを作れない");
+    }
     let scanning = tokio::spawn(async move {
         let mut interval_sec = DEFAULT_SCAN_INTERVAL_SEC;
         loop {
@@ -2130,13 +2135,19 @@ pub fn spawn_inspecting(
                 tracing::warn!(kind = "archive_reparse", error = %error, "確認待ちの書庫を読み直せない");
             }
             match super::scan::scan_once(&scan_pool, &config, user_id).await {
-                Ok(candidates) => {
+                Ok((candidates, unreadable)) => {
+                    // **読めない置き場は成功に数えず、読めた置き場の候補は読み手へ送る**
+                    // （D8 / R34）。片方が読めない日に、もう片方の書庫まで止めない。
+                    // 挙げるのは読めない置き場だけ（spec「読めない置き場の種類を
+                    // 満たされていないものとして残す」。review R11）。
+                    let blockers: Vec<String> =
+                        unreadable.iter().map(|name| (*name).to_owned()).collect();
                     if let Err(error) = record_archive_heartbeat(
                         &scan_pool,
                         user_id,
                         chrono::Utc::now(),
-                        true,
-                        Vec::new(),
+                        blockers.is_empty(),
+                        blockers,
                     )
                     .await
                     {
@@ -2150,26 +2161,12 @@ pub fn spawn_inspecting(
                 }
                 Err(error) => {
                     tracing::warn!(kind = "archive_scan", error = %error, "書庫の置き場を走査できない");
-                    // **読めない置き場だけを挙げる**（spec「読めない置き場の種類を
-                    // 満たされていないものとして残す」）。両方を決め打ちで並べていたときは、
-                    // 専用のフォルダだけが読めない日にも画面が「ダウンロードのフォルダも
-                    // 読めません」と出し、本人が直す場所を誤る（review R11）。
-                    let mut blockers = Vec::new();
-                    if std::fs::read_dir(&config.inbox_dir).is_err() {
-                        blockers.push("dedicated_inbox_unreadable".to_owned());
-                    }
-                    if std::fs::read_dir(&config.downloads_dir).is_err() {
-                        blockers.push("downloads_unreadable".to_owned());
-                    }
-                    if blockers.is_empty() {
-                        blockers.push("inbox_scan_failed".to_owned());
-                    }
                     if let Err(heartbeat_error) = record_archive_heartbeat(
                         &scan_pool,
                         user_id,
                         chrono::Utc::now(),
                         false,
-                        blockers,
+                        vec!["inbox_scan_failed".to_owned()],
                     )
                     .await
                     {

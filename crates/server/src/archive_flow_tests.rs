@@ -1440,39 +1440,182 @@ async fn archive_flow_legacy_records_keep_their_coordinates() {
 #[tokio::test]
 async fn archive_flow_names_only_the_unreadable_inbox() {
     let inbox = Inbox::new("archive-which-inbox").await;
-    // **専用のフォルダだけ**を消す。ダウンロードのフォルダは読める。
-    std::fs::remove_dir_all(&inbox.inbox).unwrap();
     inbox.spawn(true);
-
+    // **起動の後に**専用のフォルダだけを消す（起動時に作り直されるため。spec-review R4）。
+    // ダウンロードのフォルダは読める。
+    inbox.until_scanned_once().await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    // 生存信号は日に 1 回で書き換えられない（起動直後の読めた走査が今日の分を済ませている）ので、
+    // 取れない状態は走査の勘定（信号と箱が読む直近の走査）で見る。
     inbox
-        .until("取れない状態の生存信号が残らない", || async {
-            let got: Option<(bool,)> = sqlx::query_as(
-                "SELECT capturable FROM core.heartbeat
-                  WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
-                  ORDER BY emitted_at DESC LIMIT 1",
-            )
-            .bind(inbox.user)
-            .fetch_optional(&inbox.pool)
-            .await
-            .unwrap();
-            got == Some((false,))
+        .until("取れない状態が残らない", || async {
+            inbox.counter().await.2 == ["dedicated_inbox_unreadable"]
         })
         .await;
+    let status = inbox.status().await.inbox.expect("取り込み器の状態が無い");
+    assert!(
+        !status.capturable,
+        "読めない置き場のある走査が取れる状態になっている"
+    );
+    assert_eq!(
+        status.blockers,
+        ["dedicated_inbox_unreadable"],
+        "読めない置き場だけを挙げていない（本人が直す場所を誤る）"
+    );
+}
 
-    let blockers: Vec<String> = sqlx::query_scalar(
-        "SELECT blockers FROM core.heartbeat
-          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
-          ORDER BY emitted_at DESC LIMIT 1",
+impl Inbox {
+    /// 走査が 1 回済んだ（試行が 1 以上になった）まで待つ。
+    async fn until_scanned_once(&self) {
+        self.until("走査が 1 回も回らない", || async {
+            self.counter().await.0 >= 1
+        })
+        .await;
+    }
+
+    /// 走査の勘定（試行回数・成功回数・最後の満たされていないもの）。
+    async fn counter(&self) -> (i32, i32, Vec<String>) {
+        sqlx::query_as(
+            "SELECT attempts, successes, last_blockers FROM core.archive_scan_counter
+              WHERE user_id = $1",
+        )
+        .bind(self.user)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap()
+        .unwrap_or((0, 0, Vec::new()))
+    }
+}
+
+// Scenario: 専用のフォルダが読めなくてもダウンロードのフォルダの書庫は読まれる
+#[tokio::test]
+async fn archive_inbox_independent_downloads_are_read_when_the_dedicated_inbox_is_unreadable() {
+    let inbox = Inbox::new("archive-independent-read").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.spawn(true);
+    inbox.until_scanned_once().await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.put_downloads(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    inbox
+        .until(
+            "専用のフォルダが読めない日にダウンロードの書庫が読まれない",
+            || async { inbox.events("c03-youtube-watch").await == 1 },
+        )
+        .await;
+}
+
+// Scenario: 片方の置き場が読めない走査は成功に数えない
+#[tokio::test]
+async fn archive_inbox_independent_a_scan_with_an_unreadable_inbox_is_not_a_success() {
+    let inbox = Inbox::new("archive-independent-count").await;
+    // 専用のフォルダの親がファイルだと、作れず読めないまま残る。
+    let blocked_parent = inbox.root.join("blocked");
+    std::fs::write(&blocked_parent, b"file").unwrap();
+    let mut config = inbox.config(true);
+    config.inbox_dir = blocked_parent.join("inbox");
+    let handle = crate::archive::worker::spawn_inspecting(
+        inbox.pool.clone(),
+        config,
+        inbox.user,
+        crate::archive::worker::ReadingState::default(),
+        inbox.scan_row,
+    );
+    inbox
+        .until("走査が 3 回回らない", || async {
+            inbox.counter().await.0 >= 3
+        })
+        .await;
+    drop(handle);
+    let (attempts, successes, blockers) = inbox.counter().await;
+    assert!(attempts >= 3, "試行が数えられていない: {attempts}");
+    assert_eq!(successes, 0, "読めない置き場のある走査が成功に数えられた");
+    assert_eq!(blockers, ["dedicated_inbox_unreadable"]);
+}
+
+// Scenario: 専用のフォルダが無ければ起動時に作られる
+#[tokio::test]
+async fn archive_inbox_independent_the_dedicated_inbox_is_created_on_start() {
+    let inbox = Inbox::new("archive-independent-create").await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.spawn(true);
+    assert!(inbox.inbox.is_dir(), "専用のフォルダが作られていない");
+    inbox.put("Timeline.json.zip", &[("Timeline.json", b"[]")]);
+    inbox
+        .until(
+            "作られたフォルダの書庫が読まれ始めない",
+            || async {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM core.archive_sighting WHERE user_id = $1",
+                )
+                .bind(inbox.user)
+                .fetch_one(&inbox.pool)
+                .await
+                .unwrap()
+                    >= 1
+            },
+        )
+        .await;
+}
+
+// Scenario: ダウンロードのフォルダは作られない
+#[tokio::test]
+async fn archive_inbox_independent_the_downloads_folder_is_never_created() {
+    let inbox = Inbox::new("archive-independent-downloads").await;
+    std::fs::remove_dir_all(&inbox.downloads).unwrap();
+    inbox.spawn(true);
+    inbox.until_scanned_once().await;
+    assert!(
+        !inbox.downloads.exists(),
+        "ダウンロードのフォルダが作られた"
+    );
+    assert_eq!(inbox.counter().await.2, ["downloads_unreadable"]);
+}
+
+// Scenario: 読み出せないファイルは形の対応と別の種別で台帳に残る
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_format() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-file").await;
+    let path = inbox.inbox.join("Timeline.json");
+    std::fs::write(&path, b"[]").unwrap();
+    // 走査が見つけて安定を覚えた後で、読み出せない状態にする。
+    let config = inbox.config(true);
+    for _ in 0..2 {
+        crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
+            .await
+            .unwrap();
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&path).is_ok() {
+        eprintln!("権限を落としても読める実行者（root）なので、この試験は何も見ない");
+        return;
+    }
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読めなかったファイルが台帳に残らない",
+            || async { inbox.ledger_rows("unreadable").await == 1 },
+        )
+        .await;
+    let kind: Option<String> = sqlx::query_scalar(
+        "SELECT unreadable_kind FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'unreadable'",
     )
     .bind(inbox.user)
     .fetch_one(&inbox.pool)
     .await
     .unwrap();
-    assert_eq!(
-        blockers,
-        vec!["dedicated_inbox_unreadable".to_owned()],
-        "読めない置き場だけを挙げていない（本人が直す場所を誤る）"
-    );
+    assert_eq!(kind.as_deref(), Some("file_unreadable"));
 }
 
 /// Scenario: 原文は書庫のバイト列の一部と一致する
@@ -2211,7 +2354,8 @@ async fn archive_flow_a_pending_only_archive_is_not_read_again_on_every_scan() {
     for _ in 0..2 {
         let candidates = crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
             .await
-            .unwrap();
+            .unwrap()
+            .0;
         assert!(
             candidates
                 .iter()

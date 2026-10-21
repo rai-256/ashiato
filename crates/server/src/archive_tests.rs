@@ -1264,10 +1264,12 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     let paths: Vec<_> = queued
         .iter()
         .map(|candidate| candidate.path.file_name().unwrap().to_owned())
@@ -1277,11 +1279,13 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
     std::fs::rename(inbox.join("writing.zip.part"), inbox.join("writing.zip")).unwrap();
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(queued.len(), 2, "既に安定したファイルだけが残る");
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(queued.len(), 3);
     assert!(queued
         .iter()
@@ -1314,17 +1318,20 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let first = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     let sha256 = first[0].sha256.clone();
     sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, $3, 'read')")
         .bind(user).bind(&sha256).bind(crate::archive::PARSER_VERSION).execute(&pool).await.unwrap();
 
     let later = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert!(matches!(
         later[0].disposition,
         crate::archive::scan::ScanDisposition::AlreadyRead
@@ -1354,10 +1361,12 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let candidate = crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .remove(0);
     sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, 'older', 'read')")
         .bind(user)
@@ -1368,6 +1377,7 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
     let reparsed = crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .remove(0);
     assert!(matches!(
         reparsed.disposition,
@@ -1477,6 +1487,7 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
             .await
             .unwrap()
+            .0
             .is_empty()
     );
     write_file(&inbox, "growing.json", b"two-more");
@@ -1484,12 +1495,14 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
             .await
             .unwrap()
+            .0
             .is_empty()
     );
     assert_eq!(hashes.load(std::sync::atomic::Ordering::SeqCst), 2);
     let ready = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(ready.len(), 1);
     assert_eq!(
         hashes.load(std::sync::atomic::Ordering::SeqCst),

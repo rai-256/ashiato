@@ -46,7 +46,7 @@ pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
     let extension = path.extension().and_then(|extension| extension.to_str());
     if extension == Some("json") {
         let bytes = std::fs::read(path).map_err(|_| OpenError {
-            kind: "unsupported_format",
+            kind: "file_unreadable",
             source: None,
         })?;
         let name = path
@@ -63,7 +63,7 @@ pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
         });
     }
     let file = std::fs::File::open(path).map_err(|_| OpenError {
-        kind: "broken_zip",
+        kind: "file_unreadable",
         source: None,
     })?;
     let mut archive = zip::ZipArchive::new(file).map_err(|source| OpenError {

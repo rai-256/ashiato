@@ -153,6 +153,7 @@ const ja = {
     unreadableKind: {
       unsupported_format: "扱えない形式",
       broken_zip: "書庫が壊れている",
+      file_unreadable: "ファイルを読み出せませんでした。置き直すか、ファイルの権限を確かめてください",
       html_only: "HTML しか入っていない",
       no_known_content: "読める中身が 1 つも無い",
     } as Record<string, string>,
