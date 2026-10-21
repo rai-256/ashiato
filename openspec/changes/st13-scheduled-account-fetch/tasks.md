@@ -48,7 +48,7 @@
 
 ## Task 2: 取り込み器の見回りの間隔を登録簿から読む（design D4）
 
-- [ ] 2.1 `archive/config.rs` から `scan_sec` を消し、`ASHIATO_ARCHIVE_SCAN_SEC` があれば `bail!`（文言に「登録簿の s01-archive-inbox の fetch_interval_sec」）。`worker::spawn_inspecting` は読む行の名前を引数に取り、走査の後の待ちを 1 秒ずつ刻んで登録簿の値を読む（design D4。読めなければ前の値で `warn`）。
+- [x] 2.1 `archive/config.rs` から `scan_sec` を消し、`ASHIATO_ARCHIVE_SCAN_SEC` があれば `bail!`（文言に「登録簿の s01-archive-inbox の fetch_interval_sec」）。`worker::spawn_inspecting` は読む行の名前を引数に取り、走査の後の待ちを 1 秒ずつ刻んで登録簿の値を読む（design D4。読めなければ前の値で `warn`）。
   `archive_tests.rs` / `archive_flow_tests.rs` の `scan_sec` は、自分専用の行（間隔 1 秒）を足して渡す補助に置き換える（`archive_flow_tests.rs:210` の 10 分の勘定も登録簿の値で）。`tools/smoke.sh:21` と `tools/record-env.sh:143` の `ASHIATO_ARCHIVE_SCAN_SEC=1` を、S-01 の起動後（移行の後）に `s01-archive-inbox` の取得の間隔を 1 秒にする行へその場で書き換える。
   `docs/archive-inbox.md` の環境変数の表から `ASHIATO_ARCHIVE_SCAN_SEC` を外し、登録簿の列で変えることを書く。
   Scenario: `見回りの間隔の初期値は 120 秒` / `登録簿で見回りの間隔を変えると起動し直さずに効く` / `300 秒を超える見回りの間隔は断られる` / `見回りの間隔の環境変数が残っていると起動を断る`。
