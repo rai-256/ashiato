@@ -4,6 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ST29 proto — 衛星と資格情報（S-7 設定）</title>
+<!--
+  1 つのソースに 2 つの view（2026-10-08 の形）。
+  - 相談の view（既定）: 深掘り Q8 で節の構造を選ぶための軸・プリセット・「指示をコピー」
+  - GO view（window.PROTO_VIEW = "go"、または #view=go）: Q8 の形（推奨。答え待ち）を初期表示にし、軸の代わりに
+    状態の一覧と「衛星から呼んでみる」を出す。GO 資料（go_brief.py）が <ST>-proto-go.html として書き出す
+  状態と Scenario の対応は下の目録（id="proto-go"）が正本。go_brief.py が spec と照合する。
+-->
+<script type="application/json" id="proto-go">
+{
+ "chosen": "衛星ごとの節にその衛星の資格情報を入れ、各衛星の「資格情報を発行」から発行する。値はその場で 1 回だけ開き、外すはその場の確認、登録は「衛星を登録」を押すと欄が開く（深掘り Q8 の推奨の形。本人の答え待ち）",
+ "requirements": ["設定画面に「衛星と資格情報」の節がある"],
+ "not_screen": [
+  {"name": "衛星の登録と資格情報の操作は、画面のログインでだけできる",
+   "why": "どの資格情報で管理の口を呼べるか（API の認可）の規則。画面の形を持たず、Scenario も API の合言葉・資格情報なしの求めだけ"}
+ ],
+ "states": [
+  {"id": "overview", "name": "いつもの画面（衛星 5 つ）",
+   "hint": "最初から入っている「外部 AI」「ローカル AI」には「最初から」の印があり、「外す」がありません（資格情報は取り消せる）。節の頭に、いまは衛星の資格情報では記録を読むことも書くこともできない、と書いてあります。左下の「衛星から呼んでみる」で、どの資格情報でも 403（承認がまだ）になり、最後に使われた時刻だけが「今」に変わるのを確かめられます。",
+   "scenarios": ["設定画面に衛星と資格情報の節が出る"]},
+  {"id": "fresh", "name": "入れたばかり（何も操作していない）",
+   "hint": "移行が入れるのは「外部 AI」「ローカル AI」の 2 つだけで、資格情報は 0 本です。AI に渡す資格情報も、本人がここで発行します。",
+   "scenarios": []},
+  {"id": "issue", "name": "「読書ログ」の資格情報を発行する",
+   "hint": "「資格情報を発行」を押すと、その小節の中に欄が開き、見出しに「読書ログ」が出ます（どの衛星のものかは押した場所で決まる）。「発行する」を押すと値がその場に 1 回だけ出ます。「設定したので閉じる」で消え、もう一度は出せません —— 本体は値を持たず、失くしたら取り消して発行し直します。名前は任意で 40 文字まで。",
+   "scenarios": ["画面から資格情報を発行すると値がその場に 1 回だけ出る"]},
+  {"id": "issued", "name": "発行した直後（値が開いている）",
+   "hint": "値は ashsat_<衛星の識別子>_<乱数 43 文字>。設定ファイルに貼った文字列を見ただけで、どの衛星のものかが分かります。閉じた後、行は「まだ使われていない」で残ります。",
+   "scenarios": []},
+  {"id": "revoke", "name": "資格情報を 1 本取り消す",
+   "hint": "「読書ログ」の「携帯」の「取り消す」を押してみてください。確認ははさまず、行が消えます。左下で「携帯」を選んで呼ぶと 401（資格情報の無い求めと同じ）、まだ効いている「ノート PC」は 403 です。",
+   "scenarios": ["画面から資格情報を取り消すと行が消える"]},
+  {"id": "remove", "name": "「読書ログ」を外す（確認が開いている）",
+   "hint": "確認には、資格情報 2 本が今すぐ使えなくなること・書いた記録は残ること・同じ識別子で登録し直すと続きになること（承認は空から）が並びます。確認の中の「外す」で外れ、「やめる」なら何も変わりません。",
+   "scenarios": ["画面から衛星を外すと確認をはさんでから外れる", "確認で「やめる」を押すと衛星は外れない"]},
+  {"id": "removed", "name": "「読書ログ」を外した後",
+   "hint": "小節が消え、節の終わりの「外した衛星」に名前と識別子が並びます。行は消えていません。左下で「読書ログ」の資格情報を選んで呼ぶと、どれも 401 です。",
+   "scenarios": []},
+  {"id": "register", "name": "衛星を登録する",
+   "hint": "「衛星を登録」で名前と識別子の欄が開きます。識別子は衛星の説明書にあるもので、後から変えられません。登録しただけでは資格情報は 0 本 —— 発行は別の操作です。",
+   "scenarios": ["画面から衛星を登録できる"]},
+  {"id": "register-error", "name": "登録が断られる（識別子の形が合わない）",
+   "hint": "識別子「kakeibo」は「.」を含まないので断られ、欄の下に理由が出て、小節は増えません。ほかにも試せます: ashiato.x（本体が使う）・c03-x.example（本体の前置き）・dev.example.booklog（もう登録してある）・名前「外部 AI」（名前の重なり）。",
+   "scenarios": ["画面で形に合わない識別子を入れると理由が出て登録されない"]},
+  {"id": "reregister", "name": "外した衛星を同じ識別子で登録し直す",
+   "hint": "「読書ログ」を外した後、同じ識別子 dev.example.booklog・名前「読書メモ」で登録します。新しい衛星はできず、前の衛星の続きとして戻ります（名前は新しいもの）。外す前の資格情報は戻らず 0 本から、承認も空からです。",
+   "scenarios": []}
+ ],
+ "always": ["衛星と資格情報の節は触れる大きさと幅の下限を守る"],
+ "always_note": "触れる対象は 24 px 四方以上、「外す」と確認の操作は 44 px 四方以上。360 px の幅で横に揺れない。キーボードで移ったフォーカスの枠が見える。開く欄（発行・値・外すの確認・登録）は同時に 1 つだけ。"
+}
+</script>
 <style>
   /* ---- playground 自体の UI（ダーク固定。プレビューの明暗とは別物） ---- */
   :root{--ui-bg:#14161a;--ui-panel:#1b1e24;--ui-line:#2b3039;--ui-fg:#dfe3ea;--ui-dim:#939bab;--ui-accent:#7fb98a}
@@ -74,31 +125,27 @@
   .sheet h3{margin:0 0 6px;font-size:var(--h2);color:var(--a)}
   .other{opacity:.75}
   .gone{color:var(--m);font-size:var(--cap);margin:0 0 8px}
+  /* ---- GO view ---- */
+  .states{display:grid;gap:6px}
+  .states button{text-align:left;background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+  .states button.on{border-color:var(--ui-accent);background:#22302460}
+  .shint{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7;margin-top:10px}
+  .try select,.try button{font:inherit;font-size:12px}
+  .try select{width:100%;background:#101216;color:var(--ui-fg);border:1px solid var(--ui-line);border-radius:6px;padding:5px}
+  .try button{margin-top:6px;background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:6px;padding:5px 10px;cursor:pointer}
+  .log{font:11.5px/1.6 ui-monospace,Menlo,monospace;color:#cbd2dd;background:#101216;border:1px solid var(--ui-line);border-radius:8px;padding:8px;margin-top:8px;max-height:220px;overflow:auto;white-space:pre-wrap}
+  .err{color:hsl(0 60% 42%);font-size:var(--cap)}
+  .app.dark .err{color:hsl(0 70% 75%)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="controls">
-    <h1>ST29 — 衛星と資格情報（S-7 設定）</h1>
-    <p class="sub">衛星を登録し、衛星ごとの資格情報を発行し、取り消し、衛星を外す節。<b>構造だけ</b>を選ぶ（色・角・文字は ui-direction で決まっている）。
-      右の画面は実際に押せる —— 発行・取り消し・外す・登録を試してから選んでください。</p>
-    <div class="grp"><div class="lbl">プリセット</div><div class="presets" id="presets"></div></div>
-    <div id="axes"></div>
-    <div class="grp"><div class="lbl">固定（どれを選んでも守る）</div>
-      <div class="fixed">
-        <b>触れる対象 24 px 以上</b>（NFR-19）・<b>外すボタンは 44 px 以上</b>（NFR-20 に準じる）・文字 4.5:1（NFR-18）・明暗に追従（NFR-17）・フォーカスが見える（NFR-22）<br>
-        <b>資格情報の値は発行の直後に 1 回だけ見せる</b>（本体はハッシュしか持たない。深掘り C2）<br>
-        <b>資格情報の行と発行の画面に衛星の名前を出す</b>（PERM-14）<br>
-        <b>衛星の資格情報では、まだ記録を読むことも書くこともできない</b>ことを節の頭に書く（完了の判定）<br>
-        数は実物の想定: 最初から入っている AI 2 つ + 衛星 3 つ（読書ログ・家計簿・睡眠）、資格情報 0〜2 本ずつ
-      </div>
-    </div>
-  </div>
+  <div class="controls" id="ctl"></div>
   <div class="right">
     <div class="stage">
       <div class="meta"><span>明暗</span><button id="schemeBtn">ライト / ダーク</button><button id="resetBtn">最初に戻す</button></div>
       <div class="phone"><div class="cap"><span>S-7 設定</span><span>360 px</span></div><div class="screen" id="screen"></div></div>
-      <div class="howto">「資格情報を発行」→ 値が 1 回だけ出る。「取り消す」「外す」「衛星を登録」も押せる。</div>
+      <div class="howto" id="howto">「資格情報を発行」→ 値が 1 回だけ出る。「取り消す」「外す」「衛星を登録」も押せる。</div>
     </div>
     <div class="out">
       <h2>指示（これを貼り戻す）</h2>
@@ -108,6 +155,8 @@
   </div>
 </div>
 <script>
+const MAN=JSON.parse(document.getElementById("proto-go").textContent);
+const GO=window.PROTO_VIEW==="go"||/(^|[#&])view=go/.test(location.hash);
 const AXES=[
   {key:"layout",name:"衛星と資格情報の並べ方",opts:[
     {v:"nest",t:"衛星ごとの節に、その衛星の資格情報を入れる",d:"どの資格情報がどの衛星のものかが位置で分かる。衛星が増えると縦に伸びる"},
@@ -131,49 +180,110 @@ const PRESETS=[
   {name:"資格情報を見渡す",v:{layout:"split",issue:"pick",reveal:"sheet",remove:"confirm",register:"button"}},
   {name:"慎重に",v:{layout:"nest",issue:"per",reveal:"sheet",remove:"type",register:"button"}},
 ];
+// 断りの種別 → 欄の下に出す理由（実装では messages.ts）
+const REFUSAL={
+  malformed:"識別子は、英小文字・数字・「-」の部分を「.」で 2 つ以上つないだ 64 文字までの形です（例: dev.example.booklog）",
+  reserved:"「ashiato.」で始まる識別子は本体が使います",
+  body_prefix:"「c03-」のような本体の名前の前置きで始まる識別子は使えません",
+  name_invalid:"名前は 1〜40 文字です（前後の空白は数えません）",
+  identifier_taken:"その識別子の衛星はもう登録してあります",
+  name_taken:"同じ名前の衛星がもうあります（取り違えないよう別の名前にしてください）",
+  label_invalid:"資格情報の名前は 40 文字までです",
+};
+const rand=()=>{const a="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";let s="";for(let i=0;i<43;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
+const cred=(sid,label,at,used)=>({label,at,used:used||null,revoked:false,tok:`ashsat_${sid}_${rand()}`});
+const sat=(id,name,creds,builtin)=>({id,name,builtin:!!builtin,removed:false,creds:(creds||[]).map(c=>cred(id,...c))});
 const seed=()=>({
   sats:[
-    {id:"ashiato.ai-external",name:"外部 AI",builtin:true,creds:[{label:"Claude Desktop（ノート PC）",at:"2026-10-02",used:"10/20 21:14"}]},
-    {id:"ashiato.ai-local",name:"ローカル AI",builtin:true,creds:[{label:"Ollama（自宅 PC）",at:"2026-10-02",used:"10/21 08:03"}]},
-    {id:"dev.example.booklog",name:"読書ログ",creds:[{label:"携帯",at:"2026-10-10",used:"10/21 07:40"},{label:"ノート PC",at:"2026-10-12",used:"まだ使われていない"}]},
-    {id:"dev.example.kakeibo",name:"家計簿",creds:[{label:"携帯",at:"2026-10-15",used:"10/18 19:02"}]},
-    {id:"dev.example.sleep",name:"睡眠",creds:[]},
+    sat("ashiato.ai-external","外部 AI",[["Claude Desktop（ノート PC）","2026-10-02","10/20 21:14"]],true),
+    sat("ashiato.ai-local","ローカル AI",[["Ollama（自宅 PC）","2026-10-02","10/21 08:03"]],true),
+    sat("dev.example.booklog","読書ログ",[["携帯","2026-10-10","10/21 07:40"],["ノート PC","2026-10-12"]]),
+    sat("dev.example.sleep","睡眠",[["携帯","2026-10-15","10/18 19:02"]]),
+    sat("dev.example.walk","散歩",[]),
   ],
-  removed:[], open:null, revealed:null, scheme:"light", n:0,
+  open:null, revealed:null, reg:{name:"",id:"",err:""}, issueLabel:"", issueErr:"", log:[], trySel:0,
+  scheme:(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light",
 });
-let sel={...DEFAULT}, S=seed();
+let sel={...DEFAULT}, S=seed(), CUR=null;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const rand=()=>{const a="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";let s="";for(let i=0;i<43;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
-function renderControls(){
-  $("presets").innerHTML=PRESETS.map((p,i)=>`<button data-p="${i}">${p.name}</button>`).join("");
-  $("axes").innerHTML=AXES.map(a=>`<div class="grp"><div class="lbl">${a.name}</div><div class="cards">${a.opts.map(o=>`<button class="card ${sel[a.key]===o.v?"on":""}" data-k="${a.key}" data-v="${o.v}"><div class="t">${o.t}</div><div class="d">${o.d}</div></button>`).join("")}</div></div>`).join("");
+const live=()=>S.sats.filter(s=>!s.removed);
+const liveCreds=s=>s.creds.filter(c=>!c.revoked);
+const find=id=>S.sats.find(x=>x.id===id);
+const say=t=>{S.log.push(t)};
+
+// ---------- GO view の状態（目録 MAN.states と同じ id） ----------
+const SETUP={
+  overview(){},
+  fresh(){S.sats=S.sats.filter(s=>s.builtin);S.sats.forEach(s=>s.creds=[])},
+  issue(){S.open={kind:"issue",sat:"dev.example.booklog"};S.issueLabel="携帯"},
+  issued(){const s=find("dev.example.booklog"),c=cred(s.id,"タブレット","2026-10-22");s.creds.push(c);S.revealed={at:s.id,satName:s.name,label:c.label,tok:c.tok}},
+  revoke(){},
+  remove(){S.open={kind:"remove",sat:"dev.example.booklog"}},
+  removed(){removeSat(find("dev.example.booklog"),true)},
+  register(){S.open={kind:"register"};S.reg={name:"家計簿",id:"dev.example.kakeibo",err:""}},
+  "register-error"(){S.open={kind:"register"};S.reg={name:"家計簿",id:"kakeibo",err:"malformed"}},
+  reregister(){removeSat(find("dev.example.booklog"),true);S.open={kind:"register"};S.reg={name:"読書メモ",id:"dev.example.booklog",err:""}},
+};
+function setState(id){
+  const sc=S.scheme; S=seed(); S.scheme=sc; sel={...DEFAULT}; CUR=id;
+  (SETUP[id]||(()=>{}))();
+  if(GO){try{history.replaceState(null,"","#view=go&state="+id)}catch(e){}}
+  render();
 }
-function credRow(s,c,ci,showSat){
-  return `<div class="cred"><div><div class="who">${showSat?esc(s.name)+" — ":""}${esc(c.label)}</div><div class="when">発行 ${c.at}・最後に使われた ${c.used}</div></div>
+
+// ---------- 裏の規則（サーバの振る舞いを写したもの） ----------
+function checkReg(name,id){
+  const n=name.trim();
+  if(!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(id)||id.length>64) return "malformed";
+  if(id.startsWith("ashiato.")) return "reserved";
+  if(/^[a-z][0-9]{2}-/.test(id)) return "body_prefix";
+  if(n.length<1||[...n].length>40) return "name_invalid";
+  if(live().some(s=>s.id===id)) return "identifier_taken";
+  if(live().some(s=>s.name===n)) return "name_taken";
+  return null;
+}
+function removeSat(s,quiet){
+  const n=liveCreds(s).length;
+  s.removed=true; s.creds.forEach(c=>c.revoked=true);
+  if(!quiet) say(`DELETE /satellites/{番号} → 204\n  「${s.name}」の資格情報 ${n} 本は次の求めから 401。行は消さない`);
+}
+function call(kind){
+  const all=S.sats.flatMap(s=>s.creds.map(c=>({s,c})));
+  const p=all[S.trySel]; if(!p) return;
+  const path=kind==="read"?"GET /stays":"POST /ingest";
+  if(p.c.revoked){say(`${path}（${p.s.name} — ${p.c.label||"名前なし"}）→ 401\n  取り消した・外した衛星の値は、資格情報の無い求めと同じ。ログインの印を併せて持っていても 401`);return}
+  p.c.used="今";
+  say(`${path}（${p.s.name} — ${p.c.label||"名前なし"}）→ 403\n  ${kind==="read"?"記録は返らない":"記録は取り込まれない"}（承認がまだ）。断られても最後に使われた時刻は「今」になる。読み出しの記録に「衛星・どの衛星・どの 1 本・403」の 1 行`);
+}
+
+// ---------- 画面 ----------
+function credRow(s,c,showSat){
+  const ci=s.creds.indexOf(c);
+  return `<div class="cred"><div><div class="who">${showSat?esc(s.name)+" — ":""}${c.label?esc(c.label):"（名前なし）"}</div><div class="when">発行 ${c.at}・最後に使われた ${c.used?esc(c.used):"まだ使われていない"}</div></div>
   <button class="btn" data-act="revoke" data-s="${esc(s.id)}" data-c="${ci}">取り消す</button></div>`;
 }
 function issueForm(fixedSat){
-  const pick=!fixedSat;
   return `<div class="confirm" data-form="issue">
     ${fixedSat?`<div class="warn" style="color:var(--a)">「${esc(fixedSat.name)}」の資格情報を発行する</div>`:`<label for="pickSat">どの衛星の資格情報か</label>
-      <select id="pickSat"><option value="">— 衛星を選ぶ —</option>${S.sats.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}（${esc(s.id)}）</option>`).join("")}</select>`}
+      <select id="pickSat"><option value="">— 衛星を選ぶ —</option>${live().map(s=>`<option value="${esc(s.id)}">${esc(s.name)}（${esc(s.id)}）</option>`).join("")}</select>`}
     <label for="credLabel">資格情報の名前（どこに設定するか。任意）</label>
-    <input id="credLabel" placeholder="例: 携帯・ノート PC">
+    <input id="credLabel" placeholder="例: 携帯・ノート PC" value="${esc(S.issueLabel)}">
+    ${S.issueErr?`<div class="err">${esc(REFUSAL[S.issueErr])}</div>`:""}
     <div class="row"><button class="btn main" data-act="doIssue" data-s="${fixedSat?esc(fixedSat.id):""}">発行する</button><button class="btn" data-act="cancel">やめる</button></div>
   </div>`;
 }
 function revealBox(){
   const r=S.revealed; if(!r) return "";
   return `<div class="reveal"><div class="warn">この値は今だけ表示します。閉じると二度と表示できません（本体は値を持っていない）</div>
-    <div>「${esc(r.satName)}」の資格情報 — ${esc(r.label)}</div>
+    <div>「${esc(r.satName)}」の資格情報 — ${r.label?esc(r.label):"（名前なし）"}</div>
     <div class="tok">${esc(r.tok)}</div>
     <div class="row"><button class="btn main" data-act="copyTok">値をコピー</button><button class="btn" data-act="closeReveal">設定したので閉じる</button></div></div>`;
 }
 function removeBox(s){
   const typed=sel.remove==="type";
   return `<div class="confirm"><b>「${esc(s.name)}」を外しますか</b><ul>
-    <li>資格情報 ${s.creds.length} 本が今すぐ使えなくなります</li>
+    <li>資格情報 ${liveCreds(s).length} 本が今すぐ使えなくなります</li>
     <li>この衛星が書いた記録は消えずに残ります</li>
     <li>同じ識別子（${esc(s.id)}）で登録し直すと、この衛星の続きになります（承認は何も無い状態から）</li></ul>
     ${typed?`<label for="typeName">確かめるため「${esc(s.name)}」と打つ</label><input id="typeName">`:""}
@@ -181,10 +291,10 @@ function removeBox(s){
 }
 function registerForm(){
   return `<div class="confirm" data-form="register"><b>衛星を登録する</b>
-    <label for="satName">名前（画面と資格情報に出る）</label><input id="satName" placeholder="例: 読書ログ">
-    <label for="satId">識別子（衛星の説明書にあるもの。後から変えられない）</label><input id="satId" placeholder="例: dev.example.booklog">
-    <div class="row"><button class="btn main" data-act="doRegister">登録する</button>${sel.register==="button"?`<button class="btn" data-act="cancel">やめる</button>`:""}</div>
-    <div class="note" id="regNote" style="margin-top:4px"></div></div>`;
+    <label for="satName">名前（画面と資格情報に出る）</label><input id="satName" placeholder="例: 読書ログ" value="${esc(S.reg.name)}">
+    <label for="satId">識別子（衛星の説明書にあるもの。後から変えられない）</label><input id="satId" placeholder="例: dev.example.booklog" value="${esc(S.reg.id)}">
+    ${S.reg.err?`<div class="err" id="regNote">${esc(REFUSAL[S.reg.err])}</div>`:""}
+    <div class="row"><button class="btn main" data-act="doRegister">登録する</button>${sel.register==="button"?`<button class="btn" data-act="cancel">やめる</button>`:""}</div></div>`;
 }
 function renderScreen(){
   const inline=sel.reveal==="inline";
@@ -197,12 +307,13 @@ function renderScreen(){
     if(S.open&&S.open.kind==="issue"&&!S.open.sat&&inline) h+=issueForm(null);
     if(inline&&S.revealed&&!S.revealed.at) h+=revealBox();
   }
-  for(const s of S.sats){
+  for(const s of live()){
     h+=`<div class="sat"><div class="nm">${esc(s.name)}${s.builtin?`<span class="badge">最初から</span>`:""}</div><div class="id">${esc(s.id)}</div>`;
+    const cs=liveCreds(s);
     if(sel.layout==="nest"){
-      h+= s.creds.length?s.creds.map((c,ci)=>credRow(s,c,ci,false)).join(""):`<div class="cred"><span class="when">資格情報はまだ無い</span></div>`;
+      h+= cs.length?cs.map(c=>credRow(s,c,false)).join(""):`<div class="cred"><span class="when">資格情報はまだ無い</span></div>`;
     } else {
-      h+=`<div class="note" style="margin:4px 0 0">資格情報 ${s.creds.length} 本</div>`;
+      h+=`<div class="note" style="margin:4px 0 0">資格情報 ${cs.length} 本</div>`;
     }
     const btns=[];
     if(sel.issue==="per") btns.push(`<button class="btn" data-act="openIssue" data-s="${esc(s.id)}">資格情報を発行</button>`);
@@ -215,27 +326,58 @@ function renderScreen(){
   }
   if(sel.layout==="split"){
     h+=`<h2 style="margin-top:8px">資格情報</h2>`;
-    const all=S.sats.flatMap(s=>s.creds.map((c,ci)=>credRow(s,c,ci,true)));
+    const all=live().flatMap(s=>liveCreds(s).map(c=>credRow(s,c,true)));
     h+= all.length?all.join(""):`<div class="note">資格情報はまだ無い</div>`;
-    if(inline&&S.revealed&&S.revealed.at&&sel.issue==="per") {} // per+split は衛星の節に出した
   }
   if(sel.register==="bottom") h+=registerForm();
   else { h+=`<div class="row"><button class="btn" data-act="openRegister">衛星を登録</button></div>`; if(S.open&&S.open.kind==="register"&&inline) h+=registerForm(); }
-  if(S.removed.length) h+=`<div class="gone" style="margin-top:10px">外した衛星: ${S.removed.map(r=>esc(r.name)+"（"+esc(r.id)+"）").join("、")} —— 書いた記録は残っている</div>`;
+  const gone=S.sats.filter(s=>s.removed);
+  if(gone.length) h+=`<div class="gone" style="margin-top:10px">外した衛星: ${gone.map(r=>esc(r.name)+"（"+esc(r.id)+"）").join("、")} —— 書いた記録は残っている</div>`;
   h+=`</div><h2 class="other">全記録の書き出し</h2><p class="note other">（ST33 の節。この Story では変えない）</p></div>`;
-  // 重ねる形
   if(!inline){
     let body="";
     if(S.revealed) body=revealBox();
-    else if(S.open&&S.open.kind==="issue") body=issueForm(S.open.sat?S.sats.find(x=>x.id===S.open.sat):null);
-    else if(S.open&&S.open.kind==="remove") body=removeBox(S.sats.find(x=>x.id===S.open.sat));
+    else if(S.open&&S.open.kind==="issue") body=issueForm(S.open.sat?find(S.open.sat):null);
+    else if(S.open&&S.open.kind==="remove") body=removeBox(find(S.open.sat));
     else if(S.open&&S.open.kind==="register") body=registerForm();
     if(body) h+=`<div class="overlay"><div class="sheet app ${S.scheme}" style="min-height:0;padding:16px">${body}</div></div>`;
   }
   $("screen").innerHTML=h;
-  renderPrompt();
+}
+
+// ---------- 左の欄 ----------
+function renderControls(){
+  if(GO){
+    const st=MAN.states.find(x=>x.id===CUR)||MAN.states[0];
+    const all=S.sats.flatMap(s=>s.creds.map(c=>({s,c})));
+    $("ctl").innerHTML=`<h1>ST29 GO 用 proto<br><span style="font-weight:400">決まった形で触る</span></h1>
+      <p class="sub">${esc(MAN.chosen)}</p>
+      <div class="grp"><div class="lbl">状態</div><div class="states">${MAN.states.map(x=>`<button data-st="${esc(x.id)}" class="${x.id===st.id?"on":""}">${esc(x.name)}</button>`).join("")}</div>
+        <div class="shint">${esc(st.hint)}</div></div>
+      <div class="grp"><div class="lbl">衛星から呼んでみる（裏で起きること）</div><div class="try">
+        <select id="trySel">${all.map((p,i)=>`<option value="${i}" ${i===S.trySel?"selected":""}>${esc(p.s.name)} — ${p.c.label?esc(p.c.label):"名前なし"}${p.c.revoked?"（取り消し済み）":""}</option>`).join("")}</select>
+        <button data-act="callRead">この値で記録の読み出しを呼ぶ</button> <button data-act="callIngest">この値で記録を送る</button></div>
+        <div class="log">${S.log.length?esc(S.log.slice(-8).join("\n\n")):"画面で押したことと、衛星から呼んだ結果がここに積まれます"}</div></div>
+      <div class="grp"><div class="lbl">どの状態でも</div><div class="fixed">${esc(MAN.always_note)}</div></div>`;
+    return;
+  }
+  $("ctl").innerHTML=`<h1>ST29 — 衛星と資格情報（S-7 設定）</h1>
+    <p class="sub">衛星を登録し、衛星ごとの資格情報を発行し、取り消し、衛星を外す節。<b>構造だけ</b>を選ぶ（色・角・文字は ui-direction で決まっている）。
+      右の画面は実際に押せる —— 発行・取り消し・外す・登録を試してから選んでください。決まった形は GO view（#view=go）で見られます。</p>
+    <div class="grp"><div class="lbl">プリセット</div><div class="presets">${PRESETS.map((p,i)=>`<button data-p="${i}">${p.name}</button>`).join("")}</div></div>
+    ${AXES.map(a=>`<div class="grp"><div class="lbl">${a.name}</div><div class="cards">${a.opts.map(o=>`<button class="card ${sel[a.key]===o.v?"on":""}" data-k="${a.key}" data-v="${o.v}"><div class="t">${o.t}</div><div class="d">${o.d}</div></button>`).join("")}</div></div>`).join("")}
+    <div class="grp"><div class="lbl">固定（どれを選んでも守る）</div>
+      <div class="fixed">
+        <b>触れる対象 24 px 以上</b>（NFR-19）・<b>外すボタンは 44 px 以上</b>（NFR-20 に準じる）・文字 4.5:1（NFR-18）・明暗に追従（NFR-17）・フォーカスが見える（NFR-22）<br>
+        <b>資格情報の値は発行の直後に 1 回だけ見せる</b>（本体はハッシュしか持たない）<br>
+        <b>資格情報の行と発行の画面に衛星の名前を出す</b>（PERM-14）<br>
+        <b>衛星の資格情報では、まだ記録を読むことも書くこともできない</b>ことを節の頭に書く（完了の判定）<br>
+        数は実物の想定: 最初から入っている AI 2 つ + 衛星 3 つ（読書ログ・睡眠・散歩）、資格情報 0〜2 本ずつ
+      </div>
+    </div>`;
 }
 function renderPrompt(){
+  if(GO) return;
   const pick=k=>AXES.find(a=>a.key===k).opts.find(o=>o.v===sel[k]).t;
   const changed=AXES.filter(a=>sel[a.key]!==DEFAULT[a.key]).map(a=>a.name);
   $("prompt").textContent=
@@ -250,43 +392,57 @@ function renderPrompt(){
 ${changed.length?"推奨の形から変えたもの: "+changed.join("・"):"推奨の形のまま"}
 守る下限: 触れる対象 24 px 以上・外すは 44 px 以上・文字 4.5:1・明暗に追従・フォーカスが見える。`;
 }
+function render(){renderControls();renderScreen();renderPrompt()}
+
+document.addEventListener("change",e=>{if(e.target.id==="trySel")S.trySel=+e.target.value});
 document.addEventListener("click",e=>{
-  const p=e.target.closest("[data-p]"); if(p){sel={...PRESETS[+p.dataset.p].v};S.open=null;S.revealed=null;renderControls();renderScreen();return}
-  const c=e.target.closest(".card[data-k]"); if(c){sel[c.dataset.k]=c.dataset.v;S.open=null;S.revealed=null;renderControls();renderScreen();return}
+  const st=e.target.closest("[data-st]"); if(st){setState(st.dataset.st);return}
+  const p=e.target.closest("[data-p]"); if(p){sel={...PRESETS[+p.dataset.p].v};S.open=null;S.revealed=null;render();return}
+  const c=e.target.closest(".card[data-k]"); if(c){sel[c.dataset.k]=c.dataset.v;S.open=null;S.revealed=null;render();return}
   const b=e.target.closest("[data-act]"); if(!b) return;
-  const act=b.dataset.act, sid=b.dataset.s, sat=S.sats.find(x=>x.id===sid);
-  if(act==="openIssue"){S.revealed=null;S.open={kind:"issue",sat:sid||null}}
+  const act=b.dataset.act, sid=b.dataset.s, s=find(sid);
+  if(act==="openIssue"){S.revealed=null;S.issueLabel="";S.issueErr="";S.open={kind:"issue",sat:sid||null}}
   else if(act==="openRemove"){S.revealed=null;S.open={kind:"remove",sat:sid}}
-  else if(act==="openRegister"){S.revealed=null;S.open={kind:"register"}}
+  else if(act==="openRegister"){S.revealed=null;S.reg={name:"",id:"",err:""};S.open={kind:"register"}}
   else if(act==="cancel"){S.open=null}
   else if(act==="doIssue"){
     const id=sid||($("pickSat")&&$("pickSat").value); if(!id){$("pickSat").focus();return}
-    const s=S.sats.find(x=>x.id===id); const label=($("credLabel").value||"").trim()||`資格情報 ${s.creds.length+1}`;
-    s.creds.push({label,at:"2026-10-21",used:"まだ使われていない"});
-    S.revealed={at:sel.issue==="per"?s.id:null,satName:s.name,label,tok:`ashsat_${s.id}_${rand()}`}; S.open=null;
+    const t=find(id), label=($("credLabel").value||"").trim();
+    S.issueLabel=label;
+    if([...label].length>40){S.issueErr="label_invalid";say(`POST /satellites/{番号}/credentials → 400 名前が長い`);render();return}
+    const nc=cred(t.id,label,"2026-10-22"); t.creds.push(nc);
+    S.revealed={at:sel.issue==="per"?t.id:null,satName:t.name,label,tok:nc.tok}; S.open=null; S.issueErr="";
+    say(`POST /satellites/{番号}/credentials → 201\n  値は応答に 1 回だけ。本体はハッシュだけを持つ`);
   }
   else if(act==="closeReveal"){S.revealed=null}
   else if(act==="copyTok"){navigator.clipboard&&navigator.clipboard.writeText(S.revealed.tok);b.textContent="コピーした";return}
-  else if(act==="revoke"){sat.creds.splice(+b.dataset.c,1)}
+  else if(act==="revoke"){const cc=s.creds[+b.dataset.c];cc.revoked=true;say(`DELETE /satellites/{番号}/credentials/{…} → 204\n  「${s.name} — ${cc.label||"名前なし"}」は次の求めから 401。行は取り消しの時刻を付けて残る`)}
   else if(act==="doRemove"){
-    if(sel.remove==="type"&&$("typeName").value.trim()!==sat.name){$("typeName").focus();return}
-    S.sats=S.sats.filter(x=>x.id!==sid); S.removed.push({id:sat.id,name:sat.name}); S.open=null;
+    if(sel.remove==="type"&&$("typeName").value.trim()!==s.name){$("typeName").focus();return}
+    removeSat(s,false); S.open=null;
   }
   else if(act==="doRegister"){
-    const name=$("satName").value.trim(), id=$("satId").value.trim(), note=$("regNote");
-    if(!name||!/^[a-z0-9]+(\.[a-z0-9-]+)+$/.test(id)){note.textContent="識別子は英小文字・数字・「-」を「.」で 2 つ以上つないだ形（例: dev.example.booklog）";return}
-    if(id==="ashiato"||id.startsWith("ashiato.")){note.textContent="「ashiato.」で始まる識別子は本体が使う";return}
-    if(S.sats.some(x=>x.id===id)){note.textContent="その識別子の衛星はもう登録してある";return}
-    const back=S.removed.find(r=>r.id===id); if(back) S.removed=S.removed.filter(r=>r.id!==id);
-    S.sats.push({id,name,creds:[]}); S.open=null;
+    const name=$("satName").value, id=$("satId").value.trim();
+    S.reg={name,id,err:checkReg(name,id)};
+    if(S.reg.err){say(`POST /satellites → ${/taken/.test(S.reg.err)?409:400} ${S.reg.err}\n  衛星は増えない`);render();return}
+    const back=S.sats.find(x=>x.id===id&&x.removed);
+    if(back){back.removed=false;back.name=name.trim();say(`POST /satellites → 200 登録し直し\n  前の「${id}」の続き（番号・登録の時刻は同じ）。資格情報は 0 本から、承認も空から`)}
+    else{S.sats.push(sat(id,name.trim(),[]));say(`POST /satellites → 201\n  資格情報は 0 本（発行は別の操作）`)}
+    S.open=null; S.reg={name:"",id:"",err:""};
   }
-  renderScreen();
+  else if(act==="callRead"){call("read")}
+  else if(act==="callIngest"){call("ingest")}
+  render();
 });
-$("schemeBtn").onclick=()=>{S.scheme=S.scheme==="light"?"dark":"light";renderScreen()};
-$("resetBtn").onclick=()=>{const sc=S.scheme;S=seed();S.scheme=sc;renderScreen()};
+$("schemeBtn").onclick=()=>{S.scheme=S.scheme==="light"?"dark":"light";render()};
+$("resetBtn").onclick=()=>{if(GO){setState(CUR||MAN.states[0].id);return}const sc=S.scheme;S=seed();S.scheme=sc;render()};
 $("copyBtn").onclick=()=>{const t=$("prompt").textContent,n=$("copyNote");if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>n.textContent="コピーしました",()=>n.textContent="長押しで選んでください");};
-if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches) S.scheme="dark";
-renderControls(); renderScreen();
+if(GO){
+  document.querySelector(".out").style.display="none";
+  $("howto").textContent="左の状態を選ぶか、右の画面を押す。押すと左下に裏で起きることが積まれます。";
+  const m=/(?:^|[#&])state=([^&]+)/.exec(location.hash);
+  setState(m&&MAN.states.some(x=>x.id===decodeURIComponent(m[1]))?decodeURIComponent(m[1]):MAN.states[0].id);
+} else render();
 </script>
 </body>
 </html>
