@@ -11,32 +11,27 @@
 
 use sqlx::postgres::PgPoolOptions;
 
-/// worktree の名前から開発用 DB のポートを決める（`tools/ports.sh` と同じ規則。変えるなら両方を変える）。
-/// `-st<NN>` で終わる Story の worktree は 55500+NN、`-verify` で終わる確認バッチの作業ツリーは 55499、
-/// それ以外（main など）は 55432。
-/// 並行して走る Story のテストが、別の Story の DB に繋がらないようにする（2026-09-30）。
-pub fn worktree_db_port(name: &str) -> u16 {
-    if name.ends_with("-verify") {
-        return 55499;
-    }
-    name.rsplit_once("-st")
-        .and_then(|(_, n)| n.parse::<u16>().ok())
-        .map_or(55432, |n| 55500 + n)
-}
-
-/// この worktree のテスト用 DB の port。`ASHIATO_DB_PORT` > worktree の名前の規則（`tools/ports.sh` と同じ）。
+/// この worktree のテスト用 DB の port。**規則は `tools/ports.sh` だけが持つ**ので、それを呼んで得る
+/// （`ASHIATO_DB_PORT` > main の checkout・`-st<NN>`・`-verify`・それ以外の worktree の台帳）。
+/// 並行して走る Story・change のテストが、別の木の DB に繋がらないようにする（2026-09-30・2026-10-21）。
 fn db_port() -> u16 {
-    std::env::var("ASHIATO_DB_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or_else(|| {
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let name = root
-                .canonicalize()
-                .ok()
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
-            worktree_db_port(name.as_deref().unwrap_or(""))
-        })
+    static PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *PORT.get_or_init(|| {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let out = std::process::Command::new("bash")
+            .args(["-c", r#". tools/ports.sh && printf %s "$ASHIATO_DB_PORT""#])
+            .current_dir(&root)
+            .output()
+            .expect("tools/ports.sh を呼べない（bash が要る）");
+        let port = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success(),
+            "tools/ports.sh が port を決められない: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        port.parse()
+            .unwrap_or_else(|_| panic!("tools/ports.sh の port が数でない: {port:?}"))
+    })
 }
 
 /// テスト用 DB の所有者の URL。**合言葉は環境（`.env` の `DATABASE_OWNER_URL`）からだけ**読み（ST28 / design D19）、
@@ -436,14 +431,4 @@ pub async fn put_drop(
         .await
         .unwrap();
     }
-}
-
-#[test]
-fn each_story_worktree_has_its_own_db_port() {
-    assert_eq!(worktree_db_port("ashiato2"), 55432);
-    assert_eq!(worktree_db_port("ashiato2-st05"), 55505);
-    assert_eq!(worktree_db_port("ashiato2-up-st22"), 55522);
-    assert_eq!(worktree_db_port("ashiato2-st06-t7"), 55432); // 名前の末尾が -st<NN> でないものは main と同じ
-    assert_eq!(worktree_db_port("ashiato2-rt"), 55432);
-    assert_eq!(worktree_db_port("ashiato2-verify"), 55499); // 確認バッチの作業ツリーは main の DB と被らない
 }
