@@ -149,10 +149,11 @@ const ja = {
     read: (name: string, seen: string, inserted: number, duplicate: number, unreadable: number): string =>
       `${name}（${seen}）— 入った ${inserted} · 既にあった ${duplicate} · 読めなかった ${unreadable}`,
     more: (hidden: number): string => `ほか ${hidden} 件`,
-    /** 読めなかった理由の種別（design D7 の 4 つ） */
+    /** 読めなかった理由の種別（design D7 の 4 つと、D8 の M8 が足した `file_unreadable` の 5 つ） */
     unreadableKind: {
       unsupported_format: "扱えない形式",
       broken_zip: "書庫が壊れている",
+      file_unreadable: "ファイルを読み出せませんでした。置き直すか、ファイルの権限を確かめてください",
       html_only: "HTML しか入っていない",
       no_known_content: "読める中身が 1 つも無い",
     } as Record<string, string>,
@@ -167,6 +168,27 @@ const ja = {
     retired: (on: string | null): string => ` — ${on} に退役`,
     /** 書庫のソースの見出しに添える注記（ST12 / design D12） */
     archiveNote: (note: string): string => ` — ${note}`,
+    /** 取り方と取得の間隔の添え書き（ST13 / design D10・D11）。見出しの `h2` の中に 1 つだけ置く */
+    sourceNote: {
+      every: (n: string, unit: string): string => `${n} ${unit}ごと`,
+      unitSec: "秒",
+      unitMin: "分",
+      unitHour: "時間",
+      trigger: {
+        on_change: "変わったとき",
+        authored: "本人が書いたとき",
+        derived: "位置から導く",
+        once: "始めたときに 1 回",
+        manual: "手作業・2 か月ごと",
+      } as Record<string, string | undefined>,
+      /** 端末の位置が、収集アプリの休止の対象から外れていないとき、間隔の代わりに出す短い知らせ */
+      pausable: "休止対象・アプリで外す",
+      alertLeft: (days: string, on: string): string => `通知まで あと ${days} 日（最後の書庫 ${on} から）`,
+      alertPassed: (on: string): string => `通知の日を過ぎた（最後の書庫 ${on} から）`,
+      noArchive: "まだ書庫が無い",
+      /** 見出しの名前の後ろに添える形（「 — 」で始め、2 つ以上は「 · 」で繋ぐ） */
+      note: (...parts: string[]): string => ` — ${parts.join(" · ")}`,
+    },
     collapse: "直近だけにする",
     showRetired: "退役したソースを見る",
     expand: "1 年ぶんを見る",

@@ -31,6 +31,8 @@ struct Inbox {
     copies: PathBuf,
     pool: sqlx::PgPool,
     user: uuid::Uuid,
+    /// 見回りの間隔を読む、この足場専用の登録簿の行（間隔 1 秒）。
+    scan_row: &'static str,
 }
 
 impl Drop for Inbox {
@@ -53,6 +55,7 @@ impl Inbox {
             root,
             inbox,
             downloads,
+            scan_row: testdb::archive_scan_row(&pool).await,
             pool,
             user: testdb::user(),
         }
@@ -65,7 +68,6 @@ impl Inbox {
             copy_dir: self.copies.clone(),
             keep_copies,
             user_id: Some(self.user),
-            scan_sec: 1,
         }
     }
 
@@ -75,6 +77,7 @@ impl Inbox {
             self.config(keep_copies),
             self.user,
             crate::archive::worker::ReadingState::default(),
+            self.scan_row,
         );
         self.workers.lock().unwrap().push(handle);
     }
@@ -199,17 +202,22 @@ async fn archive_flow_reads_takeout_from_the_downloads_folder() {
 }
 
 /// Scenario: 既定の間隔でも置かれてから 10 分以内に読み始める
-#[test]
-fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
-    let home = std::collections::BTreeMap::from([("HOME".to_string(), "/home/me".to_string())]);
-    let config = crate::archive::config::from_values(&home).unwrap();
+#[tokio::test]
+async fn archive_flow_default_interval_starts_reading_within_ten_minutes() {
+    let pool = testdb::pool().await;
+    // 共有の `s01-archive-inbox` は書き換えず、読むだけ（登録簿の値が既定の間隔）
+    let sec: i32 = sqlx::query_scalar(
+        "SELECT fetch_interval_sec FROM core.source WHERE logical_source = 's01-archive-inbox'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     // D8 は「2 回続けて大きさと更新時刻が変わらない」ことを読み始めの条件にしている。
     // 置いた直後の走査は 1 回目なので、読み始めるのは **2 回目**の走査。
-    const SCANS_BEFORE_READ: u64 = 2;
+    const SCANS_BEFORE_READ: i32 = 2;
     assert!(
-        config.scan_sec * SCANS_BEFORE_READ <= 600,
-        "既定の走査の間隔 {} 秒では、置いてから読み始めるまでに 10 分を超える",
-        config.scan_sec
+        sec * SCANS_BEFORE_READ <= 600,
+        "既定の走査の間隔 {sec} 秒では、置いてから読み始めるまでに 10 分を超える"
     );
 }
 
@@ -1137,7 +1145,9 @@ pub(crate) fn captured_log() -> &'static CapturedLog {
         let subscriber = tracing_subscriber::registry().with(
             tracing_subscriber::fmt::layer()
                 .with_writer(captured.clone())
-                .with_ansi(false),
+                .with_ansi(false)
+                // 試験の名前（`#[tokio::test]` の task はその試験のスレッドで走る）で、自分の出した行だけを選べる
+                .with_thread_names(true),
         );
         // 他の試験も同じ口へ流れる。**この試験にとっては厳しくなる側**なので通す
         // —— どの試験が出したログでも、記録の値が出ていれば落ちる。
@@ -1432,39 +1442,342 @@ async fn archive_flow_legacy_records_keep_their_coordinates() {
 #[tokio::test]
 async fn archive_flow_names_only_the_unreadable_inbox() {
     let inbox = Inbox::new("archive-which-inbox").await;
-    // **専用のフォルダだけ**を消す。ダウンロードのフォルダは読める。
-    std::fs::remove_dir_all(&inbox.inbox).unwrap();
     inbox.spawn(true);
-
+    // **起動の後に**専用のフォルダだけを消す（起動時に作り直されるため。spec-review R4）。
+    // ダウンロードのフォルダは読める。
+    inbox.until_scanned_once().await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    // 生存信号は日に 1 回で書き換えられない（起動直後の読めた走査が今日の分を済ませている）ので、
+    // 取れない状態は走査の勘定（信号と箱が読む直近の走査）で見る。
     inbox
-        .until("取れない状態の生存信号が残らない", || async {
-            let got: Option<(bool,)> = sqlx::query_as(
-                "SELECT capturable FROM core.heartbeat
-                  WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
-                  ORDER BY emitted_at DESC LIMIT 1",
-            )
-            .bind(inbox.user)
-            .fetch_optional(&inbox.pool)
-            .await
-            .unwrap();
-            got == Some((false,))
+        .until("取れない状態が残らない", || async {
+            inbox.counter().await.2 == ["dedicated_inbox_unreadable"]
         })
         .await;
+    let status = inbox.status().await.inbox.expect("取り込み器の状態が無い");
+    assert!(
+        !status.capturable,
+        "読めない置き場のある走査が取れる状態になっている"
+    );
+    assert_eq!(
+        status.blockers,
+        ["dedicated_inbox_unreadable"],
+        "読めない置き場だけを挙げていない（本人が直す場所を誤る）"
+    );
+}
 
-    let blockers: Vec<String> = sqlx::query_scalar(
-        "SELECT blockers FROM core.heartbeat
-          WHERE user_id = $1 AND logical_source = 's01-archive-inbox'
-          ORDER BY emitted_at DESC LIMIT 1",
+impl Inbox {
+    /// 走査が 1 回済んだ（試行が 1 以上になった）まで待つ。
+    async fn until_scanned_once(&self) {
+        self.until("走査が 1 回も回らない", || async {
+            self.counter().await.0 >= 1
+        })
+        .await;
+    }
+
+    /// 走査の勘定（試行回数・成功回数・最後の満たされていないもの）。
+    async fn counter(&self) -> (i32, i32, Vec<String>) {
+        sqlx::query_as(
+            "SELECT attempts, successes, last_blockers FROM core.archive_scan_counter
+              WHERE user_id = $1",
+        )
+        .bind(self.user)
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap()
+        .unwrap_or((0, 0, Vec::new()))
+    }
+}
+
+// Scenario: 専用のフォルダが読めなくてもダウンロードのフォルダの書庫は読まれる
+#[tokio::test]
+async fn archive_inbox_independent_downloads_are_read_when_the_dedicated_inbox_is_unreadable() {
+    let inbox = Inbox::new("archive-independent-read").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.spawn(true);
+    inbox.until_scanned_once().await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.put_downloads(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    inbox
+        .until(
+            "専用のフォルダが読めない日にダウンロードの書庫が読まれない",
+            || async { inbox.events("c03-youtube-watch").await == 1 },
+        )
+        .await;
+}
+
+// Scenario: 片方の置き場が読めない走査は成功に数えない
+#[tokio::test]
+async fn archive_inbox_independent_a_scan_with_an_unreadable_inbox_is_not_a_success() {
+    let inbox = Inbox::new("archive-independent-count").await;
+    // 専用のフォルダの親がファイルだと、作れず読めないまま残る。
+    let blocked_parent = inbox.root.join("blocked");
+    std::fs::write(&blocked_parent, b"file").unwrap();
+    let mut config = inbox.config(true);
+    config.inbox_dir = blocked_parent.join("inbox");
+    let handle = crate::archive::worker::spawn_inspecting(
+        inbox.pool.clone(),
+        config,
+        inbox.user,
+        crate::archive::worker::ReadingState::default(),
+        inbox.scan_row,
+    );
+    inbox
+        .until("走査が 3 回回らない", || async {
+            inbox.counter().await.0 >= 3
+        })
+        .await;
+    drop(handle);
+    let (attempts, successes, blockers) = inbox.counter().await;
+    assert!(attempts >= 3, "試行が数えられていない: {attempts}");
+    assert_eq!(successes, 0, "読めない置き場のある走査が成功に数えられた");
+    assert_eq!(blockers, ["dedicated_inbox_unreadable"]);
+}
+
+// Scenario: 専用のフォルダが無ければ起動時に作られる
+#[tokio::test]
+async fn archive_inbox_independent_the_dedicated_inbox_is_created_on_start() {
+    let inbox = Inbox::new("archive-independent-create").await;
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.spawn(true);
+    assert!(inbox.inbox.is_dir(), "専用のフォルダが作られていない");
+    inbox.put("Timeline.json.zip", &[("Timeline.json", b"[]")]);
+    inbox
+        .until(
+            "作られたフォルダの書庫が読まれ始めない",
+            || async {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM core.archive_sighting WHERE user_id = $1",
+                )
+                .bind(inbox.user)
+                .fetch_one(&inbox.pool)
+                .await
+                .unwrap()
+                    >= 1
+            },
+        )
+        .await;
+}
+
+// Scenario: ダウンロードのフォルダは作られない
+#[tokio::test]
+async fn archive_inbox_independent_the_downloads_folder_is_never_created() {
+    let inbox = Inbox::new("archive-independent-downloads").await;
+    std::fs::remove_dir_all(&inbox.downloads).unwrap();
+    inbox.spawn(true);
+    inbox.until_scanned_once().await;
+    assert!(
+        !inbox.downloads.exists(),
+        "ダウンロードのフォルダが作られた"
+    );
+    assert_eq!(inbox.counter().await.2, ["downloads_unreadable"]);
+}
+
+// Scenario: 読み出せないファイルは形の対応と別の種別で台帳に残る
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_format() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-file").await;
+    let path = inbox.inbox.join("Timeline.json");
+    std::fs::write(&path, b"[]").unwrap();
+    // 走査が見つけて安定を覚えた後で、読み出せない状態にする。
+    let config = inbox.config(true);
+    for _ in 0..2 {
+        crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
+            .await
+            .unwrap();
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&path).is_ok() {
+        eprintln!("権限を落としても読める実行者（root）なので、この試験は何も見ない");
+        return;
+    }
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読めなかったファイルが台帳に残らない",
+            || async { inbox.ledger_rows("unreadable").await == 1 },
+        )
+        .await;
+    let kind: Option<String> = sqlx::query_scalar(
+        "SELECT unreadable_kind FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'unreadable'",
     )
     .bind(inbox.user)
     .fetch_one(&inbox.pool)
     .await
     .unwrap();
-    assert_eq!(
-        blockers,
-        vec!["dedicated_inbox_unreadable".to_owned()],
-        "読めない置き場だけを挙げていない（本人が直す場所を誤る）"
+    assert_eq!(kind.as_deref(), Some("file_unreadable"));
+}
+
+/// 走査が台帳の鍵に混ぜる大きさと更新時刻（マイクロ秒に丸める。`scan.rs` の `found_file` と同じ）。
+fn seen_of(path: &Path) -> (i64, chrono::DateTime<chrono::Utc>) {
+    let m = std::fs::metadata(path).unwrap();
+    let modified: chrono::DateTime<chrono::Utc> = m.modified().unwrap().into();
+    (
+        i64::try_from(m.len()).unwrap(),
+        chrono::DateTime::from_timestamp_micros(modified.timestamp_micros()).unwrap(),
+    )
+}
+
+/// 権限を落とすと読めなくなる実行者か（root は読めてしまうので、権限の試験は何も見ない）。
+#[cfg(unix)]
+fn permissions_bite(path: &Path) -> bool {
+    if std::fs::read(path).is_ok() {
+        eprintln!("権限を落としても読める実行者（root）なので、この試験は何も見ない");
+        return false;
+    }
+    true
+}
+
+/// final review R1 / design D20（仮）: 読み出せなかった書庫は「読んだもの」として覚えず、置き場にも残す。
+/// 画面の「置き直すか、ファイルの権限を確かめてください」に従って権限を直せば、同じ中身がそのまま読まれる。
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_a_file_unreadable_archive_is_read_once_readable_again() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-reread").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put(
+        name,
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
     );
+    let path = inbox.inbox.join(name);
+    // 走査が見つけて安定を覚えた後で、読み出せない状態にする（中身の sha256 は覚えている）。
+    let config = inbox.config(true);
+    for _ in 0..2 {
+        crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
+            .await
+            .unwrap();
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !permissions_bite(&path) {
+        return;
+    }
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読み出せなかった書庫が台帳に残らない",
+            || async { inbox.ledger_rows("unreadable").await == 1 },
+        )
+        .await;
+    // 置いたまま何度走査しても、台帳は 1 行のまま・ファイルは置き場に残る。
+    let seen = inbox.counter().await.0;
+    inbox
+        .until("走査が回らない", || async {
+            inbox.counter().await.0 >= seen + 3
+        })
+        .await;
+    assert_eq!(
+        inbox.ledger_rows("unreadable").await,
+        1,
+        "走査のたびに台帳が増えた"
+    );
+    assert!(path.exists(), "読み出せなかった書庫が置き場から動かされた");
+    assert_eq!(inbox.ledger_rows("read").await, 0);
+
+    // 権限を直すと、同じ中身がそのまま読まれる。
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    inbox
+        .until("権限を直した書庫が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    inbox
+        .until(
+            "読めた書庫が取り込み済みへ移らない",
+            || async { !path.exists() },
+        )
+        .await;
+    assert_eq!(inbox.ledger_rows("read").await, 1);
+    assert_eq!(inbox.ledger_rows("already_read").await, 0);
+}
+
+/// final review R2 / design D20（仮）: 最初から読み出せない 1 ファイルがあっても、走査は止まらない。
+/// 同じ置き場の他のファイルも、もう片方の置き場も読まれ、そのファイルの失敗は台帳に 1 行だけ残る。
+#[cfg(unix)]
+#[tokio::test]
+async fn archive_inbox_independent_an_unhashable_file_does_not_stop_the_scan() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let inbox = Inbox::new("archive-independent-unhashable").await;
+    let first = watch("2026-09-12T03:00:00Z", "ある動画");
+    let second = watch("2026-09-12T04:00:00Z", "別の動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    let blocked = inbox.inbox.join("Timeline.json");
+    std::fs::write(&blocked, b"[]").unwrap();
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !permissions_bite(&blocked) {
+        return;
+    }
+    inbox.put(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.put_downloads(
+        "takeout-20260914T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until(
+            "読み出せないファイルの隣の書庫・もう片方の置き場の書庫が読まれない",
+            || async { inbox.events("c03-youtube-watch").await == 2 },
+        )
+        .await;
+    let seen = inbox.counter().await.0;
+    inbox
+        .until("走査が回らない", || async {
+            inbox.counter().await.0 >= seen + 3
+        })
+        .await;
+    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT sha256, unreadable_kind, file_name FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'unreadable'",
+    )
+    .bind(inbox.user)
+    .fetch_all(&inbox.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "読み出せないファイルの失敗が 1 行で残らない: {rows:?}"
+    );
+    assert_eq!(
+        rows[0].0,
+        crate::archive::worker::io_failure_key(None, &blocked, Some(seen_of(&blocked)))
+    );
+    assert_eq!(rows[0].1.as_deref(), Some("file_unreadable"));
+    assert_eq!(rows[0].2.as_deref(), Some("Timeline.json"));
+    // 置き場はどちらも読めたので、走査は成功に数えられ、満たされていないものは無い。
+    let (attempts, successes, blockers) = inbox.counter().await;
+    assert_eq!(
+        attempts, successes,
+        "1 ファイルの失敗で走査が失敗に数えられた"
+    );
+    assert!(blockers.is_empty(), "{blockers:?}");
 }
 
 /// Scenario: 原文は書庫のバイト列の一部と一致する
@@ -2203,7 +2516,8 @@ async fn archive_flow_a_pending_only_archive_is_not_read_again_on_every_scan() {
     for _ in 0..2 {
         let candidates = crate::archive::scan::scan_once(&inbox.pool, &config, inbox.user)
             .await
-            .unwrap();
+            .unwrap()
+            .0;
         assert!(
             candidates
                 .iter()
@@ -2880,22 +3194,40 @@ struct LateMarkFault {
 
 impl LateMarkFault {
     async fn install(inbox: &Inbox) -> Self {
-        Self::install_on(inbox, "core.deletion_ledger", "AND NEW.mark = 'user:late'").await
+        Self::install_on(
+            inbox,
+            "core.deletion_ledger",
+            "AND NEW.mark = 'user:late'",
+            i64::MAX,
+        )
+        .await
     }
 
     /// 格納（`core.event` への書き込み）を落とす。`PgSink` は最初の失敗で止まるので、1 回の格納で 1 回だけ数える。
     async fn install_store(inbox: &Inbox) -> Self {
-        Self::install_on(inbox, "core.event", "").await
+        Self::install_on(inbox, "core.event", "", i64::MAX).await
     }
 
-    async fn install_on(inbox: &Inbox, table: &'static str, condition: &str) -> Self {
+    /// 格納を**最初の `times` 回だけ**落とす（その後は通る）。回数を試験の側で止めなくてよい。
+    async fn install_store_first(inbox: &Inbox, times: i64) -> Self {
+        Self::install_on(inbox, "core.event", "", times).await
+    }
+
+    async fn install_on(
+        inbox: &Inbox,
+        table: &'static str,
+        condition: &str,
+        fail_first: i64,
+    ) -> Self {
         let name = format!("st12_fault_{}", inbox.user.simple());
         sqlx::raw_sql(&format!(
             "CREATE SEQUENCE core.{name}_seq;
              CREATE FUNCTION core.{name}_fn() RETURNS trigger AS $fn$
              BEGIN
-               PERFORM nextval('core.{name}_seq');
-               RAISE EXCEPTION '試験の差し込み: 書き込みを落とす';
+               IF nextval('core.{name}_seq') <= {fail_first} THEN
+                 RAISE EXCEPTION '試験の差し込み: 書き込みを落とす';
+               END IF;
+               RETURN NEW;
              END;
              $fn$ LANGUAGE plpgsql;
              CREATE TRIGGER {name}_tg BEFORE INSERT ON {table}
@@ -5494,4 +5826,362 @@ async fn archive_youtube_last_event_is_reported_per_logical_source() {
         inbox.last_event_on(YT_OTHER).await.as_deref(),
         Some("2026-09-11")
     );
+}
+
+/// 視聴履歴 1 件の書庫を置く。書庫の `sha256` を返す。
+async fn put_atomic_watch_archive(inbox: &Inbox, title: &str) -> String {
+    // 試験ごとに題名を変える（書庫の `sha256` が同じだと並走する試験の trigger が被る）。
+    let body = watch("2026-09-12T03:00:00Z", title);
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260914-041200.zip",
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    use sha2::Digest as _;
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(
+            std::fs::read(inbox.inbox.join("takeout-20260914-041200.zip")).unwrap()
+        )
+    )
+}
+
+/// Scenario: 論理ソースごとの行を書けなかった書庫は読み終えた行も残らない
+#[tokio::test]
+async fn archive_ledger_atomic_failed_source_row_leaves_no_read_row() {
+    let inbox = Inbox::new("archive-ledger-atomic-rollback").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 1").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("記録が格納されない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    // 書庫は置き場に残る。読み終えた行を書こうとした走査が少なくとも 1 回は失敗を見るまで待つ。
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let read_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.archive_ledger WHERE user_id = $1 AND sha256 = $2 AND outcome = 'read'",
+    )
+    .bind(inbox.user)
+    .bind(&sha)
+    .fetch_one(&inbox.pool)
+    .await
+    .unwrap();
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    assert_eq!(
+        read_rows, 0,
+        "論理ソースごとの行が無いのに読み終えた行が残っている"
+    );
+}
+
+/// final review R5 / R6: 失敗の trigger は作り直しても落ちない（前の回が外す前に落ちても次の回が動く）。
+/// 論理ソースごとの行の失敗は、台帳の行の失敗（`archive_ledger`）と別の種別でログに出る。
+#[tokio::test]
+async fn archive_ledger_atomic_source_row_failure_has_its_own_log_kind() {
+    let _ = captured_log();
+    let inbox = Inbox::new("archive-ledger-atomic-log").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 3").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+    let text = || String::from_utf8_lossy(&captured_log().0.lock().unwrap().clone()).into_owned();
+    let mut line = None;
+    for _ in 0..400 {
+        line = text()
+            .lines()
+            .find(|l| {
+                l.contains("書庫の台帳を残せない") && l.contains("test: archive_ledger_source")
+            })
+            .map(str::to_owned);
+        if line.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    let line = line.expect("論理ソースごとの行の失敗がログに出ない");
+    assert!(
+        line.contains(r#"kind="archive_ledger_source""#),
+        "論理ソースごとの行の失敗の種別: {line}"
+    );
+}
+
+/// Scenario: 台帳を書けなかった書庫は次の走査で読み直されて最終日が出る
+#[tokio::test]
+async fn archive_ledger_atomic_next_scan_rereads_and_shows_last_day() {
+    let inbox = Inbox::new("archive-ledger-atomic-reread").await;
+    let sha = put_atomic_watch_archive(&inbox, "原子の動画 2").await;
+    testdb::fail_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("記録が格納されない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert_eq!(inbox.ledger_rows("read").await, 0);
+    assert_eq!(inbox.last_event_on("c03-youtube-watch").await, None);
+
+    // つながって次の走査が来る。
+    testdb::allow_ledger_source_insert(&inbox.pool, &sha).await;
+    inbox
+        .until("読み直されて最終日が出ない", || async {
+            inbox.last_event_on("c03-youtube-watch").await.as_deref() == Some("2026-09-12")
+        })
+        .await;
+    assert_eq!(
+        inbox.events("c03-youtube-watch").await,
+        1,
+        "読み直しで視聴履歴の記録が増えている（1 回だけ読んだときと同じはず）"
+    );
+}
+
+impl Inbox {
+    /// 置き場の 1 冊の失敗の回数と、読み直しを再開するまでの分（待ちが無ければ `None`）。行が無ければ `None`。
+    async fn sighting_failure(&self, path: &Path) -> Option<(i32, Option<f64>)> {
+        sqlx::query_as(
+            "SELECT consecutive_failures,
+                    (extract(epoch FROM retry_after - now()) / 60)::float8
+               FROM core.archive_sighting WHERE user_id = $1 AND path = $2",
+        )
+        .bind(self.user)
+        .bind(path.to_string_lossy().as_ref())
+        .fetch_optional(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 中断が続いた書庫を読み終えると回数が戻る
+//
+// 格納が 2 回続けて落ち、3 回目で読み終える。読み終えた時点で回数は 0 に戻るので、その後の中断は 1 回目として数えられ、
+// 3 回目の扱い（`store_failed` の行と 1 時間の待ち）にならない。
+#[tokio::test]
+async fn archive_failure_reset_after_a_completed_read() {
+    let inbox = Inbox::new("archive-failure-reset-read").await;
+    let body = watch("2026-09-12T03:00:00Z", "ある動画");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            body.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", body.as_bytes())],
+    );
+    let path = inbox.downloads.join(name);
+    let fault = LateMarkFault::install_store_first(&inbox, 2).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("3 回目で読み終えない", || async {
+            inbox.read_rows_now(None).await == 1
+        })
+        .await;
+    assert!(
+        fault.fired().await >= 3,
+        "2 回落ちてから 3 回目で通っていない"
+    );
+    fault.remove().await;
+    assert_eq!(inbox.ledger_rows("store_failed").await, 0);
+    assert_eq!(
+        inbox.sighting_failure(&path).await,
+        Some((0, None)),
+        "読み終えても失敗の回数が戻らない"
+    );
+
+    // その後の中断は 1 回目。中身の違う書庫を同じ場所に置き、格納を 1 回だけ落とす。
+    let after = watch("2026-09-12T04:00:00Z", "置き直した動画の題名は少し長い");
+    let fault = LateMarkFault::install_store_first(&inbox, 1).await;
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", after.as_bytes())],
+    );
+    // 次の走査で読み直される（1 回落ちた後、待たずにもう一度読まれて通る）。
+    inbox
+        .until(
+            "中断の後の次の走査で読み直されない",
+            || async { inbox.read_rows_now(None).await == 2 },
+        )
+        .await;
+    assert!(fault.fired().await >= 2, "1 回落ちた後に読み直されていない");
+    fault.remove().await;
+    assert_eq!(
+        inbox.ledger_rows("store_failed").await,
+        0,
+        "読み終えた後の 1 回の中断が 3 回目として数えられた"
+    );
+    assert_eq!(
+        inbox.sighting_failure(&path).await,
+        Some((0, None)),
+        "読み直しで通った後も回数か待ちが残っている"
+    );
+}
+
+// Scenario: 同じ場所に中身の違う書庫を置き直すと待たされない
+//
+// 3 回続けて落ちて 1 時間に 1 回の制限が付いた書庫の場所へ、中身の違う書庫を置き直す。
+// 走査は同じ場所の `sha256` が前回と違うと見て回数と待ちを戻すので、1 時間を待たずに読まれる。
+#[tokio::test]
+async fn archive_failure_reset_when_the_archive_at_a_path_is_replaced() {
+    let inbox = Inbox::new("archive-failure-reset-replaced").await;
+    let before = watch("2026-09-12T03:00:00Z", "前の動画");
+    let after = watch("2026-09-12T04:00:00Z", "置き直した動画の題名は少し長い");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            before.as_bytes(),
+        )
+        .await;
+    let name = "takeout-20260913T041200Z-001.zip";
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", before.as_bytes())],
+    );
+    let path = inbox.downloads.join(name);
+    let fault = LateMarkFault::install_store(&inbox).await;
+    inbox.spawn(true);
+
+    inbox
+        .until("3 回落ちても store_failed の行が無い", || async {
+            inbox.ledger_rows("store_failed").await == 1
+        })
+        .await;
+    let (failures, wait) = inbox.sighting_failure(&path).await.unwrap();
+    assert_eq!(failures, 3);
+    assert!(
+        wait.is_some_and(|minutes| minutes > 50.0),
+        "1 時間の待ちが付いていない"
+    );
+    fault.remove().await;
+
+    inbox.put_downloads(
+        name,
+        &[("Takeout/YouTube/watch-history.json", after.as_bytes())],
+    );
+    inbox
+        .until(
+            "置き直した書庫が 1 時間を待たずに読まれない",
+            || async { inbox.read_rows_now(None).await == 1 },
+        )
+        .await;
+    assert_eq!(inbox.sighting_failure(&path).await, Some((0, None)));
+}
+
+/// Scenario: Takeout をダウンロードのフォルダに落とすだけで入る
+///
+/// 印を置いて 1 冊目を読ませた**同じ取り込み器のまま**（起こし直さず・登録簿も触らず）、
+/// 2 冊目をダウンロードのフォルダへ落とすだけで入る。
+#[tokio::test]
+async fn archive_hands_off_a_second_takeout_dropped_in_downloads_is_stored() {
+    let inbox = Inbox::new("archive-hands-off-downloads").await;
+    let first = watch("2026-07-12T03:00:00Z", "一冊目");
+    let second = watch("2026-09-12T03:00:00Z", "二冊目");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    inbox.put_downloads(
+        "takeout-20260713T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("1 冊目が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+
+    inbox.put_downloads(
+        "takeout-20260913T041200Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox
+        .until(
+            "ダウンロードに落とした 2 冊目が入らない",
+            || async { inbox.events("c03-youtube-watch").await == 2 },
+        )
+        .await;
+}
+
+/// Scenario: 同じ形の 2 回目の書庫は印を求めずに入る
+#[tokio::test]
+async fn archive_hands_off_a_second_archive_of_the_same_shape_needs_no_mark() {
+    let inbox = Inbox::new("archive-hands-off-same-shape").await;
+    let first = watch("2026-07-12T03:00:00Z", "一回目");
+    let second = watch("2026-09-12T03:00:00Z", "二回目");
+    inbox
+        .confirm(
+            crate::archive::classify::KnownKind::YouTube,
+            first.as_bytes(),
+        )
+        .await;
+    inbox.put(
+        "takeout-20260713T000000Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", first.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("1 回目が読まれない", || async {
+            inbox.events("c03-youtube-watch").await == 1
+        })
+        .await;
+
+    // 2 か月後に作られた、同じ製品・同じ言語の書庫。印は **置き足さない**。
+    inbox.put(
+        "takeout-20260913T000000Z-001.zip",
+        &[("Takeout/YouTube/watch-history.json", second.as_bytes())],
+    );
+    inbox
+        .until("2 回目が印なしで入らない", || async {
+            inbox.events("c03-youtube-watch").await == 2
+        })
+        .await;
+    assert_eq!(
+        inbox.pending_files().await,
+        0,
+        "同じ形の 2 回目が確認待ちになった"
+    );
+}
+
+/// Scenario: 専用のフォルダを作らずに端末のタイムラインが入る
+#[tokio::test]
+async fn archive_hands_off_a_device_timeline_is_read_without_making_the_folder() {
+    let inbox = Inbox::new("archive-hands-off-timeline").await;
+    // 専用のフォルダが無い状態で起こす（本人は作らない。取り込み器が作る）
+    std::fs::remove_dir_all(&inbox.inbox).unwrap();
+    inbox.spawn(true);
+    assert!(
+        inbox.inbox.is_dir(),
+        "起こしただけで専用のフォルダが作られていない"
+    );
+
+    std::fs::write(
+        inbox.inbox.join("Timeline.json"),
+        crate::archive_tests::REAL_TIMELINE.as_bytes(),
+    )
+    .unwrap();
+    for (source, expected) in [
+        ("c03-timeline-visit", 1),
+        ("c03-timeline-move", 1),
+        ("c03-timeline-route", 2),
+    ] {
+        inbox
+            .until(&format!("{source} が {expected} 件入らない"), || async {
+                inbox.events(source).await == expected
+            })
+            .await;
+    }
 }

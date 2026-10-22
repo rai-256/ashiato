@@ -11,6 +11,11 @@ pub struct ArchiveFile {
     pub bytes: Vec<u8>,
 }
 
+/// ファイルそのものを読み出せなかった（権限・I/O）失敗の種別（design D8 の M8）。
+///
+/// **中身の問題ではない**ので、同じ中身を「読んだもの」として覚えない（design D20（仮））。
+pub const FILE_UNREADABLE: &str = "file_unreadable";
+
 /// 読めなかった書庫を台帳へ残すための、値を含まない失敗種別。
 #[derive(Debug)]
 pub struct OpenError {
@@ -46,7 +51,7 @@ pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
     let extension = path.extension().and_then(|extension| extension.to_str());
     if extension == Some("json") {
         let bytes = std::fs::read(path).map_err(|_| OpenError {
-            kind: "unsupported_format",
+            kind: FILE_UNREADABLE,
             source: None,
         })?;
         let name = path
@@ -63,7 +68,7 @@ pub fn open_archive(path: &Path) -> Result<Vec<ArchiveFile>, OpenError> {
         });
     }
     let file = std::fs::File::open(path).map_err(|_| OpenError {
-        kind: "broken_zip",
+        kind: FILE_UNREADABLE,
         source: None,
     })?;
     let mut archive = zip::ZipArchive::new(file).map_err(|source| OpenError {
