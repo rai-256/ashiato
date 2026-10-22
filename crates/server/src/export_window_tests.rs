@@ -411,3 +411,474 @@ async fn ch02_span_nothing_erased_keeps_everything() {
     drop.await;
     assert_eq!((ke, kv), (BTreeSet::from([e]), BTreeSet::from([v])));
 }
+
+// ---- Task 3: 新旧の突き合わせ（変わらないことの固定。design D6）----
+
+/// 時刻（`HH:MM:SS` かマイクロ秒つき）を、試験の日の ISO の文字列にする。
+fn ts(time: &str) -> String {
+    format!("2000-01-01T{time}Z")
+}
+
+/// ウィンドウ系の記録を 1 件置く。`coords` は原文に地図の座標を持たせる（持たなければ緯度経度を持たない記録）。
+async fn rec(
+    pool: &sqlx::PgPool,
+    user: Uuid,
+    source: &str,
+    device: Option<&str>,
+    time: &str,
+    coords: bool,
+) -> Uuid {
+    put_as(
+        pool,
+        user,
+        source,
+        device,
+        &ts(time),
+        json!({}),
+        if coords { MAP } else { "plain" },
+    )
+    .await
+}
+
+/// 族ごとの配置。`excluded` は `now()` で除かれる記録と前の版の id、`kept` は残る id。
+struct Family {
+    name: &'static str,
+    excluded: Vec<Uuid>,
+    kept: Vec<Uuid>,
+}
+
+struct World {
+    families: Vec<Family>,
+    /// 同じ時刻の組のうち、`(event_time, id)` の順で先の記録（いまの SQL では隣の同じ時刻の記録までの幅 0 で残る）。
+    same_time_first: Uuid,
+}
+
+impl World {
+    fn all_ids(&self) -> Vec<Uuid> {
+        self.families
+            .iter()
+            .flat_map(|f| f.excluded.iter().chain(&f.kept))
+            .copied()
+            .collect()
+    }
+}
+
+/// design D6 の偽データの族を置く。`erase` が偽なら消した滞在だけを置かない。
+/// 消した滞在は 01:00〜02:00 と、前の版の広い時間 03:30〜04:30（消した時間の終わりは 04:30）。
+async fn seed(pool: &sqlx::PgPool, erase: bool) -> World {
+    if erase {
+        erased_stay(
+            pool,
+            Uuid::new_v4(),
+            &at("01:00"),
+            &at("02:00"),
+            &[(&at("03:30"), &at("04:30"))],
+        )
+        .await;
+    }
+    let pc = Some("pc");
+    let mut families = Vec::new();
+
+    // 同じ時刻の組: 先の記録は新旧で幅が違う（Q1）
+    let u = Uuid::new_v4();
+    let a = rec(pool, u, "c02-window", pc, "00:10:00", true).await;
+    let b = rec(pool, u, "c02-window", pc, "00:10:00", true).await;
+    let c = rec(pool, u, "c02-window", pc, "02:30:00", false).await;
+    families.push(Family {
+        name: "同じ時刻の組",
+        excluded: vec![a, b],
+        kept: vec![c],
+    });
+    let same_time_first = a.min(b);
+
+    // 端末 NULL は端末 NULL どうしで組む
+    let u = Uuid::new_v4();
+    let a = rec(pool, u, "c02-window", None, "00:10:00", true).await;
+    let m = rec(pool, u, "c02-window", None, "00:40:00", false).await;
+    let x = rec(pool, u, "c02-window", None, "00:50:00", true).await;
+    let c = rec(pool, u, "c02-window", None, "02:30:00", false).await;
+    let p = rec(pool, u, "c02-window", pc, "00:20:00", false).await;
+    families.push(Family {
+        name: "端末 NULL",
+        excluded: vec![x],
+        kept: vec![a, m, c, p],
+    });
+
+    // 前の版の時刻のずれ 0 と 5 秒（次の記録は厳密に後）
+    let u = Uuid::new_v4();
+    let parent = rec(pool, u, "c02-window", pc, "05:30:00", false).await;
+    let r1 = rec(pool, u, "c02-window", pc, "00:40:00", false).await;
+    let r2 = rec(pool, u, "c02-window", pc, "02:30:00", false).await;
+    let r3 = rec(pool, u, "c02-window", pc, "00:20:05", false).await;
+    let va = put_version(pool, parent, u, 1, &ts("00:40:00"), with_coords()).await;
+    let vb = put_version(pool, parent, u, 2, &ts("00:40:05"), with_coords()).await;
+    let vd = put_version(pool, parent, u, 3, &ts("00:20:00"), with_coords()).await;
+    families.push(Family {
+        name: "前の版の時刻のずれ 0 と 5 秒",
+        excluded: vec![va, vb],
+        kept: vec![vd, parent, r1, r2, r3],
+    });
+
+    // 前の版の user_id が親と違う（組は親の利用者で読む）
+    let (ua, ub) = (Uuid::new_v4(), Uuid::new_v4());
+    let parent = rec(pool, ua, "c02-window", pc, "05:30:00", false).await;
+    let v = put_version(pool, parent, ub, 1, &ts("00:40:00"), with_coords()).await;
+    let v2 = put_version(pool, parent, ub, 2, &ts("00:20:00"), with_coords()).await;
+    let ra = rec(pool, ua, "c02-window", pc, "02:30:00", false).await;
+    let rb = rec(pool, ub, "c02-window", pc, "00:50:00", false).await;
+    let ra2 = rec(pool, ua, "c02-window", pc, "00:25:00", false).await;
+    families.push(Family {
+        name: "前の版の user_id が親と違う",
+        excluded: vec![v],
+        kept: vec![v2, parent, ra, rb, ra2],
+    });
+
+    // 削除の印を間に挟む（印の付いた記録は次の記録にならない）
+    let u = Uuid::new_v4();
+    let a2 = rec(pool, u, "c02-window", pc, "00:05:00", true).await;
+    let b2 = rec(pool, u, "c02-window", pc, "00:08:00", false).await;
+    let a = rec(pool, u, "c02-window", pc, "00:10:00", true).await;
+    let marked = rec(pool, u, "c02-window", pc, "00:40:00", false).await;
+    let c = rec(pool, u, "c02-window", pc, "02:30:00", false).await;
+    mark_deleted(pool, marked, "user").await;
+    families.push(Family {
+        name: "削除の印を間に挟む",
+        excluded: vec![a],
+        kept: vec![a2, b2, c],
+    });
+
+    // 緯度経度を持たない行が次の記録になる
+    let u = Uuid::new_v4();
+    let a = rec(pool, u, "c02-window", Some("nc"), "00:10:00", true).await;
+    let b = rec(pool, u, "c02-window", Some("nc"), "00:40:00", false).await;
+    let a2 = rec(pool, u, "c02-window", Some("nc"), "00:50:00", true).await;
+    let c = rec(pool, u, "c02-window", Some("nc"), "02:30:00", false).await;
+    families.push(Family {
+        name: "緯度経度を持たない行が次の記録",
+        excluded: vec![a2],
+        kept: vec![a, b, c],
+    });
+
+    // 消した時間より後の行だけが次の記録になる（組ごとの後の最初の 1 行。t が消した滞在より前でも効く）
+    let u = Uuid::new_v4();
+    let g = rec(pool, u, "c02-window", Some("far"), "00:10:00", true).await;
+    let h = rec(pool, u, "c02-window", Some("far"), "06:00:00", false).await;
+    families.push(Family {
+        name: "消した時間より後の行が次の記録",
+        excluded: vec![g],
+        kept: vec![h],
+    });
+
+    // 次の記録が無い（写しの時点まで）
+    let u = Uuid::new_v4();
+    let z = rec(pool, u, "c02-window", Some("alone"), "00:15:00", true).await;
+    let zp = rec(pool, u, "c02-window", Some("alone2"), "00:16:00", false).await;
+    families.push(Family {
+        name: "次の記録が無い",
+        excluded: vec![z],
+        kept: vec![zp],
+    });
+
+    // ほかの前の版は次の記録の候補にならない
+    let u = Uuid::new_v4();
+    let parent = rec(pool, u, "c02-window", pc, "05:30:00", false).await;
+    let v1 = put_version(pool, parent, u, 1, &ts("00:30:00"), with_coords()).await;
+    let v2 = put_version(pool, parent, u, 2, &ts("00:40:00"), with_coords()).await;
+    let v3 = put_version(pool, parent, u, 3, &ts("00:20:00"), with_coords()).await;
+    let r = rec(pool, u, "c02-window", pc, "02:30:00", false).await;
+    let r3 = rec(pool, u, "c02-window", pc, "00:25:00", false).await;
+    families.push(Family {
+        name: "ほかの前の版は候補にならない",
+        excluded: vec![v1, v2],
+        kept: vec![v3, parent, r, r3],
+    });
+
+    // 1 µs の差（消した滞在の始まり 01:00:00 の 1 µs 前）
+    let u = Uuid::new_v4();
+    let x = rec(pool, u, "c02-window", Some("us1"), "00:59:59.999999", true).await;
+    let y = rec(pool, u, "c02-window", Some("us1"), "01:00:00.000000", false).await;
+    let x2 = rec(pool, u, "c02-window", Some("us2"), "00:59:59.999998", true).await;
+    let y2 = rec(pool, u, "c02-window", Some("us2"), "00:59:59.999999", false).await;
+    let z2 = rec(pool, u, "c02-window", Some("us2"), "02:30:00", false).await;
+    families.push(Family {
+        name: "1 µs の差",
+        excluded: vec![x],
+        kept: vec![y, x2, y2, z2],
+    });
+
+    // (a) の読めた終わりが記録の時刻より前: 読めないものとして次の記録まで
+    let u = Uuid::new_v4();
+    let e2 = put_as(
+        pool,
+        u,
+        "c02-window",
+        pc,
+        &ts("00:20:00"),
+        json!({"end": ts("00:25:00")}),
+        MAP,
+    )
+    .await;
+    let e1 = put_as(
+        pool,
+        u,
+        "c02-window",
+        pc,
+        &ts("00:40:00"),
+        json!({"end": ts("00:10:00")}),
+        MAP,
+    )
+    .await;
+    let f = rec(pool, u, "c02-window", pc, "02:30:00", false).await;
+    families.push(Family {
+        name: "終わりが記録の時刻より前",
+        excluded: vec![e1],
+        kept: vec![e2, f],
+    });
+
+    // ソースの種類: 点・end の終わり・visit_duration_us の長さ・次の記録まで
+    let u = Uuid::new_v4();
+    let loc = |end: Option<String>| match end {
+        Some(end) => json!({"lat": 35.0, "lon": 139.0, "end": end}),
+        None => with_coords(),
+    };
+    let l1 = put_as(
+        pool,
+        u,
+        "c01-location",
+        None,
+        &ts("00:30:00"),
+        loc(None),
+        "plain",
+    )
+    .await;
+    let l2 = put_as(
+        pool,
+        u,
+        "c01-location",
+        None,
+        &ts("01:30:00"),
+        loc(None),
+        "plain",
+    )
+    .await;
+    let l3 = put_as(
+        pool,
+        u,
+        "c01-location",
+        None,
+        &ts("00:31:00"),
+        loc(Some(ts("01:10:00"))),
+        "plain",
+    )
+    .await;
+    let l4 = put_as(
+        pool,
+        u,
+        "c01-location",
+        None,
+        &ts("00:20:00"),
+        loc(Some(ts("00:25:00"))),
+        "plain",
+    )
+    .await;
+    let d1 = put_as(
+        pool,
+        u,
+        "c02-browser-history",
+        Some("b"),
+        &ts("00:40:00"),
+        json!({"visit_duration_us": 1_800_000_000_i64}),
+        MAP,
+    )
+    .await;
+    let d2 = put_as(
+        pool,
+        u,
+        "c02-browser-history",
+        Some("b"),
+        &ts("00:41:00"),
+        json!({"visit_duration_us": 600_000_000_i64}),
+        MAP,
+    )
+    .await;
+    let w1 = rec(pool, u, "c02-window", Some("k"), "00:10:00", true).await;
+    let w2 = rec(pool, u, "c02-window", Some("k"), "02:30:00", false).await;
+    families.push(Family {
+        name: "ソースの種類",
+        excluded: vec![l2, l3, d1, w1],
+        kept: vec![l1, l4, d2, w2],
+    });
+
+    // 消した滞在の前の版の広い時間（03:30〜04:30）に届く幅
+    let u = Uuid::new_v4();
+    let wp = rec(pool, u, "c02-window", Some("wide"), "02:40:00", true).await;
+    let q = rec(pool, u, "c02-window", Some("wide"), "03:20:00", false).await;
+    let w = rec(pool, u, "c02-window", Some("wide"), "03:25:00", true).await;
+    let n = rec(pool, u, "c02-window", Some("wide"), "03:35:00", false).await;
+    families.push(Family {
+        name: "消した滞在の前の版の広い時間",
+        excluded: vec![w],
+        kept: vec![wp, q, n],
+    });
+
+    World {
+        families,
+        same_time_first,
+    }
+}
+
+/// 断片が除く記録・前の版の id と、`ids` のうち残る記録・前の版の id。
+#[derive(Debug, PartialEq)]
+struct Outcome {
+    excluded_events: BTreeSet<Uuid>,
+    excluded_versions: BTreeSet<Uuid>,
+    kept_events: BTreeSet<Uuid>,
+    kept_versions: BTreeSet<Uuid>,
+}
+
+async fn outcome(pool: &sqlx::PgPool, sql: &ExcludedSql, ids: &[Uuid]) -> Outcome {
+    let q = format!(
+        "WITH {} SELECT id FROM {}",
+        sql.ctes(),
+        export::EXCLUDED_VERSION
+    );
+    let versions: Vec<(Uuid,)> = sqlx::query_as(&q).fetch_all(pool).await.unwrap();
+    let (kept_events, kept_versions) = kept_ids(pool, sql, ids).await;
+    Outcome {
+        excluded_events: excluded_ids(pool, sql).await,
+        excluded_versions: versions.into_iter().map(|(i,)| i).collect(),
+        kept_events,
+        kept_versions,
+    }
+}
+
+/// 固定の時刻の式 3 つ（消した滞在の始まりより前・消した時間の中・後）。
+const FIXED_SNAPSHOTS: [&str; 3] = [
+    "'2000-01-01T00:30:00Z'::timestamptz",
+    "'2000-01-01T01:30:00Z'::timestamptz",
+    "'2000-01-01T05:00:00Z'::timestamptz",
+];
+
+#[tokio::test]
+async fn ch02_same_matches_the_strict_legacy_on_every_family() {
+    let (pool, drop) = fresh().await;
+    let world = seed(&pool, true).await;
+    let ids = world.all_ids();
+    let mut results = Vec::new();
+    for t in ["now()"].into_iter().chain(FIXED_SNAPSHOTS) {
+        let new = outcome(&pool, &export::excluded_sql(t), &ids).await;
+        let old = outcome(&pool, &legacy::excluded_sql_strict(t), &ids).await;
+        results.push((t, new, old));
+    }
+    drop.await;
+
+    for (t, new, old) in &results {
+        assert_eq!(new, old, "t = {t}: 新旧の除く集合か残る集合が違う");
+    }
+    // 配置が効いていること: 族ごとに除かれるものと残るものの両方があり、`now()` でその通りになる
+    let (_, now, _) = &results[0];
+    let excluded: BTreeSet<Uuid> = now
+        .excluded_events
+        .union(&now.excluded_versions)
+        .copied()
+        .collect();
+    let kept: BTreeSet<Uuid> = now.kept_events.union(&now.kept_versions).copied().collect();
+    for f in &world.families {
+        assert!(
+            !f.excluded.is_empty() && !f.kept.is_empty(),
+            "{}: 除かれる側か残る側が空",
+            f.name
+        );
+        for id in &f.excluded {
+            assert!(
+                excluded.contains(id) && !kept.contains(id),
+                "{}: 除かれるはずが残っている",
+                f.name
+            );
+        }
+        for id in &f.kept {
+            assert!(
+                !excluded.contains(id) && kept.contains(id),
+                "{}: 残るはずが除かれている",
+                f.name
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn ch02_same_differs_from_the_legacy_only_on_same_time_pairs() {
+    let (pool, drop) = fresh().await;
+    let world = seed(&pool, true).await;
+    let ids = world.all_ids();
+    let new = outcome(&pool, &export::excluded_sql("now()"), &ids).await;
+    let old = outcome(&pool, &legacy::excluded_sql("now()"), &ids).await;
+    drop.await;
+
+    // 同じ時刻の組の、先の記録だけが、新しい側にだけ除かれる（Q1。除く側にだけ変わる）
+    assert!(old.excluded_events.is_subset(&new.excluded_events));
+    let only_new: BTreeSet<Uuid> = new
+        .excluded_events
+        .difference(&old.excluded_events)
+        .copied()
+        .collect();
+    assert_eq!(only_new, BTreeSet::from([world.same_time_first]));
+    assert_eq!(new.excluded_versions, old.excluded_versions);
+}
+
+#[tokio::test]
+async fn ch02_same_nothing_erased_matches_the_legacy() {
+    let (pool, drop) = fresh().await;
+    let world = seed(&pool, false).await;
+    let ids = world.all_ids();
+    let new = outcome(&pool, &export::excluded_sql("now()"), &ids).await;
+    let old = outcome(&pool, &legacy::excluded_sql("now()"), &ids).await;
+    let strict = outcome(&pool, &legacy::excluded_sql_strict("now()"), &ids).await;
+    drop.await;
+
+    for (name, o) in [("新", &new), ("旧", &old), ("旧の厳密版", &strict)] {
+        assert!(
+            o.excluded_events.is_empty() && o.excluded_versions.is_empty(),
+            "{name}: 消した滞在が無いのに除く記録がある"
+        );
+    }
+    // 記録は置いてあり、全部残る
+    assert!(!new.kept_events.is_empty() && !new.kept_versions.is_empty());
+    assert_eq!(new, old);
+}
+
+#[tokio::test]
+async fn ch02_same_runs_in_a_read_only_transaction() {
+    let (pool, drop) = fresh().await;
+    let world = seed(&pool, true).await;
+    let ids = world.all_ids();
+    let sql = export::excluded_sql("now()");
+    let expected = outcome(&pool, &sql, &ids).await;
+
+    let count = |table: &str| format!("WITH {} SELECT count(*) FROM {table}", sql.ctes());
+    let mut conn = pool.acquire().await.unwrap();
+    sqlx::query("BEGIN READ ONLY")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let events: i64 = sqlx::query_scalar(&count(export::EXCLUDED_EVENT))
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    let versions: i64 = sqlx::query_scalar(&count(export::EXCLUDED_VERSION))
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    // 読み取り専用が本当に効いている（一時表を作る実装はここで落ちる）
+    let probe = sqlx::query("CREATE TEMP TABLE ch02_probe (a int)")
+        .execute(&mut *conn)
+        .await;
+    sqlx::query("ROLLBACK").execute(&mut *conn).await.unwrap();
+    std::mem::drop(conn);
+    drop.await;
+
+    assert_eq!(events as usize, expected.excluded_events.len());
+    assert_eq!(versions as usize, expected.excluded_versions.len());
+    assert!(events > 0 && versions > 0);
+    assert!(probe.is_err(), "READ ONLY になっていない");
+}

@@ -418,7 +418,6 @@ pub(crate) mod legacy {
     /// `excluded_sql` の記録の側の条件だけを `n.event_time > r.event_time` にしたもの（同じ時刻の記録を飛ばす形。CH02 Q1）。
     ///
     /// 本体は `excluded_sql` の断片の、記録の側の条件（版の側とは文字列が違う）を 1 か所だけ置き換えて作る。
-    #[allow(dead_code)] // Task 3 以降の試験が使う
     pub fn excluded_sql_strict(snapshot_at: &str) -> ExcludedSql {
         const EVENT_NEXT_AFTER: &str = "(n.event_time, n.id) > (r.event_time, r.id)";
         let ctes = excluded_sql(snapshot_at).ctes;
