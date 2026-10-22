@@ -3567,6 +3567,7 @@ pub async fn run() -> anyhow::Result<()> {
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
+    let scheduled_user = archive_config.user_id;
     if let Some(user_id) = archive_config.user_id {
         // **握ったまま持つ**（落とすと取り込み器が止まる）。
         std::mem::forget(archive::worker::spawn_inspecting(
@@ -3576,14 +3577,15 @@ pub async fn run() -> anyhow::Result<()> {
             reading.clone(),
             "s01-archive-inbox",
         ));
-        // 定期取得の枠も取り込み器の隣に握る（落とすと止まる）。同じ利用者
-        std::mem::forget(scheduled::spawn(pool.clone(), user_id));
     } else {
         tracing::info!(
             kind = "archive_disabled",
             "書庫の利用者が未設定のため取り込み器を起こさない"
         );
     }
+    // 定期取得の枠も取り込み器の隣に握る（落とすと止まる）。利用者は取り込み器と同じ（design D5）。
+    // 未設定なら `scheduled_disabled` をログに残して起こさない
+    std::mem::forget(scheduled::start(pool.clone(), scheduled_user));
 
     // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
     let warmup =

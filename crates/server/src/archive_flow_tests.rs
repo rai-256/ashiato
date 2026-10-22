@@ -1145,7 +1145,9 @@ pub(crate) fn captured_log() -> &'static CapturedLog {
         let subscriber = tracing_subscriber::registry().with(
             tracing_subscriber::fmt::layer()
                 .with_writer(captured.clone())
-                .with_ansi(false),
+                .with_ansi(false)
+                // 試験の名前（`#[tokio::test]` の task はその試験のスレッドで走る）で、自分の出した行だけを選べる
+                .with_thread_names(true),
         );
         // 他の試験も同じ口へ流れる。**この試験にとっては厳しくなる側**なので通す
         // —— どの試験が出したログでも、記録の値が出ていれば落ちる。
@@ -1618,6 +1620,16 @@ async fn archive_inbox_independent_an_unreadable_file_is_not_an_unsupported_form
     assert_eq!(kind.as_deref(), Some("file_unreadable"));
 }
 
+/// 走査が台帳の鍵に混ぜる大きさと更新時刻（マイクロ秒に丸める。`scan.rs` の `found_file` と同じ）。
+fn seen_of(path: &Path) -> (i64, chrono::DateTime<chrono::Utc>) {
+    let m = std::fs::metadata(path).unwrap();
+    let modified: chrono::DateTime<chrono::Utc> = m.modified().unwrap().into();
+    (
+        i64::try_from(m.len()).unwrap(),
+        chrono::DateTime::from_timestamp_micros(modified.timestamp_micros()).unwrap(),
+    )
+}
+
 /// 権限を落とすと読めなくなる実行者か（root は読めてしまうので、権限の試験は何も見ない）。
 #[cfg(unix)]
 fn permissions_bite(path: &Path) -> bool {
@@ -1755,7 +1767,7 @@ async fn archive_inbox_independent_an_unhashable_file_does_not_stop_the_scan() {
     );
     assert_eq!(
         rows[0].0,
-        crate::archive::worker::io_failure_key(None, &blocked)
+        crate::archive::worker::io_failure_key(None, &blocked, Some(seen_of(&blocked)))
     );
     assert_eq!(rows[0].1.as_deref(), Some("file_unreadable"));
     assert_eq!(rows[0].2.as_deref(), Some("Timeline.json"));

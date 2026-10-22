@@ -177,19 +177,35 @@ open class MainActivity : Activity() {
      */
     protected open fun unusedAppRestrictionsReader(): UnusedAppRestrictionsReader = SystemUnusedAppRestrictionsReader
 
+    /** いま出している除外の案内。`onResume` のたびに `start()` を通るので、出している間は重ねて出さない。 */
+    private var exemptDialog: AlertDialog? = null
+
     /**
      * 対象から外れていないとき、説明のダイアログを**自動では 1 度だけ**出す（design D12（仮））。
-     * 印は先に立てる（応じなくても、閉じても、2 回目からは自動で出さない）。
+     * 印は**本人が答えたとき**（応じた・あとで・閉じた）に立てる（/code-review R33）。出しただけで立てると、
+     * 設定の画面にいる間に画面が作り直される（回転・プロセスの終了）とダイアログは消えて印だけが残り、
+     * 自動の案内が一度も読まれないまま二度と出ない。
      */
     private fun askToExemptOnce() {
         val asked = UnusedAppRestrictionsAsked(getSharedPreferences(PREFS, MODE_PRIVATE))
-        if (asked.asked()) return
-        asked.mark()
-        AlertDialog.Builder(this)
+        if (asked.asked() || exemptDialog?.isShowing == true) return
+        exemptDialog = AlertDialog.Builder(this)
             .setMessage(UNUSED_APP_RESTRICTIONS_EXPLANATION)
             .setPositiveButton(OPEN_SETTINGS_LABEL) { _, _ -> openUnusedAppRestrictionsSettings() }
             .setNegativeButton(NOT_NOW_LABEL, null)
+            .setOnDismissListener {
+                asked.mark()
+                exemptDialog = null
+            }
             .show()
+    }
+
+    override fun onDestroy() {
+        // 答えずに作り直されるときは印を立てない（次の起動でもう一度出す）。窓は閉じておく
+        exemptDialog?.setOnDismissListener(null)
+        exemptDialog?.dismiss()
+        exemptDialog = null
+        super.onDestroy()
     }
 
     private fun openUnusedAppRestrictionsSettings() {

@@ -70,7 +70,7 @@ pub async fn scan_once_with_hasher(
                 // **1 ファイルが読めなくても走査を止めない**（final review R2）。そのファイルだけを
                 // 台帳に残し、残りのファイルともう片方の置き場は読み続ける。
                 for path in failed {
-                    note_unhashable(pool, user_id, &path, from_downloads).await?;
+                    note_unhashable(pool, user_id, &path, None, from_downloads).await?;
                 }
             }
             Err(error) => {
@@ -108,10 +108,34 @@ pub async fn scan_once_with_hasher(
             None => match hash(&file.path) {
                 Ok(hash) => hash,
                 // **読み出せない 1 ファイルで走査全体を落とさない**（final review R2）。中身の sha256 が
-                // 取れないので、台帳の鍵はパスから作る（design D20（仮））。sighting は書かない ——
-                // 読めるようになった次の走査が、初めて見たファイルとして 2 回の安定を待ち直す。
+                // 取れないので、台帳の鍵はパスと大きさと更新時刻から作る（design D20（仮））。
+                // **初めて見た・大きさか更新時刻が変わったときは、まだ失敗と決めない**（/code-review R28）。
+                // コピーの途中や一時のロックで読めないだけのファイルに、読み出せなかった行を残さない。
+                // sighting に大きさと更新時刻だけ（sha256 なし）を書き、次の走査でも変わらず読めなければ台帳に残す。
                 Err(_) => {
-                    note_unhashable(pool, user_id, &file.path, file.from_downloads).await?;
+                    sqlx::query(
+                        "INSERT INTO core.archive_sighting (user_id, path, size_bytes, modified_at, sha256)
+                         VALUES ($1, $2, $3, $4, NULL)
+                         ON CONFLICT (user_id, path) DO UPDATE
+                           SET size_bytes = EXCLUDED.size_bytes, modified_at = EXCLUDED.modified_at,
+                               sha256 = NULL, seen_at = now()",
+                    )
+                    .bind(user_id)
+                    .bind(&path)
+                    .bind(file.size_bytes)
+                    .bind(file.modified_at)
+                    .execute(pool)
+                    .await?;
+                    if stable {
+                        note_unhashable(
+                            pool,
+                            user_id,
+                            &file.path,
+                            Some((file.size_bytes, file.modified_at)),
+                            file.from_downloads,
+                        )
+                        .await?;
+                    }
                     continue;
                 }
             },
@@ -178,7 +202,37 @@ pub async fn scan_once_with_hasher(
     }
 
     if !unreadable.is_empty() {
-        // 読めなかった置き場の行まで消さない（読めるようになった日に覚えが残る）。
+        // 読めなかった置き場の行まで消さない（読めるようになった日に覚えが残る）。**読めた置き場の行は消す**
+        // （/code-review R32）。残すと、消して置き直した同じ大きさ・更新時刻のファイルが初めての走査で安定に数えられる。
+        let readable: Vec<&Path> = [
+            (config.inbox_dir.as_path(), DEDICATED_INBOX_UNREADABLE),
+            (config.downloads_dir.as_path(), DOWNLOADS_UNREADABLE),
+        ]
+        .into_iter()
+        .filter(|(_, blocker)| !unreadable.contains(blocker))
+        .map(|(dir, _)| dir)
+        .collect();
+        let known: Vec<String> =
+            sqlx::query_scalar("SELECT path FROM core.archive_sighting WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?;
+        let gone: Vec<String> = known
+            .into_iter()
+            .filter(|path| {
+                !paths.contains(path)
+                    && Path::new(path)
+                        .parent()
+                        .is_some_and(|parent| readable.contains(&parent))
+            })
+            .collect();
+        if !gone.is_empty() {
+            sqlx::query("DELETE FROM core.archive_sighting WHERE user_id = $1 AND path = ANY($2)")
+                .bind(user_id)
+                .bind(&gone)
+                .execute(pool)
+                .await?;
+        }
     } else if paths.is_empty() {
         sqlx::query("DELETE FROM core.archive_sighting WHERE user_id = $1")
             .bind(user_id)
@@ -254,9 +308,10 @@ async fn note_unhashable(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
     path: &Path,
+    seen: Option<(i64, DateTime<Utc>)>,
     from_downloads: bool,
 ) -> anyhow::Result<()> {
-    if record_unhashable(pool, user_id, path, from_downloads).await? {
+    if record_unhashable(pool, user_id, path, seen, from_downloads).await? {
         tracing::warn!(
             kind = super::open::FILE_UNREADABLE,
             "置き場のファイルを読み出せない"

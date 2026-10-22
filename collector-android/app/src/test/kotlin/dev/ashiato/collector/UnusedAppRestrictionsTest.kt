@@ -90,22 +90,43 @@ class UnusedAppRestrictionsTest {
         val controller = open(UnusedAppRestrictionsState.NOT_EXEMPT)
 
         assertTrue("案内が出ていない", dialogShown())
-        assertTrue(
-            "印が立っていない",
-            app.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
-                .getBoolean(UnusedAppRestrictionsAsked.KEY, false),
-        )
         assertNull("応じる前に設定が開いている", settingsIntent())
 
         ShadowAlertDialog.getLatestAlertDialog().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
 
         shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue("答えたのに印が立っていない", asked())
         val opened = settingsIntent()
         assertNotNull("設定の画面が開いていない", opened)
         assertEquals(
             manageUnusedAppRestrictionsIntent(controller.get()).action,
             opened!!.action,
         )
+    }
+
+    /** 答える前に画面が作り直されたら、印は立たず、次に開いたときにもう一度出る（/code-review R33）。 */
+    @Test
+    fun `答える前に画面が作り直されたら次に開いたときにもう一度案内が出る`() {
+        val first = open(UnusedAppRestrictionsState.NOT_EXEMPT)
+        assertTrue("案内が出ていない", dialogShown())
+        first.pause().stop().destroy()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertFalse("答えていないのに印が立っている", asked())
+        ShadowAlertDialog.reset()
+
+        open(UnusedAppRestrictionsState.NOT_EXEMPT)
+
+        assertTrue("作り直した後に案内が出ない", dialogShown())
+    }
+
+    /** 設定の画面から戻る（`onResume` がもう一度通る）間、案内は重ねて出さない。 */
+    @Test
+    fun `戻ってきても案内は重ねて出ない`() {
+        val controller = open(UnusedAppRestrictionsState.NOT_EXEMPT)
+        val shown = ShadowAlertDialog.getLatestAlertDialog()
+        controller.pause().resume()
+        assertTrue("最初の案内が閉じた", shown.isShowing)
+        assertTrue("同じ案内のまま", ShadowAlertDialog.getLatestAlertDialog() === shown)
     }
 
     // Scenario: 対象から外れている端末では案内されない
@@ -126,6 +147,9 @@ class UnusedAppRestrictionsTest {
         // 初めて開いて、案内には応じずに閉じる
         open(UnusedAppRestrictionsState.NOT_EXEMPT)
         ShadowAlertDialog.getLatestAlertDialog().getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+        // 閉じた知らせ（印を立てる）は main の looper に積まれる
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue("あとでと答えたのに印が立っていない", asked())
         shadowOf(last!!).clearNextStartedActivities()
         ShadowAlertDialog.reset()
 

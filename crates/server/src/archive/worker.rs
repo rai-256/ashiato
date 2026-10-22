@@ -85,14 +85,23 @@ pub fn file_name_of(path: &std::path::Path) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// 台帳の行のうち、**前に読んだ行**（`read` と、中身が読めない形の `unreadable`）。`REMEMBERED_OUTCOME` から
+/// 確認待ちを除いたもの。読み出せなかった行（`file_unreadable`）を外す条件は、ここ 1 か所にだけ書く（/code-review R36）。
+macro_rules! read_outcome {
+    () => {
+        "(outcome = 'read'
+          OR (outcome = 'unreadable' AND unreadable_kind IS DISTINCT FROM 'file_unreadable'))"
+    };
+}
+
 /// 台帳の行のうち、**同じ中身をもう読んだもの**として覚える行（`WHERE` に挟む断片）。
 ///
 /// 読めた（`read`）・確認待ち（`pending_shape`）・中身が読めない形（`unreadable`）の行が当たる。
 /// **ファイルを読み出せなかった（`file_unreadable`）行は当たらない** —— 権限や I/O の問題で中身の問題ではないので、
 /// 覚えると画面の「置き直すか、ファイルの権限を確かめてください」に従っても二度と読まれない（design D20（仮））。
 /// 列名は修飾しないので、`NOT EXISTS (SELECT … FROM core.archive_ledger n WHERE …)` の内側でも内側の表を指す。
-pub(super) const REMEMBERED_OUTCOME: &str = "(outcome IN ('read', 'pending_shape')
-       OR (outcome = 'unreadable' AND unreadable_kind IS DISTINCT FROM 'file_unreadable'))";
+pub(super) const REMEMBERED_OUTCOME: &str =
+    concat!("(outcome = 'pending_shape' OR ", read_outcome!(), ")");
 
 /// 既に読んだ書庫を置き直されたとき、台帳へ 1 行だけ足す。
 ///
@@ -106,13 +115,12 @@ pub async fn record_already_read(
     file_name: Option<String>,
 ) -> Result<(), sqlx::Error> {
     // 前に読んだ行は `read` と、中身が読めない形の `unreadable` だけ（読み出せなかった行は指さない。D20（仮））。
-    let previous: Option<i64> = sqlx::query_scalar(
+    let previous: Option<i64> = sqlx::query_scalar(concat!(
         "SELECT id FROM core.archive_ledger
-          WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3
-            AND (outcome = 'read'
-                 OR (outcome = 'unreadable' AND unreadable_kind IS DISTINCT FROM 'file_unreadable'))
-          ORDER BY finished_at DESC, id DESC LIMIT 1",
-    )
+          WHERE user_id = $1 AND sha256 = $2 AND parser_version = $3 AND ",
+        read_outcome!(),
+        " ORDER BY finished_at DESC, id DESC LIMIT 1"
+    ))
     .bind(user_id)
     .bind(sha256)
     .bind(super::PARSER_VERSION)
@@ -267,7 +275,7 @@ pub async fn record_unreadable(
     from_downloads: bool,
 ) -> Result<bool, sqlx::Error> {
     let key = if unreadable_kind == super::open::FILE_UNREADABLE {
-        io_failure_key(Some(sha256), path)
+        io_failure_key(Some(sha256), path, None)
     } else {
         sha256.to_owned()
     };
@@ -275,17 +283,20 @@ pub async fn record_unreadable(
 }
 
 /// 中身を読み出せず sha256 も取れなかったファイルを台帳へ 1 行残す（spec「開けない・読み出せない失敗を…台帳に残す」。
-/// final review R2）。鍵はパスから作るので、同じ場所で読めないままのファイルは何度走査しても 1 行（design D20（仮））。
+/// final review R2）。鍵はパスと、分かれば大きさと更新時刻から作るので、同じ場所で読めないままのファイルは
+/// 何度走査しても 1 行で、同じ名前で置き直した別のファイル（大きさか更新時刻が違う）は別の行になる（design D20（仮）・
+/// scoped re-review R17 / /code-review R27）。
 pub async fn record_unhashable(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
     path: &std::path::Path,
+    seen: Option<(i64, chrono::DateTime<chrono::Utc>)>,
     from_downloads: bool,
 ) -> Result<bool, sqlx::Error> {
     insert_unreadable(
         pool,
         user_id,
-        &io_failure_key(None, path),
+        &io_failure_key(None, path, seen),
         path,
         super::open::FILE_UNREADABLE,
         from_downloads,
@@ -295,16 +306,26 @@ pub async fn record_unhashable(
 
 /// 読み出せなかった失敗の台帳の鍵（design D20（仮））。中身の sha256（16 進 64 文字）と決して一致しない形にする。
 ///
-/// 中身が分かれば中身ごと（`file_unreadable:<sha256>`）、分からなければ置き場のパスごと
-/// （`file_unreadable-path:<パスの sha256>`。フォルダのパスそのものは台帳に持たない —— D7）。
-pub fn io_failure_key(content_sha256: Option<&str>, path: &std::path::Path) -> String {
+/// 中身が分かれば中身ごと（`file_unreadable:<sha256>`）、分からなければ置き場のパスと、分かれば大きさと
+/// 更新時刻（マイクロ秒）ごと（`file_unreadable-path:<その sha256>`。フォルダのパスそのものは台帳に持たない —— D7）。
+/// 大きさと更新時刻を混ぜないと、同じ名前で置き直した別の書庫がまた読めなくても一意索引に落ち、
+/// 台帳にもログにも出ない（scoped re-review R17 / /code-review R27）。
+pub fn io_failure_key(
+    content_sha256: Option<&str>,
+    path: &std::path::Path,
+    seen: Option<(i64, chrono::DateTime<chrono::Utc>)>,
+) -> String {
     use sha2::Digest as _;
     match content_sha256 {
         Some(sha256) => format!("file_unreadable:{sha256}"),
-        None => format!(
-            "file_unreadable-path:{:x}",
-            sha2::Sha256::digest(path.to_string_lossy().as_bytes())
-        ),
+        None => {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(path.to_string_lossy().as_bytes());
+            if let Some((size, modified_at)) = seen {
+                hasher.update(format!("\0{size}\0{}", modified_at.timestamp_micros()).as_bytes());
+            }
+            format!("file_unreadable-path:{:x}", hasher.finalize())
+        }
     }
 }
 

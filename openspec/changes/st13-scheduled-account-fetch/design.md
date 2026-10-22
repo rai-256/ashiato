@@ -122,6 +122,8 @@ NOT NULL だけにすると、ST09 が後から merge したときにその移�
 - 各 task: すぐ 1 回 `fetch` → 終わったら登録簿から間隔を読み直し → `tokio::time::sleep(間隔)` → 繰り返す。**task が 1 つなので同じソースは重ならない**。失敗は `warn!(kind = "scheduled_fetch_failed", logical_source)` で、次の契機へ進む
 - 壁時計（`Utc::now` / `SystemTime`）を読まない。`tokio::time` は戻らない時計（`Instant`）で測る。前回の時刻を DB に持たない
 - `spawn` は `WorkerHandle` と同じく落とすと止まる手を返し、`lib.rs` の起動で取り込み器の隣に握る（利用者が未設定なら起こさない。取り込み器と同じ `ASHIATO_ARCHIVE_USER_ID`）
+- 起動は `scheduled::start(pool, 利用者)`。利用者が未設定なら起こさず `info!(kind = "scheduled_disabled")` を出す（/code-review R30。取り込み器の `archive_disabled` だけでは定期取得が止まっていると読めない）。起動の配線は実行ファイルを起動する試験（`tests/server_startup.rs`）が見る（code_verify R19）
+- 読む行は退役していない（`retired_on IS NULL`）行だけ（/code-review R29）。走っている間に行が定期取得・間隔ごと・退役していない、でなくなったら（取得の後の読み直しで分かる）、その task は `info!(kind = "scheduled_stopped")` を 1 回出して終わる。読み直しが DB の失敗なら前の値で続け、warn は読めなくなった 1 回だけ（/code-review R31）
 
 **なぜ前回の時刻を持たないか**（Q1 の既定）: 持つと「前回が未来にある」（時計が戻った）・「止まっていた間に契機を何回過ぎたか」を決めることになる（ST08 Q7 ほかで繰り返し出た型）。
 持たなければ、起動の直後の 1 回が追いつきの 1 回になる。取得元が「前回から」の新着を返す形なら、取る手が自分の取得済みの印を持つ（後の Story が決める）。
@@ -202,7 +204,7 @@ FR-78 の生存信号（取得できる状態か・試行と成功）は、取�
   `DISABLED` → `exempt` / `API_30_BACKPORT`・`API_30`・`API_31` → `not_exempt` / `FEATURE_NOT_AVAILABLE` → `unsupported` / `ERROR` と例外 → `unknown`。
   `unknown` のときは頼まず、収集アプリの画面に「除外の状態を読めなかった」の 1 行を出す（稼働状況には出さない。spec-review R13）
 - 頼む: `MainActivity` の初回の流れ（権限の要求の後）で `not_exempt` なら、説明のダイアログを出し、応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開く。
-  自動で出したことを `SharedPreferences` に 1 つの印で覚え、2 回目からは自動で出さない。前の版から更新した端末は印を持たないので、更新の後の最初の起動で 1 回出る（spec-review R14）。`not_exempt` の間は `MainActivity` の画面に 1 行と「設定を開く」のボタン（24 dp 以上）
+  本人が答えた（応じた・あとで・閉じた）ことを `SharedPreferences` に 1 つの印で覚え、2 回目からは自動で出さない（答える前に画面が作り直されたら印は立てず、次の起動でもう一度出す。/code-review R33）。前の版から更新した端末は印を持たないので、更新の後の最初の起動で 1 回出る（spec-review R14）。`not_exempt` の間は `MainActivity` の画面に 1 行と「設定を開く」のボタン（24 dp 以上）
 - 載せる: `c01-location` の生存信号の原文（`Heartbeat.kt` の `fields`）に `"unused_app_restrictions": "<4 つのどれか>"`。`capturable` と `blockers` は変えない（取得できる状態の条項は ST09 が書き換えている。欄を足すと `/heartbeat` の形も変わる）
 - 契約 `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は稼働状況の知らせのために読むだけ）を足す（spec-review R16。いまは「原文に載るのは稼働・取得可否・回数だけ」と書いている）
 - ST09 も `MainActivity` の初回の流れ（写真の権限）と `Heartbeat.kt`（接続の欄）を触る。ST13 は ST09 を requires に持たないので、**main の形で書き、ST09 が先に main に入ったら rebase で `Heartbeat.kt` の `fields` と `MainActivity` の初回の流れを解く**（spec-review R15。ST09 の未確認の実装を取り込まない）
@@ -258,7 +260,8 @@ D8 の M8 が足した `file_unreadable` は権限や I/O の失敗で、中身�
 - **既読に数えない**: 走査・読み手・版の読み直しの「同じ中身をもう読んだ」の判定（`worker.rs` の `REMEMBERED_OUTCOME`）と「前に読んだ行」の引き当ては、`unreadable_kind = 'file_unreadable'` の行を見ない
 - **動かさない**: 専用のフォルダの `file_unreadable` の書庫は「取り込み済み」へ移さない。走査のたびに開き直す（安い。`retry_after` は使わない —— `chmod` は更新時刻を変えないので、待ちを置くと権限を直しても 1 時間読まれない）
 - **台帳の鍵**: 台帳は追記のみ（`archive_append_only`）で、一意索引は `(user_id, sha256, parser_version, outcome)`。`file_unreadable` の行を中身の sha256 のまま `unreadable` で残すと、読み出せるようになった同じ中身の「読めない形」（`broken_zip` など）の行が `ON CONFLICT DO NOTHING` で落ち、既読にもならずに走査のたびに開き直し続ける。
-  なので鍵を中身の sha256 と決して一致しない形にする: 中身が分かれば `file_unreadable:<sha256>`、最初から読み出せず sha256 も取れなければ `file_unreadable-path:<置き場のパスの sha256>`（フォルダのパスそのものは持たない —— D7）。どちらも何度走査しても 1 行（一意索引）。ログも足した 1 回だけ
+  なので鍵を中身の sha256 と決して一致しない形にする: 中身が分かれば `file_unreadable:<sha256>`、最初から読み出せず sha256 も取れなければ `file_unreadable-path:<置き場のパスと大きさと更新時刻の sha256>`（フォルダのパスそのものは持たない —— D7。一覧で大きさも取れなかった項目はパスだけ）。どちらも同じファイルなら何度走査しても 1 行（一意索引）、同じ名前で置き直した別のファイルは別の行（scoped re-review R17 / /code-review R27）。ログも足した 1 回だけ
+- **一時の失敗を残さない**（/code-review R28）: ハッシュを取る読み出しの失敗は、大きさと更新時刻が前の走査と同じ（2 回の安定）ときだけ台帳に残す。初めて見た・変わったときは sighting に大きさと更新時刻だけを書いて次の走査を待つ（コピーの途中・一時のロック）
 - **走査を止めない**（R2）: 一覧の中の 1 件の `file_type` / `metadata` の失敗と、ハッシュを取る読み出しの失敗は、そのファイルを台帳に `file_unreadable` で残して飛ばす。置き場そのものの一覧が取れないときだけ、その置き場を `blockers` に出す（D8 のまま）。名前も取れない項目（`read_dir` の項目の失敗）はログだけ
 
 **反転条件**: 置き場に残した読み出せない書庫を開き直す回数が問題になったら（大きな置き場・遅い外部の置き場）、権限を直したことを更新時刻以外で見分ける手段を足してから `retry_after` で間を空ける。
@@ -270,6 +273,18 @@ D8 の M8 が足した `file_unreadable` は権限や I/O の失敗で、中身�
 **過ぎるまでは 1 日以上**にする（最後の 1 日は過ぎるまで「あと 1 日」）。「過ぎた」が出る時刻は途切れの判定と同じまま（spec「『過ぎた』が出るのは通知の判定が途切れとするのと同じ時刻から」）。
 画面（`web/src/sources.ts`）は 1 未満の残り日数を受けたら残り日数でなく「過ぎた」側で出す（取り込み器は返さないが、「あと 0 日」と負の日数を画面が組み立てない）。
 **反転条件**: 本人が、鳴る日の当日を「あと 1 日」でなく「今日」と出したいと言ったら、文言を 1 つ足す（計算し直せば戻る）。
+
+## D22（仮）. 取り方が定期取得で契機が間隔ごとでない行は、名前をログに出して取りに行かない（code_verify R26）
+
+D2 の trigger は、取り方だけ `scheduled` で契機を省いた行に `derived`・間隔なしを入れる。枠が `acquisition = 'scheduled' AND fetch_trigger = 'interval'` だけを読むと、その行は取りにも行かれず `scheduled_no_fetcher` のログにも出ない。
+枠は `acquisition = 'scheduled'` の行を全部読み、契機が `interval` でない行は `warn!(kind = "scheduled_no_interval", logical_source)` で飛ばす。制約（定期取得なら間隔ごと）は足さない —— 定期取得のソースはいま 0 本で、契機の種類を定期取得に広げる余地を移行で閉じない。
+**反転条件**: 最初の取る手を足す Story が「定期取得は間隔ごとだけ」と決めたら、`acquisition = 'scheduled'` に `fetch_trigger = 'interval'` を求める CHECK を移行で足す（ログの枝は消してよい）。
+
+## D23（仮）. 休止の知らせは最後に届いた生存信号から読む（code_verify R24）
+
+`GET /sources` の `device_notice` は、利用者の `c01-location` の生存信号のうち **`received_at`（S-01 の時計）が最も新しいもの**の原文から読む。同じ時刻に届いたものは `emitted_at` で並べる。
+端末の時計（`emitted_at`）で選ぶと、時計が進んでいた端末の古い `not_exempt` が、時計を直して除外を済ませた後の `exempt` に勝ち続ける（この Story は時計のずれを `c01-clock` で別に扱い、端末の時計を信用しない）。
+**反転条件**: Outbox の送り直しで古い信号が後から届き、知らせが古い状態に戻ることが実際に問題になったら、`emitted_at` と `received_at` の組で選ぶ（端末の時計が S-01 の時計から大きくずれた信号を除いてから `emitted_at` で選ぶ）。
 
 ## Risks / Trade-offs
 

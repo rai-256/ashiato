@@ -244,6 +244,38 @@ async fn sources_device_notice_reads_latest_location_heartbeat_raw() {
     assert_eq!(v["device_notice"]["unused_app_restrictions"], "not_exempt");
 }
 
+/// 最新は届いた順で選ぶ（code_verify R24・design D23（仮））。時計が 1 日進んでいた端末の古い `not_exempt` が、
+/// 時計を直して除外も済ませた後の `exempt` に勝たない。
+#[tokio::test]
+async fn sources_device_notice_follows_the_latest_received_heartbeat() {
+    let (pool, user) = (testdb::pool().await, testdb::user());
+    for (emitted, received, state) in [
+        (
+            "now() + interval '1 day'",
+            "now() - interval '1 hour'",
+            "not_exempt",
+        ),
+        ("now()", "now()", "exempt"),
+    ] {
+        sqlx::query(&format!(
+            "INSERT INTO core.heartbeat
+               (id, user_id, logical_source, device_id, emitted_at, received_at, capturable, blockers,
+                attempts, successes, content_hash, raw)
+             VALUES ($1,$2,'c01-location','test',{emitted},{received},true,'{{}}',1,1,$3,$4)"
+        ))
+        .bind(uuid::Uuid::new_v4())
+        .bind(user)
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(serde_json::json!({"unused_app_restrictions": state}))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let (_, body) = call(&app().await, user, true).await;
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["device_notice"]["unused_app_restrictions"], "exempt");
+}
+
 #[tokio::test]
 async fn sources_device_notice_is_null_when_latest_heartbeat_raw_is_not_json() {
     let (pool, user) = (testdb::pool().await, testdb::user());

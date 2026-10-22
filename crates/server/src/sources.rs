@@ -83,10 +83,15 @@ pub async fn read(
     now: DateTime<Utc>,
 ) -> Result<SourcesResponse, sqlx::Error> {
     let sql = format!(
-        "SELECT s.logical_source, s.display_name, s.acquisition, s.fetch_trigger, s.fetch_interval_sec,
-                s.retired_on, s.alert_after_days, {LAST_ARCHIVE_AT_SQL} AS last_archive_at,
-                ({LAST_ARCHIVE_AT_SQL} AT TIME ZONE '{DAY_TZ}')::date AS last_archive_on
-           FROM core.source s ORDER BY s.logical_source"
+        // 最後の書庫の時刻は 1 回だけ導く（/code-review R35。日付のために式を 2 回貼ると、相関の副問い合わせが 2 回走る）
+        "SELECT logical_source, display_name, acquisition, fetch_trigger, fetch_interval_sec,
+                retired_on, alert_after_days, last_archive_at,
+                (last_archive_at AT TIME ZONE '{DAY_TZ}')::date AS last_archive_on
+           FROM (SELECT s.logical_source, s.display_name, s.acquisition, s.fetch_trigger,
+                        s.fetch_interval_sec, s.retired_on, s.alert_after_days,
+                        {LAST_ARCHIVE_AT_SQL} AS last_archive_at
+                   FROM core.source s) AS r
+          ORDER BY logical_source"
     );
     let rows: Vec<Row> = sqlx::query_as(&sql).bind(user).fetch_all(db).await?;
     let sources = rows
@@ -121,11 +126,13 @@ pub async fn read(
             },
         )
         .collect();
-    // 原文は text の素通しで JSON とは限らない。SQL で cast せず Rust で読み、読めなければ無しにする
+    // 原文は text の素通しで JSON とは限らない。SQL で cast せず Rust で読み、読めなければ無しにする。
+    // 最新は**届いた順**で選ぶ（code_verify R24・design D23（仮））。端末の時計（`emitted_at`）で選ぶと、
+    // 時計が進んでいた古い信号が、除外を済ませた後の信号に勝ち続ける。同じ時刻に届いたものは端末の時刻で並べる
     let raw: Option<String> = sqlx::query_scalar(
         "SELECT raw FROM core.heartbeat
           WHERE user_id = $1 AND logical_source = 'c01-location'
-          ORDER BY emitted_at DESC LIMIT 1",
+          ORDER BY received_at DESC, emitted_at DESC LIMIT 1",
     )
     .bind(user)
     .fetch_optional(db)

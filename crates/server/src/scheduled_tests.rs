@@ -323,9 +323,11 @@ async fn scheduled_with_no_scheduled_sources_runs_quietly() {
     settle(100).await;
     tokio::time::resume();
 
+    // この試験のスレッドの行だけ（ほかの試験は登録簿を読めない状態をわざと作る）
+    let me = std::thread::current().name().unwrap_or_default().to_owned();
     let noise: Vec<String> = log_text()
         .lines()
-        .filter(|l| l.contains("scheduled_") && !l.contains("test-sched-"))
+        .filter(|l| l.contains(&me) && l.contains("scheduled_") && !l.contains("test-sched-"))
         .map(str::to_owned)
         .collect();
     drop(handle);
@@ -450,4 +452,156 @@ async fn scheduled_a_panicking_source_is_named_in_the_log() {
         !line.contains("わざと panic する"),
         "panic の文言は出さない: {line}"
     );
+}
+
+/// 起動時に登録簿を読めなければ、読めるまで読み直す（final review R4 F3・code_verify R20）。
+/// 「1 回で諦める」に戻すと、取る手は 1 回も呼ばれない。
+#[tokio::test]
+async fn scheduled_rereads_the_registry_until_it_can() {
+    let _ = crate::archive_flow_tests::captured_log();
+    let pool = pool_for_paused_clock().await;
+    let name = add_row(&pool, 3600).await;
+    let probe = Arc::new(Probe::default());
+    tokio::time::pause();
+    let handle = crate::scheduled::spawn_failing_registry(
+        vec![CountingFetcher::boxed(&name, &probe, Duration::ZERO, false)],
+        pool.clone(),
+        testdb::user(),
+        2,
+    );
+    hold_clock(settle(100)).await;
+    let before = probe.calls();
+    // 読み直しの待ち（60 秒）を 2 回過ぎると読める
+    for _ in 0..2 {
+        tokio::time::advance(Duration::from_secs(61)).await;
+        settle(100).await;
+    }
+    wait_for_calls(&probe, 1).await;
+    drop(handle);
+    tokio::time::resume();
+    drop_rows(&pool, &[&name]).await;
+
+    assert_eq!(before, 0, "読めない間は取りに行かない");
+    assert_eq!(probe.calls(), 1, "読めた後に 1 回取りに行く");
+    let log = log_text();
+    assert!(
+        log.contains("定期取得の行を読めた"),
+        "読めたことがログに出る"
+    );
+}
+
+/// 取り方だけ定期取得で、契機が間隔ごとでない行は取りに行かず、名前がログに出る（code_verify R26・design D22（仮））。
+#[tokio::test]
+async fn scheduled_source_without_interval_trigger_is_named_in_the_log() {
+    let _ = crate::archive_flow_tests::captured_log();
+    let pool = testdb::pool().await;
+    let name = format!("test-sched-{}", uuid::Uuid::new_v4().simple());
+    // 契機を書き忘れた行（D2 の trigger が `derived` を入れる）
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind, acquisition)
+         VALUES ($1, $1, 3600, 'none', 'scheduled')",
+    )
+    .bind(&name)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let probe = Arc::new(Probe::default());
+    let handle = crate::scheduled::spawn_with(
+        vec![CountingFetcher::boxed(&name, &probe, Duration::ZERO, false)],
+        pool.clone(),
+        testdb::user(),
+    );
+    for _ in 0..200 {
+        if log_text().contains(&name) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    drop(handle);
+    drop_rows(&pool, &[&name]).await;
+
+    let lines: Vec<String> = log_text()
+        .lines()
+        .filter(|l| l.contains(&name))
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        lines.iter().any(|l| l.contains("scheduled_no_interval")),
+        "契機の無い行の名前がログに出る: {lines:?}"
+    );
+    assert_eq!(probe.calls(), 0, "取りに行かない");
+}
+
+/// 退役した定期取得の行は取りに行かない（/code-review R29）。
+#[tokio::test]
+async fn scheduled_retired_source_is_not_fetched() {
+    let pool = testdb::pool().await;
+    let name = add_row(&pool, 3600).await;
+    sqlx::query("UPDATE core.source SET retired_on = current_date WHERE logical_source = $1")
+        .bind(&name)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let probe = Arc::new(Probe::default());
+    let handle = crate::scheduled::spawn_with(
+        vec![CountingFetcher::boxed(&name, &probe, Duration::ZERO, false)],
+        pool.clone(),
+        testdb::user(),
+    );
+    for _ in 0..40 {
+        if handle.is_finished() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let finished = handle.is_finished();
+    drop(handle);
+    drop_rows(&pool, &[&name]).await;
+
+    assert!(finished, "取りに行く task を起こさない（枠はすぐ終わる）");
+    assert_eq!(probe.calls(), 0, "退役した行は取りに行かない");
+}
+
+/// 走っている間に行が定期取得でなくなったら（退役）、取りに行くのをやめる（/code-review R31）。
+#[tokio::test]
+async fn scheduled_stops_when_the_row_is_retired() {
+    let _ = crate::archive_flow_tests::captured_log();
+    let pool = pool_for_paused_clock().await;
+    let name = add_row(&pool, 2).await;
+    let probe = Arc::new(Probe::default());
+    tokio::time::pause();
+    let handle = crate::scheduled::spawn_with(
+        vec![CountingFetcher::boxed(
+            &name,
+            &probe,
+            Duration::from_secs(1),
+            false,
+        )],
+        pool.clone(),
+        testdb::user(),
+    );
+    wait_for_calls(&probe, 1).await;
+    // 1 回目の取得の最中に退役させる: 取得の後の読み直しで行が外れたと分かる
+    hold_clock(
+        sqlx::query("UPDATE core.source SET retired_on = current_date WHERE logical_source = $1")
+            .bind(&name)
+            .execute(&pool),
+    )
+    .await
+    .unwrap();
+    run_secs(10).await;
+    let calls = probe.calls();
+    let finished = handle.is_finished();
+    drop(handle);
+    tokio::time::resume();
+    drop_rows(&pool, &[&name]).await;
+
+    assert_eq!(calls, 1, "退役の後は取りに行かない");
+    assert!(finished, "task が終わる");
+    let stopped: Vec<String> = log_text()
+        .lines()
+        .filter(|l| l.contains(&name) && l.contains("scheduled_stopped"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(stopped.len(), 1, "やめたことが 1 回だけ出る: {stopped:?}");
 }

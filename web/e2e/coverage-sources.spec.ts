@@ -82,6 +82,22 @@ async function withNotice(page: Page, state: string): Promise<void> {
   });
 }
 
+/**
+ * `/api/sources` の 1 行の書庫の欄だけ差し替える（ほかの行と欄は本物のまま）。
+ * 残り日数の数は API の試験（`sources_tests.rs` の 53 日前・74 日 23 時間前）が固定する。ここは画面がその数と起点の日を
+ * 固定の文字で出すかを見る —— seed からの時間で期待の枝が変わると、Scenario と逆の画面でも緑になる（code_verify R22 / R23）。
+ */
+async function withArchiveRow(page: Page, source: string, patch: Partial<SourceApiRow>): Promise<void> {
+  await page.route("**/api/sources", async (route) => {
+    const res = await route.fetch();
+    const base = (await res.json()) as { sources: Record<string, unknown>[] };
+    await route.fulfill({
+      response: res,
+      json: { ...base, sources: base.sources.map((r) => (r.logical_source === source ? { ...r, ...patch } : r)) },
+    });
+  });
+}
+
 async function noteOf(page: Page, source: string): Promise<string> {
   const note = page.getByTestId(`source-note-${source}`);
   await expect(note).toBeVisible({ timeout: 15_000 });
@@ -112,17 +128,14 @@ test("PC のウィンドウは「変わったとき」、集計は「始めた�
 });
 
 // Scenario: 書庫のソースは手作業と起点つきの通知までの残り日数が出る
-test("視聴履歴は手作業・2 か月ごとと、「通知まで あと N 日」（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
+test("視聴履歴は手作業・2 か月ごとと、「通知まで あと 22 日」（最後の書庫の日つき）が出て、取り込み済みの最終日も残る", async ({ page }) => {
+  // 最後の書庫が 53 日前（2026-10-21T03:00Z から数えて 2026-08-29）の応答。53 日 → あと 22 日は API の試験が固定する
+  await withArchiveRow(page, "c03-youtube-watch", { last_archive_on: "2026-08-29", alert_days_left: 22, alert_passed: false });
   await openCoverage(page);
   const note = await noteOf(page, "c03-youtube-watch");
   expect(note).toContain("手作業・2 か月ごと");
-  const row = await sourceRow(page, "c03-youtube-watch");
-  // 通知の日は seed の書庫の日で決まり、過ぎれば応答が過ぎたと言う。画面は応答に従っているかを見る
-  if (row.alert_passed) expect(note).toContain(`通知の日を過ぎた（最後の書庫 ${row.last_archive_on} から）`);
-  else {
-    expect(row.alert_days_left).toBeGreaterThan(0);
-    expect(note).toContain(`通知まで あと ${row.alert_days_left} 日（最後の書庫 ${row.last_archive_on} から）`);
-  }
+  expect(note).toContain("通知まで あと 22 日（最後の書庫 2026-08-29 から）");
+  expect(note).not.toContain("過ぎた");
   await expect(page.getByTestId("archive-note-c03-youtube-watch")).toContainText(/\d{4}-\d{2}-\d{2} まで（\d+ 日前）/);
 });
 
@@ -139,16 +152,12 @@ test("80 日前の書庫は通知の日を過ぎたと最後の書庫の日つ�
 
 // Scenario: 通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る
 test("74 日 23 時間前の書庫は あと 1 日 で、過ぎたとは出ない", async ({ page }) => {
+  // 鳴る 1 時間前の応答（74 日 23 時間 → あと 1 日・過ぎていない は API の試験が固定する）
+  await withArchiveRow(page, "c03-timeline-visit", { last_archive_on: "2026-08-07", alert_days_left: 1, alert_passed: false });
   await openCoverage(page);
   const note = await noteOf(page, "c03-timeline-visit");
-  // seed から 1 時間以内なら あと 1 日。過ぎた後は応答が過ぎたと言うので、画面は応答に従っているかを見る
-  const row = await sourceRow(page, "c03-timeline-visit");
-  if (row.alert_passed) expect(note).toContain("通知の日を過ぎた");
-  else {
-    expect(row.alert_days_left).toBe(1);
-    expect(note).toContain("通知まで あと 1 日");
-    expect(note).not.toContain("過ぎた");
-  }
+  expect(note).toContain("通知まで あと 1 日（最後の書庫 2026-08-07 から）");
+  expect(note).not.toContain("過ぎた");
 });
 
 // Scenario: 通知が鳴った 1 時間後の書庫のソースは過ぎたと出る

@@ -290,6 +290,28 @@ async fn archive_scan_interval_over_300_is_refused() {
     assert_eq!(still, 120, "取得の間隔は元のまま");
 }
 
+/// 上限の 300 秒そのものは受け付ける（code_verify R21）。301 が断られるだけだと、上限を狭めても緑のまま。
+/// 共有の行は transaction の中で書き換え、戻す。
+#[tokio::test]
+async fn archive_scan_interval_of_300_is_accepted() {
+    let pool = testdb::pool().await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE core.source SET fetch_interval_sec = 300 WHERE logical_source = 's01-archive-inbox'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let set: i32 = sqlx::query_scalar(
+        "SELECT fetch_interval_sec FROM core.source WHERE logical_source = 's01-archive-inbox'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    assert_eq!(set, 300);
+}
+
 // Scenario: 見回りの間隔の環境変数が残っていると起動を断る
 #[test]
 fn archive_scan_interval_env_var_refuses_startup() {
