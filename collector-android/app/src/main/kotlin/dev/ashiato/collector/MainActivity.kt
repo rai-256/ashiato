@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
-import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -46,6 +45,9 @@ import android.widget.TextView
  * 2 度目からは自動で送らない（許さないと決めた本人の邪魔になる）——
  * 以後は常駐の通知から同じ画面へたどれる。
  */
+// ライフサイクルの上書き・試験の差し替え口・権限の順と、休止の除外の 1 行とダイアログ（ST13）を同じ画面に持つ。
+// 画面は 1 枚だけで、分けると `onResume` / `onDestroy` の配線が 2 か所に割れる
+@Suppress("TooManyFunctions")
 open class MainActivity : Activity() {
     /** 一度求めた権限。**同じものを無限に求めない**ための記録。 */
     private val asked = mutableSetOf<String>()
@@ -216,7 +218,7 @@ open class MainActivity : Activity() {
     /** 画面に 1 行（外れていない / 読めなかった）。外れていないときだけ「設定を開く」を添える。 */
     private fun showUnusedAppRestrictions(state: UnusedAppRestrictionsState) {
         val density = resources.displayMetrics.density
-        val pad = (16 * density).toInt()
+        val pad = (PADDING_DP * density).toInt()
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
@@ -231,7 +233,11 @@ open class MainActivity : Activity() {
                 Button(this).apply {
                     text = OPEN_SETTINGS_LABEL
                     // タップの的は 24 dp 以上（余裕を見て 48 dp）
-                    minimumHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+                    minimumHeight = TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP,
+                        BUTTON_MIN_HEIGHT_DP,
+                        resources.displayMetrics,
+                    ).toInt()
                     setOnClickListener { openUnusedAppRestrictionsSettings() }
                 },
             )
@@ -268,6 +274,8 @@ open class MainActivity : Activity() {
         const val UNKNOWN_LINE = "使っていないアプリの一時停止の除外の状態を読めなかった"
         const val OPEN_SETTINGS_LABEL = "設定を開く"
         const val NOT_NOW_LABEL = "あとで"
+        private const val PADDING_DP = 16
+        private const val BUTTON_MIN_HEIGHT_DP = 48f
         const val UNUSED_APP_RESTRICTIONS_EXPLANATION =
             "数か月開かないと、OS が権限を外し通知を止めます。足跡を取り続けるため、一時停止の対象から外す設定を開きますか。"
     }

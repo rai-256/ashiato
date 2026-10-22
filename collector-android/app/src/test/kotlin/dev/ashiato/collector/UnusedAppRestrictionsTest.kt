@@ -34,7 +34,6 @@ class UnusedAppRestrictionsActivity : MainActivity() {
     }
 }
 
-
 @RunWith(RobolectricTestRunner::class)
 class UnusedAppRestrictionsTest {
     private val app: Application get() = ApplicationProvider.getApplicationContext()
@@ -81,8 +80,6 @@ class UnusedAppRestrictionsTest {
     private fun asked() =
         app.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
             .getBoolean(UnusedAppRestrictionsAsked.KEY, false)
-
-    private val manageAction = "android.settings.APPLICATION_DETAILS_SETTINGS"
 
     // Scenario: 対象から外れていない端末で初めて開くと設定の画面へ案内される
     @Test
@@ -160,8 +157,12 @@ class UnusedAppRestrictionsTest {
         assertTrue(texts(second.get()).contains(MainActivity.NOT_EXEMPT_LINE))
         val button = second.get().window.decorView.let { root ->
             fun find(v: android.view.View): Button? =
-                if (v is Button) v else (v as? android.view.ViewGroup)?.let { g ->
-                    (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) }
+                if (v is Button) {
+                    v
+                } else {
+                    (v as? android.view.ViewGroup)?.let { g ->
+                        (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) }
+                    }
                 }
             find(root)
         }
@@ -197,12 +198,17 @@ class UnusedAppRestrictionsTest {
 
     @Test
     fun `結果の値を 4 つの状態に写す`() {
-        assertEquals(UnusedAppRestrictionsState.EXEMPT, mapUnusedAppRestrictionsStatus(UnusedAppRestrictionsConstants.DISABLED))
-        for (s in listOf(UnusedAppRestrictionsConstants.API_30_BACKPORT, UnusedAppRestrictionsConstants.API_30, UnusedAppRestrictionsConstants.API_31)) {
-            assertEquals(UnusedAppRestrictionsState.NOT_EXEMPT, mapUnusedAppRestrictionsStatus(s))
+        val expected = mapOf(
+            UnusedAppRestrictionsConstants.DISABLED to UnusedAppRestrictionsState.EXEMPT,
+            UnusedAppRestrictionsConstants.API_30_BACKPORT to UnusedAppRestrictionsState.NOT_EXEMPT,
+            UnusedAppRestrictionsConstants.API_30 to UnusedAppRestrictionsState.NOT_EXEMPT,
+            UnusedAppRestrictionsConstants.API_31 to UnusedAppRestrictionsState.NOT_EXEMPT,
+            UnusedAppRestrictionsConstants.FEATURE_NOT_AVAILABLE to UnusedAppRestrictionsState.UNSUPPORTED,
+            UnusedAppRestrictionsConstants.ERROR to UnusedAppRestrictionsState.UNKNOWN,
+        )
+        for ((status, state) in expected) {
+            assertEquals("status=$status", state, mapUnusedAppRestrictionsStatus(status))
         }
-        assertEquals(UnusedAppRestrictionsState.UNSUPPORTED, mapUnusedAppRestrictionsStatus(UnusedAppRestrictionsConstants.FEATURE_NOT_AVAILABLE))
-        assertEquals(UnusedAppRestrictionsState.UNKNOWN, mapUnusedAppRestrictionsStatus(UnusedAppRestrictionsConstants.ERROR))
     }
 
     private fun locationBeat(state: UnusedAppRestrictionsState, capability: Capability? = null): HeartbeatRequest {

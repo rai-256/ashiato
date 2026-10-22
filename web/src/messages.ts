@@ -182,7 +182,7 @@ const ja = {
         manual: "手作業・2 か月ごと",
       } as Record<string, string | undefined>,
       /** 端末の位置が、収集アプリの休止の対象から外れていないとき、間隔の代わりに出す短い知らせ */
-      pausable: "休止の対象（アプリで外す）",
+      pausable: "休止対象・アプリで外す",
       alertLeft: (days: string, on: string): string => `通知まで あと ${days} 日（最後の書庫 ${on} から）`,
       alertPassed: (on: string): string => `通知の日を過ぎた（最後の書庫 ${on} から）`,
       noArchive: "まだ書庫が無い",

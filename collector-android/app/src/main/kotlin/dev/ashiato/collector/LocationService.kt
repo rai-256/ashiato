@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -26,7 +27,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * `source_unavailable` の重複抑止。

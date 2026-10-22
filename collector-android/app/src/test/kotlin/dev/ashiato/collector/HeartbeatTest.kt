@@ -22,7 +22,6 @@ class HeartbeatTest {
         capability: () -> Capability = { Capability.of(permission = true, sensor = true, network = true) },
         counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS),
         now: () -> Instant = { Instant.parse("2026-05-01T06:00:00Z") },
-        log: (String) -> Unit = {},
         extraFields: () -> Map<String, kotlinx.serialization.json.JsonElement> = { emptyMap() },
     ) = HeartbeatEmitter(
         outbox = outbox,
@@ -33,7 +32,6 @@ class HeartbeatTest {
         capability = capability,
         now = now,
         newId = { "hb-1" },
-        log = log,
         extraFields = extraFields,
     )
 

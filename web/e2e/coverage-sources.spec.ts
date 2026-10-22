@@ -205,7 +205,7 @@ test("休止の対象から外れていなければ、位置の見出しは間�
   await withNotice(page, "not_exempt");
   await openCoverage(page);
   const note = await noteOf(page, "c01-location");
-  expect(note).toContain("休止の対象（アプリで外す）");
+  expect(note).toContain("休止対象・アプリで外す");
   expect(note).not.toContain("60 秒ごと");
 });
 

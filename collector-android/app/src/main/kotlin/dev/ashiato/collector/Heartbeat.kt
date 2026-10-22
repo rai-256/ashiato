@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Instant
 
 /**
  * 生存信号の間隔。**登録簿の想定間隔（FR-35 の初期値 = 位置 6 時間）に合わせる**（tasks 7.1）。

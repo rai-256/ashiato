@@ -52,6 +52,8 @@ fun interface UnusedAppRestrictionsReader {
 object SystemUnusedAppRestrictionsReader : UnusedAppRestrictionsReader {
     private const val WAIT_MS = 2_000L
 
+    // 何が投げられても落とさず「読めなかった」に写すのが仕様（画面に読めなかったことを出す）
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     override fun read(context: Context): UnusedAppRestrictionsState = try {
         val status = PackageManagerCompat.getUnusedAppRestrictionsStatus(context)
             .get(WAIT_MS, TimeUnit.MILLISECONDS)

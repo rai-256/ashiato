@@ -88,7 +88,7 @@ describe("見出しに添える文字", () => {
   });
 
   it("休止の対象から外れていなければ、間隔の代わりに短い知らせ", () => {
-    expect(sourceNote("c01-location", resp([row({})], "not_exempt"))).toBe(" — 休止の対象（アプリで外す）");
+    expect(sourceNote("c01-location", resp([row({})], "not_exempt"))).toBe(" — 休止対象・アプリで外す");
     expect(sourceNote("c01-location", resp([row({})], "exempt"))).toBe(" — 60 秒ごと");
   });
 
