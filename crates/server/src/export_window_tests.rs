@@ -927,6 +927,52 @@ fn rows_read(plan: &Value, skip_cte: Option<&str>) -> u64 {
     own + children
 }
 
+/// `rows_read` と同じ範囲の節（`event` / `event_version`）の `Actual Loops` の和。1 度も実行されない節は 0。
+fn loops_run(plan: &Value, skip_cte: Option<&str>) -> u64 {
+    let node = match plan {
+        Value::Array(items) => return items.iter().map(|p| loops_run(p, skip_cte)).sum(),
+        Value::Object(o) => match o.get("Plan") {
+            Some(root) => return loops_run(root, skip_cte),
+            None => o,
+        },
+        _ => return 0,
+    };
+    if let Some(name) = skip_cte {
+        if node.get("Subplan Name").and_then(Value::as_str) == Some(&format!("CTE {name}")) {
+            return 0;
+        }
+    }
+    let own = match node.get("Relation Name").and_then(Value::as_str) {
+        Some("event" | "event_version") => node
+            .get("Actual Loops")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0) as u64,
+        _ => 0,
+    };
+    let children: u64 = node
+        .get("Plans")
+        .and_then(Value::as_array)
+        .map(|ps| ps.iter().map(|p| loops_run(p, skip_cte)).sum())
+        .unwrap_or(0);
+    own + children
+}
+
+#[test]
+fn ch02_scale_loops_run_sums_the_event_scan_loops() {
+    let plan = json!([{"Plan": {
+        "Node Type": "Result", "Actual Loops": 1,
+        "Plans": [
+            {"Node Type": "Seq Scan", "Relation Name": "event", "Actual Loops": 2},
+            {"Node Type": "Index Scan", "Relation Name": "event_version", "Actual Loops": 0},
+            {"Node Type": "Seq Scan", "Relation Name": "stay_note", "Actual Loops": 9},
+            {"Node Type": "Aggregate", "Subplan Name": "CTE erased_spans", "Actual Loops": 1,
+             "Plans": [{"Node Type": "Seq Scan", "Relation Name": "event", "Actual Loops": 5}]}
+        ]
+    }}]);
+    assert_eq!(loops_run(&plan, None), 7);
+    assert_eq!(loops_run(&plan, Some("erased_spans")), 2);
+}
+
 #[test]
 fn ch02_scale_rows_read_sums_the_event_scans() {
     let plan = json!([{"Plan": {
@@ -1067,12 +1113,20 @@ async fn ch02_scale_nothing_erased_reads_no_records() {
         let old = explain_excluded(&pool, &legacy::excluded_sql("now()")).await;
         drop.await;
         (
-            rows_read(&new, Some("erased_spans")),
+            (
+                rows_read(&new, Some("erased_spans")),
+                loops_run(&new, Some("erased_spans")),
+            ),
             rows_read(&old, Some("erased_spans")),
         )
     };
-    eprintln!("消した滞在 0 件: 新 {new} / 写し {old}");
+    let (new, new_loops) = new;
+    eprintln!("消した滞在 0 件: 新 {new}（実行 {new_loops} 回）/ 写し {old}");
     assert_eq!(new, 0, "消した滞在が無いのに記録の表を読んでいる");
+    assert_eq!(
+        new_loops, 0,
+        "記録の表の節が実行されている（Actual Loops 0 でない）"
+    );
     assert!(
         old > 0,
         "写しは表を読むはず（門がいまより強い保証であることの固定）"
