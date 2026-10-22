@@ -1171,176 +1171,20 @@ else
   echo "  OK place 戻して進めても場所の記録の錠は効いている"
 fi
 
-# ================================================================ ST17: 主観の記録の錠と、2 つの台帳
-#
-# **取り込み口を通さず psql から直に殴る**（`cargo test` の `st17_lock_` は同じ文を sqlx で撃つが、
-# 同じ PC の第三者製プラグインや手作業が打てるのはこの経路）。
-# 通すのは **削除の印・感度・その記録の台帳つきの消去**だけ。`s01-feeling` の登録簿の行は移行が入れている。
-echo "== ST17: 主観の記録の錠と、2 つの台帳"
-FA='c1111111-1111-4111-8111-000000000001'      # 書き換えの拒否と、消去の偽物を全部ここへ当てる
-FB='c2222222-2222-4222-8222-000000000001'      # 削除の印・感度
-FC='c3333333-3333-4333-8333-000000000001'      # 台帳つきの消去が**通る**ことだけを見る
-
-feeling_row_of() {   # $1=id
-  printf "INSERT INTO core.event
-     (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
-      schema_version, sensitivity, content_hash, raw, payload)
-   VALUES ('%s','%s','s01-feeling','authored','2026-09-15T02:00:00Z',540,'Asia/Tokyo',1,1,
-           'feeling-hash-%s', '{\"valence\":2}','{\"valence\":2}');" "$1" "$AU" "$1"
-}
-for id in "$FA" "$FB" "$FC"; do psql -c "$(feeling_row_of "$id")" >/dev/null; done
-
-# 2 つの台帳は追記のみ（種類の登録簿の 2 行は移行が入れている）
-psql -c "INSERT INTO core.feeling_reminder (user_id, at) VALUES ('$AU','20:30');" >/dev/null
-for stmt in "UPDATE core.feeling_reminder SET at='07:00';" "DELETE FROM core.feeling_reminder;" \
-            "TRUNCATE core.feeling_reminder;" \
-            "UPDATE core.feeling_target_kind SET label='x';" "DELETE FROM core.feeling_target_kind;" \
-            "TRUNCATE core.feeling_target_kind;"; do
-  if psql -c "$stmt" >/dev/null 2>&1; then
-    echo "  NG 主観の台帳が変えられた: $stmt"; fail=1
-  fi
+# ================================================================ Story ごとの節（tools/check-immutable.d/）
+# **Story の節はこのファイルに書き足さない。** `tools/check-immutable.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
+# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・psql・fail（NG なら fail=1）はそのまま使える）。
+# このファイルの末尾を並走する Story が取り合い、どの 2 本を合わせても衝突していた（2026-10-15 実測）。
+# **戻しの前に読む。** DB は本体の節を全部走らせた状態で、版は全部当たっている。節の後ろに本体の検査（戻しの並び・読み出しの記録・`app-role`）が続くので、
+# 本体の変数（`fail` を NG で 1 にする以外。`MIGS` `ST03_UP` `down_fail` `AU` など）と関数（`psql` `app_psql`）を上書きしない。節の変数は `ST<NN>_` を頭に付ける。
+# 利用者の id と本人が書いた行は節が自分で置く（本体の `$AU` を使わない）。
+# feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
+for part in tools/check-immutable.d/*.sh; do
+  [ -e "$part" ] || continue
+  echo "== 書き換え禁止の節: $(basename "$part" .sh)"
+  # shellcheck source=/dev/null
+  . "$part"
 done
-[ "$(psql -c "SELECT count(*) FROM core.feeling_target_kind WHERE kind IN ('day','stay');")" = "2" ] \
-  && [ "$(psql -c "SELECT count(*) FROM core.feeling_reminder WHERE user_id='$AU' AND at='20:30';")" = "1" ] \
-  && echo "  OK feeling 通知の時刻の台帳と紐づけ先の種類の登録簿は追記のみ" \
-  || { echo "  NG 主観の台帳の行が変わっている"; fail=1; }
-
-# Scenario: 主観の値を書き換える文は拒まれる
-if psql -c "UPDATE core.event SET payload = jsonb_set(payload,'{valence}','-2') WHERE id='$FA';" \
-     >/dev/null 2>&1; then
-  echo "  NG 主観の値が書き換えられた（FR-48 違反）"; fail=1
-else
-  echo "  OK feeling 主観の値の書き換えは拒まれた"
-fi
-[ "$(psql -c "SELECT payload->>'valence' FROM core.event WHERE id='$FA';")" = "2" ] \
-  || { echo "  NG 拒まれたのに値が変わっている"; fail=1; }
-
-# Scenario: 主観の紐づけ先は書き換えられない
-if psql -c "UPDATE core.event SET raw='{\"target\":{\"kind\":\"day\",\"id\":\"2026-09-16\"}}',
-                                  payload='{\"target\":{\"kind\":\"day\",\"id\":\"2026-09-16\"}}'
-             WHERE id='$FA';" >/dev/null 2>&1; then
-  echo "  NG 主観の紐づけ先が書き換えられた"; fail=1
-else
-  echo "  OK feeling 主観の紐づけ先は書き換えられない"
-fi
-
-feeling_update_rejected() {   # $1=SET 句 $2=OK の行に出す名前
-  if psql -c "UPDATE core.event SET $1 WHERE id='$FA';" >/dev/null 2>&1; then
-    echo "  NG 主観の記録の列が書き換えられた: $1"; fail=1
-  else
-    echo "  OK feeling 主観の記録の$2は書き換えられない"
-  fi
-}
-
-# Scenario: 主観の出来事の時刻は書き換えられない
-feeling_update_rejected "event_time='2000-01-01T00:00:00Z'" "出来事の時刻"
-feeling_update_rejected "user_id='11111111-1111-4111-8111-111111111111'" "利用者"
-feeling_update_rejected "external_ref='forged-ref'" "外部識別子（external_ref）"
-feeling_update_rejected "logical_source='immutable-check'" "論理ソース（外への付け替え）"
-
-# Scenario: 主観の行は削除できない
-if psql -c "DELETE FROM core.event WHERE id='$FA';" >/dev/null 2>&1; then
-  echo "  NG 主観の記録を行ごと消せた（FR-48 違反）"; fail=1
-else
-  echo "  OK feeling 主観の記録は行ごと消せない"
-fi
-[ "$(psql -c "SELECT count(*) FROM core.event WHERE id='$FA';")" = "1" ] \
-  || { echo "  NG 主観の記録が消えている"; fail=1; }
-
-# Scenario: 他の記録を主観へ付け替えられない
-if psql -c "UPDATE core.event SET logical_source='s01-feeling'
-             WHERE id='33333333-3333-4333-8333-333333333333';" >/dev/null 2>&1; then
-  echo "  NG 他の「本人が書いた」記録を主観の記録へ付け替えられた"; fail=1
-else
-  echo "  OK feeling 他の記録を主観へ付け替えられない"
-fi
-
-# Scenario: 主観に削除の印を付けられる
-if psql -c "UPDATE core.event SET deleted_at=now(), deleted_by='check' WHERE id='$FB';" \
-     >/dev/null 2>&1; then
-  echo "  OK feeling 主観に削除の印を付けられる"
-else
-  echo "  NG 主観の削除の印まで止めている（FR-50）"; fail=1
-fi
-psql -c "UPDATE core.event SET deleted_at=NULL, deleted_by=NULL WHERE id='$FB';" >/dev/null
-
-# Scenario: 主観の感度を変えられる
-if psql -c "UPDATE core.event SET sensitivity=3 WHERE id='$FB';" >/dev/null 2>&1; then
-  echo "  OK feeling 主観の感度を変えられる"
-else
-  echo "  NG 主観の感度まで止めている（PERM-2）"; fail=1
-fi
-
-feeling_ledger() {   # $1=台帳に書く記録の id
-  printf "INSERT INTO core.erasure_ledger (event_id, user_id, logical_source, scope, erased_by)
-          VALUES ('%s','%s','s01-feeling','event','check');" "$1" "$AU"
-}
-
-# Scenario: 台帳の無い主観の消去は拒まれる
-if psql -c "UPDATE core.event SET raw='', payload='{}' WHERE id='$FA';" >/dev/null 2>&1; then
-  echo "  NG 台帳を書かない消去が通った"; fail=1
-else
-  echo "  OK feeling 台帳の無い主観の消去は拒まれた"
-fi
-[ "$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$FA';")" = "t" ] \
-  || { echo "  NG 拒まれたのに原文が消えている"; fail=1; }
-
-# Scenario: 別の記録の台帳の行では主観の消去は通らない
-if psql -c "$(feeling_ledger '77777777-7777-4777-8777-777777777778')
-            UPDATE core.event SET raw='', payload='{}' WHERE id='$FA';" >/dev/null 2>&1; then
-  echo "  NG 別の記録の台帳 1 行で主観の記録が消去できた（門が「その記録の」を見ていない）"; fail=1
-else
-  echo "  OK feeling 別の記録の台帳の行では主観の消去は通らない"
-fi
-[ "$(psql -c "SELECT raw <> '' FROM core.event WHERE id='$FA';")" = "t" ] \
-  || { echo "  NG 別の記録の台帳で原文が消えた"; fail=1; }
-
-# Scenario: 台帳の行があっても消去の形でない主観の書き換えは拒まれる
-if psql -c "$(feeling_ledger "$FA")
-            UPDATE core.event SET raw='', payload='{\"valence\":-2}' WHERE id='$FA';" \
-     >/dev/null 2>&1; then
-  echo "  NG 消去の顔で解析済みを差し替えられた"; fail=1
-else
-  echo "  OK feeling 台帳の行があっても、消去の形でない書き換えは拒まれた"
-fi
-
-# Scenario: 台帳のある主観の消去は通る
-if psql -c "$(feeling_ledger "$FC")
-            UPDATE core.event SET raw='', payload='{}' WHERE id='$FC';" >/dev/null 2>&1; then
-  echo "  OK feeling 台帳のある主観の消去は通る"
-else
-  echo "  NG 主観の原文が消せない（FR-51）"; fail=1
-fi
-[ "$(psql -c "SELECT raw = '' AND payload = '{}'::jsonb FROM core.event WHERE id='$FC';")" = "t" ] \
-  || { echo "  NG 通ったのに原文が残っている"; fail=1; }
-[ "$(psql -c "SELECT content_hash FROM core.event WHERE id='$FC';")" = "feeling-hash-$FC" ] \
-  || { echo "  NG 消去で内容の鍵が動いた"; fail=1; }
-
-# Scenario: 主観以外の本人が書いた記録は従来どおりの規則で扱われる
-# **主観の行がある DB でも、本人が書いた記録（`immutable-check`）は従来どおり書き換えられる**
-if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
-            WHERE logical_source = 'immutable-check' AND origin = 'authored';" >/dev/null 2>&1; then
-  echo "  OK feeling 主観の行があっても、主張・場所・主観以外の本人が書いた記録は書き換えられる"
-else
-  echo "  NG 主観の行があると本人が書いた記録の書き換えが通らない"; fail=1
-fi
-
-# --- 戻し手順（D16）。**主観の記録か通知の時刻が残っていれば、2 表も登録簿の行も残す**
-psql < migrations/202610141000_subjective_log.down.sql >/dev/null 2>&1 \
-  || { echo "  NG 202610141000_subjective_log.down.sql が当たらない"; fail=1; }
-[ "$(psql -c "SELECT count(*) FROM core.feeling_reminder WHERE user_id='$AU';")" = "1" ] \
-  && [ "$(psql -c "SELECT count(*) FROM core.feeling_target_kind WHERE kind IN ('day','stay');")" = "2" ] \
-  && [ "$(psql -c "SELECT count(*) FROM core.source WHERE logical_source='s01-feeling';")" = "1" ] \
-  && [ "$(psql -c "SELECT count(*) FROM core.event WHERE id IN ('$FA','$FB','$FC');")" = "3" ] \
-  || { echo "  NG 戻しで主観の行か台帳か登録簿の行が減った"; fail=1; }
-echo "  OK feeling 主観が残っていれば、戻しても台帳と登録簿の行と主観の記録が残る"
-psql < migrations/202610141000_subjective_log.sql >/dev/null 2>&1 \
-  || { echo "  NG 戻した後に当て直せない"; fail=1; }
-if psql -c "UPDATE core.event SET payload='{\"forged\":1}' WHERE id='$FA';" >/dev/null 2>&1; then
-  echo "  NG 戻して進めた後に主観の記録の錠が消えている"; fail=1
-else
-  echo "  OK feeling 戻して進めても主観の記録の錠は効いている"
-fi
 
 # --- 戻し手順が当たること（R117）。
 # `tools/check-migrations.sh` は **down.sql の存在と「不可逆」の記載だけ**を静的に見ており、
@@ -1492,23 +1336,11 @@ for op in "session_replication_role:SET session_replication_role = replica" \
   name="${op%%:*}"; sql="${op#*:}"
   if err=$(app_psql -c "$sql" 2>&1); then
     echo "  NG app-role $name が通ってしまった"; fail=1
-  elif printf '%s' "$err" | grep -qE 'permission denied|must be owner'; then
+  elif grep -qE 'permission denied|must be owner' <<<"$err"; then
     echo "  OK app-role $name を拒んだ"
   else
     echo "  NG app-role $name が権限の不足以外で落ちた"; fail=1
   fi
-done
-
-# ================================================================ Story ごとの節（tools/check-immutable.d/）
-# **Story の節はこのファイルに書き足さない。** `tools/check-immutable.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
-# （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・psql・fail（NG なら fail=1）はそのまま使える）。
-# このファイルの末尾を並走する Story が取り合い、どの 2 本を合わせても衝突していた（2026-10-15 実測）。
-# feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
-for part in tools/check-immutable.d/*.sh; do
-  [ -e "$part" ] || continue
-  echo "== 書き換え禁止の節: $(basename "$part" .sh)"
-  # shellcheck source=/dev/null
-  . "$part"
 done
 
 [ "$fail" -eq 0 ] && echo "書き換え禁止 OK" || { echo "書き換え禁止 NG"; exit 1; }
