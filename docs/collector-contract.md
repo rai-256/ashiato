@@ -433,6 +433,97 @@ ST08 deep.md 第 8 回 Q13）**。どれを載せた信号も `capturable=false`
 **読んだ時刻そのものではない** —— PC の時計が戻った後は読んだ時刻より先の値になる（戻った後の題名・滞在時間の更新を古い到着として捨てさせないため）。
 読む側は、この値を「いつ読んだか」として使わない（届いた時刻は `ingest_time`）。
 
+## C-01（`c01-photo` / `c01-screenshot` / `c01-image` / `c01-video`）が送る写真・画像・動画の記録と原本（ST09 / design D3 / D4 / D5 / D10 / D11）
+
+**論理ソースは保存先のフォルダで決める**（design D3（仮））: 動画は `c01-video`、`DCIM/Screenshots/` と `Pictures/Screenshots/` は `c01-screenshot`、
+`DCIM/` の下は `c01-photo`、それ以外の画像は `c01-image`。最初に決めたもので固定する（フォルダを動かしても記録は動かさない）。
+
+### `payload`（`/ingest`）
+
+`kind` は `media`（写真・画像・動画）か `vanished`（端末から消えた事実）。`kind = media` の欄（名前は書き出しの分類が読む `lat` / `lon` / `duration_ms` に合わせてある）:
+
+| 欄 | 何を |
+|---|---|
+| `kind` | `media` |
+| `sha256` | ファイル全体のバイトの SHA-256（16 進の小文字）。**外部識別子もこれ**（`external_id_kind = record`） |
+| `media_id` / `volume` | 端末の一覧の項目の番号と置き場の名前 |
+| `previous_sha256` | 同じ項目の番号で中身が変わったとき、変わる前のハッシュ（Q7）。無ければ欄を持たない |
+| `taken_at_exif` / `offset_exif` | EXIF の `DateTimeOriginal` と `OffsetTimeOriginal`（動画は入れ物の作成時刻）。文字列のまま |
+| `date_taken_store` / `date_added` | 端末の一覧の `DATE_TAKEN` と `DATE_ADDED`（端末に保存された時刻）。前者は持つが出来事の時刻には採らない |
+| `time_basis` | `taken`（撮影時刻を採った）か `stored`（保存された時刻を採った）。Q14 |
+| `tz_basis` | `exif`（メタのずれ）か `device`（読んだ時点の端末の地域を当てた）。C7 |
+| `lat` / `lon` | 写真・動画自身のメタの位置だけ（C6）。無ければ欄を持たない |
+| `make` / `model` / `width` / `height` / `mime` / `size_bytes` | あれば |
+| `duration_ms` | 動画の長さ |
+| `relative_path` / `display_name` | 保存先のフォルダと元のファイル名（D-02 の名前に使う） |
+
+- **出来事の時刻（`event_time`）**は撮影時刻 = `taken_at_exif` を `offset_exif`（無ければ端末の地域）で読んだもの。
+  撮影時刻が無い・`2000-01-02T00:00:00Z` より前・`date_added` より 24 時間以上後なら `date_added` を採り `time_basis = stored`（Q14）。
+- **原文（`raw`）**は `{"store": {<一覧の行の全部の列>}, "exif": {<タグ名>: <文字列>}, "omitted": [<落としたタグ名>]}` の JSON の文字列。
+  動画は `exif` の代わりに `container`（入れ物のメタの全部のキー）。縮小画像と、256 バイトを超える UNDEFINED / BYTE のタグ（`MakerNote` など）は値を入れず `omitted` に名前を挙げる。
+  文字のタグは長さで切らない。
+- **更新**: 同じハッシュの項目で、一覧の行か原文が送ったものから変わったら、同じ外部識別子で原文を送り直す（前の版は履歴に残る）。`source_updated_at` は載せない。
+- **消えた事実**（`kind = vanished`）: 端末の一覧から項目が消えたことを 1 件の記録にする。外部識別子は `vanished:<sha256>:<volume>:<media_id>`。元の記録は変えない。
+- 位置の権限（`ACCESS_MEDIA_LOCATION`）が無い間は、写真・画像・動画のファイルを開かない（Q15）。権限が戻るまで待つ（記録を作らない）。
+
+### 写真の原本の受け口（D-02。design D10）
+
+動画の原本は送らない。写真・画像の原本だけを、記録が受理された後に端末が**端末のファイルから読んで**送る（端末に写しを作らない。Q4）。
+資格情報は `/ingest` と同じ。`user_id` はクエリで渡す。
+
+| 要求 | 何をする | 応答 |
+|---|---|---|
+| `PUT /media/originals/{sha256}?user_id=<uuid>` | 本文は原本のバイトのまま。この経路だけ本文の上限は **1 GiB**（ほかの経路の 2 MB は変えない） | 下の表 |
+| `HEAD /media/originals/{sha256}?user_id=<uuid>` | 受け取りの行があり、置いたファイルが残っているかの問い合わせ（本文を受けない） | 行があり、並びの名前に受け取った大きさのファイルがあれば `200`、どちらかが無ければ `404`（本人が D-02 から動かした・消した原本は、送り直すと置き直す） |
+
+`PUT` の応答（本文は `{"error": "<語>"}`。成功は `{"status": "stored"}` / `{"status": "already"}`）:
+
+| 状態 | `error` | いつ | 端末の扱い |
+|---|---|---|---|
+| `201` | — | 置いて、受け取りの行を積んだ | 送り待ちの行を消す |
+| `200` | — | 受け取りの行がすでにあり、置いたファイルも残っている | 同上 |
+| `400` | `malformed` / `interrupted` | ハッシュや `user_id` の形が不正 / 本文が途中で切れた | 試し直す |
+| `409` | `record_missing` | 記録がまだ無い（原本が記録より先に届いた） | 試し直す。最初の `409` から 7 日続いたら原本の欠け `record_missing` |
+| `413` | `too_large` | 1 GiB を超えた | 原本の欠け `too_large` |
+| `422` | `hash_mismatch` | 本文のハッシュが指したものと違う（送っている間に端末のファイルが変わった） | 試し直す（次の回の 1 回目の読みで `changed` と分かる） |
+| `422` | `video_not_accepted` | その利用者の `c01-video` にだけある（動画の原本は受けない） | 端末は動画の原本を送らないので来ない（来ても `422` は試し直す扱い） |
+| `422` | `name_refused` | 置く名前を決められない（置き場の外を指す・名前に区切りが残る・どの名前も別の中身が取っている） | 欠けにせず行を残して試し直す。ほかの原本の送りは止めない |
+| `503` | `storage_unavailable` | D-02 に書けない（置き場が無い・設定も既定も決められない・ディスクが一杯・権限が無い） | 試し直す（1 分から倍、上限 1 時間） |
+
+置いたファイルは `<置き場>/<YYYY>/<MM>/<YYYYMMDD-HHMMSS>_<名前>`（時刻は記録の出来事の時刻を記録の地域で読んだもの。名前は `display_name` を整えたもの。
+同じ名前で中身が違えば `<stem>_<sha256 の頭 8 文字><ext>`、それも取られていれば `<stem>_<sha256 の全部><ext>`。名前は 120 文字・170 バイトに収める）。
+フォルダは持ち主だけが入れる（Unix は 0700）、ファイルは持ち主だけが読める（0600）。受け取りの行（`core.media_original`）はファイルの場所を持たない。
+
+### 原本の欠け（`POST /media/missing`。design D11）
+
+送る前に原本を失った事実を、記録とは別の受け口で報告する。`/drops` と同じ形（複数件をまとめて受け、1 件ごとの結果を `id` / `duplicate` / `accepted` / `error` の配列で返す）。
+
+| 欄 | 何を |
+|---|---|
+| `id` | 収集側で採番。冪等キー |
+| `user_id` / `device_id` | 利用者と端末 |
+| `logical_source` | 画像のソース（`c01-photo` / `c01-screenshot` / `c01-image`）。動画は原本を置かないので欠けも無い |
+| `sha256` | 原本の内容ハッシュ |
+| `reason` | `vanished`（端末から消えた）/ `changed`（送る前に中身が変わった）/ `unreadable`（開けない）/ `too_large`（受け口が 413）/ `record_dropped`（記録が 90 日・2 GB の上限で捨てられた）/ `record_rejected`（記録が恒久的に断られた）/ `record_missing`（記録が 7 日届かなかった） |
+| `noticed_at` | 端末が欠けに気づいた時刻 |
+
+位置・ファイル名は載せない。端末は断られても取り除かず、**生存信号・破棄の報告と同じく 90 日・2 GB の上限で捨てない**（R6）。
+断りの理由は `malformed` / `unknown_source` / `invalid_sha256` / `invalid_reason` / `missing_device` / `id_reused`。
+
+### 生存信号の語彙（メディアの 4 つのソース。design D6 / D7）
+
+メディアの `blockers` は C-01 の `permission` / `sensor` / `network` と混ぜない別の語（サーバは語彙を検査しない）:
+
+| 語 | いつ |
+|---|---|
+| `permission` | 写真と動画へのアクセスが無い |
+| `media_location` | `ACCESS_MEDIA_LOCATION` が無い（Q15） |
+| `partial` | 「選んだ写真だけ」（C12） |
+| `stage_read` / `stage_hash` / `stage_enqueue` / `stage_ledger` | その区間の契機が 1 回以上あり、すべてがその段で失敗した（C19） |
+
+**接続の有無は `blockers` に入れず、任意の真偽値 `network`**（送る契機の時点で接続があったか）に載せる。メディアの 4 つのソースだけが載せる
+（位置・アプリ利用・集計・時計は載せない）。欄の無い要求は今のまま受け、列 `core.heartbeat.network` は `NULL`（分からない）になる。
+
 ---
 
 # 生存信号の送信契約（ST02 / FR-78）
@@ -470,8 +561,9 @@ FR-33 は**記録を生成したときにしか**稼働記録を書かないの�
 | 欄 | 何を | 断られる条件 |
 |---|---|---|
 | `emitted_at` | **信号を作った時刻**。受信時刻ではない | 形が解釈できない |
-| `capturable` | そのソースを**取得できる状態か**（権限・センサ・接続） | — |
-| `blockers` | 満たされていないもの。`permission` / `sensor` / `network` | `capturable=false` なのに空（`missing_blockers`） |
+| `capturable` | そのソースを**取得できる状態か**（権限・センサ・接続）。**例外: メディアの 4 つのソースは接続を含めない**（`network` に別に載せる）。語彙は上の「生存信号の語彙」 | — |
+| `blockers` | 満たされていないもの。`permission` / `sensor` / `network`。**例外: メディアの 4 つのソースは `network` を `blockers` に入れない**（接続は `network` 欄に別に載せる）。語彙は上の「生存信号の語彙」 | `capturable=false` なのに空（`missing_blockers`） |
+| `network` | 任意。送る契機の時点で接続があったか（真偽値）。**メディアの 4 つのソースだけが載せる**。無ければ「分からない」（ST09 / design D7） | — |
 | `attempts` | 前回の信号からの**取得の試行回数** | 欄が無い（`malformed`）/ 負（`invalid_counts`） |
 | `successes` | そのうち成功した回数 | `attempts` を超える（`invalid_counts`） |
 | `raw` | 原文。**バイト単位で素通し**される | 空 / U+0000 を含む（`invalid_raw`） |

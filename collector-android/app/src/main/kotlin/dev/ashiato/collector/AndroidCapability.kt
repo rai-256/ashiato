@@ -60,7 +60,7 @@ private fun hasLocationProvider(context: Context): Boolean {
  * 位置の取得そのものは網に依存しないが、**送れない期間の記録は端末内にしか無い** ——
  * ST04 の保持上限を超えれば破棄される。取得の健全性と同じ列に載せる理由がここにある。
  */
-private fun hasNetwork(context: Context): Boolean {
+internal fun hasNetwork(context: Context): Boolean {
     val manager = context.getSystemService(ConnectivityManager::class.java) ?: return false
     val caps = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
     return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
