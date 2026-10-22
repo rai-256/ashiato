@@ -65,16 +65,16 @@
 
 ## Task 3: 新旧の突き合わせ（変わらないことの固定）
 
-- [ ] 3.1 `ch02_same_matches_the_strict_legacy_on_every_family` — まっさらな DB に design D6 の偽データの族を全部置き（同じ時刻の組・端末 NULL・前の版の時刻のずれ 0 と 5 秒・前の版の `user_id` が親と違う・
+- [x] 3.1 `ch02_same_matches_the_strict_legacy_on_every_family` — まっさらな DB に design D6 の偽データの族を全部置き（同じ時刻の組・端末 NULL・前の版の時刻のずれ 0 と 5 秒・前の版の `user_id` が親と違う・
   削除の印を間に挟む・緯度経度を持たない行や消した時間より後の行が次の記録になる配置・ほかの前の版が次の記録の候補にならない配置・1 µs の差・(a) の読めた終わりが記録の時刻より前・
   ソースの種類（`c01-location` の点・`end` の終わり・`visit_duration_us` の長さ・`c02-window` の次の記録まで）・消した滞在の前の版の広い時間）、
   `export::excluded_sql(t)` と `legacy::excluded_sql_strict(t)` の除く記録と前の版の id の集合と、`kept_ids` の残る集合が**一致する**ことを見る。
   `t` は `now()` と、固定の時刻の式 3 つ（`'<日>T00:30:00Z'::timestamptz`（消した滞在の始まりより前。組ごとの後の最初の 1 行が効く配置。design D3）・`'<日>T01:30:00Z'::timestamptz`（消した時間の中）・
   `'<日>T05:00:00Z'::timestamptz`（後））。各族の配置は、族ごとに 1 つは「除かれる」と「残る」の両方を含むことを assert する（どちらも空で一致するのを防ぐ）
-- [ ] 3.2 `ch02_same_differs_from_the_legacy_only_on_same_time_pairs` — 3.1 と同じ偽データで `legacy::excluded_sql("now()")`（いまの SQL そのもの）と比べ、
+- [x] 3.2 `ch02_same_differs_from_the_legacy_only_on_same_time_pairs` — 3.1 と同じ偽データで `legacy::excluded_sql("now()")`（いまの SQL そのもの）と比べ、
   差が「同じ時刻の組の、`(event_time, id)` の順で先の記録」の名指しした id だけで、新しい断片の側にだけあることを見る（Q1。除く側にだけ変わる）
-- [ ] 3.3 `ch02_same_nothing_erased_matches_the_legacy` — 消した滞在 0 件の DB（3.1 の偽データから消した滞在だけを置かない）で、新旧どちらも除く集合が空であることを見る
-- [ ] 3.4 `ch02_same_runs_in_a_read_only_transaction` — `BEGIN READ ONLY` の中で新しい断片の `excluded_event` / `excluded_version` を数えて、エラー無しで 3.1 と同じ件数になることを見る。
+- [x] 3.3 `ch02_same_nothing_erased_matches_the_legacy` — 消した滞在 0 件の DB（3.1 の偽データから消した滞在だけを置かない）で、新旧どちらも除く集合が空であることを見る
+- [x] 3.4 `ch02_same_runs_in_a_read_only_transaction` — `BEGIN READ ONLY` の中で新しい断片の `excluded_event` / `excluded_version` を数えて、エラー無しで 3.1 と同じ件数になることを見る。
   検証: `CT ch02_same_` rc=0（`-- --list` で 4 本以上）
 
 ## Task 4: 読んだ行の数が線形に近いことと、窓の枠の試験
