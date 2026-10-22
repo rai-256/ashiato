@@ -1445,18 +1445,22 @@ fn max_rss_kib() -> u64 {
 }
 
 /// 既定は 2 万行。1 年分（35 万行）は `ASHIATO_EXPORT_VOLUME_ROWS=350000` を渡し、使い捨ての DB で走らせる（R36）。
+/// `ASHIATO_EXPORT_VOLUME_ERASED=0` なら消した滞在を置かない（既定は `1`。CH02 design D8）。
 #[tokio::test]
 async fn export_volume_one_run_reports_time_and_memory() {
     let rows: i64 = std::env::var("ASHIATO_EXPORT_VOLUME_ROWS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(20_000);
+    let erased = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED").map_or(true, |v| v != "0");
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
     // 消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
     // その 3 分の 2 が消した時間より前に始まり、除く判定の重い経路（次の記録を引く幅・重なり）を通る。
     // 座標を持つ行は共有の DB に残り、以後のすべての書き出しが判定し直すので、割合は小さく保つ。
-    w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+    if erased {
+        w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+    }
     sqlx::query(
         "INSERT INTO core.event
            (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
@@ -1497,10 +1501,14 @@ async fn export_volume_one_run_reports_time_and_memory() {
     );
     // 落ちるのは座標を持つ行（100 に 1 つ）のうち消した時間に重なるものだけ。座標を持たない行は残る
     let with_coords = rows / 100;
-    assert!(
-        mine < rows,
-        "消した時間の中の座標の行が残っている: {mine}/{rows}"
-    );
+    if erased {
+        assert!(
+            mine < rows,
+            "消した時間の中の座標の行が残っている: {mine}/{rows}"
+        );
+    } else {
+        assert_eq!(mine, rows, "消した滞在が無いのに行が落ちている");
+    }
     assert!(
         mine > rows - with_coords,
         "座標を持たない行が落ちている: {mine}/{rows}"
