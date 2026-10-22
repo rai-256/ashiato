@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -222,7 +223,16 @@ open class MainActivity : Activity() {
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
+            // targetSdk 35 以降を Android 15 以降で開くと全面表示が強いられ、中身が状態の帯と題の帯の裏に入る
+            // （録画で実測: 1 行も「設定を開く」も題の帯に隠れ、押しても設定が開かなかった）。
+            // 題の帯は inset に数えられないので隠し、状態の帯・操作の帯のぶんを余白に足す
+            setOnApplyWindowInsetsListener { v, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                v.setPadding(pad + bars.left, pad + bars.top, pad + bars.right, pad + bars.bottom)
+                insets
+            }
         }
+        actionBar?.hide()
         column.addView(
             TextView(this).apply {
                 text = if (state == UnusedAppRestrictionsState.NOT_EXEMPT) NOT_EXEMPT_LINE else UNKNOWN_LINE
