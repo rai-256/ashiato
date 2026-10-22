@@ -2,6 +2,7 @@
 package dev.ashiato.collector
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
@@ -46,6 +47,12 @@ class UnusedAppRestrictionsInstrumentedTest {
         context.stopService(Intent(context, LocationService::class.java))
         // 印は後に走る計測テスト（1 回の install で suite 全部が走る）へ持ち込まない
         context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        // 設定の画面は MainActivity と**同じ task** に積まれる（`FLAG_ACTIVITY_NEW_TASK` を付けずに開くため）。
+        // 残すと、次のテストの `startActivity(NEW_TASK)` はこの task を前に出すだけで、上に居る設定の画面が
+        // 前面になり MainActivity は再開しない —— 後に走る `UsageAccessInstrumentedTest` が
+        // 「利用状況へのアクセスの画面ではない」「収集が始まっていない」で落ちた（CI run 39720789999・手元で再現）。
+        // task ごと閉じて、次のテストを何も無い状態から始めさせる
+        context.getSystemService(ActivityManager::class.java).appTasks.forEach { it.finishAndRemoveTask() }
         device.pressHome()
     }
 
