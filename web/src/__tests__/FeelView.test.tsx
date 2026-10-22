@@ -47,11 +47,13 @@ let posts: { raw: string; body: Record<string, unknown> }[] = [];
 let ingest: () => Response | Promise<Response> = accepted;
 let records: Feeling[] = [];
 let gets: string[] = [];
+let feelingsFail = false;
 
 beforeEach(() => {
   seq = 0;
   posts = [];
   gets = [];
+  feelingsFail = false;
   records = [];
   ingest = accepted;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -70,7 +72,8 @@ beforeEach(() => {
       if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: [] }));
       if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: "21:00", recorded: false }));
       gets.push(url);
-      const date = /from=([\d-]+)/.exec(url)?.[1] ?? "";
+      if (feelingsFail) return Promise.resolve(json(500, {}));
+      const date = /to=([\d-]+)/.exec(url)?.[1] ?? "";
       return Promise.resolve(json(200, view(date, records)));
     }),
   );
@@ -121,7 +124,7 @@ describe("押した瞬間に保存する", () => {
     render(<Root />);
     const title = await screen.findByTestId("feel-title");
     expect(title.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-08");
-    expect(gets[0]).toContain("from=2026-10-08");
+    expect(gets[0]).toContain("to=2026-10-08");
   });
 
   // Scenario: 暦に無い日付のアドレスは書く操作を出さない
@@ -156,7 +159,7 @@ describe("押した瞬間に保存する", () => {
       expect(window.location.hash).toBe("#/feel/2026-10-07");
     });
     await waitFor(() => {
-      expect(gets.some((u) => u.includes("from=2026-10-07"))).toBe(true);
+      expect(gets.some((u) => u.includes("to=2026-10-07"))).toBe(true);
     });
     await screen.findByTestId("valence-1");
     press("valence-1");
@@ -171,7 +174,7 @@ describe("押した瞬間に保存する", () => {
     await screen.findByTestId("valence-1");
     press("feel-next");
     await waitFor(() => {
-      expect(gets.some((u) => u.includes("from=2026-10-09"))).toBe(true);
+      expect(gets.some((u) => u.includes("to=2026-10-09"))).toBe(true);
     });
     await screen.findByTestId("valence-1");
     press("valence-1");
@@ -443,5 +446,33 @@ describe("開いたとき", () => {
     expect(screen.queryAllByRole("button", { name: /書き換|削除|消す|直す|編集/ })).toHaveLength(0);
     expect(within(screen.getByTestId("feel-history")).queryAllByRole("button")).toHaveLength(0);
     expect(posts).toHaveLength(0);
+  });
+});
+
+describe("主観の読み出しは 30 日の 1 回", () => {
+  // Scenario: 読み出しの失敗は日の欄にも出る
+  it("読み出しが失敗した状態で開くと、日の欄と暦の両方に失敗が出て、快–不快のボタンはどれも押されていない", async () => {
+    feelingsFail = true;
+    await open();
+    expect((await screen.findByTestId("feel-notice")).textContent).toContain("気分を読み出せませんでした");
+    expect((await screen.findByTestId("feel-calendar-failed")).textContent).toContain("暦を読み出せませんでした");
+    for (const v of [-2, -1, 0, 1, 2]) {
+      const b = screen.queryByTestId(`valence-${v}`);
+      if (b !== null) expect(b.getAttribute("aria-pressed")).toBe("false");
+    }
+  });
+
+  it("開くと /api/feelings を対象の日で終わる 30 日で 1 回だけ読み、快–不快を押して受理された後に 1 回だけ増える", async () => {
+    await open();
+    await screen.findByTestId("feel-calendar");
+    expect(gets).toHaveLength(1);
+    expect(gets[0]).toBe("/api/feelings?from=2026-09-09&to=2026-10-08");
+    press("valence-1");
+    await sent(1);
+    await screen.findByTestId("feel-notice-ok");
+    await waitFor(() => {
+      expect(gets).toHaveLength(2);
+    });
+    expect(gets[1]).toBe(gets[0]);
   });
 });

@@ -102,16 +102,20 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   const [notice, setNotice] = useState<Notice | null>(null);
   const [pending, setPending] = useState<Record<string, Pending>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [calendar, setCalendar] = useState<CalendarLoad>({ at: "loading" });
   /** 滞在の行で押した値（読み出した最新より優先する） */
   const [stayPicks, setStayPicks] = useState<Record<string, number>>({});
   const days = calendarDays(target);
   /** 最後に送った（送ろうとした）ひとこと。欄を離れたとき、これと違えば送る。`null` = まだ送っていない */
   const sentNote = useRef<string | null>(null);
 
+  /**
+   * 主観の読み出しは、対象の日で終わる 30 日の 1 回だけ（design D8）。日の欄・暦・滞在の行の押された状態をその応答から出す。
+   * 失敗したら日の欄と暦の両方が失敗を出す（片方だけ成功して「未記入」に見えることがない）。
+   */
+  const first = days[0] ?? target;
   useEffect(() => {
     let live = true;
-    fetch(`/api/feelings?from=${target}&to=${target}`)
+    fetch(`/api/feelings?from=${first}&to=${target}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`status_${res.status}`);
         const body: unknown = await res.json();
@@ -129,25 +133,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     return () => {
       live = false;
     };
-  }, [target, tick]);
-
-  /** 暦と滞在の行の元（対象の日で終わる 30 日）。日の読み出しとは別に読み、片方の失敗が他方を巻き込まない。 */
-  const first = days[0] ?? target;
-  useEffect(() => {
-    let live = true;
-    fetch(`/api/feelings?from=${first}&to=${target}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`status_${res.status}`);
-        const body: unknown = await res.json();
-        if (!isFeelingsView(body)) throw new Error("unexpected_shape");
-        return body;
-      })
-      .then((value) => live && setCalendar({ at: "ok", days: value.days }))
-      .catch(() => live && setCalendar({ at: "failed" }));
-    return () => {
-      live = false;
-    };
   }, [first, target, tick]);
+
+  const calendar = useMemo<CalendarLoad>(() => (load.at === "ok" ? { at: "ok", days: load.value.days } : load), [load]);
 
   /** 対象の日の滞在（`kind: "stay"`）。消した・吸収された滞在は `/stays` に出ない。 */
   const [staysRaw, setStaysRaw] = useState<{ at: "loading" } | { at: "ok"; entries: DayEntry[] } | { at: "failed" }>({ at: "loading" });
