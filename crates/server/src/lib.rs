@@ -25,9 +25,6 @@ mod access_log_tests;
 mod access_migration_tests;
 #[cfg(test)]
 mod api_tests;
-/// 取り込みの「人が書いた記録」の規則の拒み方（CH01 / Task 4）。
-#[cfg(test)]
-mod authored_rule_tests;
 /// アプリの役割の権限（ST28 / design D4）。
 #[cfg(test)]
 mod app_role_tests;
@@ -43,6 +40,9 @@ pub mod attributes_store;
 /// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
 #[cfg(test)]
 mod attributes_tests;
+/// 取り込みの「人が書いた記録」の規則の拒み方（CH01 / Task 4）。
+#[cfg(test)]
+mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
 pub mod coverage;
@@ -1024,28 +1024,17 @@ async fn ingest_request(
             ));
         }
         // **主張は「本人が書いた」記録で、端末は持たない**（design D1 / spec）——
-        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる
-        if req.origin != "authored" || req.device_id.is_some() {
+        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる。
+        // 地域のずれの範囲もここで断る（review/code.md R3。**主張の行は DB が削除を拒む**ので、
+        // 一度入ると取り除くことも直すこともできない）。規則は 3 種類で共通（`authored_breach`）
+        if let Some(breach) = req.authored_breach() {
             return Ok(IngestResult::rejected(
                 Some(req.id),
-                IngestError::ClaimNotAuthored,
-            ));
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return Ok(IngestResult::rejected(
-                Some(req.id),
-                IngestError::ClaimHasExternalId,
-            ));
-        }
-        // **地域のずれの範囲をここで断る**（review/code.md R3）。
-        // `core.event.tz_offset_min` に CHECK は無く、`validate` も見ていないので、
-        // 範囲外の値は**受理された顔をして格納され、読み出しから永久に消える**
-        // （`FixedOffset` の上限は ±86,399 秒 = ±1,439 分）。
-        // **主張の行は DB が削除を拒む**ので、一度入ると取り除くことも直すこともできない。
-        if !(-1439..=1439).contains(&req.tz_offset_min) {
-            return Ok(IngestResult::rejected(
-                Some(req.id),
-                IngestError::MalformedClaim,
+                match breach {
+                    ingest::AuthoredBreach::NotAuthored => IngestError::ClaimNotAuthored,
+                    ingest::AuthoredBreach::HasExternalId => IngestError::ClaimHasExternalId,
+                    ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedClaim,
+                },
             ));
         }
         match parsed {
@@ -1069,11 +1058,13 @@ async fn ingest_request(
         {
             return reject(IngestError::MalformedFeeling);
         }
-        if req.origin != "authored" || req.device_id.is_some() {
-            return reject(IngestError::FeelingNotAuthored);
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return reject(IngestError::FeelingHasExternalId);
+        // 地域は主観の側で `Asia/Tokyo` の +9:00 に限って上で見たので、共通の規則の地域のずれは当たらない
+        if let Some(breach) = req.authored_breach() {
+            return reject(match breach {
+                ingest::AuthoredBreach::NotAuthored => IngestError::FeelingNotAuthored,
+                ingest::AuthoredBreach::HasExternalId => IngestError::FeelingHasExternalId,
+                ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedFeeling,
+            });
         }
         match parsed {
             Ok(f) => Some(f),
@@ -1093,15 +1084,13 @@ async fn ingest_request(
         if matches!(parsed, Err(places::PlaceRecordInvalid::Malformed)) {
             return reject(IngestError::MalformedPlaceRecord);
         }
-        if req.origin != "authored" || req.device_id.is_some() {
-            return reject(IngestError::PlaceRecordNotAuthored);
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return reject(IngestError::PlaceRecordHasExternalId);
-        }
-        // 地域のずれの範囲（主張と同じ理由。範囲外は受理された顔で格納され、読み出しから消える）
-        if !(-1439..=1439).contains(&req.tz_offset_min) {
-            return reject(IngestError::MalformedPlaceRecord);
+        // 地域のずれの範囲は主張と同じ理由（範囲外は受理された顔で格納され、読み出しから消える）
+        if let Some(breach) = req.authored_breach() {
+            return reject(match breach {
+                ingest::AuthoredBreach::NotAuthored => IngestError::PlaceRecordNotAuthored,
+                ingest::AuthoredBreach::HasExternalId => IngestError::PlaceRecordHasExternalId,
+                ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedPlaceRecord,
+            });
         }
         let record = match parsed {
             Ok(r) => r,

@@ -102,7 +102,38 @@ pub enum Invalid {
     ExternalId,
 }
 
+/// 「人が書いた記録」（主張・主観・場所）の共通の規則に当たったもの（CH01 / design D7）。
+/// 理由の種別への写しは種類ごと（呼び出し側）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthoredBreach {
+    /// 由来が「本人が書いた」でない、または端末識別子を持つ
+    NotAuthored,
+    /// 外部サービス上の識別子を持つ
+    HasExternalId,
+    /// 地域のずれが範囲の外（±1,439 分。`FixedOffset` の上限）
+    OffsetOutOfRange,
+}
+
 impl IngestRequest {
+    /// 「人が書いた記録」の規則を、**由来と端末 → 外部識別子 → 地域のずれ**の順で見て、最初に当たったものを返す。
+    ///
+    /// 地域のずれの範囲は、`core.event.tz_offset_min` に CHECK が無く `validate` も見ないため、ここで断る
+    /// （範囲外は受理された顔で格納され、読み出しから消える）。
+    /// 主観は地域を `Asia/Tokyo` の +9:00 に限り、形と一緒に**先に**見る（`subjective-log` の表の順と地域の決定）ので、
+    /// この関数の地域のずれは主観では当たらない。
+    pub fn authored_breach(&self) -> Option<AuthoredBreach> {
+        if self.origin != "authored" || self.device_id.is_some() {
+            return Some(AuthoredBreach::NotAuthored);
+        }
+        if self.external_id.is_some() || self.external_ref.is_some() {
+            return Some(AuthoredBreach::HasExternalId);
+        }
+        if !(-1439..=1439).contains(&self.tz_offset_min) {
+            return Some(AuthoredBreach::OffsetOutOfRange);
+        }
+        None
+    }
+
     /// 収集側が省略した単位系を既定で埋めた値を返す。
     pub fn unit_system_or_default(&self) -> &str {
         self.unit_system.as_deref().unwrap_or(DEFAULT_UNIT_SYSTEM)
