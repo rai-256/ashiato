@@ -337,7 +337,7 @@ pub fn coord_in_raw_sql(raw: &str) -> String {
 ///
 /// 写した日: 2026-10-21。元: `crates/server/src/export/excluded.rs` を最後に変えた commit
 /// `ab0806401572f3a46a8c7f73e0982f32ae4d33dd`（HEAD 43c330b1 の時点）。関数の本体は逐語。
-/// `excluded_sql_strict` だけ、記録の側の条件を引数にした `excluded_sql_with` を通して差し替える。
+/// `excluded_sql_strict` だけ、`excluded_sql` の断片の記録の側の条件を置き換えて作る。
 #[cfg(test)]
 pub(crate) mod legacy {
     use super::*;
@@ -386,49 +386,16 @@ pub(crate) mod legacy {
     }
 
     /// `excluded_sql` の記録の側の条件だけを `n.event_time > r.event_time` にしたもの（同じ時刻の記録を飛ばす形。CH02 Q1）。
+    ///
+    /// 本体は `excluded_sql` の断片の、記録の側の条件（版の側とは文字列が違う）を 1 か所だけ置き換えて作る。
     #[allow(dead_code)] // Task 3 以降の試験が使う
     pub fn excluded_sql_strict(snapshot_at: &str) -> ExcludedSql {
-        excluded_sql_with(snapshot_at, "n.event_time > r.event_time")
-    }
-
-    /// 記録の側の「次の記録」の条件を差し替えられる形。
-    ///
-    /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
-    /// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
-    #[allow(dead_code)]
-    fn excluded_sql_with(snapshot_at: &str, event_next_after: &str) -> ExcludedSql {
-        let user_deleted = format!(
-            "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
-            crate::stay_store::REBUILD_PREFIX
-        );
-        let events = "core.event_live";
-        let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
-                                v.event_time, v.payload, v.raw
-                           FROM core.event_version_live v
-                           JOIN core.event_live e ON e.id = v.event_id)";
-        let overlap_event = overlap_sql(events, event_next_after, snapshot_at);
-        let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
-        let ctes = format!(
-            "erased_spans AS MATERIALIZED (
-               SELECT s.start_at, s.end_at
-                 FROM core.stay_erased s
-                WHERE {user_deleted}
-               UNION ALL
-               SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
-                 FROM core.stay_erased s
-                 JOIN core.event_version v ON v.event_id = s.id
-                WHERE {user_deleted}
-             ),
-             overlap_event AS MATERIALIZED ({overlap_event}),
-             {EXCLUDED_EVENT} AS MATERIALIZED (
-               SELECT o.id FROM overlap_event o
-             ),
-             overlap_version AS MATERIALIZED ({overlap_version}),
-             {EXCLUDED_VERSION} AS MATERIALIZED (
-               SELECT o.id FROM overlap_version o
-             )"
-        );
-        ExcludedSql { ctes }
+        const EVENT_NEXT_AFTER: &str = "(n.event_time, n.id) > (r.event_time, r.id)";
+        let ctes = excluded_sql(snapshot_at).ctes;
+        assert_eq!(ctes.matches(EVENT_NEXT_AFTER).count(), 1);
+        ExcludedSql {
+            ctes: ctes.replace(EVENT_NEXT_AFTER, "n.event_time > r.event_time"),
+        }
     }
 
     /// 行 `r`（`id` `user_id` `logical_source` `device_id` `event_time` `payload` `raw` を持つ）のうち、
