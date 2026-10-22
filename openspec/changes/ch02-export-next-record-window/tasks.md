@@ -97,10 +97,10 @@
 
 ## Task 5: 量の試験で時間を記録する
 
-- [ ] 5.1 `export_file_tests.rs` の `export_volume_one_run_reports_time_and_memory` に、環境変数 `ASHIATO_EXPORT_VOLUME_ERASED`（既定 `1`。`0` なら消した滞在を置かない）を足す。
+- [x] 5.1 `export_file_tests.rs` の `export_volume_one_run_reports_time_and_memory` に、環境変数 `ASHIATO_EXPORT_VOLUME_ERASED`（既定 `1`。`0` なら消した滞在を置かない）を足す。
   `0` のときは「消した時間の中の座標の行が残っている」の assert を「全部残る（`mine == rows`）」に替える。既定の振る舞い（2 万行・消した滞在あり）は変えない。
   検証: `CT export_volume_one_run_reports_time_and_memory` rc=0（`-- --list` で 1 本以上）
-- [ ] 5.2 使い捨ての DB で 6 通り（`ASHIATO_EXPORT_VOLUME_ROWS` = 10000 / 100000 / 1200000 × `ASHIATO_EXPORT_VOLUME_ERASED` = 1 / 0）を走らせる。1 通りごとに（design D8）:
+- [x] 5.2 使い捨ての DB で 6 通り（`ASHIATO_EXPORT_VOLUME_ROWS` = 10000 / 100000 / 1200000 × `ASHIATO_EXPORT_VOLUME_ERASED` = 1 / 0）を走らせる。1 通りごとに（design D8）:
   `docker compose exec -T db psql -U postgres -c 'CREATE DATABASE ch02_volume_<行数>_<0|1>'` →
   `bash -c 'set -a; . ./.env; set +a; export DATABASE_OWNER_URL="${DATABASE_OWNER_URL%/*}/ch02_volume_<行数>_<0|1>" ASHIATO_EXPORT_VOLUME_ROWS=<行数> ASHIATO_EXPORT_VOLUME_ERASED=<0|1>; scripts/quiet-run vol -- cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory -- --nocapture'` rc=0 →
   出力の `kind=export rows=… seconds=… summary_seconds=…` を design の「計測の記録」の表に写す →
