@@ -35,7 +35,7 @@ api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' do
 hbkt=collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt
 jq -e '.components.schemas.HeartbeatRequest.properties.network' docs/openapi.json >/dev/null \
   && grep -q 'const val NETWORK = "network"' "$hbkt" \
-  && grep -q 'fields\["network"\]' "$hbkt" \
+  && grep -qE '[a-z]+\["network"\] = ' "$hbkt" \
   || { echo "  NG 生存信号の任意の欄 network が契約か収集側に無い（$hbkt）"; bad=1; }
 if [ "$kt_fields" != "$api_fields" ]; then
   echo "  NG 生存信号の欄が契約とずれている"
