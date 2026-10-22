@@ -1,0 +1,36 @@
+{
+  "tag": "20261022-2000",
+  "run_id": "20261022-200121-1b8b947",
+  "commit": "1b8b9470f88b6bc82c510a354e4223e0695bb5d7",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261022-200121-1b8b947",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261022-200121-1b8b947",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST13-sources",
+      "story": "ST13",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 18 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST13-sources/video.webm",
+      "trace": "scenarios/ST13-sources/trace.zip"
+    },
+    {
+      "id": "ST13-unused-app-restrictions",
+      "story": "ST13",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Android の工程が止まった: 端末の言語を ja-JP にできない（google_apis の image が要る。logs/android-emulator.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    }
+  ],
+  "uncovered_stories": []
+}
