@@ -45,20 +45,20 @@
 
 `tools/check-immutable.sh`（ST17 の節を抜く・読む口を動かす・注記）、`tools/check-immutable.d/<作成時刻>_st17-feeling-locks.sh`（新規）、`tools/check-immutable.d/README.md`。design D1 / D3。
 
-- [ ] 2.1 移す前の出力を控える（固定）。検証: `scripts/quiet-run immutable-before -- bash -c 'tools/check-immutable.sh > /tmp/ch01-imm-before.log 2>&1'` rc=0、
+- [x] 2.1 移す前の出力を控える（固定）。検証: `scripts/quiet-run immutable-before -- bash -c 'tools/check-immutable.sh > /tmp/ch01-imm-before.log 2>&1'` rc=0、
   `grep -c '^  OK' /tmp/ch01-imm-before.log` が 1 以上、`grep -c 'OK feeling' /tmp/ch01-imm-before.log` が 1 以上
-- [ ] 2.2 読む口のかたまりを文言を変えずに `# --- 戻し手順が当たること（R117）` の直前へ動かす。ST17 の節（見出しから節の「戻し手順（D16）」の検査まで）を `*.d/` の 1 本へ移し、
+- [x] 2.2 読む口のかたまりを文言を変えずに `# --- 戻し手順が当たること（R117）` の直前へ動かす。ST17 の節（見出しから節の「戻し手順（D16）」の検査まで）を `*.d/` の 1 本へ移し、
   前の節の状態に依らない形にする（利用者の id と本人が書いた行は節の中で置く。主観の版が当たっていなければ NG）。`# Scenario:` の印と `echo` の文言は一字一句同じ。
   「戻しても台帳と登録簿の行と主観の記録が残る」ほか、`|| { NG; }` の次に無条件の OK がある検査を `if …; then OK; else NG; fi` にする（D3）。README と本体の注記の「末尾が読む」を直す。
   検証: `scripts/quiet-run immutable-after -- bash -c 'tools/check-immutable.sh > /tmp/ch01-imm-after.log 2>&1'` rc=0、
   `diff <(grep '^  OK' /tmp/ch01-imm-before.log | sort) <(grep '^  OK' /tmp/ch01-imm-after.log | sort)` が空、`grep -q '== 書き換え禁止の節: .*st17' /tmp/ch01-imm-after.log`、
   `! grep -n 'ST17: 主観の記録の錠' tools/check-immutable.sh`、`shellcheck tools/check-immutable.sh tools/check-immutable.d/*.sh` rc=0、
   `! grep -nE '^(fail|MIGS|ST03_UP|down_fail|AU)=' tools/check-immutable.d/*_st17-*.sh`（本体の変数を上書きしない）
-- [ ] 2.3 NG の後に OK が並ばないことを、わざと壊して見る: 一時 worktree（`git worktree add /tmp/ch01-break HEAD`）で `migrations/202610141000_subjective_log.down.sql` を
+- [x] 2.3 NG の後に OK が並ばないことを、わざと壊して見る: 一時 worktree（`git worktree add /tmp/ch01-break HEAD`）で `migrations/202610141000_subjective_log.down.sql` を
   「`DROP TRIGGER feeling_reminder_append_only ON core.feeling_reminder; DELETE FROM core.feeling_reminder;`」に差し替えて `tools/check-immutable.sh` を走らせる
   （錠のトリガを先に外さないと DELETE が拒まれ、期待の NG が出ない。review/spec.md R4）。壊し方が効くことは、直す前の木（`git worktree add /tmp/ch01-break-base "$(git merge-base origin/main HEAD)"`）で同じ手順を走らせ、NG と OK が並ぶことで先に見る。検証: rc=1、出力に `NG 戻しで主観の行か台帳か登録簿の行が減った` があり、
   `OK feeling 主観が残っていれば、戻しても台帳と登録簿の行と主観の記録が残る` が無い。走らせた後に worktree を消す（`git worktree remove --force /tmp/ch01-break`）
-- [ ] 2.4 ST17 の印が移っていることを見る。検証: `diff <(git show "$(git merge-base origin/main HEAD)":tools/check-immutable.sh | grep -o '# Scenario: .*' | sort -u) <(cat tools/check-immutable.sh tools/check-immutable.d/*.sh | grep -o '# Scenario: .*' | sort -u)` が空
+- [x] 2.4 ST17 の印が移っていることを見る。検証: `diff <(git show "$(git merge-base origin/main HEAD)":tools/check-immutable.sh | grep -o '# Scenario: .*' | sort -u) <(cat tools/check-immutable.sh tools/check-immutable.d/*.sh | grep -o '# Scenario: .*' | sort -u)` が空
   （`check_scenarios.py` の rc=0 は、この change の delta の印が揃う Task 9.1 で見る）。
   `tools/check-shared-appends.sh "$(git branch --show-current)"` rc=0（Task 1 の規則で、読む口の移動と ST17 の節を抜いたことが通る）
 
