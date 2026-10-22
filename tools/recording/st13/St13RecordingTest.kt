@@ -73,7 +73,7 @@ class St13RecordingTest {
         step("1. 一時停止の対象のまま、あしあと。を開く: 画面に 1 行と「設定を開く」、説明のダイアログ")
         launch()
         assertNotNull("説明のダイアログが出ない", device.wait(Until.findObject(By.textContains(EXPLANATION_HEAD)), TIMEOUT_MS))
-        assertTrue("1 行が出ない", device.hasObject(By.text(MainActivity.NOT_EXEMPT_LINE)))
+        // 裏の 1 行はダイアログの窓の後ろにあり、UiAutomator は前面の窓しか読まない。1 行は工程 3 で確かめる
         assertTrue("「あとで」が無い", device.hasObject(By.text(MainActivity.NOT_NOW_LABEL)))
         assertFalse("答える前に印が立っている", asked())
         hold(4_000)
