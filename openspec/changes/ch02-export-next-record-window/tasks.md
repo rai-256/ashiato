@@ -46,7 +46,7 @@
 
 ## Task 2: 次の記録を窓関数の一度読みにする
 
-- [ ] 2.1 先に試験を書く（どれも `fresh()` の DB。`kept_ids` で、記録のファイル・前の版のファイルに出るかを見る。配置は spec の Scenario の WHEN のまま）:
+- [x] 2.1 先に試験を書く（どれも `fresh()` の DB。`kept_ids` で、記録のファイル・前の版のファイルに出るかを見る。配置は spec の Scenario の WHEN のまま）:
   - `ch02_span_same_time_pair_runs_to_the_later_record` — `// Scenario: 同じ時刻に並んだ終わりを持たない記録は、どれも時刻が後の次の記録までの幅で読む`。
     **いまの断片で落ちることを確かめてから** 2.2 に進む
   - `ch02_span_null_device_runs_within_null_devices` — `// Scenario: 端末を持たない記録は、端末を持たない同じソースの次の記録までの幅で読む`
@@ -57,7 +57,7 @@
   - `ch02_span_version_group_uses_the_parent_user` — `// Scenario: 前の版の組の利用者は親の利用者で読む`
   - `ch02_span_marked_record_is_not_the_next` — `// Scenario: 削除の印の付いた記録は、次の記録にならない`
   - `ch02_span_nothing_erased_keeps_everything` — `// Scenario: 消した滞在が無ければ、緯度経度を持つ記録も幅を問わず出る`
-- [ ] 2.2 `excluded.rs` の `excluded_sql` / `overlap_sql` を design D1〜D5 の形に書き換える: 記録と前の版（親の鍵）を `UNION ALL` した鍵の列だけの並び（D2・D4）を、
+- [x] 2.2 `excluded.rs` の `excluded_sql` / `overlap_sql` を design D1〜D5 の形に書き換える: 記録と前の版（親の鍵）を `UNION ALL` した鍵の列だけの並び（D2・D4）を、
   消した滞在 0 件なら One-Time Filter の門で読まず・時刻が `max(end_at)` 以下の行 + 組ごとにそれより後の最初の記録 1 行に絞り（D3）、D1 の枠で次の記録の時刻を求め、`id` で `payload` / `raw` に戻して
   (a)(b)(d) と緯度経度と重なりを当てる。`EXCLUDED_EVENT` / `EXCLUDED_VERSION` の CTE の名前と中身、`ExcludedSql` の公開の形は変えない。doc コメントの「行ごとの相関副問い合わせ」の説明を、
   窓の形と ST33 D5 を覆した理由（CH02）に書き直す。
