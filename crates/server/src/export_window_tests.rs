@@ -234,3 +234,180 @@ async fn ch02_span_legacy_matches_current_before_the_change() {
     );
     assert_eq!(kept, BTreeSet::from([a, c]));
 }
+
+fn at(hhmm: &str) -> String {
+    format!("2000-01-01T{hhmm}:00Z")
+}
+
+/// PC のウィンドウの記録を置く（`device` は NULL 可）。`raw` は地図の座標（`true`）か座標なし。
+async fn window(
+    pool: &sqlx::PgPool,
+    user: Uuid,
+    device: Option<&str>,
+    hhmm: &str,
+    coords: bool,
+) -> Uuid {
+    put_as(
+        pool,
+        user,
+        "c02-window",
+        device,
+        &at(hhmm),
+        json!({}),
+        if coords { MAP } else { "plain" },
+    )
+    .await
+}
+
+fn with_coords() -> Value {
+    json!({"lat": 35.0, "lon": 139.0})
+}
+
+#[tokio::test]
+async fn ch02_span_same_time_pair_runs_to_the_later_record() {
+    // Scenario: 同じ時刻に並んだ終わりを持たない記録は、どれも時刻が後の次の記録までの幅で読む
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:30"), &at("02:00"), &[]).await;
+    let a = window(&pool, user, Some("pc"), "01:00", true).await;
+    let b = window(&pool, user, Some("pc"), "01:00", true).await;
+    let c = window(&pool, user, Some("pc"), "03:00", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[a, b, c])
+        .await
+        .0;
+    drop.await;
+    assert_eq!(kept, BTreeSet::from([c]));
+}
+
+#[tokio::test]
+async fn ch02_span_null_device_runs_within_null_devices() {
+    // Scenario: 端末を持たない記録は、端末を持たない同じソースの次の記録までの幅で読む
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let a = window(&pool, user, None, "00:10", true).await;
+    let b = window(&pool, user, Some("pc"), "00:40", false).await;
+    let c = window(&pool, user, None, "02:30", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[a, b, c])
+        .await
+        .0;
+    drop.await;
+    assert_eq!(kept, BTreeSet::from([b, c]));
+}
+
+#[tokio::test]
+async fn ch02_span_record_without_coordinates_ends_the_width() {
+    // Scenario: 緯度経度を持たない記録も、次の記録として幅の終わりになる
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let a = window(&pool, user, Some("pc"), "00:10", true).await;
+    let b = window(&pool, user, Some("pc"), "00:40", false).await;
+    let c = window(&pool, user, Some("pc"), "02:30", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[a, b, c])
+        .await
+        .0;
+    drop.await;
+    assert!(kept.contains(&a), "00:10 は 00:40 で終わるので出る");
+}
+
+#[tokio::test]
+async fn ch02_span_version_runs_to_the_next_record_of_the_parent_group() {
+    // Scenario: 前の版の幅は、親と同じ組の記録のうち前の版の時刻より後の最初の記録までで読む
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let parent = window(&pool, user, Some("pc"), "03:00", false).await;
+    let v1 = put_version(&pool, parent, user, 1, &at("00:10"), with_coords()).await;
+    let v2 = put_version(&pool, parent, user, 2, &at("00:40"), with_coords()).await;
+    window(&pool, user, Some("pc"), "00:20", false).await;
+    window(&pool, user, Some("pc"), "02:30", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[v1, v2])
+        .await
+        .1;
+    drop.await;
+    assert_eq!(kept, BTreeSet::from([v1]), "00:40 の前の版は出ない");
+}
+
+#[tokio::test]
+async fn ch02_span_version_stops_before_the_erased_time() {
+    // Scenario: 前の版の幅は、次の記録が消した時間の前にあれば消した時間に届かない
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let parent = window(&pool, user, Some("pc"), "03:00", false).await;
+    let v1 = put_version(&pool, parent, user, 1, &at("00:10"), with_coords()).await;
+    window(&pool, user, Some("pc"), "00:20", false).await;
+    window(&pool, user, Some("pc"), "02:30", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[v1])
+        .await
+        .1;
+    drop.await;
+    assert_eq!(kept, BTreeSet::from([v1]));
+}
+
+#[tokio::test]
+async fn ch02_span_version_is_not_the_next_of_another_version() {
+    // Scenario: 前の版は、ほかの前の版を次の記録にしない
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let parent = window(&pool, user, Some("pc"), "03:00", false).await;
+    let v1 = put_version(&pool, parent, user, 1, &at("00:30"), with_coords()).await;
+    let v2 = put_version(&pool, parent, user, 2, &at("00:40"), with_coords()).await;
+    window(&pool, user, Some("pc"), "02:30", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[v1, v2])
+        .await
+        .1;
+    drop.await;
+    assert!(
+        !kept.contains(&v1),
+        "00:30 の前の版は 02:30 まで続くので出ない"
+    );
+}
+
+#[tokio::test]
+async fn ch02_span_version_group_uses_the_parent_user() {
+    // Scenario: 前の版の組の利用者は親の利用者で読む
+    let (pool, drop) = fresh().await;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+    erased_stay(&pool, a, &at("01:00"), &at("02:00"), &[]).await;
+    let parent = window(&pool, a, Some("pc"), "03:00", false).await;
+    let v = put_version(&pool, parent, b, 1, &at("00:40"), with_coords()).await;
+    window(&pool, a, Some("pc"), "02:30", false).await;
+    window(&pool, b, Some("pc"), "00:50", false).await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[v])
+        .await
+        .1;
+    drop.await;
+    assert!(kept.is_empty(), "親の利用者の 02:30 まで続くので出ない");
+}
+
+#[tokio::test]
+async fn ch02_span_marked_record_is_not_the_next() {
+    // Scenario: 削除の印の付いた記録は、次の記録にならない
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    erased_stay(&pool, user, &at("01:00"), &at("02:00"), &[]).await;
+    let a = window(&pool, user, Some("pc"), "00:10", true).await;
+    let b = window(&pool, user, Some("pc"), "00:40", false).await;
+    window(&pool, user, Some("pc"), "02:30", false).await;
+    mark_deleted(&pool, b, "user").await;
+    let kept = kept_ids(&pool, &export::excluded_sql("now()"), &[a])
+        .await
+        .0;
+    drop.await;
+    assert!(kept.is_empty(), "印の付いた 00:40 は飛ばし 02:30 まで続く");
+}
+
+#[tokio::test]
+async fn ch02_span_nothing_erased_keeps_everything() {
+    // Scenario: 消した滞在が無ければ、緯度経度を持つ記録も幅を問わず出る
+    let (pool, drop) = fresh().await;
+    let user = Uuid::new_v4();
+    let e = window(&pool, user, Some("pc"), "00:10", true).await;
+    let v = put_version(&pool, e, user, 1, &at("00:05"), with_coords()).await;
+    let (ke, kv) = kept_ids(&pool, &export::excluded_sql("now()"), &[e, v]).await;
+    drop.await;
+    assert_eq!((ke, kv), (BTreeSet::from([e]), BTreeSet::from([v])));
+}
