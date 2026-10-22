@@ -1,0 +1,204 @@
+{
+  "title": "確認バッチ 20261022-2245",
+  "subtitle": "ST13 ソースの取り方と取得の間隔を登録簿で持ち、定期取得の枠を置く / ST09 写真と動画をメタごと取り込み、写真は原本も置く",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261022-2245/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `docker exec ashiato2-db-1 psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261022-2245/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261022-2245/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: この DB の直近 7 日は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（この DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "成果物: `dist/verify-20261022-2245/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261022-224644-30da86d（全体 ng / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST13-S0",
+      "topic": "ST13 Scenario: 数か月操作しなくても権限が剥がれない",
+      "kind": "check",
+      "question": "Scenario「数か月操作しなくても権限が剥がれない」が実機で成り立つか",
+      "why": "ST13 の specs にあり、test の印を置けない Scenario",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n物理: time —— 本人の端末で収集アプリを一時停止の対象から外し、3 か月後の確認バッチで、位置の権限が残っていて位置の記録が途切れていないことを見る",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "手順どおりに確かめて、成り立った"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "成り立たなかった。補足に何が違ったかを書く"
+        },
+        {
+          "label": "確認できない（まだ）",
+          "detail": "実データや期日が要る。次のバッチへ持ち越す"
+        }
+      ]
+    },
+    {
+      "id": "ST13-PD20",
+      "topic": "ST13 仮D20",
+      "kind": "check",
+      "question": "ST13 の仮の決定 D20: 読み出せなかった書庫（file_unreadable）を既読として覚え取り込み済みへ移すか、覚えず置き場に残して走査のたびに開き直すか →「覚えず置き場に残す。台帳の鍵は file_unreadable:<sha> / file_unreadable-path:<パスの sha> で 1 行に保ち、1 件の失敗で走査を止めない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n失わない理由: 書庫は置き場に残り台帳にも 1 行残るので、読めるようになれば読まれる。覚える側に戻すのは判定の 1 行（失わない側の費用: 読めないファイルを走査のたびに開き直す I/O（ファイル単位で小さい））\n出所: review/code.md#R1",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST13-PD21",
+      "topic": "ST13 仮D21",
+      "kind": "check",
+      "question": "ST13 の仮の決定 D21: 通知が鳴るちょうどの時刻に「あと 0 日」を出すか「あと 1 日」を出すか →「過ぎるまでは 1 日以上（「過ぎた」の時刻は途切れの判定と同じまま）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n失わない理由: 「過ぎた」の境目は spec のまま。文言は計算の 1 行で戻せる（失わない側の費用: 鳴る瞬間の表示 1 つ）\n出所: review/code.md#R9",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST13-PD22",
+      "topic": "ST13 仮D22",
+      "kind": "check",
+      "question": "ST13 の仮の決定 D22: 取り方が定期取得で契機が間隔ごとでない行を、CHECK で断るか、枠がログに名前を出して飛ばすか →「枠が scheduled_no_interval で名前を出して飛ばす（CHECK は足さない）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n失わない理由: 行は登録簿に残り、ログで気づける。CHECK に寄せるのは移行 1 本で後から足せる（失わない側の費用: 契機を書き忘れた行が取りに行かれないまま残りうる（ログには出る））\n出所: review/code.md#R26",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST13-PD23",
+      "topic": "ST13 仮D23",
+      "kind": "check",
+      "question": "ST13 の仮の決定 D23: 休止の知らせを読む最新の生存信号を、端末の時計（emitted_at）で選ぶか、届いた時刻（received_at）で選ぶか →「received_at の新しい順（同時刻は emitted_at）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n失わない理由: 生存信号は全部残っていて、選び方は照会の ORDER BY の 1 行で戻せる（失わない側の費用: 送り直しで古い信号が後から届くと、知らせが一時的に古い状態を指しうる）\n出所: review/code.md#R24",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST13-PD24",
+      "topic": "ST13 仮D24",
+      "kind": "check",
+      "question": "ST13 の仮の決定 D24: 休止の知らせの文字を、全角が 1 em の字で 360 px の見出しから溢れる「休止の対象（アプリで外す）」のままにして見出しの下の行へ逃がすか、全角 11 字に縮めて 1 行に収めるか →「「休止対象・アプリで外す」に縮める（対象のままであることと、収集アプリの画面で外せることは両方残す）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n失わない理由: 文言は messages.ts の 1 行で戻せる。見出しの 1 行と格子の高さ（D19）は保たれ、記録にも契約にも触れない（失わない側の費用: 「の」と括弧が落ち、言い回しが少し詰まる）\n乗っている決定: D10, D19\n出所: docs/briefs/ST13-gate.md#CI",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST13-F",
+      "topic": "ST13 違和感",
+      "kind": "check",
+      "question": "ST13「ソースの取り方と取得の間隔を登録簿で持ち、定期取得の枠を置く」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: D20 D21 D22 D23 D24）\n録画 ▶ ST13-sources（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261022-224644-30da86d\\scenarios\\ST13-sources\\video.webm\n録画 ▶ ST13-unused-app-restrictions（AI の実行結果。人間の承認ではない）: 全体 ng / テスト failed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261022-224644-30da86d\\scenarios\\ST13-unused-app-restrictions\\video.mp4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261022-2245/ST13-spec.html"
+    },
+    {
+      "id": "ST09-PD25",
+      "topic": "ST09 仮D25",
+      "kind": "check",
+      "question": "ST09 の仮の決定 D25: D-02 の原本のファイルが後から失われたとき、受け取り済みと答えるか（行だけで答えると、端末は送り待ちを消し原本は二度と置かれない） →「行に加えて、並びの名前に受け取った大きさのファイルがあるかを見る。無ければ HEAD は 404、PUT は置き直す」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 端末にまだある原本を、D-02 から動かした・消した後でも置き直せる（捨てない）（失わない側の費用: HEAD と PUT の重複の判定でファイルの metadata を 3 回まで見る。本人が D-02 の中を並べ替えると同じ原本が 2 つになる）\n乗っている決定: D10, Q12\n出所: review/code.md#R15",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST09-PD26",
+      "topic": "ST09 仮D26",
+      "kind": "check",
+      "question": "ST09 の仮の決定 D26: D-02 の原本（撮影位置つき）とフォルダの権限 →「Unix では作るフォルダを 0700、原本を 0600 にする（書き出しと同じ。既存のものは変えない）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 同じ機械の別の利用者・プロセスに撮影位置と写真を読ませない（外へ出さない）（失わない側の費用: 本人が D-02 を別のアカウントと共有したいとき、権限を広げる設定が別に要る）\n乗っている決定: D10, Q12\n出所: review/code.md#R19",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST09-F",
+      "topic": "ST09 違和感",
+      "kind": "check",
+      "question": "ST09「写真と動画をメタごと取り込み、写真は原本も置く」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ ST09-media（AI の実行結果。人間の承認ではない）: 全体 ng / テスト failed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261022-224644-30da86d\\scenarios\\ST09-media\\video.mp4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261022-2245/ST09-spec.html"
+    }
+  ]
+}
