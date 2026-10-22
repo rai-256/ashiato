@@ -44,6 +44,8 @@ class UnusedAppRestrictionsInstrumentedTest {
     fun tearDown() {
         shell("appops set ${context.packageName} AUTO_REVOKE_PERMISSIONS_IF_UNUSED default")
         context.stopService(Intent(context, LocationService::class.java))
+        // 印は後に走る計測テスト（1 回の install で suite 全部が走る）へ持ち込まない
+        context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE).edit().clear().commit()
         device.pressHome()
     }
 
