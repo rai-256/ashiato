@@ -114,18 +114,19 @@ async fn seed_today_heartbeat(pool: &sqlx::PgPool, user: uuid::Uuid) {
     }
     crate::store_heartbeat(
         pool,
-        crate::heartbeat::HeartbeatRequest {
-            id: uuid::Uuid::new_v4(),
-            user_id: user,
-            logical_source: "s01-archive-inbox".into(),
-            device_id: Some("s01-c03".into()),
-            emitted_at: chrono::Utc::now(),
-            capturable: true,
-            blockers: Vec::new(),
-            attempts: 1,
-            successes: 1,
-            raw: "{}".into(),
-        },
+        // 欄を字面で並べない: 契約の欄が増えても（既定のある欄）この準備は変わらない
+        serde_json::from_value::<crate::heartbeat::HeartbeatRequest>(serde_json::json!({
+            "id": uuid::Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": "s01-archive-inbox",
+            "device_id": "s01-c03",
+            "emitted_at": chrono::Utc::now(),
+            "capturable": true,
+            "attempts": 1,
+            "successes": 1,
+            "raw": "{}",
+        }))
+        .unwrap(),
     )
     .await
     .unwrap();

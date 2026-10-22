@@ -6,6 +6,8 @@ import android.content.SharedPreferences
 import androidx.core.content.IntentCompat
 import androidx.core.content.PackageManagerCompat
 import androidx.core.content.UnusedAppRestrictionsConstants
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import java.util.concurrent.TimeUnit
 
 /**
@@ -38,6 +40,19 @@ fun mapUnusedAppRestrictionsStatus(status: Int): UnusedAppRestrictionsState = wh
     -> UnusedAppRestrictionsState.NOT_EXEMPT
     UnusedAppRestrictionsConstants.FEATURE_NOT_AVAILABLE -> UnusedAppRestrictionsState.UNSUPPORTED
     else -> UnusedAppRestrictionsState.UNKNOWN
+}
+
+/**
+ * 生存信号の原文に足す欄。**位置だけ**に載せる —— 稼働状況の知らせのために S-01 が原文を読む
+ * （判定には使わない。design D12）。ほかのソースは何も足さない。
+ */
+fun unusedAppRestrictionsFields(
+    cadence: SourceCadence,
+    read: () -> UnusedAppRestrictionsState,
+): () -> Map<String, JsonElement> = if (cadence == SourceCadence.LOCATION) {
+    { mapOf("unused_app_restrictions" to JsonPrimitive(read().wire)) }
+} else {
+    { emptyMap() }
 }
 
 /** 状態の読み口。**試験が差し替える**（Robolectric は OS の除外の状態を持たない）。 */

@@ -44,6 +44,12 @@ class UnusedAppRestrictionsTest {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_BACKGROUND_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS,
+            // 入口が位置の後に写真と動画の権限も求める（ST09）。この試験の関心の外なので、どの版の分も許可済みにする
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            Manifest.permission.ACCESS_MEDIA_LOCATION,
         )
         // 利用状況へのアクセスは許されている（別の設定画面を開かせない）
         shadowOf(app.getSystemService(android.app.AppOpsManager::class.java)).setMode(
