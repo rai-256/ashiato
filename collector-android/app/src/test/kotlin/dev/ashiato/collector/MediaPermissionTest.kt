@@ -125,8 +125,8 @@ class MediaPermissionTest {
         controller.pause().resume()
 
         assertEquals("断られた権限を求め直している", 1, activity.groups.size)
+        // 入口が閉じるかは見ない: 閉じるかは写真の権限の外の条件（休止の対象かどうか。ST13）でも決まる
         assertNotNull("写真の権限を断られただけで収集が始まっていない", shadowOf(app).peekNextStartedService())
-        assertTrue(activity.isFinishing)
     }
 
     // Scenario: 写真の権限が無くても位置は集まる
