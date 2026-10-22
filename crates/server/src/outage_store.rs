@@ -15,6 +15,18 @@ fn non_observation_sql() -> String {
         .join(", ")
 }
 
+/// 書庫（日数を持つソース）の最後の書庫の作られた時刻を出す SQL の式。`core.source` を `s`、利用者を `$1` で引く。
+/// 途切れの判定（`inputs`）と `GET /sources` の通知までの残り日数が**同じ式**を使う（2 つ目の計算を書かない）。
+pub const LAST_ARCHIVE_AT_SQL: &str = "CASE WHEN s.alert_after_days IS NOT NULL THEN coalesce(
+                  (SELECT max(coalesce(l.created_at, l.discovered_at))
+                     FROM core.archive_ledger l
+                     JOIN core.archive_ledger_source ls ON ls.ledger_id = l.id
+                    WHERE l.user_id = $1 AND ls.logical_source = s.logical_source
+                      AND l.outcome = 'read'),
+                  (SELECT max(e.ingest_time) FROM core.event e
+                    WHERE e.user_id = $1 AND e.logical_source = s.logical_source)
+                ) END";
+
 type Row = (
     String,
     String,
@@ -48,6 +60,7 @@ pub async fn inputs<'e>(
     now: DateTime<Utc>,
 ) -> Result<Vec<SourceInput>, sqlx::Error> {
     let non_obs = non_observation_sql();
+    let last_archive = LAST_ARCHIVE_AT_SQL;
     let sql = format!(
         "WITH RECURSIVE anc(name, cur) AS (
              SELECT logical_source, logical_source FROM core.source
@@ -95,15 +108,7 @@ pub async fn inputs<'e>(
                     WHERE h.user_id = $1 AND h.logical_source = s.logical_source
                       AND h.capturable AND h.emitted_at > $2)
                 ) AS last_capturable_heartbeat_at,
-                CASE WHEN s.alert_after_days IS NOT NULL THEN coalesce(
-                  (SELECT max(coalesce(l.created_at, l.discovered_at))
-                     FROM core.archive_ledger l
-                     JOIN core.archive_ledger_source ls ON ls.ledger_id = l.id
-                    WHERE l.user_id = $1 AND ls.logical_source = s.logical_source
-                      AND l.outcome = 'read'),
-                  (SELECT max(e.ingest_time) FROM core.event e
-                    WHERE e.user_id = $1 AND e.logical_source = s.logical_source)
-                ) END AS last_archive_at,
+                {last_archive} AS last_archive_at,
                 CASE WHEN s.succeeds IS NOT NULL THEN s.registered_at END AS alive_floor
            FROM core.source s
            JOIN started st ON st.name = s.logical_source

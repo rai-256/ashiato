@@ -11,7 +11,6 @@ pub struct ArchiveConfig {
     pub copy_dir: PathBuf,
     pub keep_copies: bool,
     pub user_id: Option<uuid::Uuid>,
-    pub scan_sec: u64,
 }
 
 /// テストと起動時で同じ規則を使う。
@@ -25,12 +24,11 @@ pub fn from_values(values: &BTreeMap<String, String>) -> anyhow::Result<ArchiveC
     let user_id = get("ASHIATO_ARCHIVE_USER_ID")
         .map(uuid::Uuid::parse_str)
         .transpose()?;
-    let scan_sec = get("ASHIATO_ARCHIVE_SCAN_SEC")
-        .map(str::parse)
-        .transpose()?
-        .unwrap_or(120);
-    if scan_sec == 0 {
-        anyhow::bail!("ASHIATO_ARCHIVE_SCAN_SEC は 1 以上で指定する");
+    // 黙って無視すると、本人が値を変えたつもりで効かない（design D4）。
+    if get("ASHIATO_ARCHIVE_SCAN_SEC").is_some() {
+        anyhow::bail!(
+            "見回りの間隔は登録簿の s01-archive-inbox の fetch_interval_sec で設定する（環境変数では設定しない）"
+        );
     }
     // **既定は本人のホームから作り、相対パスは断る**（code-verify R67）。作業ディレクトリからの
     // 相対だと、サービスやタスクスケジューラから起動したとき写しが `C:\Windows\System32` の下に作られ、
@@ -71,7 +69,6 @@ pub fn from_values(values: &BTreeMap<String, String>) -> anyhow::Result<ArchiveC
         )?,
         keep_copies,
         user_id,
-        scan_sec,
     })
 }
 

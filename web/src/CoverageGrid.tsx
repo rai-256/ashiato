@@ -28,7 +28,16 @@ const m = msg("grid");
  * - **セルは表示専用。選ぶ単位は週**（NFR-19 の 24 × 24 px を割らないため）
  * - 格子のセルが担うのは **3 段**。8 状態の区別は**週を選んだときの文字**
  */
-export function CoverageGrid({ source, annotation }: { source: SourceCoverage; annotation?: string }): React.ReactElement {
+export function CoverageGrid({
+  source,
+  annotation,
+  sourceNote,
+}: {
+  source: SourceCoverage;
+  annotation?: string;
+  /** 取り方と取得の間隔（ST13 / design D10。`sources.ts`）。読むだけ。無ければ出さない */
+  sourceNote?: string;
+}): React.ReactElement {
   // **OS の明暗に追従する**（NFR-17。2026-10-12 まで S-1 はダークしか無かった）
   const scheme = useScheme();
   const c = SCHEMES[scheme];
@@ -60,6 +69,11 @@ export function CoverageGrid({ source, annotation }: { source: SourceCoverage; a
         {annotation !== undefined && (
           <span data-testid={`archive-note-${source.logical_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
             {m.archiveNote(annotation)}
+          </span>
+        )}
+        {sourceNote !== undefined && (
+          <span data-testid={`source-note-${source.logical_source}`} style={{ color: tone(c.muted), font: font(TYPE.caption, 400, 1.3) }}>
+            {sourceNote}
           </span>
         )}
         {/* **乗り換えが起きたことを文字で出す**（review/code-r2.md の I3）。
