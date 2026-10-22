@@ -882,3 +882,208 @@ async fn ch02_same_runs_in_a_read_only_transaction() {
     assert!(events > 0 && versions > 0);
     assert!(probe.is_err(), "READ ONLY になっていない");
 }
+
+// ---- Task 4: 読んだ行の数が線形に近いことと、窓の枠（design D7）----
+
+/// 仮決めの値（design D7。`docs/testing.md` §3）。4N の量が N の量の `SCALE_LIMIT` 倍未満であることを見る。
+const SCALE_N: usize = 1_000;
+const SCALE_FACTOR: usize = 4;
+const SCALE_LIMIT: u64 = 8;
+
+/// 計画の JSON（`EXPLAIN (ANALYZE, FORMAT JSON)`）の `Relation Name` が `event` / `event_version` の節が読んだ行の数の和。
+/// 節ごとに `(Actual Rows + Rows Removed by Filter + Rows Removed by Index Recheck) × Actual Loops`。
+/// `skip_cte` に名前を渡すと、その CTE（`Subplan Name` が `CTE <名前>`）の下の節を数えない。
+fn rows_read(plan: &Value, skip_cte: Option<&str>) -> u64 {
+    let node = match plan {
+        Value::Array(items) => {
+            return items.iter().map(|p| rows_read(p, skip_cte)).sum();
+        }
+        Value::Object(o) => match o.get("Plan") {
+            Some(root) => return rows_read(root, skip_cte),
+            None => o,
+        },
+        _ => return 0,
+    };
+    if let Some(name) = skip_cte {
+        if node.get("Subplan Name").and_then(Value::as_str) == Some(&format!("CTE {name}")) {
+            return 0;
+        }
+    }
+    let count = |key: &str| node.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+    let own = match node.get("Relation Name").and_then(Value::as_str) {
+        Some("event" | "event_version") => {
+            ((count("Actual Rows")
+                + count("Rows Removed by Filter")
+                + count("Rows Removed by Index Recheck"))
+                * count("Actual Loops")) as u64
+        }
+        _ => 0,
+    };
+    let children: u64 = node
+        .get("Plans")
+        .and_then(Value::as_array)
+        .map(|ps| ps.iter().map(|p| rows_read(p, skip_cte)).sum())
+        .unwrap_or(0);
+    own + children
+}
+
+#[test]
+fn ch02_scale_rows_read_sums_the_event_scans() {
+    let plan = json!([{"Plan": {
+        "Node Type": "Result", "Actual Rows": 1, "Actual Loops": 1,
+        "Plans": [
+            {"Node Type": "Seq Scan", "Relation Name": "event", "Actual Rows": 10,
+             "Rows Removed by Filter": 5, "Actual Loops": 2},
+            {"Node Type": "Bitmap Heap Scan", "Relation Name": "event_version", "Actual Rows": 3,
+             "Rows Removed by Index Recheck": 1, "Actual Loops": 1,
+             "Plans": [
+                {"Node Type": "Bitmap Index Scan", "Index Name": "event_version_pkey",
+                 "Actual Rows": 100, "Actual Loops": 1}
+             ]},
+            {"Node Type": "Seq Scan", "Relation Name": "stay_note", "Actual Rows": 999, "Actual Loops": 1},
+            {"Node Type": "Seq Scan", "Relation Name": "event", "Actual Rows": 0, "Actual Loops": 0},
+            {"Node Type": "Aggregate", "Subplan Name": "CTE erased_spans", "Actual Rows": 1, "Actual Loops": 1,
+             "Plans": [
+                {"Node Type": "Seq Scan", "Relation Name": "event", "Actual Rows": 7, "Actual Loops": 1}
+             ]}
+        ]
+    }}]);
+    // (10 + 5) × 2 + (3 + 1) × 1 + 0 + 7 = 41 / CTE の下を除くと 34
+    assert_eq!(rows_read(&plan, None), 41);
+    assert_eq!(rows_read(&plan, Some("erased_spans")), 34);
+}
+
+/// 記録を `count` 件、`user` に置く。端末は記録ごとに違う値、時刻は `from` から 1 秒ずつ（`span` 秒で巻き戻す）、原文に地図の座標。
+async fn bulk_windows(pool: &sqlx::PgPool, user: Uuid, count: usize, from: &str, span: i64) {
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         SELECT gen_random_uuid(), $1, 'c02-window', 'dev-' || i, 'collected',
+                $3::timestamptz + (i % $4) * interval '1 second',
+                540, 'Asia/Tokyo', 1, gen_random_uuid()::text, $5, '{}'::jsonb
+           FROM generate_series(1, $2::int) i",
+    )
+    .bind(user)
+    .bind(count as i64)
+    .bind(from)
+    .bind(span)
+    .bind(MAP)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 除く範囲の判定の `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`。
+async fn explain_excluded(pool: &sqlx::PgPool, sql: &ExcludedSql) -> Value {
+    let q = format!(
+        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+         WITH {} SELECT (SELECT count(*) FROM {}), (SELECT count(*) FROM {})",
+        sql.ctes(),
+        export::EXCLUDED_EVENT,
+        export::EXCLUDED_VERSION
+    );
+    sqlx::query_scalar(&q).fetch_one(pool).await.unwrap()
+}
+
+/// 消した滞在 `erased`（`(始まり, 終わり)`。`None` なら置かない）と、利用者 A の 00:00〜00:59 の記録 `n` 件、
+/// 別の利用者の 03:00 以降の記録 `n` 件を置いた DB で、`(新しい断片, 写しの断片)` の読んだ行の数を返す。
+/// `legacy` が偽なら写しは取らない（0）。
+async fn scale_reads(n: usize, erased: Option<(&str, &str)>, legacy_too: bool) -> (u64, u64) {
+    let (pool, drop) = fresh().await;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+    if let Some((start, end)) = erased {
+        erased_stay(&pool, a, start, end, &[]).await;
+    }
+    bulk_windows(&pool, a, n, &ts("00:00:00"), 3540).await;
+    bulk_windows(&pool, b, n, &ts("03:00:00"), 3540).await;
+    sqlx::query("ANALYZE").execute(&pool).await.unwrap();
+    let new = rows_read(
+        &explain_excluded(&pool, &export::excluded_sql("now()")).await,
+        None,
+    );
+    let old = if legacy_too {
+        rows_read(
+            &explain_excluded(&pool, &legacy::excluded_sql("now()")).await,
+            None,
+        )
+    } else {
+        0
+    };
+    drop.await;
+    (new, old)
+}
+
+#[tokio::test]
+async fn ch02_scale_four_times_the_rows_reads_less_than_eight_times() {
+    // Scenario: 記録を 4 倍にしても、除く範囲の判定が読む量は 4 倍の桁に収まる
+    let erased = Some((ts("01:00:00"), ts("02:00:00")));
+    let erased = erased.as_ref().map(|(s, e)| (s.as_str(), e.as_str()));
+    let (new_n, old_n) = scale_reads(SCALE_N, erased, true).await;
+    let (new_4n, old_4n) = scale_reads(SCALE_N * SCALE_FACTOR, erased, true).await;
+    eprintln!("近い: N={new_n} 4N={new_4n} / 写し: N={old_n} 4N={old_4n}");
+    assert!(new_n > 0 && old_n > 0, "読んだ行の数が取れていない");
+    assert!(
+        new_4n < SCALE_LIMIT * new_n,
+        "新しい断片が 4 倍で {SCALE_LIMIT} 倍以上: {new_n} → {new_4n}"
+    );
+    assert!(
+        old_4n >= SCALE_LIMIT * old_n,
+        "写しが 4 倍で {SCALE_LIMIT} 倍未満（配置が効いていない）: {old_n} → {old_4n}"
+    );
+
+    // 消した滞在が古い配置（行の大半が `max(end_at)` より後）。組ごとの最初の 1 行の GROUP BY も線形
+    let old_spot = Some(("1999-12-31T22:00:00Z", "1999-12-31T23:00:00Z"));
+    let (late_n, _) = scale_reads(SCALE_N, old_spot, false).await;
+    let (late_4n, _) = scale_reads(SCALE_N * SCALE_FACTOR, old_spot, false).await;
+    eprintln!("古い配置: N={late_n} 4N={late_4n}");
+    assert!(late_n > 0);
+    assert!(
+        late_4n < SCALE_LIMIT * late_n,
+        "消した滞在が古い配置で 4 倍が {SCALE_LIMIT} 倍以上: {late_n} → {late_4n}"
+    );
+}
+
+#[tokio::test]
+async fn ch02_scale_nothing_erased_reads_no_records() {
+    // Scenario: 消した滞在が無ければ、除く範囲の判定は記録の表を読まない
+    let (new, old) = {
+        let (pool, drop) = fresh().await;
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        bulk_windows(&pool, a, SCALE_N, &ts("00:00:00"), 3540).await;
+        bulk_windows(&pool, b, SCALE_N, &ts("03:00:00"), 3540).await;
+        // 前の版も置く（写しは前の版の表を全走査する。記録の表は索引条件が NULL なら読まないことがあるので、前の版で差を見る）
+        sqlx::query(
+            "INSERT INTO core.event_version
+               (id, event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+             SELECT gen_random_uuid(), e.id, e.user_id, e.logical_source, 1, e.event_time,
+                    gen_random_uuid()::text, '{}', '{}'::jsonb
+               FROM core.event e",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let new = explain_excluded(&pool, &export::excluded_sql("now()")).await;
+        let old = explain_excluded(&pool, &legacy::excluded_sql("now()")).await;
+        drop.await;
+        (
+            rows_read(&new, Some("erased_spans")),
+            rows_read(&old, Some("erased_spans")),
+        )
+    };
+    eprintln!("消した滞在 0 件: 新 {new} / 写し {old}");
+    assert_eq!(new, 0, "消した滞在が無いのに記録の表を読んでいる");
+    assert!(
+        old > 0,
+        "写しは表を読むはず（門がいまより強い保証であることの固定）"
+    );
+}
+
+#[test]
+fn ch02_scale_window_frame_is_head_fixed() {
+    let ctes = export::excluded_sql("now()").ctes().to_string();
+    let squeeze = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let ctes = squeeze(&ctes);
+    assert!(ctes.contains("ORDER BY q.event_time DESC RANGE BETWEEN UNBOUNDED PRECEDING AND '1 microsecond' PRECEDING"));
+    assert!(!ctes.contains("FOLLOWING AND UNBOUNDED FOLLOWING"));
+}
