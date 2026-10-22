@@ -220,6 +220,74 @@ pub fn unique_day() -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap() + chrono::Duration::days(i64::from(offset))
 }
 
+/// 取り込み器の試験が見回りの間隔を読む、自分専用の登録簿の行（間隔 1 秒）。
+/// 共有の `s01-archive-inbox` を書き換えない（登録簿は利用者で分かれていない。ST13 / design D4）。
+pub async fn archive_scan_row(pool: &sqlx::PgPool) -> &'static str {
+    const NAME: &str = "test-archive-scan-1s";
+    sqlx::query(
+        "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind,
+                                  acquisition, fetch_trigger, fetch_interval_sec)
+         VALUES ($1, $1, 3600, 'none', 'server', 'interval', 1) ON CONFLICT DO NOTHING",
+    )
+    .bind(NAME)
+    .execute(pool)
+    .await
+    .unwrap();
+    NAME
+}
+
+/// 指定した書庫（`sha256`）の `archive_ledger_source` への `INSERT` で例外を投げる trigger を作る。
+/// 「台帳の論理ソースごとの行を書く途中で D-01 への書き込みが失敗する」を試験の DB にだけ起こす
+/// （本番のコードに試験用の分岐を置かない。ST13 / design D7）。外すのは `allow_ledger_source_insert`。
+pub async fn fail_ledger_source_insert(pool: &sqlx::PgPool, sha256: &str) {
+    assert!(sha256.chars().all(|c| c.is_ascii_hexdigit()));
+    sqlx::query(&format!(
+        // 試験は並走するので、関数も書庫ごとの名前にする（同じ名前の同時の作成は pg_proc の鍵で落ちる）。
+        // **冪等にする**（final review R5）: 前の回が `allow_ledger_source_insert` の前に落ちて
+        // 関数と trigger が残っていても、次の回の作成が落ちない。
+        "CREATE OR REPLACE FUNCTION core.test_fail_ledger_source_{sha256}() RETURNS trigger AS $f$
+         BEGIN
+           IF EXISTS (SELECT 1 FROM core.archive_ledger WHERE id = NEW.ledger_id AND sha256 = '{sha256}') THEN
+             RAISE EXCEPTION 'test: archive_ledger_source への書き込みを失敗させる';
+           END IF;
+           RETURN NEW;
+         END $f$ LANGUAGE plpgsql"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "DROP TRIGGER IF EXISTS test_fail_ledger_source_{sha256} ON core.archive_ledger_source"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "CREATE TRIGGER test_fail_ledger_source_{sha256} BEFORE INSERT ON core.archive_ledger_source
+         FOR EACH ROW EXECUTE FUNCTION core.test_fail_ledger_source_{sha256}()"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// `fail_ledger_source_insert` で作った trigger を外す。
+pub async fn allow_ledger_source_insert(pool: &sqlx::PgPool, sha256: &str) {
+    assert!(sha256.chars().all(|c| c.is_ascii_hexdigit()));
+    sqlx::query(&format!(
+        "DROP TRIGGER IF EXISTS test_fail_ledger_source_{sha256} ON core.archive_ledger_source"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "DROP FUNCTION IF EXISTS core.test_fail_ledger_source_{sha256}()"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// テストごとに固有の利用者。稼働記録・生存信号は利用者でも分かれる（FR-29）。
 pub fn user() -> uuid::Uuid {
     uuid::Uuid::new_v4()

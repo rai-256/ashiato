@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ST13-sources",
+    "story": "ST13",
+    "spec": "tools/recording/st13/st13-sources.rec.ts",
+    "with": ["e2e/coverage-sources.spec.ts"],
+    "requires": [
+      "web/e2e/coverage-sources.spec.ts",
+      "web/e2e/global-setup.ts",
+      "web/src/sources.ts",
+      "tools/seed.d/202610212200_st13-sources-grid.sh"
+    ],
+    "note": "ST13（稼働状況の見出しの取り方と間隔）: Must の 5 本（60 秒ごと・30 分ごと・変わったとき・24 時間ごと）→ 集計は「始めたときに 1 回」→ 書庫は「手作業・2 か月ごと」と通知までの残り日数（最後の書庫の日つき）・過ぎた・まだ書庫が無い → 携帯の収集アプリが休止の対象のままなら位置の見出しが「休止対象・アプリで外す」→ 幅 360 px でも Must の 5 本の見出しは 1 行 → 読み出せなかった書庫は「読み出せません」→ S-7 設定に取り方と間隔の節は無い。偽データは `SEED=normal` の ST13 の段。**応答の差し替えは 2 か所**（休止の対象のままの `device_notice` と、読み出せなかった直近の書庫）。`coverage-sources.spec.ts` も一緒に撮る。定期取得の起動・止め方はサーバの中のことで画面に無いので撮らない（`crates/server` の試験と `tools/smoke.d/` が持つ）"
+  },
+  {
+    "id": "ST13-unused-app-restrictions",
+    "story": "ST13",
+    "platform": "android",
+    "spec": "tools/recording/st13/St13RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St13RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt"
+    ],
+    "note": "ST13（Android）: 使っていないアプリの一時停止の対象のままで開く → 画面に 1 行と「設定を開く」・説明のダイアログ → 応じると設定の画面 → 戻るとダイアログは自動では出ず 1 行だけ → ボタンで設定の画面 → スイッチで対象から外す → 戻ると画面が閉じる → 結果の札（not_exempt → exempt）。初めの状態は shell（appops）で対象のままに揃える。スイッチが見つからない版の設定では外すのも appops で代え、そのことを札に出す。権限の導線は ST06 の録画が撮る"
+  }
+]

@@ -235,6 +235,12 @@ const SOURCE_COLUMNS: &[(&str, &str)] = &[
         "途切れを知らせるまでの日数（空なら想定される最大の無通信間隔の 3 倍）",
     ),
     ("started_on_from", "収集を始めた日を借りる先のソース"),
+    ("acquisition", "取り方（端末・PC・書庫・サーバ・定期取得）"),
+    ("fetch_trigger", "取得の契機"),
+    (
+        "fetch_interval_sec",
+        "取得の間隔（秒。契機が間隔ごとのときだけ）",
+    ),
 ];
 
 const ATTRIBUTE_KIND_COLUMNS: &[(&str, &str)] = &[
