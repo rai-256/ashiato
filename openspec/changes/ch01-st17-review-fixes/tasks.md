@@ -29,16 +29,16 @@
 
 `tools/check-shared-appends.sh`（`tail_touched()` と `check()`、`--self-test`）。design D2。
 
-- [ ] 1.1 いまの self-test が通ることを確かめてから直す。検証: `tools/check-shared-appends.sh --self-test` rc=0（直す前）
-- [ ] 1.2 足した行が Story の節の見出し（design D2 の 3 つの型）で、その ST 番号が同じファイルの差分の `-` 行の見出しに出ていなければ、本体のどこでも落とす。
+- [x] 1.1 いまの self-test が通ることを確かめてから直す。検証: `tools/check-shared-appends.sh --self-test` rc=0（直す前）
+- [x] 1.2 足した行が Story の節の見出し（design D2 の 3 つの型）で、その ST 番号が同じファイルの差分の `-` 行の見出しに出ていなければ、本体のどこでも落とす。
   守る末尾を「読む口の見出しの直前の空でない行から読む口のかたまりの `done` まで」と「ファイルの最後の空でない行より後ろ」にする。読む口のかたまりを一字一句そのまま動かすだけの変更は通す。
   `--self-test` に D2 の 6 件（途中に `# ==== ST99` → 落とす / 途中に `echo "== ST99:` → 落とす / 読む口をそのまま前へ動かす → 通す / 動かした後に読む口の直後へ節 → 落とす /
   動かした後にファイルの最後へ書き足す → 落とす / 動かした後に戻しの並びの途中を直す → 通す）を足す。
   review/spec.md R2・R3 の 4 件（smoke.sh の番号つきの見出しを足す → 落とす / 既存の小見出しの文言を直す → 通す / `done` と最後の判定の行の間に 1 行足す → 落とす を動かす前と後の木で）も足す（D2 の計 10 件）。
   検証: `tools/check-shared-appends.sh --self-test` rc=0 で、出力の `self-test ok:` が 21 行以上（既存 11 件＋10 件）。`shellcheck tools/check-shared-appends.sh` rc=0
-- [ ] 1.3 わざと壊して落ちることを見る: 1.2 の見出しの検査を一時的に外すと self-test が rc=1 になる（`sed` で検査の行を消した写しを `/tmp` に置いて `--self-test` を走らせる）。
+- [x] 1.3 わざと壊して落ちることを見る: 1.2 の見出しの検査を一時的に外すと self-test が rc=1 になる（`sed` で検査の行を消した写しを `/tmp` に置いて `--self-test` を走らせる）。
   検証: 写しの `--self-test` rc=1 かつ出力に `self-test NG` がある。元の台本は変えない（写しを走らせる前と後で `git diff --stat` の出力が同じ）
-- [ ] 1.4 規則の文言を持つ文書（`AGENTS.md`・`docs/testing.md`・`tools/smoke.d/README.md`・`tools/seed.d/README.md`・`tools/check-immutable.d/README.md`）に「本体の途中に新しい節の見出しを足しても落とす」を書く。
+- [x] 1.4 規則の文言を持つ文書（`AGENTS.md`・`docs/testing.md`・`tools/smoke.d/README.md`・`tools/seed.d/README.md`・`tools/check-immutable.d/README.md`）に「本体の途中に新しい節の見出しを足しても落とす」を書く。
   `tools/smoke.sh` `tools/seed.sh` の読む口の中の注記は直さない（design D2）。検証: `grep -L '途中.*見出し' AGENTS.md docs/testing.md tools/smoke.d/README.md tools/seed.d/README.md tools/check-immutable.d/README.md` が空、`git diff --quiet origin/main -- tools/smoke.sh tools/seed.sh`
 
 ## Task 2: ST17 の錠の節を `tools/check-immutable.d/` へ移し、読む口を戻しの前へ動かす（Q1・指摘 2）
