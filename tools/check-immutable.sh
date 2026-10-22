@@ -1336,7 +1336,7 @@ for op in "session_replication_role:SET session_replication_role = replica" \
   name="${op%%:*}"; sql="${op#*:}"
   if err=$(app_psql -c "$sql" 2>&1); then
     echo "  NG app-role $name が通ってしまった"; fail=1
-  elif grep -qE 'permission denied|must be owner' <<<"$err"; then
+  elif printf '%s' "$err" | grep -qE 'permission denied|must be owner'; then
     echo "  OK app-role $name を拒んだ"
   else
     echo "  NG app-role $name が権限の不足以外で落ちた"; fail=1

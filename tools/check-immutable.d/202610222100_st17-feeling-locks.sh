@@ -81,7 +81,7 @@ st17_feeling_update_rejected() {   # $1=SET 句 $2=OK の行に出す名前
 st17_feeling_update_rejected "event_time='2000-01-01T00:00:00Z'" "出来事の時刻"
 st17_feeling_update_rejected "user_id='11111111-1111-4111-8111-111111111111'" "利用者"
 st17_feeling_update_rejected "external_ref='forged-ref'" "外部識別子（external_ref）"
-st17_feeling_update_rejected "logical_source='immutable-check'" "論理ソース（外への付け替え）"
+st17_feeling_update_rejected "logical_source='st17-authored-check'" "論理ソース（外への付け替え）"
 
 # Scenario: 主観の行は削除できない
 if psql -c "DELETE FROM core.event WHERE id='$ST17_FA';" >/dev/null 2>&1; then
