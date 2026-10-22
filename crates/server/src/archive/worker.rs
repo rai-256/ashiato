@@ -1583,6 +1583,7 @@ pub async fn record_archive_heartbeat(
             blockers,
             attempts,
             successes,
+            network: None,
             raw,
         },
     )

@@ -61,6 +61,10 @@ class SourceIndependenceTest {
         val usageCapability = Capability.of(permission = usageOk, sensor = true, network = true)
         service.capabilities[usage] = usageCapability
         service.capabilities[rollup] = usageCapability
+        // 写真と動画は、この端末では権限が無い（位置とアプリ利用の独立を見る試験なので、ここは動かさない）
+        for (media in MEDIA_CADENCES) {
+            service.capabilities[media.logicalSource] = Capability.of(permission = false, sensor = true, network = true)
+        }
         return controller.create().startCommand(0, 1)
     }
 

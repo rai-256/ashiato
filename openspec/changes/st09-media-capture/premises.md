@@ -6,9 +6,9 @@
 
 | # | 前提 | 何が依るか | 確かめ方 | 結果 | 出所 | 確かさ |
 |---|---|---|---|---|---|---|
-| P1 | `ACCESS_MEDIA_LOCATION` が無いと、他のアプリの写真の EXIF の位置は伏せられる。伏せない原本のバイトは `MediaStore.setRequireOriginal()` で読み、権限が無ければ例外になる | C4（伏せた原本を送らない）・要件 §5「扉ではないもの」の「後から読み直せる」 | 公式文書を読む | そのとおり（"the system hides location information by default" / "Exception occurs if ACCESS_MEDIA_LOCATION permission isn't granted"） | 公式文書 https://developer.android.com/training/data-storage/shared/media （要件の EXT-D と同じ） | 2 |
+| P1 | `ACCESS_MEDIA_LOCATION` が無いと、他のアプリの写真の EXIF の位置は伏せられる。伏せない原本のバイトは `MediaStore.setRequireOriginal()` で読み、権限が無ければ例外になる | C4（伏せた原本を送らない）・要件 §5「扉ではないもの」の「後から読み直せる」 | 公式文書を読む。エミュレータに別のアプリとして写真を入れ、権限の有無で読み比べる | そのとおり（"the system hides location information by default" / "Exception occurs if ACCESS_MEDIA_LOCATION permission isn't granted"） 2026-10-19 エミュレータ（API 35）で実測（`MediaPremisesInstrumentedTest`）: 権限が無いと、他のアプリ（shell）が入れた写真の位置は**欄が消えず 0 に塗られる（緯度経度が 0.0 で読める）。`setRequireOriginal` で開くと `UnsupportedOperationException`。`ACCESS_MEDIA_LOCATION` を許可して `setRequireOriginal` で開くと 35.6812 / 139.7671 が読める | 公式文書 https://developer.android.com/training/data-storage/shared/media （要件の EXT-D と同じ） | 4 |
 | P2 | Android 14 以降、本人が「写真と動画を選択」を選ぶと、アプリは選ばれたものしか見えず、後から撮った写真は見えない | C12（部分の許可は取れない状態として報告する） | 公式文書を読む | 選んだものだけ。後から撮ったものが見えるとは書いていない（「アプリはライブラリが空だと思うな」「許可は期限で切れる」） | 公式文書 https://developer.android.com/about/versions/14/changes/partial-photo-video-access | 2 |
-| P3 | 新しい・変わったメディアは `MediaStore.getGeneration()` で見つけるのが確実。`DATE_ADDED` / `DATE_MODIFIED` は時計の変更などで動く | Q10（見つける頻度）・C14（何を見たかの印） | 公式文書を読む | そのとおり（"getGeneration() is more robust than the dates in media columns"）。メディアストアの版（`getVersion()`）が変わったら全件を突き合わせ直す | 公式文書（P1 と同じページの "Detect updates to media files"） | 2 |
+| P3 | 新しい・変わったメディアは `MediaStore.getGeneration()` で見つけるのが確実。`DATE_ADDED` / `DATE_MODIFIED` は時計の変更などで動く | Q10（見つける頻度）・C14（何を見たかの印） | 公式文書を読む。エミュレータで写真を足して世代と問い合わせを見る | そのとおり（"getGeneration() is more robust than the dates in media columns"）。メディアストアの版（`getVersion()`）が変わったら全件を突き合わせ直す 2026-10-19 エミュレータで実測: 写真を 1 枚足すと `MediaStore.getGeneration` が上がり、`GENERATION_MODIFIED > 足す前の世代` の問い合わせで拾えた | 公式文書（P1 と同じページの "Detect updates to media files"） | 4 |
 | P4 | 本人の端末の写真は年 2,000 枚 × 3 MB 前後（NFR-6 の前提）。端末にいまある過去の写真・動画の量は不明 | Q2（過去ぶんを取るか）・Q8（通信） | 本人の端末の「設定 > ストレージ」の数字を Q1 で求める | （Q1 の答え待ち） | 知識（NFR-6 の見積もり） | 1 |
 | P5 | 本人は端末から写真を消すことがある（Google フォトの「空き容量を増やす」・手で消す） | Q3（原本を端末のどこに置いて送るか） | Q1 で本人に聞く | （Q1 の答え待ち） | — | 1 |
 | P6 | 写真の編集の保存は、アプリによって「同じ項目を上書き」と「別の項目として保存」の両方がある | Q6（変わった写真） | 知識 | 上書き（Google フォトの「保存」）と別保存（「コピーとして保存」）の両方がありうる。**Q6 の選択肢はどちらの形でも成り立つように書いた**（上書きは中身のハッシュが変わることで、別保存は新しい項目として見える） | 知識 | 1 |
@@ -17,8 +17,8 @@
 | P9 | いまのサーバの取り込み口は 1 回の要求を 2 MB までしか受けない（axum の既定。`DefaultBodyLimit` を設定していない） | 原本の送り口（design。JSON の取り込み口に原本を載せない） | コードを読む | `crates/server/src/lib.rs` の router に `DefaultBodyLimit` が無い。`Json` の抽出は既定の 2 MB | 実物（repo のコード） | 2 |
 | P10 | 収集アプリは minSdk 30 / targetSdk 36。`ACCESS_MEDIA_LOCATION` と `READ_MEDIA_IMAGES` は宣言済み、`READ_MEDIA_VIDEO` は未宣言。MediaStore も ExifInterface もまだ使っていない | tasks（権限の宣言と初回の要求） | コードを読む | `collector-android/app/build.gradle.kts:11-15`・`AndroidManifest.xml:43-45` | 実物（repo のコード） | 5 |
 | P11 | 未送信の置き場（ST04）は 1 件を 1 行の JSON で持ち、2 GB は全ソースを通して古い順に捨てる。原本をここに入れると位置の記録を押し出す | Q3（原本をどこに置くか）・「壊してはいけないもの」 | コードを読む | `SegmentStore.kt:20-28`・`Retention.kt:14-21,58-68`。1 行が 1 MB を超えても別の区分に書くだけで、読むときは 1 行を丸ごとメモリに持つ | 実物（repo のコード） | 2 |
-| P12 | 動画のメタの位置も、`ACCESS_MEDIA_LOCATION` が無いと伏せられる（ファイルの入れ物の位置を読めない） | Q15（動画は原本を送らないので、伏せられれば位置は戻らない） | 公式文書を探す | 公式文書は写真の EXIF だけを書いている。動画も伏せられる前提で問いを立てた（伏せられない場合、Q15 の動画の不可逆が小さくなるだけで、選択肢は同じ） | 知識 | 1 |
-| P13 | メタの記録（端末の一覧の行 + EXIF の文字の欄。埋め込みの縮小画像を除く）は 1 件 数 KB | Q3 / Q4（過去の写真をまとめて積んでも未送信の 2 GB を取り合わない）・C5 | 知識 | 縮小画像（数十 KB）を除けば数 KB。**下流の最初の Task で本物の写真 1 枚の大きさを測り、1 万枚 × 1 件が 2 GB の 1 割を超えるなら止める**（tasks に置く） | 知識 | 1 |
+| P12 | 動画のメタの位置も、`ACCESS_MEDIA_LOCATION` が無いと伏せられる（ファイルの入れ物の位置を読めない） | Q15（動画は原本を送らないので、伏せられれば位置は戻らない） | 公式文書を探す。エミュレータに位置つきの動画を別のアプリとして入れ、権限の有無で読み比べる | 公式文書は写真の EXIF だけを書いている。動画も伏せられる前提で問いを立てた（伏せられない場合、Q15 の動画の不可逆が小さくなるだけで、選択肢は同じ） 2026-10-19 エミュレータで実測: 動画の入れ物の位置も権限が無いと伏せられる（`MediaMetadataRetriever` の `LOCATION` が返らない）。許可すると返り、長さ 12500 ms と位置が読める。写真と違い 0 には塗られずキーごと消える。Q15 の想定どおり | 知識 | 4 |
+| P13 | メタの記録（端末の一覧の行 + EXIF の文字の欄。埋め込みの縮小画像を除く）は 1 件 数 KB | Q3 / Q4（過去の写真をまとめて積んでも未送信の 2 GB を取り合わない）・C5 | 知識。本物の写真 1 枚を通した記録の大きさを計測テストで測る（`MediaPremisesInstrumentedTest`）。門の判定は `MediaRecordSizeTest` | 縮小画像（数十 KB）を除けば数 KB。**下流の最初の Task で本物の写真 1 枚の大きさを測り、1 万枚 × 1 件が 2 GB の 1 割を超えるなら止める**（tasks に置く） 2026-10-19 実測: カメラの形の写真 1 枚（一覧の 56 列・EXIF 24 タグ）の未送信の 1 行は 3,124 バイト（エミュレータ）。framework が名前を持つ EXIF のタグを全部 40 文字で埋めた上限の見積もりでも 12,694 バイト。門 20 KiB（1 万件 = 200 MB）以下。`MediaRecordSizeTest` が固定 | 知識 | 4 |
 | P14 | 端末で 1 GB の動画の SHA-256 は数秒 | C3（動画もファイル全体のハッシュ） | 知識 | 端末の記憶装置の読み出し（数百 MB/秒）が律速。過去の動画をまとめて計算しても、位置の取得とは別の処理で走らせる（下流の Scenario） | 知識 | 1 |
 
 **確かさ 2 以下で止めた理由**（独立レビュー R12 を受けて書き直した）:
@@ -27,3 +27,5 @@
 - P3 は世代の数だけに頼らず、1 日 1 回の全件の突き合わせを足した（C14）。世代が上がらない外れ方でも 1 日で拾う
 - P12〜P14 は問いの選択肢を変えない（不可逆の大きさが変わるだけ）
 - エミュレータで 4 まで上げるのは、下流の最初の計測テストに置く（P1・P3・P12・P13 を 1 本で確かめ、外れたら止める）
+
+**Task 2（2026-10-19）で P1 / P3 / P12 / P13 を確かさ 4 に上げた。** P1 の「伏せる」は欄を消さず 0 に塗る —— 権限が無い間に読んだ位置は緯度経度 0.0 になる。写真・画像・動画のファイルを開かない（Q15）ことが、0.0 を記録に載せない唯一の止め方。

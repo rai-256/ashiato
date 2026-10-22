@@ -52,6 +52,13 @@ class MainActivityTest {
     private fun grant(vararg permissions: String) = shadowOf(app).grantPermissions(*permissions)
     private fun deny(vararg permissions: String) = shadowOf(app).denyPermissions(*permissions)
 
+    /**
+     * 写真と動画の権限は**この試験の関心の外**（求め方は `MediaPermissionTest`）。許可済みの端末から始め、
+     * 位置・通知・利用状況の流れが写真の権限の応答待ちで止まらないようにする（design D6）。
+     */
+    @org.junit.Before
+    fun grantMediaPermissions() = grant(*mediaPermissionsToAsk(android.os.Build.VERSION.SDK_INT).toTypedArray())
+
     private fun launch(): ActivityController<out MainActivity> =
         Robolectric.buildActivity(ExemptMainActivity::class.java).create().resume()
 
