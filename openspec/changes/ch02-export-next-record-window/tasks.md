@@ -34,13 +34,13 @@
 
 ## Task 1: 試験の足場と、いまの SQL の写し
 
-- [ ] 1.1 `crates/server/src/export_window_tests.rs` を作り、まっさらな DB を作って全移行を当てる足場（`fresh()`）と、その DB に記録・前の版・消した滞在を置く道具
+- [x] 1.1 `crates/server/src/export_window_tests.rs` を作り、まっさらな DB を作って全移行を当てる足場（`fresh()`）と、その DB に記録・前の版・消した滞在を置く道具
   （`export_excluded_tests::World` の `put_as` / `put_version` / `erased_stay` / `mark_deleted` と同じ列。**端末に `NULL` を渡せる**・**前の版の `user_id` を親と違う値にできる**・時刻をマイクロ秒で渡せる）を置く。
   断片を通して**残る**記録と前の版の id を返す `kept_ids(pool, sql: &ExcludedSql, ids) -> (BTreeSet<Uuid>, BTreeSet<Uuid>)`（`event_kept` / `version_kept` を通す。`export_excluded_tests.rs` の `kept` / `kept_versions` と同じ。
   前の版がファイルに出るかは親が除かれるかにも依るので、`excluded_version` の id だけで見ない）と、除く id の集合を返す `excluded_ids(pool, sql)` を置く
-- [ ] 1.2 いまの `excluded.rs` の `excluded_sql` / `overlap_sql` を、同じファイルの `legacy` モジュールに**逐語で**写す（`legacy::excluded_sql(snapshot_at)` と、記録の側の条件だけを
+- [x] 1.2 いまの `excluded.rs` の `excluded_sql` / `overlap_sql` を、同じファイルの `legacy` モジュールに**逐語で**写す（`legacy::excluded_sql(snapshot_at)` と、記録の側の条件だけを
   `n.event_time > r.event_time` にした `legacy::excluded_sql_strict(snapshot_at)`）。写した日付と元の commit を doc コメントに書く。本体はこの Task では変えない
-- [ ] 1.3 足場の確かめ: まっさらな DB に既存の Scenario「終わりを持たない記録は、次の記録までの幅で重なれば出ない」と同じ配置を置き、`export::excluded_sql("now()")` と `legacy::excluded_sql("now()")` の
+- [x] 1.3 足場の確かめ: まっさらな DB に既存の Scenario「終わりを持たない記録は、次の記録までの幅で重なれば出ない」と同じ配置を置き、`export::excluded_sql("now()")` と `legacy::excluded_sql("now()")` の
   除く集合が一致する試験 `ch02_span_legacy_matches_current_before_the_change` を置く。
   検証: `CT ch02_span_legacy` rc=0（`-- --list` で 1 本以上）
 
