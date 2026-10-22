@@ -79,18 +79,18 @@
 
 ## Task 4: 読んだ行の数が線形に近いことと、窓の枠の試験
 
-- [ ] 4.1 計画の JSON（`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`）の木から、`Relation Name` が `event` / `event_version` の節の
+- [x] 4.1 計画の JSON（`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`）の木から、`Relation Name` が `event` / `event_version` の節の
   `(Actual Rows + Rows Removed by Filter + Rows Removed by Index Recheck) × Actual Loops` を足す `rows_read(plan: &Value, skip_cte: Option<&str>) -> u64` を置く（design D7。`skip_cte` は名指しした CTE の下の節を数えない）。
   計画の JSON の形を 1 つ手で書いた材料に当てる単体の試験 `ch02_scale_rows_read_sums_the_event_scans` を置く
-- [ ] 4.2 `ch02_scale_four_times_the_rows_reads_less_than_eight_times` — `// Scenario: 記録を 4 倍にしても、除く範囲の判定が読む量は 4 倍の桁に収まる`。
+- [x] 4.2 `ch02_scale_four_times_the_rows_reads_less_than_eight_times` — `// Scenario: 記録を 4 倍にしても、除く範囲の判定が読む量は 4 倍の桁に収まる`。
   まっさらな DB 2 つに、消した滞在 1 件（01:00〜02:00）と、00:00〜00:59 に散らした地図の座標つきの `c02-window`（**端末を記録ごとに違う値にする**）を `SCALE_N` 件と `SCALE_N × SCALE_FACTOR` 件、
   別の利用者の `c02-window` を 03:00 以降に同じ数だけ置き、`ANALYZE` を当ててから、`SELECT (SELECT count(*) FROM excluded_event), (SELECT count(*) FROM excluded_version)` を `EXPLAIN` して
   `rows_read` の比が `SCALE_LIMIT` 未満であることを見る。**同じ試験で `legacy::excluded_sql("now()")` にも当て、比が `SCALE_LIMIT` 以上であることを assert する**（相関副問い合わせに戻すと落ちる。
   review/spec.md R2 の実測で比 16）。消した滞在を 00:00 より前に置いた配置（行の大半が `max(end_at)` より後）でも新しい断片の比が `SCALE_LIMIT` 未満であることを見る。読んだ行の数と比だけを出す
-- [ ] 4.3 `ch02_scale_nothing_erased_reads_no_records` — `// Scenario: 消した滞在が無ければ、除く範囲の判定は記録の表を読まない`。
+- [x] 4.3 `ch02_scale_nothing_erased_reads_no_records` — `// Scenario: 消した滞在が無ければ、除く範囲の判定は記録の表を読まない`。
   消した滞在 0 件の DB で同じ `EXPLAIN` を取り、`rows_read(plan, Some("erased_spans"))`（消した滞在とその前の版を探す `erased_spans` の CTE の下を除く）が 0 であることを見る。
   **同じ試験で `legacy::excluded_sql("now()")` では 0 にならない（表を読む）ことも assert する**（design D3 の門がいまより強い保証であることの固定）
-- [ ] 4.4 `ch02_scale_window_frame_is_head_fixed` — `export::excluded_sql("now()").ctes()` の文字列に design D1 の枠
+- [x] 4.4 `ch02_scale_window_frame_is_head_fixed` — `export::excluded_sql("now()").ctes()` の文字列に design D1 の枠
   （`ORDER BY event_time DESC` と `RANGE BETWEEN UNBOUNDED PRECEDING AND '1 microsecond' PRECEDING`）があり、`FOLLOWING AND UNBOUNDED FOLLOWING` が無いことを assert する
   （順向きで尾を固定した枠は読んだ行の数では見分けられない。design D7）。
   検証: `CT ch02_scale_` rc=0（`-- --list` で 4 本以上）
