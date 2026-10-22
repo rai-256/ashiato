@@ -1,0 +1,47 @@
+{
+  "tag": "20261023-0512",
+  "run_id": "20261023-051403-d06fc4e",
+  "commit": "d06fc4e46328c470ed62968a47d41f93fe11f81b",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "環境の起動（logs/env-up.log）",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261023-051403-d06fc4e",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261023-051403-d06fc4e",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST09-media",
+      "story": "ST09",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "環境の起動（logs/env-up.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    },
+    {
+      "id": "ST13-sources",
+      "story": "ST13",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "環境の起動（logs/env-up.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    },
+    {
+      "id": "ST13-unused-app-restrictions",
+      "story": "ST13",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "環境の起動（logs/env-up.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    }
+  ],
+  "uncovered_stories": []
+}
