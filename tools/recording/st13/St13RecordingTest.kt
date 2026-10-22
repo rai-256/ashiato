@@ -205,9 +205,10 @@ class St13RecordingTest {
         const val CARD_ID = 9_013
         /** 説明のダイアログの書き出し（`MainActivity.UNUSED_APP_RESTRICTIONS_EXPLANATION`） */
         val EXPLANATION_HEAD = MainActivity.UNUSED_APP_RESTRICTIONS_EXPLANATION.take(12)
-        /** アプリ情報の画面のスイッチ（日本語・英語の版。Android 12 以降の文言） */
+        /** アプリ情報の画面のスイッチ（日本語・英語の版。Android 15 の日本語は「使用していないアプリを管理する」と実測） */
         val TOGGLE_LABEL: Pattern = Pattern.compile(
-            ".*(使用されていない|使っていない|未使用).*(一時停止|権限を削除).*|Pause app activity if unused|Remove permissions if app isn.t used|Manage app if unused",
+            "使用していないアプリを管理する|.*(使用されていない|使っていない|未使用).*(一時停止|権限を削除).*|" +
+                "Pause app activity if unused|Remove permissions if app isn.t used|Manage app if unused",
         )
     }
 }
