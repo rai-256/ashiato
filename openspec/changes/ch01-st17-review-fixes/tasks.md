@@ -81,14 +81,14 @@
 
 `crates/server/src/lib.rs`（主張・主観・場所の 3 か所）と、共通の関数の置き場（`crates/server/src/ingest.rs` か新しいモジュール）。試験は `crates/server/src/authored_rule_tests.rs`（新規）。design D7。
 
-- [ ] 4.1 まとめる前に、いまの拒み方を試験で固定する（直す前に通る）。主張と場所は `personal-entities` の delta の Scenario、主観は順の組み合わせ（形が崩れて由来も違う → `malformed_feeling` /
+- [x] 4.1 まとめる前に、いまの拒み方を試験で固定する（直す前に通る）。主張と場所は `personal-entities` の delta の Scenario、主観は順の組み合わせ（形が崩れて由来も違う → `malformed_feeling` /
   地域が +9:00 でなく由来も違う → `malformed_feeling` / 由来も外部識別子も違う → `feeling_not_authored`）。
   Scenario: `由来も外部識別子も違う主張は由来の理由で断る` / `形が崩れて由来も違う主張は形の理由で断る` / `地域のずれが範囲の外の主張は断る` / `地域のずれが範囲の端の主張は受け付ける` /
   `外部識別子を持ち地域のずれも範囲の外の主張は外部識別子の理由で断る` / `地域のずれが範囲の外で値も空の主張は地域の理由で断る` /
   `端末識別子と外部識別子を持つ場所の記録は由来の理由で断る` / `形が崩れて端末識別子も持つ場所の記録は形の理由で断る` / `地域のずれが範囲の外の場所の記録は断る` /
   `外部識別子を持ち地域のずれも範囲の外の場所の記録は外部識別子の理由で断る` / `地域のずれが範囲の外で名前も空の場所の記録は地域の理由で断る`。
   検証: 共通の関数に寄せる前（4.2 の前）に `CT ch01_authored_`（`cargo test -p ashiato-server ch01_authored_ -- --list` で 14 本以上 = Scenario 11 本＋主観の組み合わせ 3 本）
-- [ ] 4.2 共通の関数にまとめ、3 か所から呼ぶ。主観の地域（`Asia/Tokyo` の +9:00）と、それを形と一緒に先に見る順は主観の側に残し、その理由（spec の決定・前提 7）をコメントに書く。
+- [x] 4.2 共通の関数にまとめ、3 か所から呼ぶ。主観の地域（`Asia/Tokyo` の +9:00）と、それを形と一緒に先に見る順は主観の側に残し、その理由（spec の決定・前提 7）をコメントに書く。
   検証: `CT ch01_authored_`、`CT st17_reject_`、`CT ingest_rejects_out_of_range_tz_offset`、`CT place_`（場所の既存の試験。`-- --list` で 1 本以上）、
   `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0、`grep -c 'origin != "authored"' crates/server/src/lib.rs` が 0
 
