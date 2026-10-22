@@ -354,3 +354,107 @@ fn server_startup_web_password_missing_or_short_refuses() {
     let out = start_with_web_password(Some("a1b2c3d4e5f6g7h8"), TEST_TOKEN);
     assert_kind_refused(&out, "bind_unspecified");
 }
+
+/// 起動したサーバの標準出力（ログ）を、`done` が真になる行が出るまで読む（20 秒で諦める）。読み終えたらサーバを止める。
+fn log_until(mut cmd: Command, done: impl Fn(&str) -> bool) -> String {
+    use std::io::BufRead as _;
+    let mut child = cmd.spawn().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+        {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut seen = String::new();
+    while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+        let Ok(line) = rx.recv_timeout(left) else {
+            break;
+        };
+        seen.push_str(&line);
+        seen.push('\n');
+        if done(&line) {
+            break;
+        }
+    }
+    child.kill().ok();
+    child.wait().ok();
+    seen
+}
+
+/// 取り込み器の置き場を、この試験だけの一時ディレクトリに置く（本人のホームを触らない）。
+fn archive_env(cmd: &mut Command, user: uuid::Uuid) -> std::path::PathBuf {
+    let root =
+        std::env::temp_dir().join(format!("ashiato-startup-{}", uuid::Uuid::new_v4().simple()));
+    for d in ["inbox", "downloads", "copies"] {
+        std::fs::create_dir_all(root.join(d)).unwrap();
+    }
+    cmd.env("ASHIATO_ARCHIVE_USER_ID", user.to_string())
+        .env("ASHIATO_INBOX_DIR", root.join("inbox"))
+        .env("ASHIATO_DOWNLOADS_DIR", root.join("downloads"))
+        .env("ASHIATO_ARCHIVE_COPY_DIR", root.join("copies"));
+    root
+}
+
+/// S-01 の起動が定期取得の枠を起こすこと（code_verify R19）。枠の試験（`scheduled_tests.rs`）は `spawn_with` を
+/// 直接呼ぶので、起動の配線を外しても落ちない。ここは実行ファイルを起動し、自分専用の定期取得の行
+/// （取る手は無い）の名前が `scheduled_no_fetcher` でログに出ることを見る。
+// Scenario: 取る手の無い定期取得のソースは取りに行かない
+#[test]
+fn server_startup_starts_the_scheduled_fetch() {
+    migrate_as_owner();
+    let name = format!("test-sched-startup-{}", uuid::Uuid::new_v4().simple());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let owner = rt
+        .block_on(sqlx::PgPool::connect(&env("DATABASE_OWNER_URL")))
+        .unwrap();
+    rt.block_on(
+        sqlx::query(
+            "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, external_id_kind,
+                                      acquisition, fetch_trigger, fetch_interval_sec)
+             VALUES ($1, $1, 3600, 'none', 'scheduled', 'interval', 3600)",
+        )
+        .bind(&name)
+        .execute(&owner),
+    )
+    .unwrap();
+    let mut cmd = server_cmd();
+    cmd.env("DATABASE_URL", env("DATABASE_URL"))
+        .env("BIND", "127.0.0.1:0");
+    let root = archive_env(&mut cmd, uuid::Uuid::new_v4());
+    let log = log_until(cmd, |l| {
+        l.contains("scheduled_no_fetcher") && l.contains(&name)
+    });
+    rt.block_on(
+        sqlx::query("DELETE FROM core.source WHERE logical_source = $1")
+            .bind(&name)
+            .execute(&owner),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(root).ok();
+    assert!(
+        log.lines()
+            .any(|l| l.contains("scheduled_no_fetcher") && l.contains(&name)),
+        "起動した S-01 が定期取得の行を読んでいない: {log}"
+    );
+}
+
+/// 書庫の利用者が未設定なら定期取得の枠も起こさず、そのことがログに出る（/code-review R30）。
+#[test]
+fn server_startup_without_archive_user_says_scheduled_fetch_is_off() {
+    migrate_as_owner();
+    let mut cmd = server_cmd();
+    cmd.env("DATABASE_URL", env("DATABASE_URL"))
+        .env("BIND", "127.0.0.1:0");
+    let log = log_until(cmd, |l| l.contains("scheduled_disabled"));
+    assert!(
+        log.contains("scheduled_disabled"),
+        "定期取得を起こさないことがログに出ない: {log}"
+    );
+}

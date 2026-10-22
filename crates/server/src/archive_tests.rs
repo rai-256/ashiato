@@ -156,7 +156,7 @@ async fn archive_ledger_sources_keep_per_source_store_outcomes() {
         .to_utc();
     let requests = vec![archive_request(user, r#"{"watch":"inserted"}"#), duplicate];
     crate::archive::worker::record_ledger_sources(
-        &pool,
+        &mut pool.acquire().await.unwrap(),
         ledger,
         &requests,
         &[
@@ -1258,17 +1258,18 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(testdb::user()),
-        scan_sec: 120,
     };
     let user = config.user_id.unwrap();
 
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     let paths: Vec<_> = queued
         .iter()
         .map(|candidate| candidate.path.file_name().unwrap().to_owned())
@@ -1278,11 +1279,13 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
     std::fs::rename(inbox.join("writing.zip.part"), inbox.join("writing.zip")).unwrap();
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(queued.len(), 2, "既に安定したファイルだけが残る");
     let queued = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(queued.len(), 3);
     assert!(queued
         .iter()
@@ -1310,23 +1313,25 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
 
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let first = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     let sha256 = first[0].sha256.clone();
     sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, $3, 'read')")
         .bind(user).bind(&sha256).bind(crate::archive::PARSER_VERSION).execute(&pool).await.unwrap();
 
     let later = crate::archive::scan::scan_once(&pool, &config, user)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert!(matches!(
         later[0].disposition,
         crate::archive::scan::ScanDisposition::AlreadyRead
@@ -1352,15 +1357,16 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
     assert!(crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .is_empty());
     let candidate = crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .remove(0);
     sqlx::query("INSERT INTO core.archive_ledger (user_id, sha256, parser_version, outcome) VALUES ($1, $2, 'older', 'read')")
         .bind(user)
@@ -1371,6 +1377,7 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
     let reparsed = crate::archive::scan::scan_once(&pool, &config, user)
         .await
         .unwrap()
+        .0
         .remove(0);
     assert!(matches!(
         reparsed.disposition,
@@ -1469,7 +1476,6 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         copy_dir: root.join("copies"),
         keep_copies: true,
         user_id: Some(user),
-        scan_sec: 120,
     };
     let hashes = std::sync::atomic::AtomicUsize::new(0);
     let hash = |path: &Path| {
@@ -1481,6 +1487,7 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
             .await
             .unwrap()
+            .0
             .is_empty()
     );
     write_file(&inbox, "growing.json", b"two-more");
@@ -1488,12 +1495,14 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
             .await
             .unwrap()
+            .0
             .is_empty()
     );
     assert_eq!(hashes.load(std::sync::atomic::Ordering::SeqCst), 2);
     let ready = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(ready.len(), 1);
     assert_eq!(
         hashes.load(std::sync::atomic::Ordering::SeqCst),
@@ -1501,6 +1510,135 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         "安定した2回目でハッシュを取り直さない"
     );
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// 走査の試験の置き場（専用のフォルダとダウンロードのフォルダ）。`downloads` を作らなければ、読めない置き場になる。
+fn scan_dirs(
+    name: &str,
+    user: uuid::Uuid,
+    downloads: bool,
+) -> (std::path::PathBuf, crate::archive::config::ArchiveConfig) {
+    let root =
+        std::env::temp_dir().join(format!("ashiato-archive-{name}-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("inbox")).unwrap();
+    if downloads {
+        std::fs::create_dir_all(root.join("downloads")).unwrap();
+    }
+    let config = crate::archive::config::ArchiveConfig {
+        inbox_dir: root.join("inbox"),
+        downloads_dir: root.join("downloads"),
+        copy_dir: root.join("copies"),
+        keep_copies: true,
+        user_id: Some(user),
+    };
+    (root, config)
+}
+
+async fn unreadable_rows(pool: &sqlx::PgPool, user: uuid::Uuid) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT sha256 FROM core.archive_ledger
+          WHERE user_id = $1 AND outcome = 'unreadable' AND unreadable_kind = 'file_unreadable'
+          ORDER BY id",
+    )
+    .bind(user)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// 初めて見た走査で一時的に読めないだけ（コピーの途中・一時のロック）のファイルは、読み出せなかった行を残さない
+/// （/code-review R28）。次の走査で変わらず読めれば、そのまま読みへ回る。
+#[tokio::test]
+async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (root, config) = scan_dirs("briefly-locked", user, true);
+    write_file(&config.inbox_dir, "Timeline.json", b"[]");
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let hash = |_: &Path| {
+        if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            anyhow::bail!("試験: 使用中で読めない");
+        }
+        Ok("a".repeat(64))
+    };
+    let first = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+        .await
+        .unwrap()
+        .0;
+    let second = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+        .await
+        .unwrap()
+        .0;
+    let rows = unreadable_rows(&pool, user).await;
+    std::fs::remove_dir_all(root).unwrap();
+
+    assert!(first.is_empty());
+    assert_eq!(second.len(), 1, "2 回目の走査で読みへ回る");
+    assert!(rows.is_empty(), "一時の失敗が台帳に残った: {rows:?}");
+}
+
+/// 同じ名前で置き直した別のファイルがまた読めなければ、台帳に別の行が残る（scoped re-review R17 / /code-review R27）。
+/// 同じファイルが読めないままなら、何度走査しても 1 行（design D20（仮））。
+#[tokio::test]
+async fn archive_scan_a_new_unreadable_file_at_the_same_path_gets_its_own_row() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (root, config) = scan_dirs("same-path-unreadable", user, true);
+    let hash = |_: &Path| -> anyhow::Result<String> { anyhow::bail!("試験: 読めない") };
+    let scan = || crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash);
+    write_file(&config.inbox_dir, "Timeline.json", b"one");
+    for _ in 0..3 {
+        scan().await.unwrap();
+    }
+    let after_first = unreadable_rows(&pool, user).await;
+    write_file(&config.inbox_dir, "Timeline.json", b"two-more");
+    for _ in 0..3 {
+        scan().await.unwrap();
+    }
+    let after_second = unreadable_rows(&pool, user).await;
+    std::fs::remove_dir_all(root).unwrap();
+
+    assert_eq!(
+        after_first.len(),
+        1,
+        "読めないままなら 1 行: {after_first:?}"
+    );
+    assert_eq!(
+        after_second.len(),
+        2,
+        "置き直した別のファイルの行が無い: {after_second:?}"
+    );
+    assert!(after_second
+        .iter()
+        .all(|k| k.starts_with("file_unreadable-path:")));
+}
+
+/// 片方の置き場が読めなくても、読めた置き場から消えたファイルの sighting は消す（/code-review R32）。
+#[tokio::test]
+async fn archive_scan_forgets_files_gone_from_the_readable_inbox() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    // ダウンロードのフォルダを作らない（読めない置き場）
+    let (root, config) = scan_dirs("forget-readable", user, false);
+    write_file(&config.inbox_dir, "growing.json", b"one");
+    let hash = |path: &Path| Ok(format!("test-{}", std::fs::metadata(path).unwrap().len()));
+    let (_, blockers) = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+        .await
+        .unwrap();
+    assert_eq!(blockers, vec![crate::archive::scan::DOWNLOADS_UNREADABLE]);
+    std::fs::remove_file(config.inbox_dir.join("growing.json")).unwrap();
+    crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
+        .await
+        .unwrap();
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.archive_sighting WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+
+    assert_eq!(left, 0, "読めた置き場から消えたファイルの行が残った");
 }
 
 /// Scenario: 読んでいる間に置いた書庫は読み終えた後に読まれる
@@ -1598,10 +1736,10 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
             copy_dir: root.join("copies"),
             keep_copies: true,
             user_id: Some(user),
-            scan_sec: 1,
         },
         user,
         crate::archive::worker::ReadingState::default(),
+        testdb::archive_scan_row(&pool).await,
     );
 
     let recorded = tokio::time::timeout(WORKER_WAIT, async {

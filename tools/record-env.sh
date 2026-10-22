@@ -42,6 +42,8 @@ archive_prepare() {
   uid="$ASHIATO_ARCHIVE_USER_ID"; token="$(sed -n 's/^API_TOKEN=//p' .env)"
   admin="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
   q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
+  # 取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）
+  q "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox'" >/dev/null
   st() { curl -sf -H "authorization: Bearer $token" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P
 src,dst=P.Path(sys.argv[1]),sys.argv[2]
@@ -140,7 +142,7 @@ EOF
     # （seed と tools/smoke.sh の書庫も同じ。実測 2026-10-05: .env の利用者で動かすと、箱は取り込み器を一度も見なかった）
     export ASHIATO_ARCHIVE_USER_ID="00000000-0000-0000-0000-000000000000"
     export ASHIATO_INBOX_DIR="$ARCHIVE_DIR/inbox" ASHIATO_DOWNLOADS_DIR="$ARCHIVE_DIR/downloads"
-    export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_DIR/copies" ASHIATO_ARCHIVE_SCAN_SEC=1
+    export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_DIR/copies"
   fi
 
   echo "== ビルド（サーバ release・画面）"

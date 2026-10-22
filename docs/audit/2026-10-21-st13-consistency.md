@@ -137,7 +137,7 @@
 ## 触らなくてよいと判断したもの
 
 - `docs/requirements.md:52` の C-03 の「書庫の解析とアカウント系の定期取得」: FR-15 ★ も「定期取得の枠」を C-03 に残しているので食い違わない
-- 見回りの間隔がいま環境変数 `ASHIATO_ARCHIVE_SCAN_SEC`（`crates/server/src/archive/config.rs:28`）で、登録簿に無いこと: FR-15 ★ は ST13 がこれから満たす義務で、st13 の design D4 が登録簿へ移す。事実の主張ではない
+- 見回りの間隔がいま環境変数（`crates/server/src/archive/config.rs:28`）で、登録簿に無いこと: FR-15 ★ は ST13 がこれから満たす義務で、st13 の design D4 が登録簿へ移す。事実の主張ではない
 - NFR-3 / NFR-12 の逐語（ST13.md に写っている）: FR-15 ★ の「手作業・2 か月ごと」と同じ周期で、食い違わない
 - FR-15 ★ の「ST13 の `premises.md`」: archive で `openspec/changes/archive/…/premises.md` に移るが、ほかの ★ も同じ形で change の文書を指している（ST12 の `deep.md` など）
 - 走っている `st09-media-capture`: 足す 3 本（`c01-screenshot` / `c01-image` / `c01-video`）は格子に出ないソースで、FR-15 ★ の画面の置き場の影響は C3 に含まれる。st09 の文書は FR-15 を名指ししていない
