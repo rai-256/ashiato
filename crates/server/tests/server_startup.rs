@@ -19,24 +19,20 @@ fn raw_env(name: &str) -> String {
 }
 
 /// URL の `@<host>:<port>/` の port を、この worktree の DB のものに差し替える。
-/// 規則は `ASHIATO_DB_PORT` > worktree の名前（`-st<NN>` なら 55500+NN、他は 55432）。`testdb.rs` / `tools/ports.sh` と同じ。
+/// port は `tools/ports.sh`（規則の唯一の持ち主。`testdb.rs` も同じく呼ぶ）から得る。
 fn with_worktree_port(url: &str) -> String {
-    let port = std::env::var("ASHIATO_DB_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u32>().ok())
-        .unwrap_or_else(|| {
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let name = root
-                .canonicalize()
-                .unwrap()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
-            name.rsplit_once("-st")
-                .and_then(|(_, n)| n.parse::<u32>().ok())
-                .map_or(55432, |n| 55500 + n)
-        });
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = Command::new("bash")
+        .args(["-c", r#". tools/ports.sh && printf %s "$ASHIATO_DB_PORT""#])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "tools/ports.sh が port を決められない: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let port: u16 = String::from_utf8_lossy(&out.stdout).parse().unwrap();
     let at = url.rfind('@').unwrap();
     let rest = &url[at + 1..];
     let slash = rest.find('/').unwrap();
