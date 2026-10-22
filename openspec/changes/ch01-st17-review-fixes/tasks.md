@@ -66,13 +66,13 @@
 
 `tools/record-env.sh`、`collector-android/app/build.gradle.kts`。design D4。
 
-- [ ] 3.1 `build.gradle.kts` は `ashiato.apiToken` / `ashiato.userId` が property に無ければ `collector-android/local.properties` から読む。`record-env.sh` は `local.properties` に書き、
+- [x] 3.1 `build.gradle.kts` は `ashiato.apiToken` / `ashiato.userId` が property に無ければ `collector-android/local.properties` から読む。`record-env.sh` は `local.properties` に書き、
   `gradle.properties` に書かない・戻さない。検証: `git check-ignore -q collector-android/local.properties`、`! grep -n 'gradle.properties' tools/record-env.sh | grep -v '^\s*#'`（`>>…gradle.properties` と `git checkout -- …gradle.properties` が無い）、
   `bash -n tools/record-env.sh`、`shellcheck tools/record-env.sh` rc=0
-- [ ] 3.2 local.properties から読んだ値が APK に入ることを見る。検証: 一時の `local.properties` に `ashiato.apiToken=ch01-probe` を足して
+- [x] 3.2 local.properties から読んだ値が APK に入ることを見る。検証: 一時の `local.properties` に `ashiato.apiToken=ch01-probe` を足して
   `scripts/quiet-run gradle-bc -- ./collector-android/gradlew -p collector-android :app:generateDebugBuildConfig` rc=0、
   `grep -rq 'ch01-probe' collector-android/app/build/generated/source/buildConfig/debug`。走らせた後に足した行を消す（`! grep -q ch01-probe collector-android/local.properties`）
-- [ ] 3.3 ビルドが KILL で止まってもトークンが追跡ファイルに残らないことを見る: 一時 worktree で `collector-android/gradlew` を「印のファイル（`/tmp/ch01-gradle-started`）を置いてから `sleep 300`」の stub に差し替え、
+- [x] 3.3 ビルドが KILL で止まってもトークンが追跡ファイルに残らないことを見る: 一時 worktree で `collector-android/gradlew` を「印のファイル（`/tmp/ch01-gradle-started`）を置いてから `sleep 300`」の stub に差し替え、
   `record-env.sh` の Android の段（`REC_PLATFORMS=android`）を後ろで走らせ、**印のファイルが現れてから**そのプロセスグループへ `kill -9` を送る（cargo と npm のビルドの最中に止めない。review/spec.md R6）。
   壊し方が効くことは、直す前の木（`$(git merge-base origin/main HEAD)` の worktree）で同じ手順を走らせ、`collector-android/gradle.properties` にトークンが残る（下の検証が落ちる）ことで先に見る。
   検証: `git -C <一時 worktree> status --porcelain -- collector-android/gradle.properties` が空、`git -C <一時 worktree> ls-files --others --exclude-standard` にトークンを持つファイルが無い
