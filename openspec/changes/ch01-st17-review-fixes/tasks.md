@@ -102,8 +102,9 @@
 - [ ] 5.2 `min(event_time)` の上に、索引 `event_by_source_time` に乗ることと測った値（`premises.md` 前提 9）をコメントで残す。
   検証: `grep -n 'event_by_source_time' crates/server/src/feelings.rs` が 1 行以上
 - [ ] 5.3 `docs/handoff/ST23.md` の末尾に 1 節足す（既存の 10 節は消さない。`docs/handoff/README.md` の書式。見出しは `## ch01-st17-review-fixes D9 — 本文を消した滞在を紐づけ先にする気分`。
-  いまの読み方・断られる例・Q3 の「直すなら」の候補の規則）。検証: `python3 scripts/story_brief.py ST23 | grep -q 'ch01-st17-review-fixes'`、`grep -c '^## ' docs/handoff/ST23.md` が 11
+  いまの読み方・断られる例・Q3 の「直すなら」の候補の規則）。検証: `tools/check-handoff-reaches-brief.sh ST23 ch01-st17-review-fixes`、`grep -c '^## ' docs/handoff/ST23.md` が 11
 
+  （訂正 2026-10-22: 検証の入口を「python3 scripts/story_brief.py ST23 | grep -q 'ch01-st17-review-fixes'」から上の入口に。受け入れ条件は変えない。理由: story_brief.py は HTML のパスを標準出力に出すだけで本文を出さないため、パイプの grep は原理的に通らない。書かれた HTML を読む道具に替える 実証: evidence.jsonl 2026-10-22T11:45:56+00:00 FAIL。承認: machine: evidence.jsonl 2026-10-22T11:45:58+00:00 PASS。記録: plan-corrections.md）
 ## Task 6: 主観の画面の主観の読み出しを 1 回にまとめる（Q6）
 
 `web/src/FeelView.tsx`（日の読み出しと 30 日の読み出し）、試験は `web/src/__tests__/FeelView.test.tsx`。design D8。
