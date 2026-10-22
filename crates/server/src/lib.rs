@@ -25,6 +25,9 @@ mod access_log_tests;
 mod access_migration_tests;
 #[cfg(test)]
 mod api_tests;
+/// 取り込みの「人が書いた記録」の規則の拒み方（CH01 / Task 4）。
+#[cfg(test)]
+mod authored_rule_tests;
 /// アプリの役割の権限（ST28 / design D4）。
 #[cfg(test)]
 mod app_role_tests;
