@@ -162,7 +162,7 @@ fi
   || { echo "  NG 消去で内容の鍵が動いた"; fail=1; }
 
 # Scenario: 主観以外の本人が書いた記録は従来どおりの規則で扱われる
-# **主観の行がある DB でも、本人が書いた記録（`immutable-check`）は従来どおり書き換えられる**
+# **主観の行がある DB でも、本人が書いた記録（`st17-authored-check`）は従来どおり書き換えられる**
 if psql -c "UPDATE core.event SET payload = '{\"edited\":true}'
             WHERE logical_source = 'st17-authored-check' AND origin = 'authored';" >/dev/null 2>&1; then
   echo "  OK feeling 主観の行があっても、主張・場所・主観以外の本人が書いた記録は書き換えられる"
