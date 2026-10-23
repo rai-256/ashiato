@@ -245,6 +245,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       sentNote.current = restoreNote;
       if (outcome.at === "rejected") {
         setPending((all) => without(all, p.key));
+        // 滞在の行は、断られた値の押された印を外す（画面が最後に読んだ最新の記録の値、無ければ何も押されていない状態に戻る。design D5）。
+        // 届かなかったときは外さない（送り直しを待つ値）。日の欄（`pick`）は断られても残す。
+        if (p.stayRange !== undefined) setStayPicks((picks) => Object.fromEntries(Object.entries(picks).filter(([k]) => k !== p.key)));
         const kind = outcome.kind;
         setNotice({
           bad: true,

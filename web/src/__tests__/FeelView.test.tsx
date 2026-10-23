@@ -48,12 +48,17 @@ let ingest: () => Response | Promise<Response> = accepted;
 let records: Feeling[] = [];
 let gets: string[] = [];
 let feelingsFail = false;
+/** `/api/stays` が返す滞在の行（既定は無し）と、その滞在に付く記録 */
+let stayEntries: Record<string, unknown>[] = [];
+let stayRecords: Feeling[] = [];
 
 beforeEach(() => {
   seq = 0;
   posts = [];
   gets = [];
   feelingsFail = false;
+  stayEntries = [];
+  stayRecords = [];
   records = [];
   ingest = accepted;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -69,12 +74,14 @@ beforeEach(() => {
           return r;
         });
       }
-      if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: [] }));
+      if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: stayEntries }));
       if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: "21:00", recorded: false }));
       gets.push(url);
       if (feelingsFail) return Promise.resolve(json(500, {}));
       const date = /to=([\d-]+)/.exec(url)?.[1] ?? "";
-      return Promise.resolve(json(200, view(date, records)));
+      const v = view(date, records) as { days: { stays: unknown[] }[] };
+      if (stayRecords.length > 0) v.days[0].stays = [{ stay: "stay-1", latest: { before: stayRecords[0], after: null }, records: stayRecords }];
+      return Promise.resolve(json(200, v));
     }),
   );
 });
@@ -474,5 +481,56 @@ describe("主観の読み出しは 30 日の 1 回", () => {
       expect(gets).toHaveLength(2);
     });
     expect(gets[1]).toBe(gets[0]);
+  });
+});
+
+describe("滞在の行は断られたら押された印を戻し、届かなかったら残す", () => {
+  const STAY = { kind: "stay", id: "stay-1", start: "2026-10-08T10:00:00+09:00", end: "2026-10-08T10:40:00+09:00" };
+  const rejected = (): Response => json(400, [{ id: null, duplicate: false, accepted: false, error: "invalid_feeling_target" }]);
+  const pressed = (testid: string): string | null => screen.getByTestId(testid).getAttribute("aria-pressed");
+
+  async function openStay(): Promise<void> {
+    stayEntries = [STAY];
+    await open();
+    await screen.findByTestId("feel-stay-row");
+  }
+
+  // Scenario: 滞在の行で断られた値は押された状態に残らない
+  it("+1 の記録がある滞在の行の「とても不快」が断られると、断られた文が出て、+1 が押された状態に戻り -2 は押されていない", async () => {
+    stayRecords = [rec(1, { target_stay: "stay-1" })];
+    ingest = rejected;
+    await openStay();
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    press("stay-stay-1--2");
+    await sent(1);
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await waitFor(() => {
+      expect(pressed("stay-stay-1--2")).toBe("false");
+    });
+    expect(pressed("stay-stay-1-1")).toBe("true");
+  });
+
+  // Scenario: 記録の無い滞在の行で断られるとどれも押されていない
+  it("記録の無い滞在の行の「快」が断られると、断られた文が出て、その行のどのボタンも押されていない", async () => {
+    ingest = rejected;
+    await openStay();
+    press("stay-stay-1-1");
+    await sent(1);
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await waitFor(() => {
+      expect(pressed("stay-stay-1-1")).toBe("false");
+    });
+    for (const v of [-2, -1, 0, 1, 2]) expect(pressed(`stay-stay-1-${v}`)).toBe("false");
+  });
+
+  // Scenario: 滞在の行で届かなかった値は押された状態に残る
+  it("要求が届かない状態で滞在の行の「快」を押すと、届かなかった文（断られた文と違う）が出て、+1 が押された状態で残る", async () => {
+    ingest = () => Promise.reject(new TypeError("network"));
+    await openStay();
+    press("stay-stay-1-1");
+    const bad = await screen.findByTestId("feel-notice-bad");
+    expect(bad.textContent).toContain("サーバに届きませんでした");
+    expect(bad.textContent).not.toContain("書けませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
   });
 });
