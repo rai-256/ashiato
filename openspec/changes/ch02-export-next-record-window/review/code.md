@@ -23,22 +23,22 @@ PR 本文に書くこと（reviewer の勧め）: (a) ST09 の上での試験は
 - 成果物: crates/server/src/export/excluded.rs
 - 根拠: excluded.rs:252（7e8332a）の doc。`overlap_sql` の本体は `r` から `id` `logical_source` `event_time` `payload` `raw` だけを読む。Task 2 F1 の未処置
 - kind: technical
-- 処置: fixed 9485ef39（doc を直した。再レビューの指摘で JOIN の理由に `logical_source` を親から取ることを足した 2ad98ccb）
+- 処置: fixed 2.2 （doc を直した 9485ef39。再レビューの指摘で JOIN の理由に `logical_source` を親から取ることを足した 2ad98ccb）
 
 ## R2. `scale_reads` の doc が「`legacy` が偽なら」だが、引数名は `legacy_too`
 - 成果物: crates/server/src/export_window_tests.rs
 - 根拠: export_window_tests.rs:1037（7e8332a）。Task 4 F2 の未処置
 - kind: technical
-- 処置: fixed 9485ef39
+- 処置: fixed 4.2 （9485ef39）
 
 ## R3. 量の試験のコメント「消した滞在（01:00–02:00）が 1 件ある」が、`ASHIATO_EXPORT_VOLUME_ERASED=0` のときに成り立たない
 - 成果物: crates/server/src/export_file_tests.rs
 - 根拠: export_file_tests.rs:1458（7e8332a）。直前の doc は既定 `1`・`0` なら置かないと書き、本体は `if erased` で分ける。Task 5 F2 の未処置
 - kind: technical
-- 処置: fixed 9485ef39（「既定では…」にした）
+- 処置: fixed 5.1 （9485ef39。「既定では…」にした）
 
 ## R4. 線形の試験の `bulk_windows` は端末を記録ごとに変えるので組の大きさが 1。1 組に多くの記録がある形での窓のソートの重さは測っていない
 - 成果物: crates/server/src/export_window_tests.rs
 - 根拠: `bulk_windows` の配置（plan 4.2 の指定どおり）
 - kind: technical
-- 処置: rejected: 物差しは読んだ行の数（design D7）で、組の大きさに依らない。1 組に多くの記録がある実データの重さは 5.2 の実測（本物の写し 約 120 万行・146.5 秒。design の表 6 通り）が代わりに見ている。reviewer も「直さなくてよい」
+- 処置: rejected: 物差しは読んだ行の数（design.md の D7）で、組の大きさに依らない（plan の tasks.md:85 の 4.2 が配置をこの形に指定）。1 組に多くの記録がある実データの重さは 5.2 の実測（本物の写し 約 120 万行・146.5 秒。design の表 6 通り）が代わりに見ている。reviewer も「直さなくてよい」
