@@ -55,3 +55,54 @@ async fn builtin_logical_source_names_have_no_separator() {
     assert!(total > 0, "登録簿が空では確かめたことにならない");
     assert_eq!(with_separator, 0);
 }
+
+/// 判定（`check_identifier`）と DB の CHECK が、同じ値の表で 1 件ずつ一致すること。
+/// 正規表現は移行の字面から取り出し、DB の `~` にかける（手書きの判定との食い違いを拾う）。
+#[tokio::test]
+async fn identifier_check_agrees_with_migration_regex_in_db() {
+    let (_, sql) = crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| name.contains("satellite_credentials"))
+        .expect("衛星の移行が MIGRATIONS に無い");
+    let pattern = sql
+        .lines()
+        .find(|l| l.trim_start().starts_with("identifier "))
+        .and_then(|l| l.split("identifier ~ '").nth(1))
+        .and_then(|rest| rest.split('\'').next())
+        .expect("identifier の CHECK に正規表現が無い");
+    let pool = crate::testdb::pool().await;
+    let long = format!("dev.{}", "a".repeat(61));
+    let edge = format!("dev.{}", "a".repeat(60));
+    let table = [
+        "booklog",
+        "Dev.example.booklog",
+        "dev..booklog",
+        "dev.example.",
+        ".dev.example",
+        "dev_example.booklog",
+        "dev.example:booklog",
+        "dev.example booklog",
+        "dev.例.booklog",
+        "dev.example\n",
+        "-.-",
+        "a.b",
+        "dev.example.booklog",
+        "ashiato.booklog",
+        "c03-takeout.example",
+        "",
+        long.as_str(),
+        edge.as_str(),
+    ];
+    for id in table {
+        let db_match: bool = sqlx::query_scalar("SELECT $1::text ~ $2::text")
+            .bind(id)
+            .bind(pattern)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let db_accepts = db_match && id.len() <= satellite::IDENTIFIER_MAX_LEN;
+        let malformed =
+            satellite::check_identifier(id) == Err(satellite::IdentifierRefusal::Malformed);
+        assert_eq!(!malformed, db_accepts, "{id:?}");
+    }
+}
