@@ -1,0 +1,197 @@
+{
+  "title": "CH03 の深掘り",
+  "subtitle": "テストの一時ファイルの後始末",
+  "note": [
+    "全部が「仮でよい」の問いです（推奨の側では、試験が作った一時ファイルのほかは何も消えず、後から選び直せる。premises.md）。推奨のままでよければ触らずに「回答をコピー」を押してください。",
+    "範囲の問いは Q1（検査をどこに当てるか）・Q3（bash や /tmp の固定名）・Q4（走っている st09・st13 への響き方）・Q6（今ある残り）・Q8（失敗した試験の中身を残すか）です。ここだけは目を通してください。",
+    "聞かないで決めるもの（C1〜C4）は openspec/changes/ch03-test-tmp-cleanup/premises.md の末尾にあります: Rust は tempfile の TempDir、手伝いは TempDir を返す形にする（C1）/ Kotlin は JUnit4 の TemporaryFolder、手伝いはフォルダを引数で受け取る（C2）/ 何を使うかを docs/testing.md に書く（C3）/ 試験の期待値・Scenario の印・名前は変えない（C4）。異論があれば、どの問いの補足欄にでも番号で書いてください。",
+    "この change で /tmp の問題が全部片付くわけではありません。今 /tmp にある約 2G のうち、ashiato の試験の残りは約 0.45G で、約 1.6G は harness2 の試験の古い残りです（harness2 側はもう直っている）。"
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "再発止めの検査をどこに当てるか",
+      "kind": "open",
+      "question": "手書きの一時フォルダを落とす検査（`tools/check-tmp-hygiene.sh`、`--self-test` 付き、CI の既存の検査の並びに足す）を、どのコードに当てますか。",
+      "why": "依頼 2。範囲は後から広げも狭めもできる。",
+      "context": "依頼の文言は「テストのコードで使ったら落ちる」。Rust は製品のファイルの中に `#[cfg(test)] mod` で試験を書く形が 14 ファイルあり、ファイルの置き場では試験か製品かを分けられない（分けるには `#[cfg(test)]` の中かを読む解析が要る）。製品のコードには今 0 か所なので、どれを選んでも今日の製品は変わらない。Kotlin の `androidTest` は端末の上で走り、ホストの /tmp には出ない（st09 が 2 か所足している）。漏れでない使い方が 3 か所: `export_file_tests.rs:619` は一時フォルダを**読むだけ**、`config.rs:157`・`autostart.rs:75` は絶対パスの文字列を作るだけ（後の 2 つは TempDir の path に書き換えて印を要らなくする）。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "Rust は crates/ の全体（製品のコードも）、Kotlin は app/src/test だけ。逃げ道は行の印 `tmp-ok: <理由>`",
+          "detail": "Rust はファイルの中の試験を解析せずに拾え、抜けが無い。依頼の「テストのコード」より広く、後の Story が製品のコードで一時ファイルを使うときは `tmp-ok` を書くことになる。androidTest はホストの /tmp に出ないので外す（st09 が計測試験を走らせ直さずに済む）",
+          "recommended": true
+        },
+        {
+          "label": "Rust は crates/ の全体、Kotlin は app/src/test と app/src/androidTest",
+          "detail": "端末の上の一時ファイルも同じ規約に揃う。st09 の androidTest の 2 か所が落ち、fix で計測試験（エミュレータ）を走らせ直すことになる"
+        },
+        {
+          "label": "依頼の文言どおり試験のコードだけ（Rust は `#[cfg(test)]` の中かを読んで判定）",
+          "detail": "製品のコードを縛らない。検査が `#[cfg(test)]` の区切りを読む分だけ複雑で、読み違えると抜ける"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "検査が拾う書き方",
+      "kind": "open",
+      "question": "検査は、どの書き方を落としますか。",
+      "why": "依頼 2 の「再発を機械で止める」の幅。後から足せる。",
+      "context": "依頼が挙げたのは `std::env::temp_dir()` / `Files.createTempDirectory` / `createTempFile` の 3 つ。同じ漏れ方の兄弟の書き方: `use std::env;` の後の `env::temp_dir()`、`kotlin.io.createTempDir()`（非推奨だが使える）、`System.getProperty(\"java.io.tmpdir\")`、`\"/tmp/…\"` の直書き（いま `archive_tests.rs:121` に文字列だけある）。後始末を外す口: `TempDir::keep()` / `into_path()`、`NamedTempFile::keep()` / `persist()`、`@get:Rule` を付けずに `TemporaryFolder()` を作る形。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "作る書き方の兄弟の全部と、後始末を外す口も落とす",
+          "detail": "書き方を変えて素通りする道が無い。誤検知は `tmp-ok: <理由>` で逃がす。エラーの文言は「Rust は tempfile::TempDir を最後まで持つ、Kotlin は @get:Rule の TemporaryFolder を使う。読むだけなら行に tmp-ok: <理由>」",
+          "recommended": true
+        },
+        {
+          "label": "依頼が挙げた 3 つ（と `File.createTempFile`）だけ",
+          "detail": "検査が単純。兄弟の書き方では素通りする"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "Rust と Kotlin 以外（bash の道具・/tmp の固定名・web の試験）",
+      "kind": "open",
+      "question": "tools/ の bash と、/tmp の固定名のファイルも、この change で直し・検査しますか。",
+      "why": "範囲の問い。後から別の change で足せる。",
+      "context": "依頼の実測で /tmp を埋めたのは Rust と Kotlin の試験だけ。bash の `mktemp` は 23 か所あり、`trap` で消していないのは `tools/smoke.d/202610161200_st08-browser-history.sh` の 1 ファイルだけ（量は測っていない）。別の形として、/tmp の**固定名**を書く所が 4 つある: `tools/stack.sh:102` の `/tmp/ashiato-seed.log`、`tools/smoke.sh:118` の `/tmp/ashiato-smoke.sql`、`tools/check-licenses.sh:13` の `/tmp/meta.json`、走っている tasks の検証の `tee /tmp/ct.log`（tasks の書き方は harness2 側の規約）。量は増えないが、同時に走る 2 つの worktree が同じファイルを書き、検証の判定を取り違えうる。web の試験には手書きの一時フォルダが無い。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "この change は Rust と Kotlin の試験だけ。bash も固定名も直さない",
+          "detail": "依頼の範囲どおり。固定名の取り合いは別の漏れ方なので別の change（tasks の /tmp/ct.log は harness2 で）",
+          "recommended": true
+        },
+        {
+          "label": "ついでに tools/ の固定名 3 か所を mktemp + trap に直し、trap の無い bash 1 ファイルも直す（検査は足さない）",
+          "detail": "小さい。tasks の /tmp/ct.log は harness2 側なので残る"
+        },
+        {
+          "label": "bash にも検査を足す（`mktemp` には同じ関数の中に `trap … rm`、/tmp の固定名は禁止）",
+          "detail": "形の判定が難しく、誤検知が出やすい"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "topic": "走っている st09・st13 への響き方",
+      "kind": "open",
+      "question": "検査が main に入ると、走っている st09 と st13 は rebase した後に、自分の足した手書きの一時フォルダで検査に落ちます。どう扱いますか。",
+      "why": "範囲の問い。失われるものは無く、後から切り替えられる。手間の置き場所だけが違う。",
+      "context": "`origin/main` との差分で数えると、足しているのは st09 が 7 か所（うち androidTest 2。/tmp の `st09-media*` 2,221 個はここから）、st13 が 4 か所。ch01・ch02 は 0。merge gate は main に rebase して CI を通すので、落ちればその Story の `fix` が直す（エラーの文言が何を使えばよいかを書く）。**検査とは別に、本文の衝突は選択肢に依らず起きうる**: CH03 が書き直す `archive_flow_tests.rs`・`archive_tests.rs`（st13）、`archive_tests.rs`・`export_file_tests.rs`・`ci.yml`（st09）、`export_file_tests.rs`（ch02）、`crates/server/Cargo.toml`（st09・st13）、`build.gradle.kts`（ch01）。後から merge する側が rebase で追従する（merge の順は決めない）。 **検査のほかに、コンパイルも通らなくなる**: Kotlin の手伝いはフォルダを引数で受け取る形に変わる（C2）ので、st09（`testOutbox()`・`testHeartbeatOutbox()`・`TestStores()` の既定の引数）と st13（`testHeartbeatOutbox()`）は rebase の後に試験が組めず、検査の直しと同じ fix で直す（選択肢に依らない。commit 前の検査が木の全体を見るので、直しは 1 つの commit にまとめる）。Rust の `Inbox` は形を残すので st13 の 31 か所は壊れない。ch01 は `docs/testing.md` も直している（review/spec.md R5）。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "木の全体に当てる。st09・st13 は rebase の後、それぞれの gate → fix で直す",
+          "detail": "再発が main に入る道が無くなる。st09 と st13 に fix が 1 回ずつ増えうる（Q1 の推奨なら st09 の androidTest の 2 か所は落ちない）",
+          "recommended": true
+        },
+        {
+          "label": "main との差分の追加行だけを見る",
+          "detail": "st09・st13 も追加行で落ちるので、手間はほぼ同じ。差分の基準の取り方を検査が持つ分だけ複雑"
+        },
+        {
+          "label": "st09・st13 の merge が済んでから検査を有効にする（それまでは警告だけ）",
+          "detail": "2 本に検査の手間をかけない（本文の衝突は残る）。その間に入った漏れは CH03 の後に別の直しが要る"
+        }
+      ]
+    },
+    {
+      "id": "Q5",
+      "topic": "「一時フォルダに残るものが増えない」の確かめ方",
+      "kind": "open",
+      "question": "依頼 3 の「テストを一通り走らせた前後で /tmp に残るものが増えない」を、どう確かめますか。",
+      "why": "検証の形。コマンドを書き換えれば戻る。",
+      "context": "/tmp は並走する Story・change の試験も同時に書くので、/tmp そのものの前後を比べると他所の漏れで落ちる。Rust は `TMPDIR` を読む。JVM の `java.io.tmpdir` は `TMPDIR` を読まないので、`build.gradle.kts` から試験の JVM へ渡す変更が要る（知識。ch01 も同じファイルを直している）。走らずに「空」で通る落とし穴: Gradle の `UP-TO-DATE`、DB が無くて server の試験がフォルダを作る前に落ちる、`TMPDIR` を cargo 全体に向けると rustc がそこへ一時ファイルを置く。もう 1 つ: 手伝いの早すぎる drop（C1）で作り直された置き場の漏れは、Q2 の検査の grep では拾えず、この確かめでしか拾えない。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "CI の既存の試験の段（ubuntu の `cargo test --workspace` と `:app:testDebugUnitTest`）で、一時フォルダを空のフォルダへ向けて走らせ、終わった後に空であることと走った試験の数が 1 以上であることを見る。手元の台本（`tools/tmp-leak-check.sh`）も同じことをし、下流の Task の検証にする",
+          "detail": "試験をもう 1 回走らせずに、毎回の CI で漏れを測れる（早すぎる drop の漏れも拾う）。cargo は `--no-run` でビルドしてから `TMPDIR` を向けて走らせ、Gradle は `--rerun`。本物の Windows の `runtime_windows` と Android の計測試験は入れない（ホストの /tmp を使わない）",
+          "recommended": true
+        },
+        {
+          "label": "手元の台本だけにし、下流の Task の検証にする（CI には入れない）",
+          "detail": "CI を変えない。CH03 の後に入った早すぎる drop の漏れは、次に誰かが台本を走らせるまで見えない"
+        },
+        {
+          "label": "/tmp の前後の項目の数を比べる",
+          "detail": "依頼の文言に近い。並走があると誤検知する"
+        }
+      ]
+    },
+    {
+      "id": "Q6",
+      "topic": "今 /tmp にある残り",
+      "kind": "open",
+      "question": "今 /tmp にある ashiato の試験の残り（`ashiato-export*` 196・`outbox*` 5,145・`st04*` 2,855・`st09-media*` 2,221 など、約 0.45G）を、この change で消しますか。",
+      "why": "範囲の問い。消すのは手で 1 回やれば済み、仕組みには残らない。",
+      "context": "/tmp は tmpfs で、再起動で空になる。今は 15%。試験の名前の頭は汎用の語（`clock`・`legacy`・`counters`・`outbox`・`st`）で、/tmp には試験でないセッションの作業ファイル（`st33_res.py`・`st41-list.txt`・`st29go` など）が同じ頭で並んでいる。走っている試験が使っている最中のフォルダもある。約 1.6G の harness2 の残り（`tmpXXXXXXXX`）は CH03 の外。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "この change では消さない（仕組みにしない）。要るなら人が手で消すか、再起動",
+          "detail": "試験でないファイルも、使っている最中のものも消さない。直した後は増えない",
+          "recommended": true
+        },
+        {
+          "label": "名前の頭と古さ（例: 1 日より前）で消す台本を tools/ に足す",
+          "detail": "手で消す手間が無くなる。頭の一覧を持ち続ける必要がある",
+          "irreversible": "頭が汎用の語なので、試験でないファイル（例: /tmp/st33_res.py）も消しうる。消したものは戻らない"
+        }
+      ]
+    },
+    {
+      "id": "Q7",
+      "topic": "殺された試験の残り",
+      "kind": "open",
+      "question": "試験が殺されたとき（timeout・Ctrl-C の強制終了・OOM・Gradle の worker の kill）は、TempDir の drop も TemporaryFolder の後始末も走らず残ります。これをどう扱いますか。",
+      "why": "「落ちても消える」の族の残り。後から足せる。",
+      "context": "panic と assert の失敗には drop が走る（unwind）。SIGKILL では何も走らない。`scripts/quiet-run` や verify の timeout は殺す側。/tmp の `tmp.*`（bash の mktemp）7 個のうち 6 個は trap のある台本の形で、殺された run の残りと読める。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "残ってよい（再起動か手で消す）。この change は普通に終わる・落ちる試験の後始末だけ",
+          "detail": "仕組みが要らない。殺されるのはまれで、量は 1 回分",
+          "recommended": true
+        },
+        {
+          "label": "試験の一時フォルダを run ごとの 1 つの根（例: worktree の `target/tmp`）にまとめ、殺されても 1 か所を消せば済むようにする",
+          "detail": "殺された残りも片付けやすい。CI と手元の両方で一時フォルダの向け先を管理する手間が増える"
+        }
+      ]
+    },
+    {
+      "id": "Q8",
+      "topic": "失敗した試験の中身を後から見る口",
+      "kind": "open",
+      "question": "いまは失敗した試験の一時フォルダが残り、後から中身を覗けます。CH03 の後は消えます。残す口を持ちますか。",
+      "why": "振る舞いを変えない change で「変わってしまう振る舞い」。後から足せる。",
+      "context": "下流の fix の agent が落ちた試験の書き出しを読む、といった道が無くなる。いまは残す口が無い（`KEEP_TMP`・`keep()`・`into_path` は 0 件）。残す口を持つなら、Q2 の検査の「後始末を外す口」の例外になる。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "持たない。中身が要るときはもう一度走らせて再現する",
+          "detail": "検査に例外が無く、単純。試験は決まった入力で再現する",
+          "recommended": true
+        },
+        {
+          "label": "環境変数（例: `ASHIATO_KEEP_TEST_TMP=1`）のときだけ残す",
+          "detail": "落ちた試験をその場で調べられる。手伝いに分岐が 1 つ入り、検査はその手伝いだけを例外にする"
+        }
+      ]
+    }
+  ]
+}
