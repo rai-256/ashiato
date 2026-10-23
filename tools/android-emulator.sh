@@ -42,6 +42,9 @@ adb shell settings put global window_animation_scale 0 >/dev/null
 adb shell settings put global transition_animation_scale 0 >/dev/null
 adb shell settings put global animator_duration_scale 0 >/dev/null
 
+echo "== 計測テストの写真と動画を入れる（別のアプリが入れたものとして。ST09）"
+./tools/android-media-fixtures.sh
+
 echo "== 計測テスト"
 # -Pashiato.baseUrl は平文 HTTP を 127.0.0.1（端末の中のテスト用サーバ）へ許すためだけ。送信先には使われない
 # **2 段に分ける。** 権限を拒否したときのテスト（@NeedsPristinePermissions）は「未許可・未要求」から
@@ -57,19 +60,34 @@ A=dev.ashiato.collector.NeedsPristinePermissions
 # `appops get dev.ashiato.collector GET_USAGE_STATS` → `allow`）。入っていなければ何もしない。
 adb uninstall dev.ashiato.collector.test >/dev/null 2>&1 || true
 adb uninstall dev.ashiato.collector >/dev/null 2>&1 || true
+# **段ごとの結果の XML を別の置き場に残す**（ST17 deep QR1・ST09 deep Q18）。結果のファイル名は端末ごとに 1 つ
+# （`TEST-<AVD>-_app-.xml`）で、次の段が同じ名前で上書きする —— 前の段のクラスが走ったかを後から数えられなかった。
+# 置き場は `androidTest-results-stage<N>`。検証はファイル名でなく XML の中のクラス名（`classname="…"`）で数える
+OUT=collector-android/app/build/outputs
+STAGE=0
+keep_stage() {
+  STAGE=$((STAGE + 1))
+  rm -rf "$OUT/androidTest-results-stage$STAGE" && mkdir -p "$OUT/androidTest-results-stage$STAGE"
+  find "$OUT/androidTest-results" -name 'TEST-*.xml' -exec cp {} "$OUT/androidTest-results-stage$STAGE"/ \;
+}
+rm -rf "$OUT"/androidTest-results-stage*  # 前の実行の段の XML を数えない
 # 採寸専用テストは usage access の許可とイベント生成を `tools/usage-volume.sh` が準備して明示実行する。
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.notAnnotation="$A" \
    -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.UsageVolumeInstrumentedTest")
-# **1 段目の結果の XML を別の置き場に残す**（ST17 deep QR1）。結果のファイル名は端末ごとに 1 つ
-# （`TEST-<AVD>-_app-.xml`）で、2 段目が同じ名前で上書きする —— 1 段目のクラスが走ったかを後から数えられなかった。
-# 検証はクラス名（`classname="…"`）で数える
-STAGE1=collector-android/app/build/outputs/androidTest-results-stage1
-rm -rf "$STAGE1" && mkdir -p "$STAGE1"
-find collector-android/app/build/outputs/androidTest-results -name 'TEST-*.xml' -exec cp {} "$STAGE1"/ \;
+keep_stage
 adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
-   -Pandroid.testInstrumentationRunnerArguments.annotation="$A")
+   -Pandroid.testInstrumentationRunnerArguments.annotation="$A" \
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.MediaPremisesInstrumentedTest")
+keep_stage
+# MediaPremises は 1 本目が写真の権限を許可して残す。同じ run で後ろに並んだ PermissionDenied が「写真の権限が無い」前提を
+# 失うので、3 段目に分けて権限を戻してから単独で走らせる（クラスの並びは dex 次第で、クラスを足すと変わる）
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.MediaPremisesInstrumentedTest")
+keep_stage
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
-echo "== 結果: collector-android/app/build/reports/androidTests/connected/（1 段目の XML は $STAGE1）"
+echo "== 結果: collector-android/app/build/reports/androidTests/connected/（段ごとの XML は $OUT/androidTest-results-stage1〜$STAGE）"

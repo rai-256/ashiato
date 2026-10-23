@@ -26,6 +26,10 @@ pub struct HeartbeatRequest {
     pub attempts: i32,
     /// そのうち成功した回数（同上）
     pub successes: i32,
+    /// 送る契機の時点で接続があったか（ST09 / design D7）。無い要求は `None`（分からない）。
+    /// `capturable` とは別に残す —— 圏外の写真は取れる状態のまま、接続が無かったことだけが行に残る
+    #[serde(default)]
+    pub network: Option<bool>,
     /// 収集側から受け取った原文。**素通しで残す**（0003 と同じ理由で `text`）
     pub raw: String,
 }
@@ -100,6 +104,7 @@ mod tests {
             blockers: vec![],
             attempts: 360,
             successes: 230,
+            network: None,
             raw: r#"{"alive":true}"#.into(),
         }
     }

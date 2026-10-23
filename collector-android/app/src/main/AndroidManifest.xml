@@ -43,6 +43,13 @@
     <!-- FR-3 写真の位置。宣言しないと OS が EXIF の位置を落として返す（EXT-D） -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- ST09 Q6/Q5: 動画の一覧（メタだけ）を読む。Task 2 の計測テスト（P12: 動画の入れ物の位置）が先に要る。
+         要求の流れは MainActivity（位置の後に写真と動画と写真の位置をまとめて求める。design D6） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Android 14 以降の「選んだ写真だけ」。宣言が無いとこの選び方が出ず、全部か何もかの二択になる -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <!-- minSdk 30 の端末（32 以下）は READ_MEDIA_* が無く、この 1 本が写真と動画の読み取りを兼ねる -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- FR-11 健康データの履歴。**宣言しない期間の 30 日より前は永久に読めない**（EXT-C） -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />

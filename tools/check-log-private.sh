@@ -200,6 +200,45 @@ def check_kotlin(path, text, names):
     return out
 
 
+# `Telemetry.line(kind, source, count, elapsedMs, error)` の文字列の引数に渡してはいけない値の名前（review/code.md R18）。
+# Telemetry.line は値を素通しで足すので、呼び出しの形だけを見ていると `error = row.sha256` が通る。
+# 語の一覧や `e.javaClass.simpleName` は通し、位置・名前・保存先・内容ハッシュ・原文・media_id を指す名前だけを断る
+TELEMETRY_TEXT_ARGS = ("kind", "source", "count", "elapsedMs", "error")
+SENSITIVE = {"sha256", "sha", "hash", "digest", "contenthash", "path", "relativepath", "displayname", "filename",
+             "name", "uri", "url", "mediaid", "latitude", "longitude", "lat", "lon", "lng", "raw", "text", "title",
+             "body", "payload", "dir", "folder", "file"}
+
+
+def telemetry_tokens(expr):
+    """式の中の名前。文字列リテラルの地の文は除き、テンプレート（`$x` / `${x.y}`）の中は拾う。"""
+    tokens = []
+    for m in STR.finditer(expr):
+        lit = m.group(0)
+        for t in re.findall(r"\$\{([^}]*)\}|\$([A-Za-z_]\w*)", lit):
+            tokens += re.findall(r"[A-Za-z_]\w*", t[0] or t[1])
+    tokens += re.findall(r"[A-Za-z_]\w*", STR.sub('""', expr))
+    return tokens
+
+
+def check_telemetry_args(path, text):
+    out, lines = [], text.splitlines()
+    for m in re.finditer(r"\bTelemetry\.line\s*\(", text):
+        ln = text.count("\n", 0, m.start()) + 1
+        if lines[ln - 1].lstrip().startswith(("//", "*", "/*")) or marked(lines, ln):
+            continue
+        for i, a in enumerate(split_args(text[m.end():balanced(text, m.end())])):
+            named = re.match(r"^(\w+)\s*=(?!=)\s*(.*)$", a, re.S)
+            name, expr = (named.group(1), named.group(2)) if named else (
+                TELEMETRY_TEXT_ARGS[i] if i < len(TELEMETRY_TEXT_ARGS) else "?", a)
+            if name not in ("kind", "source", "error"):
+                continue
+            bad = sorted({t for t in telemetry_tokens(expr) if t.lower() in SENSITIVE})
+            if bad:
+                out.append(f"{path}:{ln}: Telemetry.line の {name} に `{', '.join(bad)}` を渡している "
+                           f"`{expr[:50]}`（位置・名前・保存先・内容ハッシュ・原文・media_id はログに出さない。種別の語か例外のクラス名を渡す）")
+    return out
+
+
 def check_ts(path, text):
     out, lines = [], text.splitlines()
     for m in re.finditer(r"\bconsole\.(log|info|warn|error|debug)\s*\(", text):
@@ -224,6 +263,7 @@ def scan():
     names = callback_names(texts.values())
     for p, t in texts.items():
         out += check_kotlin(p, t, names)
+        out += check_telemetry_args(p, t)
     for p in files("web/src/*.ts", "web/src/*.tsx"):
         if "__tests__" in p or p.endswith((".test.ts", ".test.tsx")):
             continue
@@ -263,6 +303,17 @@ def self_test():
         got = len(check_kotlin("t.kt", "fun f() {\n    " + src + "\n}\n", names))
         if (got > 0) != (want > 0):
             fails.append(f"Kotlin {name}: 期待 {'違反' if want else '通る'} / 実際 {got} 件")
+    tl = {
+        "内容ハッシュを error に": ('log(Telemetry.line("original_try", source = null, count = 1, error = row.sha256))', 1),
+        "位置の名前をテンプレートで": ('log(Telemetry.line("x", source = null, error = "p=${item.relativePath}"))', 1),
+        "名前を位置引数で": ('log(Telemetry.line("x", null, 1, null, displayName))', 1),
+        "例外のクラス名": ('log(Telemetry.line("x", source = s, error = e.javaClass.simpleName))', 0),
+        "語の一覧": ('log(Telemetry.line("x", source = null, error = reason.wire))', 0),
+    }
+    for name, (src, want) in tl.items():
+        got = len(check_telemetry_args("t.kt", "fun f() {\n    " + src + "\n}\n"))
+        if (got > 0) != (want > 0):
+            fails.append(f"Kotlin Telemetry の引数 {name}: 期待 {'違反' if want else '通る'} / 実際 {got} 件")
     if len(check_ts("t.ts", "console.log(x)\n")) != 1:
         fails.append("TypeScript console.log を見逃した")
     if fails:

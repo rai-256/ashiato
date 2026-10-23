@@ -29,7 +29,14 @@ done
 hbtest=collector-android/app/src/test/kotlin/dev/ashiato/collector/HeartbeatContractTest.kt
 kt_fields=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$hbtest" \
   | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
-api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' docs/openapi.json | sort)
+# `network`（ST09 / D7）は**任意の欄**で、無いときは欄ごと送らない（Kotlin は `EncodeDefault.NEVER`）。
+# 常に出る欄の一覧には混ぜず、収集側が名前を持っていることだけを別に見る。
+api_fields=$(jq -r '.components.schemas.HeartbeatRequest.properties | keys[]' docs/openapi.json | grep -vx network | sort)
+hbkt=collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt
+jq -e '.components.schemas.HeartbeatRequest.properties.network' docs/openapi.json >/dev/null \
+  && grep -q 'const val NETWORK = "network"' "$hbkt" \
+  && grep -qE '[a-z]+\["network"\] = ' "$hbkt" \
+  || { echo "  NG 生存信号の任意の欄 network が契約か収集側に無い（$hbkt）"; bad=1; }
 if [ "$kt_fields" != "$api_fields" ]; then
   echo "  NG 生存信号の欄が契約とずれている"
   diff <(echo "$api_fields") <(echo "$kt_fields") | sed 's/^/     /'

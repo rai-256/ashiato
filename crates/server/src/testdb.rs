@@ -187,6 +187,18 @@ pub async fn source_registered_on(
     name
 }
 
+/// メディアのソース（収集開始日を生存信号だけで決める。ST09 / design D13）を登録簿へ置く。
+/// 印は本物の 4 つと同じ `heartbeat`。
+pub async fn source_media(pool: &sqlx::PgPool, prefix: &str) -> String {
+    let name = source(pool, prefix, 21_600).await;
+    sqlx::query("UPDATE core.source SET started_on_basis = 'heartbeat' WHERE logical_source = $1")
+        .bind(&name)
+        .execute(pool)
+        .await
+        .unwrap();
+    name
+}
+
 /// 退役した日を置く（FR-54 / FR-61。ST03 の R56 —— **真偽値ではなく日付**）。
 pub async fn retire(pool: &sqlx::PgPool, source: &str, day: &str) {
     sqlx::query("UPDATE core.source SET retired_on = $2::date WHERE logical_source = $1")
