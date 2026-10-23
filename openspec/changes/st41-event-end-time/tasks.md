@@ -78,10 +78,10 @@
 
 ## Task 3: 同じ記録の鍵と更新の経路（Q7）
 
-- [ ] 3.1 `ingest.rs` の単体試験に `st41_hash_with_end_is_pinned` を置く —— `// Scenario: 終わりつきの記録の内容ハッシュは、終わりを持たない同じ記録と同じ値になる`。
+- [x] 3.1 `ingest.rs` の単体試験に `st41_hash_with_end_is_pinned` を置く —— `// Scenario: 終わりつきの記録の内容ハッシュは、終わりを持たない同じ記録と同じ値になる`。
   `req(Uuid::nil(), "x")` と、それに終わり（2025-09-04T16:33:20Z・540・`Asia/Tokyo`）を足したものの `content_hash` がどちらも `39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1`。
   検証: `bash -c 'scripts/quiet-run unit -- cargo test -p ashiato-server --lib st41_hash'` rc=0（`-- --list` で 1 本以上）
-- [ ] 3.2 先に試験を書く（`end_time_tests.rs`）:
+- [x] 3.2 先に試験を書く（`end_time_tests.rs`）:
   - `st41_update_end_arrives_later_by_external_id` — `// Scenario: 進行中を終わりなしで送り、同じ外部の識別子で終わりつきを送ると終わりが入る`
   - `st41_update_end_only_change_keeps_previous_end` — `// Scenario: 終わりだけを直した版は、前の終わりを履歴に残す`
   - `st41_update_version_without_end_clears_end` — `// Scenario: 終わりを持たない版が届くと、記録の終わりは空になり前の終わりは履歴に残る`
@@ -95,7 +95,7 @@
   - `st41_dedup_deleted_external_stays_deleted_on_end_only_difference` — `// Scenario: 外部の識別子のある削除済みの記録も、終わりだけが違う版で戻らない`
   「収集した」由来（`origin = collected`）で置き、更新が門（Task 1）を通ることも同じ試験で見る。いまの木で `st41_update_end_arrives_later_by_external_id`・
   `st41_update_end_only_change_keeps_previous_end`・`st41_update_version_without_end_clears_end` の 3 本が落ちることを `CT st41_update_end_` rc≠0 で確かめてから 3.3 に進む
-- [ ] 3.3 `lib.rs` の `Stored` に 3 列、`load_stored` の SELECT に 3 列、更新の判定を design D7 の式に、`apply_external_update` の前の版の INSERT と本表の UPDATE に 3 列を足す。
+- [x] 3.3 `lib.rs` の `Stored` に 3 列、`load_stored` の SELECT に 3 列、更新の判定を design D7 の式に、`apply_external_update` の前の版の INSERT と本表の UPDATE に 3 列を足す。
   `advance_watermark` の経路（内容も終わりも同じ）は変えない。
   検証: `CT st41_update_` rc=0（`-- --list` で 8 本以上）/ `CT st41_dedup_` rc=0（`-- --list` で 3 本以上）/ `CT dedup_` rc=0（`-- --list` で 30 本以上）
 
