@@ -433,6 +433,7 @@ const ja = {
     noteOver: (n: string, max: string): string => `${n} / ${max} 文字 · 長すぎます`,
     resend: "もう一度送る",
     saved: (value: string, at: string, date: string): string => `保存しました: ${value} · 記入 ${at}（対象の日 ${date}）`,
+    keptAsReview: "振り返りとして残しました",
     held: (max: string): string => `ひとことが長すぎるので保存していません（${max} 文字まで）`,
     unreachable: "サーバに届きませんでした。選んだ値とひとことはそのまま残っています",
     rejection: {

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "CH01-feel",
+    "story": "CH01",
+    "spec": "tools/recording/ch01/ch01-feel.rec.ts",
+    "requires": [
+      "web/e2e/feel-ch01.spec.ts",
+      "web/e2e/global-setup.ts",
+      "web/src/FeelView.tsx"
+    ],
+    "note": "CH01（ST17 の /code-review の 9 件。幅 360 px・暗）: 主観の読み出しの失敗が日の欄と暦に出る → 滞在の行（09-11）で断られた値は印に残らない（記録あり・記録なし）→ 届かなかった値は印に残る → 開いたまま日の終わりをまたぐ（23:59 に +1 は「前」、00:01 に -1 は「後」で「振り返りとして残しました」）→ 届かずに 00:01 に送り直した記録は「前」で知らせない。断り・届かない・読み出しの失敗は route の差し替えで DB に書かない。書く工程は乱数で選んだ 2100 年以降の日（`page.clock`）。アサーションは `web/e2e/feel-ch01.spec.ts` の写し"
+  }
+]

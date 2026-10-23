@@ -47,11 +47,18 @@ let posts: { raw: string; body: Record<string, unknown> }[] = [];
 let ingest: () => Response | Promise<Response> = accepted;
 let records: Feeling[] = [];
 let gets: string[] = [];
+let feelingsFail = false;
+/** `/api/stays` が返す滞在の行（既定は無し）と、その滞在に付く記録 */
+let stayEntries: Record<string, unknown>[] = [];
+let stayRecords: Feeling[] = [];
 
 beforeEach(() => {
   seq = 0;
   posts = [];
   gets = [];
+  feelingsFail = false;
+  stayEntries = [];
+  stayRecords = [];
   records = [];
   ingest = accepted;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -67,11 +74,14 @@ beforeEach(() => {
           return r;
         });
       }
-      if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: [] }));
+      if (url.startsWith("/api/stays")) return Promise.resolve(json(200, { date: "", criteria: [], entries: stayEntries }));
       if (url.startsWith("/api/feelings/reminder")) return Promise.resolve(json(200, { at: "21:00", recorded: false }));
       gets.push(url);
-      const date = /from=([\d-]+)/.exec(url)?.[1] ?? "";
-      return Promise.resolve(json(200, view(date, records)));
+      if (feelingsFail) return Promise.resolve(json(500, {}));
+      const date = /to=([\d-]+)/.exec(url)?.[1] ?? "";
+      const v = view(date, records) as { days: { stays: unknown[] }[] };
+      if (stayRecords.length > 0) v.days[0].stays = [{ stay: "stay-1", latest: { before: stayRecords[0], after: null }, records: stayRecords }];
+      return Promise.resolve(json(200, v));
     }),
   );
 });
@@ -98,6 +108,12 @@ const sent = async (n: number): Promise<void> => {
     expect(posts).toHaveLength(n);
   });
 };
+/** 読み出しと再描画が落ち着くまで待つ（`Date` だけ偽物なので、タイマーは本物で進む）。 */
+const settle = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 100));
+  });
+};
 const scalesOf = (i: number): { id: string; value: number }[] => posts[i].body.scales as { id: string; value: number }[];
 
 describe("押した瞬間に保存する", () => {
@@ -121,7 +137,7 @@ describe("押した瞬間に保存する", () => {
     render(<Root />);
     const title = await screen.findByTestId("feel-title");
     expect(title.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-08");
-    expect(gets[0]).toContain("from=2026-10-08");
+    expect(gets[0]).toContain("to=2026-10-08");
   });
 
   // Scenario: 暦に無い日付のアドレスは書く操作を出さない
@@ -156,7 +172,7 @@ describe("押した瞬間に保存する", () => {
       expect(window.location.hash).toBe("#/feel/2026-10-07");
     });
     await waitFor(() => {
-      expect(gets.some((u) => u.includes("from=2026-10-07"))).toBe(true);
+      expect(gets.some((u) => u.includes("to=2026-10-07"))).toBe(true);
     });
     await screen.findByTestId("valence-1");
     press("valence-1");
@@ -171,7 +187,7 @@ describe("押した瞬間に保存する", () => {
     await screen.findByTestId("valence-1");
     press("feel-next");
     await waitFor(() => {
-      expect(gets.some((u) => u.includes("from=2026-10-09"))).toBe(true);
+      expect(gets.some((u) => u.includes("to=2026-10-09"))).toBe(true);
     });
     await screen.findByTestId("valence-1");
     press("valence-1");
@@ -329,6 +345,8 @@ describe("送れなかったとき", () => {
     expect(bad.textContent).toContain("ひとことが長すぎます（2,000 文字まで）");
     expect(bad.textContent).not.toContain("サーバに届きませんでした");
     expect(note().value).toBe("断られる");
+    // 日の欄は断られても押した値を残す（本人の決定 Q4。review/code.md R15）
+    expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByTestId("feel-resend")).toBeNull();
   });
 });
@@ -443,5 +461,259 @@ describe("開いたとき", () => {
     expect(screen.queryAllByRole("button", { name: /書き換|削除|消す|直す|編集/ })).toHaveLength(0);
     expect(within(screen.getByTestId("feel-history")).queryAllByRole("button")).toHaveLength(0);
     expect(posts).toHaveLength(0);
+  });
+});
+
+describe("主観の読み出しは 30 日の 1 回", () => {
+  // Scenario: 読み出しの失敗は日の欄にも出る
+  it("読み出しが失敗した状態で開くと、日の欄と暦の両方に失敗が出て、快–不快のボタンはどれも押されていない", async () => {
+    feelingsFail = true;
+    await open();
+    expect((await screen.findByTestId("feel-notice")).textContent).toContain("気分を読み出せませんでした");
+    expect((await screen.findByTestId("feel-calendar-failed")).textContent).toContain("暦を読み出せませんでした");
+    // ボタンが無ければ落とす（無いまま検査を抜けない）
+    for (const v of [-2, -1, 0, 1, 2]) expect(screen.getByTestId(`valence-${v}`).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("開くと /api/feelings を対象の日で終わる 30 日で 1 回だけ読み、快–不快を押して受理された後に 1 回だけ増える", async () => {
+    await open();
+    await screen.findByTestId("feel-calendar");
+    expect(gets).toHaveLength(1);
+    expect(gets[0]).toBe("/api/feelings?from=2026-09-09&to=2026-10-08");
+    press("valence-1");
+    await sent(1);
+    await screen.findByTestId("feel-notice-ok");
+    await waitFor(() => {
+      expect(gets).toHaveLength(2);
+    });
+    // 2 回目を待っただけでは、後から来る 3 回目を捕まえない。落ち着くまで待ってから厳密に数える
+    await settle();
+    expect(gets).toHaveLength(2);
+    expect(gets[1]).toBe(gets[0]);
+  });
+});
+
+describe("滞在の行は断られたら押された印を戻し、届かなかったら残す", () => {
+  const STAY = { kind: "stay", id: "stay-1", start: "2026-10-08T10:00:00+09:00", end: "2026-10-08T10:40:00+09:00" };
+  const rejected = (): Response => json(400, [{ id: null, duplicate: false, accepted: false, error: "invalid_feeling_target" }]);
+  const pressed = (testid: string): string | null => screen.getByTestId(testid).getAttribute("aria-pressed");
+
+  async function openStay(): Promise<void> {
+    stayEntries = [STAY];
+    await open();
+    await screen.findByTestId("feel-stay-row");
+  }
+
+  // Scenario: 滞在の行で断られた値は押された状態に残らない
+  it("+1 の記録がある滞在の行の「とても不快」が断られると、断られた文が出て、+1 が押された状態に戻り -2 は押されていない", async () => {
+    stayRecords = [rec(1, { target_stay: "stay-1" })];
+    ingest = rejected;
+    await openStay();
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    press("stay-stay-1--2");
+    await sent(1);
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await waitFor(() => {
+      expect(pressed("stay-stay-1--2")).toBe("false");
+    });
+    expect(pressed("stay-stay-1-1")).toBe("true");
+  });
+
+  // Scenario: 記録の無い滞在の行で断られるとどれも押されていない
+  it("記録の無い滞在の行の「快」が断られると、断られた文が出て、その行のどのボタンも押されていない", async () => {
+    ingest = rejected;
+    await openStay();
+    press("stay-stay-1-1");
+    await sent(1);
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await waitFor(() => {
+      expect(pressed("stay-stay-1-1")).toBe("false");
+    });
+    for (const v of [-2, -1, 0, 1, 2]) expect(pressed(`stay-stay-1-${v}`)).toBe("false");
+  });
+
+  // Scenario: 滞在の行で届かなかった値は押された状態に残る
+  it("要求が届かない状態で滞在の行の「快」を押すと、届かなかった文（断られた文と違う）が出て、+1 が押された状態で残る", async () => {
+    ingest = () => Promise.reject(new TypeError("network"));
+    await openStay();
+    press("stay-stay-1-1");
+    const bad = await screen.findByTestId("feel-notice-bad");
+    expect(bad.textContent).toContain("サーバに届きませんでした");
+    expect(bad.textContent).not.toContain("書けませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+  });
+
+  // 応答の届く順が押した順と入れ替わっても、後から押した値の印は消えない（review/code.md R4）。
+  // -2 を押す → 返事待ちの間に +1 を押す → +1 が「届かなかった」で先に返る → -2 が「断られた」で後に返る。
+  // 断られた枝が外すのは、印が断られた値のときだけ（design D5 は断られた値を戻すのであって、後から押した値を消すのではない）
+  it("-2 の返事待ちに +1 を押し、+1 が届かず先に返って -2 が断られて後に返ると、+1 の印と送り直しが残る", async () => {
+    let refuseFirst: (r: Response) => void = () => undefined;
+    const first = new Promise<Response>((resolve) => {
+      refuseFirst = resolve;
+    });
+    let calls = 0;
+    ingest = () => {
+      calls += 1;
+      return calls === 1 ? first : Promise.reject(new TypeError("network"));
+    };
+    await openStay();
+    press("stay-stay-1--2");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    await act(async () => {
+      refuseFirst(rejected());
+      await first;
+    });
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    expect(pressed("stay-stay-1--2")).toBe("false");
+    // 届かなかった +1 は送り直しを待っている
+    ingest = accepted;
+    press("feel-resend");
+    await sent(2);
+    expect(scalesOf(1)).toEqual([{ id: "valence", version: 1, value: 1 }]);
+  });
+
+  /** 1 回目の送信だけ返事を止めておき、2 回目からは `later` の順に返す。止めた 1 回目は戻り値の関数で返す。 */
+  function holdFirst(...later: (() => Response | Promise<Response>)[]): (r: Response) => Promise<void> {
+    let release: (r: Response) => void = () => undefined;
+    const first = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    ingest = () => {
+      calls += 1;
+      return calls === 1 ? first : later[Math.min(calls - 2, later.length - 1)]();
+    };
+    return async (r: Response) => {
+      await act(async () => {
+        release(r);
+        await first;
+      });
+    };
+  }
+  const unreachable = (): Promise<Response> => Promise.reject(new TypeError("network"));
+
+  // 先に押した 1 件が後から受理されても、後から押して届かなかった値の送り直しは消えない（review/code.md R10・R17）
+  it("-2 の返事待ちに +1 を押し、+1 が届かず先に返って -2 が受理されて後に返ると、+1 の印と送り直しが残る", async () => {
+    const answerFirst = holdFirst(unreachable);
+    await openStay();
+    press("stay-stay-1--2");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    await answerFirst(accepted());
+    expect((await screen.findByTestId("feel-notice-ok")).textContent).toContain("保存しました");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    ingest = accepted;
+    press("feel-resend");
+    await sent(2);
+    expect(scalesOf(1)).toEqual([{ id: "valence", version: 1, value: 1 }]);
+  });
+
+  // 断られた 1 件と同じ値を後から押し直していても、その印は消えない（印を外すのは、断られた 1 件が最後に押したものだけ。R18）
+  it("+1 の返事待ちに +2（受理）→ +1（届かない）と押し、最初の +1 が断られて後に返ると、+1 の印と送り直しが残る", async () => {
+    const answerFirst = holdFirst(accepted, unreachable);
+    await openStay();
+    press("stay-stay-1-1");
+    press("stay-stay-1-2");
+    await screen.findByTestId("feel-notice-ok");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    await answerFirst(rejected());
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await settle();
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    expect(screen.getByTestId("feel-resend")).toBeTruthy();
+  });
+
+  // 滞在の行の失敗は、日の欄のひとことの控えを古い値に戻さない（戻すと、受理されたひとことを欄を離れたときにもう一度送る。R21）
+  it("滞在の行の返事待ちに、ひとことを書いて日の欄の「快」を押して受理され、滞在の行が断られて後に返ると、欄を離れても日の記録を送り直さない", async () => {
+    const answerFirst = holdFirst(accepted);
+    await openStay();
+    press("stay-stay-1-1");
+    typeNote("b");
+    press("valence-1");
+    await screen.findByTestId("feel-notice-ok");
+    await answerFirst(rejected());
+    await screen.findByTestId("feel-notice-bad");
+    await settle();
+    fireEvent.blur(note());
+    await settle();
+    expect(posts).toHaveLength(2);
+  });
+});
+
+describe("開いたまま日の終わりをまたいで押す", () => {
+  /** JST 2026-10-07 23:58 に 2026-10-07 の画面を開く。 */
+  async function openBeforeMidnight(): Promise<void> {
+    vi.setSystemTime(new Date("2026-10-07T14:58:00Z"));
+    window.location.hash = "#/feel/2026-10-07";
+    await open("2026-10-07");
+  }
+  const at = (iso: string): void => {
+    vi.setSystemTime(new Date(iso));
+  };
+  /** 送った原文の記入の日時（時点）。オフセットは端末の時間帯なので、CI（UTC）でも手元（JST）でも時点で比べる。 */
+  const writtenAt = (i: number): number => Date.parse(posts[i].body.written_at as string);
+
+  // Scenario: 開いたまま日の終わりをまたいで押した記録は後として格納される
+  it("23:58 に開いて 00:01 に「不快」を押すと、送る原文の記入の日時は翌日の 00:01（サーバはこれで「後」に決める）", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T15:01:00Z");
+    press("valence--1");
+    await sent(1);
+    expect(posts[0].body.target).toEqual({ kind: "day", date: "2026-10-07" });
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-08T00:01:00+09:00"));
+  });
+
+  // Scenario: 開いたまま日の終わりをまたいで押すと振り返りとして残したと出る
+  it("「前」に +1 がある日を 23:58 に開き 00:01 に「不快」を押すと、保存と「振り返りとして残しました」が出て、-1 が押され、「前に書いた」と +1 が見える", async () => {
+    records = [rec(1, { phase: "before" })];
+    await openBeforeMidnight();
+    expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("true");
+    at("2026-10-07T15:01:00Z");
+    press("valence--1");
+    await sent(1);
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).toContain("振り返りとして残しました");
+    await waitFor(() => {
+      expect(screen.getByTestId("valence--1").getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("false");
+    });
+    const other = screen.getByTestId("feel-other").textContent ?? "";
+    expect(other).toContain("前に書いた");
+    expect(other).toContain("+1");
+  });
+
+  // Scenario: 日の終わりをまたがずに押すと振り返りの知らせは出ない
+  it("23:58 に開いて 23:59 に「快」を押すと、保存は出て「振り返りとして残しました」は出ない", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T14:59:00Z");
+    press("valence-1");
+    await sent(1);
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-07T23:59:00+09:00"));
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).not.toContain("振り返りとして残しました");
+  });
+
+  // Scenario: 日をまたいでから届いた送り直しは振り返りの知らせを出さない
+  it("23:59 に届かない状態で「快」を押し、00:01 に届く状態に戻して送り直すと、原文は 23:59 のまま届き、振り返りの知らせは出ない", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T14:59:00Z");
+    ingest = () => Promise.reject(new TypeError("network"));
+    press("valence-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    at("2026-10-07T15:01:00Z");
+    ingest = accepted;
+    press("feel-resend");
+    // 届かなかった 1 回目は posts に残らない（届いた分だけ数える）。届いたのは原文そのまま
+    await sent(1);
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-07T23:59:00+09:00"));
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).not.toContain("振り返りとして残しました");
   });
 });

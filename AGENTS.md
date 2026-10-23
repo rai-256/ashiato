@@ -24,7 +24,8 @@ Claude Code は `CLAUDE.md` の末尾の import でこのファイルを読み�
 - `cargo test <名前>` 型は `-- --list` で 1 本以上あることも確かめる（0 本でも rc=0）
 - **縦串・書き換え禁止・偽データ・録画のシナリオは、共有の台本に書き足さず Story ごとの新しいファイルに置く**
   （`tools/smoke.d/` `tools/check-immutable.d/` `tools/seed.d/` `tools/recording/scenarios.d/`。表は `docs/testing.md` §4）。
-  並走する Story が同じ末尾を取り合って衝突する。`feat/st*` が本体の末尾に書き足すと CI（`tools/check-shared-appends.sh`）が落とす
+  並走する Story が同じ末尾を取り合って衝突する。`feat/st*` が本体の末尾に書き足すか、本体の途中に新しい節の見出しを足すと CI（`tools/check-shared-appends.sh`）が落とす。
+  見出しとみなすのは ST 番号を持つ 3 つの型（`# ====…ST<NN>` / `# ---…ST<NN>`・`echo "== ST<NN>:`・`echo "== 41. …（ST<NN>…）"`）だけで、型の外の書き方は落ちない —— 落ちないから足してよいのではない
 
 ### 移行
 <!-- harness2:migrations -->

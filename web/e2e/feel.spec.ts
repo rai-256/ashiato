@@ -312,6 +312,8 @@ test("ひとことが長すぎるとして断られると、その文が出て�
   await expect(bad).toContainText("ひとことが長すぎます（2,000 文字まで）");
   await expect(bad).not.toContainText("サーバに届きませんでした");
   await expect(page.getByTestId("feel-note")).toHaveValue("断られる");
+  // 日の欄は断られても押した値を残す（CH01 の本人の決定 Q4。滞在の行と違い、最新の記録の値に戻さない。review/code.md R15）
+  await expect(page.getByTestId("valence-1")).toHaveAttribute("aria-pressed", "true");
 });
 
 // Scenario: 開くと最新の記録の値が選ばれている

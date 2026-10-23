@@ -53,16 +53,20 @@ if [ "$check_only" = 0 ] && busy "127.0.0.1:$WEB_PORT"; then
   echo "error: port $WEB_PORT は使用中。WEB_PORT=<別の番号> で叩き直す"; exit 1
 fi
 
-# 依存の導入を前段に含める（製造準備 B）。渡されていて実在するならビルドしない
+# 依存の導入を前段に含める（製造準備 B）。渡されていて実在するならビルドしない。
+# 既定の置き場（渡されていない）は、ソースより古ければ作り直す —— 古い dist・バイナリのままだと、直した後の e2e が
+# 直す前の画面とサーバを見て緑になる（CH01 review/code.md R11 で実測）
+newer_src() { [ -n "$(find "${@:2}" -newer "$1" -print -quit 2>/dev/null)" ]; }   # newer_src <成果物> <ソース…> → 0 = ソースの方が新しい
 server="${SERVER_BIN:-target/release/ashiato-server}"
-if [ ! -x "$server" ]; then
-  echo "== サーバを build（$server が無い）"
+if [ ! -x "$server" ] || { [ -z "${SERVER_BIN:-}" ] && newer_src "$server" crates/server migrations Cargo.toml Cargo.lock; }; then
+  echo "== サーバを build（$server が無いか、ソースより古い）"
   cargo build -q --release -p ashiato-server --bin ashiato-server
   server="target/release/ashiato-server"
 fi
 web="${WEB_DIST:-web/dist}"
-if [ "$check_only" = 0 ] && [ ! -f "$web/index.html" ]; then
-  echo "== 画面を build（$web が無い）"
+if [ "$check_only" = 0 ] && { [ ! -f "$web/index.html" ] \
+     || { [ -z "${WEB_DIST:-}" ] && newer_src "$web/index.html" web/src web/index.html web/package-lock.json web/vite.config.ts; }; }; then
+  echo "== 画面を build（$web が無いか、ソースより古い）"
   (cd web && npm ci --silent >/dev/null && npm run build --silent >/dev/null)
   web="web/dist"
 fi

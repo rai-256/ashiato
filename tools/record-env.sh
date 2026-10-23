@@ -159,17 +159,15 @@ EOF
       # shellcheck disable=SC1091
       . ./tools/android-env.sh >/dev/null 2>&1
       set -u
-      # トークンはコマンド行（ps に見える）に出さず、この一時 worktree の gradle.properties に足して渡し、ビルドの後に戻す。
-      # 環境変数（ORG_GRADLE_PROJECT_ashiato.apiToken）では届かない —— 名前に「.」があり、gradlew（sh）が子へ渡さない
-      # （実測 2026-10-14: APK のトークンと利用者が空で、ST17-reminder が接続先の無い APK で落ちた）。
+      # トークンはコマンド行（ps に見える）に出さず、この一時 worktree の追跡されないファイル local.properties に書いて渡す
+      # （app/build.gradle.kts が property に無ければ読む）。追跡されるファイルには書かないので、KILL で止められて
+      # 戻す処理が走らなくても commit に入らない。環境変数（ORG_GRADLE_PROJECT_ashiato.apiToken）では届かない ——
+      # 名前に「.」があり、gradlew（sh）が子へ渡さない（実測 2026-10-14: APK のトークンと利用者が空だった）。
       # daemon は使わない（片付けがこの環境のプロセスグループを止めるとき、他のビルドが使う daemon を巻き込まない）
       printf '\nashiato.apiToken=%s\nashiato.userId=%s\n' \
-        "$(sed -n 's/^API_TOKEN=//p' .env)" "$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" >>collector-android/gradle.properties
-      rc=0
+        "$(sed -n 's/^API_TOKEN=//p' .env)" "$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" >>collector-android/local.properties
       ./collector-android/gradlew -q --no-daemon -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
-        -Pashiato.baseUrl=http://127.0.0.1:18787 || rc=$?
-      git checkout -q -- collector-android/gradle.properties || rc=1
-      exit "$rc"
+        -Pashiato.baseUrl=http://127.0.0.1:18787
     ) && android_ok=1
     # APK が作れなくても画面のシナリオは撮る（Android のシナリオだけが「撮れなかった」になる）
     [ -n "$android_ok" ] || echo "warn: APK のビルドが落ちた。Android のシナリオは撮らない" >&2
@@ -182,8 +180,11 @@ EOF
     # C ランタイムは静的に入れる（まっさらな Sandbox には VC++ の再頒布物が無く、VCRUNTIME140.dll が無いで起動しない。2026-10-15 実測）
     echo "== PC の収集アプリ（Windows の cargo。release）"
     local wb=/mnt/c/dev/ashiato2-rec-build
+    # Android の組み立てがトークンを書いた local.properties は写さない（写し先は片付けで消えない。前の版が残した写しも消す。review/code.md R16）
     mkdir -p "$wb/src" "$STATE/windows-payload" \
-      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin "$WT/" "$wb/src/" \
+      && rm -f "$wb/src/collector-android/local.properties" \
+      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin \
+           --exclude collector-android/local.properties "$WT/" "$wb/src/" \
       && (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c \
             "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& set RUSTFLAGS=-C target-feature=+crt-static&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
             </dev/null) \

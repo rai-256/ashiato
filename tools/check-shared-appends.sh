@@ -10,8 +10,13 @@
 #   録画のシナリオ      → tools/recording/scenarios.d/ に 1 ファイル
 # ここはその約束を機械で守らせる。本体を直すのは Story でなく chore / fix の PR。
 #
-# 本体の途中の節を直すのは通す（ST47 が書庫の節に自分の検査を足す、など。毎回は衝突しない）。落とすのは
-#   - smoke.sh / check-immutable.sh / seed.sh の末尾（本体の最後の空でない行より後ろ。Story ごとの節を読む口を含む）に触れた変更
+# 本体の途中の節の中身を直すのは通す（ST47 が書庫の節に見出しを足さずに自分の検査を足す、など。毎回は衝突しない）。
+# ST 番号つきの小見出し（`# --- ST47: …`）を足すのは、既存の節の中でも新しい節として落とす（CH01 design D2。review/code.md R20）。落とすのは
+#   - smoke.sh / check-immutable.sh / seed.sh の末尾（Story ごとの節を読む口と、後ろから 2 番目の空でない行より後ろ）に触れた変更。
+#     読む口のかたまりを一字一句そのまま別の位置へ動かすだけの変更は通す
+#   - 同じ 3 本の途中に、新しい Story の節の見出し（`# ==== ST<NN>` / `# --- ST<NN>` / `echo "== ST<NN>:` / `echo "== 41. …（ST<NN>…）"`）を足した変更。
+#     型の外の書き方（ST 番号が後ろに来る `echo "== 写真の錠（ST99）"`・単引用符・ST 番号の無い見出し）は落ちない（review/code.md R12）
+#     （同じ ST 番号の見出しの言い直しは通す）
 #   - recording.json にシナリオの id か waive の鍵を足した変更・tools/recording/README.md のシナリオの表に行を足した変更
 #   - migrations/ORDER の途中を変えた・消した変更（末尾への追記だけ通す）
 #
@@ -25,18 +30,91 @@ REC=tools/recording/recording.json
 RECMD=tools/recording/README.md
 ORDER=migrations/ORDER
 MARK='Story ごとの節（tools/'   # 本体の末尾の「Story ごとの節を読む口」の見出し
+PREP='`*.d/` の節の前の準備'      # 読む口の直前に置く、節の前の準備のかたまりの頭の注記（check-immutable.sh。CH01 design D11）
 
-# 本体の途中の節を直すのは通す（その節を持つ Story どうしの本当の衝突は残るが、毎回は起きない）。
-# 落とすのは「末尾に節を足す」—— 本体の最後の空でない行より後ろ（読む口を含む）に触れた変更（=末尾の取り合い）。
+# 読む口のかたまり（見出しの行 〜 `for … done` の `done`）の行番号を「<見出し> <done>」で出す。無ければ何も出さない
+mouth_span() {
+  awk -v m="$MARK" '!s && index($0, m) { s = NR }
+    s && !e && $0 !~ /^[[:space:]]*#/ && $0 ~ /(^|[[:space:];])done[[:space:]]*$/ { e = NR }
+    END { if (s && e) print s, e }'
+}
+
+# 読む口のかたまりの中身（見出しの行と、注記・空行でない行）。位置が変わった木で、動かしただけかを比べる。注記の行は比べない
+mouth_sig() {
+  awk -v m="$MARK" '!s && index($0, m) { s = 1; print; next }
+    s { if ($0 !~ /^[[:space:]]*(#|$)/) print
+        if ($0 !~ /^[[:space:]]*#/ && $0 ~ /(^|[[:space:];])done[[:space:]]*$/) exit }'
+}
+
+# 後ろから 2 番目の空でない行の行番号（1 行しか無ければその行）
+second_last_line() {
+  awk '/[^[:space:]]/ { prev = last; last = NR } END { print (prev ? prev : last) + 0 }'
+}
+
+# Story の節の見出しを、同じ ST 番号の見出しが `-` 行に無いまま足した（=既存の見出しの言い直しでない）なら 0。本体のどこでも
+heading_added() {   # heading_added <base> <file>
+  git diff -U0 "$1" HEAD -- "$2" | awk '
+    function heading(s) { return s ~ /^# *[=-][=-][=-]+.*ST[0-9][0-9]/ || s ~ /^echo "== (Scenario: )?ST[0-9][0-9]/ \
+                                 || s ~ /^echo "== [0-9]+[a-z]?\. .*ST[0-9][0-9]/ }
+    function stno(s) { match(s, /ST[0-9][0-9]/); return substr(s, RSTART, RLENGTH) }
+    /^@@/ { inh = 1; next }
+    !inh { next }
+    /^-/ { l = substr($0, 2); if (heading(l)) old[stno(l)] = 1; next }
+    /^\+/ { l = substr($0, 2); if (heading(l)) add[++n] = stno(l); next }
+    END { for (i = 1; i <= n; i++) if (!(add[i] in old)) bad = 1; exit bad ? 0 : 1 }'
+}
+
+# 本体の途中の節を直すのは通す（その節を持つ Story どうしの本当の衝突は残るが、毎回は起きない）。落とすのは「末尾に節を足す」—— 守る範囲:
+#   1. 読む口の見出しの直前の空でない行 〜 読む口のかたまりの `done`。読む口の前に節の前の準備（`$PREP` の注記で始まる）があれば、
+#      その準備の注記の直前の空でない行から（準備と読む口の間に足すのも、最後の節と準備の間に足すのも落とす。review/code.md R19）
+#   2. 後ろから 2 番目の空でない行 〜 ファイルの最後（読む口が末尾にある木では `done` より後ろ。読む口を動かした木では最後の検査より後ろ）
+# 読む口のかたまりを別の位置へ動かすだけ（見出しと `for … done` の行が基準の木と同じ）なら、かたまりを両方の木から抜いて比べる
+# 限界（review/code.md R9。見出しの検査 `heading_added` が Story の節の見出しを本体のどこでも落とすので、実害は小さい）:
+#   - 動かすのと同じ commit で、動かした先のかたまりの直前・直後に見出しの無い行を足しても落ちない（かたまりを抜いた木では「途中」の行に見える。
+#     守るのは基準の木のかたまりの直前の行と、抜いた木の後ろから 2 番目の行より後ろだけ）。動かした後の木を基準にする次の PR からは守る範囲に入る
+#   - 守る末尾の 2 つ目（後ろから 2 番目の空でない行）は、かたまりを抜いた基準の木で取り直す。読む口が末尾にある木（seed.sh など）を動かすと、
+#     動かす前の木の「後ろから 2 番目」（かたまりの中の行）でなく、かたまりの直前の 2 行が守る末尾になる
 tail_touched() {   # tail_touched <base> <file> → 0 = 末尾に触れた
-  local base="$1" f="$2" mark body_end
-  mark="$(git show "$base:$f" 2>/dev/null | grep -nF "$MARK" | head -1 | cut -d: -f1)"
-  [ -n "$mark" ] || return 1     # 読む口が無い基準（古い分岐点）は判断しない —— main を取り込めば判断できる
-  # 本体の最後の空でない行（読む口の見出しより前）。ここより後ろへの挿入・ここ自身の変更が「末尾に足す」
-  body_end="$(git show "$base:$f" | head -n "$((mark - 1))" | grep -nv '^[[:space:]]*$' | tail -1 | cut -d: -f1)"
-  git diff -U0 "$base" HEAD -- "$f" | awk -v e="${body_end:-0}" '
-    /^@@/ { split($2, a, ","); st = substr(a[1], 2) + 0; n = (a[2] == "" ? 1 : a[2] + 0)
-            last = (n == 0 ? st : st + n - 1); if (last >= e) hit = 1 }
+  local tmp rc=0
+  tmp="$(mktemp -d)"
+  tail_touched_in "$tmp" "$1" "$2" || rc=$?
+  rm -rf "${tmp:?}"
+  return "$rc"
+}
+
+tail_touched_in() {   # tail_touched_in <作業の置き場> <base> <file>
+  local tmp="$1" base="$2" f="$3" span s e hs he p p0 lo2
+  git show "$base:$f" > "$tmp/base" 2>/dev/null || return 1
+  span="$(mouth_span < "$tmp/base")"
+  [ -n "$span" ] || return 1     # 読む口が無い基準（古い分岐点）は判断しない —— main を取り込めば判断できる
+  read -r s e <<<"$span"
+  # p0 = 読む口の見出しの直前の空でない行、p = 守る範囲 1 の始まり（準備があればその注記の直前の空でない行、無ければ p0）
+  read -r p p0 < <(awk -v s="$s" -v m="$PREP" 'NR >= s { exit }
+    index($0, m) { q = NR; pq = p }
+    /[^[:space:]]/ { p = NR }
+    END { print (q ? pq : p) + 0, p + 0 }' "$tmp/base")
+  git show "HEAD:$f" > "$tmp/head" 2>/dev/null || : > "$tmp/head"
+  hs=""
+  span="$(mouth_span < "$tmp/head")"
+  [ -z "$span" ] || read -r hs he <<<"$span"
+  # 位置が変わったときだけ注記を比べない（動かさずに注記を直すのは、読む口の中の変更として下の差分で見る）
+  if [ -n "$hs" ] && { [ "$hs" != "$s" ] || [ "$he" != "$e" ]; } \
+     && [ "$(mouth_sig < "$tmp/base")" = "$(mouth_sig < "$tmp/head")" ]; then
+    awk -v s="$s" -v e="$e" 'NR < s || NR > e' "$tmp/base" > "$tmp/b"
+    awk -v s="$hs" -v e="$he" 'NR < s || NR > e' "$tmp/head" > "$tmp/h"
+    lo2="$(second_last_line < "$tmp/b")"
+    { diff -B -U0 "$tmp/b" "$tmp/h" || :; } | hunk_hits "$p" "$p0" "$lo2"
+  else
+    lo2="$(second_last_line < "$tmp/base")"
+    git diff -U0 "$base" HEAD -- "$f" | hunk_hits "$p" "$e" "$lo2"
+  fi
+}
+
+hunk_hits() {   # hunk_hits <lo1> <hi1> <lo2> → 差分（-U0）の旧い側が [lo1,hi1] か [lo2,最後] に触れたら 0。挿入は「その行の後ろ」
+  awk -v a="$1" -v b="$2" -v c="$3" '
+    function inr(lo, hi) { return n > 0 ? (st <= hi && st + n - 1 >= lo) : (st >= lo && st <= hi) }
+    /^@@/ { split($2, x, ","); st = substr(x[1], 2) + 0; n = (x[2] == "" ? 1 : x[2] + 0)
+            if (inr(a, b) || inr(c, 1000000000)) hit = 1 }
     END { exit hit ? 0 : 1 }'
 }
 
@@ -48,6 +126,10 @@ check() {   # check <branch> <base-ref>
   for f in "${SCRIPTS[@]}"; do
     if tail_touched "$mb" "$f"; then
       echo "  NG $f の末尾に書き足した —— Story の節は ${f%.sh}.d/YYYYMMDDHHMM_st<NN>-<slug>.sh に新しいファイルで置く"
+      bad=1
+    fi
+    if heading_added "$mb" "$f"; then
+      echo "  NG $f の途中に Story の節の見出しを足した —— Story の節は ${f%.sh}.d/YYYYMMDDHHMM_st<NN>-<slug>.sh に新しいファイルで置く"
       bad=1
     fi
   done
@@ -132,6 +214,48 @@ self_test() {
     expect 1 "録画の README の表に行を足すと落とす" feat/st09-readme
     git checkout -q main && git checkout -qb chore/fix-smoke && echo more >> tools/smoke.sh && git commit -qam chore
     expect 0 "chore のブランチは本体を直してよい" chore/fix-smoke
+    # --- 本体の途中への節の見出し（design D2）。読む口が末尾にある木（動かす前）
+    git checkout -q main && git checkout -qb feat/st91-head-eq && sed -i '/^echo a$/a # ==== ST99: 新しい節' tools/smoke.sh && git commit -qam h1
+    expect 1 "本体の途中に # ==== ST99 の見出しを足すと落とす" feat/st91-head-eq
+    git checkout -q main && git checkout -qb feat/st47-sub && sed -i '/^echo a$/a # --- ST47: 既存の節の中の小見出し' tools/check-immutable.sh && git commit -qam h1s
+    expect 1 "既存の節の中に # --- ST47: の小見出しを足しても落とす（review/code.md R20）" feat/st47-sub
+    git checkout -q main && git checkout -qb feat/st92-head-echo && sed -i '/^echo a$/a echo "== ST99: 新しい節"' tools/seed.sh && git commit -qam h2
+    expect 1 "本体の途中に echo \"== ST99: の見出しを足すと落とす" feat/st92-head-echo
+    git checkout -q main && git checkout -qb feat/st93-head-num && sed -i '/^echo a$/a echo "== 45. 新しい節（ST99 の確かめ）"' tools/smoke.sh \
+      && git commit -qam h3
+    expect 1 "smoke.sh の途中に番号つきの見出し（echo \"== 45. …（ST99））を足すと落とす" feat/st93-head-num
+    git checkout -q main && git checkout -qb feat/st94-head-fix && sed -i 's/^# ---- ST01 の節$/# ---- ST01 の節（言い直し）/' tools/smoke.sh && git commit -qam h4
+    expect 0 "既存の小見出しの文言を直すのは通す" feat/st94-head-fix
+    git checkout -q main && git checkout -qb feat/st95-gap && sed -i '/^for part in x/a echo 足した' tools/smoke.sh && git commit -qam gap
+    expect 1 "動かす前の木で done と最後の判定の行の間に 1 行足すと落とす" feat/st95-gap
+    # --- 読む口のかたまりを動かす（注記を直して見出しの直後へ）。動かすだけは通す
+    git checkout -q main && git checkout -qb feat/st96-move \
+      && printf 'echo 1\n# ==== %s%s.d/）\n# 注記を直した\nfor part in x; do :; done\n# ---- ST01 の節\necho a\necho b\n\necho 終わり\n' \
+        "$MARK" check-immutable > tools/check-immutable.sh && git commit -qam move
+    expect 0 "読む口のかたまりをそのまま前へ動かすだけなら通す" feat/st96-move
+    git checkout -q main && git merge -q --ff-only feat/st96-move && git update-ref refs/remotes/origin/main HEAD
+    # --- 読む口が途中にある木（動かした後）
+    git checkout -qb feat/st97-after-mouth && sed -i '/^for part in x/a echo 足した節' tools/check-immutable.sh && git commit -qam am
+    expect 1 "動かした後の木で読む口の直後に節を足すと落とす" feat/st97-after-mouth
+    git checkout -q main && git checkout -qb feat/st98-after-end && echo more >> tools/check-immutable.sh && git commit -qam ae
+    expect 1 "動かした後の木でファイルの最後に書き足すと落とす" feat/st98-after-end
+    git checkout -q main && git checkout -qb feat/st99-after-mid && sed -i 's/^echo a$/echo a2/' tools/check-immutable.sh && git commit -qam mid2
+    expect 0 "動かした後の木で戻しの並びの途中の行を直すのは通す" feat/st99-after-mid
+    git checkout -q main && git checkout -qb feat/st90-note && sed -i 's/注記を直した/注記をまた直した/' tools/check-immutable.sh && git commit -qam note
+    expect 1 "読む口を動かさずに中の注記を直すと落とす" feat/st90-note
+    git checkout -q main && git checkout -qb feat/ch02-after-gap && sed -i '/^echo b$/a echo 足した' tools/check-immutable.sh && git commit -qam ag
+    expect 1 "動かした後の木で最後の検査と最後の判定の行の間に 1 行足すと落とす" feat/ch02-after-gap
+    # --- 読む口の直前に節の前の準備がある木（CH01 design D11 の後の check-immutable.sh。review/code.md R19）
+    git checkout -q main && git checkout -qb chore/prep \
+      && printf 'echo 1\n# ---- ST01 の節\necho a\necho b\n\n# %%s（役割）\nprep\n\n# ==== %s%s.d/）\nfor part in x; do :; done\necho 戻し\necho 終わり\n' \
+        "$MARK" check-immutable | sed "s|%s|$PREP|" > tools/check-immutable.sh && git commit -qam prep
+    git checkout -q main && git merge -q --ff-only chore/prep && git update-ref refs/remotes/origin/main HEAD
+    git checkout -qb feat/st89-before-prep && sed -i '/^echo b$/a echo 足した節' tools/check-immutable.sh && git commit -qam bp
+    expect 1 "準備のある木で最後の節と準備の間に節を足すと落とす" feat/st89-before-prep
+    git checkout -q main && git checkout -qb feat/st88-in-prep && sed -i '/^prep$/a echo 足した節' tools/check-immutable.sh && git commit -qam ip
+    expect 1 "準備のある木で準備と読む口の間に節を足すと落とす" feat/st88-in-prep
+    git checkout -q main && git checkout -qb feat/st87-mid-prep && sed -i 's/^echo a$/echo a2/' tools/check-immutable.sh && git commit -qam mp
+    expect 0 "準備のある木で最後の節より前の行を直すのは通す" feat/st87-mid-prep
   )
 }
 
