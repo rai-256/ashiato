@@ -1,0 +1,4 @@
+{"title": "ST23 の仕様への合意", "subtitle": "本文を本当に消せる",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/ST23-spec.html",
+                "question": "この GO 資料と GO 用 proto のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}

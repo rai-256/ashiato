@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST23 proto — 消した滞在を本文ごと消す（S-2 の 1 日の一覧 / S-5 はその場で開く）</title>
+<style>
+  /* ---- playground 自体の UI（upstream 既定どおりダーク。プレビュー対象の明暗とは別物） ---- */
+  :root{
+    --ui-bg:#14161a; --ui-panel:#1b1e24; --ui-line:#2b3039; --ui-fg:#dfe3ea; --ui-dim:#939bab;
+    --ui-accent:#7fb98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui-bg);color:var(--ui-fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif;font-size:14px}
+  .wrap{display:grid;grid-template-columns:360px 1fr;min-height:100vh}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .controls{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:16px;overflow-y:auto;max-height:100vh}
+  @media (max-width:900px){.controls{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+  .right{display:flex;flex-direction:column;min-width:0}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--ui-dim);font-size:12px;margin:0 0 14px;line-height:1.6}
+  .sub b{color:var(--ui-fg)}
+  .grp{border-top:1px solid var(--ui-line);padding:14px 0 4px}
+  .grp:first-of-type{border-top:none}
+  .grp > .lbl{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin-bottom:10px}
+  .hint{display:block;color:var(--ui-dim);font-size:11px;margin-top:6px;line-height:1.55}
+  .cards{display:grid;gap:6px}
+  .card{background:#232730;border:1px solid var(--ui-line);border-radius:8px;padding:9px 10px;
+        cursor:pointer;font-size:12.5px;line-height:1.45;text-align:left;color:inherit;font-family:inherit;width:100%}
+  .card:hover{border-color:#3d4552}
+  .card.on{border-color:var(--ui-accent);background:#22302460}
+  .card .t{font-weight:600}
+  .card .d{color:var(--ui-dim);font-size:11px;margin-top:3px}
+  .presets{display:flex;flex-wrap:wrap;gap:6px}
+  .presets button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:14px;
+        padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+  .presets button:hover{border-color:var(--ui-accent)}
+  .fixed{background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:10px 12px;
+         font-size:11.5px;color:var(--ui-dim);line-height:1.75}
+  .fixed b{color:var(--ui-fg);font-weight:600}
+  /* ---- プレビュー ---- */
+  .stage{flex:1;padding:18px;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:10px;
+         background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+  .meta{width:100%;max-width:920px;display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ui-dim);justify-content:center}
+  .meta b{color:var(--ui-accent);font-family:ui-monospace,Menlo,monospace}
+  .meta button{background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:6px;padding:3px 8px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .phone{border:1px solid var(--ui-line);border-radius:20px;overflow:hidden;flex:0 0 auto;box-shadow:0 10px 40px #0008;width:362px}
+  .phone .cap{font-size:11px;color:var(--ui-dim);padding:6px 10px;background:#101216;
+              display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}
+  .screen{overflow-y:auto;height:640px;width:360px;position:relative}
+  .howto{font-size:11.5px;color:var(--ui-dim);max-width:520px;text-align:center;line-height:1.6}
+  /* ---- 出力 ---- */
+  .out{border-top:1px solid var(--ui-line);background:var(--ui-panel);padding:14px 18px}
+  .out h2{font-size:11px;letter-spacing:.08em;color:var(--ui-accent);margin:0 0 8px}
+  pre#prompt{white-space:pre-wrap;background:#101216;border:1px solid var(--ui-line);border-radius:8px;
+       padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;
+       max-height:230px;overflow:auto;margin:0 0 10px;color:#cbd2dd;user-select:text}
+  button.copy{background:var(--ui-accent);color:#10231a;border:none;border-radius:8px;padding:10px 18px;
+       font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.copy:hover{filter:brightness(1.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============================ コントロール ============================ -->
+<div class="controls">
+  <h1>ST23 — 消した滞在を本文ごと消す</h1>
+  <p class="sub">
+    完了の判定は「物理削除を指示すると、<b>実行前に対象件数が出て確認を求められる</b>」「実行後、本文が DB から消え、削除した事実・時刻・件数・範囲が残っている」。<br>
+    いまの画面（ST22）は、滞在の詳細の末尾の「この滞在を消す」で<b>「消した」</b>にでき、「消した 10:05 – 11:48」の行の「戻す」で戻せる（本文は DB に残る）。
+    ここに<b>戻せない「本文ごと消す」</b>を足す。右の画面で<b>「消した」行か滞在を開いて、本文ごと消してみてください</b>。
+  </p>
+
+  <div class="grp">
+    <div class="lbl">まとめて選ぶ</div>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 1 — 本文ごと消す口をどこに置くか</div>
+    <div class="cards" id="whereCards"></div>
+    <span class="hint">「消した」行だけに置くと、本文ごと消す前に必ず一度「消した」（戻せる）を通る。詳細に置くと 1 回で本文まで消える（中では「消した」にもする）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 2 — 確認に何を出すか（FR-52 の「対象件数」）</div>
+    <div class="cards" id="countCards"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 3 — 確認の強さ</div>
+    <div class="cards" id="confirmCards"></div>
+    <span class="hint">どれもボタンは 44×44 px 以上（NFR-20）。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">軸 4 — 本文ごと消した後、その時間を一覧にどう出すか</div>
+    <div class="cards" id="afterCards"></div>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">入力（軸ではない。深掘りの別の問いの答え）</div>
+    <div class="cards" id="rangeCards"></div>
+    <span class="hint">「一緒に本文を消すもの」は文字の問い（Q2）で聞く。ここでは確認に出る件数に効く。書庫の写しは Q4 の推奨（写しを消さない）で描いている。</span>
+  </div>
+
+  <div class="grp">
+    <div class="lbl">動かせないもの（要件と ui-direction の決着）</div>
+    <div class="fixed">
+      <b>色相 132° / 彩度 30% / 面 3 段</b>（tokens.ts）・<b>詳細はその場で開く</b>（ui-direction の骨格）<br>
+      <b>ST22 の形</b>: 詳細の末尾の「この滞在を消す」・その場の確認・「消した 始まり – 終わり」の行と「戻す」（ST22 の Q4。本人の決定）<br>
+      <b>NFR-17</b> OS の明暗に追従 ・ <b>NFR-18</b> 本文 4.5:1 ・ <b>NFR-19</b> 触れる対象 24×24px ・
+      本文ごと消すボタンは <b>44×44px</b>（<b>NFR-20</b>。物理削除が対象そのもの） ・ <b>NFR-22</b> フォーカスが見える<br>
+      <b>本文ごと消したものは戻せない</b>（FR-51）
+    </div>
+  </div>
+</div>
+
+<!-- ============================ プレビュー ============================ -->
+<div class="right">
+  <div class="stage">
+    <div class="meta">
+      <span>滞在 <b id="mStays">—</b> 件 / 消した <b id="mDeleted">—</b> 件 / 本文ごと消した <b id="mErased">—</b> 件</span>
+      <span>一覧の高さ <b id="mHeight">—</b></span>
+      <button id="schemeBtn" type="button">明暗: ダーク</button>
+      <button id="resetBtn" type="button">最初の状態に戻す</button>
+    </div>
+    <div class="phone">
+      <div class="cap"><span>360 × 640</span><span>S-2 1 日の一覧</span></div>
+      <div class="screen" id="screen"></div>
+    </div>
+    <div class="howto">最初は 8:31 – 12:04 と 19:30 – 21:12 を「消した」にしてある。軸を変えると、操作した結果は保ったまま描き直す。</div>
+  </div>
+
+  <div class="out">
+    <h2>この設定を指示として出す</h2>
+    <pre id="prompt"></pre>
+    <button class="copy" id="copyBtn">指示をコピー</button>
+    <span id="copyNote" style="margin-left:10px;font-size:12px;color:var(--ui-dim)"></span>
+  </div>
+</div>
+</div>
+
+<script>
+/* GO view（reading の段）: window.PROTO_VIEW==="go" か #view=go。既定（無指定）は相談の view */
+const GO = window.PROTO_VIEW==="go" || /(^#|[#&])view=go(&|$)/.test(location.hash);
+/* ================= 値（tokens.ts と同じ） ================= */
+const HUE=132, SAT=30;
+const SCHEMES={dark:{ground:12,s1:18,s2:24,text:92,muted:72},light:{ground:96,s1:91,s2:86,text:14,muted:30}};
+const tone=l=>`hsl(${HUE} ${SAT}% ${l}%)`;
+
+/* ================= 軸 ================= */
+const WHERES=[
+  {id:"erased",t:"「消した」行だけに置く（「戻す」と並べる）",d:"本文ごと消せるのは、一度「消した」にした滞在だけ。滞在の詳細は ST22 のまま「この滞在を消す」だけ"},
+  {id:"detail",t:"滞在の詳細の末尾にも置く",d:"「この滞在を消す」の下に「本文ごと消す」。1 回で本文まで消える。「消した」行にも置く"},
+];
+const COUNTS=[
+  {id:"total",t:"合計の件数だけ",d:"「記録 412 件の本文が消えます」"},
+  {id:"source",t:"ソースごとの件数と前の版の件数",d:"滞在・位置・書庫の位置・書庫の項目ごとに、それぞれの前の版の件数も"},
+  {id:"left",t:"＋消えずに残るもの",d:"ソースごとの件数に加えて、書庫の写し N 個・本人のファイル・書き出したファイルには残る、と添える"},
+];
+const CONFIRMS=[
+  {id:"button",t:"その場で「本文ごと消す / やめる」",d:"ST22 の確認と同じ形。押せば消える"},
+  {id:"type",t:"「消す」と打ってから押せる",d:"入力欄に「消す」と打つまで「本文ごと消す」は押せない"},
+  {id:"twice",t:"2 段の確認",d:"「本文ごと消す」→ 件数の確認 →「本当に消す（戻せません）」"},
+];
+const AFTERS=[
+  {id:"row",t:"「本文ごと消した 8:31 – 12:04」の行を残す（戻すは出ない）",d:"「消した」と同じ薄さの 1 行。戻せないことが行の文字で分かる"},
+  {id:"same",t:"「消した 8:31 – 12:04」のまま、戻すだけが消える",d:"本文ごと消したかどうかは、行の見た目では分からない"},
+  {id:"blank",t:"行を出さない（空白）",d:"前後の行が詰まり、時刻が飛ぶ"},
+];
+const RANGES=[
+  {id:"stay",t:"滞在とその前の版だけ"},
+  {id:"cascade",t:"「消した」と同じ記録と、重なる滞在（推奨）"},
+  {id:"pc",t:"推奨に加えて、同じ時間の PC とブラウザ"},
+];
+const DEFAULTS={where:"erased",count:"left",confirm:"button",after:"row",range:"cascade"};
+const PRESETS=[
+  {n:"推奨の形（「消した」行から・残るものも出す）",v:{where:"erased",count:"left",confirm:"button",after:"row"}},
+  {n:"最小（合計だけ・行のまま）",v:{where:"erased",count:"total",confirm:"button",after:"same"}},
+  {n:"詳細から 1 回で・打って消す",v:{where:"detail",count:"left",confirm:"type",after:"row"}},
+  {n:"2 段で確かめる",v:{where:"erased",count:"source",confirm:"twice",after:"row"}},
+  {n:"消したら跡を残さない",v:{where:"detail",count:"source",confirm:"button",after:"blank"}},
+];
+
+/* ================= データ（1 日の実物の量） ================= */
+const DAY="9月14日（月）";
+const ENTRIES=[
+  {k:"stay",s:"0:00",e:"7:42",win:0,br:0,ar:0,abs:0},
+  {k:"move",s:"7:42",e:"8:31"},
+  {k:"stay",s:"8:31",e:"12:04",win:412,br:57,ar:3,abs:2},
+  {k:"move",s:"12:04",e:"12:15"},
+  {k:"stay",s:"12:15",e:"12:58",win:0,br:3,ar:0,abs:0},
+  {k:"move",s:"12:58",e:"13:09"},
+  {k:"stay",s:"13:09",e:"17:36",win:538,br:81,ar:1,abs:1},
+  {k:"move",s:"17:36",e:"18:02"},
+  {k:"stay",s:"18:02",e:"18:44",win:0,br:0,ar:0,abs:0},
+  {k:"none",s:"18:44",e:"19:30"},
+  {k:"stay",s:"19:30",e:"21:12",win:0,br:12,ar:2,abs:1},
+  {k:"move",s:"21:12",e:"21:40"},
+  {k:"stay",s:"21:40",e:"22:15",win:0,br:0,ar:0,abs:0},
+  {k:"move",s:"22:15",e:"22:31"},
+  {k:"stay",s:"22:31",e:"23:10",win:96,br:22,ar:0,abs:0},
+  {k:"move",s:"23:10",e:"23:14"},
+  {k:"stay",s:"23:14",e:"24:00",win:0,br:0,ar:0,abs:0},
+].map((x,i)=>({...x,i}));
+const INITIAL_DELETED=[2,10];
+const state={...DEFAULTS, scheme:"dark", open:null, asking:null, step:0, typed:"", deleted:new Set(INITIAL_DELETED), erased:new Set()};
+
+const mins=t=>{const [h,m]=t.split(":").map(Number);return h*60+m};
+const len=x=>mins(x.e)-mins(x.s);
+const dur=(s,e)=>{const d=mins(e)-mins(s),h=Math.floor(d/60),m=d%60;return h?(m?`${h} 時間 ${m} 分`:`${h} 時間`):`${m} 分`};
+const locCount=x=>Math.round(len(x)*0.67);
+const archLoc=x=>Math.round(len(x)/2);            // 書庫のロケーション履歴（約 2 分に 1 点）
+const stayVers=x=>Math.max(1,Math.round(len(x)/5)); // 居る間に 5 分ごとに積む前の版
+function counts(x){
+  const c=[{n:"滞在",k:1,v:stayVers(x)}];
+  if(state.range!=="stay"){
+    c.push({n:"位置",k:locCount(x),v:0});
+    c.push({n:"書庫の位置",k:archLoc(x),v:0});
+    if(x.ar) c.push({n:"位置を持つ書庫の項目",k:x.ar,v:0});
+    if(x.abs) c.push({n:"吸収された滞在",k:x.abs,v:x.abs*6});
+  }
+  if(state.range==="pc"){
+    if(x.win) c.push({n:"PC のウィンドウ",k:x.win,v:0});
+    if(x.br) c.push({n:"ブラウザ履歴",k:x.br,v:0});
+  }
+  return c;
+}
+const total=c=>c.reduce((a,b)=>a+b.k,0);
+const vtotal=c=>c.reduce((a,b)=>a+b.v,0);
+
+/* ================= 描画 ================= */
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function renderCards(id,list,key){
+  const box=document.getElementById(id); box.innerHTML="";
+  list.forEach(o=>{
+    const b=document.createElement("button"); b.type="button";
+    b.className="card"+(state[key]===o.id?" on":"");
+    b.innerHTML=`<div class="t">${esc(o.t)}</div>${o.d?`<div class="d">${esc(o.d)}</div>`:""}`;
+    b.onclick=()=>{state[key]=o.id; cancelAsk(false); updateAll();};
+    box.appendChild(b);
+  });
+}
+
+function confirmBox(x,c,del){
+  const cs=counts(x);
+  let h=`<div role="alertdialog" data-testid="purge-confirm" style="margin-top:8px;padding:8px 10px;border:1px solid ${tone(c.muted)};border-radius:8px;width:100%">`;
+  h+=`<p style="margin:0 0 6px;font-weight:600">${x.s} – ${x.e} を本文ごと消します。戻せません。</p>`;
+  if(state.count==="total"){
+    h+=`<p style="margin:0 0 6px">記録 ${total(cs)} 件の本文が消えます。</p>`;
+  }else{
+    h+=`<ul style="margin:0 0 6px;padding-left:18px">`;
+    cs.forEach(r=>{h+=`<li>${r.n} ${r.k} 件${r.v?`（前の版 ${r.v} 件）`:""}</li>`;});
+    h+=`</ul><p style="margin:0 0 6px">合わせて ${total(cs)} 件${vtotal(cs)?`・前の版 ${vtotal(cs)} 件`:""}。日時と件数は台帳に残ります。</p>`;
+    if(state.count==="left"){
+      h+=`<p style="margin:0 0 6px;color:${tone(c.muted)}">消えずに残るもの: 書庫の写し 2 個（ロケーション履歴・マイアクティビティ）・本人のフォルダの書庫・書き出したファイル。</p>`;
+    }
+  }
+  if(state.confirm==="twice" && state.step===0){
+    h+=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button data-f type="button" style="${del}" onclick="nextStep()">次へ</button><button data-f type="button" style="${del};font-weight:400;background:transparent" onclick="cancelAsk()">やめる</button></div></div>`;
+    return h;
+  }
+  if(state.confirm==="type"){
+    h+=`<label style="display:block;margin:0 0 6px">確かめるために「消す」と打つ <input data-f id="typed" value="${esc(state.typed)}" oninput="typing(this.value)" style="min-height:44px;font:inherit;width:6em;margin-left:6px"></label>`;
+  }
+  const ok = state.confirm!=="type" || state.typed==="消す";
+  const label = state.confirm==="twice" ? "本当に消す（戻せません）" : "本文ごと消す";
+  h+=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button data-f type="button" ${ok?"":"disabled"} style="${del};${ok?"":"opacity:.45;cursor:not-allowed"}" onclick="doErase(${x.i})">${label}</button><button data-f type="button" style="${del};font-weight:400;background:transparent" onclick="cancelAsk()">やめる</button></div></div>`;
+  return h;
+}
+
+function renderPreview(){
+  const c=SCHEMES[state.scheme];
+  const scr=document.getElementById("screen");
+  scr.style.background=tone(c.ground); scr.style.color=tone(c.text);
+  const ctl=`min-height:24px;min-width:24px;padding:4px 10px;font:400 15px/1.6 system-ui,sans-serif;color:${tone(c.text)};background:${tone(c.s2)};border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  const del=`min-height:44px;min-width:44px;padding:8px 14px;font:600 15px/1.4 system-ui,sans-serif;color:${tone(c.text)};background:${tone(c.s2)};border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  let h=`<style>#screen [data-f]:focus-visible{outline:3px solid ${tone(c.text)};outline-offset:2px}</style><div style="padding:12px;font:400 16px/1.65 system-ui,sans-serif">`;
+  h+=`<h1 style="font:600 18px/1.3 system-ui,sans-serif;margin:0 0 8px">${DAY}の滞在</h1>`;
+  h+=`<div style="display:flex;gap:8px;margin-bottom:12px"><button data-f style="${ctl}">前の日</button><span style="${ctl};display:inline-flex;align-items:center">2026-09-14</span><button data-f style="${ctl}">次の日</button></div>`;
+  h+=`<ol style="list-style:none;margin:0;padding:0">`;
+  ENTRIES.forEach(x=>{
+    const base=`border-left:3px ${x.k==="none"?"dashed":"solid"} ${tone(c.muted)};padding:6px 10px;margin:0 0 6px`;
+    if(x.k==="stay" && state.erased.has(x.i)){
+      if(state.after==="blank") return;
+      const t = state.after==="row" ? `本文ごと消した ${x.s} – ${x.e}` : `消した ${x.s} – ${x.e}`;
+      h+=`<li data-row data-testid="row-purged" style="${base};border-left-style:dotted;color:${tone(c.muted)}">${t}</li>`;
+      return;
+    }
+    if(x.k==="stay" && state.deleted.has(x.i)){
+      h+=`<li data-row data-testid="row-erased" style="${base};border-left-style:dotted;color:${tone(c.muted)};display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span>消した ${x.s} – ${x.e}</span><span style="display:flex;gap:8px;flex-wrap:wrap">`;
+      h+=`<button data-f type="button" style="${ctl}" onclick="restore(${x.i})">戻す</button>`;
+      if(state.asking!==x.i) h+=`<button data-f type="button" style="${del};font-weight:400" onclick="ask(${x.i})">本文ごと消す</button>`;
+      h+=`</span>`;
+      if(state.asking===x.i) h+=confirmBox(x,c,del);
+      h+=`</li>`;
+      return;
+    }
+    if(x.k!=="stay"){
+      h+=`<li data-row style="${base};color:${tone(c.muted)}">${x.k==="move"?`移動 ${dur(x.s,x.e)}<span> ・ ${x.s} – ${x.e}</span>`:`記録なし ${x.s} – ${x.e}`}</li>`;
+      return;
+    }
+    const open=state.open===x.i;
+    h+=`<li data-row style="${base};background:${tone(c.s1)};border-radius:8px">`;
+    h+=`<button data-f type="button" aria-expanded="${open}" onclick="toggle(${x.i})" style="width:100%;text-align:left;background:transparent;border:none;color:inherit;padding:0;cursor:pointer;min-height:24px;font:inherit">`;
+    h+=`<span style="display:block;font:600 17px/1.4 system-ui,sans-serif">${x.s} – ${x.e}</span>`;
+    h+=`<span style="display:block;color:${tone(c.muted)}">${dur(x.s,x.e)}</span></button>`;
+    if(open){
+      h+=`<div style="margin-top:8px;padding:8px 10px;background:${tone(c.s2)};border-radius:8px">`;
+      h+=`<dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:15px">`;
+      h+=`<dt style="color:${tone(c.muted)}">位置</dt><dd style="margin:0">${locCount(x)} 件</dd>`;
+      h+=`<dt style="color:${tone(c.muted)}">同じ時間</dt><dd style="margin:0">PC のウィンドウ ${x.win} 件・ブラウザ履歴 ${x.br} 件</dd></dl>`;
+      if(state.asking!==x.i && state.askingSoft!==x.i){
+        h+=`<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><button data-f type="button" style="${del}" onclick="askSoft(${x.i})">この滞在を消す</button>`;
+        if(state.where==="detail") h+=`<button data-f type="button" style="${del};font-weight:400" onclick="ask(${x.i})">本文ごと消す</button>`;
+        h+=`</div>`;
+      }
+      if(state.askingSoft===x.i){
+        h+=`<div role="alertdialog" style="margin-top:8px;padding:8px 10px;border:1px solid ${tone(c.muted)};border-radius:8px"><p style="margin:0 0 8px">この滞在と一緒に消える位置の記録 ${locCount(x)} 件です。消しますか？（「消した」行から戻せます）</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button data-f type="button" style="${del}" onclick="doDelete(${x.i})">消す</button><button data-f type="button" style="${del};font-weight:400;background:transparent" onclick="cancelAsk()">やめる</button></div></div>`;
+      }
+      if(state.asking===x.i) h+=confirmBox(x,c,del);
+      h+=`</div>`;
+    }
+    h+=`</li>`;
+  });
+  h+=`</ol></div>`;
+  scr.innerHTML=h;
+  const typed=document.getElementById("typed"); if(typed && state.focusTyped){typed.focus(); typed.setSelectionRange(typed.value.length,typed.value.length);}
+  document.getElementById("mStays").textContent=ENTRIES.filter(x=>x.k==="stay").length;
+  document.getElementById("mDeleted").textContent=state.deleted.size;
+  document.getElementById("mErased").textContent=state.erased.size;
+  document.getElementById("mHeight").textContent=scr.scrollHeight+" px";
+  document.getElementById("schemeBtn").textContent="明暗: "+(state.scheme==="dark"?"ダーク":"ライト")+"（判断ではない）";
+}
+
+function toggle(i){state.open=state.open===i?null:i; cancelAsk(false); renderPreview();}
+function ask(i){state.asking=i; state.askingSoft=null; state.step=0; state.typed=""; state.focusTyped=false; renderPreview();}
+function askSoft(i){state.askingSoft=i; state.asking=null; renderPreview();}
+function nextStep(){state.step=1; renderPreview();}
+function typing(v){state.typed=v; state.focusTyped=true; renderPreview(); state.focusTyped=false;}
+function cancelAsk(render=true){state.asking=null; state.askingSoft=null; state.step=0; state.typed=""; if(render) renderPreview();}
+function doDelete(i){state.deleted.add(i); state.open=null; cancelAsk(false); state.tried=(state.tried||0); updateAll();}
+function doErase(i){state.deleted.delete(i); state.erased.add(i); state.open=null; state.purged=(state.purged||0)+1; cancelAsk(false); updateAll();}
+function restore(i){state.deleted.delete(i); updateAll();}
+
+/* ================= 出力 ================= */
+function updatePrompt(){
+  const w=WHERES.find(o=>o.id===state.where), n=COUNTS.find(o=>o.id===state.count),
+        f=CONFIRMS.find(o=>o.id===state.confirm), a=AFTERS.find(o=>o.id===state.after);
+  const L=[];
+  L.push("ST23 の 1 日の一覧（ST22 の「消した」行と滞在の詳細）に、戻せない「本文ごと消す」を次の形で足す。ボタンは 44×44px 以上（NFR-20）。");
+  L.push(`- 口の置き場: ${w.t} —— ${w.d}。`);
+  L.push(`- 確認に出すもの: ${n.t} —— ${n.d}。`);
+  L.push(`- 確認の強さ: ${f.t} —— ${f.d}。`);
+  L.push(`- 本文ごと消した後: ${a.t} —— ${a.d}。`);
+  L.push(`見たときの入力: 滞在 9 件の日。一緒に消える範囲は「${RANGES.find(o=>o.id===state.range).t}」で見た。本文ごと消してみた件数 ${state.purged||0}。`);
+  const nonDef=Object.keys(DEFAULTS).filter(k=>k!=="range" && state[k]!==DEFAULTS[k]);
+  L.push(nonDef.length ? `proto の初期値から動かした軸: ${nonDef.map(k=>({where:"軸 1",count:"軸 2",confirm:"軸 3",after:"軸 4"})[k]).join("・")}。` : "proto の初期値のまま（どの軸も動かしていない）。");
+  document.getElementById("prompt").textContent=L.join("\n");
+}
+
+function updateAll(){
+  renderCards("whereCards",WHERES,"where");
+  renderCards("countCards",COUNTS,"count");
+  renderCards("confirmCards",CONFIRMS,"confirm");
+  renderCards("afterCards",AFTERS,"after");
+  renderCards("rangeCards",RANGES,"range");
+  renderPreview(); updatePrompt();
+}
+
+const pbox=document.getElementById("presets");
+PRESETS.forEach(p=>{const b=document.createElement("button");b.type="button";b.textContent=p.n;b.onclick=()=>{Object.assign(state,p.v);cancelAsk(false);updateAll();};pbox.appendChild(b);});
+document.getElementById("schemeBtn").onclick=()=>{state.scheme=state.scheme==="dark"?"light":"dark";renderPreview();};
+document.getElementById("resetBtn").onclick=()=>{state.deleted=new Set(INITIAL_DELETED);state.erased=new Set();state.open=null;state.purged=0;cancelAsk(false);updateAll();};
+if(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) state.scheme="light";
+
+document.getElementById("copyBtn").onclick=()=>{
+  const t=document.getElementById("prompt").textContent, note=document.getElementById("copyNote");
+  const p=(navigator.clipboard && navigator.clipboard.writeText) ? navigator.clipboard.writeText(t) : Promise.reject(new Error("no clipboard"));
+  p.then(()=>{note.textContent="コピーしました"; setTimeout(()=>note.textContent="",1400);})
+   .catch(()=>{note.textContent="コピーできない。上の欄を長押しして選んでください";});
+};
+
+if(!GO) updateAll();
+</script>
+
+<!-- ============================ GO view（reading の段。spec に合わせた決まった形） ============================ -->
+<script type="application/json" id="proto-go">
+{
+ "chosen": "1 日の一覧の「消した 10:05 – 11:48」の行に「戻す」と並べて「本文ごと消す」（44×44 px 以上）。押すとその場で確認が開き、消える件数を組ごと（滞在・位置・書庫の位置・書庫の項目）と前の版で出し、消えずに残るもの（書庫の写し N 個・本人のフォルダの書庫・書き出したファイル・ディスクの痕跡は次の書き直し（毎晩 3:30）まで）を添えて「本文ごと消す / やめる」。消した後は「本文ごと消した 10:05 – 11:48」の行が残り、戻すは出ない。",
+ "requirements": [
+  "「消した」の行から本文ごと消せる",
+  "「消した」の行から戻せる",
+  "日付を指定するとその日の滞在が時刻順に一覧で出る"
+ ],
+ "states": [
+  {"id": "erased", "name": "消した行（初期表示）", "hint": "10:05 – 11:48 を ST22 で「消した」にした日。行に「戻す」と「本文ごと消す」が並ぶ。作り直しで吸収された滞在は行にも「消した」にもならない", "scenarios": ["消した行に本文ごと消すが出る", "本文ごと消すの操作は 44 px を下回らない", "消した時間は消したと書かれた行で出る", "消した滞在と吸収された滞在は一覧に出ない"]},
+  {"id": "confirm", "name": "本文ごと消す確認", "hint": "消える件数を組ごとと前の版で、消えずに残るものと一緒に出す", "scenarios": ["確認に消える件数がソースの組ごとに出る", "確認に消えずに残るものが出る"]},
+  {"id": "cancel", "name": "確認をやめる", "hint": "「やめる」を押すと何も消えず、「消した」の行と「戻す」が残る", "scenarios": ["本文ごと消す確認をやめると何も消えない"]},
+  {"id": "changed", "name": "確認の後に件数が変わった", "hint": "確認を開いた後に 10:30 の位置が 1 件届いた。「本文ごと消す」を押すと消さずに、位置 71 件で確認を出し直す", "scenarios": ["件数が変わって断られると数え直した確認が出る"]},
+  {"id": "purged", "name": "本文ごと消した後", "hint": "「本文ごと消した 10:05 – 11:48」の行。戻すも本文ごと消すも無く、詳細も開かない", "scenarios": ["確認して本文ごと消すと本文ごと消したの行になる", "本文ごと消した時間は本文ごと消したと書かれた行で出る", "本文ごと消した行には戻すが出ない"]},
+  {"id": "late", "name": "後から届いた位置", "hint": "本文ごと消した時間帯に後から位置が 2 件届いた。本文も消え、件数が行に出る。「位置が 1 件届く」で増やせる", "scenarios": ["後から届いて本文を消した件数が行に出る"]},
+  {"id": "adjacent", "name": "本文ごと消した＋隣の消した", "hint": "10:00 – 11:00 を本文ごと消し、11:00 – 11:30 は消しただけ。隣り合っても 2 行のまま", "scenarios": ["本文ごと消した時間と消した時間は隣り合ってもまとまらない"]},
+  {"id": "overlap", "name": "本文ごと消した＋重なる消した", "hint": "10:00 – 11:00 と 10:30 – 11:30 を別々に消し、10:00 – 11:00 だけ本文ごと消した。「消した」の行は重なりを差し引いた 11:00 – 11:30", "scenarios": ["本文ごと消した時間と重なる消した時間は差し引いて出る"]},
+  {"id": "restore", "name": "消した行から戻す", "hint": "「戻す」を押すと 10:05 – 11:48 の滞在の行が戻る（確認は挟まない）", "scenarios": ["消した行から戻すと滞在の行が戻る"]},
+  {"id": "merged", "name": "隣り合う消した", "hint": "10:05 – 11:00 と 11:00 – 11:48 を別々に消した。1 行にまとまり、「戻す」で 2 件とも戻る。この行の「本文ごと消す」は仕様が決まっていない（GO 資料の未解決）", "scenarios": ["隣り合う消した時間は 1 つの行にまとまる"]},
+  {"id": "soft", "name": "この滞在を消す（ST22 のまま）", "hint": "滞在の詳細の「この滞在を消す」の確認は ST22 と同じ（位置の件数だけ・消す / やめる）", "scenarios": ["この滞在を消すの確認は変わらない"]},
+  {"id": "day", "name": "何も消していない 1 日", "hint": "滞在・移動・記録なしが時刻順。滞在を押すと詳細が開く（本文ごと消すは詳細に置かない）", "scenarios": ["1 日歩き回った後、その日の滞在が一覧で出る"]},
+  {"id": "midnight", "name": "日付をまたぐ滞在", "hint": "23:00 – 02:00 の滞在。「次の日」を押すと次の日の頭にも同じ時刻で出る", "scenarios": ["日付をまたぐ滞在は両方の日に出る"]}
+ ],
+ "always": []
+}
+</script>
+<script>
+if(GO){(function(){
+  const S=JSON.parse(document.getElementById("proto-go").textContent);
+  const scheme=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches)?"light":"dark";
+  const c=SCHEMES[scheme];
+  const COPIES=2;
+  let uid=0;
+  const stay=(s,e,o={})=>({k:"stay",id:++uid,s,e,loc:o.loc??Math.round((mins(e)-mins(s))*0.67),arc:o.arc??0,ai:o.ai??0,ver:o.ver??Math.max(1,Math.round((mins(e)-mins(s))/5))});
+  const mv=(s,e)=>({k:"move",s,e}), none=(s,e)=>({k:"none",s,e});
+  const er=(st,s,e)=>({k:"erased",s:s||st[0].s,e:e||st[st.length-1].e,stays:st});
+  const pg=(s,e,late=0)=>({k:"purged",s,e,late});
+  function head(){return [stay("0:00","7:42"),mv("7:42","8:31"),stay("8:31","9:50"),mv("9:50","10:05")];}
+  function tail(){return [mv("11:48","12:15"),stay("12:15","12:58"),mv("12:58","13:09"),stay("13:09","17:36"),mv("17:36","18:02"),stay("18:02","18:44"),none("18:44","19:30"),stay("19:30","21:12"),mv("21:12","21:40"),stay("21:40","22:31"),mv("22:31","23:00"),stay("23:00","02:00")];}
+  const C=()=>stay("10:05","11:48",{loc:70,arc:3,ai:1,ver:20});
+  const DAY2=()=>[stay("23:00","02:00"),mv("02:00","02:20"),stay("02:20","8:10"),mv("8:10","8:55"),stay("8:55","12:30")];
+  function scene(id){
+    uid=0;
+    const g={rows:null,day:0,open:null,soft:null,ask:null,arrive:0,note:"",log:[]};
+    const withC=x=>[...head(),...x,...tail()];
+    switch(id){
+      case "day": case "midnight": g.rows=withC([C()]); break;
+      case "erased": case "restore": g.rows=withC([er([C()])]); break;
+      case "confirm": case "cancel": g.rows=withC([er([C()])]); g.ask=4; break;
+      case "changed": g.rows=withC([er([C()])]); g.ask=4; g.arrive=1; break;
+      case "purged": g.rows=withC([pg("10:05","11:48")]); break;
+      case "late": g.rows=withC([pg("10:05","11:48",2)]); break;
+      case "merged": g.rows=withC([er([stay("10:05","11:00"),stay("11:00","11:48")])]); break;
+      case "adjacent": g.rows=[...head().slice(0,3),mv("9:50","10:00"),pg("10:00","11:00"),er([stay("11:00","11:30")]),mv("11:30","12:15"),...tail().slice(1)]; break;
+      case "overlap": g.rows=[...head().slice(0,3),mv("9:50","10:00"),pg("10:00","11:00"),er([stay("10:30","11:30")],"11:00","11:30"),mv("11:30","12:15"),...tail().slice(1)]; break;
+      case "soft": { const x=C(); g.rows=withC([x]); g.open=x.id; g.soft=x.id; break; }
+    }
+    if(id==="changed") g.note="確認を開いた後に、10:30 の位置が 1 件届いた（確認の件数はまだ 70 件のまま）。";
+    return g;
+  }
+  const cur={id:null,g:null};
+
+  /* ---- 組み立て ---- */
+  document.querySelector(".wrap").style.display="none";
+  const root=document.createElement("div");
+  root.innerHTML=`<style>
+    .gw{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
+    @media (max-width:820px){.gw{grid-template-columns:1fr}}
+    .gs{background:var(--ui-panel);border-right:1px solid var(--ui-line);padding:14px;overflow-y:auto;max-height:100vh}
+    @media (max-width:820px){.gs{max-height:none;border-right:none;border-bottom:1px solid var(--ui-line)}}
+    .gs h1{font-size:15px;margin:0 0 4px}.gs p{color:var(--ui-dim);font-size:12px;line-height:1.6;margin:0 0 10px}
+    .gs button{display:block;width:100%;text-align:left;background:#232730;border:1px solid var(--ui-line);color:var(--ui-fg);border-radius:8px;padding:8px 10px;margin:0 0 6px;font:inherit;font-size:12.5px;cursor:pointer}
+    .gs button.on{border-color:var(--ui-accent);background:#22302460}
+    .gr{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;background:repeating-linear-gradient(45deg,#15171c,#15171c 12px,#171a1f 12px,#171a1f 24px)}
+    .gh{max-width:520px;font-size:12.5px;line-height:1.65;color:var(--ui-fg);background:#1f2229;border:1px solid var(--ui-line);border-radius:8px;padding:8px 12px}
+    .gh button{background:#232730;border:1px solid var(--ui-accent);color:var(--ui-fg);border-radius:6px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer;margin-top:6px}
+    .gl{max-width:520px;width:100%;font-size:11.5px;color:var(--ui-dim);line-height:1.6}
+    .gl b{color:var(--ui-accent)}
+  </style>
+  <div class="gw"><div class="gs"><h1>ST23 GO 用 proto</h1><p>${esc(S.chosen)}</p><div id="gList"></div></div>
+  <div class="gr"><div class="gh" id="gHint"></div>
+  <div class="phone"><div class="cap"><span>360 × 640</span><span>S-2 1 日の一覧</span></div><div class="screen" id="gScreen"></div></div>
+  <div class="gl" id="gLog"></div></div></div>`;
+  document.body.appendChild(root);
+  const list=document.getElementById("gList");
+  S.states.forEach(st=>{const b=document.createElement("button");b.type="button";b.dataset.id=st.id;b.textContent=st.name;b.onclick=()=>{location.hash="state="+st.id;};list.appendChild(b);});
+
+  /* ---- 数え方（design D15。確認の口と消す口が同じ数え方） ---- */
+  function counts(row,extra=0){
+    const st=row.stays;
+    return {stays:st.length,loc:st.reduce((a,x)=>a+x.loc,0)+extra,arc:st.reduce((a,x)=>a+x.arc,0),ai:st.reduce((a,x)=>a+x.ai,0),ver:st.reduce((a,x)=>a+x.ver,0)};
+  }
+  const same=(a,b)=>["stays","loc","arc","ai","ver"].every(k=>a[k]===b[k]);
+
+  /* ---- 描画 ---- */
+  const ctl=`min-height:24px;min-width:24px;padding:4px 10px;font:400 15px/1.6 system-ui,sans-serif;color:${tone(c.text)};background:${tone(c.s2)};border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  const del=`min-height:44px;min-width:44px;padding:8px 14px;font:600 15px/1.4 system-ui,sans-serif;color:${tone(c.text)};background:${tone(c.s2)};border:1px solid ${tone(c.muted)};border-radius:8px;cursor:pointer`;
+  function confirmBox(i,row){
+    const g=cur.g, n=g.shown;
+    let h=`<div role="alertdialog" data-testid="purge-confirm" style="margin-top:8px;padding:8px 10px;border:1px solid ${tone(c.muted)};border-radius:8px;width:100%">`;
+    if(g.changedMsg) h+=`<p style="margin:0 0 6px;font-weight:600">件数が変わりました。数え直した件数です。</p>`;
+    h+=`<p style="margin:0 0 6px;font-weight:600">${row.s} – ${row.e} の本文を消します。戻せません。</p>`;
+    h+=`<p style="margin:0 0 6px">消えるもの: 滞在 ${n.stays} 件・位置 ${n.loc} 件・書庫の位置 ${n.arc} 件・書庫の項目 ${n.ai} 件（前の版 ${n.ver} 件）</p>`;
+    h+=`<p style="margin:0 0 8px;color:${tone(c.muted)}">消えずに残るもの: 書庫の写し ${COPIES} 個・本人のフォルダの書庫・書き出したファイル。ディスクの痕跡は次の書き直し（毎晩 3:30）で消えます。</p>`;
+    h+=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button data-f type="button" style="${del}" onclick="goPurge(${i})">本文ごと消す</button><button data-f type="button" style="${del};font-weight:400;background:transparent" onclick="goCancel()">やめる</button></div></div>`;
+    return h;
+  }
+  function render(){
+    const g=cur.g, scr=document.getElementById("gScreen");
+    scr.style.background=tone(c.ground); scr.style.color=tone(c.text);
+    const rows=g.day===0?g.rows:DAY2();
+    const label=g.day===0?"9月14日（月）":"9月15日（火）", iso=g.day===0?"2026-09-14":"2026-09-15";
+    let h=`<style>#gScreen [data-f]:focus-visible{outline:3px solid ${tone(c.text)};outline-offset:2px}</style><div style="padding:12px;font:400 16px/1.65 system-ui,sans-serif">`;
+    h+=`<h1 style="font:600 18px/1.3 system-ui,sans-serif;margin:0 0 8px">${label}の滞在</h1>`;
+    h+=`<div style="display:flex;gap:8px;margin-bottom:12px"><button data-f type="button" style="${ctl}" onclick="goDay(0)">前の日</button><span style="${ctl};display:inline-flex;align-items:center">${iso}</span><button data-f type="button" style="${ctl}" onclick="goDay(1)">次の日</button></div><ol style="list-style:none;margin:0;padding:0">`;
+    rows.forEach((x,i)=>{
+      const base=`border-left:3px ${x.k==="none"?"dashed":"solid"} ${tone(c.muted)};padding:6px 10px;margin:0 0 6px`;
+      if(x.k==="purged"){
+        h+=`<li data-testid="row-purged" style="${base};border-left-style:dotted;color:${tone(c.muted)}">本文ごと消した ${x.s} – ${x.e}${x.late?`<span style="display:block;font-size:14px">後から届いた ${x.late} 件も本文ごと消した</span>`:""}</li>`;
+        return;
+      }
+      if(x.k==="erased"){
+        h+=`<li data-testid="row-erased" style="${base};border-left-style:dotted;color:${tone(c.muted)};display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span>消した ${x.s} – ${x.e}</span><span style="display:flex;gap:8px;flex-wrap:wrap">`;
+        h+=`<button data-f type="button" style="${ctl}${cur.id==="restore"?`;outline:2px dashed ${tone(c.text)}`:""}" onclick="goRestore(${i})">戻す</button>`;
+        if(g.ask!==i) h+=`<button data-f type="button" style="${del};font-weight:400" onclick="goAsk(${i})">本文ごと消す</button>`;
+        h+=`</span>`;
+        if(g.ask===i) h+=confirmBox(i,x);
+        if(g.mergedNote===i) h+=`<p style="margin:8px 0 0;width:100%;font-size:14px">（未解決）この行は滞在を ${x.stays.length} 件持つ。どれを本文ごと消すかは仕様に無い —— GO 資料の「未解決」</p>`;
+        h+=`</li>`;
+        return;
+      }
+      if(x.k!=="stay"){
+        h+=`<li style="${base};color:${tone(c.muted)}">${x.k==="move"?`移動 ${dur(x.s,x.e)} ・ ${x.s} – ${x.e}`:`記録なし ${x.s} – ${x.e}`}</li>`;
+        return;
+      }
+      const open=g.open===x.id, cross=x.s==="23:00";
+      h+=`<li style="${base};background:${tone(c.s1)};border-radius:8px${cross&&cur.id==="midnight"?`;outline:2px dashed ${tone(c.text)}`:""}">`;
+      h+=`<button data-f type="button" aria-expanded="${open}" onclick="goToggle(${x.id})" style="width:100%;text-align:left;background:transparent;border:none;color:inherit;padding:0;cursor:pointer;min-height:24px;font:inherit">`;
+      h+=`<span style="display:block;font:600 17px/1.4 system-ui,sans-serif">${x.s} – ${x.e}</span><span style="display:block;color:${tone(c.muted)}">${cross?"3 時間":dur(x.s,x.e)} ・ ${x.s} – ${x.e}</span></button>`;
+      if(open){
+        h+=`<div style="margin-top:8px;padding:8px 10px;background:${tone(c.s2)};border-radius:8px"><dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:15px"><dt style="color:${tone(c.muted)}">位置</dt><dd style="margin:0">${x.loc} 件</dd></dl>`;
+        if(g.soft===x.id){
+          h+=`<div role="alertdialog" style="margin-top:8px;padding:8px 10px;border:1px solid ${tone(c.muted)};border-radius:8px"><p style="margin:0 0 8px">この滞在と一緒に消える位置の記録 ${x.loc} 件です。消しますか？</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button data-f type="button" style="${del}" onclick="goSoft(${x.id})">消す</button><button data-f type="button" style="${del};font-weight:400;background:transparent" onclick="goCancel()">やめる</button></div></div>`;
+        }else{
+          h+=`<div style="margin-top:10px"><button data-f type="button" style="${del}" onclick="goAskSoft(${x.id})">この滞在を消す</button></div>`;
+        }
+        h+=`</div>`;
+      }
+      h+=`</li>`;
+    });
+    h+=`</ol></div>`;
+    scr.innerHTML=h;
+    const st=S.states.find(s=>s.id===cur.id);
+    let hint=`<b>${esc(st.name)}</b> —— ${esc(st.hint)}`;
+    if(g.note) hint+=`<br>${esc(g.note)}`;
+    if(cur.id==="late"||cur.id==="purged") hint+=`<br><button type="button" onclick="goArrive()">その時間帯の位置が 1 件届く</button>`;
+    if(cur.id==="erased"||cur.id==="confirm") hint+=`<br><button type="button" onclick="goArriveOpen()">確認を開いたまま、その時間帯の位置が 1 件届く</button>`;
+    document.getElementById("gHint").innerHTML=hint;
+    document.getElementById("gLog").innerHTML=g.log.length?("<b>裏で積まれたもの</b><br>"+g.log.map(esc).join("<br>")):"";
+    list.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.id===cur.id));
+    if(cur.id==="midnight"&&g.day===0) scr.scrollTop=scr.scrollHeight;
+  }
+  function find(row){return cur.g.rows.indexOf(row);}
+
+  /* ---- 操作 ---- */
+  window.goDay=d=>{cur.g.day=d;render();};
+  window.goToggle=id=>{const g=cur.g;g.open=g.open===id?null:id;g.soft=null;render();};
+  window.goAskSoft=id=>{cur.g.soft=id;render();};
+  window.goCancel=()=>{const g=cur.g;if(g.ask!=null)g.log.push("やめた: 何も消えていない（「消した」の行と「戻す」はそのまま）");g.ask=null;g.soft=null;g.changedMsg=false;g.arrive=0;render();};
+  window.goSoft=id=>{
+    const g=cur.g,i=g.rows.findIndex(r=>r.id===id),x=g.rows[i];
+    g.rows.splice(i,1,er([x]));g.open=null;g.soft=null;
+    g.log.push(`消した（ST22）: 滞在 1 件と位置 ${x.loc} 件に印。本文は残る。「戻す」で戻せる`);render();
+  };
+  window.goRestore=i=>{
+    const g=cur.g,x=g.rows[i];g.rows.splice(i,1,...x.stays.slice().sort((a,b)=>mins(a.s)-mins(b.s)));g.ask=null;g.mergedNote=null;
+    g.log.push(`戻した: 滞在 ${x.stays.length} 件と一緒に消えた位置の印を外し、その日を作り直した`);render();
+  };
+  window.goAsk=i=>{
+    const g=cur.g,x=g.rows[i];
+    if(x.stays.length>1){g.mergedNote=i;render();return;}
+    g.ask=i;g.changedMsg=false;g.shown=counts(x);render();
+  };
+  window.goArriveOpen=()=>{const g=cur.g;if(g.ask==null){const i=g.rows.findIndex(r=>r.k==="erased");g.ask=i;g.shown=counts(g.rows[i]);}g.arrive+=1;g.note=`確認を開いた後に、その時間帯の位置が ${g.arrive} 件届いた（確認の件数はそのまま）。`;g.log.push("位置が 1 件届いた: 「消した」時間帯なので、取り込みの直後に印（戻せる）");render();};
+  window.goPurge=i=>{
+    const g=cur.g,x=g.rows[i],now=counts(x,g.arrive);
+    if(!same(now,g.shown)){g.shown=now;g.changedMsg=true;g.log.push(`断られた（409 件数が変わった）: 何も消えていない。位置 ${now.loc} 件で確認を出し直した`);render();return;}
+    g.rows.splice(i,1,pg(x.s,x.e));g.ask=null;g.changedMsg=false;g.arrive=0;g.note="";
+    g.log.push(`本文ごと消した: 滞在 ${now.stays}・位置 ${now.loc}・書庫の位置 ${now.arc}・書庫の項目 ${now.ai}・前の版 ${now.ver} 件の原文と解析済みを空に（行・時刻・内容の鍵は残る）`);
+    g.log.push(`台帳に 1 行: ${x.s} – ${x.e}・組ごとの件数・時刻（追記のみ）。次の書き直し（毎晩 3:30）でこの表のファイルの痕跡も追い出す`);
+    render();
+  };
+  window.goArrive=()=>{
+    const g=cur.g,x=g.rows.find(r=>r.k==="purged");if(!x)return;x.late+=1;
+    g.log.push("位置が 1 件届いた: 本文ごと消した時間帯なので、入れた同じまとまりで印を付けて本文も消し、元の操作の台帳に結んだ（取り込みの応答は受理のまま）");render();
+  };
+
+  function go(){
+    const m=/(?:^#|[#&])state=([\w-]+)/.exec(location.hash);
+    const id=(m&&S.states.some(s=>s.id===m[1]))?m[1]:S.states[0].id;
+    cur.id=id;cur.g=scene(id);
+    if(cur.g.ask!=null) cur.g.shown=counts(cur.g.rows[cur.g.ask]);
+    render();
+  }
+  window.addEventListener("hashchange",go);
+  go();
+})();}
+</script>
+</body>
+</html>
