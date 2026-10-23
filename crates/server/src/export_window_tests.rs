@@ -1034,7 +1034,7 @@ async fn explain_excluded(pool: &sqlx::PgPool, sql: &ExcludedSql) -> Value {
 
 /// 消した滞在 `erased`（`(始まり, 終わり)`。`None` なら置かない）と、利用者 A の 00:00〜00:59 の記録 `n` 件、
 /// 別の利用者の 03:00 以降の記録 `n` 件を置いた DB で、`(新しい断片, 写しの断片)` の読んだ行の数を返す。
-/// `legacy` が偽なら写しは取らない（0）。
+/// `legacy_too` が偽なら写しは取らない（0）。
 async fn scale_reads(n: usize, erased: Option<(&str, &str)>, legacy_too: bool) -> (u64, u64) {
     let (pool, drop) = fresh().await;
     let (a, b) = (Uuid::new_v4(), Uuid::new_v4());

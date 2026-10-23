@@ -1455,7 +1455,7 @@ async fn export_volume_one_run_reports_time_and_memory() {
     let erased = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED").map_or(true, |v| v != "0");
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
-    // 消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
+    // 既定では消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
     // その 3 分の 2 が消した時間より前に始まり、除く判定の重い経路（次の記録を引く幅・重なり）を通る。
     // 座標を持つ行は共有の DB に残り、以後のすべての書き出しが判定し直すので、割合は小さく保つ。
     if erased {
