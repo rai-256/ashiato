@@ -93,7 +93,7 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   | 録画のシナリオ・waive | `tools/recording/scenarios.d/*.json` | ハーネスの `record_summarize.py` が `recording.json` の後ろへ足す |
 
   `feat/st*` の PR が台本の本体の末尾（最後の節の後ろ）に書き足すか、`recording.json` にシナリオ・waive を、`tools/recording/README.md` の表に行を足すか、
-  `migrations/ORDER` の途中を変えると、CI の `tools/check-shared-appends.sh` が落とす。本体の途中の既存の節の中身を直すのは通す（本体の途中に新しい節の見出しを足しても落とす。読む口のかたまりをそのまま動かすだけは通す）
+  `migrations/ORDER` の途中を変えると、CI の `tools/check-shared-appends.sh` が落とす。本体の途中の既存の節の中身を直すのは通す（本体の途中に新しい節の見出しを足しても落とす。見出しとみなすのは ST 番号を持つ 3 つの型 —— `# ====…ST<NN>` / `# ---…ST<NN>`・`echo "== ST<NN>:`・`echo "== 41. …（ST<NN>…）"` —— だけで、型の外の書き方は落ちないが、足してよいわけではない。既存の節の中に `# --- ST<NN>:` の小見出しで自分の検査を足すのも新しい節として落とす。読む口のかたまりをそのまま動かすだけは通す）
 - **画面（jsdom）は実寸を測れない。が、機械が測れないのではない**（2026-09-18）。
   「指定と勘定」は jsdom（`web/src/__tests__`）で固定し、**実寸・スクロール量・フォーカスの位置・
   横溢れは `web/e2e` の本物のブラウザ**が測る。「画面が見えるか」を人間へ回さない ——
