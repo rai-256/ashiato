@@ -221,7 +221,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   const over = length > NOTE_MAX_CHARS;
 
   /** 組んだ原文を送る。結果は「保存した」「断られた」「届かなかった」の 3 つに分ける（ST19 の D9 と同じ読み方）。 */
-  const post = async (p: Pending, restoreNote: string | null): Promise<void> => {
+  const post = async (p: Pending, restoreNote: string | null, crossed = false): Promise<void> => {
     setNotice(null);
     try {
       const res = await fetch("/api/ingest", {
@@ -235,10 +235,10 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
         // 送り直しで届いた「日」の記録のひとことも、送ったものとして覚える（覚えないと欄を離れたときに同じひとことをもう一度送る）
         if (p.key === "day") sentNote.current = p.note;
         const value = `${signed(p.v)} ${valenceWord(p.v)}`;
-        setNotice({
-          bad: false,
-          text: p.stayRange === undefined ? m.saved(value, atLabel(p.at), target) : m.savedStay(value, atLabel(p.at), p.stayRange),
-        });
+        const saved = p.stayRange === undefined ? m.saved(value, atLabel(p.at), target) : m.savedStay(value, atLabel(p.at), p.stayRange);
+        // 日の終わりをまたいで「後」として残したときだけ、画面の「いま」を記入の日時に進めて知らせる（design D6）
+        if (crossed) setNow(p.at);
+        setNotice({ bad: false, text: crossed ? `${saved} ${m.keptAsReview}` : saved });
         setTick((t) => t + 1);
         return;
       }
@@ -280,7 +280,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     const built = buildFeeling(dayTarget, scales, note, at);
     const previous = sentNote.current;
     sentNote.current = note;
-    void post({ key: "day", built, v, note, at }, previous);
+    // 押したときに画面が「前」を出していて、記入の日時では「後」なら知らせる。送り直しは原文を送るだけで判定しない（design D6）
+    const crossed = phase === "before" && phaseOf(dayTarget, at) === "after";
+    void post({ key: "day", built, v, note, at }, previous, crossed);
   };
 
   /** 上限を超えている間は送らない。押した値もひとことも残す（切り詰めない）。 */

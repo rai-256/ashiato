@@ -534,3 +534,75 @@ describe("滞在の行は断られたら押された印を戻し、届かなか�
     expect(pressed("stay-stay-1-1")).toBe("true");
   });
 });
+
+describe("開いたまま日の終わりをまたいで押す", () => {
+  /** JST 2026-10-07 23:58 に 2026-10-07 の画面を開く。 */
+  async function openBeforeMidnight(): Promise<void> {
+    vi.setSystemTime(new Date("2026-10-07T14:58:00Z"));
+    window.location.hash = "#/feel/2026-10-07";
+    await open("2026-10-07");
+  }
+  const at = (iso: string): void => {
+    vi.setSystemTime(new Date(iso));
+  };
+
+  // Scenario: 開いたまま日の終わりをまたいで押した記録は後として格納される
+  it("23:58 に開いて 00:01 に「不快」を押すと、送る原文の記入の日時は翌日の 00:01（サーバはこれで「後」に決める）", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T15:01:00Z");
+    press("valence--1");
+    await sent(1);
+    expect(posts[0].body.target).toEqual({ kind: "day", date: "2026-10-07" });
+    expect(posts[0].body.written_at).toBe("2026-10-08T00:01:00.000+09:00");
+  });
+
+  // Scenario: 開いたまま日の終わりをまたいで押すと振り返りとして残したと出る
+  it("「前」に +1 がある日を 23:58 に開き 00:01 に「不快」を押すと、保存と「振り返りとして残しました」が出て、-1 が押され、「前に書いた」と +1 が見える", async () => {
+    records = [rec(1, { phase: "before" })];
+    await openBeforeMidnight();
+    expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("true");
+    at("2026-10-07T15:01:00Z");
+    press("valence--1");
+    await sent(1);
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).toContain("振り返りとして残しました");
+    await waitFor(() => {
+      expect(screen.getByTestId("valence--1").getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("false");
+    });
+    const other = screen.getByTestId("feel-other").textContent ?? "";
+    expect(other).toContain("前に書いた");
+    expect(other).toContain("+1");
+  });
+
+  // Scenario: 日の終わりをまたがずに押すと振り返りの知らせは出ない
+  it("23:58 に開いて 23:59 に「快」を押すと、保存は出て「振り返りとして残しました」は出ない", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T14:59:00Z");
+    press("valence-1");
+    await sent(1);
+    expect(posts[0].body.written_at).toBe("2026-10-07T23:59:00.000+09:00");
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).not.toContain("振り返りとして残しました");
+  });
+
+  // Scenario: 日をまたいでから届いた送り直しは振り返りの知らせを出さない
+  it("23:59 に届かない状態で「快」を押し、00:01 に届く状態に戻して送り直すと、原文は 23:59 のまま届き、振り返りの知らせは出ない", async () => {
+    await openBeforeMidnight();
+    at("2026-10-07T14:59:00Z");
+    ingest = () => Promise.reject(new TypeError("network"));
+    press("valence-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    at("2026-10-07T15:01:00Z");
+    ingest = accepted;
+    press("feel-resend");
+    // 届かなかった 1 回目は posts に残らない（届いた分だけ数える）。届いたのは原文そのまま
+    await sent(1);
+    expect(posts[0].body.written_at).toBe("2026-10-07T23:59:00.000+09:00");
+    const ok = await screen.findByTestId("feel-notice-ok");
+    expect(ok.textContent).toContain("保存しました");
+    expect(ok.textContent).not.toContain("振り返りとして残しました");
+  });
+});
