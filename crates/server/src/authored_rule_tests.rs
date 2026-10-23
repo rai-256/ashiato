@@ -116,6 +116,15 @@ async fn ch01_authored_claim_out_of_range_offset_is_rejected() {
     let app = app().await;
     let u = testdb::user();
     let kind = address_kind(&app, u).await;
+    // 主張の行は消せないので、格納されないことは送る前と後の件数で見る（場所の側と同じ形。review/code.md R5）
+    let count = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core.event WHERE user_id = $1")
+            .bind(u)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap()
+    };
+    let before = count().await;
     for bad in [1440, -1440] {
         let r = send_claim(
             &app,
@@ -126,6 +135,7 @@ async fn ch01_authored_claim_out_of_range_offset_is_rejected() {
         .await;
         assert_eq!(kind_of(&r), "malformed_claim", "{bad}");
     }
+    assert_eq!(count().await, before, "断った主張が格納されている");
 }
 
 #[tokio::test]
