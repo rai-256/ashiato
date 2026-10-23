@@ -7,6 +7,8 @@
 pub const IDENTIFIER_PATTERN: &str = r"^[a-z0-9-]+(\.[a-z0-9-]+)+$";
 /// 識別子の長さの上限（D15）。
 pub const IDENTIFIER_MAX_LEN: usize = 64;
+/// 資格情報の値の頭（D6）。`Bearer` の値がこれで始まれば衛星の値として引く。
+pub const CREDENTIAL_PREFIX: &str = "ashsat_";
 /// 本体が使う識別子の前置き（D5）。
 pub const BUILTIN_PREFIX: &str = "ashiato.";
 /// 名前の持ち主を分ける区切り。`<識別子>:<名前の部分>`。

@@ -147,6 +147,12 @@ mod places_tests;
 mod registry_tests;
 /// 衛星の識別子と名前の形（ST29 / design D2 / D5 / D15）。DB に触らない。
 pub mod satellite;
+/// 衛星の求めの読み出しの記録（ST29 / design D4 / D8 / D9）。
+#[cfg(test)]
+mod satellite_access_tests;
+/// 衛星の資格情報の判定（ST29 / design D8 / D18 / D19）。
+#[cfg(test)]
+mod satellite_authn_tests;
 /// 形の正本と移行・登録簿の突き合わせ（ST29 / design D5）。
 #[cfg(test)]
 mod satellite_form_tests;
@@ -520,6 +526,26 @@ async fn authorize_quiet(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
+    // 衛星の値を名乗る求めは、引けなければ印を見ずに 401（D19（仮））。引ければ印があっても衛星（D18（仮））
+    if given.starts_with(satellite::CREDENTIAL_PREFIX) {
+        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "UPDATE core.satellite_credential c SET last_used_at = $2
+               FROM core.satellite s
+              WHERE c.token_sha256 = $1 AND c.revoked_at IS NULL
+                AND s.id = c.satellite_id AND s.removed_at IS NULL
+             RETURNING c.satellite_id, c.id",
+        )
+        .bind(web_session::sha256(given))
+        .bind(app.now())
+        .fetch_optional(&app.pool)
+        .await?;
+        return Ok(
+            row.map(|(satellite, credential)| web_session::Caller::Satellite {
+                satellite,
+                credential,
+            }),
+        );
+    }
     if token_matches(given, &app.token) {
         return Ok(Some(web_session::Caller::ApiToken));
     }
@@ -573,6 +599,9 @@ async fn authorize(
     headers: &HeaderMap,
 ) -> Result<web_session::Caller, (StatusCode, String)> {
     match decided(app, headers).await {
+        Authn::Decided(Some(web_session::Caller::Satellite { .. })) => {
+            return Err((StatusCode::FORBIDDEN, "forbidden".into()))
+        }
         Authn::Decided(Some(caller)) => return Ok(caller),
         Authn::Decided(None) => {}
         Authn::LookupFailed => {
