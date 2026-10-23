@@ -117,7 +117,8 @@
 - [ ] 6.2 ST09 の export の試験を、CH02 の断片の上で走らせる（依頼「ST09 の試験も通す」。design D10）。**CH02 の下流の worktree の中で**（`scripts/` の symlink・`.env`・port をそのまま使う）、
   作業を commit してから `git merge --no-commit --no-ff feat/st09-media-capture` → `CT st09_exp_` / `CT export_` → `git merge --abort`（**commit も push もしない。ST09 のコードをブランチに残さない**）。
   ST09 のブランチに `st09_exp_` の試験がまだ無ければ、その旨（`-- --list` の 0 本）を PR の本文に書いて `CT export_` だけを見る。終わった後に `git status --short` が空であることを確かめる。
-  検証: `CT st09_exp_` rc=0（`-- --list` で、ST09 のブランチの本数以上）/ `CT export_` rc=0（`-- --list` で 126 本以上）/ `git merge --abort` の後の `git status --short` が空
+  検証: `CT export_` rc=0（`-- --list` で、ST09 のブランチの本数以上）/ `CT export_` rc=0（`-- --list` で 126 本以上）/ `git merge --abort` の後の `git status --short` が空
+  （訂正 2026-10-23: 検証の入口を「CT st09_exp_」から上の入口に。受け入れ条件は変えない。理由: ST09 を merge --no-commit で重ねて撮った証跡は merge --abort の後に作業ツリーと食い違い、Task gate で常に古いコード扱いになる（ST09 の移行がテスト DB に残り export の試験 77 本も落とした）。CH02 の木では st09_exp_ が 0 本で FAIL。ST09 の上での試験は確認バッチの統合の木に任せる 実証: evidence.jsonl 2026-10-23T09:33:29+00:00 FAIL。承認: ユーザー 2026-10-23 の会話（6.2 は CT export_ だけにし、ST09 の上での試験は確認バッチに任せる案を承認）。記録: plan-corrections.md）
 - [ ] 6.3 crate 全体の試験と静的検査。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 /
   `scripts/quiet-run clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 / `python3 scripts/check_scenarios.py . ch02-export-next-record-window` rc=0
