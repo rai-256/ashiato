@@ -1,0 +1,15 @@
+{
+  "tag": "20261024-0140",
+  "run_id": "",
+  "commit": "2e156decb0aec484ca0cfe6d5d46884b04062337",
+  "overall": "ng",
+  "cleanup": "unknown",
+  "failed_step": "撮れなかった: 前提の誤りか別の録画と重なった（rc=2。record-run の出力を見る）",
+  "folder": "",
+  "folder_windows": "",
+  "note": "AI の実行結果。見やすさと人間の承認は含まない",
+  "scenarios": [],
+  "uncovered_stories": [
+    "CH02"
+  ]
+}
