@@ -24,7 +24,7 @@ T7 偽データ `tools/seed.d/202610141000_st17-daily-feeling.sh:160` が 09-11 
 - 提案: 読む口のかたまりの中（見出しの注記と `for … done` の間）で、`./tools/db-roles.sh`・grants.sql の付与・`app_psql()` の定義を済ませる（`db-roles.sh` は何度走らせても同じ結果。本体の :1330 の再実行は残す）。
   Global Constraint「本体を直すのは読む口の移動と ST17 の節を抜くことだけ」を越えるので design に `D<n>（仮）` と反転条件（役割の準備を読む口に置いて後ろの検査が崩れるなら、D1 の反転 —— 読む口を末尾に戻し節の頭で版を当て直す —— へ）。
   ST09 の節を手元に置いて（commit しない）落ちることを先に見てから直す
-- 処置: fixed D11 仮 — 9a3d1a03。`db-roles.sh`・grants.sql の付与・`app_psql()` を読む口の見出しの直前に置いた（かたまりの中に置くと `mouth_sig` の判定で `check-shared-appends.sh` が rc=1 になるため外の直前。D11 に理由）。読む口の注記と README を実態に合わせた。ST09 の節（と移行）を手元に置いて rc=2・`role "ashiato_app" does not exist`・NG 行なしを再現（`.superpowers/sdd/logs/20261023-184029-immut-r1-red2.log`）→ 直して rc=0・ST09 の OK 9 行。ST09 なしの OK/NG 138 行は直す前と diff 空。`provisional.py add --id D11 --source review/code.md#R1 --rests-on D1`
+- 処置: escalated — Q8（2026-10-24 本人がいまの形のままを選んだ。別の席が仮の D11 を否としたので台帳から外して人間に返した）。以下は仮で直したときの記録 —— 9a3d1a03。`db-roles.sh`・grants.sql の付与・`app_psql()` を読む口の見出しの直前に置いた（かたまりの中に置くと `mouth_sig` の判定で `check-shared-appends.sh` が rc=1 になるため外の直前。D11 に理由）。読む口の注記と README を実態に合わせた。ST09 の節（と移行）を手元に置いて rc=2・`role "ashiato_app" does not exist`・NG 行なしを再現（`.superpowers/sdd/logs/20261023-184029-immut-r1-red2.log`）→ 直して rc=0・ST09 の OK 9 行。ST09 なしの OK/NG 138 行は直す前と diff 空。`provisional.py add --id D11 --source review/code.md#R1 --rests-on D1`
 
 ## R2. `web/e2e/feel-ch01.spec.ts` の頭のコメントが「DB には何も足さない」と言うが、同じファイルに書き込む e2e が 4 本ある
 - 成果物: web/e2e/feel-ch01.spec.ts:5
@@ -237,7 +237,7 @@ Q3（直さない）は `ch01_stay_open_` 2 本が今の振る舞いを固定し
 - 根拠: On the post-CH01 main, a feat/st50 branch inserts `echo "== 新しい検査"; psql -c ...` (no ST-numbered heading) right after ST21's last line (1171) or after the grants line (1178). p is the app_psql line (1179), so hunk_hits [p,e] does not match an insertion after line ≤1178, and heading_added does not fire either. The check passes, and every Story ends up fighting over the same spot before the prep block. The in-file note ('この見出しより前の最後の節の後ろに書き足すと…落とす') is no longer true.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
-- 処置: fixed D11 仮 — 再現: CH01 の後の木を main にした使い捨ての clone で、`feat/st50-x` が ST21 の最後の行（`tools/check-immutable.sh:1172`）の後ろに `echo "== 新しい検査"` を足すと、直す前の検査は rc=0、直した後は rc=1。守る範囲 1 を準備の頭の注記（`PREP`）の直前の空でない行から始める。`--self-test` に 3 件（最後の節と準備の間 → 落とす / 準備と読む口の間 → 落とす / 最後の節より前を直す → 通す）。D11 に追記
+- 処置: fixed D11 — 再現: CH01 の後の木を main にした使い捨ての clone で、`feat/st50-x` が ST21 の最後の行（`tools/check-immutable.sh:1172`）の後ろに `echo "== 新しい検査"` を足すと、直す前の検査は rc=0、直した後は rc=1。守る範囲 1 を準備の頭の注記（`PREP`）の直前の空でない行から始める。`--self-test` に 3 件（最後の節と準備の間 → 落とす / 準備と読む口の間 → 落とす / 最後の節より前を直す → 通す）。D11 に追記
 
 ## R20. heading_added rejects any `# ---…STNN` or `echo "== STNN` line added anywhere in the body unless a heading with the same ST number is removed in the same diff. That also rejects the documented, allowed case of a Story adding its own sub-check inside an existing section.
 - 成果物: tools/check-shared-appends.sh:52
@@ -258,7 +258,7 @@ Q3（直さない）は `ch01_stay_open_` 2 本が今の振る舞いを固定し
 - 根拠: Someone later edits one definition (connection flags, role) and not the other. The .d sections and the app-role check then silently test under different connections. Only the re-run of db-roles/grants after DROP SCHEMA is needed, not a second function definition.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
-- 処置: fixed D11 仮 — `tools/check-immutable.sh` の二度目の `app_psql()` を消し、`db-roles.sh` と grants.sql の当て直しだけを残した（`grep -n 'app_psql()'` は :1179 の 1 か所）。D11 に追記
+- 処置: fixed D11 — `tools/check-immutable.sh` の二度目の `app_psql()` を消し、`db-roles.sh` と grants.sql の当て直しだけを残した（`grep -n 'app_psql()'` は :1179 の 1 か所）。D11 に追記
 
 ## R23. The feeling branch maps `AuthoredBreach::OffsetOutOfRange` to MalformedFeeling, but by the code's own comment this arm can never be reached. That leaves dead code, and the shared rule's order (origin → external id → offset) does not match how feelings actually apply it.
 - 成果物: crates/server/src/lib.rs:1062

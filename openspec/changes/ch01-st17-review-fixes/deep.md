@@ -47,7 +47,7 @@
 
 - **出所**: merge gate（`docs/briefs/CH01-gate.md`）。`provisional-review.md` の D11 が「否」——
   条件 4（`rests_on` に挙がっていない土台の決定）。D11 の置き場所（読む口のかたまりの**外の直前**）の理由は D2 の「読む口を動かしただけは通す。かたまりの中の注記でない行は比べない」（`tools/check-shared-appends.sh` の `mouth_sig`）で、
-  D11 の名で D2 の道具も変えている（`PREP='`*.d/` の節の前の準備'` と守る範囲 1 の起点・`--self-test` 3 件。review/code.md R19）。D2 が反転すれば D11 の置き場所と守る範囲が変わるので、D11 は D1 だけに乗る仮とは言えない
+  D11 の名で D2 の道具も変えている（`PREP='`*.d/` の節の前の準備'` と守る範囲 1 の起点・`--self-test` 3 件。review/code.md R19）。D11 の元の指摘は review/code.md R1（ここで人間に返したので処置は escalated）。R22 も D11 の名で直したD2 が反転すれば D11 の置き場所と守る範囲が変わるので、D11 は D1 だけに乗る仮とは言えない
 - **いまの木の状態**（D11 のまま。台帳からは外した）: 読む口の見出しの直前で `db-roles.sh`・grants.sql の付与・`app_psql()` を済ませ、`check-shared-appends.sh` は準備の頭の注記から読む口の `done` までを守る。
   ST09 の節なしの木で `tools/check-immutable.sh` は「書き換え禁止 OK」・NG 0 行、ST09 ありの直す前は `role "ashiato_app" does not exist` で抜けた。`check-shared-appends.sh --self-test` は rc=0
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH01-deep-r2.html`）
