@@ -48,10 +48,11 @@
   `.down.sql` は先頭で `core.erasure_operation` に行があれば `RAISE EXCEPTION` で止める（design の Migration Plan。本文を消した後に down すると範囲が 1µs に縮む）。
   Scenario: `消去の操作の台帳は書き換えられない` / `消去の操作の台帳は消せず、表も切り詰められない` / `台帳を書かない滞在の本文の消去は拒まれる` / `前の版を残した滞在の本文の消去は拒まれる` /
   `本文を消した滞在へ本文を書き戻せない` / `解析済みを残して原文だけ空にする書き換えは拒まれる` / `作り直しの書き換えは今までどおり通る`。
-  検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0（新しい `tools/check-immutable.d/<時刻>_st23-derived-erasure.sh` が psql から門の 5 本と台帳の 2 本を確かめ、各 Scenario を `echo`）、
+  検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0（新しい `tools/check-st23-derived-erasure.sh` が psql から門の 5 本と台帳の 2 本を確かめ、各 Scenario を `echo`）、
   `CT purge_schema_ (≥10)`（新しい `purge_tests.rs`。台帳の 2 本・門の 5 本・down の止まり方 1 本に加え、**行の形を固定の値で試験する**（R6: 2 表の列名・型・NULL 可否・CHECK を `information_schema` から読み、期待の表と一致）と、移行の前後で ST22 の消した滞在の `core.stay_erased` の範囲が変わらないこと）、
   `CT export_ (≥1)` で書き出しの表の分類の試験が通る、`CT app_role (≥1)` が `MAINTAIN` の 2 表だけを足した期待で通る（`app_role_tests.rs` を直す）
 
+  （訂正 2026-10-24: 検証の入口を「tools/check-immutable.d/<時刻>_st23-derived-erasure.sh」から上の入口に。受け入れ条件は変えない。理由: <時刻> は名前の雛形で、そのまま走らせると bash の構文エラーになる。節は check-immutable.sh が . で読む形（psql・fail を共有）で単独では走らないため、check-immutable.sh を走らせ節の見出し・NG なし・節の OK 行 10 本以上を確かめる入口に直す 実証: evidence.jsonl 2026-10-23T23:45:14+00:00 FAIL。承認: machine: evidence.jsonl 2026-10-23T23:42:23+00:00 PASS。記録: plan-corrections.md）
 ## Task 2: 本文ごと消す範囲と消去の核（design D2 / D3 / D6 / D15 / D17）
 
 - [ ] 2.1 `deletion.rs` に `purge_scope(tx, stay_id)`（範囲を集めて組ごとに数える。確認と消すが同じ関数を使う）と `purge(pool, stay_id, requested_user, expected)`（design D3 の 1〜8 の順）を置く。
