@@ -62,13 +62,13 @@
 
 ## Task 3: 判定と読み出しの記録（design D4 / D6 / D8 / D9 / D18。`lib.rs`・`web_session.rs`・`access_log.rs`）
 
-- [ ] 3.1 `Caller::Satellite { satellite, credential }` を足し、`authorize_quiet` が `ashsat_` で始まる `Bearer` の値を SHA-256 で引く。
+- [x] 3.1 `Caller::Satellite { satellite, credential }` を足し、`authorize_quiet` が `ashsat_` で始まる `Bearer` の値を SHA-256 で引く。
   有効なら同じ文で `last_used_at` を `app.now()` にして返す（D8 の `UPDATE … FROM … RETURNING`）。`ashsat_` で始まる値が引けなければ（取り消した 1 本・外した衛星の 1 本）印を見ずに 401（D19（仮））。
   **この段では Task 4 / 5 の口がまだ無いので、衛星と資格情報の行は試験の中で SQL で直に入れ、`last_used_at` も表を読んで確かめる**（一覧の口からの確かめは 5.1 で足す）。
   `authorize` は `Satellite` を 403（本文 `forbidden`）にする。`refresh_cookie` は衛星の求めに印を出し直さない。
   Scenario: `ログインの印を併せて持っていても衛星の求めとして断る`（`Set-Cookie` が無いことも見る）・`取り消した資格情報はログインの印を併せて持っていても通らない`・`衛星の資格情報は日が経っても切れない`（時計を 400 日進める）。
   検証: `CT satellite_authn 3`
-- [ ] 3.2 `access_log::middleware`: 判定が `Satellite` なら route にかかわらず（取り込みの口も）資格情報の種類 `satellite`・衛星と 1 本の番号・結果 `forbidden`・403 の行を書き、ハンドラを呼ばずに 403 を返す。
+- [x] 3.2 `access_log::middleware`: 判定が `Satellite` なら route にかかわらず（取り込みの口も）資格情報の種類 `satellite`・衛星と 1 本の番号・結果 `forbidden`・403 の行を書き、ハンドラを呼ばずに 403 を返す。
   `AccessEntry` は `AccessEntry::for_caller` で作り、`satellite` の欄は `Caller::Satellite` からだけ埋まる形にする。`GET /session` も 403 と同じ行（D8）。
   書き換えられない表の行の形を固定した値で試す（衛星の行を 1 行書いて全列を読み、期待の値と比べる。D9）。
   衛星と資格情報の行は 3.1 と同じく SQL で直に入れる（2 本の資格情報も直に 2 行）。
