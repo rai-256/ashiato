@@ -85,7 +85,7 @@
       "kind": "open",
       "question": "検査が main に入ると、走っている st09 と st13 は rebase した後に、自分の足した手書きの一時フォルダで検査に落ちます。どう扱いますか。",
       "why": "範囲の問い。失われるものは無く、後から切り替えられる。手間の置き場所だけが違う。",
-      "context": "`origin/main` との差分で数えると、足しているのは st09 が 7 か所（うち androidTest 2。/tmp の `st09-media*` 2,221 個はここから）、st13 が 4 か所。ch01・ch02 は 0。merge gate は main に rebase して CI を通すので、落ちればその Story の `fix` が直す（エラーの文言が何を使えばよいかを書く）。**検査とは別に、本文の衝突は選択肢に依らず起きうる**: CH03 が書き直す `archive_flow_tests.rs`・`archive_tests.rs`（st13）、`archive_tests.rs`・`export_file_tests.rs`・`ci.yml`（st09）、`export_file_tests.rs`（ch02）、`crates/server/Cargo.toml`（st09・st13）、`build.gradle.kts`（ch01）。後から merge する側が rebase で追従する（merge の順は決めない）。",
+      "context": "`origin/main` との差分で数えると、足しているのは st09 が 7 か所（うち androidTest 2。/tmp の `st09-media*` 2,221 個はここから）、st13 が 4 か所。ch01・ch02 は 0。merge gate は main に rebase して CI を通すので、落ちればその Story の `fix` が直す（エラーの文言が何を使えばよいかを書く）。**検査とは別に、本文の衝突は選択肢に依らず起きうる**: CH03 が書き直す `archive_flow_tests.rs`・`archive_tests.rs`（st13）、`archive_tests.rs`・`export_file_tests.rs`・`ci.yml`（st09）、`export_file_tests.rs`（ch02）、`crates/server/Cargo.toml`（st09・st13）、`build.gradle.kts`（ch01）。後から merge する側が rebase で追従する（merge の順は決めない）。 **検査のほかに、コンパイルも通らなくなる**: Kotlin の手伝いはフォルダを引数で受け取る形に変わる（C2）ので、st09（`testOutbox()`・`testHeartbeatOutbox()`・`TestStores()` の既定の引数）と st13（`testHeartbeatOutbox()`）は rebase の後に試験が組めず、検査の直しと同じ fix で直す（選択肢に依らない。commit 前の検査が木の全体を見るので、直しは 1 つの commit にまとめる）。Rust の `Inbox` は形を残すので st13 の 31 か所は壊れない。ch01 は `docs/testing.md` も直している（review/spec.md R5）。",
       "multi": false,
       "allow_free": true,
       "options": [

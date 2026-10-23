@@ -2,6 +2,7 @@
 
 > 第 1 回の深掘りの答えを待たずに、推奨の答え（`deep.md` の `（答え待ち・推奨: …）`）で先に書いた（2026-10-20 の流れ）。
 > 本人の答えが推奨と違えば `spec --answers` が写し直す。
+> `docs/changes/CH03.md` の「価値」「壊してはいけないもの」「完了の判定」も、この proposal・design D7・tasks に合わせてこの段で書いた（review/spec.md R3・R15）。
 
 ## Why
 
@@ -31,7 +32,10 @@
 ### New Capabilities
 
 - `test-hygiene`: 試験が一時フォルダに残さないこと・手書きの一時フォルダを検査が落とすこと・CI が残りを測ること。製品の振る舞いではなく、
-  並走する Story と change が同じ機械の上で検証を回し続けられるための、開発の道具の約束（いま openspec/specs に道具の capability は無い）
+  並走する Story と change が同じ機械の上で検証を回し続けられるための、開発の道具の約束（いま openspec/specs に道具の capability は無い。道具の capability を初めて立てる）。
+  schema は「tooling は `skip_specs`」と言うが、採らない: 失敗した試験のフォルダが消える・検査が書き方を断る・CI が残りで落ちる、は外から見える振る舞いで、
+  Scenario（18 本）を `check_scenarios.py` が印に縛り、正典に残る。`skip_specs` では tasks の検証だけが残り、archive の後に誰も固定しない。
+  change の capability は `docs/stories/INDEX.md` に足さない（story-upstream の change の規則）
 
 ### Modified Capabilities
 
@@ -40,7 +44,7 @@
 ## Impact
 
 - コード（試験の側だけ）: Rust は `temp_dir()` を持つ 20 ファイル・46 か所（`crates/server` 5 ファイル、`crates/collector-windows` 15 ファイル。うち `tests/runtime_windows.rs` は Windows でだけ組まれる）と、
-  `tmp_dir()` の呼び出し 57 か所（`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`）。Kotlin は `app/src/test` の 10 ファイルと、手伝いの呼び出し 17 ファイル・49 か所
+  `tmp_dir()` の呼び出し 57 か所（`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`）。Kotlin は `app/src/test` の 10 ファイルと、手伝いの呼び出し 26 ファイル・60 行（`TestStores(` などを含む）
 - 製品のコード: 変えない（`temp_dir()` は 0 か所。`config.rs:157`・`autostart.rs:75`・`migrate_backup.rs:207` は `#[cfg(test)]` の中）
 - 依存: `tempfile`（MIT OR Apache-2.0。`tools/check-licenses.sh` の許可の中）を `crates/server` と `crates/collector-windows` の `[dev-dependencies]` に足す
 - 道具と CI: 新しいファイル `tools/check-tmp-hygiene.sh`・`tools/tmp-leak-check.sh`。`.github/workflows/ci.yml`（rust・android・chain の 3 job）・`tools/pre-commit.sh`・
@@ -48,5 +52,7 @@
 - `docs/changes/CH03.md` の front matter の `capability: []` はそのままにする（`test-hygiene` は新しく、走っている Story と重ならない。CH02 の D9 と同じ）
 - **走っている Story・change との重なり**（`origin/main` = f0c6cf14 との差分。`premises.md`）:
   - **検査に落ちる**: st09（7 か所。うち androidTest の 2 か所は Q1 の推奨で検査の外）と st13（4 か所）。rebase の後、それぞれの gate → fix が直す（落ちたときの文言が何を使えばよいかを書く）。ch01・ch02 は 0
+  - **コンパイルが通らない**: Kotlin の手伝いの引数が変わる（design D2）ので、st09（`testOutbox()`・`testHeartbeatOutbox()`・`TestStores()` の既定の引数・`TestStores(segmentBytes = 300)`）と st13（`testHeartbeatOutbox()`）は
+    rebase の後に試験が組めない。Rust の `Inbox` は形を残す（st13 の `Inbox::new(` 15 か所・欄 16 か所は壊れない。design D1）。直しは検査と同じ fix で、commit 前の検査が追跡ファイル全体を見るので 1 つの commit にまとめる（design D5）
   - **本文が衝突しうるファイル**: `archive_flow_tests.rs`・`archive_tests.rs`（st13）、`archive_tests.rs`・`export_file_tests.rs`・`.github/workflows/ci.yml`（st09）、`export_file_tests.rs`（ch02）、
-    `crates/server/Cargo.toml`（st09・st13）、`collector-android/app/build.gradle.kts`（ch01）。後から merge する側が rebase で追従する。merge の順は決めない。走っている Story へ差し戻さない
+    `crates/server/Cargo.toml`（st09・st13）、`collector-android/app/build.gradle.kts`・`docs/testing.md`（ch01）。後から merge する側が rebase で追従する。merge の順は決めない。走っている Story へ差し戻さない

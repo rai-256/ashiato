@@ -8,8 +8,6 @@
 
 THE SYSTEM SHALL サーバと PC の収集アプリの試験（`cargo test --workspace`）と、携帯の収集アプリの単体試験（`:app:testDebugUnitTest`）が一時フォルダに作ったファイルとフォルダを、
 その試験が終わるまでに消す。試験が通ったときも、assert が外れた・panic した・例外が出たときも消す。
-試験が使う一時フォルダは、その試験が最後に使うまで在り続ける（途中で消えて、試験が確かめる経路が変わることが無い）。
-試験の期待値・`Scenario:` の印・試験の名前は、この約束のために変えない。
 試験の過程が外から殺されたとき（SIGKILL・timeout・OOM・Gradle の worker の kill）の残りは、この約束の外とする。
 導出元: CH03
 
@@ -33,7 +31,8 @@ THE SYSTEM SHALL `tools/check-tmp-hygiene.sh` で、Rust の `crates/` の全体
 落とす書き方は、Rust の `temp_dir()`（`std::env::` の有無を問わない）・`"/tmp` で始まる文字列・`TempDir` と `NamedTempFile` の `keep()`・`into_path()`・`persist(`、
 Kotlin の `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io.tmpdir`・`"/tmp` で始まる文字列・`@Rule` か `@get:Rule` の付かない `TemporaryFolder(` とする。
 落ちたときの文言には、Rust は `tempfile::TempDir` を試験の最後まで持つこと、Kotlin は `@get:Rule` の `TemporaryFolder` を使うこと、漏れでない使い方は行に `tmp-ok: <理由>` を書くことを示す。
-`tmp-ok:` の後に理由の無い印は印として数えない。携帯の `app/src/main` と `app/src/androidTest` は見ない。
+印と規則の注釈は、その行と同じ行か 1 行上にあるときだけ数える。`tmp-ok:` の後に理由の無い印は印として数えない。携帯の `app/src/main` と `app/src/androidTest` は見ない。
+この検査は CI の chain job と commit 前の検査（`tools/pre-commit.sh`）で走る。
 導出元: CH03
 
 #### Scenario: Rust の試験で一時フォルダを手で作ると、検査が落ち、TempDir を示す
@@ -50,17 +49,21 @@ Kotlin の `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io
 - **THEN** rc=1 で、その行を挙げる
 
 #### Scenario: 携帯の単体試験で一時フォルダを手で作ると、検査が落ち、TemporaryFolder を示す
-- **WHEN** `collector-android/app/src/test` に `Files.createTempDirectory`・`File.createTempFile`・`createTempDir()`・`System.getProperty("java.io.tmpdir")`・`"/tmp/x"`・規則の付かない `TemporaryFolder()` のどれか 1 つだけを持つ行がある木で走らせる
+- **WHEN** `collector-android/app/src/test` に `Files.createTempDirectory`・`File.createTempFile`・`createTempDir()`・`System.getProperty("java.io.tmpdir")`・`"/tmp/x"`・規則の付かない `TemporaryFolder()`・2 行上にだけ `@get:Rule` のある `TemporaryFolder()` のどれか 1 つだけを持つ行がある木で走らせる
 - **THEN** どの場合も rc=1 で、その行を挙げる
 - **AND** 文言に `@get:Rule` の `TemporaryFolder` と `tmp-ok:` が出る
 
 #### Scenario: 規則の付いた TemporaryFolder と tempfile は、検査を通る
-- **WHEN** `crates/` に `tempfile::TempDir::new()` だけ、`app/src/test` に `@get:Rule val tmp = TemporaryFolder()` だけを持つ木で走らせる
+- **WHEN** `crates/` に `tempfile::TempDir::new()` だけ、`app/src/test` に `@get:Rule val tmp = TemporaryFolder()` か、1 行上に `@get:Rule` のある `val tmp = TemporaryFolder()` だけを持つ木で走らせる
 - **THEN** rc=0 である
 
-#### Scenario: 理由を書いた tmp-ok の印のある行は通り、理由の無い印は通らない
-- **WHEN** `std::env::temp_dir()` の行の同じ行か 1 行上に `// tmp-ok: 一時フォルダを読むだけ` がある木と、`// tmp-ok:` だけがある木で走らせる
-- **THEN** 前の木は rc=0、後の木は rc=1 である
+#### Scenario: 理由を書いた tmp-ok の印が同じ行か 1 行上にあれば、検査を通る
+- **WHEN** `std::env::temp_dir()` の行の同じ行に `// tmp-ok: 一時フォルダを読むだけ` がある木と、1 行上にある木で走らせる
+- **THEN** どちらも rc=0 である
+
+#### Scenario: 理由の無い tmp-ok の印と、2 行以上離れた印は、検査を通らない
+- **WHEN** `std::env::temp_dir()` の行の同じ行に `// tmp-ok:` だけがある木と、2 行上に `// tmp-ok: 一時フォルダを読むだけ` がある木で走らせる
+- **THEN** どちらも rc=1 である
 
 #### Scenario: 携帯の main と androidTest は、検査の外
 - **WHEN** `collector-android/app/src/main` と `collector-android/app/src/androidTest` にだけ `Files.createTempDirectory` の行がある木で走らせる
@@ -70,12 +73,17 @@ Kotlin の `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io
 - **WHEN** CH03 を当てた木で `tools/check-tmp-hygiene.sh` を走らせる
 - **THEN** rc=0 である
 
+#### Scenario: 検査は CI の chain job と commit 前に走る
+- **WHEN** `.github/workflows/ci.yml` の chain job と `tools/pre-commit.sh` を読む
+- **THEN** chain job は `tools/check-tmp-hygiene.sh --self-test` と `tools/check-tmp-hygiene.sh` を走らせる
+- **AND** `tools/pre-commit.sh` は `tools/check-tmp-hygiene.sh` が落ちれば commit を止める
+
 ### Requirement: CI は試験を走らせるたびに、一時フォルダに残ったものを測る
 
 THE SYSTEM SHALL CI の rust job の `cargo test --workspace` と android job の `:app:testDebugUnitTest` を `tools/tmp-leak-check.sh` から走らせ、
 一時フォルダを worktree の中の空のフォルダへ向け、試験の後にそのフォルダに残ったものがあれば、その名前を挙げて落とす。
 走った試験が 1 本も無いときも、フォルダが空でも落とす（`UP-TO-DATE` で試験が走らない・試験が始まる前に落ちる、を通さない）。
-試験そのものが落ちたときは、試験の終了コードで落とす。
+試験そのものが落ちたときは、試験の終了コードをそのまま返す。
 導出元: CH03
 
 #### Scenario: 試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる
@@ -86,9 +94,9 @@ THE SYSTEM SHALL CI の rust job の `cargo test --workspace` と android job �
 - **WHEN** `tools/tmp-leak-check.sh` が走らせた試験の命令が、試験を 1 本も走らせずに rc=0 で終わる
 - **THEN** 台本は rc=1 で、走った試験が 0 本であることを挙げる
 
-#### Scenario: 試験が落ちれば、台本も落ちる
-- **WHEN** `tools/tmp-leak-check.sh` が走らせた試験の命令が rc=1 で終わる
-- **THEN** 台本は 0 でない rc で終わる
+#### Scenario: 試験が落ちれば、台本も試験の終了コードで落ちる
+- **WHEN** `tools/tmp-leak-check.sh` が走らせた試験の命令が rc=101 で終わる
+- **THEN** 台本は rc=101 で終わる
 
 #### Scenario: 試験が通り、何も残さなければ、台本は通る
 - **WHEN** `tools/tmp-leak-check.sh` が走らせた試験の命令が、試験を 1 本以上走らせ、一時フォルダに何も残さずに rc=0 で終わる
@@ -97,4 +105,3 @@ THE SYSTEM SHALL CI の rust job の `cargo test --workspace` と android job �
 #### Scenario: CI の試験の段は、残りを測る台本から走る
 - **WHEN** `.github/workflows/ci.yml` の rust job と android job を読む
 - **THEN** `cargo test --workspace` と `:app:testDebugUnitTest` は `tools/tmp-leak-check.sh` を通してだけ走る
-- **AND** chain job は `tools/check-tmp-hygiene.sh --self-test` と `tools/check-tmp-hygiene.sh` を走らせる
