@@ -107,14 +107,14 @@
 
 ## Task 6: 全 route の試験（design D14。完了の判定「衛星の資格情報では、まだどの口も記録を返さず受け取らない」）
 
-- [ ] 6.1 `ApiDoc::openapi()` の paths と method を全部取り、path の `{…}` を形の合う値で埋め、有効な衛星の資格情報を付けて 1 回ずつ呼ぶ。
+- [x] 6.1 `ApiDoc::openapi()` の paths と method を全部取り、path の `{…}` を形の合う値で埋め、有効な衛星の資格情報を付けて 1 回ずつ呼ぶ。
   `/healthz`・`POST /session`・`DELETE /session` を除くすべてが 403・本文が固定の語で、読み出しの記録にその route の衛星の 403 の行が 1 行ずつ増えることを確かめる。
   `lib.rs` から `\.route\(\s*"([^"]+)"`（複数行にまたがる形。今の `lib.rs` では 27 の path が取れる —— `/feelings/reminder`・`/attributes/kinds/{id}/names`・`/session` は path が次の行にある）で取った path の集合と契約の path の集合が一致することも同じテストで確かめる
   （`/selftest/panic` は既定の構成に無いので除く。差があれば path を出して落ちる）。`lib.rs` に `.merge(` / `.nest(` / `.nest_service(` があれば落ちる（design D14）。
   Scenario: `衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い`。
   検証: `CT every_route_refuses_satellite 1`。あわせて変異で落ちることを確かめる: middleware の衛星の 403 の分岐を外し `authorize` の `Satellite` を `Ok` にした変更を一時 commit（`git stash` は使わない）に置き、
   `scripts/quiet-run unit -- cargo test -p ashiato-server every_route_refuses_satellite` が rc≠0 になることを見てから `git reset --hard HEAD~1` で戻す。落ちたテストの名前を PR 本文に書く
-- [ ] 6.2 資格情報の要らない口の比較。`/healthz`・違う合言葉の `POST /session`・`DELETE /session` を、衛星の資格情報の有無でそれぞれ呼び、状態の番号と本文が同じ。
+- [x] 6.2 資格情報の要らない口の比較。`/healthz`・違う合言葉の `POST /session`・`DELETE /session` を、衛星の資格情報の有無でそれぞれ呼び、状態の番号と本文が同じ。
   Scenario: `資格情報の要らない口は衛星の資格情報の有無で応答が変わらない`。
   検証: `CT exempt_routes_ignore_satellite 1`
 
