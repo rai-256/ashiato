@@ -177,11 +177,15 @@ async fn satellite_migration_rows_cannot_be_deleted() {
             .to_string();
         assert!(err.contains("消せない"), "{stmt} が拒まれない: {err}");
     }
-    // 外す・取り消すは UPDATE で通る
-    for stmt in [
-        "UPDATE core.satellite SET removed_at = now() WHERE builtin = false",
-        "UPDATE core.satellite_credential SET revoked_at = now()",
-    ] {
-        sqlx::query(stmt).execute(&pool).await.unwrap();
-    }
+    // 外す・取り消すは UPDATE で通る（この試験の行だけ。共有の DB の他の行は触らない）
+    sqlx::query("UPDATE core.satellite SET removed_at = now() WHERE id = $1")
+        .bind(sat)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core.satellite_credential SET revoked_at = now() WHERE satellite_id = $1")
+        .bind(sat)
+        .execute(&pool)
+        .await
+        .unwrap();
 }
