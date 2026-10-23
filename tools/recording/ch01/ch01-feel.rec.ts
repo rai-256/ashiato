@@ -67,10 +67,16 @@ async function withoutStayRecords(page: Page): Promise<void> {
 const stayRow = (page: Page): Locator => page.getByTestId("feel-stay-row").first();
 const stayBtn = (page: Page, name: string): Locator => stayRow(page).getByRole("button", { name, exact: true });
 
-async function openStays(page: Page, hash: string): Promise<void> {
+/** 画面を開き直す。ハッシュだけの遷移は読み直さないので、差し替えた応答が効くよう読み込み直す（e2e は毎回まっさらなページ）。 */
+async function openFresh(page: Page, hash: string): Promise<void> {
   await page.goto(`/${hash}`);
+  await page.reload();
   await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("feel-stays-loading")).toHaveCount(0);
+}
+
+async function openStays(page: Page, hash: string): Promise<void> {
+  await openFresh(page, hash);
   await expect(stayRow(page)).toBeVisible();
   await stayRow(page).scrollIntoViewIfNeeded();
 }
@@ -141,8 +147,7 @@ test("CH01 録画: 主観の画面の押した印と前/後を記録に合わせ
     const before = (await stored(page, day)).length;
     await page.clock.setSystemTime(at(day, "23:58"));
     // 押した後の読み直しが済んでから時計を進める（e2e と同じ）
-    await page.goto(`/#/feel/${day}`);
-    await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+    await openFresh(page, `#/feel/${day}`);
     await hold(page);
     await page.clock.setSystemTime(at(day, "23:59"));
     const reread = page.waitForResponse((r) => r.url().includes("/api/feelings?") && r.request().method() === "GET");
@@ -177,8 +182,7 @@ test("CH01 録画: 主観の画面の押した印と前/後を記録に合わせ
     const other = shift(day, 2);
     const before = (await stored(page, other)).length;
     await page.clock.setSystemTime(at(other, "23:59"));
-    await page.goto(`/#/feel/${other}`);
-    await expect(page.getByTestId("valence-1")).toBeVisible({ timeout: 15_000 });
+    await openFresh(page, `#/feel/${other}`);
     await page.route("**/api/ingest", (route) => route.abort("failed"));
     await page.getByTestId("valence-1").click();
     await expect(page.getByTestId("feel-notice-bad")).toContainText("サーバに届きませんでした");
