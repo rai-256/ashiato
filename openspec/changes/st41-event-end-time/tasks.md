@@ -53,7 +53,7 @@
 
 ## Task 2: 取り込み口の 3 欄と検査
 
-- [ ] 2.1 先に試験を書く（`end_time_tests.rs`。取り込み口 `crate::ingest` を通す）:
+- [x] 2.1 先に試験を書く（`end_time_tests.rs`。取り込み口 `crate::ingest` を通す）:
   - `st41_ingest_end_is_stored_with_offset_and_tz` — `// Scenario: 終わりの時刻つきの記録は、終わりのずれとタイムゾーンごと残る`
   - `st41_ingest_start_and_end_keep_their_own_tz` — `// Scenario: 始まりと終わりのタイムゾーンが違う記録も、それぞれのまま残る`
   - `st41_ingest_partial_end_is_rejected_per_item` — `// Scenario: 終わりの 3 つの一部だけを持つ記録は受け付けない`
@@ -68,11 +68,11 @@
   - `st41_ingest_without_end_is_unchanged` — `// Scenario: 終わりを送らない記録は、終わりを持たない記録として今のまま残る`（いまの収集アプリと同じ JSON を送り、結果の JSON と状態符号が欄を足す前と同じ形であることを、結果の鍵の集合で見る）
   いまの木で落ちることを確かめてから 2.2 に進む（いまの木は終わりの欄を読まずに捨てるので、`st41_ingest_end_is_stored_with_offset_and_tz`・`st41_ingest_partial_end_is_rejected_per_item`・
   `st41_ingest_end_is_truncated_to_micros` の 3 本が落ちる。`CT st41_ingest_end_is_stored` が rc≠0 であることを確かめる）
-- [ ] 2.2 `ingest.rs` の `IngestRequest` に 3 欄（`#[serde(default)]`）、`Invalid::EndTime` と `validate` の検査（D2）、`lib.rs` の `IngestError::InvalidEndTime` と対応、
+- [x] 2.2 `ingest.rs` の `IngestRequest` に 3 欄（`#[serde(default)]`）、`Invalid::EndTime` と `validate` の検査（D2）、`lib.rs` の `IngestError::InvalidEndTime` と対応、
   `ingest_one` の 2 つの INSERT に 3 列を足す。`ingest.rs` の単体試験に `validate` の境界（±1,439 / ±1,440・空・U+0000・一部だけ）を `st41_ingest_validate_` で置く。
   受けた直後に `end_time` を µs に切り捨てる（D7）。
   検証: `CT st41_ingest_` rc=0（`-- --list` で 13 本以上）/ `CT dedup_` rc=0（`-- --list` で 30 本以上。既存の取り込みが変わらない）
-- [ ] 2.3 `cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` に任意の 3 欄・`invalid_end_time`・「収集アプリは送らない」を足す。
+- [x] 2.3 `cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` に任意の 3 欄・`invalid_end_time`・「収集アプリは送らない」を足す。
   検証: `./tools/check-openapi.sh` rc=0 / `jq -e '.components.schemas.IngestRequest.properties | has("end_time") and has("end_tz_offset_min") and has("end_tz_id")' docs/openapi.json` rc=0 /
   `git diff --quiet -- collector-android crates/collector-windows` rc=0
 
