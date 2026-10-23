@@ -50,13 +50,13 @@
 
 ## Task 2: 識別子と名前の形（design D2 / D5 / D15。`crates/server/src/satellite.rs`）
 
-- [ ] 2.1 `satellite.rs` に `check_identifier`（拒む種別 `malformed` / `reserved` / `body_prefix`）・`name_owner`・名前（前後の空白を除いてから）と資格情報の名前の長さの検査を純粋関数で置く。
+- [x] 2.1 `satellite.rs` に `check_identifier`（拒む種別 `malformed` / `reserved` / `body_prefix`）・`name_owner`・名前（前後の空白を除いてから）と資格情報の名前の長さの検査を純粋関数で置く。
   単体テストは Scenario `形に合わない識別子の衛星は登録されない`・`本体が使う識別子の衛星は登録されない`・`本体の前置きの形で始まる識別子の衛星は登録されない` の値をそのまま表で持つ
   （`booklog`・`Dev.example.booklog`・`dev..booklog`・`dev.example.`・`dev_example.booklog`・`dev.example:booklog`・65 文字・`ashiato.booklog`・`ashiato.ai-external`・`c03-takeout.example`・`s01-x.example` を断り、`dev.example.booklog` を通す）。
   `name_owner` は Scenario `名前の持ち主は区切りより前の識別子で決まる` の値を表で持つ（`dev.example.booklog:reading` → `Some("dev.example.booklog")`、`dev.example.booklog:`・名前の部分 65 文字・`dev.example.booklog:Reading`・`c03-takeout`・`x:reading` → `None`）。
   Scenario: `名前の持ち主は区切りより前の識別子で決まる`。
   検証: `CT satellite::tests 5`
-- [ ] 2.2 形の正本の突き合わせ: 移行の CHECK の正規表現と `satellite.rs` の定数が同じであることを、`MIGRATIONS` の SQL の字面から取り出して比べるテストを置く（片方だけ直すと落ちる）。
+- [x] 2.2 形の正本の突き合わせ: 移行の CHECK の正規表現と `satellite.rs` の定数が同じであることを、`MIGRATIONS` の SQL の字面から取り出して比べるテストを置く（片方だけ直すと落ちる）。
   あわせて論理ソースの登録簿を全部読み、`:` を含む名前が 0 個であることを確かめる。Scenario: `本体の論理ソースの名前は区切りを含まない`。
   検証: `CT satellite_form 2`
 
