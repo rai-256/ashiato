@@ -32,6 +32,8 @@ futures-util = { version = "0.3", default-features = false }
 http-body-util = "0.1"
 
 [dev-dependencies]
+# 試験の一時フォルダ（panic しても消える）。CH03
+tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 strum = { version = "0.28", features = ["derive"] }
 tokio = { workspace = true, features = ["test-util"] }

@@ -61,6 +61,10 @@ android {
                 test.systemProperty("robolectric.offline", "true")
                 test.systemProperty("robolectric.dependency.dir", jars)
             }
+            // 試験の JVM の一時フォルダを向ける（CH03。`tools/tmp-leak-check.sh android` が
+            // 試験の後の残りを測るため）。OpenJDK の Unix の `java.io.tmpdir` は `TMPDIR` を読まない。
+            // 環境変数が無ければ何も変えない。
+            System.getenv("ASHIATO_TEST_TMPDIR")?.let { test.systemProperty("java.io.tmpdir", it) }
             // **人が読む契約表も入力**（tasks 7.3 / code-verify R33）。
             // `CollectorContractFixture` は期待値をこの md から読むのに、Gradle は
             // ソースと classpath しか入力に数えない —— **表だけを 1 行変えると
