@@ -187,8 +187,7 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
         crate::stay_store::REBUILD_PREFIX
     );
     let events = "core.event_live";
-    let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
-                            v.event_time, v.payload, v.raw
+    let versions = "(SELECT v.id, e.logical_source, v.event_time, v.payload, v.raw
                        FROM core.event_version_live v
                        JOIN core.event_live e ON e.id = v.event_id)";
     let overlap_event = overlap_sql(events, true, snapshot_at);
@@ -256,6 +255,8 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
 /// 組の鍵（利用者・端末）は `span_next` が持ち、ここでは読まない。前の版の `rows` が親の記録を JOIN するのは、
 /// 親が生きている前の版に絞るのと、`logical_source` を親から取るため。
 /// 消した時間より後に始まる行は先に落とす。
+/// `span_next` も消した滞在が 0 件の門と `max(end_at)` 以下の絞りを持つので、ここの 2 つの条件は結果を変えない。
+/// 門を重ねて置く（どちらか片方を外しても、消した滞在 0 件で記録の表を読まない。CH02 の code_verify の M1 / M1b）。
 fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
     let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
     let dur_keys: Vec<String> = DURATION_KEYS
