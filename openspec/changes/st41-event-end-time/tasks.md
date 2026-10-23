@@ -101,7 +101,7 @@
 
 ## Task 4: 稼働記録の日の数え方（Q4）
 
-- [ ] 4.1 `end_time_tests.rs` に置く（コードは変えない想定。落ちたら `ingest_one` の稼働記録の upsert が `event_time` の日で数えているかを直す）:
+- [x] 4.1 `end_time_tests.rs` に置く（コードは変えない想定。落ちたら `ingest_one` の稼働記録の upsert が `event_time` の日で数えているかを直す）:
   - `st41_coverage_spanning_event_counts_on_start_day` — `// Scenario: 日をまたぐ幅のある出来事は始まりの日に 1 件だけ数えられる`
   - `st41_coverage_foreign_tz_counts_on_tokyo_day` — `// Scenario: 始まりが海外の地域の記録も、Asia/Tokyo の日で数えられる`
   - `st41_coverage_started_on_uses_start` — `// Scenario: 収集を始めた日は始まりの日で決まる`
