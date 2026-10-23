@@ -9,7 +9,7 @@ use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -150,6 +150,11 @@ pub mod satellite;
 /// 衛星の求めの読み出しの記録（ST29 / design D4 / D8 / D9）。
 #[cfg(test)]
 mod satellite_access_tests;
+/// 衛星の登録と外す、その一覧（ST29 / design D7 / D11 / D16）。
+pub mod satellite_admin;
+/// 衛星の登録・外す・権限・最初の 2 つ（ST29 / design D7 / D11）。
+#[cfg(test)]
+mod satellite_admin_tests;
 /// 衛星の資格情報の判定（ST29 / design D8 / D18 / D19）。
 #[cfg(test)]
 mod satellite_authn_tests;
@@ -3560,6 +3565,14 @@ pub fn router(app: App) -> Router {
             post(attributes_kind_name_post),
         )
         .route(
+            "/satellites",
+            get(satellite_admin::satellites_get).post(satellite_admin::satellites_post),
+        )
+        .route(
+            "/satellites/{id}",
+            delete(satellite_admin::satellites_delete),
+        )
+        .route(
             "/session",
             post(web_session::session_post)
                 .delete(web_session::session_delete)
@@ -3742,6 +3755,9 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::session_post,
         web_session::session_delete,
         web_session::session_get,
+        satellite_admin::satellites_get,
+        satellite_admin::satellites_post,
+        satellite_admin::satellites_delete,
         places_post,
         places_get,
         place_candidates_get
@@ -3844,6 +3860,11 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindErrorBody,
         web_session::LoginRequest,
         web_session::SessionState,
+        satellite_admin::SatelliteOut,
+        satellite_admin::CredentialOut,
+        satellite_admin::RegisterRequest,
+        satellite_admin::SatelliteError,
+        satellite_admin::SatelliteErrorBody,
         places::PlaceCreateRequest,
         places::PlaceCreated,
         places::PlaceError,
