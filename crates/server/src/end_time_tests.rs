@@ -1619,9 +1619,14 @@ async fn st41_range_without_period_returns_all() {
         .filter(|i| [a.to_string(), b.to_string(), gone.to_string()].contains(i))
         .collect();
     assert_eq!(mine, vec![a.to_string(), b.to_string()]);
-    let times: Vec<&str> = rows
+    // 文字列の辞書順は小数秒つきの記録で狂うので、時刻に読み直して比べる
+    let times: Vec<chrono::DateTime<chrono::Utc>> = rows
         .iter()
-        .map(|r| r["event_time"].as_str().unwrap())
+        .map(|r| {
+            chrono::DateTime::parse_from_rfc3339(r["event_time"].as_str().unwrap())
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        })
         .collect();
     assert!(times.windows(2).all(|w| w[0] <= w[1]), "時刻順");
 }
