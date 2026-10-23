@@ -1,0 +1,1 @@
+- Scenario: 読み出しに欠けた列があると書き出しは失敗する — 一時フォルダを TempDir で持つため assert_nothing_written の引数を &dir から dir_tmp.path() に書き換えた（期待は同じ: 何も残らない）
