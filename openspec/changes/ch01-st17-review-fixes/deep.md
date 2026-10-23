@@ -51,4 +51,7 @@
 - **いまの木の状態**（D11 のまま。台帳からは外した）: 読む口の見出しの直前で `db-roles.sh`・grants.sql の付与・`app_psql()` を済ませ、`check-shared-appends.sh` は準備の頭の注記から読む口の `done` までを守る。
   ST09 の節なしの木で `tools/check-immutable.sh` は「書き換え禁止 OK」・NG 0 行、ST09 ありの直す前は `role "ashiato_app" does not exist` で抜けた。`check-shared-appends.sh --self-test` は rc=0
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH01-deep-r2.html`）
-- 答え: (未回答)
+- 答え（本人の選択。2026-10-24、`deep-answers-2.txt`）: いまの形のまま（準備は読む口のかたまりの外の直前。check-shared-appends は準備の頭から読む口の done までを守る）
+  - 推奨の選択肢と同じ。補足なし。木は変えない
+  - 選択肢の注記のとおり: D2 の「動かしただけ」の判定は変えない。D11 は D1 と D2 の両方に乗る決定（仮でない）として design に記す。D2 を後で変えるときは D11 の置き場所と守る範囲も見直す
+  - 要件へ戻すもの: なし（検査の台本の置き場所の話で、要件の本文に効かない）

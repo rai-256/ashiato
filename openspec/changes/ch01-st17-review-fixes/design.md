@@ -125,7 +125,8 @@
 
 ### D11. 読む口の見出しの直前で、節の前にアプリの役割・付与・`app_psql` を用意する（review/code.md R1。D1 に続く決定）
 
-- 状態（2026-10-23）: 仮で進めたが、別の席が「D2 に乗るのに rests_on に無い」で否とした（`provisional-review.md`）。台帳から外し、deep.md Q8 で人間に返した。木は下のとおりのまま答えを待つ
+- 状態（2026-10-24）: 仮で進めたが、別の席が「D2 に乗るのに rests_on に無い」で否とした（`provisional-review.md`）。台帳から外し、deep.md Q8 で人間に返し、本人が「いまの形のまま」を選んだ（仮でない）。
+  **D1 と D2 の両方に乗る**: D2 の「動かしただけ」の判定（`mouth_sig`）を後で変えるときは、この置き場所と `check-shared-appends.sh` の `PREP` の守る範囲も見直す
 
 - 読む口の見出しの直前（最後の本体の節の後ろ、`# ====… Story ごとの節（tools/check-immutable.d/）` の前）で `./tools/db-roles.sh >/dev/null`・`crates/server/src/grants.sql` の付与（`ashiato_owner` で当てる）・`app_psql()` の定義を済ませる。
   review/code.md R1 の提案は「かたまりの中（見出しの注記と `for … done` の間）」だったが、そこに置くと `tools/check-shared-appends.sh` の「動かしただけ」の判定
