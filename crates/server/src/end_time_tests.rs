@@ -1062,3 +1062,85 @@ async fn st41_dedup_deleted_external_stays_deleted_on_end_only_difference() {
     );
     assert_eq!(version_count(&pool, id).await, 0);
 }
+
+// ---- Task 4: 稼働記録の日の数え方（Q4）----
+
+/// そのソースの稼働記録（日 → 件数）。行を直に読む。
+async fn coverage_days(pool: &PgPool, user: Uuid, source: &str) -> Vec<(String, i32)> {
+    sqlx::query_as(
+        "SELECT day::text, event_count FROM core.coverage
+          WHERE user_id = $1 AND logical_source = $2 ORDER BY day",
+    )
+    .bind(user)
+    .bind(source)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn st41_coverage_spanning_event_counts_on_start_day() {
+    // Scenario: 日をまたぐ幅のある出来事は始まりの日に 1 件だけ数えられる
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-cov-span").await;
+    // Asia/Tokyo の 10/1 23:00 〜 10/2 7:00
+    let item = with_end(
+        ev(&source, user, "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    assert!(res[0].accepted, "{res:?}");
+    assert_eq!(
+        coverage_days(&pool, user, &source).await,
+        vec![("2026-10-01".to_string(), 1)]
+    );
+}
+
+#[tokio::test]
+async fn st41_coverage_foreign_tz_counts_on_tokyo_day() {
+    // Scenario: 始まりが海外の地域の記録も、Asia/Tokyo の日で数えられる
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-cov-london").await;
+    // 現地（ロンドン）は 10/1 17:00 だが、Asia/Tokyo では 10/2 01:00
+    let mut item = with_end(
+        ev(&source, user, "2026-10-01T16:00:00Z"),
+        "2026-10-01T18:00:00Z",
+        60,
+        "Europe/London",
+    );
+    item["tz_offset_min"] = serde_json::json!(60);
+    item["tz_id"] = serde_json::json!("Europe/London");
+    let (_, res) = send(&pool, vec![item]).await;
+    assert!(res[0].accepted, "{res:?}");
+    assert_eq!(
+        coverage_days(&pool, user, &source).await,
+        vec![("2026-10-02".to_string(), 1)]
+    );
+}
+
+#[tokio::test]
+async fn st41_coverage_started_on_uses_start() {
+    // Scenario: 収集を始めた日は始まりの日で決まる
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-cov-started").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    assert!(res[0].accepted, "{res:?}");
+    let started: Option<String> = sqlx::query_scalar(
+        "SELECT collection_started_on::text FROM core.source WHERE logical_source = $1",
+    )
+    .bind(&source)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(started.as_deref(), Some("2026-10-01"));
+}
