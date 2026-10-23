@@ -116,7 +116,8 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF OLD.raw = '' AND NEW.raw <> '' THEN
+  -- 原文を空のまま解析済みだけ差し替える形も書き戻し（収集した記録の門 gates.sql と同じ穴）
+  IF OLD.raw = '' AND (NEW.raw <> '' OR NEW.payload <> '{}'::jsonb) THEN
     RAISE EXCEPTION '本文を消した滞在へ本文は書き戻せない（ST23 / design D7）';
   END IF;
 

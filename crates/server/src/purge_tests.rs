@@ -408,6 +408,37 @@ async fn purge_schema_gate_rejects_write_back() {
     assert_eq!(raw_of(&pool, id).await, "");
 }
 
+// Scenario: 本文を消した滞在へ本文は書き戻せない（原文を空のまま解析済みだけ差し替える形）
+#[tokio::test]
+async fn purge_schema_gate_rejects_payload_write_back_on_erased_stay() {
+    let pool = testdb::pool().await;
+    let user = Uuid::new_v4();
+    let id = put_stay(&pool, user, r#"{"k":1}"#, r#"{"k":1}"#).await;
+    commit_update(&pool, id, user, true, ERASE).await.unwrap();
+    for ledger in [false, true] {
+        let e = commit_update(
+            &pool,
+            id,
+            user,
+            ledger,
+            r#"UPDATE core.event SET payload = '{"k":2}'::jsonb WHERE id = $1"#,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.to_string().contains("書き戻せない"),
+            "理由が書き戻しでない（台帳 {ledger}）: {e}"
+        );
+    }
+    let payload: String =
+        sqlx::query_scalar("SELECT payload::text FROM core.event WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(payload, "{}", "解析済みに本文が戻った");
+}
+
 // Scenario: 解析済みを残して原文だけ空にする書き換えは拒まれる
 #[tokio::test]
 async fn purge_schema_gate_rejects_raw_only_erasure() {
