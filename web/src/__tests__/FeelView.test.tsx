@@ -654,6 +654,8 @@ describe("開いたまま日の終わりをまたいで押す", () => {
   const at = (iso: string): void => {
     vi.setSystemTime(new Date(iso));
   };
+  /** 送った原文の記入の日時（時点）。オフセットは端末の時間帯なので、CI（UTC）でも手元（JST）でも時点で比べる。 */
+  const writtenAt = (i: number): number => Date.parse(posts[i].body.written_at as string);
 
   // Scenario: 開いたまま日の終わりをまたいで押した記録は後として格納される
   it("23:58 に開いて 00:01 に「不快」を押すと、送る原文の記入の日時は翌日の 00:01（サーバはこれで「後」に決める）", async () => {
@@ -662,7 +664,7 @@ describe("開いたまま日の終わりをまたいで押す", () => {
     press("valence--1");
     await sent(1);
     expect(posts[0].body.target).toEqual({ kind: "day", date: "2026-10-07" });
-    expect(posts[0].body.written_at).toBe("2026-10-08T00:01:00.000+09:00");
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-08T00:01:00+09:00"));
   });
 
   // Scenario: 開いたまま日の終わりをまたいで押すと振り返りとして残したと出る
@@ -691,7 +693,7 @@ describe("開いたまま日の終わりをまたいで押す", () => {
     at("2026-10-07T14:59:00Z");
     press("valence-1");
     await sent(1);
-    expect(posts[0].body.written_at).toBe("2026-10-07T23:59:00.000+09:00");
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-07T23:59:00+09:00"));
     const ok = await screen.findByTestId("feel-notice-ok");
     expect(ok.textContent).toContain("保存しました");
     expect(ok.textContent).not.toContain("振り返りとして残しました");
@@ -709,7 +711,7 @@ describe("開いたまま日の終わりをまたいで押す", () => {
     press("feel-resend");
     // 届かなかった 1 回目は posts に残らない（届いた分だけ数える）。届いたのは原文そのまま
     await sent(1);
-    expect(posts[0].body.written_at).toBe("2026-10-07T23:59:00.000+09:00");
+    expect(writtenAt(0)).toBe(Date.parse("2026-10-07T23:59:00+09:00"));
     const ok = await screen.findByTestId("feel-notice-ok");
     expect(ok.textContent).toContain("保存しました");
     expect(ok.textContent).not.toContain("振り返りとして残しました");
