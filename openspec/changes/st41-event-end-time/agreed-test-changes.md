@@ -1,0 +1,1 @@
+- Scenario: 記録の読み出しの形は変わらない — 期待（終わりを持たない行の鍵は 6 つ）は同じ。共有の DB に ST41 の試験が置いた終わりつきの行が残るため、`st25_api_unchanged_events_and_stays_shapes` は自分が置いたソース（`c02-window` / `c01-location`）の行だけで鍵を見る

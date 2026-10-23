@@ -970,6 +970,13 @@ pub struct EventRow {
     origin: String,
     /// 原文は**文字列**（design D16）。JSON 型で持つと DB が並びと表記を正規化する
     raw: String,
+    /// 幅のある出来事の終わり（ST41）。終わりを持たない行には 3 欄とも鍵ごと無い（design D9）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_tz_offset_min: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_tz_id: Option<String>,
 }
 
 /// 内容の鍵が同じ複数行を **1 件として読む形**（深掘り Q8 / 移行 `*_version_and_ledger`）。
@@ -3521,42 +3528,143 @@ fn kind_error_body(
     )
 }
 
+/// `GET /events` の絞り込み。**時刻は文字列で受けて自分で読む** —— ずれの無い時刻を 400 で断るため。
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+pub struct EventsQuery {
+    from: Option<String>,
+    to: Option<String>,
+    source: Option<String>,
+}
+
+/// 期間 `[$1, $2)` に重なる、**終わりのある**記録の引き方（design D8 / D10）。
+/// 部分索引 `event_end_range` の式に当て（閉区間なので広め）、正確な条件で絞る。
+/// 試験が `EXPLAIN` を取るので、本体と同じ文字列を 1 か所で持つ。
+macro_rules! events_end_side_sql {
+    () => {
+        "SELECT * FROM core.event_live
+          WHERE end_time IS NOT NULL
+            AND tstzrange(event_time, greatest(event_time, end_time), '[]')
+                && tstzrange($1, $2, '[)')
+            AND ((end_time > event_time AND event_time < $2 AND end_time > $1)
+              OR (end_time <= event_time AND event_time >= $1 AND event_time < $2))"
+    };
+}
+
+#[cfg(test)]
+pub(crate) const EVENTS_END_SIDE_SQL: &str = events_end_side_sql!();
+
+type Period = (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>);
+
+/// `GET /events` の期間を読む。`from` / `to` は両方そろえ、UTC からのずれを持つ RFC 3339 で、`from < to`。
+/// 本文は種別の名前だけ（送られた値を返さない）。
+fn parse_period(q: &EventsQuery) -> Result<Option<Period>, (StatusCode, String)> {
+    let bad = || (StatusCode::BAD_REQUEST, "invalid_period".to_string());
+    let read = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.with_timezone(&chrono::Utc))
+            .map_err(|_| bad())
+    };
+    match (q.from.as_deref(), q.to.as_deref()) {
+        (None, None) => Ok(None),
+        (Some(from), Some(to)) => {
+            let (from, to) = (read(from)?, read(to)?);
+            if from < to {
+                Ok(Some((from, to)))
+            } else {
+                Err(bad())
+            }
+        }
+        _ => Err(bad()),
+    }
+}
+
+type EventDbRow = (
+    uuid::Uuid,
+    String,
+    chrono::DateTime<chrono::Utc>,
+    String,
+    String,
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<i32>,
+    Option<String>,
+);
+
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
-#[utoipa::path(get, path = "/events",
-    responses((status = 200, body = Vec<EventRow>), (status = 401)))]
+///
+/// `from` / `to` があれば、期間 `[from, to)` に重なるものだけ（design D8 / D10）。幅は
+/// `[event_time, end_time)`、終わりが無い・同じ・前の記録は始まりの点。
+#[utoipa::path(get, path = "/events", params(EventsQuery),
+    responses((status = 200, body = Vec<EventRow>), (status = 400), (status = 401)))]
 pub async fn events(
     State(app): State<App>,
     headers: HeaderMap,
+    Query(q): Query<EventsQuery>,
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
     authorize(&app, &headers).await?;
+    let period = parse_period(&q)?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
-    let rows = sqlx::query_as::<
-        _,
-        (
-            uuid::Uuid,
-            String,
-            chrono::DateTime<chrono::Utc>,
-            String,
-            String,
-            String,
-        ),
-    >(
-        "SELECT id, logical_source, event_time, tz_id, origin, raw
-           FROM core.event_live ORDER BY event_time",
-    )
-    .fetch_all(&app.pool)
-    .await
+    let rows = match period {
+        None => {
+            sqlx::query_as::<_, EventDbRow>(
+                "SELECT id, logical_source, event_time, tz_id, origin, raw,
+                        end_time, end_tz_offset_min, end_tz_id
+                   FROM core.event_live
+                  WHERE ($1::text IS NULL OR logical_source = $1)
+                  ORDER BY event_time, id",
+            )
+            .bind(q.source.as_deref())
+            .fetch_all(&app.pool)
+            .await
+        }
+        // 終わりのある行は部分索引 `event_end_range` の式に当て（閉区間なので広め）、正確な条件で絞る。
+        // 終わりの無い行は時刻の索引（D10）。
+        Some((from, to)) => {
+            sqlx::query_as::<_, EventDbRow>(concat!(
+                "SELECT id, logical_source, event_time, tz_id, origin, raw,
+                        end_time, end_tz_offset_min, end_tz_id
+                   FROM (
+                     ",
+                events_end_side_sql!(),
+                "
+                     UNION ALL
+                     SELECT * FROM core.event_live
+                      WHERE end_time IS NULL AND event_time >= $1 AND event_time < $2
+                   ) e
+                  WHERE ($3::text IS NULL OR logical_source = $3)
+                  ORDER BY event_time, id"
+            ))
+            .bind(from)
+            .bind(to)
+            .bind(q.source.as_deref())
+            .fetch_all(&app.pool)
+            .await
+        }
+    }
     .map_err(|e| internal_at("events.select", e))?;
     Ok(Json(
         rows.into_iter()
             .map(
-                |(id, logical_source, event_time, tz_id, origin, raw)| EventRow {
+                |(
                     id,
                     logical_source,
                     event_time,
                     tz_id,
                     origin,
                     raw,
+                    end_time,
+                    end_tz_offset_min,
+                    end_tz_id,
+                )| EventRow {
+                    id,
+                    logical_source,
+                    event_time,
+                    tz_id,
+                    origin,
+                    raw,
+                    end_time,
+                    end_tz_offset_min,
+                    end_tz_id,
                 },
             )
             .collect(),

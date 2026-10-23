@@ -447,7 +447,43 @@
       "get": {
         "tags": [],
         "summary": "削除されていない記録を時刻順に返す（FR-50 のビュー越し）。",
+        "description": "`from` / `to` があれば、期間 `[from, to)` に重なるものだけ（design D8 / D10）。幅は\n`[event_time, end_time)`、終わりが無い・同じ・前の記録は始まりの点。",
         "operationId": "events",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -461,6 +497,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": ""
           },
           "401": {
             "description": ""
@@ -3077,6 +3116,27 @@
           "raw"
         ],
         "properties": {
+          "end_time": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "幅のある出来事の終わり（ST41）。終わりを持たない行には 3 欄とも鍵ごと無い（design D9）"
+          },
+          "end_tz_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_tz_offset_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "event_time": {
             "type": "string",
             "format": "date-time"

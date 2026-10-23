@@ -179,7 +179,9 @@ async fn app_role_ingest_and_read() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(res.len(), 1);
 
-    let Json(rows) = events(State(app), headers).await.expect("読み出し口");
+    let Json(rows) = events(State(app), headers, Query(EventsQuery::default()))
+        .await
+        .expect("読み出し口");
     assert!(
         rows.iter().any(|r| r.id == id),
         "取り込んだ記録が読み出せない"

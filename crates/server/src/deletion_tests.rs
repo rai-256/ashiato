@@ -538,7 +538,13 @@ async fn restore_includes_late_arrivals() {
         serde_json::json!({"restored":{"stays":1,"locations":1}})
     );
     assert_eq!(mark(&app.pool, late).await, (None, None));
-    let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(events) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(events.iter().any(|event| event.id == late));
 }
 
@@ -1253,7 +1259,13 @@ async fn late_arrival_is_marked() {
             .unwrap();
     assert_eq!(ledger_count, 1, "同じ後着位置の台帳を二度書いた");
 
-    let axum::Json(hidden) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(hidden) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(
         hidden.iter().all(|record| record.id != late),
         "消した時間の後着位置が読み出しに出ている"
@@ -1272,7 +1284,13 @@ async fn late_arrival_is_marked() {
     .await
     .unwrap();
 
-    let axum::Json(restored) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(restored) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(
         restored.iter().any(|record| record.id == late),
         "戻した後着位置が実際の読み出し経路に出ていない"

@@ -1144,3 +1144,619 @@ async fn st41_coverage_started_on_uses_start() {
     .unwrap();
     assert_eq!(started.as_deref(), Some("2026-10-01"));
 }
+
+// ---- Task 5: 期間に重なる記録を引く（`GET /events`。Q2 / Q3）----
+
+const API_TOKEN: &str = "test-token-0123456789abcdef";
+
+fn api_headers() -> axum::http::HeaderMap {
+    let mut h = axum::http::HeaderMap::new();
+    h.insert(
+        "authorization",
+        format!("Bearer {API_TOKEN}").parse().expect("ヘッダ"),
+    );
+    h
+}
+
+fn query(from: Option<&str>, to: Option<&str>, source: Option<&str>) -> crate::EventsQuery {
+    crate::EventsQuery {
+        from: from.map(str::to_owned),
+        to: to.map(str::to_owned),
+        source: source.map(str::to_owned),
+    }
+}
+
+/// ハンドラを直に呼ぶ。応答の行（JSON）をそのまま返す。
+async fn events_rows(pool: &PgPool, q: crate::EventsQuery) -> Vec<serde_json::Value> {
+    let app = crate::App::for_test(pool.clone(), API_TOKEN);
+    let axum::Json(rows) = crate::events(
+        axum::extract::State(app),
+        api_headers(),
+        axum::extract::Query(q),
+    )
+    .await
+    .expect("events");
+    match serde_json::to_value(rows).unwrap() {
+        serde_json::Value::Array(a) => a,
+        other => panic!("配列でない: {other}"),
+    }
+}
+
+fn ids(rows: &[serde_json::Value]) -> Vec<String> {
+    rows.iter()
+        .map(|r| r["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// そのソースの記録のうち、期間に重なるものの id（出来事の時刻の順）。
+async fn range_ids(pool: &PgPool, source: &str, from: &str, to: &str) -> Vec<String> {
+    ids(&events_rows(pool, query(Some(from), Some(to), Some(source))).await)
+}
+
+fn at(end: &str) -> Option<(&str, i32, &str)> {
+    Some((end, 540, "Asia/Tokyo"))
+}
+
+#[tokio::test]
+async fn st41_range_overlapping_span_is_returned() {
+    // Scenario: 期間に重なる幅のある出来事が引ける
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-overlap").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    let rows = events_rows(
+        &pool,
+        query(
+            Some("2026-10-01T15:00:00Z"),
+            Some("2026-10-01T16:00:00Z"),
+            Some(&source),
+        ),
+    )
+    .await;
+    assert_eq!(ids(&rows), vec![id.to_string()]);
+    assert_eq!(rows[0]["end_time"], "2026-10-01T22:00:00Z");
+    assert_eq!(rows[0]["end_tz_offset_min"], 540);
+    assert_eq!(rows[0]["end_tz_id"], "Asia/Tokyo");
+}
+
+#[tokio::test]
+async fn st41_range_results_are_in_event_time_order() {
+    // Scenario: 期間で引いた記録は出来事の時刻の順に並ぶ
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-range-order").await;
+    // 置く順は並びと変える
+    let c = put_with_end(&pool, user, &source, "2026-10-01T15:10:00Z", None, None).await;
+    let b = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T15:05:00Z",
+        at("2026-10-01T15:50:00Z"),
+        None,
+    )
+    .await;
+    let a = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T13:00:00Z",
+        at("2026-10-01T15:30:00Z"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        range_ids(
+            &pool,
+            &source,
+            "2026-10-01T15:00:00Z",
+            "2026-10-01T16:00:00Z"
+        )
+        .await,
+        vec![a.to_string(), b.to_string(), c.to_string()]
+    );
+}
+
+#[tokio::test]
+async fn st41_range_source_only_returns_all_of_source() {
+    // Scenario: 期間を指定せずソースだけを指定すると、そのソースのすべての記録が返る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let sleep = ingest_source(&pool, "st41-range-all-sleep").await;
+    let loc = ingest_source(&pool, "st41-range-all-loc").await;
+    let late = put_with_end(
+        &pool,
+        user,
+        &sleep,
+        "2026-10-03T14:00:00Z",
+        at("2026-10-03T22:00:00Z"),
+        None,
+    )
+    .await;
+    let early = put_with_end(
+        &pool,
+        user,
+        &sleep,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    put_with_end(&pool, user, &loc, "2026-10-02T01:00:00Z", None, None).await;
+    let rows = events_rows(&pool, query(None, None, Some(&sleep))).await;
+    assert_eq!(ids(&rows), vec![early.to_string(), late.to_string()]);
+}
+
+#[tokio::test]
+async fn st41_range_spans_crossing_either_edge_are_returned() {
+    // Scenario: 期間より前に始まり期間の中で終わる記録も、期間の中で始まり期間の後に終わる記録も返る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-range-edges").await;
+    let before = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T13:00:00Z",
+        at("2026-10-01T15:30:00Z"),
+        None,
+    )
+    .await;
+    let after = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T15:30:00Z",
+        at("2026-10-01T18:00:00Z"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        range_ids(
+            &pool,
+            &source,
+            "2026-10-01T15:00:00Z",
+            "2026-10-01T16:00:00Z"
+        )
+        .await,
+        vec![before.to_string(), after.to_string()]
+    );
+}
+
+#[tokio::test]
+async fn st41_range_touching_edges_do_not_overlap() {
+    // Scenario: 終わりちょうど・始まりちょうどの期間には重ならない
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-touch").await;
+    put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    assert!(range_ids(
+        &pool,
+        &source,
+        "2026-10-01T22:00:00Z",
+        "2026-10-02T00:00:00Z"
+    )
+    .await
+    .is_empty());
+    assert!(range_ids(
+        &pool,
+        &source,
+        "2026-10-01T12:00:00Z",
+        "2026-10-01T14:00:00Z"
+    )
+    .await
+    .is_empty());
+}
+
+#[tokio::test]
+async fn st41_range_point_is_in_one_of_adjacent_periods() {
+    // Scenario: 隣り合う 2 つの期間で同じ点の記録は片方にだけ返る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-adjacent").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T15:00:00Z",
+        None,
+        None,
+    )
+    .await;
+    assert!(range_ids(
+        &pool,
+        &source,
+        "2026-10-01T14:00:00Z",
+        "2026-10-01T15:00:00Z"
+    )
+    .await
+    .is_empty());
+    assert_eq!(
+        range_ids(
+            &pool,
+            &source,
+            "2026-10-01T15:00:00Z",
+            "2026-10-01T16:00:00Z"
+        )
+        .await,
+        vec![id.to_string()]
+    );
+}
+
+#[tokio::test]
+async fn st41_range_overnight_span_is_on_both_days() {
+    // Scenario: 日をまたぐ出来事は、重なった日の期間のどちらにも返る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-overnight").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    let day1 = range_ids(
+        &pool,
+        &source,
+        "2026-09-30T15:00:00Z",
+        "2026-10-01T15:00:00Z",
+    )
+    .await;
+    let day2 = range_ids(
+        &pool,
+        &source,
+        "2026-10-01T15:00:00Z",
+        "2026-10-02T15:00:00Z",
+    )
+    .await;
+    assert_eq!(day1, vec![id.to_string()]);
+    assert_eq!(day2, vec![id.to_string()]);
+}
+
+#[tokio::test]
+async fn st41_range_reversed_end_is_a_point() {
+    // Scenario: 終わりが始まりより前の記録は、始まりの 1 点として扱われる
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-reversed").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T22:00:00Z",
+        at("2026-10-01T14:00:00Z"),
+        None,
+    )
+    .await;
+    assert!(range_ids(
+        &pool,
+        &source,
+        "2026-10-01T15:00:00Z",
+        "2026-10-01T16:00:00Z"
+    )
+    .await
+    .is_empty());
+    let rows = events_rows(
+        &pool,
+        query(
+            Some("2026-10-01T22:00:00Z"),
+            Some("2026-10-01T23:00:00Z"),
+            Some(&source),
+        ),
+    )
+    .await;
+    assert_eq!(ids(&rows), vec![id.to_string()]);
+    assert_eq!(rows[0]["end_time"], "2026-10-01T14:00:00Z");
+}
+
+#[tokio::test]
+async fn st41_range_zero_length_is_a_point() {
+    // Scenario: 終わりと始まりが同じ記録は点として扱われる
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-zero").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T15:00:00Z",
+        at("2026-10-01T15:00:00Z"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        range_ids(
+            &pool,
+            &source,
+            "2026-10-01T15:00:00Z",
+            "2026-10-01T16:00:00Z"
+        )
+        .await,
+        vec![id.to_string()]
+    );
+}
+
+#[tokio::test]
+async fn st41_range_source_filter() {
+    // Scenario: ソースを指定すると、そのソースの記録だけが返る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let sleep = ingest_source(&pool, "st41-range-filter-sleep").await;
+    let loc = ingest_source(&pool, "st41-range-filter-loc").await;
+    let s = put_with_end(
+        &pool,
+        user,
+        &sleep,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    let l = put_with_end(&pool, user, &loc, "2026-10-01T15:30:00Z", None, None).await;
+    let (from, to) = ("2026-10-01T15:00:00Z", "2026-10-01T16:00:00Z");
+    assert_eq!(
+        range_ids(&pool, &sleep, from, to).await,
+        vec![s.to_string()]
+    );
+    assert_eq!(range_ids(&pool, &loc, from, to).await, vec![l.to_string()]);
+}
+
+#[tokio::test]
+async fn st41_range_deleted_is_not_returned() {
+    // Scenario: 期間で引いても削除済みの記録は返らない
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-deleted").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    soft_delete(&pool, id).await;
+    assert!(range_ids(
+        &pool,
+        &source,
+        "2026-10-01T15:00:00Z",
+        "2026-10-01T16:00:00Z"
+    )
+    .await
+    .is_empty());
+}
+
+#[tokio::test]
+async fn st41_range_rows_without_end_keep_six_keys() {
+    // Scenario: 終わりを持たない記録の行は、いまの形のまま返る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-range-keys").await;
+    let plain = put_with_end(&pool, user, &source, "2026-10-01T14:00:00Z", None, None).await;
+    let wide = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T15:00:00Z",
+        at("2026-10-01T16:00:00Z"),
+        None,
+    )
+    .await;
+    let rows = events_rows(&pool, query(None, None, Some(&source))).await;
+    let keys = |r: &serde_json::Value| {
+        let mut k: Vec<String> = r.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+    let by_id = |id: Uuid| {
+        rows.iter()
+            .find(|r| r["id"] == id.to_string())
+            .expect("行")
+            .clone()
+    };
+    assert_eq!(
+        keys(&by_id(plain)),
+        [
+            "event_time",
+            "id",
+            "logical_source",
+            "origin",
+            "raw",
+            "tz_id"
+        ]
+    );
+    assert_eq!(
+        keys(&by_id(wide)),
+        [
+            "end_time",
+            "end_tz_id",
+            "end_tz_offset_min",
+            "event_time",
+            "id",
+            "logical_source",
+            "origin",
+            "raw",
+            "tz_id"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn st41_range_without_period_returns_all() {
+    // Scenario: 期間を指定しなければ、いまのまますべての記録が返る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-range-none").await;
+    let b = put_with_end(&pool, user, &source, "2026-10-01T12:00:00Z", None, None).await;
+    let a = put_with_end(
+        &pool,
+        user,
+        &source,
+        "2026-10-01T10:00:00Z",
+        at("2026-10-01T11:00:00Z"),
+        None,
+    )
+    .await;
+    let gone = put_with_end(&pool, user, &source, "2026-10-01T11:00:00Z", None, None).await;
+    soft_delete(&pool, gone).await;
+    // 共有の DB なので、他の試験の記録は混ざる。置いた id だけを取り出して並びを見る
+    let rows = events_rows(&pool, query(None, None, None)).await;
+    let mine: Vec<String> = ids(&rows)
+        .into_iter()
+        .filter(|i| [a.to_string(), b.to_string(), gone.to_string()].contains(i))
+        .collect();
+    assert_eq!(mine, vec![a.to_string(), b.to_string()]);
+    let times: Vec<&str> = rows
+        .iter()
+        .map(|r| r["event_time"].as_str().unwrap())
+        .collect();
+    assert!(times.windows(2).all(|w| w[0] <= w[1]), "時刻順");
+}
+
+#[tokio::test]
+async fn st41_range_bad_period_is_400() {
+    // Scenario: 期間の片方だけ・読めない時刻・逆さの期間は断られる
+    let pool = testdb::pool().await;
+    let app = crate::App::for_test(pool.clone(), API_TOKEN);
+    let cases = [
+        (Some("2026-10-01T15:00:00Z"), None),
+        (Some("2026-10-01T15:00:00Z"), Some("2026-13-40")),
+        (Some("2026-10-01T15:00:00"), Some("2026-10-01T16:00:00Z")),
+        (Some("2026-10-01T15:00:00Z"), Some("2026-10-01T15:00:00Z")),
+        (Some("2026-10-01T16:00:00Z"), Some("2026-10-01T15:00:00Z")),
+    ];
+    for (from, to) in cases {
+        let err = crate::events(
+            axum::extract::State(app.clone()),
+            api_headers(),
+            axum::extract::Query(query(from, to, None)),
+        )
+        .await
+        .expect_err("断られる");
+        assert_eq!(
+            err.0,
+            axum::http::StatusCode::BAD_REQUEST,
+            "{from:?} {to:?}"
+        );
+        for sent in [from, to].into_iter().flatten() {
+            assert!(!err.1.contains(sent), "本文に送った値を含めない");
+        }
+    }
+}
+
+fn get_req(uri: &str, bearer: bool) -> axum::http::Request<axum::body::Body> {
+    let mut b = axum::http::Request::builder().method("GET").uri(uri);
+    if bearer {
+        b = b.header("authorization", format!("Bearer {API_TOKEN}"));
+    }
+    b.body(axum::body::Body::empty()).unwrap()
+}
+
+/// 届いた行を手元に溜めるだけの書く口（DB へは書かない）。
+#[derive(Clone, Default)]
+struct Capture(std::sync::Arc<std::sync::Mutex<Vec<crate::access_log::AccessEntry>>>);
+
+impl crate::access_log::AccessSink for Capture {
+    fn record(&self, entry: crate::access_log::AccessEntry) -> crate::access_log::AccessFuture {
+        self.0.lock().unwrap().push(entry);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+async fn routed(
+    capture: &Capture,
+    req: axum::http::Request<axum::body::Body>,
+) -> axum::http::StatusCode {
+    use tower::ServiceExt as _;
+    let app =
+        crate::App::for_test(testdb::pool().await, API_TOKEN).with_access_sink(capture.clone());
+    crate::router(app).oneshot(req).await.unwrap().status()
+}
+
+const PERIOD_URI: &str = "/events?from=2026-10-01T15:00:00Z&to=2026-10-01T16:00:00Z";
+
+#[tokio::test]
+async fn st41_range_without_credentials_is_401() {
+    // Scenario: 資格情報の無い期間の求めは断られる
+    let capture = Capture::default();
+    assert_eq!(
+        routed(&capture, get_req(PERIOD_URI, false)).await,
+        axum::http::StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn st41_range_is_access_logged() {
+    // Scenario: 期間で引いたことは読み出しの記録に残る
+    let capture = Capture::default();
+    assert_eq!(
+        routed(&capture, get_req(PERIOD_URI, true)).await,
+        axum::http::StatusCode::OK
+    );
+    let seen = capture.0.lock().unwrap();
+    assert_eq!(seen.len(), 1, "その求めの行が 1 行");
+    assert_eq!(seen[0].route, "/events");
+    assert_eq!(seen[0].outcome, "ok");
+    assert_eq!(seen[0].status, 200);
+}
+
+#[tokio::test]
+async fn st41_range_uses_partial_index() {
+    // 印なし（D10 の確かめ）: 終わりのある側の引き方が部分索引 `event_end_range` に当たる
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    let plan = async {
+        for (label, sql) in crate::MIGRATIONS {
+            sqlx::raw_sql(sql)
+                .execute(&fresh)
+                .await
+                .map_err(|e| format!("{label}: {e}"))?;
+        }
+        sqlx::raw_sql(
+            "INSERT INTO core.source (logical_source, display_name, expected_gap_sec, registered_at)
+             VALUES ('st41-explain', 'st41-explain', 21600, '2000-01-01');
+             INSERT INTO core.event
+               (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
+                end_time, end_tz_offset_min, end_tz_id, schema_version, content_hash, raw, payload)
+             SELECT gen_random_uuid(), '00000000-0000-0000-0000-000000000041', 'st41-explain',
+                    'test', 'collected',
+                    '2026-01-01T00:00:00Z'::timestamptz + n * interval '5 minutes', 540, 'Asia/Tokyo',
+                    CASE WHEN n % 10 = 0
+                         THEN '2026-01-01T00:00:00Z'::timestamptz + n * interval '5 minutes' + interval '2 hours' END,
+                    CASE WHEN n % 10 = 0 THEN 540 END,
+                    CASE WHEN n % 10 = 0 THEN 'Asia/Tokyo' END,
+                    1, gen_random_uuid()::text, '{\"v\":1}', '{\"v\":1}'
+               FROM generate_series(1, 10000) n;
+             ANALYZE core.event;",
+        )
+        .execute(&fresh)
+        .await
+        .map_err(|e| e.to_string())?;
+        let (plan,): (serde_json::Value,) = sqlx::query_as(&format!(
+            "EXPLAIN (FORMAT JSON) {}",
+            crate::EVENTS_END_SIDE_SQL
+        ))
+        .bind(chrono::DateTime::parse_from_rfc3339("2026-01-10T00:00:00Z").unwrap())
+        .bind(chrono::DateTime::parse_from_rfc3339("2026-01-10T06:00:00Z").unwrap())
+        .fetch_one(&fresh)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok::<_, String>(plan.to_string())
+    }
+    .await;
+    drop.await;
+    let plan = plan.unwrap();
+    assert!(plan.contains("event_end_range"), "索引に当たらない: {plan}");
+}
