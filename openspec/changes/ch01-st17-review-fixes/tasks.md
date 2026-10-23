@@ -109,11 +109,11 @@
 
 `web/src/FeelView.tsx`（日の読み出しと 30 日の読み出し）、試験は `web/src/__tests__/FeelView.test.tsx`。design D8。
 
-- [ ] 6.1 30 日の 1 回を読み、日の欄・暦・滞在の行をその応答から出す。押して受理された後の読み直しも 1 回。読み出しが失敗したら日の欄と暦の両方が失敗を出す。
+- [x] 6.1 30 日の 1 回を読み、日の欄・暦・滞在の行をその応答から出す。押して受理された後の読み直しも 1 回。読み出しが失敗したら日の欄と暦の両方が失敗を出す。
   Scenario: `読み出しの失敗は日の欄にも出る`。
   検証: `VT FeelView.test.tsx`（`/api/feelings` への fetch が、開いて 1 回・快–不快を押して受理された後に 1 回だけ増えることを数える試験と、失敗の試験を含む）、`ET feel-ch01.spec.ts`（`読み出しの失敗は日の欄にも出る` の印。`page.route` で `/api/feelings` を落とす）、
   `cd web && npm run typecheck && npm run lint` rc=0
-- [ ] 6.2 ST17 の画面の e2e がそのまま通ることを確かめる（振る舞いを変えない）。検証: `ET feel.spec.ts`、`ET feel-parts.spec.ts`、`ET feel-limits.spec.ts`
+- [x] 6.2 ST17 の画面の e2e がそのまま通ることを確かめる（振る舞いを変えない）。検証: `ET feel.spec.ts`、`ET feel-parts.spec.ts`、`ET feel-limits.spec.ts`
 
 ## Task 7: 滞在の行は断られたら押された印を戻し、届かなかったら残す（Q4）
 
