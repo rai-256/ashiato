@@ -40,7 +40,7 @@
 
 ## Task 1: 移行 —— 消去の操作の台帳・範囲・派生の門・ビュー・書き直しの記録（design D4 / D5 / D7 / D11）
 
-- [ ] 1.1 移行 1 本（`migrations/YYYYMMDDHHMM_record_purge.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）で次を入れる:
+- [x] 1.1 移行 1 本（`migrations/YYYYMMDDHHMM_record_purge.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）で次を入れる:
   `core.erasure_operation` と `core.erasure_span`（design D4 の列・CHECK・追記のみの行トリガと TRUNCATE の文トリガ。関数は表ごとに別）/ `core.erasure_ledger.operation_id uuid NULL` /
   `core.stay_erased` の作り直し（`start_at` / `end_at` は `core.erasure_span` の `scope = 'event'` を先に読み、無ければ本文。列 `purged`・`operation_id` を足す。design D5）/
   派生の門 `core.require_derived_erasure_ledger()` と constraint trigger `event_requires_derived_ledger`（design D7）/ `core.purge_compaction`（design D11）/
