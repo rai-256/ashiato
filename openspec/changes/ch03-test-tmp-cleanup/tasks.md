@@ -34,12 +34,12 @@
 
 ## Task 1: 足場 —— 依存・試験の JVM の一時フォルダ・残りを測る台本
 
-- [ ] 1.1 `tempfile = "3"` を `crates/server/Cargo.toml` と `crates/collector-windows/Cargo.toml` の `[dev-dependencies]` に足す（collector-windows は `[target.'cfg(windows)'.dev-dependencies]` でなく、全ての target の `[dev-dependencies]` を新しく置く）。
+- [x] 1.1 `tempfile = "3"` を `crates/server/Cargo.toml` と `crates/collector-windows/Cargo.toml` の `[dev-dependencies]` に足す（collector-windows は `[target.'cfg(windows)'.dev-dependencies]` でなく、全ての target の `[dev-dependencies]` を新しく置く）。
   検証: `bash -c 'cargo tree -p ashiato-server -e dev --depth 1 | grep -q "tempfile v3" && cargo tree -p ashiato-collector-windows -e dev --depth 1 | grep -q "tempfile v3"'` rc=0
-- [ ] 1.2 `collector-android/app/build.gradle.kts` の `unitTests.all` に、環境変数 `ASHIATO_TEST_TMPDIR` があるときだけ `test.systemProperty("java.io.tmpdir", it)` を渡す行を足す
+- [x] 1.2 `collector-android/app/build.gradle.kts` の `unitTests.all` に、環境変数 `ASHIATO_TEST_TMPDIR` があるときだけ `test.systemProperty("java.io.tmpdir", it)` を渡す行を足す
   （`ASHIATO_ROBOLECTRIC_JARS` と同じ形。無ければ何も変えない旨をコメントに書く。design D6）。
   検証: `bash -c 'grep -q "ASHIATO_TEST_TMPDIR" collector-android/app/build.gradle.kts && grep -q "java.io.tmpdir" collector-android/app/build.gradle.kts'` rc=0
-- [ ] 1.3 `tools/tmp-leak-check.sh` を design D6 のとおりに書く: `rust [cargo test の引数…]`（引数が無ければ `--workspace`。先に `--no-run` で組んでから `TMPDIR=<根>` で走らせる）/
+- [x] 1.3 `tools/tmp-leak-check.sh` を design D6 のとおりに書く: `rust [cargo test の引数…]`（引数が無ければ `--workspace`。先に `--no-run` で組んでから `TMPDIR=<根>` で走らせる）/
   `android [gradle の引数…]`（`ASHIATO_TEST_TMPDIR=<根>`・`--rerun`・`-p collector-android`。本数は `collector-android/app/build/test-results/testDebugUnitTest/*.xml` の `tests` の合計）/ `--self-test`。
   根は `target/tmp-leak/<rust|android>-<日時>-<pid>`。判定は試験の rc → 本数 0 → 残り、の順。rc=0 なら根を消し、rc=1 なら残す。試験の命令は `TMP_LEAK_CMD` で差し替えられる。
   `--self-test` は偽の命令で次の 4 つを見て、それぞれの前に印を出す:
@@ -48,10 +48,10 @@
   `echo "Scenario: 試験が落ちれば、台本も試験の終了コードで落ちる"`（rc=101 → rc=101）/
   `echo "Scenario: 試験が通り、何も残さなければ、台本は通る"`（本数 3・残り無し → rc=0 と本数）。冒頭のコメントに使い方・rc・なぜ要るか（CH03）を書く。
   検証: `tools/tmp-leak-check.sh --self-test` rc=0
-- [ ] 1.4 前提の確かめ（`premises.md` の確かさ 1 の行。試験の JVM の `java.io.tmpdir` を `ASHIATO_TEST_TMPDIR` で向けられる）: `Ch03TmpdirProbeTest.kt` を `app/src/test/kotlin/dev/ashiato/collector/` に足す ——
+- [x] 1.4 前提の確かめ（`premises.md` の確かさ 1 の行。試験の JVM の `java.io.tmpdir` を `ASHIATO_TEST_TMPDIR` で向けられる）: `Ch03TmpdirProbeTest.kt` を `app/src/test/kotlin/dev/ashiato/collector/` に足す ——
   `ASHIATO_TEST_TMPDIR` が無ければ `Assume` で飛ばし、あれば `System.getProperty("java.io.tmpdir")` が環境変数の値と同じフォルダであることを見る（その行に `// tmp-ok: 向け先を読むだけ`）。
   検証: `bash -c 'mkdir -p target/ch03-probe && ASHIATO_TEST_TMPDIR=$PWD/target/ch03-probe scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests "*Ch03TmpdirProbeTest*" && grep -q "skipped=\"0\"" collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.Ch03TmpdirProbeTest.xml'` rc=0
-- [ ] 1.5 前提の確かめ（`TMPDIR` を向けたとき、cargo と試験の道具が根に自分のものを残さない）: 書き換えの前でも後でも、PC の収集アプリの試験の残りの名前が全部 ashiato の試験の頭（`ashiato`）であることを見る
+- [x] 1.5 前提の確かめ（`TMPDIR` を向けたとき、cargo と試験の道具が根に自分のものを残さない）: 書き換えの前でも後でも、PC の収集アプリの試験の残りの名前が全部 ashiato の試験の頭（`ashiato`）であることを見る
   （書き換えの前は残りがあって rc=1、後は rc=0。どちらでも、`ashiato` で始まらない残りがあれば落ちる）。Android の側（Robolectric・Gradle の worker）は 6.2 の全体の走りで見る。外れたら design D6 の反転条件。
   検証: `bash -c 'tools/tmp-leak-check.sh rust -p ashiato-collector-windows --lib; rc=$?; [ $rc -eq 0 ] && exit 0; [ $rc -eq 1 ] || exit 1; r=$(ls -dt target/tmp-leak/rust-* | head -1); [ -n "$(ls -A "$r")" ] && [ -z "$(ls -A "$r" | grep -v "^ashiato")" ]'` rc=0
 
