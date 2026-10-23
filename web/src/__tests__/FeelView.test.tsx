@@ -108,6 +108,12 @@ const sent = async (n: number): Promise<void> => {
     expect(posts).toHaveLength(n);
   });
 };
+/** 読み出しと再描画が落ち着くまで待つ（`Date` だけ偽物なので、タイマーは本物で進む）。 */
+const settle = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 100));
+  });
+};
 const scalesOf = (i: number): { id: string; value: number }[] => posts[i].body.scales as { id: string; value: number }[];
 
 describe("押した瞬間に保存する", () => {
@@ -463,10 +469,8 @@ describe("主観の読み出しは 30 日の 1 回", () => {
     await open();
     expect((await screen.findByTestId("feel-notice")).textContent).toContain("気分を読み出せませんでした");
     expect((await screen.findByTestId("feel-calendar-failed")).textContent).toContain("暦を読み出せませんでした");
-    for (const v of [-2, -1, 0, 1, 2]) {
-      const b = screen.queryByTestId(`valence-${v}`);
-      if (b !== null) expect(b.getAttribute("aria-pressed")).toBe("false");
-    }
+    // ボタンが無ければ落とす（無いまま検査を抜けない）
+    for (const v of [-2, -1, 0, 1, 2]) expect(screen.getByTestId(`valence-${v}`).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("開くと /api/feelings を対象の日で終わる 30 日で 1 回だけ読み、快–不快を押して受理された後に 1 回だけ増える", async () => {
@@ -480,6 +484,9 @@ describe("主観の読み出しは 30 日の 1 回", () => {
     await waitFor(() => {
       expect(gets).toHaveLength(2);
     });
+    // 2 回目を待っただけでは、後から来る 3 回目を捕まえない。落ち着くまで待ってから厳密に数える
+    await settle();
+    expect(gets).toHaveLength(2);
     expect(gets[1]).toBe(gets[0]);
   });
 });
