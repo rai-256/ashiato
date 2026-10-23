@@ -89,8 +89,23 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
+
+> **訂正（2026-10-21、ST29 の spec）**: `data-durability` に ST29 を足した。ST29 は衛星の登録簿と資格情報の表を足し、書き出しは分類の無い表があると始まらない（正典）。
+> 登録簿を書き出しに入れるので、ST33 の Scenario「台帳と導出の表は書き出しに入らない」のファイルの一覧（「それ以外のファイルは無い」）を MODIFIED する
+> （`openspec/changes/st29-satellite-credentials/proposal.md`）。
+>
+> - `data-durability` は走っている ST09（ADDED を 1 つ）と CH02（「書き出しは本人が消した場面を出さない」を MODIFIED）も触るが、ST29 が触る Requirement
+>   （「書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない」の MODIFIED と ADDED）とは別で、ST29 は既に上流にいるので `衝突待ち` にはならない
+>   （`export.rs` / `export_file_tests.rs` の衝突は後から merge する側が rebase で解く）
+>
+> **要件の側でも、satisfies に無い条項を ST29 が満たす**（ST29 の spec が導出元に引くもの）。本体の Story は変えない:
+>
+> | 要件 | 本体の Story | ST29 が満たす条項 |
+> |---|---|---|
+> | FR-96（衛星を外しても書いた記録は残る） | ST39 | 登録簿と資格情報の行を消さない土台だけ（外した衛星も行が残り、書き手が指す先が残る）。記録を残す振る舞いは ST39 |
+> | NFR-17〜NFR-19 / NFR-22（画面の下限） | ST25 | 設定画面の「衛星と資格情報」の節がこの下限を満たす。画面を持つ Story が自分の画面について満たす |
 
 > **訂正（2026-10-11、衛星の基盤の改訂）**
 >
