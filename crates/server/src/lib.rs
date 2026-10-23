@@ -145,6 +145,11 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 衛星の識別子と名前の形（ST29 / design D2 / D5 / D15）。DB に触らない。
+pub mod satellite;
+/// 形の正本と移行・登録簿の突き合わせ（ST29 / design D5）。
+#[cfg(test)]
+mod satellite_form_tests;
 /// 衛星の登録簿・資格情報の移行（ST29 / design D7 / D9）。
 #[cfg(test)]
 mod satellite_migration_tests;
