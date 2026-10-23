@@ -12,7 +12,7 @@ pub const EXCLUDED_EVENT: &str = "excluded_event";
 /// 自分が条件を満たして除かれる前の版の id を集めた CTE の名前。**親が除かれたことによる除外は含まない**。
 pub const EXCLUDED_VERSION: &str = "excluded_version";
 
-/// 終わりの時刻を持つ内容の鍵（D5b (a)。順に読み、最初に読めたものを使う）。
+/// 終わりの時刻を持つ内容の鍵（D5b (a)。順に読み、最初に読めたものを使う。**列の `end_time` はこれより先**。D11）。
 /// `range_end` は `c02-window` の `idle` と `powered-off`（`collector-windows/src/contract.rs`）。
 /// `end_time` の数字だけの値はミリ秒の UNIX 時刻（`stay_store::event_end_sql` と同じ）。
 pub const END_KEYS: [&str; 6] = [
@@ -194,7 +194,7 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
         crate::stay_store::REBUILD_PREFIX
     );
     let events = "core.event_live";
-    let versions = "(SELECT v.id, e.logical_source, v.event_time, v.payload, v.raw
+    let versions = "(SELECT v.id, e.logical_source, v.event_time, v.payload, v.raw, v.end_time
                        FROM core.event_version_live v
                        JOIN core.event_live e ON e.id = v.event_id)";
     let overlap_event = overlap_sql(events, true, snapshot_at);
@@ -208,7 +208,7 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              FROM core.stay_erased s
             WHERE {user_deleted}
            UNION ALL
-           SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
+           SELECT v.event_time, coalesce(v.end_time, core.try_timestamptz(v.payload->>'end'), v.event_time)
              FROM core.stay_erased s
              JOIN core.event_version v ON v.event_id = s.id
             WHERE {user_deleted}
@@ -282,7 +282,7 @@ pub(crate) const OVERLAP_CONDITION: &str = "(
                  AND EXISTS (SELECT 1 FROM erased_spans s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time))
            )";
 
-/// 行 `r`（`id` `logical_source` `event_time` `payload` `raw` を持つ）のうち、
+/// 行 `r`（`id` `logical_source` `event_time` `payload` `raw` `end_time` を持つ）のうち、
 /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
 ///
 /// 次の記録の時刻は `span_next` から `id` で引く（`is_event` は記録の側が true、前の版の側が false）。
@@ -292,7 +292,11 @@ pub(crate) const OVERLAP_CONDITION: &str = "(
 /// `span_next` も消した滞在が 0 件の門と `max(end_at)` 以下の絞りを持つので、ここの 2 つの条件は結果を変えない。
 /// 門を重ねて置く（どちらか片方を外しても、消した滞在 0 件で記録の表を読まない。CH02 の code_verify の M1 / M1b）。
 fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
-    let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
+    // 列の終わりが先（D11）。始まりより前・同じ列の値は読めないもの（NULL）にして、内容の鍵へ進む（D4）。
+    let end_keys: Vec<String> =
+        std::iter::once("CASE WHEN r.end_time > r.event_time THEN r.end_time END".to_string())
+            .chain(END_KEYS.iter().map(|k| end_key_sql(k)))
+            .collect();
     let dur_keys: Vec<String> = DURATION_KEYS
         .iter()
         .map(|(k, us)| duration_key_sql(k, *us))

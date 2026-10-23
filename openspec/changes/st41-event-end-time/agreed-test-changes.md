@@ -1,2 +1,3 @@
 - Scenario: 記録の読み出しの形は変わらない — 期待（終わりを持たない行の鍵は 6 つ）は同じ。共有の DB に ST41 の試験が置いた終わりつきの行が残るため、`st25_api_unchanged_events_and_stays_shapes` は自分が置いたソース（`c02-window` / `c01-location`）の行だけで鍵を見る
 - Scenario: アプリの接続で取り込みと読み出しが通る — 期待は同じ。`events` が `Query<EventsQuery>` を受ける形になったので、呼び方に `Query(EventsQuery::default())` を足しただけ（D9）
+- 書き出しの台帳の移行を当て直せる（`export_ledger_migration_applies_twice`）— 期待（台帳の移行が MIGRATIONS にある・2 回当てても壊れない）は同じ。「MIGRATIONS の末尾」の形だと後ろに移行を足した Story が落ちるので、`.last()` を `.iter().any()` にしただけ

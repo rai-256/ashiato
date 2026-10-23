@@ -71,6 +71,9 @@ mod drops_tests;
 mod end_time_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
+/// 書き出しと消した滞在の時間が終わりを列から読むこと（ST41）。
+#[cfg(test)]
+mod export_end_time_tests;
 /// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。
 #[cfg(test)]
 mod export_excluded_tests;
