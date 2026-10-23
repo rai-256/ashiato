@@ -274,3 +274,15 @@ Q3（直さない）は `ch01_stay_open_` 2 本が今の振る舞いを固定し
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: rejected: 再現した（`git log --format=%s -1 774d28e4` が `refactor(CH01): …`）。直すには 774d28e4 より後の 40 本ほどの commit を書き換えることになり、`review/code.md`・`fix report`・`provisional.jsonl` が引く SHA（9a3d1a03 ほか）がすべて指す先を失う。中身の規則（`.githooks/pre-commit` は接頭辞を見ない）の違反は 1 行の件名だけで、振る舞いも検査も変えない。以後の commit は `feat` / `fix` / `docs` / `chore` に限る
 
+
+## finish の fix（84acd2e..73530d7）の scoped re-review
+
+席: re-reviewer（SDD の `re-review-prompt.md`。finish を書いた文脈から独立）。入力は `.superpowers/sdd/ch01-finish-fix.diff` と上の R10〜R24 の `処置:`。
+判定: R10〜R19・R21〜R23 は ADDRESSED、R20・R24 は rejected の理由が成り立つ。R11 の kind の付け替え（premise → technical）は妥当。fix の diff に新しい Critical / Important は無し。
+re-reviewer が自分で走らせたもの: vitest `FeelView.test.tsx` 40 passed・`check-shared-appends.sh --self-test` rc=0。
+
+fix は 1 回だけなので、残った Minor 2 件は直さずに park する（どれも振る舞いの決定を変えない）:
+- parked: `tools/stack.sh` の `newer_src` がサーバの作り直しで見るのは `crates/server` `migrations` `Cargo.*` だけで、サーバが依存する別の crate を直しても作り直さない。
+  Ruling: 今のサーバは workspace の別の crate に依存していない（`crates/server/Cargo.toml` に path 依存なし）ので、今は起きない。依存を足す Story が監視の対象も足す
+- parked: `FeelView.tsx` の受理された枝の `if (p.key === "day") sentNote.current = p.note;` は、最後に押した 1 件かを見ない。古い日の送り直しが、より新しい押下の返事待ちの間に受理されると、控えが古いひとことになる。
+  Ruling: 送り直しは「もう一度送る」を押したときだけで、押すと pending の最新の 1 件しか送らない。その間に新しく押した 1 件が返事待ちで残る窓はほぼ無く、起きても欄を離れたときに同じひとことをもう一度送る（1 件増える）だけで、値は失われない
