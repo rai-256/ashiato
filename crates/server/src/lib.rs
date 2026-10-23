@@ -154,6 +154,9 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
+/// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
+#[cfg(test)]
+mod purge_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;

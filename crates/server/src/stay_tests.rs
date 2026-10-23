@@ -105,7 +105,10 @@ async fn stay_erased_view_hides_coordinates() {
             "start_at",
             "end_at",
             "deleted_at",
-            "deleted_by"
+            "deleted_by",
+            // 本文ごと消す操作（ST23 / design D5）が末尾に足した 2 列。値は印と操作の識別子だけ
+            "purged",
+            "operation_id"
         ],
         "stay_erased は座標・raw を含まず、必要な識別子・時刻範囲・削除印だけを返す"
     );
