@@ -53,7 +53,7 @@
   検証: `bash -c 'mkdir -p target/ch03-probe && ASHIATO_TEST_TMPDIR=$PWD/target/ch03-probe scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun --tests "*Ch03TmpdirProbeTest*" && grep -q "skipped=\"0\"" collector-android/app/build/test-results/testDebugUnitTest/TEST-dev.ashiato.collector.Ch03TmpdirProbeTest.xml'` rc=0
 - [ ] 1.5 前提の確かめ（`TMPDIR` を向けたとき、cargo と試験の道具が根に自分のものを残さない）: 書き換えの前でも後でも、PC の収集アプリの試験の残りの名前が全部 ashiato の試験の頭（`ashiato`）であることを見る
   （書き換えの前は残りがあって rc=1、後は rc=0。どちらでも、`ashiato` で始まらない残りがあれば落ちる）。Android の側（Robolectric・Gradle の worker）は 6.2 の全体の走りで見る。外れたら design D6 の反転条件。
-  検証: `bash -c 'tools/tmp-leak-check.sh rust -p ashiato-collector-windows --lib; rc=$?; [ $rc -eq 0 ] && exit 0; [ $rc -eq 1 ] || exit 1; r=$(ls -dt target/tmp-leak/rust-* | head -1); [ -z "$(ls -A "$r" | grep -v "^ashiato")" ]'` rc=0
+  検証: `bash -c 'tools/tmp-leak-check.sh rust -p ashiato-collector-windows --lib; rc=$?; [ $rc -eq 0 ] && exit 0; [ $rc -eq 1 ] || exit 1; r=$(ls -dt target/tmp-leak/rust-* | head -1); [ -n "$(ls -A "$r")" ] && [ -z "$(ls -A "$r" | grep -v "^ashiato")" ]'` rc=0
 
 ## Task 2: サーバの書き出しの試験と、panic しても消えることの試験
 
