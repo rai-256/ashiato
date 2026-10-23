@@ -107,6 +107,11 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   const days = calendarDays(target);
   /** 最後に送った（送ろうとした）ひとこと。欄を離れたとき、これと違えば送る。`null` = まだ送っていない */
   const sentNote = useRef<string | null>(null);
+  /**
+   * 対象ごとに、最後に押して送った 1 件（送り直しでは変えない）。応答は押した順に返るとは限らないので、
+   * 返ってきた 1 件がまだ最後に押したものかで、印・送り直し・ひとことの控えを動かすかを決める（review/code.md R10・R17・R18・R21）
+   */
+  const lastSent = useRef<Record<string, Pending>>({});
 
   /**
    * 主観の読み出しは、対象の日で終わる 30 日の 1 回だけ（design D8）。日の欄・暦・滞在の行の押された状態をその応答から出す。
@@ -223,6 +228,11 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
   /** 組んだ原文を送る。結果は「保存した」「断られた」「届かなかった」の 3 つに分ける（ST19 の D9 と同じ読み方）。 */
   const post = async (p: Pending, restoreNote: string | null, crossed = false): Promise<void> => {
     setNotice(null);
+    // 失敗したとき、ひとことの控えを送る前に戻すのは、日の欄の 1 件がまだ最後に押したものだけ。滞在の行は控えに触れない
+    // （返事待ちの間に日の欄で送って受理されたひとことを、古い控えで上書きしない。R21）
+    const restore = (): void => {
+      if (p.key === "day" && lastSent.current.day === p) sentNote.current = restoreNote;
+    };
     try {
       const res = await fetch("/api/ingest", {
         method: "POST",
@@ -231,7 +241,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       });
       const outcome = await readIngestResponse(res);
       if (outcome.at === "accepted") {
-        setPending((all) => without(all, p.key));
+        // 外すのは、この 1 件の送り直しか、この 1 件が最後に押したもの（後から押した値を上書きした）のときだけ。
+        // 返事待ちの間に後から押して届かなかった値の送り直しは残す（R10・R17）
+        setPending((all) => (all[p.key] === p || lastSent.current[p.key] === p ? without(all, p.key) : all));
         // 送り直しで届いた「日」の記録のひとことも、送ったものとして覚える（覚えないと欄を離れたときに同じひとことをもう一度送る）
         if (p.key === "day") sentNote.current = p.note;
         const value = `${signed(p.v)} ${valenceWord(p.v)}`;
@@ -244,15 +256,15 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
         setTick((t) => t + 1);
         return;
       }
-      sentNote.current = restoreNote;
+      restore();
       if (outcome.at === "rejected") {
         // 外すのはこの 1 件の送り直しだけ。返事待ちの間に同じ対象で後から押して届かなかった値は、送り直しを待ったまま残す（review/code.md R4）
         setPending((all) => (all[p.key] === p ? without(all, p.key) : all));
         // 滞在の行は、断られた値の押された印を外す（画面が最後に読んだ最新の記録の値、無ければ何も押されていない状態に戻る。design D5）。
-        // 印が断られた値のときだけ外す —— 返事待ちの間に後から押した値の印は消さない（応答の届く順が押した順と入れ替わる。R4）。
-        // 届かなかったときは外さない（送り直しを待つ値）。日の欄（`pick`）は断られても残す。
-        if (p.stayRange !== undefined)
-          setStayPicks((picks) => (picks[p.key] === p.v ? Object.fromEntries(Object.entries(picks).filter(([k]) => k !== p.key)) : picks));
+        // 印を外すのは、断られた 1 件がその行で最後に押したものだけ —— 返事待ちの間に後から押した値の印は、値が同じでも消さない
+        // （応答の届く順が押した順と入れ替わる。R4・R18）。届かなかったときは外さない（送り直しを待つ値）。日の欄（`pick`）は断られても残す。
+        if (p.stayRange !== undefined && lastSent.current[p.key] === p)
+          setStayPicks((picks) => Object.fromEntries(Object.entries(picks).filter(([k]) => k !== p.key)));
         const kind = outcome.kind;
         setNotice({
           bad: true,
@@ -271,7 +283,7 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       setPending((all) => ({ ...all, [p.key]: p }));
       setNotice({ bad: true, text: m.unreachable });
     } catch {
-      sentNote.current = restoreNote;
+      restore();
       setPending((all) => ({ ...all, [p.key]: p }));
       setNotice({ bad: true, text: m.unreachable });
     }
@@ -287,7 +299,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     sentNote.current = note;
     // 押したときに画面が「前」を出していて、記入の日時では「後」なら知らせる。送り直しは原文を送るだけで判定しない（design D6）
     const crossed = phase === "before" && phaseOf(dayTarget, at) === "after";
-    void post({ key: "day", built, v, note, at }, previous, crossed);
+    const sent: Pending = { key: "day", built, v, note, at };
+    lastSent.current.day = sent;
+    void post(sent, previous, crossed);
   };
 
   /** 上限を超えている間は送らない。押した値もひとことも残す（切り詰めない）。 */
@@ -302,7 +316,9 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
     const at = new Date();
     const built = buildFeeling({ kind: "stay", stay: row.id, start: row.start, end: row.end }, [{ id: "valence", version: 1, value: v }], null, at);
     setStayPicks((p) => ({ ...p, [row.id]: v }));
-    void post({ key: row.id, built, v, note: "", at, stayRange: m.stayRange(clock(row.start, target), clock(row.end, target)) }, sentNote.current);
+    const sent: Pending = { key: row.id, built, v, note: "", at, stayRange: m.stayRange(clock(row.start, target), clock(row.end, target)) };
+    lastSent.current[row.id] = sent;
+    void post(sent, sentNote.current);
   };
 
   const pressValence = (v: number): void => {

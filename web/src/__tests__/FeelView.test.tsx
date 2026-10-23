@@ -345,6 +345,8 @@ describe("送れなかったとき", () => {
     expect(bad.textContent).toContain("ひとことが長すぎます（2,000 文字まで）");
     expect(bad.textContent).not.toContain("サーバに届きませんでした");
     expect(note().value).toBe("断られる");
+    // 日の欄は断られても押した値を残す（本人の決定 Q4。review/code.md R15）
+    expect(screen.getByTestId("valence-1").getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByTestId("feel-resend")).toBeNull();
   });
 });
@@ -571,6 +573,74 @@ describe("滞在の行は断られたら押された印を戻し、届かなか�
     press("feel-resend");
     await sent(2);
     expect(scalesOf(1)).toEqual([{ id: "valence", version: 1, value: 1 }]);
+  });
+
+  /** 1 回目の送信だけ返事を止めておき、2 回目からは `later` の順に返す。止めた 1 回目は戻り値の関数で返す。 */
+  function holdFirst(...later: (() => Response | Promise<Response>)[]): (r: Response) => Promise<void> {
+    let release: (r: Response) => void = () => undefined;
+    const first = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    ingest = () => {
+      calls += 1;
+      return calls === 1 ? first : later[Math.min(calls - 2, later.length - 1)]();
+    };
+    return async (r: Response) => {
+      await act(async () => {
+        release(r);
+        await first;
+      });
+    };
+  }
+  const unreachable = (): Promise<Response> => Promise.reject(new TypeError("network"));
+
+  // 先に押した 1 件が後から受理されても、後から押して届かなかった値の送り直しは消えない（review/code.md R10・R17）
+  it("-2 の返事待ちに +1 を押し、+1 が届かず先に返って -2 が受理されて後に返ると、+1 の印と送り直しが残る", async () => {
+    const answerFirst = holdFirst(unreachable);
+    await openStay();
+    press("stay-stay-1--2");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    await answerFirst(accepted());
+    expect((await screen.findByTestId("feel-notice-ok")).textContent).toContain("保存しました");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    ingest = accepted;
+    press("feel-resend");
+    await sent(2);
+    expect(scalesOf(1)).toEqual([{ id: "valence", version: 1, value: 1 }]);
+  });
+
+  // 断られた 1 件と同じ値を後から押し直していても、その印は消えない（印を外すのは、断られた 1 件が最後に押したものだけ。R18）
+  it("+1 の返事待ちに +2（受理）→ +1（届かない）と押し、最初の +1 が断られて後に返ると、+1 の印と送り直しが残る", async () => {
+    const answerFirst = holdFirst(accepted, unreachable);
+    await openStay();
+    press("stay-stay-1-1");
+    press("stay-stay-1-2");
+    await screen.findByTestId("feel-notice-ok");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    await answerFirst(rejected());
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    await settle();
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    expect(screen.getByTestId("feel-resend")).toBeTruthy();
+  });
+
+  // 滞在の行の失敗は、日の欄のひとことの控えを古い値に戻さない（戻すと、受理されたひとことを欄を離れたときにもう一度送る。R21）
+  it("滞在の行の返事待ちに、ひとことを書いて日の欄の「快」を押して受理され、滞在の行が断られて後に返ると、欄を離れても日の記録を送り直さない", async () => {
+    const answerFirst = holdFirst(accepted);
+    await openStay();
+    press("stay-stay-1-1");
+    typeNote("b");
+    press("valence-1");
+    await screen.findByTestId("feel-notice-ok");
+    await answerFirst(rejected());
+    await screen.findByTestId("feel-notice-bad");
+    await settle();
+    fireEvent.blur(note());
+    await settle();
+    expect(posts).toHaveLength(2);
   });
 });
 
