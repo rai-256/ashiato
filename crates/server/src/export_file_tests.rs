@@ -668,18 +668,18 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
 // 5.3 説明書と目録
 // ---------------------------------------------------------------------------
 
-async fn readme_world() -> (World, PathBuf) {
+async fn readme_world() -> (World, tempfile::TempDir, PathBuf) {
     let w = World::new().await;
     w.put("c02-window", &w.at("05:00"), json!({"t": "x"}), "title")
         .await;
-    let (_path_tmp, path) = export_once(&w.pool).await;
-    (w, path)
+    let (dir, path) = export_once(&w.pool).await;
+    (w, dir, path)
 }
 
 // Scenario: 説明書にファイルごとの列の意味と件数が書かれている
 #[tokio::test]
 async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let readme = text(&path, "README.txt");
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let files = manifest["files"].as_array().unwrap();
@@ -761,7 +761,7 @@ async fn export_readme_fold_rule_matches_the_event_folded_view() {
 // Scenario: 出さない列は説明書の入らないものに名前で挙がる
 #[tokio::test]
 async fn export_readme_omitted_columns_are_named_in_not_included() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let readme = text(&path, "README.txt");
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let listed: Vec<String> = manifest["not_included"]
@@ -788,7 +788,7 @@ async fn export_readme_omitted_columns_are_named_in_not_included() {
 // Scenario: 目録の行の数はファイルの行の数と一致する
 #[tokio::test]
 async fn export_readme_manifest_rows_equal_the_lines_of_each_file() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     for f in manifest["files"].as_array().unwrap() {
         let name = f["name"].as_str().unwrap();
