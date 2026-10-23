@@ -164,6 +164,9 @@ mod satellite_form_tests;
 /// 衛星の登録簿・資格情報の移行（ST29 / design D7 / D9）。
 #[cfg(test)]
 mod satellite_migration_tests;
+/// 衛星の資格情報では、まだどの口も通らない（ST29 / design D8 / D14）。
+#[cfg(test)]
+mod satellite_routes_tests;
 /// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
 pub mod scheduled;
 #[cfg(test)]
