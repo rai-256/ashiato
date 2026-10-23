@@ -493,7 +493,10 @@ async fn satellite_credential_issue_value_is_never_listed() {
     let c = Ctx::new().await;
     let (sat, id) = c.register_sat("hidden").await;
     let (cred, value) = c.issue(sat, "携帯").await;
-    let random = value.rsplit('_').next().unwrap().to_owned();
+    let random = value
+        .strip_prefix(&format!("ashsat_{id}_"))
+        .unwrap()
+        .to_owned();
     let (_, listed) = c.web(Method::GET, "/satellites", None).await;
     assert!(!listed.contains(&value) && !listed.contains(&random));
     let entry = c.find(&id).await.unwrap();
