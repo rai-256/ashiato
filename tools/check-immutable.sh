@@ -1336,9 +1336,9 @@ kept=$(psql -c "SELECT count(*) FROM core.access_log WHERE route = '/immutable-c
 # 上の検査は管理者（superuser）で撃つので、アプリの接続の権限は見ていない。
 # 移行は管理者が当てたので、所有を ashiato_owner へ移し、付与（grants.sql）を当ててから、アプリで撃つ。
 # **拒まれたときだけ OK を出す**（通ってしまったら NG）。コンテナの中の socket で入る（合言葉は要らない）。
+# 戻しの並びで版を当て直したので、役割と付与はもう一度当てる。`app_psql` は読む口の前の準備（D11）で定義したものを使う（review/code.md R22）
 ./tools/db-roles.sh >/dev/null
 docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/grants.sql >/dev/null
-app_psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_app -d ashiato "$@"; }
 for op in "session_replication_role:SET session_replication_role = replica" \
           "DISABLE TRIGGER:ALTER TABLE core.event DISABLE TRIGGER ALL" \
           "TRUNCATE:TRUNCATE core.event CASCADE"; do
