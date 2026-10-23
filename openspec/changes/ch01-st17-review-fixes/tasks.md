@@ -137,7 +137,7 @@
 
 ## Task 9: 全体の検査と文書
 
-- [ ] 9.1 文書と検査。`docs/changes/CH01.md` の「完了の判定」の各行が満たされていることを見る。
+- [x] 9.1 文書と検査。`docs/changes/CH01.md` の「完了の判定」の各行が満たされていることを見る。
   検証: `openspec validate ch01-st17-review-fixes --strict` rc=0、`python3 scripts/check_scenarios.py . ch01-st17-review-fixes` rc=0、`tools/check-log-private.sh` rc=0、
   `cargo fmt --all --check` rc=0、`tools/check-openapi.sh` rc=0 かつ `git diff --quiet origin/main -- docs/openapi.json`（API の契約が変わらない）、
   `tools/check-shared-appends.sh "$(git branch --show-current)"` rc=0、`cd web && npm run build` rc=0
