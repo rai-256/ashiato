@@ -336,6 +336,16 @@ const DROP_REPORT_COLUMNS: &[(&str, &str)] = &[
     ("raw", "報告の原文（逐語の文字列）"),
 ];
 
+/// 衛星の登録簿（ST29）。外した衛星の行も出す（行は消さない）。資格情報の表は出さない。
+const SATELLITE_COLUMNS: &[(&str, &str)] = &[
+    ("id", "衛星の識別子"),
+    ("identifier", "衛星の識別子の文字列（逆ドメイン形）"),
+    ("name", "衛星の名前"),
+    ("builtin", "最初から登録されている衛星か"),
+    ("registered_at", "登録した時刻（UTC）"),
+    ("removed_at", "外した時刻（UTC。空なら外していない）"),
+];
+
 const DROP_REPORT_HOUR_COLUMNS: &[(&str, &str)] = &[
     ("report_id", "破棄の報告の識別子"),
     ("hour", "時（UTC）"),
@@ -460,6 +470,21 @@ pub const CATALOG: &[(&str, Class)] = &[
             view: "drop_report_hour",
             excluded_columns: &[],
             columns: DROP_REPORT_HOUR_COLUMNS,
+        },
+    ),
+    (
+        "satellite",
+        Class::Include {
+            file: "satellites.jsonl",
+            view: "satellite",
+            excluded_columns: &[],
+            columns: SATELLITE_COLUMNS,
+        },
+    ),
+    (
+        "satellite_credential",
+        Class::Exclude {
+            reason: "衛星の資格情報（値のハッシュ）",
         },
     ),
     (

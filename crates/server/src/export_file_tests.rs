@@ -23,8 +23,8 @@ use crate::testdb;
 /// 書き出しに渡す合言葉（`export_tests::pass()` と同じ）。テストの中だけに置く。
 const PASS: &str = "pw-for-test-0123456789";
 
-/// D7 の 15 個の項目。
-const ENTRIES: [&str; 15] = [
+/// D7 の 16 個の項目（ST29 で衛星の登録簿が加わった）。
+const ENTRIES: [&str; 16] = [
     "events.jsonl",
     "event_versions.jsonl",
     "sources.jsonl",
@@ -38,6 +38,7 @@ const ENTRIES: [&str; 15] = [
     "coverage_spans.jsonl",
     "drop_reports.jsonl",
     "drop_report_hours.jsonl",
+    "satellites.jsonl",
     "README.txt",
     "manifest.json",
 ];
@@ -1515,4 +1516,121 @@ async fn export_volume_one_run_reports_time_and_memory() {
         mine > rows - with_coords,
         "座標を持たない行が落ちている: {mine}/{rows}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ST29 衛星の登録簿と資格情報
+// ---------------------------------------------------------------------------
+
+/// 衛星を 1 つ登録する（試験ごとの接尾で隔離する）。`removed` なら外した時刻を付ける。
+async fn put_satellite(pool: &sqlx::PgPool, identifier: &str, name: &str, removed: bool) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.satellite (id, identifier, name, registered_at, removed_at)
+         VALUES ($1, $2, $3, now(), CASE WHEN $4 THEN now() END)",
+    )
+    .bind(id)
+    .bind(identifier)
+    .bind(name)
+    .bind(removed)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+// Scenario: 衛星の登録簿は外した衛星も含めて書き出しに出る
+#[tokio::test]
+async fn export_satellites_registry_includes_removed_satellites() {
+    let pool = testdb::pool().await;
+    let tag = &Uuid::new_v4().simple().to_string()[..8];
+    let identifier = format!("dev.t{tag}.booklog");
+    put_satellite(&pool, &identifier, &format!("読書ログ{tag}"), true).await;
+    let path = export_once(&pool).await;
+    let rows = all_rows(&path, "satellites.jsonl");
+    let identifiers: BTreeSet<&str> = rows
+        .iter()
+        .map(|r| r["identifier"].as_str().unwrap())
+        .collect();
+    for builtin in ["外部 AI", "ローカル AI"] {
+        assert!(
+            rows.iter().any(|r| r["name"] == builtin),
+            "{builtin} の行が無い: {identifiers:?}"
+        );
+    }
+    let mine = rows
+        .iter()
+        .find(|r| r["identifier"] == identifier.as_str())
+        .expect("外した衛星の行が無い");
+    assert!(mine["removed_at"].is_string(), "{mine}");
+    assert_eq!(
+        keys(mine),
+        table_columns(&pool, "satellite").await,
+        "登録簿の行は表の全列を持つ"
+    );
+}
+
+// Scenario: 衛星の資格情報は書き出しに入らない
+#[tokio::test]
+async fn export_satellites_credentials_are_not_exported() {
+    let pool = testdb::pool().await;
+    let tag = &Uuid::new_v4().simple().to_string()[..8];
+    let sat = put_satellite(&pool, &format!("dev.t{tag}.cred"), &format!("資格{tag}"), false).await;
+    // 値そのものは持たないので、ハッシュ（16 進）が zip のどこにも出ないことを見る。
+    let mut hashes = Vec::new();
+    for _ in 0..2 {
+        let hash: Vec<u8> = Uuid::new_v4().as_bytes().repeat(2);
+        sqlx::query(
+            "INSERT INTO core.satellite_credential (id, satellite_id, token_sha256, issued_at)
+             VALUES ($1, $2, $3, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(sat)
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        hashes.push(hash);
+    }
+    let path = export_once(&pool).await;
+    let names_in_zip: Vec<String> = open(&path).file_names().map(String::from).collect();
+    for name in &names_in_zip {
+        let body = text(&path, name);
+        for h in &hashes {
+            let hex: String = h.iter().map(|b| format!("{b:02x}")).collect();
+            assert!(
+                !body.contains(&hex) && !body.contains(&format!("\\x{hex}")),
+                "{name} に資格情報のハッシュがある"
+            );
+        }
+    }
+    assert!(
+        !names_in_zip.iter().any(|n| n.contains("credential")),
+        "{names_in_zip:?}"
+    );
+    let readme = text(&path, "README.txt");
+    assert!(
+        readme.contains("表 satellite_credential: 衛星の資格情報"),
+        "説明書の入らないものに無い"
+    );
+}
+
+// Scenario: ST29 が足した表はすべて分類されている
+#[tokio::test]
+async fn export_satellite_tables_and_columns_are_classified() {
+    let pool = testdb::pool().await;
+    let inv = export::read_inventory(&pool).await.unwrap();
+    assert!(matches!(
+        export::class_of("satellite"),
+        Some(export::Class::Include { file: "satellites.jsonl", .. })
+    ));
+    assert!(matches!(
+        export::class_of("satellite_credential"),
+        Some(export::Class::Exclude { .. })
+    ));
+    for t in ["satellite", "satellite_credential"] {
+        assert!(inv.tables.iter().any(|n| n == t), "{t} が一覧に無い");
+    }
+    let bad = export::unclassified(&inv);
+    assert!(bad.is_empty(), "分類の無いもの: {bad:?}");
 }
