@@ -33,12 +33,12 @@
 
 ## Task 1: 移行（3 列・CHECK・ビュー・門と錠・部分索引）と錠の試験
 
-- [ ] 1.1 `migrations/<作成時刻>_event_end_time.sql` を design D15 の順で書く: `core.event` / `core.event_version` に 3 列（D1）と CHECK 2 つ・
+- [x] 1.1 `migrations/<作成時刻>_event_end_time.sql` を design D15 の順で書く: `core.event` / `core.event_version` に 3 列（D1）と CHECK 2 つ・
   `core.event_live` の作り直し・`core.event_version_live` の末尾に 3 列・`core.stay_erased` の `end_at` を列→内容の `end` の順（D11）・
   `core.require_version_or_ledger` と `core.reject_version_rewrite` に終わりを足す（D5）・部分索引 `event_end_range`（D10）。`.down.sql` は逆順でいまの形に戻す。
   `migrations/ORDER` の末尾へ 1 行（前の行に `# ST41: 幅のある出来事の終わりの時刻（3 列・門・期間の索引）` の注記）。
   検証: `./tools/check-migrations.sh` rc=0 / `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0（`build.rs` が ORDER から `MIGRATIONS` を組む）
-- [ ] 1.2 `crates/server/src/end_time_tests.rs` を作り、記録を終わりつきで置く道具（`put_with_end(pool, user, source, at, end: Option<(&str, i32, &str)>, external_id: Option<&str>)`）と、
+- [x] 1.2 `crates/server/src/end_time_tests.rs` を作り、記録を終わりつきで置く道具（`put_with_end(pool, user, source, at, end: Option<(&str, i32, &str)>, external_id: Option<&str>)`）と、
   `core.event` / `core.event_version` を直に書く試験を置く（門と錠は DB の側にあるので、どの接続でも同じに拒む）:
   - `st41_gate_end_only_rewrite_is_rejected` — `// Scenario: 収集した記録の終わりの時刻だけを履歴なしで変えると拒まれる`（終わりを別の時刻にする・NULL にするの 2 通り。NULL にするときは 3 列とも NULL にして CHECK でなく門で落ちることを SQLSTATE と本文で見る）
   - `st41_gate_version_with_only_end_different_is_rejected` — `// Scenario: 終わりだけが違う履歴を書いても、終わりの書き換えは通らない`
@@ -47,7 +47,7 @@
   - `st41_gate_version_end_is_frozen` — `// Scenario: 履歴の前の版の終わりは書き換えられない`（3 列それぞれ）
   - `st41_gate_check_rejects_partial_end_in_db` — `// Scenario: 取り込み口を通さない書き込みでも、終わりの一部だけ・範囲外のずれ・空の識別子は入らない`（記録の表と履歴の表の両方。D1 の CHECK。移行を 2 回当てても落ちないことも同じ試験で見る）
   検証: `CT st41_gate_` rc=0（`-- --list` で 6 本以上）
-- [ ] 1.3 `tools/check-immutable.d/<作成時刻>_st41-event-end-time.sh` に、1.2 の拒まれる 3 つ（終わりだけを履歴なしで変える・終わりだけ違う履歴・前の版の終わり）を
+- [x] 1.3 `tools/check-immutable.d/<作成時刻>_st41-event-end-time.sh` に、1.2 の拒まれる 3 つ（終わりだけを履歴なしで変える・終わりだけ違う履歴・前の版の終わり）を
   `tools/check-immutable.sh` の既存の節と同じ書き方で置き、それぞれ `echo "== Scenario: <名前>"` の印を付ける（本体の末尾に書き足さない）。
   検証: `./tools/check-immutable.sh` rc=0 / `./tools/check-shared-appends.sh` rc=0
 
