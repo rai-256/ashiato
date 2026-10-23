@@ -180,8 +180,11 @@ EOF
     # C ランタイムは静的に入れる（まっさらな Sandbox には VC++ の再頒布物が無く、VCRUNTIME140.dll が無いで起動しない。2026-10-15 実測）
     echo "== PC の収集アプリ（Windows の cargo。release）"
     local wb=/mnt/c/dev/ashiato2-rec-build
+    # Android の組み立てがトークンを書いた local.properties は写さない（写し先は片付けで消えない。前の版が残した写しも消す。review/code.md R16）
     mkdir -p "$wb/src" "$STATE/windows-payload" \
-      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin "$WT/" "$wb/src/" \
+      && rm -f "$wb/src/collector-android/local.properties" \
+      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin \
+           --exclude collector-android/local.properties "$WT/" "$wb/src/" \
       && (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c \
             "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& set RUSTFLAGS=-C target-feature=+crt-static&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
             </dev/null) \
