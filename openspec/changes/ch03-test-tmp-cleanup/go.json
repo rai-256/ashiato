@@ -1,0 +1,382 @@
+{
+ "purpose": "試験が一時フォルダ（/tmp）を食い潰して、並走する Story と change の検証が「空きなし」で落ちることを止める。試験の一時フォルダは通っても落ちても消え、手書きの一時フォルダは commit 前と CI の検査が止め、CI は試験のたびに残りを測る。画面・API・移行は変わらない。",
+ "model": {
+  "kind": "diagram",
+  "caption": "漏れを 3 段で止める",
+  "text": "① 作り方を直す（試験の側だけ）\n   Rust: tempfile::TempDir を試験の最後まで持つ\n   Kotlin: @get:Rule の TemporaryFolder\n        ↓ それでも手で書いたら\n② 書き方の検査（check-tmp-hygiene.sh）\n   commit 前・CI の chain job で落とし、何を使えばよいかを示す\n        ↓ grep で拾えない漏れ（早すぎる drop など）は\n③ 残りを測る（tmp-leak-check.sh）\n   CI の試験を空のフォルダへ向けて走らせ、後で空か・1 本以上走ったかを見る"
+ },
+ "before_after": [
+  {
+   "area": "試験が終わった後の /tmp",
+   "before": "書き出し・書庫・携帯の試験が作ったフォルダが残る（通ったときだけ消す・一度も消さない）。16G が満杯になった",
+   "after": "通っても落ちても消える。失敗した試験の中身も残らない"
+  },
+  {
+   "area": "commit 前と CI の chain job",
+   "before": "一時フォルダの書き方は見ない",
+   "after": "手書きの一時フォルダを行を挙げて落とす"
+  },
+  {
+   "area": "CI の rust / android job の試験の段",
+   "before": "cargo test --workspace・:app:testDebugUnitTest を直に走らせる",
+   "after": "tools/tmp-leak-check.sh から走らせ、残りがあれば落ちる"
+  }
+ ],
+ "highlights": [
+  "clean.3",
+  "lint.3",
+  "lint.4",
+  "measure.2"
+ ],
+ "features": [
+  {
+   "id": "clean",
+   "title": "試験の一時フォルダが、通っても落ちても消える",
+   "summary": "作り方を Rust は TempDir、Kotlin は規則の TemporaryFolder に揃え、後始末を言語の仕組みに任せる",
+   "figure": null,
+   "points": [
+    {
+     "id": "clean.1",
+     "kind": "normal",
+     "text": "Rust の試験は tempfile::TempDir（試験のときだけの依存）を試験の最後まで持つ。手伝い（書き出しの tmp_dir() など）は PathBuf でなく TempDir を持つ型を返し、panic しても drop で消える。名前の頭（ashiato-export- など）は残す",
+     "refs": {
+      "requirements": [
+       "試験は自分が作った一時ファイルを、通っても落ちても残さない"
+      ],
+      "scenarios": [
+       "Rust の試験が panic しても、試験の一時フォルダは消える"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "clean.2",
+     "kind": "normal",
+     "text": "携帯の単体試験は @get:Rule の TemporaryFolder を持ち、共通の手伝い（testOutbox()・TestStores など）はフォルダを引数で受け取る。例外で落ちても規則の後始末が消す",
+     "tags": [
+      "Android"
+     ],
+     "refs": {
+      "scenarios": [
+       "携帯の単体試験が例外で落ちても、試験の一時フォルダは消える"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "clean.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "失敗した試験の一時フォルダも消える。いまのように後から中身を覗く口は持たない。中身が要るときはもう一度走らせて再現する（この change で変わる振る舞いはこれ 1 つ）",
+     "refs": {
+      "decisions": [
+       "Q8"
+      ]
+     }
+    },
+    {
+     "id": "clean.4",
+     "kind": "caution",
+     "text": "試験の期待値・Scenario の印・試験の名前と本数は変えない。製品のコード（export.rs の置き場の決め方など）も変えない。書き換えるのは一時フォルダの作り方と後始末だけで、差分から機械が確かめる",
+     "refs": {
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "clean.5",
+     "kind": "exception",
+     "text": "試験が外から殺されたとき（timeout・強制終了・OOM・Gradle の worker の kill）は後始末が走らず残る。約束の外とする",
+     "refs": {
+      "decisions": [
+       "Q7"
+      ]
+     }
+    },
+    {
+     "id": "clean.6",
+     "kind": "exception",
+     "text": "いま /tmp にある試験の残り（約 0.45G）は、この change では消さない。試験でないファイルも同じ名前の頭で並ぶので仕組みにしない。要るなら手で消すか再起動",
+     "refs": {
+      "decisions": [
+       "Q6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "lint",
+   "title": "手書きの一時フォルダを検査が止める",
+   "summary": "tools/check-tmp-hygiene.sh が書き方を見て、ファイルと行を挙げて落とし、何を使えばよいかを示す",
+   "figure": {
+    "kind": "table",
+    "caption": "検査が見る範囲と落とす書き方",
+    "rows": [
+     [
+      "Rust",
+      "crates/ の全体（製品のコードも）",
+      "temp_dir()・\"/tmp…\"・.keep()・.into_path()・.persist(",
+      "tempfile::TempDir を最後まで持つ"
+     ],
+     [
+      "Kotlin",
+      "collector-android/app/src/test だけ",
+      "createTempDirectory・createTempFile・createTempDir・java.io.tmpdir・\"/tmp…\"・規則の付かない TemporaryFolder(",
+      "@get:Rule の TemporaryFolder"
+     ]
+    ],
+    "head": [
+     "言語",
+     "見る範囲",
+     "落とす書き方",
+     "文言が示すもの"
+    ]
+   },
+   "points": [
+    {
+     "id": "lint.1",
+     "kind": "normal",
+     "text": "手書きの一時フォルダの行があれば rc=1 で、ファイルと行番号を挙げ、Rust なら tempfile::TempDir、Kotlin なら @get:Rule の TemporaryFolder を使うよう示す。CH03 の後の木はこの検査を通る",
+     "refs": {
+      "requirements": [
+       "手書きの一時フォルダは、検査が落とし、何を使えばよいかを示す"
+      ],
+      "scenarios": [
+       "Rust の試験で一時フォルダを手で作ると、検査が落ち、TempDir を示す",
+       "携帯の単体試験で一時フォルダを手で作ると、検査が落ち、TemporaryFolder を示す",
+       "規則の付いた TemporaryFolder と tempfile は、検査を通る",
+       "CH03 の後の木は、検査を通る"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "lint.2",
+     "kind": "normal",
+     "text": "依頼の 3 つ（temp_dir()・createTempDirectory・createTempFile）だけでなく、同じことをする別の書き方と、後始末を外す口（keep・into_path・persist）も落とす",
+     "refs": {
+      "scenarios": [
+       "書き方を変えても、検査は素通りさせない"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "id": "lint.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "Rust は試験だけでなく製品のコードも縛る。後の Story が製品で一時ファイルを使うときは行に tmp-ok: <理由> を書く。携帯の main と androidTest（計測試験）は見ない",
+     "refs": {
+      "scenarios": [
+       "製品のコードの一時フォルダも、検査が落とす",
+       "携帯の main と androidTest は、検査の外"
+      ],
+      "decisions": [
+       "Q1",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "lint.4",
+     "kind": "exception",
+     "text": "漏れでない使い方は、同じ行か 1 行上の tmp-ok: <理由> で通す。理由の無い印と、2 行以上離れた印は数えない",
+     "examples": [
+      {
+       "wrong": "// tmp-ok:\nlet d = std::env::temp_dir();   ← 理由が無いので落ちる",
+       "right": "// tmp-ok: 一時フォルダを読むだけ\nlet d = std::env::temp_dir();   ← 通る"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "理由を書いた tmp-ok の印が同じ行か 1 行上にあれば、検査を通る",
+       "理由の無い tmp-ok の印と、2 行以上離れた印は、検査を通らない"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "lint.7",
+     "kind": "exception",
+     "text": "tools/ の bash の道具（mktemp・/tmp の固定名）と web の試験は、直さず検査もしない。この change は Rust と Kotlin の試験だけ",
+     "refs": {
+      "decisions": [
+       "Q3"
+      ]
+     }
+    },
+    {
+     "id": "lint.5",
+     "kind": "normal",
+     "text": "検査は CI の chain job（毎回走る）と commit 前（tools/pre-commit.sh。追跡ファイル全体）で走る。Actions の予算が尽きている間も commit 前で効く",
+     "refs": {
+      "scenarios": [
+       "検査は CI の chain job と commit 前に走る"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "lint.6",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "走っている st09（7 か所）と st13（4 か所）は、CH03 が main に入った後の rebase で検査に落ちる。携帯の手伝いの引数が変わるので、st09・st13 は試験のコンパイルも通らなくなる。直しはそれぞれの gate → fix が 1 つの commit で行う（走っている Story へ差し戻さない）",
+     "refs": {
+      "decisions": [
+       "Q4",
+       "D2",
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "measure",
+   "title": "CI が試験のたびに残りを測る",
+   "summary": "検査の grep では拾えない漏れを、試験を空のフォルダへ向けて走らせ、後で空かどうかで拾う",
+   "figure": {
+    "kind": "table",
+    "caption": "tools/tmp-leak-check.sh の判定",
+    "rows": [
+     [
+      "rc≠0（例 101）",
+      "—",
+      "—",
+      "試験の rc をそのまま返す"
+     ],
+     [
+      "rc=0",
+      "0 本",
+      "空でも",
+      "rc=1「走った試験が 0 本」"
+     ],
+     [
+      "rc=0",
+      "1 本以上",
+      "何か残る",
+      "rc=1・残った名前を挙げる"
+     ],
+     [
+      "rc=0",
+      "1 本以上",
+      "空",
+      "rc=0・本数を出す"
+     ]
+    ],
+    "head": [
+     "試験の命令",
+     "走った本数",
+     "フォルダ",
+     "台本"
+    ]
+   },
+   "points": [
+    {
+     "id": "measure.1",
+     "kind": "normal",
+     "text": "CI の rust job の cargo test --workspace と android job の :app:testDebugUnitTest は、tools/tmp-leak-check.sh を通してだけ走る。一時フォルダを worktree の中の空のフォルダ（target/tmp-leak/…。/tmp でない）へ向け、走り終えた後に空であることを見る。試験は 2 回走らせない",
+     "refs": {
+      "requirements": [
+       "CI は試験を走らせるたびに、一時フォルダに残ったものを測る"
+      ],
+      "scenarios": [
+       "一時フォルダを空のフォルダへ向けて試験を一通り走らせると、終わった後も空のまま",
+       "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる",
+       "試験が通り、何も残さなければ、台本は通る",
+       "試験が落ちれば、台本も試験の終了コードで落ちる",
+       "CI の試験の段は、残りを測る台本から走る"
+      ],
+      "decisions": [
+       "Q5",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "measure.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "試験が 1 本も走らなければ、フォルダが空でも落ちる（Gradle の UP-TO-DATE で試験が走らないまま「空」で通るのを防ぐ）",
+     "refs": {
+      "scenarios": [
+       "試験が 1 本も走らなければ、一時フォルダが空でも落ちる"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "measure.3",
+     "kind": "exception",
+     "text": "携帯の試験の JVM の一時フォルダを環境変数で向けられること、Robolectric や Gradle が自分のものを残さないことは、まだ走らせて確かめていない（知識・公式文書どまり）。下流の最初の Task が確かめ、道具が残すと分かれば、その名前の頭だけを理由つきで判定から外す",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "殺された試験の残りと、失敗した試験の中身を残す口",
+   "refs": {
+    "decisions": [
+     "Q7",
+     "Q8"
+    ]
+   }
+  },
+  {
+   "text": "携帯の計測試験（androidTest）と、本物の Windows で走る runtime_windows の残りを測ること（ホストの /tmp を使わない。後者は書き換えるが測らない）",
+   "refs": {}
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "文書: 何を使えばよいかを docs/testing.md に 1 節、docs/flow-gates.md の検査の表に 1 行",
+   "refs": {
+    "decisions": [
+     "D8"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "一時フォルダ",
+   "def": "OS の一時置き場（この機械では 16G の tmpfs の /tmp）。試験は環境変数 TMPDIR と JVM の java.io.tmpdir でその場所を知る"
+  },
+  {
+   "term": "tmp-ok の印",
+   "def": "漏れでない一時フォルダの使い方を検査に通すための、行のコメント（// tmp-ok: <理由>）"
+  }
+ ]
+}
