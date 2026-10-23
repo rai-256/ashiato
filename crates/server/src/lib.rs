@@ -1009,6 +1009,10 @@ struct Stored {
     schema_version: i32,
     unit_system: String,
     crs: String,
+    /// 終わりの 3 列（ST41）。更新で動くので、前の値を履歴へ残すためにここで受ける
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    end_tz_offset_min: Option<i32>,
+    end_tz_id: Option<String>,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -1493,7 +1497,7 @@ async fn ingest_request(
     if let Some(stored) = &folded {
         if blocked_by_deleted.is_some() {
             outcome = Update::SkippedDeletedContent;
-        } else if stored.content_hash != hash && external_id.is_some() {
+        } else if external_id.is_some() && is_update(stored, &req, &hash) {
             outcome = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
         } else if external_id.is_some() {
             // **内容は同じでも更新時刻だけ新しい到着で、水位を進める**（R113）。
@@ -1597,12 +1601,14 @@ async fn load_stored(
 ) -> Result<Option<Stored>, (StatusCode, String)> {
     let sql = if external_id.is_some() {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
-                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
+                end_time, end_tz_offset_min, end_tz_id
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
-                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
+                end_time, end_tz_offset_min, end_tz_id
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -1615,6 +1621,17 @@ async fn load_stored(
         .fetch_optional(&mut **tx)
         .await
         .map_err(|e| internal_at("ingest.stored_lookup", e))
+}
+
+/// 外部の識別子のある記録で、保存済みの版と違う版が届いたか（ST41 / D7・D18）。
+///
+/// 内容の鍵が違えば更新。鍵が同じでも、**終わりを持つ到着の終わりが違えば**更新にする。
+/// 比べるのは `end_time` だけ（ずれと TZ だけの違いは更新にしない）。
+/// 終わりを持たない到着は、内容が同じなら更新にしない —— 応答を取り落とした送り手の再送で
+/// 入った終わりが消えないように（D18（仮））。
+/// `req.end_time` は取り込みの入口でマイクロ秒に切り捨て済みなので、そのまま比べられる。
+fn is_update(stored: &Stored, req: &IngestRequest, hash: &str) -> bool {
+    stored.content_hash != hash || (req.end_time.is_some() && stored.end_time != req.end_time)
 }
 
 /// 外部サービス由来の更新を当てたか、当てなかったならなぜか（R110）。
@@ -1713,10 +1730,11 @@ async fn apply_external_update(
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
             raw, payload, source_updated_at, external_ref,
-            tz_offset_min, tz_id, schema_version, unit_system, crs)
+            tz_offset_min, tz_id, schema_version, unit_system, crs,
+            end_time, end_tz_offset_min, end_tz_id)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
-                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -1733,6 +1751,9 @@ async fn apply_external_update(
     .bind(stored.schema_version)
     .bind(&stored.unit_system)
     .bind(&stored.crs)
+    .bind(stored.end_time)
+    .bind(stored.end_tz_offset_min)
+    .bind(&stored.end_tz_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -1755,7 +1776,8 @@ async fn apply_external_update(
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
                 source_updated_at = coalesce($6, source_updated_at),
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
-                unit_system = $10, crs = $11
+                unit_system = $10, crs = $11,
+                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1769,6 +1791,9 @@ async fn apply_external_update(
     .bind(req.schema_version)
     .bind(req.unit_system_or_default())
     .bind(req.crs_or_default())
+    .bind(req.end_time)
+    .bind(req.end_tz_offset_min)
+    .bind(&req.end_tz_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
