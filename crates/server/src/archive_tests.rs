@@ -58,6 +58,9 @@ fn archive_request(user_id: uuid::Uuid, raw: &str) -> IngestRequest {
         external_ref: None,
         raw: raw.into(),
         payload: serde_json::json!({}),
+        end_time: None,
+        end_tz_offset_min: None,
+        end_tz_id: None,
     }
 }
 

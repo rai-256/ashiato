@@ -3475,6 +3475,7 @@
           "missing_device_id",
           "missing_external_id",
           "empty_external_id",
+          "invalid_end_time",
           "id_reused",
           "malformed_claim",
           "claim_not_authored",
@@ -3527,6 +3528,29 @@
               "string",
               "null"
             ]
+          },
+          "end_time": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "幅のある出来事の終わりの時刻（ST41）。**3 欄は全部あるか全部無いか。**\n省略できる —— 今の収集側は送らない。マイクロ秒より細かい桁は受けた直後に切り捨てる。"
+          },
+          "end_tz_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "終わりの時刻のタイムゾーン識別子。IANA の一覧とは照らさない"
+          },
+          "end_tz_offset_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "終わりの時刻の UTC からのずれ（分）。−1,439〜1,439"
           },
           "event_time": {
             "type": "string",

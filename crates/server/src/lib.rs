@@ -683,6 +683,9 @@ pub enum IngestError {
     MissingExternalId,
     /// 外部識別子（または対象の識別子）が空文字（ST03 / R12）
     EmptyExternalId,
+    /// 終わりの 3 欄が一部だけ・ずれが範囲の外・タイムゾーン識別子が空か U+0000 を含む
+    /// （ST41 / `ingest::Invalid::EndTime`）
+    InvalidEndTime,
     /// 既に格納された記録と同じ収集側の識別子で、別の記録が届いた（ST03 / 深掘り Q5）。
     ///
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
@@ -793,6 +796,7 @@ impl From<ingest::Invalid> for IngestError {
             ingest::Invalid::Raw => Self::InvalidRaw,
             ingest::Invalid::DeviceId => Self::MissingDeviceId,
             ingest::Invalid::ExternalId => Self::EmptyExternalId,
+            ingest::Invalid::EndTime => Self::InvalidEndTime,
         }
     }
 }
@@ -1122,8 +1126,10 @@ async fn ingest_one(
 /// `ingest_one` で読み戻していたときは、百万件級の書庫で 1 件ごとに往復していた（final review R62）。
 async fn ingest_request(
     app: &App,
-    req: IngestRequest,
+    mut req: IngestRequest,
 ) -> Result<IngestResult, (StatusCode, String)> {
+    // 終わりの時刻はマイクロ秒に切り捨てた値を、比べる値にも格納する値にもする（ST41 / D7）
+    req.truncate_end_to_micros();
     // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
     // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
     // 記録を入れるのと同じまとまりの中**（下）。
@@ -1421,8 +1427,9 @@ async fn ingest_request(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at, sensitivity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            content_hash, raw, payload, source_updated_at, sensitivity,
+            end_time, end_tz_offset_min, end_tz_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -1430,8 +1437,9 @@ async fn ingest_request(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at, sensitivity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            content_hash, raw, payload, source_updated_at, sensitivity,
+            end_time, end_tz_offset_min, end_tz_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -1459,6 +1467,9 @@ async fn ingest_request(
             .bind(req.source_updated_at)
             // **ソースごとの既定の感度**（design D3（仮））。主張は「ローカル AI まで」
             .bind(default_sensitivity(&req.logical_source))
+            .bind(req.end_time)
+            .bind(req.end_tz_offset_min)
+            .bind(&req.end_tz_id)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?

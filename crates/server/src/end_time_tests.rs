@@ -345,3 +345,359 @@ async fn st41_gate_check_rejects_partial_end_in_db() {
     .unwrap();
     assert_eq!(checks, 4, "CHECK は表ごとに 2 つ");
 }
+
+// ---- Task 2: 取り込み口（`crate::ingest`）を通す ----
+
+const INGEST_TOKEN: &str = "test-token-0123456789abcdef";
+
+fn ingest_headers() -> axum::http::HeaderMap {
+    let mut h = axum::http::HeaderMap::new();
+    h.insert(
+        "authorization",
+        format!("Bearer {INGEST_TOKEN}").parse().expect("ヘッダ"),
+    );
+    h
+}
+
+/// 取り込み口へ 1 回送る。まとめ送りの本文は配列。
+async fn send(
+    pool: &PgPool,
+    items: Vec<serde_json::Value>,
+) -> (axum::http::StatusCode, Vec<crate::IngestResult>) {
+    let app = crate::App::for_test(pool.clone(), INGEST_TOKEN);
+    let (code, axum::Json(res)) = crate::ingest(
+        axum::extract::State(app),
+        ingest_headers(),
+        axum::Json(serde_json::Value::Array(items)),
+    )
+    .await
+    .expect("取り込み口");
+    (code, res)
+}
+
+/// 終わりを持たない記録 1 件ぶんの JSON（いまの収集アプリと同じ形）。原文は呼ぶたびに固有。
+fn ev(source: &str, user: Uuid, at: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": Uuid::new_v4(),
+        "user_id": user,
+        "logical_source": source,
+        "external_id": null,
+        "device_id": "test-dev",
+        "origin": "collected",
+        "event_time": at,
+        "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo",
+        "schema_version": 1,
+        "raw": format!("{{\"v\":\"{}\"}}", Uuid::new_v4()),
+        "payload": {},
+    })
+}
+
+/// 終わりの 3 欄を足した記録。
+fn with_end(mut item: serde_json::Value, t: &str, off: i64, tz: &str) -> serde_json::Value {
+    item["end_time"] = serde_json::json!(t);
+    item["end_tz_offset_min"] = serde_json::json!(off);
+    item["end_tz_id"] = serde_json::json!(tz);
+    item
+}
+
+fn rejected_as_invalid_end(r: &crate::IngestResult) -> bool {
+    !r.accepted && serde_json::to_value(r).unwrap()["error"] == "invalid_end_time"
+}
+
+/// 格納された終わり（時刻はマイクロ秒まで）と始まりのずれ・TZ。
+async fn stored_end(pool: &PgPool, id: Uuid) -> (Option<String>, Option<i32>, Option<String>) {
+    sqlx::query_as(
+        "SELECT to_char(end_time AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
+                end_tz_offset_min, end_tz_id FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn count_in(pool: &PgPool, source: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM core.event WHERE logical_source = $1")
+        .bind(source)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn ingest_source(pool: &PgPool, prefix: &str) -> String {
+    testdb::source_of_kind(pool, prefix, "none").await
+}
+
+#[tokio::test]
+async fn st41_ingest_end_is_stored_with_offset_and_tz() {
+    // Scenario: 終わりの時刻つきの記録は、終わりのずれとタイムゾーンごと残る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-store").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (code, res) = send(&pool, vec![item]).await;
+    assert_eq!(code, axum::http::StatusCode::OK);
+    let id = res[0].id.expect("格納された");
+    assert_eq!(
+        stored_end(&pool, id).await,
+        (
+            Some("2026-10-01T22:00:00.000000Z".into()),
+            Some(540),
+            Some("Asia/Tokyo".into())
+        )
+    );
+    let start: (String, i32, String) = sqlx::query_as(
+        "SELECT to_char(event_time AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
+                tz_offset_min, tz_id FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        start,
+        ("2026-10-01T14:00:00Z".into(), 540, "Asia/Tokyo".into())
+    );
+}
+
+#[tokio::test]
+async fn st41_ingest_start_and_end_keep_their_own_tz() {
+    // Scenario: 始まりと終わりのタイムゾーンが違う記録も、それぞれのまま残る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-tz").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00Z",
+        60,
+        "Europe/London",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    let id = res[0].id.expect("格納された");
+    let start: (i32, String) =
+        sqlx::query_as("SELECT tz_offset_min, tz_id FROM core.event WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(start, (540, "Asia/Tokyo".into()));
+    let end = stored_end(&pool, id).await;
+    assert_eq!((end.1, end.2), (Some(60), Some("Europe/London".into())));
+}
+
+#[tokio::test]
+async fn st41_ingest_partial_end_is_rejected_per_item() {
+    // Scenario: 終わりの 3 つの一部だけを持つ記録は受け付けない
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-partial").await;
+    let user = testdb::user();
+    let at = "2026-10-01T14:00:00Z";
+    let mut only_time = ev(&source, user, at);
+    only_time["end_time"] = serde_json::json!("2026-10-01T22:00:00Z");
+    let mut only_offset = ev(&source, user, at);
+    only_offset["end_tz_offset_min"] = serde_json::json!(540);
+    let mut no_tz = ev(&source, user, at);
+    no_tz["end_time"] = serde_json::json!("2026-10-01T22:00:00Z");
+    no_tz["end_tz_offset_min"] = serde_json::json!(540);
+    let good = ev(&source, user, at);
+
+    let (code, res) = send(&pool, vec![only_time, only_offset, no_tz, good]).await;
+    assert_eq!(code, axum::http::StatusCode::OK);
+    assert!(res[..3].iter().all(rejected_as_invalid_end), "{res:?}");
+    assert!(res[3].accepted);
+    assert_eq!(count_in(&pool, &source).await, 1);
+}
+
+#[tokio::test]
+async fn st41_ingest_end_offset_out_of_range_is_rejected() {
+    // Scenario: 終わりのずれが範囲の外の記録は受け付けない
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-range").await;
+    let user = testdb::user();
+    let items = [1440, -1440]
+        .into_iter()
+        .map(|off| {
+            with_end(
+                ev(&source, user, "2026-10-01T14:00:00Z"),
+                "2026-10-01T22:00:00Z",
+                off,
+                "Asia/Tokyo",
+            )
+        })
+        .collect();
+    let (_, res) = send(&pool, items).await;
+    assert!(res.iter().all(rejected_as_invalid_end), "{res:?}");
+    assert_eq!(count_in(&pool, &source).await, 0);
+}
+
+#[tokio::test]
+async fn st41_ingest_end_offset_at_edges_is_accepted() {
+    // Scenario: 終わりのずれが範囲の端の記録は受け付ける
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-edge").await;
+    let user = testdb::user();
+    let items = [1439, -1439]
+        .into_iter()
+        .map(|off| {
+            with_end(
+                ev(&source, user, "2026-10-01T14:00:00Z"),
+                "2026-10-01T22:00:00Z",
+                off,
+                "Asia/Tokyo",
+            )
+        })
+        .collect();
+    let (_, res) = send(&pool, items).await;
+    let offsets = [1439, -1439];
+    for (r, off) in res.iter().zip(offsets) {
+        let id = r.id.expect("格納された");
+        assert_eq!(stored_end(&pool, id).await.1, Some(off));
+    }
+}
+
+#[tokio::test]
+async fn st41_ingest_future_and_long_spans_are_accepted() {
+    // Scenario: 終わりが未来の記録も、幅が何年もある記録も受け付ける
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-long").await;
+    let user = testdb::user();
+    let year_later = (chrono::Utc::now() + chrono::Duration::days(365))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+    let future = with_end(
+        ev(&source, user, "2026-10-01T14:00:00Z"),
+        &year_later,
+        540,
+        "Asia/Tokyo",
+    );
+    let long = with_end(
+        ev(&source, user, "2000-01-01T00:00:00Z"),
+        "2030-01-01T00:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![future, long]).await;
+    let a = stored_end(&pool, res[0].id.expect("格納された")).await;
+    assert_eq!(a.0, Some(year_later.replace('Z', ".000000Z")));
+    let b = stored_end(&pool, res[1].id.expect("格納された")).await;
+    assert_eq!(b.0, Some("2030-01-01T00:00:00.000000Z".into()));
+}
+
+#[tokio::test]
+async fn st41_ingest_end_is_truncated_to_micros() {
+    // Scenario: マイクロ秒より細かい桁は切り捨てて格納される
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-trunc").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00.123456789Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    let end = stored_end(&pool, res[0].id.expect("格納された")).await;
+    assert_eq!(end.0, Some("2026-10-01T22:00:00.123456Z".into()));
+}
+
+#[tokio::test]
+async fn st41_ingest_empty_or_nul_end_tz_is_rejected() {
+    // Scenario: 終わりのタイムゾーンが空か格納できない文字を含む記録は受け付けない
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-badtz").await;
+    let user = testdb::user();
+    let items = ["", "Asia/\u{0}Tokyo"]
+        .into_iter()
+        .map(|tz| {
+            with_end(
+                ev(&source, user, "2026-10-01T14:00:00Z"),
+                "2026-10-01T22:00:00Z",
+                540,
+                tz,
+            )
+        })
+        .collect();
+    let (code, res) = send(&pool, items).await;
+    assert_eq!(code, axum::http::StatusCode::BAD_REQUEST);
+    assert!(res.iter().all(rejected_as_invalid_end), "{res:?}");
+    assert_eq!(count_in(&pool, &source).await, 0);
+}
+
+#[tokio::test]
+async fn st41_ingest_unknown_tz_name_is_accepted() {
+    // Scenario: 一覧に無いタイムゾーンの名前でも終わりは受け付ける
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-unktz").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Mars/Olympus_Mons",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    let end = stored_end(&pool, res[0].id.expect("格納された")).await;
+    assert_eq!(end.2, Some("Mars/Olympus_Mons".into()));
+}
+
+#[tokio::test]
+async fn st41_ingest_end_before_start_is_kept() {
+    // Scenario: 終わりが始まりより前の記録も、送られたまま残る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-rev").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T22:00:00Z"),
+        "2026-10-01T14:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    let end = stored_end(&pool, res[0].id.expect("格納された")).await;
+    assert_eq!(end.0, Some("2026-10-01T14:00:00.000000Z".into()));
+}
+
+#[tokio::test]
+async fn st41_ingest_end_equal_to_start_is_kept() {
+    // Scenario: 終わりと始まりが同じ時刻の記録も受け付ける
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-same").await;
+    let item = with_end(
+        ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
+        "2026-10-01T14:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, res) = send(&pool, vec![item]).await;
+    let end = stored_end(&pool, res[0].id.expect("格納された")).await;
+    assert_eq!(end.0, Some("2026-10-01T14:00:00.000000Z".into()));
+}
+
+#[tokio::test]
+async fn st41_ingest_without_end_is_unchanged() {
+    // Scenario: 終わりを送らない記録は、終わりを持たない記録として今のまま残る
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-ing-none").await;
+    let (code, res) = send(
+        &pool,
+        vec![ev(&source, testdb::user(), "2026-10-01T14:00:00Z")],
+    )
+    .await;
+    assert_eq!(code, axum::http::StatusCode::OK);
+    assert!(res[0].accepted);
+    // 結果の JSON は欄を足す前と同じ鍵の集合
+    let json = serde_json::to_value(&res[0]).unwrap();
+    let mut keys: Vec<&str> = json
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["accepted", "duplicate", "error", "id"]);
+    assert_eq!(
+        stored_end(&pool, res[0].id.unwrap()).await,
+        (None, None, None)
+    );
+}

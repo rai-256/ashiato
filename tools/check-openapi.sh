@@ -17,8 +17,11 @@ bad=0
 for field in $(jq -r '.components.schemas.IngestResult.properties | keys[]' docs/openapi.json); do
   grep -q "\b$field\b" "$kt" || { echo "  NG 応答の欄 $field を収集側が読んでいない（$kt）"; bad=1; }
 done
-# 送る側も同じ —— 欄名がずれると、同じ 1 件が別物として入る
-for field in $(jq -r '.components.schemas.IngestRequest.properties | keys[]' docs/openapi.json); do
+# 送る側も同じ —— 欄名がずれると、同じ 1 件が別物として入る。
+# **終わりの 3 欄（ST41）は任意で、収集アプリは今は送らない**（docs/collector-contract.md「終わりの時刻」）ので除く。
+# 収集アプリが送るようにする Story は、ここから外して Kotlin 側の欄名を見る側に戻す。
+for field in $(jq -r '.components.schemas.IngestRequest.properties | keys[]' docs/openapi.json \
+  | grep -vxE 'end_time|end_tz_offset_min|end_tz_id'); do
   grep -q "\b$field\b" "$kt" || { echo "  NG 要求の欄 $field を収集側が送っていない（$kt）"; bad=1; }
 done
 # --- 生存信号（ST02 / FR-78）

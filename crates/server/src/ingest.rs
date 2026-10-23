@@ -44,6 +44,16 @@ pub struct IngestRequest {
     /// 「バイト単位で一致する」が成り立たなくなる。
     pub raw: String,
     pub payload: serde_json::Value,
+    /// 幅のある出来事の終わりの時刻（ST41）。**3 欄は全部あるか全部無いか。**
+    /// 省略できる —— 今の収集側は送らない。マイクロ秒より細かい桁は受けた直後に切り捨てる。
+    #[serde(default)]
+    pub end_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// 終わりの時刻の UTC からのずれ（分）。−1,439〜1,439
+    #[serde(default)]
+    pub end_tz_offset_min: Option<i32>,
+    /// 終わりの時刻のタイムゾーン識別子。IANA の一覧とは照らさない
+    #[serde(default)]
+    pub end_tz_id: Option<String>,
 }
 
 /// 登録簿が宣言する「外部識別子の粒度」（深掘り Q13 / Q18。`core.source.external_id_kind`）。
@@ -100,6 +110,8 @@ pub enum Invalid {
     DeviceId,
     /// 外部サービス上の識別子が空文字（ST03 / R12）
     ExternalId,
+    /// 終わりの 3 欄が一部だけ・ずれが範囲の外・タイムゾーン識別子が空か U+0000 を含む（ST41 / D2）
+    EndTime,
 }
 
 /// 「人が書いた記録」（主張・主観・場所）の共通の規則に当たったもの（CH01 / design D7）。
@@ -182,7 +194,34 @@ impl IngestRequest {
         if self.external_ref.as_deref().is_some_and(str::is_empty) {
             return Err(Invalid::ExternalId);
         }
-        Ok(())
+        self.validate_end()
+    }
+
+    /// 終わりの 3 欄の検査（ST41 / D2）。TZ の名前は IANA の一覧と照らさない
+    /// （知らない名前の記録を断ると失う側に倒れる）。
+    fn validate_end(&self) -> Result<(), Invalid> {
+        match (
+            self.end_time,
+            self.end_tz_offset_min,
+            self.end_tz_id.as_deref(),
+        ) {
+            (None, None, None) => Ok(()),
+            // `chrono::FixedOffset` の上限。外れると読み出しで時刻に直せない
+            (Some(_), Some(off), Some(tz))
+                if (-1_439..=1_439).contains(&off) && !tz.is_empty() && !tz.contains('\0') =>
+            {
+                Ok(())
+            }
+            _ => Err(Invalid::EndTime),
+        }
+    }
+
+    /// 終わりの時刻をマイクロ秒に切り捨てる（DB の `timestamptz` の精度。D7）。
+    /// 比べる値と格納する値を 1 つにするため、受けた直後に置き換える。
+    pub fn truncate_end_to_micros(&mut self) {
+        self.end_time = self
+            .end_time
+            .map(|t| chrono::DateTime::from_timestamp_micros(t.timestamp_micros()).unwrap_or(t));
     }
 }
 
@@ -265,6 +304,9 @@ mod tests {
             external_ref: None,
             raw: format!(r#"{{"v":"{raw}"}}"#),
             payload: serde_json::json!({}),
+            end_time: None,
+            end_tz_offset_min: None,
+            end_tz_id: None,
         }
     }
 
@@ -408,6 +450,56 @@ mod tests {
             r.validate(),
             Err(Invalid::ExternalId),
             "対象の識別子の空文字が通っている"
+        );
+    }
+
+    #[test]
+    /// 終わりの 3 欄の境界（ST41 / D2）: ±1,439 は通り ±1,440 は断る・空と U+0000 と一部だけは断る
+    fn st41_ingest_validate_end_boundaries() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        let t = r.event_time;
+        let end = |r: &mut IngestRequest, off: i32, tz: &str| {
+            r.end_time = Some(t);
+            r.end_tz_offset_min = Some(off);
+            r.end_tz_id = Some(tz.into());
+        };
+        assert_eq!(r.validate(), Ok(()), "終わり無しは通る");
+        for off in [1_439, -1_439, 0] {
+            end(&mut r, off, "Mars/Olympus_Mons");
+            assert_eq!(r.validate(), Ok(()), "{off}");
+        }
+        for off in [1_440, -1_440, i32::MAX, i32::MIN] {
+            end(&mut r, off, "Asia/Tokyo");
+            assert_eq!(r.validate(), Err(Invalid::EndTime), "{off}");
+        }
+        for tz in ["", "a\0b", "\0"] {
+            end(&mut r, 540, tz);
+            assert_eq!(r.validate(), Err(Invalid::EndTime), "{tz:?}");
+        }
+        end(&mut r, 540, "Asia/Tokyo");
+        r.end_time = None;
+        assert_eq!(r.validate(), Err(Invalid::EndTime), "時刻だけ欠ける");
+        end(&mut r, 540, "Asia/Tokyo");
+        r.end_tz_offset_min = None;
+        assert_eq!(r.validate(), Err(Invalid::EndTime), "ずれだけ欠ける");
+        end(&mut r, 540, "Asia/Tokyo");
+        r.end_tz_id = None;
+        assert_eq!(r.validate(), Err(Invalid::EndTime), "識別子だけ欠ける");
+        r.end_time = Some(t);
+        r.end_tz_offset_min = None;
+        assert_eq!(r.validate(), Err(Invalid::EndTime), "時刻だけある");
+    }
+
+    #[test]
+    /// 終わりを足しても内容の鍵は変わらない（D7。固定値の試験と同じ値）
+    fn st41_ingest_end_does_not_change_hash() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        r.end_time = Some(r.event_time);
+        r.end_tz_offset_min = Some(540);
+        r.end_tz_id = Some("Asia/Tokyo".into());
+        assert_eq!(
+            content_hash(&r),
+            "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1"
         );
     }
 
