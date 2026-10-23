@@ -245,38 +245,37 @@ fn export_catalog_excludes_archive_tables_and_ledgers() {
 /// 分類の段に渡す一覧を差し替えて本体を走らせ、失敗で終わること・何も残らないことを返す。
 async fn run_with_inventory(
     tamper: impl Fn(&mut Inventory) + Send + Sync + 'static,
-) -> (ExportError, PathBuf) {
+) -> (ExportError, tempfile::TempDir) {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
     let dir_tmp = tmp_dir("tamper");
-    let dir = dir_tmp.path().to_path_buf();
-    let mut cfg = ExportConfig::with_dir(dir.clone());
+    let mut cfg = ExportConfig::with_dir(dir_tmp.path().to_path_buf());
     cfg.hooks = Hooks::none().with_inventory(tamper);
     let e = export::run(&pool, &cfg, pass()).await.unwrap_err();
-    (e, dir)
+    (e, dir_tmp)
 }
 
 // Scenario: 分類の無い表があると書き出しは始まらない
 #[tokio::test]
 async fn export_catalog_unclassified_table_stops_the_export() {
-    let (e, dir) = run_with_inventory(|inv| inv.tables.push("x".into())).await;
+    let (e, dir_tmp) = run_with_inventory(|inv| inv.tables.push("x".into())).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(e.reason.contains('x'), "{}", e.reason);
-    assert_nothing_written(&dir);
+    assert_nothing_written(dir_tmp.path());
 }
 
 // Scenario: 分類の無い列があると書き出しは始まらない
 #[tokio::test]
 async fn export_catalog_unclassified_column_stops_the_export() {
-    let (e, dir) = run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
+    let (e, dir_tmp) = run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(
         e.reason.contains("event") && e.reason.contains('y'),
         "{}",
         e.reason
     );
-    assert_nothing_written(&dir);
+    assert_nothing_written(dir_tmp.path());
 }
 
 #[test]
@@ -310,7 +309,7 @@ async fn export_view_columns_every_exported_column_is_in_the_live_view() {
 #[tokio::test]
 async fn export_view_columns_missing_column_stops_the_export() {
     for (view, col) in [("event_live", "tz_id"), ("event_version_live", "raw")] {
-        let (e, dir) = run_with_inventory(move |inv| {
+        let (e, dir_tmp) = run_with_inventory(move |inv| {
             inv.columns.retain(|(t, c)| !(t == view && c == col));
         })
         .await;
@@ -320,7 +319,7 @@ async fn export_view_columns_missing_column_stops_the_export() {
             "{}",
             e.reason
         );
-        assert_nothing_written(&dir);
+        assert_nothing_written(dir_tmp.path());
     }
 }
 
