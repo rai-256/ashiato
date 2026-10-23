@@ -1147,6 +1147,129 @@
         }
       }
     },
+    "/satellites/{id}/credentials": {
+      "post": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "資格情報を発行する。値は `ashsat_<識別子>_<乱数 43 文字>`、保存は値全体の SHA-256 だけ（D6）。",
+        "operationId": "credentials_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "衛星の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedCredential"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/satellites/{id}/credentials/{cid}": {
+      "delete": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "資格情報を 1 本取り消す（行は消さず `revoked_at` を付ける。取り消し済みはそのまま 204）。",
+        "operationId": "credentials_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "衛星の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "description": "資格情報の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/session": {
       "get": {
         "tags": [
@@ -3270,6 +3393,40 @@
           "successes": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "IssueRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "IssuedCredential": {
+        "type": "object",
+        "description": "発行の応答。`value` はこの 1 回だけ載る（D6）。",
+        "required": [
+          "id",
+          "label",
+          "issued_at",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
           }
         }
       },

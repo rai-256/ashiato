@@ -9,11 +9,13 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use base64::Engine as _;
+use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::{authorize, internal_at, satellite, web_session::Caller, App};
+use crate::{authorize, internal_at, satellite, web_session, web_session::Caller, App};
 
 /// 400 / 409 の本文の種別（D11）。画面が日本語の理由に引く。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
@@ -319,4 +321,126 @@ pub async fn satellites_delete(
         .await
         .map_err(|e| internal("satellite.remove", e))?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct IssueRequest {
+    #[serde(default)]
+    pub label: String,
+}
+
+/// 発行の応答。`value` はこの 1 回だけ載る（D6）。
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct IssuedCredential {
+    pub id: Uuid,
+    pub label: String,
+    pub issued_at: DateTime<Utc>,
+    pub value: String,
+}
+
+/// 値を書き出さない（ログに出さない。D6）。
+impl std::fmt::Debug for IssuedCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedCredential")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// 資格情報を発行する。値は `ashsat_<識別子>_<乱数 43 文字>`、保存は値全体の SHA-256 だけ（D6）。
+#[utoipa::path(post, path = "/satellites/{id}/credentials", request_body = IssueRequest,
+    params(("id" = Uuid, Path, description = "衛星の番号")),
+    responses((status = 201, body = IssuedCredential), (status = 400, body = SatelliteErrorBody),
+              (status = 404), (status = 409, body = SatelliteErrorBody),
+              (status = 401), (status = 403), (status = 500)))]
+pub async fn credentials_post(
+    State(app): State<App>,
+    headers: axum::http::HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(req): Json<IssueRequest>,
+) -> Result<(StatusCode, Json<IssuedCredential>), Refusal> {
+    web_session_only(&app, &headers).await?;
+    if !satellite::check_credential_label(&req.label) {
+        return Err(Refusal::Kind(
+            StatusCode::BAD_REQUEST,
+            SatelliteError::NameInvalid,
+        ));
+    }
+    let mut tx = app
+        .pool
+        .begin()
+        .await
+        .map_err(|e| internal("satellite.issue", e))?;
+    let row: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT identifier, removed_at FROM core.satellite WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| internal("satellite.issue", e))?;
+    let identifier = match row {
+        None => return Err(Refusal::NotFound),
+        Some((_, Some(_))) => {
+            return Err(Refusal::Kind(StatusCode::CONFLICT, SatelliteError::Removed))
+        }
+        Some((identifier, None)) => identifier,
+    };
+    let mut raw = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut raw);
+    let value = format!(
+        "{}{identifier}_{}",
+        satellite::CREDENTIAL_PREFIX,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
+    );
+    let (credential, issued_at) = (Uuid::new_v4(), app.now());
+    sqlx::query(
+        "INSERT INTO core.satellite_credential (id, satellite_id, label, token_sha256, issued_at)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(credential)
+    .bind(id)
+    .bind(&req.label)
+    .bind(web_session::sha256(&value))
+    .bind(issued_at)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| internal("satellite.issue", e))?;
+    tx.commit()
+        .await
+        .map_err(|e| internal("satellite.issue", e))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(IssuedCredential {
+            id: credential,
+            label: req.label,
+            issued_at,
+            value,
+        }),
+    ))
+}
+
+/// 資格情報を 1 本取り消す（行は消さず `revoked_at` を付ける。取り消し済みはそのまま 204）。
+#[utoipa::path(delete, path = "/satellites/{id}/credentials/{cid}",
+    params(("id" = Uuid, Path, description = "衛星の番号"),
+           ("cid" = Uuid, Path, description = "資格情報の番号")),
+    responses((status = 204), (status = 404), (status = 401), (status = 403), (status = 500)))]
+pub async fn credentials_delete(
+    State(app): State<App>,
+    headers: axum::http::HeaderMap,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, Refusal> {
+    web_session_only(&app, &headers).await?;
+    let found: Option<(Uuid,)> = sqlx::query_as(
+        "UPDATE core.satellite_credential SET revoked_at = COALESCE(revoked_at, $3)
+          WHERE id = $2 AND satellite_id = $1 RETURNING id",
+    )
+    .bind(id)
+    .bind(cid)
+    .bind(app.now())
+    .fetch_optional(&app.pool)
+    .await
+    .map_err(|e| internal("satellite.revoke", e))?;
+    found
+        .map(|_| StatusCode::NO_CONTENT)
+        .ok_or(Refusal::NotFound)
 }

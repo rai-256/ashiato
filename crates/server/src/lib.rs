@@ -3573,6 +3573,14 @@ pub fn router(app: App) -> Router {
             delete(satellite_admin::satellites_delete),
         )
         .route(
+            "/satellites/{id}/credentials",
+            post(satellite_admin::credentials_post),
+        )
+        .route(
+            "/satellites/{id}/credentials/{cid}",
+            delete(satellite_admin::credentials_delete),
+        )
+        .route(
             "/session",
             post(web_session::session_post)
                 .delete(web_session::session_delete)
@@ -3758,6 +3766,8 @@ pub async fn run() -> anyhow::Result<()> {
         satellite_admin::satellites_get,
         satellite_admin::satellites_post,
         satellite_admin::satellites_delete,
+        satellite_admin::credentials_post,
+        satellite_admin::credentials_delete,
         places_post,
         places_get,
         place_candidates_get
@@ -3862,6 +3872,8 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::SessionState,
         satellite_admin::SatelliteOut,
         satellite_admin::CredentialOut,
+        satellite_admin::IssueRequest,
+        satellite_admin::IssuedCredential,
         satellite_admin::RegisterRequest,
         satellite_admin::SatelliteError,
         satellite_admin::SatelliteErrorBody,

@@ -340,7 +340,6 @@ async fn satellite_register_removed_identifier_returns_same_row() {
 }
 
 // Scenario: API の合言葉では衛星を登録できない
-// （発行と取り消しの口は Task 5。入ったらここへ足す）
 #[tokio::test]
 async fn satellite_admin_only_api_token_is_forbidden() {
     let c = Ctx::new().await;
@@ -364,6 +363,16 @@ async fn satellite_admin_only_api_token_is_forbidden() {
             Some(json!({ "name": c.name("別"), "identifier": c.identifier("other") })),
         ),
         (Method::DELETE, format!("/satellites/{sat}"), None),
+        (
+            Method::POST,
+            format!("/satellites/{sat}/credentials"),
+            Some(json!({ "label": "携帯" })),
+        ),
+        (
+            Method::DELETE,
+            format!("/satellites/{sat}/credentials/{}", uuid::Uuid::new_v4()),
+            None,
+        ),
     ] {
         let (status, _) = api(method.clone(), uri.clone(), body).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}");
@@ -395,4 +404,309 @@ async fn satellite_builtin_pair_is_listed() {
         assert_eq!(s["removed_at"], Value::Null);
         assert_eq!(s["builtin"], true);
     }
+}
+
+impl Ctx {
+    /// 衛星を登録して番号を返す。
+    async fn register_sat(&self, part: &str) -> (uuid::Uuid, String) {
+        let (id, name) = (self.identifier(part), self.name(part));
+        assert_eq!(self.register(&name, &id).await.0, StatusCode::CREATED);
+        let sat = self.find(&id).await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        (sat, id)
+    }
+
+    /// 発行して（番号, 値）を返す。
+    async fn issue(&self, sat: uuid::Uuid, label: &str) -> (uuid::Uuid, String) {
+        let (status, body) = self
+            .web(
+                Method::POST,
+                &format!("/satellites/{sat}/credentials"),
+                Some(json!({ "label": label })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let v: Value = serde_json::from_str(&body).unwrap();
+        (
+            v["id"].as_str().unwrap().parse().unwrap(),
+            v["value"].as_str().unwrap().to_owned(),
+        )
+    }
+
+    async fn revoke(&self, sat: uuid::Uuid, cid: uuid::Uuid) -> StatusCode {
+        self.web(
+            Method::DELETE,
+            &format!("/satellites/{sat}/credentials/{cid}"),
+            None,
+        )
+        .await
+        .0
+    }
+
+    /// その値を付けて記録の読み出しを求める。
+    async fn read_with(&self, value: &str) -> StatusCode {
+        send(&self.app, Method::GET, "/events", None, Some(value), None)
+            .await
+            .0
+    }
+
+    async fn creds_of(&self, identifier: &str) -> Vec<Value> {
+        self.find(identifier).await.unwrap()["credentials"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+}
+
+// Scenario: 発行すると、衛星の識別子の入った値が 1 回だけ返る
+#[tokio::test]
+async fn satellite_credential_issue_value_carries_identifier() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("issue").await;
+    let (cred, value) = c.issue(sat, "携帯").await;
+    let rest = value
+        .strip_prefix(&format!("ashsat_{id}_"))
+        .unwrap_or_else(|| panic!("値の頭が違う"));
+    assert_eq!(rest.len(), 43);
+    assert!(rest
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'));
+    let stored: Vec<u8> =
+        sqlx::query_scalar("SELECT token_sha256 FROM core.satellite_credential WHERE id = $1")
+            .bind(cred)
+            .fetch_one(&c.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stored,
+        web_session::sha256(&value),
+        "保存は値全体の SHA-256"
+    );
+}
+
+// Scenario: 発行した値は二度と読み出せない
+#[tokio::test]
+async fn satellite_credential_issue_value_is_never_listed() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("hidden").await;
+    let (cred, value) = c.issue(sat, "携帯").await;
+    let random = value.rsplit('_').next().unwrap().to_owned();
+    let (_, listed) = c.web(Method::GET, "/satellites", None).await;
+    assert!(!listed.contains(&value) && !listed.contains(&random));
+    let entry = c.find(&id).await.unwrap();
+    assert_eq!(entry["name"], c.name("hidden").as_str());
+    let own = c.creds_of(&id).await;
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0]["label"], "携帯");
+    assert_eq!(own[0]["id"], cred.to_string());
+    assert!(own[0]["issued_at"].is_string());
+    let mut keys: Vec<_> = own[0].as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["id", "issued_at", "label", "last_used_at"]);
+    let row: String = sqlx::query_scalar(
+        "SELECT row_to_json(t)::text FROM core.satellite_credential t WHERE id = $1",
+    )
+    .bind(cred)
+    .fetch_one(&c.pool)
+    .await
+    .unwrap();
+    assert!(
+        !row.contains(&value) && !row.contains(&random),
+        "表のどの列にも無い"
+    );
+}
+
+// Scenario: 1 つの衛星に 2 本の資格情報を発行できる
+#[tokio::test]
+async fn satellite_credential_issue_two_for_one_satellite() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("two").await;
+    let (_, a) = c.issue(sat, "携帯").await;
+    let (_, b) = c.issue(sat, "ノート PC").await;
+    assert_ne!(a, b);
+    assert_eq!(c.creds_of(&id).await.len(), 2);
+}
+
+// Scenario: 外した衛星には資格情報を発行できない
+#[tokio::test]
+async fn satellite_credential_issue_removed_satellite_is_conflict() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("gone").await;
+    assert_eq!(
+        c.web(Method::DELETE, &format!("/satellites/{sat}"), None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let (status, body) = c
+        .web(
+            Method::POST,
+            &format!("/satellites/{sat}/credentials"),
+            Some(json!({ "label": "携帯" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(kind(&body), "removed");
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.satellite_credential WHERE satellite_id = $1",
+    )
+    .bind(sat)
+    .fetch_one(&c.pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 0, "{id}");
+    let missing = format!("/satellites/{}/credentials", uuid::Uuid::new_v4());
+    let (status, _) = c
+        .web(Method::POST, &missing, Some(json!({ "label": "" })))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// Scenario: 41 文字の名前の資格情報は発行されない
+#[tokio::test]
+async fn satellite_credential_issue_label_length_edge() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("label").await;
+    let uri = format!("/satellites/{sat}/credentials");
+    let (status, body) = c
+        .web(
+            Method::POST,
+            &uri,
+            Some(json!({ "label": "あ".repeat(41) })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(kind(&body), "name_invalid");
+    assert_eq!(
+        c.web(
+            Method::POST,
+            &uri,
+            Some(json!({ "label": "あ".repeat(40) }))
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        c.web(Method::POST, &uri, Some(json!({}))).await.0,
+        StatusCode::CREATED,
+        "名前は空でもよい"
+    );
+    assert_eq!(c.creds_of(&id).await.len(), 2);
+}
+
+// Scenario: 使われた資格情報には最後に使われた時刻が残る
+#[tokio::test]
+async fn satellite_credential_issue_last_used_is_recorded() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("used").await;
+    let (used, value) = c.issue(sat, "使った").await;
+    let (unused, _) = c.issue(sat, "まだ").await;
+    assert_eq!(c.read_with(&value).await, StatusCode::FORBIDDEN);
+    let own = c.creds_of(&id).await;
+    let last = |cid: uuid::Uuid| {
+        own.iter().find(|v| v["id"] == cid.to_string()).unwrap()["last_used_at"].clone()
+    };
+    let at: chrono::DateTime<chrono::Utc> = serde_json::from_value(last(used)).unwrap();
+    assert_eq!(at, now());
+    assert_eq!(last(unused), Value::Null);
+}
+
+// Scenario: 取り消した資格情報は次の求めから使えない
+#[tokio::test]
+async fn satellite_credential_revoke_stops_only_that_one() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("revoke").await;
+    let (a, va) = c.issue(sat, "A").await;
+    let (b, vb) = c.issue(sat, "B").await;
+    assert_eq!(c.revoke(sat, a).await, StatusCode::NO_CONTENT);
+    assert_eq!(c.read_with(&va).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(c.read_with(&vb).await, StatusCode::FORBIDDEN);
+    let own = c.creds_of(&id).await;
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0]["id"], b.to_string());
+    let revoked: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT revoked_at FROM core.satellite_credential WHERE id = $1")
+            .bind(a)
+            .fetch_one(&c.pool)
+            .await
+            .unwrap();
+    assert_eq!(revoked, Some(now()), "行は消さず時刻を付ける");
+    assert_eq!(
+        c.revoke(sat, uuid::Uuid::new_v4()).await,
+        StatusCode::NOT_FOUND
+    );
+    let (other, _) = c.register_sat("revoke-other").await;
+    assert_eq!(
+        c.revoke(other, b).await,
+        StatusCode::NOT_FOUND,
+        "別の衛星の番号では取り消せない"
+    );
+}
+
+// Scenario: 衛星を外すとその衛星の資格情報が全部止まる
+#[tokio::test]
+async fn satellite_credential_revoke_on_removal_stops_all() {
+    let c = Ctx::new().await;
+    let (books, books_id) = c.register_sat("books").await;
+    let (money, money_id) = c.register_sat("money").await;
+    let (_, b1) = c.issue(books, "1").await;
+    let (_, b2) = c.issue(books, "2").await;
+    let (_, m1) = c.issue(money, "1").await;
+    assert_eq!(
+        c.web(Method::DELETE, &format!("/satellites/{books}"), None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(c.read_with(&b1).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(c.read_with(&b2).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(c.read_with(&m1).await, StatusCode::FORBIDDEN);
+    assert!(c.find(&books_id).await.unwrap()["removed_at"].is_string());
+    assert_eq!(c.creds_of(&money_id).await.len(), 1);
+}
+
+// Scenario: 外した衛星を同じ識別子で登録し直すと前の衛星の続きになる
+#[tokio::test]
+async fn satellite_credential_revoke_reregistered_keeps_old_credentials_dead() {
+    let c = Ctx::new().await;
+    let (sat, id) = c.register_sat("back").await;
+    let before = c.find(&id).await.unwrap();
+    let (_, value) = c.issue(sat, "前").await;
+    assert_eq!(
+        c.web(Method::DELETE, &format!("/satellites/{sat}"), None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(c.register(&c.name("読書メモ"), &id).await.0, StatusCode::OK);
+    let back = c.find(&id).await.unwrap();
+    assert_eq!(back["id"], before["id"]);
+    assert_eq!(back["registered_at"], before["registered_at"]);
+    assert_eq!(back["name"], c.name("読書メモ").as_str());
+    assert_eq!(back["removed_at"], Value::Null);
+    assert_eq!(c.creds_of(&id).await.len(), 0);
+    assert_eq!(c.read_with(&value).await, StatusCode::UNAUTHORIZED);
+}
+
+// Scenario: 最初の AI にも資格情報を発行して取り消せる
+#[tokio::test]
+async fn satellite_credential_revoke_builtin_ai() {
+    let c = Ctx::new().await;
+    let local = c.find("ashiato.ai-local").await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (cid, value) = c.issue(local, "試験").await;
+    assert_eq!(c.read_with(&value).await, StatusCode::FORBIDDEN);
+    assert_eq!(c.revoke(local, cid).await, StatusCode::NO_CONTENT);
+    assert_eq!(c.read_with(&value).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        c.find("ashiato.ai-local").await.unwrap()["removed_at"],
+        Value::Null
+    );
 }
