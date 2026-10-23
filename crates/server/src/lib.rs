@@ -66,6 +66,9 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+/// 幅のある出来事の終わりの時刻（ST41）。
+#[cfg(test)]
+mod end_time_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
 /// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。

@@ -879,7 +879,9 @@ left=$(psql -c "SELECT count(*) FROM core.export_ledger WHERE export_id='$EXPORT
 # 列が 1 本増えると、その列は何も言わずに書き換えられる側へ入る。**
 # ここで「意図して開けている列」と「凍結している列」の合計が実際の列と一致することを見る ——
 # 一致しなくなったら、増やした人が**どちら側かを決めるまで落ちる**（既定は厳しい側。扉 #15）。
-open_cols="sensitivity deleted_at deleted_by"          # FR-50 / PERM-2 で開ける
+# ST41: 終わりの 3 列は主張（authored）が持たない列なので、ここでは開ける側に置く。
+# 収集した記録の終わりは門（require_version_or_ledger）が見る —— 検査は tools/check-immutable.d/202610231200_st41-event-end-time.sh
+open_cols="sensitivity deleted_at deleted_by end_time end_tz_offset_min end_tz_id"   # FR-50 / PERM-2 で開ける（+ ST41）
 gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
 frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
              tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref"
@@ -1210,6 +1212,13 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
+# **ST41 の終わりの時刻をいちばん先に戻す**（最後に足した版）。戻して進め直せること、2 回目の戻しも当たることまで見る
+psql < "migrations/202610231200_event_end_time.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610231200_event_end_time.down.sql が当たらない"; fail=1; down_fail=1; }
+psql < "migrations/202610231200_event_end_time.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610231200_event_end_time.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202610231200_event_end_time.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610231200_event_end_time.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
 # **ST33 の書き出しの台帳をいちばん先に戻す**（最後に足した版。まっさらな schema なので行は無い）。
 psql < "migrations/202610131200_export_ledger.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610131200_export_ledger.down.sql が当たらない"; fail=1; down_fail=1; }
