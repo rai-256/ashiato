@@ -348,6 +348,19 @@ mod tests {
     }
 
     #[test]
+    // Scenario: 終わりつきの記録の内容ハッシュは、終わりを持たない同じ記録と同じ値になる
+    fn st41_hash_with_end_is_pinned() {
+        let pinned = "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1";
+        let plain = req(uuid::Uuid::nil(), "x");
+        let mut with_end = req(uuid::Uuid::nil(), "x");
+        with_end.end_time = chrono::DateTime::from_timestamp(1_757_000_000 + 3_600, 0);
+        with_end.end_tz_offset_min = Some(540);
+        with_end.end_tz_id = Some("Asia/Tokyo".into());
+        assert_eq!(content_hash(&plain), pinned);
+        assert_eq!(content_hash(&with_end), pinned, "終わりが鍵に混ざった");
+    }
+
+    #[test]
     /// 項目の境目が曖昧でない —— ソース名と原文の切れ目がずれても別の鍵になる
     fn field_boundaries_are_unambiguous() {
         let mut a = req(uuid::Uuid::nil(), "x");

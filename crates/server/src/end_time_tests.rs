@@ -701,3 +701,364 @@ async fn st41_ingest_without_end_is_unchanged() {
         (None, None, None)
     );
 }
+
+// ---- Task 3: 同じ記録の鍵と更新の経路（Q7）----
+
+const T0: &str = "2026-10-01T14:00:00Z";
+
+/// 外部の識別子と原文を固定した記録。送るたびに id は別（収集側が採番し直す形）。
+fn ext_item(source: &str, user: Uuid, ext: &str, raw: &str) -> serde_json::Value {
+    let mut item = ev(source, user, T0);
+    item["external_id"] = serde_json::json!(ext);
+    item["raw"] = serde_json::json!(format!("{{\"v\":\"{raw}\"}}"));
+    item
+}
+
+async fn ext_source(pool: &PgPool, prefix: &str) -> String {
+    testdb::source_of_kind(pool, prefix, "record").await
+}
+
+async fn version_count(pool: &PgPool, id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM core.event_version WHERE event_id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// 履歴の最新の版の終わり（時刻はマイクロ秒まで）。
+async fn last_version_end(
+    pool: &PgPool,
+    id: Uuid,
+) -> (Option<String>, Option<i32>, Option<String>) {
+    sqlx::query_as(
+        "SELECT to_char(end_time AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
+                end_tz_offset_min, end_tz_id
+           FROM core.event_version WHERE event_id = $1 ORDER BY version_no DESC LIMIT 1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+fn end_us(t: &str, off: i32, tz: &str) -> (Option<String>, Option<i32>, Option<String>) {
+    (Some(t.into()), Some(off), Some(tz.into()))
+}
+
+#[tokio::test]
+async fn st41_update_end_arrives_later_by_external_id() {
+    // Scenario: 進行中を終わりなしで送り、同じ外部の識別子で終わりつきを送ると終わりが入る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-later").await;
+    let (_, first) = send(&pool, vec![ext_item(&source, user, "sleep-1", "a")]).await;
+    let id = first[0].id.expect("格納された");
+
+    let with = with_end(
+        ext_item(&source, user, "sleep-1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, second) = send(&pool, vec![with]).await;
+    assert!(second[0].accepted);
+    assert_eq!(second[0].id, Some(id));
+    assert_eq!(count_in(&pool, &source).await, 1, "行は増えない");
+    assert_eq!(
+        stored_end(&pool, id).await,
+        end_us("2026-10-01T22:00:00.000000Z", 540, "Asia/Tokyo")
+    );
+    assert_eq!(version_count(&pool, id).await, 1);
+    assert_eq!(last_version_end(&pool, id).await, (None, None, None));
+}
+
+#[tokio::test]
+async fn st41_update_end_only_change_keeps_previous_end() {
+    // Scenario: 終わりだけを直した版は、前の終わりを履歴に残す
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-fix").await;
+    let first = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T07:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, r) = send(&pool, vec![first]).await;
+    let id = r[0].id.expect("格納された");
+
+    let fixed = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T07:30:00Z",
+        480,
+        "Asia/Singapore",
+    );
+    send(&pool, vec![fixed]).await;
+    assert_eq!(
+        stored_end(&pool, id).await,
+        end_us("2026-10-01T07:30:00.000000Z", 480, "Asia/Singapore")
+    );
+    assert_eq!(version_count(&pool, id).await, 1);
+    assert_eq!(
+        last_version_end(&pool, id).await,
+        end_us("2026-10-01T07:00:00.000000Z", 540, "Asia/Tokyo")
+    );
+}
+
+#[tokio::test]
+async fn st41_update_version_without_end_clears_end() {
+    // Scenario: 終わりを持たない版が届くと、記録の終わりは空になり前の終わりは履歴に残る
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-clear").await;
+    let first = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, r) = send(&pool, vec![first]).await;
+    let id = r[0].id.expect("格納された");
+
+    // 原文が違うので内容の違う版。終わりを持たない
+    send(&pool, vec![ext_item(&source, user, "e1", "b")]).await;
+    assert_eq!(stored_end(&pool, id).await, (None, None, None));
+    assert_eq!(version_count(&pool, id).await, 1);
+    assert_eq!(
+        last_version_end(&pool, id).await,
+        end_us("2026-10-01T22:00:00.000000Z", 540, "Asia/Tokyo")
+    );
+}
+
+#[tokio::test]
+async fn st41_update_resend_without_end_keeps_end() {
+    // Scenario: 終わりを持たない同じ版の再送で、入った終わりは消えない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-resend").await;
+    let (_, r) = send(&pool, vec![ext_item(&source, user, "sleep-1", "a")]).await;
+    let id = r[0].id.expect("格納された");
+    let with = with_end(
+        ext_item(&source, user, "sleep-1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    send(&pool, vec![with]).await;
+    assert_eq!(version_count(&pool, id).await, 1);
+
+    send(&pool, vec![ext_item(&source, user, "sleep-1", "a")]).await;
+    assert_eq!(
+        stored_end(&pool, id).await,
+        end_us("2026-10-01T22:00:00.000000Z", 540, "Asia/Tokyo"),
+        "入った終わりが消えた"
+    );
+    assert_eq!(version_count(&pool, id).await, 1, "履歴が増えた");
+}
+
+#[tokio::test]
+async fn st41_update_end_tz_only_change_is_not_an_update() {
+    // Scenario: 終わりのずれとタイムゾーンだけが違う版は更新にならない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-tz").await;
+    let first = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, r) = send(&pool, vec![first]).await;
+    let id = r[0].id.expect("格納された");
+
+    let other_tz = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00Z",
+        0,
+        "UTC",
+    );
+    send(&pool, vec![other_tz]).await;
+    assert_eq!(
+        stored_end(&pool, id).await,
+        end_us("2026-10-01T22:00:00.000000Z", 540, "Asia/Tokyo")
+    );
+    assert_eq!(version_count(&pool, id).await, 0);
+}
+
+#[tokio::test]
+async fn st41_update_sub_micro_end_change_is_not_an_update() {
+    // Scenario: マイクロ秒より細かい桁だけが違う終わりの版は更新にならない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-subus").await;
+    let first = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00.123456Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, r) = send(&pool, vec![first]).await;
+    let id = r[0].id.expect("格納された");
+
+    let finer = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00.123456789Z",
+        540,
+        "Asia/Tokyo",
+    );
+    send(&pool, vec![finer]).await;
+    assert_eq!(version_count(&pool, id).await, 0);
+    assert_eq!(
+        stored_end(&pool, id).await.0.as_deref(),
+        Some("2026-10-01T22:00:00.123456Z")
+    );
+}
+
+#[tokio::test]
+async fn st41_update_stale_end_change_is_ignored() {
+    // Scenario: 古い更新時刻の版は、終わりだけが違っても書き換えない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-stale").await;
+    let mut newer = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    newer["source_updated_at"] = serde_json::json!("2026-10-02T00:00:00Z");
+    let (_, r) = send(&pool, vec![newer]).await;
+    let id = r[0].id.expect("格納された");
+
+    let mut older = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T23:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    older["source_updated_at"] = serde_json::json!("2026-10-01T12:00:00Z");
+    send(&pool, vec![older]).await;
+    assert_eq!(
+        stored_end(&pool, id).await.0.as_deref(),
+        Some("2026-10-01T22:00:00.000000Z")
+    );
+    assert_eq!(version_count(&pool, id).await, 0);
+}
+
+#[tokio::test]
+async fn st41_update_same_end_adds_no_version() {
+    // Scenario: 終わりも内容も同じ版は履歴を増やさない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-upd-same").await;
+    let mk = || {
+        with_end(
+            ext_item(&source, user, "e1", "a"),
+            "2026-10-01T22:00:00Z",
+            540,
+            "Asia/Tokyo",
+        )
+    };
+    let (_, r) = send(&pool, vec![mk()]).await;
+    let id = r[0].id.expect("格納された");
+    send(&pool, vec![mk()]).await;
+    assert_eq!(count_in(&pool, &source).await, 1);
+    assert_eq!(version_count(&pool, id).await, 0);
+}
+
+#[tokio::test]
+async fn st41_dedup_end_only_difference_folds_without_external_id() {
+    // Scenario: 外部の識別子の無い記録で終わりだけが違う到着は畳まれる
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-dd-fold").await;
+    let mut base = ev(&source, user, T0);
+    base["raw"] = serde_json::json!("{\"v\":\"same\"}");
+    let (_, r) = send(&pool, vec![base.clone()]).await;
+    let id = r[0].id.expect("格納された");
+
+    let mut later = with_end(base, "2026-10-01T22:00:00Z", 540, "Asia/Tokyo");
+    later["id"] = serde_json::json!(Uuid::new_v4());
+    let (_, r2) = send(&pool, vec![later]).await;
+    assert!(r2[0].accepted);
+    assert_eq!(r2[0].id, Some(id));
+    assert_eq!(count_in(&pool, &source).await, 1);
+    assert_eq!(stored_end(&pool, id).await, (None, None, None));
+}
+
+async fn soft_delete(pool: &PgPool, id: Uuid) {
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn st41_dedup_deleted_stays_deleted_on_end_only_difference() {
+    // Scenario: 削除済みの記録は、終わりだけが違う到着で戻らない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ingest_source(&pool, "st41-dd-del").await;
+    let mut base = with_end(
+        ev(&source, user, T0),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    base["raw"] = serde_json::json!("{\"v\":\"same\"}");
+    let (_, r) = send(&pool, vec![base.clone()]).await;
+    let id = r[0].id.expect("格納された");
+    soft_delete(&pool, id).await;
+
+    let mut other = with_end(base, "2026-10-01T23:00:00Z", 540, "Asia/Tokyo");
+    other["id"] = serde_json::json!(Uuid::new_v4());
+    let (_, r2) = send(&pool, vec![other]).await;
+    assert!(r2[0].accepted);
+    assert_eq!(count_in(&pool, &source).await, 1, "新しい行ができた");
+    let live: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.event WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(live, 0, "削除済みが戻った");
+}
+
+#[tokio::test]
+async fn st41_dedup_deleted_external_stays_deleted_on_end_only_difference() {
+    // Scenario: 外部の識別子のある削除済みの記録も、終わりだけが違う版で戻らない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let source = ext_source(&pool, "st41-dd-delext").await;
+    let first = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T22:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    let (_, r) = send(&pool, vec![first]).await;
+    let id = r[0].id.expect("格納された");
+    soft_delete(&pool, id).await;
+
+    let other = with_end(
+        ext_item(&source, user, "e1", "a"),
+        "2026-10-01T23:00:00Z",
+        540,
+        "Asia/Tokyo",
+    );
+    send(&pool, vec![other]).await;
+    let deleted: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT deleted_at FROM core.event WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(deleted.is_some(), "削除済みが戻った");
+    assert_eq!(
+        stored_end(&pool, id).await.0.as_deref(),
+        Some("2026-10-01T22:00:00.000000Z")
+    );
+    assert_eq!(version_count(&pool, id).await, 0);
+}
