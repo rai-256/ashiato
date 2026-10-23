@@ -340,3 +340,17 @@ async fn ch01_authored_feeling_origin_beats_external_id() {
     .await;
     assert_eq!(kind_of(&r), "feeling_not_authored");
 }
+
+/// 主観は共通の規則（由来 → 外部識別子 → 地域のずれ）より前に、地域を東京の +9:00 に限って形の理由で断る（ST17 design D5）。
+/// 外部識別子を持ち地域のずれも範囲の外の主観は、共通の規則なら外部識別子の理由になるが、主観では形の理由になる。
+/// 共通の規則の地域のずれの枝（`lib.rs` の `OffsetOutOfRange`）に主観が届かないことを、この順で固定する（review/code.md R23）
+#[tokio::test]
+async fn ch01_authored_feeling_offset_out_of_range_beats_external_id() {
+    let app = app().await;
+    let r = send_feeling(&app, |it| {
+        it["external_id"] = "ext-1".into();
+        it["tz_offset_min"] = 1440.into();
+    })
+    .await;
+    assert_eq!(kind_of(&r), "malformed_feeling");
+}

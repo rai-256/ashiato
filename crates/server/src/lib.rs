@@ -1058,7 +1058,9 @@ async fn ingest_request(
         {
             return reject(IngestError::MalformedFeeling);
         }
-        // 地域は主観の側で `Asia/Tokyo` の +9:00 に限って上で見たので、共通の規則の地域のずれは当たらない
+        // 地域は主観の側で `Asia/Tokyo` の +9:00 に限って上で見たので、共通の規則の地域のずれは当たらない。
+        // `OffsetOutOfRange` の枝は match を閉じるためだけにある（届かない。届いても形の理由で断る側に倒す）。
+        // 主観の順（地域が外部識別子より先）は `ch01_authored_feeling_offset_out_of_range_beats_external_id` が固定する（review/code.md R23）
         if let Some(breach) = req.authored_breach() {
             return reject(match breach {
                 ingest::AuthoredBreach::NotAuthored => IngestError::FeelingNotAuthored,
