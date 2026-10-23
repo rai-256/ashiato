@@ -128,8 +128,11 @@
 - 読む口の見出しの直前（最後の本体の節の後ろ、`# ====… Story ごとの節（tools/check-immutable.d/）` の前）で `./tools/db-roles.sh >/dev/null`・`crates/server/src/grants.sql` の付与（`ashiato_owner` で当てる）・`app_psql()` の定義を済ませる。
   review/code.md R1 の提案は「かたまりの中（見出しの注記と `for … done` の間）」だったが、そこに置くと `tools/check-shared-appends.sh` の「動かしただけ」の判定
   （かたまりの注記でない行 `mouth_sig` が基準の木と同じ）が外れ、CH01 の PR 自身が「末尾に書き足した」で落ちる（手元で rc=1）。判定を緩めると自分を通す規則を自分で足すことになるので、
-  判定は変えずにかたまりの外の直前に置く。直前の行は、動かした後の木を基準にする後の Story では守る範囲（読む口の見出しの直前の空でない行）に入る
-  本体の `app-role` の検査の前の同じ 3 行は残す（`db-roles.sh` は何度走らせても同じ結果。後ろの検査が読む口の位置に依らず自分で役割を用意する形を保つ）
+  判定は変えずにかたまりの外の直前に置く。動かした後の木を基準にする後の Story では、準備の頭の注記（`` `*.d/` の節の前の準備``）の直前の空でない行から
+  読む口の `done` までを守る範囲 1 にする（`check-shared-appends.sh` の `PREP`。準備の 3 行が最後の節と読む口の間に入ったため、守る範囲を読む口の見出しの直前の
+  行から始めると、最後の節の後ろ・準備の中への書き足しが素通りした。review/code.md R19 で実測し、`--self-test` に 3 件足した）
+  本体の `app-role` の検査の前の `db-roles.sh` と grants.sql の 2 行は残す（戻しの並びで版を当て直した後なので当て直す。`db-roles.sh` は何度走らせても同じ結果）。
+  `app_psql()` の二度目の定義は消し、準備の 1 か所だけにした（同じ本体の 2 つの写しが別々に直されてずれないように。review/code.md R22）
 - 読む口の注記と `tools/check-immutable.d/README.md` に「節の前に役割・付与・`app_psql` が用意してあり、節はアプリの役割から撃ってよい」を書く
 - なぜ: D1 で読む口を戻しの前へ動かしたため、base（9998a961）では読む口より前にあった役割の準備（`db-roles.sh`・grants.sql・`app_psql()`）が読む口より後ろになった。
   検査は毎回 `down -v` の新しい DB で、docker-compose.yml にも移行にも `ashiato_app` は無い。open の ST09（#119）の節は「呼び出し元が app_psql と grants の付与を済ませている」として
@@ -152,3 +155,13 @@
   self-test が「動かした後に読む口の直後へ節を足す」を落とすことで、抜け道になっていないことを示す
 - [Q6 で読み出しを 1 回にすると、読み出しの失敗が日の欄と暦の両方に出る] → 同じ口を同じ時に読むので、片方だけ失敗することはほぼ無い（Q6 の why）
 - [e2e は主観の行を消せない] → ST17 と同じく、乱数で選んだ遠い日を `page.clock` の今日にして書き、件数は書く前との差で数える
+
+### D12（仮）. tasks の `shellcheck … rc=0` は、警告以上（`-S warning`）が 0 件のことと読む（review/code.md R13）
+
+- tasks 1.2 / 2.2 / 3.1 の `shellcheck … rc=0` は、`shellcheck -S warning` で rc=0 のことを指す。既定の重さ（info まで）では、base（9998a961）の 3 本も
+  rc=1（SC2015 ×7 ほか info だけ）で、この change の前から成り立たない。この change が増やした info は SC2329（`app_psql` を本体の中で呼ばない）1 件だったが、
+  R22 で二度目の定義を消したので本体が呼ぶ形になり、今は無い（`docker run koalaman/shellcheck:stable tools/check-immutable.sh` の info は SC1091 ×1・SC2015 ×5・SC2086 ×3。どれも base から在る）
+- 検証コマンドの文字列は書き換えない（凍結した tasks の検証は、成立しないことの証跡が要る `plan_fix.py` でしか直さない。手元に shellcheck が無く rc=127 で、
+  「いまのコードで FAIL」の証跡が取れない）
+- 反転条件: CI か `scripts/verify-run` が shellcheck を既定の重さで走らせる job を持つなら、base から在る info を直すか、その job の重さに合わせて tasks の読み方を変える
+
