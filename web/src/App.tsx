@@ -6,6 +6,7 @@ import { type Achievement, type SourceCoverage } from "./coverage";
 import { archiveLastEventLabel, orderCoverageWithArchives } from "./archives";
 import { type ArchivesStatus } from "./archives";
 import { LatestArchive } from "./LatestArchive";
+import { sourceNote, type SourcesResponse } from "./sources";
 import { msg } from "./messages";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { linkStyle, pageStyle, titleStyle } from "./surface";
@@ -75,6 +76,8 @@ export function App(): React.ReactElement {
   const [sources, setSources] = useState<Load<SourceCoverage[]>>({ at: "loading" });
   const [achievement, setAchievement] = useState<Load<Achievement>>({ at: "loading" });
   const [archives, setArchives] = useState<Load<ArchivesStatus>>({ at: "loading" });
+  // 取り方と間隔（ST13 / D10）。読めなくても格子は出す —— 失敗は「添えない」だけで、画面には出さない
+  const [sourceList, setSourceList] = useState<SourcesResponse | null>(null);
 
   useEffect(() => {
     const { from, to } = yearRange(new Date());
@@ -97,6 +100,9 @@ export function App(): React.ReactElement {
     get("/api/archives/status")
       .then((v) => setArchives({ at: "ok", value: v as ArchivesStatus }))
       .catch((e: unknown) => setArchives({ at: "failed", why: why(e) }));
+    get("/api/sources")
+      .then((v) => setSourceList(Array.isArray((v as SourcesResponse).sources) ? (v as SourcesResponse) : null))
+      .catch(() => setSourceList(null));
   }, []);
 
   return (
@@ -164,6 +170,7 @@ export function App(): React.ReactElement {
             key={s.logical_source}
             source={s}
             annotation={archiveAnnotation(s.logical_source, archives, new Date())}
+            sourceNote={sourceNote(s.logical_source, sourceList)}
           />
         ))}
     </main>

@@ -124,6 +124,10 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
     override fun readCapability(source: CollectionSource): Capability =
         capabilities[source.logicalSource] ?: allowed
 
+    /** 休止の除外の状態（ST13）。既定は外れている（既存の試験の前提を変えない）。 */
+    var unusedAppRestrictions: UnusedAppRestrictionsState = UnusedAppRestrictionsState.EXEMPT
+    override fun readUnusedAppRestrictions(): UnusedAppRestrictionsState = unusedAppRestrictions
+
     /** 受け口ごとに送った本文を覚える偽物（ST04）。既定はすべて受け付ける。 */
     val posted = mutableListOf<Pair<String, String>>()
 
