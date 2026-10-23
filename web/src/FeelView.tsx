@@ -237,6 +237,8 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
         const value = `${signed(p.v)} ${valenceWord(p.v)}`;
         const saved = p.stayRange === undefined ? m.saved(value, atLabel(p.at), target) : m.savedStay(value, atLabel(p.at), p.stayRange);
         // 日の終わりをまたいで「後」として残したときだけ、画面の「いま」を記入の日時に進めて知らせる（design D6）
+        // 直後の読み直し（`setTick`）が成功すると `setNow(new Date())` で上書きされる。ここが効くのは、読み直しが返るまでの間と、
+        // 読み直しが失敗したとき —— その間も画面が「後」の欄を出し、押した値が「前」の欄の表示に戻って見えなくならないようにするため
         if (crossed) setNow(p.at);
         setNotice({ bad: false, text: crossed ? `${saved} ${m.keptAsReview}` : saved });
         setTick((t) => t + 1);
