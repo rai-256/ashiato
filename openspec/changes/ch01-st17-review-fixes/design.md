@@ -123,7 +123,9 @@
   合成データ（位置 100 万行・主観 500 行）で 4 ページ・0.079 ms だったこと（`premises.md` 前提 9）をコメントで残す
 - 反転条件: 利用者が複数になり、他人の主観が古い場合に読みが増えることが実測で問題になったら、利用者の列を先頭に持つ索引を足す
 
-### D11（仮）. 読む口の見出しの直前で、節の前にアプリの役割・付与・`app_psql` を用意する（review/code.md R1。D1 に続く決定）
+### D11. 読む口の見出しの直前で、節の前にアプリの役割・付与・`app_psql` を用意する（review/code.md R1。D1 に続く決定）
+
+- 状態（2026-10-23）: 仮で進めたが、別の席が「D2 に乗るのに rests_on に無い」で否とした（`provisional-review.md`）。台帳から外し、deep.md Q8 で人間に返した。木は下のとおりのまま答えを待つ
 
 - 読む口の見出しの直前（最後の本体の節の後ろ、`# ====… Story ごとの節（tools/check-immutable.d/）` の前）で `./tools/db-roles.sh >/dev/null`・`crates/server/src/grants.sql` の付与（`ashiato_owner` で当てる）・`app_psql()` の定義を済ませる。
   review/code.md R1 の提案は「かたまりの中（見出しの注記と `for … done` の間）」だったが、そこに置くと `tools/check-shared-appends.sh` の「動かしただけ」の判定
