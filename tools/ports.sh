@@ -4,7 +4,8 @@
 #
 # 規則:
 #   - main の checkout（worktree でない木。CI もここ）→ DB 55432 / サーバ 18787（スマホから見る tailscale serve の先）。
-#   - 名前が `<main の名前>-st<NN>`（下流の Story の worktree）→ DB は 55500+NN、サーバは 19000+2×NN（+1 は panic の確かめ用）。
+#   - 名前が `<main の名前>-st<NN>`（下流の Story の worktree）→ DB は 55500+NN、サーバは 19000+2×NN（+1 は panic の確かめ用と、
+#     縦串の 2 つ目のサーバ（tools/smoke.d/202610212100_st13-archive-hands-off.sh）。この 2 つは同時に走らない）。
 #   - 名前が `-verify` で終わる（確認バッチの作業ツリー。harness2 の verify_batch.sh が作る）→ DB は 55499、サーバは 18787。
 #     確認の間だけ立てるサーバは、スマホから届く 18787 のまま。DB は main の DB と被らないように分ける。
 #   - それ以外の worktree（change の `-ch<NN>`、上流の `-up-st<NN>`、録画の `-rec-st<NN>`、道具の作業など）→
