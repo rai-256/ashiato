@@ -110,7 +110,7 @@
 
 ## Task 5: 期間に重なる記録を引く（`GET /events`）
 
-- [ ] 5.1 先に試験を書く（`end_time_tests.rs`。ハンドラを `crate::events(State, headers, Query(EventsQuery{…}))` で呼ぶ。401 と読み出しの記録は router 越しに `tower::ServiceExt::oneshot` で見る —— `access_log_tests.rs` の呼び方に合わせる）:
+- [x] 5.1 先に試験を書く（`end_time_tests.rs`。ハンドラを `crate::events(State, headers, Query(EventsQuery{…}))` で呼ぶ。401 と読み出しの記録は router 越しに `tower::ServiceExt::oneshot` で見る —— `access_log_tests.rs` の呼び方に合わせる）:
   - `st41_range_overlapping_span_is_returned` — `// Scenario: 期間に重なる幅のある出来事が引ける`
   - `st41_range_results_are_in_event_time_order` — `// Scenario: 期間で引いた記録は出来事の時刻の順に並ぶ`
   - `st41_range_source_only_returns_all_of_source` — `// Scenario: 期間を指定せずソースだけを指定すると、そのソースのすべての記録が返る`
@@ -129,12 +129,12 @@
   - `st41_range_is_access_logged` — `// Scenario: 期間で引いたことは読み出しの記録に残る`
   いまの木では `EventsQuery` が無くコンパイルが通らないので、先に `EventsQuery` と `events` の引数だけを足し（中身は今のまま）、`CT st41_range_overlapping` が rc≠0 であることを確かめてから 5.2 に進む。
   共有の DB では他の試験の記録が混ざるので、期間の試験はソースか利用者で絞ったうえで、置いた id の集合だけを比べる（`source` を指定しない試験は試験ごとの利用者の記録だけを数える）
-- [ ] 5.2 `lib.rs` に `EventsQuery { from, to, source }`（`Option<String>` で受けて自分で RFC 3339 を読む —— ずれの無い時刻を 400 にするため）、`EventRow` に 3 欄（`skip_serializing_if`）、
+- [x] 5.2 `lib.rs` に `EventsQuery { from, to, source }`（`Option<String>` で受けて自分で RFC 3339 を読む —— ずれの無い時刻を 400 にするため）、`EventRow` に 3 欄（`skip_serializing_if`）、
   `events` の SQL を design D10 の 2 つの引き方の `UNION ALL`（期間なしは今の SELECT に `source` の条件だけ）にする。`core.event_live` を引く（素の表を引かない）。
   `events` を呼ぶ既存の試験（`grep -rn "crate::events(" crates/server/src`）に `Query(EventsQuery::default())` を渡す。
   検証: `CT st41_range_` rc=0（`-- --list` で 16 本以上）/ `CT st25_api_unchanged` rc=0（`-- --list` で 1 本以上）/
   アサートを変えていないこと: `git diff -U0 origin/main -- crates/server/src/day_records_tests.rs | grep -E '^[-+][^-+]' | grep -vE 'crate::events\(|EventsQuery|^[-+]\s*$'` の出力が空（rc=1）
-- [ ] 5.3 `st41_range_uses_partial_index` — まっさらな DB（`crate::stay_tests::fresh_db()` に `crate::MIGRATIONS` を全部当てたもの）に 1 万行（うち 1 千行が終わりつき）を置き `ANALYZE` した後、
+- [x] 5.3 `st41_range_uses_partial_index` — まっさらな DB（`crate::stay_tests::fresh_db()` に `crate::MIGRATIONS` を全部当てたもの）に 1 万行（うち 1 千行が終わりつき）を置き `ANALYZE` した後、
   5.2 の終わりのある側の SQL の `EXPLAIN (FORMAT JSON)` に `event_end_range` の名前があることを見る（印なし。D10 の確かめ）。
   検証: `CT st41_range_uses_partial_index` rc=0（`-- --list` で 1 本以上）/ `./tools/check-openapi.sh` rc=0（`/events` の問い合わせの欄と応答の欄が契約に出る。`cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で再生成してから）
 
