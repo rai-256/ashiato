@@ -1,6 +1,6 @@
 # tools/check-immutable.d/
 
-Story ごとの `tools/check-immutable.sh` の節。`tools/check-immutable.sh` が戻しの手順の前に、名前の順に、同じ shell の中で `.` で読む。DB は本体の節を全部走らせた状態で、版は全部当たっている。
+Story ごとの `tools/check-immutable.sh` の節。`tools/check-immutable.sh` が戻しの手順の前に、名前の順に、同じ shell の中で `.` で読む。DB は本体の節を全部走らせた状態で、版は全部当たっている。節の前（読む口の見出しの直前）で、アプリの役割（`ashiato_app`）を作り（`tools/db-roles.sh`）、付与（`crates/server/src/grants.sql`）を当て、`app_psql`（アプリの役割の接続）を定義してある —— 節はアプリの役割から撃ってよい（CH01 design D11）。
 
 - 名前は `YYYYMMDDHHMM_st<NN>-<slug>.sh`（作成時刻。移行と同じく連番にしない —— 並走する Story が番号を取り合う）
 - 使える変数・関数は `tools/check-immutable.sh` の読む口の注記のとおり。節の後ろに本体の検査（戻しの並び・読み出しの記録・`app-role`）が続くので、本体の変数（`fail` を NG で 1 にする以外。`MIGS` `ST03_UP` `down_fail` `AU` など）と関数（`psql` `app_psql`）を上書きしない。節の変数は `ST<NN>_`、関数は `st<NN>_` を頭に付ける。利用者の id と本人が書いた行は節が自分で置く。節の中で `exit` しない（後ろの節が走らない。落とすときは `exit 1` だけ）

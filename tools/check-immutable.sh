@@ -1171,6 +1171,13 @@ else
   echo "  OK place 戻して進めても場所の記録の錠は効いている"
 fi
 
+# `*.d/` の節の前の準備（CH01 design D11）: アプリの役割（ashiato_app）を作り、付与（grants.sql）を当て、`app_psql` を定義する。
+# 節はアプリの役割から撃つことがある（読む口を戻しの前へ動かす前は、この準備が読む口より前にあった）。
+# `db-roles.sh` は何度走らせても同じ結果なので、後ろの `app-role` の検査の前でもう一度当てる。
+./tools/db-roles.sh >/dev/null
+docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/grants.sql >/dev/null
+app_psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_app -d ashiato "$@"; }
+
 # ================================================================ Story ごとの節（tools/check-immutable.d/）
 # **Story の節はこのファイルに書き足さない。** `tools/check-immutable.d/YYYYMMDDHHMM_st<NN>-<slug>.sh` を新しく置く
 # （名前は作成時刻。名前の順に、この shell の中で `.` で読む。set -euo pipefail・psql・fail（NG なら fail=1）はそのまま使える）。
@@ -1178,6 +1185,8 @@ fi
 # **戻しの前に読む。** DB は本体の節を全部走らせた状態で、版は全部当たっている。節の後ろに本体の検査（戻しの並び・読み出しの記録・`app-role`）が続くので、
 # 本体の変数（`fail` を NG で 1 にする以外。`MIGS` `ST03_UP` `down_fail` `AU` など）と関数（`psql` `app_psql`）を上書きしない。節の変数は `ST<NN>_` を頭に付ける。
 # 利用者の id と本人が書いた行は節が自分で置く（本体の `$AU` を使わない）。
+# **節の前（この見出しの直前）で、アプリの役割（`ashiato_app`）・付与（grants.sql）・`app_psql` を用意してある**（CH01 design D11）。節は `app_psql` で
+# アプリの役割から撃ってよい。
 # feat/st* がこの見出しより前の最後の節の後ろに書き足すと tools/check-shared-appends.sh が落とす（途中の既存の節を直すのは通す）
 for part in tools/check-immutable.d/*.sh; do
   [ -e "$part" ] || continue
