@@ -145,6 +145,9 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 衛星の登録簿・資格情報の移行（ST29 / design D7 / D9）。
+#[cfg(test)]
+mod satellite_migration_tests;
 /// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
 pub mod scheduled;
 #[cfg(test)]
