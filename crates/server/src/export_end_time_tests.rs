@@ -99,16 +99,16 @@ async fn st41_export_end_column_span_is_excluded() {
         json!({"lat": 35.0}),
     )
     .await;
-    // 終わりの列が消した時間より前なら、次の記録まで（いま）に伸ばされず出る
-    let before = put_ended(
+    // 同じソースの後続（終わりの列で縛る）。列を読まないと crossing は 00:40 で終わり、消した時間と重ならず残る
+    let after = put_ended(
         &w,
         &s,
-        &w.at("00:10"),
-        Some(&w.at("00:20")),
+        &w.at("00:40"),
+        Some(&w.at("00:50")),
         json!({"lat": 35.0}),
     )
     .await;
-    assert_eq!(w.kept(&[crossing, before]).await, set(&[before]));
+    assert_eq!(w.kept(&[crossing, after]).await, set(&[after]));
 }
 
 // Scenario: 列の終わりは内容の終わりより先に読まれる
@@ -225,7 +225,15 @@ async fn st41_export_erased_stay_end_column_is_read() {
     .await;
     w.mark_deleted(stay, "user").await;
     let s = plain_source(&w).await;
-    let inside = put_ended(&w, &s, &w.at("01:30"), None, json!({"lat": 35.0})).await;
+    // 幅を終わりの列（01:40）で縛る。無いと「いま」に伸び、ほかの日の消した滞在と重なって通ってしまう
+    let inside = put_ended(
+        &w,
+        &s,
+        &w.at("01:30"),
+        Some(&w.at("01:40")),
+        json!({"lat": 35.0}),
+    )
+    .await;
     assert!(w.kept(&[inside]).await.is_empty());
 }
 
