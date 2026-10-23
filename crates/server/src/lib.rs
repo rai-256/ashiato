@@ -77,6 +77,9 @@ mod export_job_tests;
 mod export_ledger_tests;
 #[cfg(test)]
 mod export_tests;
+/// 書き出しの「次の記録」の引きを窓関数にする change（CH02）。まっさらな DB で新旧を突き合わせる。
+#[cfg(test)]
+mod export_window_tests;
 pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]

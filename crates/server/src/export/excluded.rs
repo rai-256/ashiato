@@ -177,22 +177,24 @@ impl ExcludedSql {
 ///
 /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
 /// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+///
+/// 次の記録は、行ごとの相関副問い合わせでなく、鍵の列だけを並べた 1 つの窓（`span_next`）で一度に読む（CH02 D1〜D4）。
+/// ST33 D5 は「次の記録は行ごとに索引で引く」と決めたが、120 万行で 14 分かかったので覆した（CH02）。
+/// 次の記録は「同じ組（利用者・ソース・端末）で、時刻が厳密に後の最初の記録」で、同じ時刻の記録は飛ばす（CH02 Q1）。
 pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
     let user_deleted = format!(
         "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
         crate::stay_store::REBUILD_PREFIX
     );
     let events = "core.event_live";
-    let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
-                            v.event_time, v.payload, v.raw
+    let versions = "(SELECT v.id, e.logical_source, v.event_time, v.payload, v.raw
                        FROM core.event_version_live v
                        JOIN core.event_live e ON e.id = v.event_id)";
-    let overlap_event = overlap_sql(
-        events,
-        "(n.event_time, n.id) > (r.event_time, r.id)",
-        snapshot_at,
-    );
-    let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
+    let overlap_event = overlap_sql(events, true, snapshot_at);
+    let overlap_version = overlap_sql(versions, false, snapshot_at);
+    // 窓に載せるのは鍵の列だけ（`payload` / `raw` は載せず、窓の後に `id` で戻す。D2）。
+    // 消した滞在が 0 件なら、各枝の `WHERE EXISTS` が One-Time Filter になって表を読まない（D3）。
+    // 窓には緯度経度で絞る前の全部を、時刻が `max(end_at)` 以下の行と、組ごとにそれより後の最初の記録 1 行（候補としてだけ。`id` は無い）で入れる。
     let ctes = format!(
         "erased_spans AS MATERIALIZED (
            SELECT s.start_at, s.end_at
@@ -203,6 +205,36 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              FROM core.stay_erased s
              JOIN core.event_version v ON v.event_id = s.id
             WHERE {user_deleted}
+         ),
+         span_next AS MATERIALIZED (
+           SELECT w.id, w.is_event, w.next_time
+             FROM (
+               SELECT q.id, q.is_event, q.event_time,
+                      min(q.event_time) FILTER (WHERE q.is_event) OVER (
+                        PARTITION BY q.user_id, q.logical_source, q.device_id
+                        ORDER BY q.event_time DESC
+                        RANGE BETWEEN UNBOUNDED PRECEDING AND '1 microsecond' PRECEDING
+                      ) AS next_time
+                 FROM (
+                   SELECT e.id, e.user_id, e.logical_source, e.device_id, e.event_time, true AS is_event
+                     FROM core.event_live e
+                    WHERE EXISTS (SELECT 1 FROM erased_spans)
+                      AND e.event_time <= (SELECT max(end_at) FROM erased_spans)
+                   UNION ALL
+                   SELECT NULL::uuid, e.user_id, e.logical_source, e.device_id, min(e.event_time), true
+                     FROM core.event_live e
+                    WHERE EXISTS (SELECT 1 FROM erased_spans)
+                      AND e.event_time > (SELECT max(end_at) FROM erased_spans)
+                    GROUP BY e.user_id, e.logical_source, e.device_id
+                   UNION ALL
+                   SELECT v.id, e.user_id, e.logical_source, e.device_id, v.event_time, false
+                     FROM core.event_version_live v
+                     JOIN core.event_live e ON e.id = v.event_id
+                    WHERE EXISTS (SELECT 1 FROM erased_spans)
+                      AND v.event_time <= (SELECT max(end_at) FROM erased_spans)
+                 ) q
+             ) w
+            WHERE w.id IS NOT NULL
          ),
          overlap_event AS MATERIALIZED ({overlap_event}),
          {EXCLUDED_EVENT} AS MATERIALIZED (
@@ -216,12 +248,16 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
     ExcludedSql { ctes }
 }
 
-/// 行 `r`（`id` `user_id` `logical_source` `device_id` `event_time` `payload` `raw` を持つ）のうち、
+/// 行 `r`（`id` `logical_source` `event_time` `payload` `raw` を持つ）のうち、
 /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
 ///
-/// 消した時間より後に始まる行は先に落とす（写しは約 120 万行で、次の記録の引きは重なりうる行にだけ要る）。
-/// `next_after` は次の記録の条件（`n` が次の記録の候補、`r` が自分）。
-fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
+/// 次の記録の時刻は `span_next` から `id` で引く（`is_event` は記録の側が true、前の版の側が false）。
+/// 組の鍵（利用者・端末）は `span_next` が持ち、ここでは読まない。前の版の `rows` が親の記録を JOIN するのは、
+/// 親が生きている前の版に絞るのと、`logical_source` を親から取るため。
+/// 消した時間より後に始まる行は先に落とす。
+/// `span_next` も消した滞在が 0 件の門と `max(end_at)` 以下の絞りを持つので、ここの 2 つの条件は結果を変えない。
+/// 門を重ねて置く（どちらか片方を外しても、消した滞在 0 件で記録の表を読まない。CH02 の code_verify の M1 / M1b）。
+fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
     let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
     let dur_keys: Vec<String> = DURATION_KEYS
         .iter()
@@ -234,14 +270,15 @@ fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     let coord = has_coordinates_sql("r.logical_source", "r.payload", "r.raw");
-    // 幅の計算（次の記録の引き）は行ごとに 1 回だけ。内側の副問い合わせは `OFFSET 0` で畳み込みを止める
-    // （畳むと重なりの判定のたびに、消した時間の数だけ次の記録を引き直す）。緯度経度を持たない行は幅を求めずに落とす。
+    // 幅の計算は行ごとに 1 回だけ。内側の副問い合わせは `OFFSET 0` で畳み込みを止める
+    // （畳むと重なりの判定のたびに、消した時間の数だけ幅を計算し直す）。緯度経度を持たない行は幅を求めずに落とす。
     format!(
         "SELECT w.id, w.logical_source, w.payload, w.raw
            FROM (
              SELECT r.id, r.logical_source, r.payload, r.raw, r.event_time,
                     coalesce(a.t, b.t, c.t) AS width_end
-               FROM {rows} r
+               FROM span_next k
+               JOIN {rows} r ON r.id = k.id
               CROSS JOIN LATERAL (SELECT coalesce({ends}) AS t) ka
               CROSS JOIN LATERAL (SELECT CASE WHEN ka.t >= r.event_time THEN ka.t END AS t) a
               CROSS JOIN LATERAL (SELECT coalesce({durs}) AS t) b
@@ -249,16 +286,12 @@ fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
                 SELECT CASE
                          WHEN a.t IS NOT NULL OR b.t IS NOT NULL THEN NULL
                          WHEN r.logical_source IN ({points}) THEN r.event_time
-                         ELSE coalesce(
-                           (SELECT n.event_time FROM core.event_live n
-                             WHERE n.user_id = r.user_id AND n.logical_source = r.logical_source
-                               AND n.device_id IS NOT DISTINCT FROM r.device_id
-                               AND {next_after}
-                             ORDER BY n.event_time, n.id LIMIT 1),
-                           {snapshot_at})
+                         ELSE coalesce(k.next_time, {snapshot_at})
                        END AS t
               ) c
-              WHERE r.event_time <= (SELECT max(end_at) FROM erased_spans)
+              WHERE k.is_event = {is_event}
+                AND EXISTS (SELECT 1 FROM erased_spans)
+                AND r.event_time <= (SELECT max(end_at) FROM erased_spans)
                 AND {coord}
              OFFSET 0
            ) w
@@ -331,4 +364,123 @@ pub fn coord_in_raw_sql(raw: &str) -> String {
           OR {n} ~ '(^|[^a-z])(lat|latitude|lon|lng|longitude)"?\s*[=:]\s*"?-?\d{{1,3}}(\.\d+)?'
           OR {l} ~ '(^|[^0-9a-z])[23456789cfghjmpqrvwx]{{4,8}}\+[23456789cfghjmpqrvwx]{{2,3}}($|[^0-9a-z])')"#
     )
+}
+
+/// CH02 の前の `excluded_sql` / `overlap_sql` の写し（試験専用）。新旧の除く集合を突き合わせるために残す（CH02 Q2）。
+///
+/// 写した日: 2026-10-21。元: `crates/server/src/export/excluded.rs` を最後に変えた commit
+/// `ab0806401572f3a46a8c7f73e0982f32ae4d33dd`（HEAD 43c330b1 の時点）。関数の本体は逐語。
+/// `excluded_sql_strict` だけ、`excluded_sql` の断片の記録の側の条件を置き換えて作る。
+#[cfg(test)]
+pub(crate) mod legacy {
+    use super::*;
+
+    /// 除く範囲の断片を組む。
+    ///
+    /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
+    /// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+    pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
+        let user_deleted = format!(
+            "(s.deleted_by IS NULL OR s.deleted_by NOT LIKE '{}%')",
+            crate::stay_store::REBUILD_PREFIX
+        );
+        let events = "core.event_live";
+        let versions = "(SELECT v.id, v.event_id, e.user_id, e.logical_source, e.device_id,
+                                v.event_time, v.payload, v.raw
+                           FROM core.event_version_live v
+                           JOIN core.event_live e ON e.id = v.event_id)";
+        let overlap_event = overlap_sql(
+            events,
+            "(n.event_time, n.id) > (r.event_time, r.id)",
+            snapshot_at,
+        );
+        let overlap_version = overlap_sql(versions, "n.event_time > r.event_time", snapshot_at);
+        let ctes = format!(
+            "erased_spans AS MATERIALIZED (
+               SELECT s.start_at, s.end_at
+                 FROM core.stay_erased s
+                WHERE {user_deleted}
+               UNION ALL
+               SELECT v.event_time, coalesce(core.try_timestamptz(v.payload->>'end'), v.event_time)
+                 FROM core.stay_erased s
+                 JOIN core.event_version v ON v.event_id = s.id
+                WHERE {user_deleted}
+             ),
+             overlap_event AS MATERIALIZED ({overlap_event}),
+             {EXCLUDED_EVENT} AS MATERIALIZED (
+               SELECT o.id FROM overlap_event o
+             ),
+             overlap_version AS MATERIALIZED ({overlap_version}),
+             {EXCLUDED_VERSION} AS MATERIALIZED (
+               SELECT o.id FROM overlap_version o
+             )"
+        );
+        ExcludedSql { ctes }
+    }
+
+    /// `excluded_sql` の記録の側の条件だけを `n.event_time > r.event_time` にしたもの（同じ時刻の記録を飛ばす形。CH02 Q1）。
+    ///
+    /// 本体は `excluded_sql` の断片の、記録の側の条件（版の側とは文字列が違う）を 1 か所だけ置き換えて作る。
+    pub fn excluded_sql_strict(snapshot_at: &str) -> ExcludedSql {
+        const EVENT_NEXT_AFTER: &str = "(n.event_time, n.id) > (r.event_time, r.id)";
+        let ctes = excluded_sql(snapshot_at).ctes;
+        assert_eq!(ctes.matches(EVENT_NEXT_AFTER).count(), 1);
+        ExcludedSql {
+            ctes: ctes.replace(EVENT_NEXT_AFTER, "n.event_time > r.event_time"),
+        }
+    }
+
+    /// 行 `r`（`id` `user_id` `logical_source` `device_id` `event_time` `payload` `raw` を持つ）のうち、
+    /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
+    ///
+    /// 消した時間より後に始まる行は先に落とす（写しは約 120 万行で、次の記録の引きは重なりうる行にだけ要る）。
+    /// `next_after` は次の記録の条件（`n` が次の記録の候補、`r` が自分）。
+    fn overlap_sql(rows: &str, next_after: &str, snapshot_at: &str) -> String {
+        let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
+        let dur_keys: Vec<String> = DURATION_KEYS
+            .iter()
+            .map(|(k, us)| duration_key_sql(k, *us))
+            .collect();
+        let points = SPAN_RULES
+            .iter()
+            .filter(|(_, rule)| *rule == SpanRule::Point)
+            .map(|(s, _)| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let coord = has_coordinates_sql("r.logical_source", "r.payload", "r.raw");
+        // 幅の計算（次の記録の引き）は行ごとに 1 回だけ。内側の副問い合わせは `OFFSET 0` で畳み込みを止める
+        // （畳むと重なりの判定のたびに、消した時間の数だけ次の記録を引き直す）。緯度経度を持たない行は幅を求めずに落とす。
+        format!(
+            "SELECT w.id, w.logical_source, w.payload, w.raw
+               FROM (
+                 SELECT r.id, r.logical_source, r.payload, r.raw, r.event_time,
+                        coalesce(a.t, b.t, c.t) AS width_end
+                   FROM {rows} r
+                  CROSS JOIN LATERAL (SELECT coalesce({ends}) AS t) ka
+                  CROSS JOIN LATERAL (SELECT CASE WHEN ka.t >= r.event_time THEN ka.t END AS t) a
+                  CROSS JOIN LATERAL (SELECT coalesce({durs}) AS t) b
+                  CROSS JOIN LATERAL (
+                    SELECT CASE
+                             WHEN a.t IS NOT NULL OR b.t IS NOT NULL THEN NULL
+                             WHEN r.logical_source IN ({points}) THEN r.event_time
+                             ELSE coalesce(
+                               (SELECT n.event_time FROM core.event_live n
+                                 WHERE n.user_id = r.user_id AND n.logical_source = r.logical_source
+                                   AND n.device_id IS NOT DISTINCT FROM r.device_id
+                                   AND {next_after}
+                                 ORDER BY n.event_time, n.id LIMIT 1),
+                               {snapshot_at})
+                           END AS t
+                  ) c
+                  WHERE r.event_time <= (SELECT max(end_at) FROM erased_spans)
+                    AND {coord}
+                 OFFSET 0
+               ) w
+              WHERE EXISTS (SELECT 1 FROM erased_spans s
+                             WHERE s.start_at <= w.width_end
+                               AND s.end_at >= w.event_time)",
+            ends = end_keys.join(", "),
+            durs = dur_keys.join(", "),
+        )
+    }
 }
