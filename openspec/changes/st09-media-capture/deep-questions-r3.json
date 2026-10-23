@@ -1,0 +1,39 @@
+{
+  "title": "ST09 の深掘り（第 3 回）",
+  "subtitle": "写真と動画をメタごと取り込み、写真は原本も置く",
+  "note": "実装の最後の見直し（final review の R14）で出た 1 問です。計測テスト（AT）の本数の数え方が、書いたままでは常に 0 本になります。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q18",
+      "topic": "計測テスト（AT）の本数の数え方が常に 0 本になる（tasks の取り決めの前提）",
+      "kind": "premise",
+      "question": "tasks.md の取り決め「AT <クラス>」は、結果の XML をファイル名（TEST-*<クラス>*.xml）で探して本数を数えます。ところが本物のエミュレータの結果のファイル名は「TEST-ashiato-api35(AVD) - 15-_app-.xml」で、クラス名を含みません。このため本数は常に 0 本で、門として働いていません。数え方をどう直しますか。",
+      "why": "凍結した tasks.md の取り決め（Global Constraints）の直しは、機械の訂正（plan_fix）の対象外（項目の検証コマンドではなく、前置きの定義）。検証の門を変えるので本人に戻す。",
+      "context": "HEAD 71f203b0 の走行（final review R2）で、XML の中の <testcase classname=…> で数え直すと、1 段目 MediaCaptureInstrumentedTest 2 本・3 段目 MediaPremisesInstrumentedTest 3 本・失敗 0 だった（code-verify も同じ数を確かめた）。\n2 段目（PermissionDeniedInstrumentedTest）の XML は、3 段目が同じ名前で上書きするので本数を数えられず、rc=0 だけが根拠。\n機械の証跡（evidence.py）は AT の略記を検証コマンドとして拾っていない（find で始まるため）。AT は CI の android-instrumented で必ず走る。",
+      "family": {
+        "name": "検証コマンドが 0 本でも通る",
+        "siblings": [
+          {"case": "cargo test の絞り込みが 0 本でも rc=0（CT）", "decided": "tasks.md Global Constraints（-- --list の下限を見る。code-verify で実測一致）"},
+          {"case": "Robolectric の結果の XML をファイル名で探す（GT）", "decided": "tasks.md Global Constraints（ファイル名にクラス名が入る。code-verify で実測一致）"},
+          {"case": "計測テストの結果の XML をファイル名で探す（AT）", "decided": "未決 Q18"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec-review",
+        "why": "計測テストの結果のファイル名の形（端末名と段の名前で決まり、クラス名を含まない）は、エミュレータで 1 度走らせるまで分からなかった。tasks の段では GT と同じ形だと思い込んだ",
+        "prevention": "件数つき検証の略記を足すとき、既存の結果（または 1 回の走行）にその数え方を当てて 1 本以上になることを確かめる検査"
+      },
+      "options": [
+        {
+          "label": "XML の中の <testcase classname=\"…<クラス>\"> を数える定義に直す。2 段目の XML が上書きされる件は段ごとに名前を分けて残す",
+          "detail": "数え方は R2 の確かめと同じ。直しは tasks.md の前置きの 1 行と tools/android-emulator.sh の結果の置き場。この Story の中で直す",
+          "recommended": true
+        },
+        {
+          "label": "AT は本数を数えず、tools/android-emulator.sh の rc=0 だけを門にする",
+          "detail": "本数の下限は CI の android-instrumented と、同じ振る舞いを見る GT（Robolectric）の本数に任せる"
+        }
+      ]
+    }
+  ]
+}

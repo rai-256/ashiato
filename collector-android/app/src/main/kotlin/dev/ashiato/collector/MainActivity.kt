@@ -39,6 +39,11 @@ import android.widget.TextView
  * 生存信号も出なかった**ので、受け手の画面には③「動いていたが取れない状態」ではなく
  * ⑥「途絶」が出た（アプリ利用は 10 日を越えれば二度と取れない）。
  *
+ * ## 写真と動画（design D6 / Q15）
+ *
+ * 位置の後に、写真と動画へのアクセスと写真の位置（`ACCESS_MEDIA_LOCATION`）を**まとめて 1 度だけ**求める。
+ * 断られても収集は始める —— 写真と動画のソースだけが「取れない状態」を報告して待つ（位置は取れ続ける）。
+ *
  * ## 利用状況へのアクセス（本人の決定 Q3 / design D6（仮））
  *
  * **その場のダイアログでは取れない。** アプリから開けるのは設定画面までなので、
@@ -87,8 +92,8 @@ open class MainActivity : Activity() {
         proceed()
     }
 
-    private fun granted(permission: String) =
-        checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    private val granted: (String) -> Boolean =
+        { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     /**
      * 無くても始めるが、あったほうがよいもの。
@@ -134,17 +139,30 @@ open class MainActivity : Activity() {
         // **位置の可否で枝を分けない**（独立レビュー I1）。前提を持つのは背景の位置だけで、
         // それは `niceToHave()` の中で見る —— 分けると、位置を拒んだ端末が通知の権限を 1 度も求めない
         val next = niceToHave().firstOrNull { !granted(it) && it !in asked }
-        if (next != null) {
-            ask(next)
-            return
+        // 位置の後に、写真と動画へのアクセスと写真の位置を**まとめて 1 度だけ**求める（design D6）。
+        // 14 以降の「選んだ写真だけ」は画像・動画・選んだ写真だけを同じ要求で求めないと選び方が出ない。
+        // 断られても収集は始める（取得条件が欠けたソースだけが止まる。Q15 は読み手が持つ）
+        val media = mediaPermissionsToAsk(Build.VERSION.SDK_INT).filter { !granted(it) && it !in asked }
+        when {
+            next != null -> ask(next)
+            media.isNotEmpty() -> {
+                asked += media
+                inFlight = true
+                requestPermissionGroup(media)
+            }
+            else -> start()
         }
-        start()
     }
 
     private fun ask(permission: String) {
         asked += permission
         inFlight = true
         requestPermission(permission)
+    }
+
+    /** OS へ権限を 1 度にまとめて求める。**試験だけが差し替える**（[requestPermission] と同じ理由）。 */
+    protected open fun requestPermissionGroup(permissions: List<String>) {
+        requestPermissions(permissions.toTypedArray(), REQUEST)
     }
 
     /**

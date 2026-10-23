@@ -57,3 +57,5 @@
 202610131200_export_ledger
 # 登録簿に取り方・契機・取得の間隔の 3 列を足す（ST13 / design D1 / D2 / D3）
 202610211000_source_acquisition
+# ST09: 写真と動画の取り込み。3 つのソース・収集開始日の印・生存信号の接続・3 つの表（design D15）
+202610181200_media_capture

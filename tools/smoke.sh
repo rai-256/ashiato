@@ -19,6 +19,9 @@ export ASHIATO_INBOX_DIR="$ARCHIVE_ROOT/inbox"
 export ASHIATO_DOWNLOADS_DIR="$ARCHIVE_ROOT/downloads"
 export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_ROOT/copies"
 mkdir -p "$ASHIATO_INBOX_DIR" "$ASHIATO_DOWNLOADS_DIR" "$ASHIATO_ARCHIVE_COPY_DIR"
+# 写真の原本の置き場（D-02。ST09）。設定された置き場は作られないので、サーバを起動する前に作る
+export ASHIATO_MEDIA_DIR="$ARCHIVE_ROOT/media"
+mkdir -p "$ASHIATO_MEDIA_DIR"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
 # `archive-shape.sh` は差し替えずに呼ぶ —— 手元に `psql` が無ければ道具自身が開発用コンテナの
