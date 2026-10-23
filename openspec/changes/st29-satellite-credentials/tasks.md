@@ -34,14 +34,14 @@
 
 ## Task 1: 移行 —— 衛星の登録簿と資格情報、読み出しの記録の欄（design D7 / D9）
 
-- [ ] 1.1 移行 `migrations/YYYYMMDDHHMM_satellite_credentials.sql` と `.down.sql` を足し、`migrations/ORDER` の末尾へ 1 行 ——
+- [x] 1.1 移行 `migrations/YYYYMMDDHHMM_satellite_credentials.sql` と `.down.sql` を足し、`migrations/ORDER` の末尾へ 1 行 ——
   `core.satellite` と `core.satellite_credential`（D7 の列と CHECK・部分一意索引）、最初の 2 つ（`ashiato.ai-external`「外部 AI」・`ashiato.ai-local`「ローカル AI」。固定の uuid・`builtin = true`・`ON CONFLICT (identifier) DO NOTHING`）、
   2 表の DELETE と TRUNCATE を拒むトリガ（**この移行専用の関数** `core.reject_satellite_delete()`）、`core.access_log` の欄 2 つと CHECK 3 つ（D9。制約の既定の名前は `\d core.access_log` で確かめてから書く）。
   すべて当て直せる形（`IF NOT EXISTS` / `DROP … IF EXISTS` → `ADD`）。`.down.sql` には「衛星の行が読み出しの記録にあると元の CHECK を付けられない」注記を書く。
   Scenario: `移行を当て直しても最初の 2 つは増えない`・`移行は最初の 2 つに資格情報を入れない`（試験の中で作った空の schema に全版を当てて、資格情報の行が 0。design D14）。
   （`最初から外部 AI とローカル AI が登録されている` の印は口から確かめる 4.3 にだけ置く）
   検証: `tools/check-migrations.sh` rc=0、`CT satellite_migration 2`
-- [ ] 1.2 `tools/check-immutable.d/<作成時刻>_st29-satellite-credentials.sh` を足す（`tools/check-immutable.sh` の本体に書き足さない）——
+- [x] 1.2 `tools/check-immutable.d/<作成時刻>_st29-satellite-credentials.sh` を足す（`tools/check-immutable.sh` の本体に書き足さない）——
   (a) `core.satellite` と `core.satellite_credential` への DELETE / TRUNCATE が psql から拒まれ、UPDATE は通ること、
   (b) 衛星の値を持つ `core.access_log` の行への UPDATE / DELETE が拒まれること、
   (c) `…_satellite_credentials.down.sql` を戻しの逆順の先頭で当て（衛星の行が無い DB で）、当て直せること。
