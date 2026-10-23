@@ -244,10 +244,13 @@ export function FeelView({ date }: { date: string | null }): React.ReactElement 
       }
       sentNote.current = restoreNote;
       if (outcome.at === "rejected") {
-        setPending((all) => without(all, p.key));
+        // 外すのはこの 1 件の送り直しだけ。返事待ちの間に同じ対象で後から押して届かなかった値は、送り直しを待ったまま残す（review/code.md R4）
+        setPending((all) => (all[p.key] === p ? without(all, p.key) : all));
         // 滞在の行は、断られた値の押された印を外す（画面が最後に読んだ最新の記録の値、無ければ何も押されていない状態に戻る。design D5）。
+        // 印が断られた値のときだけ外す —— 返事待ちの間に後から押した値の印は消さない（応答の届く順が押した順と入れ替わる。R4）。
         // 届かなかったときは外さない（送り直しを待つ値）。日の欄（`pick`）は断られても残す。
-        if (p.stayRange !== undefined) setStayPicks((picks) => Object.fromEntries(Object.entries(picks).filter(([k]) => k !== p.key)));
+        if (p.stayRange !== undefined)
+          setStayPicks((picks) => (picks[p.key] === p.v ? Object.fromEntries(Object.entries(picks).filter(([k]) => k !== p.key)) : picks));
         const kind = outcome.kind;
         setNotice({
           bad: true,

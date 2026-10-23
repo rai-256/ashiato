@@ -533,6 +533,38 @@ describe("滞在の行は断られたら押された印を戻し、届かなか�
     expect(bad.textContent).not.toContain("書けませんでした");
     expect(pressed("stay-stay-1-1")).toBe("true");
   });
+
+  // 応答の届く順が押した順と入れ替わっても、後から押した値の印は消えない（review/code.md R4）。
+  // -2 を押す → 返事待ちの間に +1 を押す → +1 が「届かなかった」で先に返る → -2 が「断られた」で後に返る。
+  // 断られた枝が外すのは、印が断られた値のときだけ（design D5 は断られた値を戻すのであって、後から押した値を消すのではない）
+  it("-2 の返事待ちに +1 を押し、+1 が届かず先に返って -2 が断られて後に返ると、+1 の印と送り直しが残る", async () => {
+    let refuseFirst: (r: Response) => void = () => undefined;
+    const first = new Promise<Response>((resolve) => {
+      refuseFirst = resolve;
+    });
+    let calls = 0;
+    ingest = () => {
+      calls += 1;
+      return calls === 1 ? first : Promise.reject(new TypeError("network"));
+    };
+    await openStay();
+    press("stay-stay-1--2");
+    press("stay-stay-1-1");
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("サーバに届きませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    await act(async () => {
+      refuseFirst(rejected());
+      await first;
+    });
+    expect((await screen.findByTestId("feel-notice-bad")).textContent).toContain("書けませんでした");
+    expect(pressed("stay-stay-1-1")).toBe("true");
+    expect(pressed("stay-stay-1--2")).toBe("false");
+    // 届かなかった +1 は送り直しを待っている
+    ingest = accepted;
+    press("feel-resend");
+    await sent(2);
+    expect(scalesOf(1)).toEqual([{ id: "valence", version: 1, value: 1 }]);
+  });
 });
 
 describe("開いたまま日の終わりをまたいで押す", () => {
