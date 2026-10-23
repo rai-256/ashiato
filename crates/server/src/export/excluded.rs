@@ -254,7 +254,7 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
 ///
 /// 次の記録の時刻は `span_next` から `id` で引く（`is_event` は記録の側が true、前の版の側が false）。
 /// 組の鍵（利用者・端末）は `span_next` が持ち、ここでは読まない。前の版の `rows` が親の記録を JOIN するのは、
-/// 親が生きている前の版に絞るためだけ。
+/// 親が生きている前の版に絞るのと、`logical_source` を親から取るため。
 /// 消した時間より後に始まる行は先に落とす。
 fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
     let end_keys: Vec<String> = END_KEYS.iter().map(|k| end_key_sql(k)).collect();
