@@ -2,7 +2,10 @@ import { expect, test, type Locator, type Page, type Response } from "@playwrigh
 
 /**
  * CH01（ST17 の /code-review の 9 件）の画面の Scenario。本物のブラウザ・本物のサーバ。ST17 の `feel.spec.ts` には書き足さない。
- * 主観の読み出しを落とすだけで書かないので、DB には何も足さない。
+ * 書く e2e と書かない e2e がある:
+ * - 読み出しの失敗と滞在の行（前半）: 主観の読み出しを落とすか、取り込みを断る・届かない応答に差し替えるので、DB には何も足さない
+ * - 開いたまま日の終わりをまたぐ（後半）: 本物のサーバへ主観の記録を書く。主観の行は DB の錠で消せないので、実行ごとに乱数で選んだ
+ *   2100 年以降の日（`freshDay()`）を `page.clock` の今日にして書き、件数は書く前との差で数える
  */
 
 test.use({ viewport: { width: 360, height: 740 }, colorScheme: "dark" });
