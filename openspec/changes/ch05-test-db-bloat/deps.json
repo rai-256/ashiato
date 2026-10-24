@@ -1,0 +1,8 @@
+{
+  "CH04": {
+    "spec_sha": "9fe8c5e32d65b1a8dc2362a27fb491d222ae7332",
+    "spec_pr": 156,
+    "spec_change": "ch04-test-db-growth",
+    "spec_at": "2026-10-24T23:51:47+00:00"
+  }
+}
