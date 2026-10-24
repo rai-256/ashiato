@@ -125,10 +125,13 @@ async fn purge_late_ledger_row_is_written_in_the_ingest_transaction() {
         .id
         .unwrap();
 
-    // 受理された直後に読む。台帳の行の txid が、記録の行の xmin（最後に書いた取り込みのトランザクション）と同じ
+    // 受理された直後に読む。台帳の行の txid が、取り込みにしか書かない稼働記録の行の xmin（取り込みのトランザクション）と同じ
     let same: Vec<bool> = sqlx::query_scalar(
-        "SELECT l.txid::xid::text = e.xmin::text
-           FROM core.erasure_ledger l JOIN core.event e ON e.id = l.event_id
+        "SELECT l.txid::xid::text = c.xmin::text
+           FROM core.erasure_ledger l
+           JOIN core.event e ON e.id = l.event_id
+           JOIN core.coverage c ON c.user_id = e.user_id AND c.logical_source = e.logical_source
+                AND c.day = (e.event_time AT TIME ZONE 'Asia/Tokyo')::date
           WHERE l.event_id = $1 AND l.scope = 'event'",
     )
     .bind(id)
@@ -355,8 +358,13 @@ async fn purge_late_concurrent_purge_and_ingest_leave_no_body() {
     let ingest = tokio::spawn(async move { send(&app_b, vec![item]).await });
     let (purged, sent) = (purge.await.unwrap(), ingest.await.unwrap());
 
-    // 取り込みが先に確定していれば、確認で数えた件数と食い違って消す操作は断られる。その場合は数え直して消す
-    if purged.is_err() {
+    // 取り込みが先に確定していれば、確認で数えた件数と食い違って消す操作は断られる（合意済みの振る舞い。
+    // purge_api_new_point_after_preview_refuses_and_keeps_every_body）。断られ方は件数の食い違いだけで、その場合は数え直して消す
+    if let Err(err) = &purged {
+        assert!(
+            matches!(err, crate::deletion::PurgeError::CountsChanged(_)),
+            "件数の食い違い以外で断られた: {err:?}"
+        );
         purge_now(&pool, stay).await;
     }
     assert!(sent[0].accepted);

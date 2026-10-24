@@ -850,17 +850,7 @@ async fn purge_using_span_scope(
     .await?;
 
     // 5: 前の版 → 記録の順に消去の形へ（本文だけ。時刻・内容の鍵・削除の印は触らない）
-    sqlx::query(
-        "UPDATE core.event_version SET raw = '', payload = '{}'::jsonb
-          WHERE event_id = ANY($1) AND raw <> ''",
-    )
-    .bind(&ids)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = ANY($1)")
-        .bind(&ids)
-        .execute(&mut *tx)
-        .await?;
+    erase_bodies(&mut tx, &ids).await?;
 
     // 6: 一緒に本文を消した滞在の印を本人の「本文ごと消した」に付け替える（作り直しが印を外さないように）
     for member in scope.members.iter().filter(|m| m.swallowed) {
@@ -959,6 +949,26 @@ async fn ledger_erasures(
     Ok(())
 }
 
+/// 記録の本文（原文と解析済み）を消去の形にする、**唯一の場所**。前の版 → 記録の順
+/// （時刻・内容の鍵・削除の印は触らない。前の版が無い記録では前の版の更新は 0 行）。
+async fn erase_bodies(
+    tx: &mut Transaction<'_, Postgres>,
+    ids: &[uuid::Uuid],
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE core.event_version SET raw = '', payload = '{}'::jsonb
+          WHERE event_id = ANY($1) AND raw <> ''",
+    )
+    .bind(ids)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = ANY($1)")
+        .bind(ids)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 /// 本文ごと消した時間帯に後から届いた記録 1 件（`stay_store::settle_arrival` が渡す）。
 pub(crate) struct LateArrival<'a> {
     pub user_id: uuid::Uuid,
@@ -1009,9 +1019,6 @@ pub(crate) async fn purge_late_arrival(
         &[late.logical_source],
     )
     .await?;
-    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = $1")
-        .bind(late.event_id)
-        .execute(&mut **tx)
-        .await?;
+    erase_bodies(tx, &[late.event_id]).await?;
     Ok(())
 }
