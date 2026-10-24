@@ -1765,3 +1765,58 @@ async fn st41_range_uses_partial_index() {
     let plan = plan.unwrap();
     assert!(plan.contains("event_end_range"), "索引に当たらない: {plan}");
 }
+
+// ---- Task 7: 滞在と収集済みの記録は終わりの列を持たない（Q5 / Q6）----
+
+#[tokio::test]
+async fn st41_stays_and_collected_rows_have_no_end_column() {
+    // 位置の記録を置いて滞在を作り直しても、滞在も収集済みの記録も終わりの列は NULL のまま（D13（仮）・D14（仮））
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    // 同じ場所に 40 分、1 分おきに 41 件
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         SELECT gen_random_uuid(), $1, 'c01-location', 'test', 'collected',
+                '2026-08-13T01:00:00Z'::timestamptz + make_interval(mins => i),
+                540, 'Asia/Tokyo', 1, gen_random_uuid()::text,
+                '{\"lat\":35.0,\"lon\":139.0,\"acc_m\":10.0}',
+                '{\"lat\":35.0,\"lon\":139.0,\"acc_m\":10.0}'::jsonb
+           FROM generate_series(0, 40) AS i",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+
+    let (stays, with_end, collected): (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE logical_source = $2),
+                count(*) FILTER (WHERE end_time IS NOT NULL
+                                    OR end_tz_offset_min IS NOT NULL
+                                    OR end_tz_id IS NOT NULL),
+                count(*) FILTER (WHERE logical_source = 'c01-location')
+           FROM core.event WHERE user_id = $1",
+    )
+    .bind(user)
+    .bind(crate::stay::SOURCE)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(stays >= 1, "滞在ができていない（試験が空振り）");
+    assert_eq!(collected, 41);
+    assert_eq!(with_end, 0, "滞在か収集済みの記録に終わりの列が書かれた");
+
+    let versions_with_end: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event_version v JOIN core.event e ON e.id = v.event_id
+          WHERE e.user_id = $1 AND (v.end_time IS NOT NULL
+             OR v.end_tz_offset_min IS NOT NULL OR v.end_tz_id IS NOT NULL)",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(versions_with_end, 0);
+}
