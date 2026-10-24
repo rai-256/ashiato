@@ -82,14 +82,14 @@
 
 ## Task 5: 書き出しの試験を試験ごとの database へ
 
-- [ ] 5.1 design D4 のとおり、`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`・`export_ledger_tests.rs`・`export_excluded_tests.rs` の `testdb::pool()` を `testdb::isolated()` の `TestDb` から取る形にする。
+- [x] 5.1 design D4 のとおり、`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`・`export_ledger_tests.rs`・`export_excluded_tests.rs` の `testdb::pool()` を `testdb::isolated()` の `TestDb` から取る形にする。
   1 つの試験の中の `pool()` は全部同じ `TestDb` から取り、`TestDb` を試験の最後まで持つ（`World` は欄に持つ）。期待値・`// Scenario:` の印・試験の名前は変えない。`EXPORT_SERIAL` は残す。
   CH02 の `export_window_tests.rs` が取り込まれていれば、同じ形にする。
   検証: `CT export_` rc=0 / `NL export_ 123` rc=0 / `bash -c '! grep -nE "testdb::pool\(\)" crates/server/src/export*_tests.rs'` rc=0
-- [ ] 5.2 `testdb_tests.rs`（足場の試験。回の database と試験ごとの database の両方を見る。書き出しの試験のファイルに置くと 5.1 の検証と 6.2 の `--lint` に落ちる）に `ch04_export_isolated_does_not_see_other_tests`（`// Scenario: 書き出しの試験は、同じ回の他の試験が消した滞在を判定しない`）を足す:
+- [x] 5.2 `testdb_tests.rs`（足場の試験。回の database と試験ごとの database の両方を見る。書き出しの試験のファイルに置くと 5.1 の検証と 6.2 の `--lint` に落ちる）に `ch04_export_isolated_does_not_see_other_tests`（`// Scenario: 書き出しの試験は、同じ回の他の試験が消した滞在を判定しない`）を足す:
   回の database（`testdb::pool()`）に消した滞在と、その時間に入る緯度経度つきの記録を置いた後、`isolated()` の database で `core.event` と `core.stay_erased` の行の数が 0 で、`export::read_summary` が記録 0 件を返す。
   検証: `CT ch04_export_isolated_does_not_see_other_tests` rc=0 / `NL ch04_export_isolated_does_not_see_other_tests 1` rc=0
-- [ ] 5.3 `testdb.rs` の `unique_day()` の注記を、隔離の理由が「回の database の中で書き出し以外の試験が共有する」に変わったことに合わせて直す（関数は変えない。D3）。
+- [x] 5.3 `testdb.rs` の `unique_day()` の注記を、隔離の理由が「回の database の中で書き出し以外の試験が共有する」に変わったことに合わせて直す（関数は変えない。D3）。
   検証: `bash -c 'grep -B6 "pub fn unique_day" crates/server/src/testdb.rs | grep -q "回の database"'` rc=0
 
 ## Task 6: 使い捨ての database の 5 か所と、database を作る書き方の検査
