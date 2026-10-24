@@ -136,11 +136,11 @@
 
 ## Task 9: 画面（design D12。`web/src/SatellitesPanel.tsx`・`satellites.ts`・`messages.ts`・`SettingsView.tsx`）と e2e
 
-- [ ] 9.1 `SatellitesPanel.tsx` を書き、`SettingsView.tsx` の書き出しの節の前に置く。API の型は `satellites.ts`、文言と拒む種別の日本語は `messages.ts`。
+- [x] 9.1 `SatellitesPanel.tsx` を書き、`SettingsView.tsx` の書き出しの節の前に置く。API の型は `satellites.ts`、文言と拒む種別の日本語は `messages.ts`。
   発行した値は state にだけ持ち、閉じたら捨てる。発行の欄・外すの確認・登録の欄は小節の中にその場で開く（同時に 1 つ）。
   jsdom では指定と勘定だけを見る（拒む種別の全部に日本語の理由があること・値が `localStorage` / `sessionStorage` に書かれないこと）。
   検証: `cd web && npm run lint && npm run test -- satellites` rc=0
-- [ ] 9.2 `web/e2e/settings-satellites.spec.ts`（本物の Chromium）。衛星 5 つ（最初の 2 つ + 3 つ）・資格情報 0〜2 本ずつを API で積んでから操作する。
+- [x] 9.2 `web/e2e/settings-satellites.spec.ts`（本物の Chromium）。衛星 5 つ（最初の 2 つ + 3 つ）・資格情報 0〜2 本ずつを API で積んでから操作する。
   Scenario: `設定画面に衛星と資格情報の節が出る`・`画面から資格情報を発行すると値がその場に 1 回だけ出る`・`画面から資格情報を取り消すと行が消える`・
   `画面から衛星を外すと確認をはさんでから外れる`・`確認で「やめる」を押すと衛星は外れない`・`画面から衛星を登録できる`・`画面で形に合わない識別子を入れると理由が出て登録されない`・
   `衛星と資格情報の節は触れる大きさと幅の下限を守る`（360 px の幅で `getBoundingClientRect` の幅と高さ・`scrollWidth <= clientWidth`・Tab で移ったフォーカスの `outline` の幅）。
