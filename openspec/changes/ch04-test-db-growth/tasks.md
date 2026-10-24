@@ -16,7 +16,6 @@
 - **件数つき検証**: このファイルで
   - **`CT <名前>`** は `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server <名前>'` rc=0
   - **`NL <名前と下限>`** は `bash -c 'set -- <名前と下限>; [ "$(cargo test -p ashiato-server "$1" -- --list 2>/dev/null | grep -c ": test$")" -ge "$2" ]'` rc=0（`cargo test` は 0 本でも rc=0 になるので、本数の下限を別に見る）
-  - **`PG <SQL>`** は `bash -c 'tools/db.sh exec -T db psql -U ashiato -d postgres -tAc "<SQL>"'`（worktree の DB の `postgres` database を読むだけ）
   （`cargo test` に絞り込みを 2 つ渡すと `unexpected argument` で落ちる。1 つずつ書く）
 - **新しく足す試験の名前の頭は `ch04_`**（design D8 の CI の絞り込み・D11）
 - **`testdb::pool()`・`app_pool()`・`url()` の引数と戻り値の型を変えない**（design D3。st09・st13 が `testdb.rs` に足した関数が rebase の後も通る）
