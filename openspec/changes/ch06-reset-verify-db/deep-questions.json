@@ -1,0 +1,136 @@
+{
+  "title": "CH06 の深掘り",
+  "subtitle": "検証のたびにテスト用 DB を作り直す",
+  "note": [
+    "全部が「仮でよい」の問いです。消えるのは worktree の試験用 DB の中身だけで、誰の記録でもなく、どれを選んでも後から選び直せます（premises.md）。推奨のままでよければ触らずに「回答をコピー」を押してください。",
+    "範囲を決める問いは Q1（走っている CH04 と狙いの大半が重なる）と Q3（Docker のネットワークの空きが尽きていて、今のままでは新しい worktree の DB が起動しない）です。ここだけは目を通してください。",
+    "聞かないで決めるもの（C1〜C6）は openspec/changes/ch06-reset-verify-db/premises.md の末尾: main の checkout（開発用の起動の DB）では作り直さない。CI は作り直す側（C1）/ 作り直しでネットワークを手放さず、古い volume は名指しで消す（C2）/ 役割は db-roles.sh、移行は testdb.rs の初回のまま（C3）/ 検査は tools/check-verify-env-reset.sh を CI の rust job で走らせる（C4）/ 検証のたびに毎回作り直す（C5。依頼の逐語）/ 作り直せなければ非 0（BLOCKED_INFRA）で、溜まった DB の上で証跡を取らない（C6）。異論があれば、どの問いの補足欄にでも番号で書いてください。"
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "範囲 —— 走っている CH04 との重なり",
+      "kind": "open",
+      "question": "CH04 が入った後も、検証のたびに worktree の試験用 DB を volume ごと作り直しますか。",
+      "why": "依頼の主因（書き出しの試験が溜まった `core.event` を全件読む）は、CH04 が別の手段で取り除く。CH06 に残る価値と、毎回の作り直しの費用を比べる範囲の問い。どれを選んでも消えるのは試験の DB だけで、後から足せる・外せる。",
+      "context": "CH04（下流が走っている。Task 10 まで済み）: `cargo test -p ashiato-server` は回ごとの database `ashiato_run_…` と、書き出しの試験ごとの database に書く。前の回の分は次の回の始まりに `DROP DATABASE` で消える。共有の `ashiato` database には試験の記録を積まない（P5）。ただし CH04 は、今 `ashiato` に溜まっている 14〜18 万行には何もしない（CH04 Q4）。`tests/server_startup.rs`・縦串・開発用の起動は `ashiato` のまま。\n\nCH06 だけが足すもの: (1) 今溜まっている `ashiato` の行と、CH04 の片付けが拾わない残り（名前の規則の外の database・役割の崩れ）も消える、(2) ハーネスの約束（「`HARNESS_VERIFY=1` なら repo は溜まった状態を作り直す」）を `tools/verify-env.sh` も守り、CI と同じ空の DB から証跡を取る、(3) どちらも、取り込んで rebase した worktree にしか効かない（`verify-env.sh` も検証している worktree の木の台本が走る）。CH04 は下流の Task 10 の途中で、先に merge される見込みが高い。\n\n費用: `verify-run` は DB を使わない検証（gradle・vitest）の前にも `verify-env.sh` を呼ぶ（P3）。作り直し 1 回は、同じ image の使い捨ての DB で 5.1〜5.5 秒（役割の整えと port の公開は含まない。P9）。10/17〜10/24 の検証は 602 回なので、毎回作り直すと 1 週間で約 1 時間（server の cargo test の証跡は同じ週に 53.5h）。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "依頼どおり作り直す（CH04 と重ねる）",
+          "detail": "印があれば毎回、この worktree の DB のコンテナと volume を消して立て直し、役割を整える。CH04 の回ごとの database と二重になるが、どちらが欠けても証跡は空の DB から取れる",
+          "recommended": true
+        },
+        {
+          "label": "`ashiato` database だけを作り直す",
+          "detail": "volume とコンテナは残し、`ashiato` を `DROP DATABASE … WITH (FORCE)` して作り直す。CH04 の回ごとの database（並んで走っている回のもの）は CH04 の片付けに任せる。速いが、名前の規則の外の残りは消えない"
+        },
+        {
+          "label": "取り下げる",
+          "detail": "CH04 の merge 後に `cargo test -p ashiato-server` の時間を測り、まだ溜まって遅くなるときだけ出し直す。ハーネスの約束は `verify-env.sh` では守らないまま"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "作り直しが、同じ worktree で動いているものを切るとき",
+      "family": {
+        "name": "作り直しが邪魔をする・できない場合",
+        "siblings": [
+          {
+            "case": "同じ worktree の DB に繋いでいるものがある",
+            "decided": "未決 Q2"
+          },
+          {
+            "case": "Docker のネットワークの空きが尽きて立て直せない",
+            "decided": "未決 Q3"
+          },
+          {
+            "case": "volume を消せない・コンテナを立て直せない",
+            "decided": "C6: 非 0 で終わる（BLOCKED_INFRA）"
+          },
+          {
+            "case": "main の checkout の DB（開発用の起動の中身）",
+            "decided": "C1: 作り直さない（CI は作り直す）"
+          },
+          {
+            "case": "古い volume が消えずに残る",
+            "decided": "C2: 名指しで消す"
+          }
+        ]
+      },
+      "kind": "open",
+      "question": "作り直しのとき、同じ worktree の DB に繋いでいるもの（手で走らせた `cargo test`・`tools/dev.sh` のサーバ・別の `verify-run`）があったらどうしますか。",
+      "why": "グラフは 1 つの worktree の中で並列にしないが、agent が背後で走らせた試験や人が立てた開発用の起動は残りうる。切ると、切られた側は理由の分からない落ち方をする。後から計算し直せる規則で、仮でよい。",
+      "context": "CH04 は同じ worktree で回が並んで走ることを想定し、助言ロックで走っている回を消さない（P6）。volume ごと作り直すと、その想定ごと消える。`tools/stack.sh` の作り直し（`HARNESS_VERIFY=1`）は、今も繋いでいるものを確かめずに消している。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "構わず作り直し、切った接続の数と出所を 1 行出す",
+          "detail": "証跡は必ず空の DB から取れる。切られた側は、verify-env の出力を見れば理由が分かる",
+          "recommended": true
+        },
+        {
+          "label": "同じ worktree の別の verify-run とだけ順番にする（ロックで待つ）",
+          "detail": "verify-run どうしは切り合わない。手で走らせたものは切る"
+        },
+        {
+          "label": "繋いでいるものがあれば作り直さず、起動だけして先へ進む",
+          "detail": "何も切らない。そのときの証跡は溜まった DB から取ることになる（出力に残す）"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "Docker のネットワークの空きが尽きている",
+      "family": {
+        "name": "作り直しが邪魔をする・できない場合",
+        "siblings": [
+          {
+            "case": "同じ worktree の DB に繋いでいるものがある",
+            "decided": "未決 Q2"
+          },
+          {
+            "case": "Docker のネットワークの空きが尽きて立て直せない",
+            "decided": "未決 Q3"
+          },
+          {
+            "case": "volume を消せない・コンテナを立て直せない",
+            "decided": "C6: 非 0 で終わる（BLOCKED_INFRA）"
+          },
+          {
+            "case": "main の checkout の DB（開発用の起動の中身）",
+            "decided": "C1: 作り直さない（CI は作り直す）"
+          },
+          {
+            "case": "古い volume が消えずに残る",
+            "decided": "C2: 名指しで消す"
+          }
+        ]
+      },
+      "kind": "open",
+      "question": "新しい worktree の DB が起動できない（Docker のネットワークのアドレスが尽きている）のを、どこで直しますか。",
+      "why": "CH06 の下流の worktree も今のままでは DB を起動できず、完了の判定 2・3 の証跡が BLOCKED_INFRA になる。直し方の 2 つは依頼の「ほかの worktree の DB には触らない」か依頼の範囲に触るので、仮で進めずに聞く。消えるのは試験の DB とネットワークだけで、どれを選んでも後から替えられる。",
+      "context": "この worktree で `tools/verify-env.sh` を走らせると `all predefined address pools have been fully subnetted` で落ちた（P4）。ネットワークは 32 個、うち `ashiato2*_default` が 25 個で、その 15 個は**もう無い worktree** のもの（ch01・ch02・st08・st12・st13・st14・st16・st19・st21・st22・st22-ra・st25・st28・st33・st47）。うち ch01・ch02・st13・st33 は DB のコンテナが今も動いている（P10）。worktree を消すときに compose を止める係がいない。\n\n明示の subnet（私設の /24 を 1 つ指定）を持つ compose project は、空きが尽きた今でもネットワークを作れた（P10。使い捨ての project で実測）。`tools/ports.sh` は worktree ごとの番号 n を台帳（`ashiato-ports`）で被らなく割り当てていて、subnet もそこから引ける。\n\nCH06 の作り直しはネットワークを手放さない（C2）が、検証として走る `stack.sh`・`smoke.sh`・`check-immutable.sh`・`check-panic-log.sh` は `down -v` で毎回手放す（P4）。空きが尽きている限り、これらの直後の `up` は他の worktree に負けうる。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "CH06 の範囲に足す: worktree ごとの subnet を台帳の番号から割り当てる",
+          "detail": "`tools/ports.sh` の番号 n から subnet を決めて compose に渡す（被らない割り当て。port と同じ規則）。既定のアドレスの空きに依らなくなり、消えた worktree のネットワークが残っていても起動できる。消えた worktree の残りは片付けない（触らない）",
+          "recommended": true
+        },
+        {
+          "label": "CH06 の外で、消えた worktree の compose project を 1 回片付ける",
+          "detail": "今の 15 個を消せば当面は起動できる。worktree を消すたびにまた溜まるので、片付ける係（ハーネスの herdr_tidy など）は別に要る。CH06 は今の形のまま"
+        },
+        {
+          "label": "Docker の `default-address-pools` を広げる（人間が OS の設定を替える）",
+          "detail": "repo は何も変えない。溜まり続ける構造は残り、広げた分だけ先へ延びる"
+        }
+      ]
+    }
+  ]
+}
