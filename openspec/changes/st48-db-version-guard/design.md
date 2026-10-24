@@ -50,7 +50,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA migration_ledger TO ashiato_app;
 - 中身は `crates/server/src/migration_ledger.sql` に置き、`include_str!` で持つ。**`migrations/ORDER` の版にしない** —— 版の記録を読む前に要り、自分自身を記録できない
 - 置き場は `core` の外（C4）。`grants.sql` の `core` の既定の権限が届かないので、アプリの役割への `USAGE` と `SELECT` は bootstrap の末尾に置く（`grants.sql` に置かない —— `grants.sql` は `tools/check-immutable.sh` が記録の schema の無い DB に psql の `ON_ERROR_STOP` で当てる。review/spec.md R11）
 - 書き出しの分類（`export.rs` は `core` だけを見る）に掛からず、書き出しにも入らない（D-01 の版の記録は本人の記録ではない）
-- **形を凍結する**（C1。spec の Requirement「DB に当てた移行の版を、DB の中に記録する」の 1 文と Scenario が持つ）: 試験が `information_schema.columns` から 2 つの表の列の名前・型・NULL 可否を読み、上の形と一字一句合うことを見る（`st48_ledger_shape_is_frozen`）。
+- **形を凍結する**（C1。形の正本は spec の Requirement「DB に当てた移行の版を、DB の中に記録する」の表。上の DDL はそれを写したもの）: 試験が `information_schema.columns` から 2 つの表の列の名前・型・NULL 可否を読み、上の形と一字一句合うことを見る（`st48_ledger_shape_is_frozen`）。
   後の版が形を変えるときは `form` を 2 に上げる —— 古い版は知らない形として止まる（D5）。列を足すだけでも `form` を上げる（古い版が読み飛ばしてよいかを古い版は知らない）
 - 所有は移行を当てる所有者の役割（`ashiato_owner`）。`db-roles.sh` は触らない（D15）
 
@@ -195,6 +195,7 @@ error: kind=db_ahead
 - [ST48 より前の組み立てが ST48 以後の DB に migrate を当てる] → 止められない（その組み立ては版の記録を知らない）。配る版は全部 ST48 を含む（Non-Goals）。開発の worktree で古い枝の組み立てを走らせると起きうる —— 前からある版は当て直せるので、門の定義は古い枝のものに戻る。次に新しい組み立てで migrate を当てても、記録上は当たっているので当て直さない（**直らない**）。開発の DB は使い捨てなので `STACK_RESET=1` で作り直す
 - [記録より前の DB を「ST48 より前」と読み違える（R2）] → 後の版が `migration_ledger` を消す・移すと、古い版はその DB を「記録の無い DB」と読んで全部を当てる。D1 で置き場と形を凍結し、形を変えるときは `form` を上げる（消さない）
 - [指紋の違いを止めない（D7）] → 印より前の版を直した worktree の DB は、直した中身が当たらないまま進む。開発の DB だけで起き、`STACK_RESET=1` で直る
+- [DB の置き場は無名の volume（`docker-compose.yml` に `volumes:` が無い）] → 容器を消す（`docker compose down`。`-v` 無しでも）と置き場が孤立し、次の `up` は空の置き場を付ける。`stack.sh down` を `docker compose stop` に替え、別の project の DB も `docker stop` だけにする（D13）。named volume に替えない —— main の checkout の DB（電話の記録が入っている）が次の `up` で空の置き場に付け替わる
 - [確認バッチの前の回の DB が積もる（D13）] → 片付けは後の change。前の回の DB の置き場は `docker volume ls` で見える
 - [`run.sh` の DB が回ごとに新しくなる] → 確認の間に電話が送った記録は、その回の DB にだけ入る（次の回の DB には無い）。前の回の DB は残るので失われない
 - [CH04 の `testdb.rs` の作り替えと衝突する] → 当てる処理を `apply_migrations` に寄せ、`testdb.rs` の差は呼び出しの数行にする。後から入る側が rebase で解く

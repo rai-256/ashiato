@@ -14,12 +14,18 @@ THE SYSTEM SHALL 移行を当てる経路（`ashiato-server migrate` と試験�
 WHEN 移行が途中で落ちる THE SYSTEM SHALL 当て終えた版だけを記録に残し、落ちた版とその後の版を記録しない。
 WHEN 版の記録の無い D-01（記録の schema `core` はある。版の記録を持たない組み立てで当ててきた）に移行を当てる THE SYSTEM SHALL 自分の知る全部の版を当て、
 全部を「版の記録より前から当たっていた」の印を付けて記録する。
-THE SYSTEM SHALL 版の記録の置き場（schema と表の名前）と列の形を、版をまたいで変えない。形を変えるときは記録の中の「形の版」を上げ、置き場を消さない・移さない。
+THE SYSTEM SHALL 版の記録を次の置き場と列の形で持ち、版をまたいで変えない。形を変えるときは記録の中の「形の版」を上げ、置き場を消さない・移さない。
+
+| 置き場 | 列（名前・型・NULL の可否） |
+|---|---|
+| schema `migration_ledger`、表 `form`（1 行だけ） | `only_row` boolean NOT NULL（主キー）/ `form` integer NOT NULL（形の版。いまは 1） |
+| schema `migration_ledger`、表 `applied`（版ごとに 1 行） | `name` text NOT NULL（主キー）/ `sha256` text NOT NULL / `applied_at` timestamp with time zone NOT NULL / `build_version` text NOT NULL / `build_commit` text NOT NULL / `before_ledger` boolean NOT NULL |
+
 導出元: FR-118
 
 #### Scenario: 版の記録の置き場と列の形は、決めた形のまま変わらない
 - **WHEN** 空の DB に版の記録の置き場を作る
-- **THEN** 版の記録の schema・表の名前と、各列の名前・型・NULL の可否は design D1 の形と一字一句同じで、形の版は 1
+- **THEN** 版の記録の schema・表の名前と、各列の名前・型・NULL の可否はこの Requirement の表と一字一句同じで、形の版は 1
 
 #### Scenario: 空の DB に移行を当てると、当てた版がすべて記録される
 - **GIVEN** 何も当たっていない空の DB
@@ -250,6 +256,7 @@ THE SYSTEM SHALL 名前の時刻が `202610250000` より前の移行には、�
 
 THE SYSTEM SHALL 確認バッチの起動（`dist/verify-<tag>/run.sh`）を、回ごとに別の DB（docker compose の project。DB の置き場の volume も project ごとに分かれる）に立て、前の回の DB を消さずに残す。
 WHEN `tools/stack.sh` が、同じ待ち受けの port を別の project の DB が持っているのに当たる THE SYSTEM SHALL その DB を止める（消さない）だけにし、置き場を残す。
+THE SYSTEM SHALL `tools/stack.sh down` を、DB の容器を止めるだけにする（容器を消さない。DB の置き場は容器に付いた無名の volume なので、容器を消すと置き場が孤立する）。
 WHEN `tools/stack.sh` の移行が版の食い違い（終了コード 3）で止まる THE SYSTEM SHALL DB を作り直さずに止まり、使い捨ての DB なら作り直す手順（`STACK_RESET=1`）と、
 残す DB なら別の project で立てる手順（`COMPOSE_PROJECT_NAME=<名前>`）を示す。
 THE SYSTEM SHALL `STACK_RESET=1` で作り直した DB（縦串・e2e・確認の試験）には、今までどおり退避を取らずに全部の版を当てて立てる。
@@ -260,7 +267,7 @@ THE SYSTEM SHALL `STACK_RESET=1` で作り直した DB（縦串・e2e・確認�
 - **THEN** その `run.sh` は、回の名前を含む project の名前を `COMPOSE_PROJECT_NAME` として `tools/stack.sh` に渡し、回の名前が違えば project の名前も違う
 
 #### Scenario: 別の project で立てると、前の DB は残る
-- **GIVEN** project A で立てて記録を 1 件入れた DB
+- **GIVEN** project A で立てて記録を 1 件入れ、`tools/stack.sh down` で止めた DB
 - **WHEN** `COMPOSE_PROJECT_NAME` に別の名前 B を渡して `tools/stack.sh up --check-only` を走らせる
 - **THEN** B の DB に全部の版が当たってサーバが `/healthz` に答える
 - **AND** project A の DB をもう一度起こすと、記録の 1 件はそのまま残っている

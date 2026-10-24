@@ -117,8 +117,7 @@
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
 - [ ] 6.2 `.github/workflows/ci.yml` の rust の job の `./tools/check-migrations.sh` の後に、タグの取り寄せ（`git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`）と、
   `./tools/check-released-migrations.sh --self-test`・`./tools/check-released-migrations.sh` を足す。`docs/testing.md` の手元で走らせる一覧（§ の `./tools/check-migrations.sh` の行）にも足す。
-  `docs/handoff/ST52.md` に「配った印のタグの型は `v*`。別の型にするなら `tools/check-released-migrations.sh` の型を一緒に変える（ST48 design D9）」を足す。
-  検証: `bash -c 'grep -q "check-released-migrations.sh --self-test" .github/workflows/ci.yml && grep -q "refs/tags/v" .github/workflows/ci.yml && grep -q check-released-migrations docs/testing.md && grep -q check-released-migrations docs/handoff/ST52.md'` rc=0
+  検証: `bash -c 'grep -q "check-released-migrations.sh --self-test" .github/workflows/ci.yml && grep -q "refs/tags/v" .github/workflows/ci.yml && grep -q check-released-migrations docs/testing.md'` rc=0
 
 ## Task 7: これから足す版の規則
 
@@ -132,15 +131,17 @@
 
 - [ ] 8.1 `tools/verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す（design D13）。
   `tools/stack.sh` は DB を起こす前に、`ASHIATO_DB_PORT` を公開している容器が別の compose の project のものなら `docker stop` する（`down` しない）。止めたら 1 行出す。
+  `tools/stack.sh down` の `docker compose down` を `docker compose stop` に替える（容器を消すと無名の volume の置き場が孤立する。design の Risks）。
   `tools/stack.sh` と `tools/dev.sh` は、`migrate` の終了コードが 3 なら作り直さずに design D14 の手順（`STACK_RESET=1` と `COMPOSE_PROJECT_NAME=<別の名前>`）を出して終了コード 3 で止まる。
   `tools/db-roles.sh` の冒頭の注記に D15 の 1 文、`tools/check-immutable.sh` の「run() は起動のたびに全版を当てる」の注記を D12 の文に直す。
   検証: `bash -n tools/stack.sh tools/dev.sh tools/verify-prep.sh` rc=0 / `bash -c 'grep -q COMPOSE_PROJECT_NAME tools/verify-prep.sh && grep -q "STACK_RESET=1" tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/dev.sh'` rc=0
 - [ ] 8.2 `tools/check-db-version-stop.sh` を足す（新しいファイル。共有の台本に書き足さない）。始めに、この worktree の DB の port を持っている容器の名前を覚え、終わりに起こし直す。
   試験の project（`st48-a-<乱数>`・`st48-b-<乱数>`）は終わりに `down -v` で消す。退避の置き場は `"$TMPDIR"` の下。次を走らせ、それぞれに `echo "Scenario: …"` を出す:
   `Scenario: 確認バッチの起動は、回ごとの project に立つ`（`verify-prep.sh` の `run.sh` を書く部分を 2 つの違う tag で書かせるか、書かれた本文の `COMPOSE_PROJECT_NAME=` の行を取り出し、tag を含み、2 つで違う）/
-  `Scenario: 別の project で立てると、前の DB は残る`（A で `stack.sh up --check-only` → `core.event` に 1 件 → B で `stack.sh up --check-only` が rc=0 → A を起こし直して 1 件ある）/
+  `Scenario: 別の project で立てると、前の DB は残る`（A で `stack.sh up --check-only` → `core.event` に 1 件 → A で `stack.sh down` → B で `stack.sh up --check-only` が rc=0 → A を起こし直して 1 件ある）/
   `Scenario: 版の食い違いで止まると、作り直さずに手順を示す`（A の `migration_ledger.applied` に知らない版の行を足して `stack.sh up --check-only` が rc≠0、出力に `STACK_RESET=1` と `COMPOSE_PROJECT_NAME` があり、1 件と行が残る）/
   `Scenario: 作り直した DB には、今までどおり全部が当たる`（`STACK_RESET=1` で rc=0、記録の名前の集合が `ORDER` と一致し、退避の置き場に新しいファイルが無い）。
+  サーバは `SERVER_BIN` で渡せる（CI では smoke が作った `target/debug/ashiato-server` を渡し、release の cold build を避ける）。
   CI の smoke の job の `./tools/check-immutable.sh` の後に足し、`docs/testing.md` の手元の一覧（`./tools/smoke.sh && …` の行）にも足す。
   検証: `scripts/quiet-run dbstop -- tools/check-db-version-stop.sh` rc=0 / `bash -c 'grep -q check-db-version-stop .github/workflows/ci.yml && grep -q check-db-version-stop docs/testing.md'` rc=0
 
