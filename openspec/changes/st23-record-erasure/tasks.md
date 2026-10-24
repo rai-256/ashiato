@@ -95,7 +95,7 @@
 
 ## Task 5: 取り込みの直後に後着の印を付け、本文を消した時間帯なら同じまとまりで消す（design D8。申し送り R8）
 
-- [ ] 5.1 `stay_store::settle_arrival(tx, &stored)` を置き、`lib.rs` の `ingest_request` に `Settle::InTx` / `Settle::Later` の引数を足して、`ingest_one`（HTTP）から入った記録だけトランザクションの中（commit の前）で呼ぶ
+- [x] 5.1 `stay_store::settle_arrival(tx, &stored)` を置き、`lib.rs` の `ingest_request` に `Settle::InTx` / `Settle::Later` の引数を足して、`ingest_one`（HTTP）から入った記録だけトランザクションの中（commit の前）で呼ぶ
   （`store_with`・書庫の取り込み器は `Later`。design D8（仮）。spec review R1）。位置（と位置を持つ書庫の項目）のときだけ錠を取り、消した時間帯なら `user:late`、本文を消した時間帯なら加えて本文を消し、
   `kind = 'late'` の操作の行と記録ごとの台帳の行を積む（Task 2 の消去の関数を使う）。範囲の行が無い時間帯（design D14）は印だけ。`rebuild_day` の `mark_late_arrivals` は残す。応答は変えない。
   Scenario: `本文ごと消した時間に端末から届いた位置は本文が消える` / `端末から届いた位置は本文を持ったまま確定しない` / `後から届いて本文を消した記録は元の操作に結ばれる` / `本文ごと消した時間の外に届いた位置は本文が残る` /
