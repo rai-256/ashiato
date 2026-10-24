@@ -124,6 +124,9 @@ mod media_summary_tests;
 #[cfg(test)]
 mod media_tests;
 pub mod migrate_backup;
+pub mod migration_ledger;
+#[cfg(test)]
+mod migration_ledger_tests;
 pub mod net_guard;
 /// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
 pub mod outage;
