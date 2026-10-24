@@ -24,7 +24,7 @@ fn quiet_app(pool: PgPool) -> App {
     }
 }
 
-async fn app() -> App {
+pub(crate) async fn app() -> App {
     quiet_app(testdb::pool().await)
 }
 
@@ -35,7 +35,7 @@ fn headers() -> axum::http::HeaderMap {
 }
 
 /// 位置の記録 1 件ぶんの JSON（`c01-location`。`lat` を変えれば内容の鍵が変わる）。
-fn location(user: Uuid, hhmm: &str, lat: f64) -> serde_json::Value {
+pub(crate) fn location(user: Uuid, hhmm: &str, lat: f64) -> serde_json::Value {
     let raw = format!(r#"{{"lat":{lat},"lon":139.76,"acc_m":10}}"#);
     serde_json::json!({
         "id": Uuid::new_v4(),
@@ -60,12 +60,12 @@ async fn send(app: &App, items: Vec<serde_json::Value>) -> Vec<IngestResult> {
     results
 }
 
-async fn send_one(app: &App, item: serde_json::Value) -> IngestResult {
+pub(crate) async fn send_one(app: &App, item: serde_json::Value) -> IngestResult {
     send(app, vec![item]).await.remove(0)
 }
 
 /// 10:00–11:00 の滞在を「消した」にして本文ごと消す。
-async fn purged_scene(pool: &PgPool, user: Uuid) -> Uuid {
+pub(crate) async fn purged_scene(pool: &PgPool, user: Uuid) -> Uuid {
     let (stay, _) = scene_basic(pool, user).await;
     scene_erase(pool, stay).await;
     purge_now(pool, stay).await;

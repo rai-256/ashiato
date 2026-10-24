@@ -160,6 +160,9 @@ mod purge_api_tests;
 pub mod purge_compaction;
 #[cfg(test)]
 mod purge_compaction_tests;
+/// 1 日の並びに出る「本文ごと消した」の区間を本物の DB で見る（ST23 Task 9 / design D12）。
+#[cfg(test)]
+mod purge_day_tests;
 /// 消えずに残るものと、本文を消しても変わらない稼働状況・後に消した記録の数を見る（ST23 Task 8 / design D10 / D18）。
 #[cfg(test)]
 mod purge_keep_tests;

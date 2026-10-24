@@ -2176,6 +2176,9 @@ async fn stay_day_view_empty_day_is_all_no_record() {
             id: None,
             criteria_id: None,
             stay_ids: None,
+            purged: false,
+            purge_stay_id: None,
+            late_purged: None,
         }]
     );
     assert!(v.criteria.is_empty());

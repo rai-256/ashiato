@@ -2638,6 +2638,27 @@
           "kind": {
             "$ref": "#/components/schemas/EntryKind"
           },
+          "late_purged": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "後から届いて本文を消した件数（本文ごと消した区間だけ）",
+            "minimum": 0
+          },
+          "purge_stay_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "本文ごと消すときに指定した滞在の識別子（本文ごと消した区間だけ）"
+          },
+          "purged": {
+            "type": "boolean",
+            "description": "本文ごと消した区間（「消した」の行だけ。`stay_ids` は持たず、戻せない。design D12）"
+          },
           "start": {
             "type": "string",
             "format": "date-time"

@@ -1350,6 +1350,31 @@ pub struct DayEntry {
     /// この「消した」区間から戻せる、本人が消した滞在の識別子
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stay_ids: Option<Vec<uuid::Uuid>>,
+    /// 本文ごと消した区間（「消した」の行だけ。`stay_ids` は持たず、戻せない。design D12）
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub purged: bool,
+    /// 本文ごと消すときに指定した滞在の識別子（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purge_stay_id: Option<uuid::Uuid>,
+    /// 後から届いて本文を消した件数（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_purged: Option<u32>,
+}
+
+impl DayEntry {
+    fn plain(kind: EntryKind, start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+        Self {
+            kind,
+            start,
+            end,
+            id: None,
+            criteria_id: None,
+            stay_ids: None,
+            purged: false,
+            purge_stay_id: None,
+            late_purged: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1458,27 +1483,28 @@ pub async fn day_view(
             }
         }
         entries.push(DayEntry {
-            kind: EntryKind::Stay,
-            start,
-            end,
             id: Some(r.id),
             criteria_id: tag.map(|t| t.criteria_id),
-            stay_ids: None,
+            ..DayEntry::plain(EntryKind::Stay, start, end)
         });
     }
     tags.sort_by_key(|t| std::cmp::Reverse(t.criteria_id));
 
     // **本人が消した滞在と、消した時間帯で隠した滞在を「消した」の行にする**（design D7）。
     // 吸収された滞在は吸収先が同じ時間を持つので数えない。読み出しは座標を持たない専用ビュー越しに限る（D12）。
+    // **本文ごと消した滞在は別の行にする**（design D12）。指定した滞在の時間（D13）をそのまま持ち、
+    // 本文を消していない「消した」とはまとめず、「消した」の区間はその分を差し引く。
     #[derive(sqlx::FromRow)]
     struct HiddenRow {
         id: uuid::Uuid,
         start_at: DateTime<Utc>,
         end_at: DateTime<Utc>,
         deleted_by: Option<String>,
+        purged: bool,
+        operation_id: Option<uuid::Uuid>,
     }
     let hidden_rows: Vec<HiddenRow> = sqlx::query_as(
-        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+        "SELECT id, start_at, end_at, deleted_by, purged, operation_id FROM core.stay_erased
           WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
             AND start_at < $2 AND end_at > $3
           ORDER BY start_at, id",
@@ -1489,13 +1515,47 @@ pub async fn day_view(
     .bind(ABSORBED)
     .fetch_all(pool)
     .await?;
-    let mut hidden: Vec<ErasedSpan> = Vec::new();
-    for row in hidden_rows {
+    let mut purged_spans: Vec<ErasedSpan> = Vec::new();
+    for row in hidden_rows.iter().filter(|r| r.purged) {
+        let (start, end) = (row.start_at.max(d0), row.end_at.min(upper));
+        if start >= end {
+            continue;
+        }
+        let late: i64 = match row.operation_id {
+            Some(op) => {
+                sqlx::query_scalar(
+                    "SELECT coalesce(sum(stays + locations + archive_locations + archive_items), 0)::bigint
+                       FROM core.erasure_operation
+                      WHERE kind = 'late' AND parent_id = $1",
+                )
+                .bind(op)
+                .fetch_one(pool)
+                .await?
+            }
+            None => 0,
+        };
+        entries.push(DayEntry {
+            purged: true,
+            purge_stay_id: Some(row.id),
+            late_purged: Some(u32::try_from(late).unwrap_or(u32::MAX)),
+            ..DayEntry::plain(EntryKind::Erased, start, end)
+        });
+        purged_spans.push(ErasedSpan {
+            start,
+            end,
+            stay_ids: Vec::new(),
+        });
+    }
+    purged_spans.sort_by_key(|s| s.start);
+
+    let mut fragments: Vec<ErasedSpan> = Vec::new();
+    for row in hidden_rows.into_iter().filter(|r| !r.purged) {
         let HiddenRow {
             id,
             start_at: start,
             end_at: end,
             deleted_by,
+            ..
         } = row;
         let start = start.max(d0);
         let end = end.min(upper);
@@ -1512,6 +1572,7 @@ pub async fn day_view(
                 "SELECT id FROM core.stay_erased
                    WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
                      AND start_at < $4 AND end_at > $3
+                     AND NOT purged
                      AND (deleted_by IS NULL OR deleted_by NOT LIKE $5)
                    ORDER BY start_at, id",
             )
@@ -1527,27 +1588,33 @@ pub async fn day_view(
         };
         causes.sort_unstable();
         causes.dedup();
-        if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
-            last.end = last.end.max(end);
-            last.stay_ids.extend(causes);
-            last.stay_ids.sort_unstable();
-            last.stay_ids.dedup();
-        } else {
-            hidden.push(ErasedSpan {
+        for (start, end) in subtract_spans(start, end, &purged_spans) {
+            fragments.push(ErasedSpan {
                 start,
                 end,
-                stay_ids: causes,
+                stay_ids: causes.clone(),
             });
         }
     }
+    fragments.sort_by_key(|f| f.start);
+    let mut hidden: Vec<ErasedSpan> = Vec::new();
+    for span in fragments {
+        if let Some(last) = hidden.last_mut().filter(|last| span.start <= last.end) {
+            last.end = last.end.max(span.end);
+            last.stay_ids.extend(span.stay_ids);
+            last.stay_ids.sort_unstable();
+            last.stay_ids.dedup();
+        } else {
+            hidden.push(span);
+        }
+    }
     entries.extend(hidden.iter().map(|span| DayEntry {
-        kind: EntryKind::Erased,
-        start: span.start,
-        end: span.end,
-        id: None,
-        criteria_id: None,
         stay_ids: Some(span.stay_ids.clone()),
+        ..DayEntry::plain(EntryKind::Erased, span.start, span.end)
     }));
+    // 記録なしを測るときは、本文ごと消した時間も消した時間と同じに「記録なし」にしない
+    hidden.extend(purged_spans);
+    hidden.sort_by_key(|s| s.start);
 
     // 記録なし。読む窓の端を「その外側に記録がある」とみなさない仮の点にして、頭と尻も同じ規則で測る
     let observed: Vec<DateTime<Utc>> = load_points(pool, user, &c.sources, d0 - gap, d1 + gap)
@@ -1576,14 +1643,7 @@ pub async fn day_view(
             if s >= e {
                 continue;
             }
-            entries.push(DayEntry {
-                kind: EntryKind::NoRecord,
-                start: s,
-                end: e,
-                id: None,
-                criteria_id: None,
-                stay_ids: None,
-            });
+            entries.push(DayEntry::plain(EntryKind::NoRecord, s, e));
             covered.push((s, e));
         }
     }
@@ -1605,26 +1665,12 @@ pub async fn day_view(
     let mut cursor = d0;
     for (s, e) in covered {
         if s > cursor && cursor < move_upper {
-            entries.push(DayEntry {
-                kind: EntryKind::Move,
-                start: cursor,
-                end: s.min(move_upper),
-                id: None,
-                criteria_id: None,
-                stay_ids: None,
-            });
+            entries.push(DayEntry::plain(EntryKind::Move, cursor, s.min(move_upper)));
         }
         cursor = cursor.max(e);
     }
     if cursor < move_upper {
-        entries.push(DayEntry {
-            kind: EntryKind::Move,
-            start: cursor,
-            end: move_upper,
-            id: None,
-            criteria_id: None,
-            stay_ids: None,
-        });
+        entries.push(DayEntry::plain(EntryKind::Move, cursor, move_upper));
     }
 
     entries.sort_by(|a, b| a.start.cmp(&b.start).then(a.kind.cmp(&b.kind)));
