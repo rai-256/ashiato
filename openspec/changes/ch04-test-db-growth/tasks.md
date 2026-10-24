@@ -71,10 +71,10 @@
 
 ## Task 4: 問い合わせの時間の上限
 
-- [ ] 4.1 design D7 のとおり、試験の足場の全部の接続に `statement_timeout` を置く（既定 60 秒、`ASHIATO_TEST_STATEMENT_TIMEOUT` で替える。`0` で上限なし）。
+- [x] 4.1 design D7 のとおり、試験の足場の全部の接続に `statement_timeout` を置く（既定 60 秒、`ASHIATO_TEST_STATEMENT_TIMEOUT` で替える。`0` で上限なし）。
   環境変数の値から上限を決める部分は純粋な関数 `statement_timeout_from(Option<&str>)` にし、上限を引数で受けて接続を作る内側の関数を足場に置く（環境変数は外側だけが読む）。
   検証: `cargo build -p ashiato-server --tests` rc=0
-- [ ] 4.2 `testdb_tests.rs` に 3 本を足す（環境変数を試験の中で書き換えない。並走する試験に効く）:
+- [x] 4.2 `testdb_tests.rs` に 3 本を足す（環境変数を試験の中で書き換えない。並走する試験に効く）:
   `ch04_statement_timeout_cancels_a_long_query`（`// Scenario: 上限を超える問い合わせは、止まって失敗する`。上限を 1 秒にした足場の接続で `SELECT pg_sleep(5)` が 5 秒より前に失敗し、SQLSTATE が `57014`）/
   `ch04_statement_timeout_default_is_set`（`// Scenario: 上限の既定は 60 秒で、試験の足場の接続に入っている`。`testdb::pool()` の `SHOW statement_timeout` が `1min`。CI と verify-run は環境変数を渡さない）/
   `ch04_statement_timeout_from_env_value`（`// Scenario: 環境変数の値が上限になり、0 なら上限を置かない`。`statement_timeout_from(None)` が 60 秒・`Some("1s")` が 1 秒・`Some("0")` が上限なし）。
