@@ -1,0 +1,4 @@
+{"title": "ST48 の仕様への合意", "subtitle": "古い版が新しい DB を書き換えない",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/ST48-spec.html",
+                "question": "この GO 資料のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
