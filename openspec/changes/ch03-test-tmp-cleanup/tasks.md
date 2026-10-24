@@ -57,14 +57,14 @@
 
 ## Task 2: サーバの書き出しの試験と、panic しても消えることの試験
 
-- [ ] 2.1 `crates/server/src/export_tests.rs` の `tmp_dir()` を `TempDir` を返す形にし（名前の頭 `ashiato-export-<name>-` は残す）、呼び出し 57 か所（`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`）を
+- [x] 2.1 `crates/server/src/export_tests.rs` の `tmp_dir()` を `TempDir` を返す形にし（名前の頭 `ashiato-export-<name>-` は残す）、呼び出し 57 か所（`export_tests.rs`・`export_file_tests.rs`・`export_job_tests.rs`）を
   束縛して最後まで持つ形に直す。`export_file_tests.rs:619` の `std::env::temp_dir()`（一時フォルダを**読むだけ**）は、同じ行か 1 行上に `// tmp-ok: 書き出しが一時フォルダに漏れていないかを読むだけ` を書く（design D4）。
   `crates/server/src/migrate_backup.rs:207` の試験の手伝いも同じ形に直す。
   検証: `CT export_` rc=0 / `NL export_ 99` rc=0 / `CT migrate_backup` rc=0 / `NL migrate_backup 4` rc=0
-- [ ] 2.2 `ch03_tmp_dir_is_removed_even_if_the_test_panics` を `export_tests.rs` に足す —— `// Scenario: Rust の試験が panic しても、試験の一時フォルダは消える`。
+- [x] 2.2 `ch03_tmp_dir_is_removed_even_if_the_test_panics` を `export_tests.rs` に足す —— `// Scenario: Rust の試験が panic しても、試験の一時フォルダは消える`。
   `std::panic::catch_unwind` の中で `tmp_dir("ch03")` を受け取り、中にファイルを書き、その path を外へ写してから panic し、外で `catch_unwind` が `Err` であることと、写した path が `exists()` でないことを見る（DB は使わない）。
   検証: `CT ch03_tmp_dir` rc=0 / `NL ch03_tmp_dir 1` rc=0
-- [ ] 2.3 書き出しの試験が一時フォルダに残さないこと。
+- [x] 2.3 書き出しの試験が一時フォルダに残さないこと。
   検証: `LK rust -p ashiato-server export_` rc=0
 
 ## Task 3: サーバの書庫の試験
