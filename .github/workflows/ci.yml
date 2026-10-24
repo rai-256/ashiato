@@ -84,6 +84,9 @@ jobs:
       - run: ./tools/check-no-time-server.sh
       - run: ./tools/check-no-time-server.sh --self-test
       - run: ./tools/check-ports.sh --self-test
+      # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
+      - run: ./tools/check-satellite-boundary.sh --self-test
+      - run: ./tools/check-satellite-boundary.sh
   # C-02（Windows 収集）の**実機側**。ubuntu の runner には Windows が無いので、
   # `cargo test` は cfg(windows) の中身を 1 行もコンパイルしない ——
   # **書いたまま腐る**ので、windows 向けにクロスで型検査だけ通す（ST07 / design D20）。
