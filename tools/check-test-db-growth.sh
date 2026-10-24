@@ -3,6 +3,7 @@
 #
 #   ./tools/check-test-db-growth.sh [cargo test の引数…]  → 試験を 2 回続けて走らせ、database が積もらないことを見る
 #                                                            （引数が無ければ `-p ashiato-server`。rc=0 通過 / 試験の rc / rc=1 積もった）
+#                                                            `--lint`・`--self-test`・`-h`・`--help` 以外の引数（`--workspace` なども）はそのまま cargo test へ渡す
 #   ./tools/check-test-db-growth.sh --lint       → 本物の木を検査する（rc=0 通過 / rc=1 違反 / rc=2 使い方）
 #   ./tools/check-test-db-growth.sh --self-test  → 偽の木で、落ちるべきものが落ち、通すべきものが通ることを確かめる
 #
@@ -28,12 +29,12 @@ cd "$(dirname "$0")/.."
 lint() {
   local root=$1 bad=0 hits
   # 1 つ目: CREATE DATABASE。`file:line:text` を挙げ、同じ行か 1 行上の db-ok: で通す
-  hits=$(cd "$root" && grep -rnE 'CREATE DATABASE' crates/server/src crates/server/tests --include='*.rs' 2>/dev/null \
+  hits=$(cd "$root" && grep -rniE 'CREATE DATABASE' crates/server/src crates/server/tests --include='*.rs' 2>/dev/null \
     | grep -v '^crates/server/src/testdb\.rs:' || true)
   # 行頭が // の説明の行（/// も）は、書き方でなく文章なので見ない
   hits=$(grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' <<<"$hits" || true)
   report "$root" "$hits" "CREATE DATABASE は testdb.rs の中だけに書く。試験ごとの写しは testdb::isolated()、空の使い捨ては testdb::scratch() を使う。持ち主のいない回の database を作る片付けの試験などは、同じ行か 1 行上に db-ok: <理由> を書く" || bad=1
-  # 2 つ目: 書き出しの試験の testdb::pool()
+  # 2 つ目: 書き出しの試験の testdb::pool()。Rust の識別子は大文字と小文字を分けるので、わざと字のとおりに比べる
   hits=$(cd "$root" && grep -HnE 'testdb::pool\(\)' crates/server/src/export*_tests.rs 2>/dev/null || true)
   report "$root" "$hits" "書き出しの試験は回の database を共有しない。試験ごとの database を取る testdb::isolated() を使う（回の database を見ること自体を確かめるなら、同じ行か 1 行上に db-ok: <理由> を書く）" || bad=1
   return $bad
@@ -128,6 +129,9 @@ self_test() {
   printf '// db-ok:\nsqlx::raw_sql("CREATE DATABASE x");\n' >"$tmp/t/crates/server/src/x_tests.rs"
   run
   want "理由の無い db-ok: は通さない" "$([[ $rc == 1 ]]; echo $?)"
+  printf 'sqlx::raw_sql("create database x");\n' >"$tmp/t/crates/server/src/x_tests.rs"
+  run
+  want "小文字の create database も rc=1" "$([[ $rc == 1 ]]; echo $?)"
 
   echo "Scenario: 書き出しの試験が回の database を取ると、検査が落とし、試験ごとの database を示す"
   fake
@@ -172,6 +176,16 @@ self_test() {
   g "$A" "$A $R1" "$A $R2 ${R2}_tmp_cccccccccccc"
   want "使い捨てが残っても rc=1" "$([[ $rc == 1 ]]; echo $?)"
 
+  echo "最後の回の id が 2 つ以上残っていれば、名前を挙げて落ちる（回の id は ashiato_run_ と 16 進 12 桁の小文字）"
+  R3="ashiato_run_cccccccccccc"
+  g "$A" "$A $R1" "$A $R2 $R3"
+  want "回の id が 2 つなら rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  want "2 つの id を挙げる" "$(grep -q "$R2" <<<"$out" && grep -q "$R3" <<<"$out"; echo $?)"
+  g "$A" "$A $R1" "$A $R2 ${R2}_tpl"
+  want "同じ回の id の別の database は 1 つと数え rc=0" "$([[ $rc == 0 ]]; echo $?)"
+  g "$A" "$A $R1" "$A $R2 ashiato_run_gggggggggggg ashiato_run_ABCDEF012345 ashiato_run_aaaaaaaaaaa"
+  want "16 進 12 桁の小文字でない名前は回の id と数えず rc=0" "$([[ $rc == 0 ]]; echo $?)"
+
   echo "Scenario: ashiato database が消えていれば落ちる"
   g "$A" "$A $R1" "postgres $R2"
   want "ashiato が無ければ rc=1" "$([[ $rc == 1 ]]; echo $?)"
@@ -198,6 +212,6 @@ self_test() {
 case "${1:-}" in
   --lint) lint "$PWD" && echo "check-test-db-growth: OK" ;;
   --self-test) self_test ;;
-  --*) echo "使い方: $0 [cargo test の引数…] | --lint | --self-test" >&2; exit 2 ;;
+  -h|--help) echo "使い方: $0 [cargo test の引数…] | --lint | --self-test（ほかの引数は cargo test へそのまま渡す）" ;;
   *) growth "$@" ;;
 esac

@@ -318,16 +318,18 @@ async fn ch04_sweep_keeps_a_running_run_without_connections() {
         "ashiato_run_{}",
         &uuid::Uuid::new_v4().simple().to_string()[..12]
     );
-    create_empty_database(&admin, &id).await;
-    // 別の接続でその回の助言ロックを持つ（database には繋がない）。
+    // 別の接続でその回の助言ロックを持つ（database には繋がない）。作る前に持つ —— 作ってから持つと、
+    // その間に別の過程の片付けが持ち主のいない回として消せる。
     let url = testdb::url();
     let postgres_url = format!("{}/postgres", &url[..url.rfind('/').unwrap()]);
     let mut holder = sqlx::PgConnection::connect(&postgres_url).await.unwrap();
-    sqlx::query("SELECT pg_advisory_lock(4820253, hashtext($1))")
+    sqlx::query("SELECT pg_advisory_lock($1, hashtext($2))")
+        .bind(testdb::LOCK_RUN_CLASS)
         .bind(&id)
         .execute(&mut holder)
         .await
         .unwrap();
+    create_empty_database(&admin, &id).await;
 
     testdb::sweep().await;
     let kept = database_exists(&id).await;

@@ -52,11 +52,14 @@ self_test() {
   grep -q '^N=300000 M=25 seconds=3.0 summary_seconds=0.5$' <<<"$out" || { echo "1 点目の値が違う: $out" >&2; exit 1; }
   grep -q '^N=1200000 M=100 seconds=12.0 summary_seconds=0.5$' <<<"$out" || { echo "3 点目の値が違う: $out" >&2; exit 1; }
   [ "$(grep -c '前の組との比 seconds=2.00 summary_seconds=1.00' <<<"$out")" -eq 2 ] || { echo "比が違う: $out" >&2; exit 1; }
-  # 比が大きくても rc は 0（比で合否を決めない）
-  EXPORT_SCALING_CMD='echo "kind=export rows=1 seconds=$((RANDOM % 2 + 1000)).0 summary_seconds=1.0"' run_points >/dev/null \
-    || { echo "比で落ちた" >&2; exit 1; }
-  # 試験が落ちたら、その rc で落ちる
+  # 比が大きくても rc は 0（比で合否を決めない）。seconds を N の 2 乗で伸ばし、隣り合う比を 4.00 にする
   local rc=0
+  out=$(EXPORT_SCALING_CMD='k=$((ASHIATO_EXPORT_VOLUME_ROWS / 100000)); echo "kind=export rows=1 seconds=$((k * k)).0 summary_seconds=1.0"' run_points) \
+    || rc=$?
+  [ "$rc" -eq 0 ] || { echo "比で落ちた: rc=$rc" >&2; exit 1; }
+  [ "$(grep -c '前の組との比 seconds=4.00 summary_seconds=1.00' <<<"$out")" -eq 2 ] || { echo "大きな比を出さない: $out" >&2; exit 1; }
+  # 試験が落ちたら、その rc で落ちる
+  rc=0
   EXPORT_SCALING_CMD='exit 7' run_points >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 7 ] || { echo "試験の rc を返さない: rc=$rc" >&2; exit 1; }
   # 時間の行が無ければ rc=2
