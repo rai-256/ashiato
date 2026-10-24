@@ -7,9 +7,9 @@
 //! - `pg_class.relfilenode` を前後で比べ、替わらなければ失敗（権限が無いと `VACUUM FULL` は警告だけで成功を返す）
 //! - 残すのは表の名前・時刻・結果・SQLSTATE だけ（記録の値は含めない）
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use chrono::{DateTime, Duration as ChronoDuration, FixedOffset, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, NaiveTime, TimeZone, Utc};
 use sqlx::PgPool;
 
 /// 書き直す表（`core.purge_compaction.table_name` の CHECK と同じ 2 表）。
@@ -114,16 +114,17 @@ pub async fn run_once(
     }
     let mut results = Vec::new();
     for table in targets {
-        let started = Instant::now();
+        // 始まりと終わりは DB の時計で実際の時刻を残す（書き出しの待ちの後。`now` は対象の締め切りだけに使う）
+        let started_at: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(pool)
+            .await?;
         let (outcome, sqlstate) = rewrite(pool, table).await;
-        let finished_at = now + ChronoDuration::from_std(started.elapsed()).unwrap_or_default();
         sqlx::query(
             "INSERT INTO core.purge_compaction (table_name, started_at, finished_at, outcome, sqlstate)
-             VALUES ($1, $2, $3, $4, $5)",
+             VALUES ($1, $2, clock_timestamp(), $3, $4)",
         )
         .bind(table)
-        .bind(now)
-        .bind(finished_at)
+        .bind(started_at)
         .bind(outcome)
         .bind(&sqlstate)
         .execute(pool)

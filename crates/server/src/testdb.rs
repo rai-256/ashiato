@@ -551,6 +551,120 @@ pub async fn app_pool() -> sqlx::PgPool {
         })
 }
 
+/// 試験専用の使い捨て DB（所有者の接続・アプリの役割の接続つき）。表ごと書き直す（`VACUUM FULL`）ような、
+/// 共有の DB の上では並んだ試験を止めてしまう操作のための場所。落ちても `Drop` が DB を捨てる。
+pub struct ScratchDb {
+    name: String,
+    pub owner: sqlx::PgPool,
+    pub app: sqlx::PgPool,
+}
+
+/// 接続の URL の DB 名だけを差し替える（利用者・合言葉・port は触らない）。
+fn with_database(url: &str, database: &str) -> String {
+    let Some(at) = url.rfind('@') else {
+        return url.to_string();
+    };
+    let rest = &url[at + 1..];
+    let Some(slash) = rest.find('/') else {
+        return url.to_string();
+    };
+    let tail = rest[slash + 1..]
+        .find('?')
+        .map_or("", |q| &rest[slash + 1..][q..]);
+    format!("{}@{}/{database}{tail}", &url[..at], &rest[..slash])
+}
+
+pub async fn scratch() -> ScratchDb {
+    let admin = pool().await;
+    let name = format!("scratch_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE DATABASE {name}"))
+        .execute(&admin)
+        .await
+        .unwrap_or_else(|e| panic!("使い捨ての DB を作れない: {e}"));
+    let connect = |url: String| async move {
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await
+            .unwrap()
+    };
+    let owner = connect(with_database(&url(), &name)).await;
+    let app = connect(with_database(
+        &with_port(&url_from_env("DATABASE_URL"), db_port()),
+        &name,
+    ))
+    .await;
+    let mut tx = owner.begin().await.unwrap();
+    for sql in crate::MIGRATIONS {
+        sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::raw_sql(crate::GRANTS)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    ScratchDb { name, owner, app }
+}
+
+impl std::fmt::Debug for ScratchDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScratchDb")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for ScratchDb {
+    fn drop(&mut self) {
+        // 試験の実行環境の中では await できないので、別の線で捨てる。
+        // 所有者はアプリの役割の接続を切れない（FORCE が使えない）ので、役割ごとに自分の接続を切ってから捨てる
+        let urls = [url(), with_port(&url_from_env("DATABASE_URL"), db_port())];
+        let (admin_url, name) = (urls[0].clone(), self.name.clone());
+        let _ = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                for url in &urls {
+                    let Ok(c) = PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect(&with_database(url, &name))
+                        .await
+                    else {
+                        continue;
+                    };
+                    let _ = sqlx::query(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+                          WHERE datname = current_database() AND usename = current_user
+                            AND pid <> pg_backend_pid()",
+                    )
+                    .execute(&c)
+                    .await;
+                }
+                let Ok(admin) = PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&admin_url)
+                    .await
+                else {
+                    return;
+                };
+                for _ in 0..50 {
+                    if sqlx::query(&format!("DROP DATABASE IF EXISTS {name}"))
+                        .execute(&admin)
+                        .await
+                        .is_ok()
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            });
+        })
+        .join();
+    }
+}
+
 /// テストごとに固有の論理ソースを登録簿へ置く。
 ///
 /// **テストどうしの隔離をこれで取る**（design D14）—— 1 つの DB を共有したまま、

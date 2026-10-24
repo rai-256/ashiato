@@ -22,8 +22,8 @@ use crate::export_excluded_tests::World;
 use crate::export_tests::{names, tmp_dir, EXPORT_SERIAL};
 use crate::{testdb, App};
 
-const TOKEN: &str = "test-token-0123456789abcdef";
-const PASS: &str = "job-test-passphrase-0123";
+pub(crate) const TOKEN: &str = "test-token-0123456789abcdef";
+pub(crate) const PASS: &str = "job-test-passphrase-0123";
 const MAP: &str = "https://www.google.com/maps/@35.6812,139.7671,15z";
 
 // ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ fn cfg(dir: &Path, hooks: Hooks) -> ExportConfig {
     c
 }
 
-fn app_with(pool: &sqlx::PgPool, dir: &Path, hooks: Hooks) -> App {
+pub(crate) fn app_with(pool: &sqlx::PgPool, dir: &Path, hooks: Hooks) -> App {
     App {
         // 滞在を消したときの作り直しは走らせない（書き出しの外の振る舞い）
         stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
@@ -75,11 +75,11 @@ fn post(password: &str) -> Request<Body> {
     )
 }
 
-async fn post_status(app: &App, password: &str) -> (StatusCode, String) {
+pub(crate) async fn post_status(app: &App, password: &str) -> (StatusCode, String) {
     call(app, post(password)).await
 }
 
-async fn wait_idle(app: &App) {
+pub(crate) async fn wait_idle(app: &App) {
     for _ in 0..3000 {
         if app.exports.running_view().is_none() {
             return;
@@ -169,7 +169,7 @@ async fn location_at(w: &World, hhmm: &str) -> Uuid {
 }
 
 /// 最初の項目（記録）を書き始める前に、許可が出るまで止める。
-fn hold_at(file: &'static str, gate: Arc<tokio::sync::Semaphore>) -> Hooks {
+pub(crate) fn hold_at(file: &'static str, gate: Arc<tokio::sync::Semaphore>) -> Hooks {
     Hooks::none().with_before_file(move |name| {
         let gate = gate.clone();
         Box::pin(async move {
@@ -184,7 +184,7 @@ fn fail_at(stage: Stage, kind: FailKind) -> Hooks {
     Hooks::none().with_fail(move |s| (s == stage).then(|| ExportError::new(kind, "差し込んだ失敗")))
 }
 
-async fn wait_until_blocked(app: &App) -> Value {
+pub(crate) async fn wait_until_blocked(app: &App) -> Value {
     for _ in 0..600 {
         let st = get_status(app).await;
         if st["running"]["total"].as_u64().unwrap_or(0) > 0 {

@@ -434,6 +434,11 @@ impl App {
         Self { export, ..self }
     }
 
+    /// 書き出しの job が走っているか（夜の書き直しが始めるのを待つ判断。ST23 / design D11）。
+    pub fn is_exporting(&self) -> bool {
+        self.exports.running_view().is_some()
+    }
+
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
     pub fn with_reading(self, reading: archive::worker::ReadingState) -> Self {
         Self { reading, ..self }
@@ -4098,10 +4103,10 @@ pub async fn run() -> anyhow::Result<()> {
         .with_warmup(warmup)
         .with_media(media);
     // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
-    let exports = state.exports.clone();
+    let probe = state.clone();
     drop(purge_compaction::spawn(
         state.pool.clone(),
-        move || exports.running_view().is_some(),
+        move || probe.is_exporting(),
         std::sync::Arc::new(chrono::Utc::now),
     ));
     let mut app = router(state);
