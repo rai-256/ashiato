@@ -157,7 +157,8 @@
 - [ ] 10.1 `docs/testing.md` に 1 節（design D15）、`docs/flow-gates.md` の検査の表に `tools/check-test-db-growth.sh` を 1 行足す。
   検証: `bash -c 'grep -q "check-test-db-growth" docs/testing.md && grep -q "check-test-db-growth" docs/flow-gates.md && grep -q "ASHIATO_TEST_STATEMENT_TIMEOUT" docs/testing.md'` rc=0
 - [ ] 10.2 試験の期待値・`Scenario:` の印・試験の本数が `origin/main` から減っていない（C1）。消えた `// Scenario:` の行と `fn` の名前が、足した行にもあることを見る。
-  検証: `bash -c 'd=$(git diff origin/main...HEAD -- crates/server); for k in "Scenario:" "fn "; do r=$(printf "%s\n" "$d" | grep -E "^-[^-].*$k" | sed "s/^-//" | sort); a=$(printf "%s\n" "$d" | grep -E "^\+[^+].*$k" | sed "s/^+//" | sort); [ -z "$(comm -23 <(printf "%s\n" "$r") <(printf "%s\n" "$a") | grep -v "^$")" ] || exit 1; done'` rc=0
+  検証: `tools/check-tests-kept.sh origin/main crates/server` rc=0
+  （訂正 2026-10-25: 検証の入口を「bash -c 'd=$(git diff origin/main...HEAD -- crates/server); for k in "Scenario:" "fn "; do r=$(printf "%s\n" "$d" | grep -E "^-[^-].*$k" | sed "s/^-//" | sort); a=$(printf "%s\n" "$d" | grep -E "^\+[^+].*$k" | sed "s/^+//" | sort); [ -z "$(comm -23 <(printf "%s\n" "$r") <(printf "%s\n" "$a") | grep -v "^$")" ] || exit 1; done'」から上の入口に。受け入れ条件は変えない。理由: 旧コマンドは行の完全一致で比べ、補助関数 app_in の引数の変更を「消えた」と見て、行頭の fn も拾えない。Scenario の印は行で、fn は名前で比べる（Q5） 実証: evidence.jsonl 2026-10-24T16:22:41+00:00 FAIL。承認: 人間: 2026-10-25 CH04 第 2 回の深掘り Q5 の答え（deep-answers-2.txt、推奨のまま）。記録: plan-corrections.md）
 - [ ] 10.3 `tests/server_startup.rs`・`tools/smoke.sh`・`tools/dev.sh` は `ashiato` を使うまま（C7。CH04 はこれらに触らない）。
   検証: `bash -c '[ -z "$(git diff origin/main...HEAD -- crates/server/tests/server_startup.rs tools/smoke.sh tools/dev.sh)" ]'` rc=0
 - [ ] 10.4 鎖の検査。
