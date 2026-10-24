@@ -11,3 +11,8 @@ de128a16d6993cadd8affb23310618122990f8b1:tools/smoke.sh:curl-auth-header:79
 e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2067
 e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2071
 e426552a99a96c6840552cf52838e80d3fb52257:crates/server/src/lib.rs:generic-api-key:2075
+# 2026-10-24: 上の 17cc044 の 3 件と同じ 3 行（テストの固定値。行の内容の sha256 が一致）が、付け直された 305a4e09
+# （fix(ST33)）として main に入り、fingerprint が合わず main の全履歴の走査が 2026-10-17 から落ちていた。
+305a4e092cd3255a0e02a5cfa7c7bc97af7e7ea5:crates/server/src/lib.rs:generic-api-key:2266
+305a4e092cd3255a0e02a5cfa7c7bc97af7e7ea5:crates/server/src/lib.rs:generic-api-key:2270
+305a4e092cd3255a0e02a5cfa7c7bc97af7e7ea5:crates/server/src/lib.rs:generic-api-key:2274
