@@ -237,6 +237,43 @@ async fn st41_export_erased_stay_end_column_is_read() {
     assert!(w.kept(&[inside]).await.is_empty());
 }
 
+#[tokio::test]
+async fn st41_export_erased_stay_version_end_column_is_read() {
+    // 印なし（review/code.md R11）: 消した滞在の**前の版**が終わりを列に持つなら、その版の時間も消した時間に数える
+    // （`erased_spans` の前の版の枝の `coalesce(v.end_time, …)`）
+    let w = World::new().await;
+    // いまの滞在は 05:00〜05:10。前の版は 00:00〜02:00 で、終わりは列にだけある（内容に `end` が無い）
+    let stay = put_ended(
+        &w,
+        "s01-stay",
+        &w.at("05:00"),
+        Some(&w.at("05:10")),
+        json!({"lat": 35.0, "lon": 139.0}),
+    )
+    .await;
+    put_ended_version(
+        &w,
+        stay,
+        1,
+        &w.at("00:00"),
+        &w.at("02:00"),
+        json!({"lat": 35.0, "lon": 139.0}),
+    )
+    .await;
+    w.mark_deleted(stay, "user").await;
+    let s = plain_source(&w).await;
+    // 前の版の終わりの列を読まないと、前の版の時間は 00:00 の点になり、01:30 の記録は残る
+    let inside = put_ended(
+        &w,
+        &s,
+        &w.at("01:30"),
+        Some(&w.at("01:40")),
+        json!({"lat": 35.0}),
+    )
+    .await;
+    assert!(w.kept(&[inside]).await.is_empty());
+}
+
 // Scenario: 書き出しの行は終わりの 3 つの列を持つ
 #[tokio::test]
 async fn st41_export_rows_have_end_columns() {

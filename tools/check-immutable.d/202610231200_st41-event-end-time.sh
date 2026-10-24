@@ -1,7 +1,7 @@
 # ST41: 終わりの時刻の錠（design D5）。tools/check-immutable.sh が `.` で読む（psql・fail が使える）。
 # 3 つが拒まれることを、わざと UPDATE を投げて確かめる（アプリを通さない経路）。
-# 本体の最後の節（戻し手順の逆順当て）が schema を作り直し、ST03 の 5 本だけを当て直した状態で終わっている。
-# 終わりの錠を見るので、全版を当てた状態へ作り直す。
+# 節は本体の各節の戻し手順（`.down.sql` → その版の当て直し）の後に読まれ、門・錠が古い本体に戻っていることがある。
+# 終わりの錠を見るので、全版を当てた状態へ作り直す（tools/check-immutable.d/README.md）。
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 EID='41414141-4141-4141-8141-414141414141'

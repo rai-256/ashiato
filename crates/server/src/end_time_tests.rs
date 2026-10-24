@@ -338,8 +338,11 @@ async fn st41_gate_check_rejects_partial_end_in_db() {
         }
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM pg_constraint
-              WHERE conrelid IN ('core.event'::regclass, 'core.event_version'::regclass)
-                AND conname LIKE '%\\_end\\_%'",
+              WHERE (conrelid, conname) IN (
+                      ('core.event'::regclass, 'event_end_together'),
+                      ('core.event'::regclass, 'event_end_values'),
+                      ('core.event_version'::regclass, 'event_version_end_together'),
+                      ('core.event_version'::regclass, 'event_version_end_values'))",
         )
         .fetch_one(&fresh)
         .await
@@ -352,6 +355,96 @@ async fn st41_gate_check_rejects_partial_end_in_db() {
         Ok(4),
         "移行は 2 回当てても落ちず、CHECK は表ごとに 2 つ"
     );
+}
+
+// ---- 主張・主観・場所の錠（design D19（仮）。review/code.md R2） ----
+
+/// 本人が書いた記録（`origin = 'authored'`）を、終わりつきか無しで置く。
+async fn put_authored(
+    pool: &PgPool,
+    user: Uuid,
+    source: &str,
+    end: Option<(&str, i32, &str)>,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, origin, event_time, tz_offset_min, tz_id,
+            end_time, end_tz_offset_min, end_tz_id,
+            schema_version, sensitivity, content_hash, raw, payload)
+         VALUES ($1,$2,$3,'authored',$4::timestamptz,540,'Asia/Tokyo',$5::timestamptz,$6,$7,
+                 1,1,$8,'{\"v\":1}','{\"v\":1}')",
+    )
+    .bind(id)
+    .bind(user)
+    .bind(source)
+    .bind(START)
+    .bind(end.map(|e| e.0))
+    .bind(end.map(|e| e.1))
+    .bind(end.map(|e| e.2))
+    .bind(format!("st41-authored-{id}"))
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+/// 主張・主観・場所の行の終わり 3 列を、どう書き換えても即時の錠が断る（始まりの時刻・TZ と同じ）。
+async fn assert_authored_end_frozen(source: &str) {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let with_end = put_authored(&pool, user, source, Some(tokyo(END))).await;
+    let without_end = put_authored(&pool, user, source, None).await;
+
+    let attempts = [
+        // 終わりの無い行に後から終わりを付ける
+        (
+            without_end,
+            format!("end_time = '{END}', end_tz_offset_min = 540, end_tz_id = 'Asia/Tokyo'"),
+        ),
+        // 終わりの時刻を動かす
+        (with_end, format!("end_time = '{OTHER_END}'")),
+        // 終わりを消す
+        (
+            with_end,
+            "end_time = NULL, end_tz_offset_min = NULL, end_tz_id = NULL".to_string(),
+        ),
+        // 終わりのずれ・タイムゾーンだけを変える
+        (
+            with_end,
+            "end_tz_offset_min = 0, end_tz_id = 'UTC'".to_string(),
+        ),
+    ];
+    for (id, set) in attempts {
+        let (code, msg) = run(
+            &pool,
+            &format!("UPDATE core.event SET {set} WHERE id = '{id}';"),
+        )
+        .await
+        .unwrap_or_else(|| panic!("{source} の終わりが書き換えられた: {set}"));
+        assert_eq!(code, "P0001", "{source}: {set}: {msg}");
+        assert!(msg.contains("終わり"), "{source}: {set}: 錠の本文: {msg}");
+    }
+
+    let (t, off, tz) = end_of(&pool, with_end).await;
+    assert_eq!(t.as_deref(), Some(END));
+    assert_eq!((off, tz.as_deref()), (Some(540), Some("Asia/Tokyo")));
+    assert_eq!(end_of(&pool, without_end).await, (None, None, None));
+}
+
+#[tokio::test]
+async fn st41_gate_claim_end_is_frozen() {
+    assert_authored_end_frozen("s01-attribute").await;
+}
+
+#[tokio::test]
+async fn st41_gate_feeling_end_is_frozen() {
+    assert_authored_end_frozen("s01-feeling").await;
+}
+
+#[tokio::test]
+async fn st41_gate_place_end_is_frozen() {
+    assert_authored_end_frozen("s01-place").await;
 }
 
 // ---- Task 2: 取り込み口（`crate::ingest`）を通す ----
@@ -1135,9 +1228,11 @@ async fn st41_coverage_started_on_uses_start() {
     // Scenario: 収集を始めた日は始まりの日で決まる
     let pool = testdb::pool().await;
     let source = ingest_source(&pool, "st41-cov-started").await;
+    // 始まりは Tokyo で 10-01 23:00、終わりは Tokyo で 10-02 12:00（UTC でも 10-02）。
+    // 終わりの日（Tokyo でも UTC でも）で決める実装なら 10-02 になって落ちる（review/code.md R8）
     let item = with_end(
         ev(&source, testdb::user(), "2026-10-01T14:00:00Z"),
-        "2026-10-01T22:00:00Z",
+        "2026-10-02T03:00:00Z",
         540,
         "Asia/Tokyo",
     );
@@ -1727,6 +1822,48 @@ async fn st41_range_is_access_logged() {
 }
 
 #[tokio::test]
+async fn st41_range_offset_period_in_query_string() {
+    // 印なし（review/code.md R5）: クエリ文字列のずれは `+` を `%2B` に符号化して送れば通る。
+    // そのままの `+` は空白として読まれ、ずれの無い時刻として 400 になる（openapi の説明のとおり）
+    use tower::ServiceExt as _;
+    let pool = testdb::pool().await;
+    let source = ingest_source(&pool, "st41-range-plus").await;
+    let id = put_with_end(
+        &pool,
+        testdb::user(),
+        &source,
+        "2026-10-01T14:00:00Z",
+        at("2026-10-01T22:00:00Z"),
+        None,
+    )
+    .await;
+    let app = crate::App::for_test(pool.clone(), API_TOKEN);
+    // 2026-10-02T00:00+09:00 〜 01:00+09:00 = 2026-10-01T15:00Z 〜 16:00Z（上の記録に重なる）
+    let encoded = format!(
+        "/events?from=2026-10-02T00:00:00%2B09:00&to=2026-10-02T01:00:00%2B09:00&source={source}"
+    );
+    let res = crate::router(app.clone())
+        .oneshot(get_req(&encoded, true))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::OK);
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(ids(&rows), vec![id.to_string()]);
+
+    let bare = format!(
+        "/events?from=2026-10-02T00:00:00+09:00&to=2026-10-02T01:00:00+09:00&source={source}"
+    );
+    let res = crate::router(app)
+        .oneshot(get_req(&bare, true))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn st41_range_uses_partial_index() {
     // 印なし（D10 の確かめ）: 終わりのある側の引き方が部分索引 `event_end_range` に当たる
     let (fresh, drop) = crate::stay_tests::fresh_db().await;
@@ -1817,14 +1954,36 @@ async fn st41_stays_and_collected_rows_have_no_end_column() {
     assert_eq!(collected, 41);
     assert_eq!(with_end, 0, "滞在か収集済みの記録に終わりの列が書かれた");
 
-    let versions_with_end: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM core.event_version v JOIN core.event e ON e.id = v.event_id
-          WHERE e.user_id = $1 AND (v.end_time IS NOT NULL
-             OR v.end_tz_offset_min IS NOT NULL OR v.end_tz_id IS NOT NULL)",
+    // 同じ場所にさらに 20 分いたことにして作り直す。滞在の原文（終わり）が変わり、前の版が履歴に積まれる
+    // （1 回の作り直しだけでは版が 0 行で、下の 0 件が常に成り立つ。review/code.md R6）
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         SELECT gen_random_uuid(), $1, 'c01-location', 'test', 'collected',
+                '2026-08-13T01:00:00Z'::timestamptz + make_interval(mins => i),
+                540, 'Asia/Tokyo', 1, gen_random_uuid()::text,
+                '{\"lat\":35.0,\"lon\":139.0,\"acc_m\":10.0}',
+                '{\"lat\":35.0,\"lon\":139.0,\"acc_m\":10.0}'::jsonb
+           FROM generate_series(41, 60) AS i",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+
+    let (versions, versions_with_end): (i64, i64) = sqlx::query_as(
+        "SELECT count(*),
+                count(*) FILTER (WHERE v.end_time IS NOT NULL
+                                    OR v.end_tz_offset_min IS NOT NULL OR v.end_tz_id IS NOT NULL)
+           FROM core.event_version v JOIN core.event e ON e.id = v.event_id
+          WHERE e.user_id = $1",
     )
     .bind(user)
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(versions_with_end, 0);
+    assert!(versions >= 1, "滞在の前の版ができていない（試験が空振り）");
+    assert_eq!(versions_with_end, 0, "滞在の前の版に終わりの列が書かれた");
 }

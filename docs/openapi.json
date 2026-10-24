@@ -453,6 +453,7 @@
           {
             "name": "from",
             "in": "query",
+            "description": "期間の始まり（含む）。UTC からのずれを持つ RFC 3339（例 `2026-09-08T00:00:00+09:00`・`2026-09-07T15:00:00Z`）。\nクエリ文字列では `+` を `%2B` に符号化する（そのままだと空白として読まれ 400 になる）。`to` と両方そろえる",
             "required": false,
             "schema": {
               "type": [
@@ -464,6 +465,7 @@
           {
             "name": "to",
             "in": "query",
+            "description": "期間の終わり（含まない）。形は `from` と同じ（RFC 3339・`+` は `%2B`・`Z` 可）。`from` より後",
             "required": false,
             "schema": {
               "type": [
@@ -475,6 +477,7 @@
           {
             "name": "source",
             "in": "query",
+            "description": "論理ソースで絞る（期間と併用できる）",
             "required": false,
             "schema": {
               "type": [

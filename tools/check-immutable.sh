@@ -879,12 +879,13 @@ left=$(psql -c "SELECT count(*) FROM core.export_ledger WHERE export_id='$EXPORT
 # 列が 1 本増えると、その列は何も言わずに書き換えられる側へ入る。**
 # ここで「意図して開けている列」と「凍結している列」の合計が実際の列と一致することを見る ——
 # 一致しなくなったら、増やした人が**どちら側かを決めるまで落ちる**（既定は厳しい側。扉 #15）。
-# ST41: 終わりの 3 列は主張（authored）が持たない列なので、ここでは開ける側に置く。
+# ST41: 終わりの 3 列は始まりの時刻・TZ と同じに凍結する（design D19（仮））。
 # 収集した記録の終わりは門（require_version_or_ledger）が見る —— 検査は tools/check-immutable.d/202610231200_st41-event-end-time.sh
-open_cols="sensitivity deleted_at deleted_by end_time end_tz_offset_min end_tz_id"   # FR-50 / PERM-2 で開ける（+ ST41）
+open_cols="sensitivity deleted_at deleted_by"          # FR-50 / PERM-2 で開ける
 gated_cols="raw payload content_hash"                  # 門が消去の形と台帳だけを通す
 frozen_cols="id user_id logical_source external_id device_id origin event_time ingest_time
-             tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref"
+             tz_offset_min tz_id schema_version unit_system crs source_updated_at external_ref
+             end_time end_tz_offset_min end_tz_id"
 known=$(printf '%s\n' $open_cols $gated_cols $frozen_cols | sort)
 actual=$(psql -c "SELECT column_name FROM information_schema.columns
                    WHERE table_schema='core' AND table_name='event';" | sort)
@@ -898,6 +899,10 @@ fi
 # 凍結すると宣言した列が、本当に 1 つずつ拒まれること（宣言と実装のずれを見る）
 for col in $frozen_cols; do
   case "$col" in
+    # 終わりは 3 つ揃えて付ける（1 列だけだと錠でなく CHECK（*_end_together）で落ち、錠を見ていない）
+    end_time|end_tz_offset_min|end_tz_id)
+      col="end_time"
+      val="'2000-01-01T00:00:00Z', end_tz_offset_min = 0, end_tz_id = 'UTC'" ;;
     event_time|ingest_time|source_updated_at) val="'2000-01-01T00:00:00Z'" ;;
     tz_offset_min|schema_version)             val="0" ;;
     id|user_id)                               val="'12121212-1212-4212-8212-121212121212'" ;;

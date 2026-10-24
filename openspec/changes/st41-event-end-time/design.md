@@ -148,7 +148,10 @@ CREATE INDEX IF NOT EXISTS event_end_range ON core.event USING gist
 - 部分索引にするのは、いまは終わりを持つ行が 0 件で、移行の中の作成が一瞬で終わるため。全行の式の索引は 120 万行で 29.3 秒、その間 `core.event` への書き込みが待つ
   （`premises.md` 4 行目。`CONCURRENTLY` は移行のトランザクションの中で使えない）
 - 引き方: 終わりのある行は `tstzrange(event_time, greatest(event_time, end_time), '[]') && tstzrange($from, $to, '[)')` で索引に当て、D8 の正確な条件で絞る。
-  終わりの無い行は `end_time IS NULL AND event_time >= $from AND event_time < $to`（既存の時刻の索引）。2 つを `UNION ALL` して時刻順に並べる
+  終わりの無い行は `end_time IS NULL AND event_time >= $from AND event_time < $to`。2 つを `UNION ALL` して時刻順に並べる。
+  終わりの無い側に当たる索引は無い: `GET /events` は利用者で絞らず、`event_time` を先頭に持つ索引も無い（既存は `(user_id, event_time)` と `(logical_source, event_time)`）。
+  `source` を付ければ `(logical_source, event_time)` に当たるが、`source` なしの期間の点の側は全走査になる。期間なしの今の `GET /events` も全件を読むので、今の挙動からの退行ではない。
+  索引を足すか利用者で絞るかは、読み出しの量が決まる ST45 で決める（review/code.md R3）
 - 下流は 1 万行の偽データ（うち終わりを持つ行 1 割）で `EXPLAIN` を取り、終わりのある側に `event_end_range` が当たることを試験で確かめる（Task 5）
 
 ### D11. 書き出しと消した滞在の時間は、終わりを列から先に読む（note (6)・C6・申し送り C7）
@@ -216,6 +219,15 @@ ADDED の要件の本文に「(a) の前に置く読み方」と書いて、正�
 「終わりが違う」を更新にする D7 だけでは入った終わりが空に戻り、前の版が 1 件積む。終わりの有る → 無いは、内容が違う版のときだけ更新にする。
 失わない: 入った終わりも、再送で届いた版（内容は保存済みと同じ）も消えない。費用: 送り手が内容を変えずに終わりだけを取り消す手段が無い（内容の違う版を送る）。
 反転条件: 衛星（ST39）が「終わりの取り消し」を内容を変えずに送る形を求めたら、`source_updated_at` を必須にしたうえで、更新時刻の新しい無い版だけを更新にする（spec レビュー R3）。
+
+### D19（仮）. 主張・主観・場所の錠も終わりの 3 列を凍結する（review/code.md R2）
+
+主張（`s01-attribute`）・主観（`s01-feeling`）・場所（`s01-place`）の即時の錠（`reject_claim_rewrite` / `reject_feeling_rewrite` / `reject_place_record_rewrite`）は列を名指しで凍結する。
+終わりの 3 列（`end_time` / `end_tz_offset_min` / `end_tz_id`）を足したままにすると、本人が書いた記録の終わりが履歴なしで書き換えられる側に入る
+（門 `require_version_or_ledger` は `origin <> 'collected'` を素通しし、取り込み口は origin を見ずに終わりを受ける）。
+いまの本体を写し、始まりの `event_time` / `tz_offset_min` / `tz_id` と同じ扱いで 3 列を凍結に足す。ほかの条件は変えない（D5・D15）。`tools/check-immutable.sh` の点呼も 3 列を凍結の側に置く。
+なぜ: 凍結する側は後で緩めても何も失わない。開けておくと、履歴なしの書き換えは戻らない。費用は錠の関数 3 つを写して 3 列を足すだけ。
+反転条件: authored の記録の終わりを本人が書き直す口を作る Story が、版を残す経路と一緒に緩める。
 
 ## Risks / Trade-offs
 

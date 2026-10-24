@@ -1,6 +1,6 @@
 -- 戻し手順（202610231200_event_end_time）。**不可逆** ——
 -- 終わりの 3 列を落とすので、この版の後に入った記録の終わりの時刻・ずれ・タイムゾーンは失われる。
--- 逆順: 索引 → 関数をいまの版に戻す → ビューをいまの形に戻す → CHECK → 列。
+-- 逆順: 索引 → 関数（門・履歴の錠・主張・主観・場所の錠）をいまの版に戻す → ビューをいまの形に戻す → CHECK → 列。
 DROP INDEX IF EXISTS core.event_end_range;
 
 CREATE OR REPLACE FUNCTION core.require_version_or_ledger() RETURNS trigger AS $fn$
@@ -84,6 +84,171 @@ BEGIN
   END IF;
   IF NEW.raw <> '' OR NEW.payload <> '{}'::jsonb THEN
     RAISE EXCEPTION '履歴の書き換えは本文の消去（原文と解析済みを空にする）だけが通る（深掘り Q17 / FR-18）';
+  END IF;
+  RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+-- 主張・主観・場所の錠を元の本体に戻す（終わりの列を落とす前に。残すと UPDATE のたびに無い列を読んで落ちる）
+CREATE OR REPLACE FUNCTION core.reject_claim_rewrite() RETURNS trigger AS $fn$
+BEGIN
+  -- **主張へ付け替える向きを塞ぐ**（ST03 の R114 と同じ型）。
+  -- 別の「本人が書いた」記録の論理ソースを主張へ移せると、錠の外で作った行を
+  -- 主張として固定できる（＝主張の捏造）。
+  IF NEW.logical_source = 's01-attribute'
+     AND OLD.logical_source IS DISTINCT FROM 's01-attribute' THEN
+    RAISE EXCEPTION '他の記録を個人属性の主張へ付け替えることはできない（FR-44 / 深掘り C1）';
+  END IF;
+
+  IF OLD.logical_source = 's01-attribute' THEN
+    -- 分類そのものを動かせないようにする（動かせると錠の外へ 3 手で抜けられる）
+    IF NEW.logical_source IS DISTINCT FROM OLD.logical_source THEN
+      RAISE EXCEPTION '主張の論理ソースは書き換えられない（FR-44 / FR-22）';
+    END IF;
+    IF NEW.origin IS DISTINCT FROM OLD.origin THEN
+      RAISE EXCEPTION '主張の由来は書き換えられない（FR-44 / FR-25）';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION '主張の識別子は書き換えられない（FR-21 / FR-44）';
+    END IF;
+    -- **`user_id` も凍結する**（design D2）。ST03 は収集側の設定ミスを直す余地で
+    -- 凍結しなかったが、**主張は取り消し先を同じ利用者の中で引く**ので、
+    -- 動かすと取り消しが別の利用者を指す。
+    IF NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+      RAISE EXCEPTION '主張の利用者は書き換えられない（FR-44 / 取り消し先が別の利用者を指す）';
+    END IF;
+    -- **2 つの時刻はどちらも来歴**（FR-45）。動かせると「後から直したことが分かる」が崩れる
+    IF NEW.event_time IS DISTINCT FROM OLD.event_time THEN
+      RAISE EXCEPTION '主張した日時は書き換えられない（FR-45 / 深掘り C4）';
+    END IF;
+    IF NEW.tz_offset_min IS DISTINCT FROM OLD.tz_offset_min
+       OR NEW.tz_id IS DISTINCT FROM OLD.tz_id THEN
+      RAISE EXCEPTION '主張した日時の地域は書き換えられない（FR-45）';
+    END IF;
+    IF NEW.ingest_time IS DISTINCT FROM OLD.ingest_time THEN
+      RAISE EXCEPTION '主張が D-01 に入った時刻は書き換えられない（FR-19 / FR-44）';
+    END IF;
+    IF NEW.external_id IS DISTINCT FROM OLD.external_id
+       OR NEW.external_ref IS DISTINCT FROM OLD.external_ref THEN
+      RAISE EXCEPTION '主張の外部識別子は書き換えられない（FR-23 / FR-44）';
+    END IF;
+    IF NEW.device_id IS DISTINCT FROM OLD.device_id THEN
+      RAISE EXCEPTION '主張の端末識別子は書き換えられない（FR-44）';
+    END IF;
+    IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+       OR NEW.unit_system IS DISTINCT FROM OLD.unit_system
+       OR NEW.crs IS DISTINCT FROM OLD.crs
+       OR NEW.source_updated_at IS DISTINCT FROM OLD.source_updated_at THEN
+      RAISE EXCEPTION '主張のエンベロープは書き換えられない（FR-44 / FR-28）';
+    END IF;
+    -- **`raw` / `payload` / `content_hash` はここでは見ない。**
+    -- 値・「いつから」・種類・訂正先・補足はすべて原文と解析済みの中にあり、
+    -- それらを守るのは下の門（消去の形と台帳を見る）—— FR-51 の消去を通すため、
+    -- 即時の錠で閉じ切ることはできない。
+  END IF;
+  RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION core.reject_feeling_rewrite() RETURNS trigger AS $fn$
+BEGIN
+  -- **主観の記録へ付け替える向きを塞ぐ**（ST03 の R114 / ST19 / ST21 と同じ型）。
+  IF NEW.logical_source = 's01-feeling'
+     AND OLD.logical_source IS DISTINCT FROM 's01-feeling' THEN
+    RAISE EXCEPTION '他の記録を主観の記録へ付け替えることはできない（FR-48）';
+  END IF;
+
+  IF OLD.logical_source = 's01-feeling' THEN
+    IF NEW.logical_source IS DISTINCT FROM OLD.logical_source THEN
+      RAISE EXCEPTION '主観の記録の論理ソースは書き換えられない（FR-48 / FR-22）';
+    END IF;
+    IF NEW.origin IS DISTINCT FROM OLD.origin THEN
+      RAISE EXCEPTION '主観の記録の由来は書き換えられない（FR-48 / FR-25）';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION '主観の記録の識別子は書き換えられない（FR-21 / FR-48）';
+    END IF;
+    IF NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+      RAISE EXCEPTION '主観の記録の利用者は書き換えられない（FR-48）';
+    END IF;
+    IF NEW.event_time IS DISTINCT FROM OLD.event_time THEN
+      RAISE EXCEPTION '主観の記録の出来事の時刻は書き換えられない（FR-48）';
+    END IF;
+    IF NEW.tz_offset_min IS DISTINCT FROM OLD.tz_offset_min
+       OR NEW.tz_id IS DISTINCT FROM OLD.tz_id THEN
+      RAISE EXCEPTION '主観の記録の出来事の時刻の地域は書き換えられない（FR-48）';
+    END IF;
+    IF NEW.ingest_time IS DISTINCT FROM OLD.ingest_time THEN
+      RAISE EXCEPTION '主観の記録が D-01 に入った時刻は書き換えられない（FR-19 / FR-48）';
+    END IF;
+    IF NEW.external_id IS DISTINCT FROM OLD.external_id
+       OR NEW.external_ref IS DISTINCT FROM OLD.external_ref THEN
+      RAISE EXCEPTION '主観の記録の外部識別子は書き換えられない（FR-23 / FR-48）';
+    END IF;
+    IF NEW.device_id IS DISTINCT FROM OLD.device_id THEN
+      RAISE EXCEPTION '主観の記録の端末識別子は書き換えられない（FR-48）';
+    END IF;
+    IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+       OR NEW.unit_system IS DISTINCT FROM OLD.unit_system
+       OR NEW.crs IS DISTINCT FROM OLD.crs
+       OR NEW.source_updated_at IS DISTINCT FROM OLD.source_updated_at THEN
+      RAISE EXCEPTION '主観の記録のエンベロープは書き換えられない（FR-48 / FR-28）';
+    END IF;
+    -- **`raw` / `payload` / `content_hash` はここでは見ない。** 値もひとことも原文と解析済みの
+    -- 中にあり、守るのは下の門（消去の形と台帳を見る）—— FR-51 の消去を通すため、
+    -- 即時の錠で閉じ切ることはできない。
+  END IF;
+  RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION core.reject_place_record_rewrite() RETURNS trigger AS $fn$
+BEGIN
+  -- **場所の記録へ付け替える向きを塞ぐ**（ST03 の R114 / ST19 と同じ型）。
+  IF NEW.logical_source = 's01-place'
+     AND OLD.logical_source IS DISTINCT FROM 's01-place' THEN
+    RAISE EXCEPTION '他の記録を場所の記録へ付け替えることはできない（FR-46）';
+  END IF;
+
+  IF OLD.logical_source = 's01-place' THEN
+    IF NEW.logical_source IS DISTINCT FROM OLD.logical_source THEN
+      RAISE EXCEPTION '場所の記録の論理ソースは書き換えられない（FR-46 / FR-22）';
+    END IF;
+    IF NEW.origin IS DISTINCT FROM OLD.origin THEN
+      RAISE EXCEPTION '場所の記録の由来は書き換えられない（FR-46 / FR-25）';
+    END IF;
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION '場所の記録の識別子は書き換えられない（FR-21 / FR-46）';
+    END IF;
+    IF NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+      RAISE EXCEPTION '場所の記録の利用者は書き換えられない（FR-46）';
+    END IF;
+    IF NEW.event_time IS DISTINCT FROM OLD.event_time THEN
+      RAISE EXCEPTION '場所の記録を書いた日時は書き換えられない（FR-46）';
+    END IF;
+    IF NEW.tz_offset_min IS DISTINCT FROM OLD.tz_offset_min
+       OR NEW.tz_id IS DISTINCT FROM OLD.tz_id THEN
+      RAISE EXCEPTION '場所の記録を書いた日時の地域は書き換えられない（FR-46）';
+    END IF;
+    IF NEW.ingest_time IS DISTINCT FROM OLD.ingest_time THEN
+      RAISE EXCEPTION '場所の記録が D-01 に入った時刻は書き換えられない（FR-19 / FR-46）';
+    END IF;
+    IF NEW.external_id IS DISTINCT FROM OLD.external_id
+       OR NEW.external_ref IS DISTINCT FROM OLD.external_ref THEN
+      RAISE EXCEPTION '場所の記録の外部識別子は書き換えられない（FR-23 / FR-46）';
+    END IF;
+    IF NEW.device_id IS DISTINCT FROM OLD.device_id THEN
+      RAISE EXCEPTION '場所の記録の端末識別子は書き換えられない（FR-46）';
+    END IF;
+    IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+       OR NEW.unit_system IS DISTINCT FROM OLD.unit_system
+       OR NEW.crs IS DISTINCT FROM OLD.crs
+       OR NEW.source_updated_at IS DISTINCT FROM OLD.source_updated_at THEN
+      RAISE EXCEPTION '場所の記録のエンベロープは書き換えられない（FR-46 / FR-28）';
+    END IF;
+    -- **`raw` / `payload` / `content_hash` はここでは見ない。** 座標も名前も原文と解析済みの
+    -- 中にあり、守るのは下の門（消去の形と台帳を見る）—— FR-51 の消去を通すため、
+    -- 即時の錠で閉じ切ることはできない。
   END IF;
   RETURN NEW;
 END;

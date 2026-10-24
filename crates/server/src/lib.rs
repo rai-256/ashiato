@@ -3534,8 +3534,12 @@ fn kind_error_body(
 /// `GET /events` の絞り込み。**時刻は文字列で受けて自分で読む** —— ずれの無い時刻を 400 で断るため。
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 pub struct EventsQuery {
+    /// 期間の始まり（含む）。UTC からのずれを持つ RFC 3339（例 `2026-09-08T00:00:00+09:00`・`2026-09-07T15:00:00Z`）。
+    /// クエリ文字列では `+` を `%2B` に符号化する（そのままだと空白として読まれ 400 になる）。`to` と両方そろえる
     from: Option<String>,
+    /// 期間の終わり（含まない）。形は `from` と同じ（RFC 3339・`+` は `%2B`・`Z` 可）。`from` より後
     to: Option<String>,
+    /// 論理ソースで絞る（期間と併用できる）
     source: Option<String>,
 }
 

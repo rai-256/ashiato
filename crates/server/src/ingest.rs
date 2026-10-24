@@ -652,4 +652,28 @@ mod tests {
             assert_eq!(r.validate(), Ok(()), "{other} に端末を求めている");
         }
     }
+
+    #[test]
+    /// 終わりの時刻はマイクロ秒に切り捨てる（DB の精度。比べる値と入れる値を 1 つにする。D7 / review/code.md R9）
+    fn st41_ingest_truncate_end_to_micros() {
+        let mut r = req(uuid::Uuid::nil(), "x");
+        r.end_time = chrono::DateTime::from_timestamp(1_757_003_600, 123_456_789);
+        r.truncate_end_to_micros();
+        assert_eq!(
+            r.end_time,
+            chrono::DateTime::from_timestamp(1_757_003_600, 123_456_000),
+            "ns の端数が残った（切り上げも誤り）"
+        );
+
+        // µs ちょうどの値は変わらない
+        r.truncate_end_to_micros();
+        assert_eq!(
+            r.end_time,
+            chrono::DateTime::from_timestamp(1_757_003_600, 123_456_000)
+        );
+
+        r.end_time = None;
+        r.truncate_end_to_micros();
+        assert_eq!(r.end_time, None);
+    }
 }
