@@ -33,7 +33,10 @@ fn ids_of(rows: Vec<sqlx::postgres::PgRow>) -> BTreeSet<Uuid> {
 }
 
 /// `ctes` が除く記録の id と前の版の id。
-async fn excluded_by(conn: &mut sqlx::PgConnection, ctes: &str) -> (BTreeSet<Uuid>, BTreeSet<Uuid>) {
+async fn excluded_by(
+    conn: &mut sqlx::PgConnection,
+    ctes: &str,
+) -> (BTreeSet<Uuid>, BTreeSet<Uuid>) {
     let mut out = Vec::new();
     for cte in [export::EXCLUDED_EVENT, export::EXCLUDED_VERSION] {
         let rows = sqlx::query(&format!("WITH {ctes} SELECT id FROM {cte}"))
@@ -95,17 +98,80 @@ async fn ch04_overlap_matches_ch02() {
         put_as(&pool, u, "c01-location", Some("p"), t, none.clone(), "{}").await;
     }
     // 終わりを持たない記録（次の記録まで・写しの時点まで）と座標のない記録
-    let w1 = put_as(&pool, u, "c02-window", Some("pc"), &at("00:10"), none.clone(), MAP).await;
-    put_as(&pool, u, "c02-window", Some("pc"), &at("00:40"), none.clone(), MAP).await;
-    put_as(&pool, u, "c02-window", Some("pc"), &at("02:30"), none.clone(), "plain").await;
-    put_as(&pool, u, "c02-window", Some("pc"), &at("23:30"), none.clone(), MAP).await;
+    let w1 = put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("pc"),
+        &at("00:10"),
+        none.clone(),
+        MAP,
+    )
+    .await;
+    put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("pc"),
+        &at("00:40"),
+        none.clone(),
+        MAP,
+    )
+    .await;
+    put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("pc"),
+        &at("02:30"),
+        none.clone(),
+        "plain",
+    )
+    .await;
+    put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("pc"),
+        &at("23:30"),
+        none.clone(),
+        MAP,
+    )
+    .await;
     // 終わりを持つ記録（始まりより前の終わりも）
     for (start, end) in [("00:30", "01:00"), ("02:00", "03:00"), ("04:00", "03:00")] {
-        put_as(&pool, u, "c02-window", Some("e"), &at(start), json!({"range_end": at(end)}), MAP).await;
+        put_as(
+            &pool,
+            u,
+            "c02-window",
+            Some("e"),
+            &at(start),
+            json!({"range_end": at(end)}),
+            MAP,
+        )
+        .await;
     }
     // 消した滞在の前の版の広い時間に届く幅と、前の版の行
-    let wide = put_as(&pool, u, "c02-window", Some("wide"), &at("03:20"), none.clone(), MAP).await;
-    put_as(&pool, u, "c02-window", Some("wide"), &at("03:35"), none.clone(), "plain").await;
+    let wide = put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("wide"),
+        &at("03:20"),
+        none.clone(),
+        MAP,
+    )
+    .await;
+    put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("wide"),
+        &at("03:35"),
+        none.clone(),
+        "plain",
+    )
+    .await;
     put_version(&pool, w1, u, 1, &at("00:20"), json!({"lat": 35.0})).await;
     put_version(&pool, w1, u, 2, &at("01:30"), json!({"lat": 35.0})).await;
     put_version(&pool, wide, u, 1, &at("03:00"), json!({"lat": 35.0})).await;
@@ -118,18 +184,44 @@ async fn ch04_overlap_matches_ch02() {
     erased_stay(&pool, u, &at("01:00"), &at("02:00"), &[]).await;
     erased_stay(&pool, u, &at("01:30"), &at("02:30"), &[]).await;
     erased_stay(&pool, u, &at("02:30"), &at("03:00"), &[]).await;
-    erased_stay(&pool, u, &at("10:00"), &at("09:00"), &[(&at("10:30"), &at("10:00"))]).await;
-    let e = put_as(&pool, u, "s01-stay", Some("server"), &at("12:00"), json!({"lat": 35.0}), "{}").await;
+    erased_stay(
+        &pool,
+        u,
+        &at("10:00"),
+        &at("09:00"),
+        &[(&at("10:30"), &at("10:00"))],
+    )
+    .await;
+    let e = put_as(
+        &pool,
+        u,
+        "s01-stay",
+        Some("server"),
+        &at("12:00"),
+        json!({"lat": 35.0}),
+        "{}",
+    )
+    .await;
     sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user' WHERE id = $1")
         .bind(e)
         .execute(&pool)
         .await
         .unwrap();
-    let f = erased_stay(&pool, u, &at("20:00"), &at("20:30"), &[(&at("03:30"), &at("04:30"))]).await;
+    let f = erased_stay(
+        &pool,
+        u,
+        &at("20:00"),
+        &at("20:30"),
+        &[(&at("03:30"), &at("04:30"))],
+    )
+    .await;
     put_version(&pool, f, u, 2, &at("05:00"), json!({"lat": 35.0})).await;
 
     let (events, versions) = assert_same_as_ch02(&pool).await;
-    assert!(events > 0 && versions > 0, "配置が効いていない: {events} {versions}");
+    assert!(
+        events > 0 && versions > 0,
+        "配置が効いていない: {events} {versions}"
+    );
 }
 
 // ---- 消した時間を読む量（design D9・tasks 8.3）----
@@ -259,7 +351,10 @@ async fn ch04_overlap_reads_erased_spans_linearly() {
     let (new_1, old_1) = scale_erased_reads(1_000, 10).await;
     let (new_4, old_4) = scale_erased_reads(4_000, 40).await;
     eprintln!("消した時間を読む量: 今 {new_1} → {new_4} / 足す前 {old_1} → {old_4}");
-    assert!(old_1 > 0, "足す前の形で読んだ量が取れていない（測り方が節を捕まえていない）");
+    assert!(
+        old_1 > 0,
+        "足す前の形で読んだ量が取れていない（測り方が節を捕まえていない）"
+    );
     assert!(
         old_4 >= LIMIT * old_1,
         "足す前の形が 4 倍で {LIMIT} 倍未満（測り方が入れ子を捕まえていない）: {old_1} → {old_4}"

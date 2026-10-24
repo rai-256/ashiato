@@ -80,11 +80,11 @@ mod export_job_tests;
 /// 書き出しの台帳の移行と錠（ST33 / design D10）。
 #[cfg(test)]
 mod export_ledger_tests;
-#[cfg(test)]
-mod export_tests;
 /// 書き出しの重なりの判定から、候補の行 × 消した時間の入れ子を取る change（CH04）。試験ごとの database で足す前の形と突き合わせる。
 #[cfg(test)]
 mod export_overlap_tests;
+#[cfg(test)]
+mod export_tests;
 /// 書き出しの「次の記録」の引きを窓関数にする change（CH02）。まっさらな DB で新旧を突き合わせる。
 #[cfg(test)]
 mod export_window_tests;
