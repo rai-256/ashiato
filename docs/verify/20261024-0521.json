@@ -11,7 +11,7 @@
     "Android: `dist/verify-20261024-0521/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261024-0521/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
     "時計のずれの測り直し（`c01-clock`）: この DB の直近 7 日は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（この DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
     "成果物: `dist/verify-20261024-0521/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
-    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: （撮れなかった）（全体 ng / 片付け unknown。この録画の実行は止まった: 撮れなかった: 前提の誤りか別の録画と重なった（rc=2。record-run の出力を見る））"
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261024-120737-798d994（全体 ng / 片付け ok）"
   ],
   "questions": [
     {
@@ -39,7 +39,7 @@
       "kind": "check",
       "question": "CH01「ST17 の /code-review の 9 件を直す」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
-      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ CH01-feel（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261024-120737-798d994\\scenarios\\CH01-feel\\video.webm",
       "options": [
         {
           "label": "通った",
@@ -170,7 +170,7 @@
       "kind": "check",
       "question": "ST13「ソースの取り方と取得の間隔を登録簿で持ち、定期取得の枠を置く」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
-      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: D20 D21 D22 D23 D24）",
+      "context": "画面: S-1 稼働状況: `/#/coverage`（アドレスに `#/coverage` を足す。1 日の画面の上の「稼働状況」からも行ける）\n合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: D20 D21 D22 D23 D24）\n録画 ▶ ST13-sources（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261024-120737-798d994\\scenarios\\ST13-sources\\video.webm\n録画 ▶ ST13-unused-app-restrictions（AI の実行結果。人間の承認ではない）: 全体 ng / テスト failed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261024-120737-798d994\\scenarios\\ST13-unused-app-restrictions\\video.mp4",
       "options": [
         {
           "label": "通った",
@@ -225,7 +225,7 @@
       "kind": "check",
       "question": "ST09「写真と動画をメタごと取り込み、写真は原本も置く」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
       "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
-      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ ST09-media（AI の実行結果。人間の承認ではない）: 全体 ng / テスト failed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261024-120737-798d994\\scenarios\\ST09-media\\video.mp4",
       "options": [
         {
           "label": "通った",
