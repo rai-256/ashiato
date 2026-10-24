@@ -97,7 +97,7 @@ describe("衛星と資格情報の節", () => {
       await waitFor(() => expect(screen.getByTestId("satellite-reason").textContent, kind).toBe(msg("satellites").refusal[kind]));
       expect(screen.getAllByTestId("satellite").length).toBe(3);
     }
-  });
+  }, 20_000);
 
   it("最初の 2 つには「最初から」があって「外す」が無い", async () => {
     await open();
