@@ -2088,6 +2088,7 @@ pub async fn stays_restore(
                 );
                 (StatusCode::NOT_FOUND, "stay_not_found".into())
             }
+            deletion::RestoreError::Purged => (StatusCode::CONFLICT, "purged_restore".into()),
             deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
         })?;
 

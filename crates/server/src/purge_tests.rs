@@ -430,12 +430,11 @@ async fn purge_schema_gate_rejects_payload_write_back_on_erased_stay() {
             "理由が書き戻しでない（台帳 {ledger}）: {e}"
         );
     }
-    let payload: String =
-        sqlx::query_scalar("SELECT payload::text FROM core.event WHERE id = $1")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let payload: String = sqlx::query_scalar("SELECT payload::text FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(payload, "{}", "解析済みに本文が戻った");
 }
 
@@ -620,4 +619,890 @@ async fn purge_schema_stay_erased_reads_the_span_and_hides_absorbed() {
         .await
         .unwrap();
     assert_eq!(seen, 0, "user:purged の滞在がビューに出ている");
+}
+
+// ------------------------------------------------------------------ 本文ごと消す範囲と消去の核（Task 2 / design D2 / D3 / D6 / D15 / D17）
+
+use crate::deletion::{self, PurgeCounts, PurgeError};
+use chrono::{DateTime, Duration, Utc};
+
+fn at(s: &str) -> DateTime<Utc> {
+    s.parse().unwrap()
+}
+
+/// 派生の滞在 1 件（本文あり。時間は `payload` の `start` / `end`）。
+async fn scene_stay(pool: &PgPool, user: Uuid, start: &str, end: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    let body = serde_json::json!({
+        "start": at(start).to_rfc3339(), "end": at(end).to_rfc3339(), "lat": 35.68, "lon": 139.76,
+    })
+    .to_string();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1, $2, 's01-stay', $3, 'derived', $4, 540, 'Asia/Tokyo', 1, $3, $5, $5::jsonb)",
+    )
+    .bind(id)
+    .bind(user)
+    .bind(id.to_string())
+    .bind(at(start))
+    .bind(body)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+/// 収集した記録 1 件（論理ソースと原文を指す）。
+async fn scene_event(pool: &PgPool, user: Uuid, source: &str, when: &str, raw: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1, $2, $3, 'test', 'collected', $4, 540, 'Asia/Tokyo', 1, $5, $6, $6::jsonb)",
+    )
+    .bind(id)
+    .bind(user)
+    .bind(source)
+    .bind(at(when))
+    .bind(Uuid::new_v4().to_string())
+    .bind(raw)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+const POINT: &str = r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#;
+
+async fn scene_location(pool: &PgPool, user: Uuid, when: &str) -> Uuid {
+    scene_event(pool, user, "c01-location", when, POINT).await
+}
+
+/// 前の版 1 件（滞在。時間は `start` / `end`）。
+async fn scene_version(pool: &PgPool, stay: Uuid, user: Uuid, no: i32, start: &str, end: &str) {
+    let body = serde_json::json!({
+        "start": at(start).to_rfc3339(), "end": at(end).to_rfc3339(), "lat": 35.68, "lon": 139.76,
+    })
+    .to_string();
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+         VALUES ($1, $2, 's01-stay', $3, $4, $5, $6, $6::jsonb)",
+    )
+    .bind(stay)
+    .bind(user)
+    .bind(no)
+    .bind(at(start))
+    .bind(Uuid::new_v4().to_string())
+    .bind(body)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// 作り直しの印で隠れた滞在にする（`rebuild:absorbed` など）。
+async fn scene_mark_rebuild(pool: &PgPool, id: Uuid, mark: &str) {
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(mark)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// 原文と解析済みの**両方**を DB から読み、どちらも空か。
+async fn emptied(pool: &PgPool, id: Uuid) -> bool {
+    sqlx::query_scalar("SELECT raw = '' AND payload = '{}'::jsonb FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// 原文も解析済みも残っているか。
+async fn kept(pool: &PgPool, id: Uuid) -> bool {
+    sqlx::query_scalar("SELECT raw <> '' AND payload <> '{}'::jsonb FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn versions_emptied(pool: &PgPool, id: Uuid) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE raw = '' AND payload = '{}'::jsonb)
+           FROM core.event_version WHERE event_id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// 「消した」にして、確認と同じ数え方で数えた件数を添えて本文ごと消す。
+async fn purge_now(pool: &PgPool, stay: Uuid) -> deletion::PurgeOutcome {
+    let counts = scope_counts(pool, stay).await;
+    deletion::purge(pool, stay, None, counts).await.unwrap()
+}
+
+async fn scope_counts(pool: &PgPool, stay: Uuid) -> PurgeCounts {
+    let mut tx = pool.begin().await.unwrap();
+    let scope = deletion::purge_scope(&mut tx, stay).await.unwrap();
+    tx.rollback().await.unwrap();
+    scope.counts
+}
+
+/// 滞在を ST22 の口で消す（その時間の位置が一緒に消える）。
+async fn scene_erase(pool: &PgPool, stay: Uuid) {
+    deletion::erase(pool, stay, None).await.unwrap();
+}
+
+/// 10:00–11:00 の滞在と、その中の位置 3 件。
+async fn scene_basic(pool: &PgPool, user: Uuid) -> (Uuid, Vec<Uuid>) {
+    let stay = scene_stay(
+        pool,
+        user,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T11:00:00+09:00",
+    )
+    .await;
+    let mut locations = Vec::new();
+    for when in ["10:00", "10:30", "11:00"] {
+        locations.push(scene_location(pool, user, &format!("2026-10-01T{when}:00+09:00")).await);
+    }
+    (stay, locations)
+}
+
+// Scenario: 一緒に消えた位置の本文も消える
+#[tokio::test]
+async fn purge_scope_cascaded_locations_are_emptied() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    assert!(emptied(&pool, stay).await);
+    assert_eq!(locations.len(), 3);
+    for id in locations {
+        assert!(emptied(&pool, id).await);
+    }
+}
+
+// Scenario: 位置を持つ書庫の項目は項目ごと本文が消える
+#[tokio::test]
+async fn purge_scope_archive_item_with_location_is_emptied_whole() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let item = scene_event(
+        &pool,
+        user,
+        "c03-youtube-watch",
+        "2026-10-01T10:20:00+09:00",
+        r#"{"title":"視聴","locationInfos":[{"name":"東京"}]}"#,
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    let outcome = purge_now(&pool, stay).await;
+
+    assert_eq!(outcome.counts.archive_items, 1);
+    assert!(emptied(&pool, item).await, "位置の欄だけでなく全体が空");
+}
+
+// Scenario: 前の版の本文も消える
+#[tokio::test]
+async fn purge_scope_versions_are_emptied() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    for no in 1..=20 {
+        scene_version(
+            &pool,
+            stay,
+            user,
+            no,
+            "2026-10-01T10:00:00+09:00",
+            "2026-10-01T10:50:00+09:00",
+        )
+        .await;
+    }
+    scene_erase(&pool, stay).await;
+
+    let outcome = purge_now(&pool, stay).await;
+
+    assert_eq!(outcome.counts.versions, 20);
+    assert_eq!(versions_emptied(&pool, stay).await, (20, 20));
+}
+
+// Scenario: 吸収された滞在の本文も消える
+#[tokio::test]
+async fn purge_scope_absorbed_stay_is_emptied_with_its_versions() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let absorbed = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:10:00+09:00",
+        "2026-10-01T10:40:00+09:00",
+    )
+    .await;
+    scene_version(
+        &pool,
+        absorbed,
+        user,
+        1,
+        "2026-10-01T10:10:00+09:00",
+        "2026-10-01T10:30:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    scene_mark_rebuild(&pool, absorbed, "rebuild:absorbed").await;
+
+    let outcome = purge_now(&pool, stay).await;
+
+    assert_eq!(outcome.counts.stays, 2);
+    assert!(emptied(&pool, absorbed).await);
+    assert_eq!(versions_emptied(&pool, absorbed).await, (1, 1));
+    // 作り直しが印を外さないように、本人の「本文ごと消した」に付け替わり、台帳に原因つきで 1 行残る（D6）
+    let mark: Option<String> =
+        sqlx::query_scalar("SELECT deleted_by FROM core.event WHERE id = $1")
+            .bind(absorbed)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(mark.as_deref(), Some("user:purged"));
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.deletion_ledger
+          WHERE event_id = $1 AND action = 'erase' AND cause_event_id = $2 AND mark = 'user:purged'",
+    )
+    .bind(absorbed)
+    .bind(stay)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1);
+    let own: Option<String> = sqlx::query_scalar("SELECT deleted_by FROM core.event WHERE id = $1")
+        .bind(stay)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        own.as_deref(),
+        Some("user"),
+        "指定した滞在の印は本人の印のまま"
+    );
+}
+
+// Scenario: 同じ時間の写真の本文は残る
+#[tokio::test]
+async fn purge_scope_keeps_photo() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let photo = scene_event(
+        &pool,
+        user,
+        "c01-photo",
+        "2026-10-01T10:30:00+09:00",
+        r#"{"lat":35.68,"lon":139.76,"file":"a.jpg"}"#,
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    assert!(kept(&pool, photo).await);
+}
+
+// Scenario: 同じ時間の PC のウィンドウの本文は残る
+#[tokio::test]
+async fn purge_scope_keeps_pc_window_and_browser_history() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let window = scene_event(
+        &pool,
+        user,
+        "c02-window",
+        "2026-10-01T10:30:00+09:00",
+        r#"{"title":"w"}"#,
+    )
+    .await;
+    let history = scene_event(
+        &pool,
+        user,
+        "c02-browser-history",
+        "2026-10-01T10:31:00+09:00",
+        r#"{"url":"https://example.test/"}"#,
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    assert!(kept(&pool, window).await);
+    assert!(kept(&pool, history).await);
+}
+
+// Scenario: 消した滞在を指して書いた気分は残る
+#[tokio::test]
+async fn purge_scope_keeps_feeling_pointing_at_the_stay() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let feeling = scene_event(
+        &pool,
+        user,
+        "s01-feeling",
+        "2026-10-01T11:10:00+09:00",
+        &format!(r#"{{"mood":"good","stay_id":"{stay}"}}"#),
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    assert!(kept(&pool, feeling).await);
+}
+
+// Scenario: 別の操作で消した位置の本文は消えない
+#[tokio::test]
+async fn purge_scope_keeps_locations_erased_by_another_stay() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (first, _) = scene_basic(&pool, user).await;
+    let second = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T14:00:00+09:00",
+        "2026-10-01T15:00:00+09:00",
+    )
+    .await;
+    let mut others = Vec::new();
+    for when in ["14:00", "14:30", "15:00"] {
+        others.push(scene_location(&pool, user, &format!("2026-10-01T{when}:00+09:00")).await);
+    }
+    scene_erase(&pool, first).await;
+    scene_erase(&pool, second).await;
+
+    purge_now(&pool, first).await;
+
+    assert!(kept(&pool, second).await);
+    for id in others {
+        assert!(kept(&pool, id).await);
+    }
+}
+
+// Scenario: 別に消した滞在は重なっていても本文が残る
+#[tokio::test]
+async fn purge_scope_keeps_separately_erased_overlapping_stay() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let first = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T11:00:00+09:00",
+    )
+    .await;
+    let second = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:30:00+09:00",
+        "2026-10-01T11:30:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, first).await;
+    scene_erase(&pool, second).await;
+
+    let outcome = purge_now(&pool, first).await;
+
+    assert_eq!(outcome.counts.stays, 1);
+    assert!(emptied(&pool, first).await);
+    assert!(kept(&pool, second).await);
+}
+
+// Scenario: 一覧に出ている滞在の本文は消えない
+#[tokio::test]
+async fn purge_scope_keeps_listed_overlapping_stay() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let listed = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:30:00+09:00",
+        "2026-10-01T11:30:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    assert!(kept(&pool, listed).await);
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM core.event_live WHERE id = $1")
+        .bind(listed)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(live, 1, "一覧（生きた記録）に出ている");
+}
+
+#[tokio::test]
+async fn purge_scope_edge_touching_rebuild_stay_is_not_included() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    // 端が触れるだけ（11:00 で始まる）。作り直しの印のものでも重なりにしない
+    let touching = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T11:00:00+09:00",
+        "2026-10-01T12:00:00+09:00",
+    )
+    .await;
+    let before = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T09:00:00+09:00",
+        "2026-10-01T10:00:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    scene_mark_rebuild(&pool, touching, "rebuild:absorbed").await;
+    scene_mark_rebuild(&pool, before, "rebuild:erased-range").await;
+
+    let outcome = purge_now(&pool, stay).await;
+
+    assert_eq!(outcome.counts.stays, 1);
+    assert!(kept(&pool, touching).await);
+    assert!(kept(&pool, before).await);
+}
+
+// Scenario: 本文を消した記録は時刻と鍵を残す
+#[tokio::test]
+async fn purge_scope_emptied_row_keeps_time_and_hash() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    let id = locations[1];
+    let before: (DateTime<Utc>, String) =
+        sqlx::query_as("SELECT event_time, content_hash FROM core.event WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    scene_erase(&pool, stay).await;
+
+    purge_now(&pool, stay).await;
+
+    let row: (String, serde_json::Value, DateTime<Utc>, String) = sqlx::query_as(
+        "SELECT raw, payload, event_time, content_hash FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, "");
+    assert_eq!(row.1, serde_json::json!({}));
+    assert_eq!((row.2, row.3), before);
+}
+
+/// 10:05–11:48 の滞在・位置 70 件・前の版 20 件（1 つ目は 10:05–11:30）を本文ごと消して、操作の行を返す。
+async fn scene_big_purge(pool: &PgPool, user: Uuid) -> (Uuid, Uuid) {
+    let stay = scene_stay(
+        pool,
+        user,
+        "2026-10-01T10:05:00+09:00",
+        "2026-10-01T11:48:00+09:00",
+    )
+    .await;
+    for minute in 0..70 {
+        let when = at("2026-10-01T10:05:00+09:00") + Duration::minutes(minute);
+        scene_location(pool, user, &when.to_rfc3339()).await;
+    }
+    scene_version(
+        pool,
+        stay,
+        user,
+        1,
+        "2026-10-01T10:05:00+09:00",
+        "2026-10-01T11:30:00+09:00",
+    )
+    .await;
+    for no in 2..=20 {
+        scene_version(
+            pool,
+            stay,
+            user,
+            no,
+            "2026-10-01T10:05:00+09:00",
+            "2026-10-01T11:00:00+09:00",
+        )
+        .await;
+    }
+    scene_erase(pool, stay).await;
+    let outcome = purge_now(pool, stay).await;
+    (stay, outcome.operation_id.unwrap())
+}
+
+// Scenario: 本文ごと消すと操作の台帳に 1 行残る
+#[tokio::test]
+async fn purge_scope_writes_one_operation_row() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, op) = scene_big_purge(&pool, user).await;
+
+    type OperationRow = (Uuid, DateTime<Utc>, DateTime<Utc>, i32, i32, i32, i32, i32);
+    let rows: Vec<OperationRow> = sqlx::query_as(
+        "SELECT stay_id, start_at, end_at, stays, locations, archive_locations, archive_items, versions
+           FROM core.erasure_operation WHERE user_id = $1",
+    )
+    .bind(user)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![(
+            stay,
+            at("2026-10-01T10:05:00+09:00"),
+            at("2026-10-01T11:48:00+09:00"),
+            1,
+            70,
+            0,
+            0,
+            20
+        )]
+    );
+    let _ = op;
+}
+
+// Scenario: 記録ごとの消去の台帳の行が操作に結ばれる
+#[tokio::test]
+async fn purge_scope_ledger_rows_are_tied_to_the_operation() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_version(
+        &pool,
+        stay,
+        user,
+        1,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T10:40:00+09:00",
+    )
+    .await;
+    scene_version(
+        &pool,
+        stay,
+        user,
+        2,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T10:50:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+
+    let op = purge_now(&pool, stay).await.operation_id.unwrap();
+
+    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT event_id, scope, logical_source FROM core.erasure_ledger
+          WHERE operation_id = $1 ORDER BY scope, logical_source, event_id",
+    )
+    .bind(op)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let of = |scope: &str, source: &str| {
+        rows.iter()
+            .filter(|r| r.1 == scope && r.2 == source)
+            .count()
+    };
+    assert_eq!(of("event", "s01-stay"), 1);
+    assert_eq!(of("event", "c01-location"), 3);
+    assert_eq!(of("version", "s01-stay"), 2, "前の版ごとに 1 行");
+    assert!(
+        rows.iter()
+            .filter(|r| r.1 == "version")
+            .all(|r| r.0 == stay),
+        "前の版の event_id は親"
+    );
+    for id in locations {
+        assert!(rows.iter().any(|r| r.0 == id && r.1 == "event"));
+    }
+    assert_eq!(rows.len(), 6);
+}
+
+// Scenario: 本文を消した滞在の時間が範囲の行に残る
+#[tokio::test]
+async fn purge_scope_span_rows_keep_the_times() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, op) = scene_big_purge(&pool, user).await;
+
+    type SpanRow = (Uuid, String, Option<i32>, DateTime<Utc>, DateTime<Utc>);
+    let rows: Vec<SpanRow> = sqlx::query_as(
+        "SELECT event_id, scope, version_no, start_at, end_at FROM core.erasure_span
+          WHERE operation_id = $1 ORDER BY scope, version_no",
+    )
+    .bind(op)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let start = at("2026-10-01T10:05:00+09:00");
+    assert!(rows.contains(&(
+        stay,
+        "event".into(),
+        None,
+        start,
+        at("2026-10-01T11:48:00+09:00")
+    )));
+    assert!(rows.contains(&(
+        stay,
+        "version".into(),
+        Some(1),
+        start,
+        at("2026-10-01T11:30:00+09:00")
+    )));
+    assert_eq!(rows.len(), 1 + 20);
+}
+
+// Scenario: 台帳に書けないと本文も消えない
+#[tokio::test]
+async fn purge_scope_ledger_failure_leaves_every_body() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_version(
+        &pool,
+        stay,
+        user,
+        1,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T10:40:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    let counts = scope_counts(&pool, stay).await;
+
+    // 本文を空にした後の、台帳の最後の書き込み（範囲の行）が CHECK 違反で落ちる
+    let result = deletion::purge_with_span_scope(&pool, stay, None, counts, "not-a-scope").await;
+
+    assert!(matches!(result, Err(PurgeError::Database(_))));
+    assert!(kept(&pool, stay).await);
+    for id in locations {
+        assert!(kept(&pool, id).await);
+    }
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event_version WHERE event_id = $1 AND raw <> ''",
+    )
+    .bind(stay)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(versions, 1);
+    let operations: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.erasure_operation WHERE stay_id = $1")
+            .bind(stay)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(operations, 0);
+}
+
+// Scenario: 本文ごと消す操作と戻す操作が同時に走るとどちらか一方だけが効く
+#[tokio::test]
+async fn purge_scope_purge_and_restore_race_has_one_winner() {
+    let pool = testdb::pool().await;
+    let holder = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    let counts = scope_counts(&pool, stay).await;
+
+    let mut tx = holder.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let purge_task = tokio::spawn({
+        let pool = pool.clone();
+        async move { deletion::purge(&pool, stay, None, counts).await }
+    });
+    let restore_task = tokio::spawn({
+        let pool = pool.clone();
+        async move { deletion::restore(&pool, &[stay], None).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!purge_task.is_finished(), "消す操作が錠を待っていない");
+    assert!(!restore_task.is_finished(), "戻す操作が錠を待っていない");
+    tx.rollback().await.unwrap();
+    let purged = purge_task.await.unwrap();
+    let restored = restore_task.await.unwrap();
+
+    let state: (bool, bool) = sqlx::query_as(
+        "SELECT raw = '', deleted_at IS NOT NULL AND deleted_by = 'user' FROM core.event WHERE id = $1",
+    )
+    .bind(stay)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    match (purged, restored) {
+        (Ok(_), Err(deletion::RestoreError::Purged)) => {
+            assert_eq!(state, (true, true), "本文が空で削除の印が付いている");
+            assert!(emptied(&pool, locations[0]).await);
+        }
+        (Err(PurgeError::NotErased), Ok(_)) => {
+            assert_eq!(state, (false, false), "本文が残って削除の印が外れている");
+            assert!(kept(&pool, locations[0]).await);
+        }
+        (p, r) => panic!("どちらか一方だけが効くはずが: purge={p:?} restore={r:?}"),
+    }
+}
+
+#[tokio::test]
+async fn purge_scope_unknown_source_is_refused_and_nothing_is_written() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    // 連鎖の規則が将来変わって、写真が同じ原因で消えたことにされた場面
+    let photo = scene_event(
+        &pool,
+        user,
+        "c01-photo",
+        "2026-10-01T10:30:00+09:00",
+        r#"{"lat":35.68}"#,
+    )
+    .await;
+    scene_mark_rebuild(&pool, photo, "user:cascade").await;
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, 'c01-photo', 'erase', $3, 'user:cascade')",
+    )
+    .bind(photo)
+    .bind(user)
+    .bind(stay)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    let scoped = deletion::purge_scope(&mut tx, stay).await;
+    tx.rollback().await.unwrap();
+    assert!(matches!(scoped, Err(PurgeError::UnknownSource)));
+    let result = deletion::purge(&pool, stay, None, PurgeCounts::default()).await;
+
+    assert!(matches!(result, Err(PurgeError::UnknownSource)));
+    assert!(kept(&pool, stay).await);
+    assert!(kept(&pool, photo).await);
+    assert!(kept(&pool, locations[0]).await);
+}
+
+#[tokio::test]
+async fn purge_scope_counts_changed_writes_nothing() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    let mut shown = scope_counts(&pool, stay).await;
+    shown.locations -= 1;
+
+    let result = deletion::purge(&pool, stay, None, shown).await;
+
+    match result {
+        Err(PurgeError::CountsChanged(now)) => assert_eq!(now.locations, 3),
+        other => panic!("件数が違えば断られるはず: {other:?}"),
+    }
+    assert!(kept(&pool, stay).await);
+    assert!(kept(&pool, locations[0]).await);
+}
+
+#[tokio::test]
+async fn purge_scope_second_press_is_a_success_with_nothing_added() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+
+    // 件数は比べない（2 度押しは成功として返す）
+    let again = deletion::purge(
+        &pool,
+        stay,
+        None,
+        PurgeCounts {
+            stays: 9,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(again.counts, PurgeCounts::default());
+    assert!(again.operation_id.is_none());
+    let operations: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core.erasure_operation WHERE stay_id = $1")
+            .bind(stay)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(operations, 1);
+}
+
+#[tokio::test]
+async fn purge_scope_refuses_a_stay_that_is_not_erased() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let rebuilt = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T12:00:00+09:00",
+        "2026-10-01T13:00:00+09:00",
+    )
+    .await;
+    scene_mark_rebuild(&pool, rebuilt, "rebuild:absorbed").await;
+
+    for id in [stay, rebuilt] {
+        let result = deletion::purge(&pool, id, None, PurgeCounts::default()).await;
+        assert!(matches!(result, Err(PurgeError::NotErased)), "{result:?}");
+        assert!(kept(&pool, id).await);
+    }
+    let result = deletion::purge(&pool, stay, Some(testdb::user()), PurgeCounts::default()).await;
+    assert!(matches!(result, Err(PurgeError::UserMismatch)));
+}
+
+#[tokio::test]
+async fn purge_scope_restore_of_a_purged_stay_is_refused() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+
+    let result = deletion::restore(&pool, &[stay], None).await;
+
+    assert!(
+        matches!(result, Err(deletion::RestoreError::Purged)),
+        "{result:?}"
+    );
+    let marked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event WHERE id = ANY($1) AND deleted_at IS NOT NULL",
+    )
+    .bind([vec![stay], locations].concat())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(marked, 4, "何も書かない（削除の印は付いたまま）");
 }
