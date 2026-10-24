@@ -69,13 +69,13 @@
 
 ## Task 3: サーバの書庫の試験
 
-- [ ] 3.1 `crates/server/src/archive_tests.rs` の 14 か所を `TempDir` に替え、通ったときだけ消す `remove_dir_all(root).unwrap()` を消す。`archive_tests.rs:121` の `"/tmp/failing.zip"`（開かない文字列）は
+- [x] 3.1 `crates/server/src/archive_tests.rs` の 14 か所を `TempDir` に替え、通ったときだけ消す `remove_dir_all(root).unwrap()` を消す。`archive_tests.rs:121` の `"/tmp/failing.zip"`（開かない文字列）は
   `TempDir` の path の下の名前に書き換えて印を要らなくする（design D4）。
   検証: `CT archive_tests` rc=0 / `NL archive_tests 73` rc=0
-- [ ] 3.2 `crates/server/src/archive_flow_tests.rs` の `Inbox` に `TempDir` の欄を足し、自前の `impl Drop for Inbox` の `remove_dir_all` を外す。`Inbox::new(name)` の形と、`root`・`inbox`・`downloads`・`copies` の欄の型（`PathBuf`）は
+- [x] 3.2 `crates/server/src/archive_flow_tests.rs` の `Inbox` に `TempDir` の欄を足し、自前の `impl Drop for Inbox` の `remove_dir_all` を外す。`Inbox::new(name)` の形と、`root`・`inbox`・`downloads`・`copies` の欄の型（`PathBuf`）は
   変えない（走っている st13 が `Inbox::new(` を 15 か所・欄を 16 か所使う。design D1）。`TempDir` の欄は `workers` より後ろに置き、**取り込み器が止まってから置き場が消える**順にする（いまは置き場が先に消える）。
   検証: `CT archive_flow_tests` rc=0 / `NL archive_flow_tests 105` rc=0
-- [ ] 3.3 書庫の試験が一時フォルダに残さないこと。
+- [x] 3.3 書庫の試験が一時フォルダに残さないこと。
   検証: `LK rust -p ashiato-server archive` rc=0
 
 ## Task 4: PC の収集アプリの試験
