@@ -118,7 +118,7 @@ struct Run {
 /// 片付けと作成の直列化の鍵（design D2。移行の直列化だった 4820251 とは別）。
 const LOCK_SWEEP_AND_CREATE: i64 = 4_820_252;
 /// 回の助言ロックの第 1 鍵（第 2 鍵は `hashtext('<id>')`）。
-const LOCK_RUN_CLASS: i32 = 4_820_253;
+pub(crate) const LOCK_RUN_CLASS: i32 = 4_820_253;
 
 /// 回の database の名前（`url()` の末尾）。
 fn database_of_run() -> String {
@@ -372,10 +372,11 @@ impl Drop for TestDb {
                             .await
                             .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
                         let mut dropped = Ok(());
-                        // WITH (FORCE) は所有者の権限で切れる接続しか切らない。ashiato_app の接続は
-                        // pg_signal_backend を持たない所有者には切れず、「permission denied to terminate
-                        // process」で拒まれる。app のプールは試験の側が閉じる（または drop される）のを待つしかないので、
-                        // 負荷の高いランナーでも吸収できるよう 100ms から倍々で合計約 12 秒までやり直す。
+                        // WITH (FORCE) が「permission denied to terminate process」で拒まれたことが 1 度ある
+                        // （ch04_isolated_many_in_parallel。app の役で繋いだ試験は無く、ashiato_app の接続ではない）。
+                        // 原因は突き止めていない（autovacuum など superuser の backend を疑うが、確かめていない）。
+                        // そうした接続はすぐ去るので、100ms から倍々（上限 3.2 秒）で 7 回待つ合計約 9.5 秒までやり直して吸収する。
+                        // それでも消せなければ、下で pg_stat_activity の繋がっているものを書き出し、次に起きたときに原因を名指す。
                         let mut wait_ms = 100;
                         for attempt in 0..8 {
                             if attempt > 0 {
@@ -606,8 +607,9 @@ pub async fn set_succeeds(pool: &sqlx::PgPool, source: &str, predecessor: &str) 
 }
 
 /// テストごとに他のテストが使わない日（2000 年代の前半から）。書き出しは除く判定が**利用者を問わない**ので、
-/// 消した滞在の時間は、回の database の中で書き出しの試験以外が共有する。書き出しのテストの記録と消す滞在は、この日に置いて時刻でも隔離する
-/// （ST33 / spec-review R27）。1 回の実行の中では重ならず、実行どうしは乱数の起点でずらす。
+/// 消した滞在の時間は、回の database の中で書き出しの試験以外が共有する。回の database を使う試験は、この日で互いを隔てる
+/// （ST33 / spec-review R27）。書き出しの試験も記録をこの日に置くが、試験ごとの database（`isolated()`）で既に隔離されている（CH04）。
+/// 1 回の実行の中では重ならず、実行どうしは乱数の起点でずらす。
 pub fn unique_day() -> chrono::NaiveDate {
     use std::sync::atomic::{AtomicU32, Ordering};
     // 2000-01-01 から 5 年ぶん（1827 日）。37 は 1827 と互いに素なので、起点からの 1827 回は重ならない。
