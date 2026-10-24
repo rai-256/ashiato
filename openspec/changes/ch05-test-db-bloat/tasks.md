@@ -85,9 +85,9 @@
   検証: `EV scripts/quiet-run killed -- tools/check-test-db-killed.sh` rc=0 /
   `bash -c 'f=tools/check-test-db-killed.sh; for s in "体積の行を入れる途中で殺した回の database は、次の回の後に残らない" "体積の行を確定した後に殺した回の database は、次の回の後に残らない"; do grep -qF "Scenario: $s" "$f" || exit 1; done'` rc=0 /
   `bash -c 'grep -qE "^- 次の回の秒数: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'` rc=0
-- [ ] 4.3 判定が本物で効くことを、片付けを外して確かめる: CH04 の片付けを呼ぶ行（`testdb.rs` の次の回の片付けの呼び出し。1.1 で行を確かめる）を一時的に外して 4.2 の台本を走らせ、rc=1 で出力に `ashiato_run_` の名前が出ることを見て、元に戻す（commit しない）。
+- [ ] 4.3 判定が本物で効くことを、片付けを外して確かめる: CH04 の片付けを呼ぶ行（`testdb.rs` の `sweep_previous_runs(…).await;`。回を作る関数と試験から呼ぶ `sweep()` の 2 か所。e27a521a の 241・287 行）を全部一時的に外して 4.2 の台本を走らせ、rc=1 で出力に `ashiato_run_` の名前が出ることを見て、元に戻す（commit しない）。
   結果（rc と挙がった名前の数）を design の「計測の記録」の `- 片付けを外した回:` に書く。
-  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; f=crates/server/src/testdb.rs; trap "git checkout -- $f" EXIT; line=$(grep -nE "^[[:space:]]*sweep[a-z_]*\(.*\)\.await;" "$f" | head -1 | cut -d: -f1); [ -n "$line" ] || exit 3; sed -i "${line}s|^|// ch05-mutation: |" "$f"; out=$(tools/check-test-db-killed.sh 2>&1); rc=$?; echo "$out" | tail -20; [ "$rc" = 1 ] && grep -q ashiato_run_ <<<"$out"'` rc=0 /
+  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; f=crates/server/src/testdb.rs; trap "git checkout -- $f" EXIT; [ "$(grep -cE "^[[:space:]]*sweep_previous_runs\(.*\)\.await;" "$f")" -ge 1 ] || exit 3; sed -i -E "s|^([[:space:]]*)(sweep_previous_runs\(.*\)\.await;)|\1// ch05-mutation: \2|" "$f"; out=$(tools/check-test-db-killed.sh 2>&1); rc=$?; echo "$out" | tail -20; [ "$rc" = 1 ] && grep -q ashiato_run_ <<<"$out"'` rc=0 /
   `git diff --quiet HEAD -- crates/server/src/testdb.rs` rc=0
 
 ## Task 5: CI と文書
