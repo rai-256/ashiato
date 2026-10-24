@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Root } from "../Root";
 import { msg } from "../messages";
 import { REFUSAL_KINDS, type Satellite } from "../satellites";
+import satelliteRs from "../../../crates/server/src/satellite.rs?raw";
 
 const VALUE = "ashsat_dev.example.booklog_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_ABCDE";
 
@@ -168,5 +169,24 @@ describe("衛星と資格情報の節", () => {
       expect(px(b, "minHeight"), b.textContent ?? "").toBeGreaterThanOrEqual(44);
       expect(px(b, "minWidth"), b.textContent ?? "").toBeGreaterThanOrEqual(44);
     }
+  });
+});
+
+describe("理由の文言の上限は satellite.rs の定数と同じ", () => {
+  // Scenario: 画面の文言は satellite.rs の定数に合わせたことをテストで確かめる（D5）
+  it("識別子 64・名前 40・資格情報の名前 40・2 つ以上の部分が、定数と文言で一致する", () => {
+    const src = satelliteRs;
+    const num = (name: string): number => {
+      const m = new RegExp(`pub const ${name}: usize = (\\d+);`).exec(src);
+      if (m === null) throw new Error(`${name} が satellite.rs に無い`);
+      return Number(m[1]);
+    };
+    const m = msg("satellites");
+    expect(m.refusal.malformed).toContain(`${num("IDENTIFIER_MAX_LEN")} 文字まで`);
+    expect(m.refusal.malformed).toContain("2 つ以上");
+    expect(m.refusal.name_invalid).toContain(`1〜${num("SATELLITE_NAME_MAX_LEN")} 文字`);
+    expect(m.labelInvalid).toContain(`${num("CREDENTIAL_LABEL_MAX_LEN")} 文字まで`);
+    // 形の正本（部分を 1 つ以上つなぐ）も文言の「2 つ以上」と同じ向き
+    expect(src).toContain(String.raw`(\.[a-z0-9-]+)+$`);
   });
 });
