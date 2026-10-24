@@ -28,14 +28,14 @@
 この Task が入るまで、この worktree の `verify-run` は DB を起動できず BLOCKED_INFRA になりうる（Docker の既定のアドレスの空きが尽きている。P4）。
 `verify-env.sh` は検証している木の `env-init.sh` を呼ぶので、1.3 が入った後の検証から DB が立つ。
 
-- [ ] 1.1 `tools/ports.sh` に関数 `ashiato_db_subnet` を足す（design D5）: `ASHIATO_DB_PORT` から `off = port − 55400`、`0 ≤ off < 512` のときだけ `printf '10.%d.%d.0/24' $((200 + off / 256)) $((off % 256))`、範囲の外なら何も出さない。
+- [x] 1.1 `tools/ports.sh` に関数 `ashiato_db_subnet` を足す（design D5）: `ASHIATO_DB_PORT` から `off = port − 55400`、`0 ≤ off < 512` のときだけ `printf '10.%d.%d.0/24' $((200 + off / 256)) $((off % 256))`、範囲の外なら何も出さない。
   変数は export しない。冒頭の規則の注記に 1 段落足す（4 つ組を書かない）。末尾の `unset -f` に入れない（呼び出し側が使う）。
   検証: `bash -c '. tools/ports.sh; [[ $(ashiato_db_subnet) == 10.20[01].*.0/24 ]]'` rc=0 / `bash -c '. tools/ports.sh; [ -z "$(ASHIATO_DB_PORT=1 ashiato_db_subnet)" ]'` rc=0 / `tools/check-private.sh` rc=0
-- [ ] 1.2 `tools/check-ports.sh --self-test` に subnet を足す（いまの `ports()` の関数で `ashiato_db_subnet` も出す）:
+- [x] 1.2 `tools/check-ports.sh --self-test` に subnet を足す（いまの `ports()` の関数で `ashiato_db_subnet` も出す）:
   `echo "Scenario: どの 2 つの木も、DB の subnet が被らない"` —— いまある 7 つの木（demo・demo-st05・demo-verify・demo-ch01・demo-ch02・demo-up-st05・demo-rec-st22）の subnet が全部違い、どれも `/24` で終わる。
   main の checkout の値は `printf` で組んだ期待値（off = 32）と同じ。
   検証: `tools/check-ports.sh --self-test` rc=0 / `bash -c '[ "$(grep -c "Scenario: " tools/check-ports.sh)" -ge 1 ]'` rc=0
-- [ ] 1.3 `tools/env-init.sh` に design D7 の 3.〜5. を書く: 新しく作る `.env` に `COMPOSE_FILE` も書く / ある `.env` の `COMPOSE_FILE` の行を今の木の値にそろえる（木に `docker-compose.override.yml` があれば 3 つ目に並べる。ほかの行は変えない。
+- [x] 1.3 `tools/env-init.sh` に design D7 の 3.〜5. を書く: 新しく作る `.env` に `COMPOSE_FILE` も書く / ある `.env` の `COMPOSE_FILE` の行を今の木の値にそろえる（木に `docker-compose.override.yml` があれば 3 つ目に並べる。ほかの行は変えない。
   一時ファイルに書いて `cat tmp > .env` で中身だけを入れ替え、権限を保つ）/ `ashiato_db_subnet` の値（環境変数も `.env` も見ない）で `docker-compose.subnet.yml`（default の network の `ipam.config` の `subnet` だけ。冒頭に生成物である注記）を作り直す。
   値が出なければ subnet のファイルを作らず `COMPOSE_FILE` の行を消す。`.gitignore` に `docker-compose.subnet.yml` を足す。冒頭の注記の「`.env` があれば何もしない（上書きしない）」を「合言葉の行は上書きしない。`COMPOSE_FILE` と subnet のファイルだけを保つ」に直す。
   検証: `bash -c 'grep -qE "^COMPOSE_FILE=docker-compose.yml:docker-compose.subnet.yml(:docker-compose.override.yml)?$" .env && git check-ignore -q docker-compose.subnet.yml'` rc=0 /
