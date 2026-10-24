@@ -4788,7 +4788,7 @@
           "copies": {
             "type": "integer",
             "format": "int32",
-            "description": "範囲の記録が入っている可能性のある、残している書庫の写しの数（数えるのは Task 8）",
+            "description": "範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）",
             "minimum": 0
           },
           "counts": {
@@ -4806,7 +4806,7 @@
             "items": {
               "type": "string"
             },
-            "description": "消えずに残るもの（書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しまでの痕跡。Task 8 が入れる）"
+            "description": "消えずに残るもの（`PURGE_REMAINS`）"
           }
         }
       },

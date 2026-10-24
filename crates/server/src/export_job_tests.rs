@@ -48,7 +48,12 @@ fn app_in(pool: &sqlx::PgPool, dir: &Path) -> App {
     app_with(pool, dir, Hooks::none())
 }
 
-fn request(method: Method, uri: &str, auth: bool, body: Option<String>) -> Request<Body> {
+pub(crate) fn request(
+    method: Method,
+    uri: &str,
+    auth: bool,
+    body: Option<String>,
+) -> Request<Body> {
     let mut b = Request::builder().method(method).uri(uri);
     if auth {
         b = b.header(header::AUTHORIZATION, format!("Bearer {TOKEN}"));
@@ -59,7 +64,7 @@ fn request(method: Method, uri: &str, auth: bool, body: Option<String>) -> Reque
     b.body(body.map_or_else(Body::empty, Body::from)).unwrap()
 }
 
-async fn call(app: &App, req: Request<Body>) -> (StatusCode, String) {
+pub(crate) async fn call(app: &App, req: Request<Body>) -> (StatusCode, String) {
     let res = crate::router(app.clone()).oneshot(req).await.unwrap();
     let status = res.status();
     let body = res.into_body().collect().await.unwrap().to_bytes();
@@ -98,7 +103,7 @@ async fn export_and_wait(app: &App, password: &str) -> Uuid {
     v["export_id"].as_str().unwrap().parse().unwrap()
 }
 
-async fn get_status(app: &App) -> Value {
+pub(crate) async fn get_status(app: &App) -> Value {
     let (code, body) = call(app, request(Method::GET, "/export", true, None)).await;
     assert_eq!(code, StatusCode::OK, "{body}");
     serde_json::from_str(&body).unwrap()

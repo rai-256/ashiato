@@ -160,6 +160,9 @@ mod purge_api_tests;
 pub mod purge_compaction;
 #[cfg(test)]
 mod purge_compaction_tests;
+/// 消えずに残るものと、本文を消しても変わらない稼働状況・後に消した記録の数を見る（ST23 Task 8 / design D10 / D18）。
+#[cfg(test)]
+mod purge_keep_tests;
 /// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
 #[cfg(test)]
 mod purge_late_tests;
@@ -2160,14 +2163,23 @@ pub struct PurgeRange {
     end: chrono::DateTime<chrono::Utc>,
 }
 
+/// 本文ごと消しても消えずに残るもの（確認の `remains`。design D10 / D18）。画面が文面を引く名前。
+/// 書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直し（毎晩 03:30）までディスクに残る痕跡。
+const PURGE_REMAINS: [&str; 4] = [
+    "archive_copies",
+    "user_folder_archives",
+    "export_files",
+    "nightly_rewrite",
+];
+
 /// `GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PurgePreview {
     counts: deletion::PurgeCounts,
     range: PurgeRange,
-    /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（数えるのは Task 8）
+    /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）
     copies: u32,
-    /// 消えずに残るもの（書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しまでの痕跡。Task 8 が入れる）
+    /// 消えずに残るもの（`PURGE_REMAINS`）
     remains: Vec<String>,
     /// すでに本文ごと消した滞在（件数はすべて 0）
     purged: bool,
@@ -2248,14 +2260,17 @@ pub async fn stays_purge_preview_get(
     let scope = deletion::purge_preview(&app.pool, q.stay_id, q.user_id)
         .await
         .map_err(|e| purge_refusal(e, "stays.purge_preview"))?;
+    let copies = deletion::kept_archive_copies(&app.pool, scope.user_id, &scope.archive_sources())
+        .await
+        .map_err(|e| purge_refusal(deletion::PurgeError::Database(e), "stays.purge_preview"))?;
     Ok(Json(PurgePreview {
         counts: scope.counts,
         range: PurgeRange {
             start: scope.start,
             end: scope.end,
         },
-        copies: 0,
-        remains: Vec::new(),
+        copies,
+        remains: PURGE_REMAINS.iter().map(|s| (*s).to_owned()).collect(),
         purged: scope.already_purged,
     }))
 }

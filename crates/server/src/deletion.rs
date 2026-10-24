@@ -713,6 +713,56 @@ pub async fn purge_scope(
     Ok(scope)
 }
 
+impl PurgeScope {
+    /// 範囲に入った書庫の記録（書庫の位置・書庫の項目）の論理ソース。重なりは 1 つにする。
+    pub fn archive_sources(&self) -> Vec<String> {
+        let mut sources: Vec<String> = self
+            .members
+            .iter()
+            .filter(|m| matches!(m.group, Group::ArchiveLocation | Group::ArchiveItem))
+            .map(|m| m.logical_source.clone())
+            .collect();
+        sources.sort();
+        sources.dedup();
+        sources
+    }
+}
+
+/// 確認に出す、消えずに残る書庫の写しの数（design D10（仮））。
+///
+/// 記録 1 件から写しへの結びは無いので、範囲の書庫の記録の論理ソースを読んだ書庫の写し（`core.archive_file`）のうち、
+/// 置き場にファイルが残っているものを数える。範囲の記録を含まない写しも数える（少なく数えない）。
+/// どの書庫から出たか分からない写し（`archive_sha256` が無い）も、ソースを否定できないので数える。
+pub async fn kept_archive_copies(
+    pool: &PgPool,
+    user_id: uuid::Uuid,
+    archive_sources: &[String],
+) -> sqlx::Result<u32> {
+    if archive_sources.is_empty() {
+        return Ok(0);
+    }
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT f.stored_path FROM core.archive_file f
+          WHERE f.user_id = $1
+            AND (f.archive_sha256 IS NULL OR EXISTS (
+                  SELECT 1 FROM core.archive_ledger l
+                    JOIN core.archive_ledger_source s ON s.ledger_id = l.id
+                   WHERE l.user_id = f.user_id AND l.sha256 = f.archive_sha256
+                     AND s.logical_source = ANY($2)))",
+    )
+    .bind(user_id)
+    .bind(archive_sources)
+    .fetch_all(pool)
+    .await?;
+    let mut kept = 0;
+    for path in paths {
+        if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+            kept += 1;
+        }
+    }
+    Ok(kept)
+}
+
 /// 本文ごと消す前の確認。範囲を消す口と同じ `purge_scope` で数え、何も書かずに返す（design D1）。
 pub async fn purge_preview(
     pool: &PgPool,
