@@ -79,7 +79,7 @@
 
 ## Task 4: 確認の口と消す口・戻す口の断り（design D1 / D6。spec「消した滞在を本文ごと消す操作がある」「本文ごと消す前に…」「確認で見せた件数と…」「消したものを戻せる」）
 
-- [ ] 4.1 `lib.rs` に `GET /stays/purge/preview` と `POST /stays/purge` を足し（型は `PurgeCounts` / `PurgePreview` / `PurgeOutcome`。`bin/openapi.rs` の契約にも載せる）、`POST /stays/restore` が本文を消した記録を含む求めを 409 で断る（D6）。
+- [x] 4.1 `lib.rs` に `GET /stays/purge/preview` と `POST /stays/purge` を足し（型は `PurgeCounts` / `PurgePreview` / `PurgeOutcome`。`bin/openapi.rs` の契約にも載せる）、`POST /stays/restore` が本文を消した記録を含む求めを 409 で断る（D6）。
   すでに本文ごと消した滞在は件数を比べずに 200・0 件（design D1 の順）。戻す口の 409 は、別の原因で消えたまま残る記録を数えない（design D6。spec review R3）。
   Scenario: `消した滞在を本文ごと消すと 200 で件数が返る` / `消えていない滞在は本文ごと消せない` / `作り直しが隠しただけの滞在は本文ごと消せない` / `滞在でない記録の識別子では本文ごと消せない` /
   `他の利用者を指定して本文ごと消すことはできない` / `資格情報の無い本文ごと消す求めは断られる` / `知らない識別子を本文ごと消そうとすると断られる` / `本文ごと消した滞在をもう一度指定しても何も起きない` /
