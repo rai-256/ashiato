@@ -98,3 +98,98 @@ async fn ch04_testdb_run_database_keeps_the_immutable_triggers() {
         assert_eq!(enabled, "O", "{name} が常時有効でない");
     }
 }
+
+/// `pg_database` にその名前があるか。
+async fn database_exists(name: &str) -> bool {
+    let admin = testdb::pool().await;
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)")
+        .bind(name)
+        .fetch_one(&admin)
+        .await
+        .unwrap()
+}
+
+// Scenario: 試験ごとの database は、試験が通れば終わりに消える
+#[tokio::test]
+async fn ch04_isolated_database_is_dropped_after_the_test() {
+    let db = testdb::isolated().await;
+    let name = db.name().to_string();
+    assert!(database_exists(&name).await, "作られていない: {name}");
+    drop(db);
+    assert!(!database_exists(&name).await, "消えていない: {name}");
+}
+
+/// 自分の runtime で future を走らせる別スレッド。panic はスレッドの join が受け止める
+/// （`tokio::spawn` に sqlx の future を渡すと、rustc の高階の Send 推論が通らない）。
+fn run_on_thread<T: Send + 'static, F: std::future::Future<Output = T>>(
+    make: impl FnOnce() -> F + Send + 'static,
+) -> std::thread::JoinHandle<T> {
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(make())
+    })
+}
+
+// Scenario: 試験ごとの database は、試験が panic しても消える
+#[tokio::test]
+async fn ch04_isolated_database_is_dropped_on_panic() {
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let joined = run_on_thread(move || async move {
+        let db = testdb::isolated().await;
+        tx.send(db.name().to_string()).unwrap();
+        let pool = db.pool().await;
+        let source = testdb::source(&pool, "ch04-panic", 21_600).await;
+        testdb::put_event(&pool, testdb::user(), &source, "2001-02-03T12:00:00+09:00").await;
+        panic!("わざと panic する");
+    })
+    .join();
+    assert!(joined.is_err(), "panic が伝わっていない");
+    let name = rx.recv().unwrap();
+    assert!(
+        !database_exists(&name).await,
+        "panic の後も残っている: {name}"
+    );
+}
+
+// Scenario: 使い捨ての database の名前は、回の database の名前で始まる
+#[tokio::test]
+async fn ch04_scratch_database_name_starts_with_the_run() {
+    drop(testdb::pool().await);
+    let run = database_of(&testdb::url()).to_string();
+    let db = testdb::scratch().await;
+    assert!(
+        db.name().starts_with(&format!("{run}_tmp_")),
+        "回の名前で始まらない: {}",
+        db.name()
+    );
+    let name = db.name().to_string();
+    drop(db);
+    assert!(!database_exists(&name).await, "消えていない: {name}");
+}
+
+/// 前提の確かめ（P16）: 16 本が同時に作って同時に消しても落ちない。
+#[tokio::test]
+async fn ch04_isolated_many_in_parallel() {
+    drop(testdb::pool().await);
+    let threads: Vec<_> = (0..16)
+        .map(|_| {
+            run_on_thread(|| async {
+                let db = testdb::isolated().await;
+                let pool = db.pool().await;
+                let n: i64 = sqlx::query_scalar("SELECT count(*) FROM core.event")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                assert_eq!(n, 0);
+                db.name().to_string()
+            })
+        })
+        .collect();
+    let names: Vec<String> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+    for name in names {
+        assert!(!database_exists(&name).await, "消えていない: {name}");
+    }
+}

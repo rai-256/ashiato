@@ -203,6 +203,124 @@ async fn create_run() -> Run {
     }
 }
 
+/// 試験ごとの写しは回の中で 1 本ずつ作る（同じテンプレートからの同時の写しを避ける。design D2 / P16）。
+static COPY_ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 試験が持つ database（design D4・D5）。`isolated()` は回のテンプレートの写し、`scratch()` は空。
+/// `Drop` が自分のスレッドと runtime で `DROP DATABASE IF EXISTS … WITH (FORCE)` を打って待つ。
+/// 試験が通っても panic しても（巻き戻しの途中でも）走る。**Drop は panic しない**: 失敗は名前と理由を出して戻り、
+/// 残りは次の回の片付け（design D6）が消す。
+#[derive(Debug)]
+pub struct TestDb {
+    name: String,
+    url: String,
+}
+
+impl TestDb {
+    /// この database に繋いだプール（呼ぶたびに同じ database。プールは呼んだ runtime のもの）。
+    pub fn pool(&self) -> impl std::future::Future<Output = sqlx::PgPool> + Send + 'static {
+        // `&self` を future に持ち込まない（`tokio::spawn` の中で呼べるように）。
+        let (url, name) = (self.url.clone(), self.name.clone());
+        async move {
+            PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| panic!("{name} へ所有者で接続できない: {e}"))
+        }
+    }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        let postgres_url = with_database(&self.url, "postgres");
+        let name = self.name.clone();
+        let job = std::thread::Builder::new()
+            .name("testdb-drop".into())
+            .spawn({
+                let name = name.clone();
+                move || -> Result<(), String> {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| format!("runtime を作れない: {e}"))?;
+                    rt.block_on(async {
+                        use sqlx::Connection;
+                        let mut conn = sqlx::PgConnection::connect(&postgres_url)
+                            .await
+                            .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
+                        let dropped =
+                            sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                                .execute(&mut conn)
+                                .await
+                                .map(|_| ())
+                                .map_err(|e| format!("DROP DATABASE が通らない: {e}"));
+                        let _ = conn.close().await;
+                        dropped
+                    })
+                }
+            });
+        let reason = match job.map(std::thread::JoinHandle::join) {
+            Ok(Ok(Ok(()))) => return,
+            Ok(Ok(Err(reason))) => reason,
+            Ok(Err(_)) => "片付けのスレッドが panic した".to_string(),
+            Err(e) => format!("片付けのスレッドを立てられない: {e}"),
+        };
+        // log-ok: 試験の足場の診断。database 名と所要時間・DB のエラーだけで私的データは含まない
+        eprintln!("testdb: {name} を消せなかった（次の回の片付けが消す）: {reason}");
+    }
+}
+
+/// 回のテンプレートの写しを、この試験だけの database として作る（書き出しの試験用。design D4）。
+pub async fn isolated() -> TestDb {
+    drop(pool().await);
+    let run = database_of_run();
+    let name = format!("{run}_x_{}", random12());
+    let postgres_url = with_database(&url(), "postgres");
+    let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
+        .await
+        .unwrap_or_else(|e| panic!("postgres database へ所有者で接続できない: {e}"));
+    {
+        let _one = COPY_ONE_AT_A_TIME.lock().await;
+        let copy_started = std::time::Instant::now();
+        create_from_template(&mut admin, &name, &format!("{run}_tpl")).await;
+        // log-ok: 試験の足場の診断。database 名と所要時間・DB のエラーだけで私的データは含まない
+        eprintln!("testdb: {name} の写しに {:?}", copy_started.elapsed());
+    }
+    let _ = sqlx::Connection::close(admin).await;
+    TestDb {
+        url: with_database(&url(), &name),
+        name,
+    }
+}
+
+/// 空の使い捨ての database（`<回の id>_tmp_…`。移行の当て方などを見る試験用。design D5）。
+pub async fn scratch() -> TestDb {
+    drop(pool().await);
+    let name = format!("{}_tmp_{}", database_of_run(), random12());
+    let postgres_url = with_database(&url(), "postgres");
+    let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
+        .await
+        .unwrap_or_else(|e| panic!("postgres database へ所有者で接続できない: {e}"));
+    sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+        .execute(&mut admin)
+        .await
+        .unwrap_or_else(|e| panic!("CREATE DATABASE {name} が通らない: {e}"));
+    let _ = sqlx::Connection::close(admin).await;
+    TestDb {
+        url: with_database(&url(), &name),
+        name,
+    }
+}
+
 /// 環境からだけ読む。**既定の URL（固定の合言葉入り）は持たない**（ST28 / design D19）。
 /// 無ければ飛ばさずに落ちる。値（合言葉入りの URL）は出さない。
 fn url_from_env(name: &str) -> String {
