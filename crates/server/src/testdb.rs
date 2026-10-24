@@ -131,6 +131,7 @@ fn hold_run_lock(postgres_url: String, run_id: String) {
 }
 
 /// 前の回の database の片付け（design D6。Task 3 が中身を書く）。
+#[allow(clippy::unused_async)] // Task 3 で await が入る
 async fn sweep_previous_runs(_admin: &mut sqlx::PgConnection) {}
 
 /// `CREATE DATABASE <name> TEMPLATE <template>`。直前に閉じた接続の backend が残っていると

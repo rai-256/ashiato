@@ -51,7 +51,7 @@ async fn ch04_testdb_records_stay_out_of_ashiato() {
     assert_eq!(in_run, 1, "回の database に記録が無い");
 
     let run_url = testdb::url();
-    let ashiato_url = format!("{}ashiato", &run_url[..run_url.rfind('/').unwrap() + 1]);
+    let ashiato_url = format!("{}/ashiato", &run_url[..run_url.rfind('/').unwrap()]);
     let ashiato = sqlx::PgPool::connect(&ashiato_url).await.unwrap();
     // ashiato に表が無ければ「無い」と読む。
     let has_table: bool = sqlx::query_scalar("SELECT to_regclass('core.event') IS NOT NULL")
