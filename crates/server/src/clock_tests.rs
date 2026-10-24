@@ -38,22 +38,19 @@ fn clock_record(user: uuid::Uuid, event_time: &str) -> serde_json::Value {
 
 /// 使い捨ての DB を作る。**戻り値の 2 つ目を必ず待つ**（接続を閉じて DB を消す）。
 async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
-    let admin = testdb::pool().await;
-    let name = format!("st05_tmp_{}", uuid::Uuid::new_v4().simple());
-    sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
-        .execute(&admin)
-        .await
-        .unwrap();
-    let base = crate::testdb::url();
-    let url = format!("{}/{name}", &base[..base.rfind('/').unwrap()]);
-    let fresh = sqlx::PgPool::connect(&url).await.unwrap();
+    let scratch = testdb::scratch().await;
+    let fresh = scratch.pool().await;
     let closer = fresh.clone();
+    let admin = testdb::pool().await;
+    let name = scratch.name().to_string();
     (fresh, async move {
         closer.close().await;
-        sqlx::raw_sql(&format!("DROP DATABASE {name} WITH (FORCE)"))
+        // Drop でも消すので、二重に消しても落ちない。
+        sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
             .execute(&admin)
             .await
             .unwrap();
+        drop(scratch);
     })
 }
 
