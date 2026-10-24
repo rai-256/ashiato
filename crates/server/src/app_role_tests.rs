@@ -35,6 +35,10 @@ fn is_denied(e: &sqlx::Error) -> bool {
 /// Scenario: 移行が足したどの表にもアプリの役割が届き、切り詰めの権限は無い
 #[tokio::test]
 async fn app_role_privileges_reach_every_table() {
+    // 夜の書き直しの試験が MAINTAIN を一時的に外すので、その間は見ない
+    let _serial = crate::purge_compaction_tests::COMPACTION_SERIAL
+        .lock()
+        .await;
     let app = testdb::app_pool().await;
     let tables = core_tables(&app).await;
     for (name, owner) in &tables {

@@ -157,6 +157,9 @@ mod places_tests;
 /// 本文ごと消す口（確認・消す・戻す口の断り）を HTTP の口から見る（ST23 Task 4 / design D1 / D6）。
 #[cfg(test)]
 mod purge_api_tests;
+pub mod purge_compaction;
+#[cfg(test)]
+mod purge_compaction_tests;
 /// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
 #[cfg(test)]
 mod purge_late_tests;
@@ -4090,12 +4093,18 @@ pub async fn run() -> anyhow::Result<()> {
             "原本の置き場を用意できない"
         );
     }
-    let mut app = router(
-        App::new(pool, token, &web_password, session_max_age_days)
-            .with_reading(reading)
-            .with_warmup(warmup)
-            .with_media(media),
-    );
+    let state = App::new(pool, token, &web_password, session_max_age_days)
+        .with_reading(reading)
+        .with_warmup(warmup)
+        .with_media(media);
+    // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
+    let exports = state.exports.clone();
+    drop(purge_compaction::spawn(
+        state.pool.clone(),
+        move || exports.running_view().is_some(),
+        std::sync::Arc::new(chrono::Utc::now),
+    ));
+    let mut app = router(state);
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
