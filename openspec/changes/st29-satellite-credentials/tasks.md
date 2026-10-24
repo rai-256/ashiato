@@ -128,7 +128,7 @@
 
 ## Task 8: 本体が衛星のコードを読み込まない検査（design D10。FR-77）
 
-- [ ] 8.1 `tools/check-satellite-boundary.sh` を足す —— `cargo tree -p ashiato-server -e normal --target all --prefix none` の名前を禁じる部品の一覧と突き合わせ、
+- [x] 8.1 `tools/check-satellite-boundary.sh` を足す —— `cargo tree -p ashiato-server -e normal --target all --prefix none` の名前を禁じる部品の一覧と突き合わせ、
   `crates/server/src` に `dlopen` / `LoadLibrary` / `Library::new` の字面が無いことを grep で見る。`--self-test` は `libloading` と `wasmtime` を含む固定の一覧を食わせ、rc≠0 で 2 つの名前を出すことを確かめる。
   CI の検査の job に足し、`docs/testing.md` の表に 1 行足す。
   Scenario: `本体の依存に衛星のコードを読み込む部品は無い`・`読み込む部品が依存に入ると検査が落ちる`（bash の `echo` で印）。
