@@ -958,3 +958,60 @@ async fn ledger_erasures(
     .await?;
     Ok(())
 }
+
+/// 本文ごと消した時間帯に後から届いた記録 1 件（`stay_store::settle_arrival` が渡す）。
+pub(crate) struct LateArrival<'a> {
+    pub user_id: uuid::Uuid,
+    pub event_id: uuid::Uuid,
+    pub logical_source: &'a str,
+    /// 元の操作（`core.erasure_operation.id`）
+    pub parent_id: uuid::Uuid,
+    /// 時間帯を持つ、本文を消した滞在
+    pub stay_id: uuid::Uuid,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// この 1 件が数えられる組（1 件分）
+    pub counts: PurgeCounts,
+}
+
+/// 後から届いた 1 件の本文を、呼び出し側のトランザクションの中で消す（design D8（仮）。`kind = 'late'`）。
+///
+/// 操作の行（元の操作へ `parent_id` で結ぶ。元の行は書き換えない）→ 記録ごとの台帳の行 → 本文、の順
+/// （門が commit の時に台帳の行を見る）。前の版は無い（いま入ったばかりの記録）。
+pub(crate) async fn purge_late_arrival(
+    tx: &mut Transaction<'_, Postgres>,
+    late: LateArrival<'_>,
+) -> sqlx::Result<()> {
+    let operation_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.erasure_operation
+           (id, user_id, kind, parent_id, stay_id, start_at, end_at,
+            stays, locations, archive_locations, archive_items, versions)
+         VALUES ($1, $2, 'late', $3, $4, $5, $6, 0, $7, $8, $9, 0)",
+    )
+    .bind(operation_id)
+    .bind(late.user_id)
+    .bind(late.parent_id)
+    .bind(late.stay_id)
+    .bind(late.start)
+    .bind(late.end)
+    .bind(late.counts.locations as i32)
+    .bind(late.counts.archive_locations as i32)
+    .bind(late.counts.archive_items as i32)
+    .execute(&mut **tx)
+    .await?;
+    ledger_erasures(
+        tx,
+        operation_id,
+        late.user_id,
+        "event",
+        &[late.event_id],
+        &[late.logical_source],
+    )
+    .await?;
+    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = $1")
+        .bind(late.event_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}

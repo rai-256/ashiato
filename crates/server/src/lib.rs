@@ -157,6 +157,9 @@ mod places_tests;
 /// 本文ごと消す口（確認・消す・戻す口の断り）を HTTP の口から見る（ST23 Task 4 / design D1 / D6）。
 #[cfg(test)]
 mod purge_api_tests;
+/// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
+#[cfg(test)]
+mod purge_late_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
@@ -947,7 +950,7 @@ pub async fn store_one(
 
 async fn store_with(app: &App, request: IngestRequest) -> anyhow::Result<StoreOutcome> {
     let pool = &app.pool;
-    let result = ingest_request(app, request)
+    let result = ingest_request(app, request, Settle::Later)
         .await
         .map_err(|(_, message)| anyhow::anyhow!(message))?;
     match (result.id, result.duplicate, result.error) {
@@ -1137,7 +1140,16 @@ async fn ingest_one(
             return Ok(IngestResult::rejected(sent_id, IngestError::Malformed));
         }
     };
-    ingest_request(app, req).await
+    ingest_request(app, req, Settle::InTx).await
+}
+
+/// 入れた記録の後着の片付け（印と本文の消去。`stay_store::settle_arrival`）を、いつ行うか（ST23 / design D8（仮））。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Settle {
+    /// 記録を入れたトランザクションの中（commit の前）。HTTP の取り込みの口
+    InTx,
+    /// ここでは片付けない。書庫の取り込み器は格納の後に自分の見回りで片付ける（百万件級の書庫で 1 件ごとに錠を取らない）
+    Later,
 }
 
 /// 解釈を終えた 1 件を格納する（`ingest_one` の本体）。
@@ -1147,6 +1159,7 @@ async fn ingest_one(
 async fn ingest_request(
     app: &App,
     mut req: IngestRequest,
+    settle: Settle,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 終わりの時刻はマイクロ秒に切り捨てた値を、比べる値にも格納する値にもする（ST41 / D7）
     req.truncate_end_to_micros();
@@ -1566,6 +1579,14 @@ async fn ingest_request(
     )
     .await
     .map_err(|e| internal_at("ingest.started_on", e))?;
+
+    // **新しく入った記録だけ**、消した滞在の時間帯に入るかをこのまとまりの中で見て、印と本文の消去を同じ commit にする
+    // （ST23 / design D8（仮）。位置でない記録は何もしない）。応答は変えない。
+    if row.is_some() && settle == Settle::InTx {
+        stay_store::settle_arrival(&mut tx, &req)
+            .await
+            .map_err(|e| internal_at("ingest.settle_arrival", e))?;
+    }
 
     // **門はここで落ちる**（design D4）。制約トリガは `DEFERRABLE INITIALLY DEFERRED` で、
     // 履歴を書かない書き換えは COMMIT の瞬間に拒まれる。

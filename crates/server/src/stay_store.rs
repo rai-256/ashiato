@@ -923,31 +923,143 @@ async fn mark_late_arrivals(
     .await?;
 
     for (event_id, logical_source, cause_event_id) in candidates {
-        let changed = sqlx::query(
-            "UPDATE core.event SET deleted_at = now(), deleted_by = $2
-              WHERE id = $1 AND deleted_at IS NULL",
-        )
-        .bind(event_id)
-        .bind(USER_LATE)
-        .execute(&mut **tx)
-        .await?;
-        if changed.rows_affected() == 0 {
-            continue;
-        }
-        sqlx::query(
-            "INSERT INTO core.deletion_ledger
-               (event_id, user_id, logical_source, action, cause_event_id, mark)
-             VALUES ($1, $2, $3, 'erase', $4, $5)",
-        )
-        .bind(event_id)
-        .bind(user)
-        .bind(logical_source)
-        .bind(cause_event_id)
-        .bind(USER_LATE)
-        .execute(&mut **tx)
-        .await?;
+        mark_late(tx, user, event_id, &logical_source, cause_event_id).await?;
     }
     Ok(())
+}
+
+/// 1 件に `user:late` を付けて削除の台帳に 1 行（原因 = 消した滞在）。すでに隠れている行には何もしない。付けたら `true`。
+async fn mark_late(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause_event_id: uuid::Uuid,
+) -> sqlx::Result<bool> {
+    let changed = sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = $2
+          WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(event_id)
+    .bind(USER_LATE)
+    .execute(&mut **tx)
+    .await?;
+    if changed.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, $3, 'erase', $4, $5)",
+    )
+    .bind(event_id)
+    .bind(user)
+    .bind(logical_source)
+    .bind(cause_event_id)
+    .bind(USER_LATE)
+    .execute(&mut **tx)
+    .await?;
+    Ok(true)
+}
+
+#[derive(sqlx::FromRow)]
+struct LateCause {
+    #[sqlx(rename = "id")]
+    stay_id: uuid::Uuid,
+    #[sqlx(rename = "start_at")]
+    start: DateTime<Utc>,
+    #[sqlx(rename = "end_at")]
+    end: DateTime<Utc>,
+    purged: bool,
+    operation_id: Option<uuid::Uuid>,
+}
+
+/// 取り込みで新しく入った記録 1 件を、記録を入れたトランザクションの中（commit の前）で片付ける（ST23 / design D8（仮））。
+///
+/// 位置（基準のソース ∪ 書庫の位置）と、位置を持つ書庫の項目だけが対象で、それ以外は何もしない（錠も取らない）。
+/// 錠を取ってから、消した滞在の時間帯（`core.stay_erased`。D5）に入るかを見る。入れば `user:late` を付けて削除の台帳に 1 行。
+/// さらにその滞在が本文を消した滞在で、範囲の行があれば（無ければ D14 で印だけ）、同じまとまりで本文を消し、
+/// `kind = 'late'` の操作の行と記録ごとの台帳の行を積む。`rebuild_day` の `mark_late_arrivals` は残す（取り込み以外の経路の拾い直し）。
+pub(crate) async fn settle_arrival(
+    tx: &mut Transaction<'_, Postgres>,
+    stored: &crate::IngestRequest,
+) -> sqlx::Result<()> {
+    let source = stored.logical_source.as_str();
+    let located = if is_item_source(source) {
+        carries_location(&stored.raw)
+    } else {
+        let criteria = current_criteria(&mut **tx, stored.user_id)
+            .await?
+            .unwrap_or_else(Criteria::default_values);
+        with_archive_sources(&criteria.sources)
+            .iter()
+            .any(|s| s == source)
+    };
+    if !located {
+        return Ok(());
+    }
+    lock(tx, stored.user_id).await?;
+    // 本文を消した滞在を先に選ぶ（重なる滞在が複数あっても、本文を消す側を原因にする）
+    let cause: Option<LateCause> = sqlx::query_as(&format!(
+        "SELECT s.id, s.start_at, s.end_at, s.purged, s.operation_id
+               FROM core.event e
+               JOIN core.stay_erased s
+                 ON s.user_id = e.user_id
+                AND {erased}
+                AND e.event_time <= s.end_at
+                AND {end} >= s.start_at
+              WHERE e.id = $1
+                AND e.deleted_at IS NULL
+                AND {located}
+              ORDER BY s.purged DESC, s.start_at, s.id
+              LIMIT 1",
+        erased = user_erased_stay_sql("s", 2),
+        end = event_end_sql("e"),
+        located = item_located_sql("e")
+    ))
+    .bind(stored.id)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(LateCause {
+        stay_id,
+        start,
+        end,
+        purged,
+        operation_id,
+    }) = cause
+    else {
+        return Ok(());
+    };
+    if !mark_late(tx, stored.user_id, stored.id, source, stay_id).await? {
+        return Ok(());
+    }
+    // 範囲の行が無い本文を消した滞在（D14）は印だけ。消す側に倒すと、見せていない記録の本文が戻らない
+    let Some(parent_id) = operation_id.filter(|_| purged) else {
+        return Ok(());
+    };
+    let mut counts = crate::deletion::PurgeCounts::default();
+    if crate::archive::LOCATION_SOURCES.contains(&source) {
+        counts.archive_locations = 1;
+    } else if is_item_source(source) {
+        counts.archive_items = 1;
+    } else {
+        counts.locations = 1;
+    }
+    crate::deletion::purge_late_arrival(
+        tx,
+        crate::deletion::LateArrival {
+            user_id: stored.user_id,
+            event_id: stored.id,
+            logical_source: source,
+            parent_id,
+            stay_id,
+            start,
+            end,
+            counts,
+        },
+    )
+    .await
 }
 
 /// 前の版を履歴へ積む（`core.event_version`）。`version_no` は続き番号 —— 錠の中なので衝突しない。
