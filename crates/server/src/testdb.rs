@@ -372,9 +372,15 @@ impl Drop for TestDb {
                             .await
                             .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
                         let mut dropped = Ok(());
-                        for attempt in 0..5 {
+                        // WITH (FORCE) は所有者の権限で切れる接続しか切らない。ashiato_app の接続は
+                        // pg_signal_backend を持たない所有者には切れず、「permission denied to terminate
+                        // process」で拒まれる。app のプールは試験の側が閉じる（または drop される）のを待つしかないので、
+                        // 負荷の高いランナーでも吸収できるよう 100ms から倍々で合計約 12 秒までやり直す。
+                        let mut wait_ms = 100;
+                        for attempt in 0..8 {
                             if attempt > 0 {
-                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                                tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                                wait_ms = (wait_ms * 2).min(3200);
                             }
                             dropped =
                                 sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
