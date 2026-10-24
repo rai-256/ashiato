@@ -120,7 +120,7 @@
 
 ## Task 7: 書き出しの分類（design D13。`export.rs`）
 
-- [ ] 7.1 `export::CATALOG` に `satellite`（`Include`。全列。`satellites.jsonl`）と `satellite_credential`（`Exclude`）を足し、`export_file_tests.rs` の `ENTRIES` に `satellites.jsonl` を足す（15 → 16）。
+- [x] 7.1 `export::CATALOG` に `satellite`（`Include`。全列。`satellites.jsonl`）と `satellite_credential`（`Exclude`）を足し、`export_file_tests.rs` の `ENTRIES` に `satellites.jsonl` を足す（15 → 16）。
   Scenario: `衛星の登録簿は外した衛星も含めて書き出しに出る`・`衛星の資格情報は書き出しに入らない`・`ST29 が足した表はすべて分類されている`・`台帳と導出の表は書き出しに入らない`（ファイルの一覧に衛星の登録簿）・
   `いまの記録の schema の表と列はすべて分類されている`（既存のテストが新しい 2 表を含めて通る）。
   検証: `CT export_satellite 3`・`CT export_ 60`（書き出しの既存のテストが全部通る。書き出しのテストは `EXPORT_SERIAL` を取る）・
