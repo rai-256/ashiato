@@ -18,6 +18,12 @@ export interface DayEntry {
   id?: string;
   stay_ids?: string[];
   criteria_id?: number;
+  /** 本文ごと消した区間（「消した」の行だけ。戻すための `stay_ids` は持たない。ST23 / D12） */
+  purged?: boolean;
+  /** 本文ごと消すときに指定した滞在（本文ごと消した区間だけ） */
+  purge_stay_id?: string;
+  /** 後から届いて本文を消した件数（本文ごと消した区間だけ） */
+  late_purged?: number;
   /** 消した行には無い（D7） */
   summary?: Summary;
   /** 記録なしの行にだけ。無ければ事情なし（D11） */
@@ -73,6 +79,9 @@ export function isDayView(v: unknown): v is DayView {
         kinds.includes(x.kind) &&
         typeof x.start === "string" &&
         typeof x.end === "string" &&
+        (x.purged === undefined || typeof x.purged === "boolean") &&
+        (x.purge_stay_id === undefined || typeof x.purge_stay_id === "string") &&
+        (x.late_purged === undefined || typeof x.late_purged === "number") &&
         (x.stay_ids === undefined || (Array.isArray(x.stay_ids) && x.stay_ids.every((id) => typeof id === "string"))) &&
         (x.summary === undefined || isSummary(x.summary)) &&
         (x.reasons === undefined || isReasons(x.reasons))
@@ -128,4 +137,50 @@ export function criteriaLabel(c: CriteriaTag): string {
 export function dateLabel(date: string): string {
   const [y, mo, d] = date.split("-").map(Number);
   return msg("day").dateLabel(y, mo, d);
+}
+
+/** 本文ごと消すときに消える件数（`GET /stays/purge/preview` の `counts`。ST23 / D1）。 */
+export interface PurgeCounts {
+  stays: number;
+  locations: number;
+  archive_locations: number;
+  archive_items: number;
+  versions: number;
+}
+
+/** 本文ごと消す前の確認の口の応答。 */
+export interface PurgePreview {
+  counts: PurgeCounts;
+  range: { start: string; end: string };
+  /** 残している書庫の写しの数 */
+  copies: number;
+  /** 消えずに残るものの名前（文面は `messages` が引く） */
+  remains: string[];
+  purged: boolean;
+}
+
+const COUNT_KEYS = ["stays", "locations", "archive_locations", "archive_items", "versions"] as const;
+
+export function isPurgeCounts(v: unknown): v is PurgeCounts {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return COUNT_KEYS.every((k) => typeof o[k] === "number");
+}
+
+/** 応答が確認の口の形をしているか。形が違えば失敗として出す（`isDayView` と同じ理由）。 */
+export function isPurgePreview(v: unknown): v is PurgePreview {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  const range = o.range as Record<string, unknown> | null;
+  return (
+    isPurgeCounts(o.counts) &&
+    typeof range === "object" &&
+    range !== null &&
+    typeof range.start === "string" &&
+    typeof range.end === "string" &&
+    typeof o.copies === "number" &&
+    Array.isArray(o.remains) &&
+    o.remains.every((r) => typeof r === "string") &&
+    typeof o.purged === "boolean"
+  );
 }

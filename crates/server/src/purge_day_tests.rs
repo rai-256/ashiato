@@ -141,3 +141,31 @@ async fn purge_day_overlapping_erased_time_is_subtracted() {
     );
     assert_eq!(rows[1].stay_ids, Some(vec![erased]));
 }
+
+// 画面が読む `GET /day` の応答にも、印・指定した滞在・件数が載り、戻すための識別子は載らない。
+#[tokio::test]
+async fn purge_day_response_carries_the_purge_fields() {
+    let app = app().await;
+    let user = testdb::user();
+    let stay = purged_scene(&app.pool, user).await;
+    send_one(&app, location(user, "10:30", 35.3)).await;
+
+    let day = crate::day::day(&app.pool, user, testdb::date("2026-10-01"), far_future())
+        .await
+        .unwrap();
+    let json = serde_json::to_value(&day).unwrap();
+    let row = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "erased")
+        .unwrap();
+
+    assert_eq!(row["purged"], true);
+    assert_eq!(row["purge_stay_id"], stay.to_string());
+    assert_eq!(row["late_purged"], 1);
+    assert!(
+        row.get("stay_ids").is_none(),
+        "戻すための識別子を持っている"
+    );
+}

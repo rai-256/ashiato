@@ -110,6 +110,15 @@ pub struct DayRow {
     pub criteria_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stay_ids: Option<Vec<Uuid>>,
+    /// 本文ごと消した区間（「消した」の行だけ。`stay_ids` は持たない。ST23 / D12）
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub purged: bool,
+    /// 本文ごと消すときに指定した滞在（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purge_stay_id: Option<Uuid>,
+    /// 後から届いて本文を消した件数（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_purged: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
     /// 「記録なし」の行に添える事情（D11。当たるものだけ、`ReasonKind` の順）。事情の無い行・ほかの種類の行には鍵ごと出さない。
@@ -696,6 +705,9 @@ pub async fn day(
             id: e.id,
             criteria_id: e.criteria_id,
             stay_ids: e.stay_ids,
+            purged: e.purged,
+            purge_stay_id: e.purge_stay_id,
+            late_purged: e.late_purged,
         });
     }
     for (s, e) in others {
@@ -708,6 +720,9 @@ pub async fn day(
                 id: None,
                 criteria_id: None,
                 stay_ids: None,
+                purged: false,
+                purge_stay_id: None,
+                late_purged: None,
                 summary: Some(summarize(&norms, &segs, s, e)),
                 reasons: Vec::new(),
             });
