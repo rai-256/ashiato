@@ -43,18 +43,18 @@
 
 ## Task 2: 試験ごとの database と使い捨ての database の手伝い
 
-- [ ] 2.1 `testdb::isolated()`（`TestDb`。`pool()`・`url()`・`name()`）と `testdb::scratch()`（空の `<id>_tmp_…`。同じ Drop を持つ値）を design D4・D5 のとおりに書く。
+- [x] 2.1 `testdb::isolated()`（`TestDb`。`pool()`・`url()`・`name()`）と `testdb::scratch()`（空の `<id>_tmp_…`。同じ Drop を持つ値）を design D4・D5 のとおりに書く。
   試験ごとの写しは過程の中の `tokio::sync::Mutex` で 1 本ずつ（D2）。Drop は自分のスレッドと runtime で `DROP DATABASE IF EXISTS <名前> WITH (FORCE)` を打って待つ。
   **Drop は panic しない**: 繋げない・DROP が落ちた・スレッドが panic した、のどれでも名前と理由を `eprintln!` で出して戻る（`unwrap` を書かない。design D4）。
   検証: `cargo build -p ashiato-server --tests` rc=0
-- [ ] 2.2 `testdb_tests.rs` に 3 本を足す: `ch04_isolated_database_is_dropped_after_the_test`（`// Scenario: 試験ごとの database は、試験が通れば終わりに消える`。名前を控え、`TestDb` を drop した後に `pg_database` に無い）/
+- [x] 2.2 `testdb_tests.rs` に 3 本を足す: `ch04_isolated_database_is_dropped_after_the_test`（`// Scenario: 試験ごとの database は、試験が通れば終わりに消える`。名前を控え、`TestDb` を drop した後に `pg_database` に無い）/
   `ch04_isolated_database_is_dropped_on_panic`（`// Scenario: 試験ごとの database は、試験が panic しても消える`。`tokio::spawn` の中で `isolated()` を受けて記録を置いてから panic し、`JoinError` を受けた後に無い）/
   `ch04_scratch_database_name_starts_with_the_run`（`// Scenario: 使い捨ての database の名前は、回の database の名前で始まる`）。
   検証: `CT ch04_isolated_` rc=0 / `NL ch04_isolated_ 2` rc=0 / `CT ch04_scratch_` rc=0 / `NL ch04_scratch_ 1` rc=0
-- [ ] 2.3 前提の確かめ（`premises.md` P16。同じテンプレートから写すのを 1 本ずつにすれば落ちない）: `ch04_isolated_many_in_parallel`（`isolated()` を 16 本同時に呼び、全部が作れて全部が消える）を足す。
+- [x] 2.3 前提の確かめ（`premises.md` P16。同じテンプレートから写すのを 1 本ずつにすれば落ちない）: `ch04_isolated_many_in_parallel`（`isolated()` を 16 本同時に呼び、全部が作れて全部が消える）を足す。
   写す 1 本の時間を `eprintln!` で出し、design の「計測の記録」に書く（1 秒を超えれば D2 の反転条件）。
   検証: `CT ch04_isolated_many_in_parallel` rc=0 / `NL ch04_isolated_many_in_parallel 1` rc=0
-- [ ] 2.4 前提の確かめ（P15。アプリの役割が回の database に繋げる）: 役割の試験を回の database のまま通す。落ちたら回の database の作成の後に `GRANT CONNECT ON DATABASE … TO ashiato_app` を足し、design D3 に書き足す。
+- [x] 2.4 前提の確かめ（P15。アプリの役割が回の database に繋げる）: 役割の試験を回の database のまま通す。落ちたら回の database の作成の後に `GRANT CONNECT ON DATABASE … TO ashiato_app` を足し、design D3 に書き足す。
   検証: `CT app_role` rc=0 / `NL app_role 3` rc=0
 
 ## Task 3: 片付け —— 走っていない回のものと、印の無い `_tmp_` の残り
