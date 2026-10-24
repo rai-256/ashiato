@@ -140,7 +140,7 @@
 
 ## Task 6: 書き出しと消した滞在の時間を列から読む（申し送り C7）
 
-- [ ] 6.1 先に試験を書く（`crates/server/src/export_end_time_tests.rs`。配置と書き出しの読み方は `export_excluded_tests.rs` の `World` と `kept` / `kept_versions` に合わせる）:
+- [x] 6.1 先に試験を書く（`crates/server/src/export_end_time_tests.rs`。配置と書き出しの読み方は `export_excluded_tests.rs` の `World` と `kept` / `kept_versions` に合わせる）:
   - `st41_export_end_column_span_is_excluded` — `// Scenario: 終わりを列に持つ緯度経度つきの記録は、消した時間と重なれば出ない`
   - `st41_export_end_column_wins_over_payload` — `// Scenario: 列の終わりは内容の終わりより先に読まれる`
   - `st41_export_reversed_end_column_falls_back_to_payload` — `// Scenario: 列の終わりが記録の時刻より前なら、内容の終わりから読む`
@@ -150,7 +150,7 @@
   - `st41_export_rows_have_end_columns` — `// Scenario: 書き出しの行は終わりの 3 つの列を持つ`（zip を開いて記録と前の版のファイルの行の鍵と値を見る。`export_file_tests.rs` の読み方に合わせる）
   いまの木（列が無い移行の前）ではなく Task 1 の後の木で、`st41_export_end_column_span_is_excluded`・`st41_export_end_column_wins_over_payload`・`st41_export_version_end_column_is_read`・
   `st41_export_rows_have_end_columns` が落ちることを `CT st41_export_end_column_span` rc≠0 で確かめてから 6.2 に進む
-- [ ] 6.2 `export/excluded.rs` の幅の (a) の先頭に列の終わり（D11 の `CASE`）を足し、前の版の行を作る副問い合わせに `v.end_time` を足す。消した滞在の前の版の時間を `coalesce(v.end_time, …)` にする
+- [x] 6.2 `export/excluded.rs` の幅の (a) の先頭に列の終わり（D11 の `CASE`）を足し、前の版の行を作る副問い合わせに `v.end_time` を足す。消した滞在の前の版の時間を `coalesce(v.end_time, …)` にする
   （`core.stay_erased` は Task 1 の移行で済んでいる）。`export.rs` の `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS` に 3 列を `tz_id` の次に足し、`export/doc.rs` に説明を足す。
   **main に CH02 の窓の形が入っていれば、その形に足す**（窓の枠と窓に載る列は変えない。終わりは窓の後に `id` で戻した行から読む）。
   検証: `CT st41_export_` rc=0（`-- --list` で 7 本以上）/ `CT export_` rc=0（`-- --list` で 130 本以上。既存の書き出しの試験が全部通る。「記録の行は記録の表のすべての列を持つ」が 3 列を足し忘れると落ちる）
