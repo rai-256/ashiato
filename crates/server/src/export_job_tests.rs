@@ -44,7 +44,7 @@ fn app_with(pool: &sqlx::PgPool, dir: &Path, hooks: Hooks) -> App {
     }
 }
 
-async fn app_in(pool: &sqlx::PgPool, dir: &Path) -> App {
+fn app_in(pool: &sqlx::PgPool, dir: &Path) -> App {
     app_with(pool, dir, Hooks::none())
 }
 
@@ -206,7 +206,7 @@ async fn export_endpoint_range_arguments_are_refused() {
     let dir = tmp_dir("range");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     let body = json!({ "password": PASS }).to_string();
     let (code, res) = call(
         &app,
@@ -277,7 +277,7 @@ async fn export_endpoint_without_credentials_is_unauthorized() {
     let dir = tmp_dir("noauth");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     let (code, _) = call(
         &app,
         request(
@@ -300,7 +300,7 @@ async fn export_endpoint_missing_or_short_password_is_refused() {
     let dir = tmp_dir("short");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     let error_of = |res: &str| serde_json::from_str::<Value>(res).unwrap()["error"].clone();
 
     let (code, res) = call(&app, request(Method::POST, "/export", true, None)).await;
@@ -338,7 +338,7 @@ async fn export_endpoint_counts_code_points_not_bytes() {
     let dir = tmp_dir("emoji");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     // 基本多言語面の外の文字 1 つは UTF-16 では 2 単位、UTF-8 では 4 バイト。符号位置で 11 個は短い
     let (code, res) = post_status(&app, &"🔑".repeat(11)).await;
     assert_eq!(code, StatusCode::BAD_REQUEST, "{res}");
@@ -359,7 +359,7 @@ async fn export_endpoint_does_not_trim_the_password() {
     let dir = tmp_dir("trim");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     // 空白を含めて 12 文字。削ると 10 文字になるが、本人が打ったものがそのまま鍵になる
     let (code, res) = post_status(&app, "  abcdefghij  ").await;
     assert_eq!(code, StatusCode::ACCEPTED, "{res}");
@@ -372,7 +372,7 @@ async fn export_endpoint_late_arrivals_are_marked_before_the_dump() {
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
     let dir = tmp_dir("late");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     let stay = w.stay(&w.at("10:00"), &w.at("11:00")).await;
     erase(&app, stay).await;
     // 作り直しが走らないまま、消した時間に印の無い位置が入った
@@ -435,7 +435,7 @@ async fn export_ledger_rows_start_and_finish_are_appended() {
     let w = World::new().await;
     location_at(&w, "09:00").await;
     let dir = tmp_dir("ledger");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     let id = export_and_wait(&app, PASS).await;
 
     let rows = ledger_of(&w.pool, id).await;
@@ -498,7 +498,7 @@ async fn export_ledger_rows_have_a_route_and_no_content() {
     )
     .await;
     let dir = tmp_dir("ledger-content");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     let phrase = format!("ledger-secret-{}", Uuid::new_v4());
     let id = export_and_wait(&app, &phrase).await;
 
@@ -577,7 +577,7 @@ async fn export_ledger_rows_only_the_latest_export_file_remains() {
     let dir = tmp_dir("one-left");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     export_and_wait(&app, PASS).await;
     let first = zips(&dir).pop().unwrap();
     // 名前の日時は秒まで。同じ名前でも `-2` が付く
@@ -684,7 +684,7 @@ async fn export_ledger_rows_files_the_system_did_not_write_are_kept() {
     std::fs::write(dir.join("my-notes.txt"), b"mine-notes").unwrap();
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     export_and_wait(&app, PASS).await;
     let first = zips(&dir)
         .into_iter()
@@ -727,7 +727,7 @@ async fn export_ledger_rows_a_file_the_user_replaced_is_kept() {
     let dir = tmp_dir("replaced");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     export_and_wait(&app, PASS).await;
     let first = zips(&dir).pop().unwrap();
     replace_with_foreign_zip(&first);
@@ -755,7 +755,7 @@ async fn export_ledger_rows_a_file_the_user_appended_to_is_kept() {
     let dir = tmp_dir("appended");
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &dir).await;
+    let app = app_in(&pool, &dir);
     export_and_wait(&app, PASS).await;
     let first = zips(&dir).pop().unwrap();
     {
@@ -829,7 +829,7 @@ async fn export_status_last_export_is_readable_after_it_finishes() {
     let w = World::new().await;
     location_at(&w, "09:00").await;
     let dir = tmp_dir("last");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     export_and_wait(&app, PASS).await;
     let file = zips(&dir).pop().unwrap();
 
@@ -1238,7 +1238,7 @@ async fn export_status_an_unreadable_written_filter_is_reported_as_uncountable()
     let w = World::new().await;
     location_at(&w, "09:00").await;
     let dir = tmp_dir("uncountable");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     export_and_wait(&app, PASS).await;
     assert!(get_status(&app).await["last"]["erased_after"].is_i64());
 
@@ -1258,7 +1258,7 @@ async fn export_status_an_unreadable_written_filter_is_reported_as_uncountable()
     };
     export::insert_done(&w.pool, id, &done).await.unwrap();
 
-    let last = &get_status(&app_in(&w.pool, &dir).await).await["last"];
+    let last = &get_status(&app_in(&w.pool, &dir)).await["last"];
     assert_eq!(last["file"], file);
     assert!(
         last["erased_after"].is_null(),
@@ -1345,7 +1345,7 @@ async fn export_responses_carry_no_record_content() {
     )
     .await;
     let dir = tmp_dir("resp");
-    let app = app_in(&w.pool, &dir).await;
+    let app = app_in(&w.pool, &dir);
     let mut bodies = Vec::new();
     let (code, post_body) = post_status(&app, PASS).await;
     assert_eq!(code, StatusCode::ACCEPTED);
@@ -1440,7 +1440,7 @@ async fn export_responses_never_keep_the_passphrase() {
 async fn export_responses_status_without_credentials_is_unauthorized() {
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let app = app_in(&pool, &tmp_dir("noauth-status")).await;
+    let app = app_in(&pool, &tmp_dir("noauth-status"));
     for uri in ["/export", "/export/summary"] {
         let (code, _) = call(&app, request(Method::GET, uri, false, None)).await;
         assert_eq!(code, StatusCode::UNAUTHORIZED, "{uri}");
