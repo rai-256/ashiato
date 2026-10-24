@@ -596,7 +596,14 @@ pub async fn rebuild_day(
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let bounds = day_bounds(day);
-    mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), bounds).await?;
+    mark_late_arrivals(
+        &mut tx,
+        user,
+        &with_archive_sources(&c.sources),
+        bounds,
+        false,
+    )
+    .await?;
     let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
@@ -673,7 +680,14 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
     if let (Some(first), Some(last)) = span {
         let from = day_bounds(jst_date(first)).0;
         let to = last + Duration::microseconds(1);
-        mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), (from, to)).await?;
+        mark_late_arrivals(
+            &mut tx,
+            user,
+            &with_archive_sources(&c.sources),
+            (from, to),
+            false,
+        )
+        .await?;
     }
     tx.commit().await
 }
@@ -848,6 +862,8 @@ pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
 /// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
 /// **位置を持たない項目だけの書庫では何もしない**（`locationInfos` を持たない YouTube・Chrome・
 /// マイアクティビティだけの書庫。R78）。位置を持つ項目は位置と同じく範囲に入る（D22-b / D22-d）。
+/// **本文を消した時間帯に入る行は、同じまとまりで本文も消す**（ST23 / design D9（仮））。落ちたら全部巻き戻り、
+/// 取り込み器は `read` の台帳の行を書かない —— 次の見回りが書庫を読み直して、この関数を呼び直す。
 /// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
 pub async fn mark_archive_arrivals(
     pool: &PgPool,
@@ -876,7 +892,14 @@ pub async fn mark_archive_arrivals(
     // `mark_late_arrivals` の範囲は終わりを含まない。DB の時刻はマイクロ秒に丸まるので、両端を 1 ms 広げる
     // （広げても見る行が増えるだけで、印を付ける条件は変わらない）。
     let margin = Duration::milliseconds(1);
-    mark_late_arrivals(&mut tx, user, &sources, (first - margin, last + margin)).await?;
+    mark_late_arrivals(
+        &mut tx,
+        user,
+        &sources,
+        (first - margin, last + margin),
+        true,
+    )
+    .await?;
     tx.commit().await
 }
 
@@ -887,17 +910,29 @@ pub async fn mark_archive_arrivals(
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
 /// 消す transaction が見えた範囲内の位置にはすべて印を付けるため、ここで未印の行は
 /// 消す側から未 commit で見えなかったか、その commit 後に届いた行である。
+///
+/// `purge_bodies` が真なら（書庫の印付け。design D9（仮））、本文を消した滞在（範囲の行がある。D14）と重なる行の本文も
+/// 同じ transaction で消す。作り直しの拾い直しは印だけ（`false`）。印が `user:late` で本文がまだ残る行
+/// （作り直しの拾い直しが先に印を付けた行）も、本文を消す側の候補に入れる。
 async fn mark_late_arrivals(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
+    purge_bodies: bool,
 ) -> sqlx::Result<()> {
     // 位置を持つ項目（マイアクティビティ・YouTube・Chrome）も同じ印の対象（design D22-b / D22-d。位置を持たない項目は下の条件で外れる）
     let mut sources = sources.to_vec();
     sources.extend(item_sources(&mut **tx).await?);
-    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
-        "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
+    let live = if purge_bodies {
+        format!("(e.deleted_at IS NULL OR (e.deleted_by = '{USER_LATE}' AND e.raw <> ''))")
+    } else {
+        "e.deleted_at IS NULL".to_owned()
+    };
+    // 重なる滞在が複数あっても、本文を消す側を原因にする（`settle_arrival` と同じ順）
+    let candidates: Vec<(uuid::Uuid, String, LateCause)> = sqlx::query(&format!(
+        "SELECT DISTINCT ON (e.id) e.id AS event_id, e.logical_source,
+                s.id, s.start_at, s.end_at, s.purged, s.operation_id
            FROM core.event e
            JOIN core.stay_erased s
              ON s.user_id = e.user_id
@@ -907,9 +942,9 @@ async fn mark_late_arrivals(
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
-            AND e.deleted_at IS NULL
+            AND {live}
             AND {located}
-          ORDER BY e.id, s.start_at, s.id",
+          ORDER BY e.id, s.purged DESC, s.start_at, s.id",
         erased = user_erased_stay_sql("s", 5),
         end = event_end_sql("e"),
         located = item_located_sql("e")
@@ -919,13 +954,60 @@ async fn mark_late_arrivals(
     .bind(from)
     .bind(to)
     .bind(format!("{REBUILD_PREFIX}%"))
+    .try_map(|row: sqlx::postgres::PgRow| {
+        use sqlx::Row;
+        Ok((
+            row.try_get("event_id")?,
+            row.try_get("logical_source")?,
+            sqlx::FromRow::from_row(&row)?,
+        ))
+    })
     .fetch_all(&mut **tx)
     .await?;
 
-    for (event_id, logical_source, cause_event_id) in candidates {
-        mark_late(tx, user, event_id, &logical_source, cause_event_id).await?;
+    for (event_id, logical_source, cause) in candidates {
+        mark_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
+        if purge_bodies {
+            purge_late_body(tx, user, event_id, &logical_source, &cause).await?;
+        }
     }
     Ok(())
+}
+
+/// 後着の 1 件の本文を、原因の滞在が本文を消した滞在（範囲の行がある）なら消す（`kind = 'late'`）。
+/// 範囲の行が無い本文を消した滞在（D14）は印だけ —— 消す側に倒すと、見せていない記録の本文が戻らない。
+async fn purge_late_body(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause: &LateCause,
+) -> sqlx::Result<()> {
+    let Some(parent_id) = cause.operation_id.filter(|_| cause.purged) else {
+        return Ok(());
+    };
+    let mut counts = crate::deletion::PurgeCounts::default();
+    if crate::archive::LOCATION_SOURCES.contains(&logical_source) {
+        counts.archive_locations = 1;
+    } else if is_item_source(logical_source) {
+        counts.archive_items = 1;
+    } else {
+        counts.locations = 1;
+    }
+    crate::deletion::purge_late_arrival(
+        tx,
+        crate::deletion::LateArrival {
+            user_id: user,
+            event_id,
+            logical_source,
+            parent_id,
+            stay_id: cause.stay_id,
+            start: cause.start,
+            end: cause.end,
+            counts,
+        },
+    )
+    .await
 }
 
 /// 1 件に `user:late` を付けて削除の台帳に 1 行（原因 = 消した滞在）。すでに隠れている行には何もしない。付けたら `true`。
@@ -1021,45 +1103,13 @@ pub(crate) async fn settle_arrival(
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_optional(&mut **tx)
     .await?;
-    let Some(LateCause {
-        stay_id,
-        start,
-        end,
-        purged,
-        operation_id,
-    }) = cause
-    else {
+    let Some(cause) = cause else {
         return Ok(());
     };
-    if !mark_late(tx, stored.user_id, stored.id, source, stay_id).await? {
+    if !mark_late(tx, stored.user_id, stored.id, source, cause.stay_id).await? {
         return Ok(());
     }
-    // 範囲の行が無い本文を消した滞在（D14）は印だけ。消す側に倒すと、見せていない記録の本文が戻らない
-    let Some(parent_id) = operation_id.filter(|_| purged) else {
-        return Ok(());
-    };
-    let mut counts = crate::deletion::PurgeCounts::default();
-    if crate::archive::LOCATION_SOURCES.contains(&source) {
-        counts.archive_locations = 1;
-    } else if is_item_source(source) {
-        counts.archive_items = 1;
-    } else {
-        counts.locations = 1;
-    }
-    crate::deletion::purge_late_arrival(
-        tx,
-        crate::deletion::LateArrival {
-            user_id: stored.user_id,
-            event_id: stored.id,
-            logical_source: source,
-            parent_id,
-            stay_id,
-            start,
-            end,
-            counts,
-        },
-    )
-    .await
+    purge_late_body(tx, stored.user_id, stored.id, source, &cause).await
 }
 
 /// 前の版を履歴へ積む（`core.event_version`）。`version_no` は続き番号 —— 錠の中なので衝突しない。

@@ -951,10 +951,7 @@ async fn ledger_erasures(
 
 /// 記録の本文（原文と解析済み）を消去の形にする、**唯一の場所**。前の版 → 記録の順
 /// （時刻・内容の鍵・削除の印は触らない。前の版が無い記録では前の版の更新は 0 行）。
-async fn erase_bodies(
-    tx: &mut Transaction<'_, Postgres>,
-    ids: &[uuid::Uuid],
-) -> sqlx::Result<()> {
+async fn erase_bodies(tx: &mut Transaction<'_, Postgres>, ids: &[uuid::Uuid]) -> sqlx::Result<()> {
     sqlx::query(
         "UPDATE core.event_version SET raw = '', payload = '{}'::jsonb
           WHERE event_id = ANY($1) AND raw <> ''",

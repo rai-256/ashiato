@@ -359,7 +359,10 @@ async fn purge_late_concurrent_purge_and_ingest_leave_no_body() {
     let (purged, sent) = (purge.await.unwrap(), ingest.await.unwrap());
 
     // 後から届いた位置は取り込みの transaction の中で本文ごと空にされるので、どちらが先でも数え直した件数は変わらない
-    assert!(purged.is_ok(), "本文ごと消す操作が成功していない: {purged:?}");
+    assert!(
+        purged.is_ok(),
+        "本文ごと消す操作が成功していない: {purged:?}"
+    );
     assert!(sent[0].accepted);
     assert!(emptied(&pool, id).await, "10:30 の位置の本文が残っている");
 }
