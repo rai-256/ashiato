@@ -94,10 +94,10 @@
 
 ## Task 6: 使い捨ての database の 5 か所と、database を作る書き方の検査
 
-- [ ] 6.1 `clock_tests.rs`・`feelings_tests.rs`・`stay_tests.rs`・`attributes_tests.rs`・`places_tests.rs` の `fresh_db()` の中身を `testdb::scratch()` に替える（design D5。名前と戻り値の形は残す。
+- [x] 6.1 `clock_tests.rs`・`feelings_tests.rs`・`stay_tests.rs`・`attributes_tests.rs`・`places_tests.rs` の `fresh_db()` の中身を `testdb::scratch()` に替える（design D5。名前と戻り値の形は残す。
   future は `DROP DATABASE IF EXISTS` で二重に消しても落ちない）。`export_ledger_tests.rs`・`export_excluded_tests.rs` の `crate::stay_tests::fresh_db()` の呼び出しは変えない。
   検証: `CT clock_tests` rc=0 / `CT feelings_tests` rc=0 / `CT attributes_tests` rc=0 / `CT places_tests` rc=0 / `NL places_tests 158` rc=0 / `bash -c '[ "$(grep -lE "CREATE DATABASE" crates/server/src/*.rs crates/server/tests/*.rs | grep -v testdb)" = "" ]'` rc=0
-- [ ] 6.2 `tools/check-test-db-growth.sh --lint` を design D5 のとおりに書く（`crates/server/src` と `crates/server/tests` の `CREATE DATABASE` と、`crates/server/src/export*_tests.rs` の `testdb::pool()`。`testdb.rs` と、同じ行か 1 行上に理由つきの `db-ok:` がある行は通す。
+- [x] 6.2 `tools/check-test-db-growth.sh --lint` を design D5 のとおりに書く（`crates/server/src` と `crates/server/tests` の `CREATE DATABASE` と、`crates/server/src/export*_tests.rs` の `testdb::pool()`。`testdb.rs` と、同じ行か 1 行上に理由つきの `db-ok:` がある行は通す。
   落ちたときの文言に `testdb::isolated()` と `testdb::scratch()` と `db-ok: <理由>` を出す）。`--self-test` に次を足し、それぞれの前に印を出す:
   `echo "Scenario: 足場の外で database を作る試験は、検査が落とし、足場の関数を示す"`（偽の木の `src/x_tests.rs` に `CREATE DATABASE` → rc=1・ファイルと行・`testdb::scratch`）/
   `echo "Scenario: 書き出しの試験が回の database を取ると、検査が落とし、試験ごとの database を示す"`（偽の木の `src/export_x_tests.rs` に `testdb::pool()` → rc=1・ファイルと行・`testdb::isolated`。理由つきの `db-ok:` が 1 行上にあれば rc=0）/
