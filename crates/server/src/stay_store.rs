@@ -306,6 +306,9 @@ pub(crate) fn span_of(
     (event_time, end)
 }
 
+/// 本文ごと消した滞在の 1 行（識別子・始まり・終わり・消した印）。
+type PurgedStay = (uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>);
+
 /// `[from, to)` と時間が重なる（閉区間で触れるものを含む）既存の滞在。**候補は `origin='derived'` の `s01-stay` だけ**（D2 / D3）。
 ///
 /// 滞在の長さに上限は無いので、始まりだけでは絞れない。`payload->>'end'` の文字列比較で粗く絞ってから
@@ -337,7 +340,7 @@ async fn load_existing(
     .bind(rough.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
     .fetch_all(&mut **tx)
     .await?;
-    let purged: Vec<(uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>)> = sqlx::query_as(
+    let purged: Vec<PurgedStay> = sqlx::query_as(
         "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
               WHERE user_id = $1 AND purged AND start_at < $2 AND end_at >= $3
               ORDER BY start_at, id",
@@ -366,7 +369,7 @@ async fn load_existing(
     existing.extend(
         purged
             .into_iter()
-            .map(|(id, start, end, deleted_by)| Existing {
+            .map(|(id, start, end, deleted_by): PurgedStay| Existing {
                 id,
                 start,
                 end,
