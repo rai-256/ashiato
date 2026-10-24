@@ -217,10 +217,53 @@ async fn ch04_overlap_matches_ch02() {
     .await;
     put_version(&pool, f, u, 2, &at("05:00"), json!({"lat": 35.0})).await;
 
+    // 枝 2: 整っていない消した時間 D（10:00→09:00）にだけ当たる幅（08:30〜10:30）。整った消した時間とは重ならない
+    let odd_span_hit = put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("odd-span"),
+        &at("08:30"),
+        json!({"range_end": at("10:30")}),
+        MAP,
+    )
+    .await;
+    // 枝 3: 写しの時点（00:30）が記録の時刻より前で、幅の終わりが始まりより前になる記録（次の記録が無い）。
+    // 始まりが 00:30 以前の整った消した時間（00:15〜04:00）にだけ当たる
+    let odd_width_hit = put_as(
+        &pool,
+        u,
+        "c02-window",
+        Some("odd-width"),
+        &at("03:45"),
+        none.clone(),
+        MAP,
+    )
+    .await;
+    erased_stay(&pool, u, &at("00:15"), &at("04:00"), &[]).await;
+
     let (events, versions) = assert_same_as_ch02(&pool).await;
     assert!(
         events > 0 && versions > 0,
         "配置が効いていない: {events} {versions}"
+    );
+
+    // 新旧が同じなだけでなく、枝 2・枝 3 だけが除く記録が実際に除かれている
+    let mut tx = pool.begin().await.unwrap();
+    let (now_events, _) = excluded_by(&mut tx, export::excluded_sql("now()").ctes()).await;
+    let (early_events, _) = excluded_by(
+        &mut tx,
+        export::excluded_sql("'2000-01-01T00:30:00Z'::timestamptz").ctes(),
+    )
+    .await;
+    tx.rollback().await.unwrap();
+    assert!(
+        now_events.contains(&odd_span_hit),
+        "整っていない消した時間に当たる幅が除かれない"
+    );
+    assert!(
+        early_events.contains(&odd_width_hit),
+        "整っていない幅が整った消した時間に当たっても除かれない"
     );
 }
 
