@@ -323,27 +323,35 @@ async fn st41_gate_check_rejects_partial_end_in_db() {
     .await;
     assert_eq!(end_of(&pool, ok).await.1, Some(1439));
 
-    // 移行を 2 回当てても落ちない（CHECK の重複も作らない）
-    let (name, sql) = crate::MIGRATIONS
-        .iter()
-        .find(|(n, _)| n.contains("event_end_time"))
-        .expect("終わりの時刻の移行が MIGRATIONS にある");
-    for round in 1..=2 {
-        let again = sqlx::raw_sql(sql).execute(&pool).await;
-        assert!(
-            again.is_ok(),
-            "{name} の {round} 回目の当てが落ちた: {again:?}"
-        );
+    // 移行を 2 回当てても落ちない（CHECK の重複も作らない）。
+    // 共有の DB で当て直すと `core.event` の ACCESS EXCLUSIVE が並んで走る試験と deadlock するので、
+    // 使い捨ての DB に全版を 2 回当てる（`stay_tests::stays_migration_applies_twice` と同じ）
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    let applied = async {
+        for round in 1..=2 {
+            for (label, sql) in crate::MIGRATIONS {
+                sqlx::raw_sql(sql)
+                    .execute(&fresh)
+                    .await
+                    .map_err(|e| format!("{round} 回目の {label}: {e}"))?;
+            }
+        }
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM pg_constraint
+              WHERE conrelid IN ('core.event'::regclass, 'core.event_version'::regclass)
+                AND conname LIKE '%\\_end\\_%'",
+        )
+        .fetch_one(&fresh)
+        .await
+        .map_err(|e| e.to_string())
     }
-    let checks: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_constraint
-          WHERE conrelid IN ('core.event'::regclass, 'core.event_version'::regclass)
-            AND conname LIKE '%\\_end\\_%'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(checks, 4, "CHECK は表ごとに 2 つ");
+    .await;
+    drop.await;
+    assert_eq!(
+        applied,
+        Ok(4),
+        "移行は 2 回当てても落ちず、CHECK は表ごとに 2 つ"
+    );
 }
 
 // ---- Task 2: 取り込み口（`crate::ingest`）を通す ----
