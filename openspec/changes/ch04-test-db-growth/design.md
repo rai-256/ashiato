@@ -231,8 +231,8 @@ CH04 を CH03 に依らせると、CH03 の gate を待つ理由のない作業�
 | 何 | 値 |
 |---|---|
 | テンプレートを写す 1 本の時間（tasks 2.3） | 72〜197 ms（16 本同時に呼び、1 本ずつ写した。1 秒未満。D2 の反転条件に触れない。2026-10-24） |
-| まっさらな回の `cargo test -p ashiato-server` の全体の時間（tasks 7.2） | |
-| 同じ worktree で 2 回目の全体の時間（tasks 7.2。1 回目と同じ桁なら積もっていない） | |
+| まっさらな回の `cargo test -p ashiato-server` の全体の時間（tasks 7.2） | 113.02 秒（lib の 1216 本。2026-10-24） |
+| 同じ worktree で 2 回目の全体の時間（tasks 7.2。1 回目と同じ桁なら積もっていない） | 113.99 秒（1 回目と同じ桁。前の回の database は残らなかった） |
 
 | (N, M) | D9 の前 seconds | D9 の前 summary_seconds | D9 の後 seconds | D9 の後 summary_seconds |
 |---|---|---|---|---|
