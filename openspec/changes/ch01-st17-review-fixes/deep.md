@@ -40,3 +40,18 @@
 
 - 問い: 取り込みの「人が書いた記録」の規則（由来が authored・端末 id 無し・外部 id 無し・地域のずれ）の 3 つの写し（主張・主観・場所）を 1 つの関数にまとめますか。
 - 答え: (推奨のまま: まとめる（種別と順はいまのまま。主観の東京の条件は主観の側に残す）)
+
+## 第 2 回（2026-10-23。下流: merge gate が仮の D11 を「否」で返した）
+
+### Q8. 読む口を動かした後の役割の準備の置き場所（A / premise。仮の D11 が別の席で否）
+
+- **出所**: merge gate（`docs/briefs/CH01-gate.md`）。`provisional-review.md` の D11 が「否」——
+  条件 4（`rests_on` に挙がっていない土台の決定）。D11 の置き場所（読む口のかたまりの**外の直前**）の理由は D2 の「読む口を動かしただけは通す。かたまりの中の注記でない行は比べない」（`tools/check-shared-appends.sh` の `mouth_sig`）で、
+  D11 の名で D2 の道具も変えている（`PREP='`*.d/` の節の前の準備'` と守る範囲 1 の起点・`--self-test` 3 件。review/code.md R19）。D11 の元の指摘は review/code.md R1（ここで人間に返したので処置は escalated）。R22 も D11 の名で直したD2 が反転すれば D11 の置き場所と守る範囲が変わるので、D11 は D1 だけに乗る仮とは言えない
+- **いまの木の状態**（D11 のまま。台帳からは外した）: 読む口の見出しの直前で `db-roles.sh`・grants.sql の付与・`app_psql()` を済ませ、`check-shared-appends.sh` は準備の頭の注記から読む口の `done` までを守る。
+  ST09 の節なしの木で `tools/check-immutable.sh` は「書き換え禁止 OK」・NG 0 行、ST09 ありの直す前は `role "ashiato_app" does not exist` で抜けた。`check-shared-appends.sh --self-test` は rc=0
+- **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH01-deep-r2.html`）
+- 答え（本人の選択。2026-10-24、`deep-answers-2.txt`）: いまの形のまま（準備は読む口のかたまりの外の直前。check-shared-appends は準備の頭から読む口の done までを守る）
+  - 推奨の選択肢と同じ。補足なし。木は変えない
+  - 選択肢の注記のとおり: D2 の「動かしただけ」の判定は変えない。D11 は D1 と D2 の両方に乗る決定（仮でない）として design に記す。D2 を後で変えるときは D11 の置き場所と守る範囲も見直す
+  - 要件へ戻すもの: なし（検査の台本の置き場所の話で、要件の本文に効かない）

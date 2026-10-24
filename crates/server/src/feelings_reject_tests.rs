@@ -552,3 +552,48 @@ async fn st17_reject_target_resend_skips_the_target_check() {
     );
     assert_eq!(count(&app, user).await, 1);
 }
+
+// ------------------------------------------------------------------ ch01 Task 5: 終わりの読めない滞在（D9）
+// 試験の名前の接頭辞は `ch01_stay_open_`。製品に滞在の本文を消す経路は無いので、行を DB に直接置く。
+
+/// 本文（`payload`）に終わりを持たない `s01-stay` の行を置く
+async fn put_stay_without_end(app: &App, user: uuid::Uuid, stay: uuid::Uuid, start: &str) {
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'s01-stay',$3,'derived',$4::timestamptz,540,'Asia/Tokyo',1,$3,'{}','{}'::jsonb)",
+    )
+    .bind(stay)
+    .bind(user)
+    .bind(stay.to_string())
+    .bind(start)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn ch01_stay_open_span_containing_the_start_is_accepted() {
+    let app = app().await;
+    let user = testdb::user();
+    let (id, stay) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    put_stay_without_end(&app, user, stay, STAY_START).await;
+    let raw = stay_raw(id, stay, STAY_START, STAY_END);
+    assert_eq!(reject_kind(&app, user, id, STAY_START, &raw).await, None);
+    assert_eq!(count(&app, user).await, 1);
+}
+
+#[tokio::test]
+async fn ch01_stay_open_span_starting_after_the_start_is_rejected() {
+    let app = app().await;
+    let user = testdb::user();
+    let (id, stay) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    put_stay_without_end(&app, user, stay, STAY_START).await;
+    // 記録の区間は滞在の始まり（一点）より後から始まる
+    let (s, e) = ("2026-10-07T10:00:00+09:00", STAY_END);
+    let raw = stay_raw(id, stay, s, e);
+    let got = reject_kind(&app, user, id, s, &raw).await;
+    assert_eq!(got, Some("invalid_feeling_target".to_string()));
+    assert_eq!(count(&app, user).await, 0);
+}

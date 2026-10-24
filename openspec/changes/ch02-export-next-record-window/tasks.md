@@ -34,19 +34,19 @@
 
 ## Task 1: 試験の足場と、いまの SQL の写し
 
-- [ ] 1.1 `crates/server/src/export_window_tests.rs` を作り、まっさらな DB を作って全移行を当てる足場（`fresh()`）と、その DB に記録・前の版・消した滞在を置く道具
+- [x] 1.1 `crates/server/src/export_window_tests.rs` を作り、まっさらな DB を作って全移行を当てる足場（`fresh()`）と、その DB に記録・前の版・消した滞在を置く道具
   （`export_excluded_tests::World` の `put_as` / `put_version` / `erased_stay` / `mark_deleted` と同じ列。**端末に `NULL` を渡せる**・**前の版の `user_id` を親と違う値にできる**・時刻をマイクロ秒で渡せる）を置く。
   断片を通して**残る**記録と前の版の id を返す `kept_ids(pool, sql: &ExcludedSql, ids) -> (BTreeSet<Uuid>, BTreeSet<Uuid>)`（`event_kept` / `version_kept` を通す。`export_excluded_tests.rs` の `kept` / `kept_versions` と同じ。
   前の版がファイルに出るかは親が除かれるかにも依るので、`excluded_version` の id だけで見ない）と、除く id の集合を返す `excluded_ids(pool, sql)` を置く
-- [ ] 1.2 いまの `excluded.rs` の `excluded_sql` / `overlap_sql` を、同じファイルの `legacy` モジュールに**逐語で**写す（`legacy::excluded_sql(snapshot_at)` と、記録の側の条件だけを
+- [x] 1.2 いまの `excluded.rs` の `excluded_sql` / `overlap_sql` を、同じファイルの `legacy` モジュールに**逐語で**写す（`legacy::excluded_sql(snapshot_at)` と、記録の側の条件だけを
   `n.event_time > r.event_time` にした `legacy::excluded_sql_strict(snapshot_at)`）。写した日付と元の commit を doc コメントに書く。本体はこの Task では変えない
-- [ ] 1.3 足場の確かめ: まっさらな DB に既存の Scenario「終わりを持たない記録は、次の記録までの幅で重なれば出ない」と同じ配置を置き、`export::excluded_sql("now()")` と `legacy::excluded_sql("now()")` の
+- [x] 1.3 足場の確かめ: まっさらな DB に既存の Scenario「終わりを持たない記録は、次の記録までの幅で重なれば出ない」と同じ配置を置き、`export::excluded_sql("now()")` と `legacy::excluded_sql("now()")` の
   除く集合が一致する試験 `ch02_span_legacy_matches_current_before_the_change` を置く。
   検証: `CT ch02_span_legacy` rc=0（`-- --list` で 1 本以上）
 
 ## Task 2: 次の記録を窓関数の一度読みにする
 
-- [ ] 2.1 先に試験を書く（どれも `fresh()` の DB。`kept_ids` で、記録のファイル・前の版のファイルに出るかを見る。配置は spec の Scenario の WHEN のまま）:
+- [x] 2.1 先に試験を書く（どれも `fresh()` の DB。`kept_ids` で、記録のファイル・前の版のファイルに出るかを見る。配置は spec の Scenario の WHEN のまま）:
   - `ch02_span_same_time_pair_runs_to_the_later_record` — `// Scenario: 同じ時刻に並んだ終わりを持たない記録は、どれも時刻が後の次の記録までの幅で読む`。
     **いまの断片で落ちることを確かめてから** 2.2 に進む
   - `ch02_span_null_device_runs_within_null_devices` — `// Scenario: 端末を持たない記録は、端末を持たない同じソースの次の記録までの幅で読む`
@@ -57,7 +57,7 @@
   - `ch02_span_version_group_uses_the_parent_user` — `// Scenario: 前の版の組の利用者は親の利用者で読む`
   - `ch02_span_marked_record_is_not_the_next` — `// Scenario: 削除の印の付いた記録は、次の記録にならない`
   - `ch02_span_nothing_erased_keeps_everything` — `// Scenario: 消した滞在が無ければ、緯度経度を持つ記録も幅を問わず出る`
-- [ ] 2.2 `excluded.rs` の `excluded_sql` / `overlap_sql` を design D1〜D5 の形に書き換える: 記録と前の版（親の鍵）を `UNION ALL` した鍵の列だけの並び（D2・D4）を、
+- [x] 2.2 `excluded.rs` の `excluded_sql` / `overlap_sql` を design D1〜D5 の形に書き換える: 記録と前の版（親の鍵）を `UNION ALL` した鍵の列だけの並び（D2・D4）を、
   消した滞在 0 件なら One-Time Filter の門で読まず・時刻が `max(end_at)` 以下の行 + 組ごとにそれより後の最初の記録 1 行に絞り（D3）、D1 の枠で次の記録の時刻を求め、`id` で `payload` / `raw` に戻して
   (a)(b)(d) と緯度経度と重なりを当てる。`EXCLUDED_EVENT` / `EXCLUDED_VERSION` の CTE の名前と中身、`ExcludedSql` の公開の形は変えない。doc コメントの「行ごとの相関副問い合わせ」の説明を、
   窓の形と ST33 D5 を覆した理由（CH02）に書き直す。
@@ -65,42 +65,42 @@
 
 ## Task 3: 新旧の突き合わせ（変わらないことの固定）
 
-- [ ] 3.1 `ch02_same_matches_the_strict_legacy_on_every_family` — まっさらな DB に design D6 の偽データの族を全部置き（同じ時刻の組・端末 NULL・前の版の時刻のずれ 0 と 5 秒・前の版の `user_id` が親と違う・
+- [x] 3.1 `ch02_same_matches_the_strict_legacy_on_every_family` — まっさらな DB に design D6 の偽データの族を全部置き（同じ時刻の組・端末 NULL・前の版の時刻のずれ 0 と 5 秒・前の版の `user_id` が親と違う・
   削除の印を間に挟む・緯度経度を持たない行や消した時間より後の行が次の記録になる配置・ほかの前の版が次の記録の候補にならない配置・1 µs の差・(a) の読めた終わりが記録の時刻より前・
   ソースの種類（`c01-location` の点・`end` の終わり・`visit_duration_us` の長さ・`c02-window` の次の記録まで）・消した滞在の前の版の広い時間）、
   `export::excluded_sql(t)` と `legacy::excluded_sql_strict(t)` の除く記録と前の版の id の集合と、`kept_ids` の残る集合が**一致する**ことを見る。
   `t` は `now()` と、固定の時刻の式 3 つ（`'<日>T00:30:00Z'::timestamptz`（消した滞在の始まりより前。組ごとの後の最初の 1 行が効く配置。design D3）・`'<日>T01:30:00Z'::timestamptz`（消した時間の中）・
   `'<日>T05:00:00Z'::timestamptz`（後））。各族の配置は、族ごとに 1 つは「除かれる」と「残る」の両方を含むことを assert する（どちらも空で一致するのを防ぐ）
-- [ ] 3.2 `ch02_same_differs_from_the_legacy_only_on_same_time_pairs` — 3.1 と同じ偽データで `legacy::excluded_sql("now()")`（いまの SQL そのもの）と比べ、
+- [x] 3.2 `ch02_same_differs_from_the_legacy_only_on_same_time_pairs` — 3.1 と同じ偽データで `legacy::excluded_sql("now()")`（いまの SQL そのもの）と比べ、
   差が「同じ時刻の組の、`(event_time, id)` の順で先の記録」の名指しした id だけで、新しい断片の側にだけあることを見る（Q1。除く側にだけ変わる）
-- [ ] 3.3 `ch02_same_nothing_erased_matches_the_legacy` — 消した滞在 0 件の DB（3.1 の偽データから消した滞在だけを置かない）で、新旧どちらも除く集合が空であることを見る
-- [ ] 3.4 `ch02_same_runs_in_a_read_only_transaction` — `BEGIN READ ONLY` の中で新しい断片の `excluded_event` / `excluded_version` を数えて、エラー無しで 3.1 と同じ件数になることを見る。
+- [x] 3.3 `ch02_same_nothing_erased_matches_the_legacy` — 消した滞在 0 件の DB（3.1 の偽データから消した滞在だけを置かない）で、新旧どちらも除く集合が空であることを見る
+- [x] 3.4 `ch02_same_runs_in_a_read_only_transaction` — `BEGIN READ ONLY` の中で新しい断片の `excluded_event` / `excluded_version` を数えて、エラー無しで 3.1 と同じ件数になることを見る。
   検証: `CT ch02_same_` rc=0（`-- --list` で 4 本以上）
 
 ## Task 4: 読んだ行の数が線形に近いことと、窓の枠の試験
 
-- [ ] 4.1 計画の JSON（`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`）の木から、`Relation Name` が `event` / `event_version` の節の
+- [x] 4.1 計画の JSON（`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`）の木から、`Relation Name` が `event` / `event_version` の節の
   `(Actual Rows + Rows Removed by Filter + Rows Removed by Index Recheck) × Actual Loops` を足す `rows_read(plan: &Value, skip_cte: Option<&str>) -> u64` を置く（design D7。`skip_cte` は名指しした CTE の下の節を数えない）。
   計画の JSON の形を 1 つ手で書いた材料に当てる単体の試験 `ch02_scale_rows_read_sums_the_event_scans` を置く
-- [ ] 4.2 `ch02_scale_four_times_the_rows_reads_less_than_eight_times` — `// Scenario: 記録を 4 倍にしても、除く範囲の判定が読む量は 4 倍の桁に収まる`。
+- [x] 4.2 `ch02_scale_four_times_the_rows_reads_less_than_eight_times` — `// Scenario: 記録を 4 倍にしても、除く範囲の判定が読む量は 4 倍の桁に収まる`。
   まっさらな DB 2 つに、消した滞在 1 件（01:00〜02:00）と、00:00〜00:59 に散らした地図の座標つきの `c02-window`（**端末を記録ごとに違う値にする**）を `SCALE_N` 件と `SCALE_N × SCALE_FACTOR` 件、
   別の利用者の `c02-window` を 03:00 以降に同じ数だけ置き、`ANALYZE` を当ててから、`SELECT (SELECT count(*) FROM excluded_event), (SELECT count(*) FROM excluded_version)` を `EXPLAIN` して
   `rows_read` の比が `SCALE_LIMIT` 未満であることを見る。**同じ試験で `legacy::excluded_sql("now()")` にも当て、比が `SCALE_LIMIT` 以上であることを assert する**（相関副問い合わせに戻すと落ちる。
   review/spec.md R2 の実測で比 16）。消した滞在を 00:00 より前に置いた配置（行の大半が `max(end_at)` より後）でも新しい断片の比が `SCALE_LIMIT` 未満であることを見る。読んだ行の数と比だけを出す
-- [ ] 4.3 `ch02_scale_nothing_erased_reads_no_records` — `// Scenario: 消した滞在が無ければ、除く範囲の判定は記録の表を読まない`。
+- [x] 4.3 `ch02_scale_nothing_erased_reads_no_records` — `// Scenario: 消した滞在が無ければ、除く範囲の判定は記録の表を読まない`。
   消した滞在 0 件の DB で同じ `EXPLAIN` を取り、`rows_read(plan, Some("erased_spans"))`（消した滞在とその前の版を探す `erased_spans` の CTE の下を除く）が 0 であることを見る。
   **同じ試験で `legacy::excluded_sql("now()")` では 0 にならない（表を読む）ことも assert する**（design D3 の門がいまより強い保証であることの固定）
-- [ ] 4.4 `ch02_scale_window_frame_is_head_fixed` — `export::excluded_sql("now()").ctes()` の文字列に design D1 の枠
+- [x] 4.4 `ch02_scale_window_frame_is_head_fixed` — `export::excluded_sql("now()").ctes()` の文字列に design D1 の枠
   （`ORDER BY event_time DESC` と `RANGE BETWEEN UNBOUNDED PRECEDING AND '1 microsecond' PRECEDING`）があり、`FOLLOWING AND UNBOUNDED FOLLOWING` が無いことを assert する
   （順向きで尾を固定した枠は読んだ行の数では見分けられない。design D7）。
   検証: `CT ch02_scale_` rc=0（`-- --list` で 4 本以上）
 
 ## Task 5: 量の試験で時間を記録する
 
-- [ ] 5.1 `export_file_tests.rs` の `export_volume_one_run_reports_time_and_memory` に、環境変数 `ASHIATO_EXPORT_VOLUME_ERASED`（既定 `1`。`0` なら消した滞在を置かない）を足す。
+- [x] 5.1 `export_file_tests.rs` の `export_volume_one_run_reports_time_and_memory` に、環境変数 `ASHIATO_EXPORT_VOLUME_ERASED`（既定 `1`。`0` なら消した滞在を置かない）を足す。
   `0` のときは「消した時間の中の座標の行が残っている」の assert を「全部残る（`mine == rows`）」に替える。既定の振る舞い（2 万行・消した滞在あり）は変えない。
   検証: `CT export_volume_one_run_reports_time_and_memory` rc=0（`-- --list` で 1 本以上）
-- [ ] 5.2 使い捨ての DB で 6 通り（`ASHIATO_EXPORT_VOLUME_ROWS` = 10000 / 100000 / 1200000 × `ASHIATO_EXPORT_VOLUME_ERASED` = 1 / 0）を走らせる。1 通りごとに（design D8）:
+- [x] 5.2 使い捨ての DB で 6 通り（`ASHIATO_EXPORT_VOLUME_ROWS` = 10000 / 100000 / 1200000 × `ASHIATO_EXPORT_VOLUME_ERASED` = 1 / 0）を走らせる。1 通りごとに（design D8）:
   `docker compose exec -T db psql -U postgres -c 'CREATE DATABASE ch02_volume_<行数>_<0|1>'` →
   `bash -c 'set -a; . ./.env; set +a; export DATABASE_OWNER_URL="${DATABASE_OWNER_URL%/*}/ch02_volume_<行数>_<0|1>" ASHIATO_EXPORT_VOLUME_ROWS=<行数> ASHIATO_EXPORT_VOLUME_ERASED=<0|1>; scripts/quiet-run vol -- cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory -- --nocapture'` rc=0 →
   出力の `kind=export rows=… seconds=… summary_seconds=…` を design の「計測の記録」の表に写す →
@@ -111,13 +111,13 @@
 
 ## Task 6: 既存の試験を全部通す
 
-- [ ] 6.1 ST33 の export の試験を名前で全部走らせる。
+- [x] 6.1 ST33 の export の試験を名前で全部走らせる。
   検証: `CT export_excluded` rc=0（`-- --list` で 24 本以上）/ `CT export_file` rc=0（`-- --list` で 43 本以上）/ `CT export_job` rc=0（`-- --list` で 38 本以上）/
   `CT export_ledger` rc=0（`-- --list` で 3 本以上）/ `CT export_tests` rc=0（`-- --list` で 18 本以上）/ `CT ch02_` rc=0（`-- --list` で 18 本以上）
-- [ ] 6.2 ST09 の export の試験を、CH02 の断片の上で走らせる（依頼「ST09 の試験も通す」。design D10）。**CH02 の下流の worktree の中で**（`scripts/` の symlink・`.env`・port をそのまま使う）、
-  作業を commit してから `git merge --no-commit --no-ff feat/st09-media-capture` → `CT st09_exp_` / `CT export_` → `git merge --abort`（**commit も push もしない。ST09 のコードをブランチに残さない**）。
-  ST09 のブランチに `st09_exp_` の試験がまだ無ければ、その旨（`-- --list` の 0 本）を PR の本文に書いて `CT export_` だけを見る。終わった後に `git status --short` が空であることを確かめる。
-  検証: `CT st09_exp_` rc=0（`-- --list` で、ST09 のブランチの本数以上）/ `CT export_` rc=0（`-- --list` で 126 本以上）/ `git merge --abort` の後の `git status --short` が空
-- [ ] 6.3 crate 全体の試験と静的検査。
+- [x] 6.2 export の試験を CH02 の木で全部通す（依頼「ST09 の試験も通す」。design D10）。**CH02 の下流の worktree の中で**（`scripts/` の symlink・`.env`・port をそのまま使う）走らせる。
+  ST09 のコードを重ねた上での試験（`st09_exp_` / `export_`）は、確認バッチの統合の木に任せる（下の訂正）。その旨を PR の本文に書く。終わった後に `git status --short` が空であることを確かめる。
+  検証: `CT export_` rc=0（`-- --list` で 126 本以上）/ `git status --short` が空
+  （訂正 2026-10-23: 検証の入口を「CT st09_exp_」から上の入口に。受け入れ条件は変えない。理由: ST09 を merge --no-commit で重ねて撮った証跡は merge --abort の後に作業ツリーと食い違い、Task gate で常に古いコード扱いになる（ST09 の移行がテスト DB に残り export の試験 77 本も落とした）。CH02 の木では st09_exp_ が 0 本で FAIL。ST09 の上での試験は確認バッチの統合の木に任せる 実証: evidence.jsonl 2026-10-23T09:33:29+00:00 FAIL。承認: ユーザー 2026-10-23 の会話（6.2 は CT export_ だけにし、ST09 の上での試験は確認バッチに任せる案を承認）。記録: plan-corrections.md）
+- [x] 6.3 crate 全体の試験と静的検査。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 /
   `scripts/quiet-run clippy -- cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0 / `python3 scripts/check_scenarios.py . ch02-export-next-record-window` rc=0

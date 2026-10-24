@@ -42,6 +42,8 @@ archive_prepare() {
   uid="$ASHIATO_ARCHIVE_USER_ID"; token="$(sed -n 's/^API_TOKEN=//p' .env)"
   admin="$(sed -n 's/^ *POSTGRES_USER: *//p' docker-compose.yml | head -1)"
   q() { docker compose exec -T db psql -qtA -U "$admin" -d ashiato -c "$1" 2>/dev/null; }
+  # 取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）
+  q "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox'" >/dev/null
   st() { curl -sf -H "authorization: Bearer $token" "http://127.0.0.1:$api/archives/status?user_id=$uid"; }
   zipdir() { python3 -c 'import sys,zipfile,pathlib as P
 src,dst=P.Path(sys.argv[1]),sys.argv[2]
@@ -140,7 +142,7 @@ EOF
     # （seed と tools/smoke.sh の書庫も同じ。実測 2026-10-05: .env の利用者で動かすと、箱は取り込み器を一度も見なかった）
     export ASHIATO_ARCHIVE_USER_ID="00000000-0000-0000-0000-000000000000"
     export ASHIATO_INBOX_DIR="$ARCHIVE_DIR/inbox" ASHIATO_DOWNLOADS_DIR="$ARCHIVE_DIR/downloads"
-    export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_DIR/copies" ASHIATO_ARCHIVE_SCAN_SEC=1
+    export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_DIR/copies"
   fi
 
   echo "== ビルド（サーバ release・画面）"
@@ -159,17 +161,15 @@ EOF
       # shellcheck disable=SC1091
       . ./tools/android-env.sh >/dev/null 2>&1
       set -u
-      # トークンはコマンド行（ps に見える）に出さず、この一時 worktree の gradle.properties に足して渡し、ビルドの後に戻す。
-      # 環境変数（ORG_GRADLE_PROJECT_ashiato.apiToken）では届かない —— 名前に「.」があり、gradlew（sh）が子へ渡さない
-      # （実測 2026-10-14: APK のトークンと利用者が空で、ST17-reminder が接続先の無い APK で落ちた）。
+      # トークンはコマンド行（ps に見える）に出さず、この一時 worktree の追跡されないファイル local.properties に書いて渡す
+      # （app/build.gradle.kts が property に無ければ読む）。追跡されるファイルには書かないので、KILL で止められて
+      # 戻す処理が走らなくても commit に入らない。環境変数（ORG_GRADLE_PROJECT_ashiato.apiToken）では届かない ——
+      # 名前に「.」があり、gradlew（sh）が子へ渡さない（実測 2026-10-14: APK のトークンと利用者が空だった）。
       # daemon は使わない（片付けがこの環境のプロセスグループを止めるとき、他のビルドが使う daemon を巻き込まない）
       printf '\nashiato.apiToken=%s\nashiato.userId=%s\n' \
-        "$(sed -n 's/^API_TOKEN=//p' .env)" "$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" >>collector-android/gradle.properties
-      rc=0
+        "$(sed -n 's/^API_TOKEN=//p' .env)" "$(sed -n 's/^ASHIATO_USER_ID=//p' .env)" >>collector-android/local.properties
       ./collector-android/gradlew -q --no-daemon -p collector-android :app:assembleDebug :app:assembleDebugAndroidTest \
-        -Pashiato.baseUrl=http://127.0.0.1:18787 || rc=$?
-      git checkout -q -- collector-android/gradle.properties || rc=1
-      exit "$rc"
+        -Pashiato.baseUrl=http://127.0.0.1:18787
     ) && android_ok=1
     # APK が作れなくても画面のシナリオは撮る（Android のシナリオだけが「撮れなかった」になる）
     [ -n "$android_ok" ] || echo "warn: APK のビルドが落ちた。Android のシナリオは撮らない" >&2
@@ -182,8 +182,11 @@ EOF
     # C ランタイムは静的に入れる（まっさらな Sandbox には VC++ の再頒布物が無く、VCRUNTIME140.dll が無いで起動しない。2026-10-15 実測）
     echo "== PC の収集アプリ（Windows の cargo。release）"
     local wb=/mnt/c/dev/ashiato2-rec-build
+    # Android の組み立てがトークンを書いた local.properties は写さない（写し先は片付けで消えない。前の版が残した写しも消す。review/code.md R16）
     mkdir -p "$wb/src" "$STATE/windows-payload" \
-      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin "$WT/" "$wb/src/" \
+      && rm -f "$wb/src/collector-android/local.properties" \
+      && rsync -a --delete --exclude target --exclude .git --exclude node_modules --exclude web/dist --exclude .rec-bin \
+           --exclude collector-android/local.properties "$WT/" "$wb/src/" \
       && (cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c \
             "cd /d $(wslpath -w "$wb/src") && set PATH=%USERPROFILE%\.cargo\bin;%PATH%&& set RUSTFLAGS=-C target-feature=+crt-static&& cargo build -q --release -p ashiato-collector-windows --target-dir $(wslpath -w "$wb/target")" \
             </dev/null) \

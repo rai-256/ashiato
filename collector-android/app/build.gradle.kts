@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("io.gitlab.arturbosch.detekt")
 }
+
+// 資格情報は gradle の property が先で、無ければ追跡されない collector-android/local.properties から読む
+// （tools/record-env.sh が書く。追跡される gradle.properties には書かない）。
+val localProps = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.isFile }?.reader(Charsets.UTF_8)?.use { load(it) }
+}
+fun credential(name: String): String =
+    (project.findProperty(name) as String?) ?: localProps.getProperty(name, "")
 
 android {
     namespace = "dev.ashiato.collector"
@@ -21,9 +31,9 @@ android {
         buildConfigField("String", "BASE_URL",
             "\"${project.findProperty("ashiato.baseUrl") ?: ""}\"")
         buildConfigField("String", "API_TOKEN",
-            "\"${project.findProperty("ashiato.apiToken") ?: ""}\"")
+            "\"${credential("ashiato.apiToken")}\"")
         buildConfigField("String", "USER_ID",
-            "\"${project.findProperty("ashiato.userId") ?: ""}\"")
+            "\"${credential("ashiato.userId")}\"")
         // 通知が開く Web の画面のアドレス（ST17 design D10）。BASE_URL（サーバの API）とは別の値。
         // **空のままでもビルドを止めない** —— CI・計測テスト・確認バッチは渡さない。空なら通知は出て、押しても開かない
         buildConfigField("String", "WEB_URL",

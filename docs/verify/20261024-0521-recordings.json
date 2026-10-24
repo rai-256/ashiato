@@ -1,0 +1,60 @@
+{
+  "tag": "20261024-0521",
+  "run_id": "20261024-120737-798d994",
+  "commit": "798d994125cef902aee764b2c23964222c93818b",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261024-120737-798d994",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261024-120737-798d994",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST09-media",
+      "story": "ST09",
+      "overall": "ng",
+      "test": "failed",
+      "test_note": "passed 0 / 全 1。通っていないテストがある（飛ばされた・落ちた・終わらない）・「OK (n tests)」が無い",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST09-media/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST13-sources",
+      "story": "ST13",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 18 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST13-sources/video.webm",
+      "trace": "scenarios/ST13-sources/trace.zip"
+    },
+    {
+      "id": "ST13-unused-app-restrictions",
+      "story": "ST13",
+      "overall": "ng",
+      "test": "failed",
+      "test_note": "passed 0 / 全 1。通っていないテストがある（飛ばされた・落ちた・終わらない）・「OK (n tests)」が無い",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST13-unused-app-restrictions/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "CH01-feel",
+      "story": "CH01",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/CH01-feel/video.webm",
+      "trace": "scenarios/CH01-feel/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "CH02"
+  ]
+}

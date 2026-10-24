@@ -26,7 +26,9 @@
   `grep -ho 'tests="[0-9]*"' collector-android/app/build/test-results/testDebugUnitTest/TEST-*<クラス>*.xml | tr -dc '0-9\n' | awk '{s+=$1} END{print s+0}'` が
   その項目に書いた本数（`N 本以上`。書いていなければ 1）以上、
   **`AT <クラス>`** は `scripts/quiet-run instr -- tools/android-emulator.sh` rc=0 かつ
-  `find collector-android/app/build/outputs/androidTest-results -name 'TEST-*<クラス>*.xml' -exec grep -ho 'tests="[0-9]*"' {} + | tr -dc '0-9\n' | awk '{s+=$1} END{print s+0}'` が同じく本数以上
+  `cat collector-android/app/build/outputs/androidTest-results-stage*/TEST-*.xml | grep -o '<testcase [^>]*classname="[^"]*\.<クラス>"' | wc -l` が同じく本数以上
+  （結果のファイル名はクラス名を含まない（`TEST-<AVD>-_app-.xml`）ので、XML の中の `<testcase classname=…>` で数える。
+  `tools/android-emulator.sh` が段ごとの XML を `androidTest-results-stage<N>` に残す。deep.md Q18（2026-10-21 本人の答え。review/code.md R14））
   が rc=0 になることを指す（`cargo test` に絞り込みを 2 つ渡すと `unexpected argument` で落ちる。1 つずつ書く。0 本でも rc=0 になるので `-- --list` の下限を必ず見る）
 - **計測テスト（`AT`）だけで閉じる Task を作らない。** 手元の `/dev/kvm` が無いことがある（`scripts/verify-run` が `BLOCKED_INFRA` を返す）。
   `AT` を挙げた項目は、同じ振る舞いを `GT`（Robolectric の MediaStore と偽の読み手）でも確かめる。`AT` は CI の `android-instrumented` で必ず走る
@@ -48,7 +50,7 @@
 
 ## Task 1: 移行 —— 登録簿・収集開始日の印・生存信号の接続の欄・3 つの表（design D7 / D13 / D15 / D17）
 
-- [ ] 1.1 移行 `YYYYMMDDHHMM_media_capture.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D15 の 1〜4:
+- [x] 1.1 移行 `YYYYMMDDHHMM_media_capture.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D15 の 1〜4:
   `c01-screenshot` / `c01-image` / `c01-video` を `c01-photo` と同じ値で足す・4 つの `external_id_kind` を記録が 0 件のときだけ `record` に・
   `core.source.started_on_basis`（4 つを `heartbeat`）・`core.heartbeat.network boolean NULL`・`core.media_original`・`core.media_missing`・`core.text_extraction`
   （それぞれ書き換え禁止の門とアプリの役割の `SELECT` / `INSERT`）・4 つの `collection_started_on` の当て直し（D13。記録は変えない）。
@@ -56,7 +58,7 @@
   Scenario: `4 つのソースが登録簿に 6 時間の間隔で並ぶ` / `メディアのソースは識別子を欠く記録を断る` / `文字抽出の版を入れる列がある` /
   `文字抽出の行は書き換えられない` / `原本の欠けは書き換えられない` / `汚れた写真の収集開始日は移行で直る`。
   検証: `CT st09_mig_`（`-- --list` で 6 本以上）/ `tools/check-migrations.sh` rc=0 / `scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0（既存が全部緑）
-- [ ] 1.2 `tools/check-immutable.d/<作成時刻>_st09-media-capture.sh` を足し、`core.media_original` / `core.media_missing` / `core.text_extraction` の `UPDATE` と `DELETE` が
+- [x] 1.2 `tools/check-immutable.d/<作成時刻>_st09-media-capture.sh` を足し、`core.media_original` / `core.media_missing` / `core.text_extraction` の `UPDATE` と `DELETE` が
   アプリの役割で断られることを psql で 1 本ずつ確かめる（`echo "Scenario: 原本の欠けは書き換えられない"` / `echo "Scenario: 文字抽出の行は書き換えられない"`）。
   検証: `tools/check-immutable.sh` rc=0 / `tools/check-shared-appends.sh` rc=0
 
@@ -66,7 +68,7 @@
 **2.2 は「計測テストだけで閉じる Task を作らない」の例外**: 他のアプリの写真の位置が伏せられるかは本物の framework でしか確かめられない。
 手元で `BLOCKED_INFRA`（`/dev/kvm` を開けない）のときは、CI の `android-instrumented` の結果（`MediaPremisesInstrumentedTest` の XML）を証跡にして閉じ、Task 3 以降は 2.3 の `GT` の門だけで進めてよい。
 
-- [ ] 2.1 記録の組み立て（`MediaRecord`。design D4）を純粋な関数で作る: MediaStore の行と EXIF（`ExifInterface`）・入れ物のメタ（`MediaMetadataRetriever`）の値の写像から
+- [x] 2.1 記録の組み立て（`MediaRecord`。design D4）を純粋な関数で作る: MediaStore の行と EXIF（`ExifInterface`）・入れ物のメタ（`MediaMetadataRetriever`）の値の写像から
   `payload` と原文の文字列を組む。出来事の時刻（Q14）・地域（C7）・縮小画像とバイナリの塊の除き方・原文の上限（D4）・外部識別子（`sha256`）を含む。
   ハッシュはファイル全体を流して SHA-256（`MessageDigest`）。
   Scenario: `撮影時刻が記録の出来事の時刻になる` / `撮影時刻が無い画像は保存された時刻になる` / `2000 年より前の撮影時刻は採らない` /
@@ -77,18 +79,18 @@
   材料: `app/src/test/resources/media/` に、GPS・機種・`OffsetTimeOriginal`・縮小画像・`MakerNote` を持つ JPEG と、`OffsetTimeOriginal` の無い JPEG、
   位置つきの短い MP4 を置く（自作。ライセンスは `tools/check-licenses.sh` の対象外の自作物として README に書く）。
   検証: `GT MediaRecordTest`（16 本以上）
-- [ ] 2.2 計測テスト `MediaPremisesInstrumentedTest` を書き、エミュレータで前提を確かめる（確かさ 2 → 4）: (P1) `ACCESS_MEDIA_LOCATION` が無いと他のアプリの写真の
+- [x] 2.2 計測テスト `MediaPremisesInstrumentedTest` を書き、エミュレータで前提を確かめる（確かさ 2 → 4）: (P1) `ACCESS_MEDIA_LOCATION` が無いと他のアプリの写真の
   EXIF の位置が伏せられ、`setRequireOriginal` が例外になる / (P3) 写真を 1 枚足すと `getGeneration` が上がり、`GENERATION_MODIFIED` で拾える /
   (P12) 位置つきの動画の入れ物の位置が `ACCESS_MEDIA_LOCATION` の有無で変わるかを記録する（どちらでも落とさず、結果をテストの出力に残す）。
   写真は `MediaStore` に別のアプリとして入れる（位置を伏せるのは他のアプリの写真だけ。`adb shell content insert` か `adb push` + メディアの再走査を、`tools/android-emulator.sh` と CI の `android-instrumented` の `script` の両方の段に足す）。
   検証: `AT MediaPremisesInstrumentedTest`。結果（P1 / P3 / P12 の観測）を `premises.md` の表の「結果」「確かさ」に書き戻す
-- [ ] 2.3 **記録の大きさの門**（D20 / P13）: 2.1 の材料と、2.2 で入れた本物のカメラの形の写真 1 枚から作った記録の未送信の 1 行の大きさを測り、
+- [x] 2.3 **記録の大きさの門**（D20 / P13）: 2.1 の材料と、2.2 で入れた本物のカメラの形の写真 1 枚から作った記録の未送信の 1 行の大きさを測り、
   `RECORD_SIZE_GATE`（20 KiB = 1 万件で 200 MB = 2 GB の 1 割）以下であることを試験で固定する。**超えたら止めて、design D4 の原文の上限を本人に返す**（deep の問いにする）。
   検証: `GT MediaRecordSizeTest`（1 本以上。これだけで門を判定する）/ `AT MediaPremisesInstrumentedTest`（追加）
 
 ## Task 3: 読み手と見分けの台帳と消えた事実（design D1 / D2 / D3 / D5。`collector-android`）
 
-- [ ] 3.1 読み手（`MediaScanner`）と見分けの台帳（`media/ledger-<置き場>.jsonl`・`media/cursor.json`）を作る。契機は 3 つ（知らせ・6 時間・1 日 1 回）、
+- [x] 3.1 読み手（`MediaScanner`）と見分けの台帳（`media/ledger-<置き場>.jsonl`・`media/cursor.json`）を作る。契機は 3 つ（知らせ・6 時間・1 日 1 回）、
   1 回 200 件ずつ、ハッシュは変わった項目だけ計算し直す、一覧の版が変わったら全部を計算し直してハッシュで結び直す（D2）。位置とは別のスレッドで走らせる。
   論理ソースは D3 の表で決め、最初に決めたもので固定する。
   Scenario: `導入した時点で端末にある過去の写真が取られる` / `収集を止めていた間に保存された写真も取られる` / `保存の知らせで 6 時間の見直しを待たずに取られる` /
@@ -96,11 +98,11 @@
   `2 つの置き場の写真がどちらも取られる` / `同じ写真を 2 回見ても記録は増えない` / `カメラで撮った写真は写真のソースに入る` /
   `スクリーンショットはスクリーンショットのソースに入る` / `受け取った画像はカメラ以外の画像のソースに入る` / `動画は動画のソースに入る`。
   検証: `GT MediaScannerTest`（12 本以上。Robolectric の `ShadowContentResolver` に一覧を持たせ、時計は差し替える）
-- [ ] 3.2 見分け（C17）と変わった後の版（Q7）: 同じハッシュは 1 件、原文だけ変わったら同じ外部識別子で送り直す、中身が変わったら `previous_sha256` を持つ新しい記録。
+- [x] 3.2 見分け（C17）と変わった後の版（Q7）: 同じハッシュは 1 件、原文だけ変わったら同じ外部識別子で送り直す、中身が変わったら `previous_sha256` を持つ新しい記録。
   Scenario: `同じ中身の写真が 2 つ保存されても記録は 1 件` / `原文だけ変わった写真は 1 件のまま前の版が残る` / `中身が変わった写真は新しい記録になり前の記録も残る` / `消えた事実を作っても写真の記録は前の版にならない`。
   端末の側（送る記録の数と外部識別子）は `GT`、格納（1 件のまま・前の版が履歴に残る・前の記録が読み出しに残る）は `CT st09_up_ident_`（サーバの結合テストで同じ形の要求を送る）に印を置く。
   検証: `GT MediaScannerTest` / `CT st09_up_ident_`（`-- --list` で 4 本以上）
-- [ ] 3.3 消えた事実（D5）: 全部の突き合わせでだけ判定し、ごみ箱・外れた置き場・選んだ写真だけ・別の番号の同じハッシュを消えたと数えない。
+- [x] 3.3 消えた事実（D5）: 全部の突き合わせでだけ判定し、ごみ箱・外れた置き場・選んだ写真だけ・別の番号の同じハッシュを消えたと数えない。
   消えた事実の外部識別子は `vanished:<sha256>:<volume>:<media_id>`。
   Scenario: `端末から消えた写真は消えた事実が 1 件残る` / `消えた事実を 2 度見ても 1 件のまま` / `ごみ箱に入っただけでは消えたと数えない` /
   `ごみ箱から消えた時点で消えたと数える` / `外れた置き場の写真は消えたと数えない` / `選んだ写真だけの許可に変わっても消えたと数えない` / `動かした写真は消えたと数えない` /
@@ -109,12 +111,12 @@
 
 ## Task 4: 権限・取得可否・知らせ・4 本の生存信号（design D6 / D7 / D22。`collector-android`）
 
-- [ ] 4.1 `AndroidManifest.xml` に `READ_MEDIA_VIDEO`・`READ_MEDIA_VISUAL_USER_SELECTED`・`READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）を足し、初回の起動で
+- [x] 4.1 `AndroidManifest.xml` に `READ_MEDIA_VIDEO`・`READ_MEDIA_VISUAL_USER_SELECTED`・`READ_EXTERNAL_STORAGE`（`maxSdkVersion="32"`）を足し、初回の起動で
   位置の後に写真と動画と写真の位置の権限を求める（拒まれても収集は始める）。
   Scenario: `初回の起動で写真と動画と写真の位置の権限を求める` / `写真の権限が無くても位置は集まる`。
   権限を求める画面の計測テストは「未許可・未要求」から始めるので `@NeedsPristinePermissions` を付ける（CI の 2 段目で走る）。
   検証: `GT MediaPermissionTest`（2 本以上。マニフェストの権限を読む試験を含む）/ `AT MediaCaptureInstrumentedTest`
-- [ ] 4.2 メディアの取得可否（`mediaCapability`。D6 の語彙）と、`SourceCadence` の 4 つ（6 時間・6 時間）と、`network` を載せる生存信号（D7）と、試行と成功の数え方（D22）。
+- [x] 4.2 メディアの取得可否（`mediaCapability`。D6 の語彙）と、`SourceCadence` の 4 つ（6 時間・6 時間）と、`network` を載せる生存信号（D7）と、試行と成功の数え方（D22）。
   C19 の各段の失敗を数え、その区間のすべての試行が同じ段で失敗したらその段の語を載せる。写真の位置の権限が無い間は読み手がファイルを開かない（Q15）。
   Scenario: `写真の位置の権限が無ければ写真を 1 件も読まない` / `写真の位置の権限が無いと生存信号は取れない状態になる` / `権限が戻ると待っていた間の写真も取る` /
   `選んだ写真だけの許可では選んだものを取り、取れない状態と報告する` / `圏外でも写真の生存信号は取れる状態のまま接続が無かったことが載る` / `接続があれば接続ありが載る` /
@@ -122,19 +124,19 @@
   `メディアの 4 つのソースがそれぞれ生存信号を送る` / `メディアの生存信号の試行は見直しと知らせの回数で数える`。
   `HeartbeatCountersTest` の `どのソースも生存信号の区間に取得契機が 1 回以上入る` が 4 つのメディアのソースも数えるようにする（`SourceCadence` の全部を回す形なら、足すだけで入ることを確かめる）。
   検証: `GT MediaCapabilityTest`（11 本以上）/ `GT HeartbeatCountersTest` / 既存の `GT CollectionSourceTest` と `GT SourceIndependenceTest` が緑のまま
-- [ ] 4.3 知らせ（D6。チャンネル `media-capture`・文言は design の表のとおり・押すとアプリの設定）。権限が戻ったら消す。「選んだ写真だけ」では出さない。
+- [x] 4.3 知らせ（D6。チャンネル `media-capture`・文言は design の表のとおり・押すとアプリの設定）。権限が戻ったら消す。「選んだ写真だけ」では出さない。
   Scenario: `写真の位置の権限が無いと端末で知らせる` / `選んだ写真だけの許可では通知を出さない`。
   検証: `GT MediaNoticeTest`（3 本以上。出る・消える・選んだ写真だけでは出ない）/ `AT MediaCaptureInstrumentedTest`（通知が出て、その `PendingIntent` がアプリの設定を指す）
 
 ## Task 5: 原本の送り待ちと送り手（design D8 / D9。`collector-android`）
 
-- [ ] 5.1 原本の送り待ちの台帳（`media/originals.jsonl`）: 画像の記録を積んだら `awaiting_record`、送信の結果で受理（重複を含む）と分かったら `ready`。
+- [x] 5.1 原本の送り待ちの台帳（`media/originals.jsonl`）: 画像の記録を積んだら `awaiting_record`、送信の結果で受理（重複を含む）と分かったら `ready`。
   `Retention` の対象にしない。記録が未送信の上限で破棄されたら行を消して欠け（`record_dropped`）を、恒久的に断られたら欠け（`record_rejected`）を積む
   （D8 / D11 の報告。Task 7 の受け口に送る）。原本の欠けの報告は生存信号・破棄の報告と同じく上限で捨てない側に置く（R6）。
   Scenario: `原本は未送信の置き場の大きさを増やさない` / `原本の送り待ちは 90 日を過ぎても捨てない` / `記録が未送信から破棄されると原本も欠けになる` /
   `恒久的に断られた記録の原本は欠けになる` / `原本の欠けの報告は上限を超えても捨てられない`。
   検証: `GT OriginalLedgerTest`（5 本以上。`RetentionPolicy.overrideForTest` で 90 日と 2 GB を縮めて確かめる）/ 既存の `GT RetentionTest` が緑のまま
-- [ ] 5.2 送り手（`OriginalUploader`）: 送る前の問い合わせ（`HEAD`。受け取り済みなら読まずに行を消す）・2 回読み（1 回目でハッシュを確かめ、2 回目で流して `PUT`）・順（新しいものを先、過去ぶんは保存の新しい順）・通信（過去ぶんは
+- [x] 5.2 送り手（`OriginalUploader`）: 送る前の問い合わせ（`HEAD`。受け取り済みなら読まずに行を消す）・2 回読み（1 回目でハッシュを確かめ、2 回目で流して `PUT`）・順（新しいものを先、過去ぶんは保存の新しい順）・通信（過去ぶんは
   `NET_CAPABILITY_NOT_METERED` のときだけ）・応答ごとの扱いと試し直しの間隔（D9）・動画は送らない。
   Scenario: `動画を撮るとメタだけが入り原本は送られない` / `原本は形式を変えずに送られる` / `送るときに中身が変わっていたら古い版のバイトとして送らない` /
   `新しく撮った写真の原本はモバイル通信でも送られる` / `過去ぶんの原本はモバイル通信では送られない` / `過去ぶんの原本は Wi-Fi になると送られる` /
@@ -142,18 +144,18 @@
   `受け取り済みの原本は送り直さない` / `大きすぎて受け取られない原本は欠けになる` / `保存から 24 時間たっていなければ過去ぶんにしない` /
   `撮影が古くても保存が新しい画像は新しいものとして送る` / `過去ぶんどうしは保存の新しいものから送られる`。
   検証: `GT OriginalUploaderTest`（14 本以上。偽の `Transport` に届いたバイトを端末のファイルと突き合わせる）
-- [ ] 5.3 端末のログ（D21）: 原本の送信の失敗で `Telemetry.line` に種別と件数だけが出る。
+- [x] 5.3 端末のログ（D21）: 原本の送信の失敗で `Telemetry.line` に種別と件数だけが出る。
   Scenario: `原本の送信の失敗がログに出てもファイル名と位置は出ない`（端末の側。S-01 の側は 6.3）。
   検証: `GT OriginalUploaderTest` / `tools/check-log-private.sh` rc=0
 
 ## Task 6: S-01 の原本の受け口と D-02（design D10 / D10a。`crates/server/src/media.rs`）
 
-- [ ] 6.1 置き場の設定（`ASHIATO_MEDIA_DIR` → `LOCALAPPDATA\ashiato\media` → `XDG_DATA_HOME/ashiato/media` → `HOME/.local/share/ashiato/media`。書き出しの `export_dir` と同じ並び）。
+- [x] 6.1 置き場の設定（`ASHIATO_MEDIA_DIR` → `LOCALAPPDATA\ashiato\media` → `XDG_DATA_HOME/ashiato/media` → `HOME/.local/share/ashiato/media`。書き出しの `export_dir` と同じ並び）。
   相対の場所なら起動しない。既定の置き場だけは起動時に作り、設定された置き場は作らない。起動時に `.incoming/` の `.part` を消す。
   Scenario: `置き場の設定が無ければ既定の置き場になる` / `置き場を設定で変えられる` / `相対の置き場では起動しない` /
   `設定した置き場が無ければ作らずに書けない失敗にする` / `起動すると書きかけの一時のファイルが消える`。
   検証: `CT st09_up_dir_`（`-- --list` で 5 本以上）
-- [ ] 6.2 `PUT /media/originals/{sha256}`（この経路だけ `DefaultBodyLimit` 1 GiB。超えたら `413`）と `HEAD /media/originals/{sha256}`: 流しながら `.incoming/<uuid>.part` に書いてハッシュを計算し、D10 の順で判定して
+- [x] 6.2 `PUT /media/originals/{sha256}`（この経路だけ `DefaultBodyLimit` 1 GiB。超えたら `413`）と `HEAD /media/originals/{sha256}`: 流しながら `.incoming/<uuid>.part` に書いてハッシュを計算し、D10 の順で判定して
   `fsync` → 名前を変える → `core.media_original` に 1 行。並びと名前（D10 / D10a）。資格情報は `/ingest` と同じ。
   Scenario: `ハッシュの合う原本は受け取られる` / `ハッシュの合わない原本は置かれない` / `記録より先に届いた原本は送り直せる失敗になる` / `動画の原本は受け取られない` /
   `同じ原本が 2 度届いても 1 つだけ置かれる` / `書いている途中で止まっても壊れたファイルは並びに残らない` / `D-02 に書けなければ送り直せる失敗になり、端末に送り待ちが残る` /
@@ -162,17 +164,17 @@
   `1 GiB を超える原本は送り直せない失敗になる` / `中身が変わった写真は新旧どちらの原本も D-02 に残る`。
   置き場はテストごとの一時ディレクトリ。「書けない」は置き場を消した状態で作る。「途中で止まる」は本文の流れを途中で切る。
   検証: `CT st09_up_put_`（`-- --list` で 15 本以上）/ `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
-- [ ] 6.3 S-01 のログ（D21）: 受け口の失敗で種別だけを出す。`tools/check-log-private.sh` の対象に `media.rs` を入れる。
+- [x] 6.3 S-01 のログ（D21）: 受け口の失敗で種別だけを出す。`tools/check-log-private.sh` の対象に `media.rs` を入れる。
   Scenario: `原本の送信の失敗がログに出てもファイル名と位置は出ない`（S-01 の側）。
   検証: `CT st09_up_log_`（1 本以上）/ `tools/check-log-private.sh` rc=0
 
 ## Task 7: 原本の欠けの受け口と量の読み出し（design D11 / D12）
 
-- [ ] 7.1 `POST /media/missing`（`/drops` と同じ形。1 件ごとの結果）と `core.media_missing`。冪等キーは `id`。破棄の報告と稼働状況の破棄の件数に載せない。
+- [x] 7.1 `POST /media/missing`（`/drops` と同じ形。1 件ごとの結果）と `core.media_missing`。冪等キーは `id`。破棄の報告と稼働状況の破棄の件数に載せない。
   Scenario: `送る前に端末から消えた写真の原本は欠けとして残る`（S-01 の側: 欠けが理由とハッシュつきで 1 件）/ `原本の欠けは破棄の報告に載らない` /
   `原本の欠けの報告を送り直しても 1 件のまま` / `資格情報の無い原本の欠けの報告は断られる`。
   検証: `CT st09_miss_`（`-- --list` で 4 本以上）
-- [ ] 7.2 `GET /media/summary`（D12）。記録の値を載せない。`docs/openapi.json` を `src/bin/openapi.rs` で再生成する（`PUT /media/originals/{sha256}`・`POST /media/missing`・
+- [x] 7.2 `GET /media/summary`（D12）。記録の値を載せない。`docs/openapi.json` を `src/bin/openapi.rs` で再生成する（`PUT /media/originals/{sha256}`・`POST /media/missing`・
   `/heartbeat` の `network` も入る）。
   Scenario: `記録の件数とバイトがソースごとに読める` / `置いた原本と待っている原本の件数が読める` / `原本の欠けが理由ごとに読める` / `量の読み出しに記録の値が出ない` /
   `書けなかった失敗は起動し直すまで読み出しに出る` / `資格情報の無い量の読み出しは断られる`。
@@ -180,17 +182,17 @@
 
 ## Task 8: 生存信号の接続の欄・収集開始日・状態の判定（design D7 / D13 / D14 / D24。`heartbeat.rs` / `coverage.rs`）
 
-- [ ] 8.1 `/heartbeat` の任意の `network` を受けて `core.heartbeat.network` に残す（無ければ `NULL`）。
+- [x] 8.1 `/heartbeat` の任意の `network` を受けて `core.heartbeat.network` に残す（無ければ `NULL`）。
   Scenario: `圏外の写真の生存信号は取れる状態のまま接続が無かったことが残る` / `接続の有無の欄を持たない生存信号も受け付ける`。
   検証: `CT st09_cov_net_`（`-- --list` で 2 本以上）/ 既存の `cargo test -p ashiato-server heartbeat` が緑のまま
-- [ ] 8.2 `touch_started_on` と収集開始日の引き直しが `started_on_basis = heartbeat` のソースで記録を数えないようにする（D13）。既存の Scenario
+- [x] 8.2 `touch_started_on` と収集開始日の引き直しが `started_on_basis = heartbeat` のソースで記録を数えないようにする（D13）。既存の Scenario
   `後から古い記録が届くと開始日が遡る` / `登録より前の時刻の記録は開始日を動かす` / `汚れた収集開始日は引き直せる` の印の先（`api_tests.rs` ほか）が
   メディアでないソースを使っていることを確かめる（使っていれば直す）。
   Scenario: `撮影日が 5 年前の写真が届いても写真の収集開始日は動かない` / `写真の収集開始日は最初の生存信号の日になる` /
   `生存信号の無い写真のソースは記録があっても開始していない` / `入れ直した後の生存信号では写真の収集開始日は後ろへ動かない` /
   `スクリーンショットと画像と動画の収集開始日も最初の生存信号の日になる`（`汚れた写真の収集開始日は移行で直る` は 1.1）。
   検証: `CT st09_cov_start_`（`-- --list` で 5 本以上）/ `CT started_on`（既存が緑のまま）
-- [ ] 8.3 状態の判定順の (1) の例外（D14）と、達成と途絶が変わらないこと。成功条件 1 の 5 ソースの写真が `c01-photo` だけであること（D24）。
+- [x] 8.3 状態の判定順の (1) の例外（D14）と、達成と途絶が変わらないこと。成功条件 1 の 5 ソースの写真が `c01-photo` だけであること（D24）。
   Scenario: `見始めた日より前の撮影日の写真がある日は記録ありになる` / `見始めた日より前で写真の無い日は導入前のまま` /
   `見始めた日より前の記録ありの日は達成の分母に入らない` / `成功条件 1 の写真はカメラの写真だけを数える` /
   `生存信号の無い写真のソースでも記録のある日は記録あり` / `消えた事実の記録がある日は記録ありになる` / `見始めた日より前の写真は途絶の判定に使われない`。
@@ -198,23 +200,23 @@
 
 ## Task 9: 書き出しの分類と、滞在を消したときの写真（design D16 / D18 / D23）
 
-- [ ] 9.1 `export/excluded.rs` の `SPAN_RULES` と `COORD_SOURCES` に 3 つを足し、`CATALOG` に 3 つの表（入れない）と `core.heartbeat.network`（出す）を足し、
+- [x] 9.1 `export/excluded.rs` の `SPAN_RULES` と `COORD_SOURCES` に 3 つを足し、`CATALOG` に 3 つの表（入れない）と `core.heartbeat.network`（出す）を足し、
   説明書の「入らないもの」に表の名前を挙げる。
   Scenario: `消した滞在の時間に撮った撮影位置つきのスクリーンショットと画像は書き出しに出ない` / `消した時間の前に撮り始め、長さで重なる動画は書き出しに出ない` /
   `消した時間の後に撮った写真は書き出しに出る` / `生存信号の接続の有無は書き出しに出る` / `原本の台帳と原本の欠けと文字抽出の表は書き出しに入らない` /
   `ST09 が足したソースと表と列はすべて分類されている` / `説明書の入らないものに原本の台帳と欠けと文字抽出が挙がる`。書き出しのテストの規律は ST33 の tasks のとおり（`EXPORT_SERIAL` を取る・`unique_day()` の日に置く・その利用者の行だけを見る）。
   検証: `CT st09_exp_`（`-- --list` で 7 本以上）/ `scripts/quiet-run ct -- cargo test -p ashiato-server export` rc=0（既存の `いまの記録の schema の表と列はすべて分類されている` を含む）
-- [ ] 9.2 滞在を消しても写真・動画・スクリーンショットの記録に印が付かず、D-02 の原本が残ることを固定する（`deletion.rs` は変えない）。
+- [x] 9.2 滞在を消しても写真・動画・スクリーンショットの記録に印が付かず、D-02 の原本が残ることを固定する（`deletion.rs` は変えない）。
   Scenario: `滞在を消しても撮影位置つきの写真は読み出しに出る` / `滞在を消しても動画とスクリーンショットの記録は読み出しに出る` / `滞在を消しても D-02 の原本は残る`。
   検証: `CT st09_del_`（`-- --list` で 3 本以上）/ `git diff --quiet origin/main -- crates/server/src/deletion.rs` rc=0
 
 ## Task 10: 契約・端から端・縦串（`docs/collector-contract.md` / `tools/smoke.d/`）
 
-- [ ] 10.1 `docs/collector-contract.md` に、C-01 の写真・画像・動画の `payload`（design D4 の表）・消えた事実・外部識別子・原本の受け口（D10 の応答の一覧）・
+- [x] 10.1 `docs/collector-contract.md` に、C-01 の写真・画像・動画の `payload`（design D4 の表）・消えた事実・外部識別子・原本の受け口（D10 の応答の一覧）・
   原本の欠け（D11）・生存信号の `network` とメディアの `blockers` の語彙（D6 / D7）を書く。取得可否の表（`capturable` / `blockers` の行）にメディアの例外を足す。
   検証: `grep -c "c01-video" docs/collector-contract.md` が 1 以上 / `grep -c "/media/originals" docs/collector-contract.md` が 1 以上 /
   `grep -c "media_location" docs/collector-contract.md` が 1 以上 / `python3 scripts/check_chain.py .` rc=0
-- [ ] 10.2 端から端: 計測テスト `MediaCaptureInstrumentedTest` が、エミュレータで写真を 1 枚と動画を 1 本 MediaStore に入れ、テストの中の HTTP の受け手（`MockWebServer`）に
+- [x] 10.2 端から端: 計測テスト `MediaCaptureInstrumentedTest` が、エミュレータで写真を 1 枚と動画を 1 本 MediaStore に入れ、テストの中の HTTP の受け手（`MockWebServer`）に
   （端末の中のテスト用の受け手。CI と同じく `-Pashiato.baseUrl=http://127.0.0.1:18787`）に、写真の記録・動画の記録・写真の原本の `PUT`（バイトが端末のファイルと一致）が届き、動画の原本の `PUT` が届かないことを確かめる。サーバの側は
   `tools/smoke.d/<作成時刻>_st09-media-capture.sh` が、本物のサーバに写真と動画の記録を `/ingest` で送り、写真の原本を `PUT` し、D-01 の行と D-02 のファイル（バイト一致）と、
   動画の原本の `PUT` が断られ D-02 に何も無いことを確かめる。
@@ -223,11 +225,11 @@
 
 ## Task 11: 仕上げ
 
-- [ ] 11.1 Scenario の印の突き合わせ・鎖・私的データの検査を通す。
+- [x] 11.1 Scenario の印の突き合わせ・鎖・私的データの検査を通す。
   検証: `python3 scripts/check_scenarios.py .` rc=0 / `python3 scripts/check_chain.py .` rc=0 / `tools/check-log-private.sh` rc=0 / `tools/check-private.sh` rc=0 /
   `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android detekt :app:assembleDebug :app:testDebugUnitTest` rc=0 /
   `scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0 / `openspec validate st09-media-capture --strict` rc=0
-- [ ] 11.2 `premises.md` の P1 / P3 / P12 / P13 の確かさを 2.2 / 2.3 の結果で書き直す（種類の割当て（design D19）は上流で `docs/handoff/ST38.md` に送り済み。変えない）。
+- [x] 11.2 `premises.md` の P1 / P3 / P12 / P13 の確かさを 2.2 / 2.3 の結果で書き直す（種類の割当て（design D19）は上流で `docs/handoff/ST38.md` に送り済み。変えない）。
   検証: `for s in c01-photo c01-screenshot c01-image c01-video; do grep -q "$s" docs/handoff/ST38.md || exit 1; done` rc=0 / `grep -cE "^\| P(1|3|12|13) .*\| [45] \|$" openspec/changes/st09-media-capture/premises.md` が 4
 
 ## 人間の確認待ち

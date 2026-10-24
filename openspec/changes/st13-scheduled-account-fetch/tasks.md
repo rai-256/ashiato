@@ -35,20 +35,20 @@
 
 ## Task 1: 登録簿に取り方・契機・取得の間隔を足す移行（design D1 / D2 / D3）
 
-- [ ] 1.1 移行 1 本で `core.source` に `acquisition` / `fetch_trigger` / `fetch_interval_sec` を足し、design D1 の名前付きの CHECK 制約 4 つ・D2 の `BEFORE INSERT` の trigger・D3 の既存の行の値（`WHERE acquisition IS NULL` の `UPDATE`）を入れ、最後に 2 列を `NOT NULL` にする。
+- [x] 1.1 移行 1 本で `core.source` に `acquisition` / `fetch_trigger` / `fetch_interval_sec` を足し、design D1 の名前付きの CHECK 制約 4 つ・D2 の `BEFORE INSERT` の trigger・D3 の既存の行の値（`WHERE acquisition IS NULL` の `UPDATE`）を入れ、最後に 2 列を `NOT NULL` にする。
   `c02-browser-history` の取得の間隔は `crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL` を写す。既存の行の `UPDATE` は D3 の表の後に、表に無い行を D2 の関数で埋める。`.down.sql` は trigger・関数・制約・列を落とす。`migrations/ORDER` の末尾へ 1 行。
   `worker::ensure_myactivity_source`・`testdb::source`・試験と道具の台本の `INSERT` は列を指定しないまま（D2 の trigger が入れる）。
   Scenario: `移行を当てると各ソースが取り方と契機を持つ` / `取り方の無いソースは登録簿に残らない` / `想定間隔より長い取得の間隔は断られる` / `想定間隔と同じ取得の間隔は受け付けられる` / `取り方を指定せずに足したソースは名前から取り方が入る` /
   `前置きの分からないソースはサーバの取り方で入る` / `取り方を足す前に別の移行が足した行にも取り方が入る` / `間隔ごとでない契機のソースに取得の間隔を持たせると断られる` / `製品ごとに増えるマイアクティビティのソースは書庫の取り方で入る` / `本人が変えた取得の間隔は移行を当て直しても戻らない`。
   検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0、`CT source_acquisition (≥10)`（新しい `source_acquisition_tests.rs`。Scenario 1 本に試験 1 本以上。断られる側は DB の制約違反のエラーと、値が元のままであることの両方を見る。
   「別の移行が足した行」は、この移行の前までを当てた DB に `c01-example` を足してからこの移行を当てる）、`scripts/quiet-run unit -- cargo test -p ashiato-server` rc=0（既存の全試験が trigger の後も通る）、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0
-- [ ] 1.2 登録簿の端末と PC の取得の間隔が収集側の定数と一致することを見る台本 `tools/check-source-intervals.sh` を置く（design D3 / D9）: Rust の定数（`crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL`）と Kotlin の定数（位置 60 秒・アプリ利用 30 分・時計 1 時間）を grep し、
+- [x] 1.2 登録簿の端末と PC の取得の間隔が収集側の定数と一致することを見る台本 `tools/check-source-intervals.sh` を置く（design D3 / D9）: Rust の定数（`crates/collector-windows/src/history/fetch.rs` の `HISTORY_INTERVAL`）と Kotlin の定数（位置 60 秒・アプリ利用 30 分・時計 1 時間）を grep し、
   Task 1.1 の移行の SQL の値と比べる（DB を要しない。サーバの crate は collector-windows に依存しないので `cargo test` では比べない。spec-review R19）。
   検証: `bash tools/check-source-intervals.sh` rc=0、定数の 1 つをわざと変えた木で rc≠0（手で 1 回確かめ、結果を PR の本文に書く）
 
 ## Task 2: 取り込み器の見回りの間隔を登録簿から読む（design D4）
 
-- [ ] 2.1 `archive/config.rs` から `scan_sec` を消し、`ASHIATO_ARCHIVE_SCAN_SEC` があれば `bail!`（文言に「登録簿の s01-archive-inbox の fetch_interval_sec」）。`worker::spawn_inspecting` は読む行の名前を引数に取り、走査の後の待ちを 1 秒ずつ刻んで登録簿の値を読む（design D4。読めなければ前の値で `warn`）。
+- [x] 2.1 `archive/config.rs` から `scan_sec` を消し、`ASHIATO_ARCHIVE_SCAN_SEC` があれば `bail!`（文言に「登録簿の s01-archive-inbox の fetch_interval_sec」）。`worker::spawn_inspecting` は読む行の名前を引数に取り、走査の後の待ちを 1 秒ずつ刻んで登録簿の値を読む（design D4。読めなければ前の値で `warn`）。
   `archive_tests.rs` / `archive_flow_tests.rs` の `scan_sec` は、自分専用の行（間隔 1 秒）を足して渡す補助に置き換える（`archive_flow_tests.rs:210` の 10 分の勘定も登録簿の値で）。`tools/smoke.sh:21` と `tools/record-env.sh:143` の `ASHIATO_ARCHIVE_SCAN_SEC=1` を、S-01 の起動後（移行の後）に `s01-archive-inbox` の取得の間隔を 1 秒にする行へその場で書き換える。
   `docs/archive-inbox.md` の環境変数の表から `ASHIATO_ARCHIVE_SCAN_SEC` を外し、登録簿の列で変えることを書く。
   Scenario: `見回りの間隔の初期値は 120 秒` / `登録簿で見回りの間隔を変えると起動し直さずに効く` / `300 秒を超える見回りの間隔は断られる` / `見回りの間隔の環境変数が残っていると起動を断る`。
@@ -57,7 +57,7 @@
 
 ## Task 3: 定期取得の枠（design D5 / D6）
 
-- [ ] 3.1 `crates/server/src/scheduled.rs` に `Fetcher` と本番の一覧 `fetchers()`（空）と、取る手を差し込める `spawn_with` を置き、`lib.rs` の起動で取り込み器の隣に握る（`ASHIATO_ARCHIVE_USER_ID` が無ければ起こさない）。
+- [x] 3.1 `crates/server/src/scheduled.rs` に `Fetcher` と本番の一覧 `fetchers()`（空）と、取る手を差し込める `spawn_with` を置き、`lib.rs` の起動で取り込み器の隣に握る（`ASHIATO_ARCHIVE_USER_ID` が無ければ起こさない）。
   論理ソースごとに task を 1 つ、起動の直後に 1 回 → 終わってから登録簿の間隔を読み直して `tokio::time::sleep` → 繰り返す。失敗と取る手の無い行は `warn!`（`kind` と論理ソースの名前だけ）。
   Scenario: `起動の直後に 1 回取りに行く` / `取得の間隔ごとに取りに行く` / `壁時計が戻っても取りに行く回数は変わらない` / `壁時計が進んでも取りに行く回数は変わらない` / `止まっていた間に契機を過ぎても起動の直後に 1 回だけ取りに行く` /
   `前回の取得が終わる前に次の契機が来ても重ねない` / `1 つのソースの失敗はほかのソースを止めない` / `取る手の無い定期取得のソースは取りに行かない` / `定期取得のソースが 0 本でも起動して失敗を出さない`。
@@ -67,39 +67,39 @@
 
 ## Task 4: 台帳の行と論理ソースごとの行を 1 トランザクションで書く（design D7。申し送り R25）
 
-- [ ] 4.1 `archive/worker.rs` の読み手で、読み終えた後の台帳の行（`read` と、読めなかった項目を持つ行）と `archive_ledger_source` の行を 1 つの `sqlx::Transaction` で書く。`store_requests` は変えない。
+- [x] 4.1 `archive/worker.rs` の読み手で、読み終えた後の台帳の行（`read` と、読めなかった項目を持つ行）と `archive_ledger_source` の行を 1 つの `sqlx::Transaction` で書く。`store_requests` は変えない。
   `testdb.rs` に、指定した `sha256` の `archive_ledger_source` への `INSERT` で例外を投げる試験用の trigger を作る補助を足す（本番のコードに分岐を置かない）。
   Scenario: `論理ソースごとの行を書けなかった書庫は読み終えた行も残らない` / `台帳を書けなかった書庫は次の走査で読み直されて最終日が出る`。
   検証: `CT archive_ledger_atomic (≥2)`（2 本目は trigger を外して次の走査を回し、最終日が出ることと、視聴履歴の件数が 1 回だけ読んだ DB と同じことを見る）、`CT archive_ (≥1)`
 
 ## Task 5: 置き場を別々に読み、専用のフォルダを作り、I/O の失敗を別の種別にする（design D8。申し送り R34 / M8）
 
-- [ ] 5.1 `archive/scan.rs` の `scan_once_with_hasher` を、2 つの置き場を別々に読み、読めない置き場を返す形にし、`spawn_inspecting` は読めた置き場の候補を読み手へ送り、読めない置き場を生存信号の `blockers` に積む（成功回数の定義は変えない）。
+- [x] 5.1 `archive/scan.rs` の `scan_once_with_hasher` を、2 つの置き場を別々に読み、読めない置き場を返す形にし、`spawn_inspecting` は読めた置き場の候補を読み手へ送り、読めない置き場を生存信号の `blockers` に積む（成功回数の定義は変えない）。
   起動時に専用のフォルダが無ければ作る（ダウンロードのフォルダは作らない）。`archive/open.rs` の I/O の失敗を `file_unreadable` にし、台帳の理由の種別の CHECK に値があれば Task 1 の移行に足す。`web/src/messages.ts` に文言（design D8）を足す。
   既存の試験 `archive_flow_names_only_the_unreadable_inbox`（`archive_flow_tests.rs:1431`）を、起動の**後**に専用のフォルダを消す形に直す（正典の Scenario「置き場が読めない日は取れない状態で残る」の WHEN を直した。spec-review R4）。
   Scenario: `専用のフォルダが読めなくてもダウンロードのフォルダの書庫は読まれる` / `片方の置き場が読めない走査は成功に数えない` / `専用のフォルダが無ければ起動時に作られる` / `ダウンロードのフォルダは作られない` /
   `読み出せないファイルは形の対応と別の種別で台帳に残る` / `置き場が読めない日は取れない状態で残る`（既存の印。試験を直す）。
   検証: `CT archive_inbox_independent (≥5)`（読み出せないファイルは、見つけた後に権限を落とす（Unix の `chmod 000`）材料で作る）、`CT archive_flow_names_only_the_unreadable_inbox (≥1)`、`CT archive_ (≥1)`、`cd web && npx vitest run` rc=0
-- [ ] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/coverage-sources.spec.ts` に 1 本足す。
+- [x] 5.2 稼働状況の「直近に置いた書庫」に `file_unreadable` の文言が出ることを e2e で見る。`tools/seed.d/<時刻>_st13-sources.sh`（Task 9.2 と同じ新しいファイル）に `file_unreadable` の台帳の行を足し、`web/e2e/coverage-sources.spec.ts` に 1 本足す。
   Scenario: `読み出せなかったファイルは稼働状況に形の問題と別の文字で出る`。
   検証: `cd web && npm run test:e2e -- coverage-sources` rc=0（箱の文字に「読み出せません」を含み、「形」の対応の文言を含まない）
 
 ## Task 6: 読み終えた・中身の変わった書庫の失敗の回数を戻す（design D8。申し送り M7）
 
-- [ ] 6.1 読み手が台帳に `read` を書けたら、その `path` の `archive_sighting` の `consecutive_failures` と `retry_after` を戻す。`scan.rs` は同じ `path` の `sha256` が前回と違えば同じ 2 列を戻してから候補にする。
+- [x] 6.1 読み手が台帳に `read` を書けたら、その `path` の `archive_sighting` の `consecutive_failures` と `retry_after` を戻す。`scan.rs` は同じ `path` の `sha256` が前回と違えば同じ 2 列を戻してから候補にする。
   Scenario: `中断が続いた書庫を読み終えると回数が戻る` / `同じ場所に中身の違う書庫を置き直すと待たされない`。
   検証: `CT archive_failure_reset (≥2)`（中断は Task 4 の試験用の trigger か、ST12 の既存の失敗の差し込みで起こす）、`CT archive_ (≥1)`
 
 ## Task 7: Google 系の手作業の範囲を縦串で固定する（spec「Google 系の手作業は…」。design D13）
 
-- [ ] 7.1 `archive_flow_tests.rs` の流れで 3 本の Scenario を試験にし、`tools/smoke.d/<時刻>_st13-archive-hands-off.sh`（新しいファイル）に、専用のフォルダの無い状態で S-01 を起動 → 作られたフォルダに `Timeline.json` を置く → ダウンロードのフォルダに合成の `takeout-*.zip` を落とす → 印を置いた形の 2 冊目を置く、を本物の S-01 で通す縦串を置く。
+- [x] 7.1 `archive_flow_tests.rs` の流れで 3 本の Scenario を試験にし、`tools/smoke.d/<時刻>_st13-archive-hands-off.sh`（新しいファイル）に、専用のフォルダの無い状態で S-01 を起動 → 作られたフォルダに `Timeline.json` を置く → ダウンロードのフォルダに合成の `takeout-*.zip` を落とす → 印を置いた形の 2 冊目を置く、を本物の S-01 で通す縦串を置く。
   `docs/archive-inbox.md` に 2 か月ごとの手作業の一覧（Takeout の書き出しとダウンロード・タイムラインの書き出しと運搬・年 1 回の予約のかけ直し・確認待ちが出たときだけ `tools/archive-shape.sh` で印）を書く。
   Scenario: `Takeout をダウンロードのフォルダに落とすだけで入る` / `同じ形の 2 回目の書庫は印を求めずに入る` / `専用のフォルダを作らずに端末のタイムラインが入る`。
   検証: `CT archive_hands_off (≥3)`、`scripts/quiet-run smoke -- tools/smoke.sh` rc=0（新しいファイルの `echo "== Scenario: …"` が 3 本出る）、`bash tools/check-shared-appends.sh` rc=0
 
 ## Task 8: ソースの取り方と間隔の読み出しの口 `GET /sources`（design D10 / D11）
 
-- [ ] 8.1 `lib.rs` に `GET /sources`（ほかの読み出しと同じ認証）を足し、design D10 の応答（登録簿の全行。いちばん新しい記録の時刻は返さない）を返す。通知までの残り日数と最後の書庫は `outage_store.rs` の最後の書庫の導き方を関数に切り出して共有する（2 つ目の計算を書かない）。
+- [x] 8.1 `lib.rs` に `GET /sources`（ほかの読み出しと同じ認証）を足し、design D10 の応答（登録簿の全行。いちばん新しい記録の時刻は返さない）を返す。通知までの残り日数と最後の書庫は `outage_store.rs` の最後の書庫の導き方を関数に切り出して共有する（2 つ目の計算を書かない）。
   `device_notice` は利用者の `c01-location` の最新の生存信号の原文の `unused_app_restrictions`。`src/bin/openapi.rs` に載せる。`/coverage` の形は変えない。
   Scenario（API の側。画面の側は Task 9）: `書庫のソースは手作業と起点つきの通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` / `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` /
   `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `退役したソースは通知までの残り日数を出さない` /
@@ -109,11 +109,11 @@
 
 ## Task 9: 稼働状況の格子の見出しに取り方と間隔を添える・e2e（design D10 / D11 / D18 / D19。spec「稼働状況の各ソースの格子の見出しの行に…」）
 
-- [ ] 9.1 `web/src/sources.ts`（型・取得・間隔と契機の文言 D11・書庫の残り日数の文言 D10）を作り、稼働状況の画面が `/coverage` と並べて `/sources` を読み、`CoverageGrid.tsx` の見出しの `h2` に `<span data-testid="source-note-<logical_source>">` を 1 つ足す（`archiveNote` と同じ字の大きさ・色。入力とボタンを置かない）。
+- [x] 9.1 `web/src/sources.ts`（型・取得・間隔と契機の文言 D11・書庫の残り日数の文言 D10）を作り、稼働状況の画面が `/coverage` と並べて `/sources` を読み、`CoverageGrid.tsx` の見出しの `h2` に `<span data-testid="source-note-<logical_source>">` を 1 つ足す（`archiveNote` と同じ字の大きさ・色。入力とボタンを置かない）。
   `c01-location` で `device_notice.unused_app_restrictions` が `not_exempt` なら、同じ `span` の間隔の代わりに短い一時停止の知らせを出す（D10 の表）。退役した格子には `span` を出さない。`/sources` を読めない・行の無いソースは `span` を出さない。格子を持たないソースは出さない（D18（仮））。`SettingsView.tsx` には触らない。文言は `messages.ts` の `grid`。
   検証: `cd web && npx vitest run` rc=0（`web/src/__tests__/sources.test.ts`: D11 の間隔の文言の境目 59 → 「59 秒ごと」・60 → 「60 秒ごと」・90 → 「90 秒ごと」・120 → 「2 分ごと」・1800 → 「30 分ごと」・3600 → 「1 時間ごと」・86400 → 「24 時間ごと」、契機の文言、
   書庫の文言（あと 22 日・過ぎた・まだ書庫が無い・退役は残り日数なし）。既存の `one-scroll.test.tsx` も緑のまま）、`cd web && npx tsc --noEmit` rc=0
-- [ ] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・退役した移行前のロケーション履歴・
+- [x] 9.2 `tools/seed.d/<時刻>_st13-sources.sh`（新しいファイル）に、視聴履歴を運んだ最後の書庫が 53 日前・別の書庫のソースが 80 日前・74 日 23 時間前・75 日 1 時間前の書庫のソース・書庫も記録も無い Chrome の履歴・退役した移行前のロケーション履歴・
   `c01-location` の生存信号の原文に `"unused_app_restrictions":"not_exempt"`（と、外れている状態に切り替える版）を入れる偽データを置き、`web/e2e/coverage-sources.spec.ts`（新しいファイル）で 16 本の Scenario を本物の Chromium で確かめる。
   Scenario: `間隔ごとのソースは格子の見出しに取得の間隔が出る` / `変わったときに取るソースは格子の見出しに契機が出る` / `書庫のソースは手作業と起点つきの通知までの残り日数が出る` / `通知の日を過ぎた書庫のソースはそのことが出る` /
   `通知が鳴る 1 時間前の書庫のソースは残り 1 日と出る` / `通知が鳴った 1 時間後の書庫のソースは過ぎたと出る` / `書庫も記録も無い書庫のソースはまだ書庫が無いと出る` / `退役したソースは通知までの残り日数を出さない` /
@@ -128,7 +128,7 @@
 
 ## Task 10: 携帯の収集アプリが休止の対象から外れるよう頼む（design D12。spec `device-collection`）
 
-- [ ] 10.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt`（新しいファイル）に、`PackageManagerCompat.getUnusedAppRestrictionsStatus` の結果を 4 つの状態に写す関数と、自動で頼んだかの印（`SharedPreferences`）を置く。
+- [x] 10.1 `collector-android/app/src/main/kotlin/dev/ashiato/collector/UnusedAppRestrictions.kt`（新しいファイル）に、`PackageManagerCompat.getUnusedAppRestrictionsStatus` の結果を 4 つの状態に写す関数と、自動で頼んだかの印（`SharedPreferences`）を置く。
   `MainActivity.kt` の初回の流れ（ST09 の権限の要求の後）で、`not_exempt` かつ印が無ければ説明のダイアログ → 応じたら `IntentCompat.createManageUnusedAppRestrictionsIntent` を開き、印を立てる。`not_exempt` の間は画面に 1 行と「設定を開く」のボタン（24 dp 以上）。
   `unknown` のときは頼まず、画面に「除外の状態を読めなかった」の 1 行。`Heartbeat.kt` の `c01-location` の原文に `unused_app_restrictions` を載せる（`capturable` と `blockers` は変えない）。
   `docs/collector-contract.md` の生存信号の「送る形」と「守ること」に `unused_app_restrictions`（4 つの値・`c01-location` だけ・S-01 は稼働状況の知らせのために読むだけ）を足す（design D12）。

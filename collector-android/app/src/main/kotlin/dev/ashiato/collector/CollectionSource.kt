@@ -15,6 +15,9 @@ const val APP_USAGE_LOGICAL_SOURCE: String = "c01-app-usage"
  */
 const val APP_USAGE_ROLLUP_LOGICAL_SOURCE: String = "c01-app-usage-rollup"
 
+/** メディア 4 本の取得契機の間隔（design D22 / 6 時間）。**生存信号の区間と同じ**。読み手の 6 時間の見直しの間隔でもある */
+const val MEDIA_INTERVAL_MS: Long = 6 * 60 * 60 * 1000L
+
 /** アプリ利用の取得間隔（design D5 / 30 分）。 */
 const val USAGE_INTERVAL_MS: Long = 30 * 60 * 1000L
 
@@ -49,6 +52,10 @@ enum class SourceCadence(
     LOCATION(LOGICAL_SOURCE, FIX_INTERVAL_MS),
     APP_USAGE(APP_USAGE_LOGICAL_SOURCE, USAGE_INTERVAL_MS),
     APP_USAGE_ROLLUP(APP_USAGE_ROLLUP_LOGICAL_SOURCE, ROLLUP_INTERVAL_MS),
+    PHOTO(MEDIA_PHOTO_SOURCE, MEDIA_INTERVAL_MS),
+    SCREENSHOT(MEDIA_SCREENSHOT_SOURCE, MEDIA_INTERVAL_MS),
+    IMAGE(MEDIA_IMAGE_SOURCE, MEDIA_INTERVAL_MS),
+    VIDEO(MEDIA_VIDEO_SOURCE, MEDIA_INTERVAL_MS),
     ;
 
     init {

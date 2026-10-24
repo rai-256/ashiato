@@ -81,6 +81,15 @@ describe("直近に置いた書庫の箱", () => {
     expect(text).toContain("書庫が壊れている");
   });
 
+  it("ファイルを読み出せなかった書庫を、形の問題とは別の文字で出す", () => {
+    const text = box({
+      latest_archive: latest({ outcome: "unreadable", unreadable_kind: "file_unreadable" }),
+    });
+    expect(text).toContain("ファイルを読み出せませんでした");
+    expect(text).toContain("権限を確かめてください");
+    expect(text).not.toContain("扱えない形式");
+  });
+
   it("格納に失敗していることを文字で出す", () => {
     const text = box({ latest_archive: latest({ outcome: "store_failed" }) });
     expect(text).toContain("格納に失敗しています");

@@ -122,7 +122,29 @@ open class TestableLocationService(permissionDenied: Boolean = false) : Location
     override fun newSourceScheduler(logicalSource: String): FlushScheduler =
         sourceSchedulers.getOrPut(logicalSource) { FakeScheduler() }
     override fun readCapability(source: CollectionSource): Capability =
-        capabilities[source.logicalSource] ?: allowed
+        capabilities[source.logicalSource]
+            ?: if (realMediaCapability && source is MediaSourceAdapter) source.capability(this) else allowed
+
+    /**
+     * 写真と動画の一覧・ファイル・刻み・権限（ST09）。**既定は権限がそろった端末で、刻みは進めない**
+     * （既存の試験が写真の読み手に触れない）。`create()` の前に差し替える。
+     */
+    val mediaListing = FakeMediaListing()
+    val mediaFiles = FakeMediaFiles(mediaListing)
+    val mediaTimer = VirtualTimer()
+    var mediaPermissions = MediaPermissionState(MediaAccess.FULL, location = true)
+
+    /** メディアの取得可否を本番の読み方（権限 + 区間の失敗の段）で決める。既定は「取れる」で固定 */
+    var realMediaCapability = false
+
+    override fun newMediaListing(): MediaListing = mediaListing
+    override fun newMediaFiles(): MediaFileReader = mediaFiles
+    override fun newMediaTimer(): MediaScanTimer = mediaTimer
+    override fun readMediaPermissions(): MediaPermissionState = mediaPermissions
+
+    /** 休止の除外の状態（ST13）。既定は外れている（既存の試験の前提を変えない）。 */
+    var unusedAppRestrictions: UnusedAppRestrictionsState = UnusedAppRestrictionsState.EXEMPT
+    override fun readUnusedAppRestrictions(): UnusedAppRestrictionsState = unusedAppRestrictions
 
     /** 受け口ごとに送った本文を覚える偽物（ST04）。既定はすべて受け付ける。 */
     val posted = mutableListOf<Pair<String, String>>()

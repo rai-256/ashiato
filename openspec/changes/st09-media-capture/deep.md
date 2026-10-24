@@ -215,6 +215,34 @@ Q17 [写真を 1 件消す口が、まだどの Story にも無い（Q16 の前�
   それまで、写真の記録は ashiato の中で消せない。外へは出さない —— 書き出し（NFR-16）・衛星と AI への読み出しは、消した滞在の時間に入る撮影位置を渡さない（FR-50 の★ 2026-10-17 補足。整合の確認 C2）
 - ST09 の spec は、FR-50 の例外（写真・動画は「その時間の位置の記録」に含めない）と、消した滞在の時間の撮影位置を書き出し・衛星・AI に出さないことを Scenario にする
 
+## 問うた項目（第 3 回。finish から。2026-10-21）
+
+| Q | 段 | 論点 | 失われるもの |
+|---|---|---|---|
+| Q18 | A（premise） | 計測テスト（AT）の本数の数え方が常に 0 本になる（`review/code.md` R14） | —（検証の門の前提） |
+
+### Q18. 計測テスト（AT）の本数の数え方が常に 0 本になる（A / premise。推奨: `classname=` で数える定義に直す）
+
+- **なぜ人間の判断か**: 凍結した `tasks.md` の前置き（Global Constraints）の「`AT <クラス>`」は、結果の XML をファイル名（`TEST-*<クラス>*.xml`）で探す。
+  本物の結果のファイル名は `TEST-ashiato-api35(AVD) - 15-_app-.xml` でクラス名を含まず、常に 0 本になる。前置きの定義は項目の検証コマンドではないので
+  機械の訂正（`plan_fix.py`）の対象外で、検証の門を変えるので本人に戻す
+- **出所**: final review `review/code.md` R14（kind: premise）。code-verify も同じ数え直し（`classname=`）で 1 段目 2 本・3 段目 3 本・失敗 0 を確かめた
+- **問い**: `deep-questions-r3.json`（HTML は `docs/briefs/ST09-deep-r3.html`）
+- **本人の答え**: XML の中の `<testcase classname="…<クラス>">` を数える定義に直す。2 段目の XML が上書きされる件は段ごとに名前を分けて残す（本人の選択。推奨と同じ。補足なし）
+- **効く先**: `tasks.md` の Global Constraints の `AT` の定義 / `tools/android-emulator.sh` の結果の置き場（2 段目の XML が 3 段目に上書きされる）
+
+## 本人の答え（第 3 回。2026-10-21。`deep-answers-3.txt` の逐語）
+
+```
+Q18 [計測テスト（AT）の本数の数え方が常に 0 本になる（tasks の取り決めの前提）] -> XML の中の <testcase classname="…<クラス>"> を数える定義に直す。2 段目の XML が上書きされる件は段ごとに名前を分けて残す
+```
+
+読み方:
+
+- `tasks.md` の Global Constraints の「`AT <クラス>`」は、結果の XML をファイル名で探すのではなく、XML の中の `<testcase classname="…<クラス>">` の数を本数とする定義に直す（R2 の確かめ・code-verify と同じ数え方）
+- `tools/android-emulator.sh` は、段ごとに結果の XML を別の名前（か置き場）に残し、2 段目（`PermissionDeniedInstrumentedTest`）の本数も数えられるようにする
+- 直しはこの Story の中で行う（推奨の detail どおり）。要件・Story・capability には効かない（検証の門の定義だけ）
+
 ## 要件へ戻すもの（整合の確認 2026-10-17 の処置）
 
 整合の確認 `docs/audit/2026-10-17-st09-consistency.md` の 16 件に行き先を付けた（requirements 9 / handoff 3 / stories 1 / ask 1 / leave 4。重なりあり）。要件の直しは、どれも最も新しい ★ がこの監査を名指す:

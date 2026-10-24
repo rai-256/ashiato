@@ -18,8 +18,10 @@ export ASHIATO_ARCHIVE_USER_ID="$ARCHIVE_USER"
 export ASHIATO_INBOX_DIR="$ARCHIVE_ROOT/inbox"
 export ASHIATO_DOWNLOADS_DIR="$ARCHIVE_ROOT/downloads"
 export ASHIATO_ARCHIVE_COPY_DIR="$ARCHIVE_ROOT/copies"
-export ASHIATO_ARCHIVE_SCAN_SEC=1
 mkdir -p "$ASHIATO_INBOX_DIR" "$ASHIATO_DOWNLOADS_DIR" "$ASHIATO_ARCHIVE_COPY_DIR"
+# 写真の原本の置き場（D-02。ST09）。設定された置き場は作られないので、サーバを起動する前に作る
+export ASHIATO_MEDIA_DIR="$ARCHIVE_ROOT/media"
+mkdir -p "$ASHIATO_MEDIA_DIR"
 AUTH=(-H "authorization: Bearer $API_TOKEN")
 
 # `archive-shape.sh` は差し替えずに呼ぶ —— 手元に `psql` が無ければ道具自身が開発用コンテナの
@@ -47,6 +49,10 @@ MIGRATE_BACKUP=off ./target/debug/ashiato-server migrate   # 縦串の DB は毎
 env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server & SRV=$!
 for _ in $(seq 1 60); do curl -sf "http://$BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$BIND/healthz" >/dev/null
+# 書庫の取り込み器の見回りの間隔を 1 秒にする（登録簿の値。環境変数では設定できない。ST13 / design D4）。
+# 取り込み器は 1 秒ごとに登録簿を読むので、この後の待ちは長くて 1 秒
+docker compose exec -T db psql -q -U ashiato -d ashiato -c \
+  "UPDATE core.source SET fetch_interval_sec = 1 WHERE logical_source = 's01-archive-inbox';"
 
 echo "== 2b. Scenario: サーバの実行時の環境に所有者と管理者の合言葉が無い"
 env_dump="$(tr '\0' '\n' < "/proc/$SRV/environ")"

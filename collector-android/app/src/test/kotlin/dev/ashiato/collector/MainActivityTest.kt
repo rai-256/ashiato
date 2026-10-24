@@ -30,8 +30,13 @@ import org.robolectric.shadows.ShadowLog
  *
  * いまは**結果コードを見ない**。テストも権限の実状態だけを動かす。
  */
+/** 休止の対象から外れている端末の入口（ST13。Robolectric の既定は「外れていない」で、閉じる流れが変わるため）。 */
+open class ExemptMainActivity : MainActivity() {
+    override fun unusedAppRestrictionsReader() = UnusedAppRestrictionsReader { UnusedAppRestrictionsState.EXEMPT }
+}
+
 /** 権限を求めた回数を数えるだけの入口（本番の経路は 1 つも変えない）。 */
-class CountingMainActivity : MainActivity() {
+class CountingMainActivity : ExemptMainActivity() {
     val requested = mutableListOf<String>()
 
     override fun requestPermission(permission: String) {
@@ -47,8 +52,15 @@ class MainActivityTest {
     private fun grant(vararg permissions: String) = shadowOf(app).grantPermissions(*permissions)
     private fun deny(vararg permissions: String) = shadowOf(app).denyPermissions(*permissions)
 
-    private fun launch(): ActivityController<MainActivity> =
-        Robolectric.buildActivity(MainActivity::class.java).create().resume()
+    /**
+     * 写真と動画の権限は**この試験の関心の外**（求め方は `MediaPermissionTest`）。許可済みの端末から始め、
+     * 位置・通知・利用状況の流れが写真の権限の応答待ちで止まらないようにする（design D6）。
+     */
+    @org.junit.Before
+    fun grantMediaPermissions() = grant(*mediaPermissionsToAsk(android.os.Build.VERSION.SDK_INT).toTypedArray())
+
+    private fun launch(): ActivityController<out MainActivity> =
+        Robolectric.buildActivity(ExemptMainActivity::class.java).create().resume()
 
     /** OS が結果を返す（**中身は問わない** —— 実装は実状態しか見ない）。 */
     private fun systemAnswers(controller: ActivityController<out MainActivity>, permission: String) {
@@ -338,7 +350,7 @@ class MainActivityTest {
         shadowOf(app).clearNextStartedActivities()
 
         // **プロセスごと作り直しても印は残る**（端末の保存領域に置いてある）
-        Robolectric.buildActivity(MainActivity::class.java).create().resume()
+        Robolectric.buildActivity(ExemptMainActivity::class.java).create().resume()
 
         assertNull("2 度目の起動で自動で送られている", startedSettings())
     }

@@ -308,13 +308,24 @@ where
     // 「登録より前なので外した」（異常）は呼び出し側から区別できない。
     // 黙ると、時計の狂った端末が 1 台あることに誰も気付けない ——
     // **1 往復のまま**判定できるので、更新と同じ文で聞く。
-    let gate = match arrival {
+    //
+    // **印が `heartbeat` のソース（メディア）は、記録では動かさない**（ST09 / design D13）。
+    // 写真の記録の出来事の時刻は撮影日で何年も前になりうるので、記録から引くと窓が撮影日まで遡る。
+    // 生存信号の登録日の門はそのまま。
+    let (gate, below) = match arrival {
         // 記録に閾値は掛からない（第 9 回 Q32）
-        Arrival::Record => "true".to_string(),
-        Arrival::Heartbeat => format!(
-            "($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date",
-            tz = DAY_TZ
+        Arrival::Record => (
+            "started_on_basis <> 'heartbeat'".to_string(),
+            "false".to_string(),
         ),
+        Arrival::Heartbeat => {
+            let g = format!(
+                "($2 AT TIME ZONE '{tz}')::date >= (registered_at AT TIME ZONE '{tz}')::date",
+                tz = DAY_TZ
+            );
+            let b = format!("NOT ({g})");
+            (g, b)
+        }
     };
     let sql = format!(
         "WITH u AS (
@@ -328,10 +339,11 @@ where
             RETURNING 1
          )
          SELECT (SELECT count(*) FROM u) > 0 AS moved,
-                NOT ({gate}) AS below
+                {below} AS below
            FROM core.source WHERE logical_source = $1",
         tz = DAY_TZ,
-        gate = gate
+        gate = gate,
+        below = below
     );
     let got: Option<(bool, bool)> = sqlx::query_as(&sql)
         .bind(logical_source)
@@ -1135,6 +1147,21 @@ fn decide(
     }
 }
 
+/// 判定順の (1) の例外（ST09 / design D14）。
+///
+/// 収集開始日を生存信号だけで決めるソース（メディア）は、撮影日が見始めた日より前の記録を持つ。
+/// その日に観測の記録が 1 件以上あれば ① を返し、無ければ ⑦ のまま。
+/// 「導入前」と呼ぶと、撮った日を撮っていない日に見せてしまう。
+/// **格子と状態の読み出しだけ**で、達成（NFR-13）と途絶（FR-80）は収集開始日から数えるので変えない。
+/// `decide` が ⑦ を返すのは (1) だけなので、⑦ のときだけ見れば (1) の中で決めたのと同じになる。
+fn with_pre_start_records(state: DayState, facts: &DayFacts, by_heartbeat: bool) -> DayState {
+    if state == DayState::BeforeStart && by_heartbeat && facts.event_count > 0 {
+        DayState::Recorded
+    } else {
+        state
+    }
+}
+
 /// ソース 1 本の稼働状況を引く。
 pub async fn of_source(
     pool: &sqlx::PgPool,
@@ -1147,6 +1174,13 @@ pub async fn of_source(
     // **鎖の全部の名前で引く**（第 8 回 Q31 / review/code-r2.md の R1）——
     // 引き継ぎ元の時代の記録もこのソースの稼働状況の一部。
     let facts = facts(pool, user, &src.chain, from, to).await?;
+    let by_heartbeat: bool = sqlx::query_scalar(
+        "SELECT coalesce(bool_or(started_on_basis = 'heartbeat'), false)
+           FROM core.source WHERE logical_source = ANY($1)",
+    )
+    .bind(&src.chain)
+    .fetch_one(pool)
+    .await?;
     let active = active_days(pool, user, &src.chain, from, to, gap_days).await?;
     let mut by_day = intervals(pool, user, &src.chain, from, to).await?;
     let mut drops = dropped_by_day(pool, user, &src.chain, from, to).await?;
@@ -1154,12 +1188,16 @@ pub async fn of_source(
         .iter()
         .map(|f| DayCell {
             day: f.day,
-            state: decide(
+            state: with_pre_start_records(
+                decide(
+                    f,
+                    src.collection_started_on,
+                    src.retired_on,
+                    gap_days,
+                    &active,
+                ),
                 f,
-                src.collection_started_on,
-                src.retired_on,
-                gap_days,
-                &active,
+                by_heartbeat,
             ),
             event_count: f.event_count,
             attempts: f.attempts,

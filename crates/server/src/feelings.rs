@@ -245,7 +245,10 @@ pub async fn is_resend(
 }
 
 /// 紐づけ先の DB を見る検査（design D5。順は 登録簿 → 滞在 → 区間の重なり → 出来事の時刻）。
-/// 当たれば `Some(FeelingInvalid::Target)`。**削除の印は見ない**（消した滞在・吸収された滞在も通す）。
+/// 当たれば `Some(FeelingInvalid::Target)`。**削除の印は見ない**（削除の印の付いた滞在・吸収された滞在は通す）。
+/// 本文に終わりを持たない（読めない）滞在は、読み方（ST16 の `span_of`）と同じく始まりの一点とみなす。
+/// 記録の区間が始まりを含めば通し、始まりより後から始まる記録は断る（ch01-st17-review-fixes D9。
+/// 製品に滞在の本文を消す経路はまだ無い。消した滞在への付け方は ST23 が決める —— `docs/handoff/ST23.md`）。
 /// 暦と形は `parse_feeling` が済ませてある。
 pub async fn target_state_error(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -621,6 +624,10 @@ pub async fn load_response(
     .bind(hi)
     .fetch_all(pool)
     .await?;
+    // 始まりの日。既存の索引 `event_by_source_time (logical_source, event_time)`（移行 202609112113）に乗り、
+    // 利用者では絞らないが先頭の 1 行を読むだけで済む。合成データ（位置 100 万行・主観 500 行）で 4 ページ・0.079 ms
+    // （premises.md 前提 9）。利用者が複数になり他人の主観が古い場合に読みが増えると実測で分かったら、
+    // 利用者の列を先頭に持つ索引を足す（ch01-st17-review-fixes D10）。
     let first: Option<DateTime<Utc>> = sqlx::query_scalar(
         "SELECT min(event_time) FROM core.event_live
           WHERE user_id = $1 AND logical_source = $2 AND raw <> ''",

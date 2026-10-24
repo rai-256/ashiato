@@ -9,7 +9,7 @@ use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub mod archive;
 #[cfg(test)]
 mod archive_flow_tests;
 #[cfg(test)]
+mod archive_scan_interval_tests;
+#[cfg(test)]
 mod archive_tests;
 /// 個人属性の主張の解釈と「いまの値」の導き方（ST19 / FR-44 / FR-45）。DB に触らない。
 pub mod attributes;
@@ -40,6 +42,9 @@ pub mod attributes_store;
 /// 主張の格納・読み出し・錠を、本物の DB で見る（ST19）。
 #[cfg(test)]
 mod attributes_tests;
+/// 取り込みの「人が書いた記録」の規則の拒み方（CH01 / Task 4）。
+#[cfg(test)]
+mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
 pub mod coverage;
@@ -77,6 +82,9 @@ mod export_job_tests;
 mod export_ledger_tests;
 #[cfg(test)]
 mod export_tests;
+/// 書き出しの「次の記録」の引きを窓関数にする change（CH02）。まっさらな DB で新旧を突き合わせる。
+#[cfg(test)]
+mod export_window_tests;
 pub mod feelings;
 /// 主観の記録の取り込み口（ST17 / Task 2）。
 #[cfg(test)]
@@ -95,6 +103,26 @@ mod feelings_remind_tests;
 mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
+pub mod media;
+#[cfg(test)]
+mod media_coverage_tests;
+/// 写真と動画の書き出しの分類と、滞在を消したときの写真（ST09 tasks 9 / design D16 / D18 / D23）。
+#[cfg(test)]
+mod media_export_tests;
+/// 写真と動画の見分け（ST09 tasks 3.2）。
+#[cfg(test)]
+mod media_ident_tests;
+/// 写真と動画の移行（ST09 / design D7 / D13 / D15 / D17）。
+#[cfg(test)]
+mod media_migration_tests;
+pub mod media_missing;
+#[cfg(test)]
+mod media_missing_tests;
+pub mod media_summary;
+#[cfg(test)]
+mod media_summary_tests;
+#[cfg(test)]
+mod media_tests;
 pub mod migrate_backup;
 pub mod net_guard;
 /// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
@@ -117,6 +145,17 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
+pub mod scheduled;
+#[cfg(test)]
+mod scheduled_tests;
+/// 登録簿の取り方・契機・取得の間隔（ST13）。
+#[cfg(test)]
+mod source_acquisition_tests;
+/// `GET /sources`（ST13 / design D10）。
+pub mod sources;
+#[cfg(test)]
+mod sources_tests;
 /// 位置から滞在を切り出す判定（ST16 / FR-76）。DB に触らない。
 pub mod stay;
 /// 滞在の作り直しと 1 日の並び（ST16 / FR-31 / FR-50）。
@@ -280,6 +319,8 @@ pub struct App {
     export: export::ExportConfig,
     /// 走っている書き出し（同時に 1 本。ST33 / design D2）。
     exports: export::ExportJobs,
+    /// 原本の置き場 D-02 の設定（ST09 / design D10）。
+    media: media::MediaConfig,
 }
 
 impl App {
@@ -305,7 +346,13 @@ impl App {
             warmup: outage::OUTAGE_WARMUP,
             export: export::ExportConfig::from_env(),
             exports: export::ExportJobs::default(),
+            media: media::MediaConfig::none(),
         }
+    }
+
+    /// 原本の置き場を差し替えた複製（起動の環境変数と試験）。
+    pub fn with_media(self, media: media::MediaConfig) -> Self {
+        Self { media, ..self }
     }
 
     /// 途切れを判定しない間を差し替えた複製。**起動の環境変数 `OUTAGE_WARMUP_SEC` だけが使う**。
@@ -1021,28 +1068,17 @@ async fn ingest_request(
             ));
         }
         // **主張は「本人が書いた」記録で、端末は持たない**（design D1 / spec）——
-        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる
-        if req.origin != "authored" || req.device_id.is_some() {
+        // 由来を見ないと、「派生させた」として入った主張に主張の錠ではなく別の規則が掛かる。
+        // 地域のずれの範囲もここで断る（review/code.md R3。**主張の行は DB が削除を拒む**ので、
+        // 一度入ると取り除くことも直すこともできない）。規則は 3 種類で共通（`authored_breach`）
+        if let Some(breach) = req.authored_breach() {
             return Ok(IngestResult::rejected(
                 Some(req.id),
-                IngestError::ClaimNotAuthored,
-            ));
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return Ok(IngestResult::rejected(
-                Some(req.id),
-                IngestError::ClaimHasExternalId,
-            ));
-        }
-        // **地域のずれの範囲をここで断る**（review/code.md R3）。
-        // `core.event.tz_offset_min` に CHECK は無く、`validate` も見ていないので、
-        // 範囲外の値は**受理された顔をして格納され、読み出しから永久に消える**
-        // （`FixedOffset` の上限は ±86,399 秒 = ±1,439 分）。
-        // **主張の行は DB が削除を拒む**ので、一度入ると取り除くことも直すこともできない。
-        if !(-1439..=1439).contains(&req.tz_offset_min) {
-            return Ok(IngestResult::rejected(
-                Some(req.id),
-                IngestError::MalformedClaim,
+                match breach {
+                    ingest::AuthoredBreach::NotAuthored => IngestError::ClaimNotAuthored,
+                    ingest::AuthoredBreach::HasExternalId => IngestError::ClaimHasExternalId,
+                    ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedClaim,
+                },
             ));
         }
         match parsed {
@@ -1066,11 +1102,15 @@ async fn ingest_request(
         {
             return reject(IngestError::MalformedFeeling);
         }
-        if req.origin != "authored" || req.device_id.is_some() {
-            return reject(IngestError::FeelingNotAuthored);
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return reject(IngestError::FeelingHasExternalId);
+        // 地域は主観の側で `Asia/Tokyo` の +9:00 に限って上で見たので、共通の規則の地域のずれは当たらない。
+        // `OffsetOutOfRange` の枝は match を閉じるためだけにある（届かない。届いても形の理由で断る側に倒す）。
+        // 主観の順（地域が外部識別子より先）は `ch01_authored_feeling_offset_out_of_range_beats_external_id` が固定する（review/code.md R23）
+        if let Some(breach) = req.authored_breach() {
+            return reject(match breach {
+                ingest::AuthoredBreach::NotAuthored => IngestError::FeelingNotAuthored,
+                ingest::AuthoredBreach::HasExternalId => IngestError::FeelingHasExternalId,
+                ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedFeeling,
+            });
         }
         match parsed {
             Ok(f) => Some(f),
@@ -1090,15 +1130,13 @@ async fn ingest_request(
         if matches!(parsed, Err(places::PlaceRecordInvalid::Malformed)) {
             return reject(IngestError::MalformedPlaceRecord);
         }
-        if req.origin != "authored" || req.device_id.is_some() {
-            return reject(IngestError::PlaceRecordNotAuthored);
-        }
-        if req.external_id.is_some() || req.external_ref.is_some() {
-            return reject(IngestError::PlaceRecordHasExternalId);
-        }
-        // 地域のずれの範囲（主張と同じ理由。範囲外は受理された顔で格納され、読み出しから消える）
-        if !(-1439..=1439).contains(&req.tz_offset_min) {
-            return reject(IngestError::MalformedPlaceRecord);
+        // 地域のずれの範囲は主張と同じ理由（範囲外は受理された顔で格納され、読み出しから消える）
+        if let Some(breach) = req.authored_breach() {
+            return reject(match breach {
+                ingest::AuthoredBreach::NotAuthored => IngestError::PlaceRecordNotAuthored,
+                ingest::AuthoredBreach::HasExternalId => IngestError::PlaceRecordHasExternalId,
+                ingest::AuthoredBreach::OffsetOutOfRange => IngestError::MalformedPlaceRecord,
+            });
         }
         let record = match parsed {
             Ok(r) => r,
@@ -2692,8 +2730,8 @@ async fn heartbeat_one(
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.heartbeat
            (id, user_id, logical_source, device_id, emitted_at,
-            capturable, blockers, attempts, successes, content_hash, raw)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            capturable, blockers, attempts, successes, content_hash, raw, network)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (user_id, logical_source, content_hash) DO NOTHING
          RETURNING id",
     )
@@ -2708,6 +2746,7 @@ async fn heartbeat_one(
     .bind(req.successes)
     .bind(&hash)
     .bind(&req.raw)
+    .bind(req.network)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| internal_at("heartbeat.insert", e))?;
@@ -3104,6 +3143,28 @@ pub async fn outages_get(
     }))
 }
 
+/// `GET /sources` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct SourcesQuery {
+    /// 利用者。省略すると既定の利用者（ほかの読み出しと同じ）
+    user_id: Option<uuid::Uuid>,
+}
+
+/// ソースの取り方・契機・取得の間隔と、書庫の通知までの残り日数（ST13 / design D10）。
+#[utoipa::path(get, path = "/sources", params(SourcesQuery),
+    responses((status = 200, body = sources::SourcesResponse), (status = 401)))]
+pub async fn sources_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<SourcesQuery>,
+) -> Result<Json<sources::SourcesResponse>, (StatusCode, String)> {
+    authorize(&app, &headers).await?;
+    sources::read(&app.pool, q.user_id.unwrap_or_default(), app.now())
+        .await
+        .map(Json)
+        .map_err(|e| internal_at("sources.read", e))
+}
+
 /// ソース × 日 の 8 状態を返す（FR-54）。**状態は行に焼かず導出する**（design D6）。
 #[utoipa::path(get, path = "/coverage", params(CoverageQuery),
     responses((status = 200, body = Vec<coverage::SourceCoverage>), (status = 401)))]
@@ -3423,11 +3484,21 @@ pub fn router(app: App) -> Router {
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
         .route("/drops", post(drops::drops_post))
+        .route("/media/missing", post(media_missing::missing_post))
+        .route("/media/summary", get(media_summary::summary_get))
+        // この経路だけ本文の上限が 1 GiB（ほかの経路の 2 MB は変えない。design D10）
+        .route(
+            "/media/originals/{sha256}",
+            put(media::put_original)
+                .head(media::head_original)
+                .layer(axum::extract::DefaultBodyLimit::max(app.media.body_limit())),
+        )
         .route("/events", get(events))
         .route("/coverage", get(coverage_get))
         .route("/coverage/achievement", get(achievement_get))
         .route("/archives/status", get(archives_status_get))
         .route("/outages", get(outages_get))
+        .route("/sources", get(sources_get))
         .route("/stays", get(stays_get))
         .route("/day", get(day_get))
         .route("/day/records", get(day_records_get))
@@ -3531,6 +3602,7 @@ pub async fn run() -> anyhow::Result<()> {
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
+    let scheduled_user = archive_config.user_id;
     if let Some(user_id) = archive_config.user_id {
         // **握ったまま持つ**（落とすと取り込み器が止まる）。
         std::mem::forget(archive::worker::spawn_inspecting(
@@ -3538,6 +3610,7 @@ pub async fn run() -> anyhow::Result<()> {
             archive_config,
             user_id,
             reading.clone(),
+            "s01-archive-inbox",
         ));
     } else {
         tracing::info!(
@@ -3545,6 +3618,9 @@ pub async fn run() -> anyhow::Result<()> {
             "書庫の利用者が未設定のため取り込み器を起こさない"
         );
     }
+    // 定期取得の枠も取り込み器の隣に握る（落とすと止まる）。利用者は取り込み器と同じ（design D5）。
+    // 未設定なら `scheduled_disabled` をログに残して起こさない
+    std::mem::forget(scheduled::start(pool.clone(), scheduled_user));
 
     // 縦串の試験が起動直後の待ち（既定 30 分）を縮める口。**値は既定のまま**、指定したときだけ変わる
     let warmup =
@@ -3554,10 +3630,29 @@ pub async fn run() -> anyhow::Result<()> {
             })?),
             Err(_) => outage::OUTAGE_WARMUP,
         };
+    // 原本の置き場（D-02。design D10）。相対の場所なら起動しない。既定の置き場だけを作り、書きかけを消す
+    let media = match media::MediaConfig::from_env(|k| std::env::var(k).ok()) {
+        Ok(media) => media,
+        Err(refusal) => {
+            tracing::error!(kind = "media_dir_relative", "起動しない");
+            // log-ok: setting は自分で名付けた環境変数の名前（値の場所は出さない）。起動前の拒否を端末にも出す
+            eprintln!("error: kind=media_dir_relative setting={}", refusal.setting);
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = media.prepare() {
+        // 起動は続ける（ほかの経路は使える）。原本の受け口は書けない失敗を返す
+        tracing::error!(
+            kind = "media_dir_prepare",
+            reason = media::storage_kind(&e),
+            "原本の置き場を用意できない"
+        );
+    }
     let mut app = router(
         App::new(pool, token, &web_password, session_max_age_days)
             .with_reading(reading)
-            .with_warmup(warmup),
+            .with_warmup(warmup)
+            .with_media(media),
     );
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
@@ -3580,11 +3675,16 @@ pub async fn run() -> anyhow::Result<()> {
         ingest,
         heartbeat_post,
         drops::drops_post,
+        media::put_original,
+        media::head_original,
+        media_missing::missing_post,
+        media_summary::summary_get,
         events,
         coverage_get,
         achievement_get,
         archives_status_get,
         outages_get,
+        sources_get,
         stays_get,
         day_get,
         day_records_get,
@@ -3621,6 +3721,14 @@ pub async fn run() -> anyhow::Result<()> {
         drops::DropHour,
         drops::DropResult,
         drops::DropError,
+        media_missing::MediaMissingRequest,
+        media_missing::MediaMissingResult,
+        media_missing::MediaMissingError,
+        media_summary::MediaSummary,
+        media_summary::MediaSourceSummary,
+        media_summary::CountBytes,
+        media_summary::MissingByReason,
+        media_summary::StorageErrorView,
         coverage::SourceCoverage,
         coverage::DayCell,
         coverage::Interval,
@@ -3631,6 +3739,9 @@ pub async fn run() -> anyhow::Result<()> {
         coverage::Subject,
         coverage::Achievement,
         OutagesResponse,
+        sources::SourcesResponse,
+        sources::SourceRow,
+        sources::DeviceNotice,
         OutagesStatus,
         OutageItem,
         ArchivesStatus,
