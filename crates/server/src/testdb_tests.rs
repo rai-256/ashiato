@@ -17,6 +17,65 @@ fn database_of(url: &str) -> &str {
     &url[url.rfind('/').unwrap() + 1..]
 }
 
+// Scenario: 書き出しの試験は、同じ回の他の試験が消した滞在を判定しない
+#[tokio::test]
+async fn ch04_export_isolated_does_not_see_other_tests() {
+    let run = testdb::pool().await;
+    let day = testdb::unique_day();
+    let user = testdb::user();
+    let insert = "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,$3,'test',$4,$5::timestamptz,540,'Asia/Tokyo',1,$6,'{}',$7)";
+    let stay = uuid::Uuid::new_v4();
+    sqlx::query(insert)
+        .bind(stay)
+        .bind(user)
+        .bind("s01-stay")
+        .bind("derived")
+        .bind(format!("{day}T03:00:00Z"))
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(serde_json::json!({"end": format!("{day}T04:00:00Z"), "lat": 35.0, "lon": 139.0}))
+        .execute(&run)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user' WHERE id = $1")
+        .bind(stay)
+        .execute(&run)
+        .await
+        .unwrap();
+    sqlx::query(insert)
+        .bind(uuid::Uuid::new_v4())
+        .bind(user)
+        .bind("c01-location")
+        .bind("collected")
+        .bind(format!("{day}T03:30:00Z"))
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(serde_json::json!({"lat": 35.0, "lon": 139.0}))
+        .execute(&run)
+        .await
+        .unwrap();
+    let in_run: i64 = sqlx::query_scalar("SELECT count(*) FROM core.stay_erased WHERE id = $1")
+        .bind(stay)
+        .fetch_one(&run)
+        .await
+        .unwrap();
+    assert_eq!(in_run, 1, "回の database に消した滞在が無い（前提）");
+
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    for table in ["core.event", "core.stay_erased"] {
+        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(n, 0, "試験ごとの database に {table} の行がある");
+    }
+    let summary = crate::export::read_summary(&pool).await.unwrap();
+    let total: i64 = summary.sources.iter().map(|s| s.count).sum();
+    assert_eq!(total, 0, "記録 0 件でない: {:?}", summary.sources);
+}
+
 // Scenario: 試験の足場の繋ぎ先は、その回の database である
 #[tokio::test]
 async fn ch04_testdb_points_to_the_run_database() {

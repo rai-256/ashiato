@@ -462,7 +462,8 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
 #[tokio::test]
 async fn export_zip_one_dated_zip_with_the_twelve_entries() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("one");
     let file = export_into(&pool, ExportConfig::with_dir(dir.clone())).await;
     let left = names(&dir);
@@ -495,7 +496,8 @@ async fn export_zip_one_dated_zip_with_the_twelve_entries() {
 #[tokio::test]
 async fn export_zip_every_entry_is_aes_256() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let file = export_into(&pool, ExportConfig::with_dir(tmp_dir("aes"))).await;
     let mut z = open(&file);
     assert_eq!(z.len(), ENTRIES.len());
@@ -512,7 +514,8 @@ async fn export_zip_every_entry_is_aes_256() {
 #[tokio::test]
 async fn export_zip_unfinished_file_has_no_export_name() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("partial");
     let midway: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let (seen, d) = (midway.clone(), dir.clone());
@@ -714,7 +717,8 @@ async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
 
 #[tokio::test]
 async fn export_readme_fold_rule_matches_the_event_folded_view() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let def: (String,) = sqlx::query_as("SELECT pg_get_viewdef('core.event_folded'::regclass)")
         .fetch_one(&pool)
         .await

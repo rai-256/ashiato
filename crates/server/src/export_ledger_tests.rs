@@ -37,7 +37,8 @@ async fn export_ledger_migration_applies_twice() {
 /// 合言葉とそのハッシュの列を持たない（Q9）。
 #[tokio::test]
 async fn export_ledger_has_no_passphrase_column() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let cols: Vec<(String,)> = sqlx::query_as(
         "SELECT column_name FROM information_schema.columns
           WHERE table_schema = 'core' AND table_name = 'export_ledger'",
@@ -61,7 +62,8 @@ async fn export_ledger_has_no_passphrase_column() {
 /// Scenario: 書き出しの台帳の行は書き換えも削除もできない
 #[tokio::test]
 async fn export_ledger_is_append_only() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let id = uuid::Uuid::new_v4();
     sqlx::query(
         "INSERT INTO core.export_ledger (export_id, kind, route, file)
