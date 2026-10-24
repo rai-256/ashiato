@@ -1,0 +1,512 @@
+{
+ "purpose": "server の試験（cargo test -p ashiato-server）を何度回しても、前の回や同じ回の他の試験が入れたデータで遅くならなくなる。詰まった問い合わせは数十分待たずに 60 秒で落ちる。あわせて製品の書き出しの「除く範囲」の判定が、使った年数の 2 乗で遅くならなくなる（書き出しの中身は 1 件も変わらない）。",
+ "model": {
+  "kind": "diagram",
+  "caption": "1 回の cargo test が作って、次の回が消すもの",
+  "text": "cargo test（回 A）の始まり\n  ├ 片付け: 持ち主のいない回の database と *_tmp_* を DROP DATABASE\n  ├ テンプレート A_tpl（移行を当てる）\n  ├ 回の database A ← ほとんどの試験が共有（pool / app_pool / url）\n  ├ 試験ごと A_x_…  ← 書き出しの試験 1 本ずつ。試験の終わりに消える\n  └ 使い捨て A_tmp_… ← 移行の当て方を見る試験。試験の終わりに消える\n\ncargo test（回 B）の始まり → A の全部を消す（A が走っていれば消さない）\n\nashiato database … 縦串・開発用の起動・server_startup だけ。試験の記録は入らない"
+ },
+ "before_after": [
+  {
+   "area": "試験の書き込み先",
+   "before": "worktree の DB の ashiato 1 つに全部の試験が書き、消さない（st23 で 17.4 万行）",
+   "after": "回ごとの database に書き、次の回の始まりに database ごと消える"
+  },
+  {
+   "area": "書き出しの試験",
+   "before": "同じ DB の全部の試験の記録と消した滞在を判定する（1 本の問い合わせが 8〜23 分）",
+   "after": "試験ごとの空の database で、自分の置いたものだけを判定する"
+  },
+  {
+   "area": "詰まった問い合わせ",
+   "before": "終わるまで待つ（agent が何時間も待った）",
+   "after": "60 秒で止まり、その試験が落ちる"
+  },
+  {
+   "area": "製品の書き出しの除く範囲の判定",
+   "before": "候補の行ごとに消した時間の一覧を全部読む（行数 × 消した滞在の数）",
+   "after": "消した時間を 1 つにまとめて 1 回で引く。除く記録は同じ"
+  }
+ ],
+ "highlights": [
+  "export.2",
+  "cleanup.2",
+  "timeout.1",
+  "export.3",
+  "rundb.3"
+ ],
+ "features": [
+  {
+   "id": "rundb",
+   "title": "試験は回ごとの database に書く",
+   "summary": "cargo test の 1 回（試験の実行ファイル 1 つ）ごとに、移行を当てた database を作ってそこに書く",
+   "figure": null,
+   "points": [
+    {
+     "id": "rundb.1",
+     "kind": "normal",
+     "text": "回の初めに、移行を当てたテンプレートを 1 つ作り、それを写した回の database を、その回のほとんどの試験が共有する。testdb の pool()・app_pool()・url() は形を変えず、繋ぎ先だけが回の database になる",
+     "refs": {
+      "requirements": [
+       "試験は回ごとの database に書き、共有の database に記録を積まない"
+      ],
+      "scenarios": [
+       "試験の足場の繋ぎ先は、その回の database である"
+      ],
+      "decisions": [
+       "Q1",
+       "D1",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "rundb.2",
+     "kind": "normal",
+     "text": "worktree の DB の ashiato には、試験は記録を入れない。縦串（smoke）・開発用の起動・tests/server_startup.rs は今までどおり ashiato を使う。いま ashiato に積もっている試験のデータは、この change では消さない（試験が読まなくなるので遅さには効かない）",
+     "refs": {
+      "scenarios": [
+       "試験が置いた記録は、ashiato database に入らない"
+      ],
+      "decisions": [
+       "Q1",
+       "Q4"
+      ]
+     }
+    },
+    {
+     "id": "rundb.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "DB"
+     ],
+     "text": "消せない表の書き換え禁止のトリガは外さない。試験のデータは「行を消す」のではなく「database ごと消す」ので、トリガを撃たずに片付く。回の database でも DELETE と TRUNCATE はトリガが断る",
+     "examples": [
+      {
+       "wrong": "試験の終わりに core.event の行を DELETE する（トリガを一時的に止める）",
+       "right": "行は残したまま、次の回の始まりに DROP DATABASE で database ごと消す"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "回の database でも、消せない表は行の削除と TRUNCATE を断る"
+      ],
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "rundb.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "同じ回の中の書き出し以外の試験は、今までどおり 1 つの database を共有する（利用者・ソース・日で隔離するまま）。cargo test の直後には、その回の database が 1 つ残っているのが正しい状態",
+     "refs": {
+      "decisions": [
+       "Q1",
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "isolated",
+   "title": "書き出しの試験と使い捨ての database は、試験ごとに作って消す",
+   "summary": "全部の行を判定する書き出しの試験だけ、テンプレートを写した自分だけの database で走る",
+   "figure": null,
+   "points": [
+    {
+     "id": "isolated.1",
+     "kind": "normal",
+     "text": "書き出しの試験（export_*tests.rs）は testdb::isolated() で試験ごとの database を受け取る。同じ回の他の試験が置いた記録と消した滞在は、その中に無い",
+     "refs": {
+      "requirements": [
+       "書き出しの試験は、試験ごとの database で走り、試験の終わりに消える"
+      ],
+      "scenarios": [
+       "書き出しの試験は、同じ回の他の試験が消した滞在を判定しない"
+      ],
+      "decisions": [
+       "Q1",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "isolated.2",
+     "kind": "normal",
+     "text": "試験ごとの database は、試験が通っても panic しても、その試験の終わりに消える。過程ごと殺されたときの残りは次の回の片付けが消す",
+     "refs": {
+      "scenarios": [
+       "試験ごとの database は、試験が通れば終わりに消える",
+       "試験ごとの database は、試験が panic しても消える"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "isolated.3",
+     "kind": "normal",
+     "text": "移行の当て方を見る試験が作る空の database（いまの *_tmp_* の 5 か所）は testdb::scratch() が回の印を持つ名前で作り、同じく試験の終わりに消える",
+     "refs": {
+      "requirements": [
+       "試験が作る使い捨ての database は、回の印を持つ名前で、試験の足場だけが作る"
+      ],
+      "scenarios": [
+       "使い捨ての database の名前は、回の database の名前で始まる"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "isolated.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "後から入る Story が、書き出しの試験のファイルで testdb::pool() を使ったり、試験のコードに CREATE DATABASE を書いたりすると、検査（--lint）が CI で落とし、testdb::isolated() / scratch() を使えと示す。走っている st29 が足した 3 か所も rebase の後に当たる",
+     "refs": {
+      "scenarios": [
+       "足場の外で database を作る試験は、検査が落とし、足場の関数を示す",
+       "書き出しの試験が回の database を取ると、検査が落とし、試験ごとの database を示す",
+       "CH04 の後の木は、database を作る書き方の検査を通る"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "cleanup",
+   "title": "前の回の片付け",
+   "summary": "Rust の試験には全体の終わりに必ず走る後片付けが無いので、次の回の始まりに前の回の分を消す",
+   "figure": {
+    "kind": "table",
+    "caption": "回の始まりの片付けが消すもの",
+    "rows": [
+     [
+      "ashiato_run_… で、その回の助言ロックを誰も持っていない",
+      "消す"
+     ],
+     [
+      "ashiato_run_… で、その回が走っている（ロックを持っている）",
+      "消さない（接続が 0 本でも）"
+     ],
+     [
+      "名前に _tmp_ を含み、回の印が無い（CH04 の前の残り）",
+      "消す"
+     ],
+     [
+      "ashiato・postgres・それ以外の名前",
+      "消さない"
+     ]
+    ],
+    "head": [
+     "database",
+     "消すか"
+    ]
+   },
+   "points": [
+    {
+     "id": "cleanup.1",
+     "kind": "normal",
+     "text": "回の初めに、走っていない回の database（テンプレート・回・試験ごと・使い捨て）と、印の無い *_tmp_* の残りを DROP DATABASE … WITH (FORCE) で消す。殺された回が走らせたままの問い合わせも切れる",
+     "refs": {
+      "requirements": [
+       "前の回の database は、次の回の始まりに消え、走っている回のものは消えない"
+      ],
+      "scenarios": [
+       "持ち主のいない回の database は、次の回の始まりに消える",
+       "回の印の無い使い捨ての database の残りは消え、ashiato と他の database は残る"
+      ],
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "cleanup.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "走っているかは接続の数でなく、回の間ずっと持つ助言ロックで判定する。試験はプールを作っては捨てるので、走っている回でも接続が 0 本になる間がある",
+     "examples": [
+      {
+       "wrong": "接続が 0 本の回の database は終わったものとして消す",
+       "right": "同じ worktree で並んで走る別の cargo test の database は、接続 0 本の瞬間でも消えない"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "走っている回の database は、接続が 0 本でも消えない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "timeout",
+   "title": "詰まった問い合わせは 60 秒で落ちる",
+   "summary": "試験の足場の全部の接続に、1 本の問い合わせの時間の上限を置く",
+   "figure": null,
+   "points": [
+    {
+     "id": "timeout.1",
+     "kind": "normal",
+     "text": "試験の足場の接続（回・試験ごと・使い捨て・app_pool）に statement_timeout を置き、既定は 60 秒。超えた問い合わせは PostgreSQL が止め、その試験の名前つきで落ちる",
+     "refs": {
+      "requirements": [
+       "試験の 1 本の問い合わせは、時間の上限を超えたら止まって試験が落ちる"
+      ],
+      "scenarios": [
+       "上限を超える問い合わせは、止まって失敗する",
+       "上限の既定は 60 秒で、試験の足場の接続に入っている"
+      ],
+      "decisions": [
+       "Q3",
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "timeout.2",
+     "kind": "exception",
+     "text": "量を測るとき（120 万行の書き出しなど）は、環境変数 ASHIATO_TEST_STATEMENT_TIMEOUT=0 で上限を外す。値を渡せばそれが上限になる",
+     "refs": {
+      "scenarios": [
+       "環境変数の値が上限になり、0 なら上限を置かない"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "guard",
+   "title": "再発を機械で止める",
+   "summary": "試験を 2 回続けて走らせ、前の回の database が残っていないことを台本と CI が見る",
+   "figure": null,
+   "points": [
+    {
+     "id": "guard.1",
+     "kind": "normal",
+     "text": "tools/check-test-db-growth.sh が試験を 2 回続けて走らせ、1 回目の database が 2 回目の後に残っていない・残るのは最後の回のテンプレートと回の database だけ・ashiato が消えていない、を見る。外れれば残った名前を挙げて落ちる",
+     "refs": {
+      "requirements": [
+       "試験を 2 回続けて走らせても前の回の database が残らないことを、台本と CI が確かめる"
+      ],
+      "scenarios": [
+       "前の回の database が 2 回目の後に残っていれば、名前を挙げて落ちる",
+       "2 回目の試験ごとの database が残っていれば、名前を挙げて落ちる",
+       "ashiato database が消えていれば落ちる",
+       "試験が落ちれば、台本も試験の終了コードで落ちる",
+       "前の回が片付き、最後の回の分だけが残れば、台本は通る"
+      ],
+      "decisions": [
+       "Q3",
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "guard.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CI が 2 回走らせるのは、この change が足す試験（名前の頭が ch04_）だけ。全部を 2 回走らせると CI の時間が倍になる。全体の 2 回は下流が手元で 1 度走らせて時間を記録する。CI は毎回まっさらな DB なので、積もりそのものは手元にしか出ない",
+     "refs": {
+      "scenarios": [
+       "CI の rust job は台本を走らせる"
+      ],
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "guard.3",
+     "kind": "exception",
+     "text": "server の試験の全体に時間の上限は置かない。機械の負荷で揺れて、落ちたり通ったりする検査になるため。1 本の詰まりは 60 秒の上限が止める",
+     "refs": {
+      "decisions": [
+       "Q3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "export",
+   "title": "製品の書き出しの除く範囲の判定を、年数の 2 乗で遅くしない",
+   "summary": "試験の都合ではなく製品の不具合として直す。CH02 が直した式の上に積む",
+   "figure": null,
+   "points": [
+    {
+     "id": "export.1",
+     "kind": "normal",
+     "text": "書き出し・設定画面の件数の数え・後に消した記録の件数が通る「除く範囲」の判定で、記録の 1 行ごとに消した時間の一覧を全部読み直すのをやめる。消した時間を 1 つの範囲の集まりにまとめ、1 回で重なりを引く",
+     "refs": {
+      "requirements": [
+       "書き出しから除く範囲の判定は、記録の行数と消した滞在の数を一緒に伸ばしても、その積で伸びない"
+      ],
+      "decisions": [
+       "Q2",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "export.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "書き出しの中身は 1 件も変わらない。どの記録と前の版を除くかは直す前の式と同じで、端がちょうど触れる・逆向きの消した時間・終わりの無い消した滞在なども同じに読む。直す前の式を試験に残して、同じ材料で両方を走らせて突き合わせる",
+     "refs": {
+      "scenarios": [
+       "直した判定は、足す前の判定と同じ記録と前の版を除く"
+      ],
+      "decisions": [
+       "Q2",
+       "D9"
+      ]
+     }
+    },
+    {
+     "id": "export.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "直したかは時間でなく「消した時間の一覧から読んだ行の数」で判定する。今の量では入れ子の費用は小さく（最悪の形でも 120 万行・消した滞在 100 件で +7.3 秒）、時間の比では直す前の式でも通ってしまう",
+     "examples": [
+      {
+       "wrong": "記録と消した滞在を倍にして、時間が 2.5 倍以内なら直った",
+       "right": "記録 1,000・消した滞在 10 と、4,000・40 で読んだ行の数を比べ、直した式は 8 倍未満・直す前の式は 8 倍以上"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "記録と消した滞在を一緒に 4 倍にしても、消した時間を読む量は 4 倍の桁に収まる"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "id": "export.4",
+     "kind": "normal",
+     "text": "時間は (30 万, 25)・(60 万, 50)・(120 万, 100) の 3 通りで、直す前と後の両方を測って design の「計測の記録」に残す。合否にはしない。CI では走らせない（120 万行で数分）",
+     "refs": {
+      "scenarios": [
+       "記録の行数と消した滞在の数を一緒に倍にした 3 通りで、書き出しと件数の数えの時間を測って残す"
+      ],
+      "decisions": [
+       "Q2",
+       "D14"
+      ]
+     }
+    },
+    {
+     "id": "export.5",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "件数の数え（設定画面の GET /export/summary）は直しても速くならない。120 万行で 25.5 秒の大半は全部の行の並べ替えと緯度経度の判定で、この直しが取るのは消した滞在の数が増えたときに乗る分だけ。数え方を替える（ST33 D13 の反転条件）はこの change の範囲外",
+     "refs": {
+      "decisions": [
+       "Q2"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "各 worktree の ashiato に今積もっているデータ（1 つ 170〜240 MB）と、使われていない Docker の volume（62 個）。この change の後の試験は ashiato を読まないので遅さには効かない。容量は smoke か down -v を走らせた worktree から戻る",
+   "refs": {
+    "decisions": [
+     "Q4"
+    ]
+   }
+  },
+  {
+   "text": "件数の数え方の替え（ST33 D13）、除く範囲を利用者で絞ること、消せない表のトリガを外すこと、worktree ごとの port の割り当て、試験の期待値・Scenario の印・本数",
+   "refs": {}
+  },
+  {
+   "text": "画面・操作・API・移行は変わらない。確認バッチで本人が触って確かめるものは無い",
+   "refs": {}
+  }
+ ],
+ "open": [
+  {
+   "text": "tasks.md の Task 9 の見出しが「N と M を一緒に倍にして 2.5 倍以内」のまま残っている。本文と spec は時間を合否にしない（読んだ行の数で判定する）形で、見出しだけが古い。下流は本文に従うが、合意の後に spec の段で見出しを直す",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "decisions": [
+     "D14"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "database の名前の付け方（ashiato_run_<12 桁> と _tpl / _x_ / _tmp_）と、片付けと作成を 1 本ずつ並べるロックの鍵",
+   "refs": {
+    "decisions": [
+     "D1",
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "docs/changes/CH04.md の capability を空のままにする（data-durability を書くと走っている Story と admission で衝突待ちになる。足すのは別の名前の Requirement）",
+   "refs": {
+    "decisions": [
+     "D12"
+    ]
+   }
+  },
+  {
+   "text": "試験の DB の約束を、CH03 の test-hygiene（一時フォルダ）と別の capability test-database に置く",
+   "refs": {
+    "decisions": [
+     "D13"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "回",
+   "def": "cargo test が起こす試験の実行ファイル 1 つの 1 回の走り。回ごとに database を作る"
+  },
+  {
+   "term": "除く範囲",
+   "def": "本人が消した滞在の時間に重なる位置つきの記録と前の版。書き出しと件数の数えから除く"
+  }
+ ]
+}

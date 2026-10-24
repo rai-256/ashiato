@@ -1,0 +1,4 @@
+{"title": "CH04 の仕様への合意", "subtitle": "試験用 DB に溜まるデータで試験が遅くなるのを止める",
+ "questions": [{"id": "QA", "topic": "仕様への合意", "kind": "agreement",
+                "doc": "docs/briefs/CH04-spec.html",
+                "question": "この GO 資料のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。"}]}
