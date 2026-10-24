@@ -1575,7 +1575,13 @@ async fn export_satellites_registry_includes_removed_satellites() {
 async fn export_satellites_credentials_are_not_exported() {
     let pool = testdb::pool().await;
     let tag = &Uuid::new_v4().simple().to_string()[..8];
-    let sat = put_satellite(&pool, &format!("dev.t{tag}.cred"), &format!("資格{tag}"), false).await;
+    let sat = put_satellite(
+        &pool,
+        &format!("dev.t{tag}.cred"),
+        &format!("資格{tag}"),
+        false,
+    )
+    .await;
     // 値そのものは持たないので、ハッシュ（16 進）が zip のどこにも出ないことを見る。
     let mut hashes = Vec::new();
     for _ in 0..2 {
@@ -1597,7 +1603,11 @@ async fn export_satellites_credentials_are_not_exported() {
     for name in &names_in_zip {
         let body = text(&path, name);
         for h in &hashes {
-            let hex: String = h.iter().map(|b| format!("{b:02x}")).collect();
+            let hex: String = h.iter().fold(String::new(), |mut acc, b| {
+                use std::fmt::Write as _;
+                let _ = write!(acc, "{b:02x}");
+                acc
+            });
             assert!(
                 !body.contains(&hex) && !body.contains(&format!("\\x{hex}")),
                 "{name} に資格情報のハッシュがある"
@@ -1622,7 +1632,10 @@ async fn export_satellite_tables_and_columns_are_classified() {
     let inv = export::read_inventory(&pool).await.unwrap();
     assert!(matches!(
         export::class_of("satellite"),
-        Some(export::Class::Include { file: "satellites.jsonl", .. })
+        Some(export::Class::Include {
+            file: "satellites.jsonl",
+            ..
+        })
     ));
     assert!(matches!(
         export::class_of("satellite_credential"),

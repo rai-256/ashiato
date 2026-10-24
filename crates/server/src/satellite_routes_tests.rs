@@ -189,7 +189,8 @@ async fn exempt_routes_ignore_satellite() {
         ))
         .unwrap()
     };
-    let cases: Vec<(&str, Box<dyn Fn(Option<&str>) -> Request<Body>>)> = vec![
+    type Case = (&'static str, Box<dyn Fn(Option<&str>) -> Request<Body>>);
+    let cases: Vec<Case> = vec![
         (
             "GET /healthz",
             Box::new(|b| request(&Method::GET, "/healthz", b)),
