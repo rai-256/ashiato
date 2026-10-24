@@ -106,7 +106,7 @@
 
 ## Task 7: 再発を止める台本と CI
 
-- [ ] 7.1 `tools/check-test-db-growth.sh [cargo test の引数…]` の本体を design D8 のとおりに書く（一覧 S0 → 試験 → S1 → 試験 → S2。判定は試験の rc → 前の回の残り → 最後の回の余計な残り → `ashiato` の有無。
+- [x] 7.1 `tools/check-test-db-growth.sh [cargo test の引数…]` の本体を design D8 のとおりに書く（一覧 S0 → 試験 → S1 → 試験 → S2。判定は試験の rc → 前の回の残り → 最後の回の余計な残り → `ashiato` の有無。
   `TEST_DB_CMD`・`TEST_DB_LIST_CMD` で差し替えられる）。`--self-test` に次を足し、それぞれの前に印を出す:
   `echo "Scenario: 前の回の database が 2 回目の後に残っていれば、名前を挙げて落ちる"` /
   `echo "Scenario: 2 回目の試験ごとの database が残っていれば、名前を挙げて落ちる"` /
@@ -114,10 +114,10 @@
   `echo "Scenario: 試験が落ちれば、台本も試験の終了コードで落ちる"`（rc=101 → rc=101）/
   `echo "Scenario: 前の回が片付き、最後の回の分だけが残れば、台本は通る"`。
   検証: `tools/check-test-db-growth.sh --self-test` rc=0
-- [ ] 7.2 本物の木で、server の試験の全体を同じ worktree で 2 回続けて走らせ、前の回の database が残らないことを見る。1 回目と 2 回目の全体の時間を design の「計測の記録」に書く（2 回目が 1 回目と同じ桁なら積もっていない）。
+- [x] 7.2 本物の木で、server の試験の全体を同じ worktree で 2 回続けて走らせ、前の回の database が残らないことを見る。1 回目と 2 回目の全体の時間を design の「計測の記録」に書く（2 回目が 1 回目と同じ桁なら積もっていない）。
   上限（D7）で落ちる正当な試験があれば、D7 の反転条件に従って既定を直してから走らせ直す。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run growth -- tools/check-test-db-growth.sh -p ashiato-server'` rc=0
-- [ ] 7.3 `.github/workflows/ci.yml` の rust job の `cargo test` の行の後に 3 行を足す: `./tools/check-test-db-growth.sh --self-test`・`./tools/check-test-db-growth.sh --lint`・`./tools/check-test-db-growth.sh -p ashiato-server ch04_`（`cargo test` の行は変えない。CH03 が包む）。
+- [x] 7.3 `.github/workflows/ci.yml` の rust job の `cargo test` の行の後に 3 行を足す: `./tools/check-test-db-growth.sh --self-test`・`./tools/check-test-db-growth.sh --lint`・`./tools/check-test-db-growth.sh -p ashiato-server ch04_`（`cargo test` の行は変えない。CH03 が包む）。
   `--self-test` に `echo "Scenario: CI の rust job は台本を走らせる"` の印で、`ci.yml` の rust job にこの 3 行があることを見る項を足す。
   検証: `tools/check-test-db-growth.sh --self-test` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run growth -- tools/check-test-db-growth.sh -p ashiato-server ch04_'` rc=0
 
