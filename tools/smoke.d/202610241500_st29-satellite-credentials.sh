@@ -9,7 +9,7 @@ for _ in $(seq 1 60); do curl -sf "http://$SAT_BIND/healthz" >/dev/null && break
 curl -sf "http://$SAT_BIND/healthz" >/dev/null || { echo "ST29 の 2 台目が起動しない"; kill "$SAT_SRV" 2>/dev/null || true; exit 1; }
 
 # 画面のログイン。cookie は Secure 付きで http では jar が送らないので、値を取って自分で付ける
-echo "== ST29. Scenario: 画面のログインで衛星を登録し、資格情報を発行する"
+echo "== ST29. 画面のログインで衛星を登録し、資格情報を発行する"
 sat_cookie=$(curl -s -D - -o /dev/null -H 'content-type: application/json' \
   -d "{\"password\":\"$WEB_PASSWORD\"}" "http://$SAT_BIND/session" \
   | tr -d '\r' | sed -n 's/^set-cookie: \(ashiato_session=[^;]*\).*/\1/Ip' | head -1)
@@ -27,7 +27,7 @@ sat_cid=$(printf '%s' "$sat_issue" | jq -r '.id // empty')
 [ -n "$sat_cid" ] || { echo "資格情報の番号が無い"; exit 1; }
 echo "OK 登録と発行"
 
-echo "== ST29. Scenario: 衛星の資格情報は読み書きの口で 403"
+echo "== ST29. 衛星の資格情報は読み書きの口で 403"
 sat_get=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $SAT_VALUE" "http://$SAT_BIND/events")
 [ "$sat_get" = "403" ] || { echo "衛星の資格情報の GET /events が $sat_get"; exit 1; }
 sat_post=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $SAT_VALUE" \
@@ -35,7 +35,7 @@ sat_post=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $SAT
 [ "$sat_post" = "403" ] || { echo "衛星の資格情報の POST /ingest が $sat_post"; exit 1; }
 echo "OK 403"
 
-echo "== ST29. Scenario: 取り消した資格情報は次の求めから使えない"
+echo "== ST29. 取り消した資格情報は次の求めから使えない"
 sat_rev=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "cookie: $sat_cookie" \
   "http://$SAT_BIND/satellites/$sat_id/credentials/$sat_cid")
 case "$sat_rev" in 2??) : ;; *) echo "資格情報を取り消せない: $sat_rev"; exit 1 ;; esac
@@ -43,7 +43,7 @@ sat_after=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $SA
 [ "$sat_after" = "401" ] || { echo "取り消した資格情報の GET /events が $sat_after"; exit 1; }
 echo "OK 401"
 
-echo "== ST29. Scenario: 資格情報の値はサーバのログに出ない"
+echo "== ST29. 資格情報の値はサーバのログに出ない"
 kill "$SAT_SRV" 2>/dev/null || true; wait "$SAT_SRV" 2>/dev/null || true
 if grep -Eq 'ashsat_[a-z0-9.-]+_[A-Za-z0-9_-]{43}' "$SAT_LOG"; then echo "ログに資格情報の形がある"; exit 1; fi
 if grep -qF -- "$SAT_VALUE" "$SAT_LOG"; then echo "ログに発行した値そのものがある"; exit 1; fi
