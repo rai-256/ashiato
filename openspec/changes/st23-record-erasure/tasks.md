@@ -55,7 +55,7 @@
   （訂正 2026-10-24: 検証の入口を「tools/check-immutable.d/<時刻>_st23-derived-erasure.sh」から上の入口に。受け入れ条件は変えない。理由: <時刻> は名前の雛形で、そのまま走らせると bash の構文エラーになる。節は check-immutable.sh が . で読む形（psql・fail を共有）で単独では走らないため、check-immutable.sh を走らせ節の見出し・NG なし・節の OK 行 10 本以上を確かめる入口に直す 実証: evidence.jsonl 2026-10-23T23:45:14+00:00 FAIL。承認: machine: evidence.jsonl 2026-10-23T23:42:23+00:00 PASS。記録: plan-corrections.md）
 ## Task 2: 本文ごと消す範囲と消去の核（design D2 / D3 / D6 / D15 / D17）
 
-- [ ] 2.1 `deletion.rs` に `purge_scope(tx, stay_id)`（範囲を集めて組ごとに数える。確認と消すが同じ関数を使う）と `purge(pool, stay_id, requested_user, expected)`（design D3 の 1〜8 の順）を置く。
+- [x] 2.1 `deletion.rs` に `purge_scope(tx, stay_id)`（範囲を集めて組ごとに数える。確認と消すが同じ関数を使う）と `purge(pool, stay_id, requested_user, expected)`（design D3 の 1〜8 の順）を置く。
   範囲の組は design D15。重なる滞在は**作り直しの印のものだけ・端が触れるだけは入れない**（D2（仮））で、`user:purged` に付け替える（D6）。本人が別に消した滞在と印の無い滞在は入れない（D2 / D17（仮））。
   どの組にも入らない論理ソース（写真・画像など）が範囲に入ったら `unknown_source` で断る（D2 / D15）。
   Scenario: `一緒に消えた位置の本文も消える` / `位置を持つ書庫の項目は項目ごと本文が消える` / `前の版の本文も消える` / `吸収された滞在の本文も消える` / `同じ時間の写真の本文は残る` /
