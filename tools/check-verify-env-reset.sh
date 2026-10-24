@@ -51,19 +51,23 @@ w=demo-ch01
 echo "Scenario: 既にある .env に、合言葉を変えずに COMPOSE_FILE を足す"
 printf '%s\n' "$pw" >"$tmp/$w/.env"; chmod 600 "$tmp/$w/.env"
 before=$(cat "$tmp/$w/.env")
+ino=$(stat -c %i "$tmp/$w/.env")
 init
 want "COMPOSE_FILE の行が 1 つ" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env")" "1"
 want "ほかの行は呼ぶ前と同じ" "$(grep -v '^COMPOSE_FILE=' "$tmp/$w/.env")" "$before"
 
 echo "Scenario: env-init が書き換えた .env の権限は、書き換える前と同じである"
 want ".env の権限は 600 のまま" "$(perm $w)" "600"
+want ".env の inode は呼ぶ前と同じ（置き換えていない）" "$(stat -c %i "$tmp/$w/.env")" "$ino"
 
 echo "Scenario: 別の木から写した .env でも、その木の subnet になり、何度呼んでも同じである"
 w=demo-ch02
 cp -p "$tmp/demo-ch01/.env" "$tmp/$w/.env"
-ASHIATO_DB_SUBNET="$(subnet demo-ch01)" init env
+[[ $(subnet demo-ch01) != "$(subnet $w)" ]]; ok "2 つの木の subnet は違う" $?
+# clean の env -u の後ろへ渡す（古い値が環境にあっても、subnet は port から決まる）
+init ASHIATO_DB_SUBNET="$(subnet demo-ch01)"
 cp "$tmp/$w/.env" "$tmp/env1"; cp "$tmp/$w/docker-compose.subnet.yml" "$tmp/sub1"
-ASHIATO_DB_SUBNET="$(subnet demo-ch01)" init env
+init ASHIATO_DB_SUBNET="$(subnet demo-ch01)"
 want "subnet のファイルの subnet はその木の値" "$(sed -n 's/^ *- subnet: //p' "$tmp/$w/docker-compose.subnet.yml")" "$(subnet $w)"
 cmp -s "$tmp/$w/.env" "$tmp/env1"; ok "2 回目の後の .env は 1 回目の後と同じ" $?
 cmp -s "$tmp/$w/docker-compose.subnet.yml" "$tmp/sub1"; ok "2 回目の後の subnet のファイルは 1 回目の後と同じ" $?
