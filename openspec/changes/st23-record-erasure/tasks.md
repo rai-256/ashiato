@@ -67,7 +67,7 @@
 
 ## Task 3: 消した時間帯の読み手を台帳へ寄せる（design D5 / D6 / D14。spec「本文ごと消した時間帯は、台帳の範囲から読む」）
 
-- [ ] 3.1 `stay_store.rs` の `mark_late_arrivals`・`mark_late_for_user`（`user_erased_stay_sql` をビュー越しに）・`load_existing`（`raw = ''` の滞在を候補から外し、その時間を `erased` に足す）、`export/excluded.rs`（前の版は `core.erasure_span` の `scope = 'version'` か本文）を `core.stay_erased` へ寄せる。
+- [x] 3.1 `stay_store.rs` の `mark_late_arrivals`・`mark_late_for_user`（`user_erased_stay_sql` をビュー越しに）・`load_existing`（`raw = ''` の滞在を候補から外し、その時間を `erased` に足す）、`export/excluded.rs`（前の版は `core.erasure_span` の `scope = 'version'` か本文）を `core.stay_erased` へ寄せる。
   ビューは `user:purged` を出さない（design D5 / D13（仮））。span の無い本文を消した滞在は design D14（その日の全体。後着は印だけ）で読む。
   **Task 2 の消す操作の上に積む**（この Task の Scenario は本文を消した滞在を作ってから見る）。
   Scenario: `本文ごと消した後も消した時間帯の長さは変わらない` / `本文ごと消した時間帯の撮影位置は書き出しから除かれたまま` / `本文ごと消した時間帯に作り直しは滞在を作らない` /
