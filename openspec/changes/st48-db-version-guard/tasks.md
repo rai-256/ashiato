@@ -30,12 +30,12 @@
 
 ## Task 1: 版の記録の形と読み方
 
-- [ ] 1.1 `crates/server/src/migration_ledger.sql`（design D1 の DDL）と `crates/server/src/migration_ledger.rs` を足し、`lib.rs` に `pub mod migration_ledger;` と試験のモジュール `migration_ledger_tests` を足す。
+- [x] 1.1 `crates/server/src/migration_ledger.sql`（design D1 の DDL）と `crates/server/src/migration_ledger.rs` を足し、`lib.rs` に `pub mod migration_ledger;` と試験のモジュール `migration_ledger_tests` を足す。
   `migration_ledger.rs` に、版の記録を読む `read_ledger`（`migration_ledger` が無い・`core` の有無・形の版・列を見て、D3 の 3 分岐と D5 の「読めない」を返す）と、
   純粋な判定 `compare(known, ledger)`（D2。`Ahead { unknown }` / `Behind { missing }` / `Even`）を書く。アプリの役割への `migration_ledger` の `USAGE` と `SELECT` は `grants.sql` でなく bootstrap（`migration_ledger.sql`）の末尾に置く（D1。`grants.sql` は記録の schema の無い DB にも psql で当たる —— `tools/check-immutable.sh`）。
   `testdb.rs` に使い捨ての database の口（`CREATE DATABASE st48_<乱数 12 桁>` を作り、Drop で `DROP DATABASE … WITH (FORCE)`。D16）を足す。
   検証: `cargo build -p ashiato-server --tests` rc=0
-- [ ] 1.2 `crates/server/src/migration_ledger_tests.rs` に次を足す:
+- [x] 1.2 `crates/server/src/migration_ledger_tests.rs` に次を足す:
   `st48_ledger_shape_is_frozen`（`// Scenario: 版の記録の置き場と列の形は、決めた形のまま変わらない`。使い捨ての database に bootstrap を流し、`information_schema.columns` の 2 つの表の列の名前・型・NULL 可否が design D1 と一字一句同じ。`form` の値が 1）/
   `st48_ledger_app_role_reads_only`（`// Scenario: S-01 の実行時の役割は版の記録を読めるが、書き換えられない`。移行と付与を当てた使い捨ての database に、アプリの役割で繋ぎ、SELECT が通り、INSERT・UPDATE・DELETE が権限の誤り（SQLSTATE `42501`）で断られる）/
   `st48_compare_*`（純粋な判定。同じ集合 → `Even`、DB にだけある名前 → `Ahead` でその名前、自分にだけある名前 → `Behind`、両方あれば `Ahead` を先に返す。並びの順を入れ替えても結果が同じ。4 本以上）/
