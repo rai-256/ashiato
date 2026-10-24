@@ -145,9 +145,9 @@
 
 ## Task 9: 量の測り —— N と M を一緒に倍にして 2.5 倍以内
 
-- [ ] 9.1 `export_volume_one_run_reports_time_and_memory` に、design D14 のとおり `ASHIATO_EXPORT_VOLUME_ERASED` を件数として読ませる（M ≥ 2 は M 日に等分、M ≤ 1 の置き方と assert は変えない）。
+- [x] 9.1 `export_volume_one_run_reports_time_and_memory` に、design D14 のとおり `ASHIATO_EXPORT_VOLUME_ERASED` を件数として読ませる（M ≥ 2 は M 日に等分、M ≤ 1 の置き方と assert は変えない）。
   検証: `CT export_volume_one_run_reports_time_and_memory` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; ASHIATO_EXPORT_VOLUME_ROWS=20000 ASHIATO_EXPORT_VOLUME_ERASED=4 scripts/quiet-run vol -- cargo test -p ashiato-server export_volume_one_run_reports_time_and_memory'` rc=0
-- [ ] 9.2 `tools/export-scaling.sh` を design D14 のとおりに書く（3 点・`ASHIATO_TEST_STATEMENT_TIMEOUT=0`・値と隣り合う組の比を標準出力へ・`EXPORT_SCALING_CMD` で差し替え・`--self-test`。比で合否を決めない）。
+- [x] 9.2 `tools/export-scaling.sh` を design D14 のとおりに書く（3 点・`ASHIATO_TEST_STATEMENT_TIMEOUT=0`・値と隣り合う組の比を標準出力へ・`EXPORT_SCALING_CMD` で差し替え・`--self-test`。比で合否を決めない）。
   本体の走りの前に `echo "Scenario: 記録の行数と消した滞在の数を一緒に倍にした 3 通りで、書き出しと件数の数えの時間を測って残す"` の印を出す。
   D9 の前の値が要るので、9.1・9.2 は 8.4 より先に済ませてよい（Task の番号は順を縛らない）。8.4 の前の木と後の木で 1 回ずつ走らせ、両方の値を design の「計測の記録」に書く。後が前より遅ければ D14 の反転条件。
   検証: `tools/export-scaling.sh --self-test` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run scaling -- tools/export-scaling.sh'` rc=0
