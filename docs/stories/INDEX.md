@@ -1,6 +1,6 @@
 # Story 一覧
 
-- 要件 `docs/requirements.md` から分解。**Story 46 本 / capability 14 本**（2026-10-11 に衛星の基盤の改訂で 10 本足し、4 本を書き直した）
+- 要件 `docs/requirements.md` から分解。**Story 58 本 / capability 15 本**（2026-10-11 に衛星の基盤の改訂で 10 本足し、4 本を書き直した。2026-10-25 に配布と更新の改訂で ST48〜ST58 の 11 本と capability `distribution` を足した）
 - `layer` は `requires` の DAG の深さ。**layer 0 は依存なし＝すぐ着手できる**
 - `doors` と逐語引用は `scripts/make_story.py` が要件本文から機械的に埋めている（手で写していない）
 - **判断（表題・価値・壊してはいけないもの・完了の判定）の単一情報源は `stories.json`。** `ST<NN>.md` は生成物で、
@@ -9,11 +9,11 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41
-- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44
-- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42
-- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47
-- **layer 5**: ST18, ST26, ST31, ST39, ST45
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41, ST48, ST49
+- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST51, ST52
+- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST53, ST54, ST55, ST56
+- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST57
+- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST58
 - **layer 6**: ST27, ST32, ST36, ST40, ST46
 - **layer 7**: ST43
 
@@ -68,6 +68,17 @@
 | [ST45](ST45.md) | 承認した種類だけを衛星が読め、読んだ記録が残る | 5 | FR-63, FR-100, PERM-13, PERM-15 | ST38, ST24, ST42 | 15, 27 |
 | [ST46](ST46.md) | 衛星の都合のデータを取っておける | 6 | FR-87 | ST39 | 29 |
 | [ST47](ST47.md) | YouTube のマイアクティビティを視聴・検索・その他に分けて取り込む | 4 | FR-14, FR-16, FR-17 | ST12 | — |
+| [ST48](ST48.md) | 古い版が新しい DB を書き換えない | 1 | FR-117, FR-118, FR-129 | ST01 | — |
+| [ST49](ST49.md) | 記録ごとに、作った部品の版が残る | 1 | FR-122, FR-123 | ST01 | 32 |
+| [ST50](ST50.md) | 収集アプリとサーバの版が食い違っても記録が失われない | 3 | FR-124, FR-125, FR-126, FR-130 | ST04 | — |
+| [ST51](ST51.md) | 更新で止めた時間が、更新の履歴として残る | 2 | FR-121 | ST02 | 14, 33 |
+| [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 2 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49 | 34 |
+| [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 3 | FR-127, NFR-26 | ST52 | 35 |
+| [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 3 | FR-106 | ST52 | 34 |
+| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 3 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
+| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 3 | FR-128 | ST52, ST44 | — |
+| [ST57](ST57.md) | 新しい版が出たら知らせる | 4 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
+| [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 5 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
 
 ## capability（仕様の置き場）
 
@@ -77,20 +88,21 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 | capability | 何の能力か | 積む Story |
 |---|---|---|
-| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42 |
-| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44 |
-| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44 |
+| `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST49, ST50 |
+| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST56 |
+| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
-| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41 |
+| `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
 | `derived-records` | 派生（滞在） | ST16, ST24 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
 | `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
 | `record-deletion` | 削除 | ST22, ST23 |
-| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45 |
+| `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
 | `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
+| `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
 
 > **訂正（2026-10-21、ST29 の spec）**: `data-durability` に ST29 を足した。ST29 は衛星の登録簿と資格情報の表を足し、書き出しは分類の無い表があると始まらない（正典）。
 > 登録簿を書き出しに入れるので、ST33 の Scenario「台帳と導出の表は書き出しに入らない」のファイルの一覧（「それ以外のファイルは無い」）を MODIFIED する
@@ -314,6 +326,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 **NFR-8（開発費 月 2,000 円以内）と NFR-11（開発に充てられる時間 週 15 時間）の 2 件。**
 これは実装する対象ではなく**プロジェクトの制約**なので、意図的にどの Story にも割り当てていない（下の「Story の対象外」で外している）。
 2026-10-11 の改訂で足した要件（FR-86〜FR-102 / NFR-24 / PERM-11〜PERM-15）は ST24 / ST27 / ST29 / ST37〜ST46 が拾った。
+2026-10-25 の改訂で足した要件（FR-104〜FR-130 / NFR-25 / NFR-26）は ST48〜ST58 が拾った。
 
 ## 着手前に閉じる必要がある扉
 
@@ -327,6 +340,10 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | #31 衛星向けの API の契約と SDK のライセンス | 決定済（2026-10-11。Apache-2.0）。衛星の口を作る ST38 / ST39 / ST45 より先に ST42 が契約を分けて反映する | ST42 |
 | #24 バックアップ暗号鍵の保管方式 | 初回バックアップの実行前 | ST31 |
 | #25 画面キャプチャの保持期間と文字抽出エンジン | 画面キャプチャの収集開始前 | ST35 |
+| #32 記録ごとに、書いた本体の部品の版を持つか | 本人の環境を配布の経路に切り替える日（ST52 の前に ST49） | ST49 |
+| #33 更新の履歴を残すか | 最初の更新の前（ST58 で更新を入れ始める前に ST51） | ST51 |
+| #34 C-01 のアプリ識別子と署名鍵 | 最初に APK を配る前（ST52 が正式な鍵で署名する。本人の端末も debug の鍵の版から 1 回入れ直す） | ST52, ST54 |
+| #35 AGPL の追加の許可（Google Play 開発者サービス） | 最初に配布物を公開する前 | ST53 |
 
 ## Story の対象外
 
@@ -339,6 +356,14 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 ## 訂正の記録
 
 （`check_chain.py` が「Story の対象外」の節を後ろまで読むので、訂正の注記はこの節に分けた。★ 2026-10-11）
+
+> **追加（2026-10-25、配布と更新の改訂）**
+>
+> - ST48〜ST58 を足した（要件 FR-104〜FR-130 / NFR-25 / NFR-26。経緯は `docs/audit/2026-10-25-consistency.md`）
+> - capability `distribution` を新しく立てた。リリースとチャンネル・インストール・更新・DB の版の守り・更新の履歴・許諾をここに積む。
+>   記録に付ける版（ST49）と送信契約の版（ST50）は記録の骨格と収集の送り方なので `record-envelope` / `device-collection` / `desktop-collection` に積み、
+>   更新の履歴（ST51）は途絶の理由なので `collection-coverage` にも積む
+> - 扉の期限を requires で守る: ST52（最初に配る）の前に ST48（古い版の拒否。最初に配る版に入れる）と ST49（扉 #32）、ST58（更新を入れる）の前に ST51（扉 #33）
 
 > **訂正（2026-09-29、ST05 の上流工程 spec）**
 >
