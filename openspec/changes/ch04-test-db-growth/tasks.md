@@ -59,10 +59,10 @@
 
 ## Task 3: 片付け —— 走っていない回のものと、印の無い `_tmp_` の残り
 
-- [ ] 3.1 design D6 の片付けを `testdb.rs` に書き、回の初め（1.1 の手順 3）で呼ぶ。消すのは `ashiato_run_<12 桁>` で始まり助言ロックを `pg_try_advisory_lock` で取れたもの（取れたらすぐ外す）と、`_tmp_` を含み `ashiato_run_` で始まらないもの。
+- [x] 3.1 design D6 の片付けを `testdb.rs` に書き、回の初め（1.1 の手順 3）で呼ぶ。消すのは `ashiato_run_<12 桁>` で始まり助言ロックを `pg_try_advisory_lock` で取れたもの（取れたらすぐ外す）と、`_tmp_` を含み `ashiato_run_` で始まらないもの。
   `DROP DATABASE … WITH (FORCE)`。`ashiato`・`postgres`・`template0`・`template1` とそれ以外の名前には触らない。片付けは関数として試験から呼べる形にする（`testdb::sweep()`）。
   検証: `cargo build -p ashiato-server --tests` rc=0
-- [ ] 3.2 `testdb_tests.rs` に 3 本を足す（片付けの試験は、ほかの回の database を作るので `db-ok: 片付けの試験の材料` の印を付ける）。
+- [x] 3.2 `testdb_tests.rs` に 3 本を足す（片付けの試験は、ほかの回の database を作るので `db-ok: 片付けの試験の材料` の印を付ける）。
   材料の database は **TEMPLATE を使わない空の database** として作り、3 本は 1 つの `tokio::sync::Mutex`（`SWEEP_SERIAL`）で並ばせない（ほかの試験の片付けが作りかけの材料を消して作る段で落ちるのを避ける。design の Risks）:
   `ch04_sweep_drops_an_orphan_run`（`// Scenario: 持ち主のいない回の database は、次の回の始まりに消える`。誰もロックを持たない回の id で `_tpl`・本体・`_x_…`・`_tmp_…` の 4 つを作り、`sweep()` の後に 4 つとも無い）/
   `ch04_sweep_keeps_a_running_run_without_connections`（`// Scenario: 走っている回の database は、接続が 0 本でも消えない`。別の接続でその回の助言ロックを持ち、database には繋がずに `sweep()`、残っている。後でロックを外して自分で消す）/
