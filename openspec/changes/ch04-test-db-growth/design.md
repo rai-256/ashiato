@@ -94,7 +94,7 @@
 ### D5（仮）. 使い捨ての database は `testdb::scratch()` が作る
 
 - いまの 5 か所（`clock_tests.rs`・`feelings_tests.rs`・`stay_tests.rs`・`attributes_tests.rs`・`places_tests.rs`）の自前の `fresh_db()` の中身を、`testdb::scratch().await`（空の `<id>_tmp_…` を作り、`TestDb` と同じ Drop を持つ値を返す）に替える。
-  `fresh_db()` の名前と戻り値の形（プールと、待つと消える future）は残す（呼び出し側と、`fresh_db` を使う CH02 の `export_window_tests.rs` を書き換えない）。future は Drop と二重に消しても落ちない（`DROP DATABASE IF EXISTS`）
+  `fresh_db()` の名前と戻り値の形（プールと、待つと消える future）は残す（呼び出し側と、`fresh_db` を使う CH02 の `export_window_tests.rs` を書き換えない）。future は接続を閉じて `TestDb` を drop するだけで、自分では `DROP` を打たない（消すのは Drop だけ。Drop だけが拒まれたときの待ちと打ち直しを持つ。review/code.md R14）
 - **database を作る書き方を `testdb.rs` の外に置かせない**: `tools/check-test-db-growth.sh --lint` が `crates/server/src` と `crates/server/tests` の `CREATE DATABASE` を挙げて落とし、文言に `testdb::isolated()` と `testdb::scratch()` を示す。
   `testdb.rs` と、行に `db-ok: <理由>` の印がある行（同じ行か 1 行上。CH03 の `tmp-ok:` と同じ規則）は通す。片付けの試験（D6）が持ち主のいない回の database を作るのは、この印で通す
 - 同じ `--lint` が、書き出しの試験のファイル（`crates/server/src/export*_tests.rs`）の `testdb::pool()` も落とし、文言に `testdb::isolated()` を示す（同じ `db-ok:` で通す）。
@@ -209,6 +209,13 @@ CH04 を CH03 に依らせると、CH03 の gate を待つ理由のない作業�
 - `docs/testing.md` に 1 節: 試験の DB は回ごとに作られ、次の回の始まりに片付く / 書き出しの試験と使い捨ては `testdb::isolated()`・`testdb::scratch()` / `CREATE DATABASE` を書かない / `ASHIATO_TEST_STATEMENT_TIMEOUT` / 台本の使い方
 - `docs/flow-gates.md` の検査の表に `tools/check-test-db-growth.sh` を 1 行
 - `testdb.rs` の冒頭の注記に、回の database と片付けの規則（D1・D6）を書く
+
+### D16（仮）. 台本の説明の行に Scenario の印の字を書かない
+
+- `tools/check-tests-kept.sh` の冒頭の説明は印を「Scenario の印」と書く（印の字のまま書くと、`check_scenarios.py` が spec に無い Scenario を指す印として拾い warn を出す。review/code.md R16）。
+  台本の中で印の字が要るところは `--self-test` と同じく字を分けて組む
+
+反転条件: `check_scenarios.py` がコメントの中の説明を印と区別するようになれば、この書き方の制約は外す。
 
 ## Risks / Trade-offs
 

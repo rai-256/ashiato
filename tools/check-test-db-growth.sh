@@ -10,14 +10,18 @@
 # 見るのは 2 つ（どちらも `crates/server` の下）:
 #   1. `src` と `tests` の `CREATE DATABASE` —— `testdb.rs` の中だけに書く。ほかは `testdb::isolated()`（回のテンプレートの写し）か
 #      `testdb::scratch()`（空）を使う。
-#   2. `src/export*_tests.rs` の `testdb::pool()` —— 書き出しの試験は回の database を共有せず、試験ごとの database（`testdb::isolated()`）を取る。
+#   2. `src/export*_tests.rs` の回の database への繋ぎ口（`testdb::pool()`・`testdb::app_pool()`・`testdb::pool_with_statement_timeout(…)`・
+#      `testdb::url()` と、それらを `use` で取り込む行）—— 書き出しの試験は回の database を共有せず、試験ごとの database（`testdb::isolated()`）を取る。
 # 通すのは `testdb.rs` と、同じ行か 1 行上に理由つきの `db-ok: <理由>` がある行。
 #
 # 積もりの検査（design D8）: 一覧 S0 → 試験 1 回目 → 一覧 S1 → 試験 2 回目 → 一覧 S2（一覧は postgres database から読んだ `pg_database` の名前）。
+# 2 回の走りは片付けの試験（`ch04_sweep_`）を外す（`-- --skip ch04_sweep_` を足す）。それらは `testdb::sweep()` を直に呼んで 1 回目の回を消し、
+# 回の始まりの片付けが無くても検査を通してしまう（review/code.md R12）。先に `-- --list` で走る試験が 1 本以上あることを見る（0 本なら rc=1。R20）。
 # 判定は順に、最初に外れたもので落ちる:
 #   試験の rc（0 でなければその rc）→ 前の回の残り（S1 にあって S0 に無く、S2 にも残る）→ 最後の回の余計な残り（S2 にあって S1 に無い名前のうち、
 #   `_x_`・`_tmp_` を含むもの、または `ashiato_run_` の回の id が 2 つ以上）→ S0 にあった `ashiato` が S2 に無い。落ちるときは名前を挙げる。
-# 差し替え: `TEST_DB_CMD`（試験の命令。既定は `cargo test <引数>`）・`TEST_DB_LIST_CMD`（一覧。1 行 1 名前を標準出力へ）。
+# 差し替え: `TEST_DB_CMD`（試験の命令。既定は `cargo test <引数>`。`"$@"` で引数を受ける）・`TEST_DB_LIST_CMD`（一覧。1 行 1 名前を標準出力へ）・
+#   `TEST_DB_COUNT_CMD`（走る試験の数を標準出力へ。`"$@"` で引数を受ける。`TEST_DB_CMD` だけを差し替えたときは数えない）。
 # **同じ worktree で別の `cargo test` と並べて走らせない**（並んだ回の database が S1 と S2 の差に入る）。
 #
 # なぜ要るか（CH04）: 試験の database の作り方が 5 か所に散り、回の印を持たない `st*_tmp_…` が `ashiato` の隣に溜まって
@@ -34,8 +38,9 @@ lint() {
   # 行頭が // の説明の行（/// も）は、書き方でなく文章なので見ない
   hits=$(grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' <<<"$hits" || true)
   report "$root" "$hits" "CREATE DATABASE は testdb.rs の中だけに書く。試験ごとの写しは testdb::isolated()、空の使い捨ては testdb::scratch() を使う。持ち主のいない回の database を作る片付けの試験などは、同じ行か 1 行上に db-ok: <理由> を書く" || bad=1
-  # 2 つ目: 書き出しの試験の testdb::pool()。Rust の識別子は大文字と小文字を分けるので、わざと字のとおりに比べる
-  hits=$(cd "$root" && grep -HnE 'testdb::pool\(\)' crates/server/src/export*_tests.rs 2>/dev/null || true)
+  # 2 つ目: 書き出しの試験の回の database への繋ぎ口。Rust の識別子は大文字と小文字を分けるので、わざと字のとおりに比べる
+  local shared='(pool|app_pool|pool_with_statement_timeout|url)'
+  hits=$(cd "$root" && grep -HnE "testdb::$shared\\b|use [^;]*testdb::\\{[^}]*\\b$shared\\b" crates/server/src/export*_tests.rs 2>/dev/null || true)
   report "$root" "$hits" "書き出しの試験は回の database を共有しない。試験ごとの database を取る testdb::isolated() を使う（回の database を見ること自体を確かめるなら、同じ行か 1 行上に db-ok: <理由> を書く）" || bad=1
   return $bad
 }
@@ -62,14 +67,31 @@ list_dbs() {
   else tools/db.sh exec -T db psql -U "${POSTGRES_USER:-ashiato}" -d postgres -tA -c 'SELECT datname FROM pg_database ORDER BY 1'; fi
 }
 run_tests() {
-  if [[ -n ${TEST_DB_CMD:-} ]]; then bash -c "$TEST_DB_CMD"; else cargo test "$@"; fi
+  if [[ -n ${TEST_DB_CMD:-} ]]; then bash -c "$TEST_DB_CMD" _ "$@"; else cargo test "$@"; fi
+}
+count_tests() {
+  if [[ -n ${TEST_DB_COUNT_CMD:-} ]]; then bash -c "$TEST_DB_COUNT_CMD" _ "$@"
+  elif [[ -n ${TEST_DB_CMD:-} ]]; then echo 1
+  else cargo test "$@" --list 2>/dev/null | grep -c ': test$' || true; fi
 }
 
 # growth [cargo test の引数…]
 growth() {
-  local s0 s1 s2 rc left extra ids
+  local s0 s1 s2 rc left extra ids n a cargo_args=() test_args=() after=0
   [[ $# == 0 ]] && set -- -p ashiato-server
-  if [[ -z ${TEST_DB_CMD:-} ]]; then cargo test --no-run "$@"; fi
+  # cargo の引数と、`--` の後の試験の実行ファイルの引数に分け、後ろに片付けの試験を外す引数を足す
+  for a in "$@"; do
+    if [[ $after == 0 && $a == -- ]]; then after=1
+    elif [[ $after == 0 ]]; then cargo_args+=("$a")
+    else test_args+=("$a"); fi
+  done
+  test_args+=(--skip ch04_sweep_)
+  set -- "${cargo_args[@]}" -- "${test_args[@]}"
+  if [[ -z ${TEST_DB_CMD:-} ]]; then cargo test --no-run "${cargo_args[@]}"; fi
+  n=$(count_tests "$@")
+  if [[ ! $n =~ ^[0-9]+$ || $n == 0 ]]; then
+    echo "走る試験が 0 本（cargo test $*）。絞り込みの名前が試験と合っていない" >&2; return 1
+  fi
   s0=$(list_dbs | sort -u)
   rc=0; run_tests "$@" || rc=$?
   [[ $rc != 0 ]] && { echo "試験 1 回目が rc=$rc で落ちた" >&2; return "$rc"; }
@@ -147,6 +169,16 @@ self_test() {
   rm "$tmp/t/crates/server/src/export_x_tests.rs"
   run
   want "export 以外の試験の testdb::pool() は見ない" "$([[ $rc == 0 ]]; echo $?)"
+  for line in 'let p = testdb::app_pool().await;' 'let p = testdb::pool_with_statement_timeout("5s").await;' \
+      'let u = testdb::url();' 'use crate::testdb::pool;' 'use crate::testdb::{isolated, pool};'; do
+    printf '%s\n' "$line" >"$tmp/t/crates/server/src/export_x_tests.rs"
+    run
+    want "書き出しの試験の「$line」で rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  done
+  printf 'use crate::testdb;\nlet db = testdb::isolated().await;\nlet p = db.pool().await;\n' >"$tmp/t/crates/server/src/export_x_tests.rs"
+  run
+  want "書き出しの試験の testdb::isolated() と TestDb::pool() は通す" "$([[ $rc == 0 ]]; echo $?)"
+  rm "$tmp/t/crates/server/src/export_x_tests.rs"
 
   echo "Scenario: CH04 の後の木は、database を作る書き方の検査を通る"
   set +e; lint "$PWD" >/dev/null 2>&1; rc=$?; set -e
@@ -154,11 +186,14 @@ self_test() {
 
   # ---- 積もりの検査 ----
   # g <S0> <S1> <S2> [試験の命令] : 偽の一覧 3 つで growth を走らせる（一覧は 1 行 1 名前をスペース区切りで渡す）
+  # g <S0> <S1> <S2> [試験の命令] [走る試験の数] [growth の引数…]
   g() {
     local d="$tmp/g"; rm -rf "$d"; mkdir -p "$d"
     printf '%s\n' $1 >"$d/s0"; printf '%s\n' $2 >"$d/s1"; printf '%s\n' $3 >"$d/s2"; echo 0 >"$d/n"
+    local cmd="${4:-true}" count="${5:-1}"; shift 3; shift $(( $# < 2 ? $# : 2 ))
     set +e
-    out=$(TEST_DB_CMD="${4:-true}" TEST_DB_LIST_CMD="n=\$(cat $d/n); echo \$((n+1)) >$d/n; cat $d/s\$n" growth 2>&1)
+    out=$(TEST_DB_CMD="$cmd" TEST_DB_COUNT_CMD="echo $count" \
+      TEST_DB_LIST_CMD="n=\$(cat $d/n); echo \$((n+1)) >$d/n; cat $d/s\$n" growth "$@" 2>&1)
     rc=$?; set -e
   }
   A="ashiato postgres"
@@ -194,6 +229,17 @@ self_test() {
   echo "Scenario: 試験が落ちれば、台本も試験の終了コードで落ちる"
   g "$A" "$A $R1" "$A $R2" "exit 101"
   want "試験が rc=101 なら台本も rc=101" "$([[ $rc == 101 ]]; echo $?)"
+
+  echo "走る試験が 0 本なら落ちる（review/code.md R20）"
+  g "$A" "$A $R1" "$A $R2" true 0
+  want "0 本なら rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  want "0 本と出す" "$(grep -q '0 本' <<<"$out"; echo $?)"
+
+  echo "2 回の走りは片付けの試験を外す（review/code.md R12）"
+  g "$A" "$A $R1" "$A $R2" "printf '%s\\n' \"\$@\" >>$tmp/args" 1 -p ashiato-server ch04_ -- --nocapture
+  want "片付けの試験を外す引数を渡す" "$(grep -qx -- '--skip' "$tmp/args" && grep -qx ch04_sweep_ "$tmp/args"; echo $?)"
+  want "-- の後の引数を残し、-- を 1 つにする" "$(grep -qx -- --nocapture "$tmp/args" && [[ $(grep -cx -- -- "$tmp/args") == 2 ]]; echo $?)"
+  want "cargo の引数を残す" "$(grep -qx ch04_ "$tmp/args"; echo $?)"
 
   echo "Scenario: 前の回が片付き、最後の回の分だけが残れば、台本は通る"
   g "$A" "$A $R1" "$A $R2"

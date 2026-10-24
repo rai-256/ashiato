@@ -83,8 +83,8 @@ pub fn statement_timeout_from(env_value: Option<&str>) -> String {
     }
 }
 
-/// いまの環境が決める上限。
-fn statement_timeout() -> String {
+/// いまの環境が決める上限（試験が、足場の接続に入った値と比べるためにも使う）。
+pub(crate) fn statement_timeout() -> String {
     statement_timeout_from(
         std::env::var("ASHIATO_TEST_STATEMENT_TIMEOUT")
             .ok()
@@ -169,12 +169,16 @@ fn hold_run_lock(postgres_url: String, run_id: String) {
 }
 
 /// 名前が回の database（`ashiato_run_<12 桁の 16 進>` の後ろが空か `_…`）なら、その回の id。
-fn run_id_of(name: &str) -> Option<&str> {
+pub(crate) fn run_id_of(name: &str) -> Option<&str> {
     let rest = name.strip_prefix("ashiato_run_")?;
     let digits = rest.get(..12)?;
     let tail = &rest[12..];
-    (digits.bytes().all(|b| b.is_ascii_hexdigit()) && (tail.is_empty() || tail.starts_with('_')))
-        .then(|| &name[.."ashiato_run_".len() + 12])
+    // 16 進は小文字だけ（`random12()` が作る字。`tools/check-test-db-growth.sh` の回の id と同じ定義）
+    (digits
+        .bytes()
+        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && (tail.is_empty() || tail.starts_with('_')))
+    .then(|| &name[.."ashiato_run_".len() + 12])
 }
 
 /// 前の回の database の片付け（design D6）。呼ぶ側が `LOCK_SWEEP_AND_CREATE` を持っている。
@@ -267,9 +271,18 @@ async fn create_from_template(admin: &mut sqlx::PgConnection, name: &str, templa
     }
 }
 
+/// 回の database の作成に入ったか。`OnceCell` は初期化が panic すると未設定に戻り、次の試験がまた作り直す
+/// —— そのたびに回の助言ロックの接続と作りかけの `<id>_tpl` が過程の終わりまで残り、接続の上限を使い切って
+/// 本当の原因（移行のエラーなど）を埋める（review/code.md R17）。2 度目は作らずに、最初の失敗を見るよう示して落ちる。
+static RUN_ATTEMPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// 回の database を作る（design D2 の 1〜6）。
 async fn create_run() -> Run {
     use sqlx::Connection;
+    assert!(
+        !RUN_ATTEMPTED.swap(true, std::sync::atomic::Ordering::SeqCst),
+        "回の database の作成が前に落ちている。最初に落ちた試験の出力（移行や権限のエラー）を見る"
+    );
     let owner_url = with_port(&url_from_env("DATABASE_OWNER_URL"), db_port());
     let postgres_url = with_database(&owner_url, "postgres");
     let id = format!("ashiato_run_{}", random12());
@@ -421,7 +434,7 @@ impl Drop for TestDb {
 
 /// 回のテンプレートの写しを、この試験だけの database として作る（書き出しの試験用。design D4）。
 pub async fn isolated() -> TestDb {
-    drop(pool().await);
+    RUN.get_or_init(create_run).await;
     let run = database_of_run();
     let name = format!("{run}_x_{}", random12());
     let postgres_url = with_database(&url(), "postgres");
@@ -444,7 +457,7 @@ pub async fn isolated() -> TestDb {
 
 /// 空の使い捨ての database（`<回の id>_tmp_…`。移行の当て方などを見る試験用。design D5）。
 pub async fn scratch() -> TestDb {
-    drop(pool().await);
+    RUN.get_or_init(create_run).await;
     let name = format!("{}_tmp_{}", database_of_run(), random12());
     let postgres_url = with_database(&url(), "postgres");
     let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
@@ -490,9 +503,9 @@ pub async fn pool_with_statement_timeout(timeout: &str) -> sqlx::PgPool {
 }
 
 /// アプリの役割（`DATABASE_URL`）で繋いだプール。**役割の試験だけが使う。** 繋ぎ先は回の database。
-/// 先に所有者の `pool()` で回の database を作っておく。
+/// 先に回の database を作っておく。
 pub async fn app_pool() -> sqlx::PgPool {
-    drop(pool().await);
+    RUN.get_or_init(create_run).await;
     let url = with_database(
         &with_port(&url_from_env("DATABASE_URL"), db_port()),
         &database_of_run(),

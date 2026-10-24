@@ -386,15 +386,72 @@ async fn ch04_statement_timeout_cancels_a_long_query() {
     assert_eq!(code.as_deref(), Some("57014"), "取り消しでない: {err}");
 }
 
+async fn shown_statement_timeout(pool: &sqlx::PgPool) -> String {
+    sqlx::query_scalar("SHOW statement_timeout")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 // Scenario: 上限の既定は 60 秒で、試験の足場の接続に入っている
 #[tokio::test]
 async fn ch04_statement_timeout_default_is_set() {
-    let pool = testdb::pool().await;
-    let shown: String = sqlx::query_scalar("SHOW statement_timeout")
-        .fetch_one(&pool)
-        .await
+    // 既定そのもの（環境変数を置いた環境でも、既定の値で繋いだ接続で見る。review/code.md R19）
+    let default = testdb::pool_with_statement_timeout(&testdb::statement_timeout_from(None)).await;
+    assert_eq!(shown_statement_timeout(&default).await, "1min");
+    // 足場の全部の接続に、いまの環境が決める上限が入っている（review/code.md R13）
+    let want = shown_statement_timeout(
+        &testdb::pool_with_statement_timeout(&testdb::statement_timeout()).await,
+    )
+    .await;
+    let isolated = testdb::isolated().await;
+    let scratch = testdb::scratch().await;
+    for (what, pool) in [
+        ("pool()", testdb::pool().await),
+        ("app_pool()", testdb::app_pool().await),
+        ("isolated().pool()", isolated.pool().await),
+        ("scratch().pool()", scratch.pool().await),
+    ] {
+        assert_eq!(
+            shown_statement_timeout(&pool).await,
+            want,
+            "{what} に上限が入っていない"
+        );
+        pool.close().await;
+    }
+}
+
+// Scenario: 環境変数の値が上限になり、0 なら上限を置かない
+#[test]
+fn ch04_statement_timeout_env_is_read() {
+    // 環境変数は並走する試験に効くので、この試験の実行ファイルを子の過程で起こして渡す（review/code.md R13）
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "testdb_tests::ch04_statement_timeout_env_child",
+            "--ignored",
+            "--test-threads=1",
+        ])
+        .env("ASHIATO_TEST_STATEMENT_TIMEOUT", "7s")
+        .env("CH04_EXPECT_STATEMENT_TIMEOUT", "7s")
+        .output()
         .unwrap();
-    assert_eq!(shown, "1min");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && text.contains("1 passed"),
+        "子の過程で環境変数の値が上限にならない:\n{text}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `ch04_statement_timeout_env_is_read` が子の過程で起こす側（単独では走らせない）。
+#[test]
+#[ignore = "ch04_statement_timeout_env_is_read が環境変数を渡して起こす"]
+fn ch04_statement_timeout_env_child() {
+    assert_eq!(
+        testdb::statement_timeout(),
+        std::env::var("CH04_EXPECT_STATEMENT_TIMEOUT").unwrap()
+    );
 }
 
 // Scenario: 環境変数の値が上限になり、0 なら上限を置かない
@@ -403,4 +460,17 @@ fn ch04_statement_timeout_from_env_value() {
     assert_eq!(testdb::statement_timeout_from(None), "60s");
     assert_eq!(testdb::statement_timeout_from(Some("1s")), "1s");
     assert_eq!(testdb::statement_timeout_from(Some("0")), "0");
+}
+
+/// 回の id は `ashiato_run_` と小文字の 16 進 12 桁（`tools/check-test-db-growth.sh` の正規表現と同じ定義。review/code.md R24）。
+#[test]
+fn ch04_run_id_is_lowercase_hex() {
+    let id = "ashiato_run_0123456789ab";
+    assert_eq!(testdb::run_id_of(id), Some(id));
+    assert_eq!(testdb::run_id_of(&format!("{id}_tpl")), Some(id));
+    assert_eq!(testdb::run_id_of(&format!("{id}_x_cccccccccccc")), Some(id));
+    assert_eq!(testdb::run_id_of("ashiato_run_ABCDEF012345"), None);
+    assert_eq!(testdb::run_id_of("ashiato_run_gggggggggggg"), None);
+    assert_eq!(testdb::run_id_of("ashiato_run_0123456789a"), None);
+    assert_eq!(testdb::run_id_of(&format!("{id}x")), None);
 }
