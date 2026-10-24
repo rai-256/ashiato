@@ -626,12 +626,12 @@ async fn purge_schema_stay_erased_reads_the_span_and_hides_absorbed() {
 use crate::deletion::{self, PurgeCounts, PurgeError};
 use chrono::{DateTime, Duration, Utc};
 
-fn at(s: &str) -> DateTime<Utc> {
+pub(crate) fn at(s: &str) -> DateTime<Utc> {
     s.parse().unwrap()
 }
 
 /// 派生の滞在 1 件（本文あり。時間は `payload` の `start` / `end`）。
-async fn scene_stay(pool: &PgPool, user: Uuid, start: &str, end: &str) -> Uuid {
+pub(crate) async fn scene_stay(pool: &PgPool, user: Uuid, start: &str, end: &str) -> Uuid {
     let id = Uuid::new_v4();
     let body = serde_json::json!({
         "start": at(start).to_rfc3339(), "end": at(end).to_rfc3339(), "lat": 35.68, "lon": 139.76,
@@ -655,7 +655,13 @@ async fn scene_stay(pool: &PgPool, user: Uuid, start: &str, end: &str) -> Uuid {
 }
 
 /// 収集した記録 1 件（論理ソースと原文を指す）。
-async fn scene_event(pool: &PgPool, user: Uuid, source: &str, when: &str, raw: &str) -> Uuid {
+pub(crate) async fn scene_event(
+    pool: &PgPool,
+    user: Uuid,
+    source: &str,
+    when: &str,
+    raw: &str,
+) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO core.event
@@ -677,12 +683,19 @@ async fn scene_event(pool: &PgPool, user: Uuid, source: &str, when: &str, raw: &
 
 const POINT: &str = r#"{"lat":35.68,"lon":139.76,"acc_m":10}"#;
 
-async fn scene_location(pool: &PgPool, user: Uuid, when: &str) -> Uuid {
+pub(crate) async fn scene_location(pool: &PgPool, user: Uuid, when: &str) -> Uuid {
     scene_event(pool, user, "c01-location", when, POINT).await
 }
 
 /// 前の版 1 件（滞在。時間は `start` / `end`）。
-async fn scene_version(pool: &PgPool, stay: Uuid, user: Uuid, no: i32, start: &str, end: &str) {
+pub(crate) async fn scene_version(
+    pool: &PgPool,
+    stay: Uuid,
+    user: Uuid,
+    no: i32,
+    start: &str,
+    end: &str,
+) {
     let body = serde_json::json!({
         "start": at(start).to_rfc3339(), "end": at(end).to_rfc3339(), "lat": 35.68, "lon": 139.76,
     })
@@ -704,7 +717,7 @@ async fn scene_version(pool: &PgPool, stay: Uuid, user: Uuid, no: i32, start: &s
 }
 
 /// 作り直しの印で隠れた滞在にする（`rebuild:absorbed` など）。
-async fn scene_mark_rebuild(pool: &PgPool, id: Uuid, mark: &str) {
+pub(crate) async fn scene_mark_rebuild(pool: &PgPool, id: Uuid, mark: &str) {
     sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
         .bind(id)
         .bind(mark)
@@ -714,7 +727,7 @@ async fn scene_mark_rebuild(pool: &PgPool, id: Uuid, mark: &str) {
 }
 
 /// 原文と解析済みの**両方**を DB から読み、どちらも空か。
-async fn emptied(pool: &PgPool, id: Uuid) -> bool {
+pub(crate) async fn emptied(pool: &PgPool, id: Uuid) -> bool {
     sqlx::query_scalar("SELECT raw = '' AND payload = '{}'::jsonb FROM core.event WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -723,7 +736,7 @@ async fn emptied(pool: &PgPool, id: Uuid) -> bool {
 }
 
 /// 原文も解析済みも残っているか。
-async fn kept(pool: &PgPool, id: Uuid) -> bool {
+pub(crate) async fn kept(pool: &PgPool, id: Uuid) -> bool {
     sqlx::query_scalar("SELECT raw <> '' AND payload <> '{}'::jsonb FROM core.event WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -743,12 +756,12 @@ async fn versions_emptied(pool: &PgPool, id: Uuid) -> (i64, i64) {
 }
 
 /// 「消した」にして、確認と同じ数え方で数えた件数を添えて本文ごと消す。
-async fn purge_now(pool: &PgPool, stay: Uuid) -> deletion::PurgeOutcome {
+pub(crate) async fn purge_now(pool: &PgPool, stay: Uuid) -> deletion::PurgeOutcome {
     let counts = scope_counts(pool, stay).await;
     deletion::purge(pool, stay, None, counts).await.unwrap()
 }
 
-async fn scope_counts(pool: &PgPool, stay: Uuid) -> PurgeCounts {
+pub(crate) async fn scope_counts(pool: &PgPool, stay: Uuid) -> PurgeCounts {
     let mut tx = pool.begin().await.unwrap();
     let scope = deletion::purge_scope(&mut tx, stay).await.unwrap();
     tx.rollback().await.unwrap();
@@ -756,12 +769,12 @@ async fn scope_counts(pool: &PgPool, stay: Uuid) -> PurgeCounts {
 }
 
 /// 滞在を ST22 の口で消す（その時間の位置が一緒に消える）。
-async fn scene_erase(pool: &PgPool, stay: Uuid) {
+pub(crate) async fn scene_erase(pool: &PgPool, stay: Uuid) {
     deletion::erase(pool, stay, None).await.unwrap();
 }
 
 /// 10:00–11:00 の滞在と、その中の位置 3 件。
-async fn scene_basic(pool: &PgPool, user: Uuid) -> (Uuid, Vec<Uuid>) {
+pub(crate) async fn scene_basic(pool: &PgPool, user: Uuid) -> (Uuid, Vec<Uuid>) {
     let stay = scene_stay(
         pool,
         user,
@@ -1116,7 +1129,7 @@ async fn purge_scope_emptied_row_keeps_time_and_hash() {
 }
 
 /// 10:05–11:48 の滞在・位置 70 件・前の版 20 件（1 つ目は 10:05–11:30）を本文ごと消して、操作の行を返す。
-async fn scene_big_purge(pool: &PgPool, user: Uuid) -> (Uuid, Uuid) {
+pub(crate) async fn scene_big_purge(pool: &PgPool, user: Uuid) -> (Uuid, Uuid) {
     let stay = scene_stay(
         pool,
         user,

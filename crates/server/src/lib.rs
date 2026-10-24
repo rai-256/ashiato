@@ -154,6 +154,9 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
+/// 本文ごと消す口（確認・消す・戻す口の断り）を HTTP の口から見る（ST23 Task 4 / design D1 / D6）。
+#[cfg(test)]
+mod purge_api_tests;
 /// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
 #[cfg(test)]
 mod purge_tests;
@@ -2070,7 +2073,8 @@ pub async fn stays_erase(
 
 /// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
 #[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
-    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404)))]
+    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404),
+        (status = 409)))]
 pub async fn stays_restore(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2109,6 +2113,148 @@ pub async fn stays_restore(
             stays: outcome.stays,
             locations: outcome.locations,
         },
+    }))
+}
+
+/// `GET /stays/purge/preview` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PurgePreviewQuery {
+    stay_id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 本文ごと消す前に見せる時間の範囲。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeRange {
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+}
+
+/// `GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgePreview {
+    counts: deletion::PurgeCounts,
+    range: PurgeRange,
+    /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（数えるのは Task 8）
+    copies: u32,
+    /// 消えずに残るもの（書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しまでの痕跡。Task 8 が入れる）
+    remains: Vec<String>,
+    /// すでに本文ごと消した滞在（件数はすべて 0）
+    purged: bool,
+}
+
+/// `POST /stays/purge` の本文。`expected` は確認で見せた件数。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PurgeRequest {
+    pub stay_id: uuid::Uuid,
+    pub user_id: Option<uuid::Uuid>,
+    pub expected: deletion::PurgeCounts,
+}
+
+/// `POST /stays/purge` の成功の応答。すでに本文ごと消した滞在は件数 0・`operation_id` なし。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeOutcome {
+    counts: deletion::PurgeCounts,
+    operation_id: Option<uuid::Uuid>,
+}
+
+/// `GET /stays/purge/preview` と `POST /stays/purge` の 409 の本文。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeRefused {
+    /// `not_erased` / `counts_changed` / `unknown_source`
+    reason: &'static str,
+    /// `counts_changed` のときだけ、数え直した件数
+    #[serde(skip_serializing_if = "Option::is_none")]
+    counts: Option<deletion::PurgeCounts>,
+}
+
+/// 本文ごと消す口の断り（応答を箱に入れて `Result` の `Err` を小さく保つ）。
+#[derive(Debug)]
+pub struct PurgeHttpError(Box<axum::response::Response>);
+
+impl axum::response::IntoResponse for PurgeHttpError {
+    fn into_response(self) -> axum::response::Response {
+        *self.0
+    }
+}
+
+fn purge_refusal(err: deletion::PurgeError, at: &'static str) -> PurgeHttpError {
+    PurgeHttpError(Box::new(purge_response(err, at)))
+}
+
+fn purge_response(err: deletion::PurgeError, at: &'static str) -> axum::response::Response {
+    let conflict = |reason, counts| {
+        (StatusCode::CONFLICT, Json(PurgeRefused { reason, counts })).into_response()
+    };
+    match err {
+        deletion::PurgeError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found").into_response(),
+        deletion::PurgeError::UserMismatch => {
+            tracing::warn!(
+                kind = "purge_user_mismatch",
+                "滞在の利用者と添えられた利用者が違うため断った"
+            );
+            (StatusCode::NOT_FOUND, "stay_not_found").into_response()
+        }
+        deletion::PurgeError::NotErased => conflict("not_erased", None),
+        deletion::PurgeError::CountsChanged(counts) => conflict("counts_changed", Some(counts)),
+        deletion::PurgeError::UnknownSource => conflict("unknown_source", None),
+        deletion::PurgeError::Database(e) => internal_at(at, e).into_response(),
+    }
+}
+
+/// 本文ごと消す前に、消える件数を数えて返す。何も書かない。
+#[utoipa::path(get, path = "/stays/purge/preview", params(PurgePreviewQuery),
+    responses((status = 200, body = PurgePreview), (status = 401), (status = 404),
+        (status = 409, body = PurgeRefused)))]
+pub async fn stays_purge_preview_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PurgePreviewQuery>,
+) -> Result<Json<PurgePreview>, PurgeHttpError> {
+    authorize(&app, &headers)
+        .await
+        .map_err(|e| PurgeHttpError(Box::new(e.into_response())))?;
+    let scope = deletion::purge_preview(&app.pool, q.stay_id, q.user_id)
+        .await
+        .map_err(|e| purge_refusal(e, "stays.purge_preview"))?;
+    Ok(Json(PurgePreview {
+        counts: scope.counts,
+        range: PurgeRange {
+            start: scope.start,
+            end: scope.end,
+        },
+        copies: 0,
+        remains: Vec::new(),
+        purged: scope.already_purged,
+    }))
+}
+
+/// 消した滞在を、確認で見せた件数と同じときだけ本文ごと消す。
+#[utoipa::path(post, path = "/stays/purge", request_body = PurgeRequest,
+    responses((status = 200, body = PurgeOutcome), (status = 401), (status = 404),
+        (status = 409, body = PurgeRefused)))]
+pub async fn stays_purge(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<PurgeRequest>,
+) -> Result<Json<PurgeOutcome>, PurgeHttpError> {
+    authorize(&app, &headers)
+        .await
+        .map_err(|e| PurgeHttpError(Box::new(e.into_response())))?;
+    let outcome = deletion::purge(&app.pool, req.stay_id, req.user_id, req.expected)
+        .await
+        .map_err(|e| purge_refusal(e, "stays.purge"))?;
+    let c = &outcome.counts;
+    tracing::info!(
+        kind = "stays.purge",
+        count = c.stays + c.locations + c.archive_locations + c.archive_items,
+        versions = c.versions,
+        "滞在を本文ごと消した"
+    );
+    Ok(Json(PurgeOutcome {
+        counts: outcome.counts,
+        operation_id: outcome.operation_id,
     }))
 }
 
@@ -3758,6 +3904,8 @@ pub fn router(app: App) -> Router {
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
+        .route("/stays/purge", post(stays_purge))
+        .route("/stays/purge/preview", get(stays_purge_preview_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
@@ -3966,6 +4114,8 @@ pub async fn run() -> anyhow::Result<()> {
         stays_detail_get,
         stays_erase,
         stays_restore,
+        stays_purge,
+        stays_purge_preview_get,
         stays_rebuild,
         stays_criteria_get,
         export_summary_get,
@@ -4033,6 +4183,12 @@ pub async fn run() -> anyhow::Result<()> {
         RestoreRequest,
         RestoreResponse,
         RestoredCounts,
+        deletion::PurgeCounts,
+        PurgePreview,
+        PurgeRange,
+        PurgeRequest,
+        PurgeOutcome,
+        PurgeRefused,
         ExportRequest,
         ExportStarted,
         ExportRefused,

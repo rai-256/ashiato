@@ -443,7 +443,17 @@ async fn ledger(
 // ------------------------------------------------------------------ 本文ごと消す（ST23 / design D2 / D3 / D6 / D15 / D17）
 
 /// 本文ごと消す範囲を組ごとに数えたもの（design D15）。確認で見せる数と台帳に残す数は同じ。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
 pub struct PurgeCounts {
     pub stays: u32,
     pub locations: u32,
@@ -700,6 +710,31 @@ pub async fn purge_scope(
         archive_items: count(Group::ArchiveItem),
         versions: scope.versions.len() as u32,
     };
+    Ok(scope)
+}
+
+/// 本文ごと消す前の確認。範囲を消す口と同じ `purge_scope` で数え、何も書かずに返す（design D1）。
+pub async fn purge_preview(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+) -> Result<PurgeScope, PurgeError> {
+    let mut tx = pool.begin().await?;
+    // 消す口と同じ順で断る: 滞在でない・無い → 404、利用者違い → 404、その後に 409
+    let owner: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT user_id FROM core.event
+          WHERE id = $1 AND logical_source = 's01-stay' AND origin = 'derived'",
+    )
+    .bind(stay_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let owner = owner.ok_or(PurgeError::NotFound)?;
+    if requested_user.is_some_and(|user| user != owner) {
+        return Err(PurgeError::UserMismatch);
+    }
+    let scope = purge_scope(&mut tx, stay_id).await?;
+    // 読むだけ。巻き戻して何も残さない。
+    tx.rollback().await?;
     Ok(scope)
 }
 

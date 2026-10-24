@@ -1791,6 +1791,109 @@
         }
       }
     },
+    "/stays/purge": {
+      "post": {
+        "tags": [],
+        "summary": "消した滞在を、確認で見せた件数と同じときだけ本文ごと消す。",
+        "operationId": "stays_purge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeOutcome"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeRefused"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stays/purge/preview": {
+      "get": {
+        "tags": [],
+        "summary": "本文ごと消す前に、消える件数を数えて返す。何も書かない。",
+        "operationId": "stays_purge_preview_get",
+        "parameters": [
+          {
+            "name": "stay_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgePreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeRefused"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/stays/rebuild": {
       "post": {
         "tags": [],
@@ -1857,6 +1960,9 @@
             "description": ""
           },
           "404": {
+            "description": ""
+          },
+          "409": {
             "description": ""
           }
         }
@@ -4610,6 +4716,166 @@
             "type": "string"
           }
         }
+      },
+      "PurgeCounts": {
+        "type": "object",
+        "description": "本文ごと消す範囲を組ごとに数えたもの（design D15）。確認で見せる数と台帳に残す数は同じ。",
+        "required": [
+          "stays",
+          "locations",
+          "archive_locations",
+          "archive_items",
+          "versions"
+        ],
+        "properties": {
+          "archive_items": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "archive_locations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "locations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "stays": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "versions": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PurgeOutcome": {
+        "type": "object",
+        "description": "`POST /stays/purge` の成功の応答。すでに本文ごと消した滞在は件数 0・`operation_id` なし。",
+        "required": [
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/PurgeCounts"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "PurgePreview": {
+        "type": "object",
+        "description": "`GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。",
+        "required": [
+          "counts",
+          "range",
+          "copies",
+          "remains",
+          "purged"
+        ],
+        "properties": {
+          "copies": {
+            "type": "integer",
+            "format": "int32",
+            "description": "範囲の記録が入っている可能性のある、残している書庫の写しの数（数えるのは Task 8）",
+            "minimum": 0
+          },
+          "counts": {
+            "$ref": "#/components/schemas/PurgeCounts"
+          },
+          "purged": {
+            "type": "boolean",
+            "description": "すでに本文ごと消した滞在（件数はすべて 0）"
+          },
+          "range": {
+            "$ref": "#/components/schemas/PurgeRange"
+          },
+          "remains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "消えずに残るもの（書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しまでの痕跡。Task 8 が入れる）"
+          }
+        }
+      },
+      "PurgeRange": {
+        "type": "object",
+        "description": "本文ごと消す前に見せる時間の範囲。",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PurgeRefused": {
+        "type": "object",
+        "description": "`GET /stays/purge/preview` と `POST /stays/purge` の 409 の本文。",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "counts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PurgeCounts",
+                "description": "`counts_changed` のときだけ、数え直した件数"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "`not_erased` / `counts_changed` / `unknown_source`"
+          }
+        }
+      },
+      "PurgeRequest": {
+        "type": "object",
+        "description": "`POST /stays/purge` の本文。`expected` は確認で見せた件数。",
+        "required": [
+          "stay_id",
+          "expected"
+        ],
+        "properties": {
+          "expected": {
+            "$ref": "#/components/schemas/PurgeCounts"
+          },
+          "stay_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
       },
       "Reading": {
         "type": "object",
