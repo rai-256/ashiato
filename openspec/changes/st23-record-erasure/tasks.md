@@ -107,7 +107,7 @@
 
 ## Task 6: 書庫の後着の本文を消し、見回りごとに消し直す（design D9）
 
-- [ ] 6.1 `stay_store::mark_archive_arrivals` が本文を消した時間帯の行の本文も消す（Task 5 と同じ関数）。`archive/worker.rs` は変えない —— 落ちたら既存の読み直し（`read` の台帳の行を書かず、次の見回りが書庫を読み直して印付けを呼び直す）が消し直す（design D9（仮））。
+- [x] 6.1 `stay_store::mark_archive_arrivals` が本文を消した時間帯の行の本文も消す（Task 5 と同じ関数）。`archive/worker.rs` は変えない —— 落ちたら既存の読み直し（`read` の台帳の行を書かず、次の見回りが書庫を読み直して印付けを呼び直す）が消し直す（design D9（仮））。
   Scenario: `本文ごと消した時間に書庫から入った位置は本文が消える` / `書庫の後着の消去に失敗しても次の見回りで消える` / `同じ書庫を読み直しても本文は戻らない`。
   検証: `CT purge_archive_ (≥3)`（`archive_flow_tests.rs` の書庫の組み立てを使う。「失敗しても」は `stay_store` 側の試験用の差し込み口で 1 回目の消去を落とし、次の見回りの後に空であることを見る。
   これが落ちたら design D9 の反転条件 —— 上流へ返す）、`CT archive_ (≥1)` で ST12 / ST47 の書庫の試験がすべて通る、`git diff --quiet origin/main -- crates/server/src/archive/worker.rs` rc=0
