@@ -140,8 +140,8 @@ D2 の表を `--plan` で全部確かめる（Requirement「作り直すのは�
    `切った接続: 1` と `ch06-holder` の 1 行、psql が非 0、`core.event` が無いか 0 行、`ch06_keep_` が無い、前の volume が無く volume がちょうど 1 つ、network の id が同じ、sentinel が全部同じ id で残る、`ashiato_owner` と `ashiato_app` で繋がり所有者が `ashiato_owner`
 6. もう一度印つきで呼び、`切った接続: 0` の 1 行・rc=0・前の volume が無く volume がちょうど 1 つ（2 回続けて作り直せる）
 7. `docker compose rm -s -f db` と volume の削除で DB のコンテナを無くしてから印つきで呼び、`切った接続: 0` の 1 行と、DB のコンテナが立っていること
-8. **subnet のファイルがある木（worktree）では**: `docker compose down`（network を手放す）→ 同じ subnet の `ch06-sentinel-<乱数>` network（コンテナ無し）を作って印つきで呼ぶ → rc=0・sentinel の network が無い・DB の network がその subnet。
-   もう一度 `down` → 同じ subnet の sentinel の network に `docker create --network` で sentinel のコンテナを繋いで呼ぶ → rc≠0・名前が出る・network とコンテナが同じ id。sentinel を消してもう一度印つきで呼び、DB を立て直す。CI（subnet のファイルが無い）ではそう出して飛ばす
+8. **subnet のファイルがある木（worktree）では**: DB の network を手放す（`down` は使わない —— 匿名 volume が宙に浮く。P11。D1 と同じく `docker compose rm -s -f db` → 控えた volume を `docker volume rm` → `docker network rm <project>_default`）→ 同じ subnet の `ch06-sentinel-<乱数>` network（コンテナ無し）を作って印つきで呼ぶ → rc=0・sentinel の network が無い・DB の network がその subnet。
+   もう一度同じ手順で手放す → 同じ subnet の sentinel の network に `docker create --network` で sentinel のコンテナを繋いで呼ぶ → rc≠0・名前が出る・network とコンテナが同じ id。sentinel を消してもう一度印つきで呼び、DB を立て直す。CI（subnet のファイルが無い）ではそう出して飛ばす
 
 sentinel は `trap` で必ず消す。終わった DB は空で役割が整っている（後ろの段の試験がそのまま使える）。
 CI では rust job の末尾（`check-ports.sh --self-test` の後）に `--self-test` と本体の 2 行を置く。`CI=true` は GitHub が渡す。
