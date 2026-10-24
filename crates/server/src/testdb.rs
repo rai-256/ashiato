@@ -371,12 +371,31 @@ impl Drop for TestDb {
                         let mut conn = sqlx::PgConnection::connect(&postgres_url)
                             .await
                             .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
-                        let dropped =
-                            sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-                                .execute(&mut conn)
-                                .await
-                                .map(|_| ())
-                                .map_err(|e| format!("DROP DATABASE が通らない: {e}"));
+                        let mut dropped = Ok(());
+                        for attempt in 0..5 {
+                            if attempt > 0 {
+                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            }
+                            dropped =
+                                sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                                    .execute(&mut conn)
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|e| format!("DROP DATABASE が通らない: {e}"));
+                            if dropped.is_ok() {
+                                break;
+                            }
+                        }
+                        if dropped.is_err() {
+                            let who: Vec<String> = sqlx::query_scalar(
+                                "SELECT usename || '/' || backend_type FROM pg_stat_activity WHERE datname = $1",
+                            )
+                            .bind(&name)
+                            .fetch_all(&mut conn)
+                            .await
+                            .unwrap_or_default();
+                            dropped = dropped.map_err(|e| format!("{e}（繋がっているもの: {who:?}）"));
+                        }
                         let _ = conn.close().await;
                         dropped
                     })
