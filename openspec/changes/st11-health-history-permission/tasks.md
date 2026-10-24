@@ -148,7 +148,7 @@
     その結果を PR の本文に書き、この Scenario は Task 5.1 の `GT` だけで閉じる）
   「すべて許された状態」は `checkSelfPermission` で 6 つを読む。本人の携帯では入れ直さない（端末識別子が変わる）。
   検証: `AT HealthPermissionGrantInstrumentedTest`（5 本以上）/ `AT HealthPermissionHistoryDeniedInstrumentedTest`（1 本以上）/ `AT HealthPermissionDeniedInstrumentedTest`（1 本以上）/
-  `bash -c 'grep -c HealthPermission tools/android-emulator.sh .github/workflows/ci.yml'` が両方で 3 以上（3 つのクラスの段がどちらにもある）。同じ振る舞いの `GT` は Task 2・5・6
+  `bash -c 'test "$(grep -c HealthPermission tools/android-emulator.sh)" -ge 3 && test "$(grep -c HealthPermission .github/workflows/ci.yml)" -ge 3'` rc=0（3 つのクラスの段がどちらにもある）。同じ振る舞いの `GT` は Task 2・5・6
 
 - [ ] 7.2 `PermissionDeniedInstrumentedTest` に `// Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る` の印を付け、「spec の Scenario には対応しない」の注記を消す（D10）。
   THEN の「位置は取得できない状態として生存信号に載る」は計測テストでは見ていないので、`SourceIndependenceTest` に、位置を拒否した後に始めた収集の位置の生存信号が取得できない状態と権限を示すことを見る 1 本を足し、同じ印を置く。
