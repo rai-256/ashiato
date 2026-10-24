@@ -19,7 +19,8 @@
 //! 消せない表のトリガは外さない（テンプレートにもそのまま入る）。
 #![allow(clippy::unwrap_used)]
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::str::FromStr;
 
 /// この worktree のテスト用 DB の port。**規則は `tools/ports.sh` だけが持つ**ので、それを呼んで得る
 /// （`ASHIATO_DB_PORT` > main の checkout・`-st<NN>`・`-verify`・それ以外の worktree の台帳）。
@@ -67,6 +68,43 @@ fn with_port(url: &str, port: u16) -> String {
         .rsplit_once(':')
         .map_or(&rest[..slash], |(h, _)| h);
     format!("{}@{host}:{port}{}", &url[..at], &rest[slash..])
+}
+
+/// 試験の 1 本の問い合わせの時間の上限の既定（CH04 / design D7）。
+const DEFAULT_STATEMENT_TIMEOUT: &str = "60s";
+
+/// 環境変数 `ASHIATO_TEST_STATEMENT_TIMEOUT` の値（無ければ `None`）から `statement_timeout` に置く値を決める。
+/// 無ければ既定の 60 秒、あればその値（PostgreSQL の時間の書き方。`0` は上限なし）。純粋な関数
+/// （環境変数は `statement_timeout()` だけが読む。試験は環境変数を書き換えずにこれを確かめる）。
+pub fn statement_timeout_from(env_value: Option<&str>) -> String {
+    match env_value.map(str::trim) {
+        Some(v) if !v.is_empty() => v.to_string(),
+        _ => DEFAULT_STATEMENT_TIMEOUT.to_string(),
+    }
+}
+
+/// いまの環境が決める上限。
+fn statement_timeout() -> String {
+    statement_timeout_from(
+        std::env::var("ASHIATO_TEST_STATEMENT_TIMEOUT")
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// `statement_timeout` を繋ぐときの `options` で置いた接続の設定。
+fn options_with_timeout(url: &str, timeout: &str) -> PgConnectOptions {
+    PgConnectOptions::from_str(url)
+        .unwrap_or_else(|e| panic!("接続の URL を読めない: {e}"))
+        .options([("statement_timeout", timeout)])
+}
+
+/// 上限を引数で受けて、URL へ繋いだプールを作る（`pg_sleep` の試験が 1 秒を渡す。design D7）。
+async fn connect_pool(url: &str, timeout: &str) -> Result<sqlx::PgPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options_with_timeout(url, timeout))
+        .await
 }
 
 /// 回の database（design D1）。`pool()` の初回が作り、URL だけを覚える（プールは runtime を越えて持てない）。
@@ -252,9 +290,12 @@ async fn create_run() -> Run {
         .execute(&mut admin)
         .await
         .unwrap();
-    let mut conn = sqlx::PgConnection::connect(&with_database(&owner_url, &tpl))
-        .await
-        .unwrap();
+    let mut conn = sqlx::PgConnection::connect_with(&options_with_timeout(
+        &with_database(&owner_url, &tpl),
+        &statement_timeout(),
+    ))
+    .await
+    .unwrap();
     let mut tx = conn.begin().await.unwrap();
     for sql in crate::MIGRATIONS {
         sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
@@ -297,9 +338,7 @@ impl TestDb {
         // `&self` を future に持ち込まない（`tokio::spawn` の中で呼べるように）。
         let (url, name) = (self.url.clone(), self.name.clone());
         async move {
-            PgPoolOptions::new()
-                .max_connections(2)
-                .connect(&url)
+            connect_pool(&url, &statement_timeout())
                 .await
                 .unwrap_or_else(|e| panic!("{name} へ所有者で接続できない: {e}"))
         }
@@ -411,10 +450,13 @@ fn url_from_env(name: &str) -> String {
 /// 試験どうしが同じ接続を奪い合って全体が止まる（実測）。そのぶん PostgreSQL 側の
 /// 接続の上限を上げてある（`docker-compose.yml` の `max_connections`）。
 pub async fn pool() -> sqlx::PgPool {
+    pool_with_statement_timeout(&statement_timeout()).await
+}
+
+/// 上限を引数で受ける `pool()`（design D7）。環境変数は読まない。
+pub async fn pool_with_statement_timeout(timeout: &str) -> sqlx::PgPool {
     let run = RUN.get_or_init(create_run).await;
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&run.url)
+    connect_pool(&run.url, timeout)
         .await
         .unwrap_or_else(|e| {
             panic!("回の database へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
@@ -429,9 +471,7 @@ pub async fn app_pool() -> sqlx::PgPool {
         &with_port(&url_from_env("DATABASE_URL"), db_port()),
         &database_of_run(),
     );
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&url)
+    connect_pool(&url, &statement_timeout())
         .await
         .unwrap_or_else(|e| {
             panic!("テスト用 DB へアプリの役割で接続できない: {e}\n  役割が無いなら tools/db-roles.sh を先に実行する")

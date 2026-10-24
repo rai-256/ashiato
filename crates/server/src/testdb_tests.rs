@@ -303,3 +303,43 @@ async fn ch04_sweep_drops_legacy_tmp_and_keeps_others() {
     assert!(other_exists, "他の database が消えた: {other}");
     assert!(ashiato_exists, "ashiato が消えた");
 }
+
+// Scenario: 上限を超える問い合わせは、止まって失敗する
+#[tokio::test]
+async fn ch04_statement_timeout_cancels_a_long_query() {
+    let pool = testdb::pool_with_statement_timeout("1s").await;
+    let started = std::time::Instant::now();
+    let err = sqlx::query("SELECT pg_sleep(5)")
+        .execute(&pool)
+        .await
+        .unwrap_err();
+    let code = err
+        .as_database_error()
+        .and_then(|d| d.code())
+        .map(|c| c.to_string());
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "5 秒を待った: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(code.as_deref(), Some("57014"), "取り消しでない: {err}");
+}
+
+// Scenario: 上限の既定は 60 秒で、試験の足場の接続に入っている
+#[tokio::test]
+async fn ch04_statement_timeout_default_is_set() {
+    let pool = testdb::pool().await;
+    let shown: String = sqlx::query_scalar("SHOW statement_timeout")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(shown, "1min");
+}
+
+// Scenario: 環境変数の値が上限になり、0 なら上限を置かない
+#[test]
+fn ch04_statement_timeout_from_env_value() {
+    assert_eq!(testdb::statement_timeout_from(None), "60s");
+    assert_eq!(testdb::statement_timeout_from(Some("1s")), "1s");
+    assert_eq!(testdb::statement_timeout_from(Some("0")), "0");
+}
