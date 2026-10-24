@@ -1,0 +1,474 @@
+{
+ "purpose": "検証（scripts/verify-run）のたびに、その worktree のテスト用 DB が空から作り直され、証跡がいつも CI と同じ空の DB から取られる。前の検証の行が溜まって server の試験が回ごとに遅くなる（作った直後 43 秒 → 2745 秒・7048 秒）のが止まる。あわせて、Docker の既定のアドレスが尽きたこの機械でも、新しい worktree の DB が立つようになる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "verify-run が検証の前に呼ぶ 1 回の準備（HARNESS_VERIFY=1）",
+  "text": "scripts/verify-run\n  └ tools/verify-env.sh（HARNESS_VERIFY=1）\n      ├ 判定: 印 × 木 × CI → reset / keep\n      │    keep … 今までどおり起動して待ち、役割を整えるだけ\n      ├ env-init: .env に COMPOSE_FILE、docker-compose.subnet.yml（木の port から subnet）\n      ├ reset のとき\n      │    ├ 切った接続: <数>（出所）を 1 行\n      │    ├ DB のコンテナを消す → その volume を名前で消す（network は残す）\n      │    └ だめなら何も消さずに非 0 → BLOCKED_INFRA\n      ├ network が無ければ: 同じ subnet の空の network だけ消して立てる\n      └ up --wait → db-roles.sh（移行は当てない。試験の初回が当てる）\n  └ 検証コマンド（cargo test など）… 空の DB の上で走る"
+ },
+ "before_after": [
+  {
+   "area": "印つきの検証の準備（worktree）",
+   "before": "DB を起動して待ち、役割を整えるだけ。前の検証の行が溜まり続ける（ch03 で core.event 22 万行）",
+   "after": "毎回 DB のコンテナと volume を消して空から立て直す（1 回約 5 秒）"
+  },
+  {
+   "area": "worktree の DB の network",
+   "before": "Docker の既定のアドレスの空きから取る。この機械では尽きていて、新しい worktree の DB が立たない",
+   "after": "木の port から決めた 10.200〜10.201 の /24 で立つ。木どうしで被らない"
+  },
+  {
+   "area": "既にある .env",
+   "before": "あれば一切触らない",
+   "after": "合言葉の行は変えず、COMPOSE_FILE の行だけを今の木の値にそろえる"
+  }
+ ],
+ "highlights": [
+  "reset.3",
+  "which.2",
+  "cut.1",
+  "subnet.3",
+  "envinit.2"
+ ],
+ "features": [
+  {
+   "id": "reset",
+   "title": "印があれば DB を空から作り直す",
+   "summary": "HARNESS_VERIFY=1 の準備が、この worktree の DB のコンテナと volume を消して空の DB を立て直す",
+   "figure": null,
+   "points": [
+    {
+     "id": "reset.1",
+     "kind": "normal",
+     "text": "verify-run は検証のたびに準備へ HARNESS_VERIFY=1 を渡す。準備はこの worktree の DB を消して立て直し、役割（db-roles.sh）を整えてから rc=0 で終わる。前の表・行・database は 1 つも残らない。移行は当てず、server の試験の初回が当てる",
+     "refs": {
+      "requirements": [
+       "印があれば、検証の準備がこの worktree の DB を空から作り直す"
+      ],
+      "scenarios": [
+       "溜まった DB は、印つきの準備の後に空になる",
+       "作り直した後も、所有者とアプリの役割で繋がる"
+      ],
+      "decisions": [
+       "Q1",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "reset.2",
+     "kind": "normal",
+     "text": "DB を使わない検証の前も、毎回作り直す（1 回約 5 秒・1 週間で約 1 時間）。回数を絞ると前の検証の残りの上で走るため",
+     "refs": {
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "reset.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "消すのは DB のコンテナと、それが使っていた volume を名前で 1 つずつ。network は手放さない（docker compose down -v を使わない）。手放すと、既定のアドレスが尽きたこの機械では次の up が立たないことがある",
+     "examples": [
+      {
+       "wrong": "docker compose down -v で全部消して up し直す",
+       "right": "volume の名前を控える → rm -s -f db → volume rm <名前> → up --wait（network の id は前と同じ）"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "作り直しの後、前の DB の volume は残らない",
+       "作り直しでは、DB の network を手放さない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "reset.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "触るのはこの worktree の compose project の DB だけ。ほかの worktree の DB・compose の外のコンテナと volume はそのまま。消えた worktree の残り（network 15 個・動いたままの DB 4 個・宙に浮いた volume 66 個）も片付けない（例外は subnet の節の 1 つだけ）",
+     "refs": {
+      "scenarios": [
+       "ほかの compose project と compose の外のものには触らない"
+      ],
+      "decisions": [
+       "Q3"
+      ]
+     }
+    },
+    {
+     "id": "reset.5",
+     "kind": "exception",
+     "text": "作り直せないときは溜まった DB のまま rc=0 を返さない。DB の volume をほかのコンテナも使っていれば、何も消さずに volume とコンテナの名前を出して非 0。docker が途中で落ちても非 0。ハーネスは BLOCKED_INFRA として記録し、検証を走らせない",
+     "refs": {
+      "requirements": [
+       "作り直せなければ、何も消さずに非 0 で終わる"
+      ],
+      "scenarios": [
+       "DB の volume をほかのコンテナが使っていれば、何も消さずに非 0 で終わる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "which",
+   "title": "どの木で作り直すか",
+   "summary": "印があり、かつ worktree か CI のときだけ作り直す。main の checkout の DB は守る",
+   "figure": {
+    "kind": "table",
+    "caption": "判定（tools/verify-env.sh --plan が docker に触らずに 1 行で出す）",
+    "head": [
+     "HARNESS_VERIFY",
+     "木",
+     "CI",
+     "判定"
+    ],
+    "rows": [
+     [
+      "1 以外",
+      "どれでも",
+      "どれでも",
+      "keep（今までどおり）"
+     ],
+     [
+      "1",
+      "worktree（-st/-ch/-verify など）",
+      "どれでも",
+      "reset"
+     ],
+     [
+      "1",
+      "worktree でない（main・CI の checkout）",
+      "true",
+      "reset"
+     ],
+     [
+      "1",
+      "worktree でない",
+      "true 以外",
+      "keep: main の checkout"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "which.1",
+     "kind": "normal",
+     "text": "印が無ければ、どの木でも今までどおり起動して待ち、役割を整えるだけで、DB の中身に触らない",
+     "refs": {
+      "requirements": [
+       "作り直すのは、印があり、worktree か CI のときだけ"
+      ],
+      "scenarios": [
+       "印が無ければ作り直さず、溜まった行は残る",
+       "印が無ければ、どの木でも作り直さない判定になる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "which.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CI でない main の checkout（開発用の起動の DB）は、印があっても作り直さず、keep: の 1 行を標準エラーに出す。CI の checkout も worktree ではないが、CI=true なら作り直す。確認バッチの作業ツリー（-verify）は worktree なので作り直す",
+     "examples": [
+      {
+       "wrong": "main の checkout で verify-run を走らせたら開発用の DB が消える",
+       "right": "keep: main の checkout（開発用の起動の DB）は作り直さない → 行は残る"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "CI でない main の checkout では、印があっても作り直さない",
+       "CI でない main の checkout では、印つきで呼んでも行が残る",
+       "CI の main の checkout と、worktree では、印があれば作り直す"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "cut",
+   "title": "同じ worktree で繋いでいたものは切る",
+   "summary": "待たずに作り直し、切った接続の数と出所を 1 行出す",
+   "figure": null,
+   "points": [
+    {
+     "id": "cut.1",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "同じ worktree の DB に繋いでいるもの（agent が背後で走らせた cargo test・tools/dev.sh のサーバ・CH04 の並んだ回）は、待たずに切られる。証跡のログに「verify-env: DB を作り直す（切った接続: <数>。<application_name>@<接続元>, …）」の 1 行が残る",
+     "refs": {
+      "requirements": [
+       "作り直しは、繋いでいたものを切り、その数と出所を 1 行出す"
+      ],
+      "scenarios": [
+       "繋いでいるものがあれば、切った数と出所を 1 行出す"
+      ],
+      "decisions": [
+       "Q2",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "cut.2",
+     "kind": "normal",
+     "text": "繋いでいるものが無い・DB が止まっていた・DB のコンテナが無かったときも、切った接続: 0 の 1 行を出す（コンテナが無ければそのまま立てる）",
+     "refs": {
+      "scenarios": [
+       "繋いでいるものが無ければ、切った接続は 0 と出す",
+       "DB のコンテナが無くても、切った接続は 0 と出して DB を立てる"
+      ],
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "subnet",
+   "title": "worktree ごとの DB の network を被らない subnet で立てる",
+   "summary": "既定のアドレスの空きに依らず、木の port から決めた /24 で network を作る",
+   "figure": null,
+   "points": [
+    {
+     "id": "subnet.1",
+     "kind": "normal",
+     "text": "subnet は木の DB の port から決める（port − 55400 を 10.200〜10.201 の /24 に写す）。port は ports.sh の規則で生きている木どうしで被らないので、subnet も被らない。台帳の木は台帳の番号から port が決まり、そこから subnet が決まる。subnet だけの台帳は持たない",
+     "refs": {
+      "requirements": [
+       "worktree ごとの DB の network は、木ごとに被らない subnet で立つ"
+      ],
+      "scenarios": [
+       "どの 2 つの木も、DB の subnet が被らない"
+      ],
+      "decisions": [
+       "Q3",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "subnet.2",
+     "kind": "normal",
+     "text": "env-init.sh が subnet を書いた docker-compose.subnet.yml（生成物。追跡しない）を作り、.env に COMPOSE_FILE を書く。compose は .env を自分で読むので、ports.sh を読まない呼び出し口や人が打つ docker compose にも効く",
+     "refs": {
+      "scenarios": [
+       "env-init の後は、compose の DB の network に木の subnet が入る"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "subnet.3",
+     "kind": "exception",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "台帳は消えた worktree の番号を使い回すので、残った network が同じ subnet を塞ぐことがある。コンテナの繋がっていない network ならそれだけ消して立てる（「残りは片付けない」の唯一の例外）。繋がっていれば何も消さずに名前を出して非 0（人が止める）",
+     "refs": {
+      "scenarios": [
+       "同じ subnet を持つ、コンテナの繋がっていない network は消して立てる",
+       "同じ subnet の network にコンテナが繋がっていれば、何も消さずに非 0 で終わる"
+      ],
+      "decisions": [
+       "Q3",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "subnet.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "既にある worktree と main の checkout も、rebase 後の最初の準備で COMPOSE_FILE が入り、次の up で network が明示の subnet に作り直される。DB のコンテナは繋ぎ直すだけで中身は残る（main の開発用のサーバの接続は 1 回切れる）",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "envinit",
+   "title": ".env と合言葉を守る",
+   "summary": "env-init は合言葉の行を変えずに COMPOSE_FILE の行だけを保つ",
+   "figure": null,
+   "points": [
+    {
+     "id": "envinit.1",
+     "kind": "normal",
+     "text": "既にある .env では COMPOSE_FILE の行だけを今の木の値にそろえ、ほかの行（合言葉・URL）は 1 文字も変えず、権限も保つ。何度呼んでも同じ。木に docker-compose.override.yml があれば COMPOSE_FILE に 3 つ目として並べる",
+     "refs": {
+      "requirements": [
+       "env-init は、既にある .env の合言葉を変えずに、subnet の設定だけを保つ"
+      ],
+      "scenarios": [
+       "既にある .env に、合言葉を変えずに COMPOSE_FILE を足す",
+       "env-init が書き換えた .env の権限は、書き換える前と同じである",
+       "木に override のファイルがあれば、COMPOSE_FILE に並べる"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "envinit.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "subnet は環境変数からも .env からも読まず、毎回木の port から決める。ハーネスは agent の起動時の .env を環境変数で渡すので、値を .env に置くと古い値が勝つため。別の木から写した .env（確認バッチの作業ツリー）でも、その木の subnet になる",
+     "examples": [
+      {
+       "wrong": ".env に ASHIATO_DB_SUBNET を書いて compose に補間させる",
+       "right": ".env には木によらず同じ COMPOSE_FILE だけ。値は生成した docker-compose.subnet.yml が持つ"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "別の木から写した .env でも、その木の subnet になり、何度呼んでも同じである"
+      ],
+      "decisions": [
+       "D6",
+       "D7"
+      ]
+     }
+    },
+    {
+     "id": "envinit.3",
+     "kind": "exception",
+     "text": "CI（.env が無く 3 つの合言葉が環境変数にある）では .env も subnet のファイルも作らず、今までどおり base の compose で立つ。録画の環境が書いた .env（COMPOSE_PROJECT_NAME を持つ）には触らない",
+     "refs": {
+      "scenarios": [
+       "合言葉が環境変数で渡っていれば、.env を作らない",
+       "compose project の名前を持つ .env には触らない"
+      ],
+      "decisions": [
+       "D7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "title": "機械が確かめる",
+   "summary": "新しい検査 tools/check-verify-env-reset.sh を CI の rust job と worktree の証跡で走らせる",
+   "figure": null,
+   "points": [
+    {
+     "id": "check.1",
+     "kind": "normal",
+     "text": "--self-test は docker に触らず、判定の表と env-init の規則を一時の repo で確かめる。本体は溜まった DB（代わりの core.event に 3 行と database）を作ってから印つきで呼び、空になる・接続が切れる・sentinel が残る・作り直せないと非 0、を確かめる。CI の rust job の末尾に 2 行を足す",
+     "refs": {
+      "decisions": [
+       "D8"
+      ]
+     }
+    },
+    {
+     "id": "check.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "main の checkout で keep になる段は CI でしか、塞いでいる network の段は worktree でしか通れない。両方の証跡を合わせて全部の Scenario を通す。画面も人の操作も変わらないので、確認バッチの「人間の確認待ち」は置かない",
+     "refs": {
+      "decisions": [
+       "D8"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "消えた worktree の compose project（network 15 個・動いたままの DB 4 個）と宙に浮いた volume 66 個の片付け",
+   "refs": {
+    "decisions": [
+     "Q3"
+    ]
+   }
+  },
+  {
+   "text": "stack.sh・smoke.sh などの down -v、tools/dev.sh・record-env.sh・db-roles.sh、試験のコード（testdb.rs を含む）と移行を変えること",
+   "refs": {
+    "decisions": [
+     "D9"
+    ]
+   }
+  },
+  {
+   "text": "作り直しの回数を減らすこと（検証のたびに毎回作り直す）",
+   "refs": {
+    "decisions": [
+     "Q1"
+    ]
+   }
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "capability は CH04 の test-database とは別の新しい verify-environment にし、docs/changes/CH06.md の capability は空のまま",
+   "refs": {
+    "decisions": [
+     "D10"
+    ]
+   }
+  },
+  {
+   "text": "文書の直し（verify-env.sh・env-init.sh・ports.sh の注記、testing.md の CI の表、flow-gates.md の検査の表）",
+   "refs": {
+    "decisions": [
+     "D11"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "印",
+   "def": "ハーネスの verify-run が準備と検証に渡す HARNESS_VERIFY=1。「溜まった状態を作り直す」約束の合図"
+  },
+  {
+   "term": "木",
+   "def": "repo の作業ツリー。main の checkout か、git worktree（<repo>-st<NN>・-ch<NN>・-verify など）"
+  },
+  {
+   "term": "sentinel",
+   "def": "検査が「触っていない」ことを確かめるために置く見張りのコンテナ・volume・network"
+  }
+ ]
+}
