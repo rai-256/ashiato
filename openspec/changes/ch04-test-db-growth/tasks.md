@@ -123,24 +123,24 @@
 
 ## Task 8: 書き出しの重なりの判定から、候補の行 × 消した時間の入れ子を取る
 
-- [ ] 8.1 前提: CH02 の実装が取り込まれている（`requires: [CH02]`。下流の入口が gate を通った SHA を取り込む）。
+- [x] 8.1 前提: CH02 の実装が取り込まれている（`requires: [CH02]`。下流の入口が gate を通った SHA を取り込む）。
   検証: `python3 scripts/story_deps.py included CH04 CH02` rc=0
-- [ ] 8.2 `excluded.rs` の最後の重なりの条件（CH02 の `WHERE EXISTS (SELECT 1 FROM erased_spans s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time)`）を 1 つの定数に括り出す（中身は変えない）。
+- [x] 8.2 `excluded.rs` の最後の重なりの条件（CH02 の `WHERE EXISTS (SELECT 1 FROM erased_spans s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time)`）を 1 つの定数に括り出す（中身は変えない）。
   新しい試験のファイル `crates/server/src/export_overlap_tests.rs` に、`excluded_sql(…).ctes()` の文字列からその条件を CH02 の形に置き換えた比べる相手を作る手伝いを書き、置き換えた数が 2（記録の側と前の版の側）であることを assert する（design D11。丸ごと写さない）。
   同じファイルに `ch04_overlap_matches_ch02`（`// Scenario: 直した判定は、足す前の判定と同じ記録と前の版を除く`）を書く: `testdb::isolated()` の database に D11 の族を置き、
   同じトランザクション・同じ写しの時点の式で本体と比べる相手を走らせ、`excluded_event`・`excluded_version` の id の集まりが一致する。この時点では本体 = CH02 なので通る。
   検証: `CT ch04_overlap_matches_ch02` rc=0 / `NL ch04_overlap_matches_ch02 1` rc=0
-- [ ] 8.3 同じファイルに `ch04_overlap_reads_erased_spans_linearly`（`// Scenario: 記録と消した滞在を一緒に 4 倍にしても、消した時間を読む量は 4 倍の桁に収まる`）を書く:
+- [x] 8.3 同じファイルに `ch04_overlap_reads_erased_spans_linearly`（`// Scenario: 記録と消した滞在を一緒に 4 倍にしても、消した時間を読む量は 4 倍の桁に収まる`）を書く:
   `isolated()` の database に (N, M) = (1,000, 10) と (4,000, 40) を置き（消した滞在は 1 時間ずつ別の日。記録は緯度経度つきで、消した時間をまたぐものと、どの消した時間にも重ならないものを半々に混ぜる）、`ANALYZE` の後に
   `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` で `SELECT (SELECT count(*) FROM excluded_event), (SELECT count(*) FROM excluded_version)` を走らせる。
   読んだ量は、消した時間を読む節（`CTE Name` が `erased_spans` と、D9 がそこから作る CTE の全部の `CTE Scan`）の `(Actual Rows + Rows Removed by Filter) × Actual Loops` の和（CH02 の `rows_read` と同じ式。
   EXISTS が SubPlan の形でも、捨てた行が `Rows Removed by Filter` に入るので数えられる。review/spec.md R2）。4 倍の量が 1 倍の量の 8 倍未満であることを見る。
   **同じ試験で 8.2 の比べる相手（足す前の形）にも当て、8 倍以上になることを assert する**（測り方が入れ子を捕まえていることの確かめ）。この時点では本体 = CH02 なので、本体の側の assert は落ちる（8.4 で通る）。
   検証: `NL ch04_overlap_reads_erased_spans_linearly 1` rc=0
-- [ ] 8.4 `crates/server/src/export/excluded.rs` の重なりの判定（8.2 の定数）を design D9 のとおりに替える（整った消した時間の `range_agg` の multirange と `&&`、幅の側の範囲は `CASE` の中でだけ作る、整っていない消した時間と整っていない幅は今の `EXISTS`）。
+- [x] 8.4 `crates/server/src/export/excluded.rs` の重なりの判定（8.2 の定数）を design D9 のとおりに替える（整った消した時間の `range_agg` の multirange と `&&`、幅の側の範囲は `CASE` の中でだけ作る、整っていない消した時間と整っていない幅は今の `EXISTS`）。
   公開の形と呼び出し側は変えない。`excluded.rs` の注記に D9 と CH04 を書く。8.2 の置き換えが D9 の後の文字列でも 2 か所で当たるように、置き換える相手は定数で持つ。
   検証: `CT ch04_overlap_` rc=0 / `NL ch04_overlap_ 2` rc=0 / `CT export_` rc=0 / `NL export_ 123` rc=0
-- [ ] 8.5 写しの `READ ONLY` の中で直した断片が走る（一時表を使っていない）ことを、既存の書き出しの試験が見ていることを確かめる。
+- [x] 8.5 写しの `READ ONLY` の中で直した断片が走る（一時表を使っていない）ことを、既存の書き出しの試験が見ていることを確かめる。
   検証: `CT export_file` rc=0 / `CT export_summary` rc=0
 
 ## Task 9: 量の測り —— N と M を一緒に倍にして 2.5 倍以内
