@@ -243,14 +243,7 @@ async fn st41_export_rows_have_end_columns() {
     let w = World::new().await;
     // 緯度経度を持たない点のソース（ほかの日の消した滞在に巻き込まれない）
     let s = "c01-clock";
-    let with_end = put_ended(
-        &w,
-        s,
-        &w.at("05:00"),
-        Some(&w.at("06:00")),
-        json!({"v": 1}),
-    )
-    .await;
+    let with_end = put_ended(&w, s, &w.at("05:00"), Some(&w.at("06:00")), json!({"v": 1})).await;
     let without = put_ended(&w, s, &w.at("07:00"), None, json!({"v": 2})).await;
     let version = put_ended_version(
         &w,
