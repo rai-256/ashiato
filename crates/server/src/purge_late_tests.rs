@@ -358,15 +358,8 @@ async fn purge_late_concurrent_purge_and_ingest_leave_no_body() {
     let ingest = tokio::spawn(async move { send(&app_b, vec![item]).await });
     let (purged, sent) = (purge.await.unwrap(), ingest.await.unwrap());
 
-    // 取り込みが先に確定していれば、確認で数えた件数と食い違って消す操作は断られる（合意済みの振る舞い。
-    // purge_api_new_point_after_preview_refuses_and_keeps_every_body）。断られ方は件数の食い違いだけで、その場合は数え直して消す
-    if let Err(err) = &purged {
-        assert!(
-            matches!(err, crate::deletion::PurgeError::CountsChanged(_)),
-            "件数の食い違い以外で断られた: {err:?}"
-        );
-        purge_now(&pool, stay).await;
-    }
+    // 後から届いた位置は取り込みの transaction の中で本文ごと空にされるので、どちらが先でも数え直した件数は変わらない
+    assert!(purged.is_ok(), "本文ごと消す操作が成功していない: {purged:?}");
     assert!(sent[0].accepted);
     assert!(emptied(&pool, id).await, "10:30 の位置の本文が残っている");
 }
