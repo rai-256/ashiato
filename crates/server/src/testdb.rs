@@ -7,9 +7,20 @@
 //!
 //! **接続できなければテストは落ちる。飛ばさない。** 飛ばすと、DB が無い環境で
 //! 全部が緑になり、稼働記録の検査が 1 本も走っていないことに気付けない。
+//!
+//! **回の database（CH04 / design D1・D2・D3）。** 試験は `ashiato` database に書かない。過程ごとに回の id
+//! （`ashiato_run_<乱数 12 桁の 16 進>`）を決め、`pool()` の初回が次の database を作る（名前は全部この id で始まる）:
+//! - `<id>_tpl` —— 移行と権限を当てたテンプレート。当てた後は誰も繋がない
+//! - `<id>` —— テンプレートの写し。`pool()`・`app_pool()`・`url()` の繋ぎ先
+//!
+//! 回が走っている印は、`postgres` database に繋いだ専用の接続が過程の終わりまで持つ助言ロック
+//! （`pg_advisory_lock(4820253, hashtext('<id>'))`）。過程が殺されるとカーネルが接続を閉じ、ロックが外れる。
+//! 片付けと作成は `pg_advisory_lock(4820252)` で 1 本ずつ行う。**`CREATE DATABASE` はこのファイルの中だけに書く。**
+//! 消せない表のトリガは外さない（テンプレートにもそのまま入る）。
 #![allow(clippy::unwrap_used)]
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::str::FromStr;
 
 /// この worktree のテスト用 DB の port。**規則は `tools/ports.sh` だけが持つ**ので、それを呼んで得る
 /// （`ASHIATO_DB_PORT` > main の checkout・`-st<NN>`・`-verify`・それ以外の worktree の台帳）。
@@ -34,10 +45,14 @@ fn db_port() -> u16 {
     })
 }
 
-/// テスト用 DB の所有者の URL。**合言葉は環境（`.env` の `DATABASE_OWNER_URL`）からだけ**読み（ST28 / design D19）、
+/// 回の database の所有者の URL。**合言葉は環境（`.env` の `DATABASE_OWNER_URL`）からだけ**読み（ST28 / design D19）、
 /// port だけをこの worktree の DB のものに差し替える（ST05。`tools/ports.sh` の `ashiato_db_url` と同じ）。
+/// 同期の関数なので、回がまだ作られていなければ panic する（先に `pool()` を呼ぶ。design D3）。
 pub fn url() -> String {
-    with_port(&url_from_env("DATABASE_OWNER_URL"), db_port())
+    RUN.get()
+        .expect("回の database がまだ無い。先に testdb::pool() を呼ぶ")
+        .url
+        .clone()
 }
 
 /// 接続の URL の `@<host>:<port>/` の port を差し替える（利用者と合言葉の部分は触らない）。形が違えばそのまま返す。
@@ -55,10 +70,409 @@ fn with_port(url: &str, port: u16) -> String {
     format!("{}@{host}:{port}{}", &url[..at], &rest[slash..])
 }
 
-/// マイグレーションは 1 プロセスに 1 回だけ当てる。
-/// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
-/// 助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
-static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+/// 試験の 1 本の問い合わせの時間の上限の既定（CH04 / design D7）。
+const DEFAULT_STATEMENT_TIMEOUT: &str = "60s";
+
+/// 環境変数 `ASHIATO_TEST_STATEMENT_TIMEOUT` の値（無ければ `None`）から `statement_timeout` に置く値を決める。
+/// 無ければ既定の 60 秒、あればその値（PostgreSQL の時間の書き方。`0` は上限なし）。純粋な関数
+/// （環境変数は `statement_timeout()` だけが読む。試験は環境変数を書き換えずにこれを確かめる）。
+pub fn statement_timeout_from(env_value: Option<&str>) -> String {
+    match env_value.map(str::trim) {
+        Some(v) if !v.is_empty() => v.to_string(),
+        _ => DEFAULT_STATEMENT_TIMEOUT.to_string(),
+    }
+}
+
+/// いまの環境が決める上限（試験が、足場の接続に入った値と比べるためにも使う）。
+pub(crate) fn statement_timeout() -> String {
+    statement_timeout_from(
+        std::env::var("ASHIATO_TEST_STATEMENT_TIMEOUT")
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// `statement_timeout` を繋ぐときの `options` で置いた接続の設定。
+fn options_with_timeout(url: &str, timeout: &str) -> PgConnectOptions {
+    PgConnectOptions::from_str(url)
+        .unwrap_or_else(|e| panic!("接続の URL を読めない: {e}"))
+        .options([("statement_timeout", timeout)])
+}
+
+/// 上限を引数で受けて、URL へ繋いだプールを作る（`pg_sleep` の試験が 1 秒を渡す。design D7）。
+async fn connect_pool(url: &str, timeout: &str) -> Result<sqlx::PgPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options_with_timeout(url, timeout))
+        .await
+}
+
+/// 回の database（design D1）。`pool()` の初回が作り、URL だけを覚える（プールは runtime を越えて持てない）。
+static RUN: tokio::sync::OnceCell<Run> = tokio::sync::OnceCell::const_new();
+
+struct Run {
+    /// 回の database の URL（所有者）。
+    url: String,
+}
+
+/// 片付けと作成の直列化の鍵（design D2。移行の直列化だった 4820251 とは別）。
+const LOCK_SWEEP_AND_CREATE: i64 = 4_820_252;
+/// 回の助言ロックの第 1 鍵（第 2 鍵は `hashtext('<id>')`）。
+pub(crate) const LOCK_RUN_CLASS: i32 = 4_820_253;
+
+/// 回の database の名前（`url()` の末尾）。
+fn database_of_run() -> String {
+    let url = url();
+    url[url.rfind('/').unwrap() + 1..].to_string()
+}
+
+/// 接続の URL の末尾の database 名を差し替える。
+fn with_database(url: &str, database: &str) -> String {
+    let slash = url.rfind('/').expect("接続の URL に database が無い");
+    format!("{}/{database}", &url[..slash])
+}
+
+/// 乱数 12 桁の 16 進。
+fn random12() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
+}
+
+/// 回の助言ロックを、専用のスレッドと runtime で取り、過程が終わるまで手放さない（design D1 / C6）。
+/// `#[tokio::test]` の runtime に置くと、その試験の終わりに接続ごと死ぬ。
+fn hold_run_lock(postgres_url: String, run_id: String) {
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::Builder::new()
+        .name("testdb-run-lock".into())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let mut conn = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
+                    .await
+                    .unwrap_or_else(|e| panic!("回の助言ロック用の接続ができない: {e}"));
+                sqlx::query("SELECT pg_advisory_lock($1, hashtext($2))")
+                    .bind(LOCK_RUN_CLASS)
+                    .bind(&run_id)
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+                tx.send(()).unwrap();
+                // 過程が終わるまで接続を持つ（スレッドは過程の終わりに道連れで終わる）。
+                std::future::pending::<()>().await;
+                drop(conn);
+            });
+        })
+        .expect("回の助言ロックのスレッドを立てられない");
+    rx.recv().expect("回の助言ロックを取れなかった");
+}
+
+/// 名前が回の database（`ashiato_run_<12 桁の 16 進>` の後ろが空か `_…`）なら、その回の id。
+pub(crate) fn run_id_of(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("ashiato_run_")?;
+    let digits = rest.get(..12)?;
+    let tail = &rest[12..];
+    // 16 進は小文字だけ（`random12()` が作る字。`tools/check-test-db-growth.sh` の回の id と同じ定義）
+    (digits
+        .bytes()
+        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && (tail.is_empty() || tail.starts_with('_')))
+    .then(|| &name[.."ashiato_run_".len() + 12])
+}
+
+/// 前の回の database の片付け（design D6）。呼ぶ側が `LOCK_SWEEP_AND_CREATE` を持っている。
+/// 消すのは、持ち主のいない回（助言ロックを取れた）のものと、回の印の無い `_tmp_` の残りだけ。
+/// 消せなかったものは名前と理由を出して戻る（次の回がまた消す）。
+async fn sweep_previous_runs(admin: &mut sqlx::PgConnection) {
+    let names: Vec<String> = sqlx::query_scalar("SELECT datname::text FROM pg_database")
+        .fetch_all(&mut *admin)
+        .await
+        .unwrap();
+    for name in names {
+        if matches!(
+            name.as_str(),
+            "ashiato" | "postgres" | "template0" | "template1"
+        ) {
+            continue;
+        }
+        let doomed = if let Some(id) = run_id_of(&name) {
+            let got: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1, hashtext($2))")
+                .bind(LOCK_RUN_CLASS)
+                .bind(id)
+                .fetch_one(&mut *admin)
+                .await
+                .unwrap();
+            if got {
+                sqlx::query("SELECT pg_advisory_unlock($1, hashtext($2))")
+                    .bind(LOCK_RUN_CLASS)
+                    .bind(id)
+                    .execute(&mut *admin)
+                    .await
+                    .unwrap();
+            }
+            got
+        } else {
+            name.contains("_tmp_") && !name.starts_with("ashiato_run_")
+        };
+        if !doomed {
+            continue;
+        }
+        let sql = format!(
+            "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
+            name.replace('"', "\"\"")
+        );
+        if let Err(e) = sqlx::raw_sql(&sql).execute(&mut *admin).await {
+            // log-ok: 試験の足場の診断。database 名と DB のエラーだけで私的データは含まない
+            eprintln!("testdb: {name} を片付けられなかった: {e}");
+        }
+    }
+}
+
+/// 前の回の database の片付けを、試験から呼べる形で（design D6）。
+/// 片付けと作成の鍵を取って 1 本ずつ行い、終わったら外す。
+pub async fn sweep() {
+    use sqlx::Connection;
+    let owner_url = with_port(&url_from_env("DATABASE_OWNER_URL"), db_port());
+    let mut admin = sqlx::PgConnection::connect(&with_database(&owner_url, "postgres"))
+        .await
+        .unwrap_or_else(|e| panic!("テスト用 DB へ所有者で接続できない: {e}"));
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    sweep_previous_runs(&mut admin).await;
+    sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    admin.close().await.unwrap();
+}
+
+/// `CREATE DATABASE <name> TEMPLATE <template>`。直前に閉じた接続の backend が残っていると
+/// 「source database is being accessed by other users」（55006）で断られるので、少し待って打ち直す。
+async fn create_from_template(admin: &mut sqlx::PgConnection, name: &str, template: &str) {
+    let sql = format!("CREATE DATABASE {name} TEMPLATE {template}");
+    for attempt in 0..100 {
+        match sqlx::query(&sql).execute(&mut *admin).await {
+            Ok(_) => return,
+            Err(e)
+                if attempt < 99
+                    && e.as_database_error()
+                        .and_then(|d| d.code())
+                        .is_some_and(|c| c == "55006") =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("{sql} が通らない: {e}"),
+        }
+    }
+}
+
+/// 回の database の作成に入ったか。`OnceCell` は初期化が panic すると未設定に戻り、次の試験がまた作り直す
+/// —— そのたびに回の助言ロックの接続と作りかけの `<id>_tpl` が過程の終わりまで残り、接続の上限を使い切って
+/// 本当の原因（移行のエラーなど）を埋める（review/code.md R17）。2 度目は作らずに、最初の失敗を見るよう示して落ちる。
+static RUN_ATTEMPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 回の database を作る（design D2 の 1〜6）。
+async fn create_run() -> Run {
+    use sqlx::Connection;
+    assert!(
+        !RUN_ATTEMPTED.swap(true, std::sync::atomic::Ordering::SeqCst),
+        "回の database の作成が前に落ちている。最初に落ちた試験の出力（移行や権限のエラー）を見る"
+    );
+    let owner_url = with_port(&url_from_env("DATABASE_OWNER_URL"), db_port());
+    let postgres_url = with_database(&owner_url, "postgres");
+    let id = format!("ashiato_run_{}", random12());
+    let tpl = format!("{id}_tpl");
+
+    let mut admin = sqlx::PgConnection::connect(&postgres_url).await.unwrap_or_else(|e| {
+        panic!("テスト用 DB へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
+    });
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    hold_run_lock(postgres_url, id.clone());
+    sweep_previous_runs(&mut admin).await;
+
+    sqlx::raw_sql(&format!("CREATE DATABASE {tpl}"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut conn = sqlx::PgConnection::connect_with(&options_with_timeout(
+        &with_database(&owner_url, &tpl),
+        &statement_timeout(),
+    ))
+    .await
+    .unwrap();
+    let mut tx = conn.begin().await.unwrap();
+    for sql in crate::MIGRATIONS {
+        sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::raw_sql(crate::GRANTS)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    conn.close().await.unwrap();
+
+    create_from_template(&mut admin, &id, &tpl).await;
+    sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    admin.close().await.unwrap();
+    Run {
+        url: with_database(&owner_url, &id),
+    }
+}
+
+/// 試験ごとの写しは回の中で 1 本ずつ作る（同じテンプレートからの同時の写しを避ける。design D2 / P16）。
+static COPY_ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 試験が持つ database（design D4・D5）。`isolated()` は回のテンプレートの写し、`scratch()` は空。
+/// `Drop` が自分のスレッドと runtime で `DROP DATABASE IF EXISTS … WITH (FORCE)` を打って待つ。
+/// 試験が通っても panic しても（巻き戻しの途中でも）走る。**Drop は panic しない**: 失敗は名前と理由を出して戻り、
+/// 残りは次の回の片付け（design D6）が消す。
+#[derive(Debug)]
+pub struct TestDb {
+    name: String,
+    url: String,
+}
+
+impl TestDb {
+    /// この database に繋いだプール（呼ぶたびに同じ database。プールは呼んだ runtime のもの）。
+    pub fn pool(&self) -> impl std::future::Future<Output = sqlx::PgPool> + Send + 'static {
+        // `&self` を future に持ち込まない（`tokio::spawn` の中で呼べるように）。
+        let (url, name) = (self.url.clone(), self.name.clone());
+        async move {
+            connect_pool(&url, &statement_timeout())
+                .await
+                .unwrap_or_else(|e| panic!("{name} へ所有者で接続できない: {e}"))
+        }
+    }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        let postgres_url = with_database(&self.url, "postgres");
+        let name = self.name.clone();
+        let job = std::thread::Builder::new()
+            .name("testdb-drop".into())
+            .spawn({
+                let name = name.clone();
+                move || -> Result<(), String> {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| format!("runtime を作れない: {e}"))?;
+                    rt.block_on(async {
+                        use sqlx::Connection;
+                        let mut conn = sqlx::PgConnection::connect(&postgres_url)
+                            .await
+                            .map_err(|e| format!("postgres database へ繋げない: {e}"))?;
+                        let mut dropped = Ok(());
+                        // WITH (FORCE) が「permission denied to terminate process」で拒まれたことが 1 度ある
+                        // （ch04_isolated_many_in_parallel。app の役で繋いだ試験は無く、ashiato_app の接続ではない）。
+                        // 原因は突き止めていない（autovacuum など superuser の backend を疑うが、確かめていない）。
+                        // そうした接続はすぐ去るので、100ms から倍々（上限 3.2 秒）で 7 回待つ合計約 9.5 秒までやり直して吸収する。
+                        // それでも消せなければ、下で pg_stat_activity の繋がっているものを書き出し、次に起きたときに原因を名指す。
+                        let mut wait_ms = 100;
+                        for attempt in 0..8 {
+                            if attempt > 0 {
+                                tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                                wait_ms = (wait_ms * 2).min(3200);
+                            }
+                            dropped =
+                                sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                                    .execute(&mut conn)
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|e| format!("DROP DATABASE が通らない: {e}"));
+                            if dropped.is_ok() {
+                                break;
+                            }
+                        }
+                        if dropped.is_err() {
+                            let who: Vec<String> = sqlx::query_scalar(
+                                "SELECT usename || '/' || backend_type FROM pg_stat_activity WHERE datname = $1",
+                            )
+                            .bind(&name)
+                            .fetch_all(&mut conn)
+                            .await
+                            .unwrap_or_default();
+                            dropped = dropped.map_err(|e| format!("{e}（繋がっているもの: {who:?}）"));
+                        }
+                        let _ = conn.close().await;
+                        dropped
+                    })
+                }
+            });
+        let reason = match job.map(std::thread::JoinHandle::join) {
+            Ok(Ok(Ok(()))) => return,
+            Ok(Ok(Err(reason))) => reason,
+            Ok(Err(_)) => "片付けのスレッドが panic した".to_string(),
+            Err(e) => format!("片付けのスレッドを立てられない: {e}"),
+        };
+        // log-ok: 試験の足場の診断。database 名と所要時間・DB のエラーだけで私的データは含まない
+        eprintln!("testdb: {name} を消せなかった（次の回の片付けが消す）: {reason}");
+    }
+}
+
+/// 回のテンプレートの写しを、この試験だけの database として作る（書き出しの試験用。design D4）。
+pub async fn isolated() -> TestDb {
+    RUN.get_or_init(create_run).await;
+    let run = database_of_run();
+    let name = format!("{run}_x_{}", random12());
+    let postgres_url = with_database(&url(), "postgres");
+    let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
+        .await
+        .unwrap_or_else(|e| panic!("postgres database へ所有者で接続できない: {e}"));
+    {
+        let _one = COPY_ONE_AT_A_TIME.lock().await;
+        let copy_started = std::time::Instant::now();
+        create_from_template(&mut admin, &name, &format!("{run}_tpl")).await;
+        // log-ok: 試験の足場の診断。database 名と所要時間・DB のエラーだけで私的データは含まない
+        eprintln!("testdb: {name} の写しに {:?}", copy_started.elapsed());
+    }
+    let _ = sqlx::Connection::close(admin).await;
+    TestDb {
+        url: with_database(&url(), &name),
+        name,
+    }
+}
+
+/// 空の使い捨ての database（`<回の id>_tmp_…`。移行の当て方などを見る試験用。design D5）。
+pub async fn scratch() -> TestDb {
+    RUN.get_or_init(create_run).await;
+    let name = format!("{}_tmp_{}", database_of_run(), random12());
+    let postgres_url = with_database(&url(), "postgres");
+    let mut admin = <sqlx::PgConnection as sqlx::Connection>::connect(&postgres_url)
+        .await
+        .unwrap_or_else(|e| panic!("postgres database へ所有者で接続できない: {e}"));
+    sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+        .execute(&mut admin)
+        .await
+        .unwrap_or_else(|e| panic!("CREATE DATABASE {name} が通らない: {e}"));
+    let _ = sqlx::Connection::close(admin).await;
+    TestDb {
+        url: with_database(&url(), &name),
+        name,
+    }
+}
 
 /// 環境からだけ読む。**既定の URL（固定の合言葉入り）は持たない**（ST28 / design D19）。
 /// 無ければ飛ばさずに落ちる。値（合言葉入りの URL）は出さない。
@@ -68,49 +482,35 @@ fn url_from_env(name: &str) -> String {
     })
 }
 
-/// 接続済みのプールを返す。初回だけマイグレーションを当てる。
+/// 接続済みのプールを返す。初回だけ回の database を作る（冒頭の注記）。
 /// **所有者（`DATABASE_OWNER_URL`）で繋ぐ。** 門はトリガで効くので、所有者でも止まることを既存の試験が見る。
 ///
 /// **プールは試験ごとに持つ。** 1 本を共有すると、背景の取り込み器を起こす結合
 /// 試験どうしが同じ接続を奪い合って全体が止まる（実測）。そのぶん PostgreSQL 側の
 /// 接続の上限を上げてある（`docker-compose.yml` の `max_connections`）。
 pub async fn pool() -> sqlx::PgPool {
-    let url = url();
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&url)
-        .await
-        .unwrap_or_else(|e| {
-            panic!("テスト用 DB へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
-        });
-    MIGRATED
-        .get_or_init(|| async {
-            let mut tx = pool.begin().await.unwrap();
-            sqlx::query("SELECT pg_advisory_xact_lock(4820251)")
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            for sql in crate::MIGRATIONS {
-                sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
-            }
-            sqlx::raw_sql(crate::GRANTS)
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            tx.commit().await.unwrap();
-        })
-        .await;
-    pool
+    pool_with_statement_timeout(&statement_timeout()).await
 }
 
-/// アプリの役割（`DATABASE_URL`）で繋いだプール。**役割の試験だけが使う。**
-/// 表が無いと何も試せないので、先に所有者の `pool()` で移行を当てておく。
+/// 上限を引数で受ける `pool()`（design D7）。環境変数は読まない。
+pub async fn pool_with_statement_timeout(timeout: &str) -> sqlx::PgPool {
+    let run = RUN.get_or_init(create_run).await;
+    connect_pool(&run.url, timeout)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("回の database へ所有者で接続できない: {e}\n  tools/db.sh up -d --wait db のあと tools/db-roles.sh を先に実行する")
+        })
+}
+
+/// アプリの役割（`DATABASE_URL`）で繋いだプール。**役割の試験だけが使う。** 繋ぎ先は回の database。
+/// 先に回の database を作っておく。
 pub async fn app_pool() -> sqlx::PgPool {
-    drop(pool().await);
-    let url = with_port(&url_from_env("DATABASE_URL"), db_port());
-    PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&url)
+    RUN.get_or_init(create_run).await;
+    let url = with_database(
+        &with_port(&url_from_env("DATABASE_URL"), db_port()),
+        &database_of_run(),
+    );
+    connect_pool(&url, &statement_timeout())
         .await
         .unwrap_or_else(|e| {
             panic!("テスト用 DB へアプリの役割で接続できない: {e}\n  役割が無いなら tools/db-roles.sh を先に実行する")
@@ -220,8 +620,9 @@ pub async fn set_succeeds(pool: &sqlx::PgPool, source: &str, predecessor: &str) 
 }
 
 /// テストごとに他のテストが使わない日（2000 年代の前半から）。書き出しは除く判定が**利用者を問わない**ので、
-/// 消した滞在の時間は全テストで共有される。書き出しのテストの記録と消す滞在は、この日に置いて時刻でも隔離する
-/// （ST33 / spec-review R27）。1 回の実行の中では重ならず、実行どうしは乱数の起点でずらす。
+/// 消した滞在の時間は、回の database の中で書き出しの試験以外が共有する。回の database を使う試験は、この日で互いを隔てる
+/// （ST33 / spec-review R27）。書き出しの試験も記録をこの日に置くが、試験ごとの database（`isolated()`）で既に隔離されている（CH04）。
+/// 1 回の実行の中では重ならず、実行どうしは乱数の起点でずらす。
 pub fn unique_day() -> chrono::NaiveDate {
     use std::sync::atomic::{AtomicU32, Ordering};
     // 2000-01-01 から 5 年ぶん（1827 日）。37 は 1827 と互いに素なので、起点からの 1827 回は重ならない。

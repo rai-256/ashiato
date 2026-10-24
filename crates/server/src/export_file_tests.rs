@@ -462,7 +462,8 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
 #[tokio::test]
 async fn export_zip_one_dated_zip_with_the_twelve_entries() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("one");
     let file = export_into(&pool, ExportConfig::with_dir(dir.clone())).await;
     let left = names(&dir);
@@ -495,7 +496,8 @@ async fn export_zip_one_dated_zip_with_the_twelve_entries() {
 #[tokio::test]
 async fn export_zip_every_entry_is_aes_256() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let file = export_into(&pool, ExportConfig::with_dir(tmp_dir("aes"))).await;
     let mut z = open(&file);
     assert_eq!(z.len(), ENTRIES.len());
@@ -512,7 +514,8 @@ async fn export_zip_every_entry_is_aes_256() {
 #[tokio::test]
 async fn export_zip_unfinished_file_has_no_export_name() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("partial");
     let midway: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let (seen, d) = (midway.clone(), dir.clone());
@@ -714,7 +717,8 @@ async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
 
 #[tokio::test]
 async fn export_readme_fold_rule_matches_the_event_folded_view() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let def: (String,) = sqlx::query_as("SELECT pg_get_viewdef('core.event_folded'::regclass)")
         .fetch_one(&pool)
         .await
@@ -1447,28 +1451,48 @@ fn max_rss_kib() -> u64 {
 }
 
 /// 既定は 2 万行。1 年分（35 万行）は `ASHIATO_EXPORT_VOLUME_ROWS=350000` を渡し、使い捨ての DB で走らせる（R36）。
-/// `ASHIATO_EXPORT_VOLUME_ERASED=0` なら消した滞在を置かない（既定は `1`。CH02 design D8）。
+/// `ASHIATO_EXPORT_VOLUME_ERASED` は消した滞在の数 M（既定は `1`、`0` なら置かない。CH02 design D8・CH04 design D14）。
+/// M ≥ 2 のときは記録を M 日に等分して置き（1 日 N / M 行）、各日の 01:00–02:00 を消した滞在にする。
 #[tokio::test]
 async fn export_volume_one_run_reports_time_and_memory() {
     let rows: i64 = std::env::var("ASHIATO_EXPORT_VOLUME_ROWS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(20_000);
-    let erased = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED").map_or(true, |v| v != "0");
+    let erased_count: i64 = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let erased = erased_count > 0;
+    let days = erased_count.max(1);
+    let per_day = (rows + days - 1) / days;
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
     // 既定では消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
     // その 3 分の 2 が消した時間より前に始まり、除く判定の重い経路（次の記録を引く幅・重なり）を通る。
-    // 座標を持つ行は共有の DB に残り、以後のすべての書き出しが判定し直すので、割合は小さく保つ。
-    if erased {
-        w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+    // 座標を持つ行は、この試験の database の中で書き出しのたびに判定し直されるので、割合は小さく保つ。
+    if days <= 1 {
+        if erased {
+            w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+        }
+    } else {
+        for k in 0..days {
+            let day = w.day + chrono::Duration::days(k);
+            w.erased_stay(
+                &format!("{day}T01:00:00Z"),
+                &format!("{day}T02:00:00Z"),
+                &[],
+            )
+            .await;
+        }
     }
     sqlx::query(
         "INSERT INTO core.event
            (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
             schema_version, content_hash, raw, payload)
          SELECT gen_random_uuid(), $1, 'c02-window', 'pc', 'collected',
-                $2::timestamptz + (g % 10800) * interval '1 second', 540, 'Asia/Tokyo', 1,
+                $2::timestamptz + ((g - 1) / $4::bigint) * interval '1 day'
+                  + (g % 10800) * interval '1 second', 540, 'Asia/Tokyo', 1,
                 md5(g::text || $1::text), 'volume row ' || g,
                 CASE WHEN g % 100 = 0 THEN jsonb_build_object('i', g, 'lat', 35.0, 'lon', 139.0)
                      ELSE jsonb_build_object('i', g) END
@@ -1477,6 +1501,7 @@ async fn export_volume_one_run_reports_time_and_memory() {
     .bind(w.user)
     .bind(w.at("00:00"))
     .bind(rows)
+    .bind(per_day.max(1))
     .execute(&w.pool)
     .await
     .unwrap();
