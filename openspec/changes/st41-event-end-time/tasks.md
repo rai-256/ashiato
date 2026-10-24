@@ -157,16 +157,16 @@
 
 ## Task 7: 申し送りと全体の確かめ
 
-- [ ] 7.1 `git log --oneline origin/main -- crates/server/src/export/excluded.rs | head -3` で CH02 の窓の形が main に入っているかを見る。**入っていなければ**、`docs/handoff/CH02.md` を作り
+- [x] 7.1 `git log --oneline origin/main -- crates/server/src/export/excluded.rs | head -3` で CH02 の窓の形が main に入っているかを見る。**入っていなければ**、`docs/handoff/CH02.md` を作り
   「`st41-event-end-time` design D11 — `legacy` の写しと突き合わせの偽データに、終わりを列に持つ記録の行が無い。CH02 の新旧の突き合わせは ST41 の (a) の列を写していない」を
   `docs/handoff/README.md` の書式で書く（入っていれば書かない。どちらだったかを PR 本文に 1 行）。
   検証: `git log --oneline origin/main --grep 'ch02' -- crates/server/src/export/excluded.rs | grep -q . || test -f docs/handoff/CH02.md` rc=0 /
   `python3 scripts/review_triage.py . st41-event-end-time` rc=0
-- [ ] 7.1b 滞在と収集済みの記録を変えていないこと（Q5 / Q6 の推奨。D13（仮）・D14（仮））:
+- [x] 7.1b 滞在と収集済みの記録を変えていないこと（Q5 / Q6 の推奨。D13（仮）・D14（仮））:
   `git diff --quiet origin/main -- crates/server/src/stay_store.rs collector-android crates/collector-windows` rc=0 /
   `end_time_tests.rs` の `st41_stays_and_collected_rows_have_no_end_column` —— 位置の記録を置いて `stay_store::rebuild_all` を走らせた後、その利用者の滞在と位置の記録の `end_time` がすべて NULL であることを見る。
   検証: `CT st41_stays_and_collected` rc=0（`-- --list` で 1 本以上）
-- [ ] 7.2 全体: `scripts/quiet-run fmt -- cargo fmt --all -- --check` rc=0 / `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0 /
+- [x] 7.2 全体: `scripts/quiet-run fmt -- cargo fmt --all -- --check` rc=0 / `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0 /
   `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run test -- cargo test -p ashiato-server'` rc=0 /
   `./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh && ./tools/check-immutable.sh` rc=0 /
   `scripts/quiet-run smoke -- ./tools/smoke.sh` rc=0（「2 つの時刻が両方埋まる」「時刻の欄が欠けた要求は拒否される」が今のまま通る）/
