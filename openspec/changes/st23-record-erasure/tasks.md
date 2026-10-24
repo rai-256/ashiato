@@ -114,11 +114,11 @@
 
 ## Task 7: 夜の書き直し（design D11）
 
-- [ ] 7.1 `crates/server/src/purge_compaction.rs` に `run_once(pool, now)`（対象の表を選び、書き出しが走っていれば待ち、`lock_timeout` を掛けて `VACUUM FULL`、`relfilenode` を前後で比べて `core.purge_compaction` に 1 行）と、毎日 03:30（Asia/Tokyo）に `run_once` を呼ぶ `spawn` を置き、`lib.rs` の `run()` で起こす。時刻は差し込める形にする。
+- [x] 7.1 `crates/server/src/purge_compaction.rs` に `run_once(pool, now)`（対象の表を選び、書き出しが走っていれば待ち、`lock_timeout` を掛けて `VACUUM FULL`、`relfilenode` を前後で比べて `core.purge_compaction` に 1 行）と、毎日 03:30（Asia/Tokyo）に `run_once` を呼ぶ `spawn` を置き、`lib.rs` の `run()` で起こす。時刻は差し込める形にする。
   Scenario: `本文を消した晩に表が書き直される` / `本文を消していない晩は書き直さない` / `書き直せなかったら失敗として残り、次の晩にもう一度書き直す` / `書き出しの最中は書き直しを始めない`。
   検証: `CT purge_compaction_ (≥4)`（新しい `purge_compaction_tests.rs`。サーバと同じ `ashiato_app` の接続で走らせる。「書き直せなかったら」は試験の中で `REVOKE MAINTAIN` してから `run_once`、`GRANT` し直してもう一度。
   「書き出しの最中」は書き出しの job の走っている状態を作り、`run_once` が書き直さずに待つことを見る）。
-- [ ] 7.2 実物の量の時間（design D11 の反転条件。spec review R15）: `tools/seed.sh max` は 1 日分で量が足りないので使わない。新しい `tools/st23-compaction-volume.sh` が使い捨ての DB（`tools/stack.sh` の DB ではない）に
+- [x] 7.2 実物の量の時間（design D11 の反転条件。spec review R15）: `tools/seed.sh max` は 1 日分で量が足りないので使わない。新しい `tools/st23-compaction-volume.sh` が使い捨ての DB（`tools/stack.sh` の DB ではない）に
   `generate_series` で 1 年分（位置 60 秒ごと = 約 52.6 万行、滞在 1 日 15 件 × 前の版 20 件、`raw` は seed の 1 件と同じ大きさ）を `core.event` と `core.event_version` に入れ、1 日分の本文を消してから `run_once` を 1 回走らせ、
   表ごとの秒数と表の大きさを標準出力に出す。
   検証: `scripts/quiet-run volume -- tools/st23-compaction-volume.sh` rc=0 で、出力の `seconds_total` が 300 以下（超えたら rc=1。design D11 の反転条件として上流へ返す）。秒数と表の大きさは PR の本文に書く
