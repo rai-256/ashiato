@@ -28,17 +28,17 @@
 
 ## Task 1: 回の database とテンプレート —— 試験の足場の繋ぎ先を替える
 
-- [ ] 1.1 `crates/server/src/testdb.rs` に design D1・D2・D3 を書く: 回の id（`ashiato_run_<12 桁>`）、`postgres` database への所有者の接続、`pg_advisory_lock(4820252)` の直列化、
+- [x] 1.1 `crates/server/src/testdb.rs` に design D1・D2・D3 を書く: 回の id（`ashiato_run_<12 桁>`）、`postgres` database への所有者の接続、`pg_advisory_lock(4820252)` の直列化、
   専用のスレッドと runtime で持つ回の助言ロック（`pg_advisory_lock(4820253, hashtext('<id>'))`）、テンプレート `<id>_tpl` の作成と移行・権限の当て、`CREATE DATABASE <id> TEMPLATE <id>_tpl`。
   `pool()` の初回（`OnceCell`。いまの `MIGRATED` を置き換える）がこれを行い、`pool()`・`app_pool()`・`url()` は回の database を指す。冒頭の注記に回の database の規則を書く（D15）。
   片付け（Task 3）はこの段では空の関数を呼ぶだけでよい。
   検証: `cargo build -p ashiato-server --tests` rc=0 / `bash -c '! grep -nE "session_replication_role|DISABLE TRIGGER" crates/server/src/testdb.rs'` rc=0
-- [ ] 1.2 `crates/server/src/testdb_tests.rs`（新しいファイル。`lib.rs` の試験のモジュールの並びに足す）に次の 3 本を足す:
+- [x] 1.2 `crates/server/src/testdb_tests.rs`（新しいファイル。`lib.rs` の試験のモジュールの並びに足す）に次の 3 本を足す:
   `ch04_testdb_points_to_the_run_database`（`// Scenario: 試験の足場の繋ぎ先は、その回の database である`。`pool()` と `app_pool()` の `current_database()` が同じで `ashiato_run_` で始まり、`url()` の末尾も同じ）/
   `ch04_testdb_records_stay_out_of_ashiato`（`// Scenario: 試験が置いた記録は、ashiato database に入らない`。`put_event` で置いた id が回の database にあり、`url()` の database 名を `ashiato` に替えて繋いだ先の `core.event` に無い。`ashiato` に表が無ければ「無い」と読む）/
   `ch04_testdb_run_database_keeps_the_immutable_triggers`（`// Scenario: 回の database でも、消せない表は行の削除と TRUNCATE を断る`。`DELETE` と `TRUNCATE` が失敗し、`pg_trigger` の `event_no_delete` と `event_no_truncate` の `tgenabled` が `O`）。
   検証: `CT ch04_testdb_` rc=0 / `NL ch04_testdb_ 3` rc=0
-- [ ] 1.3 回の database のまま、DB を使う主な試験の群が通ることを確かめる（書き出し以外。書き出しは Task 5）。
+- [x] 1.3 回の database のまま、DB を使う主な試験の群が通ることを確かめる（書き出し以外。書き出しは Task 5）。
   検証: `CT coverage` rc=0 / `CT ingest` rc=0 / `CT deletion` rc=0 / `CT stay_tests` rc=0 / `NL stay_tests 65` rc=0
 
 ## Task 2: 試験ごとの database と使い捨ての database の手伝い
