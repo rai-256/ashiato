@@ -310,6 +310,10 @@ pub(crate) fn span_of(
 ///
 /// 滞在の長さに上限は無いので、始まりだけでは絞れない。`payload->>'end'` の文字列比較で粗く絞ってから
 /// 読んだ終わりで正確に絞る（2 日の余裕を取るので、秒の端数の書き方の違いは効かない）。
+///
+/// **本文を消した滞在（`raw = ''`）は候補に入れない**（作り直しが本文を戻さないため。design D6）。
+/// その時間は `core.stay_erased`（台帳の範囲。範囲の行が無ければその日全体。D14）から読み、
+/// 本人が消した時間帯（`Mark::UserDeleted`）として足す。重なる新しい滞在はこれで `rebuild:erased-range` に隠れる。
 async fn load_existing(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
@@ -321,6 +325,7 @@ async fn load_existing(
         "SELECT id, event_time, raw, payload, deleted_at, deleted_by
            FROM core.event
           WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
+            AND raw <> ''
             AND event_time < $3
             AND (event_time >= $4 OR payload->>'end' >= $5)
           ORDER BY event_time, id",
@@ -332,7 +337,17 @@ async fn load_existing(
     .bind(rough.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
     .fetch_all(&mut **tx)
     .await?;
-    Ok(rows
+    let purged: Vec<(uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>)> = sqlx::query_as(
+        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+              WHERE user_id = $1 AND purged AND start_at < $2 AND end_at >= $3
+              ORDER BY start_at, id",
+    )
+    .bind(user)
+    .bind(to)
+    .bind(from)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut existing: Vec<Existing> = rows
         .into_iter()
         .filter_map(|r| {
             let (start, end) = span_of(r.event_time, &r.payload);
@@ -347,7 +362,23 @@ async fn load_existing(
                 deleted_by: r.deleted_by,
             })
         })
-        .collect())
+        .collect();
+    existing.extend(
+        purged
+            .into_iter()
+            .map(|(id, start, end, deleted_by)| Existing {
+                id,
+                start,
+                end,
+                lat: None,
+                lon: None,
+                raw: String::new(),
+                mark: Mark::UserDeleted,
+                deleted_by,
+            }),
+    );
+    existing.sort_by(|a, b| a.start.cmp(&b.start).then(a.id.cmp(&b.id)));
+    Ok(existing)
 }
 
 // ------------------------------------------------------------------ 範囲（design D5）
@@ -629,15 +660,13 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let span: (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(&format!(
-        "SELECT min(s.event_time),
-                max(coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time))
-           FROM core.event s
+        "SELECT min(s.start_at), max(s.end_at)
+           FROM core.stay_erased s
           WHERE s.user_id = $1
             AND {erased}",
-        erased = user_erased_stay_sql("s", 2, 3)
+        erased = user_erased_stay_sql("s", 2)
     ))
     .bind(user)
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_one(&mut *tx)
     .await?;
@@ -652,10 +681,9 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
 /// 本人が消した滞在を持つ利用者（書き出しが利用者ごとに遅着の印を付ける対象。ST33 design D6）。
 pub(crate) async fn users_with_erased_stays(pool: &PgPool) -> sqlx::Result<Vec<uuid::Uuid>> {
     sqlx::query_scalar(&format!(
-        "SELECT DISTINCT s.user_id FROM core.event s WHERE {erased} ORDER BY s.user_id",
-        erased = user_erased_stay_sql("s", 1, 2)
+        "SELECT DISTINCT s.user_id FROM core.stay_erased s WHERE {erased} ORDER BY s.user_id",
+        erased = user_erased_stay_sql("s", 1)
     ))
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_all(pool)
     .await
@@ -672,15 +700,13 @@ pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
     all
 }
 
-/// 「本人が消した滞在」の SQL 条件（`alias` は core.event の別名、`source` / `prefix` は滞在の論理ソースと
-/// 作り直しの印の接頭辞を束ねる `$n` の番号）。`mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
-/// 台帳の最新の行が erase で、かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない。
-fn user_erased_stay_sql(alias: &str, source: u8, prefix: u8) -> String {
+/// 「本人が消した滞在」の SQL 条件（`alias` は `core.stay_erased` の別名、`prefix` は作り直しの印の接頭辞を束ねる `$n` の番号）。
+/// `mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
+/// ビューが派生の滞在・削除済み・`user:purged` 除外を持つので、ここは台帳の最新の行が erase で、
+/// かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない、だけを見る。時間もビューの `start_at` / `end_at`（D5）。
+fn user_erased_stay_sql(alias: &str, prefix: u8) -> String {
     format!(
-        "{a}.logical_source = ${source}
-            AND {a}.origin = 'derived'
-            AND {a}.deleted_at IS NOT NULL
-            AND ({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
+        "({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
             AND EXISTS (
               SELECT 1 FROM core.deletion_ledger d
                WHERE d.event_id = {a}.id
@@ -873,18 +899,18 @@ async fn mark_late_arrivals(
     let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
         "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
            FROM core.event e
-           JOIN core.event s
+           JOIN core.stay_erased s
              ON s.user_id = e.user_id
             AND {erased}
-            AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
-            AND {end} >= s.event_time
+            AND e.event_time <= s.end_at
+            AND {end} >= s.start_at
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
             AND e.deleted_at IS NULL
             AND {located}
-          ORDER BY e.id, s.event_time, s.id",
-        erased = user_erased_stay_sql("s", 5, 6),
+          ORDER BY e.id, s.start_at, s.id",
+        erased = user_erased_stay_sql("s", 5),
         end = event_end_sql("e"),
         located = item_located_sql("e")
     ))
@@ -892,7 +918,6 @@ async fn mark_late_arrivals(
     .bind(&sources)
     .bind(from)
     .bind(to)
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_all(&mut **tx)
     .await?;

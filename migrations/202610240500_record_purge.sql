@@ -76,16 +76,19 @@ CREATE TRIGGER erasure_span_no_truncate
 
 -- ------------------------------------------------------------------ 消した時間帯を読む 1 か所（D5）
 -- start_at / end_at は、範囲の表（scope = 'event'）があればそこから、無ければ本文から読む。
+-- 本文を消した（raw = ''）のに範囲の行が無い滞在は、出来事の時刻の日（Asia/Tokyo）の 00:00〜24:00 とみなす（D14）。
 -- 一緒に本文を消した滞在（deleted_by = 'user:purged'）は出さない —— 本文ごと消した時間帯は
 -- 指定した滞在の時間だけ（D13）で、吸収された滞在の時間を窓にしない。
 -- 列は末尾にだけ足す（既存の読み手の並びを動かさない）。座標を含む payload と原文 raw は載せない。
 CREATE OR REPLACE VIEW core.stay_erased AS
   SELECT e.id,
          e.user_id,
-         coalesce(s.start_at, e.event_time) AS start_at,
+         coalesce(s.start_at,
+                  CASE WHEN e.raw = '' THEN d.day_start ELSE e.event_time END) AS start_at,
          coalesce(s.end_at,
-                  core.try_timestamptz(e.payload->>'end'),
-                  e.event_time + interval '1 microsecond') AS end_at,
+                  CASE WHEN e.raw = '' THEN d.day_start + interval '1 day'
+                       ELSE coalesce(core.try_timestamptz(e.payload->>'end'),
+                                     e.event_time + interval '1 microsecond') END) AS end_at,
          e.deleted_at,
          e.deleted_by,
          (e.raw = '') AS purged,
@@ -99,6 +102,9 @@ CREATE OR REPLACE VIEW core.stay_erased AS
             ORDER BY op.at, op.id
             LIMIT 1
          ) s ON true
+    CROSS JOIN LATERAL (
+           SELECT date_trunc('day', e.event_time AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo' AS day_start
+         ) d
    WHERE e.logical_source = 's01-stay'
      AND e.origin = 'derived'
      AND e.deleted_at IS NOT NULL

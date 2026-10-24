@@ -1506,3 +1506,327 @@ async fn purge_scope_restore_of_a_purged_stay_is_refused() {
     .unwrap();
     assert_eq!(marked, 4, "何も書かない（削除の印は付いたまま）");
 }
+
+// ------------------------------------------------------------------ 消した時間帯の読み手を台帳へ寄せる（Task 3 / design D5 / D6 / D14）
+
+use crate::export_excluded_tests::World;
+use crate::stay_store::EntryKind;
+use serde_json::json;
+
+fn far_future() -> DateTime<Utc> {
+    at("2027-01-01T00:00:00+09:00")
+}
+
+async fn day_entries(pool: &PgPool, user: Uuid) -> Vec<crate::stay_store::DayEntry> {
+    crate::stay_store::day_view(pool, user, testdb::date("2026-10-01"), far_future())
+        .await
+        .unwrap()
+        .entries
+}
+
+fn stays_in(entries: &[crate::stay_store::DayEntry]) -> usize {
+    entries.iter().filter(|e| e.kind == EntryKind::Stay).count()
+}
+
+/// 10:15〜10:45 に 5 分おきに新しい位置が入った状態にする（本文を消した 10:00〜11:00 の中）。
+async fn scene_new_points(pool: &PgPool, user: Uuid) {
+    for when in [
+        "10:15", "10:20", "10:25", "10:30", "10:35", "10:40", "10:45",
+    ] {
+        scene_location(pool, user, &format!("2026-10-01T{when}:00+09:00")).await;
+    }
+}
+
+// Scenario: 本文ごと消した後も消した時間帯の長さは変わらない
+#[tokio::test]
+async fn purge_range_length_is_unchanged_after_purge() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let stay = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:05:00+09:00",
+        "2026-10-01T11:48:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+
+    let entries = day_entries(&pool, user).await;
+
+    let erased: Vec<_> = entries
+        .iter()
+        .filter(|e| e.kind == EntryKind::Erased)
+        .collect();
+    assert_eq!(erased.len(), 1);
+    assert_eq!(erased[0].start, at("2026-10-01T10:05:00+09:00"));
+    assert_eq!(erased[0].end, at("2026-10-01T11:48:00+09:00"));
+}
+
+// Scenario: 本文ごと消した時間帯の撮影位置は書き出しから除かれたまま
+#[tokio::test]
+async fn purge_range_photo_stays_out_of_the_export() {
+    let w = World::new().await;
+    let stay = w.stay(&w.at("01:00"), &w.at("02:00")).await;
+    let photo = w
+        .put(
+            "c01-photo",
+            &w.at("01:30"),
+            json!({"lat": 35.0, "lon": 139.0}),
+            "{}",
+        )
+        .await;
+    deletion::erase(&w.pool, stay, None).await.unwrap();
+    assert!(
+        w.kept(&[photo]).await.is_empty(),
+        "本文を消す前から除かれている"
+    );
+
+    purge_now(&w.pool, stay).await;
+
+    assert!(emptied(&w.pool, stay).await);
+    assert!(
+        w.kept(&[photo]).await.is_empty(),
+        "本文を消した後に写真が書き出しへ戻った"
+    );
+}
+
+// Scenario: 本文ごと消した時間帯に作り直しは滞在を作らない
+#[tokio::test]
+async fn purge_range_rebuild_makes_no_stay_inside() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+    scene_new_points(&pool, user).await;
+
+    crate::stay_store::rebuild_day(&pool, user, testdb::date("2026-10-01"))
+        .await
+        .unwrap();
+
+    let entries = day_entries(&pool, user).await;
+    assert_eq!(stays_in(&entries), 0, "{entries:?}");
+}
+
+// Scenario: 作り直しの後も本文を消した滞在の本文は空のまま
+#[tokio::test]
+async fn purge_range_rebuild_keeps_the_purged_body_empty() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+
+    crate::stay_store::rebuild_day(&pool, user, testdb::date("2026-10-01"))
+        .await
+        .unwrap();
+
+    assert!(emptied(&pool, stay).await);
+    assert_eq!(versions_emptied(&pool, stay).await, (0, 0));
+    assert_eq!(stays_in(&day_entries(&pool, user).await), 0);
+}
+
+// Scenario: 吸収されていた滞在の本文は作り直しで戻らない
+#[tokio::test]
+async fn purge_range_rebuild_does_not_restore_an_absorbed_body() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    let absorbed = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:10:00+09:00",
+        "2026-10-01T10:40:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    scene_mark_rebuild(&pool, absorbed, "rebuild:absorbed").await;
+    purge_now(&pool, stay).await;
+    scene_new_points(&pool, user).await;
+
+    crate::stay_store::rebuild_day(&pool, user, testdb::date("2026-10-01"))
+        .await
+        .unwrap();
+
+    assert!(emptied(&pool, absorbed).await);
+    let mark: (bool, Option<String>) =
+        sqlx::query_as("SELECT deleted_at IS NOT NULL, deleted_by FROM core.event WHERE id = $1")
+            .bind(absorbed)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(mark, (true, Some("user:purged".into())));
+}
+
+// Scenario: 本文を消した記録は 1 日の記録の読み出しに出ない
+#[tokio::test]
+async fn purge_range_purged_records_are_not_in_the_day_records() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, locations) = scene_basic(&pool, user).await;
+    let absorbed = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:10:00+09:00",
+        "2026-10-01T10:40:00+09:00",
+    )
+    .await;
+    scene_erase(&pool, stay).await;
+    scene_mark_rebuild(&pool, absorbed, "rebuild:absorbed").await;
+    purge_now(&pool, stay).await;
+
+    let records = crate::day_records::records(
+        &pool,
+        user,
+        testdb::date("2026-10-01"),
+        None,
+        None,
+        far_future(),
+    )
+    .await
+    .unwrap();
+
+    let purged: Vec<Uuid> = [vec![stay, absorbed], locations].concat();
+    assert!(
+        records.iter().all(|r| !purged.contains(&r.id)),
+        "本文を消した記録が出た: {records:?}"
+    );
+}
+
+// Scenario: 範囲の行が無い本文を消した滞在はその日全体を書き出しから除く
+#[tokio::test]
+async fn purge_range_without_a_span_row_excludes_the_whole_day() {
+    let w = World::new().await;
+    // 範囲の行を積まずに本文だけ消えた滞在（移行の前の手作業・壊れた行）
+    let stay = w.stay(&w.at("01:00"), &w.at("02:00")).await;
+    let mut tx = w.pool.begin().await.unwrap();
+    put_ledger(&mut tx, stay, w.user).await;
+    sqlx::query(
+        "UPDATE core.event SET raw = '', payload = '{}'::jsonb,
+                deleted_at = now(), deleted_by = 'user' WHERE id = $1",
+    )
+    .bind(stay)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    // 15:00（Asia/Tokyo）= 06:00Z。滞在の始まりの日の中で、滞在の時間の外
+    let photo = w
+        .put(
+            "c01-photo",
+            &w.at("06:00"),
+            json!({"lat": 35.0, "lon": 139.0}),
+            "{}",
+        )
+        .await;
+
+    assert!(w.kept(&[photo]).await.is_empty());
+}
+
+// Scenario: 本文ごと消す操作と作り直しが同時に走っても本文は戻らない
+#[tokio::test]
+async fn purge_range_purge_and_rebuild_race_keeps_the_body_empty() {
+    let pool = testdb::pool().await;
+    let holder = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    let counts = scope_counts(&pool, stay).await;
+
+    let mut tx = holder.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(crate::stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let purge_task = tokio::spawn({
+        let pool = pool.clone();
+        async move { deletion::purge(&pool, stay, None, counts).await }
+    });
+    let rebuild_task = tokio::spawn({
+        let pool = pool.clone();
+        async move { crate::stay_store::rebuild_day(&pool, user, testdb::date("2026-10-01")).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!purge_task.is_finished(), "消す操作が錠を待っていない");
+    assert!(!rebuild_task.is_finished(), "作り直しが錠を待っていない");
+    tx.rollback().await.unwrap();
+    purge_task.await.unwrap().unwrap();
+    rebuild_task.await.unwrap().unwrap();
+
+    assert!(emptied(&pool, stay).await);
+    assert_eq!(stays_in(&day_entries(&pool, user).await), 0);
+}
+
+/// 消した時間帯を読む SQL は、滞在の本文の終わり（`payload->>'end'`）を直に読まない（design D5 / spec review R6）。
+/// 出現は許可の一覧の `file:関数` と一致する。コメント行と試験の置き場（`_tests.rs`）は数えない。
+#[test]
+fn purge_range_reader_allowlist() {
+    use std::collections::BTreeSet;
+    use std::path::Path;
+
+    fn collect(dir: &Path, root: &Path, found: &mut BTreeSet<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                collect(&path, root, found);
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let lines: Vec<&str> = text.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim_start().starts_with("//") || !line.contains("payload->>'end'") {
+                    continue;
+                }
+                let func = lines[..=i]
+                    .iter()
+                    .rev()
+                    .find_map(|l| {
+                        let l = l.trim_start();
+                        let l = l
+                            .strip_prefix("pub(crate) ")
+                            .or_else(|| l.strip_prefix("pub "))
+                            .unwrap_or(l);
+                        let l = l.strip_prefix("async ").unwrap_or(l);
+                        l.strip_prefix("fn ").map(|r| {
+                            r.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                                .next()
+                                .unwrap()
+                                .to_owned()
+                        })
+                    })
+                    .unwrap_or_else(|| "?".into());
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                found.insert(format!("{rel}:{func}"));
+            }
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = BTreeSet::new();
+    collect(&root, &root, &mut found);
+
+    let allowed: BTreeSet<String> = [
+        // 生きた滞在の粗い絞り（消した時間帯の読みではない）
+        "stay_store.rs:load_existing",
+        "stay_store.rs:day_view",
+        // 生きた滞在だけを読む（`event_live` 越し）
+        "lib.rs:stays_detail_get",
+        // 本文が残る前の版の本文の補い
+        "export/excluded.rs:excluded_sql",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(found, allowed);
+}
