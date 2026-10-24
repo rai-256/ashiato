@@ -193,3 +193,113 @@ async fn ch04_isolated_many_in_parallel() {
         assert!(!database_exists(&name).await, "消えていない: {name}");
     }
 }
+
+/// 片付けの試験の材料づくりを 1 本ずつにする（ほかの試験の `sweep()` が作りかけの材料を消さないように。design の Risks）。
+static SWEEP_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 材料の database（TEMPLATE を使わない空のもの）。
+async fn create_empty_database(admin: &sqlx::PgPool, name: &str) {
+    // db-ok: 片付けの試験の材料
+    sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+        .execute(admin)
+        .await
+        .unwrap();
+}
+
+async fn drop_database(admin: &sqlx::PgPool, name: &str) {
+    sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+        .execute(admin)
+        .await
+        .unwrap();
+}
+
+/// `postgres` database に繋いだ所有者のプール（`CREATE DATABASE` の置き場）。
+async fn postgres_admin() -> sqlx::PgPool {
+    drop(testdb::pool().await);
+    let url = testdb::url();
+    let url = format!("{}/postgres", &url[..url.rfind('/').unwrap()]);
+    sqlx::PgPool::connect(&url).await.unwrap()
+}
+
+// Scenario: 持ち主のいない回の database は、次の回の始まりに消える
+#[tokio::test]
+async fn ch04_sweep_drops_an_orphan_run() {
+    let _serial = SWEEP_SERIAL.lock().await;
+    let admin = postgres_admin().await;
+    let id = format!(
+        "ashiato_run_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..12]
+    );
+    let names = [
+        format!("{id}_tpl"),
+        id.clone(),
+        format!("{id}_x_aaaaaaaaaaaa"),
+        format!("{id}_tmp_bbbbbbbbbbbb"),
+    ];
+    for name in &names {
+        create_empty_database(&admin, name).await;
+    }
+    testdb::sweep().await;
+    for name in &names {
+        let gone = !database_exists(name).await;
+        if !gone {
+            drop_database(&admin, name).await;
+        }
+        assert!(gone, "持ち主のいない回の database が残っている: {name}");
+    }
+}
+
+// Scenario: 走っている回の database は、接続が 0 本でも消えない
+#[tokio::test]
+async fn ch04_sweep_keeps_a_running_run_without_connections() {
+    use sqlx::Connection;
+    let _serial = SWEEP_SERIAL.lock().await;
+    let admin = postgres_admin().await;
+    let id = format!(
+        "ashiato_run_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..12]
+    );
+    create_empty_database(&admin, &id).await;
+    // 別の接続でその回の助言ロックを持つ（database には繋がない）。
+    let url = testdb::url();
+    let postgres_url = format!("{}/postgres", &url[..url.rfind('/').unwrap()]);
+    let mut holder = sqlx::PgConnection::connect(&postgres_url).await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(4820253, hashtext($1))")
+        .bind(&id)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+
+    testdb::sweep().await;
+    let kept = database_exists(&id).await;
+
+    holder.close().await.unwrap();
+    drop_database(&admin, &id).await;
+    assert!(kept, "走っている回の database が消えた: {id}");
+}
+
+// Scenario: 回の印の無い使い捨ての database の残りは消え、ashiato と他の database は残る
+#[tokio::test]
+async fn ch04_sweep_drops_legacy_tmp_and_keeps_others() {
+    let _serial = SWEEP_SERIAL.lock().await;
+    let admin = postgres_admin().await;
+    let rand = &uuid::Uuid::new_v4().simple().to_string()[..12];
+    let legacy = format!("ch04x_tmp_{rand}");
+    let other = format!("ch04keep_{rand}");
+    create_empty_database(&admin, &legacy).await;
+    create_empty_database(&admin, &other).await;
+
+    testdb::sweep().await;
+    let legacy_exists = database_exists(&legacy).await;
+    let other_exists = database_exists(&other).await;
+    let ashiato_exists = database_exists("ashiato").await;
+
+    drop_database(&admin, &legacy).await;
+    drop_database(&admin, &other).await;
+    assert!(
+        !legacy_exists,
+        "印の無い _tmp_ の残りが残っている: {legacy}"
+    );
+    assert!(other_exists, "他の database が消えた: {other}");
+    assert!(ashiato_exists, "ashiato が消えた");
+}

@@ -130,9 +130,84 @@ fn hold_run_lock(postgres_url: String, run_id: String) {
     rx.recv().expect("回の助言ロックを取れなかった");
 }
 
-/// 前の回の database の片付け（design D6。Task 3 が中身を書く）。
-#[allow(clippy::unused_async)] // Task 3 で await が入る
-async fn sweep_previous_runs(_admin: &mut sqlx::PgConnection) {}
+/// 名前が回の database（`ashiato_run_<12 桁の 16 進>` の後ろが空か `_…`）なら、その回の id。
+fn run_id_of(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("ashiato_run_")?;
+    let digits = rest.get(..12)?;
+    let tail = &rest[12..];
+    (digits.bytes().all(|b| b.is_ascii_hexdigit()) && (tail.is_empty() || tail.starts_with('_')))
+        .then(|| &name[.."ashiato_run_".len() + 12])
+}
+
+/// 前の回の database の片付け（design D6）。呼ぶ側が `LOCK_SWEEP_AND_CREATE` を持っている。
+/// 消すのは、持ち主のいない回（助言ロックを取れた）のものと、回の印の無い `_tmp_` の残りだけ。
+/// 消せなかったものは名前と理由を出して戻る（次の回がまた消す）。
+async fn sweep_previous_runs(admin: &mut sqlx::PgConnection) {
+    let names: Vec<String> = sqlx::query_scalar("SELECT datname::text FROM pg_database")
+        .fetch_all(&mut *admin)
+        .await
+        .unwrap();
+    for name in names {
+        if matches!(
+            name.as_str(),
+            "ashiato" | "postgres" | "template0" | "template1"
+        ) {
+            continue;
+        }
+        let doomed = if let Some(id) = run_id_of(&name) {
+            let got: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1, hashtext($2))")
+                .bind(LOCK_RUN_CLASS)
+                .bind(id)
+                .fetch_one(&mut *admin)
+                .await
+                .unwrap();
+            if got {
+                sqlx::query("SELECT pg_advisory_unlock($1, hashtext($2))")
+                    .bind(LOCK_RUN_CLASS)
+                    .bind(id)
+                    .execute(&mut *admin)
+                    .await
+                    .unwrap();
+            }
+            got
+        } else {
+            name.contains("_tmp_") && !name.starts_with("ashiato_run_")
+        };
+        if !doomed {
+            continue;
+        }
+        let sql = format!(
+            "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
+            name.replace('"', "\"\"")
+        );
+        if let Err(e) = sqlx::raw_sql(&sql).execute(&mut *admin).await {
+            // log-ok: 試験の足場の診断。database 名と DB のエラーだけで私的データは含まない
+            eprintln!("testdb: {name} を片付けられなかった: {e}");
+        }
+    }
+}
+
+/// 前の回の database の片付けを、試験から呼べる形で（design D6）。
+/// 片付けと作成の鍵を取って 1 本ずつ行い、終わったら外す。
+pub async fn sweep() {
+    use sqlx::Connection;
+    let owner_url = with_port(&url_from_env("DATABASE_OWNER_URL"), db_port());
+    let mut admin = sqlx::PgConnection::connect(&with_database(&owner_url, "postgres"))
+        .await
+        .unwrap_or_else(|e| panic!("テスト用 DB へ所有者で接続できない: {e}"));
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    sweep_previous_runs(&mut admin).await;
+    sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(LOCK_SWEEP_AND_CREATE)
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    admin.close().await.unwrap();
+}
 
 /// `CREATE DATABASE <name> TEMPLATE <template>`。直前に閉じた接続の backend が残っていると
 /// 「source database is being accessed by other users」（55006）で断られるので、少し待って打ち直す。
