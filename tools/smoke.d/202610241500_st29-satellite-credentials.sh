@@ -5,6 +5,9 @@ echo "== ST29. ログを取る 2 台目のサーバを起動"
 SAT_BIND="127.0.0.1:$((ASHIATO_HTTP_PORT + 1))"
 SAT_LOG=$(mktemp)
 BIND="$SAT_BIND" env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u DATABASE_OWNER_URL ./target/debug/ashiato-server >"$SAT_LOG" 2>&1 & SAT_SRV=$!
+# 以降のどこで exit 1 しても 2 台目を止める（止めないと古いバイナリが port+1 に残り、次の走りの healthz に答える）。smoke.sh の cleanup に足す
+eval "_st29_base_$(declare -f cleanup)"
+cleanup() { kill "$SAT_SRV" 2>/dev/null || true; _st29_base_cleanup; }
 for _ in $(seq 1 60); do curl -sf "http://$SAT_BIND/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://$SAT_BIND/healthz" >/dev/null || { echo "ST29 の 2 台目が起動しない"; kill "$SAT_SRV" 2>/dev/null || true; exit 1; }
 

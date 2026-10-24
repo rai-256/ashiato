@@ -80,7 +80,7 @@ async fn post_status(app: &App, password: &str) -> (StatusCode, String) {
 }
 
 async fn wait_idle(app: &App) {
-    for _ in 0..30000 {
+    for _ in 0..3000 {
         if app.exports.running_view().is_none() {
             return;
         }
