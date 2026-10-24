@@ -255,6 +255,10 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
     ExcludedSql { ctes }
 }
 
+/// 幅が消した時間のどれかと重なる、の条件（`overlap_sql` の最後の `WHERE`。`w` は幅を求めた行）。
+/// 試験（`export_overlap_tests`）がこの文字列を足す前の形に置き換えて新旧を突き合わせるので、`overlap_sql` の中で 1 度だけ使う。
+pub(crate) const OVERLAP_CONDITION: &str = "EXISTS (SELECT 1 FROM erased_spans s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time)";
+
 /// 行 `r`（`id` `logical_source` `event_time` `payload` `raw` を持つ）のうち、
 /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
 ///
@@ -302,9 +306,7 @@ fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
                 AND {coord}
              OFFSET 0
            ) w
-          WHERE EXISTS (SELECT 1 FROM erased_spans s
-                         WHERE s.start_at <= w.width_end
-                           AND s.end_at >= w.event_time)",
+          WHERE {OVERLAP_CONDITION}",
         ends = end_keys.join(", "),
         durs = dur_keys.join(", "),
     )
