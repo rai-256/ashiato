@@ -756,7 +756,15 @@ pub async fn kept_archive_copies(
     .await?;
     let mut kept = 0;
     for path in paths {
-        if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        // 調べられなかった写しは「残っている」と数える（少なく数えない。D10）
+        let exists = match tokio::fs::try_exists(&path).await {
+            Ok(exists) => exists,
+            Err(err) => {
+                tracing::warn!(kind = %err.kind(), "書庫の写しの有無を調べられなかった。残っているものとして数える");
+                true
+            }
+        };
+        if exists {
             kept += 1;
         }
     }
