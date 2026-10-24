@@ -245,7 +245,7 @@ async fn st41_export_rows_have_end_columns() {
     let s = "c01-clock";
     let with_end = put_ended(
         &w,
-        &s,
+        s,
         &w.at("05:00"),
         Some(&w.at("06:00")),
         json!({"v": 1}),
