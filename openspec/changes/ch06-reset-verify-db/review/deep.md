@@ -29,7 +29,7 @@ Docker の振る舞いは、使い捨ての compose project（`/tmp` の下・`n
 - 根拠: `tools/ports.sh:48-50`（git-dir と共通ディレクトリが同じ木 = main の checkout。注記 `ports.sh:6` が「CI もここ」と書く）/ `.github/workflows/ci.yml:62-68`（`actions/checkout` の普通の clone、`docker compose up -d --wait db`）/ `tools/ci-db-env.sh`（CI の URL は 55432）/ さらに CI には `.env` が無いので、`tools/verify-env.sh:12` の `tools/env-init.sh` が乱数の合言葉で `.env` を作り（`env-init.sh:12-28`）、`tools/db-roles.sh:22-23` はその `.env` を読んで役割の合言葉を `$GITHUB_ENV` と違う値に揃える —— 同じ job の後ろの段（`$GITHUB_ENV` の `DATABASE_OWNER_URL` で繋ぐもの）が認証で落ちうる
 - kind: conflict
 - 提案: 問いにはしない（失う側は main の checkout の DB だけで、どちらを選んでも C1 の「触らない」は保てる）。premises.md の C1 に見分け方を書き直す: 例として、作り直しの道を検査から通すために検査が使い捨ての `git worktree add` の中で `HARNESS_VERIFY=1 tools/verify-env.sh` を呼ぶ、または CI を見分けて作り直す側に倒す。C4 の検査は「worktree でない木では作り直さない（行が残る）」も同じ台本で見る（C1 の取り違えが main の DB を消す側に倒れないことを機械で固定する）。CI で `.env` を作らない・`$GITHUB_ENV` と食い違わないことも C4 に書く
-- 処置: fixed premises.md —— C1 を「main の checkout では作り直さない。ただし CI（`CI=true`）は作り直す側」に直し、C4 に CI でない main の checkout で行が残ることと、CI の合言葉と食い違わないことを spec で決めると書いた
+- 処置: fixed D2 仮 —— design D2（仮）に判定の表と反転条件を書いた（spec の段）。questions の段では premises.md の C1 を「main の checkout では作り直さない。ただし CI（`CI=true`）は作り直す側」に直し、C4 に CI でない main の checkout で行が残ることと、CI の合言葉と食い違わないことを spec で決めると書いた
 
 ## R3. C2 の前提（ネットワークを手放すのは `tools/stack.sh` の `down -v` だけ）が誤り。検証コマンドとして走る `smoke.sh`・`check-immutable.sh`・`check-panic-log.sh` も毎回 `down -v` で手放すので、C2 だけでは「次の `up` で取れない」を防げない
 - 成果物: openspec/changes/ch06-reset-verify-db/premises.md
@@ -64,7 +64,7 @@ Docker の振る舞いは、使い捨ての compose project（`/tmp` の下・`n
 - 根拠: `docker-compose.yml` は volume を宣言しない（`postgres:17-alpine` の `VOLUME` による匿名 volume）/ 実測（使い捨て project）: `up -d --force-recreate -V` は古い volume を残した。一度 `up --force-recreate`（設定の変化・rebase で compose が作り直すときと同じ）を経たコンテナは、`rm -s -f -v db` でも `down -v` でも volume が残った。作り直しを経ていないコンテナは `rm -s -f -v db` で消えた / いま `docker volume ls -qf dangling=true` は 66 個（CH04 の P5 の「62 個」と同じ現象）
 - kind: daily
 - 提案: 問いにはしない。C2 に手段を書き足す: 消す前に `docker inspect` で DB のコンテナの volume の名前を取り、コンテナを消した後にその volume を名指しで `docker volume rm` する（`-V` は使わない）。C4 の検査に「作り直しの前後で、この project の volume の数が増えない」を足す
-- 処置: fixed premises.md —— C2 に volume の名前を `docker inspect` で取り名指しで消す手段を書き、C4 に volume の数が増えないことを足した。P11 を足した
+- 処置: fixed D1 仮 —— design D1（仮）に手順と反転条件を書いた（spec の段）。questions の段では premises.md の C2 に volume の名前を `docker inspect` で取り名指しで消す手段を書き、C4 に volume の数が増えないことを足した。P11 を足した
 
 ## R8. Q1・Q4 の費用（作り直し 1 回「数秒〜十数秒と見込む（測れていない）」）は、ネットワークの無い使い捨て project で測れる。測った値と、検証の回数を context に置く
 - 成果物: openspec/changes/ch06-reset-verify-db/deep-questions.json / openspec/changes/ch06-reset-verify-db/premises.md
