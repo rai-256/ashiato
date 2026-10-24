@@ -1,0 +1,501 @@
+{
+ "purpose": "各 worktree のテスト用 DB に積もった試験の残り（ch03 214 MB など）を、人も agent も気づかないうちに検証の準備が作り直して戻す。使っている途中の DB は壊さない。あわせて、試験を途中で殺しても次の回の後に残りが無いことを、台本と CI が毎回確かめる。残りを積まない試験の足場そのものは CH04 が持ち、CH05 はその上に積む。",
+ "model": {
+  "kind": "diagram",
+  "caption": "検証の準備が ashiato を作り直すかどうか、と殺した後の検査",
+  "text": "検証の準備（tools/verify-env.sh。ハーネスが検証のコマンドの前に毎回呼ぶ）\n  DB の起動 → 受け付けを待つ\n  → tools/test-db-rebuild.sh\n       ashiato の大きさ ≤ 64 MiB ………………… 何もしない\n       作業ツリーが main・-verify・その他 …… 大きさを出すだけ\n       回が走っている・回を作っている途中\n         ・ashiato に接続がある ……………………… 見送る（検証は続く）\n       それ以外 ……… ashiato だけを消して空で作る（コンテナ・volume はそのまま）\n  → tools/db-roles.sh（所有を整える）\n  → 検証のコマンド（使う側が移行を当て直す）\n\ntools/check-test-db-killed.sh（CI の rust job）\n  探りの試験を 2 つの時点で SIGKILL → 次の回を 1 つ\n  → 殺した回の database が残っていない・ashiato が増えていない"
+ },
+ "before_after": [
+  {
+   "area": "膨れた ashiato",
+   "before": "人か agent が遅さに気づき、手で down -v から作り直す（ST29 は fix round を 5 回使い切った）",
+   "after": "検証の準備が 64 MiB を超えたのを見つけて、中の database だけを作り直す"
+  },
+  {
+   "area": "試験を途中で殺した後",
+   "before": "残りが次の回に効かないことを、どこも確かめていない（CH04 の検査は最後まで走る回だけを見る）",
+   "after": "2 つの時点で殺す台本が、次の回の後に残りが無いことを CI で毎回確かめる"
+  }
+ ],
+ "highlights": [
+  "rebuild.3",
+  "busy.2",
+  "scope.1",
+  "killed.2",
+  "base.2"
+ ],
+ "features": [
+  {
+   "id": "base",
+   "title": "CH04 の上に積む",
+   "summary": "試験が ashiato に積まない形は CH04 が作る。CH05 は CH04 が持たない 2 つだけをやる",
+   "figure": null,
+   "points": [
+    {
+     "id": "base.1",
+     "kind": "normal",
+     "text": "CH04 の後、試験は回ごとの database に書き、前の回の database は次の回の初めに片付く。CH05 が持つのは、各 worktree の ashiato にいま積もっている分の作り直しと、殺された回の後の確かめだけ。CH04 の試験の足場（testdb の形・回の database・片付け・CH04 の検査）は変えない",
+     "refs": {
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "base.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CH05 の下流は CH04 の実装（gate を通った SHA）を取り込んでから始まり、archive も CH04 の後になる。CH04 の gate・fix で鍵の番号や回の名前が変われば、CH05 はそれに合わせる（下流の最初の手順で testdb.rs から読み直す）",
+     "refs": {
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "base.3",
+     "kind": "caution",
+     "tags": [
+      "DB"
+     ],
+     "text": "作り直した後の ashiato は空（移行も当たっていない）。今までどおり、使う側（tests/server_startup.rs・縦串・開発用の起動）が使う前に自分で移行を当てる。検証のコマンドは、同じ項目の前のコマンドが ashiato に置いた行に頼らない",
+     "refs": {
+      "scenarios": [
+       "作り直した database に、移行を当て直せる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "rebuild",
+   "title": "検証の準備が、膨れた ashiato を作り直す",
+   "summary": "検証の前に毎回 ashiato の大きさを測り、64 MiB を超えていれば database だけを消して空で作る",
+   "figure": null,
+   "points": [
+    {
+     "id": "rebuild.1",
+     "kind": "normal",
+     "text": "検証の準備（tools/verify-env.sh）が、DB の起動を待った後・役割を整える前に新しい台本 tools/test-db-rebuild.sh を呼ぶ。作り直したときは、作り直したこと・database の名前・前の大きさを標準エラーに 1 行出す",
+     "refs": {
+      "requirements": [
+       "検証の準備は、膨れた試験用 DB の database を作り直す"
+      ],
+      "scenarios": [
+       "閾値を超えた database は、検証の準備で空の database に作り直される",
+       "検証の準備は、膨れた ashiato を作り直してから終わる"
+      ],
+      "decisions": [
+       "Q2",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "rebuild.2",
+     "kind": "normal",
+     "text": "閾値の既定は 64 MiB（67,108,864 バイト）で、ちょうどは作り直さず、超えれば作り直す。環境変数で替えられる。作ったばかりは 10 MB 前後、膨れた DB は 110〜214 MB。CH04 の後は試験が ashiato に書かないので、作り直しは各 worktree でほぼ 1 回",
+     "refs": {
+      "scenarios": [
+       "閾値の既定は 64 MiB で、ちょうどは作り直さず、超えれば作り直す",
+       "閾値以下の database は作り直さない"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "rebuild.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "依頼の手順（down -v → up → db-roles。コンテナごと）は採らず、動いているコンテナの中で ashiato database だけを消して作る。いまこの機械は docker のネットワークの割り当てが尽きていて、コンテナを落とすと DB を立て直せないことがある。同じ DB の他の database・コンテナ・ネットワーク・volume には触らない",
+     "examples": [
+      {
+       "wrong": "tools/db.sh down -v してから立て直す",
+       "right": "DROP DATABASE ashiato → CREATE DATABASE ashiato OWNER ashiato_owner（コンテナは動いたまま）"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "閾値を超えた database は、検証の準備で空の database に作り直される"
+      ],
+      "decisions": [
+       "Q4",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "rebuild.4",
+     "kind": "exception",
+     "text": "ashiato が無ければ（前回、消した後に作れなかった）、大きさを測る前に空で作る。DB に問えない・見送り以外の理由で失敗したら、理由を出して検証の準備も rc≠0 で落ちる（ハーネスは BLOCKED_INFRA）",
+     "refs": {
+      "scenarios": [
+       "対象の database が無ければ、判定が空の database を作る",
+       "作り直しの判定が DB に問えなければ、判定も検証の準備も rc≠0 で落ちる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "busy",
+   "title": "使っている途中の DB は作り直さない",
+   "summary": "回が走っている・回を作っている・接続がある、のどれかなら待たずに見送り、検証はいまの DB で続く",
+   "figure": {
+    "kind": "table",
+    "caption": "見送る条件（どれか 1 つで見送る。どれも rc=0 で、理由を標準エラーに 1 行）",
+    "head": [
+     "見るもの",
+     "当たると"
+    ],
+    "rows": [
+     [
+      "走っている回の助言ロック（CH04 の回が持つ）",
+      "見送る（走っている回がある）"
+     ],
+     [
+      "回の作成と片付けを直列にする助言ロックが取れない",
+      "見送る（回を作っている・片付けている途中）"
+     ],
+     [
+      "ashiato にクライアントの接続が 1 本でもある",
+      "見送る（接続がある）。接続は切らない"
+     ],
+     [
+      "確かめた後に繋いだ接続で、消すのを PostgreSQL が断った",
+      "見送る（接続がある）"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "busy.1",
+     "kind": "normal",
+     "text": "見送りは待たずに決める（検証の準備を止めない）。見送ったときは ashiato の中身はそのままで、次の検証の準備でまた測る",
+     "refs": {
+      "requirements": [
+       "使っている途中の試験用 DB は作り直さない"
+      ],
+      "scenarios": [
+       "走っている回の助言ロックがあれば、作り直さずに見送る",
+       "回を作っている途中なら、作り直さずに見送る",
+       "対象の database に接続があれば、作り直さずに見送り、その接続は切られない"
+      ],
+      "decisions": [
+       "Q3",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "busy.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意",
+      "DB"
+     ],
+     "text": "接続の数だけでは見ない。CH04 の回は試験ごとに接続を作って捨てるので、走っている回でも接続が 0 本の間がある。回の印（助言ロック）と接続の両方を見る。消すときも接続を切らない（WITH (FORCE) を付けない）ので、確かめた後に繋いだ接続があれば PostgreSQL が断り、見送りになる",
+     "examples": [
+      {
+       "wrong": "接続が 0 本だから作り直す（その瞬間、回は試験と試験の間）",
+       "right": "回の助言ロックが見えるので見送る"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "判定の後に繋いだ接続があれば、消すのを PostgreSQL が断り、見送りになる"
+      ],
+      "decisions": [
+       "Q3",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "busy.3",
+     "kind": "exception",
+     "text": "判定から作り直しの終わりまで、回の作成と片付けを直列にする助言ロックを持つ。その間、新しい回は database を作り始める前で待ち、作り直しが終わると進む",
+     "refs": {
+      "scenarios": [
+       "作り直しの間は、別の接続が回の作成の鍵を取れない"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "busy.4",
+     "kind": "caution",
+     "text": "回の印を持たずに ashiato を使う tests/server_startup.rs を、同じ作業ツリーで検証の準備と手で並べて走らせると、接続の切れ目で作り直されうる。ハーネスは検証の準備と検証を 1 本ずつ呼ぶので、並ぶのは手で走らせたときだけ（作り直された後は migrate が当て直す）",
+     "refs": {
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "scope",
+   "title": "作り直してよい作業ツリー",
+   "summary": "Story・change の作業ツリーだけ。main の checkout と確認バッチは大きさを出すだけ",
+   "figure": {
+    "kind": "table",
+    "caption": "main の名前が ashiato2 のとき",
+    "head": [
+     "作業ツリー",
+     "種類",
+     "膨れていたら"
+    ],
+    "rows": [
+     [
+      "ashiato2-st05",
+      "st",
+      "作り直す"
+     ],
+     [
+      "ashiato2-ch05",
+      "ch",
+      "作り直す"
+     ],
+     [
+      "ashiato2-up-ch05・ashiato2-up-st23",
+      "up",
+      "作り直す"
+     ],
+     [
+      "ashiato2（main の checkout。CI もここ）",
+      "main",
+      "大きさを出すだけ"
+     ],
+     [
+      "ashiato2-verify（確認バッチ）",
+      "verify",
+      "大きさを出すだけ"
+     ],
+     [
+      "ashiato2-rec-st22・ashiato2-tools など",
+      "other",
+      "大きさを出すだけ"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "scope.1",
+     "kind": "normal",
+     "text": "作り直すのは st・ch・up の作業ツリーだけ。main の checkout と確認バッチ（-verify）の DB の中身は、閾値を超えていても機械は消さない",
+     "refs": {
+      "scenarios": [
+       "main の checkout と確認バッチの作業ツリーでは、閾値を超えても大きさを出すだけで作り直さない",
+       "作業ツリーの名前から、作り直してよいかが決まる"
+      ],
+      "decisions": [
+       "Q5",
+       "D3"
+      ]
+     }
+    },
+    {
+     "id": "scope.2",
+     "kind": "normal",
+     "text": "作業ツリーの種類の規則は tools/ports.sh の 1 か所に置き、port もその種類から決める形に書き換える。port の値と規則は変えない（既存の tools/check-ports.sh --self-test が見る）",
+     "refs": {
+      "decisions": [
+       "D3"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "killed",
+   "title": "殺した後の次の回を、台本と CI が確かめる",
+   "summary": "体積の行を入れる探りの試験を 2 つの時点で SIGKILL し、次の回の後に残りが無いことを量で見る",
+   "figure": {
+    "kind": "diagram",
+    "caption": "1 つの時点の流れ（insert → committed の順に 2 回）",
+    "text": "殺す前: database の一覧 S0・ashiato の core.event の行数・大きさ\n  → 探りの試験を起こす（回の database と試験ごとの database に 20,001 件）\n     insert    … 体積の INSERT の文が走っている間\n     committed … 確定した後、試験が終わる前（眠っている間に作り直しの判定 → 見送るはず）\n  → SIGKILL → 一覧 S1（殺した回の database = S1 − S0。空なら空振りで落ちる）\n  → 次の回を 1 つ（秒数は出すだけ）\n  → 判定: 次の回の rc → 殺した回の database が残っていない → 行数が同じ → 大きさの増えが 1 MiB 以下"
+   },
+   "points": [
+    {
+     "id": "killed.1",
+     "kind": "normal",
+     "text": "新しい台本 tools/check-test-db-killed.sh が、探りの試験（ch05_killed_probe。通常の cargo test では走らない）を 2 つの時点で外から殺し、次の回の後に、殺した回が作った database（回・テンプレート・試験ごと）が 1 つも無く、ashiato の行数が同じで大きさが 1 MiB を超えて増えていないことを見る",
+     "refs": {
+      "requirements": [
+       "試験を途中で殺しても、次の回の後に残りが無いことを、台本と CI が確かめる"
+      ],
+      "scenarios": [
+       "体積の行を入れる途中で殺した回の database は、次の回の後に残らない",
+       "体積の行を確定した後に殺した回の database は、次の回の後に残らない"
+      ],
+      "decisions": [
+       "Q6",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "killed.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "依頼の「次の cargo test の速さが変わらない」は、秒数ではなく速さを決める量（殺した回の残り・ashiato の行数と大きさ）で判定する。秒数は標準出力に出すだけで合否に使わない。完了の条件もこの形に書き直した（依頼の逐語は残す）",
+     "examples": [
+      {
+       "wrong": "次の回が殺す前の回より 2 倍遅ければ落ちる",
+       "right": "殺した回の database が 1 つでも残れば、名前を挙げて落ちる（秒数は記録だけ）"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "殺した回の database が次の回の後に残っていれば、名前を挙げて落ちる",
+       "ashiato database の行数が増えていれば落ちる",
+       "ashiato database の大きさだけが 1 MiB を超えて増えていれば落ちる"
+      ],
+      "decisions": [
+       "Q6",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "killed.3",
+     "kind": "caution",
+     "tags": [
+      "DB"
+     ],
+     "text": "INSERT の途中で殺しても巻き戻るとは限らない（クライアントが死んでも、DB の側は文を終えて確定することがある）。見るのは、確定したかに依らず次の回の後に残らないことだけ。だから殺す時点を「入れる途中」と「確定した後」の 2 つにした",
+     "refs": {
+      "decisions": [
+       "Q6",
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "killed.4",
+     "kind": "exception",
+     "text": "検査が空振りしたら落ちる: 殺した回の database が 1 つも見えない・探りの印が 120 秒来ない（探りが走らなかった・0 本の絞り込み）・次の回の試験が落ちた（その rc で落ちる）。落ちたときはどの時点かを出す",
+     "refs": {
+      "scenarios": [
+       "殺した回の database が見えなければ、空振りとして落ちる",
+       "探りの印が来なければ、待ちの上限で時点の名前を挙げて落ちる",
+       "次の回の試験が落ちれば、台本も試験の終了コードで落ちる",
+       "殺した回の分が片付き、ashiato が増えていなければ、台本は通る"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "killed.5",
+     "kind": "normal",
+     "text": "CI の rust job が、作り直しの self-test・殺した後の検査の self-test・本物の試験での殺した後の検査の 3 つを走らせる。下流では CH04 の片付けをわざと外して、同じ台本が落ちることも確かめる",
+     "refs": {
+      "scenarios": [
+       "CI の rust job は、殺した後の検査と作り直しの検査を走らせる"
+      ],
+      "decisions": [
+       "D6"
+      ]
+     }
+    },
+    {
+     "id": "killed.6",
+     "kind": "caution",
+     "text": "殺した後の検査は、同じ worktree で別の cargo test と並べて走らせない（並んだ回の database が「殺した回の database」に紛れる）。台本の冒頭に書く",
+     "refs": {
+      "decisions": [
+       "D6"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "使われていない docker の資源（浮いた volume 65 個・作業ツリーが消えたのに動いているコンテナ 4 つ・コンテナの無いネットワーク 18 本）の片付け —— 別の change へ申し送る",
+   "refs": {
+    "decisions": [
+     "Q7"
+    ]
+   }
+  },
+  {
+   "text": "既存の 4 つの台本（smoke・stack・check-immutable・check-panic-log）の down -v に見送りを当てること・ST23 で出た lock timeout と権限のエラーの原因調べ",
+   "refs": {
+    "decisions": [
+     "Q7"
+    ]
+   }
+  },
+  {
+   "text": "下流の Task の開始前の作り直し（harness2 に差し込み口が要る）・毎回の作り直し。agent が自分で走らせる cargo test は検証の準備を通らないが、CH04 の後は ashiato に頼らないので遅さに効かない",
+   "refs": {
+    "decisions": [
+     "Q2"
+    ]
+   }
+  },
+  {
+   "text": "画面・操作・API・移行・製品のコードは変えない（確認バッチで本人が触るものは無い）",
+   "refs": {}
+  }
+ ],
+ "open": [
+  {
+   "text": "下流の作業ツリー（ashiato2-ch05）は新しい compose の project なので、いまの機械では docker のネットワークの割り当てが尽きていて DB が立たない（この上流の作業ツリーでも立たなかった）。直すのは使われていない資源の片付けで、Q7 の推奨ではそれを CH05 に入れない。申し送った change を CH05 の下流より先に通すか、人間がコンテナの無いネットワーク（18 本）を外すかが要る。下流の最初の手順が tools/verify-env.sh rc=0 で確かめ、立たなければ BLOCKED_INFRA で止まる",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "decisions": [
+     "Q7"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "作り直しの台本の self-test は、本物の DB に使い捨ての database（ch05_rebuild_probe_<乱数>）を作って確かめ、殺されて残った使い捨ては次の self-test の初めに消す。ashiato そのものの作り直しは閾値 0 で検証の準備を走らせて見る（作業ツリーが st・ch・up でなければ何もしない）",
+   "refs": {
+    "decisions": [
+     "D5"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "回",
+   "def": "cargo test の 1 回（試験の実行ファイル 1 つ）。CH04 の後、回ごとに database を作り、走っている間は印の助言ロックを持つ"
+  },
+  {
+   "term": "検証の準備",
+   "def": "tools/verify-env.sh。ハーネスが検証のコマンドの前に毎回呼び、DB を起動して役割を整える"
+  },
+  {
+   "term": "助言ロック",
+   "def": "PostgreSQL の、アプリが名前を決めて取る鍵。持っている session が死ねば外れる"
+  }
+ ]
+}
