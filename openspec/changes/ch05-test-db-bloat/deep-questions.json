@@ -1,0 +1,171 @@
+{
+  "title": "CH05 の深掘り",
+  "subtitle": "試験の DB が打ち切った run の残りで膨れないようにする",
+  "note": "Q1 は依頼の前提（「誰も止めていない」）が実物と食い違っていた問いで、答えが要ります（推奨の答えで先に仕様を書いてあります）。ほかは仮でよく、推奨のままでよければ触らずに構いません。各問いの「いまの状態」は先に実物を測った結果です（premises.md）。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "CH05 の範囲 —— 走っている CH04 との分け方",
+      "kind": "premise",
+      "question": "依頼の 1（試験の後片付けを殺されても残らない形にする）は、走っている CH04 がほぼ実装を終えています。CH05 は何をやりますか。",
+      "why": "同じことを 2 つの change で作ると、`testdb.rs` を取り合って下流でぶつかり、片方を作り直すことになる。走っている CH04 へ足すと、凍結した tasks に章が増える（ST02 で 12 時間・5 往復になった型）。",
+      "context": "CH04（`feat/ch04-test-db-growth`。Task 1〜8 が済み、9〜10 が残り。main には未 merge）が持つもの: 試験は 1 回の run ごとの database（`ashiato_run_<12 桁>`）に書き、書き出しの試験は試験ごとの database、run の間は助言ロックを持ち、次の run の初めに持ち主のいない run の database と `*_tmp_*` を消す。消せない表のトリガには触らない。再発の検査 `tools/check-test-db-growth.sh`（正常な run を 2 回続けて見る）と CI。CH04 が持たないもの（CH04 の Q4 の答え）: 各 worktree の `ashiato` に**いま積もっている**データと、使われていない volume。殺された run の後の検査（CH04 の台本は 2 回とも最後まで走る run を見る）。実測: ch03 214 MB・ch02 206 MB・st23 110 MB（作ったばかりは 10 MB 前後）。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "CH04 の上に積み、CH04 が持たないものだけをやる",
+          "detail": "`requires: [CH04]`。CH05 がやるのは (a) 膨れた `ashiato` DB を機械が見つけて作り直す道（依頼の 2）と、(b) 体積の試験を途中で殺した後の次の run を見る台本（CH04 の台本に無い場合）。試験の足場（`testdb.rs`）は CH04 のまま変えない",
+          "recommended": true
+        },
+        {
+          "label": "CH05 を取り下げ、残りを CH04 に足す",
+          "detail": "CH04 は下流が走っていて tasks が凍結している。章を足すと CH04 の確かめをやり直す"
+        },
+        {
+          "label": "CH04 と別に、CH05 で試験の足場も作る",
+          "detail": "依頼の例のとおり。CH04 と `testdb.rs` を取り合い、どちらかを作り直す。推奨しない"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "topic": "膨れた DB をいつ作り直すか（依頼の 2）",
+      "kind": "open",
+      "question": "worktree のテスト用 DB（`ashiato` database）を、機械はいつ作り直しますか。",
+      "why": "CH04 の後は試験が `ashiato` に書かなくなるので、作り直しが要るのは主に CH04 の前から積もっている DB と、試験の外（偽データ・手で起こしたサーバ）が書いた分。作り直しは試験が毎回中身を作るので戻せる（仮でよい）。",
+      "context": "ハーネスは検証のコマンドの前に毎回 `tools/verify-env.sh` を `HARNESS_VERIFY=1` で呼び、repo はそこで溜まった状態を作り直してよい取り決め（harness2 の `evidence.py`）。1 つの検証の項目に複数のコマンドがあると、コマンドとコマンドの間でも呼ばれる。agent が自分で（ハーネスの検証を通さずに）走らせる `cargo test` は verify-env を通らない。作ったばかりの DB は 10 MB 前後（ch04 9.6 MB）。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "検証の前（`tools/verify-env.sh`）に大きさを測り、閾値を超えていたら作り直す",
+          "detail": "閾値は「`ashiato` database が 64 MB」（仮）。CH04 の後は一度作り直せば閾値にまず戻らないので、作り直しは各 worktree でほぼ 1 回。作り直したことは標準エラーに 1 行出す。コマンドの間で作り直りうるが、CH04 の後の試験は `ashiato` の中身に頼らない",
+          "recommended": true
+        },
+        {
+          "label": "下流の Task の開始前に作り直す（harness2 に差し込み口を頼む）",
+          "detail": "agent が自分で走らせる試験の前にも効く。harness2 側に新しい差し込み口が要り、その部分は申し送りになる（CH05 の中では閉じない）"
+        },
+        {
+          "label": "検証の前に毎回作り直す（CI と同じく毎回きれいな DB から）",
+          "detail": "閾値を持たない。検証 1 回ごとに数秒かかり、1 Story で数十回。コマンドの間の状態も毎回消える"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "topic": "使っている途中で壊さない —— 何を見て作り直しを見送るか",
+      "kind": "open",
+      "question": "「走っている試験がある DB は作り直さない」を、何で判定しますか。",
+      "why": "接続の数だけでは足りない（試験は 1 本ごとにプールを作って捨てるので、走っている run でも接続が 0 本になる間がある。CH04 の C6）。判定は後から変えられる（仮でよい）。",
+      "context": "CH04 の run は、走っている間ずっと run ごとの助言ロックを持つ（CH04 design D1・D6。片付けもこの印で持ち主の有無を見る）。起きているサーバ（`tools/dev.sh`・確認バッチの `run.sh`）は `ashiato` に接続を持ち続ける。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "run の助言ロックか、`ashiato` への接続が 1 本でもあれば見送る",
+          "detail": "見送ったことを標準エラーに出し、検証は今の DB のまま続ける（落とさない）。判定と作り直しの間に始まる run は、作り直しを 1 つの取引の中で先にロックを取ってから行うことで閉じる（細部は spec）",
+          "recommended": true
+        },
+        {
+          "label": "接続の数だけで見る",
+          "detail": "簡単。run が接続 0 本の間に作り直すと、その run の続きが落ちる"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "topic": "作り直し方",
+      "kind": "open",
+      "question": "作り直すとき、コンテナごと作り直しますか、中の `ashiato` database だけを作り直しますか。",
+      "why": "どちらでも失うものは無い（試験の DB）。速さと、docker の資源の取り合いに巻き込まれるかが違う。",
+      "context": "依頼の手順は `tools/db.sh down -v` → `up -d --wait db` → `tools/db-roles.sh`。今日この worktree では新しい compose の project がネットワークを作れず DB が立たなかった（`all predefined address pools have been fully subnetted`）。既に smoke などの 4 つの台本が `down -v` からの立て直しを検証のたびにしている。database だけなら、動いているコンテナの中で消して作り直し、`tools/db-roles.sh` で所有を戻す。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "中の `ashiato` database だけを作り直す（コンテナ・ネットワーク・volume はそのまま）",
+          "detail": "速い（数秒）。ネットワークの取り合いに巻き込まれない。CH04 の run の database も同じクラスタにあるが、それは CH04 の片付けが持つ",
+          "recommended": true
+        },
+        {
+          "label": "依頼の手順どおりコンテナごと作り直す",
+          "detail": "クラスタごときれいになる。ネットワークを取り直せないと、その検証は BLOCKED_INFRA になる"
+        }
+      ]
+    },
+    {
+      "id": "Q5",
+      "topic": "作り直してよい DB の範囲",
+      "kind": "open",
+      "question": "機械が作り直してよいのは、どの作業ツリーの DB ですか。",
+      "why": "main の checkout と確認バッチ（`-verify`）の DB は、試験だけの DB ではない（スマホや確認バッチの画面が見ている先になりうる）。外しておけば失わない。",
+      "context": "作業ツリーの名前は `tools/ports.sh` が見分けている（main の checkout・`-st<NN>`・`-ch<NN>`・`-up-*`・`-verify`）。main の checkout の DB の中身はまだ確かめていない。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "Story・change の作業ツリー（`-st<NN>`・`-ch<NN>`・`-up-*`）だけ",
+          "detail": "main の checkout と `-verify` では大きさを測って出すだけで作り直さない",
+          "recommended": true
+        },
+        {
+          "label": "`-verify` も含める",
+          "detail": "確認バッチの作業ツリーも膨れる（いま 49 MB）。人間が画面を見ている間はサーバの接続があるので Q3 で見送られる"
+        }
+      ]
+    },
+    {
+      "id": "Q6",
+      "topic": "「殺した後の次の run の速さが変わらない」をどう確かめるか",
+      "kind": "open",
+      "question": "完了の条件「体積の試験を途中で殺した後でも、次の `cargo test` の速さが変わらない」を、どの形の試験で確かめますか。",
+      "why": "時間そのものを合否にすると、並走する worktree の負荷で揺れる。判定の形は後から変えられる（仮でよい）。",
+      "context": "台本（`tools/` の新しいファイル）が本物の DB で体積の試験を走らせ、途中で SIGKILL し、続けてもう一度 run を起こす。体積の INSERT は 1 文なので、文の途中で殺すと巻き戻って行は残らない。行が残るのは文が commit された後、試験が終わる前に殺したとき。",
+      "multi": false,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "速さを決める量で見る（時間は記録するだけ）。殺す時点は 2 つ",
+          "detail": "INSERT の途中と、commit の後・試験の終わりの前の 2 点で殺し、どちらも次の run の後に: 殺した run の database が消えている・`ashiato` の行数と大きさが殺す前と同じ、を機械で判定する。秒数は出力に残すが合否に使わない。依頼の完了の条件の書き方もこれに合わせて直す",
+          "recommended": true
+        },
+        {
+          "label": "時間で見る",
+          "detail": "きれいな DB での run の時間の 1.5 倍以内なら通す。負荷で揺れる"
+        }
+      ]
+    },
+    {
+      "id": "Q7",
+      "topic": "ついでに直すか（範囲の外）",
+      "kind": "open",
+      "question": "実物を見ていて見つかった近くの問題のうち、この change で一緒に直すものはありますか。",
+      "why": "範囲を上流で決めておく（下流が「ついでに」広げない）。入れなければ失うものは無い。",
+      "context": "(1) 使われていない docker の資源: 浮いた volume 65 個（うち 62 個は compose の印が無く、どの作業ツリーのものか区別できない）・作業ツリーが消えたのに動いているコンテナ 4 つ（ch01・ch02・st13・st33）・コンテナの無いネットワーク 18 本。ネットワークの枯渇（Q4）はこれの片付けで足りる見込み。(2) smoke などの 4 つの台本は今も、同じ worktree で走っている試験を見ずに `down -v` する。(3) ST23 で出た lock timeout・権限のエラー（出所は確かめていない。smoke の `down -v` で役割が消える経路が `tools/verify-env.sh` の注記に実測として残る）。 (1) を入れないと、CH05 の下流の作業ツリー自身も新しい compose の project なので DB を立てられず、DB を使う検証が BLOCKED_INFRA になる（spec の段の review/spec.md R1）。申し送った change を CH05 の下流より先に通すか、人間がコンテナの無いネットワークを外すかが要る。",
+      "multi": true,
+      "allow_free": true,
+      "options": [
+        {
+          "label": "どれも入れない。(1) は別の change として申し送る",
+          "detail": "CH05 は「膨れた `ashiato` を作り直す道」と「殺した後の検査」に閉じる",
+          "recommended": true
+        },
+        {
+          "label": "(1) 使われていないコンテナ・ネットワークを片付ける（volume は消さない）",
+          "detail": "作業ツリーが消えたことを機械で確かめられるものだけ",
+          "irreversible": "消したコンテナの DB の中身は戻らない"
+        },
+        {
+          "label": "(2) 既存の `down -v` の台本にも Q3 の見送りを当てる",
+          "detail": "smoke・stack・check-immutable・check-panic-log の 4 つ"
+        },
+        {
+          "label": "(3) lock timeout・権限のエラーの原因を調べて直す",
+          "detail": "再現の手がかりが ST23 のログだけ"
+        }
+      ]
+    }
+  ]
+}

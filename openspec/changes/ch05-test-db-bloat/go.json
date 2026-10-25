@@ -1,0 +1,435 @@
+{
+ "purpose": "試験を途中で殺しても（時間切れ・SIGTERM・agent の打ち切り）次の回の後に残りが無いことを、台本と CI が毎回確かめる。あわせて、作業ツリーが消えたのに残っている docker のコンテナとネットワークを、検証の準備が DB を作り直すたびに機械が片付ける（volume は消さない）。膨れた DB の作り直しそのものは CH06、残りを積まない試験の足場は CH04 が持ち、CH05 はその 2 つの上に積む。",
+ "model": {
+  "kind": "diagram",
+  "caption": "CH05 が足す 2 つ（★）と、CH04・CH06 が持つもの",
+  "text": "検証の準備（HARNESS_VERIFY=1 tools/verify-env.sh。検証のコマンドの前に毎回）\n  --plan の判定 → ports → env-init\n  →（reset のとき）★ tools/docker-tidy.sh\n        消えた作業ツリーの <main>- のコンテナ・空いたネットワークを外す\n        volume は消さない／落ちても続ける\n  → この worktree の DB を空から作り直す（CH06）\n  → subnet の確かめ → DB を立てる → 役割を整える（CH06）\n\ncargo test（CH04）: 回ごとの database に書く → 次の回の初めに前の回を片付ける\n  ★ tools/check-test-db-killed.sh（CI の rust job）\n     探りの試験を 2 時点で SIGKILL → 次の回を 1 つ\n     → 殺した回の database が無い・ashiato の行数と大きさが変わらない"
+ },
+ "before_after": [
+  {
+   "area": "試験を途中で殺した後",
+   "before": "残りが次の回に効かないことを、どこも確かめていない（CH04 の検査は最後まで走る回だけを見る）",
+   "after": "2 つの時点で殺す台本が、次の回の後に残りが無いことを CI で毎回確かめる"
+  },
+  {
+   "area": "消えた作業ツリーの docker のコンテナとネットワーク",
+   "before": "作業ツリーが消えるたびに溜まる（2026-10-25 に 15 個。動いたままが 4 つ）。人が気づいて手で外す",
+   "after": "印つきの検証の準備が DB を作り直す前に外す。volume は残る"
+  }
+ ],
+ "highlights": [
+  "base.2",
+  "tidy.2",
+  "tidy.3",
+  "hook.2",
+  "killed.3"
+ ],
+ "features": [
+  {
+   "id": "base",
+   "title": "CH04・CH06 の上に積む",
+   "summary": "試験が ashiato に積まない形は CH04、膨れた DB を戻すのは CH06。CH05 はどちらも持たない 2 つだけをやる",
+   "figure": null,
+   "points": [
+    {
+     "id": "base.1",
+     "kind": "normal",
+     "text": "CH04 の後、試験は回ごとの database に書き、前の回の database は次の回の初めに片付く。CH05 はその足場（testdb の形・回の database・片付け・CH04 の検査）を変えず、殺された回の後の確かめだけを足す",
+     "refs": {
+      "decisions": [
+       "Q1"
+      ]
+     }
+    },
+    {
+     "id": "base.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "依頼の 2（膨れたら作り直す・使っている途中は見送る）は CH05 では作らない。CH06 が印つきの検証の準備のたびに DB を空から作り直すので、閾値も見送りも働く先が無い。第 1 回の Q2〜Q5 の答えは記録に残るが、実装されない",
+     "refs": {
+      "decisions": [
+       "Q8",
+       "Q2",
+       "Q3",
+       "Q4",
+       "Q5"
+      ]
+     }
+    },
+    {
+     "id": "base.3",
+     "kind": "caution",
+     "text": "下流は CH04 と CH06 の gate を通った実装を取り込んでから始まり、archive も両方の後になる。どちらかの gate・fix で鍵の番号・回の名前・verify-env.sh の流れが変われば、CH05 はそれに合わせる（下流の最初の手順で読み直す）",
+     "refs": {
+      "decisions": [
+       "Q1",
+       "Q8"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "killed",
+   "title": "殺した後の次の回を、台本と CI が確かめる",
+   "summary": "体積の行を入れる探りの試験を 2 つの時点で SIGKILL し、次の回の後に残りが無いことを量で見る",
+   "figure": {
+    "kind": "table",
+    "caption": "判定（上から順に見て、最初に外れたもので落ちる）",
+    "head": ["見るもの", "外れたら"],
+    "rows": [
+     ["次の回の試験の rc", "その rc で落ちる"],
+     ["殺した回の database（回・テンプレート・試験ごと）が次の回の後に残っていない", "名前と時点を挙げて rc=1"],
+     ["ashiato の core.event の行数が殺す前と同じ", "前と後を挙げて rc=1"],
+     ["ashiato の大きさが殺す前から 1 MiB を超えて増えていない", "前と後を挙げて rc=1"],
+     ["次の回の秒数", "出すだけ（合否に使わない）"]
+    ]
+   },
+   "points": [
+    {
+     "id": "killed.1",
+     "kind": "normal",
+     "text": "tools/check-test-db-killed.sh が、利用者 1 人に 20,001 件を入れる探りの試験を「入れる文の途中（insert）」と「確定した後・試験の終わる前（committed）」の 2 時点で外から SIGKILL し、それぞれの後に server の試験の回を 1 つ走らせて判定する。CI の rust job が self-test と本物の検査の両方を走らせる",
+     "refs": {
+      "requirements": [
+       "試験を途中で殺しても、次の回の後に残りが無いことを、台本と CI が確かめる"
+      ],
+      "scenarios": [
+       "体積の行を入れる途中で殺した回の database は、次の回の後に残らない",
+       "体積の行を確定した後に殺した回の database は、次の回の後に残らない",
+       "CI の rust job は、殺した後の検査を走らせる"
+      ],
+      "decisions": [
+       "Q6",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "killed.2",
+     "kind": "exception",
+     "text": "検査が空振りしないよう、殺した回の database が 1 つも見えない・探りの印が 120 秒来ない（探りが走らなかった）ときも落ちる",
+     "refs": {
+      "scenarios": [
+       "殺した回の database が見えなければ、空振りとして落ちる",
+       "探りの印が来なければ、待ちの上限で時点の名前を挙げて落ちる"
+      ],
+      "decisions": [
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "killed.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "依頼の「次の cargo test の速さが変わらない」は秒数ではなく、速さを決める量（残った database・行数・大きさ）で判定する。大きさだけ 1 MiB の許しがあるのは、触らない database でも統計で少し動くため。行数は厳密",
+     "examples": [
+      {
+       "wrong": "次の回が 15 秒 → 30 秒になったので落ちる",
+       "right": "秒数は出すだけ。殺した回の database が残る・行数が 1 件でも増える・大きさが 1 MiB を超えて増える、で落ちる"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "ashiato database の行数が増えていれば落ちる",
+       "ashiato database の大きさだけが 1 MiB を超えて増えていれば落ちる",
+       "殺した回の database が次の回の後に残っていれば、名前を挙げて落ちる",
+       "次の回の試験が落ちれば、台本も試験の終了コードで落ちる",
+       "殺した回の分が片付き、ashiato が増えていなければ、台本は通る"
+      ],
+      "decisions": [
+       "Q6"
+      ]
+     }
+    },
+    {
+     "id": "killed.4",
+     "kind": "caution",
+     "text": "この検査は、同じ worktree で別の cargo test や検証の準備と並べて走らせない（並んだ回の database が「殺した回の分」に混ざる・CH06 が DB ごと作り直す）",
+     "refs": {
+      "decisions": [
+       "D2"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "tidy",
+   "title": "消えた作業ツリーのコンテナとネットワークを片付ける",
+   "summary": "作業ツリーが消えたことを機械で確かめられる ashiato2 のものだけを外し、volume は 1 つも消さない",
+   "figure": {
+    "kind": "table",
+    "caption": "コンテナを外すか（全部満たすときだけ外す）",
+    "head": ["条件", "外さない例"],
+    "rows": [
+     ["compose の project と作業ツリーの path の印がある", "st04-testdb など印の無いもの"],
+     ["project の名前が <main>- で始まり、path の親のフォルダが main と同じ", "lifeLog2・その agent-*・ch06-sentinel-*"],
+     ["path がファイルシステムに無く、git worktree list にも無い", "どちらか片方でも残っている木（prune の前を含む）"],
+     ["main の checkout でも確認バッチ（-verify）でもない", "ashiato2・ashiato2-verify"]
+    ]
+   },
+   "points": [
+    {
+     "id": "tidy.1",
+     "kind": "normal",
+     "text": "tools/docker-tidy.sh が条件を全部満たすコンテナを外し、繋がったコンテナ（止まっているものを含む）がこの回で外すもののほかに無い <main>- のネットワークも外す。外したものは 1 つごとに名前（コンテナは作業ツリーの path も）を 1 行出し、外すものが無ければ何も出さない。--dry-run は出すだけ",
+     "refs": {
+      "requirements": [
+       "作り直す検証の準備は、消えた作業ツリーのコンテナとネットワークを片付け、volume は消さない"
+      ],
+      "scenarios": [
+       "コンテナの無いネットワークは、作業ツリーが残っていなければ外す",
+       "--dry-run は外すものを出すだけで、何も外さない",
+       "外すものが無ければ、片付けは何も出さない",
+       "作業ツリーが残っていれば、止まっているコンテナも外さない",
+       "main の checkout と確認バッチのコンテナは、path が無くても外さない",
+       "印の無いコンテナと、別の repo の compose のコンテナには触らない",
+       "CI の rust job は、片付けの self-test を走らせる"
+      ],
+      "decisions": [
+       "Q7",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "tidy.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "作業ツリーが消えていれば、動いているコンテナも止めて外す（いまこの機械で ch01・ch02・st13・st33 の DB が動いたまま残っている）。作業ツリーが無いので繋ぐ試験もサーバも無い",
+     "refs": {
+      "scenarios": [
+       "作業ツリーが消えたコンテナは、動いていても外される"
+      ],
+      "decisions": [
+       "Q7",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "tidy.3",
+     "kind": "caution",
+     "tags": [
+      "変更困難"
+     ],
+     "text": "volume は 1 つも消さない。DB のコンテナの volume は名前の無い volume なので、コンテナを外すと中身は残るが「どの作業ツリーのものだったか」の手がかりは消える（片付けの 1 行に出す path だけが残る）。浮いた volume の片付けは範囲の外",
+     "refs": {
+      "scenarios": [
+       "外したコンテナの名前の無い volume は残る",
+       "片付けが docker に打つ命令に、volume を消すものは無い"
+      ],
+      "decisions": [
+       "Q7",
+       "D4"
+      ]
+     }
+    },
+    {
+     "id": "tidy.4",
+     "kind": "exception",
+     "text": "並んで走った別の片付けが先に外していた（No such container / network）なら外せたものとして扱う。docker に問えない・外せないときは理由を出して rc≠0",
+     "refs": {
+      "scenarios": [
+       "もう無いものを外そうとしたら、外せたものとして扱う",
+       "片付けが docker に問えなければ、片付けは rc≠0 で落ちる",
+       "外す命令が失敗すれば、片付けは rc≠0 で落ちる"
+      ],
+      "decisions": [
+       "D4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "hook",
+   "title": "いつ片付けるか —— 検証の準備が DB を作り直すときだけ",
+   "summary": "CH06 の検証の準備が作り直す（reset）とき、DB を消す前に 1 回呼ぶ。CH06 の約束は 1 文だけ書き直す",
+   "figure": null,
+   "points": [
+    {
+     "id": "hook.1",
+     "kind": "normal",
+     "text": "HARNESS_VERIFY=1 tools/verify-env.sh が reset と判定したとき、この worktree の DB を消す前・subnet の確かめの前に片付けを呼ぶ。印の無い呼び出しと --plan では呼ばない（検証は必ず印つきで呼ばれるので、新しい作業ツリーの初回の準備で必ず走る）",
+     "refs": {
+      "scenarios": [
+       "印の無い検証の準備と --plan は、片付けを呼ばない"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "hook.2",
+     "kind": "exception",
+     "text": "片付けが落ちても、この worktree の検証は止めない。「片付けに失敗した」と rc を 1 行出して、DB の作り直しを続ける（片付けるのは他の作業ツリーの残りで、この検証の成否とは別）",
+     "refs": {
+      "scenarios": [
+       "片付けが落ちても、検証の準備は DB を作り直して続く"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "hook.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CH06 の「ほかの compose project のコンテナ・volume には触らない」に、消えた作業ツリーの <main>- のコンテナとネットワークは片付けが外す、という例外の 1 文を足す（MODIFIED。volume に触らないことは変えない）。CH06 の残りの本文と Scenario 5 本は 1 字も変えずに写す",
+     "refs": {
+      "requirements": [
+       "印があれば、検証の準備がこの worktree の DB を空から作り直す"
+      ],
+      "scenarios": [
+       "溜まった DB は、印つきの準備の後に空になる",
+       "作り直した後も、所有者とアプリの役割で繋がる",
+       "作り直しの後、前の DB の volume は残らない",
+       "作り直しでは、DB の network を手放さない",
+       "ほかの compose project と compose の外のものには触らない",
+       "消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"
+      ],
+      "decisions": [
+       "Q8",
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "hook.4",
+     "kind": "normal",
+     "text": "副作用として、台帳の番号を継いだ木が、消えた作業ツリーの DB に同じ subnet を塞がれて CH06 の確かめが rc=1 で止まる場合も、片付けが先に外すので止まらなくなる。片付けで外したものは、その後の CH06 の判定が非 0 でも戻さない",
+     "refs": {
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "膨れた ashiato の閾値（64 MiB）での作り直し・走っている回や接続での見送り・作り直してよい作業ツリーの範囲（第 1 回の Q2〜Q5。CH06 が検証のたびに空から作り直す）",
+   "refs": {
+    "decisions": [
+     "Q8",
+     "Q2",
+     "Q3",
+     "Q4",
+     "Q5"
+    ]
+   }
+  },
+  {
+   "text": "docker の volume の片付け（浮いた volume は名前が無く、どの作業ツリーのものか区別できない）",
+   "refs": {
+    "decisions": [
+     "Q7"
+    ]
+   }
+  },
+  {
+   "text": "既存の 4 つの台本（smoke・stack・check-immutable・check-panic-log）の down -v に手を入れること・ST23 で出た lock timeout と権限のエラーの原因調べ",
+   "refs": {
+    "decisions": [
+     "Q7"
+    ]
+   }
+  },
+  {
+   "text": "CH04 の試験の足場・CH06 の作り直しの規則（--plan・reset_db・subnet・ports.sh・env-init.sh）・消せない表のトリガ・試験の期待値は変えない。画面・API・移行・製品のコードも変えない",
+   "refs": {
+    "decisions": [
+     "Q1",
+     "Q8"
+    ]
+   }
+  }
+ ],
+ "open": [],
+ "since_last": [
+  {
+   "text": "Q7 の本人の答え（推奨と違う）で、消えた作業ツリーのコンテナとネットワークの片付け（tools/docker-tidy.sh。volume は消さない）を範囲に入れた。前回「未解決」にしていた「下流の作業ツリーで DB が立たない（ネットワークの枯渇）」は、CH06 の subnet の明示と、この片付けで解けたので外した",
+   "refs": {
+    "decisions": [
+     "Q7",
+     "D4"
+    ]
+   }
+  },
+  {
+   "text": "第 2 回の Q8（推奨と同じ）で、前回合意した「検証の準備が 64 MiB を超えた ashiato を作り直す・使っている途中は見送る・作り直してよい作業ツリー」を全部外し、CH06 に任せた。requires に CH06 を足した",
+   "refs": {
+    "decisions": [
+     "Q8"
+    ]
+   }
+  },
+  {
+   "text": "CH06 の gate 済みの spec（c666673）を読んで書き直した: 片付けは verify-environment に置き、reset のときだけ DB を消す前に呼ぶ。CH06 の Requirement「印があれば…空から作り直す」に例外の 1 文と Scenario 1 本を足す（MODIFIED）。design の D 番号を振り直した",
+   "refs": {
+    "decisions": [
+     "D1",
+     "D5"
+    ]
+   }
+  }
+ ],
+ "delegated": [
+  {
+   "text": "置き場: 殺した後の検査は test-database、片付けは verify-environment（CH06 の「触らない」の例外と同じ capability で読めるように）",
+   "refs": {
+    "decisions": [
+     "D1"
+    ]
+   }
+  },
+  {
+   "text": "探りの試験の作り（pg_sleep を前に置いた 1 文の INSERT・印のファイルで同期・setsid とプロセスグループごとの kill・待ちの上限 120 秒）",
+   "refs": {
+    "decisions": [
+     "D2"
+    ]
+   }
+  },
+  {
+   "text": "片付けの self-test は main の名前を乱数に差し替えて本物の docker で 1 件だけ確かめ、この機械の本物の残りには当たらない",
+   "refs": {
+    "decisions": [
+     "D4"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "回",
+   "def": "cargo test の 1 回（試験の実行ファイル 1 つ）。CH04 の後、回ごとに database を作り、次の回の初めに前の回の分を片付ける"
+  },
+  {
+   "term": "検証の準備",
+   "def": "tools/verify-env.sh。ハーネスが検証のコマンドの前に毎回 HARNESS_VERIFY=1 で呼ぶ。CH06 の後は worktree の DB を毎回空から作り直す（reset）"
+  },
+  {
+   "term": "消えた作業ツリー",
+   "def": "コンテナの印にある作業ツリーの path が、ファイルシステムにも git worktree list にも無いもの"
+  },
+  {
+   "term": "<main>",
+   "def": "main の checkout のフォルダの名前（この機械では ashiato2）。作業ツリーの compose の project は ashiato2-st23 のようにこれで始まる"
+  }
+ ]
+}
