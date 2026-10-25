@@ -213,6 +213,14 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              JOIN core.event_version v ON v.event_id = s.id
             WHERE {user_deleted}
          ),
+         erased_range AS MATERIALIZED (
+           SELECT range_agg(tstzrange(s.start_at, s.end_at, '[]')) AS spans
+             FROM erased_spans s
+            WHERE s.start_at <= s.end_at
+         ),
+         erased_odd AS MATERIALIZED (
+           SELECT s.start_at, s.end_at FROM erased_spans s WHERE s.start_at > s.end_at
+         ),
          span_next AS MATERIALIZED (
            SELECT w.id, w.is_event, w.next_time
              FROM (
@@ -254,6 +262,25 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
     );
     ExcludedSql { ctes }
 }
+
+/// 幅が消した時間のどれかと重なる、の条件（`overlap_sql` の最後の `WHERE`。`w` は幅を求めた行。CH04 / design D9）。
+///
+/// 候補の行 × 消した時間の入れ子を取るため、3 つの和にする:
+/// 1. 整った幅（`event_time <= width_end`）の行は、整った消した時間を 1 つの `tstzmultirange` にした `erased_range` と `&&` で 1 回で引く。
+///    **幅の範囲は `CASE` の中でだけ作る**（`tstzrange` は始まりが終わりより後だとエラーで、AND は評価の順を約束しない）。
+/// 2. 整っていない消した時間（`erased_odd`。`start_at > end_at`）は、いまの `EXISTS` の式のまま全部の行に当てる（件数は小さい）。
+/// 3. 整っていない幅の行は、いまの `EXISTS` の式のまま全部の消した時間に当てる。
+///
+/// 端は閉じた区間（`'[]'`）。`start_at` か `end_at` が NULL の消した時間は、どれにも重ならない（CH02 の式と同じ）。
+/// 試験（`export_overlap_tests`）がこの文字列を CH02 の `EXISTS` に置き換えて新旧を突き合わせるので、`overlap_sql` の中で 1 度だけ使う。
+pub(crate) const OVERLAP_CONDITION: &str = "(
+             CASE WHEN w.event_time <= w.width_end
+                  THEN (SELECT m.spans FROM erased_range m) && tstzrange(w.event_time, w.width_end, '[]')
+             END
+             OR EXISTS (SELECT 1 FROM erased_odd s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time)
+             OR (w.width_end < w.event_time
+                 AND EXISTS (SELECT 1 FROM erased_spans s WHERE s.start_at <= w.width_end AND s.end_at >= w.event_time))
+           )";
 
 /// 行 `r`（`id` `logical_source` `event_time` `payload` `raw` を持つ）のうち、
 /// 時刻の幅が `erased_spans` のどれかと重なるものの `id` `logical_source` `payload` `raw`（D5b）。
@@ -302,9 +329,7 @@ fn overlap_sql(rows: &str, is_event: bool, snapshot_at: &str) -> String {
                 AND {coord}
              OFFSET 0
            ) w
-          WHERE EXISTS (SELECT 1 FROM erased_spans s
-                         WHERE s.start_at <= w.width_end
-                           AND s.end_at >= w.event_time)",
+          WHERE {OVERLAP_CONDITION}",
         ends = end_keys.join(", "),
         durs = dur_keys.join(", "),
     )

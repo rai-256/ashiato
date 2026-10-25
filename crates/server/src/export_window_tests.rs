@@ -26,7 +26,7 @@ async fn fresh() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
 
 /// 記録を 1 件置く（`export_excluded_tests::World::put_as` と同じ列）。
 /// `device` は `NULL` を渡せる。`at` はマイクロ秒まで書ける（例 `2000-01-01T00:00:00.000001Z`）。
-async fn put_as(
+pub(crate) async fn put_as(
     pool: &sqlx::PgPool,
     user: Uuid,
     source: &str,
@@ -62,7 +62,7 @@ async fn put_as(
 }
 
 /// 前の版を 1 つ足す。`user` は親と違う値にもできる。
-async fn put_version(
+pub(crate) async fn put_version(
     pool: &sqlx::PgPool,
     event: Uuid,
     user: Uuid,
@@ -100,7 +100,7 @@ async fn mark_deleted(pool: &sqlx::PgPool, id: Uuid, by: &str) {
 }
 
 /// 本人が消した滞在を置く（`end` と緯度経度を持つ）。`versions` は前の版の `(始まり, 終わり)`。
-async fn erased_stay(
+pub(crate) async fn erased_stay(
     pool: &sqlx::PgPool,
     user: Uuid,
     start: &str,
@@ -176,7 +176,7 @@ async fn excluded_ids(pool: &sqlx::PgPool, sql: &ExcludedSql) -> BTreeSet<Uuid> 
     got.into_iter().map(|(i,)| i).collect()
 }
 
-const MAP: &str = "https://www.google.com/maps/@35.6812,139.7671,15z";
+pub(crate) const MAP: &str = "https://www.google.com/maps/@35.6812,139.7671,15z";
 
 #[tokio::test]
 async fn ch02_span_legacy_matches_current_before_the_change() {

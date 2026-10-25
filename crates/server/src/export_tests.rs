@@ -86,7 +86,8 @@ fn export_dir_order_is_env_then_localappdata_then_xdg_then_home() {
 #[tokio::test]
 async fn export_dir_writes_under_the_chosen_dir() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("chosen");
     let cfg = ExportConfig::with_dir(dir.clone());
     let file = export::run(&pool, &cfg, pass()).await.unwrap();
@@ -126,7 +127,8 @@ fn final_name_never_replaces_an_existing_file() {
 async fn export_dir_and_file_are_owner_only_on_unix() {
     use std::os::unix::fs::PermissionsExt;
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let base = tmp_dir("perm");
     let dir = base.join("not-yet");
     let file = export::run(&pool, &ExportConfig::with_dir(dir.clone()), pass())
@@ -142,7 +144,8 @@ async fn export_dir_and_file_are_owner_only_on_unix() {
 async fn export_dir_keeps_existing_permissions() {
     use std::os::unix::fs::PermissionsExt;
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("keep");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     export::run(&pool, &ExportConfig::with_dir(dir.clone()), pass())
@@ -163,7 +166,8 @@ fn passphrase_is_hidden_in_debug() {
 #[tokio::test]
 async fn no_dir_fails_with_io() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let e = export::run(&pool, &ExportConfig::without_dir(), pass())
         .await
         .unwrap_err();
@@ -173,7 +177,8 @@ async fn no_dir_fails_with_io() {
 // Scenario: いまの記録の schema の表と列はすべて分類されている
 #[tokio::test]
 async fn export_catalog_every_table_and_column_is_classified() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let inv = export::read_inventory(&pool).await.unwrap();
     assert!(!inv.tables.is_empty());
     let bad = export::unclassified(&inv);
@@ -216,7 +221,8 @@ async fn run_with_inventory(
     tamper: impl Fn(&mut Inventory) + Send + Sync + 'static,
 ) -> (ExportError, PathBuf) {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("tamper");
     let mut cfg = ExportConfig::with_dir(dir.clone());
     cfg.hooks = Hooks::none().with_inventory(tamper);
@@ -262,7 +268,8 @@ fn export_catalog_unclassified_names_table_and_column() {
 // Scenario: いまの記録の表の列はすべて読み出しにある
 #[tokio::test]
 async fn export_view_columns_every_exported_column_is_in_the_live_view() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let inv = export::read_inventory(&pool).await.unwrap();
     let missing = export::missing_view_columns(&inv);
     assert!(missing.is_empty(), "読み出しに無い列: {missing:?}");
@@ -293,7 +300,8 @@ async fn export_view_columns_missing_column_stops_the_export() {
 #[tokio::test]
 async fn injected_failure_leaves_no_partial_file() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("inject");
     let mut cfg = ExportConfig::with_dir(dir.clone());
     cfg.hooks = Hooks::none().with_fail(|s| {
@@ -308,7 +316,8 @@ async fn injected_failure_leaves_no_partial_file() {
 #[tokio::test]
 async fn failure_in_the_middle_of_the_stream_leaves_no_partial_file() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("inject-mid");
     let items = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let partial_seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -338,7 +347,8 @@ async fn failure_in_the_middle_of_the_stream_leaves_no_partial_file() {
 #[tokio::test]
 async fn hooks_run_around_each_stage_in_order() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("around");
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let log = seen.clone();

@@ -1320,22 +1320,13 @@ async fn stay_erase_overlap_bounds_the_base_source_by_index() {
 
 /// 使い捨ての DB を作る。**戻り値の 2 つ目を必ず待つ**（接続を閉じて DB を消す）。
 pub(crate) async fn fresh_db() -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
-    let admin = testdb::pool().await;
-    let name = format!("st16_tmp_{}", uuid::Uuid::new_v4().simple());
-    sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
-        .execute(&admin)
-        .await
-        .unwrap();
-    let base = crate::testdb::url();
-    let url = format!("{}/{name}", &base[..base.rfind('/').unwrap()]);
-    let fresh = sqlx::PgPool::connect(&url).await.unwrap();
+    let scratch = testdb::scratch().await;
+    let fresh = scratch.pool().await;
     let closer = fresh.clone();
     (fresh, async move {
         closer.close().await;
-        sqlx::raw_sql(&format!("DROP DATABASE {name} WITH (FORCE)"))
-            .execute(&admin)
-            .await
-            .unwrap();
+        // 消すのは TestDb の Drop だけ（拒まれたときの待ちと打ち直し・診断を持つ。review/code.md R14）。
+        drop(scratch);
     })
 }
 
