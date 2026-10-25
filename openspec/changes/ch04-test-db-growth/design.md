@@ -94,7 +94,7 @@
 ### D5（仮）. 使い捨ての database は `testdb::scratch()` が作る
 
 - いまの 5 か所（`clock_tests.rs`・`feelings_tests.rs`・`stay_tests.rs`・`attributes_tests.rs`・`places_tests.rs`）の自前の `fresh_db()` の中身を、`testdb::scratch().await`（空の `<id>_tmp_…` を作り、`TestDb` と同じ Drop を持つ値を返す）に替える。
-  `fresh_db()` の名前と戻り値の形（プールと、待つと消える future）は残す（呼び出し側と、`fresh_db` を使う CH02 の `export_window_tests.rs` を書き換えない）。future は Drop と二重に消しても落ちない（`DROP DATABASE IF EXISTS`）
+  `fresh_db()` の名前と戻り値の形（プールと、待つと消える future）は残す（呼び出し側と、`fresh_db` を使う CH02 の `export_window_tests.rs` を書き換えない）。future は接続を閉じて `TestDb` を drop するだけで、自分では `DROP` を打たない（消すのは Drop だけ。Drop だけが拒まれたときの待ちと打ち直しを持つ。review/code.md R14）
 - **database を作る書き方を `testdb.rs` の外に置かせない**: `tools/check-test-db-growth.sh --lint` が `crates/server/src` と `crates/server/tests` の `CREATE DATABASE` を挙げて落とし、文言に `testdb::isolated()` と `testdb::scratch()` を示す。
   `testdb.rs` と、行に `db-ok: <理由>` の印がある行（同じ行か 1 行上。CH03 の `tmp-ok:` と同じ規則）は通す。片付けの試験（D6）が持ち主のいない回の database を作るのは、この印で通す
 - 同じ `--lint` が、書き出しの試験のファイル（`crates/server/src/export*_tests.rs`）の `testdb::pool()` も落とし、文言に `testdb::isolated()` を示す（同じ `db-ok:` で通す）。
@@ -210,6 +210,13 @@ CH04 を CH03 に依らせると、CH03 の gate を待つ理由のない作業�
 - `docs/flow-gates.md` の検査の表に `tools/check-test-db-growth.sh` を 1 行
 - `testdb.rs` の冒頭の注記に、回の database と片付けの規則（D1・D6）を書く
 
+### D16（仮）. 台本の説明の行に Scenario の印の字を書かない
+
+- `tools/check-tests-kept.sh` の冒頭の説明は印を「Scenario の印」と書く（印の字のまま書くと、`check_scenarios.py` が spec に無い Scenario を指す印として拾い warn を出す。review/code.md R16）。
+  台本の中で印の字が要るところは `--self-test` と同じく字を分けて組む
+
+反転条件: `check_scenarios.py` がコメントの中の説明を印と区別するようになれば、この書き方の制約は外す。
+
 ## Risks / Trade-offs
 
 - [書き出しの試験の数だけ database を写す時間が増える] → tasks 2.3 で 1 本の時間を測る。D2 の反転条件
@@ -230,12 +237,23 @@ CH04 を CH03 に依らせると、CH03 の gate を待つ理由のない作業�
 
 | 何 | 値 |
 |---|---|
-| テンプレートを写す 1 本の時間（tasks 2.3） | |
-| まっさらな回の `cargo test -p ashiato-server` の全体の時間（tasks 7.2） | |
-| 同じ worktree で 2 回目の全体の時間（tasks 7.2。1 回目と同じ桁なら積もっていない） | |
+| テンプレートを写す 1 本の時間（tasks 2.3） | 72〜197 ms（16 本同時に呼び、1 本ずつ写した。1 秒未満。D2 の反転条件に触れない。2026-10-24） |
+| まっさらな回の `cargo test -p ashiato-server` の全体の時間（tasks 7.2） | 113.02 秒（lib の 1216 本。2026-10-24） |
+| 同じ worktree で 2 回目の全体の時間（tasks 7.2。1 回目と同じ桁なら積もっていない） | 113.99 秒（1 回目と同じ桁。前の回の database は残らなかった） |
 
-| (N, M) | D9 の前 seconds | D9 の前 summary_seconds | D9 の後 seconds | D9 の後 summary_seconds |
-|---|---|---|---|---|
-| (300,000, 25) | | | | |
-| (600,000, 50) | | | | |
-| (1,200,000, 100) | | | | |
+| (N, M) | D9 の前 seconds（証跡なし） | D9 の前 summary_seconds | D9 の後 seconds（別の回・証跡なし） | D9 の後 summary_seconds | D9 の後 seconds（証跡 9.2。head e27a521a） | D9 の後 summary_seconds（証跡 9.2） |
+|---|---|---|---|---|---|---|
+| (300,000, 25) | 55.7 | 10.5 | 44.2 | 8.9 | 75.3 | 15.6 |
+| (600,000, 50) | 100.5 | 714.1 | 86.6 | 18.1 | 103.1 | 537.2 |
+| (1,200,000, 100) | 331.0 | 2643.1 | 193.7 | 2007.4 | 210.6 | 2176.2 |
+
+出どころ（2026-10-24 測定。`tools/export-scaling.sh`）:
+- 「前」は `excluded.rs` だけを 7700aa81 の親の版に戻した同じ木での 1 回。evidence.jsonl に項目として残っていない（この表だけが記録）。
+- 「後（別の回）」は D9 の木での 1 回で、証跡の無い試走。
+- 「後（証跡 9.2）」だけが `scripts/verify-run 9.2` の公式の記録（evidence.jsonl の 9.2・head e27a521a・3382 秒）。
+
+読み方: 同じ D9 の木の 2 回の間で seconds が 44.2 → 75.3、86.6 → 103.1 と動く。回ごとの揺れが前後の差より大きいので、「前と後のどちらが速いか」はこの測定では言えない（1 回ずつの比較は無効。D9 が速くなったとも遅くなったとも主張しない）。
+D14 の反転条件は、証跡のある後の 1 回だけで判定する。隣り合う組の seconds の比は 1.37・2.04 で、どちらも 2.5 倍以内なので触れない（別の回の後は 1.96・2.24、前は 1.80・3.29）。
+前後の優劣を言うには同じ条件で複数回測って中央値を取る必要があるが、この change の目的（件数を増やしても seconds が線形に近い）には要らないので測り直していない。
+
+注意: `summary_seconds` は前も後も (600,000, 50) か (1,200,000, 100) で数百〜数千秒に跳ねる（後: 8.9 → 18.1 → 2007.4）。D9 の差ではなく件数の数え（`read_summary`）の側の計画の変わり目に見える。この change の範囲外なので原因は調べていない。

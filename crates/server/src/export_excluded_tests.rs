@@ -19,14 +19,18 @@ const TOKEN: &str = "test-token-0123456789abcdef";
 
 pub(crate) struct World {
     pub(crate) pool: sqlx::PgPool,
+    /// この試験だけの database。試験の最後まで持つ（Drop が消す。CH04 / design D4）。
+    _db: testdb::TestDb,
     pub(crate) day: chrono::NaiveDate,
     pub(crate) user: Uuid,
 }
 
 impl World {
     pub(crate) async fn new() -> Self {
+        let db = testdb::isolated().await;
         Self {
-            pool: testdb::pool().await,
+            pool: db.pool().await,
+            _db: db,
             day: testdb::unique_day(),
             user: testdb::user(),
         }
@@ -580,7 +584,8 @@ async fn export_excluded_sql_version_of_an_excluded_parent_is_excluded() {
 
 #[tokio::test]
 async fn export_excluded_sql_payload_expression_does_not_fail_on_non_objects() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let sql = format!("SELECT {}", export::coord_in_payload_sql("$1::text::jsonb"));
     let cases = [
         (r#"{"a":1,"b":{"LatitudeE7":2}}"#, true),
@@ -604,7 +609,8 @@ async fn export_excluded_sql_payload_expression_does_not_fail_on_non_objects() {
 
 #[tokio::test]
 async fn export_excluded_sql_raw_expression_matches_the_designed_forms_only() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let sql = format!("SELECT {}", export::coord_in_raw_sql("$1::text"));
     let hits = [
         "@35.6812,139.7671",
@@ -722,7 +728,8 @@ async fn export_summary_rows_equal_the_sum_of_counts() {
 // Scenario: 資格情報の無い件数と状態の求めは断られる
 #[tokio::test]
 async fn export_summary_without_credentials_is_refused() {
-    let app = crate::App::for_test(testdb::pool().await, TOKEN);
+    let db = testdb::isolated().await;
+    let app = crate::App::for_test(db.pool().await, TOKEN);
     let denied = crate::export_summary_get(State(app), HeaderMap::new()).await;
     assert!(matches!(denied, Err((StatusCode::UNAUTHORIZED, _))));
 }

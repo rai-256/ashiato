@@ -1,0 +1,52 @@
+{
+ "title": "CH04 の深掘り（第 2 回）",
+ "subtitle": "Task 10.2 の検証コマンドが成立しない",
+ "note": [
+  "Task 10.2 の検証コマンドが原理的に通りません（plan の欠陥）。試験の本数・名前・Scenario の印は減っていません。直し方を承認してください。"
+ ],
+ "questions": [
+  {
+   "id": "Q5",
+   "topic": "Task 10.2 の検証コマンドの訂正",
+   "kind": "open",
+   "question": "10.2 の検証コマンドは、消えた `fn ` の行が足した行にも一字一句同じ形であることを求めます。非テストの補助関数 `async fn app_in(dir: &Path) -> App` が `fn app_in(pool, dir) -> App` に変わった（export_job_tests.rs。pool を呼び出し側が持つ形。D4 の isolated を使うため）ので落ちます。名前で比べる形に直してよいですか。",
+   "why": "受け入れ条件（試験の期待・Scenario の印・試験の本数が減っていない）は変えず、コマンドの比べ方だけを直す。戻せる。",
+   "context": "旧コマンドには 2 つの欠陥がある: (1) `^\\+[^+].*fn ` は 0 桁目から始まる `+fn …` を拾えない (2) 署名が変わった補助関数を『消えた』と見る。Scenario: の比較は旧コマンドのままで通る。新案は fn の比較を `grep -E \"^-([^-].*)?fn \" | grep -oE \"fn [A-Za-z0-9_]+\"` 対 `grep -E \"^\\+([^+].*)?fn \" | grep -oE \"fn [A-Za-z0-9_]+\"` にする（手で走らせて rc=0）。ただし `verify-run --command` は tasks.md に書かれていないコマンドを拒み、`plan_fix.py --approved machine` は新しい入口が repo の実行ファイルであること＋ verify-run の PASS 証跡を要するので、機械の承認では訂正できない。人間の承認（`--approved '<出所>'`）が要る。",
+   "multi": false,
+   "allow_free": true,
+   "options": [
+    {
+     "label": "名前で比べる形に直す（推奨）",
+     "detail": "新案のコマンドで tasks.md の 10.2 を人間の承認で訂正する",
+     "recommended": true
+    },
+    {
+     "label": "補助関数の署名を旧に合わせて戻す",
+     "detail": "isolated を使う形を崩すので勧めない"
+    }
+   ],
+   "family": {
+    "name": "検証コマンドが行の完全一致で、リファクタの署名変更を『消えた』と見る",
+    "siblings": [
+     {
+      "case": "補助関数の署名変更",
+      "decided": "未決 Q5"
+     },
+     {
+      "case": "0 桁目から始まる fn の行",
+      "decided": "未決 Q5（同じ訂正で直す）"
+     },
+     {
+      "case": "試験の fn の改名",
+      "decided": "名前で比べるので、消えた名前として落ちる（意図どおり）"
+     }
+    ]
+   },
+   "upstream_miss": {
+    "stage": "spec-review",
+    "why": "tasks の検証コマンドを書くとき、行の完全一致が署名の変更と行頭の fn に耐えるかを実際の差分で走らせて確かめなかった",
+    "prevention": "検証コマンドを tasks に置く前に、似た差分（署名変更・行頭）で rc=0 になるかを機械で試す観点"
+   }
+  }
+ ]
+}

@@ -75,6 +75,10 @@ jobs:
       # 組み立てに渡した commit がそのまま版の記録の行に入ること（ST48 / design D8。review/code.md R20）
       - run: ASHIATO_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" ASHIATO_EXPECT_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" cargo test -p ashiato-server --lib st48_apply_row_has_fingerprint_and_build
       - run: ./tools/check-migrations.sh --self-test
+      # 試験の database が積もらない（CH04 / design D8）。`ch04_` は回の database・試験ごと・使い捨て・片付けの試験だけを 2 回走らせる
+      - run: ./tools/check-test-db-growth.sh --self-test
+      - run: ./tools/check-test-db-growth.sh --lint
+      - run: ./tools/check-test-db-growth.sh -p ashiato-server ch04_
       - run: ./tools/check-migrations.sh
       # 配った印（タグ v*）の版の移行を変えない・消さない（ST48 / design D9）。checkout は浅くタグが無いので取り寄せる
       # 印がまだ 1 つも無いと `git fetch` は rc=1 になるので、ls-remote で v* があるときだけ取り寄せる。
