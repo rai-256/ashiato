@@ -16,7 +16,6 @@ tag="${1:?使い方: $0 <tag>}"
 out="dist/verify-$tag"
 # 回ごとの compose の project（design D13）。DB の容器と置き場が回ごとに分かれ、前の回の DB を新しい版が書き換えない
 project="ashiato-verify-$(printf '%s' "$tag" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n-' '-')"
-export COMPOSE_PROJECT_NAME="$project"   # この下で起こす DB（測り直しの数え）も、run.sh と同じ project に立てる
 mkdir -p "$out"
 note() { echo "  $*"; }
 

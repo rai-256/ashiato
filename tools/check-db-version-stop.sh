@@ -69,9 +69,16 @@ dbq "$A" "INSERT INTO core.event (id, user_id, logical_source, origin, event_tim
           VALUES ('44444444-4444-4444-8444-444444444444','00000000-0000-0000-0000-000000000000','stop-check','collected',
                   '2026-09-08T02:00:00Z',540,'Asia/Tokyo',1,'stop-check-hash','{}','{}')" >/dev/null
 [ "$(events "$A")" = 1 ] || ng "A に 1 件置けていない"
-COMPOSE_PROJECT_NAME="$A" docker compose stop >/dev/null
-if stk "$B" >/dev/null; then ok "B で立てられた（A は止まっている）"; else ng "A を止めたあと B で立てられない"; fi
-COMPOSE_PROJECT_NAME="$B" docker compose stop >/dev/null
+running() { [ -n "$(COMPOSE_PROJECT_NAME="$1" docker compose ps --status running -q db)" ]; }
+COMPOSE_PROJECT_NAME="$A" setsid -w ./tools/stack.sh down >/dev/null
+running "$A" && ng "stack.sh down で A が止まっていない" || ok "stack.sh down で A が止まった（容器は残る）"
+if stk "$B" >/dev/null; then ok "B で立てられた"; else ng "A を止めたあと B で立てられない"; fi
+COMPOSE_PROJECT_NAME="$B" setsid -w ./tools/stack.sh down >/dev/null
+COMPOSE_PROJECT_NAME="$A" docker compose up -d --wait db >/dev/null
+# A を動かしたまま B を立てると、stack.sh が A を止める（消さない）
+if stk "$B" >/dev/null; then ok "A が動いたまま B で立てられた"; else ng "A が動いたままだと B で立てられない"; fi
+running "$A" && ng "B を立てても A が動いたまま" || ok "B を立てると A は自動で止まった"
+COMPOSE_PROJECT_NAME="$B" setsid -w ./tools/stack.sh down >/dev/null
 COMPOSE_PROJECT_NAME="$A" docker compose up -d --wait db >/dev/null
 [ "$(events "$A")" = 1 ] && ok "A を起こし直すと 1 件ある" || ng "A の 1 件が残っていない"
 
