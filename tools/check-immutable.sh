@@ -897,21 +897,35 @@ else
   echo "  OK core.event の全 $(echo "$actual" | wc -l) 列が、開ける / 門で見る / 凍結する のどれかに入っている"
 fi
 # 凍結すると宣言した列が、本当に 1 つずつ拒まれること（宣言と実装のずれを見る）
+# 終わりの 3 列は、終わりを持つ主張を同じまとまりで置き、その 1 列だけを変えて戻す（CLAIM_A は終わりを持たず、
+# 1 列だけ付けると錠でなく CHECK（*_end_together）で落ちる。3 列を揃えて付けると `end_time` の錠が先に拒み、
+# ずれと地域の錠の行を撃たない。review/code.md R20）
+CLAIM_END='a4444444-4444-4444-8444-000000000001'
+claim_with_end=$(claim_row_of "$CLAIM_END" '東京都 渋谷区' '2020-04' 'null' 'ZW5kZW5kZW5kZW5kZW5kZW5k' \
+  | sed "s/tz_offset_min, tz_id,/tz_offset_min, tz_id, end_time, end_tz_offset_min, end_tz_id,/;
+         s|'Asia/Tokyo',1,2,|'Asia/Tokyo','2026-09-15T03:00:00Z',540,'Asia/Tokyo',1,2,|")
 for col in $frozen_cols; do
+  target="$CLAIM_A"; pre=""; post=""
   case "$col" in
-    # 終わりは 3 つ揃えて付ける（1 列だけだと錠でなく CHECK（*_end_together）で落ち、錠を見ていない）
     end_time|end_tz_offset_min|end_tz_id)
-      col="end_time"
-      val="'2000-01-01T00:00:00Z', end_tz_offset_min = 0, end_tz_id = 'UTC'" ;;
+      target="$CLAIM_END"; pre="BEGIN; $claim_with_end"; post="ROLLBACK;"
+      case "$col" in
+        end_time)          val="'2000-01-01T00:00:00Z'" ;;
+        end_tz_offset_min) val="0" ;;
+        *)                 val="'UTC'" ;;
+      esac ;;
     event_time|ingest_time|source_updated_at) val="'2000-01-01T00:00:00Z'" ;;
     tz_offset_min|schema_version)             val="0" ;;
     id|user_id)                               val="'12121212-1212-4212-8212-121212121212'" ;;
     *)                                        val="'forged'" ;;
   esac
-  if psql -c "UPDATE core.event SET $col = $val WHERE id='$CLAIM_A';" >/dev/null 2>&1; then
+  if psql -c "$pre UPDATE core.event SET $col = $val WHERE id='$target'; $post" >/dev/null 2>&1; then
     echo "  NG 主張の $col が書き換えられた（凍結すると宣言しているのに通る）"; fail=1
   fi
 done
+# 終わりを持つ主張を置けること自体を確かめる（置けないと上の 3 列は INSERT の誤りで「拒まれた」ことになる）
+psql -c "BEGIN; $claim_with_end ROLLBACK;" >/dev/null 2>&1 \
+  || { echo "  NG 終わりを持つ主張を置けない（終わりの 3 列の点呼が空振りする）"; fail=1; }
 echo "  OK 凍結すると宣言した列はどれも書き換えられない"
 # **門で見ると宣言した 3 列も、素の書き換えは拒まれること**（review/code.md R22）。
 # 点呼が「知っている列」として通すだけだと、**門が将来その列を見なくなっても気付かない**

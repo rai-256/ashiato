@@ -7,4 +7,5 @@ Story ごとの `tools/check-immutable.sh` の節。`tools/check-immutable.sh` �
 - `tools/check-immutable.sh` の本体には書き足さない（並走する Story がみな末尾を取り合い、どの 2 本を合わせても衝突した。2026-10-15）。
   `feat/st*` が本体の末尾（最後の節の後ろ）に書き足すと `tools/check-shared-appends.sh` が落とす（途中の既存の節の中身を直すのは通す。**本体の途中に新しい節の見出し**（`# ==== ST<NN>` / `echo "== ST<NN>:` など）を足しても落とす。読む口のかたまりをそのまま動かすだけは通す）
 - **節は本体の各節の戻し手順（`.down.sql` を当てて、その版をもう一度当てる）の後に読まれ、古い門の上で走る。** 当て直した版より後の版が置き換えた関数（門・錠）は、当て直した版の本体に戻っている。
-  新しい門・錠を前提にする節は、`psql -c "DROP SCHEMA core CASCADE;"` の後に `"${MIGS[@]}"` を全部当てて schema を作り直してから撃つ（`202610231200_st41-event-end-time.sh` の頭の形）
+  新しい門・錠を前提にする節は、`psql -c "DROP SCHEMA core CASCADE;"` の後に `"${MIGS[@]}"` を全部当てて schema を作り直してから撃つ（`202610231200_st41-event-end-time.sh` の頭の形）。
+  **作り直すと付与（`grants.sql`）も消える**ので、続けて `./tools/db-roles.sh` と `grants.sql`（`ashiato_owner` で）を当て直す —— 当て直さないと、後ろの節の `app_psql` が門・錠でなく権限で断られ、拒否を見る検査が別の理由で OK になる（review/code.md R17）

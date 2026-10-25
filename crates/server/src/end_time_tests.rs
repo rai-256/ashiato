@@ -1987,3 +1987,48 @@ async fn st41_stays_and_collected_rows_have_no_end_column() {
     assert!(versions >= 1, "滞在の前の版ができていない（試験が空振り）");
     assert_eq!(versions_with_end, 0, "滞在の前の版に終わりの列が書かれた");
 }
+
+#[tokio::test]
+async fn st41_collected_payload_end_is_not_copied_to_column() {
+    // 印なし（review/code.md R14 / D14（仮））: 取り込み口を通った収集済みの記録の内容にある終わり
+    // （携帯のアプリ利用の `end`・PC の前景の窓の `range_end`）は、終わりの列へ写さない
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let day = testdb::unique_day();
+    let at = |hm: &str| format!("{day}T{hm}:00+09:00");
+    let mut usage = ev("c01-app-usage", user, &at("10:00"));
+    usage["raw"] = serde_json::json!(format!(
+        "{{\"package\":\"x\",\"end\":\"{}\",\"n\":\"{}\"}}",
+        at("10:30"),
+        Uuid::new_v4()
+    ));
+    usage["payload"] = serde_json::json!({"package": "x", "end": at("10:30")});
+    let mut window = ev("c02-window", user, &at("11:00"));
+    window["raw"] = serde_json::json!(format!(
+        "{{\"kind\":\"idle\",\"range_end\":\"{}\",\"n\":\"{}\"}}",
+        at("11:20"),
+        Uuid::new_v4()
+    ));
+    window["payload"] = serde_json::json!({"kind": "idle", "range_end": at("11:20")});
+    let ids: Vec<Uuid> = [&usage, &window]
+        .iter()
+        .map(|i| i["id"].as_str().unwrap().parse().unwrap())
+        .collect();
+
+    let (code, res) = send(&pool, vec![usage, window]).await;
+    assert_eq!(code, axum::http::StatusCode::OK);
+    assert!(res.iter().all(|r| r.accepted), "受理されない: {res:?}");
+    for id in &ids {
+        assert_eq!(
+            stored_end(&pool, *id).await,
+            (None, None, None),
+            "内容の終わりが列へ写された"
+        );
+    }
+    // 共有の DB に生きた行を残さない（ほかの試験が `/events` の全件を見る。review/code.md R12）
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = ANY($1)")
+        .bind(&ids)
+        .execute(&pool)
+        .await
+        .unwrap();
+}

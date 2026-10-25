@@ -208,7 +208,8 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              FROM core.stay_erased s
             WHERE {user_deleted}
            UNION ALL
-           SELECT v.event_time, coalesce(v.end_time, core.try_timestamptz(v.payload->>'end'), v.event_time)
+           SELECT v.event_time, coalesce(CASE WHEN v.end_time > v.event_time THEN v.end_time END,
+                                  core.try_timestamptz(v.payload->>'end'), v.event_time)
              FROM core.stay_erased s
              JOIN core.event_version v ON v.event_id = s.id
             WHERE {user_deleted}

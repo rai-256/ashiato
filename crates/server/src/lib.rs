@@ -3611,39 +3611,56 @@ pub async fn events(
     authorize(&app, &headers).await?;
     let period = parse_period(&q)?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
+    // ソースの絞り込みは、有るときだけ条件を足す（`$n IS NULL OR …` の 1 本にすると、準備済みの文が汎用の計画に
+    // 切り替わった後は `?source=` でも索引を使えず全件を読む。review/code.md R22）。
     let rows = match period {
         None => {
-            sqlx::query_as::<_, EventDbRow>(
+            let sql = format!(
                 "SELECT id, logical_source, event_time, tz_id, origin, raw,
                         end_time, end_tz_offset_min, end_tz_id
                    FROM core.event_live
-                  WHERE ($1::text IS NULL OR logical_source = $1)
+                  {}
                   ORDER BY event_time, id",
-            )
-            .bind(q.source.as_deref())
+                if q.source.is_some() {
+                    "WHERE logical_source = $1"
+                } else {
+                    ""
+                }
+            );
+            let query = sqlx::query_as::<_, EventDbRow>(&sql);
+            match q.source.as_deref() {
+                Some(source) => query.bind(source),
+                None => query,
+            }
             .fetch_all(&app.pool)
             .await
         }
         // 終わりのある行は部分索引 `event_end_range` の式に当て（閉区間なので広め）、正確な条件で絞る。
         // 終わりの無い行は時刻の索引（D10）。
         Some((from, to)) => {
-            sqlx::query_as::<_, EventDbRow>(concat!(
+            let sql = format!(
                 "SELECT id, logical_source, event_time, tz_id, origin, raw,
                         end_time, end_tz_offset_min, end_tz_id
                    FROM (
-                     ",
-                events_end_side_sql!(),
-                "
+                     {}
                      UNION ALL
                      SELECT * FROM core.event_live
                       WHERE end_time IS NULL AND event_time >= $1 AND event_time < $2
                    ) e
-                  WHERE ($3::text IS NULL OR logical_source = $3)
-                  ORDER BY event_time, id"
-            ))
-            .bind(from)
-            .bind(to)
-            .bind(q.source.as_deref())
+                  {}
+                  ORDER BY event_time, id",
+                events_end_side_sql!(),
+                if q.source.is_some() {
+                    "WHERE logical_source = $3"
+                } else {
+                    ""
+                }
+            );
+            let query = sqlx::query_as::<_, EventDbRow>(&sql).bind(from).bind(to);
+            match q.source.as_deref() {
+                Some(source) => query.bind(source),
+                None => query,
+            }
             .fetch_all(&app.pool)
             .await
         }

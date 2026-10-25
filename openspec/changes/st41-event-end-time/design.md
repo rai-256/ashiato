@@ -152,14 +152,16 @@ CREATE INDEX IF NOT EXISTS event_end_range ON core.event USING gist
   終わりの無い側に当たる索引は無い: `GET /events` は利用者で絞らず、`event_time` を先頭に持つ索引も無い（既存は `(user_id, event_time)` と `(logical_source, event_time)`）。
   `source` を付ければ `(logical_source, event_time)` に当たるが、`source` なしの期間の点の側は全走査になる。期間なしの今の `GET /events` も全件を読むので、今の挙動からの退行ではない。
   索引を足すか利用者で絞るかは、読み出しの量が決まる ST45 で決める（review/code.md R3）
+- `source` の条件は、有るときだけ SQL に足す（`$n IS NULL OR …` の 1 本だと、準備済みの文が汎用の計画に切り替わった後は `source` があっても索引を使えない。review/code.md R22）
 - 下流は 1 万行の偽データ（うち終わりを持つ行 1 割）で `EXPLAIN` を取り、終わりのある側に `event_end_range` が当たることを試験で確かめる（Task 5）
 
 ### D11. 書き出しと消した滞在の時間は、終わりを列から先に読む（note (6)・C6・申し送り C7）
 
 - 記録: 幅の (a) の前に列の終わりを置く —— `CASE WHEN r.end_time > r.event_time THEN r.end_time END` を `END_KEYS` の `coalesce` の先頭に足す（列の逆順と長さ 0 は NULL にして次の順へ。D4）
 - 前の版: 前の版の行を作る副問い合わせ（いまは `v.payload` / `v.raw` だけを持つ）に `v.end_time` を足し、同じ式で読む
-- 消した滞在の時間: `core.stay_erased` の `end_at` を `coalesce(end_time, core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond')` にし、
-  消した滞在の前の版の時間（いまは `v.payload->>'end'`）も `coalesce(v.end_time, …)` にする。滞在は終わりを列に書かない（D13（仮））ので、いまの振る舞いは変わらない
+- 消した滞在の時間: `core.stay_erased` の `end_at` を `coalesce(CASE WHEN end_time > event_time THEN end_time END, core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond')` にし、
+  消した滞在の前の版の時間（いまは `v.payload->>'end'`）も同じ形にする（列の逆順と長さ 0 は記録の側と同じく読まない。review/code.md R16）。滞在は終わりを列に書かない（D13（仮））ので、いまの振る舞いは変わらない
+- 滞在を消したときの位置の連鎖と後から届いた位置の印（`stay_store::event_end_sql`）も、同じ式で列を先に読む（review/code.md R18。区間で見るのは書庫の区間のソースだけ —— ST12 の D22 のまま）
 - 列の一覧: `EVENT_COLUMNS` と `EVENT_VERSION_COLUMNS` に 3 列を `event_time` / `tz_id` の近くに足す（ST09 が末尾を触りうる）。説明書 `export/doc.rs` にも同じ説明
 - CH02 との順: どちらが先に main に入っても、ST41 の下流は main にある `overlap_sql` に足す。CH02 の窓に載るのは鍵の列だけで（CH02 design D2）、
   終わりは窓の後に `id` で戻した行から読むので、窓の枠には触らない。ST41 が先なら `docs/handoff/CH02.md` に「`legacy` の写しと偽データに終わりの列の行が無い」を書く
@@ -199,6 +201,8 @@ CREATE INDEX IF NOT EXISTS event_end_range ON core.event USING gist
 4. `core.stay_erased` を D11 の式で作り直す（列の名前と並びは変えない）
 5. 門と錠の 2 関数（D5）
 6. 部分索引（D10）
+
+5 の前に、置き換える関数の当てる直前の本体の md5 が写した元かこの版の本体でなければ止める（ORDER で前に入った版の変更を古い写しが黙って戻さない。review/code.md R21）。
 
 `.down.sql` は逆順（索引 → 関数をいまの版に戻す → ビューをいまの形に戻す → CHECK → 列）。`IF NOT EXISTS` / `IF EXISTS` で 2 回当てても落ちない形にする
 （`migrate()` は起動のたびに全版を当てる）。

@@ -4,6 +4,9 @@
 # 終わりの錠を見るので、全版を当てた状態へ作り直す（tools/check-immutable.d/README.md）。
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
+# 作り直しで付与（grants.sql）も消えたので、読む口の前の準備と同じに当て直す（後ろの節が `app_psql` で撃てるように。review/code.md R17）
+./tools/db-roles.sh >/dev/null
+docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/grants.sql >/dev/null
 EID='41414141-4141-4141-8141-414141414141'
 EUSER='00000000-0000-0000-0000-000000000000'
 echo "== ST41: 終わりつきの「収集した」記録を 1 件置く"
@@ -48,9 +51,13 @@ psql -c "INSERT INTO core.event_version
             end_time, end_tz_offset_min, end_tz_id)
          VALUES ('$EID','$EUSER','st41-end-check',1,'2026-09-08T02:00:00Z','st41-end-hash',
                  '{\"v\":1}','{\"v\":1}','2026-09-08T03:00:00Z',540,'Asia/Tokyo');" >/dev/null
+# 拒んだのが錠の名指し（本文「履歴は追記のみ」）であることまで見る。終わりだけを変える書き込みは、名指しを外しても
+# 錠の後ろの「本文の消去だけが通る」で拒まれ、拒まれたことだけでは名指しの有無が分からない（review/code.md R15）
 for set in "end_time='2026-09-08T05:00:00Z'" "end_tz_offset_min=0" "end_tz_id='UTC'"; do
-  if psql -c "UPDATE core.event_version SET $set WHERE event_id='$EID';" >/dev/null 2>&1; then
+  if ST41_ERR=$(psql -c "UPDATE core.event_version SET $set WHERE event_id='$EID';" 2>&1 >/dev/null); then
     echo "  NG 前の版の終わりが書き換えられた: $set"; fail=1
+  elif [[ "$ST41_ERR" != *"履歴は追記のみ"* ]]; then
+    echo "  NG 前の版の終わりを拒んだのが錠の名指しでない: $set: $ST41_ERR"; fail=1
   else
     echo "  OK 前の版の終わりの書き換えは拒まれた: $set"
   fi

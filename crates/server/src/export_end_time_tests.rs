@@ -274,6 +274,66 @@ async fn st41_export_erased_stay_version_end_column_is_read() {
     assert!(w.kept(&[inside]).await.is_empty());
 }
 
+#[tokio::test]
+async fn st41_export_erased_stay_reversed_end_column_falls_back_to_payload() {
+    // 印なし（review/code.md R16 / R19）: 消した滞在の終わりの列が始まりより前なら読めないものとして内容の `end` へ進む
+    // （D4。記録の側の `overlap_sql` と同じ読み方）。列を先に読むと幅が空になり、01:30 の記録が残る
+    let w = World::new().await;
+    let stay = put_ended(
+        &w,
+        "s01-stay",
+        &w.at("01:00"),
+        Some(&w.at("00:30")),
+        json!({"lat": 35.0, "lon": 139.0, "end": w.at("02:00")}),
+    )
+    .await;
+    w.mark_deleted(stay, "user").await;
+    let s = plain_source(&w).await;
+    let inside = put_ended(
+        &w,
+        &s,
+        &w.at("01:30"),
+        Some(&w.at("01:40")),
+        json!({"lat": 35.0}),
+    )
+    .await;
+    assert!(w.kept(&[inside]).await.is_empty());
+}
+
+#[tokio::test]
+async fn st41_export_erased_stay_version_reversed_end_column_falls_back_to_payload() {
+    // 印なし（review/code.md R16 / R19）: 消した滞在の**前の版**も同じ（`erased_spans` の前の版の枝）
+    let w = World::new().await;
+    let stay = put_ended(
+        &w,
+        "s01-stay",
+        &w.at("05:00"),
+        Some(&w.at("05:10")),
+        json!({"lat": 35.0, "lon": 139.0}),
+    )
+    .await;
+    put_ended_version(
+        &w,
+        stay,
+        1,
+        &w.at("01:00"),
+        &w.at("00:30"),
+        json!({"lat": 35.0, "lon": 139.0, "end": w.at("02:00")}),
+    )
+    .await;
+    w.mark_deleted(stay, "user").await;
+    let s = plain_source(&w).await;
+    let inside = put_ended(
+        &w,
+        &s,
+        &w.at("01:30"),
+        Some(&w.at("01:40")),
+        json!({"lat": 35.0}),
+    )
+    .await;
+    assert!(w.kept(&[inside]).await.is_empty());
+}
+
 // Scenario: 書き出しの行は終わりの 3 つの列を持つ
 #[tokio::test]
 async fn st41_export_rows_have_end_columns() {

@@ -54,11 +54,13 @@ CREATE OR REPLACE VIEW core.event_version_live AS
 
 -- ------------------------------------------------------------------ 3. 消した滞在の時間（D11）
 -- 終わりを列→内容の `end`→始まり+1µs の順に読む。滞在は終わりを列に書かない（D13）ので、いまの振る舞いは変わらない。
+-- 列の終わりが始まり以前（逆順・長さ 0）なら読めないものとして内容へ進む（D4。記録の側の `overlap_sql` と同じ。review/code.md R16）。
 CREATE OR REPLACE VIEW core.stay_erased AS
   SELECT id,
          user_id,
          event_time AS start_at,
-         coalesce(end_time, core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
+         coalesce(CASE WHEN end_time > event_time THEN end_time END,
+                  core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
          deleted_at,
          deleted_by
     FROM core.event
@@ -67,6 +69,33 @@ CREATE OR REPLACE VIEW core.stay_erased AS
      AND deleted_at IS NOT NULL;
 
 -- ------------------------------------------------------------------ 4. 門と錠（D5）。いまの本体を写して終わりを足すだけ
+-- **写した元が変わっていたら落とす**（review/code.md R21）。下の 5 関数は本体ごと置き換えるので、ORDER でこの版より前の版が
+-- 関数を変えると、起動のたびにここの古い写しがそれを黙って戻す。当てる直前の本体が、写した元（ORDER の 1 つ前までを当てた本体）か
+-- この版の本体（2 回目の当て）のどちらでもなければ止める。門と前の版の錠は、この版の `.down.sql` が戻した本体（写した元から
+-- コメントを落としただけ）も写した元として受ける。直し方: 前の版の本体を写し直して終わりを足し、下の md5 を取り直す。
+DO $mig$
+DECLARE
+  f record;
+  got text;
+BEGIN
+  FOR f IN SELECT * FROM (VALUES
+      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c'], '048663f9a11ebe059461fa00f5b0f86d'),
+      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea'], '297643252bd76e0f28239a983924434e'),
+      ('reject_claim_rewrite',        ARRAY['4006819958d70c2bdc8c124bfdbeef00'], '1d22cf9574bd9cc6662f713f55f936f6'),
+      ('reject_feeling_rewrite',      ARRAY['75bb30cd8661c837b6b6bd49ca9b437c'], 'a114c7b157a8db84bf5bd5800ae02e8c'),
+      ('reject_place_record_rewrite', ARRAY['8ada6d675534acc6dd73e49e22ffa5b6'], '2def13f291eb1997490f8537b10e7b4c')
+    ) AS t(name, copied_from, this_version)
+  LOOP
+    SELECT md5(prosrc) INTO got FROM pg_proc
+     WHERE pronamespace = 'core'::regnamespace AND proname = f.name;
+    IF NOT (got = ANY(f.copied_from)) AND got IS DISTINCT FROM f.this_version THEN
+      RAISE EXCEPTION 'core.%() の本体が、202610231200_event_end_time が写した元と違う（md5 %）。前の版の変更を写し直す（review/code.md R21）',
+        f.name, got;
+    END IF;
+  END LOOP;
+END
+$mig$;
+
 CREATE OR REPLACE FUNCTION core.require_version_or_ledger() RETURNS trigger AS $fn$
 DECLARE
   content_changed boolean;

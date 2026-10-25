@@ -352,12 +352,19 @@ mod tests {
     fn st41_hash_with_end_is_pinned() {
         let pinned = "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1";
         let plain = req(uuid::Uuid::nil(), "x");
-        let mut with_end = req(uuid::Uuid::nil(), "x");
-        with_end.end_time = chrono::DateTime::from_timestamp(1_757_000_000 + 3_600, 0);
-        with_end.end_tz_offset_min = Some(540);
-        with_end.end_tz_id = Some("Asia/Tokyo".into());
         assert_eq!(content_hash(&plain), pinned);
-        assert_eq!(content_hash(&with_end), pinned, "終わりが鍵に混ざった");
+        // 終わりが 1 時間後のものと、始まりと同じもの（長さ 0）
+        for end in [1_757_000_000 + 3_600, 1_757_000_000] {
+            let mut with_end = req(uuid::Uuid::nil(), "x");
+            with_end.end_time = chrono::DateTime::from_timestamp(end, 0);
+            with_end.end_tz_offset_min = Some(540);
+            with_end.end_tz_id = Some("Asia/Tokyo".into());
+            assert_eq!(
+                content_hash(&with_end),
+                pinned,
+                "終わりが鍵に混ざった: {end}"
+            );
+        }
     }
 
     #[test]
@@ -501,19 +508,6 @@ mod tests {
         r.end_time = Some(t);
         r.end_tz_offset_min = None;
         assert_eq!(r.validate(), Err(Invalid::EndTime), "時刻だけある");
-    }
-
-    #[test]
-    /// 終わりを足しても内容の鍵は変わらない（D7。固定値の試験と同じ値）
-    fn st41_ingest_end_does_not_change_hash() {
-        let mut r = req(uuid::Uuid::nil(), "x");
-        r.end_time = Some(r.event_time);
-        r.end_tz_offset_min = Some(540);
-        r.end_tz_id = Some("Asia/Tokyo".into());
-        assert_eq!(
-            content_hash(&r),
-            "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1"
-        );
     }
 
     #[test]
