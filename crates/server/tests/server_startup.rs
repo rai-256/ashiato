@@ -769,6 +769,11 @@ mod st48_migrate {
         let failing = rig.fake_pg_dump("pg_dump_fails", false);
         let out = rig.migrate_with(&rig.backups(), &failing, None);
         assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        assert!(
+            !stderr(&out).contains("kind="),
+            "版の食い違いの種別を出した: {}",
+            stderr(&out)
+        );
         let back: i64 =
             sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
                 .bind(name)
@@ -793,6 +798,11 @@ mod st48_migrate {
         after_a_second();
         let out = rig.migrate();
         assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        assert!(
+            !stderr(&out).contains("kind="),
+            "版の食い違いの種別を出した: {}",
+            stderr(&out)
+        );
         let recorded: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM migration_ledger.applied WHERE name = '202610131200_export_ledger'",
         )
