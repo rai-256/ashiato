@@ -157,7 +157,7 @@
 
 ## Task 8: 縦串 —— 端末が送る形の記録が S-01 に格納される
 
-- [ ] 8.1 `tools/smoke.d/<作成時刻>_st11-health-permission.sh` を置く（`tools/smoke.d/README.md` の形。ST09 の縦串と同じく `post` / `rawstr` を使う）。
+- [x] 8.1 `tools/smoke.d/<作成時刻>_st11-health-permission.sh` を置く（`tools/smoke.d/README.md` の形。ST09 の縦串と同じく `post` / `rawstr` を使う）。
   D2 の形の `c01-health-permission` の記録（4 種類・履歴・背景が `true`、`external_id` なし）を本物のサーバに送り、受理されること・D-01 に 1 行入ること・`payload->'granted'->>'history'` が `true`・
   `event_time` が送った `device_time` と同じことを見る。同じ記録をもう 1 度送って `duplicate: true` で行が増えないことも見る。
   Scenario: `許すと許した状態と観た時刻の記録が S-01 に格納される`（サーバの側。端末の側は Task 7.1）。
