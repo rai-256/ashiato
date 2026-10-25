@@ -86,7 +86,7 @@ echo "Scenario: 版の食い違いで止まると、作り直さずに手順を�
 dbq "$A" "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit, before_ledger)
           VALUES ('299912312359_unknown_version','x','x','x',false)" >/dev/null
 rc=0; out="$(stk "$A" 2>&1)" || rc=$?
-[ "$rc" != 0 ] && ok "知らない版が当たった DB で止まった（rc=$rc）" || ng "止まらなかった"
+[ "$rc" = 3 ] && ok "知らない版が当たった DB で終了コード 3 で止まった" || ng "終了コード 3 で止まらなかった（rc=$rc）"
 [[ $out == *STACK_RESET=1* && $out == *COMPOSE_PROJECT_NAME* ]] && ok "手順（STACK_RESET=1 と COMPOSE_PROJECT_NAME）を出した" || ng "手順が出力に無い: $out"
 [ "$(events "$A")" = 1 ] && [ "$(dbq "$A" "SELECT count(*) FROM migration_ledger.applied WHERE name = '299912312359_unknown_version'")" = 1 ] \
   && ok "1 件と知らない版の行が残っている" || ng "作り直されたか、行が消えた"
