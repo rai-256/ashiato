@@ -26,7 +26,7 @@ import java.util.regex.Pattern
 /**
  * **位置の権限を拒否したとき**: アプリは落ちず、`permission_denied` を残して終わり、**収集は始まる**。
  *
- * ここだけが UI Automator を使う。権限ダイアログは `permissioncontroller` のもので、
+ * ここと `HealthPermission*InstrumentedTest` が UI Automator を使う。権限ダイアログは `permissioncontroller` のもので、
  * **自分のプロセスの外**にあるため Espresso では触れない。
  * `MainActivityInstrumentedTest` は `GrantPermissionRule` で「揃っている側」を見ており、
  * **拒否した側は 2026-09-18 まで機械も人間も見ていなかった**
@@ -86,9 +86,10 @@ class PermissionDeniedInstrumentedTest {
         shell("logcat -c")
     }
 
-    // **spec の Scenario には対応しない。** 正典に「拒否したときの振る舞い」の Scenario が無く、
-    // 足すなら change → archive の工程が要る。ここは design D27 / tasks 6.2 の回帰テストとして置く
-    // （印を付けると `check_scenarios.py` が「spec に無い Scenario を指す印」として warn を出す）
+    // Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る
+    //
+    // 落ちない・前景の通知が出る・`kind=permission_denied` のログ・続けて通知の権限を求める・位置は拒否のまま、を見る。
+    // 位置が取得できない状態として生存信号に載ることは、ここでは見ない（`SourceIndependenceTest` が同じ印で見る）。
     @Test
     fun denyingLocationLeavesTheAppAliveAndCollectionRunning() {
         context.startActivity(
