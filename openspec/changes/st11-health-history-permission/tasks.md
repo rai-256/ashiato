@@ -63,7 +63,7 @@
 
 ## Task 2: manifest の宣言と説明の画面（design D5 / D7 / D13）
 
-- [ ] 2.1 新しい `HealthPermissions.kt` に定数 `HEALTH_PERMISSIONS`（D5 の 6 つの権限の名前と D2 の欄の名前の対応）だけを先に置く（読む口と求める口は Task 3.1）。
+- [x] 2.1 新しい `HealthPermissions.kt` に定数 `HEALTH_PERMISSIONS`（D5 の 6 つの権限の名前と D2 の欄の名前の対応）だけを先に置く（読む口と求める口は Task 3.1）。
   manifest に D5 の 6 つの権限（`READ_HEALTH_DATA_HISTORY` は既にある）・Health Connect のアプリを引く `<queries>`・新しい `HealthRationaleActivity` と D7 の 2 つの開き方
   （`ACTION_SHOW_PERMISSIONS_RATIONALE` の `intent-filter` と、`VIEW_PERMISSION_USAGE` + `HEALTH_PERMISSIONS` の `activity-alias`）を足す。
   `HealthRationaleActivity` は D7 の文 `HEALTH_RATIONALE` を出すだけ（全面表示の inset は `MainActivity.showUnusedAppRestrictions` と同じ扱い）。
