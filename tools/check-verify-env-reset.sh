@@ -29,15 +29,16 @@ body() {
   local r c fail=0 stage=
   tmp=$(mktemp -d)
   r=$(openssl rand -hex 4)
-  sp="ch06-sentinel-$r"; holder_pid=
+  sp="ch06-sentinel-$r"; holder_pids=
   # sentinel（コンテナ・volume・network・compose project）は必ず消す
   cleanup() {
-    [[ -z $holder_pid ]] || kill "$holder_pid" 2>/dev/null || true
+    [[ -z $holder_pids ]] || kill $holder_pids 2>/dev/null || true
     # kill が止めるのは exec の CLI だけ。DB が生きていれば pg_sleep の backend も切る
     docker compose exec -T db psql -X -qtA -U ashiato -d ashiato \
-      -c "select pg_terminate_backend(pid) from pg_stat_activity where application_name='ch06-holder'" >/dev/null 2>&1 || true
+      -c "select pg_terminate_backend(pid) from pg_stat_activity where application_name like 'ch06-holder%'" >/dev/null 2>&1 || true
     local ids
-    ids=$(docker ps -aq --filter "name=$sp"); [[ -z $ids ]] || docker rm -f $ids >/dev/null 2>&1 || true
+    # -v: sentinel の image（postgres）の VOLUME が作る名前の無い volume も消す（名指しで付けた DB の volume は消えない）
+    ids=$(docker ps -aq --filter "name=$sp"); [[ -z $ids ]] || docker rm -f -v $ids >/dev/null 2>&1 || true
     ids=$(docker volume ls -q --filter "name=$sp"); [[ -z $ids ]] || docker volume rm $ids >/dev/null 2>&1 || true
     ids=$(docker network ls -q --filter "name=$sp"); [[ -z $ids ]] || docker network rm $ids >/dev/null 2>&1 || true
     rm -rf "$tmp"
@@ -65,7 +66,7 @@ body() {
   db_cid() { docker compose ps -aq db --no-trunc; }
   db_vols() { docker inspect "$(db_cid)" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}'; }
   vol_exists() { docker volume ls -q | grep -qx "$1"; }
-  own_net=$(docker compose config | awk '/^networks:/{n=1} n&&/^ +name:/{print $2; exit}')
+  own_net=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["name"])')
   net_id() { docker network inspect "$1" --format '{{.Id}}' 2>/dev/null || true; }
   cid_of() { docker inspect "$1" --format '{{.Id}}' 2>/dev/null || true; }
   # run <印の渡し方> —— out / err / rc に残す
@@ -119,7 +120,7 @@ body() {
   has "sentinel のコンテナの名前が出る" "$(both)" "$sp-vol"
   want "DB のコンテナは同じ id" "$(db_cid)" "$cid4"
   want "行は 3 件のまま" "$(rows)" 3
-  docker rm -f "$sp-vol" >/dev/null
+  docker rm -f -v "$sp-vol" >/dev/null
 
   stage="5. 繋いでいるものがある"
   vols5=$(db_vols)
@@ -140,20 +141,28 @@ YML
   ext_cid=$(cid_of "$sp-ext")
   ext_vol_created=$(docker volume inspect "$sp-ext" --format '{{.CreatedAt}}')
   c=0; [[ -n $proj_cid ]] || c=1; ok "別の compose project のコンテナが立った" $c
-  docker compose exec -T -e PGAPPNAME=ch06-holder db psql -X -q -U ashiato -d ashiato -c "select pg_sleep(600)" >/dev/null 2>&1 &
-  holder_pid=$!
+  # 同じ出所の 2 本（×2 にまとまる）と、別の出所の 10 本（並べるのは 10 種まで。11 種目からは …）で 12 本
+  holder() {
+    docker compose exec -T -e PGAPPNAME="$1" db psql -X -q -U ashiato -d ashiato -c "select pg_sleep(600)" >/dev/null 2>&1 &
+    holder_pids+=" $!"
+  }
+  holder ch06-holder; holder ch06-holder
+  for i in $(seq -w 1 10); do holder "ch06-holder-$i"; done
+  held() { q -c "select count(*) from pg_stat_activity where application_name like 'ch06-holder%'"; }
   for _ in $(seq 1 30); do
-    [[ $(q -c "select count(*) from pg_stat_activity where application_name='ch06-holder'") == 1 ]] && break
+    [[ $(held) == 12 ]] && break
     sleep 1
   done
-  want "ch06-holder が pg_stat_activity に出た" "$(q -c "select count(*) from pg_stat_activity where application_name='ch06-holder'")" 1
+  want "ch06-holder の 12 本が pg_stat_activity に出た" "$(held)" 12
   echo "Scenario: 繋いでいるものがあれば、切った数と出所を 1 行出す"
   marked
   want "rc=0" "$rc" 0
-  line=$(both | grep -E '切った接続: 1([^0-9]|$)' || true)
-  has "切った接続: 1 の行に ch06-holder がある" "$line" "ch06-holder"
-  hrc=0; wait "$holder_pid" || hrc=$?; holder_pid=
-  c=0; [[ $hrc != 0 ]] || c=1; ok "ch06-holder の psql は非 0（rc=$hrc）" $c
+  want "切った数と出所の 1 行（×2・10 種で切る・…）" "$(both | grep '切った接続: ' || true)" \
+    "verify-env: DB を作り直す（切った接続: 12。ch06-holder@local ×2$(printf ', ch06-holder-%02d@local' $(seq 1 9)), …）"
+  hrc=0
+  for p in $holder_pids; do wait "$p" || hrc=$((hrc + 1)); done
+  want "ch06-holder の psql は 12 本とも非 0" "$hrc" 12
+  holder_pids=
   echo "Scenario: 溜まった DB は、印つきの準備の後に空になる"
   want "core.event は無い（か 0 行）" "$(rows_after_reset)" ""
   want "ch06_keep_ の database は無い" "$(q -c "select count(*) from pg_database where datname like 'ch06\_keep\_%'")" 0
@@ -215,16 +224,28 @@ YML
 
     drop_db
     docker network create --subnet "$subnet" "$sp-net" >/dev/null
-    docker create --name "$sp-ctr" --network "$sp-net" "$image" true >/dev/null
+    # 消えた worktree の DB に見せる（compose の working_dir の印が、無いディレクトリを指す）
+    docker create --name "$sp-ctr" --network "$sp-net" --label "com.docker.compose.project.working_dir=$tmp/gone" "$image" true >/dev/null
     net8=$(net_id "$sp-net"); ctr8=$(cid_of "$sp-ctr")
     echo "Scenario: 同じ subnet の network にコンテナが繋がっていれば、何も消さずに非 0 で終わる"
     marked
     c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
     has "network の名前が出る" "$(both)" "$sp-net"
     has "コンテナの名前が出る" "$(both)" "$sp-ctr"
+    has "消えた worktree のものと、外し方が出る" "$(both)" "消えた worktree（$tmp/gone）のもの。要らなければ docker rm -f"
     want "network は同じ id" "$(net_id "$sp-net")" "$net8"
     want "コンテナは同じ id" "$(cid_of "$sp-ctr")" "$ctr8"
-    docker rm -f "$sp-ctr" >/dev/null
+    docker rm -f -v "$sp-ctr" >/dev/null
+    docker network rm "$sp-net" >/dev/null
+    # 同じでなく重なるだけの範囲（subnet を含む /23）の network は、ほかの持ち物として消さずに止める（R23）
+    IFS=. read -r o1 o2 o3 _ <<<"${subnet%/*}"
+    docker network create --subnet "$(printf '%d.%d.%d.0/23' "$o1" "$o2" $((o3 & ~1)))" "$sp-wide" >/dev/null
+    netw=$(net_id "$sp-wide")
+    marked
+    c=0; [[ $rc != 0 ]] || c=1; ok "重なる範囲の network があれば rc≠0（rc=$rc）" $c
+    has "重なる network の名前が出る" "$(both)" "$sp-wide"
+    want "重なる network は同じ id" "$(net_id "$sp-wide")" "$netw"
+    docker network rm "$sp-wide" >/dev/null
     marked   # DB を立て直す
     want "sentinel を消した後の準備は rc=0" "$rc" 0
   else
@@ -315,6 +336,19 @@ want "COMPOSE_FILE は 3 つを並べる" "$(sed -n 's/^COMPOSE_FILE=//p' "$tmp/
   "docker-compose.yml:docker-compose.subnet.yml:docker-compose.override.yml"
 rm "$tmp/$w/docker-compose.override.yml"; init   # 以降の木は override 無しの形に戻す
 
+# COMPOSE_FILE の行が 2 つある .env は 1 つにそろえる（design D7 の 4.）
+printf '%s\nCOMPOSE_FILE=a\nX=1\nCOMPOSE_FILE=b\n' "$pw" >"$tmp/$w/.env"
+init
+want "COMPOSE_FILE の行が 2 つあっても 1 つにそろえる" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env")" "1"
+want "そろえた COMPOSE_FILE は今の木の値" "$(sed -n 's/^COMPOSE_FILE=//p' "$tmp/$w/.env")" "docker-compose.yml:docker-compose.subnet.yml"
+want "COMPOSE_FILE の行が 2 つあっても、ほかの行は同じ" "$(grep -v '^COMPOSE_FILE=' "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+# 範囲の外の port の木では subnet のファイルを作らず COMPOSE_FILE の行を消す（design D7 の 5.）
+init ASHIATO_DB_PORT=55912 ASHIATO_HTTP_PORT=1
+c=0; [[ ! -e $tmp/$w/docker-compose.subnet.yml ]] || c=1; ok "範囲の外の port では subnet のファイルが無い" $c
+want "範囲の外の port では COMPOSE_FILE の行が無い" "$(grep -c '^COMPOSE_FILE=' "$tmp/$w/.env" || true)" "0"
+want "範囲の外の port でも、ほかの行は同じ" "$(cat "$tmp/$w/.env")" "$pw"$'\n'"X=1"
+printf '%s\n' "$pw" >"$tmp/$w/.env"; init   # 以降の木は元の形に戻す
+
 echo "Scenario: 合言葉が環境変数で渡っていれば、.env を作らない"
 git -C "$tmp/demo" worktree add -q --detach "$tmp/demo-ch03"; mkdir -p "$tmp/demo-ch03/tools"
 cp tools/ports.sh tools/env-init.sh "$tmp/demo-ch03/tools/"
@@ -351,5 +385,11 @@ echo "Scenario: 印が無ければ、どの木でも作り直さない判定に�
 w=demo; want "worktree でない木（印なし）" "$(plan | cut -d: -f1)" "keep"
 want "worktree でない木（CI=true・印なし）" "$(plan CI=true | cut -d: -f1)" "keep"
 for w in demo-st05 demo-verify demo-ch01; do want "$w の worktree（印なし）" "$(plan | cut -d: -f1)" "keep"; done
+
+# 作り直しは自分の DB のコンテナと volume だけ（design D1）。compose に volume や network ごと消させる旗を書かない。
+# 旗の並び（`rm -s -f -v`）と長い名前（`--volumes`）も見る（review/code.md R18。tasks 4.2 の grep は `rm -sfv` の形しか見ない）
+bad=$(grep -vE '^\s*#' tools/verify-env.sh | grep -nE 'docker compose .*\b(rm|down|up)\b' |
+  grep -E '(^|\s)(-[a-zA-Z]*[vV][a-zA-Z]*|--volumes|--renew-anon-volumes|--force-recreate)(\s|$)' || true)
+want "verify-env.sh の compose の rm / down / up に volume を消す旗が無い" "$bad" ""
 
 [[ $fail == 0 ]] && echo OK || { echo "self-test FAILED" >&2; exit 1; }

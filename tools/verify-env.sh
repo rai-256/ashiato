@@ -74,23 +74,48 @@ reset_db() {
 # コンテナが繋がっていなければその network だけを消し、繋がっていれば何も消さずに止める。
 # 移行の時期の端: 自分の network が古い subnet で残っていて、移る先を空の network が塞いでいると、ここでは動かず
 # up が自分の network を作り直すところで 1 回 BLOCKED_INFRA になる（自分の network が消えた次の呼び出しで直る）
+# 同じでなく重なるだけの範囲（VPN や別の道具の /16 など）は、ほかの持ち物なので消さずに名前を出して止める（D5 の反転条件）
+ip4() { local IFS=. a b c d; read -r a b c d <<<"$1"; echo $(((a << 24) | (b << 16) | (c << 8) | d)); }
+cidr_overlap() {  # cidr_overlap <範囲> <範囲> —— IPv4 の 2 つが重なれば 0（IPv6 は重ならないと読む）
+  [[ $1 != *:* && $2 != *:* ]] || return 1
+  local p=${1#*/} q=${2#*/} m
+  ((q < p)) && p=$q
+  m=$(((0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF))
+  (( ($(ip4 "${1%/*}") & m) == ($(ip4 "${2%/*}") & m) ))
+}
 clear_blocking_network() {
-  local subnet own n others
+  local subnet own n subs s same over others c wd gone
   [[ -f docker-compose.subnet.yml ]] || return 0
   subnet=$(awk '/- subnet:/{print $3; exit}' docker-compose.subnet.yml)
-  own=$(docker compose config | awk '/^networks:/{n=1} n&&/^ +name:/{print $2; exit}')
+  own=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["name"])')
   [[ -n $subnet && -n $own ]] || return 0
   ! docker network inspect "$own" >/dev/null 2>&1 || return 0
-  for n in $(docker network ls --format '{{.Name}}'); do
-    [[ $n != "$own" ]] || continue
-    docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' | grep -qx "$subnet" || continue
+  # 全部の network の範囲を 1 回の inspect で引く（消えかけの network があっても残りは出る）
+  while IFS=$'\t' read -r n subs; do
+    [[ -n $n && $n != "$own" ]] || continue
+    same=0 over=
+    for s in $subs; do
+      if [[ $s == "$subnet" ]]; then same=1; elif cidr_overlap "$s" "$subnet"; then over=$s; fi
+    done
+    if [[ -n $over ]]; then
+      echo "verify-env: network $n の範囲 $over が subnet $subnet と重なる。何も消さずに止める（範囲を替えるのは design D5 の反転条件）" >&2
+      exit 1
+    fi
+    [[ $same == 1 ]] || continue
     others=$(docker ps -aq --filter "network=$n")
     if [[ -n $others ]]; then
       echo "verify-env: network $n が subnet $subnet を塞いでいる。繋がっているコンテナ: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')。何も消さずに止める" >&2
+      # 台帳の番号を継いだ木では、たいてい消えた worktree の DB が残っている。消すのは人（Q3: 消えた worktree の残りは片付けない）
+      gone=
+      for c in $others; do
+        wd=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c" 2>/dev/null || true)
+        [[ -z $wd || -d $wd ]] || gone+=" $wd"
+      done
+      [[ -z $gone ]] || echo "verify-env: 繋がっているのは消えた worktree（${gone# }）のもの。要らなければ docker rm -f $others && docker network rm $n で外す（volume は残る）" >&2
       exit 1
     fi
     docker network rm "$n" >/dev/null
-  done
+  done < <(docker network ls -q | xargs -r docker network inspect --format '{{.Name}}{{"\t"}}{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true)
 }
 
 [[ $decision != reset ]] || reset_db

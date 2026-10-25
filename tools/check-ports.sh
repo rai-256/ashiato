@@ -52,6 +52,14 @@ want "いまある 7 つの木の subnet が全部違う" "$(sort -u <<<"$all" |
 want "どの subnet も /24 で終わる" "$(grep -c '/24$' <<<"$all")" "7"
 want "main の checkout の subnet は off = 32 の値" "$(subnet demo)" "$(printf '10.%d.%d.0/24' 200 32)"
 want "範囲の外の port では subnet を出さない" "$(ASHIATO_DB_PORT=1 bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/demo")" ""
+# 範囲の端（off = port − 55400）。生きている木の off はどれも 256 未満なので、201 の側と 512 の上限はここで固定する
+sub_at() { ASHIATO_DB_PORT=$1 bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/demo"; }
+want "off = 0 は 200 の側の最初" "$(sub_at 55400)" "$(printf '10.%d.%d.0/24' 200 0)"
+want "off = 255 は 200 の側の最後" "$(sub_at 55655)" "$(printf '10.%d.%d.0/24' 200 255)"
+want "off = 256 で 201 の側に繰り上がる" "$(sub_at 55656)" "$(printf '10.%d.%d.0/24' 201 0)"
+want "off = 511 は 201 の側の最後" "$(sub_at 55911)" "$(printf '10.%d.%d.0/24' 201 255)"
+want "off = 512（範囲の外）では出さない" "$(sub_at 55912)" ""
+want "off < 0 では出さない" "$(sub_at 55399)" ""
 
 # 並んで呼んでも被らない（台帳は flock で 1 本ずつ書く）
 for i in $(seq 10 19); do mk "demo-par$i"; done
