@@ -2166,13 +2166,27 @@ pub struct PurgeRange {
     end: chrono::DateTime<chrono::Utc>,
 }
 
-/// 本文ごと消しても消えずに残るもの（確認の `remains`。design D10 / D18）。画面が文面を引く名前。
-/// 書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直し（毎晩 03:30）までディスクに残る痕跡。
-const PURGE_REMAINS: [&str; 4] = [
-    "archive_copies",
-    "user_folder_archives",
-    "export_files",
-    "nightly_rewrite",
+/// 本文ごと消しても消えずに残るもの。画面はこの名前で文面を引く。
+///
+/// - `archive_copies`: サーバが残している書庫の写し（数は `copies`）。中の記録は消えない
+/// - `user_folder_archives`: 本人のフォルダ（ダウンロードなど）に置いた書庫のファイル
+/// - `export_files`: これまでに書き出したファイル
+/// - `nightly_rewrite`: 消した本文の痕跡は、次の夜の書き直し（毎晩 03:30）までディスクに残る
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PurgeRemain {
+    ArchiveCopies,
+    UserFolderArchives,
+    ExportFiles,
+    NightlyRewrite,
+}
+
+/// 確認がいつも返す並び（design D10 / D18）。
+const PURGE_REMAINS: [PurgeRemain; 4] = [
+    PurgeRemain::ArchiveCopies,
+    PurgeRemain::UserFolderArchives,
+    PurgeRemain::ExportFiles,
+    PurgeRemain::NightlyRewrite,
 ];
 
 /// `GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。
@@ -2182,8 +2196,8 @@ pub struct PurgePreview {
     range: PurgeRange,
     /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）
     copies: u32,
-    /// 消えずに残るもの（`PURGE_REMAINS`）
-    remains: Vec<String>,
+    /// 本文ごと消しても消えずに残るもの（いつも 4 つすべて）
+    remains: Vec<PurgeRemain>,
     /// すでに本文ごと消した滞在（件数はすべて 0）
     purged: bool,
 }
@@ -2273,7 +2287,7 @@ pub async fn stays_purge_preview_get(
             end: scope.end,
         },
         copies,
-        remains: PURGE_REMAINS.iter().map(|s| (*s).to_owned()).collect(),
+        remains: PURGE_REMAINS.to_vec(),
         purged: scope.already_purged,
     }))
 }
@@ -4259,6 +4273,7 @@ pub async fn run() -> anyhow::Result<()> {
         RestoredCounts,
         deletion::PurgeCounts,
         PurgePreview,
+        PurgeRemain,
         PurgeRange,
         PurgeRequest,
         PurgeOutcome,

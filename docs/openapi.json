@@ -4846,9 +4846,9 @@
           "remains": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/PurgeRemain"
             },
-            "description": "消えずに残るもの（`PURGE_REMAINS`）"
+            "description": "本文ごと消しても消えずに残るもの（いつも 4 つすべて）"
           }
         }
       },
@@ -4893,6 +4893,16 @@
             "description": "`not_erased` / `counts_changed` / `unknown_source`"
           }
         }
+      },
+      "PurgeRemain": {
+        "type": "string",
+        "description": "本文ごと消しても消えずに残るもの。画面はこの名前で文面を引く。\n\n- `archive_copies`: サーバが残している書庫の写し（数は `copies`）。中の記録は消えない\n- `user_folder_archives`: 本人のフォルダ（ダウンロードなど）に置いた書庫のファイル\n- `export_files`: これまでに書き出したファイル\n- `nightly_rewrite`: 消した本文の痕跡は、次の夜の書き直し（毎晩 03:30）までディスクに残る",
+        "enum": [
+          "archive_copies",
+          "user_folder_archives",
+          "export_files",
+          "nightly_rewrite"
+        ]
       },
       "PurgeRequest": {
         "type": "object",
