@@ -260,23 +260,28 @@ async fn purge_schema_ledger_rejects_delete_and_truncate() {
                 break e;
             }
         };
+        // 切り詰めを拒む文トリガが有効に置かれ、BEFORE（`tgtype & 2`）で拒む関数を呼ぶこと。錠が取れたときも見る
+        // （錠が取れないときの代わりの確かめが、いつも走って壊れていないことを保つ。final review R12）
+        let armed: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_trigger
+              WHERE tgrelid = format('core.%I', $1::text)::regclass
+                AND tgenabled = 'O' AND (tgtype & 32) <> 0 AND (tgtype & 2) <> 0
+                AND tgfoid = format('core.reject_%s_change', $1::text)::regproc",
+        )
+        .bind(table)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            armed >= 1,
+            "{table} に切り詰めを BEFORE で拒む文トリガが無い"
+        );
         let still_waiting = e
             .as_database_error()
             .and_then(|d| d.code())
             .is_some_and(|c| c == "55P03");
         if still_waiting {
-            // 全体の試験の最中は、書き出しの長い読み出しが錠を数分持つことがある。錠が取れないなら、
-            // 撃つ前の文トリガ（切り詰めを拒むもの）が有効に置かれていることを見る
-            let armed: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM pg_trigger
-                  WHERE tgrelid = format('core.%I', $1::text)::regclass
-                    AND tgenabled = 'O' AND (tgtype & 32) <> 0",
-            )
-            .bind(table)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert!(armed >= 1, "{table} に切り詰めを拒む文トリガが無い");
+            // 全体の試験の最中は、書き出しの長い読み出しが錠を数分持つことがある。錠が取れないなら、上の文トリガの確かめで代える
             continue;
         }
         assert_append_only_error(&e, &format!("{table} の切り詰め"));
@@ -845,6 +850,31 @@ async fn purge_scope_archive_item_with_location_is_emptied_whole() {
 
     assert_eq!(outcome.counts.archive_items, 1);
     assert!(emptied(&pool, item).await, "位置の欄だけでなく全体が空");
+}
+
+/// 書庫の位置は「書庫の位置」の組に数え、端末の位置の組（`locations`）には数えない（final review R4）。
+/// `purge_scope` の組の判定の順を入れ替えると、確認と消すが同じ関数なので `CountsChanged` も起きずに件数がずれる。
+#[tokio::test]
+async fn purge_scope_archive_location_is_counted_in_its_own_group() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let stay = scene_stay(
+        &pool,
+        user,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T11:00:00+09:00",
+    )
+    .await;
+    let source = "c03-legacy-location";
+    assert!(crate::archive::LOCATION_SOURCES.contains(&source));
+    let archived = scene_event(&pool, user, source, "2026-10-01T10:20:00+09:00", POINT).await;
+    scene_erase(&pool, stay).await;
+
+    let outcome = purge_now(&pool, stay).await;
+
+    assert_eq!(outcome.counts.archive_locations, 1, "書庫の位置の組");
+    assert_eq!(outcome.counts.locations, 0, "端末の位置の組に数えない");
+    assert!(emptied(&pool, archived).await);
 }
 
 // Scenario: 前の版の本文も消える
