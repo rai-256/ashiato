@@ -2,7 +2,6 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -86,7 +85,7 @@ class UnreadableLineTest {
 
     @Test
     fun `ST01 が退けた unreadable ファイルは行数を数えて移し、消さない`() {
-        val files = Files.createTempDirectory("legacy").toFile()
+        val files = tmp.newFolder()
         val aside = File(files, "outbox.jsonl.unreadable.1757000000000").apply { writeText("壊れ1\n壊れ2\n\n壊れ3\n") }
         val got = migrateLegacyOutbox(
             File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { st.ledger.unreadable(LOGICAL_SOURCE, it) }, 0L, st.log,

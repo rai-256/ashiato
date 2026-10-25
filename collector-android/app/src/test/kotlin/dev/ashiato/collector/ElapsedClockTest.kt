@@ -2,10 +2,11 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 「積んでからの経過」の数え方（ST04 / tasks 6.1 / 深掘り Q4 / C10 / R9 / design D2）。
@@ -14,7 +15,9 @@ import org.junit.Test
  * **既定は捨てない側**（2 GB の上限だけが端末を守る）。
  */
 class ElapsedClockTest {
-    private val dir: File = Files.createTempDirectory("clock").toFile()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val dir: File by lazy { tmp.newFolder() }
     private val device = FakeDeviceClock()
     private val day = AgeClock.DAY_MS
 

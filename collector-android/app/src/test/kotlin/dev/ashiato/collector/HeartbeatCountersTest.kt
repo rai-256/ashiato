@@ -135,7 +135,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `2 ソースの数えは互いを潰さない`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
         val location = counters(
             clock, SourceCadence.LOCATION,
@@ -165,7 +165,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `ST06 より前の 1 本の置き場は位置の名前へ移る`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val legacy = java.io.File(dir, LEGACY_COUNTERS_FILE)
         legacy.writeText("2026-05-01T00:00:00Z 4")
 
@@ -182,7 +182,7 @@ class HeartbeatCountersTest {
     /** **アプリ利用は引き継がない** —— 位置の数えを別のソースの取得率として読ませない。 */
     @Test
     fun `ST06 より前の 1 本はアプリ利用へは移らない`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         java.io.File(dir, LEGACY_COUNTERS_FILE).writeText("2026-05-01T00:00:00Z 42")
 
         val target = migrateLegacyCounters(dir, SourceCadence.APP_USAGE.logicalSource)
@@ -261,7 +261,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `数えは立て直しをまたいで残る`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val file = counterStoreFile(dir, LOGICAL_SOURCE)
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
 

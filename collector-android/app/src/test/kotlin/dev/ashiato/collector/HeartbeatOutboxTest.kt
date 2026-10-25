@@ -2,7 +2,6 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -92,7 +91,7 @@ class HeartbeatOutboxTest {
      */
     @Test
     fun `停止と再開をまたいで残る`() {
-        val dir = Files.createTempDirectory("hb").toFile()
+        val dir = tmp.newFolder()
         fun open() = Outbox.inDir(dir, HeartbeatRequest.serializer()) {}
 
         open().add(beat("a"))
@@ -105,7 +104,7 @@ class HeartbeatOutboxTest {
     /** **記録と混ざらない。** 同じファイルに積むと読み戻しで片方が壊れた行に見える。 */
     @Test
     fun `記録と生存信号は別のファイルに積まれる`() {
-        val dir = Files.createTempDirectory("both").toFile()
+        val dir = tmp.newFolder()
         val events = File(dir, "records")
         val beats = File(dir, "heartbeats")
         Outbox.inDir(events, IngestRequest.serializer()) {}.add(

@@ -2,7 +2,6 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -19,7 +18,7 @@ import org.junit.Test
 class SegmentMigrationTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    private val files: File = Files.createTempDirectory("legacy").toFile()
+    private val files: File by lazy { tmp.newFolder() }
     private val st by lazy { TestStores(tmp.newFolder()) }
 
     private fun req(id: String) =

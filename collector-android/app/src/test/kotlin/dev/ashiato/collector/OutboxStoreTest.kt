@@ -2,13 +2,14 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 未送信が**収集の停止と再開をまたいで残る**（ST01 tasks 9.5 / 深掘り 第 2 回 /
@@ -19,7 +20,9 @@ import org.junit.Test
  * ST01 / ST02 がこの置き場に求めた性質を新しい置き場で確かめ直す。
  */
 class OutboxStoreTest {
-    private val dir: File = Files.createTempDirectory("outbox").toFile()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val dir: File by lazy { tmp.newFolder() }
     private val lines = mutableListOf<String>()
 
     private fun req(id: String) =
