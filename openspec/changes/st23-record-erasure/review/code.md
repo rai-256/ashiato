@@ -80,13 +80,13 @@
 - 成果物: `web/src/DayView.tsx`
 - 根拠: `web/src/DayView.tsx:408` が `stay_ids[0]` だけを渡す。1 回ごとに区間が割れて次が先頭に来るので繰り返せば消せ、確認に出る範囲が先頭の滞在だけであることは文面で分かる
 - kind: technical
-- 処置: rejected: 繰り返せば全部消せ（1 回ごとに区間が割れて次が先頭に来る）、確認に出る範囲が先頭の滞在だけであることは文面で分かる。誤って消す側には倒れない
+- 処置: rejected: `web/src/DayView.tsx:408` は先頭の滞在を渡し、`web/src/DayView.tsx:413` の戻す口は `stay_ids` 全部を渡す。繰り返せば全部消せ（1 回ごとに区間が割れて次が先頭に来る）、確認に出る範囲が先頭の滞在だけであることは文面で分かる。誤って消す側には倒れない
 
 ## R11. 派生の門に WHEN 句が無く、`core.event` のすべての UPDATE が遅延トリガに積まれる
 - 成果物: `migrations/202610240500_record_purge.sql`
 - 根拠: Task 1 F2。gates.sql の既存のトリガも同じ形
 - kind: technical
-- 処置: rejected: gates.sql の既存のトリガと同じ形で、正しさの問題でない。WHEN 句で絞ると門の抜けを作りうるので、性能が問題になったときに測ってから直す
+- 処置: rejected: `migrations/202609120944_gates.sql:150-153`（`event_requires_version`）と `migrations/202610240500_record_purge.sql:155-159` は同じ WHEN 句なしの遅延トリガの形で、正しさの問題でない。WHEN 句で絞ると門の抜けを作りうるので、性能が問題になったときに測ってから直す
 
 ## R12. 切り詰めの試験は、錠が取れないときトリガが有効かだけを見る
 - 成果物: `crates/server/src/purge_tests.rs`
