@@ -137,18 +137,25 @@ class HealthPermissionRecorder(
     private val newId: () -> String,
     private val emit: (IngestRequest) -> Boolean,
     private val log: (String) -> Unit = {},
+    /** 最後の状態を書き換える。既定は即時。本番は未送信に書けた後まで遅らせる（[HealthRecordHandoff.afterDrain]）。 */
+    private val remember: (HealthState) -> Unit = { store.remember(it) },
 ) {
     private val lock = Any()
+
+    /** 積んだが、最後の状態の置き場にはまだ書いていない状態。同じプロセスの中で重ねて積まないための控え。 */
+    private var emitted: String? = null
 
     suspend fun observeHealthPermissions(trigger: String) {
         val reading = read()
         val state = HealthState.of(reading, autoRequested())
         // 読み口は主スレッドを塞がないよう錠の外。比べて積んで書き換えるところは、2 つの契機が重なっても 1 件にする
         synchronized(lock) {
-            if (store.last() == state.canonical()) return
+            val canonical = state.canonical()
+            if ((emitted ?: store.last()) == canonical) return
             val record = healthPermissionRecord(state, trigger, reading.errorType, clock, deviceId, userId, zone, newId)
             if (!emit(record)) return
-            store.remember(state)
+            emitted = canonical
+            remember(state)
             log(
                 Telemetry.line(
                     "health_permission_recorded",

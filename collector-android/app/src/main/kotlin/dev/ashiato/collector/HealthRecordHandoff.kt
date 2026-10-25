@@ -10,10 +10,25 @@ import java.util.concurrent.ConcurrentLinkedQueue
  */
 object HealthRecordHandoff {
     private val pending = ConcurrentLinkedQueue<IngestRequest>()
+    private val afterWritten = ConcurrentLinkedQueue<() -> Unit>()
 
+    /** 預けるだけ（メモリ）。未送信に届いたことは [afterDrain] で知る —— 最後の状態の書き換えはそこまで待つ。 */
     fun offer(record: IngestRequest): Boolean = pending.add(record)
 
+    /** 預けた記録が**置き場に書けた後**に呼ぶ。書けなかったら呼ばない（最後の状態が古いまま残り、次に観たときもう一度作る側に倒れる）。 */
+    fun afterDrain(action: () -> Unit) {
+        afterWritten.add(action)
+    }
+
     fun drainInto(outbox: Outbox<IngestRequest>) {
-        while (true) outbox.add(pending.poll() ?: return)
+        var allWritten = true
+        while (true) {
+            val record = pending.poll() ?: break
+            if (!outbox.add(record)) allWritten = false
+        }
+        while (true) {
+            val action = afterWritten.poll() ?: break
+            if (allWritten) action()
+        }
     }
 }
