@@ -6,7 +6,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * CH03 の前提の確かめ: `ASHIATO_TEST_TMPDIR` で試験の JVM の `java.io.tmpdir` を向けられる
+ * CH03 の前提の確かめ: `ASHIATO_TEST_TMPDIR` で試験の JVM の一時フォルダの設定を向けられる
  * （`app/build.gradle.kts` の `unitTests.all`）。環境変数が無ければ飛ばす。
  */
 class Ch03TmpdirProbeTest {

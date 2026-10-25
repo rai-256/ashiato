@@ -36,11 +36,27 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
-| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
+| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-tmp-hygiene.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
 
 > ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。従来は 1 行で「`rust`（… + 検査 4 本）」「`chain`（token があるとき）」と
 > 書いていた。rust の検査は 9 本に増えていて、chain は token が無くても毎回走り、私的データの検査（網の名前・ログ・
 > DB の合言葉）を持っている。「token が無いから chain は飛ぶ」と読むと、これらの検査も飛ぶと読み違える。
+
+## 1.5 一時フォルダ（CH03）
+
+試験の一時フォルダは、**落ちても・panic しても消える書き方**だけを使う。手で作ると、落ちた試験の後に残って `/tmp` を埋める
+（2026-10-23 に 16G の `/tmp` が満杯になり、並走する Story の検証が落ちた）。
+
+- **Rust**: `tempfile::TempDir`（名前の頭を残すなら `tempfile::Builder::new().prefix("ashiato-…-").tempdir()`）を**束縛して試験の最後まで持つ**。
+  手伝いは `PathBuf` でなく `TempDir`（かそれを持つ型）を返す。`tmp_dir("x").path().to_path_buf()` のように一時の値から取り出さない（その行で消える）。
+- **Kotlin**（`app/src/test`）: `@get:Rule val tmp = TemporaryFolder()` と `tmp.newFolder()`。共通の手伝いはフォルダを引数で受け取る。
+  property の初期化では `tmp.newFolder()` を呼ばない（`by lazy` か `@Before`。規則の `before()` より前は `IllegalStateException`）。
+- **検査**: `tools/check-tmp-hygiene.sh`（`--self-test` つき。CI の `chain` と commit 前）が `temp_dir()`・`"/tmp`・`.keep()`・`.into_path()`・`.persist(`（Rust）と
+  `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io.tmpdir`・`"/tmp`・規則の無い `TemporaryFolder(`（Kotlin）を落とす。
+  製品のコードも対象。携帯の `main` / `androidTest` と bash は対象外。
+- **印**: 手で要る箇所（一時フォルダを読むだけ、など）は同じ行か 1 行上に `// tmp-ok: <理由>`。理由の無い印と 2 行以上離れた印は数えない。
+- **残りを測る**: `tools/tmp-leak-check.sh <試験の命令>` は一時フォルダを空のフォルダへ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる
+  （`--self-test` つき。`/tmp` を名前の頭で消す台本は書かない）。
 
 ## 2. テストは spec の Scenario から生まれる
 
@@ -183,6 +199,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/check-private.sh --self-test && ./tools/check-private.sh
 ./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
 ./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
+./tools/check-tmp-hygiene.sh --self-test && ./tools/check-tmp-hygiene.sh
+./tools/tmp-leak-check.sh --self-test
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
 ./tools/check-satellite-boundary.sh --self-test && ./tools/check-satellite-boundary.sh   # 本体が衛星のコードを読み込む部品を持たない（FR-77）
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）

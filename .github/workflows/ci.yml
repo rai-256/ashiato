@@ -329,6 +329,9 @@ jobs:
       # ログに私的データを出せる書き方が無いこと（製造準備 A-2。一度出たログは消せない）
       - run: ./tools/check-log-private.sh --self-test
       - run: ./tools/check-log-private.sh
+      # CH03: 試験が一時フォルダを手で作る書き方（落ちた試験の後に残り /tmp を埋める）が無いこと
+      - run: ./tools/check-tmp-hygiene.sh --self-test
+      - run: ./tools/check-tmp-hygiene.sh
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db
