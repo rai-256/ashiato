@@ -458,3 +458,390 @@ fn server_startup_without_archive_user_says_scheduled_fetch_is_off() {
         "定期取得を起こさないことがログに出ない: {log}"
     );
 }
+
+// ---- ST48: `migrate` の順と止め方（design D4・D6）。使い捨ての database に実行ファイルを走らせる ----
+
+mod st48_migrate {
+    use super::*;
+    use ashiato_server::migration_ledger::{BUILD_COMMIT, BUILD_VERSION};
+    use std::path::{Path, PathBuf};
+
+    /// URL の database 名（最後の `/` の後ろ。`?` 以降は残す）を差し替える。
+    fn with_database(url: &str, database: &str) -> String {
+        let at = url.rfind('@').unwrap();
+        let slash = at + url[at..].find('/').unwrap();
+        let tail = url[slash..].find('?').map_or("", |i| &url[slash + i..]);
+        format!("{}/{database}{tail}", &url[..slash])
+    }
+
+    /// 使い捨ての database（design D16）。版の記録に知らない行を書くので、worktree で共有する DB は使わない。
+    struct TempDb {
+        name: String,
+        pool: sqlx::PgPool,
+    }
+
+    impl TempDb {
+        async fn create() -> Self {
+            let name = format!("st48_{:012}", rand::random::<u64>() % 1_000_000_000_000);
+            let admin = sqlx::PgPool::connect(&env("DATABASE_OWNER_URL"))
+                .await
+                .unwrap();
+            // db-ok: 使い捨ての database。Drop で DROP DATABASE する（design D16）
+            sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+                .execute(&admin)
+                .await
+                .unwrap();
+            admin.close().await;
+            let pool = sqlx::PgPool::connect(&with_database(&env("DATABASE_OWNER_URL"), &name))
+                .await
+                .unwrap();
+            Self { name, pool }
+        }
+
+        fn owner(&self) -> &sqlx::PgPool {
+            &self.pool
+        }
+
+        fn owner_url(&self) -> String {
+            with_database(&env("DATABASE_OWNER_URL"), &self.name)
+        }
+
+        async fn app(&self) -> sqlx::PgPool {
+            sqlx::PgPool::connect(&with_database(&env("DATABASE_URL"), &self.name))
+                .await
+                .unwrap()
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            let (name, url) = (self.name.clone(), env("DATABASE_OWNER_URL"));
+            // Drop は同期。別スレッドの小さな runtime で消す（試験が落ちても残さない）
+            let _ = std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(async {
+                    if let Ok(admin) = sqlx::PgPool::connect(&url).await {
+                        // db-ok: 自分が作った使い捨ての database を消す（design D16）
+                        let _ =
+                            sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                                .execute(&admin)
+                                .await;
+                    }
+                });
+            })
+            .join();
+        }
+    }
+
+    /// 使い捨ての database と、試験ごとの退避の置き場・偽の `pg_dump`（Drop で全部消える）。
+    struct Rig {
+        db: TempDb,
+        dir: tempfile::TempDir,
+    }
+
+    impl Rig {
+        async fn new() -> Self {
+            Self {
+                db: TempDb::create().await,
+                dir: tempfile::tempdir().unwrap(),
+            }
+        }
+
+        fn backups(&self) -> PathBuf {
+            self.dir.path().join("backups")
+        }
+
+        /// 偽の `pg_dump`。呼ばれたら `--file` の指す先に書く。`ok` が偽なら何も書かずに失敗する。
+        fn fake_pg_dump(&self, name: &str, ok: bool) -> PathBuf {
+            use std::os::unix::fs::PermissionsExt as _;
+            let path = self.dir.path().join(name);
+            let body = if ok {
+                "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --file ]; then echo fake-dump > \"$2\"; fi\n  shift\ndone\n"
+            } else {
+                "#!/bin/sh\nexit 1\n"
+            };
+            std::fs::write(&path, body).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        }
+
+        /// 既定は成功する偽の `pg_dump` と、この試験の置き場で走らせる。
+        fn migrate(&self) -> Output {
+            let pg_dump = self.fake_pg_dump("pg_dump_ok", true);
+            self.migrate_with(&self.backups(), &pg_dump, None)
+        }
+
+        fn migrate_with(&self, dir: &Path, pg_dump: &Path, backup: Option<&str>) -> Output {
+            let mut c = Command::new(env!("CARGO_BIN_EXE_ashiato-server"));
+            c.arg("migrate")
+                .env_clear()
+                .env("DATABASE_OWNER_URL", self.db.owner_url())
+                .env("MIGRATE_BACKUP_DIR", dir)
+                .env("PG_DUMP", pg_dump);
+            if let Some(b) = backup {
+                c.env("MIGRATE_BACKUP", b);
+            }
+            c.output().unwrap()
+        }
+
+        fn dumps_in(dir: &Path) -> usize {
+            std::fs::read_dir(dir).map_or(0, |d| {
+                d.filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("pre-migrate-"))
+                    .count()
+            })
+        }
+
+        fn dumps(&self) -> usize {
+            Self::dumps_in(&self.backups())
+        }
+
+        /// 行の数・名前・`applied_at` と、門の関数の定義。
+        async fn snapshot(&self) -> (Vec<(String, String)>, String) {
+            let rows: Vec<(String, String)> = sqlx::query_as(
+                "SELECT name, applied_at::text FROM migration_ledger.applied ORDER BY name",
+            )
+            .fetch_all(self.db.owner())
+            .await
+            .unwrap();
+            let def: String = sqlx::query_scalar(
+                "SELECT pg_get_functiondef('core.reject_collected_rewrite'::regproc)",
+            )
+            .fetch_one(self.db.owner())
+            .await
+            .unwrap();
+            (rows, def)
+        }
+
+        async fn exec(&self, sql: &str) {
+            sqlx::raw_sql(sql).execute(self.db.owner()).await.unwrap();
+        }
+
+        /// 新しい版で当てた DB の印（知らない版の行 1 つ）。
+        async fn add_future_row(&self) {
+            self.exec(
+                "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit)
+                 VALUES ('209912312359_from_the_future', 'abc', '0.9.9', 'deadbeef')",
+            )
+            .await;
+        }
+    }
+
+    fn assert_ok(out: &Output) {
+        assert!(
+            out.status.success(),
+            "migrate が失敗した: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn stderr(out: &Output) -> String {
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    }
+
+    fn after_a_second() {
+        // 退避の名前は秒までの時刻。2 回目が 1 回目のファイルに重ならないようにする
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    }
+
+    // Scenario: 同じ版で当て直しても、何も変わらずに通る
+    #[tokio::test]
+    async fn st48_migrate_rerun_changes_nothing() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let first = rig.snapshot().await;
+        assert!(!first.0.is_empty());
+        after_a_second();
+        assert_ok(&rig.migrate());
+        assert_eq!(rig.snapshot().await, first);
+    }
+
+    // Scenario: 指紋の違う版は当て直さず、名前を示して続ける
+    #[tokio::test]
+    async fn st48_migrate_fingerprint_mismatch_warns() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let name = ashiato_server::MIGRATIONS.last().unwrap().0;
+        rig.exec(&format!(
+            "UPDATE migration_ledger.applied SET sha256 = 'changed' WHERE name = '{name}'"
+        ))
+        .await;
+        let before = rig.snapshot().await;
+        after_a_second();
+        let out = rig.migrate();
+        assert_ok(&out);
+        let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), stderr(&out));
+        assert!(all.contains(name), "版の名前が出ていない: {all}");
+        assert_eq!(rig.snapshot().await, before, "当て直している");
+        let sha: String =
+            sqlx::query_scalar("SELECT sha256 FROM migration_ledger.applied WHERE name = $1")
+                .bind(name)
+                .fetch_one(rig.db.owner())
+                .await
+                .unwrap();
+        assert_eq!(sha, "changed");
+    }
+
+    // Scenario: 当てる版が無い回にも、当てる前の退避を取る
+    #[tokio::test]
+    async fn st48_migrate_backs_up_even_with_nothing_to_apply() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        assert_eq!(rig.dumps(), 1);
+        after_a_second();
+        assert_ok(&rig.migrate()); // 2 回目は当てる版が無い
+        assert_eq!(rig.dumps(), 2, "当てる版が無い回に退避を取っていない");
+    }
+
+    // Scenario: 新しい版で当てた DB に古い版の migrate を走らせると、1 つも当てずに止まる
+    #[tokio::test]
+    async fn st48_migrate_refuses_db_ahead() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.add_future_row().await;
+        let before = rig.snapshot().await;
+        after_a_second();
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+        let err = stderr(&out);
+        let lines: Vec<&str> = err.lines().collect();
+        assert_eq!(lines[0], "error: kind=db_ahead", "{err}");
+        assert!(
+            lines.contains(&"  db: 209912312359_from_the_future (0.9.9 deadbeef)"),
+            "{err}"
+        );
+        assert!(
+            lines.contains(&format!("  self: {BUILD_VERSION} {BUILD_COMMIT}").as_str()),
+            "{err}"
+        );
+        assert_eq!(rig.snapshot().await, before, "行か門が変わっている");
+    }
+
+    // Scenario: 止まるときは退避を取らない
+    #[tokio::test]
+    async fn st48_migrate_refusal_takes_no_backup() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let taken = rig.dumps();
+        rig.add_future_row().await;
+        after_a_second();
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+        assert_eq!(rig.dumps(), taken, "止まる回に退避を取っている");
+    }
+
+    // Scenario: 版の記録が読めない DB では、何も書かずに止まる
+    #[tokio::test]
+    async fn st48_migrate_refuses_unreadable_ledger() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("UPDATE migration_ledger.form SET form = 2").await;
+        let before = rig.snapshot().await;
+        let taken = rig.dumps();
+        after_a_second();
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+        let err = stderr(&out);
+        assert_eq!(err.lines().next(), Some("error: kind=ledger_unreadable"));
+        assert_eq!(rig.snapshot().await, before);
+        assert_eq!(rig.dumps(), taken, "退避を取っている");
+        let form: i32 = sqlx::query_scalar("SELECT form FROM migration_ledger.form")
+            .fetch_one(rig.db.owner())
+            .await
+            .unwrap();
+        assert_eq!(form, 2);
+    }
+
+    // Scenario: 退避に失敗すると、終了コード 1 で何も当てない
+    #[tokio::test]
+    async fn st48_migrate_backup_failure_applies_nothing() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let name = ashiato_server::MIGRATIONS.last().unwrap().0;
+        rig.exec(&format!(
+            "DELETE FROM migration_ledger.applied WHERE name = '{name}'"
+        ))
+        .await;
+        let failing = rig.fake_pg_dump("pg_dump_fails", false);
+        let out = rig.migrate_with(&rig.backups(), &failing, None);
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        let back: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
+                .bind(name)
+                .fetch_one(rig.db.owner())
+                .await
+                .unwrap();
+        assert_eq!(back, 0, "退避に失敗したのに版が当たっている");
+    }
+
+    // Scenario: 版の中身が当たらないと、終了コード 1 で終わる
+    #[tokio::test]
+    async fn st48_migrate_content_failure_exits_1() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        // 書き出しの台帳の版が作る表を、同じ名前で形の違う表に置き換え、その版の行を消す
+        rig.exec(
+            "DROP TABLE core.export_ledger;
+             CREATE TABLE core.export_ledger (x integer);
+             DELETE FROM migration_ledger.applied WHERE name = '202610131200_export_ledger'",
+        )
+        .await;
+        after_a_second();
+        let out = rig.migrate();
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        let recorded: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM migration_ledger.applied WHERE name = '202610131200_export_ledger'",
+        )
+        .fetch_one(rig.db.owner())
+        .await
+        .unwrap();
+        assert_eq!(recorded, 0, "当たらなかった版が記録されている");
+    }
+
+    // Scenario: 当てる版が無い回にも、アプリの役割への付与を当てる
+    #[tokio::test]
+    async fn st48_migrate_regrants_with_nothing_to_apply() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("REVOKE SELECT ON core.event FROM ashiato_app")
+            .await;
+        let app = rig.db.app().await;
+        assert!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core.event")
+                .fetch_one(&app)
+                .await
+                .is_err()
+        );
+        after_a_second();
+        assert_ok(&rig.migrate());
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM core.event")
+            .fetch_one(&app)
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    // Scenario: 退避の設定を変えても、知らない版の当たった DB には当たらない
+    #[tokio::test]
+    async fn st48_migrate_backup_settings_never_bypass() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.add_future_row().await;
+        let before = rig.snapshot().await;
+        let ok = rig.fake_pg_dump("pg_dump_ok", true);
+        let other_dump = rig.fake_pg_dump("pg_dump_other", true);
+        let other_dir = rig.dir.path().join("elsewhere");
+        let off = rig.migrate_with(&rig.backups(), &ok, Some("off"));
+        let moved = rig.migrate_with(&other_dir, &ok, None);
+        let other = rig.migrate_with(&rig.backups(), &other_dump, None);
+        for out in [off, moved, other] {
+            assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+        }
+        assert_eq!(rig.snapshot().await, before);
+        assert_eq!(Rig::dumps_in(&other_dir), 0);
+    }
+}

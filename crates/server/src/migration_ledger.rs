@@ -20,14 +20,62 @@ pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");
 /// 当てる処理が止まった理由。呼び出し元（終了コードを決める側）が区別できる。
 #[derive(Debug)]
 pub enum MigrateError {
-    /// DB にだけある版がある（自分より新しい DB）。何も書いていない。
-    Ahead { unknown: Vec<String> },
+    /// DB にだけある版がある（自分より新しい DB）。何も書いていない。名前順。
+    Ahead { unknown: Vec<UnknownVersion> },
     /// 記録が読めない。何も書いていない。
     Unreadable(String),
     /// 版の名前つきで、当てるのに失敗した（その版の取引は戻っている）。
     Version { name: String, source: sqlx::Error },
+    /// 当てる直前の仕事（退避）が失敗した。何も当てていない。
+    Before(anyhow::Error),
     /// DB の問い合わせそのものの失敗。
     Db(sqlx::Error),
+}
+
+/// DB にだけある版と、それを当てた組み立て（design D6 の `db:` の行）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownVersion {
+    pub name: String,
+    pub build_version: String,
+    pub build_commit: String,
+}
+
+/// 標準エラーに並べる `db:` の行の上限（design D6）。
+const DB_LINES_MAX: usize = 20;
+
+impl MigrateError {
+    /// 版の食い違いで止めた（終了コード 3。design D6）ときの種別と標準エラーの本文。それ以外は `None`。
+    /// 1 行目は `error: kind=<種別>`（配った版に焼き付く形）。
+    pub fn mismatch_report(&self) -> Option<(&'static str, String)> {
+        let selfline = format!("  self: {BUILD_VERSION} {BUILD_COMMIT}");
+        match self {
+            Self::Ahead { unknown } => {
+                let mut out = String::from("error: kind=db_ahead\n");
+                for u in unknown.iter().take(DB_LINES_MAX) {
+                    out.push_str(&format!(
+                        "  db: {} ({} {})\n",
+                        u.name, u.build_version, u.build_commit
+                    ));
+                }
+                if unknown.len() > DB_LINES_MAX {
+                    out.push_str(&format!(
+                        "  db: ほか {} 件\n",
+                        unknown.len() - DB_LINES_MAX
+                    ));
+                }
+                out.push_str(&selfline);
+                out.push_str("\n  この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない\n");
+                Some(("db_ahead", out))
+            }
+            Self::Unreadable(why) => Some((
+                "ledger_unreadable",
+                format!(
+                    "error: kind=ledger_unreadable\n{selfline}\n  この DB の版の記録を読めない（{why}）。何も書かずに止まった\n"
+                ),
+            )),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for MigrateError {
@@ -36,8 +84,13 @@ impl std::fmt::Display for MigrateError {
             Self::Ahead { unknown } => write!(
                 f,
                 "DB に自分の知らない版がある（自分より新しい DB）: {}",
-                unknown.join(", ")
+                unknown
+                    .iter()
+                    .map(|u| u.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
+            Self::Before(e) => write!(f, "{e:#}"),
             Self::Unreadable(why) => write!(f, "版の記録を読めない: {why}"),
             Self::Version { name, source } => {
                 write!(f, "マイグレーション {name} の適用に失敗: {source}")
@@ -208,11 +261,21 @@ pub async fn apply_migrations(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
 ) -> Result<(), MigrateError> {
+    apply_migrations_after(conn, versions, || Ok(())).await
+}
+
+/// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
+/// ahead・読めないなら `before_apply` を呼ばずに返す。`before_apply` が失敗したら何も当てずに `Before` を返す。
+pub async fn apply_migrations_after(
+    conn: &mut PgConnection,
+    versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+) -> Result<(), MigrateError> {
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(LOCK_KEY)
         .execute(&mut *conn)
         .await?;
-    let result = apply_locked(conn, versions).await;
+    let result = apply_locked(conn, versions, before_apply).await;
     // 失敗しても外す。外せなくても接続が閉じれば錠は消えるので、元の結果を優先する
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(LOCK_KEY)
@@ -224,6 +287,7 @@ pub async fn apply_migrations(
 async fn apply_locked(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
     let (recorded, before_ledger) = match ledger {
@@ -233,11 +297,13 @@ async fn apply_locked(
         Ledger::Recorded(names) => {
             let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
             if let Verdict::Ahead { unknown } = compare(&known, &names) {
+                let unknown = describe_unknown(conn, &unknown).await?;
                 return Err(MigrateError::Ahead { unknown });
             }
             (names, false)
         }
     };
+    before_apply().map_err(MigrateError::Before)?;
     sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
     warn_changed_fingerprints(conn, versions).await?;
     for (name, sql) in versions {
@@ -252,6 +318,28 @@ async fn apply_locked(
             })?;
     }
     Ok(())
+}
+
+/// 知らない版の名前に、当てた組み立ての版番号と commit を添える（名前順）。
+async fn describe_unknown(
+    conn: &mut PgConnection,
+    names: &[String],
+) -> Result<Vec<UnknownVersion>, sqlx::Error> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT name, build_version, build_commit FROM migration_ledger.applied
+          WHERE name = ANY($1) ORDER BY name",
+    )
+    .bind(names)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(name, build_version, build_commit)| UnknownVersion {
+            name,
+            build_version,
+            build_commit,
+        })
+        .collect())
 }
 
 /// 記録にある版の指紋が自分の中身と違うなら、当て直さず版の名前だけを警告に出す（design D7）。

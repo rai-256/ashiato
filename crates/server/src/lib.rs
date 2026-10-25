@@ -188,8 +188,16 @@ pub const GRANTS: &str = include_str!("grants.sql");
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
 /// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    migrate_after(pool, || Ok(())).await
+}
+
+/// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
+async fn migrate_after(
+    pool: &sqlx::PgPool,
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     let mut conn = pool.acquire().await?;
-    migration_ledger::apply_migrations(&mut conn, MIGRATIONS).await?;
+    migration_ledger::apply_migrations_after(&mut conn, MIGRATIONS, before_apply).await?;
     sqlx::raw_sql(GRANTS)
         .execute(&mut *conn)
         .await
@@ -258,25 +266,41 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     if !net_guard::db_host_is_local(&url) {
         net_guard::refuse("db_not_loopback");
     }
-    // 当てる前に退避する（製造準備 A-2。2026-10-11 の整合の確認 K2）。失敗したら当てない
-    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    match migrate_backup::backup_before_migrate(
-        &url,
-        &migrate_backup::BackupConfig::from_env(),
-        &stamp,
-    )? {
-        Some(_) => tracing::info!(
-            "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
-        ),
-        None => {
-            tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
-        }
-    }
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&url)
         .await?;
-    migrate(&pool).await?;
+    // 順は 接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与（design D4）。
+    // 退避に失敗したら当てない（製造準備 A-2。2026-10-11 の整合の確認 K2）。どの環境変数も検査を飛ばさない
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let backup = || {
+        match migrate_backup::backup_before_migrate(
+            &url,
+            &migrate_backup::BackupConfig::from_env(),
+            &stamp,
+        )? {
+            Some(_) => tracing::info!(
+                "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
+            ),
+            None => {
+                tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
+            }
+        }
+        Ok(())
+    };
+    if let Err(e) = migrate_after(&pool, backup).await {
+        if let Some((kind, report)) = e
+            .downcast_ref::<migration_ledger::MigrateError>()
+            .and_then(migration_ledger::MigrateError::mismatch_report)
+        {
+            // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
+            tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
+            // log-ok: 同上。ST58 が読む（design D6）
+            eprint!("{report}");
+            std::process::exit(3);
+        }
+        return Err(e);
+    }
     tracing::info!(versions = MIGRATIONS.len(), "移行を当てた");
     Ok(())
 }
