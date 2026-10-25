@@ -3,8 +3,6 @@
 //! 全版は、試験の中で作った空の DB に当てる（共有の試験の DB には他の試験の行が残るため）。
 #![allow(clippy::unwrap_used)]
 
-use crate::testdb;
-
 /// 空の DB に全版を `rounds` 回当てる。
 async fn apply_all(pool: &sqlx::PgPool, rounds: usize) {
     for round in 1..=rounds {
@@ -120,6 +118,11 @@ async fn satellite_migration_constraints_hold() {
     assert!(try_insert("api_token", "ok", Some(sat), Some(cred))
         .await
         .is_err());
+    // 衛星でない行に片方だけ（review/code.md R8）
+    assert!(try_insert("api_token", "ok", Some(sat), None)
+        .await
+        .is_err());
+    assert!(try_insert("none", "ok", None, Some(cred)).await.is_err());
     assert!(try_insert("satellite", "teapot", Some(sat), Some(cred))
         .await
         .is_err());
@@ -140,28 +143,25 @@ async fn satellite_migration_constraints_hold() {
 }
 
 /// 行は消せない（DELETE と TRUNCATE）。UPDATE（外す・取り消す）は通る。
+/// 使い捨ての DB で撃つ（共有の試験の DB に TRUNCATE を撃つと、2 表の ACCESS EXCLUSIVE を取りに行き、
+/// 並んで走る衛星の試験と deadlock する。review/code.md R5）。
 #[tokio::test]
 async fn satellite_migration_rows_cannot_be_deleted() {
-    let pool = testdb::pool().await;
-    // 行が無いと行トリガは撃たれないので、衛星と資格情報を 1 つずつ置く（試験ごとの識別子。行は残る）
-    let sat = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO core.satellite (id, identifier, name, registered_at) VALUES ($1, $2, $3, now())",
-    )
-    .bind(sat)
-    .bind(format!("dev.t{}.booklog", sat.simple()))
-    .bind(format!("t{}", sat.simple()))
-    .execute(&pool)
-    .await
-    .unwrap();
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    apply_all(&fresh, 1).await;
+    // 行が無いと行トリガは撃たれないので、資格情報を 1 つ置く（衛星は最初の 2 つがある）
+    let sat: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM core.satellite WHERE identifier = 'ashiato.ai-local'")
+            .fetch_one(&fresh)
+            .await
+            .unwrap();
     sqlx::query(
         "INSERT INTO core.satellite_credential (id, satellite_id, token_sha256, issued_at)
-         VALUES ($1, $2, $3, now())",
+         VALUES ($1, $2, '\\x00', now())",
     )
     .bind(uuid::Uuid::new_v4())
     .bind(sat)
-    .bind(sat.as_bytes().to_vec())
-    .execute(&pool)
+    .execute(&fresh)
     .await
     .unwrap();
     for stmt in [
@@ -171,21 +171,59 @@ async fn satellite_migration_rows_cannot_be_deleted() {
         "TRUNCATE core.satellite_credential",
     ] {
         let err = sqlx::query(stmt)
-            .execute(&pool)
+            .execute(&fresh)
             .await
             .unwrap_err()
             .to_string();
         assert!(err.contains("消せない"), "{stmt} が拒まれない: {err}");
     }
-    // 外す・取り消すは UPDATE で通る（この試験の行だけ。共有の DB の他の行は触らない）
-    sqlx::query("UPDATE core.satellite SET removed_at = now() WHERE id = $1")
-        .bind(sat)
-        .execute(&pool)
-        .await
-        .unwrap();
+    // 外す・取り消すは UPDATE で通る
     sqlx::query("UPDATE core.satellite_credential SET revoked_at = now() WHERE satellite_id = $1")
         .bind(sat)
-        .execute(&pool)
+        .execute(&fresh)
         .await
         .unwrap();
+    sqlx::query("UPDATE core.satellite SET name = '別の名前' WHERE id = $1")
+        .bind(sat)
+        .execute(&fresh)
+        .await
+        .unwrap();
+    drop.await;
+}
+
+/// 後の版が読み出しの記録の種類と結果を広げて行を書いた後でも、全版の当て直し（起動）が通り、
+/// 広げた定義が残る（review/code.md R3）。
+#[tokio::test]
+async fn satellite_migration_reapply_keeps_later_widened_checks() {
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    apply_all(&fresh, 1).await;
+    // 後の版を模す: 列挙を広げ、その語で行を 1 行書く
+    sqlx::raw_sql(
+        "ALTER TABLE core.access_log DROP CONSTRAINT access_log_credential_check;
+         ALTER TABLE core.access_log ADD CONSTRAINT access_log_credential_check
+           CHECK (credential IN ('web_session', 'api_token', 'satellite', 'none', 'future_kind'));
+         ALTER TABLE core.access_log DROP CONSTRAINT access_log_outcome_check;
+         ALTER TABLE core.access_log ADD CONSTRAINT access_log_outcome_check
+           CHECK (outcome IN ('ok', 'unauthorized', 'forbidden', 'login_ok', 'login_failed',
+                              'login_throttled', 'logout', 'future_outcome'));
+         INSERT INTO core.access_log (via, credential, route, method, outcome, status)
+           VALUES ('direct', 'future_kind', '/x', 'GET', 'future_outcome', 200);",
+    )
+    .execute(&fresh)
+    .await
+    .unwrap();
+    apply_all(&fresh, 1).await;
+    let defs: Vec<String> = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint
+          WHERE conrelid = 'core.access_log'::regclass
+            AND conname IN ('access_log_credential_check', 'access_log_outcome_check')
+          ORDER BY conname",
+    )
+    .fetch_all(&fresh)
+    .await
+    .unwrap();
+    drop.await;
+    assert_eq!(defs.len(), 2);
+    assert!(defs[0].contains("future_kind"), "{defs:?}");
+    assert!(defs[1].contains("future_outcome"), "{defs:?}");
 }

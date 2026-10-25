@@ -5,6 +5,7 @@
 -- 注意: 衛星の行（credential = 'satellite'）や結果 'forbidden' の行が読み出しの記録にあると、
 -- 元の CHECK を付けられず、この戻し手順は ADD CONSTRAINT で落ちる。読み出しの記録は書き換えも削除もできないので、
 -- 行があるときは戻せない（衛星が 1 度でも使われた DB は、戻さずに前へ進める）。
+ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_satellite_pair;
 ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_satellite_ids;
 ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_outcome_check;
 ALTER TABLE core.access_log ADD CONSTRAINT access_log_outcome_check

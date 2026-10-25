@@ -474,17 +474,17 @@ async fn satellite_credential_issue_value_carries_identifier() {
     assert!(rest
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'));
-    let stored: Vec<u8> =
-        sqlx::query_scalar("SELECT token_sha256 FROM core.satellite_credential WHERE id = $1")
-            .bind(cred)
-            .fetch_one(&c.pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        stored,
-        web_session::sha256(&value),
-        "保存は値全体の SHA-256"
-    );
+    // 期待値は実装の外（DB の sha256）で作る（review/code.md R4）
+    let same: bool = sqlx::query_scalar(
+        "SELECT token_sha256 = sha256(convert_to($2, 'UTF8'))
+           FROM core.satellite_credential WHERE id = $1",
+    )
+    .bind(cred)
+    .bind(&value)
+    .fetch_one(&c.pool)
+    .await
+    .unwrap();
+    assert!(same, "保存は値全体の SHA-256");
 }
 
 // Scenario: 発行した値は二度と読み出せない

@@ -159,19 +159,24 @@ pub async fn satellites_get(
     .fetch_all(&app.pool)
     .await
     .map_err(|e| internal("satellite.list_credentials", e))?;
+    // 衛星ごとに 1 回で振り分ける（発行の順は保つ）
+    let mut by_satellite: std::collections::HashMap<Uuid, Vec<CredentialOut>> =
+        std::collections::HashMap::new();
+    for (satellite_id, id, label, issued_at, last_used_at) in creds {
+        by_satellite
+            .entry(satellite_id)
+            .or_default()
+            .push(CredentialOut {
+                id,
+                label,
+                issued_at,
+                last_used_at,
+            });
+    }
     Ok(Json(
         rows.into_iter()
             .map(|row| {
-                let own = creds
-                    .iter()
-                    .filter(|c| c.0 == row.0)
-                    .map(|c| CredentialOut {
-                        id: c.1,
-                        label: c.2.clone(),
-                        issued_at: c.3,
-                        last_used_at: c.4,
-                    })
-                    .collect();
+                let own = by_satellite.remove(&row.0).unwrap_or_default();
                 out(row, own)
             })
             .collect(),

@@ -109,9 +109,12 @@ export function SatellitesPanel({ colors: c }: { colors: SchemeColors }): React.
   };
   const revoke = async (sat: Satellite, cred: Credential): Promise<void> => {
     setNotice(null);
+    // 他の操作と重ねない（取り消しは確認をはさまない。D17（仮））
+    setBusy(true);
     const out = await revokeCredential(sat.id, cred.id);
     if (out.at === "ok") await reload();
     else setNotice(reasonOf(out, "other"));
+    setBusy(false);
   };
   const copy = async (value: string): Promise<void> => {
     try {
