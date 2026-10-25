@@ -9,12 +9,12 @@
 ## 着手できる順（layer）
 
 - **layer 0**: ST01
-- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41, ST48, ST49
-- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST51, ST52
-- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST53, ST54, ST55, ST56
-- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST57
-- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST58
-- **layer 6**: ST27, ST32, ST36, ST40, ST46
+- **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41, ST48
+- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST49, ST51
+- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST52
+- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST53, ST54, ST55, ST56
+- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST57
+- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST58
 - **layer 7**: ST43
 
 ## 一覧
@@ -69,16 +69,16 @@
 | [ST46](ST46.md) | 衛星の都合のデータを取っておける | 6 | FR-87 | ST39 | 29 |
 | [ST47](ST47.md) | YouTube のマイアクティビティを視聴・検索・その他に分けて取り込む | 4 | FR-14, FR-16, FR-17 | ST12 | — |
 | [ST48](ST48.md) | 古い版が新しい DB を書き換えない | 1 | FR-117, FR-118, FR-129 | ST01 | — |
-| [ST49](ST49.md) | 記録ごとに、作った部品の版が残る | 1 | FR-122, FR-123 | ST01 | 32 |
+| [ST49](ST49.md) | 記録ごとに、作った部品の版が残る | 2 | FR-122, FR-123 | ST01, ST48 | 32 |
 | [ST50](ST50.md) | 収集アプリとサーバの版が食い違っても記録が失われない | 3 | FR-124, FR-125, FR-126, FR-130 | ST04 | — |
 | [ST51](ST51.md) | 更新で止めた時間が、更新の履歴として残る | 2 | FR-121 | ST02 | 14, 33 |
-| [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 2 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49 | 34 |
-| [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 3 | FR-127, NFR-26 | ST52 | 35 |
-| [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 3 | FR-106 | ST52 | 34 |
-| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 3 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
-| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 3 | FR-128 | ST52, ST44 | — |
-| [ST57](ST57.md) | 新しい版が出たら知らせる | 4 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
-| [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 5 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
+| [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 3 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49 | 34 |
+| [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 4 | FR-127, NFR-26 | ST52 | 35 |
+| [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 4 | FR-106 | ST52 | 34 |
+| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 4 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
+| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 4 | FR-128 | ST52, ST44 | — |
+| [ST57](ST57.md) | 新しい版が出たら知らせる | 5 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
+| [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 6 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
 
 ## capability（仕様の置き場）
 
@@ -93,14 +93,14 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
-| `derived-records` | 派生（滞在） | ST16, ST24 |
-| `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24 |
-| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
-| `record-deletion` | 削除 | ST22, ST23 |
+| `derived-records` | 派生（滞在） | ST16, ST24, ST49 |
+| `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST49 |
+| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
+| `record-deletion` | 削除 | ST22, ST23, ST49 |
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
 
@@ -459,3 +459,12 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   （ST19 の FR-50 / FR-51、ST21 の FR-50 / FR-51、ST17 の FR-51、ST22 の訂正の個人属性の主張の条項。ST03 の表の「実際に消す操作は ST23」は、滞在の分だけが ST23 に残る）は、ST23 ではなく、
 >   **/requirements → /stories で足す新しい Story** が持つ（FR-50 ★ 2026-10-23）。各 Story が置いた錠と台帳の門はそのまま使える。
 >   ST23 が持つのは、消した滞在（とその連鎖）を本文ごと消す口だけ。`docs/handoff/ST23.md` の st19 Q1 / st22 R1 / st21 C13 の項は、その新しい Story へ持ち越す
+
+> **訂正（2026-10-25、ST49 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - **ST49 の requires に ST48 を足した**（layer 1 → 2。ST52〜ST58 の layer も 1 つずつ下がる）。ST49 は S-01 の組み立ての印を ST48 の `crates/server/build.rs`（`build_commit()`。ST48 design D8（仮））に積んで
+>   未 commit の印・組み立ての種類と `.git/HEAD` の変化での作り直しを足し、印の形を ST48 の台帳（`build_version`・`build_commit`）とそろえる（premises の C10 / C11）。ST49 の移行は名前の時刻が `202610250000` 以後なので、
+>   ST48 の D10（仮）の規則（前進側に取引の文を持たない・`.down.sql` が版の記録を消す）にも従う。順の付け方で、要件は変わらない
+> - `derived-records`・`data-durability`・`record-deletion`・`subjective-log`・`personal-entities` に ST49 を足した。記録ごとの版（FR-122 / FR-123）は記録の骨格（`record-envelope`）だが、版を持たせる先が滞在の作り直しと滞在の基準の台帳（`derived-records`。design D2（仮））・
+>   書き出しの列（`data-durability`。premises の C6）・削除の台帳（`record-deletion`）・気分の通知の台帳（`subjective-log`）・個人属性の種類の名前の台帳（`personal-entities`）にも及ぶ（深掘り Q3 の推奨。後の 2 つの台帳は spec の独立検査 R4 で族に足した）。どれも ADDED の Requirement で、走っている ST23・ST29・ST41 が MODIFIED している Requirement には触らない
+> - Q3 で「記録の表だけ」「収集アプリが作る行だけ」が選ばれたら、`spec --answers` が `record-deletion`・`subjective-log`・`personal-entities`・`derived-records` の滞在の基準（と前者なら `device-collection` の破棄の報告・原本の欠け）の割当を外す

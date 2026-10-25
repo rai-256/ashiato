@@ -1,0 +1,18 @@
+{
+  "status": "accepted",
+  "digest": "01417c34fbbcd4f6eb75d779834c59c17b248457789d2582dba46a6bc3d6ae9f",
+  "head": "814761dec02ac05b32def528ca326f968793f108",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-25T08:06:04Z",
+  "carried": [
+    {
+      "from": "9de9c5870ab94f64ecec6394fd985f7da721db42275c884f0a3108c4698325fc",
+      "because": [
+        "Q5"
+      ],
+      "at": "2026-10-25T09:21:31Z"
+    }
+  ]
+}

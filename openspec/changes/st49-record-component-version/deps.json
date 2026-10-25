@@ -1,0 +1,8 @@
+{
+  "ST48": {
+    "spec_sha": "5e3d8ed7a2567b0f14d9d0dac0f2ab005421eb04",
+    "spec_pr": 165,
+    "spec_change": "st48-db-version-guard",
+    "spec_at": "2026-10-25T09:14:54+00:00"
+  }
+}
