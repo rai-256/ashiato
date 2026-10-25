@@ -90,10 +90,11 @@ open class MainActivity : Activity() {
 
     private val healthRecorder: HealthPermissionRecorder by lazy {
         val marks = healthMarks()
+        val store = HealthStateStore(marks)
         HealthPermissionRecorder(
             read = { healthPermissions().read(this) },
             autoRequested = { marks.getBoolean(ASKED_HEALTH_PERMISSIONS, false) },
-            store = HealthStateStore(marks),
+            store = store,
             clock = AndroidDeviceClock(this),
             deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() },
             userId = Config.userId,
@@ -101,6 +102,7 @@ open class MainActivity : Activity() {
             newId = { UUID.randomUUID().toString() },
             emit = healthRecordSink(),
             log = { Log.i(TAG, it) },
+            remember = healthRemember(store),
         )
     }
 
@@ -271,6 +273,13 @@ open class MainActivity : Activity() {
 
     /** 観た状態の記録の渡し先。本番は収集のサービスが未送信へ積む（[HealthRecordHandoff]）。積めたかを返す。 */
     protected open fun healthRecordSink(): (IngestRequest) -> Boolean = HealthRecordHandoff::offer
+
+    /**
+     * 最後の状態の書き換え。本番は**記録が未送信に書けた後**（預け口はメモリだけで、プロセスが終わると消える）。
+     * 試験は渡し先を差し替えるので、その場で書く。
+     */
+    protected open fun healthRemember(store: HealthStateStore): (HealthState) -> Unit =
+        { state -> HealthRecordHandoff.afterDrain { store.remember(state) } }
 
     private fun ask(permission: String) {
         asked += permission

@@ -28,6 +28,7 @@ class HealthFlowActivity : ExemptMainActivity() {
     override fun healthPermissions(): HealthPermissions = health
     override fun runHealth(task: () -> Unit) = task()
     override fun healthRecordSink(): (IngestRequest) -> Boolean = { sunk += it; true }
+    override fun healthRemember(store: HealthStateStore): (HealthState) -> Unit = { store.remember(it) }
 
     override fun requestPermissionGroup(permissions: List<String>) {
         order += "media"
@@ -39,6 +40,13 @@ class HealthFlowActivity : ExemptMainActivity() {
         val sunk = mutableListOf<IngestRequest>()
         val order = mutableListOf<String>()
     }
+}
+
+/** 渡し先を差し替えない入口（本番の [HealthRecordHandoff] を通る）。 */
+class HandoffFlowActivity : ExemptMainActivity() {
+    override fun healthPermissions(): HealthPermissions = HealthFlowActivity.health
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = HealthRecordHandoff::offer
 }
 
 /** 初回起動の流れの中の健康データの段（tasks 5.1 / design D4・D6・D9）。Health Connect の画面そのものは計測テストが見る。 */
@@ -203,6 +211,41 @@ class HealthPermissionFlowTest {
         assertEquals("2 度目に自動で求めている", 1, health.requests.size)
         assertNull(shadowOf(second.get()).peekNextStartedActivityForResult())
         assertTrue("収集が始まっていない", started())
+
+        // 位置の記録が生成される（同じ型でサービスを立てて位置を届ける）
+        val controller = Robolectric.buildService(TestableLocationService::class.java, Intent())
+        val service = controller.get()
+        controller.create().startCommand(0, 1)
+        service.source.deliver()
+        assertTrue("位置の記録が生成されていない", service.outboxForTest.snapshot().any { it.logicalSource == LOGICAL_SOURCE })
+    }
+
+    // Scenario: 初めて観たときに健康データの権限の記録が 1 件できる
+    @Test
+    fun `本番の渡し口を通ると、サービスが立ったとき未送信に積まれ、そこで初めて最後の状態が書かれる`() {
+        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        healthMarks().edit().clear().commit()
+        val controller = Robolectric.buildActivity(HandoffFlowActivity::class.java).create().resume()
+        answer2(controller)
+
+        assertNull("未送信に届く前に最後の状態が書かれている", healthMarks().getString("last_state", null))
+
+        val service = Robolectric.buildService(TestableLocationService::class.java, Intent())
+        val s = service.get()
+        service.create().startCommand(0, 1)
+
+        // 画面が観た 2 件（開いた・結果が返った。自動で求めた印が違うので別の状態）
+        assertEquals(
+            "未送信に積まれた健康データの権限の記録の契機",
+            listOf(HealthTrigger.APP_OPEN, HealthTrigger.REQUEST_RESULT),
+            s.outboxForTest.snapshot().filter { it.logicalSource == HEALTH_LOGICAL_SOURCE }.map { it.field("trigger") },
+        )
+        assertNotNull("積めた後に最後の状態が書かれていない", healthMarks().getString("last_state", null))
+    }
+
+    private fun answer2(controller: ActivityController<HandoffFlowActivity>) {
+        val shadow = shadowOf(controller.get())
+        shadow.receiveResult(shadow.nextStartedActivityForResult.intent, Activity.RESULT_OK, null)
     }
 
     // Scenario: 求めるものがすべて許されていれば画面を出さない
