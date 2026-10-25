@@ -135,7 +135,7 @@
 
 ## Task 7: 本物の Health Connect での計測テスト（design D4 / D10。Risks）
 
-- [ ] 7.1 Health Connect の権限の画面を本物で押す計測テストを、始まりの状態ごとにクラスで分けて置く（どれも `@NeedsPristinePermissions`。spec-review R6）。
+- [x] 7.1 Health Connect の権限の画面を本物で押す計測テストを、始まりの状態ごとにクラスで分けて置く（どれも `@NeedsPristinePermissions`。spec-review R6）。
   UI Automator で Health Connect の画面の文字を読んで押す（「はじめに」の画面が出たら「Get started」を押してから進む。P7）。
   自分の権限は自分で外さない（計測テストのプロセスが死ぬ）。始まりの状態は `tools/android-emulator.sh` と `.github/workflows/ci.yml` の android-instrumented に足す段の前の
   `adb shell am force-stop dev.ashiato.collector` と `adb shell pm reset-permissions` で作る（`pm clear` は使わない —— 前景サービスが残っていると Failed）。2 回断ると画面が出なくなる（P6）ので、1 段に断る本を 1 つまで。
@@ -150,7 +150,7 @@
   検証: `AT HealthPermissionGrantInstrumentedTest`（5 本以上）/ `AT HealthPermissionHistoryDeniedInstrumentedTest`（1 本以上）/ `AT HealthPermissionDeniedInstrumentedTest`（1 本以上）/
   `bash -c 'test "$(grep -c HealthPermission tools/android-emulator.sh)" -ge 3 && test "$(grep -c HealthPermission .github/workflows/ci.yml)" -ge 3'` rc=0（3 つのクラスの段がどちらにもある）。同じ振る舞いの `GT` は Task 2・5・6
 
-- [ ] 7.2 `PermissionDeniedInstrumentedTest` に `// Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る` の印を付け、「spec の Scenario には対応しない」の注記を消す（D10）。
+- [x] 7.2 `PermissionDeniedInstrumentedTest` に `// Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る` の印を付け、「spec の Scenario には対応しない」の注記を消す（D10）。
   THEN の「位置は取得できない状態として生存信号に載る」は計測テストでは見ていないので、`SourceIndependenceTest` に、位置を拒否した後に始めた収集の位置の生存信号が取得できない状態と権限を示すことを見る 1 本を足し、同じ印を置く。
   検証: `AT PermissionDeniedInstrumentedTest`（1 本以上）/ `GT SourceIndependenceTest`（11 本以上。いまの 10 本 + 1）/
   `bash -c 'grep -q "Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る" collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/PermissionDeniedInstrumentedTest.kt'` rc=0
