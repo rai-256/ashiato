@@ -149,7 +149,7 @@
 
 ## Task 10: 縦串・申し送り・仕上げ
 
-- [ ] 10.1 `tools/smoke.d/<時刻>_st23-purge.sh`: 縦串で 滞在を作る → 消す → 確認を読む → 件数を添えて本文ごと消す → DB の本文が空・台帳に 1 行・`/day` に本文ごと消した区間 → 同じ内容を送り直して重複 を通す（各段を `echo`）。
+- [x] 10.1 `tools/smoke.d/<時刻>_st23-purge.sh`: 縦串で 滞在を作る → 消す → 確認を読む → 件数を添えて本文ごと消す → DB の本文が空・台帳に 1 行・`/day` に本文ごと消した区間 → 同じ内容を送り直して重複 を通す（各段を `echo`）。
   `docs/handoff/ST30.md` に C9（本文を消した記録と書庫の写しのバックアップ・拠点外の写しへの及び方。ST12 は写しをバックアップの対象にすると決めている）を 1 項足す。
   `docs/handoff/ST23.md` の st12 R23 の項に「ST12 の R56 で直っている」の済みの印を付ける（review/deep.md R13）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0、`bash tools/check-shared-appends.sh` rc=0、`python3 scripts/check_scenarios.py . st23-record-erasure` rc=0、
