@@ -74,7 +74,11 @@ jobs:
       - run: cargo test --workspace
       - run: ./tools/check-migrations.sh
       # 配った印（タグ v*）の版の移行を変えない・消さない（ST48 / design D9）。checkout は浅くタグが無いので取り寄せる
-      - run: git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+      # 印がまだ 1 つも無いと `git fetch` は rc=1 になるので、ls-remote で v* があるときだけ取り寄せる
+      - run: |
+          if [ -n "$(git ls-remote --tags origin 'refs/tags/v*')" ]; then
+            git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          fi
       - run: ./tools/check-released-migrations.sh --self-test
       - run: ./tools/check-released-migrations.sh
       - run: ./tools/check-boundaries.sh
