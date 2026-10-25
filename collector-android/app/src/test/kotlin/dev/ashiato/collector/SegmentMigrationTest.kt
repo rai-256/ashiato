@@ -8,6 +8,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -15,8 +17,10 @@ import org.junit.Test
  * **取り込めたら元を消す。取り込めなかったら元を残す**（消すと、その分が端末から痕跡なく消える）。
  */
 class SegmentMigrationTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val files: File = Files.createTempDirectory("legacy").toFile()
-    private val st = TestStores()
+    private val st by lazy { TestStores(tmp.newFolder()) }
 
     private fun req(id: String) =
         testFix(35.68, 139.76, 10f, Instant.parse("2026-09-08T02:00:00Z"))

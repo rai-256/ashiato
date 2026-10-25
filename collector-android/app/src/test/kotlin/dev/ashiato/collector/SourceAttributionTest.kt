@@ -10,6 +10,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -25,6 +27,8 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class SourceAttributionTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
     private val outboxDir: File get() = File(app.filesDir, LocationService.OUTBOX_DIR)
@@ -156,7 +160,7 @@ class SourceAttributionTest {
      */
     @Test
     fun `ソースごとの件数は保存できなければ 1 件も残らない`() {
-        val st = TestStores()
+        val st = TestStores(tmp.newFolder())
         // 書けない置き場（ディレクトリにできない道）に下書きを置く
         val blocked = File(st.dir, "blocked").apply { writeText("ディレクトリではない") }
         val ledger = DropLedger(

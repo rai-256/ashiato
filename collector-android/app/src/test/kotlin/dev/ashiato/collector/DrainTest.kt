@@ -5,6 +5,8 @@ import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -14,7 +16,9 @@ import org.junit.Test
  * 1 回の `tick()` が「一定の間隔の契機 1 回」にあたる。
  */
 class DrainTest {
-    private val st = TestStores()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder()) }
     private val calls = mutableListOf<String>()
 
     private fun req(i: Int) =

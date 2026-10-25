@@ -8,6 +8,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -17,8 +19,10 @@ import org.junit.Test
  * その時点で送らないと後から作れない。**
  */
 class HeartbeatTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private fun emitter(
-        outbox: Outbox<HeartbeatRequest> = testHeartbeatOutbox(),
+        outbox: Outbox<HeartbeatRequest> = testHeartbeatOutbox(tmp.newFolder()),
         capability: () -> Capability = { Capability.of(permission = true, sensor = true, network = true) },
         counters: AttemptCounters = AttemptCounters(now = { Instant.parse("2026-05-01T00:00:00Z") }, intervalMs = FIX_INTERVAL_MS),
         now: () -> Instant = { Instant.parse("2026-05-01T06:00:00Z") },
@@ -38,7 +42,7 @@ class HeartbeatTest {
     /// Scenario: 権限が無い状態が信号に載る
     @Test
     fun `権限が剥がれた状態が理由とともに信号に載る`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         emitter(
             outbox = outbox,
             capability = { Capability.of(permission = false, sensor = true, network = true) },
@@ -52,7 +56,7 @@ class HeartbeatTest {
     /** 取れている状態なら理由は空。 */
     @Test
     fun `取得できる状態なら理由は付かない`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         emitter(outbox = outbox).emit()
         val sent = outbox.snapshot().single()
         assertTrue(sent.capturable)
@@ -84,7 +88,7 @@ class HeartbeatTest {
      */
     @Test
     fun `原文に載るのは信号の中身だけで、位置の値は出ない`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         emitter(outbox = outbox).emit()
         val raw = Json.parseToJsonElement(outbox.snapshot().single().raw)
         val obj = raw as kotlinx.serialization.json.JsonObject
@@ -98,7 +102,7 @@ class HeartbeatTest {
     /** 発信時刻は信号を作った時刻。**受信時刻ではない**（第 6 回 Q24 と同じ向き）。 */
     @Test
     fun `発信時刻が信号に載る`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         emitter(outbox = outbox, now = { Instant.parse("2026-05-01T06:00:00Z") }).emit()
         assertEquals("2026-05-01T06:00:00Z", outbox.snapshot().single().emittedAt)
     }

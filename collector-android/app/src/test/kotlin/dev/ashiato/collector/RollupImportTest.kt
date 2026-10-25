@@ -10,6 +10,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -23,9 +25,11 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class RollupImportTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     @Test
     fun `初回完了後の保存失敗は未永続化だけを報告して取り込み済みの印を保つ`() {
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = stored()))
         UsageRollupProgressStore(usageRollupProgressFile(env.dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE),
             APP_USAGE_ROLLUP_LOGICAL_SOURCE, {}).save(UsageGranularity.entries.toSet())
         env.blockOutbox()
@@ -43,7 +47,7 @@ class RollupImportTest {
     // Scenario: 初回に 4 つの粒度が取り込まれる
     @Test
     fun `初めて始めたとき年と月と週と日の 4 つが積まれる`() {
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = stored()))
 
         val result = env.collect()
 
@@ -64,7 +68,7 @@ class RollupImportTest {
     // Scenario: 集計はイベントとは別のソースに積まれる
     @Test
     fun `集計の記録の論理ソースはイベントのものと違う`() {
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = stored()))
 
         env.collect()
 
@@ -79,6 +83,7 @@ class RollupImportTest {
     @Test
     fun `集計 1 件に粒度と期間とアプリと合計と最後に使った時刻が入る`() {
         val env = RollupTestEnv(
+            tmp.newFolder(),
             FakeUsageSource(
                 storedRollups = mapOf(
                     UsageGranularity.DAILY to listOf(
@@ -112,7 +117,7 @@ class RollupImportTest {
     fun `年と月まで取り込んで止まったら、次は週から始まる`() {
         val inner = FakeUsageSource(storedRollups = stored())
         val source = StopAt(inner, UsageGranularity.WEEKLY)
-        val env = RollupTestEnv(source)
+        val env = RollupTestEnv(tmp.newFolder(), source)
 
         val stopped = env.collect()
 
@@ -142,7 +147,7 @@ class RollupImportTest {
     fun `初回が終わった後の契機では日ごとだけが積まれる`() {
         val rollups = stored().toMutableMap()
         val inner = FakeUsageSource(storedRollups = rollups)
-        val env = RollupTestEnv(inner)
+        val env = RollupTestEnv(tmp.newFolder(), inner)
         env.collect()
         val before = env.records().size
         inner.rollupQueries.clear()
@@ -176,7 +181,7 @@ class RollupImportTest {
     @Test
     fun `内容が変わらない箱は次の契機で積み直されない`() {
         val inner = FakeUsageSource(storedRollups = stored())
-        val env = RollupTestEnv(inner)
+        val env = RollupTestEnv(tmp.newFolder(), inner)
         env.collect()
         val before = env.records().size
         assertEquals("初回で 4 件積まれていない（試験が空振りしている）", 4, before)
@@ -195,7 +200,7 @@ class RollupImportTest {
     /** 立て直しをまたいでも覚えている（台帳は端末のファイル。`START_STICKY` で消えない）。 */
     @Test
     fun `収集が止まって始まり直しても同じ箱は積み直されない`() {
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = stored()))
         env.collect()
         val before = env.records().size
 
@@ -229,7 +234,7 @@ class RollupImportTest {
             }
         }
         val rollups = mutableMapOf(UsageGranularity.DAILY to boxes(60_000))
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = rollups))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = rollups))
 
         env.collect()
         val initial = env.records().size
@@ -293,7 +298,7 @@ class RollupImportTest {
     @Test
     fun `忘れる幅より先まで進めた契機で台帳の行が落ちる`() {
         val rollups = stored().toMutableMap()
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = rollups))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = rollups))
         env.collect()
         assertEquals("初回の 4 粒度が台帳に入っていない", 4, env.seenLines())
 
@@ -323,7 +328,7 @@ class RollupImportTest {
     @Test
     fun `1 件も書けなかった契機ではその粒度が取り込み済みにならない`() {
         val inner = FakeUsageSource(storedRollups = stored())
-        val env = RollupTestEnv(inner)
+        val env = RollupTestEnv(tmp.newFolder(), inner)
         env.blockOutbox()
 
         env.collect()
@@ -336,7 +341,7 @@ class RollupImportTest {
 
         // 空きが戻った（プロセスも立て直された）
         env.restart()
-        env.outbox = testOutbox()
+        env.outbox = testOutbox(tmp.newFolder())
         inner.rollupQueries.clear()
         env.advance(ROLLUP_INTERVAL_MS)
 
@@ -360,7 +365,7 @@ class RollupImportTest {
     @Test
     fun `0 件が返った粒度は取り込み済みになる`() {
         val inner = FakeUsageSource()
-        val env = RollupTestEnv(inner)
+        val env = RollupTestEnv(tmp.newFolder(), inner)
 
         env.collect()
 
@@ -394,6 +399,7 @@ class RollupImportTest {
     @Test
     fun `未送信に書けなかった箱は次の契機で積み直される`() {
         val env = RollupTestEnv(
+            tmp.newFolder(),
             FakeUsageSource(storedRollups = mapOf(UsageGranularity.DAILY to listOf(usageRollup()))),
         )
         env.blockOutbox()
@@ -409,7 +415,7 @@ class RollupImportTest {
 
         // 空きが戻った（プロセスも立て直された）
         env.restart()
-        env.outbox = testOutbox()
+        env.outbox = testOutbox(tmp.newFolder())
         env.advance(ROLLUP_INTERVAL_MS)
 
         env.collect()
@@ -421,7 +427,7 @@ class RollupImportTest {
     // Scenario: 集計の取得率は 6 時間を刻みとして数えられる
     @Test
     fun `集計の取得契機は 6 時間で、1 区間に 1 回入って成功する`() {
-        val env = RollupTestEnv(FakeUsageSource(storedRollups = stored()))
+        val env = RollupTestEnv(tmp.newFolder(), FakeUsageSource(storedRollups = stored()))
 
         // 満点の刻み＝そのソースの取得間隔。24 時間にすると 6 時間の区間に契機が入らず、
         // 試行 0 / 成功 1 の信号を契約が `invalid_counts` で恒久的に断る
@@ -436,7 +442,7 @@ class RollupImportTest {
 
         // その 1 回が成功する（**0 件でも成功**。本人の決定 C7）
         assertTrue(env.collect() is CollectionResult.Collected)
-        val empty = RollupTestEnv(FakeUsageSource())
+        val empty = RollupTestEnv(tmp.newFolder(), FakeUsageSource())
         assertTrue("0 件が失敗になっている", empty.collect() is CollectionResult.Collected)
     }
 }
@@ -456,17 +462,17 @@ private class StopAt(private val inner: UsageSource, var stopAt: UsageGranularit
 
 /** 集計の取得の契機を 1 つずつ回す足場（tasks 4.3）。 */
 private class RollupTestEnv(
+    val dir: File,
     val source: UsageSource,
     var zone: ZoneId = ZoneId.of("Asia/Tokyo"),
     var label: String? = "例のアプリ",
 ) {
-    val dir: File = Files.createTempDirectory("st06-rollup").toFile()
     val lines: MutableList<String> = mutableListOf()
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
 
     /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
-    var outbox: Outbox<IngestRequest> = testOutbox()
+    var outbox: Outbox<IngestRequest> = testOutbox(File(dir, "outbox"))
 
     /** 台帳のファイル（試験が行数を直接読む）。まだ 1 度も書いていなければ 0 行と数える */
     fun seenLines(): Int = lines(usageRollupSeenFile(dir, APP_USAGE_ROLLUP_LOGICAL_SOURCE))

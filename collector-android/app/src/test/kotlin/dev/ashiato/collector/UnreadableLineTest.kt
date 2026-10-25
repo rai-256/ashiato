@@ -7,6 +7,8 @@ import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -16,7 +18,9 @@ import org.junit.Test
  * 同じ「端末で失われた」が経路によって格子に出たり出なかったりすると、扉 #14 の区別がその経路だけ欠ける（R8）。
  */
 class UnreadableLineTest {
-    private val st = TestStores(segmentBytes = 4_000)
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder(), segmentBytes = 4_000) }
 
     private fun req(i: Int) =
         testFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))

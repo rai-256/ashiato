@@ -4,6 +4,8 @@ package dev.ashiato.collector
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,11 +21,13 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class UsageWindowClockTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val t0 = Instant.parse("2026-05-20T09:00:00Z")
 
     @Test
     fun `壁時計だけが大きく飛んでも経過が10日以内なら再開しない`() {
-        val env = UsageTestEnv(FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), FakeUsageSource())
         env.collect()
         env.jumpWall(40 * AgeClock.DAY_MS)
         env.advance(10 * AgeClock.DAY_MS)
@@ -39,7 +43,7 @@ class UsageWindowClockTest {
             usageEvent("2026-05-20T10:00:00Z"),
             usageEvent("2026-05-21T12:00:00Z"),
         ))
-        val env = UsageTestEnv(source)
+        val env = UsageTestEnv(tmp.newFolder(), source)
         env.collect()
         env.jumpWall(2 * 60 * 60 * 1000L)
         env.advance(10 * AgeClock.DAY_MS)
@@ -64,7 +68,7 @@ class UsageWindowClockTest {
 
     @Test
     fun `自動再開のgapを書けなければ窓を保ち次の契機で積み直す`() {
-        val env = UsageTestEnv(FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), FakeUsageSource())
         env.collect()
         env.jumpWall(2 * 60 * 60 * 1000L)
         env.advance(11 * AgeClock.DAY_MS)
@@ -73,7 +77,7 @@ class UsageWindowClockTest {
         assertTrue(env.collect() is CollectionResult.Collected)
         assertEquals(t0, env.savedEnd())
         assertTrue(env.lines.any { it.startsWith("kind=usage_window_held") })
-        env.outbox = testOutbox()
+        env.outbox = testOutbox(tmp.newFolder())
         env.restart()
         assertTrue(env.collect() is CollectionResult.Collected)
         assertEquals(env.now, env.savedEnd())
@@ -83,6 +87,7 @@ class UsageWindowClockTest {
     }
 
     private fun env() = UsageTestEnv(
+            tmp.newFolder(),
         source = FakeUsageSource(
             storedEvents = listOf(
                 usageEvent("2026-05-20T09:10:00Z"),
@@ -245,7 +250,7 @@ class UsageWindowClockTest {
                 usageEvent("2026-05-20T09:25:00Z"),   // 戻った後に起きた 1 件（ずらされた後は 08:35）
             ),
         )
-        val env = UsageTestEnv(source)
+        val env = UsageTestEnv(tmp.newFolder(), source)
         env.collect()                          // 09:00 を保存（この時点ではまだ 1 件も無い）
         env.advance(20 * 60 * 1000L)           // 09:20
         source.shiftMs = -50 * 60 * 1000L      // 取得元も統計を 50 分ずらす
@@ -270,7 +275,7 @@ class UsageWindowClockTest {
     @Test
     fun `閾値の内側で時計が50分進んでも同じイベントが2行にならない`() {
         val source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T08:50:00Z")))
-        val env = UsageTestEnv(source)
+        val env = UsageTestEnv(tmp.newFolder(), source)
         env.collect()                          // 初回の窓で 08:50 の 1 件を取る
         assertEquals(listOf("2026-05-20T08:50:00Z"), env.records().map { it.eventTime })
         env.advance(20 * 60 * 1000L)           // 09:20
@@ -295,7 +300,7 @@ class UsageWindowClockTest {
      */
     @Test
     fun `10日を1契機超えたところで再開する`() {
-        val env = UsageTestEnv(FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), FakeUsageSource())
         env.collect()
         env.jumpWall(2 * 60 * 60 * 1000L)
         env.advance(10 * AgeClock.DAY_MS)

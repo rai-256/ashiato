@@ -6,6 +6,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,13 +20,15 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class UsageWindowTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val t0 = Instant.parse("2026-05-20T09:00:00Z")
 
     // Scenario: 境界のイベントが落ちない
     @Test
     fun `前回の窓の終わりとちょうど同じ時刻のイベントが次の契機で記録になる`() {
         // 取得元の範囲は `[begin, end)` —— 終わりちょうどのイベントは 1 回目では返らない
-        val env = UsageTestEnv(source = FakeUsageSource(storedEvents = listOf(usageEvent(t0.toString()))))
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource(storedEvents = listOf(usageEvent(t0.toString()))))
         env.collect()
         assertEquals("1 回目で返ってはいけない", 0, env.records().size)
         assertEquals(t0, env.savedEnd())
@@ -45,7 +49,7 @@ class UsageWindowTest {
     @Test
     fun `置き場に書けなかった契機のあとも窓は進まず、次の契機が同じ範囲を取り直す`() {
         val source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z")))
-        val env = UsageTestEnv(source = source)
+        val env = UsageTestEnv(tmp.newFolder(), source = source)
         env.collect()
         val saved = env.savedEnd()
         assertEquals(t0, saved)
@@ -66,7 +70,7 @@ class UsageWindowTest {
 
         // 空きが戻った（プロセスも立て直された）
         env.restart()
-        env.outbox = testOutbox()
+        env.outbox = testOutbox(tmp.newFolder())
         env.advance(USAGE_INTERVAL_MS)
         source.eventQueries.clear()
         env.collect()
@@ -89,7 +93,7 @@ class UsageWindowTest {
      */
     @Test
     fun `0 件だった契機では窓が進む`() {
-        val env = UsageTestEnv(source = FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource())
         env.collect()
         env.advance(USAGE_INTERVAL_MS)
 
@@ -107,7 +111,7 @@ class UsageWindowTest {
     @Test
     fun `読めなかった契機のあとも保存された窓の終わりは変わらない`() {
         val source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z")))
-        val env = UsageTestEnv(source = source)
+        val env = UsageTestEnv(tmp.newFolder(), source = source)
         env.collect()
         val saved = env.savedEnd()
         assertEquals(t0, saved)
@@ -132,7 +136,7 @@ class UsageWindowTest {
     // Scenario: 0 件のときは窓が進む
     @Test
     fun `0 件の契機では窓の終わりが今回の終わりへ進む`() {
-        val env = UsageTestEnv(source = FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource())
         env.collect()
         assertEquals(t0, env.savedEnd())
 
@@ -147,7 +151,7 @@ class UsageWindowTest {
     @Test
     fun `止まって再び始まっても次の窓は保存した終わりから引かれる`() {
         val source = FakeUsageSource()
-        val env = UsageTestEnv(source = source)
+        val env = UsageTestEnv(tmp.newFolder(), source = source)
         env.collect()
         val savedBeforeStop = env.savedEnd()
         assertEquals(t0, savedBeforeStop)
@@ -171,6 +175,7 @@ class UsageWindowTest {
     fun `3 日前のイベントの記録は取得時点の端末の地域を持つ`() {
         val threeDaysAgo = t0.minus(java.time.Duration.ofDays(3))
         val tokyo = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent(threeDaysAgo.toString()))),
             zone = ZoneId.of("Asia/Tokyo"),
         )
@@ -182,6 +187,7 @@ class UsageWindowTest {
 
         // **同じイベントでも、取得した端末の地域が違えば違う地域が付く**（出来事の時点の地域ではない）
         val kolkata = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent(threeDaysAgo.toString()))),
             zone = ZoneId.of("Asia/Kolkata"),
         )
@@ -198,7 +204,7 @@ class UsageWindowTest {
     @Test
     fun `初回の窓は見込みの保持より手前から引かれる`() {
         val source = FakeUsageSource()
-        val env = UsageTestEnv(source = source)
+        val env = UsageTestEnv(tmp.newFolder(), source = source)
         env.collect()
         val asked = source.eventQueries.single()
         assertEquals(t0, asked.end)
@@ -211,7 +217,7 @@ class UsageWindowTest {
     /** 保存された終わりは**端末のファイル**にある（インスタンスの中だけではない）。 */
     @Test
     fun `窓の終わりはファイルに残る`() {
-        val env = UsageTestEnv(source = FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource())
         env.collect()
         val file = usageWindowFile(env.dir, APP_USAGE_LOGICAL_SOURCE)
         assertTrue("窓の置き場が無い: $file", file.exists())
@@ -222,7 +228,7 @@ class UsageWindowTest {
     /** 読めない置き場は**新品として始める**（落とさない）。窓が無いのと同じ扱い。 */
     @Test
     fun `壊れた置き場は新品として始まる`() {
-        val env = UsageTestEnv(source = FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource())
         val file = usageWindowFile(env.dir, APP_USAGE_LOGICAL_SOURCE)
         file.parentFile?.mkdirs()
         file.writeText("こわれている")

@@ -7,6 +7,8 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -16,6 +18,8 @@ import org.junit.Test
  * （書きかけの回収・壊れた行の退避・追記）を生存信号だけが持たないことになる。
  */
 class HeartbeatOutboxTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private class FakeTransport(val reply: (String) -> Outcome) : Transport {
         val bodies = mutableListOf<String>()
 
@@ -46,7 +50,7 @@ class HeartbeatOutboxTest {
     /// Scenario: 送信に失敗した生存信号は再送される
     @Test
     fun `送信に失敗した生存信号は未送信のまま残り、同じ冪等キーで再び送られる`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("a"))
         outbox.add(beat("b", "2026-05-01T06:00:00Z"))
 
@@ -70,7 +74,7 @@ class HeartbeatOutboxTest {
     /** 受け付けられた分だけが取り除かれる（記録と同じ約束）。 */
     @Test
     fun `一部だけ受け付けられたら、その分だけ取り除かれる`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("a"))
         outbox.add(beat("b", "2026-05-01T06:00:00Z"))
         val transport = FakeTransport {
@@ -131,7 +135,7 @@ class HeartbeatOutboxTest {
      */
     @Test
     fun `恒久的に断られた信号が、後ろの信号を永久に止めない`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("bad", "2026-05-01T00:00:00Z"))
 
         // 送信の契機ごとに答えを変える偽物（同じ `Sender` を使い続ける ——

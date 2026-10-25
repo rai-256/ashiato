@@ -7,6 +7,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -15,8 +17,10 @@ import org.junit.Test
  * ST01 の `Outbox.add` は書けなかった記録をメモリにだけ積むので、端末の空きが尽きると**立て直しで痕跡なく消えた**。
  */
 class WriteFailedTest {
-    private val st = TestStores()
-    private val ledgerFile = File(st.dir, "write-failed.bin")
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder()) }
+    private val ledgerFile by lazy { File(st.dir, "write-failed.bin") }
 
     private fun req(id: String, time: String) =
         testFix(35.68, 139.76, 10f, Instant.parse(time)).toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))

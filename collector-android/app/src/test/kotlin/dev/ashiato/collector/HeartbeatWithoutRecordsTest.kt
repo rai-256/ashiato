@@ -4,6 +4,8 @@ package dev.ashiato.collector
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -14,6 +16,8 @@ import org.junit.Test
  * 記録の契機から呼んでいたら記録が 0 件の日には 1 件も出ない。
  */
 class HeartbeatWithoutRecordsTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private class Clock(var at: Instant) : () -> Instant {
         override fun invoke(): Instant = at
     }
@@ -21,8 +25,8 @@ class HeartbeatWithoutRecordsTest {
     /// Scenario: 記録が無くても生存信号が届く
     @Test
     fun `記録が 1 件も無くても生存信号は積まれる`() {
-        val events = testOutbox()
-        val beats = testHeartbeatOutbox()
+        val events = testOutbox(tmp.newFolder())
+        val beats = testHeartbeatOutbox(tmp.newFolder())
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
         val emitter = HeartbeatEmitter(
             outbox = beats,
@@ -58,7 +62,7 @@ class HeartbeatWithoutRecordsTest {
     /** 取得が 1 件も無かった区間は、**取得率 0 として残る**（信号そのものは出る）。 */
     @Test
     fun `取得が 0 件の区間も取得率として残る`() {
-        val beats = testHeartbeatOutbox()
+        val beats = testHeartbeatOutbox(tmp.newFolder())
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
         val counters = AttemptCounters(now = clock, intervalMs = FIX_INTERVAL_MS)
         val emitter = HeartbeatEmitter(

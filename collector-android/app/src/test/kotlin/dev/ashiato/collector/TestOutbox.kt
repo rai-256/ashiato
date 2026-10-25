@@ -2,21 +2,20 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 
 /**
- * 置き場を関心にしない試験のための Outbox。**毎回まっさらなディレクトリを使う。**
+ * 置き場を関心にしない試験のための Outbox。**呼び出し側が渡した（試験の規則が消す）ディレクトリを使う。**
  *
  * `Outbox` に「メモリだけの既定」を持たせない代わりにここへ置く ——
  * 既定があると、本番でうっかりそれが選ばれて未送信が無言で消える
  * （深掘り 第 2 回で実際に起きていた欠陥）。
  */
-fun testOutbox(): Outbox<IngestRequest> =
-    Outbox.inDir(Files.createTempDirectory("outbox").toFile(), IngestRequest.serializer()) {}
+fun testOutbox(dir: File): Outbox<IngestRequest> =
+    Outbox.inDir(dir, IngestRequest.serializer()) {}
 
 /** 生存信号ぶん。**記録と同じ仕組み**（型が違うだけ）。 */
-fun testHeartbeatOutbox(): Outbox<HeartbeatRequest> =
-    Outbox.inDir(Files.createTempDirectory("heartbeat").toFile(), HeartbeatRequest.serializer()) {}
+fun testHeartbeatOutbox(dir: File): Outbox<HeartbeatRequest> =
+    Outbox.inDir(dir, HeartbeatRequest.serializer()) {}
 
 /**
  * 試験で時刻を進められる端末の時計（ST04）。壁時計・単調時計・起動回数を別々に動かせる ——
@@ -49,7 +48,7 @@ class FakeDeviceClock(
 
 /** 区切りの置き場と時計を 1 つのディレクトリに組む（ST04 の試験の足場）。 */
 class TestStores(
-    val dir: File = Files.createTempDirectory("st04").toFile(),
+    val dir: File,
     val clock: FakeDeviceClock = FakeDeviceClock(),
     val lines: MutableList<String> = mutableListOf(),
     segmentBytes: Long = SegmentStore.SEGMENT_BYTES,

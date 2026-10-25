@@ -13,6 +13,8 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -25,9 +27,11 @@ import org.robolectric.Shadows.shadowOf
  */
 @RunWith(RobolectricTestRunner::class)
 class RetentionNotifierTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
     private val manager: NotificationManager get() = app.getSystemService(NotificationManager::class.java)
-    private val st = TestStores()
+    private val st by lazy { TestStores(tmp.newFolder()) }
     private val day = AgeClock.DAY_MS
 
     /** 常駐の通知の本文。**本番と同じ組み立て**（`LocationService` が同じ式で渡す）。 */

@@ -7,6 +7,8 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -15,6 +17,8 @@ import org.junit.Test
  * **ログは記録本体と違って感度の制御（PERM-2）が効かない。** 一度出たものは締められない。
  */
 class TelemetryTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val lat = 35.681236
     private val lon = 139.767125
 
@@ -24,7 +28,7 @@ class TelemetryTest {
 
     /** 送信のどの経路を通っても、値がログに出ない */
     private fun linesFor(outcome: Outcome): List<String> {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val lines = mutableListOf<String>()
         // **記録の送信器**（捨てる側。ST03 / FR-10 の改訂）—— 本番と同じ形で見る
@@ -100,7 +104,7 @@ class TelemetryTest {
     // Scenario: 端末のログのソース名がそのソースを指す
     @Test
     fun `位置と混ざったひと組でもアプリ利用の失敗はアプリ利用を名乗る`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(req("l1"))                 // 位置 1 件
         listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }   // アプリ利用 2 件
         val lines = mutableListOf<String>()
@@ -129,7 +133,7 @@ class TelemetryTest {
     /** アプリ利用だけのひと組でも同じ（上の試験が混ざり方に依存していないこと）。 */
     @Test
     fun `アプリ利用の送信が失敗したログはアプリ利用を名乗る`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }
         val lines = mutableListOf<String>()
         Sender(
@@ -154,7 +158,7 @@ class TelemetryTest {
      */
     @Test
     fun `混ざったひと組では受理と拒否もソースごとに分かれる`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(req("l1"))                 // 位置 1 件（受理される）
         listOf("u1", "u2").forEach { outbox.add(usageRequest(it)) }   // アプリ利用 2 件（断られる）
         val lines = mutableListOf<String>()

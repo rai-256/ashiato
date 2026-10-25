@@ -5,6 +5,8 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
@@ -19,6 +21,8 @@ import org.junit.Test
  * **取得率 3 % ＝ ずっと眠っていた**と読まれる（独立レビュー R10）。
  */
 class HeartbeatCountersTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     /** 進む時計。 */
     private class Clock(var at: Instant) : () -> Instant {
         override fun invoke(): Instant = at
@@ -36,7 +40,7 @@ class HeartbeatCountersTest {
 
     /** そのソースの生存信号を 1 件積んで、積まれたものを返す。 */
     private fun emit(cadence: SourceCadence, counters: AttemptCounters, clock: Clock): HeartbeatRequest {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         HeartbeatEmitter(
             outbox = outbox,
             counters = counters,

@@ -8,13 +8,17 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.Test
 
 /**
  * 捨てた記録から破棄の報告を作る（ST04 / tasks 7.1 / 深掘り C3 / C8 / C12 / R2 / R4 / spec-review R8 / design D4）。
  */
 class DropReportTest {
-    private val st = TestStores()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder()) }
     private val day = AgeClock.DAY_MS
 
     private fun at(s: String): Instant = Instant.parse(s)
