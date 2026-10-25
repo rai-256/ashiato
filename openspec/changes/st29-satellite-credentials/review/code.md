@@ -259,3 +259,12 @@ final reviewer が Minor とし、merge を止めないとしたもの。SDD の
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: fixed 4.1 — 資格情報を衛星ごとに 1 回で `HashMap` へ振り分け（発行の順は保つ）、label は clone せずに移す。`satellite_register` 10 本ほか `satellite_` 43 passed
+
+## finish の fix（0af733c..bed15ab）の scoped re-review
+
+席: re-reviewer（SDD の `re-review-prompt.md`）。fixed の R3・R4・R5・R7・R8・R13・R15 は ADDRESSED、rejected の R6・R9・R10・R11・R12・R14 は理由に同意。fix の diff に新たな Critical / Important は無し。
+Minor（merge 前に直さない。SDD の「fix は 1 回だけ」で park）:
+- 移行の `DO` の塊は毎回 `DROP CONSTRAINT IF EXISTS access_log_satellite_ids` を撃ち、制約が無くても一瞬 ACCESS EXCLUSIVE を取る（全走査はしない。既存の `ADD COLUMN IF NOT EXISTS` と同じ性質）
+- 列挙の付け替えの判定は定義の文字列の部分一致（`LIKE '%''satellite''%'`）。後の版が語を含む別の定義へ作り替えても触らない（意図どおり）
+- `SatellitesPanel.tsx` の `revoke` は読み直しの後に `busy` を下ろし、`run()` は前に下ろす（不揃いだが実害なし）
+- `satellite_migration_rows_cannot_be_deleted` は移行が入れる最初の衛星 `ashiato.ai-local` に依存する
