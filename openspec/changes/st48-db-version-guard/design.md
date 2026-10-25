@@ -110,6 +110,16 @@ error: kind=db_ahead
   この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない
 ```
 
+21 件以上なら、20 件の `db:` の後に件数の行が 1 つ入る（例は 23 件）:
+
+```
+error: kind=db_ahead
+  db: …（20 行）
+  more: 3
+  self: 0.1.0 9f8e7d6c…
+  この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない
+```
+
 - この形（行の頭と 20 件の上限）は spec の Requirement「知らない版が当たった DB には…」が持つ
 - `kind=` の行は既存の `net_guard::refuse` と同じ形の 1 行目。続く行は 2 字下げで `db:` / `more:` / `self:` / 説明
 - 版の名前は 20 件まで並べ、超えたら件数だけを `  more: <N>`（N は並べなかった版の数。数字だけ）の 1 行で足し、その後に `self:` の行が来る。`  db: ` の頭は 1 版 1 行（`<名前> (<版番号> <commit>)`）にだけ使う（ST58 が機械で読むので、件数の行に同じ頭を使わない）
@@ -152,11 +162,12 @@ error: kind=db_ahead
 - 当てる処理は 1 本の接続で行う。始めに `pg_advisory_lock(4820251)`（試験の足場がいま取る鍵と同じ数。セッションの錠）を取り、終わり（成功も失敗も）に外す。試験の足場はいまの外側の取引と `pg_advisory_xact_lock` を外して呼ぶ（残すと、別の接続の `apply_migrations` が自分を待ち続ける）
 - 1 版ごとに取引を開き、版の中身 → `INSERT INTO migration_ledger.applied …` → commit。版が落ちたらその取引ごと戻り、その版も後の版も記録されない（C7）
 - 自分で `BEGIN` / `COMMIT` を持つ前からの 2 版は、中の `COMMIT` で取引が先に閉じ、記録の行はその後に単独で入る。その間に落ちると、次の回にその版をもう一度当てる（前からの版は当て直せる。`tools/check-immutable.sh` が 2 回当てて見ている）。これから足す版は D10 で自分の取引を持たない
-- `GRANTS` は全部の版の後に毎回（いまのまま）
+- `GRANTS` は全部の版の後に毎回、**錠の中で**当てる（同時の `GRANT … ON ALL TABLES` / `ALTER DEFAULT PRIVILEGES` は `tuple concurrently updated` で落ちる）。ahead・読めないなら流さない（D4）
+- 錠を外せなかったら、その接続を pool に返さずに `detach` して閉じる（セッションの錠は接続が閉じるまで残る）
 
 ### D12. 当てる経路を 1 つの関数に寄せる
 
-- `pub async fn apply_migrations(conn: &mut PgConnection, versions: &[(&str, &str)]) -> Result<Applied, ApplyError>` を `migration_ledger.rs` に置く。`migrate()`・試験の足場（`testdb.rs`。CH04 のテンプレートも）・試験用の並び（Scenario「途中で落ちたら」）がこれを呼ぶ
+- `pub async fn apply_migrations(conn: PoolConnection<Postgres>, versions: &[(&str, &str)]) -> Result<(), MigrateError>` と、退避（`before_apply`）と付与の SQL（`grants`）を足した `apply_migrations_with` を `migration_ledger.rs` に置く（接続を受け取るのは、錠を外せないとき `detach` して閉じるため）。`migrate()`・試験の足場（`testdb.rs`。CH04 のテンプレートも）・試験用の並び（Scenario「途中で落ちたら」）がこれを呼ぶ
 - 版の記録を読む `read_ledger(conn) -> Result<LedgerState, ReadError>` と、判定 `compare(known, ledger) -> Verdict`（純粋な関数。`Ahead` / `Behind` / `Even`）を分け、起動の検査も同じものを使う
 - `tools/check-immutable.sh` は psql で直に当てるまま（使い捨ての DB を `down -v` で捨てる。版の記録は持たない）。「`run()` は起動のたびに全版を当てる」の注記だけを「前からある版は当て直せることを保つ（記録の無い古い DB に一度全部を当てるので）」に直す
 
