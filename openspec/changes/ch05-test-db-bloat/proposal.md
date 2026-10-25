@@ -52,7 +52,7 @@ CH04 と CH06 のどちらも持たないのは 2 つ —— 殺された回の�
 - 道具（新しいファイル）: `tools/check-test-db-killed.sh`（`--self-test` 付き）・`tools/docker-tidy.sh`（`--dry-run`・`--self-test`・`--verify-env-check` 付き。Q7）
 - 道具（既存）: `tools/verify-env.sh`（作り直すとき、DB を消す前に `tools/docker-tidy.sh` を呼ぶ 1 行と注記。CH06 の版の上に積み、既存の行は変えない）。`tools/ports.sh` は触らない（Q8）
 - コード（試験の側）: 新しいファイル `crates/server/src/killed_probe_tests.rs`（探りの試験。`#[ignore]` の 1 本と、次の回の 1 本。名前の頭は `ch05_`）と `lib.rs` の試験のモジュールの並びに 1 行。`testdb.rs` は変えない
-- CI: `.github/workflows/ci.yml` の rust job の後ろに、殺した後の検査と片付けの self-test の 3 行（CH04・CH06 が同じ job に行を足している。既存の行は変えず、後ろに足す）
+- CI: `.github/workflows/ci.yml` の rust job の後ろに、殺した後の検査と片付けの self-test・組み込みの検査の 4 行（CH04・CH06 が同じ job に行を足している。既存の行は変えず、後ろに足す）
 - 文書: `docs/testing.md` に 1 節、`docs/flow-gates.md` の検査の表に 2 行、`docs/changes/CH05.md`（価値・壊してはいけないもの・完了の判定）
 - 依存: 足さない。移行は足さない
 - **CH06 に依る**（Q8）: `requires: [CH04, CH06]`（`docs/changes/CH05.md` の front matter。record が書いた）。片付けの 1 行は CH06 の `tools/verify-env.sh` の流れ（印での作り直し・subnet の割り当て）の中に置く。

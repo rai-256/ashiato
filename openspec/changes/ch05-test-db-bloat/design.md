@@ -42,7 +42,9 @@
   proposal の初めの版（Q8 の後）は片付けも `test-database` に置くと書いていた。CH06 の gate 済みの spec を読んで、この形に直した（proposal の Capabilities も直した）
 - archive は CH04 と CH06 の後（`verify-environment` も `test-database` もまだ正典に無い。`openspec validate` は MODIFIED が当たる先の無いことを情報として出す）
 
-反転条件: CH06 が archive の前に `verify-environment` の名前か Requirement 1 の名前を変えたら、MODIFIED の見出しを合わせる（merge gate の「依存の spec:」で見える）。CH06 の後に片付けが検証の準備の外（下流の Task の開始前など）に移るなら、`test-database` か新しい capability へ移す change を立てる。
+MODIFIED の塊は正典に無い capability に当たるので、`spec_merge.py` の 3-way の base ができない（archive は塊を丸ごと置き換える）。CH06 が c666673 の後で Requirement 1 の本文か Scenario を直すと、CH05 の archive がそれを戻してしまう。tasks 8.1 が、足したもの以外が CH06 のいまの塊と同じことを `diff` で見る。
+
+反転条件: CH06 が archive の前に `verify-environment` の名前か Requirement 1 の名前・本文・Scenario を変えたら、MODIFIED を写し直して 1 文と Scenario を足し直す（merge gate の「依存の spec:」と tasks 8.1 で見える）。CH06 の後に片付けが検証の準備の外（下流の Task の開始前など）に移るなら、`test-database` か新しい capability へ移す change を立てる。
 
 ### D2（仮）. 殺した後の検査 —— 探りの試験を印で同期して SIGKILL する
 
@@ -86,6 +88,7 @@ CH04 の `--lint` は `CREATE DATABASE` と書き出しの試験のファイル�
 - **コンテナ**: `docker ps -a --filter label=com.docker.compose.project --format …` と `inspect` で project と working_dir の印を読み、spec の条件を全部満たすものだけを `docker rm -f <id>`（**`-v` を付けない**。名前の無い volume は残る —— `premises.md:17`）。
   project の名前を `<main>-` で始まるものに絞るのは、同じ親のフォルダの別の repo（`lifeLog2`・その `agent-*`）と、CH06 の検査が立てる compose の project（`ch06-sentinel-<乱数>`。CH06 D8 の本体 5.）を外さないため
 - **ネットワーク**: `docker network ls --filter label=com.docker.compose.project` の project を読み、spec の条件（`<main>-` で始まる・繋がったコンテナが無い・その project の印のコンテナが無い・生きている作業ツリーの名前（basename を小文字にしたもの。compose の project の名前の決め方）と同じでない・`-verify` でない）を満たすものだけを `docker network rm`。
+  「繋がったコンテナ」は `docker ps -aq --filter network=<名前>` で読む（止まっているコンテナも出る。CH06 の `clear_blocking_network` と同じ）。`docker network inspect` の `.Containers` は止まったコンテナを数えない（2026-10-25 実測。review/spec.md R40）ので使わない。
   外すコンテナを決めた後に、そのコンテナを除いて「繋がったコンテナが無い」を判定する（外したコンテナのネットワークも同じ回で空き、`--dry-run` も同じ一覧を出す）
 - 並んだ片付け（別の作業ツリーの検証の準備が同時に走る）で、もう無いものを外そうとして `No such container` / `No such network` になったら、外せたものとして扱う
 - 出すもの: 外したものごとに `docker-tidy: コンテナ <名前> を外した（作業ツリー <path> が無い）` / `docker-tidy: ネットワーク <名前> を外した`。`--dry-run` は `docker-tidy: 外す: …` の形で同じものを出す
@@ -107,7 +110,7 @@ CH04 の `--lint` は `CREATE DATABASE` と書き出しの試験のファイル�
 ### D5（仮）. 片付けを呼ぶ場所 —— 作り直す（`reset`）ときだけ、`reset_db` の前
 
 `tools/verify-env.sh` に 1 行（と注記）を足す。CH06 の流れの、`tools/env-init.sh` の後・`reset_db` の前に、判定が `reset` のときだけ `tools/docker-tidy.sh` を呼ぶ。
-rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）。続ける` を標準エラーに出して続ける（片付けの対象は他の作業ツリーの残りで、この worktree の検証の成否とは別。落とすと、他の作業ツリーの残りでこの worktree が BLOCKED_INFRA になる）。
+rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）。続ける` を標準エラーに出して続ける（`片付けに失敗した` と rc は spec が持つ。片付け自身の行はこの字面を使わない）（片付けの対象は他の作業ツリーの残りで、この worktree の検証の成否とは別。落とすと、他の作業ツリーの残りでこの worktree が BLOCKED_INFRA になる）。
 
 - **`reset` のときだけにする理由**: CH06 の Requirement「作り直すのは、印があり、worktree か CI のときだけ」は、それ以外を「今までどおり、DB を起動して…役割を整える**だけ**」と言う。毎回の呼び出しで片付けると、その Requirement も書き直すことになる。
   検証は worktree で `HARNESS_VERIFY=1` で呼ばれる（`scripts/verify-run`）ので、新しい作業ツリーの初回の準備は必ず `reset` を通り、片付けの役（消えた作業ツリーの分を空ける）は果たせる。`--plan` は docker に触らない（CH06 D2）ので呼ばない
@@ -128,18 +131,20 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - 例外の 1 文を確かめる Scenario を 1 本足す（`消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る`。`tools/docker-tidy.sh --verify-env-check` が本物の docker で見る）。写した 5 本の印は CH06 の `tools/check-verify-env-reset.sh` のまま
 - CH06 の Requirement「worktree ごとの DB の network は、木ごとに被らない subnet で立つ」は書き直さない。片付けは `<main>-` の project に絞り、その前に走るだけで、CH06 の Scenario（`ch06-sentinel-` の network とコンテナ）はどれもそのまま成り立つ（D5）
 - CH06 の Requirement「作り直すのは、印があり、worktree か CI のときだけ」も書き直さない（片付けは `reset` の枝だけ。D5）
+- CH06 の「作り直せなければ、何も消さずに非 0 で終わる」と、subnet の Requirement の「何も消さずに…非 0」も書き直さない。どちらの「何も消さず」も、この worktree の DB のコンテナ・volume と塞いでいる network を指す。
+  片付けはその判定の前に終わり、外したものは判定が非 0 でも戻さない —— このことは CH05 の ADDED の本文に 1 文で書いた（MODIFIED を増やすと、CH06 の直しを戻すおそれ（D1）が増える）
 
-### D7. CI の rust job の 3 行と、文書
+### D7. CI の rust job の 4 行と、文書
 
-- `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに: `tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test`。既存の行は変えない
-- `tools/docker-tidy.sh --verify-env-check` は CI に置かない（この worktree の DB を作り直す・本物の docker でコンテナを立てる。CH06 の本体が CI で同じ作り直しを確かめている）。`scripts/verify-run`（worktree）で走らせる
+- `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに: `tools/check-test-db-killed.sh --self-test`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check`・`tools/check-test-db-killed.sh`（この順。作り直しを殺した後の検査の本体より前に）。既存の行は変えない
+- `--verify-env-check` も CI に置く（CH06 の本体と同じく、CI では `CI=true` で `--plan` が `reset` になり、docker もある）。置かないと、後の change が `verify-env.sh` の片付けの 1 行を消しても CI が緑のまま（review/spec.md R39）。DB を作り直すので、DB を使う後ろの段（`check-test-db-killed.sh` の本体）より前に置き、作り直した DB は役割まで整っている
 - `docs/testing.md` に 1 節（殺した後の検査と並べて走らせないこと・作り直す検証の準備が消えた作業ツリーのコンテナとネットワークを片付けること・volume を消さないこと）、`docs/flow-gates.md` の検査の表に `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 2 行
 
 ## Risks / Trade-offs
 
 - [CH04 の鍵の番号・回の名前・`isolated()` が gate・fix で変わる] → D2 は CH04 の D 番号で引き、反転条件に書いた。下流の入口が CH04 の gate を通った SHA を取り込み、tasks 1.1 で `testdb.rs` から読み直す
 - [CH06 の `tools/verify-env.sh` の流れ（関数の名前・順）が gate・fix で変わる] → 片付けの 1 行の置き場は「`reset` のとき、DB を消す前・network を確かめる前」で決め、関数の名前に頼らない。tasks 1.1 で `c666673` の後の形を読み直す
-- [殺した後の検査が CI の時間を伸ばす] → 探りの 2 回と次の回の 2 回。試験の実行ファイルは `cargo test --workspace` で組み済み。tasks 7.3 で CI の 3 行の時間を手元で測って書く
+- [殺した後の検査が CI の時間を伸ばす] → 探りの 2 回と次の回の 2 回。試験の実行ファイルは `cargo test --workspace` で組み済み。tasks 7.3 で CI の 4 行の時間を手元で測って書く
 - [`ashiato` の大きさの許し 1 MiB が、本物の残りを見逃す] → 体積の行 20,001 件は数 MB で、許しより大きい。行数は厳密に見る
 - [片付けたコンテナの volume は残るが、どのコンテナのものだったかの手がかりが消える（名前の無い volume）] → 本人が選んだ形（Q7。volume は消さない）。中身は volume に残るので、要るときは `docker volume ls` の中から作られた時刻で探せる。片付けの 1 行に作業ツリーの path を出す（D4）
 - [動いている消えた作業ツリーの DB（ch01・ch02・st13・st33）を止める] → 作業ツリーが無いので、その DB に繋ぐ試験もサーバも無い。中身は volume に残る（D4）
@@ -158,4 +163,4 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - 片付けの時間:（tasks 3.2。片付けるものが無いときに `tools/docker-tidy.sh` にかかる秒数。1 秒を超えれば D5 の反転条件）
 - 次の回の秒数:（tasks 6.1。殺す前のきれいな回、`insert` の後、`committed` の後）
 - 片付けを外した回:（tasks 6.2。rc と、挙がった database の名前の数）
-- CI の行の時間:（tasks 7.3。`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 3 行を手元で走らせた秒数）
+- CI の行の時間:（tasks 7.3。`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check` の 4 行を手元で走らせた秒数）

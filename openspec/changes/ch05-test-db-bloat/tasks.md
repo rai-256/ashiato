@@ -20,7 +20,7 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
   - **`EV <命令>`** は `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; <命令>'` rc=0（`.env` の合言葉と URL を読んで走らせる）
   - **`NL <名前と下限>`** は `bash -c 'set -- <名前と下限>; [ "$(cargo test -p ashiato-server --lib "$1" -- --list --include-ignored 2>/dev/null | grep -c ": test$")" -ge "$2" ]'` rc=0（`cargo test` は 0 本でも rc=0 になるので、本数の下限を別に見る。`#[ignore]` の試験も数える）
   （`cargo test` に絞り込みを 2 つ渡すと `unexpected argument` で落ちる。1 つずつ書く）
-- **新しく足す試験の名前の頭は `ch05_`**（design D3）。**commit の題は `feat(CH05): …` / `fix(CH05): …` / `chore(CH05): …`**（tasks 8.2 が CH05 の commit を題で拾って、触ったファイルを見る）
+- **新しく足す試験の名前の頭は `ch05_`**（design D3）。**commit の題は `feat(CH05): …` / `fix(CH05): …` / `chore(CH05): …`**（tasks 8.2 は題に依らず、`origin/main` と取り込んだ CH04・CH06 の SHA（`deps.json`）の先の commit を拾って、触ったファイルを見る）
 - **CH04 の鍵の番号と回の名前は、CH04 の後の `crates/server/src/testdb.rs` から読む**（design の `4820252`・`4820253`・`ashiato_run_`・`isolated()` は CH04 の `9fe8c5e` の値。違えば `testdb.rs` に合わせ、design の D2 に書き足す）
 - **CH06 の `tools/verify-env.sh` は行を足すだけ**（片付けの 1 行と注記。既存の行を消さない・書き換えない。tasks 8.2 が見る）。片付けは判定が `reset` のときだけ、DB を消す前に呼ぶ（design D5）
 - `down` と、volume を消す命令（`docker volume rm`・`volume prune`・`system prune`・`rm -v`）を新しく書かない（Q7）。
@@ -46,10 +46,10 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 - [ ] 2.1 `tools/docker-tidy.sh` を design D4 のとおりに書く（口は 4 つ: 引数なし = 片付ける / `--dry-run` / `--self-test` / `--verify-env-check`。`--verify-env-check` は 3.2）。冒頭のコメントに、外す条件（コンテナとネットワーク）・volume は消さないこと・差し替えの環境変数（`TEST_DOCKER_TIDY_DOCKER`・`TEST_DOCKER_TIDY_MAIN`・`TEST_DOCKER_TIDY_WORKTREES`）・検証の準備が `reset` のときだけ呼ぶこと・なぜ要るか（CH05 Q7）を書く。
   `--self-test` は偽の docker と、main を乱数の名前に差し替えた本物の docker の 1 件（design D4。この機械の本物の残りには当たらない）で、次の 12 本の Scenario を印つきで確かめる:
-  `作業ツリーが消えたコンテナは、動いていても外される` / `外したコンテナの名前の無い volume は残る` / `作業ツリーが残っていれば、止まっているコンテナも外さない` / `main の checkout と確認バッチのコンテナは、path が無くても外さない` / `印の無いコンテナと、別の repo の compose のコンテナには触らない` / `コンテナの無いネットワークは、作業ツリーが残っていなければ外す` / `` `--dry-run` は外すものを出すだけで、何も外さない `` / `外すものが無ければ、片付けは何も出さない` / `もう無いものを外そうとしたら、外せたものとして扱う` / `片付けが docker に問えなければ、片付けは rc≠0 で落ちる` / `外す命令が失敗すれば、片付けは rc≠0 で落ちる` / `片付けが docker に打つ命令に、volume を消すものは無い`。
+  `作業ツリーが消えたコンテナは、動いていても外される` / `外したコンテナの名前の無い volume は残る` / `作業ツリーが残っていれば、止まっているコンテナも外さない` / `main の checkout と確認バッチのコンテナは、path が無くても外さない` / `印の無いコンテナと、別の repo の compose のコンテナには触らない` / `コンテナの無いネットワークは、作業ツリーが残っていなければ外す` / `--dry-run は外すものを出すだけで、何も外さない` / `外すものが無ければ、片付けは何も出さない` / `もう無いものを外そうとしたら、外せたものとして扱う` / `片付けが docker に問えなければ、片付けは rc≠0 で落ちる` / `外す命令が失敗すれば、片付けは rc≠0 で落ちる` / `片付けが docker に打つ命令に、volume を消すものは無い`。
   **本物の docker の 1 件は main を差し替えるので、この機械の本物の残りは外さない。** 書けたら、この機械で `tools/docker-tidy.sh --dry-run` の出力（外すものの一覧）を design の「計測の記録」の `- 片付けたもの:` に写す（3.1 で検証の準備に組み込むと、次の検証の準備で本物が外れる）。
   検証: `bash -n tools/docker-tidy.sh` rc=0 / `tools/docker-tidy.sh --self-test` rc=0 /
-  `bash -c 'f=tools/docker-tidy.sh; for s in "作業ツリーが消えたコンテナは、動いていても外される" "外したコンテナの名前の無い volume は残る" "作業ツリーが残っていれば、止まっているコンテナも外さない" "main の checkout と確認バッチのコンテナは、path が無くても外さない" "印の無いコンテナと、別の repo の compose のコンテナには触らない" "コンテナの無いネットワークは、作業ツリーが残っていなければ外す" "外すものが無ければ、片付けは何も出さない" "もう無いものを外そうとしたら、外せたものとして扱う" "片付けが docker に問えなければ、片付けは rc≠0 で落ちる" "外す命令が失敗すれば、片付けは rc≠0 で落ちる" "片付けが docker に打つ命令に、volume を消すものは無い"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qE "Scenario: .--dry-run. は外すものを出すだけで、何も外さない" "$f"'` rc=0 /
+  `bash -c 'f=tools/docker-tidy.sh; for s in "作業ツリーが消えたコンテナは、動いていても外される" "外したコンテナの名前の無い volume は残る" "作業ツリーが残っていれば、止まっているコンテナも外さない" "main の checkout と確認バッチのコンテナは、path が無くても外さない" "印の無いコンテナと、別の repo の compose のコンテナには触らない" "コンテナの無いネットワークは、作業ツリーが残っていなければ外す" "外すものが無ければ、片付けは何も出さない" "もう無いものを外そうとしたら、外せたものとして扱う" "片付けが docker に問えなければ、片付けは rc≠0 で落ちる" "外す命令が失敗すれば、片付けは rc≠0 で落ちる" "片付けが docker に打つ命令に、volume を消すものは無い"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qF "Scenario: --dry-run は外すものを出すだけで、何も外さない" "$f"'` rc=0 /
   `bash -c 'grep -qE "^- 片付けたもの: .*[0-9a-z]" openspec/changes/ch05-test-db-bloat/design.md'` rc=0
 
 ## Task 3: 検証の準備に組み込む
@@ -58,12 +58,12 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
   冒頭の注記に「作り直すときは、消えた作業ツリーのコンテナとネットワークを先に片付ける（CH05 Q7。volume は消さない）」を 1 行足す。既存の行は変えない。CH06 の検査がそのまま通ることを見る。
   検証: `bash -n tools/verify-env.sh` rc=0 / `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0 / `tools/check-verify-env-reset.sh --self-test` rc=0 / `EV scripts/quiet-run ch06 -- tools/check-verify-env-reset.sh` rc=0
 - [ ] 3.2 `tools/docker-tidy.sh --verify-env-check` を足す（design D4・D5・D6）。**この worktree の DB を作り直す**ので、`HARNESS_VERIFY=1 tools/verify-env.sh --plan` が `reset` でなければ理由を出して rc=2 で何もしない。次の 3 本を印つきで確かめる:
-  `` 印の無い検証の準備と `--plan` は、片付けを呼ばない ``（`TEST_DOCKER_TIDY_DOCKER` を引数を書き留める偽の命令にして、`env -u HARNESS_VERIFY tools/verify-env.sh` と `HARNESS_VERIFY=1 tools/verify-env.sh --plan` を呼び、どちらも rc=0・書き留めた命令が 0 個）/
-  `片付けが落ちても、検証の準備は DB を作り直して続く`（`TEST_DOCKER_TIDY_DOCKER=false` で `HARNESS_VERIFY=1 tools/verify-env.sh` が rc=0・片付けの失敗の 1 行と `切った接続:` の 1 行・DB のコンテナが立っている）/
-  `消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る`（2.1 の本物の 1 件と同じく `mktemp -d` の下の乱数の main に差し替え、`<main>-st97` のコンテナを置いて `HARNESS_VERIFY=1 tools/verify-env.sh` を呼び、rc=0・コンテナが無い・控えた id の volume が残る・DB が立っている。後始末は 2.1 と同じ印）。
+  `印の無い検証の準備と --plan は、片付けを呼ばない`（`TEST_DOCKER_TIDY_DOCKER` を引数を書き留める偽の命令にして、まず `HARNESS_VERIFY=1 tools/verify-env.sh` で書き留めた命令が 1 個以上あること（偽の命令が効いている対照）を見て、書き留め先を空にしてから `env -u HARNESS_VERIFY tools/verify-env.sh` と `HARNESS_VERIFY=1 tools/verify-env.sh --plan` を呼び、どちらも rc=0・新しく書き留めた命令が 0 個）/
+  `片付けが落ちても、検証の準備は DB を作り直して続く`（`TEST_DOCKER_TIDY_DOCKER=false` で `HARNESS_VERIFY=1 tools/verify-env.sh` が rc=0・`片付けに失敗した` と片付けの rc を含む 1 行と `切った接続:` の 1 行・DB のコンテナが立っている）/
+  `消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る`（2.1 の本物の 1 件と同じく `mktemp -d` の下の乱数の main に差し替え、`<main>-st97` のコンテナを置いて `HARNESS_VERIFY=1 tools/verify-env.sh` を呼び、rc=0・コンテナが無い・控えた id の volume が残る・標準エラーに `切った接続:` の 1 行。後始末は 2.1 と同じ印）。
   続けて（一覧は 2.1 で写してある）`HARNESS_VERIFY=1 tools/verify-env.sh` を走らせて本当に片付け、片付けるものが無い 2 回目の `tools/docker-tidy.sh` の秒数を `- 片付けの時間:` に書く（1 秒を超えれば D5 の反転条件）。
   検証: `EV tools/docker-tidy.sh --verify-env-check` rc=0 /
-  `bash -c 'f=tools/docker-tidy.sh; for s in "片付けが落ちても、検証の準備は DB を作り直して続く" "消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qE "Scenario: 印の無い検証の準備と .--plan. は、片付けを呼ばない" "$f"'` rc=0 /
+  `bash -c 'f=tools/docker-tidy.sh; for s in "片付けが落ちても、検証の準備は DB を作り直して続く" "消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"; do grep -qF "Scenario: $s" "$f" || { echo "印が無い: $s"; exit 1; }; done; grep -qF "Scenario: 印の無い検証の準備と --plan は、片付けを呼ばない" "$f"'` rc=0 /
   `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh 2>/dev/null; [ -z "$(tools/docker-tidy.sh --dry-run 2>&1)" ]'` rc=0 /
   `bash -c 'grep -qE "^- 片付けの時間: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'` rc=0
 
@@ -102,24 +102,25 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 7: CI と文書
 
-- [ ] 7.1 `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに 3 行を足す: `tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test`（design D7）。既存の行は変えない。
-  `tools/check-test-db-killed.sh --self-test` の中に、ci.yml に自分の 2 行があることを見る検査を足す（`echo "Scenario: CI の rust job は、殺した後の検査を走らせる"`）。`tools/docker-tidy.sh --self-test` の中に、ci.yml に自分の行があることを見る検査を足す（`echo "Scenario: CI の rust job は、片付けの self-test を走らせる"`）。
+- [ ] 7.1 `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに 4 行を足す: `tools/check-test-db-killed.sh --self-test`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check`・`tools/check-test-db-killed.sh`（この順。作り直しを殺した後の検査の本体より前に）（design D7。CI では `CI=true` で `--plan` が `reset`）。既存の行は変えない。
+  `tools/check-test-db-killed.sh --self-test` の中に、ci.yml に自分の 2 行があることを見る検査を足す（`echo "Scenario: CI の rust job は、殺した後の検査を走らせる"`）。`tools/docker-tidy.sh --self-test` の中に、ci.yml に自分の 2 行（`--self-test`・`--verify-env-check`）があることを見る検査を足す（`echo "Scenario: CI の rust job は、片付けの self-test を走らせる"`）。
   検証: `tools/check-test-db-killed.sh --self-test` rc=0 / `tools/docker-tidy.sh --self-test` rc=0 /
-  `bash -c 'grep -qF "Scenario: CI の rust job は、殺した後の検査を走らせる" tools/check-test-db-killed.sh && grep -qF "Scenario: CI の rust job は、片付けの self-test を走らせる" tools/docker-tidy.sh && grep -q "tools/check-test-db-killed.sh --self-test" .github/workflows/ci.yml && grep -qE "tools/check-test-db-killed.sh *$" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --self-test" .github/workflows/ci.yml'` rc=0
+  `bash -c 'grep -qF "Scenario: CI の rust job は、殺した後の検査を走らせる" tools/check-test-db-killed.sh && grep -qF "Scenario: CI の rust job は、片付けの self-test を走らせる" tools/docker-tidy.sh && grep -q "tools/check-test-db-killed.sh --self-test" .github/workflows/ci.yml && grep -qE "tools/check-test-db-killed.sh *$" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --self-test" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --verify-env-check" .github/workflows/ci.yml'` rc=0
 - [ ] 7.2 `docs/testing.md` に 1 節（殺した後の検査と、同じ worktree で別の `cargo test`・検証の準備と並べて走らせないこと・作り直す検証の準備が消えた作業ツリーのコンテナとネットワークを片付けること・volume を消さないこと）、
   `docs/flow-gates.md` の検査の表に `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 2 行を足す。
   検証: `bash -c 'grep -q "check-test-db-killed" docs/testing.md && grep -q "docker-tidy" docs/testing.md && grep -q "check-test-db-killed" docs/flow-gates.md && grep -q "docker-tidy" docs/flow-gates.md'` rc=0
-- [ ] 7.3 CI に足した 3 行の時間を手元で測り（`time` で 3 つを順に）、design の「計測の記録」の `- CI の行の時間:` に書く。
+- [ ] 7.3 CI に足した 4 行の時間を手元で測り（`time` で 4 つを順に）、design の「計測の記録」の `- CI の行の時間:` に書く。
   検証: `bash -c 'grep -qE "^- CI の行の時間: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'` rc=0
 
 ## Task 8: 全体の確かめ
 
-- [ ] 8.1 Scenario の印と spec の検査。
-  検証: `python3 scripts/check_scenarios.py . ch05-test-db-bloat` rc=0 / `openspec validate ch05-test-db-bloat --strict` rc=0
-- [ ] 8.2 変えないものが変わっていない: CH05 の commit（題に `(CH05)`）が触ったファイルが許したものだけで、`crates/server/src/lib.rs` と `tools/verify-env.sh` の差分は行の追加だけ。
+- [ ] 8.1 Scenario の印と spec の検査。CH05 の MODIFIED の塊（足した 1 文・足した Scenario・`導出元:` の行を除く）が、CH06 のいまの Requirement 1（archive の前は取り込んだ CH06 の delta、後は正典）と同じであること（design D1。違えば写し直して 1 文を足し直す）。
+  検証: `python3 scripts/check_scenarios.py . ch05-test-db-bloat` rc=0 / `openspec validate ch05-test-db-bloat --strict` rc=0 /
+  `bash -c 'c=openspec/specs/verify-environment/spec.md; [ -f "$c" ] || c=openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md; [ -f "$c" ] || exit 3; f() { grep -vE "^(導出元:|ただし、作業ツリーが消えた|[[:space:]]*$)"; }; diff <(sed -n "/^### Requirement: 印があれば/,/^#### Scenario: 消えた作業ツリーのコンテナは/p" openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md | sed "\$d" | f) <(sed -n "/^### Requirement: 印があれば/,/^### Requirement: [^印]/p" "$c" | sed "/^### Requirement: [^印]/d" | f)'` rc=0
+- [ ] 8.2 変えないものが変わっていない: CH05 の commit（`origin/main` と、取り込んだ CH04・CH06 の SHA（`deps.json` の `sha`、無ければ `spec_sha`）のどれにも入っていない commit）が触ったファイルが許したものだけで、`crates/server/src/lib.rs` と `tools/verify-env.sh` の差分は行の追加だけ。
   許すもの: `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh`・`tools/verify-env.sh`・`crates/server/src/killed_probe_tests.rs`・`crates/server/src/lib.rs`・`.github/workflows/ci.yml`・`docs/`・`openspec/changes/ch05-test-db-bloat/`
   （`testdb.rs`・試験の期待値・`tests/server_startup.rs`・既存の `down -v` の台本・`tools/dev.sh`・`tools/check-test-db-growth.sh`・`tools/ports.sh`・`tools/env-init.sh`・`tools/check-verify-env-reset.sh`・`migrations/` は入らない）。
-  検証: `bash -c 'set -o pipefail; files=$(git log origin/main..HEAD --no-merges --grep="(CH05)" --name-only --format= | sort -u | grep .); [ -n "$files" ] || exit 3; bad=$(grep -vE "^(tools/check-test-db-killed\.sh|tools/docker-tidy\.sh|tools/verify-env\.sh|crates/server/src/killed_probe_tests\.rs|crates/server/src/lib\.rs|\.github/workflows/ci\.yml|docs/|openspec/changes/ch05-test-db-bloat/)" <<<"$files"); [ -z "$bad" ] || { echo "触ってはいけない: $bad"; exit 1; }'` rc=0 /
-  `bash -c '! git log origin/main..HEAD --no-merges --grep="(CH05)" -p --format= -- crates/server/src/lib.rs tools/verify-env.sh | grep -E "^-[^-]"'` rc=0
+  検証: `bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); files=$(git log --no-merges --name-only --format= HEAD --not origin/main $ex | sort -u | grep .); [ -n "$files" ] || exit 3; bad=$(grep -vE "^(tools/check-test-db-killed\.sh|tools/docker-tidy\.sh|tools/verify-env\.sh|crates/server/src/killed_probe_tests\.rs|crates/server/src/lib\.rs|\.github/workflows/ci\.yml|docs/|openspec/changes/ch05-test-db-bloat/)" <<<"$files"); [ -z "$bad" ] || { echo "触ってはいけない: $bad"; exit 1; }'` rc=0 /
+  `bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); ! git log --no-merges -p --format= HEAD --not origin/main $ex -- crates/server/src/lib.rs tools/verify-env.sh | grep -E "^-[^-]"'` rc=0
 - [ ] 8.3 server の試験の全体が、作り直した DB の上で通る（`tests/server_startup.rs` が移行を当てる）。
   検証: `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0 / `EV scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0

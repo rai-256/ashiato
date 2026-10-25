@@ -390,3 +390,163 @@ R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraint
 - 処置: fixed 2.1 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 0.1）（一覧を写すのを 0.1 の終わりに移し、0.1 の検証に置いた。0.2 は片付けて時間を測るだけ）
 
 （R31〜R35 の直しはどれも Q7 の片付けの中身（Requirement 4 の Scenario・D9（仮）・tasks 0.1・0.2・Global Constraints の例外）で、答え以外の変更の判定は変わらない。review/answers.md の spec-digest は直しの後に呼び出し元が取り直した。）
+
+---
+
+## spec の段（CH06 の gate の後。2026-10-25）
+
+対象: `ab41ca3e`（`docs/ch05-upstream`）の proposal.md・specs/test-database/spec.md・specs/verify-environment/spec.md・design.md（D1〜D7）・tasks.md（Task 1〜8）、`docs/changes/CH05.md`。
+依存は `deps.json` のとおり CH04 `9fe8c5e`・CH06 `c666673`（`docs/briefs/deps/` と `git show c666673:tools/verify-env.sh`・`tools/check-verify-env-reset.sh`・`.github/workflows/ci.yml`）。
+`origin/feat/ch06-reset-verify-db` の先頭はいまも `c6666730`（`git log c666673..origin/feat/ch06-reset-verify-db -- openspec/changes/ch06-reset-verify-db/specs tools/verify-env.sh tools/check-verify-env-reset.sh` は空）。
+
+### 機械の検査
+
+```
+$ openspec validate ch05-test-db-bloat --strict
+Change 'ch05-test-db-bloat' is valid                                                        rc=0
+ℹ [INFO] verify-environment/spec.md: Archive would refuse this delta: verify-environment: target spec does not exist; only ADDED requirements are allowed for new specs.
+  （CH06 の archive の前なので想定どおり。archive は requires で CH06 の後 —— design D1。3-way の base が無いことは R38）
+
+$ python3 scripts/check_chain.py .
+chain: OK (0 件 / 未回収 0 件 / warn 0 件)                                                   rc=0
+
+$ python3 scripts/check_scenarios.py . ch05-test-db-bloat
+scenarios: FAIL (担保なし 31 件 / 名無しの確認待ち 0 件)                                      rc=1
+  （31 件 = この change の Scenario 全部（test-database 10・verify-environment ADDED 15・MODIFIED 6）。下流の前なので想定どおり。
+    うち CH06 から写した 5 本は、下流が CH06 の実装を取り込めば `tools/check-verify-env-reset.sh` の印で担保が付く。
+    CH05 で足した 26 本は全部 tasks が一字一句で名指す（2.1 に 12・3.2 に 3・5.1 に 7・6.1 に 2・7.1 に 2）。ただし 2 本は印の書き方で突合が落ちる —— R36）
+
+$ python3 scripts/review_triage.py . ch05-test-db-bloat
+指摘 47 件 / 仮決め 14 件 / 要件へ戻すもの 0 件  triage: OK                                  rc=0
+
+$ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
+[OK] 検証コマンド（ch05-test-db-bloat）                                                       rc=0
+
+$ python3 scripts/spec_overlap.py candidates . ch05-test-db-bloat
+  ch06-reset-verify-db / 印があれば、検証の準備がこの worktree の DB を空から作り直す（同じ Requirement、自分 MODIFIED / 相手 ADDED）
+  ch06-reset-verify-db / 作り直すのは、印があり、worktree か CI のときだけ（名指し、相手 ADDED）
+  ch06-reset-verify-db / worktree ごとの DB の network は、木ごとに被らない subnet で立つ（名指し、相手 ADDED）
+  （3 件。判定は末尾の「## 観点 7」。書く前の `spec_overlap.py check` は「判定が無い」で 3 件 FAIL）
+```
+
+### 確かめた範囲（呼び出し元の 4 点。指摘ではない）
+
+- (1) MODIFIED の逐語: `diff <(sed -n '7,36p' docs/briefs/deps/CH06@c666673/…/spec.md) <(sed -n '3,34p' specs/verify-environment/spec.md)` の差は、
+  足した 1 文（10 行目「ただし、作業ツリーが消えたことを…volume はこのときも消さない。」）・`導出元: CH06` → `導出元: CH06、CH05`・末尾の空行の 3 つだけ。
+  本文 5 行と Scenario 5 本（名前・WHEN・THEN・AND）は 1 字も違わない。`docs/briefs/deps/CH06@c666673/` は `git show c666673:…/spec.md` と同じ。
+- (2) D5 の置き場: `c666673:tools/verify-env.sh` の順は `--plan`（27 行目で exit）→ `ports.sh` → `env-init.sh` → `reset_db`（121 行目。`reset` のときだけ）→ `clear_blocking_network`（122 行目。毎回）→ `up`。
+  片付けを `reset` の枝で 121 行目の前に置けば、「作り直すのは、印があり…」の「それ以外は今までどおり…だけ」と `--plan` の「docker に触らず」は変わらない。
+  CH06 の self-test は一時の木の `verify-env.sh --plan` しか呼ばない（374〜389 行目。`--plan` は片付けの前で抜ける）。
+  CH06 の本体の sentinel は、compose の project が `ch06-sentinel-<乱数>`（`<main>-` で始まらない）か、compose の印を持たない（`$sp-vol`・`$sp-ext`・`$sp-ctr` は `com.docker.compose.project` が無い）ので、片付けの条件に当たらない。
+  本体が出力を厳密に見るのは `grep '切った接続: '` の 1 行（160 行目）で、片付けの行は `切った接続` を含まないので崩れない。
+  ただし字面の上で CH06 の別の 2 つの Requirement と読み合わせが要る（R42）。CH06 の検査は CI でも走るのに、CH05 の組み込みの検査は CI に無い（R39）
+- (3) 26 本の名指しは上のとおり全部ある。検証のコマンドは、2 本の backtick つきの名前を除き、書いたまま走る形（2.1・3.2・5.1・6.1・7.1 の `grep -qF` のループ、6.2 の `sweep_previous_runs(…).await;` は `9fe8c5e:crates/server/src/testdb.rs:245,300` の 2 か所に当たる）。
+  tasks 1.1 の `story_deps.py included CH05 CH06` は、いまの `deps.json`（`spec_sha` だけ）では `KeyError: 'sha'` で落ちるが、下流の入口の `take` が `sha` を書くので下流では走る（ハーネスの側の落ち方。指摘にしない）
+- (4) Q8 で外したもの: `grep -nE 'test-db-rebuild|64 ?MiB|見送|ports\.sh|作業ツリーの種類|-up-\*|膨れ'` を specs・design・tasks に当てた。specs には 0 件。design は冒頭の対応・Context の順・Non-Goals・D2 の「外した」・D4 の「`ports.sh` は触らない」だけ、
+  tasks は冒頭の「作らない」・本人の決定・8.2 の「入らない」の並びだけ。作り直し・見送り・作業ツリーの種類・`ports.sh` の変更は仕様にも Task にも残っていない
+
+観点 1（deep の決定）: Q1（requires に CH04）・Q6（量で見る・秒数は出すだけ・2 時点・1 MiB・20,001 件・120 秒）・Q7（コンテナとネットワークを片付け、volume は消さない・機械で確かめられるものだけ）・
+Q8（作り直し・見送りを外す・`requires: [CH04, CH06]`・CH06 の「触らない」を MODIFIED）は、どれも specs の Requirement と Scenario にある。古い案（Q2〜Q5）は Scenario に残っていない。要件へ戻すものは無い（`satisfies: []`）。該当なし。
+観点 6: 該当なし（mode なし。`--answers` の段ではない）。
+
+## R36. backtick を持つ 2 本の Scenario の名前は、Global Constraints の書き方（`echo "Scenario: …"`）では印にならない。tasks 2.1・3.2 の grep も同じ形で落ちる
+- 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:15・49・52・61・66（specs/verify-environment/spec.md:85・111 の名前）
+- 根拠: tasks.md:15「bash は `echo "Scenario: …"`」。名前 `` `--dry-run` は外すものを出すだけで、何も外さない `` と `` 印の無い検証の準備と `--plan` は、片付けを呼ばない `` は backtick を持つので、二重引用符の中では `` \` `` と書くしかない（書かなければ command substitution）。
+  一時の repo で確かめた（2026-10-25）: `` echo "Scenario: \`--dry-run\` は外すものを出すだけで、何も外さない" `` の 1 行では `check_scenarios.py . x` が「担保の無い Scenario」で rc=1（`MARK` の正規表現 `scripts/check_scenarios.py:39` は `\` ごと拾い、`norm` は空白しか落とさない）、
+  tasks 2.1 の `grep -qE "Scenario: .--dry-run. は…"` も rc=1（`.` 1 字に `\`` の 2 字は当たらない）。一重引用符 `` echo 'Scenario: `--dry-run` は…' `` なら両方 rc=0。repo の正典に backtick を持つ Scenario の名前はまだ 1 本も無い（`git grep '#### Scenario: .*`' openspec/specs` が 0 件）
+- kind: technical
+- 提案: tasks 2.1・3.2（か Global Constraints）に「backtick を持つ名前の印は一重引用符の `echo '…'` か `# Scenario: …` で書く」を足す。あるいは 2 本の名前から backtick を外す（spec の名前と tasks の名指しを一緒に直す）
+- 処置: fixed specs/verify-environment/spec.md （2 本の名前から backtick を外した（`--dry-run は…`・`印の無い検証の準備と --plan は…`）。tasks 2.1・3.2 の名指しと grep を `grep -qF` に揃えた）
+
+## R37. tasks 8.2 は commit を題の `(CH05)` で拾うが、題の大文字・小文字も scope もハーネスと Task agent が守らない。拾い漏れた commit は許可リストの検査を素通りする
+- 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:23・119・122・123
+- 根拠: `git log --format=%s origin/main..origin/feat/ch06-reset-verify-db --no-merges` の題の頭は `chore(ch06)` 14・`fix(ch06)` 7・`feat(ch06)` 5・`docs(ch06)` 5・`chore(CH06)` 9（小文字が 31 件）。
+  `origin/feat/ch04-test-db-growth` は `feat: …` `fix: …` `chore: …` の scope の無い題が 13 件（「書き出しの試験を試験ごとの database へ」「試験の足場の繋ぎ先を…替える」など実装の本体）。この上流の木も `docs(ch05)` と `docs(CH05)` が混ざる /
+  `git log --grep` は既定で大文字・小文字を区別する。拾えた commit が 1 つでもあれば `[ -n "$files" ]` は通り、拾えなかった commit が `testdb.rs`・`tools/ports.sh` などを変えていても 8.2 は rc=0（壊してはいけないものの検査が空振りする）
+- kind: technical
+- 提案: commit を題でなく範囲で拾う: `git log --no-merges --name-only --format= HEAD --not origin/main $(python3 -c 'import json;print(" ".join(d["sha"] for d in json.load(open("openspec/changes/ch05-test-db-bloat/deps.json")).values() if d.get("sha")))')`（取り込んだ CH04・CH06 の SHA の先だけ）。
+  最低でも 2 つの `git log` に `-i` を足す。Global Constraints の「題で拾う」の注記もそれに合わせる
+- 処置: fixed 8.2 （題に依らず、`HEAD --not origin/main <deps.json の CH04・CH06 の SHA>` の範囲で commit を拾う。`verify-env.sh` と `lib.rs` の追加だけの確かめも同じ範囲。Global Constraints の注記も直した）
+
+## R38. CH06 の Requirement 1 の MODIFIED には 3-way の base ができない。CH06 が c666673 の後で本文か Scenario を直すと、CH05 の archive がその直しを黙って消す
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:43-45（D1 と反転条件）・tasks.md:117-118
+- 根拠: `scripts/spec_merge.py` の `snapshot`（`canon = root / "openspec/specs" / cap / "spec.md"; if not canon.is_file(): continue`）は、正典に無い capability の base を書かない。
+  `verify-environment` は CH06 の archive まで正典に無いので、CH05 の `base/` は作られず（いまも `openspec/changes/ch05-test-db-bloat/base` は無い）、`apply` は `unbased` の警告だけで通す。
+  docstring のとおり `openspec archive` は塊を丸ごと置き換えるので、CH06 が gate の後（確認バッチ・fix）で Requirement 1 の文か Scenario を変えて先に archive されると、CH05 の archive がそれを c666673 の字面に戻す /
+  D1 の反転条件は「名前を変えたら見出しを合わせる」だけで、本文の変化を拾う機械が無い。いまは差が無い（`git log c666673..origin/feat/ch06-reset-verify-db -- openspec/changes/ch06-reset-verify-db/specs` が空）
+- kind: technical
+- 提案: tasks 8.1 に、CH05 の MODIFIED の塊（足した 1 文と `導出元:` の行を除く）が、CH06 のいまの塊（archive の前は取り込んだ `openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md`、後は `openspec/specs/verify-environment/spec.md`）と同じことを `diff` で見る検証を足す。
+  D1 の反転条件を「名前か本文・Scenario が変わったら、写し直して 1 文を足し直す」に広げる
+- 処置: fixed D1 仮（3-way の base ができないことを D1 に書き、反転条件を本文・Scenario の変化まで広げた。tasks 8.1 に、足したもの以外が CH06 のいまの塊と同じかを見る `diff` を足した —— deps の写しで rc=0、1 字変えた写しで rc=1 を確かめた）
+
+## R39. `--verify-env-check` を CI に置かない理由は、CH06 の本体にもそのまま当てはまるのに、CH06 の本体は CI の rust job で走る。CH05 が CH06 の正典に足す Scenario は、merge の後に誰も走らせない
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:135（D7）・tasks.md:105
+- 根拠: design.md:135「CI に置かない（この worktree の DB を作り直す・本物の docker でコンテナを立てる。CH06 の本体が CI で同じ作り直しを確かめている）」/
+  `git show c666673:.github/workflows/ci.yml` の 87・88 行目は `./tools/check-verify-env-reset.sh --self-test` と `./tools/check-verify-env-reset.sh`（本体。DB を作り直し、本物の docker で sentinel を立てる）—— 同じ理由の検査が CI にある /
+  `--verify-env-check` が担保するのは `印の無い検証の準備と --plan は、片付けを呼ばない`・`片付けが落ちても、検証の準備は DB を作り直して続く`・MODIFIED の `消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る` の 3 本。CH06 の本体はこれらを見ない。
+  CI では `CI=true` で `--plan` が `reset` になり（`c666673:tools/verify-env.sh:22`）、docker もあるので走らせる妨げが無い。後の change が `verify-env.sh` の片付けの 1 行を消しても、CI は緑のまま
+- kind: technical
+- 提案: ci.yml の rust job の CH06 の本体の行の後ろに `tools/docker-tidy.sh --verify-env-check` を足し（CI の行は 4 行）、D7・tasks 7.1・7.3・計測の鍵をそれに合わせる。置かないなら、CH06 の本体と違って置けない理由を D7 に書く
+- 処置: fixed D7 （`tools/docker-tidy.sh --verify-env-check` を CI の rust job に置く。順は killed の self-test → tidy の self-test → `--verify-env-check` → killed の本体。tasks 7.1・7.3・計測の鍵・CH05.md・proposal を 4 行に。CI の Scenario に AND を足した）
+
+## R40. Requirement の本文だけが言っていて Scenario が言っていない条件がある。うち「止まっているコンテナも数える」は、docker 自身が守らないので実装の読み方で結果が変わる
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md:46・48・50・68-70・80-83、design.md:88-89
+- 根拠: 次の 4 つは本文にあり、どの Scenario の WHEN にも無い:
+  (a) spec.md:48「その path がファイルシステムに無く、`git worktree list` にも無い」の片側 —— path はあるが `git worktree list` に無いコンテナを残すこと（D4 は「片方だけだと…食い違う」を理由に両方で見ると決めている）、
+      path は無いが `git worktree list` にある（prune の前の）コンテナを残すこと。spec.md:68 の Scenario は「`git worktree list` にある作業ツリーの path」とだけ言い、path があるかを決めていない /
+  (b) spec.md:50「繋がっているコンテナが（止まっているものも含めて）…無く」—— 実測（2026-10-25。印つきの一時のネットワークと `docker create` だけのコンテナで確かめ、消した）: 止まったコンテナを繋いだネットワークで
+      `docker network inspect --format '{{len .Containers}}'` は `0`、`docker ps -aq --filter network=<名前>` は `1`、`docker network rm` は rc=0 で外せた。D4（design.md:88）は「繋がったコンテナが無い」をどの命令で読むか書いておらず、
+      `inspect` の `.Containers` で読む実装は止まったコンテナのネットワークを外し、そのコンテナは次に起こすとき network が無くて立たない。偽の docker の self-test はどちらの読み方でも通る /
+  (c) spec.md:50「その project の印を持つコンテナもこの回で外すもののほかに無く」—— 外さないコンテナがそのネットワークに繋がっていない場合の Scenario が無い（spec.md:82 の「外さないコンテナが繋がった」は (b) と同じ側）/
+  (d) spec.md:46「作り直さない木…では、片付けを呼ばない」—— spec.md:111 の Scenario は「印が無い」と `--plan` だけで、CI でない main の checkout（`keep: main の checkout`）で印つきに呼んだときを見ない
+- kind: technical
+- 提案: (b) は D4 に「`docker ps -aq --filter network=<名前>`（止まっているものも出る。CH06 の `clear_blocking_network` と同じ）で読む」と書き、Scenario「コンテナの無いネットワークは…」の残す側に「止まった外さないコンテナだけが繋がった `<main>-` のネットワーク」を足す。
+  (a) は「path はあるが `git worktree list` に無い」「`git worktree list` にあるが path が無い」の 2 つを残す側の Scenario（または既存の Scenario の WHEN）に足す。(c)(d) は既存の Scenario の WHEN に 1 つずつ足すか、本文から落とす
+- 処置: fixed D4 仮（「繋がったコンテナ」は `docker ps -aq --filter network=` で読むと D4 と本文に書いた。(a) path はあるが list に無い・list にあるが path が無いコンテナを「作業ツリーが残っていれば…」の WHEN に、(b)(c) 止まった外さないコンテナだけが繋がったネットワーク・印のコンテナが残るネットワークを「コンテナの無いネットワークは…」の残す側に足した。(d) 本文を「作り直すときだけ呼ぶ（印が無いとき・`--plan` では呼ばない）」にした）
+
+## R41. 「片付けが落ちたことの 1 行」と「DB は立て直されている」が、何を見れば真偽が決まるかを言っていない。前者の文言は design にしか無い
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md:38・55・106-109、design.md:110
+- 根拠: spec.md:55「理由を標準エラーに出して rc≠0 で終わり、検証の準備はその 1 行を出したうえで作り直しを続ける」の「その 1 行」が、片付けの理由の行か検証の準備の行かが決まらない。
+  D5（design.md:110）は検証の準備の行を `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）。続ける` と決めているが spec に無い（archive で正典から落ちる）。
+  片付けの理由の行は検証の準備の標準エラーにそのまま流れる（D5 は `tools/docker-tidy.sh` を呼ぶ 1 行で、出力を捨てない）ので、spec.md:108 の THEN「標準エラーに片付けが落ちたことの 1 行」は、検証の準備が何も出さなくても片付けの行で満たされる /
+  spec.md:38「この worktree の DB は立て直されている」は、立っている（`docker compose ps --status running`）のか、作り直された（volume の名前が呼ぶ前と違う・`切った接続:` の行がある）のかが決まらない
+- kind: technical
+- 提案: spec.md:55 を「検証の準備は `片付けに失敗した` と片付けの rc を含む 1 行を標準エラーに出して…」にし、spec.md:108 の THEN をその字面で見る形にする。
+  spec.md:38 を「DB のコンテナの volume の名前は呼ぶ前と違う」（CH06 の `作り直しの後、前の DB の volume は残らない` と同じ見方）か「標準エラーに `切った接続:` の 1 行がある」にする
+- 処置: fixed D5 仮（spec の本文と Scenario を「`片付けに失敗した` と片付けの rc を含む 1 行」に、片付け自身の行はこの字面を使わないと書いた。MODIFIED の Scenario の「DB は立て直されている」を「`切った接続:` の 1 行がある」にした。tasks 3.2 も同じ字面）
+
+## R42. CH06 の別の 2 つの Requirement も「何も消さずに非 0 で終わる」と言う。片付けは同じ呼び出しの中でその前に走って外すので、両方が archive された正典は R21 と同じ形で食い違って読める
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md:42-56・design.md:124-130（D6）
+- 根拠: `docs/briefs/deps/CH06@c666673/…/spec.md:87-91`「作り直せなければ、何も消さずに非 0 で終わる」（IF 作り直しの前に DB の volume をほかのコンテナが使っていると分かったら、THEN コンテナも volume も消さずに…）・
+  `:103-104`（同じ subnet の network にコンテナが繋がっていれば、何も消さずに…非 0）/ D5 の順では片付け（消えた作業ツリーのコンテナとネットワークを外す）が `reset_db`・`clear_blocking_network` の前に走るので、
+  この 2 つが rc≠0 で終わる呼び出しでも、検証の準備は既にコンテナとネットワークを外している / D6 は「書き直すのは Requirement 1 の 1 文だけ」とし、この 2 つを見ていない（design.md:129-130 は subnet と「作り直すのは…」だけを挙げる）。
+  CH06 の Scenario（`ch06-sentinel-`）は振る舞いとしてはどれも成り立つ（上の「確かめた範囲」(2)）—— 食い違いは字面の範囲
+- kind: technical
+- 提案: MODIFIED を増やさず、CH05 の ADDED の Requirement に「ほかの Requirement の『何も消さずに』は、この worktree の DB のコンテナ・volume と、塞いでいる network を指す。片付けはその判定の前に終わり、外したものは戻さない」の 1 文を足す。
+  D6 に、この 2 つの Requirement を書き直さない理由を 1 行ずつ足す
+- 処置: fixed D6 （CH05 の ADDED の本文に「ほかの Requirement の『何も消さずに』は、この worktree の DB のコンテナ・volume と塞いでいる network を指す。片付けはその判定の前に終わり、外したものは戻さない」を足し、D6 に 2 つの Requirement を書き直さない理由を書いた）
+
+## R43. `docs/changes/CH05.md` の価値は、片付けが「ネットワークの割り当ての枯渇」を防ぐと言うが、proposal と design は CH06 の後は枯渇に頼らないと言う
+- 成果物: docs/changes/CH05.md:21
+- 根拠: CH05.md:21「新しい作業ツリーが DB を立てられなくなること（ネットワークの割り当ての枯渇）を防ぐ（Q7）」/ proposal.md:66「CH06 が作業ツリーごとに subnet を明示するので、割り当ての枯渇には頼らなくなる」/
+  design.md:114-115（D5）は片付けの効き目を「台帳の番号を継いだ木で、消えた作業ツリーの DB が同じ subnet を塞いで CH06 が rc=1 で止まる」を先に外すこととしている / `premises.md:18`（2026-10-25 は枯渇していない）
+- kind: technical
+- 提案: CH05.md:21 の括弧を「（作業ツリーが消えるたびに溜まるコンテナとネットワーク。CH06 の後は、番号を継いだ木の subnet を消えた作業ツリーの DB が塞ぐこと）」に直す
+- 処置: fixed D5 仮（D5 の片付けの効き目に合わせて、docs/changes/CH05.md の価値の括弧を「作業ツリーが消えるたびに溜まるものを戻す。CH06 の後は番号を継いだ木の subnet を塞ぐことも防ぐ」に直した）
+
+## R44. Scenario「印の無い検証の準備と `--plan` は、片付けを呼ばない」の確かめは、書き留める偽の命令が効いているかを見ないので、偽の命令が呼ばれない形でも 0 個で通る
+- 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:61・design.md:92-93
+- 根拠: tasks.md:61 は `TEST_DOCKER_TIDY_DOCKER` を書き留める偽の命令にして、印なしと `--plan` で書き留めた命令が 0 個であることだけを見る。
+  書き留め先の path の取り違え・`verify-env.sh` が環境を片付けに渡さない（design.md:93「環境からそのまま届く」に依る）・偽の命令に実行の権限が無い、のどれでも 0 個になり、片付けが毎回呼ばれていても緑になる。
+  同じ 3.2 の「片付けが落ちても…」は `TEST_DOCKER_TIDY_DOCKER=false` で、書き留める偽の命令そのものは確かめない
+- kind: technical
+- 提案: 3.2 の同じ確かめの中で、同じ偽の命令のまま `HARNESS_VERIFY=1 tools/verify-env.sh`（`reset`）を 1 回呼び、書き留めた命令が 1 個以上あることを先に見てから、印なしと `--plan` の 0 個を見る（対照）
+- 処置: fixed 3.2 （同じ偽の命令で `HARNESS_VERIFY=1 tools/verify-env.sh` を先に呼び、書き留めた命令が 1 個以上あること（対照）を見てから、印なしと `--plan` の 0 個を見る。spec の Scenario の WHEN・THEN も対照つきにした）
+
+## 観点 7: 走っている change との前提関係
+- ch06-reset-verify-db / 印があれば、検証の準備がこの worktree の DB を空から作り直す: 前提（本文と Scenario 5 本を c666673 から逐語で写し、1 文と Scenario 1 本を足した MODIFIED。相手の字面が変われば書き直し —— R38）
+- ch06-reset-verify-db / 作り直すのは、印があり、worktree か CI のときだけ: 前提（片付けは `--plan` が `reset` のときだけ呼ぶ（D5）。相手の `reset` / `keep:` の判定と「それ以外は…だけ」を当てにしている）
+- ch06-reset-verify-db / worktree ごとの DB の network は、木ごとに被らない subnet で立つ: 前提（片付けを `clear_blocking_network` の前に置き、相手の rc=1（消えた worktree の DB が subnet を塞ぐ）を先回りする（D5）。相手の確かめの形が変われば置き場を見直す）
+
+CH06 は `docs/changes/CH05.md` の `requires: [CH04, CH06]` にあるので、requires への足しの指摘は立てない。
+- ch06-reset-verify-db / 作り直せなければ、何も消さずに非 0 で終わる: 前提（R42 の処置で、CH05 の ADDED の本文がこの Requirement の「何も消さずに」の範囲を名指しする。片付けがその判定より前に終わることを当てにしている。呼び出し元が R42 の処置の後に足した判定）
