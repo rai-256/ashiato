@@ -95,7 +95,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
 | `derived-records` | 派生（滞在） | ST16, ST24, ST49 |
 | `subjective-log` | 主観・感情の記録 | ST17, ST18, ST24, ST49 |
-| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39 |
+| `personal-entities` | 個人属性・人物・場所 | ST19, ST20, ST21, ST24, ST37, ST39, ST49 |
 | `record-deletion` | 削除 | ST22, ST23, ST49 |
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
@@ -465,6 +465,6 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - **ST49 の requires に ST48 を足した**（layer 1 → 2。ST52〜ST58 の layer も 1 つずつ下がる）。ST49 は S-01 の組み立ての印を ST48 の `crates/server/build.rs`（`build_commit()`。ST48 design D8（仮））に積んで
 >   未 commit の印・組み立ての種類と `.git/HEAD` の変化での作り直しを足し、印の形を ST48 の台帳（`build_version`・`build_commit`）とそろえる（premises の C10 / C11）。ST49 の移行は名前の時刻が `202610250000` 以後なので、
 >   ST48 の D10（仮）の規則（前進側に取引の文を持たない・`.down.sql` が版の記録を消す）にも従う。順の付け方で、要件は変わらない
-> - `derived-records`・`data-durability`・`record-deletion`・`subjective-log` に ST49 を足した。記録ごとの版（FR-122 / FR-123）は記録の骨格（`record-envelope`）だが、版を持たせる先が滞在の作り直し（`derived-records`。design D2（仮））・
->   書き出しの列（`data-durability`。premises の C6）・削除の台帳（`record-deletion`）・気分の通知の台帳（`subjective-log`）にも及ぶ（深掘り Q3 の推奨）。どれも ADDED の Requirement で、走っている ST23・ST29・ST41 が MODIFIED している Requirement には触らない
-> - Q3 で「記録の表だけ」「収集アプリが作る行だけ」が選ばれたら、`spec --answers` が `record-deletion`・`subjective-log`（と前者なら `device-collection` の破棄の報告・原本の欠け）の割当を外す
+> - `derived-records`・`data-durability`・`record-deletion`・`subjective-log`・`personal-entities` に ST49 を足した。記録ごとの版（FR-122 / FR-123）は記録の骨格（`record-envelope`）だが、版を持たせる先が滞在の作り直しと滞在の基準の台帳（`derived-records`。design D2（仮））・
+>   書き出しの列（`data-durability`。premises の C6）・削除の台帳（`record-deletion`）・気分の通知の台帳（`subjective-log`）・個人属性の種類の名前の台帳（`personal-entities`）にも及ぶ（深掘り Q3 の推奨。後の 2 つの台帳は spec の独立検査 R4 で族に足した）。どれも ADDED の Requirement で、走っている ST23・ST29・ST41 が MODIFIED している Requirement には触らない
+> - Q3 で「記録の表だけ」「収集アプリが作る行だけ」が選ばれたら、`spec --answers` が `record-deletion`・`subjective-log`・`personal-entities`・`derived-records` の滞在の基準（と前者なら `device-collection` の破棄の報告・原本の欠け）の割当を外す

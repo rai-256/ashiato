@@ -3,8 +3,8 @@
 > 第 1 回の深掘りは**推奨の答えで先に**書いた（2026-10-20 の流れ）。Q1〜Q4（どれも A）の推奨は仮でない D として書き（Q1 → D5・D6、Q2 → D10、Q3 → D14・D15、Q4 → D20）、
 > 本人の答えが推奨と違えば `spec --answers` がその D と Scenario だけを書き直す。
 > 深掘りの「聞かずに決めるもの」C1〜C14（deep.md の後ろの premises.md）は D に写した: C1 → D13、C2 → D8、C3 → D11、C4 → D12、C5 → D1（仮）・D2（仮）、C6 → D17・D4（仮）、
-> C7 → D9、C8 → D16、C9 → D3（仮）・D18・Migration Plan、C10 → D6、C11 → D5、C12・C13 → D18、C14 → D19。
-> 仮の決定 D1〜D4 は深掘りの独立検査（review/deep.md R1・R9・R6・R11）で載せたもの（`provisional.jsonl`）。
+> C7 → D9、C8 → D16・D21（仮）、C9 → D3（仮）・D18・Migration Plan、C10 → D6、C11 → D5、C12・C13 → D18、C14 → D19。
+> 仮の決定 D1〜D4 は深掘りの独立検査（review/deep.md R1・R9・R6・R11）で、D21 は spec の独立検査（review/spec.md R7。C8 を改めた）で載せたもの（`provisional.jsonl`）。
 
 ## Context
 
@@ -30,8 +30,8 @@
 - 生存信号の版（ST51 が動いている版を申告する。D18）
 - 衛星の資格情報と、衛星の版（ST29 / FR-123 ★ Q13。D9）
 - 版番号の出所を 1 つにすること・タグで配ること（ST52）。ST49 の版番号は各部品の今の手書き（`Cargo.toml`・`build.gradle.kts`・`web/package.json`）を読む
-- 中身を持たない器・S-01 の内部の台帳（`core.place`・`core.attribute_kind(_name)`・`core.stay_criteria`・`core.stay_absorbed`・`core.outage_ledger`・`core.export_ledger`・`core.media_original`・`core.web_session`・`core.access_log`）。
-  中身は記録（`core.event`）が持つか、部品が作る行ではない（Q3 の範囲は「収集アプリと画面が作る追記のみの行」）
+- 中身を持たない器（`core.place`・`core.attribute_kind`。中身は記録の表と種類の名前の台帳が持つ）と、S-01 が自分の判断で書く内部の台帳（`core.stay_absorbed`・`core.outage_ledger`・`core.export_ledger`・`core.media_original`・`core.web_session`・`core.access_log`）。
+  部品（収集アプリ・画面の操作）が作る行ではない（Q3 の範囲は「収集アプリと画面が作る追記のみの行」。滞在の基準と個人属性の種類の名前は画面で本人が選んだ値なので含める —— review/spec.md R4）
 
 ## Decisions
 
@@ -63,21 +63,24 @@
 
 ### D5. 組み立ての印の形と、3 つの Rust / Kotlin / TypeScript の組み立てが共有する作り方
 
-- 形: `<版番号>+<commit>[.dirty][.debug]`。`<commit>` は 40 桁の 16 進（短縮しない）か `unknown`。`.dirty` は組み立てた木に未 commit の変更（`git status --porcelain` が 1 行以上）があるとき、
+- 版番号の出所: S-01・C-02 は `Cargo.toml` の workspace の版（`CARGO_PKG_VERSION`）、C-01 は `build.gradle.kts` の `versionName`、V-01 は `web/package.json` の `version`（ST52 が 1 つにするまで。spec は「その部品の宣言した版番号」と書く）
+- 形: `<版番号>+<commit>[.dirty][.debug]`。`<commit>` は 40 桁の 16 進（短縮しない）か `unknown`。`.dirty` は**その部品のソース**に未 commit の変更（`git status --porcelain -- <部品のソースの道>` が 1 行以上）があるとき（S-01・C-02 は `crates/`・`migrations/`・`Cargo.toml`・`Cargo.lock`、C-01 は `collector-android/`、V-01 は `web/`。ほかの部品の木の変更はその組み立てに入らない —— review/spec.md R2）、
   `.debug` は release でない組み立てのとき。順は固定（`.dirty` が先）
 - commit の出所は ST48 の D8（仮）と同じ順: 環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`。値は ST48 の台帳の `build_commit` と同じ 40 桁になる（C11）
 - Rust の 2 つ（S-01・C-02）は新しい workspace の crate `crates/build-stamp`（`ashiato-build-stamp`。`build-dependencies` だけで使う。依存の追加なし・`std::process::Command` で git を呼ぶ）を共有する。
-  関数は「印を組む（版番号・profile・git の木）」「作り直しの印を出す（`cargo:rerun-if-changed` / `rerun-if-env-changed`）」の 2 つで、単体試験を crate に置く
+  関数は「印を組む（版番号・profile・git の木・部品のソースの道）」「作り直しの印を出す（`cargo:rerun-if-changed` / `rerun-if-env-changed`）」の 2 つで、単体試験を crate に置く。git は `GIT_OPTIONAL_LOCKS=0` で呼ぶ（`git status` が `index` を書き換え、`index` を見張る次の組み立てがもう 1 回走るのを止める。review/spec.md R2 の実測）
 - C-01 と V-01 は同じ規則を自分の組み立ての道具の中で書く（gradle と vite は Rust の crate を呼べない）。形が揃うことは 3 つの試験が同じ正規表現 `^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$` で見る
 - ST48 の D8（仮）が否になっても、印の作り方は ST49 の `crates/build-stamp` が持ち、形は変えない
 
 ### D6. 印は組み立てのたびに作り直す（差分の組み立てで古い commit を残さない）
 
 - S-01・C-02: `build.rs` が `crates/build-stamp` で印を組み、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` で渡す。作り直しの印として `rerun-if-env-changed=ASHIATO_BUILD_COMMIT`・
-  `rerun-if-changed=<git-dir>/HEAD`・HEAD が指す参照のファイル（`<git-dir>/refs/heads/<枝>`。worktree では `git rev-parse --git-dir` と `--git-common-dir` の先）・`<git-common-dir>/packed-refs`・`<git-dir>/index` を出す
-  （`index` は stage / commit で変わるので未 commit の印の変化も拾う。作業木のファイルだけを書き換えて add しない変更は、そのファイルを含む crate の作り直しでは拾えない —— Risks）
+  `rerun-if-changed=<git-dir>/HEAD`・HEAD が指す参照のファイル（`<git-dir>/refs/heads/<枝>`。worktree では `git rev-parse --git-dir` と `--git-common-dir` の先）・`<git-common-dir>/packed-refs`・`<git-dir>/index`、
+  と**部品のソースの道そのもの**（`crates/`・`migrations/`・`Cargo.toml`・`Cargo.lock`。cargo は道が dir なら中を全部見る）を出す。cargo は build script が `rerun-if-changed` を 1 つでも出すとパッケージのファイルを見なくなる（`crates/server/build.rs` は今 `migrations/` だけを出している）ので、
+  ソースの道を出さないと add していない変更の後に `.dirty` が付かない（review/spec.md R2）。`target/` は道に入れない（組み立てのたびに変わる）。
+  費用: Rust のソースが変わった組み立てで build script が 1 回走る（git を 3 回。数十〜数百 ms）。印が前と同じなら crate は組み直されない
 - S-01 は ST48 の `build_commit()` を `crates/build-stamp` の関数に置き換え、`ASHIATO_BUILD_COMMIT`（ST48 の台帳が読む env）も同じ値で出し続ける（ST48 の振る舞いを変えない）
-- C-01: `app/build.gradle.kts` が `providers.exec`（`git rev-parse HEAD`・`git status --porcelain`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
+- C-01: `app/build.gradle.kts` が `providers.exec`（`git rev-parse HEAD`・`git status --porcelain -- collector-android`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
   release の variant だけ `.debug` を付けない）。`providers.exec` の値は構成キャッシュの入力として毎回確かめ直されるので、キャッシュに古い印が残らない。ビルドキャッシュも BuildConfig の入力が変われば作り直す
 - V-01: `web/build-stamp.ts`（設定から読む関数。`child_process.execFileSync` で git を呼ぶ）を `vite.config.ts` と `vitest.config.ts` の両方が読み、`define: { __ASHIATO_WEB_VERSION__: JSON.stringify(<印>) }` で埋め込む。
   `vite build`（`mode === "production"`）だけ `.debug` を付けない
@@ -91,19 +94,19 @@
   |---|---|---|---|
   | `core.event`・`core.event_version` | ○ | ○ | ○ |
   | `core.drop_report`・`core.media_missing` | ○ | — | ○ |
-  | `core.deletion_ledger`・`core.feeling_reminder` | — | — | ○ |
+  | `core.deletion_ledger`・`core.feeling_reminder`・`core.stay_criteria`・`core.attribute_kind_name` | — | — | ○ |
 
 - 移行 `migrations/<作成時刻>_record_component_version.sql`（名前の時刻は `202610250000` 以後）と `.down.sql`。`ADD COLUMN IF NOT EXISTS`・`CREATE OR REPLACE` で 2 回当てても落ちない。
   ST48 の D10（仮）の規則に従う: 前進側に `BEGIN` / `COMMIT` を文として持たず、`.down.sql` は `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ（ST48 は requires にあり、下流の入口が ST48 の実装を取り込むので、台帳と `tools/check-migrations.sh` の規則は下流の木にある）
 - 移行がすること: 上の列を足す / `core.event_live` を作り直す（`SELECT *` の展開は作った時点で固まる）/ `core.event_version_live` を作り直して 3 列を名指しで足す /
-  `core.reject_version_rewrite` に 3 列を足す（D16）。追記のみの 4 表のトリガは `UPDATE` を全部拒むので、新しい列は足すだけで凍結される
+  `core.reject_version_rewrite` と `core.require_version_or_ledger` に 3 列を足す（D16・D21（仮））。追記のみの 6 表のトリガは `UPDATE` を全部拒むので、新しい列は足すだけで凍結される
 - CHECK は置かない（値の形を検査しない。D8）。空の文字列は取り込み口で NULL にする（D8）ので、DB に `''` は入らない（CHECK `<> ''` も置かない —— 取り込み口の外の書き込みを断らないため）
 - 移行は既存の行を埋めない（D12）
 
 ### D8. 取り込み口の欄は `client_version` の 1 つ。形を検査せず、空は NULL
 
 - `IngestRequest`・`DropReportRequest`・`MediaMissingRequest` に `#[serde(default)] client_version: Option<String>` を足す。検査は足さない（断る理由を増やすと、収集アプリは FR-10 で記録を捨てる）
-- 前後の空白を除いて空なら NULL。U+0000 を含む値は格納できない（SQLSTATE 22021 でまとめ送り全体が 500 になる）ので、U+0000 を取り除いてから持つ（断らない）。長さは切り詰めない
+- 空の文字列（`""`）だけを NULL にし、ほかは前後の空白も含めて文字列のまま持つ（「文字列のまま」。review/spec.md R8）。U+0000 を含む値は格納できない（SQLSTATE 22021 でまとめ送り全体が 500 になる）ので、U+0000 を取り除いてから持つ（断らない。取り除いて空になれば NULL）。長さは切り詰めない
 - `docs/collector-contract.md` に任意の欄として足し、`docs/openapi.json` を再生成する
 - 退けた案: 収集アプリと画面に別の欄（`collector_version` / `web_version`）を送らせる —— 送り手が欄を選べると、画面のログインで収集アプリの版を名乗れる。欄は 1 つにし、どの列に入れるかは S-01 が資格情報で決める（D9）
 
@@ -116,7 +119,8 @@
 
 ### D10. S-01 の版はすべての記録に S-01 が自分で入れる
 
-- `crates/server` の定数 `BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP")` を、`ingest_one` の 2 つの INSERT・`apply_external_update`・`insert_stay` / `update_stay`・破棄の報告・原本の欠け・削除の台帳（`deletion.rs`・`stay_store.rs` の 2 か所）・気分の通知の台帳の INSERT が `server_version` に入れる
+- `crates/server` の定数 `BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP")` を、`ingest_one` の 2 つの INSERT・`apply_external_update`・`insert_stay` / `update_stay`・破棄の報告・原本の欠け・削除の台帳（`deletion.rs`・`stay_store.rs` の 2 か所）・気分の通知の台帳（`feelings.rs`）・滞在の基準（`stay_store.rs` の `set_criteria`）・個人属性の種類の名前（`attributes_store.rs` の 3 か所）の INSERT が `server_version` に入れる
+- 機械の止め: `server_version` を持つ表への INSERT の文（`crates/server/src` の試験でないファイル）が列の並びに `server_version` を名指すことを、文字列で見る試験 `st49_ledger_inserts_name_server_version` を置く（列は NULL 可なので、書き忘れた INSERT は何も落ちない。走っている ST23 が足す削除の台帳の INSERT も、rebase の後にこれが落として知らせる —— review/spec.md R5）
 - 要求の中身から決めない（送り手が S-01 の版を名乗る欄は無い）
 - 衛星の記録（ST29 / ST39 の後）も同じ INSERT を通るので S-01 の版を持つ。衛星自身の版は持たない（Q2 の推奨）。**record の段への申し送り**: Q2 の推奨が採られたら、FR-123 の本文（S-01 の版を持つ記録の範囲）と
   Story の完了の判定「衛星が書いた記録には版を付けない」（→「衛星の版を付けない」）を ★ で改訂する
@@ -150,15 +154,21 @@
 - C-01 の `DropDraft` に `clientVersion` を足し、下書きを始めるときに今の印を入れる。足そうとした下書きの `clientVersion` が今の印と違えば、その下書きを閉じて（`closed = true`）次の下書きを始める
 - 保存済みの下書きに `clientVersion` が無ければ（ST49 より前の下書き）、版の違う下書きとして閉じ、閉じた報告は版の欄の無いまま送る（今の版を付けない。D12）
 
-### D16. 記録の版は書き換えの門の外。前の版の版は凍結する
+### D16. 前の版の版は凍結する。本文の消去は版に触らない
 
-- `core.require_version_or_ledger`（本表の門）には版の列を足さない（端末・TZ の先例。誤った印を直す余地を残す）。版を書き換えるのは D1（仮）・D2（仮）の経路だけで、そのとき前の値は前の版に残る
 - `core.reject_version_rewrite`（前の版の錠）に 3 列を足す（TZ も前の版では凍結している先例と同じ）
+- 本表の版の列の扱いは D21（仮）
 - 本文の消去（ST23）は版の列に触らない（版は私的な中身ではない）
+
+### D21（仮）. 収集した記録の版の書き換えは、本表の門の対象にする（前の版を積むときだけ直せる）
+
+- premises の C8 は「門の外（端末・TZ の先例。誤った印を直す余地を残す）」で、同時に「列を書き換えるのは前の版を残す経路だけ」と書いていたが、門の外では後者を強制する仕組みが無く、直に書き換えると前の値がどこにも残らない（review/spec.md R7）。D1（仮）の「どちらの読み方にも戻せる」もそれに依る
+- `core.require_version_or_ledger` の変化を見る列に 3 つの版を足し、更新前の版の照合にも 3 列を足す。版を書き換えるには、同じまとまりに前の版の行（D1（仮）・D2（仮）の経路、または直すための `push_version` と同じ形の INSERT）が要る。誤った印は直せる（前の版を積めば通る）
+- 反転条件: 誤った印を前の版を残さずに直したい事例（前の版の表の行数が問題になる量の直し）が出たら、門の外へ戻す（前の値は前の版に残っているので、戻しても失うものが無い）
 
 ### D17. 書き出しの列
 
-- `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS` に 3 列を `schema_version` の次に足す（ST41 も同じ一覧に足すので、末尾を取り合わない）。`DROP_REPORT_COLUMNS` に 2 列、`FEELING_REMINDER_COLUMNS` に 1 列。説明は D4（仮）
+- `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS` に 3 列を `schema_version` の次に足す（ST41 も同じ一覧に足すので、末尾を取り合わない）。`DROP_REPORT_COLUMNS` に 2 列、`FEELING_REMINDER_COLUMNS`・`STAY_CRITERIA_COLUMNS`・`ATTRIBUTE_KIND_NAME_COLUMNS` に 1 列。説明は D4（仮）
 - 今の列は消さず・名前を変えない。書き出しの列の一覧の試験（表の列と一覧が一致する）が新しい列を一覧に足し忘れたら落ちる（`CATALOG` の今の検査）
 
 ### D18. この Story で作らないもの
@@ -171,7 +181,7 @@
 
 - ST41: 移行は**当てる時点の** `core.event_live`・`core.event_version_live`・`core.reject_version_rewrite` の本体を写して版の列を足す。ST41 が先に main に入っていれば終わりの列を含む本体を写す（rebase のときに写し直す）。
   `IngestRequest`・2 つの INSERT・`apply_external_update`・前の版の INSERT・`push_version`・書き出しの一覧は、列を足す箇所が隣り合うだけで、意味は重ならない
-- ST23: D9 の引数
+- ST23: D9 の引数。ST23 が足す削除の台帳の INSERT（本文ごと消す `user:purged` の行）と新しい操作の台帳は `server_version` を書く必要がある —— D10 の機械の止めが rebase の後に落とす。`docs/handoff/ST23.md` に申し送る（review/spec.md R5）
 - ST48: D5・D6（`build.rs`）と D7（移行の規則）。requires に入れてある
 
 ### D20. 画面は、送る 1 件に読み込まれた画面の印を載せる
@@ -184,11 +194,11 @@
 
 - [ST49 より前の S-01 に、新しい収集アプリが送ると版だけが落ちる] → 入れ替えは S-01 を先にする（Migration Plan）。期限の後は ST50 が止める（D3（仮）・`docs/handoff/ST50.md`）
 - [ST49 より前の版の収集アプリへ戻した間の版は落ちる（直せない）] → 代償として書く。以後の版どうしの行き来では、知らない欄を送り返すので落ちない（D3（仮））
-- [作業木のファイルを書き換えただけ（add していない）の変更は、`.dirty` の作り直しの印に乗らないことがある] → `rerun-if-changed` はその crate のソースの変化でも作り直すので、変えた crate 自身の印は新しくなる。
-  別の crate だけを書き換えた組み立てでは `.dirty` が付かないことがある。配る組み立て（CI）は常に綺麗な木から作るので、影響は手元の組み立てだけ
+- [`.dirty` はその部品のソースだけを見る] → ほかの部品の木の変更は印に乗らない（その組み立てに入らないので、同じ中身の組み立てを別のものに見せない。D5）。部品のソースの道の外にある組み立ての入力（`~/.cargo` の依存・gradle の設定など）の変更も乗らない —— 依存は `Cargo.lock` / gradle の宣言で commit に入る
 - [申告の版は偽れる] → 書き出しの説明で「申告（確かめていない）」と書く（D4（仮））。S-01 の版は S-01 が入れる
 - [記録 1 件あたり 40〜60 バイト増える] → C-02 のウィンドウは 1 日数千件で 1 日 300 KB 未満。未送信の上限（2 GB）に対して無視できる（review/deep.md の手順 4）
 - [ST41・ST23 と同じ関数と移行の本体を触る] → D19。後から入る側が rebase で写し直す
+- [D21（仮）で、版を直すたびに前の版の行が 1 つ増える] → 版を直すのは古い組み立ての誤った印を見つけたときだけで、量は小さい
 
 ## Migration Plan
 
