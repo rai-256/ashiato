@@ -74,10 +74,9 @@ new_tree() {
 }
 commit_all() { git -C "$T" add -A && git -C "$T" commit -q -m "$1"; }
 tag_v1() { git -C "$T" tag v1.0.0; }
-# 期待: $1=0 通る / 1 落ちる
+# 期待: $1=0 通る / 1 落ちる（印の echo は呼ぶ側に literal で置く。check_scenarios.py が literal を拾う）
 expect() {
-  local want="$1" name="$2" rc=0 out
-  echo "Scenario: $name"
+  local want="$1" rc=0 out
   out="$(cd "$T" && check_tree 2>&1)" || rc=$?
   if [ "$rc" -ne "$want" ]; then
     echo "  FAIL: rc=$rc（期待 $want）"; printf '%s\n' "$out" | sed 's/^/    /'
@@ -87,37 +86,37 @@ expect() {
 
 new_tree; tag_v1
 echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit
-expect 1 "配った版にある移行の中身を変えると、検査が落ちる"
+echo "Scenario: 配った版にある移行の中身を変えると、検査が落ちる"; expect 1
 
 new_tree; tag_v1
 git -C "$T" rm -q migrations/202001010001_b.sql migrations/202001010001_b.down.sql
 printf '202001010000_a\n' >"$T/migrations/ORDER"; commit_all rm
-expect 1 "配った版にある移行を消すと、検査が落ちる"
+echo "Scenario: 配った版にある移行を消すと、検査が落ちる"; expect 1
 
 new_tree; tag_v1
 git -C "$T" mv migrations/202001010001_b.sql migrations/202001010002_b.sql
 git -C "$T" mv migrations/202001010001_b.down.sql migrations/202001010002_b.down.sql
 printf '202001010000_a\n202001010002_b\n' >"$T/migrations/ORDER"; commit_all rename
-expect 1 "配った版にある移行の名前を変えると、検査が落ちる"
+echo "Scenario: 配った版にある移行の名前を変えると、検査が落ちる"; expect 1
 
 new_tree
 echo "ALTER TABLE x;" >>"$T/migrations/202001010000_a.sql"; commit_all edit
-expect 0 "配った印が無ければ、検査は通る"
+echo "Scenario: 配った印が無ければ、検査は通る"; expect 0
 
 new_tree; tag_v1
 echo "ALTER TABLE x;" >"$T/migrations/202001010002_c.sql"
 echo "DROP x;" >"$T/migrations/202001010002_c.down.sql"
 echo 202001010002_c >>"$T/migrations/ORDER"; commit_all add
 echo "ALTER TABLE y;" >>"$T/migrations/202001010002_c.sql"; commit_all edit-new
-expect 0 "配った印の後に足した移行は、変えても通る"
+echo "Scenario: 配った印の後に足した移行は、変えても通る"; expect 0
 
 new_tree; tag_v1
 echo "-- changed" >>"$T/migrations/202001010000_a.down.sql"; commit_all edit-down
-expect 0 "配った版にある移行の戻し手順は、変えても通る"
+echo "Scenario: 配った版にある移行の戻し手順は、変えても通る"; expect 0
 
 # 印の指す commit が無い木: 印の ref だけ置いて、commit の実体は持たない
 new_tree
 echo 0123456789abcdef0123456789abcdef01234567 >"$T/.git/refs/tags/v1.0.0"
-expect 1 "配った印の版を読めなければ、検査は通らない"
+echo "Scenario: 配った印の版を読めなければ、検査は通らない"; expect 1
 
 [ "$fail" -eq 0 ] && echo "check-released-migrations self-test OK" || { echo "check-released-migrations self-test NG"; exit 1; }
