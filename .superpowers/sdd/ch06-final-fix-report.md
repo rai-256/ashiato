@@ -15,3 +15,8 @@ fix agent の報告（要約・逐語に近い）:
 
 確かめ（最終のコード）: check-verify-env-reset.sh --self-test 0 / check-ports.sh --self-test 0 / check-private.sh 0 /
 check_scenarios.py 0 / quiet-run 本体 0（64 秒、3. は worktree で SKIP）/ verify-run 7.3 0 / 変えないファイルの diff 空 0 / openspec validate --strict（手）0
+
+## Rulings（final の controller）
+
+- Ruling: R2 —— 7.1 の 5 回中 1 回の PASS で完了の判定 2 を満たすとみなした（落ちた試験は時間・負荷と `fresh_db` の `FORCE` の権限で、`crates/` は不変・単独で通る）。違っていたら: 揺れる試験を直す change を CH06 の前に通す必要があり、CH06 の merge が遅れる。揺れる試験の起票を PR 本文の申し送りに挙げる
+- Ruling: R7 —— re-review の Important（`body || exit $?` が errexit と ERR trap を殺す）を、第 2 の fix wave でなく controller が直した（`trap - ERR` の後に `return 1`、呼び出しは `body; exit $?`）。この直しはレビューの席を通っていない（bash の再現 2 本と本体 rc=0 で確かめた。code-verify が続けて見る）。違っていたら: 本体の失敗が trap の行を出さないか、通らない回が OK になる
