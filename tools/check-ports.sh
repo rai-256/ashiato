@@ -45,6 +45,8 @@ want "残った worktree の番号は変わらない" "$(ports demo-ch02)" "5560
 
 # DB の subnet（design D5）。期待値は printf で組む（追跡するファイルに点区切りの 4 つ組を書かない）
 echo "Scenario: どの 2 つの木も、DB の subnet が被らない"
+# spec の 7 つの木（-ch<NN> の 2 つは demo-ch02 と、消えた demo-ch01 の番号を継いだ demo-ch09）。demo-st06-t7 は並べない
+# —— port は上で被らないと確かめ、subnet は port の単射なので、並べなくても被らない
 all=$(for w in demo demo-st05 demo-verify demo-ch02 demo-up-st05 demo-rec-st22; do subnet "$w"; echo; done; subnet demo-ch09; echo)
 want "いまある 7 つの木の subnet が全部違う" "$(sort -u <<<"$all" | grep -c .)" "7"
 want "どの subnet も /24 で終わる" "$(grep -c '/24$' <<<"$all")" "7"

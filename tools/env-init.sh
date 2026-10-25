@@ -38,10 +38,12 @@ if [ -f "$root/.env" ]; then
   # COMPOSE_FILE の行だけをそろえる（ほかの行は 1 文字も変えない）。一時ファイルから中身だけを入れ替え、権限と inode を保つ
   tmp="$(mktemp "$root/.env.XXXXXX")"
   trap 'rm -f "$tmp"' EXIT
-  awk -v cf="$compose_file" '
-    /^COMPOSE_FILE=/ { if (cf != "" && !done) { print "COMPOSE_FILE=" cf; done = 1 } next }
-    { print }
-    END { if (cf != "" && !done) print "COMPOSE_FILE=" cf }' "$root/.env" >"$tmp"
+  # 末尾に改行の無い .env は、最後の行を残したなら改行を足さない（nl: 元の末尾が改行か空。e: 最後に出した元の行の番号）
+  awk -v cf="$compose_file" -v nl="$([ -n "$(tail -c1 "$root/.env")" ] || echo 1)" '
+    function out(l) { printf "%s%s", (n++ ? "\n" : ""), l }
+    /^COMPOSE_FILE=/ { if (cf != "" && !done) { out("COMPOSE_FILE=" cf); done = 1; e = NR } next }
+    { out($0); e = NR }
+    END { if (cf != "" && !done) { out("COMPOSE_FILE=" cf); e = 0 } if (n && (nl || e != NR)) printf "\n" }' "$root/.env" >"$tmp"
   cmp -s "$tmp" "$root/.env" || cat "$tmp" >"$root/.env"
   exit 0
 fi

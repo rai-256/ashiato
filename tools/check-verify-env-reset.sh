@@ -33,6 +33,9 @@ body() {
   # sentinel（コンテナ・volume・network・compose project）は必ず消す
   cleanup() {
     [[ -z $holder_pid ]] || kill "$holder_pid" 2>/dev/null || true
+    # kill が止めるのは exec の CLI だけ。DB が生きていれば pg_sleep の backend も切る
+    docker compose exec -T db psql -X -qtA -U ashiato -d ashiato \
+      -c "select pg_terminate_backend(pid) from pg_stat_activity where application_name='ch06-holder'" >/dev/null 2>&1 || true
     local ids
     ids=$(docker ps -aq --filter "name=$sp"); [[ -z $ids ]] || docker rm -f $ids >/dev/null 2>&1 || true
     ids=$(docker volume ls -q --filter "name=$sp"); [[ -z $ids ]] || docker volume rm $ids >/dev/null 2>&1 || true
@@ -49,6 +52,9 @@ body() {
   ok() { if [[ $2 == 0 ]]; then good "$1"; else ng "$1"; fi; }
   has() {  # has <説明> <文字列> <部分>
     if [[ $2 == *"$3"* ]]; then good "$1"; else ng "$1（$3 が無い）"; fi
+  }
+  cut0() {  # cut0 <説明> —— 出力に「切った接続: 0」の行がある（10 などには当たらない）
+    local c=0; both | grep -qE '切った接続: 0([^0-9]|$)' || c=1; ok "$1" $c
   }
 
   q() { docker compose exec -T db psql -X -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
@@ -144,7 +150,7 @@ YML
   echo "Scenario: 繋いでいるものがあれば、切った数と出所を 1 行出す"
   marked
   want "rc=0" "$rc" 0
-  line=$(both | grep '切った接続: 1' || true)
+  line=$(both | grep -E '切った接続: 1([^0-9]|$)' || true)
   has "切った接続: 1 の行に ch06-holder がある" "$line" "ch06-holder"
   hrc=0; wait "$holder_pid" || hrc=$?; holder_pid=
   c=0; [[ $hrc != 0 ]] || c=1; ok "ch06-holder の psql は非 0（rc=$hrc）" $c
@@ -172,7 +178,7 @@ YML
   echo "Scenario: 繋いでいるものが無ければ、切った接続は 0 と出す"
   marked
   want "rc=0" "$rc" 0
-  has "切った接続: 0 の行がある" "$(both)" "切った接続: 0"
+  cut0 "切った接続: 0 の行がある"
   echo "Scenario: 作り直しの後、前の DB の volume は残らない"
   for v in $vols5 $vols5_now; do
     if vol_exists "$v"; then ng "前の volume $v が残っている"; else good "前の volume $v は無い"; fi
@@ -186,7 +192,7 @@ YML
   for v in $vols7; do docker volume rm "$v" >/dev/null; done
   marked
   want "rc=0" "$rc" 0
-  has "切った接続: 0 の行がある" "$(both)" "切った接続: 0"
+  cut0 "切った接続: 0 の行がある"
   want "DB のコンテナが立っている" "$(docker compose ps --status running -q db | grep -c .)" 1
 
   if [[ -f docker-compose.subnet.yml ]]; then
@@ -234,7 +240,7 @@ YML
 
 case "${1:-}" in
   --self-test) ;;
-  "") body; exit $? ;;
+  "") body || exit $?; exit 0 ;;   # `||` の左なので、body の非 0 で ERR trap は鳴らない
   *) echo "使い方: $0 [--self-test]" >&2; exit 2 ;;
 esac
 
@@ -262,7 +268,13 @@ mk demo-ch01; mk demo-ch02; mk demo-st05; mk demo-verify
 # 一時の木の道具を、結果に回り込む 9 つの変数を落として呼ぶ
 clean() { env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u APP_DB_PASSWORD -u ASHIATO_DB_SUBNET -u ASHIATO_DB_PORT \
   -u ASHIATO_HTTP_PORT -u COMPOSE_FILE -u CI -u HARNESS_VERIFY "$@"; }
-init() { clean "$@" "$tmp/$w/tools/env-init.sh" 2>/dev/null; }   # init の前に w を決める
+init() {  # init の前に w を決める。落ちたら場合（呼んだ行の直前の Scenario の印）を名指しし、stderr を添えて NG で終える
+  clean "$@" "$tmp/$w/tools/env-init.sh" 2>"$tmp/init-err" && return
+  local s
+  s=$(awk -v n="${BASH_LINENO[0]}" 'NR > n { exit } sub(/^echo "Scenario[:] /, "") { sub(/"$/, ""); s = $0 } END { print s }' tools/check-verify-env-reset.sh)
+  echo "  self-test NG: [$s] $w の tools/env-init.sh が失敗した: $(cat "$tmp/init-err")" >&2
+  echo "self-test FAILED" >&2; exit 1
+}
 subnet() { clean bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/$1"; }
 perm() { stat -c %a "$tmp/$1/.env"; }
 pw='POSTGRES_PASSWORD=pg
