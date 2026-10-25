@@ -1,0 +1,2 @@
+=== ST48 の深掘り（第 2 回） の回答 ===
+Q6 [確認バッチの前の回の DB に、本体で消した記録が残る（Q5 の前提）] -> 前の回の DB は残す（Q5 のまま）。確認手順書に「この回の DB は消えずに残る。消すなら COMPOSE_PROJECT_NAME=<この回> docker compose down -v」を載せ、design の Risks に消した記録が残ることを書く。片付けの道具は後の change

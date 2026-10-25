@@ -88,6 +88,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA migration_ledger TO ashiato_app;
 ### D5（仮）. 版の記録が読めないときは止める側に倒す
 
 - 読めない = `migration_ledger` はあるのに `form` の表か行が無い・`form` が 1 でない・`applied` の列が D1 と違う（列の名前と型だけを見る。行の中身は見ない）
+- 読む役割に schema の `USAGE` か表の `SELECT` が無いときは、形を見る前に「読む権限が無い（付与の抜け）」として読めないにする。`information_schema.columns` は読めない列を隠すので、付与の抜けが「表が無い」に見え、作り直しの案内へ導く（review/code.md R30）
 - migrate も起動も、終了コード 3 で `kind=ledger_unreadable`
 - 反転条件: 後の版が `form` を上げずに列を足す必要が出たら（D1 の凍結の試験が先に落ちて分かる）、「知らない列は読み飛ばす」に替える前に人間へ聞く（配った版の読み方が変わる）
 
@@ -110,9 +111,19 @@ error: kind=db_ahead
   この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない
 ```
 
+21 件以上なら、20 件の `db:` の後に件数の行が 1 つ入る（例は 23 件）:
+
+```
+error: kind=db_ahead
+  db: …（20 行）
+  more: 3
+  self: 0.1.0 9f8e7d6c…
+  この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない
+```
+
 - この形（行の頭と 20 件の上限）は spec の Requirement「知らない版が当たった DB には…」が持つ
-- `kind=` の行は既存の `net_guard::refuse` と同じ形の 1 行目。続く行は 2 字下げで `db:` / `self:` / 説明
-- 版の名前は 20 件まで並べ、超えたら件数だけを足す
+- `kind=` の行は既存の `net_guard::refuse` と同じ形の 1 行目。続く行は 2 字下げで `db:` / `more:` / `self:` / 説明
+- 版の名前は 20 件まで並べ、超えたら件数だけを `  more: <N>`（N は並べなかった版の数。数字だけ）の 1 行で足し、その後に `self:` の行が来る。`  db: ` の頭は 1 版 1 行（`<名前> (<版番号> <commit>)`）にだけ使う（ST58 が機械で読むので、件数の行に同じ頭を使わない）
 - `db_behind` は `self:` と「まだ当たっていない版が N 個。先に `ashiato-server migrate` を」を出す（名前は並べない。新しい版のサーバで migrate を忘れただけで、名前は ORDER にある）
 - `tracing::error!(kind = …)` にも同じ種別を出す（値として版の名前を載せてよい。私的データではない）
 - サーバの 3 は `db_role` の検査の後・待ち受けを開く前（Requirement の「待ち受けを開く前」）
@@ -129,6 +140,7 @@ error: kind=db_ahead
 
 - 版番号は `env!("CARGO_PKG_VERSION")`。commit は `build.rs` が決めて `cargo:rustc-env=ASHIATO_BUILD_COMMIT=…` で渡す: 環境変数 `ASHIATO_BUILD_COMMIT` があればそれ、無ければ `git rev-parse HEAD`（失敗したら `unknown`）
 - `build.rs` は `cargo:rerun-if-env-changed=ASHIATO_BUILD_COMMIT` を出す。git の HEAD の変化では作り直さない（差分のビルドでは commit が古いまま残りうる。診断の材料なので許す）
+- 試験は、組み立てに渡した値を別の名前（`ASHIATO_EXPECT_BUILD_COMMIT`）で受けて行の値と比べる（cargo は build script の `rustc-env` を試験の実行時の環境にも入れるので、`ASHIATO_BUILD_COMMIT` を実行時に読むと組み立て済みの値が見える）。CI は同じ乱数を両方に渡して 1 本だけ走らせる（review/code.md R20）
 - 反転条件: ST52 が版番号の出所を 1 つにしたら、そちらから読む（commit は残す）。commit が古いままで食い違いを読み違えた事例が出たら、`.git/HEAD` と参照先を `rerun-if-changed` に足す
 
 ### D9（仮）. 配った印 = タグ `v*`、凍結の検査は `tools/check-released-migrations.sh`
@@ -136,6 +148,7 @@ error: kind=db_ahead
 - 印の型: `git tag --list 'v[0-9]*'`。ST52 がタグを付け始める。別の型にするなら、この台本の型を一緒に変える（`docs/handoff/ST52.md`）
 - 検査: 印ごとに `git show <tag>:migrations/ORDER` の版の名前を取り、今の木の `migrations/ORDER` に全部あること、`git diff --quiet <tag> HEAD -- migrations/<名前>.sql` が 0 であることを見る。`.down.sql` は見ない
 - 印が 0 個なら「配った印が 0 個」と出して rc=0。印の commit や `ORDER` を取り出せなければ rc≠0（印があるのに読めないのは CI の取り寄せの不足）
+- CI の取り寄せは `git ls-remote` の失敗を「印が 0 個」と区別して落とす（読めないまま検査を緑にしない。review/code.md R18）
 - CI: rust の job で `git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'` の後に走らせる（checkout は浅いのでタグが無い）。`--self-test`（使い捨ての git の木でタグを付け、中身の変更・消去・名前の変更が落ち、印の後の版と `.down.sql` の変更が通ることを見る）も同じ job で走らせる
 - 反転条件: 正式版の枝の緊急修正（FR-105）で、印の版の移行を直す必要が出たら、直さずに新しい版を足す。それができない事例が出たら人間へ聞く
 
@@ -145,6 +158,7 @@ error: kind=db_ahead
   (b) `.down.sql` に `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ
 - 境を名前の時刻にするのは、走っている ST23・ST41・ST29 の版（どれも 2026-10-25 より前の時刻）に、後から規則を課さないため（差し戻さない）
 - `--self-test` を足す（使い捨てのフォルダに規則を破る版と守る版を置いて、落ちる・通るを見る）
+- `tools/check-immutable.sh` は psql で当てる DB にも版の記録の置き場（bootstrap）だけを作る（行は書かない）。(b) の `DELETE` が戻しの検査で落ちないため（review/code.md R23）。置くのは本体でなく Story の節 `tools/check-immutable.d/202610250000_st48-migration-ledger.sh`（節の前の準備がアプリの役割を作った後・戻しの並びの前に読まれる。本体の準備のかたまりに足すと `tools/check-shared-appends.sh` が落とす）
 - 反転条件: 境より前の時刻を名前に付けた新しい版が入った（時刻を手で書き違えた）と分かったら、境を「この版より後に ORDER に足した版」に替える
 
 ### D11. 1 版 1 取引と錠
@@ -152,11 +166,12 @@ error: kind=db_ahead
 - 当てる処理は 1 本の接続で行う。始めに `pg_advisory_lock(4820251)`（試験の足場がいま取る鍵と同じ数。セッションの錠）を取り、終わり（成功も失敗も）に外す。試験の足場はいまの外側の取引と `pg_advisory_xact_lock` を外して呼ぶ（残すと、別の接続の `apply_migrations` が自分を待ち続ける）
 - 1 版ごとに取引を開き、版の中身 → `INSERT INTO migration_ledger.applied …` → commit。版が落ちたらその取引ごと戻り、その版も後の版も記録されない（C7）
 - 自分で `BEGIN` / `COMMIT` を持つ前からの 2 版は、中の `COMMIT` で取引が先に閉じ、記録の行はその後に単独で入る。その間に落ちると、次の回にその版をもう一度当てる（前からの版は当て直せる。`tools/check-immutable.sh` が 2 回当てて見ている）。これから足す版は D10 で自分の取引を持たない
-- `GRANTS` は全部の版の後に毎回（いまのまま）
+- `GRANTS` は全部の版の後に毎回、**錠の中で**当てる（同時の `GRANT … ON ALL TABLES` / `ALTER DEFAULT PRIVILEGES` は `tuple concurrently updated` で落ちる）。ahead・読めないなら流さない（D4）
+- 錠を外せなかったら、その接続を pool に返さずに `detach` して閉じる（セッションの錠は接続が閉じるまで残る）
 
 ### D12. 当てる経路を 1 つの関数に寄せる
 
-- `pub async fn apply_migrations(conn: &mut PgConnection, versions: &[(&str, &str)]) -> Result<Applied, ApplyError>` を `migration_ledger.rs` に置く。`migrate()`・試験の足場（`testdb.rs`。CH04 のテンプレートも）・試験用の並び（Scenario「途中で落ちたら」）がこれを呼ぶ
+- `pub async fn apply_migrations(conn: PoolConnection<Postgres>, versions: &[(&str, &str)]) -> Result<(), MigrateError>` と、退避（`before_apply`）と付与の SQL（`grants`）を足した `apply_migrations_with` を `migration_ledger.rs` に置く（接続を受け取るのは、錠を外せないとき `detach` して閉じるため）。`migrate()`・試験の足場（`testdb.rs`。CH04 のテンプレートも）・試験用の並び（Scenario「途中で落ちたら」）がこれを呼ぶ
 - 版の記録を読む `read_ledger(conn) -> Result<LedgerState, ReadError>` と、判定 `compare(known, ledger) -> Verdict`（純粋な関数。`Ahead` / `Behind` / `Even`）を分け、起動の検査も同じものを使う
 - `tools/check-immutable.sh` は psql で直に当てるまま（使い捨ての DB を `down -v` で捨てる。版の記録は持たない）。「`run()` は起動のたびに全版を当てる」の注記だけを「前からある版は当て直せることを保つ（記録の無い古い DB に一度全部を当てるので）」に直す
 
@@ -165,8 +180,10 @@ error: kind=db_ahead
 - `verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す。compose の DB の容器と置き場（無名の volume）は project ごとに分かれる。`docker compose exec db psql -d ashiato` の書き方（`seed.sh` など）はそのまま新しい DB を指す
 - 待ち受けの port（55499）は回をまたいで同じなので、`stack.sh` は DB を起こす前に、その port を公開している容器が別の project のものなら `docker stop` する（`down` しない。置き場が残る）。止めたことを 1 行出す
 - 前の回の DB を見るには `COMPOSE_PROJECT_NAME=<前の名前> docker compose up -d db`
+- 端末の測定は回ごとの DB に分かれて入るので、`verify-prep.sh` の `c01-clock` の数（ST05 D4 の反転条件）は、前の回の DB（`ashiato-verify-*`）と既定の project の DB を 1 つずつ起こして数えて足し、機械が判定する（止まっていた DB は数えた後に止め直す。review/code.md R27）
 - 退けた案: 1 つの PostgreSQL の中で database を分ける —— `seed.sh`・`seed.d/`・`archive-shape.sh` などの `-d ashiato` を全部書き換えることになる
-- 反転条件: 残る project の置き場が数十 GB を超える・本人が片付けの手間を違和感として返したら、片付けの道具を足す（別の change）
+- 確認手順書（`manifest.md`）に「この回の DB は消えずに残る。消すなら `COMPOSE_PROJECT_NAME=<この回> docker compose down -v`」を載せる（Q6。review/code.md R22）
+- 反転条件: 残る project の置き場が数十 GB を超える・本人が片付けの手間を違和感として返した・本体で消した記録が前の回の DB に残ることを本人が違和感として返したら、片付けの道具を足す（別の change。その change は「本体で削除したら、残っている回の DB をどうするか」を起点に持つ）
 
 ### D14. 止まったときの手順 —— `stack.sh` と `dev.sh`
 
@@ -198,6 +215,7 @@ error: kind=db_ahead
 - [DB の置き場は無名の volume（`docker-compose.yml` に `volumes:` が無い）] → 容器を消す（`docker compose down`。`-v` 無しでも）と置き場が孤立し、次の `up` は空の置き場を付ける。`stack.sh down` を `docker compose stop` に替え、別の project の DB も `docker stop` だけにする（D13）。named volume に替えない —— main の checkout の DB（電話の記録が入っている）が次の `up` で空の置き場に付け替わる
 - [確認バッチの前の回の DB が積もる（D13）] → 片付けは後の change。前の回の DB の置き場は `docker volume ls` で見える
 - [`run.sh` の DB が回ごとに新しくなる] → 確認の間に電話が送った記録は、その回の DB にだけ入る（次の回の DB には無い）。前の回の DB は残るので失われない
+- [前の回の DB に、本体で消した記録が残る（Q6。review/code.md R22）] → 削除（`deletion.rs`）が届くのは本体の DB だけ。前の回の DB を `COMPOSE_PROJECT_NAME=<前の名前> docker compose up -d db` で起こすと、消した記録が画面ごと戻る。本人が `docker compose down -v` で消すまで残る（消し方は確認手順書に載る）。片付けの道具は後の change
 - [CH04 の `testdb.rs` の作り替えと衝突する] → 当てる処理を `apply_migrations` に寄せ、`testdb.rs` の差は呼び出しの数行にする。後から入る側が rebase で解く
 
 ## Migration Plan
