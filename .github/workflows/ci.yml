@@ -72,6 +72,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: ./tools/check-migrations.sh --self-test
       - run: ./tools/check-migrations.sh
       # 配った印（タグ v*）の版の移行を変えない・消さない（ST48 / design D9）。checkout は浅くタグが無いので取り寄せる
       # 印がまだ 1 つも無いと `git fetch` は rc=1 になるので、ls-remote で v* があるときだけ取り寄せる
