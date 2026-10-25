@@ -24,13 +24,20 @@ class HealthTestService : TestableLocationService() {
     override fun healthPermissions(): HealthPermissions = object : HealthPermissions by health {
         override suspend fun read(context: android.content.Context): HealthReading {
             if (readThrows) throw IllegalStateException("boom")
+            if (readHangs) kotlinx.coroutines.awaitCancellation()
             return health.read(context)
         }
     }
 
+    override fun healthReadTimeoutMs(): Long = readTimeoutMs
+
     companion object {
         var health: FakeHealthPermissions = FakeHealthPermissions.available()
         var readThrows = false
+
+        /** Health Connect の問い合わせが返らない（IPC が止まった）。 */
+        var readHangs = false
+        var readTimeoutMs = LocationService.HEALTH_READ_TIMEOUT_MS
     }
 }
 
@@ -40,9 +47,16 @@ class HealthTestService : TestableLocationService() {
 class HealthNotificationTest {
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
-    private fun start(health: FakeHealthPermissions, readThrows: Boolean = false): HealthTestService {
+    private fun start(
+        health: FakeHealthPermissions,
+        readThrows: Boolean = false,
+        readHangs: Boolean = false,
+        readTimeoutMs: Long = LocationService.HEALTH_READ_TIMEOUT_MS,
+    ): HealthTestService {
         HealthTestService.health = health
         HealthTestService.readThrows = readThrows
+        HealthTestService.readHangs = readHangs
+        HealthTestService.readTimeoutMs = readTimeoutMs
         val controller = Robolectric.buildService(HealthTestService::class.java, Intent()).create()
         controller.startCommand(0, 1)
         return controller.get()
@@ -113,5 +127,41 @@ class HealthNotificationTest {
         s.source.deliver()
 
         assertEquals(2, s.outboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE })
+    }
+
+    @Test
+    fun `見直しの問い合わせが返らなくても上限で諦め、位置の生存信号は出続ける`() {
+        val s = start(FakeHealthPermissions.available(), readHangs = true, readTimeoutMs = 100)
+        fun locationBeats() = s.heartbeatOutboxForTest.snapshot().count { it.logicalSource == LOGICAL_SOURCE }
+        val before = locationBeats()
+
+        val began = System.nanoTime()
+        s.beatScheduler.fire() // 返らない読みで止まらない
+        s.beatScheduler.fire()
+        val tookMs = (System.nanoTime() - began) / 1_000_000
+
+        assertEquals(before + 2, locationBeats())
+        assertTrue("上限で諦めていない（${tookMs}ms）", tookMs < 10_000)
+        assertTrue(
+            "諦めたことが種別で残っていない",
+            org.robolectric.shadows.ShadowLog.getLogsForTag(LocationService.TAG)
+                .any { "health_permission_crashed" in it.msg && "TimeoutCancellationException" in it.msg },
+        )
+    }
+
+    @Test
+    fun `権限の画面が無い端末で通知を何度組み直しても、無いことのログは 1 度だけ`() {
+        val health = FakeHealthPermissions.available()
+        val s = start(health)
+        val available = health.reading
+        health.reading = FakeHealthPermissions.unavailable(HealthAvailability.NOT_INSTALLED).reading
+        s.beatScheduler.fire() // 使えなくなった —— 組み直す
+        health.reading = available
+        s.beatScheduler.fire() // 使えるようになった —— 操作つきで組み直す
+        assertNotNull(healthAction(posted()))
+
+        val missing = org.robolectric.shadows.ShadowLog.getLogsForTag(LocationService.TAG)
+            .count { "health_permission_settings_missing" in it.msg }
+        assertEquals(1, missing)
     }
 }
