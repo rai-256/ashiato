@@ -21,6 +21,7 @@ git -C "$tmp/demo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
 mk() { git -C "$tmp/demo" worktree add -q --detach "$tmp/$1"; mkdir -p "$tmp/$1/tools"; cp "$src" "$tmp/$1/tools/"; }
 mkdir -p "$tmp/demo/tools"; cp "$src" "$tmp/demo/tools/"
 ports() { env -u ASHIATO_DB_PORT -u ASHIATO_HTTP_PORT bash -c '. "$0/tools/ports.sh" && echo "$ASHIATO_DB_PORT $ASHIATO_HTTP_PORT"' "$tmp/$1"; }
+subnet() { env -u ASHIATO_DB_PORT -u ASHIATO_HTTP_PORT bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/$1"; }
 want() {  # want <説明> <実際> <期待>
   if [[ $2 == "$3" ]]; then echo "  self-test ok: $1"; else echo "  self-test NG: $1（$2。期待は $3）" >&2; fail=1; fi
 }
@@ -41,6 +42,24 @@ git -C "$tmp/demo" worktree remove --force "$tmp/demo-ch01"
 mk demo-ch09
 want "消えた worktree の番号を使い回す" "$(ports demo-ch09)" "55600 19200"
 want "残った worktree の番号は変わらない" "$(ports demo-ch02)" "55601 19202"
+
+# DB の subnet（design D5）。期待値は printf で組む（追跡するファイルに点区切りの 4 つ組を書かない）
+echo "Scenario: どの 2 つの木も、DB の subnet が被らない"
+# spec の 7 つの木（-ch<NN> の 2 つは demo-ch02 と、消えた demo-ch01 の番号を継いだ demo-ch09）。demo-st06-t7 は並べない
+# —— port は上で被らないと確かめ、subnet は port の単射なので、並べなくても被らない
+all=$(for w in demo demo-st05 demo-verify demo-ch02 demo-up-st05 demo-rec-st22; do subnet "$w"; echo; done; subnet demo-ch09; echo)
+want "いまある 7 つの木の subnet が全部違う" "$(sort -u <<<"$all" | grep -c .)" "7"
+want "どの subnet も /24 で終わる" "$(grep -c '/24$' <<<"$all")" "7"
+want "main の checkout の subnet は off = 32 の値" "$(subnet demo)" "$(printf '10.%d.%d.0/24' 200 32)"
+want "範囲の外の port では subnet を出さない" "$(ASHIATO_DB_PORT=1 bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/demo")" ""
+# 範囲の端（off = port − 55400）。生きている木の off はどれも 256 未満なので、201 の側と 512 の上限はここで固定する
+sub_at() { ASHIATO_DB_PORT=$1 bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/demo"; }
+want "off = 0 は 200 の側の最初" "$(sub_at 55400)" "$(printf '10.%d.%d.0/24' 200 0)"
+want "off = 255 は 200 の側の最後" "$(sub_at 55655)" "$(printf '10.%d.%d.0/24' 200 255)"
+want "off = 256 で 201 の側に繰り上がる" "$(sub_at 55656)" "$(printf '10.%d.%d.0/24' 201 0)"
+want "off = 511 は 201 の側の最後" "$(sub_at 55911)" "$(printf '10.%d.%d.0/24' 201 255)"
+want "off = 512（範囲の外）では出さない" "$(sub_at 55912)" ""
+want "off < 0 では出さない" "$(sub_at 55399)" ""
 
 # 並んで呼んでも被らない（台帳は flock で 1 本ずつ書く）
 for i in $(seq 10 19); do mk "demo-par$i"; done
