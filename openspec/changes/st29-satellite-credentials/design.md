@@ -132,16 +132,27 @@ CREATE TABLE IF NOT EXISTS core.satellite_credential (
 ```sql
 ALTER TABLE core.access_log ADD COLUMN IF NOT EXISTS satellite_id uuid;
 ALTER TABLE core.access_log ADD COLUMN IF NOT EXISTS satellite_credential_id uuid;
-ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_credential_check;
-ALTER TABLE core.access_log ADD CONSTRAINT access_log_credential_check
-  CHECK (credential IN ('web_session', 'api_token', 'satellite', 'none'));
-ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_outcome_check;
-ALTER TABLE core.access_log ADD CONSTRAINT access_log_outcome_check
-  CHECK (outcome IN ('ok', 'unauthorized', 'forbidden', 'login_ok', 'login_failed', 'login_throttled', 'logout'));
-ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_satellite_ids;
-ALTER TABLE core.access_log ADD CONSTRAINT access_log_satellite_ids
-  CHECK ((credential = 'satellite') = (satellite_id IS NOT NULL AND satellite_credential_id IS NOT NULL));
+DO $do$ BEGIN
+  -- 列挙の CHECK は、この版の語を含む定義がまだ無いときだけ付け替える（review/code.md R3 / R7）
+  IF NOT EXISTS (… conname = 'access_log_credential_check' AND pg_get_constraintdef(oid) LIKE '%''satellite''%') THEN
+    DROP / ADD access_log_credential_check CHECK (credential IN ('web_session', 'api_token', 'satellite', 'none'));
+  END IF;
+  IF NOT EXISTS (… conname = 'access_log_outcome_check' AND pg_get_constraintdef(oid) LIKE '%''forbidden''%') THEN
+    DROP / ADD access_log_outcome_check
+      CHECK (outcome IN ('ok', 'unauthorized', 'forbidden', 'login_ok', 'login_failed', 'login_throttled', 'logout'));
+  END IF;
+  -- 2 つの番号は衛星の行ではそろって在り、ほかの行ではそろって無い（review/code.md R8）
+  ALTER TABLE core.access_log DROP CONSTRAINT IF EXISTS access_log_satellite_ids;
+  IF NOT EXISTS (… conname = 'access_log_satellite_pair') THEN
+    ADD access_log_satellite_pair CHECK (CASE WHEN credential = 'satellite'
+      THEN satellite_id IS NOT NULL AND satellite_credential_id IS NOT NULL
+      ELSE satellite_id IS NULL AND satellite_credential_id IS NULL END);
+  END IF;
+END $do$;
 ```
+
+- **起動のたびに付け直さない**（review/code.md R3 / R7）: `migrate()` は全版を当て直すので、無条件の DROP / ADD だと、後の版（ST38 / ST44 / ST45）が
+  種類か結果を足して行を書いた後にこの版の CHECK が当たらず起動が止まり、追記のみの表を毎回 ACCESS EXCLUSIVE で全走査する
 
 - 制約の名前は `202609290900_access_control.sql` が付けた既定の名前（`<表>_<列>_check`）。移行の前に `\d core.access_log` で名前を確かめ、違えば合わせる（tasks 1.1）
 - 外部キーは付けない（追記のみの表が登録簿の行に縛られると、登録簿の戻し手順が当たらなくなる。登録簿の行は消さないので指す先は残る）

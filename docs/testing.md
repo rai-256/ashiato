@@ -28,7 +28,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 12 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 14 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
@@ -169,6 +169,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
 ./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
+./tools/check-satellite-boundary.sh --self-test && ./tools/check-satellite-boundary.sh   # 本体が衛星のコードを読み込む部品を持たない（FR-77）
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）

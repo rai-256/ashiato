@@ -19,6 +19,7 @@ use hmac::{Hmac, Mac as _};
 use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+use uuid::Uuid;
 
 use crate::access_log::{via_of, AccessEntry};
 use crate::{internal_at, token_matches, App};
@@ -40,6 +41,11 @@ const THROTTLE_MAX_FAILURES: usize = 10;
 pub enum Caller {
     WebSession,
     ApiToken,
+    /// 衛星の資格情報（ST29 / D8）。番号（uuid）だけを持つ。識別子の文字列は持たない（D4）。
+    Satellite {
+        satellite: Uuid,
+        credential: Uuid,
+    },
 }
 
 impl Caller {
@@ -47,6 +53,7 @@ impl Caller {
         match self {
             Self::WebSession => "web_session",
             Self::ApiToken => "api_token",
+            Self::Satellite { .. } => "satellite",
         }
     }
 }
@@ -97,7 +104,7 @@ pub fn secret_tag(api_token: &str, web_password: &str) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-fn sha256(s: &str) -> Vec<u8> {
+pub(crate) fn sha256(s: &str) -> Vec<u8> {
     Sha256::digest(s.as_bytes()).to_vec()
 }
 
@@ -248,19 +255,19 @@ pub struct SessionState {
 /// `/session` の求めの 1 行。ログインの結果はハンドラが判定した場で書く（D8）。
 fn session_entry(
     headers: &HeaderMap,
-    credential: &'static str,
+    caller: Option<Caller>,
     method: &str,
     outcome: &'static str,
     status: StatusCode,
 ) -> AccessEntry {
-    AccessEntry {
-        via: via_of(headers),
-        credential,
-        route: "/session".into(),
-        method: method.into(),
+    AccessEntry::for_caller(
+        caller,
+        via_of(headers),
+        "/session".into(),
+        method.into(),
         outcome,
-        status: status.as_u16(),
-    }
+        status.as_u16(),
+    )
 }
 
 fn unauthorized() -> (StatusCode, String) {
@@ -287,7 +294,7 @@ pub async fn session_post(
         app.access
             .write(session_entry(
                 &headers,
-                "none",
+                None,
                 "POST",
                 "login_failed",
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -303,7 +310,7 @@ pub async fn session_post(
         app.access
             .write(session_entry(
                 &headers,
-                "none",
+                None,
                 "POST",
                 "login_throttled",
                 StatusCode::TOO_MANY_REQUESTS,
@@ -324,7 +331,7 @@ pub async fn session_post(
         app.access
             .write(session_entry(
                 &headers,
-                "none",
+                None,
                 "POST",
                 "login_failed",
                 StatusCode::UNAUTHORIZED,
@@ -350,7 +357,7 @@ pub async fn session_post(
         app.access
             .write(session_entry(
                 &headers,
-                "none",
+                None,
                 "POST",
                 "login_failed",
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -362,7 +369,7 @@ pub async fn session_post(
     app.access
         .write(session_entry(
             &headers,
-            "none",
+            None,
             "POST",
             "login_ok",
             StatusCode::NO_CONTENT,
@@ -380,18 +387,18 @@ pub async fn session_delete(
     State(app): State<App>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, String)> {
-    let credential = if session_valid(&app, &headers)
+    let caller = if session_valid(&app, &headers)
         .await
         .map_err(|e| internal_at("session.lookup", e))?
     {
-        "web_session"
+        Some(Caller::WebSession)
     } else {
-        "none"
+        None
     };
     app.access
         .write(session_entry(
             &headers,
-            credential,
+            caller,
             "DELETE",
             "logout",
             StatusCode::NO_CONTENT,
@@ -424,12 +431,28 @@ pub async fn session_get(
     let caller = match crate::authorize(&app, &headers).await {
         Ok(c) => c,
         Err(e) => {
+            // 衛星の求めは 403。middleware を通らない口なのでここで同じ行を書く（D8）
+            if e.0 == StatusCode::FORBIDDEN {
+                if let crate::Authn::Decided(Some(c @ Caller::Satellite { .. })) =
+                    crate::decided(&app, &headers).await
+                {
+                    app.access
+                        .write(session_entry(
+                            &headers,
+                            Some(c),
+                            "GET",
+                            "forbidden",
+                            StatusCode::FORBIDDEN,
+                        ))
+                        .await?;
+                }
+            }
             // 401 も残す（画面は起動時に必ずここを引く）。判定そのものの失敗（500）は書かない
             if e.0 == StatusCode::UNAUTHORIZED {
                 app.access
                     .write(session_entry(
                         &headers,
-                        "none",
+                        None,
                         "GET",
                         "unauthorized",
                         StatusCode::UNAUTHORIZED,
@@ -442,7 +465,7 @@ pub async fn session_get(
     app.access
         .write(session_entry(
             &headers,
-            caller.as_str(),
+            Some(caller),
             "GET",
             "ok",
             StatusCode::OK,

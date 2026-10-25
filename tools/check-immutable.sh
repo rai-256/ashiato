@@ -12,6 +12,8 @@ trap cleanup EXIT
 
 psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
 
+# 前の検査（e2e など）が残した DB を引き継がない（smoke.sh と同じ。末尾の trap と対）
+docker compose down -v >/dev/null 2>&1 || true
 echo "== DB を起動してマイグレーションを当てる"
 # **当てる版と順は `migrations/ORDER`（適用順の正本。サーバの `MIGRATIONS` も build.rs がここから組む）から引く**
 # （2026-09-12 / ST03。2026-10-15 に lib.rs の配列から ORDER へ移した）。手で並べていたときは ST02 の
