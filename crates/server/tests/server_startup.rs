@@ -873,7 +873,7 @@ mod st48_migrate {
 
     impl Rig {
         /// アプリの役割でサーバを起動する。落ちるか、`/healthz` が 200 になるか、20 秒で打ち切る。
-        async fn serve(&self) -> Served {
+        fn serve(&self) -> Served {
             let port = std::net::TcpListener::bind("127.0.0.1:0")
                 .unwrap()
                 .local_addr()
@@ -928,7 +928,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.add_future_row().await;
-        let served = rig.serve().await;
+        let served = rig.serve();
         let err = assert_refused_3(&served, "db_ahead");
         assert!(
             err.contains("  db: 209912312359_from_the_future (0.9.9 deadbeef)"),
@@ -950,7 +950,7 @@ mod st48_migrate {
                (SELECT name FROM migration_ledger.applied ORDER BY name DESC LIMIT 2)",
         )
         .await;
-        let served = rig.serve().await;
+        let served = rig.serve();
         let err = assert_refused_3(&served, "db_behind");
         assert!(err.contains("まだ当たっていない版が 2 個"), "{err}");
         assert!(err.contains("ashiato-server migrate"), "{err}");
@@ -962,7 +962,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.exec("DROP SCHEMA migration_ledger CASCADE").await;
-        let served = rig.serve().await;
+        let served = rig.serve();
         let err = assert_refused_3(&served, "db_behind");
         assert!(
             err.contains(&format!(
@@ -978,7 +978,7 @@ mod st48_migrate {
     async fn st48_server_starts_when_even() {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
-        let served = rig.serve().await;
+        let served = rig.serve();
         assert!(
             served.healthy,
             "/healthz が 200 にならない: {}",
@@ -996,7 +996,7 @@ mod st48_migrate {
             "UPDATE migration_ledger.applied SET sha256 = 'changed' WHERE name = '{name}'"
         ))
         .await;
-        let served = rig.serve().await;
+        let served = rig.serve();
         assert!(
             served.healthy,
             "/healthz が 200 にならない: {}",
@@ -1016,7 +1016,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.exec("UPDATE migration_ledger.form SET form = 2").await;
-        let served = rig.serve().await;
+        let served = rig.serve();
         assert_refused_3(&served, "ledger_unreadable");
     }
 }
