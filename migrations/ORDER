@@ -61,3 +61,5 @@
 202610181200_media_capture
 # 衛星の登録簿と資格情報、読み出しの記録の欄（ST29 / design D7 / D9）
 202610241200_satellite_credentials
+# ST11: 健康データの権限の記録の論理ソース（design D1）
+202610251100_health_permission_source
