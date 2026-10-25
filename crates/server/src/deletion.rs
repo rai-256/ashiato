@@ -784,6 +784,16 @@ pub async fn kept_archive_copies(
     Ok(kept)
 }
 
+/// 本文を消したのに範囲の行（`core.erasure_span`）が無い滞在の数（design D14。移行の前の手作業・壊れた行）。
+/// その滞在はその日全体を範囲とみなして読まれる。サーバの起動時に件数だけをログに出すために数える。
+pub async fn purged_without_span(pool: &PgPool) -> sqlx::Result<i64> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM core.stay_erased WHERE purged AND operation_id IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+}
+
 /// 本文ごと消す前の確認。範囲を消す口と同じ `purge_scope` で数え、何も書かずに返す（design D1）。
 pub async fn purge_preview(
     pool: &PgPool,

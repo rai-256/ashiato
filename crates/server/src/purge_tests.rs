@@ -1774,6 +1774,41 @@ async fn purge_range_purged_records_are_not_in_the_day_records() {
     );
 }
 
+/// 起動時に数える「本文を消したのに範囲の行が無い滞在」（design D14 / final review R2）。
+/// 範囲の行を持つ本文ごと消した滞在は数えず、範囲の行が無いものだけを数える。サーバと同じ役割の接続で読む。
+#[tokio::test]
+async fn purge_range_startup_counts_purged_stays_without_a_span_row() {
+    let db = testdb::scratch().await;
+    let (owner, app) = (db.owner.clone(), db.app.clone());
+    let user = testdb::user();
+    assert_eq!(deletion::purged_without_span(&app).await.unwrap(), 0);
+
+    let (stay, _) = scene_basic(&owner, user).await;
+    scene_erase(&owner, stay).await;
+    purge_now(&owner, stay).await;
+    assert_eq!(
+        deletion::purged_without_span(&app).await.unwrap(),
+        0,
+        "範囲の行を持つ滞在は数えない"
+    );
+
+    // 範囲の行を持たない、本文を消した滞在（移行の前の手作業・壊れた行）
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, external_id, origin, event_time,
+            tz_offset_min, tz_id, schema_version, content_hash, raw, payload, deleted_at, deleted_by)
+         VALUES ($1, $2, 's01-stay', $1::text, 'derived', $3, 540, 'Asia/Tokyo', 1, $1::text,
+                 '', '{}'::jsonb, now(), 'user')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user)
+    .bind(at("2026-10-02T10:00:00+09:00"))
+    .execute(&owner)
+    .await
+    .unwrap();
+    assert_eq!(deletion::purged_without_span(&app).await.unwrap(), 1);
+}
+
 // Scenario: 範囲の行が無い本文を消した滞在はその日全体を書き出しから除く
 #[tokio::test]
 async fn purge_range_without_a_span_row_excludes_the_whole_day() {

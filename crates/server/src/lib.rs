@@ -4067,6 +4067,26 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(3);
     }
 
+    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
+    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
+    match deletion::purged_without_span(&pool).await {
+        Ok(0) => {}
+        Ok(count) => tracing::warn!(
+            kind = "purge_span_missing",
+            count,
+            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
+        ),
+        Err(e) => tracing::warn!(
+            kind = "purge_span_missing",
+            sqlstate = e
+                .as_database_error()
+                .and_then(|d| d.code())
+                .as_deref()
+                .unwrap_or(""),
+            "範囲の行が無い滞在を数えられない"
+        ),
+    }
+
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
