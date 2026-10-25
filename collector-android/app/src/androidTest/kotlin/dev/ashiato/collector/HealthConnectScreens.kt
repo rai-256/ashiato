@@ -76,6 +76,34 @@ internal class HealthConnectScreens(private val context: Context) {
         click(ALLOW)
     }
 
+    /**
+     * 前の試験が残した画面を片付ける。試験の実行器は試験ごとに `MainActivity` を閉じる（`MonitoringInstr: Finishing activity`）ので、
+     * 前の試験が開いた Health Connect の画面は結果を返す先が無いまま残る —— 続きから押しても結果は戻らない。
+     * 開いたままの通知の欄（常駐の通知の試験）も、次の段の画面を覆う（前面が `com.android.systemui` になる。2026-10-25 実測）。
+     */
+    fun reset() {
+        device.executeShellCommand("cmd statusbar collapse")
+        device.executeShellCommand("am force-stop $HEALTH_CONNECT_CONTROLLER")
+        device.pressHome()
+        device.waitForIdle()
+    }
+
+    /**
+     * 種類の画面の「privacy policy」の案内を押す。案内は文の中の 1 語だけが押せる（文の要素そのものは押せない。
+     * 中央を押しても何も起きない。2026-10-25 実測）ので、最後の行を左右に押していき、説明の画面が出たところで止める。
+     */
+    fun openPrivacyPolicy() {
+        val line = device.wait(Until.findObject(PRIVACY_POLICY), SCREEN_TIMEOUT_MS)
+        assertTrue("プライバシーポリシーの案内が権限の画面に無い（前面: ${device.currentPackageName}）", line != null)
+        val b = line!!.visibleBounds
+        val y = b.bottom - b.height() / 4
+        for (f in listOf(0.6, 0.45, 0.75, 0.3, 0.9, 0.15)) {
+            device.click((b.left + b.width() * f).toInt(), y)
+            if (device.wait(Until.hasObject(By.pkg(context.packageName)), 2_000)) return
+        }
+        throw AssertionError("プライバシーポリシーの案内を押しても説明の画面が出ない（前面: ${device.currentPackageName}）")
+    }
+
     fun click(selector: BySelector, timeoutMs: Long = SCREEN_TIMEOUT_MS) {
         val target: UiObject2? = device.wait(Until.findObject(selector), timeoutMs)
         assertTrue("押すものが見つからない: $selector（前面: ${device.currentPackageName}）", target != null)
@@ -136,6 +164,9 @@ internal class HealthConnectScreens(private val context: Context) {
         const val SCREEN_TIMEOUT_MS = 20_000L
         const val SETTLE_MS = 20_000L
         const val POLL_MS = 250L
+
+        /** Health Connect の権限の画面を出すアプリ（Android 14 以降は module。P14）。 */
+        const val HEALTH_CONNECT_CONTROLLER = "com.google.android.healthconnect.controller"
 
         /** 位置・通知・写真と動画は、この試験の関心の外なので許可済みにする規則に渡す一覧。 */
         fun earlierPermissions(): Array<String> = arrayOf(

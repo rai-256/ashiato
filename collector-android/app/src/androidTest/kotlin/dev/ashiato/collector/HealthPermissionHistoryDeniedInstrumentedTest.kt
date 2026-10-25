@@ -31,6 +31,7 @@ class HealthPermissionHistoryDeniedInstrumentedTest {
 
     @Before
     fun requirePristineHealthPermissions() {
+        screens.reset()
         assertEquals(
             "前提が作れていない。健康データの権限が残っている。" +
                 "`adb shell am force-stop ${context.packageName} && adb shell pm reset-permissions` の後に、" +

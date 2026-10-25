@@ -27,9 +27,10 @@ import org.junit.runners.MethodSorters
  *
  * 始まりは「健康データの権限が未許可・印なし」（`@NeedsPristinePermissions`。`tools/android-emulator.sh` と CI の段が
  * `pm reset-permissions` で作る）。Health Connect の権限は**自分では外せない**（プロセスが死ぬ）ので、許した後の状態は
- * 戻せない —— このクラスの試験は名前の順に走り、前の試験が進めた画面と権限の状態を引き継ぐ（`@FixMethodOrder`）。
- * 画面が出ていなければ t1〜t3 は収集アプリを開いて種類の画面を出し直す（[HealthConnectScreens.openKinds]）が、
- * 前の試験が落ちて許した状態まで進んでいなければ、後ろの試験（t4・t5）は前提が無いまま落ちる —— 最初に落ちた本から見る。
+ * 戻せない —— このクラスの試験は名前の順に走り（`@FixMethodOrder`）、**権限の状態だけ**を引き継ぐ（t3 が許した状態を t4・t5 が見る）。
+ * **画面は引き継げない**: 試験の実行器は試験ごとに `MainActivity` を閉じるので、前の試験が開いた権限の画面から結果は戻らない。
+ * そこで各試験は前の画面を片付け（[HealthConnectScreens.reset]）、印を消して収集アプリを開き直し、求める画面を自分で出して答えまで進める。
+ * t3 が落ちて許した状態まで進んでいなければ、t4・t5 は前提が無いまま落ちる —— 最初に落ちた本から見る。
  *
  * 断る本はここに置かない（2 回断ると画面が出なくなる。P6）。断る側は `HealthPermissionHistoryDeniedInstrumentedTest` と
  * `HealthPermissionDeniedInstrumentedTest` が別の段で見る。
@@ -48,9 +49,10 @@ class HealthPermissionGrantInstrumentedTest {
     @get:Rule
     val testName = TestName()
 
-    /** 未許可から始まるのは最初の試験だけ（後ろは前の試験が許した状態を引き継ぐ）。 */
+    /** 前の試験の画面を片付ける。未許可から始まるのは最初の試験だけ（後ろは前の試験が許した状態を引き継ぐ）。 */
     @Before
     fun requirePristineHealthPermissions() {
+        screens.reset()
         if (!testName.methodName.startsWith("t1_")) return
         assertEquals(
             "前提が作れていない。健康データの権限が残っている。" +
@@ -74,14 +76,7 @@ class HealthPermissionGrantInstrumentedTest {
         screens.clearHealthMarks()
         screens.openKinds()
         // 種類の画面からでなければプライバシーポリシーの案内は出ない（追加のアクセスの画面には無い）
-        assertTrue(
-            "プライバシーポリシーの案内が権限の画面に無い",
-            screens.device.wait(
-                Until.hasObject(HealthConnectScreens.PRIVACY_POLICY),
-                HealthConnectScreens.SCREEN_TIMEOUT_MS,
-            ),
-        )
-        screens.click(HealthConnectScreens.PRIVACY_POLICY)
+        screens.openPrivacyPolicy()
 
         // 読む種類と送る先と承認の設定と、いまは読まないこと（HEALTH_RATIONALE の 4 文）が出る
         for (sentence in HEALTH_RATIONALE.split("。").filter { it.isNotBlank() }) {
@@ -93,7 +88,7 @@ class HealthPermissionGrantInstrumentedTest {
                 ),
             )
         }
-        // 戻ると権限の画面（種類）に戻る。ここで断らない（答えずに残し、次の試験が続ける）
+        // 戻ると権限の画面（種類）に戻る。ここで断らない（答えずに残す。次の試験が片付けて開き直す）
         screens.device.pressBack()
         screens.waitForKinds()
     }
@@ -101,6 +96,7 @@ class HealthPermissionGrantInstrumentedTest {
     // Scenario: 初回起動で健康データの権限の画面が出る
     @Test
     fun t2_firstLaunchShowsTheHealthPermissionScreenWithTheFourKinds() {
+        screens.clearHealthMarks()
         screens.openKinds()
         // 種類の画面そのものを見る（続く「追加のアクセス」の画面が出ているだけでは通さない）
         val deadline = System.currentTimeMillis() + HealthConnectScreens.SCREEN_TIMEOUT_MS
@@ -118,6 +114,9 @@ class HealthPermissionGrantInstrumentedTest {
     // Scenario: 種類と履歴と背景をすべて許すとすべて許された状態になる
     @Test
     fun t3_allowingKindsHistoryAndBackgroundGrantsAllSix() {
+        // 求めた MainActivity が結果を受け取れるよう、この試験の中で開いて答えまで進める
+        screens.clearOutbox()
+        screens.clearHealthMarks()
         screens.allowKindsAndContinue()
         screens.finishAdditionalAccess(history = true, background = true)
 
