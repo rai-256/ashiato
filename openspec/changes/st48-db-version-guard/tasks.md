@@ -72,11 +72,11 @@
 
 ## Task 4: migrate の順と止め方 —— 検査を退避の前に、終了コード 3
 
-- [ ] 4.1 `lib.rs` の `run_migrate()` を design D4 の順にする（接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与）。
+- [x] 4.1 `lib.rs` の `run_migrate()` を design D4 の順にする（接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与）。
   止まるときの標準エラーを design D6 の形で出す（`error: kind=db_ahead` / `kind=ledger_unreadable` の 1 行目、`  db: <名前> (<版番号> <commit>)` を 20 件まで、`  self: <版番号> <commit>`、説明の 1 行）。
   `tracing::error!(kind = …)` にも同じ種別を出す。`MIGRATE_BACKUP` などどの環境変数でもこの検査を飛ばさない。移行の失敗はいまのまま終了コード 1。
   検証: `cargo build -p ashiato-server --bin ashiato-server` rc=0 / `bash -c '! grep -nE "MIGRATE_.*(GUARD|FORCE|SKIP)|ALLOW_DB_AHEAD" -r crates/server/src'` rc=0
-- [ ] 4.2 `crates/server/tests/server_startup.rs` に、使い捨ての database（`CREATE DATABASE st48_<乱数>`。`db-ok:` の理由を付け、Drop で消す）に実行ファイル `migrate` を走らせる試験を足す。
+- [x] 4.2 `crates/server/tests/server_startup.rs` に、使い捨ての database（`CREATE DATABASE st48_<乱数>`。`db-ok:` の理由を付け、Drop で消す）に実行ファイル `migrate` を走らせる試験を足す。
   退避の置き場は `std::env::temp_dir()` の下の試験ごとのフォルダ（`TMPDIR` に従う）、`PG_DUMP` は試験が書く偽の台本（呼ばれたら置き場に `pre-migrate-*.dump` を書く・失敗させる版も持つ）:
   `st48_migrate_rerun_changes_nothing`（`// Scenario: 同じ版で当て直しても、何も変わらずに通る`。2 回目も rc=0、行の数・名前・`applied_at`・`pg_get_functiondef('core.reject_collected_rewrite'::regproc)` が 1 回目と同じ）/
   `st48_migrate_fingerprint_mismatch_warns`（`// Scenario: 指紋の違う版は当て直さず、名前を示して続ける`）/
