@@ -85,7 +85,7 @@
 
 ## Task 5: 検査の本体 —— 溜まった DB から作り直して確かめる
 
-- [ ] 5.1 `tools/check-verify-env-reset.sh` の本体（引数なし）を design D8 の 1.〜8. のとおりに書く。worktree でも `CI=true` でもない木では、理由を出して rc=2（作り直さない木で走らせない）。
+- [x] 5.1 `tools/check-verify-env-reset.sh` の本体（引数なし）を design D8 の 1.〜8. のとおりに書く。worktree でも `CI=true` でもない木では、理由を出して rc=2（作り直さない木で走らせない）。
   各段で `HARNESS_VERIFY` を明示する（`env -u HARNESS_VERIFY` / `HARNESS_VERIFY=1`。verify-run が渡す印に依らない）。DB への問い合わせは `docker compose exec -T db psql -X -qtA -U ashiato`。
   sentinel（`ch06-sentinel-<乱数>` のコンテナ・volume・network・compose project）は `trap` で必ず消す。印は次の 13 本を、その場合を確かめる直前に出す:
   3. で `echo "Scenario: 印が無ければ作り直さず、溜まった行は残る"`・（worktree でない木だけ）`echo "Scenario: CI でない main の checkout では、印つきで呼んでも行が残る"` /
