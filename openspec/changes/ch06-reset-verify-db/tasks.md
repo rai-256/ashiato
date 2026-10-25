@@ -101,11 +101,11 @@
 
 ## Task 6: CI と文書
 
-- [ ] 6.1 `.github/workflows/ci.yml` の rust job の末尾（`./tools/check-ports.sh --self-test` の行の後）に `- run: ./tools/check-verify-env-reset.sh --self-test` と `- run: ./tools/check-verify-env-reset.sh` の 2 行を足す。
+- [x] 6.1 `.github/workflows/ci.yml` の rust job の末尾（`./tools/check-ports.sh --self-test` の行の後）に `- run: ./tools/check-verify-env-reset.sh --self-test` と `- run: ./tools/check-verify-env-reset.sh` の 2 行を足す。
   `cargo test` の周りの行には触らない（CH03・CH04 が手を入れている。proposal の Impact）。
   検証: `bash -c 'grep -qE "^ +- run: ./tools/check-verify-env-reset.sh --self-test$" .github/workflows/ci.yml && grep -qE "^ +- run: ./tools/check-verify-env-reset.sh$" .github/workflows/ci.yml'` rc=0 /
   `bash -c '! git diff origin/main...HEAD -- .github/workflows/ci.yml | grep -E "^[-+][^-+]" | grep -v "check-verify-env-reset" | grep -q .'` rc=0
-- [ ] 6.2 文書（design D11）: `docs/testing.md` の CI の表の rust 行に検査を足す。`docs/flow-gates.md` の検査の表に `tools/check-verify-env-reset.sh` の 1 行（見るもの: 印つきの準備で worktree の DB が空から作り直され、作り直さない木・切った接続・作り直せないときの止まり方・塞いでいる network。走る場所: CI の rust、手元）。
+- [x] 6.2 文書（design D11）: `docs/testing.md` の CI の表の rust 行に検査を足す。`docs/flow-gates.md` の検査の表に `tools/check-verify-env-reset.sh` の 1 行（見るもの: 印つきの準備で worktree の DB が空から作り直され、作り直さない木・切った接続・作り直せないときの止まり方・塞いでいる network。走る場所: CI の rust、手元）。
   検証: `bash -c 'grep -q "check-verify-env-reset" docs/testing.md && grep -q "check-verify-env-reset" docs/flow-gates.md'` rc=0
 
 ## Task 7: 完了の判定と全体の確かめ
