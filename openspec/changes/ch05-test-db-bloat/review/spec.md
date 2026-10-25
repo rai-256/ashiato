@@ -547,6 +547,6 @@ Q8（作り直し・見送りを外す・`requires: [CH04, CH06]`・CH06 の「�
 - ch06-reset-verify-db / 印があれば、検証の準備がこの worktree の DB を空から作り直す: 前提（本文と Scenario 5 本を c666673 から逐語で写し、1 文と Scenario 1 本を足した MODIFIED。相手の字面が変われば書き直し —— R38）
 - ch06-reset-verify-db / 作り直すのは、印があり、worktree か CI のときだけ: 前提（片付けは `--plan` が `reset` のときだけ呼ぶ（D5）。相手の `reset` / `keep:` の判定と「それ以外は…だけ」を当てにしている）
 - ch06-reset-verify-db / worktree ごとの DB の network は、木ごとに被らない subnet で立つ: 前提（片付けを `clear_blocking_network` の前に置き、相手の rc=1（消えた worktree の DB が subnet を塞ぐ）を先回りする（D5）。相手の確かめの形が変われば置き場を見直す）
+- ch06-reset-verify-db / 作り直せなければ、何も消さずに非 0 で終わる: 前提（R42 の処置で、CH05 の ADDED の本文がこの Requirement の「何も消さずに」の範囲を名指しする。片付けがその判定より前に終わることを当てにしている。呼び出し元が R42 の処置の後に足した判定）
 
 CH06 は `docs/changes/CH05.md` の `requires: [CH04, CH06]` にあるので、requires への足しの指摘は立てない。
-- ch06-reset-verify-db / 作り直せなければ、何も消さずに非 0 で終わる: 前提（R42 の処置で、CH05 の ADDED の本文がこの Requirement の「何も消さずに」の範囲を名指しする。片付けがその判定より前に終わることを当てにしている。呼び出し元が R42 の処置の後に足した判定）
