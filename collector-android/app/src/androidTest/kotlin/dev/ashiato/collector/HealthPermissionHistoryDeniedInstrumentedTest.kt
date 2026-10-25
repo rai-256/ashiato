@@ -53,12 +53,12 @@ class HealthPermissionHistoryDeniedInstrumentedTest {
     @Test
     fun allowingKindsButNotHistoryStillStartsCollection() {
         screens.allowKindsAndContinue()
-        // 続く画面で履歴の読み取りをオフのまま許可する（背景もオンにしない）
-        screens.finishAdditionalAccess(history = false, background = false)
+        // 続く画面で背景の読み取りはオンにし、履歴の読み取りだけをオフのまま許可する
+        screens.finishAdditionalAccess(history = false, background = true)
 
-        // 4 つの種類は許され、履歴の読み取りは許されていない
-        assertEquals("4 つの種類だけが許された状態にならない", 4, screens.waitForGrantedCount(4))
-        for (key in listOf("sleep", "heart_rate", "steps", "exercise")) {
+        // 4 つの種類と背景は許され、履歴の読み取りだけが許されていない
+        assertEquals("履歴だけが断られた状態（5 つ許可）にならない", 5, screens.waitForGrantedCount(5))
+        for (key in listOf("sleep", "heart_rate", "steps", "exercise", "background")) {
             assertTrue("$key が許されていない", screens.granted(key))
         }
         assertFalse("履歴の読み取りをオフにしたのに許されている", screens.granted("history"))
