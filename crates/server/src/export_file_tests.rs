@@ -1520,6 +1520,7 @@ async fn export_volume_one_run_reports_time_and_memory() {
 // Scenario: 版の記録があっても、全記録の書き出しは始まる
 #[tokio::test]
 async fn st48_export_starts_with_ledger() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
     let pool = testdb::pool().await;
     let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
         .fetch_one(&pool)
