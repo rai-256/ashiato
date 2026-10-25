@@ -28,7 +28,10 @@ class HealthFlowActivity : ExemptMainActivity() {
     override fun healthPermissions(): HealthPermissions = health
     override fun runHealth(task: () -> Unit) = task()
     override fun healthRecordSink(): (IngestRequest) -> Boolean = { sunk += it; true }
-    override fun healthRemember(store: HealthStateStore): (HealthState) -> Unit = { store.remember(it) }
+    override fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit = { state, settled ->
+        store.remember(state)
+        settled()
+    }
 
     override fun requestPermissionGroup(permissions: List<String>) {
         order += "media"

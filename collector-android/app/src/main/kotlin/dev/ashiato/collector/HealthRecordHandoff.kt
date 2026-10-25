@@ -1,34 +1,46 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.util.concurrent.ConcurrentLinkedQueue
-
 /**
  * 画面（`MainActivity`）が観た健康データの権限の記録を、収集のサービスの未送信へ渡す受け渡し口（ST11 / design D11）。
  * 未送信はサービスが開く置き場で、画面が別に開くと 2 つの書き手になる。画面の観測は収集が始まる前（`start()` の前）なので、
  * ここに預け、サービスが立つとき（`onStartCommand`）に積む。
+ *
+ * 記録と「書けた後」の手続きは**預けた順の 1 本の列**に並ぶ。手続きは、直前の手続きより後に預けた記録（＝その手続きの記録）が
+ * 全部書けたときだけ走る。
  */
 object HealthRecordHandoff {
-    private val pending = ConcurrentLinkedQueue<IngestRequest>()
-    private val afterWritten = ConcurrentLinkedQueue<() -> Unit>()
-
-    /** 預けるだけ（メモリ）。未送信に届いたことは [afterDrain] で知る —— 最後の状態の書き換えはそこまで待つ。 */
-    fun offer(record: IngestRequest): Boolean = pending.add(record)
-
-    /** 預けた記録が**置き場に書けた後**に呼ぶ。書けなかったら呼ばない（最後の状態が古いまま残り、次に観たときもう一度作る側に倒れる）。 */
-    fun afterDrain(action: () -> Unit) {
-        afterWritten.add(action)
+    private sealed interface Item {
+        class Record(val record: IngestRequest) : Item
+        class Action(val action: () -> Unit) : Item
     }
 
+    private val queue = ArrayDeque<Item>()
+
+    /** 預けるだけ（メモリ）。未送信に届いたことは [afterDrain] で知る —— 最後の状態の書き換えはそこまで待つ。 */
+    fun offer(record: IngestRequest): Boolean = synchronized(this) { queue.add(Item.Record(record)) }
+
+    /** 直前の [afterDrain] より後に預けた記録が**置き場に書けた後**に呼ぶ。書けなかったら呼ばない（最後の状態が古いまま残り、次に観たときもう一度作る側に倒れる）。 */
+    fun afterDrain(action: () -> Unit) {
+        synchronized(this) { queue.addLast(Item.Action(action)) }
+    }
+
+    /**
+     * 預けた分を未送信へ積む（review/code.md R6）。1 件が置き場に書けなくても、**他の記録の手続きは走らせる**。
+     * 書けなかった記録は未送信がメモリに持って次に積むときに書き直す（[Outbox.add]）ので、ここで持ち直さない ——
+     * 持ち直すと同じ記録を 2 度積む。その記録の手続きだけを捨てる（置き場が古いまま残り、次に観たとき作り直す側に倒れる）。
+     */
     fun drainInto(outbox: Outbox<IngestRequest>) {
-        var allWritten = true
-        while (true) {
-            val record = pending.poll() ?: break
-            if (!outbox.add(record)) allWritten = false
-        }
-        while (true) {
-            val action = afterWritten.poll() ?: break
-            if (allWritten) action()
+        val taken = synchronized(this) { queue.toList().also { queue.clear() } }
+        var failed = false
+        for (item in taken) {
+            when (item) {
+                is Item.Record -> if (!outbox.add(item.record)) failed = true
+                is Item.Action -> {
+                    if (!failed) item.action()
+                    failed = false
+                }
+            }
         }
     }
 }

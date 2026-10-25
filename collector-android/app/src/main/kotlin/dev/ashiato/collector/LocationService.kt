@@ -774,10 +774,11 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // **主糸では回さない**（[runCollection]）—— `onStartCommand` は主糸で呼ばれる。
+        // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
+        // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
+        runCollection { HealthRecordHandoff.drainInto(outbox) }
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
-        // **主糸では回さない**（[runCollection]）—— 初回の集計の取り込みは 4 粒度ぶんの問い合わせと
-        // 数千件の追記になり、`onStartCommand` は主糸で呼ばれる
-        HealthRecordHandoff.drainInto(outbox)
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         startBeating()
