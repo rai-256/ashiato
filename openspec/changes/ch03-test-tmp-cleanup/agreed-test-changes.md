@@ -1,1 +1,2 @@
 - Scenario: 読み出しに欠けた列があると書き出しは失敗する — 一時フォルダを TempDir で持つため assert_nothing_written の引数を &dir から dir_tmp.path() に書き換えた（期待は同じ: 何も残らない）
+- Scenario: 区間に読みが無くても、開けるかを確かめてから報告する — 写しの置き場を TempDir の下（copies(&tmp)）から作るため probe_readable の引数を &tmp_root() から &copies(&tmp) に書き換えた（期待は同じ: 開けるなら is_ok）
