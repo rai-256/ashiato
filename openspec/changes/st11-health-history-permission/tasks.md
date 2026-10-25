@@ -46,7 +46,7 @@
 
 ## Task 1: 登録簿に `c01-health-permission` を足し、S-01 が受け付け、書き出しに入れる（design D1 / D12）
 
-- [ ] 1.1 移行 `YYYYMMDDHHMM_health_permission_source.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D1 の表の 1 行（`ON CONFLICT DO NOTHING`。
+- [x] 1.1 移行 `YYYYMMDDHHMM_health_permission_source.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D1 の表の 1 行（`ON CONFLICT DO NOTHING`。
   `acquisition` / `fetch_trigger` は列を指定せず ST13 の trigger に入れさせる）。注記に種類が「稼働状況」であること（FR-102。列はまだ無い）を書く。
   `.down.sql` は `202609291230_clock_source.down.sql` と同じく、`core.event` / `core.drop_report` / `core.coverage` / `core.coverage_span` / `core.heartbeat` が参照していれば行を残す。
   `crates/server/src/export/excluded.rs` の `SPAN_RULES` に `("c01-health-permission", SpanRule::Point)`、`NO_COORD_SOURCES` に `"c01-health-permission"` を足す（配列の長さも直す。D12）。
@@ -57,7 +57,7 @@
   検証: `tools/check-migrations.sh` rc=0 / `tools/check-immutable.sh` rc=0 / `CT st11_`（`-- --list` で 7 本以上）/ `CT export_`（`-- --list` で 1 本以上。既存の書き出しの試験が一覧の突き合わせを含めて全部緑）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0（既存が全部緑）
 
-- [ ] 1.2 `docs/collector-contract.md` に節「C-01（`c01-health-permission`）が送る `payload` の形（ST11 / design D2）」を足す（`c01-clock` の節の後。欄の表・`trigger` と `availability` の値・
+- [x] 1.2 `docs/collector-contract.md` に節「C-01（`c01-health-permission`）が送る `payload` の形（ST11 / design D2）」を足す（`c01-clock` の節の後。欄の表・`trigger` と `availability` の値・
   状態が変わったときだけ送ること・判定に時刻を使わないこと・生存信号を送らないこと・種類は稼働状況）。
   検証: `bash -c 'grep -q "c01-health-permission" docs/collector-contract.md && grep -q "auto_requested" docs/collector-contract.md'` rc=0
 
