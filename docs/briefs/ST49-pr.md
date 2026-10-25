@@ -1,6 +1,6 @@
 # ST49 記録ごとに、作った部品の版が残る（上流）
 
-change: `openspec/changes/st49-record-component-version/`。既存の 8 capability に ADDED（`record-envelope` 7・`device-collection` 2・`desktop-collection` 1・`derived-records` 2・`data-durability` 1・`record-deletion` 1・`subjective-log` 1・`personal-entities` 1。Scenario 65 本）。
+change: `openspec/changes/st49-record-component-version/`。既存の 8 capability に ADDED（`record-envelope` 7・`device-collection` 2・`desktop-collection` 1・`derived-records` 2・`data-durability` 1・`record-deletion` 1・`subjective-log` 1・`personal-entities` 1。Scenario 66 本）。
 満たす要件は FR-122・FR-123（扉 #32）。**`requires: [ST01, ST48]`**（この段で ST48 を足した。layer 1 → 2、ST52〜ST58 も 1 つずつ下がる）。
 
 > **第 1 回の深掘りの答えを待たずに、推奨の答えで先に書いた**（2026-10-20 の流れ）。下の Q1〜Q4 は**本人の答えではなく推奨**で、`deep.md` は `（答え待ち・推奨: …）` のまま。
@@ -21,12 +21,18 @@ change: `openspec/changes/st49-record-component-version/`。既存の 8 capabili
 聞かずに決めたもの（`premises.md` の C1〜C14 → design の D）: 版は送信要求の 1 件ごとの欄で、積む時点で焼き込む（D13）/ 値は検査せず断らない（D8）/ 鍵・原文に混ぜない（D11）/ 版の無い記録を推定で埋めない（D12）/
 収集アプリの版を信じるのは API の合言葉の要求だけ（D9）/ 印は組み立てのたびに作り直す（D6）/ 印の形は ST48 の台帳とそろえる（D5）/ 選び出す口・生存信号の版・ST50 / ST51 の分は作らない（D18）/ 走っている change と同じ箇所の触り方（D19）。
 
+## 深掘り（第 2 回。本人の答え）
+
+| Q | 本人の答え | どこに効くか |
+|---|---|---|
+| Q5 書き出しの版の列の説明の時点（仮の D4 が否・A / exported） | 今の中身を作った部品の版と書く（D1 に合わせる。推奨と同じ） | data-durability の書き出しの Requirement と Scenario「書き出しの説明書は、版を今の中身を作った部品の版と説明する」、design D4（D1（仮）に乗る。D1 を反転するなら説明も変える）、tasks 7.1・7.2 |
+
 ## 仮決め（design の（仮）と反転条件。`provisional.jsonl`）
 
 - **D1（仮）** 外部サービス由来の更新では版が今の中身を作った版に動き、前の値は前の版に残る。反転条件: 最初の版で選び出したい事例が出たら本表を据え置き、前の版から読む
 - **D2（仮）** 滞在の作り直しで原文が変わったら S-01 の版を作り直した版に替える。反転条件: 最初に書いた版で選び出したい事例
 - **D3（仮）** 収集アプリの溜めは読み戻した行の知らない欄を捨てずに送る。入れ替えは S-01 を先に。代償: ST49 より前の版へ戻した間の版は落ちる（`docs/handoff/ST50.md` へ）
-- **D4（仮）** 書き出しの説明は「部品の申告（S-01 は確かめていない）」と「S-01 が自分で入れた」を書き分ける。反転条件: 申告を確かめる手段ができたら
+- ~~D4（仮）~~ → 別の席（`provisional-review.md`）が否とし、深掘り第 2 回 Q5 で本人が決めた（下の節）。仮ではなくなった
 - **D21（仮）** 収集した記録の版の書き換えは本表の門の対象（前の版を積むときだけ直せる。直す前の値が残る）。spec レビュー R7 で premises の C8（門の外）を改めた。反転条件: 前の版を残さずに直したい量の直しが出たら門の外へ
 
 ## capability と requires
@@ -37,7 +43,7 @@ change: `openspec/changes/st49-record-component-version/`。既存の 8 capabili
 
 ## tasks
 
-11 Task（組み立ての印と S-01 / 移行と門 / 取り込み口と振り分け / 外部更新 / 滞在と基準 / 破棄の報告と台帳 / 書き出し / C-02 / C-01 / 画面（e2e）/ 申し送りと全体）。Scenario 65 本を全部名指し。
+11 Task（組み立ての印と S-01 / 移行と門 / 取り込み口と振り分け / 外部更新 / 滞在と基準 / 破棄の報告と台帳 / 書き出し / C-02 / C-01 / 画面（e2e）/ 申し送りと全体）。Scenario 66 本を全部名指し。
 組み立て直しの確かめは `tools/check-build-stamp.sh`（repo を写した木で本物の部品を組み立て直す。節 `tool` / `server` / `windows` / `android`）。
 
 ## レビュー
