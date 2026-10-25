@@ -12,6 +12,9 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 
+use uuid::Uuid;
+
+use crate::web_session::Caller;
 use crate::{decided, internal_at, App, Authn};
 
 /// 記録の経路（D8）。`x-forwarded-for` があれば網越し（`tailscale serve` が付ける）。
@@ -29,14 +32,45 @@ pub fn via_of(headers: &HeaderMap) -> &'static str {
 pub struct AccessEntry {
     /// `direct` | `forwarded`
     pub via: &'static str,
-    /// `web_session` | `api_token` | `none`
+    /// `web_session` | `api_token` | `satellite` | `none`
     pub credential: &'static str,
     /// axum の `MatchedPath`（`/stays`）。値の入った path は入れない。
     pub route: String,
     pub method: String,
-    /// `ok` | `unauthorized` | `login_ok` | `login_failed` | `login_throttled` | `logout`
+    /// `ok` | `unauthorized` | `forbidden` | `login_ok` | `login_failed` | `login_throttled` | `logout`
     pub outcome: &'static str,
     pub status: u16,
+    /// 衛星と資格情報 1 本の番号（uuid。識別子の文字列ではない。D4）。
+    /// **`Caller::Satellite` からだけ埋まる**（DB の CHECK と同じ約束。`for_caller` で作る）。
+    pub satellite: Option<(Uuid, Uuid)>,
+}
+
+impl AccessEntry {
+    /// 判定から行を作る。`None` は資格情報が認められなかった求め（`none`）。
+    pub fn for_caller(
+        caller: Option<Caller>,
+        via: &'static str,
+        route: String,
+        method: String,
+        outcome: &'static str,
+        status: u16,
+    ) -> Self {
+        Self {
+            via,
+            credential: caller.map_or("none", Caller::as_str),
+            route,
+            method,
+            outcome,
+            status,
+            satellite: match caller {
+                Some(Caller::Satellite {
+                    satellite,
+                    credential,
+                }) => Some((satellite, credential)),
+                _ => None,
+            },
+        }
+    }
 }
 
 /// 書く口が返す future。
@@ -60,8 +94,9 @@ impl AccessSink for PgAccessSink {
         let pool = self.0.clone();
         Box::pin(async move {
             sqlx::query(
-                "INSERT INTO core.access_log (via, credential, route, method, outcome, status)
-                 VALUES ($1, $2, $3, $4, $5, $6)",
+                "INSERT INTO core.access_log
+                   (via, credential, route, method, outcome, status, satellite_id, satellite_credential_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(e.via)
             .bind(e.credential)
@@ -69,6 +104,8 @@ impl AccessSink for PgAccessSink {
             .bind(e.method)
             .bind(e.outcome)
             .bind(i16::try_from(e.status).unwrap_or(0))
+            .bind(e.satellite.map(|(s, _)| s))
+            .bind(e.satellite.map(|(_, c)| c))
             .execute(&pool)
             .await
             .map(|_| ())
@@ -123,23 +160,29 @@ pub async fn middleware(State(app): State<App>, req: Request, next: Next) -> Res
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
     };
-    if caller.is_some() && is_ingest(&route) {
+    let satellite = matches!(caller, Some(Caller::Satellite { .. }));
+    if caller.is_some() && !satellite && is_ingest(&route) {
         return next.run(req).await;
     }
-    let (credential, outcome, status) = match caller {
-        Some(c) => (c.as_str(), "ok", 200),
-        None => ("none", "unauthorized", 401),
+    let (outcome, status) = match caller {
+        Some(Caller::Satellite { .. }) => ("forbidden", 403),
+        Some(_) => ("ok", 200),
+        None => ("unauthorized", 401),
     };
-    let entry = AccessEntry {
-        via: via_of(req.headers()),
-        credential,
+    let entry = AccessEntry::for_caller(
+        caller,
+        via_of(req.headers()),
         route,
-        method: req.method().as_str().to_owned(),
+        req.method().as_str().to_owned(),
         outcome,
         status,
-    };
+    );
     if let Err(e) = app.access.write(entry).await {
         return e.into_response();
+    }
+    if satellite {
+        // 衛星の資格情報はまだどの口も通らない（D8）。ハンドラを呼ばない（取り込みの本文も読まない）
+        return (StatusCode::FORBIDDEN, "forbidden").into_response();
     }
     next.run(req).await
 }

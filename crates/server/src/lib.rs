@@ -9,7 +9,7 @@ use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,28 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 衛星の識別子と名前の形（ST29 / design D2 / D5 / D15）。DB に触らない。
+pub mod satellite;
+/// 衛星の求めの読み出しの記録（ST29 / design D4 / D8 / D9）。
+#[cfg(test)]
+mod satellite_access_tests;
+/// 衛星の登録と外す、その一覧（ST29 / design D7 / D11 / D16）。
+pub mod satellite_admin;
+/// 衛星の登録・外す・権限・最初の 2 つ（ST29 / design D7 / D11）。
+#[cfg(test)]
+mod satellite_admin_tests;
+/// 衛星の資格情報の判定（ST29 / design D8 / D18 / D19）。
+#[cfg(test)]
+mod satellite_authn_tests;
+/// 形の正本と移行・登録簿の突き合わせ（ST29 / design D5）。
+#[cfg(test)]
+mod satellite_form_tests;
+/// 衛星の登録簿・資格情報の移行（ST29 / design D7 / D9）。
+#[cfg(test)]
+mod satellite_migration_tests;
+/// 衛星の資格情報では、まだどの口も通らない（ST29 / design D8 / D14）。
+#[cfg(test)]
+mod satellite_routes_tests;
 /// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
 pub mod scheduled;
 #[cfg(test)]
@@ -534,6 +556,26 @@ async fn authorize_quiet(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
+    // 衛星の値を名乗る求めは、引けなければ印を見ずに 401（D19（仮））。引ければ印があっても衛星（D18（仮））
+    if given.starts_with(satellite::CREDENTIAL_PREFIX) {
+        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "UPDATE core.satellite_credential c SET last_used_at = $2
+               FROM core.satellite s
+              WHERE c.token_sha256 = $1 AND c.revoked_at IS NULL
+                AND s.id = c.satellite_id AND s.removed_at IS NULL
+             RETURNING c.satellite_id, c.id",
+        )
+        .bind(web_session::sha256(given))
+        .bind(app.now())
+        .fetch_optional(&app.pool)
+        .await?;
+        return Ok(
+            row.map(|(satellite, credential)| web_session::Caller::Satellite {
+                satellite,
+                credential,
+            }),
+        );
+    }
     if token_matches(given, &app.token) {
         return Ok(Some(web_session::Caller::ApiToken));
     }
@@ -587,6 +629,9 @@ async fn authorize(
     headers: &HeaderMap,
 ) -> Result<web_session::Caller, (StatusCode, String)> {
     match decided(app, headers).await {
+        Authn::Decided(Some(web_session::Caller::Satellite { .. })) => {
+            return Err((StatusCode::FORBIDDEN, "forbidden".into()))
+        }
         Authn::Decided(Some(caller)) => return Ok(caller),
         Authn::Decided(None) => {}
         Authn::LookupFailed => {
@@ -3545,6 +3590,22 @@ pub fn router(app: App) -> Router {
             post(attributes_kind_name_post),
         )
         .route(
+            "/satellites",
+            get(satellite_admin::satellites_get).post(satellite_admin::satellites_post),
+        )
+        .route(
+            "/satellites/{id}",
+            delete(satellite_admin::satellites_delete),
+        )
+        .route(
+            "/satellites/{id}/credentials",
+            post(satellite_admin::credentials_post),
+        )
+        .route(
+            "/satellites/{id}/credentials/{cid}",
+            delete(satellite_admin::credentials_delete),
+        )
+        .route(
             "/session",
             post(web_session::session_post)
                 .delete(web_session::session_delete)
@@ -3735,6 +3796,11 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::session_post,
         web_session::session_delete,
         web_session::session_get,
+        satellite_admin::satellites_get,
+        satellite_admin::satellites_post,
+        satellite_admin::satellites_delete,
+        satellite_admin::credentials_post,
+        satellite_admin::credentials_delete,
         places_post,
         places_get,
         place_candidates_get
@@ -3837,6 +3903,13 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindErrorBody,
         web_session::LoginRequest,
         web_session::SessionState,
+        satellite_admin::SatelliteOut,
+        satellite_admin::CredentialOut,
+        satellite_admin::IssueRequest,
+        satellite_admin::IssuedCredential,
+        satellite_admin::RegisterRequest,
+        satellite_admin::SatelliteError,
+        satellite_admin::SatelliteErrorBody,
         places::PlaceCreateRequest,
         places::PlaceCreated,
         places::PlaceError,

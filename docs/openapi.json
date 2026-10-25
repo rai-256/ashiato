@@ -1203,6 +1203,278 @@
         }
       }
     },
+    "/satellites": {
+      "get": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "外していない衛星（取り消していない資格情報つき）と外した衛星の一覧。",
+        "operationId": "satellites_get",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SatelliteOut"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "登録する。外した衛星と同じ識別子なら同じ行を戻す（200。`registered_at` は変えない。Q2）。",
+        "operationId": "satellites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteOut"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/satellites/{id}": {
+      "delete": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "外す。最初の 2 つと外した衛星は 409。資格情報は全部、同じトランザクションで取り消す。",
+        "operationId": "satellites_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "衛星の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/satellites/{id}/credentials": {
+      "post": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "資格情報を発行する。値は `ashsat_<識別子>_<乱数 43 文字>`、保存は値全体の SHA-256 だけ（D6）。",
+        "operationId": "credentials_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "衛星の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedCredential"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SatelliteErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/satellites/{id}/credentials/{cid}": {
+      "delete": {
+        "tags": [
+          "satellite_admin"
+        ],
+        "summary": "資格情報を 1 本取り消す（行は消さず `revoked_at` を付ける。取り消し済みはそのまま 204）。",
+        "operationId": "credentials_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "衛星の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "description": "資格情報の番号",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "500": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/session": {
       "get": {
         "tags": [
@@ -2017,6 +2289,34 @@
           "count": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "CredentialOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "issued_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -3375,6 +3675,40 @@
           }
         }
       },
+      "IssueRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "IssuedCredential": {
+        "type": "object",
+        "description": "発行の応答。`value` はこの 1 回だけ載る（D6）。",
+        "required": [
+          "id",
+          "label",
+          "issued_at",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "KindCreated": {
         "type": "object",
         "description": "種類を足した結果。",
@@ -4321,6 +4655,21 @@
           }
         }
       },
+      "RegisterRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "identifier"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "ReminderDecision": {
         "type": "object",
         "description": "通知の判断に要るもの。**この 2 欄だけ**（主観の中身を返さない。design D9）。",
@@ -4465,6 +4814,75 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "SatelliteError": {
+        "type": "string",
+        "description": "400 / 409 の本文の種別（D11）。画面が日本語の理由に引く。",
+        "enum": [
+          "malformed",
+          "reserved",
+          "body_prefix",
+          "name_invalid",
+          "identifier_taken",
+          "name_taken",
+          "builtin",
+          "removed"
+        ]
+      },
+      "SatelliteErrorBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/SatelliteError"
+          }
+        }
+      },
+      "SatelliteOut": {
+        "type": "object",
+        "description": "衛星 1 つ。`credentials` は取り消していないものだけ（値もハッシュも載せない。D11）。",
+        "required": [
+          "id",
+          "identifier",
+          "name",
+          "builtin",
+          "registered_at",
+          "credentials"
+        ],
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CredentialOut"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
