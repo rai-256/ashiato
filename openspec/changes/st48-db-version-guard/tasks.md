@@ -121,7 +121,7 @@
 
 ## Task 7: これから足す版の規則
 
-- [ ] 7.1 `tools/check-migrations.sh` に design D10 の 2 つの規則を足す（名前の時刻が `202610250000` 以上の版だけ）: 前進側が文として `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` / `END` を持たない（`$$` の本体の中は数えない）、
+- [x] 7.1 `tools/check-migrations.sh` に design D10 の 2 つの規則を足す（名前の時刻が `202610250000` 以上の版だけ）: 前進側が文として `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` / `END` を持たない（`$$` の本体の中は数えない）、
   `.down.sql` が `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ。`--self-test` を足し、`"$TMPDIR"` の下の使い捨ての `migrations/` で次を走らせて `echo "Scenario: …"` を出す:
   `Scenario: 新しい版が自分で取引を持つと、検査が落ちる` / `Scenario: 新しい版の戻し手順が版の記録の行を消さないと、検査が落ちる`（それぞれ落ちて、版の名前が出る。`DO $$ BEGIN … END $$;` だけの版と、規則を守った版は通る）。
   今の木で走らせる本体の出力の前に `echo "Scenario: 前からある版には、この規則を求めない"` を出す。CI の rust の job に `./tools/check-migrations.sh --self-test` を足す。
