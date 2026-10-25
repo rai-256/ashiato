@@ -2,13 +2,12 @@
 
 change: `openspec/changes/st48-db-version-guard/`。新しい capability `distribution`（ADDED 7・Scenario 41 本）。満たす要件は FR-117・FR-118・FR-129。
 
-## 積んだ未決（A）—— 1 件。答えが要る
+## 積んだ未決（A）—— なし（第 2 回の Q6 は答えが出て反映した）
 
 - **Q6（第 2 回。premise）確認バッチの前の回の DB に、本体で消した記録が残る**（`review/code.md` R22。security review）。
-  Q5 の答えで確認バッチは回ごとに別の DB に立ち、前の DB は残る。確認の間に電話が送った本物の記録はその回の DB にだけ入るので、
-  残せば本体で消した記録が前の回の DB に残り、消せばその回の DB にしか無い記録を失う。
-  推奨: 前の回の DB は残し、確認手順書に消し方の 1 行を載せ、design の Risks に書く（片付けの道具は後の change）。
-  問いは `deep.md` Q6・`deep-questions-r2.json`・`docs/briefs/ST48-deep-r2.html`
+  本人は推奨を選んだ: 前の回の DB は残す（Q5 のまま）。`tools/verify-prep.sh` の確認手順書（`manifest.md`）に
+  「この回の DB は消えずに残る。消すなら `COMPOSE_PROJECT_NAME=<この回> docker compose down -v`」を載せ、
+  design の Risks に消した記録が前の回の DB に残ることを、D13 の反転条件に片付けの change の起点を書いた。片付けの道具は後の change
 
 ## 仮決め（B）と Ruling
 
@@ -46,7 +45,7 @@ design の（仮）: **D5**（版の記録が読めないなら止める。付�
 
 - final review（R1〜R17）: fixed 10・rejected 7（前の段で処置済み）
 - code-verify（R18〜R21）: fixed 3（R18・R19・R20）・deferred ST58 1（R21）
-- security review（R22）: escalated 1（上の Q6）
+- security review（R22）: escalated 1（上の Q6。答えを反映済み）
 - `/code-review`（R23〜R32）: fixed 3（R23・R27・R30）・rejected 7（R24 は D7、R25 は D8、R26 は D10、R28 は R14 と同じ、R29 は spec の Scenario、R31 は CH04、R32 は D14 で決めたもの）
 - finish の scoped re-review は 1 回で、R27 だけ PARTIAL（上の Ruling で park）
 

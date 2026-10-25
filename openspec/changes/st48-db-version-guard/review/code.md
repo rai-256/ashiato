@@ -263,7 +263,7 @@ migration_ledger|ashiato_owner / form|ashiato_owner / applied|ashiato_owner
 - 提案: 消した記録が前の回の DB に残ることを design の Risks に書き、D13 の反転条件か片付けの change の起点に「本体で削除したら、残っている回の DB をどうするか」を足す。片付けを後に回すなら、確認手順書（manifest）に「この回の DB は消えずに残る・消すなら `COMPOSE_PROJECT_NAME=<この回> docker compose down -v`」の 1 行を載せる
 
 範囲外: なし
-- 処置: escalated —— Q5 の前提（前の DB を残す）に触れ、残す・消すのどちらも失うものがある。`deep.md` Q6（第 2 回）・`deep-questions-r2.json`・`docs/briefs/ST48-deep-r2.html`
+- 処置: escalated —— `deep.md` Q6（第 2 回）で答えが出た。本人が推奨（前の回の DB は残し、消し方を手順書に載せる）を選んだ。`verify-prep.sh` の manifest に「この回の DB は消えずに残る・消すなら `COMPOSE_PROJECT_NAME=<この回> docker compose down -v`」を載せ、design の Risks に消した記録が残ることを、D13 の反転条件に片付けの change の起点を足した。片付けの道具は後の change（escalated の経緯: Q5 の前提に触れ、残す・消すのどちらも失うものがあった。`deep.md` Q6）
 
 ## /code-review（6bb4584..5e9836f）
 

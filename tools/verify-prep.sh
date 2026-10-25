@@ -142,6 +142,8 @@ Android: $android_note。接続先は \`~/.gradle/gradle.properties\` の \`ashi
 
 時計のずれの測り直し（\`c01-clock\`）: $clock_note
 
+この回の DB（project \`$project\`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: \`COMPOSE_PROJECT_NAME=$project docker compose down -v\`（この回に電話が送った記録も消える）。design D13・deep.md Q6。
+
 成果物: \`$out/\`（ashiato-server / web / $( [ -n "$apk" ] && echo app-debug.apk || echo "APK なし" ) / run.sh）。ソースは verify ブランチの head。
 EOF
 

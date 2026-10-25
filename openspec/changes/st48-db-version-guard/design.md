@@ -182,7 +182,8 @@ error: kind=db_ahead
 - 前の回の DB を見るには `COMPOSE_PROJECT_NAME=<前の名前> docker compose up -d db`
 - 端末の測定は回ごとの DB に分かれて入るので、`verify-prep.sh` の `c01-clock` の数（ST05 D4 の反転条件）は、前の回の DB（`ashiato-verify-*`）と既定の project の DB を 1 つずつ起こして数えて足し、機械が判定する（止まっていた DB は数えた後に止め直す。review/code.md R27）
 - 退けた案: 1 つの PostgreSQL の中で database を分ける —— `seed.sh`・`seed.d/`・`archive-shape.sh` などの `-d ashiato` を全部書き換えることになる
-- 反転条件: 残る project の置き場が数十 GB を超える・本人が片付けの手間を違和感として返したら、片付けの道具を足す（別の change）
+- 確認手順書（`manifest.md`）に「この回の DB は消えずに残る。消すなら `COMPOSE_PROJECT_NAME=<この回> docker compose down -v`」を載せる（Q6。review/code.md R22）
+- 反転条件: 残る project の置き場が数十 GB を超える・本人が片付けの手間を違和感として返した・本体で消した記録が前の回の DB に残ることを本人が違和感として返したら、片付けの道具を足す（別の change。その change は「本体で削除したら、残っている回の DB をどうするか」を起点に持つ）
 
 ### D14. 止まったときの手順 —— `stack.sh` と `dev.sh`
 
@@ -214,6 +215,7 @@ error: kind=db_ahead
 - [DB の置き場は無名の volume（`docker-compose.yml` に `volumes:` が無い）] → 容器を消す（`docker compose down`。`-v` 無しでも）と置き場が孤立し、次の `up` は空の置き場を付ける。`stack.sh down` を `docker compose stop` に替え、別の project の DB も `docker stop` だけにする（D13）。named volume に替えない —— main の checkout の DB（電話の記録が入っている）が次の `up` で空の置き場に付け替わる
 - [確認バッチの前の回の DB が積もる（D13）] → 片付けは後の change。前の回の DB の置き場は `docker volume ls` で見える
 - [`run.sh` の DB が回ごとに新しくなる] → 確認の間に電話が送った記録は、その回の DB にだけ入る（次の回の DB には無い）。前の回の DB は残るので失われない
+- [前の回の DB に、本体で消した記録が残る（Q6。review/code.md R22）] → 削除（`deletion.rs`）が届くのは本体の DB だけ。前の回の DB を `COMPOSE_PROJECT_NAME=<前の名前> docker compose up -d db` で起こすと、消した記録が画面ごと戻る。本人が `docker compose down -v` で消すまで残る（消し方は確認手順書に載る）。片付けの道具は後の change
 - [CH04 の `testdb.rs` の作り替えと衝突する] → 当てる処理を `apply_migrations` に寄せ、`testdb.rs` の差は呼び出しの数行にする。後から入る側が rebase で解く
 
 ## Migration Plan
