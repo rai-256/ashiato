@@ -48,6 +48,9 @@ if [ -f "$_here/../.env" ]; then
   set -a
   . "$_here/../.env"
   set +a
+  # COMPOSE_FILE は環境に写さない（compose は project の `.env` を自分で読む）。環境の値は `.env` に勝つので、
+  # 写すと別の木（録画の木・override のある木）の compose がこの木の並びで動く（ch06 review/code.md R15）
+  unset COMPOSE_FILE
 fi
 
 unset _here _jars _j _n

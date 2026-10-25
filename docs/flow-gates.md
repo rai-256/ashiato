@@ -12,6 +12,7 @@
 | `cargo test -p ashiato-collector-windows --test runtime_windows`（ashiato2、Windows の上で） | 前景・入力・アドレスバーを本物の OS から読ませて記録を数える実行時テスト。テストが自分で窓を作る | CI の `collector-windows-runtime`（windows-latest）、手元の Windows |
 | `tools/android-emulator.sh`（ashiato2） | エミュレータを立てて `src/androidTest` の計測テスト（前景サービス・権限の入口・HTTP を本物の framework で）。実機を繋いでも同じ gradle タスク | CI の `android-instrumented`（ubuntu + KVM）、手元 |
 | `check-migrations.sh`（ashiato2） | 前進側の破壊的変更・戻し手順の欠落・**名前が作成時刻 `YYYYMMDDHHMM_<slug>.sql` でない**もの | ローカル、CI |
+| `tools/check-verify-env-reset.sh`（ashiato2） | 印つきの準備（`tools/verify-env.sh`）で worktree の DB が空から作り直されること、作り直さない木（印なし）・切った接続の報告・作り直せないときの止まり方・塞いでいる network | CI の `rust`、手元（本体と `--self-test`。`--self-test` は docker の daemon に触らない） |
 | `tools/check-test-db-growth.sh`（ashiato2） | 試験が `CREATE DATABASE` を `testdb.rs` の外に書いていない・書き出しの試験が `testdb::pool()` を共有していない（`--lint`）。試験を 2 回続けて走らせ、database が積もらない（引数なし） | ローカル、CI |
 | `tools/check-private.sh` | 手元の網の名前・私設 IP がリポジトリに入っていない | `.githooks/pre-commit`（`tools/pre-commit.sh`）、CI の `chain` |
 | `tools/check-log-private.sh` | ログに私的データを出せる**書き方**（メッセージへの値の埋め込み・許可外のフィールド・Debug 出力・println、携帯の `Telemetry.line` を通さない文字列、画面の console）。例外は `// log-ok: <理由>`（製造準備 A-2。一度出たログは消せない） | `.githooks/pre-commit`（`tools/pre-commit.sh`）、CI の `chain` |
