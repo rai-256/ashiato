@@ -60,10 +60,10 @@
 
 ## Task 3: 作り直すかの判定と `--plan`
 
-- [ ] 3.1 `tools/verify-env.sh` に design D2 の判定を書く（印・worktree かどうか・`CI`）。`--plan` は判定の 1 行（`reset` / `keep: <理由>`）を出して rc=0 で終わり、docker にも `.env` にも触らない（`env-init.sh` も呼ばない）。
+- [x] 3.1 `tools/verify-env.sh` に design D2 の判定を書く（印・worktree かどうか・`CI`）。`--plan` は判定の 1 行（`reset` / `keep: <理由>`）を出して rc=0 で終わり、docker にも `.env` にも触らない（`env-init.sh` も呼ばない）。
   印があって `keep` のときは、判定の 1 行を標準エラーに出してから今までどおり起動して待つ。冒頭の注記を design D11 のとおり直す。
   検証: `bash -c '[ "$(HARNESS_VERIFY=1 tools/verify-env.sh --plan)" = reset ]'` rc=0（worktree で走る）/ `bash -c 'env -u HARNESS_VERIFY tools/verify-env.sh --plan | grep -q "^keep:"'` rc=0
-- [ ] 3.2 `tools/check-verify-env-reset.sh --self-test` に 3 本を足す（2.2 の一時の repo と worktree を使う）:
+- [x] 3.2 `tools/check-verify-env-reset.sh --self-test` に 3 本を足す（2.2 の一時の repo と worktree を使う）:
   `echo "Scenario: CI でない main の checkout では、印があっても作り直さない"`（worktree でない木で `HARNESS_VERIFY=1 … --plan` が `keep:` で始まり `main` を含む）/
   `echo "Scenario: CI の main の checkout と、worktree では、印があれば作り直す"`（worktree でない木の `CI=true HARNESS_VERIFY=1`、`demo-st05`・`demo-verify`・`demo-ch01` の `HARNESS_VERIFY=1` が `reset`）/
   `echo "Scenario: 印が無ければ、どの木でも作り直さない判定になる"`（worktree でない木（`CI=true` と無し）と 3 つの worktree で、印なしが `keep:`）。
