@@ -388,7 +388,7 @@ mod tests {
         // Scenario の印は Windows の本物のブラウザで確かめる `tests/runtime_windows.rs` が持つ（R62）
         let (tmp, db) = temp_db();
         let _open_browser_db = rusqlite::Connection::open(&db).unwrap();
-        let copy = with_copy(&db, &copies(&tmp), |p| {
+        let copy = with_copy(&db, &tmp_root(&tmp), |p| {
             assert!(p.exists());
             Ok(p.to_owned())
         })
@@ -400,7 +400,7 @@ mod tests {
         // Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
         let (tmp, db) = temp_db();
         rusqlite::Connection::open(&db).unwrap();
-        assert!(probe_readable(&db, &copies(&tmp)).is_ok());
+        assert!(probe_readable(&db, &tmp_root(&tmp)).is_ok());
     }
 
     #[test]
@@ -408,7 +408,7 @@ mod tests {
         // Scenario: 履歴 DB が開けなければ取得できない状態として扱える
         let (tmp, db) = temp_db();
         std::fs::write(&db, "not a sqlite database").unwrap();
-        assert!(probe_readable(&db, &copies(&tmp)).is_err());
+        assert!(probe_readable(&db, &tmp_root(&tmp)).is_err());
     }
     const CHROMIUM_FULL: &str = "CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER, visit_duration INTEGER, opener_visit INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER, is_known_to_sync INTEGER);";
 
@@ -470,7 +470,7 @@ mod tests {
         assert!(dir.join("History-wal").exists());
         std::fs::write(dir.join("History-journal"), []).unwrap();
         let mut seen = Vec::new();
-        let n: i64 = with_copy(&db, &copies(&base), |copy| {
+        let n: i64 = with_copy(&db, &tmp_root(&base), |copy| {
             let parent = copy.parent().unwrap();
             seen = std::fs::read_dir(parent)
                 .unwrap()
@@ -498,9 +498,13 @@ mod tests {
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'https://a.test/',NULL); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0);").unwrap();
         drop(conn);
-        let v = read_visits(crate::history::locate::Browser::Firefox, &db, &copies(&tmp))
-            .unwrap()
-            .visits;
+        let v = read_visits(
+            crate::history::locate::Browser::Firefox,
+            &db,
+            &tmp_root(&tmp),
+        )
+        .unwrap()
+        .visits;
         assert_eq!(v.len(), 1);
     }
 
@@ -514,7 +518,7 @@ mod tests {
         conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'other-pc',99,1),(2,1,10,0,1,5,0,'',0,0);").unwrap();
         drop(conn);
         let b = crate::history::locate::Browser::Chrome;
-        let v = read_visits(b, &db, &copies(&tmp)).unwrap().visits;
+        let v = read_visits(b, &db, &tmp_root(&tmp)).unwrap().visits;
         let foreign = crate::history::contract::Visit::from_read(b, "Default", &v[0]).unwrap();
         let local = crate::history::contract::Visit::from_read(b, "Default", &v[1]).unwrap();
         assert_eq!(
@@ -598,7 +602,7 @@ mod tests {
     fn history_copy_lives_under_tmp_and_is_removed_on_panic() {
         let (base, db) = temp_db();
         rusqlite::Connection::open(&db).unwrap();
-        let tmp = copies(&base);
+        let tmp = tmp_root(&base);
         let mut seen = None;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             with_copy(&db, &tmp, |copy| -> anyhow::Result<()> {
@@ -621,7 +625,7 @@ mod tests {
     #[test]
     fn history_copy_leftovers_are_swept() {
         let (base, _db) = temp_db();
-        let tmp = copies(&base);
+        let tmp = tmp_root(&base);
         std::fs::create_dir_all(tmp.join("left-over")).unwrap();
         std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
         sweep_copies(&tmp).unwrap();
@@ -630,7 +634,7 @@ mod tests {
     }
 
     /// 写しの置き場（本物は `state_dir/browser-history/tmp`）。
-    fn copies(tmp: &tempfile::TempDir) -> std::path::PathBuf {
+    fn tmp_root(tmp: &tempfile::TempDir) -> std::path::PathBuf {
         tmp.path().join("copies")
     }
 

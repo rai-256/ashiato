@@ -268,7 +268,8 @@ async fn export_catalog_unclassified_table_stops_the_export() {
 // Scenario: 分類の無い列があると書き出しは始まらない
 #[tokio::test]
 async fn export_catalog_unclassified_column_stops_the_export() {
-    let (e, dir_tmp) = run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
+    let (e, dir_tmp) =
+        run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(
         e.reason.contains("event") && e.reason.contains('y'),
