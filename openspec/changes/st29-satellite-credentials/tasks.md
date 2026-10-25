@@ -150,16 +150,16 @@
 
 ## Task 10: OpenAPI・縦串・仕上げ
 
-- [ ] 10.1 `cargo run -p ashiato-server --bin openapi > docs/openapi.json` で契約を作り直す。検証: `tools/check-openapi.sh` rc=0
-- [ ] 10.2 縦串 `tools/smoke.d/<作成時刻>_st29-satellite-credentials.sh`（`tools/smoke.sh` の本体に書き足さない）——
+- [x] 10.1 `cargo run -p ashiato-server --bin openapi > docs/openapi.json` で契約を作り直す。検証: `tools/check-openapi.sh` rc=0
+- [x] 10.2 縦串 `tools/smoke.d/<作成時刻>_st29-satellite-credentials.sh`（`tools/smoke.sh` の本体に書き足さない）——
   立てたスタックで画面のログイン → 衛星を登録 → 資格情報を発行 → その値で `GET /events` と `POST /ingest` が 403 → 取り消し → 401 を `echo` で印を付けて確かめる。
   終わりにサーバのログ（`docker compose logs` かスタックのログのファイル）を `ashsat_[a-z0-9.-]+_[A-Za-z0-9_-]{43}` と発行した値そのもので grep し、0 件でなければ落とす。
   検証: `tools/smoke.sh` rc=0
-- [ ] 10.3 検査 3 本。検証: `python3 scripts/check_scenarios.py . st29-satellite-credentials` rc=0、`python3 scripts/review_triage.py . st29-satellite-credentials` rc=0、`python3 scripts/check_chain.py .` rc=0
-- [ ] 10.4 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
+- [x] 10.3 検査 3 本。検証: `python3 scripts/check_scenarios.py . st29-satellite-credentials` rc=0、`python3 scripts/review_triage.py . st29-satellite-credentials` rc=0、`python3 scripts/check_chain.py .` rc=0
+- [x] 10.4 まとめて緑。検証: `cargo fmt --all --check` / `cargo clippy --workspace --all-targets -- -D warnings` / `cargo test --workspace` /
   `tools/db.sh down -v && cd web && npm run lint && npm run test && npm run build && STACK_RESET=1 npm run test:e2e` /
   `tools/check-immutable.sh` / `tools/check-log-private.sh` / `tools/check-satellite-boundary.sh` / `tools/check-openapi.sh` / `tools/smoke.sh` が全部 rc=0
-- [ ] 10.5 `docs/handoff/ST29.md` を PR の前にもう一度読む（開始時と合わせて 2 回）。st17 C2 と st33 C4 が 6.1 の全 route の試験で閉じていること、
+- [x] 10.5 `docs/handoff/ST29.md` を PR の前にもう一度読む（開始時と合わせて 2 回）。st17 C2 と st33 C4 が 6.1 の全 route の試験で閉じていること、
   st28 Q4 と st17 R5 が ST44 へ移っていること（ST29 では `ApiToken` の範囲を変えていない）を確かめる。
   検証: `grep -c 'Scenario: 衛星の資格情報では、資格情報の要らない口のほかに 2xx を返す口が無い' crates/server/src/*.rs` の合計が 1 以上、かつ `git diff main -- crates/server/src/lib.rs | grep -c '^-[^-].*Caller::ApiToken'` が 0
 
