@@ -121,9 +121,15 @@ pub fn backup_before_migrate(
     })?;
     if !out.status.success() || !non_empty(&file) {
         let _ = std::fs::remove_file(&file); // 途中の空の退避を残さない（退避があると読み違える）
+        let why = String::from_utf8_lossy(&out.stderr);
+        // pg_dump の言い分の最後の行を添える（版の食い違いなどの理由が rc だけでは見えない。2026-10-25 の CI）
         bail!(
-            "移行の前の退避に失敗した（rc={:?}）。移行は当てていない",
-            out.status.code()
+            "移行の前の退避に失敗した（rc={:?}）。移行は当てていない: {}",
+            out.status.code(),
+            why.lines()
+                .rev()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
         );
     }
     Ok(Some(file))

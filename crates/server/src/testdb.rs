@@ -57,7 +57,7 @@ fn with_port(url: &str, port: u16) -> String {
 
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
 /// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
-/// 助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
+/// `apply_migrations` の助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
 static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 /// 環境からだけ読む。**既定の URL（固定の合言葉入り）は持たない**（ST28 / design D19）。
@@ -85,22 +85,94 @@ pub async fn pool() -> sqlx::PgPool {
         });
     MIGRATED
         .get_or_init(|| async {
-            let mut tx = pool.begin().await.unwrap();
-            sqlx::query("SELECT pg_advisory_xact_lock(4820251)")
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            for sql in crate::MIGRATIONS {
-                sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
-            }
-            sqlx::raw_sql(crate::GRANTS)
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            tx.commit().await.unwrap();
+            crate::migrate(&pool).await.unwrap();
         })
         .await;
     pool
+}
+
+/// 接続の URL の database 名（最後の `/` の後ろ。`?` 以降は残す）を差し替える。
+fn with_database(url: &str, database: &str) -> String {
+    let at = url.rfind('@').unwrap_or(0);
+    let slash = url[at..]
+        .find('/')
+        .map(|i| at + i)
+        .expect("URL に database が無い");
+    let tail = url[slash..].find('?').map_or("", |i| &url[slash + i..]);
+    format!("{}/{database}{tail}", &url[..slash])
+}
+
+/// 使い捨ての database（ST48 / design D16）。版の記録に知らない行を書く試験が、worktree で共有する DB を汚さないために使う。
+/// 作るのは所有者の役割（`CREATEDB` を持つ）。Drop で `DROP DATABASE … WITH (FORCE)`。
+#[derive(Debug)]
+pub struct TempDb {
+    name: String,
+    pool: sqlx::PgPool,
+}
+
+impl TempDb {
+    /// 空の `st48_<乱数 12 桁>` を作り、所有者で繋いだプールを持つ。
+    pub async fn create() -> Self {
+        let name = format!("st48_{:012}", rand::random::<u64>() % 1_000_000_000_000);
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url())
+            .await
+            .unwrap_or_else(|e| panic!("テスト用 DB へ所有者で接続できない: {e}"));
+        // db-ok: 使い捨ての database。Drop で DROP DATABASE する（design D16）
+        sqlx::raw_sql(&format!("CREATE DATABASE {name}"))
+            .execute(&admin)
+            .await
+            .unwrap();
+        admin.close().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&with_database(&url(), &name))
+            .await
+            .unwrap();
+        Self { name, pool }
+    }
+
+    /// 所有者で繋いだプール（移行・付与・記録の書き換えに使う）。
+    pub fn owner(&self) -> &sqlx::PgPool {
+        &self.pool
+    }
+
+    /// アプリの役割（`DATABASE_URL`）で繋いだ新しいプール。
+    pub async fn app(&self) -> sqlx::PgPool {
+        let url = with_database(
+            &with_port(&url_from_env("DATABASE_URL"), db_port()),
+            &self.name,
+        );
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap_or_else(|e| panic!("使い捨ての database へアプリの役割で接続できない: {e}"))
+    }
+}
+
+impl Drop for TempDb {
+    fn drop(&mut self) {
+        let name = self.name.clone();
+        let url = url();
+        // Drop は同期。別スレッドの小さな runtime で消す（試験が落ちても残さない）。
+        let _ = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                if let Ok(admin) = PgPoolOptions::new().max_connections(1).connect(&url).await {
+                    // db-ok: 自分が作った使い捨ての database を消す（design D16）
+                    let _ = sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                        .execute(&admin)
+                        .await;
+                }
+            });
+        })
+        .join();
+    }
 }
 
 /// アプリの役割（`DATABASE_URL`）で繋いだプール。**役割の試験だけが使う。**

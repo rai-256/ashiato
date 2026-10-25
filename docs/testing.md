@@ -162,7 +162,8 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 ./tools/db.sh up -d --wait db && ./tools/db-roles.sh && cargo test --workspace   # 本物の DB（ポートは worktree ごと。tools/ports.sh）。役割を整えてから
-./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
+./tools/check-migrations.sh && ./tools/check-released-migrations.sh --self-test && ./tools/check-released-migrations.sh   # 後ろ 2 つ: 配った印（タグ v*）の移行の凍結。手元にタグが無ければ「0 個」で通る
+./tools/check-boundaries.sh && ./tools/check-openapi.sh
 ./tools/check-offsite.sh --self-test && ./tools/check-offsite.sh && ./tools/check-exposure.sh --self-test
 ./tools/check-private.sh --self-test && ./tools/check-private.sh
 ./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
@@ -173,7 +174,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
 (cd collector-android && ./gradlew detekt :app:assembleDebug :app:testDebugUnitTest)   # ★ 2026-10-11: detekt（formatting = ktlint を含む）を足した
 cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
-./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh
+./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh && ./tools/check-db-version-stop.sh
 # Windows の上で:  cargo test -p ashiato-collector-windows
 # エミュレータ:    ./tools/android-emulator.sh
 ```

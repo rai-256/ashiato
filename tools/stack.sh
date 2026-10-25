@@ -3,13 +3,14 @@
 #
 #   ./tools/stack.sh up        DB → サーバ → 偽データ → 画面。前景で待つ（Ctrl-C で全部止まる）
 #   ./tools/stack.sh up --check-only   DB → 役割 → 移行 → サーバの /healthz まで通して止める（偽データ・画面は立てない）
-#   ./tools/stack.sh down      DB を止める（-v は付けない。消すのは STACK_RESET=1 の up）
+#   ./tools/stack.sh down      DB を止める（容器を消さない・-v も付けない。消すのは STACK_RESET=1 の up）
 #
 # 環境変数:
 #   SERVER_BIN    サーバの実体（既定 target/release/ashiato-server。無ければ build する）
 #   WEB_DIST      画面の build 済みディレクトリ（既定 web/dist。無ければ build する）
 #   SEED          normal（既定）/ max / empty
 #   STACK_RESET=1 起動の前に DB を作り直す（e2e のように毎回同じ状態から始めたいとき）
+#   COMPOSE_PROJECT_NAME  compose の project 名。DB の容器と置き場はこれごとに分かれる（確認バッチは回ごとの名前を run.sh が渡す。design D13）
 #   HARNESS_VERIFY=1  ハーネスの verify-run が渡す。STACK_RESET=1 と同じに扱う（証跡を溜まった DB に頼らせない）
 #   ASHIATO_EXPORT_DIR  書き出しの置き場（既定 <repo>/.export。gitignore 済み。ST33）
 #   BIND / WEB_PORT / DATABASE_URL / API_TOKEN
@@ -36,7 +37,8 @@ export ASHIATO_EXPORT_DIR="${ASHIATO_EXPORT_DIR:-$PWD/.export}"   # 書き出し
 export WEB_PORT="${WEB_PORT:-5180}"     # 開発用 vite（5173）と衝突しない番号。--strictPort で黙って逃げない
 
 if [ "$cmd" = "down" ]; then
-  docker compose down >/dev/null 2>&1 || true
+  # 容器を消さない（消すと無名の volume の置き場が孤立する。design の Risks）
+  docker compose stop >/dev/null 2>&1 || true
   echo "== DB を止めた"
   exit 0
 fi
@@ -75,14 +77,29 @@ fi
 if [ "${STACK_RESET:-}" = "1" ]; then
   echo "== DB を作り直す（STACK_RESET=1）"; docker compose down -v >/dev/null 2>&1 || true
 fi
+# この port を公開している別の project の容器は止める（down しない。置き場が残る。design D13）。
+# 確認バッチは回ごとに project が違い、DB の port（55499）は回をまたいで同じ
+my_project="$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+while read -r cid cproject; do
+  [ -n "$cid" ] && [ -n "$cproject" ] && [ "$cproject" != "$my_project" ] || continue
+  docker stop "$cid" >/dev/null && echo "== 別の project（$cproject）の DB を止めた（port $ASHIATO_DB_PORT を使うため。消していない）"
+done < <(docker ps --filter "publish=$ASHIATO_DB_PORT" --format '{{.ID}} {{.Label "com.docker.compose.project"}}')
 echo "== DB"; docker compose up -d --wait db >/dev/null
 # 役割 → 移行 → サーバの順（volume を消すと役割も消える。design D5 / review R17）
 ./tools/db-roles.sh
 # 移行の前の退避（ashiato-server migrate が取る。製造準備 A-2）。作り直した DB は使い捨てなので退避しない。
-# 残す DB は退避する —— 手元に pg_dump が無ければ db のコンテナの中の pg_dump を使う
+# 残す DB は退避する —— 既定は db のコンテナの中の pg_dump（db と同じ版）。手元の pg_dump は db より古い版だと
+# server version mismatch で落ちる（CI の ubuntu-24.04 は 16、db は postgres:17。退避が rc=1 で落ちて移行が当たらない）。PG_DUMP で指せば従う
 if [ "${STACK_RESET:-}" = "1" ]; then export MIGRATE_BACKUP=off
-elif ! command -v pg_dump >/dev/null 2>&1; then export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"; fi
-echo "== 移行（所有者の接続。サーバは移行を当てない）"; "$server" migrate
+else export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"; fi
+echo "== 移行（所有者の接続。サーバは移行を当てない）"
+# 終了コード 3 = DB の版がこの木と合わない。作り直さずに手順を示して止まる（design D14）
+migrate_rc=0; "$server" migrate || migrate_rc=$?
+if [ "$migrate_rc" = 3 ]; then
+  echo "この DB の版の記録がこの木と合わない（上の error: kind= の行が種別。db_ahead なら知らない移行を db: の行に、ledger_unreadable なら記録を読めない理由を出している）。使い捨ての DB なら STACK_RESET=1 で作り直す。残す DB なら COMPOSE_PROJECT_NAME=<別の名前> で別の DB に立てる（この DB は消えない）" >&2
+  exit 3
+fi
+[ "$migrate_rc" = 0 ] || exit "$migrate_rc"
 trap 'kill 0' EXIT
 # サーバの環境から管理者と所有者の秘密を外す（.env の全部を export しているので。design D5）
 echo "== サーバ $BIND"

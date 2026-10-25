@@ -72,7 +72,20 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # 組み立てに渡した commit がそのまま版の記録の行に入ること（ST48 / design D8。review/code.md R20）
+      - run: ASHIATO_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" ASHIATO_EXPECT_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" cargo test -p ashiato-server --lib st48_apply_row_has_fingerprint_and_build
+      - run: ./tools/check-migrations.sh --self-test
       - run: ./tools/check-migrations.sh
+      # 配った印（タグ v*）の版の移行を変えない・消さない（ST48 / design D9）。checkout は浅くタグが無いので取り寄せる
+      # 印がまだ 1 つも無いと `git fetch` は rc=1 になるので、ls-remote で v* があるときだけ取り寄せる。
+      # ls-remote 自体の失敗は「印が 0 個」と区別して落とす（読めないまま検査を緑にしない。review/code.md R18）
+      - run: |
+          tags="$(git ls-remote --tags origin 'refs/tags/v*')" || { echo "印の一覧を origin から読めない"; exit 1; }
+          if [ -n "$tags" ]; then
+            git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          fi
+      - run: ./tools/check-released-migrations.sh --self-test
+      - run: ./tools/check-released-migrations.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
       # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中
@@ -272,6 +285,8 @@ jobs:
       - run: ./tools/check-panic-log.sh
       # 「収集した」記録が書き換えられないことを、わざと UPDATE を投げて確かめる（FR-30）
       - run: ./tools/check-immutable.sh
+      # DB の版の食い違いで止まるときの手順と、回ごとの project（ST48）。smoke が作ったサーバを使う
+      - run: SERVER_BIN=target/debug/ashiato-server ./tools/check-db-version-stop.sh
 
   # 要件 → Story の鎖と、stories.json からの再生成との一致（scripts/check_chain.py）。
   # scripts/ は .harness2/scripts への symlink で、.harness2 は runner には無い。private なので token が要る:
