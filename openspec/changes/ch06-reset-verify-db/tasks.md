@@ -110,9 +110,9 @@
 
 ## Task 7: 完了の判定と全体の確かめ
 
-- [ ] 7.1 作り直した直後の DB で、server の試験が通る（依頼の完了の判定 2。移行は試験の初回が当てる）。本数と時間を design の「計測の記録」に書く。
+- [x] 7.1 作り直した直後の DB で、server の試験が通る（依頼の完了の判定 2。移行は試験の初回が当てる）。本数と時間を design の「計測の記録」に書く。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0 / `bash -c '[ "$(cargo test -p ashiato-server -- --list 2>/dev/null | grep -c ": test$")" -ge 1000 ]'` rc=0
-- [ ] 7.2 変えないものに触っていない（Global Constraints）。
+- [x] 7.2 変えないものに触っていない（Global Constraints）。
   検証: `bash -c '[ -z "$(git diff origin/main...HEAD -- crates migrations tools/stack.sh tools/smoke.sh tools/check-immutable.sh tools/check-panic-log.sh tools/dev.sh tools/record-env.sh tools/db-roles.sh docker-compose.yml)" ]'` rc=0
-- [ ] 7.3 鎖の検査。
+- [x] 7.3 鎖の検査。
   検証: `openspec validate ch06-reset-verify-db --strict` rc=0 / `python3 scripts/check_scenarios.py . ch06-reset-verify-db` rc=0 / `tools/check-private.sh` rc=0 / `tools/check-ports.sh --self-test` rc=0 / `tools/check-verify-env-reset.sh --self-test` rc=0
