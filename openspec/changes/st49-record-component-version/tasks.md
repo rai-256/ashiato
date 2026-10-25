@@ -30,7 +30,7 @@
   `lib.rs` の他の `*_tests` と同じ形で `#[cfg(test)] mod …;` を足す。C-01 の試験は `collector-android/app/src/test/kotlin/dev/ashiato/collector/St49*Test.kt`、画面は `web/src/__tests__/buildStamp.test.ts` と `web/e2e/st49-client-version.spec.ts`
 - **本人の決定（下流は変えない）**: Q1 版は `<版番号>+<commit 40 桁>[.dirty][.debug]`（`.dirty` はその部品のソースの未 commit の変更）/ Q2 S-01 の版をすべての記録に（衛星も。衛星自身の版は付けない）/
   Q3 破棄の報告・原本の欠けに収集アプリの版と S-01 の版、画面の操作の台帳（削除・気分の通知・滞在の基準・個人属性の種類の名前）に S-01 の版 / Q4 画面の記録は画面の版と S-01 の版。
-  仮: D1（更新で版が動く）・D2（滞在の作り直しで版が動く）・D3（溜めの知らない欄を送り返す・S-01 を先に入れ替える）・D4（説明の書き分け）・D21（版の書き換えは前の版を積むときだけ）。
+  仮: D1（更新で版が動く）・D2（滞在の作り直しで版が動く）・D3（溜めの知らない欄を送り返す・S-01 を先に入れ替える）・D21（版の書き換えは前の版を積むときだけ）。
   （第 1 回は推奨で先に書いた。本人の答えが違えば上流がここを書き直してから下流へ渡す）
 - **列と欄の名前は統一する**: DB の列と書き出しの列は `collector_version` / `web_version` / `server_version`、取り込み口・破棄の報告・原本の欠けの要求の欄は `client_version` の 1 つ（D8）。
   S-01・C-02 の組み立ての印の env は `ASHIATO_BUILD_STAMP`、C-01 は `BuildConfig.COMPONENT_VERSION`、画面は `__ASHIATO_WEB_VERSION__`
@@ -145,7 +145,7 @@
   検証: `CT st49_ledger_` rc=0（`-- --list` で 9 本以上）/ `CT drops_tests` rc=0（`-- --list` で 15 本以上）/ `CT media_missing_tests` rc=0（`-- --list` で 6 本以上）/ `CT deletion_tests` rc=0（`-- --list` で 26 本以上）/ `CT feelings_remind` rc=0（`-- --list` で 8 本以上）/
   `./tools/check-openapi.sh` rc=0 / `jq -e '(.components.schemas.DropReportRequest.properties | has("client_version")) and (.components.schemas.MediaMissingRequest.properties | has("client_version"))' docs/openapi.json` rc=0
 
-## Task 7: 書き出しの列と説明（D17・D4（仮））
+## Task 7: 書き出しの列と説明（D17・D4）
 
 - [ ] 7.1 先に試験を書く（`export_component_version_tests.rs`。配置と書き出しの読み方は `export_file_tests.rs` に合わせ、zip を開いて行の鍵と値を見る）:
   - `st49_export_event_rows_have_versions` — `// Scenario: 書き出しの記録の行は、3 つの版を持つ`
@@ -153,7 +153,7 @@
   - `st49_export_ledger_rows_have_versions` — `// Scenario: 書き出しの破棄の報告と画面の操作の台帳は、版の列を持つ`
   - `st49_export_doc_distinguishes_declared_and_server` — `// Scenario: 書き出しの説明書は、申告の版と S-01 が入れた版を書き分ける`
   - `st49_export_existing_columns_are_kept` — `// Scenario: 版の列を足しても、書き出しの今の列は残る`（今の `EVENT_COLUMNS` などの名前の一覧を試験の中に逐語で写し、足した後の一覧に全部あり、差が版の列だけであることを見る）
-- [ ] 7.2 `export.rs` の `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS`（`schema_version` の次）・`DROP_REPORT_COLUMNS`・`FEELING_REMINDER_COLUMNS`・`STAY_CRITERIA_COLUMNS`・`ATTRIBUTE_KIND_NAME_COLUMNS` に列と説明（D4（仮）の文）、`export/doc.rs` の説明書に同じ文。
+- [ ] 7.2 `export.rs` の `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS`（`schema_version` の次）・`DROP_REPORT_COLUMNS`・`FEELING_REMINDER_COLUMNS`・`STAY_CRITERIA_COLUMNS`・`ATTRIBUTE_KIND_NAME_COLUMNS` に列と説明（D4 の文）、`export/doc.rs` の説明書に同じ文。
   検証: `CT st49_export_` rc=0（`-- --list` で 5 本以上）/ `CT export_` rc=0（`-- --list` で 130 本以上。既存の書き出しの試験が通る。表の列を一覧に足し忘れると落ちる）
 
 ## Task 8: PC の収集アプリ（C-02）の印・焼き込み・欄の保持
