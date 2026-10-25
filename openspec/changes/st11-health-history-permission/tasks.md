@@ -87,7 +87,7 @@
 
 ## Task 4: 許可の状態の記録と、状態が変わったかの判定（design D2 / D9 / D11）
 
-- [ ] 4.1 新しい `HealthPermissionRecord.kt` に、観た状態（D2 の `availability`・`features`・`granted`・`auto_requested`）と契機・端末の時計・起動からの経過時間・起動の識別から
+- [x] 4.1 新しい `HealthPermissionRecord.kt` に、観た状態（D2 の `availability`・`features`・`granted`・`auto_requested`）と契機・端末の時計・起動からの経過時間・起動の識別から
   `c01-health-permission` の記録（`IngestRequest`。`external_id` なし・`schema_version = 1`・`raw` は `payload` の直列化）を作る関数と、最後に記録した状態を `SharedPreferences` に持つ置き場と、
   「観る → 前と違えば 1 件を未送信に積み、積めたら最後の状態を書き換える」1 つの入口 `observeHealthPermissions(trigger)` を置く（最後の状態の置き場は `HEALTH_PREFS`。D14）（時計・経過・起動の識別は `ClockSkewMeasurer` と同じ読み口を差し替えて渡す）。
   ログは `Telemetry.line("health_permission_recorded", …)` に `trigger` と `availability` だけ。
@@ -98,7 +98,7 @@
   「時計が戻っても」は偽の壁時計を 1 日戻して同じ状態で観る。「ログ」は `ShadowLog` を集め、`granted` の値（`true` / `false`）と権限の名前が出ないことを見る。
   検証: `GT HealthPermissionRecordTest`（8 本以上）/ `GT ClockSkewPayloadShapeTest`（既存が緑）/ `bash tools/check-log-private.sh` rc=0
 
-- [ ] 4.2 `c01-health-permission` が生存信号の対象にならないことを固定する。`HealthPermissionRecordTest` に 1 本足し、収集を始めて生存信号の契機に達しても
+- [x] 4.2 `c01-health-permission` が生存信号の対象にならないことを固定する。`HealthPermissionRecordTest` に 1 本足し、収集を始めて生存信号の契機に達しても
   `c01-health-permission` の生存信号が積まれないことと、`CollectionSource` の一覧に入っていないことを見る。
   Scenario: `健康データの権限の生存信号は送られない`。
   検証: `GT HealthPermissionRecordTest`（9 本以上。4.1 と合わせて）/ `GT SourceIndependenceTest`（既存が緑）
