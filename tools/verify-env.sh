@@ -33,6 +33,63 @@ decision=$(plan)
 
 . tools/ports.sh
 tools/env-init.sh     # `.env` が無い worktree（下流で新しく作ったもの）でも DB を起動できるように
+
+# 切った接続の 1 行（design D3）。動いている DB の client backend（この問い合わせ自身を除く）を出所ごとに数える。問えなければ 0
+cut_line() {
+  local rows n list
+  if ! rows=$(docker compose exec -T db psql -X -At -U ashiato -d ashiato -F ' ' -c \
+    "select coalesce(nullif(application_name,''),'-')||'@'||coalesce(host(client_addr),'local'), count(*)
+       from pg_stat_activity where backend_type='client backend' and pid<>pg_backend_pid()
+      group by 1 order by 2 desc, 1" 2>/dev/null); then
+    echo "verify-env: DB を作り直す（切った接続: 0（DB は止まっていた））" >&2; return
+  fi
+  n=$(awk '{s+=$NF} END{print s+0}' <<<"$rows")
+  list=$(awk 'NF{ printf "%s%s%s", (c++ ? ", " : ""), $1, ($2>1 ? " ×" $2 : "") }' <<<"$rows" | awk -F', ' '{ for (i=1;i<=NF && i<=10;i++) printf "%s%s", (i>1?", ":""), $i; if (NF>10) printf ", …" }')
+  if [[ $n == 0 ]]; then echo "verify-env: DB を作り直す（切った接続: 0）" >&2
+  else echo "verify-env: DB を作り直す（切った接続: $n。$list）" >&2; fi
+}
+
+# 作り直し（design D1・D4）。volume を名前で控え、他のコンテナが使っていなければ、コンテナと volume を消す。`-v` は使わない
+reset_db() {
+  local cid vols v others
+  cid=$(docker compose ps -aq db --no-trunc)
+  if [[ -z $cid ]]; then echo "verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））" >&2; return; fi
+  vols=$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}')
+  for v in $vols; do
+    others=$(docker ps -aq --no-trunc --filter "volume=$v" | grep -vx "$cid" || true)
+    if [[ -n $others ]]; then
+      echo "verify-env: volume $v を使う別のコンテナがある。何も消さずに止める: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')" >&2
+      exit 1
+    fi
+  done
+  cut_line
+  docker compose rm -s -f db >/dev/null
+  for v in $vols; do docker volume rm "$v" >/dev/null || { echo "verify-env: volume $v を消せない" >&2; exit 1; }; done
+}
+
+# 塞いでいる network の確かめ（design D5）。subnet のファイルがあり自分の network が無いとき、同じ subnet の別の network を探す。
+# コンテナが繋がっていなければその network だけを消し、繋がっていれば何も消さずに止める
+clear_blocking_network() {
+  local subnet own n others
+  [[ -f docker-compose.subnet.yml ]] || return 0
+  subnet=$(awk '/- subnet:/{print $3; exit}' docker-compose.subnet.yml)
+  own=$(docker compose config | awk '/^networks:/{n=1} n&&/^ +name:/{print $2; exit}')
+  [[ -n $subnet && -n $own ]] || return 0
+  ! docker network inspect "$own" >/dev/null 2>&1 || return 0
+  for n in $(docker network ls --format '{{.Name}}'); do
+    [[ $n != "$own" ]] || continue
+    docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}}{{"\n"}}{{end}}' | grep -qx "$subnet" || continue
+    others=$(docker ps -aq --filter "network=$n")
+    if [[ -n $others ]]; then
+      echo "verify-env: network $n が subnet $subnet を塞いでいる。繋がっているコンテナ: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')。何も消さずに止める" >&2
+      exit 1
+    fi
+    docker network rm "$n" >/dev/null
+  done
+}
+
+[[ $decision != reset ]] || reset_db
+clear_blocking_network
 docker compose up -d --wait db >/dev/null
 # --wait は healthcheck を待つ。テストが繋ぐのと同じ口（127.0.0.1:<ポート>）で受け付けるまで確かめる
 for _ in $(seq 1 30); do

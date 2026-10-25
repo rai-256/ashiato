@@ -182,6 +182,6 @@ DB の移行は無い。rebase した worktree で最初に `verify-env.sh` が�
 
 ## 計測の記録（下流が書く）
 
-- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）:
+- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）: 7 秒・7 秒・8 秒（2026-10-25、ch06 worktree。10 秒以内なので段ごとの内訳は取らない）
 - 作り直した直後の `cargo test -p ashiato-server` の本数と時間（`scripts/verify-run` の証跡）:
 - `tools/check-verify-env-reset.sh` 本体の時間（手元と CI）:
