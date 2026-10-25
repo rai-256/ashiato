@@ -1,0 +1,299 @@
+{
+ "purpose": "検証（scripts/verify-run）の準備が worktree のテスト用 DB を空から作り直したとき、そのことを `HARNESS_RESET: testdb` の 1 行で宣言する。証跡に何を作り直したかが残り、溜まった DB の上で取った証跡にだけ「注意」が付く。ハーネスの点検（init.py --check）の人間の項目も消える。",
+ "model": {
+  "kind": "diagram",
+  "caption": "verify-run の 1 回の準備と、宣言の行が出る場所（CH06 の流れに 1 行を足す）",
+  "text": "scripts/verify-run\n  └ tools/verify-env.sh（HARNESS_VERIFY=1）\n      ├ 判定: 印 × 木 × CI → reset / keep（CH06 のまま）\n      │    keep … 宣言なし → verify-run が「注意」\n      ├ reset: 切った接続の 1 行 → DB のコンテナと volume を消す（CH06 のまま）\n      │    消した volume ≥1 か、コンテナが無くて立てた → 印を立てる\n      ├ up --wait → db-roles.sh\n      └ rc=0 の直前: 印があれば標準出力に「HARNESS_RESET: testdb」\n  └ 証跡の reset: [\"testdb\"]（無ければ注意。status は変わらない）"
+ },
+ "before_after": [
+  {
+   "area": "作り直した検証の証跡",
+   "before": "CH06 で作り直していても reset が空で、毎回「注意」が付く",
+   "after": "reset に testdb が残り、注意は付かない"
+  },
+  {
+   "area": "python3 .harness2/scripts/init.py --check",
+   "before": "[人間] tools/verify-env.sh が作り直したものを宣言していない",
+   "after": "[ok] tools/verify-env.sh の 1 行だけ"
+  }
+ ],
+ "highlights": [
+  "declare.3",
+  "silent.2",
+  "keep.2"
+ ],
+ "features": [
+  {
+   "id": "declare",
+   "title": "作り直したら 1 行で宣言する",
+   "summary": "印つきの準備が DB の中身を実際に消して立て直し、rc=0 で終わるときだけ、標準出力に HARNESS_RESET: testdb を 1 行出す",
+   "figure": null,
+   "points": [
+    {
+     "id": "declare.1",
+     "kind": "normal",
+     "text": "溜まった DB の volume を消して立て直したとき・DB のコンテナが無くて新しく立てたとき・止まっていた DB を作り直したときに、準備の標準出力に `HARNESS_RESET: testdb` が 1 行出る。続けて 2 回呼べば 2 回とも 1 行ずつ出る",
+     "refs": {
+      "requirements": [
+       "作り直したら、検証の準備は作り直したものを 1 行で宣言する"
+      ],
+      "scenarios": [
+       "溜まった DB を作り直したら、宣言を 1 行出す",
+       "2 回続けて作り直しても、どちらも宣言を 1 行出す",
+       "DB のコンテナが無くても、立てたら宣言を 1 行出す",
+       "DB のコンテナが止まっていても、作り直したら宣言を 1 行出す"
+      ],
+      "decisions": [
+       "C1",
+       "C9"
+      ]
+     }
+    },
+    {
+     "id": "declare.2",
+     "kind": "normal",
+     "text": "行は `HARNESS_RESET: testdb` そのもので、行頭から始まり、前に何も付けず、volume の名前や切った接続の数も足さない（それは CH06 の切った接続の 1 行が持つ）。標準エラーには出さない。出すのは verify-env.sh 自身の echo で、字はその本文にある",
+     "tags": [
+      "Logging"
+     ],
+     "refs": {
+      "decisions": [
+       "C1",
+       "C2"
+      ]
+     }
+    },
+    {
+     "id": "declare.3",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "「作り直した」は判定が reset だったことではなく、中身を実際に消したこと。DB のコンテナが volume を 1 つも持たない（tmpfs など）なら、作り直しの経路を通っても宣言しない。中身が残りうるまま宣言しない側に倒している",
+     "examples": [
+      {
+       "wrong": "判定が reset なら必ず HARNESS_RESET: testdb",
+       "right": "消した volume が 1 つ以上か、コンテナが無くて立てたときだけ。volume 0 個なら切った接続の行は出るが宣言は無い"
+      }
+     ],
+     "refs": {
+      "scenarios": [
+       "volume を持たない DB のコンテナでは、作り直しても宣言を出さない"
+      ],
+      "decisions": [
+       "C2",
+       "C9"
+      ]
+     }
+    },
+    {
+     "id": "declare.4",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "宣言は役割（db-roles.sh）まで整えて rc=0 で終わる直前に出す。volume を消した後で落ちたら（DB は空になっているが）宣言は出ない",
+     "refs": {
+      "scenarios": [
+       "作り直しの途中で落ちたら、宣言を出さない"
+      ],
+      "decisions": [
+       "C2"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "silent",
+   "title": "作り直していなければ出さない",
+   "summary": "作り直さない木・作り直せないとき・判定だけのときは、HARNESS_RESET の行を 1 つも出さない",
+   "figure": {
+    "kind": "table",
+    "caption": "準備の呼ばれ方と、宣言の行",
+    "head": [
+     "呼ばれ方",
+     "宣言"
+    ],
+    "rows": [
+     [
+      "印つき・worktree か CI・中身を消して rc=0",
+      "1 行"
+     ],
+     [
+      "印が無い",
+      "0 行"
+     ],
+     [
+      "印つき・CI でない main の checkout",
+      "0 行（keep: の行は出る）"
+     ],
+     [
+      "印つき・git の木でない",
+      "0 行"
+     ],
+     [
+      "作り直せずに非 0（途中で落ちたときも）",
+      "0 行"
+     ],
+     [
+      "--plan",
+      "0 行（判定の 1 行だけ）"
+     ]
+    ]
+   },
+   "points": [
+    {
+     "id": "silent.1",
+     "kind": "normal",
+     "text": "印が無い・CI でない main の checkout・git の木でない・作り直せずに非 0、のどれでも宣言は出ない。`HARNESS_RESET: none` も出さない",
+     "refs": {
+      "requirements": [
+       "作り直していなければ、検証の準備は宣言を出さない"
+      ],
+      "scenarios": [
+       "印が無ければ、宣言を出さない",
+       "CI でない main の checkout では、印つきでも宣言を出さない",
+       "作り直せずに非 0 で終わるときは、宣言を出さない",
+       "git の木でなければ、印つきでも作り直さない判定になる"
+      ],
+      "decisions": [
+       "C3"
+      ]
+     }
+    },
+    {
+     "id": "silent.2",
+     "kind": "caution",
+     "tags": [
+      "直感注意"
+     ],
+     "text": "CI でない main の checkout で verify-run を走らせると、宣言が無いので証跡に「注意」が付き続ける。溜まった DB の上で取った証跡なので事実どおりで、none を出して消すことはしない（注意は表示と記録だけで、検証の結果は変えない）",
+     "refs": {
+      "decisions": [
+       "C3"
+      ]
+     }
+    },
+    {
+     "id": "silent.3",
+     "kind": "normal",
+     "text": "`tools/verify-env.sh --plan` は今までどおり判定の 1 行（reset か keep: …）だけを出し、宣言を出さない",
+     "refs": {
+      "scenarios": [
+       "判定だけを出すときは、宣言を出さない"
+      ],
+      "decisions": [
+       "C4"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "title": "出る・出ないを機械で確かめる",
+   "summary": "CH06 の検査 tools/check-verify-env-reset.sh に、段ごとの宣言の数と、ハーネスの点検を足す",
+   "figure": null,
+   "points": [
+    {
+     "id": "check.1",
+     "kind": "normal",
+     "text": "検査の本体（docker を使う方。CI の rust job で走る）が、作り直した段で宣言 1 行・作り直さない段で 0 行を数える。止まっていた DB・volume を持たない DB・途中で落ちる、の 3 段を新しく足す。`--self-test`（docker に触らない）は --plan が宣言を出さないことと、本文に字があることを見る",
+     "refs": {
+      "decisions": [
+       "C5"
+      ]
+     }
+    },
+    {
+     "id": "check.2",
+     "kind": "exception",
+     "text": "ハーネスの点検（init.py --check に [人間] tools/verify-env.sh が無く、[ok] がちょうど 1 行）の段は `.harness2` のある木だけで走る。CI には .harness2 が無いので SKIP の行を出し、worktree の verify-run の証跡（使った harness2 の SHA つき）が通す。init.py の rc は他の項目で 1 になるので見ない",
+     "refs": {
+      "scenarios": [
+       "ハーネスの点検が、作り直して宣言する準備と認める"
+      ],
+      "decisions": [
+       "C7"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "keep",
+   "title": "変えないものと順",
+   "summary": "CH06 の作り直しの上に 1 行を足すだけ。CH06 にも harness2 にも戻さない",
+   "figure": null,
+   "points": [
+    {
+     "id": "keep.1",
+     "kind": "normal",
+     "text": "CH06 の判定（印・木・CI）と --plan の出力・作り直しの手順と対象（この worktree の DB のコンテナと volume だけ）・切った接続の 1 行・作り直せないときの非 0・keep: の 1 行は変えない。CH06 の実装の上に積み（requires: CH06）、CH06 の tasks へは差し戻さない",
+     "refs": {
+      "decisions": [
+       "C4",
+       "C6"
+      ]
+     }
+    },
+    {
+     "id": "keep.2",
+     "kind": "caution",
+     "text": "harness2 #112 は既に merge されて .harness2 に入っており、CH07 が入るまで宣言の無い全部の木で verify-run のたびに「注意」が出ている。結果は変えないので、CH07 はこの注意を止めるために順を変えない。CH06 の下流が先に宣言を足したら、CH07 はその行を確かめる側に回る",
+     "refs": {
+      "decisions": [
+       "C8",
+       "D1"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "harness2 側（verify-run・init.py）の変更",
+   "refs": {}
+  },
+  {
+   "text": "tools/stack.sh など検証コマンドの側の台本・試験のコード・移行・CI の job の並び",
+   "refs": {
+    "decisions": [
+     "C4"
+    ]
+   }
+  },
+  {
+   "text": "作り直さない木で HARNESS_RESET: none を出して注意を消すこと",
+   "refs": {
+    "decisions": [
+     "C3"
+    ]
+   }
+  }
+ ],
+ "open": [],
+ "since_last": [],
+ "delegated": [
+  {
+   "text": "検査の本体で、volume を持たない DB を作る方法（一時の場所の compose のファイルに tmpfs を書き、環境変数 COMPOSE_FILE で並べる）と、新しい 3 段を置く位置（7. の後・8. の前）",
+   "refs": {
+    "decisions": [
+     "D3"
+    ]
+   }
+  }
+ ],
+ "terms": [
+  {
+   "term": "印",
+   "def": "verify-run が準備に渡す HARNESS_VERIFY=1。これがあるときだけ作り直しを考える"
+  },
+  {
+   "term": "宣言",
+   "def": "準備が作り直したものを知らせる行 HARNESS_RESET: <何を>。verify-run が証跡の reset に残す"
+  }
+ ]
+}
