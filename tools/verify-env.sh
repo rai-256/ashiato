@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。何度呼んでも同じ（起動済みなら何もしない）。
+# 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。
+# **印（HARNESS_VERIFY=1）が無ければ何度呼んでも同じ**（起動済みなら何もしない）。**印があれば毎回空から**（worktree か CI=true のとき。ch06 design D2）。
+# 作り直すかの判定は `--plan`（`reset` か `keep: <理由>` の 1 行。docker にも .env にも触らない）。
 # いまやることは 2 つ: この worktree のテスト用 DB を起動して接続できるまで待ち、DB の役割（ST28）を整える。
 #   - ポートは tools/ports.sh の worktree ごとの規則（Story を並行して走らせても取り合わない）
 #   - 起動するのはこの worktree の compose の DB だけ。他の Story のコンテナには触らない
@@ -8,6 +10,27 @@
 # （それまでは別の Story の DB が 55432 に残っていて、そこに繋がって通っていた）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# 作り直すかの判定（design D2）。worktree かどうかの見分け方は tools/ports.sh と同じ。git の木でなければ worktree でない木と読む
+plan() {
+  local dirs gitdir common
+  [[ ${HARNESS_VERIFY:-} == 1 ]] || { echo "keep: 印が無い"; return; }
+  dirs=$(git rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null || true)
+  gitdir=${dirs%%$'\n'*}
+  common=${dirs##*$'\n'}
+  if [[ -n $dirs && $gitdir != "$common" ]]; then echo reset
+  elif [[ ${CI:-} == true ]]; then echo reset
+  else echo "keep: main の checkout（開発用の起動の DB）は作り直さない"
+  fi
+}
+case "${1:-}" in
+  --plan) plan; exit 0 ;;
+  "") ;;
+  *) echo "使い方: $0 [--plan]" >&2; exit 2 ;;
+esac
+decision=$(plan)
+[[ $decision != keep:* || ${HARNESS_VERIFY:-} != 1 ]] || echo "$decision" >&2
+
 . tools/ports.sh
 tools/env-init.sh     # `.env` が無い worktree（下流で新しく作ったもの）でも DB を起動できるように
 docker compose up -d --wait db >/dev/null

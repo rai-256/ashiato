@@ -33,8 +33,8 @@ mk() {
   cp tools/verify-env.sh tools/ports.sh tools/env-init.sh "$tmp/$1/tools/"
   cp docker-compose.yml "$tmp/$1/"
 }
-mkdir -p "$tmp/demo/tools"; cp tools/ports.sh "$tmp/demo/tools/"
-mk demo-ch01; mk demo-ch02
+mkdir -p "$tmp/demo/tools"; cp tools/ports.sh tools/verify-env.sh "$tmp/demo/tools/"
+mk demo-ch01; mk demo-ch02; mk demo-st05; mk demo-verify
 
 # 一時の木の道具を、結果に回り込む 9 つの変数を落として呼ぶ
 clean() { env -u POSTGRES_PASSWORD -u OWNER_DB_PASSWORD -u APP_DB_PASSWORD -u ASHIATO_DB_SUBNET -u ASHIATO_DB_PORT \
@@ -99,5 +99,22 @@ w=demo-ch01
 got=$(cd "$tmp/$w" && env -i PATH="$PATH" HOME="$HOME" docker compose config --format json \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["ipam"]["config"][0]["subnet"])')
 want "default の network の subnet は木の値" "$got" "$(subnet $w)"
+
+plan() { clean "$@" "$tmp/$w/tools/verify-env.sh" --plan; }   # plan の前に w を決める
+
+echo "Scenario: CI でない main の checkout では、印があっても作り直さない"
+w=demo
+got=$(plan HARNESS_VERIFY=1)
+want "worktree でない木は keep:" "${got%%:*}" "keep"
+[[ $got == *main* ]]; ok "理由に main を挙げる" $?
+
+echo "Scenario: CI の main の checkout と、worktree では、印があれば作り直す"
+w=demo; want "worktree でない木の CI=true" "$(plan CI=true HARNESS_VERIFY=1)" "reset"
+for w in demo-st05 demo-verify demo-ch01; do want "$w の worktree" "$(plan HARNESS_VERIFY=1)" "reset"; done
+
+echo "Scenario: 印が無ければ、どの木でも作り直さない判定になる"
+w=demo; want "worktree でない木（印なし）" "$(plan | cut -d: -f1)" "keep"
+want "worktree でない木（CI=true・印なし）" "$(plan CI=true | cut -d: -f1)" "keep"
+for w in demo-st05 demo-verify demo-ch01; do want "$w の worktree（印なし）" "$(plan | cut -d: -f1)" "keep"; done
 
 [[ $fail == 0 ]] && echo OK || { echo "self-test FAILED" >&2; exit 1; }
