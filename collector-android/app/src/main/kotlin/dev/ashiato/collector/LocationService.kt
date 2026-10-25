@@ -19,6 +19,7 @@ import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
@@ -1000,8 +1001,10 @@ open class LocationService : Service() {
                     emitter.emit()
                     if (isLocation) {
                         outagePoller.poll()
-                        // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない
-                        observeHealthPeriodically()
+                        // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。
+                        // **生存信号の糸では回さない**（review/code.md R3）—— Health Connect の問い合わせが返らないと、
+                        // 位置の生存信号と途切れの問い合わせが同じ糸で止まり、稼働状況に途絶として出る
+                        runCollection { observeHealthPeriodically() }
                     }
                 }
             }
@@ -1045,19 +1048,25 @@ open class LocationService : Service() {
     /** 健康データの権限の読み口。**試験が差し替える**。 */
     protected open fun healthPermissions(): HealthPermissions = ClientHealthPermissions()
 
+    /** Health Connect の読みを待つ上限。**試験だけが縮める**。 */
+    protected open fun healthReadTimeoutMs(): Long = HEALTH_READ_TIMEOUT_MS
+
     /**
      * 収集を始めるときに、使えるかだけを読む（記録は作らない。記録は画面の契機と 6 時間ごとの見直し）。
      * 失敗しても位置の収集を止めない。
      */
     private fun refreshHealthAvailability() {
-        runCatching { runBlocking { healthPermissions().read(this@LocationService) } }
+        runCatching { runBlocking { withTimeout(healthReadTimeoutMs()) { healthPermissions().read(this@LocationService) } } }
             .onSuccess { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
             .onFailure { logHealthCrashed(it) }
     }
 
-    /** 6 時間ごとの見直し。**失敗しても位置の収集を止めない**（時計の測定と同じく包み、種別だけ残す）。 */
+    /**
+     * 6 時間ごとの見直し。**失敗しても位置の収集を止めない**（時計の測定と同じく包み、種別だけ残す）。
+     * 読みが返らないときは [healthReadTimeoutMs] で諦める（取得の糸を塞ぎ続けない。review/code.md R3）。
+     */
     private fun observeHealthPeriodically() {
-        runCatching { runBlocking { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) } }
+        runCatching { runBlocking { withTimeout(healthReadTimeoutMs()) { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) } } }
             .onFailure { logHealthCrashed(it) }
     }
 
@@ -1153,10 +1162,16 @@ open class LocationService : Service() {
         return builder.build()
     }
 
+    /** 権限の画面が無いことをログに出した（[healthPermissionPendingIntent]）。 */
+    @Volatile
+    private var healthSettingsMissingLogged = false
+
     private fun healthPermissionPendingIntent(): PendingIntent {
         val intent = healthPermissionSettingsIntent(this)
         // 押しても開く画面が無い端末は、種別だけ残す（利用状況へのアクセスと同じ）
-        if (packageManager.resolveActivity(intent, 0) == null) {
+        // 通知は本文の差し替えのたびに組み直すので、ログはサービスの寿命で 1 度だけ（review/code.md R7）
+        if (!healthSettingsMissingLogged && packageManager.resolveActivity(intent, 0) == null) {
+            healthSettingsMissingLogged = true
             Log.w(TAG, Telemetry.line("health_permission_settings_missing", source = HEALTH_LOGICAL_SOURCE))
         }
         return PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -1174,6 +1189,9 @@ open class LocationService : Service() {
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val NOTIFICATION_ID = 1
+
+        /** Health Connect の読みを待つ上限（review/code.md R3）。IPC 1 回ぶんには十分に長い。 */
+        const val HEALTH_READ_TIMEOUT_MS = 30_000L
 
         /** 上限の 7 日前の知らせのチャネル（音が鳴る。design D11） */
         const val RETENTION_CHANNEL = "retention"
