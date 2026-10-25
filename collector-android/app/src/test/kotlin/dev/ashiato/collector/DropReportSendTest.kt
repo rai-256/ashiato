@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.time.Instant
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
 
 /**
  * 破棄の報告を送る（ST04 / tasks 7.2 / 深掘り C2 / R2 / design D4 / D13）。

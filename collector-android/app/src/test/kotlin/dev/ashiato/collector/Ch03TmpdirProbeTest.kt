@@ -1,9 +1,9 @@
 package dev.ashiato.collector
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * CH03 の前提の確かめ: `ASHIATO_TEST_TMPDIR` で試験の JVM の一時フォルダの設定を向けられる

@@ -4,8 +4,6 @@ package dev.ashiato.collector
 import android.app.Application
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -16,6 +14,8 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import java.io.File
+import java.time.Instant
 
 /**
  * **破棄の報告は、そのデータのソースを名乗る**（ST06 / tasks 5.1 / 独立レビュー R10）。

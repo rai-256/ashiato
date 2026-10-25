@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * 「積んでからの経過」の数え方（ST04 / tasks 6.1 / 深掘り Q4 / C10 / R9 / design D2）。

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
 
 /**
  * 生存信号が**記録と同じ未送信の仕組み**に乗ること（specs/device-collection。tasks 7.3）。

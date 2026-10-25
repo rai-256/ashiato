@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * ST01 / ST02 の 1 本の JSONL を、初回の起動で区切りへ取り込む（ST04 / tasks 5.2 / design D1）。

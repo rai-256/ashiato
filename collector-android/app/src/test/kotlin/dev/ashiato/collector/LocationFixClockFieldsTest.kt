@@ -3,8 +3,6 @@ package dev.ashiato.collector
 
 import android.location.Location
 import com.google.android.gms.location.LocationResult
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +15,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 位置の記録が「受け取ったときの端末の時計」の 3 項目を持つ（ST05 / design D6）。

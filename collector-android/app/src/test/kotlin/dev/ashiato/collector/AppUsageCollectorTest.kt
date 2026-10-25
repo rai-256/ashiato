@@ -8,9 +8,8 @@ import android.content.res.Configuration
 import android.os.PersistableBundle
 import android.os.UserManager
 import androidx.test.core.app.ApplicationProvider
-import java.time.Instant
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -22,6 +21,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowUsageStatsManager
+import java.time.Instant
 
 /**
  * アプリ利用のイベントが記録になるところ（tasks 3.1 / design D1 / D2）。

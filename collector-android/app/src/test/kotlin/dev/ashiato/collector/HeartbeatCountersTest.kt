@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.time.Instant
 
 /**
  * 前回の信号からの取得の試行回数と成功回数（第 5 回 Q17。tasks 7.2b / ST06 の tasks 1.3）。

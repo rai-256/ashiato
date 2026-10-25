@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 保持の上限（ST04 / tasks 6.2 / 深掘り Q1 / Q4 / C1 / C2 / C4 / design D2 / D3 / D13）。

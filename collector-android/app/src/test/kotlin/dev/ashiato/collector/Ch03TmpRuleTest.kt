@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.Description
 import org.junit.runners.model.Statement
+import java.io.File
 
 /** 試験の一時フォルダは、試験が例外で落ちても消える（CH03 / design D2・D4）。 */
 class Ch03TmpRuleTest {
