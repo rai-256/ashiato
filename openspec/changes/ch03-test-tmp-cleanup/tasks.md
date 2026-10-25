@@ -105,10 +105,10 @@
 
 ## Task 6: 携帯の残りの試験
 
-- [ ] 6.1 property の初期化で作る 4 つ（`SegmentStoreTest`・`OutboxStoreTest`・`ElapsedClockTest`・`SegmentMigrationTest`）を `@get:Rule` の `TemporaryFolder` と `by lazy { tmp.newFolder() }`（か `@Before`）に替える。
+- [x] 6.1 property の初期化で作る 4 つ（`SegmentStoreTest`・`OutboxStoreTest`・`ElapsedClockTest`・`SegmentMigrationTest`）を `@get:Rule` の `TemporaryFolder` と `by lazy { tmp.newFolder() }`（か `@Before`）に替える。
   残りの `HeartbeatCountersTest`（4 か所）・`HeartbeatOutboxTest`（2）・`RollupImportTest`・`UnreadableLineTest` も同じにする。
   検証: `bash -c '! grep -rnE "createTempDirectory|createTempFile|createTempDir\(" collector-android/app/src/test'` rc=0 / `KT *SegmentStoreTest*` rc=0
-- [ ] 6.2 携帯の単体試験の全部が一時フォルダに残さないこと。Robolectric か Gradle の worker が根に自分のものを残す（残りの名前が試験の頭でない）と分かったら、design D6 の反転条件の一覧を台本に入れてから走らせ直す。
+- [x] 6.2 携帯の単体試験の全部が一時フォルダに残さないこと。Robolectric か Gradle の worker が根に自分のものを残す（残りの名前が試験の頭でない）と分かったら、design D6 の反転条件の一覧を台本に入れてから走らせ直す。
   検証: `LK android` rc=0
 
 ## Task 7: 手書きの一時フォルダを落とす検査
