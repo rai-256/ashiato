@@ -91,14 +91,14 @@
 
 ## Task 5: 携帯の共通の手伝いと、例外で落ちても消えることの試験
 
-- [ ] 5.1 `collector-android/app/src/test/kotlin/dev/ashiato/collector/TestOutbox.kt` の `testOutbox()`・`testHeartbeatOutbox()` をフォルダを引数で受け取る形にし、`TestStores` の `dir` の既定の引数
+- [x] 5.1 `collector-android/app/src/test/kotlin/dev/ashiato/collector/TestOutbox.kt` の `testOutbox()`・`testHeartbeatOutbox()` をフォルダを引数で受け取る形にし、`TestStores` の `dir` の既定の引数
   （`Files.createTempDirectory("st04")`）を外す。`AppUsageFixtures.kt`（`UsageTestEnv`）も同じ形にする。呼び出し側の試験（`testOutbox(`・`testHeartbeatOutbox(`・`TestStores(`・`AppUsageWorld(`・`St04World(` を持つ 26 ファイル）に
   `@get:Rule val tmp = TemporaryFolder()` を置いて `tmp.newFolder()` を渡す（design D2）。手伝いを property の初期化で呼んでいる 10 ファイル
   （`AppUsageFixtures.kt`・`DropReportSendTest.kt`・`UnreadableLineTest.kt`・`SegmentMigrationTest.kt`・`RetentionNotifierTest.kt`・`RetentionTest.kt`・`RollupImportTest.kt`・`WriteFailedTest.kt`・`DropReportTest.kt`・`DrainTest.kt`）は
   `by lazy` か `@Before` に移す。
   検証: `bash -c '! grep -rnE "createTempDirectory|createTempFile" collector-android/app/src/test/kotlin/dev/ashiato/collector/TestOutbox.kt collector-android/app/src/test/kotlin/dev/ashiato/collector/AppUsageFixtures.kt'` rc=0 /
   `scripts/quiet-run unit -- ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun` rc=0
-- [ ] 5.2 `Ch03TmpRuleTest.kt` を `app/src/test/kotlin/dev/ashiato/collector/` に足す: `ch03_folder_is_removed_even_if_the_test_throws` —— `// Scenario: 携帯の単体試験が例外で落ちても、試験の一時フォルダは消える`。
+- [x] 5.2 `Ch03TmpRuleTest.kt` を `app/src/test/kotlin/dev/ashiato/collector/` に足す: `ch03_folder_is_removed_even_if_the_test_throws` —— `// Scenario: 携帯の単体試験が例外で落ちても、試験の一時フォルダは消える`。
   `TemporaryFolder()` を規則として当てた `Statement`（`rule.apply(statement, Description.EMPTY).evaluate()`）の中で `newFolder()` にファイルを書き、そのフォルダを外へ写してから例外を投げ、
   外で例外を受けたことと、写したフォルダが `exists()` でないことを見る。規則を手で当てる行には `// tmp-ok: 規則の後始末を手で当てて確かめる試験` を書く（design D4）。
   検証: `KT *Ch03TmpRuleTest*` rc=0 / `bash -c 'ls collector-android/app/build/test-results/testDebugUnitTest/ | grep -q Ch03TmpRuleTest'` rc=0
