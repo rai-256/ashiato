@@ -92,6 +92,7 @@ class PermissionDeniedInstrumentedTest {
     // 位置が取得できない状態として生存信号に載ることは、ここでは見ない（`SourceIndependenceTest` が同じ印で見る）。
     @Test
     fun denyingLocationLeavesTheAppAliveAndCollectionRunning() {
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         context.startActivity(
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )

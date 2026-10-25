@@ -124,6 +124,7 @@ class UsageAccessInstrumentedTest {
         .toString(Charsets.UTF_8.name())
 
     private fun launchEntry() {
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         context.startActivity(
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
