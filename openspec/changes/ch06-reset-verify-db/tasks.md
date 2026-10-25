@@ -43,11 +43,11 @@
 
 ## Task 2: env-init の残りの規則・確認バッチの準備・自己検査の台本
 
-- [ ] 2.1 `tools/env-init.sh` に design D7 の 1.（`.env` が無く 3 つの合言葉が環境変数にあれば何もしない）と 2.（`.env` が `COMPOSE_PROJECT_NAME` の行を持てば何もしない）を、3. の前に書く。
+- [x] 2.1 `tools/env-init.sh` に design D7 の 1.（`.env` が無く 3 つの合言葉が環境変数にあれば何もしない）と 2.（`.env` が `COMPOSE_PROJECT_NAME` の行を持てば何もしない）を、3. の前に書く。
   `tools/verify-prep.sh` の `.env` を写す・作る段の後に `tools/env-init.sh` を呼ぶ 1 行を足す（design D7。確認バッチの作業ツリーの subnet をその木の値にする）。
   検証: `bash -c 'd=$(mktemp -d); mkdir -p "$d/tools" && cp tools/env-init.sh tools/ports.sh "$d/tools/" && POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c "$d/tools/env-init.sh" && [ ! -e "$d/.env" ] && [ ! -e "$d/docker-compose.subnet.yml" ]; r=$?; rm -rf "$d"; exit $r'` rc=0 /
   `bash -c 'grep -n "env-init.sh" tools/verify-prep.sh | grep -q .'` rc=0
-- [ ] 2.2 `tools/check-verify-env-reset.sh`（新しいファイル。`set -euo pipefail`、使い方の注記、`--self-test` と本体の 2 つの入口）の `--self-test` を書く（design D8）。
+- [x] 2.2 `tools/check-verify-env-reset.sh`（新しいファイル。`set -euo pipefail`、使い方の注記、`--self-test` と本体の 2 つの入口）の `--self-test` を書く（design D8）。
   一時の repo と worktree を `tools/check-ports.sh` と同じ作り方で作り、`tools/verify-env.sh`・`tools/ports.sh`・`tools/env-init.sh`・`docker-compose.yml` を写す。一時の場所は `mktemp -d`（`$TMPDIR` の下）で、`trap` で消す。
   一時の木の道具は design D8 の 9 つの変数を `env -u` で落として呼ぶ。この段では次の 7 本:
   `echo "Scenario: 既にある .env に、合言葉を変えずに COMPOSE_FILE を足す"` / `echo "Scenario: 別の木から写した .env でも、その木の subnet になり、何度呼んでも同じである"`（demo-ch01 の `.env` を demo-ch02 に写し、`ASHIATO_DB_SUBNET` に demo-ch01 の値を入れて 2 回呼ぶ。2 回目の後の `.env` と subnet のファイルが 1 回目の後と `cmp` で同じ）/
