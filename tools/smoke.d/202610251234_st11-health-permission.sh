@@ -19,8 +19,8 @@ code=$(post "$(health_record)")
 [ "$(jq -r '.[0].duplicate' /tmp/smoke.body)" = "false" ] || { echo "1 度目が重複と判定された"; exit 1; }
 [ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-health-permission';")" = "1" ] \
   || { echo "健康データの権限の記録が D-01 に 1 行入っていない"; exit 1; }
-[ "$(psql -c "SELECT payload->'granted'->>'history' FROM core.event WHERE logical_source='c01-health-permission';")" = "true" ] \
-  || { echo "履歴の許可が true で格納されていない"; exit 1; }
+[ "$(psql -c "SELECT payload->'granted' = '{\"sleep\":true,\"heart_rate\":true,\"steps\":true,\"exercise\":true,\"history\":true,\"background\":true}'::jsonb FROM core.event WHERE logical_source='c01-health-permission';")" = "t" ] \
+  || { echo "4 種類・履歴・背景の許可が全部 true で格納されていない"; exit 1; }
 [ "$(psql -c "SELECT count(*) FROM core.event WHERE logical_source='c01-health-permission' AND event_time = '$HEALTH_TIME'::timestamptz;")" = "1" ] \
   || { echo "event_time が送った device_time と違う"; exit 1; }
 code=$(post "$(health_record)")
