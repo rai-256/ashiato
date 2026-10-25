@@ -43,6 +43,7 @@ final review の scoped re-review で park したもの（指摘にはしない�
 - `tools/check-openapi.sh` の収集アプリの欄名の照合から、終わりの 3 欄を名指しで外した（収集アプリは送らない —— D3。Task 2 F2）
 - `export_ledger_tests.rs`（`export_ledger_migration_applies_twice`）と `media_migration_tests.rs`（`st09_mig_applies_twice_and_is_last` → `…_is_in_order`）の `.last()` → `.iter().any()`。ST41 の移行が ORDER の末尾に付き、「MIGRATIONS の末尾」を見る形が落ちたため。期待（その版が MIGRATIONS にある・2 回当てても壊れない）は同じ（`agreed-test-changes.md`）
 - `tools/check-immutable.sh` の本体: 戻し手順の節の頭に ST41 の版の戻しを足し、凍結の点呼に終わりの 3 列を足した（D19）。`.d/` の節は `tools/check-immutable.d/202610231200_st41-event-end-time.sh`
+- `day_tests.rs` の `st25_reasons_before_collection_started` の読む日を 2001-01-05 → 1990-01-05（無いときに仮に置く開始日を 2002 → 1995）。書き出しの試験が `testdb::unique_day()`（2000〜2004 年）に位置を置くたびに `c01-location` の `collection_started_on` が下がり、手元の DB に積もると 2000-02-17 になって「開始前」が付かず毎回落ちた（main にもある。ST41 の試験の位置は 2026 年で関わらない）。期待（開始前の日の記録なしに「開始前」が添えられる）は同じ。積もった DB のまま、直す前は rc=101・直した後は rc=0
 - finish での直し（下の「レビュー」）: `core.stay_erased` の作り直し・移行の頭の写し元の照合（R21）・`stay_store::event_end_sql`・`GET /events` の SQL の分け方
 
 ## 検証
@@ -77,7 +78,7 @@ finish の後:
 | 7.1 | `python3 scripts/review_triage.py . st41-event-end-time` | 0 |
 | 7.2 | `cargo fmt --all -- --check` | 0 |
 | 7.2 | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
-| 7.2 | `cargo test -p ashiato-server` | **101**（1451 passed / 4 failed。下） |
+| 7.2 | `cargo test -p ashiato-server` | **101**（1451 passed / 4 failed。下）→ gate の後の取り直しで **0**（下） |
 | 7.2 | `check-migrations && check-boundaries && check-openapi && check-immutable` | 0 |
 | 7.2 | `./tools/smoke.sh` | 0 |
 | 7.2 | `python3 scripts/check_scenarios.py . st41-event-end-time` | 0 |
@@ -87,7 +88,11 @@ finish の後:
 `archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled`（読み直しの回数 6 ≠ 3。走査の周期に依る）・
 `st25_reasons_before_collection_started`（共有の DB の積もり。code_verify の注 3 と同じ）・
 `export_excluded_sql_every_registered_source_is_classified_by_name`（`stay_tests.rs:1342` で別の接続を止める権限が無い `42501`）。
-**全体で通った証跡はこの commit では取れていない** —— グラフの verify が全体の走りで止めるなら、そこで取り直す。
+merge gate（PR #162）が 7.2 の全体の `cargo test` の FAIL で落ちた後の取り直し（d5eb0c93 の上）:
+1 回目 101（`archive_scan_interval_change_takes_effect_without_restart` だけ。負荷平均 11〜13 で並走する木の試験と重なった）・
+2 回目 101（`st25_reasons_before_collection_started` だけ。共有の DB の積もりで決まって落ちる。上の「計画外の変更」で直した）・
+3 回目 **0**（st25 の直しを入れた木。lib 1455 passed / server_startup 9 passed）。
+4 本はどれも ST41 を含まない木（ch03・st11・st23・st29・ch06・verify）の証跡でも落ちている。st25 以外の 3 本は時間と負荷に依る揺れで、ここでは直さない。
 
 finish の直しが効くことは、壊した木で確かめた: R16/R19/R18 の直しを戻すと足した 3 本が落ちる（rc=101）・
 錠から前の版の `end_time` の名指しと主張のずれ・地域の行を外すと check-immutable が rc=1・移行の写し元を変えると移行が止まる（使い捨ての DB）。
