@@ -147,5 +147,5 @@
 
 ## Task 9: 全体の確かめ
 
-- [ ] 9.1 spec の 41 本の Scenario に印があり、既存の検査が通ることを確かめる。
+- [x] 9.1 spec の 41 本の Scenario に印があり、既存の検査が通ることを確かめる。
   検証: `python3 scripts/check_scenarios.py . st48-db-version-guard` rc=0 / `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `scripts/quiet-run smoke -- tools/smoke.sh` rc=0 / `scripts/quiet-run immutable -- tools/check-immutable.sh` rc=0
