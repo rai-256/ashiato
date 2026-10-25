@@ -109,3 +109,8 @@
 ## scoped re-review（8cfa442..8688e0b）
 
 R2〜R9・R12・R13 すべて ADDRESSED、fix の diff に新しい Critical / Important なし。Minor: `old_snapshot_remains` が失敗として返るのは SQL エラーのときだけ（偽陽性は次の晩に回るだけでデータを失わない）。
+
+## final の再呼び出し（8688e0b..d539f1d）
+
+final review（268fa88..5e0d836）・1 回の fix・scoped re-review は上で済んでいる。その後の commit は 86a4761（処置の記録と `docs/handoff/ST17.md` への R14 の申し送り）と d539f1d（R10・R11 の根拠の行）の文書だけで、コードは変わっていないので final reviewer を起こし直さない（fix は 1 回だけ）。
+申し送りの読み直し: `git diff HEAD origin/main -- docs/handoff/ST23.md` の main 側の増分は ch01 D9 と st09 R8 の 2 件で、新しい項は無い。ch01 D9 は R14。st09 R8（本文の消去を D-02 の原本とバックアップへ及ぼす）は項の宛先のとおり新しい Story が持ち、ST23 の下流では作らない。PR 本文の「未処置の申し送り」に R14 と並べて書く。
