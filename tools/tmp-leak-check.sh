@@ -96,6 +96,15 @@ self_test() {
     'echo "test result: FAILED. 0 passed; 1 failed"; exit 101'
   expect "試験が通り、何も残さなければ、台本は通る" 0 "試験 3 本" \
     'echo "test result: ok. 3 passed; 0 failed"'
+  echo "Scenario: CI の試験の段は、残りを測る台本から走る"
+  local ci=.github/workflows/ci.yml
+  if grep -nE '^\s*-?\s*run:\s*(\./)?(cargo test --workspace|gradlew :app:testDebugUnitTest)\s*$' "$ci"; then
+    echo "FAIL: $ci に裸の試験の段がある（tmp-leak-check.sh から走らせる）" >&2
+    fails=$((fails + 1))
+  fi
+  for want in 'tmp-leak-check.sh rust' 'tmp-leak-check.sh android'; do
+    grep -qE "run:.*$want\s*$" "$ci" || { echo "FAIL: $ci に「$want」の段が無い" >&2; fails=$((fails + 1)); }
+  done
   [ "$fails" -eq 0 ] && echo "tmp-leak: self-test OK"
   [ "$fails" -eq 0 ]
 }
