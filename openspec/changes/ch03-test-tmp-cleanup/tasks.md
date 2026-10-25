@@ -80,12 +80,12 @@
 
 ## Task 4: PC の収集アプリの試験
 
-- [ ] 4.1 `crates/collector-windows/src` の 14 ファイル（`autostart.rs`・`config.rs`・`exclusion.rs`・`fsutil.rs`・`heartbeat.rs`・`history/collect.rs`・`history/ledger.rs`・`history/locate.rs`・
+- [x] 4.1 `crates/collector-windows/src` の 14 ファイル（`autostart.rs`・`config.rs`・`exclusion.rs`・`fsutil.rs`・`heartbeat.rs`・`history/collect.rs`・`history/ledger.rs`・`history/locate.rs`・
   `history/read.rs`・`marker.rs`・`outage_notice.rs`・`outbox.rs`・`runtime.rs`・`sender.rs`）の `temp_dir()` を `TempDir` に替える。`runtime.rs` の `cfg()` は `Config` と `TempDir` を一緒に返す形
   （`(Config, TempDir)` か足場の型）、`history/ledger.rs` の試験の手伝い `fn temp_dir()` は `TempDir` を返し、名前を `temp_dir` でないもの（例 `scratch()`）に変える（検査の `temp_dir\(\)` に当たる。design D4）。`config.rs` の `abs_dir()`・`autostart.rs:75` の絶対パスの文字列は `TempDir` の path から作る。
   `.ok()` / `.unwrap()` の `remove_dir_all` は消す。
   検証: `CW ::` rc=0 / `bash -c '[ "$(cargo test -p ashiato-collector-windows --lib -- --list 2>/dev/null | grep -c ": test$")" -ge 283 ]'` rc=0 / `LK rust -p ashiato-collector-windows --lib` rc=0
-- [ ] 4.2 `crates/collector-windows/tests/runtime_windows.rs` の自前の `TempDir`・`Cleanup` の型を `tempfile::TempDir` に寄せる（Windows でだけ組まれる。ホストの `/tmp` は使わないので測らない。design Non-Goals）。
+- [x] 4.2 `crates/collector-windows/tests/runtime_windows.rs` の自前の `TempDir`・`Cleanup` の型を `tempfile::TempDir` に寄せる（Windows でだけ組まれる。ホストの `/tmp` は使わないので測らない。design Non-Goals）。
   **手元では型の検査（clippy）まで。走る確かめは PR の CI の `collector-windows-runtime` job（windows-latest）** —— 自前の型を外すと Drop の順と `%TEMP%` の下の置き場が変わる。
   検証: `cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings` rc=0
 
