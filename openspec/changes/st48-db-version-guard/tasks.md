@@ -108,14 +108,14 @@
 
 ## Task 6: 配った移行の凍結の検査
 
-- [ ] 6.1 `tools/check-released-migrations.sh` を足す（design D9）。`git tag --list 'v[0-9]*'` の印ごとに、印の版の `migrations/ORDER` の全部の名前が今の木の `ORDER` にあり、
+- [x] 6.1 `tools/check-released-migrations.sh` を足す（design D9）。`git tag --list 'v[0-9]*'` の印ごとに、印の版の `migrations/ORDER` の全部の名前が今の木の `ORDER` にあり、
   前進側の `.sql` の中身が同じであることを見る。違えば移行の名前と印の名前を出して rc=1。印が 0 個なら「配った印が 0 個」と出して rc=0。印の commit・`ORDER` を取り出せなければ rc=1。
   `--self-test` は `"$TMPDIR"` の下に使い捨ての git の木を作り、7 つの場合を走らせて、それぞれに `echo "Scenario: …"` を出す:
   `Scenario: 配った版にある移行の中身を変えると、検査が落ちる` / `Scenario: 配った版にある移行を消すと、検査が落ちる` / `Scenario: 配った版にある移行の名前を変えると、検査が落ちる` /
   `Scenario: 配った印が無ければ、検査は通る` / `Scenario: 配った印の後に足した移行は、変えても通る` / `Scenario: 配った版にある移行の戻し手順は、変えても通る` /
   `Scenario: 配った印の版を読めなければ、検査は通らない`（場合ごとに別の木で見る）（タグの指す commit を取り出せない木は、浅い clone か `git replace` で作る）。
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
-- [ ] 6.2 `.github/workflows/ci.yml` の rust の job の `./tools/check-migrations.sh` の後に、タグの取り寄せ（`git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`）と、
+- [x] 6.2 `.github/workflows/ci.yml` の rust の job の `./tools/check-migrations.sh` の後に、タグの取り寄せ（`git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`）と、
   `./tools/check-released-migrations.sh --self-test`・`./tools/check-released-migrations.sh` を足す。`docs/testing.md` の手元で走らせる一覧（§ の `./tools/check-migrations.sh` の行）にも足す。
   検証: `bash -c 'grep -q "check-released-migrations.sh --self-test" .github/workflows/ci.yml && grep -q "refs/tags/v" .github/workflows/ci.yml && grep -q check-released-migrations docs/testing.md'` rc=0
 
