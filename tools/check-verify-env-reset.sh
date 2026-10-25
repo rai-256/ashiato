@@ -6,7 +6,7 @@
 #   ./tools/check-verify-env-reset.sh              この木の DB を作り直して確かめる本体（worktree か CI=true の木だけ。ほかは rc=2）
 #
 # 一時の木の道具は、環境変数が結果に回り込まないよう 9 つの変数を落として呼ぶ（design D8）。本体の各段は HARNESS_VERIFY を明示して呼ぶ。
-set -euo pipefail
+set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 # ---- 本体 -------------------------------------------------------------------------------------
@@ -26,7 +26,7 @@ body() {
   tools/env-init.sh
 
   # trap は body が戻った後に走るので、cleanup が読む変数は local にしない
-  local r fail=0 stage=
+  local r c fail=0 stage=
   tmp=$(mktemp -d)
   r=$(openssl rand -hex 4)
   sp="ch06-sentinel-$r"; holder_pid=
@@ -40,6 +40,8 @@ body() {
     rm -rf "$tmp"
   }
   trap cleanup EXIT
+  # 守っていない docker / psql の失敗で set -e が抜けるときも、どの段かを出す
+  trap 'echo "  NG [$stage]: $LINENO 行目のコマンドが失敗した" >&2' ERR
 
   ng() { echo "  NG [$stage]: $1" >&2; fail=1; }
   good() { echo "  ok [$stage]: $1"; }
@@ -68,14 +70,16 @@ body() {
   both() { cat "$tmp/out" "$tmp/err"; }
   owner_pw=$( (set -a; [[ -f .env ]] && . ./.env; printf %s "${OWNER_DB_PASSWORD:-}") )
   app_pw=$( (set -a; [[ -f .env ]] && . ./.env; printf %s "${APP_DB_PASSWORD:-}") )
+  # コンテナの中の 127.0.0.1 は pg_hba で trust に当たり合言葉を見ないので、コンテナ自身の非 loopback のアドレスで繋ぐ
   as_role() {  # as_role <役割> <合言葉> <SQL>
-    PGPASSWORD=$2 docker compose exec -T -e PGPASSWORD db psql -h 127.0.0.1 -X -qtA -U "$1" -d ashiato -c "$3"
+    docker compose exec -T -e PGPASSWORD="$2" db sh -c \
+      'psql -h "$(hostname -i | cut -d" " -f1)" -X -qtA -U "$0" -d ashiato -c "$1"' "$1" "$3"
   }
 
   stage="1. 空にする"
   marked; want "rc=0" "$rc" 0
   image=$(docker inspect "$(db_cid)" --format '{{.Config.Image}}')
-  [[ -n $own_net ]]; ok "DB の network の名前が compose config から出る" $?
+  c=0; [[ -n $own_net ]] || c=1; ok "DB の network の名前が compose config から出る" $c
 
   stage="2. 溜まった状態を作る"
   keep_db="ch06_keep_$r"
@@ -93,7 +97,7 @@ body() {
     call env -u CI HARNESS_VERIFY=1 tools/verify-env.sh
     want "rc=0" "$rc" 0
     want "行は 3 件のまま" "$(rows)" 3
-    grep -q '^keep:' "$tmp/err"; ok "標準エラーに keep: の行がある" $?
+    c=0; grep -q '^keep:' "$tmp/err" || c=1; ok "標準エラーに keep: の行がある" $c
   else
     echo "SKIP 3.（CI でない main の checkout）: この木は worktree で、印があれば必ず作り直すので確かめられない（CI が通す）"
   fi
@@ -104,7 +108,7 @@ body() {
   cid4=$(db_cid)
   docker create --name "$sp-vol" -v "$vol4:/sentinel" "$image" true >/dev/null
   marked
-  [[ $rc != 0 ]]; ok "rc≠0（rc=$rc）" $?
+  c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
   has "volume の名前が出る" "$(both)" "$vol4"
   has "sentinel のコンテナの名前が出る" "$(both)" "$sp-vol"
   want "DB のコンテナは同じ id" "$(db_cid)" "$cid4"
@@ -129,7 +133,7 @@ YML
   proj_cid=$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$sp")
   ext_cid=$(cid_of "$sp-ext")
   ext_vol_created=$(docker volume inspect "$sp-ext" --format '{{.CreatedAt}}')
-  [[ -n $proj_cid ]]; ok "別の compose project のコンテナが立った" $?
+  c=0; [[ -n $proj_cid ]] || c=1; ok "別の compose project のコンテナが立った" $c
   docker compose exec -T -e PGAPPNAME=ch06-holder db psql -X -q -U ashiato -d ashiato -c "select pg_sleep(600)" >/dev/null 2>&1 &
   holder_pid=$!
   for _ in $(seq 1 30); do
@@ -143,7 +147,7 @@ YML
   line=$(both | grep '切った接続: 1' || true)
   has "切った接続: 1 の行に ch06-holder がある" "$line" "ch06-holder"
   hrc=0; wait "$holder_pid" || hrc=$?; holder_pid=
-  [[ $hrc != 0 ]]; ok "ch06-holder の psql は非 0（rc=$hrc）" $?
+  c=0; [[ $hrc != 0 ]] || c=1; ok "ch06-holder の psql は非 0（rc=$hrc）" $c
   echo "Scenario: 溜まった DB は、印つきの準備の後に空になる"
   want "core.event は無い（か 0 行）" "$(rows_after_reset)" ""
   want "ch06_keep_ の database は無い" "$(q -c "select count(*) from pg_database where datname like 'ch06\_keep\_%'")" 0
@@ -161,6 +165,8 @@ YML
   echo "Scenario: 作り直した後も、所有者とアプリの役割で繋がる"
   want "ashiato_owner で繋がり、所有者は ashiato_owner"     "$(as_role ashiato_owner "$owner_pw" "select pg_get_userbyid(datdba) from pg_database where datname='ashiato'" 2>/dev/null || true)" ashiato_owner
   want "ashiato_app で繋がる"     "$(as_role ashiato_app "$app_pw" "select current_user" 2>/dev/null || true)" ashiato_app
+  want "違う合言葉では ashiato_owner に繋がらない" "$(as_role ashiato_owner "${owner_pw}x" "select 1" 2>/dev/null || true)" ""
+  want "違う合言葉では ashiato_app に繋がらない"   "$(as_role ashiato_app "${app_pw}x" "select 1" 2>/dev/null || true)" ""
 
   stage="6. もう一度（2 回続けて作り直せる）"
   echo "Scenario: 繋いでいるものが無ければ、切った接続は 0 と出す"
@@ -207,7 +213,7 @@ YML
     net8=$(net_id "$sp-net"); ctr8=$(cid_of "$sp-ctr")
     echo "Scenario: 同じ subnet の network にコンテナが繋がっていれば、何も消さずに非 0 で終わる"
     marked
-    [[ $rc != 0 ]]; ok "rc≠0（rc=$rc）" $?
+    c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
     has "network の名前が出る" "$(both)" "$sp-net"
     has "コンテナの名前が出る" "$(both)" "$sp-ctr"
     want "network は同じ id" "$(net_id "$sp-net")" "$net8"
@@ -280,14 +286,14 @@ want ".env の inode は呼ぶ前と同じ（置き換えていない）" "$(sta
 echo "Scenario: 別の木から写した .env でも、その木の subnet になり、何度呼んでも同じである"
 w=demo-ch02
 cp -p "$tmp/demo-ch01/.env" "$tmp/$w/.env"
-[[ $(subnet demo-ch01) != "$(subnet $w)" ]]; ok "2 つの木の subnet は違う" $?
+c=0; [[ $(subnet demo-ch01) != "$(subnet $w)" ]] || c=1; ok "2 つの木の subnet は違う" $c
 # clean の env -u の後ろへ渡す（古い値が環境にあっても、subnet は port から決まる）
 init ASHIATO_DB_SUBNET="$(subnet demo-ch01)"
 cp "$tmp/$w/.env" "$tmp/env1"; cp "$tmp/$w/docker-compose.subnet.yml" "$tmp/sub1"
 init ASHIATO_DB_SUBNET="$(subnet demo-ch01)"
 want "subnet のファイルの subnet はその木の値" "$(sed -n 's/^ *- subnet: //p' "$tmp/$w/docker-compose.subnet.yml")" "$(subnet $w)"
-cmp -s "$tmp/$w/.env" "$tmp/env1"; ok "2 回目の後の .env は 1 回目の後と同じ" $?
-cmp -s "$tmp/$w/docker-compose.subnet.yml" "$tmp/sub1"; ok "2 回目の後の subnet のファイルは 1 回目の後と同じ" $?
+c=0; cmp -s "$tmp/$w/.env" "$tmp/env1" || c=1; ok "2 回目の後の .env は 1 回目の後と同じ" $c
+c=0; cmp -s "$tmp/$w/docker-compose.subnet.yml" "$tmp/sub1" || c=1; ok "2 回目の後の subnet のファイルは 1 回目の後と同じ" $c
 
 echo "Scenario: 木に override のファイルがあれば、COMPOSE_FILE に並べる"
 w=demo-ch01
@@ -309,7 +315,7 @@ w=demo-ch02
 printf '%s\nCOMPOSE_PROJECT_NAME=rec\n' "$pw" >"$tmp/$w/.env"
 cp "$tmp/$w/.env" "$tmp/rec-before"
 init
-cmp -s "$tmp/$w/.env" "$tmp/rec-before"; ok ".env は呼ぶ前と同じ" $?
+c=0; cmp -s "$tmp/$w/.env" "$tmp/rec-before" || c=1; ok ".env は呼ぶ前と同じ" $c
 
 echo "Scenario: env-init の後は、compose の DB の network に木の subnet が入る"
 w=demo-ch01
@@ -323,7 +329,7 @@ echo "Scenario: CI でない main の checkout では、印があっても作り
 w=demo
 got=$(plan HARNESS_VERIFY=1)
 want "worktree でない木は keep:" "${got%%:*}" "keep"
-[[ $got == *main* ]]; ok "理由に main を挙げる" $?
+c=0; [[ $got == *main* ]] || c=1; ok "理由に main を挙げる" $c
 
 echo "Scenario: CI の main の checkout と、worktree では、印があれば作り直す"
 w=demo; want "worktree でない木の CI=true" "$(plan CI=true HARNESS_VERIFY=1)" "reset"
