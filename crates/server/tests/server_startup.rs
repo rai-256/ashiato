@@ -844,4 +844,179 @@ mod st48_migrate {
         assert_eq!(rig.snapshot().await, before);
         assert_eq!(Rig::dumps_in(&other_dir), 0);
     }
+
+    // ---- サーバの起動の検査（design D6・D17）。アプリの役割で起動し、`/healthz` が 200 になるかを見る ----
+
+    /// 起動した結果。`healthy` は `/healthz` が 200 を返したことがあるか。
+    struct Served {
+        out: Output,
+        healthy: bool,
+    }
+
+    /// `/healthz` を 1 回叩いて 200 か。繋がらなければ偽。
+    fn healthz_ok(port: u16) -> bool {
+        use std::io::{Read as _, Write as _};
+        let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", port)) else {
+            return false;
+        };
+        s.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .ok();
+        if s.write_all(b"GET /healthz HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .is_err()
+        {
+            return false;
+        }
+        let mut resp = String::new();
+        s.read_to_string(&mut resp).ok();
+        resp.starts_with("HTTP/1.1 200")
+    }
+
+    impl Rig {
+        /// アプリの役割でサーバを起動する。落ちるか、`/healthz` が 200 になるか、20 秒で打ち切る。
+        async fn serve(&self) -> Served {
+            let port = std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let mut cmd = server_cmd();
+            cmd.env(
+                "DATABASE_URL",
+                with_database(&env("DATABASE_URL"), &self.db.name),
+            )
+            .env("BIND", format!("127.0.0.1:{port}"))
+            // 取り込み器の置き場は既定（本人のホーム）を触らないよう、この試験の一時ディレクトリへ
+            .env("ASHIATO_MEDIA_DIR", self.dir.path().join("media"));
+            let mut child = cmd.spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let mut healthy = false;
+            while child.try_wait().unwrap().is_none() {
+                if healthz_ok(port) {
+                    healthy = true;
+                    child.kill().ok();
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    child.kill().ok();
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Served {
+                out: child.wait_with_output().unwrap(),
+                healthy,
+            }
+        }
+    }
+
+    /// 拒否の共通: 終了コード 3・1 行目が `error: kind=<kind>`・待ち受けを開いていない。
+    fn assert_refused_3(served: &Served, kind: &str) -> String {
+        let err = stderr(&served.out);
+        assert_eq!(served.out.status.code(), Some(3), "{err}");
+        assert_eq!(
+            err.lines().next(),
+            Some(format!("error: kind={kind}").as_str()),
+            "{err}"
+        );
+        assert!(!served.healthy, "待ち受けを開いている");
+        err
+    }
+
+    // Scenario: 新しい版で当てた DB に古い版のサーバを起動すると、起動しない
+    #[tokio::test]
+    async fn st48_server_refuses_db_ahead() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.add_future_row().await;
+        let served = rig.serve().await;
+        let err = assert_refused_3(&served, "db_ahead");
+        assert!(
+            err.contains("  db: 209912312359_from_the_future (0.9.9 deadbeef)"),
+            "{err}"
+        );
+        assert!(
+            err.contains(&format!("  self: {BUILD_VERSION} {BUILD_COMMIT}")),
+            "{err}"
+        );
+    }
+
+    // Scenario: まだ当たっていない版のある DB では、サーバは起動しない
+    #[tokio::test]
+    async fn st48_server_refuses_db_behind() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec(
+            "DELETE FROM migration_ledger.applied WHERE name IN
+               (SELECT name FROM migration_ledger.applied ORDER BY name DESC LIMIT 2)",
+        )
+        .await;
+        let served = rig.serve().await;
+        let err = assert_refused_3(&served, "db_behind");
+        assert!(err.contains("まだ当たっていない版が 2 個"), "{err}");
+        assert!(err.contains("ashiato-server migrate"), "{err}");
+    }
+
+    // Scenario: 版の記録の無い DB では、サーバは起動しない
+    #[tokio::test]
+    async fn st48_server_refuses_pre_ledger_db() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("DROP SCHEMA migration_ledger CASCADE").await;
+        let served = rig.serve().await;
+        let err = assert_refused_3(&served, "db_behind");
+        assert!(
+            err.contains(&format!(
+                "まだ当たっていない版が {} 個",
+                ashiato_server::MIGRATIONS.len()
+            )),
+            "{err}"
+        );
+    }
+
+    // Scenario: 版が揃っていれば、サーバは起動する
+    #[tokio::test]
+    async fn st48_server_starts_when_even() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let served = rig.serve().await;
+        assert!(
+            served.healthy,
+            "/healthz が 200 にならない: {}",
+            stderr(&served.out)
+        );
+    }
+
+    // Scenario: 指紋の違う版があっても、サーバは警告を出して起動する
+    #[tokio::test]
+    async fn st48_server_starts_with_fingerprint_warning() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        let name = ashiato_server::MIGRATIONS.last().unwrap().0;
+        rig.exec(&format!(
+            "UPDATE migration_ledger.applied SET sha256 = 'changed' WHERE name = '{name}'"
+        ))
+        .await;
+        let served = rig.serve().await;
+        assert!(
+            served.healthy,
+            "/healthz が 200 にならない: {}",
+            stderr(&served.out)
+        );
+        let all = format!(
+            "{}{}",
+            String::from_utf8_lossy(&served.out.stdout),
+            stderr(&served.out)
+        );
+        assert!(all.contains(name), "版の名前を含む警告が無い: {all}");
+    }
+
+    // Scenario: 版の記録が読めない DB では、サーバは起動しない
+    #[tokio::test]
+    async fn st48_server_refuses_unreadable_ledger() {
+        let rig = Rig::new().await;
+        assert_ok(&rig.migrate());
+        rig.exec("UPDATE migration_ledger.form SET form = 2").await;
+        let served = rig.serve().await;
+        assert_refused_3(&served, "ledger_unreadable");
+    }
 }

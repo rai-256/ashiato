@@ -248,6 +248,41 @@ async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sqlx::Error> 
     Ok(Ledger::Recorded(names.into_iter().collect()))
 }
 
+/// サーバの起動の検査（design D6・D17）。アプリの役割で読み、何も書かない。
+/// 起動を止めるなら `Some((種別, 標準エラーの本文))`（終了コード 3）。揃っていれば `None`。
+/// 記録が無い DB は behind（まだ全部が当たっていない）。指紋の違いは警告だけで止めない（D7）。
+pub async fn startup_refusal(
+    pool: &sqlx::PgPool,
+    versions: &[(&str, &str)],
+) -> Result<Option<(&'static str, String)>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
+    let behind = |count: usize| {
+        let selfline = format!("  self: {BUILD_VERSION} {BUILD_COMMIT}");
+        Some((
+            "db_behind",
+            format!(
+                "error: kind=db_behind\n{selfline}\n  まだ当たっていない版が {count} 個。先に `ashiato-server migrate` を\n"
+            ),
+        ))
+    };
+    match read_ledger_on(&mut conn).await? {
+        Ledger::Empty | Ledger::BeforeLedger => Ok(behind(known.len())),
+        Ledger::Unreadable(why) => Ok(MigrateError::Unreadable(why).mismatch_report()),
+        Ledger::Recorded(names) => match compare(&known, &names) {
+            Verdict::Ahead { unknown } => {
+                let unknown = describe_unknown(&mut conn, &unknown).await?;
+                Ok(MigrateError::Ahead { unknown }.mismatch_report())
+            }
+            Verdict::Behind { missing } => Ok(behind(missing.len())),
+            Verdict::Even => {
+                warn_changed_fingerprints(&mut conn, versions).await?;
+                Ok(None)
+            }
+        },
+    }
+}
+
 /// 中身の sha256（16 進の小文字）。
 fn fingerprint(sql: &str) -> String {
     format!("{:x}", Sha256::digest(sql.as_bytes()))

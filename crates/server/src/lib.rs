@@ -3622,6 +3622,14 @@ pub async fn run() -> anyhow::Result<()> {
         eprintln!("error: kind=db_role reason={}", refusal.reason());
         std::process::exit(2);
     }
+    // DB の版がこの組み立てと揃っているか（design D17）。揃っていなければ待ち受けを開かない
+    if let Some((kind, report)) = migration_ledger::startup_refusal(&pool, MIGRATIONS).await? {
+        // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
+        tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
+        // log-ok: 同上。ST58 が読む（design D6）
+        eprint!("{report}");
+        std::process::exit(3);
+    }
 
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
