@@ -70,7 +70,28 @@ code_verify（9935e831）が全体の `cargo test -p ashiato-server` rc=0（lib 
 
 finish の後:
 
-<!-- FINISH_EVIDENCE -->
+`scripts/verify-run`（HEAD bf6d88a4）:
+
+| 項目 | コマンド | 終了コード |
+|---|---|---|
+| 7.1 | `python3 scripts/review_triage.py . st41-event-end-time` | 0 |
+| 7.2 | `cargo fmt --all -- --check` | 0 |
+| 7.2 | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
+| 7.2 | `cargo test -p ashiato-server` | **101**（1451 passed / 4 failed。下） |
+| 7.2 | `check-migrations && check-boundaries && check-openapi && check-immutable` | 0 |
+| 7.2 | `./tools/smoke.sh` | 0 |
+| 7.2 | `python3 scripts/check_scenarios.py . st41-event-end-time` | 0 |
+
+全体の `cargo test` で落ちた 4 本は、どれも `--exact` で 1 本ずつ走らせ直すと通った（rc=0）。終わりの時刻に触れる試験は無い:
+`archive_scan_interval_change_takes_effect_without_restart`（走査が 10 回に届かない: 9。時間に依る。878d10a0 の Ruling と同じ）・
+`archive_erased_window_persistent_marking_failure_is_ledgered_and_throttled`（読み直しの回数 6 ≠ 3。走査の周期に依る）・
+`st25_reasons_before_collection_started`（共有の DB の積もり。code_verify の注 3 と同じ）・
+`export_excluded_sql_every_registered_source_is_classified_by_name`（`stay_tests.rs:1342` で別の接続を止める権限が無い `42501`）。
+**全体で通った証跡はこの commit では取れていない** —— グラフの verify が全体の走りで止めるなら、そこで取り直す。
+
+finish の直しが効くことは、壊した木で確かめた: R16/R19/R18 の直しを戻すと足した 3 本が落ちる（rc=101）・
+錠から前の版の `end_time` の名指しと主張のずれ・地域の行を外すと check-immutable が rc=1・移行の写し元を変えると移行が止まる（使い捨ての DB）。
+関わる試験（`st41_` `export_` `mark_late` `stay_erased` `ingest::`）は 260 本 rc=0。
 
 ## レビュー
 
