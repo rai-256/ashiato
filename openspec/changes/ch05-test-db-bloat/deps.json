@@ -4,5 +4,11 @@
     "spec_pr": 156,
     "spec_change": "ch04-test-db-growth",
     "spec_at": "2026-10-24T23:51:47+00:00"
+  },
+  "CH06": {
+    "spec_sha": "c666673057102a4c010936db5184a5f0924f6d34",
+    "spec_pr": 164,
+    "spec_change": "ch06-reset-verify-db",
+    "spec_at": "2026-10-25T08:29:03+00:00"
   }
 }
