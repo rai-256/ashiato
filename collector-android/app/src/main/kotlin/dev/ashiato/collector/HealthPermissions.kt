@@ -3,6 +3,7 @@ package dev.ashiato.collector
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.PermissionController
@@ -35,6 +36,23 @@ const val HEALTH_PREFS = "health_permission"
  * 前の版には無い鍵なので、更新の後の最初の起動で 1 度求める。
  */
 const val ASKED_HEALTH_PERMISSIONS = "asked_health_permissions"
+
+/** 常駐の通知の操作のラベル（design D8（仮））。 */
+const val HEALTH_PERMISSION_ACTION_LABEL = "健康データの権限"
+
+/** Health Connect の権限の画面の action（`HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS`。Android 14 以降） */
+private const val ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS"
+
+/**
+ * 常駐の通知の操作が開く画面（design D8（仮））。14 以降は収集アプリの権限の画面、13 以前は Health Connect のアプリの画面
+ * （client の口。収集アプリの権限まで何回押すかは確かめていない）。
+ */
+fun healthPermissionSettingsIntent(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Intent =
+    if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+    } else {
+        HealthConnectClient.getHealthConnectManageDataIntent(context)
+    }
 
 /** Health Connect が使えるか（design D6）。[wire] は記録の `availability` の値（design D2）。 */
 enum class HealthAvailability(val wire: String) {

@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
@@ -783,6 +784,7 @@ open class LocationService : Service() {
         startTicking()
         startClockSkew()
         startMediaCapture()
+        runCollection { refreshHealthAvailability() }
         FeelingReminderWiring.ensureScheduled(applicationContext)
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
@@ -995,10 +997,71 @@ open class LocationService : Service() {
             running.beater = newHeartbeatScheduler(running.cadence.logicalSource).also { scheduler ->
                 scheduler.every(running.cadence.heartbeatIntervalMs) {
                     emitter.emit()
-                    if (isLocation) outagePoller.poll()
+                    if (isLocation) {
+                        outagePoller.poll()
+                        // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない
+                        observeHealthPeriodically()
+                    }
                 }
             }
         }
+    }
+
+    /** 健康データの権限の観測。通知の操作が使う「使えるか」もここで読む。 */
+    private val healthRecorder: HealthPermissionRecorder by lazy {
+        val store = HealthStateStore(getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE))
+        HealthPermissionRecorder(
+            read = {
+                healthPermissions().read(this).also { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
+            },
+            autoRequested = { getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE).getBoolean(ASKED_HEALTH_PERMISSIONS, false) },
+            store = store,
+            clock = newDeviceClock(),
+            deviceId = deviceId,
+            userId = Config.userId,
+            zone = ZoneId.systemDefault(),
+            newId = { UUID.randomUUID().toString() },
+            emit = { outbox.add(it) },
+            log = { Log.i(TAG, it) },
+        )
+    }
+
+    /** Health Connect が使えるとわかっているか。通知の操作を出すかを決める（読むまでは出さない）。 */
+    @Volatile
+    private var healthAvailable = false
+
+    /** 使えるかが変わったら、常駐の通知を組み直す（操作の出し入れ。design D8）。 */
+    private fun setHealthAvailable(available: Boolean) {
+        if (healthAvailable == available) return
+        healthAvailable = available
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(shownText ?: ongoingText()))
+    }
+
+    /** 常駐の通知に最後に出した本文（日数つきの本文を、操作の出し入れで基本の文に戻さない）。 */
+    @Volatile
+    private var shownText: String? = null
+
+    /** 健康データの権限の読み口。**試験が差し替える**。 */
+    protected open fun healthPermissions(): HealthPermissions = ClientHealthPermissions()
+
+    /**
+     * 収集を始めるときに、使えるかだけを読む（記録は作らない。記録は画面の契機と 6 時間ごとの見直し）。
+     * 失敗しても位置の収集を止めない。
+     */
+    private fun refreshHealthAvailability() {
+        runCatching { runBlocking { healthPermissions().read(this@LocationService) } }
+            .onSuccess { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
+            .onFailure { logHealthCrashed(it) }
+    }
+
+    /** 6 時間ごとの見直し。**失敗しても位置の収集を止めない**（時計の測定と同じく包み、種別だけ残す）。 */
+    private fun observeHealthPeriodically() {
+        runCatching { runBlocking { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) } }
+            .onFailure { logHealthCrashed(it) }
+    }
+
+    private fun logHealthCrashed(e: Throwable) {
+        Log.w(TAG, Telemetry.line("health_permission_crashed", source = HEALTH_LOGICAL_SOURCE, error = e.javaClass.simpleName))
     }
 
     override fun onDestroy() {
@@ -1063,13 +1126,14 @@ open class LocationService : Service() {
 
     /** 常駐の通知。**本文だけを差し替える**（未送信の日数。ST04 / 深掘り Q5）。常時出ている通知は増やさない */
     private fun notification(text: String): Notification {
+        shownText = text
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             // **ソースの名前を持たせない**（tasks 5.4 / R10）。チャネルの識別子は変えない ——
             // 変えると本人が設定した音や表示の扱いが捨てられ、新しいチャネルとして出直す
             NotificationChannel(CHANNEL, "記録の収集", NotificationManager.IMPORTANCE_LOW),
         )
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setContentTitle("あしあと。")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
@@ -1079,7 +1143,22 @@ open class LocationService : Service() {
             // （design D6（仮））—— 自動で送るのは初回の 1 度だけなので、
             // 後から許す気になった本人がたどり着ける道がここにしか無い
             .setContentIntent(usageAccessPendingIntent())
-            .build()
+        // Health Connect が使えるときだけ、権限の画面への操作を足す（design D8（仮））。許されているかには依らない
+        if (healthAvailable) {
+            builder.addAction(
+                Notification.Action.Builder(null, HEALTH_PERMISSION_ACTION_LABEL, healthPermissionPendingIntent()).build(),
+            )
+        }
+        return builder.build()
+    }
+
+    private fun healthPermissionPendingIntent(): PendingIntent {
+        val intent = healthPermissionSettingsIntent(this)
+        // 押しても開く画面が無い端末は、種別だけ残す（利用状況へのアクセスと同じ）
+        if (packageManager.resolveActivity(intent, 0) == null) {
+            Log.w(TAG, Telemetry.line("health_permission_settings_missing", source = HEALTH_LOGICAL_SOURCE))
+        }
+        return PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     /** 常駐の通知を押したときに開く設定画面（design D6（仮））。 */
