@@ -1176,9 +1176,6 @@ fi
 # `db-roles.sh` は何度走らせても同じ結果なので、後ろの `app-role` の検査の前でもう一度当てる。
 ./tools/db-roles.sh >/dev/null
 docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/grants.sql >/dev/null
-# 版の記録の置き場も作る（ST48 / design D10。行は書かない —— psql で当てた版は記録しない）。
-# これから足す版（名前の時刻が 202610250000 以後）の .down.sql は記録の行を消すので、置き場が無いと節の戻しの検査が落ちる（review/code.md R23）
-docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_owner -d ashiato < crates/server/src/migration_ledger.sql >/dev/null
 app_psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato_app -d ashiato "$@"; }
 
 # ================================================================ Story ごとの節（tools/check-immutable.d/）

@@ -158,7 +158,7 @@ error: kind=db_ahead
   (b) `.down.sql` に `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ
 - 境を名前の時刻にするのは、走っている ST23・ST41・ST29 の版（どれも 2026-10-25 より前の時刻）に、後から規則を課さないため（差し戻さない）
 - `--self-test` を足す（使い捨てのフォルダに規則を破る版と守る版を置いて、落ちる・通るを見る）
-- `tools/check-immutable.sh` は psql で当てる DB にも版の記録の置き場（bootstrap）だけを作る（行は書かない）。(b) の `DELETE` が戻しの検査で落ちないため（review/code.md R23）
+- `tools/check-immutable.sh` は psql で当てる DB にも版の記録の置き場（bootstrap）だけを作る（行は書かない）。(b) の `DELETE` が戻しの検査で落ちないため（review/code.md R23）。置くのは本体でなく Story の節 `tools/check-immutable.d/202610250000_st48-migration-ledger.sh`（節の前の準備がアプリの役割を作った後・戻しの並びの前に読まれる。本体の準備のかたまりに足すと `tools/check-shared-appends.sh` が落とす）
 - 反転条件: 境より前の時刻を名前に付けた新しい版が入った（時刻を手で書き違えた）と分かったら、境を「この版より後に ORDER に足した版」に替える
 
 ### D11. 1 版 1 取引と錠

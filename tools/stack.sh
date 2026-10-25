@@ -88,9 +88,10 @@ echo "== DB"; docker compose up -d --wait db >/dev/null
 # 役割 → 移行 → サーバの順（volume を消すと役割も消える。design D5 / review R17）
 ./tools/db-roles.sh
 # 移行の前の退避（ashiato-server migrate が取る。製造準備 A-2）。作り直した DB は使い捨てなので退避しない。
-# 残す DB は退避する —— 手元に pg_dump が無ければ db のコンテナの中の pg_dump を使う
+# 残す DB は退避する —— 既定は db のコンテナの中の pg_dump（db と同じ版）。手元の pg_dump は db より古い版だと
+# server version mismatch で落ちる（CI の ubuntu-24.04 は 16、db は postgres:17。退避が rc=1 で落ちて移行が当たらない）。PG_DUMP で指せば従う
 if [ "${STACK_RESET:-}" = "1" ]; then export MIGRATE_BACKUP=off
-elif ! command -v pg_dump >/dev/null 2>&1; then export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"; fi
+else export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"; fi
 echo "== 移行（所有者の接続。サーバは移行を当てない）"
 # 終了コード 3 = DB の版がこの木と合わない。作り直さずに手順を示して止まる（design D14）
 migrate_rc=0; "$server" migrate || migrate_rc=$?

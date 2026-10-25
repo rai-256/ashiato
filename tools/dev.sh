@@ -18,8 +18,8 @@ cargo fetch -q
 echo "== DB を起動"
 docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
-echo "== 移行（所有者の接続。当てる前に退避する。手元に pg_dump が無ければ db のコンテナの中の pg_dump）"
-command -v pg_dump >/dev/null 2>&1 || export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
+echo "== 移行（所有者の接続。当てる前に退避する。既定は db のコンテナの中の pg_dump —— 手元の古い版は db と合わず落ちる。tools/stack.sh）"
+export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
 # 終了コード 3 = DB の版がこの木と合わない。作り直さずに手順を示して止まる（design D14）
 migrate_rc=0; cargo run -q -p ashiato-server --bin ashiato-server -- migrate || migrate_rc=$?
 if [ "$migrate_rc" = 3 ]; then

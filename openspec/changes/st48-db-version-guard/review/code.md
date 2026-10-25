@@ -274,7 +274,7 @@ migration_ledger|ashiato_owner / form|ashiato_owner / applied|ashiato_owner
 - 根拠: A new version from 202610250000 on writes the required DELETE in its .down.sql. tools/check-immutable.sh applies versions with psql, so its DB never gets the migration_ledger schema, and it already runs .down.sql files (lines 962, 1156, 1212...). Once a new version's down is added there, it fails with 'relation migration_ledger.applied does not exist'. The same happens when rolling back a DB that has no ledger. The rule should accept a guarded form, e.g. DO-block / to_regclass check.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
-- 処置: fixed D10 —— 再現: `check-immutable.sh` は psql で当て、`migration_ledger` を作らないので、新しい版の `.down.sql` の `DELETE` は落ちる。規則は緩めず、`check-immutable.sh` の節の前の準備（付与の後）で所有者が版の記録の置き場（`migration_ledger.sql`）だけを作る。記録の無い DB への戻しは、ST48 以後の migrate がどの DB にも置き場を作るので起きない
+- 処置: fixed D10 —— 再現: `check-immutable.sh` は psql で当て、`migration_ledger` を作らないので、新しい版の `.down.sql` の `DELETE` は落ちる。規則は緩めず、`check-immutable.sh` の節の前の準備（付与の後）で所有者が版の記録の置き場（`migration_ledger.sql`）だけを作る（merge gate の CI で本体の準備への書き足しが `check-shared-appends.sh` に落ちたので、置き場を Story の節 `tools/check-immutable.d/202610250000_st48-migration-ledger.sh` へ移した。順は同じ —— 準備の後・戻しの前）。記録の無い DB への戻しは、ST48 以後の migrate がどの DB にも置き場を作るので起きない
 
 ## R24. The shared worktree test DB now goes through ledger-aware `migrate()`, so a version that is already recorded is never applied again, even after its SQL is edited. The old code reapplied every version on each test process.
 - 成果物: crates/server/src/testdb.rs:88
