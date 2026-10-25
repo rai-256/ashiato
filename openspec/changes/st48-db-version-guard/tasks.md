@@ -63,10 +63,10 @@
 
 ## Task 3: 試験の足場を同じ当て方に寄せる
 
-- [ ] 3.1 `crates/server/src/testdb.rs` の初回の当て込みを、`MIGRATIONS` を直に流す形から `apply_migrations` → `GRANTS` に替える。外側の取引と `pg_advisory_xact_lock(4820251)` は外し、取引の外の 1 本の接続で `apply_migrations` を呼ぶ（錠は `apply_migrations` が同じ鍵で取る。残すと自分を待ち続ける）（design D12・D11。CH04 が入っていれば、そのテンプレートの当て込みの行を替える）。
+- [x] 3.1 `crates/server/src/testdb.rs` の初回の当て込みを、`MIGRATIONS` を直に流す形から `apply_migrations` → `GRANTS` に替える。外側の取引と `pg_advisory_xact_lock(4820251)` は外し、取引の外の 1 本の接続で `apply_migrations` を呼ぶ（錠は `apply_migrations` が同じ鍵で取る。残すと自分を待ち続ける）（design D12・D11。CH04 が入っていれば、そのテンプレートの当て込みの行を替える）。
   `pool()`・`app_pool()`・`url()` の形は変えない。
   検証: `bash -c '! grep -nE "for .* in crate::MIGRATIONS" crates/server/src/testdb.rs'` rc=0 / `CT stay_tests` rc=0 / `CT ingest` rc=0
-- [ ] 3.2 `migration_ledger_tests.rs` に `st48_testdb_has_ledger`（`// Scenario: 試験の足場が当てた DB にも、同じ版の記録がある`。`testdb::pool()` の DB の版の記録の名前の集合が `MIGRATIONS` と一致）を足し、
+- [x] 3.2 `migration_ledger_tests.rs` に `st48_testdb_has_ledger`（`// Scenario: 試験の足場が当てた DB にも、同じ版の記録がある`。`testdb::pool()` の DB の版の記録の名前の集合が `MIGRATIONS` と一致）を足し、
   書き出しの試験のファイル（`crates/server/src/export_file_tests.rs`。CH04 の後なら書き出しの試験の足場の口を使う）に `st48_export_starts_with_ledger`（`// Scenario: 版の記録があっても、全記録の書き出しは始まる`。版の記録のある DB で書き出しを始め、「分類の無い表」で断られず、書き出したファイルの一覧に `migration_ledger` を含む名前が無い）を足す。
   検証: `CT st48_testdb_has_ledger` rc=0 / `NL st48_testdb_has_ledger 1` rc=0 / `CT st48_export_starts_with_ledger` rc=0 / `NL st48_export_starts_with_ledger 1` rc=0
 
