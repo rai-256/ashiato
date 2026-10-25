@@ -27,8 +27,9 @@ import org.junit.runners.MethodSorters
  *
  * 始まりは「健康データの権限が未許可・印なし」（`@NeedsPristinePermissions`。`tools/android-emulator.sh` と CI の段が
  * `pm reset-permissions` で作る）。Health Connect の権限は**自分では外せない**（プロセスが死ぬ）ので、許した後の状態は
- * 戻せない —— このクラスの試験は名前の順に走り、前の試験が進めた画面を引き継ぐ（`@FixMethodOrder`）。
- * 引き継げないとき（前の試験が落ちた）は、各試験が自分で画面まで開き直す。
+ * 戻せない —— このクラスの試験は名前の順に走り、前の試験が進めた画面と権限の状態を引き継ぐ（`@FixMethodOrder`）。
+ * 画面が出ていなければ t1〜t3 は収集アプリを開いて種類の画面を出し直す（[HealthConnectScreens.openKinds]）が、
+ * 前の試験が落ちて許した状態まで進んでいなければ、後ろの試験（t4・t5）は前提が無いまま落ちる —— 最初に落ちた本から見る。
  *
  * 断る本はここに置かない（2 回断ると画面が出なくなる。P6）。断る側は `HealthPermissionHistoryDeniedInstrumentedTest` と
  * `HealthPermissionDeniedInstrumentedTest` が別の段で見る。
@@ -101,7 +102,13 @@ class HealthPermissionGrantInstrumentedTest {
     @Test
     fun t2_firstLaunchShowsTheHealthPermissionScreenWithTheFourKinds() {
         screens.openKinds()
-        assertTrue("4 つの種類（睡眠・心拍・歩数・運動）が並ばない", screens.kindsVisible() || screens.additionalAccessVisible())
+        // 種類の画面そのものを見る（続く「追加のアクセス」の画面が出ているだけでは通さない）
+        val deadline = System.currentTimeMillis() + HealthConnectScreens.SCREEN_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline && !screens.kindsVisible()) Thread.sleep(HealthConnectScreens.POLL_MS)
+        assertTrue(
+            "4 つの種類（睡眠・心拍・歩数・運動）が並ばない（前面: ${screens.device.currentPackageName}）",
+            screens.kindsVisible(),
+        )
         // 種類を許すと、続く画面に履歴の読み取りと背景での読み取りが並ぶ
         screens.allowKindsAndContinue()
         assertTrue(screens.device.hasObject(By.text(HealthConnectScreens.HISTORY_LABEL)))
@@ -165,7 +172,7 @@ class HealthPermissionGrantInstrumentedTest {
         }
         assertTrue("許した後の記録が未送信に積まれていない", latest != null)
         val flags = screens.grantedFlags(latest!!)
-        assertEquals("granted の鍵が 6 つでない: $flags", HEALTH_PERMISSIONS.keys.toList(), flags.keys.toList())
+        assertEquals("granted の鍵が 6 つでない: $flags", HEALTH_PERMISSIONS.keys, flags.keys)
         assertFalse("許したのに granted に false が残る: $flags", flags.values.any { !it })
         assertTrue("観た時刻（event_time）が無い", latest.eventTime.isNotBlank())
         assertEquals("c01-health-permission", latest.logicalSource)

@@ -111,7 +111,7 @@ internal class HealthConnectScreens(private val context: Context) {
     /** 未送信に積まれた `c01-health-permission` の記録（古い順）。 */
     fun healthRecords(): List<IngestRequest> {
         val dir = outboxDir()
-        return SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, "u.jsonl"), {}).readAll()
+        return SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, LocationService.UNREADABLE), {}).readAll()
             .filter { it.logicalSource == HEALTH_LOGICAL_SOURCE }
     }
 
