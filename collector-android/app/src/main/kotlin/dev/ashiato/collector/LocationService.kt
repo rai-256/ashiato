@@ -1003,8 +1003,10 @@ open class LocationService : Service() {
                         outagePoller.poll()
                         // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。
                         // **生存信号の糸では回さない**（review/code.md R3）—— Health Connect の問い合わせが返らないと、
-                        // 位置の生存信号と途切れの問い合わせが同じ糸で止まり、稼働状況に途絶として出る
-                        runCollection { observeHealthPeriodically() }
+                        // 位置の生存信号と途切れの問い合わせが同じ糸で止まり、稼働状況に途絶として出る。
+                        // 預けるところも包む —— 止める途中（`onDestroy` の `shutdownNow` の後）の刻みは預け先に断られ、
+                        // 投げると刻みそのもの（生存信号）が止まる
+                        runCatching { runCollection { observeHealthPeriodically() } }.onFailure { logHealthCrashed(it) }
                     }
                 }
             }
