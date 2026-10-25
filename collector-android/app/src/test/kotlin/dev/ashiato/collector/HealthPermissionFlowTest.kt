@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -50,6 +51,20 @@ class HandoffFlowActivity : ExemptMainActivity() {
     override fun healthPermissions(): HealthPermissions = HealthFlowActivity.health
     override fun runHealth(task: () -> Unit) = task()
     override fun healthRecordSink(): (IngestRequest) -> Boolean = HealthRecordHandoff::offer
+}
+
+/** 求める intent を本物の client（Health Connect の Jetpack）で作る入口。Android 14 以降の形を見る。 */
+class ClientIntentHealthFlowActivity : ExemptMainActivity() {
+    override fun healthPermissions(): HealthPermissions = object : HealthPermissions by HealthFlowActivity.health {
+        override fun createRequestIntent(context: Context, permissions: Set<String>): Intent =
+            ClientHealthPermissions().createRequestIntent(context, permissions)
+    }
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = { HealthFlowActivity.sunk += it; true }
+    override fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit = { state, settled ->
+        store.remember(state)
+        settled()
+    }
 }
 
 /** 初回起動の流れの中の健康データの段（tasks 5.1 / design D4・D6・D9）。Health Connect の画面そのものは計測テストが見る。 */
@@ -389,5 +404,41 @@ class HealthPermissionFlowTest {
             service.outboxForTest.snapshot().any { it.logicalSource == SourceCadence.APP_USAGE.logicalSource },
         )
         assertEquals("写真の記録が積まれていない", 1, env.photos().size)
+    }
+
+    // Scenario: 初回起動で健康データの権限の画面が出る
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34])
+    fun `Android 14 以降は client の intent を開かず、中の権限を framework の口で求め、戻ったら読み直して進む`() {
+        val controller = Robolectric.buildActivity(ClientIntentHealthFlowActivity::class.java).create().resume()
+        val shadow = shadowOf(controller.get())
+
+        // 本物の client は 14 以降で内向きの intent（ComponentActivity の結果の登録簿だけが受け取れる）を返す
+        assertEquals(
+            MainActivity.ACTION_REQUEST_PERMISSIONS,
+            ClientHealthPermissions().createRequestIntent(app, HEALTH_PERMISSIONS.values.toSet()).action,
+        )
+        // それを startActivityForResult で開かない（端末では解決できずに失敗する）
+        assertNotEquals(
+            "解決できない intent を開いている",
+            MainActivity.ACTION_REQUEST_PERMISSIONS,
+            shadow.peekNextStartedActivityForResult()?.intent?.action,
+        )
+        val asked = shadow.lastRequestedPermission
+        assertNotNull("健康データの権限を求めていない", asked)
+        assertEquals(MainActivity.HEALTH_REQUEST, asked.requestCode)
+        assertEquals(HEALTH_PERMISSIONS.values.toSet(), asked.requestedPermissions.toSet())
+        assertFalse("答える前に収集が始まっている", started())
+
+        health.allowAll()
+        controller.get().onRequestPermissionsResult(
+            MainActivity.HEALTH_REQUEST,
+            asked.requestedPermissions,
+            IntArray(asked.requestedPermissions.size),
+        )
+
+        assertTrue("戻っても印が立たない", healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false))
+        assertEquals(HealthTrigger.REQUEST_RESULT, sunk.last().field("trigger"))
+        assertTrue("戻っても収集が始まらない", started())
     }
 }
