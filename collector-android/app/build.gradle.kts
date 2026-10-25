@@ -165,6 +165,11 @@ configurations.matching { it.name == "detekt" }.configureEach {
 dependencies {
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.8")
     implementation("androidx.core:core-ktx:1.17.0")
+    // 健康データの権限の読み口と求める口（ST11 design D3）。読み取り（ReadRecordsRequest）は呼ばない
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    // connect-client が listenablefuture を空の版（9999.0）へ固定し、PackageManagerCompat の戻り値の ListenableFuture が
+    // コンパイル時に見えなくなる。型を見せるだけ（実行時は guava 31.1-android が来る）
+    compileOnly("com.google.guava:guava:31.1-android")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     testImplementation("junit:junit:4.13.2")
