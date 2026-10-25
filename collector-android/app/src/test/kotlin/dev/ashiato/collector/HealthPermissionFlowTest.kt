@@ -334,6 +334,13 @@ class HealthPermissionFlowTest {
         answer(launch())
 
         assertTrue("収集が始まっていない", started())
+
+        // 収集が始まった結果として、位置の記録が生成される
+        val controller = Robolectric.buildService(TestableLocationService::class.java, Intent())
+        val service = controller.get()
+        controller.create().startCommand(0, 1)
+        service.source.deliver()
+        assertTrue("位置の記録が生成されていない", service.outboxForTest.snapshot().any { it.logicalSource == LOGICAL_SOURCE })
     }
 
     // Scenario: 断ると自動で求めたことと許されていないことが記録される
