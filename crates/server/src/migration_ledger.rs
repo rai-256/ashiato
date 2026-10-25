@@ -2,9 +2,65 @@
 //! DB に当てた移行の版の記録を読み、自分の知る版と比べる（ST48 / design D1・D2・D3・D5）。
 //!
 //! 比べ方は**名前の集合**だけ（並びの位置・名前の時刻では比べない。ORDER は時刻順でない）。
-//! 読むだけで、DB には何も書かない。
+//! 読む関数（`read_ledger`）は DB に何も書かない。当てる処理（`apply_migrations`）は記録を書く。
 
-use std::collections::BTreeSet;
+use sha2::{Digest as _, Sha256};
+use sqlx::{Connection as _, PgConnection};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// 当てる処理の錠の鍵（セッションの助言錠。試験の足場が取っていた鍵と同じ数。design D11）。
+const LOCK_KEY: i64 = 4_820_251;
+
+/// 当てた組み立ての版番号（design D8）。
+pub const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// 当てた組み立ての commit（`build.rs` が決める。design D8）。
+pub const BUILD_COMMIT: &str = env!("ASHIATO_BUILD_COMMIT");
+
+/// 当てる処理が止まった理由。呼び出し元（終了コードを決める側）が区別できる。
+#[derive(Debug)]
+pub enum MigrateError {
+    /// DB にだけある版がある（自分より新しい DB）。何も書いていない。
+    Ahead { unknown: Vec<String> },
+    /// 記録が読めない。何も書いていない。
+    Unreadable(String),
+    /// 版の名前つきで、当てるのに失敗した（その版の取引は戻っている）。
+    Version { name: String, source: sqlx::Error },
+    /// DB の問い合わせそのものの失敗。
+    Db(sqlx::Error),
+}
+
+impl std::fmt::Display for MigrateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ahead { unknown } => write!(
+                f,
+                "DB に自分の知らない版がある（自分より新しい DB）: {}",
+                unknown.join(", ")
+            ),
+            Self::Unreadable(why) => write!(f, "版の記録を読めない: {why}"),
+            Self::Version { name, source } => {
+                write!(f, "マイグレーション {name} の適用に失敗: {source}")
+            }
+            Self::Db(e) => write!(f, "版の記録の問い合わせに失敗: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for MigrateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Version { source, .. } | Self::Db(source) => Some(source),
+            _ => None,
+        }
+    }
+}
+
+impl From<sqlx::Error> for MigrateError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Db(e)
+    }
+}
 
 /// 版の記録の置き場を作る DDL（design D1）。`migrations/ORDER` の外。何度流しても同じ。
 pub const BOOTSTRAP: &str = include_str!("migration_ledger.sql");
@@ -62,22 +118,25 @@ pub fn compare(known: &BTreeSet<String>, ledger: &BTreeSet<String>) -> Verdict {
     Verdict::Even
 }
 
-async fn schema_exists(pool: &sqlx::PgPool, name: &str) -> Result<bool, sqlx::Error> {
+async fn schema_exists(pool: &mut PgConnection, name: &str) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)")
         .bind(name)
-        .fetch_one(pool)
+        .fetch_one(&mut *pool)
         .await
 }
 
 /// 表の列（名前, 型）を並びの順に引く。
-async fn columns(pool: &sqlx::PgPool, table: &str) -> Result<Vec<(String, String)>, sqlx::Error> {
+async fn columns(
+    pool: &mut PgConnection,
+    table: &str,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
     sqlx::query_as(
         "SELECT column_name::text, data_type::text FROM information_schema.columns
           WHERE table_schema = 'migration_ledger' AND table_name = $1
           ORDER BY ordinal_position",
     )
     .bind(table)
-    .fetch_all(pool)
+    .fetch_all(&mut *pool)
     .await
 }
 
@@ -92,6 +151,12 @@ fn same_columns(found: &[(String, String)], want: &[(&str, &str)]) -> bool {
 /// DB の版の記録を読む。DB の問い合わせそのものの失敗は `Err`（記録が「読めない」のとは別）。
 /// アプリの役割（`SELECT` だけ）でも所有者でも読める。
 pub async fn read_ledger(pool: &sqlx::PgPool) -> Result<Ledger, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    read_ledger_on(&mut conn).await
+}
+
+/// `read_ledger` を 1 本の接続で行う（当てる処理が錠を持った接続で読む）。
+async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sqlx::Error> {
     if !schema_exists(pool, "migration_ledger").await? {
         return Ok(if schema_exists(pool, "core").await? {
             Ledger::BeforeLedger
@@ -113,7 +178,7 @@ pub async fn read_ledger(pool: &sqlx::PgPool) -> Result<Ledger, sqlx::Error> {
         ));
     }
     let form: Option<i32> = sqlx::query_scalar("SELECT form FROM migration_ledger.form")
-        .fetch_optional(pool)
+        .fetch_optional(&mut *pool)
         .await?;
     match form {
         None => return Ok(Ledger::Unreadable("form の行が無い".into())),
@@ -125,7 +190,113 @@ pub async fn read_ledger(pool: &sqlx::PgPool) -> Result<Ledger, sqlx::Error> {
         Some(_) => {}
     }
     let names: Vec<String> = sqlx::query_scalar("SELECT name FROM migration_ledger.applied")
-        .fetch_all(pool)
+        .fetch_all(&mut *pool)
         .await?;
     Ok(Ledger::Recorded(names.into_iter().collect()))
+}
+
+/// 中身の sha256（16 進の小文字）。
+fn fingerprint(sql: &str) -> String {
+    format!("{:x}", Sha256::digest(sql.as_bytes()))
+}
+
+/// `versions`（渡された並び）のうち記録に無い版だけを、1 版 1 取引で当てて記録する（design D3・D7・D11）。
+///
+/// 錠を取る → 記録を読む → ahead・読めないなら何も書かずに返す → bootstrap → 1 版ずつ当てて `INSERT` → 錠を外す。
+/// 版が落ちたらその取引ごと戻り、その版も後の版も記録されない。`GRANTS` は呼び出し元が当てる。
+pub async fn apply_migrations(
+    conn: &mut PgConnection,
+    versions: &[(&str, &str)],
+) -> Result<(), MigrateError> {
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(LOCK_KEY)
+        .execute(&mut *conn)
+        .await?;
+    let result = apply_locked(conn, versions).await;
+    // 失敗しても外す。外せなくても接続が閉じれば錠は消えるので、元の結果を優先する
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(LOCK_KEY)
+        .execute(&mut *conn)
+        .await;
+    result
+}
+
+async fn apply_locked(
+    conn: &mut PgConnection,
+    versions: &[(&str, &str)],
+) -> Result<(), MigrateError> {
+    let ledger = read_ledger_on(conn).await?;
+    let (recorded, before_ledger) = match ledger {
+        Ledger::Unreadable(why) => return Err(MigrateError::Unreadable(why)),
+        Ledger::Empty => (BTreeSet::new(), false),
+        Ledger::BeforeLedger => (BTreeSet::new(), true),
+        Ledger::Recorded(names) => {
+            let known: BTreeSet<String> = versions.iter().map(|v| v.0.to_string()).collect();
+            if let Verdict::Ahead { unknown } = compare(&known, &names) {
+                return Err(MigrateError::Ahead { unknown });
+            }
+            (names, false)
+        }
+    };
+    sqlx::raw_sql(BOOTSTRAP).execute(&mut *conn).await?;
+    warn_changed_fingerprints(conn, versions).await?;
+    for (name, sql) in versions {
+        if recorded.contains(*name) {
+            continue;
+        }
+        apply_one(conn, name, sql, before_ledger)
+            .await
+            .map_err(|source| MigrateError::Version {
+                name: (*name).to_string(),
+                source,
+            })?;
+    }
+    Ok(())
+}
+
+/// 記録にある版の指紋が自分の中身と違うなら、当て直さず版の名前だけを警告に出す（design D7）。
+async fn warn_changed_fingerprints(
+    conn: &mut PgConnection,
+    versions: &[(&str, &str)],
+) -> Result<(), sqlx::Error> {
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, sha256 FROM migration_ledger.applied")
+            .fetch_all(&mut *conn)
+            .await?;
+    let recorded: BTreeMap<String, String> = rows.into_iter().collect();
+    for (name, sql) in versions {
+        if recorded
+            .get(*name)
+            .is_some_and(|sha| *sha != fingerprint(sql))
+        {
+            // log-ok: 版の名前は配った移行のファイル名（時刻と slug）で、利用者のデータを含まない
+            tracing::warn!(
+                version = *name,
+                "記録した指紋と中身が違う版がある（当て直さない）"
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn apply_one(
+    conn: &mut PgConnection,
+    name: &str,
+    sql: &str,
+    before_ledger: bool,
+) -> Result<(), sqlx::Error> {
+    let mut tx = conn.begin().await?;
+    sqlx::raw_sql(sql).execute(&mut *tx).await?;
+    sqlx::query(
+        "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit, before_ledger)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(name)
+    .bind(fingerprint(sql))
+    .bind(BUILD_VERSION)
+    .bind(BUILD_COMMIT)
+    .bind(before_ledger)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
 }

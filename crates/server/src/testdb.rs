@@ -85,19 +85,7 @@ pub async fn pool() -> sqlx::PgPool {
         });
     MIGRATED
         .get_or_init(|| async {
-            let mut tx = pool.begin().await.unwrap();
-            sqlx::query("SELECT pg_advisory_xact_lock(4820251)")
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            for sql in crate::MIGRATIONS {
-                sqlx::raw_sql(sql.1).execute(&mut *tx).await.unwrap();
-            }
-            sqlx::raw_sql(crate::GRANTS)
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-            tx.commit().await.unwrap();
+            crate::migrate(&pool).await.unwrap();
         })
         .await;
     pool

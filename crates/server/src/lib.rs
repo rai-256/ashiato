@@ -184,17 +184,14 @@ pub const MIGRATIONS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/migr
 /// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
 pub const GRANTS: &str = include_str!("grants.sql");
 
-/// 版を順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
+/// 記録に無い版だけを順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
+/// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    for (name, sql) in MIGRATIONS {
-        sqlx::raw_sql(sql)
-            .execute(pool)
-            .await
-            .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
-    }
+    let mut conn = pool.acquire().await?;
+    migration_ledger::apply_migrations(&mut conn, MIGRATIONS).await?;
     sqlx::raw_sql(GRANTS)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .context("アプリの役割への付与に失敗")?;
     Ok(())
