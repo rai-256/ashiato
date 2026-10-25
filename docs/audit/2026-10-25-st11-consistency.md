@@ -1,14 +1,14 @@
 # 整合の確認（2026-10-25・ST11 の深掘り第 1 回 Q1 を FR-11・FR-73・扉 #21 の理由の訂正へ戻した改訂）
 
-- 基準: `dba20fc8ab4a71f526e658d4c95b2927841d5777`..`f5d4b7a2b4f198498ffeb15a05c138ffd20f217f`
+- 基準: `2e45447fdb6324fa563e931f5f413ab5afaccc7f`..`2a2916de4316d126b6e8c3b85639ac46bb91178f`
 
 対象は ST11（`openspec/changes/st11-health-history-permission/`）の深掘り第 1 回 Q1 の答え（推奨のまま: 初回起動で求める。要件の理由だけを訂正する）を要件へ戻した改訂。
 FR-11・FR-73・扉 #21 の理由「宣言していない期間の 30 日より前は永久に読めない」を ★ 2026-10-25 で「履歴の権限は後から与えても全履歴が読める。履歴の権限が無い端末で読める範囲の起点（種類を最初に許した日の 30 日前）を早めるため初回起動で求める」に直し、
 `docs/stories/stories.json` の ST11 の value と judged、ST34 の judged を直し、`docs/stories/ST11.md`・`docs/stories/ST34.md` を再生成した。振る舞い（初回起動で求める）は変えていない。
-文書は head（`f5d4b7a2`）の内容で読んだ。
+文書は head（`f5d4b7a2`。main への rebase 後は `2a2916de`。要件と Story の差分は同じ）の内容で読んだ。
 
 機械の入力:
-- `req_impact.py --base dba20fc8`: 改訂 2 件（FR-11・FR-73）・扉 1 項（#21）。名指しは `docs/production-prep.md:24`・`docs/stories/INDEX.md:34`・`:57`・`docs/stories/stories.json:262`・`:799` と、走っている st11 自身の文書
+- `req_impact.py --base dba20fc8（rebase 後は 2e45447f）`: 改訂 2 件（FR-11・FR-73）・扉 1 項（#21）。名指しは `docs/production-prep.md:24`・`docs/stories/INDEX.md:34`・`:57`・`docs/stories/stories.json:262`・`:799` と、走っている st11 自身の文書
   （`deep-questions.json` `design.md` `go.json` `premises.md` `proposal.md` `review/deep.md` `review/spec.md` `specs/device-collection/spec.md` `tasks.md`）
 - `check_chain.py`: 未回収 0・warn 0。FAIL 1 件は「整合の確認の後に要件が変わった: FR-11, FR-73, 扉#21」（この監査が受けるもの）
 - `check_scenarios.py`: 担保なし 35 件はすべて走っている st11 の delta spec の Scenario（実装前）。正典（`openspec/specs/`）の Scenario に担保の無いものは 0
