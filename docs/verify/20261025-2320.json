@@ -1,0 +1,185 @@
+{
+  "title": "確認バッチ 20261025-2320",
+  "subtitle": "ST48 古い版が新しい DB を書き換えない / CH06 検証のたびにテスト用 DB を作り直す / ST29 衛星を登録すると、衛星ごとの資格情報が発行される（まだ何も読み書きできない） / CH04 試験用 DB に溜まるデータで試験が遅くなるのを止める",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261025-2320/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261025-2320 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261025-2320/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261025-2320/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261025-2320`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261025-2320 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261025-2320/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261025-232123-c2b7539（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST48-F",
+      "topic": "ST48 違和感",
+      "kind": "check",
+      "question": "ST48「古い版が新しい DB を書き換えない」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261025-2320/ST48-spec.html"
+    },
+    {
+      "id": "CH06-PD12",
+      "topic": "CH06 仮D12",
+      "kind": "check",
+      "question": "CH06 の仮の決定 D12: 追跡する文書に docker の subnet を点区切りで書くか →「(第 2 組, 第 3 組)/接頭長 の形で書き、check-private の例外を作らない」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 値の意味は同じで、私設 IP の検査の網を緩めない（失わない側の費用: 文書の書き方が台本と同じ printf の形になるだけ）\n出所: review/code.md#R19",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH06-F",
+      "topic": "CH06 違和感",
+      "kind": "check",
+      "question": "CH06「検証のたびにテスト用 DB を作り直す」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261025-2320/CH06-spec.html"
+    },
+    {
+      "id": "ST29-PD1",
+      "topic": "ST29 仮D1",
+      "kind": "check",
+      "question": "ST29 の仮の決定 D1: 断った衛星の求めの読み出しの記録と資格情報の行に、どの 1 本の資格情報かを残すか（取り消した 1 本の行を残すか） →「1 本ずつに識別子を持たせ、読み出しの記録に衛星と 1 本の識別子を残し、取り消した 1 本の行は取り消しの時刻を付けて残す」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 細かい粒度で残すので、後から衛星の粒度に粗くできる（逆はできない）（失わない側の費用: 資格情報の表の列 1 つと読み出しの記録の欄 2 つ。行は消さないだけ）\n出所: review/deep.md#R1",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST29-PD2",
+      "topic": "ST29 仮D2",
+      "kind": "check",
+      "question": "ST29 の仮の決定 D2: 本体の前置き（c03- など）で始まる衛星の識別子と名前を受けるか →「本体の前置きの形（英小文字 1 字 + 数字 2 字 + -）で始まる識別子と名前は登録の時に断る」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: まだ衛星は名前を書いていない。断る側は後から緩められ、緩めた名前の付け替えは起きない（失わない側の費用: 登録の検査 1 つ）\n乗っている決定: Q1\n出所: review/deep.md#R2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST29-PD3",
+      "topic": "ST29 仮D3",
+      "kind": "check",
+      "question": "ST29 の仮の決定 D3: モノの型（FR-86）の名前に Q1 の名前の形を当てるか →「当てない。モノの型の名前の形は ST40 の深掘りで最初のモノが書かれる前に問う（ST29 はモノの台帳を作らない）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: ST29 ではモノは 1 行も書かれないので、形を決めずにおいても書き直す行が無い（失わない側の費用: 無し（ST40 への申し送り 1 件））\n出所: review/deep.md#R3",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST29-PD4",
+      "topic": "ST29 仮D4",
+      "kind": "check",
+      "question": "ST29 の仮の決定 D4: 読み出しの記録（正典 data-sensitivity。識別子の文字列を持たせない）に衛星の識別子を残すか →「残す。資格情報の種類に「衛星」を足し、衛星と 1 本の識別子の欄を足す（Requirement を MODIFIED）。C6 が禁じたのは記録と利用者の識別子と読む」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n失わない理由: 残す側。残さなかった期間の断りは後から作れないが、残した欄は後から読まないことにできる（失わない側の費用: 欄 2 つと CHECK の値 1 つ）\n乗っている決定: D1\n出所: review/deep.md#R4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST29-F",
+      "topic": "ST29 違和感",
+      "kind": "check",
+      "question": "ST29「衛星を登録すると、衛星ごとの資格情報が発行される（まだ何も読み書きできない）」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "画面: S-7 設定: `/#/settings`（S-1 の見出しの行の「設定」）\n合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ ST29-satellites（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261025-232123-c2b7539\\scenarios\\ST29-satellites\\video.webm",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261025-2320/ST29-spec.html"
+    },
+    {
+      "id": "CH04-F",
+      "topic": "CH04 違和感",
+      "kind": "check",
+      "question": "CH04「試験用 DB に溜まるデータで試験が遅くなるのを止める」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261025-2320/CH04-spec.html"
+    }
+  ]
+}
