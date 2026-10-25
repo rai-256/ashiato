@@ -70,56 +70,56 @@ $ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
 - 根拠: `tasks.md:78-80`（本文は「rc=1 で殺した回の database の名前が出ることを見てから、元に戻す」、検証は `git diff --quiet HEAD -- crates/server/src/testdb.rs` だけ —— 4.3 を走らせずにチェックしても rc=0）/ `docs/changes/CH05.md:90`（「CH04 の片付けを外すと同じ台本が rc=1 で落ちる（tasks 4.3）」）/ 結果は「計測の記録」に書くだけで、それを見る検証も無い
 - kind: technical
 - 提案: 1 つの `bash -c` にまとめる: `trap 'git checkout -- crates/server/src/testdb.rs' EXIT` を張り、`sweep_previous_runs(&mut admin).await;` の行を sed で外し、`tools/check-test-db-killed.sh` を走らせて `rc=1` かつ出力に `ashiato_run_` が出ることを判定する（commit しない、はそのまま）。復元の `git diff --quiet` は後ろに残す
-- 処置: fixed 4.3 （`trap` で戻す 1 つの `bash -c` で、片付けの行を外して rc=1 と `ashiato_run_` を判定する）
+- 処置: fixed 6.2 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 4.3）（`trap` で戻す 1 つの `bash -c` で、片付けの行を外して rc=1 と `ashiato_run_` を判定する）
 
 ## R5. tasks 5.3 の検証はいまでも rc=0（空振り）。測る場所（CI）も下流が待てる場所か書かれていない。design の計測の参照先の Task 番号が古い
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md
 - 根拠: `tasks.md:92` の `grep -A3 "^## 計測の記録" … | grep -qv "下流が tasks"` をいまの design で走らせて rc=0（`grep -v -q` は見出しの行そのものが当たらないので常に通る）/ 測るのは CI の rust job の伸び（`tasks.md:91`）で、PR が push された後でしか取れない（下流がいつ push できるかは書かれていない）/ `design.md:145`（「下流が tasks 3.2・6.3 で書く」）・`design.md:92`（「tasks 3.2」）・`design.md:136`（「tasks 6.3 で CI の時間を測って書く」）—— tasks に 3.2 は無く、計測を書くのは 2.2・4.2・4.3・5.3
 - kind: technical
 - 提案: 計測の記録の各項目に見出しや鍵（例 `- 作り直しの判定:` `- 次の回の秒数:` `- 片付けを外した回:` `- CI の伸び:`）を design に先に置き、検証は「各鍵の行が空でない」を `grep -E '^- CI の伸び: [0-9]'` のように見る。CI の伸びが PR の後でしか取れないなら、手元で 3 行の所要時間を測る形にするか、「人間の確認待ち」でなく merge gate の後の記録だと書く。design の 3.2・6.3 を 2.2・4.2・4.3・5.3 に直す
-- 処置: fixed 5.3 （design の計測の記録に鍵を先に置き、2.2・4.2・5.3 は鍵の行に数字があることを見る。5.3 は CI でなく手元で 3 行の時間を測る）
+- 処置: fixed 7.3 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 5.3）（design の計測の記録に鍵を先に置き、2.2・4.2・5.3 は鍵の行に数字があることを見る。5.3 は CI でなく手元で 3 行の時間を測る）
 
 ## R6. 「検証の準備は、作り直しの判定を呼んでから終わる」の THEN が「作り直したか見送ったか」の両方を通すので、作り直しが起きない検証の準備でも緑になる。CH05.md と tasks 6.3 は「作り直した ashiato の上で」と言っている
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md
 - 根拠: `spec.md:41-44`（閾値 0・Story の作業ツリーで走らせ、THEN は「作り直したか見送ったかの行が出る」）/ `tasks.md:53`（`--verify-env-check` も同じ either/or）/ `docs/changes/CH05.md:95`（「server の試験の全体が作り直した `ashiato` の上で通り（tasks 6.3）」）・`tasks.md:101-102`（6.3 は `--verify-env-check` の後に cargo test）—— 見送ったときも rc=0 なので、6.3 は作り直していない `ashiato` の上でも通る / 閾値 0 で接続の無い作業ツリーなら、正しい結果は「作り直した」だけ
 - kind: technical
 - 提案: Scenario を「接続も回も無い状態で、閾値 0 で走らせると、`ashiato` を作り直したことが標準エラーに出て、走らせる前に置いた印（表か行）が無い」にする。`--verify-env-check` は見送りなら理由を出して rc≠0（rc=2 の「種類が違う」とは分ける）
-- 処置: fixed 2.2 （spec の Scenario を「検証の準備は、膨れた ashiato を作り直してから終わる」にし、印の表が消えることを見る。見送りは rc=1。D5）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 2.2）は design に無い。Non-Goals に書いた。元の処置: fixed 2.2 （spec の Scenario を「検証の準備は、膨れた ashiato を作り直してから終わる」にし、印の表が消えることを見る。見送りは rc=1。D5））
 
 ## R7. design D2 の「1 つの session」を psql でどう組むかが書かれていない。分けて打つと手順 3 の鍵が手順 6 の前に外れる
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
 - 根拠: `design.md:44`（「1 つの session の中で次を順に行う」）・`:48-54`（手順 3〜8 は前の結果で分かれる: 取れなければ見送り / 行があれば見送り / 55006 なら見送り）/ 助言ロックは session に付く（psql を 2 回起こすと 1 回目の終わりで外れる）/ `psql -c` に複数の文を渡すと 1 つの暗黙の取引になり、`DROP DATABASE` は取引の中で打てない / 55006 を見送りに変えるには、その文だけ `ON_ERROR_STOP` を外して `:LAST_ERROR_SQLSTATE` を `\if` で分ける形が要る（コンテナの psql は 17.11 で使える。`psql --version` で確かめた）/ CH04 の鍵の形そのもの（`pg_locks` に `classid = 4820253 AND objsubid = 2`）は ch04 の DB の `pg_locks` で `advisory|5|4820253|1338153147|2|t` と実在を確かめた（成り立つ）
 - kind: technical
 - 提案: D2 に組み方を 1 行書く: 標準入力から 1 つの psql に台本を流し（各文が自分の取引）、結果は `\gset` で受け、分岐は `\if`、DROP の前後だけ `\set ON_ERROR_STOP 0` / `1` にして `:LAST_ERROR_SQLSTATE` で 55006 を見る。判定の出力（見送りの理由）は psql の `\echo` か `\warn` で標準エラーへ
-- 処置: fixed D2 （psql の組み方: 標準入力・`\gset`・`\if`・`ON_ERROR_STOP` の切り替えと `:LAST_ERROR_SQLSTATE`・`\warn`・`application_name`）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D2）は design に無い。Non-Goals に書いた。元の処置: fixed D2 （psql の組み方: 標準入力・`\gset`・`\if`・`ON_ERROR_STOP` の切り替えと `:LAST_ERROR_SQLSTATE`・`\warn`・`application_name`））
 
 ## R8. 「回を作っている途中」の鍵（4820252）は database ごとに分かれる。self-test の背景の psql がどの database で鍵を取るかが決まっておらず、本物の CH04 とぶつからない形でも self-test は通りうる。本物の回の鍵で見送ることを確かめる検査も無い
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
 - 根拠: CH04 は鍵を `postgres` database に繋いだ接続で取る（`ashiato2-ch04/crates/server/src/testdb.rs:274,281`（`postgres_url` で `pg_advisory_lock(4820252)`）・`:142-157`（回の鍵も `postgres`））。ch04 の DB の `pg_locks` の回の鍵は `database = 5`（`postgres`）/ 助言ロックは database ごとの名前空間で、`pg_try_advisory_lock(4820252)` は同じ database で取った鍵としかぶつからない（`pg_locks` を読む手順 4 は全 database を見るので影響しない）/ `design.md:44` は判定を `-d postgres` で打つと書くが、`design.md:89`（D5 の背景の psql）は繋ぐ先を書いていない —— 背景も判定も使い捨ての database に繋ぐ実装だと、self-test は通り、本物の CH04 の作成中は見送らない / spec の Requirement 2 の 3 つの Scenario（`spec.md:54-68`）はどれも self-test の偽の鍵でしか確かめない
 - kind: technical
 - 提案: D2・D5 に「判定の session も、self-test の背景の psql も `postgres` database に繋ぐ（CH04 と同じ。助言ロックは database ごと）」と書く。あわせて 4.2 に 1 つ足す: `committed` の探りが眠っている間（本物の回の鍵を持っている）に、閾値 0・種類 `st`・使い捨ての対象で `tools/test-db-rebuild.sh` を走らせ、「走っている回」の見送りが出ることを見る（新しいファイルは要らない）
-- 処置: fixed D5 仮 （判定も self-test の背景も `postgres` database。D2・D6・spec にも書き、`committed` の眠りの間に本物の回の鍵で見送ることを確かめる）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D5）は design に無い。Non-Goals に書いた。元の処置: fixed D5 仮 （判定も self-test の背景も `postgres` database。D2・D6・spec にも書き、`committed` の眠りの間に本物の回の鍵で見送ることを確かめる））
 
 ## R9. design D2 の手順 5（接続の数）は、autovacuum などクライアントでない backend も数えるので、膨れた直後の `ashiato` で見送りが続きうる
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
 - 根拠: `design.md:51`（`pg_stat_activity` に `datname = '<対象>'` の接続が 1 本でもあれば見送る）/ PostgreSQL の文書の振る舞いとして、`pg_stat_activity` は autovacuum worker の行にも `datname` を持つ（実物では観測していない。ch04 の DB で読めたのは `backend_type` の列があり `client backend` の行が見えることまで）。行を多く入れた直後の database ほど autovacuum が走る / `DROP DATABASE` 自体は autovacuum を止めて進むので、手順 6 に任せれば足りる / 同じ族: `tests/server_startup.rs` は回の鍵を持たずに `ashiato` に繋ぎ直しを繰り返す（`ashiato2-ch04/crates/server/tests/server_startup.rs:47,55,168`）ので、接続が 0 本の間に作り直されると後半が移行の無い `ashiato` を見る（検証は直列なので起きにくいが、Risks に無い）
 - kind: technical
 - 提案: 手順 5 を `backend_type = 'client backend'` に絞る（自分の pid も除く）。Risks に「回の鍵を持たない `ashiato` の利用者（`tests/server_startup.rs`）は、同じ作業ツリーで検証の準備と並べると、接続の切れ目で作り直されうる」を 1 行足す
-- 処置: fixed D2 仮 （`backend_type = 'client backend'` と自分の pid を除く。Risks に 1 行・spec の本文を「クライアントの接続」に）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D2）は design に無い。Non-Goals に書いた。元の処置: fixed D2 仮 （`backend_type = 'client backend'` と自分の pid を除く。Risks に 1 行・spec の本文を「クライアントの接続」に））
 
 ## R10. design D6 の「殺す前に S0 を読む」は、探りが database を作った後（殺す直前）に読んでも字面は満たし、そのとき差が空になって必ず空振りで落ちる。探りの起こし方の `--exact` の名前も省略されている
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
 - 根拠: `design.md:106`（「殺す前に、一覧 S0 …を読み、殺した後に一覧 S1 を読む。殺した回の database = S1 にあって S0 に無いもの」）—— 探りは `testdb::pool()` の初回で `<id>_tpl`・`<id>`、`isolated()` で `<id>_x_…` を作る（`ashiato2-ch04/crates/server/src/testdb.rs:271-311,422-441`）ので、印を待った後に S0 を読むと 3 つとも S0 に入る / `ashiato` の行数と大きさの「殺す前」も同じ曖昧さ / `design.md:104`（`--ignored --exact … --nocapture`）—— 試験は `lib.rs` のモジュールの下に入るので、`--exact` に渡す名前は `killed_probe_tests::ch05_killed_probe`（`ch05_killed_probe` だけだと 0 本で、印を待つ 120 秒の上限で落ちる）
 - kind: technical
 - 提案: D6 を「探りを起こす前に S0・`ashiato` の行数と大きさを読む」に直し、`--exact killed_probe_tests::ch05_killed_probe` と書く。待ちの上限で落ちたときは「探りが走らなかった（0 本・印が無い）」を出す
-- 処置: fixed D6 仮 （探りを起こす前に S0 を読む・`--exact killed_probe_tests::ch05_killed_probe`・印が来ないときの文言）
+- 処置: fixed D2 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D6）（探りを起こす前に S0 を読む・`--exact killed_probe_tests::ch05_killed_probe`・印が来ないときの文言）
 
 ## R11. 本人の決定に入る数値が、Scenario に無い（実装が変えても spec が落ちない）
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md
 - 根拠: 閾値の既定 64 MiB は Requirement の本文だけ（`spec.md:5`）で、Scenario は「閾値を超える」「閾値以下」としか言わない（`spec.md:14-22`）。deep の推奨は「64 MB」（`deep-questions.json` の Q2 の推奨の選択肢の detail。`deep.md:13` の答えの行は数値を持たない）、design・spec は「64 MiB」（`design.md:36`。67,108,864 バイト）で単位もずれる / 体積の 20,001 件は Requirement の本文だけ（`spec.md:72`）/ 印を待つ上限 120 秒は design だけ（`design.md:105`）/ 「待たずに終わる」の 10 秒は tasks だけ（`tasks.md:44`）
 - kind: technical
 - 提案: 「閾値の既定は 64 MiB で、64 MiB ちょうどは作り直さず、それを超えれば作り直す」の Scenario を 1 本足す（`TEST_DB_REBUILD_LIMIT_MB` を渡さずに、境界の大きさを偽の測りで渡す形でよい）。「回を作っている途中なら」の THEN に「10 秒以内に」を入れる。deep の Q2 の推奨の「64 MB」は record で「64 MiB」に揃える
-- 処置: fixed D1 仮 （spec に「閾値の既定は 64 MiB で、ちょうどは作り直さず、超えれば作り直す」を足し `--decide` で確かめる。「回を作っている途中なら」に 10 秒以内。64 MB を 64 MiB として読んだ。record で答えの文に揃える）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D1）は design に無い。Non-Goals に書いた。元の処置: fixed D1 仮 （spec に「閾値の既定は 64 MiB で、ちょうどは作り直さず、超えれば作り直す」を足し `--decide` で確かめる。「回を作っている途中なら」に 10 秒以内。64 MB を 64 MiB として読んだ。record で答えの文に揃える））
 
 ## R12. Requirement の本文だけが言っていて Scenario が言っていない振る舞いがある
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md
@@ -130,7 +130,7 @@ $ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
   - `spec.md:74`「`ashiato` の大きさが殺す前から 1 MiB を超えて増えていない」の外れ —— self-test の Scenario は行数の増え（`spec.md:95-97`）だけで、大きさだけが増えたときに落ちることを確かめる Scenario が無い
 - kind: technical
 - 提案: 4 本足す: 「DROP が 55006 で断られたら見送る」（判定の DROP の前で止まる差し込み口を self-test に持たせるか、`TEST_DB_REBUILD_*` で DROP の文を偽に替える）/「作り直しの間は、別の接続の `pg_try_advisory_lock(4820252)` が取れない」/「作り直しの後も、同じ DB の別の database の行は残る」/「`--self-test` の偽の統計で、行数が同じで大きさだけ 1 MiB を超えて増えれば rc=1」
-- 処置: fixed D5 仮 （spec に「判定の後に繋いだ接続があれば…」「作り直しの間は、別の接続が回の作成の鍵を取れない」「大きさだけが 1 MiB を超えて増えていれば落ちる」を足し、別の database の行が残ることを 1 本目の AND にした。`TEST_DB_REBUILD_PAUSE_S`）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D5）は design に無い。Non-Goals に書いた。元の処置: fixed D5 仮 （spec に「判定の後に繋いだ接続があれば…」「作り直しの間は、別の接続が回の作成の鍵を取れない」「大きさだけが 1 MiB を超えて増えていれば落ちる」を足し、別の database の行が残ることを 1 本目の AND にした。`TEST_DB_REBUILD_PAUSE_S`））
 
 ## R13. design にしかない、外から見える振る舞いがある（archive で正典に入らない）
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
@@ -141,35 +141,35 @@ $ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
   - `design.md:109-110`（D6）: 判定の順（最初に外れたもので落ちる）と、落ちた時点の名前（`insert` / `committed`）を出すこと
 - kind: technical
 - 提案: 少なくとも D4 の「作り直しの判定が失敗すれば、検証の準備は理由を標準エラーに出して rc≠0 で終わる」を Requirement 1 の本文と Scenario（self-test で測りを失敗させる）に移す。D6 の 3 つは Requirement 3 の本文へ移し、120 秒の待ちと時点の名前は self-test の Scenario にする
-- 処置: fixed D6 仮 （spec の Requirement 1 に判定の失敗 → 検証の準備も rc≠0 と Scenario、Requirement 3 に判定の順・空振り・120 秒の待ち・時点の名前と Scenario「探りの印が来なければ…」）
+- 処置: fixed D2 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D6）（spec の Requirement 1 に判定の失敗 → 検証の準備も rc≠0 と Scenario、Requirement 3 に判定の順・空振り・120 秒の待ち・時点の名前と Scenario「探りの印が来なければ…」）
 
 ## R14. tasks 6.2 の検証は、CH04 が先に archive されると deps.json が無く落ち、CH04 の SHA からの差分には後で取り込んだ main の変更も入る。「壊してはいけないもの」の一部を見ていない
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md
 - 根拠: `tasks.md:100`（`json.load(open("…/deps.json"))["CH04"]["sha"]`）/ `scripts/story_deps.py:421-427`（`included` は依存が archive 済みなら deps.json の記録が無くても OK を返す）→ 1.1 は通り 6.2 だけが FileNotFoundError / KeyError / `git diff --quiet "$sha" --` は作業ツリーと CH04 の SHA を比べるので、CH05 が main を取り込んだ後は、その間に他の Story が `tools/smoke.sh`・`migrations/` などに入れた差分で落ちる / `docs/changes/CH05.md:74`（「試験の期待値（assert）・`// Scenario:` の印・試験の名前と本数」）を見る検証がどこにも無い（CH05 が触ってよい試験のファイルは `killed_probe_tests.rs` と `lib.rs` の 1 行だけ）
 - kind: technical
 - 提案: 基準を「CH04 を含む `origin/main` との merge-base（CH04 が未 merge なら deps.json の SHA）」にする小さな式にし、比べ方を `git diff --name-only <基準>...HEAD` の許可リスト（`tools/test-db-rebuild.sh` `tools/check-test-db-killed.sh` `tools/verify-env.sh` `tools/ports.sh` `crates/server/src/killed_probe_tests.rs` `crates/server/src/lib.rs` `.github/workflows/ci.yml` `docs/` `openspec/changes/ch05-test-db-bloat/`）に替える。`lib.rs` の差分が 1 行の追加だけであることも見る
-- 処置: fixed 6.2 （CH05 の commit を題の `(CH05)` で拾い、触ったファイルの許可リストと `lib.rs` が追加だけかを見る。commit の題の規則を Global Constraints に）
+- 処置: fixed 8.2 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 6.2）（CH05 の commit を題の `(CH05)` で拾い、触ったファイルの許可リストと `lib.rs` が追加だけかを見る。commit の題の規則を Global Constraints に）
 
 ## R15. 作業ツリーの種類の規則が `tools/ports.sh` の中で 2 つになる（port の分岐と新しい関数）。ports.sh を変えるのに、既存の `tools/check-ports.sh --self-test` を tasks が走らせない
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md
 - 根拠: `design.md:66-68`（D3: 関数 `ashiato_worktree_kind <根の名前> <main の名前>` を足し、port の分岐はいまのまま）/ いまの port の分岐は main の checkout を名前でなく「git dir と共通 dir が同じ」で見分け、`-st` は `^<main>-st0*([0-9]+)$`（`tools/ports.sh:48-57`）—— 名前だけの関数と同じ答えになる保証は、どの検証も持たない / `spec.md:11`（「規則は、port の規則と同じ 1 か所（`tools/ports.sh`）に置く」）は同じファイルであることしか言っていない / `tasks.md:37-38` の 1.2 の検証は関数の 2 例と `PORT:=` の行の差分だけ。CI は `tools/check-ports.sh --self-test` を走らせる（`.github/workflows/ci.yml` の rust job）が、tasks は走らせない
 - kind: technical
 - 提案: port の分岐を新しい関数の答え（`main`・`st`・`verify`・それ以外）で分ける形にして規則を 1 つにする（port の値は変えない）か、そうしないなら `tools/check-ports.sh --self-test` の一時の repo（本物の worktree）で `ASHIATO_WORKTREE_KIND` も確かめる。どちらでも 1.2 の検証に `tools/check-ports.sh --self-test` rc=0 を足す
-- 処置: fixed D3 仮（port の分岐を種類で分ける形にして規則を 1 つに。port の値は変えない）・1.2（`tools/check-ports.sh --self-test` rc=0）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D3）は design に無い。Non-Goals に書いた。元の処置: fixed D3 仮（port の分岐を種類で分ける形にして規則を 1 つに。port の値は変えない）・1.2（`tools/check-ports.sh --self-test` rc=0））
 
 ## R16. CH05.md・deep の推奨は「`ashiato` の行数と大きさが殺す前と変わらない（同じ）」、spec は大きさに 1 MiB の許しを持つ
 - 成果物: docs/changes/CH05.md
 - 根拠: `docs/changes/CH05.md:40`（「`ashiato` の行数と大きさが殺す前と変わらない」）・`:89`（同じ）/ `deep-questions.json` の Q6 の推奨の detail（「`ashiato` の行数と大きさが殺す前と同じ」）/ `spec.md:74,83,88`（「1 MiB を超えて増えていない」）・`design.md:113`（許しの理由）
 - kind: conflict
 - 提案: CH05.md の完了の条件と完了の判定を「行数は同じ・大きさは 1 MiB を超えて増えない」に揃える。本人が推奨のまま答えたときに、答えた文と spec が違う形で残らないよう、record で Q6 の答えにも許しを書き添える
-- 処置: fixed D6 仮（docs/changes/CH05.md の完了の条件と完了の判定を「行数は同じ・大きさは 1 MiB を超えて増えない」に揃え、許しの理由を書いた。record で Q6 の答えにも添える）
+- 処置: fixed D2 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D6）（docs/changes/CH05.md の完了の条件と完了の判定を「行数は同じ・大きさは 1 MiB を超えて増えない」に揃え、許しの理由を書いた。record で Q6 の答えにも添える）
 
 ## R17. tasks 4.1 の印の数の下限（7）が、4.1 に割り当てた Scenario（5 本）より多い。2 本は 4.2 の分
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md
 - 根拠: `tasks.md:70-73`（4.1 が名指すのは 5 本、検証は `grep -c "Scenario: " … -ge 7`）/ `tasks.md:74-75`（時点の 2 本の印は 4.2）/ `tasks.md:86`（CI の 1 本は 5.1）—— 書いた順に進めると 4.1 の検証が 4.2 の分を先取りしないと通らない。`grep -c` は行を数えるので、同じ印を 2 回書いても数が合う
 - kind: technical
 - 提案: 4.1 の下限を 5 にし、4.2 で 7、5.1 で 8 に上げる。数ではなく名指した Scenario の名前ごとに `grep -qF` する形にすれば、重複でも満たせない
-- 処置: fixed 4.1 （数でなく、名指した Scenario の名前ごとに `grep -qF`。4.2・5.1 も同じ）
+- 処置: fixed 5.1 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 4.1）（数でなく、名指した Scenario の名前ごとに `grep -qF`。4.2・5.1 も同じ）
 
 ## R18. proposal の Impact の重なりが、走っているブランチと合わない
 - 成果物: openspec/changes/ch05-test-db-bloat/proposal.md
@@ -192,7 +192,7 @@ $ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
 観点 5 の check_chain の観点 8: 該当なし（change は要件から来ないので観点 8 は無い。`check_chain.py` は rc=0）。依頼（逐語）の範囲: 依頼 1（殺した後の次の回を機械で確かめる）は Requirement 3、依頼 2（膨れたら機械が作り直す・使っている途中は作り直さない）は Requirement 1・2 が持ち、手順を覆したこと（`down -v` → database だけ）は `docs/changes/CH05.md:43` に書いてある。範囲を越える Scenario は無い。
 
 観点 6: 該当なし（`spec --draft` の段で、`--answers` ではない）。
-- 処置: fixed D5 仮（self-test の初めに、専用の助言ロック 4820254 を取れたときだけ `ch05_rebuild_probe_` の残りを消す）
+- 処置: fixed design.md （Q8 の後の spec（2026-10-25）で作り直し・見送りを外したので、この指摘の対象（旧 D5）は design に無い。Non-Goals に書いた。元の処置: fixed D5 仮（self-test の初めに、専用の助言ロック 4820254 を取れたときだけ `ch05_rebuild_probe_` の残りを消す））
 
 
 ---
@@ -263,7 +263,7 @@ main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.c
   実物の DB の volume は名前の無い volume（`docker inspect ashiato2-st13-db-1` の Mounts、`postgres:17-alpine` の `Config.Volumes` が `{"/var/lib/postgresql/data":{}}`）。本人の答え「volume は消さない」が守るのはこの名前の無い volume
 - kind: technical
 - 提案: 本物の 1 件は `postgres:17-alpine` の `VOLUME` が作る名前の無い volume のまま起こし、片付けの前に `docker inspect` で volume の id を控え、片付けの後に `docker volume inspect <id>` が rc=0 であることを見る形にする（D9 を直す）。後始末はその id を消す
-- 処置: fixed D9 仮（本物の 1 件は image の `VOLUME` で付く名前の無い volume を使い、その id を控えて残ることを見る。後始末は控えた id だけ）
+- 処置: fixed D4 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（本物の 1 件は image の `VOLUME` で付く名前の無い volume を使い、その id を控えて残ることを見る。後始末は控えた id だけ）
 
 ## R24. Scenario 1 の「volume の数は片付けの前と同じ」は、共有の docker では他の作業ツリーが volume を作る・消すので揺れる。しかも 1 つの THEN と 2 つの AND に、外したこと・volume が残ること・出力の 3 つを束ねている
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:160-164
@@ -271,7 +271,7 @@ main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.c
   本人の決定の中身（volume を消さない）が AND の 2 つ目にあり、外したことだけを見る self-test でも Scenario の印は付く
 - kind: technical
 - 提案: 「volume の数」を「控えた id の volume が残っている」（R23）に替え、volume が残ることを別の Scenario に分ける（題も「外したコンテナの volume は残る」にする）。出力の行は Requirement の本文の「1 つごとに名前と path を出す」の Scenario として分けてよい
-- 処置: fixed specs/test-database/spec.md （数ではなく控えた id の volume が残ることを見る。Scenario を「外される」と「名前の無い volume は残る」に分けた）
+- 処置: fixed specs/verify-environment/spec.md （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 specs/test-database/spec.md）（数ではなく控えた id の volume が残ることを見る。Scenario を「外される」と「名前の無い volume は残る」に分けた）
 
 ## R25. D9 の self-test の本物の 1 件は、本物の main の名前のまま片付けを走らせるので、self-test を走らせるたびに機械の本物の残り（いまは 15 個）も外す。tasks 0.1 の self-test が 0.2 の「外すものの一覧を写してから片付ける」より先に本物を片付けてしまい、一覧が空になる。他の作業ツリーの片付けが self-test のコンテナを先に外しても緑になる
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md:165-166・tasks.md:38-50
@@ -281,7 +281,7 @@ main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.c
 - kind: technical
 - 提案: 本物の 1 件は `TEST_DOCKER_TIDY_MAIN` を乱数の main（例 `<親のフォルダ>/tidyst-<乱数>`）にし、`TEST_DOCKER_TIDY_WORKTREES` を空のファイルにして、self-test が作った project（`tidyst-<乱数>-st97`）だけが条件に当たる形にする。
   これで本物の残りに触らず、他の作業ツリーの片付け（本物の main の名前で見る）も self-test のコンテナに当たらない
-- 処置: fixed D9 仮（本物の 1 件は `TEST_DOCKER_TIDY_MAIN` で main を `$TMPDIR/ch05tidy<乱数>` に差し替える。本物の `ashiato2-*` の残りに当たらず、他の作業ツリーの片付けもこの 1 件を外さない）
+- 処置: fixed D4 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（本物の 1 件は `TEST_DOCKER_TIDY_MAIN` で main を `$TMPDIR/ch05tidy<乱数>` に差し替える。本物の `ashiato2-*` の残りに当たらず、他の作業ツリーの片付けもこの 1 件を外さない）
 
 ## R26. `--dry-run` は「外すものを同じ形で出す」と言うが、D9 はネットワークを「コンテナを外した後に」読むので、dry-run はコンテナを外す結果で空くネットワーク（いまの ch02・st13・st33 の 3 本）を挙げない。tasks 0.2 が写す「片付けたもの」がそのぶん欠ける
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md:158-159・specs/test-database/spec.md:156,182-185・tasks.md:47-50
@@ -291,14 +291,14 @@ main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.c
 - kind: technical
 - 提案: D9 に「dry-run は、外すと判定したコンテナの印の project を『コンテナが無い』とみなしてネットワークを判定する」を書き、Scenario 6 の WHEN を「消えた作業ツリーの動いているコンテナと、それが繋がっているネットワーク」にして THEN に両方の名前を求める。
   tasks 0.2 の空の確かめは `tools/verify-env.sh` と同じ `bash -c` に束ねるか、落ちたら片付けをもう一度走らせて見る形にする
-- 処置: fixed D9 仮（外すコンテナを決めた後、それを除いて空くネットワークも同じ回・`--dry-run` で挙げる。spec の本文と `--dry-run` の Scenario にも書いた。tasks 0.2 の空の確かめは片付けを走らせた直後に同じ `bash -c` で見る）
+- 処置: fixed D4 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（外すコンテナを決めた後、それを除いて空くネットワークも同じ回・`--dry-run` で挙げる。spec の本文と `--dry-run` の Scenario にも書いた。tasks 0.2 の空の確かめは片付けを走らせた直後に同じ `bash -c` で見る）
 
 ## R27. Scenario 8 の禁止の字面（「`-v` を含む `rm`」）は `docker rm --volumes` と `docker rm -fv` を拾わず、許す側（「一覧と印の読み出し」）はどの subcommand かが決まっていない
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:192-194
 - 根拠: spec.md:194 / `docker rm --help`（`-v, --volumes`。短い flag は `-fv` と束ねられる）/ design.md:156 は `docker ps -a … --format`、design.md:158 は `docker network ls`・`docker ps -aq --filter network=`、spec が名指さない `inspect` を使うかは実装次第
 - kind: technical
 - 提案: THEN を「書き留めた命令の subcommand は `ps`・`network ls`・`inspect`・`rm`・`network rm` のどれかで、`rm` の引数に `-v`・`--volumes`、または `v` を含む短い flag の束が無く、`volume`・`system`・`compose down` が無い」のように、許すものを列挙して禁止を引数の形で書く
-- 処置: fixed specs/test-database/spec.md （許す subcommand を `ps`・`inspect`・`network ls`・`network inspect`・`rm`・`network rm` に、`rm` の引数を `-f` と id だけに決めた）
+- 処置: fixed specs/verify-environment/spec.md （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 specs/test-database/spec.md）（許す subcommand を `ps`・`inspect`・`network ls`・`network inspect`・`rm`・`network rm` に、`rm` の引数を `-f` と id だけに決めた）
 
 ## R28. Requirement の本文・CH05.md・tasks が言っていて、Scenario が言っていないものがある
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:143-157
@@ -309,14 +309,14 @@ main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.c
   - spec.md:153-155 のネットワークの条件のうち「繋がっているコンテナがある」「印の無いネットワーク」「別の repo の project」で外さないこと —— Scenario 5 は空の・生きている・`-verify` の 3 つだけ（design.md:164 の偽の docker の場合分けには「コンテナの繋がったネットワーク」がある）
 - kind: technical
 - 提案: CI の Scenario の THEN に `tools/docker-tidy.sh --self-test` を足す（または片付けの Requirement に CI の Scenario を 1 本足す）。「外すものが無ければ標準エラーに何も出さず rc=0」「`rm` が落ちれば rc≠0 で理由が出る」「繋がったコンテナのある・印の無い・別の repo のネットワークは残る」を Scenario にする
-- 処置: fixed specs/test-database/spec.md （「外すものが無ければ何も出さない」「外す命令の失敗で rc≠0」「残すネットワーク（コンテナの繋がった・印の無い・別の repo）」「CI が片付けの self-test を走らせる」を Scenario にした。tasks 0.1・0.2・5.1 が名指す）
+- 処置: fixed specs/verify-environment/spec.md （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 specs/test-database/spec.md）（「外すものが無ければ何も出さない」「外す命令の失敗で rc≠0」「残すネットワーク（コンテナの繋がった・印の無い・別の repo）」「CI が片付けの self-test を走らせる」を Scenario にした。tasks 0.1・0.2・5.1 が名指す）
 
 ## R29. design D9 にしかない、外から見える振る舞い（並んだ片付けで `No such container` / `No such network` を外せたものとして rc=0）。archive で正典に入らない
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md:160
 - 根拠: design.md:160 / spec.md:157 は「外すのに失敗したときは rc≠0」とだけ言い、D9 の例外は spec に無い —— spec だけを読んだ実装は `No such` で rc≠0 を返し、検証の準備が並ぶたびに「片付けに失敗した」の行が出る
 - kind: technical
 - 提案: Requirement の本文に「もう無いもの（`No such`）は外せたものとして扱う」を足し、偽の docker が `rm` に `No such container` を返す Scenario を 1 本足す
-- 処置: fixed specs/test-database/spec.md （Requirement の本文と Scenario「もう無いものを外そうとしたら、外せたものとして扱う」に移した）
+- 処置: fixed specs/verify-environment/spec.md （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 specs/test-database/spec.md）（Requirement の本文と Scenario「もう無いものを外そうとしたら、外せたものとして扱う」に移した）
 
 ## R30. 数と形が Q7 の写しに追いついていない（tasks の範囲の 1 行・5.3・Global Constraints の例外・D9 と tasks 0.1 の口・proposal の文の繋がり）
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:7,26,121・design.md:152,167・proposal.md:61
@@ -356,7 +356,7 @@ R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraint
   design.md:168 の後始末は「控えた id の volume を消す」だけ / tasks.md:25-27 は `docker rm -f`・`docker network rm` を「片付けの本体にだけ書く」とし、例外は self-test の `docker volume rm` 1 つだけ —— 下流は self-test に `trap` でコンテナとネットワークを消す行を書けない
 - kind: technical
 - 提案: D9 と Global Constraints の例外を「`--self-test` が自分で作ったもの（控えたコンテナの id・ネットワークの名前・volume の id）を `trap … EXIT` で消す後始末」に広げる。片付けを確かめる前に消さないよう、trap は片付けの後の確かめを終えてから、残っていれば消す形にする
-- 処置: fixed D9 仮（self-test が作るものに印 `dev.ashiato.ch05-tidy-probe=1` を付け、trap で消し、落ちた残りは次の self-test の初めに印で消す。Global Constraints の例外をこの後始末に広げた）
+- 処置: fixed D4 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（self-test が作るものに印 `dev.ashiato.ch05-tidy-probe=1` を付け、trap で消し、落ちた残りは次の self-test の初めに印で消す。Global Constraints の例外をこの後始末に広げた）
 
 ## R32. 本物の 1 件の置き場 `$TMPDIR/ch05tidy<乱数>`（「作る」）は、`TMPDIR` の無い CI では `/ch05tidy<乱数>` になり、作れない
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md:166-167・tasks.md:30
@@ -364,7 +364,7 @@ R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraint
   既存の台本は一時の置き場を `mktemp -d` で取る（`tools/check-ports.sh:15`・`tools/check-no-time-server.sh:53`・`tools/test-usage-volume.sh:28`。`mktemp` は `TMPDIR` が無ければ `/tmp` を使う）/ CI の rust job で走る（spec の「CI の rust job は、片付けの self-test を走らせる」）
 - kind: technical
 - 提案: 置き場を `d=$(mktemp -d)` にし、main を `$d/ch05tidy<乱数>`・working_dir を `$d/ch05tidy<乱数>-st97` にする（親のフォルダが同じになる）と D9 に書く。tasks.md:30 の「`"$TMPDIR"` の下に作る」も `mktemp -d`（`TMPDIR` が無ければ `/tmp`）と読める形にする
-- 処置: fixed D9 仮（置き場は `mktemp -d` の下。`$TMPDIR` を直に使わない）
+- 処置: fixed D4 仮 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（置き場は `mktemp -d` の下。`$TMPDIR` を直に使わない）
 
 ## R33. Scenario「片付けが docker に問えない・外せなければ、片付けは rc≠0 で落ち、検証の準備は続く」は、WHEN に 2 つの場合、THEN と AND に 3 つの主張を束ねている。印は 1 つなので、どれか 1 つを確かめただけでも担保が付く。置き場も design と tasks で違う
 - 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:201-204・design.md:165・tasks.md:44-46
@@ -372,14 +372,14 @@ R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraint
   design.md:165 は「外す命令の失敗で rc≠0」を `--self-test`（偽の docker）の側に挙げ、tasks.md:46 は同じものを `--verify-env-check` の中で見るとし、印もそちらに置く
 - kind: technical
 - 提案: 「docker に問えなければ片付けは rc≠0 で理由を出す」「外す命令が（もう無い以外の理由で）失敗すれば rc≠0 で理由を出す」「片付けが落ちても検証の準備は 1 行出して DB を起こし rc=0」の 3 本に分け、前の 2 本は `--self-test`（偽の docker）、3 本目は `--verify-env-check` に置く。design と tasks の置き場を揃える
-- 処置: fixed specs/test-database/spec.md （3 本に分けた: docker に問えない（self-test）・外す命令の失敗（self-test）・検証の準備は続く（`--verify-env-check`）。tasks 0.1・0.2 の名指しも分けた）
+- 処置: fixed specs/verify-environment/spec.md （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 specs/test-database/spec.md）（3 本に分けた: docker に問えない（self-test）・外す命令の失敗（self-test）・検証の準備は続く（`--verify-env-check`）。tasks 0.1・0.2 の名指しも分けた）
 
 ## R34. R30 の残り: D9 の最初の箇条はまだ口を 3 つと言い、Risks はまだ「3 行の時間」と言う
 - 成果物: openspec/changes/ch05-test-db-bloat/design.md:152,183
 - 根拠: design.md:152「新しい台本 `tools/docker-tidy.sh`（引数なし = 片付ける / `--dry-run` / `--self-test`）」と design.md:170「口は 4 つ: …`--verify-env-check`」が同じ D9 の中で食い違う / design.md:183「tasks 5.3 で 3 行の時間を手元で測って書く」—— tasks 5.3 と計測の鍵（design.md:201）は「CI の行の時間」の 4 行
 - kind: technical
 - 提案: design.md:152 に `--verify-env-check` を足すか「口は下の 4 つ」に替える。design.md:183 を「4 行の時間（計測の記録の `CI の行の時間`）」にする
-- 処置: fixed D9 （152 行目の口を 4 つに、Risks の「3 行の時間」を「CI の 4 行の時間」に）
+- 処置: fixed D4 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 D9）（152 行目の口を 4 つに、Risks の「3 行の時間」を「CI の 4 行の時間」に）
 
 ## R35. tasks 0.2 は、`tools/verify-env.sh` に片付けの 1 行を足してから外すものの一覧を写す順になっている。足した後は、検証の準備（`scripts/verify-run` が検証のコマンドの前に毎回呼ぶ）が本物を片付けるので、一覧を写す前に消えうる
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:44-50
@@ -387,6 +387,6 @@ R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraint
   1 行を足した後に下流が `tools/verify-env.sh` か `scripts/verify-run` を一度でも走らせれば、本物の残り（いまは 15 個のコンテナと 3 本のネットワーク）は記録の前に外れ、記録の確かめ（`grep -qE "^- 片付けたもの: .*[0-9a-z]"`）は「なし」などの英数字の無い字面だと落ち、何かを書けば中身に依らず通る
 - kind: technical
 - 提案: 一覧を写すのを 0.1 の終わり（`tools/docker-tidy.sh` はあるが `tools/verify-env.sh` はまだ呼ばない時点）に移し、0.2 は 1 行を足して片付け、空になったことを見るだけにする
-- 処置: fixed 0.1 （一覧を写すのを 0.1 の終わりに移し、0.1 の検証に置いた。0.2 は片付けて時間を測るだけ）
+- 処置: fixed 2.1 （Q8 の後の spec（2026-10-25）で番号を振り直した。旧 0.1）（一覧を写すのを 0.1 の終わりに移し、0.1 の検証に置いた。0.2 は片付けて時間を測るだけ）
 
 （R31〜R35 の直しはどれも Q7 の片付けの中身（Requirement 4 の Scenario・D9（仮）・tasks 0.1・0.2・Global Constraints の例外）で、答え以外の変更の判定は変わらない。review/answers.md の spec-digest は直しの後に呼び出し元が取り直した。）
