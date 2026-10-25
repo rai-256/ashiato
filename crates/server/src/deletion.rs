@@ -1042,17 +1042,28 @@ pub(crate) struct LateArrival<'a> {
 /// 後から届いた 1 件の本文を、呼び出し側のトランザクションの中で消す（design D8（仮）。`kind = 'late'`）。
 ///
 /// 操作の行（元の操作へ `parent_id` で結ぶ。元の行は書き換えない）→ 記録ごとの台帳の行 → 本文、の順
-/// （門が commit の時に台帳の行を見る）。前の版は無い（いま入ったばかりの記録）。
+/// （門が commit の時に台帳の行を見る）。
+///
+/// 取り込みで入ったばかりの記録に前の版は無いが、書庫の見回り（`mark_archive_arrivals`）の候補には、以前に
+/// `user:late` が付いて外部の更新で前の版を持つ行も入る。`erase_bodies` は前の版も消すので、通常の消去と同じく
+/// 本文の残る前の版を数えて操作の行の `versions` に入れ、前の版ごとに `scope = 'version'` の台帳の行を積む
+/// （final review R3。範囲の行は滞在だけが持つので、後着の位置・項目には書かない）。
 pub(crate) async fn purge_late_arrival(
     tx: &mut Transaction<'_, Postgres>,
     late: LateArrival<'_>,
 ) -> sqlx::Result<()> {
     let operation_id = uuid::Uuid::new_v4();
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event_version WHERE event_id = $1 AND raw <> ''",
+    )
+    .bind(late.event_id)
+    .fetch_one(&mut **tx)
+    .await?;
     sqlx::query(
         "INSERT INTO core.erasure_operation
            (id, user_id, kind, parent_id, stay_id, start_at, end_at,
             stays, locations, archive_locations, archive_items, versions)
-         VALUES ($1, $2, 'late', $3, $4, $5, $6, 0, $7, $8, $9, 0)",
+         VALUES ($1, $2, 'late', $3, $4, $5, $6, 0, $7, $8, $9, $10)",
     )
     .bind(operation_id)
     .bind(late.user_id)
@@ -1063,6 +1074,7 @@ pub(crate) async fn purge_late_arrival(
     .bind(late.counts.locations as i32)
     .bind(late.counts.archive_locations as i32)
     .bind(late.counts.archive_items as i32)
+    .bind(versions as i32)
     .execute(&mut **tx)
     .await?;
     ledger_erasures(
@@ -1072,6 +1084,17 @@ pub(crate) async fn purge_late_arrival(
         "event",
         &[late.event_id],
         &[late.logical_source],
+    )
+    .await?;
+    // 前の版ごとに 1 行（`event_id` は親。通常の消去の `ledger_erasures(.., "version", ..)` と同じ形）
+    let n = usize::try_from(versions).unwrap_or(0);
+    ledger_erasures(
+        tx,
+        operation_id,
+        late.user_id,
+        "version",
+        &vec![late.event_id; n],
+        &vec![late.logical_source; n],
     )
     .await?;
     erase_bodies(tx, &[late.event_id]).await?;

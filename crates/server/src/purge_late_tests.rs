@@ -366,3 +366,93 @@ async fn purge_late_concurrent_purge_and_ingest_leave_no_body() {
     assert!(sent[0].accepted);
     assert!(emptied(&pool, id).await, "10:30 の位置の本文が残っている");
 }
+
+/// 書庫の見回り（`mark_archive_arrivals`）が本文を消す後着の行に前の版があれば、操作の行の `versions` と
+/// `scope = 'version'` の台帳の行が前の版の数だけ残る（final review R3。`erase_bodies` は前の版も消す）。
+/// 以前に `user:late` が付き、外部の更新で前の版を持った書庫の位置を置いて確かめる。
+#[tokio::test]
+async fn purge_late_archive_arrival_with_versions_ledgers_each_version() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    purged_scene(&pool, user).await;
+    let source = "c03-legacy-location";
+    let when = format!("{DAY}T10:20:00+09:00");
+    let loc =
+        crate::purge_tests::scene_event(&pool, user, source, &when, r#"{"lat":35.5,"lon":139.76}"#)
+            .await;
+    for no in 1..=2 {
+        sqlx::query(
+            "INSERT INTO core.event_version
+               (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $7::jsonb)",
+        )
+        .bind(loc)
+        .bind(user)
+        .bind(source)
+        .bind(no)
+        .bind(at(&when))
+        .bind(Uuid::new_v4().to_string())
+        .bind(format!(r#"{{"lat":35.{no},"lon":139.76}}"#))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user:late' WHERE id = $1")
+        .bind(loc)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let stored = crate::IngestRequest {
+        id: loc,
+        user_id: user,
+        logical_source: source.into(),
+        external_id: None,
+        device_id: Some("s01-c03".into()),
+        origin: "collected".into(),
+        event_time: at(&when),
+        tz_offset_min: 540,
+        tz_id: "Asia/Tokyo".into(),
+        schema_version: 1,
+        unit_system: None,
+        crs: None,
+        source_updated_at: None,
+        external_ref: None,
+        raw: String::new(),
+        payload: serde_json::json!({}),
+    };
+    crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
+        .await
+        .unwrap();
+
+    assert!(emptied(&pool, loc).await, "後着の行の本文が残っている");
+    let (op, kind, versions): (Uuid, String, i32) = sqlx::query_as(
+        "SELECT op.id, op.kind, op.versions
+           FROM core.erasure_ledger l JOIN core.erasure_operation op ON op.id = l.operation_id
+          WHERE l.event_id = $1 AND l.scope = 'event'",
+    )
+    .bind(loc)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(kind, "late");
+    assert_eq!(versions, 2, "操作の行の versions が前の版の数でない");
+    let version_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.erasure_ledger
+          WHERE operation_id = $1 AND scope = 'version' AND event_id = $2",
+    )
+    .bind(op)
+    .bind(loc)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(version_rows, 2, "前の版ごとの台帳の行が無い");
+    let left: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event_version WHERE event_id = $1 AND raw <> ''",
+    )
+    .bind(loc)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(left, 0, "前の版の本文が残っている");
+}
