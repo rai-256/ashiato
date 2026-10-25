@@ -2,7 +2,7 @@
 
 > 推奨の答えで先に仕様と GO 資料を書いた（2026-10-20 の流れ）。答えは `deep-answers-1.txt`（2026-10-25 record）。
 > 本人は全問に答えた（`(推奨のまま: …)` は無い）。推奨と違ったのは Q7 だけ。仕様への合意（QA）は「合意する」。
-> **第 2 回の問い Q8（premise。CH06 との重なり）を立てた（2026-10-25。`deep-questions-r2.json`）。答えはまだ無い。** 節は「## 第 2 回」。
+> 第 2 回の問い Q8（premise。CH06 との重なり。`deep-questions-r2.json`）は `deep-answers-2.txt`（2026-10-25 record）で本人が答えた（推奨と同じ）。節は「## 第 2 回」。
 
 ### Q1. CH05 の範囲 —— 走っている CH04 との分け方
 
@@ -61,11 +61,18 @@
   CH06 の後は Requirement 1・2 が検証の準備で働かず、向きも逆になる。本人の答えの扱いを本人に戻す
 - **出所**: review/spec.md R20・R21（`origin/main:docs/changes/CH06.md`・`origin/main:openspec/changes/ch06-reset-verify-db/design.md` D5・D6・Non-Goals、`git worktree list` の `feat/ch06-reset-verify-db`）
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH05-deep-r2.html`）
-- **本人の答え**: (未回答)
+- **本人の答え**: CH05 は殺した後の検査と片付け（Q7）だけにする。作り直しと見送り（Requirement 1・2）は外し、CH06 に任せる（本人の選択。推奨と同じ）
+- 補足: なし
+- これで決まったこと: CH05 の範囲は「殺した後の次の回に残りが無いことの検査」（D6）と「消えた作業ツリーのコンテナ・ネットワークの片付け」（Q7・D9）だけになる。
+  Q2〜Q5 の答え（膨れたら作り直す・使っている途中は見送る・中の database だけ・作り直してよい作業ツリーの範囲）は、検証のたびに DB を空から作り直す CH06 に任せて CH05 では作らない
+  （本人の答えは消さず、前提が変わったので働く先が無くなった記録として残す）。`tools/test-db-rebuild.sh` と `tools/ports.sh` の作業ツリーの種類は作らない。
+  `requires: [CH04, CH06]`。片付けは CH06 の `tools/verify-env.sh` の上に積み、CH06 の `verify-environment` の「ほかの compose の project のコンテナ・volume には触らない」を、消えた作業ツリーのものを除く形に MODIFIED で書き直す（review/spec.md R21）
+- 仕様へ: `spec --answers Q8` が proposal・specs・design・tasks と `docs/changes/CH05.md` の完了の判定に写す。spec・design・tasks を書き直すので、仕様への合意はもう一度聞く（選択肢の detail のとおり）
 - **効く先**: 推奨なら proposal・spec の Requirement 1・2 と Scenario 14 本・design D1〜D5・tasks Task 1・2 と 4.2 の見送りの確かめを外し、`docs/changes/CH05.md` の front matter を `requires: [CH04, CH06]` にし、CH06 の「ほかの project のコンテナには触らない」（`verify-environment`）を消えた作業ツリーを除く形に MODIFIED で書き直す（review/spec.md R21）。Q7 の片付け（D9）と殺した後の検査（D6）は残る
 
 ## 当初案を覆したもの
 
+- Q8: 第 1 回の Q2〜Q5（膨れたら作り直す・見送る）の答えは、CH06 との重なりで CH05 の範囲から外れた（本人は推奨を選んだ。作り直しは CH06 が検証のたびに空から行う）
 - Q7: 推奨は「どれも入れない（(1) は別の change へ申し送る）」。本人は (1) を選び、使われていないコンテナ・ネットワークの片付けを CH05 の範囲に入れた（volume は消さない）
 
 ## 要件へ戻すもの
