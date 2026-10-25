@@ -125,7 +125,7 @@
 
 ## Task 6: 常駐の通知の操作と 6 時間ごとの見直し（design D8 / D9）
 
-- [ ] 6.1 `LocationService` の前景サービスの通知に、`availability = available` のときだけ D8 の操作（ラベル `HEALTH_PERMISSION_ACTION_LABEL`）を足す。開く intent は版で分ける（D8）。
+- [x] 6.1 `LocationService` の前景サービスの通知に、`availability = available` のときだけ D8 の操作（ラベル `HEALTH_PERMISSION_ACTION_LABEL`）を足す。開く intent は版で分ける（D8）。
   生存信号と同じ 6 時間の刻みの隣で `observeHealthPermissions(periodic)` を呼ぶ（生存信号は送らない。失敗しても位置の収集を止めない —— 時計の測定と同じく `runCatching` で包み、種別だけログ）。
   `HealthNotificationTest`（Robolectric）:
   Scenario: `常駐の通知から健康データの権限の画面が開く` / `Health Connect が使えない端末の通知には健康データの権限の操作が出ない` / `後から設定で外すと次の見直しで記録される`。
