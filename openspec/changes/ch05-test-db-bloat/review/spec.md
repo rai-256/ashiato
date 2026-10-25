@@ -194,3 +194,199 @@ $ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
 観点 6: 該当なし（`spec --draft` の段で、`--answers` ではない）。
 - 処置: fixed D5 仮（self-test の初めに、専用の助言ロック 4820254 を取れたときだけ `ch05_rebuild_probe_` の残りを消す）
 
+
+---
+
+## `spec --answers Q7` の段（2026-10-25）
+
+## R20. 今日 main に入った CH06 が、CH05 と同じ `tools/verify-env.sh` で「毎回構わず作り直す」。CH05 の Requirement 1・2（膨れたら作り直す・使っている途中は見送る）は検証の準備で働かなくなり、向きも逆
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md・design.md（D1〜D5）・proposal.md（Impact の重なり）
+- 根拠: `origin/main:docs/changes/CH06.md` の完了の判定（`HARNESS_VERIFY=1` のとき `tools/verify-env.sh` がこの worktree の DB を空から作り直す・切った接続の数を出す）/ `origin/main:openspec/changes/ch06-reset-verify-db/deep.md` Q2（構わず作り直す）・Q3（subnet を割り当てる）/
+  `origin/main:openspec/changes/ch06-reset-verify-db/design.md` D5・D6（subnet の明示）・Non-Goals（消えた worktree の残りは片付けない）/ `git worktree list` に `ashiato2-ch06 [feat/ch06-reset-verify-db]` / `premises.md:11`（ハーネスは検証の前に毎回 `HARNESS_VERIFY=1` で `tools/verify-env.sh` を呼ぶ）/
+  この上流の木は origin/main から 20 commit 遅れていて、手元に `openspec/changes/ch06-*` が無い（`spec_overlap.py` は origin/main を読むが、CH06 の capability は `verify-environment` で Requirement が重ならないので候補に出ない —— R22）/ `proposal.md` の Impact は「`tools/verify-env.sh`・`tools/ports.sh` を走っている feat/* で触るものは無い」と書いていた
+- kind: premise
+- 提案: CH05 の範囲を本人に問い直す（Q2〜Q5 は本人の答えで、この段で変えない）。推奨は「殺した後の検査（Requirement 3）と片付け（Requirement 4。Q7）だけを残し、`requires: [CH04, CH06]`」。片付けは CH06 の Non-Goals を埋めるが、CH06 の Requirement の本文（ほかの project のコンテナに触らない）とは食い違う（R21）
+- 処置: escalated （第 2 回の問い Q8 にした。`deep-questions-r2.json`・`deep.md` の「第 2 回」に `(未回答)` で書いた。Q7 の片付け（D9）は CH06 の self-test の compose の project を外さない形にし、proposal の Impact の重なりに CH06 を書き足した）
+
+### 機械の検査（`spec --answers Q7` の段。2026-10-25、作業ツリーの差分の上で）
+
+```
+$ openspec validate ch05-test-db-bloat --strict
+Change 'ch05-test-db-bloat' is valid                                   rc=0
+$ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat
+[OK] 検証コマンド（ch05-test-db-bloat）                                 rc=0
+$ python3 scripts/review_triage.py . ch05-test-db-bloat
+指摘 32 件 / 仮決め 9 件 / 要件へ戻すもの 0 件  triage: OK             rc=0
+$ python3 scripts/spec_overlap.py check . ch05-test-db-bloat
+{"ok": true, "candidates": 0}                                          rc=0
+$ python3 scripts/spec_overlap.py candidates . ch05-test-db-bloat
+[]
+$ python3 scripts/deep_draft.py status openspec/changes/ch05-test-db-bloat
+{"state": "diverged", "diverged": ["Q7"], "pending": [], "premise": [], ...}   rc=0
+  （answers.md を書く前。第 1 回だけを見る —— 第 2 回の Q8 は `deep_draft.py later` の側で、いまは答えが無く ids: []）
+$ python3 scripts/check_scenarios.py . ch05-test-db-bloat
+scenarios: FAIL (担保なし 32 件 / 名無しの確認待ち 0 件)               （下流の前なので想定どおり。32 本 = Global Constraints の本数と一致）
+$ python3 scripts/check_chain.py .
+chain: OK (0 件 / 未回収 0 件 / warn 0 件)
+```
+
+観点 7: 該当なし（`spec_overlap.py candidates` が 0 件）。0 件なのは、`spec_overlap.py` が `git ls-tree origin/main openspec/changes/`（58 行目）で CH06 を読んだうえで、CH06 の delta が `verify-environment` で CH05 の `test-database` と Requirement が重ならないから。
+重なりは Requirement の名前ではなく `tools/verify-env.sh` の振る舞いの上にある（R20・R21）。requires に CH06 を足すかは Q8 の答えで決まるので、ここで「前提」の行を立てない。
+
+確かめた範囲（指摘ではない）: 片付けの条件を実物の docker と突き合わせた（読むだけ。2026-10-25）。`ashiato2-*` の compose のコンテナ 26 個はすべて `com.docker.compose.project` と `…project.working_dir` の印を持ち、
+path が無く `git worktree list` にも無いのは 15 個（うち running は ch01・ch02・st13・st33 の 4 つ）で `premises.md:16` と一致。`ashiato2-st22-rA` の project は `ashiato2-st22-ra`（小文字）。
+DB のコンテナの mount は `volume <64 桁の id> /var/lib/postgresql/data`（名前の無い volume。`postgres:17-alpine` の `Config.Volumes` が `/var/lib/postgresql/data`）、volume は 98 個で `premises.md:17` と一致。
+compose のネットワークの印は `com.docker.compose.project`・`…network`・`…version`・`…config-hash` だけで working_dir を持たない（spec がネットワークを名前で見るのは実物どおり）。
+main の project は `ashiato2`（`<main>-` で始まらない）、`ashiato2/.claude/worktrees/agent-*` の作業ツリーは親のフォルダが違い、`lifeLog2` の project は `lifelog2`・`agent-…` で、どれも外れない。
+`ashiato2-verify-env`（`-verify` で終わらない生きた作業ツリー）は path があるので外れない。
+
+## R21. CH06 の Requirement の本文は「検証の準備は、ほかの compose project のコンテナには触らない」と言い、CH05 の Requirement 4 は同じ検証の準備で、ほかの project のコンテナを止めて外す。両方が archive されると正典が矛盾する。R20 の「片付けは CH06 と重ならない」は誤り
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:147-157・review/spec.md R20 の提案・deep-questions-r2.json の Q8 の context・proposal.md:60-61
+- 根拠: `git show origin/main:openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md` の 1 つ目の Requirement（9〜13 行目）「WHEN 検証の準備（`tools/verify-env.sh`）が `HARNESS_VERIFY=1` で呼ばれ…THE SYSTEM SHALL …ほかの compose project のコンテナ・volume と、compose の外のコンテナ・volume には触らない」/
+  CH06 design の Non-Goals（24〜25 行目）「消えた worktree の compose project（network 15 個・動いたままの DB 4 個）…の片付け（Q3 の推奨の「触らない」）。例外は D5 の 1 つだけ」/ CH05 spec.md:150-151（`<main>-` の project の、消えた作業ツリーのコンテナを動いていても止めて外す）・spec.md:147（検証の準備のたびに）/
+  `premises.md:11`（ハーネスは検証の準備を毎回 `HARNESS_VERIFY=1` で呼ぶ —— CH05 の片付けは必ず CH06 の Requirement と同じ呼び出しの中で起きる）/ R20 の提案「片付けは CH06 の Non-Goals を埋めるので重ならない」・Q8 の context「CH06 は消えた作業ツリーの残りの片付けを持たない（CH06 の Non-Goals）」は、Non-Goals だけを読んで Requirement の本文を見ていない
+- kind: conflict
+- 提案: 第 2 回の問い Q8 の context に「CH06 の Requirement は検証の準備が他の project に触らないと言い、CH05 Q7 の片付けはそれを覆す（CH06 Q3 の推奨の「触らない」と CH05 Q7 の本人の答えが逆）」を足して一緒に問う。
+  片付けを残すなら、CH05 は CH06 の `verify-environment` の Requirement を MODIFIED にして例外（消えた作業ツリーの `<main>-` の project）を書き足すか、片付けの Requirement を `verify-environment` の側に置き、`requires: [CH04, CH06]` にする（capability の置き場も CH06 が `tools/verify-env.sh` の capability を立てたので変わる。proposal.md:39 の「同じ `test-database` に置く」の理由を書き直す）
+- 処置: escalated （Q8 の context と推奨の選択肢の detail に足して一緒に問う。`deep-questions-r2.json`。R20 の提案の「重ならない」も直した）
+
+## R22. R20 の根拠「この上流の木は origin/main から 20 commit 遅れていて、`openspec/changes/ch06-*` が無い（`spec_overlap.py` は CH06 を見ない）」は誤り。`spec_overlap.py` は origin/main を読む
+- 成果物: openspec/changes/ch05-test-db-bloat/review/spec.md（R20 の根拠）
+- 根拠: `scripts/spec_overlap.py:12`（走っている change: origin/main の `openspec/changes/<lo>-*/`）・`:58`（`git ls-tree -r --name-only origin/main openspec/changes/`）/ `git ls-tree -r --name-only origin/main openspec/changes | grep ch06` に `ch06-reset-verify-db/specs/verify-environment/spec.md` がある / fetch の後も `spec_overlap.py candidates` は `[]`
+- kind: technical
+- 提案: R20 の根拠を「`spec_overlap.py` は CH06 を読むが、CH06 の delta は `verify-environment` で Requirement の名前が重ならないので候補にならない。重なりは `tools/verify-env.sh` の振る舞い（R21）」に直す。木が遅れていることは事実だが、候補が 0 件の理由ではない
+- 処置: fixed review/spec.md （R20 の根拠を「origin/main を読むが capability が違うので候補に出ない」に直した）
+
+## R23. Scenario 1 は「名前の無い volume つき」のコンテナを言うが、D9 の本物の docker の 1 件は「名前つきの volume」を挿す。名前つきの volume は `docker rm -v` でも消えないので、この 1 件は実装が `-v` を付けても緑になる
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:165・specs/test-database/spec.md:160-163
+- 根拠: `docker rm --help` の `-v, --volumes   Remove anonymous volumes associated with the container`（消すのは名前の無い volume だけ）/ design.md:165「self-test が作った名前つきの volume を挿す」/ spec.md:161 の WHEN「（名前の無い volume つき）」/
+  実物の DB の volume は名前の無い volume（`docker inspect ashiato2-st13-db-1` の Mounts、`postgres:17-alpine` の `Config.Volumes` が `{"/var/lib/postgresql/data":{}}`）。本人の答え「volume は消さない」が守るのはこの名前の無い volume
+- kind: technical
+- 提案: 本物の 1 件は `postgres:17-alpine` の `VOLUME` が作る名前の無い volume のまま起こし、片付けの前に `docker inspect` で volume の id を控え、片付けの後に `docker volume inspect <id>` が rc=0 であることを見る形にする（D9 を直す）。後始末はその id を消す
+- 処置: fixed D9 仮（本物の 1 件は image の `VOLUME` で付く名前の無い volume を使い、その id を控えて残ることを見る。後始末は控えた id だけ）
+
+## R24. Scenario 1 の「volume の数は片付けの前と同じ」は、共有の docker では他の作業ツリーが volume を作る・消すので揺れる。しかも 1 つの THEN と 2 つの AND に、外したこと・volume が残ること・出力の 3 つを束ねている
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:160-164
+- 根拠: spec.md:163 / 同じ機械で走る CH06 は、`HARNESS_VERIFY=1` の検証の準備のたびに worktree の DB の volume を消して作り直す（`origin/main:openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md` の 1 つ目の Requirement）。CH06 の self-test も sentinel の volume を作って消す（CH06 design の検査の本体 5.）。`docker compose up` も名前の無い volume を作る /
+  本人の決定の中身（volume を消さない）が AND の 2 つ目にあり、外したことだけを見る self-test でも Scenario の印は付く
+- kind: technical
+- 提案: 「volume の数」を「控えた id の volume が残っている」（R23）に替え、volume が残ることを別の Scenario に分ける（題も「外したコンテナの volume は残る」にする）。出力の行は Requirement の本文の「1 つごとに名前と path を出す」の Scenario として分けてよい
+- 処置: fixed specs/test-database/spec.md （数ではなく控えた id の volume が残ることを見る。Scenario を「外される」と「名前の無い volume は残る」に分けた）
+
+## R25. D9 の self-test の本物の 1 件は、本物の main の名前のまま片付けを走らせるので、self-test を走らせるたびに機械の本物の残り（いまは 15 個）も外す。tasks 0.1 の self-test が 0.2 の「外すものの一覧を写してから片付ける」より先に本物を片付けてしまい、一覧が空になる。他の作業ツリーの片付けが self-test のコンテナを先に外しても緑になる
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:165-166・tasks.md:38-50
+- 根拠: design.md:165「project `<main>-st97-<乱数>`・working_dir `<親のフォルダ>/<main>-st97-<乱数>`…を作り、片付けを走らせ」（`TEST_DOCKER_TIDY_MAIN` を使うとは書いていない —— 差し替えは design.md:164 で偽の docker の側だけに書かれている）/
+  片付けの条件（spec.md:150-151）は実物の 15 個にも当たる（上の「確かめた範囲」）/ tasks.md:38-43 の 0.1 の検証が `tools/docker-tidy.sh --self-test` を走らせ、tasks.md:47 の 0.2 がその後で `--dry-run` の一覧を「計測の記録」に写す /
+  design.md:166「別の作業ツリーの片付けが先に外していても、無いことと volume が残ることは同じに見える」—— 自分の片付けが壊れていても、並んだ別の作業ツリーの検証の準備が外せば self-test は通る（D8 の self-test は「使い捨ての名前だけを触る」と書いていて、形も揃わない）
+- kind: technical
+- 提案: 本物の 1 件は `TEST_DOCKER_TIDY_MAIN` を乱数の main（例 `<親のフォルダ>/tidyst-<乱数>`）にし、`TEST_DOCKER_TIDY_WORKTREES` を空のファイルにして、self-test が作った project（`tidyst-<乱数>-st97`）だけが条件に当たる形にする。
+  これで本物の残りに触らず、他の作業ツリーの片付け（本物の main の名前で見る）も self-test のコンテナに当たらない
+- 処置: fixed D9 仮（本物の 1 件は `TEST_DOCKER_TIDY_MAIN` で main を `$TMPDIR/ch05tidy<乱数>` に差し替える。本物の `ashiato2-*` の残りに当たらず、他の作業ツリーの片付けもこの 1 件を外さない）
+
+## R26. `--dry-run` は「外すものを同じ形で出す」と言うが、D9 はネットワークを「コンテナを外した後に」読むので、dry-run はコンテナを外す結果で空くネットワーク（いまの ch02・st13・st33 の 3 本）を挙げない。tasks 0.2 が写す「片付けたもの」がそのぶん欠ける
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:158-159・specs/test-database/spec.md:156,182-185・tasks.md:47-50
+- 根拠: design.md:159「コンテナを外した後に読む（外したコンテナのネットワークも同じ回で空く）」/ spec.md:156「`--dry-run` は外すものを同じ形で出すだけで、何も外さない」/ 実物: `ashiato2-ch02_default`・`ashiato2-st13_default`・`ashiato2-st33_default` は消えた作業ツリーの動いているコンテナが繋がっている（`docker network ls`・`docker ps -a`）ので、外さない dry-run の時点では「繋がっているコンテナが無い」に当たらない /
+  Scenario 6（spec.md:182-185）の WHEN「作業ツリーが消えたコンテナとネットワーク」は、そのネットワークに当のコンテナが繋がっているかを決めていないので、繋がっていない形で書けば dry-run の欠けは見えない。
+  あわせて tasks.md:49 の `[ -z "$(tools/docker-tidy.sh --dry-run 2>&1)" ]` は、その前の `tools/verify-env.sh` との間に別の作業ツリーが消える（merge の後の片付け）と落ちる
+- kind: technical
+- 提案: D9 に「dry-run は、外すと判定したコンテナの印の project を『コンテナが無い』とみなしてネットワークを判定する」を書き、Scenario 6 の WHEN を「消えた作業ツリーの動いているコンテナと、それが繋がっているネットワーク」にして THEN に両方の名前を求める。
+  tasks 0.2 の空の確かめは `tools/verify-env.sh` と同じ `bash -c` に束ねるか、落ちたら片付けをもう一度走らせて見る形にする
+- 処置: fixed D9 仮（外すコンテナを決めた後、それを除いて空くネットワークも同じ回・`--dry-run` で挙げる。spec の本文と `--dry-run` の Scenario にも書いた。tasks 0.2 の空の確かめは片付けを走らせた直後に同じ `bash -c` で見る）
+
+## R27. Scenario 8 の禁止の字面（「`-v` を含む `rm`」）は `docker rm --volumes` と `docker rm -fv` を拾わず、許す側（「一覧と印の読み出し」）はどの subcommand かが決まっていない
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:192-194
+- 根拠: spec.md:194 / `docker rm --help`（`-v, --volumes`。短い flag は `-fv` と束ねられる）/ design.md:156 は `docker ps -a … --format`、design.md:158 は `docker network ls`・`docker ps -aq --filter network=`、spec が名指さない `inspect` を使うかは実装次第
+- kind: technical
+- 提案: THEN を「書き留めた命令の subcommand は `ps`・`network ls`・`inspect`・`rm`・`network rm` のどれかで、`rm` の引数に `-v`・`--volumes`、または `v` を含む短い flag の束が無く、`volume`・`system`・`compose down` が無い」のように、許すものを列挙して禁止を引数の形で書く
+- 処置: fixed specs/test-database/spec.md （許す subcommand を `ps`・`inspect`・`network ls`・`network inspect`・`rm`・`network rm` に、`rm` の引数を `-f` と id だけに決めた）
+
+## R28. Requirement の本文・CH05.md・tasks が言っていて、Scenario が言っていないものがある
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:143-157
+- 根拠:
+  - CI: `docs/changes/CH05.md:98`「CI の rust job が 4 つの検査を走らせる」・proposal.md:48「4 行（片付けの self-test を含む）」・tasks.md 5.1 が `tools/docker-tidy.sh --self-test` を ci.yml に足す。CI の Scenario（spec.md:143-145）の THEN は 3 つだけを挙げ、tasks 5.1 の self-test の中の検査も「この 3 行」を見る
+  - spec.md:156「外すものが無ければ何も出さない」—— tasks.md:49 の `[ -z "$(tools/docker-tidy.sh --dry-run 2>&1)" ]` と CH05.md:97 がこれに頼るが、Scenario が無い（実装が「外すものは無い」と 1 行出すと、0.2 が片付けた後でも落ちる）
+  - spec.md:157「外すのに失敗したとき…rc≠0」—— Scenario 7 は「docker に問えない」だけ
+  - spec.md:153-155 のネットワークの条件のうち「繋がっているコンテナがある」「印の無いネットワーク」「別の repo の project」で外さないこと —— Scenario 5 は空の・生きている・`-verify` の 3 つだけ（design.md:164 の偽の docker の場合分けには「コンテナの繋がったネットワーク」がある）
+- kind: technical
+- 提案: CI の Scenario の THEN に `tools/docker-tidy.sh --self-test` を足す（または片付けの Requirement に CI の Scenario を 1 本足す）。「外すものが無ければ標準エラーに何も出さず rc=0」「`rm` が落ちれば rc≠0 で理由が出る」「繋がったコンテナのある・印の無い・別の repo のネットワークは残る」を Scenario にする
+- 処置: fixed specs/test-database/spec.md （「外すものが無ければ何も出さない」「外す命令の失敗で rc≠0」「残すネットワーク（コンテナの繋がった・印の無い・別の repo）」「CI が片付けの self-test を走らせる」を Scenario にした。tasks 0.1・0.2・5.1 が名指す）
+
+## R29. design D9 にしかない、外から見える振る舞い（並んだ片付けで `No such container` / `No such network` を外せたものとして rc=0）。archive で正典に入らない
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:160
+- 根拠: design.md:160 / spec.md:157 は「外すのに失敗したときは rc≠0」とだけ言い、D9 の例外は spec に無い —— spec だけを読んだ実装は `No such` で rc≠0 を返し、検証の準備が並ぶたびに「片付けに失敗した」の行が出る
+- kind: technical
+- 提案: Requirement の本文に「もう無いもの（`No such`）は外せたものとして扱う」を足し、偽の docker が `rm` に `No such container` を返す Scenario を 1 本足す
+- 処置: fixed specs/test-database/spec.md （Requirement の本文と Scenario「もう無いものを外そうとしたら、外せたものとして扱う」に移した）
+
+## R30. 数と形が Q7 の写しに追いついていない（tasks の範囲の 1 行・5.3・Global Constraints の例外・D9 と tasks 0.1 の口・proposal の文の繋がり）
+- 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:7,26,121・design.md:152,167・proposal.md:61
+- 根拠:
+  - tasks.md:7「書くのは、作り直しの台本・検証の準備の 1 行・…・CI の 3 行・文書だけ」—— Q7 で片付けの台本・検証の準備の 2 行目・CI の 4 行目が入ったのに「だけ」のまま（下流は Task 0 と食い違う範囲の宣言を読む）
+  - tasks.md:121 の 5.3 は「CI に足した 3 行の時間」「`- 3 行の時間:`」のまま 4 つ目を「同じ行に添える」。検証（tasks.md:122）は 4 つ目の秒数が無くても通る
+  - tasks.md:26 の例外「self-test が自分で作った volume を消す後始末は除く」は `docker rm -f`・`docker network rm` の文に付いていて、前の文の `docker volume rm` を書かない、の例外になっていない。self-test の後始末（作ったコンテナ・ネットワークを trap で消す）も「片付けの本体にだけ書く」に反する
+  - design.md:152 の口は「引数なし / `--dry-run` / `--self-test`」の 3 つで、Scenario 7 を `--self-test` の中で見る（design.md:167）。tasks.md:38 は `--verify-env-check` を 4 つ目の口にし、Scenario 7 を 0.2 の `--verify-env-check` で見る
+  - proposal.md:61「…`<main>-` に絞って外さない（design D9）`tools/ports.sh` は…」—— 句点が無く、CH06 の文と `tools/ports.sh` の文が 1 つに繋がっている
+- kind: technical
+- 提案: tasks.md:7 に片付けの台本と検証の準備の 2 行目・CI の 4 行を足す。5.3 を「4 行の時間」にし、検証の grep を 4 つ目の秒数まで見る形にする。Global Constraints の例外を「`tools/docker-tidy.sh --self-test` が自分で作ったコンテナ・ネットワーク・volume の後始末」に書き直す。D9 の口に `--verify-env-check` を足すか tasks を D9 に合わせる。proposal.md:61 に句点を足す
+- 処置: fixed tasks.md （範囲の 1 行・Scenario の数 36・5.1 の計 4 行・5.3 と計測の鍵「CI の行の時間」・Global Constraints の例外を self-test の後始末に限る・D9 と tasks 0.1 の口を 4 つに揃えた。proposal の句点も直した）
+
+### R21〜R30 の直しの確かめ（2026-10-25）
+
+```
+$ openspec validate ch05-test-db-bloat --strict                        → valid  rc=0
+$ python3 scripts/evidence.py lint openspec/changes/ch05-test-db-bloat  → [OK]   rc=0
+$ python3 scripts/review_triage.py . ch05-test-db-bloat                 → triage: OK
+$ python3 scripts/spec_overlap.py check . ch05-test-db-bloat            → {"ok": true, "candidates": 0}
+$ python3 scripts/deep_draft.py status openspec/changes/ch05-test-db-bloat → "state": "diverged"（直しで仕様の digest が変わり、前の answers.md が古くなった。書き直した）
+$ python3 scripts/check_scenarios.py . ch05-test-db-bloat               → 担保なし 36 件（下流の前。spec の `#### Scenario:` も 36 本で Global Constraints と一致）
+$ python3 scripts/check_chain.py .                                       → chain: OK
+```
+
+閉じたもの: R21（Q8 の context・推奨の detail・deep.md の Q8 の出所と効く先に入った）・R22（R20 の根拠を直した）・R23（D9 の本物の 1 件が image の `VOLUME` の名前の無い volume を使い id で見る）・
+R24（Scenario を「外される」と「名前の無い volume は残る」に分け、数でなく id で見る）・R25（main を `$TMPDIR/ch05tidy<乱数>` に差し替え、本物の `ashiato2-*` にも他の作業ツリーの片付けにも当たらない）・
+R26（spec の本文・`--dry-run` の Scenario・D9 が「外すコンテナを除いて空くネットワーク」を挙げ、tasks 0.2 の空の確かめは片付けの直後に同じ `bash -c`）・R27（許す subcommand と `rm` の引数を列挙した）・
+R28（4 つを Scenario にし、0.1・0.2・5.1 が名指す）・R29（本文と Scenario に移した）。
+R30 は大半が閉じた（tasks.md:7・5.3 の 4 行と鍵・Global Constraints の volume の例外・proposal の句点）。残りは R34。
+計測の鍵の行（design.md:199-201）は全角の「：」で始まる置き場で、tasks の `grep -qE "^- …: .*[0-9]"`（半角の「: 」）は置き場のままでは rc=1（実測）—— 空振りしない。
+
+## R31. R25 の直しで、self-test の本物の 1 件（`ch05tidy<乱数>-st97` のコンテナ・ネットワーク・名前の無い volume）は、途中で落ちると誰も片付けない。本物の片付けは main の名前が違うので当たらず、Global Constraints は self-test がコンテナとネットワークを消す後始末を許していない
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:166-169・tasks.md:25-27
+- 根拠: design.md:168「main の名前が乱数なので…他の作業ツリーの片付けもこの 1 件を外さない」—— 同じ理由で、self-test が片付けの前・途中で落ちた（片付けが壊れている・殺された・`docker network create` の後で `docker run` が落ちた）ときの残りも、どの片付けも外さない。
+  動いている `postgres:17-alpine` のコンテナと、既定の割り当てから取ったネットワーク（`premises.md:15` の枯渇の元）が、self-test を落とすたびに 1 つずつ溜まる /
+  design.md:168 の後始末は「控えた id の volume を消す」だけ / tasks.md:25-27 は `docker rm -f`・`docker network rm` を「片付けの本体にだけ書く」とし、例外は self-test の `docker volume rm` 1 つだけ —— 下流は self-test に `trap` でコンテナとネットワークを消す行を書けない
+- kind: technical
+- 提案: D9 と Global Constraints の例外を「`--self-test` が自分で作ったもの（控えたコンテナの id・ネットワークの名前・volume の id）を `trap … EXIT` で消す後始末」に広げる。片付けを確かめる前に消さないよう、trap は片付けの後の確かめを終えてから、残っていれば消す形にする
+- 処置: fixed D9 仮（self-test が作るものに印 `dev.ashiato.ch05-tidy-probe=1` を付け、trap で消し、落ちた残りは次の self-test の初めに印で消す。Global Constraints の例外をこの後始末に広げた）
+
+## R32. 本物の 1 件の置き場 `$TMPDIR/ch05tidy<乱数>`（「作る」）は、`TMPDIR` の無い CI では `/ch05tidy<乱数>` になり、作れない
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:166-167・tasks.md:30
+- 根拠: design.md:166 `TEST_DOCKER_TIDY_MAIN=$TMPDIR/ch05tidy<乱数>`（作る）/ `.github/workflows/ci.yml` は `TMPDIR` を置かない（`grep -n TMPDIR .github/workflows/ci.yml` が 0 件。origin/main でも 0 件）。GitHub の runner は既定で `TMPDIR` を置かない（置くのは `RUNNER_TEMP`）/
+  既存の台本は一時の置き場を `mktemp -d` で取る（`tools/check-ports.sh:15`・`tools/check-no-time-server.sh:53`・`tools/test-usage-volume.sh:28`。`mktemp` は `TMPDIR` が無ければ `/tmp` を使う）/ CI の rust job で走る（spec の「CI の rust job は、片付けの self-test を走らせる」）
+- kind: technical
+- 提案: 置き場を `d=$(mktemp -d)` にし、main を `$d/ch05tidy<乱数>`・working_dir を `$d/ch05tidy<乱数>-st97` にする（親のフォルダが同じになる）と D9 に書く。tasks.md:30 の「`"$TMPDIR"` の下に作る」も `mktemp -d`（`TMPDIR` が無ければ `/tmp`）と読める形にする
+- 処置: fixed D9 仮（置き場は `mktemp -d` の下。`$TMPDIR` を直に使わない）
+
+## R33. Scenario「片付けが docker に問えない・外せなければ、片付けは rc≠0 で落ち、検証の準備は続く」は、WHEN に 2 つの場合、THEN と AND に 3 つの主張を束ねている。印は 1 つなので、どれか 1 つを確かめただけでも担保が付く。置き場も design と tasks で違う
+- 成果物: openspec/changes/ch05-test-db-bloat/specs/test-database/spec.md:201-204・design.md:165・tasks.md:44-46
+- 根拠: spec.md:202 の WHEN（docker に問えない命令に替えて片付けと `tools/verify-env.sh`、続けて外す命令だけが失敗する命令に替えて片付け）・spec.md:203-204（どちらも rc≠0・理由が出る / 検証の準備は 1 行出して rc=0）/
+  design.md:165 は「外す命令の失敗で rc≠0」を `--self-test`（偽の docker）の側に挙げ、tasks.md:46 は同じものを `--verify-env-check` の中で見るとし、印もそちらに置く
+- kind: technical
+- 提案: 「docker に問えなければ片付けは rc≠0 で理由を出す」「外す命令が（もう無い以外の理由で）失敗すれば rc≠0 で理由を出す」「片付けが落ちても検証の準備は 1 行出して DB を起こし rc=0」の 3 本に分け、前の 2 本は `--self-test`（偽の docker）、3 本目は `--verify-env-check` に置く。design と tasks の置き場を揃える
+- 処置: fixed specs/test-database/spec.md （3 本に分けた: docker に問えない（self-test）・外す命令の失敗（self-test）・検証の準備は続く（`--verify-env-check`）。tasks 0.1・0.2 の名指しも分けた）
+
+## R34. R30 の残り: D9 の最初の箇条はまだ口を 3 つと言い、Risks はまだ「3 行の時間」と言う
+- 成果物: openspec/changes/ch05-test-db-bloat/design.md:152,183
+- 根拠: design.md:152「新しい台本 `tools/docker-tidy.sh`（引数なし = 片付ける / `--dry-run` / `--self-test`）」と design.md:170「口は 4 つ: …`--verify-env-check`」が同じ D9 の中で食い違う / design.md:183「tasks 5.3 で 3 行の時間を手元で測って書く」—— tasks 5.3 と計測の鍵（design.md:201）は「CI の行の時間」の 4 行
+- kind: technical
+- 提案: design.md:152 に `--verify-env-check` を足すか「口は下の 4 つ」に替える。design.md:183 を「4 行の時間（計測の記録の `CI の行の時間`）」にする
+- 処置: fixed D9 （152 行目の口を 4 つに、Risks の「3 行の時間」を「CI の 4 行の時間」に）
+
+## R35. tasks 0.2 は、`tools/verify-env.sh` に片付けの 1 行を足してから外すものの一覧を写す順になっている。足した後は、検証の準備（`scripts/verify-run` が検証のコマンドの前に毎回呼ぶ）が本物を片付けるので、一覧を写す前に消えうる
+- 成果物: openspec/changes/ch05-test-db-bloat/tasks.md:44-50
+- 根拠: tasks.md:44（verify-env.sh に 1 行を足す）→ tasks.md:47（続けて `--dry-run` の出力を「片付けたもの」に写してから `tools/verify-env.sh` を走らせて片付ける）/ `tools/verify-env.sh:2`「ハーネス（scripts/verify-run）が検証コマンドの前に毎回呼ぶ」・`premises.md:11` /
+  1 行を足した後に下流が `tools/verify-env.sh` か `scripts/verify-run` を一度でも走らせれば、本物の残り（いまは 15 個のコンテナと 3 本のネットワーク）は記録の前に外れ、記録の確かめ（`grep -qE "^- 片付けたもの: .*[0-9a-z]"`）は「なし」などの英数字の無い字面だと落ち、何かを書けば中身に依らず通る
+- kind: technical
+- 提案: 一覧を写すのを 0.1 の終わり（`tools/docker-tidy.sh` はあるが `tools/verify-env.sh` はまだ呼ばない時点）に移し、0.2 は 1 行を足して片付け、空になったことを見るだけにする
+- 処置: fixed 0.1 （一覧を写すのを 0.1 の終わりに移し、0.1 の検証に置いた。0.2 は片付けて時間を測るだけ）
+
+（R31〜R35 の直しはどれも Q7 の片付けの中身（Requirement 4 の Scenario・D9（仮）・tasks 0.1・0.2・Global Constraints の例外）で、答え以外の変更の判定は変わらない。review/answers.md の spec-digest は直しの後に呼び出し元が取り直した。）

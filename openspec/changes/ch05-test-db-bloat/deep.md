@@ -48,6 +48,21 @@
 - 仕様へ: `spec --answers Q7` が proposal・specs・design・tasks と `docs/changes/CH05.md` の完了の判定に写す
   （review/spec.md R1 の「CH05 の下流の作業ツリー自身が DB を立てられない」は、この片付けを下流の初めに置けば CH05 の中で解ける）
 
+## 第 2 回（spec --answers Q7 の段で見つかったもの。2026-10-25）
+
+| Q | 段 | 論点 | 失われるもの |
+|---|---|---|---|
+| Q8 | A（premise） | CH06（検証のたびに DB を空から作り直す）と CH05 の作り直し・見送りが重なる（review/spec.md R20） | —（Q2〜Q5 の前提） |
+
+### Q8. CH06 と CH05 の作り直し・見送りが重なる（A / premise。推奨: CH05 は殺した後の検査と片付けだけにする）
+
+- **なぜ人間の判断か**: Q2〜Q5 は「検証の準備で、膨れたときだけ・使っていなければ作り直す」前提で答えてもらった。2026-10-25 に main へ入った CH06 の上流は、同じ `tools/verify-env.sh` で、`HARNESS_VERIFY=1` なら毎回 DB を空から作り直し、接続も切る（CH06 Q2）。
+  CH06 の後は Requirement 1・2 が検証の準備で働かず、向きも逆になる。本人の答えの扱いを本人に戻す
+- **出所**: review/spec.md R20・R21（`origin/main:docs/changes/CH06.md`・`origin/main:openspec/changes/ch06-reset-verify-db/design.md` D5・D6・Non-Goals、`git worktree list` の `feat/ch06-reset-verify-db`）
+- **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH05-deep-r2.html`）
+- **本人の答え**: (未回答)
+- **効く先**: 推奨なら proposal・spec の Requirement 1・2 と Scenario 14 本・design D1〜D5・tasks Task 1・2 と 4.2 の見送りの確かめを外し、`docs/changes/CH05.md` の front matter を `requires: [CH04, CH06]` にし、CH06 の「ほかの project のコンテナには触らない」（`verify-environment`）を消えた作業ツリーを除く形に MODIFIED で書き直す（review/spec.md R21）。Q7 の片付け（D9）と殺した後の検査（D6）は残る
+
 ## 当初案を覆したもの
 
 - Q7: 推奨は「どれも入れない（(1) は別の change へ申し送る）」。本人は (1) を選び、使われていないコンテナ・ネットワークの片付けを CH05 の範囲に入れた（volume は消さない）

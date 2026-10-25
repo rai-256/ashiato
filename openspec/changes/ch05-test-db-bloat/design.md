@@ -1,6 +1,6 @@
 # CH05 design — 試験の DB が打ち切った run の残りで膨れないようにする
 
-> 第 1 回の深掘りの推奨の答え（Q1〜Q7）で先に書いた。本人の答えが推奨と違えば、その Q を引く D を書き直す（各 D の反転条件）。
+> 第 1 回の深掘りの推奨の答え（Q1〜Q7）で先に書いた。本人の答えが推奨と違ったのは Q7 だけで（2026-10-25）、`spec --answers Q7` が Goals・Non-Goals と D9（仮）を書いた。
 > CH04 の決定は `feat/ch04-test-db-growth` の `e27a521a` の `openspec/changes/ch04-test-db-growth/design.md` で読んだ。CH04 の D 番号で引く。
 
 ## Context
@@ -14,16 +14,18 @@
 - `ashiato` を使い続けるのは試験の外の 3 つ（`tests/server_startup.rs`・縦串・`tools/dev.sh`）で、どれも使う前に自分で移行を当てる（`ashiato-server migrate`）。移行は拡張を作らない（`CREATE EXTENSION` は 0 件）
 - 各 worktree の `ashiato` には、CH04 の前に積もった行が残る（ch03 214 MB など）。CH04 はこれに触らない（CH04 Q4）
 - `client_connection_check_interval` は既定の 0（ch04 の DB で `SHOW`）。1 文の INSERT は、client が殺されても backend が文を終えて確定することがある
-- docker の既定のネットワークの割り当てが尽きていて、新しい compose の project が DB を立てられない（`premises.md` の最後の行）
+- 2026-10-24 には docker の既定のネットワークの割り当てが尽きていて、新しい compose の project が DB を立てられなかった（`premises.md:15`）。2026-10-25 にはコンテナの無いネットワークが外されて尽きていない（`premises.md:18`）。
+  消えた作業ツリーのコンテナ（動いたままの 4 つを含む 15 個）は残っていて、作業ツリーが消えるたびにまた溜まる（`premises.md:16`）
 
 ## Goals / Non-Goals
 
 **Goals:**
 - 膨れた `ashiato` を、人も agent も気づかずに、検証の準備が作り直す（`test-database` の ADDED 1 つ目）。使っている途中では作り直さない（2 つ目）
 - 試験を途中で殺しても次の回の後に残りが無いことを、台本と CI が確かめる（3 つ目）。CH04 D1 の「殺されるとロックが外れ、次の回が片付ける」を初めて実物で固定する
+- 作業ツリーが消えたのに残っている docker のコンテナと、コンテナの無いネットワークを、検証の準備が片付ける（4 つ目。Q7）。volume は消さない
 
 **Non-Goals:**
-- 使われていない Docker の資源（浮いた volume・作業ツリーが消えたのに動いているコンテナ・コンテナの無いネットワーク）の片付け（Q7。別の change として申し送る）
+- docker の volume の片付け（Q7。浮いた volume は名前の無い volume で、どの作業ツリーのものか区別できない。片付けたコンテナの volume も残る）。印の無いコンテナ（`st04-testdb` など）と、別の repo の compose の資源
 - 既存の `down -v` の台本（smoke・stack・check-immutable・check-panic-log）に見送りを当てること（Q7）。ST23 の lock timeout・権限のエラーの原因調べ（Q7）
 - 下流の Task の開始前の作り直し（Q2 の 2 つ目の選択肢。harness2 の差し込み口が要る）。agent が自分で走らせる `cargo test` は検証の準備を通らないが、CH04 の後は `ashiato` に頼らないので遅さに効かない
 - CH04 の回の database・試験ごとの database の大きさ（CH04 の片付けが持つ）。`ashiato` 以外の database は作り直さない
@@ -143,14 +145,45 @@ CH04 の `--lint` は `CREATE DATABASE` と書き出しの試験のファイル�
 - CI の木の種類は `main` なので、`--self-test` は `TEST_DB_REBUILD_KIND` で種類を上書きして作り直しを確かめる（D3）。CI の `ashiato` を作り直すことはしない（`--self-test` は使い捨ての名前だけを触る）
 - `docs/testing.md` に 1 節（検証の準備が `ashiato` を作り直すこと・閾値・見送り・殺した後の検査）、`docs/flow-gates.md` の検査の表に 2 行
 
+### D9（仮）. 消えた作業ツリーのコンテナとネットワークの片付け —— `tools/docker-tidy.sh` を検証の準備の初めに
+
+本人の Q7 の答え（推奨と違う）: 使われていないコンテナ・ネットワークを片付ける（volume は消さない）。片付けてよいのは「作業ツリーが消えたことを機械で確かめられるもの」だけ（選択肢の detail）。
+
+- 新しい台本 `tools/docker-tidy.sh`（引数なし = 片付ける / `--dry-run` / `--self-test` / `--verify-env-check`）。`tools/verify-env.sh` が `docker compose up` の**前**に 1 行で呼ぶ（この作業ツリーのネットワークを作る前に、消えた作業ツリーの分を空ける）。
+  片付けが rc≠0 でも、検証の準備は `docker-tidy: 片付けに失敗した（<理由>）` を標準エラーに出して続ける（片付けの対象は他の作業ツリーの残りで、この作業ツリーの検証の成否とは別。落とすと、他の作業ツリーの残りでこの作業ツリーが BLOCKED_INFRA になる）
+- **main の名前と親のフォルダ**: `git worktree list --porcelain` の最初の `worktree` 行（main の checkout）から取る。`tools/ports.sh` の main の名前と同じもの（規則を 2 か所に書かない —— `ports.sh` が main の名前を出す変数を持てばそれを使い、無ければ同じ取り方で取る）。
+  消えたかどうかは、`git worktree list --porcelain` の path の一覧に無く、かつ `[ -e <path> ]` でない、の両方で見る（`git worktree prune` の前の path も、消えた path も同じに扱う。片方だけだと、手で消したフォルダや、prune の前の残りで食い違う）
+- **コンテナ**: `docker ps -a --filter label=com.docker.compose.project --format …` で project と working_dir の印を読み、spec の条件を全部満たすものだけを `docker rm -f <id>`（**`-v` を付けない**。名前の無い volume は残る —— `premises.md:17`）。
+  project の名前を `<main>-` で始まるものに絞るのは、同じ親のフォルダの別の repo（`lifelog2`・その `agent-*`）と、CH06 の self-test が一時の場所に立てる compose の project（`ch06-sentinel-<乱数>`。`origin/main` の CH06 design の検査の本体 5.）を外さないため
+- **ネットワーク**: `docker network ls --filter label=com.docker.compose.project` の project を読み、spec の条件（`<main>-` で始まる・繋がったコンテナが無い（`docker ps -aq --filter network=<名前>` が空）・その project の印のコンテナが無い・生きている作業ツリーの名前（basename を小文字にしたもの。compose の project の名前の決め方）と同じでない・`-verify` でない）を満たすものだけを `docker network rm`。
+  外すコンテナを決めた後に、そのコンテナを除いて「繋がったコンテナが無い」を判定する（外したコンテナのネットワークも同じ回で空き、`--dry-run` も同じ一覧を出す。review/spec.md R26）
+- 並んだ片付け（別の作業ツリーの検証の準備が同時に走る）で、もう無いものを外そうとして `No such container` / `No such network` になったら、外せたものとして扱う（エラーにしない。spec の Requirement 本文と Scenario にもある）
+- 出すもの: 外したものごとに `docker-tidy: コンテナ <名前> を外した（作業ツリー <path> が無い）` / `docker-tidy: ネットワーク <名前> を外した`。`--dry-run` は `外す:` の形で同じものを出す
+- docker を呼ぶ命令は `TEST_DOCKER_TIDY_DOCKER`（既定 `docker`）、main の path は `TEST_DOCKER_TIDY_MAIN`、生きている作業ツリーの path の一覧は `TEST_DOCKER_TIDY_WORKTREES`（1 行 1 path のファイル）で差し替えられる（`--self-test` が使う。CH04 D8・D6 の差し替えと同じ形）
+- `--self-test`:
+  - 判定は偽の docker（引数を書き留め、決まった一覧と印・`No such container`・失敗を返す）で確かめる: 消えた・残っている・main・`-verify`・印なし・別の repo・親のフォルダが違う、のコンテナと、空の・生きている作業ツリーの・`-verify` の・外さないコンテナの繋がった・印の無い・別の repo のネットワーク。
+    spec の Scenario のうち、本物の 1 件の 2 本と CI の 1 本と検証の準備の 1 本のほか全部（`--dry-run` が空くネットワークまで挙げる・外すものが無ければ何も出さない・もう無いものは外せた扱い・docker に問えない／外す命令の失敗で rc≠0・書き留めた命令の subcommand と `rm` の引数）
+  - 本物の docker で 1 件（`作業ツリーが消えたコンテナは、動いていても外される`・`外したコンテナの名前の無い volume は残る`）: **main を差し替える** —— `TEST_DOCKER_TIDY_MAIN=<mktemp -d の置き場>/ch05tidy<乱数>`（作る。CI は `TMPDIR` を置かないので `$TMPDIR` を直に使わない。review/spec.md R32）・`TEST_DOCKER_TIDY_WORKTREES` は main だけ。
+    project `ch05tidy<乱数>-st97`・working_dir `<同じ置き場>/ch05tidy<乱数>-st97`（作らない path）の印の動いているコンテナ（`postgres:17-alpine` を `sleep` で起こす。image の `VOLUME` で**名前の無い volume** が付く。その id を控える）と、同じ project の印のネットワーク（`docker network create --label …`）を作り、片付けを走らせ、コンテナとネットワークが無く、控えた id の volume が残ることを見る。
+    main の名前が乱数なので、この機械の本物の残り（`ashiato2-*`）には当たらず、他の作業ツリーの片付けもこの 1 件を外さない（review/spec.md R25）。self-test が作るものには印 `dev.ashiato.ch05-tidy-probe=1` を付け、`trap … EXIT` で自分のコンテナ・ネットワークと控えた id の volume を消す。落ちて trap が走らなかった残りは、次の self-test の初めに印で探して消す（コンテナは `rm -fv`。review/spec.md R31）。これは片付けの本体ではなく self-test の後始末で、spec の命令の Scenario が見るのは片付けの本体が打つ命令。ネットワークを作れない（割り当てが尽きた）ときは理由を出して rc=1
+  - 「docker に問えない」は `TEST_DOCKER_TIDY_DOCKER=false` で片付けが rc≠0（self-test）。検証の準備の 1 本（`片付けが落ちても、検証の準備は続く`）は `--verify-env-check`（DB を起こすので self-test と CI から分ける。tasks 0.2）で、同じ差し替えで `tools/verify-env.sh` が 1 行出して rc=0（`TEST_DOCKER_TIDY_DOCKER` は片付けだけが読むので、DB を起こす `docker compose` は本物のまま）
+- 口は 4 つ: 引数なし（片付ける）・`--dry-run`・`--self-test`・`--verify-env-check`
+- CI の rust job に `tools/docker-tidy.sh --self-test` を足す（D8 の 3 行の後ろ）。CI の木は main の checkout だけで、消えた作業ツリーは無い（本物の 1 件だけが外れる）。`docs/testing.md` の CH05 の節に片付けを書き、`docs/flow-gates.md` の検査の表に 1 行足す
+- 退けた案: 片付けを下流の Task の 1 回だけにする —— 作業ツリーが消えるたびにまた溜まる（Q7 の答えは「片付ける」で、1 回の掃除ではない）/ `docker container prune`・`docker network prune` —— 作業ツリーが残っている止まったコンテナと、別の repo のものまで消す / 作業ツリーの path が無いだけで外す —— `git worktree list` にあって一時的に path が見えない木（別の機械の path など）を外しうる
+
+反転条件: 片付けが検証の準備を 1 秒以上遅くする（`docker ps -a` と `inspect` の費用）なら、片付けを 1 日に 1 回（印のファイルの時刻で見る）にする。作業ツリーが残っているのに外された例が出たら、`git worktree list` だけで見る形に寄せる。
+CH06 が作業ツリーの消え方か compose の project の名前の決め方を変えたら、条件を合わせる。本人が volume も片付けると決めたら、外したコンテナの volume の id を記録する形を先に足す（いまは手がかりが残らない —— Risks）。
+
 ## Risks / Trade-offs
 
 - [CH04 の鍵の番号・回の名前が gate・fix で変わる] → D2・D6 は CH04 の D 番号で引き、反転条件に書いた。下流の入口が CH04 の gate を通った SHA を取り込み、tasks 1.1 で番号を `testdb.rs` から読み直す
 - [回の鍵を持たない `ashiato` の利用者（`tests/server_startup.rs`）は、同じ作業ツリーで検証の準備と並べると、接続の切れ目で作り直されうる] → 検証の準備はハーネスが検証のコマンドの前に 1 本ずつ呼ぶので、同じ作業ツリーの試験と並ばない。並べて手で走らせたときだけ起きる（作り直された後は `migrate` が当て直す）
 - [作り直しが、試験の外で `ashiato` を使っている人を壊す] → 接続があれば見送り、消すときも接続を切らない（D2 の 5・6）。接続を持たずに `ashiato` の中身に頼る使い方（同じ検証の項目の前のコマンドが置いた行を、後のコマンドが読む）は、閾値を越えた回に限って壊れうる。tasks に書かない取り決めで閉じる（D4）
 - [作り直しの判定が DB の壊れで rc≠0 になり、検証が BLOCKED_INFRA で止まる] → 準備が落ちる理由は標準エラーに出る。DB が壊れていれば、どのみち試験は通らない
-- [殺した後の検査が CI の時間を伸ばす] → 探りの 2 回と次の回の 2 回。試験の実行ファイルは `cargo test --workspace` で組み済み。tasks 5.3 で 3 行の時間を手元で測って書く
+- [殺した後の検査が CI の時間を伸ばす] → 探りの 2 回と次の回の 2 回。試験の実行ファイルは `cargo test --workspace` で組み済み。tasks 5.3 で CI の 4 行の時間を手元で測って書く
 - [`ashiato` の大きさの許し 1 MiB が、本物の残りを見逃す] → 体積の行 20,001 件は数 MB で、許しより大きい。行数は厳密に見る
+- [片付けたコンテナの volume は残るが、どのコンテナのものだったかの手がかりが消える（名前の無い volume）] → 本人が選んだ形（Q7。volume は消さない）。中身は volume に残るので、要るときは `docker volume ls` の中から作られた時刻で探せる。片付けの 1 行に作業ツリーの path を出す（D9）
+- [動いている消えた作業ツリーの DB（ch01・ch02・st13・st33）を止める] → 作業ツリーが無いので、その DB に繋ぐ試験もサーバも無い。中身は volume に残る（D9）
 
 ## Migration Plan
 
@@ -163,4 +196,6 @@ CH04 の `--lint` は `CREATE DATABASE` と書き出しの試験のファイル�
 - 作り直しの判定:（tasks 2.2。閾値以下で判定だけにかかる秒数と、作り直したときの秒数）
 - 次の回の秒数:（tasks 4.2。殺す前のきれいな回、`insert` の後、`committed` の後）
 - 片付けを外した回:（tasks 4.3。rc と、挙がった database の名前の数）
-- 3 行の時間:（tasks 5.3。`tools/test-db-rebuild.sh --self-test`・`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh` を手元で走らせた秒数）
+- 片付けたもの:（tasks 0.2。この機械で `tools/docker-tidy.sh --dry-run` が挙げたコンテナとネットワークの名前）
+- 片付けの時間:（tasks 0.2。片付けるものが無いときに `tools/docker-tidy.sh` にかかる秒数。1 秒を超えれば D9 の反転条件）
+- CI の行の時間:（tasks 5.3。`tools/test-db-rebuild.sh --self-test`・`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 4 行を手元で走らせた秒数）
