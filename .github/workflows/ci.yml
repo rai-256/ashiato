@@ -73,6 +73,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: ./tools/check-migrations.sh
+      # 配った印（タグ v*）の版の移行を変えない・消さない（ST48 / design D9）。checkout は浅くタグが無いので取り寄せる
+      - run: git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+      - run: ./tools/check-released-migrations.sh --self-test
+      - run: ./tools/check-released-migrations.sh
       - run: ./tools/check-boundaries.sh
       - run: ./tools/check-openapi.sh
       # 拠点外へ書き出す部品を持たない（NFR-15 / design D14）。一覧は台本の中
