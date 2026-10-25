@@ -1542,6 +1542,7 @@ async fn put_satellite(pool: &sqlx::PgPool, identifier: &str, name: &str, remove
 // Scenario: 衛星の登録簿は外した衛星も含めて書き出しに出る
 #[tokio::test]
 async fn export_satellites_registry_includes_removed_satellites() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
     let pool = testdb::pool().await;
     let tag = &Uuid::new_v4().simple().to_string()[..8];
     let identifier = format!("dev.t{tag}.booklog");
@@ -1573,6 +1574,7 @@ async fn export_satellites_registry_includes_removed_satellites() {
 // Scenario: 衛星の資格情報は書き出しに入らない
 #[tokio::test]
 async fn export_satellites_credentials_are_not_exported() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
     let pool = testdb::pool().await;
     let tag = &Uuid::new_v4().simple().to_string()[..8];
     let sat = put_satellite(
@@ -1628,6 +1630,7 @@ async fn export_satellites_credentials_are_not_exported() {
 // Scenario: ST29 が足した表はすべて分類されている
 #[tokio::test]
 async fn export_satellite_tables_and_columns_are_classified() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
     let pool = testdb::pool().await;
     let inv = export::read_inventory(&pool).await.unwrap();
     assert!(matches!(
