@@ -38,6 +38,8 @@
 
 ## 問うた項目（第 2 回。finish から。2026-10-25）
 
+> 本人の答え（deep-answers-2.txt）は推奨の選択肢を選び、補足は無い。要件へ戻すものは無い（確認バッチの道具と design の Risks に効くだけで、FR の本文は変わらない）。仕様へは `spec --answers Q6` で写す。
+
 | Q | 段 | 論点 | 失われるもの |
 |---|---|---|---|
 | Q6 | A（premise） | 確認バッチの前の回の DB に、本体で消した記録が残る（`review/code.md` R22） | 残せば消した記録が残る / 消せば確認の間に電話が送った記録 |
@@ -49,5 +51,5 @@
 - **出所**: security review `review/code.md` R22（kind: premise。確かさ 3。この端末にはまだ `ashiato-verify` の置き場が無く、実物では再現していない）
 - **loss**: 推奨の側は、消した記録が前の回の DB に残る（本人が `docker compose down -v` で消すまで）。消す側は、前の回に電話が送った記録
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/ST48-deep-r2.html`）
-- **本人の答え**: (未回答)
+- **本人の答え**: 前の回の DB は残す（Q5 のまま）。確認手順書に「この回の DB は消えずに残る。消すなら COMPOSE_PROJECT_NAME=<この回> docker compose down -v」を載せ、design の Risks に消した記録が残ることを書く。片付けの道具は後の change（本人の選択。推奨と同じ。補足なし。deep-answers-2.txt、2026-10-25 に記録）
 - **効く先**: `tools/verify-prep.sh` の manifest / design D13 の Risks と反転条件
