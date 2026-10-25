@@ -57,7 +57,7 @@ fn with_port(url: &str, port: u16) -> String {
 
 /// マイグレーションは 1 プロセスに 1 回だけ当てる。
 /// **同時に当てると `CREATE TABLE IF NOT EXISTS` 同士が競合する**ので、
-/// 助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
+/// `apply_migrations` の助言ロックで直列化する（別プロセスのテストと並んでも安全になる）。
 static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 /// 環境からだけ読む。**既定の URL（固定の合言葉入り）は持たない**（ST28 / design D19）。
@@ -85,7 +85,15 @@ pub async fn pool() -> sqlx::PgPool {
         });
     MIGRATED
         .get_or_init(|| async {
-            crate::migrate(&pool).await.unwrap();
+            // 取引の外の 1 本の接続で、本番と同じ当て方（記録に無い版だけ → 付与）。錠は `apply_migrations` が取る
+            let mut conn = pool.acquire().await.unwrap();
+            crate::migration_ledger::apply_migrations(&mut conn, crate::MIGRATIONS)
+                .await
+                .unwrap();
+            sqlx::raw_sql(crate::GRANTS)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
         })
         .await;
     pool

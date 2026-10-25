@@ -413,3 +413,18 @@ async fn st48_apply_legacy_own_transaction_versions_are_recorded() {
         assert!(names.iter().any(|n| n == own_tx), "{own_tx} の記録が無い");
     }
 }
+
+/// Scenario: 試験の足場が当てた DB にも、同じ版の記録がある
+#[tokio::test]
+async fn st48_testdb_has_ledger() {
+    let pool = crate::testdb::pool().await;
+    let got: Vec<String> = sqlx::query_scalar("SELECT name FROM migration_ledger.applied")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let want: Vec<&str> = crate::MIGRATIONS.iter().map(|v| v.0).collect();
+    assert_eq!(
+        got.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+        want.into_iter().collect::<BTreeSet<_>>()
+    );
+}

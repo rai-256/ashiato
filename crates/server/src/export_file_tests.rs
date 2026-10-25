@@ -1516,3 +1516,22 @@ async fn export_volume_one_run_reports_time_and_memory() {
         "座標を持たない行が落ちている: {mine}/{rows}"
     );
 }
+
+// Scenario: 版の記録があっても、全記録の書き出しは始まる
+#[tokio::test]
+async fn st48_export_starts_with_ledger() {
+    let pool = testdb::pool().await;
+    let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(recorded > 0, "版の記録のある DB で始める");
+    // 「分類の無い表」で断られると unwrap が落ちる
+    let path = export_once(&pool).await;
+    let z = open(&path);
+    let bad: Vec<&str> = z
+        .file_names()
+        .filter(|n| n.contains("migration_ledger"))
+        .collect();
+    assert!(bad.is_empty(), "版の記録が書き出しに入っている: {bad:?}");
+}
