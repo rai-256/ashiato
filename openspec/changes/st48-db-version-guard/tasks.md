@@ -129,13 +129,13 @@
 
 ## Task 8: 開発と確認の DB —— 回ごとの project・止まったときの手順
 
-- [ ] 8.1 `tools/verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す（design D13）。
+- [x] 8.1 `tools/verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す（design D13）。
   `tools/stack.sh` は DB を起こす前に、`ASHIATO_DB_PORT` を公開している容器が別の compose の project のものなら `docker stop` する（`down` しない）。止めたら 1 行出す。
   `tools/stack.sh down` の `docker compose down` を `docker compose stop` に替える（容器を消すと無名の volume の置き場が孤立する。design の Risks）。
   `tools/stack.sh` と `tools/dev.sh` は、`migrate` の終了コードが 3 なら作り直さずに design D14 の手順（`STACK_RESET=1` と `COMPOSE_PROJECT_NAME=<別の名前>`）を出して終了コード 3 で止まる。
   `tools/db-roles.sh` の冒頭の注記に D15 の 1 文、`tools/check-immutable.sh` の「run() は起動のたびに全版を当てる」の注記を D12 の文に直す。
   検証: `bash -n tools/stack.sh tools/dev.sh tools/verify-prep.sh` rc=0 / `bash -c 'grep -q COMPOSE_PROJECT_NAME tools/verify-prep.sh && grep -q "STACK_RESET=1" tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/dev.sh'` rc=0
-- [ ] 8.2 `tools/check-db-version-stop.sh` を足す（新しいファイル。共有の台本に書き足さない）。始めに、この worktree の DB の port を持っている容器の名前を覚え、終わりに起こし直す。
+- [x] 8.2 `tools/check-db-version-stop.sh` を足す（新しいファイル。共有の台本に書き足さない）。始めに、この worktree の DB の port を持っている容器の名前を覚え、終わりに起こし直す。
   試験の project（`st48-a-<乱数>`・`st48-b-<乱数>`）は終わりに `down -v` で消す。退避の置き場は `"$TMPDIR"` の下。次を走らせ、それぞれに `echo "Scenario: …"` を出す:
   `Scenario: 確認バッチの起動は、回ごとの project に立つ`（`verify-prep.sh` の `run.sh` を書く部分を 2 つの違う tag で書かせるか、書かれた本文の `COMPOSE_PROJECT_NAME=` の行を取り出し、tag を含み、2 つで違う）/
   `Scenario: 別の project で立てると、前の DB は残る`（A で `stack.sh up --check-only` → `core.event` に 1 件 → A で `stack.sh down` → B で `stack.sh up --check-only` が rc=0 → A を起こし直して 1 件ある）/
