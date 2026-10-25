@@ -196,12 +196,10 @@ async fn migrate_after(
     pool: &sqlx::PgPool,
     before_apply: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut conn = pool.acquire().await?;
-    migration_ledger::apply_migrations_after(&mut conn, MIGRATIONS, before_apply).await?;
-    sqlx::raw_sql(GRANTS)
-        .execute(&mut *conn)
-        .await
-        .context("アプリの役割への付与に失敗")?;
+    // 付与も錠の中で当てる（同時の `GRANT … ON ALL TABLES` は `tuple concurrently updated` で落ちる）。
+    // ahead・読めないなら付与も流さない（design D4）
+    let conn = pool.acquire().await?;
+    migration_ledger::apply_migrations_with(conn, MIGRATIONS, before_apply, GRANTS).await?;
     Ok(())
 }
 

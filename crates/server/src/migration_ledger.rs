@@ -5,7 +5,8 @@
 //! 読む関数（`read_ledger`）は DB に何も書かない。当てる処理（`apply_migrations`）は記録を書く。
 
 use sha2::{Digest as _, Sha256};
-use sqlx::{Connection as _, PgConnection};
+use sqlx::pool::PoolConnection;
+use sqlx::{Connection as _, PgConnection, Postgres};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// 当てる処理の錠の鍵（セッションの助言錠。試験の足場が取っていた鍵と同じ数。design D11）。
@@ -28,6 +29,8 @@ pub enum MigrateError {
     Version { name: String, source: sqlx::Error },
     /// 当てる直前の仕事（退避）が失敗した。何も当てていない。
     Before(anyhow::Error),
+    /// 版を当てた後のアプリの役割への付与が失敗した（版の記録は当てた分だけ残る）。
+    Grants(sqlx::Error),
     /// DB の問い合わせそのものの失敗。
     Db(sqlx::Error),
 }
@@ -93,6 +96,7 @@ impl std::fmt::Display for MigrateError {
             Self::Version { name, source } => {
                 write!(f, "マイグレーション {name} の適用に失敗: {source}")
             }
+            Self::Grants(e) => write!(f, "アプリの役割への付与に失敗: {e}"),
             Self::Db(e) => write!(f, "版の記録の問い合わせに失敗: {e}"),
         }
     }
@@ -101,7 +105,7 @@ impl std::fmt::Display for MigrateError {
 impl std::error::Error for MigrateError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Version { source, .. } | Self::Db(source) => Some(source),
+            Self::Version { source, .. } | Self::Grants(source) | Self::Db(source) => Some(source),
             _ => None,
         }
     }
@@ -289,31 +293,38 @@ fn fingerprint(sql: &str) -> String {
 /// `versions`（渡された並び）のうち記録に無い版だけを、1 版 1 取引で当てて記録する（design D3・D7・D11）。
 ///
 /// 錠を取る → 記録を読む → ahead・読めないなら何も書かずに返す → bootstrap → 1 版ずつ当てて `INSERT` → 錠を外す。
-/// 版が落ちたらその取引ごと戻り、その版も後の版も記録されない。`GRANTS` は呼び出し元が当てる。
+/// 版が落ちたらその取引ごと戻り、その版も後の版も記録されない。付与は当てない（`apply_migrations_with` が当てる）。
 pub async fn apply_migrations(
-    conn: &mut PgConnection,
+    conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
 ) -> Result<(), MigrateError> {
-    apply_migrations_after(conn, versions, || Ok(())).await
+    apply_migrations_with(conn, versions, || Ok(()), "").await
 }
 
-/// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
-/// ahead・読めないなら `before_apply` を呼ばずに返す。`before_apply` が失敗したら何も当てずに `Before` を返す。
-pub async fn apply_migrations_after(
-    conn: &mut PgConnection,
+/// `apply_migrations` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）と、版を当てた後に錠の中で流す
+/// 付与の SQL（`grants`。空なら流さない）を足したもの（design D4 の 5〜7）。
+/// ahead・読めないなら `before_apply` も `grants` も流さずに返す。`before_apply` が失敗したら何も当てずに `Before` を返す。
+/// 錠を外せなかったら接続を pool に返さずに閉じる（セッションの助言錠は接続が閉じるまで残る）。
+pub async fn apply_migrations_with(
+    mut conn: PoolConnection<Postgres>,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
 ) -> Result<(), MigrateError> {
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(LOCK_KEY)
         .execute(&mut *conn)
         .await?;
-    let result = apply_locked(conn, versions, before_apply).await;
-    // 失敗しても外す。外せなくても接続が閉じれば錠は消えるので、元の結果を優先する
-    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+    let result = apply_locked(&mut conn, versions, before_apply, grants).await;
+    let unlocked: Result<bool, sqlx::Error> = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
         .bind(LOCK_KEY)
-        .execute(&mut *conn)
+        .fetch_one(&mut *conn)
         .await;
+    if !matches!(unlocked, Ok(true)) {
+        // pool に戻すと錠を持った接続が生き残り、次の migrate が待ち続ける。pool から外して閉じる。
+        // 閉じるのに失敗しても落とせば切れる。元の結果を優先する
+        let _ = conn.detach().close().await;
+    }
     result
 }
 
@@ -321,6 +332,7 @@ async fn apply_locked(
     conn: &mut PgConnection,
     versions: &[(&str, &str)],
     before_apply: impl FnOnce() -> anyhow::Result<()>,
+    grants: &str,
 ) -> Result<(), MigrateError> {
     let ledger = read_ledger_on(conn).await?;
     let (recorded, before_ledger) = match ledger {
@@ -349,6 +361,12 @@ async fn apply_locked(
                 name: (*name).to_string(),
                 source,
             })?;
+    }
+    if !grants.is_empty() {
+        sqlx::raw_sql(grants)
+            .execute(&mut *conn)
+            .await
+            .map_err(MigrateError::Grants)?;
     }
     Ok(())
 }

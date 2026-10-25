@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::migration_ledger::{
-    apply_migrations, compare, read_ledger, Ledger, MigrateError, UnknownVersion, Verdict,
-    BOOTSTRAP, BUILD_COMMIT, BUILD_VERSION,
+    apply_migrations, apply_migrations_with, compare, read_ledger, Ledger, MigrateError,
+    UnknownVersion, Verdict, BOOTSTRAP, BUILD_COMMIT, BUILD_VERSION,
 };
 use crate::testdb::TempDb;
 use std::collections::BTreeSet;
@@ -255,8 +255,8 @@ async fn apply_without_ledger(pool: &sqlx::PgPool) {
 }
 
 async fn apply(pool: &sqlx::PgPool, versions: &[(&str, &str)]) -> Result<(), MigrateError> {
-    let mut conn = pool.acquire().await.unwrap();
-    apply_migrations(&mut conn, versions).await
+    let conn = pool.acquire().await.unwrap();
+    apply_migrations(conn, versions).await
 }
 
 async fn recorded_names(pool: &sqlx::PgPool) -> Vec<String> {
@@ -472,4 +472,46 @@ async fn st48_testdb_has_ledger() {
         got.iter().map(String::as_str).collect::<BTreeSet<_>>(),
         want.into_iter().collect::<BTreeSet<_>>()
     );
+}
+
+/// 付与は版を当てた後に錠の中で流れ、ahead では流れない（design D4 の 6→7）。
+#[tokio::test]
+async fn st48_apply_grants_run_inside_lock_and_not_on_refusal() {
+    let db = TempDb::create().await;
+    let versions = [("t1", "CREATE TABLE st48_t1(x int);")];
+    // 付与の代わりに、流れた時点で自分が持つ助言錠の数を残す
+    let grants = "CREATE TABLE st48_grants AS
+        SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid();";
+    let conn = db.owner().acquire().await.unwrap();
+    apply_migrations_with(conn, &versions, || Ok(()), grants)
+        .await
+        .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT n FROM st48_grants")
+        .fetch_one(db.owner())
+        .await
+        .unwrap();
+    assert_eq!(n, 1, "付与が錠の外で流れた");
+
+    // 知らない版を足して ahead にする。付与は流れない
+    sqlx::raw_sql("DROP TABLE st48_grants")
+        .execute(db.owner())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit)
+         VALUES ('zz_unknown', 'abc', '9.9.9', 'c')",
+    )
+    .execute(db.owner())
+    .await
+    .unwrap();
+    let conn = db.owner().acquire().await.unwrap();
+    let e = apply_migrations_with(conn, &versions, || Ok(()), grants)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, MigrateError::Ahead { .. }), "{e}");
+    let exists: bool = sqlx::query_scalar("SELECT to_regclass('public.st48_grants') IS NOT NULL")
+        .fetch_one(db.owner())
+        .await
+        .unwrap();
+    assert!(!exists, "ahead でも付与が流れた");
 }
