@@ -133,7 +133,7 @@ class SourceIndependenceTest {
         val body = service.posted.map { (_, text) -> text }
             .single { it.contains("\"logical_source\":\"$location\"") && it.contains("\"capturable\"") }
         assertTrue("位置の生存信号が取得できない状態を示していない: $body", body.contains("\"capturable\":false"))
-        assertTrue("位置の生存信号が権限を示していない: $body", body.contains("\"blockers\":\"${Capability.PERMISSION}\""))
+        assertTrue("位置の生存信号が権限を示していない: $body", body.contains("\"blockers\":[\"${Capability.PERMISSION}\"]"))
     }
 
     // Scenario: アプリ利用の取得条件が欠けても位置は集まる
