@@ -51,12 +51,13 @@ cut_line() {
 
 # 作り直し（design D1・D4）。volume を名前で控え、他のコンテナが使っていなければ、コンテナと volume を消す。`-v` は使わない
 reset_db() {
-  local cid vols v others
+  local cid vols v users others
   cid=$(docker compose ps -aq db --no-trunc)
   if [[ -z $cid ]]; then echo "verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））" >&2; return; fi
   vols=$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}')
   for v in $vols; do
-    others=$(docker ps -aq --no-trunc --filter "volume=$v" | grep -vx "$cid" || true)
+    users=$(docker ps -aq --no-trunc --filter "volume=$v")
+    others=$(grep -vx "$cid" <<<"$users" || true)
     if [[ -n $others ]]; then
       echo "verify-env: volume $v を使う別のコンテナがある。何も消さずに止める: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')" >&2
       exit 1

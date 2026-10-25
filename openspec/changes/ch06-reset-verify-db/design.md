@@ -182,6 +182,7 @@ DB の移行は無い。rebase した worktree で最初に `verify-env.sh` が�
 
 ## 計測の記録（下流が書く）
 
-- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）: 7 秒・7 秒・8 秒（2026-10-25、ch06 worktree。10 秒以内なので段ごとの内訳は取らない）
+- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）: 12 秒・12 秒・7 秒（2026-10-25、ch06 worktree、証跡 4.3 の run。10 秒を超えた回がある）。
+  遅い段（`bash -x` の時刻差、2 回）: `docker compose rm -s -f db` 約 1.3 秒、`docker compose up -d --wait db`（healthcheck 待ち）約 5.2〜5.7 秒、残りは役割の整えと接続の確かめ（約 1〜5 秒、回で揺れる）。切る・消す・network の確かめは各 0.1〜0.2 秒。支配的なのは新しい DB の起動待ち
 - 作り直した直後の `cargo test -p ashiato-server` の本数と時間（`scripts/verify-run` の証跡）:
 - `tools/check-verify-env-reset.sh` 本体の時間（手元と CI）:
