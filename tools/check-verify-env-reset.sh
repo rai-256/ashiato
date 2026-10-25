@@ -235,12 +235,12 @@ YML
   want "DB は空（core.event が無い）" "$(rows_after_reset)" ""
   want "役割が整っている（ashiato_owner で繋がる）"     "$(as_role ashiato_owner "$owner_pw" "select current_user" 2>/dev/null || true)" ashiato_owner
 
-  if [[ $fail == 0 ]]; then echo OK; else echo "check-verify-env-reset FAILED" >&2; return 1; fi
+  if [[ $fail == 0 ]]; then echo OK; else echo "check-verify-env-reset FAILED" >&2; trap - ERR; return 1; fi   # 呼び出し行（body; exit $?）で ERR trap を鳴らさない
 }
 
 case "${1:-}" in
   --self-test) ;;
-  "") body || exit $?; exit 0 ;;   # `||` の左なので、body の非 0 で ERR trap は鳴らない
+  "") body; exit $? ;;
   *) echo "使い方: $0 [--self-test]" >&2; exit 2 ;;
 esac
 

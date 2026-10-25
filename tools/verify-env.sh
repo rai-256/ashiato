@@ -42,8 +42,8 @@ cut_line() {
     "select coalesce(nullif(application_name,''),'-')||'@'||coalesce(host(client_addr),'local'), count(*)
        from pg_stat_activity where backend_type='client backend' and pid<>pg_backend_pid()
       group by 1 order by 2 desc, 1" 2>/dev/null); then
-    # 止まっていたのか、ほかの理由（役割が無いなど）で問えなかったのかは見分けない
-    echo "verify-env: DB を作り直す（切った接続: 0（DB に繋げなかった））" >&2; return
+    # 止まっていたのか、ほかの理由（役割が無いなど）で問えなかったのかは見分けない（表示は design D3 の書式のまま）
+    echo "verify-env: DB を作り直す（切った接続: 0（DB は止まっていた））" >&2; return
   fi
   n=$(awk -F'\t' '{s+=$NF} END{print s+0}' <<<"$rows")
   list=$(awk -F'\t' 'NF{ if (++c <= 10) printf "%s%s%s", (c > 1 ? ", " : ""), $1, ($2 > 1 ? " ×" $2 : "") } END{ if (c > 10) printf ", …" }' <<<"$rows")
