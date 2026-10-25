@@ -169,7 +169,9 @@
 - [ ] 9.1 `docs/handoff/ST34.md` に節を 1 つ足す（無ければ作る。`docs/handoff/README.md` の形）: 求めた種類と権限（D5）・背景での読み取りを求めたこと（Q9）・
   `c01-health-permission` の記録の読み方（履歴の権限が無い端末で、読める範囲の起点を最初に種類が許された記録の `device_time` の 30 日前と読む。P13）・
   足りない種類を ST34 が求めるときに `ASKED_HEALTH_PERMISSIONS` とは別の印を持つこと（1 度だけの案内を使い切っているので）。
-  検証: `bash -c 'grep -q "c01-health-permission" docs/handoff/ST34.md'` rc=0 / `python3 scripts/check_chain.py .` rc=0
+  本人の端末の実物（Q2。`premises.md` P10・P17）: Android 16、Health Connect に書いているのは Google Fit だけで 19 種類（ST11 が求めない 15 種類を含む）、
+  自動削除の設定が見当たらなかった（読み始めるまでに消える経路を ST34 が確かめる）。
+  検証: `bash -c 'grep -q "c01-health-permission" docs/handoff/ST34.md && grep -q "自動削除" docs/handoff/ST34.md'` rc=0 / `python3 scripts/check_chain.py .` rc=0
 
 - [ ] 9.2 `docs/handoff/ST38.md` に節を 1 つ足す（ST17 の `s01-feeling`・ST09 のメディアのソースと同じ型）: `c01-health-permission` を種類「稼働状況」に属させること（FR-102。登録簿に種類の列がまだ無い）・
   その理由（収集が残すもの）・「稼働状況」は外部 AI に承認済み（FR-88）なので、外部 AI の経路ができた後は許可の状態も外へ出ること（spec-review R3）。
