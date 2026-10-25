@@ -123,6 +123,9 @@ class HealthStateStore(private val prefs: SharedPreferences) {
  * - 判定は [HealthState] の 4 欄だけ。契機・時計・経過・起動の識別は使わない（時計が戻っても進んでも、変わっていなければ作らない）
  * - 最後の状態が無ければ（入れ直した後を含む）必ず 1 件
  * - [emit] は未送信に積めたかを返す。**積めなかったら最後の状態を書き換えない**
+ * - 画面とサービスが別々の recorder で**同じ置き場を共有する**（review/code.md R1）。比べる相手は置き場で、
+ *   recorder ごとの控えは「積んだが置き場への書き換えを遅らせている間」だけ持つ（書き換えが済んだら捨てる）。
+ *   控えを持ち続けると、他方が置き場を書き換えた後に変化を取りこぼすか、同じ状態を重ねて積む
  * - ログは `health_permission_recorded` の契機と使える状態だけ。種類ごとの許可の値は出さない
  * - 生存信号は送らず、[CollectionSource] にも入れない（design D11）
  */
@@ -137,13 +140,22 @@ class HealthPermissionRecorder(
     private val newId: () -> String,
     private val emit: (IngestRequest) -> Boolean,
     private val log: (String) -> Unit = {},
-    /** 最後の状態を書き換える。既定は即時。本番は未送信に書けた後まで遅らせる（[HealthRecordHandoff.afterDrain]）。 */
-    private val remember: (HealthState) -> Unit = { store.remember(it) },
+    /**
+     * 最後の状態を書き換え、**書き換えを試みた後に** `settled` を呼ぶ（書けたかに依らない —— 書けなければ置き場が古いまま残り、
+     * 次に観たときにもう一度作る側に倒れる）。既定は即時。画面は未送信に書けた後まで遅らせる（[HealthRecordHandoff.afterDrain]）。
+     */
+    private val remember: (state: HealthState, settled: () -> Unit) -> Unit = { state, settled ->
+        store.remember(state)
+        settled()
+    },
 ) {
     private val lock = Any()
 
-    /** 積んだが、最後の状態の置き場にはまだ書いていない状態。同じプロセスの中で重ねて積まないための控え。 */
-    private var emitted: String? = null
+    /**
+     * 積んだが、置き場への書き換えがまだ済んでいない状態（遅らせている間だけ。済んだら null に戻す）。
+     * 預けてから書き換えるまでに同じ状態をもう一度観ても重ねて積まないための控え。
+     */
+    private var pending: String? = null
 
     suspend fun observeHealthPermissions(trigger: String) {
         val reading = read()
@@ -151,11 +163,14 @@ class HealthPermissionRecorder(
         // 読み口は主スレッドを塞がないよう錠の外。比べて積んで書き換えるところは、2 つの契機が重なっても 1 件にする
         synchronized(lock) {
             val canonical = state.canonical()
-            if ((emitted ?: store.last()) == canonical) return
+            if ((pending ?: store.last()) == canonical) return
             val record = healthPermissionRecord(state, trigger, reading.errorType, clock, deviceId, userId, zone, newId)
             if (!emit(record)) return
-            emitted = canonical
-            remember(state)
+            pending = canonical
+            remember(state) {
+                // 遅らせた書き換えは別の糸（サービスの起動）から呼ばれる。後から積んだ別の状態の控えは消さない
+                synchronized(lock) { if (pending == canonical) pending = null }
+            }
             log(
                 Telemetry.line(
                     "health_permission_recorded",

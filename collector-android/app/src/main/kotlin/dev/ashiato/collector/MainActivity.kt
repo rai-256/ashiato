@@ -278,8 +278,13 @@ open class MainActivity : Activity() {
      * 最後の状態の書き換え。本番は**記録が未送信に書けた後**（預け口はメモリだけで、プロセスが終わると消える）。
      * 試験は渡し先を差し替えるので、その場で書く。
      */
-    protected open fun healthRemember(store: HealthStateStore): (HealthState) -> Unit =
-        { state -> HealthRecordHandoff.afterDrain { store.remember(state) } }
+    protected open fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit =
+        { state, settled ->
+            HealthRecordHandoff.afterDrain {
+                store.remember(state)
+                settled()
+            }
+        }
 
     private fun ask(permission: String) {
         asked += permission

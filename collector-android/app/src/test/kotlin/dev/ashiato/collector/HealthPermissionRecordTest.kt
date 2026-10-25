@@ -239,4 +239,133 @@ class HealthPermissionRecordTest {
         assertTrue(service.heartbeatOutboxForTest.snapshot().isNotEmpty())
         assertTrue(service.heartbeatOutboxForTest.snapshot().none { it.logicalSource == HEALTH_LOGICAL_SOURCE })
     }
+
+    // ---- 2 つの recorder（画面とサービス）が同じ置き場を共有する（review/code.md R1）----
+
+    /** 本番の組み方: サービスは未送信へ直に積んで即時に書き換え、画面は受け渡し口に預けてサービスが積んだ後に書き換える。 */
+    private fun sharedPair(): Pair<HealthPermissionRecorder, HealthPermissionRecorder> {
+        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        val prefs = app.getSharedPreferences(HEALTH_PREFS, Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val store = HealthStateStore(prefs)
+        fun make(emit: (IngestRequest) -> Boolean, remember: ((HealthState, () -> Unit) -> Unit)?) = HealthPermissionRecorder(
+            read = { reading },
+            autoRequested = { autoRequested },
+            store = store,
+            clock = clock,
+            deviceId = "device-1",
+            userId = "user-1",
+            zone = ZoneId.of("Asia/Tokyo"),
+            newId = { "id-${ids++}" },
+            emit = emit,
+            log = { lines += it },
+            remember = remember ?: { state, settled ->
+                store.remember(state)
+                settled()
+            },
+        )
+        val service = make({ outbox.add(it) }, null)
+        // 画面の書き換えは本番と同じ組み方（[MainActivity.healthRemember]）
+        val screen = make(HealthRecordHandoff::offer) { state, settled ->
+            HealthRecordHandoff.afterDrain {
+                store.remember(state)
+                settled()
+            }
+        }
+        return service to screen
+    }
+
+    private val s1 = HealthReading(HealthAvailability.AVAILABLE, HealthFeatures(true, true), allPermissions)
+    private val s2 = s1.copy(grantedPermissions = allPermissions - HEALTH_PERMISSIONS.getValue("history"))
+
+    // Scenario: 後から設定で外すと次の見直しで記録される
+    @Test
+    fun `画面が別の状態を記録した後に戻すと、サービスの見直しが前に自分で記録した状態でも記録する`() {
+        val (service, screen) = sharedPair()
+        reading = s2
+        observe(service, HealthTrigger.PERIODIC)
+        reading = s1
+        observe(screen, HealthTrigger.APP_OPEN)
+        HealthRecordHandoff.drainInto(outbox) // サービスが立って画面の記録を積む
+
+        reading = s2
+        observe(service, HealthTrigger.PERIODIC)
+
+        assertEquals(
+            listOf(HealthTrigger.PERIODIC, HealthTrigger.APP_OPEN, HealthTrigger.PERIODIC),
+            records().map { it.payload["trigger"]!!.toString().trim('"') },
+        )
+    }
+
+    // Scenario: 状態が変わらなければ記録しない
+    @Test
+    fun `画面が記録済みの状態を、サービスの見直しがもう 1 件積まない`() {
+        val (service, screen) = sharedPair()
+        reading = s2
+        observe(service, HealthTrigger.PERIODIC)
+        reading = s1
+        observe(screen, HealthTrigger.APP_OPEN)
+        HealthRecordHandoff.drainInto(outbox)
+
+        observe(service, HealthTrigger.PERIODIC)
+
+        assertEquals(2, records().size)
+    }
+
+    @Test
+    fun `サービスが記録した状態を、画面がもう 1 件積まず、サービスが変えた後に画面が戻ったら記録する`() {
+        val (service, screen) = sharedPair()
+        reading = s1
+        observe(screen, HealthTrigger.APP_OPEN)
+        HealthRecordHandoff.drainInto(outbox)
+        reading = s2
+        observe(service, HealthTrigger.PERIODIC)
+
+        observe(screen, HealthTrigger.APP_OPEN) // 同じ S2 —— 積まない
+        reading = s1
+        observe(screen, HealthTrigger.APP_OPEN) // S1 へ戻った —— 画面が前に記録した状態でも積む
+        HealthRecordHandoff.drainInto(outbox)
+
+        assertEquals(
+            listOf(HealthTrigger.APP_OPEN, HealthTrigger.PERIODIC, HealthTrigger.APP_OPEN),
+            records().map { it.payload["trigger"]!!.toString().trim('"') },
+        )
+    }
+
+    @Test
+    fun `画面が預けて置き場に書く前に同じ状態をもう一度観ても 1 件だけ`() {
+        val (_, screen) = sharedPair()
+        observe(screen, HealthTrigger.APP_OPEN)
+        observe(screen, HealthTrigger.REQUEST_RESULT)
+        HealthRecordHandoff.drainInto(outbox)
+
+        assertEquals(1, records().size)
+    }
+
+    @Test
+    fun `受け渡し口で 1 件が置き場に書けなくても記録は失わず、書けた記録の書き換えは走り、書けなかった記録の書き換えだけを捨てる`() {
+        val (_, screen) = sharedPair()
+        val dir = java.nio.file.Files.createTempDirectory("handoff").toFile()
+        val segments = java.io.File(dir, "segments").apply { mkdirs() }
+        // 1 件目を書いた直後から置き場が書けなくなる（端末の空きが尽きた）
+        val failing = Outbox(
+            SegmentStore(segments, IngestRequest.serializer(), java.io.File(dir, "unreadable.jsonl"), log = {}),
+            age = { 0L },
+            afterAdd = { segments.walkTopDown().forEach { it.setWritable(false) } },
+        )
+        val prefs = app.getSharedPreferences(HEALTH_PREFS, Context.MODE_PRIVATE)
+        reading = s1
+        observe(screen, HealthTrigger.APP_OPEN)
+        reading = s2
+        observe(screen, HealthTrigger.REQUEST_RESULT)
+
+        try {
+            HealthRecordHandoff.drainInto(failing)
+        } finally {
+            segments.walkTopDown().forEach { it.setWritable(true) }
+        }
+
+        assertEquals("書けた記録の書き換えが走っていない", HealthState.of(s1, autoRequested).canonical(), prefs.getString("last_state", null))
+        assertEquals("書けなかった記録が未送信から消えた", 2, failing.snapshot().size)
+    }
 }
