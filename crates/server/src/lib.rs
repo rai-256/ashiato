@@ -1597,6 +1597,13 @@ async fn ingest_request(
 
     // **新しく入った記録だけ**、消した滞在の時間帯に入るかをこのまとまりの中で見て、印と本文の消去を同じ commit にする
     // （ST23 / design D8（仮）。位置でない記録は何もしない）。応答は変えない。
+    //
+    // **外部識別子の更新（`Update::Applied`）で時刻が本文を消した時間帯へ移った行は、ここでは扱わない（範囲外。final review R13）。**
+    // 更新は新しく届いた記録ではなく既にある記録を動かすもので、その前の版（動く前の時刻と本文）は本人が確認で見た範囲に無い。
+    // ここで本文を消すと前の版まで消え（`erase_bodies` は前の版も消す）、見せていない記録の本文が戻らなくなる（D13 と同じ向き）。
+    // spec の後着の Scenario も新しく入った記録だけを持つ（D8）。その行は、その日の作り直し（`rebuild_day` の
+    // `mark_late_arrivals`。印だけ）で `user:late` が付いて隠れる。書庫の位置・項目なら、書庫の見回り
+    // （`mark_archive_arrivals`）が本文を残した `user:late` の行の本文と前の版も消して台帳に積む。
     if row.is_some() && settle == Settle::InTx {
         stay_store::settle_arrival(&mut tx, &req)
             .await
