@@ -309,11 +309,14 @@ mod tests {
     use crate::contract::{IngestRequest, RecordKind, WindowPayload};
     use std::cell::RefCell;
 
-    fn tmp_path() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "ashiato-send-{}/outbox.jsonl",
-            uuid::Uuid::new_v4()
-        ))
+    /// 試験の最後まで `TempDir` を持つ（落ちても消える）。
+    fn tmp_path() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-send-")
+            .tempdir()
+            .unwrap();
+        let path = tmp.path().join("outbox.jsonl");
+        (tmp, path)
     }
 
     fn req(n: u32) -> IngestRequest {
@@ -383,7 +386,8 @@ mod tests {
     /// **受理された分だけを取り除く**（tasks 8.2）。
     #[test]
     fn outbox_uses_accepted_only() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         o.add(req(2)).unwrap();
         let t = FakeTransport::with(vec![ok_reply(&[true, false])]);
@@ -406,7 +410,7 @@ mod tests {
     /// Scenario: 到達できない間の記録が後から届く
     #[test]
     fn outbox_survives_outage() {
-        let path = tmp_path();
+        let (_tmp, path) = tmp_path();
         let mut o: Outbox<IngestRequest> = Outbox::open(path.clone()).unwrap();
         let mut s = Sender::ingest();
         let mut log = |_: String| {};
@@ -436,7 +440,8 @@ mod tests {
     /// 断られた 1 件が**後続を永久に止めない**（ST02 の review R18 / H-1 と同型）。
     #[test]
     fn rejected_item_does_not_block_the_rest() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         let t = FakeTransport::with(vec![ok_reply(&[false]), ok_reply(&[true])]);
         let mut s = Sender::ingest();
@@ -456,7 +461,8 @@ mod tests {
     /// 契約から外れた応答では**何も取り除かない**（取り除くと消える）。
     #[test]
     fn unreadable_reply_removes_nothing() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         let t = FakeTransport::with(vec![Some(Reply {
             status: 500,
@@ -472,7 +478,8 @@ mod tests {
     /// **件数の合わない応答では何も取り除かない**（R21）。
     #[test]
     fn mismatched_reply_length_removes_nothing() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         o.add(req(2)).unwrap();
         let t = FakeTransport::with(vec![ok_reply(&[true])]);
@@ -486,7 +493,8 @@ mod tests {
     /// 断られた分**だけ**が残ったら、次の契機で当たり直す（I5）。
     #[test]
     fn rejected_only_backlog_is_retried() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         let t = FakeTransport::with(vec![ok_reply(&[false]), ok_reply(&[true])]);
         let mut s = Sender::ingest();
@@ -500,7 +508,8 @@ mod tests {
     /// **1 回に載せる件数を切る**（I9）。
     #[test]
     fn batch_is_capped() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         for n in 0..(MAX_BATCH as u32 + 50) {
             o.add(req(n)).unwrap();
         }
@@ -516,7 +525,8 @@ mod tests {
     /// 履歴の大きな取り込みの後ろに積んだウィンドウの記録が、次の 1 回で出る（R69。design D3（仮））。
     #[test]
     fn history_backlog_does_not_hold_back_window_records() {
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         for n in 0..(MAX_BATCH as u32 * 3) {
             let mut r = req(n);
             r.logical_source = crate::history::contract::LOGICAL_SOURCE.to_string();
@@ -616,7 +626,8 @@ mod tests {
         .to_string();
         let (base, server) = one_shot_server("400 Bad Request", body);
         let t = HttpTransport::new(&base, "secret-token-0123456789");
-        let mut o: Outbox<IngestRequest> = Outbox::open(tmp_path()).unwrap();
+        let (_tmp, path) = tmp_path();
+        let mut o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         o.add(req(1)).unwrap();
         let mut s = Sender::ingest();
         let mut lines = Vec::new();

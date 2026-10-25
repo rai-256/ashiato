@@ -332,7 +332,7 @@ mod tests {
         // Scenario: 遷移の種類とどこから来たかが残る
         // Scenario: URL のクエリとフラグメントが残る
         // Scenario: 履歴 DB の URL の文字列を補正しない
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, transition INTEGER, from_visit INTEGER, visit_duration INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER);
           INSERT INTO urls VALUES(1, 'example.test/a?q=x#f', '題名'); INSERT INTO visits VALUES(1,1,1,3,0,7,NULL,NULL),(2,1,2,4,1,8,NULL,NULL);").unwrap();
@@ -344,26 +344,24 @@ mod tests {
         assert_eq!(v[0].duration_us, Some(7));
         assert_eq!(v[0].transition, 3);
         assert_eq!(v[1].from_visit, Some(1));
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_read_chromium_allows_null_duration() {
         // Scenario: 滞在時間が未記録の訪問も取り込める
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, transition INTEGER, from_visit INTEGER, visit_duration INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER); INSERT INTO urls VALUES(1, 'https://example.test/a', NULL); INSERT INTO visits VALUES(1,1,1,3,0,NULL,NULL,NULL);").unwrap();
         drop(conn);
         let visits = read_chromium(&db).unwrap().visits;
         assert_eq!(visits[0].duration_us, None);
-        std::fs::remove_file(db).ok();
     }
 
     /// Scenario: 他の端末の訪問は発生元の印を持つ
     /// Scenario: PC 自身の訪問は発生元の印を持たない
     #[test]
     fn history_foreign_visits_are_read_from_chromium() {
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, transition INTEGER, from_visit INTEGER, visit_duration INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER); INSERT INTO urls VALUES(1, 'https://example.test/a', '題名'); INSERT INTO visits VALUES(1,1,1,3,0,7,'other-pc',99),(2,1,2,3,0,7,NULL,NULL);").unwrap();
         drop(conn);
@@ -372,12 +370,11 @@ mod tests {
         assert_eq!(visits[0].originator_visit_id, Some(99));
         assert_eq!(visits[1].originator_cache_guid, None);
         assert_eq!(visits[1].originator_visit_id, None);
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_read_firefox() {
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER);
           INSERT INTO moz_places VALUES(1, 'https://example.test/a?q=x#f', '題名'); INSERT INTO moz_historyvisits VALUES(1,1,1,2,0);").unwrap();
@@ -385,44 +382,40 @@ mod tests {
         let v = read_firefox(&db).unwrap().visits;
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].url.as_deref(), Some("https://example.test/a?q=x#f"));
-        std::fs::remove_file(db).ok();
     }
     #[test]
     fn history_copy_is_removed() {
         // Scenario の印は Windows の本物のブラウザで確かめる `tests/runtime_windows.rs` が持つ（R62）
-        let db = temp_db();
+        let (tmp, db) = temp_db();
         let _open_browser_db = rusqlite::Connection::open(&db).unwrap();
-        let copy = with_copy(&db, &tmp_root(), |p| {
+        let copy = with_copy(&db, &copies(&tmp), |p| {
             assert!(p.exists());
             Ok(p.to_owned())
         })
         .unwrap();
         assert!(!copy.exists());
-        std::fs::remove_file(db).ok();
     }
     #[test]
     fn history_heartbeat_probes_when_not_read() {
         // Scenario: 区間に読みが無くても、開けるかを確かめてから報告する
-        let db = temp_db();
+        let (tmp, db) = temp_db();
         rusqlite::Connection::open(&db).unwrap();
-        assert!(probe_readable(&db, &tmp_root()).is_ok());
-        std::fs::remove_file(db).ok();
+        assert!(probe_readable(&db, &copies(&tmp)).is_ok());
     }
 
     #[test]
     fn history_heartbeat_rejects_an_unreadable_database() {
         // Scenario: 履歴 DB が開けなければ取得できない状態として扱える
-        let db = temp_db();
+        let (tmp, db) = temp_db();
         std::fs::write(&db, "not a sqlite database").unwrap();
-        assert!(probe_readable(&db, &tmp_root()).is_err());
-        std::fs::remove_file(db).ok();
+        assert!(probe_readable(&db, &copies(&tmp)).is_err());
     }
     const CHROMIUM_FULL: &str = "CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER, visit_duration INTEGER, opener_visit INTEGER, originator_cache_guid TEXT, originator_visit_id INTEGER, is_known_to_sync INTEGER);";
 
     #[test]
     fn history_read_chromium_opener_and_sync_flag() {
         // Scenario: 遷移の種類とどこから来たかが残る
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch(CHROMIUM_FULL).unwrap();
         conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/',NULL); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'',0,0),(2,1,20,1,1,5,1,'',0,1);").unwrap();
@@ -435,13 +428,12 @@ mod tests {
         // 空の発生元は「他端末の訪問」ではない
         assert_eq!(v[0].originator_cache_guid, None);
         assert_eq!(v[0].originator_visit_id, None);
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_read_chromium_old_schema_without_optional_columns() {
         // Scenario: 同じページを 2 回訪問すると 2 件になる
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER); INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1);").unwrap();
         drop(conn);
@@ -450,13 +442,12 @@ mod tests {
         assert_eq!(v[0].duration_us, None);
         assert_eq!(v[0].originator_cache_guid, None);
         assert_eq!(v[0].is_known_to_sync, None);
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_read_firefox_keeps_url_text_untouched() {
         // Scenario: 履歴 DB の URL の文字列を補正しない
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'HTTPS://Example.TEST/Path',NULL); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0),(2,1,6,1,1);").unwrap();
         drop(conn);
@@ -466,13 +457,12 @@ mod tests {
         assert_eq!(v[0].title, None);
         assert_eq!(v[1].from_visit, Some(1));
         assert_eq!(v[0].originator_cache_guid, None);
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_copy_is_removed_with_wal_and_journal_and_reads_wal_rows() {
-        let dir = std::env::temp_dir().join(format!("ashiato-read-dir-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let (base, _db) = temp_db();
+        let dir = base.path().to_path_buf();
         let db = dir.join("History");
         let open = rusqlite::Connection::open(&db).unwrap();
         open.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE t(x INTEGER); INSERT INTO t VALUES(7);").unwrap();
@@ -480,7 +470,7 @@ mod tests {
         assert!(dir.join("History-wal").exists());
         std::fs::write(dir.join("History-journal"), []).unwrap();
         let mut seen = Vec::new();
-        let n: i64 = with_copy(&db, &tmp_root(), |copy| {
+        let n: i64 = with_copy(&db, &copies(&base), |copy| {
             let parent = copy.parent().unwrap();
             seen = std::fs::read_dir(parent)
                 .unwrap()
@@ -499,34 +489,32 @@ mod tests {
             assert!(!p.exists(), "写しは消える: {}", p.display());
         }
         drop(open);
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
     fn history_read_visits_picks_reader_by_family() {
         // Scenario: 複数のブラウザと複数のプロファイルの履歴が全部入る
-        let db = temp_db();
+        let (tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'https://a.test/',NULL); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0);").unwrap();
         drop(conn);
-        let v = read_visits(crate::history::locate::Browser::Firefox, &db, &tmp_root())
+        let v = read_visits(crate::history::locate::Browser::Firefox, &db, &copies(&tmp))
             .unwrap()
             .visits;
         assert_eq!(v.len(), 1);
-        std::fs::remove_file(db).ok();
     }
 
     #[test]
     fn history_foreign_visits_keep_pc_side_identifier_and_pc_mark() {
         // Scenario: 他の端末の訪問は発生元の印を持つ
         // Scenario: PC 自身の訪問は発生元の印を持たない
-        let db = temp_db();
+        let (tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch(CHROMIUM_FULL).unwrap();
         conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'other-pc',99,1),(2,1,10,0,1,5,0,'',0,0);").unwrap();
         drop(conn);
         let b = crate::history::locate::Browser::Chrome;
-        let v = read_visits(b, &db, &tmp_root()).unwrap().visits;
+        let v = read_visits(b, &db, &copies(&tmp)).unwrap().visits;
         let foreign = crate::history::contract::Visit::from_read(b, "Default", &v[0]).unwrap();
         let local = crate::history::contract::Visit::from_read(b, "Default", &v[1]).unwrap();
         assert_eq!(
@@ -541,13 +529,12 @@ mod tests {
         );
         assert_eq!(local.payload.originator_cache_guid, None);
         assert!(!local.raw.contains("originator"));
-        std::fs::remove_file(db).ok();
     }
 
     /// URL の行が無い訪問も読む。URL と題名は `None`、時刻・遷移・滞在時間は残る（deep.md 第 4 回 Q8。R57）。
     #[test]
     fn history_read_keeps_visits_whose_url_row_is_missing() {
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch(CHROMIUM_FULL).unwrap();
         conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'',0,0),(2,99,20,0,8,7,0,'',0,0);").unwrap();
@@ -556,22 +543,20 @@ mod tests {
         assert_eq!(v.len(), 2, "URL の行が無い訪問を落とした");
         assert_eq!((v[1].url.as_ref(), v[1].title.as_ref()), (None, None));
         assert_eq!((v[1].transition, v[1].duration_us), (8, Some(7)));
-        std::fs::remove_file(db).ok();
 
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'https://a.test/','t'); INSERT INTO moz_historyvisits VALUES(1,1,5,1,0),(2,42,6,2,0);").unwrap();
         drop(conn);
         let v = read_firefox(&db).unwrap().visits;
         assert_eq!(v.len(), 2);
         assert_eq!((v[1].url.as_ref(), v[1].transition), (None, 2));
-        std::fs::remove_file(db).ok();
     }
 
     /// 負の訪問時刻・型の合わない値の行は、飛ばして数える。プロファイル全体を読めないにしない（R59）。
     #[test]
     fn history_read_skips_and_counts_bad_rows() {
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch(CHROMIUM_FULL).unwrap();
         conn.execute_batch("INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits VALUES(1,1,10,0,1,5,0,'',0,0),(2,1,-5,0,1,5,0,'',0,0),(3,1,'not-a-time',0,1,5,0,'',0,0),(4,1,30,0,1,5,0,'',0,0);").unwrap();
@@ -582,42 +567,38 @@ mod tests {
             vec![1, 4]
         );
         assert_eq!(read.skipped, 2);
-        std::fs::remove_file(db).ok();
 
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE moz_historyvisits(id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER, visit_type INTEGER, from_visit INTEGER); INSERT INTO moz_places VALUES(1,'https://a.test/','t'); INSERT INTO moz_historyvisits VALUES(1,1,-1,1,0),(2,1,6,2,0);").unwrap();
         drop(conn);
         let read = read_firefox(&db).unwrap();
         assert_eq!((read.visits.len(), read.skipped), (1, 1));
-        std::fs::remove_file(db).ok();
     }
 
     /// Chromium の `sqlite_sequence` の値を読む。表が無い古い形は `None`（design D10。R64）。
     #[test]
     fn history_read_chromium_visits_sequence() {
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY AUTOINCREMENT, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER); INSERT INTO urls VALUES(1,'https://example.test/','t'); INSERT INTO visits(url,visit_time,from_visit,transition) VALUES(1,10,0,1),(1,20,0,1); DELETE FROM visits WHERE id=2;").unwrap();
         drop(conn);
         let read = read_chromium(&db).unwrap();
         assert_eq!((read.visits.len(), read.sequence), (1, Some(2)));
-        std::fs::remove_file(db).ok();
 
-        let db = temp_db();
+        let (_tmp, db) = temp_db();
         let conn = rusqlite::Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER);").unwrap();
         drop(conn);
         assert_eq!(read_chromium(&db).unwrap().sequence, None);
-        std::fs::remove_file(db).ok();
     }
 
     /// 写しは置き場の `tmp` の下に作り、読み手が panic しても消える（design D2。R60）。
     #[test]
     fn history_copy_lives_under_tmp_and_is_removed_on_panic() {
-        let db = temp_db();
+        let (base, db) = temp_db();
         rusqlite::Connection::open(&db).unwrap();
-        let tmp = tmp_root();
+        let tmp = copies(&base);
         let mut seen = None;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             with_copy(&db, &tmp, |copy| -> anyhow::Result<()> {
@@ -634,14 +615,13 @@ mod tests {
         );
         assert!(!copy.exists(), "panic で写しが残った");
         assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
-        std::fs::remove_dir_all(tmp).ok();
-        std::fs::remove_file(db).ok();
     }
 
     /// 起動時に前のプロセスの残骸を消す。無いときは何もしない（R60）。
     #[test]
     fn history_copy_leftovers_are_swept() {
-        let tmp = tmp_root();
+        let (base, _db) = temp_db();
+        let tmp = copies(&base);
         std::fs::create_dir_all(tmp.join("left-over")).unwrap();
         std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
         sweep_copies(&tmp).unwrap();
@@ -650,11 +630,17 @@ mod tests {
     }
 
     /// 写しの置き場（本物は `state_dir/browser-history/tmp`）。
-    fn tmp_root() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("ashiato-read-tmp-{}", uuid::Uuid::new_v4()))
+    fn copies(tmp: &tempfile::TempDir) -> std::path::PathBuf {
+        tmp.path().join("copies")
     }
 
-    fn temp_db() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("ashiato-read-{}.sqlite", uuid::Uuid::new_v4()))
+    /// 試験の最後まで `TempDir` を持つ（落ちても消える）。DB はその下に置く。
+    fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-read-")
+            .tempdir()
+            .unwrap();
+        let db = tmp.path().join("read.sqlite");
+        (tmp, db)
     }
 }

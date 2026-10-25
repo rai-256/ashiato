@@ -412,7 +412,11 @@ mod tests {
     /// 壊れた数えは**退避して起動を続ける**（R18）。
     #[test]
     fn broken_counters_are_quarantined() {
-        let dir = std::env::temp_dir().join(format!("ashiato-cnt-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-cnt-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("counters.json"), "").unwrap();
         let store = CounterStore::new(&dir);
@@ -423,7 +427,6 @@ mod tests {
             (None, false),
             "退避したのにまだ読んでいる"
         );
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 区間の間に一度でも欠けたものが残る（R26）。
@@ -441,7 +444,11 @@ mod tests {
     /// 数えは**起動をまたいで残る**（ST01 の review R16 と同じ理由）。
     #[test]
     fn counters_survive_restart() {
-        let dir = std::env::temp_dir().join(format!("ashiato-cnt-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-cnt-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         let store = CounterStore::new(&dir);
         assert_eq!(store.load().unwrap(), None);
         let mut c = Counters::new(t(0));
@@ -449,7 +456,6 @@ mod tests {
         c.record(false);
         store.save(&c).unwrap();
         assert_eq!(store.load().unwrap(), Some(c));
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 原文に私的な内容が入らない（載るのは稼働・取得可否・回数だけ）。
