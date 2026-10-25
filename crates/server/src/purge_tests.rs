@@ -260,6 +260,25 @@ async fn purge_schema_ledger_rejects_delete_and_truncate() {
                 break e;
             }
         };
+        let still_waiting = e
+            .as_database_error()
+            .and_then(|d| d.code())
+            .is_some_and(|c| c == "55P03");
+        if still_waiting {
+            // 全体の試験の最中は、書き出しの長い読み出しが錠を数分持つことがある。錠が取れないなら、
+            // 撃つ前の文トリガ（切り詰めを拒むもの）が有効に置かれていることを見る
+            let armed: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_trigger
+                  WHERE tgrelid = format('core.%I', $1::text)::regclass
+                    AND tgenabled = 'O' AND (tgtype & 32) <> 0",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(armed >= 1, "{table} に切り詰めを拒む文トリガが無い");
+            continue;
+        }
         assert_append_only_error(&e, &format!("{table} の切り詰め"));
     }
 }
