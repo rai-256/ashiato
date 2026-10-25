@@ -28,7 +28,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 9 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 12 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / verify-env-reset の self-test と本体） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
