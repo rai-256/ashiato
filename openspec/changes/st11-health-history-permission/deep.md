@@ -108,5 +108,6 @@
 - **出所**: final review の fix で初めて走らせた計測テスト `HealthPermissionGrantInstrumentedTest` t4 の失敗（`review/code.md` R12。logcat は `.superpowers/sdd/st11-r4/`）
 - **loss**: どの選択肢でも読めるデータは失わない（P2・P12: 後から許せば全履歴が読める）。推奨の側は押す回数が 2〜3 回増える。通知の操作をやめる側は、戻り方を本人が知らないと ST34 が読めない時間が延びる
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/ST11-deep-r2.html`）
-- **本人の答え**: (未回答)
+- **本人の答え**: Health Connect の設定のトップを開き、そこから「アプリの権限 → ashiato」へ本人がたどる（本人が選んだ。推奨と同じ・補足なし。`deep-answers-2.txt`）
+- **要件へ戻すもの**: なし（要件・Story は通知からのたどり先を書いていない。Q4 の「常駐の通知から Health Connect の設定へたどれる」とも合う）
 - **効く先**: design D8（仮）/ spec の Scenario「常駐の通知から健康データの権限の画面が開く」/ `LocationService.kt` の `healthPermissionSettingsIntent` / `HealthPermissionGrantInstrumentedTest` t4
