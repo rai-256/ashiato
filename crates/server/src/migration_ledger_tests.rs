@@ -247,6 +247,28 @@ async fn st48_read_ledger_unreadable_applied_column_missing() {
     ));
 }
 
+/// 付与の抜けは「表が無い」でなく権限の理由で返す（information_schema は読めない列を隠す。review/code.md R30）
+#[tokio::test]
+async fn st48_read_ledger_unreadable_app_lacks_privilege() {
+    for revoke in [
+        "REVOKE SELECT ON migration_ledger.form FROM ashiato_app",
+        "REVOKE USAGE ON SCHEMA migration_ledger FROM ashiato_app",
+    ] {
+        let db = bootstrapped().await;
+        let app = db.app().await;
+        assert!(matches!(
+            read_ledger(&app).await.unwrap(),
+            Ledger::Recorded(_)
+        ));
+        sqlx::query(revoke).execute(db.owner()).await.unwrap();
+        match read_ledger(&app).await.unwrap() {
+            Ledger::Unreadable(why) => assert!(why.contains("権限"), "{revoke}: {why}"),
+            other => panic!("{revoke}: {other:?}"),
+        }
+        app.close().await;
+    }
+}
+
 /// 記録の無い database に `MIGRATIONS` を直に当てる（ST48 より前の DB の再現）。
 async fn apply_without_ledger(pool: &sqlx::PgPool) {
     for (_, sql) in crate::MIGRATIONS {
@@ -311,11 +333,22 @@ async fn st48_apply_row_has_fingerprint_and_build() {
         assert_eq!(sha, sha256_hex(sql), "{name}");
         assert_eq!(version, env!("CARGO_PKG_VERSION"));
         assert_eq!(commit, env!("ASHIATO_BUILD_COMMIT"));
+        // 書いた定数どうしでなく、組み立てに渡した値そのものと比べる（review/code.md R20）。
+        // 渡した値は別の名前で受ける —— cargo は build script の `rustc-env` を試験の実行時の環境にも入れるので、
+        // 実行時に `ASHIATO_BUILD_COMMIT` を読むと組み立て済みの値が見える。CI は同じ乱数を両方に渡す
+        if let Some(given) = std::env::var("ASHIATO_EXPECT_BUILD_COMMIT")
+            .ok()
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+        {
+            assert_eq!(commit, given, "{name}: 組み立てに渡した commit と違う");
+        }
         assert!(recent, "{name} の applied_at が今でない");
     }
-    // 渡さなければ git の HEAD。差分のビルドでは古いまま残りうる（design D8）ので、HEAD の祖先まで許す
-    if std::env::var_os("ASHIATO_BUILD_COMMIT").is_none() {
-        let commit = env!("ASHIATO_BUILD_COMMIT");
+    // 渡さなければ git の HEAD。差分のビルドでは古いまま残りうる（design D8）ので、HEAD の祖先まで許す。
+    // 渡したかどうかは実行時の環境では分からない（上の注記）ので、40 桁の 16 進（git の commit の形）のときだけ見る
+    let commit = env!("ASHIATO_BUILD_COMMIT");
+    if commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .args(args)

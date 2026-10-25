@@ -180,6 +180,20 @@ async fn schema_exists(pool: &mut PgConnection, name: &str) -> Result<bool, sqlx
         .await
 }
 
+/// 今の役割が `migration_ledger` の schema か、そこにある `form` / `applied` の表を読めないか。
+/// 表が無いことは見ない（形の検査が「表が無い」で返す）。
+async fn lacks_read_privilege(pool: &mut PgConnection) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT NOT has_schema_privilege(n.oid, 'USAGE')
+             OR EXISTS (SELECT 1 FROM pg_class c
+                         WHERE c.relnamespace = n.oid AND c.relname IN ('form', 'applied')
+                           AND NOT has_table_privilege(c.oid, 'SELECT'))
+           FROM pg_namespace n WHERE n.nspname = 'migration_ledger'",
+    )
+    .fetch_one(&mut *pool)
+    .await
+}
+
 /// 表の列（名前, 型）を並びの順に引く。
 async fn columns(
     pool: &mut PgConnection,
@@ -218,6 +232,13 @@ async fn read_ledger_on(pool: &mut PgConnection) -> Result<Ledger, sqlx::Error> 
         } else {
             Ledger::Empty
         });
+    }
+    // information_schema.columns は読む権限の無い列を隠すので、付与の抜けが「表が無い」に見える。
+    // 作り直しの案内（STACK_RESET=1）へ導かないよう、権限の抜けは先に別の理由で返す（review/code.md R30）
+    if lacks_read_privilege(pool).await? {
+        return Ok(Ledger::Unreadable(
+            "版の記録を読む権限が無い（付与の抜け。DB を作り直さずに付与を確かめる）".into(),
+        ));
     }
     let form_cols = columns(pool, "form").await?;
     if form_cols.is_empty() {

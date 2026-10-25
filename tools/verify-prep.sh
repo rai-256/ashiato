@@ -89,10 +89,39 @@ dbq="COMPOSE_PROJECT_NAME=$project docker compose exec -T db psql -U ashiato -d 
 
 # ---- 測り直しの間隔を見直す材料（ST05 / design D4 の反転条件）。人間には聞かない。数を残すだけ。
 # `c01-clock` の直近 7 日の `trigger = retry` が `hourly` の半分を超えるなら、測り直しを 5 分から 15 分にする。
-# DB は回ごと（ST48 / design D13）で、この回の DB は run.sh が初めて作る。前の回の DB の数はこの回と関係が無いので、
-# ここでは数えない。この回の DB で数える 1 行だけを載せる（7 日分が溜まるのは、同じ回の DB に端末が 7 日送り続けたときだけ）。
+# DB は回ごと（ST48 / design D13）で、この回の DB は run.sh が初めて作る（まだ空）。端末の測定は前の回の DB に分かれて
+# 入っているので、前の回の DB（`ashiato-verify-*`）と ST48 より前の既定の project の DB を 1 つずつ起こして数え、足して判定する
+# （止まっていた DB は数えた後に止め直す。待ち受けの port が回をまたいで同じなので、同時には起こさない）。review/code.md R27
 clock_sql="select coalesce(sum((payload->>'trigger'='retry')::int),0) as retry, coalesce(sum((payload->>'trigger'='hourly')::int),0) as hourly from core.event where logical_source='c01-clock' and payload->>'kind'='clock-skew' and event_time > now() - interval '7 days'"
-clock_note="ここでは数えていない（DB は回ごとで、この回の DB は run.sh が作る。前の回の DB の数は混ぜない）。run.sh の後に、この回の DB で数える: \`$dbq \"$clock_sql\"\`。判定は \`retry\` が \`hourly\` の半分を超えたら測り直しを 5 分から 15 分にする（design D4。\`hourly\` が 0 件なら比は出ない）"
+clock_note="数えていない（docker が無い、または数えられる DB が 1 つも無い）。run.sh の後に、この回の DB で数える: \`$dbq \"$clock_sql\"\`"
+if command -v docker >/dev/null; then
+  default_project="$(docker compose config 2>/dev/null | sed -n 's/^name: //p' | head -n1)"
+  n_retry=0 n_hourly=0 counted=()
+  for p in $( { docker ps -a --filter label=com.docker.compose.service=db \
+                  --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null || true; } \
+                | grep -xE "ashiato-verify-.*|${default_project:-^$}" | sort -u); do
+    running="$(docker ps -q --filter "label=com.docker.compose.project=$p" --filter label=com.docker.compose.service=db)"
+    if [ -z "$running" ] && ! COMPOSE_PROJECT_NAME="$p" docker compose up -d --wait db >/dev/null 2>&1; then
+      continue
+    fi
+    counts="$(COMPOSE_PROJECT_NAME="$p" docker compose exec -T db psql -U ashiato -d ashiato -tAF ' ' -c "$clock_sql" 2>/dev/null || true)"
+    [ -n "$running" ] || COMPOSE_PROJECT_NAME="$p" docker compose stop db >/dev/null 2>&1 || true
+    [ -n "$counts" ] || continue
+    read -r r h <<<"$counts"
+    n_retry=$((n_retry + r)) n_hourly=$((n_hourly + h)) counted+=("$p")
+  done
+  if [ "${#counted[@]}" -gt 0 ]; then
+    # 反転条件の判定（retry > hourly/2 ⇔ 2*retry > hourly）。hourly が 0 のときは比が出ないので判定しない。
+    if [ "$n_hourly" -eq 0 ]; then
+      verdict="hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）"
+    elif [ $((2 * n_retry)) -gt "$n_hourly" ]; then
+      verdict="**反転条件に当たった**: \`retry\` が \`hourly\` の半分を超えた。測り直しを 5 分から 15 分にする（design D4）"
+    else
+      verdict="反転条件には当たっていない（\`retry\` は \`hourly\` の半分以下。測り直しは 5 分のまま）"
+    fi
+    clock_note="DB ${#counted[@]} 個（${counted[*]}）の直近 7 日の合計は \`retry\` = $n_retry 件 / \`hourly\` = $n_hourly 件。$verdict"
+  fi
+fi
 note "c01-clock: $clock_note"
 
 # ---- manifest.md（確認手順書の冒頭に載る。段落ごとに 1 つの note になる）

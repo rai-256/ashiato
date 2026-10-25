@@ -889,6 +889,19 @@ mod st48_migrate {
                 .local_addr()
                 .unwrap()
                 .port();
+            self.serve_on(port)
+        }
+
+        /// 待ち受けの port を先に塞いだまま起動する（拒否の試験。review/code.md R19）。
+        /// 版の検査が待ち受けより先なら終了コード 3、待ち受けが先なら bind の誤りになり、順が観測できる。
+        fn serve_on_held_port(&self) -> Served {
+            let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let served = self.serve_on(held.local_addr().unwrap().port());
+            drop(held);
+            served
+        }
+
+        fn serve_on(&self, port: u16) -> Served {
             let mut cmd = server_cmd();
             cmd.env(
                 "DATABASE_URL",
@@ -938,7 +951,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.add_future_row().await;
-        let served = rig.serve();
+        let served = rig.serve_on_held_port();
         let err = assert_refused_3(&served, "db_ahead");
         assert!(
             err.contains("  db: 209912312359_from_the_future (0.9.9 deadbeef)"),
@@ -960,7 +973,7 @@ mod st48_migrate {
                (SELECT name FROM migration_ledger.applied ORDER BY name DESC LIMIT 2)",
         )
         .await;
-        let served = rig.serve();
+        let served = rig.serve_on_held_port();
         let err = assert_refused_3(&served, "db_behind");
         assert!(err.contains("まだ当たっていない版が 2 個"), "{err}");
         assert!(err.contains("ashiato-server migrate"), "{err}");
@@ -972,7 +985,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.exec("DROP SCHEMA migration_ledger CASCADE").await;
-        let served = rig.serve();
+        let served = rig.serve_on_held_port();
         let err = assert_refused_3(&served, "db_behind");
         assert!(
             err.contains(&format!(
@@ -1026,7 +1039,7 @@ mod st48_migrate {
         let rig = Rig::new().await;
         assert_ok(&rig.migrate());
         rig.exec("UPDATE migration_ledger.form SET form = 2").await;
-        let served = rig.serve();
+        let served = rig.serve_on_held_port();
         assert_refused_3(&served, "ledger_unreadable");
     }
 }

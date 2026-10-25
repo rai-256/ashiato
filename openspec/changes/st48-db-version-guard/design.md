@@ -88,6 +88,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA migration_ledger TO ashiato_app;
 ### D5（仮）. 版の記録が読めないときは止める側に倒す
 
 - 読めない = `migration_ledger` はあるのに `form` の表か行が無い・`form` が 1 でない・`applied` の列が D1 と違う（列の名前と型だけを見る。行の中身は見ない）
+- 読む役割に schema の `USAGE` か表の `SELECT` が無いときは、形を見る前に「読む権限が無い（付与の抜け）」として読めないにする。`information_schema.columns` は読めない列を隠すので、付与の抜けが「表が無い」に見え、作り直しの案内へ導く（review/code.md R30）
 - migrate も起動も、終了コード 3 で `kind=ledger_unreadable`
 - 反転条件: 後の版が `form` を上げずに列を足す必要が出たら（D1 の凍結の試験が先に落ちて分かる）、「知らない列は読み飛ばす」に替える前に人間へ聞く（配った版の読み方が変わる）
 
@@ -139,6 +140,7 @@ error: kind=db_ahead
 
 - 版番号は `env!("CARGO_PKG_VERSION")`。commit は `build.rs` が決めて `cargo:rustc-env=ASHIATO_BUILD_COMMIT=…` で渡す: 環境変数 `ASHIATO_BUILD_COMMIT` があればそれ、無ければ `git rev-parse HEAD`（失敗したら `unknown`）
 - `build.rs` は `cargo:rerun-if-env-changed=ASHIATO_BUILD_COMMIT` を出す。git の HEAD の変化では作り直さない（差分のビルドでは commit が古いまま残りうる。診断の材料なので許す）
+- 試験は、組み立てに渡した値を別の名前（`ASHIATO_EXPECT_BUILD_COMMIT`）で受けて行の値と比べる（cargo は build script の `rustc-env` を試験の実行時の環境にも入れるので、`ASHIATO_BUILD_COMMIT` を実行時に読むと組み立て済みの値が見える）。CI は同じ乱数を両方に渡して 1 本だけ走らせる（review/code.md R20）
 - 反転条件: ST52 が版番号の出所を 1 つにしたら、そちらから読む（commit は残す）。commit が古いままで食い違いを読み違えた事例が出たら、`.git/HEAD` と参照先を `rerun-if-changed` に足す
 
 ### D9（仮）. 配った印 = タグ `v*`、凍結の検査は `tools/check-released-migrations.sh`
@@ -146,6 +148,7 @@ error: kind=db_ahead
 - 印の型: `git tag --list 'v[0-9]*'`。ST52 がタグを付け始める。別の型にするなら、この台本の型を一緒に変える（`docs/handoff/ST52.md`）
 - 検査: 印ごとに `git show <tag>:migrations/ORDER` の版の名前を取り、今の木の `migrations/ORDER` に全部あること、`git diff --quiet <tag> HEAD -- migrations/<名前>.sql` が 0 であることを見る。`.down.sql` は見ない
 - 印が 0 個なら「配った印が 0 個」と出して rc=0。印の commit や `ORDER` を取り出せなければ rc≠0（印があるのに読めないのは CI の取り寄せの不足）
+- CI の取り寄せは `git ls-remote` の失敗を「印が 0 個」と区別して落とす（読めないまま検査を緑にしない。review/code.md R18）
 - CI: rust の job で `git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'` の後に走らせる（checkout は浅いのでタグが無い）。`--self-test`（使い捨ての git の木でタグを付け、中身の変更・消去・名前の変更が落ち、印の後の版と `.down.sql` の変更が通ることを見る）も同じ job で走らせる
 - 反転条件: 正式版の枝の緊急修正（FR-105）で、印の版の移行を直す必要が出たら、直さずに新しい版を足す。それができない事例が出たら人間へ聞く
 
@@ -155,6 +158,7 @@ error: kind=db_ahead
   (b) `.down.sql` に `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ
 - 境を名前の時刻にするのは、走っている ST23・ST41・ST29 の版（どれも 2026-10-25 より前の時刻）に、後から規則を課さないため（差し戻さない）
 - `--self-test` を足す（使い捨てのフォルダに規則を破る版と守る版を置いて、落ちる・通るを見る）
+- `tools/check-immutable.sh` は psql で当てる DB にも版の記録の置き場（bootstrap）だけを作る（行は書かない）。(b) の `DELETE` が戻しの検査で落ちないため（review/code.md R23）
 - 反転条件: 境より前の時刻を名前に付けた新しい版が入った（時刻を手で書き違えた）と分かったら、境を「この版より後に ORDER に足した版」に替える
 
 ### D11. 1 版 1 取引と錠
@@ -176,6 +180,7 @@ error: kind=db_ahead
 - `verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す。compose の DB の容器と置き場（無名の volume）は project ごとに分かれる。`docker compose exec db psql -d ashiato` の書き方（`seed.sh` など）はそのまま新しい DB を指す
 - 待ち受けの port（55499）は回をまたいで同じなので、`stack.sh` は DB を起こす前に、その port を公開している容器が別の project のものなら `docker stop` する（`down` しない。置き場が残る）。止めたことを 1 行出す
 - 前の回の DB を見るには `COMPOSE_PROJECT_NAME=<前の名前> docker compose up -d db`
+- 端末の測定は回ごとの DB に分かれて入るので、`verify-prep.sh` の `c01-clock` の数（ST05 D4 の反転条件）は、前の回の DB（`ashiato-verify-*`）と既定の project の DB を 1 つずつ起こして数えて足し、機械が判定する（止まっていた DB は数えた後に止め直す。review/code.md R27）
 - 退けた案: 1 つの PostgreSQL の中で database を分ける —— `seed.sh`・`seed.d/`・`archive-shape.sh` などの `-d ashiato` を全部書き換えることになる
 - 反転条件: 残る project の置き場が数十 GB を超える・本人が片付けの手間を違和感として返したら、片付けの道具を足す（別の change）
 
