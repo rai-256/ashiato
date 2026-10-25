@@ -31,6 +31,8 @@ if [ ! -f .env ]; then
     ./tools/env-init.sh
   fi
 fi
+# 写した `.env` の COMPOSE_FILE は同じ形でも、subnet のファイル（docker-compose.subnet.yml）はこの木の値で作り直す（ch06 / design D7）
+./tools/env-init.sh
 
 echo "== サーバ（release）"
 cargo build -q --release -p ashiato-server --bin ashiato-server
