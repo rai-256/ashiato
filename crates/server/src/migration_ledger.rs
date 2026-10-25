@@ -58,10 +58,8 @@ impl MigrateError {
                     ));
                 }
                 if unknown.len() > DB_LINES_MAX {
-                    out.push_str(&format!(
-                        "  db: ほか {} 件\n",
-                        unknown.len() - DB_LINES_MAX
-                    ));
+                    // `db:` の頭は 1 版 1 行に取っておく（ST58 が機械で読む）。超えた分は別の頭で件数だけ
+                    out.push_str(&format!("  more: {}\n", unknown.len() - DB_LINES_MAX));
                 }
                 out.push_str(&selfline);
                 out.push_str("\n  この DB には、この組み立ての知らない移行が当たっている。この組み立てでは当てない・起動しない\n");

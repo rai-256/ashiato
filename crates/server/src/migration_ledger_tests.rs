@@ -4,7 +4,8 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::migration_ledger::{
-    apply_migrations, compare, read_ledger, Ledger, MigrateError, Verdict, BOOTSTRAP,
+    apply_migrations, compare, read_ledger, Ledger, MigrateError, UnknownVersion, Verdict,
+    BOOTSTRAP, BUILD_COMMIT, BUILD_VERSION,
 };
 use crate::testdb::TempDb;
 use std::collections::BTreeSet;
@@ -57,6 +58,50 @@ async fn st48_ledger_shape_is_frozen() {
         .await
         .unwrap();
     assert_eq!(form, 1);
+    // 主キー（`form` は `only_row`、`applied` は `name`）と、`form` を 1 行に絞る `CHECK (only_row)`
+    let keys: Vec<(String, String)> = sqlx::query_as(
+        "SELECT tc.table_name::text, kcu.column_name::text
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kcu
+             ON kcu.constraint_schema = tc.constraint_schema
+            AND kcu.constraint_name = tc.constraint_name
+          WHERE tc.table_schema = 'migration_ledger' AND tc.constraint_type = 'PRIMARY KEY'
+          ORDER BY tc.table_name, kcu.ordinal_position",
+    )
+    .fetch_all(db.owner())
+    .await
+    .unwrap();
+    let keys: Vec<(&str, &str)> = keys.iter().map(|k| (k.0.as_str(), k.1.as_str())).collect();
+    assert_eq!(keys, vec![("applied", "name"), ("form", "only_row")]);
+    let checks: Vec<String> = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint
+          WHERE conrelid = 'migration_ledger.form'::regclass AND contype = 'c'",
+    )
+    .fetch_all(db.owner())
+    .await
+    .unwrap();
+    assert_eq!(checks, vec!["CHECK (only_row)".to_string()]);
+}
+
+#[test]
+fn st48_ahead_report_caps_db_lines_and_counts_the_rest() {
+    let unknown: Vec<UnknownVersion> = (0..23)
+        .map(|i| UnknownVersion {
+            name: format!("2026110100{i:02}_v"),
+            build_version: "0.2.0".into(),
+            build_commit: "c0ffee".into(),
+        })
+        .collect();
+    let (kind, out) = MigrateError::Ahead { unknown }.mismatch_report().unwrap();
+    assert_eq!(kind, "db_ahead");
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "error: kind=db_ahead");
+    for (i, line) in lines[1..21].iter().enumerate() {
+        assert_eq!(*line, format!("  db: 2026110100{i:02}_v (0.2.0 c0ffee)"));
+    }
+    assert_eq!(lines.iter().filter(|l| l.starts_with("  db: ")).count(), 20);
+    assert_eq!(lines[21], "  more: 3");
+    assert_eq!(lines[22], format!("  self: {BUILD_VERSION} {BUILD_COMMIT}"));
 }
 
 /// Scenario: S-01 の実行時の役割は版の記録を読めるが、書き換えられない
