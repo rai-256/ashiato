@@ -71,16 +71,16 @@
 
 ## Task 4: 作り直しの手順・切った接続の 1 行・作り直せないとき・塞いでいる network
 
-- [ ] 4.1 `tools/verify-env.sh` に design D1 の手順を書く（判定が `reset` のとき。`env-init.sh` の後、`up` の前）: `docker compose ps -aq db`（無ければ `切った接続: 0（DB のコンテナが無い）`）→ `docker inspect` で volume の名前を控える →
+- [x] 4.1 `tools/verify-env.sh` に design D1 の手順を書く（判定が `reset` のとき。`env-init.sh` の後、`up` の前）: `docker compose ps -aq db`（無ければ `切った接続: 0（DB のコンテナが無い）`）→ `docker inspect` で volume の名前を控える →
   D4 の確かめ（`docker ps -aq --filter volume=<名前>` にこのコンテナのほかがあれば、volume とコンテナの名前を標準エラーに出し、何も消さずに `exit 1`）→
   D3 の 1 行（`pg_stat_activity` の `client backend`、自分の接続を除く。`application_name@接続元`、無ければ `-` / `local`、同じ出所は `×<数>`、10 種を超えたら `…`。問えなければ `切った接続: 0（DB は止まっていた）`）→
   `docker compose rm -s -f db`（`-v` なし）→ 控えた volume を `docker volume rm`（落ちたら `exit 1`）。
   検証: `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh 2>&1 | grep -q "切った接続: "'` rc=0
-- [ ] 4.2 `tools/verify-env.sh` に design D5 の network の確かめを書く（判定に依らず、`docker-compose.subnet.yml` があり、自分の project の network が無いとき、`up` の前）: 同じ subnet を持つ別の network を探し、
+- [x] 4.2 `tools/verify-env.sh` に design D5 の network の確かめを書く（判定に依らず、`docker-compose.subnet.yml` があり、自分の project の network が無いとき、`up` の前）: 同じ subnet を持つ別の network を探し、
   コンテナが繋がっていなければその network だけを消す。繋がっていれば network とコンテナの名前を標準エラーに出し、何も消さずに `exit 1`。その後に今までの `up -d --wait db`・待ち・`db-roles.sh`。どの docker の失敗も非 0 にする。
   検証: `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh && HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0（2 回続けて作り直せる）/
   `bash -c '! grep -vE "^\s*#" tools/verify-env.sh | grep -nE "down -v|up .*-V|force-recreate|rm -[a-z]*v"'` rc=0
-- [ ] 4.3 作り直し 1 回の時間を 3 回測り、design の「計測の記録」に書く（10 秒を超えたら、どの段が遅いかも書く）。
+- [x] 4.3 作り直し 1 回の時間を 3 回測り、design の「計測の記録」に書く（10 秒を超えたら、どの段が遅いかも書く）。
   検証: `bash -c 'for i in 1 2 3; do s=$(date +%s); HARNESS_VERIFY=1 tools/verify-env.sh >/dev/null 2>&1 || exit 1; echo "reset $(( $(date +%s) - s ))s"; done'` rc=0
 
 ## Task 5: 検査の本体 —— 溜まった DB から作り直して確かめる
