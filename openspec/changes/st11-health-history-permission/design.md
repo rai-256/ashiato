@@ -234,6 +234,10 @@ Android 14 以降は `HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS` + `
 
 Q1 の答えが「初回起動では求めない」なら、この change は Q10 と前提の訂正だけになり、tasks は作り直し（`spec --answers Q1`）。
 
+正典 device-collection の「利用状況へのアクセスを初回起動で求める」の ST11 への申し送りの文（「同じ『その場では取れない権限』の型」。
+`docs/handoff/ST11.md` の C6）は、delta の MODIFIED で直した。引き継いだのは「1 度だけ自動で求め、以後は常駐の通知から」の形（Q4）で、
+理由の「その場では取れない」は当たらない（P4・P14。review/code.md R2）。
+
 ## D14（仮）. 健康データの印と最後の状態を、端末の自動バックアップから外す（spec-review R4）
 
 manifest に `allowBackup` も `dataExtractionRules` も無いので、Android の自動バックアップは既定で有効で、`SharedPreferences` を含み、入れ直したときに戻しうる（確かさ 2: 戻しが実際に起きるかは確かめていない）。
