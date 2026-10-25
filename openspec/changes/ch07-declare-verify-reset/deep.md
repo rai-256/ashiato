@@ -30,8 +30,8 @@
 - **C4.** CH06 の振る舞い（判定・`--plan`・手順・切った接続の 1 行・rc・`keep:` の行）は変えない。`tools/stack.sh` など検証コマンドの側には出さない
 - **C5.** 検査は CH06 の `tools/check-verify-env-reset.sh` に足す（本体: 作り直した段で 1 行・作り直さない段で 0 行。`--self-test`: `--plan` が出さない・本文に字がある）
 - **C6.** `requires: [CH06]`。CH06 の tasks へ差し戻さない
-- **C7.** #112 の merge は待たない。判定 3 は #112 自身の `check_verify_env` を走らせ、`[人間] tools/verify-env.sh` が無く `[ok] tools/verify-env.sh` がちょうど 1 つ、で確かめる（使った harness2 の SHA を証跡に残す）
-- **C8.** #112 が先に入って注意が出ても、順を変えない・CH06 へ差し戻さない
+- **C7.** 完了の判定 3 は `.harness2` の `init.py --check` を走らせ、`[人間] tools/verify-env.sh` が無く `[ok] tools/verify-env.sh` がちょうど 1 つ、で確かめる（使った harness2 の SHA を証跡に残す。#112 は spec の段の時点で merge 済み —— premises.md P1）
+- **C8.** #112 が先に入って注意が出ても、順を変えない・CH06 へ差し戻さない（spec の段の時点で起きている。CH06 は宣言を足していない）
 - **C9.** 「作り直したときだけ」は CH06 の判定と C2 の条件の両方を満たすとき。確認バッチの作業ツリーでは出す
 
 ## 要件へ戻すもの
