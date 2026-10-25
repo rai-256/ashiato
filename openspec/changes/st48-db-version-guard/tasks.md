@@ -44,13 +44,13 @@
 
 ## Task 2: 当てる処理 —— まだの版だけを、1 版 1 取引で、記録しながら
 
-- [ ] 2.1 `migration_ledger.rs` に `apply_migrations(conn, versions)` を書く（design D3・D11・D7）: `pg_advisory_lock(4820251)` を取る → 記録を読む → ahead・読めないなら何も書かずに返す →
+- [x] 2.1 `migration_ledger.rs` に `apply_migrations(conn, versions)` を書く（design D3・D11・D7）: `pg_advisory_lock(4820251)` を取る → 記録を読む → ahead・読めないなら何も書かずに返す →
   bootstrap → 自分の版のうち記録に無いものを渡された並びの順に 1 版ずつ取引で当てて `INSERT`（`sha256` は中身の 16 進の小文字。`before_ledger` は D3 の 2 つ目の分岐だけ true）→
   記録にある版の指紋の違いは `tracing::warn!` に版の名前を出すだけ → 錠を外す（失敗しても外す）。
   `crates/server/build.rs` に組み立ての commit（design D8: `ASHIATO_BUILD_COMMIT` → `git rev-parse HEAD` → `unknown`。`cargo:rerun-if-env-changed=ASHIATO_BUILD_COMMIT`）を足し、版番号と一緒に `migration_ledger.rs` の定数にする。
   `lib.rs` の `migrate()` を `apply_migrations(&mut conn, MIGRATIONS)` → `GRANTS` に替える（ahead・読めないは呼び出し元に区別できる誤りで返す。Task 4 が終了コードにする）。
   検証: `cargo build -p ashiato-server --tests` rc=0 / `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
-- [ ] 2.2 `migration_ledger_tests.rs` に次を足す（どれも使い捨ての database）:
+- [x] 2.2 `migration_ledger_tests.rs` に次を足す（どれも使い捨ての database）:
   `st48_apply_records_every_version`（`// Scenario: 空の DB に移行を当てると、当てた版がすべて記録される`。名前の集合が `MIGRATIONS` と一致し、`before_ledger` が全部 false）/
   `st48_apply_row_has_fingerprint_and_build`（`// Scenario: 版の記録の 1 行は、名前・指紋・時刻・組み立ての版番号と commit を持つ`。指紋は試験の側で `MIGRATIONS` の中身から sha256 を計算し直して突き合わせる。版番号は `env!("CARGO_PKG_VERSION")`、commit は `env!("ASHIATO_BUILD_COMMIT")` と一致し、試験の走らせ方は `ASHIATO_BUILD_COMMIT` を渡さない場合も `git rev-parse HEAD` と一致する）/
   `st48_apply_pre_ledger_db_marks_all`（`// Scenario: 版の記録の無い古い DB には一度だけ全部を当て、印を付けて記録する`。先に `MIGRATIONS` を記録無しで直に当て、`core.event` に 1 件入れてから `apply_migrations` を呼ぶ。1 件が残り、全部の行の `before_ledger` が true）/
