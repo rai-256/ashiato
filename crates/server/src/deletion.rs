@@ -574,7 +574,20 @@ pub async fn purge_scope(
     .fetch_optional(&mut **tx)
     .await?
     .ok_or(PurgeError::NotFound)?;
-    let (start, end) = stay_store::span_of(stay.event_time, &stay.payload);
+    let (mut start, mut end) = stay_store::span_of(stay.event_time, &stay.payload);
+    if stay.raw.is_empty() {
+        // 本文を消した滞在は本文から時間を読めない（`span_of` は始まりの一点に潰れる）。消した時間帯を読む 1 か所
+        // （`core.stay_erased`。範囲の行か、無ければ D14 のその日全体）から読む（final review R8）。
+        // 一緒に本文を消した滞在（`user:purged`）はビューに出ないので、本文の読みのまま
+        let span: Option<(DateTime<Utc>, DateTime<Utc>)> =
+            sqlx::query_as("SELECT start_at, end_at FROM core.stay_erased WHERE id = $1")
+                .bind(stay_id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        if let Some((from, to)) = span {
+            (start, end) = (from, to);
+        }
+    }
     let mut scope = PurgeScope {
         stay_id,
         user_id: stay.user_id,

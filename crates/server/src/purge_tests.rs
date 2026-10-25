@@ -1492,6 +1492,24 @@ async fn purge_scope_second_press_is_a_success_with_nothing_added() {
     assert_eq!(operations, 1);
 }
 
+/// すでに本文を消した滞在の確認でも、`range` は滞在の時間（始まり〜終わり）を返す（final review R8 / design D1）。
+/// 本文は空なので、時間は `core.stay_erased`（範囲の行）から読む。
+#[tokio::test]
+async fn purge_scope_preview_of_a_purged_stay_keeps_the_range() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&pool, user).await;
+    scene_erase(&pool, stay).await;
+    purge_now(&pool, stay).await;
+
+    let scope = deletion::purge_preview(&pool, stay, None).await.unwrap();
+
+    assert!(scope.already_purged);
+    assert_eq!(scope.counts, PurgeCounts::default());
+    assert_eq!(scope.start, at("2026-10-01T10:00:00+09:00"));
+    assert_eq!(scope.end, at("2026-10-01T11:00:00+09:00"));
+}
+
 #[tokio::test]
 async fn purge_scope_refuses_a_stay_that_is_not_erased() {
     let pool = testdb::pool().await;
