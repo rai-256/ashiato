@@ -206,12 +206,14 @@
   ★ 2026-09-14 補強。ST04 の深掘り Q6 の決定。一定の間隔で少しずつ送る形（ST01 の design D9）のままだと、
   90 日ぶんに約 55 時間かかり、その間に生まれる新しい記録が NFR-1 の 1 時間を超える。
   溜まっていないときの送り方は変えない。
-- **FR-11**: WHEN C-01 が初回起動する THE SYSTEM SHALL 健康データの履歴読み取り権限を要求する。
+- **FR-11**: WHEN C-01 が初回起動する THE SYSTEM SHALL 健康データの種類の読み取り権限と、履歴の読み取り権限と、背景での読み取り権限をまとめて要求する。
   健康データの収集そのものは Should（FR-73）だが、**権限の要求はこの時点で行う**
-  —— 履歴の読み取り権限を与えない端末（断った・版が対応していない）では、読める範囲の起点が「種類の読み取りを最初に許した日の 30 日前」になる（§5 の EXT-C）。初回起動で求めると、その起点が早まる。
+  —— 履歴の読み取り権限を与えない端末（断った・版が対応していない）では、読める範囲の起点が「どれかの権限を最初に許した日の 30 日前」になる（§5 の EXT-C）。初回起動で求めると、その起点が早まる。履歴の権限があれば全履歴が読める（§5 の EXT-O）。
   ★ 2026-10-25 訂正。ST11 の深掘り Q1 の決定（本人は推奨の「初回起動で求める（要件の理由だけを訂正する）」を選んだ）。
-  旧い理由「宣言していない期間の 30 日より前は永久に読めない」は Android 15 の実物で成り立たなかった —— 履歴の権限は後から与えても全履歴が読め、入れ直した後も同じ
-  （`openspec/changes/st11-health-history-permission/premises.md` P1〜P3・P13）。振る舞い（初回起動で求める）は変えない。
+  旧い理由「宣言していない期間の 30 日より前は永久に読めない」は Android 15 のエミュレータで成り立たなかった —— 履歴の権限は後から与えても全履歴が読め、入れ直した後も同じ
+  （§5 の EXT-O。確かめた経緯は ST11 の change の premises.md P1〜P3・P13）。振る舞い（初回起動で求める）は変えない。
+  ★ 2026-10-25 補強。ST11 の深掘り Q3・Q9 の決定（本人は推奨を選んだ）と整合の確認 `docs/audit/2026-10-25-st11-consistency.md` の C1・C5。
+  履歴の権限だけを求めると画面が出ずに拒否で返り、起点を早めるのは種類の許可なので、求めるものを種類（ST34 で読む見込みの睡眠・心拍・歩数・運動）・履歴・背景（FR-73 の 24 時間ごとの取得）に広げた。
 
 #### 収集 — PC（C-02）
 
@@ -1056,7 +1058,7 @@
 - **FR-73**: WHEN C-01 が健康データの取得契機（24 時間間隔）に達する THE SYSTEM SHALL
   Health Connect から前回取得以降のデータを取得する。
   権限の要求は Must（FR-11）である点に注意 —— 収集を後回しにしても、権限の要求は初回起動で行う（履歴の権限が無い端末で読める範囲の起点を早めるため）。
-  ★ 2026-10-25 訂正。ST11 の深掘り Q1 の決定。旧い文「権限の宣言は後回しにできない」は FR-11 の旧い理由（永久に読めない）に依っていた。履歴の権限は後から与えても全履歴が読める（ST11 の premises.md P2）。
+  ★ 2026-10-25 訂正。ST11 の深掘り Q1 の決定。旧い文「権限の宣言は後回しにできない」は FR-11 の旧い理由（永久に読めない）に依っていた。履歴の権限は後から与えても全履歴が読める（§5 の EXT-O。根拠の向け先は整合の確認 `docs/audit/2026-10-25-st11-consistency.md` の C3）。
 
 ### 3.3 将来機能（Could Have）
 
@@ -1533,6 +1535,7 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 | EXT-N | Google の Data Portability API は EU 諸国・スイス・英国の利用者にだけ提供され、日本は対象外 | https://support.google.com/accounts/answer/14452558 | "is available in the following countries and regions: Austria, Belgium, … Switzerland, United Kingdom" | 2026-10-20 | 2027-04-20 | FR-15, NFR-12 |
 | EXT-B | Google Takeout の予約エクスポートは 2 か月ごと・1 年で停止・書庫は約 7 日で失効 | https://support.google.com/accounts/answer/3024190 | "Automatically create an archive of your selected data every 2 months for one year." / "Your archive expires in about 7 days." / "We only allow each archive to be downloaded 5 times" | 2026-08-30 | 2027-02-28 | NFR-3, NFR-12, FR-14 |
 | EXT-C | Health Connect は既定で権限付与時点の 30 日前までしか読めず、再インストールで起点が戻る | https://developer.android.com/health-and-fitness/health-connect/read-data | "By default, all applications can read data from Health Connect for up to 30 days prior to when any permission was first granted." / "If the user reinstalls your app and grants permission again, the same default restrictions apply" | 2026-08-30 | 2027-02-28 | FR-11, FR-73 |
+| EXT-O | Health Connect の履歴の読み取り権限（`READ_HEALTH_DATA_HISTORY`）があれば、許した時期に依らず全履歴が読める。入れ直した後に許しても同じ。履歴の権限だけを求めると画面は出ない（種類の権限と一緒に求める） | https://developer.android.com/reference/android/health/connect/HealthPermissions | "Allows an application to read the entire history of health data (of any type)." | 2026-10-24 | 2027-04-24 | FR-11, FR-73 |
 | EXT-D | 写真の EXIF 位置が読めるかは、撮影時期ではなく実行時点の権限状態で決まる | https://developer.android.com/training/data-storage/shared/media | "Because you request the `ACCESS_MEDIA_LOCATION` permission at runtime, there is no guarantee that your app has access to unredacted EXIF metadata from photos. Your app requires explicit user consent to gain access to this information." | 2026-09-07 | 2027-09-07 | FR-3, §5 の「扉ではないもの」 |
 | EXT-M | マップのタイムラインは Takeout ではなく、Android の設定から端末で書き出す | https://support.google.com/maps/answer/6258979 | "Under "Timeline," tap Export Timeline data. Tap Continue. Select your preferred storage location. Tap Save." | 2026-09-15 | 2027-03-15 | FR-14, NFR-12 |
 | EXT-E | Chrome の履歴として表示されるのは直近 90 日 | https://support.google.com/chrome/answer/95589 | "Your History lists the pages you've visited on Chrome in the last 90 days." | 2026-09-07 | 2027-03-07 | FR-13, FR-35 |
@@ -1674,10 +1677,11 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
     決着状態: 決定済（ファイルシステム D-02 に置き、D-01 は参照のみ持つ。
     容量規模から運用開始後の移行は実質不可逆。DB 内に入れると FR-66 の日次増分が成立しない）
     関与要件: FR-4, FR-66, FR-67, FR-72
-21. **健康データの履歴読み取り権限を宣言するか** — 決めるもの: 記録の有無
-    決着状態: 決定済（C-01 の初回起動時に要求する。収集本体が Should でも要求は Must。
-    履歴の権限が無い端末では、読める範囲の起点が種類を最初に許した日の 30 日前になる = EXT-C。履歴の権限は後から与えても全履歴が読める）
-    ★ 2026-10-25 訂正。ST11 の深掘り Q1 の決定。旧い理由「宣言していない期間の 30 日より前は永久に読めない」は実物で成り立たなかった（ST11 の premises.md P2・P3）。決着（初回起動で要求する）は変えない。
+21. **健康データの読み取り権限（種類）を初回起動で求めるか** — 決めるもの: 記録の有無
+    決着状態: 決定済（C-01 の初回起動時に、種類・履歴・背景の読み取り権限をまとめて要求する。収集本体が Should でも要求は Must。
+    不可逆に残るのは、履歴の権限が無い端末（断った・版が対応していない）で読める範囲の起点 = どれかの権限を最初に許した日の 30 日前（EXT-C）。履歴の権限そのものの時期は扉ではない（EXT-O。「扉ではないもの」））
+    ★ 2026-10-25 訂正。ST11 の深掘り Q1 の決定。旧い理由「宣言していない期間の 30 日より前は永久に読めない」は実物で成り立たなかった（EXT-O）。決着（初回起動で要求する）は変えない。
+    ★ 2026-10-25 訂正。整合の確認 `docs/audit/2026-10-25-st11-consistency.md` の C2・C4。主題を「履歴の権限を宣言するか」から、不可逆が残る「種類を初回起動で求めるか」へ書き換えた。
     関与要件: FR-11, FR-73
 22. **文字抽出の版を残すか** — 決めるもの: 記録の有無
     決着状態: 決定済（day one で持つ。画面キャプチャ機能自体は Could）
@@ -1743,6 +1747,8 @@ NFR-14 の (a) は「その問いに答えるのに要るデータ種が D-01 �
 
 ### 扉ではないもの（増殖を止める明示）
 
+- **健康データの履歴の読み取り権限を求める時期。** 一次情報 EXT-O のとおり、履歴の権限があれば許した時期に依らず全履歴が読める。
+  ★ 2026-10-25 追加。整合の確認 `docs/audit/2026-10-25-st11-consistency.md` の C2。不可逆に残る種類の許可の時期は扉 21
 - **写真の EXIF 位置を読む権限（`ACCESS_MEDIA_LOCATION`）の宣言時期。** 一次情報 EXT-D のとおり、
   読めるかどうかは**実行時点の権限状態**で決まり、写真の撮影時期に依らない。
   かつ扉 19 で原本を取り込むと決めたので、宣言が遅れても後から読み直せる
