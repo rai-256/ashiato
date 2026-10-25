@@ -1,49 +1,59 @@
-# ST48 古い版が新しい DB を書き換えない（上流）
+# ST48 古い版が新しい DB を書き換えない
 
-change: `openspec/changes/st48-db-version-guard/`。新しい capability `distribution`（ADDED 7・Scenario 41 本）。満たす要件は FR-117・FR-118・FR-129。`requires: [ST01]`。
+change: `openspec/changes/st48-db-version-guard/`。新しい capability `distribution`（ADDED 7・Scenario 41 本）。満たす要件は FR-117・FR-118・FR-129。
 
-> **第 1 回の深掘りの答えを待たずに、推奨の答えで先に書いた**（2026-10-20 の流れ）。下の Q1〜Q5 は**本人の答えではなく推奨**で、`deep.md` は `（答え待ち・推奨: …）` のまま。
-> 答えが推奨と違えば `spec --answers` が仕様に写し直す。5 問とも B（仮でよい）で、A の問いは無い。
+## 積んだ未決（A）—— 1 件。答えが要る
 
-## 深掘り（第 1 回。推奨で書いた）
+- **Q6（第 2 回。premise）確認バッチの前の回の DB に、本体で消した記録が残る**（`review/code.md` R22。security review）。
+  Q5 の答えで確認バッチは回ごとに別の DB に立ち、前の DB は残る。確認の間に電話が送った本物の記録はその回の DB にだけ入るので、
+  残せば本体で消した記録が前の回の DB に残り、消せばその回の DB にしか無い記録を失う。
+  推奨: 前の回の DB は残し、確認手順書に消し方の 1 行を載せ、design の Risks に書く（片付けの道具は後の change）。
+  問いは `deep.md` Q6・`deep-questions-r2.json`・`docs/briefs/ST48-deep-r2.html`
 
-| Q | 推奨（仕様はこれで書いた） | どこに効くか |
+## 仮決め（B）と Ruling
+
+design の（仮）: **D5**（版の記録が読めないなら止める。付与の抜けは「読む権限が無い」として別の理由で返す —— R30）/ **D7**（指紋の違う版は当て直さず警告だけ）/
+**D8**（組み立ての印は `CARGO_PKG_VERSION` と commit。試験は渡した値を `ASHIATO_EXPECT_BUILD_COMMIT` で受けて比べる —— R20）/
+**D9**（配った印はタグ `v[0-9]*`。CI の取り寄せは `ls-remote` の失敗で落とす —— R18）/ **D10**（`202610250000` 以後の版の規則。`check-immutable.sh` の DB にも記録の置き場を作る —— R23）/
+**D13**（確認バッチは回ごとの compose の project。`c01-clock` の反転条件は前の回の DB を数えて機械が判定 —— R27）/ **D17**（起動の検査はアプリの役割で、待ち受けの前に）。
+
+全 Task の ledger の `Ruling:`（1 件。Task 8）:
+
+- Ruling: 飛ばした DB を数えずに判定を出すまま park する — finish の fix は 1 回だけ（SDD）。数えた DB の名前と個数は note に出るので、本人の端末の回の DB が並ばなければ数え漏れと読める — 間違っていたときの費用: 反転条件（測り直しを 5→15 分）に当たっているのに「当たっていない」と出て、測り直しの見直しが 1 回の確認バッチの分だけ遅れる（記録は失われない）。直すなら飛ばした project を集めて note に載せ、1 つでもあれば判定を出さない
+
+## Task
+
+9 Task・16 項目を全部埋めた（`[x]` 16 / `[ ]` 0）。残した Task は無い。
+
+## 検証（`evidence.jsonl`。finish の段で走らせ直したもの。どれも exit_code 0・PASS）
+
+| 項目 | コマンド | 終了コード |
 |---|---|---|
-| Q1 移行の当て方と、配った移行を直すこと | まだ当たっていない版だけ当てる。配った印（タグ `v*`）の版にある移行の名前と中身を変えると CI が落ちる。印が無い間は何も凍結しない | Requirement 2・5、design D2・D9・D11、tasks 2・6 |
-| Q2 版の記録が無い DB | 全部を当て、全部に「記録より前から当たっていた」の印を付けて記録する | Requirement 1、design D3、tasks 2.2 |
-| Q3 DB の方が古いときの起動 | 起動しない（終了コード 3・`kind=db_behind`・「先に migrate を」） | Requirement 4、design D17、tasks 5 |
-| Q4 止まったときの終わり方 | 専用の終了コード 3。退避を取る前に止め、DB に何も書かない | Requirement 3・4、design D4・D6、tasks 4 |
-| Q5 確認バッチと worktree の DB | 確認バッチは回ごとに別の DB（compose の project）。止まったら作り直さずに手順を示す。`stack.sh down` は容器を止めるだけ（無名の volume の置き場を孤立させない）。止める仕組みを外す抜け道は作らない | Requirement 7、design D13・D14、tasks 8 |
+| 1.2 | `CT`/`NL` `st48_ledger_`・`st48_compare_`・`st48_read_ledger_unreadable_`（4 本に増えた） | 0 |
+| 2.2 | `CT`/`NL` `st48_apply_` | 0 |
+| 3.1 | `testdb.rs` の grep / `CT stay_tests` / `CT ingest` | 0 |
+| 4.2 | `IT`/`NI` `st48_migrate_` | 0 |
+| 5.2 | `IT`/`NI` `st48_server_`（拒否の 4 本は port を塞いで起動） | 0 |
+| 6.1 | `check-released-migrations.sh --self-test` / 本体 | 0 |
+| 8.1 | `verify-prep.sh` などの grep の組 | 0 |
+| 8.2 | `tools/check-db-version-stop.sh`（89 秒）/ CI と testing.md の grep | 0 |
+| 9.1 | `check_scenarios.py`（41 本）/ `cargo clippy --workspace --all-targets -- -D warnings` / `tools/smoke.sh`（136 秒）/ `tools/check-immutable.sh`（164 秒） | 0 |
 
-聞かずに決めたもの（`premises.md` の C1〜C7）: 記録の置き場と形を凍結し形の版を持つ（D1・D5）/ 配った移行の名前は消さない・変えない（D9）/ 記録に名前・指紋・時刻・版番号と commit（D1・D8）/
-記録は `core` の外、アプリの役割は読むだけ（D1）/ 当てる経路は同じ記録を書く・拒否の試験は使い捨ての database（D12・D16）/ `db-roles.sh` は版に依らない操作だけ（D15）/ 当て終えた版だけ記録・DB の錠（D11）。
+ほかに `cargo fmt --all --check`・`cargo test -p ashiato-server --test server_startup`（25 本）・`tools/check-shared-appends.sh` も rc=0。
+直した 6 件はガードをわざと壊して落ちることを確かめた（R19: 検査を `bind` の後へ → 拒否の 4 本が落ちる / R20: `build.rs` が渡した値を無視 → 落ちる / R30: 権限の検査を外す → 落ちる / R18: `origin` を壊す → rc=1）。
 
-## 仮決め（B）と反転条件（design の（仮））
+## レビュー（`review/code.md`。R1〜R32）
 
-- **D5（仮）** 版の記録が読めない（形の版が違う・列が違う）なら止める（`kind=ledger_unreadable`）。反転条件: 形の版を上げずに列を足す必要が出たら人間へ
-- **D7（仮）** 記録と指紋の違う版は当て直さず警告だけ（起動も）。反転条件: 配った版で違いが出た・門の定義の食い違いが見つかったら止める側へ
-- **D8（仮）** 組み立ての印は `CARGO_PKG_VERSION` と commit（`ASHIATO_BUILD_COMMIT` → `git rev-parse HEAD` → `unknown`）。反転条件: ST52 が版の出所を 1 つにしたらそちらから
-- **D9（仮）** 配った印はタグ `v[0-9]*`、凍結の検査は `tools/check-released-migrations.sh`（CI はタグを取り寄せてから）。ST52 へ `docs/handoff/ST52.md` で渡した（この段で書いた）
-- **D10（仮）** 名前の時刻 `202610250000` 以後の版は自分の取引を持たない・`.down.sql` が記録の行を消す（走っている ST23・ST29・ST41 の版は境より前）
-- **D13（仮）** 確認バッチの `run.sh` は `COMPOSE_PROJECT_NAME=ashiato-verify-<tag>`。`stack.sh` は同じ port を持つ別の project の DB を止める（消さない）。反転条件: 置き場が積もったら片付けの道具を別の change で
-- **D17（仮）** サーバの起動の検査はアプリの役割で読み、待ち受けの前に。反転条件: 検査が目に見えて遅くなったら絞る
+- final review（R1〜R17）: fixed 10・rejected 7（前の段で処置済み）
+- code-verify（R18〜R21）: fixed 3（R18・R19・R20）・deferred ST58 1（R21）
+- security review（R22）: escalated 1（上の Q6）
+- `/code-review`（R23〜R32）: fixed 3（R23・R27・R30）・rejected 7（R24 は D7、R25 は D8、R26 は D10、R28 は R14 と同じ、R29 は spec の Scenario、R31 は CH04、R32 は D14 で決めたもの）
+- finish の scoped re-review は 1 回で、R27 だけ PARTIAL（上の Ruling で park）
 
-## capability
+## 申し送り
 
-`distribution` を新しく作る（INDEX.md の表で ST48 が先頭。前倒しは無い）。正典に `migrate` の振る舞いは無く、MODIFIED は無い。
-記録の表は `core` の外なので、書き出し（`data-durability`）の分類にも掛からない。
-
-## tasks
-
-9 Task（版の記録の形と読み方 / 当てる処理 / 試験の足場 / migrate の止め方 / 起動の検査 / 配った移行の凍結 / これから足す版の規則 / 開発と確認の DB / 全体の確かめ）。Scenario 41 本を全部名指し。
-
-## レビュー
-
-- `review/deep.md`（問いの段）: 11 件。escalated 7（問いを組み直して Q1〜Q5 に反映）・fixed premises.md 4
-- `review/spec.md`（この段）: 14 件。fixed 12（spec 9・tasks 1・design 1・deep.md 1）、escalated 1（R13: Story の前提の誤り。Q5 が正しい前提で問い、Story の文は stories.json から直した）、rejected 1（R14: 台本の名前を spec から外さない）
-
-## 走っている change との重なり（差し戻さない）
-
-CH04（`testdb.rs` の作り替え。当てる処理は 1 つの関数に寄せ、CH04 の `--lint` には `db-ok:` を付ける）/ ST23・ST41（main の移行の書き換え。印が無いので凍結に掛からない）/ ST29（版を 1 本足す。差分で当たる）。
+- `docs/handoff/ST58.md`（新規）: 終了コード 3 は移行の失敗でない・その回の退避は無いので戻さない・migrate の前に古い S-01 を止める（R21）
+- `docs/handoff/ST52.md`: 配った印のタグの型と組み立ての印（上流で書いた）
+- 未処置: `tools/dev.sh` には `stack.sh` の「同じ port を持つ別 project の DB を止める」が無い（R17 で範囲外として rejected）。拠点内のバックアップと移行の前の退避に消した記録が残ることは要件の未決（Q6 の family。/requirements で拾う）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
