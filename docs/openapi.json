@@ -814,6 +814,211 @@
         }
       }
     },
+    "/media/missing": {
+      "post": {
+        "tags": [
+          "media_missing"
+        ],
+        "summary": "原本の欠けの報告をまとめて受け取る（design D11）。400 は「1 件も受け付けなかった」ことを意味する。",
+        "operationId": "missing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MediaMissingRequest"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaMissingResult"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaMissingResult"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/media/originals/{sha256}": {
+      "put": {
+        "tags": [
+          "media"
+        ],
+        "summary": "原本を受け取る。流しながら `.part` に書いてハッシュを取り、D10 の順で判定して置く。",
+        "operationId": "put_original",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "path",
+            "description": "原本の内容ハッシュ",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "受け取り済み"
+          },
+          "201": {
+            "description": "置いた"
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "409": {
+            "description": ""
+          },
+          "413": {
+            "description": ""
+          },
+          "422": {
+            "description": ""
+          },
+          "503": {
+            "description": ""
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "media"
+        ],
+        "summary": "受け取り済みかを答える。受け取りの行があり、置いたファイルも残っていれば `200`、どちらかが無ければ `404`（本文は受けない）。",
+        "operationId": "head_original",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "path",
+            "description": "原本の内容ハッシュ",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/media/summary": {
+      "get": {
+        "tags": [
+          "media_summary"
+        ],
+        "summary": "写真と画像の量と原本の進みを返す。",
+        "operationId": "summary_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/outages": {
       "get": {
         "tags": [],
@@ -1332,6 +1537,43 @@
         "operationId": "session_delete",
         "responses": {
           "204": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/sources": {
+      "get": {
+        "tags": [],
+        "summary": "ソースの取り方・契機・取得の間隔と、書庫の通知までの残り日数（ST13 / design D10）。",
+        "operationId": "sources_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "利用者。省略すると既定の利用者（ほかの読み出しと同じ）",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesResponse"
+                }
+              }
+            }
+          },
+          "401": {
             "description": ""
           }
         }
@@ -2032,6 +2274,24 @@
           }
         }
       },
+      "CountBytes": {
+        "type": "object",
+        "description": "件数とバイト。",
+        "required": [
+          "count",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CredentialOut": {
         "type": "object",
         "required": [
@@ -2518,6 +2778,18 @@
               "$ref": "#/components/schemas/DayEntry"
             },
             "description": "始まりの時刻順"
+          }
+        }
+      },
+      "DeviceNotice": {
+        "type": "object",
+        "properties": {
+          "unused_app_restrictions": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`c01-location` の最新の生存信号の原文の `unused_app_restrictions`（無ければ `null`）"
           }
         }
       },
@@ -3111,6 +3383,13 @@
           "logical_source": {
             "type": "string"
           },
+          "network": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "送る契機の時点で接続があったか（ST09 / design D7）。無い要求は `None`（分からない）。\n`capturable` とは別に残す —— 圏外の写真は取れる状態のまま、接続が無かったことだけが行に残る"
+          },
           "raw": {
             "type": "string",
             "description": "収集側から受け取った原文。**素通しで残す**（0003 と同じ理由で `text`）"
@@ -3658,6 +3937,195 @@
           "password": {
             "type": "string",
             "description": "画面の合言葉"
+          }
+        }
+      },
+      "MediaMissingError": {
+        "type": "string",
+        "description": "報告を断った理由。**受け取った値は載せない。**",
+        "enum": [
+          "malformed",
+          "unknown_source",
+          "invalid_sha256",
+          "invalid_reason",
+          "missing_device",
+          "id_reused"
+        ]
+      },
+      "MediaMissingRequest": {
+        "type": "object",
+        "description": "端末が送る原本の欠けの報告 1 件。**位置もファイル名も持たない。**",
+        "required": [
+          "id",
+          "user_id",
+          "logical_source",
+          "sha256",
+          "noticed_at"
+        ],
+        "properties": {
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "どの端末が気づいたか。空なら断る"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "端末が採番した識別子。冪等キー"
+          },
+          "logical_source": {
+            "type": "string",
+            "description": "画像のソース（`c01-photo` / `c01-screenshot` / `c01-image`）。動画は原本を置かないので欠けも無い"
+          },
+          "noticed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "端末が欠けに気づいた時刻"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`vanished` / `changed` / `unreadable` / `too_large` / `record_dropped` / `record_rejected` / `record_missing`"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "原本の内容ハッシュ（小文字 16 進 64 桁）"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "MediaMissingResult": {
+        "type": "object",
+        "description": "送った 1 件ごとの結果。欄は `DropResult` と同じ（端末は同じ型で読む）。",
+        "required": [
+          "duplicate",
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "未送信から取り除いてよいか"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "既に同じ 1 件があったか"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MediaMissingError"
+              }
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "MediaSourceSummary": {
+        "type": "object",
+        "description": "ソース 1 つの量。",
+        "required": [
+          "logical_source",
+          "records",
+          "record_bytes",
+          "missing"
+        ],
+        "properties": {
+          "logical_source": {
+            "type": "string"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingByReason"
+            },
+            "description": "原本の欠けの理由ごとの件数（画像のソースだけ。件数のある理由だけ）"
+          },
+          "originals_stored": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CountBytes",
+                "description": "D-02 に置いた原本（画像のソースだけ）"
+              }
+            ]
+          },
+          "originals_waiting": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "記録はあるが、受け取りの行も欠けも無い件数（画像のソースだけ）"
+          },
+          "record_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "その `size_bytes` の合計"
+          },
+          "records": {
+            "type": "integer",
+            "format": "int64",
+            "description": "生きている `kind = media` の記録の件数"
+          }
+        }
+      },
+      "MediaSummary": {
+        "type": "object",
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "last_storage_error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/StorageErrorView",
+                "description": "S-01 の実行中だけ持つ。起動し直すと消える（失敗そのものはログに残る）"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaSourceSummary"
+            }
+          }
+        }
+      },
+      "MissingByReason": {
+        "type": "object",
+        "description": "原本の欠けの、理由ごとの件数。",
+        "required": [
+          "reason",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -4571,6 +5039,96 @@
           }
         }
       },
+      "SourceRow": {
+        "type": "object",
+        "required": [
+          "logical_source",
+          "display_name",
+          "acquisition",
+          "fetch_trigger",
+          "alert_passed",
+          "no_archive"
+        ],
+        "properties": {
+          "acquisition": {
+            "type": "string",
+            "description": "`device` / `pc` / `archive` / `server` / `scheduled`"
+          },
+          "alert_after_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "書庫のソースだけ。最後の書庫からこの日数で通知が鳴る"
+          },
+          "alert_days_left": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "通知までの残り日数（切り上げ）。通知の日を過ぎた・書庫が無い・退役した行は `null`（負の値は出さない）"
+          },
+          "alert_passed": {
+            "type": "boolean"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "fetch_interval_sec": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "fetch_trigger": {
+            "type": "string",
+            "description": "`interval` / `on_change` / `authored` / `derived` / `once` / `manual`"
+          },
+          "last_archive_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "最後の書庫の作られた日（`Asia/Tokyo`）。退役した行・書庫の無い行は `null`"
+          },
+          "logical_source": {
+            "type": "string"
+          },
+          "no_archive": {
+            "type": "boolean",
+            "description": "書庫のソースで、書庫も記録も無い"
+          },
+          "retired_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        }
+      },
+      "SourcesResponse": {
+        "type": "object",
+        "required": [
+          "sources",
+          "device_notice"
+        ],
+        "properties": {
+          "device_notice": {
+            "$ref": "#/components/schemas/DeviceNotice"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRow"
+            }
+          }
+        }
+      },
       "Status": {
         "type": "object",
         "description": "`GET /export` の応答。**記録の値を持たない**。",
@@ -4696,6 +5254,23 @@
             "type": "string"
           },
           "logical_source": {
+            "type": "string"
+          }
+        }
+      },
+      "StorageErrorView": {
+        "type": "object",
+        "description": "D-02 に書けなかった直近の失敗。",
+        "required": [
+          "kind",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
             "type": "string"
           }
         }

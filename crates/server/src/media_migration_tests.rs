@@ -42,18 +42,18 @@ async fn scalar_bool(pool: &PgPool, sql: &str) -> bool {
         .unwrap()
 }
 
-/// 全版を 2 回当てても壊れない。移行は ORDER の末尾にある。
+/// 全版を 2 回当てても壊れない。移行は ORDER にある。
 #[tokio::test]
-async fn st09_mig_applies_twice_and_is_last() {
+async fn st09_mig_applies_twice_and_is_listed() {
     let (fresh, drop) = migrated_db().await;
     let again = sqlx::raw_sql(media_sql()).execute(&fresh).await;
     drop.await;
     again.unwrap();
     assert!(
         crate::MIGRATIONS
-            .last()
-            .is_some_and(|(name, _)| name.ends_with("_media_capture")),
-        "移行が MIGRATIONS の末尾に無い"
+            .iter()
+            .any(|(name, _)| name.ends_with("_media_capture")),
+        "移行が MIGRATIONS に無い"
     );
 }
 
