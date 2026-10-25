@@ -93,10 +93,10 @@
 
 ## Task 5: サーバの起動の検査
 
-- [ ] 5.1 `lib.rs` の `run()` で、`check_db_role` の後・待ち受けを開く前に、アプリの役割で `read_ledger` → `compare` を通す（design D17）。
+- [x] 5.1 `lib.rs` の `run()` で、`check_db_role` の後・待ち受けを開く前に、アプリの役割で `read_ledger` → `compare` を通す（design D17）。
   ahead → `error: kind=db_ahead`（D6 の形）、behind（記録が無いを含む）→ `error: kind=db_behind` と「まだ当たっていない版が N 個。先に `ashiato-server migrate` を」、読めない → `error: kind=ledger_unreadable`。どれも終了コード 3。指紋の違いは警告だけ。
   検証: `cargo build -p ashiato-server --bin ashiato-server` rc=0
-- [ ] 5.2 `server_startup.rs` に次を足す（使い捨ての database に実行ファイル `migrate` を当ててから、アプリの役割で起動する）:
+- [x] 5.2 `server_startup.rs` に次を足す（使い捨ての database に実行ファイル `migrate` を当ててから、アプリの役割で起動する）:
   `st48_server_refuses_db_ahead`（`// Scenario: 新しい版で当てた DB に古い版のサーバを起動すると、起動しない`）/
   `st48_server_refuses_db_behind`（`// Scenario: まだ当たっていない版のある DB では、サーバは起動しない`。記録から 2 行を消し、標準エラーに数 2 がある）/
   `st48_server_refuses_pre_ledger_db`（`// Scenario: 版の記録の無い DB では、サーバは起動しない`。`DROP SCHEMA migration_ledger CASCADE` で記録の無い DB を作る）/
