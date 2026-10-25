@@ -79,7 +79,7 @@
 
 ## Task 3: Health Connect の読み口と求める口（design D3 / D6）
 
-- [ ] 3.1 `app/build.gradle.kts` に `androidx.health.connect:connect-client`（1.1 系）を足す。`HealthPermissions.kt`（2.1 で定数を置いた）に、差し替えられる型
+- [x] 3.1 `app/build.gradle.kts` に `androidx.health.connect:connect-client`（1.1 系）を足す。`HealthPermissions.kt`（2.1 で定数を置いた）に、差し替えられる型
   （使えるか: `available` / `not_installed` / `update_required` / `unreadable`・履歴と背景に対応しているか・D5 の 6 つの許可を読む口と、求める intent を作る口と、結果を受ける口）と、
   client を使う本番の実装を置く。読む口の例外は `unreadable`（例外の型名だけを持つ）に倒し、投げ返さない。D6 の表の「求めるもの」を返す純粋な関数 `healthPermissionsToAsk(availability, features)` を置く。
   `HealthPermissionsTest`（Robolectric と偽の client）: D6 の表の 5 行がそれぞれの「求めるもの」を返す・履歴と背景に未対応なら 4 種類だけ・読む口が例外で `unreadable`・求める intent が `HEALTH_PERMISSIONS` の 6 つを含む。
