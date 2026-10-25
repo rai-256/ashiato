@@ -64,7 +64,7 @@
 ### D5. 組み立ての印の形と、3 つの Rust / Kotlin / TypeScript の組み立てが共有する作り方
 
 - 版番号の出所: S-01・C-02 は `Cargo.toml` の workspace の版（`CARGO_PKG_VERSION`）、C-01 は `build.gradle.kts` の `versionName`、V-01 は `web/package.json` の `version`（ST52 が 1 つにするまで。spec は「その部品の宣言した版番号」と書く）
-- 形: `<版番号>+<commit>[.dirty][.debug]`。`<commit>` は 40 桁の 16 進（短縮しない）か `unknown`。`.dirty` は**その部品のソース**に未 commit の変更（`git status --porcelain -- <部品のソースの道>` が 1 行以上）があるとき（S-01・C-02 は `crates/`・`migrations/`・`Cargo.toml`・`Cargo.lock`、C-01 は `collector-android/`、V-01 は `web/`。ほかの部品の木の変更はその組み立てに入らない —— review/spec.md R2）、
+- 形: `<版番号>+<commit>[.dirty][.debug]`。`<commit>` は 40 桁の 16 進（短縮しない）か `unknown`。`.dirty` は**その部品のソース**に未 commit の変更（`git status --porcelain -- <部品のソースの道>` が 1 行以上）があるとき（S-01 は `crates/server`・`crates/build-stamp`・`migrations/`・`Cargo.toml`・`Cargo.lock`、C-02 は `crates/collector-windows`・`crates/build-stamp`・`Cargo.toml`・`Cargo.lock`、C-01 は `collector-android/`、V-01 は `web/`。ほかの部品の木の変更はその組み立てに入らない —— review/spec.md R2）、
   `.debug` は release でない組み立てのとき。順は固定（`.dirty` が先）
 - commit の出所は ST48 の D8（仮）と同じ順: 環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`。値は ST48 の台帳の `build_commit` と同じ 40 桁になる（C11）
 - Rust の 2 つ（S-01・C-02）は新しい workspace の crate `crates/build-stamp`（`ashiato-build-stamp`。`build-dependencies` だけで使う。依存の追加なし・`std::process::Command` で git を呼ぶ）を共有する。
@@ -76,7 +76,7 @@
 
 - S-01・C-02: `build.rs` が `crates/build-stamp` で印を組み、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` で渡す。作り直しの印として `rerun-if-env-changed=ASHIATO_BUILD_COMMIT`・
   `rerun-if-changed=<git-dir>/HEAD`・HEAD が指す参照のファイル（`<git-dir>/refs/heads/<枝>`。worktree では `git rev-parse --git-dir` と `--git-common-dir` の先）・`<git-common-dir>/packed-refs`・`<git-dir>/index`、
-  と**部品のソースの道そのもの**（`crates/`・`migrations/`・`Cargo.toml`・`Cargo.lock`。cargo は道が dir なら中を全部見る）を出す。cargo は build script が `rerun-if-changed` を 1 つでも出すとパッケージのファイルを見なくなる（`crates/server/build.rs` は今 `migrations/` だけを出している）ので、
+  と**部品のソースの道そのもの**（D5 の道。cargo は道が dir なら中を全部見る）を出す。cargo は build script が `rerun-if-changed` を 1 つでも出すとパッケージのファイルを見なくなる（`crates/server/build.rs` は今 `migrations/` だけを出している）ので、
   ソースの道を出さないと add していない変更の後に `.dirty` が付かない（review/spec.md R2）。`target/` は道に入れない（組み立てのたびに変わる）。
   費用: Rust のソースが変わった組み立てで build script が 1 回走る（git を 3 回。数十〜数百 ms）。印が前と同じなら crate は組み直されない
 - S-01 は ST48 の `build_commit()` を `crates/build-stamp` の関数に置き換え、`ASHIATO_BUILD_COMMIT`（ST48 の台帳が読む env）も同じ値で出し続ける（ST48 の振る舞いを変えない）
@@ -163,7 +163,7 @@
 ### D21（仮）. 収集した記録の版の書き換えは、本表の門の対象にする（前の版を積むときだけ直せる）
 
 - premises の C8 は「門の外（端末・TZ の先例。誤った印を直す余地を残す）」で、同時に「列を書き換えるのは前の版を残す経路だけ」と書いていたが、門の外では後者を強制する仕組みが無く、直に書き換えると前の値がどこにも残らない（review/spec.md R7）。D1（仮）の「どちらの読み方にも戻せる」もそれに依る
-- `core.require_version_or_ledger` の変化を見る列に 3 つの版を足し、更新前の版の照合にも 3 列を足す。版を書き換えるには、同じまとまりに前の版の行（D1（仮）・D2（仮）の経路、または直すための `push_version` と同じ形の INSERT）が要る。誤った印は直せる（前の版を積めば通る）
+- `core.require_version_or_ledger` の変化を見る列に 3 つの版を足し、更新前の版の照合にも 3 列を足す（版は NULL がありうるので照合は `IS NOT DISTINCT FROM`。今の照合の `=` を写すと版の無い記録の更新が全部落ちる）。前の版の行を書く経路（`apply_external_update` の前の版の INSERT・`push_version`）は、門と同じ移行が当たった時点で 3 列を写していなければならない（tasks 3.2）。版を書き換えるには、同じまとまりに前の版の行（D1（仮）・D2（仮）の経路、または直すための `push_version` と同じ形の INSERT）が要る。誤った印は直せる（前の版を積めば通る）
 - 反転条件: 誤った印を前の版を残さずに直したい事例（前の版の表の行数が問題になる量の直し）が出たら、門の外へ戻す（前の値は前の版に残っているので、戻しても失うものが無い）
 
 ### D17. 書き出しの列

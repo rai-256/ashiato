@@ -58,7 +58,7 @@
   - `server`（`cargo build -p ashiato-server --bin openapi`）: `echo "== Scenario: S-01 の組み立ての印は、commit を進めた後の差分の組み立てでも新しい commit になる"`・`echo "== Scenario: S-01 の組み立ての印は、add していないソースの変更の後の差分の組み立てで .dirty になる"`
   - `windows` と `android` は Task 8・9 で足す（節が無ければ rc≠0 で「節が無い」と出す）
   検証: `STAMP tool` rc=0
-- [ ] 1.3 `crates/server/build.rs` の ST48 の `build_commit()` を `ashiato_build_stamp` に置き換え（部品のソースの道は `crates/`・`migrations/`・`Cargo.toml`・`Cargo.lock`）、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` を足す（`ASHIATO_BUILD_COMMIT` は同じ commit で出し続ける）。
+- [ ] 1.3 `crates/server/build.rs` の ST48 の `build_commit()` を `ashiato_build_stamp` に置き換え（部品のソースの道は `crates/server`・`crates/build-stamp`・`migrations/`・`Cargo.toml`・`Cargo.lock`。D5）、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` を足す（`ASHIATO_BUILD_COMMIT` は同じ commit で出し続ける）。
   `crates/server/src/lib.rs` に `pub const BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP");`。
   検証: `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `CT migration_ledger_` rc=0（`-- --list` で 20 本以上。ST48 の台帳の試験が通る）/ `STAMP server` rc=0
 
@@ -97,7 +97,8 @@
   - `st49_dedup_version_only_difference_folds` — `// Scenario: 部品の版だけが違う同じ記録は、1 件のまま`
   いまの木で `st49_ingest_collector_version_and_server_version` が落ちることを `CT st49_ingest_collector` rc≠0 で確かめてから 3.2 に進む
 - [ ] 3.2 `ingest.rs` の `IngestRequest` に `client_version`（D8。空と U+0000 の扱いは `IngestRequest` の関数 1 つに閉じる）、`lib.rs` に `Writer`（D9。`match` に `_` を置かない）と `ingest_request` の引数、
-  `ingest` は `decided()` の `Caller` から、`store_one` は `Writer::Internal` を渡す。`ingest_one` の 2 つの INSERT に 3 列（D10）。
+  `ingest` は `decided()` の `Caller` から、`store_one` は `Writer::Internal` を渡す。`ingest_one` の 2 つの INSERT に 3 列（D10）。**前の版の行を書く 2 か所（`apply_external_update` の前の版の INSERT と `stay_store.rs` の `push_version`）にも、ここで 3 列を写す** ——
+  門（Task 2 の D21（仮））は前の版の行の版を更新前の値と照らすので、写さないと版を持つ記録の外部更新が門で落ちる（版を動かす UPDATE は 4.2）。
   `ingest.rs` の単体試験に `st49_hash_ignores_client_version` — `// Scenario: 部品の版を足しても内容の鍵は変わらない`（`hash_is_pinned` と同じ固定値）。
   検証: `CT st49_ingest_` rc=0（`-- --list` で 8 本以上）/ `CT st49_dedup_` rc=0（`-- --list` で 1 本以上）/
   `bash -c 'scripts/quiet-run unit -- cargo test -p ashiato-server --lib st49_hash'` rc=0（`-- --list` で 1 本以上）/ `CT dedup_tests` rc=0（`-- --list` で 35 本以上。既存の重複の判定が変わらない）/
@@ -113,8 +114,8 @@
   - `st49_update_same_content_keeps_versions` — `// Scenario: 内容の変わらない再到着では、版は変わらない`
   - `st49_update_stale_keeps_versions` — `// Scenario: 古い更新時刻の到着では、版は変わらない`
   - `st49_update_deleted_keeps_versions` — `// Scenario: 削除済みの記録への更新では、版は変わらない`
-  いまの木（Task 3 の後）で `st49_update_versions_move_and_history_keeps_old` が落ちることを `CT st49_update_versions` rc≠0 で確かめてから 4.2 に進む
-- [ ] 4.2 `lib.rs` の `Stored` と `load_stored` に 3 列、`apply_external_update` の前の版の INSERT と本表の UPDATE に 3 列（D1（仮））。`advance_watermark` は変えない。
+  いまの木（Task 3 の後）で `st49_update_versions_move_and_history_keeps_old` が版の値のアサートで落ちる（門では落ちない）ことを `CT st49_update_versions` rc≠0 と失敗の文で確かめてから 4.2 に進む
+- [ ] 4.2 `lib.rs` の `Stored` と `load_stored` に 3 列、`apply_external_update` の本表の UPDATE で 3 列を動かす（D1（仮）。前の版の INSERT は 3.2 で済んでいる）。`advance_watermark` は変えない。
   検証: `CT st49_update_` rc=0（`-- --list` で 4 本以上）/ `CT dedup_tests` rc=0（`-- --list` で 35 本以上。既存の外部更新の試験が通る）
 
 ## Task 5: 滞在と滞在の基準の版（D2（仮））
@@ -124,7 +125,7 @@
   - `st49_stay_rebuild_with_new_raw_moves_version` — `// Scenario: 作り直しで原文が変わった滞在は、版が替わり、前の版が履歴に残る`
   - `st49_stay_rebuild_unchanged_keeps_version` — `// Scenario: 作り直しで原文が変わらなかった滞在の版は変わらない`（削除の印だけを書き換えた滞在の版も変わらないことを同じ試験で見る）
   - `st49_stay_criteria_row_has_server_version` — `// Scenario: 滞在の基準を変えた台帳の行は、書いた S-01 の版を持つ`（画面のログインで `POST /stays/rebuild` に基準を渡す）
-- [ ] 5.2 `stay_store.rs` の `insert_stay`・`update_stay`（原文が変わったときだけ）・`push_version`・`set_criteria` の INSERT に版の列（D2（仮）・D10）。
+- [ ] 5.2 `stay_store.rs` の `insert_stay`・`update_stay`（原文が変わったときだけ）・`set_criteria` の INSERT に版の列（D2（仮）・D10。`push_version` は 3.2 で済んでいる）。
   検証: `CT st49_stay_` rc=0（`-- --list` で 4 本以上）/ `CT stay_tests` rc=0（`-- --list` で 65 本以上。既存の滞在の試験が通る）
 
 ## Task 6: 破棄の報告・原本の欠け・画面の操作の台帳（S-01 の側）
@@ -138,7 +139,7 @@
   - `st49_ledger_restore_row_has_server_version` — `// Scenario: 画面から戻した操作の台帳の行も、書いた S-01 の版を持つ`（`POST /stays/restore`）
   - `st49_ledger_feeling_reminder_has_server_version` — `// Scenario: 通知の時刻を変えた台帳の行は、書いた S-01 の版を持つ`
   - `st49_ledger_kind_name_has_server_version` — `// Scenario: 個人属性の種類を足した名前の台帳の行は、書いた S-01 の版を持つ`（`POST /attributes/kinds`）
-  - `st49_ledger_inserts_name_server_version` — `crates/server/src` の試験でないファイルの、`server_version` を持つ 8 表への `INSERT INTO core.<表>` の文が、列の並びに `server_version` を名指すことを文字列で見る（印なし。D10 の機械の止め）
+  - `st49_ledger_inserts_name_server_version` — `crates/server/src` の試験でないファイル（`*_tests.rs`・`testdb.rs`・`#[cfg(test)]` の mod の中を除く）の、`server_version` を持つ 8 表への `INSERT INTO core.<表>` の文が、列の並びに `server_version` を名指すことを文字列で見る（印なし。D10 の機械の止め）
 - [ ] 6.2 `drops.rs`・`media_missing.rs` の要求に `client_version`（D8）と INSERT に 2 列（`Writer::Collector` のときだけ収集アプリの版。D9・D14）、`deletion.rs` と `stay_store.rs` の削除の台帳・`feelings.rs` の通知の台帳・`attributes_store.rs` の種類の名前の INSERT に `server_version`。
   重複の判定の問い合わせは変えない（D11）。`cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` の破棄の報告と原本の欠けの節にも欄を足す。
   検証: `CT st49_ledger_` rc=0（`-- --list` で 9 本以上）/ `CT drops_tests` rc=0（`-- --list` で 15 本以上）/ `CT media_missing_tests` rc=0（`-- --list` で 6 本以上）/ `CT deletion_tests` rc=0（`-- --list` で 26 本以上）/ `CT feelings_remind` rc=0（`-- --list` で 8 本以上）/
@@ -157,7 +158,7 @@
 
 ## Task 8: PC の収集アプリ（C-02）の印・焼き込み・欄の保持
 
-- [ ] 8.1 `crates/collector-windows/build.rs` を作り（`ashiato-build-stamp` を build-dependency に。部品のソースの道は S-01 と同じ）、`ASHIATO_BUILD_STAMP` を出す。`contract.rs` の `IngestRequest` に
+- [ ] 8.1 `crates/collector-windows/build.rs` を作り（`ashiato-build-stamp` を build-dependency に。部品のソースの道は `crates/collector-windows`・`crates/build-stamp`・`Cargo.toml`・`Cargo.lock`。D5）、`ASHIATO_BUILD_STAMP` を出す。`contract.rs` の `IngestRequest` に
   `#[serde(default, skip_serializing_if = "Option::is_none")] client_version` と `#[serde(flatten)]` の知らない欄の置き場（D3（仮））、記録の溜め（`events`）に積む 1 か所で `client_version` を入れる（D13。生存信号の `beats` には入れない）。
   試験（`#[cfg(test)]`。`outbox.rs` / `contract.rs` / `runtime.rs` / `history` の隣）:
   - `st49_c02_pending_keeps_stamp_from_add_time` — `// Scenario: PC の収集アプリを更新した後に送った未送信は、積んだときの版で届く`（印 A で積んだ行を、印を差し替えた組み立て（試験では印を引数で渡す関数）で開き直して送る要求を見る）
@@ -199,7 +200,7 @@
   vitest（`web/src/__tests__/buildStamp.test.ts`。印なし —— 画面の Scenario は 10.2 の e2e が担保する）: `build-stamp.ts` に偽の git を渡して `.dirty`・`unknown`・production で `.debug` が付かないこと、3 つの組み立ての関数の戻り値の `client_version` が `__ASHIATO_WEB_VERSION__` と同じこと。
   検証: `VT buildStamp.test.ts` rc=0 / `bash -c 'cd web && npx vitest run'` rc=0（既存の画面の試験が通る）/ `bash -c 'cd web && npm run build'` rc=0
 - [ ] 10.2 `web/e2e/st49-client-version.spec.ts`（`tools/stack.sh up` の本物の画面。`page.waitForRequest` で `/api/ingest` の本文を読む。送り先は本物の S-01 のまま）:
-  - `// Scenario: 画面が送る気分・場所・個人属性の主張の 1 件は、画面の組み立ての印を持つ` —— 気分（`feel.spec.ts` の記入の流れ）・場所（`places.spec.ts` の登録の流れ）・個人属性の主張（`MasterView` の流れ）を 1 件ずつ送り、
+  - `// Scenario: 画面が送る気分・場所・個人属性の主張の 1 件は、画面の組み立ての印を持つ` —— 気分（`feel.spec.ts` の記入の流れ）・場所（`places.spec.ts` の登録の流れ）・個人属性の主張（`MasterView` の主張を書く流れ。いまの `web/e2e` に無いので、この spec の中に書く）を 1 件ずつ送り、
     3 つの本文の各要素の `client_version` が D5 の正規表現に合い、版番号が `web/package.json` の `version`、3 つが同じ値であることを見る
   検証: `bash -c 'cd web && npm run test:e2e -- st49-client-version'` rc=0
 

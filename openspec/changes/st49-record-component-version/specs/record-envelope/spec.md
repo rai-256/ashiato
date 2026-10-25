@@ -53,7 +53,7 @@ THE SYSTEM SHALL 前の版の履歴にも同じ 3 つの版の欄を持たせ、
 THE SYSTEM SHALL S-01・C-01・C-02・V-01 の組み立ての印を `<その部品の宣言した版番号>+<commit>` の形にし、その部品のソースに未 commit の変更があれば `.dirty`、release でない組み立てなら `.debug` を、この順で末尾に足す。
 THE SYSTEM SHALL commit を 40 桁の 16 進で持ち、短縮しない。commit を取れなければ `unknown` にする。
 THE SYSTEM SHALL 印を、commit が進んだとき・その部品のソースが変わったとき（add していない変更を含む）に、ソースのほかの部分に触れない差分の組み立てでも作り直す。
-THE SYSTEM SHALL 「その部品のソース」を、S-01 と C-02 は Rust の workspace（`crates/`・`migrations/`・workspace の宣言）、C-01 は携帯の収集アプリの木、V-01 は画面の木とする。
+THE SYSTEM SHALL 「その部品のソース」を、S-01 は自分の crate と印を組む crate と移行と workspace の宣言、C-02 は自分の crate と印を組む crate と workspace の宣言、C-01 は携帯の収集アプリの木、V-01 は画面の木とする。
 
 導出元: FR-122, FR-123。扉 #32。深掘り（ST49）Q1（推奨）。premises の C10・C11。
 版番号だけでは、同じ番号の組み立て（開発版の日ごと・手元の組み立て・同じ commit の debug と release）が作った記録を分けられない。記録の版は後から直せない記録に焼き込むので、差分の組み立てで古い印を残さない。
