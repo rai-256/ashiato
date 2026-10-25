@@ -35,6 +35,7 @@ Non-Goals:
 CH06 の下流がその注意を見て宣言の行を CH06 に入れても失うものは無く、CH07 はその行を確かめる側になる。CH07 は注意を止めるために #112 や CH06 の順を変えない。
 spec の段で確かめた: CH06 が gate を通った `c666673` の `tools/verify-env.sh` に `HARNESS_RESET` の字は無い。#112 が先に入る側は起きたが、CH06 が後で宣言を足すかは CH06 の下流の間は決まらないので（仮）のまま置く（review/spec.md R1）。
 反転条件: CH06 が後で宣言の行を足した場合は、tasks 1.1 がその行を `reset_db` の印に結び直す（宣言の字は本文に 1 つだけ。tasks 1.1 の検証が数える）。
+注意が CH06 以外の走っている change の下流を止める・誤った直しを起こす（注意を見て `verify-env.sh` に宣言を足す・`none` を出す）と分かったら、harness2 側に返す。
 
 ### D2. 宣言は `reset_db` が立てた印を見て、成功の出口（待ちのループの `exit 0`）の直前で出す（C1・C2・C9）
 
@@ -87,7 +88,7 @@ volume が 0 個の場合を確かめない（R8 (g) の決定が test で固定
 
 - **`--plan` の出力**: 既にある 3 つの `--plan` の Scenario の呼び出し（`demo` と 3 つの worktree、印あり・なし、`CI=true` あり・なし）の出力が、どれも 1 行で `reset` か `keep:` で始まり、`HARNESS_RESET:` の行を含まないことを、
   新しい Scenario「判定だけを出すときは、宣言を出さない」の印の下でまとめて見る
-- **git の木でない場所**: 一時の場所（`git init` しない）に `tools/verify-env.sh` を写し、`CI` を落として `HARNESS_VERIFY=1 … --plan` が `keep:` で始まる 1 行で宣言を含まない（Scenario「git の木でなければ、印つきでも作り直さない判定になる」。`keep` の経路は `reset_db` を呼ばないので、判定までで宣言が出ないことが決まる —— D2）
+- **git の木でない場所**: 一時の場所（`git init` しない）に `tools/verify-env.sh` を写し、`CI` を落とし `GIT_CEILING_DIRECTORIES` にその一時の場所の親を渡して `HARNESS_VERIFY=1 … --plan` が `keep:` で始まる 1 行で宣言を含まない（Scenario「git の木でなければ、印つきでも作り直さない判定になる」。`keep` の経路は `reset_db` を呼ばないので、判定までで宣言が出ないことが決まる —— D2）。`GIT_CEILING_DIRECTORIES` が要るのは、`verify-run` が渡す `TMPDIR` が worktree の中（`.superpowers/sdd/tmp/`。`.harness2/scripts/evidence.py:372`）にあり、渡さないと写した `verify-env.sh` の `git rev-parse` が上の worktree を見つけて `reset` を返すため
 - **宣言の字**: `tools/verify-env.sh` の注記でない行に `echo "HARNESS_RESET: testdb"` がちょうど 1 つあり、その行が `>/dev/null`・`>&2`・`$(` を含まない（C2。`init.py` が字面で読み、出力を捨てる塊の中に置かない）
 - **ハーネスの点検**: `.harness2/scripts/init.py` があり `check_verify_env` を持つなら、repo の根で `python3 .harness2/scripts/init.py --check` を走らせ、`[人間] tools/verify-env.sh` を含む行が無く、`[ok] tools/verify-env.sh` を含む行がちょうど 1 つ（rc は見ない。C7）。
   無ければ `SKIP` の 1 行を出して飛ばす（CI には `.harness2` が無い。P8）。worktree の `verify-run` の証跡がこの Scenario を通す（CH06 の本体の 3. と 8. と同じく、CI と `verify-run` の証跡を合わせて全部が通る）

@@ -36,7 +36,7 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
 - [ ] 2.1 `tools/check-verify-env-reset.sh` の `--self-test` に、`echo "Scenario: 判定だけを出すときは、宣言を出さない"` の印を置き、`demo` と `demo-st05`・`demo-verify`・`demo-ch01` で、
   印あり・なしと `CI=true` あり・なしの `--plan` の出力が、どれも 1 行で `reset` か `keep:` で始まり、`HARNESS_RESET:` で始まる行を含まないことを確かめる（design D4）。
   同じ入口で、`echo "Scenario: git の木でなければ、印つきでも作り直さない判定になる"` の印を置き、`git init` しない一時の場所（`$tmp` の下）に `tools/verify-env.sh` を写して、
-  `CI` を落とし `HARNESS_VERIFY=1` で `--plan` を呼ぶと、出力が `keep:` で始まる 1 行で `HARNESS_RESET:` を含まないことを確かめる（design D4）。
+  `CI` を落とし `GIT_CEILING_DIRECTORIES` にその一時の場所の親を渡して（`verify-run` の `TMPDIR` は worktree の中にある。design D4）`HARNESS_VERIFY=1` で `--plan` を呼ぶと、出力が `keep:` で始まる 1 行で `HARNESS_RESET:` を含まないことを確かめる（design D4）。
   同じ入口で、`tools/verify-env.sh` の注記でない行に `echo "HARNESS_RESET: testdb"` がちょうど 1 つあり、その行が `>/dev/null`・`>&2`・`$(` を含まないことを確かめる（Scenario の印は付けない。CH06 の旗の確かめと同じ守り）。
   検証: `tools/check-verify-env-reset.sh --self-test` rc=0 /
   `bash -c 'POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c ASHIATO_DB_SUBNET=x CI=true tools/check-verify-env-reset.sh --self-test'` rc=0（CI と同じ環境）/
