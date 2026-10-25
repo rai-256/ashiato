@@ -105,7 +105,7 @@
 
 ## Task 5: 初回起動の流れに健康データの段を入れる（design D4 / D6 / D9）
 
-- [ ] 5.1 `MainActivity.proceed()` の写真と動画の後・`start()` の前に健康データの段を入れる（D4）。`protected open fun healthPermissions(): HealthPermissions` を差し替え口にし、
+- [x] 5.1 `MainActivity.proceed()` の写真と動画の後・`start()` の前に健康データの段を入れる（D4）。`protected open fun healthPermissions(): HealthPermissions` を差し替え口にし、
   読む口は主スレッドを塞がずに読み、読み終えるまで `inFlight` で先へ進まない。`startActivityForResult` で求め、`onActivityResult` で印 `ASKED_HEALTH_PERMISSIONS` を立て、
   `observeHealthPermissions(request_result)` をしてから `proceed()` に戻る。健康データの段を最初に通るときに `observeHealthPermissions(app_open)` をする（D9）。
   `app_open` は Health Connect が使えるかに依らず、起動ごとに写真と動画の段を初めて越えたときに観る（D9。求めるかどうかとは別）。
