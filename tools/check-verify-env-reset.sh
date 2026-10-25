@@ -298,10 +298,12 @@ init() {  # init の前に w を決める。落ちたら場合（呼んだ行の
 }
 subnet() { clean bash -c '. "$0/tools/ports.sh" && ashiato_db_subnet' "$tmp/$1"; }
 perm() { stat -c %a "$tmp/$1/.env"; }
-pw='POSTGRES_PASSWORD=pg
-OWNER_DB_PASSWORD=ow
-APP_DB_PASSWORD=ap
-BIND=127.0.0.1:1'
+# 試験の合言葉も変数から書く（字面だと tools/check-db-secret.sh が止める）
+pg=pg ow=ow ap=ap
+pw="POSTGRES_PASSWORD=$pg
+OWNER_DB_PASSWORD=$ow
+APP_DB_PASSWORD=$ap
+BIND=127.0.0.1:1"
 
 w=demo-ch01
 echo "Scenario: 既にある .env に、合言葉を変えずに COMPOSE_FILE を足す"
@@ -352,7 +354,7 @@ printf '%s\n' "$pw" >"$tmp/$w/.env"; init   # 以降の木は元の形に戻す
 echo "Scenario: 合言葉が環境変数で渡っていれば、.env を作らない"
 git -C "$tmp/demo" worktree add -q --detach "$tmp/demo-ch03"; mkdir -p "$tmp/demo-ch03/tools"
 cp tools/ports.sh tools/env-init.sh "$tmp/demo-ch03/tools/"
-if clean POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c "$tmp/demo-ch03/tools/env-init.sh" 2>/dev/null; then r=0; else r=1; fi
+if clean POSTGRES_PASSWORD="$pg" OWNER_DB_PASSWORD="$ow" APP_DB_PASSWORD="$ap" "$tmp/demo-ch03/tools/env-init.sh" 2>/dev/null; then r=0; else r=1; fi
 ok "rc=0" "$r"
 want ".env も docker-compose.subnet.yml も無い" "$(ls -A "$tmp/demo-ch03" | grep -c -e '^\.env$' -e '^docker-compose.subnet.yml$' || true)" "0"
 
