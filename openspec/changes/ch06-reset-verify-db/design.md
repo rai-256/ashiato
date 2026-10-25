@@ -185,4 +185,9 @@ DB の移行は無い。rebase した worktree で最初に `verify-env.sh` が�
 - 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）: 12 秒・12 秒・7 秒（2026-10-25、ch06 worktree、証跡 4.3 の run。10 秒を超えた回がある）。
   遅い段（`bash -x` の時刻差、2 回）: `docker compose rm -s -f db` 約 1.3 秒、`docker compose up -d --wait db`（healthcheck 待ち）約 5.2〜5.7 秒、残りは役割の整えと接続の確かめ（約 1〜5 秒、回で揺れる）。切る・消す・network の確かめは各 0.1〜0.2 秒。支配的なのは新しい DB の起動待ち
 - 作り直した直後の `cargo test -p ashiato-server` の本数と時間（`scripts/verify-run` の証跡）:
+  `--list` の本数は 1386（lib）+ 9（tests/server_startup）。`scripts/verify-run 7.1`（並列度は既定）は 2026-10-25 に 2 回とも FAIL（rc=101、650〜830 秒）。
+  落ちたのは時間・負荷に依る試験（1 回目: `stay_rebuild_chain_of_short_moves_settles`（作り直し 3 秒の上限）と `stays_migration_applies_twice`、
+  2 回目: 同じ `stay_rebuild_chain_of_short_moves_settles` と `archive_scan_interval_change_takes_effect_without_restart`（走査 7 回））。
+  どれも単独では通り（2.5 秒）、`crates/` は変えていない。同じ DB で `cargo test -p ashiato-server -- --test-threads=4` は 1386+9 本全部 ok（705 秒、実時間 11 分 50 秒）。
+  マシンの load average は約 10（16 コア）。試験の時間の上限が並列の負荷に負けている疑いで、作り直しの副作用ではないと見る
 - `tools/check-verify-env-reset.sh` 本体の時間（手元と CI）:
