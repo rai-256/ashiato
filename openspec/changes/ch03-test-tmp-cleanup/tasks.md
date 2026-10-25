@@ -113,7 +113,7 @@
 
 ## Task 7: 手書きの一時フォルダを落とす検査
 
-- [ ] 7.1 `tools/check-tmp-hygiene.sh` を design D3〜D5 のとおりに書く（python3 の標準だけ・`git ls-files` の `crates/**/*.rs` と `collector-android/app/src/test/**/*.kt`・D4 の表の書き方・
+- [x] 7.1 `tools/check-tmp-hygiene.sh` を design D3〜D5 のとおりに書く（python3 の標準だけ・`git ls-files` の `crates/**/*.rs` と `collector-android/app/src/test/**/*.kt`・D4 の表の書き方・
   同じ行か 1 行上の `tmp-ok: <理由>`・落ちたときはファイルと行番号と、言語ごとに何を使えばよいか）。冒頭のコメントに使い方・rc・なぜ要るか（CH03 の実測）を `check-log-private.sh` の形で書く。
   `--self-test` は `mktemp -d` + `trap` の一時の木に断片を置き、次の 8 つを見て、それぞれの前に印を出す:
   `echo "Scenario: Rust の試験で一時フォルダを手で作ると、検査が落ち、TempDir を示す"` /
@@ -125,13 +125,13 @@
   `echo "Scenario: 理由の無い tmp-ok の印と、2 行以上離れた印は、検査を通らない"` /
   `echo "Scenario: 携帯の main と androidTest は、検査の外"`。
   検証: `tools/check-tmp-hygiene.sh --self-test` rc=0
-- [ ] 7.2 いまの木が検査を通ること（Task 2〜6 の後）。`--self-test` の最後の段で本物の木に対して本体を走らせ、その前に `echo "Scenario: CH03 の後の木は、検査を通る"` を出す。
+- [x] 7.2 いまの木が検査を通ること（Task 2〜6 の後）。`--self-test` の最後の段で本物の木に対して本体を走らせ、その前に `echo "Scenario: CH03 の後の木は、検査を通る"` を出す。
   検証: `tools/check-tmp-hygiene.sh` rc=0 / `tools/check-tmp-hygiene.sh --self-test` rc=0
-- [ ] 7.3 `tools/pre-commit.sh` に `check-log-private.sh` と同じ形（落ちれば `exit 1`）で足し、`.github/workflows/ci.yml` の chain job の `check-log-private.sh` の 2 行の後に
+- [x] 7.3 `tools/pre-commit.sh` に `check-log-private.sh` と同じ形（落ちれば `exit 1`）で足し、`.github/workflows/ci.yml` の chain job の `check-log-private.sh` の 2 行の後に
   `- run: ./tools/check-tmp-hygiene.sh --self-test` と `- run: ./tools/check-tmp-hygiene.sh` を足す（コメントに CH03 と何を止めるか 1 行）。
   `--self-test` に、`ci.yml` の chain job にその 2 行があり、`tools/pre-commit.sh` が検査を呼んで落ちれば `exit 1` することを読む段を足し、その前に `echo "Scenario: 検査は CI の chain job と commit 前に走る"` を出す。
   検証: `tools/check-tmp-hygiene.sh --self-test` rc=0
-- [ ] 7.4 `docs/testing.md` に「一時フォルダ」の節（design D8: D1・D2 の形・`tmp-ok:`・`tools/tmp-leak-check.sh` の走らせ方）を足し、§8 の一覧に `./tools/check-tmp-hygiene.sh --self-test && ./tools/check-tmp-hygiene.sh` と
+- [x] 7.4 `docs/testing.md` に「一時フォルダ」の節（design D8: D1・D2 の形・`tmp-ok:`・`tools/tmp-leak-check.sh` の走らせ方）を足し、§8 の一覧に `./tools/check-tmp-hygiene.sh --self-test && ./tools/check-tmp-hygiene.sh` と
   `./tools/tmp-leak-check.sh --self-test` を足す。§1 の CI の表の `chain` の行に検査を足す。`docs/flow-gates.md` の検査の表に `tools/check-tmp-hygiene.sh` の行を足す。
   検証: `bash -c 'grep -q "TemporaryFolder" docs/testing.md && grep -q "tmp-ok" docs/testing.md && grep -q "tmp-leak-check.sh" docs/testing.md && grep -q "check-tmp-hygiene.sh" docs/flow-gates.md'` rc=0
 
