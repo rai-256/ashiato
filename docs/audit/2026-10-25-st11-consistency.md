@@ -8,7 +8,7 @@ FR-11・FR-73・扉 #21 の理由「宣言していない期間の 30 日より�
 文書は head（`f5d4b7a2`。main への rebase 後は `2a2916de`。要件と Story の差分は同じ）の内容で読んだ。
 
 機械の入力:
-- `req_impact.py --base dba20fc8（rebase 後は 2e45447f）`: 改訂 2 件（FR-11・FR-73）・扉 1 項（#21）。名指しは `docs/production-prep.md:24`・`docs/stories/INDEX.md:34`・`:57`・`docs/stories/stories.json:262`・`:799` と、走っている st11 自身の文書
+- `req_impact.py --base dba20fc8`（rebase 後は `2e45447f`）: 改訂 2 件（FR-11・FR-73）・扉 1 項（#21）。名指しは `docs/production-prep.md:24`・`docs/stories/INDEX.md:34`・`:57`・`docs/stories/stories.json:262`・`:799` と、走っている st11 自身の文書
   （`deep-questions.json` `design.md` `go.json` `premises.md` `proposal.md` `review/deep.md` `review/spec.md` `specs/device-collection/spec.md` `tasks.md`）
 - `check_chain.py`: 未回収 0・warn 0。FAIL 1 件は「整合の確認の後に要件が変わった: FR-11, FR-73, 扉#21」（この監査が受けるもの）
 - `check_scenarios.py`: 担保なし 35 件はすべて走っている st11 の delta spec の Scenario（実装前）。正典（`openspec/specs/`）の Scenario に担保の無いものは 0
