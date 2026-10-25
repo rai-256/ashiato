@@ -174,7 +174,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
 (cd collector-android && ./gradlew detekt :app:assembleDebug :app:testDebugUnitTest)   # ★ 2026-10-11: detekt（formatting = ktlint を含む）を足した
 cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
-./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh
+./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh && ./tools/check-db-version-stop.sh
 # Windows の上で:  cargo test -p ashiato-collector-windows
 # エミュレータ:    ./tools/android-emulator.sh
 ```

@@ -20,7 +20,13 @@ docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
 echo "== 移行（所有者の接続。当てる前に退避する。手元に pg_dump が無ければ db のコンテナの中の pg_dump）"
 command -v pg_dump >/dev/null 2>&1 || export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
-cargo run -q -p ashiato-server --bin ashiato-server -- migrate
+# 終了コード 3 = DB の版がこの木と合わない。作り直さずに手順を示して止まる（design D14）
+migrate_rc=0; cargo run -q -p ashiato-server --bin ashiato-server -- migrate || migrate_rc=$?
+if [ "$migrate_rc" = 3 ]; then
+  echo "この DB には、この木の知らない移行が当たっている（上の db: の行）。使い捨ての DB なら STACK_RESET=1 で作り直す（tools/stack.sh）。残す DB なら COMPOSE_PROJECT_NAME=<別の名前> で別の DB に立てる（この DB は消えない）" >&2
+  exit 3
+fi
+[ "$migrate_rc" = 0 ] || exit "$migrate_rc"
 
 echo "== サーバと画面を起動（Ctrl-C で両方止まる）"
 trap 'kill 0' EXIT

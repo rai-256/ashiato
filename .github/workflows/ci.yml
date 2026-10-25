@@ -281,6 +281,8 @@ jobs:
       - run: ./tools/check-panic-log.sh
       # 「収集した」記録が書き換えられないことを、わざと UPDATE を投げて確かめる（FR-30）
       - run: ./tools/check-immutable.sh
+      # DB の版の食い違いで止まるときの手順と、回ごとの project（ST48）。smoke が作ったサーバを使う
+      - run: SERVER_BIN=target/debug/ashiato-server ./tools/check-db-version-stop.sh
 
   # 要件 → Story の鎖と、stories.json からの再生成との一致（scripts/check_chain.py）。
   # scripts/ は .harness2/scripts への symlink で、.harness2 は runner には無い。private なので token が要る:
