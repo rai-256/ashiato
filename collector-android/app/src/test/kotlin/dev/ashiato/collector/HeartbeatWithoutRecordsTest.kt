@@ -5,8 +5,8 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * **記録が 1 件も生成されない期間でも生存信号が出る**（tasks 7.4 / FR-78 の目的そのもの）。

@@ -9,8 +9,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 捨てた記録から破棄の報告を作る（ST04 / tasks 7.1 / 深掘り C3 / C8 / C12 / R2 / R4 / spec-review R8 / design D4）。

@@ -5,8 +5,8 @@ import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** 未送信の置き場（tasks 7.1）と、ふるい落とさないこと（tasks 6.4 / design D11）。 */
 class OutboxTest {

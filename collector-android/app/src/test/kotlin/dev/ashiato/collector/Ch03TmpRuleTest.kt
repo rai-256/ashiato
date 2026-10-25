@@ -21,7 +21,7 @@ class Ch03TmpRuleTest {
                 val dir = rule.newFolder()
                 File(dir, "left.txt").writeText("残るはずのもの")
                 written = dir
-                throw IllegalStateException("試験が落ちた")
+                error("試験が落ちた")
             }
         }
 

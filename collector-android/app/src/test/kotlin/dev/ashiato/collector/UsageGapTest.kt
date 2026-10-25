@@ -8,8 +8,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -62,7 +62,10 @@ class UsageGapTest {
     // Scenario: 見込みの下限の内側だけを取ったときは gap が積まれない
     @Test
     fun `保存された終わりが下限より後なら gap は積まれない`() {
-        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))))
+        val env = UsageTestEnv(
+            tmp.newFolder(),
+            source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
+        )
         env.collect()
         val before = env.gaps().size
         env.advance(USAGE_INTERVAL_MS)

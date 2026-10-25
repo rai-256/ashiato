@@ -8,8 +8,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** 端末の基準を読む口（ST05 / design D2）。OS の時計は偽物に差し替える。 */
 class ClockReferencesTest {

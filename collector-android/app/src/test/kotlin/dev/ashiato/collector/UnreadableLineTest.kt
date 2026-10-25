@@ -7,8 +7,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 置き場の読めない行は捨てずに退避し、件数を破棄の報告に載せる（ST04 / tasks 5.3 / 深掘り C9 / design D6）。

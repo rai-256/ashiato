@@ -25,7 +25,6 @@ fn watch(time: &str, title: &str) -> String {
 struct Inbox {
     /// 起こした取り込み器。**落ちると止まる**ので、足場が生きている間だけ握る。
     workers: std::sync::Mutex<Vec<crate::archive::worker::WorkerHandle>>,
-    root: PathBuf,
     inbox: PathBuf,
     downloads: PathBuf,
     copies: PathBuf,
@@ -52,7 +51,6 @@ impl Inbox {
         Self {
             workers: std::sync::Mutex::new(Vec::new()),
             copies: root.join("copies"),
-            root,
             inbox,
             downloads,
             scan_row: testdb::archive_scan_row(&pool).await,

@@ -5,8 +5,8 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -87,7 +87,7 @@ class UsageWindowClockTest {
     }
 
     private fun env() = UsageTestEnv(
-            tmp.newFolder(),
+        tmp.newFolder(),
         source = FakeUsageSource(
             storedEvents = listOf(
                 usageEvent("2026-05-20T09:10:00Z"),

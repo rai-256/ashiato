@@ -44,11 +44,13 @@ run() {
     ran=$(count_rust_output <"$out")
   elif [ "$mode" = rust ]; then
     [ $# -gt 0 ] || set -- --workspace
+    echo "Scenario: 一時フォルダを空のフォルダへ向けて試験を一通り走らせると、終わった後も空のまま"
     cargo test --no-run "$@" || { rc=$?; rm -f "$out"; return "$rc"; }
     TMPDIR=$root cargo test "$@" 2>&1 | tee "$out"
     rc=${PIPESTATUS[0]}
     ran=$(count_rust_output <"$out")
   else
+    echo "Scenario: 一時フォルダを空のフォルダへ向けて試験を一通り走らせると、終わった後も空のまま"
     ASHIATO_TEST_TMPDIR=$root ./collector-android/gradlew -p collector-android :app:testDebugUnitTest --rerun "$@" 2>&1 | tee "$out"
     rc=${PIPESTATUS[0]}
     ran=$(count_android_xml)
@@ -88,12 +90,16 @@ self_test() {
     fi
     [ -n "$root" ] && rm -rf "$root"
   }
+  # Scenario: 試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる
   expect "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる" 1 "leaked-by-test" \
     'touch "$TMP_LEAK_ROOT/leaked-by-test"; echo "test result: ok. 2 passed; 0 failed"'
+  # Scenario: 試験が 1 本も走らなければ、一時フォルダが空でも落ちる
   expect "試験が 1 本も走らなければ、一時フォルダが空でも落ちる" 1 "0 本" \
     'echo "test result: ok. 0 passed; 0 failed"'
+  # Scenario: 試験が落ちれば、台本も試験の終了コードで落ちる
   expect "試験が落ちれば、台本も試験の終了コードで落ちる" 101 "rc=101" \
     'echo "test result: FAILED. 0 passed; 1 failed"; exit 101'
+  # Scenario: 試験が通り、何も残さなければ、台本は通る
   expect "試験が通り、何も残さなければ、台本は通る" 0 "試験 3 本" \
     'echo "test result: ok. 3 passed; 0 failed"'
   echo "Scenario: CI の試験の段は、残りを測る台本から走る"

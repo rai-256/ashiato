@@ -7,8 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 生存信号が**記録と同じ未送信の仕組み**に乗ること（specs/device-collection。tasks 7.3）。

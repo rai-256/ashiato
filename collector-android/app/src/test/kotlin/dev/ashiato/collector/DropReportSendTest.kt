@@ -7,8 +7,8 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 破棄の報告を送る（ST04 / tasks 7.2 / 深掘り C2 / R2 / design D4 / D13）。

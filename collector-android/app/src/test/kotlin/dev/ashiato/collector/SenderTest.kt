@@ -8,8 +8,8 @@ import kotlinx.serialization.json.JsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** まとめ送りと部分失敗（tasks 7.2 / 7.3 / design D9）。 */
 class SenderTest {

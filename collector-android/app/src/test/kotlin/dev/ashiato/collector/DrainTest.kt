@@ -6,8 +6,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 溜まっている間は続けて送る（ST04 / tasks 8.1 / 深掘り Q6 / spec R5 / design D12）。

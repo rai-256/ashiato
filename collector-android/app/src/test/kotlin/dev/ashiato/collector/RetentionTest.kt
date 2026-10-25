@@ -7,8 +7,8 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * 保持の上限（ST04 / tasks 6.2 / 深掘り Q1 / Q4 / C1 / C2 / C4 / design D2 / D3 / D13）。

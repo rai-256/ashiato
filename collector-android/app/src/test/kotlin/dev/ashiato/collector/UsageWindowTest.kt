@@ -7,8 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.TemporaryFolder
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -28,7 +28,10 @@ class UsageWindowTest {
     @Test
     fun `前回の窓の終わりとちょうど同じ時刻のイベントが次の契機で記録になる`() {
         // 取得元の範囲は `[begin, end)` —— 終わりちょうどのイベントは 1 回目では返らない
-        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource(storedEvents = listOf(usageEvent(t0.toString()))))
+        val env = UsageTestEnv(
+            tmp.newFolder(),
+            source = FakeUsageSource(storedEvents = listOf(usageEvent(t0.toString()))),
+        )
         env.collect()
         assertEquals("1 回目で返ってはいけない", 0, env.records().size)
         assertEquals(t0, env.savedEnd())
