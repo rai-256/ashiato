@@ -53,3 +53,6 @@ backups/
 
 # 書き出しの置き場（tools/stack.sh。ST33）
 /.export/
+
+# 生成物（tools/env-init.sh が作る。subnet は DB の port から決まる）
+docker-compose.subnet.yml

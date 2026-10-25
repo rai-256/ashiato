@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。何度呼んでも同じ（起動済みなら何もしない）。
+# 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。
+# **印（HARNESS_VERIFY=1）が無ければ何度呼んでも同じ**（起動済みなら何もしない）。**印があれば毎回空から**（worktree か CI=true のとき。ch06 design D2）。
+# 作り直すかの判定は `--plan`（`reset` か `keep: <理由>` の 1 行。docker にも .env にも触らない）。
 # いまやることは 2 つ: この worktree のテスト用 DB を起動して接続できるまで待ち、DB の役割（ST28）を整える。
 #   - ポートは tools/ports.sh の worktree ごとの規則（Story を並行して走らせても取り合わない）
 #   - 起動するのはこの worktree の compose の DB だけ。他の Story のコンテナには触らない
@@ -8,8 +10,116 @@
 # （それまでは別の Story の DB が 55432 に残っていて、そこに繋がって通っていた）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# 作り直すかの判定（design D2）。worktree かどうかの見分け方は tools/ports.sh と同じ。git の木でなければ worktree でない木と読む
+plan() {
+  local dirs gitdir common
+  [[ ${HARNESS_VERIFY:-} == 1 ]] || { echo "keep: 印が無い"; return; }
+  dirs=$(git rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null || true)
+  gitdir=${dirs%%$'\n'*}
+  common=${dirs##*$'\n'}
+  if [[ -n $dirs && $gitdir != "$common" ]]; then echo reset
+  elif [[ ${CI:-} == true ]]; then echo reset
+  else echo "keep: main の checkout（開発用の起動の DB）は作り直さない"
+  fi
+}
+case "${1:-}" in
+  --plan) plan; exit 0 ;;
+  "") ;;
+  *) echo "使い方: $0 [--plan]" >&2; exit 2 ;;
+esac
+decision=$(plan)
+[[ $decision != keep:* || ${HARNESS_VERIFY:-} != 1 ]] || echo "$decision" >&2
+
 . tools/ports.sh
 tools/env-init.sh     # `.env` が無い worktree（下流で新しく作ったもの）でも DB を起動できるように
+
+# 切った接続の 1 行（design D3）。動いている DB の client backend（この問い合わせ自身を除く）を出所ごとに数える。問えなければ 0。
+# 出所（application_name）は空白やカンマを含みうるので、タブで区切る
+cut_line() {
+  local rows n list
+  if ! rows=$(docker compose exec -T db psql -X -At -U ashiato -d ashiato -F $'\t' -c \
+    "select coalesce(nullif(application_name,''),'-')||'@'||coalesce(host(client_addr),'local'), count(*)
+       from pg_stat_activity where backend_type='client backend' and pid<>pg_backend_pid()
+      group by 1 order by 2 desc, 1" 2>/dev/null); then
+    # 止まっていたのか、ほかの理由（役割が無いなど）で問えなかったのかは見分けない（表示は design D3 の書式のまま）
+    echo "verify-env: DB を作り直す（切った接続: 0（DB は止まっていた））" >&2; return
+  fi
+  n=$(awk -F'\t' '{s+=$NF} END{print s+0}' <<<"$rows")
+  list=$(awk -F'\t' 'NF{ if (++c <= 10) printf "%s%s%s", (c > 1 ? ", " : ""), $1, ($2 > 1 ? " ×" $2 : "") } END{ if (c > 10) printf ", …" }' <<<"$rows")
+  if [[ $n == 0 ]]; then echo "verify-env: DB を作り直す（切った接続: 0）" >&2
+  else echo "verify-env: DB を作り直す（切った接続: $n。$list）" >&2; fi
+}
+
+# 作り直し（design D1・D4）。volume を名前で控え、他のコンテナが使っていなければ、コンテナと volume を消す。`-v` は使わない
+reset_db() {
+  local cid vols v users others
+  cid=$(docker compose ps -aq db --no-trunc)
+  if [[ -z $cid ]]; then echo "verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））" >&2; return; fi
+  vols=$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}')
+  for v in $vols; do
+    users=$(docker ps -aq --no-trunc --filter "volume=$v")
+    others=$(grep -vx "$cid" <<<"$users" || true)
+    if [[ -n $others ]]; then
+      echo "verify-env: volume $v を使う別のコンテナがある。何も消さずに止める: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')" >&2
+      exit 1
+    fi
+  done
+  cut_line
+  docker compose rm -s -f db >/dev/null
+  for v in $vols; do docker volume rm "$v" >/dev/null || { echo "verify-env: volume $v を消せない" >&2; exit 1; }; done
+}
+
+# 塞いでいる network の確かめ（design D5）。subnet のファイルがあり自分の network が無いとき、同じ subnet の別の network を探す。
+# コンテナが繋がっていなければその network だけを消し、繋がっていれば何も消さずに止める。
+# 移行の時期の端: 自分の network が古い subnet で残っていて、移る先を空の network が塞いでいると、ここでは動かず
+# up が自分の network を作り直すところで 1 回 BLOCKED_INFRA になる（自分の network が消えた次の呼び出しで直る）
+# 同じでなく重なるだけの範囲（VPN や別の道具の /16 など）は、ほかの持ち物なので消さずに名前を出して止める（D5 の反転条件）
+ip4() { local IFS=. a b c d; read -r a b c d <<<"$1"; echo $(((a << 24) | (b << 16) | (c << 8) | d)); }
+cidr_overlap() {  # cidr_overlap <範囲> <範囲> —— IPv4 の 2 つが重なれば 0（IPv6 は重ならないと読む）
+  [[ $1 != *:* && $2 != *:* ]] || return 1
+  local p=${1#*/} q=${2#*/} m
+  ((q < p)) && p=$q
+  m=$(((0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF))
+  (( ($(ip4 "${1%/*}") & m) == ($(ip4 "${2%/*}") & m) ))
+}
+clear_blocking_network() {
+  local subnet own n subs s same over others c wd gone
+  [[ -f docker-compose.subnet.yml ]] || return 0
+  subnet=$(awk '/- subnet:/{print $3; exit}' docker-compose.subnet.yml)
+  own=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["name"])')
+  [[ -n $subnet && -n $own ]] || return 0
+  ! docker network inspect "$own" >/dev/null 2>&1 || return 0
+  # 全部の network の範囲を 1 回の inspect で引く（消えかけの network があっても残りは出る）
+  while IFS=$'\t' read -r n subs; do
+    [[ -n $n && $n != "$own" ]] || continue
+    same=0 over=
+    for s in $subs; do
+      if [[ $s == "$subnet" ]]; then same=1; elif cidr_overlap "$s" "$subnet"; then over=$s; fi
+    done
+    if [[ -n $over ]]; then
+      echo "verify-env: network $n の範囲 $over が subnet $subnet と重なる。何も消さずに止める（範囲を替えるのは design D5 の反転条件）" >&2
+      exit 1
+    fi
+    [[ $same == 1 ]] || continue
+    others=$(docker ps -aq --filter "network=$n")
+    if [[ -n $others ]]; then
+      echo "verify-env: network $n が subnet $subnet を塞いでいる。繋がっているコンテナ: $(docker inspect --format '{{.Name}}' $others | tr '\n' ' ')。何も消さずに止める" >&2
+      # 台帳の番号を継いだ木では、たいてい消えた worktree の DB が残っている。消すのは人（Q3: 消えた worktree の残りは片付けない）
+      gone=
+      for c in $others; do
+        wd=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c" 2>/dev/null || true)
+        [[ -z $wd || -d $wd ]] || gone+=" $wd"
+      done
+      [[ -z $gone ]] || echo "verify-env: 繋がっているのは消えた worktree（${gone# }）のもの。要らなければ docker rm -f $others && docker network rm $n で外す（volume は残る）" >&2
+      exit 1
+    fi
+    docker network rm "$n" >/dev/null
+  done < <(docker network ls -q | xargs -r docker network inspect --format '{{.Name}}{{"\t"}}{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true)
+}
+
+[[ $decision != reset ]] || reset_db
+clear_blocking_network
 docker compose up -d --wait db >/dev/null
 # --wait は healthcheck を待つ。テストが繋ぐのと同じ口（127.0.0.1:<ポート>）で受け付けるまで確かめる
 for _ in $(seq 1 30); do
