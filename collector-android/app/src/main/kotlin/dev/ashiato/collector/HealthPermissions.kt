@@ -29,6 +29,13 @@ val HEALTH_PERMISSIONS: Map<String, String> = linkedMapOf(
  */
 const val HEALTH_PREFS = "health_permission"
 
+/**
+ * 健康データの権限を自動で求めて、結果が返ったことの印の鍵（design D4（仮））。[HEALTH_PREFS] に置く。
+ * 結果が返ったときに立てる（開いたときに立てると、答えずにプロセスが終わったとき二度と出ない）。
+ * 前の版には無い鍵なので、更新の後の最初の起動で 1 度求める。
+ */
+const val ASKED_HEALTH_PERMISSIONS = "asked_health_permissions"
+
 /** Health Connect が使えるか（design D6）。[wire] は記録の `availability` の値（design D2）。 */
 enum class HealthAvailability(val wire: String) {
     AVAILABLE("available"),

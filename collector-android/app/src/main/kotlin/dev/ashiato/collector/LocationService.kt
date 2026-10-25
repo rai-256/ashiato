@@ -776,6 +776,7 @@ open class LocationService : Service() {
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
         // **主糸では回さない**（[runCollection]）—— 初回の集計の取り込みは 4 粒度ぶんの問い合わせと
         // 数千件の追記になり、`onStartCommand` は主糸で呼ばれる
+        HealthRecordHandoff.drainInto(outbox)
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         startBeating()
