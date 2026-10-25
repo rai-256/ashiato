@@ -85,15 +85,7 @@ pub async fn pool() -> sqlx::PgPool {
         });
     MIGRATED
         .get_or_init(|| async {
-            // 取引の外の 1 本の接続で、本番と同じ当て方（記録に無い版だけ → 付与）。錠は `apply_migrations` が取る
-            let mut conn = pool.acquire().await.unwrap();
-            crate::migration_ledger::apply_migrations(&mut conn, crate::MIGRATIONS)
-                .await
-                .unwrap();
-            sqlx::raw_sql(crate::GRANTS)
-                .execute(&mut *conn)
-                .await
-                .unwrap();
+            crate::migrate(&pool).await.unwrap();
         })
         .await;
     pool
