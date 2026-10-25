@@ -64,8 +64,8 @@ async fn browser_history_record_id_is_required() {
 
 /// **記録が 1 件でも入った後は、移行が登録簿の宣言を触らない**（tasks 2.1 (b) / design D7）。
 ///
-/// `migrate()` は起動のたびに全版を当て直す。`NOT EXISTS` の番人を外すと、本人が後から
-/// `'none'` に戻した宣言を再起動のたびに `'record'` へ戻し、既存の行と鍵の対応が切れる（Q3 の不可逆）。
+/// 版の記録の無い古い DB には、`migrate()` が全版を一度だけ当てる（ST48 / design D3）。`NOT EXISTS` の番人を外すと、
+/// 本人が後から `'none'` に戻した宣言をそのとき `'record'` へ戻し、既存の行と鍵の対応が切れる（Q3 の不可逆）。
 /// 上の `…_is_required` は「全移行の後に `'record'`」しか見ないので、番人を外しても緑だった（R6 / R47）。
 ///
 /// 登録簿は全テストで 1 本しかないので、変更は**トランザクションの中だけ**に閉じて戻す。
@@ -393,8 +393,8 @@ async fn app_usage_rollup_source_record_without_external_id_is_accepted() {
 
 /// **当て直しても値が変わらない**（tasks 4.2 (d)）。
 ///
-/// `migrate()` は起動のたびに全版を当て直すので、条件なしで書く版は
-/// **本人が変えた想定間隔を再起動のたびに初期値へ戻す**。
+/// 版の記録の無い古い DB には `migrate()` が全版を一度だけ当てる（ST48 / design D3）ので、条件なしで書く版は
+/// **本人が変えた想定間隔をそのとき初期値へ戻す**。
 /// 行が増えないことも一緒に見る（主キーの衝突ではなく `ON CONFLICT DO NOTHING` で止まっているか）。
 #[tokio::test]
 async fn app_usage_rollup_source_migration_is_idempotent() {
@@ -459,7 +459,7 @@ async fn app_usage_rollup_source_migration_keeps_values_changed_by_hand() {
         "登録簿に `c01-app-usage-rollup` の行が無い（移行が当たっていない）"
     );
 
-    // 起動のたびに `migrate()` が当て直す（版の記録があっても中身は毎回流れる）
+    // 版の記録の無い古い DB には `migrate()` が全版を一度だけ当てる（そのとき中身がもう一度流れる）
     sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap();
 
     let (gap, name): (i32, String) = sqlx::query_as(

@@ -81,7 +81,7 @@ async fn count_reports(app: &App, source: &str) -> i64 {
     n.0
 }
 
-/// 移行は当て直しても壊れない（`run()` は起動のたびに全版を当てる）。
+/// 移行は当て直しても壊れない（版の記録の無い古い DB には `migrate()` が全版を一度だけ当てる）。
 #[tokio::test]
 async fn drop_reports_migration_applies_twice() {
     let pool = testdb::pool().await;
