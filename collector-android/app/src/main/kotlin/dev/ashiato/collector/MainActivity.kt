@@ -124,6 +124,10 @@ open class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == HEALTH_REQUEST) {
+            onHealthRequestReturned()
+            return
+        }
         inFlight = false
         // **grantResults は見ない**（上の理由）。実際の権限状態だけを見る
         proceed()
@@ -233,7 +237,15 @@ open class MainActivity : Activity() {
 
     private fun launchHealthRequest(intent: Intent) {
         inFlight = true
-        val opened = runCatching { startActivityForResult(intent, HEALTH_REQUEST) }.isSuccess
+        val opened = runCatching {
+            // Android 14 以降の client は、ComponentActivity の結果の登録簿だけが受け取れる内向きの intent
+            // （`ActivityResultContracts.RequestMultiplePermissions`）を返す。`Activity` のまま開くと解決できずに
+            // 失敗する（計測テストの実測 2026-10-25: START の result code=-91）。design D3 の反転条件どおり、
+            // そのときは中の権限を framework の口（`requestPermissions`）で求める
+            val framework = intent.takeIf { it.action == ACTION_REQUEST_PERMISSIONS }
+                ?.getStringArrayExtra(EXTRA_PERMISSIONS)
+            if (framework != null) requestHealthPermissions(framework) else startActivityForResult(intent, HEALTH_REQUEST)
+        }.isSuccess
         if (!opened) {
             // 開けなかった端末で止まらない。印は立てない（次の起動でもう一度試す）
             Log.w(TAG, Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = "launch"))
@@ -248,6 +260,11 @@ open class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != HEALTH_REQUEST) return
+        onHealthRequestReturned()
+    }
+
+    /** 健康データの権限の画面から戻った（13 以前は `onActivityResult`、14 以降は `onRequestPermissionsResult`）。 */
+    private fun onHealthRequestReturned() {
         // **結果が返ったときに印を立てる**（D4）。**結果の中身は見ない**。実際の状態を読み直して観る
         healthMarks().edit().putBoolean(ASKED_HEALTH_PERMISSIONS, true).commit()
         inFlight = true
@@ -290,6 +307,11 @@ open class MainActivity : Activity() {
         asked += permission
         inFlight = true
         requestPermission(permission)
+    }
+
+    /** 健康データの権限を framework の口で求める（Android 14 以降。[launchHealthRequest]）。**試験だけが差し替える**。 */
+    protected open fun requestHealthPermissions(permissions: Array<String>) {
+        requestPermissions(permissions, HEALTH_REQUEST)
     }
 
     /** OS へ権限を 1 度にまとめて求める。**試験だけが差し替える**（[requestPermission] と同じ理由）。 */
@@ -426,6 +448,10 @@ open class MainActivity : Activity() {
         private const val TAG = "ashiato"
         private const val REQUEST = 1
         const val HEALTH_REQUEST = 2
+
+        /** Android 14 以降の client が返す intent の action と、求める権限の extra（`ActivityResultContracts.RequestMultiplePermissions`）。 */
+        const val ACTION_REQUEST_PERMISSIONS = "androidx.activity.result.contract.action.REQUEST_PERMISSIONS"
+        const val EXTRA_PERMISSIONS = "androidx.activity.result.contract.extra.PERMISSIONS"
         private val healthExecutor: Executor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "health-permission").apply { isDaemon = true }
         }

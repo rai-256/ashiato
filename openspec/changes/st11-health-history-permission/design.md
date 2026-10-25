@@ -106,6 +106,11 @@ manifest に Health Connect のアプリ（`com.google.android.apps.healthdata`�
 Android 14 以降は framework の口（`requestPermissions` / `checkSelfPermission`）にし、13 以前は `availability = not_installed` と同じ扱い（求めない）に倒す。
 13 以前の client の振る舞いは確かさ 2（P15。13 以前のエミュレータが手元に無い）。
 
+**反転条件が起きた（2026-10-25、Android 15 のエミュレータの計測テスト）**: 14 以降の client の `createIntent` は
+`ComponentActivity` の結果の登録簿だけが受け取れる内向きの intent（`androidx.activity.result.contract.action.REQUEST_PERMISSIONS`）を返し、
+`Activity` の `startActivityForResult` では解決できずに失敗した（START の result code=-91）。14 以降はその intent の中の権限を
+`requestPermissions` で求め、`onRequestPermissionsResult` で戻りを受ける（`MainActivity.launchHealthRequest`）。13 以前は client の口のまま（確かめられていない）。
+
 ## D4（仮）. 初回起動の流れの中の位置と「1 度だけ」の印（Q4・Q7 推奨）
 
 `proceed()` の順を「位置 → 背景の位置 → 通知 → 写真と動画 → **健康データ** → 収集を始める」にする（`start()` の前の 1 段）。
