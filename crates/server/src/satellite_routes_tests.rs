@@ -50,7 +50,7 @@ fn routes_in_lib() -> BTreeSet<String> {
     out
 }
 
-/// 契約の（method, path）。
+/// 契約の（method, path）。path の項目の method でない key（`parameters` `summary` など）は飛ばす。
 fn contract_operations() -> Vec<(Method, String)> {
     let doc = serde_json::to_value(ApiDoc::openapi()).unwrap();
     let mut out = Vec::new();
@@ -62,7 +62,10 @@ fn contract_operations() -> Vec<(Method, String)> {
                 "put" => Method::PUT,
                 "delete" => Method::DELETE,
                 "patch" => Method::PATCH,
-                other => panic!("知らない method {other}（path {path}）"),
+                "head" => Method::HEAD,
+                "options" => Method::OPTIONS,
+                "trace" => panic!("trace の口は試験していない（path {path}）"),
+                _ => continue,
             };
             out.push((m, path.clone()));
         }
@@ -88,7 +91,7 @@ fn request(method: &Method, uri: &str, bearer: Option<&str>) -> Request<Body> {
     if let Some(v) = bearer {
         b = b.header(header::AUTHORIZATION, format!("Bearer {v}"));
     }
-    if *method == Method::GET || *method == Method::DELETE {
+    if [Method::GET, Method::DELETE, Method::HEAD, Method::OPTIONS].contains(method) {
         b.body(Body::empty()).unwrap()
     } else {
         b.header(header::CONTENT_TYPE, "application/json")
@@ -137,7 +140,10 @@ async fn every_route_refuses_satellite() {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN, "{method} {path}");
-        assert_eq!(body_string(res).await, "forbidden", "{method} {path}");
+        // HEAD の応答は本文が削られるので、状態の番号だけを見る
+        if *method != Method::HEAD {
+            assert_eq!(body_string(res).await, "forbidden", "{method} {path}");
+        }
         called.insert((method.to_string(), path.clone()));
     }
     assert!(!called.is_empty());

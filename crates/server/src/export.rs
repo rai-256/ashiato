@@ -338,7 +338,7 @@ const DROP_REPORT_COLUMNS: &[(&str, &str)] = &[
 
 /// 衛星の登録簿（ST29）。外した衛星の行も出す（行は消さない）。資格情報の表は出さない。
 const SATELLITE_COLUMNS: &[(&str, &str)] = &[
-    ("id", "衛星の識別子"),
+    ("id", "衛星の番号（uuid）"),
     ("identifier", "衛星の識別子の文字列（逆ドメイン形）"),
     ("name", "衛星の名前"),
     ("builtin", "最初から登録されている衛星か"),
