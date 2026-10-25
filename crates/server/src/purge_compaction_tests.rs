@@ -218,6 +218,57 @@ async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
     }
 }
 
+/// 消去より古いスナップショット（別の接続の REPEATABLE READ）が残っている晩は、書き直しを「済み」にしない（final review R5）。
+/// `VACUUM FULL` はそのスナップショットから見える古い本文を新しいファイルへ写すので、ファイルが替わっても痕跡は残る。
+/// スナップショットが閉じた次の晩に書き直す。
+#[tokio::test]
+async fn purge_compaction_old_snapshot_is_not_rewritten_and_retried() {
+    let db = testdb::scratch().await;
+    let (owner, app) = (db.owner.clone(), db.app.clone());
+    settle(&app, &owner).await;
+
+    // 消す前にスナップショットを取る（表には触らない —— 触ると排他ロックの待ちで lock_timeout になる）
+    let mut held = owner.acquire().await.unwrap();
+    sqlx::query("BEGIN ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    sqlx::query("SELECT 1").execute(&mut *held).await.unwrap();
+
+    erase_body(&owner).await;
+    let before = filenodes(&owner).await;
+    let marker = last_id(&owner).await;
+    let night1 = db_now(&owner).await;
+    let first = purge_compaction::run_once(&app, night1, &idle, POLL)
+        .await
+        .unwrap();
+    for table in TABLES {
+        assert_eq!(result_of(&first, table).outcome, "not_rewritten", "{table}");
+        assert_eq!(
+            outcome_rows(&owner, table, marker).await,
+            vec![("not_rewritten".to_string(), None)],
+            "{table} は済みとして残らない"
+        );
+    }
+    assert_eq!(
+        filenodes(&owner).await,
+        before,
+        "古いスナップショットがある間は書き直さない"
+    );
+
+    sqlx::query("ROLLBACK").execute(&mut *held).await.unwrap();
+    drop(held);
+    let night2 = db_now(&owner).await;
+    let second = purge_compaction::run_once(&app, night2, &idle, POLL)
+        .await
+        .unwrap();
+    let after = filenodes(&owner).await;
+    for (i, table) in TABLES.iter().enumerate() {
+        assert_eq!(result_of(&second, table).outcome, "rewritten", "{table}");
+        assert_ne!(before[i], after[i], "次の晩に {table} のファイルが替わる");
+    }
+}
+
 /// 置き場の一時の下を、落ちても消す。
 struct DirGuard(PathBuf);
 
