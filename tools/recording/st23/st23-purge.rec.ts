@@ -110,6 +110,8 @@ async function openConfirm(page: Page): Promise<Locator> {
 test("ST23 録画: 消した → 本文ごと消すの確認 → やめる → 本文ごと消す → 後から届いた件数", async ({ page, browser, browserName }) => {
   // 実行環境の記録用（ハーネスの record_summarize.py が results.json から拾う）。アサーションではない
   test.info().annotations.push({ type: "browser", description: `${browserName} ${browser.version()}` });
+  // 見るための停止（HOLD）が積もって既定の 30 秒を超える
+  test.setTimeout(120_000);
   const request = page.request;
 
   // 0. 自分の日を作る（画面の外。位置 13 件 → 滞在 1 つ）
