@@ -172,7 +172,6 @@ FAKE
 self_test() {
   local tmp
   tmp=$(mktemp -d) || return 1
-  trap 'rm -rf "$tmp"' RETURN
   local P=$tmp/parent main=$tmp/parent/mainrepo
   mkdir -p "$main" "$P/mainrepo-st10" "$P/mainrepo-st12"
   write_fake_docker "$tmp/fakedocker"
@@ -307,21 +306,29 @@ self_test() {
   done <"$FAKE_DIR/calls"
   check "打った命令は ps・inspect・network ls/inspect/rm・rm -f <id> だけ" $bad
 
-  real_docker_case "$tmp"
+  real_docker_case "$tmp" || fail=1
+  rm -rf "$tmp"
   return $fail
 }
 
 # 本物の docker で 1 件。main を乱数の名前に替えるので、この機械の本物の残り（ashiato2-*）には当たらない
+# 後始末は RETURN の trap でなく、本体を呼んだ後の明示の呼び出しでする（trap は関数をまたいで共有され、上書きされる）
 real_docker_case() {
+  local tmp=$1 rc=0
+  real_vol=
+  real_docker_body "$tmp" || rc=1
+  cleanup_probes
+  [[ -z $real_vol ]] || docker volume rm "$real_vol" >/dev/null 2>&1
+  return $rc
+}
+
+real_docker_body() {
   local tmp=$1 r d main proj wd c n vol rc=0
   cleanup_probes
   r=$(openssl rand -hex 4) || return 1
   d=$(mktemp -d "$tmp/real.XXXXXX") || return 1
   main=$d/ch05tidy$r; proj=ch05tidy$r-st97; wd=$d/$proj
   mkdir -p "$main"; echo "$main" >"$d/wts"
-  vol=
-  # shellcheck disable=SC2064
-  trap "cleanup_probes; [ -z '$vol' ] || docker volume rm '$vol' >/dev/null 2>&1; rm -rf '$d'" RETURN
   if ! n=$(docker network create --label "$probe_label" --label "com.docker.compose.project=$proj" "${proj}_default" 2>&1); then
     echo "docker-tidy: 本物の docker でネットワークを作れない（割り当てが尽きた？）: $n" >&2
     return 1
@@ -333,6 +340,7 @@ real_docker_case() {
     return 1
   fi
   vol=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$c")
+  real_vol=$vol
   [[ -n $vol ]] || { echo "docker-tidy: 名前の無い volume が付かなかった" >&2; return 1; }
 
   TEST_DOCKER_TIDY_MAIN=$main TEST_DOCKER_TIDY_WORKTREES=$d/wts TEST_DOCKER_TIDY_DOCKER=docker tidy 0 2>"$d/err"
