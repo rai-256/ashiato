@@ -1535,8 +1535,8 @@ async fn ingest_request(
             .bind(req.end_time)
             .bind(req.end_tz_offset_min)
             .bind(&req.end_tz_id)
-            .bind(collector_version)
-            .bind(web_version)
+            .bind(&collector_version)
+            .bind(&web_version)
             .bind(BUILD_STAMP)
             .fetch_optional(&mut *tx)
             .await
@@ -1562,7 +1562,15 @@ async fn ingest_request(
         if blocked_by_deleted.is_some() {
             outcome = Update::SkippedDeletedContent;
         } else if external_id.is_some() && is_update(stored, &req, &hash) {
-            outcome = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
+            outcome = apply_external_update(
+                &mut tx,
+                stored,
+                &req,
+                &hash,
+                &payload,
+                (&collector_version, &web_version),
+            )
+            .await?;
         } else if external_id.is_some() {
             // **内容は同じでも更新時刻だけ新しい到着で、水位を進める**（R113）。
             // 進めないと、その後に届く**中間の時刻**の版が「新しい」と判定されて
@@ -1776,6 +1784,7 @@ async fn apply_external_update(
     req: &IngestRequest,
     hash: &str,
     payload: &serde_json::Value,
+    (collector_version, web_version): (&Option<String>, &Option<String>),
 ) -> Result<Update, (StatusCode, String)> {
     // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
     // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
@@ -1848,7 +1857,8 @@ async fn apply_external_update(
                 source_updated_at = coalesce($6, source_updated_at),
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
                 unit_system = $10, crs = $11,
-                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14
+                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14,
+                collector_version = $15, web_version = $16, server_version = $17
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1865,6 +1875,10 @@ async fn apply_external_update(
     .bind(req.end_time)
     .bind(req.end_tz_offset_min)
     .bind(&req.end_tz_id)
+    // **版は今の中身を作った版に動く**（ST49 / D1（仮））。前の版は上の INSERT で履歴に残っている
+    .bind(collector_version)
+    .bind(web_version)
+    .bind(BUILD_STAMP)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
