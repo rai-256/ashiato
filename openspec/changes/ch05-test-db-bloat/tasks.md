@@ -114,13 +114,13 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 8: 全体の確かめ
 
-- [ ] 8.1 Scenario の印と spec の検査。CH05 の MODIFIED の塊（足した 1 文・足した Scenario・`導出元:` の行を除く）が、CH06 のいまの Requirement 1（archive の前は取り込んだ CH06 の delta、後は正典）と同じであること（design D1。違えば写し直して 1 文を足し直す）。
+- [x] 8.1 Scenario の印と spec の検査。CH05 の MODIFIED の塊（足した 1 文・足した Scenario・`導出元:` の行を除く）が、CH06 のいまの Requirement 1（archive の前は取り込んだ CH06 の delta、後は正典）と同じであること（design D1。違えば写し直して 1 文を足し直す）。
   検証: `python3 scripts/check_scenarios.py . ch05-test-db-bloat` rc=0 / `openspec validate ch05-test-db-bloat --strict` rc=0 /
   `bash -c 'c=openspec/specs/verify-environment/spec.md; [ -f "$c" ] || c=openspec/changes/ch06-reset-verify-db/specs/verify-environment/spec.md; [ -f "$c" ] || exit 3; f() { grep -vE "^(導出元:|ただし、作業ツリーが消えた|[[:space:]]*$)"; }; diff <(sed -n "/^### Requirement: 印があれば/,/^#### Scenario: 消えた作業ツリーのコンテナは/p" openspec/changes/ch05-test-db-bloat/specs/verify-environment/spec.md | sed "\$d" | f) <(sed -n "/^### Requirement: 印があれば/,/^### Requirement: [^印]/p" "$c" | sed "/^### Requirement: [^印]/d" | f)'` rc=0
-- [ ] 8.2 変えないものが変わっていない: CH05 の commit（`origin/main` と、取り込んだ CH04・CH06 の SHA（`deps.json` の `sha`、無ければ `spec_sha`）のどれにも入っていない commit）が触ったファイルが許したものだけで、`crates/server/src/lib.rs` と `tools/verify-env.sh` の差分は行の追加だけ。
+- [x] 8.2 変えないものが変わっていない: CH05 の commit（`origin/main` と、取り込んだ CH04・CH06 の SHA（`deps.json` の `sha`、無ければ `spec_sha`）のどれにも入っていない commit）が触ったファイルが許したものだけで、`crates/server/src/lib.rs` と `tools/verify-env.sh` の差分は行の追加だけ。
   許すもの: `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh`・`tools/verify-env.sh`・`crates/server/src/killed_probe_tests.rs`・`crates/server/src/lib.rs`・`.github/workflows/ci.yml`・`docs/`・`openspec/changes/ch05-test-db-bloat/`
   （`testdb.rs`・試験の期待値・`tests/server_startup.rs`・既存の `down -v` の台本・`tools/dev.sh`・`tools/check-test-db-growth.sh`・`tools/ports.sh`・`tools/env-init.sh`・`tools/check-verify-env-reset.sh`・`migrations/` は入らない）。
   検証: `bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); files=$(git log --no-merges --name-only --format= HEAD --not origin/main $ex | sort -u | grep .); [ -n "$files" ] || exit 3; bad=$(grep -vE "^(tools/check-test-db-killed\.sh|tools/docker-tidy\.sh|tools/verify-env\.sh|crates/server/src/killed_probe_tests\.rs|crates/server/src/lib\.rs|\.github/workflows/ci\.yml|docs/|openspec/changes/ch05-test-db-bloat/)" <<<"$files"); [ -z "$bad" ] || { echo "触ってはいけない: $bad"; exit 1; }'` rc=0 /
   `bash -c 'set -o pipefail; ex=$(python3 -c "import json; d=json.load(open(\"openspec/changes/ch05-test-db-bloat/deps.json\")); print(\" \".join(v.get(\"sha\") or v[\"spec_sha\"] for v in d.values()))"); ! git log --no-merges -p --format= HEAD --not origin/main $ex -- crates/server/src/lib.rs tools/verify-env.sh | grep -E "^-[^-]"'` rc=0
-- [ ] 8.3 server の試験の全体が、作り直した DB の上で通る（`tests/server_startup.rs` が移行を当てる）。
+- [x] 8.3 server の試験の全体が、作り直した DB の上で通る（`tests/server_startup.rs` が移行を当てる）。
   検証: `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0 / `EV scripts/quiet-run ct -- cargo test -p ashiato-server` rc=0
