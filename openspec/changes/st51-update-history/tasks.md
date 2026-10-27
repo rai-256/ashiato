@@ -29,7 +29,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
   ビュー `core.collector_version_change`、書き出しのファイル `update_history.jsonl`・`collector_version_changes.jsonl`、警告の種別 `update_history_unwritten`
 - **組み立ての印を実行時に差し替える口を作らない**（D15）。更新の履歴を書く関数は印を引数に取り、試験は前の行を置いて比べる
 - **生存信号の冪等キー（`heartbeat::content_hash`）の作り方を変えない**（ソース・発信の時刻・原文）。版は原文に入るので、版の違う 2 件は別の鍵になる
-- **移行は 1 つ・名前は作成時刻**（`migrations/<YYYYMMDDHHMM>_update_history.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）。名前の時刻は `202610250000` 以後で、ST48 の D10（仮）の規則
+- **移行は 1 つ・名前は作成時刻**（`migrations/<YYYYMMDDHHMM>_update_history.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）。名前の時刻は `202610250000` 以後で、ST48 の D10 の規則
   （前進側に取引の文を持たない・`.down.sql` が版の記録の自分の行を消す）に従う。2 回当てても落ちない形（`IF NOT EXISTS`・`CREATE OR REPLACE`）
 - **DB の誤りの本文を、更新の履歴にも、ログにも、migrate の標準出力・標準エラーにも出さない**（Q1・D8）。版の値・版の名前・SQLSTATE は出してよい（私的データではない）
 - **稼働状況・途切れ・通知の問い合わせに `collector_version` と更新の履歴を入れない**（D14）
