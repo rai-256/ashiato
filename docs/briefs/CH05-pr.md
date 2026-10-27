@@ -4,7 +4,7 @@ change: `openspec/changes/ch05-test-db-bloat/`。依頼の逐語・価値・壊�
 CH04 と CH06 の上に積む（`requires: [CH04, CH06]`）。finish で origin/main（CH07・ST41 の archive の後）を取り込んだ（`4bc276fb`。review/code.md R22）。
 
 - `tools/check-test-db-killed.sh`（新規）: 探りの試験 `ch05_killed_probe` を 2 つの時点（`insert` 行を書く前の走っている INSERT / `committed` 確定した後）で SIGKILL し、次の回の後に殺した回の database が残らず、`ashiato` の行数が同じで大きさが 1 MiB を超えて増えないことを見る。秒数は出すだけ
-- `tools/docker-tidy.sh`（新規）: 作業ツリーが消えた `<main>-` の compose project のコンテナとネットワークを外す。volume は消さず、外した 1 行に残す volume の名前を出す
+- `tools/docker-tidy.sh`（新規）: 作業ツリーが消えた `<main>-` の compose project のコンテナとネットワークを外す。volume は消さない
 - `tools/verify-env.sh` に 1 行: 作り直す（`reset`）ときだけ、`reset_db`・`clear_blocking_network` の前に片付けを呼ぶ。落ちても `片付けに失敗した` の 1 行を出して続ける
 - CI の rust job に 4 行（`check-test-db-killed.sh --self-test`・`docker-tidy.sh --self-test`・`--verify-env-check`・`check-test-db-killed.sh`）。`docs/testing.md`・`docs/flow-gates.md`
 
@@ -20,7 +20,7 @@ CH04 と CH06 の上に積む（`requires: [CH04, CH06]`）。finish で origin/
 - **D2（仮）** 探りの試験を印で同期して SIGKILL する。`insert` の時点は行を 1 つも書く前の走っている文で、書きかけの行がある状態は見ない（finish で spec の本文と D2 に書き足した。R19）
 - **D4（仮）** 片付けの条件（`<main>-` の project・path が無く `git worktree list` にも無い・main と `-verify` を除く。`rm -f` に `-v` を付けない）
 - **D5（仮）** 片付けは `reset` のときだけ、`reset_db` の前。CH07 の後は `reset_done=` の後・`reset_db` の前（R22）。反転条件: CH07 の宣言が片付けも対象にすると決めたら `reset_done=` の前へ
-- **D8（Q9 の答え待ち）** 外すコンテナの 1 行に `残す volume: <名前>` を出す。inspect に問えなければ外さない（R20）。仮で進めたが、別の席（`provisional-review.md`）が否とした —— 行はログを持つ作業ツリーが消えると引けない。台帳から外し、結び付きをどこに残すかを `deep.md` Q9（未回答。`deep-questions-r3.json`）で本人に返した。答えが入るまで実装はそのまま
+- **D8（Q9 で確定）** 外したコンテナの volume と作業ツリーの結び付きは残さない（R20）。仮で足した inspect と行の末尾の `残す volume:` を、別の席（`provisional-review.md`）の否の後、Q9 (a) の答えどおり外した
 - finish が退けたもの（Ruling 相当）: R15 開始時の探りの掃除を外した（並走するほかの木の self-test を消さない代わりに、SIGKILL された self-test の探りは印 `dev.ashiato.ch05-tidy-probe=1` で手で探す）
 
 ## Task
@@ -46,7 +46,7 @@ CH04 と CH06 の上に積む（`requires: [CH04, CH06]`）。finish で origin/
 
 - final review（R1〜R14）: 全部 fixed。scoped re-review で ADDRESSED。R15・R16 は rejected
 - code-verify（R17〜R22）・security-review（指摘なし）・`/code-review`（R23〜R30）を finish で処置:
-  - fixed: R17（self-test がネットワークの守りを観測していなかった）・R18（片付け → reset_db → clear_blocking_network の順を self-test が固定）・R19・R20（D8。仮は否とされ Q9 の答え待ち）・R21・R22（取り込み）・R24（docker の警告を一覧に読まない `dq`）・R25（psql の失敗で 120 秒待たない）・R29（`timed_next`）
+  - fixed: R17（self-test がネットワークの守りを観測していなかった）・R18（片付け → reset_db → clear_blocking_network の順を self-test が固定）・R19・R20（Q9 に返し、答え (a) で D8 を確定。仮の実装を外した）・R21・R22（取り込み）・R24（docker の警告を一覧に読まない `dq`）・R25（psql の失敗で 120 秒待たない）・R29（`timed_next`）
   - rejected（反証は review/code.md）: R23・R26・R27・R28・R30 —— どれも spec か tasks 8.2 が決めたとおり
   - 直したものは、守りを壊した複製で self-test が rc=1 になることを確かめた。scoped re-review: 全部 ADDRESSED／反証が成り立つ、新しい不具合なし
 

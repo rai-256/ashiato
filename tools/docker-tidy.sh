@@ -14,7 +14,6 @@
 #             `docker ps -aq --filter network=`）とその project の印のコンテナが、この回で外すもののほかに無い /
 #             生きている作業ツリーの名前（小文字）と project が同じでなく、`-verify` でない。
 # **volume は消さない**（名前の無い volume はコンテナを外した後も残る）。`down` も volume を消す命令も打たない。
-# 外すコンテナの 1 行には、残す volume の名前を足す（外した後は、どの作業ツリーの volume だったかを docker からは引けない。design D8）。
 # 並んだ片付けで、もう無いもの（No such container / No such network）は外せたものとして扱う。docker に問えない・外せないときは理由を出して rc=1。
 #
 # 差し替え（--self-test と --verify-env-check が使う。tools/verify-env.sh から呼ばれても環境からそのまま届く）:
@@ -76,8 +75,8 @@ tidy() {
   fi
 
   local -A c_proj=() c_has=()
-  local -a rm_id=() rm_name=() rm_wd=() rm_vol=()
-  local id name proj wd listed w vols
+  local -a rm_id=() rm_name=() rm_wd=()
+  local id name proj wd listed w
   while IFS='|' read -r id name proj wd; do
     [[ -n $id ]] || continue
     c_proj[$id]=$proj
@@ -89,12 +88,7 @@ tidy() {
     listed=0
     for w in "${wt[@]}"; do [[ $w == "$wd" ]] && listed=1; done
     ((listed)) && continue
-    if ! dq vols inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$id"; then
-      echo "docker-tidy: docker inspect $id（$name）に問えない: $vols" >&2
-      return 1
-    fi
-    vols=${vols% }
-    rm_id+=("$id"); rm_name+=("$name"); rm_wd+=("$wd"); rm_vol+=("${vols:-なし}")
+    rm_id+=("$id"); rm_name+=("$name"); rm_wd+=("$wd")
   done <<<"$out"
   local -A will_rm=()
   for id in "${rm_id[@]}"; do will_rm[$id]=1; done
@@ -126,9 +120,9 @@ tidy() {
   local i rc=0 res
   for i in "${!rm_id[@]}"; do
     if [[ $dry == 1 ]]; then
-      echo "docker-tidy: 外す: コンテナ ${rm_name[i]}（作業ツリー ${rm_wd[i]} が無い。残す volume: ${rm_vol[i]}）" >&2
+      echo "docker-tidy: 外す: コンテナ ${rm_name[i]}（作業ツリー ${rm_wd[i]} が無い）" >&2
     elif res=$("${docker[@]}" rm -f "${rm_id[i]}" 2>&1) || [[ $res == *"No such container"* ]]; then
-      echo "docker-tidy: コンテナ ${rm_name[i]} を外した（作業ツリー ${rm_wd[i]} が無い。残す volume: ${rm_vol[i]}）" >&2
+      echo "docker-tidy: コンテナ ${rm_name[i]} を外した（作業ツリー ${rm_wd[i]} が無い）" >&2
     else
       echo "docker-tidy: コンテナ ${rm_name[i]} を外せなかった: $res" >&2
       rc=1
@@ -170,9 +164,6 @@ if [[ -n ${FAKE_FAIL_ALL:-} ]]; then echo "fake: daemon に繋げない" >&2; ex
 # 本物の CLI も rc=0 のまま標準エラーへ警告を出す（設定のファイルが読めないなど）。一覧の行として読まれてはならない
 [[ -z ${FAKE_WARN:-} ]] || echo "WARNING: Error loading config file: $d/config.json" >&2
 case "$1" in
-  inspect)
-    if [[ -n ${FAKE_FAIL_INSPECT:-} ]]; then echo "Error response from daemon: inspect に失敗" >&2; exit 1; fi
-    awk -F'|' -v c="${!#}" '$1 == c {printf "%s ", $2}' "$d/vols" ;;
   ps)
     if [[ $2 == -a ]]; then awk -F'|' '$3 != ""' "$d/ps"
     else # ps -aq --filter network=NAME
@@ -204,16 +195,16 @@ self_test() {
   mkdir -p "$main" "$P/mainrepo-st10" "$P/mainrepo-st12"
   write_fake_docker "$tmp/fakedocker"
 
-  # 状態を作り直す。ps: id|名前|project|working_dir  nets: id|名前|project  attach: ネットワーク名|コンテナ id  vols: コンテナ id|volume
+  # 状態を作り直す。ps: id|名前|project|working_dir  nets: id|名前|project  attach: ネットワーク名|コンテナ id
   # 偽の docker は、どの命令でも rc=0 のまま標準エラーへ警告を出す（FAKE_WARN）
   # 生きている作業ツリー: main・st10（path あり）・st11（path なし。prune の前）
   setup() {
     export FAKE_DIR=$tmp/fake
     rm -rf "$FAKE_DIR"; mkdir -p "$FAKE_DIR"
-    : >"$FAKE_DIR/ps"; : >"$FAKE_DIR/nets"; : >"$FAKE_DIR/attach"; : >"$FAKE_DIR/calls"; : >"$FAKE_DIR/vols"
+    : >"$FAKE_DIR/ps"; : >"$FAKE_DIR/nets"; : >"$FAKE_DIR/attach"; : >"$FAKE_DIR/calls"
     printf '%s\n' "$main" "$P/mainrepo-st10" "$P/mainrepo-st11" >"$tmp/wts"
     export TEST_DOCKER_TIDY_DOCKER=$tmp/fakedocker TEST_DOCKER_TIDY_MAIN=$main TEST_DOCKER_TIDY_WORKTREES=$tmp/wts
-    unset FAKE_FAIL_ALL FAKE_NOSUCH FAKE_FAIL_RM FAKE_FAIL_INSPECT
+    unset FAKE_FAIL_ALL FAKE_NOSUCH FAKE_FAIL_RM
     export FAKE_WARN=1
   }
   run() { tidy "$@" >"$tmp/out" 2>"$tmp/err"; echo $? >"$tmp/rc"; }
@@ -223,20 +214,16 @@ self_test() {
   add_c() { echo "$1|$2|$3|$4" >>"$FAKE_DIR/ps"; }
   add_n() { echo "$1|$2|$3" >>"$FAKE_DIR/nets"; }
   att() { echo "$1|$2" >>"$FAKE_DIR/attach"; }
-  vol() { echo "$1|$2" >>"$FAKE_DIR/vols"; }
 
   echo "Scenario: 作業ツリーが消えたコンテナは、動いていても外される"
   setup
   add_c c1 mainrepo-st97-db-1 mainrepo-st97 "$P/mainrepo-st97"
   add_n n1 mainrepo-st97_default mainrepo-st97; att mainrepo-st97_default c1
-  vol c1 0a1b2c3d4e5f
   run 0
   rc_is 0 && ! ps_has c1 && ! net_has mainrepo-st97_default
   check "消えたコンテナとネットワークを外し rc=0（docker の警告があっても）" $?
   has "$tmp/err" "mainrepo-st97-db-1" && has "$tmp/err" "$P/mainrepo-st97" && has "$tmp/err" "mainrepo-st97_default"
   check "標準エラーに名前と path とネットワークが出る" $?
-  [[ $(grep -c '残す volume: 0a1b2c3d4e5f）' "$tmp/err") == 1 ]]
-  check "外したコンテナの 1 行に、残す volume の名前が出る（design D8）" $?
 
   echo "Scenario: 作業ツリーが残っていれば、止まっているコンテナも外さない"
   setup
@@ -316,11 +303,6 @@ self_test() {
   TEST_DOCKER_TIDY_DOCKER=false run 0
   ! rc_is 0 && [[ -s $tmp/err ]]
   check "問えなければ rc≠0 で理由が出る" $?
-  setup
-  add_c c1 mainrepo-st97-db-1 mainrepo-st97 "$P/mainrepo-st97"
-  FAKE_FAIL_INSPECT=1 run 0
-  ! rc_is 0 && has "$tmp/err" "inspect に失敗" && ps_has c1
-  check "外すコンテナの volume を問えなければ、外さずに rc≠0 で理由が出る" $?
 
   echo "Scenario: 外す命令が失敗すれば、片付けは rc≠0 で落ちる"
   setup
@@ -399,8 +381,6 @@ real_docker_body() {
   echo "Scenario: 外したコンテナの名前の無い volume は残る"
   docker volume inspect "$real_vol" >/dev/null 2>&1
   check "本物の docker: 控えた id の volume が残る" $?
-  has "$d/err" "残す volume: $real_vol）"
-  check "本物の docker: 外したコンテナの 1 行に、控えた volume の名前が出る（design D8）" $?
 }
 
 # 探りを作る口の初め: この回だけの印を決め、途中で止まっても探りを残さないよう EXIT の trap を張る
