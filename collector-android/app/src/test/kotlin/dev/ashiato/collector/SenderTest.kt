@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.time.Instant
+import java.time.ZoneId
 
 /** まとめ送りと部分失敗（tasks 7.2 / 7.3 / design D9）。 */
 class SenderTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private fun req(id: String) =
         testFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
             .toIngestRequest(id, "user-1", "device-1", ZoneId.of("Asia/Tokyo"))
@@ -54,7 +58,7 @@ class SenderTest {
     // Scenario: 複数件が 1 回の送信でまとまる
     @Test
     fun `5件たまっていても送信は1回`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         repeat(5) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(true, true, true, true, true))
 
@@ -74,7 +78,7 @@ class SenderTest {
         // > **5 分ごとに送られ続け、1 回に載る上限（200 件）までたまると新しい記録が
         // > 送られなくなる**（FR-10 の改訂 / 深掘り Q4 / Q5）。要求そのものが不正だと
         // > サーバが 1 件ごとの結果で告げている以上、再び送っても結果は変わらない。
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b", "c").forEach { outbox.add(req(it)) }
         val transport = FakeTransport(okFor(true, false, true))
 
@@ -89,7 +93,7 @@ class SenderTest {
     fun `捨てた件数と理由の種別がログに残る`() {
         // **これが唯一、断られていることに気付ける経路。** 画面に出る経路は無く、
         // 自動で気付くのは ST02 の途絶通知（位置なら 18 時間後）だけ
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b", "c").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { _ ->
             Outcome.Responded(
@@ -124,7 +128,7 @@ class SenderTest {
     @Test
     fun `登録簿を直せば通る断りは捨てずに未送信へ残す`() {
         for (recoverable in listOf("unknown_source", "missing_external_id", "brand_new_error_kind")) {
-            val outbox = testOutbox()
+            val outbox = testOutbox(tmp.newFolder())
             outbox.add(req("a"))
             val lines = mutableListOf<String>()
             sender(outbox, FakeTransport(resultsFor(recoverable))) { lines += it }.flush()
@@ -145,7 +149,7 @@ class SenderTest {
     @Test
     fun `要求そのものが不正な種別だけを捨てる`() {
         for (permanent in Sender.PERMANENT_ERRORS) {
-            val outbox = testOutbox()
+            val outbox = testOutbox(tmp.newFolder())
             outbox.add(req("a"))
             sender(outbox, FakeTransport(resultsFor(permanent))).flush()
             assertEquals("$permanent を捨てていない", 0, outbox.size())
@@ -159,7 +163,7 @@ class SenderTest {
      */
     @Test
     fun `受理の欄を欠く応答では1件も取り除かない`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { Outcome.Responded(200, """[{"ok":1},{"ok":2}]""") }
         val lines = mutableListOf<String>()
@@ -189,7 +193,7 @@ class SenderTest {
         for (outcome in temporary) {
             // **保持の上限を超えていない状態で**（ST04 で WHEN が変わった）。上限による破棄は送信の結果と独立に働くので、
             // 上限の見回りも同じ契機で走らせ、それでも 1 件も取り除かれないことを見る
-            val st = TestStores()
+            val st = TestStores(tmp.newFolder())
             val retention = Retention(st.records, st.ledger, st.age::now)
             listOf("a", "b").forEach { st.records.add(req(it)) }
             st.clock.advance(89 * AgeClock.DAY_MS)
@@ -204,7 +208,7 @@ class SenderTest {
     fun `1件も受け付けられない400でも本文を読んで断られた分を取り除く`() {
         // 400 は「1 件も受け付けなかった」。**恒久的な拒否なので未送信から消える** ——
         // 残すと同じ 1 件が 5 分ごとに永久に送られ続ける
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(req("a"))
         val transport = FakeTransport { Outcome.Responded(400, """[{"accepted":false,"error":"unknown_origin"}]""") }
 
@@ -216,7 +220,7 @@ class SenderTest {
     // Scenario: 失敗しても失われない
     @Test
     fun `到達できなければ全部残り次の契機で再び送る`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b").forEach { outbox.add(req(it)) }
         val transport = FakeTransport { Outcome.Unreachable("timeout") }
 
@@ -231,7 +235,7 @@ class SenderTest {
 
     @Test
     fun `資格情報が無くて401なら何も取り除かない`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(req("a"))
         sender(outbox, FakeTransport { Outcome.Responded(401, "unauthorized") }).flush()
         assertEquals(1, outbox.size())
@@ -240,7 +244,7 @@ class SenderTest {
     @Test
     fun `応答の件数が合わなければ何も取り除かない`() {
         // 取り違えて消すと記録が失われる。**消さない側に倒す**
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         listOf("a", "b").forEach { outbox.add(req(it)) }
         sender(outbox, FakeTransport(okFor(true))).flush()
         assertEquals(2, outbox.size())
@@ -251,7 +255,7 @@ class SenderTest {
         // **未送信が永続化されて日をまたぐようになった**（design D17）。上限が無いと、
         // 長い圏外のあと 1 回の POST が読み取り上限を超え、1 件も取り除けないまま
         // 5 分ごとに同じ全件を送り続けて**二度と復帰しない**（design D23 / review R4）
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         repeat(MAX_BATCH + 50) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
@@ -266,7 +270,7 @@ class SenderTest {
     @Test
     fun `古いものから先に送る`() {
         // 上限で切るときに新しい側から送ると、**古い記録が永久に後回しになる**
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         repeat(MAX_BATCH + 3) { outbox.add(req("id-$it")) }
         val transport = FakeTransport(okFor(*BooleanArray(MAX_BATCH) { true }))
 
@@ -279,7 +283,7 @@ class SenderTest {
     @Test
     fun `空のときは送らない`() {
         val transport = FakeTransport(okFor())
-        assertEquals(Sender.Flushed(0, 0), sender(testOutbox(), transport).flush())
+        assertEquals(Sender.Flushed(0, 0), sender(testOutbox(tmp.newFolder()), transport).flush())
         assertTrue(transport.bodies.isEmpty())
     }
 }

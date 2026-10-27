@@ -16,6 +16,29 @@ val localProps = Properties().apply {
 fun credential(name: String): String =
     (project.findProperty(name) as String?) ?: localProps.getProperty(name, "")
 
+// **Robolectric の android-all を Gradle が取る**（CH03。`tools/tmp-leak-check.sh android` が CI で落ちた）。
+// Robolectric が自分で取ると（`MavenArtifactFetcher`）、試験の JVM の `java.io.tmpdir` に数字だけの名前の
+// staging のフォルダ（Guava `Files.createTempDir`）を SDK ごとに作り、中身ごと残す（`deleteOnExit` は空でない
+// フォルダを消さない）。CI には `~/.m2` の控えも `ASHIATO_ROBOLECTRIC_JARS` も無いので、毎回 3 つ残った。
+// Gradle の解決は Gradle の cache に落ちるので、試験の一時フォルダを汚さない。
+// 版は Robolectric 4.16 の `DefaultSdkProvider` の表の 34・35・36（試験の `@Config(sdk = [34, 35])` と targetSdk）。
+// Robolectric を上げたら合わせる —— 合わなければ offline の Robolectric が jar が無いと言って落ちる。
+// 版ごとに別の構成で解く（1 つの構成に入れると、同じ artifact の版の衝突として 16 だけに寄せられる）。
+val robolectricSdkJars = listOf(
+    "14-robolectric-10818077-i7",
+    "15-robolectric-13954326-i7",
+    "16-robolectric-13921718-i7",
+)
+val robolectricJarsDir = layout.buildDirectory.dir("robolectric-jars")
+val fetchRobolectricJars by tasks.registering(Copy::class) {
+    robolectricSdkJars.forEach { version ->
+        from(configurations.detachedConfiguration(
+            dependencies.create("org.robolectric:android-all-instrumented:$version")
+        ).apply { isTransitive = false })
+    }
+    into(robolectricJarsDir)
+}
+
 android {
     namespace = "dev.ashiato.collector"
     compileSdk = 36
@@ -53,14 +76,19 @@ android {
         // `$HOME` を丸ごと書けるようにすると `~/.ssh` と `~/.config/gh` の token まで
         // 開くことになるので採らない。offline なら resolver を通らない。
         //
-        // 環境変数が無いときは**何も変えない** —— CI は立てないので今までどおり動く。
-        // 立てるのは harness（`scripts/codex_env.sh`）で、値は android-all の jar を
+        // 環境変数を立てるのは harness（`scripts/codex_env.sh`）で、値は android-all の jar を
         // 集めた場所。読むだけなので、その場所は書けなくてよい。
+        // 無ければ Gradle が取った `build/robolectric-jars`（上の `fetchRobolectricJars`）を使う ——
+        // CI も手元も offline で走り、Robolectric の取り込みが試験の一時フォルダに残さない（CH03）。
         unitTests.all { test ->
-            System.getenv("ASHIATO_ROBOLECTRIC_JARS")?.let { jars ->
-                test.systemProperty("robolectric.offline", "true")
-                test.systemProperty("robolectric.dependency.dir", jars)
-            }
+            val jars = System.getenv("ASHIATO_ROBOLECTRIC_JARS")
+                ?: robolectricJarsDir.get().asFile.path.also { test.dependsOn(fetchRobolectricJars) }
+            test.systemProperty("robolectric.offline", "true")
+            test.systemProperty("robolectric.dependency.dir", jars)
+            // 試験の JVM の一時フォルダを向ける（CH03。`tools/tmp-leak-check.sh android` が
+            // 試験の後の残りを測るため）。OpenJDK の Unix の `java.io.tmpdir` は `TMPDIR` を読まない。
+            // 環境変数が無ければ何も変えない。
+            System.getenv("ASHIATO_TEST_TMPDIR")?.let { test.systemProperty("java.io.tmpdir", it) }
             // **人が読む契約表も入力**（tasks 7.3 / code-verify R33）。
             // `CollectorContractFixture` は期待値をこの md から読むのに、Gradle は
             // ソースと classpath しか入力に数えない —— **表だけを 1 行変えると

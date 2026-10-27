@@ -8,12 +8,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import java.io.File
-import java.nio.file.Files
 
 /**
  * メディアの取得可否・4 本の生存信号・試行と成功の数え方（tasks 4.2 / design D6・D7・D22 / C19 / Q15）。
@@ -21,11 +22,18 @@ import java.nio.file.Files
  */
 @RunWith(RobolectricTestRunner::class)
 class MediaCapabilityTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
     /** 読み手 + 4 つのソースの数え + 知らせの宛先を組んだもの。時計は [MediaScanEnv.wall]。 */
-    private class Rig(outbox: Outbox<IngestRequest>? = null, blockLedger: Boolean = false) {
-        val env = MediaScanEnv()
+    private class Rig(
+        private val dir: File,
+        outbox: Outbox<IngestRequest>? = null,
+        blockLedger: Boolean = false,
+    ) {
+        val env = MediaScanEnv(File(dir, "env"))
+        private var beatOutboxes = 0
         val timer = VirtualTimer()
         val notices = mutableListOf<MediaPermissionState>()
         var network = true
@@ -77,7 +85,7 @@ class MediaCapabilityTest {
         /** そのソースの生存信号を 1 件積んで返す（本番と同じ組み立て）。 */
         fun beat(cadence: SourceCadence = SourceCadence.PHOTO): HeartbeatRequest {
             val channel = channels.first { it.cadence == cadence }
-            val out = testHeartbeatOutbox()
+            val out = testHeartbeatOutbox(File(dir, "beat-${beatOutboxes++}"))
             HeartbeatEmitter(
                 outbox = out,
                 counters = channel.counters,
@@ -96,7 +104,7 @@ class MediaCapabilityTest {
 
     /** 記録を未送信に積めない置き場（区切りの置き場が居座る名前のファイルで塞がれている）。 */
     private fun brokenOutbox(): Outbox<IngestRequest> {
-        val dir = Files.createTempDirectory("broken-outbox").toFile()
+        val dir = tmp.newFolder()
         File(dir, "segments").writeText("not a directory")
         return Outbox.inDir(dir, IngestRequest.serializer()) {}
     }
@@ -104,7 +112,7 @@ class MediaCapabilityTest {
     // Scenario: 写真の位置の権限が無ければ写真を 1 件も読まない
     @Test
     fun without_the_photo_location_permission_not_one_file_is_opened() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.permissions(MediaAccess.FULL, location = false)
         rig.camera(1, "taken")
 
@@ -119,7 +127,7 @@ class MediaCapabilityTest {
     // Scenario: 写真の位置の権限が無いと生存信号は取れない状態になる
     @Test
     fun without_the_photo_location_permission_the_heartbeat_says_so() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.permissions(MediaAccess.FULL, location = false)
         rig.camera(1, "taken")
         rig.begin()
@@ -134,7 +142,7 @@ class MediaCapabilityTest {
     // Scenario: 権限が戻ると待っていた間の写真も取る
     @Test
     fun when_the_permission_comes_back_the_photos_taken_meanwhile_are_captured() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.permissions(MediaAccess.FULL, location = false)
         rig.camera(1, "while waiting 1")
         rig.camera(2, "while waiting 2")
@@ -155,7 +163,7 @@ class MediaCapabilityTest {
     @Test
     fun a_permission_granted_at_runtime_brings_the_reader_and_the_notice_back_within_a_minute() {
         assertEquals(60_000L, MEDIA_PERMISSION_POLL_MS)
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.permissions(MediaAccess.FULL, location = false)
         rig.camera(1, "while waiting")
         rig.begin()
@@ -176,7 +184,7 @@ class MediaCapabilityTest {
     // 置き場の一覧を聞くところで落ちても、4 つのソースとも失敗の試行と読む段に数える（R5 / C19）
     @Test
     fun a_listing_that_fails_before_the_pass_starts_counts_a_failure_with_the_read_stage() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "taken")
         rig.env.listing.failVolumes = true
 
@@ -194,7 +202,7 @@ class MediaCapabilityTest {
     // Scenario: 選んだ写真だけの許可では選んだものを取り、取れない状態と報告する
     @Test
     fun a_selected_photos_only_grant_captures_the_selected_and_reports_partial() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.permissions(MediaAccess.PARTIAL, location = true)
         rig.camera(1, "selected 1")
         rig.camera(2, "selected 2")
@@ -210,7 +218,7 @@ class MediaCapabilityTest {
     // Scenario: 圏外でも写真の生存信号は取れる状態のまま接続が無かったことが載る
     @Test
     fun offline_the_photo_heartbeat_stays_capturable_and_records_no_connection() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "taken")
         rig.begin()
         rig.network = false
@@ -226,7 +234,7 @@ class MediaCapabilityTest {
     // Scenario: 接続があれば接続ありが載る
     @Test
     fun online_the_photo_heartbeat_records_the_connection() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "taken")
         rig.begin()
 
@@ -240,7 +248,7 @@ class MediaCapabilityTest {
     /** 接続を確かめられなかったら、接続なし（false）にせず欄ごと載せない（分からない。D7 / review/code.md R29）。 */
     @Test
     fun a_connection_check_that_throws_leaves_the_network_field_out() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "taken")
         rig.begin()
         rig.networkFails = true
@@ -254,7 +262,7 @@ class MediaCapabilityTest {
     /** サービスの終わりには読み手の刻みの糸も返す（予約の取り消しだけでは糸が残る。review/code.md R27）。 */
     @Test
     fun closing_the_capture_closes_the_reader_timer() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.begin()
         rig.capture.stop()
         assertFalse("止めただけで糸を返した", rig.timer.closed)
@@ -265,7 +273,7 @@ class MediaCapabilityTest {
     // Scenario: ハッシュの計算に失敗し続けると取れない状態になる
     @Test
     fun a_hash_that_keeps_failing_makes_the_source_uncapturable_with_the_stage() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.env.files.failStage = MediaStage.HASH
         rig.camera(1, "cannot hash")
 
@@ -280,7 +288,7 @@ class MediaCapabilityTest {
     // Scenario: 記録を未送信に積めないと取れない状態になる
     @Test
     fun records_that_cannot_be_queued_make_the_source_uncapturable_with_the_stage() {
-        val rig = Rig(outbox = brokenOutbox())
+        val rig = Rig(tmp.newFolder(), outbox = brokenOutbox())
         rig.camera(1, "cannot queue")
 
         rig.begin()
@@ -293,7 +301,7 @@ class MediaCapabilityTest {
 
     @Test
     fun a_ledger_that_cannot_be_written_is_reported_as_the_ledger_stage() {
-        val rig = Rig(blockLedger = true)
+        val rig = Rig(tmp.newFolder(), blockLedger = true)
         rig.camera(1, "cannot remember")
 
         rig.begin()
@@ -305,7 +313,7 @@ class MediaCapabilityTest {
 
     @Test
     fun a_file_that_cannot_be_opened_is_reported_as_the_read_stage() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.env.files.unreadable = true
         rig.camera(1, "locked")
 
@@ -316,7 +324,7 @@ class MediaCapabilityTest {
 
     @Test
     fun one_success_in_the_interval_keeps_the_stage_word_off() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.env.files.failStage = MediaStage.HASH
         rig.camera(1, "flaky")
         rig.begin()
@@ -332,7 +340,7 @@ class MediaCapabilityTest {
 
     @Test
     fun the_stage_word_goes_away_once_the_heartbeat_has_been_sent() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.env.files.failStage = MediaStage.HASH
         rig.camera(1, "cannot hash")
         rig.begin()
@@ -387,7 +395,7 @@ class MediaCapabilityTest {
     // Scenario: メディアの生存信号の試行は見直しと知らせの回数で数える
     @Test
     fun media_attempts_are_counted_by_reviews_and_notifications() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "first")
         rig.begin() // 6 時間の見直しが 1 回
         repeat(3) { index ->
@@ -404,7 +412,7 @@ class MediaCapabilityTest {
 
     @Test
     fun every_trigger_counts_one_attempt_for_each_of_the_four_sources_even_with_no_items() {
-        val rig = Rig()
+        val rig = Rig(tmp.newFolder())
         rig.camera(1, "a photo only")
         rig.begin()
         rig.notified()

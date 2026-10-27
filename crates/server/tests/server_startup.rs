@@ -389,9 +389,12 @@ fn log_until(mut cmd: Command, done: impl Fn(&str) -> bool) -> String {
 }
 
 /// 取り込み器の置き場を、この試験だけの一時ディレクトリに置く（本人のホームを触らない）。
-fn archive_env(cmd: &mut Command, user: uuid::Uuid) -> std::path::PathBuf {
-    let root =
-        std::env::temp_dir().join(format!("ashiato-startup-{}", uuid::Uuid::new_v4().simple()));
+fn archive_env(cmd: &mut Command, user: uuid::Uuid) -> tempfile::TempDir {
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-startup-")
+        .tempdir()
+        .unwrap();
+    let root = tmp.path().to_path_buf();
     for d in ["inbox", "downloads", "copies"] {
         std::fs::create_dir_all(root.join(d)).unwrap();
     }
@@ -399,7 +402,7 @@ fn archive_env(cmd: &mut Command, user: uuid::Uuid) -> std::path::PathBuf {
         .env("ASHIATO_INBOX_DIR", root.join("inbox"))
         .env("ASHIATO_DOWNLOADS_DIR", root.join("downloads"))
         .env("ASHIATO_ARCHIVE_COPY_DIR", root.join("copies"));
-    root
+    tmp
 }
 
 /// S-01 の起動が定期取得の枠を起こすこと（code_verify R19）。枠の試験（`scheduled_tests.rs`）は `spawn_with` を
@@ -427,7 +430,7 @@ fn server_startup_starts_the_scheduled_fetch() {
     let mut cmd = server_cmd();
     cmd.env("DATABASE_URL", env("DATABASE_URL"))
         .env("BIND", "127.0.0.1:0");
-    let root = archive_env(&mut cmd, uuid::Uuid::new_v4());
+    let _tmp = archive_env(&mut cmd, uuid::Uuid::new_v4());
     let log = log_until(cmd, |l| {
         l.contains("scheduled_no_fetcher") && l.contains(&name)
     });
@@ -437,7 +440,6 @@ fn server_startup_starts_the_scheduled_fetch() {
             .execute(&owner),
     )
     .unwrap();
-    std::fs::remove_dir_all(root).ok();
     assert!(
         log.lines()
             .any(|l| l.contains("scheduled_no_fetcher") && l.contains(&name)),

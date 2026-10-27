@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.DateTimeException
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.time.DateTimeException
+import java.time.Instant
+import java.time.ZoneId
 
 /** 端末の基準を読む口（ST05 / design D2）。OS の時計は偽物に差し替える。 */
 class ClockReferencesTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     /** 呼ばれた順を残す偽の OS の時計。`wall` は `wallMs()` を読むたびに `wallStep` 進める。 */
     private class FakeSources(
         override var sdkInt: Int = 36,
@@ -149,7 +153,7 @@ class ClockReferencesTest {
         }
         val transport = CountingTransport()
         val cache = ResponseDateCache()
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(
             testFix(35.681236, 139.767125, 10f, Instant.parse("2026-09-08T02:00:00Z"))
                 .toIngestRequest("id-1", "user-1", "device-1", ZoneId.of("Asia/Tokyo")),

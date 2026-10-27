@@ -21,11 +21,10 @@ fn watch(time: &str, title: &str) -> String {
     )
 }
 
-/// 置き場・写し・DB をひとまとめにした足場。落ちても片付くよう `Drop` で消す。
+/// 置き場・写し・DB をひとまとめにした足場。落ちても片付くよう `TempDir` が消す。
 struct Inbox {
     /// 起こした取り込み器。**落ちると止まる**ので、足場が生きている間だけ握る。
     workers: std::sync::Mutex<Vec<crate::archive::worker::WorkerHandle>>,
-    root: PathBuf,
     inbox: PathBuf,
     downloads: PathBuf,
     copies: PathBuf,
@@ -33,18 +32,18 @@ struct Inbox {
     user: uuid::Uuid,
     /// 見回りの間隔を読む、この足場専用の登録簿の行（間隔 1 秒）。
     scan_row: &'static str,
-}
-
-impl Drop for Inbox {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
+    /// 置き場の持ち主。**最後の欄**なので、`workers`（取り込み器）が止まってから消える。
+    tmp: tempfile::TempDir,
 }
 
 impl Inbox {
     async fn new(name: &str) -> Self {
         let pool = testdb::pool().await;
-        let root = std::env::temp_dir().join(format!("ashiato-{name}-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix(&format!("ashiato-{name}-"))
+            .tempdir()
+            .unwrap();
+        let root = tmp.path().to_path_buf();
         let inbox = root.join("inbox");
         let downloads = root.join("downloads");
         std::fs::create_dir_all(&inbox).unwrap();
@@ -52,12 +51,12 @@ impl Inbox {
         Self {
             workers: std::sync::Mutex::new(Vec::new()),
             copies: root.join("copies"),
-            root,
             inbox,
             downloads,
             scan_row: testdb::archive_scan_row(&pool).await,
             pool,
             user: testdb::user(),
+            tmp,
         }
     }
 
@@ -1523,7 +1522,7 @@ async fn archive_inbox_independent_downloads_are_read_when_the_dedicated_inbox_i
 async fn archive_inbox_independent_a_scan_with_an_unreadable_inbox_is_not_a_success() {
     let inbox = Inbox::new("archive-independent-count").await;
     // 専用のフォルダの親がファイルだと、作れず読めないまま残る。
-    let blocked_parent = inbox.root.join("blocked");
+    let blocked_parent = inbox.tmp.path().join("blocked");
     std::fs::write(&blocked_parent, b"file").unwrap();
     let mut config = inbox.config(true);
     config.inbox_dir = blocked_parent.join("inbox");
