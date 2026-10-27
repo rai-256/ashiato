@@ -1088,6 +1088,10 @@ fn build_request(
         external_ref: None,
         raw,
         payload: serde_json::Value::Object(payload),
+        // 書庫の記録は幅を持たない（終わりは取り込み口の任意の欄）
+        end_time: None,
+        end_tz_offset_min: None,
+        end_tz_id: None,
     })
 }
 

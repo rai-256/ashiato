@@ -66,8 +66,14 @@ mod deletion_tests;
 pub mod drops;
 #[cfg(test)]
 mod drops_tests;
+/// 幅のある出来事の終わりの時刻（ST41）。
+#[cfg(test)]
+mod end_time_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
+/// 書き出しと消した滞在の時間が終わりを列から読むこと（ST41）。
+#[cfg(test)]
+mod export_end_time_tests;
 /// 書き出しから除く範囲と、書き出す前の件数と見込み（ST33 / design D5 / D18）。
 #[cfg(test)]
 mod export_excluded_tests;
@@ -680,6 +686,9 @@ pub enum IngestError {
     MissingExternalId,
     /// 外部識別子（または対象の識別子）が空文字（ST03 / R12）
     EmptyExternalId,
+    /// 終わりの 3 欄が一部だけ・ずれが範囲の外・タイムゾーン識別子が空か U+0000 を含む
+    /// （ST41 / `ingest::Invalid::EndTime`）
+    InvalidEndTime,
     /// 既に格納された記録と同じ収集側の識別子で、別の記録が届いた（ST03 / 深掘り Q5）。
     ///
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
@@ -790,6 +799,7 @@ impl From<ingest::Invalid> for IngestError {
             ingest::Invalid::Raw => Self::InvalidRaw,
             ingest::Invalid::DeviceId => Self::MissingDeviceId,
             ingest::Invalid::ExternalId => Self::EmptyExternalId,
+            ingest::Invalid::EndTime => Self::InvalidEndTime,
         }
     }
 }
@@ -963,6 +973,13 @@ pub struct EventRow {
     origin: String,
     /// 原文は**文字列**（design D16）。JSON 型で持つと DB が並びと表記を正規化する
     raw: String,
+    /// 幅のある出来事の終わり（ST41）。終わりを持たない行には 3 欄とも鍵ごと無い（design D9）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_tz_offset_min: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_tz_id: Option<String>,
 }
 
 /// 内容の鍵が同じ複数行を **1 件として読む形**（深掘り Q8 / 移行 `*_version_and_ledger`）。
@@ -1002,6 +1019,10 @@ struct Stored {
     schema_version: i32,
     unit_system: String,
     crs: String,
+    /// 終わりの 3 列（ST41）。更新で動くので、前の値を履歴へ残すためにここで受ける
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    end_tz_offset_min: Option<i32>,
+    end_tz_id: Option<String>,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -1119,8 +1140,10 @@ async fn ingest_one(
 /// `ingest_one` で読み戻していたときは、百万件級の書庫で 1 件ごとに往復していた（final review R62）。
 async fn ingest_request(
     app: &App,
-    req: IngestRequest,
+    mut req: IngestRequest,
 ) -> Result<IngestResult, (StatusCode, String)> {
+    // 終わりの時刻はマイクロ秒に切り捨てた値を、比べる値にも格納する値にもする（ST41 / D7）
+    req.truncate_end_to_micros();
     // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
     // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
     // 記録を入れるのと同じまとまりの中**（下）。
@@ -1418,8 +1441,9 @@ async fn ingest_request(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at, sensitivity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            content_hash, raw, payload, source_updated_at, sensitivity,
+            end_time, end_tz_offset_min, end_tz_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -1427,8 +1451,9 @@ async fn ingest_request(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, source_updated_at, sensitivity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            content_hash, raw, payload, source_updated_at, sensitivity,
+            end_time, end_tz_offset_min, end_tz_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -1456,6 +1481,9 @@ async fn ingest_request(
             .bind(req.source_updated_at)
             // **ソースごとの既定の感度**（design D3（仮））。主張は「ローカル AI まで」
             .bind(default_sensitivity(&req.logical_source))
+            .bind(req.end_time)
+            .bind(req.end_tz_offset_min)
+            .bind(&req.end_tz_id)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
@@ -1479,7 +1507,7 @@ async fn ingest_request(
     if let Some(stored) = &folded {
         if blocked_by_deleted.is_some() {
             outcome = Update::SkippedDeletedContent;
-        } else if stored.content_hash != hash && external_id.is_some() {
+        } else if external_id.is_some() && is_update(stored, &req, &hash) {
             outcome = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
         } else if external_id.is_some() {
             // **内容は同じでも更新時刻だけ新しい到着で、水位を進める**（R113）。
@@ -1583,12 +1611,14 @@ async fn load_stored(
 ) -> Result<Option<Stored>, (StatusCode, String)> {
     let sql = if external_id.is_some() {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
-                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
+                end_time, end_tz_offset_min, end_tz_id
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
-                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs
+                external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
+                end_time, end_tz_offset_min, end_tz_id
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -1601,6 +1631,17 @@ async fn load_stored(
         .fetch_optional(&mut **tx)
         .await
         .map_err(|e| internal_at("ingest.stored_lookup", e))
+}
+
+/// 外部の識別子のある記録で、保存済みの版と違う版が届いたか（ST41 / D7・D18）。
+///
+/// 内容の鍵が違えば更新。鍵が同じでも、**終わりを持つ到着の終わりが違えば**更新にする。
+/// 比べるのは `end_time` だけ（ずれと TZ だけの違いは更新にしない）。
+/// 終わりを持たない到着は、内容が同じなら更新にしない —— 応答を取り落とした送り手の再送で
+/// 入った終わりが消えないように（D18（仮））。
+/// `req.end_time` は取り込みの入口でマイクロ秒に切り捨て済みなので、そのまま比べられる。
+fn is_update(stored: &Stored, req: &IngestRequest, hash: &str) -> bool {
+    stored.content_hash != hash || (req.end_time.is_some() && stored.end_time != req.end_time)
 }
 
 /// 外部サービス由来の更新を当てたか、当てなかったならなぜか（R110）。
@@ -1699,10 +1740,11 @@ async fn apply_external_update(
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
             raw, payload, source_updated_at, external_ref,
-            tz_offset_min, tz_id, schema_version, unit_system, crs)
+            tz_offset_min, tz_id, schema_version, unit_system, crs,
+            end_time, end_tz_offset_min, end_tz_id)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
-                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -1719,6 +1761,9 @@ async fn apply_external_update(
     .bind(stored.schema_version)
     .bind(&stored.unit_system)
     .bind(&stored.crs)
+    .bind(stored.end_time)
+    .bind(stored.end_tz_offset_min)
+    .bind(&stored.end_tz_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -1741,7 +1786,8 @@ async fn apply_external_update(
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
                 source_updated_at = coalesce($6, source_updated_at),
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
-                unit_system = $10, crs = $11
+                unit_system = $10, crs = $11,
+                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1755,6 +1801,9 @@ async fn apply_external_update(
     .bind(req.schema_version)
     .bind(req.unit_system_or_default())
     .bind(req.crs_or_default())
+    .bind(req.end_time)
+    .bind(req.end_tz_offset_min)
+    .bind(&req.end_tz_id)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
@@ -3482,42 +3531,164 @@ fn kind_error_body(
     )
 }
 
+/// `GET /events` の絞り込み。**時刻は文字列で受けて自分で読む** —— ずれの無い時刻を 400 で断るため。
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+pub struct EventsQuery {
+    /// 期間の始まり（含む）。UTC からのずれを持つ RFC 3339（例 `2026-09-08T00:00:00+09:00`・`2026-09-07T15:00:00Z`）。
+    /// クエリ文字列では `+` を `%2B` に符号化する（そのままだと空白として読まれ 400 になる）。`to` と両方そろえる
+    from: Option<String>,
+    /// 期間の終わり（含まない）。形は `from` と同じ（RFC 3339・`+` は `%2B`・`Z` 可）。`from` より後
+    to: Option<String>,
+    /// 論理ソースで絞る（期間と併用できる）
+    source: Option<String>,
+}
+
+/// 期間 `[$1, $2)` に重なる、**終わりのある**記録の引き方（design D8 / D10）。
+/// 部分索引 `event_end_range` の式に当て（閉区間なので広め）、正確な条件で絞る。
+/// 試験が `EXPLAIN` を取るので、本体と同じ文字列を 1 か所で持つ。
+macro_rules! events_end_side_sql {
+    () => {
+        "SELECT * FROM core.event_live
+          WHERE end_time IS NOT NULL
+            AND tstzrange(event_time, greatest(event_time, end_time), '[]')
+                && tstzrange($1, $2, '[)')
+            AND ((end_time > event_time AND event_time < $2 AND end_time > $1)
+              OR (end_time <= event_time AND event_time >= $1 AND event_time < $2))"
+    };
+}
+
+#[cfg(test)]
+pub(crate) const EVENTS_END_SIDE_SQL: &str = events_end_side_sql!();
+
+type Period = (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>);
+
+/// `GET /events` の期間を読む。`from` / `to` は両方そろえ、UTC からのずれを持つ RFC 3339 で、`from < to`。
+/// 本文は種別の名前だけ（送られた値を返さない）。
+fn parse_period(q: &EventsQuery) -> Result<Option<Period>, (StatusCode, String)> {
+    let bad = || (StatusCode::BAD_REQUEST, "invalid_period".to_string());
+    let read = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.with_timezone(&chrono::Utc))
+            .map_err(|_| bad())
+    };
+    match (q.from.as_deref(), q.to.as_deref()) {
+        (None, None) => Ok(None),
+        (Some(from), Some(to)) => {
+            let (from, to) = (read(from)?, read(to)?);
+            if from < to {
+                Ok(Some((from, to)))
+            } else {
+                Err(bad())
+            }
+        }
+        _ => Err(bad()),
+    }
+}
+
+type EventDbRow = (
+    uuid::Uuid,
+    String,
+    chrono::DateTime<chrono::Utc>,
+    String,
+    String,
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<i32>,
+    Option<String>,
+);
+
 /// 削除されていない記録を時刻順に返す（FR-50 のビュー越し）。
-#[utoipa::path(get, path = "/events",
-    responses((status = 200, body = Vec<EventRow>), (status = 401)))]
+///
+/// `from` / `to` があれば、期間 `[from, to)` に重なるものだけ（design D8 / D10）。幅は
+/// `[event_time, end_time)`、終わりが無い・同じ・前の記録は始まりの点。
+#[utoipa::path(get, path = "/events", params(EventsQuery),
+    responses((status = 200, body = Vec<EventRow>), (status = 400), (status = 401)))]
 pub async fn events(
     State(app): State<App>,
     headers: HeaderMap,
+    Query(q): Query<EventsQuery>,
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, String)> {
     authorize(&app, &headers).await?;
+    let period = parse_period(&q)?;
     // 素のテーブルではなくビューを引く。論理削除を全クエリに効かせるため（A-3）。
-    let rows = sqlx::query_as::<
-        _,
-        (
-            uuid::Uuid,
-            String,
-            chrono::DateTime<chrono::Utc>,
-            String,
-            String,
-            String,
-        ),
-    >(
-        "SELECT id, logical_source, event_time, tz_id, origin, raw
-           FROM core.event_live ORDER BY event_time",
-    )
-    .fetch_all(&app.pool)
-    .await
+    // ソースの絞り込みは、有るときだけ条件を足す（`$n IS NULL OR …` の 1 本にすると、準備済みの文が汎用の計画に
+    // 切り替わった後は `?source=` でも索引を使えず全件を読む。review/code.md R22）。
+    let rows = match period {
+        None => {
+            let sql = format!(
+                "SELECT id, logical_source, event_time, tz_id, origin, raw,
+                        end_time, end_tz_offset_min, end_tz_id
+                   FROM core.event_live
+                  {}
+                  ORDER BY event_time, id",
+                if q.source.is_some() {
+                    "WHERE logical_source = $1"
+                } else {
+                    ""
+                }
+            );
+            let query = sqlx::query_as::<_, EventDbRow>(&sql);
+            match q.source.as_deref() {
+                Some(source) => query.bind(source),
+                None => query,
+            }
+            .fetch_all(&app.pool)
+            .await
+        }
+        // 終わりのある行は部分索引 `event_end_range` の式に当て（閉区間なので広め）、正確な条件で絞る。
+        // 終わりの無い行は時刻の索引（D10）。
+        Some((from, to)) => {
+            let sql = format!(
+                "SELECT id, logical_source, event_time, tz_id, origin, raw,
+                        end_time, end_tz_offset_min, end_tz_id
+                   FROM (
+                     {}
+                     UNION ALL
+                     SELECT * FROM core.event_live
+                      WHERE end_time IS NULL AND event_time >= $1 AND event_time < $2
+                   ) e
+                  {}
+                  ORDER BY event_time, id",
+                events_end_side_sql!(),
+                if q.source.is_some() {
+                    "WHERE logical_source = $3"
+                } else {
+                    ""
+                }
+            );
+            let query = sqlx::query_as::<_, EventDbRow>(&sql).bind(from).bind(to);
+            match q.source.as_deref() {
+                Some(source) => query.bind(source),
+                None => query,
+            }
+            .fetch_all(&app.pool)
+            .await
+        }
+    }
     .map_err(|e| internal_at("events.select", e))?;
     Ok(Json(
         rows.into_iter()
             .map(
-                |(id, logical_source, event_time, tz_id, origin, raw)| EventRow {
+                |(
                     id,
                     logical_source,
                     event_time,
                     tz_id,
                     origin,
                     raw,
+                    end_time,
+                    end_tz_offset_min,
+                    end_tz_id,
+                )| EventRow {
+                    id,
+                    logical_source,
+                    event_time,
+                    tz_id,
+                    origin,
+                    raw,
+                    end_time,
+                    end_tz_offset_min,
+                    end_tz_id,
                 },
             )
             .collect(),

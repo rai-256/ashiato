@@ -97,6 +97,7 @@ pub fn readme(
     s.push_str("5. 時刻の書き方\n");
     s.push_str("  時刻はすべて UTC で、2026-09-07T01:00:00.000000Z のようにマイクロ秒まで書き `Z` で終わる。日付だけの列は YYYY-MM-DD。\n");
     s.push_str("  出来事が起きた場所の時刻は、tz_offset_min（UTC からのずれ。分）と tz_id（タイムゾーン）の列から読む。\n");
+    s.push_str("  幅のある出来事の終わりは end_time（UTC）・end_tz_offset_min・end_tz_id の列から読む（終わりを持たない行は 3 つとも null）。\n");
     s
 }
 

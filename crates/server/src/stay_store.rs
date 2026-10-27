@@ -696,9 +696,11 @@ fn user_erased_stay_sql(alias: &str, source: u8, prefix: u8) -> String {
 
 /// 記録の終わりの SQL 式。区間の記録（`end_time`）は終わりを、点は始まりを返す
 /// （`end_time` はオフセット付きの時刻か、移行前のミリ秒）。重なりは端が触れるだけでも成り立つ（Q12）。
+/// 終わりの列（ST41）が始まりより後ならそれを先に読む —— 書き出し（`export::excluded`）と同じ順（D11。review/code.md R18）。
 pub(crate) fn event_end_sql(alias: &str) -> String {
     format!(
-        "coalesce(core.try_timestamptz({a}.payload->>'end_time'),
+        "coalesce(CASE WHEN {a}.end_time > {a}.event_time THEN {a}.end_time END,
+                  core.try_timestamptz({a}.payload->>'end_time'),
                   CASE WHEN {a}.payload->>'end_time' ~ '^[0-9]{{1,15}}$'
                        THEN to_timestamp(({a}.payload->>'end_time')::numeric / 1000.0) END,
                   {a}.event_time)",
