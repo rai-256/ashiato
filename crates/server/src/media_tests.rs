@@ -16,29 +16,26 @@ use crate::{ingest, router, App};
 
 const TOKEN: &str = "test-token-0123456789abcdef";
 
-/// 一時の置き場。落とすと消す。
-pub(crate) struct Tmp(PathBuf);
+/// 一時の置き場。落とすと消す（`TempDir` が消す）。
+pub(crate) struct Tmp(tempfile::TempDir);
 
 impl Tmp {
     pub(crate) fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("ashiato-media-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
+        Self(
+            tempfile::Builder::new()
+                .prefix("ashiato-media-")
+                .tempdir()
+                .unwrap(),
+        )
     }
     /// 置き場（箱の中の 1 段下。外に書かれたかを箱の直下で見られる）
     pub(crate) fn root(&self) -> PathBuf {
-        self.0.join("media")
+        self.0.path().join("media")
     }
     pub(crate) fn made(&self) -> PathBuf {
         let root = self.root();
         std::fs::create_dir_all(&root).unwrap();
         root
-    }
-}
-
-impl Drop for Tmp {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
@@ -301,7 +298,7 @@ fn st09_up_dir_startup_removes_part_files() {
     MediaConfig::with_dir(root.clone()).prepare().unwrap();
     assert_eq!(incoming_files(&root), 0);
     // 既定の置き場だけは起動時に作る
-    let home = tmp.0.join("home");
+    let home = tmp.0.path().join("home");
     let config = MediaConfig::from_env(env_of(&[("HOME", home.to_str().unwrap())])).unwrap();
     config.prepare().unwrap();
     assert!(config.dir().unwrap().is_dir());

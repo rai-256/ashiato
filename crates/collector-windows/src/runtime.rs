@@ -2998,6 +2998,7 @@ mod tests {
         let stored = history_records(&transport.inner);
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0]["payload"]["url"], "https://example.test/1");
+        tick_until_history_idle(&mut rt, &mut src, 100);
     }
 
     /// 読みが数分かかっても見回りは続き、ウィンドウのソースに眠りも履歴の記録も入らない。
@@ -3052,6 +3053,7 @@ mod tests {
             if with_history {
                 assert_eq!(history_records(&transport).len(), 1);
             }
+            tick_until_history_idle(&mut rt, &mut src, 200);
             window.len()
         };
         assert_eq!(window_records(true), window_records(false));
@@ -3157,6 +3159,7 @@ mod tests {
             N as usize,
             "積みこぼした"
         );
+        tick_until_history_idle(&mut rt, &mut src, sec + 1);
     }
 
     /// 除外の登録が壊れて、読めても積めない取得が続く間は、履歴の生存信号が「取得できない」を報告し、

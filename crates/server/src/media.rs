@@ -565,6 +565,7 @@ async fn put_inner(
             PlaceError::Name(kind) => Failure::NameRefused(kind),
             PlaceError::Io(e) => stored(&e),
         })?;
+    // tmp-ok: 製品のコード。置き終えた部品を残す（試験の一時フォルダではない）
     part.keep();
     sqlx::query(
         "INSERT INTO core.media_original (user_id, sha256, logical_source, size_bytes)

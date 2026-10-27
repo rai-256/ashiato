@@ -110,7 +110,7 @@ class HeartbeatTest {
     /** 足す欄は決まった欄（`capturable` `blockers`）を上書きできない。足すだけの欄は載る（final review R11）。 */
     @Test
     fun `足す欄は決まった欄を上書きできない`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         emitter(
             outbox = outbox,
             capability = { Capability.of(permission = false, sensor = true, network = true) },

@@ -7,7 +7,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.time.Duration
 
 /**
@@ -15,14 +17,16 @@ import java.time.Duration
  * （[FakeMediaListing]）で、台帳・読み進めた印・未送信は実物の置き場に書く。
  */
 class MediaScannerTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private fun MediaScanEnv.camera(id: Long, body: String, volume: String = PRIMARY) =
         listing.put(volume, id, "DCIM/Camera/", "IMG_$id.jpg", body)
 
     // 記録を積んだ直後（読み手が原本の行を足す前）に送り手が受理しても、原本の行は `ready` になる（R1）
     @Test
     fun a_record_accepted_right_after_it_is_queued_still_makes_its_original_ready() {
-        val st = TestStores()
-        val env = MediaScanEnv()
+        val st = TestStores(tmp.newFolder())
+        val env = MediaScanEnv(tmp.newFolder())
         val missing = Outbox(
             SegmentStore(java.io.File(st.dir, "media-missing"), MediaMissingReport.serializer(), st.unreadable, st.log),
             st.age::now,
@@ -51,7 +55,7 @@ class MediaScannerTest {
     // Scenario: 導入した時点で端末にある過去の写真が取られる
     @Test
     fun a_photo_already_on_the_device_is_captured_on_first_scan() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "three years ago")
         val result = env.scan()
         assertEquals(1, env.photos().size)
@@ -61,7 +65,7 @@ class MediaScannerTest {
     // Scenario: 収集を止めていた間に保存された写真も取られる
     @Test
     fun a_photo_saved_while_collection_was_stopped_is_captured_on_restart() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "before")
         env.scan()
         env.camera(2, "while stopped")
@@ -74,7 +78,7 @@ class MediaScannerTest {
     // Scenario: 保存の知らせで 6 時間の見直しを待たずに取られる
     @Test
     fun a_save_notification_captures_the_photo_within_a_minute() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         val timer = VirtualTimer()
         val driver = MediaScanDriver(env.scanner, timer)
         driver.start()
@@ -91,7 +95,7 @@ class MediaScannerTest {
     // Scenario: 知らせが届かなくても 6 時間の見直しで取られる
     @Test
     fun without_notifications_the_six_hour_review_captures_the_photo() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         val timer = VirtualTimer()
         val driver = MediaScanDriver(env.scanner, timer)
         driver.start()
@@ -106,7 +110,7 @@ class MediaScannerTest {
     // Scenario: 変わったかの印が上がらなくても 1 日 1 回の突き合わせで取られる
     @Test
     fun the_daily_full_reconcile_finds_a_photo_whose_generation_never_moved() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "known")
         env.scan()
         env.listing.putSilently(PRIMARY, 2, "DCIM/Camera/", "IMG_2.jpg", "silent")
@@ -121,7 +125,7 @@ class MediaScannerTest {
     // Scenario: 一覧が作り直されても記録は増えない
     @Test
     fun a_rebuilt_listing_is_matched_again_without_new_records() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         repeat(10) { env.camera(it + 1L, "photo $it") }
         env.scan()
         assertEquals(10, env.photos().size)
@@ -137,7 +141,7 @@ class MediaScannerTest {
     // Scenario: 2 つの置き場の写真がどちらも取られる
     @Test
     fun photos_on_two_volumes_are_both_captured() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.listing.volumeSet += SD_CARD
         env.camera(1, "internal")
         env.camera(1, "sd card", SD_CARD)
@@ -148,7 +152,7 @@ class MediaScannerTest {
     // Scenario: 同じ写真を 2 回見ても記録は増えない
     @Test
     fun looking_at_the_same_photo_twice_adds_nothing() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "once")
         env.scan()
         env.advanceHours(25)
@@ -162,7 +166,7 @@ class MediaScannerTest {
     // Scenario: カメラで撮った写真は写真のソースに入る
     @Test
     fun camera_photo_goes_to_the_photo_source() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "x")
         env.scan()
         assertEquals("c01-photo", env.photos().single().logicalSource)
@@ -171,7 +175,7 @@ class MediaScannerTest {
     // Scenario: スクリーンショットはスクリーンショットのソースに入る
     @Test
     fun screenshot_goes_to_the_screenshot_source() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.listing.put(PRIMARY, 1, "Pictures/Screenshots/", "Screenshot_1.png", "s")
         env.listing.put(PRIMARY, 2, "DCIM/Screenshots/", "Screenshot_2.png", "t")
         env.scan()
@@ -182,7 +186,7 @@ class MediaScannerTest {
     // Scenario: 受け取った画像はカメラ以外の画像のソースに入る
     @Test
     fun downloaded_image_goes_to_the_image_source() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.listing.put(PRIMARY, 1, "Download/", "received.jpg", "d")
         env.listing.put(PRIMARY, 2, "Pictures/Chat/", "edit.jpg", "e")
         env.scan()
@@ -192,7 +196,7 @@ class MediaScannerTest {
     // Scenario: 動画は動画のソースに入る
     @Test
     fun video_goes_to_the_video_source_wherever_it_is_saved() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.listing.putVideo(PRIMARY, 1, "DCIM/Camera/", "VID_1.mp4", "v")
         env.listing.putVideo(PRIMARY, 2, "Download/", "VID_2.mp4", "w")
         env.scan()
@@ -201,7 +205,7 @@ class MediaScannerTest {
 
     @Test
     fun the_source_stays_where_the_first_record_put_it_after_a_move() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "stays")
         env.scan()
         env.listing.put(PRIMARY, 1, "Download/", "IMG_1.jpg", "stays")
@@ -211,7 +215,7 @@ class MediaScannerTest {
 
     @Test
     fun a_big_listing_is_read_in_batches_of_200() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         repeat(450) { env.camera(it + 1L, "p$it") }
         env.scan()
         assertEquals(450, env.photos().size)
@@ -220,7 +224,7 @@ class MediaScannerTest {
 
     @Test
     fun nothing_is_opened_while_the_location_permission_is_missing() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "x")
         env.location = false
         val result = env.scan()
@@ -233,7 +237,7 @@ class MediaScannerTest {
 
     @Test
     fun a_file_that_cannot_be_opened_holds_the_cursor_and_is_retried() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "x")
         env.files.unreadable = true
         assertTrue(env.scan() is MediaScanResult.Held)
@@ -244,7 +248,7 @@ class MediaScannerTest {
 
     @Test
     fun one_unopenable_file_does_not_make_every_later_scan_reopen_everything() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         repeat(5) { env.camera(it + 1L, "photo $it") }
         env.files.unreadableIds += 5L
         assertTrue(env.scan() is MediaScanResult.Held)
@@ -261,7 +265,7 @@ class MediaScannerTest {
 
     @Test
     fun an_unopenable_file_does_not_stop_the_vanished_judgement() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "stays")
         env.camera(2, "goes")
         env.scan()
@@ -275,7 +279,7 @@ class MediaScannerTest {
 
     @Test
     fun a_rebuild_keeps_the_old_ledger_on_disk_until_it_is_matched_again() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         repeat(3) { env.camera(it + 1L, "photo $it") }
         env.scan()
         env.listing.rebuild(PRIMARY, 100)
@@ -328,7 +332,7 @@ class MediaScannerTest {
     // Scenario: 同じ中身の写真が 2 つ保存されても記録は 1 件
     @Test
     fun the_same_content_under_two_names_is_sent_once() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "same bytes")
         env.listing.put(PRIMARY, 2, "Download/", "copy.jpg", "same bytes")
         env.scan()
@@ -339,7 +343,7 @@ class MediaScannerTest {
     // Scenario: 原文だけ変わった写真は 1 件のまま前の版が残る
     @Test
     fun a_moved_photo_is_resent_under_the_same_external_id() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "moves")
         env.scan()
         env.listing.put(PRIMARY, 1, "Pictures/Trip/", "IMG_1.jpg", "moves")
@@ -355,7 +359,7 @@ class MediaScannerTest {
     // Scenario: 中身が変わった写真は新しい記録になり前の記録も残る
     @Test
     fun an_edited_photo_becomes_a_new_record_that_names_the_old_hash() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "original")
         env.scan()
         val before = env.photos().single()
@@ -373,7 +377,7 @@ class MediaScannerTest {
     // Scenario: 消えた事実を作っても写真の記録は前の版にならない
     @Test
     fun a_vanished_fact_has_its_own_identifier_and_never_names_a_previous_version() {
-        val env = MediaScanEnv()
+        val env = MediaScanEnv(tmp.newFolder())
         env.camera(1, "will vanish")
         env.scan()
         env.listing.remove(PRIMARY, 1)

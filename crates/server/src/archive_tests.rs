@@ -1517,9 +1517,9 @@ fn scan_dirs(
     name: &str,
     user: uuid::Uuid,
     downloads: bool,
-) -> (std::path::PathBuf, crate::archive::config::ArchiveConfig) {
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-{name}-{}", uuid::Uuid::new_v4()));
+) -> (tempfile::TempDir, crate::archive::config::ArchiveConfig) {
+    let tmp = tmp_dir(&format!("archive-{name}"));
+    let root = tmp.path().to_path_buf();
     std::fs::create_dir_all(root.join("inbox")).unwrap();
     if downloads {
         std::fs::create_dir_all(root.join("downloads")).unwrap();
@@ -1531,7 +1531,7 @@ fn scan_dirs(
         keep_copies: true,
         user_id: Some(user),
     };
-    (root, config)
+    (tmp, config)
 }
 
 async fn unreadable_rows(pool: &sqlx::PgPool, user: uuid::Uuid) -> Vec<String> {
@@ -1552,7 +1552,7 @@ async fn unreadable_rows(pool: &sqlx::PgPool, user: uuid::Uuid) -> Vec<String> {
 async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let (root, config) = scan_dirs("briefly-locked", user, true);
+    let (_tmp, config) = scan_dirs("briefly-locked", user, true);
     write_file(&config.inbox_dir, "Timeline.json", b"[]");
     let calls = std::sync::atomic::AtomicUsize::new(0);
     let hash = |_: &Path| {
@@ -1570,7 +1570,6 @@ async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
         .unwrap()
         .0;
     let rows = unreadable_rows(&pool, user).await;
-    std::fs::remove_dir_all(root).unwrap();
 
     assert!(first.is_empty());
     assert_eq!(second.len(), 1, "2 回目の走査で読みへ回る");
@@ -1583,7 +1582,7 @@ async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
 async fn archive_scan_a_new_unreadable_file_at_the_same_path_gets_its_own_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let (root, config) = scan_dirs("same-path-unreadable", user, true);
+    let (_tmp, config) = scan_dirs("same-path-unreadable", user, true);
     let hash = |_: &Path| -> anyhow::Result<String> { anyhow::bail!("試験: 読めない") };
     let scan = || crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash);
     write_file(&config.inbox_dir, "Timeline.json", b"one");
@@ -1596,7 +1595,6 @@ async fn archive_scan_a_new_unreadable_file_at_the_same_path_gets_its_own_row() 
         scan().await.unwrap();
     }
     let after_second = unreadable_rows(&pool, user).await;
-    std::fs::remove_dir_all(root).unwrap();
 
     assert_eq!(
         after_first.len(),
@@ -1619,7 +1617,7 @@ async fn archive_scan_forgets_files_gone_from_the_readable_inbox() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     // ダウンロードのフォルダを作らない（読めない置き場）
-    let (root, config) = scan_dirs("forget-readable", user, false);
+    let (_tmp, config) = scan_dirs("forget-readable", user, false);
     write_file(&config.inbox_dir, "growing.json", b"one");
     let hash = |path: &Path| Ok(format!("test-{}", std::fs::metadata(path).unwrap().len()));
     let (_, blockers) = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
@@ -1636,7 +1634,6 @@ async fn archive_scan_forgets_files_gone_from_the_readable_inbox() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    std::fs::remove_dir_all(root).unwrap();
 
     assert_eq!(left, 0, "読めた置き場から消えたファイルの行が残った");
 }
