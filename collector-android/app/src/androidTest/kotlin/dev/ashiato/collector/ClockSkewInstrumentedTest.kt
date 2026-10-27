@@ -86,6 +86,7 @@ class ClockSkewInstrumentedTest {
     // Scenario: 収集の起動時にその場で測る
     @Test
     fun startingTheServiceQueuesOneClockRecordWithEveryReferenceAccountedFor() {
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).close()
         waitFor("start の測定記録が未送信に積まれる") { clockRecords().any { trigger(it) == "start" } }
 
@@ -103,6 +104,7 @@ class ClockSkewInstrumentedTest {
     // Scenario: 端末の時計が変更されるとその場で測る
     @Test
     fun changingTheDeviceClockQueuesATimeSetRecordRightAway() {
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).close()
         waitFor("start の測定記録が未送信に積まれる") { clockRecords().any { trigger(it) == "start" } }
         val before = clockRecords().count { trigger(it) == "time_set" }

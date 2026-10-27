@@ -29,6 +29,12 @@ import org.robolectric.shadows.ShadowAlertDialog
 class UnusedAppRestrictionsActivity : MainActivity() {
     override fun unusedAppRestrictionsReader() = UnusedAppRestrictionsReader { state }
 
+    // 健康データは関心の外（`HealthPermissionFlowTest`）
+    override fun healthPermissions(): HealthPermissions = noHealthConnect()
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
+
     companion object {
         var state: UnusedAppRestrictionsState = UnusedAppRestrictionsState.EXEMPT
     }
