@@ -131,6 +131,7 @@ fn entry(
         method: method.into(),
         outcome,
         status,
+        satellite: None,
     }
 }
 
@@ -223,7 +224,7 @@ async fn access_log_middleware_ingest_is_not_logged() {
 
 /// Scenario: 読み出しの記録には中身も合言葉も残らない
 #[tokio::test]
-async fn access_log_middleware_keeps_no_content_or_secret() {
+async fn access_log_secrets_satellite_keeps_no_content_or_secret() {
     let password = random_password();
     let (app, seen) = tee_app(&password).await;
     let pool = testdb::pool().await;
@@ -241,6 +242,16 @@ async fn access_log_middleware_keeps_no_content_or_secret() {
     )
     .await;
     assert!(res.status().as_u16() > 0);
+    // 衛星の資格情報を付けた読み出し（値も識別子も行に残らない）
+    let (sat, ident) = crate::satellite_authn_tests::seed_satellite(&pool).await;
+    let (_, sat_value) =
+        crate::satellite_authn_tests::seed_credential(&pool, sat, &ident, t0).await;
+    let res = send(
+        &app,
+        crate::satellite_authn_tests::get_with("/events", &sat_value, None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
     let res = send(&app, login_req(&wrong)).await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let res = send(
@@ -276,8 +287,23 @@ async fn access_log_middleware_keeps_no_content_or_secret() {
         seen.lock().unwrap().iter().any(|e| e.route == "/stays"),
         "引数付きの読み出しが行になっている"
     );
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .any(|e| e.credential == "satellite"),
+        "衛星の求めが行になっている"
+    );
     for text in &all {
-        for secret in [&arg, &password, &wrong, &cookie, &TOKEN.to_owned()] {
+        for secret in [
+            &arg,
+            &password,
+            &wrong,
+            &cookie,
+            &TOKEN.to_owned(),
+            &sat_value,
+            &ident,
+        ] {
             assert!(!text.contains(secret.as_str()), "行に値が残っている");
         }
     }

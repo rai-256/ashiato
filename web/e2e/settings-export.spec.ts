@@ -146,7 +146,9 @@ test("Scenario 9.2: 稼働状況のリンクから設定画面が開き、最初
   await page.reload();
   await page.getByTestId("to-settings").click();
   await expect(page).toHaveURL(/#\/settings$/);
-  await expect(page.getByTestId("settings-view").locator("h2").first()).toHaveText("全記録の書き出し");
+  // 「衛星と資格情報」の節が書き出しの節の前に入った（ST29 / design D12）ので、先頭の見出しでなく見出しの存在で見る
+  await expect(page.getByTestId("export-section").locator("h2").first()).toHaveText("全記録の書き出し");
+  await expect(page.getByTestId("settings-view").getByRole("heading", { level: 2, name: "全記録の書き出し" })).toBeVisible();
 });
 
 // Scenario: 押す前にソースごとの件数と期間が出る

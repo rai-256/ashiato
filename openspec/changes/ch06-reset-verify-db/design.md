@@ -84,7 +84,12 @@ Q3 の推奨の「台帳の番号から割り当てる」は、port を通して
 **番号を継いだ木**: 台帳は消えた worktree の番号を使い回し（`ports.sh:27`）、消えた worktree の network は残る（Non-Goals）。番号を継いだ次の木は、同じ subnet の新しい network を作ろうとして `Pool overlaps` で落ちる（review/spec.md R3）。
 そこで `verify-env.sh` は、subnet のファイルがあり、自分の project の network がまだ無いとき、`up` の前に `docker network ls` と `docker network inspect` で同じ subnet を持つ別の network を探す:
 - コンテナが 1 つも繋がっていない（`docker ps -aq --filter network=<名前>` が空）→ その network だけを消して立てる（何も失わない。生きている木は port が違うので同じ subnet を持たない）
-- コンテナが繋がっている → 何も消さずに、network とコンテナの名前を出して rc=1（消えた worktree の DB が動いたままなど。人が止める）
+- コンテナが繋がっている → 何も消さずに、network とコンテナの名前を出して rc=1（消えた worktree の DB が動いたままなど。人が止める）。
+  繋がったコンテナの compose の `working_dir` の印が無いディレクトリを指すなら、消えた worktree のものと出し、外し方（`docker rm -f … && docker network rm …`。volume は残る）を添える（review/code.md R20。
+  `archive.sh` は `git worktree remove` の前に DB を止めないので、止まった DB を残して消えた木の番号を継ぐと、この形になる。CH06 の前は止まったコンテナは port を持たず通っていた）
+- 同じでなく重なるだけの範囲（subnet を含む /16・/23 など。VPN や別の道具）の network → ほかの持ち物なので消さず、network と範囲を出して rc=1（R23。下の反転条件に当たったことを名前つきで見せる）
+
+network の範囲は `docker network ls -q | xargs docker network inspect` の 1 回で全部引く（R29）。自分の network の名前は `docker compose config --format json` の `networks.default.name` から（R25）。
 
 これは Q3 の推奨の「消えた worktree の残りは片付けない」の例外で、これから立てる network を塞いでいる空の network 1 つに限る。今ある 15 個（既定の空きの subnet）には当たらない。
 `10.200` と `10.201` を選んだのは、Docker の既定の空き（172.17〜172.31 の /16 と 192.168 の /20）と、この機械の経路（WSL の eth0・Tailscale の CGNAT）のどれとも重ならないため。
@@ -97,7 +102,8 @@ Q3 の推奨の「台帳の番号から割り当てる」は、port を通して
 `tools/env-init.sh` が、木の port から決めた subnet（D5）を書いた `docker-compose.subnet.yml`（default の network の `ipam.config[0].subnet` だけ）を毎回作り直し、`.env` に
 `COMPOSE_FILE=docker-compose.yml:docker-compose.subnet.yml`（木に `docker-compose.override.yml` があれば `:docker-compose.override.yml` を足す）を置く。`docker-compose.subnet.yml` は `.gitignore` に足す（生成物で、点区切りの値を持つ）。
 compose は project のディレクトリの `.env` を呼び出し側の協力なしに読むので、`ports.sh` を読まない呼び出し口（`db-roles.sh`・`check-db-secret.sh`・`check-exposure.sh` の `compose config`・`archive-shape.sh`・`pg_dump-docker.sh`・人が打つ `docker compose`）にも効く（P13）。
-`COMPOSE_FILE` の値は木によらず同じ形なので、ハーネスが agent の起動時の `.env` を環境に渡しても（`tools/agent-env.sh`）古い値にならない。subnet の値は環境変数に載せない（review/spec.md R5: 環境変数は `.env` に勝ち、空の環境変数でも勝つ）。
+ハーネスが agent の起動時に `.env` を環境に渡す `tools/agent-env.sh` は、`COMPOSE_FILE` だけを渡さない（`unset`）。値の形は木によらず同じでも、環境の値は `.env` に勝つので、
+渡すと録画の木（`.env` に `COMPOSE_FILE` が無い）の compose が無い subnet のファイルを探して落ち、override のある木では override が外れる（review/code.md R15。compose は project の `.env` を自分で読むので、渡さなくてよい）。subnet の値は環境変数に載せない（review/spec.md R5: 環境変数は `.env` に勝ち、空の環境変数でも勝つ）。
 `.env` の無い CI は base の `docker-compose.yml` だけで立ち、subnet を明示しない（今までどおり）。
 
 採らなかったもの: `.env` に `ASHIATO_DB_SUBNET` を置いて補間する（古い値が環境変数として勝つ。R5）/ base の `docker-compose.yml` に `${ASHIATO_DB_SUBNET:?}` を書く（`ports.sh` を読まない呼び出し口と CI の素の `docker compose up` が補間で落ちる。実測）/
@@ -105,6 +111,7 @@ compose は project のディレクトリの `.env` を呼び出し側の協力�
 `COMPOSE_FILE` を置くと compose は `docker-compose.override.yml` を自動では読まなくなるので、木にあれば並べる（`ashiato2-integ`・`ashiato2-rec-st22` に手で置いたものがある。review/spec.md R10）。
 既にある木では、`COMPOSE_FILE` が入った後の最初の `up` で network が作り直され、DB のコンテナは作り直されずに繋ぎ直す（中身は残る。P12）。
 `docker-compose.subnet.yml` が消えた（`git clean` など）木で `docker compose` を打つと「ファイルが無い」で落ちる。次の `verify-env.sh` か `env-init.sh` が作り直す。
+同じく、env-init の後に手で置いた override は、次の `verify-env.sh` か `env-init.sh` までは読まれない（`stack.sh`・`smoke.sh` などは env-init を呼ばない。review/code.md R22。手で置くのは `ashiato2-integ` などで、録画の木は `.env` に `COMPOSE_FILE` が無いので自動で読む）。
 `stack.sh` などの `down -v` が network を手放しても、明示の subnet は既定の空きに依らないので、次の `up` で同じ subnet を取り直せる（P4 の危うさを閉じる）。
 反転条件: compose が `.env` の `COMPOSE_FILE` を読まなくなったら、呼び出し口に `ports.sh` を足す形に替える。
 
@@ -136,14 +143,15 @@ D2 の表を `--plan` で全部確かめる（Requirement「作り直すのは�
 2. 溜まった状態を作る: `core` schema と代わりの `core.event`（1 列）に 3 行、`ch06_keep_<乱数>` database。空の DB には移行が当たっていないので、本物の `core.event` ではなく代わりの表で「行のある DB」を作る
 3. 印なしで呼び、3 行が残る。**worktree でない木（CI）では**、続けて `env -u CI HARNESS_VERIFY=1` で呼び、3 行が残り標準エラーに `keep:` の 1 行がある（worktree では通れないので、そう出して飛ばす。CI が通す）
 4. compose の外に `ch06-sentinel-<乱数>` のコンテナ（`docker create`。動かさない）を DB の volume を付けて置き、印つきで呼ぶ → rc≠0・名前が出る・DB のコンテナの id と 3 行が同じ。そのコンテナを消す
-5. 別の compose project `ch06-sentinel-<乱数>`（一時の場所の compose のファイル。service `db`・`network_mode: none`・`sleep`）と、compose の外の `ch06-sentinel-<乱数>` のコンテナと volume（DB の volume とは別）を置く。volume の名前と network の id を控え、`PGAPPNAME=ch06-holder` の psql に `pg_sleep(600)` を走らせ、`pg_stat_activity` に出るまで待ってから印つきで呼ぶ →
-   `切った接続: 1` と `ch06-holder` の 1 行、psql が非 0、`core.event` が無いか 0 行、`ch06_keep_` が無い、前の volume が無く volume がちょうど 1 つ、network の id が同じ、sentinel が全部同じ id で残る、`ashiato_owner` と `ashiato_app` で繋がり所有者が `ashiato_owner`
+5. 別の compose project `ch06-sentinel-<乱数>`（一時の場所の compose のファイル。service `db`・`network_mode: none`・`sleep`）と、compose の外の `ch06-sentinel-<乱数>` のコンテナと volume（DB の volume とは別）を置く。volume の名前と network の id を控え、`pg_sleep(600)` の psql を 12 本（`PGAPPNAME=ch06-holder` が 2 本、`ch06-holder-01`〜`10` が 1 本ずつ）走らせ、`pg_stat_activity` に出るまで待ってから印つきで呼ぶ →
+   `切った接続: 12。ch06-holder@local ×2, ch06-holder-01@local, …, ch06-holder-09@local, …` の 1 行（D3 の `×<数>`・10 種で切る・`…` を固定する。review/code.md R16）、12 本とも psql が非 0、psql が非 0、`core.event` が無いか 0 行、`ch06_keep_` が無い、前の volume が無く volume がちょうど 1 つ、network の id が同じ、sentinel が全部同じ id で残る、`ashiato_owner` と `ashiato_app` で繋がり所有者が `ashiato_owner`
 6. もう一度印つきで呼び、`切った接続: 0` の 1 行・rc=0・前の volume が無く volume がちょうど 1 つ（2 回続けて作り直せる）
 7. `docker compose rm -s -f db` と volume の削除で DB のコンテナを無くしてから印つきで呼び、`切った接続: 0` の 1 行と、DB のコンテナが立っていること
 8. **subnet のファイルがある木（worktree）では**: DB の network を手放す（`down` は使わない —— 匿名 volume が宙に浮く。P11。D1 と同じく `docker compose rm -s -f db` → 控えた volume を `docker volume rm` → `docker network rm <project>_default`）→ 同じ subnet の `ch06-sentinel-<乱数>` network（コンテナ無し）を作って印つきで呼ぶ → rc=0・sentinel の network が無い・DB の network がその subnet。
-   もう一度同じ手順で手放す → 同じ subnet の sentinel の network に `docker create --network` で sentinel のコンテナを繋いで呼ぶ → rc≠0・名前が出る・network とコンテナが同じ id。sentinel を消してもう一度印つきで呼び、DB を立て直す。CI（subnet のファイルが無い）ではそう出して飛ばす
+   もう一度同じ手順で手放す → 同じ subnet の sentinel の network に `docker create --network` で sentinel のコンテナ（compose の `working_dir` の印が無いディレクトリを指す）を繋いで呼ぶ → rc≠0・名前と「消えた worktree」の外し方が出る・network とコンテナが同じ id。
+   sentinel を消し、subnet を含む /23 の sentinel の network を作って呼ぶ → rc≠0・名前が出る・network が同じ id（R23）。それを消してもう一度印つきで呼び、DB を立て直す。CI（subnet のファイルが無い）ではそう出して飛ばす
 
-sentinel は `trap` で必ず消す。終わった DB は空で役割が整っている（後ろの段の試験がそのまま使える）。
+sentinel は `trap` で必ず消す（コンテナは `docker rm -f -v`。postgres の image の `VOLUME` が作る名前の無い volume も残さない。名指しで付けた DB の volume は `-v` でも消えない。review/code.md R14）。終わった DB は空で役割が整っている（後ろの段の試験がそのまま使える）。
 CI では rust job の末尾（`check-ports.sh --self-test` の後）に `--self-test` と本体の 2 行を置く。`CI=true` は GitHub が渡す。
 本体の 3. の CI だけの段と 8. の worktree だけの段は、CI と `verify-run`（worktree）の証跡を合わせて Scenario の全部を通す。
 反転条件: 本体が CI で 90 秒を超えるなら、6. と 7. を 1 回にまとめる。
@@ -165,6 +173,12 @@ CH04 の `test-database` はまだ正典に無く、同じ新しい capability �
 `docs/testing.md` の CI の表の rust 行（検査の数）、`docs/flow-gates.md` の検査の表に `tools/check-verify-env-reset.sh` の 1 行。
 `docs/changes/CH06.md` は CH03・CH04 と同じ節の並び（`## 価値` `## 依頼（逐語）` `## 壊してはいけないもの` `## 完了の判定` を 1 つずつ）にした（`hx change` の雛形の重複は消した。機械は最初の `## 完了の判定` を読む。review/spec.md R7）。
 
+### D12（仮）. 追跡する文書の subnet は点区切りで書かない
+
+review/code.md・evidence.jsonl などの追跡する文書に subnet を書くときは `(第 2 組, 第 3 組)/接頭長` の形にする（台本の `printf '10.%d.%d.0/24'` と同じく、点区切りの 4 つ組を書かない。`tools/check-private.sh` が落とす）。
+値は port の規則から決まる docker の subnet で手元の網の実値ではないが、`HARNESS_ALLOW_PRIVATE_NAMES=1` で通す例外は作らない（review/code.md R19）。
+反転条件: `tools/check-private.sh` が docker の subnet の範囲（D5 の 2 つ）を私設 IP から外すようになったら、点区切りで書いてよい。
+
 ## Risks / Trade-offs
 
 - **同じ worktree で並んで走っているものは切られる**（Q2 の推奨）: agent が背後で走らせた `cargo test`・人が立てた `tools/dev.sh`・CH04 の並んだ回。CH04 の片付けの助言ロックは volume の作り直しを止めない（P6）。
@@ -182,6 +196,12 @@ DB の移行は無い。rebase した worktree で最初に `verify-env.sh` が�
 
 ## 計測の記録（下流が書く）
 
-- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）:
+- 作り直し 1 回の時間（`HARNESS_VERIFY=1 tools/verify-env.sh` の実時間。3 回）: 12 秒・12 秒・7 秒（2026-10-25、ch06 worktree、証跡 4.3 の run。10 秒を超えた回がある）。
+  遅い段（`bash -x` の時刻差、2 回）: `docker compose rm -s -f db` 約 1.3 秒、`docker compose up -d --wait db`（healthcheck 待ち）約 5.2〜5.7 秒、残りは役割の整えと接続の確かめ（約 1〜5 秒、回で揺れる）。切る・消す・network の確かめは各 0.1〜0.2 秒。支配的なのは新しい DB の起動待ち
 - 作り直した直後の `cargo test -p ashiato-server` の本数と時間（`scripts/verify-run` の証跡）:
+  `--list` の本数は 1386（lib）+ 9（tests/server_startup）。`scripts/verify-run 7.1`（並列度は既定）を 2026-10-25 に 5 回走らせ、4 回 FAIL（rc=101、650〜830 秒）・1 回 PASS（木 4c1f3ac6、rc=0、754 秒）。
+  落ちたのは時間・負荷に依る試験で回ごとに違う（`stay_rebuild_chain_of_short_moves_settles`（作り直し 3 秒の上限）が 4 回中 4 回、他に `stays_migration_applies_twice`、`archive_scan_interval_change_takes_effect_without_restart`（走査 7 回））。
+  どれも単独では通り（2.5 秒）、`crates/` は変えていない。`--test-threads=4` は手元で 1 回 1386+9 本全部 ok（705 秒）だったが再現せず、`verify-run --candidate` で走らせた回は FAIL
+  （1385 通過・1 落ち、710 秒。`stay_tests::fresh_db` の `DROP DATABASE … WITH (FORCE)` が「permission denied to terminate process」。`ashiato_owner` は `ashiato_app` の接続を切れない）。並列度の問題とは決められず、候補は採っていない。
+  マシンの load average は約 10（16 コア）。試験の時間の上限が並列の負荷に負けている疑いで、作り直しの副作用ではないと見る
 - `tools/check-verify-env-reset.sh` 本体の時間（手元と CI）:

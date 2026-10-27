@@ -12,6 +12,8 @@ trap cleanup EXIT
 
 psql() { docker compose exec -T db psql -qtA -v ON_ERROR_STOP=1 -U ashiato -d ashiato "$@"; }
 
+# 前の検査（e2e など）が残した DB を引き継がない（smoke.sh と同じ。末尾の trap と対）
+docker compose down -v >/dev/null 2>&1 || true
 echo "== DB を起動してマイグレーションを当てる"
 # **当てる版と順は `migrations/ORDER`（適用順の正本。サーバの `MIGRATIONS` も build.rs がここから組む）から引く**
 # （2026-09-12 / ST03。2026-10-15 に lib.rs の配列から ORDER へ移した）。手で並べていたときは ST02 の
@@ -26,9 +28,9 @@ done
 echo "  OK ${#MIGS[@]} 版を当てた"
 
 # **2 回当てても壊れないことを、ここで確かめる**（review R12）。
-# run() は起動のたびに全版を当てるので、当て直しが安全でないと 2 回目の起動で落ちる。
+# 前からある版は当て直せることを保つ（版の記録の無い古い DB に一度全部を当てるので。design D12）。
 # 0003 は「型が text なら何もしない」分岐を持っているが、その分岐を通る検査がどこにも無かった。
-echo "== もう一度当てる（run() は起動のたびに全版を当てる）"
+echo "== もう一度当てる（前からある版は当て直せることを保つ）"
 for m in "${MIGS[@]}"; do
   psql < "migrations/$m.sql" >/dev/null || { echo "  NG $m の 2 回目が落ちた"; exit 1; }
 done

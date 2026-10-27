@@ -23,8 +23,8 @@ use crate::testdb;
 /// 書き出しに渡す合言葉（`export_tests::pass()` と同じ）。テストの中だけに置く。
 const PASS: &str = "pw-for-test-0123456789";
 
-/// D7 の 15 個の項目。
-const ENTRIES: [&str; 15] = [
+/// D7 の 16 個の項目（ST29 で衛星の登録簿が加わった）。
+const ENTRIES: [&str; 16] = [
     "events.jsonl",
     "event_versions.jsonl",
     "sources.jsonl",
@@ -38,6 +38,7 @@ const ENTRIES: [&str; 15] = [
     "coverage_spans.jsonl",
     "drop_reports.jsonl",
     "drop_report_hours.jsonl",
+    "satellites.jsonl",
     "README.txt",
     "manifest.json",
 ];
@@ -462,7 +463,8 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
 #[tokio::test]
 async fn export_zip_one_dated_zip_with_the_twelve_entries() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("one");
     let file = export_into(&pool, ExportConfig::with_dir(dir.clone())).await;
     let left = names(&dir);
@@ -495,7 +497,8 @@ async fn export_zip_one_dated_zip_with_the_twelve_entries() {
 #[tokio::test]
 async fn export_zip_every_entry_is_aes_256() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let file = export_into(&pool, ExportConfig::with_dir(tmp_dir("aes"))).await;
     let mut z = open(&file);
     assert_eq!(z.len(), ENTRIES.len());
@@ -512,7 +515,8 @@ async fn export_zip_every_entry_is_aes_256() {
 #[tokio::test]
 async fn export_zip_unfinished_file_has_no_export_name() {
     let _g = EXPORT_SERIAL.lock().await;
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let dir = tmp_dir("partial");
     let midway: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let (seen, d) = (midway.clone(), dir.clone());
@@ -714,7 +718,8 @@ async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
 
 #[tokio::test]
 async fn export_readme_fold_rule_matches_the_event_folded_view() {
-    let pool = testdb::pool().await;
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
     let def: (String,) = sqlx::query_as("SELECT pg_get_viewdef('core.event_folded'::regclass)")
         .fetch_one(&pool)
         .await
@@ -1447,28 +1452,48 @@ fn max_rss_kib() -> u64 {
 }
 
 /// 既定は 2 万行。1 年分（35 万行）は `ASHIATO_EXPORT_VOLUME_ROWS=350000` を渡し、使い捨ての DB で走らせる（R36）。
-/// `ASHIATO_EXPORT_VOLUME_ERASED=0` なら消した滞在を置かない（既定は `1`。CH02 design D8）。
+/// `ASHIATO_EXPORT_VOLUME_ERASED` は消した滞在の数 M（既定は `1`、`0` なら置かない。CH02 design D8・CH04 design D14）。
+/// M ≥ 2 のときは記録を M 日に等分して置き（1 日 N / M 行）、各日の 01:00–02:00 を消した滞在にする。
 #[tokio::test]
 async fn export_volume_one_run_reports_time_and_memory() {
     let rows: i64 = std::env::var("ASHIATO_EXPORT_VOLUME_ROWS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(20_000);
-    let erased = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED").map_or(true, |v| v != "0");
+    let erased_count: i64 = std::env::var("ASHIATO_EXPORT_VOLUME_ERASED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let erased = erased_count > 0;
+    let days = erased_count.max(1);
+    let per_day = (rows + days - 1) / days;
     let _g = EXPORT_SERIAL.lock().await;
     let w = World::new().await;
     // 既定では消した滞在（01:00–02:00）が 1 件ある。行の 100 に 1 つは座標を持ち、00:00–03:00 に散らすので、
     // その 3 分の 2 が消した時間より前に始まり、除く判定の重い経路（次の記録を引く幅・重なり）を通る。
-    // 座標を持つ行は共有の DB に残り、以後のすべての書き出しが判定し直すので、割合は小さく保つ。
-    if erased {
-        w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+    // 座標を持つ行は、この試験の database の中で書き出しのたびに判定し直されるので、割合は小さく保つ。
+    if days <= 1 {
+        if erased {
+            w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
+        }
+    } else {
+        for k in 0..days {
+            let day = w.day + chrono::Duration::days(k);
+            w.erased_stay(
+                &format!("{day}T01:00:00Z"),
+                &format!("{day}T02:00:00Z"),
+                &[],
+            )
+            .await;
+        }
     }
     sqlx::query(
         "INSERT INTO core.event
            (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
             schema_version, content_hash, raw, payload)
          SELECT gen_random_uuid(), $1, 'c02-window', 'pc', 'collected',
-                $2::timestamptz + (g % 10800) * interval '1 second', 540, 'Asia/Tokyo', 1,
+                $2::timestamptz + ((g - 1) / $4::bigint) * interval '1 day'
+                  + (g % 10800) * interval '1 second', 540, 'Asia/Tokyo', 1,
                 md5(g::text || $1::text), 'volume row ' || g,
                 CASE WHEN g % 100 = 0 THEN jsonb_build_object('i', g, 'lat', 35.0, 'lon', 139.0)
                      ELSE jsonb_build_object('i', g) END
@@ -1477,6 +1502,7 @@ async fn export_volume_one_run_reports_time_and_memory() {
     .bind(w.user)
     .bind(w.at("00:00"))
     .bind(rows)
+    .bind(per_day.max(1))
     .execute(&w.pool)
     .await
     .unwrap();
@@ -1515,4 +1541,157 @@ async fn export_volume_one_run_reports_time_and_memory() {
         mine > rows - with_coords,
         "座標を持たない行が落ちている: {mine}/{rows}"
     );
+}
+
+// Scenario: 版の記録があっても、全記録の書き出しは始まる
+#[tokio::test]
+async fn st48_export_starts_with_ledger() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
+    let pool = testdb::pool().await;
+    let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(recorded > 0, "版の記録のある DB で始める");
+    // 「分類の無い表」で断られると unwrap が落ちる
+    let path = export_once(&pool).await;
+    let z = open(&path);
+    let bad: Vec<&str> = z
+        .file_names()
+        .filter(|n| n.contains("migration_ledger"))
+        .collect();
+    assert!(bad.is_empty(), "版の記録が書き出しに入っている: {bad:?}");
+}
+
+// ---------------------------------------------------------------------------
+// ST29 衛星の登録簿と資格情報
+// ---------------------------------------------------------------------------
+
+/// 衛星を 1 つ登録する（試験ごとの接尾で隔離する）。`removed` なら外した時刻を付ける。
+async fn put_satellite(pool: &sqlx::PgPool, identifier: &str, name: &str, removed: bool) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.satellite (id, identifier, name, registered_at, removed_at)
+         VALUES ($1, $2, $3, now(), CASE WHEN $4 THEN now() END)",
+    )
+    .bind(id)
+    .bind(identifier)
+    .bind(name)
+    .bind(removed)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+// Scenario: 衛星の登録簿は外した衛星も含めて書き出しに出る
+#[tokio::test]
+async fn export_satellites_registry_includes_removed_satellites() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
+    let pool = testdb::pool().await;
+    let tag = &Uuid::new_v4().simple().to_string()[..8];
+    let identifier = format!("dev.t{tag}.booklog");
+    put_satellite(&pool, &identifier, &format!("読書ログ{tag}"), true).await;
+    let path = export_once(&pool).await;
+    let rows = all_rows(&path, "satellites.jsonl");
+    let identifiers: BTreeSet<&str> = rows
+        .iter()
+        .map(|r| r["identifier"].as_str().unwrap())
+        .collect();
+    for builtin in ["外部 AI", "ローカル AI"] {
+        assert!(
+            rows.iter().any(|r| r["name"] == builtin),
+            "{builtin} の行が無い: {identifiers:?}"
+        );
+    }
+    let mine = rows
+        .iter()
+        .find(|r| r["identifier"] == identifier.as_str())
+        .expect("外した衛星の行が無い");
+    assert!(mine["removed_at"].is_string(), "{mine}");
+    assert_eq!(
+        keys(mine),
+        table_columns(&pool, "satellite").await,
+        "登録簿の行は表の全列を持つ"
+    );
+}
+
+// Scenario: 衛星の資格情報は書き出しに入らない
+#[tokio::test]
+async fn export_satellites_credentials_are_not_exported() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
+    let pool = testdb::pool().await;
+    let tag = &Uuid::new_v4().simple().to_string()[..8];
+    let sat = put_satellite(
+        &pool,
+        &format!("dev.t{tag}.cred"),
+        &format!("資格{tag}"),
+        false,
+    )
+    .await;
+    // 値そのものは持たないので、ハッシュ（16 進）が zip のどこにも出ないことを見る。
+    let mut hashes = Vec::new();
+    for _ in 0..2 {
+        let hash: Vec<u8> = Uuid::new_v4().as_bytes().repeat(2);
+        sqlx::query(
+            "INSERT INTO core.satellite_credential (id, satellite_id, token_sha256, issued_at)
+             VALUES ($1, $2, $3, now())",
+        )
+        .bind(Uuid::new_v4())
+        .bind(sat)
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        hashes.push(hash);
+    }
+    let path = export_once(&pool).await;
+    let names_in_zip: Vec<String> = open(&path).file_names().map(String::from).collect();
+    for name in &names_in_zip {
+        let body = text(&path, name);
+        for h in &hashes {
+            let hex: String = h.iter().fold(String::new(), |mut acc, b| {
+                use std::fmt::Write as _;
+                let _ = write!(acc, "{b:02x}");
+                acc
+            });
+            assert!(
+                !body.contains(&hex) && !body.contains(&format!("\\x{hex}")),
+                "{name} に資格情報のハッシュがある"
+            );
+        }
+    }
+    assert!(
+        !names_in_zip.iter().any(|n| n.contains("credential")),
+        "{names_in_zip:?}"
+    );
+    let readme = text(&path, "README.txt");
+    assert!(
+        readme.contains("表 satellite_credential: 衛星の資格情報"),
+        "説明書の入らないものに無い"
+    );
+}
+
+// Scenario: ST29 が足した表はすべて分類されている
+#[tokio::test]
+async fn export_satellite_tables_and_columns_are_classified() {
+    // db-ok: CH04 の testdb::isolated() がこのブランチにまだ無い。CH04 が main に入った後に isolated() へ替える
+    let pool = testdb::pool().await;
+    let inv = export::read_inventory(&pool).await.unwrap();
+    assert!(matches!(
+        export::class_of("satellite"),
+        Some(export::Class::Include {
+            file: "satellites.jsonl",
+            ..
+        })
+    ));
+    assert!(matches!(
+        export::class_of("satellite_credential"),
+        Some(export::Class::Exclude { .. })
+    ));
+    for t in ["satellite", "satellite_credential"] {
+        assert!(inv.tables.iter().any(|n| n == t), "{t} が一覧に無い");
+    }
+    let bad = export::unclassified(&inv);
+    assert!(bad.is_empty(), "分類の無いもの: {bad:?}");
 }

@@ -35,3 +35,4 @@ http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 strum = { version = "0.28", features = ["derive"] }
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3.27.0"

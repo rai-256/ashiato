@@ -9,7 +9,7 @@ use axum::response::IntoResponse as _;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,9 @@ mod export_job_tests;
 /// 書き出しの台帳の移行と錠（ST33 / design D10）。
 #[cfg(test)]
 mod export_ledger_tests;
+/// 書き出しの重なりの判定から、候補の行 × 消した時間の入れ子を取る change（CH04）。試験ごとの database で足す前の形と突き合わせる。
+#[cfg(test)]
+mod export_overlap_tests;
 #[cfg(test)]
 mod export_tests;
 /// 書き出しの「次の記録」の引きを窓関数にする change（CH02）。まっさらな DB で新旧を突き合わせる。
@@ -124,6 +127,9 @@ mod media_summary_tests;
 #[cfg(test)]
 mod media_tests;
 pub mod migrate_backup;
+pub mod migration_ledger;
+#[cfg(test)]
+mod migration_ledger_tests;
 pub mod net_guard;
 /// 収集の途切れの判定（ST14 / design D1）。DB に触らない。
 pub mod outage;
@@ -145,6 +151,28 @@ mod places_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
+/// 衛星の識別子と名前の形（ST29 / design D2 / D5 / D15）。DB に触らない。
+pub mod satellite;
+/// 衛星の求めの読み出しの記録（ST29 / design D4 / D8 / D9）。
+#[cfg(test)]
+mod satellite_access_tests;
+/// 衛星の登録と外す、その一覧（ST29 / design D7 / D11 / D16）。
+pub mod satellite_admin;
+/// 衛星の登録・外す・権限・最初の 2 つ（ST29 / design D7 / D11）。
+#[cfg(test)]
+mod satellite_admin_tests;
+/// 衛星の資格情報の判定（ST29 / design D8 / D18 / D19）。
+#[cfg(test)]
+mod satellite_authn_tests;
+/// 形の正本と移行・登録簿の突き合わせ（ST29 / design D5）。
+#[cfg(test)]
+mod satellite_form_tests;
+/// 衛星の登録簿・資格情報の移行（ST29 / design D7 / D9）。
+#[cfg(test)]
+mod satellite_migration_tests;
+/// 衛星の資格情報では、まだどの口も通らない（ST29 / design D8 / D14）。
+#[cfg(test)]
+mod satellite_routes_tests;
 /// 定期取得の枠（ST13 / design D5 / D6）。壁時計を読まない。
 pub mod scheduled;
 #[cfg(test)]
@@ -165,6 +193,9 @@ pub mod stay_store;
 mod stay_tests;
 #[cfg(test)]
 pub mod testdb;
+/// 試験の足場の繋ぎ先（回の database）を本物の DB で見る（CH04）。
+#[cfg(test)]
+mod testdb_tests;
 /// 画面のログイン（ST28 / design D1 / D2 / D3）。
 pub mod web_session;
 #[cfg(test)]
@@ -181,19 +212,22 @@ pub const MIGRATIONS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/migr
 /// アプリの役割への付与。**配列に入れない**（`MIGRATIONS` の後に毎回当てる。design D4）。
 pub const GRANTS: &str = include_str!("grants.sql");
 
-/// 版を順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
+/// 記録に無い版だけを順に当て、最後にアプリの役割への付与を当てる。**当て直しても壊れない**。
 /// 所有者の接続（`DATABASE_OWNER_URL`）でだけ呼ぶ。サーバの起動（`run()`）は呼ばない（design D5）。
+/// ahead・読めないは `migration_ledger::MigrateError` のまま返す（`downcast_ref` で区別できる）。
 pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    for (name, sql) in MIGRATIONS {
-        sqlx::raw_sql(sql)
-            .execute(pool)
-            .await
-            .with_context(|| format!("マイグレーション {name} の適用に失敗"))?;
-    }
-    sqlx::raw_sql(GRANTS)
-        .execute(pool)
-        .await
-        .context("アプリの役割への付与に失敗")?;
+    migrate_after(pool, || Ok(())).await
+}
+
+/// `migrate` に、検査を通った後・何かを書く前に呼ぶ仕事（退避）を足したもの（design D4）。
+async fn migrate_after(
+    pool: &sqlx::PgPool,
+    before_apply: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    // 付与も錠の中で当てる（同時の `GRANT … ON ALL TABLES` は `tuple concurrently updated` で落ちる）。
+    // ahead・読めないなら付与も流さない（design D4）
+    let conn = pool.acquire().await?;
+    migration_ledger::apply_migrations_with(conn, MIGRATIONS, before_apply, GRANTS).await?;
     Ok(())
 }
 
@@ -258,25 +292,41 @@ pub async fn run_migrate() -> anyhow::Result<()> {
     if !net_guard::db_host_is_local(&url) {
         net_guard::refuse("db_not_loopback");
     }
-    // 当てる前に退避する（製造準備 A-2。2026-10-11 の整合の確認 K2）。失敗したら当てない
-    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    match migrate_backup::backup_before_migrate(
-        &url,
-        &migrate_backup::BackupConfig::from_env(),
-        &stamp,
-    )? {
-        Some(_) => tracing::info!(
-            "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
-        ),
-        None => {
-            tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
-        }
-    }
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&url)
         .await?;
-    migrate(&pool).await?;
+    // 順は 接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与（design D4）。
+    // 退避に失敗したら当てない（製造準備 A-2。2026-10-11 の整合の確認 K2）。どの環境変数も検査を飛ばさない
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let backup = || {
+        match migrate_backup::backup_before_migrate(
+            &url,
+            &migrate_backup::BackupConfig::from_env(),
+            &stamp,
+        )? {
+            Some(_) => tracing::info!(
+                "移行の前に退避した（MIGRATE_BACKUP_DIR の下。置き場は既定 backups/pre-migrate）"
+            ),
+            None => {
+                tracing::warn!("MIGRATE_BACKUP=off: 移行の前の退避を飛ばした（使い捨ての DB だけ）")
+            }
+        }
+        Ok(())
+    };
+    if let Err(e) = migrate_after(&pool, backup).await {
+        if let Some((kind, report)) = e
+            .downcast_ref::<migration_ledger::MigrateError>()
+            .and_then(migration_ledger::MigrateError::mismatch_report)
+        {
+            // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
+            tracing::error!(kind = kind, "版の食い違いで止めた。DB に何も書いていない");
+            // log-ok: 同上。ST58 が読む（design D6）
+            eprint!("{report}");
+            std::process::exit(3);
+        }
+        return Err(e);
+    }
     tracing::info!(versions = MIGRATIONS.len(), "移行を当てた");
     Ok(())
 }
@@ -512,6 +562,26 @@ async fn authorize_quiet(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
+    // 衛星の値を名乗る求めは、引けなければ印を見ずに 401（D19（仮））。引ければ印があっても衛星（D18（仮））
+    if given.starts_with(satellite::CREDENTIAL_PREFIX) {
+        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "UPDATE core.satellite_credential c SET last_used_at = $2
+               FROM core.satellite s
+              WHERE c.token_sha256 = $1 AND c.revoked_at IS NULL
+                AND s.id = c.satellite_id AND s.removed_at IS NULL
+             RETURNING c.satellite_id, c.id",
+        )
+        .bind(web_session::sha256(given))
+        .bind(app.now())
+        .fetch_optional(&app.pool)
+        .await?;
+        return Ok(
+            row.map(|(satellite, credential)| web_session::Caller::Satellite {
+                satellite,
+                credential,
+            }),
+        );
+    }
     if token_matches(given, &app.token) {
         return Ok(Some(web_session::Caller::ApiToken));
     }
@@ -565,6 +635,9 @@ async fn authorize(
     headers: &HeaderMap,
 ) -> Result<web_session::Caller, (StatusCode, String)> {
     match decided(app, headers).await {
+        Authn::Decided(Some(web_session::Caller::Satellite { .. })) => {
+            return Err((StatusCode::FORBIDDEN, "forbidden".into()))
+        }
         Authn::Decided(Some(caller)) => return Ok(caller),
         Authn::Decided(None) => {}
         Authn::LookupFailed => {
@@ -3523,6 +3596,22 @@ pub fn router(app: App) -> Router {
             post(attributes_kind_name_post),
         )
         .route(
+            "/satellites",
+            get(satellite_admin::satellites_get).post(satellite_admin::satellites_post),
+        )
+        .route(
+            "/satellites/{id}",
+            delete(satellite_admin::satellites_delete),
+        )
+        .route(
+            "/satellites/{id}/credentials",
+            post(satellite_admin::credentials_post),
+        )
+        .route(
+            "/satellites/{id}/credentials/{cid}",
+            delete(satellite_admin::credentials_delete),
+        )
+        .route(
             "/session",
             post(web_session::session_post)
                 .delete(web_session::session_delete)
@@ -3597,6 +3686,14 @@ pub async fn run() -> anyhow::Result<()> {
         // log-ok: reason() は自分で名付けた &'static str。起動前の拒否を端末にも出す
         eprintln!("error: kind=db_role reason={}", refusal.reason());
         std::process::exit(2);
+    }
+    // DB の版がこの組み立てと揃っているか（design D17）。揃っていなければ待ち受けを開かない
+    if let Some((kind, report)) = migration_ledger::startup_refusal(&pool, MIGRATIONS).await? {
+        // log-ok: 種別と版の名前・組み立ての版番号と commit だけ（私的データではない）
+        tracing::error!(kind = kind, "DB の版がこの組み立てと合わない。起動しない");
+        // log-ok: 同上。ST58 が読む（design D6）
+        eprint!("{report}");
+        std::process::exit(3);
     }
 
     let archive_config = archive::config::from_env()?;
@@ -3705,6 +3802,11 @@ pub async fn run() -> anyhow::Result<()> {
         web_session::session_post,
         web_session::session_delete,
         web_session::session_get,
+        satellite_admin::satellites_get,
+        satellite_admin::satellites_post,
+        satellite_admin::satellites_delete,
+        satellite_admin::credentials_post,
+        satellite_admin::credentials_delete,
         places_post,
         places_get,
         place_candidates_get
@@ -3807,6 +3909,13 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindErrorBody,
         web_session::LoginRequest,
         web_session::SessionState,
+        satellite_admin::SatelliteOut,
+        satellite_admin::CredentialOut,
+        satellite_admin::IssueRequest,
+        satellite_admin::IssuedCredential,
+        satellite_admin::RegisterRequest,
+        satellite_admin::SatelliteError,
+        satellite_admin::SatelliteErrorBody,
         places::PlaceCreateRequest,
         places::PlaceCreated,
         places::PlaceError,

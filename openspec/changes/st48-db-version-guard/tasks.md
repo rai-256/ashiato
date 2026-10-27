@@ -30,12 +30,12 @@
 
 ## Task 1: 版の記録の形と読み方
 
-- [ ] 1.1 `crates/server/src/migration_ledger.sql`（design D1 の DDL）と `crates/server/src/migration_ledger.rs` を足し、`lib.rs` に `pub mod migration_ledger;` と試験のモジュール `migration_ledger_tests` を足す。
+- [x] 1.1 `crates/server/src/migration_ledger.sql`（design D1 の DDL）と `crates/server/src/migration_ledger.rs` を足し、`lib.rs` に `pub mod migration_ledger;` と試験のモジュール `migration_ledger_tests` を足す。
   `migration_ledger.rs` に、版の記録を読む `read_ledger`（`migration_ledger` が無い・`core` の有無・形の版・列を見て、D3 の 3 分岐と D5 の「読めない」を返す）と、
   純粋な判定 `compare(known, ledger)`（D2。`Ahead { unknown }` / `Behind { missing }` / `Even`）を書く。アプリの役割への `migration_ledger` の `USAGE` と `SELECT` は `grants.sql` でなく bootstrap（`migration_ledger.sql`）の末尾に置く（D1。`grants.sql` は記録の schema の無い DB にも psql で当たる —— `tools/check-immutable.sh`）。
   `testdb.rs` に使い捨ての database の口（`CREATE DATABASE st48_<乱数 12 桁>` を作り、Drop で `DROP DATABASE … WITH (FORCE)`。D16）を足す。
   検証: `cargo build -p ashiato-server --tests` rc=0
-- [ ] 1.2 `crates/server/src/migration_ledger_tests.rs` に次を足す:
+- [x] 1.2 `crates/server/src/migration_ledger_tests.rs` に次を足す:
   `st48_ledger_shape_is_frozen`（`// Scenario: 版の記録の置き場と列の形は、決めた形のまま変わらない`。使い捨ての database に bootstrap を流し、`information_schema.columns` の 2 つの表の列の名前・型・NULL 可否が design D1 と一字一句同じ。`form` の値が 1）/
   `st48_ledger_app_role_reads_only`（`// Scenario: S-01 の実行時の役割は版の記録を読めるが、書き換えられない`。移行と付与を当てた使い捨ての database に、アプリの役割で繋ぎ、SELECT が通り、INSERT・UPDATE・DELETE が権限の誤り（SQLSTATE `42501`）で断られる）/
   `st48_compare_*`（純粋な判定。同じ集合 → `Even`、DB にだけある名前 → `Ahead` でその名前、自分にだけある名前 → `Behind`、両方あれば `Ahead` を先に返す。並びの順を入れ替えても結果が同じ。4 本以上）/
@@ -44,13 +44,13 @@
 
 ## Task 2: 当てる処理 —— まだの版だけを、1 版 1 取引で、記録しながら
 
-- [ ] 2.1 `migration_ledger.rs` に `apply_migrations(conn, versions)` を書く（design D3・D11・D7）: `pg_advisory_lock(4820251)` を取る → 記録を読む → ahead・読めないなら何も書かずに返す →
+- [x] 2.1 `migration_ledger.rs` に `apply_migrations(conn, versions)` を書く（design D3・D11・D7）: `pg_advisory_lock(4820251)` を取る → 記録を読む → ahead・読めないなら何も書かずに返す →
   bootstrap → 自分の版のうち記録に無いものを渡された並びの順に 1 版ずつ取引で当てて `INSERT`（`sha256` は中身の 16 進の小文字。`before_ledger` は D3 の 2 つ目の分岐だけ true）→
   記録にある版の指紋の違いは `tracing::warn!` に版の名前を出すだけ → 錠を外す（失敗しても外す）。
   `crates/server/build.rs` に組み立ての commit（design D8: `ASHIATO_BUILD_COMMIT` → `git rev-parse HEAD` → `unknown`。`cargo:rerun-if-env-changed=ASHIATO_BUILD_COMMIT`）を足し、版番号と一緒に `migration_ledger.rs` の定数にする。
   `lib.rs` の `migrate()` を `apply_migrations(&mut conn, MIGRATIONS)` → `GRANTS` に替える（ahead・読めないは呼び出し元に区別できる誤りで返す。Task 4 が終了コードにする）。
   検証: `cargo build -p ashiato-server --tests` rc=0 / `cargo clippy -p ashiato-server --all-targets -- -D warnings` rc=0
-- [ ] 2.2 `migration_ledger_tests.rs` に次を足す（どれも使い捨ての database）:
+- [x] 2.2 `migration_ledger_tests.rs` に次を足す（どれも使い捨ての database）:
   `st48_apply_records_every_version`（`// Scenario: 空の DB に移行を当てると、当てた版がすべて記録される`。名前の集合が `MIGRATIONS` と一致し、`before_ledger` が全部 false）/
   `st48_apply_row_has_fingerprint_and_build`（`// Scenario: 版の記録の 1 行は、名前・指紋・時刻・組み立ての版番号と commit を持つ`。指紋は試験の側で `MIGRATIONS` の中身から sha256 を計算し直して突き合わせる。版番号は `env!("CARGO_PKG_VERSION")`、commit は `env!("ASHIATO_BUILD_COMMIT")` と一致し、試験の走らせ方は `ASHIATO_BUILD_COMMIT` を渡さない場合も `git rev-parse HEAD` と一致する）/
   `st48_apply_pre_ledger_db_marks_all`（`// Scenario: 版の記録の無い古い DB には一度だけ全部を当て、印を付けて記録する`。先に `MIGRATIONS` を記録無しで直に当て、`core.event` に 1 件入れてから `apply_migrations` を呼ぶ。1 件が残り、全部の行の `before_ledger` が true）/
@@ -63,20 +63,20 @@
 
 ## Task 3: 試験の足場を同じ当て方に寄せる
 
-- [ ] 3.1 `crates/server/src/testdb.rs` の初回の当て込みを、`MIGRATIONS` を直に流す形から `apply_migrations` → `GRANTS` に替える。外側の取引と `pg_advisory_xact_lock(4820251)` は外し、取引の外の 1 本の接続で `apply_migrations` を呼ぶ（錠は `apply_migrations` が同じ鍵で取る。残すと自分を待ち続ける）（design D12・D11。CH04 が入っていれば、そのテンプレートの当て込みの行を替える）。
+- [x] 3.1 `crates/server/src/testdb.rs` の初回の当て込みを、`MIGRATIONS` を直に流す形から `apply_migrations` → `GRANTS` に替える。外側の取引と `pg_advisory_xact_lock(4820251)` は外し、取引の外の 1 本の接続で `apply_migrations` を呼ぶ（錠は `apply_migrations` が同じ鍵で取る。残すと自分を待ち続ける）（design D12・D11。CH04 が入っていれば、そのテンプレートの当て込みの行を替える）。
   `pool()`・`app_pool()`・`url()` の形は変えない。
   検証: `bash -c '! grep -nE "for .* in crate::MIGRATIONS" crates/server/src/testdb.rs'` rc=0 / `CT stay_tests` rc=0 / `CT ingest` rc=0
-- [ ] 3.2 `migration_ledger_tests.rs` に `st48_testdb_has_ledger`（`// Scenario: 試験の足場が当てた DB にも、同じ版の記録がある`。`testdb::pool()` の DB の版の記録の名前の集合が `MIGRATIONS` と一致）を足し、
+- [x] 3.2 `migration_ledger_tests.rs` に `st48_testdb_has_ledger`（`// Scenario: 試験の足場が当てた DB にも、同じ版の記録がある`。`testdb::pool()` の DB の版の記録の名前の集合が `MIGRATIONS` と一致）を足し、
   書き出しの試験のファイル（`crates/server/src/export_file_tests.rs`。CH04 の後なら書き出しの試験の足場の口を使う）に `st48_export_starts_with_ledger`（`// Scenario: 版の記録があっても、全記録の書き出しは始まる`。版の記録のある DB で書き出しを始め、「分類の無い表」で断られず、書き出したファイルの一覧に `migration_ledger` を含む名前が無い）を足す。
   検証: `CT st48_testdb_has_ledger` rc=0 / `NL st48_testdb_has_ledger 1` rc=0 / `CT st48_export_starts_with_ledger` rc=0 / `NL st48_export_starts_with_ledger 1` rc=0
 
 ## Task 4: migrate の順と止め方 —— 検査を退避の前に、終了コード 3
 
-- [ ] 4.1 `lib.rs` の `run_migrate()` を design D4 の順にする（接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与）。
+- [x] 4.1 `lib.rs` の `run_migrate()` を design D4 の順にする（接続 → 錠 → 読む → ahead・読めないなら退避を取らずに終了コード 3 → 退避 → 当てる → 付与）。
   止まるときの標準エラーを design D6 の形で出す（`error: kind=db_ahead` / `kind=ledger_unreadable` の 1 行目、`  db: <名前> (<版番号> <commit>)` を 20 件まで、`  self: <版番号> <commit>`、説明の 1 行）。
   `tracing::error!(kind = …)` にも同じ種別を出す。`MIGRATE_BACKUP` などどの環境変数でもこの検査を飛ばさない。移行の失敗はいまのまま終了コード 1。
   検証: `cargo build -p ashiato-server --bin ashiato-server` rc=0 / `bash -c '! grep -nE "MIGRATE_.*(GUARD|FORCE|SKIP)|ALLOW_DB_AHEAD" -r crates/server/src'` rc=0
-- [ ] 4.2 `crates/server/tests/server_startup.rs` に、使い捨ての database（`CREATE DATABASE st48_<乱数>`。`db-ok:` の理由を付け、Drop で消す）に実行ファイル `migrate` を走らせる試験を足す。
+- [x] 4.2 `crates/server/tests/server_startup.rs` に、使い捨ての database（`CREATE DATABASE st48_<乱数>`。`db-ok:` の理由を付け、Drop で消す）に実行ファイル `migrate` を走らせる試験を足す。
   退避の置き場は `std::env::temp_dir()` の下の試験ごとのフォルダ（`TMPDIR` に従う）、`PG_DUMP` は試験が書く偽の台本（呼ばれたら置き場に `pre-migrate-*.dump` を書く・失敗させる版も持つ）:
   `st48_migrate_rerun_changes_nothing`（`// Scenario: 同じ版で当て直しても、何も変わらずに通る`。2 回目も rc=0、行の数・名前・`applied_at`・`pg_get_functiondef('core.reject_collected_rewrite'::regproc)` が 1 回目と同じ）/
   `st48_migrate_fingerprint_mismatch_warns`（`// Scenario: 指紋の違う版は当て直さず、名前を示して続ける`）/
@@ -93,10 +93,10 @@
 
 ## Task 5: サーバの起動の検査
 
-- [ ] 5.1 `lib.rs` の `run()` で、`check_db_role` の後・待ち受けを開く前に、アプリの役割で `read_ledger` → `compare` を通す（design D17）。
+- [x] 5.1 `lib.rs` の `run()` で、`check_db_role` の後・待ち受けを開く前に、アプリの役割で `read_ledger` → `compare` を通す（design D17）。
   ahead → `error: kind=db_ahead`（D6 の形）、behind（記録が無いを含む）→ `error: kind=db_behind` と「まだ当たっていない版が N 個。先に `ashiato-server migrate` を」、読めない → `error: kind=ledger_unreadable`。どれも終了コード 3。指紋の違いは警告だけ。
   検証: `cargo build -p ashiato-server --bin ashiato-server` rc=0
-- [ ] 5.2 `server_startup.rs` に次を足す（使い捨ての database に実行ファイル `migrate` を当ててから、アプリの役割で起動する）:
+- [x] 5.2 `server_startup.rs` に次を足す（使い捨ての database に実行ファイル `migrate` を当ててから、アプリの役割で起動する）:
   `st48_server_refuses_db_ahead`（`// Scenario: 新しい版で当てた DB に古い版のサーバを起動すると、起動しない`）/
   `st48_server_refuses_db_behind`（`// Scenario: まだ当たっていない版のある DB では、サーバは起動しない`。記録から 2 行を消し、標準エラーに数 2 がある）/
   `st48_server_refuses_pre_ledger_db`（`// Scenario: 版の記録の無い DB では、サーバは起動しない`。`DROP SCHEMA migration_ledger CASCADE` で記録の無い DB を作る）/
@@ -108,20 +108,20 @@
 
 ## Task 6: 配った移行の凍結の検査
 
-- [ ] 6.1 `tools/check-released-migrations.sh` を足す（design D9）。`git tag --list 'v[0-9]*'` の印ごとに、印の版の `migrations/ORDER` の全部の名前が今の木の `ORDER` にあり、
+- [x] 6.1 `tools/check-released-migrations.sh` を足す（design D9）。`git tag --list 'v[0-9]*'` の印ごとに、印の版の `migrations/ORDER` の全部の名前が今の木の `ORDER` にあり、
   前進側の `.sql` の中身が同じであることを見る。違えば移行の名前と印の名前を出して rc=1。印が 0 個なら「配った印が 0 個」と出して rc=0。印の commit・`ORDER` を取り出せなければ rc=1。
   `--self-test` は `"$TMPDIR"` の下に使い捨ての git の木を作り、7 つの場合を走らせて、それぞれに `echo "Scenario: …"` を出す:
   `Scenario: 配った版にある移行の中身を変えると、検査が落ちる` / `Scenario: 配った版にある移行を消すと、検査が落ちる` / `Scenario: 配った版にある移行の名前を変えると、検査が落ちる` /
   `Scenario: 配った印が無ければ、検査は通る` / `Scenario: 配った印の後に足した移行は、変えても通る` / `Scenario: 配った版にある移行の戻し手順は、変えても通る` /
   `Scenario: 配った印の版を読めなければ、検査は通らない`（場合ごとに別の木で見る）（タグの指す commit を取り出せない木は、浅い clone か `git replace` で作る）。
   検証: `tools/check-released-migrations.sh --self-test` rc=0 / `tools/check-released-migrations.sh` rc=0
-- [ ] 6.2 `.github/workflows/ci.yml` の rust の job の `./tools/check-migrations.sh` の後に、タグの取り寄せ（`git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`）と、
+- [x] 6.2 `.github/workflows/ci.yml` の rust の job の `./tools/check-migrations.sh` の後に、タグの取り寄せ（`git fetch --force --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'`）と、
   `./tools/check-released-migrations.sh --self-test`・`./tools/check-released-migrations.sh` を足す。`docs/testing.md` の手元で走らせる一覧（§ の `./tools/check-migrations.sh` の行）にも足す。
   検証: `bash -c 'grep -q "check-released-migrations.sh --self-test" .github/workflows/ci.yml && grep -q "refs/tags/v" .github/workflows/ci.yml && grep -q check-released-migrations docs/testing.md'` rc=0
 
 ## Task 7: これから足す版の規則
 
-- [ ] 7.1 `tools/check-migrations.sh` に design D10 の 2 つの規則を足す（名前の時刻が `202610250000` 以上の版だけ）: 前進側が文として `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` / `END` を持たない（`$$` の本体の中は数えない）、
+- [x] 7.1 `tools/check-migrations.sh` に design D10 の 2 つの規則を足す（名前の時刻が `202610250000` 以上の版だけ）: 前進側が文として `BEGIN` / `START TRANSACTION` / `COMMIT` / `ROLLBACK` / `END` を持たない（`$$` の本体の中は数えない）、
   `.down.sql` が `DELETE FROM migration_ledger.applied WHERE name = '<版の名前>'` を持つ。`--self-test` を足し、`"$TMPDIR"` の下の使い捨ての `migrations/` で次を走らせて `echo "Scenario: …"` を出す:
   `Scenario: 新しい版が自分で取引を持つと、検査が落ちる` / `Scenario: 新しい版の戻し手順が版の記録の行を消さないと、検査が落ちる`（それぞれ落ちて、版の名前が出る。`DO $$ BEGIN … END $$;` だけの版と、規則を守った版は通る）。
   今の木で走らせる本体の出力の前に `echo "Scenario: 前からある版には、この規則を求めない"` を出す。CI の rust の job に `./tools/check-migrations.sh --self-test` を足す。
@@ -129,13 +129,13 @@
 
 ## Task 8: 開発と確認の DB —— 回ごとの project・止まったときの手順
 
-- [ ] 8.1 `tools/verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す（design D13）。
+- [x] 8.1 `tools/verify-prep.sh` が書く `run.sh` に `export COMPOSE_PROJECT_NAME="ashiato-verify-<tag を英小文字・数字・- に寄せたもの>"` を足す（design D13）。
   `tools/stack.sh` は DB を起こす前に、`ASHIATO_DB_PORT` を公開している容器が別の compose の project のものなら `docker stop` する（`down` しない）。止めたら 1 行出す。
   `tools/stack.sh down` の `docker compose down` を `docker compose stop` に替える（容器を消すと無名の volume の置き場が孤立する。design の Risks）。
   `tools/stack.sh` と `tools/dev.sh` は、`migrate` の終了コードが 3 なら作り直さずに design D14 の手順（`STACK_RESET=1` と `COMPOSE_PROJECT_NAME=<別の名前>`）を出して終了コード 3 で止まる。
   `tools/db-roles.sh` の冒頭の注記に D15 の 1 文、`tools/check-immutable.sh` の「run() は起動のたびに全版を当てる」の注記を D12 の文に直す。
   検証: `bash -n tools/stack.sh tools/dev.sh tools/verify-prep.sh` rc=0 / `bash -c 'grep -q COMPOSE_PROJECT_NAME tools/verify-prep.sh && grep -q "STACK_RESET=1" tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/stack.sh && grep -q COMPOSE_PROJECT_NAME tools/dev.sh'` rc=0
-- [ ] 8.2 `tools/check-db-version-stop.sh` を足す（新しいファイル。共有の台本に書き足さない）。始めに、この worktree の DB の port を持っている容器の名前を覚え、終わりに起こし直す。
+- [x] 8.2 `tools/check-db-version-stop.sh` を足す（新しいファイル。共有の台本に書き足さない）。始めに、この worktree の DB の port を持っている容器の名前を覚え、終わりに起こし直す。
   試験の project（`st48-a-<乱数>`・`st48-b-<乱数>`）は終わりに `down -v` で消す。退避の置き場は `"$TMPDIR"` の下。次を走らせ、それぞれに `echo "Scenario: …"` を出す:
   `Scenario: 確認バッチの起動は、回ごとの project に立つ`（`verify-prep.sh` の `run.sh` を書く部分を 2 つの違う tag で書かせるか、書かれた本文の `COMPOSE_PROJECT_NAME=` の行を取り出し、tag を含み、2 つで違う）/
   `Scenario: 別の project で立てると、前の DB は残る`（A で `stack.sh up --check-only` → `core.event` に 1 件 → A で `stack.sh down` → B で `stack.sh up --check-only` が rc=0 → A を起こし直して 1 件ある）/
@@ -147,5 +147,5 @@
 
 ## Task 9: 全体の確かめ
 
-- [ ] 9.1 spec の 41 本の Scenario に印があり、既存の検査が通ることを確かめる。
+- [x] 9.1 spec の 41 本の Scenario に印があり、既存の検査が通ることを確かめる。
   検証: `python3 scripts/check_scenarios.py . st48-db-version-guard` rc=0 / `cargo clippy --workspace --all-targets -- -D warnings` rc=0 / `scripts/quiet-run smoke -- tools/smoke.sh` rc=0 / `scripts/quiet-run immutable -- tools/check-immutable.sh` rc=0

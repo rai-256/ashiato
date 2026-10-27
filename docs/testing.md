@@ -28,7 +28,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 9 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 14 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
@@ -103,6 +103,21 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   （「キーボードで移るとフォーカスの位置が見える」「1 年ぶんが一目で読める」）
 - Fake は判断の無い境界（送信・置き場）にだけ置く。DB・サーバ・OS は本物
 
+## 4.4 試験の database は回ごとに作られる（CH04）
+
+- 試験は `ashiato` database に書かない。過程ごとに回の id（`ashiato_run_<乱数>`）を決め、`testdb::pool()` の初回が
+  移行と権限を当てたテンプレートと、その写し（試験が繋ぐ database）を作る。**回の database は次の回の始まりに片付く**
+  （走っている回の印は助言ロック。殺された過程の回は、ロックが外れているので次の回が消す）。手で消さない
+- 書き出しの試験のように他の試験と行を共有できないものは `testdb::isolated()`（回のテンプレートの写し）、
+  空の database が要るものは `testdb::scratch()` を使う。どちらも試験が panic しても消える
+- **`CREATE DATABASE` は `testdb.rs` の中だけに書く。** 書くと `tools/check-test-db-growth.sh --lint` が落とす
+  （理由があるときは同じ行か 1 行上に `db-ok: <理由>`）。`ashiato` database を消す・空にする台本は書かない
+- 試験の接続には問い合わせ 1 本の時間の上限がある（既定 60 秒）。変えるには環境変数 `ASHIATO_TEST_STATEMENT_TIMEOUT`
+  （PostgreSQL の時間の書き方。`0` は上限なし）
+- 台本:
+  - `tools/check-test-db-growth.sh [cargo test の引数…]` —— 試験を 2 回続けて走らせ、database が積もらないことを見る。`--lint` で書き方を、`--self-test` で検査自体を確かめる
+  - `tools/export-scaling.sh` —— 書き出しの量の試験が消した滞在の数を読み、N と M を一緒に倍にして時間を測る（残すだけ。判定は件数の比）
+
 ## 4.5 画面の e2e（`web/e2e`）
 
 - **起動は `tools/stack.sh up`。確認バッチの `run.sh` が呼ぶのと同じもの。** 分けると
@@ -162,18 +177,20 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 ./tools/db.sh up -d --wait db && ./tools/db-roles.sh && cargo test --workspace   # 本物の DB（ポートは worktree ごと。tools/ports.sh）。役割を整えてから
-./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh
+./tools/check-migrations.sh && ./tools/check-released-migrations.sh --self-test && ./tools/check-released-migrations.sh   # 後ろ 2 つ: 配った印（タグ v*）の移行の凍結。手元にタグが無ければ「0 個」で通る
+./tools/check-boundaries.sh && ./tools/check-openapi.sh
 ./tools/check-offsite.sh --self-test && ./tools/check-offsite.sh && ./tools/check-exposure.sh --self-test
 ./tools/check-private.sh --self-test && ./tools/check-private.sh
 ./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
 ./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
+./tools/check-satellite-boundary.sh --self-test && ./tools/check-satellite-boundary.sh   # 本体が衛星のコードを読み込む部品を持たない（FR-77）
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）
 (cd web && npm ci && ../tools/check-licenses.sh && npx tsc -b && npm run lint && npm run test && npm run build)
 (cd web && npx playwright install chromium && npm run test:e2e)                  # 画面の e2e（本物のブラウザ）
 (cd collector-android && ./gradlew detekt :app:assembleDebug :app:testDebugUnitTest)   # ★ 2026-10-11: detekt（formatting = ktlint を含む）を足した
 cargo clippy -p ashiato-collector-windows --all-targets --target x86_64-pc-windows-gnu -- -D warnings
-./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh
+./tools/smoke.sh && ./tools/check-panic-log.sh && ./tools/check-immutable.sh && ./tools/check-db-version-stop.sh
 # Windows の上で:  cargo test -p ashiato-collector-windows
 # エミュレータ:    ./tools/android-emulator.sh
 ```

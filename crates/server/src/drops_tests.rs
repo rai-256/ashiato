@@ -25,7 +25,12 @@ fn auth() -> HeaderMap {
 }
 
 /// 破棄の報告 1 件ぶんの JSON。`hours` は (UTC の時, 件数)。範囲は最初の時の正時から最後の時の終わりまで。
-fn report(source: &str, user: uuid::Uuid, day: &str, hours: &[(u32, i64)]) -> serde_json::Value {
+pub(crate) fn report(
+    source: &str,
+    user: uuid::Uuid,
+    day: &str,
+    hours: &[(u32, i64)],
+) -> serde_json::Value {
     let first = hours.first().map(|h| h.0).unwrap_or(0);
     let last = hours.last().map(|h| h.0).unwrap_or(0);
     let count: i64 = hours.iter().map(|h| h.1).sum();
@@ -81,7 +86,7 @@ async fn count_reports(app: &App, source: &str) -> i64 {
     n.0
 }
 
-/// 移行は当て直しても壊れない（`run()` は起動のたびに全版を当てる）。
+/// 移行は当て直しても壊れない（版の記録の無い古い DB には `migrate()` が全版を一度だけ当てる）。
 #[tokio::test]
 async fn drop_reports_migration_applies_twice() {
     let pool = testdb::pool().await;

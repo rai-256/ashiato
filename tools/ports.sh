@@ -13,6 +13,9 @@
 #     DB は 55600+n、サーバは 19200+2×n。名前のハッシュは衝突しうるので使わない。消えた worktree の番号は使い回す。
 #     実測 2026-10-21: `-ch01` と `-ch02` が 55432 に落ち、5 日残っていた確認バッチの DB と取り合って両方止まった。
 # ASHIATO_DB_PORT / ASHIATO_HTTP_PORT で上書きできる。
+# DB の docker network の subnet は、DB の port から関数 `ashiato_db_subnet` が決める（port が木どうしで被らないので subnet も被らない。
+# off = ASHIATO_DB_PORT − 55400 が 0〜511 のときだけ /24 を 1 つ出し、範囲の外なら何も出さない）。変数には載せない（古い値が回り込むため）。
+# 追跡するファイルに点区切りの 4 つ組を書かない（tools/check-private.sh）ので、出力は printf で組む。
 # **規則はここだけ。** Rust のテスト（crates/server/src/testdb.rs など）もこの台本を呼んで port を得る。
 # 割り当てられなければ（台帳が尽きた・書けない）非 0 を返す。55432 には落とさない（落とすと main の DB と取り合う）。
 _ports_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,4 +69,11 @@ export ASHIATO_DB_PORT ASHIATO_HTTP_PORT
 # 合言葉を台本に書かないまま、worktree ごとの DB に繋ぐ（2026-10-05。ST05 と ST28 の統合）
 ashiato_db_url() { printf '%s' "$1" | sed -E "s#^(postgres(ql)?://[^@/]*@[^:/]+):[0-9]+/#\1:${ASHIATO_DB_PORT}/#"; }
 unset _ports_root _ports_n _ports_dirs _ports_gitdir _ports_common _ports_main
+
+# この木の DB の network の subnet（/24）。範囲の外の port では何も出さない。呼び出し側（env-init.sh など）が使う。
+ashiato_db_subnet() {
+  local off=$((ASHIATO_DB_PORT - 55400))
+  ((off >= 0 && off < 512)) || return 0
+  printf '10.%d.%d.0/24' $((200 + off / 256)) $((off % 256))
+}
 unset -f _ports_slot

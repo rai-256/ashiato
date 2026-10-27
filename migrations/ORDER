@@ -59,3 +59,5 @@
 202610211000_source_acquisition
 # ST09: 写真と動画の取り込み。3 つのソース・収集開始日の印・生存信号の接続・3 つの表（design D15）
 202610181200_media_capture
+# 衛星の登録簿と資格情報、読み出しの記録の欄（ST29 / design D7 / D9）
+202610241200_satellite_credentials

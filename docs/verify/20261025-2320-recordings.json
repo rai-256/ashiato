@@ -1,0 +1,29 @@
+{
+  "tag": "20261025-2320",
+  "run_id": "20261025-232123-c2b7539",
+  "commit": "c2b7539113f1efcbf7822259882f52dd282780c8",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261025-232123-c2b7539",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261025-232123-c2b7539",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST29-satellites",
+      "story": "ST29",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST29-satellites/video.webm",
+      "trace": "scenarios/ST29-satellites/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "ST48",
+    "CH06",
+    "CH04"
+  ]
+}

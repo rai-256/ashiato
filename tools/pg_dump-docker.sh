@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PATH に pg_dump が無い手元（DB は docker compose の db）で、`ashiato-server migrate` の退避（PG_DUMP）に使う。
+# `ashiato-server migrate` の退避（PG_DUMP）に使う、db のコンテナの中の pg_dump（db と同じ版。手元の pg_dump は db より古いと落ちる）。tools/stack.sh・tools/dev.sh の既定
 # サーバが渡す引数のうち --host / --port は外し（コンテナの中から繋ぐ）、--file は手元のファイルへの書き出しに置き換える。
 # 合言葉は PGPASSWORD を値なしで渡す（docker が手元の環境から引く。プロセス一覧に出さない）。
 set -euo pipefail

@@ -10,6 +10,8 @@
  * いまは日本語だけを持つ（i18n の仕組みは入れていない —— 製造準備の「やらないこと」）。
  */
 
+import type { RefusalKind } from "./satellites";
+
 const ja = {
   /** 数の書き方（`toLocaleString` / `Intl.DateTimeFormat`）に渡す地域。 */
   locale: "ja-JP",
@@ -86,6 +88,59 @@ const ja = {
     ready: "合言葉が一致しています。",
     confirmGo: "書き出す",
     next: "ほかの設定は、ここに足していきます。",
+  },
+
+  /** S-7 設定の「衛星と資格情報」の節（SatellitesPanel.tsx。ST29 / design D12）。拒む種別は `satellites.ts` の `REFUSAL_KINDS` 全部 */
+  satellites: {
+    sectionTitle: "衛星と資格情報",
+    lead: "衛星（AI を含む、本体の外のアプリ）ごとに資格情報を発行します。いまは衛星の資格情報では、記録を読むことも書くこともできません。何を読ませ・書かせるかの承認は、この後の版で足します。",
+    loading: "衛星の一覧を読み込み中…",
+    loadFailed: "衛星の一覧を読み出せませんでした。",
+    builtin: "最初から",
+    noCredentials: "資格情報はまだありません",
+    credentialLine: (label: string): string => (label === "" ? "（名前なし）" : label),
+    credentialMeta: (issued: string, lastUsed: string | null): string =>
+      `発行 ${issued}・${lastUsed === null ? "まだ使われていない" : `最後に使われた ${lastUsed}`}`,
+    revoke: "取り消す",
+    issue: "資格情報を発行",
+    issueHeading: (satellite: string): string => `「${satellite}」の資格情報を発行する`,
+    issueLabel: "資格情報の名前（どこに設定するか。任意）",
+    issueGo: "発行する",
+    revealWarn: "この値は今だけ表示します。閉じると二度と表示できません（本体は値を持っていません）。",
+    revealOf: (satellite: string, label: string): string => `「${satellite}」の資格情報 — ${label === "" ? "（名前なし）" : label}`,
+    copy: "値をコピー",
+    copied: "コピーしました。",
+    copyFailed: "コピーできませんでした。値を選んでコピーしてください。",
+    closeReveal: "設定したので閉じる",
+    remove: "外す",
+    removeHeading: (satellite: string): string => `「${satellite}」を外しますか`,
+    removeStops: (n: string): string => `資格情報 ${n} 本が今すぐ使えなくなります`,
+    removeKeeps: "この衛星が書いた記録は消えずに残ります",
+    removeAgain: (identifier: string): string =>
+      `同じ識別子（${identifier}）で登録し直すと、この衛星の続きになります（承認は何も無い状態から）`,
+    removeGo: "外す",
+    register: "衛星を登録",
+    registerHeading: "衛星を登録する",
+    registerName: "名前（画面と資格情報に出る）",
+    registerIdentifier: "識別子（衛星の説明書にあるもの。後から変えられない）",
+    registerGo: "登録する",
+    goneTitle: "外した衛星",
+    goneLine: (name: string, identifier: string): string => `${name}（${identifier}）`,
+    goneNote: "書いた記録は残っています。",
+    actionFailed: "操作できませんでした。もう一度試してください。",
+    unreachable: "サーバに届きませんでした。もう一度試してください。",
+    refusal: {
+      malformed:
+        "識別子は、英小文字・数字・「-」の部分を「.」で 2 つ以上つないだ 64 文字までの形です（例: dev.example.booklog）",
+      reserved: "「ashiato.」で始まる識別子は本体が使います",
+      body_prefix: "「c03-」のような本体の名前の前置きで始まる識別子は使えません",
+      name_invalid: "名前は 1〜40 文字です（前後の空白は数えません）",
+      identifier_taken: "その識別子の衛星はもう登録してあります",
+      name_taken: "同じ名前の衛星がもうあります（取り違えないよう別の名前にしてください）",
+      builtin: "最初から登録されている衛星は外せません",
+      removed: "その衛星はもう外してあります",
+    } satisfies Record<RefusalKind, string>,
+    labelInvalid: "資格情報の名前は 40 文字までです",
   },
 
   /** S-1 稼働状況（App.tsx） */

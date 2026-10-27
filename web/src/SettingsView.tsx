@@ -13,6 +13,7 @@ import {
   type Summary,
 } from "./export";
 import { msg } from "./messages";
+import { SatellitesPanel } from "./SatellitesPanel";
 import { FOCUS_ATTR, useFocusRule, useScheme } from "./scheme";
 import { controlStyle, inputStyle, linkStyle, pageStyle, primaryStyle, sectionStyle, titleStyle } from "./surface";
 import { font, SCHEMES, SPACE, TYPE, tone } from "./tokens";
@@ -155,6 +156,8 @@ export function SettingsView(): React.ReactElement {
           {common.toCoverage}
         </a>
       </header>
+
+      <SatellitesPanel colors={c} />
 
       <section data-testid="export-section" aria-labelledby="export-title" style={sectionStyle(c, c.surface1)}>
         <h2 id="export-title" style={{ font: font(TYPE.body, 600), margin: "0 0 6px" }}>

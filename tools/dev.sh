@@ -18,9 +18,15 @@ cargo fetch -q
 echo "== DB を起動"
 docker compose up -d --wait db >/dev/null
 ./tools/db-roles.sh
-echo "== 移行（所有者の接続。当てる前に退避する。手元に pg_dump が無ければ db のコンテナの中の pg_dump）"
-command -v pg_dump >/dev/null 2>&1 || export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
-cargo run -q -p ashiato-server --bin ashiato-server -- migrate
+echo "== 移行（所有者の接続。当てる前に退避する。既定は db のコンテナの中の pg_dump —— 手元の古い版は db と合わず落ちる。tools/stack.sh）"
+export PG_DUMP="${PG_DUMP:-$PWD/tools/pg_dump-docker.sh}"
+# 終了コード 3 = DB の版がこの木と合わない。作り直さずに手順を示して止まる（design D14）
+migrate_rc=0; cargo run -q -p ashiato-server --bin ashiato-server -- migrate || migrate_rc=$?
+if [ "$migrate_rc" = 3 ]; then
+  echo "この DB の版の記録がこの木と合わない（上の error: kind= の行が種別。db_ahead なら知らない移行を db: の行に、ledger_unreadable なら記録を読めない理由を出している）。使い捨ての DB なら STACK_RESET=1 で作り直す（tools/stack.sh）。残す DB なら COMPOSE_PROJECT_NAME=<別の名前> で別の DB に立てる（この DB は消えない）" >&2
+  exit 3
+fi
+[ "$migrate_rc" = 0 ] || exit "$migrate_rc"
 
 echo "== サーバと画面を起動（Ctrl-C で両方止まる）"
 trap 'kill 0' EXIT
