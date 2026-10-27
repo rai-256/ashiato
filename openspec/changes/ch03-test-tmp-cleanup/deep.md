@@ -41,3 +41,16 @@
 
 - 問い: いまは失敗した試験の一時フォルダが残り、後から中身を覗けます。CH03 の後は消えます。残す口を持ちますか。（出所: review/deep.md R10）
 - 答え: 持たない。中身が要るときはもう一度走らせて再現する（本人の選択。推奨と同じ）
+
+## 問うた項目（第 2 回。finish から。2026-10-27）
+
+| Q | 段 | 論点 | 失われるもの |
+|---|---|---|---|
+| Q9 | A（premise） | 8.3 の検証コマンドの入口を証跡の機械が拾えない（`review/code.md` R17） | なし（gate が 8.3 で止まる。直し方が harness2 か凍結した tasks.md か例外か） |
+
+### Q9. 8.3 の検証コマンドの入口を、証跡の機械が拾えない（A / premise。推奨: harness2 の evidence.py に `openspec/` を足す）
+
+- **なぜ人間の判断か**: plan_fix.py は旧コマンドの FAIL の証跡を要るが、旧コマンドが evidence.py:67 の CMD_LIKE に当たらず verify-run が走らないので、FAIL の証跡を作れない。機械の承認の道が成立しない
+- **出所**: `review/code.md` R17（final の scoped re-review が R12 の残りを分けたもの。kind: premise）
+- **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH03-deep-r2.html`）
+- 答え: (未回答)

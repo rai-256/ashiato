@@ -1,0 +1,45 @@
+{
+  "title": "CH03 の深掘り（第 2 回）",
+  "subtitle": "試験の一時フォルダの後始末",
+  "note": "finish で処置できなかった 1 問です（review/code.md R17）。8.3 の台本は手で走らせて通っていますが、機械の証跡が取れません。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q9",
+      "topic": "8.3 の検証コマンドの入口を、証跡の機械が拾えない",
+      "kind": "premise",
+      "question": "tasks 8.3 の検証コマンド `openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh` は、証跡の機械（harness2 の evidence.py）がコマンドとして拾わない書き出しです。そのため verify-run が走らせられず、8.3 には HEAD での PASS の証跡がありません。どう扱いますか。",
+      "why": "凍結後の検証コマンドの直しは、旧コマンドの FAIL の証跡が要ります（plan_fix.py）。旧コマンドが拾われないので FAIL の証跡も作れず、機械の承認でも人間の承認でも直せません。gate がこの項目で止まるので本人に戻します。",
+      "context": "evidence.py:67 の CMD_LIKE は `./` `tools/` `scripts/` `cargo ` などで始まるものだけを拾い、`openspec/` が無い。2026-10-25 の機械の訂正（plan-corrections.md）で入口を今の形にしたとき、証跡は `./` 付きの形で取れていた可能性がある。\n台本は HEAD（49f4da1f 以降）で手で rc=0（rust 1805→1806・kotlin 626→628、分岐点の試験の名前が全部 HEAD でも試験）。R20 の直しで、`#[test]` を 1 行外すと名前を挙げて rc=1 になることも確かめた。",
+      "multi": false,
+      "allow_free": true,
+      "family": {
+        "name": "検証コマンドの書き出しを evidence.py が拾わない",
+        "siblings": [
+          {"case": "CH03 8.3（openspec/ で始まる台本）", "decided": "未決 Q9"},
+          {"case": "CH03 の他の 24 項目", "decided": "どれも ./ tools/ scripts/ bash などで始まり拾われる（evidence.py unverified の Task 1〜8 で 8.3 だけ）"},
+          {"case": "他の change が openspec/<change>/ の台本を検証に使う場合", "decided": "harness2 の evidence.py を直せば同時に閉じる（Q9 の推奨の側）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "spec",
+        "why": "2026-10-25 の plan_fix が新しい入口を `./` 抜きで書き、plan_fix は新しい入口の実在だけを見て、evidence.py が拾えるかを見なかった",
+        "prevention": "plan_fix.py が新しい入口を書く前に、evidence.py の declared で拾えることを確かめる（拾えなければ rc≠0）"
+      },
+      "options": [
+        {
+          "label": "harness2 の evidence.py の CMD_LIKE に `openspec/` を足す（harness2 の PR）。足した後に verify-run 8.3 で証跡を取り直す。tasks.md は変えない",
+          "detail": "同じ型の他の change も閉じる。plan_fix にも拾えるかの確かめを足す。CH03 の merge は harness2 の merge を待つ",
+          "recommended": true
+        },
+        {
+          "label": "tasks.md の 8.3 の入口を `./openspec/…` に人間の承認で直す（plan_fix の FAIL の証跡の条件を、この 1 回だけ外して手で書き換える）",
+          "detail": "CH03 は harness2 を待たない。凍結した tasks.md を機械の手順の外で直す前例になる"
+        },
+        {
+          "label": "8.3 は手で走らせた記録（review/code.md R12・R20）で受け入れる。証跡は無いまま merge する",
+          "detail": "最速。gate の「全項目に HEAD の証跡」の例外を本人が認めることになる"
+        }
+      ]
+    }
+  ]
+}

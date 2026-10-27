@@ -13,7 +13,7 @@ count() { git grep -hcE "$1" "$2" -- "$3" | paste -sd+ | bc; }
 b=$(count "#\[(tokio::)?test" "$m" crates); h=$(count "#\[(tokio::)?test" HEAD crates)
 kb=$(count "@Test" "$m" collector-android/app/src/test); kh=$(count "@Test" HEAD collector-android/app/src/test)
 echo "rust ${b} -> ${h} / kotlin ${kb} -> ${kh}（分岐点 ${m:0:8} → HEAD）"
-[ "$h" -ge "$b" ] && [ "$kh" -ge "$kb" ]
+[ "$h" -ge "$b" ] && [ "$kh" -ge "$kb" ] || { echo "試験の注釈の数が分岐点より減った"; exit 1; }
 # 本数の総数だけだと、CH03 が足した分（rust 1・kotlin 2）までは既存の試験の注釈を外しても通る（R20）。
 # 注釈の直後の関数の名前の集合で、分岐点の試験が全部 HEAD でも試験であることを見る
 tests() { # rev 注釈の正規表現 置き場 関数の正規表現
