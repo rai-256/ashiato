@@ -307,6 +307,12 @@ self_test() {
   check "打った命令は ps・inspect・network ls/inspect/rm・rm -f <id> だけ" $bad
 
   real_docker_case "$tmp" || fail=1
+
+  echo "Scenario: CI の rust job は、片付けの self-test を走らせる"
+  grep -q 'tools/docker-tidy.sh --self-test' .github/workflows/ci.yml
+  check "ci.yml に --self-test の行がある" $?
+  grep -q 'tools/docker-tidy.sh --verify-env-check' .github/workflows/ci.yml
+  check "ci.yml に --verify-env-check の行がある" $?
   rm -rf "$tmp"
   return $fail
 }

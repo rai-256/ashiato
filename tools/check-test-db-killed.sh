@@ -271,6 +271,10 @@ self_test() {
   want "一覧が読めなければ rc=1" "$([[ $rc == 1 ]]; echo $?)"
   want "一覧が読めないことを挙げる" "$(grep -q '一覧が読めない' <<<"$out"; echo $?)"
 
+  echo "Scenario: CI の rust job は、殺した後の検査を走らせる"
+  want "ci.yml に --self-test の行がある" "$(grep -q 'tools/check-test-db-killed.sh --self-test' .github/workflows/ci.yml; echo $?)"
+  want "ci.yml に本体の行がある" "$(grep -qE 'tools/check-test-db-killed.sh *$' .github/workflows/ci.yml; echo $?)"
+
   [[ $fail == 0 ]] && echo "self-test OK" || { echo "self-test FAILED" >&2; exit 1; }
 }
 
