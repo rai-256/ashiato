@@ -538,7 +538,13 @@ async fn restore_includes_late_arrivals() {
         serde_json::json!({"restored":{"stays":1,"locations":1}})
     );
     assert_eq!(mark(&app.pool, late).await, (None, None));
-    let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(events) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(events.iter().any(|event| event.id == late));
 }
 
@@ -1253,7 +1259,13 @@ async fn late_arrival_is_marked() {
             .unwrap();
     assert_eq!(ledger_count, 1, "同じ後着位置の台帳を二度書いた");
 
-    let axum::Json(hidden) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(hidden) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(
         hidden.iter().all(|record| record.id != late),
         "消した時間の後着位置が読み出しに出ている"
@@ -1272,7 +1284,13 @@ async fn late_arrival_is_marked() {
     .await
     .unwrap();
 
-    let axum::Json(restored) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(restored) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(
         restored.iter().any(|record| record.id == late),
         "戻した後着位置が実際の読み出し経路に出ていない"
@@ -1490,6 +1508,36 @@ async fn mark_late_for_user_marks_visit_starting_before_erased_stay() {
         "2026-09-12T10:20:00+09:00",
     )
     .await;
+
+    stay_store::mark_late_for_user(&app.pool, user)
+        .await
+        .unwrap();
+
+    assert_eq!(mark(&app.pool, visit).await.1.as_deref(), Some("user:late"));
+}
+
+// 印なし（ST41 / review/code.md R18）: 区間の書庫の記録が終わりを列にだけ持つときも、消した滞在と重なれば印が付く
+// （書き出しと同じく列を先に読む。列を読まないと 09:30 の点になり、10:00〜11:00 の滞在と重ならない）
+#[tokio::test]
+async fn st41_mark_late_reads_end_column_of_visit() {
+    let (app, user) = erased_app_with_stay("2026-09-12", "10:00:00", "11:00:00").await;
+    let visit = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time,
+            tz_offset_min, tz_id, end_time, end_tz_offset_min, end_tz_id,
+            schema_version, content_hash, raw, payload)
+         VALUES ($1,$2,'c03-timeline-visit','test','collected',$3,540,'Asia/Tokyo',$4,540,'Asia/Tokyo',
+                 1,$5,'{}','{}'::jsonb)",
+    )
+    .bind(visit)
+    .bind(user)
+    .bind(t("2026-09-12T09:30:00+09:00"))
+    .bind(t("2026-09-12T10:20:00+09:00"))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .execute(&app.pool)
+    .await
+    .unwrap();
 
     stay_store::mark_late_for_user(&app.pool, user)
         .await

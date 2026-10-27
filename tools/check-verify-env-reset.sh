@@ -2,15 +2,18 @@
 # 検証のたびにテスト用 DB を作り直す仕組み（ch06）の検査。
 #
 #   ./tools/check-verify-env-reset.sh --self-test  一時の repo と worktree で tools/env-init.sh の規則を確かめる（docker の daemon に触らない）。
-#                                                  CI の rust job と手元で同じ結果になる
+#                                                  CI の rust job と手元で同じ結果になる（例外は下）
 #   ./tools/check-verify-env-reset.sh              この木の DB を作り直して確かめる本体（worktree か CI=true の木だけ。ほかは rc=2）
+#
+# ch07 の段（9.〜11.）は、作り直したときだけ HARNESS_RESET: testdb を標準出力に出す宣言（tools/verify-env.sh）を確かめる。
+# --self-test の「CI と手元で同じ結果」の例外: ハーネスの点検（init.py --check）の段は .harness2 のある木（worktree）だけで走り、CI は SKIP。
 #
 # 一時の木の道具は、環境変数が結果に回り込まないよう 9 つの変数を落として呼ぶ（design D8）。本体の各段は HARNESS_VERIFY を明示して呼ぶ。
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 # ---- 本体 -------------------------------------------------------------------------------------
-# この木の DB を作り直して確かめる（design D8 の 1.〜8.）。各段で HARNESS_VERIFY を明示する（呼び出し側の印に依らない）。
+# この木の DB を作り直して確かめる（1.〜11.。1.〜8. は design D8、9.〜11. は ch07）。各段で HARNESS_VERIFY を明示する（呼び出し側の印に依らない）。
 # 終わった DB は空で、役割が整っている
 body() {
   local dirs gitdir common is_wt=0
@@ -75,6 +78,10 @@ body() {
   marked() { call env HARNESS_VERIFY=1 tools/verify-env.sh; }
   unmarked() { call env -u HARNESS_VERIFY tools/verify-env.sh; }
   both() { cat "$tmp/out" "$tmp/err"; }
+  decl() {  # decl <説明> <宣言の行数> —— 直前の call の標準出力の `HARNESS_RESET: testdb` だけの行と、out・err の `^HARNESS_RESET:` の行（ch07 design D3）
+    want "$1: 標準出力の宣言は $2 行" "$(grep -cx 'HARNESS_RESET: testdb' "$tmp/out" || true)" "$2"
+    want "$1: out・err の HARNESS_RESET: の行は $2 行" "$(both | grep -c '^HARNESS_RESET:' || true)" "$2"
+  }
   owner_pw=$( (set -a; [[ -f .env ]] && . ./.env; printf %s "${OWNER_DB_PASSWORD:-}") )
   app_pw=$( (set -a; [[ -f .env ]] && . ./.env; printf %s "${APP_DB_PASSWORD:-}") )
   # コンテナの中の 127.0.0.1 は pg_hba で trust に当たり合言葉を見ないので、コンテナ自身の非 loopback のアドレスで繋ぐ
@@ -85,6 +92,7 @@ body() {
 
   stage="1. 空にする"
   marked; want "rc=0" "$rc" 0
+  decl "空にする準備" 1
   image=$(docker inspect "$(db_cid)" --format '{{.Config.Image}}')
   c=0; [[ -n $own_net ]] || c=1; ok "DB の network の名前が compose config から出る" $c
 
@@ -96,15 +104,19 @@ body() {
 
   stage="3. 印なし"
   echo "Scenario: 印が無ければ作り直さず、溜まった行は残る"
+  echo "Scenario: 印が無ければ、宣言を出さない"
   unmarked
   want "rc=0" "$rc" 0
   want "行は 3 件のまま" "$(rows)" 3
+  decl "印なし" 0
   if [[ $is_wt == 0 ]]; then
     echo "Scenario: CI でない main の checkout では、印つきで呼んでも行が残る"
     call env -u CI HARNESS_VERIFY=1 tools/verify-env.sh
     want "rc=0" "$rc" 0
     want "行は 3 件のまま" "$(rows)" 3
     c=0; grep -q '^keep:' "$tmp/err" || c=1; ok "標準エラーに keep: の行がある" $c
+    echo "Scenario: CI でない main の checkout では、印つきでも宣言を出さない"
+    decl "CI でない main の checkout の印つき" 0
   else
     echo "SKIP 3.（CI でない main の checkout）: この木は worktree で、印があれば必ず作り直すので確かめられない（CI が通す）"
   fi
@@ -118,6 +130,8 @@ body() {
   c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
   has "volume の名前が出る" "$(both)" "$vol4"
   has "sentinel のコンテナの名前が出る" "$(both)" "$sp-vol"
+  echo "Scenario: 作り直せずに非 0 で終わるときは、宣言を出さない"
+  decl "別のコンテナが volume を使っている" 0
   want "DB のコンテナは同じ id" "$(db_cid)" "$cid4"
   want "行は 3 件のまま" "$(rows)" 3
   docker rm -f -v "$sp-vol" >/dev/null
@@ -157,6 +171,9 @@ YML
   echo "Scenario: 繋いでいるものがあれば、切った数と出所を 1 行出す"
   marked
   want "rc=0" "$rc" 0
+  echo "Scenario: 溜まった DB を作り直したら、宣言を 1 行出す"
+  decl "溜まった DB" 1
+  want "標準エラーに HARNESS_RESET: の行は 0 行" "$(grep -c '^HARNESS_RESET:' "$tmp/err" || true)" 0
   want "切った数と出所の 1 行（×2・10 種で切る・…）" "$(both | grep '切った接続: ' || true)" \
     "verify-env: DB を作り直す（切った接続: 12。ch06-holder@local ×2$(printf ', ch06-holder-%02d@local' $(seq 1 9)), …）"
   hrc=0
@@ -188,6 +205,8 @@ YML
   marked
   want "rc=0" "$rc" 0
   cut0 "切った接続: 0 の行がある"
+  echo "Scenario: 2 回続けて作り直しても、どちらも宣言を 1 行出す"
+  decl "もう一度" 1
   echo "Scenario: 作り直しの後、前の DB の volume は残らない"
   for v in $vols5 $vols5_now; do
     if vol_exists "$v"; then ng "前の volume $v が残っている"; else good "前の volume $v は無い"; fi
@@ -202,7 +221,58 @@ YML
   marked
   want "rc=0" "$rc" 0
   cut0 "切った接続: 0 の行がある"
+  echo "Scenario: DB のコンテナが無くても、立てたら宣言を 1 行出す"
+  decl "DB のコンテナが無い" 1
   want "DB のコンテナが立っている" "$(docker compose ps --status running -q db | grep -c .)" 1
+
+  stage="9. 止まっていた DB"
+  docker compose stop db >/dev/null
+  echo "Scenario: DB のコンテナが止まっていても、作り直したら宣言を 1 行出す"
+  marked
+  want "rc=0" "$rc" 0
+  has "止まっていたと出る" "$(both)" "切った接続: 0（DB は止まっていた）"
+  decl "止まっていた DB" 1
+
+  stage="10. volume を持たない DB"
+  # DB の volume を tmpfs に替える compose のファイルを $tmp に置く（trap で消える）。COMPOSE_FILE は今の木の値に並べる（design D3）
+  cat >"$tmp/tmpfs-compose.yml" <<'YML'
+services:
+  db:
+    tmpfs:
+      - /var/lib/postgresql/data
+YML
+  base_cf=$( (set -a; [[ -f .env ]] && . ./.env; printf %s "${COMPOSE_FILE:-docker-compose.yml}") )
+  cf10="$base_cf:$tmp/tmpfs-compose.yml"
+  vols10=$(db_vols)
+  docker compose rm -s -f db >/dev/null
+  for v in $vols10; do docker volume rm "$v" >/dev/null; done
+  COMPOSE_FILE="$cf10" docker compose up -d --wait db >/dev/null
+  want "DB のコンテナの volume は 0 個" "$(db_vols | grep -c . || true)" 0
+  echo "Scenario: volume を持たない DB のコンテナでは、作り直しても宣言を出さない"
+  call env HARNESS_VERIFY=1 COMPOSE_FILE="$cf10" tools/verify-env.sh
+  want "rc=0" "$rc" 0
+  has "切った接続の行がある" "$(both)" "切った接続: "
+  decl "volume を持たない DB" 0
+  want "DB のコンテナの volume は 0 個のまま" "$(db_vols | grep -c . || true)" 0
+  # 戻す: コンテナが無ければ印つきの準備が volume を持つ形で立てる
+  COMPOSE_FILE="$cf10" docker compose rm -s -f db >/dev/null
+  marked
+  want "戻す準備は rc=0" "$rc" 0
+  decl "volume を持つ形に戻す" 1
+  want "DB の volume はちょうど 1 つ" "$(db_vols | grep -c .)" 1
+
+  stage="11. 途中で落ちる"
+  vols11=$(db_vols)
+  echo "Scenario: 作り直しの途中で落ちたら、宣言を出さない"
+  call env HARNESS_VERIFY=1 ENV_FILE="$tmp/no-such-env" tools/verify-env.sh
+  c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
+  decl "役割の段で落ちる" 0
+  for v in $vols11; do
+    if vol_exists "$v"; then ng "控えた volume $v が残っている"; else good "控えた volume $v は無い"; fi
+  done
+  marked   # 戻す
+  want "戻す準備は rc=0" "$rc" 0
+  decl "落ちた後の立て直し" 1
 
   if [[ -f docker-compose.subnet.yml ]]; then
     stage="8. 塞いでいる network"
@@ -219,6 +289,7 @@ YML
     echo "Scenario: 同じ subnet を持つ、コンテナの繋がっていない network は消して立てる"
     marked
     want "rc=0" "$rc" 0
+    decl "空の network を消して立てる" 1
     if docker network inspect "$sp-net" >/dev/null 2>&1; then ng "sentinel の network が残っている"; else good "sentinel の network は無い"; fi
     want "DB の network がその subnet で立っている"       "$(docker network inspect "$own_net" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null || true)" "$subnet"
 
@@ -230,6 +301,7 @@ YML
     echo "Scenario: 同じ subnet の network にコンテナが繋がっていれば、何も消さずに非 0 で終わる"
     marked
     c=0; [[ $rc != 0 ]] || c=1; ok "rc≠0（rc=$rc）" $c
+    decl "network を塞がれた準備" 0
     has "network の名前が出る" "$(both)" "$sp-net"
     has "コンテナの名前が出る" "$(both)" "$sp-ctr"
     has "消えた worktree のものと、外し方が出る" "$(both)" "消えた worktree（$tmp/gone）のもの。要らなければ docker rm -f"
@@ -243,11 +315,13 @@ YML
     netw=$(net_id "$sp-wide")
     marked
     c=0; [[ $rc != 0 ]] || c=1; ok "重なる範囲の network があれば rc≠0（rc=$rc）" $c
+    decl "重なる network で止まる準備" 0
     has "重なる network の名前が出る" "$(both)" "$sp-wide"
     want "重なる network は同じ id" "$(net_id "$sp-wide")" "$netw"
     docker network rm "$sp-wide" >/dev/null
     marked   # DB を立て直す
     want "sentinel を消した後の準備は rc=0" "$rc" 0
+    decl "最後の立て直し" 1
   else
     echo "SKIP 8.（塞いでいる network）: subnet のファイル（docker-compose.subnet.yml）が無い木（CI）では確かめない"
   fi
@@ -387,6 +461,41 @@ echo "Scenario: 印が無ければ、どの木でも作り直さない判定に�
 w=demo; want "worktree でない木（印なし）" "$(plan | cut -d: -f1)" "keep"
 want "worktree でない木（CI=true・印なし）" "$(plan CI=true | cut -d: -f1)" "keep"
 for w in demo-st05 demo-verify demo-ch01; do want "$w の worktree（印なし）" "$(plan | cut -d: -f1)" "keep"; done
+
+echo "Scenario: 判定だけを出すときは、宣言を出さない"
+for w in demo demo-st05 demo-verify demo-ch01; do
+  for ci in "" CI=true; do
+    for mark in "" HARNESS_VERIFY=1; do
+      got=$(plan ${ci:+"$ci"} ${mark:+"$mark"})
+      c=0; [[ $got != *$'\n'* && ( $got == reset || $got == keep:* ) && $got != *HARNESS_RESET:* ]] || c=1
+      ok "$w（${ci:-CI なし}・$([[ -n $mark ]] && echo 印あり || echo 印なし)）の --plan は 1 行で、宣言を含まない" "$c"
+    done
+  done
+done
+
+echo "Scenario: git の木でなければ、印つきでも作り直さない判定になる"
+mkdir -p "$tmp/nogit/tools"; cp tools/verify-env.sh tools/ports.sh "$tmp/nogit/tools/"
+got=$(clean GIT_CEILING_DIRECTORIES="$tmp" HARNESS_VERIFY=1 "$tmp/nogit/tools/verify-env.sh" --plan)
+c=0; [[ $got != *$'\n'* && $got == keep:* && $got != *HARNESS_RESET:* ]] || c=1
+ok "git の木でない場所の --plan は keep: の 1 行で、宣言を含まない" "$c"
+
+# 宣言の字: 注記でない行に echo "HARNESS_RESET: testdb" がちょうど 1 つ、出力を捨てる形でない（ハーネスの init.py が字面で読む）
+decl=$(grep -vE '^\s*#' tools/verify-env.sh | grep -F 'echo "HARNESS_RESET: testdb"' || true)
+want "echo \"HARNESS_RESET: testdb\" の行がちょうど 1 つ" "$(grep -c . <<<"$decl")" "1"
+# echo の後ろは空（リダイレクト・パイプを付けない）、前に $( や ` を置かない
+c=0; [[ ${decl#*'echo "HARNESS_RESET: testdb"'} =~ ^[[:space:]]*$ && $decl != *'$('* && $decl != *'`'* ]] || c=1
+ok "宣言の行の echo の後ろが空で、\$( や \` の中でない（標準出力のまま）" "$c"
+# 注記に宣言の字が無い（init.py の部分一致が echo の行だけで決まる。review/code.md R4・R7）
+want "注記の行に HARNESS_RESET: が無い" "$(grep -E '^\s*#' tools/verify-env.sh | grep -c 'HARNESS_RESET:' || true)" "0"
+
+echo "Scenario: ハーネスの点検が、作り直して宣言する準備と認める"
+if [[ -f .harness2/scripts/init.py ]] && grep -q check_verify_env .harness2/scripts/init.py; then
+  chk=$(python3 .harness2/scripts/init.py --check 2>&1 || true)
+  want "[人間] tools/verify-env.sh の行が無い" "$(grep -cF '[人間] tools/verify-env.sh' <<<"$chk" || true)" "0"
+  want "[ok] tools/verify-env.sh の行がちょうど 1 つ" "$(grep -cF '[ok] tools/verify-env.sh' <<<"$chk" || true)" "1"
+else
+  echo "SKIP ハーネスの点検（.harness2 が無い木。worktree の verify-run が通す）"
+fi
 
 # 作り直しは自分の DB のコンテナと volume だけ（design D1）。compose に volume や network ごと消させる旗を書かない。
 # 旗の並び（`rm -s -f -v`）と長い名前（`--volumes`）も見る（review/code.md R18。tasks 4.2 の grep は `rm -sfv` の形しか見ない）

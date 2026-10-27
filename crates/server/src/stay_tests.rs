@@ -160,9 +160,13 @@ async fn deletion_ledger_is_append_only() {
     assert_eq!(left, 1, "拒否された操作の後に台帳の行が残っていない");
 
     let app = crate::App::for_test(pool.clone(), TOKEN);
-    let axum::Json(records) = crate::events(axum::extract::State(app), auth())
-        .await
-        .unwrap();
+    let axum::Json(records) = crate::events(
+        axum::extract::State(app),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     assert!(
         records.iter().all(|record| record.id != event),
         "台帳の行が記録の一覧に出ている"

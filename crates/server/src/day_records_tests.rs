@@ -1038,11 +1038,23 @@ async fn st25_api_unchanged_events_and_stays_shapes() {
     crate::stay_store::rebuild_all(&app.pool, u).await.unwrap();
 
     // `/events` は 6 つの鍵のまま（`payload` を返さない）、時刻順
-    let axum::Json(events) = crate::events(State(app.clone()), auth()).await.unwrap();
+    let axum::Json(events) = crate::events(
+        State(app.clone()),
+        auth(),
+        axum::extract::Query(crate::EventsQuery::default()),
+    )
+    .await
+    .unwrap();
     let events = serde_json::to_value(events).unwrap();
     let rows = events.as_array().unwrap();
     assert!(!rows.is_empty());
-    for r in rows {
+    // 共有の DB には ST41 の試験が置いた終わりつきの行も残る。この試験が置いたソースの行で見る
+    let mine: Vec<_> = rows
+        .iter()
+        .filter(|r| ["c02-window", "c01-location"].contains(&r["logical_source"].as_str().unwrap()))
+        .collect();
+    assert!(!mine.is_empty());
+    for r in mine {
         assert_eq!(
             keys(r),
             [
