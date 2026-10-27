@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::set_header::SetResponseHeaderLayer;
 
+/// この S-01 の組み立ての印 `<版番号>+<commit>[.dirty][.debug]`（ST49 / design D5）。
+pub const BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP");
+
 /// 読み出しの記録（ST28 / design D8）。
 pub mod access_log;
 #[cfg(test)]

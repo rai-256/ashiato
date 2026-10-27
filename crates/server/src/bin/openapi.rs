@@ -5,6 +5,8 @@
 use utoipa::OpenApi as _;
 
 fn main() -> anyhow::Result<()> {
+    // 組み立ての印を bin に残す（`tools/check-build-stamp.sh server` が `strings` で読む）。使われない定数は消える
+    std::hint::black_box(ashiato_server::BUILD_STAMP);
     println!("{}", ashiato_server::ApiDoc::openapi().to_pretty_json()?);
     Ok(())
 }

@@ -95,6 +95,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ashiato-build-stamp"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "ashiato-collector-windows"
 version = "0.1.0"
 dependencies = [
@@ -123,6 +130,7 @@ name = "ashiato-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashiato-build-stamp",
  "axum",
  "base64 0.22.1",
  "chrono",

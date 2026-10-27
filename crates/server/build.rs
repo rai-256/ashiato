@@ -11,6 +11,15 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::{env, fs};
 
+/// S-01 のソースの道（design D5）。`.dirty` の判定と、cargo への作り直しの印の両方に使う。
+const STAMP_SOURCES: &[&str] = &[
+    "crates/server",
+    "crates/build-stamp",
+    "migrations",
+    "Cargo.toml",
+    "Cargo.lock",
+];
+
 fn main() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
     let dir = dir
@@ -20,8 +29,20 @@ fn main() {
     println!("cargo:rerun-if-changed={}", order.display());
     println!("cargo:rerun-if-changed={}", dir.display());
 
-    println!("cargo:rerun-if-env-changed=ASHIATO_BUILD_COMMIT");
-    println!("cargo:rustc-env=ASHIATO_BUILD_COMMIT={}", build_commit());
+    // 組み立ての印（ST49 / design D5・D6）。ST48 の台帳が読む `ASHIATO_BUILD_COMMIT` も同じ commit で出し続ける
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let stamp = ashiato_build_stamp::stamp(
+        env!("CARGO_PKG_VERSION"),
+        &env::var("PROFILE").unwrap_or_default(),
+        &repo,
+        STAMP_SOURCES,
+    );
+    ashiato_build_stamp::emit_rerun(&repo, STAMP_SOURCES);
+    println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
+    println!(
+        "cargo:rustc-env=ASHIATO_BUILD_COMMIT={}",
+        commit_of(&stamp)
+    );
 
     let text = fs::read_to_string(&order)
         .unwrap_or_else(|e| panic!("{} を読めない: {e}", order.display()));
@@ -72,23 +93,8 @@ fn main() {
         .unwrap_or_else(|e| panic!("{} を書けない: {e}", out.display()));
 }
 
-/// 組み立ての commit（ST48 / design D8）。`ASHIATO_BUILD_COMMIT` → `git rev-parse HEAD` → `unknown`。
-fn build_commit() -> String {
-    if let Some(c) = env::var("ASHIATO_BUILD_COMMIT")
-        .ok()
-        .map(|c| c.trim().to_string())
-        .filter(|c| !c.is_empty())
-    {
-        return c;
-    }
-    std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|c| c.trim().to_string())
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+/// 印 `<版番号>+<commit>[.dirty][.debug]` の commit（40 桁か `unknown`、環境変数で渡された値）。
+fn commit_of(stamp: &str) -> &str {
+    let (_, rest) = stamp.split_once('+').expect("印は + を持つ");
+    rest.trim_end_matches(".debug").trim_end_matches(".dirty")
 }

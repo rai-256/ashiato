@@ -31,6 +31,9 @@ zeroize = "1"
 futures-util = { version = "0.3", default-features = false }
 http-body-util = "0.1"
 
+[build-dependencies]
+ashiato-build-stamp = { path = "../build-stamp" }
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 strum = { version = "0.28", features = ["derive"] }
