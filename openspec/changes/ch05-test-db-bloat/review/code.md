@@ -309,3 +309,9 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: rejected: 1 本で増えるのは共有の回の pool（testdb.rs の `pool()`）での `SELECT 1` 1 回だけ。`ch04_` の絞り込み（ci.yml の `check-test-db-growth.sh -p ashiato-server ch04_`）は名前の頭が違うので当たらない。`#[ignore]` にすると tasks 4.1 の検証（`… ch05_next_run` で `1 passed`）と tools/check-test-db-killed.sh:84 の `1 passed` の確かめが成り立たなくなり、凍結した plan の直しになる。design D3 が既定の回で走る 1 本として決めている
+
+## scoped re-review（finish の fix round。8626aba..7e95030）
+
+fix（`4bc276fb` 取り込み・`7e95030f` 修正。報告 `.superpowers/sdd/ch05-finish-fix-report.md`）を `re-review-prompt.md` で見た:
+**fixed の R17・R18・R19・R20・R21・R22・R24・R25・R29 は ADDRESSED。rejected の R23・R26・R27・R28・R30 は反証が成り立つ。新しい不具合はない。**
+確かめたこと: `dq` は `tidy` の局所の `docker` 配列を読み、呼ぶのは `tidy` の中だけ。偽の docker の `inspect` は最後の引数を id として取る。`probe_active` の rc=2 は `wait_mark` の `case` が拾う。`timed_next` の落ちは `|| rc=$?` で受ける。
