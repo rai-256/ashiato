@@ -163,4 +163,4 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - 片付けの時間: 0.16 秒（2026-10-27。片付けるものが無い 2 回目の `tools/docker-tidy.sh`。1 秒以内で D5 の反転条件に当たらない）
 - 次の回の秒数: 殺す前のきれいな回 0.8 秒、`insert` の後 1.2 秒、`committed` の後 1.3 秒（2026-10-27。10 倍の目安に遠く、D2 の反転条件に当たらない）
 - 片付けを外した回: rc=1。`insert` の時点で `ashiato_run_b6d93ce233e7`・`…_tpl`・`…_x_95503bb9d443` の 3 個が次の回の後に残ると挙がった（2026-10-27。`sweep_previous_runs` の 2 行を外した。外した後は git checkout で戻した）
-- CI の行の時間:（tasks 7.3。`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check` の 4 行を手元で走らせた秒数）
+- CI の行の時間: `tools/check-test-db-killed.sh --self-test` 3.8 秒・`tools/docker-tidy.sh --self-test` 2.0 秒・`tools/docker-tidy.sh --verify-env-check` 16.3 秒・`tools/check-test-db-killed.sh` 52.9 秒、計 75 秒前後（2026-10-27。手元で `time` の代わりに順に測った。全部 rc=0）
