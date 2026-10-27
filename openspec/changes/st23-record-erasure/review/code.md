@@ -187,6 +187,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
 - 提案: merge の前に、Q7・Q8 を spec（Requirement と Scenario）・design（D2・D12・D17 の書き直し）・tasks に写す段を走らせ、実装と試験を足す（Q8 は `rebuild_day` が隠した重なる滞在を `kind='late'` で同じまとまりで消す、Q7 は P の行の下に B の行を出す）。
   merge を先にするなら、未実装のまま出すことを人間が決める（Q7・Q8 は本人の決定なので AI が範囲外にしない）
 - 処置: escalated - deep.md 第 3 回 Q9（Q7・Q8 が作られていないまま merge するか。`deep-questions-r3.json`・`docs/briefs/ST23-deep-r3.html`）。finish は凍結した spec・tasks を書けず、本人の決定を範囲外にもしない
+  答え（2026-10-28、`deep-answers-6.txt`）: ST23 はこのまま merge し、Q7・Q8 と merge 後に隠れた L の手当ては CH08（`docs/changes/CH08.md`、requires ST23）が仕様から作る。ST23 の spec・design・tasks・コードは変えない
 
 ## R16. 夜の書き直しは、本文を消していない表も書き直し、試験はその逆を固定している（Q6「その日に本文を消した表だけ」）
 - 成果物: crates/server/src/purge_compaction.rs:143-161（`has_unrewritten_erasure`）/ crates/server/src/purge_compaction_tests.rs:54-59・98-123
