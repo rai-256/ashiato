@@ -730,3 +730,186 @@ mod ingest_door {
         assert_eq!(versions(&app, &one[0]["id"]).await[0], s(&first));
     }
 }
+
+// ------------------------------------------------------------------ 外部サービス由来の更新（Task 4）
+
+mod external_update {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    const TOKEN: &str = "test-token-0123456789abcdef";
+    const COMMIT_A: &str = "0123456789abcdef0123456789abcdef01234567";
+    const COMMIT_B: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+    async fn app() -> crate::App {
+        crate::App::for_test(testdb::pool().await, TOKEN)
+    }
+
+    /// 外部の識別子を持つ記録（粒度 `record` のソース宛て）。
+    fn record(source: &str, user: Uuid, ext: &str, raw: &str, updated: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": source,
+            "external_id": ext,
+            "device_id": "test-dev",
+            "origin": "collected",
+            "event_time": START,
+            "tz_offset_min": 540,
+            "tz_id": "Asia/Tokyo",
+            "schema_version": 1,
+            "raw": raw,
+            "payload": {},
+            "source_updated_at": updated,
+            "client_version": format!("0.1.0+{COMMIT_B}"),
+        })
+    }
+
+    async fn send(app: &crate::App, body: &serde_json::Value) -> serde_json::Value {
+        let res = crate::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/ingest")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("authorization", format!("Bearer {TOKEN}"))
+                    .body(Body::from(serde_json::json!([body]).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()[0].clone()
+    }
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_owned())
+    }
+
+    /// 「印 A の S-01 が入れた記録」を直に置く（INSERT は門に掛からない）。
+    async fn seed_old(pool: &PgPool, source: &str, user: Uuid, ext: &str, updated: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        let old = format!("0.1.0+{COMMIT_A}");
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, external_id, external_ref, device_id, origin,
+                event_time, tz_offset_min, tz_id, schema_version, content_hash, raw, payload,
+                source_updated_at, collector_version, server_version)
+             VALUES ($1,$2,$3,$4,$4,'test-dev','collected',$5::timestamptz,540,'Asia/Tokyo',1,
+                     $6,'{\"v\":1}','{}',$7::timestamptz,$8,$8)",
+        )
+        .bind(id)
+        .bind(user)
+        .bind(source)
+        .bind(ext)
+        .bind(START)
+        .bind(id.to_string())
+        .bind(updated)
+        .bind(&old)
+        .execute(pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    fn old_versions() -> [Option<String>; 3] {
+        let old = format!("0.1.0+{COMMIT_A}");
+        [s(&old), None, s(&old)]
+    }
+
+    #[tokio::test]
+    // Scenario: 外部サービス由来の更新で、版が新しい到着の版に替わり、前の版が履歴に残る
+    async fn st49_update_versions_move_and_history_keeps_old() {
+        let app = app().await;
+        let user = testdb::user();
+        let source = testdb::source_of_kind(&app.pool, "st49upd", "record").await;
+        let id = seed_old(&app.pool, &source, user, "ext-1", "2026-09-08T03:00:00Z").await;
+        let res = send(
+            &app,
+            &record(&source, user, "ext-1", r#"{"v":2}"#, "2026-09-08T04:00:00Z"),
+        )
+        .await;
+        assert_eq!(res["accepted"], true, "{res}");
+        assert_eq!(
+            versions_of(&app.pool, "core.event", "id", id).await,
+            [s(&format!("0.1.0+{COMMIT_B}")), None, s(crate::BUILD_STAMP)]
+        );
+        assert_eq!(
+            versions_of(&app.pool, "core.event_version", "event_id", id).await,
+            old_versions()
+        );
+        assert_eq!(
+            versions_of(&app.pool, "core.event_version_live", "event_id", id).await,
+            old_versions()
+        );
+    }
+
+    async fn assert_unchanged(app: &crate::App, id: Uuid) {
+        assert_eq!(
+            versions_of(&app.pool, "core.event", "id", id).await,
+            old_versions()
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 内容の変わらない再到着では、版は変わらない
+    async fn st49_update_same_content_keeps_versions() {
+        let app = app().await;
+        let user = testdb::user();
+        let source = testdb::source_of_kind(&app.pool, "st49same", "record").await;
+        let first = record(&source, user, "ext-1", r#"{"v":1}"#, "2026-09-08T03:00:00Z");
+        let res = send(&app, &first).await;
+        let id: Uuid = res["id"].as_str().unwrap().parse().unwrap();
+        let a = format!("0.1.0+{COMMIT_A}");
+        let fix = format!(
+            "{} UPDATE core.event SET collector_version = '{a}', server_version = '{a}'
+              WHERE id = '{id}';",
+            push_version_sql(id, &source)
+        );
+        assert_eq!(run(&app.pool, &fix).await, None);
+        let mut again = first.clone();
+        again["id"] = serde_json::json!(Uuid::new_v4());
+        again["source_updated_at"] = serde_json::json!("2026-09-08T05:00:00Z");
+        send(&app, &again).await;
+        assert_unchanged(&app, id).await;
+    }
+
+    #[tokio::test]
+    // Scenario: 古い更新時刻の到着では、版は変わらない
+    async fn st49_update_stale_keeps_versions() {
+        let app = app().await;
+        let user = testdb::user();
+        let source = testdb::source_of_kind(&app.pool, "st49stale", "record").await;
+        let id = seed_old(&app.pool, &source, user, "ext-1", "2026-09-08T03:00:00Z").await;
+        send(
+            &app,
+            &record(&source, user, "ext-1", r#"{"v":2}"#, "2026-09-08T02:00:00Z"),
+        )
+        .await;
+        assert_unchanged(&app, id).await;
+    }
+
+    #[tokio::test]
+    // Scenario: 削除済みの記録への更新では、版は変わらない
+    async fn st49_update_deleted_keeps_versions() {
+        let app = app().await;
+        let user = testdb::user();
+        let source = testdb::source_of_kind(&app.pool, "st49del", "record").await;
+        let id = seed_old(&app.pool, &source, user, "ext-1", "2026-09-08T03:00:00Z").await;
+        sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'test' WHERE id = $1")
+            .bind(id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        send(
+            &app,
+            &record(&source, user, "ext-1", r#"{"v":2}"#, "2026-09-08T04:00:00Z"),
+        )
+        .await;
+        assert_unchanged(&app, id).await;
+    }
+}
