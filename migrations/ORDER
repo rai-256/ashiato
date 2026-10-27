@@ -63,3 +63,5 @@
 202610241200_satellite_credentials
 # ST41: 幅のある出来事の終わりの時刻（3 列・門・期間の索引）
 202610231200_event_end_time
+# ST11: 健康データの権限の記録の論理ソース（design D1）
+202610251100_health_permission_source

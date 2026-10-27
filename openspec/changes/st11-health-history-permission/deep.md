@@ -93,3 +93,21 @@
 - §5 に EXT-O（履歴の権限があれば全履歴が読める）を足し、扉 21 の主題を「種類を初回起動で求めるか」へ（整合の確認 C2〜C5）
 - 正典 device-collection の「その場では取れない権限」の文は `docs/handoff/ST11.md` へ（C6。spec の段が決める）
 - 整合の確認: `docs/audit/2026-10-25-st11-consistency.md`（6 件。行き先はすべて付けた）
+
+## 問うた項目（第 2 回。final から。2026-10-25）
+
+| Q | 段 | 論点 | 失われるもの |
+|---|---|---|---|
+| Q11 | A（premise） | 常駐の通知から健康データの権限をどこへたどらせるか（Android 14 以降）（`review/code.md` R12） | 通知から 1 回で戻れる手軽さ / 戻り方を見つけるまでの時間（後から許せば全履歴は読める） |
+
+### Q11. 常駐の通知から、健康データの権限をどこへたどらせるか（A / premise。推奨: Health Connect の設定のトップを開く）
+
+- **なぜ人間の判断か**: Q4 の答え（断られた後は常駐の通知から権限の画面へたどれる）の前提 P12「この画面はアプリから intent で直接開ける」が崩れた。
+  `ACTION_MANAGE_HEALTH_PERMISSIONS` は OS の特別な権限（`GRANT_RUNTIME_PERMISSIONS`）が要り、普通のアプリからは開けない。P12 は adb の shell から確かめていた。
+  どこを開くかで Q4 の形（通知から戻れる）と spec の Scenario「常駐の通知から健康データの権限の画面が開く」が変わる
+- **出所**: final review の fix で初めて走らせた計測テスト `HealthPermissionGrantInstrumentedTest` t4 の失敗（`review/code.md` R12。logcat は `.superpowers/sdd/st11-r4/`）
+- **loss**: どの選択肢でも読めるデータは失わない（P2・P12: 後から許せば全履歴が読める）。推奨の側は押す回数が 2〜3 回増える。通知の操作をやめる側は、戻り方を本人が知らないと ST34 が読めない時間が延びる
+- **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/ST11-deep-r2.html`）
+- **本人の答え**: Health Connect の設定のトップを開き、そこから「アプリの権限 → ashiato」へ本人がたどる（本人が選んだ。推奨と同じ・補足なし。`deep-answers-2.txt`）
+- **要件へ戻すもの**: なし（要件・Story は通知からのたどり先を書いていない。Q4 の「常駐の通知から Health Connect の設定へたどれる」とも合う）
+- **効く先**: design D8（仮）/ spec の Scenario「常駐の通知から健康データの権限の画面が開く」/ `LocationService.kt` の `healthPermissionSettingsIntent` / `HealthPermissionGrantInstrumentedTest` t4

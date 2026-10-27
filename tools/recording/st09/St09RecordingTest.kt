@@ -90,13 +90,22 @@ class St09RecordingTest {
         hold(3_000)
         click(DENY)
 
-        step("5. 利用状況へのアクセスの画面は戻る（ST06）")
+        step("5. 健康データの権限の画面は許可しない（ST11 の録画が撮る）")
+        // 端末で初めて Health Connect を使うときは「はじめに」が 1 度出る（ST11 premises P7）
+        device.wait(Until.findObject(By.text(Pattern.compile("^(使ってみる|開始|Get started)$"))), TIMEOUT_MS)?.click()
+        assertNotNull(
+            "健康データの権限の画面が出ない（前面: ${device.currentPackageName}）",
+            device.wait(Until.findObject(By.text(Pattern.compile("^(すべて許可|Allow all)$"))), TIMEOUT_MS),
+        )
+        click(DENY)
+
+        step("6. 利用状況へのアクセスの画面は戻る（ST06）")
         assertTrue("利用状況へのアクセスの画面が開かない", device.wait(Until.hasObject(By.pkg(SETTINGS_PACKAGE)), TIMEOUT_MS))
         hold()
         device.pressBack()
         device.pressHome()
 
-        step("6. 収集は始まり、写真と動画を取れていないことを知らせる")
+        step("7. 収集は始まり、写真と動画を取れていないことを知らせる")
         assertTrue("知らせが出ない（写真と動画を断ったのに）", waitUntil { notice() != null })
         device.openNotification()
         val shown = device.wait(Until.findObject(By.text(MEDIA_NOTICE_TITLE)), TIMEOUT_MS)
@@ -107,7 +116,7 @@ class St09RecordingTest {
         )
         hold(4_000)
 
-        step("7. 知らせを押すと、このアプリの設定が開く → 写真と動画を許可")
+        step("8. 知らせを押すと、このアプリの設定が開く → 写真と動画を許可")
         shown.click()
         assertTrue("知らせからアプリの設定が開かない", device.wait(Until.hasObject(By.pkg(SETTINGS_PACKAGE)), TIMEOUT_MS))
         click("^(権限|Permissions)$")
@@ -122,7 +131,7 @@ class St09RecordingTest {
         device.pressBack()
         device.pressHome()
 
-        step("8. 開き直す → 知らせは消える")
+        step("9. 開き直す → 知らせは消える")
         launchApp()
         // 位置はまた断る（2 度目の起動でも求める）
         device.wait(Until.findObject(By.text(Pattern.compile(DENY))), 5_000)?.let { hold(); it.click() }
@@ -133,7 +142,7 @@ class St09RecordingTest {
         hold(3_000)
         device.pressBack()
 
-        step("9. 写真を 1 枚撮った（撮影位置つき）→ 保存の知らせから記録が積まれる")
+        step("10. 写真を 1 枚撮った（撮影位置つき）→ 保存の知らせから記録が積まれる")
         insertPhoto()
         assertTrue(
             "写真の記録が未送信に積まれない",

@@ -1,0 +1,49 @@
+{
+  "title": "ST11 の深掘り（第 2 回）",
+  "subtitle": "健康データの履歴の読み取りの権限を初回起動で求める",
+  "note": [
+    "計測テストを本物の Health Connect で初めて走らせたところ、常駐の通知の「健康データの権限」を押しても、Android 14 以降では権限の画面が開かないと分かりました（review/code.md R12）。",
+    "Q4 で選んだ「断られた後は常駐の通知から権限の画面へたどれる」の、たどり方を決め直す問いです。選んだら一番下の「回答をコピー」を押してください。"
+  ],
+  "questions": [
+    {
+      "id": "Q11",
+      "topic": "常駐の通知から、健康データの権限をどこへたどらせるか（Android 14 以降）",
+      "kind": "premise",
+      "question": "収集アプリの Health Connect の権限の画面は、Android 14 以降では普通のアプリから直接開けないと分かりました（開くには OS の特別な権限が要る）。常駐の通知の「健康データの権限」を押したとき、どこを開きますか。",
+      "why": "Q4 の答え（断られた後は自動で求め直さず、常駐の通知から権限の画面へたどれる）の前提「この画面はアプリから intent で直接開ける」（premises P12）が崩れた。いまの形では押しても何も開かず、断った本人が戻る道が通知から消える。どの画面を開くかで本人が押す回数と、戻る道の確かさが変わり、spec の Scenario「常駐の通知から健康データの権限の画面が開く」と design D8 を書き直す。",
+      "context": "P12 は adb の shell（OS の特別な権限を持つ）から開いて確かめていたので、ここが分からなかった。計測テストの logcat: `SecurityException: Permission Denial … requires android.permission.GRANT_RUNTIME_PERMISSIONS`。\n後から許せば全履歴が読める（P2・P12）ので、たどり方が遠回りでも読めるデータは失わない。失うのは「通知から 1 回で戻れる」という手軽さと、本人が戻り方を見つけられないうちの時間（その間 ST34 が読めない）。\n初回起動で権限の画面が一度も出ていなかった別の不具合（Android 14 以降）は、この段で直した（design D3 の反転条件）。\nHealth Connect は 2 回断ったアプリに求める画面を出さなくなる（P6）。下の 1・2 の画面が普通のアプリから開けるかは、まだ端末で確かめていない（選んだ後に計測テストで確かめる）。",
+      "options": [
+        {
+          "label": "Health Connect の設定のトップを開き、そこから「アプリの権限 → ashiato」へ本人がたどる",
+          "detail": "Android 14 以降は `HealthConnectManager.ACTION_HEALTH_HOME_SETTINGS`。13 以前と同じく Health Connect のアプリの画面に着く。押す回数は 2〜3 回増えるが、断った回数に依らず必ず同じ画面に着く。通知の操作のラベルと Scenario を「Health Connect の設定が開く」に直す",
+          "recommended": true
+        },
+        {
+          "label": "収集アプリを開き、まだ求められるなら健康データの権限をもう一度求める。求められない（2 回断った後）なら 1 と同じ画面を開く",
+          "detail": "1 回目だけ断った人は通知から 1 回で戻れる。2 回断った後は 1 に落ちる。分かれ道が 1 つ増え、計測テストも 2 本要る。Q4 の「自動で求め直さない」は守る（本人が押したときだけ求める）"
+        },
+        {
+          "label": "通知の操作をやめ、断った後の道は端末の設定から本人が探す",
+          "detail": "通知に出すものが減る。戻り方を本人が知っている前提になり、Q4 で選んだ「常駐の通知からたどれる」をやめる"
+        }
+      ],
+      "family": {
+        "name": "断った・外した後に、本人が健康データの権限へ戻る道",
+        "siblings": [
+          {"case": "Android 14 以降で、常駐の通知から戻る", "decided": "未決 Q11"},
+          {"case": "Android 13 以前で、常駐の通知から戻る（client の `getHealthConnectManageDataIntent` で Health Connect のアプリ）", "decided": "design D8（仮）。端末で確かめていない（spec の Scenario は 14 以降に限った。spec-review R17）"},
+          {"case": "初回起動の権限の画面（Android 14 以降）", "decided": "design D3（反転条件が起きた。framework の `requestPermissions` で求める。e2ef8442 で直し、計測テストで画面が出ることを確かめた）"},
+          {"case": "初回起動の権限の画面（Android 13 以前）", "decided": "design D3（client の口のまま。端末で確かめていない）"},
+          {"case": "2 回断って Health Connect が求める画面を出さなくなった後", "decided": "deep.md Q4・premises P6（Health Connect の設定からは許せる。たどる入口は Q11 で決まる）"},
+          {"case": "利用状況へのアクセス（ST06）を通知から戻る", "decided": "正典の「利用状況へのアクセスを初回起動で求める」（設定画面は普通のアプリから開ける。動いている）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "premises",
+        "why": "P12 を adb の shell から `am start` で開いて確かめた。shell は GRANT_RUNTIME_PERMISSIONS を持つので、普通のアプリから開けるかは確かめられていなかった",
+        "prevention": "「アプリから intent で開ける」を前提にするときは、shell の `am start` ではなく、アプリの権限で起動する（計測テストの中から startActivity する・小さな試験アプリから開く）で確かめる観点"
+      }
+    }
+  ]
+}

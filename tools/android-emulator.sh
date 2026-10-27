@@ -80,7 +80,7 @@ adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions            # `pm clear` は前景サービスが残っていると Failed になる（実測）
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.annotation="$A" \
-   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.MediaPremisesInstrumentedTest")
+   -Pandroid.testInstrumentationRunnerArguments.notClass="dev.ashiato.collector.MediaPremisesInstrumentedTest,dev.ashiato.collector.HealthPermissionGrantInstrumentedTest,dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest,dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest")
 keep_stage
 # MediaPremises は 1 本目が写真の権限を許可して残す。同じ run で後ろに並んだ PermissionDenied が「写真の権限が無い」前提を
 # 失うので、3 段目に分けて権限を戻してから単独で走らせる（クラスの並びは dex 次第で、クラスを足すと変わる）
@@ -88,6 +88,24 @@ adb shell am force-stop dev.ashiato.collector
 adb shell pm reset-permissions
 (cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
    -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.MediaPremisesInstrumentedTest")
+keep_stage
+# ST11: 本物の Health Connect の権限の画面を押す 3 クラス。**始まりの状態ごとに 1 段**（spec-review R6）。
+# Health Connect の権限は自分では外せない（プロセスが死ぬ）ので、前の段が許した状態は次の段の前の `pm reset-permissions` で戻す。
+# 2 回断ると画面が出なくなる（premises P6）ので、断る本は 1 段に 1 つまで・断る段は最後に置く
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.HealthPermissionGrantInstrumentedTest")
+keep_stage
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest")
+keep_stage
+adb shell am force-stop dev.ashiato.collector
+adb shell pm reset-permissions
+(cd collector-android && ./gradlew -q :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 \
+   -Pandroid.testInstrumentationRunnerArguments.class="dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest")
 keep_stage
 adb shell pm reset-permissions            # 見つけたときの状態（未許可）へ戻す
 echo "== 結果: collector-android/app/build/reports/androidTests/connected/（段ごとの XML は $OUT/androidTest-results-stage1〜$STAGE）"

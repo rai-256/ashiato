@@ -17,6 +17,8 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -255,7 +257,8 @@ open class LocationService : Service() {
     protected open fun newDeviceClock(): DeviceClock = AndroidDeviceClock(this)
 
     /** 知らせの出し先。**試験では Robolectric の本物の NotificationManager** を通す。 */
-    protected open fun newRetentionAlerts(): RetentionAlerts = AndroidRetentionAlerts(this) { notification(it) }
+    protected open fun newRetentionAlerts(): RetentionAlerts =
+        AndroidRetentionAlerts(this, ongoingNotificationLock) { notification(it) }
 
     /** 端末の時計の測定の刻み（1 時間と測り直し）。**試験だけが差し替える**（ST05 / design D3 / D4）。 */
     protected open fun newClockScheduler(): ClockTicks = ClockTicks(ExecutorFlushScheduler(), ExecutorFlushScheduler())
@@ -279,7 +282,10 @@ open class LocationService : Service() {
      */
     private fun newOutbox(): Outbox<IngestRequest> = Outbox(
         SegmentStore(
-            store("records"), IngestRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("records"),
+            IngestRequest.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
         writeFailures = object : WriteFailures<IngestRequest> {
@@ -316,7 +322,10 @@ open class LocationService : Service() {
      */
     private fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> = Outbox(
         SegmentStore(
-            store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("heartbeats"),
+            HeartbeatRequest.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
     )
@@ -324,7 +333,10 @@ open class LocationService : Service() {
     /** 破棄の報告の未送信。上限の対象にしない（C2 / design D13）。 */
     private fun newDropsOutbox(): Outbox<DropReport> = Outbox(
         SegmentStore(
-            store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("drops"),
+            DropReport.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
     )
@@ -456,7 +468,9 @@ open class LocationService : Service() {
                 source = usage,
                 outbox = outbox,
                 windowStore = UsageWindowStore(
-                    usageWindowFile(filesDir, APP_USAGE_LOGICAL_SOURCE), APP_USAGE_LOGICAL_SOURCE, logW,
+                    usageWindowFile(filesDir, APP_USAGE_LOGICAL_SOURCE),
+                    APP_USAGE_LOGICAL_SOURCE,
+                    logW,
                 ),
                 labels = labels,
                 userId = user,
@@ -612,16 +626,28 @@ open class LocationService : Service() {
         // 行ごとに名前を読む
         val recordSalvaged: (Int) -> Boolean = { ledger.unreadable(SourceCadence.LOCATION.logicalSource, it) }
         migrateLegacyOutbox(
-            File(filesDir, "outbox.jsonl"), outbox, IngestRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+            File(filesDir, "outbox.jsonl"),
+            outbox,
+            IngestRequest.serializer(),
+            store(UNREADABLE),
+            store("salvaged"),
+            recordSalvaged,
+            ageClock.now(),
+            logW,
         )
         migrateLegacyOutbox(
-            File(filesDir, "heartbeat.jsonl"), heartbeatOutbox, HeartbeatRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+            File(filesDir, "heartbeat.jsonl"),
+            heartbeatOutbox,
+            HeartbeatRequest.serializer(),
+            store(UNREADABLE),
+            store("salvaged"),
+            recordSalvaged,
+            ageClock.now(),
+            logW,
         )
 
         openMediaStores(logW, logI)
-        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = originalPipeline.link::dropped)
+        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = ::onRecordsDropped)
         notifier = RetentionNotifier(
             outbox,
             ageClock::now,
@@ -630,6 +656,13 @@ open class LocationService : Service() {
             baseText = ongoingText(),
             log = logI,
         )
+    }
+
+    /** 保持の上限で捨てた記録の宛先（ST09 の原本の送り待ち）。 */
+    private fun onRecordsDropped(dropped: List<IngestRequest>) {
+        originalPipeline.link.dropped(dropped)
+        // 健康データの権限の記録を捨てたら最後の状態を忘れ、次に観たとき作り直す（review/code.md R19 / design D15（仮））
+        if (dropped.any { it.logicalSource == HEALTH_LOGICAL_SOURCE }) healthStore.forget()
     }
 
     /** 原本の送りを走らせる。糸の中の例外はプロセスを落とすので、種別だけ残して次の契機へ回す（design D26） */
@@ -773,15 +806,19 @@ open class LocationService : Service() {
      * ⑥「途絶」が出て、アプリ利用はその間 1 件も取れなかった（10 日を越えれば二度と取れない）。
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // **主糸では回さない**（[runCollection]）—— `onStartCommand` は主糸で呼ばれる。
+        // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
+        // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
+        // 積むところが投げても糸の外へ抜かず、種別だけ残す（review/code.md R23）
+        runCollection { HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed) }
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
-        // **主糸では回さない**（[runCollection]）—— 初回の集計の取り込みは 4 粒度ぶんの問い合わせと
-        // 数千件の追記になり、`onStartCommand` は主糸で呼ばれる
         for (running in sources) runCollection { collect(running) }
         startFlushing()
         startBeating()
         startTicking()
         startClockSkew()
         startMediaCapture()
+        runCollection { refreshHealthAvailability() }
         FeelingReminderWiring.ensureScheduled(applicationContext)
         // 落とされても OS に立て直させる。1 年間途切れないことが成功条件 1
         return START_STICKY
@@ -994,10 +1031,107 @@ open class LocationService : Service() {
             running.beater = newHeartbeatScheduler(running.cadence.logicalSource).also { scheduler ->
                 scheduler.every(running.cadence.heartbeatIntervalMs) {
                     emitter.emit()
-                    if (isLocation) outagePoller.poll()
+                    if (isLocation) {
+                        outagePoller.poll()
+                        // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。
+                        // **生存信号の糸では回さない**（review/code.md R3）—— Health Connect の問い合わせが返らないと、
+                        // 位置の生存信号と途切れの問い合わせが同じ糸で止まり、稼働状況に途絶として出る。
+                        // 預けるところも包む —— 止める途中（`onDestroy` の `shutdownNow` の後）の刻みは預け先に断られる。
+                        // 生存信号はこの前に出ていて、既定の刻み（[ExecutorFlushScheduler]）も投げたものを受けるが、
+                        // それだと `tick_crashed` になる。健康データの見直しの失敗として種別を残すためにここで受ける（review/code.md R29）
+                        runCatching { runCollection { observeHealthPeriodically() } }.onFailure { logHealthCrashed(it) }
+                    }
                 }
             }
         }
+    }
+
+    /** 健康データの権限の最後の状態の置き場（画面と共有。design D2）。 */
+    private val healthStore: HealthStateStore by lazy {
+        HealthStateStore(getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE))
+    }
+
+    /** 健康データの権限の観測。通知の操作が使う「使えるか」もここで読む。 */
+    private val healthRecorder: HealthPermissionRecorder by lazy {
+        HealthPermissionRecorder(
+            read = {
+                val reading = healthPermissions().read(this)
+                setHealthAvailable(reading.availability == HealthAvailability.AVAILABLE)
+                reading
+            },
+            autoRequested = {
+                getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE).getBoolean(ASKED_HEALTH_PERMISSIONS, false)
+            },
+            store = healthStore,
+            clock = newDeviceClock(),
+            deviceId = deviceId,
+            userId = Config.userId,
+            zone = ZoneId.systemDefault(),
+            newId = { UUID.randomUUID().toString() },
+            emit = { outbox.add(it) },
+            log = { Log.i(TAG, it) },
+        )
+    }
+
+    /** Health Connect が使えるとわかっているか。通知の操作を出すかを決める（読むまでは出さない）。 */
+    @Volatile
+    private var healthAvailable = false
+
+    /** 使えるかが変わったら、常駐の通知を組み直す（操作の出し入れ。design D8）。 */
+    private fun setHealthAvailable(available: Boolean) {
+        // 組み立てと notify を 1 つの錠の中で（保持の知らせの本文の差し替えと同じ錠。review/code.md R27）——
+        // 別の糸が古い healthAvailable で組み立てた通知が後から届いて、操作の出し入れが逆戻りしない
+        synchronized(ongoingNotificationLock) {
+            if (healthAvailable == available) return
+            healthAvailable = available
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, notification(shownText ?: ongoingText()))
+        }
+    }
+
+    /** 常駐の通知を組み立てて出すところの錠（[setHealthAvailable] と [AndroidRetentionAlerts.ongoing]）。 */
+    private val ongoingNotificationLock = Any()
+
+    /** 常駐の通知に最後に出した本文（日数つきの本文を、操作の出し入れで基本の文に戻さない）。 */
+    @Volatile
+    private var shownText: String? = null
+
+    /** 健康データの権限の読み口。**試験が差し替える**。 */
+    protected open fun healthPermissions(): HealthPermissions = ClientHealthPermissions()
+
+    /** Health Connect の読みを待つ上限。**試験だけが縮める**。 */
+    protected open fun healthReadTimeoutMs(): Long = HEALTH_READ_TIMEOUT_MS
+
+    /**
+     * 収集を始めるときに、使えるかだけを読む（記録は作らない。記録は画面の契機と 6 時間ごとの見直し）。
+     * 失敗しても位置の収集を止めない。
+     */
+    private fun refreshHealthAvailability() {
+        runCatching {
+            runBlocking { withTimeout(healthReadTimeoutMs()) { healthPermissions().read(this@LocationService) } }
+        }
+            .onSuccess { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
+            .onFailure { logHealthCrashed(it) }
+    }
+
+    /**
+     * 6 時間ごとの見直し。**失敗しても位置の収集を止めない**（時計の測定と同じく包み、種別だけ残す）。
+     * 読みが返らないときは [healthReadTimeoutMs] で諦める（取得の糸を塞ぎ続けない。review/code.md R3）。
+     */
+    private fun observeHealthPeriodically() {
+        runCatching {
+            runBlocking {
+                withTimeout(healthReadTimeoutMs()) { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) }
+            }
+        }
+            .onFailure { logHealthCrashed(it) }
+    }
+
+    private fun logHealthCrashed(e: Throwable) {
+        Log.w(
+            TAG,
+            Telemetry.line("health_permission_crashed", source = HEALTH_LOGICAL_SOURCE, error = e.javaClass.simpleName)
+        )
     }
 
     override fun onDestroy() {
@@ -1062,13 +1196,14 @@ open class LocationService : Service() {
 
     /** 常駐の通知。**本文だけを差し替える**（未送信の日数。ST04 / 深掘り Q5）。常時出ている通知は増やさない */
     private fun notification(text: String): Notification {
+        shownText = text
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             // **ソースの名前を持たせない**（tasks 5.4 / R10）。チャネルの識別子は変えない ——
             // 変えると本人が設定した音や表示の扱いが捨てられ、新しいチャネルとして出直す
             NotificationChannel(CHANNEL, "記録の収集", NotificationManager.IMPORTANCE_LOW),
         )
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setContentTitle("あしあと。")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
@@ -1078,7 +1213,37 @@ open class LocationService : Service() {
             // （design D6（仮））—— 自動で送るのは初回の 1 度だけなので、
             // 後から許す気になった本人がたどり着ける道がここにしか無い
             .setContentIntent(usageAccessPendingIntent())
-            .build()
+        // Health Connect が使えるときだけ、権限の画面への操作を足す（design D8（仮））。許されているかには依らない
+        if (healthAvailable) {
+            builder.addAction(
+                Notification.Action.Builder(
+                    null,
+                    HEALTH_PERMISSION_ACTION_LABEL,
+                    healthPermissionPendingIntent()
+                ).build(),
+            )
+        }
+        return builder.build()
+    }
+
+    /** 権限の画面が無いことをログに出した（[healthPermissionPendingIntent]）。 */
+    @Volatile
+    private var healthSettingsMissingLogged = false
+
+    private fun healthPermissionPendingIntent(): PendingIntent {
+        val intent = healthPermissionSettingsIntent(this)
+        // 押しても開く画面が無い端末は、種別だけ残す（利用状況へのアクセスと同じ）
+        // 通知は本文の差し替えのたびに組み直すので、ログはサービスの寿命で 1 度だけ（review/code.md R7）
+        if (!healthSettingsMissingLogged && packageManager.resolveActivity(intent, 0) == null) {
+            healthSettingsMissingLogged = true
+            Log.w(TAG, Telemetry.line("health_permission_settings_missing", source = HEALTH_LOGICAL_SOURCE))
+        }
+        return PendingIntent.getActivity(
+            this,
+            1,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
     }
 
     /** 常駐の通知を押したときに開く設定画面（design D6（仮））。 */
@@ -1093,6 +1258,9 @@ open class LocationService : Service() {
         const val TAG = "ashiato"
         const val CHANNEL = "location"
         const val NOTIFICATION_ID = 1
+
+        /** Health Connect の読みを待つ上限（review/code.md R3）。IPC 1 回ぶんには十分に長い。 */
+        const val HEALTH_READ_TIMEOUT_MS = 30_000L
 
         /** 上限の 7 日前の知らせのチャネル（音が鳴る。design D11） */
         const val RETENTION_CHANNEL = "retention"
@@ -1139,12 +1307,14 @@ open class LocationService : Service() {
  */
 class AndroidRetentionAlerts(
     private val service: Service,
+    /** 常駐の通知を組み立てて出すところの錠（他の糸の組み直しと前後しない。review/code.md R27）。 */
+    private val ongoingLock: Any = Any(),
     private val ongoingNotification: (String) -> Notification,
 ) : RetentionAlerts {
     private val manager: NotificationManager get() = service.getSystemService(NotificationManager::class.java)
 
     override fun ongoing(text: String) {
-        manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text))
+        synchronized(ongoingLock) { manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text)) }
     }
 
     override fun alert(days: Int): Boolean {
