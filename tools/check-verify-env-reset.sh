@@ -482,8 +482,11 @@ ok "git の木でない場所の --plan は keep: の 1 行で、宣言を含ま
 # 宣言の字: 注記でない行に echo "HARNESS_RESET: testdb" がちょうど 1 つ、出力を捨てる形でない（ハーネスの init.py が字面で読む）
 decl=$(grep -vE '^\s*#' tools/verify-env.sh | grep -F 'echo "HARNESS_RESET: testdb"' || true)
 want "echo \"HARNESS_RESET: testdb\" の行がちょうど 1 つ" "$(grep -c . <<<"$decl")" "1"
-c=0; [[ $decl != *'>/dev/null'* && $decl != *'>&2'* && $decl != *'$('* ]] || c=1
-ok "宣言の行が出力を捨てる形（>/dev/null・>&2・\$(）でない" "$c"
+# echo の後ろは空（リダイレクト・パイプを付けない）、前に $( や ` を置かない
+c=0; [[ ${decl#*'echo "HARNESS_RESET: testdb"'} =~ ^[[:space:]]*$ && $decl != *'$('* && $decl != *'`'* ]] || c=1
+ok "宣言の行の echo の後ろが空で、\$( や \` の中でない（標準出力のまま）" "$c"
+# 注記に宣言の字が無い（init.py の部分一致が echo の行だけで決まる。review/code.md R4・R7）
+want "注記の行に HARNESS_RESET: が無い" "$(grep -E '^\s*#' tools/verify-env.sh | grep -c 'HARNESS_RESET:' || true)" "0"
 
 echo "Scenario: ハーネスの点検が、作り直して宣言する準備と認める"
 if [[ -f .harness2/scripts/init.py ]] && grep -q check_verify_env .harness2/scripts/init.py; then

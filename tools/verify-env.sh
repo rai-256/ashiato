@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。
 # **印（HARNESS_VERIFY=1）が無ければ何度呼んでも同じ**（起動済みなら何もしない）。**印があれば毎回空から**（worktree か CI=true のとき。ch06 design D2）。
-# 作り直したら `HARNESS_RESET: testdb` を標準出力に 1 行（ハーネスの約束。ch07 design D2）。
+# 作り直したら宣言（`HARNESS_RESET` の行。字は待ちのループの echo）を標準出力に 1 行（ハーネスの約束。ch07 design D2）。
+# 注記に宣言の字（`HARNESS_RESET` とコロン）を書かない —— ハーネスの init.py は本文の字面で点検するので、注記が echo の代わりに通してしまう
 # 作り直すかの判定は `--plan`（`reset` か `keep: <理由>` の 1 行。docker にも .env にも触らない）。
 # いまやることは 2 つ: この worktree のテスト用 DB を起動して接続できるまで待ち、DB の役割（ST28）を整える。
 #   - ポートは tools/ports.sh の worktree ごとの規則（Story を並行して走らせても取り合わない）
