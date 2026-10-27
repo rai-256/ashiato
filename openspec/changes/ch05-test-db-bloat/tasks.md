@@ -35,7 +35,7 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 1: 前提を確かめる
 
-- [ ] 1.1 この作業ツリーの DB が立ち、CH04 と CH06 の実装が取り込まれている（`docs/changes/CH05.md` の `requires: [CH04, CH06]` と `story_deps.py included`）。
+- [x] 1.1 この作業ツリーの DB が立ち、CH04 と CH06 の実装が取り込まれている（`docs/changes/CH05.md` の `requires: [CH04, CH06]` と `story_deps.py included`）。
   `testdb.rs` の回の助言ロック・直列化のロックの番号と回の名前の頭・`isolated()` が design D2 と同じ。違えば design D2 を書き直してから進む。
   `tools/verify-env.sh` が CH06 の形（`--plan`・作り直し・塞いでいる network の確かめ）で、design D5 の置き場（`reset` のとき、DB を消す前・network を確かめる前）がある。違えば design D5 を書き直してから進む。
   検証: `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0 / `python3 scripts/story_deps.py included CH05 CH04` rc=0 / `python3 scripts/story_deps.py included CH05 CH06` rc=0 /
