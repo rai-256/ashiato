@@ -23,7 +23,7 @@ async fn exported_after_erasing(source: &str, at: &str, payload: Value) -> bool 
     let w = World::new().await;
     w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
     let id = w.put(source, &w.at(at), payload, "{}").await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     present(&path, "events.jsonl", &[id]).contains(&id)
 }
 
@@ -66,14 +66,14 @@ async fn st09_exp_heartbeat_network_column_is_exported() {
     .execute(&w.pool)
     .await
     .unwrap();
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows = scan(&path, "heartbeats.jsonl", &w.user.to_string());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["network"], json!(false));
 }
 
 /// 原本の受け取りと原本の欠けが 1 件ずつある世界を書き出す。
-async fn export_with_original_and_missing() -> std::path::PathBuf {
+async fn export_with_original_and_missing() -> (tempfile::TempDir, std::path::PathBuf) {
     let w = World::new().await;
     sqlx::query(
         "INSERT INTO core.media_original (user_id, sha256, logical_source, size_bytes)
@@ -100,7 +100,7 @@ async fn export_with_original_and_missing() -> std::path::PathBuf {
 // Scenario: 原本の台帳と原本の欠けと文字抽出の表は書き出しに入らない
 #[tokio::test]
 async fn st09_exp_original_ledger_missing_and_text_extraction_are_not_exported() {
-    let path = export_with_original_and_missing().await;
+    let (_path_tmp, path) = export_with_original_and_missing().await;
     let z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
     let names: BTreeSet<String> = z.file_names().map(String::from).collect();
     for n in &names {
@@ -113,7 +113,7 @@ async fn st09_exp_original_ledger_missing_and_text_extraction_are_not_exported()
 // Scenario: 説明書の入らないものに原本の台帳と欠けと文字抽出が挙がる
 #[tokio::test]
 async fn st09_exp_readme_names_original_ledger_missing_and_text_extraction() {
-    let path = export_with_original_and_missing().await;
+    let (_path_tmp, path) = export_with_original_and_missing().await;
     let readme = text(&path, "README.txt");
     for table in ["media_original", "media_missing", "text_extraction"] {
         assert!(

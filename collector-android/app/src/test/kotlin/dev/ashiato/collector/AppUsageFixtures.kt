@@ -2,7 +2,6 @@
 package dev.ashiato.collector
 
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 
@@ -15,13 +14,13 @@ import java.time.ZoneId
  * [jumpWall] は壁時計だけを飛ばす（端末の時刻が変わった）。
  */
 class UsageTestEnv(
+    val dir: File,
     val source: UsageSource,
     /** 取得時点の端末の地域（design D7）。契機のあいだに変えられる */
     var zone: ZoneId = ZoneId.of("Asia/Tokyo"),
     /** 取得時点に解決したアプリの表示名。契機のあいだに変えられる（アプリの更新・言語の変更） */
     var label: String? = "例のアプリ",
 ) {
-    val dir: File = Files.createTempDirectory("st06-usage").toFile()
     val lines: MutableList<String> = mutableListOf()
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
@@ -31,8 +30,12 @@ class UsageTestEnv(
 
     /** 単調な経過。**[resetAgeClock] で作り直せる**（置き場が読めなくなった端末を作るため） */
     var age: AgeClock = AgeClock(clock, ageFile, log)
-    /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
-    var outbox: Outbox<IngestRequest> = testOutbox()
+
+    /**
+     * 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため）。
+     * 置き場は `dir/outbox`（[dir] の子フォルダ。[dir] を列挙する試験はこれも拾う）
+     */
+    var outbox: Outbox<IngestRequest> = testOutbox(File(dir, "outbox"))
     private var ids = 0
     private var current: AppUsageSourceAdapter? = null
 

@@ -6,6 +6,14 @@ use crate::testdb;
 use crate::{heartbeat, store_heartbeat, store_one, IngestRequest, StoreOutcome};
 use std::path::Path;
 
+/// 試験の一時フォルダ。呼び出し側が束縛して試験の最後まで持つ（落ちても消える）。
+fn tmp_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("ashiato-{name}-"))
+        .tempdir()
+        .unwrap()
+}
+
 #[derive(Clone)]
 struct FailingSink {
     fail_at: usize,
@@ -108,24 +116,23 @@ async fn archive_pg_sink_uses_the_same_store_gate() {
 async fn archive_three_store_failures_leave_one_throttled_ledger_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
+    let tmp = tmp_dir("archive-failing");
+    let failing = tmp.path().join("failing.zip");
     sqlx::query(
         "INSERT INTO core.archive_sighting (user_id, path, size_bytes, sha256)
-         VALUES ($1, '/tmp/failing.zip', 1, $2)",
+         VALUES ($1, $2, 1, $3)",
     )
     .bind(user)
+    .bind(failing.to_string_lossy().into_owned())
     .bind("f".repeat(64))
     .execute(&pool)
     .await
     .unwrap();
     for attempt in 1..=4 {
-        let throttled = crate::archive::worker::record_store_failure(
-            &pool,
-            user,
-            std::path::Path::new("/tmp/failing.zip"),
-            "f".repeat(64),
-        )
-        .await
-        .unwrap();
+        let throttled =
+            crate::archive::worker::record_store_failure(&pool, user, &failing, "f".repeat(64))
+                .await
+                .unwrap();
         assert_eq!(throttled, attempt >= 3);
     }
 
@@ -479,7 +486,8 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
 /// Scenario: 読めない形の書庫は台帳に残る
 #[test]
 fn archive_open_lists_each_zip_and_classifies_unreadable_formats() {
-    let root = std::env::temp_dir().join(format!("ashiato-archive-open-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-open");
+    let root = tmp.path().join("root");
     std::fs::create_dir_all(&root).unwrap();
     let zip_path = root.join("takeout-20260912-001.zip");
     write_zip(&zip_path, &[("Takeout/YouTube/watch-history.json", b"[]")]);
@@ -505,7 +513,6 @@ fn archive_open_lists_each_zip_and_classifies_unreadable_formats() {
             .kind(),
         "broken_zip"
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 対象でないファイルからは記録が作られない
@@ -532,7 +539,8 @@ fn archive_classify_prefers_json_shapes_and_accounts_for_html() {
 
 #[test]
 fn archive_worker_inspects_a_candidate_before_parsing_it() {
-    let root = std::env::temp_dir().join(format!("ashiato-inspect-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("inspect");
+    let root = tmp.path().join("root");
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("one.zip");
     write_zip(
@@ -550,7 +558,6 @@ fn archive_worker_inspects_a_candidate_before_parsing_it() {
     };
     let inspected = crate::archive::worker::inspect(candidate).unwrap();
     assert_eq!(inspected.known, 1);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 原文は書庫のバイト列の一部と一致する
@@ -592,7 +599,8 @@ fn archive_slice_keeps_an_item_across_a_mebibyte_boundary() {
 fn archive_slice_large_streams_one_item_at_a_time() {
     use std::io::Write as _;
 
-    let path = std::env::temp_dir().join(format!("ashiato-Records-{}.json", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("Records");
+    let path = tmp.path().join("Records.json");
     let mut file = std::fs::File::create(&path).unwrap();
     file.write_all(b"[").unwrap();
     for item in 0..200 {
@@ -616,7 +624,6 @@ fn archive_slice_large_streams_one_item_at_a_time() {
         Ok(())
     })
     .unwrap();
-    std::fs::remove_file(path).unwrap();
 
     assert_eq!(received, 200);
     assert_eq!(max_in_flight, 1);
@@ -883,7 +890,8 @@ async fn archive_youtube_other_source_registered() {
 /// Scenario: 取り込み済みに同じ名前があっても上書きしない
 #[test]
 fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
-    let root = std::env::temp_dir().join(format!("ashiato-archive-move-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-move");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let processed = inbox.join("取り込み済み");
     std::fs::create_dir_all(&processed).unwrap();
@@ -894,35 +902,31 @@ fn archive_move_keeps_existing_file_and_uses_a_numbered_name() {
     assert_eq!(moved.file_name().unwrap(), "one (2).zip");
     assert_eq!(std::fs::read(processed.join("one.zip")).unwrap(), b"old");
     assert_eq!(std::fs::read(moved).unwrap(), b"new");
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: ダウンロードのフォルダの書庫は動かない
 #[test]
 fn archive_move_does_not_apply_to_downloads_without_an_explicit_move() {
-    let root = std::env::temp_dir().join(format!(
-        "ashiato-archive-downloads-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = tmp_dir("archive-downloads");
+    let root = tmp.path().join("root");
     std::fs::create_dir_all(&root).unwrap();
     let downloaded = root.join("takeout-1.zip");
     std::fs::write(&downloaded, b"download").unwrap();
     // 読み手は `from_downloads` の候補には `move_to_processed` を呼ばない。
     assert!(downloaded.exists());
     assert_eq!(std::fs::read(&downloaded).unwrap(), b"download");
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 読んだ製品のファイルの写しが残る
 /// Scenario: 同じファイルの写しは 1 つ
 #[test]
 fn archive_copy_uses_content_hash_as_the_single_copy_name() {
-    let root = std::env::temp_dir().join(format!("ashiato-archive-copy-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-copy");
+    let root = tmp.path().join("root");
     let first = crate::archive::worker::copy_known_file(&root, b"known file").unwrap();
     let second = crate::archive::worker::copy_known_file(&root, b"known file").unwrap();
     assert_eq!(first, second);
     assert_eq!(std::fs::read(first).unwrap(), b"known file");
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 読んだ製品のファイルの写しが残る
@@ -952,8 +956,8 @@ async fn archive_copy_catalog_keeps_the_inner_file_name() {
 /// Scenario: 残さない設定では写しを作らない
 #[test]
 fn archive_copy_setting_does_not_create_a_file_when_disabled() {
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-no-copy-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-no-copy");
+    let root = tmp.path().join("root");
     let copied = crate::archive::worker::copy_if_enabled(false, &root, b"history").unwrap();
     assert!(copied.is_none());
     assert!(!root.exists());
@@ -1246,7 +1250,8 @@ fn archive_parse_chrome_time_usec_is_unix_epoch_microseconds() {
 #[tokio::test]
 async fn archive_scan_only_queues_stable_supported_inbox_files() {
     let pool = testdb::pool().await;
-    let root = std::env::temp_dir().join(format!("ashiato-archive-scan-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-scan");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1294,8 +1299,6 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
     assert!(queued
         .iter()
         .any(|candidate| candidate.path.file_name().unwrap() == "writing.zip"));
-
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 読んだ書庫は次の走査で読み直されない
@@ -1304,7 +1307,8 @@ async fn archive_scan_only_queues_stable_supported_inbox_files() {
 #[tokio::test]
 async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
     let pool = testdb::pool().await;
-    let root = std::env::temp_dir().join(format!("ashiato-archive-known-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-known");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1340,15 +1344,14 @@ async fn archive_scan_marks_a_previously_read_archive_without_requeueing_it() {
         later[0].disposition,
         crate::archive::scan::ScanDisposition::AlreadyRead
     ));
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 解析器の版が上がると読み直される
 #[tokio::test]
 async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
     let pool = testdb::pool().await;
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-reparse-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-reparse");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1387,7 +1390,6 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
         reparsed.disposition,
         crate::archive::scan::ScanDisposition::Read
     ));
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 解析器の版が上がると読み直される
@@ -1395,10 +1397,8 @@ async fn archive_scan_requeues_a_copy_read_by_an_older_parser() {
 async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!(
-        "ashiato-archive-reparse-copy-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = tmp_dir("archive-reparse-copy");
+    let root = tmp.path().join("root");
     std::fs::create_dir_all(&root).unwrap();
     let copied = root.join("copy.json");
     std::fs::write(&copied, b"copy").unwrap();
@@ -1422,17 +1422,14 @@ async fn archive_reparse_prefers_the_saved_copy_over_the_inbox_path() {
     .await
     .unwrap();
     assert_eq!(selected, copied);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]
 async fn archive_reparse_reads_saved_inner_files() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!(
-        "ashiato-archive-reparse-files-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp = tmp_dir("archive-reparse-files");
+    let root = tmp.path().join("root");
     std::fs::create_dir_all(&root).unwrap();
     let copy = root.join("history.json");
     std::fs::write(
@@ -1459,15 +1456,14 @@ async fn archive_reparse_reads_saved_inner_files() {
         crate::archive::classify::classify_files(&files).known.len(),
         1
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Scenario: 大きさが変わり続けているファイルは読まれない
 #[tokio::test]
 async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
     let pool = testdb::pool().await;
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-changing-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-changing");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1513,7 +1509,6 @@ async fn archive_scan_waits_for_size_to_stop_and_reuses_its_hash() {
         2,
         "安定した2回目でハッシュを取り直さない"
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// 走査の試験の置き場（専用のフォルダとダウンロードのフォルダ）。`downloads` を作らなければ、読めない置き場になる。
@@ -1521,9 +1516,9 @@ fn scan_dirs(
     name: &str,
     user: uuid::Uuid,
     downloads: bool,
-) -> (std::path::PathBuf, crate::archive::config::ArchiveConfig) {
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-{name}-{}", uuid::Uuid::new_v4()));
+) -> (tempfile::TempDir, crate::archive::config::ArchiveConfig) {
+    let tmp = tmp_dir(&format!("archive-{name}"));
+    let root = tmp.path().to_path_buf();
     std::fs::create_dir_all(root.join("inbox")).unwrap();
     if downloads {
         std::fs::create_dir_all(root.join("downloads")).unwrap();
@@ -1535,7 +1530,7 @@ fn scan_dirs(
         keep_copies: true,
         user_id: Some(user),
     };
-    (root, config)
+    (tmp, config)
 }
 
 async fn unreadable_rows(pool: &sqlx::PgPool, user: uuid::Uuid) -> Vec<String> {
@@ -1556,7 +1551,7 @@ async fn unreadable_rows(pool: &sqlx::PgPool, user: uuid::Uuid) -> Vec<String> {
 async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let (root, config) = scan_dirs("briefly-locked", user, true);
+    let (_tmp, config) = scan_dirs("briefly-locked", user, true);
     write_file(&config.inbox_dir, "Timeline.json", b"[]");
     let calls = std::sync::atomic::AtomicUsize::new(0);
     let hash = |_: &Path| {
@@ -1574,7 +1569,6 @@ async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
         .unwrap()
         .0;
     let rows = unreadable_rows(&pool, user).await;
-    std::fs::remove_dir_all(root).unwrap();
 
     assert!(first.is_empty());
     assert_eq!(second.len(), 1, "2 回目の走査で読みへ回る");
@@ -1587,7 +1581,7 @@ async fn archive_scan_a_briefly_locked_file_leaves_no_unreadable_row() {
 async fn archive_scan_a_new_unreadable_file_at_the_same_path_gets_its_own_row() {
     let pool = testdb::pool().await;
     let user = testdb::user();
-    let (root, config) = scan_dirs("same-path-unreadable", user, true);
+    let (_tmp, config) = scan_dirs("same-path-unreadable", user, true);
     let hash = |_: &Path| -> anyhow::Result<String> { anyhow::bail!("試験: 読めない") };
     let scan = || crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash);
     write_file(&config.inbox_dir, "Timeline.json", b"one");
@@ -1600,7 +1594,6 @@ async fn archive_scan_a_new_unreadable_file_at_the_same_path_gets_its_own_row() 
         scan().await.unwrap();
     }
     let after_second = unreadable_rows(&pool, user).await;
-    std::fs::remove_dir_all(root).unwrap();
 
     assert_eq!(
         after_first.len(),
@@ -1623,7 +1616,7 @@ async fn archive_scan_forgets_files_gone_from_the_readable_inbox() {
     let pool = testdb::pool().await;
     let user = testdb::user();
     // ダウンロードのフォルダを作らない（読めない置き場）
-    let (root, config) = scan_dirs("forget-readable", user, false);
+    let (_tmp, config) = scan_dirs("forget-readable", user, false);
     write_file(&config.inbox_dir, "growing.json", b"one");
     let hash = |path: &Path| Ok(format!("test-{}", std::fs::metadata(path).unwrap().len()));
     let (_, blockers) = crate::archive::scan::scan_once_with_hasher(&pool, &config, user, &hash)
@@ -1640,7 +1633,6 @@ async fn archive_scan_forgets_files_gone_from_the_readable_inbox() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    std::fs::remove_dir_all(root).unwrap();
 
     assert_eq!(left, 0, "読めた置き場から消えたファイルの行が残った");
 }
@@ -1705,8 +1697,8 @@ async fn archive_reader_processes_candidates_one_at_a_time_in_discovery_order() 
 #[tokio::test]
 async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
     let pool = testdb::pool().await;
-    let root =
-        std::env::temp_dir().join(format!("ashiato-archive-worker-{}", uuid::Uuid::new_v4()));
+    let tmp = tmp_dir("archive-worker");
+    let root = tmp.path().join("root");
     let inbox = root.join("inbox");
     let downloads = root.join("downloads");
     std::fs::create_dir_all(&inbox).unwrap();
@@ -1792,7 +1784,6 @@ async fn archive_end_to_end_worker_starts_and_records_a_stable_archive() {
         }
     })
     .await;
-    std::fs::remove_dir_all(root).unwrap();
     assert!(
         recorded.is_ok(),
         "取り込み器が待ち時間のうちに台帳へ記録しない"

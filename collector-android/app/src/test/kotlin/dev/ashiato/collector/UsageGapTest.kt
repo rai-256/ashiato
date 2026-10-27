@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 取りに行ったが取得元に無かった期間（tasks 4.1 / design D4 / 本人の決定 Q4）。
@@ -21,6 +23,8 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class UsageGapTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val zone: ZoneId = ZoneId.of("Asia/Tokyo")
 
     /** 積まれた gap の記録だけ。**イベントの記録と同じ置き場に混ざっている**（C11） */
@@ -34,6 +38,7 @@ class UsageGapTest {
     @Test
     fun `保存された終わりが下限より 3 日前なら、その 3 日が gap 1 件になる`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             // 返る中で最も古いイベントは見込みの下限（2026-05-23T09:00Z）より後
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-25T00:00:00Z"))),
         )
@@ -57,7 +62,10 @@ class UsageGapTest {
     // Scenario: 見込みの下限の内側だけを取ったときは gap が積まれない
     @Test
     fun `保存された終わりが下限より後なら gap は積まれない`() {
-        val env = UsageTestEnv(source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))))
+        val env = UsageTestEnv(
+            tmp.newFolder(),
+            source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
+        )
         env.collect()
         val before = env.gaps().size
         env.advance(USAGE_INTERVAL_MS)
@@ -77,7 +85,7 @@ class UsageGapTest {
             usageEvent("2026-05-22T09:00:00Z"),
             usageEvent("2026-05-23T08:00:00Z"),
         )
-        val env = UsageTestEnv(source = FakeUsageSource(storedEvents = kept))
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource(storedEvents = kept))
         env.collect()
         val before = env.gaps().size
         env.advance(thirteenDaysMs)

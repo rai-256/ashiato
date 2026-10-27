@@ -3,13 +3,15 @@ package dev.ashiato.collector
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.Instant
 
 /**
  * ソースを 2 本持てる形（design D5 / tasks 1.1）。
@@ -21,10 +23,12 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class CollectionSourceTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
     private fun collector() = FixCollector(
-        outbox = testOutbox(),
+        outbox = testOutbox(tmp.newFolder()),
         deviceId = "device-1",
         userId = "user-1",
         zone = java.time.ZoneId.of("Asia/Tokyo"),
