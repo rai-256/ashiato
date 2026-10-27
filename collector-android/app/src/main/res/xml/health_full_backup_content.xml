@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- design D14（仮）: Android 11 以前の自動バックアップ。health_permission の置き場だけを外す。 -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="health_permission.xml" />
+</full-backup-content>
