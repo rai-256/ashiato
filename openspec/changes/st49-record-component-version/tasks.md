@@ -85,7 +85,7 @@
 
 ## Task 3: 取り込み口の `client_version` と、資格情報での振り分け
 
-- [ ] 3.1 先に試験を書く（`component_version_tests.rs`。HTTP の試験は `api_tests.rs` の組み立てで `router()` を通し、API の合言葉と画面のログインの印の両方で送る）:
+- [x] 3.1 先に試験を書く（`component_version_tests.rs`。HTTP の試験は `api_tests.rs` の組み立てで `router()` を通し、API の合言葉と画面のログインの印の両方で送る）:
   - `st49_ingest_collector_version_and_server_version` — `// Scenario: 収集アプリの記録は、収集アプリの版と書いた S-01 の版を持つ`
   - `st49_ingest_server_version_is_build_stamp` — `// Scenario: 記録の S-01 の版は、その S-01 の組み立ての印と同じで、印の形を持つ`（`crate::BUILD_STAMP` と一字一句同じ・D5 の正規表現に合う）
   - `st49_ingest_archive_gets_server_version_only` — `// Scenario: 書庫の取り込みの記録は、書いた S-01 の版だけを持つ`（`crate::store_one` を通す）
@@ -96,14 +96,14 @@
   - `st49_ingest_internal_writer_drops_client_version` — `// Scenario: 合言葉でもログインでもない書き手の部品の版は、どこにも入らない`
   - `st49_dedup_version_only_difference_folds` — `// Scenario: 部品の版だけが違う同じ記録は、1 件のまま`
   いまの木で `st49_ingest_collector_version_and_server_version` が落ちることを `CT st49_ingest_collector` rc≠0 で確かめてから 3.2 に進む
-- [ ] 3.2 `ingest.rs` の `IngestRequest` に `client_version`（D8。空と U+0000 の扱いは `IngestRequest` の関数 1 つに閉じる）、`lib.rs` に `Writer`（D9。`match` に `_` を置かない）と `ingest_request` の引数、
+- [x] 3.2 `ingest.rs` の `IngestRequest` に `client_version`（D8。空と U+0000 の扱いは `IngestRequest` の関数 1 つに閉じる）、`lib.rs` に `Writer`（D9。`match` に `_` を置かない）と `ingest_request` の引数、
   `ingest` は `decided()` の `Caller` から、`store_one` は `Writer::Internal` を渡す。`ingest_one` の 2 つの INSERT に 3 列（D10）。**前の版の行を書く 2 か所（`apply_external_update` の前の版の INSERT と `stay_store.rs` の `push_version`）にも、ここで 3 列を写す** ——
   門（Task 2 の D21（仮））は前の版の行の版を更新前の値と照らすので、写さないと版を持つ記録の外部更新が門で落ちる（版を動かす UPDATE は 4.2）。
   `ingest.rs` の単体試験に `st49_hash_ignores_client_version` — `// Scenario: 部品の版を足しても内容の鍵は変わらない`（`hash_is_pinned` と同じ固定値）。
   検証: `CT st49_ingest_` rc=0（`-- --list` で 8 本以上）/ `CT st49_dedup_` rc=0（`-- --list` で 1 本以上）/
   `bash -c 'scripts/quiet-run unit -- cargo test -p ashiato-server --lib st49_hash'` rc=0（`-- --list` で 1 本以上）/ `CT dedup_tests` rc=0（`-- --list` で 35 本以上。既存の重複の判定が変わらない）/
   `bash -c 'scripts/quiet-run unit -- cargo test -p ashiato-server --lib hash_is_pinned'` rc=0（`-- --list` で 1 本以上）
-- [ ] 3.3 `cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` に `client_version`（任意・検査しない・積む時点の版・資格情報で振り分ける・入れ替えは S-01 が先。design の Migration Plan）を足す。
+- [x] 3.3 `cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` に `client_version`（任意・検査しない・積む時点の版・資格情報で振り分ける・入れ替えは S-01 が先。design の Migration Plan）を足す。
   検証: `./tools/check-openapi.sh` rc=0 / `jq -e '.components.schemas.IngestRequest.properties | has("client_version")' docs/openapi.json` rc=0 /
   `bash -c 'test "$(grep -c client_version docs/collector-contract.md)" -ge 3'` rc=0
 
