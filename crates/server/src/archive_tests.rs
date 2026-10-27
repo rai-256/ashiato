@@ -624,7 +624,6 @@ fn archive_slice_large_streams_one_item_at_a_time() {
         Ok(())
     })
     .unwrap();
-    std::fs::remove_file(path).unwrap();
 
     assert_eq!(received, 200);
     assert_eq!(max_in_flight, 1);

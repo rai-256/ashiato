@@ -513,7 +513,6 @@ mod tests {
             .tempdir()
             .unwrap();
         let dir = tmp.path().to_path_buf();
-        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("outage-notice.json"), "{壊れている").unwrap();
         assert_eq!(NoticeStore::new(&dir).load(), NoticeState::default());
     }

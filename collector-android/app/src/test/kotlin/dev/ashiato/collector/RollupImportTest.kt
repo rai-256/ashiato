@@ -470,7 +470,10 @@ private class RollupTestEnv(
     private val log: (String) -> Unit = { lines += it }
     val clock: FakeDeviceClock = FakeDeviceClock(wall = Instant.parse("2026-05-20T09:00:00Z").toEpochMilli())
 
-    /** 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため） */
+    /**
+     * 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため）。
+     * 置き場は `dir/outbox`（[dir] の子フォルダ。[dir] を列挙する試験はこれも拾う）
+     */
     var outbox: Outbox<IngestRequest> = testOutbox(File(dir, "outbox"))
 
     /** 台帳のファイル（試験が行数を直接読む）。まだ 1 度も書いていなければ 0 行と数える */

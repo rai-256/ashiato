@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn history_copy_is_removed_with_wal_and_journal_and_reads_wal_rows() {
-        let (base, _db) = temp_db();
+        let base = scratch();
         let dir = base.path().to_path_buf();
         let db = dir.join("History");
         let open = rusqlite::Connection::open(&db).unwrap();
@@ -624,7 +624,7 @@ mod tests {
     /// 起動時に前のプロセスの残骸を消す。無いときは何もしない（R60）。
     #[test]
     fn history_copy_leftovers_are_swept() {
-        let (base, _db) = temp_db();
+        let base = scratch();
         let tmp = tmp_root(&base);
         std::fs::create_dir_all(tmp.join("left-over")).unwrap();
         std::fs::write(tmp.join("left-over/History"), b"private").unwrap();
@@ -638,12 +638,17 @@ mod tests {
         tmp.path().join("copies")
     }
 
-    /// 試験の最後まで `TempDir` を持つ（落ちても消える）。DB はその下に置く。
-    fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {
-        let tmp = tempfile::Builder::new()
+    /// 試験の最後まで持つ一時フォルダ（落ちても消える）。
+    fn scratch() -> tempfile::TempDir {
+        tempfile::Builder::new()
             .prefix("ashiato-read-")
             .tempdir()
-            .unwrap();
+            .unwrap()
+    }
+
+    /// `scratch()` の下に DB のパスを置く。
+    fn temp_db() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = scratch();
         let db = tmp.path().join("read.sqlite");
         (tmp, db)
     }

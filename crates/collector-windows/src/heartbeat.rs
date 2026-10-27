@@ -417,7 +417,6 @@ mod tests {
             .tempdir()
             .unwrap();
         let dir = tmp.path().to_path_buf();
-        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("counters.json"), "").unwrap();
         let store = CounterStore::new(&dir);
         assert_eq!(store.load_or_quarantine(), (None, true));
