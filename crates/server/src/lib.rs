@@ -4162,10 +4162,11 @@ pub async fn run() -> anyhow::Result<()> {
         .with_warmup(warmup)
         .with_media(media);
     // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
-    let probe = state.clone();
+    // 書き出しの台帳だけを握る（App の全体を仕事の寿命まで持たない。/code-review R28）
+    let exports = state.exports.clone();
     drop(purge_compaction::spawn(
         state.pool.clone(),
-        move || probe.is_exporting(),
+        move || exports.running_view().is_some(),
         std::sync::Arc::new(chrono::Utc::now),
     ));
     let mut app = router(state);

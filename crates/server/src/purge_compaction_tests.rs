@@ -18,21 +18,14 @@ use crate::export::{ExportError, FailKind, Hooks, Stage};
 use crate::export_job_tests::{app_with, post_status, wait_idle, wait_until_blocked};
 use crate::export_tests::tmp_dir;
 use crate::purge_compaction::{self, next_run_after, TableResult, TABLES};
-use crate::purge_tests::{purge_now, scene_basic, scene_erase};
-use crate::testdb;
+use crate::purge_tests::{purge_now, scene_basic, scene_erase, scene_version, scope_counts};
+use crate::{deletion, stay_store, testdb};
 use axum::http::StatusCode;
 
 const POLL: Duration = Duration::from_millis(20);
 
 fn idle() -> bool {
     false
-}
-
-async fn db_now(pool: &PgPool) -> DateTime<Utc> {
-    sqlx::query_scalar("SELECT now()")
-        .fetch_one(pool)
-        .await
-        .unwrap()
 }
 
 async fn filenode(pool: &PgPool, table: &str) -> i64 {
@@ -51,24 +44,41 @@ async fn filenodes(pool: &PgPool) -> Vec<i64> {
     v
 }
 
-/// 滞在を 1 件、本文ごと消す。
+/// 前の版を 1 件持つ滞在を 1 件、本文ごと消す（`core.event` と `core.event_version` の両方の本文を消す）。
 async fn erase_body(owner: &PgPool) {
+    let user = testdb::user();
+    let (stay, _) = scene_basic(owner, user).await;
+    add_version(owner, stay, user).await;
+    scene_erase(owner, stay).await;
+    purge_now(owner, stay).await;
+}
+
+/// 前の版を持たない滞在を 1 件、本文ごと消す（`core.event` の本文だけを消す）。
+async fn erase_body_without_versions(owner: &PgPool) {
     let (stay, _) = scene_basic(owner, testdb::user()).await;
     scene_erase(owner, stay).await;
     purge_now(owner, stay).await;
 }
 
+async fn add_version(owner: &PgPool, stay: uuid::Uuid, user: uuid::Uuid) {
+    scene_version(
+        owner,
+        stay,
+        user,
+        1,
+        "2026-10-01T10:00:00+09:00",
+        "2026-10-01T10:45:00+09:00",
+    )
+    .await;
+}
+
 /// 前の晩までの消去を書き直しておく（以降の晩の対象が、この試験の消去だけになる）。
-async fn settle(app: &PgPool, owner: &PgPool) -> DateTime<Utc> {
+async fn settle(app: &PgPool, owner: &PgPool) {
     sqlx::query("GRANT MAINTAIN ON core.event, core.event_version TO ashiato_app")
         .execute(owner)
         .await
         .unwrap();
-    let now = db_now(owner).await;
-    purge_compaction::run_once(app, now, &idle, POLL)
-        .await
-        .unwrap();
-    now
+    purge_compaction::run_once(app, &idle, POLL).await.unwrap();
 }
 
 /// 結果の行のいまの最大の `id`（これより後が、これから走らせる 1 回の分）。
@@ -105,10 +115,7 @@ async fn purge_compaction_rewrites_tables_after_erasure() {
     erase_body(&owner).await;
     let before = filenodes(&owner).await;
     let marker = last_id(&owner).await;
-    let now = db_now(&owner).await;
-    let results = purge_compaction::run_once(&app, now, &idle, POLL)
-        .await
-        .unwrap();
+    let results = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
 
     let after = filenodes(&owner).await;
     for (i, table) in TABLES.iter().enumerate() {
@@ -128,14 +135,11 @@ async fn purge_compaction_skips_night_without_erasure() {
     let db = testdb::scratch().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     erase_body(&owner).await;
-    // 前の晩と同じ締め切りで走らせる（並んだ試験が後から足す消去は数えない）
-    let now = settle(&app, &owner).await;
+    settle(&app, &owner).await;
 
     let before = filenodes(&owner).await;
     let marker = last_id(&owner).await;
-    let results = purge_compaction::run_once(&app, now, &idle, POLL)
-        .await
-        .unwrap();
+    let results = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
 
     assert!(results.is_empty(), "対象の表が無い");
     assert_eq!(
@@ -149,6 +153,107 @@ async fn purge_compaction_skips_night_without_erasure() {
             "{table} に行を足さない"
         );
     }
+}
+
+/// 前の版を消していない晩は、前の版の表を書き直さない（code-verify R16。Q6「その日に本文を消した表だけ」）。
+#[tokio::test]
+async fn purge_compaction_skips_version_table_when_no_version_was_erased() {
+    let db = testdb::scratch().await;
+    let (owner, app) = (db.owner.clone(), db.app.clone());
+    settle(&app, &owner).await;
+    erase_body_without_versions(&owner).await;
+
+    let before = filenodes(&owner).await;
+    let marker = last_id(&owner).await;
+    let results = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
+
+    let outcomes: Vec<_> = results.iter().map(|r| (r.table, r.outcome)).collect();
+    assert_eq!(
+        outcomes,
+        [("core.event", "rewritten")],
+        "core.event だけを書き直す"
+    );
+    let after = filenodes(&owner).await;
+    assert_ne!(before[0], after[0], "core.event のファイルが替わる");
+    assert_eq!(
+        before[1], after[1],
+        "core.event_version のファイルは替わらない"
+    );
+    assert!(
+        outcome_rows(&owner, "core.event_version", marker)
+            .await
+            .is_empty(),
+        "core.event_version に行を足さない"
+    );
+}
+
+/// 書き直しより前に始まり、書き直しの後に commit した消去は、次の晩に書き直す（code-verify R18 / /code-review R21・R22）。
+/// 操作の時刻（トランザクションの始まり）は書き直しの始まりより前なので、時刻で窓を切ると「済み」に入り、以後書き直されなかった。
+/// 利用者の錠を別の接続で握り、前の版を持つ滞在の消去を錠で待たせたまま 1 晩目を走らせる。
+#[tokio::test]
+async fn purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_night() {
+    let db = testdb::scratch().await;
+    let (owner, app) = (db.owner.clone(), db.app.clone());
+    settle(&app, &owner).await;
+    erase_body(&owner).await;
+
+    let user = testdb::user();
+    let (stay, _) = scene_basic(&owner, user).await;
+    add_version(&owner, stay, user).await;
+    scene_erase(&owner, stay).await;
+    let counts = scope_counts(&owner, stay).await;
+    let mut held = owner.acquire().await.unwrap();
+    sqlx::query("BEGIN").execute(&mut *held).await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
+        .bind(stay_store::LOCK_KEY)
+        .bind(user)
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    let purge = tokio::spawn({
+        let owner = owner.clone();
+        async move { deletion::purge(&owner, stay, None, counts).await.unwrap() }
+    });
+    // 消去が錠を待つところまで進める（この DB の、取れていない助言の錠）。owner の接続は握りと消去で埋まっているので app で読む
+    let waiting = || async {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_database d ON d.oid = l.database
+                             WHERE d.datname = current_database() AND l.locktype = 'advisory' AND NOT l.granted)",
+        )
+        .fetch_one(&app)
+        .await
+        .unwrap()
+    };
+    for _ in 0..500 {
+        if waiting().await {
+            break;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    assert!(waiting().await, "消去が錠を待っている");
+
+    let first = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
+    assert_eq!(
+        result_of(&first, "core.event_version").outcome,
+        "rewritten",
+        "1 晩目は先に消した前の版を書き直す"
+    );
+
+    sqlx::query("ROLLBACK").execute(&mut *held).await.unwrap();
+    drop(held);
+    purge.await.unwrap();
+    let before = filenode(&owner, "core.event_version").await;
+    let second = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
+    assert_eq!(
+        result_of(&second, "core.event_version").outcome,
+        "rewritten",
+        "錠を待っていた消去の前の版を 2 晩目に書き直す"
+    );
+    assert_ne!(
+        before,
+        filenode(&owner, "core.event_version").await,
+        "2 晩目に core.event_version のファイルが替わる"
+    );
 }
 
 // Scenario: 書き直せなかったら失敗として残り、次の晩にもう一度書き直す
@@ -165,8 +270,7 @@ async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
         .unwrap();
     let before = filenodes(&owner).await;
     let marker = last_id(&owner).await;
-    let night1 = db_now(&owner).await;
-    let first = purge_compaction::run_once(&app, night1, &idle, POLL).await;
+    let first = purge_compaction::run_once(&app, &idle, POLL).await;
     sqlx::query("GRANT MAINTAIN ON core.event, core.event_version TO ashiato_app")
         .execute(&owner)
         .await
@@ -187,7 +291,7 @@ async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
             "{table} の失敗が残る"
         );
     }
-    // 記録は表の名前・時刻・結果・SQLSTATE だけ（記録の値を持つ列が無い）
+    // 記録は表の名前・時刻・結果・SQLSTATE・窓の区切りのスナップショットだけ（記録の値を持つ列が無い）
     let columns: Vec<String> = sqlx::query_scalar(
         "SELECT column_name::text FROM information_schema.columns
           WHERE table_schema = 'core' AND table_name = 'purge_compaction' ORDER BY ordinal_position",
@@ -203,14 +307,12 @@ async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
             "started_at",
             "finished_at",
             "outcome",
-            "sqlstate"
+            "sqlstate",
+            "snapshot"
         ]
     );
 
-    let night2 = db_now(&owner).await;
-    let second = purge_compaction::run_once(&app, night2, &idle, POLL)
-        .await
-        .unwrap();
+    let second = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
     let after = filenodes(&owner).await;
     for (i, table) in TABLES.iter().enumerate() {
         assert_eq!(result_of(&second, table).outcome, "rewritten", "{table}");
@@ -238,10 +340,7 @@ async fn purge_compaction_old_snapshot_is_not_rewritten_and_retried() {
     erase_body(&owner).await;
     let before = filenodes(&owner).await;
     let marker = last_id(&owner).await;
-    let night1 = db_now(&owner).await;
-    let first = purge_compaction::run_once(&app, night1, &idle, POLL)
-        .await
-        .unwrap();
+    let first = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
     for table in TABLES {
         assert_eq!(result_of(&first, table).outcome, "not_rewritten", "{table}");
         assert_eq!(
@@ -258,10 +357,7 @@ async fn purge_compaction_old_snapshot_is_not_rewritten_and_retried() {
 
     sqlx::query("ROLLBACK").execute(&mut *held).await.unwrap();
     drop(held);
-    let night2 = db_now(&owner).await;
-    let second = purge_compaction::run_once(&app, night2, &idle, POLL)
-        .await
-        .unwrap();
+    let second = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
     let after = filenodes(&owner).await;
     for (i, table) in TABLES.iter().enumerate() {
         assert_eq!(result_of(&second, table).outcome, "rewritten", "{table}");
@@ -316,12 +412,11 @@ async fn purge_compaction_waits_while_exporting() {
 
     let before = filenodes(&owner).await;
     let marker = last_id(&owner).await;
-    let now = db_now(&owner).await;
     let job = tokio::spawn({
         let (app, server) = (app.clone(), server.clone());
         async move {
             // 本番の spawn と同じ判断（App::is_exporting）を渡す
-            purge_compaction::run_once(&app, now, &|| server.is_exporting(), POLL)
+            purge_compaction::run_once(&app, &|| server.is_exporting(), POLL)
                 .await
                 .unwrap()
         }
@@ -411,10 +506,7 @@ async fn compaction_volume_run_once() {
         before.push(size(t).await);
     }
     let marker = last_id(&owner).await;
-    let now = db_now(&owner).await;
-    let results = purge_compaction::run_once(&app, now, &idle, POLL)
-        .await
-        .unwrap();
+    let results = purge_compaction::run_once(&app, &idle, POLL).await.unwrap();
 
     let mut total = 0.0;
     for (i, t) in TABLES.iter().enumerate() {

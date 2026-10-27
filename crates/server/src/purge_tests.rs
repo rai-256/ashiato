@@ -120,6 +120,7 @@ async fn purge_schema_compaction_row_shape_is_fixed() {
             ("finished_at", "timestamptz", false),
             ("outcome", "text", false),
             ("sqlstate", "text", true),
+            ("snapshot", "pg_snapshot", true),
         ])
     );
     let mut want = vec![

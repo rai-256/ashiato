@@ -2,11 +2,12 @@
 //! 夜の書き直し（ST23 design D11）。本文を消した表を `VACUUM FULL` で書き直し、古い行の痕跡を追い出す。
 //!
 //! - 毎日 03:30（Asia/Tokyo）に 1 回。時刻は `spawn` に差し込む（壁時計を直に読まない）
-//! - 対象は、その表の最後の成功の後に `core.erasure_operation` の行がある表だけ
+//! - 対象は、その表の最後の成功が書き直した後に commit した消去の操作がある表だけ。`core.event_version` は
+//!   前の版を消した操作（`versions > 0`）だけを数える（`pending_ops_sql`）
 //! - 書き出しの job が走っている間は始めず、`POLL` ごとに見直す
 //! - `pg_class.relfilenode` を前後で比べ、替わらなければ失敗（権限が無いと `VACUUM FULL` は警告だけで成功を返す）
 //! - 消去の操作より古いスナップショットが残っていれば、ファイルが替わっても書き直せていないとする（`old_snapshot_remains`）
-//! - 残すのは表の名前・時刻・結果・SQLSTATE だけ（記録の値は含めない）
+//! - 残すのは表の名前・時刻・結果・SQLSTATE と、窓の区切りのスナップショット（xid の集合）だけ（記録の値は含めない）
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -65,7 +66,7 @@ pub fn spawn(
                 .to_std()
                 .unwrap_or(Duration::ZERO);
             tokio::time::sleep(wait).await;
-            match run_once(&pool, clock(), &is_exporting, POLL).await {
+            match run_once(&pool, &is_exporting, POLL).await {
                 Ok(results) => {
                     // ログは表の名前（定数）と結果の種別（自分で名付けた語）だけ
                     for r in &results {
@@ -92,17 +93,16 @@ pub fn spawn(
     })
 }
 
-/// 夜の書き直し 1 回。`now` までに本文を消した操作がある表だけを書き直し、結果を表ごとに 1 行残す。
+/// 夜の書き直し 1 回。まだ書き直していない消去の操作がある表だけを書き直し、結果を表ごとに 1 行残す。
 /// 書き出しが走っている間（`is_exporting`）は始めず、`poll` ごとに見直す。対象が無ければ何も残さない。
 pub async fn run_once(
     pool: &PgPool,
-    now: DateTime<Utc>,
     is_exporting: &(impl Fn() -> bool + ?Sized),
     poll: Duration,
 ) -> Result<Vec<TableResult>, sqlx::Error> {
     let mut targets = Vec::new();
     for table in TABLES {
-        if has_unrewritten_erasure(pool, table, now).await? {
+        if has_unrewritten_erasure(pool, table).await? {
             targets.push(table);
         }
     }
@@ -115,19 +115,20 @@ pub async fn run_once(
     }
     let mut results = Vec::new();
     for table in targets {
-        // 始まりと終わりは DB の時計で実際の時刻を残す（書き出しの待ちの後。`now` は対象の締め切りだけに使う）
+        // 始まりと終わりは DB の時計で実際の時刻を残す（書き出しの待ちの後）
         let started_at: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(pool)
             .await?;
-        let (outcome, sqlstate) = rewrite(pool, table, now).await;
+        let (outcome, sqlstate, snapshot) = rewrite(pool, table).await;
         sqlx::query(
-            "INSERT INTO core.purge_compaction (table_name, started_at, finished_at, outcome, sqlstate)
-             VALUES ($1, $2, clock_timestamp(), $3, $4)",
+            "INSERT INTO core.purge_compaction (table_name, started_at, finished_at, outcome, sqlstate, snapshot)
+             VALUES ($1, $2, clock_timestamp(), $3, $4, $5::pg_snapshot)",
         )
         .bind(table)
         .bind(started_at)
         .bind(outcome)
         .bind(&sqlstate)
+        .bind(&snapshot)
         .execute(pool)
         .await?;
         results.push(TableResult {
@@ -139,23 +140,32 @@ pub async fn run_once(
     Ok(results)
 }
 
-/// その表の最後の成功の始まりより後、`now` までに消去の操作があるか。
-async fn has_unrewritten_erasure(
-    pool: &PgPool,
-    table: &str,
-    now: DateTime<Utc>,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT EXISTS (
-           SELECT 1 FROM core.erasure_operation op
-            WHERE op.at <= $2
-              AND op.at > coalesce(
-                    (SELECT max(c.started_at) FROM core.purge_compaction c
-                      WHERE c.table_name = $1 AND c.outcome = 'rewritten'),
-                    '-infinity'::timestamptz))",
-    )
+/// `$1` の表について、まだ書き直していない消去の操作（別名 `o`）を選ぶ `FROM … WHERE …`。
+///
+/// **窓は時刻でなく、最後の成功が `VACUUM FULL` の直前に取ったスナップショット（`core.purge_compaction.snapshot`）で切る**
+/// （code-verify R18 / /code-review R21・R22）。操作の `at` はトランザクションの始まり（`now()`）なので、
+/// 書き直しより前に始まり後に commit した操作（錠を待っていた消去・書き出しを待つ間の消去）が時刻の窓では「済み」に入り、
+/// その表は以後書き直されなかった。スナップショットから見える操作は書き直しの前に commit しているので死んだ行が追い出され、
+/// 見えない操作（その時に走っていた・後で始まった）は次の晩の対象に残る。成功ごとにスナップショットは新しくなるので、最後の 1 行だけを見る。
+///
+/// `core.event_version` は前の版を消した操作（`versions > 0`）だけ（code-verify R16。Q6「その日に本文を消した表だけ」）。
+/// `core.event` はどの操作も本文を消す（滞在か後着の記録）。
+fn pending_ops_sql() -> &'static str {
+    "FROM core.erasure_operation o
+     WHERE ($1 = 'core.event' OR o.versions > 0)
+       AND NOT coalesce(pg_visible_in_snapshot(o.txid,
+             (SELECT c.snapshot FROM core.purge_compaction c
+               WHERE c.table_name = $1 AND c.outcome = 'rewritten'
+               ORDER BY c.id DESC LIMIT 1)), false)"
+}
+
+/// その表に、最後の成功の後に commit した消去の操作があるか。
+async fn has_unrewritten_erasure(pool: &PgPool, table: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(&format!(
+        "SELECT EXISTS (SELECT 1 {pending})",
+        pending = pending_ops_sql()
+    ))
     .bind(table)
-    .bind(now)
     .fetch_one(pool)
     .await
 }
@@ -167,7 +177,7 @@ async fn filenode(conn: &mut sqlx::PgConnection, table: &str) -> Result<i64, sql
         .await
 }
 
-/// 書き直しの対象になった消去の操作（`has_unrewritten_erasure` と同じ窓）より古いスナップショットが、
+/// 書き直しの対象になった消去の操作（`has_unrewritten_erasure` と同じ窓。`pending_ops_sql`）より古いスナップショットが、
 /// 自分以外に残っているか（final review R5）。
 ///
 /// `VACUUM FULL` は、まだ誰かのスナップショットから見える死んだ行（RECENTLY_DEAD）を新しいファイルへ写す。
@@ -190,16 +200,10 @@ async fn filenode(conn: &mut sqlx::PgConnection, table: &str) -> Result<i64, sql
 async fn old_snapshot_remains(
     conn: &mut sqlx::PgConnection,
     table: &str,
-    now: DateTime<Utc>,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
+    sqlx::query_scalar(&format!(
         "WITH op AS (
-           SELECT max(o.txid) AS txid FROM core.erasure_operation o
-            WHERE o.at <= $2
-              AND o.at > coalesce(
-                    (SELECT max(c.started_at) FROM core.purge_compaction c
-                      WHERE c.table_name = $1 AND c.outcome = 'rewritten'),
-                    '-infinity'::timestamptz)
+           SELECT max(o.txid) AS txid {pending}
          ), horizon AS (
            SELECT a.backend_xmin AS x FROM pg_stat_activity a
             WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
@@ -221,25 +225,24 @@ async fn old_snapshot_remains(
            SELECT 1 FROM horizon h, op
             WHERE h.x IS NOT NULL AND op.txid IS NOT NULL
               AND age(h.x) >= age(op.txid::xid))",
-    )
+        pending = pending_ops_sql()
+    ))
     .bind(table)
-    .bind(now)
     .fetch_one(conn)
     .await
 }
 
-/// 1 表を書き直し、結果の種別と SQLSTATE を返す。ファイルが替わらなければ書き直せていない。
+/// 1 表の結果の種別・SQLSTATE・`VACUUM FULL` の直前に取ったスナップショット（`pg_snapshot` の文字列。取る前に落ちたら None）。
+type Rewritten = (&'static str, Option<String>, Option<String>);
+
+/// 1 表を書き直す。ファイルが替わらなければ書き直せていない。
 /// 消去より古いスナップショットが前か後に残っていれば、ファイルが替わっても `not_rewritten`（次の晩にやり直す）。
-async fn rewrite(
-    pool: &PgPool,
-    table: &'static str,
-    now: DateTime<Utc>,
-) -> (&'static str, Option<String>) {
+async fn rewrite(pool: &PgPool, table: &'static str) -> Rewritten {
     let mut conn = match pool.acquire().await {
         Ok(c) => c,
-        Err(e) => return ("failed", sqlstate_of(&e)),
+        Err(e) => return ("failed", sqlstate_of(&e), None),
     };
-    let result = rewrite_on(&mut conn, table, now).await;
+    let result = rewrite_on(&mut conn, table).await;
     // 接続を戻す前に待ち時間の上限を元に戻す（失敗しても接続ごと捨てる）
     if sqlx::query("RESET lock_timeout")
         .execute(&mut *conn)
@@ -251,26 +254,31 @@ async fn rewrite(
     result
 }
 
-async fn rewrite_on(
-    conn: &mut sqlx::PgConnection,
-    table: &'static str,
-    now: DateTime<Utc>,
-) -> (&'static str, Option<String>) {
-    let fail = |e: &sqlx::Error| {
+async fn rewrite_on(conn: &mut sqlx::PgConnection, table: &'static str) -> Rewritten {
+    let fail = |e: &sqlx::Error, snapshot: Option<String>| {
         let state = sqlstate_of(e);
         let outcome = if state.as_deref() == Some(SQLSTATE_LOCK_NOT_AVAILABLE) {
             "lock_timeout"
         } else {
             "failed"
         };
-        (outcome, state)
+        (outcome, state, snapshot)
     };
     // 前: 古いスナップショットが残っていれば、表の排他ロックを取らずに書き直せていないとして残す
-    match old_snapshot_remains(conn, table, now).await {
-        Ok(true) => return ("not_rewritten", None),
+    match old_snapshot_remains(conn, table).await {
+        Ok(true) => return ("not_rewritten", None, None),
         Ok(false) => {}
-        Err(e) => return fail(&e),
+        Err(e) => return fail(&e, None),
     }
+    // 窓の区切り（`pending_ops_sql`）。ここで commit 済みの操作の死んだ行は、この後の `VACUUM FULL` が追い出す
+    let snapshot: String = match sqlx::query_scalar("SELECT pg_current_snapshot()::text")
+        .fetch_one(&mut *conn)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return fail(&e, None),
+    };
+    let fail = |e: &sqlx::Error| fail(e, Some(snapshot.clone()));
     let before = match filenode(conn, table).await {
         Ok(n) => n,
         Err(e) => return fail(&e),
@@ -293,12 +301,13 @@ async fn rewrite_on(
         Err(e) => return fail(&e),
     };
     // 後: 書き直しの最中に古いスナップショットがあれば、新しいファイルに古い本文が写っている
-    match old_snapshot_remains(conn, table, now).await {
-        Ok(true) => ("not_rewritten", None),
-        Ok(false) if after != before => ("rewritten", None),
-        Ok(false) => ("not_rewritten", None),
-        Err(e) => fail(&e),
-    }
+    let outcome = match old_snapshot_remains(conn, table).await {
+        Ok(true) => "not_rewritten",
+        Ok(false) if after != before => "rewritten",
+        Ok(false) => "not_rewritten",
+        Err(e) => return fail(&e),
+    };
+    (outcome, None, Some(snapshot))
 }
 
 fn sqlstate_of(e: &sqlx::Error) -> Option<String> {

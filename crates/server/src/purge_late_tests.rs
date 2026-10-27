@@ -456,3 +456,75 @@ async fn purge_late_archive_arrival_with_versions_ledgers_each_version() {
     .unwrap();
     assert_eq!(left, 0, "前の版の本文が残っている");
 }
+
+/// 別の消した滞在 B の後着として隠れていた書庫の位置を、書庫の見回りが本文を消した滞在 A の後着として本文ごと消しても、
+/// B は戻せる（/code-review R24）。台帳に A を原因として足さないと、本文の無いその行が B だけを原因に持ち、
+/// B を戻す口が「本文を消した記録は戻せない」で断り続ける。
+#[tokio::test]
+async fn purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorable() {
+    let pool = testdb::pool().await;
+    let user = testdb::user();
+    let (a, _) = scene_basic(&pool, user).await;
+    let b = scene_stay(
+        &pool,
+        user,
+        &format!("{DAY}T10:15:00+09:00"),
+        &format!("{DAY}T10:25:00+09:00"),
+    )
+    .await;
+    scene_erase(&pool, b).await;
+    scene_erase(&pool, a).await;
+    let source = "c03-legacy-location";
+    let when = format!("{DAY}T10:20:00+09:00");
+    let loc =
+        crate::purge_tests::scene_event(&pool, user, source, &when, r#"{"lat":35.5,"lon":139.76}"#)
+            .await;
+    // 作り直しが B の後着として隠した形（印と台帳の行。原因 = B）
+    sqlx::query("UPDATE core.event SET deleted_at = now(), deleted_by = 'user:late' WHERE id = $1")
+        .bind(loc)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger (event_id, user_id, logical_source, action, cause_event_id, mark)
+         VALUES ($1, $2, $3, 'erase', $4, 'user:late')",
+    )
+    .bind(loc)
+    .bind(user)
+    .bind(source)
+    .bind(b)
+    .execute(&pool)
+    .await
+    .unwrap();
+    purge_now(&pool, a).await;
+
+    let stored = crate::IngestRequest {
+        id: loc,
+        user_id: user,
+        logical_source: source.into(),
+        external_id: None,
+        device_id: Some("s01-c03".into()),
+        origin: "collected".into(),
+        event_time: at(&when),
+        tz_offset_min: 540,
+        tz_id: "Asia/Tokyo".into(),
+        schema_version: 1,
+        unit_system: None,
+        crs: None,
+        source_updated_at: None,
+        external_ref: None,
+        raw: String::new(),
+        payload: serde_json::json!({}),
+    };
+    crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
+        .await
+        .unwrap();
+    assert!(emptied(&pool, loc).await, "後着の行の本文が残っている");
+
+    let restored = crate::deletion::restore(&pool, &[b], None).await;
+    assert!(restored.is_ok(), "B を戻せない: {restored:?}");
+    assert!(
+        mark_of(&pool, loc).await.is_some(),
+        "本文を消した行は A の後着として消えたまま"
+    );
+}

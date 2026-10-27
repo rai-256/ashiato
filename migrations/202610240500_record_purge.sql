@@ -159,15 +159,19 @@ CREATE CONSTRAINT TRIGGER event_requires_derived_ledger
   FOR EACH ROW EXECUTE FUNCTION core.require_derived_erasure_ledger();
 
 -- ------------------------------------------------------------------ 夜の書き直しの記録（D11）
--- 記録の値を持たない（表の名前・時刻・結果・SQLSTATE だけ）。
+-- 記録の値を持たない（表の名前・時刻・結果・SQLSTATE と、書き直しの直前のスナップショットだけ）。
+-- snapshot は次の晩の対象の窓の区切り（それから見えない消去の操作が、まだ書き直していない分）。取る前に落ちたら NULL。
 CREATE TABLE IF NOT EXISTS core.purge_compaction (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   table_name  text NOT NULL CHECK (table_name IN ('core.event', 'core.event_version')),
   started_at  timestamptz NOT NULL,
   finished_at timestamptz NOT NULL,
   outcome     text NOT NULL CHECK (outcome IN ('rewritten', 'not_rewritten', 'lock_timeout', 'failed')),
-  sqlstate    text
+  sqlstate    text,
+  snapshot    pg_snapshot
 );
+-- 列を足す前にこの移行を当てた DB にも足す（移行は起動のたびに全版を当てる）
+ALTER TABLE core.purge_compaction ADD COLUMN IF NOT EXISTS snapshot pg_snapshot;
 
 CREATE INDEX IF NOT EXISTS purge_compaction_by_table ON core.purge_compaction (table_name, finished_at);
 

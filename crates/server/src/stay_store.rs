@@ -3,6 +3,8 @@
 //!
 //! 判定そのものは `stay`（DB に触らない）。ここが持つのは、**何を読んで判定に渡し、
 //! 結果をどの行へどう書くか** —— 識別子の引き継ぎ（D3）と、本人が消した時間帯（D4）と、錠と範囲（D5）。
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -969,15 +971,21 @@ async fn mark_late_arrivals(
     .await?;
 
     for (event_id, logical_source, cause) in candidates {
-        mark_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
-        if purge_bodies {
-            purge_late_body(tx, user, event_id, &logical_source, &cause).await?;
+        let marked = mark_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
+        if purge_bodies
+            && purge_late_body(tx, user, event_id, &logical_source, &cause).await?
+            && !marked
+        {
+            // すでに別の消した滞在の後着として隠れていた行を、本文を消した滞在の後着として消した。
+            // その滞在を原因として台帳に足す —— 足さないと、本文の無いこの行が前の原因だけを持ち、
+            // 前の原因の滞在を戻す口が「本文を消した記録は戻せない」で断り続ける（/code-review R24）
+            ledger_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
         }
     }
     Ok(())
 }
 
-/// 後着の 1 件の本文を、原因の滞在が本文を消した滞在（範囲の行がある）なら消す（`kind = 'late'`）。
+/// 後着の 1 件の本文を、原因の滞在が本文を消した滞在（範囲の行がある）なら消す（`kind = 'late'`）。消したら `true`。
 /// 範囲の行が無い本文を消した滞在（D14）は印だけ —— 消す側に倒すと、見せていない記録の本文が戻らない。
 async fn purge_late_body(
     tx: &mut Transaction<'_, Postgres>,
@@ -985,9 +993,9 @@ async fn purge_late_body(
     event_id: uuid::Uuid,
     logical_source: &str,
     cause: &LateCause,
-) -> sqlx::Result<()> {
+) -> sqlx::Result<bool> {
     let Some(parent_id) = cause.operation_id.filter(|_| cause.purged) else {
-        return Ok(());
+        return Ok(false);
     };
     let mut counts = crate::deletion::PurgeCounts::default();
     if crate::archive::LOCATION_SOURCES.contains(&logical_source) {
@@ -1010,7 +1018,8 @@ async fn purge_late_body(
             counts,
         },
     )
-    .await
+    .await?;
+    Ok(true)
 }
 
 /// 1 件に `user:late` を付けて削除の台帳に 1 行（原因 = 消した滞在）。すでに隠れている行には何もしない。付けたら `true`。
@@ -1032,10 +1041,27 @@ async fn mark_late(
     if changed.rows_affected() == 0 {
         return Ok(false);
     }
+    ledger_late(tx, user, event_id, logical_source, cause_event_id).await?;
+    Ok(true)
+}
+
+/// 削除の台帳に後着の 1 行（原因 = 消した滞在）。その原因の最後の行がすでに `erase` なら足さない。
+async fn ledger_late(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause_event_id: uuid::Uuid,
+) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO core.deletion_ledger
            (event_id, user_id, logical_source, action, cause_event_id, mark)
-         VALUES ($1, $2, $3, 'erase', $4, $5)",
+         SELECT $1, $2, $3, 'erase', $4, $5
+          WHERE NOT EXISTS (
+            SELECT 1 FROM core.deletion_ledger d
+             WHERE d.event_id = $1 AND d.cause_event_id = $4 AND d.action = 'erase'
+               AND d.seq = (SELECT max(l.seq) FROM core.deletion_ledger l
+                             WHERE l.event_id = $1 AND l.cause_event_id = $4))",
     )
     .bind(event_id)
     .bind(user)
@@ -1044,7 +1070,7 @@ async fn mark_late(
     .bind(USER_LATE)
     .execute(&mut **tx)
     .await?;
-    Ok(true)
+    Ok(())
 }
 
 #[derive(sqlx::FromRow)]
@@ -1112,7 +1138,8 @@ pub(crate) async fn settle_arrival(
     if !mark_late(tx, stored.user_id, stored.id, source, cause.stay_id).await? {
         return Ok(());
     }
-    purge_late_body(tx, stored.user_id, stored.id, source, &cause).await
+    purge_late_body(tx, stored.user_id, stored.id, source, &cause).await?;
+    Ok(())
 }
 
 /// 前の版を履歴へ積む（`core.event_version`）。`version_no` は続き番号 —— 錠の中なので衝突しない。
@@ -1518,25 +1545,37 @@ pub async fn day_view(
     .bind(ABSORBED)
     .fetch_all(pool)
     .await?;
+    // 後から本文を消した件数を、本文を消した滞在の操作ごとに 1 回の問い合わせで数える（/code-review R27）
+    let purged_ops: Vec<uuid::Uuid> = hidden_rows
+        .iter()
+        .filter(|r| r.purged)
+        .filter_map(|r| r.operation_id)
+        .collect();
+    let late_by_op: HashMap<uuid::Uuid, i64> = if purged_ops.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_as::<_, (uuid::Uuid, i64)>(
+            "SELECT parent_id, sum(stays + locations + archive_locations + archive_items)::bigint
+               FROM core.erasure_operation
+              WHERE kind = 'late' AND parent_id = ANY($1)
+              GROUP BY parent_id",
+        )
+        .bind(&purged_ops)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
     let mut purged_spans: Vec<ErasedSpan> = Vec::new();
     for row in hidden_rows.iter().filter(|r| r.purged) {
         let (start, end) = (row.start_at.max(d0), row.end_at.min(upper));
         if start >= end {
             continue;
         }
-        let late: i64 = match row.operation_id {
-            Some(op) => {
-                sqlx::query_scalar(
-                    "SELECT coalesce(sum(stays + locations + archive_locations + archive_items), 0)::bigint
-                       FROM core.erasure_operation
-                      WHERE kind = 'late' AND parent_id = $1",
-                )
-                .bind(op)
-                .fetch_one(pool)
-                .await?
-            }
-            None => 0,
-        };
+        let late = row
+            .operation_id
+            .and_then(|op| late_by_op.get(&op).copied())
+            .unwrap_or(0);
         entries.push(DayEntry {
             purged: true,
             purge_stay_id: Some(row.id),

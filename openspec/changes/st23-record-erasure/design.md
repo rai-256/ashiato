@@ -202,11 +202,15 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
 ## D11（仮）. 夜の書き直し（Q6 推奨・R15）
 
 - **仕事**: `crates/server/src/purge_compaction.rs`。`run()` で取り込み器の隣に `tokio::spawn` する。毎日 03:30（Asia/Tokyo）に 1 回。時刻は試験で差し込める（壁時計を直に読まない）
-- **対象**: `core.event` と `core.event_version` のうち、その表の最後の成功の後に `core.erasure_operation` の行がある表だけ
+- **対象**: `core.event` と `core.event_version` のうち、その表の最後の成功の後に commit した `core.erasure_operation` の行がある表だけ。
+  `core.event_version` は前の版を消した操作（`versions > 0`）だけを数える（code-verify R16。Q6「その日に本文を消した表だけ」）。
+  **「後」は時刻でなくスナップショットで切る**（code-verify R18・/code-review R21・R22）: 書き直しは `VACUUM FULL` の直前に `pg_current_snapshot()` を取って残し、
+  次の晩はそれから見えない操作（`pg_visible_in_snapshot(txid, …)` が偽）を対象にする。操作の `at` はトランザクションの始まりなので、
+  錠や書き出しを待つ間に始まって書き直しの後に commit した消去が、時刻の窓では「済み」に入って以後書き直されなかった
 - **書き出しを待つ**: 書き出しの job が走っている間は始めず、1 分ごとに見直す（書き出しの長い読み出しの後ろで `ACCESS EXCLUSIVE` を待つと、後続の読み書きがすべて止まる）
 - **権限**: 移行で `GRANT MAINTAIN ON core.event, core.event_version TO ashiato_app`（PostgreSQL 17）。`.down.sql` で `REVOKE`。`grants.sql`（ST28 の共有ファイル）には足さない —— 表ごとの付与は移行の中で済み、`ALL TABLES` に広げない
 - **確かめ方**: `pg_class.relfilenode` を前後で比べ、**替わらなければ失敗**（権限が無いと `VACUUM FULL` は警告だけで成功として返る。premises.md）。`SET lock_timeout = '5s'` を超えたら失敗
-- **残し方**: `core.purge_compaction`（表の名前・始まり・終わり・`outcome ∈ {rewritten, not_rewritten, lock_timeout, failed}`・SQLSTATE）に 1 行。値を含めない。失敗した表は「最後の成功」が進まないので次の晩にもう一度
+- **残し方**: `core.purge_compaction`（表の名前・始まり・終わり・`outcome ∈ {rewritten, not_rewritten, lock_timeout, failed}`・SQLSTATE・窓の区切りの `snapshot pg_snapshot`）に 1 行。値を含めない。失敗した表は「最後の成功」が進まないので次の晩にもう一度
 - **確認の文面**の「今夜の書き直しで消える」はこの時刻に合わせる（D16）
 
 反転条件: 実物の量（seed の最大）で書き直しが 5 分を超える・夜中にも取り込みが詰まる → 対象を部分ごとに分ける（表の分割は別の Story）か、Q6 を本人に聞き直す。待つ時間は tasks で測って PR に書く。
