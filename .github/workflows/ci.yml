@@ -256,6 +256,9 @@ jobs:
           api-level: 35
           arch: x86_64
           target: google_apis
+          # 手元（tools/android-emulator.sh）と録画（recording.json の android.device）と同じ機種。指定しないと 320×640 の既定の画面になり、
+          # Health Connect の権限の画面で種類の並びが画面の外に出る（ST11 の HealthPermission*InstrumentedTest が全部落ちた。2026-10-27）
+          profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           # ST04 の `RetentionInstrumentedTest` が未送信を 1.9 GB 置く（2 GB に近い量でも収集が起動する）
