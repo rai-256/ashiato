@@ -130,7 +130,7 @@
 
 ## Task 6: 破棄の報告・原本の欠け・画面の操作の台帳（S-01 の側）
 
-- [ ] 6.1 先に試験を書く（`component_version_tests.rs`）:
+- [x] 6.1 先に試験を書く（`component_version_tests.rs`）:
   - `st49_ledger_drop_report_versions` — `// Scenario: 破棄の報告は、作った収集アプリの版と書いた S-01 の版を持つ`
   - `st49_ledger_media_missing_versions` — `// Scenario: 原本の欠けは、作った収集アプリの版と書いた S-01 の版を持つ`
   - `st49_ledger_drop_report_version_only_difference_folds` — `// Scenario: 部品の版だけが違う同じ破棄の報告は、1 件のまま`
@@ -140,7 +140,7 @@
   - `st49_ledger_feeling_reminder_has_server_version` — `// Scenario: 通知の時刻を変えた台帳の行は、書いた S-01 の版を持つ`
   - `st49_ledger_kind_name_has_server_version` — `// Scenario: 個人属性の種類を足した名前の台帳の行は、書いた S-01 の版を持つ`（`POST /attributes/kinds`）
   - `st49_ledger_inserts_name_server_version` — `crates/server/src` の試験でないファイル（`*_tests.rs`・`testdb.rs`・`#[cfg(test)]` の mod の中を除く）の、`server_version` を持つ 8 表への `INSERT INTO core.<表>` の文が、列の並びに `server_version` を名指すことを文字列で見る（印なし。D10 の機械の止め）
-- [ ] 6.2 `drops.rs`・`media_missing.rs` の要求に `client_version`（D8）と INSERT に 2 列（`Writer::Collector` のときだけ収集アプリの版。D9・D14）、`deletion.rs` と `stay_store.rs` の削除の台帳・`feelings.rs` の通知の台帳・`attributes_store.rs` の種類の名前の INSERT に `server_version`。
+- [x] 6.2 `drops.rs`・`media_missing.rs` の要求に `client_version`（D8）と INSERT に 2 列（`Writer::Collector` のときだけ収集アプリの版。D9・D14）、`deletion.rs` と `stay_store.rs` の削除の台帳・`feelings.rs` の通知の台帳・`attributes_store.rs` の種類の名前の INSERT に `server_version`。
   重複の判定の問い合わせは変えない（D11）。`cargo run -q -p ashiato-server --bin openapi > docs/openapi.json` で契約を再生成し、`docs/collector-contract.md` の破棄の報告と原本の欠けの節にも欄を足す。
   検証: `CT st49_ledger_` rc=0（`-- --list` で 9 本以上）/ `CT drops_tests` rc=0（`-- --list` で 15 本以上）/ `CT media_missing_tests` rc=0（`-- --list` で 6 本以上）/ `CT deletion_tests` rc=0（`-- --list` で 26 本以上）/ `CT feelings_remind` rc=0（`-- --list` で 8 本以上）/
   `./tools/check-openapi.sh` rc=0 / `jq -e '(.components.schemas.DropReportRequest.properties | has("client_version")) and (.components.schemas.MediaMissingRequest.properties | has("client_version"))' docs/openapi.json` rc=0
