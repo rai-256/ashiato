@@ -522,6 +522,21 @@ impl HistoryCollector {
     }
 }
 
+#[cfg(test)]
+impl HistoryCollector {
+    /// 別スレッド（確かめ・読み・帳面の書き込み）が 1 本も動いていないか（試験だけ）。
+    /// 結果を受け取る前（`Reading` / `Saving` のまま）でも、スレッドが終わっていれば真。
+    /// 試験が置き場の `TempDir` を消す前に待つのに使う（消えた後に書くと置き場を作り直して漏れる。CH03 R2）。
+    pub(crate) fn threads_finished(&self) -> bool {
+        let stage = match &self.stage {
+            Stage::Reading(w) => w.is_finished(),
+            Stage::Saving(w, ..) => w.is_finished(),
+            Stage::Idle | Stage::Queueing(..) => true,
+        };
+        stage && self.probe.as_ref().is_none_or(HistoryWorker::is_finished)
+    }
+}
+
 impl Plan {
     /// 積み終えた後に帳面を書き、読めなかったプロファイルが無ければ前回の成功を書く。
     fn save(self, dir: &Path) -> anyhow::Result<usize> {

@@ -2201,14 +2201,52 @@ mod tests {
         transport: &'a AcceptAll,
         reference: &'a FixedReference,
         reader: Arc<FakeReader>,
-    ) -> Runtime<'a> {
-        runtime(
-            cfg,
-            Engine::new(Exclusions::default()),
-            transport,
-            reference,
+    ) -> HistoryRuntime<'a> {
+        HistoryRuntime(
+            runtime(
+                cfg,
+                Engine::new(Exclusions::default()),
+                transport,
+                reference,
+            )
+            .with_history(reader),
         )
-        .with_history(reader)
+    }
+
+    /// 履歴の取得を持つ `Runtime`。**落とす前に、取得の別スレッドが終わるまで待つ**（CH03 R2）。
+    /// `HistoryWorker` は drop で join しないので、試験が取得の最中に終わると、`cfg()` の `TempDir` が消えた後に
+    /// スレッドが置き場（`browser-history/`）を作り直し、一時フォルダが漏れる。`TempDir` は `rt` より先に
+    /// 宣言されている（後に落ちる）ので、ここで待てば消える前にスレッドが終わる。
+    struct HistoryRuntime<'a>(Runtime<'a>);
+
+    impl<'a> std::ops::Deref for HistoryRuntime<'a> {
+        type Target = Runtime<'a>;
+        fn deref(&self) -> &Runtime<'a> {
+            &self.0
+        }
+    }
+
+    impl<'a> std::ops::DerefMut for HistoryRuntime<'a> {
+        fn deref_mut(&mut self) -> &mut Runtime<'a> {
+            &mut self.0
+        }
+    }
+
+    impl Drop for HistoryRuntime<'_> {
+        fn drop(&mut self) {
+            let Some(history) = self.0.history.as_ref() else {
+                return;
+            };
+            // 20 秒で諦める（放されない gate で止まった読みなど）。drop の中では panic しない
+            // （試験が落ちて巻き戻している最中だと abort になり、落ちた理由が見えなくなる）
+            for _ in 0..4000 {
+                if history.threads_finished() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            eprintln!("履歴の取得の別スレッドが 20 秒で終わらない（一時フォルダが漏れうる）");
+        }
     }
 
     /// 起動の経路（`with_history`）で、前のプロセスが残した写しが消える（design D2。R60 / R72）。
@@ -2702,6 +2740,7 @@ mod tests {
         );
         rt.send();
         let vanished = vanished_records(&transport);
+        drop(rt); // 取得のスレッドを待ってから transport を返す（HistoryRuntime）
         (transport, vanished)
     }
 
@@ -3398,6 +3437,7 @@ mod tests {
             .iter()
             .map(|(_, b)| b.clone())
             .collect::<String>();
+        drop(rt); // 取得のスレッドを待ってから transport を返す（HistoryRuntime）
         (transport, all)
     }
 
@@ -3487,6 +3527,7 @@ mod tests {
         rt.send();
         tick_until_read_again(&mut rt, &mut src, reader, Duration::hours(24).num_seconds());
         rt.send();
+        drop(rt); // 取得のスレッドを待ってから transport を返す（HistoryRuntime）
         transport
     }
 
