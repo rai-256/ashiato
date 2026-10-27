@@ -54,10 +54,10 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 3: 検証の準備に組み込む
 
-- [ ] 3.1 `tools/verify-env.sh` の、`tools/env-init.sh` の後・DB を消す前（`reset_db` の前）に、判定が `reset` のときだけ `tools/docker-tidy.sh` を呼ぶ 1 行を足す（rc≠0 なら `verify-env: 片付けに失敗した（…）。続ける` を標準エラーに出して続ける。design D5）。
+- [x] 3.1 `tools/verify-env.sh` の、`tools/env-init.sh` の後・DB を消す前（`reset_db` の前）に、判定が `reset` のときだけ `tools/docker-tidy.sh` を呼ぶ 1 行を足す（rc≠0 なら `verify-env: 片付けに失敗した（…）。続ける` を標準エラーに出して続ける。design D5）。
   冒頭の注記に「作り直すときは、消えた作業ツリーのコンテナとネットワークを先に片付ける（CH05 Q7。volume は消さない）」を 1 行足す。既存の行は変えない。CH06 の検査がそのまま通ることを見る。
   検証: `bash -n tools/verify-env.sh` rc=0 / `bash -c 'HARNESS_VERIFY=1 tools/verify-env.sh'` rc=0 / `tools/check-verify-env-reset.sh --self-test` rc=0 / `EV scripts/quiet-run ch06 -- tools/check-verify-env-reset.sh` rc=0
-- [ ] 3.2 `tools/docker-tidy.sh --verify-env-check` を足す（design D4・D5・D6）。**この worktree の DB を作り直す**ので、`HARNESS_VERIFY=1 tools/verify-env.sh --plan` が `reset` でなければ理由を出して rc=2 で何もしない。次の 3 本を印つきで確かめる:
+- [x] 3.2 `tools/docker-tidy.sh --verify-env-check` を足す（design D4・D5・D6）。**この worktree の DB を作り直す**ので、`HARNESS_VERIFY=1 tools/verify-env.sh --plan` が `reset` でなければ理由を出して rc=2 で何もしない。次の 3 本を印つきで確かめる:
   `印の無い検証の準備と --plan は、片付けを呼ばない`（`TEST_DOCKER_TIDY_DOCKER` を引数を書き留める偽の命令にして、まず `HARNESS_VERIFY=1 tools/verify-env.sh` で書き留めた命令が 1 個以上あること（偽の命令が効いている対照）を見て、書き留め先を空にしてから `env -u HARNESS_VERIFY tools/verify-env.sh` と `HARNESS_VERIFY=1 tools/verify-env.sh --plan` を呼び、どちらも rc=0・新しく書き留めた命令が 0 個）/
   `片付けが落ちても、検証の準備は DB を作り直して続く`（`TEST_DOCKER_TIDY_DOCKER=false` で `HARNESS_VERIFY=1 tools/verify-env.sh` が rc=0・`片付けに失敗した` と片付けの rc を含む 1 行と `切った接続:` の 1 行・DB のコンテナが立っている）/
   `消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る`（2.1 の本物の 1 件と同じく `mktemp -d` の下の乱数の main に差し替え、`<main>-st97` のコンテナを置いて `HARNESS_VERIFY=1 tools/verify-env.sh` を呼び、rc=0・コンテナが無い・控えた id の volume が残る・標準エラーに `切った接続:` の 1 行。後始末は 2.1 と同じ印）。
