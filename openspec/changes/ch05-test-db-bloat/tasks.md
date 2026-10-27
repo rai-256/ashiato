@@ -78,7 +78,7 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 5: 殺した後の検査の台本
 
-- [ ] 5.1 `tools/check-test-db-killed.sh` を design D2 のとおりに書く（引数なし / `--self-test`）。冒頭のコメントに、2 つの時点・判定の順・差し替えの環境変数（`TEST_DB_KILLED_PROBE_CMD`・`TEST_DB_KILLED_NEXT_CMD`・`TEST_DB_KILLED_LIST_CMD`・`TEST_DB_KILLED_STAT_CMD`・`TEST_DB_KILLED_WAIT_S`）・
+- [x] 5.1 `tools/check-test-db-killed.sh` を design D2 のとおりに書く（引数なし / `--self-test`）。冒頭のコメントに、2 つの時点・判定の順・差し替えの環境変数（`TEST_DB_KILLED_PROBE_CMD`・`TEST_DB_KILLED_NEXT_CMD`・`TEST_DB_KILLED_LIST_CMD`・`TEST_DB_KILLED_STAT_CMD`・`TEST_DB_KILLED_WAIT_S`）・
   **同じ worktree で別の `cargo test` と検証の準備と並べて走らせない**こと・なぜ要るか（CH05）を書く。
   `--self-test` は偽の探り・偽の次の回・偽の一覧と統計で、次の 7 本の Scenario を印つきで確かめる:
   `殺した回の database が次の回の後に残っていれば、名前を挙げて落ちる` / `ashiato database の行数が増えていれば落ちる` / `ashiato database の大きさだけが 1 MiB を超えて増えていれば落ちる` /
