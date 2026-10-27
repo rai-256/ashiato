@@ -45,12 +45,12 @@ THE SYSTEM SHALL 書き出しに入れる表のどの列も、出すか出さな
 
 THE SYSTEM SHALL 全記録の書き出しに、更新の履歴の全行を 1 行 1 件で持つファイル `update_history.jsonl` を入れ、`seq`・`at`・`component`・`via`・`from_version`・`to_version`・`outcome`・`applied_versions`・`failed_version`・`sqlstate` の全列を出す。
 THE SYSTEM SHALL 全記録の書き出しに、収集アプリの版の変化の読み口の全行を 1 行 1 件で持つファイル `collector_version_changes.jsonl` を入れる。
-THE SYSTEM SHALL 生存信号のファイル `heartbeats.jsonl` に列 `client_version` を出す。
+THE SYSTEM SHALL 生存信号のファイル `heartbeats.jsonl` に列 `collector_version` を出す。
 THE SYSTEM SHALL 説明書に、3 つの説明を書く: 更新の履歴は「S-01 が自分の版の変化を書いた。前の版が空なら記録の始まり。落ちた回の行は、退避から D-01 を戻すと消えることがある」、
-収集アプリの版の変化は「生存信号から導いた。端末・部品ごとに発信の時刻の順に並べて、版が変わった所。収集アプリの申告で、S-01 は確かめていない」、生存信号の `client_version` は「信号を積んだ時に動いていた収集アプリの申告。空なら申告なし」。
+収集アプリの版の変化は「生存信号から導いた。端末・部品ごとに発信の時刻の順に並べて、版が変わった所。収集アプリの申告で、S-01 は確かめていない」、生存信号の `collector_version` は「信号を積んだ時に動いていた収集アプリの申告。空なら申告なし」。
 THE SYSTEM SHALL 更新の履歴の表を、書き出しの分類（記録の schema のどの表も入れるか入れないかが決まっている）に載せる。
 
-導出元: FR-121。扉 #33・#14。深掘り（ST51）Q2（推奨）・Q5（推奨）・premises の C5・C8（design D3（仮）・D11）。
+導出元: FR-121。扉 #33・#14。深掘り（ST51）Q2（推奨）・Q5（推奨）・premises の C5・C8（design D3（仮）・D11）。review/spec.md R8・R10。
 D-01 を書き出しから作り直しても、途絶の理由を区別する材料が残るように、書き出しに入れる。
 
 #### Scenario: 書き出しに更新の履歴の全行と全列が入る
@@ -67,11 +67,12 @@ D-01 を書き出しから作り直しても、途絶の理由を区別する材
 
 #### Scenario: 書き出しの生存信号のファイルに版の列が入る
 
-- **GIVEN** `client_version` に `0.1.0+<commit A>` を持つ生存信号が 1 件ある D-01
+- **GIVEN** `client_version` に `0.1.0+<commit A>` を持って届いた生存信号が 1 件ある D-01
 - **WHEN** 全記録を書き出す
-- **THEN** zip の `heartbeats.jsonl` のその行の `client_version` は `0.1.0+<commit A>`
+- **THEN** zip の `heartbeats.jsonl` のその行の `collector_version` は `0.1.0+<commit A>`
 
 #### Scenario: 説明書が更新の履歴と版の変化と生存信号の版を説明する
 
 - **WHEN** 全記録を書き出す
-- **THEN** 説明書に `update_history.jsonl` と `collector_version_changes.jsonl` の節があり、`heartbeats.jsonl` の節に `client_version` の説明がある
+- **THEN** 説明書に `update_history.jsonl` と `collector_version_changes.jsonl` の節があり、`heartbeats.jsonl` の節に `collector_version` の説明がある
+- **AND** `update_history.jsonl` の節に「戻すと消えることがある」、`collector_version_changes.jsonl` の節に「S-01 は確かめていない」、`collector_version` の説明に「空なら申告なし」の語句がある

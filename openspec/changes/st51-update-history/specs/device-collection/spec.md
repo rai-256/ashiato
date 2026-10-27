@@ -6,7 +6,7 @@ THE SYSTEM SHALL C-01 が記録・破棄の報告・原本の欠けを未送信�
 THE SYSTEM SHALL C-01 が生存信号を未送信に積むとき、その時点の C-01 の組み立ての印を、生存信号の欄 `client_version` と原文の `client_version` の両方に書き込む（★ ST51）。
 THE SYSTEM SHALL 未送信を送るとき、積んだときの部品の版をそのまま送る（送る時点の版で書き換えない）。
 THE SYSTEM SHALL 溜めた行を読み戻したとき、部品の版の欄が無ければ、今の版を入れずに欄の無いまま送る。
-THE SYSTEM SHALL 溜めた行が今の C-01 の知らない欄を持っていても、その欄を捨てずに送る。
+THE SYSTEM SHALL 溜めた記録の行が今の C-01 の知らない欄を持っていても、その欄を捨てずに送る（生存信号の溜めには求めない —— ★ ST51 review/spec.md R11）。
 THE SYSTEM SHALL ST01 / ST02 の形の未送信を今の置き場へ移すとき、部品の版を書き込まない。
 THE SYSTEM SHALL C-01 の組み立ての印を、組み立てのたびに作り直す（「組み立ての印は、版番号・commit・その部品のソースの未 commit の変更・組み立ての種類を持ち、組み立てのたびに作り直す」の形。release の組み立てだけが `.debug` を持たない）。
 

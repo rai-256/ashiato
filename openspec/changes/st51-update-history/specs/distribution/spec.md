@@ -8,12 +8,15 @@ THE SYSTEM SHALL 1 行に、書いた時刻（S-01 の時計）・部品（`S-01
 移行の結果は `applied`（この回に当てた版の名前を `migrations/ORDER` の順に持つ）・`nothing_to_apply`（当てる版が無かった。起動の行はいつもこれ）・`failed`（落ちた版の名前と SQLSTATE を持つ。落ちる前に当て終えた版の名前も持つ）・
 `backup_failed`（当てる前の退避に失敗した。版は 1 つも当てていない）のどれかにする。
 THE SYSTEM SHALL 「前の版」を、更新の履歴の中で書いた順に最後の、移行の結果が `applied` か `nothing_to_apply` の行の今の版にする（落ちた行の今の版は D-01 を動かしていないので数えない）。そういう行が無ければ前の版を空（記録の始まり）にする。
-THE SYSTEM SHALL DB の誤りの本文（行の値を含みうる）を、更新の履歴にも S-01 のログにも残さない。
+THE SYSTEM SHALL migrate が版の中身の失敗でなく落ちた（当てた後の付与・錠・版の記録の読み書きの失敗。終了コード 1）ときも、表を書けるなら移行の結果 `failed` で 1 行を書き、落ちた版の名前を空、SQLSTATE を取れればその符号にする（D-01 が新しい版へ動いた後に落ちた回を `applied` に見せない）。
+THE SYSTEM SHALL 自分の組み立ての印を、`<版番号>+unknown…` の印も含めて、そのまま今の版に書く。
+WHILE 2 つの書き手（migrate と起動、または 2 つの起動）が同時に比べて書く THE SYSTEM SHALL 同じ版の変化を 1 行だけ書く。
+THE SYSTEM SHALL DB の誤りの本文（行の値を含みうる）を、更新の履歴にも、S-01 のログにも、migrate の標準出力・標準エラーにも残さない。migrate が落ちたときに示すのは、種別・落ちた版の名前・SQLSTATE だけにする。
 IF migrate が終了コード 3 で止まる（`db_ahead`・`ledger_unreadable`）、または起動が版の検査で断られる THEN THE SYSTEM SHALL 更新の履歴に何も書かない。
-IF 更新の履歴の表がまだ無い D-01（ST51 の移行より前で落ちた・退避の失敗）THEN THE SYSTEM SHALL 行を書かずに、書けなかったことを警告として示し、migrate の終了コードを変えない。
+IF 更新の履歴の表がまだ無い D-01（ST51 の移行より前で落ちた・退避の失敗）THEN THE SYSTEM SHALL 行を書かずに、種別 `update_history_unwritten` の警告を示し、migrate の終了コードを変えない。
 THE SYSTEM SHALL 更新の履歴を書けなかったことで、migrate の終了コードも起動の成否も変えない。
 
-導出元: FR-121。扉 #33。深掘り（ST51）Q1（推奨）。premises の C2・C4・C5（design D1（仮）・D2（仮）・D3（仮）・D7・D8・D9）。
+導出元: FR-121。扉 #33。深掘り（ST51）Q1（推奨）。premises の C2・C4・C5（design D1（仮）・D2（仮）・D3（仮）・D7・D8・D9）。review/spec.md R2・R6・R9。
 起動の行は版の検査の後に書く —— 前に書くと、古い S-01 が新しい D-01 に書くことになる（FR-117）。起動できた S-01 は自分の知る版が全部当たっている（ST48）ので、起動の行の移行の結果は `nothing_to_apply` になる。
 誤りの本文を残さないのは、制約に反した誤りが行の値（`Key (x)=(値) already exists`）を含み、追記のみの行と書き出しから消す口が無いから（Q1）。SQLSTATE（5 文字の符号）は値を含まない。
 
@@ -49,10 +52,16 @@ THE SYSTEM SHALL 更新の履歴を書けなかったことで、migrate の終�
 
 #### Scenario: 移行が落ちた回は、落ちた版と SQLSTATE を持つ 1 行が残り、誤りの本文は残らない
 
-- **GIVEN** 印 `0.1.0+<commit A>` で migrate を走らせた後、一意の制約に反する値の行を入れ、その制約に反して必ず落ちる試験用の版を並びの末尾に足した D-01
-- **WHEN** 印 `0.1.0+<commit B>` の組み立てで migrate を走らせる
-- **THEN** 終了コードは 1 で、更新の履歴の最後の行は移行の結果 `failed`・落ちた版の名前はその版・SQLSTATE は `23505`・前の版 `0.1.0+<commit A>`・今の版 `0.1.0+<commit B>`
-- **AND** 更新の履歴のどの列にも、入れた行の値の文字列が無い
+- **GIVEN** 印 `0.1.0+<commit A>` で当てた後、試験用の表の text の列に値 `st51-secret-value` の行を入れ、その列を integer に変えて必ず落ちる試験用の版を並びの末尾に足した D-01
+- **WHEN** 印 `0.1.0+<commit B>` を渡して、その並びを当てる処理を走らせる
+- **THEN** 当てる処理は失敗を返し、更新の履歴の最後の行は移行の結果 `failed`・落ちた版の名前はその版・SQLSTATE は `22P02`・前の版 `0.1.0+<commit A>`・今の版 `0.1.0+<commit B>`
+- **AND** 更新の履歴のどの列にも `st51-secret-value` の文字列が無い
+
+#### Scenario: 移行が落ちた migrate は終了コード 1 で終わり、標準エラーに行の値を出さない
+
+- **GIVEN** 版の記録から 1 行を消し、その版を当て直すと、誤りの本文に行の値 `st51-secret-value` を含む誤り（型の入力の誤りなど）で落ちるように DB の中の物を書き換えた D-01
+- **WHEN** `ashiato-server migrate` を走らせる
+- **THEN** 終了コードは 1 で、標準出力と標準エラーのどこにも `st51-secret-value` が無く、更新の履歴の最後の行は移行の結果 `failed` で落ちた版の名前はその版
 
 #### Scenario: 落ちた回の後の行の前の版は、最後に通った版になる
 
@@ -62,8 +71,8 @@ THE SYSTEM SHALL 更新の履歴を書けなかったことで、migrate の終�
 
 #### Scenario: 退避に失敗した回は、版を当てていない行が残る
 
-- **GIVEN** 印 `0.1.0+<commit A>` で migrate を走らせた後、試験用の版を 1 つ並びの末尾に足した D-01 と、退避の道具が失敗する設定
-- **WHEN** 退避を有効にして印 `0.1.0+<commit B>` の組み立てで migrate を走らせる
+- **GIVEN** 別の印 `0.1.0+<commit A>` の通った行を置いた D-01 と、退避の道具が失敗する設定
+- **WHEN** 退避を有効にして `ashiato-server migrate` を走らせる
 - **THEN** 終了コードは 1 で、更新の履歴の最後の行は移行の結果 `backup_failed`・当てた版の名前は空・落ちた版の名前と SQLSTATE は空
 
 #### Scenario: 知らない版の当たった DB で止まった migrate は、何も書かない
@@ -84,11 +93,29 @@ THE SYSTEM SHALL 更新の履歴を書けなかったことで、migrate の終�
 - **WHEN** 印 `0.1.0+<commit A>` の組み立てで migrate を走らせる
 - **THEN** 更新の履歴の行は 1 行で、前の版は空、今の版は `0.1.0+<commit A>`
 
-#### Scenario: 更新の履歴の表が無い D-01 で落ちても、migrate の終了コードは変わらない
+#### Scenario: 更新の履歴の表が無い D-01 で落ちても、当てる処理は落ちた版の失敗を返し、書けなかったことを警告する
 
 - **GIVEN** 更新の履歴の表を作る版より前の版で必ず落ちる、試験用の並び
 - **WHEN** その並びを空の DB に当てる
-- **THEN** 当てる処理は失敗を返し、警告に「更新の履歴を書けなかった」があり、DB に更新の履歴の表は無い
+- **THEN** 当てる処理は落ちた版の失敗を返し、種別 `update_history_unwritten` の警告が出て、DB に更新の履歴の表は無い
+
+#### Scenario: 付与で落ちた migrate は、落ちた版の名前を持たない failed の行を残す
+
+- **GIVEN** 別の印 `0.1.0+<commit A>` の通った行を置き、付与が必ず落ちるようにした D-01
+- **WHEN** 印 `0.1.0+<commit B>` を渡して当てる処理を走らせる
+- **THEN** 当てる処理は失敗を返し、更新の履歴の最後の行は移行の結果 `failed`・落ちた版の名前は空・今の版 `0.1.0+<commit B>`
+
+#### Scenario: 同じ版の変化を 2 つ同時に書いても、行は 1 つ
+
+- **GIVEN** 別の印 `0.1.0+<commit A>` の通った行を置いた D-01
+- **WHEN** 印 `0.1.0+<commit B>` の起動の書き込みを 2 つ同時に走らせる
+- **THEN** 今の版 `0.1.0+<commit B>` の行は 1 行だけ
+
+#### Scenario: commit の取れない組み立ての印も、そのまま今の版に書く
+
+- **GIVEN** 別の印 `0.1.0+<commit A>` の通った行を置いた D-01
+- **WHEN** 印 `0.1.0+unknown.debug` を渡して起動の書き込みを走らせる
+- **THEN** 更新の履歴の最後の行の今の版は `0.1.0+unknown.debug`
 
 ### Requirement: 更新の履歴は、決めた置き場と列の形で持つ
 

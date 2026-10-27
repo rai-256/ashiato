@@ -50,7 +50,7 @@ main の `19eb9e3c` の時点）から写した。ST49 の spec が gate まで�
 - コード（S-01）: `crates/server/src/heartbeat.rs`（`client_version`）、`crates/server/src/lib.rs`（`run_migrate` の終わりと `run` の版の検査の後に更新の履歴を書く・生存信号の INSERT）、
   `crates/server/src/migration_ledger.rs`（落ちた版の名前と SQLSTATE を呼び出し元へ返す）、新しい `crates/server/src/update_history.rs`、`crates/server/src/grants.sql`（更新の履歴に SELECT と INSERT だけ）、
   `crates/server/src/export.rs`（更新の履歴・版の変化のファイル・`HEARTBEAT_COLUMNS` に `client_version`）、`docs/openapi.json`（再生成）
-- 移行: 新しい移行 1 つ（更新の履歴の表と書き換えの門・生存信号の `client_version` 列・版の変化のビュー）と `.down.sql`、`migrations/ORDER` の末尾へ 1 行。名前の時刻は `202610250000` 以後で、ST48 の D10（仮）の規則に従う
+- 移行: 新しい移行 1 つ（更新の履歴の表と書き換えの門・生存信号の `collector_version` 列・版の変化のビュー）と `.down.sql`、`migrations/ORDER` の末尾へ 1 行。名前の時刻は `202610250000` 以後で、ST48 の D10（仮）の規則に従う
 - 収集アプリ: `crates/collector-windows/src/heartbeat.rs`（積む時点の印を欄と原文に）、`collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt`（同）
 - 文書: `docs/collector-contract.md`（生存信号の `client_version`）、`docs/handoff/ST58.md`（戻した後に書き直す・更新の後に C-01 を起き直させる）、`docs/handoff/ST54.md`（並べた C-02 の端末識別子）
 - 検査: `tools/check-immutable.d/<時刻>_st51-update-history.sh`（更新の履歴の書き換えと消去を断る）

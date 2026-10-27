@@ -37,7 +37,7 @@ C1。載せる回がいちばん多い側（失わない側）。起動の直後
 C2。書く口がいちばん多い側。migrate を走らせずに入れ替えた起動も、移行が落ちた回も残る。どちらも直前の通った行の版と自分の版が違うときだけ書く。
 検査より前に書くと、古い S-01 が新しい D-01 に書く（FR-117）。migrate が終了コード 3 で止まった回・起動が断られた回は書かない（正典 distribution「D-01 に何も書かずに」）。
 費用は起動のときの 1 行を読んで比べる問い合わせ 1 本。
-反転条件: 起動の行が migrate の行と重なって読みにくいと本人が言ったら、起動の行を migrate の後でない入れ替えのときだけにする（今もそうなっている。重なるのは migrate を走らせずに入れ替えた場合だけ）。
+反転条件: 起動のときの読み書きが起動を目に見えて遅らせる、または実行時の役割に更新の履歴の INSERT を渡すことが守りの穴になると分かったら、起動の口をやめて migrate の口だけにする（migrate を走らせずに入れ替えた回は残らなくなる）。
 
 ### D3（仮）. 更新の履歴は記録の schema `core` の追記のみの表に置き、書き出しに分類して入れる
 
@@ -48,9 +48,9 @@ ST48 の版の記録（`core` の外。書き出しに出ない）と置き場�
 ### D4（仮）. 更新の履歴の列と生存信号の版の欄は、Requirement の表で名前・型・NULL の可否を固定する
 
 C6。ST48 の版の記録と同じく、凍結した行の形を後から書き直さない。形は `specs/distribution` の「更新の履歴は、決めた置き場と列の形で持つ」と `specs/collection-coverage` の
-「生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ」（列 `client_version` text NULL）。試験は information_schema を Requirement の表と一字一句で突き合わせる。
+「生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ」（要求の欄 `client_version`・行の列 `collector_version` text NULL。列の名前は ST49 の記録の表の列にそろえる —— review/spec.md R8）。試験は information_schema を Requirement の表と一字一句で突き合わせる。
 ST48 と違って「形の版」の行は持たない（列を足すか値の一覧に値を足すだけで、今の列と値を変えない規則にする。足した列は今の行で NULL になる。ST58 が「戻した」を足すのはこの形 —— `docs/handoff/ST58.md`）。
-反転条件: 列の意味を変える必要が出たら、列を足して古い列を残す（消さない・名前を変えない）。
+反転条件: 後の Story が足す情報が列の追加で表せない（行ごとに形の違う詳細を持つ）と分かったら、固定した列は残したまま、詳細を持つ jsonb の列を 1 つ足す側に変える（固定した列の名前・型は変えない）。
 
 ### D5（仮）. 収集アプリの版の変化は、生存信号から導くビューにする（変化の行を凍結しない）
 
@@ -61,7 +61,7 @@ Q3 の推奨・R6。要件の「追記のみの記録」は版を載せた生存
 ### D6. 版は生存信号の任意の欄と原文の両方に入れ、導くときは欄を先に読む
 
 C3。原文に入れるのは、冪等キーが原文から作られる（版の違う 2 件が同じ鍵にならない）ためと、ST51 より前の S-01 が欄を読み飛ばしても版が原文に残るため。欄の名前は ST49 の取り込み口と同じ `client_version`。
-値は文字列のまま、形を検査しない・断らない（ST49 D8 と同じ）。空の文字列は NULL にする。
+値は文字列のまま、形を検査しない・断らない（ST49 D8 と同じ）。空の文字列は NULL、U+0000 は取り除く（前後の空白は除かない）。行の列は `collector_version`（R8）。
 原文の読み出しは `pg_input_is_valid(raw, 'jsonb')`（PostgreSQL 16 以降。`docker-compose.yml` は 17）で JSON と確かめてから `->> 'client_version'` を読み、読めなければ「版を持たない」にする（ビューが 1 行の不正な原文で落ちない）。
 
 ### D7. 前の版は、書いた順で最後の通った行の今の版
@@ -78,9 +78,10 @@ C4。`outcome IN ('applied','nothing_to_apply')` の行のうち `seq` の最大
 | migrate の版が落ちた | 落ちた版の取引が戻った後、別の取引で | `failed` | 落ちる前に当て終えた版 | 落ちた版の名前・SQLSTATE（取れなければ空） | 所有者 |
 | migrate の退避が失敗 | 退避の失敗の後 | `backup_failed` | 空 | 空 | 所有者 |
 | 起動 | 版の検査を通った後・待ち受けの前 | `nothing_to_apply` | 空 | 空 | 実行時の役割 |
+| migrate の付与・錠・版の記録の読み書きの失敗（終了コード 1） | 失敗の後、表を書けるなら | `failed` | それまでに当てた版 | 落ちた版は空・SQLSTATE（取れれば） | 所有者 |
 | migrate の終了コード 3 / 起動の拒否 | 書かない | — | — | — | — |
 
-`migration_ledger::apply_migrations_with` は、当てた版の名前と、落ちたときの版の名前と SQLSTATE（`sqlx::Error::as_database_error().code()`）を呼び出し元へ返す形に広げる。誤りの本文は返さず、ログにも出さない（Q1）。
+`migration_ledger::apply_migrations_with` は、当てた版の名前と、落ちたときの版の名前と SQLSTATE（`sqlx::Error::as_database_error().code()`）を呼び出し元へ返す形に広げる。誤りの本文は返さず、ログにも出さない（Q1）。今の `run_migrate` は `Version` の誤りを anyhow のまま `main` から標準エラーへ出し、その表示に DB の誤りの本文が入る（review/spec.md R2）ので、落ちたときに示すのを「種別・落ちた版の名前・SQLSTATE」だけの 1 行にし、本文を持つ誤りを `main` まで運ばない。
 今の版は ST49 の S-01 の組み立ての印。印が取れない組み立て（`unknown`）も、その文字列のまま書く。
 
 ### D9. 更新の履歴を書けないときは、警告だけで終了コードも起動の成否も変えない
@@ -100,7 +101,7 @@ ST48 の版の記録（実行時は読むだけ）と向きが違うのは、起
 - 表 `core.update_history` は `Class::Include`（`update_history.jsonl`・全列。出さない列なし）
 - ビュー `core.collector_version_change` は BASE TABLE でないので表の分類の走査（`export.rs:631`）に載らない。書き出しの目録に、表ではない読み口のファイルとして `collector_version_changes.jsonl` を足す
   （写しの取引の中で読む。ほかのファイルと同じ時点）。列は `user_id`・`device_id`・`component`・`from_version`・`to_version`・`emitted_at`・`received_at`・`logical_source`
-- `HEARTBEAT_COLUMNS` に `("client_version", "信号を積んだ時に動いていた収集アプリの申告（空なら申告なし）")` を足す。`raw` は今までどおり出さない（`excluded_columns`）
+- `HEARTBEAT_COLUMNS` に `("collector_version", "信号を積んだ時に動いていた収集アプリの申告（空なら申告なし）")` を足す。`raw` は今までどおり出さない（`excluded_columns`）
 - ビューの列は `information_schema.columns` に出るが、`unclassified` は分類のある表の列だけを見るので、ビューの列は分類を求めない（Task 6 の試験で確かめる）
 
 ### D12. 収集アプリの焼き込み
@@ -113,7 +114,7 @@ ST48 の版の記録（実行時は読むだけ）と向きが違うのは、起
 
 C8。取り込み器は S-01 の一部で、S-01 の版の変化は更新の履歴が持つ。ST49 の「合言葉でもログインでもない書き手の部品の版は、どこにも入らない」と同じ向き。
 
-### D14. 稼働状況・途切れの判定は `client_version` を読まない
+### D14. 稼働状況・途切れの判定は `collector_version` を読まない
 
 C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししている（`SELECT *` を使わない）ので、列を足しても入力は変わらない。Task 8 の試験で、版の欄の有無だけが違う 2 つの D-01 の応答が同じことを見る。
 
@@ -125,6 +126,7 @@ C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししてい
 
 ## Risks / Trade-offs
 
+- [ST51 の delta は ST49 の archive の後でしか archive できない（MODIFIED の相手の 2 つの Requirement が正典に要る。今は `openspec validate` が INFO で「not found」と出す）] → ST51 の archive の前に ST49 が archive 済みで、`openspec validate st51-update-history --strict` の INFO が消えていることを見る（review/spec.md R15）
 - [ST49 は gate 前。MODIFIED は ST49 の delta の `19eb9e3c` の本文から写した] → ST49 の spec が変われば、merge gate の「依存の spec:」で差分を見て写し直し、`story_deps.py read-spec ST51 ST49 --ack` で読んだ SHA を進める
 - [落ちた回の行は、退避から D-01 を戻すと消える] → Q2 の推奨。ST58 が戻した後に「落ちた試み」と「戻した」の 2 行を書き直す（`docs/handoff/ST58.md`）。ST58 より前に手で戻した回は消える（Q2 の選択肢の不可逆に書いた）
 - [C-01 は更新の後に自分で起き直さない] → 「更新で止めた時間」は本人がアプリを開くまで続き、版の変化の時刻は開いた時になる（premises 1）。ST58 へ申し送る
@@ -137,7 +139,7 @@ C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししてい
 ## Migration Plan
 
 - 移行 1 つ（名前の時刻は `202610250000` 以後。ST48 の D10（仮）の規則 —— 前進側に取引の文を持たない・`.down.sql` が版の記録の行を消す）:
-  `core.update_history` と門、`core.heartbeat.client_version text NULL`、ビュー `core.collector_version_change`。既存の生存信号の行の `client_version` は NULL のまま（原文にも版は無い）
+  `core.update_history` と門、`core.heartbeat.collector_version text NULL`、ビュー `core.collector_version_change`。既存の生存信号の行の `collector_version` は NULL のまま（原文にも版は無い）
 - 入れ替えの順に制約は無い: 新しい収集アプリ × 古い S-01 は版が原文にだけ残り（premises 3）、古い収集アプリ × 新しい S-01 は版の無い信号になる。どちらも信号は入る
 - ST51 の S-01 が初めて migrate を走らせた回に、前の版が空の 1 行が書かれる（記録の始まり）
 - 戻し: `.down.sql` は表・門・列・ビューを消す（更新の履歴の行も消える。戻しは開発の DB だけで使う）
