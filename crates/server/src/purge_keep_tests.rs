@@ -23,20 +23,13 @@ const TOKEN: &str = "test-token-0123456789abcdef";
 const VISIT: &str = "c03-timeline-visit";
 const WATCH: &str = "c03-youtube-watch";
 
-/// 落ちても消える一時フォルダ。
-struct Scratch(PathBuf);
+/// 落ちても消える一時フォルダ（`TempDir` を試験の最後まで持つ）。
+struct Scratch(PathBuf, #[allow(dead_code)] tempfile::TempDir);
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("ashiato-keep-{name}-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        let dir = tempfile::Builder::new().prefix(&format!("ashiato-keep-{name}-")).tempdir().unwrap();
+        Self(dir.path().to_path_buf(), dir)
     }
 }
 
