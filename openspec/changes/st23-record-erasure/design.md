@@ -122,6 +122,9 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
 ## D5. 消した時間帯は `core.stay_erased` 1 か所で読む（C13・R1）
 
 `core.stay_erased` を作り直す: `start_at` / `end_at` を **`core.erasure_span`（`scope = 'event'`・`event_id` = その滞在）があればそこから、無ければ本文から**読み、列 `purged boolean`（`raw = ''`）と `operation_id` を足す。
+列を足した形は `core.stay_erased_purge`（8 列）に置き、`core.stay_erased` は ST41 までの 6 列のままその写しにする。`purged` / `operation_id` を読む所は `core.stay_erased_purge` を読む
+（main への追従で分けた。ST41 の `202610231200_event_end_time` が当て直しのたびに 6 列で `CREATE OR REPLACE VIEW` するので、`core.stay_erased` に列を足すと当て直しが落ちる。merge gate）。
+本文から読む終わりは、ST41 と同じく列 `end_time` を先に、無ければ `payload->>'end'` を読む。
 **`deleted_by = 'user:purged'`（重なって一緒に本文を消した滞在。D6）はビューに出さない** —— 本文ごと消した時間帯は指定した滞在の時間だけ（D13）で、
 吸収された滞在の時間を窓にすると、はみ出しに届いた位置に戻せない後着の印が付く（spec review R4）。範囲の行が無い本文を消した滞在は D14 の読み方で出す。
 読み手を全部このビュー（か、ビューと同じ式を持つ SQL 関数 `core.stay_span(id)`）へ寄せる:
@@ -188,7 +191,11 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
   `archive/worker.rs` は**変えない** —— 呼び出しは 2 か所（明示の取り込みと見回り）あり、どちらも既存の呼び出しがこの関数を通る
 - 落ちたら、既存の仕組みがそのまま消し直す: `mark_archive_arrivals` が Err を返すと、取り込み器は `read` の台帳の行を書かず書庫を置き場に残し、次の見回りが書庫を読み直して
   （格納は内容の鍵で増えない）同じ時間の範囲で `mark_archive_arrivals` を呼び直す（ST12 final review R72・code-verify R80）
-- **ST13 の直す取り込み器の台帳のまとまり（R25）と `archive/worker.rs` には触らない**（spec review R17）
+- **ST13 の直す取り込み器の台帳のまとまり（R25）と `archive/worker.rs` には触らない**（spec review R17）。触っていないことは分岐点と比べて確かめる
+  （`tools/check-st23-archive-untouched.sh`。main の先端と比べると ST13 の変化で落ちる。code-verify R19）
+- **ST13 と合わさった木での間隔**（code-verify R19。origin/main 1bb66dc8 の `archive/worker.rs` で読んだ）: ST13 は `mark_archive_arrivals` の失敗を書庫ごとに数え（`count_reread_failure`）、
+  3 回続いたら `store_failed` を台帳に 1 行書いて読み直しを 1 時間に 1 回へ落とす。消し直しは「見回りごと」でなく、3 回目以降は 1 時間ごとになる。
+  読み直しは止まらないので本文はいずれ消える（失うものは無い）。統合の木での `purge_archive_` の走らせ直しは確認バッチの conflict_fix が持つ
 
 **（仮）**: 見回りごとの別の掃除（本文を消した時間帯に本文が残る行を探す）は置かない。反転条件: 読み直しで印付けが呼び直されない経路が見つかったら（試験「書庫の後着の消去に失敗しても次の見回りで消える」が落ちる）、
 `archive/worker.rs` の 2 か所の呼び出しの隣に `settle_purged_ranges(pool, user)` を足す（ST13 の merge の後に rebase で）。
@@ -202,11 +209,15 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
 ## D11（仮）. 夜の書き直し（Q6 推奨・R15）
 
 - **仕事**: `crates/server/src/purge_compaction.rs`。`run()` で取り込み器の隣に `tokio::spawn` する。毎日 03:30（Asia/Tokyo）に 1 回。時刻は試験で差し込める（壁時計を直に読まない）
-- **対象**: `core.event` と `core.event_version` のうち、その表の最後の成功の後に `core.erasure_operation` の行がある表だけ
+- **対象**: `core.event` と `core.event_version` のうち、その表の最後の成功の後に commit した `core.erasure_operation` の行がある表だけ。
+  `core.event_version` は前の版を消した操作（`versions > 0`）だけを数える（code-verify R16。Q6「その日に本文を消した表だけ」）。
+  **「後」は時刻でなくスナップショットで切る**（code-verify R18・/code-review R21・R22）: 書き直しは `VACUUM FULL` の直前に `pg_current_snapshot()` を取って残し、
+  次の晩はそれから見えない操作（`pg_visible_in_snapshot(txid, …)` が偽）を対象にする。操作の `at` はトランザクションの始まりなので、
+  錠や書き出しを待つ間に始まって書き直しの後に commit した消去が、時刻の窓では「済み」に入って以後書き直されなかった
 - **書き出しを待つ**: 書き出しの job が走っている間は始めず、1 分ごとに見直す（書き出しの長い読み出しの後ろで `ACCESS EXCLUSIVE` を待つと、後続の読み書きがすべて止まる）
 - **権限**: 移行で `GRANT MAINTAIN ON core.event, core.event_version TO ashiato_app`（PostgreSQL 17）。`.down.sql` で `REVOKE`。`grants.sql`（ST28 の共有ファイル）には足さない —— 表ごとの付与は移行の中で済み、`ALL TABLES` に広げない
 - **確かめ方**: `pg_class.relfilenode` を前後で比べ、**替わらなければ失敗**（権限が無いと `VACUUM FULL` は警告だけで成功として返る。premises.md）。`SET lock_timeout = '5s'` を超えたら失敗
-- **残し方**: `core.purge_compaction`（表の名前・始まり・終わり・`outcome ∈ {rewritten, not_rewritten, lock_timeout, failed}`・SQLSTATE）に 1 行。値を含めない。失敗した表は「最後の成功」が進まないので次の晩にもう一度
+- **残し方**: `core.purge_compaction`（表の名前・始まり・終わり・`outcome ∈ {rewritten, not_rewritten, lock_timeout, failed}`・SQLSTATE・窓の区切りの `snapshot pg_snapshot`）に 1 行。値を含めない。失敗した表は「最後の成功」が進まないので次の晩にもう一度
 - **確認の文面**の「今夜の書き直しで消える」はこの時刻に合わせる（D16）
 
 反転条件: 実物の量（seed の最大）で書き直しが 5 分を超える・夜中にも取り込みが詰まる → 対象を部分ごとに分ける（表の分割は別の Story）か、Q6 を本人に聞き直す。待つ時間は tasks で測って PR に書く。
@@ -285,5 +296,5 @@ ST22 の申し送り R11（記録を消した日の隣の記録の無い日の�
 
 - 移行 1 本: 2 表・`erasure_ledger.operation_id`・追記のみのトリガ・`core.stay_erased` の作り直し・派生の門・`core.purge_compaction`・`MAINTAIN` の付与。`migrations/ORDER` の末尾へ 1 行。`.down.sql` は逆順に落とす（`erasure_ledger` の列は落とす）
 - 既存のデータは書き換えない（本文を消した滞在はまだ 1 件も無い）。`core.stay_erased` の範囲は span が無ければ本文から読むので、移行の前後で消した時間帯は変わらない
-- 戻すときは `.down.sql`。`.down.sql` は `core.stay_erased` を元の定義（終わりは `payload->>'end'`、無ければ +1µs）に戻すので、**本文を消した滞在が 1 件でもあれば範囲が 1µs に縮む**（premises.md の実測と同じ形。D14 では読まれない）。
+- 戻すときは `.down.sql`。`.down.sql` は `core.stay_erased_purge` を落とし、`core.stay_erased` を元の定義（ST41 の定義。終わりは `end_time`、無ければ `payload->>'end'`、無ければ +1µs）に戻すので、**本文を消した滞在が 1 件でもあれば範囲が 1µs に縮む**（premises.md の実測と同じ形。D14 では読まれない）。
   本文を消した滞在があるときは down しない（`.down.sql` の先頭で `core.erasure_operation` に行があれば `RAISE EXCEPTION` で止める）

@@ -3,6 +3,8 @@
 //!
 //! 判定そのものは `stay`（DB に触らない）。ここが持つのは、**何を読んで判定に渡し、
 //! 結果をどの行へどう書くか** —— 識別子の引き継ぎ（D3）と、本人が消した時間帯（D4）と、錠と範囲（D5）。
+use std::collections::HashMap;
+
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -306,10 +308,17 @@ pub(crate) fn span_of(
     (event_time, end)
 }
 
+/// 本文ごと消した滞在の 1 行（識別子・始まり・終わり・消した印）。
+type PurgedStay = (uuid::Uuid, DateTime<Utc>, DateTime<Utc>, Option<String>);
+
 /// `[from, to)` と時間が重なる（閉区間で触れるものを含む）既存の滞在。**候補は `origin='derived'` の `s01-stay` だけ**（D2 / D3）。
 ///
 /// 滞在の長さに上限は無いので、始まりだけでは絞れない。`payload->>'end'` の文字列比較で粗く絞ってから
 /// 読んだ終わりで正確に絞る（2 日の余裕を取るので、秒の端数の書き方の違いは効かない）。
+///
+/// **本文を消した滞在（`raw = ''`）は候補に入れない**（作り直しが本文を戻さないため。design D6）。
+/// その時間は `core.stay_erased`（台帳の範囲。範囲の行が無ければその日全体。D14）から読み、
+/// 本人が消した時間帯（`Mark::UserDeleted`）として足す。重なる新しい滞在はこれで `rebuild:erased-range` に隠れる。
 async fn load_existing(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
@@ -321,6 +330,7 @@ async fn load_existing(
         "SELECT id, event_time, raw, payload, deleted_at, deleted_by
            FROM core.event
           WHERE logical_source = $1 AND origin = 'derived' AND user_id = $2
+            AND raw <> ''
             AND event_time < $3
             AND (event_time >= $4 OR payload->>'end' >= $5)
           ORDER BY event_time, id",
@@ -332,7 +342,17 @@ async fn load_existing(
     .bind(rough.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
     .fetch_all(&mut **tx)
     .await?;
-    Ok(rows
+    let purged: Vec<PurgedStay> = sqlx::query_as(
+        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased_purge
+              WHERE user_id = $1 AND purged AND start_at < $2 AND end_at >= $3
+              ORDER BY start_at, id",
+    )
+    .bind(user)
+    .bind(to)
+    .bind(from)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut existing: Vec<Existing> = rows
         .into_iter()
         .filter_map(|r| {
             let (start, end) = span_of(r.event_time, &r.payload);
@@ -347,7 +367,23 @@ async fn load_existing(
                 deleted_by: r.deleted_by,
             })
         })
-        .collect())
+        .collect();
+    existing.extend(
+        purged
+            .into_iter()
+            .map(|(id, start, end, deleted_by): PurgedStay| Existing {
+                id,
+                start,
+                end,
+                lat: None,
+                lon: None,
+                raw: String::new(),
+                mark: Mark::UserDeleted,
+                deleted_by,
+            }),
+    );
+    existing.sort_by(|a, b| a.start.cmp(&b.start).then(a.id.cmp(&b.id)));
+    Ok(existing)
 }
 
 // ------------------------------------------------------------------ 範囲（design D5）
@@ -565,7 +601,14 @@ pub async fn rebuild_day(
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let bounds = day_bounds(day);
-    mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), bounds).await?;
+    mark_late_arrivals(
+        &mut tx,
+        user,
+        &with_archive_sources(&c.sources),
+        bounds,
+        false,
+    )
+    .await?;
     let (lo, hi) = settle_range(&mut tx, user, &c, bounds).await?;
 
     let points = load_points(&mut *tx, user, &c.sources, lo, hi).await?;
@@ -629,22 +672,27 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
     lock(&mut tx, user).await?;
     let c = ensure_criteria(&mut tx, user).await?;
     let span: (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(&format!(
-        "SELECT min(s.event_time),
-                max(coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time))
-           FROM core.event s
+        "SELECT min(s.start_at), max(s.end_at)
+           FROM core.stay_erased s
           WHERE s.user_id = $1
             AND {erased}",
-        erased = user_erased_stay_sql("s", 2, 3)
+        erased = user_erased_stay_sql("s", 2)
     ))
     .bind(user)
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_one(&mut *tx)
     .await?;
     if let (Some(first), Some(last)) = span {
         let from = day_bounds(jst_date(first)).0;
         let to = last + Duration::microseconds(1);
-        mark_late_arrivals(&mut tx, user, &with_archive_sources(&c.sources), (from, to)).await?;
+        mark_late_arrivals(
+            &mut tx,
+            user,
+            &with_archive_sources(&c.sources),
+            (from, to),
+            false,
+        )
+        .await?;
     }
     tx.commit().await
 }
@@ -652,10 +700,9 @@ pub async fn mark_late_for_user(pool: &PgPool, user: uuid::Uuid) -> sqlx::Result
 /// 本人が消した滞在を持つ利用者（書き出しが利用者ごとに遅着の印を付ける対象。ST33 design D6）。
 pub(crate) async fn users_with_erased_stays(pool: &PgPool) -> sqlx::Result<Vec<uuid::Uuid>> {
     sqlx::query_scalar(&format!(
-        "SELECT DISTINCT s.user_id FROM core.event s WHERE {erased} ORDER BY s.user_id",
-        erased = user_erased_stay_sql("s", 1, 2)
+        "SELECT DISTINCT s.user_id FROM core.stay_erased s WHERE {erased} ORDER BY s.user_id",
+        erased = user_erased_stay_sql("s", 1)
     ))
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
     .fetch_all(pool)
     .await
@@ -672,15 +719,13 @@ pub(crate) fn with_archive_sources(base: &[String]) -> Vec<String> {
     all
 }
 
-/// 「本人が消した滞在」の SQL 条件（`alias` は core.event の別名、`source` / `prefix` は滞在の論理ソースと
-/// 作り直しの印の接頭辞を束ねる `$n` の番号）。`mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
-/// 台帳の最新の行が erase で、かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない。
-fn user_erased_stay_sql(alias: &str, source: u8, prefix: u8) -> String {
+/// 「本人が消した滞在」の SQL 条件（`alias` は `core.stay_erased` の別名、`prefix` は作り直しの印の接頭辞を束ねる `$n` の番号）。
+/// `mark_late_for_user` の範囲と `mark_late_arrivals` の候補が同じ判定を使う（D6）。
+/// ビューが派生の滞在・削除済み・`user:purged` 除外を持つので、ここは台帳の最新の行が erase で、
+/// かつ作り直しの置き換え（`REBUILD_PREFIX`）で消えたものではない、だけを見る。時間もビューの `start_at` / `end_at`（D5）。
+fn user_erased_stay_sql(alias: &str, prefix: u8) -> String {
     format!(
-        "{a}.logical_source = ${source}
-            AND {a}.origin = 'derived'
-            AND {a}.deleted_at IS NOT NULL
-            AND ({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
+        "({a}.deleted_by IS NULL OR {a}.deleted_by NOT LIKE ${prefix})
             AND EXISTS (
               SELECT 1 FROM core.deletion_ledger d
                WHERE d.event_id = {a}.id
@@ -822,6 +867,8 @@ pub(crate) fn split_by_span(sources: &[String]) -> (Vec<String>, Vec<String>) {
 /// すべてその範囲にあり、それより前に格納された行は、その書庫の印付けか消すときの連鎖が既に見ている。
 /// **位置を持たない項目だけの書庫では何もしない**（`locationInfos` を持たない YouTube・Chrome・
 /// マイアクティビティだけの書庫。R78）。位置を持つ項目は位置と同じく範囲に入る（D22-b / D22-d）。
+/// **本文を消した時間帯に入る行は、同じまとまりで本文も消す**（ST23 / design D9（仮））。落ちたら全部巻き戻り、
+/// 取り込み器は `read` の台帳の行を書かない —— 次の見回りが書庫を読み直して、この関数を呼び直す。
 /// **滞在の作り直しを呼ばない・待たない**。錠と transaction は作り直しと同じ。
 pub async fn mark_archive_arrivals(
     pool: &PgPool,
@@ -850,7 +897,14 @@ pub async fn mark_archive_arrivals(
     // `mark_late_arrivals` の範囲は終わりを含まない。DB の時刻はマイクロ秒に丸まるので、両端を 1 ms 広げる
     // （広げても見る行が増えるだけで、印を付ける条件は変わらない）。
     let margin = Duration::milliseconds(1);
-    mark_late_arrivals(&mut tx, user, &sources, (first - margin, last + margin)).await?;
+    mark_late_arrivals(
+        &mut tx,
+        user,
+        &sources,
+        (first - margin, last + margin),
+        true,
+    )
+    .await?;
     tx.commit().await
 }
 
@@ -861,30 +915,42 @@ pub async fn mark_archive_arrivals(
 /// すでに印のある行は候補にも更新にも含めないので、何度呼んでも台帳は一度だけ増える。
 /// 消す transaction が見えた範囲内の位置にはすべて印を付けるため、ここで未印の行は
 /// 消す側から未 commit で見えなかったか、その commit 後に届いた行である。
+///
+/// `purge_bodies` が真なら（書庫の印付け。design D9（仮））、本文を消した滞在（範囲の行がある。D14）と重なる行の本文も
+/// 同じ transaction で消す。作り直しの拾い直しは印だけ（`false`）。印が `user:late` で本文がまだ残る行
+/// （作り直しの拾い直しが先に印を付けた行）も、本文を消す側の候補に入れる。
 async fn mark_late_arrivals(
     tx: &mut Transaction<'_, Postgres>,
     user: uuid::Uuid,
     sources: &[String],
     (from, to): (DateTime<Utc>, DateTime<Utc>),
+    purge_bodies: bool,
 ) -> sqlx::Result<()> {
     // 位置を持つ項目（マイアクティビティ・YouTube・Chrome）も同じ印の対象（design D22-b / D22-d。位置を持たない項目は下の条件で外れる）
     let mut sources = sources.to_vec();
     sources.extend(item_sources(&mut **tx).await?);
-    let candidates: Vec<(uuid::Uuid, String, uuid::Uuid)> = sqlx::query_as(&format!(
-        "SELECT DISTINCT ON (e.id) e.id, e.logical_source, s.id
+    let live = if purge_bodies {
+        format!("(e.deleted_at IS NULL OR (e.deleted_by = '{USER_LATE}' AND e.raw <> ''))")
+    } else {
+        "e.deleted_at IS NULL".to_owned()
+    };
+    // 重なる滞在が複数あっても、本文を消す側を原因にする（`settle_arrival` と同じ順）
+    let candidates: Vec<(uuid::Uuid, String, LateCause)> = sqlx::query(&format!(
+        "SELECT DISTINCT ON (e.id) e.id AS event_id, e.logical_source,
+                s.id, s.start_at, s.end_at, s.purged, s.operation_id
            FROM core.event e
-           JOIN core.event s
+           JOIN core.stay_erased_purge s
              ON s.user_id = e.user_id
             AND {erased}
-            AND e.event_time <= coalesce(core.try_timestamptz(s.payload->>'end'), s.event_time)
-            AND {end} >= s.event_time
+            AND e.event_time <= s.end_at
+            AND {end} >= s.start_at
           WHERE e.user_id = $1
             AND e.logical_source = ANY($2)
             AND e.event_time >= $3 AND e.event_time < $4
-            AND e.deleted_at IS NULL
+            AND {live}
             AND {located}
-          ORDER BY e.id, s.event_time, s.id",
-        erased = user_erased_stay_sql("s", 5, 6),
+          ORDER BY e.id, s.purged DESC, s.start_at, s.id",
+        erased = user_erased_stay_sql("s", 5),
         end = event_end_sql("e"),
         located = item_located_sql("e")
     ))
@@ -892,36 +958,187 @@ async fn mark_late_arrivals(
     .bind(&sources)
     .bind(from)
     .bind(to)
-    .bind(stay::SOURCE)
     .bind(format!("{REBUILD_PREFIX}%"))
+    .try_map(|row: sqlx::postgres::PgRow| {
+        use sqlx::Row;
+        Ok((
+            row.try_get("event_id")?,
+            row.try_get("logical_source")?,
+            sqlx::FromRow::from_row(&row)?,
+        ))
+    })
     .fetch_all(&mut **tx)
     .await?;
 
-    for (event_id, logical_source, cause_event_id) in candidates {
-        let changed = sqlx::query(
-            "UPDATE core.event SET deleted_at = now(), deleted_by = $2
-              WHERE id = $1 AND deleted_at IS NULL",
-        )
-        .bind(event_id)
-        .bind(USER_LATE)
-        .execute(&mut **tx)
-        .await?;
-        if changed.rows_affected() == 0 {
-            continue;
+    for (event_id, logical_source, cause) in candidates {
+        let marked = mark_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
+        if purge_bodies
+            && purge_late_body(tx, user, event_id, &logical_source, &cause).await?
+            && !marked
+        {
+            // すでに別の消した滞在の後着として隠れていた行を、本文を消した滞在の後着として消した。
+            // その滞在を原因として台帳に足す —— 足さないと、本文の無いこの行が前の原因だけを持ち、
+            // 前の原因の滞在を戻す口が「本文を消した記録は戻せない」で断り続ける（/code-review R24）
+            ledger_late(tx, user, event_id, &logical_source, cause.stay_id).await?;
         }
-        sqlx::query(
-            "INSERT INTO core.deletion_ledger
-               (event_id, user_id, logical_source, action, cause_event_id, mark)
-             VALUES ($1, $2, $3, 'erase', $4, $5)",
-        )
-        .bind(event_id)
-        .bind(user)
-        .bind(logical_source)
-        .bind(cause_event_id)
-        .bind(USER_LATE)
-        .execute(&mut **tx)
-        .await?;
     }
+    Ok(())
+}
+
+/// 後着の 1 件の本文を、原因の滞在が本文を消した滞在（範囲の行がある）なら消す（`kind = 'late'`）。消したら `true`。
+/// 範囲の行が無い本文を消した滞在（D14）は印だけ —— 消す側に倒すと、見せていない記録の本文が戻らない。
+async fn purge_late_body(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause: &LateCause,
+) -> sqlx::Result<bool> {
+    let Some(parent_id) = cause.operation_id.filter(|_| cause.purged) else {
+        return Ok(false);
+    };
+    let mut counts = crate::deletion::PurgeCounts::default();
+    if crate::archive::LOCATION_SOURCES.contains(&logical_source) {
+        counts.archive_locations = 1;
+    } else if is_item_source(logical_source) {
+        counts.archive_items = 1;
+    } else {
+        counts.locations = 1;
+    }
+    crate::deletion::purge_late_arrival(
+        tx,
+        crate::deletion::LateArrival {
+            user_id: user,
+            event_id,
+            logical_source,
+            parent_id,
+            stay_id: cause.stay_id,
+            start: cause.start,
+            end: cause.end,
+            counts,
+        },
+    )
+    .await?;
+    Ok(true)
+}
+
+/// 1 件に `user:late` を付けて削除の台帳に 1 行（原因 = 消した滞在）。すでに隠れている行には何もしない。付けたら `true`。
+async fn mark_late(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause_event_id: uuid::Uuid,
+) -> sqlx::Result<bool> {
+    let changed = sqlx::query(
+        "UPDATE core.event SET deleted_at = now(), deleted_by = $2
+          WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(event_id)
+    .bind(USER_LATE)
+    .execute(&mut **tx)
+    .await?;
+    if changed.rows_affected() == 0 {
+        return Ok(false);
+    }
+    ledger_late(tx, user, event_id, logical_source, cause_event_id).await?;
+    Ok(true)
+}
+
+/// 削除の台帳に後着の 1 行（原因 = 消した滞在）。その原因の最後の行がすでに `erase` なら足さない。
+async fn ledger_late(
+    tx: &mut Transaction<'_, Postgres>,
+    user: uuid::Uuid,
+    event_id: uuid::Uuid,
+    logical_source: &str,
+    cause_event_id: uuid::Uuid,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO core.deletion_ledger
+           (event_id, user_id, logical_source, action, cause_event_id, mark)
+         SELECT $1, $2, $3, 'erase', $4, $5
+          WHERE NOT EXISTS (
+            SELECT 1 FROM core.deletion_ledger d
+             WHERE d.event_id = $1 AND d.cause_event_id = $4 AND d.action = 'erase'
+               AND d.seq = (SELECT max(l.seq) FROM core.deletion_ledger l
+                             WHERE l.event_id = $1 AND l.cause_event_id = $4))",
+    )
+    .bind(event_id)
+    .bind(user)
+    .bind(logical_source)
+    .bind(cause_event_id)
+    .bind(USER_LATE)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct LateCause {
+    #[sqlx(rename = "id")]
+    stay_id: uuid::Uuid,
+    #[sqlx(rename = "start_at")]
+    start: DateTime<Utc>,
+    #[sqlx(rename = "end_at")]
+    end: DateTime<Utc>,
+    purged: bool,
+    operation_id: Option<uuid::Uuid>,
+}
+
+/// 取り込みで新しく入った記録 1 件を、記録を入れたトランザクションの中（commit の前）で片付ける（ST23 / design D8（仮））。
+///
+/// 位置（基準のソース ∪ 書庫の位置）と、位置を持つ書庫の項目だけが対象で、それ以外は何もしない（錠も取らない）。
+/// 錠を取ってから、消した滞在の時間帯（`core.stay_erased`。D5）に入るかを見る。入れば `user:late` を付けて削除の台帳に 1 行。
+/// さらにその滞在が本文を消した滞在で、範囲の行があれば（無ければ D14 で印だけ）、同じまとまりで本文を消し、
+/// `kind = 'late'` の操作の行と記録ごとの台帳の行を積む。`rebuild_day` の `mark_late_arrivals` は残す（取り込み以外の経路の拾い直し）。
+pub(crate) async fn settle_arrival(
+    tx: &mut Transaction<'_, Postgres>,
+    stored: &crate::IngestRequest,
+) -> sqlx::Result<()> {
+    let source = stored.logical_source.as_str();
+    let located = if is_item_source(source) {
+        carries_location(&stored.raw)
+    } else {
+        let criteria = current_criteria(&mut **tx, stored.user_id)
+            .await?
+            .unwrap_or_else(Criteria::default_values);
+        with_archive_sources(&criteria.sources)
+            .iter()
+            .any(|s| s == source)
+    };
+    if !located {
+        return Ok(());
+    }
+    lock(tx, stored.user_id).await?;
+    // 本文を消した滞在を先に選ぶ（重なる滞在が複数あっても、本文を消す側を原因にする）
+    let cause: Option<LateCause> = sqlx::query_as(&format!(
+        "SELECT s.id, s.start_at, s.end_at, s.purged, s.operation_id
+               FROM core.event e
+               JOIN core.stay_erased_purge s
+                 ON s.user_id = e.user_id
+                AND {erased}
+                AND e.event_time <= s.end_at
+                AND {end} >= s.start_at
+              WHERE e.id = $1
+                AND e.deleted_at IS NULL
+                AND {located}
+              ORDER BY s.purged DESC, s.start_at, s.id
+              LIMIT 1",
+        erased = user_erased_stay_sql("s", 2),
+        end = event_end_sql("e"),
+        located = item_located_sql("e")
+    ))
+    .bind(stored.id)
+    .bind(format!("{REBUILD_PREFIX}%"))
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(cause) = cause else {
+        return Ok(());
+    };
+    if !mark_late(tx, stored.user_id, stored.id, source, cause.stay_id).await? {
+        return Ok(());
+    }
+    purge_late_body(tx, stored.user_id, stored.id, source, &cause).await?;
     Ok(())
 }
 
@@ -1163,6 +1380,31 @@ pub struct DayEntry {
     /// この「消した」区間から戻せる、本人が消した滞在の識別子
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stay_ids: Option<Vec<uuid::Uuid>>,
+    /// 本文ごと消した区間（「消した」の行だけ。`stay_ids` は持たず、戻せない。design D12）
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub purged: bool,
+    /// 本文ごと消すときに指定した滞在の識別子（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purge_stay_id: Option<uuid::Uuid>,
+    /// 後から届いて本文を消した件数（本文ごと消した区間だけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_purged: Option<u32>,
+}
+
+impl DayEntry {
+    fn plain(kind: EntryKind, start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
+        Self {
+            kind,
+            start,
+            end,
+            id: None,
+            criteria_id: None,
+            stay_ids: None,
+            purged: false,
+            purge_stay_id: None,
+            late_purged: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1271,27 +1513,28 @@ pub async fn day_view(
             }
         }
         entries.push(DayEntry {
-            kind: EntryKind::Stay,
-            start,
-            end,
             id: Some(r.id),
             criteria_id: tag.map(|t| t.criteria_id),
-            stay_ids: None,
+            ..DayEntry::plain(EntryKind::Stay, start, end)
         });
     }
     tags.sort_by_key(|t| std::cmp::Reverse(t.criteria_id));
 
     // **本人が消した滞在と、消した時間帯で隠した滞在を「消した」の行にする**（design D7）。
     // 吸収された滞在は吸収先が同じ時間を持つので数えない。読み出しは座標を持たない専用ビュー越しに限る（D12）。
+    // **本文ごと消した滞在は別の行にする**（design D12）。指定した滞在の時間（D13）をそのまま持ち、
+    // 本文を消していない「消した」とはまとめず、「消した」の区間はその分を差し引く。
     #[derive(sqlx::FromRow)]
     struct HiddenRow {
         id: uuid::Uuid,
         start_at: DateTime<Utc>,
         end_at: DateTime<Utc>,
         deleted_by: Option<String>,
+        purged: bool,
+        operation_id: Option<uuid::Uuid>,
     }
     let hidden_rows: Vec<HiddenRow> = sqlx::query_as(
-        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+        "SELECT id, start_at, end_at, deleted_by, purged, operation_id FROM core.stay_erased_purge
           WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
             AND start_at < $2 AND end_at > $3
           ORDER BY start_at, id",
@@ -1302,13 +1545,59 @@ pub async fn day_view(
     .bind(ABSORBED)
     .fetch_all(pool)
     .await?;
-    let mut hidden: Vec<ErasedSpan> = Vec::new();
-    for row in hidden_rows {
+    // 後から本文を消した件数を、本文を消した滞在の操作ごとに 1 回の問い合わせで数える（/code-review R27）
+    let purged_ops: Vec<uuid::Uuid> = hidden_rows
+        .iter()
+        .filter(|r| r.purged)
+        .filter_map(|r| r.operation_id)
+        .collect();
+    let late_by_op: HashMap<uuid::Uuid, i64> = if purged_ops.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_as::<_, (uuid::Uuid, i64)>(
+            "SELECT parent_id, sum(stays + locations + archive_locations + archive_items)::bigint
+               FROM core.erasure_operation
+              WHERE kind = 'late' AND parent_id = ANY($1)
+              GROUP BY parent_id",
+        )
+        .bind(&purged_ops)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
+    let mut purged_spans: Vec<ErasedSpan> = Vec::new();
+    for row in hidden_rows.iter().filter(|r| r.purged) {
+        let (start, end) = (row.start_at.max(d0), row.end_at.min(upper));
+        if start >= end {
+            continue;
+        }
+        let late = row
+            .operation_id
+            .and_then(|op| late_by_op.get(&op).copied())
+            .unwrap_or(0);
+        entries.push(DayEntry {
+            purged: true,
+            purge_stay_id: Some(row.id),
+            late_purged: Some(u32::try_from(late).unwrap_or(u32::MAX)),
+            ..DayEntry::plain(EntryKind::Erased, start, end)
+        });
+        purged_spans.push(ErasedSpan {
+            start,
+            end,
+            stay_ids: Vec::new(),
+        });
+    }
+    purged_spans.sort_by_key(|s| s.start);
+
+    let mut fragments: Vec<ErasedSpan> = Vec::new();
+    for row in hidden_rows.into_iter().filter(|r| !r.purged) {
         let HiddenRow {
             id,
             start_at: start,
             end_at: end,
             deleted_by,
+            ..
         } = row;
         let start = start.max(d0);
         let end = end.min(upper);
@@ -1322,9 +1611,10 @@ pub async fn day_view(
             .is_some_and(|by| by.starts_with(REBUILD_PREFIX))
         {
             sqlx::query_scalar(
-                "SELECT id FROM core.stay_erased
+                "SELECT id FROM core.stay_erased_purge
                    WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
                      AND start_at < $4 AND end_at > $3
+                     AND NOT purged
                      AND (deleted_by IS NULL OR deleted_by NOT LIKE $5)
                    ORDER BY start_at, id",
             )
@@ -1340,27 +1630,33 @@ pub async fn day_view(
         };
         causes.sort_unstable();
         causes.dedup();
-        if let Some(last) = hidden.last_mut().filter(|last| start <= last.end) {
-            last.end = last.end.max(end);
-            last.stay_ids.extend(causes);
-            last.stay_ids.sort_unstable();
-            last.stay_ids.dedup();
-        } else {
-            hidden.push(ErasedSpan {
+        for (start, end) in subtract_spans(start, end, &purged_spans) {
+            fragments.push(ErasedSpan {
                 start,
                 end,
-                stay_ids: causes,
+                stay_ids: causes.clone(),
             });
         }
     }
+    fragments.sort_by_key(|f| f.start);
+    let mut hidden: Vec<ErasedSpan> = Vec::new();
+    for span in fragments {
+        if let Some(last) = hidden.last_mut().filter(|last| span.start <= last.end) {
+            last.end = last.end.max(span.end);
+            last.stay_ids.extend(span.stay_ids);
+            last.stay_ids.sort_unstable();
+            last.stay_ids.dedup();
+        } else {
+            hidden.push(span);
+        }
+    }
     entries.extend(hidden.iter().map(|span| DayEntry {
-        kind: EntryKind::Erased,
-        start: span.start,
-        end: span.end,
-        id: None,
-        criteria_id: None,
         stay_ids: Some(span.stay_ids.clone()),
+        ..DayEntry::plain(EntryKind::Erased, span.start, span.end)
     }));
+    // 記録なしを測るときは、本文ごと消した時間も消した時間と同じに「記録なし」にしない
+    hidden.extend(purged_spans);
+    hidden.sort_by_key(|s| s.start);
 
     // 記録なし。読む窓の端を「その外側に記録がある」とみなさない仮の点にして、頭と尻も同じ規則で測る
     let observed: Vec<DateTime<Utc>> = load_points(pool, user, &c.sources, d0 - gap, d1 + gap)
@@ -1389,14 +1685,7 @@ pub async fn day_view(
             if s >= e {
                 continue;
             }
-            entries.push(DayEntry {
-                kind: EntryKind::NoRecord,
-                start: s,
-                end: e,
-                id: None,
-                criteria_id: None,
-                stay_ids: None,
-            });
+            entries.push(DayEntry::plain(EntryKind::NoRecord, s, e));
             covered.push((s, e));
         }
     }
@@ -1418,26 +1707,12 @@ pub async fn day_view(
     let mut cursor = d0;
     for (s, e) in covered {
         if s > cursor && cursor < move_upper {
-            entries.push(DayEntry {
-                kind: EntryKind::Move,
-                start: cursor,
-                end: s.min(move_upper),
-                id: None,
-                criteria_id: None,
-                stay_ids: None,
-            });
+            entries.push(DayEntry::plain(EntryKind::Move, cursor, s.min(move_upper)));
         }
         cursor = cursor.max(e);
     }
     if cursor < move_upper {
-        entries.push(DayEntry {
-            kind: EntryKind::Move,
-            start: cursor,
-            end: move_upper,
-            id: None,
-            criteria_id: None,
-            stay_ids: None,
-        });
+        entries.push(DayEntry::plain(EntryKind::Move, cursor, move_upper));
     }
 
     entries.sort_by(|a, b| a.start.cmp(&b.start).then(a.kind.cmp(&b.kind)));

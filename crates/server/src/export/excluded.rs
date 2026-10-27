@@ -183,7 +183,8 @@ impl ExcludedSql {
 /// 除く範囲の断片を組む。
 ///
 /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
-/// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+/// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。時間は `core.stay_erased` と、
+/// 本文を消した前の版は `core.erasure_span`（`scope = 'version'`）から読み、本文が残る前の版だけ本文から補う（ST23 / design D5）。
 ///
 /// 次の記録は、行ごとの相関副問い合わせでなく、鍵の列だけを並べた 1 つの窓（`span_next`）で一度に読む（CH02 D1〜D4）。
 /// ST33 D5 は「次の記録は行ごとに索引で引く」と決めたが、120 万行で 14 分かかったので覆した（CH02）。
@@ -208,10 +209,15 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              FROM core.stay_erased s
             WHERE {user_deleted}
            UNION ALL
+           SELECT sp.start_at, sp.end_at
+             FROM core.stay_erased s
+             JOIN core.erasure_span sp ON sp.event_id = s.id AND sp.scope = 'version'
+            WHERE {user_deleted}
+           UNION ALL
            SELECT v.event_time, coalesce(CASE WHEN v.end_time > v.event_time THEN v.end_time END,
                                   core.try_timestamptz(v.payload->>'end'), v.event_time)
              FROM core.stay_erased s
-             JOIN core.event_version v ON v.event_id = s.id
+             JOIN core.event_version v ON v.event_id = s.id AND v.raw <> ''
             WHERE {user_deleted}
          ),
          erased_range AS MATERIALIZED (

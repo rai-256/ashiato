@@ -296,6 +296,26 @@ const ja = {
     rowCriteria: (label: string): string => `${label} で作った`,
     erased: (range: string): string => `消した ${range}`,
     restore: "戻す",
+    /** 本文ごと消した区間の行（ST23 / design D12）。戻す操作も本文ごと消す操作も持たない */
+    purged: (range: string): string => `本文ごと消した ${range}`,
+    purgedLate: (n: number): string => `後から届いた ${n} 件も本文ごと消した`,
+    purge: "本文ごと消す",
+    purgeLoading: "消える件数を数えています…",
+    purgeFailed: (why: string): string => `消える件数を数えられませんでした（${why}）。何も消していません。`,
+    purgeRefused: "消せませんでした。何も消していません。もう一度お試しください。",
+    purgeChanged: "件数が変わりました。数え直した件数です。",
+    purgeLabel: "本文ごと消す確認",
+    purgeRange: (range: string): string => `${range} の本文を消します。戻せません。`,
+    purgeCounts: (c: { stays: number; locations: number; archive_locations: number; archive_items: number; versions: number }): string =>
+      `消えるもの: 滞在 ${c.stays} 件・位置 ${c.locations} 件・書庫の位置 ${c.archive_locations} 件・書庫の項目 ${c.archive_items} 件（前の版 ${c.versions} 件）。`,
+    /** 消えずに残るもの（確認の `remains` の名前を引く。D16） */
+    purgeRemainsLine: (kept: string[], trace: boolean): string =>
+      `消えずに残るもの: ${kept.join("・")}。${trace ? "ディスクの痕跡は次の書き直し（毎晩 3:30）で消えます。" : ""}`,
+    purgeRemains: {
+      archive_copies: (copies: number): string => `書庫の写し ${copies} 個`,
+      user_folder_archives: (): string => "本人のフォルダの書庫",
+      export_files: (): string => "書き出したファイル",
+    },
     move: (long: string): string => `移動 ${long}`,
     noRecord: (range: string): string => `記録なし ${range}`,
     /** どの行にも入らない時間の記録の行（ST25 / D19（仮）） */

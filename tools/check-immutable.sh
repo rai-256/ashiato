@@ -1231,7 +1231,17 @@ ST03_UP=(202609120940_source_columns 202609120941_event_columns 202609120942_ded
 psql -c "DROP SCHEMA core CASCADE;" >/dev/null
 for m in "${MIGS[@]}"; do psql < "migrations/$m.sql" >/dev/null; done
 down_fail=0
-# **ST41 の終わりの時刻をいちばん先に戻す**（最後に足した版）。戻して進め直せること、2 回目の戻しも当たることまで見る
+# **ST23 の本文ごと消す操作をいちばん先に戻す**（最後に足した版。core.stay_erased_purge が ST41 の end_time を読むので、
+# これを戻さないと ST41 の戻しが依存で落ちる）。戻して進め直せること、2 回目の戻しも当たることまで見る
+psql < "migrations/202610240500_record_purge.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610240500_record_purge.down.sql が当たらない"; fail=1; down_fail=1; }
+[ "$(psql -c "SELECT to_regclass('core.erasure_operation') IS NULL AND to_regclass('core.erasure_span') IS NULL AND to_regclass('core.stay_erased_purge') IS NULL AND to_regclass('core.purge_compaction') IS NULL;")" = "t" ] \
+  || { echo "  NG record_purge の戻しで表・ビューが残っている"; fail=1; down_fail=1; }
+psql < "migrations/202610240500_record_purge.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610240500_record_purge.sql を戻した後に当て直せない"; fail=1; down_fail=1; }
+psql < "migrations/202610240500_record_purge.down.sql" >/dev/null 2>&1 \
+  || { echo "  NG 202610240500_record_purge.down.sql を 2 回目に当てられない"; fail=1; down_fail=1; }
+# **ST41 の終わりの時刻をその次に戻す**。戻して進め直せること、2 回目の戻しも当たることまで見る
 psql < "migrations/202610231200_event_end_time.down.sql" >/dev/null 2>&1 \
   || { echo "  NG 202610231200_event_end_time.down.sql が当たらない"; fail=1; down_fail=1; }
 psql < "migrations/202610231200_event_end_time.sql" >/dev/null 2>&1 \
