@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 検証の準備。ハーネス（scripts/verify-run）が**検証コマンドの前に毎回**呼ぶ。
 # **印（HARNESS_VERIFY=1）が無ければ何度呼んでも同じ**（起動済みなら何もしない）。**印があれば毎回空から**（worktree か CI=true のとき。ch06 design D2）。
+# 作り直したら `HARNESS_RESET: testdb` を標準出力に 1 行（ハーネスの約束。ch07 design D2）。
 # 作り直すかの判定は `--plan`（`reset` か `keep: <理由>` の 1 行。docker にも .env にも触らない）。
 # いまやることは 2 つ: この worktree のテスト用 DB を起動して接続できるまで待ち、DB の役割（ST28）を整える。
 #   - ポートは tools/ports.sh の worktree ごとの規則（Story を並行して走らせても取り合わない）
@@ -51,7 +52,7 @@ cut_line() {
   else echo "verify-env: DB を作り直す（切った接続: $n。$list）" >&2; fi
 }
 
-# 作り直し（design D1・D4）。volume を名前で控え、他のコンテナが使っていなければ、コンテナと volume を消す。`-v` は使わない
+# 作り直し（design D1・D4）。DB のコンテナが無かった／volume を 1 つ以上消し終えたときだけ reset_done=1（宣言の印。ch07 design D2）。volume を名前で控え、他のコンテナが使っていなければ、コンテナと volume を消す。`-v` は使わない
 reset_db() {
   local cid vols v users others
   cid=$(docker compose ps -aq db --no-trunc)
@@ -67,7 +68,7 @@ reset_db() {
   done
   cut_line
   docker compose rm -s -f db >/dev/null
-  for v in $vols; do docker volume rm "$v" >/dev/null || { echo "verify-env: volume $v を消せない" >&2; exit 1; }; done
+  for v in $vols; do docker volume rm "$v" >/dev/null || { echo "verify-env: volume $v を消せない" >&2; exit 1; }; reset_done=1; done
 }
 
 # 塞いでいる network の確かめ（design D5）。subnet のファイルがあり自分の network が無いとき、同じ subnet の別の network を探す。
@@ -118,6 +119,7 @@ clear_blocking_network() {
   done < <(docker network ls -q | xargs -r docker network inspect --format '{{.Name}}{{"\t"}}{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null || true)
 }
 
+reset_done=
 [[ $decision != reset ]] || reset_db
 clear_blocking_network
 docker compose up -d --wait db >/dev/null
@@ -129,6 +131,7 @@ for _ in $(seq 1 30); do
     # **毎回やる** —— tools/smoke.sh は後片付けで DB を volume ごと消すので、次の検証の DB には役割が無い
     # （実測 2026-10-07 ST21 11.3: `password authentication failed for user "ashiato_owner"` で 371 本が落ちた）
     tools/db-roles.sh >/dev/null || { echo "DB の役割を整えられない（tools/db-roles.sh。.env の合言葉を見る）" >&2; exit 1; }
+    [[ -z $reset_done ]] || echo "HARNESS_RESET: testdb"
     exit 0
   fi
   sleep 1
