@@ -35,6 +35,7 @@
 | D12 | 書き出しの分類（時刻 1 点・座標なし） | ST33 の `excluded.rs` | 仮 |
 | D13 | 要件の誤った理由の写しを直す範囲 | Q1 推奨・deep-review R14・spec-review R12 | — |
 | D14 | 健康データの印と最後の状態を自動バックアップから外す | spec-review R4 | 仮 |
+| D15 | 保持の上限で記録を捨てたら最後の状態を忘れる | review/code.md R19 | 仮 |
 
 ## D1. 論理ソース `c01-health-permission` と登録簿の行（Q5 推奨）
 
@@ -181,8 +182,11 @@ Q2 の答えは Android 16（`premises.md` P10・P16）で、本人の端末は�
 
 ## D8（仮）. 常駐の通知の操作（Q4 推奨）
 
-前景サービスの通知に `addAction` で 1 つ足す（ラベル「健康データの権限」）。押すと収集アプリの Health Connect の権限の画面を開く:
-Android 14 以降は `HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS` + `Intent.EXTRA_PACKAGE_NAME`（P12 で収集アプリの権限の画面が開くと確かめた）、13 以前は client の `HealthConnectClient.getHealthConnectManageDataIntent(context)`（Health Connect のアプリの画面。収集アプリの権限まで何回押すかは確かめていない。spec の Scenario は 14 以降に限った。spec-review R17）。
+前景サービスの通知に `addAction` で 1 つ足す（ラベル「健康データの権限」）。押すと Health Connect の画面を開く:
+Android 14 以降は **Health Connect の設定のトップ**（`HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS`。14 以降の値は `android.health.connect.action.HEALTH_HOME_SETTINGS`）で、本人がそこから「アプリの権限 → あしあと。」へたどる（深掘り Q11 の本人の答え）。
+収集アプリの権限の画面（`HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS` + `Intent.EXTRA_PACKAGE_NAME`）は OS の特別な権限（`GRANT_RUNTIME_PERMISSIONS`）が要り、普通のアプリからは開けない
+（P12 は adb の shell から確かめていた。計測テストの実測で崩れた。review/code.md R12）。
+13 以前は client の `HealthConnectClient.getHealthConnectManageDataIntent(context)`（Health Connect のアプリの画面。収集アプリの権限まで何回押すかは確かめていない。spec の Scenario は 14 以降に限った。spec-review R17）。
 
 - 出すのは、通知を組み立てるときに `availability = available` のときだけ（無い端末で押しても開く画面が無い）。許されているかには依らず出す（外す道にもなる。利用状況へのアクセスの `setContentIntent` も常に出ている）
 - `setContentIntent`（利用状況へのアクセス）は変えない
@@ -253,6 +257,17 @@ manifest に `allowBackup` も `dataExtractionRules` も無いので、Android �
 - 既存の印（`sent_to_usage_access`・ST13 の除外の印）と `collector` の置き場の扱いは変えない（この change の範囲の外。同じ型の穴は確認バッチの持ち越しに書く）
 
 **反転条件**: 自動バックアップを丸ごと止める（`allowBackup = false`）と決める change が入る → 専用の置き場は残してよい（害は無い）。
+
+## D15（仮）. 保持の上限で健康データの権限の記録を捨てたら、最後の状態を忘れる（review/code.md R19）
+
+未送信の保持の上限（90 日・2 GB。ST04）で `c01-health-permission` の記録が捨てられると、その状態は S-01 に届かない。
+最後の状態（D2）が「記録した」のまま残ると、状態が変わるまで（変わらなければ永久に）作り直さず、S-01 は許可の状態を持たない（ST34 の読める範囲の起点が出ない）。
+
+- `LocationService` の保持の上限の宛先（`Retention` の `onDropped`）で、捨てた中に `c01-health-permission` があれば `HealthStateStore.forget()` で最後の状態を消す。次に観たとき（開く・6 時間ごとの見直し）必ず 1 件作り直す
+- 作り直した記録の観た時刻は捨てた記録より後になる（S-01 から見ると、その状態の始まりが後ろへずれる）。捨てた事実は ST04 の破棄の報告に数として残る
+- 失わない側: 作り直す（重なっても同じ状態の記録が 1 件増えるだけ。D2 の「作り直す側に倒れる」と同じ向き）。失う側: 作り直さない（状態が変わるまで S-01 に許可の状態が無い）
+
+**反転条件**: 捨てた記録の観た時刻を保ったまま送り直す仕組み（破棄の前に要約を別の置き場へ移すなど）が入る → そちらへ寄せ、忘れる処理は外す。
 
 ## Risks / Trade-offs
 

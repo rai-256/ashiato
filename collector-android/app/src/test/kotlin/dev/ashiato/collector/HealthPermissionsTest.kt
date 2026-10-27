@@ -109,4 +109,27 @@ class HealthPermissionsTest {
             ?: intent.extras?.keySet()?.firstNotNullOfOrNull { intent.getStringArrayExtra(it) }
         assertEquals(HEALTH_PERMISSIONS.values.sorted(), extra.orEmpty().toList().sorted())
     }
+
+    /**
+     * 本人の決定と仮決めの値を直書きで固定する（review/code.md R18）。試験の他の箇所は定数を参照して比べるので、
+     * 定数そのものを書き換えても落ちない。印の鍵が変わると、更新した端末で答え済みの本人にもう一度自動で求める（D4）。
+     */
+    @Test
+    fun `決めた値は直書きで固定されている`() {
+        // 深掘り Q3（4 種類）・Q9（背景も求める）・D2 の `granted` の鍵と順
+        assertEquals(
+            linkedMapOf(
+                "sleep" to "android.permission.health.READ_SLEEP",
+                "heart_rate" to "android.permission.health.READ_HEART_RATE",
+                "steps" to "android.permission.health.READ_STEPS",
+                "exercise" to "android.permission.health.READ_EXERCISE",
+                "history" to "android.permission.health.READ_HEALTH_DATA_HISTORY",
+                "background" to "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND",
+            ).toList(),
+            HEALTH_PERMISSIONS.toList(),
+        )
+        assertEquals("asked_health_permissions", ASKED_HEALTH_PERMISSIONS) // D4
+        assertEquals("健康データの権限", HEALTH_PERMISSION_ACTION_LABEL) // D8
+        assertEquals(30_000L, LocationService.HEALTH_READ_TIMEOUT_MS) // review/code.md R3
+    }
 }

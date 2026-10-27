@@ -63,10 +63,10 @@ Health Connect は履歴の権限が無いアプリに「どれかの種類を�
 
 IF 本人が健康データの権限の画面で、種類・履歴の読み取り・背景での読み取りのどれか（全部を含む）を断る THEN THE SYSTEM SHALL 収集を始め、位置・アプリ利用・写真と動画の取得を止めない。
 THE SYSTEM SHALL 断られた健康データの権限を、自動で求め直さない。
-WHILE Health Connect が使える THE SYSTEM SHALL 常駐の通知に、Health Connect の権限の画面を開く操作を出す（Android 14 以降は収集アプリの権限の画面、Android 13 以前は Health Connect のアプリの画面）。
+WHILE Health Connect が使える THE SYSTEM SHALL 常駐の通知に、Health Connect の画面を開く操作を出す（Android 14 以降は Health Connect の設定のトップで、本人がそこから「アプリの権限 → 収集アプリ」へたどる。Android 13 以前は Health Connect のアプリの画面）。
 WHEN 本人が後から Health Connect の設定で許す・外す THE SYSTEM SHALL 次に権限の状態を観たときに、その状態を記録する。
 
-導出元: FR-11, FR-2。深掘り Q4（答え待ち・推奨）。正典「利用状況へのアクセスを初回起動で求める」の「ここで決めた形を ST11 が引き継ぐ」。
+導出元: FR-11, FR-2。深掘り Q4（答え待ち・推奨）・Q11（通知から開くのは Health Connect の設定のトップ。収集アプリの権限の画面は普通のアプリからは開けない）。正典「利用状況へのアクセスを初回起動で求める」の「ここで決めた形を ST11 が引き継ぐ」。
 Health Connect は 2 回断られたアプリに画面を出さなくなる（`premises.md` P6）。その後でも本人は Health Connect の設定の画面で許せ、許せば全履歴が読める（P12）。
 後から許せば全履歴が読めるので（P2）、自動で求めるのを 1 度にしても失うものは無い。
 
@@ -83,7 +83,7 @@ Health Connect は 2 回断られたアプリに画面を出さなくなる（`p
 #### Scenario: 常駐の通知から健康データの権限の画面が開く
 
 - **WHEN** Health Connect が使える Android 14 以降の端末で収集が動いている間に、常駐の通知の健康データの権限の操作を押す
-- **THEN** 収集アプリの Health Connect の権限の画面が開く
+- **THEN** Health Connect の設定のトップが開き、そこから「アプリの権限」→ 収集アプリとたどると、収集アプリの Health Connect の権限の画面が開く
 
 #### Scenario: Health Connect が使えない端末の通知には健康データの権限の操作が出ない
 
@@ -92,7 +92,7 @@ Health Connect は 2 回断られたアプリに画面を出さなくなる（`p
 
 #### Scenario: 断った後に設定で許すと次に観たときに記録される
 
-- **WHEN** 健康データの権限を断った端末で、本人が常駐の通知から Health Connect の権限の画面を開いて 4 つの種類と履歴の読み取りを許し、収集アプリを開く
+- **WHEN** 健康データの権限を断った端末で、本人が常駐の通知から Health Connect の設定を開いて収集アプリの権限までたどり、 4 つの種類と履歴の読み取りを許し、収集アプリを開く
 - **THEN** 4 つの種類と履歴の読み取りが許されていることを持つ健康データの権限の記録が 1 件、未送信に積まれる
 
 ### Requirement: Health Connect が無い・使えない端末では健康データの権限を求めずに収集を始める

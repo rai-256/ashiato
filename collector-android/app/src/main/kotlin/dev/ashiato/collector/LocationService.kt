@@ -17,9 +17,9 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
-import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
@@ -257,7 +257,8 @@ open class LocationService : Service() {
     protected open fun newDeviceClock(): DeviceClock = AndroidDeviceClock(this)
 
     /** 知らせの出し先。**試験では Robolectric の本物の NotificationManager** を通す。 */
-    protected open fun newRetentionAlerts(): RetentionAlerts = AndroidRetentionAlerts(this) { notification(it) }
+    protected open fun newRetentionAlerts(): RetentionAlerts =
+        AndroidRetentionAlerts(this, ongoingNotificationLock) { notification(it) }
 
     /** 端末の時計の測定の刻み（1 時間と測り直し）。**試験だけが差し替える**（ST05 / design D3 / D4）。 */
     protected open fun newClockScheduler(): ClockTicks = ClockTicks(ExecutorFlushScheduler(), ExecutorFlushScheduler())
@@ -281,7 +282,10 @@ open class LocationService : Service() {
      */
     private fun newOutbox(): Outbox<IngestRequest> = Outbox(
         SegmentStore(
-            store("records"), IngestRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("records"),
+            IngestRequest.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
         writeFailures = object : WriteFailures<IngestRequest> {
@@ -318,7 +322,10 @@ open class LocationService : Service() {
      */
     private fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> = Outbox(
         SegmentStore(
-            store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("heartbeats"),
+            HeartbeatRequest.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
     )
@@ -326,7 +333,10 @@ open class LocationService : Service() {
     /** 破棄の報告の未送信。上限の対象にしない（C2 / design D13）。 */
     private fun newDropsOutbox(): Outbox<DropReport> = Outbox(
         SegmentStore(
-            store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
+            store("drops"),
+            DropReport.serializer(),
+            store(UNREADABLE),
+            { Log.w(TAG, it) },
         ),
         age = ageClock::now,
     )
@@ -458,7 +468,9 @@ open class LocationService : Service() {
                 source = usage,
                 outbox = outbox,
                 windowStore = UsageWindowStore(
-                    usageWindowFile(filesDir, APP_USAGE_LOGICAL_SOURCE), APP_USAGE_LOGICAL_SOURCE, logW,
+                    usageWindowFile(filesDir, APP_USAGE_LOGICAL_SOURCE),
+                    APP_USAGE_LOGICAL_SOURCE,
+                    logW,
                 ),
                 labels = labels,
                 userId = user,
@@ -614,16 +626,28 @@ open class LocationService : Service() {
         // 行ごとに名前を読む
         val recordSalvaged: (Int) -> Boolean = { ledger.unreadable(SourceCadence.LOCATION.logicalSource, it) }
         migrateLegacyOutbox(
-            File(filesDir, "outbox.jsonl"), outbox, IngestRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+            File(filesDir, "outbox.jsonl"),
+            outbox,
+            IngestRequest.serializer(),
+            store(UNREADABLE),
+            store("salvaged"),
+            recordSalvaged,
+            ageClock.now(),
+            logW,
         )
         migrateLegacyOutbox(
-            File(filesDir, "heartbeat.jsonl"), heartbeatOutbox, HeartbeatRequest.serializer(),
-            store(UNREADABLE), store("salvaged"), recordSalvaged, ageClock.now(), logW,
+            File(filesDir, "heartbeat.jsonl"),
+            heartbeatOutbox,
+            HeartbeatRequest.serializer(),
+            store(UNREADABLE),
+            store("salvaged"),
+            recordSalvaged,
+            ageClock.now(),
+            logW,
         )
 
         openMediaStores(logW, logI)
-        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = originalPipeline.link::dropped)
+        retention = Retention(outbox, ledger, ageClock::now, log = logI, onDropped = ::onRecordsDropped)
         notifier = RetentionNotifier(
             outbox,
             ageClock::now,
@@ -632,6 +656,13 @@ open class LocationService : Service() {
             baseText = ongoingText(),
             log = logI,
         )
+    }
+
+    /** 保持の上限で捨てた記録の宛先（ST09 の原本の送り待ち）。 */
+    private fun onRecordsDropped(dropped: List<IngestRequest>) {
+        originalPipeline.link.dropped(dropped)
+        // 健康データの権限の記録を捨てたら最後の状態を忘れ、次に観たとき作り直す（review/code.md R19 / design D15（仮））
+        if (dropped.any { it.logicalSource == HEALTH_LOGICAL_SOURCE }) healthStore.forget()
     }
 
     /** 原本の送りを走らせる。糸の中の例外はプロセスを落とすので、種別だけ残して次の契機へ回す（design D26） */
@@ -778,7 +809,8 @@ open class LocationService : Service() {
         // **主糸では回さない**（[runCollection]）—— `onStartCommand` は主糸で呼ばれる。
         // 画面が預けた健康データの権限の記録（ディスクへの追記）も、初回の集計の取り込み
         // （4 粒度ぶんの問い合わせと数千件の追記）も同じ糸に載せる。預けた分は取得より先に積む（review/code.md R6）
-        runCollection { HealthRecordHandoff.drainInto(outbox) }
+        // 積むところが投げても糸の外へ抜かず、種別だけ残す（review/code.md R23）
+        runCollection { HealthRecordHandoff.drainInto(outbox, ::logHealthCrashed) }
         // **1 本ずつ独立に。** 取得条件が欠けたソースは `collect()` を呼ばず、生存信号だけを出す。
         for (running in sources) runCollection { collect(running) }
         startFlushing()
@@ -1004,8 +1036,9 @@ open class LocationService : Service() {
                         // 健康データの権限の 6 時間ごとの見直し（ST11 / design D9）。生存信号は送らない。
                         // **生存信号の糸では回さない**（review/code.md R3）—— Health Connect の問い合わせが返らないと、
                         // 位置の生存信号と途切れの問い合わせが同じ糸で止まり、稼働状況に途絶として出る。
-                        // 預けるところも包む —— 止める途中（`onDestroy` の `shutdownNow` の後）の刻みは預け先に断られ、
-                        // 投げると刻みそのもの（生存信号）が止まる
+                        // 預けるところも包む —— 止める途中（`onDestroy` の `shutdownNow` の後）の刻みは預け先に断られる。
+                        // 生存信号はこの前に出ていて、既定の刻み（[ExecutorFlushScheduler]）も投げたものを受けるが、
+                        // それだと `tick_crashed` になる。健康データの見直しの失敗として種別を残すためにここで受ける（review/code.md R29）
                         runCatching { runCollection { observeHealthPeriodically() } }.onFailure { logHealthCrashed(it) }
                     }
                 }
@@ -1013,15 +1046,23 @@ open class LocationService : Service() {
         }
     }
 
+    /** 健康データの権限の最後の状態の置き場（画面と共有。design D2）。 */
+    private val healthStore: HealthStateStore by lazy {
+        HealthStateStore(getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE))
+    }
+
     /** 健康データの権限の観測。通知の操作が使う「使えるか」もここで読む。 */
     private val healthRecorder: HealthPermissionRecorder by lazy {
-        val store = HealthStateStore(getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE))
         HealthPermissionRecorder(
             read = {
-                healthPermissions().read(this).also { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
+                val reading = healthPermissions().read(this)
+                setHealthAvailable(reading.availability == HealthAvailability.AVAILABLE)
+                reading
             },
-            autoRequested = { getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE).getBoolean(ASKED_HEALTH_PERMISSIONS, false) },
-            store = store,
+            autoRequested = {
+                getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE).getBoolean(ASKED_HEALTH_PERMISSIONS, false)
+            },
+            store = healthStore,
             clock = newDeviceClock(),
             deviceId = deviceId,
             userId = Config.userId,
@@ -1038,10 +1079,18 @@ open class LocationService : Service() {
 
     /** 使えるかが変わったら、常駐の通知を組み直す（操作の出し入れ。design D8）。 */
     private fun setHealthAvailable(available: Boolean) {
-        if (healthAvailable == available) return
-        healthAvailable = available
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(shownText ?: ongoingText()))
+        // 組み立てと notify を 1 つの錠の中で（保持の知らせの本文の差し替えと同じ錠。review/code.md R27）——
+        // 別の糸が古い healthAvailable で組み立てた通知が後から届いて、操作の出し入れが逆戻りしない
+        synchronized(ongoingNotificationLock) {
+            if (healthAvailable == available) return
+            healthAvailable = available
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, notification(shownText ?: ongoingText()))
+        }
     }
+
+    /** 常駐の通知を組み立てて出すところの錠（[setHealthAvailable] と [AndroidRetentionAlerts.ongoing]）。 */
+    private val ongoingNotificationLock = Any()
 
     /** 常駐の通知に最後に出した本文（日数つきの本文を、操作の出し入れで基本の文に戻さない）。 */
     @Volatile
@@ -1058,7 +1107,9 @@ open class LocationService : Service() {
      * 失敗しても位置の収集を止めない。
      */
     private fun refreshHealthAvailability() {
-        runCatching { runBlocking { withTimeout(healthReadTimeoutMs()) { healthPermissions().read(this@LocationService) } } }
+        runCatching {
+            runBlocking { withTimeout(healthReadTimeoutMs()) { healthPermissions().read(this@LocationService) } }
+        }
             .onSuccess { setHealthAvailable(it.availability == HealthAvailability.AVAILABLE) }
             .onFailure { logHealthCrashed(it) }
     }
@@ -1068,12 +1119,19 @@ open class LocationService : Service() {
      * 読みが返らないときは [healthReadTimeoutMs] で諦める（取得の糸を塞ぎ続けない。review/code.md R3）。
      */
     private fun observeHealthPeriodically() {
-        runCatching { runBlocking { withTimeout(healthReadTimeoutMs()) { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) } } }
+        runCatching {
+            runBlocking {
+                withTimeout(healthReadTimeoutMs()) { healthRecorder.observeHealthPermissions(HealthTrigger.PERIODIC) }
+            }
+        }
             .onFailure { logHealthCrashed(it) }
     }
 
     private fun logHealthCrashed(e: Throwable) {
-        Log.w(TAG, Telemetry.line("health_permission_crashed", source = HEALTH_LOGICAL_SOURCE, error = e.javaClass.simpleName))
+        Log.w(
+            TAG,
+            Telemetry.line("health_permission_crashed", source = HEALTH_LOGICAL_SOURCE, error = e.javaClass.simpleName)
+        )
     }
 
     override fun onDestroy() {
@@ -1158,7 +1216,11 @@ open class LocationService : Service() {
         // Health Connect が使えるときだけ、権限の画面への操作を足す（design D8（仮））。許されているかには依らない
         if (healthAvailable) {
             builder.addAction(
-                Notification.Action.Builder(null, HEALTH_PERMISSION_ACTION_LABEL, healthPermissionPendingIntent()).build(),
+                Notification.Action.Builder(
+                    null,
+                    HEALTH_PERMISSION_ACTION_LABEL,
+                    healthPermissionPendingIntent()
+                ).build(),
             )
         }
         return builder.build()
@@ -1176,7 +1238,12 @@ open class LocationService : Service() {
             healthSettingsMissingLogged = true
             Log.w(TAG, Telemetry.line("health_permission_settings_missing", source = HEALTH_LOGICAL_SOURCE))
         }
-        return PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        return PendingIntent.getActivity(
+            this,
+            1,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
     }
 
     /** 常駐の通知を押したときに開く設定画面（design D6（仮））。 */
@@ -1240,12 +1307,14 @@ open class LocationService : Service() {
  */
 class AndroidRetentionAlerts(
     private val service: Service,
+    /** 常駐の通知を組み立てて出すところの錠（他の糸の組み直しと前後しない。review/code.md R27）。 */
+    private val ongoingLock: Any = Any(),
     private val ongoingNotification: (String) -> Notification,
 ) : RetentionAlerts {
     private val manager: NotificationManager get() = service.getSystemService(NotificationManager::class.java)
 
     override fun ongoing(text: String) {
-        manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text))
+        synchronized(ongoingLock) { manager.notify(LocationService.NOTIFICATION_ID, ongoingNotification(text)) }
     }
 
     override fun alert(days: Int): Boolean {

@@ -14,11 +14,12 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import kotlinx.coroutines.runBlocking
 
 /**
  * 権限を順に求めてから収集を始める。**記録を見せる画面は持たない** —— 表示は V-01（web）の仕事。
@@ -103,6 +104,7 @@ open class MainActivity : Activity() {
             emit = healthRecordSink(),
             log = { Log.i(TAG, it) },
             remember = healthRemember(store),
+            pending = healthPendingSlot(),
         )
     }
 
@@ -125,7 +127,9 @@ open class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == HEALTH_REQUEST) {
-            onHealthRequestReturned()
+            // 求めが中断されると framework は空の配列で呼ぶ（Activity#onRequestPermissionsResult）。
+            // 答えていないので印は立てない —— 次の起動でもう一度求める（design D4。review/code.md R13 / R26）
+            onHealthRequestReturned(answered = permissions.isNotEmpty())
             return
         }
         inFlight = false
@@ -204,7 +208,16 @@ open class MainActivity : Activity() {
         inFlight = true
         runHealth {
             val request = runCatching { healthRequestIntent() }
-                .onFailure { Log.w(TAG, Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = it.javaClass.simpleName)) }
+                .onFailure {
+                    Log.w(
+                        TAG,
+                        Telemetry.line(
+                            "health_permission_step_failed",
+                            source = HEALTH_LOGICAL_SOURCE,
+                            error = it.javaClass.simpleName
+                        )
+                    )
+                }
                 .getOrNull()
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
@@ -219,16 +232,24 @@ open class MainActivity : Activity() {
         }
     }
 
-    /** 起動ごとの最初の通過で `app_open` を観てから、求める画面の intent を返す（求めないなら null）。 */
+    /**
+     * 起動ごとの最初の通過で `app_open` を観てから、求める画面の intent を返す（求めないなら null）。
+     * 観たときの読みを求めるかの判断にもそのまま使う（読み直すと、記録と判断が別の状態に基づく。review/code.md R28）。
+     * 読みが返らないときは [healthReadTimeoutMs] で諦めて投げる —— 呼び手が求めずに先へ進む（収集を止めない。R20 / R25）。
+     */
     private fun healthRequestIntent(): Intent? = runBlocking {
-        if (!healthOpenObserved) {
-            healthOpenObserved = true
-            healthRecorder.observeHealthPermissions(HealthTrigger.APP_OPEN)
-        }
         val health = healthPermissions()
-        val reading = health.read(this@MainActivity)
+        val reading = withTimeout(healthReadTimeoutMs()) {
+            if (!healthOpenObserved) {
+                healthOpenObserved = true
+                healthRecorder.observeHealthPermissions(HealthTrigger.APP_OPEN)
+            } else {
+                health.read(this@MainActivity)
+            }
+        }
         val wanted = healthPermissionsToAsk(reading.availability, reading.features)
-        if (healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false) || wanted.all { it in reading.grantedPermissions }) {
+        val asked = healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false)
+        if (asked || wanted.all { it in reading.grantedPermissions }) {
             null
         } else {
             health.createRequestIntent(this@MainActivity, wanted.toSet())
@@ -244,11 +265,18 @@ open class MainActivity : Activity() {
             // そのときは中の権限を framework の口（`requestPermissions`）で求める
             val framework = intent.takeIf { it.action == ACTION_REQUEST_PERMISSIONS }
                 ?.getStringArrayExtra(EXTRA_PERMISSIONS)
-            if (framework != null) requestHealthPermissions(framework) else startActivityForResult(intent, HEALTH_REQUEST)
+            if (framework != null) {
+                requestHealthPermissions(framework)
+            } else {
+                startActivityForResult(intent, HEALTH_REQUEST)
+            }
         }.isSuccess
         if (!opened) {
             // 開けなかった端末で止まらない。印は立てない（次の起動でもう一度試す）
-            Log.w(TAG, Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = "launch"))
+            Log.w(
+                TAG,
+                Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = "launch")
+            )
             inFlight = false
             healthDone = true
             proceed()
@@ -260,17 +288,36 @@ open class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != HEALTH_REQUEST) return
-        onHealthRequestReturned()
+        onHealthRequestReturned(answered = true)
     }
 
-    /** 健康データの権限の画面から戻った（13 以前は `onActivityResult`、14 以降は `onRequestPermissionsResult`）。 */
-    private fun onHealthRequestReturned() {
-        // **結果が返ったときに印を立てる**（D4）。**結果の中身は見ない**。実際の状態を読み直して観る
-        healthMarks().edit().putBoolean(ASKED_HEALTH_PERMISSIONS, true).commit()
+    /**
+     * 健康データの権限の画面から戻った（13 以前は `onActivityResult`、14 以降は `onRequestPermissionsResult`）。
+     * [answered] が false（求めが中断された）なら印を立てず、この起動では求め直さずに先へ進む。
+     */
+    private fun onHealthRequestReturned(answered: Boolean) {
         inFlight = true
         runHealth {
-            runCatching { runBlocking { healthRecorder.observeHealthPermissions(HealthTrigger.REQUEST_RESULT) } }
-                .onFailure { Log.w(TAG, Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = it.javaClass.simpleName)) }
+            // **結果が返ったときに印を立てる**（D4）。**結果の中身は見ない**。実際の状態を読み直して観る。
+            // 印は観る前に書く（記録の `auto_requested` に写る）。ディスクへの同期の書き込みなので主スレッドでは書かない（R30）
+            if (answered) healthMarks().edit().putBoolean(ASKED_HEALTH_PERMISSIONS, true).commit()
+            runCatching {
+                runBlocking {
+                    withTimeout(
+                        healthReadTimeoutMs()
+                    ) { healthRecorder.observeHealthPermissions(HealthTrigger.REQUEST_RESULT) }
+                }
+            }
+                .onFailure {
+                    Log.w(
+                        TAG,
+                        Telemetry.line(
+                            "health_permission_step_failed",
+                            source = HEALTH_LOGICAL_SOURCE,
+                            error = it.javaClass.simpleName
+                        )
+                    )
+                }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 inFlight = false
@@ -282,6 +329,12 @@ open class MainActivity : Activity() {
 
     /** 健康データの権限の読み口と求める口。**試験だけが差し替える**（Robolectric は Health Connect を持たない）。 */
     protected open fun healthPermissions(): HealthPermissions = ClientHealthPermissions()
+
+    /** Health Connect の読みを待つ上限（サービスと同じ。review/code.md R20）。**試験だけが縮める**。 */
+    protected open fun healthReadTimeoutMs(): Long = LocationService.HEALTH_READ_TIMEOUT_MS
+
+    /** 画面の recorder の控え。本番はプロセスで 1 つ（Activity が作り直されても残る。review/code.md R24）。試験は試験ごとに作る。 */
+    protected open fun healthPendingSlot(): HealthPendingSlot = HealthRecordHandoff.screenPending
 
     /** 健康データの読みを回す糸（主スレッドを塞がない）。試験はその場で回す。 */
     protected open fun runHealth(task: () -> Unit) {
@@ -449,7 +502,10 @@ open class MainActivity : Activity() {
         private const val REQUEST = 1
         const val HEALTH_REQUEST = 2
 
-        /** Android 14 以降の client が返す intent の action と、求める権限の extra（`ActivityResultContracts.RequestMultiplePermissions`）。 */
+        /**
+         * Android 14 以降の client が返す intent の action と、求める権限の extra
+         * （`ActivityResultContracts.RequestMultiplePermissions`）。
+         */
         const val ACTION_REQUEST_PERMISSIONS = "androidx.activity.result.contract.action.REQUEST_PERMISSIONS"
         const val EXTRA_PERMISSIONS = "androidx.activity.result.contract.extra.PERMISSIONS"
         private val healthExecutor: Executor = Executors.newSingleThreadExecutor { r ->

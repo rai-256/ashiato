@@ -40,16 +40,15 @@ const val ASKED_HEALTH_PERMISSIONS = "asked_health_permissions"
 /** 常駐の通知の操作のラベル（design D8（仮））。 */
 const val HEALTH_PERMISSION_ACTION_LABEL = "健康データの権限"
 
-/** Health Connect の権限の画面の action（`HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS`。Android 14 以降） */
-private const val ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS"
-
 /**
- * 常駐の通知の操作が開く画面（design D8（仮））。14 以降は収集アプリの権限の画面、13 以前は Health Connect のアプリの画面
- * （client の口。収集アプリの権限まで何回押すかは確かめていない）。
+ * 常駐の通知の操作が開く画面（design D8（仮）/ 深掘り Q11）。14 以降は Health Connect の設定のトップ
+ * （`HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS`）で、本人がそこから「アプリの権限 → あしあと。」へたどる。
+ * 収集アプリの権限の画面（`ACTION_MANAGE_HEALTH_PERMISSIONS`）は OS の特別な権限が要り、普通のアプリからは開けない
+ * （計測テストの実測。review/code.md R12）。13 以前は Health Connect のアプリの画面（client の口）。
  */
 fun healthPermissionSettingsIntent(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Intent =
     if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+        Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
     } else {
         HealthConnectClient.getHealthConnectManageDataIntent(context)
     }

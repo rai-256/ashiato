@@ -29,7 +29,9 @@ import org.junit.runners.MethodSorters
  * `pm reset-permissions` で作る）。Health Connect の権限は**自分では外せない**（プロセスが死ぬ）ので、許した後の状態は
  * 戻せない —— このクラスの試験は名前の順に走り（`@FixMethodOrder`）、**権限の状態だけ**を引き継ぐ（t3 が許した状態を t4・t5 が見る）。
  * **画面は引き継げない**: 試験の実行器は試験ごとに `MainActivity` を閉じるので、前の試験が開いた権限の画面から結果は戻らない。
- * そこで各試験は前の画面を片付け（[HealthConnectScreens.reset]）、印を消して収集アプリを開き直し、求める画面を自分で出して答えまで進める。
+ * そこで求める画面を使う試験（t1〜t3）は前の画面を片付け（[HealthConnectScreens.reset]）、印を消して収集アプリを開き直し、
+ * 求める画面を自分で出して答えまで進める。t4 は収集アプリを開いて常駐の通知から Health Connect の設定をたどるだけ、
+ * t5 は未送信に積まれた記録を読むだけ（どちらも求める画面を出さない）。
  * t3 が落ちて許した状態まで進んでいなければ、t4・t5 は前提が無いまま落ちる —— 最初に落ちた本から見る。
  *
  * 断る本はここに置かない（2 回断ると画面が出なくなる。P6）。断る側は `HealthPermissionHistoryDeniedInstrumentedTest` と
@@ -100,7 +102,9 @@ class HealthPermissionGrantInstrumentedTest {
         screens.openKinds()
         // 種類の画面そのものを見る（続く「追加のアクセス」の画面が出ているだけでは通さない）
         val deadline = System.currentTimeMillis() + HealthConnectScreens.SCREEN_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline && !screens.kindsVisible()) Thread.sleep(HealthConnectScreens.POLL_MS)
+        while (System.currentTimeMillis() < deadline && !screens.kindsVisible()) Thread.sleep(
+            HealthConnectScreens.POLL_MS
+        )
         assertTrue(
             "4 つの種類（睡眠・心拍・歩数・運動）が並ばない（前面: ${screens.device.currentPackageName}）",
             screens.kindsVisible(),
@@ -133,27 +137,35 @@ class HealthPermissionGrantInstrumentedTest {
 
     // Scenario: 常駐の通知から健康データの権限の画面が開く
     @Test
-    fun t4_theOngoingNotificationOpensTheHealthPermissionScreen() {
-        // Android 14 以降だけ収集アプリの権限の画面が開く（13 以前は Health Connect のアプリの画面。spec は 14 以降に限る）
+    fun t4_theOngoingNotificationOpensHealthConnectSettingsAndLeadsToThePermissions() {
+        // Android 14 以降だけ Health Connect の設定のトップが開く（深掘り Q11。13 以前は Health Connect のアプリの画面。spec は 14 以降に限る）
         assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
         context.startActivity(
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
         assertTrue("収集が動いていない（前景サービスの通知が出ない）", screens.waitForCollectionStarted())
 
-        screens.device.openNotification()
-        screens.click(By.text(HEALTH_PERMISSION_ACTION_LABEL))
+        screens.clickOngoingAction(HEALTH_PERMISSION_ACTION_LABEL)
 
-        // 収集アプリの権限の画面（Health Connect）が開く。許した 4 つの種類が並ぶ
+        // Health Connect の設定のトップが開く（前面が Health Connect で「アプリの権限」が並ぶ）
+        val opened = screens.device.wait(
+            Until.hasObject(HealthConnectScreens.APP_PERMISSIONS),
+            HealthConnectScreens.SCREEN_TIMEOUT_MS,
+        )
+        assertTrue(
+            "常駐の通知の「$HEALTH_PERMISSION_ACTION_LABEL」を押しても Health Connect の設定が開かない" +
+                "（前面: ${screens.device.currentPackageName}）",
+            opened && screens.device.currentPackageName == HealthConnectScreens.HEALTH_CONNECT_CONTROLLER,
+        )
+        // そこから本人がたどる道（アプリの権限 → あしあと。）で、許した 4 つの種類が並ぶ画面まで着く
+        screens.click(HealthConnectScreens.APP_PERMISSIONS)
+        screens.click(HealthConnectScreens.APP_LABEL)
         val deadline = System.currentTimeMillis() + HealthConnectScreens.SCREEN_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline && !screens.kindsVisible()) {
             Thread.sleep(HealthConnectScreens.POLL_MS)
         }
-        assertTrue(
-            "常駐の通知の「$HEALTH_PERMISSION_ACTION_LABEL」を押しても権限の画面が開かない（前面: ${screens.device.currentPackageName}）",
-            screens.kindsVisible() && screens.device.currentPackageName.contains("healthconnect"),
-        )
-        screens.device.pressBack()
+        assertTrue("Health Connect の設定から収集アプリの権限の画面までたどれない", screens.kindsVisible())
+        screens.device.pressHome()
     }
 
     // Scenario: 許すと許した状態と観た時刻の記録が S-01 に格納される

@@ -22,14 +22,17 @@ class FakeHealthPermissions(var reading: HealthReading) : HealthPermissions {
 
     /** 本人が設定や画面で許した。 */
     fun allow(vararg keys: String) {
-        reading = reading.copy(grantedPermissions = reading.grantedPermissions + keys.map { HEALTH_PERMISSIONS.getValue(it) })
+        val added = keys.map { HEALTH_PERMISSIONS.getValue(it) }
+        reading = reading.copy(grantedPermissions = reading.grantedPermissions + added)
     }
 
     fun allowAll() = allow(*HEALTH_PERMISSIONS.keys.toTypedArray())
 
     companion object {
         fun available(history: Boolean = true, background: Boolean = true) =
-            FakeHealthPermissions(HealthReading(HealthAvailability.AVAILABLE, HealthFeatures(history, background), emptySet()))
+            FakeHealthPermissions(
+                HealthReading(HealthAvailability.AVAILABLE, HealthFeatures(history, background), emptySet())
+            )
 
         fun unavailable(availability: HealthAvailability, errorType: String? = null) =
             FakeHealthPermissions(HealthReading(availability, HealthFeatures(false, false), emptySet(), errorType))

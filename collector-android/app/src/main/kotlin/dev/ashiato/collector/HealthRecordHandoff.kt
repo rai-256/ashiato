@@ -17,6 +17,15 @@ object HealthRecordHandoff {
 
     private val queue = ArrayDeque<Item>()
 
+    /**
+     * 直前の手続きより後に預けた記録のどれかが書けなかったか（review/code.md R22）。**drain をまたいで持つ** ——
+     * 記録とその手続きが別々の drain に分かれても、書けなかった記録の手続き（最後の状態の書き換え）を走らせない。
+     */
+    private var failedSinceAction = false
+
+    /** 画面の recorder の控え（review/code.md R24）。Activity が作り直されても残るよう、プロセスで 1 つ。 */
+    val screenPending = HealthPendingSlot()
+
     /** 預けるだけ（メモリ）。未送信に届いたことは [afterDrain] で知る —— 最後の状態の書き換えはそこまで待つ。 */
     fun offer(record: IngestRequest): Boolean = synchronized(this) { queue.add(Item.Record(record)) }
 
@@ -29,18 +38,32 @@ object HealthRecordHandoff {
      * 預けた分を未送信へ積む（review/code.md R6）。1 件が置き場に書けなくても、**他の記録の手続きは走らせる**。
      * 書けなかった記録は未送信がメモリに持って次に積むときに書き直す（[Outbox.add]）ので、ここで持ち直さない ——
      * 持ち直すと同じ記録を 2 度積む。その記録の手続きだけを捨てる（置き場が古いまま残り、次に観たとき作り直す側に倒れる）。
+     * 積むところ・手続きが投げても**残りを捨てずに続け**、投げたものは [onError] に渡す（収集の糸から例外を抜かない。R23）。
+     * 投げた記録は書けなかったものとして扱う。
      */
-    fun drainInto(outbox: Outbox<IngestRequest>) {
+    fun drainInto(outbox: Outbox<IngestRequest>, onError: (Throwable) -> Unit = {}) {
         val taken = synchronized(this) { queue.toList().also { queue.clear() } }
-        var failed = false
         for (item in taken) {
             when (item) {
-                is Item.Record -> if (!outbox.add(item.record)) failed = true
+                is Item.Record -> {
+                    val written = attempt(onError) { outbox.add(item.record) } ?: false
+                    if (!written) synchronized(this) { failedSinceAction = true }
+                }
                 is Item.Action -> {
-                    if (!failed) item.action()
-                    failed = false
+                    val failed = synchronized(this) { failedSinceAction.also { failedSinceAction = false } }
+                    if (!failed) attempt(onError) { item.action() }
                 }
             }
         }
+    }
+
+    /** [block] を走らせ、投げたら [onError] に渡して null を返す。 */
+    // 何が投げられても収集の糸を落とさず、種別だけ渡して続けるのが仕様（R23）
+    @Suppress("TooGenericExceptionCaught")
+    private inline fun <R> attempt(onError: (Throwable) -> Unit, block: () -> R): R? = try {
+        block()
+    } catch (e: Exception) {
+        onError(e)
+        null
     }
 }
