@@ -11,7 +11,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -24,6 +26,8 @@ import java.time.ZoneId
  */
 @RunWith(RobolectricTestRunner::class)
 class HealthPermissionRecordTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
     private val allPermissions = HEALTH_PERMISSIONS.values.toSet()
 
@@ -375,7 +379,7 @@ class HealthPermissionRecordTest {
     @Test
     fun `受け渡し口で 1 件が置き場に書けなくても記録は失わず、書けた記録の書き換えは走り、書けなかった記録の書き換えだけを捨てる`() {
         val (_, screen) = sharedPair()
-        val dir = java.nio.file.Files.createTempDirectory("handoff").toFile()
+        val dir = tmp.newFolder("handoff")
         val segments = java.io.File(dir, "segments").apply { mkdirs() }
         // 1 件目を書いた直後から置き場が書けなくなる（端末の空きが尽きた）
         val failing = Outbox(
@@ -416,7 +420,7 @@ class HealthPermissionRecordTest {
     @Test
     fun `記録と手続きが別々の drain に分かれても、書けなかった記録の手続きは走らない`() {
         HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
-        val dir = java.nio.file.Files.createTempDirectory("handoff-split").toFile()
+        val dir = tmp.newFolder("handoff-split")
         val segments = java.io.File(dir, "segments").apply { mkdirs() }
         val failing = Outbox(
             SegmentStore(segments, IngestRequest.serializer(), java.io.File(dir, "unreadable.jsonl"), log = {}),
@@ -443,9 +447,9 @@ class HealthPermissionRecordTest {
         var throwOnce = true
         val throwing = Outbox(
             SegmentStore(
-                java.nio.file.Files.createTempDirectory("handoff-throw").toFile(),
+                tmp.newFolder("handoff-throw"),
                 IngestRequest.serializer(),
-                java.io.File.createTempFile("unreadable", ".jsonl"),
+                tmp.newFile("unreadable.jsonl"),
                 log = {},
             ),
             age = { 0L },
