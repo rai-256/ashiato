@@ -15,3 +15,7 @@ BEGIN
   DELETE FROM core.source WHERE logical_source = 'c01-health-permission';
 END;
 $do$;
+
+-- 版の記録の行を消す（tools/check-migrations.sh の、これから足す版の規則）。
+-- 登録簿の行を残したときも消す —— 残すのは参照を守るためで、版は戻っている（もう一度当てても ON CONFLICT で二重にならない）。
+DELETE FROM migration_ledger.applied WHERE name = '202610251100_health_permission_source';
