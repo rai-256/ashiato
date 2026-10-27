@@ -188,7 +188,11 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
   `archive/worker.rs` は**変えない** —— 呼び出しは 2 か所（明示の取り込みと見回り）あり、どちらも既存の呼び出しがこの関数を通る
 - 落ちたら、既存の仕組みがそのまま消し直す: `mark_archive_arrivals` が Err を返すと、取り込み器は `read` の台帳の行を書かず書庫を置き場に残し、次の見回りが書庫を読み直して
   （格納は内容の鍵で増えない）同じ時間の範囲で `mark_archive_arrivals` を呼び直す（ST12 final review R72・code-verify R80）
-- **ST13 の直す取り込み器の台帳のまとまり（R25）と `archive/worker.rs` には触らない**（spec review R17）
+- **ST13 の直す取り込み器の台帳のまとまり（R25）と `archive/worker.rs` には触らない**（spec review R17）。触っていないことは分岐点と比べて確かめる
+  （`tools/check-st23-archive-untouched.sh`。main の先端と比べると ST13 の変化で落ちる。code-verify R19）
+- **ST13 と合わさった木での間隔**（code-verify R19。origin/main 1bb66dc8 の `archive/worker.rs` で読んだ）: ST13 は `mark_archive_arrivals` の失敗を書庫ごとに数え（`count_reread_failure`）、
+  3 回続いたら `store_failed` を台帳に 1 行書いて読み直しを 1 時間に 1 回へ落とす。消し直しは「見回りごと」でなく、3 回目以降は 1 時間ごとになる。
+  読み直しは止まらないので本文はいずれ消える（失うものは無い）。統合の木での `purge_archive_` の走らせ直しは確認バッチの conflict_fix が持つ
 
 **（仮）**: 見回りごとの別の掃除（本文を消した時間帯に本文が残る行を探す）は置かない。反転条件: 読み直しで印付けが呼び直されない経路が見つかったら（試験「書庫の後着の消去に失敗しても次の見回りで消える」が落ちる）、
 `archive/worker.rs` の 2 か所の呼び出しの隣に `settle_purged_ranges(pool, user)` を足す（ST13 の merge の後に rebase で）。
