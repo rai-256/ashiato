@@ -106,11 +106,11 @@ C1〜C16 は `defaults.md` の表のとおり（本人は補足で異論を書�
 - 出所: `review/code.md` R15（code-verify）・`docs/audit/2026-10-24-st23-q8-consistency.md` C1
 - 問い: 第 2 回で決めた Q7（すっぽり入る B の行を残す）と Q8（作り直しで隠れた重なる滞在の本文も消す）は、spec・design・tasks・コードのどこにも入っていません。ST23 の残り（本文ごと消す口・後着・書庫・夜の書き直し・画面）は検証と review を通っています。どう進めますか。
 - loss: discarded（Q7・Q8 が無いまま使うと、B と隠れた L の本文〈消した場面の座標〉が消す口の無いまま DB に残る）
-- 答え: merge を止め、ST23 の spec の段を走らせ直して、この Story の中で作ってから merge する
-  （本人の選択。推奨「ST23 はこのまま merge し、Q7・Q8 は新しい change で仕様から作る」とは違う。補足なし。`deep-answers-5.txt`、2026-10-27）
-- 写す先: 次の `spec` の段が、Q7・Q8 の「写す先」を spec・design（D2・D12・D17 を本人の決定に書き直す）・tasks に写し、Task を足す
-  （Q7: 1 日の一覧で P の行の下に B の行を残す画面の Scenario と e2e / Q8: 作り直しで隠れた重なる滞在 L を同じまとまりで本文ごと消し、消去の台帳に kind = late・元の操作 = P で載せる Requirement と Scenario）。下流がそれを実装と試験にしてから merge する。
-  ST23 は merge 前なので、merge から作るまでの間に隠れた L を探して消す処理は要らない（新しい change の案だけが持っていた手当て）
+- 答え: ST23 はこのまま merge し、Q7・Q8 は新しい change で仕様から作る
+  （本人が 2026-10-28 に答えを変えた。`deep-answers-6.txt`。最初の答え「merge を止め、ST23 の spec の段を走らせ直して、この Story の中で作ってから merge する」
+  〈`deep-answers-5.txt`、2026-10-27〉は、下流のグラフに spec へ戻る道が無く finish が止まった後、足し算の Q7・Q8 のために ST23 全体を回し直すより安いとして取り下げた）
+- 写す先: ST23 の spec・design・tasks・コードは変えない。Q7・Q8 は **CH08**（`docs/changes/CH08.md`、requires ST23）が仕様から作る。
+  merge から CH08 が入るまでの間に作り直しで隠れた L を探して消す手当ても CH08 が持つ。ST23 の PR 本文に「Q7・Q8 は未実装・CH08 へ」と書く
 
 ## 要件へ戻すもの（第 3 回）
 
@@ -118,4 +118,4 @@ C1〜C16 は `defaults.md` の表のとおり（本人は補足で異論を書�
 
 ## 当初案を覆したもの（第 3 回）
 
-- R15 の推奨（merge して新しい change で作る）を本人が退け、ST23 の中で Q7・Q8 を仕様から作ることにした
+- R15 の推奨（merge して新しい change で作る）を本人が一度退けたが（2026-10-27）、2026-10-28 に推奨へ戻した。Q7・Q8 は CH08 で作る
