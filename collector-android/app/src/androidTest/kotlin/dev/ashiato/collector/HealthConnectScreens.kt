@@ -104,6 +104,31 @@ internal class HealthConnectScreens(private val context: Context) {
         throw AssertionError("プライバシーポリシーの案内を押しても説明の画面が出ない（前面: ${device.currentPackageName}）")
     }
 
+    /**
+     * 通知のトレイを開いて、常駐の通知の操作 [label] を押す。他の通知（同じアプリの知らせ）があると常駐の通知
+     * （重要度 低）は畳まれて操作が見えないので、常駐の通知のほかは消し、見えなければ常駐の通知の展開ボタンを押す。
+     */
+    fun clickOngoingAction(label: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        for (n in manager.activeNotifications) {
+            if (n.id != LocationService.NOTIFICATION_ID) manager.cancel(n.tag, n.id)
+        }
+        device.openNotification()
+        val selector = By.text(label)
+        if (!device.wait(Until.hasObject(selector), SHADE_TIMEOUT_MS)) {
+            // 常駐の通知は「Silent」の節で畳まれる（上に OS の知らせ「画面ロックを設定」などが展開されていると）。その行の展開ボタンを押す
+            device.findObject(
+                By.res("com.android.systemui", "expandableNotificationRow").hasDescendant(By.text(ONGOING_TITLE)),
+            )?.findObject(By.res("android", "expand_button"))?.click()
+        }
+        val target = device.wait(Until.findObject(selector), SHADE_TIMEOUT_MS)
+        val posted = manager.activeNotifications.joinToString { n ->
+            "${n.id}:${n.notification.actions?.joinToString("/") { it.title } ?: "-"}"
+        }
+        assertTrue("常駐の通知の操作「$label」が見つからない（出ている通知: $posted）", target != null)
+        target!!.click()
+    }
+
     fun click(selector: BySelector, timeoutMs: Long = SCREEN_TIMEOUT_MS) {
         val target: UiObject2? = device.wait(Until.findObject(selector), timeoutMs)
         assertTrue("押すものが見つからない: $selector（前面: ${device.currentPackageName}）", target != null)
@@ -139,7 +164,8 @@ internal class HealthConnectScreens(private val context: Context) {
     /** 未送信に積まれた `c01-health-permission` の記録（古い順）。 */
     fun healthRecords(): List<IngestRequest> {
         val dir = outboxDir()
-        return SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, LocationService.UNREADABLE), {}).readAll()
+        return SegmentStore(File(dir, "records"), IngestRequest.serializer(), File(dir, LocationService.UNREADABLE), {
+        }).readAll()
             .filter { it.logicalSource == HEALTH_LOGICAL_SOURCE }
     }
 
@@ -163,6 +189,10 @@ internal class HealthConnectScreens(private val context: Context) {
     companion object {
         const val SCREEN_TIMEOUT_MS = 20_000L
         const val SETTLE_MS = 20_000L
+        const val SHADE_TIMEOUT_MS = 5_000L
+
+        /** 常駐の通知の題（`LocationService` の `setContentTitle`）。 */
+        const val ONGOING_TITLE = "あしあと。"
         const val POLL_MS = 250L
 
         /** Health Connect の権限の画面を出すアプリ（Android 14 以降は module。P14）。 */
@@ -187,6 +217,10 @@ internal class HealthConnectScreens(private val context: Context) {
         val ALLOW: BySelector = By.text(Pattern.compile("(?i)Allow|許可"))
         val DONT_ALLOW: BySelector = By.text(Pattern.compile("(?i)Don.t allow|許可しない"))
         val GET_STARTED: BySelector = By.text(Pattern.compile("(?i)Get started|開始"))
+
+        /** Health Connect の設定のトップの「アプリの権限」と、その一覧の中の収集アプリ（深掘り Q11 の道）。 */
+        val APP_PERMISSIONS: BySelector = By.text(Pattern.compile("(?i)App permissions|アプリの権限"))
+        val APP_LABEL: BySelector = By.text("あしあと。")
         val PRIVACY_POLICY: BySelector =
             By.text(Pattern.compile("(?is).*privacy policy.*|.*プライバシー ?ポリシー.*"))
     }

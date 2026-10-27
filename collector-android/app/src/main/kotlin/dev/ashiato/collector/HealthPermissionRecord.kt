@@ -2,11 +2,11 @@
 package dev.ashiato.collector
 
 import android.content.SharedPreferences
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Instant
+import java.time.ZoneId
 
 /** 健康データの権限の状態を記録する論理ソース（design D1）。登録簿に同じ名前が要る。 */
 const val HEALTH_LOGICAL_SOURCE: String = "c01-health-permission"
@@ -112,6 +112,12 @@ class HealthStateStore(private val prefs: SharedPreferences) {
     /** 書けたか。書けなくても落とさない（次に観たときにもう一度作る側に倒れる）。 */
     fun remember(state: HealthState): Boolean = prefs.edit().putString(KEY_LAST_STATE, state.canonical()).commit()
 
+    /**
+     * 最後の状態を忘れる（review/code.md R19 / design D15（仮））。未送信から `c01-health-permission` の記録が捨てられたとき
+     * （保持の上限）に呼ぶ —— 捨てた記録の状態は S-01 に届かないので、次に観たとき必ず 1 件作り直させる。
+     */
+    fun forget(): Boolean = prefs.edit().remove(KEY_LAST_STATE).commit()
+
     private companion object {
         const val KEY_LAST_STATE = "last_state"
     }
@@ -126,6 +132,7 @@ class HealthStateStore(private val prefs: SharedPreferences) {
  * - 画面とサービスが別々の recorder で**同じ置き場を共有する**（review/code.md R1）。比べる相手は置き場で、
  *   recorder ごとの控えは「積んだが置き場への書き換えを遅らせている間」だけ持つ（書き換えが済んだら捨てる）。
  *   控えを持ち続けると、他方が置き場を書き換えた後に変化を取りこぼすか、同じ状態を重ねて積む
+ * - 画面の控えは Activity が作り直されても残るよう、プロセスで 1 つの [HealthPendingSlot] に置く（review/code.md R24）
  * - ログは `health_permission_recorded` の契機と使える状態だけ。種類ごとの許可の値は出さない
  * - 生存信号は送らず、[CollectionSource] にも入れない（design D11）
  */
@@ -148,37 +155,44 @@ class HealthPermissionRecorder(
         store.remember(state)
         settled()
     },
+    /** 積んだが置き場への書き換えがまだ済んでいない状態の控え。既定は recorder ごと。錠も兼ねる。 */
+    private val pending: HealthPendingSlot = HealthPendingSlot(),
 ) {
-    private val lock = Any()
-
-    /**
-     * 積んだが、置き場への書き換えがまだ済んでいない状態（遅らせている間だけ。済んだら null に戻す）。
-     * 預けてから書き換えるまでに同じ状態をもう一度観ても重ねて積まないための控え。
-     */
-    private var pending: String? = null
-
-    suspend fun observeHealthPermissions(trigger: String) {
+    /** 観て、前と違えば積む。**読んだ状態を返す**（画面が求めるかの判断に同じ読みを使う。review/code.md R28）。 */
+    suspend fun observeHealthPermissions(trigger: String): HealthReading {
         val reading = read()
         val state = HealthState.of(reading, autoRequested())
         // 読み口は主スレッドを塞がないよう錠の外。比べて積んで書き換えるところは、2 つの契機が重なっても 1 件にする
-        synchronized(lock) {
-            val canonical = state.canonical()
-            if ((pending ?: store.last()) == canonical) return
-            val record = healthPermissionRecord(state, trigger, reading.errorType, clock, deviceId, userId, zone, newId)
-            if (!emit(record)) return
-            pending = canonical
-            remember(state) {
-                // 遅らせた書き換えは別の糸（サービスの起動）から呼ばれる。後から積んだ別の状態の控えは消さない
-                synchronized(lock) { if (pending == canonical) pending = null }
-            }
-            log(
-                Telemetry.line(
-                    "health_permission_recorded",
-                    source = HEALTH_LOGICAL_SOURCE,
-                    trigger = trigger,
-                    availability = state.availability.wire,
-                ),
-            )
-        }
+        synchronized(pending) { recordIfChanged(state, trigger, reading.errorType) }
+        return reading
     }
+
+    /** 置き場（か控え）と違えば 1 件積み、積めたら書き換える。[pending] の錠の中で呼ぶ。 */
+    private fun recordIfChanged(state: HealthState, trigger: String, errorType: String?) {
+        val canonical = state.canonical()
+        if ((pending.value ?: store.last()) == canonical) return
+        val record = healthPermissionRecord(state, trigger, errorType, clock, deviceId, userId, zone, newId)
+        if (!emit(record)) return
+        pending.value = canonical
+        remember(state) {
+            // 遅らせた書き換えは別の糸（サービスの起動）から呼ばれる。後から積んだ別の状態の控えは消さない
+            synchronized(pending) { if (pending.value == canonical) pending.value = null }
+        }
+        log(
+            Telemetry.line(
+                "health_permission_recorded",
+                source = HEALTH_LOGICAL_SOURCE,
+                trigger = trigger,
+                availability = state.availability.wire,
+            ),
+        )
+    }
+}
+
+/**
+ * 積んだが置き場への書き換えがまだ済んでいない状態（遅らせている間だけ。済んだら null に戻す）。
+ * 預けてから書き換えるまでに同じ状態をもう一度観ても重ねて積まないための控え。読み書きはこのオブジェクトの錠の中で行う。
+ */
+class HealthPendingSlot {
+    var value: String? = null
 }

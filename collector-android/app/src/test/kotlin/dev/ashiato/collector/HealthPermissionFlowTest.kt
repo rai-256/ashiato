@@ -28,7 +28,10 @@ import org.robolectric.android.controller.ActivityController
 class HealthFlowActivity : ExemptMainActivity() {
     override fun healthPermissions(): HealthPermissions = health
     override fun runHealth(task: () -> Unit) = task()
-    override fun healthRecordSink(): (IngestRequest) -> Boolean = { sunk += it; true }
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = {
+        sunk += it
+        true
+    }
     override fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit = { state, settled ->
         store.remember(state)
         settled()
@@ -60,10 +63,36 @@ class ClientIntentHealthFlowActivity : ExemptMainActivity() {
             ClientHealthPermissions().createRequestIntent(context, permissions)
     }
     override fun runHealth(task: () -> Unit) = task()
-    override fun healthRecordSink(): (IngestRequest) -> Boolean = { HealthFlowActivity.sunk += it; true }
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = {
+        HealthFlowActivity.sunk += it
+        true
+    }
     override fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit = { state, settled ->
         store.remember(state)
         settled()
+    }
+}
+
+/** 読みが返らない Health Connect の入口（review/code.md R20）。読みは別の糸で、上限は短くする。 */
+class HangingHealthFlowActivity : ExemptMainActivity() {
+    override fun healthPermissions(): HealthPermissions = object : HealthPermissions by HealthFlowActivity.health {
+        override suspend fun read(context: Context): HealthReading = kotlinx.coroutines.awaitCancellation()
+    }
+    override fun healthReadTimeoutMs(): Long = 200L
+}
+
+/** 画面の控えを試験の中で共有する入口（Activity の作り直しを写す。review/code.md R24）。最後の状態の書き換えは遅らせたまま。 */
+class SharedPendingFlowActivity : ExemptMainActivity() {
+    override fun healthPermissions(): HealthPermissions = HealthFlowActivity.health
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = {
+        HealthFlowActivity.sunk += it
+        true
+    }
+    override fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit = { _, _ -> }
+    override fun healthPendingSlot(): HealthPendingSlot = slot
+
+    companion object {
+        var slot = HealthPendingSlot()
     }
 }
 
@@ -101,7 +130,9 @@ class HealthPermissionFlowTest {
 
     private val sunk get() = HealthFlowActivity.sunk
     private fun IngestRequest.field(name: String) = payload.getValue(name).jsonPrimitive.content
-    private fun IngestRequest.granted(key: String) = payload.getValue("granted").jsonObject.getValue(key).jsonPrimitive.boolean
+    private fun IngestRequest.granted(key: String) = payload.getValue(
+        "granted"
+    ).jsonObject.getValue(key).jsonPrimitive.boolean
     private fun IngestRequest.autoRequested() = payload.getValue("auto_requested").jsonPrimitive.boolean
 
     // Scenario: 初回起動で健康データの権限の画面が出る
@@ -337,7 +368,10 @@ class HealthPermissionFlowTest {
     @Test
     fun `使えるかを読めない端末では求めずに収集が始まり、読めなかったことが記録される`() {
         HealthFlowActivity.health =
-            FakeHealthPermissions.unavailable(HealthAvailability.UNREADABLE, errorType = "java.lang.IllegalStateException")
+            FakeHealthPermissions.unavailable(
+                HealthAvailability.UNREADABLE,
+                errorType = "java.lang.IllegalStateException",
+            )
 
         launch()
 
@@ -440,5 +474,53 @@ class HealthPermissionFlowTest {
         assertTrue("戻っても印が立たない", healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false))
         assertEquals(HealthTrigger.REQUEST_RESULT, sunk.last().field("trigger"))
         assertTrue("戻っても収集が始まらない", started())
+    }
+
+    // Scenario: 権限の画面に答えずにアプリが終わると次の起動でもう一度求められる
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34])
+    fun `Android 14 以降で求めが中断されて空で返ると、印を立てずに進み、次の起動でもう一度求める`() {
+        val controller = Robolectric.buildActivity(ClientIntentHealthFlowActivity::class.java).create().resume()
+        assertNotNull("健康データの権限を求めていない", shadowOf(controller.get()).lastRequestedPermission)
+
+        // framework は中断のとき空の配列で返す（review/code.md R13 / R26）
+        controller.get().onRequestPermissionsResult(MainActivity.HEALTH_REQUEST, emptyArray(), IntArray(0))
+
+        assertFalse("答えていないのに印が立っている", healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false))
+        assertTrue("中断の後に収集が始まらない", started())
+        controller.pause().stop().destroy()
+
+        val again = Robolectric.buildActivity(ClientIntentHealthFlowActivity::class.java).create().resume()
+        assertNotNull("次の起動で求め直していない", shadowOf(again.get()).lastRequestedPermission)
+    }
+
+    // Scenario: Health Connect が使えるかを読めない端末では求めずに収集が始まる
+    @Test
+    fun `Health Connect の読みが返らなくても、上限で諦めて求めずに収集が始まる`() {
+        val controller = Robolectric.buildActivity(HangingHealthFlowActivity::class.java).create().resume()
+        val deadline = System.currentTimeMillis() + 10_000
+        var service: Intent? = null
+        while (service == null && System.currentTimeMillis() < deadline) {
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            service = shadowOf(app).nextStartedService
+            if (service == null) Thread.sleep(50)
+        }
+        assertEquals("読みが返らないと収集が始まらない", LocationService::class.java.name, service?.component?.className)
+        assertEquals(0, health.requests.size)
+        assertFalse(controller.get().isDestroyed)
+    }
+
+    @Test
+    fun `Activity が作り直されても、置き場の書き換えを待っている同じ状態を重ねて預けない`() {
+        SharedPendingFlowActivity.slot = HealthPendingSlot()
+        health.allowAll()
+        val first = Robolectric.buildActivity(SharedPendingFlowActivity::class.java).create().resume()
+        assertEquals(1, sunk.size)
+        first.pause().stop().destroy()
+
+        // 回転・メモリ不足で作り直された。置き場はサービスの drain まで古いまま（review/code.md R24）
+        Robolectric.buildActivity(SharedPendingFlowActivity::class.java).create().resume()
+
+        assertEquals("同じ状態を 2 件預けた", 1, sunk.size)
     }
 }

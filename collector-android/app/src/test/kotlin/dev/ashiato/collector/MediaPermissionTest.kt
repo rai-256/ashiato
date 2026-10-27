@@ -24,6 +24,7 @@ class MediaCountingMainActivity : MainActivity() {
     override fun healthPermissions(): HealthPermissions = noHealthConnect()
     override fun runHealth(task: () -> Unit) = task()
     override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
 
     val singles = mutableListOf<String>()
     val groups = mutableListOf<List<String>>()

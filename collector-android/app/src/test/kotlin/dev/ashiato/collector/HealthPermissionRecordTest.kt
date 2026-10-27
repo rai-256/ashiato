@@ -5,7 +5,6 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
-import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowLog
+import java.time.ZoneId
 
 /**
  * 健康データの権限の記録と、状態が変わったかの判定（ST11 / design D2 / D9 / D11）。
@@ -54,7 +54,8 @@ class HealthPermissionRecordTest {
 
     private fun records() = outbox.snapshot().filter { it.logicalSource == HEALTH_LOGICAL_SOURCE }
 
-    private fun observe(r: HealthPermissionRecorder, trigger: String) = runBlocking { r.observeHealthPermissions(trigger) }
+    private fun observe(r: HealthPermissionRecorder, trigger: String) =
+        runBlocking { r.observeHealthPermissions(trigger) }
 
     // Scenario: 初めて観たときに健康データの権限の記録が 1 件できる
     @Test
@@ -136,7 +137,10 @@ class HealthPermissionRecordTest {
         observe(r, HealthTrigger.REQUEST_RESULT)
 
         assertEquals(
-            listOf("kind=health_permission_recorded source=c01-health-permission trigger=request_result availability=available"),
+            listOf(
+                "kind=health_permission_recorded source=c01-health-permission " +
+                    "trigger=request_result availability=available",
+            ),
             lines,
         )
         val text = lines.joinToString("\n") + ShadowLog.getLogs().joinToString("\n") { it.msg.orEmpty() }
@@ -149,15 +153,24 @@ class HealthPermissionRecordTest {
     @Test
     fun `欄の名前と並びは設計の形のまま`() {
         val rec = healthPermissionRecord(
-            HealthState.of(reading.copy(grantedPermissions = allPermissions - HEALTH_PERMISSIONS.getValue("background")), true),
-            HealthTrigger.REQUEST_RESULT, null, clock, "device-1", "user-1", ZoneId.of("Asia/Tokyo")
+            HealthState.of(
+                reading.copy(grantedPermissions = allPermissions - HEALTH_PERMISSIONS.getValue("background")),
+                true
+            ),
+            HealthTrigger.REQUEST_RESULT,
+            null,
+            clock,
+            "device-1",
+            "user-1",
+            ZoneId.of("Asia/Tokyo")
         ) { "id-1" }
 
         assertEquals(
             """{"kind":"health-permission","trigger":"request_result","device_time":"2027-01-15T08:00:00.123Z",""" +
                 """"elapsed_ms":123456789,"boot_count":42,"availability":"available",""" +
                 """"features":{"history":true,"background":true},""" +
-                """"granted":{"sleep":true,"heart_rate":true,"steps":true,"exercise":true,"history":true,"background":false},""" +
+                """"granted":{"sleep":true,"heart_rate":true,"steps":true,"exercise":true,""" +
+                """"history":true,"background":false},""" +
                 """"auto_requested":true}""",
             rec.raw,
         )
@@ -170,14 +183,28 @@ class HealthPermissionRecordTest {
     @Test
     fun `使えない端末では対応も許可も全部 false で、読めなかったときは型名だけ付く`() {
         val unreadable = HealthReading(
-            HealthAvailability.UNREADABLE, HealthFeatures(true, true), allPermissions, "java.lang.IllegalStateException",
+            HealthAvailability.UNREADABLE,
+            HealthFeatures(true, true),
+            allPermissions,
+            "java.lang.IllegalStateException",
         )
         val rec = healthPermissionRecord(
-            HealthState.of(unreadable, false), HealthTrigger.APP_OPEN, unreadable.errorType, clock, "d", "u", ZoneId.of("UTC"),
+            HealthState.of(unreadable, false),
+            HealthTrigger.APP_OPEN,
+            unreadable.errorType,
+            clock,
+            "d",
+            "u",
+            ZoneId.of("UTC"),
         ) { "id" }
 
         assertTrue(rec.raw.contains(""""availability":"unreadable","features":{"history":false,"background":false}"""))
-        assertTrue(rec.raw.contains(""""granted":{"sleep":false,"heart_rate":false,"steps":false,"exercise":false,"history":false,"background":false}"""))
+        assertTrue(
+            rec.raw.contains(
+                """"granted":{"sleep":false,"heart_rate":false,"steps":false,"exercise":false,""" +
+                    """"history":false,"background":false}""",
+            ),
+        )
         assertTrue(rec.raw.endsWith(""""auto_requested":false,"error":"java.lang.IllegalStateException"}"""))
     }
 
@@ -248,7 +275,10 @@ class HealthPermissionRecordTest {
         val prefs = app.getSharedPreferences(HEALTH_PREFS, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
         val store = HealthStateStore(prefs)
-        fun make(emit: (IngestRequest) -> Boolean, remember: ((HealthState, () -> Unit) -> Unit)?) = HealthPermissionRecorder(
+        fun make(
+            emit: (IngestRequest) -> Boolean,
+            remember: ((HealthState, () -> Unit) -> Unit)?
+        ) = HealthPermissionRecorder(
             read = { reading },
             autoRequested = { autoRequested },
             store = store,
@@ -365,7 +395,76 @@ class HealthPermissionRecordTest {
             segments.walkTopDown().forEach { it.setWritable(true) }
         }
 
-        assertEquals("書けた記録の書き換えが走っていない", HealthState.of(s1, autoRequested).canonical(), prefs.getString("last_state", null))
+        assertEquals(
+            "書けた記録の書き換えが走っていない",
+            HealthState.of(s1, autoRequested).canonical(),
+            prefs.getString("last_state", null)
+        )
         assertEquals("書けなかった記録が未送信から消えた", 2, failing.snapshot().size)
+    }
+
+    private fun handoffRecord(id: String) = healthPermissionRecord(
+        HealthState.of(s1, autoRequested),
+        HealthTrigger.APP_OPEN,
+        null,
+        clock,
+        "device-1",
+        "user-1",
+        ZoneId.of("Asia/Tokyo"),
+    ) { id }
+
+    @Test
+    fun `記録と手続きが別々の drain に分かれても、書けなかった記録の手続きは走らない`() {
+        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        val dir = java.nio.file.Files.createTempDirectory("handoff-split").toFile()
+        val segments = java.io.File(dir, "segments").apply { mkdirs() }
+        val failing = Outbox(
+            SegmentStore(segments, IngestRequest.serializer(), java.io.File(dir, "unreadable.jsonl"), log = {}),
+            age = { 0L },
+        )
+        segments.setWritable(false)
+        var ran = false
+        try {
+            // 預けた直後・手続きを預ける前に収集の糸が drain した（review/code.md R22）
+            HealthRecordHandoff.offer(handoffRecord("split-1"))
+            HealthRecordHandoff.drainInto(failing)
+            HealthRecordHandoff.afterDrain { ran = true }
+            HealthRecordHandoff.drainInto(failing)
+        } finally {
+            segments.setWritable(true)
+        }
+
+        assertFalse("書けなかった記録の手続き（最後の状態の書き換え）が走った", ran)
+    }
+
+    @Test
+    fun `積むところが投げても drain は投げず、残りの記録と手続きを続ける`() {
+        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        var throwOnce = true
+        val throwing = Outbox(
+            SegmentStore(
+                java.nio.file.Files.createTempDirectory("handoff-throw").toFile(),
+                IngestRequest.serializer(),
+                java.io.File.createTempFile("unreadable", ".jsonl"),
+                log = {},
+            ),
+            age = { 0L },
+            afterAdd = {
+                check(!throwOnce.also { throwOnce = false }) { "boom" }
+            },
+        )
+        val ran = mutableListOf<String>()
+        val errors = mutableListOf<Throwable>()
+        HealthRecordHandoff.offer(handoffRecord("throw-1"))
+        HealthRecordHandoff.afterDrain { ran += "first" }
+        HealthRecordHandoff.offer(handoffRecord("throw-2"))
+        HealthRecordHandoff.afterDrain { ran += "second" }
+
+        HealthRecordHandoff.drainInto(throwing) { errors += it } // 投げない（review/code.md R23）
+
+        assertEquals(listOf("IllegalStateException"), errors.map { it.javaClass.simpleName })
+        // 投げた記録は書けなかったものとして手続きを捨て（作り直す側）、後の記録は積んで手続きを走らせる
+        assertEquals(listOf("second"), ran)
+        assertTrue(throwing.snapshot().any { it.id == "throw-2" })
     }
 }

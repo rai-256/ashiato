@@ -38,6 +38,7 @@ open class ExemptMainActivity : MainActivity() {
     override fun healthPermissions(): HealthPermissions = noHealthConnect()
     override fun runHealth(task: () -> Unit) = task()
     override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
 }
 
 /** 権限を求めた回数を数えるだけの入口（本番の経路は 1 つも変えない）。 */

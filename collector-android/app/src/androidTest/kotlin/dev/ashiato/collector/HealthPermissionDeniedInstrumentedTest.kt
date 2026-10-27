@@ -72,7 +72,10 @@ class HealthPermissionDeniedInstrumentedTest {
         // 前の MainActivity を残さない（残っていると前へ出るだけで、健康データの段を越えたままになる。2026-10-25 実測）。
         // 入れ直した端末と同じく、新しい MainActivity が最初から流れを通る
         context.startActivity(
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+            Intent(
+                context,
+                MainActivity::class.java
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
         )
         // `pm reset-permissions` が断った回数を戻していなければ、ここで画面が出ない（Risks）。出なければ落とし、
         // 結果を PR の本文に書いて、この Scenario は Task 5.1 の `HealthPermissionFlowTest` だけで閉じる

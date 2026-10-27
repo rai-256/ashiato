@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config as RoboConfig
 class HealthTestService : TestableLocationService() {
     override fun healthPermissions(): HealthPermissions = object : HealthPermissions by health {
         override suspend fun read(context: android.content.Context): HealthReading {
-            if (readThrows) throw IllegalStateException("boom")
+            check(!readThrows) { "boom" }
             if (readHangs) kotlinx.coroutines.awaitCancellation()
             return health.read(context)
         }
@@ -72,24 +72,32 @@ class HealthNotificationTest {
 
     // Scenario: 常駐の通知から健康データの権限の画面が開く
     @Test
-    fun `使える端末の通知の操作は収集アプリの権限の画面を開く intent を持つ`() {
+    fun `使える端末の通知の操作は Health Connect の設定のトップを開く intent を持つ`() {
         start(FakeHealthPermissions.available())
 
         val action = healthAction(posted())
         assertNotNull("操作が出ていない", action)
         val intent = shadowOf(action!!.actionIntent).savedIntent
-        assertEquals("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS", intent.action)
-        assertEquals(app.packageName, intent.getStringExtra(Intent.EXTRA_PACKAGE_NAME))
+        // 深掘り Q11: 収集アプリの権限の画面（MANAGE_HEALTH_PERMISSIONS）は普通のアプリからは開けない。設定のトップから本人がたどる
+        assertEquals("android.health.connect.action.HEALTH_HOME_SETTINGS", intent.action)
+        assertNull(intent.getStringExtra(Intent.EXTRA_PACKAGE_NAME))
         assertTrue(shadowOf(action.actionIntent).isActivity)
         // 本文の押下（利用状況へのアクセス）は変えない
-        assertEquals(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS, shadowOf(posted().contentIntent).savedIntent.action)
+        assertEquals(
+            android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS,
+            shadowOf(posted().contentIntent).savedIntent.action
+        )
         assertEquals(PendingIntent.FLAG_IMMUTABLE, shadowOf(action.actionIntent).flags and PendingIntent.FLAG_IMMUTABLE)
     }
 
     // Scenario: Health Connect が使えない端末の通知には健康データの権限の操作が出ない
     @Test
     fun `使えない端末の通知には操作が出ない`() {
-        for (availability in listOf(HealthAvailability.NOT_INSTALLED, HealthAvailability.UPDATE_REQUIRED, HealthAvailability.UNREADABLE)) {
+        for (availability in listOf(
+            HealthAvailability.NOT_INSTALLED,
+            HealthAvailability.UPDATE_REQUIRED,
+            HealthAvailability.UNREADABLE
+        )) {
             start(FakeHealthPermissions.unavailable(availability, errorType = "x.Err"))
             assertNull("$availability で操作が出ている", healthAction(posted()))
         }
@@ -112,7 +120,11 @@ class HealthNotificationTest {
         val added = healthRecords(s).drop(before)
         assertEquals(1, added.size)
         assertEquals(HealthTrigger.PERIODIC, added.single().payload["trigger"]!!.jsonPrimitive.content)
-        assertEquals("false", (added.single().payload["granted"] as kotlinx.serialization.json.JsonObject)["history"]!!.jsonPrimitive.content)
+        assertEquals(
+            "false",
+            (added.single().payload["granted"] as kotlinx.serialization.json.JsonObject)
+                .getValue("history").jsonPrimitive.content
+        )
         // 生存信号は送らない
         assertTrue(s.heartbeatOutboxForTest.snapshot().none { it.logicalSource == HEALTH_LOGICAL_SOURCE })
     }
@@ -163,5 +175,22 @@ class HealthNotificationTest {
         val missing = org.robolectric.shadows.ShadowLog.getLogsForTag(LocationService.TAG)
             .count { "health_permission_settings_missing" in it.msg }
         assertEquals(1, missing)
+    }
+
+    @Test
+    fun `保持の上限で健康データの権限の記録が捨てられると、状態が同じでも次の見直しで作り直す`() {
+        val health = FakeHealthPermissions.available().also { it.allowAll() }
+        val s = start(health)
+        s.beatScheduler.fire()
+        assertEquals(1, healthRecords(s).size)
+
+        // 90 日送れずに捨てられた（review/code.md R19 / design D15（仮））。捨てた状態は S-01 に届かない
+        s.clock.advance(91 * AgeClock.DAY_MS)
+        s.maintainForTest()
+        assertEquals("捨てられていない", 0, healthRecords(s).size)
+
+        s.beatScheduler.fire()
+
+        assertEquals("捨てた後に作り直していない", 1, healthRecords(s).size)
     }
 }
