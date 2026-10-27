@@ -115,7 +115,8 @@ test("ST23 録画: 消した → 本文ごと消すの確認 → やめる → �
   // 0. 自分の日を作る（画面の外。位置 13 件 → 滞在 1 つ）
   const date = await test.step("0. 準備: 使っていない日に位置 13 件を送って滞在を作る", async () => {
     const d = await takeEmptyDay(request);
-    await ingest(request, Array.from({ length: 13 }, (_, i) => locationItem(d, 10 * 60 + i, randomSpot())));
+    const spot = randomSpot();
+    await ingest(request, Array.from({ length: 13 }, (_, i) => locationItem(d, 10 * 60 + i, spot)));
     return d;
   });
   const stays = (await entriesOf(request, date)).filter((e) => e.kind === "stay");
