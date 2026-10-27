@@ -237,6 +237,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
 - kind: defer
 - 提案: 宛先は CH04（origin/main に merge 済み 7e4d48c1。`origin/main:crates/server/src/testdb.rs:11` の「回の database」—— 試験は実行ごとに新しい database に書き、`ashiato` に書かない）。合わさった木では実行をまたいだ溜まりが無くなるので、
   確認バッチの conflict_fix（R1）が統合の木で全体の試験を走らせ、この 1 本が通ることを確かめる。通らなければ（1 回の実行の中で先に走った試験が 2001-01-05 以前を書く）、ST25 の試験を自分の `logical_source` で立てる change を起こす
+- 処置: followup ST25 - `docs/handoff/ST25.md` の「st23-record-erasure R20」に書いた。統合の木の全体の試験で確かめ、通らなければ `fix/st25-before-start-own-source`（担当は ST23）
 
 ## security review（268fa88..9c6f245）
 
