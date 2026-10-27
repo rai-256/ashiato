@@ -388,6 +388,38 @@ w=demo; want "worktree でない木（印なし）" "$(plan | cut -d: -f1)" "kee
 want "worktree でない木（CI=true・印なし）" "$(plan CI=true | cut -d: -f1)" "keep"
 for w in demo-st05 demo-verify demo-ch01; do want "$w の worktree（印なし）" "$(plan | cut -d: -f1)" "keep"; done
 
+echo "Scenario: 判定だけを出すときは、宣言を出さない"
+for w in demo demo-st05 demo-verify demo-ch01; do
+  for ci in "" CI=true; do
+    for mark in "" HARNESS_VERIFY=1; do
+      got=$(plan ${ci:+"$ci"} ${mark:+"$mark"})
+      c=0; [[ $got != *$'\n'* && ( $got == reset || $got == keep:* ) && $got != *HARNESS_RESET:* ]] || c=1
+      ok "$w（${ci:-CI なし}・${mark:+印あり}${mark:-印なし}）の --plan は 1 行で、宣言を含まない" "$c"
+    done
+  done
+done
+
+echo "Scenario: git の木でなければ、印つきでも作り直さない判定になる"
+mkdir -p "$tmp/nogit/tools"; cp tools/verify-env.sh tools/ports.sh "$tmp/nogit/tools/"
+got=$(clean GIT_CEILING_DIRECTORIES="$tmp" HARNESS_VERIFY=1 "$tmp/nogit/tools/verify-env.sh" --plan)
+c=0; [[ $got != *$'\n'* && $got == keep:* && $got != *HARNESS_RESET:* ]] || c=1
+ok "git の木でない場所の --plan は keep: の 1 行で、宣言を含まない" "$c"
+
+# 宣言の字: 注記でない行に echo "HARNESS_RESET: testdb" がちょうど 1 つ、出力を捨てる形でない（ハーネスの init.py が字面で読む）
+decl=$(grep -vE '^\s*#' tools/verify-env.sh | grep -F 'echo "HARNESS_RESET: testdb"' || true)
+want "echo \"HARNESS_RESET: testdb\" の行がちょうど 1 つ" "$(grep -c . <<<"$decl")" "1"
+c=0; [[ $decl != *'>/dev/null'* && $decl != *'>&2'* && $decl != *'$('* ]] || c=1
+ok "宣言の行が出力を捨てる形（>/dev/null・>&2・\$(）でない" "$c"
+
+echo "Scenario: ハーネスの点検が、作り直して宣言する準備と認める"
+if [[ -f .harness2/scripts/init.py ]] && grep -q check_verify_env .harness2/scripts/init.py; then
+  chk=$(python3 .harness2/scripts/init.py --check 2>&1 || true)
+  want "[人間] tools/verify-env.sh の行が無い" "$(grep -cF '[人間] tools/verify-env.sh' <<<"$chk" || true)" "0"
+  want "[ok] tools/verify-env.sh の行がちょうど 1 つ" "$(grep -cF '[ok] tools/verify-env.sh' <<<"$chk" || true)" "1"
+else
+  echo "SKIP ハーネスの点検（.harness2 が無い木。worktree の verify-run が通す）"
+fi
+
 # 作り直しは自分の DB のコンテナと volume だけ（design D1）。compose に volume や network ごと消させる旗を書かない。
 # 旗の並び（`rm -s -f -v`）と長い名前（`--volumes`）も見る（review/code.md R18。tasks 4.2 の grep は `rm -sfv` の形しか見ない）
 bad=$(grep -vE '^\s*#' tools/verify-env.sh | grep -nE 'docker compose .*\b(rm|down|up)\b' |
