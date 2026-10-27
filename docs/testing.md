@@ -28,7 +28,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 14 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 21 本（test-db-growth の self-test・lint・本体 / migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2 / CH05 の 4 本: check-test-db-killed の self-test・docker-tidy の self-test と `--verify-env-check`・check-test-db-killed の本体） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
@@ -136,6 +136,14 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
 - 台本:
   - `tools/check-test-db-growth.sh [cargo test の引数…]` —— 試験を 2 回続けて走らせ、database が積もらないことを見る。`--lint` で書き方を、`--self-test` で検査自体を確かめる
   - `tools/export-scaling.sh` —— 書き出しの量の試験が消した滞在の数を読み、N と M を一緒に倍にして時間を測る（残すだけ。判定は件数の比）
+
+## 4.4.1 打ち切った run の後の検査と、消えた作業ツリーの片付け（CH05）
+
+- `tools/check-test-db-killed.sh` —— 試験の run を途中（体積の行を入れる途中・確定した後）で殺し、次の回の後に殺した回の database が残らず、`ashiato` が増えていないことを見る。`--self-test` で検査自体を確かめる（DB は要らない）
+- **同じ worktree で、別の `cargo test`・検証の準備（`tools/verify-env.sh`）と並べて走らせない。** 検査は回の database の一覧と統計を読むので、並べると他方の回を「残り」と数える
+- 検証の準備が DB を作り直す（`--plan` が `reset`）ときは、先に `tools/docker-tidy.sh` が、作業ツリーが消えたことを機械で確かめられるコンテナとネットワークだけを外す。`--dry-run` で挙げるだけ、`--self-test` と `--verify-env-check` で確かめる（この 2 つは docker の daemon と `postgres:17-alpine` を要する。偽の docker のほかに本物の docker で探りのコンテナを 1 つ起こす）
+- **volume は消さない**（`docker volume rm`・`volume prune`・`system prune` は書かない）
+- CI の `rust` job は、この 4 行を `check-verify-env-reset.sh` の後ろで走らせる（`check-test-db-killed.sh --self-test` → `docker-tidy.sh --self-test` → `docker-tidy.sh --verify-env-check` → `check-test-db-killed.sh`）
 
 ## 4.5 画面の e2e（`web/e2e`）
 
