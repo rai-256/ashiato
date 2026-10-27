@@ -33,7 +33,7 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
 
 ## Task 2: `--self-test` の確かめ
 
-- [ ] 2.1 `tools/check-verify-env-reset.sh` の `--self-test` に、`echo "Scenario: 判定だけを出すときは、宣言を出さない"` の印を置き、`demo` と `demo-st05`・`demo-verify`・`demo-ch01` で、
+- [x] 2.1 `tools/check-verify-env-reset.sh` の `--self-test` に、`echo "Scenario: 判定だけを出すときは、宣言を出さない"` の印を置き、`demo` と `demo-st05`・`demo-verify`・`demo-ch01` で、
   印あり・なしと `CI=true` あり・なしの `--plan` の出力が、どれも 1 行で `reset` か `keep:` で始まり、`HARNESS_RESET:` で始まる行を含まないことを確かめる（design D4）。
   同じ入口で、`echo "Scenario: git の木でなければ、印つきでも作り直さない判定になる"` の印を置き、`git init` しない一時の場所（`$tmp` の下）に `tools/verify-env.sh` を写して、
   `CI` を落とし `GIT_CEILING_DIRECTORIES` にその一時の場所の親を渡して（`verify-run` の `TMPDIR` は worktree の中にある。design D4）`HARNESS_VERIFY=1` で `--plan` を呼ぶと、出力が `keep:` で始まる 1 行で `HARNESS_RESET:` を含まないことを確かめる（design D4）。
@@ -41,7 +41,7 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
   検証: `tools/check-verify-env-reset.sh --self-test` rc=0 /
   `bash -c 'POSTGRES_PASSWORD=a OWNER_DB_PASSWORD=b APP_DB_PASSWORD=c ASHIATO_DB_SUBNET=x CI=true tools/check-verify-env-reset.sh --self-test'` rc=0（CI と同じ環境）/
   `bash -c 'grep -qF "echo \"Scenario: 判定だけを出すときは、宣言を出さない\"" tools/check-verify-env-reset.sh && grep -qF "echo \"Scenario: git の木でなければ、印つきでも作り直さない判定になる\"" tools/check-verify-env-reset.sh'` rc=0
-- [ ] 2.2 同じ `--self-test` に、`echo "Scenario: ハーネスの点検が、作り直して宣言する準備と認める"` の印を置き、`.harness2/scripts/init.py` があって `check_verify_env` を含むなら、repo の根で
+- [x] 2.2 同じ `--self-test` に、`echo "Scenario: ハーネスの点検が、作り直して宣言する準備と認める"` の印を置き、`.harness2/scripts/init.py` があって `check_verify_env` を含むなら、repo の根で
   `python3 .harness2/scripts/init.py --check` を走らせ（rc は見ない）、出力に `[人間] tools/verify-env.sh` を含む行が無く、`[ok] tools/verify-env.sh` を含む行がちょうど 1 つあることを確かめる。
   無ければ `SKIP …（.harness2 が無い木。worktree の verify-run が通す）` の 1 行を出して飛ばす（design D4。CI には `.harness2` が無い）。
   検証: `bash -c 'out=$(tools/check-verify-env-reset.sh --self-test) && ! grep -q "^SKIP" <<<"$out"'` rc=0（worktree で走る。`.harness2` があるので飛ばさない）/
