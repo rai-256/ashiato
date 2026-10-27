@@ -61,3 +61,5 @@
 202610181200_media_capture
 # 衛星の登録簿と資格情報、読み出しの記録の欄（ST29 / design D7 / D9）
 202610241200_satellite_credentials
+# ST41: 幅のある出来事の終わりの時刻（3 列・門・期間の索引）
+202610231200_event_end_time

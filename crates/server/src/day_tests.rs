@@ -1444,10 +1444,12 @@ async fn st25_reasons_before_collection_started() {
     // Scenario: 収集を始める前の日の記録なしにはそう添えられる
     let pool = testdb::pool().await;
     let u = testdb::user();
-    // 収集開始日が無ければこの試験の間だけ置く。2002 年なら REASON_DATE（2030 年）を読む並走の試験には
-    // 「開始前」が混ざらない（他の試験が付けた日があれば、それは 2001 年より後）
+    // 収集開始日が無ければこの試験の間だけ置く。1995 年なら REASON_DATE（2030 年）を読む並走の試験には
+    // 「開始前」が混ざらない。読む日は 1990 年: 他の試験が位置を置く日（`testdb::unique_day` の 2000〜2004 年など）が
+    // 付ける開始日はどれもこれより後なので、共有の DB に記録が積もっても「開始前」のまま（積もって 2000 年に下がると
+    // 2001 年を読む形では落ちた）
     let set = sqlx::query(
-        "UPDATE core.source SET collection_started_on = '2002-01-01'
+        "UPDATE core.source SET collection_started_on = '1995-01-01'
           WHERE logical_source = $1 AND collection_started_on IS NULL",
     )
     .bind(LOCATION)
@@ -1456,16 +1458,16 @@ async fn st25_reasons_before_collection_started() {
     .unwrap()
     .rows_affected()
         > 0;
-    let v = view(&pool, u, "2001-01-05", reasons_now()).await;
+    let v = view(&pool, u, "1990-01-05", reasons_now()).await;
     if set {
-        sqlx::query("UPDATE core.source SET collection_started_on = NULL WHERE logical_source = $1 AND collection_started_on = '2002-01-01'")
+        sqlx::query("UPDATE core.source SET collection_started_on = NULL WHERE logical_source = $1 AND collection_started_on = '1995-01-01'")
             .bind(LOCATION)
             .execute(&pool)
             .await
             .unwrap();
     }
-    let r = no_record_at(&v, "2001-01-05T00:00:00+09:00");
-    assert_eq!(r.end, t("2001-01-06T00:00:00+09:00"));
+    let r = no_record_at(&v, "1990-01-05T00:00:00+09:00");
+    assert_eq!(r.end, t("1990-01-06T00:00:00+09:00"));
     assert_eq!(reasons_of(r), vec![(day::ReasonKind::BeforeStart, None)]);
 }
 

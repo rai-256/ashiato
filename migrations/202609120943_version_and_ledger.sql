@@ -75,6 +75,13 @@ CREATE INDEX IF NOT EXISTS erasure_ledger_by_event ON core.erasure_ledger (event
 -- **履歴は親と束ねたビュー越しにだけ読む**（R49 / D6）。履歴表を直に引くと、
 -- 親の感度と削除が効かないまま前の版の本文が出る（実測）。
 -- 本表が `core.event_live` で同じ危険を塞いでいるのと同じ手当て（製造準備 A-3）。
+-- **後の版（ST41 の終わりの 3 列）がこのビューの末尾に列を足す。** `CREATE OR REPLACE VIEW` は列を減らせないので、
+-- 当て直し（起動のたびに全版を当てる）でここが落ちないよう、ビューが無いときだけ作る。
+-- 既にあるビューの形は、後の版が `CREATE OR REPLACE` で持つ。
+DO $view$
+BEGIN
+  IF to_regclass('core.event_version_live') IS NULL THEN
+    EXECUTE $q$
 CREATE OR REPLACE VIEW core.event_version_live AS
   SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
          v.event_time, v.content_hash, v.raw, v.payload,
@@ -86,6 +93,10 @@ CREATE OR REPLACE VIEW core.event_version_live AS
     FROM core.event_version v
     JOIN core.event e ON e.id = v.event_id
    WHERE e.deleted_at IS NULL;   -- 親が消えれば履歴も消える（Q12 / Q21）
+    $q$;
+  END IF;
+END
+$view$;
 
 -- Q8。**内容の鍵が同じ複数行を 1 件として読む置き場。**
 -- 外部識別子を優先すると同じ内容の行が複数立ちうるので、読む側が畳めないと
