@@ -1,0 +1,75 @@
+{
+  "title": "確認バッチ 20261027-1812",
+  "subtitle": "CH07 検証の準備が作り直した DB を宣言する / ST41 幅のある出来事に終わりの時刻を持たせる",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261027-1812/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261027-1812 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261027-1812/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261027-1812/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261027-1812`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261027-1812 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261027-1812/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画: 撮っていない —— このバッチの Story（CH07 ST41）に録画のシナリオが無い"
+  ],
+  "questions": [
+    {
+      "id": "CH07-F",
+      "topic": "CH07 違和感",
+      "kind": "check",
+      "question": "CH07「検証の準備が作り直した DB を宣言する」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261027-1812/CH07-spec.html"
+    },
+    {
+      "id": "ST41-PD19",
+      "topic": "ST41 仮D19",
+      "kind": "check",
+      "question": "ST41 の仮の決定 D19: 主張・主観・場所の行の終わりの 3 列を錠で凍結するか →「凍結する（始まりの時刻・TZ と同じ）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 凍結は後で緩めても何も失わない。開けておくと履歴なしの書き換えは戻らない（失わない側の費用: 錠の関数 3 つを写して 3 列を足すだけ）\n乗っている決定: D5\n出所: review/code.md#R2",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST41-F",
+      "topic": "ST41 違和感",
+      "kind": "check",
+      "question": "ST41「幅のある出来事に終わりの時刻を持たせる」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261027-1812/ST41-spec.html"
+    }
+  ]
+}
