@@ -30,6 +30,7 @@ class UsageTestEnv(
 
     /** 単調な経過。**[resetAgeClock] で作り直せる**（置き場が読めなくなった端末を作るため） */
     var age: AgeClock = AgeClock(clock, ageFile, log)
+
     /**
      * 記録の未送信。**[restart] を挟めば差し替えられる**（置き場が書けない端末を作るため）。
      * 置き場は `dir/outbox`（[dir] の子フォルダ。[dir] を列挙する試験はこれも拾う）
