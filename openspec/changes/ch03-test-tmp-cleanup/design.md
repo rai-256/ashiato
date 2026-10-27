@@ -91,7 +91,7 @@
 - `--self-test` は、一時の木（`mktemp -d` + `trap`）に違反の断片を置いて rc=1、正しい形で rc=0 を見る。台本の中に spec の Scenario の印（`echo "Scenario: …"`）を置く
 - 反転条件: commit 前の検査が rebase の後の直しを 2 回以上妨げたら、commit 前は staged だけを見る形に替える。chain job で落ちた PR が、rust / android の job より後に気づくことで直しが遅れる、が 2 回起きたら、rust job にも掛ける
 
-### D6（仮）. 残りの測り方: 一時フォルダを worktree の中の空のフォルダへ向け、試験の数も見る（Q5 の推奨）
+### D6（仮）. 残りの測り方: 一時フォルダを `/tmp` の下の専用の空のフォルダへ向け（落ちた回は `target/tmp-leak/` へ移す）、試験の数も見る（Q5 の推奨）
 
 - `tools/tmp-leak-check.sh rust [cargo test の引数…]`（引数が無ければ `--workspace`、あればその引数だけ）/ `tools/tmp-leak-check.sh android [gradle の引数…]` / `--self-test`。
   一時フォルダの根は `/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<pid>`（tmpfs。pid で worktree ごとに別）。始める前に作り、空であることを確かめる。
@@ -106,7 +106,7 @@
   OpenJDK の Unix の `java.io.tmpdir` は `TMPDIR` を読まない（`premises.md`、確かさ 1 → Task 1 で走らせて確かめる）。`--rerun` は `UP-TO-DATE` で走らないことを防ぐ。
   走った本数は `app/build/test-results/testDebugUnitTest/*.xml` の `tests` の合計
 - 判定: 試験の命令の rc が 0 でなければその rc で終わる。0 なら、走った本数が 0 → rc=1（「走った試験が 0 本」）、根に何か残る → rc=1（残った名前を最大 20 件と総数）、どちらでもない → rc=0（本数を出す）。
-  rc=0 のときは根を消す。rc=1 のときは残す（中身を見て直すため。`target/` の下なので `/tmp` を食わない）。試験の rc をそのまま返すことは spec の Scenario。名前の件数・根を残すかは spec に無い実装の決め
+  rc=0 のときは根を消す。rc≠0 のときは `target/tmp-leak/` へ移して残す（中身を見て直すため。`/tmp` を食わない）。試験の rc をそのまま返すことは spec の Scenario。名前の件数・根を残すかは spec に無い実装の決め
 - 試験の命令は環境変数 `TMP_LEAK_CMD` で差し替えられる（`--self-test` が偽の命令を渡す。本数は偽の命令が出す同じ形の行から数える）
 - CI: rust job の `- run: cargo test --workspace` を `- run: ./tools/tmp-leak-check.sh rust` に、android job の `- run: ./gradlew :app:testDebugUnitTest` を
   `- run: ../tools/tmp-leak-check.sh android` に替える。試験を 2 回走らせない。chain job で `tools/tmp-leak-check.sh --self-test` も走らせる
