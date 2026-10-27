@@ -167,6 +167,10 @@ point() {
     echo "時点 $at: ashiato database の大きさが 1 MiB を超えて増えた（前 $size0 → 後 $size1 バイト）" >&2; return 1
   fi
   echo "時点 $at: OK"
+  case $at in
+    insert) echo "Scenario: 体積の行を入れる途中で殺した回の database は、次の回の後に残らない" ;;
+    committed) echo "Scenario: 体積の行を確定した後に殺した回の database は、次の回の後に残らない" ;;
+  esac
 }
 
 killed_check() {
@@ -176,6 +180,12 @@ killed_check() {
   if [[ -z ${TEST_DB_KILLED_PROBE_CMD:-} ]]; then
     exe=$(exe_path)
     [[ -n $exe && -x $exe ]] || { echo "試験の実行ファイルの path が取れなかった" >&2; return 1; }
+  fi
+  if [[ -z ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then  # 殺す前のきれいな回の秒数（出すだけ。落ちは殺した後の回で見る）
+    local b0=$EPOCHREALTIME b1
+    run_next >/dev/null 2>&1 || true
+    b1=$EPOCHREALTIME
+    echo "殺す前のきれいな回: $(awk -v a="$b0" -v b="$b1" 'BEGIN{printf "%.1f", b-a}') 秒"
   fi
   for at in insert committed; do
     point "$at" "$dir" "$exe" || return $?
