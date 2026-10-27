@@ -109,13 +109,13 @@
 
 ## Task 4: 外部サービス由来の更新で版が動く（D1（仮））
 
-- [ ] 4.1 先に試験を書く（`component_version_tests.rs`。外部の識別子の粒度つきのソースを `testdb::source_of_kind` で登録する。「印 A の S-01 が入れた記録」は、試験から `core.event` へ直に INSERT して `server_version`・`collector_version` を `0.1.0+<commit A>` にして作る（INSERT は門に掛からない）。2 回目の到着は API の合言葉で送る）:
+- [x] 4.1 先に試験を書く（`component_version_tests.rs`。外部の識別子の粒度つきのソースを `testdb::source_of_kind` で登録する。「印 A の S-01 が入れた記録」は、試験から `core.event` へ直に INSERT して `server_version`・`collector_version` を `0.1.0+<commit A>` にして作る（INSERT は門に掛からない）。2 回目の到着は API の合言葉で送る）:
   - `st49_update_versions_move_and_history_keeps_old` — `// Scenario: 外部サービス由来の更新で、版が新しい到着の版に替わり、前の版が履歴に残る`（本表の `server_version` が `crate::BUILD_STAMP` に、前の版の行が `0.1.0+<commit A>` に。前の版の読み口 `core.event_version_live` でも読める）
   - `st49_update_same_content_keeps_versions` — `// Scenario: 内容の変わらない再到着では、版は変わらない`
   - `st49_update_stale_keeps_versions` — `// Scenario: 古い更新時刻の到着では、版は変わらない`
   - `st49_update_deleted_keeps_versions` — `// Scenario: 削除済みの記録への更新では、版は変わらない`
   いまの木（Task 3 の後）で `st49_update_versions_move_and_history_keeps_old` が版の値のアサートで落ちる（門では落ちない）ことを `CT st49_update_versions` rc≠0 と失敗の文で確かめてから 4.2 に進む
-- [ ] 4.2 `lib.rs` の `Stored` と `load_stored` に 3 列、`apply_external_update` の本表の UPDATE で 3 列を動かす（D1（仮）。前の版の INSERT は 3.2 で済んでいる）。`advance_watermark` は変えない。
+- [x] 4.2 `lib.rs` の `Stored` と `load_stored` に 3 列、`apply_external_update` の本表の UPDATE で 3 列を動かす（D1（仮）。前の版の INSERT は 3.2 で済んでいる）。`advance_watermark` は変えない。
   検証: `CT st49_update_` rc=0（`-- --list` で 4 本以上）/ `CT dedup_tests` rc=0（`-- --list` で 35 本以上。既存の外部更新の試験が通る）
 
 ## Task 5: 滞在と滞在の基準の版（D2（仮））
