@@ -55,8 +55,11 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
   `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io.tmpdir`・`"/tmp`・規則の無い `TemporaryFolder(`（Kotlin）を落とす。
   製品のコードも対象。携帯の `main` / `androidTest` と bash は対象外。
 - **印**: 手で要る箇所（一時フォルダを読むだけ、など）は同じ行か 1 行上に `// tmp-ok: <理由>`。理由の無い印と 2 行以上離れた印は数えない。
-- **残りを測る**: `tools/tmp-leak-check.sh <試験の命令>` は一時フォルダを空のフォルダへ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる
-  （`--self-test` つき。`/tmp` を名前の頭で消す台本は書かない）。
+- **残りを測る**: `tools/tmp-leak-check.sh rust [cargo test の引数…]`（無ければ `--workspace`）/ `tools/tmp-leak-check.sh android [gradle の引数…]`
+  （`:app:testDebugUnitTest --rerun` に足す）/ `tools/tmp-leak-check.sh --self-test`。一時フォルダを `/tmp` の下の専用の空のフォルダ
+  （`/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<pid>`）へ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる。
+  走った試験が 0 本（android は飛ばした分を引く）でも落ちる。通れば根を消し、落ちた回・残りがあった回は `target/tmp-leak/` へ移して残す
+  （`/tmp` を名前の頭で消す台本は書かない）。
 
 ## 2. テストは spec の Scenario から生まれる
 

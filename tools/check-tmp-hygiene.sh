@@ -19,7 +19,7 @@
 # どうしても要る箇所（一時フォルダを読むだけ、など）は、同じ行か 1 行上に `// tmp-ok: <理由>` を書く。
 # 理由の無い印と、2 行以上離れた印は数えない。コメントの中の文字列も拾う（誤検知は印で逃がす）。
 #
-# rc: 0 = 違反なし / 1 = 違反あり（ファイルと行番号を挙げる）
+# rc: 0 = 違反なし / 1 = 違反あり（ファイルと行番号を挙げる）/ 2 = 知らない引数（使い方を出す）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -68,6 +68,8 @@ def scan(root=None):
     out = []
     for p in sorted(x for x in listing(root) if x):
         full = os.path.join(root, p) if root else p
+        if not os.path.isfile(full):  # 作業木で消して stage していない追跡ファイル（消したものに違反は無い）
+            continue
         if p.startswith("crates/") and p.endswith(".rs"):
             out += check(p, open(full, encoding="utf-8").read(), [RUST_PAT], RUST_HINT, False)
         elif p.startswith("collector-android/app/src/test/") and p.endswith(".kt"):
@@ -87,9 +89,11 @@ print("check-tmp-hygiene: OK")
 PY
 )
 
-if [ "${1:-}" != "--self-test" ]; then
-  exec python3 -c "$PYSRC"
-fi
+case "$#:${1:-}" in
+  0:) exec python3 -c "$PYSRC" ;;
+  1:--self-test) ;;
+  *) echo "使い方: $0 [--self-test]（知らない引数: $*）" >&2; exit 2 ;;
+esac
 
 # ---- --self-test ----
 work=$(mktemp -d)
@@ -164,6 +168,17 @@ for c in './tools/check-tmp-hygiene.sh --self-test' './tools/check-tmp-hygiene.s
 done
 grep -qF 'tools/check-tmp-hygiene.sh >/dev/null || { tools/check-tmp-hygiene.sh || true; exit 1; }' tools/pre-commit.sh \
   || { echo "  FAIL: tools/pre-commit.sh が検査を呼び、落ちれば exit 1 しない"; fails=$((fails + 1)); }
+
+echo "Scenario: 知らない引数は本番の検査として走らせず、使い方を出して rc=2"
+rc=0; ./tools/check-tmp-hygiene.sh --selftest > "$work/out" 2>&1 || rc=$?
+[ "$rc" = 2 ] && grep -qF "使い方" "$work/out" || { echo "  FAIL: --selftest が rc=$rc（期待 2 と使い方）"; fails=$((fails + 1)); }
+
+echo "Scenario: 作業木で消して stage していない追跡ファイルは、読まずに飛ばす"
+g=$work/git; mkdir -p "$g/crates/x/src"
+printf 'fn t() {}\n' > "$g/crates/x/src/gone.rs"
+git -C "$g" init -q && git -C "$g" add -A && rm "$g/crates/x/src/gone.rs"
+rc=0; (cd "$g" && python3 -c "$PYSRC") > "$work/out" 2>&1 || rc=$?
+[ "$rc" = 0 ] || { echo "  FAIL: 消した追跡ファイルで rc=$rc"; sed 's/^/    /' "$work/out"; fails=$((fails + 1)); }
 
 echo "Scenario: CH03 の後の木は、検査を通る"
 python3 -c "$PYSRC" || { echo "  FAIL: いまの木が検査を通らない"; fails=$((fails + 1)); }

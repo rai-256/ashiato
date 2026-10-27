@@ -11,8 +11,10 @@
 #     （2026-10-27 実測: collector-windows の 283 本が /tmp で 5.7 秒、target/ で 63〜90 秒。
 #     history_large_fetch_keeps_observing_foreground が見回り 1 回 1.1〜2.2 秒で毎回落ちた）。
 #     作る場所は TMP_LEAK_BASE、移す先は TMP_LEAK_KEEP で差し替えられる（--self-test が使う）。
-# 試験の命令は環境変数 TMP_LEAK_CMD で差し替えられる（--self-test が使う。本数は出力の
-#     `test result: ok. <N> passed` の N の合計。差し替え中の命令には根が TMP_LEAK_ROOT で渡る）。
+# 試験の命令は環境変数 TMP_LEAK_CMD で差し替えられる（--self-test が使う。差し替え中の命令には根が TMP_LEAK_ROOT で渡る）。
+#     本数は rust なら出力の `test result: ok. <N> passed` の N の合計、android なら JUnit XML の
+#     `tests` から `skipped` を引いた合計（全部が飛ばされた回を 0 本として落とす）。
+#     XML の置き場は TMP_LEAK_XML_DIR で差し替えられる（--self-test が偽の XML を置く）。
 #
 # **なぜ要るか**: 試験が自分の一時フォルダを消し忘れても、`/tmp` に溜まるだけで何も落ちなかった（CH03）。
 # 一時フォルダを空のフォルダへ向けて走らせ、終わった後に何か残っていれば落とす。
@@ -22,16 +24,23 @@ cd "$(dirname "$0")/.."
 repo=$PWD
 base=${TMP_LEAK_BASE:-/tmp}
 keep=${TMP_LEAK_KEEP:-$repo/target/tmp-leak}
+xml_dir=${TMP_LEAK_XML_DIR:-$repo/collector-android/app/build/test-results/testDebugUnitTest}
 
 count_rust_output() { # stdin の `test result: ok. N passed` の N の合計
   { grep -oE 'test result: ok\. [0-9]+ passed' || true; } | awk '{s+=$4} END{print s+0}'
 }
 
-count_android_xml() {
-  local d=collector-android/app/build/test-results/testDebugUnitTest f
+attr() { # 属性名 —— stdin の要素の頭から 属性名="N" の N（無ければ 0）
+  { grep -oE " $1=\"[0-9]+\"" || echo '="0"'; } | head -1 | grep -oE '[0-9]+'
+}
+
+count_android_xml() { # 走った本数 = tests - skipped（飛ばされただけの試験は走っていない）
+  local d=$xml_dir f head
   for f in "$d"/*.xml; do
-    [ -f "$f" ] && grep -m1 -oE '<testsuite [^>]*' "$f" | grep -oE ' tests="[0-9]+"' | grep -oE '[0-9]+'
-  done | awk '{s+=$1} END{print s+0}'
+    [ -f "$f" ] || continue
+    head=$(grep -m1 -oE '<testsuite [^>]*' "$f") || continue
+    echo "$(attr tests <<<"$head") $(attr skipped <<<"$head")"
+  done | awk '{s+=$1-$2} END{print s+0}'
 }
 
 keep_root() { # 落ちた回の根を /tmp から target/tmp-leak/ へ移し、移した先を出す
@@ -53,11 +62,11 @@ run() {
   if [ -n "${TMP_LEAK_CMD:-}" ]; then
     TMPDIR=$root ASHIATO_TEST_TMPDIR=$root TMP_LEAK_ROOT=$root bash -c "$TMP_LEAK_CMD" 2>&1 | tee "$out"
     rc=${PIPESTATUS[0]}
-    ran=$(count_rust_output <"$out")
+    if [ "$mode" = android ]; then ran=$(count_android_xml); else ran=$(count_rust_output <"$out"); fi
   elif [ "$mode" = rust ]; then
     [ $# -gt 0 ] || set -- --workspace
     echo "Scenario: 一時フォルダを空のフォルダへ向けて試験を一通り走らせると、終わった後も空のまま"
-    cargo test --no-run "$@" || { rc=$?; rm -f "$out"; return "$rc"; }
+    cargo test --no-run "$@" || { rc=$?; rm -f "$out"; rm -rf "$root"; return "$rc"; }
     TMPDIR=$root cargo test "$@" 2>&1 | tee "$out"
     rc=${PIPESTATUS[0]}
     ran=$(count_rust_output <"$out")
@@ -89,13 +98,14 @@ run() {
 }
 
 self_test() {
-  local fails=0 out rc kept
+  local fails=0 out rc kept xml
   kept=$(mktemp -d)
-  trap 'rm -rf "$kept"' RETURN
-  expect() { # 名前 期待rc 期待の語 命令
-    local name=$1 want_rc=$2 want_text=$3 cmd=$4
+  xml=$(mktemp -d)
+  trap 'rm -rf "$kept" "$xml"' RETURN
+  expect() { # 名前 期待rc 期待の語 命令 [rust|android]
+    local name=$1 want_rc=$2 want_text=$3 cmd=$4 mode=${5:-rust}
     echo "Scenario: $name"
-    out=$(TMP_LEAK_CMD=$cmd TMP_LEAK_KEEP=$kept "$0" rust 2>&1); rc=$?
+    out=$(TMP_LEAK_CMD=$cmd TMP_LEAK_KEEP=$kept TMP_LEAK_XML_DIR=$xml "$0" "$mode" 2>&1); rc=$?
     if [ "$rc" -ne "$want_rc" ] || ! printf '%s' "$out" | grep -qF -- "$want_text"; then
       echo "FAIL: $name (rc=$rc, 期待 rc=$want_rc と「$want_text」)" >&2
       printf '%s\n' "$out" >&2
@@ -114,6 +124,14 @@ self_test() {
   # Scenario: 試験が通り、何も残さなければ、台本は通る
   expect "試験が通り、何も残さなければ、台本は通る" 0 "試験 3 本" \
     'echo "test result: ok. 3 passed; 0 failed"'
+  # android の道（JUnit XML の本数）。偽の XML は命令が置く（Gradle が結果のフォルダを空にしてから書くのと同じ）
+  local suite='rm -f "$TMP_LEAK_XML_DIR"/*.xml; w() { printf "<?xml version=\"1.0\"?>\n<testsuite name=\"%s\" tests=\"%s\" skipped=\"%s\" failures=\"0\" errors=\"0\">\n</testsuite>\n" "$1" "$2" "$3" >"$TMP_LEAK_XML_DIR/TEST-$1.xml"; }; '
+  expect "試験が 1 本も走らなければ、一時フォルダが空でも落ちる（android: 全部が飛ばされた）" 1 "0 本" \
+    "$suite"'w a.SkippedTest 2 2; w b.SkippedTest 1 1' android
+  expect "試験が通り、何も残さなければ、台本は通る（android: 飛ばした分を引く）" 0 "試験 4 本" \
+    "$suite"'w a.ProbeTest 3 1; w b.OtherTest 2 0; w c.NoSkipAttr 0 0' android
+  expect "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる（android）" 1 "leaked-by-robolectric" \
+    "$suite"'w a.ProbeTest 1 0; touch "$TMP_LEAK_ROOT/leaked-by-robolectric"' android
   echo "Scenario: CI の試験の段は、残りを測る台本から走る"
   local ci=.github/workflows/ci.yml
   if grep -nE '^\s*-?\s*run:\s*(\./)?(cargo test --workspace|gradlew :app:testDebugUnitTest)\s*$' "$ci"; then
