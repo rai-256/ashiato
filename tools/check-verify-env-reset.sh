@@ -2,7 +2,7 @@
 # 検証のたびにテスト用 DB を作り直す仕組み（ch06）の検査。
 #
 #   ./tools/check-verify-env-reset.sh --self-test  一時の repo と worktree で tools/env-init.sh の規則を確かめる（docker の daemon に触らない）。
-#                                                  CI の rust job と手元で同じ結果になる
+#                                                  CI の rust job と手元で同じ結果になる（例外は下）
 #   ./tools/check-verify-env-reset.sh              この木の DB を作り直して確かめる本体（worktree か CI=true の木だけ。ほかは rc=2）
 #
 # ch07 の段（9.〜11.）は、作り直したときだけ HARNESS_RESET: testdb を標準出力に出す宣言（tools/verify-env.sh）を確かめる。
@@ -13,7 +13,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 # ---- 本体 -------------------------------------------------------------------------------------
-# この木の DB を作り直して確かめる（design D8 の 1.〜8.）。各段で HARNESS_VERIFY を明示する（呼び出し側の印に依らない）。
+# この木の DB を作り直して確かめる（1.〜11.。1.〜8. は design D8、9.〜11. は ch07）。各段で HARNESS_VERIFY を明示する（呼び出し側の印に依らない）。
 # 終わった DB は空で、役割が整っている
 body() {
   local dirs gitdir common is_wt=0
@@ -468,7 +468,7 @@ for w in demo demo-st05 demo-verify demo-ch01; do
     for mark in "" HARNESS_VERIFY=1; do
       got=$(plan ${ci:+"$ci"} ${mark:+"$mark"})
       c=0; [[ $got != *$'\n'* && ( $got == reset || $got == keep:* ) && $got != *HARNESS_RESET:* ]] || c=1
-      ok "$w（${ci:-CI なし}・${mark:+印あり}${mark:-印なし}）の --plan は 1 行で、宣言を含まない" "$c"
+      ok "$w（${ci:-CI なし}・$([[ -n $mark ]] && echo 印あり || echo 印なし)）の --plan は 1 行で、宣言を含まない" "$c"
     done
   done
 done
