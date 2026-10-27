@@ -196,6 +196,7 @@
   埋め戻しの UPDATE を通さない。手順: `ALTER TABLE core.event_version DISABLE TRIGGER event_version_immutable` と `ALTER TABLE core.event DISABLE TRIGGER event_requires_version` →
   2 つの表の `c01-*` / `c02-*` の行を `UPDATE … SET contract_version = 1` → 2 つの `ENABLE TRIGGER` → 錠と門の本体の置き換え。移行は 1 つのまとまりで当たる（`migration_ledger.rs:448-461`）ので、
   途中で落ちれば外した錠も戻る。張り直したことは `tools/check-immutable.d/` の節がわざと UPDATE を投げて確かめる（Task 4.3）
+  （本表の即時の錠 `event_immutable_collected`（`core.reject_collected_rewrite`。`gates.sql:30`）は列を名指しで見て `contract_version` を知らないので、外さなくても埋め戻しを通す）
 - 錠: 前の版の錠 `core.reject_version_rewrite` と、収集した記録の門 `core.require_version_or_ledger`（前の版を同じまとまりに積むときだけ通す）に `contract_version` を足す。**移行を当てる時点の本体を写して列を足すだけ**にし、ほかの条件を変えない
   （ST49 も同じ関数に版の列を足す。後から main に入る側が rebase で前の側の本体を写す。ST41 の移行 `202610231200_event_end_time.sql` が関数の本体の md5 を確かめてから置き換える形に倣う）
 - 書き出し: `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS` に `contract_version` を `schema_version` の次に足す（説明は data-durability の Requirement の文言。ST49 と同じ位置に足して衝突の幅を減らす）
