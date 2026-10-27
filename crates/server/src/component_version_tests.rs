@@ -921,3 +921,210 @@ mod external_update {
         assert_unchanged(&app, id, 0).await;
     }
 }
+
+// ------------------------------------------------------------------ 滞在と滞在の基準（Task 5）
+
+mod stay_versions {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    const COMMIT_A: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_owned())
+    }
+
+    /// `at` から 60 秒ごとに `minutes + 1` 件、同じ地点の位置の記録を直に置く（作り直しの規則だけを見る）。
+    async fn put_dwell(pool: &PgPool, user: Uuid, at: &str, minutes: i64) {
+        let t0: chrono::DateTime<chrono::Utc> = at.parse().unwrap();
+        let times: Vec<_> = (0..=minutes)
+            .map(|i| t0 + chrono::Duration::minutes(i))
+            .collect();
+        let raws: Vec<String> = times
+            .iter()
+            .map(|_| r#"{"lat":35.0,"lon":139.0,"acc_m":10}"#.to_owned())
+            .collect();
+        sqlx::query(
+            "INSERT INTO core.event
+               (id, user_id, logical_source, device_id, origin, event_time,
+                tz_offset_min, tz_id, schema_version, content_hash, raw, payload)
+             SELECT gen_random_uuid(), $1, 'c01-location', 'test', 'collected', t,
+                    540, 'Asia/Tokyo', 1, gen_random_uuid()::text, r, r::jsonb
+               FROM unnest($2::timestamptz[], $3::text[]) AS u(t, r)",
+        )
+        .bind(user)
+        .bind(&times)
+        .bind(&raws)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn the_stay(pool: &PgPool, user: Uuid) -> Uuid {
+        sqlx::query_scalar(
+            "SELECT id FROM core.event
+              WHERE user_id = $1 AND logical_source = 's01-stay' AND origin = 'derived'",
+        )
+        .bind(user)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    /// 滞在は収集した記録でないので、版を直に書き換えてよい（門に掛からない。D21（仮））。
+    async fn pretend_written_by_old_server(pool: &PgPool, id: Uuid) -> String {
+        let old = format!("0.1.0+{COMMIT_A}");
+        sqlx::query("UPDATE core.event SET server_version = $2 WHERE id = $1")
+            .bind(id)
+            .bind(&old)
+            .execute(pool)
+            .await
+            .unwrap();
+        old
+    }
+
+    async fn history_rows(pool: &PgPool, id: Uuid) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM core.event_version WHERE event_id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    // Scenario: 新しい滞在は、書いた S-01 の版を持つ
+    async fn st49_stay_new_has_server_version() {
+        let pool = testdb::pool().await;
+        let user = testdb::user();
+        put_dwell(&pool, user, "2026-09-08T10:00:00+09:00", 20).await;
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        let id = the_stay(&pool, user).await;
+        assert_eq!(
+            versions_of(&pool, "core.event", "id", id).await,
+            [None, None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 作り直しで原文が変わった滞在は、版が替わり、前の版が履歴に残る
+    async fn st49_stay_rebuild_with_new_raw_moves_version() {
+        let pool = testdb::pool().await;
+        let user = testdb::user();
+        put_dwell(&pool, user, "2026-09-08T10:00:00+09:00", 20).await;
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        let id = the_stay(&pool, user).await;
+        let old = pretend_written_by_old_server(&pool, id).await;
+        // 滞在が 10 分伸びる（原文の終わりが変わる）
+        put_dwell(&pool, user, "2026-09-08T10:21:00+09:00", 10).await;
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        assert_eq!(
+            versions_of(&pool, "core.event", "id", id).await,
+            [None, None, s(crate::BUILD_STAMP)],
+            "本表の版が今の S-01 の版に替わっていない"
+        );
+        assert_eq!(
+            versions_of(&pool, "core.event_version", "event_id", id).await,
+            [None, None, Some(old)],
+            "前の版が履歴に残っていない"
+        );
+        assert_eq!(history_rows(&pool, id).await, 1);
+    }
+
+    #[tokio::test]
+    // Scenario: 作り直しで原文が変わらなかった滞在の版は変わらない
+    async fn st49_stay_rebuild_unchanged_keeps_version() {
+        let pool = testdb::pool().await;
+        let user = testdb::user();
+        put_dwell(&pool, user, "2026-09-08T10:00:00+09:00", 20).await;
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        let id = the_stay(&pool, user).await;
+        let old = pretend_written_by_old_server(&pool, id).await;
+        let keeps = [None, None, Some(old)];
+
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        assert_eq!(versions_of(&pool, "core.event", "id", id).await, keeps);
+        assert_eq!(history_rows(&pool, id).await, 0);
+
+        // 削除の印だけが違う（原文は同じ）更新でも版は変わらず、履歴も増えない
+        sqlx::query(
+            "UPDATE core.event SET deleted_at = now(), deleted_by = 'rebuild:erased-range'
+              WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        crate::stay_store::rebuild_all(&pool, user).await.unwrap();
+        let live: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT deleted_at FROM core.event WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            live.is_none(),
+            "削除の印だけの更新が走っていない（前提が崩れた）"
+        );
+        assert_eq!(versions_of(&pool, "core.event", "id", id).await, keeps);
+        assert_eq!(history_rows(&pool, id).await, 0);
+    }
+
+    #[tokio::test]
+    // Scenario: 滞在の基準を変えた台帳の行は、書いた S-01 の版を持つ
+    async fn st49_stay_criteria_row_has_server_version() {
+        let password = format!("pw-{}", Uuid::new_v4());
+        let app = crate::App::for_test(testdb::pool().await, "test-token-0123456789abcdef")
+            .with_web_login(&password, 1);
+        let login = crate::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/session")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "password": password }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::NO_CONTENT);
+        let cookie = login.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let user = testdb::user();
+        let res = crate::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/stays/rebuild")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("cookie", cookie)
+                    .body(Body::from(
+                        serde_json::json!({ "user_id": user, "radius_m": 77 }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        let id = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["criteria_id"]
+            .as_i64()
+            .unwrap();
+        let got: Option<String> =
+            sqlx::query_scalar("SELECT server_version FROM core.stay_criteria WHERE id = $1")
+                .bind(id)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+        assert_eq!(got.as_deref(), Some(crate::BUILD_STAMP));
+    }
+}

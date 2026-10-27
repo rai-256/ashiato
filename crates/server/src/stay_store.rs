@@ -113,14 +113,16 @@ async fn insert_criteria(
     c: &Criteria,
 ) -> sqlx::Result<Criteria> {
     let row: CriteriaVersion = sqlx::query_as(&format!(
-        "INSERT INTO core.stay_criteria (user_id, radius_m, min_minutes, gap_minutes, sources)
-         VALUES ($1, $2, $3, $4, $5) RETURNING {CRITERIA_COLUMNS}"
+        "INSERT INTO core.stay_criteria
+           (user_id, radius_m, min_minutes, gap_minutes, sources, server_version)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {CRITERIA_COLUMNS}"
     ))
     .bind(user)
     .bind(c.radius_m)
     .bind(c.min_minutes)
     .bind(c.gap_minutes)
     .bind(&c.sources)
+    .bind(crate::BUILD_STAMP)
     .fetch_one(&mut **tx)
     .await?;
     Ok(row.into())
@@ -976,7 +978,8 @@ async fn update_stay(
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
                 tz_offset_min = $6, tz_id = $7,
                 deleted_at = CASE WHEN $8 THEN coalesce(deleted_at, now()) END,
-                deleted_by = CASE WHEN $8 THEN $9 END
+                deleted_by = CASE WHEN $8 THEN $9 END,
+                server_version = CASE WHEN raw IS DISTINCT FROM $2 THEN $12 ELSE server_version END
           WHERE id = $1 AND {SAME_MARK}"
     ))
     .bind(e.id)
@@ -990,6 +993,7 @@ async fn update_stay(
     .bind(ERASED_RANGE)
     .bind(e.mark == Mark::Live)
     .bind(&e.deleted_by)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     ensure_one(done)
@@ -1008,9 +1012,9 @@ async fn insert_stay(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, deleted_at, deleted_by)
+            content_hash, raw, payload, deleted_at, deleted_by, server_version)
          VALUES ($1, $2, $3, $4, NULL, 'derived', $5, $6, $7, 1, $8, $9, $10, $11, $12,
-                 CASE WHEN $13 THEN now() END, CASE WHEN $13 THEN $14 END)",
+                 CASE WHEN $13 THEN now() END, CASE WHEN $13 THEN $14 END, $15)",
     )
     .bind(id)
     .bind(user)
@@ -1026,6 +1030,7 @@ async fn insert_stay(
     .bind(payload_of(raw)?)
     .bind(hide)
     .bind(ERASED_RANGE)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     Ok(())
