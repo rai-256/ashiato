@@ -776,7 +776,7 @@ async fn st09_up_put_original_is_readable_only_by_its_owner() {
         0o600
     );
     // 既定の置き場（起動時に作る）も
-    let xdg = tmp.0.join("xdg");
+    let xdg = tmp.0.path().join("xdg");
     let xdg_s = xdg.to_str().unwrap().to_string();
     let config = MediaConfig::from_env(env_of(&[("XDG_DATA_HOME", xdg_s.as_str())])).unwrap();
     config.prepare().unwrap();
@@ -905,7 +905,7 @@ async fn st09_up_log_failures_show_kind_but_no_name_dir_or_hash() {
     let captured = crate::archive_flow_tests::captured_log().clone();
 
     let tmp = Tmp::new();
-    let secret_dir = tmp.0.join("SECRETDIR-folder");
+    let secret_dir = tmp.0.path().join("SECRETDIR-folder");
     let app = app_with(secret_dir.clone()).await; // 置き場が無い → 書けない失敗
     let user = testdb::user();
     let bytes = unique_bytes("log");
@@ -936,7 +936,7 @@ async fn st09_up_log_failures_show_kind_but_no_name_dir_or_hash() {
         "SECRETNAME",
         "SECRETDIR",
         sha.as_str(),
-        tmp.0.to_str().unwrap(),
+        tmp.0.path().to_str().unwrap(),
     ] {
         assert!(!log.contains(secret), "ログに出た: {secret}\n{log}");
     }

@@ -297,7 +297,7 @@ class MediaScannerTest {
     @Test
     fun the_first_full_read_rewrites_the_ledger_only_on_doubling_pages() {
         val saves = ArrayList<Int>()
-        val env = MediaScanEnv { dir, log ->
+        val env = MediaScanEnv(tmp.newFolder()) { dir, log ->
             object : MediaLedgerStore(dir, log) {
                 override fun saveLedger(volume: String, entries: Collection<LedgerEntry>): Boolean {
                     saves += entries.size
