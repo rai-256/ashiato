@@ -9,7 +9,9 @@ reviewer が手元で走らせたもの: `tools/check-tmp-hygiene.sh --self-test
 8.3 の `check-test-names.sh`（読むだけの形）を 3fa435a で rc=0（rust 1805→1806・kotlin 626→628、消えた印・名前なし）。
 
 fix は 1 回（0aa6ca29..ed9abba6、報告 `.superpowers/sdd/ch03-final-fix-report.md`）、scoped re-review 1 回（`re-review-prompt.md`、package `.superpowers/sdd/tasks/review-0aa6ca29..ed9abba6.diff`）:
-R1〜R11 ADDRESSED、R12 は 8.3 の機械の証跡が無い分だけ残る（Minor。処置に書いた）。新しい Critical/Important なし。
+R1〜R11 ADDRESSED、R12 は 8.3 の機械の証跡が無い分だけ残る（R17 に分けた。premise で finish が処置する）。新しい Critical/Important なし。
+
+finish への申し送り（harness2 側）: deep.md の答えが「答え: …（本人の選択）」の形で `provisional.py` の `answered()` が読む「本人の答え」の形でないため、`--follows Q5` が通らなかった（D6 は --keeps/--cost で載せた）。
 
 Task ごとの ⚠️ の振り分け: 「証跡が commit 前の作業木で取られた」（T1・T3・T6・T7）は、最終のコードでの 8.2・8.4 の PASS と reviewer の self-test 2 本が置き換える（取り直しが要るのは 8.3 だけ → R12）。
 T1 の「`--rerun` で古い XML が混ざるか」は、Gradle の Test task が結果のフォルダを空にしてから書くので害なし。T4 の Windows で走ることは PR の CI の `collector-windows-runtime` が見る。
@@ -84,7 +86,7 @@ T1 の「`--rerun` で古い XML が混ざるか」は、Gradle の Test task �
 - 成果物: openspec/changes/ch03-test-tmp-cleanup/evidence.jsonl
 - 根拠: 最後の 8.3 PASS は d798b111。その後に main の merge（751422b4）と試験の書き換え（65314fa2・f5e99cc3）。T8 F2
 - kind: technical
-- 処置: fixed 8.2 —— 571854cd で verify-run 8.1・8.2（rust 1788・android 629、残り無し）・8.4（detekt 含む）が PASS（ed9abba6 は証跡だけ）。8.3 は入口 `openspec/…/check-test-names.sh` が evidence.py の CMD_LIKE に当たらず `verify-run 8.3` が rc=2 で記録できない（`evidence.py unverified` が 8.3 を挙げ、Story gate は見ない）。571854cd で手で走らせて rc=0（rust 1805→1806・kotlin 626→628、消えた印・名前なし）。PR 本文に手の実行として挙げ、CMD_LIKE の件は「未処置の申し送り」（harness2 側）にする
+- 処置: fixed 8.2 —— 571854cd で verify-run 8.1・8.2（rust 1788・android 629、残り無し）・8.4（detekt 含む）が PASS（ed9abba6 は証跡だけ）。8.3 は機械の証跡が取れないので R17 に分けた（571854cd で手で走らせて rc=0、rust 1805→1806・kotlin 626→628、消えた印・名前なし）
 
 ## R13. 「製品のコードは変えない」「assert を変えない」の例外 2 つを PR 本文で宣言する
 - 成果物: crates/server/src/media.rs:568（`// tmp-ok:` のコメント 1 行）/ crates/server/src/day_tests.rs:1447（`st25_reasons_before_collection_started` の日付と assert_eq!、理由は agreed-test-changes.md:3）
@@ -109,3 +111,8 @@ T1 の「`--rerun` で古い XML が混ざるか」は、Gradle の Test task �
 - 根拠: log 20261027-190711 で「走査が 3 回に届かない: 2」。CH03 の前からある。T8 F5
 - kind: technical
 - 処置: rejected: CH03 の不具合ではない。`git diff origin/main...HEAD -- crates/server/src/archive_scan_interval_tests.rs` は crates/server/src/archive_scan_interval_tests.rs:231-235 の一時フォルダの作り方と後始末の行だけで、時計・間隔・期待値は変えていない。CI の rust job が台本を通すようになって CI の赤の元になりうるので、PR 本文の「未処置の申し送り」に別の change の起票として挙げる
+
+## R17. 8.3 の検証コマンドの入口が evidence.py の CMD_LIKE に当たらず、verify-run が走らせられない
+- 成果物: openspec/changes/ch03-test-tmp-cleanup/tasks.md:149（8.3 の「検証:」の `openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh`）
+- 根拠: scripts/evidence.py:67 の CMD_LIKE の頭（`./` `tools/` `scripts/` …）に `openspec/` が無い。`scripts/verify-run 8.3` rc=2（本文に検証コマンドが無い）、`python3 scripts/evidence.py unverified openspec/changes/ch03-test-tmp-cleanup --task 8` → `["8.3"]`。最後の 8.3 の記録は d798b111 の executor manual。scoped re-review が R12 のこの分を NOT ADDRESSED とした。試す候補: `verify-run 8.3 --candidate './openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh'`（`./` は CMD_LIKE に当たる）
+- kind: premise
