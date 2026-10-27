@@ -154,8 +154,7 @@ impl IngestRequest {
     /// 格納する部品の版。空の文字列は「不明」（`None`）、U+0000 は格納できない（22021）ので取り除く。
     /// 前後の空白は除かない・長さは切り詰めない（D8）。
     pub fn component_version(&self) -> Option<String> {
-        let version = self.client_version.as_deref()?.replace('\0', "");
-        (!version.is_empty()).then_some(version)
+        normalize_component_version(self.client_version.as_deref())
     }
 
     /// 収集側が省略した単位系を既定で埋めた値を返す。
@@ -290,6 +289,12 @@ pub fn to_nfc(value: &serde_json::Value) -> serde_json::Value {
         ),
         other => other.clone(),
     }
+}
+
+/// 要求の部品の版を格納する値にする（D8）。空の文字列は「不明」（`None`）、U+0000 は取り除く。
+pub(crate) fn normalize_component_version(version: Option<&str>) -> Option<String> {
+    let version = version?.replace('\0', "");
+    (!version.is_empty()).then_some(version)
 }
 
 #[cfg(test)]

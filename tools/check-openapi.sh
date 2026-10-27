@@ -67,7 +67,8 @@ hbr=$(jq -S '.components.schemas.HeartbeatResult.properties | keys' docs/openapi
 # ここはその試験が持つ一覧と `docs/openapi.json` を突き合わせる
 droptest=collector-android/app/src/test/kotlin/dev/ashiato/collector/DropReportContractTest.kt
 kt_drop=$(sed -n '/CONTRACT-FIELDS-BEGIN/,/CONTRACT-FIELDS-END/p' "$droptest" | grep -oE '"[a-z_]+"' | tr -d '"' | sort)
-api_drop=$(jq -r '.components.schemas.DropReportRequest.properties | keys[]' docs/openapi.json | sort)
+# `client_version`（ST49）は任意。C-01 が送るようにする Task（ST49 の Task 9）で、ここから外す
+api_drop=$(jq -r '.components.schemas.DropReportRequest.properties | keys[]' docs/openapi.json | grep -vx client_version | sort)
 if [ "$kt_drop" != "$api_drop" ]; then
   echo "  NG 破棄の報告の欄が契約とずれている"
   diff <(echo "$api_drop") <(echo "$kt_drop") | sed 's/^/     /'

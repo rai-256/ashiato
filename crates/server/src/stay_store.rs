@@ -913,14 +913,15 @@ async fn mark_late_arrivals(
         }
         sqlx::query(
             "INSERT INTO core.deletion_ledger
-               (event_id, user_id, logical_source, action, cause_event_id, mark)
-             VALUES ($1, $2, $3, 'erase', $4, $5)",
+               (event_id, user_id, logical_source, action, cause_event_id, mark, server_version)
+             VALUES ($1, $2, $3, 'erase', $4, $5, $6)",
         )
         .bind(event_id)
         .bind(user)
         .bind(logical_source)
         .bind(cause_event_id)
         .bind(USER_LATE)
+        .bind(crate::BUILD_STAMP)
         .execute(&mut **tx)
         .await?;
     }

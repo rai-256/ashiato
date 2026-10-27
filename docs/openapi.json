@@ -2897,6 +2897,13 @@
           "raw"
         ],
         "properties": {
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。**鍵にも `raw` にも入れない**（D11）"
+          },
           "count": {
             "type": "integer",
             "format": "int64"
@@ -4057,6 +4064,13 @@
           "noticed_at"
         ],
         "properties": {
+          "client_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。冪等の判定には使わない（D11）"
+          },
           "device_id": {
             "type": [
               "string",

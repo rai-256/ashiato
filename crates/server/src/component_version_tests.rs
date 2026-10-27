@@ -1128,3 +1128,446 @@ mod stay_versions {
         assert_eq!(got.as_deref(), Some(crate::BUILD_STAMP));
     }
 }
+
+// ------------------------------------------------------------------ 破棄の報告・原本の欠け・画面の操作の台帳（Task 6）
+
+mod ledgers {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    const TOKEN: &str = "test-token-0123456789abcdef";
+    const COMMIT_A: &str = "0123456789abcdef0123456789abcdef01234567";
+    const COMMIT_D: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+    async fn app() -> crate::App {
+        crate::App::for_test(testdb::pool().await, TOKEN)
+    }
+
+    async fn call(
+        app: &crate::App,
+        method: Method,
+        uri: &str,
+        body: &serde_json::Value,
+        credential: (&str, String),
+    ) -> (StatusCode, serde_json::Value) {
+        let res = crate::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(credential.0, credential.1)
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    fn api_token() -> (&'static str, String) {
+        ("authorization", format!("Bearer {TOKEN}"))
+    }
+
+    /// 画面のログイン（`/session`）の cookie。
+    async fn web_login(app: &crate::App, password: &str) -> (&'static str, String) {
+        let res = crate::router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/session")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "password": password }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        let set_cookie = res.headers()[header::SET_COOKIE].to_str().unwrap();
+        ("cookie", set_cookie.split(';').next().unwrap().to_owned())
+    }
+
+    /// 画面のログインを持つ app（滞在の作り直しは何もしない）。
+    async fn web_app() -> (crate::App, (&'static str, String)) {
+        let password = format!("pw-{}", Uuid::new_v4());
+        let app = crate::App {
+            stays: crate::StayRebuilder::from_fn(|_, _, _| Box::pin(async { Ok(()) })),
+            ..crate::App::for_test(testdb::pool().await, TOKEN)
+        }
+        .with_web_login(&password, 1);
+        let cookie = web_login(&app, &password).await;
+        (app, cookie)
+    }
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_owned())
+    }
+
+    /// 破棄の報告の本文。`raw` は同じ論理ソースで違えば別の報告になる。
+    fn drop_body(source: &str, user: Uuid, raw: &str, version: Option<&str>) -> serde_json::Value {
+        let mut v = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": source,
+            "device_id": "test-dev",
+            "reason": "write_failed",
+            "created_at": "2026-09-14T00:00:00Z",
+            "count": 3,
+            "raw": raw,
+        });
+        if let Some(version) = version {
+            v["client_version"] = version.into();
+        }
+        v
+    }
+
+    fn missing_body(user: Uuid, sha: &str, version: Option<&str>) -> serde_json::Value {
+        let mut v = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": "c01-photo",
+            "device_id": "phone-01",
+            "sha256": sha,
+            "reason": "vanished",
+            "noticed_at": "2026-10-01T03:00:00Z",
+        });
+        if let Some(version) = version {
+            v["client_version"] = version.into();
+        }
+        v
+    }
+
+    fn sha() -> String {
+        use sha2::Digest as _;
+        format!("{:x}", sha2::Sha256::digest(Uuid::new_v4().as_bytes()))
+    }
+
+    async fn drop_versions(pool: &PgPool, user: Uuid, source: &str) -> Vec<[Option<String>; 2]> {
+        let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT collector_version, server_version FROM core.drop_report
+              WHERE user_id = $1 AND logical_source = $2 ORDER BY created_at, id",
+        )
+        .bind(user)
+        .bind(source)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        rows.into_iter().map(|(c, v)| [c, v]).collect()
+    }
+
+    async fn missing_versions(pool: &PgPool, id: &serde_json::Value) -> [Option<String>; 2] {
+        let id: Uuid = id.as_str().unwrap().parse().unwrap();
+        let (c, v): (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT collector_version, server_version FROM core.media_missing WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        [c, v]
+    }
+
+    #[tokio::test]
+    // Scenario: 破棄の報告は、作った収集アプリの版と書いた S-01 の版を持つ
+    async fn st49_ledger_drop_report_versions() {
+        let app = app().await;
+        let user = Uuid::new_v4();
+        let source = testdb::source(&app.pool, "st49drop", 21_600).await;
+        let version = format!("0.1.0+{COMMIT_A}.debug");
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/drops",
+            &serde_json::json!([drop_body(&source, user, "r1", Some(&version))]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(
+            drop_versions(&app.pool, user, &source).await,
+            [[s(&version), s(crate::BUILD_STAMP)]]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 原本の欠けは、作った収集アプリの版と書いた S-01 の版を持つ
+    async fn st49_ledger_media_missing_versions() {
+        let app = app().await;
+        let version = format!("0.1.0+{COMMIT_A}");
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/media/missing",
+            &serde_json::json!([missing_body(Uuid::new_v4(), &sha(), Some(&version))]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(
+            missing_versions(&app.pool, &res[0]["id"]).await,
+            [s(&version), s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 部品の版だけが違う同じ破棄の報告は、1 件のまま
+    async fn st49_ledger_drop_report_version_only_difference_folds() {
+        let app = app().await;
+        let user = Uuid::new_v4();
+        let source = testdb::source(&app.pool, "st49fold", 21_600).await;
+        let first = format!("0.1.0+{COMMIT_A}");
+        let second = format!("0.1.0+{COMMIT_D}");
+        let (_, one) = call(
+            &app,
+            Method::POST,
+            "/drops",
+            &serde_json::json!([drop_body(&source, user, "same", Some(&first))]),
+            api_token(),
+        )
+        .await;
+        let (_, two) = call(
+            &app,
+            Method::POST,
+            "/drops",
+            &serde_json::json!([drop_body(&source, user, "same", Some(&second))]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(one[0]["duplicate"], false, "{one}");
+        assert_eq!(two[0]["duplicate"], true, "{two}");
+        assert_eq!(
+            drop_versions(&app.pool, user, &source).await,
+            [[s(&first), s(crate::BUILD_STAMP)]]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 部品の版の欄を持たない破棄の報告と原本の欠けも受け付けられる
+    async fn st49_ledger_reports_without_field_are_accepted() {
+        let app = app().await;
+        let user = Uuid::new_v4();
+        let source = testdb::source(&app.pool, "st49none", 21_600).await;
+        let (code, _) = call(
+            &app,
+            Method::POST,
+            "/drops",
+            &serde_json::json!([drop_body(&source, user, "r1", None)]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            drop_versions(&app.pool, user, &source).await,
+            [[None, s(crate::BUILD_STAMP)]]
+        );
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/media/missing",
+            &serde_json::json!([missing_body(user, &sha(), None)]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            missing_versions(&app.pool, &res[0]["id"]).await,
+            [None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    async fn ledger_versions(pool: &PgPool, event: Uuid, action: &str) -> Vec<Option<String>> {
+        sqlx::query_scalar(
+            "SELECT server_version FROM core.deletion_ledger WHERE event_id = $1 AND action = $2",
+        )
+        .bind(event)
+        .bind(action)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    // Scenario: 画面から消した操作の台帳の行は、書いた S-01 の版を持つ
+    async fn st49_ledger_erase_row_has_server_version() {
+        let (app, cookie) = web_app().await;
+        let user = testdb::user();
+        let stay = crate::deletion_tests::put_stay(
+            &app.pool,
+            user,
+            "2026-09-12T10:00:00+09:00",
+            "2026-09-12T11:00:00+09:00",
+        )
+        .await;
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/stays/erase",
+            &serde_json::json!({ "stay_id": stay }),
+            cookie,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(
+            ledger_versions(&app.pool, stay, "erase").await,
+            [s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 画面から戻した操作の台帳の行も、書いた S-01 の版を持つ
+    async fn st49_ledger_restore_row_has_server_version() {
+        let (app, cookie) = web_app().await;
+        let user = testdb::user();
+        let stay = crate::deletion_tests::put_stay(
+            &app.pool,
+            user,
+            "2026-09-13T10:00:00+09:00",
+            "2026-09-13T11:00:00+09:00",
+        )
+        .await;
+        let (code, _) = call(
+            &app,
+            Method::POST,
+            "/stays/erase",
+            &serde_json::json!({ "stay_id": stay }),
+            cookie.clone(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/stays/restore",
+            &serde_json::json!({ "stay_ids": [stay] }),
+            cookie,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(
+            ledger_versions(&app.pool, stay, "restore").await,
+            [s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 通知の時刻を変えた台帳の行は、書いた S-01 の版を持つ
+    async fn st49_ledger_feeling_reminder_has_server_version() {
+        let (app, cookie) = web_app().await;
+        let user = Uuid::new_v4();
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/feelings/reminder",
+            &serde_json::json!({ "user_id": user, "at": "21:30" }),
+            cookie,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        let got: Vec<Option<String>> = sqlx::query_scalar(
+            "SELECT server_version FROM core.feeling_reminder WHERE user_id = $1",
+        )
+        .bind(user)
+        .fetch_all(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(got, [s(crate::BUILD_STAMP)]);
+    }
+
+    #[tokio::test]
+    // Scenario: 個人属性の種類を足した名前の台帳の行は、書いた S-01 の版を持つ
+    async fn st49_ledger_kind_name_has_server_version() {
+        let (app, cookie) = web_app().await;
+        let user = Uuid::new_v4();
+        let name = format!("st49-{}", Uuid::new_v4());
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/attributes/kinds",
+            &serde_json::json!({ "user_id": user, "name": name }),
+            cookie,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        let got: Option<String> = sqlx::query_scalar(
+            "SELECT server_version FROM core.attribute_kind_name WHERE user_id = $1 AND name = $2",
+        )
+        .bind(user)
+        .bind(&name)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(got.as_deref(), Some(crate::BUILD_STAMP));
+    }
+
+    /// 機械の止め（D10）: `server_version` を持つ 8 表への INSERT が、列の並びに `server_version` を名指す。
+    /// 列は NULL 可なので、書き忘れた INSERT は何も落ちない —— 文字列で見る。
+    #[test]
+    fn st49_ledger_inserts_name_server_version() {
+        const TABLES: [&str; 8] = [
+            "event",
+            "event_version",
+            "drop_report",
+            "media_missing",
+            "deletion_ledger",
+            "feeling_reminder",
+            "stay_criteria",
+            "attribute_kind_name",
+        ];
+        const MARK: &str = "INSERT INTO core.";
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        let mut missing = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "testdb.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            // `#[cfg(test)]` の中身の mod（`mod x {` から行頭の `}` まで）は試験なので除く
+            let mut test_mods: Vec<(usize, usize)> = Vec::new();
+            for (at, _) in text.match_indices("#[cfg(test)]\n") {
+                let after = &text[at + "#[cfg(test)]\n".len()..];
+                let line = after.lines().next().unwrap_or_default();
+                if line.contains("mod ") && line.ends_with('{') {
+                    let end = after.find("\n}\n").map_or(text.len(), |e| at + e);
+                    test_mods.push((at, end));
+                }
+            }
+            let body = text.as_str();
+            for (at, _) in body.match_indices(MARK) {
+                if test_mods.iter().any(|(a, b)| (*a..*b).contains(&at)) {
+                    continue;
+                }
+                let rest = &body[at + MARK.len()..];
+                let table: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if !TABLES.contains(&table.as_str()) {
+                    continue;
+                }
+                let columns = &rest[..rest.find(')').expect("列の並びの閉じ括弧")];
+                checked += 1;
+                if !columns.contains("server_version") {
+                    missing.push(format!("{name}: INSERT INTO core.{table}"));
+                }
+            }
+        }
+        assert!(checked >= 14, "検査した INSERT が少なすぎる: {checked}");
+        assert!(
+            missing.is_empty(),
+            "server_version を名指さない INSERT: {missing:?}"
+        );
+    }
+}

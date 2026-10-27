@@ -532,6 +532,7 @@ ST08 deep.md 第 8 回 Q13）**。どれを載せた信号も `capturable=false`
 | `sha256` | 原本の内容ハッシュ |
 | `reason` | `vanished`（端末から消えた）/ `changed`（送る前に中身が変わった）/ `unreadable`（開けない）/ `too_large`（受け口が 413）/ `record_dropped`（記録が 90 日・2 GB の上限で捨てられた）/ `record_rejected`（記録が恒久的に断られた）/ `record_missing`（記録が 7 日届かなかった） |
 | `noticed_at` | 端末が欠けに気づいた時刻 |
+| `client_version` | 任意。欠けを作った収集アプリの組み立ての印（ST49。形は検査しない・空は不明）。API の合言葉のときだけ `collector_version` に入り、冪等の判定には使わない。S-01 の版は S-01 が入れる |
 
 位置・ファイル名は載せない。端末は断られても取り除かず、**生存信号・破棄の報告と同じく 90 日・2 GB の上限で捨てない**（R6）。
 断りの理由は `malformed` / `unknown_source` / `invalid_sha256` / `invalid_reason` / `missing_device` / `id_reused`。
@@ -707,6 +708,7 @@ ST01 の Outbox は部分失敗の後で送り直すので、**重複の到着�
 | `count` | 捨てた件数 | 0 以下（`invalid_count`） |
 | `hourly` | 出来事の時刻の **UTC の 1 時間**ごとの件数。`hour` は正時 | 合計が `count` と合わない・範囲と重ならない時間・正時でない・重複・範囲を持つのに空（`invalid_hourly`） |
 | `raw` | 原文。**バイト単位で素通し**される | 空 / U+0000 を含む（`invalid_raw`） |
+| `client_version` | 任意。報告を作った収集アプリの組み立ての印（ST49。形は検査しない・空は不明）。API の合言葉のときだけ `collector_version` に入る。**`raw` と報告の鍵には入れない**ので、版だけが違う同じ報告は 1 件のまま（先に入った行の版が残る）。S-01 の版は S-01 が入れる | 断られない |
 
 **範囲と `hourly` を持たない形**は `write_failed` と `unreadable` にだけ許す（出来事の時刻が分からない破棄）。
 その報告はどの日の件数にも入らない。

@@ -13,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::media::IMAGE_SOURCES;
-use crate::{authorize, internal_at, App};
+use crate::{authorize, internal_at, App, Writer};
 
 /// 原本の欠けの理由（D11 の 7 つ）。**文字列で受けてから検査する**（`drops::REASONS` と同じ向き）。
 pub const REASONS: [&str; 7] = [
@@ -44,6 +44,9 @@ pub struct MediaMissingRequest {
     pub reason: Option<String>,
     /// 端末が欠けに気づいた時刻
     pub noticed_at: chrono::DateTime<chrono::Utc>,
+    /// 作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。冪等の判定には使わない（D11）
+    #[serde(default)]
+    pub client_version: Option<String>,
 }
 
 /// 報告を断った理由。**受け取った値は載せない。**
@@ -116,6 +119,7 @@ impl MediaMissingRequest {
 async fn missing_one(
     app: &App,
     item: &serde_json::Value,
+    writer: Writer,
 ) -> Result<MediaMissingResult, (StatusCode, String)> {
     let sent_id = item
         .get("id")
@@ -135,10 +139,16 @@ async fn missing_one(
         return Ok(rejected(Some(req.id), error));
     }
 
+    // 収集アプリの版は API の合言葉のときだけ入れる（D9・D14）
+    let collector_version = match writer {
+        Writer::Collector => req.component_version(),
+        Writer::Web | Writer::Internal => None,
+    };
     let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.media_missing
-           (id, user_id, device_id, logical_source, sha256, reason, noticed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+           (id, user_id, device_id, logical_source, sha256, reason, noticed_at,
+            collector_version, server_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (id) DO NOTHING
          RETURNING id",
     )
@@ -149,6 +159,8 @@ async fn missing_one(
     .bind(&req.sha256)
     .bind(&req.reason)
     .bind(req.noticed_at)
+    .bind(collector_version)
+    .bind(crate::BUILD_STAMP)
     .fetch_optional(&app.pool)
     .await
     .map_err(|e| internal_at("media_missing.insert", e))?;
@@ -193,7 +205,7 @@ pub async fn missing_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), (StatusCode, String)> {
-    authorize(&app, &headers).await?;
+    let writer = Writer::of(authorize(&app, &headers).await?);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -204,7 +216,7 @@ pub async fn missing_post(
     }
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(missing_one(&app, item).await?);
+        results.push(missing_one(&app, item, writer).await?);
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK
@@ -219,4 +231,11 @@ pub async fn missing_post(
         "原本の欠けの報告"
     );
     Ok((code, Json(results)))
+}
+
+impl MediaMissingRequest {
+    /// 格納する収集アプリの版（`IngestRequest::component_version` と同じ扱い。D8）。
+    fn component_version(&self) -> Option<String> {
+        crate::ingest::normalize_component_version(self.client_version.as_deref())
+    }
 }
