@@ -1,6 +1,6 @@
 # ST50 深掘りの独立検査（deep-review）
 
-対象: `openspec/changes/st50-contract-version/deep-questions.json`（Q1〜Q7）と `premises.md`（P1〜P8・C1〜C9）。
+対象: `openspec/changes/st50-contract-version/deep-questions.json`（検査の時点は Q1〜Q7。処置で Q8・Q9 を足した）と `premises.md`（検査の時点は P1〜P8・C1〜C9。処置で P9 を足した）。
 手順 1〜5 は問いの一覧を見る前に、要件（FR-124 / FR-125 / FR-126 / FR-130 と、それが引く FR-8 / FR-9 / FR-10 / FR-105 / FR-119 / FR-121 / FR-122 / NFR-7・扉 32）と
 コード（`crates/server`・`crates/collector-windows`・`collector-android`）でやり直した。
 
@@ -24,7 +24,7 @@
 - kind: irreversible
 - loss: discarded
 - 提案: 問いを 1 つ足す。「ベータ版で出した契約の版も FR-124 の『受け付け続ける』に入れるか / 版 1 を閉じるのは最初のベータ版か最初の正式版か」。入れない側を選ぶと、ベータ版の収集アプリが溜めた未送信が、その版を外した後の S-01 に断られ続け、携帯は 90 日で捨てる（FR-8）。閉じるのを正式版にする側では、ベータ版どうしの間で欄が増えても版が上がらず、守りは Q2 の答えだけになる。C3 の「印 `v*`」もこの答えに合わせて書き直す
-- 処置: fixed: Q8 を足した（ベータ版を「正式版」に含めるか。A・discarded）。C3 に Q8 への参照を足した
+- 処置: escalated —— Q8 を足した（ベータ版を「正式版」に含めるか。A・discarded）。C3 に Q8 への参照を足した
 
 ## R2. Q1 は「送った」契約の版を残すと問うが、欄の意味を読み分けるのに要るのは「作った時」の版。扉 32 が同じ取り違えを C7 で直している
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q1）
@@ -32,7 +32,7 @@
 - kind: irreversible
 - loss: uncaptured
 - 提案: Q1 を「残すなら、その記録を**作った時**の契約の版（溜めの 1 行ごとに持つ）か、**送った時**の要求の版か」の選択に直す。送った時の版を残すと、更新の前に作った記録に新しい意味の印が付き、Q1 の目的（意味の読み分け）が逆に誤る。R8 と合わせて見直す
-- 処置: fixed: Q1 を「作った時 / 送った時 / 残さない」の 3 択に直し、推奨を作った時の版にした
+- 処置: escalated —— Q1 を「作った時 / 送った時 / 残さない」の 3 択に直し、推奨を作った時の版にした
 
 ## R3. 溜めを止める粒度（要求ごとか、記録ごとの版か）が問われていない。要求ごとに止めると、古い S-01 でも受け付けられる記録まで溜めに残り、携帯の上限で捨てられる
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（一覧に無い。Q4 の推奨が暗に要求ごとを選んでいる）
@@ -40,7 +40,7 @@
 - kind: irreversible
 - loss: discarded
 - 提案: 問いを 1 つ足す（または Q4 に選択肢を足し kind を改める）。「収集アプリだけ更新して S-01 が古いとき、更新の前に作った記録（作った時の契約の版を S-01 が受け付ける）だけは送るか、溜め全体を止めるか」。止める側の失うもの（携帯で 90 日を超えた分の破棄）を選択肢に書く。R2 の「作った時の版を 1 行ごとに持つ」が前提になる
-- 処置: fixed: Q9 を足した（溜め全体か記録ごとか。A・discarded。Q1 の作った時の版が前提）
+- 処置: escalated —— Q9 を足した（溜め全体か記録ごとか。A・discarded。Q1 の作った時の版が前提）
 
 ## R4. 既存の欄の型・必須の変化は、古い S-01 で 1 件ごとの `malformed` になり、携帯はそれを捨てる。Q2 の族に無く、Q7 の「欄の追加だけを落とす」はこれを CI で通す（Q7 は open ではない）
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q2 の family・Q7）
@@ -48,7 +48,7 @@
 - kind: irreversible
 - loss: discarded
 - 提案: Q2 の family の siblings に「版を上げずに既存の欄の型を変えた・必須の欄を外した（古い S-01 が `malformed` で断り、携帯が捨てる）」を足し、`decided` を Q7 にする。Q7 を `kind: irreversible`・`loss: discarded` にし、選択肢 2 の irreversible に「型を変えた・欄を外した要求を古い S-01 に送ると、携帯は記録ごと捨てる」と書く
-- 処置: fixed: Q2 の族に型の変化・必須の欄を外した場合を足し（decided: Q7）、Q7 を irreversible・discarded にして選択肢 2 に失うものを書いた
+- 処置: escalated —— Q2 の族に型の変化・必須の欄を外した場合を足し（decided: Q7）、Q7 を irreversible・discarded にして選択肢 2 に失うものを書いた
 
 ## R5. Q3 は open だが、「記録の取り込みだけを止める」側は、ほかの口に足した欄を古い S-01 で黙って失う（問いの why 自身がそう書いている）
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q3）
@@ -57,7 +57,7 @@
 - kind: irreversible
 - loss: uncaptured
 - 提案: Q3 を `kind: irreversible`・`loss: uncaptured` にし、選択肢 2 に `irreversible`「生存信号・破棄の報告・原本の欠けに足した欄（収集アプリの版・動いている版）は、古い S-01 に届くと失われる」を書く。選択肢 1 の detail に、途絶の知らせも同時に出ることを添える
-- 処置: fixed: Q3 を irreversible・uncaptured にし、選択肢 2 に失うもの、選択肢 1 に途絶の知らせを書いた
+- 処置: escalated —— Q3 を irreversible・uncaptured にし、選択肢 2 に失うもの、選択肢 1 に途絶の知らせを書いた
 
 ## R6. Q4 の推奨「受け付けない版を 409 で断る」は、Q3 の推奨（原本の口も止める）と組むと、携帯の原本の送り手が 409 を `record_missing` と読み、7 日で原本を欠けにして送り待ちから消す
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q4・Q3）
@@ -65,7 +65,7 @@
 - kind: irreversible
 - loss: discarded
 - 提案: Q4 の推奨の状態符号を「口ごとに、その口でまだ意味を持たない符号」に限ると書くか、原本の口だけ別の符号にする選択肢を足す。少なくとも context に「原本の口の 409 は既に `record_missing`（7 日で欠け）」を書き、Q4 を open のままにするなら、409 を選んだ場合の失うもの（原本）が起きない理由を書く
-- 処置: fixed: Q4 の推奨の状態符号を 426 に直し、context に原本の 409 = record_missing を書いた。premises に P9 を足した
+- 処置: escalated —— Q4 の推奨の状態符号を 426 に直し、context に原本の 409 = record_missing を書いた。premises に P9 を足した
 
 ## R7. 確かめる口の形と断りの符号は、最初に配った収集アプリに焼き込まれて外に出る。Q4 の「後から作り直せる」は最初の正式版までしか成り立たない
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q4）/ premises.md（C2・C4）
@@ -73,7 +73,7 @@
 - kind: irreversible
 - loss: exported
 - 提案: Q4 の why を「最初の正式版までは作り直せる。正式版に入った口の道・答えの形・断りの符号は、以後の S-01 が永久に保つ（FR-124 と同じ扱い）」に直し、選択肢の irreversible に書く。答えの形（整数 1 つか、受け付ける版の一覧か）を C4 のまま聞かずに置くなら、その形を FR-124 と同じく変えないと design に書く
-- 処置: fixed: Q4 を irreversible・exported にし、why と選択肢に「正式版に入った後は変えられない」を書いた。答えの形（整数 1 つ）を context に書いた
+- 処置: escalated —— Q4 を irreversible・exported にし、why と選択肢に「正式版に入った後は変えられない」を書いた。答えの形（整数 1 つ）を context に書いた
 
 ## R8. Q1 の loss は大半が再計算で戻る。ST49 より前の記録は C1 で全部が版 1、ST49 の後の記録は収集アプリの組み立ての印（commit 40 桁）から契約の版を引ける
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q1）
@@ -81,7 +81,7 @@
 - kind: irreversible
 - loss: uncaptured
 - 提案: Q1 の why と選択肢 2 の irreversible を「戻らないのは commit が `unknown`・手元だけの commit の記録だけ」に絞って書き直すか、それが配った版では起きない（配る組み立ては commit を持つ）なら `loss` を外して B（仮）に落とし、推奨を既定にする。残す場合は R2 のとおり作った時の版にする
-- 処置: fixed: Q1 の why・context・選択肢 3 の失うものを「commit が unknown・手元だけの commit の記録」に絞った。作った時の版を残す側を推奨にしたので A のまま（Q9 の前提にもなる）
+- 処置: escalated —— Q1 の why・context・選択肢 3 の失うものを「commit が unknown・手元だけの commit の記録」に絞った。作った時の版を残す側を推奨にしたので A のまま（Q9 の前提にもなる）
 
 ## R9. Q2 の「契約に無い欄」が、要求が名乗る版の契約か、S-01 が知る欄かで決まっていない。名乗る版で断る読みでは、収集アプリを戻した場合（族の未決の兄弟）に、最新の S-01 が断り続け「サーバを更新してください」が誤った案内になる。推奨の irreversible「なし」は成り立たない
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q2）
@@ -89,14 +89,14 @@
 - kind: irreversible
 - loss: discarded
 - 提案: Q2 の問いに「契約に無い」を「S-01 が知らない欄」と「要求が名乗る版に無い欄」のどちらで判定するかを足すか、選択肢を分ける。選択肢 1 の irreversible に、戻した収集アプリの場合の帰結と、ST49 D3（仮）の反転条件が立つことを書く。FR-126 の文言（「サーバを更新してください」）がこの場合に誤ることも context に書く
-- 処置: fixed: Q2 の判定を「S-01 が知らない欄」にし、名乗る版で判定しない理由・ST49 D3（仮）の反転条件の扱いを context に、推奨の失うもの（携帯の上限）を書いた
+- 処置: escalated —— Q2 の判定を「S-01 が知らない欄」にし、名乗る版で判定しない理由・ST49 D3（仮）の反転条件の扱いを context に、推奨の失うもの（携帯の上限）を書いた
 
 ## R10. FR-125 は手元に残した C-01 / C-02 の記録に 90 日・2 GB を掛けると書き、NFR-7 は PC に上限を置かないと書く。C5 が聞かずに後者を採っている
 - 成果物: openspec/changes/st50-contract-version/premises.md（C5）
 - 根拠: docs/requirements.md:1042-1045（FR-125「IF C-01 / C-02 の…」「**手元に残した記録には FR-8 / FR-9 の上限（90 日・2 GB）を掛ける**」）・:1220-1221（NFR-7「**上限は C-01 だけ**で、C-02 の未送信には置かない」）・:181（FR-8 は C-01 だけを主語にする）。`crates/collector-windows/src/outbox.rs:4`「上限も破棄も持たない」。docs/stories/ST50.md の完了の判定「携帯の画面と PC の通知に…出る（上限を超えた分だけが捨てられる）」は PC にも上限があるように読める
 - kind: conflict
 - 提案: 失わない側（PC は上限なし）なので問いにはしない。代わりに C5 を仮の決定として台帳に載せ（rests_on: NFR-7・FR-8 の主語）、FR-125 の★に「上限は FR-8 の主語（C-01）に掛かる」と 1 行足す要件の訂正を申し送る。Story の完了の判定の括弧も「携帯は上限を超えた分だけ」に直す
-- 処置: fixed: premises の C5 に食い違いを書き、spec の段で D<n>（仮）として台帳に載せ、FR-125 の★の訂正を「要件へ戻すもの」に挙げると書いた（問いにしない）
+- 処置: fixed D13 仮 —— premises の C5 に食い違いを書き、spec の段で D<n>（仮）として台帳に載せ、FR-125 の★の訂正を「要件へ戻すもの」に挙げると書いた（問いにしない）
 
 ## R11. premises.md は「失われるものを持つ決定は P1 にだけ載せる」と書くが、Q2 の推奨の irreversible「なし」（今配っている収集アプリも捨てない）は P4・P5（確かさ 2）に載っている。P1 の出典の行も違う
 - 成果物: openspec/changes/st50-contract-version/premises.md（P1・P4・P5 と表の下の段落）
@@ -104,14 +104,14 @@
   P1 の「`lib.rs:1885` が `serde_json::from_value::<IngestRequest>` で読む」は滞在の作り直し（`rebuild_stays_after_ingest`）の行で、受け付けを決める読みは `lib.rs:1126`（`ingest_one`）。そこでは解釈の失敗が 1 件ごとの `malformed` になる（`:1128-1131`）ので、`deny_unknown_fields` を足すだけの実装は Q2 の選択肢 3 の「要求全体を `malformed`（400）」ではなく、1 件ごとの `malformed` として携帯に捨てられる
 - kind: premise
 - 提案: P4・P5 を既存の試験（携帯は `SenderTest` の 2 本、PC は `crates/collector-windows/src/sender.rs` の試験）を走らせて 4 に上げるか、表の下の「P1 にだけ載せる」を「Q2 の推奨は P4・P5 にも載る」に直す。P1 の出典を `lib.rs:1126-1131` に直し、Q2 の選択肢 3 の説明を「1 件ごとの `malformed`（`deny_unknown_fields` を足すだけの実装はこれになる）」に直す
-- 処置: fixed: SenderTest（携帯）と sender:: の 11 本（PC）を走らせ、P3・P4・P5 を確かさ 4 に上げた。P1 の出典を lib.rs:1126-1131 に直し、Q2 の選択肢 3 を 1 件ごとの malformed（deny_unknown_fields を足すだけの実装）に直した
+- 処置: fixed premises.md —— SenderTest（携帯）と sender:: の 11 本（PC）を走らせ、P3・P4・P5 を確かさ 4 に上げた。P1 の出典を lib.rs:1126-1131 に直し、Q2 の選択肢 3 を 1 件ごとの malformed（deny_unknown_fields を足すだけの実装）に直した
 
 ## R12. Q7 の「比べるのは `docs/openapi.json` の、収集アプリが送る要求の型」は誤り。openapi は S-01 が受ける型で、収集アプリだけが足した欄（黙って捨てられる当の欄）はそこに出ない
 - 成果物: openspec/changes/st50-contract-version/deep-questions.json（Q7 の context）
 - 根拠: `docs/openapi.json` は `crates/server/src/bin/openapi.rs` が S-01 の型から作る（`tools/check-openapi.sh:6`）。`tools/check-openapi.sh:23-27` は「openapi の欄が Kotlin にあるか」の片方向だけで、Kotlin（`IngestRequest.kt`）にあって openapi に無い欄は見ない。PC の封筒（`crates/collector-windows/src/contract.rs:301` `IngestRequest`）はこの検査の対象外（`grep -n "collector-windows\|contract.rs" tools/check-openapi.sh` は 0 件）。ST49 の design D3（仮）は PC の型に知らない欄の置き場（`#[serde(flatten)]`）を足す
 - kind: premise
 - 提案: Q7 の context を「比べるのは S-01 の型（openapi）と、収集アプリ 2 本が実際に直列化する欄」に直す。収集アプリの側で欄が増えたのに版も S-01 の型も変わっていない場合を検査が落とすことを、選択肢 1 の detail に入れる
-- 処置: fixed: Q7 の context を「S-01 の型と収集アプリ 2 本が直列化する欄の両方」に直し、選択肢 1 の detail に収集アプリだけが欄を足した場合を書いた
+- 処置: fixed deep-questions.json —— Q7 の context を「S-01 の型と収集アプリ 2 本が直列化する欄の両方」に直し、選択肢 1 の detail に収集アプリだけが欄を足した場合を書いた
 
 ## 該当なしの確認
 

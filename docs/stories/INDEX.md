@@ -100,7 +100,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
 
@@ -468,6 +468,13 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - `derived-records`・`data-durability`・`record-deletion`・`subjective-log`・`personal-entities` に ST49 を足した。記録ごとの版（FR-122 / FR-123）は記録の骨格（`record-envelope`）だが、版を持たせる先が滞在の作り直しと滞在の基準の台帳（`derived-records`。design D2（仮））・
 >   書き出しの列（`data-durability`。premises の C6）・削除の台帳（`record-deletion`）・気分の通知の台帳（`subjective-log`）・個人属性の種類の名前の台帳（`personal-entities`）にも及ぶ（深掘り Q3 の推奨。後の 2 つの台帳は spec の独立検査 R4 で族に足した）。どれも ADDED の Requirement で、走っている ST23・ST29・ST41 が MODIFIED している Requirement には触らない
 > - Q3 で「記録の表だけ」「収集アプリが作る行だけ」が選ばれたら、`spec --answers` が `record-deletion`・`subjective-log`・`personal-entities`・`derived-records` の滞在の基準（と前者なら `device-collection` の破棄の報告・原本の欠け）の割当を外す
+
+> **訂正（2026-10-28、ST50 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - `data-durability` に ST50 を足した。送信契約の版（FR-124 / FR-130）は記録の骨格と収集の送り方（`record-envelope` / `device-collection` / `desktop-collection`）だが、
+>   記録の表の契約の版を書き出しの列にも出す（深掘り Q1 の推奨）ので、書き出しの列の Requirement を ADDED で足す。後続の振る舞いの前倒しではない
+> - 生存信号と破棄の報告の受け口（`collection-coverage`）も契約の版で止める（深掘り Q3 の推奨）が、止める規則は収集アプリの資格情報の要求すべてに掛かる API 契約として `record-envelope` に置き、`collection-coverage` の Requirement は変えない
+> - Q1 で「残さない」が選ばれたら、`spec --answers` が `data-durability` の割当を外す
 
 > **訂正（2026-10-29、更新の履歴の理由の書き直し）**
 >
