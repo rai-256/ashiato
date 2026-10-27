@@ -64,10 +64,10 @@
 
 ## Task 2: 移行（版の列・読み口・門と前の版の錠）と門の試験
 
-- [ ] 2.1 `migrations/<作成時刻>_record_component_version.sql` を design D7 のとおりに書く（8 表に列・`core.event_live` と `core.event_version_live` の作り直し・`core.require_version_or_ledger`（D21（仮））と `core.reject_version_rewrite` に 3 列）。
+- [x] 2.1 `migrations/<作成時刻>_record_component_version.sql` を design D7 のとおりに書く（8 表に列・`core.event_live` と `core.event_version_live` の作り直し・`core.require_version_or_ledger`（D21（仮））と `core.reject_version_rewrite` に 3 列）。
   `.down.sql` は逆順で今の形に戻し、`migration_ledger.applied` の行を消す。`migrations/ORDER` の末尾へ 1 行（前の行に `# ST49: 記録ごとの部品の版（8 表の列・読み口・門と前の版の錠）` の注記）。
   検証: `./tools/check-migrations.sh` rc=0 / `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0
-- [ ] 2.2 `component_version_tests.rs` を作り、移行と門の試験を置く（`core.event` / `core.event_version` を直に書く。移行の前後は `media_migration_tests.rs` の使い捨ての DB の形で、ST49 の前の版まで当てて行を置いてから ST49 の移行を当てる）:
+- [x] 2.2 `component_version_tests.rs` を作り、移行と門の試験を置く（`core.event` / `core.event_version` を直に書く。移行の前後は `media_migration_tests.rs` の使い捨ての DB の形で、ST49 の前の版まで当てて行を置いてから ST49 の移行を当てる）:
   - `st49_gate_versions_start_unknown` — `// Scenario: 版を残し始める前に入った記録の版は「不明」のまま`（移行を 2 回当てても落ちないことも見る）
   - `st49_gate_ledgers_start_unknown_deletion` — `// Scenario: 版を残し始める前の削除の台帳の行は、版が「不明」のまま`
   - `st49_gate_ledgers_start_unknown_reminder` — `// Scenario: 版を残し始める前の気分の通知の台帳の行は、版が「不明」のまま`
@@ -79,7 +79,7 @@
   - `st49_gate_raw_rewrite_still_rejected` — `// Scenario: 版の列を足しても、収集した記録の原文の書き換えは拒まれる`
   - `st49_cols_history_and_live_views_match` — `// Scenario: 前の版の読み口と前の版の表は、記録の表と同じ版の列を持つ`（`information_schema.columns` で `core.event`・`core.event_version`・`core.event_version_live`・`core.event_live` を見る）
   検証: `CT st49_gate_` rc=0（`-- --list` で 9 本以上）/ `CT st49_cols_` rc=0（`-- --list` で 1 本以上）/ `CT dedup_tests` rc=0（`-- --list` で 35 本以上。既存の外部更新が門を通る）
-- [ ] 2.3 `tools/check-immutable.d/<作成時刻>_st49-record-component-version.sh` に、前の版の版の書き換え（3 列）と、前の版なしの本表の版の書き換えが拒まれることを `tools/check-immutable.sh` の既存の節と同じ書き方で置く
+- [x] 2.3 `tools/check-immutable.d/<作成時刻>_st49-record-component-version.sh` に、前の版の版の書き換え（3 列）と、前の版なしの本表の版の書き換えが拒まれることを `tools/check-immutable.sh` の既存の節と同じ書き方で置く
   （印は `echo "== Scenario: 前の版の履歴の版は書き換えられない"` と `echo "== Scenario: 収集した記録の版を、前の版の履歴なしで書き換えると拒まれる"`。本体の末尾に書き足さない）。
   検証: `./tools/check-immutable.sh` rc=0 / `./tools/check-shared-appends.sh` rc=0
 
