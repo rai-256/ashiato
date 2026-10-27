@@ -139,6 +139,19 @@
 - だから CH03 の merge は止めず、8.2 の rust の走りの赤はこの 1 本のときに限り揺れとして扱う。直すのは別の change（PR 本文の申し送り。`hx change` で起票する）
 - 反転条件: CH03 の分岐点（`origin/main`）の木で、同じ負荷の全体の走りが 3 回とも通るなら、CH03 の差分（根を tmpfs に置く・試験の並びが変わる）が原因として CH03 で直す
 
+### D10（仮）. Robolectric の android-all は Gradle が取り、試験はいつも offline で走らせる（merge gate の CI の赤）
+
+- CI の `tools/tmp-leak-check.sh android` が「残り 3 件（数字だけの名前）」で落ちた（run 40523355101）。Robolectric 4.16 の `MavenArtifactFetcher.fetchArtifact` は、
+  `~/.m2` に jar が無いと Guava の `Files.createTempDir()`（`java.io.tmpdir` の下の数字だけの名前）を staging に作って SDK ごとに取り込み、
+  `deleteOnExit` は空でないフォルダを消さないので残る。CI は `~/.m2` の控えも `ASHIATO_ROBOLECTRIC_JARS` も無く、SDK 34・35・36 の 3 つが毎回残る。
+  手元は harness の `ASHIATO_ROBOLECTRIC_JARS`（offline）か `~/.m2` の控えで取り込みが走らないので出なかった
+- D6 の反転条件（道具が残す名前の頭を判定から外す）は採らない: 名前が数字だけで頭が無く、ashiato の試験が `createTempDirectory(null)` で残すものと見分けられない。
+  代わりに `build.gradle.kts` の `fetchRobolectricJars`（Gradle が版ごとに解いて `build/robolectric-jars` へ置く）を試験の前に走らせ、
+  `ASHIATO_ROBOLECTRIC_JARS` が無いときも `robolectric.offline=true` と `robolectric.dependency.dir` をそこへ向ける（環境変数があればそちらが先）。
+  Gradle の解決は Gradle の cache に落ちるので、試験の一時フォルダを汚さない
+- 版は Robolectric 4.16 の `DefaultSdkProvider` の表の 34・35・36 を名指しで持つ。Robolectric を上げて版がずれると、offline の Robolectric が「jar が無い」で落ちる（黙って取り込みに戻らない）
+- 反転条件: Robolectric の取り込みの staging を試験の一時フォルダの外へ向ける口ができたら、名指しの版を捨ててそれに替える
+
 ## Risks / Trade-offs
 
 - [走っている st09・st13 が rebase の後に検査で落ちる] → 落ちたときの文言が何を使えばよいかを書く。直しはそれぞれの gate → fix（Q4 の推奨）。本文の衝突は proposal の Impact のファイルで起きうる。後から merge する側が追従する
