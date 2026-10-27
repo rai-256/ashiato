@@ -39,10 +39,7 @@ fn main() {
     );
     ashiato_build_stamp::emit_rerun(&repo, STAMP_SOURCES);
     println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
-    println!(
-        "cargo:rustc-env=ASHIATO_BUILD_COMMIT={}",
-        commit_of(&stamp)
-    );
+    println!("cargo:rustc-env=ASHIATO_BUILD_COMMIT={}", commit_of(&stamp));
 
     let text = fs::read_to_string(&order)
         .unwrap_or_else(|e| panic!("{} を読めない: {e}", order.display()));

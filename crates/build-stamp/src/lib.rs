@@ -105,7 +105,12 @@ mod tests {
     fn git_ok(dir: &Path, args: &[&str]) {
         let st = Command::new("git")
             .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .args(["-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"])
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "init.defaultBranch=main",
+            ])
             .args(args)
             .current_dir(dir)
             .status()
@@ -128,7 +133,9 @@ mod tests {
     }
 
     fn stamp_clean_env(version: &str, profile: &str, repo: &Path, paths: &[&str]) -> String {
-        let _g = ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::env::remove_var(COMMIT_ENV);
         stamp(version, profile, repo, paths)
     }
@@ -164,10 +171,15 @@ mod tests {
     fn st49_stamp_unknown_without_git() {
         // Scenario: commit が取れない場所での組み立ての印は unknown を持つ
         let d = tempfile::tempdir().expect("tempdir");
-        let _g = ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::env::remove_var(COMMIT_ENV);
         // `$TMPDIR` が repo の木の中にあっても、その repo を拾わない
-        std::env::set_var("GIT_CEILING_DIRECTORIES", d.path().parent().expect("parent"));
+        std::env::set_var(
+            "GIT_CEILING_DIRECTORIES",
+            d.path().parent().expect("parent"),
+        );
         let s = stamp("0.1.0", "release", d.path(), &["crates/a"]);
         std::env::remove_var("GIT_CEILING_DIRECTORIES");
         assert_eq!(s, "0.1.0+unknown");
@@ -176,14 +188,19 @@ mod tests {
     #[test]
     fn st49_stamp_env_commit_wins() {
         let (d, _head) = tree();
-        let _g = ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::env::set_var(COMMIT_ENV, "  abc123\n");
         let s = stamp("0.1.0", "release", d.path(), &["crates/a"]);
         std::env::set_var(COMMIT_ENV, "");
         let empty = stamp("0.1.0", "release", d.path(), &["crates/a"]);
         std::env::remove_var(COMMIT_ENV);
         assert_eq!(s, "0.1.0+abc123");
-        assert!(empty.starts_with("0.1.0+") && empty.len() == "0.1.0+".len() + 40, "{empty}");
+        assert!(
+            empty.starts_with("0.1.0+") && empty.len() == "0.1.0+".len() + 40,
+            "{empty}"
+        );
     }
 
     #[test]
@@ -191,7 +208,17 @@ mod tests {
         let (d, _head) = tree();
         let wt = tempfile::tempdir().expect("tempdir");
         let wt_path = wt.path().join("wt");
-        git_ok(d.path(), &["worktree", "add", "-q", "-b", "feat", wt_path.to_str().expect("utf8")]);
+        git_ok(
+            d.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feat",
+                wt_path.to_str().expect("utf8"),
+            ],
+        );
         let lines = rerun_lines(&wt_path, &["crates/a"]);
         let common = fs::canonicalize(d.path().join(".git")).expect("canon");
         let has = |suffix: PathBuf| {
@@ -212,11 +239,17 @@ mod tests {
         // 古い stat を index に残してから、status が index を書き直さないことを見る
         fs::write(d.path().join("crates/a/x.rs"), "touched\n").expect("write");
         let index = d.path().join(".git/index");
-        let before = fs::metadata(&index).expect("meta").modified().expect("mtime");
+        let before = fs::metadata(&index)
+            .expect("meta")
+            .modified()
+            .expect("mtime");
         let bytes = fs::read(&index).expect("read");
         std::thread::sleep(std::time::Duration::from_millis(1100));
         let _ = stamp_clean_env("0.1.0", "debug", d.path(), &["crates/a"]);
-        let after = fs::metadata(&index).expect("meta").modified().expect("mtime");
+        let after = fs::metadata(&index)
+            .expect("meta")
+            .modified()
+            .expect("mtime");
         assert_eq!(before, after);
         assert_eq!(bytes, fs::read(&index).expect("read"));
     }
