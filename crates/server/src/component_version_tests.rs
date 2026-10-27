@@ -1527,8 +1527,22 @@ mod ledgers {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
         let mut missing = Vec::new();
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
+        // src/ の下を再帰で辿る（archive/・export/・coverage/ などの下位も見る）。tests/ は試験なので除く
+        let mut files = Vec::new();
+        let mut dirs = vec![dir];
+        while let Some(d) = dirs.pop() {
+            for entry in std::fs::read_dir(&d).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    if path.file_name().unwrap() != "tests" {
+                        dirs.push(path);
+                    }
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        for path in files {
             let name = path.file_name().unwrap().to_str().unwrap().to_owned();
             if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "testdb.rs" {
                 continue;
