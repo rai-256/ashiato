@@ -931,11 +931,13 @@ async fn push_version(tx: &mut Transaction<'_, Postgres>, id: uuid::Uuid) -> sql
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
             raw, payload, source_updated_at, external_ref,
-            tz_offset_min, tz_id, schema_version, unit_system, crs)
+            tz_offset_min, tz_id, schema_version, unit_system, crs,
+            collector_version, web_version, server_version)
          SELECT e.id, e.user_id, e.logical_source,
                 coalesce((SELECT max(v.version_no) FROM core.event_version v WHERE v.event_id = e.id), 0) + 1,
                 e.event_time, e.content_hash, e.raw, e.payload, e.source_updated_at, e.external_ref,
-                e.tz_offset_min, e.tz_id, e.schema_version, e.unit_system, e.crs
+                e.tz_offset_min, e.tz_id, e.schema_version, e.unit_system, e.crs,
+                e.collector_version, e.web_version, e.server_version
            FROM core.event e WHERE e.id = $1",
     )
     .bind(id)

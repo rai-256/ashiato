@@ -54,6 +54,11 @@ pub struct IngestRequest {
     /// 終わりの時刻のタイムゾーン識別子。IANA の一覧とは照らさない
     #[serde(default)]
     pub end_tz_id: Option<String>,
+    /// この記録を積んだ部品の版（ST49 / D8）。省略できる。**形は検査しない・断らない**。
+    /// 収集アプリの版か画面の版かは、要求の欄ではなく資格情報で決まる（`Writer`）。
+    /// 内容の鍵・原文・解析済みの内容には入れない。
+    #[serde(default)]
+    pub client_version: Option<String>,
 }
 
 /// 登録簿が宣言する「外部識別子の粒度」（深掘り Q13 / Q18。`core.source.external_id_kind`）。
@@ -144,6 +149,13 @@ impl IngestRequest {
             return Some(AuthoredBreach::OffsetOutOfRange);
         }
         None
+    }
+
+    /// 格納する部品の版。空の文字列は「不明」（`None`）、U+0000 は格納できない（22021）ので取り除く。
+    /// 前後の空白は除かない・長さは切り詰めない（D8）。
+    pub fn component_version(&self) -> Option<String> {
+        let version = self.client_version.as_deref()?.replace('\0', "");
+        (!version.is_empty()).then_some(version)
     }
 
     /// 収集側が省略した単位系を既定で埋めた値を返す。
@@ -307,6 +319,7 @@ mod tests {
             end_time: None,
             end_tz_offset_min: None,
             end_tz_id: None,
+            client_version: None,
         }
     }
 
@@ -344,6 +357,23 @@ mod tests {
             content_hash(&req(uuid::Uuid::nil(), "x")),
             "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1",
             "冪等キーの作り方が変わっている。保存済みの記録が全部ずれる"
+        );
+    }
+
+    #[test]
+    // Scenario: 部品の版を足しても内容の鍵は変わらない
+    fn st49_hash_ignores_client_version() {
+        let pinned = "39d0ebc5c3c1d17a5deec93e03e60c3be02e5ddd741a2d5575b789c16ee15df1";
+        let mut with_version = req(uuid::Uuid::nil(), "x");
+        with_version.client_version = Some("0.1.0+0123456789abcdef0123456789abcdef01234567".into());
+        assert_eq!(
+            content_hash(&with_version),
+            content_hash(&req(uuid::Uuid::nil(), "x"))
+        );
+        assert_eq!(
+            content_hash(&with_version),
+            pinned,
+            "部品の版が鍵に混ざった"
         );
     }
 

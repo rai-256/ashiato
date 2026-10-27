@@ -400,3 +400,333 @@ async fn st49_mig_down_and_up_again() {
     second.unwrap();
     assert_eq!(left, 0, "戻した後に版の列が残っている");
 }
+
+// ------------------------------------------------------------------ 取り込み口（Task 3）
+
+mod ingest_door {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use http_body_util::BodyExt as _;
+    use tower::ServiceExt as _;
+
+    const TOKEN: &str = "test-token-0123456789abcdef";
+    const COMMIT_A: &str = "0123456789abcdef0123456789abcdef01234567";
+    const COMMIT_B: &str = "89abcdef0123456789abcdef0123456789abcdef";
+    const COMMIT_D: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+    async fn app() -> crate::App {
+        crate::App::for_test(testdb::pool().await, TOKEN)
+    }
+
+    /// 1 件の記録。`version` が `None` なら欄ごと持たない（いまの収集アプリと同じ形）。
+    fn record(
+        source: &str,
+        user: Uuid,
+        raw: &str,
+        version: Option<serde_json::Value>,
+    ) -> serde_json::Value {
+        let mut v = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "user_id": user,
+            "logical_source": source,
+            "external_id": null,
+            "device_id": "test-dev",
+            "origin": "collected",
+            "event_time": START,
+            "tz_offset_min": 540,
+            "tz_id": "Asia/Tokyo",
+            "schema_version": 1,
+            "raw": raw,
+            "payload": {},
+        });
+        if let Some(version) = version {
+            v["client_version"] = version;
+        }
+        v
+    }
+
+    fn post(body: &serde_json::Value, credential: (&str, String)) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/ingest")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(credential.0, credential.1)
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    fn api_token() -> (&'static str, String) {
+        ("authorization", format!("Bearer {TOKEN}"))
+    }
+
+    /// 画面のログイン（`/session`）で印を得て、cookie の資格情報にする。
+    async fn web_login(app: &crate::App, password: &str) -> (&'static str, String) {
+        let app = app.clone();
+        let res = crate::router(app)
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/session")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "password": password }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        let set_cookie = res.headers()[header::SET_COOKIE].to_str().unwrap();
+        let token = set_cookie.split(';').next().unwrap();
+        ("cookie", token.to_owned())
+    }
+
+    async fn send(
+        app: &crate::App,
+        body: &serde_json::Value,
+        credential: (&str, String),
+    ) -> (StatusCode, serde_json::Value) {
+        let res = crate::router(app.clone())
+            .oneshot(post(body, credential))
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    async fn versions(app: &crate::App, id: &serde_json::Value) -> [Option<String>; 3] {
+        let id: Uuid = id.as_str().unwrap().parse().unwrap();
+        versions_of(&app.pool, "core.event", "id", id).await
+    }
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_owned())
+    }
+
+    #[tokio::test]
+    // Scenario: 収集アプリの記録は、収集アプリの版と書いた S-01 の版を持つ
+    async fn st49_ingest_collector_version_and_server_version() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49col", 21_600).await;
+        let version = format!("0.1.0+{COMMIT_A}.debug");
+        let body = record(
+            &source,
+            testdb::user(),
+            r#"{"a":1}"#,
+            Some(version.clone().into()),
+        );
+        let (code, res) = send(&app, &serde_json::json!([body]), api_token()).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            versions(&app, &res[0]["id"]).await,
+            [s(&version), None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 記録の S-01 の版は、その S-01 の組み立ての印と同じで、印の形を持つ
+    async fn st49_ingest_server_version_is_build_stamp() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49stamp", 21_600).await;
+        let body = record(&source, testdb::user(), r#"{"a":2}"#, None);
+        let (_, res) = send(&app, &serde_json::json!([body]), api_token()).await;
+        let [_, _, server] = versions(&app, &res[0]["id"]).await;
+        let server = server.expect("S-01 の版が入っていない");
+        assert_eq!(
+            server,
+            crate::BUILD_STAMP,
+            "組み立ての印と一字一句同じでない"
+        );
+        // 印の形（D5）: ^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$
+        let (number, rest) = server.split_once('+').expect("`+` が無い");
+        assert!(number.starts_with(|c: char| c.is_ascii_digit()), "{server}");
+        let rest = rest.strip_suffix(".debug").unwrap_or(rest);
+        let rest = rest.strip_suffix(".dirty").unwrap_or(rest);
+        assert!(
+            rest == "unknown"
+                || (rest.len() == 40 && rest.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))),
+            "commit の形が違う: {server}"
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 書庫の取り込みの記録は、書いた S-01 の版だけを持つ
+    async fn st49_ingest_archive_gets_server_version_only() {
+        let pool = testdb::pool().await;
+        let source = testdb::source(&pool, "st49arc", 21_600).await;
+        let item = record(&source, testdb::user(), r#"{"a":3}"#, None);
+        let request: crate::IngestRequest = serde_json::from_value(item).unwrap();
+        let crate::StoreOutcome::Inserted(id) = crate::store_one(&pool, request).await.unwrap()
+        else {
+            panic!("格納されなかった");
+        };
+        assert_eq!(
+            versions_of(&pool, "core.event", "id", id).await,
+            [None, None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 部品の版の欄を持たない要求の記録は、部品の版が「不明」で入る
+    async fn st49_ingest_without_field_is_unchanged() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49old", 21_600).await;
+        let body = record(&source, testdb::user(), r#"{"a":4}"#, None);
+        assert!(body.get("client_version").is_none());
+        let (code, res) = send(&app, &serde_json::json!([body]), api_token()).await;
+        assert_eq!(code, StatusCode::OK);
+        let mut keys: Vec<&str> = res[0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["accepted", "duplicate", "error", "id"]);
+        assert_eq!(res[0]["accepted"], true);
+        assert_eq!(
+            versions(&app, &res[0]["id"]).await,
+            [None, None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 部品の版が空か形の違う文字列でも、記録は断られない
+    async fn st49_ingest_empty_or_odd_version_is_accepted() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49odd", 21_600).await;
+        let user = testdb::user();
+        let body = serde_json::json!([
+            record(&source, user, r#"{"a":5}"#, Some("".into())),
+            record(&source, user, r#"{"a":6}"#, Some(" not a version ".into())),
+        ]);
+        let (code, res) = send(&app, &body, api_token()).await;
+        assert_eq!(code, StatusCode::OK);
+        assert!(res
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["accepted"] == true));
+        assert_eq!(versions(&app, &res[0]["id"]).await[0], None);
+        assert_eq!(versions(&app, &res[1]["id"]).await[0], s(" not a version "));
+    }
+
+    #[tokio::test]
+    // Scenario: 格納できない文字を含む部品の版は、その文字を取り除いて残る
+    async fn st49_ingest_nul_is_removed() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49nul", 21_600).await;
+        let user = testdb::user();
+        let body = serde_json::json!([
+            record(
+                &source,
+                user,
+                r#"{"a":7}"#,
+                Some(format!("0.1.0+\u{0}{COMMIT_A}").into())
+            ),
+            record(&source, user, r#"{"a":8}"#, None),
+            record(&source, user, r#"{"a":9}"#, Some("\u{0}".into())),
+        ]);
+        let (code, res) = send(&app, &body, api_token()).await;
+        assert_eq!(code, StatusCode::OK);
+        assert!(res
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["accepted"] == true));
+        assert_eq!(
+            versions(&app, &res[0]["id"]).await[0],
+            s(&format!("0.1.0+{COMMIT_A}"))
+        );
+        assert_eq!(
+            versions(&app, &res[2]["id"]).await[0],
+            None,
+            "取り除いて空なら不明"
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 画面のログインの要求の部品の版は、画面の版として入る
+    async fn st49_ingest_web_session_goes_to_web_version() {
+        let password = format!("pw-{}", Uuid::new_v4());
+        let app = app().await.with_web_login(&password, 1);
+        let source = testdb::source(&app.pool, "st49web", 21_600).await;
+        let version = format!("0.1.0+{COMMIT_B}");
+        let body = record(
+            &source,
+            testdb::user(),
+            r#"{"a":10}"#,
+            Some(version.clone().into()),
+        );
+        let credential = web_login(&app, &password).await;
+        let (code, res) = send(&app, &serde_json::json!([body]), credential).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            versions(&app, &res[0]["id"]).await,
+            [None, s(&version), s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 合言葉でもログインでもない書き手の部品の版は、どこにも入らない
+    async fn st49_ingest_internal_writer_drops_client_version() {
+        let pool = testdb::pool().await;
+        let source = testdb::source(&pool, "st49int", 21_600).await;
+        let item = record(
+            &source,
+            testdb::user(),
+            r#"{"a":11}"#,
+            Some(format!("0.1.0+{COMMIT_A}").into()),
+        );
+        let request: crate::IngestRequest = serde_json::from_value(item).unwrap();
+        let crate::StoreOutcome::Inserted(id) = crate::store_one(&pool, request).await.unwrap()
+        else {
+            panic!("格納されなかった");
+        };
+        assert_eq!(
+            versions_of(&pool, "core.event", "id", id).await,
+            [None, None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    #[tokio::test]
+    // Scenario: 部品の版だけが違う同じ記録は、1 件のまま
+    async fn st49_dedup_version_only_difference_folds() {
+        let app = app().await;
+        let source = testdb::source(&app.pool, "st49dup", 21_600).await;
+        let user = testdb::user();
+        let first = format!("0.1.0+{COMMIT_A}");
+        let second = format!("0.1.0+{COMMIT_D}");
+        let (_, one) = send(
+            &app,
+            &serde_json::json!([record(
+                &source,
+                user,
+                r#"{"a":12}"#,
+                Some(first.clone().into())
+            )]),
+            api_token(),
+        )
+        .await;
+        let (_, two) = send(
+            &app,
+            &serde_json::json!([record(&source, user, r#"{"a":12}"#, Some(second.into()))]),
+            api_token(),
+        )
+        .await;
+        assert_eq!(two[0]["duplicate"], true);
+        assert_eq!(two[0]["id"], one[0]["id"]);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = $2",
+        )
+        .bind(user)
+        .bind(&source)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(versions(&app, &one[0]["id"]).await[0], s(&first));
+    }
+}
