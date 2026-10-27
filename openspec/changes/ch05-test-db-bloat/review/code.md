@@ -214,6 +214,7 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
 - loss: discarded （finish が足した。外した後は volume と作業ツリーの結び付きを docker から引けない）
 - 提案: spec への足し（いまの spec の「1 つごとに名前と、コンテナならその作業ツリーの path」も Q7 の「volume は消さない」も volume の名前を出せとは言っていないので、spec 違反ではない）: 外す前に `docker inspect` の Mounts から volume の名前を取り、外した 1 行に足す（`--dry-run` も同じ形）
 - 処置: fixed D8 仮 —— 失わない側（結び付きを書き残す）で仮に進めた。tools/docker-tidy.sh が外すコンテナごとに `docker inspect` の Mounts から volume の名前を読み、外した 1 行と `--dry-run` の 1 行に `残す volume: <名前>` を足す。inspect に問えなければ外さずに rc=1。self-test が偽の docker と本物の docker の 1 件で、控えた volume の名前が行に出ることを見る（`残す volume:` を消した複製で rc=1）。design D8（仮）、provisional.jsonl に `--source review/code.md#R20`
+  → 2026-10-27 merge gate で別の席が否（provisional-review.md）。台帳から外し、deep.md Q9（未回答）へ返した
 
 ## R21. 8.1 の `openspec validate … --strict` は証跡に一度も載っていない（ハーネスがコマンドとして拾わない）
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md 8.1 / openspec/changes/ch05-test-db-bloat/evidence.jsonl / scripts/evidence.py:67（`CMD_LIKE`）
