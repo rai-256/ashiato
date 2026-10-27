@@ -1,0 +1,25 @@
+{
+  "tag": "20261027-2026",
+  "run_id": "20261027-202807-b20f25b",
+  "commit": "b20f25b9df13f4e61ffce446e68d2fc526c26652",
+  "overall": "ng",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261027-202807-b20f25b",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261027-202807-b20f25b",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST11-health-permission",
+      "story": "ST11",
+      "overall": "ng",
+      "test": "not_run",
+      "test_note": "Android の工程が止まった: 端末の言語を ja-JP にできない（google_apis の image が要る。logs/android-emulator.log）",
+      "recording": "missing",
+      "playable": "unchecked",
+      "video": "",
+      "trace": ""
+    }
+  ],
+  "uncovered_stories": []
+}

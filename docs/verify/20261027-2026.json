@@ -1,0 +1,74 @@
+{
+  "title": "確認バッチ 20261027-2026",
+  "subtitle": "ST11 健康データの履歴権限を初回起動で要求する",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261027-2026/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261027-2026 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261027-2026/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261027-2026/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261027-2026`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261027-2026 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261027-2026/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261027-202807-b20f25b（全体 ng / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST11-PD15",
+      "topic": "ST11 仮D15",
+      "kind": "check",
+      "question": "ST11 の仮の決定 D15: 保持の上限で健康データの権限の記録を捨てたとき、最後の状態を忘れて作り直すか →「忘れて次に観たとき作り直す（LocationService の onDropped で HealthStateStore.forget）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: S-01 が許可の状態を持ち続ける（ST34 の読める範囲の起点）（失わない側の費用: 同じ状態の記録が 1 件増えうる・作り直した記録の観た時刻が後ろへずれる）\n乗っている決定: D2\n出所: review/code.md#R19",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST11-AQ2",
+      "topic": "ST11 答えで直した Q2",
+      "kind": "check",
+      "question": "ST11 の Q2「本人の携帯の実物」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st11-health-history-permission/deep.md の Q2・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST11-F",
+      "topic": "ST11 違和感",
+      "kind": "check",
+      "question": "ST11「健康データの履歴権限を初回起動で要求する」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/device-collection/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（3 件。例: GO の要点が要件を落としている —— どの機能の点の refs にも出ない Requirement: 利用状況へのアクセスを初回起動で求める）\n録画 ▶ ST11-health-permission（AI の実行結果。人間の承認ではない）: 全体 ng / テスト not_run / 録画 missing / 再生 unchecked。動画: （動画なし）",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261027-2026/ST11-spec.html"
+    }
+  ]
+}
