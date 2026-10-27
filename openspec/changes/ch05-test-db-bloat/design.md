@@ -162,5 +162,5 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - 片付けたもの: 2026-10-27 の `tools/docker-tidy.sh --dry-run` が挙げたもの（本物は Task 3.1 の組み込み後の最初の準備で外れる）。コンテナ 19 個（ashiato2-ch07-db-1・ashiato2-st48-db-1・ashiato2-ch06-db-1・ashiato2-st29-db-1・ashiato2-ch04-db-1・ashiato2-ch01-db-1・ashiato2-ch02-db-1・ashiato2-st13-db-1・ashiato2-st33-db-1・ashiato2-st47-db-1・ashiato2-st08-db-1・ashiato2-st14-db-1・ashiato2-st21-db-1・ashiato2-st25-db-1・ashiato2-st12-db-1・ashiato2-st28-db-1・ashiato2-st22-db-1・ashiato2-st22-ra-db-1・ashiato2-st19-db-1）、ネットワーク 8 個（ashiato2-ch02_default・ashiato2-ch04_default・ashiato2-ch06_default・ashiato2-ch07_default・ashiato2-st13_default・ashiato2-st29_default・ashiato2-st33_default・ashiato2-st48_default）
 - 片付けの時間: 0.16 秒（2026-10-27。片付けるものが無い 2 回目の `tools/docker-tidy.sh`。1 秒以内で D5 の反転条件に当たらない）
 - 次の回の秒数: 殺す前のきれいな回 0.8 秒、`insert` の後 1.2 秒、`committed` の後 1.3 秒（2026-10-27。10 倍の目安に遠く、D2 の反転条件に当たらない）
-- 片付けを外した回:（tasks 6.2。rc と、挙がった database の名前の数）
+- 片付けを外した回: rc=1。`insert` の時点で `ashiato_run_b6d93ce233e7`・`…_tpl`・`…_x_95503bb9d443` の 3 個が次の回の後に残ると挙がった（2026-10-27。`sweep_previous_runs` の 2 行を外した。外した後は git checkout で戻した）
 - CI の行の時間:（tasks 7.3。`tools/check-test-db-killed.sh --self-test`・`tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check` の 4 行を手元で走らせた秒数）
