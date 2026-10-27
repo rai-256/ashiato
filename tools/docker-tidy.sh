@@ -361,12 +361,88 @@ cleanup_probes() {
   return 0
 }
 
+# ---- --verify-env-check -----------------------------------------------------------------------
+# この worktree の DB を作り直すので、`--plan` が reset のときだけ走る（design D5）。
+# main は乱数の名前に替える —— この機械の本物の残り（ashiato2-*）には当たらない
+verify_env_check() {
+  local tmp plan r d main proj wd c vol rc=0 n0
+  plan=$(HARNESS_VERIFY=1 tools/verify-env.sh --plan 2>&1)
+  if [[ $plan != reset ]]; then
+    echo "docker-tidy: --verify-env-check は、この木の DB を作り直す（--plan が reset）ときだけ走る: $plan" >&2
+    return 2
+  fi
+  tmp=$(mktemp -d) || return 1
+  cleanup_probes
+  r=$(openssl rand -hex 4) || { rm -rf "$tmp"; return 1; }
+  main=$tmp/ch05tidy$r; proj=ch05tidy$r-st97; wd=$tmp/$proj
+  mkdir -p "$main"; echo "$main" >"$tmp/wts"
+  export TEST_DOCKER_TIDY_MAIN=$main TEST_DOCKER_TIDY_WORKTREES=$tmp/wts
+
+  # 引数を書き留めて本物の docker に渡す命令
+  cat >"$tmp/recdocker" <<REC
+#!/usr/bin/env bash
+echo "\$*" >>"$tmp/calls"
+exec docker "\$@"
+REC
+  chmod +x "$tmp/recdocker"
+  : >"$tmp/calls"
+  calls() { wc -l <"$tmp/calls"; }
+
+  echo "Scenario: 印の無い検証の準備と --plan は、片付けを呼ばない"
+  TEST_DOCKER_TIDY_DOCKER=$tmp/recdocker HARNESS_VERIFY=1 tools/verify-env.sh >/dev/null 2>&1
+  [[ $(calls) -ge 1 ]]
+  check "作り直す準備は片付けを呼ぶ（書き留めた命令が 1 個以上。対照）" $?
+  : >"$tmp/calls"
+  TEST_DOCKER_TIDY_DOCKER=$tmp/recdocker env -u HARNESS_VERIFY tools/verify-env.sh >/dev/null 2>&1
+  check "印の無い準備が rc=0" $?
+  TEST_DOCKER_TIDY_DOCKER=$tmp/recdocker HARNESS_VERIFY=1 tools/verify-env.sh --plan >/dev/null 2>&1
+  check "--plan が rc=0" $?
+  [[ $(calls) == 0 ]]
+  check "印の無い準備と --plan は片付けを呼ばない（新しく書き留めた命令が 0 個）" $?
+
+  echo "Scenario: 片付けが落ちても、検証の準備は DB を作り直して続く"
+  TEST_DOCKER_TIDY_DOCKER=false HARNESS_VERIFY=1 tools/verify-env.sh >"$tmp/out" 2>"$tmp/err"
+  check "片付けが落ちても準備が rc=0" $?
+  grep -qE '片付けに失敗した.*rc=[0-9]+' "$tmp/err"
+  check "標準エラーに 片付けに失敗した と片付けの rc の 1 行" $?
+  grep -qF '切った接続:' "$tmp/err"
+  check "標準エラーに 切った接続: の 1 行" $?
+  [[ -n $(docker compose ps -q --status running db) ]]
+  check "この worktree の DB のコンテナが立っている" $?
+
+  echo "Scenario: 消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"
+  if ! docker network create --label "$probe_label" --label "com.docker.compose.project=$proj" "${proj}_default" >"$tmp/o" 2>&1; then
+    echo "docker-tidy: 本物の docker でネットワークを作れない（割り当てが尽きた？）: $(<"$tmp/o")" >&2
+    rc=1
+  elif ! c=$(docker run -d --label "$probe_label" --label "com.docker.compose.project=$proj" \
+    --label "com.docker.compose.project.working_dir=$wd" --network "${proj}_default" \
+    postgres:17-alpine sleep 600 2>&1); then
+    echo "docker-tidy: 本物の docker でコンテナを起こせない: $c" >&2
+    rc=1
+  else
+    vol=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$c")
+    real_vol=$vol
+    [[ -n $vol ]] || { echo "docker-tidy: 名前の無い volume が付かなかった" >&2; rc=1; }
+    HARNESS_VERIFY=1 tools/verify-env.sh >"$tmp/out" 2>"$tmp/err"
+    check "印つきの準備が rc=0" $?
+    [[ -z $(docker ps -aq --filter "label=$probe_label") ]]
+    check "消えた作業ツリーのコンテナが無い" $?
+    docker volume inspect "$vol" >/dev/null 2>&1
+    check "控えた id の volume が残る" $?
+    grep -qF '切った接続:' "$tmp/err"
+    check "標準エラーに 切った接続: の 1 行" $?
+  fi
+  cleanup_probes
+  [[ -z ${real_vol:-} ]] || docker volume rm "$real_vol" >/dev/null 2>&1
+  unset TEST_DOCKER_TIDY_MAIN TEST_DOCKER_TIDY_WORKTREES
+  rm -rf "$tmp"
+  [[ $rc == 0 && $fail == 0 ]]
+}
+
 case "${1:-}" in
   "") tidy 0 ;;
   --dry-run) tidy 1 ;;
   --self-test) self_test ;;
-  --verify-env-check)
-    echo "docker-tidy: --verify-env-check は tasks 3.2 で書く（まだ無い）" >&2
-    exit 2 ;;
+  --verify-env-check) verify_env_check ;;
   *) echo "使い方: tools/docker-tidy.sh [--dry-run|--self-test|--verify-env-check]" >&2; exit 2 ;;
 esac

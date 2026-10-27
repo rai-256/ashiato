@@ -7,6 +7,7 @@
 # いまやることは 2 つ: この worktree のテスト用 DB を起動して接続できるまで待ち、DB の役割（ST28）を整える。
 #   - ポートは tools/ports.sh の worktree ごとの規則（Story を並行して走らせても取り合わない）
 #   - 起動するのはこの worktree の compose の DB だけ。他の Story のコンテナには触らない
+#   - 作り直すときは、消えた作業ツリーのコンテナとネットワークを先に片付ける（CH05 Q7。volume は消さない）
 #   - 準備できなければ非 0 で終わる（ハーネスは BLOCKED_INFRA として記録し、AI の実装ループに流さない）
 # 実測 2026-09-30 ST05 10.4: ポートを分けた後、`cargo test --workspace` の DB を起動する係がいなかった
 # （それまでは別の Story の DB が 55432 に残っていて、そこに繋がって通っていた）。
@@ -121,6 +122,8 @@ clear_blocking_network() {
 }
 
 reset_done=
+# 消えた作業ツリーのコンテナとネットワークの片付け（CH05 design D5）。他の作業ツリーの残りの片付けなので、落ちても続ける
+[[ $decision != reset ]] || tools/docker-tidy.sh || echo "verify-env: 片付けに失敗した（docker-tidy の rc=$?）。続ける" >&2
 [[ $decision != reset ]] || reset_db
 clear_blocking_network
 docker compose up -d --wait db >/dev/null
