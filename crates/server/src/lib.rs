@@ -50,6 +50,9 @@ mod attributes_tests;
 mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
+/// 記録ごとの部品の版（ST49）の移行と門。
+#[cfg(test)]
+mod component_version_tests;
 pub mod coverage;
 /// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
 pub mod day;

@@ -63,3 +63,5 @@
 202610241200_satellite_credentials
 # ST41: 幅のある出来事の終わりの時刻（3 列・門・期間の索引）
 202610231200_event_end_time
+# ST49: 記録ごとの部品の版（8 表の列・読み口・門と前の版の錠）
+202610251000_record_component_version
