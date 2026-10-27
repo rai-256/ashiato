@@ -1,0 +1,2137 @@
+{
+ "purpose": "サーバ・携帯・PC の収集アプリの版が変わったことが、後から書き換えられない記録として残り始める。稼働状況の途絶が「更新で止めた」ものか「壊れていた」ものかを、本人が全記録の書き出しを読んで区別できるようになる。",
+ "model": {
+  "kind": "diagram",
+  "caption": "版の変化が残る 2 つの道",
+  "text": "サーバ（S-01）\n  migrate の終わり ─┐\n  起動（検査の後）──┴→ 更新の履歴（追記のみの表）──┐\n                                                   ├→ 全記録の書き出し\n収集アプリ（C-01・C-02）                            │\n  生存信号に積んだ時の版 → 生存信号の行 → 版の変化（ビュー）┘\n\n稼働状況・途絶の判定 ← どちらも入力にしない（今までどおり）"
+ },
+ "before_after": [
+  {
+   "area": "サーバの入れ替え",
+   "before": "版が変わったことはどこにも残らない",
+   "after": "更新の履歴に 1 行（前の版・今の版・移行の結果）"
+  },
+  {
+   "area": "収集アプリの生存信号",
+   "before": "版を持たない",
+   "after": "積んだ時の版を欄と原文に持つ"
+  },
+  {
+   "area": "全記録の書き出し",
+   "before": "生存信号のファイルまで",
+   "after": "更新の履歴と版の変化のファイルが増え、生存信号に版の列"
+  }
+ ],
+ "highlights": [
+  "s01.6",
+  "s01.4",
+  "derive.2",
+  "keep.2",
+  "s01.3"
+ ],
+ "features": [
+  {
+   "id": "s01",
+   "title": "サーバの版が変わると、更新の履歴に 1 行残る",
+   "summary": "サーバ（S-01）は移行（migrate）の終わりと起動のときに、自分の版が前と違えば 1 行を書く。",
+   "figure": null,
+   "points": [
+    {
+     "id": "s01.1",
+     "kind": "normal",
+     "text": "移行を走らせ終えたとき、または起動して版の検査を通ったとき、自分の組み立ての印が前の行と違えば 1 行を書く。1 行はいつ・部品（S-01）・きっかけ（migrate か起動か）・前の版・今の版・移行の結果を持つ。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "新しい組み立ての migrate が版を当てると、当てた版の名前を持つ 1 行が残る",
+       "migrate を走らせずに入れ替えた S-01 は、起動のときに 1 行を書く"
+      ],
+      "decisions": [
+       "Q1",
+       "D2"
+      ]
+     }
+    },
+    {
+     "id": "s01.2",
+     "kind": "normal",
+     "text": "同じ組み立てで移行を走らせ直しても、起動し直しても、行は増えない。2 つが同時に書いても 1 行になる。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "同じ組み立てで migrate を走らせ直しても、行は増えない",
+       "migrate の後に同じ組み立ての S-01 を起動しても、行は増えない",
+       "同じ版の変化を 2 つ同時に書いても、行は 1 つ"
+      ]
+     }
+    },
+    {
+     "id": "s01.3",
+     "kind": "exception",
+     "text": "移行が落ちた回も 1 行残る。残すのは落ちた版の名前と SQLSTATE（5 文字の誤りの符号）だけで、DB の誤りの本文は残さない。本文は行の値を含みうるので、標準エラーにも出さない。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "移行が落ちた回は、落ちた版と SQLSTATE を持つ 1 行が残り、誤りの本文は残らない",
+       "移行が落ちた migrate は終了コード 1 で終わり、標準エラーに行の値を出さない",
+       "退避に失敗した回は、版を当てていない行が残る",
+       "付与で落ちた migrate は、落ちた版の名前を持たない failed の行を残す"
+      ],
+      "decisions": [
+       "Q1"
+      ]
+     },
+     "tags": [
+      "Privacy"
+     ]
+    },
+    {
+     "id": "s01.4",
+     "kind": "caution",
+     "text": "「前の版」は最後に通った行の今の版にする。落ちた回は DB を動かしていないので数えない。並びは書いた順で決め、時計の時刻では決めない。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る",
+       "更新の履歴は、決めた置き場と列の形で持つ"
+      ],
+      "scenarios": [
+       "落ちた回の後の行の前の版は、最後に通った版になる",
+       "時計が戻っても、前の版は書いた順で決まる",
+       "更新の履歴の初めの行は、前の版を空にする"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ],
+     "examples": [
+      {
+       "wrong": "A で通る → B で落ちる → C で通る。C の行の前の版は B",
+       "right": "C の行の前の版は A（B は落ちたので D-01 は A のまま）"
+      }
+     ]
+    },
+    {
+     "id": "s01.5",
+     "kind": "exception",
+     "text": "知らない版の当たった DB で止まった移行（終了コード 3）と、版の検査で断られた起動は、何も書かない。古いサーバが新しい DB に書かないようにするためである。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "知らない版の当たった DB で止まった migrate は、何も書かない",
+       "版の検査で断られた起動は、何も書かない"
+      ]
+     }
+    },
+    {
+     "id": "s01.6",
+     "kind": "caution",
+     "text": "移行が落ちた回の行は DB（D-01）の中にしか無い。退避から D-01 を戻すと、その行も一緒に消える。戻した後に書き直すのは ST58 が受け持つ。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "落ちた回の行は、落ちた版と一緒に戻らない"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     },
+     "tags": [
+      "変更困難"
+     ]
+    },
+    {
+     "id": "s01.7",
+     "kind": "exception",
+     "text": "更新の履歴の表がまだ無い・接続が切れたなどで書けないときは、警告を出すだけにする。移行の終了コードも起動の成否も変えない。",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "scenarios": [
+       "更新の履歴の表が無い D-01 で落ちても、当てる処理は落ちた版の失敗を返し、書けなかったことを警告する",
+       "commit の取れない組み立ての印も、そのまま今の版に書く"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "form",
+   "title": "更新の履歴の形と守り",
+   "summary": "更新の履歴は記録の schema の追記のみの表で、列の形を固定し、誰も書き換えられない。",
+   "figure": null,
+   "points": [
+    {
+     "id": "form.1",
+     "kind": "normal",
+     "text": "更新の履歴は記録の schema（`core`）の表 `update_history` に置く。列の名前・型・NULL の可否は Requirement の表で固定し、形を変えるときは列か値を足すだけにする。",
+     "refs": {
+      "requirements": [
+       "更新の履歴は、決めた置き場と列の形で持つ"
+      ],
+      "scenarios": [
+       "更新の履歴の置き場と列の形は、決めた形のまま変わらない",
+       "決めていない値の行は入らない"
+      ],
+      "decisions": [
+       "D3",
+       "D4"
+      ]
+     },
+     "tags": [
+      "変更困難",
+      "DB"
+     ]
+    },
+    {
+     "id": "form.2",
+     "kind": "normal",
+     "text": "行は誰も書き換えられず、消せない（DB の所有者でも断る）。サーバの実行時の役割にできるのは、読むことと足すことだけである。",
+     "refs": {
+      "requirements": [
+       "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+      ],
+      "scenarios": [
+       "更新の履歴の行は書き換えられない",
+       "S-01 の実行時の役割は、更新の履歴を読み、足せる"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     },
+     "tags": [
+      "Security"
+     ]
+    },
+    {
+     "id": "form.3",
+     "kind": "caution",
+     "text": "実行時の役割は起動の行を書くので、足す権限を持つ。サーバが乗っ取られると偽の行を足せる。ただし本物の行は消せず、書き換えもできない。",
+     "refs": {
+      "requirements": [
+       "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+      ],
+      "decisions": [
+       "D2",
+       "D10"
+      ]
+     },
+     "tags": [
+      "Security"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "beat",
+   "title": "収集アプリが生存信号に版を載せる",
+   "summary": "携帯（C-01）と PC（C-02）の収集アプリは、どの生存信号にもそれを積んだ時に動いていた版を載せる。",
+   "figure": null,
+   "points": [
+    {
+     "id": "beat.1",
+     "kind": "normal",
+     "text": "収集アプリは生存信号を未送信に積む時点で、自分の組み立ての印を欄 `client_version` と原文の両方に書き込む。送る時点の版では書き換えない。",
+     "refs": {
+      "requirements": [
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+      ],
+      "scenarios": [
+       "携帯の生存信号は、積んだときの版を欄と原文に持つ",
+       "PC の生存信号は、積んだときの版を欄と原文に持つ"
+      ],
+      "decisions": [
+       "D1"
+      ]
+     }
+    },
+    {
+     "id": "beat.2",
+     "kind": "normal",
+     "text": "サーバは版の値の形を検査せず、値を理由に信号を断らない。版を持たない信号も今までどおり受け付ける。",
+     "refs": {
+      "requirements": [
+       "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+      ],
+      "scenarios": [
+       "生存信号の版は、行に残る",
+       "版の欄を持たない生存信号も受け付ける",
+       "形の崩れた版でも、生存信号は断られない",
+       "空の版は空として残り、U+0000 は取り除かれる"
+      ]
+     },
+     "tags": [
+      "API"
+     ]
+    },
+    {
+     "id": "beat.3",
+     "kind": "exception",
+     "text": "版を足す前に溜まっていた生存信号は、版の無いまま送る（今の版を後から付けない）。",
+     "refs": {
+      "requirements": [
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+      ],
+      "scenarios": [
+       "版の欄を持たない溜めた生存信号は、版の無いまま送られる",
+       "PC の版の欄を持たない溜めた生存信号は、版の無いまま送られる"
+      ]
+     }
+    },
+    {
+     "id": "beat.4",
+     "kind": "exception",
+     "text": "サーバの中の書庫の取り込みが積む生存信号には版を入れない。生存信号の冪等キーの作り方も変えない。",
+     "refs": {
+      "requirements": [
+       "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+      ],
+      "scenarios": [
+       "書庫の取り込みが積む生存信号は版を持たない",
+       "版の欄を足しても、生存信号の冪等キーは変わらない"
+      ]
+     }
+    },
+    {
+     "id": "beat.5",
+     "kind": "normal",
+     "text": "記録の版（ST49）の振る舞いはそのまま残る。記録は積んだ時の版で送り、溜めた記録の行の知らない欄も落とさない。",
+     "refs": {
+      "requirements": [
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+      ],
+      "scenarios": [
+       "携帯の収集アプリを更新した後に送った未送信は、積んだときの版で届く",
+       "PC の収集アプリを更新した後に送った未送信は、積んだときの版で届く",
+       "版の欄を持たない未送信の行は、版の欄の無いまま送られる",
+       "PC の版の欄を持たない未送信の行は、版の欄の無いまま送られる",
+       "携帯の未送信の行が知らない欄を持っていても、送るときに落ちない",
+       "PC の未送信の行が知らない欄を持っていても、送るときに落ちない",
+       "古い形の未送信を移すとき、版は書き込まれない",
+       "携帯の収集アプリの組み立ての印は、組み立てのたびに作り直される",
+       "携帯の収集アプリの release の印は .debug を持たず、debug の印は持つ",
+       "携帯の収集アプリの印は、add していないソースの変更の後に .dirty になる",
+       "PC の収集アプリの組み立ての印は、commit を進めた後の差分の組み立てでも新しい commit になる",
+       "PC の収集アプリの印は、add していないソースの変更の後に .dirty になり、release では .debug を持たない",
+       "ブラウザ履歴を読み直して送る記録は、読み直した時点の版を持つ"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "derive",
+   "title": "収集アプリの版の変化を、生存信号から導く",
+   "summary": "端末・部品ごとに生存信号を発信の時刻の順に並べ、版が変わった所を 1 行として読み口（ビュー）に出す。",
+   "figure": null,
+   "points": [
+    {
+     "id": "derive.1",
+     "kind": "normal",
+     "text": "変化の行は表に書いて凍結せず、生存信号から毎回導く。並べ方を後から直しても、過去の分まで出し直せる。",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "scenarios": [
+       "収集アプリを更新すると、版の変化が 1 行出る"
+      ],
+      "decisions": [
+       "Q3",
+       "D5"
+      ]
+     }
+    },
+    {
+     "id": "derive.2",
+     "kind": "caution",
+     "text": "並べる順は、受信の時刻ではなく発信の時刻である。更新の前に溜まった信号が後から届いても、古い位置に入るので偽の変化にならない。",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "scenarios": [
+       "更新の前に溜まった信号が後から届いても、偽の変化は出ない"
+      ],
+      "decisions": [
+       "Q4"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ],
+     "examples": [
+      {
+       "wrong": "届いた順 B(12:00)・A(10:00)・A(11:00) → B→A の変化が出る",
+       "right": "積んだ順 A(10:00)・A(11:00)・B(12:00) → A→B の 1 行だけ"
+      }
+     ]
+    },
+    {
+     "id": "derive.3",
+     "kind": "exception",
+     "text": "版を持たない信号は並びから外す。端末・部品で初めて版を持った信号は「申告の始まり」で、変化として出さない。",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "scenarios": [
+       "最初に版を持った信号は、変化として出ない",
+       "版を持たない信号が挟まっても、変化は版を持つ信号どうしで数える",
+       "列に版が無い信号は、原文の版で数える",
+       "原文が JSON でない信号があっても、読み口は失敗しない"
+      ],
+      "decisions": [
+       "Q4"
+      ]
+     }
+    },
+    {
+     "id": "derive.4",
+     "kind": "normal",
+     "text": "並べる単位は利用者・端末・部品（C-01 か C-02）である。論理ソースの名前が `c01-` か `c02-` で始まる信号だけを並べる。同じ端末の C-01 の 2 つのソースが同じ版を申告しても、変化は 1 行になる。",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "scenarios": [
+       "同じ端末でも、部品が違う信号は別の並びで数える",
+       "同じ部品でも、端末が違う信号は別の並びで数える",
+       "同じ端末と部品でも、利用者が違う信号は別の並びで数える",
+       "収集アプリでないソースの信号は並びに入らない",
+       "同じ端末の C-01 の 2 つのソースが同じ版を申告しても、変化は 1 行"
+      ]
+     }
+    },
+    {
+     "id": "derive.5",
+     "kind": "caution",
+     "text": "携帯の収集アプリを消して入れ直すと端末識別子が変わり、変化ではなく「別の端末の申告の始まり」に見える。生存信号の行と版は残る。",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "decisions": [
+       "Q4",
+       "D5"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "export",
+   "title": "全記録の書き出しに入れる",
+   "summary": "書き出しの zip に、更新の履歴と版の変化のファイルを足し、生存信号のファイルに版の列を足す。",
+   "figure": null,
+   "points": [
+    {
+     "id": "export.1",
+     "kind": "normal",
+     "text": "zip に `update_history.jsonl`（更新の履歴の全行・全列）と `collector_version_changes.jsonl`（版の変化）を足し、`heartbeats.jsonl` に列 `collector_version` を足す。",
+     "refs": {
+      "requirements": [
+       "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ",
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+      ],
+      "scenarios": [
+       "書き出しに更新の履歴の全行と全列が入る",
+       "書き出しに収集アプリの版の変化が入る",
+       "書き出しの生存信号のファイルに版の列が入る",
+       "台帳と導出の表は書き出しに入らない"
+      ],
+      "decisions": [
+       "Q5",
+       "D3"
+      ]
+     },
+     "tags": [
+      "Privacy"
+     ]
+    },
+    {
+     "id": "export.2",
+     "kind": "normal",
+     "text": "説明書に 3 つの説明を書く。落ちた回の行は戻すと消えることがある・版の変化はサーバが確かめていない申告・生存信号の版が空なら申告なし。",
+     "refs": {
+      "requirements": [
+       "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+      ],
+      "scenarios": [
+       "説明書が更新の履歴と版の変化と生存信号の版を説明する"
+      ]
+     }
+    },
+    {
+     "id": "export.3",
+     "kind": "normal",
+     "text": "書き出しの決まりは変えない。台帳・導出の表は入れず、分類の無い表や列があれば書き出しを始めない。",
+     "refs": {
+      "requirements": [
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+      ],
+      "scenarios": [
+       "除いた行の件数はどこにも出ない",
+       "分類の無い表があると書き出しは始まらない",
+       "分類の無い列があると書き出しは始まらない",
+       "いまの記録の schema の表と列はすべて分類されている"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "keep",
+   "title": "稼働状況と途絶の判定は変えない",
+   "summary": "更新の間の空きは今までどおり途絶として出る。区別は本人が書き出しを読んで行う。",
+   "figure": null,
+   "points": [
+    {
+     "id": "keep.1",
+     "kind": "normal",
+     "text": "版の列・更新の履歴・版の変化を、稼働状況・成功条件 1 の達成日・途切れの判定と通知の入力にしない。",
+     "refs": {
+      "requirements": [
+       "版を足しても、稼働状況と途切れの判定は変わらない"
+      ],
+      "scenarios": [
+       "版の欄が違うだけの生存信号は、同じ稼働状況になる"
+      ]
+     }
+    },
+    {
+     "id": "keep.2",
+     "kind": "caution",
+     "text": "更新の間の空きは、更新の履歴があっても途絶として出る。画面にも API にも更新の印は出ず、区別するには書き出しを開いて読む。",
+     "refs": {
+      "requirements": [
+       "版を足しても、稼働状況と途切れの判定は変わらない"
+      ],
+      "scenarios": [
+       "更新の間の空きは、更新の履歴があっても途絶として出る"
+      ],
+      "decisions": [
+       "Q5"
+      ]
+     },
+     "tags": [
+      "直感注意"
+     ]
+    }
+   ]
+  }
+ ],
+ "out_of_scope": [
+  {
+   "text": "更新の履歴を画面・API で見せること、格子に更新の印を出すこと（Q5 の推奨）",
+   "refs": {
+    "decisions": [
+     "Q5"
+    ]
+   }
+  },
+  {
+   "text": "戻した後に「落ちた試み」と「戻した」を書き直すこと（ST58）",
+   "refs": {
+    "decisions": [
+     "Q2"
+    ]
+   }
+  },
+  {
+   "text": "更新の後に携帯の収集アプリを自分で起き直させること（ST58）",
+   "refs": {}
+  },
+  {
+   "text": "同じ PC に正式版と開発版の C-02 を並べるときの端末識別子（ST54）",
+   "refs": {}
+  },
+  {
+   "text": "組み立ての印を作ること・印の形を検査すること（ST49）",
+   "refs": {}
+  }
+ ],
+ "open": [
+  {
+   "text": "tasks 1.2 は「既存のアプリの役割の試験が通る」を検証に置くが、D10 の REVOKE で既存の試験（全表で UPDATE・DELETE を求める）は落ちる。試験を直す手順が tasks に無い（IMP-05。spec の段で直す）",
+   "tags": [
+    "未解決"
+   ],
+   "refs": {
+    "requirements": [
+     "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+    ],
+    "decisions": [
+     "D10"
+    ]
+   }
+  }
+ ],
+ "since_last": [],
+ "delegated": [],
+ "terms": [
+  {
+   "term": "組み立ての印",
+   "def": "版番号・commit・未 commit の変更・組み立ての種類を持つ文字列（`0.1.0+<commit>[.dirty][.debug]`）。ST49 が焼き込む"
+  },
+  {
+   "term": "生存信号",
+   "def": "収集アプリが「動いている」と数時間おきに送る小さな信号。未送信に溜めてから送る"
+  },
+  {
+   "term": "migrate",
+   "def": "サーバの DB（D-01）に移行の版を当てる命令。終了コード 0 で通り、1 で失敗、3 で版の食い違いで止まる"
+  },
+  {
+   "term": "通った行",
+   "def": "更新の履歴のうち、移行の結果が applied か nothing_to_apply の行"
+  }
+ ],
+ "walkthroughs": [
+  {
+   "id": "W1",
+   "title": "サーバを何度か入れ替えたときに残る行",
+   "feature": "s01",
+   "scene": "本人がサーバ（S-01）を新しい組み立てに入れ替えていく。途中で 1 回、移行が落ちる。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "sequence",
+    "caption": "入れ替えごとに更新の履歴へ残る行（A〜D は説明用の組み立ての印）",
+    "head": [
+     "操作",
+     "結果",
+     "残る行（前の版 → 今の版・結果）"
+    ],
+    "rows": [
+     [
+      "A で初めて migrate",
+      "通った",
+      "（空）→ A・nothing_to_apply"
+     ],
+     [
+      "B で migrate（版を 1 つ当てる）",
+      "通った",
+      "A → B・applied（当てた版の名前）"
+     ],
+     [
+      "B で起動し直す",
+      "起動",
+      "増えない"
+     ],
+     [
+      "C で migrate（版が落ちる）",
+      "終了コード 1",
+      "B → C・failed（落ちた版・22P02）"
+     ],
+     [
+      "D で migrate（落ちる版を除いた）",
+      "通った",
+      "B → D・nothing_to_apply"
+     ],
+     [
+      "知らない版の当たった DB に古い組み立てで migrate",
+      "終了コード 3",
+      "何も残らない"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "版を当てた入れ替え",
+     "outcome": "ok",
+     "result": "前の版・今の版・当てた版の名前を持つ 1 行が残る"
+    },
+    {
+     "label": "同じ組み立てで起動し直す",
+     "outcome": "ok",
+     "result": "行は増えない"
+    },
+    {
+     "label": "移行が落ちた",
+     "outcome": "ok",
+     "result": "落ちた版と SQLSTATE を持つ 1 行が残る。次の行の前の版は最後に通った B"
+    },
+    {
+     "label": "知らない版の当たった DB で止まった",
+     "outcome": "problem",
+     "result": "更新の履歴には何も残らない。止まっていた間の途絶の理由は記録に残らない（IMP-01）"
+    }
+   ],
+   "why": "書くのは移行の終わりと起動の検査の後で、版が前の通った行と違うときだけ。古いサーバが新しい DB に書かないよう、版の検査で止まった回は書かない。",
+   "conditions": {
+    "occurs_when": [
+     "組み立ての印が、最後に通った行の今の版と違う"
+    ],
+    "not_when": [
+     "同じ組み立てで走らせ直す",
+     "終了コード 3 で止まる・起動が断られる"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "表がまだ無い DB で落ちた回は書けず、警告だけ出る",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ]
+     }
+    }
+   ],
+   "decisions": [
+    "IMP-01"
+   ],
+   "refs": {
+    "requirements": [
+     "S-01 の版が変わると、更新の履歴に 1 行残る"
+    ],
+    "scenarios": [
+     "新しい組み立ての migrate が版を当てると、当てた版の名前を持つ 1 行が残る",
+     "落ちた回の後の行の前の版は、最後に通った版になる",
+     "知らない版の当たった DB で止まった migrate は、何も書かない"
+    ],
+    "decisions": [
+     "Q1",
+     "D2"
+    ]
+   }
+  },
+  {
+   "id": "W2",
+   "title": "携帯の収集アプリを更新した後に、溜まった信号が届く",
+   "feature": "derive",
+   "scene": "電波の届かない所で、版 A の携帯の収集アプリが生存信号を溜める。本人がアプリを版 B に更新して開き、その後で溜まった信号が届く。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "積んだ時刻と届いた順（A・B は説明用の版）",
+    "head": [
+     "積んだ時刻",
+     "載った版",
+     "届いた順"
+    ],
+    "rows": [
+     [
+      "10:00",
+      "A",
+      "2 番目"
+     ],
+     [
+      "11:00",
+      "A",
+      "3 番目"
+     ],
+     [
+      "12:00",
+      "B",
+      "1 番目"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "積んだ時刻の順に並べる（この仕様）",
+     "outcome": "ok",
+     "result": "A → B の変化が 12:00 に 1 行だけ出る"
+    },
+    {
+     "label": "版を持たない古い信号の後に初めて版を持った",
+     "outcome": "ok",
+     "result": "申告の始まりで、変化の行は出ない"
+    },
+    {
+     "label": "アプリを消して入れ直した",
+     "outcome": "problem",
+     "result": "端末識別子が変わり、変化の行は出ない。新しい端末の申告の始まりに見える"
+    }
+   ],
+   "why": "版は信号を積む時点で焼き込まれ、変化は発信の時刻の順で数える。届いた順で数えると、溜まった A が B の後に入り、版が戻ったように見える。",
+   "conditions": {
+    "occurs_when": [
+     "同じ利用者・端末・部品で、隣り合う 2 件の版が違う"
+    ],
+    "not_when": [
+     "端末識別子が変わった（入れ直し）",
+     "版を持たない信号どうし"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "端末の時計が戻ると、版が行き来して見えることがある（並べ方の代償。ビューなので並べ方を直せば出し直せる）",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ],
+      "decisions": [
+       "D5"
+      ]
+     }
+    }
+   ],
+   "refs": {
+    "requirements": [
+     "収集アプリの版の変化は、生存信号から導いて読める",
+     "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+    ],
+    "scenarios": [
+     "更新の前に溜まった信号が後から届いても、偽の変化は出ない",
+     "最初に版を持った信号は、変化として出ない",
+     "携帯の生存信号は、積んだときの版を欄と原文に持つ"
+    ],
+    "decisions": [
+     "Q3",
+     "Q4",
+     "D1"
+    ]
+   }
+  },
+  {
+   "id": "W3",
+   "title": "移行が落ちて、退避から D-01 を戻す",
+   "feature": "s01",
+   "scene": "本人がサーバを入れ替えて移行が落ちた。退避（移行の前に取った DB の写し）から D-01 を手で戻し、前の組み立てで起動し直す。",
+   "values": "illustrative",
+   "figure": {
+    "kind": "table",
+    "form": "before_after",
+    "caption": "戻す前と後の更新の履歴（A・C は説明用の印）",
+    "head": [
+     "時点",
+     "更新の履歴の最後の行"
+    ],
+    "rows": [
+     [
+      "移行が落ちた直後",
+      "A → C・failed"
+     ],
+     [
+      "退避から戻した後",
+      "A の行（failed の行は無い）"
+     ],
+     [
+      "A で起動し直した後",
+      "増えない（最後の通った行が A）"
+     ]
+    ]
+   },
+   "cases": [
+    {
+     "label": "ST58 より前に手で戻した",
+     "outcome": "problem",
+     "result": "落ちた回の行は退避と一緒に消え、その回の試みは記録に残らない"
+    },
+    {
+     "label": "戻さずに直した組み立てで入れ直した",
+     "outcome": "ok",
+     "result": "failed の行が残り、次の行の前の版は A"
+    }
+   ],
+   "why": "落ちた回の行は D-01 の中だけに書き、退避は移行の前に取る。戻すと、退避の後に書いた行はすべて消える。",
+   "conditions": {
+    "occurs_when": [
+     "移行が落ちた後に、退避から D-01 を戻す"
+    ],
+    "not_when": [
+     "戻さずに入れ直す",
+     "ST58 の戻しが書き直す（ST58 の後）"
+    ]
+   },
+   "exceptions": [
+    {
+     "text": "戻した後に「落ちた試み」と「戻した」の 2 行を書き直すのは ST58",
+     "refs": {
+      "decisions": [
+       "Q2"
+      ]
+     }
+    }
+   ],
+   "refs": {
+    "requirements": [
+     "S-01 の版が変わると、更新の履歴に 1 行残る"
+    ],
+    "scenarios": [
+     "落ちた回の行は、落ちた版と一緒に戻らない"
+    ],
+    "decisions": [
+     "Q2"
+    ]
+   }
+  }
+ ],
+ "impact": {
+  "overview": "サーバ・携帯・PC の版が変わったことが、追記のみの記録に残り始める。サーバは更新の履歴の表へ 1 行ずつ書き、収集アプリの版の変化は生存信号に載せた版から導く。どちらも全記録の書き出しに入る。一方、画面・API・格子・途絶の判定は変わらず、区別には書き出しを読む必要がある。版の検査で止まった回と、退避から戻して消えた落ちた回の行は、この Story の範囲では残らない。",
+  "problem": "更新の間は収集もサーバも止まり、稼働状況の格子にはその時間が途絶として出る。後から見て「更新で止めた」のか「壊れていた」のかを区別する材料が無い。",
+  "depth": "full",
+  "depth_why": "止める・断る規則を持つ Requirement が 8 本、MODIFIED が 3 本ある。更新・切り戻し・復旧の場面に当たる。",
+  "targets": [
+   {
+    "id": "T1",
+    "kind": "data",
+    "name": "更新の履歴の表 `core.update_history`（新しい表）",
+    "change": "サーバの版の変化を 1 行ずつ追記する表を足す。書き換え・消去・切り詰めを全役割で断る",
+    "searched": "`update_history`・`grants.sql`・`TRUNCATE core.`・`export.rs` の分類を repo 全体で検索し、付与・書き出し・DB を作り直す台本（verify-env.sh・check-immutable.sh・testdb.rs）を開いた",
+    "refs": {
+     "requirements": [
+      "更新の履歴は、決めた置き場と列の形で持つ",
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ]
+    }
+   },
+   {
+    "id": "T2",
+    "kind": "lifecycle",
+    "name": "サーバの移行（migrate）と起動の経路",
+    "change": "移行の終わりと、起動の版の検査の後に、更新の履歴を書く処理が入る。終了コードと起動の成否は変えない",
+    "searched": "`run_migrate`・`ashiato-server migrate` を lib.rs と tools/ で検索し、stack.sh・dev.sh の呼び方と ST58 への申し送りを読んだ",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ]
+    }
+   },
+   {
+    "id": "T3",
+    "kind": "api",
+    "name": "生存信号の受け口（`client_version` の欄）と `core.heartbeat.collector_version` の列",
+    "change": "任意の欄と列を足す。値は検査しない。原文にも版が入るので、同じ時刻・同じソースでも版の違う 2 件は別の冪等キーになる",
+    "searched": "`HeartbeatRequest`・`content_hash`・`INSERT INTO core.heartbeat` を crates で検索し、受け口と冪等キーの作り方を読んだ",
+    "refs": {
+     "requirements": [
+      "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+     ]
+    }
+   },
+   {
+    "id": "T4",
+    "kind": "data",
+    "name": "版の変化の読み口（ビュー `core.collector_version_change`）",
+    "change": "生存信号から、利用者・端末・部品ごとの版の変化を導くビューを足す",
+    "searched": "論理ソースの名前（`\"c0`）を crates と collector-android で数え、端末識別子の作り方（DeviceId.kt・config.rs）と生存信号の表の列を読んだ",
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ]
+    }
+   },
+   {
+    "id": "T5",
+    "kind": "code",
+    "name": "収集アプリ 2 本の生存信号の組み立て",
+    "change": "積む時点の組み立ての印を、欄と原文の両方に入れる",
+    "searched": "C-02 の heartbeat.rs と runtime.rs、C-01 の LocationService.kt の未送信の置き場を読み、ST49 の design の焼き込みの節を読んだ",
+    "refs": {
+     "requirements": [
+      "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+      "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+     ]
+    }
+   },
+   {
+    "id": "T6",
+    "kind": "file",
+    "name": "全記録の書き出し（zip のファイルと説明書）",
+    "change": "ファイル 2 つと生存信号の列 1 つを足す",
+    "searched": "`export.rs` の表の分類と `HEARTBEAT_COLUMNS`、同じファイルを触る走っている change（st23-record-erasure・st49-record-component-version）の design を読んだ",
+    "refs": {
+     "requirements": [
+      "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない",
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ]
+    }
+   }
+  ],
+  "dependencies": [
+   {
+    "id": "D1",
+    "target": "T1",
+    "who": "付与（`crates/server/src/grants.sql`。migrate のたびに当たる）",
+    "role": "writes",
+    "assumes": "記録の schema の全部の表に、実行時の役割の SELECT・INSERT・UPDATE・DELETE を同じに付ける",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E1"
+    ],
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   },
+   {
+    "id": "D17",
+    "target": "T1",
+    "who": "アプリの役割の試験（`app_role_tests.rs` の `app_role_privileges_reach_every_table`）",
+    "role": "reads",
+    "assumes": "記録の schema のどの表でも、実行時の役割の UPDATE・DELETE が許されている",
+    "holds": "no",
+    "basis": "observed",
+    "evidence": [
+     "E17"
+    ],
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    },
+    "affects": "D10 の REVOKE で更新の履歴だけ UPDATE・DELETE が外れ、この試験が落ちる。tasks 1.2 は「既存の試験が通る」を検証に置くが、試験を直す手順が無い",
+    "leads_to": [
+     "IMP-05"
+    ]
+   },
+   {
+    "id": "D2",
+    "target": "T1",
+    "who": "検証の DB を作り直す台本（`tools/verify-env.sh`）",
+    "role": "writes",
+    "assumes": "DB を空に戻すときは、表を切り詰めずにコンテナと volume ごと消す（切り詰めを断る表があっても作り直せる）",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E2"
+    ],
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ]
+    }
+   },
+   {
+    "id": "D3",
+    "target": "T1",
+    "who": "退避から D-01 を戻す手順（FR-119。いまは手で戻す。自動の戻しは ST58）",
+    "role": "writes",
+    "assumes": "戻した後も、移行が落ちた回の行が残っている",
+    "holds": "no",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    },
+    "affects": "ST58 より前に手で戻すと、落ちた回の試みが更新の履歴から消える",
+    "leads_to": [
+     "S3",
+     "IMP-04"
+    ]
+   },
+   {
+    "id": "D4",
+    "target": "T1",
+    "who": "ST58（戻した後に 2 行を書き直す。値の追加を前提にする）",
+    "role": "writes",
+    "assumes": "`outcome` の値を足せる（今の列と値を変えずに、制約を付け直す）",
+    "holds": "yes",
+    "basis": "spec",
+    "evidence": [
+     "E3"
+    ],
+    "refs": {
+     "requirements": [
+      "更新の履歴は、決めた置き場と列の形で持つ"
+     ],
+     "decisions": [
+      "D4"
+     ]
+    }
+   },
+   {
+    "id": "D5",
+    "target": "T1",
+    "who": "D-01 を書き出しから作り直す人（D3 の理由）",
+    "role": "reads",
+    "assumes": "書き出しの `update_history.jsonl` を新しい D-01 へ入れ直せる",
+    "holds": "unknown",
+    "basis": "unconfirmed",
+    "refs": {
+     "requirements": [
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    },
+    "affects": "書き出しから作り直した D-01 に更新の履歴が戻るか",
+    "verify": "書き出しから D-01 を作り直す道具がこの repo にあるかを探し、あれば `seq`（GENERATED ALWAYS）を持つ行を入れ直せるかを試す"
+   },
+   {
+    "id": "D6",
+    "target": "T2",
+    "who": "起動の台本（`tools/stack.sh`・`tools/dev.sh`）",
+    "role": "reads",
+    "assumes": "migrate の終了コードは 0 / 1 / 3 のまま（3 なら止める）",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E4"
+    ],
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ]
+    }
+   },
+   {
+    "id": "D7",
+    "target": "T2",
+    "who": "本人が版を切り替える操作（ベータ版の DB を正式版で使う・古い組み立てに戻す）",
+    "role": "reads",
+    "assumes": "切り替えを試みて止まった回も、途絶の理由として後から分かる",
+    "holds": "no",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "知らない版の当たった DB で止まった migrate は、何も書かない"
+     ]
+    },
+    "affects": "版の検査で止まっていた間の途絶に、更新の履歴の行が無い",
+    "leads_to": [
+     "S1",
+     "IMP-01"
+    ]
+   },
+   {
+    "id": "D8",
+    "target": "T3",
+    "who": "生存信号の冪等キー（`heartbeat::content_hash`）",
+    "role": "reads",
+    "assumes": "キーは論理ソース・発信の時刻・原文から作る（版は原文に入るので、版の違う 2 件は別のキー）",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E5"
+    ],
+    "refs": {
+     "requirements": [
+      "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+     ]
+    }
+   },
+   {
+    "id": "D9",
+    "target": "T3",
+    "who": "ST51 より前のサーバ（新しい収集アプリが送る相手）",
+    "role": "reads",
+    "assumes": "知らない欄があっても信号を断らない",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E6",
+     "E7"
+    ],
+    "refs": {
+     "requirements": [
+      "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+     ]
+    }
+   },
+   {
+    "id": "D10",
+    "target": "T4",
+    "who": "収集アプリの論理ソースの名前（C-01 `c01-…`・C-02 `c02-…`）",
+    "role": "writes",
+    "assumes": "収集アプリのソースはどれも `c01-` か `c02-` で始まり、それ以外は収集アプリでない",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E8",
+     "E9"
+    ],
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ]
+    }
+   },
+   {
+    "id": "D11",
+    "target": "T4",
+    "who": "携帯の端末識別子（`DeviceId.kt`）",
+    "role": "writes",
+    "assumes": "同じ携帯なら端末識別子は変わらない",
+    "holds": "no",
+    "basis": "observed",
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ]
+    },
+    "affects": "消して入れ直すと識別子が変わり、その更新は変化の行にならない",
+    "leads_to": [
+     "S4"
+    ]
+   },
+   {
+    "id": "D12",
+    "target": "T4",
+    "who": "PC の端末識別子（環境変数 `ASHIATO_DEVICE_ID`）",
+    "role": "writes",
+    "assumes": "1 台の PC で動く C-02 は 1 つで、識別子が他と被らない",
+    "holds": "unknown",
+    "basis": "observed",
+    "evidence": [
+     "E11"
+    ],
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ]
+    },
+    "affects": "正式版と開発版の C-02 を同じ識別子で並べると、版が行き来して見える",
+    "verify": "並べる仕組みを作る ST54 で、2 つの C-02 に別の識別子を振るかを確かめる（docs/handoff/ST54.md に申し送り済み）"
+   },
+   {
+    "id": "D13",
+    "target": "T5",
+    "who": "収集アプリの未送信の置き場（C-01 `heartbeatOutbox`・C-02 `heartbeat.jsonl`）",
+    "role": "writes",
+    "assumes": "生存信号も溜めてから後で送る（だから送る時点でなく積む時点の版を載せる）",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E12",
+     "E13"
+    ],
+    "refs": {
+     "requirements": [
+      "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+      "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+     ],
+     "decisions": [
+      "D1"
+     ]
+    }
+   },
+   {
+    "id": "D14",
+    "target": "T5",
+    "who": "ST49（st49-record-component-version。組み立ての印を作る。gate 前）",
+    "role": "writes",
+    "assumes": "収集アプリとサーバに組み立ての印が焼き込まれていて、ST51 は読むだけでよい",
+    "holds": "unknown",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+      "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+     ]
+    },
+    "evidence": [
+     "E14"
+    ],
+    "affects": "ST49 の spec が gate までに変わると、MODIFIED した 2 つの Requirement を写し直す",
+    "verify": "下流の入口で `python3 scripts/story_deps.py included ST51 ST49` を走らせ、merge gate の「依存の spec:」の差分を見る"
+   },
+   {
+    "id": "D15",
+    "target": "T6",
+    "who": "書き出しの表の分類（`export.rs`。分類の無い表があると書き出しを始めない）",
+    "role": "reads",
+    "assumes": "記録の schema の BASE TABLE は全部分類されている（ビューは走査に載らない）",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E15"
+    ],
+    "refs": {
+     "requirements": [
+      "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない",
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ]
+    }
+   },
+   {
+    "id": "D16",
+    "target": "T6",
+    "who": "st23-record-erasure（同じ `export.rs` に Exclude の表を 3 つ足す）",
+    "role": "writes",
+    "assumes": "ST51 と ST23 は書き出しの分類に別々の表を足し、同じ行を取り合わない",
+    "holds": "yes",
+    "basis": "observed",
+    "evidence": [
+     "E16"
+    ],
+    "refs": {
+     "requirements": [
+      "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+     ]
+    }
+   }
+  ],
+  "evidence": [
+   {
+    "id": "E1",
+    "source": "code",
+    "loc": "crates/server/src/grants.sql:6",
+    "quote": "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO ashiato_app;"
+   },
+   {
+    "id": "E17",
+    "source": "test",
+    "loc": "crates/server/src/app_role_tests.rs:42-46",
+    "quote": "(\"DELETE\", true),"
+   },
+   {
+    "id": "E2",
+    "source": "ops",
+    "loc": "tools/verify-env.sh:71-72",
+    "quote": "docker compose rm -s -f db >/dev/null"
+   },
+   {
+    "id": "E3",
+    "source": "story",
+    "loc": "docs/handoff/ST58.md:20-21",
+    "quote": "ST58 が列か値を**足す**（今の列の名前・型・NULL の可否は変えない"
+   },
+   {
+    "id": "E4",
+    "source": "ops",
+    "loc": "tools/stack.sh:97-102",
+    "quote": "migrate_rc=0; \"$server\" migrate || migrate_rc=$?"
+   },
+   {
+    "id": "E5",
+    "source": "code",
+    "loc": "crates/server/src/heartbeat.rs:84-86",
+    "quote": "field(req.raw.as_bytes());"
+   },
+   {
+    "id": "E6",
+    "source": "code",
+    "loc": "crates/server/src/heartbeat.rs:11-12",
+    "quote": "#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]"
+   },
+   {
+    "id": "E7",
+    "source": "design",
+    "loc": "openspec/changes/st51-update-history/premises.md:17",
+    "quote": "`HeartbeatRequest` に `deny_unknown_fields` が無い"
+   },
+   {
+    "id": "E8",
+    "source": "code",
+    "loc": "crates/collector-windows/src/lib.rs:47",
+    "quote": "pub const LOGICAL_SOURCE: &str = \"c02-window\";"
+   },
+   {
+    "id": "E9",
+    "source": "code",
+    "loc": "collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationFix.kt:11",
+    "quote": "const val LOGICAL_SOURCE: String = \"c01-location\""
+   },
+   {
+    "id": "E10",
+    "source": "code",
+    "loc": "collector-android/app/src/main/kotlin/dev/ashiato/collector/DeviceId.kt:17",
+    "quote": "アプリを消して入れ直すと変わるが、それは「別の端末」として扱ってよい（本人受け入れ済み）。"
+   },
+   {
+    "id": "E11",
+    "source": "code",
+    "loc": "crates/collector-windows/src/config.rs:123",
+    "quote": "device_id: var(\"ASHIATO_DEVICE_ID\")?,"
+   },
+   {
+    "id": "E12",
+    "source": "code",
+    "loc": "collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt:61",
+    "quote": "private lateinit var heartbeatOutbox: Outbox<HeartbeatRequest>"
+   },
+   {
+    "id": "E13",
+    "source": "code",
+    "loc": "crates/collector-windows/src/runtime.rs:228",
+    "quote": "let beats: Outbox<HeartbeatRequest> = Outbox::open(cfg.state_dir.join(\"heartbeat.jsonl\"))?;"
+   },
+   {
+    "id": "E14",
+    "source": "story",
+    "loc": "openspec/changes/st49-record-component-version/design.md:183",
+    "quote": "動いている版の申告は ST51（FR-121）が生存信号に足す"
+   },
+   {
+    "id": "E15",
+    "source": "code",
+    "loc": "crates/server/src/export.rs:629-631",
+    "quote": "WHERE table_schema = 'core' AND table_type = 'BASE TABLE'"
+   },
+   {
+    "id": "E16",
+    "source": "story",
+    "loc": "openspec/changes/st23-record-erasure/design.md:117",
+    "quote": "書き出しの表の分類（`export.rs` の表）に **3 表**を `Exclude` で足す"
+   }
+  ],
+  "lost": [],
+  "lost_none": "足すだけの変更で、今の操作の結果を変える所はこの分析では見つけていない。生存信号の欄は任意で、送らない収集アプリの要求は今と同じに受ける。変わるのは、書き出しの zip のファイルが 2 つ増え、生存信号のファイルに列が 1 つ増えること。",
+  "situations": [
+   {
+    "id": "normal",
+    "applies": true,
+    "can": "サーバの入れ替えごとに更新の履歴へ 1 行残り、収集アプリの版の変化は書き出しの `collector_version_changes.jsonl` で読める",
+    "cannot": "画面や API で更新の印を見ること（書き出しを開いて読む）。途絶の判定から更新の時間を外すこと",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "版を足しても、稼働状況と途切れの判定は変わらない",
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ],
+     "decisions": [
+      "Q5"
+     ]
+    }
+   },
+   {
+    "id": "update",
+    "applies": true,
+    "can": "入れ替えた組み立てが D-01 の版を全部知っていれば、移行か起動の 1 行が残る（仕様の Scenario で確かめる。stack.sh の流れを本物の bin で通した確認はまだ無い）。収集アプリを更新すると、新しい版の最初の生存信号で変化が 1 行出る",
+    "cannot": "携帯の収集アプリは更新の後に自分で起き直さないので、変化の時刻は本人がアプリを開いた時になる",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る",
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ],
+     "scenarios": [
+      "収集アプリを更新すると、版の変化が 1 行出る"
+     ],
+     "decisions": [
+      "D2"
+     ]
+    }
+   },
+   {
+    "id": "rollback",
+    "applies": true,
+    "can": "前の組み立てが D-01 の版を全部知っているとき（同じ版の並びを持つとき）だけ、戻すと起動のときに「新 → 前」の 1 行が残る",
+    "cannot": "新しい版の移行が当たった DB に古い組み立てを当てると、終了コード 3 で止まり、その試みは更新の履歴に残らない（IMP-01）",
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "migrate を走らせずに入れ替えた S-01 は、起動のときに 1 行を書く",
+      "版の検査で断られた起動は、何も書かない"
+     ]
+    }
+   },
+   {
+    "id": "carryover",
+    "applies": true,
+    "can": "ST51 の前に溜まった生存信号はそのまま残る。ST51 の最初の移行で、前の版が空の 1 行が書かれる",
+    "cannot": "ST51 より前の更新は記録に無い（版を持たない信号は並びから外れる）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る",
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ],
+     "scenarios": [
+      "更新の履歴の初めの行は、前の版を空にする",
+      "最初に版を持った信号は、変化として出ない"
+     ]
+    }
+   },
+   {
+    "id": "mixed",
+    "applies": true,
+    "can": "新しい収集アプリが ST51 より前のサーバに送っても信号は入り、版は原文に残る。後でサーバを上げると原文から導ける",
+    "cannot": "古い収集アプリの信号は版を持たない。同じ識別子で 2 つの C-02 を並べると版が行き来して見える（ST54）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ",
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ],
+     "scenarios": [
+      "列に版が無い信号は、原文の版で数える"
+     ]
+    }
+   },
+   {
+    "id": "recovery",
+    "applies": true,
+    "can": "移行が落ちた回は、落ちた版と SQLSTATE の 1 行が残る。更新の履歴を書けなくても、移行と起動の結果は変わらない",
+    "cannot": "退避から D-01 を戻すと、落ちた回の行も消える（書き直すのは ST58）",
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "落ちた回の行は、落ちた版と一緒に戻らない"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    }
+   }
+  ],
+  "rules": [
+   {
+    "id": "R1",
+    "kind": "制約",
+    "rule": "生存信号の版の値は検査せず、値を理由に断らない。版の無い信号も受ける",
+    "target": "版の欄を足したことで、今の収集アプリの信号が断られること",
+    "legit": "止めない（断らない向きの規則）",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "kind": "制約",
+    "rule": "版を持たない信号と、`c01-`・`c02-` 以外のソースの信号は、版の変化の並びから外す",
+    "target": "収集アプリでない書き手や版の無い信号が、偽の変化を作ること",
+    "legit": "外した信号の行は残り、数えないだけ。並べ方は後から直して出し直せる",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "kind": "制約",
+    "rule": "書き出しは台帳・導出・内部の表を入れず、分類の無い表・列があれば始めない",
+    "target": "台帳や回数が黙って外へ出る・記録が黙って欠けること",
+    "legit": "更新の履歴は分類に載せ、ビューは走査に載らないので、ST51 の追加で書き出しが止まる経路はこの分析では見つけていない",
+    "blocks_legit": false,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない",
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ],
+     "decisions": [
+      "D3"
+     ]
+    }
+   },
+   {
+    "id": "R4",
+    "kind": "制約",
+    "rule": "収集アプリは、溜めた生存信号の知らない欄を残すことまでは求められない（記録の溜めには求める）",
+    "target": "生存信号の溜めに、記録と同じ欄の保存を求めて作り直しが要ること",
+    "legit": "後の版が生存信号に欄を足してから古い版へ戻すと、その欄は落ちうる。版の欄は原文にも入るので残る",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+      "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+     ]
+    }
+   },
+   {
+    "id": "R5",
+    "kind": "停止",
+    "rule": "知らない版の当たった DB で止まった移行（終了コード 3）と、版の検査で断られた起動は、更新の履歴に何も書かない",
+    "target": "古いサーバが新しい DB に書くこと（FR-117）",
+    "legit": "本人が版を切り替えようとして止まった回も残らない。その間の途絶の理由は記録に無い",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "知らない版の当たった DB で止まった migrate は、何も書かない",
+      "版の検査で断られた起動は、何も書かない"
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "kind": "拒否",
+    "rule": "更新の履歴の行は、所有者を含むどの役割からも書き換え・消去・切り詰めを断る",
+    "target": "途絶の理由を後から黙って書き換えること・乗っ取られたサーバが本物の行を消すこと",
+    "legit": "誤って本番の D-01 に書いた行（開発の組み立てを動かした回など）も消せない",
+    "blocks_legit": true,
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "scenarios": [
+      "更新の履歴の行は書き換えられない"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   },
+   {
+    "id": "R7",
+    "kind": "制約",
+    "rule": "移行が落ちた回の行は、誤りの本文を持たず、落ちた版の名前と SQLSTATE だけを持つ",
+    "target": "行の値（私的なデータ）が追記のみの行と書き出しに残ること",
+    "legit": "落ちた理由の詳しい文は更新の履歴から読めない。SQLSTATE と版の名前から辿る",
+    "blocks_legit": false,
+    "basis": "spec",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "decisions": [
+      "Q1"
+     ]
+    }
+   }
+  ],
+  "scenarios": [
+   {
+    "id": "S1",
+    "rule": "R5",
+    "goal": "ベータ版で使っていた D-01 のまま、別の版の並びを持つ組み立てに切り替える",
+    "initial": "D-01 に、切り替え先の組み立てが知らない移行の版が当たっている",
+    "action": "切り替え先の組み立てで migrate を走らせ、起動する",
+    "trigger": "migrate が終了コード 3 で止まり、起動も版の検査で断られる。どちらも更新の履歴に書かない",
+    "result": "サーバは止まったままで、更新の履歴には行が無い。止まっていた理由は migrate の標準エラーの報告にしか出ない",
+    "lost": "止まっていた間の途絶を、後から「更新で止めた」と区別すること",
+    "decision": "止まった試みを D-01 の外に残すか、標準エラーの報告で足りるとするか（IMP-01）",
+    "occurs_when": [
+     "D-01 に、走らせる組み立ての知らない移行の版が当たっている"
+    ],
+    "not_when": [
+     "走らせる組み立てが D-01 の版を全部知っている（移行か起動の 1 行が残る）"
+    ],
+    "basis": "derived",
+    "imp": "IMP-01",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "知らない版の当たった DB で止まった migrate は、何も書かない"
+     ]
+    }
+   },
+   {
+    "id": "S2",
+    "rule": "R6",
+    "goal": "本番の D-01 に誤って書いた更新の履歴の行を消す",
+    "initial": "開発の組み立てを本番の D-01 に当ててしまい、その印の行が残っている",
+    "action": "所有者の接続で、その行を消そうとする",
+    "trigger": "書き換えの門がどの役割の消去も断る",
+    "result": "行は消えずに残る。後から読む人は、開発の組み立ての行も本物の更新と並べて読むことになる",
+    "lost": "更新の履歴から誤った行を取り除くこと",
+    "decision": "追記のみの守りを優先し、誤った行は残して読む（design の Risks と同じ受け入れ方）",
+    "occurs_when": [
+     "本番の D-01 で、本番でない組み立てを migrate か起動した"
+    ],
+    "not_when": [
+     "開発・検証の DB は volume ごと作り直す（表を消さずに DB ごと捨てる）"
+    ],
+    "basis": "derived",
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "scenarios": [
+      "更新の履歴の行は書き換えられない"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   },
+   {
+    "id": "S3",
+    "goal": "移行が落ちた後、退避から D-01 を戻して前の版で使い続ける",
+    "initial": "更新の履歴に、落ちた回の行（failed）がある",
+    "action": "移行の前に取った退避から D-01 を手で戻す",
+    "trigger": "落ちた回の行は D-01 の中だけにあり、退避より後に書かれている",
+    "result": "戻した D-01 には落ちた回の行が無い。前の組み立てで起動し直しても行は増えない",
+    "lost": "落ちた試みがあったことを、更新の履歴から読むこと（ST58 の書き直しまで）",
+    "decision": "深掘り Q2 の答えと、ST58 までの手当て（IMP-04）",
+    "occurs_when": [
+     "ST58 より前に、移行が落ちた後で退避から戻す"
+    ],
+    "not_when": [
+     "戻さずに、直した組み立てで入れ直す"
+    ],
+    "basis": "spec",
+    "imp": "IMP-04",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "落ちた回の行は、落ちた版と一緒に戻らない"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    }
+   },
+   {
+    "id": "S4",
+    "goal": "携帯の収集アプリの更新を、版の変化として後から見つける",
+    "initial": "携帯の収集アプリが版 A で動いている",
+    "action": "アプリを消して版 B を入れ直す（上書きの更新ではなく）",
+    "trigger": "入れ直しで端末識別子が変わり、版の変化は端末ごとに数える",
+    "result": "版の変化の行は出ず、新しい端末の申告の始まりに見える。生存信号の行と版は残る",
+    "lost": "入れ直しの更新を、変化の 1 行として読むこと",
+    "decision": "受け入れる（端末識別子の作り方は本人が受け入れ済み。並べ方はビューなので後から直せる）",
+    "occurs_when": [
+     "アプリを消して入れ直す"
+    ],
+    "not_when": [
+     "上書きで更新する（端末識別子は残る）"
+    ],
+    "basis": "observed",
+    "evidence": [
+     "E10"
+    ],
+    "refs": {
+     "requirements": [
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ],
+     "decisions": [
+      "D5"
+     ]
+    }
+   }
+  ],
+  "findings": [
+   {
+    "id": "IMP-01",
+    "severity": "medium",
+    "status": "open",
+    "title": "版の検査で止まった試みは、更新の履歴に残らない",
+    "text": "古い組み立てやベータ版の DB を使う切り替えで終了コード 3 になった回は、更新の履歴に何も書かない。止まっていた間の途絶の理由は、migrate の標準エラーの報告にしか出ない",
+    "basis": "derived",
+    "derived": "終了コード 3 と起動の拒否は書かない（Requirement）。だからその間の途絶には更新の履歴の行が無い",
+    "undefined": "止まった試みを記録として残す置き場（D-01 の外のファイルなど）。仕様は定めていない",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "このまま受け入れる（止まった理由は migrate の標準エラーの報告で、本人がその場で読む）"
+     },
+     {
+      "label": "止まった試みを D-01 の外の追記のみのファイルに残す（後の Story で）"
+     }
+    ],
+    "verify": "知らない版の当たった DB に別の組み立てで migrate を走らせ、更新の履歴が増えず、標準エラーに報告が出ることを本物の bin で確かめる（Task 2.3 の試験）",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "知らない版の当たった DB で止まった migrate は、何も書かない",
+      "版の検査で断られた起動は、何も書かない"
+     ]
+    }
+   },
+   {
+    "id": "IMP-02",
+    "severity": "medium",
+    "status": "open",
+    "title": "区別に使う見せ方を受け持つ Story を、この分析では見つけていない",
+    "text": "更新の履歴と版の変化は書き出しにだけ出る。画面で途絶と並べて見せる Story は、この分析では見つけていない。それまでは、本人が zip を開いて途絶の時刻と突き合わせることになる",
+    "basis": "unconfirmed",
+    "unknowns": [
+     "探した範囲: INDEX で FR-121 を持つのは ST51 だけ。扉 #14 に触れる Story（ST01・ST02・ST04・ST06・ST07・ST14・ST15）は ST51 以外 archive 済みで、更新の履歴を見せる振る舞いを持たない。まだ Story になっていない要件が見せる予定かは確かめていない"
+    ],
+    "derived": "画面・API・格子は変えない（Q5 の推奨）ので、区別の材料は書き出しのファイルにしか無い",
+    "undefined": "更新の履歴を途絶と並べて見せる画面と、その Story",
+    "feasibility": "unverified",
+    "options": [
+     {
+      "label": "書き出しを読むことで当面は受け入れる"
+     },
+     {
+      "label": "/requirements から、途絶と更新の履歴を並べて見せる Story を足す"
+     }
+    ],
+    "verify": "要件と Story の一覧で、更新の履歴・版の変化を画面に出す要件を探す",
+    "refs": {
+     "requirements": [
+      "版を足しても、稼働状況と途切れの判定は変わらない",
+      "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+     ],
+     "decisions": [
+      "Q5"
+     ]
+    }
+   },
+   {
+    "id": "IMP-03",
+    "severity": "low",
+    "status": "open",
+    "title": "同じ commit の未 commit の変更つきの組み立てどうしの入れ替えは、行にならない",
+    "text": "組み立ての印は「commit + .dirty」で、変更の中身を持たない。同じ commit の .dirty の組み立てを入れ替えても、印が同じなので行は増えない",
+    "basis": "derived",
+    "derived": "印が前の通った行と同じなら書かない（Requirement）。ST49 の印は変更の中身を区別しない",
+    "undefined": "開発の組み立てどうしの入れ替えを区別すること（本番は綺麗な木の release を前提にしている）",
+    "feasibility": "unverified",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "同じ組み立てで migrate を走らせ直しても、行は増えない"
+     ]
+    }
+   },
+   {
+    "id": "IMP-04",
+    "severity": "medium",
+    "status": "open",
+    "title": "ST58 より前に退避から戻すと、落ちた回の行が消える",
+    "text": "落ちた回の行は D-01 の中だけにあり、退避より後に書かれる。ST58 の戻しができるまでは手で戻すので、戻すとその回の試みが更新の履歴から消える",
+    "basis": "derived",
+    "derived": "落ちた回の行は D-01 の中だけに置く（Q2 の推奨）。退避は移行の前に取る。だから戻すと行も消える",
+    "undefined": "ST58 までの間に、戻す前に落ちた版・SQLSTATE を控える手順。仕様は定めていない",
+    "feasibility": "unverified",
+    "unknowns": [
+     "ST58 より前に、本番の D-01 を退避から手で戻す場面がどれだけあるか"
+    ],
+    "options": [
+     {
+      "label": "受け入れる（ST58 まで、手で戻す回の痕跡は migrate の標準エラーで読む）"
+     },
+     {
+      "label": "Q2 の答えを変え、落ちた回の行を D-01 の外にも残す"
+     }
+    ],
+    "verify": "移行を落としてから退避で戻し、更新の履歴に failed の行が無いことを試験で確かめる",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る"
+     ],
+     "scenarios": [
+      "落ちた回の行は、落ちた版と一緒に戻らない"
+     ],
+     "decisions": [
+      "Q2"
+     ]
+    }
+   },
+   {
+    "id": "IMP-05",
+    "severity": "low",
+    "status": "open",
+    "title": "既存のアプリの役割の試験が、更新の履歴の REVOKE で落ちる",
+    "text": "既存の試験は、記録の schema のどの表でも実行時の役割が UPDATE・DELETE できることを確かめる。D10 が更新の履歴だけ外すので、この試験は落ちる。tasks に試験を直す手順が無い",
+    "basis": "observed",
+    "deps": [
+     "D17"
+    ],
+    "evidence": [
+     "E17"
+    ],
+    "derived": "D10 の REVOKE と、全表で UPDATE・DELETE が true であることを求める試験は両立しない",
+    "undefined": "試験に更新の履歴の例外を足す手順（tasks 1.2 に無い）",
+    "feasibility": "unverified",
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   }
+  ],
+  "acceptance": [
+   {
+    "text": "IMP-05 の食い違い（既存のアプリの役割の試験と D10）を spec の段で直してから下流へ渡す",
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ],
+     "decisions": [
+      "D10"
+     ]
+    }
+   },
+   {
+    "text": "change の Scenario が全部、tasks の検証コマンドで通る（本物の bin の migrate と起動を含む）",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る",
+      "収集アプリの版の変化は、生存信号から導いて読める"
+     ]
+    }
+   },
+   {
+    "text": "ST49 の組み立ての印が ST51 の下流の入口で取り込まれている（`story_deps.py included ST51 ST49`）",
+    "refs": {
+     "requirements": [
+      "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+      "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+     ]
+    }
+   },
+   {
+    "text": "IMP-01・IMP-02 を、書いた残るもののまま受け入れるか、直す側を選んでいる",
+    "refs": {
+     "requirements": [
+      "S-01 の版が変わると、更新の履歴に 1 行残る",
+      "版を足しても、稼働状況と途切れの判定は変わらない"
+     ]
+    }
+   },
+   {
+    "text": "書き換え禁止の台本（`tools/check-immutable.d/` の ST51 の分）が、所有者と実行時の役割の両方で通る",
+    "refs": {
+     "requirements": [
+      "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+     ]
+    }
+   }
+  ],
+  "scope": {
+   "covers": [
+    {
+     "text": "サーバの移行の終わりと、版の検査を通った起動で、版が前の通った行と違う回",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ]
+     }
+    },
+    {
+     "text": "ST51 の後に組み立てた収集アプリが積む生存信号と、そこから導く版の変化",
+     "refs": {
+      "requirements": [
+       "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ",
+       "収集アプリの版の変化は、生存信号から導いて読める",
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+      ]
+     }
+    },
+    {
+     "text": "全記録の書き出しの 2 ファイルと生存信号の版の列",
+     "refs": {
+      "requirements": [
+       "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ",
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+      ]
+     }
+    }
+   ],
+   "preconditions": [
+    {
+     "text": "起動の行は、版の検査を通った後だけ書く。書けないときは警告だけで、終了コードと起動の成否は変えない",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ]
+     }
+    },
+    {
+     "text": "更新の履歴の形は、列か値を足すだけで変える。実行時の役割は読むことと足すことだけ",
+     "refs": {
+      "requirements": [
+       "更新の履歴は、決めた置き場と列の形で持つ",
+       "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる"
+      ]
+     }
+    },
+    {
+     "text": "版の変化は `c01-`・`c02-` のソースだけを、利用者・端末・部品ごとに発信の時刻の順で数える",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める"
+      ]
+     }
+    },
+    {
+     "text": "収集アプリの版は ST49 の組み立ての印（release だけが .debug を持たない）を、積む時点で載せる",
+     "refs": {
+      "requirements": [
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない"
+      ]
+     }
+    },
+    {
+     "text": "書き出しは今の分類の決まり（台帳・導出は入れない）のまま、ファイルを足すだけ",
+     "refs": {
+      "requirements": [
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+      ]
+     }
+    }
+   ],
+   "excludes": [
+    {
+     "text": "終了コード 3 で止まった移行・版の検査で断られた起動（何も書かない）",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ]
+     }
+    },
+    {
+     "text": "収集アプリでないソース（書庫の取り込み・衛星）の信号",
+     "refs": {
+      "requirements": [
+       "収集アプリの版の変化は、生存信号から導いて読める",
+       "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ"
+      ]
+     }
+    },
+    {
+     "text": "画面・API・格子の印・途絶の判定の変更（Q5）",
+     "refs": {
+      "requirements": [
+       "版を足しても、稼働状況と途切れの判定は変わらない"
+      ],
+      "decisions": [
+       "Q5"
+      ]
+     }
+    },
+    {
+     "text": "戻した後に落ちた試みと戻したことを書き直すこと（ST58）・更新の後に C-01 を起き直させること（ST58）・C-02 を並べるときの識別子（ST54）",
+     "refs": {
+      "decisions": [
+       "Q2"
+      ]
+     }
+    }
+   ],
+   "residual": [
+    {
+     "text": "版の検査で止まった試みは更新の履歴に残らない（IMP-01）",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ]
+     }
+    },
+    {
+     "text": "ST58 より前に手で戻した回の痕跡が消える（IMP-04）",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "text": "ST58 より前に退避から戻すと、落ちた回の行が消える",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る"
+      ],
+      "decisions": [
+       "Q2"
+      ]
+     }
+    },
+    {
+     "text": "区別は書き出しを読むことでしかできない（IMP-02）",
+     "refs": {
+      "requirements": [
+       "版を足しても、稼働状況と途切れの判定は変わらない"
+      ]
+     }
+    }
+   ]
+  },
+  "coverage": {
+   "examined": [
+    {
+     "text": "change の 10 本の Requirement と design の D1〜D15。サーバの migrate の流れ（lib.rs の run_migrate）・付与・書き出しの分類・生存信号の受け口と冪等キー・収集アプリの未送信の置き場・端末識別子",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る",
+       "更新の履歴は、決めた置き場と列の形で持つ",
+       "更新の履歴は書き換えられず、S-01 の実行時の役割は足すことだけができる",
+       "生存信号は、その信号を積んだ時に動いていた収集アプリの版を持つ",
+       "収集アプリの版の変化は、生存信号から導いて読める",
+       "版を足しても、稼働状況と途切れの判定は変わらない",
+       "携帯の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "PC の収集アプリは、記録を未送信に積む時点で自分の版を焼き込み、溜めた行の欄を落とさない",
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない",
+       "書き出しは、更新の履歴と収集アプリの版の変化と生存信号の版を、説明つきで持つ"
+      ],
+      "decisions": [
+       "D10"
+      ]
+     }
+    },
+    {
+     "text": "同じファイルを触る走っている change: st49-record-component-version（export.rs・lib.rs・migrations/ORDER・試験の台本）・st23-record-erasure（export.rs の分類・migrations/ORDER・check-immutable.d）・st11-health-history-permission（migrations/ORDER）・ch05-test-db-bloat（lib.rs）。ORDER は末尾に 1 行ずつ足す取り決めで、lib.rs は別の関数を触る。組み合わせで振る舞いが変わる所はこの分析では見つけていない",
+     "refs": {
+      "requirements": [
+       "S-01 の版が変わると、更新の履歴に 1 行残る",
+       "書き出しは台帳・導出・内部の表と、消したことの痕跡を入れない"
+      ]
+     }
+    }
+   ],
+   "not_examined": [
+    {
+     "text": "実機の Android で、上書きの更新の後に端末識別子と未送信が残ること",
+     "why": "Android の仕様の知識で、実機では確かめていない（premises 8 は確かさ 2）"
+    },
+    {
+     "text": "ST49 の実装の印の形が gate までに変わるか",
+     "why": "ST49 は下流が走っていて gate 前"
+    },
+    {
+     "text": "書き出しから D-01 を作り直す道具の有無",
+     "why": "この分析では探していない（D5 の依存は unknown）"
+    }
+   ],
+   "excluded": [
+    {
+     "text": "テスト用 DB（testdb.rs）の作り方",
+     "why": "テンプレートから DB ごと作るので、切り詰めを断る表の影響を受けない"
+    }
+   ]
+  }
+ }
+}
