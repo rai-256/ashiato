@@ -324,3 +324,9 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
 - 処置: rejected: 仕事の panic は黙って消えない —— `crates/server/src/lib.rs:3700` の `std::panic::set_hook` が `kind="panic"` で必ずログに出す。仕事の本体（`crates/server/src/purge_compaction.rs:63-64`）は抜け道の無い `loop` で、1 晩ごとの失敗は `Err` としてログに出して次の晩へ進む。手綱を捨てて起こしっぱなしにするのは書庫の取り込み器（`crates/server/src/lib.rs:3777`）と同じ形で、作り直しの監督はこの Story の範囲で足さない
+
+## scoped re-review（9c6f245..e72c8d7。finish の fix）
+
+R16・R17・R18・R19・R21・R22・R24・R27・R28 すべて ADDRESSED、fix の diff に新しい Critical / Important なし。
+R19 は tasks.md 6.1 の本文の `git diff --quiet origin/main …` が直っておらず rc=1 のまま —— 処置の行の理由（`evidence.py unverified` の項目で plan_fix に乗らない）のとおり PR 本文の未処置に残す。
+Minor（park）: `tools/check-st23-derived-erasure.sh` の awk は ST23 の節が最後の節だと終わりまで数える（`^  OK ` の字下げの行だけなので実害は小さい）。`has_unrewritten_erasure` は時刻の下限が無くなり毎晩 `core.erasure_operation` を全部読む（量は操作の数）。
