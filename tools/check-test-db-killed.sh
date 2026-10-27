@@ -54,6 +54,23 @@ stat_ashiato() {
   size=$(psql_db postgres "SELECT pg_database_size('ashiato')")
   echo "$rows $size"
 }
+# 一覧・統計は `|| return` の中で呼ばれて set -e が効かないので、rc と中身をここで明示的に確かめる
+list_checked() {  # list_checked <変数名>
+  local out
+  out=$(list_dbs) || { echo "database の一覧が読めない（rc=$?）" >&2; return 1; }
+  [[ -n $out ]] || { echo "database の一覧が空（postgres が無いはずはない）" >&2; return 1; }
+  printf -v "$1" %s "$out"
+}
+stat_checked() {  # stat_checked <行数の変数名> <大きさの変数名>
+  local out rc=0 r s extra
+  out=$(stat_ashiato) || rc=$?
+  if [[ $rc != 0 ]]; then echo "ashiato の行数と大きさが読めない（rc=$rc）" >&2; return 1; fi
+  read -r r s extra <<<"$out" || true
+  if ! [[ $r =~ ^[0-9]+$ && $s =~ ^[0-9]+$ && -z $extra ]]; then
+    echo "ashiato の行数と大きさが数値 2 つで返らなかった: '$out'" >&2; return 1
+  fi
+  printf -v "$1" %s "$r"; printf -v "$2" %s "$s"
+}
 probe_active() {  # 回の database に ch05_probe の印のある active の文が見える
   [[ -n $(psql_db postgres "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%ch05_probe%' AND pid <> pg_backend_pid() LIMIT 1") ]]
 }
@@ -118,12 +135,12 @@ wait_mark() {
 # point <時点> <作業の場所> <試験の実行ファイル>
 point() {
   local at=$1 dir=$2 exe=$3 mark="$2/mark" s0 s1 s2 killed left name rows0 size0 rows1 size1 rc t0 t1 out
-  s0=$(list_dbs)
-  read -r rows0 size0 < <(stat_ashiato)
+  list_checked s0 || return 1
+  stat_checked rows0 size0 || return 1
   start_probe "$at" "$mark" "$exe"
   wait_mark "$at" "$mark" || { kill_probe; return 1; }
   kill_probe
-  s1=$(list_dbs)
+  list_checked s1 || return 1
   killed=$(comm -13 <(echo "$s0") <(echo "$s1"))
   if [[ -z $killed ]]; then
     echo "時点 $at: 殺した回の database が見えない（検査が空振り）" >&2; return 1
@@ -136,13 +153,13 @@ point() {
   t1=$EPOCHREALTIME
   echo "時点 $at: 次の回 rc=$rc $(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}') 秒"
   if [[ $rc != 0 ]]; then echo "$out" >&2; echo "時点 $at: 次の回の試験が rc=$rc で落ちた" >&2; return "$rc"; fi
-  s2=$(list_dbs)
+  list_checked s2 || return 1
   left=$(comm -12 <(echo "$killed") <(echo "$s2"))
   if [[ -n $left ]]; then
     echo "時点 $at: 殺した回の database が次の回の後にも残っている:" >&2; sed 's/^/  /' <<<"$left" >&2
     echo "  → 次の回の始まりの片付け（testdb.rs）が消していない" >&2; return 1
   fi
-  read -r rows1 size1 < <(stat_ashiato)
+  stat_checked rows1 size1 || return 1
   if [[ $rows1 != "$rows0" ]]; then
     echo "時点 $at: ashiato database の core.event の行数が変わった（前 $rows0 → 後 $rows1）" >&2; return 1
   fi
@@ -178,14 +195,14 @@ self_test() {
   k() {
     d="$tmp/k"; rm -rf "$d"; mkdir -p "$d"
     printf 'ashiato\npostgres\n' >"$d/dbs"; echo '10 5000000' >"$d/stat"
-    local next=$1 probe=${2:-} wait=${3:-5}
+    local next=$1 probe=${2:-} wait=${3:-5} statcmd=${4:-cat $d/stat}
     # 既定の探り: 回と試験ごとの database を作り、印のファイルへ名前と時点の印を書いて眠る
     [[ -z $probe ]] && probe="r=ashiato_run_aaaaaaaaaaaa; echo \$r >>$d/dbs; echo \${r}_x_111111111111 >>$d/dbs
       echo run=\$r >>\$CH05_PROBE_MARK; echo iso=\${r}_x_111111111111 >>\$CH05_PROBE_MARK
       if [ \$CH05_PROBE_AT = insert ]; then echo inserting >>\$CH05_PROBE_MARK; else echo committed >>\$CH05_PROBE_MARK; fi; sleep 600"
     set +e
     out=$(TEST_DB_KILLED_PROBE_CMD="$probe" TEST_DB_KILLED_NEXT_CMD="$next" TEST_DB_KILLED_LIST_CMD="cat $d/dbs" \
-      TEST_DB_KILLED_STAT_CMD="cat $d/stat" TEST_DB_KILLED_WAIT_S="$wait" bash "$0" 2>&1)
+      TEST_DB_KILLED_STAT_CMD="$statcmd" TEST_DB_KILLED_WAIT_S="$wait" bash "$0" 2>&1)
     rc=$?; set -e
   }
   sweep="sed -i '/^ashiato_run_/d' $tmp/k/dbs"
@@ -227,6 +244,22 @@ self_test() {
   k "$sweep"
   want "片付けば rc=0" "$([[ $rc == 0 ]]; echo $?)"
   want "2 つの時点を通る" "$(grep -q '時点 insert: OK' <<<"$out" && grep -q '時点 committed: OK' <<<"$out"; echo $?)"
+
+  echo "Scenario: 統計や一覧が読めない・数値でなければ、黙って通らず落ちる"
+  k "true" "" 5 "exit 3"
+  want "統計が rc=3 なら rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  want "読めないことを挙げる" "$(grep -q '読めない' <<<"$out"; echo $?)"
+  k "true" "" 5 "echo abc"
+  want "数値でない統計なら rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  k "$sweep; echo 'x 5000000' >$tmp/k/stat"
+  want "殺した後に統計が数値でなくなれば rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  k "$sweep; : >$tmp/k/stat"
+  want "殺した後に統計が空になれば rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  d="$tmp/k"; set +e
+  out=$(TEST_DB_KILLED_LIST_CMD="exit 4" TEST_DB_KILLED_PROBE_CMD="sleep 600" TEST_DB_KILLED_NEXT_CMD=true \
+    TEST_DB_KILLED_STAT_CMD="echo 10 5000000" TEST_DB_KILLED_WAIT_S=1 bash "$0" 2>&1); rc=$?; set -e
+  want "一覧が読めなければ rc=1" "$([[ $rc == 1 ]]; echo $?)"
+  want "一覧が読めないことを挙げる" "$(grep -q '一覧が読めない' <<<"$out"; echo $?)"
 
   [[ $fail == 0 ]] && echo "self-test OK" || { echo "self-test FAILED" >&2; exit 1; }
 }
