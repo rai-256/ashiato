@@ -70,11 +70,11 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
 
 ## Task 4: 文書と完了の判定
 
-- [ ] 4.1 `docs/flow-gates.md` の `tools/check-verify-env-reset.sh` の行の「見るもの」に「作り直したときだけの `HARNESS_RESET` の宣言」を足し、`tools/check-verify-env-reset.sh` の冒頭の注記に ch07 の段（9.〜11.）と宣言の確かめ、`--self-test` の「CI と手元で同じ結果」の例外（ハーネスの点検の段は `.harness2` のある木だけ。CI は SKIP）を足す（design D5）。
+- [x] 4.1 `docs/flow-gates.md` の `tools/check-verify-env-reset.sh` の行の「見るもの」に「作り直したときだけの `HARNESS_RESET` の宣言」を足し、`tools/check-verify-env-reset.sh` の冒頭の注記に ch07 の段（9.〜11.）と宣言の確かめ、`--self-test` の「CI と手元で同じ結果」の例外（ハーネスの点検の段は `.harness2` のある木だけ。CI は SKIP）を足す（design D5）。
   検証: `bash -c 'grep -F "check-verify-env-reset.sh" docs/flow-gates.md | grep -qF "HARNESS_RESET"'` rc=0 / `bash -c 'head -20 tools/check-verify-env-reset.sh | grep -q "ch07"'` rc=0
-- [ ] 4.2 完了の判定 3 を確かめる（C7）: `.harness2` の SHA を証跡に残し、`init.py --check` の `tools/verify-env.sh` の項目が `[ok]` だけであること。
+- [x] 4.2 完了の判定 3 を確かめる（C7）: `.harness2` の SHA を証跡に残し、`init.py --check` の `tools/verify-env.sh` の項目が `[ok]` だけであること。
   検証: `bash -c 'grep -q check_verify_env .harness2/scripts/init.py || exit 1; git -C .harness2 rev-parse HEAD; o=$(python3 .harness2/scripts/init.py --check 2>&1 || true); ! grep -qF "[人間] tools/verify-env.sh" <<<"$o" && [ "$(grep -cF "[ok] tools/verify-env.sh" <<<"$o")" = 1 ]'` rc=0
-- [ ] 4.3 変えないものが変わっていないこと（Global Constraints）と、全体の確かめ。
+- [x] 4.3 変えないものが変わっていないこと（Global Constraints）と、全体の確かめ。
   diff の基準は `origin/main`。`tools/env-init.sh`・`tools/ports.sh`・`.github/workflows/` は CH06 の差分が混ざるので diff に入れず、CH06 の検査（`tools/check-ports.sh --self-test`・`tools/check-verify-env-reset.sh` の CH06 の段）が CH06 の振る舞いを固定する。
   検証: `bash -c '[ -z "$(git diff origin/main...HEAD -- crates migrations tools/stack.sh tools/smoke.sh tools/check-immutable.sh tools/check-panic-log.sh tools/dev.sh tools/record-env.sh tools/db-roles.sh docker-compose.yml)" ]'` rc=0 /
   `bash -c 'openspec validate ch07-declare-verify-reset --strict'` rc=0 / `python3 scripts/check_scenarios.py . ch07-declare-verify-reset` rc=0 / `tools/check-private.sh` rc=0 /
