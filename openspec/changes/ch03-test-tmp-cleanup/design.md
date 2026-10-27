@@ -94,7 +94,11 @@
 ### D6（仮）. 残りの測り方: 一時フォルダを worktree の中の空のフォルダへ向け、試験の数も見る（Q5 の推奨）
 
 - `tools/tmp-leak-check.sh rust [cargo test の引数…]`（引数が無ければ `--workspace`、あればその引数だけ）/ `tools/tmp-leak-check.sh android [gradle の引数…]` / `--self-test`。
-  一時フォルダの根は `target/tmp-leak/<rust|android>-<日時>-<pid>`（repo の根からの相対。tmpfs でなく、worktree ごとに別。`target/` は gitignore 済み）。始める前に作り、空であることを確かめる
+  一時フォルダの根は `/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<pid>`（tmpfs。pid で worktree ごとに別）。始める前に作り、空であることを確かめる。
+  通れば消し、落ちた・残りがあったときだけ `target/tmp-leak/` へ移して残す（`target/` は gitignore 済み。/tmp を食わない）。
+  **ディスクに根を置かない**（2026-10-27 実測で訂正。初めは `target/tmp-leak/` に置いていた）: 置き場に書く試験が 10 倍以上遅くなる
+  （collector-windows の 283 本が /tmp で 5.7 秒、`target/` で 63〜90 秒）。その負荷で、見回り 1 回が 1 秒未満を見る
+  `history_large_fetch_keeps_observing_foreground` が毎回落ち、8.2 が通らなかった
 - **Rust**: `cargo test --no-run <引数>` で先に組み（rustc の一時ファイルを根に入れない）、`TMPDIR=<根> cargo test <引数>` で走らせる。
   走った本数は出力の `test result: ok. <N> passed` の N の合計
 - **Kotlin**: `ASHIATO_TEST_TMPDIR=<根> ./gradlew :app:testDebugUnitTest --rerun "$@"`。`build.gradle.kts` の `unitTests.all` に
@@ -132,7 +136,7 @@
 - [`TempDir` の 0700 が、権限を見る試験を変える] → いま当たる試験は無い。当たったら試験が自分で付け直す（D1）
 - [検査の誤検知（コメントや文字列の中）] → `tmp-ok: <理由>` で逃がす（D4）。逃がした数が増えたら D4 の反転条件
 - [`java.io.tmpdir` を向けられない・Robolectric が残す] → Task 1 が最初に確かめる（D6 の反転条件）。外れたら Task 1 の検証が落ちる
-- [殺された試験の残りは残る] → この change の外（Q7）。`target/tmp-leak/` の下に残るので、CI の台本から走ったものは `/tmp` を食わない
+- [殺された試験の残りは残る] → この change の外（Q7）。台本ごと殺されると根は `/tmp/ashiato-tmp-leak-*` に残る（落ちた回は `target/tmp-leak/` へ移すので `/tmp` を食わない）
 - [失敗した試験の中身を後から覗けない] → もう一度走らせて再現する（Q8）。CI の台本は残りがあれば根を消さない（D6）が、それは漏れの調べ用で、落ちた試験の中身の保存ではない
 
 ## Migration Plan

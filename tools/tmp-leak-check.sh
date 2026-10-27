@@ -6,16 +6,22 @@
 #   tools/tmp-leak-check.sh --self-test                   # 偽の命令で、残り・0 本・rc の伝わり・通る道を見る
 #
 # rc: 試験の rc が 0 でなければその rc / 走った試験が 0 本なら 1 / 根に何か残れば 1 / 通れば 0。
-#     rc=0 のときは根を消す。rc=1 のときは残す（中身を見て直す。`target/` の下なので /tmp を食わない）。
+#     rc=0 のときは根を消す。落ちたときは根を `target/tmp-leak/` へ移して残す（中身を見て直す。/tmp を食わない）。
+# 根は /tmp（tmpfs）に作る: ディスクの上だと、置き場に書く試験が 10 倍以上遅くなり、時間を測る試験が落ちる
+#     （2026-10-27 実測: collector-windows の 283 本が /tmp で 5.7 秒、target/ で 63〜90 秒。
+#     history_large_fetch_keeps_observing_foreground が見回り 1 回 1.1〜2.2 秒で毎回落ちた）。
+#     作る場所は TMP_LEAK_BASE、移す先は TMP_LEAK_KEEP で差し替えられる（--self-test が使う）。
 # 試験の命令は環境変数 TMP_LEAK_CMD で差し替えられる（--self-test が使う。本数は出力の
 #     `test result: ok. <N> passed` の N の合計。差し替え中の命令には根が TMP_LEAK_ROOT で渡る）。
 #
 # **なぜ要るか**: 試験が自分の一時フォルダを消し忘れても、`/tmp` に溜まるだけで何も落ちなかった（CH03）。
-# 一時フォルダを worktree の中の空のフォルダへ向けて走らせ、終わった後に何か残っていれば落とす。
+# 一時フォルダを空のフォルダへ向けて走らせ、終わった後に何か残っていれば落とす。
 # Rust は TMPDIR、Kotlin は ASHIATO_TEST_TMPDIR（build.gradle.kts が試験の JVM の java.io.tmpdir に渡す）。
 set -uo pipefail
 cd "$(dirname "$0")/.."
 repo=$PWD
+base=${TMP_LEAK_BASE:-/tmp}
+keep=${TMP_LEAK_KEEP:-$repo/target/tmp-leak}
 
 count_rust_output() { # stdin の `test result: ok. N passed` の N の合計
   { grep -oE 'test result: ok\. [0-9]+ passed' || true; } | awk '{s+=$4} END{print s+0}'
@@ -28,15 +34,21 @@ count_android_xml() {
   done | awk '{s+=$1} END{print s+0}'
 }
 
+keep_root() { # 落ちた回の根を /tmp から target/tmp-leak/ へ移し、移した先を出す
+  local to
+  to="$keep/$(basename "$1")"
+  if mv "$1" "$to" 2>/dev/null; then echo "$to"; else echo "$1（target へ移せなかった）"; fi
+}
+
 run() {
   local mode=$1; shift
   local stamp root out rc ran
   stamp=$(date +%Y%m%d-%H%M%S)
-  root="$repo/target/tmp-leak/$mode-$stamp-$$"
+  root="$base/ashiato-tmp-leak-$mode-$stamp-$$"
   mkdir -p "$root"
   [ -z "$(ls -A "$root")" ] || { echo "tmp-leak: 根が空でない: $root" >&2; return 2; }
   echo "tmp-leak: 根 $root"
-  out=$(mktemp "$repo/target/tmp-leak/out.XXXXXX")
+  out=$(mktemp "$keep/out.XXXXXX")
 
   if [ -n "${TMP_LEAK_CMD:-}" ]; then
     TMPDIR=$root ASHIATO_TEST_TMPDIR=$root TMP_LEAK_ROOT=$root bash -c "$TMP_LEAK_CMD" 2>&1 | tee "$out"
@@ -58,18 +70,18 @@ run() {
   rm -f "$out"
 
   if [ "$rc" -ne 0 ]; then
-    echo "tmp-leak: 試験が rc=$rc で終わった（根は残す: $root）" >&2
+    echo "tmp-leak: 試験が rc=$rc で終わった（根は残す: $(keep_root "$root")）" >&2
     return "$rc"
   fi
   if [ "$ran" -eq 0 ]; then
-    echo "tmp-leak: 走った試験が 0 本（根は残す: $root）" >&2
+    echo "tmp-leak: 走った試験が 0 本（根は残す: $(keep_root "$root")）" >&2
     return 1
   fi
   local left
   left=$(ls -A "$root" | wc -l)
   if [ "$left" -gt 0 ]; then
-    echo "tmp-leak: 試験の後に一時フォルダへ残ったものが $left 件ある（根: $root）" >&2
     ls -A "$root" | head -20 | sed 's/^/  残り: /' >&2
+    echo "tmp-leak: 試験の後に一時フォルダへ残ったものが $left 件ある（根: $(keep_root "$root")）" >&2
     return 1
   fi
   rm -rf "$root"
@@ -77,18 +89,18 @@ run() {
 }
 
 self_test() {
-  local fails=0 out rc root
+  local fails=0 out rc kept
+  kept=$(mktemp -d)
+  trap 'rm -rf "$kept"' RETURN
   expect() { # 名前 期待rc 期待の語 命令
     local name=$1 want_rc=$2 want_text=$3 cmd=$4
     echo "Scenario: $name"
-    out=$(TMP_LEAK_CMD=$cmd "$0" rust 2>&1); rc=$?
-    root=$(printf '%s\n' "$out" | sed -n 's/^tmp-leak: 根 //p' | head -1)
+    out=$(TMP_LEAK_CMD=$cmd TMP_LEAK_KEEP=$kept "$0" rust 2>&1); rc=$?
     if [ "$rc" -ne "$want_rc" ] || ! printf '%s' "$out" | grep -qF -- "$want_text"; then
       echo "FAIL: $name (rc=$rc, 期待 rc=$want_rc と「$want_text」)" >&2
       printf '%s\n' "$out" >&2
       fails=$((fails + 1))
     fi
-    [ -n "$root" ] && rm -rf "$root"
   }
   # Scenario: 試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる
   expect "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる" 1 "leaked-by-test" \
@@ -117,6 +129,6 @@ self_test() {
 
 case "${1:-}" in
   --self-test) self_test ;;
-  rust | android) mode=$1; shift; mkdir -p target/tmp-leak; run "$mode" "$@" ;;
+  rust | android) mode=$1; shift; mkdir -p "$keep"; run "$mode" "$@" ;;
   *) echo "使い方: $0 rust [引数…] | android [引数…] | --self-test" >&2; exit 2 ;;
 esac
