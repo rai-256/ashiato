@@ -1,50 +1,58 @@
-# CH03 テストの一時ファイルの後始末（上流）
+# CH03 テストの一時ファイルの後始末
 
-change: `openspec/changes/ch03-test-tmp-cleanup/`。新しい capability `test-hygiene`（ADDED 3・Scenario 18 本）。依頼の逐語・価値・壊してはいけないもの・完了の判定は `docs/changes/CH03.md`。
+change: `openspec/changes/ch03-test-tmp-cleanup/`（capability `test-hygiene`・Scenario 18 本）。依頼と完了の判定は `docs/changes/CH03.md`。
+Rust の試験は `tempfile::TempDir`、Kotlin の単体試験は `@get:Rule` の `TemporaryFolder` で一時フォルダを持ち、落ちても消える。
+手で作る書き方は `tools/check-tmp-hygiene.sh`（CI の chain job と commit 前）が止め、CI の rust・android の試験の段は
+`tools/tmp-leak-check.sh` から走って、試験の後に一時フォルダへ残ったものがあれば落ちる。
 
-> **第 1 回の深掘りの答えを待たずに、推奨の答えで先に書いた**（2026-10-20 の流れ）。下の Q1〜Q8 は**本人の答えではなく推奨**で、`deep.md` は `（答え待ち・推奨: …）` のまま。
-> 答えが推奨と違えば `spec --answers` が仕様に写し直す。全問が B（仮でよい）。
+## deep.md に積んだ未決（A）
 
-## 深掘り（第 1 回。推奨で書いた）
+- **Q9（第 2 回・premise。`review/code.md` R17）8.3 の検証コマンドの入口を、証跡の機械が拾えない** —— (未回答)。
+  問いは `openspec/changes/ch03-test-tmp-cleanup/deep-questions-r2.json`（HTML `docs/briefs/CH03-deep-r2.html`）。
+  tasks 8.3 の `openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh` は、harness2 の `scripts/evidence.py:67` の CMD_LIKE（`./` `tools/` `scripts/` …）に当たらないため、
+  verify-run が走らせられない。旧コマンドの FAIL の証跡も作れないので、plan_fix の機械の訂正も成り立たない。
+  推奨は harness2 の CMD_LIKE に `openspec/` を足すこと。台本は HEAD で手で走らせて rc=0（rust 1805→1806・kotlin 626→628、分岐点の試験の名前は全部 HEAD でも試験）
 
-| Q | 推奨（仕様はこれで書いた） | どこに効くか |
-|---|---|---|
-| Q1 検査をどこに当てるか | Rust は `crates/` の全体（製品のコードも）、Kotlin は `app/src/test` だけ。逃げ道は `tmp-ok: <理由>` | spec Requirement 2、design D3、tasks 7.1 |
-| Q2 検査が拾う書き方 | 作る書き方の兄弟の全部と、後始末を外す口（`keep()`・`into_path()`・`persist(`・規則の無い `TemporaryFolder()`）も落とす | spec Requirement 2、design D4、tasks 7.1 |
-| Q3 bash・`/tmp` の固定名 | 直さない（Rust と Kotlin の試験だけ） | design Non-Goals |
-| Q4 走っている st09・st13 | 木の全体に当てる。rebase の後、それぞれの gate → fix で直す（spec-review R5 で「コンパイルも通らなくなる」を context に足した。推奨は変えない） | proposal Impact、design D1・D2・D5 |
-| Q5 残りの確かめ方 | CI の既存の試験の段を、一時フォルダを空のフォルダへ向けて走らせ、空であることと試験が 1 本以上走ったことを見る | spec Requirement 3、design D6、tasks Task 1・8 |
-| Q6 今 `/tmp` にある残り | 消さない | design Non-Goals |
-| Q7 殺された試験の残り | 扱わない | spec Requirement 1 の本文、design Non-Goals |
-| Q8 失敗した試験の中身を残す口 | 持たない | proposal（変わってしまう振る舞いの 1 つ） |
+## 仮決め（B）と Ruling
 
-聞かずに決めたもの（`premises.md` の C1〜C4）: Rust は `tempfile::TempDir`（手伝いは `TempDir` を持つ型を返す。D1）/ Kotlin は `@get:Rule` の `TemporaryFolder`（手伝いはフォルダを引数で受け取る。D2）/
-何を使うかを `docs/testing.md` に書く（D8）/ 試験の期待値・印・名前は変えない（D7）。
+- Task の ledger（`.superpowers/sdd/ch03-task-*/progress.md`）は無く、`Ruling:` と parked の行も無い
+- design の（仮）: D3（検査の範囲は置き場で決める）・D4（落とす書き方と印）・D5（CI の chain job と commit 前。commit 前は index の中身を見る `--staged`。R30）・
+  D6（根は `/tmp` の下の `mktemp -d`。落ちた回・中断した回は `target/tmp-leak/<rust|android>-…` へ移し、種類ごとに 5 個まで残す。R1・R23・R24・R33）・
+  **D9（仮・新）** 負荷で揺れる `archive_scan_interval_change_takes_effect_without_restart` は CH03 で直さない（R21）。
+  反転条件: 分岐点の木で、同じ負荷の全体の走りが 3 回とも通れば、CH03 の差分が原因として CH03 で直す
+- finish の scoped re-review の後に park したもの（`review/code.md` の末尾）:
+  - R20 の残り: 名前の集合は名前だけを比べる。そのため、同じ名前の試験が別のファイルにあると（HEAD で rust 6・kotlin 6）、片方の注釈を外しても通る —— Ruling: 本数の比べ（分岐点より減らない）がそこを覆う。名前に path を含めるのは 8.3 の次の直しで行う
+  - Minor: trap は TERM でも rc=130 を返す。`--no-run` が落ちた道は trap を外さずに return する（すぐ終わるので害は無い）。1 行に書いた `#[test] fn x()` を拾わない（今の木には無い）。R29 の Drop は `poll_outages` の `#[cfg(test)] wait()` との重ねがけ
 
-## 仮決め（B）と反転条件（design の（仮））
+## Task
 
-- **D3（仮）** 検査の範囲はファイルの置き場で決め、`#[cfg(test)]` を読まない。反転条件: Q1 の答えが「androidTest も」「試験のコードだけ」なら範囲を変える
-- **D4（仮）** 落とす書き方の表と、同じ行か 1 行上の印。反転条件: Q2 が「依頼の 3 つだけ」なら絞る／`tmp-ok` が 1 Story に 3 つを超えて要るなら表を見直す
-- **D5（仮）** 検査は CI の chain job と commit 前（追跡ファイル全体）。反転条件: rebase の後の直しを 2 回以上妨げたら commit 前は staged だけ／chain job で気づくのが遅れて 2 回直しが遅れたら rust job にも
-- **D6（仮）** 残りは `target/tmp-leak/` の下の空のフォルダへ向けて測る（cargo は `--no-run` の後に `TMPDIR`、Gradle は `ASHIATO_TEST_TMPDIR` → `java.io.tmpdir` と `--rerun`）。反転条件: Robolectric・Gradle・cargo が自分のものを残すなら名前の頭の一覧で外す／CI が 10% を超えて伸びたら `--rerun` をやめる
+8 Task・25 項目をすべて埋めた。残した Task は無い。
 
-仮でない決定: D1（`TempDir` を最後まで持つ。`Inbox` は形を残す）・D2（`TemporaryFolder` と `by lazy` / `@Before`）・D7（差分の印・名前・本数を 8.3 が機械で見る）・D8（docs）。
+例外として 2 つを宣言する（R13）。どちらも振る舞いと期待値の意味は変わらない:
+- 製品のファイルに入れたのは `#[cfg(test)]` の項目（`history/collect.rs` の `threads_finished`・`outage_notice.rs` の `Drop`）と、`media.rs:568` の `// tmp-ok:` のコメント 1 行だけ
+- assert の書き換えは `day_tests.rs` の `st25_reasons_before_collection_started` の日付 1 か所だけ（合意は `agreed-test-changes.md`）
 
-## capability
+## 検証（`evidence.jsonl` の各項目の最後の記録）
 
-`test-hygiene` を新しく立てた（道具の capability は初めて）。schema の「tooling は `skip_specs`」を採らない理由は proposal の Capabilities（外から見える振る舞いを足し、正典で Scenario を印に縛るため）。
-`docs/changes/CH03.md` の `capability: []` はそのまま（新しく、走っている Story と重ならない）。
+- 9394a0b0: 4.1（`LK rust -p ashiato-collector-windows --lib` 283 本・残り無し）・8.4（check_scenarios・fmt+clippy・detekt・log-private+shared-appends）がどれも rc=0
+- 39e5cf39: 1.3・4.2・7.1〜7.4・8.1 がどれも rc=0
+- 571854cd: 8.1・8.2（rust 1788・android 629、残り無し）が rc=0
+- 2026-10-23〜25 の各 Task の HEAD: 1.1〜1.5・2.x・3.x・5.x・6.x が rc=0（後で触ったのは tools と collector-windows の試験だけ）
+- **8.2 は最後の HEAD では取り直していない。** code_verify が 4dec22bc で 2 回走らせ、2 回とも `archive_scan_interval_change_takes_effect_without_restart` の 1 本だけで rc=101 になった（R21・D9）
+- **8.3 は機械の証跡が無い**（上の Q9）。最後の記録は d798b111 の PASS
 
-## tasks
+## 未処置の申し送り
 
-8 Task・25 項目。Scenario 18 本は全部どこかの Task が名指しする。画面は持たないので e2e と人間の確認待ちは無い。
-`tools/check-tmp-hygiene.sh`・`tools/tmp-leak-check.sh`（どちらも `--self-test` 付き）を足し、CI の rust・android・chain の 3 job と `tools/pre-commit.sh` を変える。製品のコードは変えない。
+- **揺れる試験の change を起票する**（R16・R21）: `archive_scan_interval_change_takes_effect_without_restart`（`crates/server/src/archive_scan_interval_tests.rs:156-165`、25ms × 200 回の待ち）は、全体の走りの負荷（load average 3.9）の下で「走査が N 回に届かない」で落ちる。
+  CI の rust job がこの台本を通すようになったので、CI の赤の元になりうる。この試験を持つ Story / change は無い。`hx change` で起票する（このセッションは起票していない）
+- harness2 への申し送りが 2 つある:
+  - (1) `evidence.py` の CMD_LIKE に `openspec/` が無い（Q9）。plan_fix.py が新しい入口を書く前に、evidence.py が拾えるかを確かめていない
+  - (2) deep.md の答えが「答え: …（本人の選択）」の形のため、`provisional.py` の `answered()` が本人の答えとして読まず、`--follows Q5` が通らない（final の申し送り）
+- finish の途中で、同じ CH03 finish のセッションが 2 本、同じ worktree を同時に触っていた（20:24 と 20:26 に起動）。片方がわざと壊して組んだ試験のバイナリが、mtime を戻したせいで古いまま使われた。`cargo clean -p ashiato-collector-windows` で解消した。グラフが finish を重ねて起こしていないか、harness2 で見てほしい
 
 ## レビュー
 
-- deep-review（`review/deep.md`）: 15 件 —— fixed 11・escalated 4（問いに足した・直した: Q1・Q6・Q7・Q8）
-- spec-review（`review/spec.md`）: 15 件 —— fixed 12（うち仮 1: D5）・escalated 1（R5 → Q4 の context）・rejected 1（R11: capability を残す）・kind の直し 1（R15 daily → technical）
-  - 主なもの: 略記が verify-run に読めず依頼 3 の検証が走らない形だった（R2）→ 略記を直し、`evidence.declared()` で全項目にコマンドがあることを確かめた。
-    Kotlin の手伝いを property の初期化で呼ぶ 10 ファイル（R4）、走っている st09・st13 のコンパイルが通らなくなる（R5）、1.4 が後で走らせ直すと落ちる形だった（R6）
+final（R1〜R17）・code_verify（R18〜R22）・security-review（R23）・/code-review（R24〜R33）の処置は `review/code.md`。`review_triage.py` は OK。
+finish の fix は 1 回（4dec22bc..49f4da1f）、scoped re-review は 1 回。ADDRESSED は 14 件、PARTIAL は 1 件（R20。上の park）。fix が持ち込んだ退行 1 件（check-test-names.sh の本数の比べが `set -e` の下で効かなくなっていた）は 39e5cf39 で戻した。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
