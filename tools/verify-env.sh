@@ -56,7 +56,7 @@ cut_line() {
 reset_db() {
   local cid vols v users others
   cid=$(docker compose ps -aq db --no-trunc)
-  if [[ -z $cid ]]; then echo "verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））" >&2; return; fi
+  if [[ -z $cid ]]; then echo "verify-env: DB を作り直す（切った接続: 0（DB のコンテナが無い））" >&2; reset_done=1; return; fi
   vols=$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}')
   for v in $vols; do
     users=$(docker ps -aq --no-trunc --filter "volume=$v")
