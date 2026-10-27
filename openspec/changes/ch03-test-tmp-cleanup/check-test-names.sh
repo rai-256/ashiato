@@ -14,3 +14,17 @@ b=$(count "#\[(tokio::)?test" "$m" crates); h=$(count "#\[(tokio::)?test" HEAD c
 kb=$(count "@Test" "$m" collector-android/app/src/test); kh=$(count "@Test" HEAD collector-android/app/src/test)
 echo "rust ${b} -> ${h} / kotlin ${kb} -> ${kh}（分岐点 ${m:0:8} → HEAD）"
 [ "$h" -ge "$b" ] && [ "$kh" -ge "$kb" ]
+# 本数の総数だけだと、CH03 が足した分（rust 1・kotlin 2）までは既存の試験の注釈を外しても通る（R20）。
+# 注釈の直後の関数の名前の集合で、分岐点の試験が全部 HEAD でも試験であることを見る
+tests() { # rev 注釈の正規表現 置き場 関数の正規表現
+  git grep -h -A6 -E "$2" "$1" -- "$3" | A=$2 F=$4 awk '
+    $0 ~ ENVIRON["A"] { want = 1; next }
+    want && match($0, ENVIRON["F"]) { print substr($0, RSTART, RLENGTH); want = 0 }' | sort -u
+}
+rs='^[[:space:]]*#\[(tokio::)?test' rf='fn [A-Za-z0-9_]+'
+ks='^[[:space:]]*@Test' kf='fun (`[^`]+`|[A-Za-z0-9_]+)'
+[ "$(tests "$m" "$rs" crates "$rf" | wc -l)" -gt 0 ] && [ "$(tests "$m" "$ks" collector-android/app/src/test "$kf" | wc -l)" -gt 0 ] \
+  || { echo "分岐点の試験の名前を 1 つも拾えない（拾い方が壊れている）"; exit 1; }
+lost=$( { comm -23 <(tests "$m" "$rs" crates "$rf") <(tests HEAD "$rs" crates "$rf")
+          comm -23 <(tests "$m" "$ks" collector-android/app/src/test "$kf") <(tests HEAD "$ks" collector-android/app/src/test "$kf"); } )
+[ -z "$lost" ] || { echo "試験でなくなった関数（分岐点では試験の注釈があった）:"; echo "$lost"; exit 1; }

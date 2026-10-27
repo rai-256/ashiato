@@ -326,6 +326,15 @@ impl OutagePoller {
     }
 }
 
+/// 試験では、捨てるときに走っている問い合わせを待つ。待たないと、試験の一時フォルダが消えた後に
+/// 覚えの書き込み（`atomic_write` の `create_dir_all`）が置き場を作り直して漏れる（CH03 R29）。
+#[cfg(test)]
+impl Drop for OutagePoller {
+    fn drop(&mut self) {
+        self.wait();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]

@@ -18,9 +18,9 @@ if [ -x tools/check-log-private.sh ]; then
 fi
 
 # 試験の一時フォルダを手で作る書き方を**入る前に**止める（CH03。落ちた試験の一時フォルダは残り、/tmp を埋める）。
-# 追跡ファイル全体を見る（1 秒かからない）。
+# 追跡ファイル全体を、commit される中身（index）で見る（1 秒かからない）。
 if [ -x tools/check-tmp-hygiene.sh ]; then
-  tools/check-tmp-hygiene.sh >/dev/null || { tools/check-tmp-hygiene.sh || true; exit 1; }
+  tools/check-tmp-hygiene.sh --staged >/dev/null || { tools/check-tmp-hygiene.sh --staged || true; exit 1; }
 fi
 
 # 秘密（API キー・token・秘密鍵など、gitleaks の既定の規則の形）を**入る前に**止める。staged だけ見る（1 秒かからない）。

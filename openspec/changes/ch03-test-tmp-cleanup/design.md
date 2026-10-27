@@ -94,8 +94,10 @@
 ### D6（仮）. 残りの測り方: 一時フォルダを `/tmp` の下の専用の空のフォルダへ向け（落ちた回は `target/tmp-leak/` へ移す）、試験の数も見る（Q5 の推奨）
 
 - `tools/tmp-leak-check.sh rust [cargo test の引数…]`（引数が無ければ `--workspace`、あればその引数だけ）/ `tools/tmp-leak-check.sh android [gradle の引数…]` / `--self-test`。
-  一時フォルダの根は `/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<pid>`（tmpfs。pid で worktree ごとに別）。始める前に作り、空であることを確かめる。
-  通れば消し、落ちた・残りがあったときだけ `target/tmp-leak/` へ移して残す（`target/` は gitignore 済み。/tmp を食わない）。
+  一時フォルダの根は `/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<乱数>`（tmpfs）。`mktemp -d` で新しく作る（既にある名前・symlink を使わず 0700。
+  決まった名前を `mkdir -p` すると、同じ機械の別の利用者が先に置いた symlink の先へ試験が書く。review R23）。
+  通れば消し、落ちた・残りがあった・中断した（INT / TERM。R24）ときだけ `target/tmp-leak/<rust|android>-<日時>-<乱数>` へ移して残す
+  （`target/` は gitignore 済み。/tmp を食わない）。残すのは種類ごとに新しい方から 5 個まで（際限なく育てない。R33）。
   **ディスクに根を置かない**（2026-10-27 実測で訂正。初めは `target/tmp-leak/` に置いていた）: 置き場に書く試験が 10 倍以上遅くなる
   （collector-windows の 283 本が /tmp で 5.7 秒、`target/` で 63〜90 秒）。その負荷で、見回り 1 回が 1 秒未満を見る
   `history_large_fetch_keeps_observing_foreground` が毎回落ち、8.2 が通らなかった
@@ -128,6 +130,14 @@
 
 - §1 の後ろに「一時フォルダ」の節を足し、D1・D2 の形・`tmp-ok:` の印・`tools/tmp-leak-check.sh` の走らせ方を書く（検査の文言と同じこと）。§8 の一覧に 2 つの台本を足す
 - `docs/flow-gates.md` の検査の表に `tools/check-tmp-hygiene.sh` の行を足す（`check-log-private.sh` の行と同じ形）
+
+### D9（仮）. 負荷で揺れる `archive_scan_interval_change_takes_effect_without_restart` は CH03 で直さない（review R21）
+
+- CH03 の差分がこの試験に入れたのは一時フォルダの作り方と後始末の行だけ（`git diff origin/main...HEAD -- crates/server/src/archive_scan_interval_tests.rs`）で、
+  時計・間隔・期待値は変えていない。単独（`tools/tmp-leak-check.sh rust -p ashiato-server --lib archive_scan_interval`）では 2 回とも通り、
+  全体の走りで負荷（load average 3.9）の下だけ「走査が N 回に届かない」で落ちる。CH03 が無くても裸の `cargo test --workspace` で同じに落ちる
+- だから CH03 の merge は止めず、8.2 の rust の走りの赤はこの 1 本のときに限り揺れとして扱う。直すのは別の change（PR 本文の申し送り。`hx change` で起票する）
+- 反転条件: CH03 の分岐点（`origin/main`）の木で、同じ負荷の全体の走りが 3 回とも通るなら、CH03 の差分（根を tmpfs に置く・試験の並びが変わる）が原因として CH03 で直す
 
 ## Risks / Trade-offs
 

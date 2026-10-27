@@ -57,8 +57,8 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 - **印**: 手で要る箇所（一時フォルダを読むだけ、など）は同じ行か 1 行上に `// tmp-ok: <理由>`。理由の無い印と 2 行以上離れた印は数えない。
 - **残りを測る**: `tools/tmp-leak-check.sh rust [cargo test の引数…]`（無ければ `--workspace`）/ `tools/tmp-leak-check.sh android [gradle の引数…]`
   （`:app:testDebugUnitTest --rerun` に足す）/ `tools/tmp-leak-check.sh --self-test`。一時フォルダを `/tmp` の下の専用の空のフォルダ
-  （`/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<pid>`）へ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる。
-  走った試験が 0 本（android は飛ばした分を引く）でも落ちる。通れば根を消し、落ちた回・残りがあった回は `target/tmp-leak/` へ移して残す
+  （`/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<乱数>`。`mktemp -d` で新しく作る）へ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる。
+  走った試験が 0 本（android は飛ばした分を引く）でも落ちる。通れば根を消し、落ちた回・残りがあった回は `target/tmp-leak/<rust|android>-…` へ移して残す（種類ごとに新しい方から 5 個。中断した回も）
   （`/tmp` を名前の頭で消す台本は書かない）。
 
 ## 2. テストは spec の Scenario から生まれる

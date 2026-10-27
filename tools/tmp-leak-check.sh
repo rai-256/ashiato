@@ -6,7 +6,8 @@
 #   tools/tmp-leak-check.sh --self-test                   # 偽の命令で、残り・0 本・rc の伝わり・通る道を見る
 #
 # rc: 試験の rc が 0 でなければその rc / 走った試験が 0 本なら 1 / 根に何か残れば 1 / 通れば 0。
-#     rc=0 のときは根を消す。落ちたときは根を `target/tmp-leak/` へ移して残す（中身を見て直す。/tmp を食わない）。
+#     rc=0 のときは根を消す。落ちたときは根を `target/tmp-leak/<rust|android>-<日時>-<乱数>` へ移して残す
+#     （中身を見て直す。/tmp を食わない）。残すのは種類ごとに新しい方から 5 個まで。
 # 根は /tmp（tmpfs）に作る: ディスクの上だと、置き場に書く試験が 10 倍以上遅くなり、時間を測る試験が落ちる
 #     （2026-10-27 実測: collector-windows の 283 本が /tmp で 5.7 秒、target/ で 63〜90 秒。
 #     history_large_fetch_keeps_observing_foreground が見回り 1 回 1.1〜2.2 秒で毎回落ちた）。
@@ -25,6 +26,7 @@ repo=$PWD
 base=${TMP_LEAK_BASE:-/tmp}
 keep=${TMP_LEAK_KEEP:-$repo/target/tmp-leak}
 xml_dir=${TMP_LEAK_XML_DIR:-$repo/collector-android/app/build/test-results/testDebugUnitTest}
+KEEP_MAX=5
 
 count_rust_output() { # stdin の `test result: ok. N passed` の N の合計
   { grep -oE 'test result: ok\. [0-9]+ passed' || true; } | awk '{s+=$4} END{print s+0}'
@@ -43,21 +45,25 @@ count_android_xml() { # 走った本数 = tests - skipped（飛ばされただ�
   done | awk '{s+=$1-$2} END{print s+0}'
 }
 
-keep_root() { # 落ちた回の根を /tmp から target/tmp-leak/ へ移し、移した先を出す
-  local to
-  to="$keep/$(basename "$1")"
-  if mv "$1" "$to" 2>/dev/null; then echo "$to"; else echo "$1（target へ移せなかった）"; fi
+keep_root() { # 落ちた回の根を /tmp から target/tmp-leak/<rust|android>-<日時>-<乱数> へ移し、移した先を出す
+  local to old
+  to="$keep/$(basename "$1" | sed 's/^ashiato-tmp-leak-//')"
+  if mv "$1" "$to" 2>/dev/null; then echo "$to"; else echo "$1（target へ移せなかった）"; return; fi
+  # 残すのは新しい方から KEEP_MAX 個まで（落ちる回を繰り返すと target/ が際限なく育つ。CH03 R33）
+  ls -dt "$keep/$mode"-* 2>/dev/null | tail -n +$((KEEP_MAX + 1)) | while read -r old; do rm -rf "$old"; done
 }
 
 run() {
   local mode=$1; shift
   local stamp root out rc ran
   stamp=$(date +%Y%m%d-%H%M%S)
-  root="$base/ashiato-tmp-leak-$mode-$stamp-$$"
-  mkdir -p "$root"
-  [ -z "$(ls -A "$root")" ] || { echo "tmp-leak: 根が空でない: $root" >&2; return 2; }
+  # mktemp -d は新しく作り（既にある名前・symlink は使わない）、持ち主だけが入れる 0700 にする（CH03 R23。
+  # 決まった名前を mkdir -p すると、同じ機械の別の利用者が先に置いた symlink の先へ試験が書く）
+  root=$(mktemp -d "$base/ashiato-tmp-leak-$mode-$stamp-XXXXXX") || { echo "tmp-leak: 根を作れない: $base" >&2; return 2; }
   echo "tmp-leak: 根 $root"
   out=$(mktemp "$keep/out.XXXXXX")
+  # 中断（Ctrl-C・CI の打ち切り）でも根を /tmp に置いたままにしない（CH03 R24）
+  trap 'rm -f "$out"; echo "tmp-leak: 中断した（根は残す: $(keep_root "$root")）" >&2; exit 130' INT TERM
 
   if [ -n "${TMP_LEAK_CMD:-}" ]; then
     TMPDIR=$root ASHIATO_TEST_TMPDIR=$root TMP_LEAK_ROOT=$root bash -c "$TMP_LEAK_CMD" 2>&1 | tee "$out"
@@ -77,6 +83,7 @@ run() {
     ran=$(count_android_xml)
   fi
   rm -f "$out"
+  trap - INT TERM
 
   if [ "$rc" -ne 0 ]; then
     echo "tmp-leak: 試験が rc=$rc で終わった（根は残す: $(keep_root "$root")）" >&2
@@ -132,6 +139,20 @@ self_test() {
     "$suite"'w a.ProbeTest 3 1; w b.OtherTest 2 0; w c.NoSkipAttr 0 0' android
   expect "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる（android）" 1 "leaked-by-robolectric" \
     "$suite"'w a.ProbeTest 1 0; touch "$TMP_LEAK_ROOT/leaked-by-robolectric"' android
+  # 根は毎回新しく作る 0700 のフォルダ（symlink や既にあるフォルダを使わない。R23）
+  expect "試験が通り、何も残さなければ、台本は通る（根は新しく作った 0700 のフォルダ）" 0 "試験 1 本" \
+    '[ ! -L "$TMP_LEAK_ROOT" ] && [ "$(stat -c %a "$TMP_LEAK_ROOT")" = 700 ] || exit 3; echo "test result: ok. 1 passed; 0 failed"'
+  # 落ちた回の根は target/tmp-leak/rust-* へ移り、新しい方から 5 個だけ残る（R22・R33）
+  local i
+  for i in 1 2 3 4 5 6; do mkdir -p "$kept/rust-2000010$i-000000-old$i"; touch -d "2000-01-0$i" "$kept/rust-2000010$i-000000-old$i"; done
+  expect "試験の後に一時フォルダに残ったものがあれば、名前を挙げて落ちる（落ちた回の根を残す）" 1 "leaked-kept" \
+    'touch "$TMP_LEAK_ROOT/leaked-kept"; echo "test result: ok. 1 passed; 0 failed"'
+  if ! ls "$kept"/rust-*/leaked-kept >/dev/null 2>&1; then
+    echo "FAIL: 落ちた回の根が $kept/rust-* に無い" >&2; fails=$((fails + 1))
+  fi
+  if [ "$(ls -d "$kept"/rust-* | wc -l)" -ne 5 ] || [ -e "$kept/rust-20000101-000000-old1" ]; then
+    echo "FAIL: 残した根が新しい方から 5 個になっていない: $(ls "$kept" | tr '\n' ' ')" >&2; fails=$((fails + 1))
+  fi
   echo "Scenario: CI の試験の段は、残りを測る台本から走る"
   local ci=.github/workflows/ci.yml
   if grep -nE '^\s*-?\s*run:\s*(\./)?(cargo test --workspace|gradlew :app:testDebugUnitTest)\s*$' "$ci"; then

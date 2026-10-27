@@ -3011,20 +3011,23 @@ mod tests {
         };
         let reference = FixedReference::new(t(0));
         let reader = FakeReader::new(vec![read_visit(1, "a")]);
-        let mut rt = Runtime::new(
-            &cfg,
-            zone(),
-            Engine::new(Exclusions::default()),
-            &transport,
-            ClockInputs {
-                reference: Arc::new(FixedReference::new(reference.0)),
-                time_sync: Arc::new(NoTimeSync),
-                uptime: Arc::new(FixedUptime),
-            },
-            t(0),
-        )
-        .unwrap()
-        .with_history(reader.clone());
+        // 途中の assert で落ちても、取得の別スレッドを待ってから一時フォルダを消す（CH03 R27）
+        let mut rt = HistoryRuntime(
+            Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &transport,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(reference.0)),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+            )
+            .unwrap()
+            .with_history(reader.clone()),
+        );
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
         tick_until_read(&mut rt, &mut src, &reader, 0);
@@ -3065,6 +3068,10 @@ mod tests {
             if with_history {
                 rt = rt.with_history(reader.clone());
             }
+            // 途中の assert で落ちても、取得の別スレッドを待ってから一時フォルダを消す（CH03 R27）。
+            // gate は rt より後に束縛し直し、先に放す（rt の Drop が止まった読みを待ち続けない。R28）
+            let mut rt = HistoryRuntime(rt);
+            let release = release;
             let mut src = FakeSource::new("editor");
             rt.start_at(&src, t(0), t(0));
             // 読み手が 3 分止まっている間も、1 秒ごとの見回りは続く
@@ -3117,20 +3124,23 @@ mod tests {
         let (cfg, _tmp) = cfg();
         let reference = FixedReference::new(t(0));
         let reader = FakeReader::new((1..=10).map(|i| read_visit(i, "a")).collect());
-        let mut rt = Runtime::new(
-            &cfg,
-            zone(),
-            Engine::new(Exclusions::default()),
-            &Down,
-            ClockInputs {
-                reference: Arc::new(FixedReference::new(reference.0)),
-                time_sync: Arc::new(NoTimeSync),
-                uptime: Arc::new(FixedUptime),
-            },
-            t(0),
-        )
-        .unwrap()
-        .with_history(reader.clone());
+        // 途中の assert で落ちても、取得の別スレッドを待ってから一時フォルダを消す（CH03 R27）
+        let mut rt = HistoryRuntime(
+            Runtime::new(
+                &cfg,
+                zone(),
+                Engine::new(Exclusions::default()),
+                &Down,
+                ClockInputs {
+                    reference: Arc::new(FixedReference::new(reference.0)),
+                    time_sync: Arc::new(NoTimeSync),
+                    uptime: Arc::new(FixedUptime),
+                },
+                t(0),
+            )
+            .unwrap()
+            .with_history(reader.clone()),
+        );
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
         tick_until_read(&mut rt, &mut src, &reader, 0);
@@ -3266,6 +3276,9 @@ mod tests {
         let (gated, release) = FakeReader::gated(vec![read_visit(1, "a")]);
         let transport = AcceptAll::default();
         let mut rt = history_runtime(&cfg, &transport, &reference, gated);
+        // rt より後に束縛し直す: 宣言の逆順に落ちるので、assert で落ちたとき gate が先に放され、
+        // rt の Drop が止まった読みを 20 秒待たずに済む（CH03 R28）
+        let release = release;
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(60), t(60));
         tick_until_history_beats(&mut rt, &mut src, &transport, 60, 1);
