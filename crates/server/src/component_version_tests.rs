@@ -848,11 +848,19 @@ mod external_update {
         );
     }
 
-    async fn assert_unchanged(app: &crate::App, id: Uuid) {
+    /// 本表の版が動かず、前の版の履歴も `history_rows` 行のまま増えない。
+    async fn assert_unchanged(app: &crate::App, id: Uuid, history_rows: i64) {
         assert_eq!(
             versions_of(&app.pool, "core.event", "id", id).await,
             old_versions()
         );
+        let rows: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core.event_version WHERE event_id = $1")
+                .bind(id)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, history_rows, "前の版の履歴が増えた");
     }
 
     #[tokio::test]
@@ -875,7 +883,7 @@ mod external_update {
         again["id"] = serde_json::json!(Uuid::new_v4());
         again["source_updated_at"] = serde_json::json!("2026-09-08T05:00:00Z");
         send(&app, &again).await;
-        assert_unchanged(&app, id).await;
+        assert_unchanged(&app, id, 1).await;
     }
 
     #[tokio::test]
@@ -890,7 +898,7 @@ mod external_update {
             &record(&source, user, "ext-1", r#"{"v":2}"#, "2026-09-08T02:00:00Z"),
         )
         .await;
-        assert_unchanged(&app, id).await;
+        assert_unchanged(&app, id, 0).await;
     }
 
     #[tokio::test]
@@ -910,6 +918,6 @@ mod external_update {
             &record(&source, user, "ext-1", r#"{"v":2}"#, "2026-09-08T04:00:00Z"),
         )
         .await;
-        assert_unchanged(&app, id).await;
+        assert_unchanged(&app, id, 0).await;
     }
 }
