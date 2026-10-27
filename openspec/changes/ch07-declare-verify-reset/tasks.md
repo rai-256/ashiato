@@ -49,13 +49,13 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
 
 ## Task 3: 検査の本体 —— 段ごとの宣言の数と、2 つの新しい段
 
-- [ ] 3.1 `tools/check-verify-env-reset.sh` の本体に、`call` の後の宣言の数を見る関数（`$tmp/out` の `HARNESS_RESET: testdb` だけの行の数と、`$tmp/out`・`$tmp/err` の `^HARNESS_RESET:` の行の数）を足し、
+- [x] 3.1 `tools/check-verify-env-reset.sh` の本体に、`call` の後の宣言の数を見る関数（`$tmp/out` の `HARNESS_RESET: testdb` だけの行の数と、`$tmp/out`・`$tmp/err` の `^HARNESS_RESET:` の行の数）を足し、
   design D3 の表のとおり既存の段に確かめを足す。印を置く: 3. に `echo "Scenario: 印が無ければ、宣言を出さない"`、3. の CI だけの段に `echo "Scenario: CI でない main の checkout では、印つきでも宣言を出さない"`、
   4. に `echo "Scenario: 作り直せずに非 0 で終わるときは、宣言を出さない"`、5. に `echo "Scenario: 溜まった DB を作り直したら、宣言を 1 行出す"`（標準エラーに 0 行も見る）、
   6. に `echo "Scenario: 2 回続けて作り直しても、どちらも宣言を 1 行出す"`、7. に `echo "Scenario: DB のコンテナが無くても、立てたら宣言を 1 行出す"`。
   1. と 8.（空の network を消して立てる呼び出しと最後の立て直しで 1 行、rc≠0 の 2 回で 0 行）にも数の確かめを足す（印は付けない）。
   検証: `tools/check-verify-env-reset.sh` rc=0（worktree で走る）/ `bash -c '[ "$(grep -c "echo \"Scenario: " tools/check-verify-env-reset.sh)" -ge 32 ]'` rc=0（CH06 の 23 本・Task 2 の 3 本・この段の 6 本）
-- [ ] 3.2 7. の後・8. の前に段を 3 つ足す（design D3）。
+- [x] 3.2 7. の後・8. の前に段を 3 つ足す（design D3）。
   **9. 止まっていた DB**: `docker compose stop db` → `echo "Scenario: DB のコンテナが止まっていても、作り直したら宣言を 1 行出す"` → 印つきで呼び、rc=0・出力に `切った接続: 0（DB は止まっていた）`・標準出力に宣言 1 行。
   **10. volume を持たない DB**: `$tmp` に service `db` の `tmpfs: /var/lib/postgresql/data` だけを書いた compose のファイルを置き、DB のコンテナと volume を消してから、環境変数 `COMPOSE_FILE` に今の木の値（`.env` の `COMPOSE_FILE`、無ければ `docker-compose.yml`）とそのファイルを `:` で並べて `docker compose up -d --wait db` →
   DB のコンテナの volume が 0 個であることを確かめる → `echo "Scenario: volume を持たない DB のコンテナでは、作り直しても宣言を出さない"` → 同じ `COMPOSE_FILE` で印つきで呼び、rc=0・出力に `切った接続: ` の行・宣言 0 行・volume が 0 個のまま。
