@@ -59,7 +59,7 @@ final reviewer（`superpowers:requesting-code-review` の `code-reviewer.md`）�
 - 成果物: crates/server/src/media_migration_tests.rs
 - 根拠: `:47`。末尾とは限らない版を見ている。Task 1 F2
 - kind: technical
-- 処置: fixed 1.1 — 2a3fad1c（`st09_mig_applies_twice_and_is_in_order`）
+- 処置: fixed 1.1 — main の fac90cd0 が同じ直しを先に入れた（`st09_mig_applies_twice_and_is_listed`）。origin/main への rebase で ST11 側の 3b01b247・2a3fad1c は main 側に寄せて落とした
 
 ## R10. `day_tests.rs` が収集開始日を無条件で 2002 年に上書きするようになった
 - 成果物: crates/server/src/day_tests.rs
