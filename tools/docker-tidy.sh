@@ -131,6 +131,10 @@ tidy() {
 
 # ---- --self-test ---------------------------------------------------------------------------
 probe_label=dev.ashiato.ch05-tidy-probe=1
+# この回だけの印（並走するほかの木の self-test の探りに触らないよう、後始末も確かめもこの値に絞る）。探りを作る口が init_probe で決める
+probe_run_label=
+# 探りの控え（EXIT の trap が使うので大域）: コンテナ id・ネットワーク id・名前の無い volume・一時のフォルダ
+probe_c= probe_n= real_vol= probe_tmp=
 
 fail=0
 check() { # check <条件の説明> <rc: 0 が成立>
@@ -172,6 +176,7 @@ FAKE
 self_test() {
   local tmp
   tmp=$(mktemp -d) || return 1
+  probe_tmp=$tmp
   local P=$tmp/parent main=$tmp/parent/mainrepo
   mkdir -p "$main" "$P/mainrepo-st10" "$P/mainrepo-st12"
   write_fake_docker "$tmp/fakedocker"
@@ -217,7 +222,7 @@ self_test() {
   echo "Scenario: main の checkout と確認バッチのコンテナは、path が無くても外さない"
   setup
   local gm=$P/ghostmain
-  echo "$gm" >"$tmp/wts"; : >"$tmp/wts"; export TEST_DOCKER_TIDY_MAIN=$gm
+  : >"$tmp/wts"; export TEST_DOCKER_TIDY_MAIN=$gm
   add_c m ghost-main-1 ghostmain-x "$gm"
   add_c v ghost-verify-1 ghostmain-verify "$gm-verify"
   run 0
@@ -309,61 +314,87 @@ self_test() {
   real_docker_case "$tmp" || fail=1
 
   echo "Scenario: CI の rust job は、片付けの self-test を走らせる"
-  grep -q 'tools/docker-tidy.sh --self-test' .github/workflows/ci.yml
-  check "ci.yml に --self-test の行がある" $?
-  grep -q 'tools/docker-tidy.sh --verify-env-check' .github/workflows/ci.yml
-  check "ci.yml に --verify-env-check の行がある" $?
-  rm -rf "$tmp"
+  ci_rust_runs | grep -qxE ' *- run: \./tools/docker-tidy\.sh --self-test *'
+  check "ci.yml の rust job に --self-test の - run: 行がある" $?
+  ci_rust_runs | grep -qxE ' *- run: \./tools/docker-tidy\.sh --verify-env-check *'
+  check "ci.yml の rust job に --verify-env-check の - run: 行がある" $?
   return $fail
 }
 
+# ci.yml の rust job の `- run:` 行だけを出す（コメントや別の job の行を数えない）
+ci_rust_runs() {
+  awk '/^  rust:/{f=1; next} /^  [A-Za-z0-9_-]+:/{f=0} f && /^ *- run:/' .github/workflows/ci.yml
+}
+
 # 本物の docker で 1 件。main を乱数の名前に替えるので、この機械の本物の残り（ashiato2-*）には当たらない
-# 後始末は RETURN の trap でなく、本体を呼んだ後の明示の呼び出しでする（trap は関数をまたいで共有され、上書きされる）
+# 後始末は本体を呼んだ後の明示の呼び出しと、途中で止まったときの EXIT の trap（init_probe が張る）の 2 つ
 real_docker_case() {
   local tmp=$1 rc=0
-  real_vol=
   real_docker_body "$tmp" || rc=1
   cleanup_probes
-  [[ -z $real_vol ]] || docker volume rm "$real_vol" >/dev/null 2>&1
   return $rc
 }
 
 real_docker_body() {
-  local tmp=$1 r d main proj wd c n vol rc=0
-  cleanup_probes
+  local tmp=$1 r d main proj wd rc=0
   r=$(openssl rand -hex 4) || return 1
   d=$(mktemp -d "$tmp/real.XXXXXX") || return 1
   main=$d/ch05tidy$r; proj=ch05tidy$r-st97; wd=$d/$proj
   mkdir -p "$main"; echo "$main" >"$d/wts"
-  if ! n=$(docker network create --label "$probe_label" --label "com.docker.compose.project=$proj" "${proj}_default" 2>&1); then
-    echo "docker-tidy: 本物の docker でネットワークを作れない（割り当てが尽きた？）: $n" >&2
-    return 1
-  fi
-  if ! c=$(docker run -d --label "$probe_label" --label "com.docker.compose.project=$proj" \
-    --label "com.docker.compose.project.working_dir=$wd" --network "${proj}_default" \
-    postgres:17-alpine sleep 600 2>&1); then
-    echo "docker-tidy: 本物の docker でコンテナを起こせない: $c" >&2
-    return 1
-  fi
-  vol=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$c")
-  real_vol=$vol
-  [[ -n $vol ]] || { echo "docker-tidy: 名前の無い volume が付かなかった" >&2; return 1; }
+  make_probe "$proj" "$wd" || return 1
 
   TEST_DOCKER_TIDY_MAIN=$main TEST_DOCKER_TIDY_WORKTREES=$d/wts TEST_DOCKER_TIDY_DOCKER=docker tidy 0 2>"$d/err"
   rc=$?
   echo "Scenario: 作業ツリーが消えたコンテナは、動いていても外される"
   check "本物の docker: 片付けが rc=0" "$rc"
-  [[ -z $(docker ps -aq --filter "label=$probe_label") && -z $(docker network ls -q --filter "name=${proj}_default") ]]
-  check "本物の docker: 動いていたコンテナとネットワークが無い" $?
+  probe_gone
+  check "本物の docker: 動いていたコンテナ（控えた id）とネットワーク（控えた id）が無い" $?
   echo "Scenario: 外したコンテナの名前の無い volume は残る"
-  docker volume inspect "$vol" >/dev/null 2>&1
+  docker volume inspect "$real_vol" >/dev/null 2>&1
   check "本物の docker: 控えた id の volume が残る" $?
 }
 
+# 探りを作る口の初め: この回だけの印を決め、途中で止まっても探りを残さないよう EXIT の trap を張る
+init_probe() {
+  probe_run_label=dev.ashiato.ch05-tidy-run=$(openssl rand -hex 6) || return 1
+  trap 'cleanup_probes; [[ -z ${probe_tmp:-} ]] || rm -rf "$probe_tmp"' EXIT
+  trap 'exit 130' INT TERM HUP
+}
+
+# make_probe <project> <working_dir>: 探りのネットワークとコンテナを作り、id と名前の無い volume を控える（rc≠0 なら理由を出す）
+make_probe() {
+  local proj=$1 wd=$2 out
+  if ! out=$(docker network create --label "$probe_label" --label "$probe_run_label" \
+    --label "com.docker.compose.project=$proj" "${proj}_default" 2>&1); then
+    echo "docker-tidy: 本物の docker でネットワークを作れない（割り当てが尽きた？）: $out" >&2
+    return 1
+  fi
+  probe_n=$out
+  if ! out=$(docker run -d --label "$probe_label" --label "$probe_run_label" --label "com.docker.compose.project=$proj" \
+    --label "com.docker.compose.project.working_dir=$wd" --network "${proj}_default" \
+    postgres:17-alpine sleep 600 2>&1); then
+    echo "docker-tidy: 本物の docker でコンテナを起こせない: $out" >&2
+    return 1
+  fi
+  probe_c=$out
+  real_vol=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$probe_c")
+  [[ -n $real_vol ]] || { echo "docker-tidy: 名前の無い volume が付かなかった" >&2; return 1; }
+}
+
+# 控えたコンテナとネットワークが（id で見て）もう無い
+probe_gone() {
+  [[ -z $(docker ps -aq --no-trunc --filter "id=$probe_c") ]] && ! docker network inspect "$probe_n" >/dev/null 2>&1
+}
+
+# 探りの後始末。消すのはこの回の印（probe_run_label）のついたものと控えた id だけ（ほかの木の探りや本物の compose には触らない）。
+# `rm -fv` の `-v` が消すのは自前の探りのコンテナの名前の無い volume だけ。片付けの本体（tidy）からは呼ばない
 cleanup_probes() {
   local ids
-  ids=$(docker ps -aq --filter "label=$probe_label" 2>/dev/null) && [[ -z $ids ]] || docker rm -fv $ids >/dev/null 2>&1
-  ids=$(docker network ls -q --filter "label=$probe_label" 2>/dev/null) && [[ -z $ids ]] || docker network rm $ids >/dev/null 2>&1
+  [[ -n $probe_run_label ]] || return 0
+  ids=$(docker ps -aq --filter "label=$probe_run_label" 2>/dev/null) && [[ -z $ids ]] || docker rm -fv $ids >/dev/null 2>&1
+  ids=$(docker network ls -q --filter "label=$probe_run_label" 2>/dev/null) && [[ -z $ids ]] || docker network rm $ids >/dev/null 2>&1
+  [[ -z $real_vol ]] || docker volume rm "$real_vol" >/dev/null 2>&1
+  probe_c= probe_n= real_vol=
   return 0
 }
 
@@ -371,15 +402,16 @@ cleanup_probes() {
 # この worktree の DB を作り直すので、`--plan` が reset のときだけ走る（design D5）。
 # main は乱数の名前に替える —— この機械の本物の残り（ashiato2-*）には当たらない
 verify_env_check() {
-  local tmp plan r d main proj wd c vol rc=0 n0
+  local tmp plan r main proj wd rc=0 n m
   plan=$(HARNESS_VERIFY=1 tools/verify-env.sh --plan 2>&1)
   if [[ $plan != reset ]]; then
     echo "docker-tidy: --verify-env-check は、この木の DB を作り直す（--plan が reset）ときだけ走る: $plan" >&2
     return 2
   fi
+  init_probe || return 1
   tmp=$(mktemp -d) || return 1
-  cleanup_probes
-  r=$(openssl rand -hex 4) || { rm -rf "$tmp"; return 1; }
+  probe_tmp=$tmp
+  r=$(openssl rand -hex 4) || return 1
   main=$tmp/ch05tidy$r; proj=ch05tidy$r-st97; wd=$tmp/$proj
   mkdir -p "$main"; echo "$main" >"$tmp/wts"
   export TEST_DOCKER_TIDY_MAIN=$main TEST_DOCKER_TIDY_WORKTREES=$tmp/wts
@@ -409,46 +441,37 @@ REC
   echo "Scenario: 片付けが落ちても、検証の準備は DB を作り直して続く"
   TEST_DOCKER_TIDY_DOCKER=false HARNESS_VERIFY=1 tools/verify-env.sh >"$tmp/out" 2>"$tmp/err"
   check "片付けが落ちても準備が rc=0" $?
-  grep -qE '片付けに失敗した.*rc=[0-9]+' "$tmp/err"
-  check "標準エラーに 片付けに失敗した と片付けの rc の 1 行" $?
-  grep -qF '切った接続:' "$tmp/err"
+  n=$(grep -c '片付けに失敗した' "$tmp/err")
+  m=$(sed -nE 's/.*片付けに失敗した.*rc=([0-9]+).*/\1/p' "$tmp/err")
+  [[ $n == 1 && $m =~ ^[0-9]+$ ]] && ((m >= 1))
+  check "標準エラーに 片付けに失敗した と片付けの rc（1 以上）の 1 行だけ" $?
+  [[ $(grep -cF '切った接続:' "$tmp/err") == 1 ]]
   check "標準エラーに 切った接続: の 1 行" $?
   [[ -n $(docker compose ps -q --status running db) ]]
   check "この worktree の DB のコンテナが立っている" $?
 
   echo "Scenario: 消えた作業ツリーのコンテナは、印つきの準備で外れ、その volume は残る"
-  if ! docker network create --label "$probe_label" --label "com.docker.compose.project=$proj" "${proj}_default" >"$tmp/o" 2>&1; then
-    echo "docker-tidy: 本物の docker でネットワークを作れない（割り当てが尽きた？）: $(<"$tmp/o")" >&2
-    rc=1
-  elif ! c=$(docker run -d --label "$probe_label" --label "com.docker.compose.project=$proj" \
-    --label "com.docker.compose.project.working_dir=$wd" --network "${proj}_default" \
-    postgres:17-alpine sleep 600 2>&1); then
-    echo "docker-tidy: 本物の docker でコンテナを起こせない: $c" >&2
+  if ! make_probe "$proj" "$wd"; then
     rc=1
   else
-    vol=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}' "$c")
-    real_vol=$vol
-    [[ -n $vol ]] || { echo "docker-tidy: 名前の無い volume が付かなかった" >&2; rc=1; }
     HARNESS_VERIFY=1 tools/verify-env.sh >"$tmp/out" 2>"$tmp/err"
     check "印つきの準備が rc=0" $?
-    [[ -z $(docker ps -aq --filter "label=$probe_label") ]]
-    check "消えた作業ツリーのコンテナが無い" $?
-    docker volume inspect "$vol" >/dev/null 2>&1
+    [[ -z $(docker ps -aq --no-trunc --filter "id=$probe_c") ]]
+    check "消えた作業ツリーのコンテナ（控えた id）が無い" $?
+    docker volume inspect "$real_vol" >/dev/null 2>&1
     check "控えた id の volume が残る" $?
-    grep -qF '切った接続:' "$tmp/err"
+    [[ $(grep -cF '切った接続:' "$tmp/err") == 1 ]]
     check "標準エラーに 切った接続: の 1 行" $?
   fi
   cleanup_probes
-  [[ -z ${real_vol:-} ]] || docker volume rm "$real_vol" >/dev/null 2>&1
   unset TEST_DOCKER_TIDY_MAIN TEST_DOCKER_TIDY_WORKTREES
-  rm -rf "$tmp"
   [[ $rc == 0 && $fail == 0 ]]
 }
 
 case "${1:-}" in
   "") tidy 0 ;;
   --dry-run) tidy 1 ;;
-  --self-test) self_test ;;
+  --self-test) init_probe && self_test ;;
   --verify-env-check) verify_env_check ;;
   *) echo "使い方: tools/docker-tidy.sh [--dry-run|--self-test|--verify-env-check]" >&2; exit 2 ;;
 esac

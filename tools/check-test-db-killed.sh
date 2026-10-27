@@ -16,7 +16,7 @@
 #   → 探りを起こして印を待ち、殺す → 一覧 S1。殺した回の database = S1 にあって S0 に無いもの（探りが印のファイルへ書いた名前もここに入っていること）
 #   → 次の回（`cargo test -p ashiato-server --lib ch05_next_run`。CH04 の回の始まりの片付けを起こす。秒数を測って出す）→ 一覧 S2・`ashiato` の行数と大きさ。
 # 判定（順に。最初に外れたもので落ちる）:
-#   殺した回の database が 1 つも見えない（検査が空振り）→ 探りの印が待ちの上限までに来ない → 次の回の rc（0 でなければその rc）
+#   探りの印が待ちの上限までに来ない → 殺した回の database が 1 つも見えない（検査が空振り）→ 次の回の rc（0 でなければその rc）
 #   → 殺した回の database のうち S2 に残るもの（名前を挙げる）→ `ashiato` の行数が殺す前と違う → `ashiato` の大きさが殺す前から 1 MiB を超えて増えた。
 # 大きさに 1 MiB の許しがあるのは、触らない database でも統計や空き領域の地図で大きさが少し動くため。行数は厳密に見る。
 #
@@ -71,8 +71,9 @@ stat_checked() {  # stat_checked <行数の変数名> <大きさの変数名>
   fi
   printf -v "$1" %s "$r"; printf -v "$2" %s "$s"
 }
-probe_active() {  # 回の database に ch05_probe の印のある active の文が見える
-  [[ -n $(psql_db postgres "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%ch05_probe%' AND pid <> pg_backend_pid() LIMIT 1") ]]
+probe_active() {  # probe_active <回の database>: その database に ch05_probe の印のある active の文が見える
+  [[ $1 =~ ^[a-z0-9_]+$ ]] || return 1
+  [[ -n $(psql_db postgres "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND datname = '$1' AND query LIKE '%ch05_probe%' AND pid <> pg_backend_pid() LIMIT 1") ]]
 }
 run_next() {  # 次の回。出力は標準出力へ。rc を返す
   if [[ -n ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then bash -c "$TEST_DB_KILLED_NEXT_CMD"; return; fi
@@ -83,9 +84,16 @@ run_next() {  # 次の回。出力は標準出力へ。rc を返す
   grep -q ' 1 passed' <<<"$out" || { echo "ch05_next_run が 1 本も走らなかった（絞り込みの名前が試験と合っていない）" >&2; return 1; }
 }
 
-exe_path() {
-  cargo test -p ashiato-server --lib --no-run --message-format=json 2>/dev/null \
-    | jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' | tail -1
+exe_path() {  # 試験の実行ファイルの path。作れなければ cargo の標準エラーとコンパイルのエラーを出して rc≠0
+  local json rc=0
+  json=$(cargo test -p ashiato-server --lib --no-run --message-format=json 2>"$dir/cargo.err") || rc=$?
+  if [[ $rc != 0 ]]; then
+    echo "試験の実行ファイルを作れない（cargo の rc=$rc）:" >&2
+    jq -r 'select(.reason == "compiler-message" and .message.level == "error") | .message.rendered' <<<"$json" >&2 || true
+    tail -n 40 "$dir/cargo.err" >&2
+    return 1
+  fi
+  jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' <<<"$json" | tail -1
 }
 
 probe_pid=""
@@ -112,13 +120,14 @@ start_probe() {
 
 # wait_mark <時点> <印のファイル> : 印（と insert なら走っている文）を待つ。上限を越えたら rc=1
 wait_mark() {
-  local at=$1 mark=$2 want deadline
+  local at=$1 mark=$2 want deadline run
   want=inserting; [[ $at == committed ]] && want=committed
   deadline=$(( SECONDS + WAIT_S ))
   while (( SECONDS < deadline )); do
     if grep -qx "$want" "$mark" 2>/dev/null; then
       if [[ $at == insert && -z ${TEST_DB_KILLED_PROBE_CMD:-} ]]; then
-        probe_active && return 0
+        run=$(sed -n 's/^run=//p' "$mark" | head -1)
+        probe_active "$run" && return 0
       else return 0; fi
     fi
     if ! kill -0 "$probe_pid" 2>/dev/null; then
@@ -178,14 +187,15 @@ killed_check() {
   dir=$(mktemp -d)  # trap が関数の外で走るので大域
   trap 'kill_probe; rm -rf "$dir"' EXIT
   if [[ -z ${TEST_DB_KILLED_PROBE_CMD:-} ]]; then
-    exe=$(exe_path)
+    exe=$(exe_path) || return 1
     [[ -n $exe && -x $exe ]] || { echo "試験の実行ファイルの path が取れなかった" >&2; return 1; }
   fi
-  if [[ -z ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then  # 殺す前のきれいな回の秒数（出すだけ。落ちは殺した後の回で見る）
-    local b0=$EPOCHREALTIME b1
-    run_next >/dev/null 2>&1 || true
+  if [[ -z ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then  # 殺す前のきれいな回の秒数（出す）。きれいな回が落ちれば、殺す前にその rc で落ちる
+    local b0=$EPOCHREALTIME b1 bout brc=0
+    bout=$(run_next 2>&1) || brc=$?
     b1=$EPOCHREALTIME
-    echo "殺す前のきれいな回: $(awk -v a="$b0" -v b="$b1" 'BEGIN{printf "%.1f", b-a}') 秒"
+    echo "殺す前のきれいな回: rc=$brc $(awk -v a="$b0" -v b="$b1" 'BEGIN{printf "%.1f", b-a}') 秒"
+    if [[ $brc != 0 ]]; then echo "$bout" >&2; echo "殺す前のきれいな回の試験が rc=$brc で落ちた" >&2; return "$brc"; fi
   fi
   for at in insert committed; do
     point "$at" "$dir" "$exe" || return $?
@@ -255,7 +265,7 @@ self_test() {
   want "片付けば rc=0" "$([[ $rc == 0 ]]; echo $?)"
   want "2 つの時点を通る" "$(grep -q '時点 insert: OK' <<<"$out" && grep -q '時点 committed: OK' <<<"$out"; echo $?)"
 
-  echo "Scenario: 統計や一覧が読めない・数値でなければ、黙って通らず落ちる"
+  echo "-- 統計や一覧が読めない・数値でなければ、黙って通らず落ちる"
   k "true" "" 5 "exit 3"
   want "統計が rc=3 なら rc=1" "$([[ $rc == 1 ]]; echo $?)"
   want "読めないことを挙げる" "$(grep -q '読めない' <<<"$out"; echo $?)"
@@ -272,8 +282,11 @@ self_test() {
   want "一覧が読めないことを挙げる" "$(grep -q '一覧が読めない' <<<"$out"; echo $?)"
 
   echo "Scenario: CI の rust job は、殺した後の検査を走らせる"
-  want "ci.yml に --self-test の行がある" "$(grep -q 'tools/check-test-db-killed.sh --self-test' .github/workflows/ci.yml; echo $?)"
-  want "ci.yml に本体の行がある" "$(grep -qE 'tools/check-test-db-killed.sh *$' .github/workflows/ci.yml; echo $?)"
+  # rust job の `- run:` 行だけを見る（コメントや別の job の行を数えない）
+  local runs
+  runs=$(awk '/^  rust:/{f=1; next} /^  [A-Za-z0-9_-]+:/{f=0} f && /^ *- run:/' .github/workflows/ci.yml)
+  want "ci.yml の rust job に --self-test の - run: 行がある" "$(grep -qxE ' *- run: \./tools/check-test-db-killed\.sh --self-test *' <<<"$runs"; echo $?)"
+  want "ci.yml の rust job に本体の - run: 行がある" "$(grep -qxE ' *- run: \./tools/check-test-db-killed\.sh *' <<<"$runs"; echo $?)"
 
   [[ $fail == 0 ]] && echo "self-test OK" || { echo "self-test FAILED" >&2; exit 1; }
 }

@@ -59,6 +59,11 @@ async fn ch05_killed_probe() {
     ) else {
         return;
     };
+    // 値の確かめは回の database を作る前に（誤った値で回の database だけが残らないように）
+    assert!(
+        matches!(at.as_str(), "insert" | "committed"),
+        "CH05_PROBE_AT は insert か committed: {at:?}"
+    );
     let run = testdb::pool().await;
     let iso = testdb::isolated().await;
     let iso_pool = iso.pool().await;
@@ -75,7 +80,7 @@ async fn ch05_killed_probe() {
             mark(&path, "committed");
             tokio::time::sleep(std::time::Duration::from_secs(600)).await;
         }
-        other => panic!("CH05_PROBE_AT は insert か committed: {other:?}"),
+        other => unreachable!("CH05_PROBE_AT は先に確かめた: {other:?}"),
     }
 }
 
