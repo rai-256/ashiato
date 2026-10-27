@@ -69,7 +69,7 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 4: 殺すための探りの試験
 
-- [ ] 4.1 `crates/server/src/killed_probe_tests.rs`（新しいファイル。`lib.rs` の試験のモジュールの並びに 1 行）に design D2 の 2 本を書く:
+- [x] 4.1 `crates/server/src/killed_probe_tests.rs`（新しいファイル。`lib.rs` の試験のモジュールの並びに 1 行）に design D2 の 2 本を書く:
   `ch05_killed_probe`（`#[ignore]`。`CH05_PROBE_AT` が `insert` / `committed`、`CH05_PROBE_MARK` に回の database と試験ごとの database の名前と段階を書く。`insert` は `pg_sleep(600)` を前に置いた 1 文の 20,001 件の INSERT に `/* ch05_probe */` の印を入れる。
   `committed` は回の database（`testdb::pool()`）と試験ごとの database（`testdb::isolated()`）の両方に 20,001 件を確定してから 600 秒眠る。環境変数が無ければ何もせずに通る）/
   `ch05_next_run`（`testdb::pool()` で繋いで `SELECT 1`。CH04 の片付けを起こすだけ）。INSERT の形は `deletion_tests.rs` の `stays_detail_query_uses_user_time_index` と同じにする。
