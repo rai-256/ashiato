@@ -77,17 +77,23 @@ where
 {
     let (fresh, drop) = crate::stay_tests::fresh_db().await;
     let result = async {
-        for (label, sql) in crate::MIGRATIONS {
-            sqlx::raw_sql(sql)
-                .execute(&fresh)
-                .await
-                .map_err(|e| format!("{label}: {e}"))?;
-        }
+        // 本番と同じく版の記録を持たせて当てる（戻しが版の記録の行を消すので、記録の表が要る）
+        let conn = fresh.acquire().await.map_err(|e| e.to_string())?;
+        crate::migration_ledger::apply_migrations(conn, crate::MIGRATIONS)
+            .await
+            .map_err(|e| format!("移行が当たらない: {e:?}"))?;
         f(fresh.clone()).await
     }
     .await;
     drop.await;
     result.unwrap()
+}
+
+async fn ledger_count(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name LIKE '%_health_permission_source'")
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn row_count(pool: &sqlx::PgPool) -> i64 {
@@ -144,10 +150,11 @@ async fn st11_registry_down_removes_row_when_unreferenced() {
             .execute(&pool)
             .await
             .map_err(|e| format!("参照が無いのに戻しが落ちる: {e}"))?;
-        Ok(row_count(&pool).await)
+        Ok((row_count(&pool).await, ledger_count(&pool).await))
     })
     .await;
-    assert_eq!(removed, 0, "参照が無いのに登録簿の行が残った");
+    assert_eq!(removed.0, 0, "参照が無いのに登録簿の行が残った");
+    assert_eq!(removed.1, 0, "戻しが版の記録の行を消さない");
 }
 
 /// 戻しの移行は、破棄の報告が参照していても外部キーで落ちず、登録簿の行を残す。
@@ -169,10 +176,11 @@ async fn st11_registry_down_keeps_row_while_referenced() {
             .execute(&pool)
             .await
             .map_err(|e| format!("破棄の報告があると戻しが落ちる: {e}"))?;
-        Ok(row_count(&pool).await)
+        Ok((row_count(&pool).await, ledger_count(&pool).await))
     })
     .await;
-    assert_eq!(kept, 1, "破棄の報告が参照しているのに登録簿の行を消した");
+    assert_eq!(kept.0, 1, "破棄の報告が参照しているのに登録簿の行を消した");
+    assert_eq!(kept.1, 0, "登録簿の行を残しても、版の記録の行は消す");
 }
 
 // Scenario: 識別子を持たない健康データの権限の記録が格納される
