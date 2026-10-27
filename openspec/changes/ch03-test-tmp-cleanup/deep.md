@@ -53,4 +53,5 @@
 - **なぜ人間の判断か**: plan_fix.py は旧コマンドの FAIL の証跡を要るが、旧コマンドが evidence.py:67 の CMD_LIKE に当たらず verify-run が走らないので、FAIL の証跡を作れない。機械の承認の道が成立しない
 - **出所**: `review/code.md` R17（final の scoped re-review が R12 の残りを分けたもの。kind: premise）
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/CH03-deep-r2.html`）
-- 答え: (未回答)
+- 答え（`deep-answers-2.txt`。2026-10-27）: harness2 の evidence.py の CMD_LIKE に `openspec/` を足す（harness2 の PR）。足した後に verify-run 8.3 で証跡を取り直す。tasks.md は変えない（本人の選択。推奨と同じ。補足なし）
+- 帰結: tasks.md（凍結）は変えない。8.3 の HEAD の証跡は harness2 の evidence.py の直しが入った後に `verify-run 8.3` で取り直す。CH03 の merge は harness2 のその PR の merge を待つ。harness2 の直しは ashiato2 の CH03 の差分に入れない（harness2 側の作業。`upstream_miss.prevention` の plan_fix.py の確かめも同じ PR の候補）
