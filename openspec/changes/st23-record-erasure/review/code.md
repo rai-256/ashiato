@@ -186,6 +186,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
 - kind: premise
 - 提案: merge の前に、Q7・Q8 を spec（Requirement と Scenario）・design（D2・D12・D17 の書き直し）・tasks に写す段を走らせ、実装と試験を足す（Q8 は `rebuild_day` が隠した重なる滞在を `kind='late'` で同じまとまりで消す、Q7 は P の行の下に B の行を出す）。
   merge を先にするなら、未実装のまま出すことを人間が決める（Q7・Q8 は本人の決定なので AI が範囲外にしない）
+- 処置: escalated - deep.md 第 3 回 Q9（Q7・Q8 が作られていないまま merge するか。`deep-questions-r3.json`・`docs/briefs/ST23-deep-r3.html`）。finish は凍結した spec・tasks を書けず、本人の決定を範囲外にもしない
 
 ## R16. 夜の書き直しは、本文を消していない表も書き直し、試験はその逆を固定している（Q6「その日に本文を消した表だけ」）
 - 成果物: crates/server/src/purge_compaction.rs:143-161（`has_unrewritten_erasure`）/ crates/server/src/purge_compaction_tests.rs:54-59・98-123
@@ -195,6 +196,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
   後着の消去（`kind='late'`。位置 1 件・`versions=0`）が 1 件あるだけでも、毎晩 `core.event_version` に `ACCESS EXCLUSIVE` を取って書き直す。記録は失われない
 - kind: technical
 - 提案: 表ごとに「その表の本文を消した操作」で絞る（`core.event_version` は `versions > 0` の操作だけ）。試験は前の版の無い消去で `core.event_version` が書き直されない（ファイルが替わらない・行を足さない）ことを足して、いまの assert を直す
+- 処置: fixed D11 - `pending_ops_sql`（`crates/server/src/purge_compaction.rs`）が `core.event_version` を前の版を消した操作（`versions > 0`）に絞る。試験 `purge_compaction_skips_version_table_when_no_version_was_erased` を足し、ほかの試験の消去は前の版を 1 件持つ滞在に替えた。窓の SQL を元の形に戻すとこの試験が落ちることを確かめた（7f4338aa）
 
 ## R17. `tools/check-st23-derived-erasure.sh`（1.1 の訂正後の入口）は、ST23 の節の中身を空にしても rc=0 になる
 - 成果物: tools/check-st23-derived-erasure.sh:9-12
@@ -203,6 +205,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
   節の見出しの grep は、`check-immutable.sh` がファイルごとに見出しを出すので中身が空でも通る。門そのものを壊せば NG の行で落ちる（`correction-review.md`。手 7 の結果は「落ちた」）
 - kind: technical
 - 提案: OK 行を節の見出しから次の見出しまでに絞って数える（`awk '/書き換え禁止の節: .*_st23-derived-erasure/{f=1;next} /書き換え禁止の節/{f=0} f'`）。下限は節の OK 行の数（いま 11）にする
+- 処置: fixed 1.1 - `tools/check-st23-derived-erasure.sh` は節の見出しから次の見出しまでの OK 行だけを数え、下限を 11 本にした。`scripts/verify-run 1.1` → `OK 節の OK 行 12 本`・PASS（7f4338aa）
 
 ## R18. 錠を待っていた消去は、待つ間に走った夜の書き直しの「済み」の窓に入り、その表は以後書き直されない
 - 成果物: migrations/202610240500_record_purge.sql:20（`at timestamptz NOT NULL DEFAULT now()`）/ crates/server/src/purge_compaction.rs:119-121・143-161
@@ -213,6 +216,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
   確認の文面「ディスクの痕跡は次の書き直し（毎晩 3:30）で消えます」が黙って偽になる（R5 と同じ形）。錠を握るのは作り直し・戻す・取り込みの後着の印付けで、03:30 にそれらと消去が重なったときに起きる
 - kind: technical
 - 提案: 窓の比べ方を「書き直しの始まりより後に commit した操作」にする（例: 書き直しの前に `pg_current_snapshot()` を取り、`txid` がそのスナップショットから見えない操作を次の晩の対象に残す）。探りの手順をそのまま試験にする
+- 処置: fixed D11 - 窓を時刻でなく、最後の成功が `VACUUM FULL` の直前に取った `pg_current_snapshot()`（`core.purge_compaction.snapshot` を足した）で切る。それから見えない操作が次の晩の対象に残る。探りの手順をそのまま試験 `purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_night` にした（錠で待たせた消去の前の版を 2 晩目に書き直す）。時刻の窓に戻すと落ちることを確かめた（7f4338aa）
 
 ## R19. 6.1 の `git diff --quiet origin/main -- crates/server/src/archive/worker.rs` は HEAD で rc=1。D9 が頼る取り込み器の読み直しは ST13 で形が変わった
 - 成果物: openspec/changes/st23-record-erasure/tasks.md（6.1 の検証）/ crates/server/src/archive/worker.rs（main 側）
@@ -221,6 +225,7 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
   `purge_archive_failed_purge_is_done_on_the_next_scan` は ST13 前の worker.rs の上でしか通っていない。design D9 の「見回り（既定 120 秒）ごとに消し直す」は、合わさった木では 3 回目以降 1 時間ごとになる
 - kind: defer
 - 提案: 6.1 の検証を merge-base との比較（`git diff --quiet $(git merge-base origin/main HEAD) HEAD -- …`）に直す（`plan_fix.py` の手順で）。確認バッチの conflict_fix（R1）が統合の木で `purge_archive_` を走らせ直し、design D9 の再試行の間隔を書き直す
+- 処置: fixed D9 - 分岐点と比べる入口 `tools/check-st23-archive-untouched.sh` を足し（rc=0、`OK archive/worker.rs は分岐点（268fa882）から変わっていない`）、D9 に ST13 と合わさった木での間隔（3 回目以降 1 時間ごと）を書いた。6.1 は `python3 scripts/evidence.py unverified openspec/changes/st23-record-erasure --task 6` → `["6.1"]` の項目（本文から検証コマンドを機械で抜き出せない）で、`verify-run 6.1 --command …` が「本文の検証コマンドではない（[]）」で断るので plan_fix の手順に乗らず、tasks.md は直していない。統合の木での `purge_archive_` の走らせ直しは確認バッチの conflict_fix（PR 本文の未処置）
 
 ## R20. 全体の試験の `day_tests::st25_reasons_before_collection_started` は、`c01-location` の収集開始日が 2001-01-05 以前になった試験 DB では必ず落ちる（10.1 の `cargo test -p ashiato-server` が rc=0 にならない）
 - 成果物: crates/server/src/day_tests.rs:1443-1470 / crates/server/src/coverage.rs:320-326（`touch_started_on`）/ crates/server/src/lib.rs:1450（取り込みが呼ぶ）/ crates/server/src/testdb.rs（この木の版は共有の `ashiato` database）
@@ -262,51 +267,60 @@ D14 の日の窓（`date_trunc('day', t AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 
 - 根拠: At 03:30 an export is running, so run_once polls for 2 hours. During that time the user purges a stay (op.at = 04:10). The 05:30 VACUUM FULL is recorded as 'rewritten' with started_at = 05:30. The next night, has_unrewritten_erasure needs op.at > 05:30, so the 04:10 operation never qualifies. Unless another purge happens later, the dead tuples holding the purged body stay on disk indefinitely, which contradicts the promise that traces disappear at the next 03:30.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed D11 - R18 と同じ直し。`run_once` から締め切りの `now` を外し、窓はスナップショットだけで切る（書き出しを待つ間に commit した消去は、書き直しの直前のスナップショットから見えれば追い出され、見えなければ次の晩に残る）（7f4338aa）
 
 ## R22. The watermark compares `erasure_operation.at` (now() of the purge transaction, i.e. when it started) with `purge_compaction.started_at`. A purge transaction that started before the rewrite but committed after it ends up behind the watermark and is skipped permanently.
 - 成果物: crates/server/src/purge_compaction.rs:139
 - 根拠: Purge tx T1 begins at 03:29:59 and inserts its erasure_operation row (at = 03:29:59). Compaction starts at 03:30:00 (started_at) and VACUUM FULL core.event_version runs before T1 updates event_version. T1 then erases bodies and commits. That table's run is recorded as rewritten with started_at > T1.at, so later nights never rewrite it for T1 and the old event_version tuples survive.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed D11 - R18 と同じ直し。書き直しの前に始まり後に commit した操作は、書き直しの直前のスナップショットから見えないので次の晩の対象に残る。試験 `purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_night` がこの筋書き（7f4338aa）
 
 ## R23. On an erased row, 'purge body' targets only `entry.stay_ids?.[0]`, but an erased row can merge several user-erased stays (stay_ids is the sorted, deduped union of causes).
 - 成果物: web/src/DayView.tsx:408
 - 根拠: The user erased two overlapping or adjacent stays A and B, and they show as one '消した' row with stay_ids [B, A] (UUID order). Clicking 本文ごと消す previews and purges only B, picked by UUID order rather than by anything the user chose. The confirm shows B's range, and A's body and its locations remain while the row looks like it was handled.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: R10 と同じ指摘。`web/src/DayView.tsx:408` は先頭の滞在を渡し、`web/src/DayView.tsx:413` の戻す口は `stay_ids` 全部を渡す。本文ごと消した滞在は別の行になり（design D12。本文を消していない「消した」とはまとめない）、残った滞在は「消した」の行として「本文ごと消す」の口ごと残るので「片付いたように見える」ことはない。確認に出る範囲は消す滞在の時間で、押すたびに次の滞在が先頭に来る
 
 ## R24. The archive pass (purge_bodies=true) erases the body of a row that is already `user:late`, choosing the purged stay as the cause. The row's deletion_ledger entry still points at the stay that originally marked it, so restoring that stay is refused with 409 permanently.
 - 成果物: crates/server/src/stay_store.rs:969
 - 根拠: Location X overlaps erased stay B (not purged) and erased stay A. Before A was purged, rebuild marked X as user:late with ledger cause B. A is then purged, and mark_archive_arrivals erases X's body with cause A and parent A's operation. Later, POST /stays/restore {B} finds X with purged=true and blocked_by_other_cause=false (its only ledger cause is B), so it returns `purged_restore` 409 every time. B can never be restored even though the user never purged B.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 6.1 - 書庫の見回りが、すでに別の滞在の後着として隠れていた行を本文を消した滞在の後着として消したら、その滞在を原因に台帳の行を足す（`stay_store::ledger_late`）。試験 `purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorable` は直す前に `B を戻せない: Err(Purged)` で落ちた（`.superpowers/sdd/logs/20261027-195540-r24-repro.log`）（7f4338aa）
 
 ## R25. Swallowed stays relabeled `user:purged` are dropped from both load_existing sources: raw<>'' excludes them, and stay_erased filters out user:purged. Time they covered outside the designated stay's span is therefore no longer occupied or hidden.
 - 成果物: crates/server/src/stay_store.rs:343
 - 根拠: A rebuild:erased-range stay S spans 10:00–14:00 and overlaps user-erased stay A (11:00–12:00), so S was hidden. After A is purged, S becomes user:purged with an empty body. The next rebuild_day sees neither S nor any erased range over 12:00–14:00, so a new visible stay is derived there from the unpurged locations. Purging therefore reveals time that was hidden before.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: design D13（`openspec/changes/st23-record-erasure/design.md:228-234`）が選んだ形。本文ごと消した時間帯は指定した滞在の時間だけで、一緒に本文を消した滞在（`user:purged`）の時間で広げない（`migrations/202610240500_record_purge.sql:80`・`:111`）。広げない側の費用として「はみ出しの時間…は生きた記録として入り、一覧に出る（失うものは無い。本人は出てきた滞在を ST22 の口で消し、本文ごと消せる）」と書き、別の席（provisional-review D13）が確かめている。はみ出しで隠れていたのは作り直しの印（`rebuild:erased-range`）で、本人が消した時間ではない
 
 ## R26. Every newly stored located HTTP ingest now runs current_criteria and takes the per-user advisory lock inside the ingest transaction, even for users with no erased stays.
 - 成果物: crates/server/src/lib.rs:1468
 - 根拠: A phone uploads a batch of location points while a long rebuild_day or purge holds the user's advisory lock. Each per-item ingest transaction blocks on pg_advisory_xact_lock until the rebuild commits, so collector uploads stall or time out, and concurrent ingests for the same user are serialized. A cheap EXISTS check on core.stay_erased before taking the lock would avoid this in the common case.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 錠は取り込みと、同じ利用者の消す・本文ごと消す・作り直しを並べるためのもの（design D8（仮）。`crates/server/src/stay_store.rs:1110` で錠を取ってから原因の滞在を読む）。錠の前に `core.stay_erased` の EXISTS で飛ばすと、走っている消去が commit する前の読みで「消した滞在が無い」と判断し、その時間帯に入った行に後着の印も本文の消去も付かない（錠が塞いでいる競合を開け直す）。錠を待つのは同じ利用者の作り直しと消去が走っている間だけで、位置を持たない記録は錠の前に戻る
 
 ## R27. day_view runs a separate erasure_operation SUM query for each purged row (N+1) to compute late_purged.
 - 成果物: crates/server/src/stay_store.rs:1525
 - 根拠: On a day with many purged stays, each /stays/day request makes one round-trip per purged row. A single grouped query (parent_id = ANY(ops) GROUP BY parent_id) or a join would return the same counts in one query.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 9.1 - 本文を消した行の後着の数を、操作ごとに 1 回の `GROUP BY parent_id` の問い合わせでまとめて数える（`stay_store::day_view`）。`purge_day_` 5 本が通る（`late_purged` の値を見る試験を含む）（7f4338aa）
 
 ## R28. The is_exporting closure for the long-lived compaction task captures a full `App` clone (pool, token, password hash, sessions, reading state), when it only needs the exports handle.
 - 成果物: crates/server/src/lib.rs:3802
 - 根拠: Everything in App is kept alive for the process lifetime by a background task that only calls exports.running_view(). Capturing just the exports registry, e.g. `let exports = state.exports.clone(); move || exports.running_view().is_some()`, keeps the dependency narrow.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 7.1 - 夜の書き直しの仕事に渡すのを書き出しの台帳（`state.exports.clone()`）だけにした（`crates/server/src/lib.rs` の `run()`）（7f4338aa）
 
 ## R29. The nightly compaction JoinHandle is dropped, so if the task panics or exits, nightly rewrites stop without any log or restart.
 - 成果物: crates/server/src/lib.rs:3801
 - 根拠: If the spawned loop panics (for example via an expect in next_run_after or a panic inside sqlx), tokio swallows it because the handle is dropped. VACUUM FULL never runs again until the server restarts, and nothing records why purged bodies stay on disk.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 仕事の panic は黙って消えない —— `crates/server/src/lib.rs:3700` の `std::panic::set_hook` が `kind="panic"` で必ずログに出す。仕事の本体（`crates/server/src/purge_compaction.rs:63-64`）は抜け道の無い `loop` で、1 晩ごとの失敗は `Err` としてログに出して次の晩へ進む。手綱を捨てて起こしっぱなしにするのは書庫の取り込み器（`crates/server/src/lib.rs:3777`）と同じ形で、作り直しの監督はこの Story の範囲で足さない
