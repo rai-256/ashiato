@@ -2,10 +2,13 @@
 -- 不可逆: 消去の操作の台帳と範囲の表の行（消したことの事実・件数・範囲）は失われる。
 -- 先に止める: 操作の行があるなら戻さない。本文を消した後に戻すと、範囲の表が無くなって
 -- core.stay_erased の範囲が本文の読み（1µs）に縮み、消した時間帯が分からなくなる。
+-- 表が既に無い（戻した後の 2 回目）ときは見ない。IF を入れ子にして、表の無い問い合わせを組ませない。
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM core.erasure_operation) THEN
-    RAISE EXCEPTION '消去の操作の台帳に行がある。戻すと消した時間帯の範囲が失われるので戻せない（ST23 / design Migration Plan）';
+  IF to_regclass('core.erasure_operation') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM core.erasure_operation) THEN
+      RAISE EXCEPTION '消去の操作の台帳に行がある。戻すと消した時間帯の範囲が失われるので戻せない（ST23 / design Migration Plan）';
+    END IF;
   END IF;
 END
 $$;
