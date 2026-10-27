@@ -69,6 +69,15 @@ async fn scene_erased_visits(pool: &PgPool, user: Uuid) -> Uuid {
         let when = format!("2026-10-01T10:{minute}:00+09:00");
         scene_event(pool, user, VISIT, &when, r#"{"lat":35.68,"lon":139.76}"#).await;
     }
+    // 記録を直に置くので、取り込みが付ける収集開始日も付ける（共有の登録簿。ほかの試験が先に付けたかに依らない）
+    crate::coverage::touch_started_on(
+        pool,
+        VISIT,
+        "2026-10-01T10:10:00+09:00".parse().unwrap(),
+        crate::coverage::Arrival::Record,
+    )
+    .await
+    .unwrap();
     scene_erase(pool, stay).await;
     stay
 }
@@ -206,13 +215,9 @@ struct Exported {
     before: Value,
 }
 
-/// 全記録の書き出しは DB 全体を読むので、共有の DB ではなく使い捨ての DB で走らせる。
-async fn exported(dir: &Path, db: &testdb::ScratchDb) -> Exported {
-    let w = World {
-        pool: db.owner.clone(),
-        day: testdb::unique_day(),
-        user: testdb::user(),
-    };
+/// 全記録の書き出しは DB 全体を読むので、共有の DB ではなく使い捨ての DB（`World::new`）で走らせる。
+async fn exported(dir: &Path) -> Exported {
+    let w = World::new().await;
     let stay = w.stay(&w.at("10:00"), &w.at("11:00")).await;
     w.put(
         "c01-location",
@@ -253,8 +258,7 @@ fn export_files(dir: &Path) -> Vec<PathBuf> {
 async fn purge_keep_export_file_stays_byte_for_byte() {
     let _g = EXPORT_SERIAL.lock().await;
     let dir = Scratch::new("export-file");
-    let db = testdb::scratch().await;
-    let e = exported(&dir.0, &db).await;
+    let e = exported(&dir.0).await;
     let files = export_files(&dir.0);
     assert_eq!(files.len(), 1, "前提: 書き出したファイルが 1 つ");
     let before = sha_of(&files[0]);
@@ -280,8 +284,7 @@ async fn purge_keep_export_file_stays_byte_for_byte() {
 async fn purge_keep_erased_after_the_export_counts_the_purged_records() {
     let _g = EXPORT_SERIAL.lock().await;
     let dir = Scratch::new("export-count");
-    let db = testdb::scratch().await;
-    let e = exported(&dir.0, &db).await;
+    let e = exported(&dir.0).await;
     scene_erase(&e.w.pool, e.stay).await;
     let erased = get_status(&e.app).await["last"]["erased_after"]
         .as_i64()

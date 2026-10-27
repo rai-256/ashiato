@@ -553,6 +553,45 @@ async fn purge_schema_down_stops_when_operations_exist() {
 
 // ------------------------------------------------------------------ 消した時間帯のビュー
 
+/// 全部の版を当て直しても、`core.stay_erased` は ST41 までの 6 列のまま範囲の表を読む側（`core.stay_erased_purge` の写し）に戻る。
+/// 列を足すと、当て直しで ST41 の `CREATE OR REPLACE VIEW` が「cannot drop columns from view」で落ちた（merge gate）。
+#[tokio::test]
+async fn purge_schema_stay_erased_survives_reapplying_every_version() {
+    let db = testdb::isolated().await;
+    let pool = db.pool().await;
+    for (name, sql) in crate::MIGRATIONS {
+        sqlx::raw_sql(sql)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("2 回目の {name}: {e}"));
+    }
+    let names: Vec<String> = columns(&pool, "stay_erased")
+        .await
+        .into_iter()
+        .map(|(n, _, _)| n)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "id",
+            "user_id",
+            "start_at",
+            "end_at",
+            "deleted_at",
+            "deleted_by"
+        ],
+        "core.stay_erased の列が ST41 の形から変わった"
+    );
+    let def: String = sqlx::query_scalar("SELECT pg_get_viewdef('core.stay_erased'::regclass)")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        def.contains("stay_erased_purge"),
+        "当て直しの後の core.stay_erased が範囲の表を読む側でない: {def}"
+    );
+}
+
 /// ST22 の消した滞在の範囲は、移行の前後で変わらない（範囲の行が無いものは本文の読み）。
 #[tokio::test]
 async fn purge_schema_stay_erased_range_is_unchanged_for_st22_rows() {
@@ -574,7 +613,7 @@ async fn purge_schema_stay_erased_range_is_unchanged_for_st22_rows() {
         let (start_ok, end_ok, purged, op): (bool, bool, bool, Option<Uuid>) = sqlx::query_as(
             "SELECT start_at = '2026-10-01T00:00:00Z'::timestamptz,
                     end_at = $2::timestamptz, purged, operation_id
-               FROM core.stay_erased WHERE id = $1",
+               FROM core.stay_erased_purge WHERE id = $1",
         )
         .bind(id)
         .bind(end)
@@ -615,7 +654,7 @@ async fn purge_schema_stay_erased_reads_the_span_and_hides_absorbed() {
 
     let (end_ok, purged, got_op): (bool, bool, Option<Uuid>) = sqlx::query_as(
         "SELECT end_at = '2026-10-01T01:00:00Z'::timestamptz, purged, operation_id
-           FROM core.stay_erased WHERE id = $1",
+           FROM core.stay_erased_purge WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&pool)
@@ -1779,7 +1818,7 @@ async fn purge_range_purged_records_are_not_in_the_day_records() {
 /// 範囲の行を持つ本文ごと消した滞在は数えず、範囲の行が無いものだけを数える。サーバと同じ役割の接続で読む。
 #[tokio::test]
 async fn purge_range_startup_counts_purged_stays_without_a_span_row() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     let user = testdb::user();
     assert_eq!(deletion::purged_without_span(&app).await.unwrap(), 0);

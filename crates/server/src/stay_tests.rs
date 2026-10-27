@@ -86,31 +86,46 @@ async fn deletion_ledger_migration_applies_twice() {
 #[tokio::test]
 async fn stay_erased_view_hides_coordinates() {
     let pool = testdb::pool().await;
-    let columns: Vec<(String,)> = sqlx::query_as(
-        "SELECT column_name
-           FROM information_schema.columns
-          WHERE table_schema = 'core' AND table_name = 'stay_erased'
-          ORDER BY ordinal_position",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    let columns: Vec<String> = columns.into_iter().map(|(name,)| name).collect();
+    let columns_of = |view: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let columns: Vec<(String,)> = sqlx::query_as(
+                "SELECT column_name
+                   FROM information_schema.columns
+                  WHERE table_schema = 'core' AND table_name = $1
+                  ORDER BY ordinal_position",
+            )
+            .bind(view)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            columns
+                .into_iter()
+                .map(|(name,)| name)
+                .collect::<Vec<String>>()
+        }
+    };
+    let base = [
+        "id",
+        "user_id",
+        "start_at",
+        "end_at",
+        "deleted_at",
+        "deleted_by",
+    ];
 
     assert_eq!(
-        columns,
-        [
-            "id",
-            "user_id",
-            "start_at",
-            "end_at",
-            "deleted_at",
-            "deleted_by",
-            // 本文ごと消す操作（ST23 / design D5）が末尾に足した 2 列。値は印と操作の識別子だけ
-            "purged",
-            "operation_id"
-        ],
+        columns_of("stay_erased").await,
+        base,
         "stay_erased は座標・raw を含まず、必要な識別子・時刻範囲・削除印だけを返す"
+    );
+    // 本文ごと消す操作（ST23 / design D5）の印と操作の識別子は別のビューの末尾にだけ。値は印と操作の識別子だけ
+    let mut purge = base.to_vec();
+    purge.extend(["purged", "operation_id"]);
+    assert_eq!(
+        columns_of("stay_erased_purge").await,
+        purge,
+        "stay_erased_purge は座標・raw を含まず、stay_erased の列に印と操作の識別子だけを足す"
     );
 }
 

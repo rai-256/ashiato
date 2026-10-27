@@ -674,7 +674,7 @@ pub async fn purge_scope(
     // 3: 時間が重なる（端が触れるだけは含めない）作り直しの印の滞在。時間は `core.stay_erased` が持つ 1 か所の読み方
     let swallowed: Vec<ScopeEventRow> = sqlx::query_as(
         "SELECT e.id, e.logical_source, e.event_time, e.payload
-           FROM core.stay_erased v
+           FROM core.stay_erased_purge v
            JOIN core.event e ON e.id = v.id
           WHERE v.user_id = $1 AND v.id <> $2 AND NOT v.purged
             AND v.deleted_by IN ($3, $4)
@@ -788,7 +788,7 @@ pub async fn kept_archive_copies(
 /// その滞在はその日全体を範囲とみなして読まれる。サーバの起動時に件数だけをログに出すために数える。
 pub async fn purged_without_span(pool: &PgPool) -> sqlx::Result<i64> {
     sqlx::query_scalar(
-        "SELECT count(*) FROM core.stay_erased WHERE purged AND operation_id IS NULL",
+        "SELECT count(*) FROM core.stay_erased_purge WHERE purged AND operation_id IS NULL",
     )
     .fetch_one(pool)
     .await

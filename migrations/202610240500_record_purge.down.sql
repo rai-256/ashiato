@@ -24,13 +24,15 @@ DROP TABLE IF EXISTS core.purge_compaction;
 DROP TRIGGER IF EXISTS event_requires_derived_ledger ON core.event;
 DROP FUNCTION IF EXISTS core.require_derived_erasure_ledger();
 
--- ST22 の定義へ戻す（列 purged / operation_id を落とすので作り直す）。
+-- ST41（202610231200_event_end_time）の定義へ戻す（core.stay_erased_purge の写しをやめるので作り直す）。
 DROP VIEW IF EXISTS core.stay_erased;
+DROP VIEW IF EXISTS core.stay_erased_purge;
 CREATE VIEW core.stay_erased AS
   SELECT id,
          user_id,
          event_time AS start_at,
-         coalesce(core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
+         coalesce(CASE WHEN end_time > event_time THEN end_time END,
+                  core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
          deleted_at,
          deleted_by
     FROM core.event

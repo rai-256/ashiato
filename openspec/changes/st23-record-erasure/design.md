@@ -122,6 +122,9 @@ B は B の「本文ごと消す」で後から消せる。反転条件: 本人�
 ## D5. 消した時間帯は `core.stay_erased` 1 か所で読む（C13・R1）
 
 `core.stay_erased` を作り直す: `start_at` / `end_at` を **`core.erasure_span`（`scope = 'event'`・`event_id` = その滞在）があればそこから、無ければ本文から**読み、列 `purged boolean`（`raw = ''`）と `operation_id` を足す。
+列を足した形は `core.stay_erased_purge`（8 列）に置き、`core.stay_erased` は ST41 までの 6 列のままその写しにする。`purged` / `operation_id` を読む所は `core.stay_erased_purge` を読む
+（main への追従で分けた。ST41 の `202610231200_event_end_time` が当て直しのたびに 6 列で `CREATE OR REPLACE VIEW` するので、`core.stay_erased` に列を足すと当て直しが落ちる。merge gate）。
+本文から読む終わりは、ST41 と同じく列 `end_time` を先に、無ければ `payload->>'end'` を読む。
 **`deleted_by = 'user:purged'`（重なって一緒に本文を消した滞在。D6）はビューに出さない** —— 本文ごと消した時間帯は指定した滞在の時間だけ（D13）で、
 吸収された滞在の時間を窓にすると、はみ出しに届いた位置に戻せない後着の印が付く（spec review R4）。範囲の行が無い本文を消した滞在は D14 の読み方で出す。
 読み手を全部このビュー（か、ビューと同じ式を持つ SQL 関数 `core.stay_span(id)`）へ寄せる:
@@ -293,5 +296,5 @@ ST22 の申し送り R11（記録を消した日の隣の記録の無い日の�
 
 - 移行 1 本: 2 表・`erasure_ledger.operation_id`・追記のみのトリガ・`core.stay_erased` の作り直し・派生の門・`core.purge_compaction`・`MAINTAIN` の付与。`migrations/ORDER` の末尾へ 1 行。`.down.sql` は逆順に落とす（`erasure_ledger` の列は落とす）
 - 既存のデータは書き換えない（本文を消した滞在はまだ 1 件も無い）。`core.stay_erased` の範囲は span が無ければ本文から読むので、移行の前後で消した時間帯は変わらない
-- 戻すときは `.down.sql`。`.down.sql` は `core.stay_erased` を元の定義（終わりは `payload->>'end'`、無ければ +1µs）に戻すので、**本文を消した滞在が 1 件でもあれば範囲が 1µs に縮む**（premises.md の実測と同じ形。D14 では読まれない）。
+- 戻すときは `.down.sql`。`.down.sql` は `core.stay_erased_purge` を落とし、`core.stay_erased` を元の定義（ST41 の定義。終わりは `end_time`、無ければ `payload->>'end'`、無ければ +1µs）に戻すので、**本文を消した滞在が 1 件でもあれば範囲が 1µs に縮む**（premises.md の実測と同じ形。D14 では読まれない）。
   本文を消した滞在があるときは down しない（`.down.sql` の先頭で `core.erasure_operation` に行があれば `RAISE EXCEPTION` で止める）

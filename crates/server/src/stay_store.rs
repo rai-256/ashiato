@@ -343,7 +343,7 @@ async fn load_existing(
     .fetch_all(&mut **tx)
     .await?;
     let purged: Vec<PurgedStay> = sqlx::query_as(
-        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased
+        "SELECT id, start_at, end_at, deleted_by FROM core.stay_erased_purge
               WHERE user_id = $1 AND purged AND start_at < $2 AND end_at >= $3
               ORDER BY start_at, id",
     )
@@ -939,7 +939,7 @@ async fn mark_late_arrivals(
         "SELECT DISTINCT ON (e.id) e.id AS event_id, e.logical_source,
                 s.id, s.start_at, s.end_at, s.purged, s.operation_id
            FROM core.event e
-           JOIN core.stay_erased s
+           JOIN core.stay_erased_purge s
              ON s.user_id = e.user_id
             AND {erased}
             AND e.event_time <= s.end_at
@@ -1114,7 +1114,7 @@ pub(crate) async fn settle_arrival(
     let cause: Option<LateCause> = sqlx::query_as(&format!(
         "SELECT s.id, s.start_at, s.end_at, s.purged, s.operation_id
                FROM core.event e
-               JOIN core.stay_erased s
+               JOIN core.stay_erased_purge s
                  ON s.user_id = e.user_id
                 AND {erased}
                 AND e.event_time <= s.end_at
@@ -1534,7 +1534,7 @@ pub async fn day_view(
         operation_id: Option<uuid::Uuid>,
     }
     let hidden_rows: Vec<HiddenRow> = sqlx::query_as(
-        "SELECT id, start_at, end_at, deleted_by, purged, operation_id FROM core.stay_erased
+        "SELECT id, start_at, end_at, deleted_by, purged, operation_id FROM core.stay_erased_purge
           WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $4
             AND start_at < $2 AND end_at > $3
           ORDER BY start_at, id",
@@ -1611,7 +1611,7 @@ pub async fn day_view(
             .is_some_and(|by| by.starts_with(REBUILD_PREFIX))
         {
             sqlx::query_scalar(
-                "SELECT id FROM core.stay_erased
+                "SELECT id FROM core.stay_erased_purge
                    WHERE user_id = $1 AND deleted_by IS DISTINCT FROM $2
                      AND start_at < $4 AND end_at > $3
                      AND NOT purged

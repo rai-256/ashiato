@@ -3429,8 +3429,13 @@ async fn purge_archive_failed_purge_is_done_on_the_next_scan() {
     let stay = inbox.put_stay().await;
     inbox.purge_stay(stay).await;
     // 本文を消す操作の行（`kind = 'late'`）の書き込みを落とす
-    let fault =
-        LateMarkFault::install_on(&inbox, "core.erasure_operation", "AND NEW.kind = 'late'").await;
+    let fault = LateMarkFault::install_on(
+        &inbox,
+        "core.erasure_operation",
+        "AND NEW.kind = 'late'",
+        i64::MAX,
+    )
+    .await;
     inbox.put(
         "Timeline.json.zip",
         &[("Timeline.json", ERASE_TIMELINE.as_bytes())],

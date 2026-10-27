@@ -75,19 +75,23 @@ CREATE TRIGGER erasure_span_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION core.reject_erasure_span_change();
 
 -- ------------------------------------------------------------------ 消した時間帯を読む 1 か所（D5）
--- start_at / end_at は、範囲の表（scope = 'event'）があればそこから、無ければ本文から読む。
+-- start_at / end_at は、範囲の表（scope = 'event'）があればそこから、無ければ本文から読む（終わりは列 end_time を先に。ST41）。
 -- 本文を消した（raw = ''）のに範囲の行が無い滞在は、出来事の時刻の日（Asia/Tokyo）の 00:00〜24:00 とみなす（D14）。
 -- 一緒に本文を消した滞在（deleted_by = 'user:purged'）は出さない —— 本文ごと消した時間帯は
 -- 指定した滞在の時間だけ（D13）で、吸収された滞在の時間を窓にしない。
--- 列は末尾にだけ足す（既存の読み手の並びを動かさない）。座標を含む payload と原文 raw は載せない。
-CREATE OR REPLACE VIEW core.stay_erased AS
+-- 座標を含む payload と原文 raw は載せない。
+-- 本文を消した印 purged と操作 operation_id は core.stay_erased_purge にだけ載せ、core.stay_erased は
+-- ST41 までの 6 列のまま、その写しにする —— 列を足すと、当て直しで ST41（202610231200_event_end_time）の
+-- CREATE OR REPLACE VIEW が「cannot drop columns from view」で落ちる。
+CREATE OR REPLACE VIEW core.stay_erased_purge AS
   SELECT e.id,
          e.user_id,
          coalesce(s.start_at,
                   CASE WHEN e.raw = '' THEN d.day_start ELSE e.event_time END) AS start_at,
          coalesce(s.end_at,
                   CASE WHEN e.raw = '' THEN d.day_start + interval '1 day'
-                       ELSE coalesce(core.try_timestamptz(e.payload->>'end'),
+                       ELSE coalesce(CASE WHEN e.end_time > e.event_time THEN e.end_time END,
+                                     core.try_timestamptz(e.payload->>'end'),
                                      e.event_time + interval '1 microsecond') END) AS end_at,
          e.deleted_at,
          e.deleted_by,
@@ -109,6 +113,10 @@ CREATE OR REPLACE VIEW core.stay_erased AS
      AND e.origin = 'derived'
      AND e.deleted_at IS NOT NULL
      AND e.deleted_by IS DISTINCT FROM 'user:purged';
+
+CREATE OR REPLACE VIEW core.stay_erased AS
+  SELECT id, user_id, start_at, end_at, deleted_at, deleted_by
+    FROM core.stay_erased_purge;
 
 -- ------------------------------------------------------------------ 派生の門（D7）
 -- 収集した記録の門（core.require_version_or_ledger）は変えない。派生の記録（滞在）の本文の消去だけを、

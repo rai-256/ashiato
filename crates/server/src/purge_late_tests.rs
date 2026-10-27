@@ -420,6 +420,9 @@ async fn purge_late_archive_arrival_with_versions_ledgers_each_version() {
         external_ref: None,
         raw: String::new(),
         payload: serde_json::json!({}),
+        end_time: None,
+        end_tz_offset_min: None,
+        end_tz_id: None,
     };
     crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
         .await
@@ -515,6 +518,9 @@ async fn purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorabl
         external_ref: None,
         raw: String::new(),
         payload: serde_json::json!({}),
+        end_time: None,
+        end_tz_offset_min: None,
+        end_tz_id: None,
     };
     crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
         .await

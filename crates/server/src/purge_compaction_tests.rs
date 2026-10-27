@@ -3,7 +3,7 @@
 //!
 //! 表のファイル（`relfilenode`）が替わったかで書き直しを見る。`VACUUM FULL` は表の排他ロックを取り、
 //! 共有の DB の上では並んだ試験を止める（逆に、並んだ試験の読み出しの後ろで待たされて失敗にもなる）ので、
-//! 試験ごとに**使い捨ての DB**（`testdb::scratch`）で走らせる。結果の行は、走らせる前の最大の `id` より後で見る。
+//! 試験ごとに**使い捨ての DB**（`testdb::isolated_with_app`）で走らせる。結果の行は、走らせる前の最大の `id` より後で見る。
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -108,7 +108,7 @@ fn result_of<'a>(results: &'a [TableResult], table: &str) -> &'a TableResult {
 // Scenario: 本文を消した晩に表が書き直される
 #[tokio::test]
 async fn purge_compaction_rewrites_tables_after_erasure() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
 
@@ -132,7 +132,7 @@ async fn purge_compaction_rewrites_tables_after_erasure() {
 // Scenario: 本文を消していない晩は書き直さない
 #[tokio::test]
 async fn purge_compaction_skips_night_without_erasure() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     erase_body(&owner).await;
     settle(&app, &owner).await;
@@ -158,7 +158,7 @@ async fn purge_compaction_skips_night_without_erasure() {
 /// 前の版を消していない晩は、前の版の表を書き直さない（code-verify R16。Q6「その日に本文を消した表だけ」）。
 #[tokio::test]
 async fn purge_compaction_skips_version_table_when_no_version_was_erased() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
     erase_body_without_versions(&owner).await;
@@ -192,7 +192,7 @@ async fn purge_compaction_skips_version_table_when_no_version_was_erased() {
 /// 利用者の錠を別の接続で握り、前の版を持つ滞在の消去を錠で待たせたまま 1 晩目を走らせる。
 #[tokio::test]
 async fn purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_night() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
     erase_body(&owner).await;
@@ -202,6 +202,21 @@ async fn purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_nigh
     add_version(&owner, stay, user).await;
     scene_erase(&owner, stay).await;
     let counts = scope_counts(&owner, stay).await;
+    // 待たせる消去のスナップショットが、先に消した操作より新しいこと（この試験の前提）を作る。
+    // `backend_xmin` はクラスタ全体で最も古い走っているトランザクションなので、並んだほかの試験の DB の
+    // トランザクションが残っていると、書き直しは安全側（`not_rewritten`）に倒れる
+    for _ in 0..1500 {
+        let clear: bool = sqlx::query_scalar(
+            "SELECT pg_snapshot_xmin(pg_current_snapshot()) > (SELECT max(txid) FROM core.erasure_operation)",
+        )
+        .fetch_one(&owner)
+        .await
+        .unwrap();
+        if clear {
+            break;
+        }
+        tokio::time::sleep(POLL).await;
+    }
     let mut held = owner.acquire().await.unwrap();
     sqlx::query("BEGIN").execute(&mut *held).await.unwrap();
     sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2::text))")
@@ -259,7 +274,7 @@ async fn purge_compaction_erasure_committed_after_rewrite_is_rewritten_next_nigh
 // Scenario: 書き直せなかったら失敗として残り、次の晩にもう一度書き直す
 #[tokio::test]
 async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
     erase_body(&owner).await;
@@ -325,7 +340,7 @@ async fn purge_compaction_failure_is_recorded_and_retried_next_night() {
 /// スナップショットが閉じた次の晩に書き直す。
 #[tokio::test]
 async fn purge_compaction_old_snapshot_is_not_rewritten_and_retried() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
 
@@ -377,7 +392,7 @@ impl Drop for DirGuard {
 // Scenario: 書き出しの最中は書き直しを始めない
 #[tokio::test]
 async fn purge_compaction_waits_while_exporting() {
-    let db = testdb::scratch().await;
+    let db = testdb::isolated_with_app().await;
     let (owner, app) = (db.owner.clone(), db.app.clone());
     settle(&app, &owner).await;
     erase_body(&owner).await;
