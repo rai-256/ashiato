@@ -5,6 +5,9 @@
 #                                                  CI の rust job と手元で同じ結果になる
 #   ./tools/check-verify-env-reset.sh              この木の DB を作り直して確かめる本体（worktree か CI=true の木だけ。ほかは rc=2）
 #
+# ch07 の段（9.〜11.）は、作り直したときだけ HARNESS_RESET: testdb を標準出力に出す宣言（tools/verify-env.sh）を確かめる。
+# --self-test の「CI と手元で同じ結果」の例外: ハーネスの点検（init.py --check）の段は .harness2 のある木（worktree）だけで走り、CI は SKIP。
+#
 # 一時の木の道具は、環境変数が結果に回り込まないよう 9 つの変数を落として呼ぶ（design D8）。本体の各段は HARNESS_VERIFY を明示して呼ぶ。
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
