@@ -183,6 +183,7 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
   self-test の該当（n2 `mainrepo-st10_default`）には同じ project の印を持つコンテナ k2（:245）があり、:102-104 の「project の印のコンテナが残る」で残っている。:95 の守りを観測していない
 - kind: technical
 - 提案: その場合の網を、project の印のコンテナが 1 つも無い生きている作業ツリー（setup の `mainrepo-st11` など）にして、:95 を外すと落ちることを確かめる
+- 処置: fixed 2.1 —— tools/docker-tidy.sh の self-test の網 n2 を、その project のコンテナが無い生きている作業ツリー `mainrepo-st11`（一覧にあり path が無い）のものに替えた。:95 に当たる守り（`live_lc` の確かめ）を `:` にした複製で `--self-test` rc=1（NG 1 件）を確かめた
 
 ## R18. 片付けを DB を消す前・network の確かめの前に置くことを、どの検査も固定していない
 - 成果物: tools/verify-env.sh:123 / tools/docker-tidy.sh:404-469（`--verify-env-check`）/ specs/verify-environment/spec.md「片付けはその判定より前に終わり」/ docs/changes/CH05.md の価値（「番号を継いだ木の subnet を、消えた作業ツリーの DB が塞いで検証の準備が止まることも防ぐ」）
@@ -190,6 +191,7 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
   順を逆にすると、消えた作業ツリーの DB が subnet を塞ぐ木で `clear_blocking_network` が rc=1（BLOCKED_INFRA）になり、CH05 が防ぐと書いた止まり方がそのまま起きるが、それを見る Scenario も試験も無い
 - kind: technical
 - 提案: `--verify-env-check` に 1 件足す: 自分の network を外した状態で、この木の subnet（`docker-compose.subnet.yml`）の network に探りのコンテナ（`<main>-st97`・消えた path）を繋いで `HARNESS_VERIFY=1 tools/verify-env.sh` が rc=0 になることを見る。spec に Scenario を 1 本足す
+- 処置: fixed 2.1 —— tools/docker-tidy.sh の `verify_env_order`（`--self-test` の中。CI の rust job が走らせる）が、tools/verify-env.sh の字下げの無い段で片付けの行が `reset_db` の行と `clear_blocking_network` の行より前にあることを見る。片付けの行を `clear_blocking_network` の後ろへ動かした複製で `--self-test` rc=1 を確かめた。spec の本文（「片付けはその判定より前に終わり」）はもうあるので Scenario は足さない
 
 ## R19. Scenario「体積の行を入れる途中で殺した」の主張と、`insert` の時点で起きていることの階層が違う（行は 1 つも書かれていない）
 - 成果物: specs/test-database/spec.md Scenario「体積の行を入れる途中で殺した回の database は、次の回の後に残らない」/ crates/server/src/killed_probe_tests.rs:21・:75 / design.md D2
@@ -201,6 +203,7 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
   （後片付け: 探りを止めて `ch05_next_run` を走らせ、探りの backend が 0 本・回の database はいまの回の 2 つだけに戻ったことを確かめた）
 - kind: technical
 - 提案: spec の Scenario の名前と WHEN を「行を書く前の、走っている INSERT の文の間に殺した」に書き直す（D2 の意図どおり。実装は変えない）。書きかけの行の場合も見たいなら、それは別の時点として足す（D2 の決定を変えるので、そのときは design に戻す）
+- 処置: fixed D2 —— 実装は変えず、specs/test-database/spec.md の Requirement の (a) に「文が走り始め、行を 1 つも書く前」を、design D2 に `insert` の時点は行を作る前の走っている文で、書きかけの行は見ない（見るなら別の時点として足す）を書き足した。Scenario の名前は tasks 6.1 の検証と go.json が逐語で持つので変えない
 
 ## R20. 片付けが外したコンテナの volume が、どの作業ツリーのものだったか分からなくなる
 - 成果物: tools/docker-tidy.sh:111-113（外したコンテナの 1 行）/ design.md「計測の記録」の `- 片付けたもの:`
@@ -208,7 +211,9 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
   コンテナを外すと、この volume は `docker volume ls -q --filter dangling=true` の 129 個に混ざる。片付けの 1 行はコンテナの名前と path だけで volume の名前を出さず、design の記録（2026-10-27 に外した 19 個）にも volume は無い。
   Q7 の「volume は消さない」は中身を残すが、どれが st29 などの DB だったかの結び付きは外した時点で捨てられ、戻せない
 - kind: irreversible
+- loss: discarded （finish が足した。外した後は volume と作業ツリーの結び付きを docker から引けない）
 - 提案: spec への足し（いまの spec の「1 つごとに名前と、コンテナならその作業ツリーの path」も Q7 の「volume は消さない」も volume の名前を出せとは言っていないので、spec 違反ではない）: 外す前に `docker inspect` の Mounts から volume の名前を取り、外した 1 行に足す（`--dry-run` も同じ形）
+- 処置: fixed D8 仮 —— 失わない側（結び付きを書き残す）で仮に進めた。tools/docker-tidy.sh が外すコンテナごとに `docker inspect` の Mounts から volume の名前を読み、外した 1 行と `--dry-run` の 1 行に `残す volume: <名前>` を足す。inspect に問えなければ外さずに rc=1。self-test が偽の docker と本物の docker の 1 件で、控えた volume の名前が行に出ることを見る（`残す volume:` を消した複製で rc=1）。design D8（仮）、provisional.jsonl に `--source review/code.md#R20`
 
 ## R21. 8.1 の `openspec validate … --strict` は証跡に一度も載っていない（ハーネスがコマンドとして拾わない）
 - 成果物: openspec/changes/ch05-test-db-bloat/tasks.md 8.1 / openspec/changes/ch05-test-db-bloat/evidence.jsonl / scripts/evidence.py:67（`CMD_LIKE`）
@@ -216,12 +221,14 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
   手で走らせた `openspec validate ch05-test-db-bloat --strict` は rc=0（`is valid`）。ただし `[INFO] … Archive would refuse this delta: verify-environment: target spec does not exist` を出す —— このブランチには `openspec/specs/verify-environment/spec.md` が無い（origin/main には CH06 の archive `99c0b535` で入っている）
 - kind: defer
 - 提案: harness2 の `CMD_LIKE` に `openspec\s` を足す（harness2 側）。CH05 は origin/main を取り込んでから archive する（R22）
+- 処置: fixed 8.1 —— CH05 の側は R22 の取り込み（4bc276fb）で `openspec/specs/verify-environment/spec.md` がこの木にあり、`openspec validate ch05-test-db-bloat --strict` が rc=0・INFO なし（手で走らせた）。8.1 の正典との diff も取り込んだ木で rc=0。evidence.py の `CMD_LIKE` が `openspec` を拾わないことは harness2 の持ち物なので、PR 本文の「未処置の申し送り」に書く
 
 ## R22. origin/main（CH07 の archive 後）と 4 ファイルで衝突する
 - 成果物: tools/verify-env.sh / .github/workflows/ci.yml / docs/flow-gates.md / docs/testing.md
 - 根拠: `git merge-tree --write-tree HEAD origin/main` → `CONFLICT (content)` 4 件。verify-env.sh は CH07 が同じ場所（`reset_db` の直前）に `reset_done=` を足した（`HARNESS_RESET` の宣言の印）。ci.yml は ST29 の `check-satellite-boundary.sh` 2 行と同じ末尾。どちらも両方を残せば済む形
 - kind: conflict
 - 提案: 片付けの行は `reset_done=` の後・`reset_db` の前に置く（片付けは `reset_done` に触らない）。解いた後に 3.1・3.2・8.2 を走らせ直す
+- 処置: fixed D5 仮 —— origin/main を取り込み（4bc276fb）、tools/verify-env.sh は CH07 の `reset_done=` の後・`reset_db` の前に片付けを置いた（片付けは `reset_done` に触らない）。ci.yml・docs/flow-gates.md・docs/testing.md は両方の行を残し、testing.md の rust job の検査を 21 本に数え直した。design D5（仮）に置き場と反転条件を書き足した。3.1・3.2・8.2 を取り込んだ木で走らせ直した（evidence.jsonl）
 
 ## security review（5cc2caa..8626aba）
 
@@ -252,45 +259,53 @@ python で独立に計算した: `1 MiB = 1048576`、`5000000 + 1 MiB = 6048576`
 - 根拠: Two cases. (1) Another clone such as /elsewhere/ashiato2-foo, outside the parent folder, has a project named ashiato2-foo and only its network is left (after `compose rm` etc.); verify-env's tidy removes that network although it would never touch the containers. (2) A directory exists but is not in `git worktree list` (st12 in the self-test); its container is kept, but its network is removed once no container is attached. The asymmetry means tidy deletes things outside its stated scope ("only worktrees that have disappeared").（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 2 つの場合とも spec の本文どおりで、外すのは何も繋がっていない空のネットワークだけ。(1) ネットワークを外す条件は specs/verify-environment/spec.md:50-51 が「project が `<main の名前>-` で始まり、繋がったコンテナもその project の印のコンテナも無く、生きている作業ツリーの名前でもない」と決めており、親のフォルダは条件に入らない（ネットワークは working_dir の印を持たない）。(2) path はあるが一覧に無い作業ツリー（self-test の st12）は、そのコンテナが残る限り tools/docker-tidy.sh:120-122 の「その project の印のコンテナが残る」でネットワークも残る（self-test の n6 `mainrepo-st12x_default` が残ることを `--self-test` が見ている）。外れるのはコンテナが 1 つも無くなった後で、compose は `up` のときにネットワークを作り直すので失われるものが無い
 
 ## R24. `docker ps -aq --filter network=` (and the `ps -a` / `network ls` calls at :59 and :85) capture stderr with `2>&1` into the text they parse, so CLI warnings are read as container IDs or rows.
 - 成果物: tools/docker-tidy.sh:96
 - 根拠: If the docker CLI prints a warning such as `WARNING: Error loading config file ...` to stderr and still exits 0, each word of the warning lands in `att`. Those words are not in will_rm, so keep=1 and no network is ever removed. Nothing reports it, so the network pool exhaustion this CH is meant to fix keeps happening with no visible cause. For `ps -a`, the warning line becomes a bogus key in c_proj.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 2.1 —— tools/docker-tidy.sh に `dq`（成れば標準出力だけ、落ちれば標準エラーを理由に）を足し、`ps -a`・`network ls`・`ps -aq --filter network=`・`inspect` をそれで呼ぶ。再現: rc=0 で標準エラーに `WARNING: Error loading config file` を出す偽の docker で `--dry-run` を走らせると、直す前は外すはずの `mainrepo-st98_default` が出なかった。self-test の偽の docker はどの命令でも同じ警告を出すようにし、`dq` を `2>&1` に戻した複製で `--self-test` rc=1（NG 6 件）を確かめた
 
 ## R25. `probe_active` treats a psql failure (db.sh exec failing, DB down, etc.) the same as "no matching statement", so wait_mark keeps looping until the time limit.
 - 成果物: tools/check-test-db-killed.sh:74
 - 根拠: At the insert point, the `inserting` mark has arrived but tools/db.sh cannot reach the DB. wait_mark waits the full 120 seconds, then fails with "探りの印（inserting）が…来なかった（探りが走らなかった・0 本の絞り込み）". The message blames the probe and hides the real cause (cannot query pg_stat_activity). This is the same "don't silently pass list/stat failures" problem list_checked/stat_checked were written to prevent.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 5.1 —— tools/check-test-db-killed.sh の `probe_active` が、名前が読めない・psql が落ちたときに理由を出して rc=2 を返し、`wait_mark` はそれで待ちを打ち切って時点の名前を出して rc=1。再現: `psql_db` を rc=2 にすると直す前は rc=1（「まだ見えない」と同じ）で 120 秒待ち続ける形だった。直した後は rc=2 と `pg_stat_activity が読めない（psql の rc=2）`、空なら rc=1、見えれば rc=0（関数を取り出して確かめた）
 
 ## R26. Containers whose worktree appears in `git worktree list` but whose path is gone (prunable, i.e. deleted with rm -rf and never pruned) are kept forever, so the commonest "vanished worktree" case is never cleaned up.
 - 成果物: tools/docker-tidy.sh:23
 - 根拠: A worktree directory removed by hand stays listed as prunable until `git worktree prune` or gc (default expiry 3 months). Every verify-env run leaves that DB container and network in place, they keep holding the docker network pool, and the CH05 Q7 problem continues.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: spec が決めた振る舞い。specs/verify-environment/spec.md:48 の外す条件は「その path がファイルシステムに無く、`git worktree list` にも無い」で、:70 の Scenario「作業ツリーが残っていれば、止まっているコンテナも外さない」は「`git worktree list` にあるが path が無い（prune の前の）path の印のコンテナ」が残ることを言う。design D4 は片方だけで見ると「`git worktree list` にあって一時的に path が見えない木を外しうる」と退けた。self-test の st11 のコンテナ（tools/docker-tidy.sh:245）が残ることを `--self-test` が見ている。`git worktree prune` の後は次の片付けで外れる
 
 ## R27. Network removal runs one `docker ps -aq --filter network=` per candidate network (N+1 docker calls) on the verify-env reset path, which runs before every verification.
 - 成果物: tools/docker-tidy.sh:96
 - 根拠: In the state where networks have piled up to dozens (the situation this CH is fixing), each reset launches the docker CLI dozens of times and verify preparation slows down. Instead, fetch `docker ps -a --format '{{.ID}}|{{.Networks}}'` once, build a network-to-containers table, and look it up.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: spec が読み方を決めている（specs/verify-environment/spec.md:50「`docker ps -a --filter network=` で読む」、design D4 は止まったコンテナを数えない `network inspect` の `.Containers` を退けた）。数が要るのは `<main>-` で始まり生きている作業ツリーのものでないネットワークだけで、1 回外せば次からは数に入らない。この機械で `time tools/docker-tidy.sh --dry-run` は 0.15 秒（`ashiato2-` のネットワーク 6 つ）。design D5 の反転条件が「片付けが準備を 1 秒以上遅くするなら」を持っている
 
 ## R28. The awk that pulls the `- run:` lines of ci.yml's rust job is copied into three scripts: check-test-db-killed.sh:287, docker-tidy.sh:325 (`ci_rust_runs`), and the near-identical version at check-test-db-growth.sh:250.
 - 成果物: tools/check-test-db-killed.sh:287
 - 根拠: If the job layout in ci.yml changes (indentation, job name, a matrix), all three self-tests must be fixed separately, and missing one leaves a check that falsely passes or falsely fails. The obvious form is one shared helper in tools/ (for example `tools/lib/ci-runs.sh`) sourced by all three.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 3 つ目の写し `tools/check-test-db-growth.sh` は CH04 の持ち物で、tasks 8.2 が触らないものに名指しし、許す一覧（tools/ の 3 本と docs/・openspec の change）に共有の部品の新しいファイルも入らない。CH05 の 2 本だけを 1 つにしても CH04 の写しは残る。ci.yml の並びが変わったときは、取り出した行が無くなり「行がある」の確かめが落ちる向き（tools/docker-tidy.sh `ci_rust_runs` の後の 2 つの check、tools/check-test-db-killed.sh の self-test の 2 つの want）で、黙って通る向きにはならない
 
 ## R29. The "time the next run with EPOCHREALTIME, print rc and seconds, dump output and return rc on failure" block is copied almost verbatim in killed_check (:194-198) and point (:160-164).
 - 成果物: tools/check-test-db-killed.sh:194
 - 根拠: A fix to the timing or failure output (e.g. R9-style rc handling) has to be made in both places, and if one is missed the clean run and the next run behave differently on failure. A single `timed_next <label>` function would cover both.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: fixed 5.1 —— tools/check-test-db-killed.sh に `timed_next <見出し>`（秒数・rc を出し、落ちれば出力とその rc を返す）を足し、殺す前のきれいな回と各時点の次の回をそれで呼ぶ。`--self-test` rc=0（`exit 101` の回が rc=101 で落ちる want も通る）
 
 ## R30. `ch05_next_run` is not `#[ignore]`, so every `cargo test --workspace` runs a trivial test that only does `SELECT 1`. The script could reach the same next run with the existing `testdb::sweep()` or an existing test.
 - 成果物: crates/server/src/killed_probe_tests.rs:89
 - 根拠: All CI and local test runs pick up an extra test that checks nothing, and the `ch05_` prefix it occupies can collide with filters like check-test-db-growth's `ch04_`. Other options: make it ignored and run it with `--ignored --exact`, or have the script run an existing test such as CH04's testdb tests.（確かさ 2）
 - kind: technical
 - 提案: （/code-review は提案を持たない。finish が直し方を決める）
+- 処置: rejected: 1 本で増えるのは共有の回の pool（testdb.rs の `pool()`）での `SELECT 1` 1 回だけ。`ch04_` の絞り込み（ci.yml の `check-test-db-growth.sh -p ashiato-server ch04_`）は名前の頭が違うので当たらない。`#[ignore]` にすると tasks 4.1 の検証（`… ch05_next_run` で `1 passed`）と tools/check-test-db-killed.sh:84 の `1 passed` の確かめが成り立たなくなり、凍結した plan の直しになる。design D3 が既定の回で走る 1 本として決めている

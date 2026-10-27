@@ -71,9 +71,14 @@ stat_checked() {  # stat_checked <行数の変数名> <大きさの変数名>
   fi
   printf -v "$1" %s "$r"; printf -v "$2" %s "$s"
 }
-probe_active() {  # probe_active <回の database>: その database に ch05_probe の印のある active の文が見える
-  [[ $1 =~ ^[a-z0-9_]+$ ]] || return 1
-  [[ -n $(psql_db postgres "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND datname = '$1' AND query LIKE '%ch05_probe%' AND pid <> pg_backend_pid() LIMIT 1") ]]
+# probe_active <回の database>: その database に ch05_probe の印のある active の文が見えれば 0、まだ見えなければ 1、
+# 名前が database の名前でない・pg_stat_activity が読めなければ理由を出して 2（待ち続けて「印が来なかった」と取り違えない。review/code.md R25）
+probe_active() {
+  local out
+  [[ $1 =~ ^[a-z0-9_]+$ ]] || { echo "探りが印に書いた回の database の名前が読めない: '$1'" >&2; return 2; }
+  out=$(psql_db postgres "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND datname = '$1' AND query LIKE '%ch05_probe%' AND pid <> pg_backend_pid() LIMIT 1") \
+    || { echo "pg_stat_activity が読めない（psql の rc=$?）" >&2; return 2; }
+  [[ -n $out ]]
 }
 run_next() {  # 次の回。出力は標準出力へ。rc を返す
   if [[ -n ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then bash -c "$TEST_DB_KILLED_NEXT_CMD"; return; fi
@@ -94,6 +99,15 @@ exe_path() {  # 試験の実行ファイルの path。作れなければ cargo �
     return 1
   fi
   jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' <<<"$json" | tail -1
+}
+
+# timed_next <見出し>: 次の回を走らせ、「<見出し>: rc=<n> <秒> 秒」を出す。落ちればその出力を出し、その rc を返す
+timed_next() {
+  local t0=$EPOCHREALTIME t1 out rc=0
+  out=$(run_next 2>&1) || rc=$?
+  t1=$EPOCHREALTIME
+  echo "$1: rc=$rc $(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}') 秒"
+  if [[ $rc != 0 ]]; then echo "$out" >&2; echo "$1の試験が rc=$rc で落ちた" >&2; return "$rc"; fi
 }
 
 probe_pid=""
@@ -120,14 +134,18 @@ start_probe() {
 
 # wait_mark <時点> <印のファイル> : 印（と insert なら走っている文）を待つ。上限を越えたら rc=1
 wait_mark() {
-  local at=$1 mark=$2 want deadline run
+  local at=$1 mark=$2 want deadline run arc
   want=inserting; [[ $at == committed ]] && want=committed
   deadline=$(( SECONDS + WAIT_S ))
   while (( SECONDS < deadline )); do
     if grep -qx "$want" "$mark" 2>/dev/null; then
       if [[ $at == insert && -z ${TEST_DB_KILLED_PROBE_CMD:-} ]]; then
         run=$(sed -n 's/^run=//p' "$mark" | head -1)
-        probe_active "$run" && return 0
+        arc=0; probe_active "$run" || arc=$?
+        case $arc in
+          0) return 0 ;;
+          2) echo "時点 $at: 探りの文が走っているかを確かめられない" >&2; return 1 ;;
+        esac
       else return 0; fi
     fi
     if ! kill -0 "$probe_pid" 2>/dev/null; then
@@ -143,7 +161,7 @@ wait_mark() {
 
 # point <時点> <作業の場所> <試験の実行ファイル>
 point() {
-  local at=$1 dir=$2 exe=$3 mark="$2/mark" s0 s1 s2 killed left name rows0 size0 rows1 size1 rc t0 t1 out
+  local at=$1 dir=$2 exe=$3 mark="$2/mark" s0 s1 s2 killed left name rows0 size0 rows1 size1 rc
   list_checked s0 || return 1
   stat_checked rows0 size0 || return 1
   start_probe "$at" "$mark" "$exe"
@@ -157,11 +175,8 @@ point() {
   for name in $(sed -n 's/^\(run\|iso\)=//p' "$mark"); do
     grep -qx "$name" <<<"$killed" || { echo "時点 $at: 探りが印に書いた database $name が、殺した後の一覧に増えていない" >&2; return 1; }
   done
-  t0=$EPOCHREALTIME; rc=0
-  out=$(run_next 2>&1) || rc=$?
-  t1=$EPOCHREALTIME
-  echo "時点 $at: 次の回 rc=$rc $(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}') 秒"
-  if [[ $rc != 0 ]]; then echo "$out" >&2; echo "時点 $at: 次の回の試験が rc=$rc で落ちた" >&2; return "$rc"; fi
+  rc=0; timed_next "時点 $at: 次の回" || rc=$?
+  [[ $rc == 0 ]] || return "$rc"
   list_checked s2 || return 1
   left=$(comm -12 <(echo "$killed") <(echo "$s2"))
   if [[ -n $left ]]; then
@@ -191,11 +206,9 @@ killed_check() {
     [[ -n $exe && -x $exe ]] || { echo "試験の実行ファイルの path が取れなかった" >&2; return 1; }
   fi
   if [[ -z ${TEST_DB_KILLED_NEXT_CMD:-} ]]; then  # 殺す前のきれいな回の秒数（出す）。きれいな回が落ちれば、殺す前にその rc で落ちる
-    local b0=$EPOCHREALTIME b1 bout brc=0
-    bout=$(run_next 2>&1) || brc=$?
-    b1=$EPOCHREALTIME
-    echo "殺す前のきれいな回: rc=$brc $(awk -v a="$b0" -v b="$b1" 'BEGIN{printf "%.1f", b-a}') 秒"
-    if [[ $brc != 0 ]]; then echo "$bout" >&2; echo "殺す前のきれいな回の試験が rc=$brc で落ちた" >&2; return "$brc"; fi
+    local brc=0
+    timed_next "殺す前のきれいな回" || brc=$?
+    [[ $brc == 0 ]] || return "$brc"
   fi
   for at in insert committed; do
     point "$at" "$dir" "$exe" || return $?

@@ -65,6 +65,8 @@ MODIFIED の塊は正典に無い capability に当たるので、`spec_merge.py
 - 差し替え（`--self-test`）: `TEST_DB_KILLED_PROBE_CMD`（探り）・`TEST_DB_KILLED_NEXT_CMD`（次の回）・`TEST_DB_KILLED_LIST_CMD`（一覧）・`TEST_DB_KILLED_STAT_CMD`（`ashiato` の行数と大きさ）。CH04 D8 の `TEST_DB_CMD`・`TEST_DB_LIST_CMD` と同じ形
 - **同じ worktree で別の `cargo test` と並べて走らせない**（並んだ回の database が S1 と S0 の差に入る）。冒頭のコメントに書く。検証の準備（`HARNESS_VERIFY=1 tools/verify-env.sh`）とも並べない（CH06 が DB ごと作り直す）
 - 大きさの許し（1 MiB）は、触らない database でも統計や空き領域の地図で大きさが少し動くことがあるため。行数は厳密に見る
+- `insert` の時点で殺すのは、行を 1 つも作る前の走っている文（`pg_sleep(600)` が FROM の外側にあり、眠り終えるまで `generate_series` の行を作らない。review/code.md R19 の実測で `pg_relation_size('core.event')` = 0）。
+  書きかけの未確定の行がある状態は見ない。見るなら別の時点として足し、この D2 を変える
 - 「INSERT の途中で殺せば巻き戻って行は残らない」とは書かない（`client_connection_check_interval` が 0 なので、文は終わって確定しうる）。見るのは、確定したかに依らず次の回の後に残らないことだけ
 - Q8 の前の版にあった「`committed` の眠りの間に作り直しの判定が見送る」の確かめは外した（作り直しの判定を作らない）
 - 退けた案: 本物の体積の試験（`stays_detail_query_uses_user_time_index` など）を時間で殺す —— 文が 1 秒未満で終わり、殺す時点を選べない。探りの試験に眠りを入れて印で同期すれば、時点が揺れない。
@@ -117,12 +119,13 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - **`clear_blocking_network` の前に置く理由**: 台帳の番号を継いだ木は、消えた作業ツリーの network と同じ subnet を取りに行く（Context）。そこに消えた作業ツリーの DB が繋がったままだと、CH06 は rc=1 で人に返す。
   片付けが先に走ると、そのコンテナとネットワークは（`<main>-` の project で、作業ツリーが消えていれば）外れていて、CH06 の確かめは残ったもの（片付けの条件に当たらないもの）だけを見る。CH06 の rc=1 の振る舞い自体は変えない
 - `reset_db` の前に置くのは、片付けが落ちても DB を消す前の状態で続けられるため（後でも結果は同じ）
+- CH07 が同じ場所（`reset_db` の直前）に `reset_done=` を足した後は、片付けの行を `reset_done=` の後・`reset_db` の前に置く（片付けは `reset_done` に触らず、`HARNESS_RESET` の宣言は作り直した DB だけを指す。review/code.md R22）
 - CI（`CI=true` の main の checkout）でも `reset` なら走る。CI に消えた作業ツリーは無いので何も外さない
 - 退けた案: 毎回（印が無いときも）片付ける —— CH06 の Requirement 2 の「だけ」を MODIFIED で書き直すことになり、開発用の起動（main の checkout）まで docker を見に行く /
   `clear_blocking_network` の中で、繋がったコンテナが消えた作業ツリーのものなら外す —— CH06 の関数の中身を書き換える（CH06 Q3 の決定を CH05 が覆す）
 
 反転条件: 印の無い呼び出し（人が手で走らせる `tools/verify-env.sh`）だけで作業ツリーを作って DB を立てる経路が出て、そこでネットワークの割り当てが尽きる例が出たら、毎回呼ぶ形にして CH06 の Requirement 2 も MODIFIED する。
-片付けが検証の準備を 1 秒以上遅くする（`docker ps -a` と `inspect` の費用。計測の記録）なら、1 日に 1 回（印のファイルの時刻で見る）にする。
+CH07 の宣言が片付けの結果も宣言の対象にすると決めたら、片付けの行を `reset_done=` の前に移す。片付けが検証の準備を 1 秒以上遅くする（`docker ps -a` と `inspect` の費用。計測の記録）なら、1 日に 1 回（印のファイルの時刻で見る）にする。
 
 ### D6. CH06 の Requirement 1 の MODIFIED は 1 文だけ
 
@@ -140,13 +143,22 @@ rc≠0 なら `verify-env: 片付けに失敗した（docker-tidy の rc=<n>）�
 - `--verify-env-check` も CI に置く（CH06 の本体と同じく、CI では `CI=true` で `--plan` が `reset` になり、docker もある）。置かないと、後の change が `verify-env.sh` の片付けの 1 行を消しても CI が緑のまま（review/spec.md R39）。DB を作り直すので、DB を使う後ろの段（`check-test-db-killed.sh` の本体）より前に置き、作り直した DB は役割まで整っている
 - `docs/testing.md` に 1 節（殺した後の検査と並べて走らせないこと・作り直す検証の準備が消えた作業ツリーのコンテナとネットワークを片付けること・volume を消さないこと）、`docs/flow-gates.md` の検査の表に `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 2 行
 
+### D8（仮）. 外すコンテナの 1 行に、残す volume の名前を出す
+
+review/code.md R20: DB の volume は名前の無い volume で、印は `com.docker.volume.anonymous` だけ。コンテナを外すと、どの作業ツリーの volume だったかを docker から引けなくなる（Q7 は volume を残すが、結び付きは外した時点で捨てられる）。
+失わない側で仮に進める: 外すと決めたコンテナごとに `docker inspect` の Mounts から volume の名前を読み、外した 1 行（と `--dry-run` の 1 行）の末尾に `残す volume: <名前…>`（無ければ `なし`）を足す。
+inspect に問えないときは、そのコンテナを外さずに理由を出して rc=1（結び付きを書き残せないまま外さない）。検証の準備からの呼び出しでは、この行は `scripts/verify-run` の検証のログに残る。
+spec の「1 つごとに名前と、コンテナならその作業ツリーの path を標準エラーに 1 行出す」に足すだけで、本文は変えない。`--self-test` が偽の docker と本物の docker の 1 件で、この 1 行に控えた volume の名前が出ることを見る。
+
+反転条件: 本人が「結び付きは要らない」と決めたら、inspect と行の末尾を外す。「行では足りない（ログの残る作業ツリーも消える）」と決めたら、main の checkout の下の記録のファイルへ 1 行ずつ足す形にする（spec を MODIFIED する）。
+
 ## Risks / Trade-offs
 
 - [CH04 の鍵の番号・回の名前・`isolated()` が gate・fix で変わる] → D2 は CH04 の D 番号で引き、反転条件に書いた。下流の入口が CH04 の gate を通った SHA を取り込み、tasks 1.1 で `testdb.rs` から読み直す
 - [CH06 の `tools/verify-env.sh` の流れ（関数の名前・順）が gate・fix で変わる] → 片付けの 1 行の置き場は「`reset` のとき、DB を消す前・network を確かめる前」で決め、関数の名前に頼らない。tasks 1.1 で `c666673` の後の形を読み直す
 - [殺した後の検査が CI の時間を伸ばす] → 探りの 2 回と次の回の 2 回。試験の実行ファイルは `cargo test --workspace` で組み済み。tasks 7.3 で CI の 4 行の時間を手元で測って書く
 - [`ashiato` の大きさの許し 1 MiB が、本物の残りを見逃す] → 体積の行 20,001 件は数 MB で、許しより大きい。行数は厳密に見る
-- [片付けたコンテナの volume は残るが、どのコンテナのものだったかの手がかりが消える（名前の無い volume）] → 本人が選んだ形（Q7。volume は消さない）。中身は volume に残るので、要るときは `docker volume ls` の中から作られた時刻で探せる。片付けの 1 行に作業ツリーの path を出す（D4）
+- [片付けたコンテナの volume は残るが、どのコンテナのものだったかの手がかりが消える（名前の無い volume）] → 本人が選んだ形（Q7。volume は消さない）。片付けの 1 行に作業ツリーの path と残す volume の名前を出す（D4・D8（仮））。ログが残らない呼び出しでは、作られた時刻で `docker volume ls` から探す
 - [動いている消えた作業ツリーの DB（ch01・ch02・st13・st33）を止める] → 作業ツリーが無いので、その DB に繋ぐ試験もサーバも無い。中身は volume に残る（D4）
 - [印の無い呼び出しでは片付けない] → 検証は印つきで呼ばれる。印の無い経路で枯渇する例が出たら D5 の反転条件
 
