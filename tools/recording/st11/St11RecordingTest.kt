@@ -59,6 +59,8 @@ class St11RecordingTest {
         step("1. あしあと。を初めて起動する")
         device.pressHome()
         launchApp()
+        // まっさらのエミュレータでは最初の起動が前に出ないことがある（2026-10-27 の録画で 1 度。ランチャーのまま）。出なければ 1 度開き直す
+        if (!device.wait(Until.hasObject(By.text(Pattern.compile(DENY))), TIMEOUT_MS)) launchApp()
 
         step("2. 位置: 許可しない（位置の流れは ST06 の録画）")
         click(DENY)
