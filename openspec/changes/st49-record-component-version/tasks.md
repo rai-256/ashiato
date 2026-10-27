@@ -44,7 +44,7 @@
 
 ## Task 1: 組み立ての印（`crates/build-stamp`）と S-01 の印
 
-- [ ] 1.1 `crates/build-stamp`（`ashiato-build-stamp`。workspace の members に足す。依存は `std` だけ）を作る。関数: 印を組む `stamp(version, profile, repo, source_paths)`（D5 の形・commit の出所の順・`git status --porcelain -- <source_paths>`・`GIT_OPTIONAL_LOCKS=0`）と、
+- [x] 1.1 `crates/build-stamp`（`ashiato-build-stamp`。workspace の members に足す。依存は `std` だけ）を作る。関数: 印を組む `stamp(version, profile, repo, source_paths)`（D5 の形・commit の出所の順・`git status --porcelain -- <source_paths>`・`GIT_OPTIONAL_LOCKS=0`）と、
   作り直しの印を出す `emit_rerun(repo, source_paths)`（D6 の `rerun-if-changed` / `rerun-if-env-changed`。部品のソースの道を含む）。単体試験（使い捨ての git の木を `$TMPDIR` の下に作る）:
   - `st49_stamp_dirty_debug` — `// Scenario: 印は版番号・commit・未 commit の印・組み立ての種類を持つ`
   - `st49_stamp_release_clean` — `// Scenario: 綺麗な木の release の組み立ての印は、版番号と commit だけを持つ`
@@ -52,13 +52,13 @@
   - `st49_stamp_unknown_without_git` — `// Scenario: commit が取れない場所での組み立ての印は unknown を持つ`（`ASHIATO_BUILD_COMMIT` を消し、git の木の外で）
   - `st49_stamp_env_commit_wins`・`st49_stamp_rerun_paths_follow_worktree_git_dir`・`st49_stamp_status_does_not_touch_index`（`index` の mtime が変わらない）
   検証: `CS st49_stamp_` rc=0（`-- --list` で 7 本以上）
-- [ ] 1.2 `tools/check-build-stamp.sh` を作る。節ごとに、`git clone --local` で repo を `$TMPDIR` の下へ写し（`CARGO_TARGET_DIR` も `$TMPDIR` の下）、本物の部品を組み立てて埋め込まれた印を読み（Rust は組み立てた bin を `strings` して D5 の正規表現で探す、C-01 は生成された `BuildConfig.java`）、
+- [x] 1.2 `tools/check-build-stamp.sh` を作る。節ごとに、`git clone --local` で repo を `$TMPDIR` の下へ写し（`CARGO_TARGET_DIR` も `$TMPDIR` の下）、本物の部品を組み立てて埋め込まれた印を読み（Rust は組み立てた bin を `strings` して D5 の正規表現で探す、C-01 は生成された `BuildConfig.java`）、
   commit を 1 つ足して組み立て直す・部品のソースを 1 つ書き換えて add せずに組み立て直す、の 2 つで印が変わることを見る。節:
   - `tool`: 1.1 の関数を最小の crate から呼んで印を出す（節の動作の確かめ。印なし）
   - `server`（`cargo build -p ashiato-server --bin openapi`）: `echo "== Scenario: S-01 の組み立ての印は、commit を進めた後の差分の組み立てでも新しい commit になる"`・`echo "== Scenario: S-01 の組み立ての印は、add していないソースの変更の後の差分の組み立てで .dirty になる"`
   - `windows` と `android` は Task 8・9 で足す（節が無ければ rc≠0 で「節が無い」と出す）
   検証: `STAMP tool` rc=0
-- [ ] 1.3 `crates/server/build.rs` の ST48 の `build_commit()` を `ashiato_build_stamp` に置き換え（部品のソースの道は `crates/server`・`crates/build-stamp`・`migrations/`・`Cargo.toml`・`Cargo.lock`。D5）、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` を足す（`ASHIATO_BUILD_COMMIT` は同じ commit で出し続ける）。
+- [x] 1.3 `crates/server/build.rs` の ST48 の `build_commit()` を `ashiato_build_stamp` に置き換え（部品のソースの道は `crates/server`・`crates/build-stamp`・`migrations/`・`Cargo.toml`・`Cargo.lock`。D5）、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` を足す（`ASHIATO_BUILD_COMMIT` は同じ commit で出し続ける）。
   `crates/server/src/lib.rs` に `pub const BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP");`。
   検証: `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `CT migration_ledger_` rc=0（`-- --list` で 20 本以上。ST48 の台帳の試験が通る）/ `STAMP server` rc=0
 
