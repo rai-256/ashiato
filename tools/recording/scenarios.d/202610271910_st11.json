@@ -1,0 +1,16 @@
+[
+  {
+    "id": "ST11-health-permission",
+    "story": "ST11",
+    "platform": "android",
+    "spec": "tools/recording/st11/St11RecordingTest.kt",
+    "test_class": "dev.ashiato.collector.St11RecordingTest",
+    "requires": [
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/MainActivity.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/HealthPermissions.kt",
+      "collector-android/app/src/main/kotlin/dev/ashiato/collector/HealthRationaleActivity.kt",
+      "collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/HealthConnectScreens.kt"
+    ],
+    "note": "ST11（Android）: 初めて起動 → 位置は断る（ST06）→ 通知は許可 → 写真と動画はすべて許可（断る流れは ST09）→ その後に Health Connect の権限の画面 → プライバシー ポリシーから説明の画面（読む種類・送る先・いまは読まないこと）→ 4 つの種類（睡眠・心拍数・歩数・エクササイズ）をすべて許可 → 過去のデータとバックグラウンドのアクセスも許可 → 収集が始まる → 常駐の通知の「健康データの権限」から Health Connect の設定 → アプリの権限 → あしあと。で許した種類が並ぶ → 結果の札（未送信に積まれた c01-health-permission の記録: 観た時刻・6 つの許可）。断る側（履歴だけ断る・すべて断る）は 2 回断ると画面が出なくなる（P6）ので計測テストが持つ。送信は 5 分ごとなので動画の間にサーバへは届かない"
+  }
+]

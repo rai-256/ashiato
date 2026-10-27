@@ -14,6 +14,12 @@ import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.time.ZoneId
+import java.util.UUID
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 /**
  * 権限を順に求めてから収集を始める。**記録を見せる画面は持たない** —— 表示は V-01（web）の仕事。
@@ -44,6 +50,12 @@ import android.widget.TextView
  * 位置の後に、写真と動画へのアクセスと写真の位置（`ACCESS_MEDIA_LOCATION`）を**まとめて 1 度だけ**求める。
  * 断られても収集は始める —— 写真と動画のソースだけが「取れない状態」を報告して待つ（位置は取れ続ける）。
  *
+ * ## 健康データ（ST11 / design D4・D6・D9）
+ *
+ * 写真と動画の後・収集を始める前に、Health Connect の権限の画面を**自動では 1 度だけ**開く。使えない端末では求めずに収集を始める。
+ * 印は結果が返ったときに立てる（答えずに終わったら次の起動でもう一度）。読む口は主スレッドを塞がない。
+ * 状態の観測（`app_open` / `request_result`）はここで、記録は変わったときだけ未送信へ渡す。
+ *
  * ## 利用状況へのアクセス（本人の決定 Q3 / design D6（仮））
  *
  * **その場のダイアログでは取れない。** アプリから開けるのは設定画面までなので、
@@ -71,6 +83,33 @@ open class MainActivity : Activity() {
      */
     private var deniedLogged = false
 
+    /** 健康データの段を越えた（この画面では 1 度だけ通る。越えたら `start()` へ進む）。 */
+    private var healthDone = false
+
+    /** この起動の `app_open` の観測を済ませた（D9）。 */
+    private var healthOpenObserved = false
+
+    private val healthRecorder: HealthPermissionRecorder by lazy {
+        val marks = healthMarks()
+        val store = HealthStateStore(marks)
+        HealthPermissionRecorder(
+            read = { healthPermissions().read(this) },
+            autoRequested = { marks.getBoolean(ASKED_HEALTH_PERMISSIONS, false) },
+            store = store,
+            clock = AndroidDeviceClock(this),
+            deviceId = resolveDeviceId(AndroidIdStore(this)) { UUID.randomUUID().toString() },
+            userId = Config.userId,
+            zone = ZoneId.systemDefault(),
+            newId = { UUID.randomUUID().toString() },
+            emit = healthRecordSink(),
+            log = { Log.i(TAG, it) },
+            remember = healthRemember(store),
+            pending = healthPendingSlot(),
+        )
+    }
+
+    private fun healthMarks() = getSharedPreferences(HEALTH_PREFS, MODE_PRIVATE)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // ここでは何もしない。onResume が状態を見る（設定画面からの戻りも同じ経路になる）
@@ -87,6 +126,12 @@ open class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == HEALTH_REQUEST) {
+            // 求めが中断されると framework は空の配列で呼ぶ（Activity#onRequestPermissionsResult）。
+            // 答えていないので印は立てない —— 次の起動でもう一度求める（design D4。review/code.md R13 / R26）
+            onHealthRequestReturned(answered = permissions.isNotEmpty())
+            return
+        }
         inFlight = false
         // **grantResults は見ない**（上の理由）。実際の権限状態だけを見る
         proceed()
@@ -150,14 +195,176 @@ open class MainActivity : Activity() {
                 inFlight = true
                 requestPermissionGroup(media)
             }
+            !healthDone -> proceedHealth()
             else -> start()
         }
     }
+
+    /**
+     * 健康データの段（D4）。観る・読む・求めるかの判断は別の糸で行い、読み終えるまで [inFlight] で先へ進まない。
+     * 求めるのは、使えて・印が無く・求めるもののどれかが許されていないとき（全部許されていれば画面を出さない）。
+     */
+    private fun proceedHealth() {
+        inFlight = true
+        runHealth {
+            val request = runCatching { healthRequestIntent() }
+                .onFailure {
+                    Log.w(
+                        TAG,
+                        Telemetry.line(
+                            "health_permission_step_failed",
+                            source = HEALTH_LOGICAL_SOURCE,
+                            error = it.javaClass.simpleName
+                        )
+                    )
+                }
+                .getOrNull()
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                inFlight = false
+                if (request == null) {
+                    healthDone = true
+                    proceed()
+                } else {
+                    launchHealthRequest(request)
+                }
+            }
+        }
+    }
+
+    /**
+     * 起動ごとの最初の通過で `app_open` を観てから、求める画面の intent を返す（求めないなら null）。
+     * 観たときの読みを求めるかの判断にもそのまま使う（読み直すと、記録と判断が別の状態に基づく。review/code.md R28）。
+     * 読みが返らないときは [healthReadTimeoutMs] で諦めて投げる —— 呼び手が求めずに先へ進む（収集を止めない。R20 / R25）。
+     */
+    private fun healthRequestIntent(): Intent? = runBlocking {
+        val health = healthPermissions()
+        val reading = withTimeout(healthReadTimeoutMs()) {
+            if (!healthOpenObserved) {
+                healthOpenObserved = true
+                healthRecorder.observeHealthPermissions(HealthTrigger.APP_OPEN)
+            } else {
+                health.read(this@MainActivity)
+            }
+        }
+        val wanted = healthPermissionsToAsk(reading.availability, reading.features)
+        val asked = healthMarks().getBoolean(ASKED_HEALTH_PERMISSIONS, false)
+        if (asked || wanted.all { it in reading.grantedPermissions }) {
+            null
+        } else {
+            health.createRequestIntent(this@MainActivity, wanted.toSet())
+        }
+    }
+
+    private fun launchHealthRequest(intent: Intent) {
+        inFlight = true
+        val opened = runCatching {
+            // Android 14 以降の client は、ComponentActivity の結果の登録簿だけが受け取れる内向きの intent
+            // （`ActivityResultContracts.RequestMultiplePermissions`）を返す。`Activity` のまま開くと解決できずに
+            // 失敗する（計測テストの実測 2026-10-25: START の result code=-91）。design D3 の反転条件どおり、
+            // そのときは中の権限を framework の口（`requestPermissions`）で求める
+            val framework = intent.takeIf { it.action == ACTION_REQUEST_PERMISSIONS }
+                ?.getStringArrayExtra(EXTRA_PERMISSIONS)
+            if (framework != null) {
+                requestHealthPermissions(framework)
+            } else {
+                startActivityForResult(intent, HEALTH_REQUEST)
+            }
+        }.isSuccess
+        if (!opened) {
+            // 開けなかった端末で止まらない。印は立てない（次の起動でもう一度試す）
+            Log.w(
+                TAG,
+                Telemetry.line("health_permission_step_failed", source = HEALTH_LOGICAL_SOURCE, error = "launch")
+            )
+            inFlight = false
+            healthDone = true
+            proceed()
+        }
+    }
+
+    @Deprecated("Activity のまま使う（design D3）。結果の中身は見ず、読み直す")
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != HEALTH_REQUEST) return
+        onHealthRequestReturned(answered = true)
+    }
+
+    /**
+     * 健康データの権限の画面から戻った（13 以前は `onActivityResult`、14 以降は `onRequestPermissionsResult`）。
+     * [answered] が false（求めが中断された）なら印を立てず、この起動では求め直さずに先へ進む。
+     */
+    private fun onHealthRequestReturned(answered: Boolean) {
+        inFlight = true
+        runHealth {
+            // **結果が返ったときに印を立てる**（D4）。**結果の中身は見ない**。実際の状態を読み直して観る。
+            // 印は観る前に書く（記録の `auto_requested` に写る）。ディスクへの同期の書き込みなので主スレッドでは書かない（R30）
+            if (answered) healthMarks().edit().putBoolean(ASKED_HEALTH_PERMISSIONS, true).commit()
+            runCatching {
+                runBlocking {
+                    withTimeout(
+                        healthReadTimeoutMs()
+                    ) { healthRecorder.observeHealthPermissions(HealthTrigger.REQUEST_RESULT) }
+                }
+            }
+                .onFailure {
+                    Log.w(
+                        TAG,
+                        Telemetry.line(
+                            "health_permission_step_failed",
+                            source = HEALTH_LOGICAL_SOURCE,
+                            error = it.javaClass.simpleName
+                        )
+                    )
+                }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                inFlight = false
+                healthDone = true
+                proceed()
+            }
+        }
+    }
+
+    /** 健康データの権限の読み口と求める口。**試験だけが差し替える**（Robolectric は Health Connect を持たない）。 */
+    protected open fun healthPermissions(): HealthPermissions = ClientHealthPermissions()
+
+    /** Health Connect の読みを待つ上限（サービスと同じ。review/code.md R20）。**試験だけが縮める**。 */
+    protected open fun healthReadTimeoutMs(): Long = LocationService.HEALTH_READ_TIMEOUT_MS
+
+    /** 画面の recorder の控え。本番はプロセスで 1 つ（Activity が作り直されても残る。review/code.md R24）。試験は試験ごとに作る。 */
+    protected open fun healthPendingSlot(): HealthPendingSlot = HealthRecordHandoff.screenPending
+
+    /** 健康データの読みを回す糸（主スレッドを塞がない）。試験はその場で回す。 */
+    protected open fun runHealth(task: () -> Unit) {
+        healthExecutor.execute(task)
+    }
+
+    /** 観た状態の記録の渡し先。本番は収集のサービスが未送信へ積む（[HealthRecordHandoff]）。積めたかを返す。 */
+    protected open fun healthRecordSink(): (IngestRequest) -> Boolean = HealthRecordHandoff::offer
+
+    /**
+     * 最後の状態の書き換え。本番は**記録が未送信に書けた後**（預け口はメモリだけで、プロセスが終わると消える）。
+     * 試験は渡し先を差し替えるので、その場で書く。
+     */
+    protected open fun healthRemember(store: HealthStateStore): (HealthState, () -> Unit) -> Unit =
+        { state, settled ->
+            HealthRecordHandoff.afterDrain {
+                store.remember(state)
+                settled()
+            }
+        }
 
     private fun ask(permission: String) {
         asked += permission
         inFlight = true
         requestPermission(permission)
+    }
+
+    /** 健康データの権限を framework の口で求める（Android 14 以降。[launchHealthRequest]）。**試験だけが差し替える**。 */
+    protected open fun requestHealthPermissions(permissions: Array<String>) {
+        requestPermissions(permissions, HEALTH_REQUEST)
     }
 
     /** OS へ権限を 1 度にまとめて求める。**試験だけが差し替える**（[requestPermission] と同じ理由）。 */
@@ -293,6 +500,17 @@ open class MainActivity : Activity() {
     internal companion object {
         private const val TAG = "ashiato"
         private const val REQUEST = 1
+        const val HEALTH_REQUEST = 2
+
+        /**
+         * Android 14 以降の client が返す intent の action と、求める権限の extra
+         * （`ActivityResultContracts.RequestMultiplePermissions`）。
+         */
+        const val ACTION_REQUEST_PERMISSIONS = "androidx.activity.result.contract.action.REQUEST_PERMISSIONS"
+        const val EXTRA_PERMISSIONS = "androidx.activity.result.contract.extra.PERMISSIONS"
+        private val healthExecutor: Executor = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "health-permission").apply { isDaemon = true }
+        }
 
         /** 「1 度だけ」を端末に残す置き場（design D6（仮））。**試験も同じ名前を読む。** */
         const val PREFS = "collector"
