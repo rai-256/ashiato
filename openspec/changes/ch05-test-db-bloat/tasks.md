@@ -102,14 +102,14 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 7: CI と文書
 
-- [ ] 7.1 `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに 4 行を足す: `tools/check-test-db-killed.sh --self-test`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check`・`tools/check-test-db-killed.sh`（この順。作り直しを殺した後の検査の本体より前に）（design D7。CI では `CI=true` で `--plan` が `reset`）。既存の行は変えない。
+- [x] 7.1 `.github/workflows/ci.yml` の rust job の、CH04 の `tools/check-test-db-growth.sh` の行と CH06 の `tools/check-verify-env-reset.sh` の行の後ろに 4 行を足す: `tools/check-test-db-killed.sh --self-test`・`tools/docker-tidy.sh --self-test`・`tools/docker-tidy.sh --verify-env-check`・`tools/check-test-db-killed.sh`（この順。作り直しを殺した後の検査の本体より前に）（design D7。CI では `CI=true` で `--plan` が `reset`）。既存の行は変えない。
   `tools/check-test-db-killed.sh --self-test` の中に、ci.yml に自分の 2 行があることを見る検査を足す（`echo "Scenario: CI の rust job は、殺した後の検査を走らせる"`）。`tools/docker-tidy.sh --self-test` の中に、ci.yml に自分の 2 行（`--self-test`・`--verify-env-check`）があることを見る検査を足す（`echo "Scenario: CI の rust job は、片付けの self-test を走らせる"`）。
   検証: `tools/check-test-db-killed.sh --self-test` rc=0 / `tools/docker-tidy.sh --self-test` rc=0 /
   `bash -c 'grep -qF "Scenario: CI の rust job は、殺した後の検査を走らせる" tools/check-test-db-killed.sh && grep -qF "Scenario: CI の rust job は、片付けの self-test を走らせる" tools/docker-tidy.sh && grep -q "tools/check-test-db-killed.sh --self-test" .github/workflows/ci.yml && grep -qE "tools/check-test-db-killed.sh *$" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --self-test" .github/workflows/ci.yml && grep -q "tools/docker-tidy.sh --verify-env-check" .github/workflows/ci.yml'` rc=0
-- [ ] 7.2 `docs/testing.md` に 1 節（殺した後の検査と、同じ worktree で別の `cargo test`・検証の準備と並べて走らせないこと・作り直す検証の準備が消えた作業ツリーのコンテナとネットワークを片付けること・volume を消さないこと）、
+- [x] 7.2 `docs/testing.md` に 1 節（殺した後の検査と、同じ worktree で別の `cargo test`・検証の準備と並べて走らせないこと・作り直す検証の準備が消えた作業ツリーのコンテナとネットワークを片付けること・volume を消さないこと）、
   `docs/flow-gates.md` の検査の表に `tools/check-test-db-killed.sh`・`tools/docker-tidy.sh --self-test` の 2 行を足す。
   検証: `bash -c 'grep -q "check-test-db-killed" docs/testing.md && grep -q "docker-tidy" docs/testing.md && grep -q "check-test-db-killed" docs/flow-gates.md && grep -q "docker-tidy" docs/flow-gates.md'` rc=0
-- [ ] 7.3 CI に足した 4 行の時間を手元で測り（`time` で 4 つを順に）、design の「計測の記録」の `- CI の行の時間:` に書く。
+- [x] 7.3 CI に足した 4 行の時間を手元で測り（`time` で 4 つを順に）、design の「計測の記録」の `- CI の行の時間:` に書く。
   検証: `bash -c 'grep -qE "^- CI の行の時間: .*[0-9]" openspec/changes/ch05-test-db-bloat/design.md'` rc=0
 
 ## Task 8: 全体の確かめ
