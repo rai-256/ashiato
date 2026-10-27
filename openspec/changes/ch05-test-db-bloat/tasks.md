@@ -44,7 +44,7 @@ CH04 の `openspec/changes/ch04-test-db-growth/design.md`（D1・D2・D4・D6・
 
 ## Task 2: 消えた作業ツリーのコンテナとネットワークの片付けの台本（Q7。DB を使う Task より先）
 
-- [ ] 2.1 `tools/docker-tidy.sh` を design D4 のとおりに書く（口は 4 つ: 引数なし = 片付ける / `--dry-run` / `--self-test` / `--verify-env-check`。`--verify-env-check` は 3.2）。冒頭のコメントに、外す条件（コンテナとネットワーク）・volume は消さないこと・差し替えの環境変数（`TEST_DOCKER_TIDY_DOCKER`・`TEST_DOCKER_TIDY_MAIN`・`TEST_DOCKER_TIDY_WORKTREES`）・検証の準備が `reset` のときだけ呼ぶこと・なぜ要るか（CH05 Q7）を書く。
+- [x] 2.1 `tools/docker-tidy.sh` を design D4 のとおりに書く（口は 4 つ: 引数なし = 片付ける / `--dry-run` / `--self-test` / `--verify-env-check`。`--verify-env-check` は 3.2）。冒頭のコメントに、外す条件（コンテナとネットワーク）・volume は消さないこと・差し替えの環境変数（`TEST_DOCKER_TIDY_DOCKER`・`TEST_DOCKER_TIDY_MAIN`・`TEST_DOCKER_TIDY_WORKTREES`）・検証の準備が `reset` のときだけ呼ぶこと・なぜ要るか（CH05 Q7）を書く。
   `--self-test` は偽の docker と、main を乱数の名前に差し替えた本物の docker の 1 件（design D4。この機械の本物の残りには当たらない）で、次の 12 本の Scenario を印つきで確かめる:
   `作業ツリーが消えたコンテナは、動いていても外される` / `外したコンテナの名前の無い volume は残る` / `作業ツリーが残っていれば、止まっているコンテナも外さない` / `main の checkout と確認バッチのコンテナは、path が無くても外さない` / `印の無いコンテナと、別の repo の compose のコンテナには触らない` / `コンテナの無いネットワークは、作業ツリーが残っていなければ外す` / `--dry-run は外すものを出すだけで、何も外さない` / `外すものが無ければ、片付けは何も出さない` / `もう無いものを外そうとしたら、外せたものとして扱う` / `片付けが docker に問えなければ、片付けは rc≠0 で落ちる` / `外す命令が失敗すれば、片付けは rc≠0 で落ちる` / `片付けが docker に打つ命令に、volume を消すものは無い`。
   **本物の docker の 1 件は main を差し替えるので、この機械の本物の残りは外さない。** 書けたら、この機械で `tools/docker-tidy.sh --dry-run` の出力（外すものの一覧）を design の「計測の記録」の `- 片付けたもの:` に写す（3.1 で検証の準備に組み込むと、次の検証の準備で本物が外れる）。
