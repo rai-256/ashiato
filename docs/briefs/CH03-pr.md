@@ -7,11 +7,12 @@ Rust の試験は `tempfile::TempDir`、Kotlin の単体試験は `@get:Rule` �
 
 ## deep.md に積んだ未決（A）
 
-- **Q9（第 2 回・premise。`review/code.md` R17）8.3 の検証コマンドの入口を、証跡の機械が拾えない** —— (未回答)。
-  問いは `openspec/changes/ch03-test-tmp-cleanup/deep-questions-r2.json`（HTML `docs/briefs/CH03-deep-r2.html`）。
-  tasks 8.3 の `openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh` は、harness2 の `scripts/evidence.py:67` の CMD_LIKE（`./` `tools/` `scripts/` …）に当たらないため、
-  verify-run が走らせられない。旧コマンドの FAIL の証跡も作れないので、plan_fix の機械の訂正も成り立たない。
-  推奨は harness2 の CMD_LIKE に `openspec/` を足すこと。台本は HEAD で手で走らせて rc=0（rust 1805→1806・kotlin 626→628、分岐点の試験の名前は全部 HEAD でも試験）
+なし。第 2 回の Q9（`review/code.md` R17）には答えが出た（2026-10-27）:
+- **Q9 8.3 の検証コマンドの入口を、証跡の機械が拾えない** —— 答え: harness2 の `scripts/evidence.py` の CMD_LIKE に `openspec/` を足す（harness2 の PR）。
+  足した後で `verify-run 8.3` を走らせ、証跡を取り直す。tasks.md（凍結）は変えない。
+- **CH03 の merge は harness2 のその PR の merge を待つ。** ff7ce9ea の時点では harness2 はまだ直っていない（`scripts/verify-run 8.3` は「本文に検証コマンドが無い」と返す）。
+  harness2 の直しは CH03 の差分に入れない
+- 台本は ff7ce9ea で手で走らせて rc=0（rust 1805→1806・kotlin 626→628、分岐点 19540213 → HEAD）
 
 ## 仮決め（B）と Ruling
 
@@ -39,14 +40,14 @@ Rust の試験は `tempfile::TempDir`、Kotlin の単体試験は `@get:Rule` �
 - 571854cd: 8.1・8.2（rust 1788・android 629、残り無し）が rc=0
 - 2026-10-23〜25 の各 Task の HEAD: 1.1〜1.5・2.x・3.x・5.x・6.x が rc=0（後で触ったのは tools と collector-windows の試験だけ）
 - **8.2 は最後の HEAD では取り直していない。** code_verify が 4dec22bc で 2 回走らせ、2 回とも `archive_scan_interval_change_takes_effect_without_restart` の 1 本だけで rc=101 になった（R21・D9）
-- **8.3 は機械の証跡が無い**（上の Q9）。最後の記録は d798b111 の PASS
+- **8.3 は機械の証跡が無い**（上の Q9。harness2 の直しを待つ）。最後の記録は d798b111 の PASS。ff7ce9ea で手で走らせて rc=0
 
 ## 未処置の申し送り
 
 - **揺れる試験の change を起票する**（R16・R21）: `archive_scan_interval_change_takes_effect_without_restart`（`crates/server/src/archive_scan_interval_tests.rs:156-165`、25ms × 200 回の待ち）は、全体の走りの負荷（load average 3.9）の下で「走査が N 回に届かない」で落ちる。
   CI の rust job がこの台本を通すようになったので、CI の赤の元になりうる。この試験を持つ Story / change は無い。`hx change` で起票する（このセッションは起票していない）
 - harness2 への申し送りが 2 つある:
-  - (1) `evidence.py` の CMD_LIKE に `openspec/` が無い（Q9）。plan_fix.py が新しい入口を書く前に、evidence.py が拾えるかを確かめていない
+  - (1) `evidence.py` の CMD_LIKE に `openspec/` が無い（Q9。答えは harness2 の PR で直す。まだ出ていない）。同じ PR の候補として、plan_fix.py が新しい入口を書く前に evidence.py が拾えるかを確かめていない点も直す
   - (2) deep.md の答えが「答え: …（本人の選択）」の形のため、`provisional.py` の `answered()` が本人の答えとして読まず、`--follows Q5` が通らない（final の申し送り）
 - finish の途中で、同じ CH03 finish のセッションが 2 本、同じ worktree を同時に触っていた（20:24 と 20:26 に起動）。片方がわざと壊して組んだ試験のバイナリが、mtime を戻したせいで古いまま使われた。`cargo clean -p ashiato-collector-windows` で解消した。グラフが finish を重ねて起こしていないか、harness2 で見てほしい
 

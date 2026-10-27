@@ -116,7 +116,7 @@ T1 の「`--rerun` で古い XML が混ざるか」は、Gradle の Test task �
 - 成果物: openspec/changes/ch03-test-tmp-cleanup/tasks.md:149（8.3 の「検証:」の `openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh`）
 - 根拠: scripts/evidence.py:67 の CMD_LIKE の頭（`./` `tools/` `scripts/` …）に `openspec/` が無い。`scripts/verify-run 8.3` rc=2（本文に検証コマンドが無い）、`python3 scripts/evidence.py unverified openspec/changes/ch03-test-tmp-cleanup --task 8` → `["8.3"]`。最後の 8.3 の記録は d798b111 の executor manual。scoped re-review が R12 のこの分を NOT ADDRESSED とした。試す候補: `verify-run 8.3 --candidate './openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh'`（`./` は CMD_LIKE に当たる）
 - kind: premise
-- 処置: escalated —— `scripts/verify-run 8.3 --candidate './openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh'` は「本文の検証コマンドがいまのコードで FAIL した証跡が無い」で走らない。今の入口は evidence.py:67 の CMD_LIKE に当たらず FAIL の証跡も作れないので、plan_fix の機械の道（旧の FAIL → 新の PASS）が成立しない。原因は harness2 の evidence.py。deep.md Q9（第 2 回）。台本そのものは HEAD で手で rc=0（rust 1805→1806・kotlin 626→628、名前の集合でも欠け無し）
+- 処置: escalated —— `scripts/verify-run 8.3 --candidate './openspec/changes/ch03-test-tmp-cleanup/check-test-names.sh'` は「本文の検証コマンドがいまのコードで FAIL した証跡が無い」で走らない。今の入口は evidence.py:67 の CMD_LIKE に当たらず FAIL の証跡も作れないので、plan_fix の機械の道（旧の FAIL → 新の PASS）が成立しない。原因は harness2 の evidence.py。deep.md Q9（第 2 回）。台本そのものは HEAD で手で rc=0（rust 1805→1806・kotlin 626→628、名前の集合でも欠け無し）。Q9 の答え（2026-10-27）: harness2 の evidence.py の CMD_LIKE に `openspec/` を足し、その後に `verify-run 8.3` で取り直す。tasks.md は変えない。ff7ce9ea で harness2 はまだ直っておらず（`verify-run 8.3` は「本文に検証コマンドが無い」）、台本は手で rc=0（rust 1805→1806・kotlin 626→628）
 
 ## code_verify（HEAD 4dec22bc。独立検証）
 
