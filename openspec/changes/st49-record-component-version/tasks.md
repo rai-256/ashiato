@@ -120,12 +120,12 @@
 
 ## Task 5: 滞在と滞在の基準の版（D2（仮））
 
-- [ ] 5.1 先に試験を書く（`component_version_tests.rs`。位置の記録を置いて `stay_store::rebuild_all` を走らせる。「別の S-01 の版」は試験から `server_version` を直に `0.1.0+<commit A>` に書き換えて作る（滞在は収集した記録でないので本表の門に掛からない。D21（仮））:
+- [x] 5.1 先に試験を書く（`component_version_tests.rs`。位置の記録を置いて `stay_store::rebuild_all` を走らせる。「別の S-01 の版」は試験から `server_version` を直に `0.1.0+<commit A>` に書き換えて作る（滞在は収集した記録でないので本表の門に掛からない。D21（仮））:
   - `st49_stay_new_has_server_version` — `// Scenario: 新しい滞在は、書いた S-01 の版を持つ`
   - `st49_stay_rebuild_with_new_raw_moves_version` — `// Scenario: 作り直しで原文が変わった滞在は、版が替わり、前の版が履歴に残る`
   - `st49_stay_rebuild_unchanged_keeps_version` — `// Scenario: 作り直しで原文が変わらなかった滞在の版は変わらない`（削除の印だけを書き換えた滞在の版も変わらないことを同じ試験で見る）
   - `st49_stay_criteria_row_has_server_version` — `// Scenario: 滞在の基準を変えた台帳の行は、書いた S-01 の版を持つ`（画面のログインで `POST /stays/rebuild` に基準を渡す）
-- [ ] 5.2 `stay_store.rs` の `insert_stay`・`update_stay`（原文が変わったときだけ）・`set_criteria` の INSERT に版の列（D2（仮）・D10。`push_version` は 3.2 で済んでいる）。
+- [x] 5.2 `stay_store.rs` の `insert_stay`・`update_stay`（原文が変わったときだけ）・`set_criteria` の INSERT に版の列（D2（仮）・D10。`push_version` は 3.2 で済んでいる）。
   検証: `CT st49_stay_` rc=0（`-- --list` で 4 本以上）/ `CT stay_tests` rc=0（`-- --list` で 65 本以上。既存の滞在の試験が通る）
 
 ## Task 6: 破棄の報告・原本の欠け・画面の操作の台帳（S-01 の側）
