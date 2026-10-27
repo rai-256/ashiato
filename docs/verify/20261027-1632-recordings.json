@@ -1,0 +1,15 @@
+{
+  "tag": "20261027-1632",
+  "run_id": "",
+  "commit": "",
+  "overall": "none",
+  "cleanup": "-",
+  "failed_step": "",
+  "folder": "",
+  "folder_windows": "",
+  "note": "撮っていない（このバッチの Story にシナリオが無い）",
+  "scenarios": [],
+  "uncovered_stories": [
+    "ST41"
+  ]
+}
