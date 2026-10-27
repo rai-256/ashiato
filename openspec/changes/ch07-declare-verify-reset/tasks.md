@@ -23,7 +23,7 @@ CH06 の `tools/verify-env.sh`・`tools/check-verify-env-reset.sh`（CH06 の実
 
 ## Task 1: 宣言の行
 
-- [ ] 1.1 `tools/verify-env.sh` の `reset_db` に、DB のコンテナが無くて戻るときと、控えた volume を 1 つ以上消し終えたときにだけ立つ変数（例: `reset_done=1`）を足す（volume が 0 個なら立てない）。
+- [x] 1.1 `tools/verify-env.sh` の `reset_db` に、DB のコンテナが無くて戻るときと、控えた volume を 1 つ以上消し終えたときにだけ立つ変数（例: `reset_done=1`）を足す（volume が 0 個なら立てない）。
   待ちのループの中で `tools/db-roles.sh` が通った後、`exit 0` の直前に、変数が立っていれば `echo "HARNESS_RESET: testdb"` を 1 回出す（標準出力。`>/dev/null`・`>&2`・`$(…)` の中に置かない）。
   冒頭の注記に「作り直したら `HARNESS_RESET: testdb` を標準出力に 1 行（ハーネスの約束。ch07 design D2）」を足す。CH06 が既に宣言の行を足していたら、その行をこの条件に結び直し、字は 1 つにする（design D1）。
   検証: `bash -c 'out=$(HARNESS_VERIFY=1 tools/verify-env.sh 2>/dev/null) && [ "$(grep -cx "HARNESS_RESET: testdb" <<<"$out")" = 1 ]'` rc=0（worktree で走る。標準エラーに出ないことは 3.1 の 5. が見る）/
