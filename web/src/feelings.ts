@@ -6,6 +6,7 @@
  * 乱数はここで足す。前/後は原文に持たせず、記入の日時と対象の終わりから決める（FR-37）。
  */
 
+import { WEB_VERSION } from "./buildStamp";
 import { msg } from "./messages";
 import { isRealDate, type DayEntry } from "./stays";
 
@@ -256,6 +257,7 @@ export function ingestFeelingItem(built: BuiltFeeling): unknown {
     tz_offset_min: built.tzOffsetMin,
     tz_id: built.tzId,
     schema_version: 1,
+    client_version: WEB_VERSION,
     raw: built.raw,
     payload: {},
   };
