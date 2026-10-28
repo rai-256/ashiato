@@ -6,7 +6,6 @@
 //! 試験ごとに**使い捨ての DB**（`testdb::isolated_with_app`）で走らせる。結果の行は、走らせる前の最大の `id` より後で見る。
 #![allow(clippy::unwrap_used)]
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +15,6 @@ use sqlx::PgPool;
 
 use crate::export::{ExportError, FailKind, Hooks, Stage};
 use crate::export_job_tests::{app_with, post_status, wait_idle, wait_until_blocked};
-use crate::export_tests::tmp_dir;
 use crate::purge_compaction::{self, next_run_after, TableResult, TABLES};
 use crate::purge_tests::{purge_now, scene_basic, scene_erase, scene_version, scope_counts};
 use crate::{deletion, stay_store, testdb};
@@ -380,15 +378,6 @@ async fn purge_compaction_old_snapshot_is_not_rewritten_and_retried() {
     }
 }
 
-/// 置き場の一時の下を、落ちても消す。
-struct DirGuard(PathBuf);
-
-impl Drop for DirGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 // Scenario: 書き出しの最中は書き直しを始めない
 #[tokio::test]
 async fn purge_compaction_waits_while_exporting() {
@@ -399,7 +388,11 @@ async fn purge_compaction_waits_while_exporting() {
 
     // 本物の書き出しの job を走らせ、最初の項目を書き始める前で止めておく。
     // 放したら、その項目で失敗させてすぐ終える（共有の DB の全行を書き出すと分単位でかかる）
-    let dir = DirGuard(tmp_dir("compaction-wait"));
+    // 置き場の一時の下は TempDir が落ちても消す（`tmp_dir` の戻りの形に頼らない。CH03 で変わる）
+    let dir = tempfile::Builder::new()
+        .prefix("ashiato-export-compaction-wait-")
+        .tempdir()
+        .unwrap();
     let gate = Arc::new(tokio::sync::Semaphore::new(0));
     let released = Arc::new(AtomicBool::new(false));
     let hooks = Hooks::none()
@@ -419,7 +412,7 @@ async fn purge_compaction_waits_while_exporting() {
                     .then(|| ExportError::new(FailKind::Io, "試験が書き出しを終える"))
             }
         });
-    let server = app_with(&owner, &dir.0, hooks);
+    let server = app_with(&owner, dir.path(), hooks);
     let (code, body) = post_status(&server, crate::export_job_tests::PASS).await;
     assert_eq!(code, StatusCode::ACCEPTED, "{body}");
     wait_until_blocked(&server).await;

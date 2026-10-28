@@ -28,7 +28,10 @@ struct Scratch(PathBuf, #[allow(dead_code)] tempfile::TempDir);
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = tempfile::Builder::new().prefix(&format!("ashiato-keep-{name}-")).tempdir().unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("ashiato-keep-{name}-"))
+            .tempdir()
+            .unwrap();
         Self(dir.path().to_path_buf(), dir)
     }
 }
