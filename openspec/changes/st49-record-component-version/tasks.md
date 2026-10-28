@@ -196,11 +196,11 @@
 
 ## Task 10: 画面（V-01）の印と、送る 1 件の `client_version`
 
-- [ ] 10.1 `web/build-stamp.ts`（D6。git を呼ぶ関数を引数で差し替えられる形。部品のソースの道は `web/`）を作り、`vite.config.ts` と `vitest.config.ts` の両方で `define: { __ASHIATO_WEB_VERSION__ }` に入れる。`web/src/buildStamp.ts` が読み（型の宣言を `web/src/vite-env.d.ts` に）、
+- [x] 10.1 `web/build-stamp.ts`（D6。git を呼ぶ関数を引数で差し替えられる形。部品のソースの道は `web/`）を作り、`vite.config.ts` と `vitest.config.ts` の両方で `define: { __ASHIATO_WEB_VERSION__ }` に入れる。`web/src/buildStamp.ts` が読み（型の宣言を `web/src/vite-env.d.ts` に）、
   `feelings.ts` の `ingestFeelingItem`・`places.ts` の場所の 1 件・`attributes.ts` の主張の 1 件・`MasterView.tsx` の取り込みの 1 件が `client_version` に入れる（D20）。
   vitest（`web/src/__tests__/buildStamp.test.ts`。印なし —— 画面の Scenario は 10.2 の e2e が担保する）: `build-stamp.ts` に偽の git を渡して `.dirty`・`unknown`・production で `.debug` が付かないこと、3 つの組み立ての関数の戻り値の `client_version` が `__ASHIATO_WEB_VERSION__` と同じこと。
   検証: `VT buildStamp.test.ts` rc=0 / `bash -c 'cd web && npx vitest run'` rc=0（既存の画面の試験が通る）/ `bash -c 'cd web && npm run build'` rc=0
-- [ ] 10.2 `web/e2e/st49-client-version.spec.ts`（`tools/stack.sh up` の本物の画面。`page.waitForRequest` で `/api/ingest` の本文を読む。送り先は本物の S-01 のまま）:
+- [x] 10.2 `web/e2e/st49-client-version.spec.ts`（`tools/stack.sh up` の本物の画面。`page.waitForRequest` で `/api/ingest` の本文を読む。送り先は本物の S-01 のまま）:
   - `// Scenario: 画面が送る気分・場所・個人属性の主張の 1 件は、画面の組み立ての印を持つ` —— 気分（`feel.spec.ts` の記入の流れ）・場所（`places.spec.ts` の登録の流れ）・個人属性の主張（`MasterView` の主張を書く流れ。いまの `web/e2e` に無いので、この spec の中に書く）を 1 件ずつ送り、
     3 つの本文の各要素の `client_version` が D5 の正規表現に合い、版番号が `web/package.json` の `version`、3 つが同じ値であることを見る
   検証: `bash -c 'cd web && npm run test:e2e -- st49-client-version'` rc=0
