@@ -147,14 +147,14 @@
 
 ## Task 7: 書き出しの列と説明（D17・D4）
 
-- [ ] 7.1 先に試験を書く（`export_component_version_tests.rs`。配置と書き出しの読み方は `export_file_tests.rs` に合わせ、zip を開いて行の鍵と値を見る）:
+- [x] 7.1 先に試験を書く（`export_component_version_tests.rs`。配置と書き出しの読み方は `export_file_tests.rs` に合わせ、zip を開いて行の鍵と値を見る）:
   - `st49_export_event_rows_have_versions` — `// Scenario: 書き出しの記録の行は、3 つの版を持つ`
   - `st49_export_version_rows_have_versions` — `// Scenario: 書き出しの前の版の行は、その版の版を持つ`
   - `st49_export_ledger_rows_have_versions` — `// Scenario: 書き出しの破棄の報告と画面の操作の台帳は、版の列を持つ`
   - `st49_export_doc_distinguishes_declared_and_server` — `// Scenario: 書き出しの説明書は、申告の版と S-01 が入れた版を書き分ける`
   - `st49_export_doc_says_current_content` — `// Scenario: 書き出しの説明書は、版を今の中身を作った部品の版と説明する`（`EVENT_COLUMNS` の 3 列の説明に「今の中身」、`EVENT_VERSION_COLUMNS` の 3 列に「その版の中身」があり、6 つのどれにも「記録を作った」「記録を組んだ」が無いことを見る）
   - `st49_export_existing_columns_are_kept` — `// Scenario: 版の列を足しても、書き出しの今の列は残る`（今の `EVENT_COLUMNS` などの名前の一覧を試験の中に逐語で写し、足した後の一覧に全部あり、差が版の列だけであることを見る）
-- [ ] 7.2 `export.rs` の `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS`（`schema_version` の次）・`DROP_REPORT_COLUMNS`・`FEELING_REMINDER_COLUMNS`・`STAY_CRITERIA_COLUMNS`・`ATTRIBUTE_KIND_NAME_COLUMNS` に列と説明（D4 の文）、`export/doc.rs` の説明書に同じ文。
+- [x] 7.2 `export.rs` の `EVENT_COLUMNS` / `EVENT_VERSION_COLUMNS`（`schema_version` の次）・`DROP_REPORT_COLUMNS`・`FEELING_REMINDER_COLUMNS`・`STAY_CRITERIA_COLUMNS`・`ATTRIBUTE_KIND_NAME_COLUMNS` に列と説明（D4 の文）、`export/doc.rs` の説明書に同じ文。
   検証: `CT st49_export_` rc=0（`-- --list` で 6 本以上）/ `CT export_` rc=0（`-- --list` で 130 本以上。既存の書き出しの試験が通る。表の列を一覧に足し忘れると落ちる）
 
 ## Task 8: PC の収集アプリ（C-02）の印・焼き込み・欄の保持
