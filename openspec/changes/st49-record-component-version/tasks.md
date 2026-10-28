@@ -173,13 +173,13 @@
 
 ## Task 9: 携帯の収集アプリ（C-01）の印・焼き込み・欄の保持・破棄の下書き
 
-- [ ] 9.1 `app/build.gradle.kts` に印（D6。`providers.exec` で `git rev-parse HEAD` と `git status --porcelain -- collector-android`、`androidComponents.onVariants` で `BuildConfig.COMPONENT_VERSION`。release だけ `.debug` を付けない）。
+- [x] 9.1 `app/build.gradle.kts` に印（D6。`providers.exec` で `git rev-parse HEAD` と `git status --porcelain -- collector-android`、`androidComponents.onVariants` で `BuildConfig.COMPONENT_VERSION`。release だけ `.debug` を付けない）。
   `tools/check-build-stamp.sh` に `android` の節を足す: 写した木で `--configuration-cache --build-cache` を付けて `:app:generateDebugBuildConfig` と `:app:generateReleaseBuildConfig` を走らせ、生成された `BuildConfig.java` の `COMPONENT_VERSION` を読む。印:
   - `echo "== Scenario: 携帯の収集アプリの組み立ての印は、組み立てのたびに作り直される"`（commit を足して debug を組み直す）
   - `echo "== Scenario: 携帯の収集アプリの release の印は .debug を持たず、debug の印は持つ"`
   - `echo "== Scenario: 携帯の収集アプリの印は、add していないソースの変更の後に .dirty になる"`
   検証: `scripts/quiet-run stamp-android -- ./tools/check-build-stamp.sh android` rc=0
-- [ ] 9.2 `IngestRequest.kt`・`DropReport.kt`（`DropReport`）・`OriginalLedger.kt`（`MediaMissingReport`）に `@SerialName("client_version") val clientVersion: String? = null`。`Outbox` の組み立てに「印を書くか」を渡し、
+- [x] 9.2 `IngestRequest.kt`・`DropReport.kt`（`DropReport`）・`OriginalLedger.kt`（`MediaMissingReport`）に `@SerialName("client_version") val clientVersion: String? = null`。`Outbox` の組み立てに「印を書くか」を渡し、
   `Outbox.add` が欄の無い行に印を書く（記録・原本の欠けの溜めだけ。生存信号は書かない。D13）。`SegmentStore` の読み戻しは行の JSON を保ち、送り出しは保った JSON をそのまま送る（D3（仮））。`migrateLegacyOutbox` は印を書かない。
   試験（`St49OutboxTest.kt`。Robolectric）:
   - `pendingKeepsStampFromAddTime` — `// Scenario: 携帯の収集アプリを更新した後に送った未送信は、積んだときの版で届く`
@@ -188,7 +188,7 @@
   - `legacyMigrationDoesNotStamp` — `// Scenario: 古い形の未送信を移すとき、版は書き込まれない`
   - `heartbeatHasNoVersion` — `// Scenario: 携帯の生存信号には版が書き込まれない`
   検証: `GT St49OutboxTest` rc=0（`<testcase` が 5 以上）
-- [ ] 9.3 `DropDraft` に `clientVersion`（D15）。下書きを始めるときに今の印を入れ、足そうとした下書きの版が今の印と違えば閉じて次の下書きにする。保存済みの下書きに版が無ければ閉じ、閉じた報告は版の欄の無いまま送る。
+- [x] 9.3 `DropDraft` に `clientVersion`（D15）。下書きを始めるときに今の印を入れ、足そうとした下書きの版が今の印と違えば閉じて次の下書きにする。保存済みの下書きに版が無ければ閉じ、閉じた報告は版の欄の無いまま送る。
   試験（`St49DropDraftTest.kt`）:
   - `versionChangeClosesDraft` — `// Scenario: 収集アプリの版が変わったら、破棄の報告の下書きは閉じて次の報告になる`
   - `draftWithoutVersionIsClosedAndSentWithoutVersion` — `// Scenario: 版を持たない保存済みの下書きは閉じられ、その報告は版の欄の無いまま送られる`
