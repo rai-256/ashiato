@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -214,6 +216,10 @@ data class MediaMissingReport(
     val sha256: String,
     val reason: String,
     @SerialName("noticed_at") val noticedAt: String,
+    /** 欠けを報告した収集アプリの版（ST49 / design D13）。`Outbox.add` が積むときに書く。無ければ欄ごと送らない */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("client_version") val clientVersion: String? = null,
 ) : Outboxable
 
 /** 原本の欠けを報告の置き場に積む。 */

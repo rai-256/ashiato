@@ -2,7 +2,7 @@
 package dev.ashiato.collector
 
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
 
 /** 取り込み口を叩いた結果。網の失敗と、サーバが返した応答を区別する。 */
 sealed interface Outcome {
@@ -167,13 +167,15 @@ class Sender<T : Outboxable>(
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         // **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）
-        val fresh = outbox.head(MAX_BATCH, skipped)
+        val fresh = outbox.headStored(MAX_BATCH, skipped)
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
-        val batch = if (fresh.isEmpty()) outbox.head(MAX_BATCH) else fresh
-        if (batch.isEmpty()) return Flushed(0, 0)
+        val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH) else fresh
+        if (stored.isEmpty()) return Flushed(0, 0)
         if (fresh.isEmpty()) skipped.clear()
+        val batch = stored.map { it.item }
 
-        val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
+        // **行の JSON をそのまま送る**（ST49 / design D3（仮））。型に通して作り直すと、この版が知らない欄が落ちる
+        val body = JsonArray(stored.map { it.json ?: ingestJson.encodeToJsonElement(serializer, it.item) }).toString()
         val verdict = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る

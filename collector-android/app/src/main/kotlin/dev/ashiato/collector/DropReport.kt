@@ -5,6 +5,8 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.time.Instant
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -46,6 +48,13 @@ data class DropReport(
     val count: Int,
     val hourly: List<DropHour> = emptyList(),
     val raw: String,
+    /**
+     * 下書きを始めた収集アプリの版（ST49 / design D15）。版の無い下書きから組んだ報告は欄ごと送らない（今の版を付けない。D12）。
+     * 鍵（`raw`）には入れない。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("client_version") val clientVersion: String? = null,
 ) : Outboxable
 
 /** 捨てた記録から報告を組むのに要るもの。**位置の値は取り出さない**（出来事の時刻とソースだけ）。 */
@@ -78,6 +87,8 @@ data class DropDraft(
      * 伸ばされずに同じ原文で積み直されるので、受け手の冪等で 1 件になる（review R19）
      */
     val closed: Boolean = false,
+    /** 作り始めた収集アプリの版（ST49 / design D15）。ST49 より前の下書きには無い */
+    val clientVersion: String? = null,
 ) {
     /**
      * 報告へ組む。**原文は欄を決まった順に組んだ JSON の文字列そのもの** ——
@@ -112,6 +123,7 @@ data class DropDraft(
             count = count,
             hourly = hours,
             raw = ingestJson.encodeToString(JsonObject(fields)),
+            clientVersion = clientVersion,
         )
     }
 }
@@ -148,6 +160,11 @@ class DropLedger(
      * 位置の破棄を報告する日が来る（`LocationService` が渡す）。
      */
     private val unattributedSource: String,
+    /**
+     * 今の収集アプリの印（ST49 / design D15）。下書きを始めるときに入れ、違う版の下書きには足さずに閉じる。
+     * null なら版を扱わない（版の欄を持たない下書きだけの試験）。
+     */
+    private val version: String? = null,
 ) {
     /** 下書き。閉じていないものは**ソース × 理由ごとに 1 本だけ** */
     private val drafts = ArrayList<DropDraft>()
@@ -157,8 +174,21 @@ class DropLedger(
         load()
     }
 
-    private fun openIndex(source: String, reason: String) =
-        drafts.indexOfFirst { !it.closed && it.source == source && it.reason == reason }
+    private fun isOpen(d: DropDraft, source: String, reason: String) =
+        !d.closed && d.source == source && d.reason == reason
+
+    /** 今の版で下書きを始める（ST49 / design D15）。範囲を持たない下書きだけ。範囲つきは呼び元が欄を足す */
+    private fun newDraft(source: String, reason: String, count: Int = 0, closed: Boolean = false) =
+        DropDraft(newId(), source, reason, now().toString(), count = count, closed = closed, clientVersion = version)
+
+    private fun openIndex(source: String, reason: String): Int {
+        // 版の違う下書き（ST49 より前のものを含む）には足さず、閉じて次の下書きにする。閉じた報告は下書きの版のまま送る
+        for (i in drafts.indices) {
+            val d = drafts[i]
+            if (isOpen(d, source, reason) && d.clientVersion != version) drafts[i] = d.copy(closed = true)
+        }
+        return drafts.indexOfFirst { isOpen(it, source, reason) }
+    }
 
     /** 捨てた記録 1 件を下書きに足す。**保存はしない**（`record` / `endBatch` がまとめて書く）。 */
     @Synchronized
@@ -173,7 +203,7 @@ class DropLedger(
                 i = -1
             }
         }
-        val base = if (i >= 0) drafts[i] else DropDraft(newId(), source, reason.wire, now().toString())
+        val base = if (i >= 0) drafts[i] else newDraft(source, reason.wire)
         val hour = Math.floorDiv(t, HOUR_MS) * HOUR_MS
         val last = maxOf(base.lastMs ?: t, t)
         val next = base.copy(
@@ -203,7 +233,7 @@ class DropLedger(
                 if (i >= 0) {
                     drafts[i] = drafts[i].copy(count = drafts[i].count + 1)
                 } else {
-                    drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = 1)
+                    drafts += newDraft(source, DropReason.UNREADABLE.wire, count = 1)
                 }
             }
         }
@@ -258,7 +288,7 @@ class DropLedger(
             if (i >= 0) {
                 drafts[i] = drafts[i].copy(count = drafts[i].count + count)
             } else {
-                drafts += DropDraft(newId(), source, DropReason.UNREADABLE.wire, now().toString(), count = count)
+                drafts += newDraft(source, DropReason.UNREADABLE.wire, count = count)
             }
         }
         if (save()) return true
@@ -292,6 +322,7 @@ class DropLedger(
                 count = group.sumOf { it.count },
                 hourly = group.associate { it.hourMs to it.count },
                 closed = true,
+                clientVersion = version,
             )
             group = ArrayList()
         }
@@ -301,7 +332,7 @@ class DropLedger(
         }
         emit()
         if (overflow > 0) {
-            drafts += DropDraft(newId(), source, DropReason.WRITE_FAILED.wire, now().toString(), count = overflow, closed = true)
+            drafts += newDraft(source, DropReason.WRITE_FAILED.wire, count = overflow, closed = true)
         }
         if (save()) return true
         drafts.clear()
@@ -362,7 +393,10 @@ class DropLedger(
         }
         // 凍結して積んだ後、下書きを消す前に落ちた跡は、同じ識別子の報告が既に積まれている。二重に積まない
         val already = frozen.snapshot().mapTo(HashSet()) { it.id }
-        for (d in list) if (d.id !in already) drafts += d
+        // 今の版でない下書き（ST49 より前の、版の無いものを含む）は閉じて持つ。閉じた報告は下書きの版のまま送る（今の版を付けない。D12）
+        for (d in list.filter { it.id !in already }) {
+            drafts += if (!d.closed && d.clientVersion != version) d.copy(closed = true) else d
+        }
     }
 
     /**
@@ -374,9 +408,7 @@ class DropLedger(
         val ok = openFile.renameTo(moved)
         log(Telemetry.line(if (ok) "drop_drafts_unreadable" else "drop_drafts_salvage_failed", source = null, error = e.javaClass.simpleName))
         if (ok) {
-            drafts += DropDraft(
-                newId(), unattributedSource, DropReason.UNREADABLE.wire, now().toString(), count = 1,
-            )
+            drafts += newDraft(unattributedSource, DropReason.UNREADABLE.wire, count = 1)
         }
     }
 

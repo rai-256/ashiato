@@ -127,8 +127,34 @@ val generateNetworkSecurityConfig =
         outputDir.set(layout.buildDirectory.dir("generated/res/nsconfig"))
     }
 
+/**
+ * 組み立ての印（ST49 / design D5・D6）: `<版番号>+<commit 40 桁>[.dirty][.debug]`。記録に焼き込まれる収集アプリの版。
+ *
+ * `providers.exec` は構成キャッシュの入力として組み立てのたびに確かめ直されるので、キャッシュに古い印が残らない。
+ * `.dirty` は `collector-android` の未 commit の変更（add していないものを含む）。git が使えなければ commit は `unknown`。
+ */
+val repoRoot: File = rootProject.projectDir.parentFile
+fun gitOutput(vararg args: String): Provider<String> =
+    providers.exec {
+        workingDir = repoRoot
+        commandLine("git", *args)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.map { it.trim() }
+val buildCommit: Provider<String> = gitOutput("rev-parse", "HEAD").map { Regex("^[0-9a-f]{40}$").matchEntire(it)?.value ?: "unknown" }
+val buildDirty: Provider<Boolean> = gitOutput("status", "--porcelain", "--", "collector-android").map { it.isNotEmpty() }
+fun componentVersion(isDebug: Boolean): Provider<String> =
+    buildCommit.zip(buildDirty) { commit, dirty ->
+        "${android.defaultConfig.versionName}+$commit" + (if (dirty) ".dirty" else "") + (if (isDebug) ".debug" else "")
+    }
+
 androidComponents {
     onVariants { variant ->
+        // release の variant だけ `.debug` を付けない
+        val stamp = componentVersion(isDebug = variant.buildType != "release")
+        variant.buildConfigFields?.put(
+            "COMPONENT_VERSION",
+            stamp.map { com.android.build.api.variant.BuildConfigField("String", "\"$it\"", "組み立ての印（ST49）") },
+        )
         variant.sources.res?.addGeneratedSourceDirectory(
             generateNetworkSecurityConfig,
             GenerateNetworkSecurityConfig::outputDir,

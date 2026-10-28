@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.KSerializer
 
 /**
  * `source_unavailable` の重複抑止。
@@ -308,26 +309,24 @@ open class LocationService : Service() {
             }
         },
         afterAdd = { maintain(force = false) },
+        stampVersion = BuildConfig.COMPONENT_VERSION,
     )
 
     /**
-     * 生存信号の未送信。**記録とは別の置き場**にする —— 上限の対象にしない（捨てない。C1 / design D13）。
-     * 仕組み（追記・読めない行の退避）は記録とまったく同じものを使う。
+     * 区切りファイルの未送信の置き場。`stamp` を渡した置き場だけが、積むときに収集アプリの版を書く（ST49 / design D13）。
+     * 生存信号の置き場は**記録とは別**で上限の対象にしない（捨てない。C1 / design D13）。破棄の報告の置き場も上限の外
+     * （C2）で、版は下書きが先に持つ（D15）。仕組み（追記・読めない行の退避）は記録とまったく同じものを使う。
      */
-    private fun newHeartbeatOutbox(): Outbox<HeartbeatRequest> = Outbox(
-        SegmentStore(
-            store("heartbeats"), HeartbeatRequest.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
-        ),
-        age = ageClock::now,
-    )
-
-    /** 破棄の報告の未送信。上限の対象にしない（C2 / design D13）。 */
-    private fun newDropsOutbox(): Outbox<DropReport> = Outbox(
-        SegmentStore(
-            store("drops"), DropReport.serializer(), store(UNREADABLE), { Log.w(TAG, it) },
-        ),
-        age = ageClock::now,
-    )
+    private fun <T : Outboxable> segmentOutbox(
+        dir: String,
+        serializer: KSerializer<T>,
+        stamp: String? = null,
+    ): Outbox<T> =
+        Outbox(
+            SegmentStore(store(dir), serializer, store(UNREADABLE), { Log.w(TAG, it) }),
+            age = ageClock::now,
+            stampVersion = stamp,
+        )
 
     /** 生存信号の刻み。試験だけが差し替える。**ソースごとに 1 本**（tasks 5.1）。 */
     protected open fun newHeartbeatScheduler(logicalSource: String): FlushScheduler = ExecutorFlushScheduler()
@@ -562,10 +561,7 @@ open class LocationService : Service() {
         mediaStore = MediaLedgerStore(File(filesDir, MEDIA_LEDGER_DIR), logW)
         originalPipeline = OriginalPipeline(
             mediaStore.originals,
-            Outbox(
-                SegmentStore(store("media-missing"), MediaMissingReport.serializer(), store(UNREADABLE), logW),
-                age = ageClock::now,
-            ),
+            segmentOutbox("media-missing", MediaMissingReport.serializer(), BuildConfig.COMPONENT_VERSION),
             { Config.userId },
             deviceId,
             logI,
@@ -581,12 +577,13 @@ open class LocationService : Service() {
         val logI: (String) -> Unit = { Log.i(TAG, it) }
         outboxDir().mkdirs()
         ageClock = AgeClock(newDeviceClock(), store("age-clock.txt"), logW)
-        dropsOutbox = newDropsOutbox()
+        dropsOutbox = segmentOutbox("drops", DropReport.serializer())
         ledger = DropLedger(
             store("drops-open.json"), dropsOutbox, { Config.userId }, deviceId,
             now = { Instant.now() }, newId = { UUID.randomUUID().toString() }, log = logI,
             // 下書きのファイルごと読めなくなったときだけ使う名前（**焼き込まない**。tasks 5.1）
             unattributedSource = UNATTRIBUTED_SOURCE,
+            version = BuildConfig.COMPONENT_VERSION,
         )
         // **前のプロセスで書けないまま失われた記録**（固定長の数えが 0 でない。design D5）。
         // **ソースごとに 1 本**（tasks 5.1）—— ST06 より前の 1 本は位置の名前へ移る
@@ -604,7 +601,7 @@ open class LocationService : Service() {
         }
 
         outbox = newOutbox()
-        heartbeatOutbox = newHeartbeatOutbox()
+        heartbeatOutbox = segmentOutbox("heartbeats", HeartbeatRequest.serializer())
         // 読めない行は退避先に書かれ、見回りが退避先の行数から報告に数える。ST01 が脇へ退けたファイルだけはここで数える。
         // **ここだけは位置と名乗ってよい**（tasks 5.1 / R10）—— 取り込む `outbox.jsonl` /
         // `heartbeat.jsonl` は ST01 / ST02 の版が書いたもので、**位置しか無かった時代のファイル**。

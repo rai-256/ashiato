@@ -3,7 +3,7 @@
 #   tool    crates/build-stamp の関数を最小の crate から呼んで印を出す
 #   server  S-01（Rust は組み立てた bin を strings して読む）。commit を進めた後・add していない変更の後で印が変わる
 #   windows C-02（組み立てた bin を strings して読む。release）。commit を進めた後・add していない変更の後で印が変わる
-#   android  Task 9 で足す
+#   android C-01（gradle で :app:generate{Debug,Release}BuildConfig を走らせ、生成された BuildConfig.java を読む）。--configuration-cache --build-cache を付ける
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -12,8 +12,7 @@ section="${1:-}"
 STAMP_RE='[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?'
 
 case "$section" in
-  tool | server | windows) ;;
-  android) echo "NG: 節 $section はまだ無い（Task 9 で足す）"; exit 2;;
+  tool | server | windows | android) ;;
   *) echo "usage: $0 tool|server|windows|android（節が無い: '$section'）"; exit 2;;
 esac
 
@@ -85,6 +84,43 @@ if [ "$section" = windows ]; then
   echo "// stamp check" >> "$clone/crates/collector-windows/src/lib.rs"
   c="$(win_stamp 未addの変更後の組み立て)"
   case "$c" in "0."*"+$head_b.dirty") echo "OK: $b -> $c";; *) fail "add していない変更の後の印が .dirty（.debug なし）でない: $c";; esac
+  exit 0
+fi
+
+if [ "$section" = android ]; then
+  clone="$work/clone"
+  git clone -q --local "$root" "$clone"
+  # 使い捨ての木の中の gradle。構成キャッシュとビルドキャッシュを付けても、印が古いまま残らないことを見る
+  android_stamps() { # <ラベル> -> "<debug> <release>"
+    (cd "$clone/collector-android" && ./gradlew -q --configuration-cache --build-cache :app:generateDebugBuildConfig :app:generateReleaseBuildConfig >&2) \
+      || fail "$1: gradle が落ちた"
+    local out="$clone/collector-android/app/build/generated/source/buildConfig" d r
+    d="$(grep -Eo 'COMPONENT_VERSION = "[^"]*"' "$out/debug/dev/ashiato/collector/BuildConfig.java" | cut -d'"' -f2)"
+    r="$(grep -Eo 'COMPONENT_VERSION = "[^"]*"' "$out/release/dev/ashiato/collector/BuildConfig.java" | cut -d'"' -f2)"
+    need_shape "$1 debug" "$d"
+    need_shape "$1 release" "$r"
+    printf '%s %s' "$d" "$r"
+  }
+  head_a="$(git -C "$clone" rev-parse HEAD)"
+  read -r da ra <<<"$(android_stamps 最初の組み立て)"
+  case "$da" in "0."*"+$head_a.debug") ;; *) fail "最初の組み立て: debug の印が HEAD($head_a)+.debug でない: $da";; esac
+
+  echo "== Scenario: 携帯の収集アプリの組み立ての印は、組み立てのたびに作り直される"
+  git -C "$clone" commit -q --allow-empty -m "stamp check"
+  head_b="$(git -C "$clone" rev-parse HEAD)"
+  [ "$head_b" != "$head_a" ] || fail "commit が進んでいない"
+  read -r db rb <<<"$(android_stamps commit後の組み立て)"
+  case "$db" in "0."*"+$head_b.debug") echo "OK: $da -> $db";; *) fail "commit を進めた後の debug の印が新しい HEAD($head_b)でない: $db";; esac
+
+  echo "== Scenario: 携帯の収集アプリの release の印は .debug を持たず、debug の印は持つ"
+  case "$rb" in "0."*"+$head_b") echo "OK: debug=$db release=$rb";; *) fail "release の印が HEAD($head_b)だけで終わらない: $rb";; esac
+  case "$rb" in *.debug*) fail "release の印が .debug を持つ: $rb";; esac
+
+  echo "== Scenario: 携帯の収集アプリの印は、add していないソースの変更の後に .dirty になる"
+  echo "// stamp check" >> "$clone/collector-android/app/src/main/kotlin/dev/ashiato/collector/Config.kt"
+  read -r dc rc <<<"$(android_stamps 未addの変更後の組み立て)"
+  case "$dc" in "0."*"+$head_b.dirty.debug") ;; *) fail "add していない変更の後の debug の印が .dirty.debug でない: $dc";; esac
+  case "$rc" in "0."*"+$head_b.dirty") echo "OK: $db -> $dc / release $rc";; *) fail "add していない変更の後の release の印が .dirty（.debug なし）でない: $rc";; esac
   exit 0
 fi
 
