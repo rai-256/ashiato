@@ -276,11 +276,7 @@ async fn drop_one(
     }
 
     let hash = content_hash(&req);
-    // 収集アプリの版は API の合言葉のときだけ入れる（D9・D14）
-    let collector_version = match writer {
-        Writer::Collector => req.component_version(),
-        Writer::Web | Writer::Internal => None,
-    };
+    let collector_version = writer.collector_version(req.component_version());
     // 報告と時間ごとの件数は**1 トランザクション**。片方だけ入ると、日の件数が 0 のまま
     // 「破棄された期間」だけが立つ（あるいはその逆）。
     let mut tx = app

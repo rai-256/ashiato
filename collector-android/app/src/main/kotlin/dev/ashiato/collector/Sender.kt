@@ -3,6 +3,8 @@ package dev.ashiato.collector
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /** 取り込み口を叩いた結果。網の失敗と、サーバが返した応答を区別する。 */
 sealed interface Outcome {
@@ -174,8 +176,10 @@ class Sender<T : Outboxable>(
         if (fresh.isEmpty()) skipped.clear()
         val batch = stored.map { it.item }
 
-        // **行の JSON をそのまま送る**（ST49 / design D3（仮））。型に通して作り直すと、この版が知らない欄が落ちる
-        val body = JsonArray(stored.map { it.json ?: ingestJson.encodeToJsonElement(serializer, it.item) }).toString()
+        // **型に通した欄に、行だけが持つ欄を足して送る**（ST49 / design D3（仮））。型に通しただけだと、この版が
+        // 知らない欄が落ちる。行をそのまま送ると、古い版が積んだ行に今の型の既定値（`encodeDefaults`）が入らない（review/code.md R21）
+        val body = JsonArray(stored.map { s -> withUnknownFields(s.json, ingestJson.encodeToJsonElement(serializer, s.item)) })
+            .toString()
         val verdict = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
@@ -309,3 +313,7 @@ class Sender<T : Outboxable>(
         )
     }
 }
+
+/** 型に通した 1 件（`typed`）に、読み戻した行（`line`）だけが持つ欄を足す。同じ名前の欄は型に通した側を取る。 */
+internal fun withUnknownFields(line: JsonObject?, typed: JsonElement): JsonElement =
+    if (line == null || typed !is JsonObject) typed else JsonObject(line + typed)

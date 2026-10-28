@@ -170,6 +170,9 @@ open class LocationService : Service() {
     /** 破棄の報告の下書きを試験から覗く口。同上。 */
     internal val ledgerForTest: DropLedger get() = ledger
 
+    /** 原本の欠けの未送信を試験から覗く口。同上。 */
+    internal val mediaMissingOutboxForTest: Outbox<MediaMissingReport> get() = originalPipeline.missingOutbox
+
     /** 上限の見回りを試験から呼ぶ口（間引かない）。 */
     internal fun maintainForTest() = maintain(force = true)
 

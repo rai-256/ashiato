@@ -12,6 +12,17 @@ pub const COMMIT_ENV: &str = "ASHIATO_BUILD_COMMIT";
 /// 印を組む。形は `<version>+<commit>[.dirty][.debug]`。
 /// `.dirty` は `source_paths` の下に未 commit の変更（未追跡を含む）があるときだけ、`.debug` は `profile` が `release` でないとき。
 pub fn stamp(version: &str, profile: &str, repo: &Path, source_paths: &[&str]) -> String {
+    stamp_with_commit(version, profile, repo, source_paths).0
+}
+
+/// `stamp` と、印に入れた commit（40 桁・`unknown`・環境変数の値）の組。
+/// commit を印の文字列から切り出さずに渡す（版番号が `+` を持っても、環境変数の値が `.dirty` で終わっても崩れない）。
+pub fn stamp_with_commit(
+    version: &str,
+    profile: &str,
+    repo: &Path,
+    source_paths: &[&str],
+) -> (String, String) {
     let env_commit = std::env::var(COMMIT_ENV).ok();
     let commit = commit(env_commit.as_deref(), repo);
     let dirty = if is_dirty(repo, source_paths) {
@@ -20,10 +31,12 @@ pub fn stamp(version: &str, profile: &str, repo: &Path, source_paths: &[&str]) -
         ""
     };
     let debug = if profile == "release" { "" } else { ".debug" };
-    format!("{version}+{commit}{dirty}{debug}")
+    (format!("{version}+{commit}{dirty}{debug}"), commit)
 }
 
-/// 作り直しの印を cargo へ出す。HEAD・HEAD が指す参照・`packed-refs`・`index`・部品のソースの道・`ASHIATO_BUILD_COMMIT`。
+/// 作り直しの印を cargo へ出す。HEAD・HEAD が指す参照・`packed-refs`・部品のソースの道・`ASHIATO_BUILD_COMMIT`。
+/// `index` は出さない（review/code.md R18）: `git add` や IDE の `git status` のたびに S-01 と C-02 が組み直される。
+/// `.dirty` の変化はソースの道（cargo は dir の中を全部見る）と HEAD・参照で拾える。
 pub fn emit_rerun(repo: &Path, source_paths: &[&str]) {
     let mut out = std::io::stdout().lock();
     for line in rerun_lines(repo, source_paths) {
@@ -45,7 +58,6 @@ fn rerun_lines(repo: &Path, source_paths: &[&str]) -> Vec<String> {
             watch.push(common_dir.join(r));
         }
         watch.push(common_dir.join("packed-refs"));
-        watch.push(git_dir.join("index"));
     }
     watch.extend(source_paths.iter().map(|p| repo.join(p)));
     lines.extend(
@@ -77,7 +89,7 @@ fn git_path(repo: &Path, flag: &str) -> Option<PathBuf> {
     Some(PathBuf::from(p))
 }
 
-/// 成功して出力が空でないときだけ `Some`。`GIT_OPTIONAL_LOCKS=0` で `git status` が `index` を書き換えない。
+/// 成功して出力が空でないときだけ `Some`。`GIT_OPTIONAL_LOCKS=0` で `git status` が利用者の `index` を書き換えない。
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .args(args)
@@ -204,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn st49_stamp_with_commit_does_not_parse_the_stamp() {
+        // review/code.md R20: 版番号が `+` を持つ・環境変数の値が `.dirty` で終わる、でも commit は崩れない
+        let (d, _head) = tree();
+        let _g = ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::env::set_var(COMMIT_ENV, "ci-1.dirty");
+        let (s, c) = stamp_with_commit("0.1.0+rc1", "debug", d.path(), &["crates/a"]);
+        std::env::remove_var(COMMIT_ENV);
+        assert_eq!(s, "0.1.0+rc1+ci-1.dirty.debug");
+        assert_eq!(c, "ci-1.dirty");
+    }
+
+    #[test]
     fn st49_stamp_rerun_paths_follow_worktree_git_dir() {
         let (d, _head) = tree();
         let wt = tempfile::tempdir().expect("tempdir");
@@ -227,7 +253,10 @@ mod tests {
         };
         let gd = common.join("worktrees/wt");
         has(gd.join("HEAD"));
-        has(gd.join("index"));
+        assert!(
+            !lines.iter().any(|l| l.ends_with("/index")),
+            "index を見ると add のたびに組み直す: {lines:#?}"
+        );
         has(common.join("refs/heads/feat"));
         has(fs::canonicalize(wt_path.join("crates/a")).expect("canon"));
         assert!(lines.contains(&format!("cargo:rerun-if-env-changed={COMMIT_ENV}")));

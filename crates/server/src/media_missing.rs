@@ -139,11 +139,7 @@ async fn missing_one(
         return Ok(rejected(Some(req.id), error));
     }
 
-    // 収集アプリの版は API の合言葉のときだけ入れる（D9・D14）
-    let collector_version = match writer {
-        Writer::Collector => req.component_version(),
-        Writer::Web | Writer::Internal => None,
-    };
+    let collector_version = writer.collector_version(req.component_version());
     let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.media_missing
            (id, user_id, device_id, logical_source, sha256, reason, noticed_at,

@@ -105,6 +105,19 @@ class St49OutboxTest {
         assertEquals("送れた行は取り除かれる", 0, outbox.size())
     }
 
+    // 古い版が積んだ行に無い欄は、今の型の既定値で埋めて送る（review/code.md R21。知らない欄を残すのと両立する）
+    @Test
+    fun oldLineGetsCurrentDefaults() {
+        val dir = tmp.newFolder("defaults")
+        writeSegment(dir, oldLine.replace(""""unit_system":null,""", ""))
+
+        val sent = sendFirst(records(dir, v2))
+
+        assertTrue("既定値の欄が埋まらない", sent.containsKey("unit_system"))
+        assertEquals("null", sent["unit_system"].toString())
+        assertFalse("今の版を付けてはならない", sent.containsKey("client_version"))
+    }
+
     // Scenario: 古い形の未送信を移すとき、版は書き込まれない
     @Test
     fun legacyMigrationDoesNotStamp() {
@@ -142,5 +155,23 @@ class St49OutboxTest {
         // 記録の溜めには同じ配線で印が書かれる（対の確認。印の値は組み立ての印）
         val record = service.outboxForTest.headStored(10).single { it.item.id == "rec-1" }
         assertEquals(BuildConfig.COMPONENT_VERSION, record.json!!["client_version"]!!.jsonPrimitive.content)
+    }
+
+    // 原本の欠けと破棄の報告にも、積む時点の C-01 の印が本物の配線で入る（review/code.md R15。S-01 の側の試験は配線を見ない）
+    @Test
+    fun mediaMissingAndDropDraftCarryStamp() {
+        val service = Robolectric.buildService(TestableLocationService::class.java, android.content.Intent())
+            .create().startCommand(0, 1).get()
+        val missing = MediaMissingReport(
+            id = "mm-1", userId = "user-1", deviceId = "device-1", logicalSource = "c01-photo",
+            sha256 = "0".repeat(64), reason = "gone", noticedAt = "2026-09-08T02:00:00Z",
+        )
+        service.mediaMissingOutboxForTest.add(missing)
+        service.ledgerForTest.dropped(LOGICAL_SOURCE, DropReason.AGE, Instant.parse("2026-09-08T02:00:00Z"))
+
+        val row = service.mediaMissingOutboxForTest.headStored(10).single { it.item.id == "mm-1" }
+        assertEquals(BuildConfig.COMPONENT_VERSION, row.json!!["client_version"]!!.jsonPrimitive.content)
+        val draft = service.ledgerForTest.drafts().single { it.source == LOGICAL_SOURCE }
+        assertEquals(BuildConfig.COMPONENT_VERSION, draft.clientVersion)
     }
 }

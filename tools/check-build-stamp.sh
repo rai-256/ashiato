@@ -5,6 +5,8 @@
 #   windows C-02（release で組み立てた rlib（libashiato_collector_windows.rlib）を strings して読む。Linux の bin は収集の本体を持たず印が残らない）。commit を進めた後・add していない変更の後で印が変わる
 #   android C-01（gradle で :app:generate{Debug,Release}BuildConfig を走らせ、生成された BuildConfig.java を読む）。--configuration-cache --build-cache を付ける。
 #           環境変数 ASHIATO_BUILD_COMMIT が git の HEAD より先に使われることも見る（design D5）
+# 各節の終わりで「部品のソースの道」（design D5）も本物の組み立てで見る: ほかの部品の木だけの変更は .dirty にせず、
+# 部品の道の別の場所（S-01 の migrations/・crates/build-stamp、C-02 の crates/build-stamp）の変更は .dirty にする（review/code.md R16）
 # 版番号は決め打ちしない: Rust の 2 つは Cargo.toml の [workspace.package] の version、C-01 は build.gradle.kts の versionName と比べる
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -67,7 +69,7 @@ fi
 
 if [ "$section" = windows ]; then
   clone="$work/clone"
-  git clone -q --local "$root" "$clone"
+  git clone -q --local --no-hardlinks "$root" "$clone"
   # release で組み立てた rlib から印を読む（Linux の bin は収集の本体を持たず印が残らない。印は 1 つだけ。release は .debug を持たない）
   win_stamp() { # <ラベル>
     local s n
@@ -93,12 +95,22 @@ if [ "$section" = windows ]; then
   echo "// stamp check" >> "$clone/crates/collector-windows/src/lib.rs"
   c="$(win_stamp 未addの変更後の組み立て)"
   case "$c" in "$cargo_version+$head_b.dirty") echo "OK: $b -> $c";; *) fail "add していない変更の後の印が .dirty（.debug なし）でない: $c";; esac
+
+  echo "-- 部品のソースの道: S-01 の木の変更は .dirty にせず、crates/build-stamp の変更は .dirty にする（design D5）"
+  git -C "$clone" commit -q -am "stamp check dirty"
+  head_c="$(git -C "$clone" rev-parse HEAD)"
+  echo "// stamp check" >> "$clone/crates/server/src/lib.rs"
+  d="$(win_stamp ほかの部品の変更後の組み立て)"
+  case "$d" in "$cargo_version+$head_c") echo "OK: crates/server の変更 -> $d";; *) fail "ほかの部品（crates/server）の変更で印が変わった: $d";; esac
+  echo "// stamp check" >> "$clone/crates/build-stamp/src/lib.rs"
+  e="$(win_stamp build-stampの変更後の組み立て)"
+  case "$e" in "$cargo_version+$head_c.dirty") echo "OK: crates/build-stamp の変更 -> $e";; *) fail "crates/build-stamp の変更の後の印が .dirty でない: $e";; esac
   exit 0
 fi
 
 if [ "$section" = android ]; then
   clone="$work/clone"
-  git clone -q --local "$root" "$clone"
+  git clone -q --local --no-hardlinks "$root" "$clone"
   # 宣言した版番号（build.gradle.kts の versionName）
   av="$(sed -n 's/^ *versionName *= *"\([^"]*\)".*/\1/p' collector-android/app/build.gradle.kts | head -n1)"
   [ -n "$av" ] || fail "collector-android/app/build.gradle.kts に versionName が無い"
@@ -147,12 +159,20 @@ if [ "$section" = android ]; then
   got="$(ASHIATO_BUILD_COMMIT="" android_stamps 空の環境変数の組み立て)" || exit 1
   read -r dz _ <<<"$got"
   case "$dz" in "$av+$head_b.dirty.debug") echo "OK: 空の env -> $dz";; *) fail "空の環境変数で git の HEAD に戻らない: $dz";; esac
+
+  echo "-- 部品のソースの道: collector-android の外の変更は .dirty にしない（design D5）"
+  git -C "$clone" commit -q -am "stamp check dirty"
+  head_c="$(git -C "$clone" rev-parse HEAD)"
+  echo "// stamp check" >> "$clone/crates/server/src/lib.rs"
+  got="$(android_stamps ほかの部品の変更後の組み立て)" || exit 1
+  read -r dd _ <<<"$got"
+  case "$dd" in "$av+$head_c.debug") echo "OK: crates/server の変更 -> $dd";; *) fail "ほかの部品（crates/server）の変更で印が変わった: $dd";; esac
   exit 0
 fi
 
 # ---- server ----
 clone="$work/clone"
-git clone -q --local "$root" "$clone"
+git clone -q --local --no-hardlinks "$root" "$clone"
 
 # 組み立てた bin から印を読む（bin に残る印は 1 つだけ）
 build_stamp() {
@@ -183,3 +203,19 @@ echo "== Scenario: S-01 の組み立ての印は、add していないソース�
 echo "// stamp check" >> "$clone/crates/server/src/lib.rs"
 c="$(one_stamp 未addの変更後の組み立て)"
 case "$c" in "$cargo_version+$head_b.dirty.debug") echo "OK: $b -> $c";; *) fail "add していない変更の後の印が .dirty.debug でない: $c";; esac
+
+echo "-- 部品のソースの道: 画面の木の変更は .dirty にせず、migrations/・crates/build-stamp の変更は .dirty にする（design D5）"
+git -C "$clone" commit -q -am "stamp check dirty"
+head_c="$(git -C "$clone" rev-parse HEAD)"
+echo "<!-- stamp check -->" >> "$clone/web/index.html"
+d="$(one_stamp ほかの部品の変更後の組み立て)"
+case "$d" in "$cargo_version+$head_c.debug") echo "OK: web/ の変更 -> $d";; *) fail "ほかの部品（web/）の変更で印が変わった: $d";; esac
+echo "# stamp check" >> "$clone/migrations/ORDER"
+e="$(one_stamp migrationsの変更後の組み立て)"
+case "$e" in "$cargo_version+$head_c.dirty.debug") echo "OK: migrations/ の変更 -> $e";; *) fail "migrations/ の変更の後の印が .dirty.debug でない: $e";; esac
+git -C "$clone" checkout -q -- migrations/ORDER
+f="$(one_stamp migrationsを戻した組み立て)"
+case "$f" in "$cargo_version+$head_c.debug") ;; *) fail "migrations/ を戻した後の印が .dirty のまま: $f";; esac
+echo "// stamp check" >> "$clone/crates/build-stamp/src/lib.rs"
+g="$(one_stamp build-stampの変更後の組み立て)"
+case "$g" in "$cargo_version+$head_c.dirty.debug") echo "OK: crates/build-stamp の変更 -> $g";; *) fail "crates/build-stamp の変更の後の印が .dirty.debug でない: $g";; esac

@@ -31,7 +31,7 @@ fn main() {
 
     // 組み立ての印（ST49 / design D5・D6）。ST48 の台帳が読む `ASHIATO_BUILD_COMMIT` も同じ commit で出し続ける
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let stamp = ashiato_build_stamp::stamp(
+    let (stamp, commit) = ashiato_build_stamp::stamp_with_commit(
         env!("CARGO_PKG_VERSION"),
         &env::var("PROFILE").unwrap_or_default(),
         &repo,
@@ -39,7 +39,7 @@ fn main() {
     );
     ashiato_build_stamp::emit_rerun(&repo, STAMP_SOURCES);
     println!("cargo:rustc-env=ASHIATO_BUILD_STAMP={stamp}");
-    println!("cargo:rustc-env=ASHIATO_BUILD_COMMIT={}", commit_of(&stamp));
+    println!("cargo:rustc-env=ASHIATO_BUILD_COMMIT={commit}");
 
     let text = fs::read_to_string(&order)
         .unwrap_or_else(|e| panic!("{} を読めない: {e}", order.display()));
@@ -88,10 +88,4 @@ fn main() {
     let out = Path::new(&env::var("OUT_DIR").expect("OUT_DIR")).join("migrations.rs");
     fs::write(&out, format!("&[\n{body}]\n"))
         .unwrap_or_else(|e| panic!("{} を書けない: {e}", out.display()));
-}
-
-/// 印 `<版番号>+<commit>[.dirty][.debug]` の commit（40 桁か `unknown`、環境変数で渡された値）。
-fn commit_of(stamp: &str) -> &str {
-    let (_, rest) = stamp.split_once('+').expect("印は + を持つ");
-    rest.trim_end_matches(".debug").trim_end_matches(".dirty")
 }

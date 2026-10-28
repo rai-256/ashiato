@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import java.io.ByteArrayOutputStream
 import java.util.Properties
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
 
 plugins {
     id("com.android.application")
@@ -135,12 +138,44 @@ val generateNetworkSecurityConfig =
  * 空でなければその値、なければ git の HEAD、git が使えなければ `unknown`。
  */
 val repoRoot: File = rootProject.projectDir.parentFile
+
+/**
+ * git の標準出力。**git が起こせない（PATH に無い）ときも空にする**（review/code.md R19）。`providers.exec` は
+ * 終了コードを無視できても、起動の失敗は投げて組み立てを止める。Rust（`git()` が None）・vite（try/catch）と同じく `unknown` に倒す。
+ * `ValueSource` は構成キャッシュの入力として組み立てのたびに取り直される（`providers.exec` と同じ）。
+ */
+abstract class GitOutput : ValueSource<String, GitOutput.Params> {
+    interface Params : ValueSourceParameters {
+        val workingDir: DirectoryProperty
+        val args: ListProperty<String>
+    }
+
+    @get:Inject
+    abstract val execOps: ExecOperations
+
+    override fun obtain(): String = try {
+        val out = ByteArrayOutputStream()
+        execOps.exec {
+            workingDir = parameters.workingDir.get().asFile
+            commandLine(listOf("git") + parameters.args.get())
+            standardOutput = out
+            isIgnoreExitValue = true
+        }
+        out.toString(Charsets.UTF_8).trim()
+    } catch (e: org.gradle.api.GradleException) {
+        logger.warn("組み立ての印: git を起こせない（{}）。commit は unknown にする", e.message)
+        ""
+    }
+
+    private companion object {
+        val logger: org.gradle.api.logging.Logger = org.gradle.api.logging.Logging.getLogger(GitOutput::class.java)
+    }
+}
 fun gitOutput(vararg args: String): Provider<String> =
-    providers.exec {
-        workingDir = repoRoot
-        commandLine("git", *args)
-        isIgnoreExitValue = true
-    }.standardOutput.asText.map { it.trim() }
+    providers.of(GitOutput::class.java) {
+        parameters.workingDir.set(repoRoot)
+        parameters.args.set(args.toList())
+    }
 // commit の出所（design D5。Rust・vite と同じ順）: 環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`
 val buildCommit: Provider<String> = providers.environmentVariable("ASHIATO_BUILD_COMMIT")
     .map { it.trim() }

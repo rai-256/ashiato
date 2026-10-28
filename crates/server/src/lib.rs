@@ -1179,6 +1179,11 @@ impl Writer {
             Self::Internal => (None, None),
         }
     }
+
+    /// 収集アプリだけが送る報告（破棄の報告・原本の欠け）の `collector_version`。API の合言葉のときだけ入れる（D9・D14）。
+    pub(crate) fn collector_version(self, version: Option<String>) -> Option<String> {
+        self.split(version).0
+    }
 }
 
 /// 解釈を終えた 1 件を格納する（`ingest_one` の本体）。
