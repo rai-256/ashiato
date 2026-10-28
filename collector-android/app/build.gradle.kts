@@ -142,15 +142,16 @@ fun gitOutput(vararg args: String): Provider<String> =
     }.standardOutput.asText.map { it.trim() }
 val buildCommit: Provider<String> = gitOutput("rev-parse", "HEAD").map { Regex("^[0-9a-f]{40}$").matchEntire(it)?.value ?: "unknown" }
 val buildDirty: Provider<Boolean> = gitOutput("status", "--porcelain", "--", "collector-android").map { it.isNotEmpty() }
-fun componentVersion(isDebug: Boolean): Provider<String> =
+// 構成キャッシュは script の参照を持てないので、値は引数で渡す（lambda から `android` を読まない）
+fun componentVersion(versionName: String, isDebug: Boolean): Provider<String> =
     buildCommit.zip(buildDirty) { commit, dirty ->
-        "${android.defaultConfig.versionName}+$commit" + (if (dirty) ".dirty" else "") + (if (isDebug) ".debug" else "")
+        "$versionName+$commit" + (if (dirty) ".dirty" else "") + (if (isDebug) ".debug" else "")
     }
 
 androidComponents {
     onVariants { variant ->
         // release の variant だけ `.debug` を付けない
-        val stamp = componentVersion(isDebug = variant.buildType != "release")
+        val stamp = componentVersion(android.defaultConfig.versionName.orEmpty(), isDebug = variant.buildType != "release")
         variant.buildConfigFields?.put(
             "COMPONENT_VERSION",
             stamp.map { com.android.build.api.variant.BuildConfigField("String", "\"$it\"", "組み立ての印（ST49）") },
