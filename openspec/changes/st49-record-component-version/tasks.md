@@ -207,12 +207,12 @@
 
 ## Task 11: 申し送りと全体の確かめ
 
-- [ ] 11.1 `docs/handoff/ST23.md`（`st49-record-component-version` review/spec.md R5 —— ST23 が足す削除の台帳の INSERT（本文ごと消す行）は `server_version` を書く。`core.erasure_operation` に版を持たせるかは ST49 の Q3 の答えに従う。D10 の `st49_ledger_inserts_name_server_version` が落として知らせる）、
+- [x] 11.1 `docs/handoff/ST23.md`（`st49-record-component-version` review/spec.md R5 —— ST23 が足す削除の台帳の INSERT（本文ごと消す行）は `server_version` を書く。`core.erasure_operation` に版を持たせるかは ST49 の Q3 の答えに従う。D10 の `st49_ledger_inserts_name_server_version` が落として知らせる）、
   `docs/handoff/ST50.md`（ST49 より前の S-01 に新しい収集アプリが送った間・古い版へ戻した間の版の脱落。期限の後は FR-125 / FR-130 で止める。design D3（仮）・Risks）、
   `docs/handoff/ST29.md`（衛星の資格情報の `Caller` は `Writer::Collector` / `Writer::Web` にしない。D9）、`docs/handoff/ST52.md`（版番号の出所を 1 つにしたら `crates/build-stamp`・`build.gradle.kts`・`web/build-stamp.ts` の版番号をそこから読む。commit は ST48 と同じ値）を
   `docs/handoff/README.md` の書式で書く（既にあるファイルには項を足す）。
   検証: `bash -c 'grep -q "st49-record-component-version" docs/handoff/ST23.md && grep -q R5 docs/handoff/ST23.md && grep -q st49 docs/handoff/ST50.md && grep -q st49 docs/handoff/ST29.md && grep -q st49 docs/handoff/ST52.md'` rc=0 / `./tools/check-shared-appends.sh` rc=0
-- [ ] 11.2 全体: `scripts/quiet-run fmt -- cargo fmt --all -- --check` rc=0 / `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0 /
+- [x] 11.2 全体: `scripts/quiet-run fmt -- cargo fmt --all -- --check` rc=0 / `scripts/quiet-run clippy -- cargo clippy --workspace --all-targets -- -D warnings` rc=0 /
   `bash -c 'set -a; . ./.env; set +a; scripts/quiet-run test -- cargo test -p ashiato-server'` rc=0 / `CS st49_` rc=0（`-- --list` で 7 本以上）/
   `./tools/check-migrations.sh && ./tools/check-boundaries.sh && ./tools/check-openapi.sh && ./tools/check-immutable.sh` rc=0 /
   `scripts/quiet-run smoke -- ./tools/smoke.sh` rc=0（今の収集アプリの形の要求がそのまま通る）/
