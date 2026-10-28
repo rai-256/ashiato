@@ -17,7 +17,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -99,6 +101,33 @@ class SharedPendingFlowActivity : ExemptMainActivity() {
 /** 初回起動の流れの中の健康データの段（tasks 5.1 / design D4・D6・D9）。Health Connect の画面そのものは計測テストが見る。 */
 @RunWith(RobolectricTestRunner::class)
 class HealthPermissionFlowTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    /**
+     * 試験の規則が消すフォルダに置く未送信。共有の `testOutbox` / `MediaScanEnv` は CH03 で置き場を引数に取る形へ
+     * 変わるので、ここでは使わずに組む（ST11 のブランチと CH03 の後の木の両方で通る）。
+     */
+    private fun scratchOutbox(): Outbox<IngestRequest> = Outbox.inDir(tmp.newFolder(), IngestRequest.serializer()) {}
+
+    private fun mediaScanner(listing: FakeMediaListing, outbox: Outbox<IngestRequest>): MediaScanner {
+        var ids = 0
+        return MediaScanner(
+            listing = listing,
+            files = FakeMediaFiles(listing),
+            outbox = outbox,
+            store = MediaLedgerStore(java.io.File(tmp.newFolder(), MEDIA_LEDGER_DIR)) {},
+            env = MediaScanEnvironment(
+                access = { MediaAccess.FULL },
+                now = { java.time.Instant.parse("2026-10-01T00:00:00Z") },
+                zone = { java.time.ZoneId.of("Asia/Tokyo") },
+                userId = { "user-1" },
+                deviceId = "device-1",
+                newId = { "r${ids++}" },
+            ),
+            log = {},
+        )
+    }
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
     private val health get() = HealthFlowActivity.health
 
@@ -272,7 +301,7 @@ class HealthPermissionFlowTest {
     // Scenario: 初めて観たときに健康データの権限の記録が 1 件できる
     @Test
     fun `本番の渡し口を通ると、サービスが立ったとき未送信に積まれ、そこで初めて最後の状態が書かれる`() {
-        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        HealthRecordHandoff.drainInto(scratchOutbox()) // 他の試験の残りを捨てる
         healthMarks().edit().clear().commit()
         val controller = Robolectric.buildActivity(HandoffFlowActivity::class.java).create().resume()
         answer2(controller)
@@ -428,16 +457,21 @@ class HealthPermissionFlowTest {
         controller.create().startCommand(0, 1)
         service.source.deliver()
 
-        val env = MediaScanEnv()
-        env.listing.put(PRIMARY, 1, "DCIM/Camera/", "IMG_1.jpg", "photo")
-        env.scan()
+        val listing = FakeMediaListing()
+        listing.put(PRIMARY, 1, "DCIM/Camera/", "IMG_1.jpg", "photo")
+        val media = scratchOutbox()
+        mediaScanner(listing, media).scan()
 
         assertTrue("位置の記録が積まれていない", service.outboxForTest.snapshot().any { it.logicalSource == LOGICAL_SOURCE })
         assertTrue(
             "アプリ利用の記録が積まれていない",
             service.outboxForTest.snapshot().any { it.logicalSource == SourceCadence.APP_USAGE.logicalSource },
         )
-        assertEquals("写真の記録が積まれていない", 1, env.photos().size)
+        assertEquals(
+            "写真の記録が積まれていない",
+            1,
+            media.snapshot().count { it.payload["kind"].toString() == "\"media\"" },
+        )
     }
 
     // Scenario: 初回起動で健康データの権限の画面が出る

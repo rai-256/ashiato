@@ -32,7 +32,15 @@ class HealthPermissionRecordTest {
     private val allPermissions = HEALTH_PERMISSIONS.values.toSet()
 
     private val clock = FakeDeviceClock(wall = 1_800_000_000_123, mono = 123_456_789, boot = 42)
-    private val outbox = testOutbox()
+
+    /**
+     * 試験の規則が消すフォルダに置く未送信。共有の `testOutbox` は CH03 で置き場を引数に取る形へ変わるので、
+     * ここでは使わずに組む（ST11 のブランチと CH03 の後の木の両方で通る）。規則が立つのは試験の頭なので遅らせる。
+     */
+    private val outbox by lazy { scratchOutbox() }
+
+    private fun scratchOutbox(): Outbox<IngestRequest> = Outbox.inDir(tmp.newFolder(), IngestRequest.serializer()) {}
+
     private val lines = mutableListOf<String>()
     private var reading = HealthReading(HealthAvailability.AVAILABLE, HealthFeatures(true, true), allPermissions)
     private var autoRequested = true
@@ -275,7 +283,7 @@ class HealthPermissionRecordTest {
 
     /** 本番の組み方: サービスは未送信へ直に積んで即時に書き換え、画面は受け渡し口に預けてサービスが積んだ後に書き換える。 */
     private fun sharedPair(): Pair<HealthPermissionRecorder, HealthPermissionRecorder> {
-        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        HealthRecordHandoff.drainInto(scratchOutbox()) // 他の試験の残りを捨てる
         val prefs = app.getSharedPreferences(HEALTH_PREFS, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
         val store = HealthStateStore(prefs)
@@ -419,7 +427,7 @@ class HealthPermissionRecordTest {
 
     @Test
     fun `記録と手続きが別々の drain に分かれても、書けなかった記録の手続きは走らない`() {
-        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        HealthRecordHandoff.drainInto(scratchOutbox()) // 他の試験の残りを捨てる
         val dir = tmp.newFolder("handoff-split")
         val segments = java.io.File(dir, "segments").apply { mkdirs() }
         val failing = Outbox(
@@ -443,7 +451,7 @@ class HealthPermissionRecordTest {
 
     @Test
     fun `積むところが投げても drain は投げず、残りの記録と手続きを続ける`() {
-        HealthRecordHandoff.drainInto(testOutbox()) // 他の試験の残りを捨てる
+        HealthRecordHandoff.drainInto(scratchOutbox()) // 他の試験の残りを捨てる
         var throwOnce = true
         val throwing = Outbox(
             SegmentStore(

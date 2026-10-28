@@ -4,8 +4,10 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+use crate::export::{self, ExportConfig};
 use crate::export_excluded_tests::World;
-use crate::export_file_tests::{export_once, present};
+use crate::export_file_tests::present;
+use crate::export_tests::{pass, EXPORT_SERIAL};
 use crate::outage::judge;
 use crate::outage_store::inputs;
 use crate::testdb;
@@ -278,7 +280,19 @@ async fn st11_export_includes_health_permission_record() {
         )
         .await;
 
-    let path = export_once(&w.pool).await;
+    // 置き場はこの試験の TempDir（`export_once` の戻りの形に頼らない。CH03 で一時フォルダの持ち方が変わる）
+    let _g = EXPORT_SERIAL.lock().await;
+    let dir = tempfile::Builder::new()
+        .prefix("ashiato-export-health-")
+        .tempdir()
+        .unwrap();
+    let path = export::run(
+        &w.pool,
+        &ExportConfig::with_dir(dir.path().to_path_buf()),
+        pass(),
+    )
+    .await
+    .unwrap();
     let got = present(&path, "events.jsonl", &[id]);
     assert!(got.contains(&id), "書き出しに入っていない");
 }
