@@ -150,4 +150,11 @@ CREATE VIEW core.event_folded AS
     FROM core.event_live
    GROUP BY user_id, logical_source, content_hash;
 
-DELETE FROM migration_ledger.applied WHERE name = '202610251000_record_component_version';
+-- 版の記録の表は適用する側（migrate）が作る。表が無い DB（試験の素の DB）では何もしない。
+DO $$
+BEGIN
+    IF to_regclass('migration_ledger.applied') IS NOT NULL THEN
+        DELETE FROM migration_ledger.applied WHERE name = '202610251000_record_component_version';
+    END IF;
+END
+$$;
