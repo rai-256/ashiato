@@ -181,14 +181,12 @@ class DropLedger(
     private fun newDraft(source: String, reason: String, count: Int = 0, closed: Boolean = false) =
         DropDraft(newId(), source, reason, now().toString(), count = count, closed = closed, clientVersion = version)
 
-    private fun openIndex(source: String, reason: String): Int {
-        // 版の違う下書き（ST49 より前のものを含む）には足さず、閉じて次の下書きにする。閉じた報告は下書きの版のまま送る
-        for (i in drafts.indices) {
-            val d = drafts[i]
-            if (isOpen(d, source, reason) && d.clientVersion != version) drafts[i] = d.copy(closed = true)
-        }
-        return drafts.indexOfFirst { isOpen(it, source, reason) }
-    }
+    /**
+     * 開いている下書き。版の違う下書き（ST49 より前のものを含む）は `load()` が閉じて持ち、ほかの下書きは
+     * どれも今の版（`newDraft`）で始まるので、開いているものは今の版だけ
+     */
+    private fun openIndex(source: String, reason: String): Int =
+        drafts.indexOfFirst { isOpen(it, source, reason) }
 
     /** 捨てた記録 1 件を下書きに足す。**保存はしない**（`record` / `endBatch` がまとめて書く）。 */
     @Synchronized
