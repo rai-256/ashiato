@@ -3,6 +3,8 @@
 //! （配置と読み方は `export_file_tests.rs` に合わせる）。確かめるのは**そのテストの行だけ**。
 #![allow(clippy::unwrap_used)]
 
+use std::path::{Path, PathBuf};
+
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -11,6 +13,36 @@ use crate::export_excluded_tests::World;
 use crate::export_file_tests::{export_once, scan, text};
 
 const VERSIONS: [&str; 3] = ["collector_version", "web_version", "server_version"];
+
+/// 書き出した zip。落とすときに置き場（`export_tests::tmp_dir("file")` の `ashiato-export-file-*`）ごと消す
+/// （一時フォルダに残さない。R7）。
+struct Exported(PathBuf);
+
+impl std::ops::Deref for Exported {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Exported {
+    fn drop(&mut self) {
+        let Some(dir) = self.0.parent() else { return };
+        // 置き場の名前を確かめてから消す（別の場所を消さない）
+        let ours = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("ashiato-export-file-"));
+        if ours && dir.starts_with(std::env::temp_dir()) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// 新しい置き場に 1 回書き出す（`export_file_tests::export_once`）。置き場は返した値を落とすときに消える。
+async fn export_here(pool: &sqlx::PgPool) -> Exported {
+    Exported(export_once(pool).await)
+}
 
 fn columns_of(file: &str) -> &'static [(&'static str, &'static str)] {
     CATALOG
@@ -65,7 +97,7 @@ async fn st49_export_event_rows_have_versions() {
     let w = World::new().await;
     let with = put_event(&w, "05:00", Some("0.1.0+aaaa"), Some("0.2.0+bbbb")).await;
     let without = put_event(&w, "05:01", None, None).await;
-    let path = export_once(&w.pool).await;
+    let path = export_here(&w.pool).await;
     let a = &scan(&path, "events.jsonl", &with.to_string())[0];
     assert_eq!(
         str_of(a, "collector_version").as_deref(),
@@ -101,7 +133,7 @@ async fn st49_export_version_rows_have_versions() {
     .execute(&w.pool)
     .await
     .unwrap();
-    let path = export_once(&w.pool).await;
+    let path = export_here(&w.pool).await;
     let r = &scan(&path, "event_versions.jsonl", &v.to_string())[0];
     assert_eq!(str_of(r, "collector_version").as_deref(), Some("0.1.0+old"));
     assert_eq!(str_of(r, "server_version").as_deref(), Some("0.2.0+olds"));
@@ -157,7 +189,7 @@ async fn st49_export_ledger_rows_have_versions() {
     .await
     .unwrap();
 
-    let path = export_once(&w.pool).await;
+    let path = export_here(&w.pool).await;
     // 整数の鍵は文字列の中の数字とも当たるので、全行を読んで `id` と利用者で絞る。
     let pick = |file: &str, id: String| -> Value {
         scan(&path, file, "")
@@ -192,7 +224,7 @@ async fn st49_export_ledger_rows_have_versions() {
 #[tokio::test]
 async fn st49_export_doc_distinguishes_declared_and_server() {
     let w = World::new().await;
-    let path = export_once(&w.pool).await;
+    let path = export_here(&w.pool).await;
     let readme = text(&path, "README.txt");
     for file in ["events.jsonl", "event_versions.jsonl"] {
         assert!(meaning(file, "collector_version").contains("S-01 は確かめていない"));
@@ -226,7 +258,7 @@ async fn st49_export_doc_distinguishes_declared_and_server() {
 #[tokio::test]
 async fn st49_export_doc_says_current_content() {
     let w = World::new().await;
-    let path = export_once(&w.pool).await;
+    let path = export_here(&w.pool).await;
     let readme = text(&path, "README.txt");
     for col in VERSIONS {
         assert!(
