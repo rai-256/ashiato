@@ -24,7 +24,7 @@ export CARGO_TARGET_DIR="$work/target"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 unset ASHIATO_BUILD_COMMIT
 
-fail() { echo "NG: $*"; exit 1; }
+fail() { echo "NG: $*" >&2; exit 1; }
 need_shape() { # <ラベル> <印>
   printf '%s' "$2" | grep -Eq "^${STAMP_RE}\$" || fail "$1: 印の形が違う: '$2'"
 }
@@ -60,13 +60,13 @@ fi
 if [ "$section" = windows ]; then
   clone="$work/clone"
   git clone -q --local "$root" "$clone"
-  # release で組み立てた bin から印を読む（bin に残る印は 1 つだけ。release は .debug を持たない）
+  # release で組み立てた rlib から印を読む（Linux の bin は収集の本体を持たず印が残らない。印は 1 つだけ。release は .debug を持たない）
   win_stamp() { # <ラベル>
     local s n
     (cd "$clone" && cargo build -q --release -p ashiato-collector-windows)
-    s="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-collector-windows" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?' | sort -u)"
+    s="$(strings -n 8 "$CARGO_TARGET_DIR/release/libashiato_collector_windows.rlib" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?' | sort -u)"
     n="$(printf '%s\n' "$s" | grep -c .)"
-    [ "$n" = 1 ] || fail "$1: bin に残る印が $n 個: $s"
+    [ "$n" = 1 ] || fail "$1: 印が $n 個: $s"
     need_shape "$1" "$s"
     printf '%s' "$s"
   }
