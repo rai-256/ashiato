@@ -2695,25 +2695,55 @@ mod tests {
     /// Scenario: PC の生存信号には版が書き込まれない
     #[test]
     fn st49_c02_heartbeat_has_no_version() {
+        /// 止めている間は送れない取り込み口（見回りの中の送信で置き場が空にならないように）
+        #[derive(Debug)]
+        struct Switch {
+            up: std::cell::Cell<bool>,
+            inner: AcceptAll,
+        }
+        impl Transport for Switch {
+            fn post(&self, path: &str, body: &str) -> anyhow::Result<Reply> {
+                if self.up.get() {
+                    self.inner.post(path, body)
+                } else {
+                    anyhow::bail!("取り込み口が止まっている")
+                }
+            }
+        }
         let cfg = cfg();
-        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
-        let mut rt = runtime(
+        let transport = Switch {
+            up: std::cell::Cell::new(false),
+            inner: AcceptAll::default(),
+        };
+        let mut rt = Runtime::new(
             &cfg,
+            zone(),
             Engine::new(Exclusions::default()),
             &transport,
-            &reference,
-        );
+            ClockInputs {
+                reference: Arc::new(FixedReference::new(t(0))),
+                time_sync: Arc::new(NoTimeSync),
+                uptime: Arc::new(FixedUptime),
+            },
+            t(0),
+        )
+        .unwrap();
         rt.set_build_stamp(STAMP_A);
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(0), t(0));
         run(&mut rt, &mut src, 0, 3600, 60);
-        rt.send();
-        let beats = sent(&transport, "/heartbeat");
-        assert!(!beats.is_empty(), "生存信号が積まれていない");
-        assert!(beats.iter().all(|b| b.get("client_version").is_none()));
-        let file =
-            std::fs::read_to_string(cfg.state_dir.join("heartbeat.jsonl")).unwrap_or_default();
+        // 送る前の未送信の置き場を読む（無ければ落ちる。1 行以上あることを確かめてから版の欄を見る）
+        let file = std::fs::read_to_string(cfg.state_dir.join("heartbeat.jsonl")).unwrap();
+        assert!(
+            file.lines().count() >= 1,
+            "生存信号が置き場に積まれていない"
+        );
         assert!(!file.contains("client_version"), "{file}");
+        transport.up.set(true);
+        rt.send();
+        let beats = sent(&transport.inner, "/heartbeat");
+        assert!(!beats.is_empty(), "生存信号が送られていない");
+        assert!(beats.iter().all(|b| b.get("client_version").is_none()));
         std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 

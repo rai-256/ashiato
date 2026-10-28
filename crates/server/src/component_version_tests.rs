@@ -531,7 +531,9 @@ mod ingest_door {
         let app = app().await;
         let source = testdb::source(&app.pool, "st49stamp", 21_600).await;
         let body = record(&source, testdb::user(), r#"{"a":2}"#, None);
-        let (_, res) = send(&app, &serde_json::json!([body]), api_token()).await;
+        let (code, res) = send(&app, &serde_json::json!([body]), api_token()).await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(res[0]["accepted"], true, "{res}");
         let [_, _, server] = versions(&app, &res[0]["id"]).await;
         let server = server.expect("S-01 の版が入っていない");
         assert_eq!(
@@ -699,7 +701,7 @@ mod ingest_door {
         let user = testdb::user();
         let first = format!("0.1.0+{COMMIT_A}");
         let second = format!("0.1.0+{COMMIT_D}");
-        let (_, one) = send(
+        let (code, one) = send(
             &app,
             &serde_json::json!([record(
                 &source,
@@ -710,12 +712,17 @@ mod ingest_door {
             api_token(),
         )
         .await;
-        let (_, two) = send(
+        assert_eq!(code, StatusCode::OK, "{one}");
+        assert_eq!(one[0]["accepted"], true, "{one}");
+        assert_eq!(one[0]["duplicate"], false, "{one}");
+        let (code, two) = send(
             &app,
             &serde_json::json!([record(&source, user, r#"{"a":12}"#, Some(second.into()))]),
             api_token(),
         )
         .await;
+        assert_eq!(code, StatusCode::OK, "{two}");
+        assert_eq!(two[0]["accepted"], true, "{two}");
         assert_eq!(two[0]["duplicate"], true);
         assert_eq!(two[0]["id"], one[0]["id"]);
         let count: i64 = sqlx::query_scalar(
@@ -1327,7 +1334,7 @@ mod ledgers {
         let source = testdb::source(&app.pool, "st49fold", 21_600).await;
         let first = format!("0.1.0+{COMMIT_A}");
         let second = format!("0.1.0+{COMMIT_D}");
-        let (_, one) = call(
+        let (code, one) = call(
             &app,
             Method::POST,
             "/drops",
@@ -1335,7 +1342,9 @@ mod ledgers {
             api_token(),
         )
         .await;
-        let (_, two) = call(
+        assert_eq!(code, StatusCode::OK, "{one}");
+        assert_eq!(one[0]["accepted"], true, "{one}");
+        let (code, two) = call(
             &app,
             Method::POST,
             "/drops",
@@ -1343,6 +1352,8 @@ mod ledgers {
             api_token(),
         )
         .await;
+        assert_eq!(code, StatusCode::OK, "{two}");
+        assert_eq!(two[0]["accepted"], true, "{two}");
         assert_eq!(one[0]["duplicate"], false, "{one}");
         assert_eq!(two[0]["duplicate"], true, "{two}");
         assert_eq!(
@@ -1379,6 +1390,44 @@ mod ledgers {
         )
         .await;
         assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            missing_versions(&app.pool, &res[0]["id"]).await,
+            [None, s(crate::BUILD_STAMP)]
+        );
+    }
+
+    /// 画面のログインで送った破棄の報告と原本の欠けの `client_version` は、収集アプリの版に入れない
+    /// （`Writer::Web` の台帳は collector_version を持たない。design D7）。S-01 の版は入る。
+    #[tokio::test]
+    async fn st49_ledger_web_session_reports_drop_client_version() {
+        let (app, cookie) = web_app().await;
+        let user = Uuid::new_v4();
+        let source = testdb::source(&app.pool, "st49webdrop", 21_600).await;
+        let version = format!("0.1.0+{COMMIT_A}.debug");
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/drops",
+            &serde_json::json!([drop_body(&source, user, "r1", Some(&version))]),
+            cookie.clone(),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(res[0]["accepted"], true, "{res}");
+        assert_eq!(
+            drop_versions(&app.pool, user, &source).await,
+            [[None, s(crate::BUILD_STAMP)]]
+        );
+        let (code, res) = call(
+            &app,
+            Method::POST,
+            "/media/missing",
+            &serde_json::json!([missing_body(user, &sha(), Some(&version))]),
+            cookie,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{res}");
+        assert_eq!(res[0]["accepted"], true, "{res}");
         assert_eq!(
             missing_versions(&app.pool, &res[0]["id"]).await,
             [None, s(crate::BUILD_STAMP)]
