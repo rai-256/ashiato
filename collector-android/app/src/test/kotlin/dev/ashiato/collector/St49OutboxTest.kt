@@ -163,8 +163,13 @@ class St49OutboxTest {
         val service = Robolectric.buildService(TestableLocationService::class.java, android.content.Intent())
             .create().startCommand(0, 1).get()
         val missing = MediaMissingReport(
-            id = "mm-1", userId = "user-1", deviceId = "device-1", logicalSource = "c01-photo",
-            sha256 = "0".repeat(64), reason = "gone", noticedAt = "2026-09-08T02:00:00Z",
+            id = "mm-1",
+            userId = "user-1",
+            deviceId = "device-1",
+            logicalSource = "c01-photo",
+            sha256 = "0".repeat(64),
+            reason = "gone",
+            noticedAt = "2026-09-08T02:00:00Z",
         )
         service.mediaMissingOutboxForTest.add(missing)
         service.ledgerForTest.dropped(LOGICAL_SOURCE, DropReason.AGE, Instant.parse("2026-09-08T02:00:00Z"))
