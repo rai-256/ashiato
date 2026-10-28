@@ -11,6 +11,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | server（Rust） | `ingest.rs` / `heartbeat.rs` の `#[cfg(test)]` | 同じ `src/` の `*_tests.rs` と `coverage/tests/`（**本物の PostgreSQL**。`testdb.rs`。★ 2026-10-11: ファイルの列挙をやめた。Story ごとに増えて古くなる —— 2026-10-11 の整合の確認） | — | `tools/smoke.sh`（curl で外から）/ `tools/check-*.sh` |
 | collector-windows（Rust） | 各モジュールの `#[cfg(test)]`（ubuntu で走る。~~86 本~~ ★ 2026-10-11: 本数は書かない。2026-10-11 の整合の確認で数えたら 133 本だった） | — | `tests/runtime_windows.rs`（**Windows の上でだけ**。テストが自分で窓を作る） | — |
 | collector-android（Kotlin） | `src/test`（JUnit4 + Robolectric） | — | `src/androidTest`（エミュレータでも実機でも同じ） | — |
+| 組み立ての印（server・collector-windows・collector-android の `<版番号>+<commit>[.dirty][.debug]`。ST49 の design D5・D6） | 印を組む関数は `crates/build-stamp` の `#[cfg(test)]` | — | — | `tools/check-build-stamp.sh tool\|server\|windows\|android`。節ごとに repo を使い捨ての場所へ clone し、本物の組み立て（cargo / gradle）を走らせて成果物に埋め込まれた印を読む。commit を進めた後・add していない変更の後の差分の組み立てで印が作り直されること（`.dirty`・release の `.debug` なし）と、C-01 では環境変数 `ASHIATO_BUILD_COMMIT` が git の HEAD より先に使われることを担保する（これを見るのはこの台本だけ）。**CI には未組み込み**で、節ごとに使い捨ての target で組み立てるので重い（server・windows は数分）。印の作り方（`crates/build-stamp`・`build.rs`・`app/build.gradle.kts`）を触ったら手元で走らせる |
 | web（React） | `src/__tests__`（vitest + jsdom） | — | **`web/e2e`（playwright + 本物の Chromium）**。実寸・スクロール・フォーカスはここ | `tools/stack.sh up`（DB → サーバ → 偽データ → 画面。確認バッチの `run.sh` と**同じもの**） |
 
 **CI は何が変わったかで出し分ける**（2026-09-19）。`changes` job が差分を見て、
