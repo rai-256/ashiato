@@ -77,6 +77,9 @@ mod drops_tests;
 mod end_time_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
+/// 書き出しの版の列と説明（ST49）。
+#[cfg(test)]
+mod export_component_version_tests;
 /// 書き出しと消した滞在の時間が終わりを列から読むこと（ST41）。
 #[cfg(test)]
 mod export_end_time_tests;

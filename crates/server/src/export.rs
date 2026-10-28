@@ -193,6 +193,18 @@ const EVENT_COLUMNS: &[(&str, &str)] = &[
     ("end_tz_offset_min", "終わりの時点の UTC からのずれ（分）"),
     ("end_tz_id", "終わりの時点のタイムゾーン識別子"),
     ("schema_version", "書かれた時点の記録の形の版"),
+    (
+        "collector_version",
+        "今の中身を作った収集アプリの組み立ての印（収集アプリの申告。S-01 は確かめていない）",
+    ),
+    (
+        "web_version",
+        "今の中身を組んだ画面の組み立ての印（画面の申告。S-01 は確かめていない）",
+    ),
+    (
+        "server_version",
+        "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
     ("unit_system", "単位系"),
     ("crs", "座標系"),
     ("sensitivity", "感度（大きいほど厳しい）"),
@@ -227,6 +239,18 @@ const EVENT_VERSION_COLUMNS: &[(&str, &str)] = &[
     ("end_tz_offset_min", "終わりの時点の UTC からのずれ（分）"),
     ("end_tz_id", "終わりの時点のタイムゾーン識別子"),
     ("schema_version", "書かれた時点の記録の形の版"),
+    (
+        "collector_version",
+        "その版の中身を作った収集アプリの組み立ての印（収集アプリの申告。S-01 は確かめていない）",
+    ),
+    (
+        "web_version",
+        "その版の中身を組んだ画面の組み立ての印（画面の申告。S-01 は確かめていない）",
+    ),
+    (
+        "server_version",
+        "その版の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
     ("unit_system", "単位系"),
     ("crs", "座標系"),
 ];
@@ -287,6 +311,10 @@ const FEELING_REMINDER_COLUMNS: &[(&str, &str)] = &[
     ("user_id", "利用者の識別子"),
     ("at", "通知を出す時刻（時:分:秒。日付と時差は持たない）"),
     ("created_at", "決めた時刻（UTC）"),
+    (
+        "server_version",
+        "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
 ];
 
 const ATTRIBUTE_KIND_NAME_COLUMNS: &[(&str, &str)] = &[
@@ -295,6 +323,10 @@ const ATTRIBUTE_KIND_NAME_COLUMNS: &[(&str, &str)] = &[
     ("user_id", "利用者の識別子"),
     ("name", "属性の名前"),
     ("created_at", "付けた時刻（UTC）"),
+    (
+        "server_version",
+        "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
 ];
 
 const STAY_CRITERIA_COLUMNS: &[(&str, &str)] = &[
@@ -305,6 +337,10 @@ const STAY_CRITERIA_COLUMNS: &[(&str, &str)] = &[
     ("gap_minutes", "同じ滞在とつなぐ最大の空き（分）"),
     ("sources", "滞在の材料にするソース"),
     ("created_at", "基準を決めた時刻（UTC）"),
+    (
+        "server_version",
+        "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
 ];
 
 const HEARTBEAT_COLUMNS: &[(&str, &str)] = &[
@@ -346,6 +382,14 @@ const DROP_REPORT_COLUMNS: &[(&str, &str)] = &[
     ("received_at", "受け取った時刻（UTC）"),
     ("content_hash", "内容のハッシュ"),
     ("raw", "報告の原文（逐語の文字列）"),
+    (
+        "collector_version",
+        "今の中身を作った収集アプリの組み立ての印（収集アプリの申告。S-01 は確かめていない）",
+    ),
+    (
+        "server_version",
+        "今の中身を D-01 に書いた S-01 の組み立ての印（S-01 が自分で入れた）",
+    ),
 ];
 
 /// 衛星の登録簿（ST29）。外した衛星の行も出す（行は消さない）。資格情報の表は出さない。
