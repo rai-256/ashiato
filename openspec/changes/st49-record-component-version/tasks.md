@@ -159,7 +159,7 @@
 
 ## Task 8: PC の収集アプリ（C-02）の印・焼き込み・欄の保持
 
-- [ ] 8.1 `crates/collector-windows/build.rs` を作り（`ashiato-build-stamp` を build-dependency に。部品のソースの道は `crates/collector-windows`・`crates/build-stamp`・`Cargo.toml`・`Cargo.lock`。D5）、`ASHIATO_BUILD_STAMP` を出す。`contract.rs` の `IngestRequest` に
+- [x] 8.1 `crates/collector-windows/build.rs` を作り（`ashiato-build-stamp` を build-dependency に。部品のソースの道は `crates/collector-windows`・`crates/build-stamp`・`Cargo.toml`・`Cargo.lock`。D5）、`ASHIATO_BUILD_STAMP` を出す。`contract.rs` の `IngestRequest` に
   `#[serde(default, skip_serializing_if = "Option::is_none")] client_version` と `#[serde(flatten)]` の知らない欄の置き場（D3（仮））、記録の溜め（`events`）に積む 1 か所で `client_version` を入れる（D13。生存信号の `beats` には入れない）。
   試験（`#[cfg(test)]`。`outbox.rs` / `contract.rs` / `runtime.rs` / `history` の隣）:
   - `st49_c02_pending_keeps_stamp_from_add_time` — `// Scenario: PC の収集アプリを更新した後に送った未送信は、積んだときの版で届く`（印 A で積んだ行を、印を差し替えた組み立て（試験では印を引数で渡す関数）で開き直して送る要求を見る）
