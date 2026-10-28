@@ -127,6 +127,8 @@ pub struct Runtime<'a> {
     /// 単調時計の起点（`tick` が使う）
     anchor: Option<(std::time::Instant, DateTime<Utc>)>,
     log: fn(String),
+    /// 記録を積むときに書く、この組み立ての印（ST49 / design D13）。試験は差し替えて「更新後の組み立て」を作る
+    build_stamp: String,
 }
 
 /// **合言葉も本文も出さない**（R11 / R35）。件数と状態の有無だけ。
@@ -274,7 +276,14 @@ impl<'a> Runtime<'a> {
             state_dir: cfg.state_dir.clone(),
             anchor: None,
             log: info,
+            build_stamp: env!("ASHIATO_BUILD_STAMP").to_string(),
         })
+    }
+
+    /// 試験用: 積むときに書く印を差し替える（更新後の組み立てを作る）。
+    #[cfg(test)]
+    fn set_build_stamp(&mut self, stamp: &str) {
+        self.build_stamp = stamp.to_string();
     }
 
     /// 途切れの問い合わせ係を付ける。**付けなければ問い合わせない**（通知を出せない構成）。
@@ -460,7 +469,8 @@ impl<'a> Runtime<'a> {
 
     fn try_push(&mut self, p: &WindowPayload) -> anyhow::Result<()> {
         let at = DateTime::parse_from_rfc3339(&p.at)?.with_timezone(&Utc);
-        let req = IngestRequest::of(p, self.user_id, &self.device_id, at, &self.zone)?;
+        let mut req = IngestRequest::of(p, self.user_id, &self.device_id, at, &self.zone)?;
+        req.client_version = Some(self.build_stamp.clone());
         self.events.add(req)
     }
 
@@ -644,14 +654,23 @@ impl<'a> Runtime<'a> {
         let Some(history) = self.history.as_mut() else {
             return;
         };
-        let (user_id, device_id, zone, events) =
-            (self.user_id, &self.device_id, &self.zone, &mut self.events);
+        let (user_id, device_id, zone, events, stamp) = (
+            self.user_id,
+            &self.device_id,
+            &self.zone,
+            &mut self.events,
+            &self.build_stamp,
+        );
         // まとめて積み、同期は 1 回（見回りを止めない。deep.md 第 5 回 Q9）。`source_updated_at` は読んだ時刻。
         // ただし前に送った版より前にしない（D15 / 第 6 回 Q11。決めるのは取得の側）
         let mut queue = |visits: &[Visit], version: DateTime<Utc>| {
             let reqs = visits
                 .iter()
-                .map(|v| IngestRequest::of_visit(v, user_id, device_id, version, zone))
+                .map(|v| {
+                    let mut req = IngestRequest::of_visit(v, user_id, device_id, version, zone)?;
+                    req.client_version = Some(stamp.clone());
+                    Ok(req)
+                })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             events.add_many(reqs)
         };
@@ -2626,6 +2645,108 @@ mod tests {
             after > before,
             "送った版の最大値を失った後、戻った後の版 {after} が前に送った版 {before} より新しくない"
         );
+    }
+
+    // ---- 組み立ての印の焼き込み（ST49 / design D13） ----
+
+    const STAMP_A: &str = "0.1.0+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const STAMP_D: &str = "0.1.0+dddddddddddddddddddddddddddddddddddddddd";
+
+    /// 印 A で積んだ未送信を、印 D の組み立てで開き直して送る。送った要求の版は A のまま。
+    ///
+    /// Scenario: PC の収集アプリを更新した後に送った未送信は、積んだときの版で届く
+    #[test]
+    fn st49_c02_pending_keeps_stamp_from_add_time() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        std::fs::create_dir_all(&cfg.state_dir).unwrap();
+        Marker::new(&cfg.state_dir).touch(t(-50_000)).unwrap();
+        {
+            let mut rt = runtime(
+                &cfg,
+                Engine::new(Exclusions::default()),
+                &transport,
+                &reference,
+            );
+            rt.set_build_stamp(STAMP_A);
+            let mut src = FakeSource::new("editor");
+            src.boot = Some(t(-60));
+            rt.start_at(&src, t(0), t(0));
+            assert!(rt.pending().0 >= 1, "積まれていない");
+        }
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        rt.set_build_stamp(STAMP_D);
+        rt.send();
+        let records = sent(&transport, "/ingest");
+        assert!(!records.is_empty(), "送られていない");
+        for r in &records {
+            assert_eq!(r["client_version"], STAMP_A, "{r}");
+        }
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 生存信号の行には版の欄を書かない（積んだ行・送った要求の両方）。
+    ///
+    /// Scenario: PC の生存信号には版が書き込まれない
+    #[test]
+    fn st49_c02_heartbeat_has_no_version() {
+        let cfg = cfg();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
+        let mut rt = runtime(
+            &cfg,
+            Engine::new(Exclusions::default()),
+            &transport,
+            &reference,
+        );
+        rt.set_build_stamp(STAMP_A);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(0), t(0));
+        run(&mut rt, &mut src, 0, 3600, 60);
+        rt.send();
+        let beats = sent(&transport, "/heartbeat");
+        assert!(!beats.is_empty(), "生存信号が積まれていない");
+        assert!(beats.iter().all(|b| b.get("client_version").is_none()));
+        let file =
+            std::fs::read_to_string(cfg.state_dir.join("heartbeat.jsonl")).unwrap_or_default();
+        assert!(!file.contains("client_version"), "{file}");
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
+    }
+
+    /// 印 A で送った訪問を、印 D の組み立てが読み直して題名の変わった記録を積む。版は D。
+    ///
+    /// Scenario: ブラウザ履歴を読み直して送る記録は、読み直した時点の版を持つ
+    #[test]
+    fn st49_c02_history_reread_gets_current_stamp() {
+        let cfg = cfg();
+        let ahead = Duration::days(400).num_seconds();
+        let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(ahead)));
+        let reader = FakeReader::new(vec![read_visit(1, "前")]);
+        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        rt.set_build_stamp(STAMP_A);
+        let mut src = FakeSource::new("editor");
+        rt.start_at(&src, t(ahead), t(ahead));
+        tick_until_read(&mut rt, &mut src, &reader, ahead);
+        rt.send();
+        let first = history_records(&transport)
+            .into_iter()
+            .find(|r| r["payload"]["title"] == "前")
+            .unwrap();
+        assert_eq!(first["client_version"], STAMP_A);
+        rt.set_build_stamp(STAMP_D);
+        *reader.visits.lock().unwrap() = vec![read_visit(1, "後")];
+        tick_until_read_again(&mut rt, &mut src, &reader, 0);
+        rt.send();
+        let second = history_records(&transport)
+            .into_iter()
+            .find(|r| r["payload"]["title"] == "後")
+            .unwrap();
+        assert_eq!(second["client_version"], STAMP_D);
+        std::fs::remove_dir_all(&cfg.state_dir).ok();
     }
 
     fn history_urls(t: &AcceptAll) -> Vec<String> {

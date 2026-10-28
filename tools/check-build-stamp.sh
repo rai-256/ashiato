@@ -2,7 +2,8 @@
 # 組み立ての印（ST49 / design D5・D6）の検査。節ごとに repo を使い捨ての場所へ写し、本物の部品を組み立てて埋め込まれた印を読む。
 #   tool    crates/build-stamp の関数を最小の crate から呼んで印を出す
 #   server  S-01（Rust は組み立てた bin を strings して読む）。commit を進めた後・add していない変更の後で印が変わる
-#   windows / android  Task 8・9 で足す
+#   windows C-02（組み立てた bin を strings して読む。release）。commit を進めた後・add していない変更の後で印が変わる
+#   android  Task 9 で足す
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -11,8 +12,8 @@ section="${1:-}"
 STAMP_RE='[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?'
 
 case "$section" in
-  tool | server) ;;
-  windows | android) echo "NG: 節 $section はまだ無い（Task 8・9 で足す）"; exit 2;;
+  tool | server | windows) ;;
+  android) echo "NG: 節 $section はまだ無い（Task 9 で足す）"; exit 2;;
   *) echo "usage: $0 tool|server|windows|android（節が無い: '$section'）"; exit 2;;
 esac
 
@@ -53,6 +54,37 @@ RS
   head="$(git rev-parse HEAD)"
   case "$got" in "0.1.0+$head"*) ;; *) fail "tool: commit が HEAD($head)でない: $got";; esac
   echo "OK tool: $got"
+  exit 0
+fi
+
+if [ "$section" = windows ]; then
+  clone="$work/clone"
+  git clone -q --local "$root" "$clone"
+  # release で組み立てた bin から印を読む（bin に残る印は 1 つだけ。release は .debug を持たない）
+  win_stamp() { # <ラベル>
+    local s n
+    (cd "$clone" && cargo build -q --release -p ashiato-collector-windows)
+    s="$(strings -n 8 "$CARGO_TARGET_DIR/release/ashiato-collector-windows" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?' | sort -u)"
+    n="$(printf '%s\n' "$s" | grep -c .)"
+    [ "$n" = 1 ] || fail "$1: bin に残る印が $n 個: $s"
+    need_shape "$1" "$s"
+    printf '%s' "$s"
+  }
+  a="$(win_stamp 最初の組み立て)"
+  head_a="$(git -C "$clone" rev-parse HEAD)"
+  case "$a" in "0."*"+$head_a") ;; *) fail "最初の組み立て: 印が HEAD($head_a)で終わらない: $a";; esac
+
+  echo "== Scenario: PC の収集アプリの組み立ての印は、commit を進めた後の差分の組み立てでも新しい commit になる"
+  git -C "$clone" commit -q --allow-empty -m "stamp check"
+  head_b="$(git -C "$clone" rev-parse HEAD)"
+  b="$(win_stamp commit後の組み立て)"
+  [ "$head_b" != "$head_a" ] || fail "commit が進んでいない"
+  case "$b" in "0."*"+$head_b") echo "OK: $a -> $b";; *) fail "commit を進めた後の印が新しい HEAD($head_b)でない: $b";; esac
+
+  echo "== Scenario: PC の収集アプリの印は、add していないソースの変更の後に .dirty になり、release では .debug を持たない"
+  echo "// stamp check" >> "$clone/crates/collector-windows/src/lib.rs"
+  c="$(win_stamp 未addの変更後の組み立て)"
+  case "$c" in "0."*"+$head_b.dirty") echo "OK: $b -> $c";; *) fail "add していない変更の後の印が .dirty（.debug なし）でない: $c";; esac
   exit 0
 fi
 

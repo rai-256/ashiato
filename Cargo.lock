@@ -107,6 +107,7 @@ version = "0.1.0"
 dependencies = [
  "active-win-pos-rs",
  "anyhow",
+ "ashiato-build-stamp",
  "chrono",
  "ctrlc",
  "iana-time-zone",
