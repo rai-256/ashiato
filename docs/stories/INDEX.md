@@ -10,12 +10,12 @@
 
 - **layer 0**: ST01
 - **layer 1**: ST02, ST03, ST05, ST07, ST08, ST11, ST16, ST19, ST28, ST41, ST48
-- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST49, ST51
-- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST52
-- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST53, ST54, ST55, ST56
-- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST57
-- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST58
-- **layer 7**: ST43
+- **layer 2**: ST04, ST14, ST15, ST20, ST21, ST22, ST29, ST44, ST49
+- **layer 3**: ST06, ST09, ST12, ST23, ST24, ST25, ST33, ST34, ST37, ST42, ST50, ST51
+- **layer 4**: ST10, ST13, ST17, ST30, ST35, ST38, ST47, ST52
+- **layer 5**: ST18, ST26, ST31, ST39, ST45, ST53, ST54, ST55, ST56
+- **layer 6**: ST27, ST32, ST36, ST40, ST46, ST57
+- **layer 7**: ST43, ST58
 
 ## 一覧
 
@@ -71,14 +71,14 @@
 | [ST48](ST48.md) | 古い版が新しい DB を書き換えない | 1 | FR-117, FR-118, FR-129 | ST01 | — |
 | [ST49](ST49.md) | 記録ごとに、作った部品の版が残る | 2 | FR-122, FR-123 | ST01, ST48 | 32 |
 | [ST50](ST50.md) | 収集アプリとサーバの版が食い違っても記録が失われない | 3 | FR-124, FR-125, FR-126, FR-130 | ST04 | — |
-| [ST51](ST51.md) | 更新で止めた時間が、更新の履歴として残る | 2 | FR-121 | ST02 | 14, 33 |
-| [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 3 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49 | 34 |
-| [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 4 | FR-127, NFR-26 | ST52 | 35 |
-| [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 4 | FR-106 | ST52 | 34 |
-| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 4 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
-| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 4 | FR-128 | ST52, ST44 | — |
-| [ST57](ST57.md) | 新しい版が出たら知らせる | 5 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
-| [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 6 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
+| [ST51](ST51.md) | 版の変わり目が、更新の履歴として残る | 3 | FR-121 | ST02, ST49 | 14, 33 |
+| [ST52](ST52.md) | 3 つの部品を 1 つの版で、3 つのチャンネルに配る | 4 | FR-104, FR-105, FR-107, NFR-25 | ST48, ST49, ST51 | 34 |
+| [ST53](ST53.md) | 配布物に許諾が揃い、Google Play 開発者サービスとの組み合わせを許す | 5 | FR-127, NFR-26 | ST52 | 35 |
+| [ST54](ST54.md) | 開発版を正式版と並べて入れられる | 5 | FR-106 | ST52 | 34 |
+| [ST55](ST55.md) | サーバを入れて、そのまま使い始められる | 5 | FR-108, FR-109, FR-110, FR-111 | ST52, ST28 | — |
+| [ST56](ST56.md) | 収集アプリを入れた後に、繋ぎ先と資格情報を設定できる | 5 | FR-128 | ST52, ST44 | — |
+| [ST57](ST57.md) | 新しい版が出たら知らせる | 6 | FR-112, FR-113, FR-115, FR-116 | ST52, ST55 | — |
+| [ST58](ST58.md) | 更新を入れ、移行が失敗したら自動で戻る | 7 | FR-114, FR-119, FR-120 | ST57, ST48, ST51 | — |
 
 ## capability（仕様の置き場）
 
@@ -341,7 +341,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | #24 バックアップ暗号鍵の保管方式 | 初回バックアップの実行前 | ST31 |
 | #25 画面キャプチャの保持期間と文字抽出エンジン | 画面キャプチャの収集開始前 | ST35 |
 | #32 記録ごとに、書いた本体の部品の版を持つか | 本人の環境を配布の経路に切り替える日（ST52 の前に ST49） | ST49 |
-| #33 更新の履歴を残すか | 最初の更新の前（ST58 で更新を入れ始める前に ST51） | ST51 |
+| #33 更新の履歴を残すか | 本人の環境を配布の経路に切り替える日（ST52 の前に ST51。★ 2026-10-29、従来は「最初の更新の前（ST58 の前）」） | ST51 |
 | #34 C-01 のアプリ識別子と署名鍵 | 最初に APK を配る前（ST52 が正式な鍵で署名する。本人の端末も debug の鍵の版から 1 回入れ直す） | ST52, ST54 |
 | #35 AGPL の追加の許可（Google Play 開発者サービス） | 最初に配布物を公開する前 | ST53 |
 
@@ -468,3 +468,10 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 > - `derived-records`・`data-durability`・`record-deletion`・`subjective-log`・`personal-entities` に ST49 を足した。記録ごとの版（FR-122 / FR-123）は記録の骨格（`record-envelope`）だが、版を持たせる先が滞在の作り直しと滞在の基準の台帳（`derived-records`。design D2（仮））・
 >   書き出しの列（`data-durability`。premises の C6）・削除の台帳（`record-deletion`）・気分の通知の台帳（`subjective-log`）・個人属性の種類の名前の台帳（`personal-entities`）にも及ぶ（深掘り Q3 の推奨。後の 2 つの台帳は spec の独立検査 R4 で族に足した）。どれも ADDED の Requirement で、走っている ST23・ST29・ST41 が MODIFIED している Requirement には触らない
 > - Q3 で「記録の表だけ」「収集アプリが作る行だけ」が選ばれたら、`spec --answers` が `record-deletion`・`subjective-log`・`personal-entities`・`derived-records` の滞在の基準（と前者なら `device-collection` の破棄の報告・原本の欠け）の割当を外す
+
+> **訂正（2026-10-29、更新の履歴の理由の書き直し）**
+>
+> - FR-121・扉 33 の理由を「成功条件 1 の判定」から「不具合が版の変わり目から始まったかを後から突き合わせる」へ書き直した（経緯は `docs/audit/2026-10-29-fr121-consistency.md`）。
+>   ST51 の表題・価値・完了の判定を直し、版を記録に付ける版と同じ形で比べるので requires に ST49 を足した（C1 / C3）
+> - 扉 33 の期限を扉 32 と同じ「配布の経路に切り替える日」にし、ST52 の requires に ST51 を足した（C4）。layer は ST51〜ST58 が 1 つずつ後ろへずれる。
+>   上の 2026-10-25 の「ST58（更新を入れる）の前に ST51（扉 #33）」は当時の組み方
