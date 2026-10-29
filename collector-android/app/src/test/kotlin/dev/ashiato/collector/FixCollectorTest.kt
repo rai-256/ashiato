@@ -3,14 +3,16 @@ package dev.ashiato.collector
 
 import android.location.Location
 import com.google.android.gms.location.LocationResult
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 位置取得の契機が 1 件になる（tasks 9.8 / specs/device-collection の
@@ -22,6 +24,8 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class FixCollectorTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val at = Instant.parse("2026-09-08T02:00:00Z")
 
     private fun location(lat: Double, lon: Double, accuracy: Float): Location =
@@ -53,7 +57,7 @@ class FixCollectorTest {
     // Scenario: 契機ごとに 1 件生成される
     @Test
     fun `契機ごとに1件生成される`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         val callback = collector(outbox)
 
         // OS が呼ぶのと同じ形で 3 回の契機を渡す
@@ -65,7 +69,7 @@ class FixCollectorTest {
     // Scenario: 契機ごとに 1 件生成される
     @Test
     fun `緯度・経度・水平精度・端末時刻・端末識別子が入る`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         collector(outbox).onLocationResult(
             LocationResult.create(listOf(location(35.681236, 139.767125, 12.5f))),
         )
@@ -86,7 +90,7 @@ class FixCollectorTest {
     // 「端末をまたいで一意」の担保は DeviceIdTest が持つ
     @Test
     fun `同じ端末の記録は同じ端末識別子を持つ`() {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         val callback = collector(outbox)
         repeat(2) { callback.onLocationResult(LocationResult.create(listOf(location(35.68, 139.76, 10f)))) }
 
@@ -96,7 +100,7 @@ class FixCollectorTest {
     @Test
     fun `1回の契機で複数件届いたら件数ぶん積まれる`() {
         // FusedLocationProvider は貯めた位置をまとめて返すことがある。**取りこぼさない**
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         collector(outbox).onLocationResult(
             LocationResult.create(listOf(location(35.68, 139.76, 10f), location(35.69, 139.77, 20f))),
         )
@@ -107,7 +111,7 @@ class FixCollectorTest {
     @Test
     fun `水平精度が悪くてもふるい落とさない`() {
         // **捨てた記録は後から復元できない**（design D11。本人が決めた）
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         collector(outbox).onLocationResult(
             LocationResult.create(listOf(location(35.68, 139.76, 5000f))),
         )
@@ -118,7 +122,7 @@ class FixCollectorTest {
     @Test
     fun `取得のログに位置の値が出ない`() {
         val lines = mutableListOf<String>()
-        collector(testOutbox(), lines::add).onLocationResult(
+        collector(testOutbox(tmp.newFolder()), lines::add).onLocationResult(
             LocationResult.create(listOf(location(35.681236, 139.767125, 10f))),
         )
 
@@ -140,7 +144,7 @@ class FixCollectorTest {
     @Test
     fun `取得できた契機が生存信号の数えに届く`() {
         var counted = 0
-        collector(testOutbox(), onFix = { counted++ }).onLocationResult(
+        collector(testOutbox(tmp.newFolder()), onFix = { counted++ }).onLocationResult(
             LocationResult.create(listOf(location(35.68, 139.76, 10f), location(35.69, 139.77, 12f))),
         )
         assertEquals(2, counted)

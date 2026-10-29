@@ -72,7 +72,11 @@ mod tests {
     /// **書いた中身だけで起動の設定が揃う**（R3）。窓を出さない。
     #[test]
     fn startup_script_is_enough_to_start() {
-        let dir = std::env::temp_dir().join("ashiato").display().to_string();
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-auto-")
+            .tempdir()
+            .expect("tempdir");
+        let dir = tmp.path().join("ashiato").display().to_string();
         let vars = [
             ("ASHIATO_BASE_URL", "http://127.0.0.1:8787".to_string()),
             ("ASHIATO_API_TOKEN", "tok-0123456789".to_string()),

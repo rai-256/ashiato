@@ -143,7 +143,8 @@ mod tests {
     /// 壊れた帳面は比較を一度あきらめて退避し、新しい取得を止めない。
     #[test]
     fn history_ledger_broken_is_quarantined() {
-        let dir = temp_dir();
+        let tmp = scratch();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("chrome/Default.ledger");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"{broken").unwrap();
@@ -156,13 +157,13 @@ mod tests {
             std::fs::read(path.with_extension("broken.ledger")).unwrap(),
             b"{broken"
         );
-        std::fs::remove_dir_all(dir).ok();
     }
 
     /// 前に送った版の欄を持たない前の形式の帳面も読め、壊れたとして退避しない（Q11 で欄を足した後方互換）。
     #[test]
     fn history_ledger_reads_format_without_sent_version() {
-        let dir = temp_dir();
+        let tmp = scratch();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("chrome/Default.ledger");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
@@ -177,13 +178,12 @@ mod tests {
         assert_eq!(visit.content_hash, "h");
         assert_eq!(visit.sent_version, None);
         assert_eq!(store.ledger().max_visit_id, Some(3));
-        std::fs::remove_dir_all(dir).ok();
     }
 
-    fn temp_dir() -> std::path::PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("ashiato-history-ledger-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&path).unwrap();
-        path
+    fn scratch() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("ashiato-history-ledger-")
+            .tempdir()
+            .unwrap()
     }
 }

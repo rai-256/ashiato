@@ -3,8 +3,6 @@ package dev.ashiato.collector
 
 import android.location.Location
 import com.google.android.gms.location.LocationResult
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -12,9 +10,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 位置の記録が「受け取ったときの端末の時計」の 3 項目を持つ（ST05 / design D6）。
@@ -24,6 +26,8 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class LocationFixClockFieldsTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val fixTime = Instant.parse("2026-09-08T02:00:00Z")
 
     private fun location(): Location =
@@ -36,7 +40,7 @@ class LocationFixClockFieldsTest {
         }
 
     private fun receive(clock: DeviceClock): IngestRequest {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         FixCollector(
             outbox = outbox,
             deviceId = "device-1",

@@ -118,10 +118,11 @@ mod tests {
 
     use super::*;
 
-    fn tmp_dir() -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("ashiato-marker-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn tmp_dir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("ashiato-marker-")
+            .tempdir()
+            .unwrap()
     }
 
     fn t(s: &str) -> DateTime<Utc> {
@@ -131,39 +132,39 @@ mod tests {
     /// 印は書けて読めて、**更新できる**（動作中は 1 分ごと。design D10）。
     #[test]
     fn last_seen_marker() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let m = Marker::new(&dir);
         assert_eq!(m.read().unwrap(), None, "初回起動で印がある");
         m.touch(t("2026-09-12T23:00:00Z")).unwrap();
         assert_eq!(m.read().unwrap(), Some(t("2026-09-12T23:00:00Z")));
         m.touch(t("2026-09-12T23:01:00Z")).unwrap();
         assert_eq!(m.read().unwrap(), Some(t("2026-09-12T23:01:00Z")));
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 壊れた印は**エラー**にする（「初回起動」に化けさせない）。起動は退避して続ける（R18）。
     #[test]
     fn broken_marker_is_an_error() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let m = Marker::new(&dir);
         std::fs::write(dir.join("last-seen.txt"), "").unwrap();
         assert!(m.read().is_err());
         assert_eq!(m.read_or_quarantine(), (None, true));
         assert!(dir.join("last-seen.broken.txt").exists());
         assert_eq!(m.read_or_quarantine(), (None, false));
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// **自分で止まったかは 1 回だけ読める**（design D23）。
     #[test]
     fn clean_stop_is_read_once() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let m = Marker::new(&dir);
         assert!(!m.take_clean_stop());
         m.mark_clean_stop().unwrap();
         assert!(m.take_clean_stop());
         assert!(!m.take_clean_stop(), "次の起動に持ち越している");
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// **停止から起動までが 1 件になる**（FR-82 / 深掘り Q1）。

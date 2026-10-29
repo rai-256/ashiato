@@ -74,7 +74,8 @@ jobs:
         with: { components: rustfmt, clippy }
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # CH03: 試験は一時フォルダを空のフォルダへ向けて走らせ、終わった後の残りを測る台本から走る（試験を 2 回走らせない）
+      - run: ./tools/tmp-leak-check.sh rust
       # 組み立てに渡した commit がそのまま版の記録の行に入ること（ST48 / design D8。review/code.md R20）
       - run: ASHIATO_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" ASHIATO_EXPECT_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" cargo test -p ashiato-server --lib st48_apply_row_has_fingerprint_and_build
       - run: ./tools/check-migrations.sh --self-test
@@ -252,7 +253,8 @@ jobs:
       - run: ./gradlew :app:assembleDebug
       # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。
       # **実機なしで確かめられる範囲はここで止める** —— 実機の確認は完了の判定が持つ。
-      - run: ./gradlew :app:testDebugUnitTest
+      # CH03: 同じく残りを測る台本から走る（試験を 2 回走らせない。台本は根へ cd するので working-directory は効かない）
+      - run: ../tools/tmp-leak-check.sh android
 
   # 収集側の**計測テスト**（2026-09-14）。ubuntu の runner は KVM が使えるので、エミュレータを立てて
   # 本物の framework で前景サービス・権限の入口・HTTP を通す（`src/androidTest`）。
@@ -350,6 +352,11 @@ jobs:
       # ログに私的データを出せる書き方が無いこと（製造準備 A-2。一度出たログは消せない）
       - run: ./tools/check-log-private.sh --self-test
       - run: ./tools/check-log-private.sh
+      # CH03: 試験が一時フォルダを手で作る書き方（落ちた試験の後に残り /tmp を埋める）が無いこと
+      - run: ./tools/check-tmp-hygiene.sh --self-test
+      - run: ./tools/check-tmp-hygiene.sh
+      # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
+      - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db

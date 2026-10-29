@@ -522,6 +522,21 @@ impl HistoryCollector {
     }
 }
 
+#[cfg(test)]
+impl HistoryCollector {
+    /// 別スレッド（確かめ・読み・帳面の書き込み）が 1 本も動いていないか（試験だけ）。
+    /// 結果を受け取る前（`Reading` / `Saving` のまま）でも、スレッドが終わっていれば真。
+    /// 試験が置き場の `TempDir` を消す前に待つのに使う（消えた後に書くと置き場を作り直して漏れる。CH03 R2）。
+    pub(crate) fn threads_finished(&self) -> bool {
+        let stage = match &self.stage {
+            Stage::Reading(w) => w.is_finished(),
+            Stage::Saving(w, ..) => w.is_finished(),
+            Stage::Idle | Stage::Queueing(..) => true,
+        };
+        stage && self.probe.as_ref().is_none_or(HistoryWorker::is_finished)
+    }
+}
+
 impl Plan {
     /// 積み終えた後に帳面を書き、読めなかったプロファイルが無ければ前回の成功を書く。
     fn save(self, dir: &Path) -> anyhow::Result<usize> {
@@ -803,20 +818,25 @@ mod tests {
 
     /// 本物の読み手（置き場探し・写し・読み）を、一時の置き場に作った Chromium の履歴 DB で通す。
     struct Fixture {
+        /// 試験の最後まで持つ。落ちても消える。
+        _tmp: tempfile::TempDir,
         root: PathBuf,
     }
 
     impl Fixture {
         fn new(rows: &str) -> Self {
-            let root =
-                std::env::temp_dir().join(format!("ashiato-collect-{}", uuid::Uuid::new_v4()));
+            let tmp = tempfile::Builder::new()
+                .prefix("ashiato-collect-")
+                .tempdir()
+                .unwrap();
+            let root = tmp.path().to_path_buf();
             let profile = root.join("local/Google/Chrome/User Data/Default");
             std::fs::create_dir_all(&profile).unwrap();
             std::fs::create_dir_all(root.join("roaming")).unwrap();
             let conn = rusqlite::Connection::open(profile.join("History")).unwrap();
             conn.execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT); CREATE TABLE visits(id INTEGER PRIMARY KEY, url INTEGER, visit_time INTEGER, from_visit INTEGER, transition INTEGER); INSERT INTO urls VALUES(1,'https://example.test/','t');").unwrap();
             conn.execute_batch(rows).unwrap();
-            Self { root }
+            Self { _tmp: tmp, root }
         }
 
         fn collector(&self) -> HistoryCollector {
@@ -826,12 +846,6 @@ mod tests {
 
         fn state(&self) -> PathBuf {
             self.root.join("state")
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.root).ok();
         }
     }
 
@@ -991,11 +1005,14 @@ mod tests {
         FsHistoryReader::new(root.join("local"), root.join("roaming"))
     }
 
-    fn temp_root() -> PathBuf {
-        let root = std::env::temp_dir().join(format!("ashiato-absent-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(root.join("local")).unwrap();
-        std::fs::create_dir_all(root.join("roaming")).unwrap();
-        root
+    fn temp_root() -> tempfile::TempDir {
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-absent-")
+            .tempdir()
+            .unwrap();
+        std::fs::create_dir_all(tmp.path().join("local")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("roaming")).unwrap();
+        tmp
     }
 
     /// 送る準備が済んだのに「済まなかった」の印を消せないときは、件数だけログへ渡す（印が無いのは失敗にしない。R82）。
@@ -1021,20 +1038,21 @@ mod tests {
     /// Opera の主プロファイル（置き場の直下を `Default` と読む）は、置き場が在れば無くなっていない（R71）。
     #[test]
     fn history_vanished_opera_main_profile_is_its_place() {
-        let root = temp_root();
+        let tmp = temp_root();
+        let root = tmp.path().to_path_buf();
         let r = reader(&root);
         let opera = Browser::Opera.base(&root.join("local"), &root.join("roaming"));
         std::fs::create_dir_all(&opera).unwrap();
         assert!(!r.profile_dir_absent(Browser::Opera, "Default"));
         std::fs::remove_dir_all(&opera).unwrap();
         assert!(r.profile_dir_absent(Browser::Opera, "Default"));
-        std::fs::remove_dir_all(root).ok();
     }
 
     /// Firefox の ini に絶対パスで書かれたプロファイルは、そのパスで確かめる（R71）。
     #[test]
     fn history_vanished_firefox_absolute_profile_is_checked_at_its_path() {
-        let root = temp_root();
+        let tmp = temp_root();
+        let root = tmp.path().to_path_buf();
         let r = reader(&root);
         let elsewhere = root.join("D/ffprof.work");
         std::fs::create_dir_all(&elsewhere).unwrap();
@@ -1050,13 +1068,13 @@ mod tests {
         assert!(!r.profile_dir_absent(Browser::Firefox, "ffprof.work"));
         std::fs::remove_dir_all(&elsewhere).unwrap();
         assert!(r.profile_dir_absent(Browser::Firefox, "ffprof.work"));
-        std::fs::remove_dir_all(root).ok();
     }
 
     /// 置き場ごと消えた（データも消すアンインストール）ら無くなった。探す先の根が無いときは、無いとは言えない（R71）。
     #[test]
     fn history_vanished_whole_place_removed_is_gone() {
-        let root = temp_root();
+        let tmp = temp_root();
+        let root = tmp.path().to_path_buf();
         let r = reader(&root);
         let base = Browser::Chrome.base(&root.join("local"), &root.join("roaming"));
         std::fs::create_dir_all(base.join("Default")).unwrap();
@@ -1068,7 +1086,6 @@ mod tests {
             !r.profile_dir_absent(Browser::Chrome, "Default"),
             "探す先の根が無いのに無くなったとした"
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
     /// 在るかどうか確かめられないときは「在る」と読む（R72）。
@@ -1076,13 +1093,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn history_vanished_unknown_existence_is_present() {
-        let root = temp_root();
+        let tmp = temp_root();
+        let root = tmp.path().to_path_buf();
         let r = reader(&root);
         let base = Browser::Chrome.base(&root.join("local"), &root.join("roaming"));
         std::fs::create_dir_all(base.parent().unwrap()).unwrap();
         std::fs::write(&base, b"").unwrap();
         assert!(!r.profile_dir_absent(Browser::Chrome, "Default"));
-        std::fs::remove_dir_all(root).ok();
     }
 
     /// 壊れた帳面の退避は、件数だけログへ渡る（R63）。

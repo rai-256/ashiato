@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.nio.file.Files
-import java.security.MessageDigest
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.security.MessageDigest
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 区切りファイルの置き場（ST04 / tasks 5.1 / 深掘り C7 / R13 / design D1）。
@@ -18,7 +19,9 @@ import org.junit.Test
  * 90 日ぶん（位置 129,600 件・約 94 MB）で**起動で落ちて立て直しを繰り返し、収集そのものが止まりうる**。
  */
 class SegmentStoreTest {
-    private val dir: File = Files.createTempDirectory("seg").toFile()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val dir: File by lazy { tmp.newFolder() }
     private val lines = mutableListOf<String>()
 
     private fun req(i: Int) =

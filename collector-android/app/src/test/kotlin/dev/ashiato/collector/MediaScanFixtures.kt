@@ -3,7 +3,6 @@ package dev.ashiato.collector
 
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 
@@ -211,12 +210,14 @@ class VirtualTimer : MediaScanTimer {
     }
 }
 
-class MediaScanEnv(newStore: (File, (String) -> Unit) -> MediaLedgerStore = ::MediaLedgerStore) {
-    val dir: File = Files.createTempDirectory("st09-media").toFile()
+class MediaScanEnv(
+    val dir: File,
+    newStore: (File, (String) -> Unit) -> MediaLedgerStore = ::MediaLedgerStore,
+) {
     val listing = FakeMediaListing()
     val files = FakeMediaFiles(listing)
     val lines = mutableListOf<String>()
-    var outbox: Outbox<IngestRequest> = testOutbox()
+    var outbox: Outbox<IngestRequest> = testOutbox(File(dir, "outbox"))
     val store = newStore(File(dir, MEDIA_LEDGER_DIR)) { lines += it }
     val originals: OriginalLedger get() = store.originals
     var wall: Instant = Instant.parse("2026-10-01T00:00:00Z")

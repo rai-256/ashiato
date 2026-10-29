@@ -19,7 +19,7 @@
   当てるのは Rust の `crates/` の全体（製品のコードも）と Kotlin の `collector-android/app/src/test`（Q1 の推奨）。作る書き方の兄弟と、後始末を外す口も落とす（Q2 の推奨）。
   落ちたときの文言に何を使えばよいかを書き、漏れでない使い方は行の印 `tmp-ok: <理由>` で通す。木の全体に当てる（Q4 の推奨。走っている st09・st13 は rebase の後の gate → fix で直す）
 - **試験を走らせるたびに一時フォルダの残りを測る `tools/tmp-leak-check.sh`（`--self-test` 付き）を足す。** CI の rust job の `cargo test --workspace` と android job の
-  `:app:testDebugUnitTest` をこの台本から走らせ、一時フォルダを worktree の中の空のフォルダへ向け、終わった後に空であることと走った試験が 1 本以上であることを見る（Q5 の推奨）。
+  `:app:testDebugUnitTest` をこの台本から走らせ、一時フォルダを `/tmp` の下の専用の空のフォルダへ向け（落ちた回は `target/tmp-leak/` へ移して残す）、終わった後に空であることと走った試験が 1 本以上であることを見る（Q5 の推奨）。
   Kotlin の試験の JVM へは、環境変数があるときだけ `build.gradle.kts` から `java.io.tmpdir` を渡す
 - 何を使えばよいかを `docs/testing.md` に 1 節で書く（C3）。`docs/flow-gates.md` の検査の表に 1 行足す
 - **振る舞いを変えないもの**: 試験の期待値・`// Scenario:` の印・試験の名前（C4）、製品のコードの置き場の決め方（依頼の「触らない」）。

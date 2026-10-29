@@ -153,20 +153,26 @@ mod tests {
         );
     }
 
-    fn abs_dir() -> String {
-        std::env::temp_dir().join("ashiato").display().to_string()
+    fn abs_dir() -> (tempfile::TempDir, String) {
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-cfg-")
+            .tempdir()
+            .expect("tempdir");
+        let dir = tmp.path().join("ashiato").display().to_string();
+        (tmp, dir)
     }
 
     /// **置き場を含む 5 つが揃わなければ読まない**（R27）。相対パスの置き場も断る。
     #[test]
     fn config_requires_every_var_including_state_dir() {
+        let (_tmp, dir) = abs_dir();
         let full = |k: &str| {
             Some(match k {
                 "ASHIATO_BASE_URL" => "http://127.0.0.1:8787".to_string(),
                 "ASHIATO_API_TOKEN" => "t0123456789".to_string(),
                 "ASHIATO_USER_ID" => uuid::Uuid::nil().to_string(),
                 "ASHIATO_DEVICE_ID" => "pc-01".to_string(),
-                "ASHIATO_STATE_DIR" => abs_dir(),
+                "ASHIATO_STATE_DIR" => dir.clone(),
                 _ => return None,
             })
         };
@@ -188,24 +194,25 @@ mod tests {
     /// `Debug` に合言葉が出ない（R11）。
     #[test]
     fn debug_hides_the_token() {
+        let (_tmp, dir) = abs_dir();
         let c = Config {
             base_url: "http://x".into(),
             api_token: "SUPER-SECRET-TOKEN".into(),
             user_id: uuid::Uuid::nil(),
             device_id: "pc".into(),
-            state_dir: std::path::PathBuf::from(abs_dir()),
+            state_dir: std::path::PathBuf::from(dir),
         };
         assert!(!format!("{c:?}").contains("SUPER-SECRET"));
     }
 
-    fn env_with_base(base: &'static str) -> impl Fn(&str) -> Option<String> {
+    fn env_with_base(base: &'static str, dir: String) -> impl Fn(&str) -> Option<String> {
         move |k| {
             Some(match k {
                 "ASHIATO_BASE_URL" => base.to_string(),
                 "ASHIATO_API_TOKEN" => "t0123456789".to_string(),
                 "ASHIATO_USER_ID" => uuid::Uuid::nil().to_string(),
                 "ASHIATO_DEVICE_ID" => "pc-01".to_string(),
-                "ASHIATO_STATE_DIR" => abs_dir(),
+                "ASHIATO_STATE_DIR" => dir.clone(),
                 _ => return None,
             })
         }
@@ -214,6 +221,7 @@ mod tests {
     // Scenario: 平文の接続先では PC の収集器が起動しない
     #[test]
     fn base_url_cleartext_off_loopback_is_refused() {
+        let (_tmp, dir) = abs_dir();
         for bad in [
             "http://example.invalid:8787",
             "http://example.invalid",
@@ -221,13 +229,14 @@ mod tests {
             "HTTP://s01.lan",
             "http://127.0.0.1@evil.example",
         ] {
-            let e = Config::from_lookup(env_with_base(bad)).expect_err(bad);
+            let e = Config::from_lookup(env_with_base(bad, dir.clone())).expect_err(bad);
             assert!(e.to_string().contains("暗号化されていない"), "{bad}: {e}");
         }
     }
 
     #[test]
     fn base_url_cleartext_loopback_and_https_are_accepted() {
+        let (_tmp, dir) = abs_dir();
         for ok in [
             "http://127.0.0.1:8787",
             "http://[::1]:8787",
@@ -235,7 +244,10 @@ mod tests {
             "https://example.invalid",
             "https://example.test",
         ] {
-            assert!(Config::from_lookup(env_with_base(ok)).is_ok(), "{ok}");
+            assert!(
+                Config::from_lookup(env_with_base(ok, dir.clone())).is_ok(),
+                "{ok}"
+            );
         }
     }
 }
