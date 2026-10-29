@@ -119,6 +119,8 @@ mod feelings_remind_tests;
 /// 主観の記録の錠と、紐づけ先の種類・通知の時刻の台帳（ST17）。
 #[cfg(test)]
 mod feelings_tests;
+#[cfg(test)]
+mod health_permission_tests;
 pub mod heartbeat;
 pub mod ingest;
 /// 打ち切られた回の残りを消すことを台本が確かめるための探り（CH05）。

@@ -283,6 +283,9 @@ jobs:
           api-level: 35
           arch: x86_64
           target: google_apis
+          # 手元（tools/android-emulator.sh）と録画（recording.json の android.device）と同じ機種。指定しないと 320×640 の既定の画面になり、
+          # Health Connect の権限の画面で種類の並びが画面の外に出る（ST11 の HealthPermission*InstrumentedTest が全部落ちた。2026-10-27）
+          profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           # ST04 の `RetentionInstrumentedTest` が未送信を 1.9 GB 置く（2 GB に近い量でも収集が起動する）
@@ -294,6 +297,7 @@ jobs:
           # 行継続（`\`）は使わない —— この action に渡すと `Task '\' not found` になる（実測 2026-09-18）。
           # `pm clear` は使わない —— 前のテストが残した前景サービスがあると `Failed` で rc=1 になる（実測）。
           # 要るのは**権限の状態だけ**なので `pm reset-permissions`（既定 = 未許可・フラグ無し）で足りる。
+          # ST11: 本物の Health Connect の権限の画面を押す 3 クラスは**始まりの状態ごとに 1 段**（断る本は 1 段に 1 つまで・断る段は最後。premises P6）。
           # UsageVolumeInstrumentedTest は usage access とイベント生成を準備する tools/usage-volume.sh だけで走らせる。
           # ST09: 写真と動画は**別のアプリが入れたもの**として入れる（位置を伏せるのは他のアプリの項目だけ。tools/android-media-fixtures.sh）
           script: |
@@ -301,10 +305,19 @@ jobs:
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.UsageVolumeInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest,dev.ashiato.collector.HealthPermissionGrantInstrumentedTest,dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest,dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.MediaPremisesInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionGrantInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest
             adb shell pm reset-permissions
 
   smoke:

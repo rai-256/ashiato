@@ -351,6 +351,45 @@ NFR-1 の上限は 1 時間あり余裕がある。間隔は可逆な決定な�
 - **生存信号（`heartbeat`）は送らない。** 測定記録の送信は記録だけで、測定のための生存信号の経路を足さない
 - **私的なものをログに出さない。** 時刻の値・差・原文は出さず、件数・種別・`available` だけ
 
+## C-01（`c01-health-permission`）が送る `payload` の形（ST11 / design D2）
+
+**端末が健康データの権限の状態を観て、前に記録した状態から変わったときだけ 1 件送る。** 論理ソースは `c01-health-permission`（位置・時計とは別）。
+`origin = collected`、`schema_version = 1`、`external_id` なし（登録簿の `external_id_kind = 'none'`）。
+原文（`raw`）は `payload` と同じ JSON を直列化した**文字列**（時計と同じ）。**種類（FR-102）は「稼働状況」**
+（登録簿にはまだ種類の列が無い。列を作る Story がこのソースを「稼働状況」で入れる）。
+
+```json
+{
+  "kind": "health-permission",
+  "trigger": "request_result",
+  "device_time": "2026-10-24T01:00:00.123Z",
+  "elapsed_ms": 123456789,
+  "boot_count": 42,
+  "availability": "available",
+  "features": {"history": true, "background": true},
+  "granted": {"sleep": true, "heart_rate": true, "steps": true, "exercise": true, "history": true, "background": false},
+  "auto_requested": true
+}
+```
+
+| 欄 | 型 | 中身 |
+|---|---|---|
+| `kind` | string | 常に `health-permission` |
+| `trigger` | string | どこで観たか: `app_open`（アプリを開いた）/ `request_result`（権限の画面の結果が返った）/ `periodic`（収集の 6 時間ごとの見直し） |
+| `device_time` | RFC3339（ミリ秒まで・UTC・`Z`） | 観たときの端末の壁時計。**出来事時刻（`event_time`）と同じ値**で、補正しない |
+| `elapsed_ms` | integer | 観たときの起動からの経過時間（`elapsedRealtime`） |
+| `boot_count` | integer または `null` | 起動の識別。取れない端末では `null` |
+| `availability` | string | `available` / `not_installed` / `update_required` / `unreadable`（読む口が失敗した。`error` に例外の型名だけ） |
+| `features` | object | `history`・`background`（boolean）: 履歴・背景の読み取りに端末が対応しているか。`availability` が `available` でないときは両方 `false` |
+| `granted` | object | `sleep`・`heart_rate`・`steps`・`exercise`・`history`・`background`（boolean）: 権限ごとの許可。`available` でないときは全部 `false` |
+| `auto_requested` | boolean | 健康データの権限を自動で求めたことがあるか。**断ったことは `granted` との組で読む**（求めた・許されていない） |
+
+- **状態が変わったときだけ送る。** 変わったかは `availability`・`features`・`granted`・`auto_requested` だけで判定する。初めて観たとき（入れ直した後を含む）は必ず 1 件
+- **判定に時刻を使わない。** `trigger`・`device_time`・`elapsed_ms`・`boot_count` は使わない。時計が戻っても進んでも、変わっていなければ 1 件にしない
+- **生存信号（`heartbeat`）は送らない。** 状態が変わらない限り何も届かないのが正常で、何日届かなくても途切れの知らせは出ない（登録簿の `outage_target = false`）。稼働状況の格子にも出ない
+- **健康データそのものは読まない・送らない。** 送るのは権限の状態と端末の対応の有無だけ
+- **私的なものをログに出さない。** 出すのは種別（`health_permission_recorded`）・`trigger`・`availability` だけ
+
 ## C-02（`c02-window`）が送る `payload` の形（ST07 / design D1）
 
 **PC の前景から生まれた 1 件は、種類ごとに次の項目を持つ。**
