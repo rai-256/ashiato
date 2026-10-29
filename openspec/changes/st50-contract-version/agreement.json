@@ -1,11 +1,11 @@
 {
   "status": "accepted",
-  "digest": "1ef814d416f769bdd7c5906b417b359fd4a25ddc7f23ee4269444a096e1dab04",
-  "head": "1b6073f023552ba0223cf5c4bdde70edcdca397d",
-  "answers": "deep-answers-1.txt",
+  "digest": "e999dab19ab426f2f2d319aa736e59a1675528496598d8fccbfbc67f529b962c",
+  "head": "5e641d89537253812c4f6b063fa60b5047484a74",
+  "answers": "deep-answers-3.txt",
   "picked": "合意する",
   "notes": [],
-  "at": "2026-10-29T12:25:22Z",
+  "at": "2026-10-29T14:25:12Z",
   "minor_accepted": [
     {
       "id": "IMP-01",
