@@ -43,6 +43,7 @@ class MainActivityInstrumentedTest {
 
     @Test
     fun openingTheActivityWithPermissionsStartsTheForegroundService() {
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).use {
             // Activity は権限が揃っていればサービスを起動して自分を閉じる（`finish()`）
             val nm = context.getSystemService(NotificationManager::class.java)

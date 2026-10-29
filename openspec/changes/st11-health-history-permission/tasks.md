@@ -46,7 +46,7 @@
 
 ## Task 1: 登録簿に `c01-health-permission` を足し、S-01 が受け付け、書き出しに入れる（design D1 / D12）
 
-- [ ] 1.1 移行 `YYYYMMDDHHMM_health_permission_source.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D1 の表の 1 行（`ON CONFLICT DO NOTHING`。
+- [x] 1.1 移行 `YYYYMMDDHHMM_health_permission_source.sql`（と `.down.sql`）を書き、`migrations/ORDER` の末尾に 1 行足す。中身は design D1 の表の 1 行（`ON CONFLICT DO NOTHING`。
   `acquisition` / `fetch_trigger` は列を指定せず ST13 の trigger に入れさせる）。注記に種類が「稼働状況」であること（FR-102。列はまだ無い）を書く。
   `.down.sql` は `202609291230_clock_source.down.sql` と同じく、`core.event` / `core.drop_report` / `core.coverage` / `core.coverage_span` / `core.heartbeat` が参照していれば行を残す。
   `crates/server/src/export/excluded.rs` の `SPAN_RULES` に `("c01-health-permission", SpanRule::Point)`、`NO_COORD_SOURCES` に `"c01-health-permission"` を足す（配列の長さも直す。D12）。
@@ -57,13 +57,13 @@
   検証: `tools/check-migrations.sh` rc=0 / `tools/check-immutable.sh` rc=0 / `CT st11_`（`-- --list` で 7 本以上）/ `CT export_`（`-- --list` で 1 本以上。既存の書き出しの試験が一覧の突き合わせを含めて全部緑）/
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0（既存が全部緑）
 
-- [ ] 1.2 `docs/collector-contract.md` に節「C-01（`c01-health-permission`）が送る `payload` の形（ST11 / design D2）」を足す（`c01-clock` の節の後。欄の表・`trigger` と `availability` の値・
+- [x] 1.2 `docs/collector-contract.md` に節「C-01（`c01-health-permission`）が送る `payload` の形（ST11 / design D2）」を足す（`c01-clock` の節の後。欄の表・`trigger` と `availability` の値・
   状態が変わったときだけ送ること・判定に時刻を使わないこと・生存信号を送らないこと・種類は稼働状況）。
   検証: `bash -c 'grep -q "c01-health-permission" docs/collector-contract.md && grep -q "auto_requested" docs/collector-contract.md'` rc=0
 
 ## Task 2: manifest の宣言と説明の画面（design D5 / D7 / D13）
 
-- [ ] 2.1 新しい `HealthPermissions.kt` に定数 `HEALTH_PERMISSIONS`（D5 の 6 つの権限の名前と D2 の欄の名前の対応）だけを先に置く（読む口と求める口は Task 3.1）。
+- [x] 2.1 新しい `HealthPermissions.kt` に定数 `HEALTH_PERMISSIONS`（D5 の 6 つの権限の名前と D2 の欄の名前の対応）だけを先に置く（読む口と求める口は Task 3.1）。
   manifest に D5 の 6 つの権限（`READ_HEALTH_DATA_HISTORY` は既にある）・Health Connect のアプリを引く `<queries>`・新しい `HealthRationaleActivity` と D7 の 2 つの開き方
   （`ACTION_SHOW_PERMISSIONS_RATIONALE` の `intent-filter` と、`VIEW_PERMISSION_USAGE` + `HEALTH_PERMISSIONS` の `activity-alias`）を足す。
   `HealthRationaleActivity` は D7 の文 `HEALTH_RATIONALE` を出すだけ（全面表示の inset は `MainActivity.showUnusedAppRestrictions` と同じ扱い）。
@@ -79,7 +79,7 @@
 
 ## Task 3: Health Connect の読み口と求める口（design D3 / D6）
 
-- [ ] 3.1 `app/build.gradle.kts` に `androidx.health.connect:connect-client`（1.1 系）を足す。`HealthPermissions.kt`（2.1 で定数を置いた）に、差し替えられる型
+- [x] 3.1 `app/build.gradle.kts` に `androidx.health.connect:connect-client`（1.1 系）を足す。`HealthPermissions.kt`（2.1 で定数を置いた）に、差し替えられる型
   （使えるか: `available` / `not_installed` / `update_required` / `unreadable`・履歴と背景に対応しているか・D5 の 6 つの許可を読む口と、求める intent を作る口と、結果を受ける口）と、
   client を使う本番の実装を置く。読む口の例外は `unreadable`（例外の型名だけを持つ）に倒し、投げ返さない。D6 の表の「求めるもの」を返す純粋な関数 `healthPermissionsToAsk(availability, features)` を置く。
   `HealthPermissionsTest`（Robolectric と偽の client）: D6 の表の 5 行がそれぞれの「求めるもの」を返す・履歴と背景に未対応なら 4 種類だけ・読む口が例外で `unreadable`・求める intent が `HEALTH_PERMISSIONS` の 6 つを含む。
@@ -87,7 +87,7 @@
 
 ## Task 4: 許可の状態の記録と、状態が変わったかの判定（design D2 / D9 / D11）
 
-- [ ] 4.1 新しい `HealthPermissionRecord.kt` に、観た状態（D2 の `availability`・`features`・`granted`・`auto_requested`）と契機・端末の時計・起動からの経過時間・起動の識別から
+- [x] 4.1 新しい `HealthPermissionRecord.kt` に、観た状態（D2 の `availability`・`features`・`granted`・`auto_requested`）と契機・端末の時計・起動からの経過時間・起動の識別から
   `c01-health-permission` の記録（`IngestRequest`。`external_id` なし・`schema_version = 1`・`raw` は `payload` の直列化）を作る関数と、最後に記録した状態を `SharedPreferences` に持つ置き場と、
   「観る → 前と違えば 1 件を未送信に積み、積めたら最後の状態を書き換える」1 つの入口 `observeHealthPermissions(trigger)` を置く（最後の状態の置き場は `HEALTH_PREFS`。D14）（時計・経過・起動の識別は `ClockSkewMeasurer` と同じ読み口を差し替えて渡す）。
   ログは `Telemetry.line("health_permission_recorded", …)` に `trigger` と `availability` だけ。
@@ -98,14 +98,14 @@
   「時計が戻っても」は偽の壁時計を 1 日戻して同じ状態で観る。「ログ」は `ShadowLog` を集め、`granted` の値（`true` / `false`）と権限の名前が出ないことを見る。
   検証: `GT HealthPermissionRecordTest`（8 本以上）/ `GT ClockSkewPayloadShapeTest`（既存が緑）/ `bash tools/check-log-private.sh` rc=0
 
-- [ ] 4.2 `c01-health-permission` が生存信号の対象にならないことを固定する。`HealthPermissionRecordTest` に 1 本足し、収集を始めて生存信号の契機に達しても
+- [x] 4.2 `c01-health-permission` が生存信号の対象にならないことを固定する。`HealthPermissionRecordTest` に 1 本足し、収集を始めて生存信号の契機に達しても
   `c01-health-permission` の生存信号が積まれないことと、`CollectionSource` の一覧に入っていないことを見る。
   Scenario: `健康データの権限の生存信号は送られない`。
   検証: `GT HealthPermissionRecordTest`（9 本以上。4.1 と合わせて）/ `GT SourceIndependenceTest`（既存が緑）
 
 ## Task 5: 初回起動の流れに健康データの段を入れる（design D4 / D6 / D9）
 
-- [ ] 5.1 `MainActivity.proceed()` の写真と動画の後・`start()` の前に健康データの段を入れる（D4）。`protected open fun healthPermissions(): HealthPermissions` を差し替え口にし、
+- [x] 5.1 `MainActivity.proceed()` の写真と動画の後・`start()` の前に健康データの段を入れる（D4）。`protected open fun healthPermissions(): HealthPermissions` を差し替え口にし、
   読む口は主スレッドを塞がずに読み、読み終えるまで `inFlight` で先へ進まない。`startActivityForResult` で求め、`onActivityResult` で印 `ASKED_HEALTH_PERMISSIONS` を立て、
   `observeHealthPermissions(request_result)` をしてから `proceed()` に戻る。健康データの段を最初に通るときに `observeHealthPermissions(app_open)` をする（D9）。
   `app_open` は Health Connect が使えるかに依らず、起動ごとに写真と動画の段を初めて越えたときに観る（D9。求めるかどうかとは別）。
@@ -125,7 +125,7 @@
 
 ## Task 6: 常駐の通知の操作と 6 時間ごとの見直し（design D8 / D9）
 
-- [ ] 6.1 `LocationService` の前景サービスの通知に、`availability = available` のときだけ D8 の操作（ラベル `HEALTH_PERMISSION_ACTION_LABEL`）を足す。開く intent は版で分ける（D8）。
+- [x] 6.1 `LocationService` の前景サービスの通知に、`availability = available` のときだけ D8 の操作（ラベル `HEALTH_PERMISSION_ACTION_LABEL`）を足す。開く intent は版で分ける（D8）。
   生存信号と同じ 6 時間の刻みの隣で `observeHealthPermissions(periodic)` を呼ぶ（生存信号は送らない。失敗しても位置の収集を止めない —— 時計の測定と同じく `runCatching` で包み、種別だけログ）。
   `HealthNotificationTest`（Robolectric）:
   Scenario: `常駐の通知から健康データの権限の画面が開く` / `Health Connect が使えない端末の通知には健康データの権限の操作が出ない` / `後から設定で外すと次の見直しで記録される`。
@@ -135,7 +135,7 @@
 
 ## Task 7: 本物の Health Connect での計測テスト（design D4 / D10。Risks）
 
-- [ ] 7.1 Health Connect の権限の画面を本物で押す計測テストを、始まりの状態ごとにクラスで分けて置く（どれも `@NeedsPristinePermissions`。spec-review R6）。
+- [x] 7.1 Health Connect の権限の画面を本物で押す計測テストを、始まりの状態ごとにクラスで分けて置く（どれも `@NeedsPristinePermissions`。spec-review R6）。
   UI Automator で Health Connect の画面の文字を読んで押す（「はじめに」の画面が出たら「Get started」を押してから進む。P7）。
   自分の権限は自分で外さない（計測テストのプロセスが死ぬ）。始まりの状態は `tools/android-emulator.sh` と `.github/workflows/ci.yml` の android-instrumented に足す段の前の
   `adb shell am force-stop dev.ashiato.collector` と `adb shell pm reset-permissions` で作る（`pm clear` は使わない —— 前景サービスが残っていると Failed）。2 回断ると画面が出なくなる（P6）ので、1 段に断る本を 1 つまで。
@@ -150,14 +150,14 @@
   検証: `AT HealthPermissionGrantInstrumentedTest`（5 本以上）/ `AT HealthPermissionHistoryDeniedInstrumentedTest`（1 本以上）/ `AT HealthPermissionDeniedInstrumentedTest`（1 本以上）/
   `bash -c 'test "$(grep -c HealthPermission tools/android-emulator.sh)" -ge 3 && test "$(grep -c HealthPermission .github/workflows/ci.yml)" -ge 3'` rc=0（3 つのクラスの段がどちらにもある）。同じ振る舞いの `GT` は Task 2・5・6
 
-- [ ] 7.2 `PermissionDeniedInstrumentedTest` に `// Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る` の印を付け、「spec の Scenario には対応しない」の注記を消す（D10）。
+- [x] 7.2 `PermissionDeniedInstrumentedTest` に `// Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る` の印を付け、「spec の Scenario には対応しない」の注記を消す（D10）。
   THEN の「位置は取得できない状態として生存信号に載る」は計測テストでは見ていないので、`SourceIndependenceTest` に、位置を拒否した後に始めた収集の位置の生存信号が取得できない状態と権限を示すことを見る 1 本を足し、同じ印を置く。
   検証: `AT PermissionDeniedInstrumentedTest`（1 本以上）/ `GT SourceIndependenceTest`（11 本以上。いまの 10 本 + 1）/
   `bash -c 'grep -q "Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る" collector-android/app/src/androidTest/kotlin/dev/ashiato/collector/PermissionDeniedInstrumentedTest.kt'` rc=0
 
 ## Task 8: 縦串 —— 端末が送る形の記録が S-01 に格納される
 
-- [ ] 8.1 `tools/smoke.d/<作成時刻>_st11-health-permission.sh` を置く（`tools/smoke.d/README.md` の形。ST09 の縦串と同じく `post` / `rawstr` を使う）。
+- [x] 8.1 `tools/smoke.d/<作成時刻>_st11-health-permission.sh` を置く（`tools/smoke.d/README.md` の形。ST09 の縦串と同じく `post` / `rawstr` を使う）。
   D2 の形の `c01-health-permission` の記録（4 種類・履歴・背景が `true`、`external_id` なし）を本物のサーバに送り、受理されること・D-01 に 1 行入ること・`payload->'granted'->>'history'` が `true`・
   `event_time` が送った `device_time` と同じことを見る。同じ記録をもう 1 度送って `duplicate: true` で行が増えないことも見る。
   Scenario: `許すと許した状態と観た時刻の記録が S-01 に格納される`（サーバの側。端末の側は Task 7.1）。
@@ -166,13 +166,13 @@
 
 ## Task 9: ST34・ST38 への申し送り
 
-- [ ] 9.1 `docs/handoff/ST34.md` に節を 1 つ足す（無ければ作る。`docs/handoff/README.md` の形）: 求めた種類と権限（D5）・背景での読み取りを求めたこと（Q9）・
+- [x] 9.1 `docs/handoff/ST34.md` に節を 1 つ足す（無ければ作る。`docs/handoff/README.md` の形）: 求めた種類と権限（D5）・背景での読み取りを求めたこと（Q9）・
   `c01-health-permission` の記録の読み方（履歴の権限が無い端末で、読める範囲の起点を最初に種類が許された記録の `device_time` の 30 日前と読む。P13）・
   足りない種類を ST34 が求めるときに `ASKED_HEALTH_PERMISSIONS` とは別の印を持つこと（1 度だけの案内を使い切っているので）。
   本人の端末の実物（Q2。`premises.md` P10・P17）: Android 16、Health Connect に書いているのは Google Fit だけで 19 種類（ST11 が求めない 15 種類を含む）、
   自動削除の設定が見当たらなかった（読み始めるまでに消える経路を ST34 が確かめる）。
   検証: `bash -c 'grep -q "c01-health-permission" docs/handoff/ST34.md && grep -q "自動削除" docs/handoff/ST34.md'` rc=0 / `python3 scripts/check_chain.py .` rc=0
 
-- [ ] 9.2 `docs/handoff/ST38.md` に節を 1 つ足す（ST17 の `s01-feeling`・ST09 のメディアのソースと同じ型）: `c01-health-permission` を種類「稼働状況」に属させること（FR-102。登録簿に種類の列がまだ無い）・
+- [x] 9.2 `docs/handoff/ST38.md` に節を 1 つ足す（ST17 の `s01-feeling`・ST09 のメディアのソースと同じ型）: `c01-health-permission` を種類「稼働状況」に属させること（FR-102。登録簿に種類の列がまだ無い）・
   その理由（収集が残すもの）・「稼働状況」は外部 AI に承認済み（FR-88）なので、外部 AI の経路ができた後は許可の状態も外へ出ること（spec-review R3）。
   検証: `bash -c 'grep -q "c01-health-permission" docs/handoff/ST38.md'` rc=0

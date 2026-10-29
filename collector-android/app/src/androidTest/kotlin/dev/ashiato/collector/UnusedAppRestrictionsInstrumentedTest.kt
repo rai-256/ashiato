@@ -65,6 +65,7 @@ class UnusedAppRestrictionsInstrumentedTest {
             .putBoolean(MainActivity.SENT_TO_USAGE_ACCESS, true)
             .putBoolean(UnusedAppRestrictionsAsked.KEY, true)
             .commit()
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
         val line = device.wait(Until.findObject(By.text(MainActivity.NOT_EXEMPT_LINE)), TIMEOUT_MS)
