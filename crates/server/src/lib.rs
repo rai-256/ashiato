@@ -742,6 +742,10 @@ pub enum IngestError {
     /// 終わりの 3 欄が一部だけ・ずれが範囲の外・タイムゾーン識別子が空か U+0000 を含む
     /// （ST41 / `ingest::Invalid::EndTime`）
     InvalidEndTime,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）。収集アプリが捨てない種別
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）。収集アプリが捨てない種別
+    ContractUnsupported,
     /// 既に格納された記録と同じ収集側の識別子で、別の記録が届いた（ST03 / 深掘り Q5）。
     ///
     /// **正常系では一生出ない** —— Q14 で収集側の識別子は毎回新しく振ると決めたので、
@@ -1980,7 +1984,8 @@ pub async fn ingest(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
-    let writer = Writer::of(crate::contract_version::authorize_versioned(&app, &headers).await?);
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    let writer = Writer::of(caller);
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -1994,9 +1999,21 @@ pub async fn ingest(
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
 
+    let gate = contract_version::ItemGate::new::<IngestRequest>(&app, &caller);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(ingest_one(&app, item, writer).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => IngestResult::rejected(
+                contract_version::sent_id(item),
+                match refusal {
+                    contract_version::ItemRefusal::UnknownField => IngestError::UnknownField,
+                    contract_version::ItemRefusal::ContractUnsupported => {
+                        IngestError::ContractUnsupported
+                    }
+                },
+            ),
+            None => ingest_one(&app, item, writer).await?,
+        });
     }
 
     // **位置を受け入れた日の滞在を作り直す**（ST16 / Q6 / design D5）。まとめ送り 1 回につき、日ごと・利用者ごとに 1 回。
@@ -3094,6 +3111,10 @@ pub enum HeartbeatError {
     MissingBlockers,
     /// 取得の回数が負、または成功が試行を超える
     InvalidCounts,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）
+    ContractUnsupported,
 }
 
 impl From<heartbeat::Invalid> for HeartbeatError {
@@ -3260,7 +3281,7 @@ pub async fn heartbeat_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
-    crate::contract_version::authorize_versioned(&app, &headers).await?;
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -3269,9 +3290,23 @@ pub async fn heartbeat_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
+    let gate = contract_version::ItemGate::new::<heartbeat::HeartbeatRequest>(&app, &caller);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(heartbeat_one(&app, item).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => HeartbeatResult {
+                id: contract_version::sent_id(item),
+                duplicate: false,
+                accepted: false,
+                error: Some(match refusal {
+                    contract_version::ItemRefusal::UnknownField => HeartbeatError::UnknownField,
+                    contract_version::ItemRefusal::ContractUnsupported => {
+                        HeartbeatError::ContractUnsupported
+                    }
+                }),
+            },
+            None => heartbeat_one(&app, item).await?,
+        });
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK

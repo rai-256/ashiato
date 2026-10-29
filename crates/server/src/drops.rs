@@ -61,6 +61,9 @@ pub struct DropReportRequest {
     /// 作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。**鍵にも `raw` にも入れない**（D11）
     #[serde(default)]
     pub client_version: Option<String>,
+    /// 溜めに積んだ時の送信契約の版（ST50）。無ければ 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<i64>,
 }
 
 /// 受け取り時に断る理由。**アプリ層で閉じる**（`heartbeat::Invalid` と同じ向き）——
@@ -202,6 +205,10 @@ pub enum DropError {
     InvalidHourly,
     /// 同じ識別子で原文の違う報告が既にある（端末が識別子を使い回した）
     IdReused,
+    /// S-01 が知らない最上位の欄を持つ（ST50 / D2）。収集アプリが捨てない種別
+    UnknownField,
+    /// 1 件の `contract_version` が S-01 の契約の版より新しいか、正の整数でない（ST50 / D4）
+    ContractUnsupported,
 }
 
 impl From<Invalid> for DropError {
@@ -373,7 +380,8 @@ pub async fn drops_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<DropResult>>), crate::contract_version::Refusal> {
-    let writer = Writer::of(crate::contract_version::authorize_versioned(&app, &headers).await?);
+    let caller = crate::contract_version::authorize_versioned(&app, &headers).await?;
+    let writer = Writer::of(caller);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -382,9 +390,21 @@ pub async fn drops_post(
     if items.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, Json(Vec::new())));
     }
+    let gate = crate::contract_version::ItemGate::new::<DropReportRequest>(&app, &caller);
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(drop_one(&app, item, writer).await?);
+        results.push(match gate.check(item) {
+            Some(refusal) => rejected(
+                crate::contract_version::sent_id(item),
+                match refusal {
+                    crate::contract_version::ItemRefusal::UnknownField => DropError::UnknownField,
+                    crate::contract_version::ItemRefusal::ContractUnsupported => {
+                        DropError::ContractUnsupported
+                    }
+                },
+            ),
+            None => drop_one(&app, item, writer).await?,
+        });
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK
@@ -414,6 +434,7 @@ mod tests {
     /// 10:00〜13:00（UTC）に 60 件ずつ、計 180 件の 90 日の破棄。
     fn req() -> DropReportRequest {
         DropReportRequest {
+            contract_version: None,
             id: uuid::Uuid::new_v4(),
             user_id: uuid::Uuid::nil(),
             logical_source: "t".into(),

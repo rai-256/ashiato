@@ -142,11 +142,96 @@ impl From<Unsupported> for Refusal {
 }
 
 /// `authorize` の直後に見出しを検査する。収集アプリが送る口（取り込み・生存信号・破棄・原本の欠け）が使う。
-pub async fn authorize_versioned(
-    app: &App,
-    headers: &HeaderMap,
-) -> Result<crate::web_session::Caller, Refusal> {
+/// 呼び出し元を返す（1 件ごとの検査 [`ItemGate`] が使う）。
+pub async fn authorize_versioned(app: &App, headers: &HeaderMap) -> Result<Caller, Refusal> {
     let caller = authorize(app, headers).await?;
     check_header(app, &caller, headers, false)?;
     Ok(caller)
+}
+
+/// 型が知る最上位の欄の名前。`utoipa` の schema から作る（手で並べない。D2）。
+pub fn known_fields<T: utoipa::PartialSchema>() -> Vec<String> {
+    use utoipa::openapi::{RefOr, Schema};
+    match T::schema() {
+        RefOr::T(Schema::Object(o)) => o.properties.keys().cloned().collect(),
+        // 型が object の schema でないなら、知る欄を数えられない。空にすると全部を断ってしまうので落とす
+        _ => unreachable!("1 件の型は object の schema を持つ"),
+    }
+}
+
+/// 1 件の最上位の鍵に、`known` に無いものがあるか（`payload` などの中は見ない）。
+pub fn has_unknown_field(item: &serde_json::Value, known: &[String]) -> bool {
+    item.as_object()
+        .is_some_and(|o| o.keys().any(|k| !known.iter().any(|f| f == k)))
+}
+
+/// 1 件を格納する前の断り。収集アプリが捨てない種別（D2・D4）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemRefusal {
+    UnknownField,
+    ContractUnsupported,
+}
+
+/// 1 件ごとの検査。`Caller::ApiToken` の要求にだけ掛ける（D16）。
+#[derive(Debug)]
+pub struct ItemGate {
+    strict: bool,
+    known: Vec<String>,
+    supported: u32,
+}
+
+impl ItemGate {
+    pub fn new<T: utoipa::PartialSchema>(app: &App, caller: &Caller) -> Self {
+        let strict = matches!(caller, Caller::ApiToken);
+        Self {
+            strict,
+            known: if strict {
+                known_fields::<T>()
+            } else {
+                Vec::new()
+            },
+            supported: app.contract_version,
+        }
+    }
+
+    /// 型の解釈（`serde_json::from_value`）の前に見る。知らない欄 → 1 件の版の順。
+    pub fn check(&self, item: &serde_json::Value) -> Option<ItemRefusal> {
+        if !self.strict {
+            return None;
+        }
+        let refusal = if has_unknown_field(item, &self.known) {
+            ItemRefusal::UnknownField
+        } else if !self.item_version_ok(item) {
+            ItemRefusal::ContractUnsupported
+        } else {
+            return None;
+        };
+        // log-ok: 断りの種別と版の定数だけ。記録の値は出さない
+        tracing::warn!(
+            kind = match refusal {
+                ItemRefusal::UnknownField => "unknown_field",
+                ItemRefusal::ContractUnsupported => "contract_unsupported",
+            },
+            supported = self.supported,
+            "契約に合わない 1 件を断った"
+        );
+        Some(refusal)
+    }
+
+    /// 欄が無い・null は版 1。あれば正の整数で S-01 の版以下。
+    fn item_version_ok(&self, item: &serde_json::Value) -> bool {
+        match item.get("contract_version") {
+            None | Some(serde_json::Value::Null) => true,
+            Some(v) => v
+                .as_i64()
+                .is_some_and(|n| n >= 1 && n <= i64::from(self.supported)),
+        }
+    }
+}
+
+/// 形が壊れていても拾えるなら、送った識別子を結果に載せる（対応づけの助け）。
+pub fn sent_id(item: &serde_json::Value) -> Option<uuid::Uuid> {
+    item.get("id")
+        .and_then(|v| v.as_str())
+        .and_then(|v| uuid::Uuid::parse_str(v).ok())
 }
