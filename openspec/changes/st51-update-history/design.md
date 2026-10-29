@@ -151,7 +151,7 @@ C9。`coverage*.rs`・`outage*.rs` の問い合わせは列を名指ししてい
 
 ## Risks / Trade-offs
 
-- [ST51 の delta は ST49 の archive の後でしか archive できない（MODIFIED の相手の 2 つの Requirement が正典に要る。今は `openspec validate` が INFO で「not found」と出す）] → ST51 の archive の前に ST49 が archive 済みで、`openspec validate st51-update-history --strict` の INFO が消えていることを見る（review/spec.md R15）
+- [ST51 の delta の MODIFIED の相手（ST49 が ADDED する 2 つの Requirement）は、正典に入るまで `openspec validate` が INFO で「not found」と出し、`openspec archive` が断る] → 実装は待たない（ST49 は requires にあり、下流は ST49 の gate を通った SHA の上に積む。前提は `python3 scripts/story_deps.py included ST51 ST49`）。正典へ入れる順は `scripts/archive.sh` の `openspec archive` が機械で止めるので、ST51 を正典へ入れる時に `openspec validate st51-update-history --strict` の INFO が消えていることを見る（review/spec.md R15）
 - [ST49 は gate 前。MODIFIED は ST49 の delta の `19eb9e3c` の本文から写した] → ST49 の spec が変われば、merge gate の「依存の spec:」で差分を見て写し直し、`story_deps.py read-spec ST51 ST49 --ack` で読んだ SHA を進める
 - [落ちた回の結果の行（落ちた版の名前・SQLSTATE）は、退避から D-01 を戻すと消える] → 試みの行（Q6・D16（仮））は退避の前に書くので、手で戻した回・ST58 が書き直す前に止まった回も、戻した D-01 に「通らなかった回」として 1 行残る。
   消えるのは落ちた版の名前と SQLSTATE で、ST58 が戻した後に、落ちた試みの結果（落ちた版・SQLSTATE）と「戻した」を書き直す（Q2・`docs/handoff/ST58.md`）。ST58 より前に手で戻した回は、落ちた版の名前と SQLSTATE までは残らない
