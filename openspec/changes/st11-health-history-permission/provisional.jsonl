@@ -1,0 +1,1 @@
+{"id": "D15", "question": "保持の上限で健康データの権限の記録を捨てたとき、最後の状態を忘れて作り直すか", "chosen": "忘れて次に観たとき作り直す（LocationService の onDropped で HealthStateStore.forget）", "keeps": "S-01 が許可の状態を持ち続ける（ST34 の読める範囲の起点）", "cost": "同じ状態の記録が 1 件増えうる・作り直した記録の観た時刻が後ろへずれる", "follows": null, "rests_on": ["D2"], "source": "review/code.md#R19", "at": "2026-10-27"}

@@ -98,6 +98,7 @@ class LocationServiceInstrumentedTest {
     fun aMockFixBecomesOneRecordInTheOutbox() {
         val client = LocationServices.getFusedLocationProviderClient(context)
         enableMockMode(client)
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).close()
 
         val fix = Location("fused").apply {

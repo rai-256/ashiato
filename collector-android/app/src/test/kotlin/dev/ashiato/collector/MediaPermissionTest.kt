@@ -20,6 +20,12 @@ import java.io.File
 
 /** 求める権限をまとめて記録する入口（本番の経路は変えない）。 */
 class MediaCountingMainActivity : MainActivity() {
+    // 健康データは関心の外（`HealthPermissionFlowTest`）
+    override fun healthPermissions(): HealthPermissions = noHealthConnect()
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
+
     val singles = mutableListOf<String>()
     val groups = mutableListOf<List<String>>()
 
