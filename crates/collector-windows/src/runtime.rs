@@ -2649,6 +2649,24 @@ mod tests {
 
     // ---- 組み立ての印の焼き込み（ST49 / design D13） ----
 
+    /// `cfg()` の返り値から `Config` を取り出す。`cfg()` は CH03 で `(Config, TempDir)` に変わる（一時フォルダを試験の
+    /// 終わりに消すため）。ST49 の試験はどちらの形でも通るようにここを通す（CH03 が main に入ったら外してよい）。
+    trait HeldConfig {
+        fn config(&self) -> &Config;
+    }
+
+    impl HeldConfig for Config {
+        fn config(&self) -> &Config {
+            self
+        }
+    }
+
+    impl<T> HeldConfig for (Config, T) {
+        fn config(&self) -> &Config {
+            &self.0
+        }
+    }
+
     const STAMP_A: &str = "0.1.0+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const STAMP_D: &str = "0.1.0+dddddddddddddddddddddddddddddddddddddddd";
 
@@ -2657,13 +2675,14 @@ mod tests {
     /// Scenario: PC の収集アプリを更新した後に送った未送信は、積んだときの版で届く
     #[test]
     fn st49_c02_pending_keeps_stamp_from_add_time() {
-        let cfg = cfg();
+        let held = cfg();
+        let cfg = held.config();
         let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(0)));
         std::fs::create_dir_all(&cfg.state_dir).unwrap();
         Marker::new(&cfg.state_dir).touch(t(-50_000)).unwrap();
         {
             let mut rt = runtime(
-                &cfg,
+                cfg,
                 Engine::new(Exclusions::default()),
                 &transport,
                 &reference,
@@ -2675,7 +2694,7 @@ mod tests {
             assert!(rt.pending().0 >= 1, "積まれていない");
         }
         let mut rt = runtime(
-            &cfg,
+            cfg,
             Engine::new(Exclusions::default()),
             &transport,
             &reference,
@@ -2710,13 +2729,14 @@ mod tests {
                 }
             }
         }
-        let cfg = cfg();
+        let held = cfg();
+        let cfg = held.config();
         let transport = Switch {
             up: std::cell::Cell::new(false),
             inner: AcceptAll::default(),
         };
         let mut rt = Runtime::new(
-            &cfg,
+            cfg,
             zone(),
             Engine::new(Exclusions::default()),
             &transport,
@@ -2752,11 +2772,12 @@ mod tests {
     /// Scenario: ブラウザ履歴を読み直して送る記録は、読み直した時点の版を持つ
     #[test]
     fn st49_c02_history_reread_gets_current_stamp() {
-        let cfg = cfg();
+        let held = cfg();
+        let cfg = held.config();
         let ahead = Duration::days(400).num_seconds();
         let (transport, reference) = (AcceptAll::default(), FixedReference::new(t(ahead)));
         let reader = FakeReader::new(vec![read_visit(1, "前")]);
-        let mut rt = history_runtime(&cfg, &transport, &reference, reader.clone());
+        let mut rt = history_runtime(cfg, &transport, &reference, reader.clone());
         rt.set_build_stamp(STAMP_A);
         let mut src = FakeSource::new("editor");
         rt.start_at(&src, t(ahead), t(ahead));

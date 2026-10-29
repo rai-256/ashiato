@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn st49_c02_old_line_is_sent_without_version() {
         let dir = tmp_dir();
-        let path = dir.join("outbox.jsonl");
+        let path = std::path::Path::join(dir.as_ref(), "outbox.jsonl");
         let line = r#"{"id":"00000000-0000-0000-0000-000000000001","user_id":"00000000-0000-0000-0000-000000000000","logical_source":"c02-window","external_id":null,"device_id":"dev-1","origin":"collected","event_time":"2026-09-13T00:00:00.000Z","tz_offset_min":540,"tz_id":"Asia/Tokyo","schema_version":1,"raw":"{}","payload":{}}"#;
         std::fs::write(&path, format!("{line}\n")).unwrap();
         let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn st49_c02_unknown_field_survives_resend() {
         let dir = tmp_dir();
-        let path = dir.join("outbox.jsonl");
+        let path = std::path::Path::join(dir.as_ref(), "outbox.jsonl");
         let mut v = serde_json::to_value(req(1)).unwrap();
         v["future_field"] = serde_json::json!({"n": 7});
         v["client_version"] = serde_json::json!("0.1.0+x");
