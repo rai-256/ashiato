@@ -50,7 +50,7 @@
 
 ## Task 2: 見出しの検査と 426（6 つの口）
 
-- [ ] 2.1 `POST /ingest`・`/heartbeat`・`/drops`・`/media/missing`、`PUT` / `HEAD /media/originals/{sha256}` の入口で、資格情報の判定の直後・本文の解釈の前に、`Caller::ApiToken` の要求の見出しを読む。
+- [x] 2.1 `POST /ingest`・`/heartbeat`・`/drops`・`/media/missing`、`PUT` / `HEAD /media/originals/{sha256}` の入口で、資格情報の判定の直後・本文の解釈の前に、`Caller::ApiToken` の要求の見出しを読む。
   版 > `app.contract_version` か読めない → `426` と `{"error": "contract_unsupported", "contract_version": N}`、何も格納しない（D4）。画面のログインには掛けない（D16）。`contract_version_tests.rs`:
   - `st50_header_ingest_426` — `// Scenario: S-01 より新しい版を名乗る取り込みは 426 で断られ、何も入らない`
   - `st50_header_other_mouths_426` — `// Scenario: 生存信号・破棄の報告・原本の欠けも新しすぎる版では 426 で断られる`
