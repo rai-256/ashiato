@@ -64,7 +64,7 @@
 
 ## Task 3: 知らない欄 `unknown_field` と 1 件の `contract_version`（4 つの型）
 
-- [ ] 3.1 `IngestRequest`・`HeartbeatRequest`・`DropReportRequest`・`MediaMissingRequest` に任意の欄 `contract_version: Option<i64>` を足す。`contract_version.rs` に、型が知る最上位の欄の一覧（型から作る。`utoipa` の schema か `serde` の field の名前。手で並べない）と、
+- [x] 3.1 `IngestRequest`・`HeartbeatRequest`・`DropReportRequest`・`MediaMissingRequest` に任意の欄 `contract_version: Option<i64>` を足す。`contract_version.rs` に、型が知る最上位の欄の一覧（型から作る。`utoipa` の schema か `serde` の field の名前。手で並べない）と、
   1 件の JSON の最上位の鍵を比べる関数を置く。`Caller::ApiToken` の要求だけ、1 件ごとの解釈（`serde_json::from_value`）の**前**に見て、知らない鍵があれば `unknown_field`（D2）。
   1 件の `contract_version` が `app.contract_version` より大きいか正の整数でなければ `contract_unsupported`（D4）。`IngestError` / 生存信号・破棄の報告・原本の欠けの断りの列挙に 2 つを足す。`docs/openapi.json` を作り直す。`contract_version_tests.rs`:
   - `st50_unknown_field_ingest` — `// Scenario: 知らない欄を持つ記録は unknown_field で断られ、ほかの記録は入る`（応答 200・3 件の結果）
@@ -75,7 +75,7 @@
   - `st50_item_version_other_types` — `// Scenario: S-01 より新しい版の生存信号・破棄の報告・原本の欠けの 1 件は contract_unsupported で断られる`（3 つの断りの列挙 `HeartbeatError`・`DropError`・`MediaMissingError` のそれぞれ）
   - `st50_unknown_field_not_malformed`（知らない欄の 1 件の `error` が `malformed` でないこと・`deny_unknown_fields` が型に無いことの固定）
   検証: `CT st50_unknown_field_` rc=0（`-- --list` で 6 本以上）/ `CT st50_item_version_` rc=0（`-- --list` で 1 本以上）/ `./tools/check-openapi.sh` rc=0
-- [ ] 3.2 `docs/collector-contract.md` に「## 送信契約の版（ST50）」の節を足す: 版の意味（スキーマ版と別・S-01 は自分以下を全部受け付ける）・見出し・`GET /contract`・426・`unknown_field` / `contract_unsupported` の行（返る形の表）・
+- [x] 3.2 `docs/collector-contract.md` に「## 送信契約の版（ST50）」の節を足す: 版の意味（スキーマ版と別・S-01 は自分以下を全部受け付ける）・見出し・`GET /contract`・426・`unknown_field` / `contract_unsupported` の行（返る形の表）・
   1 件の `contract_version`・入れ替えの順（design の Migration Plan）・「## 送信契約の版の履歴」の表（版 1 の行: 最初の印 未定・今の封筒の全部と最初の配った印までに足した欄・理由「最初の版」）。
   `PUT` の応答の表に `426` の行を足す。
   検証: `bash -c 'grep -q "^## 送信契約の版の履歴" docs/collector-contract.md && grep -q "contract_unsupported" docs/collector-contract.md && grep -q "unknown_field" docs/collector-contract.md && grep -q "Ashiato-Contract-Version" docs/collector-contract.md'` rc=0
