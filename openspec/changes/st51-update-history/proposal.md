@@ -13,7 +13,9 @@
   **起動のとき**（版の検査（ST48）を通った後・待ち受けを開く前）に、直前の通った行の版と自分の版が違えば 1 行を書く。1 行は、いつ・どの部品（S-01）・きっかけ（migrate / 起動）・前の版・今の版・
   移行の結果（この回に当てた版の名前 / 当てる版が無かった / 落ちた版の名前と SQLSTATE / 退避の失敗）を持つ。DB の誤りの本文は残さない。版は ST49 の組み立ての印（design D1〜D4・D7〜D10）
 - **migrate が知らない版の当たった DB で止まった回（終了コード 3）と、起動が版の検査で断られた回は書かない**（正典 distribution。古い S-01 が新しい D-01 に書かない）。更新の履歴の表がまだ無い D-01 で落ちた回も書けない
-- **落ちた回の行は D-01 の中だけに置く**（Q2 の推奨）。退避から戻すと消えるので、戻した後に「落ちた試み」と「戻した」の 2 行を書き直すのは ST58（`docs/handoff/ST58.md`）
+- **通らなかった回も、退避から戻した後に 1 行残る**（Q6。FR-121 ★ 2026-10-29）: migrate は版の検査を通った後・退避を取る前に、前の版・今の版・きっかけ・移行の結果「試み」（`attempted`）の 1 行を書いて commit する（退避に入るので、戻しても残る）。
+  通れば今どおり結果の行を足す。戻した D-01 で試みの後に結果の行が無ければ、通らなかった回と読める。試みの行は、結果の行と同じく版が変わる回だけに書く（design D16（仮））
+- **落ちた回の結果の行は D-01 の中だけに置く**（Q2）。落ちた版の名前と SQLSTATE は退避から戻すと消えるので、戻した後に落ちた試みの結果と「戻した」を書き直すのは ST58（`docs/handoff/ST58.md`）
 - **収集アプリの生存信号に版を載せる**（C1・C3）: C-01・C-02 は、すべての生存信号に**その信号を積んだ時に動いていた**組み立ての印を、任意の欄 `client_version` と原文の両方に載せる。
   ST49 が「生存信号には書き込まない」としていた 2 つの Requirement を MODIFIED する（ST49 design の「生存信号の版は ST51 が足す」）。S-01 は値の形を検査せず・断らず、版を持たない信号も今までどおり受ける
 - **収集アプリの版の変化は生存信号から導く**（Q3・Q4 の推奨）: 端末ごと・部品（C-01 / C-02）ごとに発信の時刻の順に並べ、隣り合う 2 件の版が違う所を 1 行とする読み口（D-01 のビュー）を足す。
@@ -48,7 +50,7 @@ main の `19eb9e3c` の時点）から写した。ST49 の spec が gate まで�
 ## Impact
 
 - コード（S-01）: `crates/server/src/heartbeat.rs`（`client_version`）、`crates/server/src/lib.rs`（`run_migrate` の終わりと `run` の版の検査の後に更新の履歴を書く・生存信号の INSERT）、
-  `crates/server/src/migration_ledger.rs`（落ちた版の名前と SQLSTATE を呼び出し元へ返す）、新しい `crates/server/src/update_history.rs`、`crates/server/src/grants.sql`（更新の履歴に SELECT と INSERT だけ）、
+  `crates/server/src/migration_ledger.rs`（版の検査の後・退避の前に試みの行を書く口を呼ぶ・落ちた版の名前と SQLSTATE を呼び出し元へ返す）、新しい `crates/server/src/update_history.rs`、`crates/server/src/grants.sql`（更新の履歴に SELECT と INSERT だけ）、
   `crates/server/src/export.rs`（更新の履歴・版の変化のファイル・`HEARTBEAT_COLUMNS` に `client_version`）、`docs/openapi.json`（再生成）
 - 移行: 新しい移行 1 つ（更新の履歴の表と書き換えの門・生存信号の `collector_version` 列・版の変化のビュー）と `.down.sql`、`migrations/ORDER` の末尾へ 1 行。名前の時刻は `202610250000` 以後で、ST48 の D10（仮）の規則に従う
 - 収集アプリ: `crates/collector-windows/src/heartbeat.rs`（積む時点の印を欄と原文に）、`collector-android/app/src/main/kotlin/dev/ashiato/collector/Heartbeat.kt`（同）
@@ -58,4 +60,4 @@ main の `19eb9e3c` の時点）から写した。ST49 の spec が gate まで�
   - **ST49**（`st49-record-component-version`。下流が走っている）: requires に入れた。`device-collection` / `desktop-collection` の ST49 の Requirement を MODIFIED し、
     ST49 の試験「携帯の生存信号には版が書き込まれない」「PC の生存信号には版が書き込まれない」を反対向きに直す。`export.rs` の `HEARTBEAT_COLUMNS`・`grants.sql`・`migrations/ORDER`・`heartbeat.rs`（C-02）が同じファイル
   - **ST23**（`st23-record-erasure`）・**ST11**（`st11-health-history-permission`。`device-collection` に ADDED）・CH03・CH05: 触る Requirement と表が重ならない
-- 申し送り: `docs/handoff/ST58.md`（R10・Q2）、`docs/handoff/ST54.md`（premises 9）
+- 申し送り: `docs/handoff/ST58.md`（R10・Q2・Q6）、`docs/handoff/ST54.md`（premises 9）

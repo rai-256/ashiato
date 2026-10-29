@@ -1,6 +1,6 @@
 # ST51 実装タスク — 版の変わり目が、更新の履歴として残る
 
-読む順: `deep.md`（**本人の答え Q1〜Q5**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `specs/collection-coverage/spec.md` →
+読む順: `deep.md`（**本人の答え Q1〜Q6**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `specs/collection-coverage/spec.md` →
 `specs/device-collection/spec.md` → `specs/desktop-collection/spec.md` → `specs/data-durability/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。
 
 **前提: ST49 の実装**（requires）。`python3 scripts/story_deps.py included ST51 ST49` rc=0 を Task 1 の前に確かめる（下流の入口が ST49 の gate を通った SHA を取り込んでいる。
@@ -13,8 +13,8 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / Kotlin はコメント（`// Scenario: 生存信号の版は、行に残る`）、bash は `echo "== Scenario: …"`。
   `scripts/check_scenarios.py` が spec の全 Scenario と突き合わせ、印の無い Scenario を FAIL にする。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change の Scenario は 67 本**（`distribution` 22・`collection-coverage` 19・`device-collection` 9・`desktop-collection` 8・`data-durability` 9）。
-  うち **ST51 が新しく印を置くのは 50 本**（`distribution` 22・`collection-coverage` 19・`device-collection` 2・`desktop-collection` 2・`data-durability` の ADDED 4 と、MODIFIED で中身を変えた
+- **この change の Scenario は 73 本**（`distribution` 28・`collection-coverage` 19・`device-collection` 9・`desktop-collection` 8・`data-durability` 9）。
+  うち **ST51 が新しく印を置くのは 56 本**（`distribution` 28・`collection-coverage` 19・`device-collection` 2・`desktop-collection` 2・`data-durability` の ADDED 4 と、MODIFIED で中身を変えた
   `台帳と導出の表は書き出しに入らない`）—— **全部このファイルのどこかの Task が名指しする**。残りの 17 本は MODIFIED で本文をそのまま写した Scenario で、
   印は ST49（`device-collection` 7・`desktop-collection` 6）と既存の書き出しの試験（`data-durability` 4）が持つ。ST49 の
   「携帯の生存信号には版が書き込まれない」「PC の生存信号には版が書き込まれない」の試験は**消して**、ST51 の反対向きの Scenario に置き換える（残すと落ちる）
@@ -22,8 +22,8 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
   `crates/server/src/export_update_history_tests.rs`（Task 6）に置き、`lib.rs` の他の `*_tests` と同じ形で `#[cfg(test)] mod …;` を足す。本物の bin の試験は `crates/server/tests/server_startup.rs` の `st51_bin_` で始まる関数。
   C-01 の試験は `collector-android/app/src/test/kotlin/dev/ashiato/collector/St51HeartbeatVersionTest.kt`
 - **本人の決定（下流は変えない）**: Q1 1 行の中身は いつ・部品・きっかけ・前の版・今の版・移行の結果（当てた版の名前 / 当てる版無し / 落ちた版と SQLSTATE / 退避の失敗）、DB の誤りの本文は残さない /
-  Q2 落ちた回の行は D-01 の中だけ（戻した後の書き直しは ST58）/ Q3 収集アプリの版の変化は生存信号から導くビュー / Q4 端末・部品ごとに発信の時刻の順、版なしは外し、最初は申告の始まり /
-  Q5 画面・API・格子・途絶の判定は変えない。仮: D1（全部の生存信号に版）・D2（migrate と起動の両方で書く）・D3（`core` の追記のみの表・書き出しに入れる）・D4（形の固定）・D5（導くビュー）。
+  Q2 落ちた回の行は D-01 の中だけ（戻した後の書き直しは ST58）/ Q6 版の検査の後・退避の前に「試み」（`attempted`）の 1 行を書いて commit し、通らなかった回も退避から戻した後に残す / Q3 収集アプリの版の変化は生存信号から導くビュー / Q4 端末・部品ごとに発信の時刻の順、版なしは外し、最初は申告の始まり /
+  Q5 画面・API・格子・途絶の判定は変えない。仮: D1（全部の生存信号に版）・D2（migrate と起動の両方で書く）・D3（`core` の追記のみの表・書き出しに入れる）・D4（形の固定）・D5（導くビュー）・D16（試みの行は結果の行と同じ「版が違うとき」だけ）。
   （第 1 回は推奨で先に書いた。本人の答えが違えば上流がここを書き直してから下流へ渡す）
 - **名前は統一する**: 表 `core.update_history`（列は `specs/distribution` の表のとおり）、生存信号の**要求の欄と原文の鍵は `client_version`・行の列と書き出しの列は `collector_version`**（ST49 と同じ分け方）、
   ビュー `core.collector_version_change`、書き出しのファイル `update_history.jsonl`・`collector_version_changes.jsonl`、警告の種別 `update_history_unwritten`
@@ -39,7 +39,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 - [ ] 1.1 `migrations/<YYYYMMDDHHMM>_update_history.sql` と `.down.sql` を作り、`migrations/ORDER` の末尾へ 1 行足す。前進側:
   `core.update_history`（列と型と NULL の可否は `specs/distribution` の表どおり。`seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY`。`component = 'S-01'`・`via IN ('migrate','startup')`・
-  `outcome IN ('applied','nothing_to_apply','failed','backup_failed')` の CHECK）、門 `core.reject_update_history_rewrite()`（BEFORE UPDATE OR DELETE の行の trigger と TRUNCATE の文の trigger。所有者でも断る —— `core.reject_heartbeat_rewrite` と同じ形）、
+  `outcome IN ('attempted','applied','nothing_to_apply','failed','backup_failed')` の CHECK）、門 `core.reject_update_history_rewrite()`（BEFORE UPDATE OR DELETE の行の trigger と TRUNCATE の文の trigger。所有者でも断る —— `core.reject_heartbeat_rewrite` と同じ形）、
   `ALTER TABLE core.heartbeat ADD COLUMN IF NOT EXISTS collector_version text NULL`、ビュー `core.collector_version_change`（D5・D6。列は D11 の 8 つ。`c01-`・`c02-` の信号だけ、端末が空なら空の 1 つの並び。`pg_input_is_valid(raw, 'jsonb')` で原文を確かめてから読む）。
   `.down.sql` は逆順に消し、版の記録の自分の行を消す
   検証: `./tools/check-migrations.sh` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0
@@ -56,10 +56,12 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 ## Task 2: migrate の終わりに更新の履歴を書く
 
 - [ ] 2.1 新しい `crates/server/src/update_history.rs`: `record_migrate(conn, stamp, outcome)`・`record_startup(conn, stamp)`・前の版を読む（D7。`outcome IN ('applied','nothing_to_apply')` の `seq` の最大。取引の頭で `pg_advisory_xact_lock`）・
-  表が無ければ書かずに `tracing::warn!(kind = "update_history_unwritten")`（D9。`to_regclass`）。`migration_ledger::apply_migrations_with` を、当てた版の名前と、落ちたときの版の名前と SQLSTATE を返す形に広げる（D8。誤りの本文は返さない）。
-  `run_migrate` が終わりに（0・1 のどちらでも。3 では呼ばない）書く。落ちた行は落ちた版の取引が戻った後の別の取引で書く。付与・錠・版の記録の失敗も `failed`（落ちた版は空）で書く。
+  表が無ければ書かずに `tracing::warn!(kind = "update_history_unwritten")`（D9。`to_regclass`）。`record_attempt(conn, stamp)`（Q6・D16（仮））: `migration_ledger::apply_locked` の版の検査の後・`before_apply()`（退避）の前に呼ぶ口を足し、
+  前の版と比べて違えば `outcome = 'attempted'` の行を書き、退避を取る前に commit する（錠を持った接続で、版を当てる取引の外。比べて書くのは D7 と同じ 1 つの取引）。
+  試みの行を書いた回は、結果の行を比べ直さずに必ず書く（前の版は D7 のまま）。結果の行は `apply_migrations_with` が錠を外す前に書く口から書く。試みと結果の行は錠を持つ接続で書く。`record_startup` の取引は頭で当てる処理の錠（`migration_ledger` の `LOCK_KEY`）を `pg_try_advisory_xact_lock` で取り（待たない）、取れなければ書かずに `update_history_unwritten` の警告、取れたら版の記録を読み直して知らない版があれば書かない（D16（仮）・review/spec.md R17・R23・R24・R26〜R28）。`migration_ledger::apply_migrations_with` を、当てた版の名前と、落ちたときの版の名前と SQLSTATE を返す形に広げる（D8。誤りの本文は返さない）。
+  結果の行は錠を外す前に書く（0・1 のどちらでも。3 では書かない）。落ちた行は落ちた版の取引が戻った後の別の取引で書く。付与・錠・版の記録の失敗も `failed`（落ちた版は空）で書く。
   落ちたときに示すのは種別・落ちた版の名前・SQLSTATE の 1 行だけにし、本文を持つ誤りを `main` まで運ばない（D8・review/spec.md R2）
-  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 13'` rc=0
+  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'` rc=0
 - [ ] 2.2 `update_history_tests.rs`（試験用の並び = `MIGRATIONS` + 試験用の版。印は引数で渡す。同じプロセスの中で、当てる処理の返り値と行を見る）:
   - `st51_migrate_applied_row` — `// Scenario: 新しい組み立ての migrate が版を当てると、当てた版の名前を持つ 1 行が残る`
   - `st51_migrate_nothing_to_apply_row` — `// Scenario: 当てる版が無い入れ替えの migrate も 1 行残る`
@@ -74,13 +76,25 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
   - `st51_migrate_concurrent_one_row` — `// Scenario: 同じ版の変化を 2 つ同時に書いても、行は 1 つ`
   - `st51_migrate_unknown_stamp_as_is` — `// Scenario: commit の取れない組み立ての印も、そのまま今の版に書く`
   - `st51_migrate_ledger_untouched` — ST48 の版の記録は落ちた版を持たない（既存の振る舞いが変わらない）
-  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 13'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server migration_ledger_ && test "$(cargo test -p ashiato-server migration_ledger_ -- --list 2>/dev/null | grep -c ": test$")" -ge 20'` rc=0（ST48 の台帳の試験が通る）
+  - `st51_migrate_attempt_committed_before_backup` — `// Scenario: 退避を取るときには、試みの行がもう D-01 に入っている`（`before_apply` の中で別の接続から読む）
+  - `st51_migrate_attempt_not_counted_as_prev` — 試みの行だけが最後にある D-01 で migrate を走らせると、前の版は最後に通った行の版になる（D7・D16（仮））
+  - `st51_migrate_startup_between_attempt_and_result` — `// Scenario: 当てる処理の途中で同じ組み立ての S-01 が起動しても、試みと結果の組は崩れない`（`before_apply` の中で `record_startup` を別の接続から呼び、待たずに返ることを `tokio::time::timeout` で見る）
+  - `st51_migrate_first_install_no_attempt` — `// Scenario: 更新の履歴の表が無い D-01 に初めて当てて通った migrate は、警告を出し、結果の 1 行だけを残す`（`testdb::scratch()` の空の DB）
+  - `st51_migrate_two_migrates_pairs_intact` — `// Scenario: 同じ組み立ての当てる処理を 2 つ同時に走らせても、試みと結果は 1 組だけ`（止まっても落ちるよう `tokio::time::timeout` で包む）
+  - `st51_migrate_startup_rechecks_ledger` — `// Scenario: 版の検査の後に知らない版が当たった D-01 には、起動の行を書かない`
+  `st51_migrate_applied_row` は試みの行（1 つ前の行）も、`st51_migrate_first_row_prev_empty` は 2 行（`attempted`・`applied`）も見る
+  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server st51_migrate_ && test "$(cargo test -p ashiato-server st51_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 19'` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server migration_ledger_ && test "$(cargo test -p ashiato-server migration_ledger_ -- --list 2>/dev/null | grep -c ": test$")" -ge 20'` rc=0（ST48 の台帳の試験が通る）
 - [ ] 2.3 本物の bin の試験（`crates/server/tests/server_startup.rs`。所有者の接続で別の印 `0.1.0+<commit A>` の通った行を先に置く。D15）:
   - `st51_bin_migrate_failed_exit1_no_value` — `// Scenario: 移行が落ちた migrate は終了コード 1 で終わり、標準エラーに行の値を出さない`（ST48 の `st48_migrate_content_failure_exits_1` と同じ組み方で、誤りの本文に値の入る誤りにする）
   - `st51_bin_migrate_backup_failed_row` — `// Scenario: 退避に失敗した回は、版を当てていない行が残る`（`PG_DUMP` を失敗する道具にする。終了コード 1）
   - `st51_bin_migrate_db_ahead_writes_nothing` — `// Scenario: 知らない版の当たった DB で止まった migrate は、何も書かない`
   - `st51_bin_migrate_writes_compiled_stamp` — bin の migrate の行の今の版が、その bin の組み立ての印（`ASHIATO_BUILD_STAMP`）と一致する
-  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run st -- cargo test -p ashiato-server --test server_startup st51_bin_migrate_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 4'` rc=0
+  - `st51_bin_migrate_attempt_survives_restore` — `// Scenario: 移行が落ちて退避から D-01 を戻しても、通らなかった回の試みの行が残る`（`PG_DUMP` は本物の `tools/pg_dump-docker.sh`。終了コード 1 の後、
+    取った退避のファイルを空の別の DB へ db のコンテナの中の `pg_restore` で戻し、最後の行が `attempted` でその後に結果の行が無いこと・版の記録に落ちた版が無いことを見る）。
+    前提を試験の中で用意する: `migrate_with` の `env_clear()` の後に `PATH`（と docker が読む `HOME`・`DOCKER_HOST` があればそれ）を渡す口を足す / 戻し先の空の DB は `testdb::scratch()` から取る（`CREATE DATABASE` は testdb.rs の中だけ）/
+    試験の頭で、試験の DB（`testdb::url()` の繋ぎ先のポート）が compose の db（`docker compose port db 5432`）と同じサーバであることを確かめ、違えば失敗にする（飛ばさない）
+  `st51_bin_migrate_backup_failed_row` は 1 つ前の行が `attempted` であることも見る
+  検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run st -- cargo test -p ashiato-server --test server_startup st51_bin_migrate_ && test "$(cargo test -p ashiato-server --test server_startup st51_bin_migrate_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0
 
 ## Task 3: 起動のときに更新の履歴を書く
 
@@ -171,7 +185,7 @@ S-01 の組み立ての印 `ASHIATO_BUILD_STAMP`・C-01 の `BuildConfig.COMPONE
 
 ## Task 10: 申し送りと全体の検査
 
-- [ ] 10.1 `docs/handoff/ST58.md` の ST51 の節（上流が置いた）を読み、ST58 が読む `update_history` の列と `outcome` の値・戻した後の 2 行の書き直しの前提が実装と合っているかを確かめる。食い違えば節に追記する
+- [ ] 10.1 `docs/handoff/ST58.md` の ST51 の節（上流が置いた）を読み、ST58 が読む `update_history` の列と `outcome` の値（`attempted` を含む）・戻した後の書き直しの前提（試みの行は戻しても残り、落ちた版の名前・SQLSTATE と「戻した」を ST58 が書く）が実装と合っているかを確かめる。食い違えば節に追記する
   検証: `python3 scripts/check_chain.py .` rc=0
 - [ ] 10.2 全体の検査
   検証: `python3 scripts/check_scenarios.py . st51-update-history` rc=0 / `./tools/check-migrations.sh` rc=0 / `./tools/check-shared-appends.sh` rc=0
