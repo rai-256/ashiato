@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{authorize, internal_at, App, Writer};
+use crate::{internal_at, App, Writer};
 
 /// 破棄の理由（spec の 4 つ）。**文字列で受けてから検査する** ——
 /// 型で受けると知らない理由が「形として読めない」に畳まれ、端末のログから区別できない。
@@ -367,13 +367,13 @@ async fn drop_one(
 /// **端末は断られた報告も捨てずに送り直す**（C2）ので、断るのは形の不正と登録簿に無いソースに限る。
 #[utoipa::path(post, path = "/drops", request_body = Vec<DropReportRequest>,
     responses((status = 200, body = Vec<DropResult>), (status = 400, body = Vec<DropResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn drops_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<DropResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<DropResult>>), crate::contract_version::Refusal> {
+    let writer = Writer::of(crate::contract_version::authorize_versioned(&app, &headers).await?);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],

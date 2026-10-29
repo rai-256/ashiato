@@ -1974,13 +1974,13 @@ async fn apply_external_update(
 /// 正しい分は格納される —— 1 件の恒久的な失敗が後続を永久に止めないため。
 #[utoipa::path(post, path = "/ingest", request_body = Vec<IngestRequest>,
     responses((status = 200, body = Vec<IngestResult>), (status = 400, body = Vec<IngestResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn ingest(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<IngestResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<IngestResult>>), crate::contract_version::Refusal> {
+    let writer = Writer::of(crate::contract_version::authorize_versioned(&app, &headers).await?);
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -3254,13 +3254,13 @@ pub async fn store_heartbeat(
 /// 400 は「1 件も受け付けなかった」ことを意味する（`/ingest` と同じ約束）。
 #[utoipa::path(post, path = "/heartbeat", request_body = Vec<heartbeat::HeartbeatRequest>,
     responses((status = 200, body = Vec<HeartbeatResult>), (status = 400, body = Vec<HeartbeatResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn heartbeat_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), (StatusCode, String)> {
-    authorize(&app, &headers).await?;
+) -> Result<(StatusCode, Json<Vec<HeartbeatResult>>), crate::contract_version::Refusal> {
+    crate::contract_version::authorize_versioned(&app, &headers).await?;
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],

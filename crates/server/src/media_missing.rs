@@ -13,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::media::IMAGE_SOURCES;
-use crate::{authorize, internal_at, App, Writer};
+use crate::{internal_at, App, Writer};
 
 /// 原本の欠けの理由（D11 の 7 つ）。**文字列で受けてから検査する**（`drops::REASONS` と同じ向き）。
 pub const REASONS: [&str; 7] = [
@@ -195,13 +195,13 @@ async fn missing_one(
 /// 原本の欠けの報告をまとめて受け取る（design D11）。400 は「1 件も受け付けなかった」ことを意味する。
 #[utoipa::path(post, path = "/media/missing", request_body = Vec<MediaMissingRequest>,
     responses((status = 200, body = Vec<MediaMissingResult>), (status = 400, body = Vec<MediaMissingResult>),
-              (status = 401)))]
+              (status = 401), (status = 426)))]
 pub async fn missing_post(
     State(app): State<App>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), (StatusCode, String)> {
-    let writer = Writer::of(authorize(&app, &headers).await?);
+) -> Result<(StatusCode, Json<Vec<MediaMissingResult>>), crate::contract_version::Refusal> {
+    let writer = Writer::of(crate::contract_version::authorize_versioned(&app, &headers).await?);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],

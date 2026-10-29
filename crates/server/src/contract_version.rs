@@ -7,6 +7,7 @@
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
@@ -60,4 +61,92 @@ pub async fn contract_get(
         })),
         _ => Err((StatusCode::FORBIDDEN, "forbidden".into())),
     }
+}
+
+/// 要求の版が S-01 の版を超える（または読めない）ときの断り。何も格納せず 426 を返す（D4）。
+#[derive(Debug, Clone, Copy)]
+pub struct Unsupported {
+    /// S-01 が受け付ける版（本文に載せる）
+    pub supported: u32,
+    /// `HEAD` は本文を持てない
+    pub bodyless: bool,
+}
+
+impl IntoResponse for Unsupported {
+    fn into_response(self) -> Response {
+        if self.bodyless {
+            return StatusCode::UPGRADE_REQUIRED.into_response();
+        }
+        (
+            StatusCode::UPGRADE_REQUIRED,
+            Json(serde_json::json!({
+                "error": "contract_unsupported",
+                "contract_version": self.supported,
+            })),
+        )
+            .into_response()
+    }
+}
+
+/// 収集アプリの要求（`Caller::ApiToken`）の見出しを検査する。画面のログイン・衛星には掛けない（D16）。
+/// 版の値と断りの種別だけをログに出す（記録の値は出さない）。
+pub fn check_header(
+    app: &App,
+    caller: &Caller,
+    headers: &HeaderMap,
+    bodyless: bool,
+) -> Result<(), Unsupported> {
+    if !matches!(caller, Caller::ApiToken) {
+        return Ok(());
+    }
+    let refuse = |requested: Option<u32>| {
+        // log-ok: 契約の版は整数の定数で、記録の値ではない（ST50 の規則）
+        tracing::warn!(
+            kind = "contract_unsupported",
+            requested = requested.map(i64::from).unwrap_or(-1),
+            supported = app.contract_version,
+            "新しすぎる契約の版の要求を断った"
+        );
+        Err(Unsupported {
+            supported: app.contract_version,
+            bodyless,
+        })
+    };
+    match requested_version(headers) {
+        Ok(v) if v <= app.contract_version => Ok(()),
+        Ok(v) => refuse(Some(v)),
+        Err(Unreadable) => refuse(None),
+    }
+}
+
+/// 収集アプリが送る口の断り。従来の `(状態符号, 文字)` の断りと 426 を同じ `?` で返せる。
+#[derive(Debug)]
+pub struct Refusal(Response);
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        self.0
+    }
+}
+
+impl From<(StatusCode, String)> for Refusal {
+    fn from(e: (StatusCode, String)) -> Self {
+        Self(e.into_response())
+    }
+}
+
+impl From<Unsupported> for Refusal {
+    fn from(u: Unsupported) -> Self {
+        Self(u.into_response())
+    }
+}
+
+/// `authorize` の直後に見出しを検査する。収集アプリが送る口（取り込み・生存信号・破棄・原本の欠け）が使う。
+pub async fn authorize_versioned(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<crate::web_session::Caller, Refusal> {
+    let caller = authorize(app, headers).await?;
+    check_header(app, &caller, headers, false)?;
+    Ok(caller)
 }
