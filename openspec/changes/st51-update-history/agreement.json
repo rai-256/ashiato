@@ -1,0 +1,36 @@
+{
+  "status": "accepted",
+  "digest": "afb6963f6d76306991baffe0c41d80b28d762b5057e545061e12bf4f85967224",
+  "head": "9a6a76847889685fcd9b63537afa1bb523660cd0",
+  "answers": "deep-answers-1.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-29T13:52:35Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "版の検査で止まった試みは、更新の履歴に残らない"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "区別に使う見せ方を受け持つ Story を、この分析では見つけていない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "low",
+      "title": "同じ commit の未 commit の変更つきの組み立てどうしの入れ替えは、行にならない"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "ST58 より前に退避から戻すと、落ちた回の行が消える"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "low",
+      "title": "既存のアプリの役割の試験が、更新の履歴の REVOKE で落ちる"
+    }
+  ]
+}
