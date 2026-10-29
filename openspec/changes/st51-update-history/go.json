@@ -1474,13 +1474,13 @@
    {
     "id": "E15",
     "source": "code",
-    "loc": "crates/server/src/export.rs:629-631",
+    "loc": "crates/server/src/export.rs:649-651",
     "quote": "WHERE table_schema = 'core' AND table_type = 'BASE TABLE'"
    },
    {
     "id": "E16",
     "source": "story",
-    "loc": "openspec/changes/st23-record-erasure/design.md:117",
+    "loc": "openspec/changes/archive/2026-10-30-st23-record-erasure/design.md:117",
     "quote": "書き出しの表の分類（`export.rs` の表）に **3 表**を `Exclude` で足す"
    }
   ],
@@ -2206,7 +2206,7 @@
      }
     },
     {
-     "text": "同じファイルを触る走っている change: st49-record-component-version（export.rs・lib.rs・migrations/ORDER・試験の台本）・st23-record-erasure（export.rs の分類・migrations/ORDER・check-immutable.d）・st11-health-history-permission（migrations/ORDER）・ch05-test-db-bloat（lib.rs）。ORDER は末尾に 1 行ずつ足す取り決めで、lib.rs は別の関数を触る。組み合わせで振る舞いが変わる所はこの分析では見つけていない",
+     "text": "同じファイルを触る走っている change: st49-record-component-version（export.rs・lib.rs・migrations/ORDER・試験の台本）・st23-record-erasure（export.rs の分類・migrations/ORDER・check-immutable.d。2026-10-30 に archive 済み）・st11-health-history-permission（migrations/ORDER）・ch05-test-db-bloat（lib.rs）・st50-contract-version（export.rs・lib.rs・migrations/ORDER・生存信号の受け口と収集アプリの生存信号・check-migrations.sh・check-openapi.sh）。ORDER は末尾に 1 行ずつ足す取り決めで、lib.rs は別の関数を触る。st50-contract-version と組み合わせると、ST51 が生存信号に足す版の欄は、ST50 の封筒の形の写し（`docs/contract/envelope.json`）を `tools/check-contract-version.sh --write` で作り直すまで CI で落ち、知らない欄を断る S-01（ST50 の後・ST51 の前）に新しい収集アプリが送った生存信号は `unknown_field` で断られうる（ST50 の design D2。収集アプリが捨てない断りの種別なので手元に残る）。最初の配った印の前なので契約の版は 1 のまま（ST50 の review/spec.md R14 が ST51 へ deferred）。ST51 の tasks はまだこの作り直しを書いていないが、CI が機械で落とすので黙っては通らない。この 2 つのほかに、組み合わせで振る舞いが変わる所はこの分析では見つけていない",
      "refs": {
       "requirements": [
        "S-01 の版が変わると、更新の履歴に 1 行残る",
