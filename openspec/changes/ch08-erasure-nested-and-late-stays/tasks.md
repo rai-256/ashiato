@@ -12,7 +12,7 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 作り直しで吸収された重なる滞在の本文も消える`）。
   `scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は 47 本**（`record-deletion` の MODIFIED に足した 27 本 + ADDED の 8 本 + `browsing-views` の MODIFIED に足した 12 本）。人間の確認待ちは 0 本。
+- **この change が足す Scenario は 48 本**（`record-deletion` の MODIFIED に足した 28 本 + ADDED の 8 本 + `browsing-views` の MODIFIED に足した 12 本）。人間の確認待ちは 0 本。
   MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えない）。THEN を書き換えたのは「後から届いて本文を消した件数が行に出る」の 1 本だけで、その e2e を Task 6 で直す。
   **書き直す ST23 の既存の試験は 3 本だけ**（design D1 の表）: `st23-purge.spec.ts` の文面（6.1）・`stay_tests.rs` の `DayEntry` のリテラル（5.1）・`purge_late_tests.rs` の入れ子の B を戻す試験（3.1）
   THEN に主張が 2 つ以上ある Scenario は、試験が主張を 1 つずつ assert する
@@ -39,13 +39,13 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
   `user:purged` への付け替えと削除の台帳の `erase` の行）。`stay_store.rs` の `load_existing` が本文を消した滞在の操作の識別子を持ち、`rebuild_day` が `assign` の後に design D2 の 1〜3 で L を見分け、
   (a) 吸収される L は `absorb` の代わりに、(b) 引き継いで隠れる L は引き継がせずに新しい行を隠して作り、どちらも L を `purge_hidden_overlap` に渡す。元の操作は design D3 の順で選ぶ。
   Scenario: `作り直しで吸収された重なる滞在の本文も消える` / `作り直しで消した時間帯と重なるとして隠れた重なる滞在の本文も消える` / `作り直しで隠れた重なる滞在の前の版の本文も消える` /
-  `端が触れるだけの滞在は作り直しで隠れても本文が残る` / `作り直しの前から隠れていた滞在の本文は作り直しで消えない` / `一覧に出ている重なる滞在は隠れるまで本文が残る` /
+  `端が触れるだけの滞在は作り直しで隠れても本文が残る` / `範囲の行が無い本文を消した滞在の日に隠れた滞在は本文が残る` / `作り直しの前から隠れていた滞在の本文は作り直しで消えない` / `一覧に出ている重なる滞在は隠れるまで本文が残る` /
   `重なる滞在の本文が消せないと作り直しは何も残さない` / `作り直しで本文を消した滞在は消した時間帯を広げない` /
   `作り直しで本文を消した滞在は後から本文を消した操作として台帳に残る` / `作り直しで本文を消した滞在の時間が範囲の行に残る` / `2 つの本文ごと消した時間帯と重なる滞在は重なりの大きい方の操作に結ばれる`。
   （「消せないと」は ST23 の `erase_with_action` と同じく試験用の差し込み口で消去の台帳の CHECK 違反を起こし、作り直しの後に L の印が `NULL`・本文が残ることを DB から読む。
   場面は新しい `crates/server/src/purge_hidden_tests.rs` に作る。一覧に出ている L は「作り直しが落ちて残った滞在」として、位置を消した後に印を付けずに置く —— ST23 D17 の場面）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_hidden_'` rc=0、
-  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_hidden_ -- --list 2>/dev/null | grep -c ": test$")" -ge 11'` rc=0
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_hidden_ -- --list 2>/dev/null | grep -c ": test$")" -ge 12'` rc=0
 - [ ] 1.2 ST23 の作り直し・本文ごと消す・後着の試験が変わらず通る（`rebuild_day` の書き換えで壊していない）。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server stay_'` rc=0、

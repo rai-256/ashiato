@@ -31,13 +31,15 @@ change: `openspec/changes/ch08-erasure-nested-and-late-stays/`（capability `rec
 
 ## tasks
 
-7 Task・9 項目。Scenario 47 本（server の試験 33 本の Scenario + e2e 14 本）。人間の確認待ちは 0。書き直す ST23 の既存の試験は 3 本（design D1 の表）。
+7 Task・9 項目。Scenario 48 本（server の試験 34 本 + e2e 14 本）。人間の確認待ちは 0。書き直す ST23 の既存の試験は 3 本（design D1 の表）。
 
 ## レビュー
 
-- `review/deep.md`（問いの検査）10 件: 失うもののある 6 件は問いか聞かずに決めたものに直して本人に返した（escalated）。ほかは fixed
+- `review/deep.md`（問いの検査）10 件: 失うもののある 6 件は問いか聞かずに決めたものに直して本人に返した（escalated）。ほかは fixed。
+  処置の印は spec の段で返し先に合わせて書き直した（questions の段は `fixed` と書いていた。返し先は deep.md の「問いの検査の指摘の返し先」）
 - `review/spec.md`（spec-review）11 件: fixed 10（仮 3 を含む）・rejected 1（R1 は判断の衝突ではなく依頼の写しの残り。写しは消した）。
   主な直し: 起動時の手当てが、本人が消して戻した滞在の本文を確認なしに消しうる（R2）→ 削除の台帳に行のある滞在を外し、時刻の比べをやめた（R3・R4）。
   作れない Scenario の場面を書き直した（R5）。既存の試験 2 本の書き直しを数えた（R6）。design にだけあった振る舞いを spec に写した（R9）。
+- 終える前の確かめで: 範囲の行が無い本文を消した滞在（その日全体の窓）では、作り直しで隠れた滞在の本文を消さないことを spec・D2・D5 に足した（ST23 の「見せていない範囲の本文を消さない」と揃える）
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
