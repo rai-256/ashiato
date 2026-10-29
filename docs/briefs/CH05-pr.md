@@ -1,41 +1,57 @@
-# CH05 試験の DB が打ち切った run の残りで膨れないようにする（上流）
+# CH05 試験の DB が打ち切った run の残りで膨れないようにする
 
 change: `openspec/changes/ch05-test-db-bloat/`。依頼の逐語・価値・壊してはいけないもの・完了の判定は `docs/changes/CH05.md`。
-**CH04 と CH06 の上に積む**（`requires: [CH04, CH06]`）。依存の spec は gate 済みの SHA から読んだ（CH04 `9fe8c5e` PR #156・CH06 `c666673` PR #164。`deps.json`）。コードは取り込んでいない。
+CH04 と CH06 の上に積む（`requires: [CH04, CH06]`）。finish で origin/main（CH07・ST41 の archive の後）を取り込んだ（`4bc276fb`。review/code.md R22）。
 
-- `test-database`（CH04 が立てる）に ADDED 1 つ: 試験を途中で殺しても、次の回の後に残りが無いことを台本と CI が確かめる（Scenario 10 本）
-- `verify-environment`（CH06 が立てる）に ADDED 1 つ: 作り直す検証の準備は、消えた作業ツリーのコンテナとネットワークを片付け、volume は消さない（Scenario 15 本）
-- `verify-environment` の MODIFIED 1 つ: CH06 の「印があれば、検証の準備がこの worktree の DB を空から作り直す」に、片付けの例外の 1 文と Scenario 1 本を足す（本文と Scenario 5 本は c666673 から逐語）
+- `tools/check-test-db-killed.sh`（新規）: 探りの試験 `ch05_killed_probe` を 2 つの時点（`insert` 行を書く前の走っている INSERT / `committed` 確定した後）で SIGKILL し、次の回の後に殺した回の database が残らず、`ashiato` の行数が同じで大きさが 1 MiB を超えて増えないことを見る。秒数は出すだけ
+- `tools/docker-tidy.sh`（新規）: 作業ツリーが消えた `<main>-` の compose project のコンテナとネットワークを外す。volume は消さない
+- `tools/verify-env.sh` に 1 行: 作り直す（`reset`）ときだけ、`reset_db`・`clear_blocking_network` の前に片付けを呼ぶ。落ちても `片付けに失敗した` の 1 行を出して続ける
+- CI の rust job に 4 行（`check-test-db-killed.sh --self-test`・`docker-tidy.sh --self-test`・`--verify-env-check`・`check-test-db-killed.sh`）。`docs/testing.md`・`docs/flow-gates.md`
 
-## 深掘りで本人が決めたこと
+## deep.md に積んだ未決（A）
 
-| Q | 本人の答え | どこに効くか |
-|---|---|---|
-| Q1 CH05 の範囲 | CH04 の上に積み、CH04 が持たないものだけをやる（推奨と同じ） | proposal・tasks 1.1・`requires` |
-| Q2〜Q5 作り直し・見送り・作り直し方・範囲 | 推奨と同じに答えたが、**Q8 で CH05 の範囲から外れた**（CH06 が検証のたびに空から作り直す） | design の Non-Goals |
-| Q6 殺した後の確かめ方 | 量で見る（殺した回の database が残らない・`ashiato` の行数が同じ・大きさが 1 MiB を超えて増えない）。秒数は出すだけ。殺す時点は 2 つ（推奨と同じ） | test-database の Requirement・D2・tasks 4〜6 |
-| Q7 ついでに直すか | **消えた作業ツリーのコンテナ・ネットワークを片付ける（volume は消さない）**（推奨と違う） | verify-environment の ADDED・D4・D5・tasks 2・3 |
-| Q8 CH06 との重なり（第 2 回） | CH05 は殺した後の検査と片付けだけにし、作り直し・見送りは CH06 に任せる（推奨と同じ） | proposal・MODIFIED・`requires: [CH04, CH06]` |
+なし
 
-## 仮決め（B）と反転条件（design の（仮））
+## 仮決め（B）と Ruling
 
-- **D1（仮）** 置き場: 殺した後の検査は `test-database`、片付けは `verify-environment`（CH06 の Requirement 1 を同じ capability で MODIFIED）。MODIFIED には 3-way の base ができないので、tasks 8.1 が CH06 のいまの塊と `diff` で見る。反転条件: CH06 が Requirement 1 の名前・本文・Scenario を変えたら写し直す
-- **D2（仮）** 殺した後の検査は `#[ignore]` の探りの試験を印で同期して SIGKILL（`insert` / `committed`）。反転条件: CI でプロセスグループの kill が効かなければ pid を直接殺す。次の回の秒数が 10 倍を超える例が出たら Q6 を本人に返す
-- **D4（仮）** 片付けの台本 `tools/docker-tidy.sh`（`<main>-` の project・path が無く `git worktree list` にも無い・main と `-verify` を除く。繋がったコンテナは `docker ps -a --filter network=` で読む。`rm -f` に `-v` を付けない）。反転条件: 作業ツリーが残っているのに外された例が出たら `git worktree list` だけで見る
-- **D5（仮）** 片付けは作り直す（`--plan` が `reset`）ときだけ、`reset_db` と `clear_blocking_network` の前に呼ぶ。落ちたら `片付けに失敗した` と rc の 1 行を出して続ける。反転条件: 印の無い経路で割り当てが尽きる例が出たら毎回呼ぶ形にし、CH06 の Requirement 2 も MODIFIED する
+全 Task の ledger（`.superpowers/sdd/ch05-task-1`〜`8`）に `progress.md` は無く、`Ruling:` 行は 0 件。仮決めは design の（仮）と台帳にある:
 
-仮でない決定: D3（新しい試験の頭は `ch05_`）・D6（MODIFIED は CH06 の Requirement 1 の 1 文だけ。ほかの CH06 の Requirement は書き直さず、ADDED の本文で「何も消さずに」の範囲を名指す）・D7（CI の rust job の 4 行と文書）。
-D 番号は Q8 の後に振り直した（旧 D6 → D2・旧 D7 → D3・旧 D9 → D4・D5・旧 D8 → D7。旧 D1〜D5 は Q8 で外した）。
+- **D1（仮）** 置き場: 殺した後の検査は `test-database`、片付けは `verify-environment`（CH06 の Requirement 1 を MODIFIED）。tasks 8.1 が正典との diff で見る（取り込んだ木で rc=0）
+- **D2（仮）** 探りの試験を印で同期して SIGKILL する。`insert` の時点は行を 1 つも書く前の走っている文で、書きかけの行がある状態は見ない（finish で spec の本文と D2 に書き足した。R19）
+- **D4（仮）** 片付けの条件（`<main>-` の project・path が無く `git worktree list` にも無い・main と `-verify` を除く。`rm -f` に `-v` を付けない）
+- **D5（仮）** 片付けは `reset` のときだけ、`reset_db` の前。CH07 の後は `reset_done=` の後・`reset_db` の前（R22）。反転条件: CH07 の宣言が片付けも対象にすると決めたら `reset_done=` の前へ
+- **D8（Q9 で確定）** 外したコンテナの volume と作業ツリーの結び付きは残さない（R20）。仮で足した inspect と行の末尾の `残す volume:` を、別の席（`provisional-review.md`）の否の後、Q9 (a) の答えどおり外した
+- finish が退けたもの（Ruling 相当）: R15 開始時の探りの掃除を外した（並走するほかの木の self-test を消さない代わりに、SIGKILL された self-test の探りは印 `dev.ashiato.ch05-tidy-probe=1` で手で探す）
 
-## capability
+## Task
 
-前倒しは無い。`test-database` は CH04、`verify-environment` は CH06 の delta にしかなく正典に無い（`openspec validate` は MODIFIED の当たる先が無いことを情報として出す）。archive は CH04 と CH06 の後。
+8 Task・15 項目すべて `[x]`。残した Task は無い。
 
-## tasks・レビュー
+## 検証（finish の後の木 `7e95030f` で `scripts/verify-run`、evidence.jsonl）
 
-- tasks: 8 Task・14 項目（前提 / 片付けの台本 / 検証の準備への組み込み / 探りの試験 / 殺した後の検査の台本 / 本物で殺す / CI と文書 / 全体の確かめ）。CH05 で足した Scenario 26 本を全部名指す（写した 5 本の印は CH06 の検査のまま）
-- spec-review（この段）: 9 件（R36〜R44。`review/spec.md`）。どれも technical で fixed（うち仮 4: D1・D4・D5）。観点 7 は CH06 の 4 件がどれも「前提」で、requires にある
-- 前の段までの指摘 R1〜R35 は、番号の振り直しに合わせて処置の指す先を付け替えた（Q8 で対象が無くなった 8 件は `fixed design.md` として元の処置を残した）
-- `openspec validate --strict` OK・`evidence.py lint` OK・`review_triage.py` OK・`spec_overlap.py check` OK・`check_chain.py` OK
+| 項目 | 結果 |
+|---|---|
+| 2.1 片付けの台本と self-test | PASS 4 本（rc=0） |
+| 3.1 verify-env への組み込み（`EV quiet-run ch06 …` 70 秒を含む） | PASS 4 本 |
+| 3.2 `docker-tidy.sh --verify-env-check`（23 秒） | PASS 4 本 |
+| 5.1 `check-test-db-killed.sh --self-test` と印 | PASS 3 本 |
+| 6.1 本物の試験で殺す（71 秒） | PASS 3 本 |
+| 8.1 Scenario の印・正典との diff | PASS 2 本。`openspec validate --strict` は手で rc=0（INFO なし。証跡には載らない —— 下の申し送り） |
+| 8.2 変えないものが変わっていない | PASS 2 本 |
+| 8.3 verify-env と `cargo test -p ashiato-server`（187 秒） | PASS 2 本 |
+
+ほかに: `cargo fmt --all --check` rc=0、`python3 scripts/review_triage.py . ch05-test-db-bloat` triage: OK、`check_scenarios.py` scenarios: OK。
+
+## レビュー
+
+- final review（R1〜R14）: 全部 fixed。scoped re-review で ADDRESSED。R15・R16 は rejected
+- code-verify（R17〜R22）・security-review（指摘なし）・`/code-review`（R23〜R30）を finish で処置:
+  - fixed: R17（self-test がネットワークの守りを観測していなかった）・R18（片付け → reset_db → clear_blocking_network の順を self-test が固定）・R19・R20（Q9 に返し、答え (a) で D8 を確定。仮の実装を外した）・R21・R22（取り込み）・R24（docker の警告を一覧に読まない `dq`）・R25（psql の失敗で 120 秒待たない）・R29（`timed_next`）
+  - rejected（反証は review/code.md）: R23・R26・R27・R28・R30 —— どれも spec か tasks 8.2 が決めたとおり
+  - 直したものは、守りを壊した複製で self-test が rc=1 になることを確かめた。scoped re-review: 全部 ADDRESSED／反証が成り立つ、新しい不具合なし
+
+## 未処置の申し送り
+
+- **harness2**: `scripts/evidence.py` の `CMD_LIKE` が `openspec` で始まるコマンドを拾わず、tasks 8.1 の `openspec validate … --strict` が証跡に載らない（R21）。harness2 側で `openspec\s` を足す
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

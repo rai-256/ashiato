@@ -121,6 +121,9 @@ mod feelings_remind_tests;
 mod feelings_tests;
 pub mod heartbeat;
 pub mod ingest;
+/// 打ち切られた回の残りを消すことを台本が確かめるための探り（CH05）。
+#[cfg(test)]
+mod killed_probe_tests;
 pub mod media;
 #[cfg(test)]
 mod media_coverage_tests;
