@@ -3,6 +3,7 @@
 > 推奨の答えで先に仕様と GO 資料を書いた（2026-10-20 の流れ）。答えは `deep-answers-1.txt`（2026-10-25 record）。
 > 本人は全問に答えた（`(推奨のまま: …)` は無い）。推奨と違ったのは Q7 だけ。仕様への合意（QA）は「合意する」。
 > 第 2 回の問い Q8（premise。CH06 との重なり。`deep-questions-r2.json`）は `deep-answers-2.txt`（2026-10-25 record）で本人が答えた（推奨と同じ）。節は「## 第 2 回」。
+> 第 3 回の問い Q9（irreversible。仮の D8 が否とされたもの。`deep-questions-r3.json`）は `deep-answers-4.txt`（2026-10-27 record）で本人が答えた（**推奨と違う**）。節は「## 第 3 回」。
 
 ### Q1. CH05 の範囲 —— 走っている CH04 との分け方
 
@@ -70,8 +71,30 @@
 - 仕様へ: `spec --answers Q8` が proposal・specs・design・tasks と `docs/changes/CH05.md` の完了の判定に写す。spec・design・tasks を書き直すので、仕様への合意はもう一度聞く（選択肢の detail のとおり）
 - **効く先**: 推奨なら proposal・spec の Requirement 1・2 と Scenario 14 本・design D1〜D5・tasks Task 1・2 と 4.2 の見送りの確かめを外し、`docs/changes/CH05.md` の front matter を `requires: [CH04, CH06]` にし、CH06 の「ほかの project のコンテナには触らない」（`verify-environment`）を消えた作業ツリーを除く形に MODIFIED で書き直す（review/spec.md R21）。Q7 の片付け（D9）と殺した後の検査（D6）は残る
 
+## 第 3 回（下流の merge gate で、仮の D8 が否とされたもの。2026-10-27）
+
+| Q | 段 | 論点 | 失われるもの |
+|---|---|---|---|
+| Q9 | A（irreversible） | 片付けが外したコンテナの名前の無い volume と、作業ツリーとの結び付きをどこに残すか（review/code.md R20・provisional-review.md D8） | discarded（外した後は volume と作業ツリーの結び付きを docker から引けない） |
+
+### Q9. 片付けが外したコンテナの volume と、作業ツリーとの結び付き（A / irreversible。推奨: main の checkout の下の記録のファイルに 1 行ずつ足す）
+
+- **なぜ人間の判断か**: finish で R20 を失わない側として仮（D8: 外す 1 行に残す volume の名前を出す）で進めたが、別の席（provisional-review.md）が否とした。
+  その行は検証のログ（作業ツリーの git の管理外の `.superpowers/sdd/logs/`）にしか残らず、作業ツリーが消えると一緒に消える。手で呼んだときはどこにも残らない。
+  本当に失わない形（記録のファイル）は spec の本文（「標準エラーに 1 行」）を変えるので、仮で決めてよい範囲を越える
+- **出所**: review/code.md R20・provisional-review.md D8・docs/briefs/CH05-gate.md
+- **問い**: `deep-questions-r3.json`（HTML は `docs/briefs/CH05-deep-r3.html`）
+- 答え: (a) 結び付きは要らない。inspect と行の末尾を外す（本人の選択。**推奨（(b) main の checkout の下の記録のファイルに 1 行ずつ足す）と違う**）
+- 補足: なし
+- これで決まったこと: 片付けが外したコンテナの名前の無い volume と、作業ツリーとの結び付きは残さない（外した時点で分からなくなることを本人が受け入れた。選択肢 (a) の irreversible）。
+  volume は Q7 のとおり消さず、中身を探すときは作られた時刻で `docker volume ls` から当たる。外すコンテナごとの `docker inspect` と、外した 1 行・`--dry-run` の 1 行の末尾の `残す volume: <名前>` は外す
+  （inspect に問えないときに外さず rc=1 にする枝も一緒に無くなる）。spec（`verify-environment` の片付けの本文）と仕様への合意は変わらない
+- 仕様へ: `spec --answers Q9` が design D8（反転条件の「結び付きは要らない」側で確定）・Risks の該当行・tasks に写す。`tools/docker-tidy.sh` の inspect・行の末尾・`--self-test` の該当を外すのは下流
+- **効く先**: (a) なら `tools/docker-tidy.sh` の inspect と行の末尾・self-test の該当を外す。(b) なら `verify-environment` の片付けの Requirement を MODIFIED し、Scenario を 1 本足し、記録のファイルへの追記と self-test を足し、仕様への合意をもう一度聞く。(c) なら design D8 を確定にするだけ
+
 ## 当初案を覆したもの
 
+- Q9: 推奨は (b)（main の checkout の下の記録のファイルに、外したコンテナごとに 1 行足す）。本人は (a) を選び、volume と作業ツリーの結び付きは残さないことにした（仮の D8 の inspect と行の末尾も外す）
 - Q8: 第 1 回の Q2〜Q5（膨れたら作り直す・見送る）の答えは、CH06 との重なりで CH05 の範囲から外れた（本人は推奨を選んだ。作り直しは CH06 が検証のたびに空から行う）
 - Q7: 推奨は「どれも入れない（(1) は別の change へ申し送る）」。本人は (1) を選び、使われていないコンテナ・ネットワークの片付けを CH05 の範囲に入れた（volume は消さない）
 
