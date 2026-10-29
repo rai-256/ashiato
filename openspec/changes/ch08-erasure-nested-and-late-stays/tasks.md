@@ -12,8 +12,9 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 - **テストには `Scenario: <名前>` の印を置く。** Rust / TypeScript はコメント（`// Scenario: 作り直しで吸収された重なる滞在の本文も消える`）。
   `scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` が spec の全 Scenario と突き合わせ、**印の無い Scenario を FAIL にする**。印の名前は spec の `#### Scenario:` と**一字一句合わせる**
-- **この change が足す Scenario は 40 本**（`record-deletion` の MODIFIED に足した 25 本 + ADDED の 6 本 + `browsing-views` の MODIFIED に足した 9 本）。人間の確認待ちは 0 本。
+- **この change が足す Scenario は 47 本**（`record-deletion` の MODIFIED に足した 27 本 + ADDED の 8 本 + `browsing-views` の MODIFIED に足した 12 本）。人間の確認待ちは 0 本。
   MODIFIED で写した既存の Scenario は既存の印を生かす（名前を変えない）。THEN を書き換えたのは「後から届いて本文を消した件数が行に出る」の 1 本だけで、その e2e を Task 6 で直す。
+  **書き直す ST23 の既存の試験は 3 本だけ**（design D1 の表）: `st23-purge.spec.ts` の文面（6.1）・`stay_tests.rs` の `DayEntry` のリテラル（5.1）・`purge_late_tests.rs` の入れ子の B を戻す試験（3.1）
   THEN に主張が 2 つ以上ある Scenario は、試験が主張を 1 つずつ assert する
 - **件数つき検証**: 各項目の「検証:」は、`cargo test` を repo の根から `scripts/quiet-run` で走らせるもの（rc=0）と、`-- --list` で一致する試験の本数の下限を見るもの（rc=0）の 2 つを並べる。
   `cargo test <絞り込み>` は一致するテストが 0 本でも rc=0 になるので、下限の方を必ず走らせる。絞り込みは 1 つずつ書く。一時ファイルは `"$TMPDIR"` の下に書く（`/tmp` の固定名に書かない）
@@ -52,36 +53,43 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 
 ## Task 2: 起動時の手当て（design D5。spec「本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在は、サーバの起動のたびに本文を消す」）
 
-- [ ] 2.1 `deletion.rs` に手当ての関数（例: `purge_hidden_overlap_remedy(pool) -> 残った件数`）を置く。design D5 の条件で対象を探し、利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で
-  Task 1 の `purge_hidden_overlap` に渡す。`lib.rs` の `run()` が、`purged_without_span` のログの隣・待ち受けの前で 1 回呼び、失敗しても起動を続けて `warn`（`kind = "purge_hidden_overlap_remedy"`・残った件数・SQLSTATE）を出す。
+- [ ] 2.1 `deletion.rs` に `purge_hidden_overlap_remedy(&pool) -> usize`（残った件数）を置く。design D5 の 4 つの条件（時刻を比べない）で対象を探し、利用者ごとに錠を取ったトランザクション（`lock_timeout` 5 秒）で
+  Task 1 の `purge_hidden_overlap` に渡し、失敗を飲み込んで `warn`（`kind = "purge_remedy"`・残った件数・SQLSTATE だけ）を出すところまでこの関数が持つ。
+  `lib.rs` の `run()` は、`purged_without_span` のログの隣・待ち受けの前でこの関数を 1 回呼ぶだけ（`?` で伝えない）。
   Scenario: `起動すると本文ごと消した後に隠れて本文が残った重なる滞在の本文が消える` / `起動を繰り返しても台帳の行は増えない` / `本文ごと消す前から隠れていた端の滞在は起動しても本文が残る` /
-  `本文ごと消した後に初めから隠して作られた滞在は起動しても本文が残る` / `対象が無ければ起動の手当ては何も書かない` / `手当てが失敗しても起動は止まらず、次の起動で消える`。
+  `本文ごと消した後に初めから隠して作られた滞在は起動しても本文が残る` / `本文ごと消した後に戻されて作り直しで隠れた消した滞在は起動しても本文が残る` /
+  `起動の手当てのログは件数だけを持つ` / `対象が無ければ起動の手当ては何も書かない` / `手当てが失敗しても起動は止まらず、次の起動で消える`。
   （「前の状態」は CH08 の前の作り直しを再現して作る: 本文ごと消した後、一覧に出ている L に `rebuild:absorbed` の印を直に付ける。「起動する」は `run()` が呼ぶのと同じ関数を呼ぶ。
-  「失敗」は試験用の差し込み口で 1 回目の消去を落とし、戻り値の残った件数が 1 で、もう一度呼ぶと 0 になり本文が空であることを見る。ログの件数は `tracing` の捕まえ口か戻り値で見る）
+  「失敗」は試験用の差し込み口で 1 回目の消去を落とし、関数が panic も `Err` も返さず残った件数 1 を返し、もう一度呼ぶと 0 になり本文が空であることを見る。
+  ログは `tracing` の捕まえ口で行を読み、件数があり、滞在の識別子・時刻・緯度経度の文字列が無いことを見る）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_remedy_'` rc=0、
-  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_remedy_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'` rc=0、
-  `bash -c 'grep -q "purge_hidden_overlap_remedy" crates/server/src/lib.rs'` rc=0（`run()` から呼ばれている）
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_remedy_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'` rc=0、
+  `bash -c 'grep -q "deletion::purge_hidden_overlap_remedy(&pool)" crates/server/src/lib.rs'` rc=0（`run()` から呼び出しの形で呼ばれている）
 
 ## Task 3: 戻す口の断り（design D4。spec「消したものを戻せる」）
 
 - [ ] 3.1 `stay_store.rs` の `rebuild_day` の本体を、呼び出し側のトランザクションで走る `rebuild_day_in(tx, …)` に切り出す（`rebuild_day` はそれを包むだけ。振る舞いは変えない）。
   `deletion.rs` の `restore` が、求めた滞在に本文ごと消した時間帯と重なる（端が触れるだけは除く）ものがあるときだけ、印を外した後に同じトランザクションで戻した日を作り直し、
-  重なる滞在のどれかが `deleted_at IS NULL` で残っていなければ巻き戻して `RestoreError::NotRestorable` を返す。`lib.rs` の `stays_restore` は 409 `not_restorable` を返し、作り直し済みの日を作り直さない。
+  重なる滞在のどれかが `deleted_at IS NULL` で残っていなければ巻き戻して `RestoreError::NotRestorable` を返し、その作り直しが落ちたら巻き戻して `RestoreError::RebuildFailed` を返す（design D4 の 4）。
+  `lib.rs` の `stays_restore` は 409 `not_restorable` / 503 `restore_rebuild_failed` を返し、作り直し済みの日を作り直さない。
+  `purge_late_tests.rs` の `purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorable` を design D1 の表のとおり置き直す（B を A からはみ出して滞在になる形に。主張は変えない）。
   重ならない求めはいまのとおり（commit の後に呼び出し側が作り直す）。`docs/openapi.json` を生成し直す。
   Scenario: `本文ごと消した時間にすっぽり入る消した滞在の戻す求めは断られる` / `はみ出しが滞在にならない消した滞在の戻す求めは断られる` / `はみ出しが滞在になる消した滞在は戻せる` /
-  `戻せない滞在を含む戻す求めは何も戻さない` / `戻せない滞在の断りは本文を消した記録の断りと区別できる`。
+  `戻せない滞在を含む戻す求めは何も戻さない` / `戻せない滞在の断りは本文を消した記録の断りと区別できる` / `戻せるかを確かめる作り直しが落ちると何も戻さない`。
   （場面は premises.md の探り A1〜A3 と同じ: P 10:00–11:00 の位置 5 分おき・B のはみ出しの位置。HTTP の口を叩き、DB から B と位置の印と本文を読む）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_restore_'` rc=0、
-  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_restore_ -- --list 2>/dev/null | grep -c ": test$")" -ge 5'` rc=0、
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_restore_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'` rc=0、
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_late_'` rc=0（置き直した 1 本を含む）、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server deletion_tests'` rc=0（ST22 の戻す口の試験が緑のまま）、
   `bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'` rc=0
 
 ## Task 4: 確認の口の「一覧に出ている重なる滞在」（design D7。spec「本文ごと消す前に、消える件数と残るものを示す」）
 
 - [ ] 4.1 `deletion.rs` の `PurgeScope` と確認の口の応答（`lib.rs`）に `visible_overlaps` を足す（design D7 の数え方）。`counts`・消す口の `expected` の比べ・範囲は変えない。`docs/openapi.json` を生成し直す。
-  Scenario: `確認は一覧に出ている重なる滞在の件数を消える件数の外で返す` / `端が触れるだけの一覧に出ている滞在は重なる滞在に数えない`
+  消す口は `visible_overlaps` を比べない（design D7）。
+  Scenario: `確認は一覧に出ている重なる滞在の件数を消える件数の外で返す` / `端が触れるだけの一覧に出ている滞在は重なる滞在に数えない` / `確認の後に一覧に出ている重なる滞在が増えても本文ごと消せる`
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_visible_'` rc=0、
-  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_visible_ -- --list 2>/dev/null | grep -c ": test$")" -ge 2'` rc=0、
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_visible_ -- --list 2>/dev/null | grep -c ": test$")" -ge 3'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_api_'` rc=0、
   `bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'` rc=0
 
@@ -90,10 +98,12 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
 - [ ] 5.1 `stay_store.rs` の `DayEntry` に `nested`（`NestedEntry`: `start`・`end`・`stay_ids`・`purged`）を足し、`day_view` が design D6 の 1〜4 で入れ子の項目を作る
   （本文を消していない B は差し引いて空になる断片、本文ごと消した B はほかの本文ごと消した区間の和に覆われるもの。親は重なりの大きい区間 → 始まりの早い区間。入れ子にした本文ごと消した B の後からの件数は親に足す）。
   Task 1 の `kind = 'late'`・`stays = 1` の行は、いまの後からの件数の和にそのまま入る。`web/src/stays.ts` の型と検査に `nested` を足す。`docs/openapi.json` を生成し直す。
-  Scenario: `本文ごと消した区間はすっぽり入る消した滞在を入れ子の項目に持つ` / `本文ごと消した入れ子の滞在は別の区間にならない` / `作り直しで隠れて本文を消した滞在も後から本文を消した件数に入る`
+  `stay_tests.rs` の `stay_day_view_empty_day_is_all_no_record` の `DayEntry` のリテラルに `nested: None` を足す（design D1 の表。主張は変えない）。
+  Scenario: `本文ごと消した区間はすっぽり入る消した滞在を入れ子の項目に持つ` / `本文ごと消した入れ子の滞在は別の区間にならない` / `作り直しで隠れて本文を消した滞在も後から本文を消した件数に入る` /
+  `入れ子の滞在の後から本文を消した件数は親の区間に足される` / `時間が同じ 2 つの本文ごと消した滞在は先に消した方が区間になる`
   （新しい `crates/server/src/purge_nested_day_tests.rs`。`day_view` の応答を読む。日の境・2 つの区間に跨る・まとめの規則も同じ前置きで 1 本ずつ試験を足す —— 画面の Scenario の土台）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server purge_nested_'` rc=0、
-  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_nested_ -- --list 2>/dev/null | grep -c ": test$")" -ge 6'` rc=0、
+  `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; test "$(cargo test -p ashiato-server purge_nested_ -- --list 2>/dev/null | grep -c ": test$")" -ge 8'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server day_'` rc=0（ST16 / ST22 / ST23 の 1 日の並びの試験が緑のまま）、
   `bash -c 'cargo run -q -p ashiato-server --bin openapi | diff -q - docs/openapi.json'` rc=0、`bash -c 'cd web && npx vitest run'` rc=0
 
@@ -107,20 +117,21 @@ ST23 の正典と設計は `openspec/specs/record-deletion/spec.md`・`openspec/
   `作り直しで隠れて本文を消した滞在も後からの件数に入る` / `すっぽり入る消した滞在の行から本文ごと消せる` / `すっぽり入る消した滞在の行の本文ごと消すは 44 px を下回らない` /
   `確認に一覧に出ている重なる滞在が添えられる` / `一覧に出ている重なる滞在が無ければ確認に添えない` /
   `すっぽり入る消した時間は本文ごと消した行の下に出る` / `すっぽり入る消した時間が 2 つあれば始まりの順に並ぶ` / `重なるすっぽり入る消した時間は 1 つの行にまとまる` /
-  `2 つの本文ごと消した時間に跨る消した時間は重なりの大きい方の下に出る` / `日の境で切ると本文ごと消した時間に入る消した時間も下に出る` / `すっぽり入る消した滞在を本文ごと消した後も同じ行の下に残る`。
+  `2 つの本文ごと消した時間に跨る消した時間は重なりの大きい方の下に出る` / `日の境で切ると本文ごと消した時間に入る消した時間も下に出る` / `すっぽり入る消した滞在を本文ごと消した後も同じ行の下に残る` /
+  `本文ごと消したすっぽり入る時間はまとめずに 1 行ずつ出る`。
   （場面は `st23-purge.spec.ts` と同じく API で位置を送り・消し・本文ごと消して作る。「すぐ下」は DOM の並びで親の行の次の兄弟であること、字下げは `getBoundingClientRect().left` が親より大きいこと、44 px は幅と高さ。
   「作り直しで隠れて」は、一覧に出ている重なる滞在を作るために位置を消した後の作り直しが走る前の状態を API の並びで作れなければ、試験用の DB の差し込み（`st23-purge.spec.ts` と同じ足場）で印の無い L を置き、日の作り直しを口から呼ぶ）
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e -- ch08-nested.spec.ts'` rc=0、
-  `bash -c 'test "$(grep -c "// Scenario:" web/e2e/ch08-nested.spec.ts)" -ge 13'` rc=0、
+  `bash -c 'test "$(grep -c "// Scenario:" web/e2e/ch08-nested.spec.ts)" -ge 14'` rc=0、
   `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; cd web && npm run test:e2e -- st23-purge.spec.ts day-erase.spec.ts'` rc=0（ST22 / ST23 の画面が緑のまま）
 
 ## Task 7: 仕上げ —— 全体の試験・Scenario の突き合わせ・共有の台本
 
-- [ ] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が `st23-purge.spec.ts` の 1 本だけであることを PR の本文に書く（design D1）。
+- [ ] 7.1 server の試験の全体と、Scenario の印、共有の台本の末尾への書き足しが無いことを確かめる。書き直した ST23 の試験が design D1 の表の 3 本だけであることを PR の本文に書く。
   検証: `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run ct -- cargo test -p ashiato-server'` rc=0、
   `python3 scripts/check_scenarios.py . ch08-erasure-nested-and-late-stays` rc=0、`bash tools/check-shared-appends.sh` rc=0、
   `openspec validate ch08-erasure-nested-and-late-stays --strict` rc=0
-- [ ] 7.2 縦串が通る（画面・API・起動の手当てを通した組み立て）。
+- [ ] 7.2 既存の縦串が緑のまま（CH08 は縦串の節を足さない。CH08 の振る舞いは Task 1〜6 の試験が担保する）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0
 
 ## 人間の確認待ち

@@ -50,7 +50,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - loss: discarded
 - 提案: Q2 の対象を「すっぽり入る B」から「戻しても一覧に戻らない B（入れ子・はみ出しが滞在にならない・吸収される）」に広げ、一部重なりの行の「戻す」も同じ選択肢で扱う。
   context の「一部だけ重なる B は入らない」の文を消し、探り A2 の結果を書く
-- 処置: fixed deep-questions.json Q2 —— 対象を「戻しても一覧に戻らない B」に広げ、探り A2 を context に書いた。一部だけ重なる B の「戻す」も同じ選択肢で扱う
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。deep-questions.json Q2 —— 対象を「戻しても一覧に戻らない B」に広げ、探り A2 を context に書いた。一部だけ重なる B の「戻す」も同じ選択肢で扱う
 
 ## R2. Q2 の推奨（「戻す」を出さない）は画面だけで、`POST /stays/restore` は入れ子の B を受け付けたまま —— 失わない側が成り立っていない
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/deep-questions.json
@@ -60,7 +60,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - loss: discarded
 - 提案: 選択肢 1 に「サーバも、戻しても一覧に戻らない B の戻す求めを 409 で断る（ST23 の『本文を消した記録は戻せず』の Requirement の断り方を広げる）」を書き、
   ST23 の振る舞いを変える箇所として Q1 の範囲（R10）に載せる。断り方の判定（R1 の吸収されるか）を戻す口で前もって決められるかは design に送る
-- 処置: fixed deep-questions.json Q2 —— 推奨を「画面も口も戻さない（戻す口も断る）」にした。断り方の判定は design へ
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。deep-questions.json Q2 —— 推奨を「画面も口も戻さない（戻す口も断る）」にした。断り方の判定は design へ
 
 ## R3. Q8 で本文を消した L の印と範囲の行が決まっていない。印を変えずに後着の処理を使うと、その日の消していない滞在が「消した」に隠れる
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/defaults.md
@@ -75,7 +75,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - loss: uncaptured
 - 提案: defaults に C7 を足す —— L は ST23 D6 と同じ `user:purged` に付け替えて窓から外し（削除の台帳に原因 = P の行）、L と前の版の時間は `kind = late` の操作の範囲の行に残し、操作の行は `stays = 1` で数える。
   探り B1・B2 の結果を理由に書く（範囲の行を書かないと、L の時間は後から取れない）
-- 処置: fixed defaults.md C7 —— L を `user:purged` に付け替え、L と前の版の時間を `kind = late` の操作の範囲の行に残し、`stays = 1` で数える
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。defaults.md C7 —— L を `user:purged` に付け替え、L と前の版の時間を `kind = late` の操作の範囲の行に残し、`stays = 1` で数える
 
 ## R4. Q8 と手当ての対象の見分け方が、P の前に隠れていた端の滞在と、隣から重なりに変わる滞在を区別しない
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/defaults.md
@@ -88,7 +88,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - loss: discarded
 - 提案: C2 を「この作り直しが隠した、作り直しの前に一覧に出ていた行で、作り直しの前の時間が P と重なるもの」に書き直す。
   Q5 の対象に「P の本文ごと消した操作の後に隠れたもの（P の前に隠れていた端の滞在は入れない）」を足し、その見分けに使う列と、時刻で比べるなら錠の順との食い違いを context に書く
-- 処置: fixed defaults.md C2・deep-questions.json Q5 —— 見分け方を「作り直しの前に一覧に出ていた・作り直しの前の時間が P と重なる・この作り直しが隠した」にし、時刻で比べない。Q5 の対象から P の前に隠れていた端の滞在を外した
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。defaults.md C2・deep-questions.json Q5 —— 見分け方を「作り直しの前に一覧に出ていた・作り直しの前の時間が P と重なる・この作り直しが隠した」にし、時刻で比べない。Q5 の対象から P の前に隠れていた端の滞在を外した
 
 ## R5. C1 は失う側（端が触れるだけの L の本文と前の版を消す）を、聞かずに既定にしている
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/defaults.md
@@ -98,7 +98,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - kind: irreversible
 - loss: discarded
 - 提案: C1 を A の問いにするか、既定を失わない側（ST23 の範囲と同じく端が触れるだけは含めない）に倒して理由を書き直す。どちらでも、R4 の (a) と同じ規則で手当ての対象を揃える
-- 処置: fixed defaults.md C1 —— 既定を失わない側（端が触れるだけは含めない。ST23 の範囲と同じ）に倒した
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。defaults.md C1 —— 既定を失わない側（端が触れるだけは含めない。ST23 の範囲と同じ）に倒した
 
 ## R6. Q7 の兄弟が欠けている。複数の P に覆われる B・日の境で空になる B・B を本文ごと消した後の行の出方
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/defaults.md
@@ -107,7 +107,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
   B を本文ごと消すと B は `user`・本文なし・範囲の行ありになり、`day_view` は B を P と重なる別の「本文ごと消した」の行として出す（`stay_store.rs:1571-1590`）—— P の下に入れた行との関係が決まっていない
 - kind: daily
 - 提案: C5 の条件を「差し引いて空になる B」にし、置き場（重なりがいちばん大きい P の下、など）と、B を本文ごと消した後に B の行がどうなるか（P の下に残す・別の行にする）を足す。行の構造の判断なので GO の proto で絵にする
-- 処置: fixed defaults.md C5 —— 空になる B の置き場（重なりがいちばん大きい P の下）・日の境・本文ごと消した後の行を足した。CH08 は ui-direction の画面を持たない（`story_brief.py CH08 --screens` が空）ので相談の proto は作らず、GO 資料の段で例として示す
+- 処置: fixed D6 仮 —— defaults.md C5 を spec の段が design D6（仮）と反転条件にした。—— 空になる B の置き場（重なりがいちばん大きい P の下）・日の境・本文ごと消した後の行を足した。CH08 は ui-direction の画面を持たない（`story_brief.py CH08 --screens` が空）ので相談の proto は作らず、GO 資料の段で例として示す
 
 ## R7. premises.md の確かさが 3 のまま、Q2（`loss: discarded`）の前提と一部重なりの主張を載せている
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/premises.md
@@ -124,7 +124,7 @@ ST23 の worktree に未 commit の直しがあるので rebase の途中と読�
 - kind: conflict
 - loss: discarded
 - 提案: Q2 の kind を conflict にし（loss はそのまま）、context に FR-50 の一文を引く。選択肢 1 が要件の文の側、選択肢 2 が Q7 の答えの字面の側であることを書く
-- 処置: fixed deep-questions.json Q2 —— kind を conflict にし（loss はそのまま）、FR-50 の一文と、どの選択肢がどちらの側かを context に書いた
+- 処置: escalated —— 問いを直して本人に返した（deep.md の「問いの検査の指摘の返し先」）。deep-questions.json Q2 —— kind を conflict にし（loss はそのまま）、FR-50 の一文と、どの選択肢がどちらの側かを context に書いた
 
 ## R9. Q5 の選択肢に、手当てが落ちたときに次にいつ消し直すかが無い
 - 成果物: openspec/changes/ch08-erasure-nested-and-late-stays/deep-questions.json
