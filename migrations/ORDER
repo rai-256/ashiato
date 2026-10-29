@@ -65,3 +65,5 @@
 202610231200_event_end_time
 # ST49: 記録ごとの部品の版（8 表の列・読み口・門と前の版の錠）
 202610251000_record_component_version
+# 本文ごと消す操作の台帳・範囲・派生の門・ビュー・書き直しの記録（ST23 / design D4 / D5 / D7 / D11）
+202610240500_record_purge

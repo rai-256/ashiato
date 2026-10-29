@@ -163,6 +163,24 @@ pub mod places;
 /// 場所の器と場所の記録の錠（ST21）。
 #[cfg(test)]
 mod places_tests;
+/// 本文ごと消す口（確認・消す・戻す口の断り）を HTTP の口から見る（ST23 Task 4 / design D1 / D6）。
+#[cfg(test)]
+mod purge_api_tests;
+pub mod purge_compaction;
+#[cfg(test)]
+mod purge_compaction_tests;
+/// 1 日の並びに出る「本文ごと消した」の区間を本物の DB で見る（ST23 Task 9 / design D12）。
+#[cfg(test)]
+mod purge_day_tests;
+/// 消えずに残るものと、本文を消しても変わらない稼働状況・後に消した記録の数を見る（ST23 Task 8 / design D10 / D18）。
+#[cfg(test)]
+mod purge_keep_tests;
+/// 本文ごと消した時間帯に取り込みの口から後から届いた位置を本物の DB で見る（ST23 Task 5 / design D8（仮）・D14）。
+#[cfg(test)]
+mod purge_late_tests;
+/// 本文ごと消す操作の移行（台帳・範囲・派生の門・ビュー）を本物の DB で見る（ST23 / design D4 / D5 / D7）。
+#[cfg(test)]
+mod purge_tests;
 /// 登録簿の本物の行を、全移行を当てた後の状態で見る（ST07 / design D2）。
 #[cfg(test)]
 mod registry_tests;
@@ -429,6 +447,11 @@ impl App {
     #[cfg(test)]
     pub(crate) fn with_export(self, export: export::ExportConfig) -> Self {
         Self { export, ..self }
+    }
+
+    /// 書き出しの job が走っているか（夜の書き直しが始めるのを待つ判断。ST23 / design D11）。
+    pub fn is_exporting(&self) -> bool {
+        self.exports.running_view().is_some()
     }
 
     /// 取り込み器と `/archives/status` が同じ「いま読んでいる書庫」を見るように差し替える（ST12 / design D12）。
@@ -950,7 +973,7 @@ pub async fn store_one(
 
 async fn store_with(app: &App, request: IngestRequest) -> anyhow::Result<StoreOutcome> {
     let pool = &app.pool;
-    let result = ingest_request(app, request, Writer::Internal)
+    let result = ingest_request(app, request, Writer::Internal, Settle::Later)
         .await
         .map_err(|(_, message)| anyhow::anyhow!(message))?;
     match (result.id, result.duplicate, result.error) {
@@ -1145,7 +1168,7 @@ async fn ingest_one(
             return Ok(IngestResult::rejected(sent_id, IngestError::Malformed));
         }
     };
-    ingest_request(app, req, writer).await
+    ingest_request(app, req, writer, Settle::InTx).await
 }
 
 /// 記録を書く側の種類（ST49 / D9）。部品の版を、どの列に入れるかを決める。
@@ -1186,6 +1209,16 @@ impl Writer {
     }
 }
 
+/// 入れた記録の後着の片付け（印と本文の消去。`stay_store::settle_arrival`）を、いつ行うか（ST23 / design D8（仮））。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Settle {
+    /// 記録を入れたトランザクションの中（commit の前）。HTTP の取り込みの口
+    InTx,
+    /// ここでは片付けない（百万件級の書庫で 1 件ごとに錠を取らない）。書庫の後着の本文の消去は design D9 の別の Task の仕事で、
+    /// いまの書庫の見回り（`mark_archive_arrivals`）は印を付けるだけ
+    Later,
+}
+
 /// 解釈を終えた 1 件を格納する（`ingest_one` の本体）。
 ///
 /// 取り込み器は要求を型のまま持っているので、ここを直に呼ぶ。JSON へ直して
@@ -1194,6 +1227,7 @@ async fn ingest_request(
     app: &App,
     mut req: IngestRequest,
     writer: Writer,
+    settle: Settle,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 終わりの時刻はマイクロ秒に切り捨てた値を、比べる値にも格納する値にもする（ST41 / D7）
     req.truncate_end_to_micros();
@@ -1630,6 +1664,21 @@ async fn ingest_request(
     )
     .await
     .map_err(|e| internal_at("ingest.started_on", e))?;
+
+    // **新しく入った記録だけ**、消した滞在の時間帯に入るかをこのまとまりの中で見て、印と本文の消去を同じ commit にする
+    // （ST23 / design D8（仮）。位置でない記録は何もしない）。応答は変えない。
+    //
+    // **外部識別子の更新（`Update::Applied`）で時刻が本文を消した時間帯へ移った行は、ここでは扱わない（範囲外。final review R13）。**
+    // 更新は新しく届いた記録ではなく既にある記録を動かすもので、その前の版（動く前の時刻と本文）は本人が確認で見た範囲に無い。
+    // ここで本文を消すと前の版まで消え（`erase_bodies` は前の版も消す）、見せていない記録の本文が戻らなくなる（D13 と同じ向き）。
+    // spec の後着の Scenario も新しく入った記録だけを持つ（D8）。その行は、その日の作り直し（`rebuild_day` の
+    // `mark_late_arrivals`。印だけ）で `user:late` が付いて隠れる。書庫の位置・項目なら、書庫の見回り
+    // （`mark_archive_arrivals`）が本文を残した `user:late` の行の本文と前の版も消して台帳に積む。
+    if row.is_some() && settle == Settle::InTx {
+        stay_store::settle_arrival(&mut tx, &req)
+            .await
+            .map_err(|e| internal_at("ingest.settle_arrival", e))?;
+    }
 
     // **門はここで落ちる**（design D4）。制約トリガは `DEFERRABLE INITIALLY DEFERRED` で、
     // 履歴を書かない書き換えは COMMIT の瞬間に拒まれる。
@@ -2150,7 +2199,8 @@ pub async fn stays_erase(
 
 /// 滞在と、同じ原因で消えた位置の最新の削除を戻す。
 #[utoipa::path(post, path = "/stays/restore", request_body = RestoreRequest,
-    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404)))]
+    responses((status = 200, body = RestoreResponse), (status = 401), (status = 404),
+        (status = 409)))]
 pub async fn stays_restore(
     State(app): State<App>,
     headers: HeaderMap,
@@ -2168,6 +2218,7 @@ pub async fn stays_restore(
                 );
                 (StatusCode::NOT_FOUND, "stay_not_found".into())
             }
+            deletion::RestoreError::Purged => (StatusCode::CONFLICT, "purged_restore".into()),
             deletion::RestoreError::Database(e) => internal_at("stays.restore", e),
         })?;
 
@@ -2188,6 +2239,174 @@ pub async fn stays_restore(
             stays: outcome.stays,
             locations: outcome.locations,
         },
+    }))
+}
+
+/// `GET /stays/purge/preview` の絞り込み。
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PurgePreviewQuery {
+    stay_id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+}
+
+/// 本文ごと消す前に見せる時間の範囲。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeRange {
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+}
+
+/// 本文ごと消しても消えずに残るもの。画面はこの名前で文面を引く。
+///
+/// - `archive_copies`: サーバが残している書庫の写し（数は `copies`）。中の記録は消えない
+/// - `user_folder_archives`: 本人のフォルダ（ダウンロードなど）に置いた書庫のファイル
+/// - `export_files`: これまでに書き出したファイル
+/// - `nightly_rewrite`: 消した本文の痕跡は、次の夜の書き直し（毎晩 03:30）までディスクに残る
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PurgeRemain {
+    ArchiveCopies,
+    UserFolderArchives,
+    ExportFiles,
+    NightlyRewrite,
+}
+
+/// 確認がいつも返す並び（design D10 / D18）。
+const PURGE_REMAINS: [PurgeRemain; 4] = [
+    PurgeRemain::ArchiveCopies,
+    PurgeRemain::UserFolderArchives,
+    PurgeRemain::ExportFiles,
+    PurgeRemain::NightlyRewrite,
+];
+
+/// `GET /stays/purge/preview` の応答（design D1）。記録の値は含めない。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgePreview {
+    counts: deletion::PurgeCounts,
+    range: PurgeRange,
+    /// 範囲の記録が入っている可能性のある、残している書庫の写しの数（design D10）
+    copies: u32,
+    /// 本文ごと消しても消えずに残るもの（いつも 4 つすべて）
+    remains: Vec<PurgeRemain>,
+    /// すでに本文ごと消した滞在（件数はすべて 0）
+    purged: bool,
+}
+
+/// `POST /stays/purge` の本文。`expected` は確認で見せた件数。
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PurgeRequest {
+    pub stay_id: uuid::Uuid,
+    pub user_id: Option<uuid::Uuid>,
+    pub expected: deletion::PurgeCounts,
+}
+
+/// `POST /stays/purge` の成功の応答。すでに本文ごと消した滞在は件数 0・`operation_id` なし。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeOutcome {
+    counts: deletion::PurgeCounts,
+    operation_id: Option<uuid::Uuid>,
+}
+
+/// `GET /stays/purge/preview` と `POST /stays/purge` の 409 の本文。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PurgeRefused {
+    /// `not_erased` / `counts_changed` / `unknown_source`
+    reason: &'static str,
+    /// `counts_changed` のときだけ、数え直した件数
+    #[serde(skip_serializing_if = "Option::is_none")]
+    counts: Option<deletion::PurgeCounts>,
+}
+
+/// 本文ごと消す口の断り（応答を箱に入れて `Result` の `Err` を小さく保つ）。
+#[derive(Debug)]
+pub struct PurgeHttpError(Box<axum::response::Response>);
+
+impl axum::response::IntoResponse for PurgeHttpError {
+    fn into_response(self) -> axum::response::Response {
+        *self.0
+    }
+}
+
+fn purge_refusal(err: deletion::PurgeError, at: &'static str) -> PurgeHttpError {
+    PurgeHttpError(Box::new(purge_response(err, at)))
+}
+
+fn purge_response(err: deletion::PurgeError, at: &'static str) -> axum::response::Response {
+    let conflict = |reason, counts| {
+        (StatusCode::CONFLICT, Json(PurgeRefused { reason, counts })).into_response()
+    };
+    match err {
+        deletion::PurgeError::NotFound => (StatusCode::NOT_FOUND, "stay_not_found").into_response(),
+        deletion::PurgeError::UserMismatch => {
+            tracing::warn!(
+                kind = "purge_user_mismatch",
+                "滞在の利用者と添えられた利用者が違うため断った"
+            );
+            (StatusCode::NOT_FOUND, "stay_not_found").into_response()
+        }
+        deletion::PurgeError::NotErased => conflict("not_erased", None),
+        deletion::PurgeError::CountsChanged(counts) => conflict("counts_changed", Some(counts)),
+        deletion::PurgeError::UnknownSource => conflict("unknown_source", None),
+        deletion::PurgeError::Database(e) => internal_at(at, e).into_response(),
+    }
+}
+
+/// 本文ごと消す前に、消える件数を数えて返す。何も書かない。
+#[utoipa::path(get, path = "/stays/purge/preview", params(PurgePreviewQuery),
+    responses((status = 200, body = PurgePreview), (status = 401), (status = 404),
+        (status = 409, body = PurgeRefused)))]
+pub async fn stays_purge_preview_get(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<PurgePreviewQuery>,
+) -> Result<Json<PurgePreview>, PurgeHttpError> {
+    authorize(&app, &headers)
+        .await
+        .map_err(|e| PurgeHttpError(Box::new(e.into_response())))?;
+    let scope = deletion::purge_preview(&app.pool, q.stay_id, q.user_id)
+        .await
+        .map_err(|e| purge_refusal(e, "stays.purge_preview"))?;
+    let copies = deletion::kept_archive_copies(&app.pool, scope.user_id, &scope.archive_sources())
+        .await
+        .map_err(|e| purge_refusal(deletion::PurgeError::Database(e), "stays.purge_preview"))?;
+    Ok(Json(PurgePreview {
+        counts: scope.counts,
+        range: PurgeRange {
+            start: scope.start,
+            end: scope.end,
+        },
+        copies,
+        remains: PURGE_REMAINS.to_vec(),
+        purged: scope.already_purged,
+    }))
+}
+
+/// 消した滞在を、確認で見せた件数と同じときだけ本文ごと消す。
+#[utoipa::path(post, path = "/stays/purge", request_body = PurgeRequest,
+    responses((status = 200, body = PurgeOutcome), (status = 401), (status = 404),
+        (status = 409, body = PurgeRefused)))]
+pub async fn stays_purge(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(req): Json<PurgeRequest>,
+) -> Result<Json<PurgeOutcome>, PurgeHttpError> {
+    authorize(&app, &headers)
+        .await
+        .map_err(|e| PurgeHttpError(Box::new(e.into_response())))?;
+    let outcome = deletion::purge(&app.pool, req.stay_id, req.user_id, req.expected)
+        .await
+        .map_err(|e| purge_refusal(e, "stays.purge"))?;
+    let c = &outcome.counts;
+    tracing::info!(
+        kind = "stays.purge",
+        count = c.stays + c.locations + c.archive_locations + c.archive_items,
+        versions = c.versions,
+        "滞在を本文ごと消した"
+    );
+    Ok(Json(PurgeOutcome {
+        counts: outcome.counts,
+        operation_id: outcome.operation_id,
     }))
 }
 
@@ -3837,6 +4056,8 @@ pub fn router(app: App) -> Router {
         .route("/stays/detail", get(stays_detail_get))
         .route("/stays/erase", post(stays_erase))
         .route("/stays/restore", post(stays_restore))
+        .route("/stays/purge", post(stays_purge))
+        .route("/stays/purge/preview", get(stays_purge_preview_get))
         .route("/stays/rebuild", post(stays_rebuild))
         .route("/stays/criteria", get(stays_criteria_get))
         .route("/places", get(places_get).post(places_post))
@@ -3950,6 +4171,26 @@ pub async fn run() -> anyhow::Result<()> {
         std::process::exit(3);
     }
 
+    // 本文を消したのに範囲の行が無い滞在は、その日全体を範囲とみなして読む（ST23 / design D14）。
+    // 起動時に件数だけ出す（記録の識別子・時刻・本文は出さない）
+    match deletion::purged_without_span(&pool).await {
+        Ok(0) => {}
+        Ok(count) => tracing::warn!(
+            kind = "purge_span_missing",
+            count,
+            "本文を消したのに範囲の行が無い滞在がある（その日全体を範囲として読む）"
+        ),
+        Err(e) => tracing::warn!(
+            kind = "purge_span_missing",
+            sqlstate = e
+                .as_database_error()
+                .and_then(|d| d.code())
+                .as_deref()
+                .unwrap_or(""),
+            "範囲の行が無い滞在を数えられない"
+        ),
+    }
+
     let archive_config = archive::config::from_env()?;
     // 読み手と `/archives/status` が同じ実体を見る（D12）。
     let reading = archive::worker::ReadingState::default();
@@ -3999,12 +4240,19 @@ pub async fn run() -> anyhow::Result<()> {
             "原本の置き場を用意できない"
         );
     }
-    let mut app = router(
-        App::new(pool, token, &web_password, session_max_age_days)
-            .with_reading(reading)
-            .with_warmup(warmup)
-            .with_media(media),
-    );
+    let state = App::new(pool, token, &web_password, session_max_age_days)
+        .with_reading(reading)
+        .with_warmup(warmup)
+        .with_media(media);
+    // 夜の書き直し（毎日 03:30。ST23 / design D11）。書き出しが走っている間は始めない
+    // 書き出しの台帳だけを握る（App の全体を仕事の寿命まで持たない。/code-review R28）
+    let exports = state.exports.clone();
+    drop(purge_compaction::spawn(
+        state.pool.clone(),
+        move || exports.running_view().is_some(),
+        std::sync::Arc::new(chrono::Utc::now),
+    ));
+    let mut app = router(state);
 
     // 未捕捉の異常がログに出ることを確かめるための経路。
     // **既定では生えない** —— 環境変数で明示的に開けたときだけ。
@@ -4045,6 +4293,8 @@ pub async fn run() -> anyhow::Result<()> {
         stays_detail_get,
         stays_erase,
         stays_restore,
+        stays_purge,
+        stays_purge_preview_get,
         stays_rebuild,
         stays_criteria_get,
         export_summary_get,
@@ -4112,6 +4362,13 @@ pub async fn run() -> anyhow::Result<()> {
         RestoreRequest,
         RestoreResponse,
         RestoredCounts,
+        deletion::PurgeCounts,
+        PurgePreview,
+        PurgeRemain,
+        PurgeRange,
+        PurgeRequest,
+        PurgeOutcome,
+        PurgeRefused,
         ExportRequest,
         ExportStarted,
         ExportRefused,
