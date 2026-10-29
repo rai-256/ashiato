@@ -53,6 +53,10 @@ mod clock_tests;
 /// 記録ごとの部品の版（ST49）の移行と門。
 #[cfg(test)]
 mod component_version_tests;
+/// 収集アプリとの契約の版と確かめる口（ST50 / design D4）。
+pub mod contract_version;
+#[cfg(test)]
+mod contract_version_tests;
 pub mod coverage;
 /// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
 pub mod day;
@@ -409,6 +413,8 @@ pub struct App {
     exports: export::ExportJobs,
     /// 原本の置き場 D-02 の設定（ST09 / design D10）。
     media: media::MediaConfig,
+    /// S-01 が受け付ける契約の版（ST50 / design D4）。本番は定数のまま。設定や環境変数では変えられない。
+    contract_version: u32,
 }
 
 impl App {
@@ -435,6 +441,16 @@ impl App {
             export: export::ExportConfig::from_env(),
             exports: export::ExportJobs::default(),
             media: media::MediaConfig::none(),
+            contract_version: contract_version::CONTRACT_VERSION,
+        }
+    }
+
+    /// 契約の版を差し替えた複製。**試験だけ**（版 2 以上の S-01 を作る。ST50 design D4）。
+    #[cfg(test)]
+    pub(crate) fn with_contract_version(self, contract_version: u32) -> Self {
+        Self {
+            contract_version,
+            ..self
         }
     }
 
@@ -4032,6 +4048,7 @@ fn internal_at(op: &'static str, e: sqlx::Error) -> (StatusCode, String) {
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/contract", get(contract_version::contract_get))
         .route("/ingest", post(ingest))
         .route("/heartbeat", post(heartbeat_post))
         .route("/drops", post(drops::drops_post))
@@ -4276,6 +4293,7 @@ pub async fn run() -> anyhow::Result<()> {
 #[derive(Debug, utoipa::OpenApi)]
 #[openapi(
     paths(
+        contract_version::contract_get,
         ingest,
         heartbeat_post,
         drops::drops_post,
@@ -4423,6 +4441,7 @@ pub async fn run() -> anyhow::Result<()> {
         attributes_store::KindCreated,
         attributes_store::KindError,
         attributes_store::KindErrorBody,
+        contract_version::ContractAnswer,
         web_session::LoginRequest,
         web_session::SessionState,
         satellite_admin::SatelliteOut,

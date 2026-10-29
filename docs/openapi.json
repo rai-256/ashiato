@@ -172,6 +172,33 @@
         }
       }
     },
+    "/contract": {
+      "get": {
+        "tags": [
+          "contract_version"
+        ],
+        "summary": "契約の版を答える。API の合言葉だけが通る（画面のログイン・衛星は 403、無ければ 401）。",
+        "operationId": "contract_get",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/coverage": {
       "get": {
         "tags": [],
@@ -2358,6 +2385,21 @@
               "null"
             ],
             "description": "`null` が「なし」"
+          }
+        }
+      },
+      "ContractAnswer": {
+        "type": "object",
+        "description": "`GET /contract` の答え。",
+        "required": [
+          "contract_version"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "S-01 が受け付ける一番新しい契約の版（その版以下を全部受け付ける）",
+            "minimum": 0
           }
         }
       },
