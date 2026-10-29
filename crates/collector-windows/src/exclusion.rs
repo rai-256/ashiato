@@ -178,7 +178,11 @@ mod tests {
         assert!(!e.hits(&fg(r"C:\x\a.exe", "a.exe", "何か")));
 
         // 置き場が無いときも空（初回起動）
-        let dir = std::env::temp_dir().join(format!("ashiato-ex-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-ex-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         assert_eq!(
             Exclusions::load(&dir.join("exclusions.json")).unwrap(),
             Exclusions::default()
@@ -216,7 +220,11 @@ mod tests {
     /// 壊れた登録・書き間違い・空の value は**空に倒さない**（R28）。
     #[test]
     fn broken_registration_is_an_error_not_empty() {
-        let path = std::env::temp_dir().join(format!("ashiato-ex-{}.json", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-ex-")
+            .tempdir()
+            .unwrap();
+        let path = tmp.path().join("exclusions.json");
         for bad in [
             "{ これは JSON ではない",
             r#"{"rule": [{"match":"process-name","value":"a.exe"}]}"#,
@@ -231,7 +239,6 @@ mod tests {
         }
         std::fs::write(&path, r#"{"rules": []}"#).unwrap();
         assert_eq!(Exclusions::load(&path).unwrap(), Exclusions::default());
-        std::fs::remove_file(&path).ok();
     }
 
     #[test]

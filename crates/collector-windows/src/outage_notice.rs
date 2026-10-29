@@ -326,6 +326,15 @@ impl OutagePoller {
     }
 }
 
+/// 試験では、捨てるときに走っている問い合わせを待つ。待たないと、試験の一時フォルダが消えた後に
+/// 覚えの書き込み（`atomic_write` の `create_dir_all`）が置き場を作り直して漏れる（CH03 R29）。
+#[cfg(test)]
+impl Drop for OutagePoller {
+    fn drop(&mut self) {
+        self.wait();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -492,7 +501,11 @@ mod tests {
     // Scenario: 収集アプリを起動し直しても同じ途切れでは鳴らない
     #[test]
     fn outage_notice_restart_keeps_the_sounded_set() {
-        let dir = std::env::temp_dir().join(format!("ashiato-on-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-on-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         let result = OutageResult::Ready(vec![location()]);
         let first = decide(&NoticeStore::new(&dir).load(), &result);
         assert_eq!(sound_of(&first.action), Some(true));
@@ -500,16 +513,17 @@ mod tests {
         // 起動し直し = 新しい NoticeStore が書いたものを読み直す
         let again = decide(&NoticeStore::new(&dir).load(), &result);
         assert_eq!(sound_of(&again.action), Some(false));
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn outage_notice_unreadable_state_file_means_nothing_sounded() {
-        let dir = std::env::temp_dir().join(format!("ashiato-on-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-on-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         std::fs::write(dir.join("outage-notice.json"), "{壊れている").unwrap();
         assert_eq!(NoticeStore::new(&dir).load(), NoticeState::default());
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -603,7 +617,11 @@ mod tests {
     // Scenario: 通知を出せなくても収集は止まらない
     #[test]
     fn outage_notice_failing_toaster_neither_panics_nor_stops_polling() {
-        let dir = std::env::temp_dir().join(format!("ashiato-on-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-on-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         let query = FakeQuery::new(OutageResult::Ready(vec![location()]));
         let toaster = FakeToaster::new(false);
         let mut p = OutagePoller::new(
@@ -620,12 +638,15 @@ mod tests {
         assert_eq!(query.asked.lock().unwrap().len(), 2);
         assert_eq!(toaster.calls.lock().unwrap().len(), 2);
         assert_eq!(NoticeStore::new(&dir).load(), NoticeState::default());
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn outage_notice_poller_shows_then_remembers_then_dismisses() {
-        let dir = std::env::temp_dir().join(format!("ashiato-on-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-on-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         let query = FakeQuery::new(OutageResult::Ready(vec![location()]));
         let toaster = FakeToaster::new(true);
         let mut p = OutagePoller::new(
@@ -646,6 +667,5 @@ mod tests {
         assert!(calls[1].starts_with("show sound=false "), "{calls:?}");
         assert_eq!(calls[2], "dismiss");
         assert_eq!(NoticeStore::new(&dir).load(), NoticeState::default());
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

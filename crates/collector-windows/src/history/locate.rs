@@ -232,7 +232,8 @@ mod tests {
     #[test]
     fn history_locate_all_known_browsers() {
         // Scenario: 6 つのブラウザの既知の置き場にあるプロファイルが全部見つかる
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         for browser in Browser::ALL {
             fixture(&root, browser, "Default");
         }
@@ -246,7 +247,6 @@ mod tests {
                 browser.name()
             );
         }
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
@@ -283,7 +283,8 @@ mod tests {
     #[test]
     fn history_locate_firefox_ini_path() {
         // Scenario: Firefox の一覧にある既定の外の置き場も見つかる
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let local = root.join("local");
         let roaming = root.join("roaming");
         let custom = root.join("outside");
@@ -298,24 +299,24 @@ mod tests {
         assert!(locate(&local, &roaming)
             .iter()
             .any(|p| p.path == custom.join("places.sqlite")));
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_locate_multiple_profiles() {
         // Scenario: 複数のブラウザと複数のプロファイルの履歴が全部入る
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         fixture(&root, Browser::Chrome, "Default");
         fixture(&root, Browser::Chrome, "Profile 1");
         fixture(&root, Browser::Firefox, "abc");
         assert_eq!(locate(&root.join("local"), &root.join("roaming")).len(), 3);
-        std::fs::remove_dir_all(root).ok();
     }
     #[test]
     fn history_profiles_map() {
         // Scenario: プロファイルの表示名との対応が残る
         // Scenario: プロファイルの表示名を変えると新しい対応が残る
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let base = root.join("local/Google/Chrome/User Data");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::write(
@@ -327,13 +328,13 @@ mod tests {
             profile_names(Browser::Chrome, &base).get("Default"),
             Some(&"個人".to_string())
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn firefox_profile_names_read_profiles_ini_beside_profiles_directory() {
         // Scenario: Firefox の表示名は Profiles の親にある profiles.ini から読む
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let base = root.join("roaming/Mozilla/Firefox/Profiles");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::write(
@@ -345,13 +346,13 @@ mod tests {
             profile_names(Browser::Firefox, &base).get("abc.default"),
             Some(&"個人".to_string())
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_locate_firefox_reads_relative_flag_per_profile() {
         // Scenario: Firefox の相対パスと絶対パスが同じ profiles.ini に混在できる
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let local = root.join("local");
         let roaming = root.join("roaming");
         let relative = roaming.join("Mozilla/Firefox/rel.default");
@@ -376,13 +377,13 @@ mod tests {
         assert!(found
             .iter()
             .any(|p| p.path == absolute.join("places.sqlite")));
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_locate_reads_one_level_and_special_directories() {
         // Scenario: 6 つのブラウザの既知の置き場にあるプロファイルが全部見つかる
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         fixture(&root, Browser::Chrome, "Guest Profile");
         fixture(&root, Browser::Chrome, "Profile 2");
         // 1 段より深いものと、History の無いディレクトリは拾わない
@@ -407,13 +408,13 @@ mod tests {
         };
         assert_eq!(dirs(Browser::Chrome), ["Guest Profile", "Profile 2"]);
         assert_eq!(dirs(Browser::Opera), ["Default", "side1"]);
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_locate_firefox_default_dir_listed_in_ini_is_not_doubled() {
         // Scenario: Firefox の一覧にある既定の外の置き場も見つかる
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         fixture(&root, Browser::Firefox, "abc.default");
         let roaming = root.join("roaming");
         std::fs::write(
@@ -423,14 +424,14 @@ mod tests {
         .unwrap();
         let found = locate(&root.join("local"), &roaming);
         assert_eq!(found.len(), 1);
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_profiles_map_record_only_on_first_or_change() {
         // Scenario: プロファイルの表示名との対応が残る
         // Scenario: プロファイルの表示名を変えると新しい対応が残る
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let (local, roaming) = (root.join("local"), root.join("roaming"));
         fixture(&root, Browser::Chrome, "Default");
         fixture(&root, Browser::Chrome, "Profile 1");
@@ -468,13 +469,13 @@ mod tests {
             .expect("変わったら作る");
         // 新しい対応の記録は前の記録と別の識別子（前の記録は上書きされず残る）
         assert_ne!(second.external_id, record.external_id);
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn history_profiles_map_firefox_names_come_from_profiles_ini() {
         // Scenario: プロファイルの表示名との対応が残る
-        let root = temp();
+        let tmp = temp();
+        let root = tmp.path().to_path_buf();
         let (local, roaming) = (root.join("local"), root.join("roaming"));
         fixture(&root, Browser::Firefox, "abc.default");
         std::fs::write(
@@ -488,13 +489,13 @@ mod tests {
             current_mapping(Browser::Firefox, &base, &found).get("abc.default"),
             Some(&Some("個人".to_string()))
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
-    fn temp() -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("ashiato-history-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&p).unwrap();
-        p
+    fn temp() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("ashiato-history-")
+            .tempdir()
+            .unwrap()
     }
     fn fixture(root: &std::path::Path, browser: Browser, profile: &str) {
         let base = browser.base(&root.join("local"), &root.join("roaming"));

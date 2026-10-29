@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.nio.file.Files
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
 
 /**
  * 生存信号が**記録と同じ未送信の仕組み**に乗ること（specs/device-collection。tasks 7.3）。
@@ -16,6 +17,8 @@ import org.junit.Test
  * （書きかけの回収・壊れた行の退避・追記）を生存信号だけが持たないことになる。
  */
 class HeartbeatOutboxTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private class FakeTransport(val reply: (String) -> Outcome) : Transport {
         val bodies = mutableListOf<String>()
 
@@ -46,7 +49,7 @@ class HeartbeatOutboxTest {
     /// Scenario: 送信に失敗した生存信号は再送される
     @Test
     fun `送信に失敗した生存信号は未送信のまま残り、同じ冪等キーで再び送られる`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("a"))
         outbox.add(beat("b", "2026-05-01T06:00:00Z"))
 
@@ -70,7 +73,7 @@ class HeartbeatOutboxTest {
     /** 受け付けられた分だけが取り除かれる（記録と同じ約束）。 */
     @Test
     fun `一部だけ受け付けられたら、その分だけ取り除かれる`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("a"))
         outbox.add(beat("b", "2026-05-01T06:00:00Z"))
         val transport = FakeTransport {
@@ -88,7 +91,7 @@ class HeartbeatOutboxTest {
      */
     @Test
     fun `停止と再開をまたいで残る`() {
-        val dir = Files.createTempDirectory("hb").toFile()
+        val dir = tmp.newFolder()
         fun open() = Outbox.inDir(dir, HeartbeatRequest.serializer()) {}
 
         open().add(beat("a"))
@@ -101,7 +104,7 @@ class HeartbeatOutboxTest {
     /** **記録と混ざらない。** 同じファイルに積むと読み戻しで片方が壊れた行に見える。 */
     @Test
     fun `記録と生存信号は別のファイルに積まれる`() {
-        val dir = Files.createTempDirectory("both").toFile()
+        val dir = tmp.newFolder()
         val events = File(dir, "records")
         val beats = File(dir, "heartbeats")
         Outbox.inDir(events, IngestRequest.serializer()) {}.add(
@@ -131,7 +134,7 @@ class HeartbeatOutboxTest {
      */
     @Test
     fun `恒久的に断られた信号が、後ろの信号を永久に止めない`() {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         outbox.add(beat("bad", "2026-05-01T00:00:00Z"))
 
         // 送信の契機ごとに答えを変える偽物（同じ `Sender` を使い続ける ——

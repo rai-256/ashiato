@@ -1,22 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 import kotlin.concurrent.thread
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Before
-import org.junit.Test
 
 /**
  * 受け取った応答の `Date` の置き場（ST05 / design D2）。
  * `HttpTransport` の見出しの読み取りは `HttpTransportTest` と同じ形の偽のサーバ（生の `ServerSocket`）で見る。
  */
 class ResponseDateCacheTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private lateinit var server: ServerSocket
 
     /** 次の応答の `Date` 行（null なら見出しを付けない）。 */
@@ -59,7 +63,7 @@ class ResponseDateCacheTest {
     }
 
     private fun sender(cache: ResponseDateCache, outcome: Outcome): Sender<IngestRequest> {
-        val outbox = testOutbox()
+        val outbox = testOutbox(tmp.newFolder())
         outbox.add(
             java.time.Instant.parse("2026-09-08T02:00:00Z").let {
                 testFix(35.681236, 139.767125, 10f, it)

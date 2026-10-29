@@ -8,18 +8,20 @@ import android.content.res.Configuration
 import android.os.PersistableBundle
 import android.os.UserManager
 import androidx.test.core.app.ApplicationProvider
-import java.time.Instant
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowUsageStatsManager
+import java.time.Instant
 
 /**
  * アプリ利用のイベントが記録になるところ（tasks 3.1 / design D1 / D2）。
@@ -30,6 +32,8 @@ import org.robolectric.shadows.ShadowUsageStatsManager
  */
 @RunWith(RobolectricTestRunner::class)
 class AppUsageCollectorTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val t0 = "2026-05-20T09:00:00Z"
 
     /**
@@ -46,6 +50,7 @@ class AppUsageCollectorTest {
     @Test
     fun `前回の取得の後に起きた 3 件がそれぞれ 1 件の記録になる`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(
                 storedEvents = listOf(
                     usageEvent("2026-05-20T09:10:00Z"),
@@ -80,6 +85,7 @@ class AppUsageCollectorTest {
         // 11 = STANDBY_BUCKET_CHANGED
         val types = listOf(1, 2, 15, 16, 17, 18, 11)
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(
                 storedEvents = types.mapIndexed { i, type ->
                     usageEvent("2026-05-20T09:${(10 + i).toString().padStart(2, '0')}:00Z", eventType = type)
@@ -101,6 +107,7 @@ class AppUsageCollectorTest {
     fun `種別ごとの欄まで解析済みに入る`() {
         val configuration = Configuration().apply { orientation = Configuration.ORIENTATION_LANDSCAPE }
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(
                 storedEvents = listOf(fullUsageEvent("2026-05-20T09:10:00Z", configuration)),
             ),
@@ -133,6 +140,7 @@ class AppUsageCollectorTest {
     @Test
     fun `付かない欄は省かれる`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
         )
         env.firstThenNext()
@@ -148,6 +156,7 @@ class AppUsageCollectorTest {
     @Test
     fun `表示名は解析済みに入り原文には入らない`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
             label = "例のアプリ",
         )
@@ -163,6 +172,7 @@ class AppUsageCollectorTest {
     @Test
     fun `表示名が引けなければ欄ごと省く`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
             label = null,
         )
@@ -175,6 +185,7 @@ class AppUsageCollectorTest {
     fun `重ねた窓で 2 回読んでも原文のバイト列は一致する`() {
         // 窓は重ねて進むので（本人の決定 C4）、境界の手前のイベントは次の契機でもう 1 度返る
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T08:59:30Z"))),
             label = "旧い名前",
         )
@@ -211,7 +222,7 @@ class AppUsageCollectorTest {
         val stats = Shadows.shadowOf(app.getSystemService(UsageStatsManager::class.java))
         events.forEach(stats::addEvent)
         lateinit var env: UsageTestEnv
-        env = UsageTestEnv(UsageStatsSource(app, now = { env.now }))
+        env = UsageTestEnv(tmp.newFolder(), UsageStatsSource(app, now = { env.now }))
         return env
     }
 
@@ -290,7 +301,7 @@ class AppUsageCollectorTest {
     /** 名乗りと刻みは登録簿のもの（`SourceCadence`）。ここを取り違えると別のソースの数えになる。 */
     @Test
     fun `名乗りと取得の刻みはアプリ利用のもの`() {
-        val env = UsageTestEnv(source = FakeUsageSource())
+        val env = UsageTestEnv(tmp.newFolder(), source = FakeUsageSource())
         assertEquals(APP_USAGE_LOGICAL_SOURCE, env.adapter().logicalSource)
         assertEquals(USAGE_INTERVAL_MS, env.adapter().intervalMs)
     }
@@ -299,6 +310,7 @@ class AppUsageCollectorTest {
     @Test
     fun `ログに表示名も原文も出ない`() {
         val env = UsageTestEnv(
+            tmp.newFolder(),
             source = FakeUsageSource(storedEvents = listOf(usageEvent("2026-05-20T09:10:00Z"))),
             label = "例のアプリ",
         )
