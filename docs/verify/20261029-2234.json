@@ -1,0 +1,294 @@
+{
+  "title": "確認バッチ 20261029-2234",
+  "subtitle": "ST49 記録ごとに、作った部品の版が残る / ST23 本文を本当に消せる / CH03 テストの一時ファイルの後始末 / CH05 試験の DB が打ち切った run の残りで膨れないようにする / ST11 健康データの履歴権限を初回起動で要求する",
+  "note": [
+    "選んだら一番下の「回答をコピー」を押して、セッションに貼り戻してください。通らなかったものは補足に「何が違ったか」を 1 行。",
+    "起動: `./dist/verify-20261029-2234/run.sh` —— DB → サーバ（release、ビルド済み）→ 画面（build 済み）→ 偽データ（SEED=normal|max|empty）。Ctrl-C で全部止まる。",
+    "画面 `http://127.0.0.1:5180`（`WEB_PORT` で変えられる）/ API は `.env` の BIND（既定 `127.0.0.1:18787`）。port が使用中なら run.sh がその場で止まる。どの画面がどの URL かは `docs/screens.md`。",
+    "画面を開くと合言葉のログインが出る（`.env` の `WEB_PASSWORD`。`API_TOKEN` とは別の値）。",
+    "スマホ・端末から届かせるなら `https://<手元の網のホスト名>:<port>`（`tailscale serve` の HTTPS。手順は `docs/network.md`）（`.env` の `ALLOWED_HOSTS`） ——  **IP ではなくホスト名**（`tailscale serve` はホスト名で振り分けるので、IP 宛は tailscale 自身が 404 を返す。実測 2026-09-16: 収集アプリが `error=server_404` を出し続けた）。",
+    "確認に使う 1 行（手順書の問いが「手順書の…を叩く」と書いているもの）—— 作り直し: `curl -sS -H \"authorization: Bearer $API_TOKEN\" -H 'content-type: application/json' -X POST http://127.0.0.1:18787/stays/rebuild -d '{\"radius_m\":30}'`（戻すときは `100`。範囲外の値は 400 で、基準も滞在も変わらない）。 位置が変わっていないこと: `COMPOSE_PROJECT_NAME=ashiato-verify-20261029-2234 docker compose exec -T db psql -U ashiato -d ashiato -tAc \"select count(*), md5(string_agg(content_hash, ',' order by content_hash)) from core.event where logical_source='c01-location'\"`（作り直しの前後で同じ値）。",
+    "Android: `dist/verify-20261029-2234/app-debug.apk`。端末が繋がっていないので手で入れる: `adb install -r dist/verify-20261029-2234/app-debug.apk`。接続先は `~/.gradle/gradle.properties` の `ashiato.baseUrl`（`collector-android/README.md`）。",
+    "時計のずれの測り直し（`c01-clock`）: DB 1 個（ashiato2-verify）の直近 7 日の合計は `retry` = 0 件 / `hourly` = 0 件。hourly が 0 件なので比は出ない（数えた DB に本物の端末の測定が届いていない。偽データの DB では判定できない）",
+    "この回の DB（project `ashiato-verify-20261029-2234`）は、確認を終えても消えずに残る（次の回は別の DB に立つ。本体で消した記録も、この DB からは消えない）。消すなら: `COMPOSE_PROJECT_NAME=ashiato-verify-20261029-2234 docker compose down -v`（この回に電話が送った記録も消える）。design D13・deep.md Q6。",
+    "成果物: `dist/verify-20261029-2234/`（ashiato-server / web / app-debug.apk / run.sh）。ソースは verify ブランチの head。",
+    "録画（AI が撮ったもの。合否はテストが決め、見やすさと承認は人間）: C:\\dev\\ashiato2-recordings\\20261029-223525-763c88d（全体 ok / 片付け ok）"
+  ],
+  "questions": [
+    {
+      "id": "ST49-PD1",
+      "topic": "ST49 仮D1",
+      "kind": "check",
+      "question": "ST49 の仮の決定 D1: 外部サービス由来の更新で中身が入れ替わった記録の版は、作った時の版のままか、今の中身を作った版か →「今の中身を作った部品の版に一緒に動かし、前の値を前の版の表に写す（schema_version と同じ）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 前の値は前の版の表に残るので、どちらの読み方にも後から戻せる（失わない側の費用: 前の版の表・その読み口・書き出しの前の版の表に列を 1〜3 つ足して写すだけ）\n出所: review/deep.md#R1",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST49-PD2",
+      "topic": "ST49 仮D2",
+      "kind": "check",
+      "question": "ST49 の仮の決定 D2: 滞在の作り直しで原文が変わったとき、S-01 の版を動かすか →「作り直した S-01 の版に変え、前の値は push_version で前の版の表に写す。印だけの書き換えと変わらなかった滞在は元の版のまま」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 前の値は前の版の表に残る（失わない側の費用: push_version の名指しの列に足すだけ。前の版の表の列が本表と揃うことを試験で固定する）\n出所: review/deep.md#R9",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST49-PD3",
+      "topic": "ST49 仮D3",
+      "kind": "check",
+      "question": "ST49 の仮の決定 D3: 収集アプリを古い版へ戻した・S-01 より先に入れ替えたときに版の欄が黙って落ちることをどう扱うか →「収集アプリの溜めは、読み戻した行の知らない欄を捨てずにそのまま送る形にする（以後の版を戻しても欄が落ちない）。入れ替えの順は S-01 を先に、収集アプリを後にする手順を tasks に置く。ST49 より前の版へ戻した間の欄の脱落は直せない（その版が欄を知らない）ので代償として書く」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 欄を保つ側は、どちらに決め直しても記録を失わない（失わない側の費用: 溜めの読み戻しを型でなく JSON のまま持つ（C-01・C-02 の送り出しの 1 か所ずつ））\n出所: review/deep.md#R6",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST49-PD21",
+      "topic": "ST49 仮D21",
+      "kind": "check",
+      "question": "ST49 の仮の決定 D21: 収集した記録の版の列を、書き換えの門の外に置く（直に直せる）か、門の対象にする（前の版を積むときだけ直せる）か →「門の対象にする。版を直すときも前の版を同じまとまりに積むので、直す前の値が前の版に残る」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: 直す前の値が前の版に残るので、門の外へ戻しても失うものが無い（逆に門の外のまま直すと前の値が消える）（失わない側の費用: 門の関数の名指しに 3 列を足すだけ。直すときは push_version と同じく前の版を積む手間が 1 つ増える）\n乗っている決定: D1\n出所: review/spec.md#R7",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST49-AQ5",
+      "topic": "ST49 答えで直した Q5",
+      "kind": "check",
+      "question": "ST49 の Q5「」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st49-record-component-version/deep.md の Q5・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST49-F",
+      "topic": "ST49 違和感",
+      "kind": "check",
+      "question": "ST49「記録ごとに、作った部品の版が残る」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/data-durability/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（1 件。例: impact（現実に当てはめた分析）が無い —— 変更の前にできて後にできなくなること・利用場面ごとのできる / できない・止める規則が正当な利用まで止めないかを書く（`go_brief.py --example` の impact））\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261029-2234/ST49-spec.html"
+    },
+    {
+      "id": "ST23-PD13",
+      "topic": "ST23 仮D13",
+      "kind": "check",
+      "question": "ST23 の仮の決定 D13: 本文ごと消した時間帯（後着の本文を消す窓・行・書き出しの除外）を、一緒に本文を消した滞在の時間で広げるか →「広げない。指定した滞在の時間だけ」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "画面: S-2 主表現（1 日を見る）: `/`（画面を開いた最初の状態（今日）。日を指すなら `/#/day/2026-09-07`（`#/day/<YYYY-MM-DD>`。日付を省く `#/day/` も今日）。解釈できないアドレスも今日）\n失わない理由: はみ出しの時間に後から届いた位置の本文が残り、本人に見せた範囲の外を消さない（失わない側の費用: はみ出しの時間に届いた位置は生きた記録として一覧に出る。消したければ本人がその滞在を消して本文ごと消す）\n乗っている決定: Q2, Q3\n出所: review/spec.md#R4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST23-F",
+      "topic": "ST23 違和感",
+      "kind": "check",
+      "question": "ST23「本文を本当に消せる」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "画面: S-2 主表現（1 日を見る）: `/`（画面を開いた最初の状態（今日）。日を指すなら `/#/day/2026-09-07`（`#/day/<YYYY-MM-DD>`。日付を省く `#/day/` も今日）。解釈できないアドレスも今日）\n合意したときから変わった仕様: design.md\n仕様書の要点がいまの仕様とずれている（2 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q9）\n録画 ▶ ST23-purge（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261029-223525-763c88d\\scenarios\\ST23-purge\\video.webm",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261029-2234/ST23-spec.html"
+    },
+    {
+      "id": "CH03-PD6",
+      "topic": "CH03 仮D6",
+      "kind": "check",
+      "question": "CH03 の仮の決定 D6: 残りを測る一時フォルダの根をどこに置くか →「/tmp の下の専用の空のフォルダ。落ちた回は target/tmp-leak/ へ移す」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: Q5 の答え（空のフォルダへ向けて測る）は worktree を名指ししておらず、Q6（/tmp を食わない）は落ちた回を target/tmp-leak/ へ移すことで保つ。根の置き場は TMP_LEAK_BASE 1 か所で替えられる（失わない側の費用: 根を worktree へ戻すなら tools/tmp-leak-check.sh の base の既定 1 行と D6 の文。ただしディスクの上では collector-windows の試験が 10 倍以上遅くなり history_large_fetch_keeps_observing_foreground が落ちる（2026-10-27 実測））\n出所: review/code.md#R1",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH03-PD10",
+      "topic": "CH03 仮D10",
+      "kind": "check",
+      "question": "CH03 の仮の決定 D10: CI で Robolectric の android-all の取り込みが試験の一時フォルダに残す staging（数字だけの名前 3 件）をどう扱うか →「Gradle の fetchRobolectricJars が版ごとに build/robolectric-jars へ置き、試験はいつも offline で走らせる（ASHIATO_ROBOLECTRIC_JARS があればそちらが先）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: tmp-leak-check.sh の判定は一切緩めない（D6 の反転条件の除外の一覧を作らない）。harness の ASHIATO_ROBOLECTRIC_JARS の経路はそのまま。取り込みの道を戻すのは build.gradle.kts の 1 か所（失わない側の費用: Robolectric を上げるたびに build.gradle.kts の robolectricSdkJars の 3 行を DefaultSdkProvider の表に合わせる（ずれれば offline の Robolectric が jar が無いで落ちて気付く））\n乗っている決定: D6\n出所: docs/briefs/CH03-gate.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "CH03-F",
+      "topic": "CH03 違和感",
+      "kind": "check",
+      "question": "CH03「テストの一時ファイルの後始末」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / proposal.md / specs/test-hygiene/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（3 件。例: 前に合意を聞いている（agreement.json がある）のに since_last が無い —— 前回から何が変わったか・違和感（deep.md の `## 仕様への違和感`）にどう対応したかを先頭に出す）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261029-2234/CH03-spec.html"
+    },
+    {
+      "id": "CH05-F",
+      "topic": "CH05 違和感",
+      "kind": "check",
+      "question": "CH05「試験の DB が打ち切った run の残りで膨れないようにする」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / specs/test-database/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（2 件。例: GO の要点が決定を落としている —— 本人の答え（Q）・聞かずに決めた既定（C）・仮の決定（D（仮））は全部どこかの点（機能・未解決・AI に任せた細部）の refs に出す: Q9）\n録画 ▶ 動画なし（この Story の録画のシナリオが無い）。起動して触って確かめる",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261029-2234/CH05-spec.html"
+    },
+    {
+      "id": "ST11-PD15",
+      "topic": "ST11 仮D15",
+      "kind": "check",
+      "question": "ST11 の仮の決定 D15: 保持の上限で健康データの権限の記録を捨てたとき、最後の状態を忘れて作り直すか →「忘れて次に観たとき作り直す（LocationService の onDropped で HealthStateStore.forget）」のままでよいか",
+      "why": "深掘りで止めずに、失わない側を仮に選んで進めた決定。覆すならここで",
+      "context": "失わない理由: S-01 が許可の状態を持ち続ける（ST34 の読める範囲の起点）（失わない側の費用: 同じ状態の記録が 1 件増えうる・作り直した記録の観た時刻が後ろへずれる）\n乗っている決定: D2\n出所: review/code.md#R19",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "仮のままでいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST11-AQ2",
+      "topic": "ST11 答えで直した Q2",
+      "kind": "check",
+      "question": "ST11 の Q2「本人の携帯の実物」を推奨と違う答えにした。直した後の振る舞いでよいか",
+      "why": "GO 資料は推奨で書いた形で読んだ。違う答えに合わせて AI が直した仕様は、GO 資料では読み直していない",
+      "context": "出所: st11-health-history-permission/deep.md の Q2・review/answers.md",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "直した形でいい"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "変える。補足にどう変えるかを書く"
+        }
+      ]
+    },
+    {
+      "id": "ST11-F",
+      "topic": "ST11 違和感",
+      "kind": "check",
+      "question": "ST11「健康データの履歴権限を初回起動で要求する」の仕様書（下）と、触った画面と動きに、違和感は無かったか（あれば補足に「何が・どこで」）",
+      "why": "正しさは機械のテストが持つ。人間にしか分からないのは「使ってみてどうか」と、merge する仕様が分かるかだけ",
+      "context": "合意したときから変わった仕様: design.md / go.json / proposal.md / specs/device-collection/spec.md / tasks.md\n仕様書の要点がいまの仕様とずれている（3 件。例: GO の要点が要件を落としている —— どの機能の点の refs にも出ない Requirement: 利用状況へのアクセスを初回起動で求める）\n録画 ▶ ST11-health-permission（AI の実行結果。人間の承認ではない）: 全体 ok / テスト passed / 録画 recorded / 再生 playable。動画: C:\\dev\\ashiato2-recordings\\20261029-223525-763c88d\\scenarios\\ST11-health-permission\\video.mp4",
+      "options": [
+        {
+          "label": "通った",
+          "detail": "違和感なし"
+        },
+        {
+          "label": "通らなかった",
+          "detail": "違和感あり。補足に何が・どこで"
+        }
+      ],
+      "doc": "docs/briefs/verify-20261029-2234/ST11-spec.html"
+    }
+  ]
+}
