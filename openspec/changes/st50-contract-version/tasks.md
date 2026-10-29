@@ -38,7 +38,7 @@
 
 ## Task 1: S-01 の契約の版と確かめる口 `GET /contract`
 
-- [ ] 1.1 `crates/server/src/contract_version.rs` を作る: `pub const CONTRACT_VERSION: u32 = 1;`、`App` に `contract_version: u32`（既定は定数。試験だけが別の値で作れる。設定や環境変数で変えられる口は作らない。D4）、
+- [x] 1.1 `crates/server/src/contract_version.rs` を作る: `pub const CONTRACT_VERSION: u32 = 1;`、`App` に `contract_version: u32`（既定は定数。試験だけが別の値で作れる。設定や環境変数で変えられる口は作らない。D4）、
   見出し `Ashiato-Contract-Version` を読む関数（無ければ 1、正の整数でなければ「読めない」）。`router` に `GET /contract` を足し、`Caller::ApiToken` だけに `200 {"contract_version": N}` を返す（合言葉なし・不一致は 401、画面のログインと衛星は 403。D15）。
   `bin/openapi.rs` に載せて `docs/openapi.json` を作り直す。読み出しの記録は今の規則のまま 1 回 1 行（D23（仮）。`access_log.rs` を変えない）。`contract_version_tests.rs`:
   - `st50_contract_answers_version` — `// Scenario: 問い合わせの口は受け付ける一番新しい契約の版を答える`（試験の App を版 3 で作る）
