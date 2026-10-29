@@ -94,7 +94,7 @@ spec の Scenario 63 本（record-envelope 34・device-collection 16・desktop-c
   送らない側に倒すのは FR-125 どおりで失うものは無い。誤るのは知らせの文言で、S-01 を更新しても直らない（更新済みの S-01 でも captive portal の下では同じことが起きる）
 - kind: daily
 - 提案: 送らずに残す条件はそのままにし、「サーバを更新してください」を出す条件を分ける（例: 404 と、版を持つ答えで受け付けない版の行がある・426 のときだけ促す。200 で読めない答えは一時的な失敗と同じく促さない、または数契機続いたときだけ促す）。どちらにするかを D11 に書き、Scenario「到達できないだけでは更新を促さない」の隣に「読めない 200 では更新を促さない（または N 回続いたら促す）」を足す
-- 処置: fixed D22 仮 —— 送らずに残す条件と「S-01 の更新を待っている」（知らせを出す）条件を分け、200 の読めない答えでは促さないことを D9・D11 と device / desktop の Requirement・Scenario（「読めない 200 の答えだけでは更新を促さない」）に書いた
+- 処置: escalated —— 深掘り第 2 回 Q10 で本人に返した（2026-10-29。deep.md Q10・deep-questions-r2.json。答え待ち）。経緯: はじめは仮の D22 として、送らずに残す条件と「S-01 の更新を待っている」（知らせを出す）条件を分け、200 の読めない答えでは促さないことを D9・D11 と device / desktop の Requirement・Scenario（「読めない 200 の答えだけでは更新を促さない」）に書いた。provisional.jsonl に載せたが、別の席の否（provisional-review.md D22。携帯は 90 日で捨てる）で外した
 
 ## R8. `GET /contract` を 5 分ごとに引くと、読み出しの記録（data-sensitivity）に 1 日あたり端末ごとに 288 行が積もる。D18（仮）の費用に無く、data-sensitivity の決めた理由と食い違う
 - 成果物: openspec/changes/st50-contract-version/design.md（D18（仮）・D15）/ provisional.jsonl（D18 の cost）
