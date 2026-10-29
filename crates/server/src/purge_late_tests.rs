@@ -98,6 +98,26 @@ async fn row_count(pool: &PgPool, user: Uuid) -> i64 {
     .unwrap()
 }
 
+/// 書庫から読み直した後着の 1 行（本文は空）。構造体の式でなく JSON から組む —— `IngestRequest` は
+/// 省略できる欄が増えていく（ST49 の `client_version` など）ので、欄を並べると足されるたびにここが落ちる。
+fn late_row(id: Uuid, user: Uuid, source: &str, when: &str) -> crate::IngestRequest {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "user_id": user,
+        "logical_source": source,
+        "external_id": null,
+        "device_id": "s01-c03",
+        "origin": "collected",
+        "event_time": at(when),
+        "tz_offset_min": 540,
+        "tz_id": "Asia/Tokyo",
+        "schema_version": 1,
+        "raw": "",
+        "payload": {},
+    }))
+    .unwrap()
+}
+
 // Scenario: 本文ごと消した時間に端末から届いた位置は本文が消える
 #[tokio::test]
 async fn purge_late_device_location_inside_the_span_is_emptied() {
@@ -403,27 +423,7 @@ async fn purge_late_archive_arrival_with_versions_ledgers_each_version() {
         .await
         .unwrap();
 
-    let stored = crate::IngestRequest {
-        id: loc,
-        user_id: user,
-        logical_source: source.into(),
-        external_id: None,
-        device_id: Some("s01-c03".into()),
-        origin: "collected".into(),
-        event_time: at(&when),
-        tz_offset_min: 540,
-        tz_id: "Asia/Tokyo".into(),
-        schema_version: 1,
-        unit_system: None,
-        crs: None,
-        source_updated_at: None,
-        external_ref: None,
-        raw: String::new(),
-        payload: serde_json::json!({}),
-        end_time: None,
-        end_tz_offset_min: None,
-        end_tz_id: None,
-    };
+    let stored = late_row(loc, user, source, &when);
     crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
         .await
         .unwrap();
@@ -501,27 +501,7 @@ async fn purge_late_archive_row_hidden_by_another_stay_keeps_that_stay_restorabl
     .unwrap();
     purge_now(&pool, a).await;
 
-    let stored = crate::IngestRequest {
-        id: loc,
-        user_id: user,
-        logical_source: source.into(),
-        external_id: None,
-        device_id: Some("s01-c03".into()),
-        origin: "collected".into(),
-        event_time: at(&when),
-        tz_offset_min: 540,
-        tz_id: "Asia/Tokyo".into(),
-        schema_version: 1,
-        unit_system: None,
-        crs: None,
-        source_updated_at: None,
-        external_ref: None,
-        raw: String::new(),
-        payload: serde_json::json!({}),
-        end_time: None,
-        end_tz_offset_min: None,
-        end_tz_id: None,
-    };
+    let stored = late_row(loc, user, source, &when);
     crate::stay_store::mark_archive_arrivals(&pool, user, &[stored])
         .await
         .unwrap();

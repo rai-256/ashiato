@@ -331,6 +331,8 @@ impl IngestRequest {
             source_updated_at: Some(micros(version)),
             raw: visit.raw.clone(),
             payload: serde_json::to_value(&visit.payload)?,
+            client_version: None,
+            unknown: serde_json::Map::new(),
         })
     }
 }

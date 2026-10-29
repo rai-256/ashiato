@@ -39,18 +39,28 @@ $mig$;
 CREATE OR REPLACE VIEW core.event_live AS
   SELECT * FROM core.event WHERE deleted_at IS NULL;
 
-CREATE OR REPLACE VIEW core.event_version_live AS
-  SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
-         v.event_time, v.content_hash, v.raw, v.payload,
-         v.source_updated_at, v.external_ref, v.superseded_at,
-         v.tz_offset_min, v.tz_id, v.schema_version, v.unit_system, v.crs,
-         e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
-         e.origin,
-         e.external_id,
-         v.end_time, v.end_tz_offset_min, v.end_tz_id
-    FROM core.event_version v
-    JOIN core.event e ON e.id = v.event_id
-   WHERE e.deleted_at IS NULL;
+-- 後の版（ST49 の部品の版）が列を足した後の当て直しでは、列を減らす作り直しになって落ちる。
+-- 終わりの列をもう持っているビューは作り直さない（`202609120943_version_and_ledger.sql` と同じ型の守り）。
+DO $mig$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'core' AND table_name = 'event_version_live'
+                    AND column_name = 'end_time') THEN
+    CREATE OR REPLACE VIEW core.event_version_live AS
+      SELECT v.id, v.event_id, v.user_id, v.logical_source, v.version_no,
+             v.event_time, v.content_hash, v.raw, v.payload,
+             v.source_updated_at, v.external_ref, v.superseded_at,
+             v.tz_offset_min, v.tz_id, v.schema_version, v.unit_system, v.crs,
+             e.sensitivity,          -- **親の値**（Q21。履歴は自分の感度を持たない）
+             e.origin,
+             e.external_id,
+             v.end_time, v.end_tz_offset_min, v.end_tz_id
+        FROM core.event_version v
+        JOIN core.event e ON e.id = v.event_id
+       WHERE e.deleted_at IS NULL;
+  END IF;
+END
+$mig$;
 
 -- ------------------------------------------------------------------ 3. 消した滞在の時間（D11）
 -- 終わりを列→内容の `end`→始まり+1µs の順に読む。滞在は終わりを列に書かない（D13）ので、いまの振る舞いは変わらない。
@@ -72,15 +82,15 @@ CREATE OR REPLACE VIEW core.stay_erased AS
 -- **写した元が変わっていたら落とす**（review/code.md R21）。下の 5 関数は本体ごと置き換えるので、ORDER でこの版より前の版が
 -- 関数を変えると、起動のたびにここの古い写しがそれを黙って戻す。当てる直前の本体が、写した元（ORDER の 1 つ前までを当てた本体）か
 -- この版の本体（2 回目の当て）のどちらでもなければ止める。門と前の版の錠は、この版の `.down.sql` が戻した本体（写した元から
--- コメントを落としただけ）も写した元として受ける。直し方: 前の版の本体を写し直して終わりを足し、下の md5 を取り直す。
+-- コメントを落としただけ）と、後の版（ST49）の本体も写した元として受ける（当て直しで後の版の上に当たるため）。直し方: 前の版の本体を写し直して終わりを足し、下の md5 を取り直す。
 DO $mig$
 DECLARE
   f record;
   got text;
 BEGIN
   FOR f IN SELECT * FROM (VALUES
-      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c'], '048663f9a11ebe059461fa00f5b0f86d'),
-      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea'], '297643252bd76e0f28239a983924434e'),
+      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c', 'e3651d3492ae1d0d7e9f3b3683a6a161'], '048663f9a11ebe059461fa00f5b0f86d'),
+      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea', 'f2caef81d5e0f36aac6a78918fab7bec'], '297643252bd76e0f28239a983924434e'),
       ('reject_claim_rewrite',        ARRAY['4006819958d70c2bdc8c124bfdbeef00'], '1d22cf9574bd9cc6662f713f55f936f6'),
       ('reject_feeling_rewrite',      ARRAY['75bb30cd8661c837b6b6bd49ca9b437c'], 'a114c7b157a8db84bf5bd5800ae02e8c'),
       ('reject_place_record_rewrite', ARRAY['8ada6d675534acc6dd73e49e22ffa5b6'], '2def13f291eb1997490f8537b10e7b4c')

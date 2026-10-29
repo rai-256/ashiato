@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::set_header::SetResponseHeaderLayer;
 
+/// この S-01 の組み立ての印 `<版番号>+<commit>[.dirty][.debug]`（ST49 / design D5）。
+pub const BUILD_STAMP: &str = env!("ASHIATO_BUILD_STAMP");
+
 /// 読み出しの記録（ST28 / design D8）。
 pub mod access_log;
 #[cfg(test)]
@@ -47,6 +50,9 @@ mod attributes_tests;
 mod authored_rule_tests;
 #[cfg(test)]
 mod clock_tests;
+/// 記録ごとの部品の版（ST49）の移行と門。
+#[cfg(test)]
+mod component_version_tests;
 pub mod coverage;
 /// 1 日の並びの要約とほかの記録の行（ST25 / design D1 / D6 / D7）。
 pub mod day;
@@ -71,6 +77,9 @@ mod drops_tests;
 mod end_time_tests;
 /// 書き出しの骨組み（ST33 / design D2 / D3 / D8 / D9）。
 pub mod export;
+/// 書き出しの版の列と説明（ST49）。
+#[cfg(test)]
+mod export_component_version_tests;
 /// 書き出しと消した滞在の時間が終わりを列から読むこと（ST41）。
 #[cfg(test)]
 mod export_end_time_tests;
@@ -969,7 +978,7 @@ pub async fn store_one(
 
 async fn store_with(app: &App, request: IngestRequest) -> anyhow::Result<StoreOutcome> {
     let pool = &app.pool;
-    let result = ingest_request(app, request, Settle::Later)
+    let result = ingest_request(app, request, Writer::Internal, Settle::Later)
         .await
         .map_err(|(_, message)| anyhow::anyhow!(message))?;
     match (result.id, result.duplicate, result.error) {
@@ -1051,6 +1060,10 @@ struct Stored {
     end_time: Option<chrono::DateTime<chrono::Utc>>,
     end_tz_offset_min: Option<i32>,
     end_tz_id: Option<String>,
+    /// 部品の版（ST49）。更新で動くので、前の値を履歴へ残すためにここで受ける
+    collector_version: Option<String>,
+    web_version: Option<String>,
+    server_version: Option<String>,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -1144,6 +1157,7 @@ async fn place_state_error(
 async fn ingest_one(
     app: &App,
     item: &serde_json::Value,
+    writer: Writer,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 収集側が採番した id だけは、形が壊れていても拾えるなら結果に載せる（対応づけの助けになる）
     let sent_id = item
@@ -1159,7 +1173,45 @@ async fn ingest_one(
             return Ok(IngestResult::rejected(sent_id, IngestError::Malformed));
         }
     };
-    ingest_request(app, req, Settle::InTx).await
+    ingest_request(app, req, writer, Settle::InTx).await
+}
+
+/// 記録を書く側の種類（ST49 / D9）。部品の版を、どの列に入れるかを決める。
+/// 要求の欄からは決めない —— 資格情報（`Caller`）から決める。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Writer {
+    /// API の合言葉。要求の `client_version` は収集アプリの版
+    Collector,
+    /// 画面のログイン。要求の `client_version` は画面の版
+    Web,
+    /// S-01 の中の格納（書庫の取り込みなど）。要求の `client_version` はどこにも入れない
+    Internal,
+}
+
+impl Writer {
+    /// 資格情報の種類から決める。**`match` に `_` を置かない** —— `Caller` の種類が増えたら、
+    /// ここで振り分けを決めないとコンパイルが落ちる（衛星の資格情報は `Collector` にも `Web` にもしない）。
+    pub(crate) fn of(caller: web_session::Caller) -> Self {
+        match caller {
+            web_session::Caller::ApiToken => Self::Collector,
+            web_session::Caller::WebSession => Self::Web,
+            web_session::Caller::Satellite { .. } => Self::Internal,
+        }
+    }
+
+    /// 要求の部品の版を `(collector_version, web_version)` に振り分ける。S-01 の版は要求に依らない。
+    fn split(self, version: Option<String>) -> (Option<String>, Option<String>) {
+        match self {
+            Self::Collector => (version, None),
+            Self::Web => (None, version),
+            Self::Internal => (None, None),
+        }
+    }
+
+    /// 収集アプリだけが送る報告（破棄の報告・原本の欠け）の `collector_version`。API の合言葉のときだけ入れる（D9・D14）。
+    pub(crate) fn collector_version(self, version: Option<String>) -> Option<String> {
+        self.split(version).0
+    }
 }
 
 /// 入れた記録の後着の片付け（印と本文の消去。`stay_store::settle_arrival`）を、いつ行うか（ST23 / design D8（仮））。
@@ -1179,10 +1231,13 @@ enum Settle {
 async fn ingest_request(
     app: &App,
     mut req: IngestRequest,
+    writer: Writer,
     settle: Settle,
 ) -> Result<IngestResult, (StatusCode, String)> {
     // 終わりの時刻はマイクロ秒に切り捨てた値を、比べる値にも格納する値にもする（ST41 / D7）
     req.truncate_end_to_micros();
+    // 部品の版は資格情報で振り分ける（ST49 / D9）。要求の欄からは決めない
+    let (collector_version, web_version) = writer.split(req.component_version());
     // **個人属性の主張は、ここで形を確かめる**（ST19 / design D5）。
     // 順は 形 → 由来と端末 → 外部識別子 → 値 → 「いつから」で、**DB を見る 2 つは
     // 記録を入れるのと同じまとまりの中**（下）。
@@ -1481,8 +1536,10 @@ async fn ingest_request(
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
-            end_time, end_tz_offset_min, end_tz_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+            end_time, end_tz_offset_min, end_tz_id,
+            collector_version, web_version, server_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+                 $22,$23,$24)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -1491,8 +1548,10 @@ async fn ingest_request(
            (id, user_id, logical_source, external_id, external_ref, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
-            end_time, end_tz_offset_min, end_tz_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+            end_time, end_tz_offset_min, end_tz_id,
+            collector_version, web_version, server_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+                 $22,$23,$24)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -1523,6 +1582,9 @@ async fn ingest_request(
             .bind(req.end_time)
             .bind(req.end_tz_offset_min)
             .bind(&req.end_tz_id)
+            .bind(&collector_version)
+            .bind(&web_version)
+            .bind(BUILD_STAMP)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
@@ -1547,7 +1609,15 @@ async fn ingest_request(
         if blocked_by_deleted.is_some() {
             outcome = Update::SkippedDeletedContent;
         } else if external_id.is_some() && is_update(stored, &req, &hash) {
-            outcome = apply_external_update(&mut tx, stored, &req, &hash, &payload).await?;
+            outcome = apply_external_update(
+                &mut tx,
+                stored,
+                &req,
+                &hash,
+                &payload,
+                (&collector_version, &web_version),
+            )
+            .await?;
         } else if external_id.is_some() {
             // **内容は同じでも更新時刻だけ新しい到着で、水位を進める**（R113）。
             // 進めないと、その後に届く**中間の時刻**の版が「新しい」と判定されて
@@ -1666,13 +1736,15 @@ async fn load_stored(
     let sql = if external_id.is_some() {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
-                end_time, end_tz_offset_min, end_tz_id
+                end_time, end_tz_offset_min, end_tz_id,
+                collector_version, web_version, server_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
-                end_time, end_tz_offset_min, end_tz_id
+                end_time, end_tz_offset_min, end_tz_id,
+                collector_version, web_version, server_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -1774,6 +1846,7 @@ async fn apply_external_update(
     req: &IngestRequest,
     hash: &str,
     payload: &serde_json::Value,
+    (collector_version, web_version): (&Option<String>, &Option<String>),
 ) -> Result<Update, (StatusCode, String)> {
     // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
     // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
@@ -1795,10 +1868,12 @@ async fn apply_external_update(
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
             raw, payload, source_updated_at, external_ref,
             tz_offset_min, tz_id, schema_version, unit_system, crs,
-            end_time, end_tz_offset_min, end_tz_id)
+            end_time, end_tz_offset_min, end_tz_id,
+            collector_version, web_version, server_version)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
-                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19, $20
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -1818,6 +1893,9 @@ async fn apply_external_update(
     .bind(stored.end_time)
     .bind(stored.end_tz_offset_min)
     .bind(&stored.end_tz_id)
+    .bind(&stored.collector_version)
+    .bind(&stored.web_version)
+    .bind(&stored.server_version)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -1841,7 +1919,8 @@ async fn apply_external_update(
                 source_updated_at = coalesce($6, source_updated_at),
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
                 unit_system = $10, crs = $11,
-                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14
+                end_time = $12, end_tz_offset_min = $13, end_tz_id = $14,
+                collector_version = $15, web_version = $16, server_version = $17
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1858,6 +1937,10 @@ async fn apply_external_update(
     .bind(req.end_time)
     .bind(req.end_tz_offset_min)
     .bind(&req.end_tz_id)
+    // **版は今の中身を作った版に動く**（ST49 / D1（仮））。前の版は上の INSERT で履歴に残っている
+    .bind(collector_version)
+    .bind(web_version)
+    .bind(BUILD_STAMP)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
@@ -1881,7 +1964,7 @@ pub async fn ingest(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<IngestResult>>), (StatusCode, String)> {
-    authorize(&app, &headers).await?;
+    let writer = Writer::of(authorize(&app, &headers).await?);
 
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
@@ -1897,7 +1980,7 @@ pub async fn ingest(
 
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(ingest_one(&app, item).await?);
+        results.push(ingest_one(&app, item, writer).await?);
     }
 
     // **位置を受け入れた日の滞在を作り直す**（ST16 / Q6 / design D5）。まとめ送り 1 回につき、日ごと・利用者ごとに 1 回。

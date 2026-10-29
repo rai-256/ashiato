@@ -255,6 +255,7 @@ async fn archive_flow_locations_stay_out_of_the_phone_source() {
             end_time: None,
             end_tz_offset_min: None,
             end_tz_id: None,
+            client_version: None,
         },
     )
     .await

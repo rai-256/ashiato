@@ -320,6 +320,13 @@ pub struct IngestRequest {
     pub raw: String,
     /// 解析済み。SQL から引けるのはこちら
     pub payload: serde_json::Value,
+    /// 積んだ時点の C-02 の組み立ての印（ST49 / design D13）。**送る時点の版で書き換えない**。
+    /// 欄を持たない古い行は持たないまま送る（今の版を入れない）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<String>,
+    /// 今の C-02 の知らない欄（読み戻した行のもの）。**捨てずに送り返す**（ST49 design D3（仮））
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 impl IngestRequest {
@@ -349,6 +356,8 @@ impl IngestRequest {
             source_updated_at: None,
             raw,
             payload: serde_json::to_value(payload)?,
+            client_version: None,
+            unknown: serde_json::Map::new(),
         })
     }
 }

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import pkg from "./package.json";
+import { webBuildStamp } from "./build-stamp";
 
 export default defineConfig({
   plugins: [react()],
+  define: { __ASHIATO_WEB_VERSION__: JSON.stringify(webBuildStamp({ version: pkg.version, production: false })) },
   // 画面の文言を Rust の定数と突き合わせるテストが `crates/` の字面を `?raw` で読む（satellites.test.tsx）。
   server: { fs: { allow: ["..", "."] } },
   test: {
