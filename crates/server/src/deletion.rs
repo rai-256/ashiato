@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::HashSet;
 
-use crate::{stay::Criteria, stay_store};
+use crate::{archive, stay, stay::Criteria, stay_store};
 
 /// 消す操作が成立しなかった理由。404 に畳む 2 種類は、ログの要否だけが違う。
 #[derive(Debug)]
@@ -20,6 +20,8 @@ pub enum EraseError {
 pub enum RestoreError {
     NotFound,
     UserMismatch,
+    /// 戻すことになる記録に、本文を消したものがある（design D6。何も書かずに断る）。
+    Purged,
     Database(sqlx::Error),
 }
 
@@ -59,6 +61,7 @@ struct LedgerRow {
     cause_event_id: uuid::Uuid,
     mark: String,
     blocked_by_other_cause: bool,
+    purged: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -140,7 +143,8 @@ pub async fn restore(
                           AND latest.cause_event_id = other.cause_event_id
                      )
                      AND other.cause_event_id <> ALL($1)
-                ) AS blocked_by_other_cause
+                ) AS blocked_by_other_cause,
+                (e.raw = '') AS purged
            FROM core.deletion_ledger d
            JOIN core.event e ON e.id = d.event_id AND e.user_id = d.user_id
           WHERE d.cause_event_id = ANY($1)
@@ -157,6 +161,13 @@ pub async fn restore(
     .bind(stay_ids)
     .fetch_all(&mut *tx)
     .await?;
+    // 本文を消した記録は戻せない。別の原因で消えたまま残る記録は戻さないので数えない（design D6（仮））。
+    if rows
+        .iter()
+        .any(|row| row.purged && !row.blocked_by_other_cause)
+    {
+        return Err(RestoreError::Purged);
+    }
     let mut restored_causes = HashSet::new();
     let mut restored_stays = 0;
     let mut restored_locations = 0;
@@ -426,5 +437,689 @@ async fn ledger(
     .bind(mark)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+// ------------------------------------------------------------------ 本文ごと消す（ST23 / design D2 / D3 / D6 / D15 / D17）
+
+/// 本文ごと消す範囲を組ごとに数えたもの（design D15）。確認で見せる数と台帳に残す数は同じ。
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
+pub struct PurgeCounts {
+    pub stays: u32,
+    pub locations: u32,
+    pub archive_locations: u32,
+    pub archive_items: u32,
+    pub versions: u32,
+}
+
+/// 本文ごと消す操作が成立しなかった理由。
+#[derive(Debug)]
+pub enum PurgeError {
+    NotFound,
+    UserMismatch,
+    /// 指定した滞在が「消した」になっていない（消えていない・作り直しの印だけ）。
+    NotErased,
+    /// 確認で見せた件数と、数え直した件数が違う。
+    CountsChanged(PurgeCounts),
+    /// どの組（design D15）にも入らない論理ソースが範囲に入った。
+    UnknownSource,
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for PurgeError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
+
+/// 本文ごと消した結果。すでに消していた滞在は件数 0・`operation_id` なし。
+#[derive(Debug)]
+pub struct PurgeOutcome {
+    pub user_id: uuid::Uuid,
+    pub counts: PurgeCounts,
+    pub operation_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Group {
+    Stay,
+    Location,
+    ArchiveLocation,
+    ArchiveItem,
+}
+
+/// 範囲に入った記録 1 件。`span` は滞在だけが持つ（消す前の本文から読んだ時間）。
+#[derive(Debug)]
+struct Member {
+    id: uuid::Uuid,
+    logical_source: String,
+    group: Group,
+    span: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    /// 一緒に本文を消す重なる滞在（印を `user:purged` に付け替える。design D6）
+    swallowed: bool,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct VersionRow {
+    event_id: uuid::Uuid,
+    version_no: i32,
+    event_time: DateTime<Utc>,
+    payload: serde_json::Value,
+}
+
+/// `purge_scope` が集めた範囲。確認の口（何も書かない）と消す口が同じものを使う。
+#[derive(Debug)]
+pub struct PurgeScope {
+    pub stay_id: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    /// 指定した滞在の時間（design D13）
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// すでに本文を消した滞在。範囲は空・件数は 0。
+    pub already_purged: bool,
+    pub counts: PurgeCounts,
+    members: Vec<Member>,
+    versions: Vec<VersionRow>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ScopeStayRow {
+    user_id: uuid::Uuid,
+    event_time: DateTime<Utc>,
+    raw: String,
+    payload: serde_json::Value,
+    deleted_at: Option<DateTime<Utc>>,
+    deleted_by: Option<String>,
+    erased: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct ScopeEventRow {
+    id: uuid::Uuid,
+    logical_source: String,
+    event_time: DateTime<Utc>,
+    payload: serde_json::Value,
+}
+
+/// 本文ごと消す範囲を集めて、組ごとに数える（design D2 / D15）。**書かない。** 錠は呼び出し側が取る。
+///
+/// 1. 指定した滞在（本人が「消した」にしたもの） 2. それを原因として消えた記録（削除の台帳の原因で引く）
+/// 3. 時間が重なる滞在のうち作り直しの印のもの（端が触れるだけは入れない。本人が別に消したものと印の無いものは入れない）
+/// 4. 1〜3 の前の版すべて。どの組にも入らない論理ソースが混ざっていたら `UnknownSource`。
+pub async fn purge_scope(
+    tx: &mut Transaction<'_, Postgres>,
+    stay_id: uuid::Uuid,
+) -> Result<PurgeScope, PurgeError> {
+    let stay: ScopeStayRow = sqlx::query_as(
+        "SELECT e.user_id, e.event_time, e.raw, e.payload, e.deleted_at, e.deleted_by,
+                EXISTS (
+                  SELECT 1 FROM core.deletion_ledger d
+                   WHERE d.event_id = e.id AND d.action = 'erase'
+                     AND d.seq = (SELECT max(last.seq) FROM core.deletion_ledger last WHERE last.event_id = e.id)
+                ) AS erased
+           FROM core.event e
+          WHERE e.id = $1 AND e.logical_source = 's01-stay' AND e.origin = 'derived'",
+    )
+    .bind(stay_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(PurgeError::NotFound)?;
+    let (mut start, mut end) = stay_store::span_of(stay.event_time, &stay.payload);
+    if stay.raw.is_empty() {
+        // 本文を消した滞在は本文から時間を読めない（`span_of` は始まりの一点に潰れる）。消した時間帯を読む 1 か所
+        // （`core.stay_erased`。範囲の行か、無ければ D14 のその日全体）から読む（final review R8）。
+        // 一緒に本文を消した滞在（`user:purged`）はビューに出ないので、本文の読みのまま
+        let span: Option<(DateTime<Utc>, DateTime<Utc>)> =
+            sqlx::query_as("SELECT start_at, end_at FROM core.stay_erased WHERE id = $1")
+                .bind(stay_id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        if let Some((from, to)) = span {
+            (start, end) = (from, to);
+        }
+    }
+    let mut scope = PurgeScope {
+        stay_id,
+        user_id: stay.user_id,
+        start,
+        end,
+        already_purged: stay.raw.is_empty(),
+        counts: PurgeCounts::default(),
+        members: Vec::new(),
+        versions: Vec::new(),
+    };
+    if scope.already_purged {
+        return Ok(scope);
+    }
+    if stay.deleted_at.is_none() || stay.deleted_by.as_deref() != Some("user") || !stay.erased {
+        return Err(PurgeError::NotErased);
+    }
+
+    scope.members.push(Member {
+        id: stay_id,
+        logical_source: stay::SOURCE.to_owned(),
+        group: Group::Stay,
+        span: Some((start, end)),
+        swallowed: false,
+    });
+
+    // 2: この滞在を原因として消えた記録（原因ごとの最新の行が erase で、いまも同じ印で消えているもの）
+    let caused: Vec<ScopeEventRow> = sqlx::query_as(
+        "SELECT e.id, e.logical_source, e.event_time, e.payload
+           FROM core.event e
+          WHERE e.user_id = $1 AND e.id <> $2 AND e.raw <> '' AND e.deleted_at IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM core.deletion_ledger d
+               WHERE d.event_id = e.id AND d.cause_event_id = $2 AND d.action = 'erase'
+                 AND e.deleted_by IS NOT DISTINCT FROM d.mark
+                 AND d.seq = (
+                   SELECT max(last.seq) FROM core.deletion_ledger last
+                    WHERE last.event_id = e.id AND last.cause_event_id = d.cause_event_id
+                 )
+            )
+          ORDER BY e.id",
+    )
+    .bind(scope.user_id)
+    .bind(stay_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let base_sources: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT s FROM core.stay_criteria c, unnest(c.sources) AS s WHERE c.user_id = $1",
+    )
+    .bind(scope.user_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let item_sources = stay_store::item_sources(&mut **tx).await?;
+    for row in caused {
+        let group = if row.logical_source == stay::SOURCE {
+            Group::Stay
+        } else if archive::LOCATION_SOURCES.contains(&row.logical_source.as_str()) {
+            Group::ArchiveLocation
+        } else if item_sources.contains(&row.logical_source) {
+            Group::ArchiveItem
+        } else if row.logical_source == "c01-location" || base_sources.contains(&row.logical_source)
+        {
+            Group::Location
+        } else {
+            // ログに出すのは論理ソースの名前だけ
+            tracing::warn!(
+                kind = "purge_unknown_source",
+                logical_source = %row.logical_source,
+                "どの組にも入らない論理ソースが本文ごと消す範囲に入ったため断った"
+            );
+            return Err(PurgeError::UnknownSource);
+        };
+        let span =
+            (group == Group::Stay).then(|| stay_store::span_of(row.event_time, &row.payload));
+        scope.members.push(Member {
+            id: row.id,
+            logical_source: row.logical_source,
+            group,
+            span,
+            swallowed: false,
+        });
+    }
+
+    // 3: 時間が重なる（端が触れるだけは含めない）作り直しの印の滞在。時間は `core.stay_erased` が持つ 1 か所の読み方
+    let swallowed: Vec<ScopeEventRow> = sqlx::query_as(
+        "SELECT e.id, e.logical_source, e.event_time, e.payload
+           FROM core.stay_erased_purge v
+           JOIN core.event e ON e.id = v.id
+          WHERE v.user_id = $1 AND v.id <> $2 AND NOT v.purged
+            AND v.deleted_by IN ($3, $4)
+            AND v.start_at < $6 AND $5 < v.end_at
+          ORDER BY e.id",
+    )
+    .bind(scope.user_id)
+    .bind(stay_id)
+    .bind(stay_store::ABSORBED)
+    .bind(stay_store::ERASED_RANGE)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in swallowed {
+        if scope.members.iter().any(|m| m.id == row.id) {
+            continue;
+        }
+        let span = stay_store::span_of(row.event_time, &row.payload);
+        scope.members.push(Member {
+            id: row.id,
+            logical_source: row.logical_source,
+            group: Group::Stay,
+            span: Some(span),
+            swallowed: true,
+        });
+    }
+
+    // 4: 前の版すべて
+    let ids: Vec<uuid::Uuid> = scope.members.iter().map(|m| m.id).collect();
+    scope.versions = sqlx::query_as(
+        "SELECT event_id, version_no, event_time, payload
+           FROM core.event_version
+          WHERE event_id = ANY($1) AND raw <> ''
+          ORDER BY event_id, version_no",
+    )
+    .bind(&ids)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let count = |group| scope.members.iter().filter(|m| m.group == group).count() as u32;
+    scope.counts = PurgeCounts {
+        stays: count(Group::Stay),
+        locations: count(Group::Location),
+        archive_locations: count(Group::ArchiveLocation),
+        archive_items: count(Group::ArchiveItem),
+        versions: scope.versions.len() as u32,
+    };
+    Ok(scope)
+}
+
+impl PurgeScope {
+    /// 範囲に入った書庫の記録（書庫の位置・書庫の項目）の論理ソース。重なりは 1 つにする。
+    pub fn archive_sources(&self) -> Vec<String> {
+        let mut sources: Vec<String> = self
+            .members
+            .iter()
+            .filter(|m| matches!(m.group, Group::ArchiveLocation | Group::ArchiveItem))
+            .map(|m| m.logical_source.clone())
+            .collect();
+        sources.sort();
+        sources.dedup();
+        sources
+    }
+}
+
+/// 確認に出す、消えずに残る書庫の写しの数（design D10（仮））。
+///
+/// 記録 1 件から写しへの結びは無いので、範囲の書庫の記録の論理ソースを読んだ書庫の写し（`core.archive_file`）のうち、
+/// 置き場にファイルが残っているものを数える。範囲の記録を含まない写しも数える（少なく数えない）。
+/// どの書庫から出たか分からない写し（`archive_sha256` が無い）も、ソースを否定できないので数える。
+pub async fn kept_archive_copies(
+    pool: &PgPool,
+    user_id: uuid::Uuid,
+    archive_sources: &[String],
+) -> sqlx::Result<u32> {
+    if archive_sources.is_empty() {
+        return Ok(0);
+    }
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT f.stored_path FROM core.archive_file f
+          WHERE f.user_id = $1
+            AND (f.archive_sha256 IS NULL OR EXISTS (
+                  SELECT 1 FROM core.archive_ledger l
+                    JOIN core.archive_ledger_source s ON s.ledger_id = l.id
+                   WHERE l.user_id = f.user_id AND l.sha256 = f.archive_sha256
+                     AND s.logical_source = ANY($2)))",
+    )
+    .bind(user_id)
+    .bind(archive_sources)
+    .fetch_all(pool)
+    .await?;
+    let mut kept = 0;
+    for path in paths {
+        // 調べられなかった写しは「残っている」と数える（少なく数えない。D10）
+        let exists = match tokio::fs::try_exists(&path).await {
+            Ok(exists) => exists,
+            Err(err) => {
+                tracing::warn!(kind = %err.kind(), "書庫の写しの有無を調べられなかった。残っているものとして数える");
+                true
+            }
+        };
+        if exists {
+            kept += 1;
+        }
+    }
+    Ok(kept)
+}
+
+/// 本文を消したのに範囲の行（`core.erasure_span`）が無い滞在の数（design D14。移行の前の手作業・壊れた行）。
+/// その滞在はその日全体を範囲とみなして読まれる。サーバの起動時に件数だけをログに出すために数える。
+pub async fn purged_without_span(pool: &PgPool) -> sqlx::Result<i64> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM core.stay_erased_purge WHERE purged AND operation_id IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+}
+
+/// 本文ごと消す前の確認。範囲を消す口と同じ `purge_scope` で数え、何も書かずに返す（design D1）。
+pub async fn purge_preview(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+) -> Result<PurgeScope, PurgeError> {
+    let mut tx = pool.begin().await?;
+    // 消す口と同じ順で断る: 滞在でない・無い → 404、利用者違い → 404、その後に 409
+    let owner: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT user_id FROM core.event
+          WHERE id = $1 AND logical_source = 's01-stay' AND origin = 'derived'",
+    )
+    .bind(stay_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let owner = owner.ok_or(PurgeError::NotFound)?;
+    if requested_user.is_some_and(|user| user != owner) {
+        return Err(PurgeError::UserMismatch);
+    }
+    let scope = purge_scope(&mut tx, stay_id).await?;
+    // 読むだけ。巻き戻して何も残さない。
+    tx.rollback().await?;
+    Ok(scope)
+}
+
+/// 消した滞在を、その場面の記録と前の版ごと本文を消す（design D3 の順。1 つの transaction）。
+///
+/// すでに本文を消した滞在は `expected` を比べずに件数 0 で返す（2 度押しは成功）。
+/// 確認で見せた `expected` と数え直した件数が 1 つでも違えば、何も書かずに `CountsChanged`。
+pub async fn purge(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+    expected: PurgeCounts,
+) -> Result<PurgeOutcome, PurgeError> {
+    purge_using_span_scope(pool, stay_id, requested_user, expected, "event").await
+}
+
+/// 範囲の行（台帳の最後の書き込み）の CHECK 違反を起こし、本文が空になった後でも全部 rollback されることを試す口。
+#[cfg(test)]
+pub(crate) async fn purge_with_span_scope(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+    expected: PurgeCounts,
+    span_scope: &str,
+) -> Result<PurgeOutcome, PurgeError> {
+    purge_using_span_scope(pool, stay_id, requested_user, expected, span_scope).await
+}
+
+async fn purge_using_span_scope(
+    pool: &PgPool,
+    stay_id: uuid::Uuid,
+    requested_user: Option<uuid::Uuid>,
+    expected: PurgeCounts,
+    span_scope: &str,
+) -> Result<PurgeOutcome, PurgeError> {
+    let mut tx = pool.begin().await?;
+    // 1: 錠 → 行を FOR UPDATE → 範囲を集めて数える
+    let Some(identity) = stay_row_and_lock(&mut tx, stay_id).await? else {
+        return Err(PurgeError::NotFound);
+    };
+    if requested_user.is_some_and(|user| user != identity.user_id) {
+        return Err(PurgeError::UserMismatch);
+    }
+    sqlx::query("SELECT 1 FROM core.event WHERE id = $1 FOR UPDATE")
+        .bind(stay_id)
+        .execute(&mut *tx)
+        .await?;
+    let scope = purge_scope(&mut tx, stay_id).await?;
+    if scope.already_purged {
+        tx.commit().await?;
+        return Ok(PurgeOutcome {
+            user_id: scope.user_id,
+            counts: PurgeCounts::default(),
+            operation_id: None,
+        });
+    }
+    if scope.counts != expected {
+        return Err(PurgeError::CountsChanged(scope.counts));
+    }
+
+    // 2: 消す前の本文から時間を控える（滞在は範囲の中の `span`・前の版は `scope.versions`）
+    let user_id = scope.user_id;
+    let ids: Vec<uuid::Uuid> = scope.members.iter().map(|m| m.id).collect();
+
+    // 3: 操作の台帳に 1 行
+    let operation_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.erasure_operation
+           (id, user_id, kind, stay_id, start_at, end_at,
+            stays, locations, archive_locations, archive_items, versions)
+         VALUES ($1, $2, 'user', $3, $4, $5, $6, $7, $8, $9, $10)",
+    )
+    .bind(operation_id)
+    .bind(user_id)
+    .bind(stay_id)
+    .bind(scope.start)
+    .bind(scope.end)
+    .bind(scope.counts.stays as i32)
+    .bind(scope.counts.locations as i32)
+    .bind(scope.counts.archive_locations as i32)
+    .bind(scope.counts.archive_items as i32)
+    .bind(scope.counts.versions as i32)
+    .execute(&mut *tx)
+    .await?;
+
+    // 4: 記録ごと・前の版ごとの消去の台帳（門が同じまとまりの行を見る）
+    let sources: Vec<&str> = scope
+        .members
+        .iter()
+        .map(|m| m.logical_source.as_str())
+        .collect();
+    ledger_erasures(&mut tx, operation_id, user_id, "event", &ids, &sources).await?;
+    let version_events: Vec<uuid::Uuid> = scope.versions.iter().map(|v| v.event_id).collect();
+    let version_sources: Vec<&str> = scope
+        .versions
+        .iter()
+        .filter_map(|v| {
+            scope
+                .members
+                .iter()
+                .find(|m| m.id == v.event_id)
+                .map(|m| m.logical_source.as_str())
+        })
+        .collect();
+    ledger_erasures(
+        &mut tx,
+        operation_id,
+        user_id,
+        "version",
+        &version_events,
+        &version_sources,
+    )
+    .await?;
+
+    // 5: 前の版 → 記録の順に消去の形へ（本文だけ。時刻・内容の鍵・削除の印は触らない）
+    erase_bodies(&mut tx, &ids).await?;
+
+    // 6: 一緒に本文を消した滞在の印を本人の「本文ごと消した」に付け替える（作り直しが印を外さないように）
+    for member in scope.members.iter().filter(|m| m.swallowed) {
+        sqlx::query(
+            "UPDATE core.event SET deleted_by = 'user:purged'
+              WHERE id = $1 AND deleted_at IS NOT NULL",
+        )
+        .bind(member.id)
+        .execute(&mut *tx)
+        .await?;
+        ledger(
+            &mut tx,
+            member.id,
+            user_id,
+            &member.logical_source,
+            "erase",
+            stay_id,
+            "user:purged",
+        )
+        .await?;
+    }
+
+    // 7: 本文を消した滞在と前の版の時間
+    let mut span_events = Vec::new();
+    let mut span_scopes: Vec<&str> = Vec::new();
+    let mut span_versions: Vec<Option<i32>> = Vec::new();
+    let mut span_starts = Vec::new();
+    let mut span_ends = Vec::new();
+    for member in &scope.members {
+        if let Some((from, to)) = member.span {
+            span_events.push(member.id);
+            span_scopes.push(span_scope);
+            span_versions.push(None);
+            span_starts.push(from);
+            span_ends.push(to);
+        }
+    }
+    for version in &scope.versions {
+        let of_stay = scope
+            .members
+            .iter()
+            .any(|m| m.id == version.event_id && m.group == Group::Stay);
+        if of_stay {
+            let (from, to) = stay_store::span_of(version.event_time, &version.payload);
+            span_events.push(version.event_id);
+            span_scopes.push("version");
+            span_versions.push(Some(version.version_no));
+            span_starts.push(from);
+            span_ends.push(to);
+        }
+    }
+    sqlx::query(
+        "INSERT INTO core.erasure_span (operation_id, event_id, scope, version_no, start_at, end_at)
+         SELECT $1, * FROM unnest($2::uuid[], $3::text[], $4::int[], $5::timestamptz[], $6::timestamptz[])",
+    )
+    .bind(operation_id)
+    .bind(&span_events)
+    .bind(&span_scopes)
+    .bind(&span_versions)
+    .bind(&span_starts)
+    .bind(&span_ends)
+    .execute(&mut *tx)
+    .await?;
+
+    // 8: commit の時に門（派生・収集した記録・前の版）が台帳の行と前の版の全消去を確かめる
+    tx.commit().await?;
+    Ok(PurgeOutcome {
+        user_id,
+        counts: scope.counts,
+        operation_id: Some(operation_id),
+    })
+}
+
+/// 消去の台帳に、記録（`scope = 'event'`）か前の版（`'version'`。`event_id` は親）ごとの行を足す。
+async fn ledger_erasures(
+    tx: &mut Transaction<'_, Postgres>,
+    operation_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    scope: &str,
+    event_ids: &[uuid::Uuid],
+    sources: &[&str],
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO core.erasure_ledger
+           (event_id, user_id, logical_source, scope, erased_by, reason, operation_id)
+         SELECT e, $1, s, $2, 'user', 'stay-purge', $3
+           FROM unnest($4::uuid[], $5::text[]) AS t(e, s)",
+    )
+    .bind(user_id)
+    .bind(scope)
+    .bind(operation_id)
+    .bind(event_ids)
+    .bind(sources)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// 記録の本文（原文と解析済み）を消去の形にする、**唯一の場所**。前の版 → 記録の順
+/// （時刻・内容の鍵・削除の印は触らない。前の版が無い記録では前の版の更新は 0 行）。
+async fn erase_bodies(tx: &mut Transaction<'_, Postgres>, ids: &[uuid::Uuid]) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE core.event_version SET raw = '', payload = '{}'::jsonb
+          WHERE event_id = ANY($1) AND raw <> ''",
+    )
+    .bind(ids)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE core.event SET raw = '', payload = '{}'::jsonb WHERE id = ANY($1)")
+        .bind(ids)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// 本文ごと消した時間帯に後から届いた記録 1 件（`stay_store::settle_arrival` が渡す）。
+pub(crate) struct LateArrival<'a> {
+    pub user_id: uuid::Uuid,
+    pub event_id: uuid::Uuid,
+    pub logical_source: &'a str,
+    /// 元の操作（`core.erasure_operation.id`）
+    pub parent_id: uuid::Uuid,
+    /// 時間帯を持つ、本文を消した滞在
+    pub stay_id: uuid::Uuid,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    /// この 1 件が数えられる組（1 件分）
+    pub counts: PurgeCounts,
+}
+
+/// 後から届いた 1 件の本文を、呼び出し側のトランザクションの中で消す（design D8（仮）。`kind = 'late'`）。
+///
+/// 操作の行（元の操作へ `parent_id` で結ぶ。元の行は書き換えない）→ 記録ごとの台帳の行 → 本文、の順
+/// （門が commit の時に台帳の行を見る）。
+///
+/// 取り込みで入ったばかりの記録に前の版は無いが、書庫の見回り（`mark_archive_arrivals`）の候補には、以前に
+/// `user:late` が付いて外部の更新で前の版を持つ行も入る。`erase_bodies` は前の版も消すので、通常の消去と同じく
+/// 本文の残る前の版を数えて操作の行の `versions` に入れ、前の版ごとに `scope = 'version'` の台帳の行を積む
+/// （final review R3。範囲の行は滞在だけが持つので、後着の位置・項目には書かない）。
+pub(crate) async fn purge_late_arrival(
+    tx: &mut Transaction<'_, Postgres>,
+    late: LateArrival<'_>,
+) -> sqlx::Result<()> {
+    let operation_id = uuid::Uuid::new_v4();
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core.event_version WHERE event_id = $1 AND raw <> ''",
+    )
+    .bind(late.event_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO core.erasure_operation
+           (id, user_id, kind, parent_id, stay_id, start_at, end_at,
+            stays, locations, archive_locations, archive_items, versions)
+         VALUES ($1, $2, 'late', $3, $4, $5, $6, 0, $7, $8, $9, $10)",
+    )
+    .bind(operation_id)
+    .bind(late.user_id)
+    .bind(late.parent_id)
+    .bind(late.stay_id)
+    .bind(late.start)
+    .bind(late.end)
+    .bind(late.counts.locations as i32)
+    .bind(late.counts.archive_locations as i32)
+    .bind(late.counts.archive_items as i32)
+    .bind(versions as i32)
+    .execute(&mut **tx)
+    .await?;
+    ledger_erasures(
+        tx,
+        operation_id,
+        late.user_id,
+        "event",
+        &[late.event_id],
+        &[late.logical_source],
+    )
+    .await?;
+    // 前の版ごとに 1 行（`event_id` は親。通常の消去の `ledger_erasures(.., "version", ..)` と同じ形）
+    let n = usize::try_from(versions).unwrap_or(0);
+    ledger_erasures(
+        tx,
+        operation_id,
+        late.user_id,
+        "version",
+        &vec![late.event_id; n],
+        &vec![late.logical_source; n],
+    )
+    .await?;
+    erase_bodies(tx, &[late.event_id]).await?;
     Ok(())
 }

@@ -53,14 +53,25 @@ CREATE TRIGGER deletion_ledger_no_truncate
 
 -- 削除済み滞在を読む経路には、識別子・時刻範囲・削除印だけを載せる。
 -- 座標を含む payload と原文 raw は、このビューから読み出せない。
-CREATE OR REPLACE VIEW core.stay_erased AS
-  SELECT id,
-         user_id,
-         event_time AS start_at,
-         coalesce(core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
-         deleted_at,
-         deleted_by
-    FROM core.event
-   WHERE logical_source = 's01-stay'
-     AND origin = 'derived'
-     AND deleted_at IS NOT NULL;
+-- ビューが既にあるときは作り直さない（ST23）。起動のたびに全版を当てるので、後の版（本文ごと消す操作。
+-- 列 purged / operation_id を足した定義）がある DB へ、この古い定義を当てると
+-- 列が減る作り直しとして拒まれて落ちる。本文ごと消す操作の移行が作り直す。
+DO $view$
+BEGIN
+  IF to_regclass('core.stay_erased') IS NULL THEN
+    EXECUTE $def$
+      CREATE VIEW core.stay_erased AS
+        SELECT id,
+               user_id,
+               event_time AS start_at,
+               coalesce(core.try_timestamptz(payload->>'end'), event_time + interval '1 microsecond') AS end_at,
+               deleted_at,
+               deleted_by
+          FROM core.event
+         WHERE logical_source = 's01-stay'
+           AND origin = 'derived'
+           AND deleted_at IS NOT NULL
+    $def$;
+  END IF;
+END
+$view$;
