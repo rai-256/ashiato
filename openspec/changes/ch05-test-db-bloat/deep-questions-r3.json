@@ -1,0 +1,49 @@
+{
+  "title": "CH05 の深掘り（第 3 回）",
+  "subtitle": "試験の DB が打ち切った run の残りで膨れないようにする",
+  "note": "下流の最後のレビュー（review/code.md R20）で見つかり、仮で進めた決定 D8 を、別の席が「失わない側になっていない」と判定しました（provisional-review.md）。1 問です。選んだら一番下の「回答をコピー」を押してください。",
+  "questions": [
+    {
+      "id": "Q9",
+      "topic": "片付けが外したコンテナの volume と、作業ツリーとの結び付きをどこに残すか",
+      "kind": "irreversible",
+      "loss": "discarded",
+      "question": "片付け（Q7）が消えた作業ツリーのコンテナを外すと、残した名前の無い volume がどの作業ツリーの DB だったかは docker から引けなくなります。この結び付きを、どこまで残しますか。",
+      "why": "Q7 で「volume は消さない」を（推奨と違って）選んでもらったが、volume は名前も印も持たないので、結び付きを書き残さないと中身を後から探せない。いまの実装（D8）は外す 1 行に volume の名前を出すが、その行は検証のログ（作業ツリーの git の管理外の `.superpowers/sdd/logs/`）にしか残らず、作業ツリーが消えると一緒に消える。本当に失わない形は spec の本文（「標準エラーに 1 行」）を書き換えるので、機械が仮で決めてよい範囲を越える。",
+      "context": "実測（review/code.md R20）: DB の volume の印は `com.docker.volume.anonymous` だけ。コンテナを外すと `docker volume ls --filter dangling=true` の 129 個に混ざる。2026-10-27 に片付けが外したコンテナは 19 個。\nいまの実装（tools/docker-tidy.sh）: 外すコンテナごとに `docker inspect` で volume の名前を読み、外した 1 行と `--dry-run` の 1 行の末尾に `残す volume: <名前>` を出す。inspect に問えなければ外さずに rc=1。検証の準備（`tools/verify-env.sh` の作り直しの枝。D5）から呼ばれたときだけ、その行が `scripts/verify-run` のログに入る。手で `tools/docker-tidy.sh` を呼んだときはどこにも残らない。\n中身の性質: どの volume も試験用の DB（`ashiato`）で、CH06 の後は検証のたびに空から作り直される。残る中身は、その作業ツリーで最後に走った試験の残りだけ。\n(b) の費用: `verify-environment` の Requirement（片付け）の本文に「記録のファイルへ 1 行足す」を MODIFIED で足し、Scenario を 1 本足す。spec が変わるので、仕様への合意をもう一度聞く。ファイルは main の checkout の下の git の管理外（作業ツリーが消えても残る）に置き、追記だけする。",
+      "options": [
+        {
+          "label": "(a) 結び付きは要らない。inspect と行の末尾を外す",
+          "detail": "volume は名前の無いまま残る（Q7 のとおり消さない）。中身を探すときは、作られた時刻で `docker volume ls` から当たる。CH05 の spec・合意は変わらない。外すコンテナごとの `docker inspect` も無くなる",
+          "irreversible": "外したコンテナの volume がどの作業ツリーのものだったかは、外した時点で分からなくなる"
+        },
+        {
+          "label": "(b) main の checkout の下の記録のファイルに、外したコンテナごとに 1 行足す",
+          "detail": "1 行は時刻・コンテナの名前・作業ツリーの path・残す volume の名前。作業ツリーが消えても、手で呼んだときも残る。spec（`verify-environment`）を MODIFIED し、Scenario を 1 本足し、仕様への合意をもう一度聞く。標準エラーの 1 行（いまの形）もそのまま出す",
+          "recommended": true
+        },
+        {
+          "label": "(c) いまの形のまま（標準エラーの 1 行だけ。検証のログが残る間だけ引ける）",
+          "detail": "spec・合意は変わらない。作業ツリーが消えた後と、手で呼んだときは結び付きが残らない",
+          "irreversible": "ログを持つ作業ツリーが消えた後は、volume と作業ツリーの結び付きは引けない"
+        }
+      ],
+      "family": {
+        "name": "片付けで外したものと、作業ツリーとの結び付き（後から何が誰のものだったかを引けるか）",
+        "siblings": [
+          {"case": "外したコンテナの名前の無い volume（検証の準備から呼んだとき）", "decided": "未決 Q9"},
+          {"case": "手で `tools/docker-tidy.sh` を呼んで外したコンテナの volume（ログがどこにも残らない）", "decided": "未決 Q9（同じ答えで決まる。(b) なら記録のファイルに残る）"},
+          {"case": "`--dry-run` の 1 行（何も外さない）", "decided": "design D4・D8（外す 1 行と同じ形）"},
+          {"case": "外したネットワーク（中身を持たない）", "decided": "design D4（名前を 1 行に出すだけ。結び付きは要らない）"},
+          {"case": "CH05 の前から浮いている、印の無い volume 62 個", "decided": "deep.md Q7（volume は消さない。結び付きはもう無い。範囲の外）"},
+          {"case": "1 行が検証のログに入るかは、片付けを作り直しの枝で呼ぶ置き場に依る", "decided": "design D5（仮）"}
+        ]
+      },
+      "upstream_miss": {
+        "stage": "questions",
+        "why": "Q7 の context は「62 個は compose の印が無く、どの作業ツリーのものか区別できない」と書いていたが、選択肢 (1) の irreversible は「消したコンテナの DB の中身」だけを挙げ、volume を残したときに作業ツリーとの結び付きが外した時点で失われることを挙げなかった。中身を残すことと、後で探せることを分けて見なかった",
+        "prevention": "選択肢が「X を後のために残す」と言うときは、後で X をどう見つけるか（名前・印・記録の置き場）を問い、それが残る先の寿命（作業ツリーが消えると消えるログか）まで context に書く"
+      }
+    }
+  ]
+}
