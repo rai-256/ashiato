@@ -1,0 +1,23 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 98,
+ "applied": [
+  "points[remedy.2].text",
+  "points[keep.2].text",
+  "impact.findings[IMP-01].text"
+ ],
+ "kept": [
+  {
+   "field": "impact.scope.residual[0].text",
+   "why": [
+    "否定の言い方の数が変わった（0 → 1）"
+   ],
+   "old": "一覧に出たまま作り直しで書き換わった滞在と、起動の手当てが残す側に倒した滞在の前の版には、P の座標が残りうる",
+   "new": "一覧に出たまま作り直しで書き換わった滞在と、起動の手当てが消さずに残した滞在の前の版には、P の座標が残りうる"
+  }
+ ],
+ "missing": [],
+ "unknown": []
+}

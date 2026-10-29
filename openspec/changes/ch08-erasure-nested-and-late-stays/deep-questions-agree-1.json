@@ -1,0 +1,20 @@
+{
+  "title": "CH08 の仕様への合意",
+  "questions": [
+    {
+      "id": "QA",
+      "topic": "仕様への合意",
+      "kind": "agreement",
+      "doc": "docs/briefs/CH08-spec.html",
+      "question": "この GO 資料と GO 用 proto のとおりに作ってよいですか。違和感があれば、どの項目がどう違うかを補足に書いてください。",
+      "options": [
+        {
+          "label": "合意する"
+        },
+        {
+          "label": "違和感がある"
+        }
+      ]
+    }
+  ]
+}
