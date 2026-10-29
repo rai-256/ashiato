@@ -563,16 +563,12 @@ impl ashiato_collector_windows::time_sync::TimeSyncSource for NoTimeSync {
 fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
     let _g = desktop();
 
-    /// 落ちても消す（review/code-r2.md R6）
-    struct TempDir(std::path::PathBuf);
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-    let tmp = TempDir(std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4())));
-    let dir = tmp.0.clone();
-    std::fs::create_dir_all(&dir).unwrap();
+    // 落ちても消す（review/code-r2.md R6）
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-rt-")
+        .tempdir()
+        .unwrap();
+    let dir = tmp.path().to_path_buf();
     let last_seen = Utc::now() - chrono::Duration::hours(1);
     Marker::new(&dir).touch(last_seen).unwrap();
 
@@ -640,15 +636,11 @@ fn powered_off_span_is_recorded_on_start_with_real_boot_time() {
 #[test]
 fn clock_skew_runtime() {
     let _g = desktop();
-    let dir = std::env::temp_dir().join(format!("ashiato-rt-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    struct Cleanup(std::path::PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-    let _cleanup = Cleanup(dir.clone());
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-rt-")
+        .tempdir()
+        .unwrap();
+    let dir = tmp.path().to_path_buf();
     let cfg = Config {
         base_url: "http://127.0.0.1:1".into(),
         api_token: "t".into(),
@@ -894,7 +886,7 @@ fn address_bar_text(pid: u32) -> String {
 
 struct Edge {
     child: Child,
-    profile: std::path::PathBuf,
+    _profile: tempfile::TempDir,
 }
 
 impl Edge {
@@ -909,10 +901,12 @@ impl Edge {
 
     /// 使い捨てのプロファイルで開く（初回体験や同期の画面を出さない）。
     fn open(url: &str) -> Self {
-        let profile =
-            std::env::temp_dir().join(format!("ashiato-rt-edge-{}", uuid::Uuid::new_v4()));
+        let profile = tempfile::Builder::new()
+            .prefix("ashiato-rt-edge-")
+            .tempdir()
+            .unwrap();
         let child = Command::new(Self::exe().expect("Edge が無い"))
-            .arg(format!("--user-data-dir={}", profile.display()))
+            .arg(format!("--user-data-dir={}", profile.path().display()))
             .args([
                 "--no-first-run",
                 "--disable-sync",
@@ -923,7 +917,10 @@ impl Edge {
             ])
             .spawn()
             .expect("Edge が起動しない");
-        Self { child, profile }
+        Self {
+            child,
+            _profile: profile,
+        }
     }
 
     fn focus(&self) {
@@ -939,8 +936,8 @@ impl Drop for Edge {
             .stderr(Stdio::null())
             .status();
         let _ = self.child.wait();
+        // プロファイルは Edge が終わるのを待った後、フィールドの `TempDir` が消す
         std::thread::sleep(Duration::from_millis(500));
-        let _ = std::fs::remove_dir_all(&self.profile);
     }
 }
 
@@ -1214,7 +1211,11 @@ mod outage_toast {
     #[test]
     fn outage_toast_is_shown_replaced_silently_and_removed() {
         let _g = super::desktop();
-        let state = std::env::temp_dir().join(format!("ashiato-toast-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-toast-")
+            .tempdir()
+            .unwrap();
+        let state = tmp.path().to_path_buf();
         let sounds = Arc::new(Mutex::new(Vec::new()));
         let toaster = Recording {
             inner: WindowsToaster::register_as(TEST_AUMID).unwrap(),
@@ -1275,7 +1276,6 @@ mod outage_toast {
         assert_eq!(h.len(), 0, "戻ると履歴から消える");
 
         clear();
-        std::fs::remove_dir_all(&state).ok();
     }
 }
 
@@ -1288,21 +1288,25 @@ struct HistoryBrowser {
     child: Child,
     local: std::path::PathBuf,
     roaming: std::path::PathBuf,
+    /// ブラウザが終わった後（`Drop`）にフィールドとして消える
+    _root: tempfile::TempDir,
 }
 
 impl HistoryBrowser {
-    fn temp_roots() -> (std::path::PathBuf, std::path::PathBuf) {
-        let root =
-            std::env::temp_dir().join(format!("ashiato-rt-history-{}", uuid::Uuid::new_v4()));
-        let (local, roaming) = (root.join("local"), root.join("roaming"));
+    fn temp_roots() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-rt-history-")
+            .tempdir()
+            .unwrap();
+        let (local, roaming) = (tmp.path().join("local"), tmp.path().join("roaming"));
         std::fs::create_dir_all(&local).unwrap();
         std::fs::create_dir_all(&roaming).unwrap();
-        (local, roaming)
+        (tmp, local, roaming)
     }
 
     /// Chromium 系。`user_data` は `FsHistoryReader` が見つける置き場（`<local>/<社名>/<製品>/User Data`）と同じ形。
     fn chromium(exe: &str, user_data_under_local: &str, urls: &[String]) -> Self {
-        let (local, roaming) = Self::temp_roots();
+        let (root, local, roaming) = Self::temp_roots();
         let user_data = local.join(user_data_under_local);
         let child = Command::new(exe)
             .arg(format!("--user-data-dir={}", user_data.display()))
@@ -1321,11 +1325,12 @@ impl HistoryBrowser {
             child,
             local,
             roaming,
+            _root: root,
         }
     }
 
     fn firefox(exe: &str, urls: &[String]) -> Self {
-        let (local, roaming) = Self::temp_roots();
+        let (root, local, roaming) = Self::temp_roots();
         let profile = roaming.join("Mozilla/Firefox/Profiles/ashiato-rt.default");
         std::fs::create_dir_all(&profile).unwrap();
         // 初回の案内を出さない（出ると最初の頁が開かない）
@@ -1356,6 +1361,7 @@ impl HistoryBrowser {
             child,
             local,
             roaming,
+            _root: root,
         }
     }
 }
@@ -1369,9 +1375,6 @@ impl Drop for HistoryBrowser {
             .status();
         let _ = self.child.wait();
         std::thread::sleep(Duration::from_millis(500));
-        if let Some(root) = self.local.parent() {
-            let _ = std::fs::remove_dir_all(root);
-        }
     }
 }
 
@@ -1384,7 +1387,11 @@ fn fetch_history_until(
     expected_browser: &str,
     want: &[&str],
 ) -> Vec<(String, String)> {
-    let state = std::env::temp_dir().join(format!("ashiato-rt-state-{}", uuid::Uuid::new_v4()));
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-rt-state-")
+        .tempdir()
+        .unwrap();
+    let state = tmp.path().to_path_buf();
     let reader = FsHistoryReader::new(browser.local.clone(), browser.roaming.clone());
     let mut collector = HistoryCollector::new(std::sync::Arc::new(reader), &state);
     let mut got: Vec<(String, String)> = Vec::new();
@@ -1418,7 +1425,6 @@ fn fetch_history_until(
             last_error = format!("{e:#}");
         }
         if want.iter().all(|w| got.iter().any(|(u, _)| u.contains(w))) {
-            let _ = std::fs::remove_dir_all(&state);
             return got;
         }
         std::thread::sleep(Duration::from_secs(2));

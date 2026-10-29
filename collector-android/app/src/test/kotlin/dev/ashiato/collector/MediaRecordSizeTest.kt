@@ -4,12 +4,13 @@ package dev.ashiato.collector
 import android.media.ExifInterface
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.nio.file.Files
 import java.time.ZoneId
 
 /**
@@ -22,20 +23,18 @@ import java.time.ZoneId
  */
 @RunWith(RobolectricTestRunner::class)
 class MediaRecordSizeTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private fun resource(name: String): ByteArray =
         checkNotNull(javaClass.getResourceAsStream("/media/$name")) { "材料が無い: $name" }.use { it.readBytes() }
 
     /** 実物の `SegmentStore` に 1 件積み、置き場のファイルの大きさを測る（`{"enq":…,"item":…}` の枠と改行を含む）。 */
     private fun unsentLineBytes(request: IngestRequest): Long {
-        val dir = Files.createTempDirectory("media-size").toFile()
-        try {
-            val records = File(dir, "records")
-            val store = SegmentStore(records, IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
-            assertTrue(store.append(request, 0L))
-            return records.walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
-        } finally {
-            dir.deleteRecursively()
-        }
+        val dir = tmp.newFolder()
+        val records = File(dir, "records")
+        val store = SegmentStore(records, IngestRequest.serializer(), File(dir, "unreadable.jsonl"), {})
+        assertTrue(store.append(request, 0L))
+        return records.walkTopDown().filter { it.isFile && it.name.endsWith(".jsonl") }.sumOf { it.length() }
     }
 
     private fun requestOf(meta: MediaFileMeta, row: MediaStoreRow): IngestRequest =

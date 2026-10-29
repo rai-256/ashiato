@@ -81,7 +81,7 @@ Kotlin の `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io
 ### Requirement: CI は試験を走らせるたびに、一時フォルダに残ったものを測る
 
 THE SYSTEM SHALL CI の rust job の `cargo test --workspace` と android job の `:app:testDebugUnitTest` を `tools/tmp-leak-check.sh` から走らせ、
-一時フォルダを worktree の中の空のフォルダへ向け、試験の後にそのフォルダに残ったものがあれば、その名前を挙げて落とす。
+一時フォルダを `/tmp` の下の専用の空のフォルダへ向け、試験の後にそのフォルダに残ったものがあれば、その名前を挙げて落とす（落ちた回・残りがあった回のフォルダは `target/tmp-leak/` へ移して残す）。
 走った試験が 1 本も無いときも、フォルダが空でも落とす（`UP-TO-DATE` で試験が走らない・試験が始まる前に落ちる、を通さない）。
 試験そのものが落ちたときは、試験の終了コードをそのまま返す。
 導出元: CH03

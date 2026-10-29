@@ -209,17 +209,20 @@ mod tests {
         p
     }
 
-    fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("ashiato-mb-{name}-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    /// 試験の一時フォルダ。試験の最後まで持つ（手放すと、その時点で中身ごと消える）。
+    fn tmp(name: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(&format!("ashiato-mb-{name}-"))
+            .tempdir()
+            .unwrap()
     }
 
     // Scenario: 移行を当てる前に退避が置かれ、合言葉は引数でなく環境変数で渡る
     #[cfg(unix)]
     #[test]
     fn backup_writes_a_dump_and_passes_the_password_by_env() {
-        let d = tmp("ok");
+        let d_tmp = tmp("ok");
+        let d = d_tmp.path().to_path_buf();
         // 引数をそのまま記録し、--file の次の引数へ PGPASSWORD を書く
         let fake = fake_pg_dump(
             &d,
@@ -262,7 +265,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn failed_or_empty_backup_is_an_error() {
-        let d = tmp("ng");
+        let d_tmp = tmp("ng");
+        let d = d_tmp.path().to_path_buf();
         let cfg = BackupConfig {
             enabled: true,
             dir: d.join("out"),

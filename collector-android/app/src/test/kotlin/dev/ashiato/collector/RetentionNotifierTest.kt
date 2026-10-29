@@ -6,18 +6,20 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 上限が近づくと端末で知らせる（ST04 / tasks 9.1 / 深掘り Q5 / spec R9 / design D11）。
@@ -25,9 +27,11 @@ import org.robolectric.Shadows.shadowOf
  */
 @RunWith(RobolectricTestRunner::class)
 class RetentionNotifierTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val app: Application get() = ApplicationProvider.getApplicationContext()
     private val manager: NotificationManager get() = app.getSystemService(NotificationManager::class.java)
-    private val st = TestStores()
+    private val st by lazy { TestStores(tmp.newFolder()) }
     private val day = AgeClock.DAY_MS
 
     /** 常駐の通知の本文。**本番と同じ組み立て**（`LocationService` が同じ式で渡す）。 */
