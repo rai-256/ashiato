@@ -33,6 +33,7 @@ impl Drop for Exported {
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with("ashiato-export-file-"));
+        // tmp-ok: 作らない。消す前に置き場が一時フォルダの下かを確かめるために読むだけ
         if ours && dir.starts_with(std::env::temp_dir()) {
             let _ = std::fs::remove_dir_all(dir);
         }
