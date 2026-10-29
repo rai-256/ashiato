@@ -106,11 +106,12 @@ pub async fn ensure_initial_kinds(
         // 名前の行もその側が書いている
         if inserted.is_some() {
             sqlx::query(
-                "INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)",
+                "INSERT INTO core.attribute_kind_name (kind_id, user_id, name, server_version) VALUES ($1, $2, $3, $4)",
             )
             .bind(id)
             .bind(user_id)
             .bind(name)
+            .bind(crate::BUILD_STAMP)
             .execute(&mut **tx)
             .await?;
         }
@@ -185,11 +186,12 @@ pub async fn add_kind(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)",
+        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name, server_version) VALUES ($1, $2, $3, $4)",
     )
     .bind(id)
     .bind(user_id)
     .bind(&name)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -227,11 +229,12 @@ pub async fn rename_kind(
         return Ok(Err(KindError::DuplicateName));
     }
     sqlx::query(
-        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name) VALUES ($1, $2, $3)",
+        "INSERT INTO core.attribute_kind_name (kind_id, user_id, name, server_version) VALUES ($1, $2, $3, $4)",
     )
     .bind(kind_id)
     .bind(user_id)
     .bind(&name)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;

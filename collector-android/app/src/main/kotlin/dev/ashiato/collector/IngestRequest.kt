@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -66,6 +68,13 @@ data class IngestRequest(
      */
     val raw: String,
     val payload: JsonObject,
+    /**
+     * この記録を積んだ収集アプリの版（ST49 / design D13）。`Outbox.add` が積むときに書く。
+     * **値が無いときは欄ごと送らない**（古い形の取り込み・版の欄の無い行を、版の欄の無いまま送る）。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("client_version") val clientVersion: String? = null,
 ) : Retainable
 
 /**

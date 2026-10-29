@@ -1,5 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import pkg from "./package.json";
+import { webBuildStamp } from "./build-stamp";
 
 // 画面を配る側は合言葉を付け足さない（ST28 / design D10）。cookie はそのまま通る（http-proxy の既定）。
 // 画面の読み出しはログインの印（HttpOnly の cookie）で通る。印が無ければサーバの 401 がそのまま画面に届く。
@@ -27,10 +29,12 @@ const previewHeaders = {
   "Cache-Control": "no-store",
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  // 画面の組み立ての印（ST49 / D6）。`vite build`（production）だけ `.debug` を付けない
+  define: { __ASHIATO_WEB_VERSION__: JSON.stringify(webBuildStamp({ version: pkg.version, production: mode === "production" })) },
   server: { proxy, allowedHosts },
   // preview（build 済みを配る側）は server.proxy を継がない。確認バッチの run.sh が build 済みの画面を
   // vite preview で出すので、同じ proxy を明示する（実測 2026-09-12: 無いと /api が 404）。
   preview: { proxy, allowedHosts, headers: previewHeaders },
-});
+}));

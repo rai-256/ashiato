@@ -75,19 +75,22 @@
 - commit の出所は ST48 の D8（仮）と同じ順: 環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`。値は ST48 の台帳の `build_commit` と同じ 40 桁になる（C11）
 - Rust の 2 つ（S-01・C-02）は新しい workspace の crate `crates/build-stamp`（`ashiato-build-stamp`。`build-dependencies` だけで使う。依存の追加なし・`std::process::Command` で git を呼ぶ）を共有する。
   関数は「印を組む（版番号・profile・git の木・部品のソースの道）」「作り直しの印を出す（`cargo:rerun-if-changed` / `rerun-if-env-changed`）」の 2 つで、単体試験を crate に置く。git は `GIT_OPTIONAL_LOCKS=0` で呼ぶ（`git status` が `index` を書き換え、`index` を見張る次の組み立てがもう 1 回走るのを止める。review/spec.md R2 の実測）
+- S-01 が ST48 の台帳に渡す commit は、印の文字列から切り出さず `stamp_with_commit` が印と組で返す値を使う（review/code.md R20）
+- git の実行ファイルが無い場所でも組み立ては止めず `unknown` にする（3 つとも。C-01 は `ValueSource` の中で起動の失敗を受ける。review/code.md R19）
 - C-01 と V-01 は同じ規則を自分の組み立ての道具の中で書く（gradle と vite は Rust の crate を呼べない）。形が揃うことは 3 つの試験が同じ正規表現 `^[0-9][^+]*\+([0-9a-f]{40}|unknown)(\.dirty)?(\.debug)?$` で見る
 - ST48 の D8（仮）が否になっても、印の作り方は ST49 の `crates/build-stamp` が持ち、形は変えない
 
 ### D6. 印は組み立てのたびに作り直す（差分の組み立てで古い commit を残さない）
 
 - S-01・C-02: `build.rs` が `crates/build-stamp` で印を組み、`cargo:rustc-env=ASHIATO_BUILD_STAMP=<印>` で渡す。作り直しの印として `rerun-if-env-changed=ASHIATO_BUILD_COMMIT`・
-  `rerun-if-changed=<git-dir>/HEAD`・HEAD が指す参照のファイル（`<git-dir>/refs/heads/<枝>`。worktree では `git rev-parse --git-dir` と `--git-common-dir` の先）・`<git-common-dir>/packed-refs`・`<git-dir>/index`、
+  `rerun-if-changed=<git-dir>/HEAD`・HEAD が指す参照のファイル（`<git-dir>/refs/heads/<枝>`。worktree では `git rev-parse --git-dir` と `--git-common-dir` の先）・`<git-common-dir>/packed-refs`、
   と**部品のソースの道そのもの**（D5 の道。cargo は道が dir なら中を全部見る）を出す。cargo は build script が `rerun-if-changed` を 1 つでも出すとパッケージのファイルを見なくなる（`crates/server/build.rs` は今 `migrations/` だけを出している）ので、
   ソースの道を出さないと add していない変更の後に `.dirty` が付かない（review/spec.md R2）。`target/` は道に入れない（組み立てのたびに変わる）。
-  費用: Rust のソースが変わった組み立てで build script が 1 回走る（git を 3 回。数十〜数百 ms）。印が前と同じなら crate は組み直されない
+  費用: Rust のソースが変わった組み立てで build script が 1 回走る（git を 3 回。数十〜数百 ms）。build script が走ると crate は印が前と同じでも組み直される
+  （2026-10-28 実測）ので、`<git-dir>/index` は見ない —— `git add` や IDE の `git status` のたびに S-01 と C-02 が組み直される（review/code.md R18）。index だけが変わって `.dirty` が変わる場面（`git rm --cached` など）は拾わない
 - S-01 は ST48 の `build_commit()` を `crates/build-stamp` の関数に置き換え、`ASHIATO_BUILD_COMMIT`（ST48 の台帳が読む env）も同じ値で出し続ける（ST48 の振る舞いを変えない）
-- C-01: `app/build.gradle.kts` が `providers.exec`（`git rev-parse HEAD`・`git status --porcelain -- collector-android`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
-  release の variant だけ `.debug` を付けない）。`providers.exec` の値は構成キャッシュの入力として毎回確かめ直されるので、キャッシュに古い印が残らない。ビルドキャッシュも BuildConfig の入力が変われば作り直す
+- C-01: `app/build.gradle.kts` が `ValueSource`（`GitOutput`。`git rev-parse HEAD`・`git status --porcelain -- collector-android`。git を起こせなければ空 → `unknown`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
+  release の variant だけ `.debug` を付けない）。`ValueSource` の値は構成キャッシュの入力として毎回確かめ直されるので、キャッシュに古い印が残らない。ビルドキャッシュも BuildConfig の入力が変われば作り直す
 - V-01: `web/build-stamp.ts`（設定から読む関数。`child_process.execFileSync` で git を呼ぶ）を `vite.config.ts` と `vitest.config.ts` の両方が読み、`define: { __ASHIATO_WEB_VERSION__: JSON.stringify(<印>) }` で埋め込む。
   `vite build`（`mode === "production"`）だけ `.debug` を付けない
 - 退けた案: ST48 の D8 のまま HEAD の変化で作り直さない —— 記録の版は後から直せない記録に焼き込むので、古い印を許さない（C10）
@@ -189,6 +192,7 @@
   `IngestRequest`・2 つの INSERT・`apply_external_update`・前の版の INSERT・`push_version`・書き出しの一覧は、列を足す箇所が隣り合うだけで、意味は重ならない
 - ST23: D9 の引数。ST23 が足す削除の台帳の INSERT（本文ごと消す `user:purged` の行）と新しい操作の台帳は `server_version` を書く必要がある —— D10 の機械の止めが rebase の後に落とす。`docs/handoff/ST23.md` に申し送る（review/spec.md R5）
 - ST48: D5・D6（`build.rs`）と D7（移行の規則）。requires に入れてある
+- ST41 の移行（main に入った版）は、`tools/check-immutable.sh` の 2 回目の当てがこの版の上に ST41 の本体を当てるので、`event_version_live` を作り直さない守りと md5 の許す値を足した。ST41 を当て済みの DB は記録の指紋と中身が違い、`migrate` のたびに警告が出る（当て直さない。ST48 の D7（仮）。配った印より前の版は直してよい —— ST48 Q1）。新しい版の側では直せない（2 回目の当ては ST41 の本文そのものを当てる）。review/code.md R14・R17
 
 ### D20. 画面は、送る 1 件に読み込まれた画面の印を載せる
 

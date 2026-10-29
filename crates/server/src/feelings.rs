@@ -788,12 +788,15 @@ pub async fn set_reminder(
     user_id: uuid::Uuid,
     at: chrono::NaiveTime,
 ) -> sqlx::Result<()> {
-    sqlx::query("INSERT INTO core.feeling_reminder (user_id, at) VALUES ($1, $2)")
-        .bind(user_id)
-        .bind(at)
-        .execute(pool)
-        .await
-        .map(|_| ())
+    sqlx::query(
+        "INSERT INTO core.feeling_reminder (user_id, at, server_version) VALUES ($1, $2, $3)",
+    )
+    .bind(user_id)
+    .bind(at)
+    .bind(crate::BUILD_STAMP)
+    .execute(pool)
+    .await
+    .map(|_| ())
 }
 
 /// いまの通知の時刻（利用者ごとに `id` が最大の行。無ければ既定）と、その日の記録の有無。

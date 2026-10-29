@@ -6,6 +6,7 @@
  * サーバが乱数を足すと原文が変わって「1 バイトも変わらずに残る」が成り立たない。
  */
 
+import { WEB_VERSION } from "./buildStamp";
 import { msg } from "./messages";
 
 const M = msg("master");
@@ -204,6 +205,7 @@ export function ingestItem(built: BuiltClaim, userId?: string): unknown {
     tz_offset_min: built.tzOffsetMin,
     tz_id: built.tzId,
     schema_version: 1,
+    client_version: WEB_VERSION,
     raw: built.raw,
     payload: {},
   };

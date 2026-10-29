@@ -26,6 +26,10 @@ iana-time-zone = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2.workspace = true
 
+# 組み立ての印（ST49 / design D5）。build.rs だけで使う
+[build-dependencies]
+ashiato-build-stamp = { path = "../build-stamp" }
+
 # Windows の実機でしか動かない部分。**unsafe を書かずに安全な wrapper に委ねる**
 # （design D15）—— 作業場の lint は `unsafe_code = "forbid"` で、これは
 # ワークスペース全体の保証なので崩さない。
