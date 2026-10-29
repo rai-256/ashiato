@@ -1,0 +1,14 @@
+{
+  "id": "11111111-1111-4111-8111-111111111102",
+  "user_id": "22222222-2222-4222-8222-222222222201",
+  "logical_source": "c02-window",
+  "external_id": null,
+  "device_id": "example-pc-01",
+  "origin": "collected",
+  "event_time": "2026-09-13T01:02:03.456Z",
+  "tz_offset_min": 540,
+  "tz_id": "Asia/Tokyo",
+  "schema_version": 1,
+  "raw": "{\"kind\":\"foreground\",\"at\":\"2026-09-13T01:02:03.456Z\"}",
+  "payload": {"kind": "foreground", "at": "2026-09-13T01:02:03.456Z"}
+}

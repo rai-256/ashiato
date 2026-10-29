@@ -1293,3 +1293,150 @@ async fn st50_migration_down_up() {
     assert_eq!(columns_after, 2, "進め直しで列が戻っていない");
     assert!(armed);
 }
+
+// ===== Task 5: 配った版（版 1）の封筒の例を受け付け続ける（D8）=====
+
+const V1_INGEST_C01: &str = include_str!("../tests/fixtures/contract/v1/ingest-c01-location.json");
+const V1_INGEST_C02: &str = include_str!("../tests/fixtures/contract/v1/ingest-c02-window.json");
+const V1_INGEST_END: &str = include_str!("../tests/fixtures/contract/v1/ingest-end-time.json");
+const V1_HEARTBEAT_C01: &str = include_str!("../tests/fixtures/contract/v1/heartbeat-c01.json");
+const V1_HEARTBEAT_C02: &str = include_str!("../tests/fixtures/contract/v1/heartbeat-c02.json");
+const V1_DROPS: &str = include_str!("../tests/fixtures/contract/v1/drops.json");
+const V1_MEDIA_MISSING: &str = include_str!("../tests/fixtures/contract/v1/media-missing.json");
+const V1_WIRE: &str = include_str!("../tests/fixtures/contract/v1/wire.json");
+
+/// 例を読み、送るたびに別の 1 件になるよう `id`・持ち主・ソースだけ差し替える（形は例のまま）。
+/// 原本の欠けは画像のソース（登録簿にある本物の名前）でなければ断られるので、ソースは例のまま。
+fn v1_fresh(text: &str, user: uuid::Uuid, source: &str) -> serde_json::Value {
+    let mut item: serde_json::Value = serde_json::from_str(text).unwrap();
+    item["id"] = serde_json::json!(uuid::Uuid::new_v4());
+    item["user_id"] = serde_json::json!(user);
+    if item.get("sha256").is_none() {
+        item["logical_source"] = serde_json::json!(source);
+    }
+    item
+}
+
+// Scenario: 版 1 の封筒の例は受け付けられる
+#[tokio::test]
+async fn st50_released_v1_accepted() {
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let user = testdb::user();
+    let cases = [
+        ("/ingest", V1_INGEST_C01),
+        ("/ingest", V1_INGEST_C02),
+        ("/ingest", V1_INGEST_END),
+        ("/heartbeat", V1_HEARTBEAT_C01),
+        ("/heartbeat", V1_HEARTBEAT_C02),
+        ("/drops", V1_DROPS),
+        ("/media/missing", V1_MEDIA_MISSING),
+    ];
+    for (uri, text) in cases {
+        for header_value in [None, Some("1")] {
+            let source = testdb::source(&app.pool, "st50-rel-v1", 21_600).await;
+            let item = v1_fresh(text, user, &source);
+            let (status, body) = send(
+                &app,
+                Method::POST,
+                uri,
+                header_value,
+                Some(serde_json::Value::Array(vec![item])),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{uri} {header_value:?}: {body}");
+            let results: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                results[0]["accepted"], true,
+                "{uri} {header_value:?}: {body}"
+            );
+            assert_eq!(
+                results[0]["error"],
+                serde_json::Value::Null,
+                "{uri}: {body}"
+            );
+        }
+    }
+}
+
+// Scenario: ST41 の終わりの時刻を持つ記録は版 1 として受け付けられる
+#[tokio::test]
+async fn st50_released_v1_end_time() {
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let user = testdb::user();
+    let source = testdb::source(&app.pool, "st50-rel-end", 21_600).await;
+    let item = v1_fresh(V1_INGEST_END, user, &source);
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        "/ingest",
+        Some("1"),
+        Some(serde_json::Value::Array(vec![item])),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(errors_of(&body), vec![serde_json::Value::Null]);
+    let row: (
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<i32>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT end_time, end_tz_offset_min, end_tz_id FROM core.event WHERE logical_source = $1",
+    )
+    .bind(&source)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0.unwrap().to_rfc3339(), "2026-09-13T01:12:03.456+00:00");
+    assert_eq!(row.1, Some(540));
+    assert_eq!(row.2.as_deref(), Some("Asia/Tokyo"));
+}
+
+// Scenario: S-01 は版 1 の口の形の例に従う
+#[tokio::test]
+async fn st50_released_v1_wire() {
+    let wire: serde_json::Value = serde_json::from_str(V1_WIRE).unwrap();
+    let text = |key: &str| wire[key].as_str().unwrap().to_string();
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let answer_key = text("contract_answer_key");
+
+    // 問い合わせの口: 道・答えの鍵
+    let (status, body) = send(&app, Method::GET, &text("contract_path"), None, None, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let answer: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        answer.as_object().unwrap().keys().collect::<Vec<_>>(),
+        vec![&answer_key]
+    );
+    assert!(answer[&answer_key].as_u64().unwrap() >= 1);
+
+    // 見出しの名前（定数は例と同じ名前）
+    assert_eq!(CONTRACT_HEADER, text("header_name"));
+
+    // 新しすぎる版の断り: 例の見出しの名前で送る
+    let too_new = (answer[&answer_key].as_u64().unwrap() + 1).to_string();
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/ingest")
+        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(text("header_name"), too_new)
+        .body(Body::from("[]"))
+        .unwrap();
+    let res = router(app).oneshot(req).await.unwrap();
+    assert_eq!(
+        res.status().as_u16() as u64,
+        wire["unsupported_status"].as_u64().unwrap()
+    );
+    let refused: serde_json::Value = serde_json::from_str(&body_string(res).await).unwrap();
+    assert_eq!(
+        refused[text("unsupported_body_error_key")],
+        text("unsupported_body_error_value")
+    );
+    assert_eq!(
+        refused[text("unsupported_body_version_key")],
+        answer[&answer_key]
+    );
+    assert_eq!(refused.as_object().unwrap().len(), 2);
+}
