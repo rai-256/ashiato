@@ -89,8 +89,8 @@
   費用: Rust のソースが変わった組み立てで build script が 1 回走る（git を 3 回。数十〜数百 ms）。build script が走ると crate は印が前と同じでも組み直される
   （2026-10-28 実測）ので、`<git-dir>/index` は見ない —— `git add` や IDE の `git status` のたびに S-01 と C-02 が組み直される（review/code.md R18）。index だけが変わって `.dirty` が変わる場面（`git rm --cached` など）は拾わない
 - S-01 は ST48 の `build_commit()` を `crates/build-stamp` の関数に置き換え、`ASHIATO_BUILD_COMMIT`（ST48 の台帳が読む env）も同じ値で出し続ける（ST48 の振る舞いを変えない）
-- C-01: `app/build.gradle.kts` が `providers.exec`（`git rev-parse HEAD`・`git status --porcelain -- collector-android`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
-  release の variant だけ `.debug` を付けない）。`providers.exec` の値は構成キャッシュの入力として毎回確かめ直されるので、キャッシュに古い印が残らない。ビルドキャッシュも BuildConfig の入力が変われば作り直す
+- C-01: `app/build.gradle.kts` が `ValueSource`（`GitOutput`。`git rev-parse HEAD`・`git status --porcelain -- collector-android`。git を起こせなければ空 → `unknown`）で印を組み、variant ごとに `BuildConfig.COMPONENT_VERSION` に入れる（`androidComponents.onVariants` の `buildConfigFields.put` に provider で渡す。
+  release の variant だけ `.debug` を付けない）。`ValueSource` の値は構成キャッシュの入力として毎回確かめ直されるので、キャッシュに古い印が残らない。ビルドキャッシュも BuildConfig の入力が変われば作り直す
 - V-01: `web/build-stamp.ts`（設定から読む関数。`child_process.execFileSync` で git を呼ぶ）を `vite.config.ts` と `vitest.config.ts` の両方が読み、`define: { __ASHIATO_WEB_VERSION__: JSON.stringify(<印>) }` で埋め込む。
   `vite build`（`mode === "production"`）だけ `.debug` を付けない
 - 退けた案: ST48 の D8 のまま HEAD の変化で作り直さない —— 記録の版は後から直せない記録に焼き込むので、古い印を許さない（C10）

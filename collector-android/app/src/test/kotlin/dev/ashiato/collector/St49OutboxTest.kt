@@ -20,7 +20,7 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * 未送信に積むときに収集アプリの版を焼き込み、読み戻した行の JSON をそのまま送る（ST49 / design D3（仮）・D13）。
+ * 未送信に積むときに収集アプリの版を焼き込み、読み戻した行を型に通し、行だけが持つ欄を足して送る（ST49 / design D3（仮）・D13）。
  */
 @RunWith(RobolectricTestRunner::class)
 class St49OutboxTest {
