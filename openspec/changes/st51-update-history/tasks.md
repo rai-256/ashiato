@@ -1,4 +1,4 @@
-# ST51 実装タスク — 更新で止めた時間が、更新の履歴として残る
+# ST51 実装タスク — 版の変わり目が、更新の履歴として残る
 
 読む順: `deep.md`（**本人の答え Q1〜Q5**。第 1 回は推奨で先に書いてある）→ このファイル → `specs/distribution/spec.md` → `specs/collection-coverage/spec.md` →
 `specs/device-collection/spec.md` → `specs/desktop-collection/spec.md` → `specs/data-durability/spec.md` → `design.md` → `premises.md` → `CLAUDE.md`。

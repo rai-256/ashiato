@@ -478,7 +478,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 
 > **訂正（2026-10-27、ST51 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
 >
-> - **ST51 の requires に ST49 を足した**（layer 2 → 3。ST58 は ST57 で layer 6 のまま）。ST51 は収集アプリの生存信号に、ST49 が組み立てに焼き込む組み立ての印（`<版番号>+<commit 40 桁>[.dirty][.debug]`）を載せ、
+> - **ST51 の requires に ST49 を足した**（layer 2 → 3。今の layer は下の 2026-10-29 の訂正のとおり）。ST51 は収集アプリの生存信号に、ST49 が組み立てに焼き込む組み立ての印（`<版番号>+<commit 40 桁>[.dirty][.debug]`）を載せ、
 >   S-01 の版の変化の行にも同じ印を書く（premises の C7）。印を作らずに読むだけで、ST49 の実装の上に積む。順の付け方で、要件は変わらない
 > - `device-collection`・`desktop-collection`・`data-durability` に ST51 を足した。ST49 の `device-collection` / `desktop-collection` の Requirement は「生存信号には書き込まない」と言い、
 >   ST51 がそこへ版を足す（ST49 design の「生存信号の版は ST51 が足す」）ので、その 2 つを MODIFIED する。書き出しは分類の無い表と列で止まる（正典）ので、S-01 の版の変化の表と生存信号の版の列を分類し、
