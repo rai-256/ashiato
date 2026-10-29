@@ -2,7 +2,9 @@
 package dev.ashiato.collector
 
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /** 取り込み口を叩いた結果。網の失敗と、サーバが返した応答を区別する。 */
 sealed interface Outcome {
@@ -167,13 +169,18 @@ class Sender<T : Outboxable>(
         // **1 回に載せる件数を切る**（design D23）。切らないと、長い圏外のあと
         // 1 回の POST が読み取り上限を超え、1 件も取り除けないまま永久に繰り返す
         // **先頭から 1 回ぶんだけ読む**（ST04 / C7。全件をメモリに載せない）
-        val fresh = outbox.head(MAX_BATCH, skipped)
+        val fresh = outbox.headStored(MAX_BATCH, skipped)
         // 全部が断られたものなら、もう一度だけ当たり直す（サーバ側の一時的な事情かもしれない）
-        val batch = if (fresh.isEmpty()) outbox.head(MAX_BATCH) else fresh
-        if (batch.isEmpty()) return Flushed(0, 0)
+        val stored = if (fresh.isEmpty()) outbox.headStored(MAX_BATCH) else fresh
+        if (stored.isEmpty()) return Flushed(0, 0)
         if (fresh.isEmpty()) skipped.clear()
+        val batch = stored.map { it.item }
 
-        val body = ingestJson.encodeToString(ListSerializer(serializer), batch)
+        // **型に通した欄に、行だけが持つ欄を足して送る**（ST49 / design D3（仮））。型に通しただけだと、この版が
+        // 知らない欄が落ちる。行をそのまま送ると、古い版が積んだ行に今の型の既定値（`encodeDefaults`）が入らない（review/code.md R21）
+        val body = JsonArray(
+            stored.map { s -> withUnknownFields(s.json, ingestJson.encodeToJsonElement(serializer, s.item)) },
+        ).toString()
         val verdict = when (val outcome = transport.post(body)) {
             is Outcome.Unreachable -> {
                 // **一時的な失敗。** 未送信はそのまま残す（FR-10）—— 次の契機で再び送る
@@ -307,3 +314,7 @@ class Sender<T : Outboxable>(
         )
     }
 }
+
+/** 型に通した 1 件（`typed`）に、読み戻した行（`line`）だけが持つ欄を足す。同じ名前の欄は型に通した側を取る。 */
+internal fun withUnknownFields(line: JsonObject?, typed: JsonElement): JsonElement =
+    if (line == null || typed !is JsonObject) typed else JsonObject(line + typed)

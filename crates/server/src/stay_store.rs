@@ -115,14 +115,16 @@ async fn insert_criteria(
     c: &Criteria,
 ) -> sqlx::Result<Criteria> {
     let row: CriteriaVersion = sqlx::query_as(&format!(
-        "INSERT INTO core.stay_criteria (user_id, radius_m, min_minutes, gap_minutes, sources)
-         VALUES ($1, $2, $3, $4, $5) RETURNING {CRITERIA_COLUMNS}"
+        "INSERT INTO core.stay_criteria
+           (user_id, radius_m, min_minutes, gap_minutes, sources, server_version)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {CRITERIA_COLUMNS}"
     ))
     .bind(user)
     .bind(c.radius_m)
     .bind(c.min_minutes)
     .bind(c.gap_minutes)
     .bind(&c.sources)
+    .bind(crate::BUILD_STAMP)
     .fetch_one(&mut **tx)
     .await?;
     Ok(row.into())
@@ -1055,8 +1057,8 @@ async fn ledger_late(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO core.deletion_ledger
-           (event_id, user_id, logical_source, action, cause_event_id, mark)
-         SELECT $1, $2, $3, 'erase', $4, $5
+           (event_id, user_id, logical_source, action, cause_event_id, mark, server_version)
+         SELECT $1, $2, $3, 'erase', $4, $5, $6
           WHERE NOT EXISTS (
             SELECT 1 FROM core.deletion_ledger d
              WHERE d.event_id = $1 AND d.cause_event_id = $4 AND d.action = 'erase'
@@ -1068,6 +1070,7 @@ async fn ledger_late(
     .bind(logical_source)
     .bind(cause_event_id)
     .bind(USER_LATE)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1148,11 +1151,13 @@ async fn push_version(tx: &mut Transaction<'_, Postgres>, id: uuid::Uuid) -> sql
         "INSERT INTO core.event_version
            (event_id, user_id, logical_source, version_no, event_time, content_hash,
             raw, payload, source_updated_at, external_ref,
-            tz_offset_min, tz_id, schema_version, unit_system, crs)
+            tz_offset_min, tz_id, schema_version, unit_system, crs,
+            collector_version, web_version, server_version)
          SELECT e.id, e.user_id, e.logical_source,
                 coalesce((SELECT max(v.version_no) FROM core.event_version v WHERE v.event_id = e.id), 0) + 1,
                 e.event_time, e.content_hash, e.raw, e.payload, e.source_updated_at, e.external_ref,
-                e.tz_offset_min, e.tz_id, e.schema_version, e.unit_system, e.crs
+                e.tz_offset_min, e.tz_id, e.schema_version, e.unit_system, e.crs,
+                e.collector_version, e.web_version, e.server_version
            FROM core.event e WHERE e.id = $1",
     )
     .bind(id)
@@ -1191,7 +1196,8 @@ async fn update_stay(
             SET raw = $2, payload = $3, content_hash = $4, event_time = $5,
                 tz_offset_min = $6, tz_id = $7,
                 deleted_at = CASE WHEN $8 THEN coalesce(deleted_at, now()) END,
-                deleted_by = CASE WHEN $8 THEN $9 END
+                deleted_by = CASE WHEN $8 THEN $9 END,
+                server_version = CASE WHEN raw IS DISTINCT FROM $2 THEN $12 ELSE server_version END
           WHERE id = $1 AND {SAME_MARK}"
     ))
     .bind(e.id)
@@ -1205,6 +1211,7 @@ async fn update_stay(
     .bind(ERASED_RANGE)
     .bind(e.mark == Mark::Live)
     .bind(&e.deleted_by)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     ensure_one(done)
@@ -1223,9 +1230,9 @@ async fn insert_stay(
         "INSERT INTO core.event
            (id, user_id, logical_source, external_id, device_id, origin,
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
-            content_hash, raw, payload, deleted_at, deleted_by)
+            content_hash, raw, payload, deleted_at, deleted_by, server_version)
          VALUES ($1, $2, $3, $4, NULL, 'derived', $5, $6, $7, 1, $8, $9, $10, $11, $12,
-                 CASE WHEN $13 THEN now() END, CASE WHEN $13 THEN $14 END)",
+                 CASE WHEN $13 THEN now() END, CASE WHEN $13 THEN $14 END, $15)",
     )
     .bind(id)
     .bind(user)
@@ -1241,6 +1248,7 @@ async fn insert_stay(
     .bind(payload_of(raw)?)
     .bind(hide)
     .bind(ERASED_RANGE)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     Ok(())

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import java.io.ByteArrayOutputStream
 import java.util.Properties
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
 
 plugins {
     id("com.android.application")
@@ -155,8 +158,72 @@ val generateNetworkSecurityConfig =
         outputDir.set(layout.buildDirectory.dir("generated/res/nsconfig"))
     }
 
+/**
+ * 組み立ての印（ST49 / design D5・D6）: `<版番号>+<commit 40 桁>[.dirty][.debug]`。記録に焼き込まれる収集アプリの版。
+ *
+ * `providers.exec` は構成キャッシュの入力として組み立てのたびに確かめ直されるので、キャッシュに古い印が残らない。
+ * `.dirty` は `collector-android` の未 commit の変更（add していないものを含む）。commit は環境変数 `ASHIATO_BUILD_COMMIT` が
+ * 空でなければその値、なければ git の HEAD、git が使えなければ `unknown`。
+ */
+val repoRoot: File = rootProject.projectDir.parentFile
+
+/**
+ * git の標準出力。**git が起こせない（PATH に無い）ときも空にする**（review/code.md R19）。`providers.exec` は
+ * 終了コードを無視できても、起動の失敗は投げて組み立てを止める。Rust（`git()` が None）・vite（try/catch）と同じく `unknown` に倒す。
+ * `ValueSource` は構成キャッシュの入力として組み立てのたびに取り直される（`providers.exec` と同じ）。
+ */
+abstract class GitOutput : ValueSource<String, GitOutput.Params> {
+    interface Params : ValueSourceParameters {
+        val workingDir: DirectoryProperty
+        val args: ListProperty<String>
+    }
+
+    @get:Inject
+    abstract val execOps: ExecOperations
+
+    override fun obtain(): String = try {
+        val out = ByteArrayOutputStream()
+        execOps.exec {
+            workingDir = parameters.workingDir.get().asFile
+            commandLine(listOf("git") + parameters.args.get())
+            standardOutput = out
+            isIgnoreExitValue = true
+        }
+        out.toString(Charsets.UTF_8).trim()
+    } catch (e: org.gradle.api.GradleException) {
+        logger.warn("組み立ての印: git を起こせない（{}）。commit は unknown にする", e.message)
+        ""
+    }
+
+    private companion object {
+        val logger: org.gradle.api.logging.Logger = org.gradle.api.logging.Logging.getLogger(GitOutput::class.java)
+    }
+}
+fun gitOutput(vararg args: String): Provider<String> =
+    providers.of(GitOutput::class.java) {
+        parameters.workingDir.set(repoRoot)
+        parameters.args.set(args.toList())
+    }
+// commit の出所（design D5。Rust・vite と同じ順）: 環境変数 `ASHIATO_BUILD_COMMIT`（空でなければ）→ `git rev-parse HEAD` → `unknown`
+val buildCommit: Provider<String> = providers.environmentVariable("ASHIATO_BUILD_COMMIT")
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .orElse(gitOutput("rev-parse", "HEAD").map { Regex("^[0-9a-f]{40}$").matchEntire(it)?.value ?: "unknown" })
+val buildDirty: Provider<Boolean> = gitOutput("status", "--porcelain", "--", "collector-android").map { it.isNotEmpty() }
+// 構成キャッシュは script の参照を持てないので、値は引数で渡す（lambda から `android` を読まない）
+fun componentVersion(versionName: String, isDebug: Boolean): Provider<String> =
+    buildCommit.zip(buildDirty) { commit, dirty ->
+        "$versionName+$commit" + (if (dirty) ".dirty" else "") + (if (isDebug) ".debug" else "")
+    }
+
 androidComponents {
     onVariants { variant ->
+        // release の variant だけ `.debug` を付けない
+        val stamp = componentVersion(android.defaultConfig.versionName.orEmpty(), isDebug = variant.buildType != "release")
+        variant.buildConfigFields?.put(
+            "COMPONENT_VERSION",
+            stamp.map { com.android.build.api.variant.BuildConfigField("String", "\"$it\"", "組み立ての印（ST49）") },
+        )
         variant.sources.res?.addGeneratedSourceDirectory(
             generateNetworkSecurityConfig,
             GenerateNetworkSecurityConfig::outputDir,

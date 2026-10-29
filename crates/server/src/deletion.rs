@@ -426,8 +426,8 @@ async fn ledger(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO core.deletion_ledger
-           (event_id, user_id, logical_source, action, cause_event_id, mark)
-         VALUES ($1,$2,$3,$4,$5,$6)",
+           (event_id, user_id, logical_source, action, cause_event_id, mark, server_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)",
     )
     .bind(event_id)
     .bind(user_id)
@@ -435,6 +435,7 @@ async fn ledger(
     .bind(action)
     .bind(cause_event_id)
     .bind(mark)
+    .bind(crate::BUILD_STAMP)
     .execute(&mut **tx)
     .await?;
     Ok(())

@@ -13,6 +13,7 @@ import {
   type SendOutcome,
   type ValidFrom,
 } from "./attributes";
+import { WEB_VERSION } from "./buildStamp";
 import { msg } from "./messages";
 
 const t = msg("master").places;
@@ -282,6 +283,7 @@ export function ingestPlaceItem(built: BuiltPlaceRecord, userId?: string): unkno
     tz_offset_min: built.tzOffsetMin,
     tz_id: built.tzId,
     schema_version: 1,
+    client_version: WEB_VERSION,
     raw: built.raw,
     payload: {},
   };

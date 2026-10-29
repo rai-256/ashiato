@@ -26,23 +26,45 @@ class DropReportContractTest {
         "count",
         "hourly",
         "raw",
+        "client_version",
     )
     // CONTRACT-FIELDS-END
+
+    /** 版を持つ下書き（ST49）。版の無い下書きの報告は `client_version` を欄ごと送らない（`St49DropDraftTest` が見る） */
+    private val version = "0.1.0+0123456789abcdef0123456789abcdef01234567.debug"
 
     private fun keys(r: DropReport) = (Json.parseToJsonElement(ingestJson.encodeToString(DropReport.serializer(), r)) as JsonObject).keys
 
     @Test
     fun `直列化した破棄の報告の欄名が契約と一致する`() {
-        val r = DropDraft("a", LOGICAL_SOURCE, "age", "2026-09-14T00:00:00Z", 1_000L, 2_000L, 1_000L, 1, mapOf(0L to 1))
-            .toReport("user-1", "device-1")
+        val r = DropDraft(
+            id = "a",
+            source = LOGICAL_SOURCE,
+            reason = "age",
+            createdAt = "2026-09-14T00:00:00Z",
+            startMs = 1_000L,
+            endMs = 2_000L,
+            lastMs = 1_000L,
+            count = 1,
+            hourly = mapOf(0L to 1),
+            clientVersion = version,
+        ).toReport("user-1", "device-1")
         assertEquals(contractFields.sorted(), keys(r).sorted())
-        // 原文も同じ欄（raw を除く）を持つ
-        assertEquals((contractFields - "raw").sorted(), (Json.parseToJsonElement(r.raw) as JsonObject).keys.sorted())
+        // 原文も同じ欄（raw と、鍵に入れない client_version を除く）を持つ
+        val rawKeys = (Json.parseToJsonElement(r.raw) as JsonObject).keys
+        assertEquals((contractFields - "raw" - "client_version").sorted(), rawKeys.sorted())
     }
 
     @Test
     fun `範囲を持たない報告でも欄そのものは出る`() {
-        val r = DropDraft("a", LOGICAL_SOURCE, "unreadable", "2026-09-14T00:00:00Z", count = 2).toReport("user-1", "device-1")
+        val r = DropDraft(
+            id = "a",
+            source = LOGICAL_SOURCE,
+            reason = "unreadable",
+            createdAt = "2026-09-14T00:00:00Z",
+            count = 2,
+            clientVersion = version,
+        ).toReport("user-1", "device-1")
         assertEquals(contractFields.sorted(), keys(r).sorted())
     }
 }

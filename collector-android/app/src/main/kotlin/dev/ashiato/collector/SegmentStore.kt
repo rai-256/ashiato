@@ -8,13 +8,20 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** 置き場の 1 件と、それを積んだときの経過（`AgeClock.now()`）。 */
-data class Stored<T>(val item: T, val enqAgeMs: Long)
+/**
+ * 置き場の 1 件と、それを積んだときの経過（`AgeClock.now()`）。
+ *
+ * `json` は**行に書かれた（または書く）item の JSON そのもの**（ST49 / design D3（仮））。送り出しはこれをそのまま送る ——
+ * 型に通して作り直すと、この版の収集アプリが知らない欄が落ちる。積む前の試験や上限の見回りは持たなくてよい（null）。
+ */
+data class Stored<T>(val item: T, val enqAgeMs: Long, val json: JsonObject? = null)
 
 /**
  * 未送信を**区切ったファイル**に置く（ST04 / 深掘り C7 / R13 / design D1（仮））。
@@ -99,20 +106,37 @@ class SegmentStore<T : Outboxable>(
 
     private fun segmentOf(seq: Long) = Segment(seq, File(dir, name(seq, "jsonl")), File(dir, name(seq, "acked")))
 
+    /**
+     * 積む行の JSON に印を書き足す（ST49 / design D13）。**`client_version` が無い（または null の）行にだけ**書き、
+     * あればそのままにする。型に通せなければ null（書き込みが同じ理由で落ちる）。
+     */
+    fun stamped(item: T, version: String): JsonObject? {
+        val obj = try {
+            ingestJson.encodeToJsonElement(serializer, item).jsonObject
+        } catch (e: SerializationException) {
+            return null
+        }
+        val current = obj[CLIENT_VERSION]
+        val hasVersion = current != null && current !is JsonNull
+        return if (hasVersion) obj else JsonObject(obj + (CLIENT_VERSION to JsonPrimitive(version)))
+    }
+
     /** 1 件を追記する。**全件を書き直さない。** 書けたか。 */
-    fun append(item: T, enqAgeMs: Long): Boolean = appendAll(listOf(item), enqAgeMs)
+    fun append(item: T, enqAgeMs: Long, json: JsonObject? = null): Boolean = appendLines(listOf(item to json), enqAgeMs)
 
     /**
      * まとめて追記する（取り込みのため。1 件ずつ開き直さない）。**全部書けたときだけ true。**
      * 途中で書けなくなったら、そこまでに書けた分は置き場に残る（呼び出し側は元を消さない）。
      */
-    fun appendAll(items: List<T>, enqAgeMs: Long): Boolean {
+    fun appendAll(items: List<T>, enqAgeMs: Long): Boolean = appendLines(items.map { it to null }, enqAgeMs)
+
+    private fun appendLines(items: List<Pair<T, JsonObject?>>, enqAgeMs: Long): Boolean {
         if (!list()) return false
         if (items.isEmpty()) return true
         var i = 0
         while (i < items.size) {
             val line = try {
-                lineOf(items[i], enqAgeMs).toByteArray(Charsets.UTF_8)
+                lineOf(items[i].first, items[i].second, enqAgeMs).toByteArray(Charsets.UTF_8)
             } catch (e: SerializationException) {
                 log(Telemetry.line("outbox_append_failed", source = null, error = e.javaClass.simpleName))
                 return false
@@ -131,7 +155,7 @@ class SegmentStore<T : Outboxable>(
             i++
             while (i < items.size) {
                 val next = try {
-                    lineOf(items[i], enqAgeMs).toByteArray(Charsets.UTF_8)
+                    lineOf(items[i].first, items[i].second, enqAgeMs).toByteArray(Charsets.UTF_8)
                 } catch (e: SerializationException) {
                     break
                 }
@@ -410,7 +434,11 @@ class SegmentStore<T : Outboxable>(
         val obj = ingestJson.parseToJsonElement(raw).jsonObject
         val enq = obj["enq"]?.jsonPrimitive?.longOrNull
         val item = obj["item"]
-        if (enq == null || item !is JsonObject) null else Stored(ingestJson.decodeFromJsonElement(serializer, item), enq)
+        if (enq == null || item !is JsonObject) {
+            null
+        } else {
+            Stored(ingestJson.decodeFromJsonElement(serializer, item), enq, item)
+        }
     } catch (e: SerializationException) {
         null
     } catch (e: IllegalArgumentException) {
@@ -423,8 +451,8 @@ class SegmentStore<T : Outboxable>(
             raf.read()
         }
 
-    private fun lineOf(item: T, enqAgeMs: Long): String =
-        "{\"enq\":$enqAgeMs,\"item\":${ingestJson.encodeToString(serializer, item)}}\n"
+    private fun lineOf(item: T, json: JsonObject?, enqAgeMs: Long): String =
+        "{\"enq\":$enqAgeMs,\"item\":${json?.toString() ?: ingestJson.encodeToString(serializer, item)}}\n"
 
     /** `.acked` を読む。**読めなければ false**（空として進むと、取り除いた行が戻ってきて二重に数える。review R35）。 */
     private fun loadAcked(s: Segment): Boolean {
@@ -501,5 +529,8 @@ class SegmentStore<T : Outboxable>(
     companion object {
         /** 1 本の区切りの上限（位置で約 1,400 件 ≒ 1 日。design D1）。 */
         const val SEGMENT_BYTES: Long = 1_000_000
+
+        /** 取り込み口・破棄の報告・原本の欠けの要求が持つ、収集アプリの版の欄（ST49 / design D8） */
+        const val CLIENT_VERSION: String = "client_version"
     }
 }

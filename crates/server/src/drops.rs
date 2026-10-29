@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{authorize, internal_at, App};
+use crate::{authorize, internal_at, App, Writer};
 
 /// 破棄の理由（spec の 4 つ）。**文字列で受けてから検査する** ——
 /// 型で受けると知らない理由が「形として読めない」に畳まれ、端末のログから区別できない。
@@ -58,6 +58,9 @@ pub struct DropReportRequest {
     pub hourly: Vec<DropHour>,
     /// 端末が組んだ原文。**素通しで残す**（`text`。0003 と同じ理由）
     pub raw: String,
+    /// 作った収集アプリの版（任意。ST49 / D8）。形は検査しない・空は不明。**鍵にも `raw` にも入れない**（D11）
+    #[serde(default)]
+    pub client_version: Option<String>,
 }
 
 /// 受け取り時に断る理由。**アプリ層で閉じる**（`heartbeat::Invalid` と同じ向き）——
@@ -79,6 +82,11 @@ pub enum Invalid {
 }
 
 impl DropReportRequest {
+    /// 格納する収集アプリの版（`IngestRequest::component_version` と同じ扱い。D8）。
+    fn component_version(&self) -> Option<String> {
+        crate::ingest::normalize_component_version(self.client_version.as_deref())
+    }
+
     /// 格納の前に断るものを 1 か所で見る（spec の拒否の条件）。
     ///
     /// **`raw` と欄の食い違いは見ない**（`heartbeat.rs` と同じ。欄を集計に使い、`raw` は証拠）。
@@ -230,7 +238,11 @@ fn rejected(id: Option<uuid::Uuid>, error: DropError) -> DropResult {
     }
 }
 
-async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (StatusCode, String)> {
+async fn drop_one(
+    app: &App,
+    item: &serde_json::Value,
+    writer: Writer,
+) -> Result<DropResult, (StatusCode, String)> {
     let sent_id = item
         .get("id")
         .and_then(|v| v.as_str())
@@ -264,6 +276,7 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
     }
 
     let hash = content_hash(&req);
+    let collector_version = writer.collector_version(req.component_version());
     // 報告と時間ごとの件数は**1 トランザクション**。片方だけ入ると、日の件数が 0 のまま
     // 「破棄された期間」だけが立つ（あるいはその逆）。
     let mut tx = app
@@ -274,8 +287,8 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
     let row: Option<(uuid::Uuid,)> = sqlx::query_as(
         "INSERT INTO core.drop_report
            (id, user_id, logical_source, device_id, reason, range_start, range_end,
-            count, created_at, content_hash, raw)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            count, created_at, content_hash, raw, collector_version, server_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT DO NOTHING
          RETURNING id",
     )
@@ -290,6 +303,8 @@ async fn drop_one(app: &App, item: &serde_json::Value) -> Result<DropResult, (St
     .bind(req.created_at)
     .bind(&hash)
     .bind(&req.raw)
+    .bind(collector_version)
+    .bind(crate::BUILD_STAMP)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| internal_at("drops.insert", e))?;
@@ -358,7 +373,7 @@ pub async fn drops_post(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Vec<DropResult>>), (StatusCode, String)> {
-    authorize(&app, &headers).await?;
+    let writer = Writer::of(authorize(&app, &headers).await?);
     let items: Vec<serde_json::Value> = match body {
         serde_json::Value::Array(a) => a,
         obj @ serde_json::Value::Object(_) => vec![obj],
@@ -369,7 +384,7 @@ pub async fn drops_post(
     }
     let mut results = Vec::with_capacity(items.len());
     for item in &items {
-        results.push(drop_one(&app, item).await?);
+        results.push(drop_one(&app, item, writer).await?);
     }
     let code = if results.iter().any(|r| r.accepted) {
         StatusCode::OK
@@ -416,6 +431,7 @@ mod tests {
                 })
                 .collect(),
             raw: r#"{"reason":"age"}"#.into(),
+            client_version: None,
         }
     }
 

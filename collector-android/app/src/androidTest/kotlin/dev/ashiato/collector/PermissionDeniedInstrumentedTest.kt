@@ -11,6 +11,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
@@ -98,19 +100,13 @@ class PermissionDeniedInstrumentedTest {
         )
 
         // ---- システムの権限ダイアログで「拒否」を押す
-        val deny = device.wait(
-            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny_button"))),
-            DIALOG_TIMEOUT_MS,
-        ) ?: device.wait(
-            Until.findObject(By.text(Pattern.compile("(?i)(許可しない|拒否|don't allow|deny)"))),
-            DIALOG_TIMEOUT_MS,
-        )
         // **見つからなければ落とす。** 飛ばすと「拒否していないのに緑」になる
-        assertTrue(
-            "権限ダイアログの拒否ボタンが見つからない（前面: ${device.currentPackageName}）",
-            deny != null,
-        )
-        deny!!.click()
+        findAndClick(
+            listOf(
+                By.res(Pattern.compile(".*:id/permission_deny_button")),
+                By.text(Pattern.compile("(?i)(許可しない|拒否|don't allow|deny)")),
+            ),
+        ) { "権限ダイアログの拒否ボタンが見つからない（前面: ${device.currentPackageName}）" }
 
         // ---- 1. 約束どおりの経路で終わったか（結果コードではなく権限状態を見た証拠）
         // **落ちたときに 3 つの見分けが付くように残す**（CI だけで 1 度落ち、手元の同じ順では再現しなかった。2026-10-21）:
@@ -181,18 +177,12 @@ class PermissionDeniedInstrumentedTest {
 
     /** 通知の権限のダイアログで「許可」を押す。出なければ落とす。 */
     private fun allowNotificationDialog() {
-        val allowNotifications = device.wait(
-            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow_button"))),
-            DIALOG_TIMEOUT_MS,
-        ) ?: device.wait(
-            Until.findObject(By.text(Pattern.compile("(?i)(許可|allow)"))),
-            DIALOG_TIMEOUT_MS,
-        )
-        assertTrue(
-            "位置を拒否した端末に通知の権限のダイアログが出ない（前面: ${device.currentPackageName}）",
-            allowNotifications != null,
-        )
-        allowNotifications!!.click()
+        findAndClick(
+            listOf(
+                By.res(Pattern.compile(".*:id/permission_allow_button")),
+                By.text(Pattern.compile("(?i)(許可|allow)")),
+            ),
+        ) { "位置を拒否した端末に通知の権限のダイアログが出ない（前面: ${device.currentPackageName}）" }
     }
 
     // Scenario: 初回の起動で写真と動画と写真の位置の権限を求める
@@ -201,15 +191,30 @@ class PermissionDeniedInstrumentedTest {
     // **画面が出なければ落とす。** 飛ばすと、求める処理が壊れていても緑になる。
     // 写真の権限が未許可であることは `requirePristinePermissions` が先に確かめている（出ない言い訳を残さない）。
     private fun denyMediaDialog() {
-        val deny = device.wait(
-            Until.findObject(By.res(Pattern.compile(".*permissioncontroller:id/permission_deny_button"))),
-            DIALOG_TIMEOUT_MS,
-        )
-        assertTrue(
-            "写真と動画の権限の画面が出ない（前面: ${device.currentPackageName}）",
-            deny != null,
-        )
-        deny!!.click()
+        findAndClick(listOf(By.res(Pattern.compile(".*permissioncontroller:id/permission_deny_button")))) {
+            "写真と動画の権限の画面が出ない（前面: ${device.currentPackageName}）"
+        }
+    }
+
+    /**
+     * 選び方を順に試して見つけ、押す。見つからなければ `missing()` で落とす。
+     * 見つけてから押すまでにダイアログが描き直されると、掴んだ要素が古くなって `StaleObjectException` で落ちる
+     * （CI で 1 度。2026-10-29 の run 40850941469）。そのときは探し直して押す。古くなった要素は押されていない
+     * （押す前に位置を読むところで落ちる）ので、2 度押しにはならない。
+     */
+    private fun findAndClick(selectors: List<BySelector>, missing: () -> String) {
+        var stale: StaleObjectException? = null
+        repeat(STALE_RETRIES) {
+            val found = selectors.firstNotNullOfOrNull { device.wait(Until.findObject(it), DIALOG_TIMEOUT_MS) }
+            assertTrue(missing(), found != null)
+            try {
+                found!!.click()
+                return
+            } catch (e: StaleObjectException) {
+                stale = e
+            }
+        }
+        throw checkNotNull(stale)
     }
 
     private fun waitForLog(needle: String, filter: String = "ashiato:W"): Boolean {
@@ -229,6 +234,9 @@ class PermissionDeniedInstrumentedTest {
 
     private companion object {
         const val DIALOG_TIMEOUT_MS = 15_000L
+
+        /** 押す前に描き直されたときに探し直す回数 */
+        const val STALE_RETRIES = 3
         const val LOG_TIMEOUT_MS = 15_000L
 
         /** 落ちたときに残す自分の行の数 */
