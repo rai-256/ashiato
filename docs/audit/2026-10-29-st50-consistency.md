@@ -1,6 +1,7 @@
 # 整合の確認（2026-10-29・ST50 の spec が見つけた FR-125 と NFR-7 の食い違いを FR-125 へ戻した改訂）
 
-- 基準: `1b6073f023552ba0223cf5c4bdde70edcdca397d`..`f8ad574c05eaca0718d91092612c7a4442e9d3d1`
+- 基準: `877fb4ac9471b9374b7e5350d7c4c4dae6144dec`..`ed3c9053a694528914b1973f65ced15274203c52`
+- （2026-10-29 に origin/main（#198・#199）へ rebase したので、基準を載せ替え後の commit に読み替えた。旧 `1b6073f0`..`f8ad574c`。差は main の取り込みだけで、その改訂（FR-121・扉 33 ほか）は `2026-10-29-fr121-consistency.md` が確かめている）
 
 対象は commit f8ad574c が足した FR-125 の ★ 2026-10-29 訂正（`docs/requirements.md:1048-1049`「上限（FR-8 / FR-9）は FR-8 の主語（C-01）に掛かる。C-02 の未送信には置かない（NFR-7 ★ 2026-09-14）」）と、
 `docs/stories/stories.json:1197` の ST50 の完了の判定の括弧（「（携帯は上限を超えた分だけが捨てられる）」）・`docs/stories/ST50.md` の貼り直し。同じ commit が記録した深掘り第 1 回の答え（`openspec/changes/st50-contract-version/deep.md`）も、要件へ戻すものがあるかを見た。文書は head（`f8ad574c`）の内容で読んだ。

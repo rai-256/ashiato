@@ -1,6 +1,7 @@
 # 整合の確認（2026-10-29・ST50 の深掘り第 2 回 Q10 の答えを FR-126 へ戻した改訂）
 
-- 基準: `da92df78adf2bc042a6ec19d4ac2412b6ab05a0d`..`f39ca97976cb3fe0661dbff7a087e0933a9e24aa`
+- 基準: `623411f5a90ddff3805523e87ab049fbdc1adff9`..`13a0b36dbb2f8f77caf308532e8314ca7210458b`
+- （2026-10-29 に origin/main（#198・#199）へ rebase したので、基準を載せ替え後の commit に読み替えた。旧 `da92df78`..`f39ca979`。差は main の取り込みだけで、その改訂（FR-121・扉 33 ほか）は `2026-10-29-fr121-consistency.md` が確かめている）
 
 対象は commit f39ca979 が足した FR-126 の ★ 2026-10-29 補足（`docs/requirements.md:1054-1055`「確かめの口が 200 で読めない答え（JSON でない・版が読めない）を返して送らずに残しているときは、同じ状態が 24 時間続いてから出す（読める答えが 1 回でも得られたら数え直す。文言は『S-01 を更新するか、つながっている網を確かめてください』の形）」）と、`docs/stories/ST50.md:35-36` の貼り直し。答えの記録（`openspec/changes/st50-contract-version/deep.md` 第 2 回・`deep-questions-r2.json`・`deep-answers-2.txt`）と突き合わせた。文書は head（`f39ca979`）の内容で読んだ。
 
