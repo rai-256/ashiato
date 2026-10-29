@@ -43,3 +43,8 @@
 - **P にしなかった理由**: 失わない側（退避の前に書く・D-01 の外に書く）は Q2 の「D-01 の中だけ」と同じ向きと言い切れず、今のままにするなら要件と Story の本文を書き直すことになる
 - **問い**: `deep-questions-r2.json`（HTML は `docs/briefs/ST51-deep-r2.html`）
 - 答え: (未回答)
+- 記録の注（record の段、2026-10-29）: 第 2 回の答えとして届いた `deep-answers-2.txt` は「=== ST50 の深掘り（第 2 回） の回答 ===」で、
+  中身は ST50 の Q10（「200 で読めない答えが続くとき、更新を促すか」）への答えだった。`ashiato2-up-st50` の
+  `openspec/changes/st50-contract-version/deep-answers-2.txt` とバイト単位で同じで、ST50 の側では記録済み（ST50 の deep.md Q10）。
+  ST51 の問いに Q10 は無く、Q6 への答えは入っていない。**取り違えて届いた答えとして読み、Q6 は `(未回答)` のまま残す**
+  （Q6 は A なので、推奨を採ったとは読まない）。`docs/briefs/ST51-deep-r2.html` の Q6 をもう一度聞く
