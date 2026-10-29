@@ -74,7 +74,8 @@ jobs:
         with: { components: rustfmt, clippy }
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # CH03: 試験は一時フォルダを空のフォルダへ向けて走らせ、終わった後の残りを測る台本から走る（試験を 2 回走らせない）
+      - run: ./tools/tmp-leak-check.sh rust
       # 組み立てに渡した commit がそのまま版の記録の行に入ること（ST48 / design D8。review/code.md R20）
       - run: ASHIATO_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" ASHIATO_EXPECT_BUILD_COMMIT="ci-${GITHUB_RUN_ID}" cargo test -p ashiato-server --lib st48_apply_row_has_fingerprint_and_build
       - run: ./tools/check-migrations.sh --self-test
@@ -109,6 +110,10 @@ jobs:
       # 本体が衛星のコードを読み込む部品を持たない（ST29 / FR-77）
       - run: ./tools/check-satellite-boundary.sh --self-test
       - run: ./tools/check-satellite-boundary.sh
+      - run: ./tools/check-test-db-killed.sh --self-test
+      - run: ./tools/docker-tidy.sh --self-test
+      - run: ./tools/docker-tidy.sh --verify-env-check
+      - run: ./tools/check-test-db-killed.sh
   # C-02（Windows 収集）の**実機側**。ubuntu の runner には Windows が無いので、
   # `cargo test` は cfg(windows) の中身を 1 行もコンパイルしない ——
   # **書いたまま腐る**ので、windows 向けにクロスで型検査だけ通す（ST07 / design D20）。
@@ -252,7 +257,8 @@ jobs:
       - run: ./gradlew :app:assembleDebug
       # 収集側の振る舞い（端末識別子・まとめ送り・部分失敗・ログに値を出さない）。
       # **実機なしで確かめられる範囲はここで止める** —— 実機の確認は完了の判定が持つ。
-      - run: ./gradlew :app:testDebugUnitTest
+      # CH03: 同じく残りを測る台本から走る（試験を 2 回走らせない。台本は根へ cd するので working-directory は効かない）
+      - run: ../tools/tmp-leak-check.sh android
 
   # 収集側の**計測テスト**（2026-09-14）。ubuntu の runner は KVM が使えるので、エミュレータを立てて
   # 本物の framework で前景サービス・権限の入口・HTTP を通す（`src/androidTest`）。
@@ -277,6 +283,9 @@ jobs:
           api-level: 35
           arch: x86_64
           target: google_apis
+          # 手元（tools/android-emulator.sh）と録画（recording.json の android.device）と同じ機種。指定しないと 320×640 の既定の画面になり、
+          # Health Connect の権限の画面で種類の並びが画面の外に出る（ST11 の HealthPermission*InstrumentedTest が全部落ちた。2026-10-27）
+          profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           # ST04 の `RetentionInstrumentedTest` が未送信を 1.9 GB 置く（2 GB に近い量でも収集が起動する）
@@ -288,6 +297,7 @@ jobs:
           # 行継続（`\`）は使わない —— この action に渡すと `Task '\' not found` になる（実測 2026-09-18）。
           # `pm clear` は使わない —— 前のテストが残した前景サービスがあると `Failed` で rc=1 になる（実測）。
           # 要るのは**権限の状態だけ**なので `pm reset-permissions`（既定 = 未許可・フラグ無し）で足りる。
+          # ST11: 本物の Health Connect の権限の画面を押す 3 クラスは**始まりの状態ごとに 1 段**（断る本は 1 段に 1 つまで・断る段は最後。premises P6）。
           # UsageVolumeInstrumentedTest は usage access とイベント生成を準備する tools/usage-volume.sh だけで走らせる。
           # ST09: 写真と動画は**別のアプリが入れたもの**として入れる（位置を伏せるのは他のアプリの項目だけ。tools/android-media-fixtures.sh）
           script: |
@@ -295,10 +305,19 @@ jobs:
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.UsageVolumeInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
-            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.annotation=dev.ashiato.collector.NeedsPristinePermissions -Pandroid.testInstrumentationRunnerArguments.notClass=dev.ashiato.collector.MediaPremisesInstrumentedTest,dev.ashiato.collector.HealthPermissionGrantInstrumentedTest,dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest,dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest
             adb shell am force-stop dev.ashiato.collector
             adb shell pm reset-permissions
             ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.MediaPremisesInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionGrantInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionHistoryDeniedInstrumentedTest
+            adb shell am force-stop dev.ashiato.collector
+            adb shell pm reset-permissions
+            ./gradlew :app:connectedDebugAndroidTest -Pashiato.baseUrl=http://127.0.0.1:18787 -Pandroid.testInstrumentationRunnerArguments.class=dev.ashiato.collector.HealthPermissionDeniedInstrumentedTest
             adb shell pm reset-permissions
 
   smoke:
@@ -350,6 +369,11 @@ jobs:
       # ログに私的データを出せる書き方が無いこと（製造準備 A-2。一度出たログは消せない）
       - run: ./tools/check-log-private.sh --self-test
       - run: ./tools/check-log-private.sh
+      # CH03: 試験が一時フォルダを手で作る書き方（落ちた試験の後に残り /tmp を埋める）が無いこと
+      - run: ./tools/check-tmp-hygiene.sh --self-test
+      - run: ./tools/check-tmp-hygiene.sh
+      # CH03: 残りを測る台本が、偽の命令で正しく落ち・通ること（と、CI の試験の段がその台本から走ること）
+      - run: ./tools/tmp-leak-check.sh --self-test
       # DB の合言葉が配布物に字面で無いこと。(b) は DB を使うので、合言葉を乱数で作って立てる
       - run: ./tools/ci-db-env.sh
       - run: docker compose up -d --wait db

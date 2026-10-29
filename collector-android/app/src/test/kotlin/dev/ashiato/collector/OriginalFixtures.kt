@@ -87,8 +87,8 @@ val rejectEverything = Transport { body ->
 fun verdicts(count: Int, each: String): String = List(count) { each }.joinToString(",", "[", "]")
 
 /** 読み手 → 記録の送信 → 原本の送り手までを 1 つに組む試験の足場。 */
-class OriginalHarness(val st: TestStores = TestStores()) {
-    val env = MediaScanEnv().also {
+class OriginalHarness(dir: File, val st: TestStores = TestStores(File(dir, "stores"))) {
+    val env = MediaScanEnv(File(dir, "media")).also {
         it.outbox = st.records
         it.scanner = it.newScanner()
     }

@@ -1,0 +1,16 @@
+[
+  {
+    "answers": "deep-answers-2.txt",
+    "ids": [
+      "Q10"
+    ],
+    "spec_digest": "fb049a9163202078f40a76caa07a0a5848f4b7a13b42b34903b019cb116cf023",
+    "other": "D24（仮）の新設 —— 200 の読めない答えが 24 時間続いた後に、知らせだけでなく「S-01 の更新を待っている」状態そのものに（e）として入る。design D9 の（e）・D22 の「促す」の項と 7 日前の知らせの分け方の D24 への参照・device / desktop の Requirement の状態の 1 項（「…24 時間続いた」）・device の Requirement の「（通知と上限の 7 日前の知らせも同じ）」と 7 日前の知らせの句の（e）だけの添え文言・device の Scenario「読めない 200 の答えが続いて止まっている間の 7 日前の知らせは網の確認を添える」と tasks 11.1 のその印と `Retention.kt` の句・tasks 8.1 / 10.1 の「D9 の a〜e」・provisional.jsonl の D24 の 1 行",
+    "other_decisions": [
+      "D24"
+    ],
+    "reask": "",
+    "visual": [],
+    "at": "2026-10-29T13:37:32Z"
+  }
+]

@@ -13,10 +13,32 @@ use crate::testdb;
 /// 書き出しの台帳・状態・置き場は全利用者で 1 つなので、走らせるテストは直列にする（spec-review R16）。
 pub(crate) static EXPORT_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub(crate) fn tmp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("ashiato-export-{name}-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&d).unwrap();
-    d
+/// 試験の一時フォルダ。返した `TempDir` を試験の最後まで持つ（手放すと、その時点で中身ごと消える）。
+/// panic で試験が落ちても、unwind で drop されて消える。
+pub(crate) fn tmp_dir(name: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("ashiato-export-{name}-"))
+        .tempdir()
+        .unwrap()
+}
+
+// Scenario: Rust の試験が panic しても、試験の一時フォルダは消える
+#[test]
+fn ch03_tmp_dir_is_removed_even_if_the_test_panics() {
+    let seen: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let dir = tmp_dir("ch03");
+        std::fs::write(dir.path().join("left.txt"), b"x").unwrap();
+        *seen.lock().unwrap() = Some(dir.path().to_path_buf());
+        panic!("ch03: 試験の途中で落ちる");
+    }));
+    assert!(r.is_err(), "panic が外へ出る");
+    let path = seen
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("path を写してから panic する");
+    assert!(!path.exists(), "panic しても一時フォルダは消える: {path:?}");
 }
 
 pub(crate) fn pass() -> Passphrase {
@@ -88,7 +110,8 @@ async fn export_dir_writes_under_the_chosen_dir() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("chosen");
+    let dir_tmp = tmp_dir("chosen");
+    let dir = dir_tmp.path().to_path_buf();
     let cfg = ExportConfig::with_dir(dir.clone());
     let file = export::run(&pool, &cfg, pass()).await.unwrap();
     assert_eq!(file.parent().unwrap(), dir);
@@ -107,7 +130,8 @@ async fn export_dir_writes_under_the_chosen_dir() {
 
 #[test]
 fn final_name_never_replaces_an_existing_file() {
-    let dir = tmp_dir("names");
+    let dir_tmp = tmp_dir("names");
+    let dir = dir_tmp.path().to_path_buf();
     let stamp = "20261013-101500";
     let first = export::free_name(&dir, stamp);
     assert_eq!(first, dir.join("ashiato-export-20261013-101500.zip"));
@@ -129,7 +153,8 @@ async fn export_dir_and_file_are_owner_only_on_unix() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let base = tmp_dir("perm");
+    let base_tmp = tmp_dir("perm");
+    let base = base_tmp.path().to_path_buf();
     let dir = base.join("not-yet");
     let file = export::run(&pool, &ExportConfig::with_dir(dir.clone()), pass())
         .await
@@ -146,7 +171,8 @@ async fn export_dir_keeps_existing_permissions() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("keep");
+    let dir_tmp = tmp_dir("keep");
+    let dir = dir_tmp.path().to_path_buf();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     export::run(&pool, &ExportConfig::with_dir(dir.clone()), pass())
         .await
@@ -191,6 +217,9 @@ fn export_catalog_excludes_archive_tables_and_ledgers() {
         "coverage",
         "erasure_ledger",
         "deletion_ledger",
+        "erasure_operation",
+        "erasure_span",
+        "purge_compaction",
         "export_ledger",
         "access_log",
         "web_session",
@@ -219,37 +248,38 @@ fn export_catalog_excludes_archive_tables_and_ledgers() {
 /// 分類の段に渡す一覧を差し替えて本体を走らせ、失敗で終わること・何も残らないことを返す。
 async fn run_with_inventory(
     tamper: impl Fn(&mut Inventory) + Send + Sync + 'static,
-) -> (ExportError, PathBuf) {
+) -> (ExportError, tempfile::TempDir) {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("tamper");
-    let mut cfg = ExportConfig::with_dir(dir.clone());
+    let dir_tmp = tmp_dir("tamper");
+    let mut cfg = ExportConfig::with_dir(dir_tmp.path().to_path_buf());
     cfg.hooks = Hooks::none().with_inventory(tamper);
     let e = export::run(&pool, &cfg, pass()).await.unwrap_err();
-    (e, dir)
+    (e, dir_tmp)
 }
 
 // Scenario: 分類の無い表があると書き出しは始まらない
 #[tokio::test]
 async fn export_catalog_unclassified_table_stops_the_export() {
-    let (e, dir) = run_with_inventory(|inv| inv.tables.push("x".into())).await;
+    let (e, dir_tmp) = run_with_inventory(|inv| inv.tables.push("x".into())).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(e.reason.contains('x'), "{}", e.reason);
-    assert_nothing_written(&dir);
+    assert_nothing_written(dir_tmp.path());
 }
 
 // Scenario: 分類の無い列があると書き出しは始まらない
 #[tokio::test]
 async fn export_catalog_unclassified_column_stops_the_export() {
-    let (e, dir) = run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
+    let (e, dir_tmp) =
+        run_with_inventory(|inv| inv.columns.push(("event".into(), "y".into()))).await;
     assert_eq!(e.kind, FailKind::UnclassifiedTable);
     assert!(
         e.reason.contains("event") && e.reason.contains('y'),
         "{}",
         e.reason
     );
-    assert_nothing_written(&dir);
+    assert_nothing_written(dir_tmp.path());
 }
 
 #[test]
@@ -283,7 +313,7 @@ async fn export_view_columns_every_exported_column_is_in_the_live_view() {
 #[tokio::test]
 async fn export_view_columns_missing_column_stops_the_export() {
     for (view, col) in [("event_live", "tz_id"), ("event_version_live", "raw")] {
-        let (e, dir) = run_with_inventory(move |inv| {
+        let (e, dir_tmp) = run_with_inventory(move |inv| {
             inv.columns.retain(|(t, c)| !(t == view && c == col));
         })
         .await;
@@ -293,7 +323,7 @@ async fn export_view_columns_missing_column_stops_the_export() {
             "{}",
             e.reason
         );
-        assert_nothing_written(&dir);
+        assert_nothing_written(dir_tmp.path());
     }
 }
 
@@ -302,7 +332,8 @@ async fn injected_failure_leaves_no_partial_file() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("inject");
+    let dir_tmp = tmp_dir("inject");
+    let dir = dir_tmp.path().to_path_buf();
     let mut cfg = ExportConfig::with_dir(dir.clone());
     cfg.hooks = Hooks::none().with_fail(|s| {
         (s == Stage::Write).then(|| ExportError::new(FailKind::Io, "差し込んだ失敗"))
@@ -318,7 +349,8 @@ async fn failure_in_the_middle_of_the_stream_leaves_no_partial_file() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("inject-mid");
+    let dir_tmp = tmp_dir("inject-mid");
+    let dir = dir_tmp.path().to_path_buf();
     let items = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let partial_seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut cfg = ExportConfig::with_dir(dir.clone());
@@ -349,7 +381,8 @@ async fn hooks_run_around_each_stage_in_order() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("around");
+    let dir_tmp = tmp_dir("around");
+    let dir = dir_tmp.path().to_path_buf();
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let log = seen.clone();
     let mut cfg = ExportConfig::with_dir(dir);

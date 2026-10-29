@@ -1,0 +1,39 @@
+{
+  "tag": "20261029-1848",
+  "run_id": "20261029-185003-e99abf4",
+  "commit": "e99abf4177ee2ac3be0bd3617c89c92267d636c3",
+  "overall": "ok",
+  "cleanup": "ok",
+  "failed_step": "",
+  "folder": "/mnt/c/dev/ashiato2-recordings/20261029-185003-e99abf4",
+  "folder_windows": "C:\\dev\\ashiato2-recordings\\20261029-185003-e99abf4",
+  "note": "AI の実行結果（テストの合否・録画・再生できるか）。見やすさと人間の承認は含まない",
+  "scenarios": [
+    {
+      "id": "ST11-health-permission",
+      "story": "ST11",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / 全 1",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST11-health-permission/video.mp4",
+      "trace": ""
+    },
+    {
+      "id": "ST23-purge",
+      "story": "ST23",
+      "overall": "ok",
+      "test": "passed",
+      "test_note": "passed 1 / failed 0 / skipped 0 / interrupted 0 / Playwright rc=0",
+      "recording": "recorded",
+      "playable": "playable",
+      "video": "scenarios/ST23-purge/video.webm",
+      "trace": "scenarios/ST23-purge/trace.zip"
+    }
+  ],
+  "uncovered_stories": [
+    "CH03",
+    "CH05"
+  ]
+}

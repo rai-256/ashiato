@@ -51,14 +51,28 @@
     <!-- minSdk 30 の端末（32 以下）は READ_MEDIA_* が無く、この 1 本が写真と動画の読み取りを兼ねる -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
-    <!-- FR-11 健康データの履歴。**宣言しない期間の 30 日より前は永久に読めない**（EXT-C） -->
+    <!-- FR-11 健康データ（ST11 / design D5）。履歴の権限は**後から与えても全履歴が読める**（premises P2・P13）。
+         初回起動で求めるのは、履歴の権限が無い端末で読める範囲の起点（アプリごと）を早めるため。
+         宣言していない権限は求めても権限の画面に出ないので、6 つとも宣言する -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
+    <!-- Health Connect のアプリを引く（Android 13 以前は別の apk、14 以降は OS の一部） -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 
     <!-- 平文 HTTP は**設定した接続先 1 ホストだけ**に許す（生成物 / build.gradle.kts）。
          これが無いと targetSdk 28 以降は遮断され、送信が黙って失敗し続ける -->
     <application
         android:networkSecurityConfig="@xml/network_security_config"
         android:label="あしあと。"
+        android:dataExtractionRules="@xml/health_data_extraction_rules"
+        android:fullBackupContent="@xml/health_full_backup_content"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light">
 
@@ -71,6 +85,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- ST11 design D7: 健康データの権限の画面の「プライバシーポリシー」の行き先。文だけの画面 -->
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:exported="true">
+            <!-- Android 13 以前の Health Connect が使う開き方 -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <!-- Android 14 以降が使う開き方 -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".HealthRationaleActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".LocationService"

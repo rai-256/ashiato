@@ -1,0 +1,36 @@
+{
+  "status": "accepted",
+  "digest": "e999dab19ab426f2f2d319aa736e59a1675528496598d8fccbfbc67f529b962c",
+  "head": "5e641d89537253812c4f6b063fa60b5047484a74",
+  "answers": "deep-answers-3.txt",
+  "picked": "合意する",
+  "notes": [],
+  "at": "2026-10-29T14:25:12Z",
+  "minor_accepted": [
+    {
+      "id": "IMP-01",
+      "severity": "medium",
+      "title": "収集アプリにだけ足した欄は、最新の S-01 にも断られ続ける"
+    },
+    {
+      "id": "IMP-02",
+      "severity": "medium",
+      "title": "S-01 を前の版へ戻すと、新しい版で積んだ行は戻し直すまで送れない"
+    },
+    {
+      "id": "IMP-03",
+      "severity": "medium",
+      "title": "収集アプリを先に入れ替えると、途絶の知らせと更新の知らせが同時に出る"
+    },
+    {
+      "id": "IMP-04",
+      "severity": "medium",
+      "title": "正式版の修正の印の後は、版の上げ忘れを見逃しうる"
+    },
+    {
+      "id": "IMP-05",
+      "severity": "medium",
+      "title": "画面も配る古い S-01 では、更新の知らせが出ないまま行が溜まりうる"
+    }
+  ]
+}

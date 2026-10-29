@@ -1,0 +1,5 @@
+{
+  "waive": {
+    "CH03": "Windows の収集アプリで変えたのは試験の一時フォルダの持ち方だけ（crates/collector-windows の差分は全部 #[cfg(test)] の中と dev-dependencies の tempfile。outage_notice.rs の Drop と collect.rs の threads_finished も #[cfg(test)]）。アプリの動作は変わらず、撮って見せる画面が無い"
+  }
+}

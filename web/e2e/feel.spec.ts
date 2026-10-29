@@ -202,18 +202,20 @@ test("快–不快 -1 の後に元気さ +2 を押すと、-1 と +2 の記録�
 // Scenario: 快不快を選ぶ前は元気さだけを送らない
 test("記録の無い日に元気さだけを押しても、記録は送られない", async ({ page }) => {
   const day = freshDay();
+  const before = (await records(page, day)).length;
   const sends = countIngest(page);
   await openAt(page, at(day, "12:00"), "#/feel");
   await page.getByTestId("energy-2").click();
   await expect(page.getByTestId("energy-2")).toHaveAttribute("aria-pressed", "true");
   await page.waitForTimeout(500);
   expect(sends.n()).toBe(0);
-  expect(await records(page, day)).toHaveLength(0);
+  expect((await records(page, day)).length - before).toBe(0);
 });
 
 // Scenario: 届かなかった記録は同じ原文で送り直す
 test("届かなかった後に「もう一度送る」を押すと、1 回目と同じ原文が送られ、1 件だけ入る", async ({ page }) => {
   const day = freshDay();
+  const before = (await records(page, day)).length;
   const bodies: (string | null)[] = [];
   await page.route("**/api/ingest", (route) => {
     bodies.push(route.request().postData());
@@ -226,7 +228,7 @@ test("届かなかった後に「もう一度送る」を押すと、1 回目と
   expect(res.status()).toBe(200);
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toBe(bodies[0]);
-  expect(await records(page, day)).toHaveLength(1);
+  expect((await records(page, day)).length - before).toBe(1);
 });
 
 // Scenario: 届かなかったとき選んだ値とひとことが残る

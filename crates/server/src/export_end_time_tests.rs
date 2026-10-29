@@ -351,7 +351,7 @@ async fn st41_export_rows_have_end_columns() {
         json!({"v": 0}),
     )
     .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
 
     let row = |rows: Vec<Value>| {
         assert_eq!(rows.len(), 1);

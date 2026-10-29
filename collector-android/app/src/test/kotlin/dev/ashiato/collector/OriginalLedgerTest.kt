@@ -6,13 +6,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
  * 原本の送り待ちの台帳（tasks 5.1。design D8）。保持の上限の側は `RetentionPolicy.overrideForTest` で 90 日と 2 GB を縮める。
  */
 class OriginalLedgerTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     private val day = AgeClock.DAY_MS
 
     @After
@@ -24,7 +28,7 @@ class OriginalLedgerTest {
     // Scenario: 原本は未送信の置き場の大きさを増やさない
     @Test
     fun originals_do_not_grow_the_unsent_store() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         // 1 枚 3 MB の 100 枚を、試験の置き場を軽くするため 1 枚 300 KB で（比べるのは「原本の大きさに比例しない」こと）
         val body = "p".repeat(300_000)
         repeat(100) { h.photo(it + 1L, body + it) }
@@ -41,7 +45,7 @@ class OriginalLedgerTest {
     @Test
     fun a_waiting_mark_survives_91_days_and_the_original_is_sent_when_reachable() {
         RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day, maxBytes = 1_000))
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "waiting a long time")
         h.scan()
         h.acceptRecords()
@@ -65,7 +69,7 @@ class OriginalLedgerTest {
     @Test
     fun a_dropped_record_turns_its_original_into_a_missing_original() {
         RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "its record will be dropped")
         h.scan()
         val sha = h.shaOf(1)
@@ -80,7 +84,7 @@ class OriginalLedgerTest {
     /** 破棄の後に台帳を書けず行を消せなかったら、次の知らせで消し直す（review/code.md R25）。 */
     @Test
     fun a_row_that_could_not_be_removed_after_a_drop_is_removed_on_the_next_notice() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "dropped while the ledger is unwritable")
         h.scan()
         val sha = h.shaOf(1)
@@ -100,7 +104,7 @@ class OriginalLedgerTest {
     @Test
     fun records_dropped_across_several_segments_all_turn_their_originals_into_missing_originals() {
         RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
-        val h = OriginalHarness(TestStores(segmentBytes = 300))
+        val h = OriginalHarness(tmp.newFolder(), TestStores(tmp.newFolder(), segmentBytes = 300))
         repeat(4) { h.photo(it + 1L, "dropped across segments $it") }
         h.scan()
         val segments = h.st.dir.walkTopDown().count { it.isFile && it.name.endsWith(".jsonl") && it.length() > 0 }
@@ -115,7 +119,7 @@ class OriginalLedgerTest {
     @Test
     fun a_segment_the_drop_ledger_refused_keeps_its_record_and_its_original() {
         RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day))
-        val h = OriginalHarness(TestStores(segmentBytes = 300))
+        val h = OriginalHarness(tmp.newFolder(), TestStores(tmp.newFolder(), segmentBytes = 300))
         repeat(4) { h.photo(it + 1L, "second segment is refused $it") }
         h.scan()
         h.st.clock.advance(91 * day)
@@ -149,7 +153,7 @@ class OriginalLedgerTest {
 
     @Test
     fun an_accepted_record_stays_in_the_unsent_store_while_the_ledger_cannot_be_written() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "ledger write fails once")
         h.scan()
         val sha = h.shaOf(1)
@@ -167,7 +171,7 @@ class OriginalLedgerTest {
     // Scenario: 恒久的に断られた記録の原本は欠けになる
     @Test
     fun a_permanently_rejected_record_turns_its_original_into_a_missing_original() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "its record is refused")
         h.scan()
         val sha = h.shaOf(1)
@@ -183,7 +187,7 @@ class OriginalLedgerTest {
     @Test
     fun a_missing_original_report_is_never_dropped_by_the_limits() {
         RetentionPolicy.overrideForTest(RetentionPolicy(maxAgeMs = 90 * day, maxBytes = 1_000))
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "vanishes")
         h.scan()
         h.env.listing.remove(PRIMARY, 1)
@@ -215,7 +219,7 @@ class OriginalLedgerTest {
 
     @Test
     fun an_accepted_record_makes_the_original_ready_even_when_it_is_a_duplicate() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "accepted twice")
         h.scan()
         assertEquals(ORIGINAL_AWAITING_RECORD, h.env.originals.all().single().state)
@@ -225,7 +229,7 @@ class OriginalLedgerTest {
 
     @Test
     fun a_video_and_a_refused_record_of_a_resent_image_leave_the_ledger_alone() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.env.listing.putVideo(PRIMARY, 1, "DCIM/Camera/", "VID_1.mp4", "a video")
         h.scan()
         assertEquals(0, h.env.originals.all().size)
@@ -235,7 +239,7 @@ class OriginalLedgerTest {
 
     @Test
     fun the_ledger_is_read_back_after_a_restart_and_a_failed_write_changes_nothing() {
-        val h = OriginalHarness()
+        val h = OriginalHarness(tmp.newFolder())
         h.photo(1, "persisted")
         h.scan()
         h.acceptRecords()
@@ -253,7 +257,7 @@ class OriginalLedgerTest {
     // 足すのは 1 行の追記（足すたびに全体を書き直さない。R6）。切れた最後の行は捨て、次の追記を繋げない
     @Test
     fun queueing_appends_one_line_and_a_torn_last_line_is_skipped_on_reload() {
-        val dir = java.nio.file.Files.createTempDirectory("originals").toFile()
+        val dir = tmp.newFolder()
         val file = File(dir, ORIGINALS_FILE)
         val ledger = OriginalLedger(file)
         fun row(n: Int) = OriginalEntry(

@@ -14,20 +14,41 @@ use crate::export_file_tests::{export_once, scan, text};
 
 const VERSIONS: [&str; 3] = ["collector_version", "web_version", "server_version"];
 
-/// 書き出した zip。落とすときに置き場（`export_tests::tmp_dir("file")` の `ashiato-export-file-*`）ごと消す
-/// （一時フォルダに残さない。R7）。
-struct Exported(PathBuf);
+/// `export_once` の返り値から zip のパスを取り出す。`export_once` は CH03 で `(TempDir, PathBuf)` に変わる
+/// （一時フォルダを試験の終わりに消すため）。ST49 の試験はどちらの形でも通るようにここを通す
+/// （CH03 が main に入ったら外してよい）。
+trait HeldExport {
+    fn zip(&self) -> &Path;
+}
 
-impl std::ops::Deref for Exported {
-    type Target = Path;
-    fn deref(&self) -> &Path {
-        &self.0
+impl HeldExport for PathBuf {
+    fn zip(&self) -> &Path {
+        self
     }
 }
 
-impl Drop for Exported {
+impl<T> HeldExport for (T, PathBuf) {
+    fn zip(&self) -> &Path {
+        &self.1
+    }
+}
+
+/// 書き出した zip。落とすときに置き場（`export_tests::tmp_dir("file")` の `ashiato-export-file-*`）ごと消す
+/// （一時フォルダに残さない。R7）。
+struct Exported<H: HeldExport>(H);
+
+impl<H: HeldExport> std::ops::Deref for Exported<H> {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        self.0.zip()
+    }
+}
+
+impl<H: HeldExport> Drop for Exported<H> {
     fn drop(&mut self) {
-        let Some(dir) = self.0.parent() else { return };
+        let Some(dir) = self.0.zip().parent() else {
+            return;
+        };
         // 置き場の名前を確かめてから消す（別の場所を消さない）
         let ours = dir
             .file_name()
@@ -41,7 +62,7 @@ impl Drop for Exported {
 }
 
 /// 新しい置き場に 1 回書き出す（`export_file_tests::export_once`）。置き場は返した値を落とすときに消える。
-async fn export_here(pool: &sqlx::PgPool) -> Exported {
+async fn export_here(pool: &sqlx::PgPool) -> Exported<impl HeldExport> {
     Exported(export_once(pool).await)
 }
 

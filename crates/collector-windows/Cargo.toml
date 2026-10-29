@@ -52,6 +52,10 @@ winreg = "0.56"
 # 差出人（AUMID）の登録は `winreg`（unsafe を書かない。作業場は `unsafe_code = "forbid"`）
 windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation"] }
 
+[dev-dependencies]
+# 試験の一時フォルダ（panic しても消える）。CH03
+tempfile = "3"
+
 [target.'cfg(windows)'.dev-dependencies]
 # 実行時テストが通知の履歴の件数（`IVectorView::Size`）を読むため。本体の機能は増やさない
 windows = { version = "0.62", features = ["UI_Notifications", "Data_Xml_Dom", "Foundation", "Foundation_Collections"] }

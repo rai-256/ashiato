@@ -91,10 +91,16 @@
 - `--self-test` は、一時の木（`mktemp -d` + `trap`）に違反の断片を置いて rc=1、正しい形で rc=0 を見る。台本の中に spec の Scenario の印（`echo "Scenario: …"`）を置く
 - 反転条件: commit 前の検査が rebase の後の直しを 2 回以上妨げたら、commit 前は staged だけを見る形に替える。chain job で落ちた PR が、rust / android の job より後に気づくことで直しが遅れる、が 2 回起きたら、rust job にも掛ける
 
-### D6（仮）. 残りの測り方: 一時フォルダを worktree の中の空のフォルダへ向け、試験の数も見る（Q5 の推奨）
+### D6（仮）. 残りの測り方: 一時フォルダを `/tmp` の下の専用の空のフォルダへ向け（落ちた回は `target/tmp-leak/` へ移す）、試験の数も見る（Q5 の推奨）
 
 - `tools/tmp-leak-check.sh rust [cargo test の引数…]`（引数が無ければ `--workspace`、あればその引数だけ）/ `tools/tmp-leak-check.sh android [gradle の引数…]` / `--self-test`。
-  一時フォルダの根は `target/tmp-leak/<rust|android>-<日時>-<pid>`（repo の根からの相対。tmpfs でなく、worktree ごとに別。`target/` は gitignore 済み）。始める前に作り、空であることを確かめる
+  一時フォルダの根は `/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<乱数>`（tmpfs）。`mktemp -d` で新しく作る（既にある名前・symlink を使わず 0700。
+  決まった名前を `mkdir -p` すると、同じ機械の別の利用者が先に置いた symlink の先へ試験が書く。review R23）。
+  通れば消し、落ちた・残りがあった・中断した（INT / TERM。R24）ときだけ `target/tmp-leak/<rust|android>-<日時>-<乱数>` へ移して残す
+  （`target/` は gitignore 済み。/tmp を食わない）。残すのは種類ごとに新しい方から 5 個まで（際限なく育てない。R33）。
+  **ディスクに根を置かない**（2026-10-27 実測で訂正。初めは `target/tmp-leak/` に置いていた）: 置き場に書く試験が 10 倍以上遅くなる
+  （collector-windows の 283 本が /tmp で 5.7 秒、`target/` で 63〜90 秒）。その負荷で、見回り 1 回が 1 秒未満を見る
+  `history_large_fetch_keeps_observing_foreground` が毎回落ち、8.2 が通らなかった
 - **Rust**: `cargo test --no-run <引数>` で先に組み（rustc の一時ファイルを根に入れない）、`TMPDIR=<根> cargo test <引数>` で走らせる。
   走った本数は出力の `test result: ok. <N> passed` の N の合計
 - **Kotlin**: `ASHIATO_TEST_TMPDIR=<根> ./gradlew :app:testDebugUnitTest --rerun "$@"`。`build.gradle.kts` の `unitTests.all` に
@@ -102,7 +108,7 @@
   OpenJDK の Unix の `java.io.tmpdir` は `TMPDIR` を読まない（`premises.md`、確かさ 1 → Task 1 で走らせて確かめる）。`--rerun` は `UP-TO-DATE` で走らないことを防ぐ。
   走った本数は `app/build/test-results/testDebugUnitTest/*.xml` の `tests` の合計
 - 判定: 試験の命令の rc が 0 でなければその rc で終わる。0 なら、走った本数が 0 → rc=1（「走った試験が 0 本」）、根に何か残る → rc=1（残った名前を最大 20 件と総数）、どちらでもない → rc=0（本数を出す）。
-  rc=0 のときは根を消す。rc=1 のときは残す（中身を見て直すため。`target/` の下なので `/tmp` を食わない）。試験の rc をそのまま返すことは spec の Scenario。名前の件数・根を残すかは spec に無い実装の決め
+  rc=0 のときは根を消す。rc≠0 のときは `target/tmp-leak/` へ移して残す（中身を見て直すため。`/tmp` を食わない）。試験の rc をそのまま返すことは spec の Scenario。名前の件数・根を残すかは spec に無い実装の決め
 - 試験の命令は環境変数 `TMP_LEAK_CMD` で差し替えられる（`--self-test` が偽の命令を渡す。本数は偽の命令が出す同じ形の行から数える）
 - CI: rust job の `- run: cargo test --workspace` を `- run: ./tools/tmp-leak-check.sh rust` に、android job の `- run: ./gradlew :app:testDebugUnitTest` を
   `- run: ../tools/tmp-leak-check.sh android` に替える。試験を 2 回走らせない。chain job で `tools/tmp-leak-check.sh --self-test` も走らせる
@@ -125,6 +131,27 @@
 - §1 の後ろに「一時フォルダ」の節を足し、D1・D2 の形・`tmp-ok:` の印・`tools/tmp-leak-check.sh` の走らせ方を書く（検査の文言と同じこと）。§8 の一覧に 2 つの台本を足す
 - `docs/flow-gates.md` の検査の表に `tools/check-tmp-hygiene.sh` の行を足す（`check-log-private.sh` の行と同じ形）
 
+### D9（仮）. 負荷で揺れる `archive_scan_interval_change_takes_effect_without_restart` は CH03 で直さない（review R21）
+
+- CH03 の差分がこの試験に入れたのは一時フォルダの作り方と後始末の行だけ（`git diff origin/main...HEAD -- crates/server/src/archive_scan_interval_tests.rs`）で、
+  時計・間隔・期待値は変えていない。単独（`tools/tmp-leak-check.sh rust -p ashiato-server --lib archive_scan_interval`）では 2 回とも通り、
+  全体の走りで負荷（load average 3.9）の下だけ「走査が N 回に届かない」で落ちる。CH03 が無くても裸の `cargo test --workspace` で同じに落ちる
+- だから CH03 の merge は止めず、8.2 の rust の走りの赤はこの 1 本のときに限り揺れとして扱う。直すのは別の change（PR 本文の申し送り。`hx change` で起票する）
+- 反転条件: CH03 の分岐点（`origin/main`）の木で、同じ負荷の全体の走りが 3 回とも通るなら、CH03 の差分（根を tmpfs に置く・試験の並びが変わる）が原因として CH03 で直す
+
+### D10（仮）. Robolectric の android-all は Gradle が取り、試験はいつも offline で走らせる（merge gate の CI の赤）
+
+- CI の `tools/tmp-leak-check.sh android` が「残り 3 件（数字だけの名前）」で落ちた（run 40523355101）。Robolectric 4.16 の `MavenArtifactFetcher.fetchArtifact` は、
+  `~/.m2` に jar が無いと Guava の `Files.createTempDir()`（`java.io.tmpdir` の下の数字だけの名前）を staging に作って SDK ごとに取り込み、
+  `deleteOnExit` は空でないフォルダを消さないので残る。CI は `~/.m2` の控えも `ASHIATO_ROBOLECTRIC_JARS` も無く、SDK 34・35・36 の 3 つが毎回残る。
+  手元は harness の `ASHIATO_ROBOLECTRIC_JARS`（offline）か `~/.m2` の控えで取り込みが走らないので出なかった
+- D6 の反転条件（道具が残す名前の頭を判定から外す）は採らない: 名前が数字だけで頭が無く、ashiato の試験が `createTempDirectory(null)` で残すものと見分けられない。
+  代わりに `build.gradle.kts` の `fetchRobolectricJars`（Gradle が版ごとに解いて `build/robolectric-jars` へ置く）を試験の前に走らせ、
+  `ASHIATO_ROBOLECTRIC_JARS` が無いときも `robolectric.offline=true` と `robolectric.dependency.dir` をそこへ向ける（環境変数があればそちらが先）。
+  Gradle の解決は Gradle の cache に落ちるので、試験の一時フォルダを汚さない
+- 版は Robolectric 4.16 の `DefaultSdkProvider` の表の 34・35・36 を名指しで持つ。Robolectric を上げて版がずれると、offline の Robolectric が「jar が無い」で落ちる（黙って取り込みに戻らない）
+- 反転条件: Robolectric の取り込みの staging を試験の一時フォルダの外へ向ける口ができたら、名指しの版を捨ててそれに替える
+
 ## Risks / Trade-offs
 
 - [走っている st09・st13 が rebase の後に検査で落ちる] → 落ちたときの文言が何を使えばよいかを書く。直しはそれぞれの gate → fix（Q4 の推奨）。本文の衝突は proposal の Impact のファイルで起きうる。後から merge する側が追従する
@@ -132,7 +159,7 @@
 - [`TempDir` の 0700 が、権限を見る試験を変える] → いま当たる試験は無い。当たったら試験が自分で付け直す（D1）
 - [検査の誤検知（コメントや文字列の中）] → `tmp-ok: <理由>` で逃がす（D4）。逃がした数が増えたら D4 の反転条件
 - [`java.io.tmpdir` を向けられない・Robolectric が残す] → Task 1 が最初に確かめる（D6 の反転条件）。外れたら Task 1 の検証が落ちる
-- [殺された試験の残りは残る] → この change の外（Q7）。`target/tmp-leak/` の下に残るので、CI の台本から走ったものは `/tmp` を食わない
+- [殺された試験の残りは残る] → この change の外（Q7）。台本ごと殺されると根は `/tmp/ashiato-tmp-leak-*` に残る（落ちた回は `target/tmp-leak/` へ移すので `/tmp` を食わない）
 - [失敗した試験の中身を後から覗けない] → もう一度走らせて再現する（Q8）。CI の台本は残りがあれば根を消さない（D6）が、それは漏れの調べ用で、落ちた試験の中身の保存ではない
 
 ## Migration Plan

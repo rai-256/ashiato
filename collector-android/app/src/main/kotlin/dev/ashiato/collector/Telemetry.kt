@@ -12,6 +12,9 @@ package dev.ashiato.collector
  * 出してよいのは **件数・ソース名・所要時間・エラーの種別** の 4 つだけ。
  * だから引数の型を `Int` と「種別」の文字列に絞ってある —— 値を渡す口を用意しない。
  *
+ * 健康データの権限の記録（ST11）だけは、**契機（`trigger`）と使える状態（`availability`）の 2 つの語**も出す。
+ * どちらも自分で名付けた語の一覧で、種類ごとの許可の値は渡す口が無い。
+ *
  * **ソース名は書き手が名乗る**（独立レビュー R10 / tasks 1.2）。ここに 1 本の定数を
  * 焼き込んでいたときは、2 本目のソースが書いたログまで `source=c01-location` と出て、
  * 「位置は取れているのにアプリ利用が断られている」がログから読めなかった。
@@ -29,6 +32,8 @@ object Telemetry {
         count: Int? = null,
         elapsedMs: Long? = null,
         error: String? = null,
+        trigger: String? = null,
+        availability: String? = null,
     ): String =
         buildString {
             append("kind=").append(kind)
@@ -36,5 +41,7 @@ object Telemetry {
             count?.let { append(" count=").append(it) }
             elapsedMs?.let { append(" elapsed_ms=").append(it) }
             error?.let { append(" error=").append(it) }
+            trigger?.let { append(" trigger=").append(it) }
+            availability?.let { append(" availability=").append(it) }
         }
 }

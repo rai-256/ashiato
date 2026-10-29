@@ -1,0 +1,2 @@
+=== CH03 の深掘り（第 2 回） の回答 ===
+Q9 [8.3 の検証コマンドの入口を、証跡の機械が拾えない] -> harness2 の evidence.py の CMD_LIKE に `openspec/` を足す（harness2 の PR）。足した後に verify-run 8.3 で証跡を取り直す。tasks.md は変えない

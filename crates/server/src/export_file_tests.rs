@@ -55,9 +55,12 @@ async fn export_into(pool: &sqlx::PgPool, cfg: ExportConfig) -> PathBuf {
 }
 
 /// 新しい置き場に書き出す。錠はこの中で取る。
-pub(crate) async fn export_once(pool: &sqlx::PgPool) -> PathBuf {
+/// 書き出したファイルと、それを置いた一時フォルダ（試験の最後まで持つ）。
+pub(crate) async fn export_once(pool: &sqlx::PgPool) -> (tempfile::TempDir, PathBuf) {
     let _g = EXPORT_SERIAL.lock().await;
-    export_into(pool, ExportConfig::with_dir(tmp_dir("file"))).await
+    let dir = tmp_dir("file");
+    let file = export_into(pool, ExportConfig::with_dir(dir.path().to_path_buf())).await;
+    (dir, file)
 }
 
 fn open(path: &Path) -> ZipArchive<std::fs::File> {
@@ -111,7 +114,7 @@ pub(crate) fn present(path: &Path, name: &str, ids: &[Uuid]) -> BTreeSet<Uuid> {
 
 /// 書き出して、記録のファイルに出た `ids` を返す。
 async fn exported(w: &World, ids: &[Uuid]) -> BTreeSet<Uuid> {
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     present(&path, "events.jsonl", ids)
 }
 
@@ -171,7 +174,7 @@ async fn export_file_rows_event_row_has_every_column_of_the_event_table() {
     let id = w
         .put("c02-window", &w.at("05:00"), json!({"t": "x"}), "x")
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows = scan(&path, "events.jsonl", &id.to_string());
     assert_eq!(rows.len(), 1);
     assert_eq!(keys(&rows[0]), table_columns(&w.pool, "event").await);
@@ -187,7 +190,7 @@ async fn export_file_rows_version_row_has_the_version_table_columns_without_txid
     let v = w
         .put_version(id, 1, &w.at("05:00"), json!({"t": "old"}))
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows = scan(&path, "event_versions.jsonl", &v.to_string());
     assert_eq!(rows.len(), 1);
     let mut want = table_columns(&w.pool, "event_version").await;
@@ -203,7 +206,7 @@ async fn export_file_rows_raw_is_exactly_the_received_string() {
     let id = w
         .put("c01-location", &w.at("05:00"), json!({"lat": 35.6}), raw)
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows = scan(&path, "events.jsonl", &id.to_string());
     assert_eq!(rows[0]["raw"].as_str().unwrap(), raw);
 }
@@ -220,7 +223,7 @@ async fn export_file_rows_time_is_utc_and_offset_and_zone_stay_columns() {
             "memo",
         )
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let row = &scan(&path, "events.jsonl", &id.to_string())[0];
     let t = row["event_time"].as_str().unwrap();
     assert!(
@@ -265,7 +268,7 @@ async fn export_file_rows_every_time_column_of_every_file_is_utc() {
         &[(&w.at("10:00"), 3)],
     )
     .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
 
     let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
     for (_, class) in export::CATALOG {
@@ -333,7 +336,7 @@ async fn export_file_rows_every_sensitivity_is_exported() {
         let h = Uuid::new_v4().to_string();
         ids.push(put_with(&w, "c02-window", &w.at(&format!("05:0{s}")), &h, None, s).await);
     }
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows = scan(&path, "events.jsonl", &w.user.to_string());
     assert_eq!(rows.len(), 4);
     let levels: BTreeSet<i64> = rows
@@ -360,7 +363,7 @@ async fn export_file_rows_versions_only_of_exported_parents() {
         .put_version(gone, 1, &w.at("05:10"), json!({"t": 0}))
         .await;
     w.mark_deleted(gone, "user").await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     assert_eq!(
         present(&path, "event_versions.jsonl", &[live_v, gone_v]),
         BTreeSet::from([live_v])
@@ -380,7 +383,7 @@ async fn export_file_rows_dictionaries_and_coverage_sources_are_present() {
     testdb::put_heartbeat(&w.pool, w.user, &source, &w.at("07:00"), true).await;
     testdb::put_span(&w.pool, w.user, &source, "stopped", &w.at("08:00"), None).await;
     testdb::put_drop(&w.pool, w.user, &source, None, &[(&w.at("10:00"), 2)]).await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let rows_of = |name: &str| -> u64 {
         manifest["files"]
@@ -431,7 +434,7 @@ async fn export_file_rows_heartbeat_has_no_attempt_counts_or_raw() {
     let w = World::new().await;
     let source = testdb::source(&w.pool, "hb", 3600).await;
     testdb::put_heartbeat_counts(&w.pool, w.user, &source, &w.at("07:00"), false, 9, 4).await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let rows: Vec<Value> = scan(&path, "heartbeats.jsonl", &w.user.to_string());
     assert_eq!(rows.len(), 1);
     assert_eq!(
@@ -465,7 +468,8 @@ async fn export_zip_one_dated_zip_with_the_twelve_entries() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("one");
+    let dir_tmp = tmp_dir("one");
+    let dir = dir_tmp.path().to_path_buf();
     let file = export_into(&pool, ExportConfig::with_dir(dir.clone())).await;
     let left = names(&dir);
     assert_eq!(left.len(), 1, "{left:?}");
@@ -499,7 +503,8 @@ async fn export_zip_every_entry_is_aes_256() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let file = export_into(&pool, ExportConfig::with_dir(tmp_dir("aes"))).await;
+    let aes_tmp = tmp_dir("aes");
+    let file = export_into(&pool, ExportConfig::with_dir(aes_tmp.path().to_path_buf())).await;
     let mut z = open(&file);
     assert_eq!(z.len(), ENTRIES.len());
     for i in 0..z.len() {
@@ -517,7 +522,8 @@ async fn export_zip_unfinished_file_has_no_export_name() {
     let _g = EXPORT_SERIAL.lock().await;
     let db = testdb::isolated().await;
     let pool = db.pool().await;
-    let dir = tmp_dir("partial");
+    let dir_tmp = tmp_dir("partial");
+    let dir = dir_tmp.path().to_path_buf();
     let midway: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let (seen, d) = (midway.clone(), dir.clone());
     let mut cfg = ExportConfig::with_dir(dir.clone());
@@ -556,7 +562,7 @@ async fn export_zip_cannot_be_read_without_the_passphrase() {
         &raw,
     )
     .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let mut z = open(&path);
     for i in 0..z.len() {
         assert!(z.by_index(i).is_err(), "合言葉なしで項目 {i} が開いた");
@@ -618,10 +624,12 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
         &format!("title {mark}"),
     )
     .await;
-    let dir = tmp_dir("plain");
+    let dir_tmp = tmp_dir("plain");
+    let dir = dir_tmp.path().to_path_buf();
     let started = std::time::SystemTime::now() - std::time::Duration::from_secs(2);
     // プロセスの一時フォルダ（`TMPDIR` は差し替えない —— 並んで走る他のテストも見る環境なので。R10）に
     // このテストが始まってから新しくできたファイルを見る。置き場（`dir`）もその下にあるので、置き場は別に数える。
+    // tmp-ok: 書き出しが一時フォルダに漏れていないかを読むだけ
     let process_tmp = std::env::temp_dir();
     type Seen = Vec<(String, Vec<PathBuf>)>;
     let found: Arc<Mutex<Seen>> = Arc::default();
@@ -660,18 +668,18 @@ async fn export_zip_never_writes_record_values_unencrypted_midway() {
 // 5.3 説明書と目録
 // ---------------------------------------------------------------------------
 
-async fn readme_world() -> (World, PathBuf) {
+async fn readme_world() -> (World, tempfile::TempDir, PathBuf) {
     let w = World::new().await;
     w.put("c02-window", &w.at("05:00"), json!({"t": "x"}), "title")
         .await;
-    let path = export_once(&w.pool).await;
-    (w, path)
+    let (dir, path) = export_once(&w.pool).await;
+    (w, dir, path)
 }
 
 // Scenario: 説明書にファイルごとの列の意味と件数が書かれている
 #[tokio::test]
 async fn export_readme_lists_every_file_with_columns_meaning_and_rows() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let readme = text(&path, "README.txt");
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let files = manifest["files"].as_array().unwrap();
@@ -753,7 +761,7 @@ async fn export_readme_fold_rule_matches_the_event_folded_view() {
 // Scenario: 出さない列は説明書の入らないものに名前で挙がる
 #[tokio::test]
 async fn export_readme_omitted_columns_are_named_in_not_included() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let readme = text(&path, "README.txt");
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     let listed: Vec<String> = manifest["not_included"]
@@ -780,7 +788,7 @@ async fn export_readme_omitted_columns_are_named_in_not_included() {
 // Scenario: 目録の行の数はファイルの行の数と一致する
 #[tokio::test]
 async fn export_readme_manifest_rows_equal_the_lines_of_each_file() {
-    let (_w, path) = readme_world().await;
+    let (_w, _dir, path) = readme_world().await;
     let manifest: Value = serde_json::from_str(&text(&path, "manifest.json")).unwrap();
     for f in manifest["files"].as_array().unwrap() {
         let name = f["name"].as_str().unwrap();
@@ -806,7 +814,7 @@ async fn export_readme_readable_without_the_system() {
     let id = w
         .put("c01-location", &w.at("05:00"), json!({"lat": 35.6}), raw)
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     // サーバも DB も止めた状態にする
     w.pool.close().await;
     let mut z = ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
@@ -1016,7 +1024,7 @@ async fn export_file_excludes_the_earlier_version_of_a_live_stay_overlapping() {
             json!({"end": w.at("03:00"), "lat": 35.0, "lon": 139.0}),
         )
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     assert_eq!(
         present(&path, "events.jsonl", &[live]),
         BTreeSet::from([live])
@@ -1181,7 +1189,7 @@ async fn export_file_excludes_the_versions_of_an_excluded_parent() {
             json!({"lat": 35.0, "lon": 139.0}),
         )
         .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     assert_eq!(
         present(&path, "events.jsonl", &[parent, outside]),
         BTreeSet::from([outside])
@@ -1197,8 +1205,8 @@ async fn export_file_excludes_the_versions_of_an_excluded_parent() {
 async fn export_file_excludes_ledgers_and_derived_tables() {
     let w = World::new().await;
     w.erased_stay(&w.at("01:00"), &w.at("02:00"), &[]).await;
-    export_once(&w.pool).await;
-    let second = export_once(&w.pool).await;
+    let (__first_tmp, _) = export_once(&w.pool).await;
+    let (_second_tmp, second) = export_once(&w.pool).await;
     let z = open(&second);
     let got: BTreeSet<String> = z.file_names().map(String::from).collect();
     assert_eq!(got, ENTRIES.iter().map(|s| (*s).to_string()).collect());
@@ -1216,7 +1224,7 @@ async fn export_file_excludes_without_leaving_a_count() {
         "{}",
     )
     .await;
-    let path = export_once(&w.pool).await;
+    let (_path_tmp, path) = export_once(&w.pool).await;
     let readme = text(&path, "README.txt");
     for line in readme
         .lines()
@@ -1282,7 +1290,12 @@ async fn export_file_excludes_the_summary_count_equals_the_exported_rows() {
         .iter()
         .find(|s| s.logical_source == source)
         .unwrap();
-    let path = export_into(&w.pool, ExportConfig::with_dir(tmp_dir("summary"))).await;
+    let summary_tmp = tmp_dir("summary");
+    let path = export_into(
+        &w.pool,
+        ExportConfig::with_dir(summary_tmp.path().to_path_buf()),
+    )
+    .await;
     let rows = scan(&path, "events.jsonl", &w.user.to_string());
     let in_file = rows
         .iter()
@@ -1342,7 +1355,8 @@ async fn export_snapshot_record_arriving_midway_is_not_in_this_export() {
     let w = Arc::new(World::new().await);
     let late: Arc<Mutex<Option<Uuid>>> = Arc::default();
     let (w2, slot) = (w.clone(), late.clone());
-    let mut cfg = ExportConfig::with_dir(tmp_dir("late"));
+    let late_tmp = tmp_dir("late");
+    let mut cfg = ExportConfig::with_dir(late_tmp.path().to_path_buf());
     cfg.hooks = at_first_file(move || {
         let (w, slot) = (w2.clone(), slot.clone());
         async move {
@@ -1352,7 +1366,12 @@ async fn export_snapshot_record_arriving_midway_is_not_in_this_export() {
     let first = export_into(&w.pool, cfg).await;
     let id = late.lock().unwrap().unwrap();
     assert!(present(&first, "events.jsonl", &[id]).is_empty());
-    let second = export_into(&w.pool, ExportConfig::with_dir(tmp_dir("late2"))).await;
+    let late2_tmp = tmp_dir("late2");
+    let second = export_into(
+        &w.pool,
+        ExportConfig::with_dir(late2_tmp.path().to_path_buf()),
+    )
+    .await;
     assert_eq!(
         present(&second, "events.jsonl", &[id]),
         BTreeSet::from([id])
@@ -1366,7 +1385,8 @@ async fn export_snapshot_deletion_midway_is_not_reflected_in_this_export() {
     let w = Arc::new(World::new().await);
     let stay = w.stay(&w.at("05:00"), &w.at("06:00")).await;
     let w2 = w.clone();
-    let mut cfg = ExportConfig::with_dir(tmp_dir("del"));
+    let del_tmp = tmp_dir("del");
+    let mut cfg = ExportConfig::with_dir(del_tmp.path().to_path_buf());
     cfg.hooks = at_first_file(move || {
         let w = w2.clone();
         async move { w.mark_deleted(stay, "user").await }
@@ -1376,7 +1396,12 @@ async fn export_snapshot_deletion_midway_is_not_reflected_in_this_export() {
         present(&first, "events.jsonl", &[stay]),
         BTreeSet::from([stay])
     );
-    let second = export_into(&w.pool, ExportConfig::with_dir(tmp_dir("del2"))).await;
+    let del2_tmp = tmp_dir("del2");
+    let second = export_into(
+        &w.pool,
+        ExportConfig::with_dir(del2_tmp.path().to_path_buf()),
+    )
+    .await;
     assert!(present(&second, "events.jsonl", &[stay]).is_empty());
 }
 
@@ -1396,7 +1421,8 @@ async fn export_snapshot_files_do_not_contradict_each_other() {
     w.put_version(doomed, 1, &w.at("05:10"), json!({"t": 0}))
         .await;
     let w2 = w.clone();
-    let mut cfg = ExportConfig::with_dir(tmp_dir("consistent"));
+    let consistent_tmp = tmp_dir("consistent");
+    let mut cfg = ExportConfig::with_dir(consistent_tmp.path().to_path_buf());
     cfg.hooks = at_first_file(move || {
         let w = w2.clone();
         async move {
@@ -1511,7 +1537,12 @@ async fn export_volume_one_run_reports_time_and_memory() {
     export::read_summary(&w.pool).await.unwrap();
     let summary_seconds = counted.elapsed().as_secs_f64();
     let started = std::time::Instant::now();
-    let path = export_into(&w.pool, ExportConfig::with_dir(tmp_dir("volume"))).await;
+    let volume_tmp = tmp_dir("volume");
+    let path = export_into(
+        &w.pool,
+        ExportConfig::with_dir(volume_tmp.path().to_path_buf()),
+    )
+    .await;
     let seconds = started.elapsed().as_secs_f64();
     let rss = max_rss_kib();
     let mine = scan(&path, "events.jsonl", &w.user.to_string()).len() as i64;
@@ -1554,7 +1585,7 @@ async fn st48_export_starts_with_ledger() {
         .unwrap();
     assert!(recorded > 0, "版の記録のある DB で始める");
     // 「分類の無い表」で断られると unwrap が落ちる
-    let path = export_once(&pool).await;
+    let (_path_tmp, path) = export_once(&pool).await;
     let z = open(&path);
     let bad: Vec<&str> = z
         .file_names()
@@ -1592,7 +1623,7 @@ async fn export_satellites_registry_includes_removed_satellites() {
     let tag = &Uuid::new_v4().simple().to_string()[..8];
     let identifier = format!("dev.t{tag}.booklog");
     put_satellite(&pool, &identifier, &format!("読書ログ{tag}"), true).await;
-    let path = export_once(&pool).await;
+    let (_path_tmp, path) = export_once(&pool).await;
     let rows = all_rows(&path, "satellites.jsonl");
     let identifiers: BTreeSet<&str> = rows
         .iter()
@@ -1645,7 +1676,7 @@ async fn export_satellites_credentials_are_not_exported() {
         .unwrap();
         hashes.push(hash);
     }
-    let path = export_once(&pool).await;
+    let (_path_tmp, path) = export_once(&pool).await;
     let names_in_zip: Vec<String> = open(&path).file_names().map(String::from).collect();
     for name in &names_in_zip {
         let body = text(&path, name);

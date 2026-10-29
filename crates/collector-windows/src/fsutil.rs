@@ -33,12 +33,15 @@ mod tests {
     /// 置き換えた後は新しい中身だけが残り、一時ファイルは残らない。
     #[test]
     fn atomic_write_replaces_and_leaves_no_tmp() {
-        let dir = std::env::temp_dir().join(format!("ashiato-fs-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::Builder::new()
+            .prefix("ashiato-fs-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("a.txt");
         atomic_write(&path, b"one").unwrap();
         atomic_write(&path, b"two").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
         assert!(!path.with_extension("tmp").exists());
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

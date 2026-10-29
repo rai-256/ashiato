@@ -114,6 +114,28 @@ class SourceIndependenceTest {
         )
     }
 
+    // Scenario: 位置の権限を拒否しても収集は始まり、拒否したことが残る
+    //
+    // THEN の「位置は取得できない状態として生存信号に載る」の側。計測テスト（`PermissionDeniedInstrumentedTest`）は
+    // 落ちない・前景の通知・`kind=permission_denied` のログ・位置は拒否のまま、を見ており、生存信号の中身はここが見る。
+    @Test
+    fun `位置を拒否した後に始めた収集の位置の生存信号は取得できない状態と権限を示す`() = configured {
+        val service = start(locationOk = false).get()
+
+        // 収集は始まっている（アプリ利用は道連れに止まらない）
+        assertTrue("位置の拒否で収集が始まっていない", service.records(usage).isNotEmpty())
+        val beat = service.beat(location)
+        assertFalse("位置を拒否したのに取得できることになっている", beat.capturable)
+        assertEquals("取得できない理由が権限でない", listOf(Capability.PERMISSION), beat.blockers)
+
+        // 受け手に届く本文（/heartbeat）も、取得できない状態と権限を示す
+        service.scheduler.fire()
+        val body = service.posted.map { (_, text) -> text }
+            .single { it.contains("\"logical_source\":\"$location\"") && it.contains("\"capturable\"") }
+        assertTrue("位置の生存信号が取得できない状態を示していない: $body", body.contains("\"capturable\":false"))
+        assertTrue("位置の生存信号が権限を示していない: $body", body.contains("\"blockers\":[\"${Capability.PERMISSION}\"]"))
+    }
+
     // Scenario: アプリ利用の取得条件が欠けても位置は集まる
     // Scenario: 許可しなくても収集は始まる
     //

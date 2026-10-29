@@ -132,6 +132,7 @@ class RetentionInstrumentedTest {
         val fake = FakeServer().also { server = it }
         Config.overrideForTest("http://127.0.0.1:${fake.port}", "test-token-0123456789abcdef", "00000000-0000-0000-0000-000000000000")
 
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).close()
         val client = mockLocations()
 
@@ -160,6 +161,7 @@ class RetentionInstrumentedTest {
     @Test
     fun nearlyTwoGigabytesStillStartsAndKeepsCollecting() {
         placeBytes(1_900L * 1_000_000)
+        skipHealthPermissionStep(context) // 健康データの権限の段はこの試験の関心の外（ST11）
         ActivityScenario.launch(MainActivity::class.java).close()
         val client = mockLocations()
         val grew = waitUntil(120_000) {
