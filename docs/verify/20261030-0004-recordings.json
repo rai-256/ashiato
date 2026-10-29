@@ -1,0 +1,15 @@
+{
+  "tag": "20261030-0004",
+  "run_id": "",
+  "commit": "",
+  "overall": "none",
+  "cleanup": "-",
+  "failed_step": "",
+  "folder": "",
+  "folder_windows": "",
+  "note": "撮っていない（このバッチの Story にシナリオが無い）",
+  "scenarios": [],
+  "uncovered_stories": [
+    "ST49"
+  ]
+}
