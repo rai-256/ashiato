@@ -53,17 +53,18 @@ ST23 の既存の Scenario と試験は、この 4 つが変える分を除い�
 
 ### Modified Capabilities
 
-ST23 は archive 前なので、変える Requirement は **ST23 の delta**（`openspec/changes/st23-record-erasure/specs/`）にある。
-spec の段は、ST23 の gate を通った SHA の spec（`docs/briefs/deps/ST23@<sha7>/…`。`story_deps.py sync-specs`）から要件の全文と Scenario を写して `MODIFIED` で書く。
+ST23 は 2026-10-30 に archive した（`openspec/changes/archive/2026-10-30-st23-record-erasure/`）。変える Requirement は正典（`openspec/specs/record-deletion/spec.md`・`openspec/specs/browsing-views/spec.md`）にあり、
+spec の段は正典から要件の全文と Scenario を写して `MODIFIED` で書いた。
 
 - **`record-deletion`**
   - MODIFIED「消したものを戻せる」—— 戻しても一覧に戻らない B を断る（Q2）
   - MODIFIED「「消した」の行から戻せる」—— すっぽり入る B の行は「本文ごと消す」だけ。一部重なる B の「戻す」は、戻した結果が一覧に戻らなければ断る（Q2・Q7）
   - MODIFIED「「消した」の行から本文ごと消せる」—— B の行から本文ごと消せる・B を本文ごと消した後の行（Q7・C5）、「後から N 件も本文ごと消した」（Q3）、確認の一文（Q4）
+  - MODIFIED「本文ごと消す前に、消える件数と残るものを示す」—— 確認の口が、一覧に出ている重なる滞在の件数を消える件数の外で返す（Q4）
   - MODIFIED「本文を消した記録は戻せず、作り直しも戻さない」—— 作り直しが隠した重なる L の本文を同じまとまりで消す（Q8・C1〜C4）
   - MODIFIED「本文ごと消す操作は追記のみの台帳に 1 操作 1 行で残る」—— kind = late の操作（元の操作 = P）として L を載せ、L と前の版の時間を範囲の行に残す（C7）
-  - ADDED: この change の前に隠れて本文が残った L を、サーバの起動のたびに消す（Q5）
-  - 「本文ごと消す範囲は…」（ST23 design D2 の 3）は変えない。D2 の「Q7 待ち」と D12・D17 の「Q8 待ち」は、design で本人の決定に書き直す
+  - ADDED「本文ごと消した後に作り直しで隠れたのに本文が残る重なる滞在は、サーバの起動のたびに本文を消す」—— この change の前に隠れて本文が残った L を、起動のたびに消す（Q5）
+  - 「本文ごと消す範囲は…」（ST23 design D2 の 3）は変えない。D2 の「Q7 待ち」と D12・D17 の「Q8 待ち」は、CH08 の design（D2〜D6）が本人の決定で決着を書く（archive の ST23 design は直さない）
 - **`browsing-views`**
   - MODIFIED「1 日の並びを読み出せる」—— 「本文ごと消した」の区間に、すっぽり入る B の行（識別子・時間・戻せるか）を添える（Q7）。後から本文を消した件数に L を数える（Q3）
   - MODIFIED「日付を指定するとその日の滞在が時刻順に一覧で出る」—— B の行を P の行の下に出す形（C5）
@@ -79,14 +80,12 @@ CH08 が書く振る舞いは、どれも ST23 が同じ 2 つの capability に
   - `stay_store.rs`: `rebuild_day`（隠した L の本文と前の版を同じ transaction で消す。`assign`・`absorb` の隠し方の判定）、`day_view`（`subtract_spans` で空になる B を P の区間に添える。後から本文を消した件数）
   - `deletion.rs`: `restore`（戻しても一覧に戻らない B を断る）、`purge_scope` の確認（一覧に出ている重なる L の件数。範囲には入れない）、kind = late の操作の行と範囲の行
   - `lib.rs` の `run()`: 起動のたびの手当て（Q5）。`GET /day` の区間の型（`DayEntry`）と、`src/bin/openapi.rs` が生成する `docs/openapi.json`（再生成）
-  - 移行: 見分けに列が要るかは design で決める。要るなら `migrations/YYYYMMDDHHMM_<slug>.sql` と `.down.sql` を 1 本、`migrations/ORDER` の末尾へ 1 行
+  - 移行: 足さない（手当ての見分けは既存の列で行う。design D5）
 - **画面**（`web/src/DayView.tsx`・`stays.ts`）: P の行の下の B の行・B の行の口・文言（Q3）・確認の一文（Q4）
 - **試験**: `crates/server/src/*_tests.rs`（Q8・Q2 の戻す口・手当て。手当ては前の状態を作って確かめる）、`web/e2e/ch08-*.spec.ts`（Q7・Q2・Q3・Q4 の画面。C6）。
   ST23 の既存の試験は、変える 4 つの振る舞いに当たるものだけ書き直す
-- **依存の取り込み**: `requires: [ST23]`。下流は ST23 の gate を通った SHA を取り込む（`story_deps.py`）。ST23 の archive は待たない。
-  ST23 のコードを `git merge` で取り込まない。CH08 で見つけたことを ST23 へ差し戻さない
+- **依存**: `requires: [ST23]`。ST23 は main に入り archive 済みなので、下流は main の上に積む。CH08 で見つけたことを ST23 へ差し戻さない
 - **走っている Story・change との重なり**（差し戻さない。後から main に入る側が rebase で解く。merge の順は決めない）:
-  - **ST23**（`st23-record-erasure`。下流が走っている）: CH08 は ST23 の delta の Requirement 5 つを MODIFIED する。ST23 の gate の後に ST23 の spec が変われば、merge gate が「依存の spec:」で止める
   - **ST49**（`st49-record-component-version`。下流が走っている）: `record-deletion` に ADDED を 1 つ（削除の台帳の行が S-01 の版を持つ）足し、`deletion.rs`・`stay_store.rs`（`insert_stay` / `update_stay` / `push_version`）に版の列を足す。
     Requirement の名前は重ならない。ST49 が先に入れば、CH08 が作り直しの中で積む削除の台帳の行も版の列を書く必要がある（ファイルの重なり。rebase で解く）
   - **CH03**（`ch03-test-tmp-cleanup`）: `crates/server` の試験の一時フォルダの作り方を変える。CH03 が先に入れば、CH08 の新しい試験もその形に従う（検査が落とす）
