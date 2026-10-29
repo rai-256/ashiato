@@ -187,7 +187,11 @@ async fn archive_scan_interval_default_is_120_seconds() {
     // 同じ値の自分専用の行を取り込み器に渡す
     let row = OwnRow::new(&pool, default).await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!("ashiato-scan-interval-{}", uuid::Uuid::new_v4()));
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-scan-interval-")
+        .tempdir()
+        .unwrap();
+    let root = tmp.path().to_path_buf();
 
     seed_today_heartbeat(&pool, user).await;
     tokio::time::pause();
@@ -206,7 +210,6 @@ async fn archive_scan_interval_default_is_120_seconds() {
     drop(worker);
     tokio::time::resume();
     row.delete().await;
-    let _ = std::fs::remove_dir_all(&root);
 
     // 試験の外で時計が勝手に進んだ回数は数えない: 経過は advance した 600 秒ちょうど
     assert!(
@@ -225,7 +228,11 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     let pool = pool_for_paused_clock().await;
     let row = OwnRow::new(&pool, 120).await;
     let user = testdb::user();
-    let root = std::env::temp_dir().join(format!("ashiato-scan-interval-{}", uuid::Uuid::new_v4()));
+    let tmp = tempfile::Builder::new()
+        .prefix("ashiato-scan-interval-")
+        .tempdir()
+        .unwrap();
+    let root = tmp.path().to_path_buf();
 
     seed_today_heartbeat(&pool, user).await;
     tokio::time::pause();
@@ -256,7 +263,6 @@ async fn archive_scan_interval_change_takes_effect_without_restart() {
     drop(worker);
     tokio::time::resume();
     row.delete().await;
-    let _ = std::fs::remove_dir_all(&root);
 
     // 時計が自動で次の timer（120 秒）まで跳ぶと、古い間隔で眠る退行が緑になる。経過は 10 秒ちょうど
     assert!(

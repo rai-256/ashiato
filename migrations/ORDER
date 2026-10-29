@@ -63,3 +63,7 @@
 202610241200_satellite_credentials
 # ST41: 幅のある出来事の終わりの時刻（3 列・門・期間の索引）
 202610231200_event_end_time
+# 本文ごと消す操作の台帳・範囲・派生の門・ビュー・書き直しの記録（ST23 / design D4 / D5 / D7 / D11）
+202610240500_record_purge
+# ST11: 健康データの権限の記録の論理ソース（design D1）
+202610251100_health_permission_source

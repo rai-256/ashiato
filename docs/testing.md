@@ -28,7 +28,7 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 
 | job | 走るとき | 中身 |
 |---|---|---|
-| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 14 本（migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2） |
+| `rust` | `code` | DB を立てて役割を整える（`ci-db-env.sh` → `docker compose up` → `db-roles.sh`）→ fmt / clippy / test → 検査 21 本（test-db-growth の self-test・lint・本体 / migrations / boundaries / openapi / offsite ×2 / exposure / private の self-test / no-time-server ×2 / ports の self-test / check-verify-env-reset の self-test と本体 / satellite-boundary ×2 / CH05 の 4 本: check-test-db-killed の self-test・docker-tidy の self-test と `--verify-env-check`・check-test-db-killed の本体） |
 | `collector-windows` | `code` | windows 向けクロスの clippy |
 | `collector-windows-runtime` | `windows` | windows-latest で `--lib` と実行時テスト（走った本数も確かめる） |
 | `web` | `code` | licenses / tsc / lint / vitest / build |
@@ -36,11 +36,30 @@ testdb.rs の docstring に散っている」と出たので、ここに寄せ�
 | `android` | `android` | lint（detekt + ktlint。★ 2026-10-11: 既存の違反は `config/detekt-baseline.xml` に凍結し、新しい違反で落ちる）/ assembleDebug / 単体 |
 | `android-instrumented` | `android` | エミュレータ |
 | `smoke` | `code` | 縦串 + panic-log + immutable |
-| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
+| `chain` | **毎回**（出し分けの対象外） | `check-private.sh`・`check-secrets.sh`（gitleaks）・`check-log-private.sh` ×2・`check-tmp-hygiene.sh` ×2・`check-db-secret.sh` は**毎回**走る。token（`HARNESS2_TOKEN`）が無いときに飛ぶのは `check_chain.py` だけ |
 
 > ★ 2026-10-11 訂正（2026-10-11 の整合の確認）。従来は 1 行で「`rust`（… + 検査 4 本）」「`chain`（token があるとき）」と
 > 書いていた。rust の検査は 9 本に増えていて、chain は token が無くても毎回走り、私的データの検査（網の名前・ログ・
 > DB の合言葉）を持っている。「token が無いから chain は飛ぶ」と読むと、これらの検査も飛ぶと読み違える。
+
+## 1.5 一時フォルダ（CH03）
+
+試験の一時フォルダは、**落ちても・panic しても消える書き方**だけを使う。手で作ると、落ちた試験の後に残って `/tmp` を埋める
+（2026-10-23 に 16G の `/tmp` が満杯になり、並走する Story の検証が落ちた）。
+
+- **Rust**: `tempfile::TempDir`（名前の頭を残すなら `tempfile::Builder::new().prefix("ashiato-…-").tempdir()`）を**束縛して試験の最後まで持つ**。
+  手伝いは `PathBuf` でなく `TempDir`（かそれを持つ型）を返す。`tmp_dir("x").path().to_path_buf()` のように一時の値から取り出さない（その行で消える）。
+- **Kotlin**（`app/src/test`）: `@get:Rule val tmp = TemporaryFolder()` と `tmp.newFolder()`。共通の手伝いはフォルダを引数で受け取る。
+  property の初期化では `tmp.newFolder()` を呼ばない（`by lazy` か `@Before`。規則の `before()` より前は `IllegalStateException`）。
+- **検査**: `tools/check-tmp-hygiene.sh`（`--self-test` つき。CI の `chain` と commit 前）が `temp_dir()`・`"/tmp`・`.keep()`・`.into_path()`・`.persist(`（Rust）と
+  `createTempDirectory`・`createTempFile`・`createTempDir`・`java.io.tmpdir`・`"/tmp`・規則の無い `TemporaryFolder(`（Kotlin）を落とす。
+  製品のコードも対象。携帯の `main` / `androidTest` と bash は対象外。
+- **印**: 手で要る箇所（一時フォルダを読むだけ、など）は同じ行か 1 行上に `// tmp-ok: <理由>`。理由の無い印と 2 行以上離れた印は数えない。
+- **残りを測る**: `tools/tmp-leak-check.sh rust [cargo test の引数…]`（無ければ `--workspace`）/ `tools/tmp-leak-check.sh android [gradle の引数…]`
+  （`:app:testDebugUnitTest --rerun` に足す）/ `tools/tmp-leak-check.sh --self-test`。一時フォルダを `/tmp` の下の専用の空のフォルダ
+  （`/tmp/ashiato-tmp-leak-<rust|android>-<日時>-<乱数>`。`mktemp -d` で新しく作る）へ向けて試験を走らせ、終わった後に残ったものがあれば名前を挙げて落ちる。
+  走った試験が 0 本（android は飛ばした分を引く）でも落ちる。通れば根を消し、落ちた回・残りがあった回は `target/tmp-leak/<rust|android>-…` へ移して残す（種類ごとに新しい方から 5 個。中断した回も）
+  （`/tmp` を名前の頭で消す台本は書かない）。
 
 ## 2. テストは spec の Scenario から生まれる
 
@@ -118,6 +137,14 @@ deep.md の「本人の答え」にある数値・列挙・する/しないは�
   - `tools/check-test-db-growth.sh [cargo test の引数…]` —— 試験を 2 回続けて走らせ、database が積もらないことを見る。`--lint` で書き方を、`--self-test` で検査自体を確かめる
   - `tools/export-scaling.sh` —— 書き出しの量の試験が消した滞在の数を読み、N と M を一緒に倍にして時間を測る（残すだけ。判定は件数の比）
 
+## 4.4.1 打ち切った run の後の検査と、消えた作業ツリーの片付け（CH05）
+
+- `tools/check-test-db-killed.sh` —— 試験の run を途中（体積の行を入れる途中・確定した後）で殺し、次の回の後に殺した回の database が残らず、`ashiato` が増えていないことを見る。`--self-test` で検査自体を確かめる（DB は要らない）
+- **同じ worktree で、別の `cargo test`・検証の準備（`tools/verify-env.sh`）と並べて走らせない。** 検査は回の database の一覧と統計を読むので、並べると他方の回を「残り」と数える
+- 検証の準備が DB を作り直す（`--plan` が `reset`）ときは、先に `tools/docker-tidy.sh` が、作業ツリーが消えたことを機械で確かめられるコンテナとネットワークだけを外す。`--dry-run` で挙げるだけ、`--self-test` と `--verify-env-check` で確かめる（この 2 つは docker の daemon と `postgres:17-alpine` を要する。偽の docker のほかに本物の docker で探りのコンテナを 1 つ起こす）
+- **volume は消さない**（`docker volume rm`・`volume prune`・`system prune` は書かない）
+- CI の `rust` job は、この 4 行を `check-verify-env-reset.sh` の後ろで走らせる（`check-test-db-killed.sh --self-test` → `docker-tidy.sh --self-test` → `docker-tidy.sh --verify-env-check` → `check-test-db-killed.sh`）
+
 ## 4.5 画面の e2e（`web/e2e`）
 
 - **起動は `tools/stack.sh up`。確認バッチの `run.sh` が呼ぶのと同じもの。** 分けると
@@ -183,6 +210,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ./tools/check-private.sh --self-test && ./tools/check-private.sh
 ./tools/check-secrets.sh --self-test && ./tools/check-secrets.sh   # gitleaks（初回だけ ~/.cache へ取りに行く）
 ./tools/check-log-private.sh --self-test && ./tools/check-log-private.sh
+./tools/check-tmp-hygiene.sh --self-test && ./tools/check-tmp-hygiene.sh
+./tools/tmp-leak-check.sh --self-test
 ./tools/check-no-time-server.sh && ./tools/check-no-time-server.sh --self-test
 ./tools/check-satellite-boundary.sh --self-test && ./tools/check-satellite-boundary.sh   # 本体が衛星のコードを読み込む部品を持たない（FR-77）
 ./tools/check-db-secret.sh                                        # DB を使う（上で立てたもの）

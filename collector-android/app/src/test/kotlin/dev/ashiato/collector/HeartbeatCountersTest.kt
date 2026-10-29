@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.time.Instant
 
 /**
  * 前回の信号からの取得の試行回数と成功回数（第 5 回 Q17。tasks 7.2b / ST06 の tasks 1.3）。
@@ -19,6 +21,8 @@ import org.junit.Test
  * **取得率 3 % ＝ ずっと眠っていた**と読まれる（独立レビュー R10）。
  */
 class HeartbeatCountersTest {
+    @get:Rule val tmp = TemporaryFolder()
+
     /** 進む時計。 */
     private class Clock(var at: Instant) : () -> Instant {
         override fun invoke(): Instant = at
@@ -36,7 +40,7 @@ class HeartbeatCountersTest {
 
     /** そのソースの生存信号を 1 件積んで、積まれたものを返す。 */
     private fun emit(cadence: SourceCadence, counters: AttemptCounters, clock: Clock): HeartbeatRequest {
-        val outbox = testHeartbeatOutbox()
+        val outbox = testHeartbeatOutbox(tmp.newFolder())
         HeartbeatEmitter(
             outbox = outbox,
             counters = counters,
@@ -131,7 +135,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `2 ソースの数えは互いを潰さない`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
         val location = counters(
             clock, SourceCadence.LOCATION,
@@ -161,7 +165,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `ST06 より前の 1 本の置き場は位置の名前へ移る`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val legacy = java.io.File(dir, LEGACY_COUNTERS_FILE)
         legacy.writeText("2026-05-01T00:00:00Z 4")
 
@@ -178,7 +182,7 @@ class HeartbeatCountersTest {
     /** **アプリ利用は引き継がない** —— 位置の数えを別のソースの取得率として読ませない。 */
     @Test
     fun `ST06 より前の 1 本はアプリ利用へは移らない`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         java.io.File(dir, LEGACY_COUNTERS_FILE).writeText("2026-05-01T00:00:00Z 42")
 
         val target = migrateLegacyCounters(dir, SourceCadence.APP_USAGE.logicalSource)
@@ -257,7 +261,7 @@ class HeartbeatCountersTest {
      */
     @Test
     fun `数えは立て直しをまたいで残る`() {
-        val dir = java.nio.file.Files.createTempDirectory("counters").toFile()
+        val dir = tmp.newFolder()
         val file = counterStoreFile(dir, LOGICAL_SOURCE)
         val clock = Clock(Instant.parse("2026-05-01T00:00:00Z"))
 

@@ -55,6 +55,8 @@ pub const SPAN_RULES: &[(&str, SpanRule)] = &[
     ("c01-video", SpanRule::Point),
     // 端末の時計の記録（読んだ時刻の 1 点）
     ("c01-clock", SpanRule::Point),
+    // 健康データの権限の記録（観た時刻の 1 点。ST11 / design D12（仮））
+    ("c01-health-permission", SpanRule::Point),
     // 個人属性（本人が書いた時点）
     ("s01-attribute", SpanRule::Point),
 ];
@@ -101,12 +103,14 @@ pub const ARCHIVE_PRODUCT_PREFIX: &str = "c03-myactivity-";
 /// 緯度経度を持たないと決まったソース（D5a (1)）。**ここに無いソースは緯度経度を持つとみなす**（既定は厳しい側）。
 /// 足すのは、そのソースの payload に座標の項目が無いことを収集側の型で確かめた Story だけ（理由を隣に書く）。
 /// `c01-location` / `s01-stay` / `c01-photo` / `c03-*` / `s01-place` は入れない。
-pub const NO_COORD_SOURCES: [&str; 7] = [
+pub const NO_COORD_SOURCES: [&str; 8] = [
     // 前景のアプリの名前と時間だけ
     "c01-app-usage",
     "c01-app-usage-rollup",
     // 端末の時計の記録
     "c01-clock",
+    // 健康データの権限の記録（許可の有無と対応の有無だけ。ST11 / design D2）
+    "c01-health-permission",
     // 前景のウィンドウの題名・アドレスバー（座標は文字列の中にだけ持ちうる。D5a (2)(3) が拾う）
     "c02-window",
     // ブラウザの履歴（URL。同上）
@@ -183,7 +187,8 @@ impl ExcludedSql {
 /// 除く範囲の断片を組む。
 ///
 /// `snapshot_at` は、次の記録が無いときに幅の終わりにする「写しの時点」の SQL の式（例 `now()`・`transaction_timestamp()`）。
-/// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。
+/// 消した滞在は、その文が見る時点で本人が消してあるもの全部を集める。時間は `core.stay_erased` と、
+/// 本文を消した前の版は `core.erasure_span`（`scope = 'version'`）から読み、本文が残る前の版だけ本文から補う（ST23 / design D5）。
 ///
 /// 次の記録は、行ごとの相関副問い合わせでなく、鍵の列だけを並べた 1 つの窓（`span_next`）で一度に読む（CH02 D1〜D4）。
 /// ST33 D5 は「次の記録は行ごとに索引で引く」と決めたが、120 万行で 14 分かかったので覆した（CH02）。
@@ -208,10 +213,15 @@ pub fn excluded_sql(snapshot_at: &str) -> ExcludedSql {
              FROM core.stay_erased s
             WHERE {user_deleted}
            UNION ALL
+           SELECT sp.start_at, sp.end_at
+             FROM core.stay_erased s
+             JOIN core.erasure_span sp ON sp.event_id = s.id AND sp.scope = 'version'
+            WHERE {user_deleted}
+           UNION ALL
            SELECT v.event_time, coalesce(CASE WHEN v.end_time > v.event_time THEN v.end_time END,
                                   core.try_timestamptz(v.payload->>'end'), v.event_time)
              FROM core.stay_erased s
-             JOIN core.event_version v ON v.event_id = s.id
+             JOIN core.event_version v ON v.event_id = s.id AND v.raw <> ''
             WHERE {user_deleted}
          ),
          erased_range AS MATERIALIZED (

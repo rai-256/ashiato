@@ -40,7 +40,7 @@
 
 ## Task 1: 移行 —— 消去の操作の台帳・範囲・派生の門・ビュー・書き直しの記録（design D4 / D5 / D7 / D11）
 
-- [ ] 1.1 移行 1 本（`migrations/YYYYMMDDHHMM_record_purge.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）で次を入れる:
+- [x] 1.1 移行 1 本（`migrations/YYYYMMDDHHMM_record_purge.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）で次を入れる:
   `core.erasure_operation` と `core.erasure_span`（design D4 の列・CHECK・追記のみの行トリガと TRUNCATE の文トリガ。関数は表ごとに別）/ `core.erasure_ledger.operation_id uuid NULL` /
   `core.stay_erased` の作り直し（`start_at` / `end_at` は `core.erasure_span` の `scope = 'event'` を先に読み、無ければ本文。列 `purged`・`operation_id` を足す。design D5）/
   派生の門 `core.require_derived_erasure_ledger()` と constraint trigger `event_requires_derived_ledger`（design D7）/ `core.purge_compaction`（design D11）/
@@ -48,13 +48,14 @@
   `.down.sql` は先頭で `core.erasure_operation` に行があれば `RAISE EXCEPTION` で止める（design の Migration Plan。本文を消した後に down すると範囲が 1µs に縮む）。
   Scenario: `消去の操作の台帳は書き換えられない` / `消去の操作の台帳は消せず、表も切り詰められない` / `台帳を書かない滞在の本文の消去は拒まれる` / `前の版を残した滞在の本文の消去は拒まれる` /
   `本文を消した滞在へ本文を書き戻せない` / `解析済みを残して原文だけ空にする書き換えは拒まれる` / `作り直しの書き換えは今までどおり通る`。
-  検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0（新しい `tools/check-immutable.d/<時刻>_st23-derived-erasure.sh` が psql から門の 5 本と台帳の 2 本を確かめ、各 Scenario を `echo`）、
+  検証: `tools/check-migrations.sh` rc=0、`tools/check-immutable.sh` rc=0（新しい `tools/check-st23-derived-erasure.sh` が psql から門の 5 本と台帳の 2 本を確かめ、各 Scenario を `echo`）、
   `CT purge_schema_ (≥10)`（新しい `purge_tests.rs`。台帳の 2 本・門の 5 本・down の止まり方 1 本に加え、**行の形を固定の値で試験する**（R6: 2 表の列名・型・NULL 可否・CHECK を `information_schema` から読み、期待の表と一致）と、移行の前後で ST22 の消した滞在の `core.stay_erased` の範囲が変わらないこと）、
   `CT export_ (≥1)` で書き出しの表の分類の試験が通る、`CT app_role (≥1)` が `MAINTAIN` の 2 表だけを足した期待で通る（`app_role_tests.rs` を直す）
 
+  （訂正 2026-10-24: 検証の入口を「tools/check-immutable.d/<時刻>_st23-derived-erasure.sh」から上の入口に。受け入れ条件は変えない。理由: <時刻> は名前の雛形で、そのまま走らせると bash の構文エラーになる。節は check-immutable.sh が . で読む形（psql・fail を共有）で単独では走らないため、check-immutable.sh を走らせ節の見出し・NG なし・節の OK 行 10 本以上を確かめる入口に直す 実証: evidence.jsonl 2026-10-23T23:45:14+00:00 FAIL。承認: machine: evidence.jsonl 2026-10-23T23:42:23+00:00 PASS。記録: plan-corrections.md）
 ## Task 2: 本文ごと消す範囲と消去の核（design D2 / D3 / D6 / D15 / D17）
 
-- [ ] 2.1 `deletion.rs` に `purge_scope(tx, stay_id)`（範囲を集めて組ごとに数える。確認と消すが同じ関数を使う）と `purge(pool, stay_id, requested_user, expected)`（design D3 の 1〜8 の順）を置く。
+- [x] 2.1 `deletion.rs` に `purge_scope(tx, stay_id)`（範囲を集めて組ごとに数える。確認と消すが同じ関数を使う）と `purge(pool, stay_id, requested_user, expected)`（design D3 の 1〜8 の順）を置く。
   範囲の組は design D15。重なる滞在は**作り直しの印のものだけ・端が触れるだけは入れない**（D2（仮））で、`user:purged` に付け替える（D6）。本人が別に消した滞在と印の無い滞在は入れない（D2 / D17（仮））。
   どの組にも入らない論理ソース（写真・画像など）が範囲に入ったら `unknown_source` で断る（D2 / D15）。
   Scenario: `一緒に消えた位置の本文も消える` / `位置を持つ書庫の項目は項目ごと本文が消える` / `前の版の本文も消える` / `吸収された滞在の本文も消える` / `同じ時間の写真の本文は残る` /
@@ -66,7 +67,7 @@
 
 ## Task 3: 消した時間帯の読み手を台帳へ寄せる（design D5 / D6 / D14。spec「本文ごと消した時間帯は、台帳の範囲から読む」）
 
-- [ ] 3.1 `stay_store.rs` の `mark_late_arrivals`・`mark_late_for_user`（`user_erased_stay_sql` をビュー越しに）・`load_existing`（`raw = ''` の滞在を候補から外し、その時間を `erased` に足す）、`export/excluded.rs`（前の版は `core.erasure_span` の `scope = 'version'` か本文）を `core.stay_erased` へ寄せる。
+- [x] 3.1 `stay_store.rs` の `mark_late_arrivals`・`mark_late_for_user`（`user_erased_stay_sql` をビュー越しに）・`load_existing`（`raw = ''` の滞在を候補から外し、その時間を `erased` に足す）、`export/excluded.rs`（前の版は `core.erasure_span` の `scope = 'version'` か本文）を `core.stay_erased` へ寄せる。
   ビューは `user:purged` を出さない（design D5 / D13（仮））。span の無い本文を消した滞在は design D14（その日の全体。後着は印だけ）で読む。
   **Task 2 の消す操作の上に積む**（この Task の Scenario は本文を消した滞在を作ってから見る）。
   Scenario: `本文ごと消した後も消した時間帯の長さは変わらない` / `本文ごと消した時間帯の撮影位置は書き出しから除かれたまま` / `本文ごと消した時間帯に作り直しは滞在を作らない` /
@@ -78,7 +79,7 @@
 
 ## Task 4: 確認の口と消す口・戻す口の断り（design D1 / D6。spec「消した滞在を本文ごと消す操作がある」「本文ごと消す前に…」「確認で見せた件数と…」「消したものを戻せる」）
 
-- [ ] 4.1 `lib.rs` に `GET /stays/purge/preview` と `POST /stays/purge` を足し（型は `PurgeCounts` / `PurgePreview` / `PurgeOutcome`。`bin/openapi.rs` の契約にも載せる）、`POST /stays/restore` が本文を消した記録を含む求めを 409 で断る（D6）。
+- [x] 4.1 `lib.rs` に `GET /stays/purge/preview` と `POST /stays/purge` を足し（型は `PurgeCounts` / `PurgePreview` / `PurgeOutcome`。`bin/openapi.rs` の契約にも載せる）、`POST /stays/restore` が本文を消した記録を含む求めを 409 で断る（D6）。
   すでに本文ごと消した滞在は件数を比べずに 200・0 件（design D1 の順）。戻す口の 409 は、別の原因で消えたまま残る記録を数えない（design D6。spec review R3）。
   Scenario: `消した滞在を本文ごと消すと 200 で件数が返る` / `消えていない滞在は本文ごと消せない` / `作り直しが隠しただけの滞在は本文ごと消せない` / `滞在でない記録の識別子では本文ごと消せない` /
   `他の利用者を指定して本文ごと消すことはできない` / `資格情報の無い本文ごと消す求めは断られる` / `知らない識別子を本文ごと消そうとすると断られる` / `本文ごと消した滞在をもう一度指定しても何も起きない` /
@@ -94,7 +95,7 @@
 
 ## Task 5: 取り込みの直後に後着の印を付け、本文を消した時間帯なら同じまとまりで消す（design D8。申し送り R8）
 
-- [ ] 5.1 `stay_store::settle_arrival(tx, &stored)` を置き、`lib.rs` の `ingest_request` に `Settle::InTx` / `Settle::Later` の引数を足して、`ingest_one`（HTTP）から入った記録だけトランザクションの中（commit の前）で呼ぶ
+- [x] 5.1 `stay_store::settle_arrival(tx, &stored)` を置き、`lib.rs` の `ingest_request` に `Settle::InTx` / `Settle::Later` の引数を足して、`ingest_one`（HTTP）から入った記録だけトランザクションの中（commit の前）で呼ぶ
   （`store_with`・書庫の取り込み器は `Later`。design D8（仮）。spec review R1）。位置（と位置を持つ書庫の項目）のときだけ錠を取り、消した時間帯なら `user:late`、本文を消した時間帯なら加えて本文を消し、
   `kind = 'late'` の操作の行と記録ごとの台帳の行を積む（Task 2 の消去の関数を使う）。範囲の行が無い時間帯（design D14）は印だけ。`rebuild_day` の `mark_late_arrivals` は残す。応答は変えない。
   Scenario: `本文ごと消した時間に端末から届いた位置は本文が消える` / `端末から届いた位置は本文を持ったまま確定しない` / `後から届いて本文を消した記録は元の操作に結ばれる` / `本文ごと消した時間の外に届いた位置は本文が残る` /
@@ -106,37 +107,37 @@
 
 ## Task 6: 書庫の後着の本文を消し、見回りごとに消し直す（design D9）
 
-- [ ] 6.1 `stay_store::mark_archive_arrivals` が本文を消した時間帯の行の本文も消す（Task 5 と同じ関数）。`archive/worker.rs` は変えない —— 落ちたら既存の読み直し（`read` の台帳の行を書かず、次の見回りが書庫を読み直して印付けを呼び直す）が消し直す（design D9（仮））。
+- [x] 6.1 `stay_store::mark_archive_arrivals` が本文を消した時間帯の行の本文も消す（Task 5 と同じ関数）。`archive/worker.rs` は変えない —— 落ちたら既存の読み直し（`read` の台帳の行を書かず、次の見回りが書庫を読み直して印付けを呼び直す）が消し直す（design D9（仮））。
   Scenario: `本文ごと消した時間に書庫から入った位置は本文が消える` / `書庫の後着の消去に失敗しても次の見回りで消える` / `同じ書庫を読み直しても本文は戻らない`。
   検証: `CT purge_archive_ (≥3)`（`archive_flow_tests.rs` の書庫の組み立てを使う。「失敗しても」は `stay_store` 側の試験用の差し込み口で 1 回目の消去を落とし、次の見回りの後に空であることを見る。
   これが落ちたら design D9 の反転条件 —— 上流へ返す）、`CT archive_ (≥1)` で ST12 / ST47 の書庫の試験がすべて通る、`git diff --quiet origin/main -- crates/server/src/archive/worker.rs` rc=0
 
 ## Task 7: 夜の書き直し（design D11）
 
-- [ ] 7.1 `crates/server/src/purge_compaction.rs` に `run_once(pool, now)`（対象の表を選び、書き出しが走っていれば待ち、`lock_timeout` を掛けて `VACUUM FULL`、`relfilenode` を前後で比べて `core.purge_compaction` に 1 行）と、毎日 03:30（Asia/Tokyo）に `run_once` を呼ぶ `spawn` を置き、`lib.rs` の `run()` で起こす。時刻は差し込める形にする。
+- [x] 7.1 `crates/server/src/purge_compaction.rs` に `run_once(pool, now)`（対象の表を選び、書き出しが走っていれば待ち、`lock_timeout` を掛けて `VACUUM FULL`、`relfilenode` を前後で比べて `core.purge_compaction` に 1 行）と、毎日 03:30（Asia/Tokyo）に `run_once` を呼ぶ `spawn` を置き、`lib.rs` の `run()` で起こす。時刻は差し込める形にする。
   Scenario: `本文を消した晩に表が書き直される` / `本文を消していない晩は書き直さない` / `書き直せなかったら失敗として残り、次の晩にもう一度書き直す` / `書き出しの最中は書き直しを始めない`。
   検証: `CT purge_compaction_ (≥4)`（新しい `purge_compaction_tests.rs`。サーバと同じ `ashiato_app` の接続で走らせる。「書き直せなかったら」は試験の中で `REVOKE MAINTAIN` してから `run_once`、`GRANT` し直してもう一度。
   「書き出しの最中」は書き出しの job の走っている状態を作り、`run_once` が書き直さずに待つことを見る）。
-- [ ] 7.2 実物の量の時間（design D11 の反転条件。spec review R15）: `tools/seed.sh max` は 1 日分で量が足りないので使わない。新しい `tools/st23-compaction-volume.sh` が使い捨ての DB（`tools/stack.sh` の DB ではない）に
+- [x] 7.2 実物の量の時間（design D11 の反転条件。spec review R15）: `tools/seed.sh max` は 1 日分で量が足りないので使わない。新しい `tools/st23-compaction-volume.sh` が使い捨ての DB（`tools/stack.sh` の DB ではない）に
   `generate_series` で 1 年分（位置 60 秒ごと = 約 52.6 万行、滞在 1 日 15 件 × 前の版 20 件、`raw` は seed の 1 件と同じ大きさ）を `core.event` と `core.event_version` に入れ、1 日分の本文を消してから `run_once` を 1 回走らせ、
   表ごとの秒数と表の大きさを標準出力に出す。
   検証: `scripts/quiet-run volume -- tools/st23-compaction-volume.sh` rc=0 で、出力の `seconds_total` が 300 以下（超えたら rc=1。design D11 の反転条件として上流へ返す）。秒数と表の大きさは PR の本文に書く
 
 ## Task 8: 写しの数・残すもの・稼働状況・「後に消した記録」（design D10 / D18。spec「書庫の写し・本人のファイル…は消さない」「本文ごと消した記録も稼働状況と…」）
 
-- [ ] 8.1 確認の口の `copies` を design D10 で数え、`remains` に書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しを入れる。稼働状況と「後に消した記録」の数え方はコードを変えず試験で固定する（D18。申し送り R11 を含む）。
+- [x] 8.1 確認の口の `copies` を design D10 で数え、`remains` に書庫の写し・本人のフォルダの書庫・書き出したファイル・今夜の書き直しを入れる。稼働状況と「後に消した記録」の数え方はコードを変えず試験で固定する（D18。申し送り R11 を含む）。
   Scenario: `確認は書庫の写しが残ることを返す` / `記録の入っていない写しも同じソースなら数える` / `本文ごと消しても書庫の写しは残る` / `本文ごと消しても書き出したファイルは残る` / `本文ごと消しても稼働状況は記録ありのまま` /
   `記録を消しても隣の記録の無い日の状態は変わらない` / `書き出しの後に本文ごと消した記録は後に消した数に入る`。
   検証: `CT purge_keep_ (≥7)`（写しと書き出したファイルは置き場のファイルの SHA-256 を消す前後で比べる。稼働状況は `/coverage` の応答で、隣の日は想定間隔が 1 日以上のソースで見る）
 
 ## Task 9: 画面 —— 「消した」行の「本文ごと消す」・確認・「本文ごと消した」行（design D12 / D16。spec「「消した」の行から本文ごと消せる」・`browsing-views` の MODIFIED）
 
-- [ ] 9.1 サーバ: `stay_store::day_view` が本文を消した区間を `purged: true`・`purge_stay_id`・`late_purged` で出し、本文を消していない「消した」とまとめない（design D12）。
+- [x] 9.1 サーバ: `stay_store::day_view` が本文を消した区間を `purged: true`・`purge_stay_id`・`late_purged` で出し、本文を消していない「消した」とまとめない（design D12）。
   区間の時間は指定した滞在の時間（design D12 / D13（仮））。
   Scenario: `本文ごと消した区間は印を持ち、戻すための識別子を持たない` / `本文ごと消した区間は指定した滞在と後から届いた件数を持つ` /
   `本文ごと消した時間と消した時間は隣り合ってもまとまらない`（読み出しの側）/ `本文ごと消した時間と重なる消した時間は差し引いて出る`（読み出しの側）。
   検証: `CT purge_day_ (≥4)`、`CT day_ (≥1)` で ST16 / ST22 / ST25 の 1 日の並びの試験がすべて通る
-- [ ] 9.2 画面: `web/src/DayView.tsx` と `stays.ts` に「本文ごと消す」・確認（`role="alertdialog"`。確認の口を読み、409 `counts_changed` で出し直す）・「本文ごと消した」行（後着の件数を添える）を足す。文面は design D16。
+- [x] 9.2 画面: `web/src/DayView.tsx` と `stays.ts` に「本文ごと消す」・確認（`role="alertdialog"`。確認の口を読み、409 `counts_changed` で出し直す）・「本文ごと消した」行（後着の件数を添える）を足す。文面は design D16。
   Scenario: `消した行に本文ごと消すが出る` / `本文ごと消すの操作は 44 px を下回らない` / `確認に消える件数がソースの組ごとに出る` / `確認に消えずに残るものが出る` / `本文ごと消す確認をやめると何も消えない` /
   `確認して本文ごと消すと本文ごと消したの行になる` / `件数が変わって断られると数え直した確認が出る` / `後から届いて本文を消した件数が行に出る` / `この滞在を消すの確認は変わらない` /
   `本文ごと消した行には戻すが出ない` / `本文ごと消した時間は本文ごと消したと書かれた行で出る` / `本文ごと消した時間と消した時間は隣り合ってもまとまらない`（画面の側）/ `本文ごと消した時間と重なる消した時間は差し引いて出る`（画面の側）。
@@ -148,7 +149,7 @@
 
 ## Task 10: 縦串・申し送り・仕上げ
 
-- [ ] 10.1 `tools/smoke.d/<時刻>_st23-purge.sh`: 縦串で 滞在を作る → 消す → 確認を読む → 件数を添えて本文ごと消す → DB の本文が空・台帳に 1 行・`/day` に本文ごと消した区間 → 同じ内容を送り直して重複 を通す（各段を `echo`）。
+- [x] 10.1 `tools/smoke.d/<時刻>_st23-purge.sh`: 縦串で 滞在を作る → 消す → 確認を読む → 件数を添えて本文ごと消す → DB の本文が空・台帳に 1 行・`/day` に本文ごと消した区間 → 同じ内容を送り直して重複 を通す（各段を `echo`）。
   `docs/handoff/ST30.md` に C9（本文を消した記録と書庫の写しのバックアップ・拠点外の写しへの及び方。ST12 は写しをバックアップの対象にすると決めている）を 1 項足す。
   `docs/handoff/ST23.md` の st12 R23 の項に「ST12 の R56 で直っている」の済みの印を付ける（review/deep.md R13）。
   検証: `scripts/quiet-run smoke -- tools/smoke.sh` rc=0、`bash tools/check-shared-appends.sh` rc=0、`python3 scripts/check_scenarios.py . st23-record-erasure` rc=0、

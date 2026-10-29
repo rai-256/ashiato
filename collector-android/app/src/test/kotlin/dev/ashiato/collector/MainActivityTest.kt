@@ -33,6 +33,12 @@ import org.robolectric.shadows.ShadowLog
 /** 休止の対象から外れている端末の入口（ST13。Robolectric の既定は「外れていない」で、閉じる流れが変わるため）。 */
 open class ExemptMainActivity : MainActivity() {
     override fun unusedAppRestrictionsReader() = UnusedAppRestrictionsReader { UnusedAppRestrictionsState.EXEMPT }
+
+    // 健康データは関心の外（`HealthPermissionFlowTest`）。Health Connect の無い端末で、その場で回す
+    override fun healthPermissions(): HealthPermissions = noHealthConnect()
+    override fun runHealth(task: () -> Unit) = task()
+    override fun healthRecordSink(): (IngestRequest) -> Boolean = { true }
+    override fun healthPendingSlot() = HealthPendingSlot()
 }
 
 /** 権限を求めた回数を数えるだけの入口（本番の経路は 1 つも変えない）。 */

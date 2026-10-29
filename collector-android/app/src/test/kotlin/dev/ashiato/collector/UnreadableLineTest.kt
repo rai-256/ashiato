@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.nio.file.Files
-import java.time.Instant
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * 置き場の読めない行は捨てずに退避し、件数を破棄の報告に載せる（ST04 / tasks 5.3 / 深掘り C9 / design D6）。
@@ -16,7 +17,9 @@ import org.junit.Test
  * 同じ「端末で失われた」が経路によって格子に出たり出なかったりすると、扉 #14 の区別がその経路だけ欠ける（R8）。
  */
 class UnreadableLineTest {
-    private val st = TestStores(segmentBytes = 4_000)
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder(), segmentBytes = 4_000) }
 
     private fun req(i: Int) =
         testFix(35.68, 139.76, 10f, Instant.parse("2026-06-01T00:00:00Z").plusSeconds(60L * i))
@@ -82,7 +85,7 @@ class UnreadableLineTest {
 
     @Test
     fun `ST01 が退けた unreadable ファイルは行数を数えて移し、消さない`() {
-        val files = Files.createTempDirectory("legacy").toFile()
+        val files = tmp.newFolder()
         val aside = File(files, "outbox.jsonl.unreadable.1757000000000").apply { writeText("壊れ1\n壊れ2\n\n壊れ3\n") }
         val got = migrateLegacyOutbox(
             File(files, "outbox.jsonl"), st.records, IngestRequest.serializer(), st.unreadable, File(st.dir, "salvaged"), { st.ledger.unreadable(LOGICAL_SOURCE, it) }, 0L, st.log,

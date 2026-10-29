@@ -97,10 +97,12 @@ Google のライセンス条項への同意（`sdkmanager --licenses`）は**本
 
 ## 権限について
 
-`AndroidManifest.xml` の 5 つの権限は、いずれも**宣言しない期間が取り返せない**か、
+`AndroidManifest.xml` の権限は、**宣言しないと求めても権限の画面に出ない**か、
 収集そのものの前提になっている。とくに:
 
-- `READ_HEALTH_DATA_HISTORY` —— 宣言しない期間の 30 日より前は永久に読めない（要件 EXT-C / 扉 #21）
+- 健康データの 6 つ（`READ_SLEEP` など。`HEALTH_PERMISSIONS`）—— 履歴の権限（`READ_HEALTH_DATA_HISTORY`）は
+  **後から与えても全履歴が読める**。初回起動で求めるのは、履歴の権限が無い端末で読める範囲の起点（アプリごと）を早めるため
+  （ST11 / premises P2・P13）
 - `ACCESS_MEDIA_LOCATION` —— 宣言しないと OS が写真の位置を落として返す（要件 EXT-D）
 
 ### 求め方（design D27）

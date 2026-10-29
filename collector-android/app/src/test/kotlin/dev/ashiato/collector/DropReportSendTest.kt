@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package dev.ashiato.collector
 
-import java.io.File
-import java.time.Instant
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.time.Instant
 
 /**
  * 破棄の報告を送る（ST04 / tasks 7.2 / 深掘り C2 / R2 / design D4 / D13）。
@@ -14,7 +16,9 @@ import org.junit.Test
  * **一度でも送ろうとした報告は書き換えない。** 書き換えると冪等キーが変わって別の報告になり、件数が二重に数えられる。
  */
 class DropReportSendTest {
-    private val st = TestStores()
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val st by lazy { TestStores(tmp.newFolder()) }
 
     private class FakeTransport(val reply: (String) -> Outcome) : Transport {
         val bodies = mutableListOf<String>()

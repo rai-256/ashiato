@@ -152,10 +152,11 @@ mod tests {
     use super::*;
     use crate::contract::{IngestRequest, WindowPayload};
 
-    fn tmp_dir() -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("ashiato-outbox-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn tmp_dir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("ashiato-outbox-")
+            .tempdir()
+            .unwrap()
     }
 
     fn req(n: u32) -> IngestRequest {
@@ -181,7 +182,8 @@ mod tests {
     /// **起動と停止をまたいで残る**（インスタンスの中だけに積まない。ST01 の実測）。
     #[test]
     fn outbox_survives_restart() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("outbox.jsonl");
         let a = req(1);
         let b = req(2);
@@ -196,13 +198,13 @@ mod tests {
         o.remove(&[a.id()]).unwrap();
         let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         assert_eq!(o.snapshot(), &[b], "取り除いた結果が置き場に残っていない");
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// **壊れた 1 行のために残りを捨てない**（捨てないという約束を守る）。
     #[test]
     fn broken_line_is_quarantined_not_dropped() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("outbox.jsonl");
         let good = req(3);
         std::fs::write(
@@ -225,13 +227,13 @@ mod tests {
             broken.contains("書きかけ") && broken.contains("二つ目"),
             "前回退避した行が消えた: {broken}"
         );
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// まとめて積んだものは、1 件ずつ積んだものと同じく起動をまたいで残り、順も保つ（Q9）。
     #[test]
     fn add_many_survives_restart_in_order() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("outbox.jsonl");
         let items: Vec<_> = (1..=3).map(req).collect();
         {
@@ -243,13 +245,13 @@ mod tests {
         }
         let o: Outbox<IngestRequest> = Outbox::open(path).unwrap();
         assert_eq!(o.snapshot()[1..], items[..]);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// **読めない置き場を空として開かない**（R20。空で開くと次の書き直しで全件消える）。
     #[test]
     fn unreadable_outbox_is_an_error_not_empty() {
-        let dir = tmp_dir();
+        let tmp = tmp_dir();
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("outbox.jsonl");
         // 不正な UTF-8（読み取りが失敗する）
         std::fs::write(&path, [0xff, 0xfe, 0xfd, b'\n']).unwrap();
@@ -259,6 +261,5 @@ mod tests {
             [0xff, 0xfe, 0xfd, b'\n'],
             "中身が書き換わった"
         );
-        std::fs::remove_dir_all(&dir).ok();
     }
 }
