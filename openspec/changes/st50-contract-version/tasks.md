@@ -82,11 +82,11 @@
 
 ## Task 4: 移行・記録の契約の版・前の版・門と錠
 
-- [ ] 4.1 `migrations/<作成時刻>_contract_version.sql` を design D20 のとおりに書く（`core.event` と `core.event_version` に `contract_version integer` と CHECK・`c01-*` / `c02-*` の埋め戻し・
+- [x] 4.1 `migrations/<作成時刻>_contract_version.sql` を design D20 のとおりに書く（`core.event` と `core.event_version` に `contract_version integer` と CHECK・`c01-*` / `c02-*` の埋め戻し・
   `core.event_live` と `core.event_version_live` の作り直し・`core.reject_version_rewrite` と `core.require_version_or_ledger` に列）。埋め戻しは D20 の手順（`event_version_immutable` と `event_requires_version` を `DISABLE TRIGGER` → `UPDATE` → `ENABLE TRIGGER` → 本体の置き換え）で行う。本体を置き換える前に、`202610231200_event_end_time.sql` と同じ形で置き換える前の本体の md5 を確かめる。
   `.down.sql` は逆順で今の形に戻し、`DELETE FROM migration_ledger.applied WHERE name = '<名前>'` を持つ。`migrations/ORDER` の末尾へ 1 行（前の行に `# ST50: 送信契約の版（記録と前の版の列・埋め戻し・読み口・門と前の版の錠）` の注記）。
   検証: `./tools/check-migrations.sh` rc=0 / `bash -c 'set -a; [ -f .env ] && . ./.env; set +a; scripts/quiet-run build -- cargo build -p ashiato-server'` rc=0
-- [ ] 4.2 `ingest` が `authorize` の戻り値（`Caller`）を捨てずに、`ingest_one` / `ingest_request` へ「収集アプリの 1 件か」の印を渡す引数を足す（書庫の取り込み `store_with` と滞在・画面は偽。D1。ST23 の `Settle` と同じ署名に触るので、後から入る側が合わせる）。
+- [x] 4.2 `ingest` が `authorize` の戻り値（`Caller`）を捨てずに、`ingest_one` / `ingest_request` へ「収集アプリの 1 件か」の印を渡す引数を足す（書庫の取り込み `store_with` と滞在・画面は偽。D1。ST23 の `Settle` と同じ署名に触るので、後から入る側が合わせる）。
   `ingest_one` の 2 つの INSERT に `contract_version`（収集アプリの 1 件は欄の値か 1、それ以外は NULL。D1・D10）、`apply_external_update` の本表の UPDATE と前の版の INSERT に `contract_version`（D19（仮））を足す。
   内容の鍵に入れない。`contract_version_tests.rs`:
   - `st50_record_version_per_item` — `// Scenario: 記録は 1 件ごとの契約の版を持つ`
@@ -98,7 +98,7 @@
   - `st50_record_version_schema_independent` — `// Scenario: 契約の版はスキーマ版と別に動く`（試験の App を版 2）
   - `st50_record_version_not_from_header` — `// Scenario: 要求の見出しの版は記録の契約の版を決めない`
   検証: `CT st50_record_version_` rc=0（`-- --list` で 8 本以上）/ `CT hash_is_pinned` rc=0（`-- --list` で 1 本以上）
-- [ ] 4.3 移行と錠の試験（`contract_version_tests.rs`。移行の前後は `media_migration_tests.rs` の使い捨ての DB の形で、ST50 の前の版まで当てて行を置いてから ST50 の移行を当てる）:
+- [x] 4.3 移行と錠の試験（`contract_version_tests.rs`。移行の前後は `media_migration_tests.rs` の使い捨ての DB の形で、ST50 の前の版まで当てて行を置いてから ST50 の移行を当てる）:
   - `st50_migration_backfill` — `// Scenario: ST50 より前に収集アプリから入った記録は版 1 になる`（`c01-location`・`c02-window` とその前の版・`s01-feeling`）
   - `st50_lock_version_row` — `// Scenario: 前の版の契約の版は書き換えられない`
   - `st50_lock_collected_rewrite` — `// Scenario: 収集した記録の契約の版だけを前の版なしで書き換えると拒まれる`
