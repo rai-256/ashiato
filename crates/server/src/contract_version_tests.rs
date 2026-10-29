@@ -777,3 +777,519 @@ async fn st50_item_version_ingest_not_positive() {
     assert_eq!(errors_of(&text), want);
     assert_eq!(events_of(&app, &source).await, 2);
 }
+
+// ---- 記録の契約の版・移行・錠（Task 4 / D1・D10・D19（仮）・D20）-----------------------------------
+
+const ST50_NAME: &str = "202610300030_contract_version";
+const ST50_DOWN: &str = include_str!("../../../migrations/202610300030_contract_version.down.sql");
+
+fn st50_up() -> &'static str {
+    crate::MIGRATIONS
+        .iter()
+        .find(|(name, _)| *name == ST50_NAME)
+        .expect("ST50 の移行が MIGRATIONS に無い")
+        .1
+}
+
+fn id_of(item: &serde_json::Value) -> uuid::Uuid {
+    item["id"].as_str().unwrap().parse().unwrap()
+}
+
+async fn st50_event_version(pool: &sqlx::PgPool, id: uuid::Uuid) -> Option<i32> {
+    sqlx::query_scalar("SELECT contract_version FROM core.event WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn st50_send_ingest(
+    app: &App,
+    header_value: Option<&str>,
+    items: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    let (status, text) = send(
+        app,
+        Method::POST,
+        "/ingest",
+        header_value,
+        Some(serde_json::Value::Array(items)),
+        None,
+    )
+    .await;
+    assert!(
+        status.is_success() || status == StatusCode::BAD_REQUEST,
+        "{status}: {text}"
+    );
+    serde_json::from_str(&text).unwrap()
+}
+
+// Scenario: 記録は 1 件ごとの契約の版を持つ
+#[tokio::test]
+async fn st50_record_version_per_item() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    let source = testdb::source(&app.pool, "st50-rec-per", 21_600).await;
+    let user = testdb::user();
+    let one = with(
+        media_item(user, &source, "per-1"),
+        "contract_version",
+        1.into(),
+    );
+    let two = with(
+        media_item(user, &source, "per-2"),
+        "contract_version",
+        2.into(),
+    );
+    let res = st50_send_ingest(&app, Some("2"), vec![one.clone(), two.clone()]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    assert_eq!(res[1]["accepted"], true, "{res}");
+    assert_eq!(st50_event_version(&app.pool, id_of(&one)).await, Some(1));
+    assert_eq!(st50_event_version(&app.pool, id_of(&two)).await, Some(2));
+}
+
+// Scenario: 契約の版の欄が無い記録は版 1 になる
+#[tokio::test]
+async fn st50_record_version_default_one() {
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let source = testdb::source(&app.pool, "st50-rec-def", 21_600).await;
+    let item = media_item(testdb::user(), &source, "def");
+    assert!(item.get("contract_version").is_none());
+    let res = st50_send_ingest(&app, None, vec![item.clone()]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    assert_eq!(st50_event_version(&app.pool, id_of(&item)).await, Some(1));
+}
+
+// Scenario: S-01 より新しい版の 1 件は contract_unsupported で断られ、ほかは入る
+#[tokio::test]
+async fn st50_record_version_too_new_item() {
+    let app = App::for_test(testdb::pool().await, TOKEN);
+    let source = testdb::source(&app.pool, "st50-rec-new", 21_600).await;
+    let user = testdb::user();
+    let new = with(
+        media_item(user, &source, "new-2"),
+        "contract_version",
+        2.into(),
+    );
+    let old = with(
+        media_item(user, &source, "new-1"),
+        "contract_version",
+        1.into(),
+    );
+    let res = st50_send_ingest(&app, Some("1"), vec![new.clone(), old.clone()]).await;
+    assert_eq!(res[0]["accepted"], false, "{res}");
+    assert_eq!(res[0]["error"], "contract_unsupported", "{res}");
+    assert_eq!(res[1]["accepted"], true, "{res}");
+    assert_eq!(events_of(&app, &source).await, 1);
+    assert_eq!(st50_event_version(&app.pool, id_of(&old)).await, Some(1));
+}
+
+// Scenario: 収集アプリ以外が書いた記録の契約の版は空
+#[tokio::test]
+async fn st50_record_version_null_for_others() {
+    let password = random_password();
+    let (app, _) = tee_app(&password).await;
+    let user = testdb::user();
+
+    // 画面のログイン。欄に版を書いても空のまま
+    let cookie = login(&app, &password).await;
+    let source = testdb::source(&app.pool, "st50-rec-web", 21_600).await;
+    let web = with(
+        media_item(user, &source, "web"),
+        "contract_version",
+        1.into(),
+    );
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/ingest")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(
+            header::COOKIE,
+            format!("{}={cookie}", web_session::COOKIE_NAME),
+        )
+        .body(Body::from(serde_json::json!([web.clone()]).to_string()))
+        .unwrap();
+    let res = router(app.clone()).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(st50_event_version(&app.pool, id_of(&web)).await, None);
+
+    // S-01 の中の書庫の取り込み（`store_one`）
+    let archive_source = testdb::source(&app.pool, "st50-rec-store", 21_600).await;
+    let archived = media_item(user, &archive_source, "store");
+    let request: IngestRequest = serde_json::from_value(archived.clone()).unwrap();
+    crate::store_one(&app.pool, request).await.unwrap();
+    assert_eq!(st50_event_version(&app.pool, id_of(&archived)).await, None);
+
+    // 滞在の作り直し。位置は収集アプリの資格情報で入れる（版 1）
+    let stay_user = testdb::user();
+    let start: chrono::DateTime<chrono::Utc> = "2026-05-20T01:00:00Z".parse().unwrap();
+    let points: Vec<serde_json::Value> = (0..=30)
+        .map(|i| {
+            serde_json::json!({
+                "id": uuid::Uuid::new_v4(), "user_id": stay_user, "logical_source": "c01-location",
+                "device_id": "test-dev", "origin": "collected",
+                "event_time": start + chrono::Duration::minutes(i),
+                "tz_offset_min": 540, "tz_id": "Asia/Tokyo", "schema_version": 1,
+                "raw": format!(r#"{{"lat":35.0,"lon":139.0,"acc_m":12,"n":{i}}}"#),
+                "payload": {"lat": 35.0, "lon": 139.0, "acc_m": 12, "n": i},
+            })
+        })
+        .collect();
+    let res = st50_send_ingest(&app, None, points).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    crate::stay_store::rebuild_day(&app.pool, stay_user, testdb::date("2026-05-20"))
+        .await
+        .unwrap();
+    let stays: Vec<Option<i32>> = sqlx::query_scalar(
+        "SELECT contract_version FROM core.event
+          WHERE user_id = $1 AND logical_source = 's01-stay' AND origin = 'derived'",
+    )
+    .bind(stay_user)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert!(!stays.is_empty(), "滞在が作られていない");
+    assert!(stays.iter().all(Option::is_none), "{stays:?}");
+    let located: Vec<Option<i32>> = sqlx::query_scalar(
+        "SELECT contract_version FROM core.event WHERE user_id = $1 AND logical_source = 'c01-location'",
+    )
+    .bind(stay_user)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert!(
+        located.iter().all(|v| *v == Some(1)),
+        "収集アプリの位置は版 1"
+    );
+}
+
+// Scenario: 契約の版だけが違う同じ記録は 1 件に畳まれる
+#[tokio::test]
+async fn st50_record_version_dedup() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    let source = testdb::source(&app.pool, "st50-rec-dedup", 21_600).await;
+    let user = testdb::user();
+    let sha = sha_of(&unique_bytes("st50-dedup"));
+    let make = |v: i64| {
+        with(
+            record(
+                user,
+                &source,
+                &sha,
+                "a.jpg",
+                "2026-10-01T03:00:00Z",
+                serde_json::json!({}),
+            ),
+            "contract_version",
+            v.into(),
+        )
+    };
+    let first = make(1);
+    let second = make(2);
+    let res = st50_send_ingest(&app, Some("2"), vec![first.clone(), second]).await;
+    assert_eq!(res[0]["duplicate"], false, "{res}");
+    assert_eq!(res[1]["duplicate"], true, "{res}");
+    assert_eq!(events_of(&app, &source).await, 1);
+    assert_eq!(st50_event_version(&app.pool, id_of(&first)).await, Some(1));
+}
+
+// Scenario: 外部サービス由来の更新で契約の版が動き、前の値は前の版に残る
+#[tokio::test]
+async fn st50_record_version_external_update() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    let source = testdb::source_of_kind(&app.pool, "st50-rec-upd", "record").await;
+    let user = testdb::user();
+    let make = |raw: &str, v: i64, updated: &str| {
+        serde_json::json!({
+            "id": uuid::Uuid::new_v4(), "user_id": user, "logical_source": source,
+            "external_id": "ext-1", "device_id": "test-dev", "origin": "collected",
+            "event_time": "2026-10-01T03:00:00Z", "tz_offset_min": 540, "tz_id": "Asia/Tokyo",
+            "schema_version": 1, "raw": raw, "payload": {"v": raw},
+            "source_updated_at": updated, "contract_version": v,
+        })
+    };
+    let first = make("one", 1, "2026-10-01T03:00:00Z");
+    let res = st50_send_ingest(&app, Some("2"), vec![first.clone()]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    let second = make("two", 2, "2026-10-02T03:00:00Z");
+    let res = st50_send_ingest(&app, Some("2"), vec![second]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    let id = id_of(&first);
+    assert_eq!(st50_event_version(&app.pool, id).await, Some(2));
+    let previous: Vec<Option<i32>> =
+        sqlx::query_scalar("SELECT contract_version FROM core.event_version WHERE event_id = $1")
+            .bind(id)
+            .fetch_all(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(previous, vec![Some(1)]);
+}
+
+// Scenario: 契約の版はスキーマ版と別に動く
+#[tokio::test]
+async fn st50_record_version_schema_independent() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    let source = testdb::source(&app.pool, "st50-rec-schema", 21_600).await;
+    let item = with(
+        media_item(testdb::user(), &source, "schema"),
+        "contract_version",
+        2.into(),
+    );
+    assert_eq!(item["schema_version"], 1);
+    let res = st50_send_ingest(&app, Some("2"), vec![item.clone()]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    let (schema, contract): (i32, Option<i32>) =
+        sqlx::query_as("SELECT schema_version, contract_version FROM core.event WHERE id = $1")
+            .bind(id_of(&item))
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!((schema, contract), (1, Some(2)));
+}
+
+// Scenario: 要求の見出しの版は記録の契約の版を決めない
+#[tokio::test]
+async fn st50_record_version_not_from_header() {
+    let app = App::for_test(testdb::pool().await, TOKEN).with_contract_version(2);
+    let source = testdb::source(&app.pool, "st50-rec-hdr", 21_600).await;
+    let item = media_item(testdb::user(), &source, "hdr");
+    let res = st50_send_ingest(&app, Some("2"), vec![item.clone()]).await;
+    assert_eq!(res[0]["accepted"], true, "{res}");
+    assert_eq!(st50_event_version(&app.pool, id_of(&item)).await, Some(1));
+}
+
+// ---- 移行と錠（使い捨ての DB）
+
+/// 使い捨ての DB に版を当てる。`upto` があれば、その名前の版の手前まで。
+async fn st50_db(upto: Option<&str>) -> (sqlx::PgPool, impl std::future::Future<Output = ()>) {
+    let (fresh, drop) = crate::stay_tests::fresh_db().await;
+    for (label, sql) in crate::MIGRATIONS {
+        if Some(*label) == upto {
+            break;
+        }
+        sqlx::raw_sql(sql)
+            .execute(&fresh)
+            .await
+            .unwrap_or_else(|e| panic!("{label}: {e}"));
+    }
+    (fresh, drop)
+}
+
+/// 契約の版の列を使わずに行を置く（ST50 の前の形でも置ける）。
+async fn st50_put_event(pool: &sqlx::PgPool, source: &str, origin: &str) -> uuid::Uuid {
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.event
+           (id, user_id, logical_source, device_id, origin, event_time, tz_offset_min, tz_id,
+            schema_version, content_hash, raw, payload)
+         VALUES ($1, $2, $3, $4, $5, '2026-09-08T02:00:00Z', 540, 'Asia/Tokyo',
+                 1, $6, '{\"v\":1}', '{\"v\":1}')",
+    )
+    .bind(id)
+    .bind(uuid::Uuid::nil())
+    .bind(source)
+    .bind((origin == "collected").then_some("dev"))
+    .bind(origin)
+    .bind(format!("hash-{id}"))
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+/// 更新前の版を前の版の表へ写す（契約の版の列を使わない。ST50 の前の形でも置ける）。
+async fn st50_put_version(pool: &sqlx::PgPool, id: uuid::Uuid) {
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload)
+         SELECT id, user_id, logical_source, 1, event_time, content_hash, raw, payload
+           FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn st50_locks_armed(pool: &sqlx::PgPool) -> bool {
+    sqlx::query_scalar(
+        "SELECT (SELECT tgenabled = 'O' FROM pg_trigger WHERE tgname = 'event_version_immutable')
+            AND (SELECT tgenabled = 'O' FROM pg_trigger WHERE tgname = 'event_requires_version')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+// Scenario: ST50 より前に収集アプリから入った記録は版 1 になる
+#[tokio::test]
+async fn st50_migration_backfill() {
+    let (fresh, drop) = st50_db(Some(ST50_NAME)).await;
+    let location = st50_put_event(&fresh, "c01-location", "collected").await;
+    let window = st50_put_event(&fresh, "c02-window", "collected").await;
+    let feeling = st50_put_event(&fresh, "s01-feeling", "authored").await;
+    for id in [location, window] {
+        st50_put_version(&fresh, id).await;
+    }
+    sqlx::raw_sql(st50_up()).execute(&fresh).await.unwrap();
+    let events: Vec<(uuid::Uuid, Option<i32>)> =
+        sqlx::query_as("SELECT id, contract_version FROM core.event")
+            .fetch_all(&fresh)
+            .await
+            .unwrap();
+    let versions: Vec<(uuid::Uuid, Option<i32>)> =
+        sqlx::query_as("SELECT event_id, contract_version FROM core.event_version")
+            .fetch_all(&fresh)
+            .await
+            .unwrap();
+    let armed = st50_locks_armed(&fresh).await;
+    // 2 回目も落ちない
+    let twice = sqlx::raw_sql(st50_up()).execute(&fresh).await;
+    drop.await;
+    let of = |rows: &[(uuid::Uuid, Option<i32>)], id| rows.iter().find(|r| r.0 == id).map(|r| r.1);
+    assert_eq!(of(&events, location), Some(Some(1)));
+    assert_eq!(of(&events, window), Some(Some(1)));
+    assert_eq!(of(&events, feeling), Some(None));
+    assert_eq!(of(&versions, location), Some(Some(1)));
+    assert_eq!(of(&versions, window), Some(Some(1)));
+    assert!(armed, "埋め戻しで外した錠と門が張り直されていない");
+    twice.unwrap();
+}
+
+// Scenario: 前の版の契約の版は書き換えられない
+#[tokio::test]
+async fn st50_lock_version_row() {
+    let (fresh, drop) = st50_db(None).await;
+    let id = st50_put_event(&fresh, "c01-location", "collected").await;
+    st50_put_version(&fresh, id).await;
+    let err = sqlx::query("UPDATE core.event_version SET contract_version = 2 WHERE event_id = $1")
+        .bind(id)
+        .execute(&fresh)
+        .await;
+    let kept: Option<i32> =
+        sqlx::query_scalar("SELECT contract_version FROM core.event_version WHERE event_id = $1")
+            .bind(id)
+            .fetch_one(&fresh)
+            .await
+            .unwrap();
+    drop.await;
+    let message = err
+        .expect_err("前の版の契約の版が書き換えられた")
+        .to_string();
+    assert!(message.contains("履歴は追記のみ"), "{message}");
+    assert_eq!(kept, None);
+}
+
+// Scenario: 収集した記録の契約の版だけを前の版なしで書き換えると拒まれる
+#[tokio::test]
+async fn st50_lock_collected_rewrite() {
+    let (fresh, drop) = st50_db(None).await;
+    let id = st50_put_event(&fresh, "c01-location", "collected").await;
+    let bare = sqlx::query("UPDATE core.event SET contract_version = 2 WHERE id = $1")
+        .bind(id)
+        .execute(&fresh)
+        .await;
+    let after_bare = st50_event_version(&fresh, id).await;
+
+    // 更新前の版（契約の版も同じ）を同じまとまりに積めば通る
+    let mut tx = fresh.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload, contract_version)
+         SELECT id, user_id, logical_source, 1, event_time, content_hash, raw, payload, contract_version
+           FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.event SET contract_version = 2 WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let with_version = tx.commit().await;
+
+    // 前の版の契約の版が更新前と違えば通らない
+    let mut tx = fresh.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO core.event_version
+           (event_id, user_id, logical_source, version_no, event_time, content_hash, raw, payload, contract_version)
+         SELECT id, user_id, logical_source, 2, event_time, content_hash, raw, payload, 7
+           FROM core.event WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE core.event SET contract_version = 3 WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let wrong_version = tx.commit().await;
+    let after = st50_event_version(&fresh, id).await;
+    drop.await;
+
+    assert!(bare.is_err(), "前の版なしの書き換えが通った");
+    assert_eq!(after_bare, None);
+    with_version.expect("前の版を積めば通る");
+    assert!(
+        wrong_version.is_err(),
+        "更新前と違う契約の版の前の版で通った"
+    );
+    assert_eq!(after, Some(2));
+}
+
+async fn st50_version_columns(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM information_schema.columns
+          WHERE table_schema = 'core' AND table_name IN ('event', 'event_version')
+            AND column_name = 'contract_version'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn st50_migration_down_up() {
+    let (fresh, drop) = st50_db(None).await;
+    sqlx::raw_sql(crate::migration_ledger::BOOTSTRAP)
+        .execute(&fresh)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO migration_ledger.applied (name, sha256, build_version, build_commit, before_ledger)
+         VALUES ($1, 'x', 'v', 'c', false)",
+    )
+    .bind(ST50_NAME)
+    .execute(&fresh)
+    .await
+    .unwrap();
+    let id = st50_put_event(&fresh, "c01-location", "collected").await;
+    st50_put_version(&fresh, id).await;
+
+    sqlx::raw_sql(ST50_DOWN).execute(&fresh).await.unwrap();
+    let columns = st50_version_columns(&fresh).await;
+    let recorded: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM migration_ledger.applied WHERE name = $1")
+            .bind(ST50_NAME)
+            .fetch_one(&fresh)
+            .await
+            .unwrap();
+    // 2 回目の戻し・進め直し・もう一度
+    let down_twice = sqlx::raw_sql(ST50_DOWN).execute(&fresh).await;
+    let up = sqlx::raw_sql(st50_up()).execute(&fresh).await;
+    let up_twice = sqlx::raw_sql(st50_up()).execute(&fresh).await;
+    let columns_after = st50_version_columns(&fresh).await;
+    let armed = st50_locks_armed(&fresh).await;
+    drop.await;
+
+    assert_eq!(columns, 0, "列が残っている");
+    assert_eq!(recorded, 0, "版の記録の行が残っている");
+    down_twice.unwrap();
+    up.unwrap();
+    up_twice.unwrap();
+    assert_eq!(columns_after, 2, "進め直しで列が戻っていない");
+    assert!(armed);
+}

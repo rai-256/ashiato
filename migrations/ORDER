@@ -69,3 +69,5 @@
 202610240500_record_purge
 # ST11: 健康データの権限の記録の論理ソース（design D1）
 202610251100_health_permission_source
+# ST50: 送信契約の版（記録と前の版の列・埋め戻し・読み口・門と前の版の錠）
+202610300030_contract_version

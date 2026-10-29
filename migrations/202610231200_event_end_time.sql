@@ -82,15 +82,15 @@ CREATE OR REPLACE VIEW core.stay_erased AS
 -- **写した元が変わっていたら落とす**（review/code.md R21）。下の 5 関数は本体ごと置き換えるので、ORDER でこの版より前の版が
 -- 関数を変えると、起動のたびにここの古い写しがそれを黙って戻す。当てる直前の本体が、写した元（ORDER の 1 つ前までを当てた本体）か
 -- この版の本体（2 回目の当て）のどちらでもなければ止める。門と前の版の錠は、この版の `.down.sql` が戻した本体（写した元から
--- コメントを落としただけ）と、後の版（ST49）の本体も写した元として受ける（当て直しで後の版の上に当たるため）。直し方: 前の版の本体を写し直して終わりを足し、下の md5 を取り直す。
+-- コメントを落としただけ）と、後の版（ST49・ST50 の契約の版）の本体も写した元として受ける（当て直しで後の版の上に当たるため）。直し方: 前の版の本体を写し直して終わりを足し、下の md5 を取り直す。
 DO $mig$
 DECLARE
   f record;
   got text;
 BEGIN
   FOR f IN SELECT * FROM (VALUES
-      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c', 'e3651d3492ae1d0d7e9f3b3683a6a161'], '048663f9a11ebe059461fa00f5b0f86d'),
-      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea', 'f2caef81d5e0f36aac6a78918fab7bec'], '297643252bd76e0f28239a983924434e'),
+      ('require_version_or_ledger',   ARRAY['398be6d23545e9957645f97be23ea76b', '6fd551185b3be81d636bc22eb625607c', 'e3651d3492ae1d0d7e9f3b3683a6a161', 'a72880a05b63eb368a16d428fcc7c8dd'], '048663f9a11ebe059461fa00f5b0f86d'),
+      ('reject_version_rewrite',      ARRAY['f10669a89ce54bca11f5955833742a06', '1940bda25501368f14b8d72d157188ea', 'f2caef81d5e0f36aac6a78918fab7bec', 'c5fc9908f14d07cbe06d3f7858124ea0'], '297643252bd76e0f28239a983924434e'),
       ('reject_claim_rewrite',        ARRAY['4006819958d70c2bdc8c124bfdbeef00'], '1d22cf9574bd9cc6662f713f55f936f6'),
       ('reject_feeling_rewrite',      ARRAY['75bb30cd8661c837b6b6bd49ca9b437c'], 'a114c7b157a8db84bf5bd5800ae02e8c'),
       ('reject_place_record_rewrite', ARRAY['8ada6d675534acc6dd73e49e22ffa5b6'], '2def13f291eb1997490f8537b10e7b4c')

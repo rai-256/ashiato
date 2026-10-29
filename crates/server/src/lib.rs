@@ -1084,6 +1084,8 @@ struct Stored {
     collector_version: Option<String>,
     web_version: Option<String>,
     server_version: Option<String>,
+    /// 記録の契約の版（ST50）。更新で動くので、前の値を履歴へ残すためにここで受ける
+    contract_version: Option<i32>,
 }
 
 /// 外部識別子をどの列へ置くか（深掘り Q24 / design D13）。
@@ -1248,6 +1250,9 @@ enum Settle {
 ///
 /// 取り込み器は要求を型のまま持っているので、ここを直に呼ぶ。JSON へ直して
 /// `ingest_one` で読み戻していたときは、百万件級の書庫で 1 件ごとに往復していた（final review R62）。
+///
+/// `writer` が `Writer::Collector`（収集アプリの資格情報で届いた 1 件。ST50 / D1）のときだけ、記録の契約の版を
+/// 1 件の欄の値（無ければ 1）にする。書庫の取り込み・滞在・画面では、契約の版は空のまま。
 async fn ingest_request(
     app: &App,
     mut req: IngestRequest,
@@ -1407,6 +1412,13 @@ async fn ingest_request(
         }
     }
     let hash = content_hash(&req);
+    // **記録の契約の版は、収集アプリの 1 件の欄の値（無ければ 1）。それ以外は空**（ST50 / D1・D10）。
+    // 内容の鍵には入れない。要求の見出しの版は使わない
+    let contract_version: Option<i32> = matches!(writer, Writer::Collector).then(|| {
+        req.contract_version
+            .and_then(|v| i32::try_from(v).ok())
+            .unwrap_or(1)
+    });
     // **`payload` だけを NFC に揃える。`raw` は受け取ったまま送る**（design D2 / FR-18）。
     // 原文のバイト列は一度変換すると二度と戻らない。
     //
@@ -1557,9 +1569,9 @@ async fn ingest_request(
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-                 $22,$23,$24)
+                 $22,$23,$24,$25)
          ON CONFLICT (user_id, logical_source, external_id) WHERE external_id IS NOT NULL
            DO NOTHING
          RETURNING id"
@@ -1569,9 +1581,9 @@ async fn ingest_request(
             event_time, tz_offset_min, tz_id, schema_version, unit_system, crs,
             content_hash, raw, payload, source_updated_at, sensitivity,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-                 $22,$23,$24)
+                 $22,$23,$24,$25)
          ON CONFLICT (user_id, logical_source, content_hash) WHERE external_id IS NULL
            DO NOTHING
          RETURNING id"
@@ -1605,6 +1617,7 @@ async fn ingest_request(
             .bind(&collector_version)
             .bind(&web_version)
             .bind(BUILD_STAMP)
+            .bind(contract_version)
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| internal_at("ingest.event_insert", e))?
@@ -1636,6 +1649,7 @@ async fn ingest_request(
                 &hash,
                 &payload,
                 (&collector_version, &web_version),
+                contract_version,
             )
             .await?;
         } else if external_id.is_some() {
@@ -1757,14 +1771,14 @@ async fn load_stored(
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
                 end_time, end_tz_offset_min, end_tz_id,
-                collector_version, web_version, server_version
+                collector_version, web_version, server_version, contract_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND external_id = $3"
     } else {
         "SELECT id, content_hash, deleted_at, source_updated_at, event_time, raw, payload,
                 external_ref, tz_offset_min, tz_id, schema_version, unit_system, crs,
                 end_time, end_tz_offset_min, end_tz_id,
-                collector_version, web_version, server_version
+                collector_version, web_version, server_version, contract_version
            FROM core.event
           WHERE user_id = $1 AND logical_source = $2 AND content_hash = $3
             AND external_id IS NULL"
@@ -1867,6 +1881,7 @@ async fn apply_external_update(
     hash: &str,
     payload: &serde_json::Value,
     (collector_version, web_version): (&Option<String>, &Option<String>),
+    contract_version: Option<i32>,
 ) -> Result<Update, (StatusCode, String)> {
     // **削除が勝つ**（Q11）。削除済みの行は外部からの更新でも書き換えない ——
     // 更新は削除の印を見ないので、放っておくと 1 行足すだけで復活する（実測）。
@@ -1889,11 +1904,11 @@ async fn apply_external_update(
             raw, payload, source_updated_at, external_ref,
             tz_offset_min, tz_id, schema_version, unit_system, crs,
             end_time, end_tz_offset_min, end_tz_id,
-            collector_version, web_version, server_version)
+            collector_version, web_version, server_version, contract_version)
          SELECT $1, $2, $3,
                 coalesce(max(v.version_no), 0) + 1,
                 $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19, $20
+                $18, $19, $20, $21
            FROM core.event_version v WHERE v.event_id = $1",
     )
     .bind(stored.id)
@@ -1916,6 +1931,7 @@ async fn apply_external_update(
     .bind(&stored.collector_version)
     .bind(&stored.web_version)
     .bind(&stored.server_version)
+    .bind(stored.contract_version)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.version_insert", e))?;
@@ -1940,7 +1956,8 @@ async fn apply_external_update(
                 tz_offset_min = $7, tz_id = $8, schema_version = $9,
                 unit_system = $10, crs = $11,
                 end_time = $12, end_tz_offset_min = $13, end_tz_id = $14,
-                collector_version = $15, web_version = $16, server_version = $17
+                collector_version = $15, web_version = $16, server_version = $17,
+                contract_version = $18
           WHERE id = $1",
     )
     .bind(stored.id)
@@ -1961,6 +1978,7 @@ async fn apply_external_update(
     .bind(collector_version)
     .bind(web_version)
     .bind(BUILD_STAMP)
+    .bind(contract_version)
     .execute(&mut **tx)
     .await
     .map_err(|e| internal_at("ingest.event_update", e))?;
