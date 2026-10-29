@@ -1,6 +1,6 @@
 {
   "status": "accepted",
-  "digest": "afb6963f6d76306991baffe0c41d80b28d762b5057e545061e12bf4f85967224",
+  "digest": "0b09f1122872313fbcd46716e87c320e49f199be1ecddc6bd91fa96deef3b32f",
   "head": "9a6a76847889685fcd9b63537afa1bb523660cd0",
   "answers": "deep-answers-1.txt",
   "picked": "合意する",
@@ -31,6 +31,16 @@
       "id": "IMP-05",
       "severity": "low",
       "title": "既存のアプリの役割の試験が、更新の履歴の REVOKE で落ちる"
+    }
+  ],
+  "carried": [
+    {
+      "from": "afb6963f6d76306991baffe0c41d80b28d762b5057e545061e12bf4f85967224",
+      "because": [
+        "D16",
+        "Q6"
+      ],
+      "at": "2026-10-29T14:59:33Z"
     }
   ]
 }
