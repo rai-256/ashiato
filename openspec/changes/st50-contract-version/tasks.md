@@ -27,7 +27,7 @@
 - **名前は統一する**: 見出し `Ashiato-Contract-Version`、確かめる口 `GET /contract` の答え `{"contract_version": N}`、426 の本文 `{"error": "contract_unsupported", "contract_version": N}`、
   1 件の欄と DB の列と書き出しの列 `contract_version`、断りの種別 `unknown_field` / `contract_unsupported`、定数 `CONTRACT_VERSION`（S-01 `crates/server/src/contract_version.rs`・C-02 `crates/collector-windows/src/contract.rs`・C-01 `IngestRequest.kt`）。
   今の版は **1**（D8。最初の配った印までは版を上げない）
-- **426 と `unknown_field` と `contract_unsupported` は捨てない側**（D17）。更新を促すのは「S-01 の更新を待っている」間だけで、200 の読めない答えでは促さない（D9・D11）。携帯の `PERMANENT_ERRORS` の 6 種を変えない。`deny_unknown_fields` を使わない（D2）
+- **426 と `unknown_field` と `contract_unsupported` は捨てない側**（D17）。更新を促すのは「S-01 の更新を待っている」間だけで、200 の読めない答えは 24 時間続いてから促す（D9 の（e）・D11・D22・D24（仮）。数え始めは再起動をまたいで持ち、読める答えでだけ数え直す）。携帯の `PERMANENT_ERRORS` の 6 種を変えない。`deny_unknown_fields` を使わない（D2）
 - **画面のログイン・衛星の要求に見出しの検査・知らない欄の検査・記録の版を掛けない**（D16）。`GET /outages` など読み出しの口は止めない（D3）
 - **内容の鍵（`content_hash_of`）・原文の形を変えない**（契約の版は鍵に入れない）。`hash_is_pinned` の固定値を変える変更は落とす
 - **移行は 1 つ・名前は作成時刻**（`migrations/<YYYYMMDDHHMM>_contract_version.sql` と `.down.sql`、`migrations/ORDER` の末尾へ 1 行）。名前の時刻は `202610250000` 以後で ST48 の規則に従う（D20）。
@@ -158,7 +158,7 @@
 
 - [ ] 8.1 `contract.rs` の `IngestRequest` と `HeartbeatRequest` に `contract_version: u32`（`#[serde(default = "one")]` で、版を持たない溜めの行を読み戻すと 1）を足し、溜めに積む 1 か所で 7.1 の `CONTRACT_VERSION` を焼き込む（D1・D10）。欄を足したら `tools/check-contract-version.sh --write` で写しを作り直す。
   `sender.rs` に `GET /contract` を引く口（`Transport` に `get` を足す）と、答えを「版 A / 受け付けない / 一時的な失敗」に読む関数（D11）、`flush` に「版 ≤ A の行だけ・見出しは載せた行の最大」（D9）と 426 の分岐（何も取り除かない・止まった状態）を足す。
-  `runtime.rs` の送る契機の頭で 1 回確かめ、記録と生存信号の両方の `flush` に同じ答えを渡す（D18（仮））。「S-01 の更新を待っている」状態（D9 の a〜d。200 の読めない答えは入れない）を持ち、抜けた契機で「飛ばす」印を捨てる（D14）。`sender.rs` の試験:
+  `runtime.rs` の送る契機の頭で 1 回確かめ、記録と生存信号の両方の `flush` に同じ答えを渡す（D18（仮））。「S-01 の更新を待っている」状態（D9 の a〜e。e は 200 の読めない答えが 24 時間続いた —— 数え始めの時刻を再起動をまたぐ手元のファイルに持つ。置き場はこの Task で作り、9.1 が同じファイルに通知の時刻を足す。D22・D24（仮））を持ち、抜けた契機で「飛ばす」印を捨てる（D14）。`sender.rs` の試験:
   - `st50_sender_sends_accepted_versions_only` — `// Scenario: PC は S-01 が受け付ける版の行だけを送り、新しい版の行を残す`（見出しの値も見る）
   - `st50_sender_burned_version_kept` — `// Scenario: PC は積んだ時の版を 1 行ごとに持ち、更新の後も変えない`（積んだ後に送る版の定数を差し替えられる形で）
   - `st50_sender_unversioned_row_is_v1` — `// Scenario: PC の版を持たない古い行は版 1 として送られる`（ST50 より前の形の JSONL の行を読み戻す）
@@ -173,16 +173,19 @@
 
 ## Task 9: PC の「サーバを更新してください」の通知
 
-- [ ] 9.1 OS に依らない判定（止まった状態に入った・24 時間経った・抜けた → 出す / 出し直す / 消す。文言に日数。前に出した時刻を手元のファイルに持つ。D5）を新しい `crates/collector-windows/src/contract_notice.rs` に置き、
+- [ ] 9.1 OS に依らない判定（止まった状態に入った・24 時間経った・抜けた → 出す / 出し直す / 消す。文言に日数。前に出した時刻を手元のファイルに持つ。D5。200 の読めない答えの数え始めの時刻も同じファイルに持ち、24 時間で（e）に入る・読める答えでだけ捨てる・（e）だけのときは網の確認を添えた文言。D22・D24（仮））を新しい `crates/collector-windows/src/contract_notice.rs` に置き、
   `toast.rs` に札 `contract` の通知と消す口を足す（`outage` の札に触らない）。試験（`contract_notice::tests`）:
   - `st50_notice_first_time` — `// Scenario: 契約の版で止まると PC に通知が 1 回出る`
   - `st50_notice_daily` — `// Scenario: PC の通知は止まっている間 1 日に 1 回出直す`（時計を差し替え、5 分ごとに 2 日進める。出したのは 3 回・日数 0・1・2）
   - `st50_notice_separate_tag` — `// Scenario: 更新を促す通知は途切れの通知を置き換えない`（偽の `Toaster` が受けた札が `contract` と `outage` で別）
   - `st50_notice_cleared` — `// Scenario: S-01 を更新すると PC の更新を促す通知が消える`
   - `st50_notice_not_for_transient` — `// Scenario: PC が到達できないだけでは更新を促さない`
-  - `st50_notice_not_for_unreadable_200` — `// Scenario: PC は読めない 200 の答えだけでは更新を促さない`
+  - `st50_notice_not_for_unreadable_200_under_24h` — `// Scenario: PC は読めない 200 の答えが 24 時間続くまでは更新を促さない`
+  - `st50_notice_unreadable_200_after_24h` — `// Scenario: PC は読めない 200 の答えが 24 時間続くと網の確認を添えて更新を促す`（文言が「サーバを更新するか、つながっている網を確かめてください」で日数を含む）
+  - `st50_notice_unreadable_200_survives_restart_and_transient` — `// Scenario: PC の再起動と到達できない間が挟まっても読めない 200 の数え始めは変わらない`（手元のファイルを残したまま判定を作り直す。到達できない区間と 503 の区間を挟む）
+  - `st50_notice_unreadable_200_reset_by_readable` — `// Scenario: PC は読める答えを 1 回得ると読めない 200 の数え始めをやり直す`
   - `st50_notice_survives_restart` — `// Scenario: PC が再起動しても 24 時間経つまで通知は出直さない`（手元のファイルを残したまま判定を作り直す）
-  検証: `CW st50_notice_` rc=0（`-- --list` で 7 本以上）/ `scripts/quiet-run clippy -- cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings` rc=0
+  検証: `CW st50_notice_` rc=0（`-- --list` で 10 本以上）/ `scripts/quiet-run clippy -- cargo clippy -p ashiato-collector-windows --all-targets -- -D warnings` rc=0
 - [ ] 9.2 本物の Windows で札が 2 つ並ぶことを確かめる試験を `crates/collector-windows/tests/runtime_windows.rs` に足す（`st50_contract_toast_coexists_with_outage`。両方の札を出して `ToastNotificationManager::History` に 2 通あること、`contract` を消すと `outage` だけが残ること）。
   検証: `bash -c 'grep -c "fn st50_contract_toast_coexists_with_outage" crates/collector-windows/tests/runtime_windows.rs | grep -qx 1'` rc=0。
   **終了条件は CI の `collector-windows-runtime` job（本物の Windows）が緑であること**（Linux では走らない。grep は置いたことだけを見る）
@@ -193,7 +196,7 @@
   未送信に積む 1 か所（記録・生存信号・破棄の報告・原本の欠け）と、原本の送り待ち（`originals.jsonl` の 1 行。記録を積んだ時の版を写す）で焼き込む（D1）。
   `Sender.kt` に「版 A / 受け付けない / 一時的な失敗」の答えを受け取り、版 ≤ A の行だけを載せ、見出しに載せた行の最大を入れる形を足す。426 は 1 件も取り除かず止まった状態、`unknown_field` / `contract_unsupported` は残す（`PERMANENT_ERRORS` を変えない。D17）。
   `OriginalUploader.kt` は版 > A の行を送らず、426 を「試し直す」に入れ、`record_missing` の 7 日の数えを始めない。`LocationService.kt` の送る契機の頭で 1 回 `GET /contract` を引き（`HttpTransport` に GET を足す）、5 つの送り手に同じ答えを渡す（D18（仮））。
-  「S-01 の更新を待っている」状態（D9 の a〜d。200 の読めない答えは入れない）を 1 つの値で持ち、抜けた契機で `Sender` の飛ばす印を捨てる（D14）。試験 `St50SenderTest.kt`（記録の送り手と原本の送り手を偽の `Transport` で）:
+  「S-01 の更新を待っている」状態（D9 の a〜e。e は 200 の読めない答えが 24 時間続いた —— 数え始めの時刻を `SharedPreferences` に持ち、再起動をまたぐ。置き場はこの Task で作り、11.1 が同じ置き場に通知の時刻を足す。D22・D24（仮））を 1 つの値で持ち、抜けた契機で `Sender` の飛ばす印を捨てる（D14）。試験 `St50SenderTest.kt`（記録の送り手と原本の送り手を偽の `Transport` で）:
   - `// Scenario: 携帯は S-01 が受け付ける版の行だけを送り、新しい版の行を残す`
   - `// Scenario: 携帯の要求の見出しは載せた行の版の最大になる`
   - `// Scenario: 携帯は積んだ時の版を 1 行ごとに持ち、更新の後も変えない`（積んだ後に定数を差し替えられる形で）
@@ -214,18 +217,22 @@
 
 ## Task 11: 携帯の「サーバを更新してください」—— 画面と通知と 7 日前の知らせ
 
-- [ ] 11.1 新しい `ContractNotifier.kt`（チャンネル `contract`・通知 id・止まった状態に入った時に 1 回・24 時間ごとに出し直し・抜けたら消す。前に出した時刻は `SharedPreferences`。D6）、
-  `MainActivity.kt` に止まった状態の間だけ出る 1 行（文言と日数）、`Retention.kt` の 7 日前の知らせの文言に止まった状態のとき「サーバを更新してください」を添える。試験（Robolectric）`St50ContractNoticeTest.kt`:
+- [ ] 11.1 新しい `ContractNotifier.kt`（チャンネル `contract`・通知 id・止まった状態に入った時に 1 回・24 時間ごとに出し直し・抜けたら消す。前に出した時刻と 200 の読めない答えの数え始めの時刻は `SharedPreferences`。D6・D22。（e）だけのときは網の確認を添えた文言）、
+  `MainActivity.kt` に止まった状態の間だけ出る 1 行（文言と日数）、`Retention.kt` の 7 日前の知らせの文言に止まった状態のとき「サーバを更新してください」を添える（（e）だけのときは「サーバを更新するか、つながっている網を確かめてください」。D24（仮））。試験（Robolectric）`St50ContractNoticeTest.kt`:
   - `// Scenario: 契約の版で止まると画面と通知に出る`（`MainActivity` の行と `ShadowNotificationManager` の 1 通）
   - `// Scenario: 画面には手元に残している日数が出る`
   - `// Scenario: 再起動しても 24 時間経つまで通知は出直さない`（`SharedPreferences` を残したまま作り直す）
   - `// Scenario: 止まっている間は 1 日に 1 回だけ通知が出直す`（時計を差し替え、5 分ごとに 2 日進める。出したのは 3 回・残っているのは 1 通）
   - `// Scenario: S-01 を更新すると通知と画面の行が消える`
   - `// Scenario: 到達できないだけでは更新を促さない`
-  - `// Scenario: 読めない 200 の答えだけでは更新を促さない`
+  - `// Scenario: 読めない 200 の答えが 24 時間続くまでは更新を促さない`
+  - `// Scenario: 読めない 200 の答えが 24 時間続くと網の確認を添えて更新を促す`（画面の行と通知の文言が「サーバを更新するか、つながっている網を確かめてください」）
+  - `// Scenario: 再起動と圏外が挟まっても読めない 200 の数え始めは変わらない`（`SharedPreferences` を残したまま作り直す。圏外と 503 の区間を挟む）
+  - `// Scenario: 読める答えを 1 回得ると読めない 200 の数え始めをやり直す`
   - `// Scenario: 契約の版で止まっている間の 7 日前の知らせは更新を促す`
+  - `// Scenario: 読めない 200 の答えが続いて止まっている間の 7 日前の知らせは網の確認を添える`
   既存の `RetentionNotifierTest`・`MainActivityTest`・`OutageNotifierTest` が通ること。
-  検証: `GT St50ContractNoticeTest` rc=0（8 本以上）/ `GT RetentionNotifierTest` rc=0（10 本以上）/ `GT MainActivityTest` rc=0（13 本以上）/
+  検証: `GT St50ContractNoticeTest` rc=0（12 本以上）/ `GT RetentionNotifierTest` rc=0（10 本以上）/ `GT MainActivityTest` rc=0（13 本以上）/
   `scripts/quiet-run lint -- ./collector-android/gradlew -p collector-android detekt` rc=0
 
 ## Task 12: 縦串（本物の S-01 と DB）と申し送りの確かめ
