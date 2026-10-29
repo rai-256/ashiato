@@ -1,0 +1,23 @@
+{
+ "tool": "yomiyasu",
+ "version": "2.4.0",
+ "source": "prose.final.md",
+ "fields": 100,
+ "applied": [
+  "walkthroughs[W1].cases[2].result",
+  "features[s01].summary",
+  "points[s01.1].text",
+  "points[s01.3].text",
+  "points[s01.4].text",
+  "points[s01.5].text",
+  "points[s01.6].text",
+  "points[form.2].text",
+  "features[beat].summary",
+  "points[derive.2].text",
+  "points[derive.4].text",
+  "points[keep.1].text"
+ ],
+ "kept": [],
+ "missing": [],
+ "unknown": []
+}

@@ -89,8 +89,8 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | capability | 何の能力か | 積む Story |
 |---|---|---|
 | `record-envelope` | 記録の骨格・原文・エンベロープ・API 契約・書き手・終わりの時刻 | ST01, ST03, ST24, ST37, ST39, ST41, ST42, ST49, ST50 |
-| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST56 |
-| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST56 |
+| `device-collection` | 携帯端末からの収集 | **ST01**, **ST03**, ST04, **ST05**, ST06, ST09, ST11, **ST13**, ST34, ST35, ST44, ST49, ST50, ST51, ST56 |
+| `desktop-collection` | PC からの収集 | ST07, **ST05**, ST08, ST24, ST44, ST49, ST50, ST51, ST56 |
 | `external-ingestion` | 外部サービスからの取り込み | ST12, ST13, ST47 |
 | `collection-coverage` | 収集の稼働状況・通知・停止 | **ST01**, ST02, **ST04**, **ST09**, ST14, ST15, **ST12**, ST39, ST41, ST51 |
 | `derived-records` | 派生（滞在） | ST16, ST24, ST49 |
@@ -100,7 +100,7 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 | `data-sensitivity` | アクセス制御・衛星の承認・記録ごとの「出さない」の印・読み出しの記録（名前は 2026-09 の「感度」のまま。変えられない） | ST24, ST28, ST29, ST37, ST38, ST44, ST45, ST56 |
 | `browsing-views` | 閲覧と検索 | **ST16**, **ST17**, **ST22**, ST23, ST25, ST26, ST36, ST37 |
 | `ai-access` | AI からの問い合わせ | ST27 |
-| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50 |
+| `data-durability` | バックアップ・整合・可搬性 | **ST09**, ST10, ST24, **ST29**, ST30, ST31, ST32, ST33, ST40, ST46, ST41, ST49, ST50, ST51 |
 | `satellite-platform` | 衛星の登録・資格情報・書き込み・モノの台帳と保管場所・API の版・拡張性の試験 | ST29, ST38, ST39, ST40, ST42, ST43, ST45, ST46 |
 | `distribution` | 配布と更新（リリースと 3 つのチャンネル・インストール・更新の確認と適用と戻し・DB の版の守り・更新の履歴・許諾の同梱） | ST48, ST51, ST52, ST53, ST54, ST55, ST56, ST57, ST58 |
 
@@ -475,6 +475,14 @@ OpenSpec の capability は `openspec/specs/<名前>/spec.md` に残り続ける
 >   記録の表の契約の版を書き出しの列にも出す（深掘り Q1 の推奨）ので、書き出しの列の Requirement を ADDED で足す。後続の振る舞いの前倒しではない
 > - 生存信号と破棄の報告の受け口（`collection-coverage`）も契約の版で止める（深掘り Q3 の推奨）が、止める規則は収集アプリの資格情報の要求すべてに掛かる API 契約として `record-envelope` に置き、`collection-coverage` の Requirement は変えない
 > - Q1 で「残さない」が選ばれたら、`spec --answers` が `data-durability` の割当を外す
+
+> **訂正（2026-10-27、ST51 の上流工程 spec。深掘り第 1 回の推奨で先に書いた版）**
+>
+> - **ST51 の requires に ST49 を足した**（layer 2 → 3。今の layer は下の 2026-10-29 の訂正のとおり）。ST51 は収集アプリの生存信号に、ST49 が組み立てに焼き込む組み立ての印（`<版番号>+<commit 40 桁>[.dirty][.debug]`）を載せ、
+>   S-01 の版の変化の行にも同じ印を書く（premises の C7）。印を作らずに読むだけで、ST49 の実装の上に積む。順の付け方で、要件は変わらない
+> - `device-collection`・`desktop-collection`・`data-durability` に ST51 を足した。ST49 の `device-collection` / `desktop-collection` の Requirement は「生存信号には書き込まない」と言い、
+>   ST51 がそこへ版を足す（ST49 design の「生存信号の版は ST51 が足す」）ので、その 2 つを MODIFIED する。書き出しは分類の無い表と列で止まる（正典）ので、S-01 の版の変化の表と生存信号の版の列を分類し、
+>   「台帳と導出の表は書き出しに入らない」のファイルの一覧を MODIFIED する
 
 > **訂正（2026-10-29、更新の履歴の理由の書き直し）**
 >

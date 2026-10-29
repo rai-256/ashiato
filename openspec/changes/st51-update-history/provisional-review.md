@@ -1,0 +1,25 @@
+# ST51 仮で進めた決定の確かめ（deep-review provisional、2026-10-29）
+
+## D1
+- 判定: 確か
+- 根拠: 失わない側（すべての生存信号に積んだ時の版）で 4 つの loss は起きない。生存信号は溜めの上限の対象外 —— C-01 `collector-android/app/src/main/kotlin/dev/ashiato/collector/LocationService.kt:314`（「上限の対象にしない（捨てない）」）・`docs/collector-contract.md:525`、C-02 `crates/collector-windows/src/outbox.rs:4`（「上限も破棄も持たない」）。S-01 は生存信号の行を消せない（`migrations/202609111112_immutable_heartbeat.sql:32-35` の BEFORE UPDATE OR DELETE。`grep -rn "DELETE FROM core.heartbeat" migrations crates/server/src` は注釈 1 件だけ）。版を原文に入れても冪等キーは崩れない —— 溜めた行は積んだときの原文のまま送るので、同じ信号を送り直しても鍵は同じ（design D6・D12、specs/desktop-collection/spec.md:40・specs/device-collection/spec.md:45）。外に出る値は組み立ての印だけで私的な中身ではない（design D12）。費用: 積む間隔は C-01 `Heartbeat.kt:22` の `HEARTBEAT_INTERVAL_MS = 6 時間`（1 日 4 件）で、「ソースの数 × 1 日 4 件」と合う。要件の本文は変えない（FR-121 `docs/requirements.md:1017`・`:1027` は版の申告を生存信号に持たせると書いている）。follows・rests_on は無く、土台になる仮の決定も無い（版を欄と原文の両方に入れるのは仮でない D6）
+
+## D2
+- 判定: 確か
+- 根拠: 書く口を増やす側で、行を捨てる・外に出す・書き直すことは起きない。置き場の順はコードと合う —— migrate は `crates/server/src/lib.rs:295-` で 接続 → 錠 → 読む → 終了コード 3 → 退避 → 当てる、起動は `lib.rs:3862` の `startup_refusal` が通ってから `:3933` 付近の bind・serve。design D2 の「検査を通った後・待ち受けの前」に書けば、拒んだ回（終了コード 3）は書かない。直前の行の版と比べて違うときだけ書く（D7 の取引と錠）ので、行が増えすぎることもない。費用は起動ごとの問い合わせ 1 本と、実行時の役割への INSERT 1 つ。今は `crates/server/src/grants.sql:6` が `core` の全部の表に SELECT・INSERT・UPDATE・DELETE を付けているので、INSERT は新しく渡す権限ではない（D10 で UPDATE・DELETE を外す）。既存の役割の試験が直しになる（agreement.json の IMP-05。本人が合意済み）が、Story の範囲を越えない。FR-117（`docs/requirements.md:1009`）・FR-121（`:1017`）の本文は変えない。土台になる仮の決定は無い（前の版の求め方は仮でない D7）
+
+## D3
+- 判定: 確か
+- 根拠: 失わない側（`core` の追記のみの表 + 書き出しに分類）で、`exported` に当たるのは版の文字列・結果・当てた版の名前・SQLSTATE だけ。誤りの本文は Q1 の答え（deep-answers-1.txt）で残さないので、私的な値は外に出ない（design D3 の反転条件は起きない）。`core` に置けば書き出しの分類の検査に必ず載る（`crates/server/src/export.rs:629-631` は `core` の BASE TABLE を全部走査する）。書き換えの門・権限は D10 が `core.reject_heartbeat_rewrite`（`migrations/202609111112_immutable_heartbeat.sql:15-35`）と同じ形で持つ。費用は表 1 つと分類 1 行で、Story の範囲内（ST51 の Goals）。補足（判定は変えない）: keeps の「DB を書き出しから作り直しても履歴が残る」は書き過ぎ —— 書き出しから D-01 へ取り込む口は今のコードに無い（`grep -n restore crates/server/src/*.rs` で見つかるのは `deletion.rs:99` の削除の取り消しだけ）。失わない理由は「書き出しのファイルに残る」で足りる
+
+## D4
+- 判定: 確か
+- 根拠: 形を固定する側で、凍結した行の書き直し（`rewrite-all`）は起きない。形の表は `specs/distribution/spec.md:126`（`update_history` の 10 列の名前・型・NULL の可否）、`:128`（`component`・`via`・`outcome` の値の一覧）、`specs/collection-coverage/spec.md:5`・`:13`（`client_version` → 列 `collector_version` text NULL）にある。後から足すのは列の追加（今の行は NULL）と値の一覧の追加（CHECK を付け直す。今の行は新しい制約も満たす）だけで、今の列・値を変えない（design D4）。費用は Requirement の表と information_schema を突き合わせる試験 1 本で、範囲内。要件の本文は変えない。rests_on は空だが、表の置き場（D3）と `via` の値（D2 の 2 つの口）を固定する決定なので、実際は D3・D2 に乗っている。D2・D3 も確かと判定したので判定は変えない。ただ確認バッチで D2 か D3 が「変える」になったときは D4 の表も見直す（台帳の rests_on に D2,D3 を足すのが正しい）
+
+## D5
+- 判定: 確か
+- 根拠: 導く側（ビュー）で、変化の行は凍結されない。入力の生存信号の行は消せず書き換えられない（`migrations/202609111112_immutable_heartbeat.sql:32-35`、`crates/server/src/deletion.rs` に heartbeat の語は無い）。なので並べ方（Q4）を後で直しても、過去の分まで出し直せる。D-01 の中で `discarded` も `rewrite-all` も起きない。`exported` は書き出しの `collector_version_changes.jsonl`（`specs/data-durability/spec.md:47`）だけで、版の文字列と端末・時刻の行。同じ値は `heartbeats.jsonl` の `collector_version` にも出る（`:48`）ので、新しく外に出るものは無い。費用は読むたびの窓関数 1 本（1 端末 1 日 4 件 × ソースの数）で、範囲内。要件の読み替えは本人が Q3 で選んだ（deep-answers-1.txt の Q3「生存信号の行から導く …D-01 のビューと全記録の書き出しに出す」。review/deep.md R6）。補足（判定は変えない）: (1) D5 は本人の Q3 の答えそのもので、もう仮ではない。台帳では follows が null だが、実際は follows Q3。`provisional.py resolve`（理由: 本人が Q3 で答えた）の対象になる。(2) design D1 の反転条件が「そのときは D5 の前提を見直す」と書いていて、D5 は D1 に乗っている。rests_on に D1 が無い（D1 も確かと判定したので判定は変えない）
+
+## D16
+- 判定: 確か
+- 根拠: (1) 選んだ側で、版の変化について失うものは起きない。試みの行は退避の前に commit するので、退避に入る。退避は D-01 の全部の写しで、`crates/server/src/migrate_backup.rs:101-110` の `pg_dump` は schema を絞っていない。試みの行を置く口は、`crates/server/src/migration_ledger.rs:363-372` の版の検査（`Verdict::Ahead` で返る所）の後・`before_apply()` の前に置ける。この区間は `apply_migrations_with`（`:333-341`）の `pg_advisory_lock(LOCK_KEY)` の中にあるので、design D16 の「試みから結果まで錠の中」は今のコードの錠の範囲と合う。版の変わる migrate は、戻した後の再試行も含めて、どれも試みの行を書く（戻した D-01 の最後の通った行は前の版 —— design D16 の末尾・review/spec.md R19）。書かないのは、版の変わらない走らせ直しだけ。組み立ての印は `crates/server/build.rs:24` と `:75-93` の commit で、clean な組み立てなら印が同じ ⇔ `migrations/ORDER` も同じ。なので印が同じ走らせ直しには当てる版が無く、FR-121（`docs/requirements.md:1020`「版が変わる」とき）の外になる。条件なしに書く側にしても、残る行が増えるのはこの範囲の外の回だけ。(2) 費用は版の変わる回あたり 1 行と問い合わせ 2 本で、範囲を越えない。要件の本文も変えない（「行は増えない」は ST51 自身の `specs/distribution/spec.md:42` の Scenario）。起動の行を錠が取れないときに書かないのは、手順の外の回（migrate と同時に別の組み立てを起動した回）だけの費用で、design D16 が名付けている。待つ側（反転条件）も上限を越えれば同じく書かないので、選んだ側だけが失うものではない。(3) follows は null だが、実際は Q6 の答え（`deep-answers-3.txt`）を書く条件まで詰めたもの。同じ向き（版の変わる回は全部、戻しの後にも試みが残る）。補足（判定は変えない）: (a) 本人が選んだ選択肢の文面は「migrate 1 回あたり 1 行増える」（`deep-questions-r2.json` Q6 の選択肢 1）で、D16 はこれを版の変わる回に絞った。確認バッチで見せるときは、この絞り込みを明示する。台帳の follows は Q6 が正しい。(b) S-01 の印には `.dirty` が無く、未 commit の移行を足した手元の組み立ては、同じ印のまま当てる版の並びが変わる。こうした回が落ちて戻すと、試みの行が残らない。ただしこれは印の細かさの問題（ST48・ST49）で、D16 の選択では変わらない。(4) rests_on の D2・D7 に加えて、D3（仮。表を D-01 の `core` に置くから「退避に入るので戻しても残る」が成り立つ）にも乗っている。D3 は確かと判定済みなので判定は変えないが、台帳の rests_on には D3 を足すのが正しい
