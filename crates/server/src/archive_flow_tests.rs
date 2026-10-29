@@ -3364,6 +3364,133 @@ async fn archive_erased_window_marks_after_a_failed_marking_on_the_next_scan() {
     assert_eq!(inbox.read_rows_now(None).await, 1);
 }
 
+impl Inbox {
+    /// 消した滞在を本文ごと消す（`purge_tests::purge_now`）。
+    async fn purge_stay(&self, stay: uuid::Uuid) {
+        crate::deletion::erase(&self.pool, stay, None)
+            .await
+            .unwrap();
+        crate::purge_tests::purge_now(&self.pool, stay).await;
+    }
+
+    /// 書庫の位置の行のうち、本文（原文と解析済み）が空の行と、本文が残る行の件数。
+    async fn archive_bodies(&self) -> (i64, i64) {
+        let row: (i64, i64) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE raw = '' AND payload = '{}'::jsonb),
+                    count(*) FILTER (WHERE raw <> '')
+               FROM core.event
+              WHERE user_id = $1 AND logical_source = ANY($2)",
+        )
+        .bind(self.user)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        row
+    }
+
+    async fn archive_row_count(&self) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM core.event WHERE user_id = $1 AND logical_source = ANY($2)",
+        )
+        .bind(self.user)
+        .bind(crate::archive::LOCATION_SOURCES.to_vec())
+        .fetch_one(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+// Scenario: 本文ごと消した時間に書庫から入った位置は本文が消える
+#[tokio::test]
+async fn purge_archive_arrivals_lose_their_bodies() {
+    let inbox = Inbox::new("purge-archive-arrivals").await;
+    let stay = inbox.put_stay().await;
+    inbox.purge_stay(stay).await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox.until_archive_locations(7).await;
+    inbox
+        .until("後着の本文が消えない", || async {
+            Inbox::late_marks(&inbox.marks().await) == 4 && inbox.archive_bodies().await == (4, 3)
+        })
+        .await;
+    // 印の付いた 4 行は原文と解析済みが空、外の 3 行は本文が残る
+    assert_eq!(inbox.archive_locations().await, (4, 3));
+    assert_eq!(inbox.archive_bodies().await, (4, 3));
+}
+
+// Scenario: 書庫の後着の消去に失敗しても次の見回りで消える
+#[tokio::test]
+async fn purge_archive_failed_purge_is_done_on_the_next_scan() {
+    let inbox = Inbox::new("purge-archive-retry").await;
+    let stay = inbox.put_stay().await;
+    inbox.purge_stay(stay).await;
+    // 本文を消す操作の行（`kind = 'late'`）の書き込みを落とす
+    let fault = LateMarkFault::install_on(
+        &inbox,
+        "core.erasure_operation",
+        "AND NEW.kind = 'late'",
+        i64::MAX,
+    )
+    .await;
+    inbox.put(
+        "Timeline.json.zip",
+        &[("Timeline.json", ERASE_TIMELINE.as_bytes())],
+    );
+    inbox.spawn(true);
+    inbox
+        .until("後着の消去が一度も試されない", || async {
+            fault.fired().await >= 1
+        })
+        .await;
+    // 落ちた書庫は既読になっていない。位置は格納済みで、印も本文の消去も巻き戻っている
+    assert_eq!(inbox.read_rows_now(None).await, 0);
+    assert!(inbox.inbox.join("Timeline.json.zip").exists());
+    assert_eq!(inbox.archive_locations().await, (0, 7));
+    assert_eq!(inbox.archive_bodies().await, (0, 7));
+    fault.remove().await;
+
+    inbox.until_archive_locations(7).await;
+    inbox
+        .until("次の見回りで本文が消えない", || async {
+            inbox.archive_bodies().await == (4, 3)
+        })
+        .await;
+    assert_eq!(inbox.archive_locations().await, (4, 3));
+    assert_eq!(inbox.read_rows_now(None).await, 1);
+}
+
+// Scenario: 同じ書庫を読み直しても本文は戻らない
+#[tokio::test]
+async fn purge_archive_reading_again_never_brings_bodies_back() {
+    let inbox = Inbox::new("purge-archive-reread").await;
+    let stay = inbox.put_stay().await;
+    inbox.purge_stay(stay).await;
+    let first = inbox.store_records(LEGACY_RECORDS).await;
+    crate::stay_store::mark_archive_arrivals(&inbox.pool, inbox.user, &first)
+        .await
+        .unwrap();
+    let (emptied, kept) = inbox.archive_bodies().await;
+    assert_eq!(emptied, 1, "後着の本文が消えていない");
+    let rows = inbox.archive_row_count().await;
+
+    // 同じ書庫をもう一度読む（格納は内容の鍵で増えず、印付けが呼び直される）
+    let again = inbox.store_records(LEGACY_RECORDS).await;
+    crate::stay_store::mark_archive_arrivals(&inbox.pool, inbox.user, &again)
+        .await
+        .unwrap();
+    assert_eq!(inbox.archive_row_count().await, rows, "行が増えた");
+    assert_eq!(
+        inbox.archive_bodies().await,
+        (emptied, kept),
+        "本文が戻った"
+    );
+}
+
 // Scenario: 消した滞在の時間帯に書庫から入る位置は削除済みになる
 //
 // 解析器の版が上がって写しから読み直す経路（`reparse_older_versions` → `reread_archive`）も、

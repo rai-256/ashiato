@@ -56,6 +56,18 @@ async fn app_role_privileges_reach_every_table() {
                 .unwrap();
             assert_eq!(got, want, "{name} の {privilege}");
         }
+        // 夜の書き直し（VACUUM FULL）の権限は、移行が 2 表にだけ付ける（ST23 / design D11）
+        let maintain: bool =
+            sqlx::query_scalar("SELECT has_table_privilege(current_user, $1, 'MAINTAIN')")
+                .bind(&q)
+                .fetch_one(&app)
+                .await
+                .unwrap();
+        assert_eq!(
+            maintain,
+            name == "event" || name == "event_version",
+            "{name} の MAINTAIN"
+        );
         let me: String = sqlx::query_scalar("SELECT current_user::text")
             .fetch_one(&app)
             .await

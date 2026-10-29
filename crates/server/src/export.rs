@@ -568,6 +568,24 @@ pub const CATALOG: &[(&str, Class)] = &[
         },
     ),
     (
+        "erasure_operation",
+        Class::Exclude {
+            reason: "消したことの台帳（痕跡を残さない）",
+        },
+    ),
+    (
+        "erasure_span",
+        Class::Exclude {
+            reason: "消したことの台帳（痕跡を残さない）",
+        },
+    ),
+    (
+        "purge_compaction",
+        Class::Exclude {
+            reason: "書き直しの運用の記録（記録の値を持たない）",
+        },
+    ),
+    (
         "export_ledger",
         Class::Exclude {
             reason: "書き出しの台帳（内部の記録）",

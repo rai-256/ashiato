@@ -551,6 +551,36 @@ pub async fn app_pool() -> sqlx::PgPool {
         })
 }
 
+/// 試験専用の使い捨て DB（所有者の接続・アプリの役割の接続つき）。表ごと書き直す（`VACUUM FULL`）ような、
+/// 共有の DB の上では並んだ試験を止めてしまう操作のための場所（ST23）。中身は `isolated()` の写しで、
+/// `Drop` は `TestDb` が DB を捨てる。
+#[derive(Debug)]
+pub struct ScratchDb {
+    pub owner: sqlx::PgPool,
+    pub app: sqlx::PgPool,
+    /// 接続より後に落とす（フィールドは宣言の順に落ちる）。
+    _db: TestDb,
+}
+
+/// 移行と権限を当てた使い捨て DB を、所有者とアプリの役割の両方で繋いで返す。
+pub async fn isolated_with_app() -> ScratchDb {
+    let db = isolated().await;
+    let owner = db.pool().await;
+    let app = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&with_database(
+            &with_port(&url_from_env("DATABASE_URL"), db_port()),
+            db.name(),
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("使い捨ての database へアプリの役割で接続できない: {e}"));
+    ScratchDb {
+        owner,
+        app,
+        _db: db,
+    }
+}
+
 /// テストごとに固有の論理ソースを登録簿へ置く。
 ///
 /// **テストどうしの隔離をこれで取る**（design D14）—— 1 つの DB を共有したまま、

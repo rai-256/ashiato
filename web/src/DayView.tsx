@@ -7,8 +7,11 @@ import {
   dateLabel,
   duration,
   isDayView,
+  isPurgeCounts,
+  isPurgePreview,
   shiftDay,
   type CriteriaTag,
+  type PurgePreview,
   type DayEntry,
   type DayView as DayData,
 } from "./stays";
@@ -301,7 +304,7 @@ function Entries({ view, scheme, future, feelings, reload }: { view: DayData; sc
           const e = p.entry;
           return (
             <Row
-              key={`${e.kind}-${e.start}`}
+              key={rowKey(e)}
               entry={e}
               viewing={view.date}
               scheme={scheme}
@@ -312,6 +315,7 @@ function Entries({ view, scheme, future, feelings, reload }: { view: DayData; sc
               records={openId === rowKey(e) ? records : null}
               onOpen={() => open(e)}
               onAction={action}
+              onPurged={reload}
               actionError={actionError}
             />
           );
@@ -332,6 +336,7 @@ function Row({
   records,
   onOpen,
   onAction,
+  onPurged,
   actionError,
 }: {
   entry: DayEntry;
@@ -345,6 +350,8 @@ function Row({
   records: Load<DayRecord[]> | null;
   onOpen: () => void;
   onAction: (path: string, body: Record<string, unknown>, entryKey: string) => void;
+  /** 本文ごと消し終えた（一覧を読み直す） */
+  onPurged: () => void;
   actionError: { entryKey: string; message: string } | null;
 }): React.ReactElement {
   const c = SCHEMES[scheme];
@@ -387,7 +394,18 @@ function Row({
       </li>
     );
   }
+  if (entry.kind === "erased" && entry.purged === true) {
+    // 本文ごと消した行。戻す操作も本文ごと消す操作も置かない（design D12）
+    return (
+      <li data-testid="row-purged" data-kind="erased" data-purged="true" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
+        {mark}
+        <span>{m.purged(range)}</span>
+        {(entry.late_purged ?? 0) > 0 && <span data-testid="purged-late">{m.purgedLate(entry.late_purged ?? 0)}</span>}
+      </li>
+    );
+  }
   if (entry.kind === "erased") {
+    const purgeStay = entry.stay_ids?.[0];
     return (
       <li data-testid="row-erased" data-kind="erased" style={{ ...base, flexWrap: "wrap", color: tone(c.muted) }}>
         {mark}
@@ -395,6 +413,7 @@ function Row({
         <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => onAction("/api/stays/restore", { stay_ids: entry.stay_ids ?? [] }, entryKey)} style={control(c)}>
           {m.restore}
         </button>
+        {purgeStay !== undefined && <PurgeControl stayId={purgeStay} viewing={viewing} scheme={scheme} onPurged={onPurged} />}
         {actionError?.entryKey === entryKey && <p role="alert" style={{ width: "100%", margin: 0 }}>{actionError.message}</p>}
       </li>
     );
@@ -423,7 +442,103 @@ function Row({
 
 /** 行の開閉の鍵。滞在は `id`、ほかの行は種類と始まり（ST22 の `openId` 1 つのまま）。 */
 function rowKey(entry: DayEntry): string {
-  return entry.id ?? `${entry.kind}-${entry.start}`;
+  return entry.id ?? `${entry.kind}${entry.purged === true ? "-purged" : ""}-${entry.start}`;
+}
+
+type PurgeState =
+  | { at: "idle" }
+  | { at: "loading" }
+  | { at: "failed"; message: string }
+  | { at: "confirm"; preview: PurgePreview; changed: boolean };
+
+/** 読み出して JSON にする。応答の形の検査は呼び出し側（失敗は `status_<n>`）。 */
+async function readJson(res: Response): Promise<unknown> {
+  return res.json().catch(() => null);
+}
+
+/**
+ * 「消した」の行の「本文ごと消す」と、その場に開く確認（design D16）。
+ * 確認の口で件数を数え、押したときに見せた件数を添えて消す。件数が変わって断られたら（409 `counts_changed`）、
+ * 数え直された件数で確認を出し直す。**やめる・失敗では何も消えない。**
+ */
+function PurgeControl({ stayId, viewing, scheme, onPurged }: { stayId: string; viewing: string; scheme: Scheme; onPurged: () => void }): React.ReactElement {
+  const c = SCHEMES[scheme];
+  const [state, setState] = useState<PurgeState>({ at: "idle" });
+  const dialog = useRef<HTMLDivElement>(null);
+  const confirmingNow = state.at === "confirm";
+  useEffect(() => {
+    if (confirmingNow) dialog.current?.focus();
+  }, [confirmingNow]);
+
+  const begin = (): void => {
+    setState({ at: "loading" });
+    fetch(`/api/stays/purge/preview?stay_id=${encodeURIComponent(stayId)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        const body = await readJson(res);
+        if (!isPurgePreview(body)) throw new Error("unexpected_shape");
+        setState({ at: "confirm", preview: body, changed: false });
+      })
+      .catch((e: unknown) => setState({ at: "failed", message: m.purgeFailed(e instanceof Error ? e.message : "unknown") }));
+  };
+
+  const commit = (preview: PurgePreview): void => {
+    fetch("/api/stays/purge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stay_id: stayId, expected: preview.counts }),
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          setState({ at: "idle" });
+          onPurged();
+          return;
+        }
+        const body = (await readJson(res)) as { reason?: unknown; counts?: unknown } | null;
+        if (res.status === 409 && body?.reason === "counts_changed" && isPurgeCounts(body.counts)) {
+          setState({ at: "confirm", preview: { ...preview, counts: body.counts }, changed: true });
+          return;
+        }
+        throw new Error(`status_${res.status}`);
+      })
+      .catch(() => setState({ at: "failed", message: m.purgeRefused }));
+  };
+
+  return (
+    <>
+      <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={begin} disabled={state.at === "loading"} style={destructiveStyle(c)}>
+        {m.purge}
+      </button>
+      {state.at === "loading" && <p style={{ width: "100%", margin: 0 }}>{m.purgeLoading}</p>}
+      {state.at === "failed" && <p role="alert" data-testid="purge-failed" style={{ width: "100%", margin: 0 }}>{state.message}</p>}
+      {state.at === "confirm" && (
+        <div
+          ref={dialog}
+          role="alertdialog"
+          aria-label={m.purgeLabel}
+          tabIndex={-1}
+          data-testid="purge-confirm"
+          style={{ width: "100%", boxSizing: "border-box", padding: `${SPACE.rowY}px ${SPACE.rowX}px`, background: tone(c.surface2), borderRadius: RADIUS.row, color: tone(c.text) }}
+        >
+          {state.changed && <p data-testid="purge-changed" style={{ margin: 0 }}>{m.purgeChanged}</p>}
+          <p style={{ margin: 0 }}>{m.purgeRange(m.range(clock(state.preview.range.start, viewing), clock(state.preview.range.end, viewing)))}</p>
+          <p data-testid="purge-counts" style={{ margin: 0 }}>{m.purgeCounts(state.preview.counts)}</p>
+          <p data-testid="purge-remains" style={{ margin: 0 }}>{purgeRemainsText(state.preview)}</p>
+          <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => setState({ at: "idle" })} style={control(c)}>{common.cancel}</button>
+          <button type="button" {...{ [FOCUS_ATTR]: "" }} onClick={() => commit(state.preview)} style={{ ...destructiveStyle(c), marginLeft: SPACE.targetGap }}>{m.purge}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 消えずに残るものの文（口が返した名前から引く。書き直しまでディスクに残る痕跡は末尾の文で言う）。 */
+function purgeRemainsText(preview: PurgePreview): string {
+  const kept: string[] = [];
+  if (preview.remains.includes("archive_copies")) kept.push(m.purgeRemains.archive_copies(preview.copies));
+  if (preview.remains.includes("user_folder_archives")) kept.push(m.purgeRemains.user_folder_archives());
+  if (preview.remains.includes("export_files")) kept.push(m.purgeRemains.export_files());
+  return m.purgeRemainsLine(kept, preview.remains.includes("nightly_rewrite"));
 }
 
 /** 記録 1 件の行の文字。時刻は Asia/Tokyo。地域が違えば地域の時刻を添える。 */
